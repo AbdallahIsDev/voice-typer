@@ -18,7 +18,7 @@ import type {
 const LINUX_UA =
 	"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
 
-// IS_LINUX is a module-load constant derived from the UA — stub a Linux
+// IS_LINUX is a module-load constant derived from the UA, stub a Linux
 // UA and import the component fresh so the gate resolves true.
 async function loadSection() {
 	vi.spyOn(window.navigator, "userAgent", "get").mockReturnValue(LINUX_UA);
@@ -82,7 +82,7 @@ describe("LinuxWindowButtonsSettingsSection", () => {
 		renderWithProviders(<Section {...props} />);
 		expect(
 			screen.getByText(
-				"System button layout unavailable — using the default (right side, all buttons).",
+				"System button layout unavailable, using the default (right side, all buttons).",
 			),
 		).toBeTruthy();
 	});

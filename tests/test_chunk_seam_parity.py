@@ -68,7 +68,7 @@ def _legacy_qwen_fork_merge(prev_text: str, curr_text: str, n: int = 3) -> str:
 PARITY_FIXTURES = [
     # exact overlap, plain words
     ("exact-overlap", ["the quick brown fox", "brown fox jumps over the lazy dog"]),
-    # casing + punctuation differ at the seam — the fork kept the duplicate
+    # casing + punctuation differ at the seam, the fork kept the duplicate
     ("mixed-case-punctuation", ["so this is The End.", "the end of the recording"]),
     # no overlap at all
     ("no-overlap", ["hello world", "foo bar baz"]),

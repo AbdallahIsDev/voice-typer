@@ -15,11 +15,11 @@ Status handlers (return their own ``onboarding_*`` type):
 - ``_handle_onboarding_get_hotkey_presets`` → ``onboarding_hotkey_presets``
 
 Set-style handlers (validate a single field, return ``{type: ack|error, data: <result>}``):
-- ``_handle_onboarding_set_microphone`` — validates ``mic_id: str`` (required).
-- ``_handle_onboarding_set_hotkey`` — validates ``hotkey: str`` (default ``<caps_lock>``).
-- ``_handle_onboarding_set_model`` — validates ``model: str`` (default: the canonical
-  ``DEFAULT_MODEL_SIZE`` sentinel — no concrete default model).
-- ``_handle_onboarding_set_backend`` — validates ``backend: str`` (required — the explicit local-vs-cloud choice).
+- ``_handle_onboarding_set_microphone``, validates ``mic_id: str`` (required).
+- ``_handle_onboarding_set_hotkey``, validates ``hotkey: str`` (default ``<caps_lock>``).
+- ``_handle_onboarding_set_model``, validates ``model: str`` (default: the canonical
+  ``DEFAULT_MODEL_SIZE`` sentinel, no concrete default model).
+- ``_handle_onboarding_set_backend`` (validates ``backend: str`` (required) the explicit local-vs-cloud choice).
 
 Decision handlers (return ack or error based on whether the service
 result contains an ``error`` key):
@@ -52,7 +52,7 @@ from voice_typer.server.model_registry import DEFAULT_MODEL_SIZE
 
 
 class TestOnboardingIsFirstRun:
-    """``_handle_onboarding_is_first_run`` — returns first-run flag."""
+    """``_handle_onboarding_is_first_run``, returns first-run flag."""
 
     def test_happy_path_returns_onboarding_first_run(self, ipc_server, fake_service):
         fake_service.onboarding_is_first_run.return_value = {"is_first_run": True}
@@ -98,7 +98,7 @@ class TestOnboardingStepNavigation:
 
 
 class TestOnboardingSetMicrophone:
-    """``_handle_onboarding_set_microphone`` — validates ``mic_id`` (required)."""
+    """``_handle_onboarding_set_microphone``, validates ``mic_id`` (required)."""
 
     def test_happy_path_returns_ack_with_result(self, ipc_server, fake_service):
         fake_service.onboarding_set_microphone.return_value = {"ok": True}
@@ -129,7 +129,7 @@ class TestOnboardingSetMicrophone:
         the response type to ``error`` (not ``ack``).
 
         This is the only handler that branches on the service return
-        value's shape — the onboarding flow uses it to signal "mic_id
+        value's shape, the onboarding flow uses it to signal "mic_id
         not found" without raising an exception.
         """
         fake_service.onboarding_set_microphone.return_value = {
@@ -141,7 +141,7 @@ class TestOnboardingSetMicrophone:
 
 
 class TestOnboardingSetHotkey:
-    """``_handle_onboarding_set_hotkey`` — validates ``hotkey`` (default ``<caps_lock>``)."""
+    """``_handle_onboarding_set_hotkey``, validates ``hotkey`` (default ``<caps_lock>``)."""
 
     def test_happy_path_with_explicit_hotkey(self, ipc_server, fake_service):
         fake_service.onboarding_set_hotkey.return_value = {"ok": True}
@@ -166,8 +166,8 @@ class TestOnboardingSetHotkey:
 
 
 class TestOnboardingSetModel:
-    """``_handle_onboarding_set_model`` — validates ``model`` (default: the
-    canonical ``DEFAULT_MODEL_SIZE`` sentinel — no concrete default
+    """``_handle_onboarding_set_model``, validates ``model`` (default: the
+    canonical ``DEFAULT_MODEL_SIZE`` sentinel, no concrete default
     model since the 2026-08-28 no-default-model change)."""
 
     def test_happy_path_with_explicit_model(self, ipc_server, fake_service):
@@ -202,10 +202,10 @@ class TestOnboardingSetModel:
 
 
 class TestOnboardingSetBackend:
-    """``_handle_onboarding_set_backend`` — validates ``backend`` (required).
+    """``_handle_onboarding_set_backend``, validates ``backend`` (required).
 
     The Model-step backend choice ("local" vs "cloud") is the user's
-    explicit decision — the app never auto-downloads a model. The field
+    explicit decision, the app never auto-downloads a model. The field
     is required (no default) so the wizard cannot silently fall back to
     one backend when the renderer forgot to send the choice.
     """
@@ -223,7 +223,7 @@ class TestOnboardingSetBackend:
         fake_service.onboarding_set_backend.assert_called_once_with("cloud")
 
     def test_missing_backend_returns_missing_field_error(self, ipc_server, fake_service):
-        """``backend`` is required — an empty payload must NOT silently
+        """``backend`` is required, an empty payload must NOT silently
         default to one of the choices."""
         resp = ipc_server._handle_onboarding_set_backend({}, {})
         assert resp["type"] == "error"
@@ -250,7 +250,7 @@ class TestOnboardingSetBackend:
 
 
 class TestOnboardingSkipAndApply:
-    """``_handle_onboarding_skip`` / ``_handle_onboarding_apply`` — decision handlers."""
+    """``_handle_onboarding_skip`` / ``_handle_onboarding_apply``, decision handlers."""
 
     def test_skip_success_returns_ack(self, ipc_server, fake_service):
         fake_service.onboarding_skip.return_value = {"ok": True, "skipped": True}
@@ -319,7 +319,7 @@ class TestOnboardingListHandlers:
 
 
 class TestOnboardingCheckPermissionsHandler:
-    """``_handle_onboarding_check_permissions`` — UX-4 / UX-27.
+    """``_handle_onboarding_check_permissions``, UX-4 / UX-27.
 
     Returns the OS-level keyboard-monitoring permission state plus
     platform-specific setup instructions. The wizard's new Permissions
@@ -337,12 +337,12 @@ class TestOnboardingCheckPermissionsHandler:
         assert isinstance(data["needed"], bool)
 
     def test_does_not_call_service(self, ipc_server, fake_service):
-        """The handler must NOT delegate to ``self.service`` — the
+        """The handler must NOT delegate to ``self.service``, the
         permission probe lives in ``voice_typer.server.permissions``
         and is shared with the hotkey-adapter runtime path."""
         # If the handler tried to call self.service.onboarding_check_permissions,
         # MagicMock would auto-create the attribute and return a MagicMock,
-        # which would not be a dict — the handler would still return a
+        # which would not be a dict, the handler would still return a
         # valid response, but the assertion below catches the case where
         # the handler actually invokes a service method (MagicMock would
         # record the call).
@@ -519,7 +519,7 @@ class TestOnboardingStartRerunGuard:
     def test_first_run_false_without_force_returns_already_complete_error(self, ipc_server, fake_service):
         """When onboarding is already complete and no ``force`` flag is
         passed, the handler returns an error envelope with
-        ``code: 'onboarding_already_complete'`` — and does NOT call
+        ``code: 'onboarding_already_complete'``, and does NOT call
         ``service.onboarding_start``."""
         fake_service.onboarding_is_first_run.return_value = {"is_first_run": False}
 
@@ -550,11 +550,11 @@ class TestOnboardingStartRerunGuard:
         fake_service.onboarding_start.assert_called_once()
 
     def test_first_run_false_with_force_falsy_string_does_not_proceed(self, ipc_server, fake_service):
-        """``force`` must be a real boolean True — the string
+        """``force`` must be a real boolean True, the string
         ``"false"`` is truthy in Python but the handler uses
         ``bool(data.get("force", False))`` which coerces it to True.
 
-        Wait — actually, ``bool("false")`` is True in Python because
+        Wait, actually, ``bool("false")`` is True in Python because
         non-empty strings are truthy. So this test asserts that a
         NON-empty string value for ``force`` does proceed (matching
         Python truthiness). The guard only blocks when ``force`` is
@@ -577,7 +577,7 @@ class TestOnboardingStartRerunGuard:
         to ``{}`` before reading ``force``."""
         fake_service.onboarding_is_first_run.return_value = {"is_first_run": False}
 
-        # None payload — must not raise TypeError.
+        # None payload, must not raise TypeError.
         resp = ipc_server._handle_onboarding_start(None, {})
         assert resp["type"] == "error"
         assert resp["data"]["code"] == "onboarding_already_complete"
@@ -648,7 +648,7 @@ class TestServiceErrorsLogged:
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.ipc_server"):
             resp = handler(payload, {})
 
-        # Response shape is unchanged —  only adds a log line.
+        # Response shape is unchanged, only adds a log line.
         assert resp["type"] == "error"
         assert resp["data"] == {"error": "service-layer failure"}
 
@@ -666,7 +666,7 @@ class TestServiceErrorsLogged:
 
     def test_service_success_does_not_log_warning(self, ipc_server, fake_service, caplog):
         """DE-40: when the service returns success (no ``error`` key),
-        NO warning is logged — the handler's ack-vs-error branch only
+        NO warning is logged, the handler's ack-vs-error branch only
         logs on the error path."""
         fake_service.onboarding_apply.return_value = {"ok": True}
 
@@ -710,7 +710,7 @@ class TestMarkStartedFailureLogged:
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.ipc_server"):
             resp = ipc_server._handle_onboarding_start({}, {})
 
-        # Response is still success — mark_started is best-effort and
+        # Response is still success, mark_started is best-effort and
         # must not abort the wizard.
         assert resp["type"] == "onboarding_step"
 
@@ -764,7 +764,7 @@ class TestOnboardingApplyServiceErrorLogging:
     tying the renderer's error toast back to the service call), then
     ERROR with the REDACTED form (the ERROR-level log filter operators
     commonly tail). Only the redacted form reaches the IPC response.
-    The sibling ack-vs-error handlers log the WARNING only — the
+    The sibling ack-vs-error handlers log the WARNING only, the
     ERROR-level mirror is apply-specific.
     """
 
@@ -807,7 +807,7 @@ class TestOnboardingApplyServiceErrorLogging:
         assert "***" in errors[0].getMessage()
 
     def test_skip_error_has_no_error_level_mirror(self, ipc_server, fake_service, caplog):
-        """The ERROR-level redacted mirror is apply-specific — the other
+        """The ERROR-level redacted mirror is apply-specific, the other
         ack-vs-error handlers (skip pinned here) log the WARNING only."""
         fake_service.onboarding_skip.return_value = {"error": "cannot skip welcome step"}
 

@@ -1,7 +1,7 @@
 """PERF-COLDSTART-001: lazy-import helpers for cold-start optimization.
 
-Some third-party modules perform expensive work — or trigger hardware
-side effects — at *import* time:
+Some third-party modules perform expensive work, or trigger hardware
+side effects, at *import* time:
 
 - ``pystray``: the Linux xorg backend runs ``Xlib.display.Display()``
   at module top, costing ~48 ms and failing entirely without an X
@@ -13,7 +13,7 @@ Importing these eagerly on the tray / app startup path adds tens of
 milliseconds to cold start and can crash headless test runs.  The
 helpers below defer the real import to first attribute access while
 keeping the same call-site syntax (``sd.InputStream(...)``,
-``pystray.Menu(...)``) — so no function body needs to change.
+``pystray.Menu(...)``), so no function body needs to change.
 
 Design
 ------
@@ -25,7 +25,7 @@ proxy.  Every attribute access re-resolves the module from
   a ``sys.modules`` dict lookup (microseconds).
 - Tests: the per-test ``monkeypatch.setitem(sys.modules, "pystray",
   mock)`` fixture (see ``tests/conftest.py``) is honoured on every
-  access — no stale caching, no cross-test leakage.
+  access, no stale caching, no cross-test leakage.
 
 Both ``getattr`` and ``setattr`` are delegated, so tests that do
 ``monkeypatch.setattr(recording.sd, "InputStream", fake)`` keep working
@@ -33,10 +33,10 @@ without modification.
 
 ``ImportError`` is cached on the proxy so a missing dependency
 is reported once (with a clear error) rather than re-attempted on every
-attribute access — re-attempting can mask the root cause with a flood
+attribute access, re-attempting can mask the root cause with a flood
 of identical tracebacks and waste CPU on every call site. The cached
 error is per-proxy (not per-module), so a different proxy for the same
-module name still gets a fresh attempt — this lets tests inject a
+module name still gets a fresh attempt: this lets tests inject a
 failing import for one proxy while a sibling proxy resolves normally.
 """
 
@@ -52,7 +52,7 @@ class _LazyModule:
     The proxy caches the most recent ``ImportError`` () so that
         a missing dependency is reported once with a clear traceback rather
         than re-attempted on every attribute access. The successful module
-        is NOT cached — the proxy re-resolves from ``sys.modules`` on every
+        is NOT cached, the proxy re-resolves from ``sys.modules`` on every
         access so per-test ``monkeypatch`` mocks are always honoured (see
         the module docstring for the test-safety rationale).
 
@@ -62,7 +62,7 @@ class _LazyModule:
         becomes available AFTER the first failed access (e.g. a deferred
         installer finished, or a test fixed ``sys.modules`` after a
         failure). Without this method, the only recovery was to construct a
-        new proxy — which is not always possible when the proxy is held as
+        new proxy: which is not always possible when the proxy is held as
         a module-level singleton (e.g. ``sd = lazy_module("sounddevice")``
         at the top of ``recording.py``).
     """
@@ -75,13 +75,13 @@ class _LazyModule:
         object.__setattr__(self, "_module_name", module_name)
         # cache the most recent ImportError so a missing
         # dependency is reported once, not on every attribute access.
-        # ``None`` means "no error cached — caller may attempt import".
+        # ``None`` means "no error cached, caller may attempt import".
         object.__setattr__(self, "_cached_error", None)
 
     def reset_cache(self) -> None:
         """Clear the cached ``ImportError`` so the next access re-imports.
 
-        Safe to call at any time — clears the per-proxy error cache so
+        Safe to call at any time, clears the per-proxy error cache so
         the next ``__getattr__`` / ``__setattr__`` / ``__delattr__``
         re-resolves the wrapped module via ``importlib.import_module``.
         If the underlying module is now available (e.g. a deferred
@@ -92,11 +92,11 @@ class _LazyModule:
         Use this instead of constructing a new proxy when the proxy is
         held as a module-level singleton that cannot be re-bound
         conveniently (e.g. ``sd = lazy_module("sounddevice")`` at the
-        top of ``recording.py`` — every callsite uses ``sd.X`` and
+        top of ``recording.py``: every callsite uses ``sd.X`` and
         cannot be redirected to a fresh proxy without a code change).
         """
         # Bypass our own __setattr__ (which would delegate to the
-        # wrapped module — the very thing we're trying to recover from).
+        # wrapped module, the very thing we're trying to recover from).
         object.__setattr__(self, "_cached_error", None)
 
     def _resolve(self):
@@ -123,7 +123,7 @@ class _LazyModule:
             raise
 
     def __getattr__(self, name: str) -> Any:
-        # __getattr__ is only called when normal lookup fails — i.e. for
+        # __getattr__ is only called when normal lookup fails, i.e. for
         # anything that isn't _module_name, _cached_error, or a class
         # attribute.  Every wrapped-module attribute goes through here.
         return getattr(self._resolve(), name)
@@ -131,16 +131,16 @@ class _LazyModule:
     def __setattr__(self, name: str, value: Any) -> None:
         """Delegate attribute assignment to the wrapped module in ``sys.modules``.
 
-        (LOAD-BEARING — DO NOT REMOVE): this method MUTATES the real
+        (LOAD-BEARING. DO NOT REMOVE): this method MUTATES the real
                 module object that lives in ``sys.modules`` (returned by
                 ``self._resolve()`` → ``importlib.import_module``). It does NOT
-                store the value on the proxy itself — the proxy is intentionally
+                store the value on the proxy itself, the proxy is intentionally
                 stateless for attribute reads (see the module docstring + ``__getattr__``).
 
                 Why this matters
                 -----------------
                 ``__getattr__`` re-resolves the module from ``sys.modules`` on every
-                access (per-test ``monkeypatch`` mocks must be honoured — see the
+                access (per-test ``monkeypatch`` mocks must be honoured, see the
                 module docstring). If ``__setattr__`` stored the value on the proxy
                 (e.g. via ``object.__setattr__(self, name, value)``), the value
                 would land in a location that ``__getattr__`` NEVER consults —
@@ -170,7 +170,7 @@ class _LazyModule:
                 production test that does ``monkeypatch.setattr(<lazy proxy>,
                 <attr>, <fake>)`` to inject a fake backend.
 
-                This behaviour is INTENTIONAL and load-bearing — it is the only
+                This behaviour is INTENTIONAL and load-bearing, it is the only
                 way to keep the proxy transparent for both reads and writes when
                 reads always re-resolve from ``sys.modules``.
         """
@@ -196,7 +196,7 @@ def lazy_module(name: str) -> _LazyModule:
 
     Use it as a drop-in replacement for a module-level ``import``::
 
-        # before:  import sounddevice as sd   (eager — loads PortAudio)
+        # before:  import sounddevice as sd   (eager, loads PortAudio)
         # after:
         from voice_typer.server._lazy_import import lazy_module
         sd = lazy_module("sounddevice")  # PERF-COLDSTART-001

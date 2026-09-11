@@ -13,8 +13,8 @@ The strategy:
    becomes a mock call whose return value we control.
 3. For functions that use ``ctypes.byref(dword)`` to receive an output
    value (e.g. ``GetWindowThreadProcessId``), we install ``side_effect``
-   callbacks that mutate ``byref_obj._obj.value`` — the underlying
-   ``c_ulong`` instance — to fake the kernel writing into the buffer.
+   callbacks that mutate ``byref_obj._obj.value``, the underlying
+   ``c_ulong`` instance, to fake the kernel writing into the buffer.
 4. For ``_send_ctrl_v_win32``, we provide *real* ``ctypes.Structure``
    subclasses (``INPUT``, ``KEYBDINPUT``, ``INPUT_union``) so the
    ``(INPUT * 4)(...)`` array-construction syntax and
@@ -36,7 +36,7 @@ import pytest
 
 # ---------------------------------------------------------------------------
 # pynput / pynput.keyboard / pyperclip are mocked at collection time by
-# tests/clipboard/conftest.py (single source of truth —  dedup).
+# tests/clipboard/conftest.py (single source of truth, dedup).
 # ---------------------------------------------------------------------------
 # UIA singleton moved to clipboard_target_safety; reset it there.
 from voice_typer.server import (
@@ -60,7 +60,7 @@ class _KEYBDINPUT(ctypes.Structure):
         ("wScan", wintypes.WORD),
         ("dwFlags", wintypes.DWORD),
         ("time", wintypes.DWORD),
-        # ULONG_PTR — accepts int 0
+        # ULONG_PTR, accepts int 0
         ("dwExtraInfo", wintypes.WPARAM),
     )
     KEYUP = 0x0002
@@ -136,7 +136,7 @@ def fake_win32():
         patch("ctypes.windll", mock_windll, create=True),
         patch("ctypes.create_unicode_buffer") as mock_buf,
     ):
-        # Default buffer returns "Edit" — a benign window class.
+        # Default buffer returns "Edit", a benign window class.
         buf_instance = MagicMock()
         buf_instance.value = "Edit"
         mock_buf.return_value = buf_instance
@@ -213,7 +213,7 @@ class TestSendCtrlVWin32:
         cm = self._make_cm()
         mock_user32 = fake_win32["user32"]
         # First SendInput returns 2 (partial); second (KEYUP cleanup) is
-        # also a mock — return value doesn't matter for this test.
+        # also a mock, return value doesn't matter for this test.
         mock_user32.SendInput.side_effect = [2, 2]
         with patch.object(clip_mod, "_Key") as mock_key:
             mock_key.ctrl = "ctrl_key"
@@ -253,14 +253,14 @@ class TestSendCtrlVWin32:
 
 
 # ===========================================================================
-# ClipboardManager.schedule_clipboard_clear — inner _clear function
+# ClipboardManager.schedule_clipboard_clear, inner _clear function
 # ---------------------------------------------------------------------------
 # ADR-0010 §5.6: ``schedule_clipboard_clear`` (and the ``_clear_thread``
 # / ``_saved_clipboard`` instance attributes it managed) was DELETED.
 # The borrow/restore lifecycle is now driven by ``ClipboardSnapshot``
 # capture in ``copy()`` and ``_delayed_restore()`` in ``paste()``. The
 # entire ``TestScheduleClipboardClearInner`` class below has been
-# removed — the production method it exercised no longer exists.
+# removed, the production method it exercised no longer exists.
 # ===========================================================================
 
 
@@ -297,20 +297,20 @@ class TestModifierReleaseExceptBranches:
         cm._keyboard = MagicMock()
         with patch.object(clip_mod, "_Key") as mock_key:
             # Set up valid attrs for shift/alt/cmd, but make ``ctrl``
-            # raise on access — the tuple build fails on the first
+            # raise on access, the tuple build fails on the first
             # attribute, triggering the outer except.
             mock_key.shift = "shift"
             mock_key.alt = "alt"
             mock_key.cmd = "cmd"
             type(mock_key).ctrl = PropertyMock(side_effect=RuntimeError("ctrl access broke"))
-            # Should not raise — outer except swallows.
+            # Should not raise, outer except swallows.
             cm._release_stuck_modifiers()
 
     # NOTE: ``_send_keystroke_sequence`` was DELETED as dead production
-    # code  — the live keystroke path uses ``_safe_key_press``.
+    # code, the live keystroke path uses ``_safe_key_press``.
     # The former ``test_send_keystroke_sequence_finally_catches_release_exception``
     # case only exercised the deleted method's double-release finally
-    # block (``_safe_key_press`` doesn't have a double-release — it
+    # block (``_safe_key_press`` doesn't have a double-release, it
     # releases only the modifier in its finally). Coverage of the live
     # path's release-on-exception is provided by
     # ``TestSafeKeyPress::test_safe_key_press_releases_modifier_on_exception``

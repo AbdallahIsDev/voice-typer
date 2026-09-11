@@ -3,7 +3,7 @@
  *
  * Background: every renderer test file used to hand-roll its own icon-module
  * `vi.mock` factory with `IconX: make("IconX")` stub lists. The lists
- * drifted — a component importing an icon missing from a file's list crashed
+ * drifted, a component importing an icon missing from a file's list crashed
  * that file's tests at module-load time with "No '<Icon>' export is defined
  * on the mock" (vitest validates named imports against the mock factory
  * upfront). The canonical mock now lives in `helpers/hugeicons-mock.ts`;
@@ -23,7 +23,7 @@
  *
  * NOTE: this file deliberately never contains the literal mock-marker
  * substring (the icon-module specifier immediately following `vi.mock(`)
- * — the one-off migration script that converted the hand-rolled mocks
+ *, the one-off migration script that converted the hand-rolled mocks
  * scans for that substring and would otherwise rewrite this file's own
  * docstring example.
  */
@@ -97,7 +97,7 @@ describe("hugeicons mock drift guard", () => {
 	it("every icon imported from @hugeicons/core-free-icons is in the canonical mock", () => {
 		// Self-validating path resolution (mirrors the do-mock drift
 		// guard): if the __dirname math drifts, fail loudly instead of
-		// silently under-scanning — this file previously resolved
+		// silently under-scanning, this file previously resolved
 		// RENDERER_SRC to .../src/renderer/src/__tests__ (one `..` too
 		// few) and missed icon imports in components/pages.
 		expect(
@@ -142,7 +142,7 @@ describe("hugeicons mock drift guard", () => {
 					continue;
 				}
 				// Skip multi-line `/* ... */` spans (per-line stripping can't
-				// see across lines, so track the state explicitly) — a
+				// see across lines, so track the state explicitly), a
 				// docstring line like ` * SomeIcon: make("SomeIcon")` must
 				// not register as a hand-rolled stub.
 				if (line.includes("/*") && !line.includes("*/")) {
@@ -161,7 +161,7 @@ describe("hugeicons mock drift guard", () => {
 		// the fix path when the assertion fails.
 		expect(
 			offenders,
-			`[guard] hand-rolled icon stubs found — delegate to ` +
+			`[guard] hand-rolled icon stubs found, delegate to ` +
 				`createHugeiconsMock() from @/__tests__/helpers/hugeicons-mock ` +
 				`(import it inside the icon-module vi.mock factory) instead. ` +
 				`Offenders:\n` +

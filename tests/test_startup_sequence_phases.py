@@ -17,7 +17,7 @@ These tests pin the refactor contract:
 The tests mirror the ``app_for_startup`` fixture pattern in
 ``tests/test_startup_sequence.py`` (a ``VoiceTyperApp`` with mocked
 hardware/GUI deps + stubbed ``startup_tasks``). Pure-refactor safety
-verified against the pre-refactor ``run`` body — no behavior change.
+verified against the pre-refactor ``run`` body, no behavior change.
 """
 
 from __future__ import annotations
@@ -61,7 +61,7 @@ def _stub_non_phase_startup(app_for_phases, monkeypatch):
     """Stub the heavy IO ``startup_tasks`` functions + corrections.
 
     Used by tests that exercise a single phase but call ``run()``
-    through the orchestrator — every other phase must complete without
+    through the orchestrator, every other phase must complete without
     real IO so the phase under test is the only one whose behaviour
     matters.
     """
@@ -90,7 +90,7 @@ class TestStageResultDataclass:
         """``StageResult`` defaults: ``error=None``, ``data=None``.
 
         The orchestrator's only required field is ``success``. The
-        optional fields default to ``None`` (P3/E8 — no sentinel
+        optional fields default to ``None`` (P3/E8, no sentinel
         empty objects)."""
         from voice_typer.server.startup_sequence import StageResult
 
@@ -113,7 +113,7 @@ class TestStageResultDataclass:
 class TestPhasesCallableIndependently:
     """Each phase is callable in isolation with mocked dependencies
     (no full-app boot required). Pre-refactor, the only entry point
-    was the 926-LOC ``run`` — individual phases were untestable in
+    was the 926-LOC ``run``, individual phases were untestable in
     isolation."""
 
     def test_phase_1_init_and_vad_preload_callable_in_isolation(self, app_for_phases, monkeypatch):
@@ -136,12 +136,12 @@ class TestPhasesCallableIndependently:
 
     def test_phase_2_crash_diagnostics_callable_in_isolation(self, app_for_phases, tmp_config_dir):
         """``_phase_2_crash_diagnostics`` returns a successful
-        ``StageResult`` regardless of crash-file presence — the
+        ``StageResult`` regardless of crash-file presence, the
         session-state gate decides whether to notify, but the phase
         itself never aborts startup."""
         from voice_typer.server import startup_sequence as ss_mod
 
-        # No crash files in tmp_config_dir — phase must complete cleanly.
+        # No crash files in tmp_config_dir, phase must complete cleanly.
         assert not (tmp_config_dir / "crash_diagnostics.1234.txt").exists()
 
         seq = ss_mod.StartupSequence(app_for_phases)
@@ -201,10 +201,10 @@ class TestPhasesCallableIndependently:
         assert result.success is True, "phase 5 must always succeed (platform warnings are advisory)"
 
     def test_phase_6_autostart_prewarm_mics_callable_in_isolation(self, app_for_phases, monkeypatch):
-        """``_phase_6_autostart_prewarm_mics`` calls
-        ``sync_autostart`` / ``sync_prewarm_task`` / ``load_microphones``
-        via ``startup_tasks`` and returns ``success=True`` on a normal
-        path."""
+        """``_phase_6_autostart_prewarm_mics`` registers the dictation
+        hotkey (BEFORE the mic task), dispatches ``sync_autostart`` /
+        ``load_microphones`` via ``startup_tasks``, and returns
+        ``success=True`` on a normal path."""
         from voice_typer.server import startup_sequence as ss_mod, startup_tasks
 
         # Stub the heavy IO functions.
@@ -212,20 +212,24 @@ class TestPhasesCallableIndependently:
         monkeypatch.setattr(startup_tasks, "sync_prewarm_task", lambda app, evt=None: None)
         monkeypatch.setattr(startup_tasks, "load_microphones", lambda app, evt=None: None)
         monkeypatch.setattr(startup_tasks, "ensure_desktop_shortcut", lambda app: None)
-        # Tray must accept set_autostart_enabled.
+        # Tray must accept set_autostart_enabled; hotkeys must accept
+        # register() (phase 6 owns the registration now).
         app_for_phases.tray.set_autostart_enabled = MagicMock()
+        app_for_phases.hotkeys = MagicMock()
 
         seq = ss_mod.StartupSequence(app_for_phases)
         result = seq._phase_6_autostart_prewarm_mics()
 
         assert result.success is True, "phase 6 must succeed on a normal path"
         app_for_phases.tray.set_autostart_enabled.assert_called_once()
+        app_for_phases.hotkeys.register.assert_called_once()
 
     def test_phase_7_hotkey_and_model_load_callable_in_isolation(self, app_for_phases):
-        """``_phase_7_hotkey_and_model_load`` registers the hotkey,
-        starts the background model load, and returns ``success=True``.
-        Pre-refactor these two steps were buried 1000+ lines deep in
-        ``run``; the refactor exposes them as a directly-callable
+        """``_phase_7_hotkey_and_model_load`` starts the background model
+        load and returns ``success=True``. The dictation hotkey is
+        registered in phase 6 (before the mic task), phase 7 must NOT
+        touch it. Pre-refactor these steps were buried 1000+ lines deep
+        in ``run``; the refactor exposes them as a directly-callable
         phase method."""
         from voice_typer.server import startup_sequence as ss_mod
 
@@ -236,7 +240,7 @@ class TestPhasesCallableIndependently:
         result = seq._phase_7_hotkey_and_model_load()
 
         assert result.success is True
-        app_for_phases.hotkeys.register.assert_called_once()
+        app_for_phases.hotkeys.register.assert_not_called()
         app_for_phases.models.start_background_load.assert_called_once()
 
     def test_phase_8_finalize_and_signal_callable_in_isolation(self, app_for_phases, monkeypatch):
@@ -262,7 +266,7 @@ class TestPhasesCallableIndependently:
 
 class TestShutdownShortCircuits:
     """RACE-020 invariant: a ``success=False`` StageResult from any
-    phase short-circuits ``run`` — no subsequent phase may execute.
+    phase short-circuits ``run``, no subsequent phase may execute.
     The phase has already emitted its canonical shutdown log line, so
     the orchestrator just returns (no extra logging)."""
 
@@ -289,14 +293,14 @@ class TestShutdownShortCircuits:
     def test_phase_6_shutdown_after_autostart_sync(self, app_for_phases, monkeypatch):
         """When ``app._shutting_down`` is set during ``sync_autostart``,
         phase 6 returns ``success=False`` and must NOT proceed to
-        prewarm sync / mic enumeration."""
+        hotkey registration / mic enumeration."""
         from voice_typer.server import startup_sequence as ss_mod, startup_tasks
 
         def _sync_autostart_set_shutting_down(app):
             app._shutting_down = True
 
         monkeypatch.setattr(startup_tasks, "sync_autostart", _sync_autostart_set_shutting_down)
-        # Spy on the subsequent calls — they MUST NOT fire when shutdown
+        # Spy on the subsequent calls, they MUST NOT fire when shutdown
         # is detected mid-phase.
         mic_calls = []
         monkeypatch.setattr(
@@ -312,6 +316,7 @@ class TestShutdownShortCircuits:
         )
         monkeypatch.setattr(startup_tasks, "ensure_desktop_shortcut", lambda app: None)
         app_for_phases.tray.set_autostart_enabled = MagicMock()
+        app_for_phases.hotkeys = MagicMock()
 
         seq = ss_mod.StartupSequence(app_for_phases)
         result = seq._phase_6_autostart_prewarm_mics()
@@ -320,6 +325,7 @@ class TestShutdownShortCircuits:
         assert result.data == {"shutdown": True}
         assert mic_calls == [], "mic enumeration must NOT run when shutdown aborts phase 6"
         assert prewarm_calls == [], "prewarm sync must NOT run when shutdown aborts phase 6"
+        app_for_phases.hotkeys.register.assert_not_called()
 
     def test_phase_6_shutdown_after_parallel_work(self, app_for_phases, monkeypatch):
         """When ``app._shutting_down`` is set during the parallel work
@@ -336,6 +342,7 @@ class TestShutdownShortCircuits:
         monkeypatch.setattr(startup_tasks, "sync_prewarm_task", lambda app, evt=None: None)
         monkeypatch.setattr(startup_tasks, "ensure_desktop_shortcut", lambda app: None)
         app_for_phases.tray.set_autostart_enabled = MagicMock()
+        app_for_phases.hotkeys = MagicMock()
 
         seq = ss_mod.StartupSequence(app_for_phases)
         result = seq._phase_6_autostart_prewarm_mics()
@@ -343,33 +350,40 @@ class TestShutdownShortCircuits:
         assert result.success is False
         assert result.data == {"shutdown": True}
 
-    def test_phase_7_shutdown_after_hotkey_registration(self, app_for_phases, monkeypatch):
-        """When ``app._shutting_down`` is set during ``hotkeys.register``,
-        phase 7 returns ``success=False`` and must NOT proceed to
-        ``models.start_background_load``."""
-        from voice_typer.server import startup_sequence as ss_mod
+    def test_phase_6_shutdown_after_hotkey_registration(self, app_for_phases, monkeypatch):
+        """When ``app._shutting_down`` is set during
+        ``hotkeys.register()`` (phase 6, before the mic task), phase 6
+        returns ``success=False`` and must NOT proceed to mic
+        enumeration, the shutdown check moved with the registration."""
+        from voice_typer.server import startup_sequence as ss_mod, startup_tasks
 
         def _hotkey_set_shutting_down():
             app_for_phases._shutting_down = True
 
+        monkeypatch.setattr(startup_tasks, "sync_autostart", lambda app: None)
+        monkeypatch.setattr(startup_tasks, "sync_prewarm_task", lambda app, evt=None: None)
+        monkeypatch.setattr(startup_tasks, "ensure_desktop_shortcut", lambda app: None)
+        mic_calls = []
+        monkeypatch.setattr(
+            startup_tasks,
+            "load_microphones",
+            lambda app, evt=None: mic_calls.append(1),
+        )
+        app_for_phases.tray.set_autostart_enabled = MagicMock()
         app_for_phases.hotkeys = MagicMock()
         app_for_phases.hotkeys.register = _hotkey_set_shutting_down
-        app_for_phases.models = MagicMock()
 
         seq = ss_mod.StartupSequence(app_for_phases)
-        result = seq._phase_7_hotkey_and_model_load()
+        result = seq._phase_6_autostart_prewarm_mics()
 
         assert result.success is False
         assert result.data == {"shutdown": True}
-        (
-            app_for_phases.models.start_background_load.assert_not_called(),
-            ("model load must NOT start when shutdown aborts phase 7 after hotkey registration"),
-        )
+        assert mic_calls == [], "mic enumeration must NOT run when shutdown aborts phase 6 after hotkey registration"
 
     def test_phase_7_shutdown_after_model_load_start(self, app_for_phases, monkeypatch):
         """When ``app._shutting_down`` is set during
-        ``models.start_background_load``, phase 7 returns ``success=False``
-        — the model load has been dispatched but startup is aborted."""
+          ``models.start_background_load``, phase 7 returns ``success=False``
+        , the model load has been dispatched but startup is aborted."""
         from voice_typer.server import startup_sequence as ss_mod
 
         def _model_load_set_shutting_down():
@@ -390,12 +404,12 @@ class TestShutdownShortCircuits:
         ``run`` is called, phase 3 aborts and phases 4-8 must NOT
         execute. This is the strongest RACE-020 invariant pinned by
         the existing ``test_run_returns_early_if_shutting_down_at_start``
-        in ``test_startup_sequence.py`` — re-pinned here against the
+        in ``test_startup_sequence.py``, re-pinned here against the
         new phase method names so the orchestrator contract is
         explicit."""
         _stub_non_phase_startup(app_for_phases, monkeypatch)
 
-        # Spy on each phase method — phases 1-2 should run (they have
+        # Spy on each phase method, phases 1-2 should run (they have
         # no shutdown check), phase 3 should run and abort, phases 4-8
         # must NOT run.
         from voice_typer.server import startup_sequence as ss_mod
@@ -433,14 +447,14 @@ class TestShutdownShortCircuits:
         monkeypatch.setattr(ss_mod.StartupSequence, "_phase_7_hotkey_and_model_load", _spy_phase_7)
         monkeypatch.setattr(ss_mod.StartupSequence, "_phase_8_finalize_and_signal", _spy_phase_8)
 
-        # Pre-set _shutting_down — phase 3's first check aborts.
+        # Pre-set _shutting_down, phase 3's first check aborts.
         app_for_phases._shutting_down = True
 
         ss_mod.StartupSequence(app_for_phases).run()
 
         assert phase_calls == [], (
             "RACE-020: when _shutting_down is set before run(), phase 3 must "
-            "short-circuit the orchestrator — phases 4-8 must NOT execute. "
+            "short-circuit the orchestrator, phases 4-8 must NOT execute. "
             f"Got: {phase_calls}"
         )
 
@@ -500,7 +514,7 @@ class TestPhaseOrdering:
 
     def test_run_returns_after_first_failure(self, app_for_phases, monkeypatch):
         """A ``success=False`` from any phase short-circuits the rest.
-        Spies phases 5-8 — none of them should run when phase 4 returns
+        Spies phases 5-8, none of them should run when phase 4 returns
         ``success=False``."""
         _stub_non_phase_startup(app_for_phases, monkeypatch)
 
@@ -552,8 +566,8 @@ class TestRunLocReduction:
         """``run``'s body (def line to next def) must be <50 LOC.
 
         Pre-refactor: 926 LOC. Post-refactor target: <50 LOC (wiring
-        only — bootstrap, phase-tuple, for-loop, return). All business
-        logic lives in the 8 ``_phase_*`` methods (E3 — no spaghetti
+        only, bootstrap, phase-tuple, for-loop, return). All business
+        logic lives in the 8 ``_phase_*`` methods (E3, no spaghetti
         entry files)."""
         import inspect
 
@@ -591,7 +605,7 @@ class TestRunLocReduction:
         """``StartupSequence`` must have 9 methods after the refactor:
         ``__init__`` + ``run`` + ``_handle_phase_failure`` + 8 phase
         methods = 11 methods total. Pre-refactor the class had only 2
-        methods (``__init__`` + ``run``) — the audit's 'effectively 2
+        methods (``__init__`` + ``run``), the audit's 'effectively 2
         methods' complaint is resolved."""
         import inspect
 
@@ -602,14 +616,14 @@ class TestRunLocReduction:
             for name, _ in inspect.getmembers(ss_mod.StartupSequence, predicate=inspect.isfunction)
             if not name.startswith("__")
         ]
-        # __init__ is a function too but starts with __ — included separately.
+        # __init__ is a function too but starts with __, included separately.
         all_methods = [name for name, _ in inspect.getmembers(ss_mod.StartupSequence, predicate=inspect.isfunction)]
         assert "__init__" in all_methods
         assert "run" in method_names
         assert "_handle_phase_failure" in method_names
         for n in range(1, 9):
             assert any(m.startswith(f"_phase_{n}_") for m in method_names), (
-                f"phase {n} method missing — got: {method_names}"
+                f"phase {n} method missing, got: {method_names}"
             )
 
 
@@ -678,6 +692,6 @@ class TestDesktopShortcutDispatch:
                 break
             __import__("time").sleep(0.05)
         # The thread may have already finished (daemon threads vanish when
-        # done) — only assert daemon=True if we actually caught it alive.
+        # done), only assert daemon=True if we actually caught it alive.
         if new_threads:
             assert new_threads[0].daemon is True

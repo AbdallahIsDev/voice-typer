@@ -16,7 +16,7 @@ This left two gaps:
 * **POSIX**: the Tauri child was spawned in the launcher's session /
   process group, so if the launcher was a session leader (typical under
   systemd user units or cron-launched sessions), the child would receive
-  ``SIGHUP`` when the launcher exited — killing the Tauri app the
+  ``SIGHUP`` when the launcher exited, killing the Tauri app the
   launcher just spawned.  The Electron path avoids this via
   ``start_new_session=True``.
 
@@ -36,7 +36,7 @@ Platform note: ``_spawn_flags`` reads ``sys.platform`` via
 :func:`voice_typer.server.platform_utils.is_windows`.  These tests mock
 ``sys.platform`` to ``"win32"`` / ``"linux"`` to exercise both branches
 without needing a real Windows or POSIX host.  The Windows branch is
-NOT runtime-tested here (LINUX sandbox) — the ``creationflags`` value
+NOT runtime-tested here (LINUX sandbox), the ``creationflags`` value
 is asserted by mocking the platform, not by observing an actual
 ``CreateProcess`` call.  VALIDATE ON WINDOWS HOST.
 """
@@ -55,7 +55,7 @@ from voice_typer.server.autostart_launcher import (
 # These tests exercise spawn *mechanics* (``_spawn_flags`` passthrough)
 # with fake binary paths that cannot verify against the real
 # ``tauri-binaries.json``. The CR-002 integrity gate itself is tested
-# behaviorally in ``tests/test_tauri_binary_verify.py`` — here we
+# behaviorally in ``tests/test_tauri_binary_verify.py``, here we
 # bypass it so the flag assertions stay focused.
 @pytest.fixture(autouse=True)
 def _bypass_tauri_integrity_gate(monkeypatch):
@@ -69,7 +69,7 @@ def _bypass_tauri_integrity_gate(monkeypatch):
 # ``_tauri_log_files()`` opens real log files under the platform config
 # dir.  In tests we don't want that side effect (it would litter the
 # developer's real config dir), so we monkeypatch it to return DEVNULL
-# — the same fallback the real function uses on failure.  This lets the
+# , the same fallback the real function uses on failure.  This lets the
 # spawn path run end-to-end while keeping the test hermetic.
 _TAURI_LOG_FILES_STUB = {
     "stdout": subprocess.DEVNULL,
@@ -88,7 +88,7 @@ def _stub_tauri_log_files(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# _spawn_tauri_host() — spawn flags
+# _spawn_tauri_host(), spawn flags
 # ---------------------------------------------------------------------------
 
 
@@ -112,7 +112,7 @@ class TestSpawnTauriHostSpawnFlags:
         result = _spawn_tauri_host("/fake/voice-typer-tauri.exe", hidden=True)
         assert result is not None
         assert captured.get("creationflags") == 0x08000000
-        # start_new_session is POSIX-only — must NOT be set on Windows.
+        # start_new_session is POSIX-only, must NOT be set on Windows.
         assert "start_new_session" not in captured
         # stdout/stderr redirection is present (mirror of _electron_log_files).
         assert "stdout" in captured
@@ -120,7 +120,7 @@ class TestSpawnTauriHostSpawnFlags:
 
     def test_windows_not_hidden_omits_creationflags(self, monkeypatch, _stub_tauri_log_files):
         """On Windows with ``hidden=False`` (e.g. desktop shortcut),
-        no ``creationflags`` is set — the Tauri binary gets normal
+        no ``creationflags`` is set, the Tauri binary gets normal
         process creation (matches the Electron ``hidden=False`` path
         which leaves creation flags unset so the child can create its
         own console if needed)."""
@@ -141,7 +141,7 @@ class TestSpawnTauriHostSpawnFlags:
 
     def test_posix_passes_start_new_session(self, monkeypatch, _stub_tauri_log_files):
         """On POSIX, the Tauri spawn must pass ``start_new_session=True``
-        so the Tauri child is detached into its own session — it
+        so the Tauri child is detached into its own session, it
         survives the launcher exiting and is NOT in the launcher's
         process group (avoids SIGHUP if the launcher is a session
         leader)."""
@@ -158,7 +158,7 @@ class TestSpawnTauriHostSpawnFlags:
         result = _spawn_tauri_host("/fake/voice-typer-tauri", hidden=False)
         assert result is not None
         assert captured.get("start_new_session") is True
-        # creationflags is Windows-only — must NOT be set on POSIX.
+        # creationflags is Windows-only, must NOT be set on POSIX.
         assert "creationflags" not in captured
 
     def test_posix_hidden_also_detaches(self, monkeypatch, _stub_tauri_log_files):
@@ -211,7 +211,7 @@ class TestSpawnTauriHostSpawnFlags:
 
     def test_spawn_failure_returns_none_and_closes_logs(self, monkeypatch, _stub_tauri_log_files):
         """A spawn failure is logged, log files are closed, and ``None``
-        is returned — mirrors the Electron spawn-failure contract."""
+        is returned, mirrors the Electron spawn-failure contract."""
         monkeypatch.setattr(sys, "platform", "linux")
 
         def boom(cmd, env=None, **kwargs):
@@ -223,7 +223,7 @@ class TestSpawnTauriHostSpawnFlags:
 
 
 # ---------------------------------------------------------------------------
-# _focus_running_app() — Tauri path spawn flags
+# _focus_running_app(), Tauri path spawn flags
 # ---------------------------------------------------------------------------
 
 
@@ -235,7 +235,7 @@ class TestFocusRunningAppTauriSpawnFlags:
     def test_windows_focus_probe_passes_no_creationflags(self, monkeypatch, _stub_tauri_log_files):
         """On Windows, the Tauri focus probe runs with ``hidden=False``
         (the user clicked a shortcut and expects to see the focused
-        window), so no ``creationflags`` is set — matches the Electron
+        window), so no ``creationflags`` is set, matches the Electron
         focus path."""
         monkeypatch.setattr(sys, "platform", "win32")
         monkeypatch.setattr("voice_typer.server.autostart_launcher._is_tauri_mode", lambda: True)
@@ -259,7 +259,7 @@ class TestFocusRunningAppTauriSpawnFlags:
 
     def test_posix_focus_probe_passes_start_new_session(self, monkeypatch, _stub_tauri_log_files):
         """On POSIX, the Tauri focus probe must detach into its own
-        session (``start_new_session=True``) — the probe is a
+        session (``start_new_session=True``), the probe is a
         short-lived second instance that triggers the single-instance
         plugin and exits; it must not receive SIGHUP from the launcher
         before the plugin can do its focus dance."""
@@ -334,7 +334,7 @@ class TestFocusRunningAppTauriSpawnFlags:
 
     def test_focus_probe_spawn_failure_returns_false(self, monkeypatch, _stub_tauri_log_files):
         """A Tauri focus-probe spawn failure returns False (no
-        exception propagation) — mirrors the pre-fix contract."""
+        exception propagation), mirrors the pre-fix contract."""
         monkeypatch.setattr(sys, "platform", "linux")
         monkeypatch.setattr("voice_typer.server.autostart_launcher._is_tauri_mode", lambda: True)
         monkeypatch.setattr(
@@ -350,13 +350,13 @@ class TestFocusRunningAppTauriSpawnFlags:
 
 
 # ---------------------------------------------------------------------------
-# _tauri_log_files() — log redirection
+# _tauri_log_files(), log redirection
 # ---------------------------------------------------------------------------
 
 
 class TestTauriLogFilesHelper:
     """``_tauri_log_files()`` returns a dict with stdout/stderr/stdin
-    keys suitable for unpacking into Popen — mirroring
+    keys suitable for unpacking into Popen, mirroring
     ``_electron_log_files()``."""
 
     def test_returns_devnull_on_failure(self, monkeypatch, tmp_path):

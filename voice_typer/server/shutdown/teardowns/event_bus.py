@@ -1,6 +1,6 @@
 """Teardown helper for the event_bus deferred-publish executor.
 
-Phase 4.5 (OI-36) — extracted verbatim from
+Phase 4.5 (OI-36), extracted verbatim from
 :meth:`ShutdownController._teardown_event_bus`. The body is unchanged;
 only the class boundary moved.
 """
@@ -39,7 +39,7 @@ def teardown_event_bus(controller) -> None:
     5s ``_run_with_timeout`` wrapper ACTUALLY bounds the wait
     (previously ``wait=False`` returned immediately and the
     non-daemon worker thread lingered past the 5s "timeout").
-    Idempotent — safe under the ``_do_cleanup`` double-call guard.
+    Idempotent, safe under the ``_do_cleanup`` double-call guard.
 
     The ``controller`` argument is unused but kept for API symmetry
     with the other teardown helpers (all take ``controller`` as the

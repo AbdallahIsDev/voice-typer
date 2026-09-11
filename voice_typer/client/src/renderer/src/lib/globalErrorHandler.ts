@@ -10,7 +10,7 @@
  *
  * ``installGlobalErrorHandlers()`` registers two listeners:
  *
- *   1. ``window.addEventListener("error", ...)`` — catches synchronous
+ *   1. ``window.addEventListener("error", ...)``, catches synchronous
  *      errors (e.g. ``throw`` in an event handler outside React's
  *      boundary, syntax errors in dynamically-imported modules).
  *   2. ``window.addEventListener("unhandledrejection", ...)`` —
@@ -25,7 +25,7 @@
  *   - show a generic localized toast via ``sonner.toast.error`` so
  *     the user gets immediate visual feedback that something went
  *     wrong. The toast message is intentionally generic (no error
- *     details leaked to the UI — the full stack is in the console
+ *     details leaked to the UI, the full stack is in the console
  *     for the developer/operator to diagnose).
  *
  * : the toast now uses a STABLE id (``'global-error-handler'``)
@@ -33,19 +33,19 @@
  * on top of each other. Previously a tight error loop (e.g. an effect
  * that re-threw on every retry) could pile up dozens of identical
  * toasts, making the UI unreadable. With the stable id, sonner
- * dedupes — only the most recent error's toast stays visible.
+ * dedupes, only the most recent error's toast stays visible.
  *
  * : the toast now exposes two action buttons:
- *   • ``View logs`` — calls ``window.window_?.openLogs?.()`` to open
+ *   • ``View logs``, calls ``window.window_?.openLogs?.()`` to open
  *     the Python backend's log folder in the OS file manager (the
  *     full stack trace + IPC error details live there for diagnosis).
- *   • ``Copy error`` — writes the most recent error's formatted
+ *   • ``Copy error``, writes the most recent error's formatted
  *     stack to the clipboard so users can paste it into a bug report.
  *     The formatted string is passed directly into the toast options
- *     builder (no module-level state — each error event carries its
+ *     builder (no module-level state, each error event carries its
  *     own detail into the action-button closure).
  *
- * The handlers are idempotent — calling ``installGlobalErrorHandlers``
+ * The handlers are idempotent, calling ``installGlobalErrorHandlers``
  * twice is safe (the second call is a no-op).
  *
  * Integration: ``main.tsx`` calls ``installGlobalErrorHandlers()``
@@ -61,7 +61,7 @@ import { toast } from "sonner";
 // implementation used ``require("../i18n/i18n")`` inside the
 // ``_genericUserMessage`` helper, but ``require`` is undefined in
 // Electron renderer processes under ``contextIsolation: true`` +
-// ``nodeIntegration: false`` — the call always threw and the catch
+// ``nodeIntegration: false``, the call always threw and the catch
 // block silently fell back to the hardcoded English string. Importing
 // ``t`` as a top-level ESM binding is the renderer-safe equivalent:
 // the bundler (Vite) resolves the import at build time, the function
@@ -72,7 +72,7 @@ import { t } from "@/i18n/i18n";
 let _installed = false;
 
 //stable toast id so successive errors replace (not stack on
-// top of) the existing toast. Sonner's ``id`` option dedupes — the
+// top of) the existing toast. Sonner's ``id`` option dedupes, the
 // second ``toast.error(msg, {id})`` call updates the existing toast
 // in place rather than spawning a second one.
 const GLOBAL_ERROR_TOAST_ID = "global-error-handler";
@@ -89,14 +89,14 @@ const GLOBAL_ERROR_TOAST_ID = "global-error-handler";
  * Previously this function called ``require("../i18n/i18n")`` lazily
  * so the global error handler could be installed before the i18n module
  * loaded. That reasoning was sound but ``require`` is not available
- * in the sandboxed renderer — so the lazy import always failed and
+ * in the sandboxed renderer, so the lazy import always failed and
  * the hardcoded English fallback always won. With the top-level ESM
  * ``import`` we now actually resolve the localized string.
  *
  * The hardcoded English fallback
  * "The app encountered an unexpected error. Your data is safe." has
  * been dropped. ``t()`` is a pure lookup that walks the
- * currentLocale → primary-subtag → en → raw-key chain — it never
+ * currentLocale → primary-subtag → en → raw-key chain, it never
  * throws and never returns an empty string (the worst case is the
  * raw dot-path key, which is ugly but unambiguously signals broken
  * i18n to the developer). The defensive try/catch is retained so a
@@ -158,7 +158,7 @@ function _formatForConsole(err: unknown): string {
 /**
  * Safely resolve a localized string, letting the i18n layer
  * handle missing keys. The i18n layer (``i18n/translate.ts``) walks
- * the currentLocale → primary-subtag → en → raw-key chain — it never
+ * the currentLocale → primary-subtag → en → raw-key chain, it never
  * throws and returns the raw dot-path key as the last-resort
  * fallback (e.g. ``t("errors.viewLogsAction")`` returns
  * ``"errors.viewLogsAction"`` when the key is missing from BOTH the
@@ -185,17 +185,17 @@ export function _safeT(key: string): string {
  * : build the sonner toast options for the global error toast.
  *
  * Returns an options object with:
- *   • ``id`` — the stable toast id ( dedup).
- *   • ``action`` — the primary action button ("View logs" →
+ *   • ``id``, the stable toast id ( dedup).
+ *   • ``action``, the primary action button ("View logs" →
  *     ``window.window_?.openLogs?.()``).
- *   • ``cancel`` — the secondary action button ("Copy error" →
+ *   • ``cancel``, the secondary action button ("Copy error" →
  *     copies the last formatted error stack to the clipboard via
  *     ``navigator.clipboard.writeText``).
  *
  * Both buttons are defensively guarded: ``window.window_`` may not
  * exist (older preload scripts, Tauri bridge), and
  * ``navigator.clipboard`` may not exist (non-secure context, SSR
- * snapshot). A missing affordance is silently ignored — the toast
+ * snapshot). A missing affordance is silently ignored, the toast
  * still renders with whatever buttons ARE available.
  */
 function _buildToastOptions(formattedError: string): {
@@ -209,7 +209,7 @@ function _buildToastOptions(formattedError: string): {
 		cancel?: { label: string; onClick: () => void };
 	} = { id: GLOBAL_ERROR_TOAST_ID };
 
-	// "View logs" action — opens the Python backend's log folder.
+	// "View logs" action, opens the Python backend's log folder.
 	// The bridge method is optional (older preload scripts / Tauri
 	// bridge may not install it); silently skip when unavailable.
 	// Read directly from the globally-augmented ``window.window_``
@@ -229,7 +229,7 @@ function _buildToastOptions(formattedError: string): {
 		};
 	}
 
-	// "Copy error" cancel-side action — writes the formatted stack
+	// "Copy error" cancel-side action, writes the formatted stack
 	// to the clipboard. ``navigator.clipboard`` may be missing in
 	// non-secure contexts (older Tauri / file:// / SSR); silently
 	// skip when unavailable.
@@ -275,7 +275,7 @@ export function installGlobalErrorHandlers(): void {
 		typeof window.addEventListener !== "function"
 	) {
 		// Not a browser environment (e.g. Node SSR or a test runner
-		// without a real DOM). Skip — the renderer always runs in a
+		// without a real DOM). Skip, the renderer always runs in a
 		// real browser (Electron Chromium), so this is defensive.
 		return;
 	}
@@ -293,7 +293,7 @@ export function installGlobalErrorHandlers(): void {
 			// no-op. The console.error above still surfaces the error.
 			console.warn("[renderer:globalErrorHandler] toast.error failed:", e);
 		}
-		// Do NOT call event.preventDefault() — we want the default
+		// Do NOT call event.preventDefault(), we want the default
 		// browser console error to also appear in DevTools for parity
 		// with the pre-listener behavior.
 	});
@@ -316,7 +316,7 @@ export function installGlobalErrorHandlers(): void {
 					e,
 				);
 			}
-			// Do NOT call event.preventDefault() — let the default browser
+			// Do NOT call event.preventDefault(), let the default browser
 			// warning appear in DevTools too.
 		},
 	);

@@ -5,7 +5,7 @@ handler mixin module from ``voice_typer/server/handlers/``.  The
 tests use the canonical DI helpers in
 ``tests/fixtures/ipc_test_helpers.py`` (``make_fake_app`` /
 ``make_fake_service``) to inject a mock ``service`` and assert on
-the handler's response shape for each validation path — without
+the handler's response shape for each validation path, without
 coupling to the real ``VoiceTyperApp`` / ``VoiceTyperService``
 internals.
 

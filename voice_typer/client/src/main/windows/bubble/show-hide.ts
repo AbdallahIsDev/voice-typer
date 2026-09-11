@@ -3,12 +3,12 @@
  * exit animation ( extract from `bubble-window.ts`).
  *
  * Owns:
- *   - `showBubbleWindow()` — center/restore position, raise the
+ *   - `showBubbleWindow()`, center/restore position, raise the
  *     always-on-top pill, signal the renderer to play its enter
  *     animation, and (via `setImmediate`) re-affirm visibility +
  *     z-order in case the OS hid the window between `show()` and
  *     the next tick.
- *   - `hideBubbleWindow()` — ask the renderer to play its exit
+ *   - `hideBubbleWindow()`, ask the renderer to play its exit
  *     animation, register a single-shot hide callback via
  *     `onHideAnimationComplete`, and arm a 300ms fallback timeout
  *     that hides the window directly if the renderer never signals
@@ -31,7 +31,7 @@
 import { BUBBLE_HEIGHT, BUBBLE_WIDTH } from "../../constants";
 import { BubbleChannels } from "../../ipc/channels";
 //converted from defensive `require("../../logging")` to a static
-// ESM import — the previous try/catch + console.* fallback was added
+// ESM import, the previous try/catch + console.* fallback was added
 // to tolerate minimal test mocks, but the real logging module is now
 // always present and the test mocks have been updated to expose `log`.
 import { BUBBLE_CLR, log, RESET } from "../../logging";
@@ -53,14 +53,14 @@ import {
  * failure through the structured `log` with a consistent `[BUBBLE]` tag +
  * caller-supplied label. The bubble is re-created on `render-process-gone`,
  * so `state.bubbleWindow` can flip to a destroyed window between an
- * `isDestroyed()` check and the next Electron API call — every win-op
+ * `isDestroyed()` check and the next Electron API call, every win-op
  * call site is best-effort and must not throw to the caller.
  *
  * replaces the per-call-site `try { … } catch (e) { log.warn(...) }`
  * boilerplate that previously grew to 7+ near-identical blocks inside
  * `showBubbleWindow`. The default log level is `warn` (the dominant case
  * for best-effort retries); callers that need `error` (e.g. `show()` itself
- * — if showing the window fails, the bubble never appears) pass
+ *, if showing the window fails, the bubble never appears) pass
  * `{ level: "error" }`.
  */
 function _tryWinOp(
@@ -82,7 +82,7 @@ export function showBubbleWindow(): void {
 	}
 	const win = state.bubbleWindow;
 	if (!win) {
-		//failure — log.error.
+		//failure, log.error.
 		log.error(
 			`${BUBBLE_CLR}[BUBBLE]${RESET} showBubbleWindow: no window to show`,
 		);
@@ -122,7 +122,7 @@ export function showBubbleWindow(): void {
 	// The restore source prefers the in-session drag position and falls
 	// back to the durable pair from the Python config, so a drag
 	// survives an app restart.
-	// This setBounds is a PROGRAMMATIC placement — suppress the debounced
+	// This setBounds is a PROGRAMMATIC placement, suppress the debounced
 	// durable persist around it so the `moved` events it emits are never
 	// mistaken for a fresh user drag (they would rewrite the config with
 	// coordinates we just restored from it).
@@ -175,7 +175,7 @@ export function showBubbleWindow(): void {
 	setImmediate(() => {
 		if (!win || win.isDestroyed()) return;
 		if (!win.isVisible()) {
-			//unexpected but non-fatal — log.warn.
+			//unexpected but non-fatal, log.warn.
 			log.warn(
 				`${BUBBLE_CLR}[BUBBLE]${RESET} not visible after show() -- retrying`,
 			);
@@ -229,11 +229,11 @@ export function hideBubbleWindow(): void {
 		try {
 			if (!win.isDestroyed()) {
 				win.hide();
-				//routine lifecycle event — log.info.
+				//routine lifecycle event, log.info.
 				log.info(`${BUBBLE_CLR}[BUBBLE]${RESET} hidden (animated)`);
 			}
 		} catch (err) {
-			//outer hide-animated failure — log so a
+			//outer hide-animated failure, log so a
 			// stuck-visible bubble is debuggable instead of silent.
 			log.warn(`${BUBBLE_CLR}[BUBBLE]${RESET} hide animated failed:`, err);
 		}
@@ -266,10 +266,10 @@ export function hideBubbleWindow(): void {
 					);
 				}
 				win.hide();
-				//routine lifecycle event — log.info.
+				//routine lifecycle event, log.info.
 				log.info(`${BUBBLE_CLR}[BUBBLE]${RESET} hidden (fallback)`);
 			} else {
-				// Window is already hidden or destroyed — still
+				// Window is already hidden or destroyed, still
 				// clear the slot so a stale callback can't fire.
 				try {
 					unsubscribe();
@@ -282,7 +282,7 @@ export function hideBubbleWindow(): void {
 				}
 			}
 		} catch (err) {
-			//outer hide-fallback failure — log so a
+			//outer hide-fallback failure, log so a
 			// stuck-visible bubble is debuggable instead of silent.
 			log.warn(`${BUBBLE_CLR}[BUBBLE]${RESET} hide fallback failed:`, err);
 		}

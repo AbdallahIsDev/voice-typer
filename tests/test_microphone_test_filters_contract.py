@@ -5,7 +5,7 @@ the IPC layer:
 
 - The renderer's ``buildTestFilters`` (``pages/microphone/lib/buildTestFilters.ts``)
   sends ``filters`` as a DICT of ``noise_filter_*`` keys built from the
-  user's config — a full dict for any non-``"off"`` preset, and
+  user's config, a full dict for any non-``"off"`` preset, and
   ``{noise_filter_enabled: false}`` for the off-preset / no-config case.
 - ``_handle_microphone_test_start`` must accept that dict verbatim and
   forward it unchanged to ``service.microphone_test_start``.
@@ -53,7 +53,7 @@ def ipc_server_and_fakes():
 
 
 class TestMicrophoneTestStartFiltersContract:
-    """``filters`` on ``microphone_test_start`` — dict wire contract."""
+    """``filters`` on ``microphone_test_start``, dict wire contract."""
 
     def test_full_dict_payload_forwarded_unchanged(self, ipc_server_and_fakes):
         """(a) Full non-"off" dict → success envelope + dict reaches the
@@ -99,7 +99,7 @@ class TestMicrophoneTestStartFiltersContract:
         """(c) Absent AND explicit-null ``filters`` → ``None`` reaches the
         service (schema default; ``none_to_default`` treats null as absent).
 
-        Both mean "no filter overrides" downstream — the level monitor
+        Both mean "no filter overrides" downstream, the level monitor
         seeds an empty dict and the stop path skips the post-hoc filter.
         """
         server, _, fake_service = ipc_server_and_fakes
@@ -115,11 +115,11 @@ class TestMicrophoneTestStartFiltersContract:
         assert fake_service.microphone_test_start.call_args.kwargs["filters"] is None
 
     def test_legacy_list_rejected_at_boundary(self, ipc_server_and_fakes):
-        """(d) Legacy list payloads are REJECTED — no list compat kept.
+        """(d) Legacy list payloads are REJECTED, no list compat kept.
 
         Decision: the renderer never sent lists (``buildTestFilters``
         has always returned a dict), and every downstream consumer
-        requires a mapping — accepting a list would defer the failure
+        requires a mapping, accepting a list would defer the failure
         to ``stop_test_recording`` where ``filters.get(...)`` /
         ``SimpleNamespace(**filters)`` crash mid-recording-cycle.
         Rejecting at the validation boundary is strictly safer than a
@@ -175,7 +175,7 @@ class TestBuildTestFiltersKeyParity:
     A key rename on either side of the IPC boundary is a SILENT no-op:
     the dict still validates (shape contract above), the service still
     receives it, but ``build_chain`` reads its attributes off the
-    unpacked namespace and falls back to defaults — the user's filter
+    unpacked namespace and falls back to defaults, the user's filter
     settings stop affecting the test recording with no error anywhere.
     These tests pin both directions of the key mapping, mirroring the
     cross-language parity-test pattern used for the command allowlists.
@@ -199,7 +199,7 @@ class TestBuildTestFiltersKeyParity:
 
     def test_renderer_emits_every_field_the_filter_chain_reads(self):
         """Every field ``build_chain`` reads via direct attribute access
-        must be emitted by ``buildTestFilters`` — otherwise that filter's
+        must be emitted by ``buildTestFilters``, otherwise that filter's
         user config silently stops applying to test recordings.
 
         ``audio_preset`` is excluded (preset routing, not a chain input —
@@ -210,7 +210,7 @@ class TestBuildTestFiltersKeyParity:
         is exempt: ``build_chain`` reads it via ``getattr(..., False)``
         (safe default) and the renderer's ``buildTestFilters`` does not
         forward per-test overrides for it (the field IS settable via
-        the ``set_config`` allowlist — the exemption here covers only
+        the ``set_config`` allowlist, the exemption here covers only
         the per-test filter-override dict).
         """
         from voice_typer.server.audio_processor import _CONFIG_SIGNATURE_FIELDS
@@ -226,7 +226,7 @@ class TestBuildTestFiltersKeyParity:
         )
 
     def test_renderer_emits_no_unknown_backend_fields(self):
-        """Every emitted key must exist on the backend ``Config`` — a
+        """Every emitted key must exist on the backend ``Config``, a
         key the backend does not declare is dropped by every consumer
         (or crashes ``SimpleNamespace``-based construction paths) while
         looking like a valid setting."""

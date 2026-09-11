@@ -21,13 +21,13 @@ from voice_typer.server._http_safety import build_secure_opener
 # Module-level OpenerDirector shared by every cloud request, so the
 # handler chain (redirect refusal, plaintext-HTTP refusal, TLS) is
 # built once instead of per request. NOTE: the stdlib opener does NOT
-# pool connections — ``AbstractHTTPHandler.do_open`` opens a fresh
+# pool connections, ``AbstractHTTPHandler.do_open`` opens a fresh
 # TCP/TLS connection per request and sends ``Connection: close``, so
 # each request pays a full handshake (unlike ``requests.Session``).
 # SEC-2: ``build_secure_opener()`` installs ``_NoRedirectHandler()`` so
 # the opener does NOT follow 3xx redirects (the default
-# ``HTTPRedirectHandler`` would silently POST the request body — user
-# audio + API key — to an attacker-controlled redirect target).
+# ``HTTPRedirectHandler`` would silently POST the request body, user
+# audio + API key, to an attacker-controlled redirect target).
 # the handler + builder live in ``_http_safety`` so they're
 # shared with ``llm_polish._opener`` (single source of truth).
 _opener = build_secure_opener()
@@ -63,7 +63,7 @@ def _read_capped(resp, *, max_bytes: int) -> bytes:
             break
         total += len(chunk)
         if total > max_bytes:
-            raise RuntimeError(f"Response body exceeded {max_bytes} bytes — aborting to prevent OOM")
+            raise RuntimeError(f"Response body exceeded {max_bytes} bytes, aborting to prevent OOM")
         chunks.append(chunk)
     return b"".join(chunks)
 
@@ -78,7 +78,7 @@ class _StreamingMultipartBody:
         ~64 KB chunk at a time. Note the parts list itself keeps the
         full WAV payload resident (``build_multipart_parts`` appends
         ``wav_bytes``), so peak memory is ``wav_bytes`` + one ~64 KB
-        chunk — the saving versus ``b"".join(parts)`` is the additional
+        chunk, the saving versus ``b"".join(parts)`` is the additional
         full-body copy (~5.2 MB for a 30s recording), not the WAV
         itself.
 

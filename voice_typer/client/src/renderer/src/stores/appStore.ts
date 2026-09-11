@@ -7,7 +7,7 @@
  * genuinely cross-cutting slices so any component can subscribe without
  * prop drilling.
  *
- * Scope is deliberately small — only connection, recording, and config.
+ * Scope is deliberately small, only connection, recording, and config.
  * Theme, navigation, and per-component local state stay in their existing
  * hooks (useTheme, useNavigation) because they're already clean and don't
  * prop-drill. This is an incremental improvement, not a full rewrite.
@@ -60,14 +60,14 @@ interface AppState {
 	 * prop. Changing the type would break those consumers (which are
 	 * owned by other fix agents).
 	 *
-	 * Auto-cleared on successful reconnection — see
+	 * Auto-cleared on successful reconnection, see
 	 * ``setConnectionStatus`` below.
 	 */
 	lastError: string | null;
 	setLastError: (error: string | null) => void;
 
 	// ── Config (cached snapshot) ────────────────────────────────
-	/** Cached config snapshot — updated on get_config and config_changed. */
+	/** Cached config snapshot, updated on get_config and config_changed. */
 	config: Partial<VoiceTyperConfig> | null;
 	setConfig: (config: Partial<VoiceTyperConfig> | null) => void;
 	/** Merge partial config updates (e.g. from config_changed events). */
@@ -83,7 +83,7 @@ export const useAppStore = create<AppState>((set) => ({
 			// stale ``lastError`` so the UI doesn't keep showing an
 			// error banner after a successful reconnection. The
 			// previous implementation set only ``connectionStatus``,
-			// leaving ``lastError`` intact — so a transient IPC
+			// leaving ``lastError`` intact, so a transient IPC
 			// error followed by a successful ``get_config``
 			// retry left the user staring at the stale error
 			// message even though the app was working again.

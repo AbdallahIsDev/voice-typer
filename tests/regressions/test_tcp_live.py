@@ -8,7 +8,7 @@ The existing ``tests/test_server.py`` mocks stdin/stdout and only tests
 ``IPCServer._dispatch`` directly.  This file spins up a real
 ``IPCServer.start_tcp()`` on an ephemeral port, connects to it via a
 real ``socket.socket()``, sends JSON-lines requests, and reads back
-the responses — exercising the full TCP transport layer
+the responses, exercising the full TCP transport layer
 (``_accept_tcp`` → ``_handle_tcp_connection`` → auth → dispatch →
 write-back) the same way the Electron main process does in production.
 
@@ -28,7 +28,7 @@ These tests would catch:
   - stop() not actually unblocking accept() (NEW-IPC-001 regression).
 
 Class/method names, assertion logic, and imports below are preserved
-verbatim from the original monolith — only file location has changed.
+verbatim from the original monolith, only file location has changed.
 """
 
 # === Source: tests/test_new_test_001_live_tcp.py ===
@@ -72,7 +72,7 @@ def _free_port() -> int:
 def _probe_tcp_listening(port: int, timeout_s: float = 0.25) -> bool:
     """Return True when a TCP connect to ``127.0.0.1:<port>`` succeeds.
 
-    Used as a wait_until predicate — a successful connect proves the
+    Used as a wait_until predicate, a successful connect proves the
     server's accept loop is listening on the port.
     """
     try:
@@ -205,7 +205,7 @@ def live_server(tmp_path, monkeypatch):
     # VOICE_TYPER_CONFIG_DIR_OVERRIDE directly via os.environ
     # (belt-and-suspenders for code paths that read the env var before
     # _config_dir is consulted). Mirror it here via monkeypatch so
-    # pytest auto-cleans the var at teardown — otherwise it persists
+    # pytest auto-cleans the var at teardown, otherwise it persists
     # for the entire pytest session and leaks into unrelated tests.
     monkeypatch.setenv("VOICE_TYPER_CONFIG_DIR_OVERRIDE", str(tmp_path))
 
@@ -247,7 +247,7 @@ def authenticated_client(live_server):
     _send_line(client, {"type": "auth", "token": token})
     # Wait for the auth ack (server logs "auth ok" and starts
     # dispatching; some implementations send an explicit ack, others
-    # just start accepting commands — we don't wait for an ack here,
+    # just start accepting commands, we don't wait for an ack here,
     # but we DO wait for the next command's response which proves auth
     # succeeded).
     yield client, server
@@ -261,7 +261,7 @@ class TestTcpAuthEnforcement:
     The server sends an explicit ``{"type": "error", "data": {"message":
     "authentication failed"}}`` response and then closes the connection.
     This is good UX (the client knows WHY the connection was dropped)
-    and is the actual behavior — we test for it explicitly.
+    and is the actual behavior, we test for it explicitly.
     """
 
     def test_wrong_token_returns_auth_error(self, live_server):
@@ -297,13 +297,13 @@ class TestTcpAuthEnforcement:
             client.settimeout(0.5)
             data2 = client.recv(4096)
         except (TimeoutError, OSError):
-            data2 = b""  # connection closed — expected
+            data2 = b""  # connection closed, expected
         assert data2 == b"", f"Server processed a command after auth failure: {data2!r}"
         client.close()
 
     def test_missing_auth_returns_auth_error(self, live_server):
         """Sending a command without an auth line first should also be
-        rejected — the server expects auth as the first line."""
+        rejected, the server expects auth as the first line."""
         server, port, token = live_server
         client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         client.connect(("127.0.0.1", port))
@@ -350,7 +350,7 @@ class TestTcpLiveCommands:
         resp = _read_response_line(client)
         assert resp["id"] == 2
         # The response type is "config" or "error" (if config load fails
-        # because MockApp's config is a MagicMock — accept either, but
+        # because MockApp's config is a MagicMock, accept either, but
         # require the response to be well-formed JSON).
         assert resp["type"] in ("config", "error", "ack")
 
@@ -360,7 +360,7 @@ class TestTcpLiveCommands:
         resp = _read_response_line(client, timeout=2.0)
         assert resp["id"] == 3
         # The IPC server returns an error response for unknown commands.
-        # The exact type/shape varies — accept either explicit "error"
+        # The exact type/shape varies, accept either explicit "error"
         # or an "ack" with an error message in data.
         assert resp["type"] in ("error", "ack"), f"Expected error/ack for unknown command, got: {resp}"
 
@@ -377,7 +377,7 @@ class TestTcpLiveCommands:
         client, server = authenticated_client
         _send_line(client, {"type": "get_status"})
         resp = _read_response_line(client)
-        # Response may or may not include "id" — the contract is just
+        # Response may or may not include "id", the contract is just
         # that the server responds.
         assert resp["type"] in ("status", "error")
 
@@ -403,7 +403,7 @@ class TestTcpConnectionLifecycle:
             "server did not reap the disconnected client"
         )
 
-        # Second connection —  guarantees the accept loop
+        # Second connection, guarantees the accept loop
         # continues after a disconnect.
         c2 = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         c2.connect(("127.0.0.1", port))
@@ -426,7 +426,7 @@ class TestTcpConnectionLifecycle:
         c1.close()
 
         # Fixed pause: the RST-killed handler ran UNAUTHENTICATED, so it
-        # never installed ``_tcp_client`` — its death has no observable
+        # never installed ``_tcp_client``, its death has no observable
         # server-side state to poll. The c2 round-trip below is the real
         # assertion; this grace only sequences the crash before it.
         time.sleep(0.1)
@@ -471,7 +471,7 @@ class TestTcpServerStop:
             c = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             c.settimeout(0.5)
             c.connect(("127.0.0.1", port))
-            # If connect succeeded, the server is still listening — that's
+            # If connect succeeded, the server is still listening, that's
             # a  regression.  Allow the connect to succeed
             # (some platforms have SO_REUSEADDR weirdness) but require
             # that the connection is closed quickly.
@@ -484,7 +484,7 @@ class TestTcpServerStop:
                 pass  # all of these are acceptable "server is gone" signals
             c.close()
         except (TimeoutError, ConnectionRefusedError):
-            pass  # ideal case — server is no longer listening
+            pass  # ideal case, server is no longer listening
 
     def test_stop_clears_tcp_server_socket_reference(self, tmp_path, monkeypatch):
         """After stop(), the _tcp_server_socket attribute should be None
@@ -504,14 +504,14 @@ class TestTcpServerStop:
         # Before stop: _tcp_server_socket is set.
         assert server._tcp_server_socket is not None
         server.stop()
-        # After stop: cleared (or being cleared — give it a moment).
+        # After stop: cleared (or being cleared, give it a moment).
         wait_until(lambda: server._tcp_server_socket is None, timeout=1.0)
         assert server._tcp_server_socket is None, "_tcp_server_socket was not cleared after stop()"
 
 
 class TestTcpTokenUnsetFailClosed:
     """HU-39 / ADR-0014 §7: when ``VOICE_TYPER_IPC_TOKEN`` is NOT set,
-    the server must FAIL CLOSED — log an ERROR and refuse every
+    the server must FAIL CLOSED, log an ERROR and refuse every
     connection.
 
     The ADR previously claimed a "fallback mode" accepted
@@ -550,7 +550,7 @@ class TestTcpTokenUnsetFailClosed:
                 "server must log an ERROR when the token env var is unset"
             )
 
-            # Connect and send a command WITHOUT any auth line — the
+            # Connect and send a command WITHOUT any auth line, the
             # connection must be closed with no response.
             client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             client.connect(("127.0.0.1", port))

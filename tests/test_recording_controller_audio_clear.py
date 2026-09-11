@@ -5,7 +5,7 @@ transcription path).
 Pre-fix, the ONLY clear site was ``_force_recover_from_stuck_transcription``
 (recording_controller.py:1030). The normal ``stop()`` path set
 ``self._current_audio = audio`` (line 622) and relied on the NEXT
-``stop()`` call to overwrite the reference — so for a tray app where
+``stop()`` call to overwrite the reference, so for a tray app where
 the user dictates once and idles for hours, the previous dictation's
 raw voice bytes stayed in process memory the entire time. This is both
 a memory leak (1-15MB of float32 audio per dictation) and a privacy
@@ -111,7 +111,7 @@ def test_current_audio_cleared_after_stop_spawns_transcription_thread(monkeypatc
 
     # Wait for the transcription thread to start and capture the audio.
     assert pipeline_started.wait(timeout=2.0), (
-        "Transcription thread did not start within 2s — DJ-17 test setup is broken"
+        "Transcription thread did not start within 2s, DJ-17 test setup is broken"
     )
 
     # The shared slot must be None now (the thread cleared it after
@@ -186,8 +186,8 @@ def test_force_recover_clear_still_works():
     # Make the app appear busy so the recovery logic runs.
     ctrl._app._busy_event.is_set.return_value = False
     ctrl._app._cycle_id = "#3"
-    # The force-recover path also stops the watchdog thread — provide
-    # a current_thread-safe setup (None is fine — the  fix guards
+    # The force-recover path also stops the watchdog thread, provide
+    # a current_thread-safe setup (None is fine, the  fix guards
     # against None and self-join).
     ctrl._watchdog_thread = None
 

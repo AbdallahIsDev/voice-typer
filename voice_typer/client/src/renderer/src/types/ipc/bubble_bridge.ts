@@ -5,11 +5,11 @@
 // `window.bubble` to renderer code.
 //
 // Split out from the original monolithic `types/ipc.ts`.
-// No behaviour change vs. the original file — pure structural refactor.
+// No behaviour change vs. the original file, pure structural refactor.
 //
 // TypeScript merges `declare global { interface Window { ... } }` blocks
 // across files, so colocating the augmentation here (rather than in a
-// dedicated `global.d.ts`) is sound — every renderer file that imports
+// dedicated `global.d.ts`) is sound, every renderer file that imports
 // any type from `@/types/ipc/*` triggers this module's evaluation and
 // the augmentation takes effect project-wide.
 //
@@ -25,27 +25,27 @@ import type { PythonBridge, WindowBridge } from "./bridge";
 // composable types so the main renderer's `window.bubble` (typed as
 // ``MainRendererBubbleMutators`` only) gets a compile-time error if it
 // tries to call bubble-only methods OR subscribe to bubble-only events:
-//   - ``MainRendererBubbleMutators`` — the mutator subset exposed by
+//   - ``MainRendererBubbleMutators``, the mutator subset exposed by
 //     ``preload/index.ts`` (the main settings window).  Bubble-only
 //     mutators (onSetState, resizeTo, toggleDictation, onConfig,
 //     hideComplete) and ALL event subscriptions are NOT available
 //     here; callers must use ``?.``.
-//   - ``BubbleEventSubscriptions`` — the event-subscription subset
+//   - ``BubbleEventSubscriptions``, the event-subscription subset
 //     (``onLevel`` / ``onShow`` / ``onHide`` / ``onDraggable``).
 //     Separated from mutators so the Tauri bridge installer can skip
 //     wiring these on the main renderer (the main renderer has no
-//     reason to subscribe to bubble-window lifecycle events — that
+//     reason to subscribe to bubble-window lifecycle events, that
 //     was a leaky abstraction that installed dead listeners on main
 //     and silently no-op'd when the events never arrived).
-//   - ``BubbleWindowExtras`` — bubble-window-only mutators
+//   - ``BubbleWindowExtras``, bubble-window-only mutators
 //     (onSetState, resizeTo, toggleDictation, onConfig, hideComplete).
-//   - ``BubbleWindowBubble`` — the full interface exposed by
+//   - ``BubbleWindowBubble``, the full interface exposed by
 //     ``preload/bubble.ts`` (the bubble overlay window).
 //     ``MainRendererBubbleMutators & BubbleEventSubscriptions & BubbleWindowExtras``.
 //     All methods are guaranteed present.
 //
 // ``hideComplete`` was moved from the main-renderer subset to
-// ``BubbleWindowExtras`` — only the bubble renderer's exit-animation
+// ``BubbleWindowExtras``, only the bubble renderer's exit-animation
 // handler should invoke it, and exposing it on the main renderer was
 // a leaky abstraction (no main-renderer caller exists). The Electron
 // preload's exposure of `hideComplete` on main was removed in the same
@@ -60,10 +60,10 @@ import type { PythonBridge, WindowBridge } from "./bridge";
  * Mutator methods exposed by BOTH the main renderer's preload
  * (`preload/index.ts`) AND the bubble window's preload
  * (`preload/bubble.ts`). These are the only bubble methods the main
- * renderer legitimately calls — `show`, `setPosition`, `setDraggable`,
+ * renderer legitimately calls, `show`, `setPosition`, `setDraggable`,
  * `moveBy`, `signalReady`.
  *
- * `hideComplete` is NOT here — it's a bubble-window-only mutator
+ * `hideComplete` is NOT here, it's a bubble-window-only mutator
  * (see `BubbleWindowExtras`). The main renderer has no reason to call
  * "hide-complete" because the main renderer doesn't own the bubble's
  * exit-animation lifecycle.
@@ -81,7 +81,7 @@ export interface MainRendererBubbleMutators {
 	// renderer + Tauri bridge (the Electron preload
 	// `_bubble-channels.ts:101` already narrowed this; the shared
 	// type now matches). The Rust `bubble_set_position` command keeps
-	// `String` at the boundary (defense-in-depth — it validates the
+	// `String` at the boundary (defense-in-depth, it validates the
 	// value at runtime before any window move).
 	//the parameter name is `position` (matching the
 	// Tauri bridge implementation in `bubble-namespace.ts` and the
@@ -96,7 +96,7 @@ export interface MainRendererBubbleMutators {
 	show?: () => void;
 	// NOTE: ``hide`` and ``setLevel`` were intentionally removed from this
 	// main-renderer subset (intentional split residual). Neither preload implements
-	// them — ``preload/index.ts`` exposes no ``hide``/``setLevel``, and
+	// them, ``preload/index.ts`` exposes no ``hide``/``setLevel``, and
 	// ``preload/bubble.ts`` does the same.  Keeping them here would make the
 	// type over-promise a silent runtime no-op.  Bubble-window-only methods
 	// remain in ``BubbleWindowExtras`` (onSetState, resizeTo, hideComplete).
@@ -107,18 +107,18 @@ export interface MainRendererBubbleMutators {
  * Event-subscription methods for bubble lifecycle events.
  * Separated from `MainRendererBubbleMutators` so the Tauri bridge
  * installer can skip wiring these on the main renderer (where they'd
- * install dead listeners — the main renderer has no reason to listen
+ * install dead listeners, the main renderer has no reason to listen
  * to bubble-window events).
  *
  * The bubble window's preload (`preload/bubble.ts`) always installs
- * these — they're required (non-optional) on the bubble window.
+ * these, they're required (non-optional) on the bubble window.
  *
  * The fields are required (not optional) because the bubble renderer's
- * components (Bubble.tsx) call them without `?.` — the type system
+ * components (Bubble.tsx) call them without `?.`, the type system
  * enforces that the bubble preload always provides them.
  */
 export interface BubbleEventSubscriptions {
-	// Event subscriptions (bubble window → main process) — always present
+	// Event subscriptions (bubble window → main process), always present
 	// when the bubble window is loaded (exposed by the preload script)
 	onLevel: (cb: (data: { rms: number; peak: number }) => void) => () => void;
 	onShow: (cb: () => void) => () => void;
@@ -136,7 +136,7 @@ export interface BubbleEventSubscriptions {
 /**
  * Mutator methods exposed ONLY by the bubble window's
  * preload (`preload/bubble.ts`). The main renderer's preload does NOT
- * expose these — they're the bubble-window-only extensions that mirror
+ * expose these, they're the bubble-window-only extensions that mirror
  * the Electron preload's split.
  *
  * - `onSetState` / `resizeTo` / `toggleDictation` / `onConfig` were
@@ -163,11 +163,11 @@ export interface BubbleWindowExtras {
 	resizeTo: (width: number, height: number) => void;
 	// notify the host that the bubble's exit animation has
 	// finished and the window can be hidden. Only the bubble
-	// renderer's exit-animation handler should invoke this — the
+	// renderer's exit-animation handler should invoke this, the
 	// main renderer has no equivalent lifecycle.
 	hideComplete: () => void;
 	//dismiss the bubble from its own '×' button
-	// (always_visible mode only — the dismiss button is hidden in
+	// (always_visible mode only, the dismiss button is hidden in
 	// show_on_record mode). The bubble preload's `dismiss()` method
 	// sends the `bubble:dismiss` IPC; the main-process handler (in
 	// bubble-handlers.ts under Electron) routes to
@@ -180,7 +180,7 @@ export interface BubbleWindowExtras {
 	// `dismiss` via `invoke("bubble_dismiss")` in
 	// `bubble-namespace.ts`, and the Electron preload has always
 	// exposed it. The prior optional-typing (`dismiss?: () => void`)
-	// was a workaround for the missing Tauri command — the
+	// was a workaround for the missing Tauri command, the
 	// dismiss-button click handler in `Bubble.tsx` tolerated the
 	// missing method via optional chaining, silently no-op'ing under
 	// Tauri. With `bubble_dismiss` registered, the type is now
@@ -206,7 +206,7 @@ export type BubbleWindowBubble = MainRendererBubbleMutators &
 
 // Each window declares its own Window.bubble type:
 //   - Main renderer (``vite-env.d.ts``): ``bubble?: MainRendererBubbleMutators``
-//     (mutators only — no event subscriptions, no bubble-only extras)
+//     (mutators only, no event subscriptions, no bubble-only extras)
 //   - Bubble window (``Bubble.tsx``): ``bubble?: BubbleWindowBubble`` (cast)
 //
 // `python` and `window_` are exposed by the Electron preload
@@ -219,7 +219,7 @@ export type BubbleWindowBubble = MainRendererBubbleMutators &
 // under Electron, where the preload script installs the `python` /
 // `bubble` / `window_` namespaces via `contextBridge` instead. Declaring
 // it here (rather than re-casting `window as unknown as { __TAURI__?: ... }`
-// at every call site — previously duplicated in detect.ts) gives the
+// at every call site, previously duplicated in detect.ts) gives the
 // whole renderer a single typed handle. `TauriGlobal` is the minimal
 // structural type declared in `@/lib/tauri-bridge/detect` (re-exported
 // via `@/lib/tauri-bridge`).

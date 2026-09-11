@@ -1,6 +1,6 @@
 // @vitest-environment node
 /**
- * Tests for `sweepStaleLogsIn()` — Tiers 1 (age) + 2 (size fallback) of
+ * Tests for `sweepStaleLogsIn()`, Tiers 1 (age) + 2 (size fallback) of
  * the three-tier log-cleanup design.
  *
  * Pins:
@@ -11,7 +11,7 @@
  * 4. `*.lock` files are NEVER deleted.
  * 5. A missing logs dir is a silent no-op.
  *
- * Temp dirs live under `os.tmpdir()` — NEVER inside the source tree
+ * Temp dirs live under `os.tmpdir()`, NEVER inside the source tree
  * (an earlier draft created them next to this test file and its
  * `rmSync` cleanup deleted the directory it lived in).
  */
@@ -33,7 +33,7 @@ function backdateMtime(filePath: string, msAgo: number): void {
 	fs.utimesSync(filePath, target, target);
 }
 
-describe("sweepStaleLogsIn — three-tier cleanup Tiers 1 + 2", () => {
+describe("sweepStaleLogsIn, three-tier cleanup Tiers 1 + 2", () => {
 	beforeEach(() => {
 		logsDir = fs.mkdtempSync(path.join(os.tmpdir(), "vt-sweep-test-"));
 	});
@@ -68,7 +68,7 @@ describe("sweepStaleLogsIn — three-tier cleanup Tiers 1 + 2", () => {
 			oversized,
 			Buffer.alloc(LOG_SIZE_FALLBACK_BYTES + 1, 0x78),
 		);
-		// mtime is NOW — only size triggers the delete.
+		// mtime is NOW, only size triggers the delete.
 
 		sweepStaleLogsIn(logsDir);
 

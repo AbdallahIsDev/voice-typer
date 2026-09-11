@@ -8,7 +8,7 @@ own entry on completion. Under normal use (``_restore_delay_ms=150``),
 entries live ~150 ms so steady-state size is 1-2 entries. BUT:
 
   (a) ``clipboard_restore_delay_ms`` is user-configurable with no upper
-      bound — a user setting it to 5000 ms creates a 5 s window per entry.
+      bound, a user setting it to 5000 ms creates a 5 s window per entry.
   (b) If the daemon thread fails to start, a hang in ``_delayed_restore``
       leaves the entry forever.
   (c) Each entry holds a ``ClipboardSnapshot`` whose ``items`` list can
@@ -24,7 +24,7 @@ synchronously (under ``_pending_restores_lock``) BEFORE appending the
 new entry. This bounds peak RSS at ``_MAX_PENDING_RESTORES × ~16 MB ×
 N_formats`` instead of unbounded growth.
 
-These tests pin the behaviour in isolation — they call the production
+These tests pin the behaviour in isolation, they call the production
 ``ClipboardManager.paste()`` path with mocked dependencies so the cap
 logic is exercised end-to-end without actually touching the clipboard.
 """
@@ -43,7 +43,7 @@ from voice_typer.server.clipboard import (
 from tests.fixtures.clipboard_helpers import make_clipboard_manager, make_clipboard_snapshot  # noqa: E402
 
 # pynput / pynput.keyboard / pyperclip are mocked at collection time by
-# tests/clipboard/conftest.py (single source of truth —  dedup).
+# tests/clipboard/conftest.py (single source of truth, dedup).
 
 # ── Fixtures ────────────────────────────────────────────────────────────
 
@@ -78,7 +78,7 @@ class TestMaxPendingRestoresConstant:
     """Pin the constant so a future change is intentional."""
 
     def test_constant_exists_and_is_8(self) -> None:
-        """``_MAX_PENDING_RESTORES = 8`` — far above the 1-2 entries normal
+        """``_MAX_PENDING_RESTORES = 8``, far above the 1-2 entries normal
         use ever holds, but small enough that a runaway condition (leaked
         daemon thread, user-set multi-second restore delay) cannot pin
         gigabytes of snapshots (worst case ~128 MB)."""
@@ -101,7 +101,7 @@ class TestPendingRestoresCapForceRestore:
     lock) BEFORE appending the new entry."""
 
     def test_cap_not_hit_does_not_force_restore(self) -> None:
-        """When the list is below the cap, no force-restore happens — the
+        """When the list is below the cap, no force-restore happens, the
         new entry is simply appended."""
         cm = make_clipboard_manager()
         snap = make_clipboard_snapshot()
@@ -116,7 +116,7 @@ class TestPendingRestoresCapForceRestore:
             mock_time.monotonic = MagicMock(return_value=0.0)
             mock_time.sleep = MagicMock()
 
-            # Below the cap — populate the list with a few entries,
+            # Below the cap, populate the list with a few entries,
             # INCLUDING the entry we're about to restore (so the remove
             # inside _delayed_restore succeeds and snapshot.restore() runs).
             with clip_mod._pending_restores_lock:
@@ -179,7 +179,7 @@ class TestPendingRestoresCapForceRestore:
             mock_thread_instance = MagicMock()
             mock_thread_cls.return_value = mock_thread_instance
 
-            # Call paste() with a snapshot — this triggers the cap logic.
+            # Call paste() with a snapshot, this triggers the cap logic.
             cm.paste(snapshot=new_snap, pasted_text="new")
 
         # The OLDEST snapshot's restore was called exactly once (the
@@ -191,12 +191,12 @@ class TestPendingRestoresCapForceRestore:
         # the list; the new entry should be.
         with clip_mod._pending_restores_lock:
             entries = list(clip_mod._pending_restores)
-        # Check by snapshot IDENTITY — the delay field differs (0.0 for
+        # Check by snapshot IDENTITY, the delay field differs (0.0 for
         # pre-populated entries, cm._restore_delay_ms/1000 for paste()'d
         # entry) so full-tuple equality would fail. `in`/`not in` use
         # __eq__, and ClipboardSnapshot __eq__ includes captured_at, which
         # on coarse-resolution monotonic clocks (e.g. Windows ~1 ms) is
-        # identical across snapshots made in a tight loop — so every
+        # identical across snapshots made in a tight loop, so every
         # snapshot compares equal and `oldest_snap not in ...` would
         # ALWAYS fail. Compare object identity instead.
         entry_snapshots = [e[1] for e in entries]
@@ -206,7 +206,7 @@ class TestPendingRestoresCapForceRestore:
 
     def test_cap_hit_force_restore_failure_does_not_break_append(self) -> None:
         """If the force-restore raises (e.g. Win32 OpenClipboard hang), the
-        append STILL happens — we don't lose the new entry just because
+        append STILL happens, we don't lose the new entry just because
         the oldest couldn't be restored."""
         cm = make_clipboard_manager()
         new_snap = make_clipboard_snapshot()
@@ -251,7 +251,7 @@ class TestPendingRestoresCapForceRestore:
         # pre-populated entries and the paste()'d entry). `in` uses
         # __eq__, and all snapshots made in a tight loop compare equal
         # on coarse monotonic clocks (captured_at is included in
-        # __eq__) — compare object identity instead.
+        # __eq__), compare object identity instead.
         entry_snapshots = [e[1] for e in entries]
         assert any(s is new_snap for s in entry_snapshots)
         # The oldest entry was popped (force-restore attempt was made).

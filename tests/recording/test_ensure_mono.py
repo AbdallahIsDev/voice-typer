@@ -5,7 +5,7 @@ Pins the allocation/no-copy behavior of
 directly):
 
 - the stereo (2-channel) fast path returns a FRESH caller-owned array
-  (exactly one clear output allocation, aliased to nothing — neither
+  (exactly one clear output allocation, aliased to nothing, neither
   the per-thread scratch nor the input), with output bytes identical
   to the ``(L+R) / 2`` element-wise computation the scratch+copy
   revision produced;
@@ -31,7 +31,7 @@ from tests.fixtures.recorder_test_helpers import make_recorder
 
 class TestEnsureMonoNoCopyContract:
     """The downmix returns either a view of the caller's input or one
-    fresh output allocation — never a shared scratch alias."""
+    fresh output allocation, never a shared scratch alias."""
 
     def test_stereo_downmix_returns_caller_owned_array(self):
         """The stereo result must own its storage (``base is None``),
@@ -77,7 +77,7 @@ class TestEnsureMonoNoCopyContract:
 
     def test_single_column_2d_input_is_zero_copy_view(self):
         """A 2-D single-column input is reshaped to 1-D as a VIEW of
-        the input (no copy) — the other already-mono path."""
+        the input (no copy), the other already-mono path."""
         r = make_recorder()
         audio = np.array([[1.0], [2.0], [3.0]], dtype=np.float32)
         result = ensure_mono(r, audio)
@@ -95,7 +95,7 @@ class TestEnsureMonoNoCopyContract:
         assert result is not audio
 
     def test_successive_stereo_calls_do_not_share_storage(self):
-        """Each stereo call must get its own output storage — no
+        """Each stereo call must get its own output storage, no
         result may alias a previous call's result."""
         r = make_recorder()
         results = []

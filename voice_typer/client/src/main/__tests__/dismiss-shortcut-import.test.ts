@@ -35,7 +35,7 @@
  * `i18n-locale-contract.test.ts` for the same convention).
  *
  * ON LINUX (sandbox): source-text + runtime checks.
- * ON WINDOWS / macOS: same contract — the binding strings are
+ * ON WINDOWS / macOS: same contract, the binding strings are
  * platform-agnostic.
  */
 import fs from "node:fs";

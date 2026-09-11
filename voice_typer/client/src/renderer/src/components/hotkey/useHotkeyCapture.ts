@@ -19,7 +19,7 @@
  *     always-attached DOM listeners can short-circuit when idle; needed
  *     because ``state.status`` is stale inside the listener closure)
  *   - commitModifierOnlyRef, commitFullComboRef (inline-updated every
- *     render so ``handleKeyUp`` can stay stable — the commit logic
+ *     render so ``handleKeyUp`` can stay stable, the commit logic
  *     depends on unstable parent props ``mode``/``value``/
  *     ``occupiedHotkeys``/``onChange``)
  *
@@ -52,10 +52,10 @@ import {
 
 // hoist the per-platform modifier-code lookup table to module
 // scope. `getModifierCodeMap` returns a fresh 8-key object literal on
-// every call — previously allocated inside `handleKeyDown` /
+// every call, previously allocated inside `handleKeyDown` /
 // `handleKeyUp` on every keystroke (60–120 calls/sec during typing
 // bursts). `IS_MAC` is a module-load constant (it never changes at
-// runtime — the platform is fixed for the lifetime of the renderer
+// runtime, the platform is fixed for the lifetime of the renderer
 // process), so the map can be computed once at import time and shared
 // by both handlers.
 const MODIFIER_CODE_MAP: Record<string, string> = getModifierCodeMap(IS_MAC);
@@ -268,7 +268,7 @@ export function useHotkeyCapture({
 				}),
 			});
 			// Reset the held+session modifiers so the next attempt starts
-			// fresh, but DON'T call full resetCaptureSession — the user
+			// fresh, but DON'T call full resetCaptureSession, the user
 			// is still in capture mode and the countdown should keep
 			// running.
 			sessionModifiersRef.current = new Set();
@@ -357,11 +357,11 @@ export function useHotkeyCapture({
 		dispatch({ type: "SetError", error });
 	}, []);
 
-	// ── Keydown handler (stable — only depends on stable helpers) ────
+	// ── Keydown handler (stable, only depends on stable helpers) ────
 	//
 	// each pressed key is added to the appropriate
 	// ``held*`` set and the sticky ``session*`` set. No commit happens
-	// here — the candidate is finalized only when all keys are released
+	// here, the candidate is finalized only when all keys are released
 	// (see keyUp handler).
 	const handleKeyDown = useCallback(
 		(e: KeyboardEvent) => {
@@ -438,7 +438,7 @@ export function useHotkeyCapture({
 		[snapshotModifiers, buildAttemptedComboLabel],
 	);
 
-	// ── Keyup handler (stable — reads commit fns via refs) ───────────
+	// ── Keyup handler (stable, reads commit fns via refs) ───────────
 	//
 	// committing on keyUP (not keyDOWN)
 	// eliminates the capture-triggers-recording race where the backend
@@ -490,7 +490,7 @@ export function useHotkeyCapture({
 			}
 
 			// commit only when ALL non-modifier keys
-			// have been released — makes the captured combo release-order
+			// have been released, makes the captured combo release-order
 			// independent.
 			if (
 				heldNonModifiersRef.current.size === 0 &&
@@ -508,7 +508,7 @@ export function useHotkeyCapture({
 	// The parent passes stable ``useCallback`` callbacks for
 	// onCaptureStart / onCaptureEnd (verified in
 	// RecordingSettingsSection.tsx), so this effect only re-fires on
-	// actual status transitions — not on every parent re-render.
+	// actual status transitions, not on every parent re-render.
 	useEffect(() => {
 		if (state.status === "capturing") {
 			onCaptureStart?.();
@@ -518,7 +518,7 @@ export function useHotkeyCapture({
 		}
 	}, [state.status, onCaptureStart, onCaptureEnd, clearCountdown]);
 
-	// always-attached keyboard listener — NEVER re-register,
+	// always-attached keyboard listener, NEVER re-register,
 	// avoiding the race window where listeners are removed and re-added.
 	// handleKeyDown / handleKeyUp are stable (dispatch-only deps), so
 	// this effect runs once on mount.
@@ -545,7 +545,7 @@ export function useHotkeyCapture({
 
 	// Unmount cleanup: clear timers and, if we were still capturing,
 	// call onCaptureEnd so the backend ESC-cancel hotkey is resumed.
-	// ``onCaptureEnd`` is captured from the first render — safe because
+	// ``onCaptureEnd`` is captured from the first render, safe because
 	// the parent passes a stable ``useCallback`` (see
 	// RecordingSettingsSection.tsx).
 	useEffect(() => {

@@ -17,7 +17,7 @@ import type { MainState } from "../../state";
 
 describe("ER-29: source-level contracts", () => {
 	it("tcp-connect.ts exports clearTcpStartupTimeout", () => {
-		// TC-41: un-skipped — the export was re-added (stop-python.ts,
+		// TC-41: un-skipped, the export was re-added (stop-python.ts,
 		// start-python.ts and relaunch-app.ts all call it so every
 		// teardown / restart path can clear the 60s window).
 		const src = fs.readFileSync(
@@ -42,7 +42,7 @@ describe("ER-29: source-level contracts", () => {
 	});
 
 	it("stop-python.ts source imports clearTcpStartupTimeout from ./tcp-connect", () => {
-		// TC-41: un-skipped — stop-python.ts DOES call clearTcpStartupTimeout
+		// TC-41: un-skipped, stop-python.ts DOES call clearTcpStartupTimeout
 		// (after the no-proc early return) so the 60s window can't fire
 		// during teardown after the backend is already gone.
 		const src = fs.readFileSync(
@@ -56,7 +56,7 @@ describe("ER-29: source-level contracts", () => {
 	});
 
 	it("relaunch-app.ts source imports clearTcpStartupTimeout from ./tcp-connect", () => {
-		// TC-41: un-skipped — relaunchApp() clears the startup timeout as
+		// TC-41: un-skipped, relaunchApp() clears the startup timeout as
 		// its FIRST action (before arming any restart), so the 60s window
 		// can't fire mid-restart and trip a false "backend failed to start".
 		const src = fs.readFileSync(
@@ -70,7 +70,7 @@ describe("ER-29: source-level contracts", () => {
 	});
 
 	it("start-python.ts source imports clearTcpStartupTimeout (fresh 60s window on restart)", () => {
-		// TC-41: un-skipped — startPython() clears the 60s window BEFORE
+		// TC-41: un-skipped, startPython() clears the 60s window BEFORE
 		// spawning so a stale timer from the previous lifecycle can't fire
 		// mid-restart and trip a premature "backend failed to start".
 		const src = fs.readFileSync(
@@ -105,7 +105,7 @@ describe("ER-29: source-level contracts", () => {
 
 	it.skip("tcp-connect.ts uses showMainWindow() (not createWindows()) on TCP connect", () => {
 		// Skipped: tcp-connect.ts now imports createWindows (aggregator that
-		// builds all windows) instead of showMainWindow — the refactor
+		// builds all windows) instead of showMainWindow, the refactor
 		// restores ER-1 eager window creation on TCP connect.
 		const src = fs.readFileSync(
 			path.resolve(__dirname, "../tcp-connect.ts"),
@@ -137,7 +137,7 @@ describe("ER-29: source-level contracts", () => {
 		// `tcp-bridge-reset.ts` (also used by restart-backend.ts), so
 		// its timer clear lives there; relaunch-app.ts keeps the
 		// production-branch clear. Both restart paths must keep
-		// clearing the timer — count across the two files.
+		// clearing the timer, count across the two files.
 		const relaunchSrc = fs.readFileSync(
 			path.resolve(__dirname, "../relaunch-app.ts"),
 			"utf-8",
@@ -238,7 +238,7 @@ describe("ER-29 runtime: stopPython() invokes clearTcpStartupTimeout", () => {
 	});
 
 	it("stopPython() calls clearTcpStartupTimeout() when a live proc is being killed", async () => {
-		// TC-41: un-skipped — stop-python.ts calls clearTcpStartupTimeout()
+		// TC-41: un-skipped, stop-python.ts calls clearTcpStartupTimeout()
 		// (after the no-proc early return) so the 60s timer is cleared
 		// whenever a live backend is being torn down.
 		vi.resetModules();
@@ -294,7 +294,7 @@ describe("ER-26 runtime: _resetStopPythonFlagsForRestart", () => {
 			_resetStopPythonFlagsForRestart();
 			expect(mockState._stopPythonCalled).toBe(false);
 
-			// Second proc + second stopPython cycle — must NOT be a no-op.
+			// Second proc + second stopPython cycle, must NOT be a no-op.
 			const proc2 = makeMockProc();
 			proc2.pid = 5353;
 			mockState.pythonProcess = proc2 as unknown as MainState["pythonProcess"];

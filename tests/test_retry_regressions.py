@@ -2,27 +2,27 @@
 
 Covers the 8 findings I5 was asked to fix in retry mode:
 
-- CR-16    — Recorder._start_lock added; start()/discard() bodies wrapped.
+- CR-16  . Recorder._start_lock added; start()/discard() bodies wrapped.
              (REC-5 lock-existence + threading.Lock type assertions live in
-             ``tests/test_recording.py::TestRec5StartLock`` — these tests
+             ``tests/test_recording.py::TestRec5StartLock``, these tests
              cover the _runtime_ behaviour: serialised entry, no race
              crash. REC-8 source-string assertions updated to use
              ``Recorder.start`` instead of the removed ``_start_impl``.)
-- R18-F12  — Pre-roll audio is routed through the filter chain (was raw).
-- R18-F13  — XRUN threshold callback re-arms every Nth xrun; partial
+- R18-F12. Pre-roll audio is routed through the filter chain (was raw).
+- R18-F13, XRUN threshold callback re-arms every Nth xrun; partial
              chunk is dropped when PortAudio reports an xrun status.
-- R18-F14  — VAD threshold clamping (covered in test_vad_processor.py).
+- R18-F14, VAD threshold clamping (covered in test_vad_processor.py).
              One extra assertion here verifies the floor is exposed via
              the ``MIN_VAD_*`` constants.
-- R4-F10   — FilterChain.process catches filter exceptions (covered in
+- R4-F10 , FilterChain.process catches filter exceptions (covered in
              test_audio_filters.py::TestR4F10FilterChainExceptionHandling).
              One extra assertion here verifies the module-level ``log``
              exists (without it the except branch raised NameError).
-- R3-F6    — ``_dropped_level_chunks`` emits a rate-limited WARNING log
+- R3-F6  : ``_dropped_level_chunks`` emits a rate-limited WARNING log
              when the level-monitor ring buffer overflows.
-- R3-F14   — Dead ``list(_test_peak_history)`` expression removed
+- R3-F14 , Dead ``list(_test_peak_history)`` expression removed
              (verified by source-string assertion).
-- R4-F8    — Buffer-clear worker registers with the app's
+- R4-F8  , Buffer-clear worker registers with the app's
              ``ThreadRegistry``; ``_stop_buffer_clear_worker`` test-only
              helper joins cleanly.
 """
@@ -121,7 +121,7 @@ class TestStartLockRuntime:
         r.start()
         try:
             assert not r._start_lock.locked(), (
-                "start() must release _start_lock before returning — otherwise discard() from another thread deadlocks"
+                "start() must release _start_lock before returning, otherwise discard() from another thread deadlocks"
             )
         finally:
             r.stop()
@@ -220,7 +220,7 @@ class TestStartLockRuntime:
         # The lock must NEVER have had 2 concurrent holders (
         # serialization guarantee).
         assert counting._max_concurrent <= 1, (
-            f"_start_lock must serialize start()/discard() — "
+            f"_start_lock must serialize start()/discard(), "
             f"saw {counting._max_concurrent} concurrent holders (must "
             f"be ≤ 1)"
         )
@@ -281,7 +281,7 @@ class TestPreRollFiltered:
         audio callbacks from ``start()``. Because ``start()`` is called
         by ``Recorder.start()`` BEFORE ``_recording_event.set()``, the
         fired chunks flow into ``_preroll_buffer`` (via the
-        ``_audio_callback_dispatch`` early-return guard) — exactly the
+        ``_audio_callback_dispatch`` early-return guard), exactly the
         production code path, just driven by a mock stream instead of
         a real microphone."""
 
@@ -291,7 +291,7 @@ class TestPreRollFiltered:
 
             def start(self):
                 # Fire n_chunks of mock audio. These callbacks run on
-                # the test thread (synchronous) — production runs them
+                # the test thread (synchronous), production runs them
                 # on the PortAudio audio thread, but the dispatch path
                 # is identical.
                 if self._cb is None:
@@ -370,19 +370,19 @@ class TestPreRollFiltered:
         r.start()
         try:
             # The mock stream fired n_preroll_chunks callbacks during
-            # start() — those chunks should have been captured by
+            # start(), those chunks should have been captured by
             # _preroll_buffer. Verify the buffer was populated (the
             # clear at L1311 happens BEFORE stream.start(), so the
             # fired chunks survive).
             assert len(r._preroll_buffer) >= n_preroll_chunks or len(r._audio_pipeline._buffer) >= n_preroll_chunks, (
-                f"pre-roll chunks not captured — preroll_buffer has "
+                f"pre-roll chunks not captured, preroll_buffer has "
                 f"{len(r._preroll_buffer)}, buffer has {len(r._audio_pipeline._buffer)}"
             )
 
             # start() should have called process_chunk once per pre-roll
             # chunk (R18-F12). Pre-fix, the count was 0. process_chunk
             # runs on the ASYNC audio worker thread draining the ring
-            # buffer — wait (bounded, event-free) for it to drain all
+            # buffer, wait (bounded, event-free) for it to drain all
             # fired chunks before pinning the exact count, else a slow
             # CI worker races the assert (observed: 3 of 5 on a loaded
             # ubuntu runner).
@@ -390,7 +390,7 @@ class TestPreRollFiltered:
             while processor.process_chunk.call_count < n_preroll_chunks and time.monotonic() < deadline:
                 time.sleep(0.05)
             assert processor.process_chunk.call_count == n_preroll_chunks, (
-                f"R18-F12: pre-roll must be filtered — expected "
+                f"R18-F12: pre-roll must be filtered, expected "
                 f"{n_preroll_chunks} process_chunk calls, got "
                 f"{processor.process_chunk.call_count}. Pre-fix the "
                 f"pre-roll bypassed the filter chain."
@@ -405,7 +405,7 @@ class TestPreRollFiltered:
             # The buffer should contain the FILTERED chunks (scaled by
             # 0.5), not the raw chunks (0.3 amplitude).
             assert len(r._audio_pipeline._buffer) >= n_preroll_chunks, (
-                f"pre-roll chunks must be prepended to the buffer — "
+                f"pre-roll chunks must be prepended to the buffer, "
                 f"expected >= {n_preroll_chunks}, got {len(r._audio_pipeline._buffer)}"
             )
             # Verify at least one prepended chunk has the filtered
@@ -469,14 +469,14 @@ class TestPreRollFiltered:
             # Raw chunk (0.3 amplitude) was stored because filter failed.
             # Accept the chunk in either buffer: the mock stream fires
             # synchronously during start(), and depending on scheduling
-            # the prepend to ``_buffer`` may not have run yet — mirror
+            # the prepend to ``_buffer`` may not have run yet, mirror
             # the sibling test's either-or robustness (R18-F12).
             stored_chunks = list(r._preroll_buffer) or list(r._audio_pipeline._buffer)
             assert len(stored_chunks) >= 1, "raw pre-roll chunk must be stored on filter failure"
             first_chunk = stored_chunks[0]
             max_abs = float(np.max(np.abs(first_chunk)))
             assert 0.25 < max_abs < 0.35, (
-                f"raw pre-roll chunk (0.3) must be stored when filter raises — got {max_abs:.3f}"
+                f"raw pre-roll chunk (0.3) must be stored when filter raises, got {max_abs:.3f}"
             )
         finally:
             r.stop()
@@ -586,7 +586,7 @@ class TestXrunReArm:
 
             # The xrun chunk must NOT be in the buffer.
             assert len(r._audio_pipeline._buffer) == buffer_len_before, (
-                f"R18-F13: partial chunk on xrun status must be dropped — "
+                f"R18-F13: partial chunk on xrun status must be dropped, "
                 f"buffer was {buffer_len_before}, now {len(r._audio_pipeline._buffer)}. "
                 f"Pre-fix the corrupted chunk was stored."
             )
@@ -615,7 +615,7 @@ class TestXrunReArm:
             _drain_ring_buffer(r)
 
             assert len(r._audio_pipeline._buffer) == buffer_len_before + 1, (
-                f"clean chunk (status=0) must be appended — buffer was "
+                f"clean chunk (status=0) must be appended, buffer was "
                 f"{buffer_len_before}, now {len(r._audio_pipeline._buffer)}"
             )
             assert r._xruns == 0, "no xrun when status=0"
@@ -703,7 +703,7 @@ class TestDroppedLevelChunksLog:
 
         # Clean slate: an earlier file in the same xdist worker can leak a
         # live level monitor; without this stop, start_monitoring() below
-        # takes the "Already monitoring — no-op" branch, never constructs
+        # takes the "Already monitoring, no-op" branch, never constructs
         # the (captured) stream, and holder["cb"] stays None.
         with contextlib.suppress(Exception):
             lm.stop_monitoring()
@@ -765,7 +765,7 @@ class TestDroppedLevelChunksLog:
         import voice_typer.server.level_monitor as lm
         from voice_typer.server.log_rate_limit import reset as reset_rate_limit
 
-        # Clean slate — see the ring-overflow test above.
+        # Clean slate: see the ring-overflow test above.
         with contextlib.suppress(Exception):
             lm.stop_monitoring()
         reset_rate_limit()

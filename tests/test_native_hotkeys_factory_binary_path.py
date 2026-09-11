@@ -5,7 +5,7 @@ and SHA-256-verifies a native binary Path, then MUST forward that
 verified Path to each platform backend's constructor via
 ``binary_path=``. Pre-fix the factory discarded the verified Path
 and the backend's ``__init__`` re-ran ``get_native_binary_path()``
-from scratch — a TOCTOU window between the factory's verification
+from scratch, a TOCTOU window between the factory's verification
 and the backend's spawn, plus a wasted lookup.
 
 Post-fix: ``MacNativeHotkey`` / ``WindowsHookHotkey`` /
@@ -26,7 +26,7 @@ These tests pin the contract by:
 3. Calling ``factory.create_native_backend("<f8>")``.
 4. Asserting the returned backend's ``_binary_path`` attribute is
    referentially identical to the sentinel Path the factory
-   verified — i.e. the backend did NOT re-discover via
+   verified, i.e. the backend did NOT re-discover via
    ``get_native_binary_path()``.
 """
 
@@ -38,15 +38,15 @@ from pathlib import Path
 import pytest
 
 # Hint for xdist schedulers that respect ``xdist_group`` (loadgroup /
-# loadscope): pin every test in this module — and its siblings
+# loadscope): pin every test in this module, and its siblings
 # ``test_binary_path_caching.py``,
 # ``test_native_hotkeys_binary_path.py`` and
-# ``tests/tauri/test_native_binary_path_tauri.py`` — onto a single
+# ``tests/tauri/test_native_binary_path_tauri.py``, onto a single
 # worker. All four exercise ``get_native_binary_path``'s process-wide
 # ``lru_cache(maxsize=1)`` (cleared between tests by the conftest
 # autouse cache-reset fixture); grouping them on one worker is
 # defense-in-depth for that shared cache. xdist's default ``load``
-# scheduler does NOT strictly honor this marker — it is a hint, not a
+# scheduler does NOT strictly honor this marker, it is a hint, not a
 # correctness guarantee. No-op when xdist isn't active. (C-TEST-5.)
 pytestmark = pytest.mark.xdist_group("native_binary_path")
 
@@ -150,7 +150,7 @@ class TestFactoryForwardsVerifiedBinaryPath:
 
         monkeypatch.setattr(factory_mod, "get_native_binary_path", lambda: None)
         # If the factory accidentally falls through, this verifier
-        # would be called with None — make it explode so the test
+        # would be called with None, make it explode so the test
         # fails loudly instead of silently returning a backend.
         monkeypatch.setattr(
             factory_mod,
@@ -165,7 +165,7 @@ class TestFactoryForwardsVerifiedBinaryPath:
     def test_factory_returns_none_when_verification_fails(self, monkeypatch, tmp_path, clean_native_env):
         """Regression guard: when ``verify_native_binary_or_skip``
         returns ``False`` the factory must short-circuit and return
-        ``None`` — never hand a tampered binary to a backend."""
+        ``None``, never hand a tampered binary to a backend."""
         from voice_typer.server.native_hotkeys import factory as factory_mod
 
         bad = tmp_path / "linux-key-listener-x86_64"
@@ -195,7 +195,7 @@ class TestFactoryForwardsVerifiedBinaryPath:
             call_count["n"] += 1
             # First call (factory) returns the sentinel; any subsequent
             # call (e.g. a buggy base.__init__ re-discovery) returns
-            # the decoy — which would make the test fail below.
+            # the decoy, which would make the test fail below.
             return sentinel if call_count["n"] == 1 else decoy
 
         from voice_typer.server.native_hotkeys import factory as factory_mod
@@ -214,13 +214,13 @@ class TestFactoryForwardsVerifiedBinaryPath:
         assert backend._binary_path == sentinel, (
             f"backend._binary_path must be the factory's first-call sentinel "
             f"({sentinel}); got {backend._binary_path!r}. This means the base "
-            f"class __init__ re-called get_native_binary_path() — the "
+            f"class __init__ re-called get_native_binary_path(), the "
             f"XZ-R6-NH-02 regression."
         )
         # Sanity: get_native_binary_path was called exactly once
         # (by the factory). A second call would indicate re-discovery.
         assert call_count["n"] == 1, (
             f"get_native_binary_path must be called exactly once (by the "
-            f"factory); got {call_count['n']} calls — base.__init__ is "
+            f"factory); got {call_count['n']} calls, base.__init__ is "
             f"re-discovering the binary."
         )

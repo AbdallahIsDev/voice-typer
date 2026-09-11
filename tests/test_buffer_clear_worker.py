@@ -54,7 +54,7 @@ def _drain_queue(timeout: float = 5.0) -> None:
     from voice_typer.server.recording import _buffer_clear_queue
 
     if not _buffer_clear_queue.unfinished_tasks:
-        # Already drained — nothing to wait for.
+        # Already drained, nothing to wait for.
         return
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -219,7 +219,7 @@ def test_queue_full_fallback_clears_synchronously(monkeypatch):
     monkeypatch.setattr(real_queue, "put_nowait", always_full)
     # Bypass lazy-start so we don't depend on worker state. The consumer
     # reads its OWN module global (C-ARCH-2 owning-module shape), so the
-    # patch must target recording.buffer — patching the package re-export
+    # patch must target recording.buffer, patching the package re-export
     # would be a silent no-op.
     monkeypatch.setattr(buffer_mod, "_ensure_buffer_clear_worker", lambda: None)
 
@@ -235,7 +235,7 @@ def test_queue_full_fallback_clears_synchronously(monkeypatch):
 
 
 # ────────────────────────────────────────────────────────────────────────────
-# public API shape preserved — function accepts a deque and returns None.
+# public API shape preserved, function accepts a deque and returns None.
 # ────────────────────────────────────────────────────────────────────────────
 def test_public_api_signature_preserved():
     """the public callable ``_secure_clear_array_background(buf)``

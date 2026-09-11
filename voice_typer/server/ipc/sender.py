@@ -3,20 +3,20 @@
 Extracted from the original ``voice_typer/server/ipc_server.py``
 god-module. Contains:
 
-- :data:`_SHUTDOWN_ALLOWLIST` — push-event types that bypass the
+- :data:`_SHUTDOWN_ALLOWLIST`: push-event types that bypass the
   shutdown suppress.
 - :data:`_TCP_PENDING_DRAIN_CAP` / :data:`_TCP_PENDING_BUFFER_CAP` —
   pending-buffer tuning constants hoisted from inline magic numbers in
   ``_send``.
-- :class:`_LazyInt` — deferred ``int`` wrapper used to avoid eager
+- :class:`_LazyInt`: deferred ``int`` wrapper used to avoid eager
   ``len(str(msg))`` stringification on the no-client push-event path
   (deferred lazy `int`). The wrapper's ``__int__`` is only invoked when the logging
   framework actually renders the format string, so the recursive
   ``dict.__str__`` cost is paid ONLY when the rate limiter decides to
   emit (1st + every 100th occurrence at INFO; suppressed occurrences
-  are zero-cost when DEBUG is disabled — the framework short-circuits
+  are zero-cost when DEBUG is disabled, the framework short-circuits
   before formatting).
-- :class:`OutputMixin` — the ``push``, ``_send`` and
+- :class:`OutputMixin`: the ``push``, ``_send`` and
   ``_send_error_envelope`` methods mixed into :class:`IPCServer`.
 
 The mixin accesses instance state (``self._lock``, ``self._tcp_client``,
@@ -39,18 +39,18 @@ from voice_typer.server.log_rate_limit import log_rate_limited
 
 # Module-level frozenset of push-event ``type`` values that MUST be
 # delivered to the host even when ``_cached_shutting_down`` is True. The
-# set is intentionally small — only events whose loss the user would
+# set is intentionally small, only events whose loss the user would
 # perceive as data loss or a stuck restart:
 #
 # - ``relaunch_app``: the restart signal from ``restart_app()``. If this
 #   is suppressed, the host never relaunches and the user's "Restart" tray
-#   click silently does nothing (CRITICAL — see the comment in ``_send``
+#   click silently does nothing (CRITICAL: see the comment in ``_send``
 #   for the full chain).
-# - ``quit_app``: the quit signal from ``quit()``. Same reasoning — the
+# - ``quit_app``: the quit signal from ``quit()``. Same reasoning, the
 #   host needs this to tear down its Python-side state cleanly.
 # - ``transcription_final``: the final transcription text. If suppressed,
 #   the user sees no result on the Home page (data IS in history_db but
-#   the UI never updates — perceived as data loss).
+#   the UI never updates, perceived as data loss).
 # - ``transcription_partial``: same as above for partial results during
 #   streaming dictation.
 # - ``vocabulary_suggestion``: vocabulary suggestion the user is waiting
@@ -65,7 +65,7 @@ from voice_typer.server.log_rate_limit import log_rate_limited
 # pair to include the content-bearing events above.
 # dispatch responses (which carry an ``id`` field) are
 # exempted from the shutdown suppress by a separate ``"id" not in msg``
-# check in ``_send`` — they are NOT in this allowlist because the allowlist
+# check in ``_send``: they are NOT in this allowlist because the allowlist
 # is for PUSH events only (no ``id``).
 _SHUTDOWN_ALLOWLIST: frozenset[str] = frozenset(
     {
@@ -82,14 +82,14 @@ _SHUTDOWN_ALLOWLIST: frozenset[str] = frozenset(
 # (``_TCP_WRITE_TIMEOUT_SECONDS`` in ``ipc/rate_limiter.py``). Both
 # constants trade memory for catch-up latency on client reconnect:
 #
-# * ``_TCP_PENDING_DRAIN_CAP`` — max number of buffered push events we
+# * ``_TCP_PENDING_DRAIN_CAP``: max number of buffered push events we
 #   attempt to flush in a single ``_send`` call after a client
 #   reconnect.  Larger = slower reconnect (each push is one
 #   ``write+flush`` syscall on the audio thread); smaller = more
 #   events silently dropped.  100 ~= ~6 s of waveform-bubble level
 #   events at 16 Hz, which is the upper bound of what the renderer
 #   can plausibly catch up on without jank.
-# * ``_TCP_PENDING_BUFFER_CAP`` — hard cap on ``_pending_tcp`` size
+# * ``_TCP_PENDING_BUFFER_CAP``: hard cap on ``_pending_tcp`` size
 #   while the client is disconnected.  When the cap is hit we drop the
 #   OLDEST entries (they are stale waveform-bubble events; the
 #   authoritative transcription-final events are persisted to
@@ -104,7 +104,7 @@ _TCP_PENDING_BUFFER_CAP: int = 1000
 # handler that returns an enormous dict (e.g. an unbounded history
 # query, a diagnostics export with a full log tail) cannot OOM the
 # client by writing a multi-MB JSON line that the kernel send buffer
-# has to swallow. Pre-fix the TCP path had no cap — the WS path
+# has to swallow. Pre-fix the TCP path had no cap, the WS path
 # rejected oversized frames at the transport layer (``serve(...,
 # max_size=...)``) but the TCP path's ``tcp_client.write(line + "\n")``
 # would happily block the worker thread on a 100-MB send.
@@ -119,7 +119,7 @@ class _LazyInt:
     Python evaluates function arguments before the call, the recursive
     ``dict.__str__`` (which stringifies every value in the message
     dict, including the partial transcription text) ran on EVERY
-    dropped push event — even though the rate limiter suppressed
+    dropped push event, even though the rate limiter suppressed
     99/100 of the resulting log lines.
 
     Wrapping the computation in ``_LazyInt`` defers ``len(str(msg))``
@@ -129,7 +129,7 @@ class _LazyInt:
 
     * INFO level-emit (1st + every 100th occurrence): rendered.
     * DEBUG suppressed occurrence: rendered only when DEBUG is
-      enabled (default: disabled) — zero cost otherwise.
+      enabled (default: disabled), zero cost otherwise.
     * Both INFO and DEBUG disabled: zero cost (no LogRecord is
       created, so no formatting happens).
 
@@ -167,11 +167,11 @@ class _PendingBuffer(deque):
     (``self._pending_tcp = _undrained + self._pending_tcp`` and
     ``self._pending_tcp = pending + self._pending_tcp``) so a ``list`` on
     the left of ``+`` returns a new ``_PendingBuffer`` with the merged
-    contents — Python falls back to ``__radd__`` because ``list.__add__``
+    contents, Python falls back to ``__radd__`` because ``list.__add__``
     returns ``NotImplemented`` for a non-list right operand. This
     preserves the exact source-string patterns the re-merge tests pin.
     Test fixtures that bypass ``__init__`` and assign a plain ``list``
-    to ``_pending_tcp`` continue to work — ``list + list`` returns a
+    to ``_pending_tcp`` continue to work, ``list + list`` returns a
     ``list`` (no ``__radd__`` is invoked), matching the pre-fix
     behavior.
 
@@ -203,7 +203,7 @@ class _PendingBuffer(deque):
 
     def __eq__(self, other: object) -> bool:  # type: ignore[override]
         # ``deque.__eq__`` returns ``NotImplemented`` for non-deque
-        # operands, which Python then treats as identity comparison — so
+        # operands, which Python then treats as identity comparison, so
         # ``_PendingBuffer() == []`` would be ``False`` without this
         # override. Test fixtures (``tests/server/test_tcp_io.py`` and
         # ``tests/test_ipc_server.py``) assert ``_pending_tcp == []``
@@ -220,7 +220,7 @@ class _PendingBuffer(deque):
             # deque's default ``__delitem__`` raises TypeError on slices.
             # Support the ``del d[:n]`` (drop oldest n) and ``del d[-n:]``
             # (drop newest n) patterns used by the cap-drop logic in
-            # ``_send``. Convert to list, delete, and rebuild — O(N) but
+            # ``_send``. Convert to list, delete, and rebuild, O(N) but
             # dead code when ``maxlen`` is set (the deque never exceeds
             # ``maxlen`` so the ``len > cap`` guard never trips).
             items = list(self)
@@ -252,7 +252,7 @@ def _await_socket_writable(conn) -> None:
 
     Cross-check: some sandboxed Linux environments (certain container
     runtimes, network-shim proxies) have a broken writable-fd
-    ``select`` syscall — ``select.select`` returns empty even when
+    ``select`` syscall, ``select.select`` returns empty even when
     the socket is writable. To avoid spurious timeouts on those
     platforms, when ``select.select`` reports NOT writable we
     cross-check with ``select.poll`` (a separate syscall unaffected
@@ -262,7 +262,7 @@ def _await_socket_writable(conn) -> None:
     Fallback: if ``select.select`` raises (closed fd, exotic socket
     type that doesn't support ``fileno()``, etc.), we treat the
     socket as writable and let the subsequent ``sendall`` raise the
-    real error (broken pipe / EBADF) — the dead-client path runs
+    real error (broken pipe / EBADF), the dead-client path runs
     either way. All stdlib socket types (including
     ``ssl.SSLSocket``) expose ``fileno()`` and work with
     ``select.select``; the fallback only triggers for genuinely
@@ -273,7 +273,7 @@ def _await_socket_writable(conn) -> None:
             ``_TCP_WRITE_TIMEOUT_SECONDS`` seconds (both
             ``select.select`` and ``select.poll`` reported
             not-writable). The caller's ``except (TimeoutError,
-            OSError)`` block catches this — ``socket.timeout`` is an
+            OSError)`` block catches this, ``socket.timeout`` is an
             alias for ``TimeoutError`` in Python 3.10+ and is also a
             subclass of ``OSError``.
     """
@@ -281,12 +281,12 @@ def _await_socket_writable(conn) -> None:
         _r, w, _x = select.select([], [conn], [], _TCP_WRITE_TIMEOUT_SECONDS)
     except (OSError, ValueError, TypeError, AttributeError):
         # ``select.select`` raises on closed/invalid fds or exotic
-        # socket types — treat as writable so the subsequent
+        # socket types, treat as writable so the subsequent
         # ``sendall`` raises the real error (broken pipe / EBADF).
         return
     if w:
         return
-    # Cross-check with ``select.poll`` — some sandboxed Linux envs
+    # Cross-check with ``select.poll``: some sandboxed Linux envs
     # have a broken writable-fd ``select`` syscall. ``poll`` is a
     # separate syscall and is unaffected by the same sandbox bugs.
     try:
@@ -350,12 +350,12 @@ class OutputMixin:
             ``None`` skips ``id`` propagation (push-event / unsolicited
             error path).
         _client:
-            Optional local TCP client reference — forwarded to
+            Optional local TCP client reference, forwarded to
             :meth:`_send` so a concurrent fast-auth reconnect that
             reassigns ``self._tcp_client`` cannot redirect the error to
             the wrong socket.
         _out:
-            Optional stdout sink — forwarded to :meth:`_send` for the
+            Optional stdout sink, forwarded to :meth:`_send` for the
             legacy stdin/stdout transport.
         """
         err: dict[str, object] = {
@@ -390,14 +390,14 @@ class OutputMixin:
                 1. Under the lock: snapshot the current client / mode / pending
                    list.  This is the only section that needs mutual exclusion.
                 2. Outside the lock: serialize the message, perform the actual
-        ``sendall`` (with a write timeout — ), and drain
+        ``sendall`` (with a write timeout, ), and drain
                    the pending list.  A slow client can no longer block other
                    dispatchers.
 
         the optional ``_client`` parameter lets a TCP
                 dispatch loop write its response to the LOCAL client it
                 authenticated (captured at the top of the loop) rather than
-                ``self._tcp_client`` — which may have been reassigned to a
+                ``self._tcp_client``: which may have been reassigned to a
                 newer connection by a concurrent fast-auth client (SEC-8 race).
                 Defaults to ``None`` (fall back to ``self._tcp_client``) so the
                 push-event path (``server.push()``) and existing call sites are
@@ -418,7 +418,7 @@ class OutputMixin:
             tcp_mode = self._tcp_mode
             # snapshot the pending list ONLY when we have
             # a connected client to drain it to. When ``tcp_client`` is
-            # None (disconnected), the snapshot+clear is skipped — the
+            # None (disconnected), the snapshot+clear is skipped, the
             # tcp_mode branch below appends the new line to the in-memory
             # buffer instead. This eliminates the FIFO race () at
             # its root: with no snapshot+clear, no other thread can
@@ -442,7 +442,7 @@ class OutputMixin:
         line = json.dumps(msg, ensure_ascii=False, separators=(",", ":"))
 
         if out is not None:
-            # Stdin/stdout mode — used in tests and the legacy console
+            # Stdin/stdout mode, used in tests and the legacy console
             # script.  Writes to a TextIO are typically fast (pipe to
             # Electron parent), but still don't need the lock.
             out.write(line + "\n")
@@ -450,13 +450,13 @@ class OutputMixin:
             return
 
         if tcp_client is not None:
-            # Pre-encode the line ONCE — the same ``line_bytes`` is
+            # Pre-encode the line ONCE, the same ``line_bytes`` is
             # reused for both the size-cap check (below) AND the actual
             # ``tcp_client.write(line_bytes)`` call (further down).
             # Pre-fix the size check encoded via
             # ``len(line.encode("utf-8"))`` (discarding the bytes) and
             # ``_TCPLineIO.write`` re-encoded the str on the write
-            # path — 2× UTF-8 encode work per outbound frame. The
+            # path, 2× UTF-8 encode work per outbound frame. The
             # ``write`` method accepts ``bytes`` directly and skips the
             # re-encode when given pre-encoded input.
             line_bytes = (line + "\n").encode("utf-8")
@@ -471,17 +471,17 @@ class OutputMixin:
             # ``_tcp_write_lock`` acquisition so an oversized frame doesn't
             # serialize behind a slow in-flight write. ``return`` (not
             # ``continue``) so the undrained ``pending`` snapshot is
-            # re-merged below — same path as the post-write re-merge when
+            # re-merged below, same path as the post-write re-merge when
             # the client write fails.
             if len(line_bytes) > _TCP_MAX_OUTBOUND_BYTES:
                 log.error(
-                    "[IPC] outbound TCP frame exceeds %d bytes — dropping",
+                    "[IPC] outbound TCP frame exceeds %d bytes, dropping",
                     _TCP_MAX_OUTBOUND_BYTES,
                 )
                 # re-merge the pending snapshot so the dropped
                 # frame's would-be-drained entries survive for the next
                 # reconnect (mirrors the re-merge after a write failure).
-                # The dropped frame itself is NOT re-merged — it would
+                # The dropped frame itself is NOT re-merged, it would
                 # just be dropped again on the next attempt.
                 if pending:
                     _pending_cap_drop = _TCP_PENDING_BUFFER_CAP
@@ -538,7 +538,7 @@ class OutputMixin:
             # Allow critical shutdown events through; suppress others.
             # expanded allowlist to include content-bearing events
             # that the user is waiting for. transcription_final carries the
-            # final transcription text — if it's suppressed during shutdown,
+            # final transcription text, if it's suppressed during shutdown,
             # the user sees no result on the Home page and perceives data loss
             # (the data IS saved to history_db, but the UI never updates).
             # transcription_partial and vocabulary_suggestion are similarly
@@ -549,13 +549,13 @@ class OutputMixin:
             # EVERY ``_send`` call (15-50 Hz waveform-bubble push rate →
             # 15-50 tuple allocations/sec). Hoisted to the module-level
             # ``_SHUTDOWN_ALLOWLIST`` frozenset constant near
-            # ``_READONLY_COMMANDS`` — eliminates the per-call allocation
+            # ``_READONLY_COMMANDS``: eliminates the per-call allocation
             # entirely. ``frozenset`` membership test is O(1) (same as
             # ``tuple.__contains__`` for short tuples, but no allocation
             # overhead).
             _shutdown_allowlist = _SHUTDOWN_ALLOWLIST
             # dispatch responses (which carry an ``id`` field)
-            # MUST be exempted from the shutdown suppress — otherwise the
+            # MUST be exempted from the shutdown suppress, otherwise the
             # client waits forever for a response to an in-flight request
             # that the server has already processed. Only push events
             # (no ``id``) are suppressed; they are replayed via state
@@ -618,7 +618,7 @@ class OutputMixin:
             # the kernel send-buffer level, corrupting the JSON-lines
             # protocol. The dedicated write lock (separate from
             # ``self._lock``, which guards only the snapshot phase)
-            # serializes ONLY writers — a slow client blocks other
+            # serializes ONLY writers, a slow client blocks other
             # writers, but not other dispatchers' snapshots or the
             # read path. The 2s write timeout bounds the stall.
             # Without the settimeout/restore dance there is no
@@ -628,7 +628,7 @@ class OutputMixin:
             # written to the client (either because they exceeded the
             # drain cap or because the drain failed mid-way). They are
             # re-merged into ``_pending_tcp`` after the write block so
-            # the next reconnect's drain can pick them up — previously
+            # the next reconnect's drain can pick them up, previously
             # up to 900 of 1000 pending events could be silently lost
             # per ``_send`` call when the drain cap was hit, and the
             # ENTIRE pending snapshot was lost when the first write
@@ -649,7 +649,7 @@ class OutputMixin:
                     _drain_cap = _TCP_PENDING_DRAIN_CAP
                     if pending:
                         # split the snapshot into ``older`` (the
-                        # entries that exceed the drain cap — these are
+                        # entries that exceed the drain cap, these are
                         # NEVER attempted) and ``recent`` (the last
                         # ``_drain_cap`` entries that we'll try to write).
                         # If the drain fails mid-``recent``, the
@@ -669,7 +669,7 @@ class OutputMixin:
                         # the old per-entry ``write+flush`` pattern, a
                         # full drain (100 entries) issued 100 separate
                         # ``sendall`` syscalls under ``_tcp_write_lock``
-                        # — plus 1 for the current line = 101 syscalls
+                        # , plus 1 for the current line = 101 syscalls
                         # per ``_send`` call. The batched-flush pattern
                         # collapses those 100 drain syscalls into 1,
                         # reducing the total to 2 (1 for the current
@@ -714,7 +714,7 @@ class OutputMixin:
                             # flush failure) don't leak into the next
                             # ``_send`` call. The undrained entries are
                             # re-merged from ``recent[_drain_failed_at:]``
-                            # below — for the per-entry failure case the
+                            # below, for the per-entry failure case the
                             # entries at indices ``[0:_drain_failed_at)``
                             # were buffered but not sent (real
                             # ``_TCPLineIO.write`` never raises so this
@@ -740,7 +740,7 @@ class OutputMixin:
                     # could run, so the ENTIRE ``pending`` snapshot is
                     # undrained. Re-merge it so the next reconnect's drain
                     # can pick it up (previously the whole snapshot was
-                    # silently dropped here — up to 1000 queued push
+                    # silently dropped here, up to 1000 queued push
                     # events lost per write failure).
                     if pending:
                         _undrained = list(pending)
@@ -786,14 +786,14 @@ class OutputMixin:
                 # in this tcp_mode branch (the snapshot only runs when
                 # ``tcp_client is not None``, which short-circuits to
                 # the earlier write-and-drain path). The re-merge is kept
-                # DEFENSIVELY — if a future change re-introduces an
+                # DEFENSIVELY, if a future change re-introduces an
                 # unconditional snapshot, the FIFO order is preserved:
                 # snapshot events (oldest) first, then any events a
                 # concurrent thread appended between our snapshot+clear
                 # and this re-acquire, then the new line (newest). The
                 # previous buggy sequence (extend-then-append) placed OLD
                 # snapshot events AFTER the concurrent thread's NEW event
-                # — violating FIFO publish order.
+                # , violating FIFO publish order.
                 if pending:
                     self._pending_tcp = pending + self._pending_tcp + [line]
                 else:
@@ -824,7 +824,7 @@ class OutputMixin:
         #
         # 2. Brief disconnect during normal Electron use: the
         #    client is reconnecting.  INFO-level logging here
-        #    is mildly noisy but bounded — the rate of push
+        #    is mildly noisy but bounded, the rate of push
         #    events is dominated by waveform bubbles which are
         #    already capped by the audio callback.  Acceptable
         #    trade-off vs. diagnostic value.
@@ -849,7 +849,7 @@ class OutputMixin:
                 every_n=100,
             )
         else:
-            # never log the message body — push events include
+            # never log the message body, push events include
             # transcription text (``transcription_partial`` /
             # ``transcription_final``) which is user PII.  Log only the
             # type and a size hint so the operator can see drop rate
@@ -859,7 +859,7 @@ class OutputMixin:
             # transcription (mic still recording, hotkeys still firing)
             # produces a steady stream of push events. The previous
             # unconditional ``log.info`` per drop could emit thousands
-            # of lines per minute — saturating the rotating log handler
+            # of lines per minute, saturating the rotating log handler
             # and obscuring genuine errors. Rate-limit to the 1st and
             # every 100th occurrence; suppressed occurrences go to
             # DEBUG with a "(suppressed occurrence N)" suffix so they
@@ -872,7 +872,7 @@ class OutputMixin:
             # framework actually renders the format string. The rate
             # limiter suppresses 99/100 calls, but the eager
             # ``len(str(msg))`` was computed BEFORE the limiter
-            # decided whether to emit — so the stringification ran on
+            # decided whether to emit, so the stringification ran on
             # every dropped push event even when DEBUG was disabled
             # (the suppressed-occurrence path's ``logger.debug`` call
             # short-circuits before formatting, but the arg was
@@ -903,7 +903,7 @@ __all__ = [
     "_TCP_MAX_OUTBOUND_BYTES",
     # exported so ``ipc_server.IPCServer.__init__`` can construct the
     # bounded FIFO buffer for ``_pending_tcp`` (replaces the previous
-    # ``list[str]`` — see the class docstring for the deque-with-maxlen
+    # ``list[str]``: see the class docstring for the deque-with-maxlen
     # rationale).
     "_PendingBuffer",
     # exported so tests can verify the lazy-evaluation contract

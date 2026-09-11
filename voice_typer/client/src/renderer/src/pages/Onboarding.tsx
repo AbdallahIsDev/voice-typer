@@ -1,4 +1,4 @@
-// OnboardingPage — composition root for the first-run wizard.
+// OnboardingPage, composition root for the first-run wizard.
 //
 // This file was an 884-line monolith with 6 inline step components,
 // wizard state, and a permissions-probe lifecycle all living in one
@@ -18,7 +18,7 @@
 // Continue-Get Started with the per-step advancement gates), and the
 // skip confirmation dialog. The `export default function OnboardingPage`
 // signature is unchanged so App.tsx routing and existing tests continue
-// to work. Pure structural refactor — no behavior changes.
+// to work. Pure structural refactor, no behavior changes.
 //
 // Cancelled-flag contract (async effects): every async effect in this
 // wizard follows the canonical guard pattern so no setState lands after
@@ -116,7 +116,7 @@ export default function OnboardingPage({
 	} = usePermissionsProbe(step?.step_name, selectedHotkey);
 
 	//voice_biometric_consent gate on the Done step (extracted to
-	// ./onboarding/hooks/useDoneStepConsent.ts — probe, persist,
+	// ./onboarding/hooks/useDoneStepConsent.ts, probe, persist,
 	// revert-on-failure).
 	const { consentAccepted, consentPersisting, handleConsentToggle } =
 		useDoneStepConsent(step?.step_name);
@@ -182,7 +182,7 @@ export default function OnboardingPage({
 	const isDoneStep = step.step_name === DONE_STEP_NAME;
 	//when no microphones are detected the Microphone step
 	// shows a Refresh button instead of the Select dropdown, but
-	// Continue remained enabled — the user could click it and advance
+	// Continue remained enabled, the user could click it and advance
 	// with an empty `selectedMic`, silently bypassing mic selection
 	// (the backend's `onboarding_set_microphone` accepts a null
 	// mic_id and falls back to system default, but the user has no
@@ -219,7 +219,7 @@ export default function OnboardingPage({
 	const defaultHotkeyLabel = formatHotkey(HOTKEY_DEFAULT);
 	// mirror the hotkey hint pattern for the Model step. The wizard
 	// NO LONGER pre-selects a default model (MODEL_DEFAULT is the empty
-	// "no model selected" sentinel — the app has no concrete default),
+	// "no model selected" sentinel, the app has no concrete default),
 	// so there is no default to advertise; the hint only renders when a
 	// real default exists (kept for future-proofing / legacy configs).
 	const showDefaultModelHint =
@@ -238,7 +238,7 @@ export default function OnboardingPage({
 	const showDefaultMicHint =
 		step.step_name === "Microphone" && !!selectedDefaultMic;
 	const defaultMicLabel = selectedDefaultMic?.name ?? "";
-	//defensive — disable Continue on the Model step if
+	//defensive, disable Continue on the Model step if
 	// no model is selected. In practice `selectedModel` is always
 	// initialized to MODEL_DEFAULT (or pre-loaded from get_config),
 	// so this only fires if the backend returns an empty
@@ -296,7 +296,7 @@ export default function OnboardingPage({
 			{/* : aria-live polite region announces step
                                 transitions to screen-reader users. Without this, the focused
                                 visible heading only contains the step title ("Choose Your
-                                Microphone") — the user never hears "Step 2 of 6". WCAG 4.1.3
+                                Microphone"), the user never hears "Step 2 of 6". WCAG 4.1.3
                                 Status Changes (Level AA). */}
 			<div aria-live="polite" className="sr-only">
 				{t("onboarding.stepProgress", {
@@ -386,7 +386,7 @@ export default function OnboardingPage({
                                         previously had no consent prompt, so every first-run
                                         user who pressed their hotkey was refused by
                                         recording_controller () with only a tray
-                                        notification — leading to massive first-run drop-off.
+                                        notification, leading to massive first-run drop-off.
                                         The checkbox persists voice_biometric_consent only;
                                         the HuggingFace download consent is granted
                                         explicitly on the Model step (nothing is downloaded
@@ -427,7 +427,7 @@ export default function OnboardingPage({
                                 why setup didn't finish while Get Started stays
                                 available as the retry affordance (Skip remains the
                                 escape hatch below). Previously a rejected apply was
-                                invisible — the success snack + navigation fired
+                                invisible, the success snack + navigation fired
                                 unconditionally. */}
 				{isDoneStep && applyError && (
 					<div
@@ -462,7 +462,7 @@ export default function OnboardingPage({
                                                         hint shown on the Hotkey step when the user
                                                         hasn't changed the Select. Makes it clear
                                                         they're accepting a default rather than
-                                                        explicitly choosing — addresses the
+                                                        explicitly choosing, addresses the
                                                         "Continue button always enabled with no
                                                         validation" concern without blocking
                                                         advancement (the default is a valid

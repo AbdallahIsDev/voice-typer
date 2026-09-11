@@ -6,9 +6,9 @@
  * (`client/src/main/index.ts:1904-1918`) can resolve the pending
  * request with EITHER of two error-envelope shapes:
  *
- *   1. `{_error: "..."}` (string) — Electron main-process synthetic
+ *   1. `{_error: "..."}` (string), Electron main-process synthetic
  *      errors (backend-not-connected, sendToPython exceptions).
- *   2. `{type:"error", data:{code, message}}` — Python server
+ *   2. `{type:"error", data:{code, message}}`, Python server
  *      unhandled-dispatch exceptions (`server/ipc_server.py:1044-1050`),
  *      passed through verbatim.
  *
@@ -23,7 +23,7 @@
  * On Tauri these in-code checks are dead code (the Rust `dispatch`
  * command rejects the `invoke` promise on `type:"error"` before the
  * resolved value reaches JS), but the same `usePython.ts` bundle ships
- * under both hosts — these tests cover the Electron-path logic that
+ * under both hosts, these tests cover the Electron-path logic that
  * the in-code guards implement.
  */
 import { cleanup, renderHook } from "@testing-library/react";
@@ -38,7 +38,7 @@ interface PythonBridgeMock {
 	onEvent: ReturnType<typeof vi.fn>;
 }
 
-describe("usePython — NEW-IPC-107 error-envelope handling", () => {
+describe("usePython, NEW-IPC-107 error-envelope handling", () => {
 	let original: PythonBridgeMock | undefined;
 
 	beforeEach(() => {
@@ -99,7 +99,7 @@ describe("usePython — NEW-IPC-107 error-envelope handling", () => {
 		// The level-monitor / mic-test handlers raise
 		// ``ConsentRequiredError`` with typed fields that
 		// ``HandlerBase._respond_with_error`` forwards via
-		// ``exc.to_dict()`` — ``consent_field`` names the EXACT
+		// ``exc.to_dict()``, ``consent_field`` names the EXACT
 		// Settings toggle the deep-link must scroll to. All three
 		// fields must survive onto the thrown Error so the renderer
 		// can deep-link without regex-matching the message.
@@ -131,7 +131,7 @@ describe("usePython — NEW-IPC-107 error-envelope handling", () => {
 			expect(e.code).toBe("client.consent_required");
 			expect(e.consent_field).toBe("voice_biometric_consent");
 			expect(e.engine_name).toBe("level_monitor");
-			// ``model_id`` is ``null`` for the level-monitor gate — it
+			// ``model_id`` is ``null`` for the level-monitor gate, it
 			// must NOT be stamped onto the Error (only truthy strings).
 			expect(e.model_id).toBeUndefined();
 		}
@@ -141,7 +141,7 @@ describe("usePython — NEW-IPC-107 error-envelope handling", () => {
 		// The level-monitor / mic-test handlers emit a
 		// ``client.consent_required`` envelope so the renderer can
 		// surface a consent dialog instead of a generic error toast. The
-		// ``code`` must survive onto the thrown Error — otherwise the
+		// ``code`` must survive onto the thrown Error, otherwise the
 		// Microphone page can't distinguish consent-required from
 		// ``internal_error`` and shows a misleading generic failure.
 		installPythonMock(() =>
@@ -213,7 +213,7 @@ describe("usePython — NEW-IPC-107 error-envelope handling", () => {
 	it("does NOT throw on a bare data object (Tauri success shape, where Rust unwraps `response.data`)", async () => {
 		// On Tauri the Rust `dispatch` command returns `response.data`
 		// directly (main.rs:967), so `window.python.call` resolves with
-		// the bare data object — no `type` field, no envelope. This
+		// the bare data object, no `type` field, no envelope. This
 		// confirms the guards don't false-positive on the Tauri success
 		// shape.
 		installPythonMock(() => Promise.resolve({ status: "idle" }));
@@ -235,7 +235,7 @@ describe("usePython — NEW-IPC-107 error-envelope handling", () => {
 	});
 
 	it("throws 'Python bridge not available' when window.python is missing", async () => {
-		// No mock installed — window.python is undefined.
+		// No mock installed, window.python is undefined.
 		delete (window as unknown as { python?: PythonBridgeMock }).python;
 
 		const { result } = renderHook(() => usePython());

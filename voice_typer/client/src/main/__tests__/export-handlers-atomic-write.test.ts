@@ -16,7 +16,7 @@
  *     recovers the destination atomically.
  *   - On EEXIST/EPERM rename failure + non-ENOENT destination-unlink
  *     failure, the NEW tmp file is PRESERVED (not deleted) so the
- *     user can manually rename it for recovery — the previous
+ *     user can manually rename it for recovery, the previous
  *     implementation deleted the tmp file and the user lost BOTH
  *     old and new exports.
  *   - On non-EEXIST/EPERM rename failure (e.g. ENOSPC, EACCES), the
@@ -28,7 +28,7 @@
  * `fs.unlinkSync` via `vi.spyOn` to simulate Windows-specific error
  * codes that POSIX does not naturally produce.
  *
- * ON LINUX (sandbox): POSIX `rename` overwrites atomically — the
+ * ON LINUX (sandbox): POSIX `rename` overwrites atomically, the
  *   EEXIST/EPERM fallback is unreachable without mocking.
  * ON WINDOWS (not run here): Node 10+ uses
  *   `MOVEFILE_REPLACE_EXISTING` so the rename-first branch succeeds
@@ -53,7 +53,7 @@ describe("atomicWriteFileSync (PI-13)", () => {
 	});
 
 	afterEach(() => {
-		// Best-effort cleanup — never fail a test on cleanup errors.
+		// Best-effort cleanup, never fail a test on cleanup errors.
 		try {
 			fs.rmSync(tmpDir, { recursive: true, force: true });
 		} catch {
@@ -83,7 +83,7 @@ describe("atomicWriteFileSync (PI-13)", () => {
 	it("preserves the original file when the rename fails", () => {
 		// Pointing the destination at a path whose PARENT directory
 		// does not exist forces `fs.writeFileSync(tmpPath)` to
-		// throw ENOENT — the helper must surface this error
+		// throw ENOENT, the helper must surface this error
 		// without touching any pre-existing destination file.
 		const originalDir = path.join(tmpDir, "preserve");
 		fs.mkdirSync(originalDir, { recursive: true });
@@ -206,7 +206,7 @@ describe("atomicWriteFileSync (FR-5 Windows-fallback data-loss regression)", () 
 			});
 
 		// The helper must throw the EPERM from the destination unlink
-		// (NOT the EPERM from the rename — the rename's EPERM is
+		// (NOT the EPERM from the rename, the rename's EPERM is
 		// caught and triggers the fallback, which is what we want).
 		expect(() => atomicWriteFileSync(dest, "NEW\n", "utf-8")).toThrow();
 
@@ -217,7 +217,7 @@ describe("atomicWriteFileSync (FR-5 Windows-fallback data-loss regression)", () 
 		expect(fs.readFileSync(tmpPath, "utf-8")).toBe("NEW\n");
 
 		// The original destination should still exist (the destination
-		// unlink failed) — though its contents are unchanged because
+		// unlink failed), though its contents are unchanged because
 		// the EPERM blocked the unlink before any modification.
 		expect(fs.existsSync(dest)).toBe(true);
 		expect(fs.readFileSync(dest, "utf-8")).toBe("OLD\n");
@@ -260,7 +260,7 @@ describe("atomicWriteFileSync (FR-5 Windows-fallback data-loss regression)", () 
 			// Both the initial rename AND the fallback retry rename
 			// throw EEXIST/EPERM-style errors. We use EEXIST for the
 			// first call (to enter the fallback) and EACCES for the
-			// retry (to fail the fallback rename too — different
+			// retry (to fail the fallback rename too, different
 			// non-EEXIST code so the retry's catch propagates).
 			const callCount = renameSpy.mock.calls.length;
 			if (callCount === 1) {

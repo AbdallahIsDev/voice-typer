@@ -3,13 +3,13 @@
 Extracted from the original monolithic ``log.py`` (logging-package
 split). Contains:
 
-- :func:`_iso_timestamp` — ISO 8601 timestamp with milliseconds + tz
-- :data:`_TOPIC_COLOR` / :data:`_TOPIC_KEYWORDS` — colour tables
-- :func:`_infer_topic` / :func:`_extract_topic` — topic-prefix helpers
-- :func:`_append_exception_text` — shared traceback-appending helper
-- :class:`_ColorFormatter` — ANSI-coloured terminal formatter (default)
-- :class:`_FileFormatter` — plain-text file formatter (default)
-- :class:`_JsonFormatter` — structured JSON formatter (opt-in,
+- :func:`_iso_timestamp`: ISO 8601 timestamp with milliseconds + tz
+- :data:`_TOPIC_COLOR` / :data:`_TOPIC_KEYWORDS`, colour tables
+- :func:`_infer_topic` / :func:`_extract_topic`, topic-prefix helpers
+- :func:`_append_exception_text`: shared traceback-appending helper
+- :class:`_ColorFormatter`: ANSI-coloured terminal formatter (default)
+- :class:`_FileFormatter`: plain-text file formatter (default)
+- :class:`_JsonFormatter`: structured JSON formatter (opt-in,
   ``VOICE_TYPER_LOG_JSON=1``)
 
 The formatters depend on :func:`get_correlation_id` (in
@@ -36,16 +36,16 @@ def _iso_timestamp(
     """Return a clean timestamp.
 
     Text output (the default) is a clean, space-separated local
-    timestamp with seconds precision — ``2026-08-08  22:18:59`` — with
+    timestamp with seconds precision, ``2026-08-08  22:18:59``, with
     TWO spaces between the date and the time, no millisecond fraction,
     no ``T`` separator, and no timezone offset, so it reads naturally
     in the file and on the terminal.  The terminal formatter passes
-    ``include_date=False`` to get the time only (``22:18:59``) — the
+    ``include_date=False`` to get the time only (``22:18:59``), the
     date is deliberately kept out of console output.
 
     Pass ``utc=True`` for the JSON formatter, which emits a
     Z-suffixed UTC timestamp with millis (``2026-08-08T22:18:59.172Z``)
-    that log aggregators expect — that path is unchanged and keeps the
+    that log aggregators expect, that path is unchanged and keeps the
     millisecond fraction + date.
     """
     if utc:
@@ -226,7 +226,7 @@ _TOPIC_KEYWORDS: dict[str, list[str]] = {
 def _infer_topic(msg: str) -> str | None:
     """Guess a topic label from *msg* content keywords.
 
-    First match wins — narrower keywords should come first in each list.
+    First match wins, narrower keywords should come first in each list.
 
     previously this was an O(N*K) linear scan that called
     ``msg.lower()`` once and then ran ~80 ``kw in lower`` substring
@@ -296,14 +296,14 @@ def _append_exception_text(
     Python's stock ``logging.Formatter.format`` does this; custom
     overrides that skip ``super().format()`` must replicate it or
     ``log.exception(...)`` / ``log.error(..., exc_info=True)`` lose
-    their tracebacks — the single most important diagnostic field for
+    their tracebacks, the single most important diagnostic field for
     remote triage. ``PIIRedactionFilter`` (when attached to the handler)
     has already cached a *redacted* traceback in ``record.exc_text``;
     we honour it to avoid re-running the (potentially expensive)
     traceback formatting and to preserve the PII scrub.
 
     Shared by :class:`_ColorFormatter`, :class:`_FileFormatter`, and
-    :class:`_JsonFormatter` (DRY — Rule 24).
+    :class:`_JsonFormatter` (DRY, Rule 24).
     """
     if record.exc_info and not record.exc_text:
         record.exc_text = formatter.formatException(record.exc_info)
@@ -324,7 +324,7 @@ class _ColorFormatter(logging.Formatter):
     Design
     ------
     - Clean time-only timestamp (``HH:MM:SS``, no date) dimmed to
-      recede visually — the date lives only in the log file
+      recede visually, the date lives only in the log file
     - INFO level label omitted (redundant on ~every line)
     - WARN / ERR / FATAL full-line coloured with level label
     - Lines with ``[TOPIC]`` prefix coloured by topic
@@ -334,7 +334,7 @@ class _ColorFormatter(logging.Formatter):
     _DIM = "38;5;242"  # grey
     # LOG-COLOR-FIX: WARN was 38;5;214 (orange #FFAF00) which
     # 256→16-color quantization on Windows conhost maps to bright-red,
-    # making WARN look red and ERROR look yellow by comparison — the
+    # making WARN look red and ERROR look yellow by comparison, the
     # inversion the user reported. Changed to 38;5;226 (pure yellow
     # #FFFF00) which quantizes to bright-yellow slot 14 on Windows
     # conhost, matching the standard WARN=yellow / ERROR=red convention.
@@ -361,7 +361,7 @@ class _ColorFormatter(logging.Formatter):
             # Full-line colour: emit colour, ts, then reset.
             line = f"\033[{c}m{ts}  {sym:<5} {msg}\033[0m"
         else:
-            # INFO — dim timestamp, no level label,
+            # INFO, dim timestamp, no level label,
             # message coloured by topic.
             prefix = f"\033[{self._DIM}m{ts}\033[0m"
             tc = _TOPIC_COLOR.get(topic) if topic else None
@@ -395,19 +395,19 @@ class _FileFormatter(logging.Formatter):
 
     Fields (left to right):
 
-    - ``ts``       — clean space-separated local timestamp
-      (``YYYY-MM-DD  HH:MM:SS`` — two spaces between the date and the
+    - ``ts``      : clean space-separated local timestamp
+      (``YYYY-MM-DD  HH:MM:SS``: two spaces between the date and the
       time) with seconds precision.  No ``T`` separator, no
-      timezone offset, no millisecond fraction — the line reads
+      timezone offset, no millisecond fraction, the line reads
       naturally.
-    - ``label``    — short level label (``DEBUG`` / ``INFO`` / ``WARN`` /
+    - ``label``   : short level label (``DEBUG`` / ``INFO`` / ``WARN`` /
       ``ERROR`` / ``CRITICAL``), left-padded to a fixed 5-char column so
       the message starts at the same position for every level: 4-char
       labels (``INFO`` / ``WARN``) get TWO spaces after, 5-char labels
       (``DEBUG`` / ``ERROR``) get ONE space after.  Mirrors the Rust
       host's ``{:5}`` level padding (``combined.rs``) so the Python and
       Rust log streams align line-for-line.
-    - ``msg``      — the redacted log message (its ``[TOPIC]`` prefix
+    - ``msg``     : the redacted log message (its ``[TOPIC]`` prefix
       already identifies the subsystem, so no separate component
       column is needed).
 
@@ -438,7 +438,7 @@ class _FileFormatter(logging.Formatter):
 
 
 class _JsonFormatter(logging.Formatter):
-    """Structured JSON formatter  — opt-in via ``VOICE_TYPER_LOG_JSON=1``.
+    """Structured JSON formatter , opt-in via ``VOICE_TYPER_LOG_JSON=1``.
 
     Emits one JSON object per line with a flat, stable schema so log
     aggregation tools can index and query fields directly instead of
@@ -461,11 +461,11 @@ class _JsonFormatter(logging.Formatter):
     - ``message`` is the *redacted* text: the PIIRedactionFilter mutates
       ``record.msg`` (and caches redacted ``record.exc_text``) before any
       formatter runs (the filter is attached to the handler), so the JSON
-      output is already PII-scrubbed — the same guarantee as the text
+      output is already PII-scrubbed, the same guarantee as the text
       formatters.  No secret can reach the JSON line that couldn't reach
       the text line.
     - ``session_id`` is read from ``record.session_id`` (injected by
-      ``_SessionFilter``) and is always present in the payload — empty
+      ``_SessionFilter``) and is always present in the payload, empty
       string when the filter has not run, so aggregators can query
       ``session_id != ""`` to find correlated lines without
       ``KeyError``-prone ``.get()`` fallbacks.
@@ -481,7 +481,7 @@ class _JsonFormatter(logging.Formatter):
     - ``topic`` is extracted from the ``[TOPIC]`` prefix when present;
       messages with no explicit prefix (and no inferred topic) simply
       omit it.  We deliberately do NOT run the keyword-inference used by
-      the colour formatter — JSON consumers filter on ``component`` /
+      the colour formatter. JSON consumers filter on ``component`` /
       structured fields, and guessing a topic from free text would add
       noise and be impossible to query consistently.
     - No ANSI escapes, ever.  Output is ``json.dumps`` with
@@ -500,7 +500,7 @@ class _JsonFormatter(logging.Formatter):
             "component": getattr(record, "component", record.name),
             # emit ``session_id`` so JSON aggregators can group
             # lines by process session (empty string when ``_SessionFilter``
-            # has not run — present-but-empty keeps the schema flat).
+            # has not run, present-but-empty keeps the schema flat).
             "session_id": getattr(record, "session_id", ""),
             # emit the emitting thread name so threaded pipelines
             # (transcription thread, prewarm pipeline, IPC workers) can be
@@ -508,12 +508,12 @@ class _JsonFormatter(logging.Formatter):
             "thread": getattr(record, "threadName", ""),
             "message": record.getMessage(),
         }
-        # Python 3.12+ asyncio task name — omitted when not in scope so
+        # Python 3.12+ asyncio task name, omitted when not in scope so
         # synchronous call sites keep the payload compact.
         task_name = getattr(record, "taskName", None)
         if task_name:
             payload["task"] = task_name
-        # Topic prefix (e.g. "[HOTKEY]") — purely structural convenience.
+        # Topic prefix (e.g. "[HOTKEY]"), purely structural convenience.
         # ``payload["message"]`` is already a ``str`` (from
         # ``record.getMessage()``), so no coercion is needed.
         topic, _ = _extract_topic(payload["message"])

@@ -3,15 +3,15 @@
 Covers the 6 system-level IPC handlers defined in
 ``voice_typer/server/handlers/system_handlers.py``:
 
-- ``_handle_restart_app`` — sends ack, then calls ``service.restart()``.
-- ``_handle_quit_app`` — sends ack, then calls ``service.quit()``.
-- ``_handle_check_accessibility`` — returns ``accessibility_status``
+- ``_handle_restart_app``, sends ack, then calls ``service.restart()``.
+- ``_handle_quit_app``, sends ack, then calls ``service.quit()``.
+- ``_handle_check_accessibility``, returns ``accessibility_status``
   with ``granted`` (True on non-macOS) and ``platform`` fields.
-- ``_handle_set_tray_locale`` — validates a ``locale`` field, returns
+- ``_handle_set_tray_locale``, validates a ``locale`` field, returns
   ack echoing the locale.
-- ``_handle_set_esc_cancel_paused`` — sets the keyboard ownership
+- ``_handle_set_esc_cancel_paused``, sets the keyboard ownership
   state, returns ack with ``paused`` flag.
-- ``_handle_show_electron_notification`` — validates ``title``,
+- ``_handle_show_electron_notification``, validates ``title``,
   ``message``, ``duration_ms``, ``critical`` fields and publishes an
   ``electron_notification`` event.
 
@@ -20,7 +20,7 @@ and asserts on the returned dict (or, for handlers that return
 ``None`` because they call ``self._send(resp)`` internally, asserts
 on the call arguments captured by the mocked ``_send``).
 
-UE-15 (2026-07-30): ``_handle_export_diagnostics`` was deleted — the
+UE-15 (2026-07-30): ``_handle_export_diagnostics`` was deleted, the
 Tauri host now handles it via a dedicated Rust command. The
 corresponding ``TestExportDiagnostics`` class was removed in
 lockstep; the catch-all envelope-shape regression it covered is
@@ -33,7 +33,7 @@ from __future__ import annotations
 
 
 class TestRestartApp:
-    """``_handle_restart_app`` — sends ack then calls ``service.restart()``."""
+    """``_handle_restart_app``, sends ack then calls ``service.restart()``."""
 
     def test_happy_path_sends_ack_and_calls_service_restart(self, ipc_server, fake_service):
         """Valid input → ack is sent and ``service.restart()`` is invoked.
@@ -58,13 +58,13 @@ class TestRestartApp:
 
         The ack has already been sent before ``service.restart()`` is
         called, so a restart failure can't be reported back to the
-        client — but the handler must not propagate the exception
+        client, but the handler must not propagate the exception
         (which would crash the IPC dispatch thread).
         """
         fake_service.restart.side_effect = RuntimeError("restart exploded")
         ipc_server._send = lambda msg: None  # swallow the ack send
 
-        # Must not raise — the surrounding try/except must swallow.
+        # Must not raise, the surrounding try/except must swallow.
         result = ipc_server._handle_restart_app({}, {})
         assert result is None
 
@@ -107,13 +107,13 @@ class TestRestartApp:
             raise RuntimeError("event bus broken")
 
         monkeypatch.setattr("voice_typer.server.event_bus.publish", _boom)
-        # Must not raise — the publish try/except must swallow.
+        # Must not raise, the publish try/except must swallow.
         result = ipc_server._handle_restart_app({}, {})
         assert result is None
 
 
 class TestQuitApp:
-    """``_handle_quit_app`` — same shape as ``restart_app``."""
+    """``_handle_quit_app``, same shape as ``restart_app``."""
 
     def test_happy_path_sends_ack_and_calls_service_quit(self, ipc_server, fake_service):
         captured: list[dict] = []
@@ -158,14 +158,14 @@ class TestQuitApp:
 
 
 class TestCheckAccessibility:
-    """``_handle_check_accessibility`` — returns ``accessibility_status``."""
+    """``_handle_check_accessibility``, returns ``accessibility_status``."""
 
     def test_happy_path_non_macos_returns_granted_true(self, ipc_server, monkeypatch):
         """On non-macOS (the Linux test env), ``granted`` must be True.
 
         The handler short-circuits the macOS-only AXIsProcessTrusted()
         path on other platforms, so we don't need to mock any system
-        libraries — the result is deterministic.
+        libraries, the result is deterministic.
         """
         import sys as _sys
 
@@ -236,7 +236,7 @@ class TestCheckAccessibility:
         """Finding #919 part b: when the host bundle ID cannot be
         resolved, ``suggest_reset`` is False and NO ``reset_command`` key
         is attached (a wrong bundle ID in a tccutil command is worse than
-        no command — mirrors the reset handler's convention)."""
+        no command, mirrors the reset handler's convention)."""
         monkeypatch.setattr(
             "voice_typer.server.handlers.system_handlers.is_macos",
             lambda: True,
@@ -270,7 +270,7 @@ class TestCheckAccessibility:
 
     def test_macos_granted_keeps_original_shape(self, ipc_server, monkeypatch):
         """Finding #919 part b: a granted response must keep the original
-        two-field shape — NO ``suggest_reset`` / ``reset_command`` keys."""
+        two-field shape. NO ``suggest_reset`` / ``reset_command`` keys."""
         monkeypatch.setattr(
             "voice_typer.server.handlers.system_handlers.is_macos",
             lambda: True,
@@ -300,7 +300,7 @@ class TestCheckAccessibility:
 
     def test_macos_check_failed_keeps_original_shape(self, ipc_server, monkeypatch):
         """Finding #919 part b: the ``check_failed`` fallback (ctypes load
-        errored) must NOT suggest a reset — an un-runnable probe cannot
+        errored) must NOT suggest a reset, an un-runnable probe cannot
         substantiate a stale grant."""
         monkeypatch.setattr(
             "voice_typer.server.handlers.system_handlers.is_macos",
@@ -613,7 +613,7 @@ class TestResetLinuxPermissions:
 
 class TestPolkitResetHelpers:
     """Module-level ``_enumerate_polkit_actions`` / ``_polkit_check_authorization``
-    / ``_reset_polkit_authorization`` — the subprocess glue behind
+    / ``_reset_polkit_authorization``, the subprocess glue behind
     ``reset_linux_permissions``."""
 
     def test_enumerate_filters_voicetyper_actions_and_dedupes(self, monkeypatch):
@@ -775,7 +775,7 @@ class TestPolkitResetHelpers:
 
 
 class TestSetTrayLocale:
-    """``_handle_set_tray_locale`` — validates ``locale`` and returns ack."""
+    """``_handle_set_tray_locale``, validates ``locale`` and returns ack."""
 
     def test_happy_path_with_explicit_locale(self, ipc_server, monkeypatch):
         """Valid ``{"locale": "ar"}`` → ack echoing the locale."""
@@ -855,7 +855,7 @@ class TestSetTrayLocale:
         )
 
         # Snapshot the module state directly (the locale accessor was
-        # removed with the dead-API batch — tests observe the binding).
+        # removed with the dead-API batch, tests observe the binding).
         saved_locale = server_i18n._CURRENT_LOCALE
         saved_fr = dict(server_i18n._REGISTRY.get("fr", {}))
         try:
@@ -880,7 +880,7 @@ class TestSetTrayLocale:
             # The English fallbacks must be preserved (merge, not
             # replace). The ``state.app.starting`` fallback is
             # registered at APP-INIT time (``app_construction``), which
-            # this fixture's fake app never runs — so seed it first
+            # this fixture's fake app never runs, so seed it first
             # (mirroring what a real app instance guarantees) and assert
             # the handler's merge preserved it.
             saved_en_starting = server_i18n._REGISTRY["en"].get("state.app.starting")
@@ -940,7 +940,7 @@ class TestSetTrayLocale:
 
 
 class TestSetEscCancelPaused:
-    """``_handle_set_esc_cancel_paused`` — toggles keyboard ownership."""
+    """``_handle_set_esc_cancel_paused``, toggles keyboard ownership."""
 
     def test_happy_path_paused_true(self, ipc_server, fake_app, monkeypatch):
         """``{"paused": true}`` → ack with ``paused: True`` and app flag set."""
@@ -981,7 +981,7 @@ class TestSetEscCancelPaused:
 
 
 class TestShowElectronNotification:
-    """``_handle_show_electron_notification`` — validates 4 fields and publishes."""
+    """``_handle_show_electron_notification``, validates 4 fields and publishes."""
 
     def test_happy_path_publishes_event_and_returns_ack(self, ipc_server, monkeypatch):
         """Valid 4-field payload → event published + ``{type: ack}`` returned."""

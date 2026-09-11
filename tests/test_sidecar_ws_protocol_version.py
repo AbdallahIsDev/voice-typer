@@ -6,7 +6,7 @@ frame and logs a WARNING on mismatch with the sidecar's own
 ``PROTOCOL_VERSION``. The Rust host (``src-tauri/src/sidecar/ws.rs``)
 includes the field in its auth frame.
 
-The check is defense-in-depth — it MUST NOT reject the connection on
+The check is defense-in-depth, it MUST NOT reject the connection on
 mismatch (the field is advisory, additive, and older hosts/sidecars
 that don't send it must continue to function).
 

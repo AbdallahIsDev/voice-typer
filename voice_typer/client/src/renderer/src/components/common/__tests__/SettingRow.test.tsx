@@ -106,7 +106,7 @@ describe("SettingRow", () => {
 	});
 });
 
-describe("SettingRow — dev-mode association audit", () => {
+describe("SettingRow, dev-mode association audit", () => {
 	afterEach(() => {
 		cleanup();
 	});
@@ -139,12 +139,12 @@ describe("SettingRow — dev-mode association audit", () => {
 
 	it("does NOT warn on a control hidden via display:none (Radix Slider bubble input)", async () => {
 		// Radix Slider mounts a SliderBubbleInput with
-		// `style: { display: "none" }` — no aria-hidden, no
-		// type="hidden" — to back native form semantics. It is removed
+		// `style: { display: "none" }`, no aria-hidden, no
+		// type="hidden", to back native form semantics. It is removed
 		// from the AT tree by display:none and legitimately has no
 		// accessible name. The audit must not false-positive on it
 		// (regression: the Settings page warned on every correctly
-		// labelled RangeSlider row — Duck Level, Text Size, the two
+		// labelled RangeSlider row, Duck Level, Text Size, the two
 		// vocabulary-confidence sliders).
 		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 		render(

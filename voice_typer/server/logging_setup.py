@@ -19,8 +19,8 @@ log = logging.getLogger(__name__)
 
 # Deferred startup-banner state. ``_setup_logging()`` stages the banner
 # values (session id, resolved log file, root level, JSON/debug/quiet
-# flags) here, and ``_emit_startup_banner()`` — called later, from
-# ``VoiceTyperApp.__init__`` right AFTER the ``APP starting`` line — emits
+# flags) here, and ``_emit_startup_banner()``: called later, from
+# ``VoiceTyperApp.__init__`` right AFTER the ``APP starting`` line, emits
 # the ``[STARTUP] logging initialized`` banner and installs the crash
 # handler.  Emitting both AFTER the ``starting`` banner keeps the startup
 # log ordered as: ``APP starting`` → ``[STARTUP] logging initialized`` →
@@ -107,7 +107,7 @@ def _emit_startup_banner() -> None:
     _startup_banner_state = None
 
     _raw_config_dir = state["config_dir"]
-    # ``_startup_banner_state`` is a ``dict[str, object]`` — restore the
+    # ``_startup_banner_state`` is a ``dict[str, object]``, restore the
     # declared ``Path | None`` type staged by ``_setup_logging`` so the
     # ``get_log_file_path`` call below typechecks (the isinstance guard
     # also defends against a malformed staged value).
@@ -122,8 +122,8 @@ def _emit_startup_banner() -> None:
     # it appears in the rotating file log under the default
     # configuration (file handler sits at INFO per ).  The
     # session id is included exactly ONCE here, as the trailing
-    # ``session=`` field of the banner — the very first line of the
-    # session — so it is never repeated per-line (C-LOG-1).
+    # ``session=`` field of the banner, the very first line of the
+    # session, so it is never repeated per-line (C-LOG-1).
     # use get_log_file_path() instead of hardcoded literal so the
     # banner reflects the actual log file (voice-typer.log for main,
     # prewarm.log for the prewarm process).
@@ -136,12 +136,12 @@ def _emit_startup_banner() -> None:
         "yes",
     )
     # Report the level that actually gates what lands in the log file —
-    # the rotating file handler's level — not the ``voice_typer`` logger
+    # the rotating file handler's level, not the ``voice_typer`` logger
     # level, which ``setup_logging`` pins at DEBUG unconditionally (the
     # handler is the real gate; the logger stays at DEBUG so child
     # loggers can emit DEBUG records when ``VOICE_TYPER_DEBUG=1`` is
     # set). Pre-fix the banner read the logger level, so every default
-    # run printed ``level=DEBUG, debug=False`` — accurate internals but
+    # run printed ``level=DEBUG, debug=False``: accurate internals but
     # contradictory-looking, and it implied DEBUG records were being
     # written when the file handler was actually filtering them to INFO.
     # The file handler is added to the ``voice_typer`` logger first
@@ -152,7 +152,7 @@ def _emit_startup_banner() -> None:
             _root_level = _handler.level
             break
     # in quiet mode, the voice_typer logger is at WARNING. The banner
-    # is logged at INFO, which is BELOW WARNING — the logger-level filter
+    # is logged at INFO, which is BELOW WARNING, the logger-level filter
     # would drop it before any handler is consulted. Log at WARNING when
     # quiet=True so the banner survives the filter and is written to disk.
     _banner_level = logging.WARNING if quiet else logging.INFO
@@ -179,7 +179,7 @@ def _emit_startup_banner() -> None:
     # handler-level gate in every configuration.
     if debug:
         log.warning(
-            "[STARTUP] Debug logging is enabled (VOICE_TYPER_DEBUG=1) — "
+            "[STARTUP] Debug logging is enabled (VOICE_TYPER_DEBUG=1), "
             "DEBUG records may include sensitive context (file paths, "
             "device names, hostnames) beyond what PII redaction covers. "
             "Do not share the log file publicly without review; disable "

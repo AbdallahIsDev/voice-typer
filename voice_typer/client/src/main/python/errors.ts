@@ -10,7 +10,7 @@
  * Previous contract: 6 reject sites in `send-to-python.ts` threw bare
  * `new Error(...)`; only the timeout site set `err.code = "timeout"`.
  * The `python-call` handler therefore fell back to a fragile
- * `/timeout/i` regex on the message text to classify timeouts — which
+ * `/timeout/i` regex on the message text to classify timeouts, which
  * would silently break if the message wording ever changed
  * (localization, rewording, unit change from seconds to ms).
  *
@@ -25,17 +25,17 @@
  *    `restart-backend.ts`), and `handle-message.ts`
  *    (Python-side error replies) constructs a
  *    `PythonIpcError(code, message)` with a `PythonCallErrorCode`:
- *      - `backend_not_connected`   — pre-flight no-socket, mid-flight
+ *      - `backend_not_connected`  , pre-flight no-socket, mid-flight
  *                                    socket close / backend crash /
  *                                    backend-only restart teardown;
- *      - `backend_exited_early`    — backend died during startup;
- *      - `command_failed`          — allowlist/rate-limit/cap gates,
+ *      - `backend_exited_early`   , backend died during startup;
+ *      - `command_failed`         , allowlist/rate-limit/cap gates,
  *                                    oversized replies, restart
  *                                    teardowns;
- *      - `command_timeout`         — per-command deadline.
+ *      - `command_timeout`        , per-command deadline.
  *  - The handler checks `err instanceof PythonIpcError`, verifies
  *    `err.code` against the canonical `PYTHON_CALL_ERROR_CODES` union
- *    (backend-emitted codes can carry out-of-union strings — see
+ *    (backend-emitted codes can carry out-of-union strings, see
  *    `handle-message.ts`'s cast), passes the in-union code through to
  *    the renderer's `_code`, and falls back to `"command_failed"` for
  *    any non-typed error or out-of-union code (defense-in-depth for

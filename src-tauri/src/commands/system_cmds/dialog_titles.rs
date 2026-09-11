@@ -6,7 +6,7 @@
 //! pushed locale at the host's native-dialog title sites:
 //!
 //! - `open_model_import_dialog`'s folder picker
-//!   ([`DialogTitle::SelectModelFolder`] — `system_cmds/dialogs.rs`),
+//!   ([`DialogTitle::SelectModelFolder`], `system_cmds/dialogs.rs`),
 //! - the export save-file dialogs ([`DialogTitle::ExportHistory`] /
 //!   [`ExportVocabulary`] via `commands::export::export_data`,
 //!   [`ExportTemplates`] / [`ExportConfig`] via
@@ -18,7 +18,7 @@
 //! translation strings are byte-mirrors of the Electron main-process
 //! locale files (`voice_typer/client/src/main/i18n/locales/*.json`,
 //! keys `dialog.selectModelFolder.title` and `dialog.export.*`) so
-//! the two runtimes present identical native dialog titles — the
+//! the two runtimes present identical native dialog titles, the
 //! sibling test module pins that parity (see
 //! `dialog_titles_tests.rs`).
 //!
@@ -62,12 +62,12 @@ pub(crate) const SUPPORTED_LANGUAGES: [&str; 8] = ["en", "ar", "de", "es", "fr",
 /// Read the renderer-pushed locale from the managed
 /// [`SidecarState`]. Returns `None` until the first
 /// `set_host_locale` push arrives (English titles are used in that
-/// case — see [`localized_title`]).
+/// case: see [`localized_title`]).
 ///
 /// Reads through the process-wide managed state via the
 /// `tauri::AppHandle` the dialog commands already receive
 /// (auto-injected by Tauri at runtime), so the command signatures
-/// stay exactly as they were — no renderer-visible change.
+/// stay exactly as they were, no renderer-visible change.
 pub(crate) fn host_locale(app: &tauri::AppHandle) -> Option<String> {
     use tauri::Manager;
     let state = app.state::<Arc<SidecarState>>();
@@ -96,7 +96,7 @@ pub(crate) fn localized_title_for(kind: DialogTitle, app: &tauri::AppHandle) -> 
 /// PRIMARY subtag only and is case-insensitive, so `"ar"`,
 /// `"ar-EG"`, `"ar_EG"` and `"AR"` all resolve to Arabic. `None`,
 /// an empty value, or an unrecognized language falls back to
-/// English — matching the renderer's own i18n fallback behavior and
+/// English: matching the renderer's own i18n fallback behavior and
 /// guaranteeing a usable title on every code path.
 ///
 /// Non-English strings are genuine translations (byte-mirrors of
@@ -173,7 +173,7 @@ fn primary_language(locale: Option<&str>) -> String {
 // Unit tests for the lookup (all locales per kind, fallbacks,
 // normalization, and byte-parity with the Electron main-process
 // locale files) live in the sibling `dialog_titles_tests.rs` file
-// (C-TEST-5 — keeps production source free of inline test code,
+// (C-TEST-5: keeps production source free of inline test code,
 // matching the `commands/bubble/tests.rs` pattern). The module is
 // wired as a child of `dialog_titles` so the test file can use
 // `use super::{...}` to reach the `pub(crate)` items directly.

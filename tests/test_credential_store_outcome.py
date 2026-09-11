@@ -28,7 +28,7 @@ These tests verify:
     each new ``store_secret``).
   - The outcome is thread-local: a ``store_secret`` on thread A does
     not change the outcome seen by thread B.
-  - The returned dict is a copy — mutating it does not affect
+  - The returned dict is a copy, mutating it does not affect
     subsequent ``last_store_outcome`` calls.
 
 The fixtures mirror those in ``tests/test_credential_store.py`` (mock
@@ -55,7 +55,7 @@ def _isolated_config_dir(tmp_config_dir):
     Also resets the keyring availability cache so each test re-probes
     (the probe is cached at module level for the lifetime of the
     process, which would leak state across tests), and clears the
-    orphan/wedge state owned by ``credential_store._backend`` — the
+    orphan/wedge state owned by ``credential_store._backend``, the
     wedge cooldown is global with a 60 s window, so a wedged backend
     left behind by any other test file would short-circuit every
     ``store_secret`` call here into a plaintext fallback.
@@ -255,7 +255,7 @@ class TestLastStoreOutcomeKeyring:
         credential_store.store_secret("openai", "sk-first")
         assert credential_store.last_store_outcome()["stored_in"] == "keyring"
         assert credential_store.last_store_outcome()["provider"] == "openai"
-        # Second store: also succeeds — outcome should reflect the latest call.
+        # Second store: also succeeds, outcome should reflect the latest call.
         credential_store.store_secret("groq", "gsk_second")
         outcome = credential_store.last_store_outcome()
         assert outcome == {
@@ -287,7 +287,7 @@ class TestLastStoreOutcomePlaintext:
         outcome = credential_store.last_store_outcome()
         assert outcome["stored_in"] == "plaintext"
         assert outcome["provider"] == "openai"
-        # The mock raises RuntimeError("keychain locked") — the reason
+        # The mock raises RuntimeError("keychain locked"), the reason
         # should include that text (after redaction, which doesn't
         # strip the words "keychain" or "locked").
         assert isinstance(outcome["reason"], str)
@@ -326,7 +326,7 @@ class TestLastStoreOutcomePlaintext:
         fake_keyring = MagicMock()
         fake_keyring.get_keyring.return_value = _LeakyBackend()
         # ``store_secret`` calls ``keyring.set_password(...)`` as a
-        # module-level function — the MagicMock's bound method, NOT the
+        # module-level function, the MagicMock's bound method, NOT the
         # backend's ``set_password``. So we MUST set ``side_effect``
         # on the module-level mock too, otherwise the call silently
         # succeeds (MagicMock returns a MagicMock by default) and the
@@ -408,7 +408,7 @@ class TestLastStoreOutcomeThreadLocal:
             "reason": None,
             "provider": "openai",
         }
-        # The main thread STILL sees ``unknown`` — the worker's store
+        # The main thread STILL sees ``unknown``, the worker's store
         # did not leak into the main thread's outcome.
         assert credential_store.last_store_outcome() == {
             "stored_in": "unknown",
@@ -423,7 +423,7 @@ class TestLastStoreOutcomeReturnCopy:
     def test_returned_dict_is_a_copy(self, mock_keyring_available):
         """Mutating the returned dict does not affect future calls.
 
-        This is a defensive property — the IPC handler may want to
+        This is a defensive property, the IPC handler may want to
         add fields to the ack payload without worrying about leaking
         mutations back into the credential_store module's thread-local
         state.
@@ -442,7 +442,7 @@ class TestLastStoreOutcomeReturnCopy:
         outcome1["provider"] = "tampered"
         outcome1["extra"] = "field"
 
-        # The next call returns a fresh dict — mutations did not stick.
+        # The next call returns a fresh dict, mutations did not stick.
         outcome2 = credential_store.last_store_outcome()
         assert outcome2 == {
             "stored_in": "keyring",
@@ -456,7 +456,7 @@ class TestSetLastStoreOutcomeInternal:
     """Direct tests for the internal ``_set_last_store_outcome`` helper.
 
     These verify the storage layer in isolation from the ``store_secret``
-    code paths — useful for diagnosing whether a bug is in the helper
+    code paths, useful for diagnosing whether a bug is in the helper
     itself or in the wiring inside ``store_secret``.
     """
 

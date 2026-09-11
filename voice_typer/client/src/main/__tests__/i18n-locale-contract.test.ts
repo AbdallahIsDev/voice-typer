@@ -7,7 +7,7 @@
  * `src/renderer/src/i18n/i18n.ts`) is the canonical list of locales the
  * user can pick in the UI language selector. The main-process
  * `MAIN_STRINGS` (in `src/main/i18n.ts`) must provide a dialog-strings
- * table for every locale in that list — otherwise the renderer can set
+ * table for every locale in that list, otherwise the renderer can set
  * a locale that the main process silently falls back from to "en"
  * (per `setMainLocale`'s fallback), so native Electron dialogs
  * (single-instance error, critical-error crash dialog, export save-as
@@ -16,7 +16,7 @@
  *
  * This test hardcodes the expected locale list (mirroring
  * `SUPPORTED_LOCALES` in `src/renderer/src/i18n/i18n.ts`). The list is
- * small (8 entries) and changes rarely — when a locale is added on the
+ * small (8 entries) and changes rarely, when a locale is added on the
  * renderer side, this test must be updated in lockstep. The hardcoded
  * approach avoids the cross-tsconfig-project import that would otherwise
  * be needed to read `SUPPORTED_LOCALES` from the renderer's i18n module
@@ -50,7 +50,7 @@ describe("main-process i18n locales match renderer SUPPORTED_LOCALES", () => {
 		// `setMainLocale` falls back to "en" with a console warning when
 		// the locale is not in MAIN_STRINGS. We detect the fallback by
 		// comparing the localized `dialog.criticalError.title` against
-		// the English value — a registered non-en locale returns a
+		// the English value, a registered non-en locale returns a
 		// locale-specific title that differs from English.
 		setMainLocale("en");
 		const enTitle = mainT("dialog.criticalError.title");
@@ -67,7 +67,7 @@ describe("main-process i18n locales match renderer SUPPORTED_LOCALES", () => {
 			if (locale !== "en") {
 				// A registered non-en locale must return a non-English
 				// title. If setMainLocale silently fell back to "en",
-				// title === enTitle and this assertion fails — surfacing
+				// title === enTitle and this assertion fails, surfacing
 				// the missing locale JSON file.
 				expect(title).not.toBe(enTitle);
 			}

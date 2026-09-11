@@ -27,11 +27,11 @@ import pytest
 from voice_typer.server import log as vt_log
 
 # Real ``msvcrt`` constant values (used here so the fake module mirrors
-# the real Windows surface — the implementation references these by name,
+# the real Windows surface, the implementation references these by name,
 # so the values only need to be distinct integers).
-_LK_LOCK = 1  # msvcrt.LK_LOCK — blocking, ~10s timeout
-_LK_NBLCK = 2  # msvcrt.LK_NBLCK — non-blocking, fails immediately
-_LK_UNLCK = 0  # msvcrt.LK_UNLCK — unlock
+_LK_LOCK = 1  # msvcrt.LK_LOCK, blocking, ~10s timeout
+_LK_NBLCK = 2  # msvcrt.LK_NBLCK, non-blocking, fails immediately
+_LK_UNLCK = 0  # msvcrt.LK_UNLCK, unlock
 
 
 class _FakeMsvcrt:
@@ -51,7 +51,7 @@ class _FakeMsvcrt:
 
     def __init__(self, *, raise_on_modes: frozenset[int] | None = None):
         # Default: raise on LK_LOCK (the timeout failure mode).
-        # LK_NBLCK also raises by default — exercises the fail-closed path.
+        # LK_NBLCK also raises by default, exercises the fail-closed path.
         if raise_on_modes is None:
             raise_on_modes = frozenset({_LK_LOCK, _LK_NBLCK})
         self._raise_on_modes = raise_on_modes
@@ -60,7 +60,7 @@ class _FakeMsvcrt:
     def locking(self, fd, mode, nbytes):  # noqa: D401 - mimic msvcrt API
         self.lock_calls.append((fd, mode, nbytes))
         if mode in self._raise_on_modes:
-            # PermissionError is an OSError subclass — matches the real
+            # PermissionError is an OSError subclass, matches the real
             # ``msvcrt.locking`` timeout / immediate-fail failure mode on
             # Windows.
             raise PermissionError(13, "Permission denied (lock unavailable)")
@@ -84,7 +84,7 @@ def windows_env(monkeypatch, tmp_path):
     fake_module.LK_UNLCK = _FakeMsvcrt.LK_UNLCK  # type: ignore[attr-defined]
 
     monkeypatch.setitem(sys.modules, "msvcrt", fake_module)
-    # Patch ``os.name`` only as seen by the log module — the real ``os``
+    # Patch ``os.name`` only as seen by the log module, the real ``os``
     # module is shared, so we patch the attribute on the imported alias.
     monkeypatch.setattr(vt_log.os, "name", "nt", raising=True)
 
@@ -124,7 +124,7 @@ def test_windows_lock_timeout_fails_closed_and_warns(windows_env):
     3. Close the open fd so it is not leaked.
 
     Pre-fix the branch used ``contextlib.suppress(OSError)`` and returned
-    ``fd`` (fail-open) — two processes racing rotation could both believe
+    ``fd`` (fail-open), two processes racing rotation could both believe
     they held the lock and proceed to clobber each other's rename.
     """
     handler = _make_handler(windows_env["tmp_path"])
@@ -168,7 +168,7 @@ def test_windows_lock_nblck_retry_succeeds_after_lk_lock_timeout(windows_env):
     """When ``LK_LOCK`` times out but the ``LK_NBLCK`` retry succeeds,
     the Windows branch must:
 
-    1. Return the open fd (lock IS now held — the byte was released
+    1. Return the open fd (lock IS now held, the byte was released
        during the ~10s block).
     2. Emit NO warning (the lock was eventually acquired; no operator
        action needed).
@@ -186,12 +186,12 @@ def test_windows_lock_nblck_retry_succeeds_after_lk_lock_timeout(windows_env):
                 os.close(fd)
         handler.close()
 
-    # The retry succeeded — the fd must be returned (lock held).
+    # The retry succeeded, the fd must be returned (lock held).
     assert isinstance(fd, int), (
         "fd must be returned when LK_NBLCK retry succeeds (lock IS held); fail-closed is only for the both-fail path"
     )
 
-    # No warning should be emitted — the lock was acquired.
+    # No warning should be emitted, the lock was acquired.
     warnings = [r for r in windows_env["records"] if r.levelno == logging.WARNING]
     assert not warnings, f"unexpected warnings on LK_NBLCK retry success (lock acquired): {warnings}"
 

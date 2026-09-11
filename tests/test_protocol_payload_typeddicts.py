@@ -5,7 +5,7 @@ These tests pin the TypedDict contracts introduced to replace the bare
 (``config_applier.py``) and the list-returning service methods
 (``providers.py`` :class:`ServiceProtocol`). Each test drives the REAL
 producer (or its projection seam) and asserts the runtime payload keys
-match the TypedDict field names — so a producer-side shape change fails
+match the TypedDict field names, so a producer-side shape change fails
 here and forces the contract type to be updated in lockstep, instead of
 silently drifting away from the annotation.
 """
@@ -38,7 +38,7 @@ def fake_app() -> MagicMock:
 
     Everything is auto-mocked; the sync handlers are additionally
     monkeypatched per-test (the ``startup_tasks`` module does real
-    platform calls in production — see the handler docstrings).
+    platform calls in production: see the handler docstrings).
     """
     app = MagicMock()
     app.config.autostart = False
@@ -118,7 +118,7 @@ class TestSideEffectStatus:
 # The column list mirrors the SELECT statements in
 # ``history_db_internals/search.py`` (get_recent / search / get_favorites
 # share it). ``project_text_row`` is the projection seam every one of the
-# three list methods runs each row through — pinning its output keys pins
+# three list methods runs each row through, pinning its output keys pins
 # the dict the service layer hands to the IPC layer.
 _HISTORY_SELECT_COLUMNS = [
     "id",
@@ -147,7 +147,7 @@ class TestHistoryEntry:
         projected = project_text_row(row)
         assert set(projected) == set(HistoryEntry.__annotations__), (
             "project_text_row output keys drifted from the HistoryEntry "
-            "TypedDict — update the contract type (providers.py) or the "
+            "TypedDict, update the contract type (providers.py) or the "
             "SELECT/projection (history_db_internals/search.py) together."
         )
         # The internal encryption marker must NOT cross the IPC boundary.
@@ -190,20 +190,20 @@ class TestMicrophoneEntry:
             return [{"name": "ALSA", "default_input_device": 5}]
 
         # MagicMock (not types.ModuleType + attribute assignment, which
-        # pyrefly 1.1.1 flags) — same pattern as the ws mic-population
+        # pyrefly 1.1.1 flags), same pattern as the ws mic-population
         # tests' fake sounddevice.
         fake_sd = MagicMock()
         fake_sd.query_devices = query_devices
         fake_sd.query_hostapis = query_hostapis
         monkeypatch.setitem(sys.modules, "sounddevice", fake_sd)
         # Module-identity check in the TTL cache treats the swapped
-        # module as stale — plus an explicit invalidation for determinism.
+        # module as stale, plus an explicit invalidation for determinism.
         monkeypatch.setattr(microphone_list, "_LIST_MICS_CACHE", None)
         mics = microphone_list.list_microphones()
         assert mics, "fake sounddevice should yield one input device"
         assert set(mics[0]) == set(MicrophoneEntry.__annotations__), (
             "list_microphones device-dict keys drifted from the "
-            "MicrophoneEntry TypedDict — update the contract type "
+            "MicrophoneEntry TypedDict, update the contract type "
             "(providers.py) or the device construction "
             "(server_platform/microphone_list.py) together."
         )
@@ -244,7 +244,7 @@ class TestTemplateEntry:
         assert entries, "one template in -> one entry out"
         assert set(entries[0]) == set(TemplateEntry.__annotations__), (
             "get_templates projection keys drifted from the TemplateEntry "
-            "TypedDict — update the contract type (providers.py) or the "
+            "TypedDict, update the contract type (providers.py) or the "
             "projection (service/template.py) together."
         )
         # Internal fields must not cross the IPC boundary.

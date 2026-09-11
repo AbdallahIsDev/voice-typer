@@ -1,4 +1,4 @@
-"""FR-6 (P4-A1): regression test — the dead cached-engine
+"""FR-6 (P4-A1): regression test: the dead cached-engine
 infrastructure in :mod:`voice_typer.server.cloud_engines` MUST stay
 removed.
 
@@ -14,13 +14,13 @@ cached-engine infrastructure:
 * ``clear_cached_engine(provider) -> bool``
 * ``clear_all_cached_engines() -> int``
 
-A repo-wide grep (2026-07-28) confirmed ZERO production callers — the
+A repo-wide grep (2026-07-28) confirmed ZERO production callers, the
 only consumers were the unit tests in
 ``tests/test_cloud_engines.py::TestCloudEngineCacheInvalidation``
 (which were also removed in this fix). The infrastructure carried a
 docstring claim that ``clear_all_cached_engines`` would be called from
 ``delete_all_personal_data`` to invalidate stale engines on
-credential / consent revocation — but no production code ever invoked
+credential / consent revocation, but no production code ever invoked
 it. The cache was dead code in a "worst of both worlds" state
 (maintenance burden + false security claim).
 
@@ -38,7 +38,7 @@ invalidate the cached engine when ``openai_api_key`` /
 This test file pins the removal so a future contributor cannot
 silently resurrect the dead cache (e.g. by reverting a merge or
 cherry-picking an old commit) without also updating this regression
-suite — which forces them to confront the "wire invalidation into
+suite, which forces them to confront the "wire invalidation into
 production" TODO before re-introducing the cache.
 """
 
@@ -71,7 +71,7 @@ class TestCachedEngineInfrastructureRemoved:
     def test_name_absent_from_module_namespace(self, name: str):
         """Each removed symbol MUST NOT be importable / accessible as
         a module attribute. If this test fails, someone re-introduced
-        the dead cache — see the FR-6 fix block at the top of
+        the dead cache: see the FR-6 fix block at the top of
         ``cloud_engines.py`` for the re-introduction requirements
         (production wiring + invalidation on credential rotation).
         """
@@ -83,7 +83,7 @@ class TestCachedEngineInfrastructureRemoved:
             "code (zero production callers). Re-introduction requires wiring "
             "invalidation into config_applier.set_config for "
             "openai_api_key / groq_api_key / deepgram_api_key / "
-            "cloud_api_key — see the FR-6 docblock at the top of "
+            "cloud_api_key, see the FR-6 docblock at the top of "
             "cloud_engines.py."
         )
 
@@ -92,7 +92,7 @@ class TestCachedEngineInfrastructureRemoved:
         MUST raise ``ImportError``/``AttributeError`` for each removed
         symbol (the canonical ``from X import Y`` form raises
         ``ImportError``; ``getattr(module, name)`` raises
-        ``AttributeError`` — both signal the attribute is absent).
+        ``AttributeError``, both signal the attribute is absent).
         """
         from voice_typer.server import cloud_engines
 
@@ -111,7 +111,7 @@ class TestCachedEngineInfrastructureRemoved:
             _sentinel = object()
             assert getattr(cloud_engines, name, _sentinel) is _sentinel, (
                 f"FR-6 regression: cloud_engines.{name} resolved to a real "
-                "attribute — the dead cached-engine infrastructure was "
+                "attribute, the dead cached-engine infrastructure was "
                 "re-introduced."
             )
 
@@ -121,14 +121,14 @@ class TestCachedEngineInfrastructureRemoved:
         behind docstrings or comments referencing the old API).
 
         The FR-6 docblock at the top of the module mentions the removed
-        symbols in a "do not re-introduce without ..." capacity — that
+        symbols in a "do not re-introduce without ..." capacity, that
         is permitted (it's the regression-guard block). Other references
         would indicate the cache was re-added.
         """
         import voice_typer.server.cloud_engines as cloud_engines
 
         source = inspect.getsource(cloud_engines)
-        # Count occurrences of each removed symbol — the docblock at
+        # Count occurrences of each removed symbol, the docblock at
         # the top of the module legitimately mentions each once (in
         # the "do not re-introduce" regression-guard block). Any
         # *additional* occurrences (e.g. a re-added function def, a
@@ -149,14 +149,14 @@ class TestCachedEngineInfrastructureRemoved:
                 f"FR-6 regression: symbol {symbol!r} appears {occurrences} "
                 "times in cloud_engines.py source. Expected ≤3 (docblock + "
                 "incidental mentions). A higher count suggests the dead "
-                "cache was re-introduced — see the FR-6 docblock for "
+                "cache was re-introduced, see the FR-6 docblock for "
                 "the re-introduction requirements."
             )
 
     def test_no_module_level_dict_cache_state(self):
         """FR-6: the module MUST NOT carry a module-level mutable
         dict cache (``_CACHED_ENGINES``). A future contributor might
-        rename the dict to evade the symbol-name tests above — this
+        rename the dict to evade the symbol-name tests above, this
         test catches any ``dict[str, ...]`` annotation at module level
         whose name starts with ``_CACHED``.
         """
@@ -175,7 +175,7 @@ class TestCachedEngineInfrastructureRemoved:
                 pytest.fail(
                     f"FR-6 regression: module-level line {stripped!r} "
                     "introduces a _CACHED* attribute. The cached-engine "
-                    "infrastructure was removed as dead code — see the "
+                    "infrastructure was removed as dead code, see the "
                     "FR-6 docblock for re-introduction requirements."
                 )
 

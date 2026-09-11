@@ -1,4 +1,4 @@
-# clippy.toml — project-level clippy configuration.
+# clippy.toml: project-level clippy configuration.
 #
 # This file did not previously exist. Without it, clippy cannot
 # apply MSRV-aware lints (e.g. `clippy::manual_strip`, `clippy::mem_forget`

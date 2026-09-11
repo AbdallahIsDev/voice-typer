@@ -29,7 +29,7 @@ const CONSENT_FIELDS = [
 export type BackendChoice = "local" | "cloud";
 
 // Map a cloud provider to its allowlisted config fields (mirrors
-// `useCloudProviders.ts` — the Models page cloud tab uses the same
+// `useCloudProviders.ts`, the Models page cloud tab uses the same
 // mapping, so the onboarding Cloud panel persists to the SAME config
 // keys the user would set there).
 function cloudConsentField(provider: string): string {
@@ -46,7 +46,7 @@ function cloudApiKeyField(provider: string): string {
 
 /** Extract the fulfilled value of a settled content-fetch result,
  *  re-throwing the rejection reason. The three content fetches
- *  (microphones / hotkey presets / model options) are fatal — a
+ *  (microphones / hotkey presets / model options) are fatal, a
  *  rejection surfaces as ``initError`` via the init effect's outer
  *  catch, exactly like the pre-parallel sequential code. Only the
  *  ``get_config`` probe is non-fatal by design (its own inline
@@ -111,7 +111,7 @@ export function useOnboardingWizard(
 	const { showSnack } = useSnackbar();
 
 	// Ref mirror of `call` so the init effect depends only on
-	// `retryCounter`. Test mocks may return a FRESH call per render — an
+	// `retryCounter`. Test mocks may return a FRESH call per render, an
 	// effect dep on it re-fires init() (onboarding_start/get_config/… →
 	// setState → re-render → new call → loop → worker OOM). Same
 	// pattern as useVocabulary.ts.
@@ -133,7 +133,7 @@ export function useOnboardingWizard(
 	const [microphones, setMicrophones] = useState<MicrophoneOption[]>([]);
 
 	// Model step: the user chooses a local model (downloaded explicitly
-	// — the app NEVER auto-downloads) or a cloud transcription API.
+	//, the app NEVER auto-downloads) or a cloud transcription API.
 	const [selectedBackend, setSelectedBackend] =
 		useState<BackendChoice>("local");
 	// HuggingFace consent gates the EXPLICIT local-model download
@@ -178,7 +178,7 @@ export function useOnboardingWizard(
 
 	// Grant every consent at once (single batched set_config, same
 	// six fields as the Settings Privacy page's "Agree to All").
-	// CONSENT_FIELDS is a module-level const — a stable dep.
+	// CONSENT_FIELDS is a module-level const, a stable dep.
 	const handleAgreeToAll = useCallback(() => {
 		const all = Object.fromEntries(CONSENT_FIELDS.map((f) => [f, true]));
 		setConsents((prev) => ({ ...prev, ...all }));
@@ -188,7 +188,7 @@ export function useOnboardingWizard(
 				e,
 			);
 		});
-		// CONSENT_FIELDS is a module-level const — biome treats it
+		// CONSENT_FIELDS is a module-level const, biome treats it
 		// as stable and flags listing it as a dep as unnecessary.
 	}, [call]);
 
@@ -201,7 +201,7 @@ export function useOnboardingWizard(
 		setRetryCounter((c) => c + 1);
 	}, []);
 
-	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract — .current must NOT become a dep
+	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract, .current must NOT become a dep
 	useEffect(() => {
 		void retryCounter;
 		let cancelled = false;
@@ -211,12 +211,12 @@ export function useOnboardingWizard(
 				if (cancelled) return;
 				setStep(started);
 				// Pre-fill the selections from the saved config on
-				// EVERY start — first-run AND resume. A previous
+				// EVERY start, first-run AND resume. A previous
 				// version skipped the get_config override when
 				// ``step > 0`` (the "resume" heuristic), so a wizard
 				// opened mid-way (e.g. after "Re-run setup wizard", or
 				// a quit mid-onboarding) showed the renderer defaults
-				// instead of the user's saved hotkey/model/mic — and
+				// instead of the user's saved hotkey/model/mic, and
 				// hitting Continue then pushed those defaults back to
 				// the backend, clobbering the restored selections.
 				// The saved config is the best available source of the
@@ -228,7 +228,7 @@ export function useOnboardingWizard(
 				// values (HOTKEY_DEFAULT / MODEL_DEFAULT / "") are still
 				// used when config.json has no saved value.
 				// Fetch the four content payloads in PARALLEL (the
-				// Dashboard pattern — same as
+				// Dashboard pattern, same as
 				// pages/dashboard/hooks/useDashboardData.ts):
 				// previously these were five SEQUENTIAL round-trips,
 				// so the wizard's first-run content waited for the
@@ -243,7 +243,7 @@ export function useOnboardingWizard(
 				// The batch settles via `Promise.allSettled`
 				// (not `Promise.all`) so the CONFIG PREFILL is
 				// applied on its own success even when a
-				// content fetch rejects — `Promise.all`
+				// content fetch rejects, `Promise.all`
 				// discarded an already-fetched config the
 				// moment a sibling fetch failed, so the error
 				// screen lost the prefill state (the
@@ -276,10 +276,10 @@ export function useOnboardingWizard(
 					]);
 				if (cancelled) return;
 				// `get_config` never rejects (its inline .catch
-				// resolves to `null`) — the ternary only
+				// resolves to `null`), the ternary only
 				// narrows the allSettled result type.
 				const cfg = cfgOutcome.status === "fulfilled" ? cfgOutcome.value : null;
-				// Apply in the ORIGINAL sequential order — the
+				// Apply in the ORIGINAL sequential order, the
 				// config prefill BEFORE the mic reconciliation so
 				// the reconciliation's "keep prev" check sees the
 				// config-restored selection.
@@ -296,7 +296,7 @@ export function useOnboardingWizard(
 					// saved config (re-run / already-granted users).
 					const savedConsents: Record<string, boolean> = {};
 					for (const f of CONSENT_FIELDS) {
-						// `CONSENT_FIELDS` is `as const` — every literal is a
+						// `CONSENT_FIELDS` is `as const`, every literal is a
 						// real VoiceTyperConfig boolean field, so index it
 						// directly (no unsafe Record cast).
 						savedConsents[f] = cfg[f] === true;
@@ -306,7 +306,7 @@ export function useOnboardingWizard(
 				// Unwrap each content result in the original
 				// apply order, re-throwing the first rejection
 				// reason so it surfaces as initError via the
-				// outer catch — a failure AFTER the prefill
+				// outer catch, a failure AFTER the prefill
 				// block no longer discards the prefill (state
 				// applied before the throw stays applied,
 				// exactly like the old sequential code).
@@ -356,12 +356,12 @@ export function useOnboardingWizard(
 	}, [step?.step_name, step]);
 
 	// Explicit in-wizard model download. The app NEVER downloads
-	// automatically — the user clicks Download on the Model step (or the
+	// automatically, the user clicks Download on the Model step (or the
 	// Models page). Progress arrives via the ``download_progress`` push
 	// event; the promise resolves when the download completes.
 	//
 	// The HuggingFace consent checkbox on the Model step is the user's
-	// explicit opt-in for this download — ``service.download_model``
+	// explicit opt-in for this download, ``service.download_model``
 	// refuses to download without ``huggingface_consent``, so it is
 	// persisted here right before the download is started (and again on
 	// Continue via ``handleNext`` so the choice survives the wizard even
@@ -409,7 +409,7 @@ export function useOnboardingWizard(
 			} else if (step?.step_name === "Consent") {
 				// The consent toggles persist IMMEDIATELY on toggle
 				// (setConsentField), so Continue has nothing new to save
-				// — re-persist anyway so a mid-wizard quit after toggling
+				//, re-persist anyway so a mid-wizard quit after toggling
 				// but before Continue still leaves the grants durable
 				// (idempotent; mirrors the Model-step pattern).
 				const toPersist: Record<string, unknown> = {};
@@ -430,7 +430,7 @@ export function useOnboardingWizard(
 					await call("set_config", { huggingface_consent: hfConsent });
 				} else if (selectedBackend === "cloud") {
 					// Persist the cloud provider API key + consent through
-					// the allowlisted set_config fields — mirroring the
+					// the allowlisted set_config fields, mirroring the
 					// Models page cloud tab.
 					const updates: Record<string, unknown> = {
 						[cloudConsentField(cloudProvider)]: cloudConsent,
@@ -442,7 +442,7 @@ export function useOnboardingWizard(
 				}
 			}
 			// Note: the Done step does NOT call onboarding_apply via
-			// handleNext — the Done-step Continue button is wired to
+			// handleNext, the Done-step Continue button is wired to
 			// `handleApply` (see Onboarding.tsx's
 			// `onClick={isDoneStep ? handleApply : handleNext}`), so a
 			// DONE_STEP_NAME branch here would be unreachable dead code.

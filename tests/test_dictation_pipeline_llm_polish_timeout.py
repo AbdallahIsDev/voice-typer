@@ -5,7 +5,7 @@ Pre-fix, ``DictationPipeline._apply_llm_polish`` called
 dictation pipeline thread. The underlying ``LLMPolisher._call_api``
 uses a 10s socket timeout, so a stalled LLM endpoint blocked the
 pipeline for up to 10s before the user saw any text. The pipeline
-thread is the single bottleneck for the user's paste latency — while
+thread is the single bottleneck for the user's paste latency, while
 ``_apply_llm_polish`` is running, the pipeline cannot process new
 dictation triggers (start/stop/cancel from the hotkey path) and the
 text is not yet on the clipboard.
@@ -22,7 +22,7 @@ These tests exercise:
     within the pipeline-side timeout (NOT the slow polish's full
     duration).
   * The success path: a fast polish call returns the polished text
-    (regression guard — the side-thread wrapper must not break the
+    (regression guard, the side-thread wrapper must not break the
     normal path).
   * The exception path: an exception inside ``polish`` propagates to
     ``_apply_llm_polish``'s ``except Exception`` block so the existing
@@ -104,11 +104,11 @@ class TestLLMPolishPipelineTimeout:
 
     def test_constant_is_shorter_than_socket_timeout(self):
         """``_LLM_POLISH_PIPELINE_TIMEOUT_S`` must be < the 10s socket
-        timeout in ``LLMPolisher._call_api`` — otherwise the fix is a
+        timeout in ``LLMPolisher._call_api``, otherwise the fix is a
         no-op (the pipeline would still wait the full 10s)."""
         assert DictationPipeline._LLM_POLISH_PIPELINE_TIMEOUT_S < 10.0, (
             "_LLM_POLISH_PIPELINE_TIMEOUT_S must be shorter than the "
-            "underlying 10s socket timeout — otherwise the pipeline still "
+            "underlying 10s socket timeout, otherwise the pipeline still "
             "blocks for the full 10s on a stalled LLM endpoint."
         )
         assert DictationPipeline._LLM_POLISH_PIPELINE_TIMEOUT_S > 0.0
@@ -138,7 +138,7 @@ class TestLLMPolishPipelineTimeout:
         assert result == "hello world", (
             f"on timeout, _call_polish_with_timeout must return the original text. Got: {result!r}"
         )
-        # The pipeline returned well under the 5s sleep — bounded by
+        # The pipeline returned well under the 5s sleep, bounded by
         # the 0.1s timeout (plus a small grace margin for thread
         # scheduling / executor shutdown overhead).
         assert elapsed < 1.0, (

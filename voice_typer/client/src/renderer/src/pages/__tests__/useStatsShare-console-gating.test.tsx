@@ -18,7 +18,7 @@
  * graph for what is fundamentally a source-text invariant. The
  * `console.info` calls and their `import.meta.env.DEV` wrappers are both
  * visible in the source text, so we use `fs.readFileSync` + a small block
- * parser — same pattern used by `Dashboard.test.tsx` and
+ * parser, same pattern used by `Dashboard.test.tsx` and
  * `pages-improvements.test.tsx` for similar static contracts.
  *
  * The parser:
@@ -60,7 +60,7 @@ const USE_STATS_SHARE_SRC = fs.readFileSync(
  */
 function stripNonCode(src: string): string {
 	let result = src;
-	// Strip block comments — preserve newlines so line numbers stay aligned.
+	// Strip block comments, preserve newlines so line numbers stay aligned.
 	result = result.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "));
 	// Strip line comments.
 	result = result.replace(/\/\/[^\n]*/g, "");
@@ -137,7 +137,7 @@ function analyzeConsoleInfoGating(src: string): ConsoleInfoSite[] {
 				const window = stripped.slice(i, i + 80);
 				const devMatch = /\(\s*import\.meta\.env\.DEV\s*\)/.test(window);
 				if (devMatch) {
-					// Find the next `{` after the `if (...)` — that's the block opener.
+					// Find the next `{` after the `if (...)`, that's the block opener.
 					// Walk forward, skipping the parenthesized condition.
 					let j = i + 2;
 					let parenDepth = 0;
@@ -160,7 +160,7 @@ function analyzeConsoleInfoGating(src: string): ConsoleInfoSite[] {
 								if (k < stripped.length && stripped[k] === "{") {
 									// Push a DEV frame at the CURRENT depth (before the `{` is counted).
 									frames.push({ openDepth: depth, isDev: true });
-									// Don't increment depth here — the `{` will be processed
+									// Don't increment depth here, the `{` will be processed
 									// in the next iteration and increment depth normally.
 									// But we need to skip past the `{` so we don't push another
 									// (non-DEV) frame for it. Set a flag.
@@ -172,7 +172,7 @@ function analyzeConsoleInfoGating(src: string): ConsoleInfoSite[] {
 								break;
 							}
 						} else if (c === "{" || c === ";") {
-							// Malformed — bail.
+							// Malformed, bail.
 							break;
 						}
 						j += 1;
@@ -206,7 +206,7 @@ function analyzeConsoleInfoGating(src: string): ConsoleInfoSite[] {
 describe("useStatsShare.ts: every console.info must be DEV-gated", () => {
 	it("useStatsShare.ts contains at least one console.info call (sanity)", () => {
 		// If this assertion fails, the file was refactored to remove all
-		// console.info calls — in which case this regression test becomes
+		// console.info calls, in which case this regression test becomes
 		// moot and should be deleted (the invariant it pins is vacuously
 		// satisfied). Failing here forces the author to notice.
 		const count = (USE_STATS_SHARE_SRC.match(/console\.info\s*\(/g) || [])
@@ -234,7 +234,7 @@ describe("useStatsShare.ts: every console.info must be DEV-gated", () => {
 	it("no `console.log` calls exist in useStatsShare.ts (debug artifacts)", () => {
 		// While the dead debug-only spec that motivated this file has been
 		// deleted, we additionally pin that the production hook itself
-		// contains no `console.log` calls — `console.log` is never
+		// contains no `console.log` calls, `console.log` is never
 		// appropriate in production renderer code (use `console.info` +
 		// DEV gate for diagnostics, or `console.warn`/`console.error` for
 		// actionable messages that should reach the packaged-app console).

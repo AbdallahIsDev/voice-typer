@@ -1,5 +1,5 @@
 /**
- * XA-8 — ARIA accessibility regression tests for the renderer's feedback /
+ * XA-8, ARIA accessibility regression tests for the renderer's feedback /
  * common / UI primitives.
  *
  * Scope: every XA-8 sub-item gets at least one assertion. Already-fixed
@@ -66,7 +66,7 @@ afterEach(() => {
 });
 
 // ────────────────────────────────────────────────────────────────────
-// Test 1 — EmptyState roles
+// Test 1, EmptyState roles
 // ────────────────────────────────────────────────────────────────────
 describe("XA-8-H1: EmptyState role", () => {
 	it("uses role=alert when variant='error'", () => {
@@ -104,12 +104,12 @@ describe("XA-8-H1: EmptyState role", () => {
 });
 
 // ────────────────────────────────────────────────────────────────────
-// Test 2 — ErrorBoundary renders localized strings
+// Test 2, ErrorBoundary renders localized strings
 // ────────────────────────────────────────────────────────────────────
 // Mock the i18n surface so every t() call returns a stable marker that
 // encodes the key. ErrorBoundary's fallback UI uses several t() calls
 // (title / description / copyError / openLogs / resetSettings / tryAgain
-// / reloadApp) — asserting each marker appears proves every string flows
+// / reloadApp), asserting each marker appears proves every string flows
 // through t() rather than being a hard-coded English literal.
 const ERROR_BOUNDARY_MARKER = "T(errorBoundary.title)";
 vi.mock("@/i18n/i18n", () => ({
@@ -143,7 +143,7 @@ describe("XA-8-M2: ErrorBoundary renders localized strings", () => {
 				<Thrower message="boundary-failure" />
 			</ErrorBoundary>,
 		);
-		// The visible <h1> text is the t()-returned marker — proves the
+		// The visible <h1> text is the t()-returned marker, proves the
 		// English literal "Something went wrong" is NOT hard-coded.
 		expect(screen.getByText(ERROR_BOUNDARY_MARKER)).toBeInTheDocument();
 	});
@@ -183,7 +183,7 @@ describe("XA-8-M2: ErrorBoundary renders localized strings", () => {
 });
 
 // ────────────────────────────────────────────────────────────────────
-// Test 3 — KeyringStatusBadge: no redundant aria-label
+// Test 3, KeyringStatusBadge: no redundant aria-label
 // ────────────────────────────────────────────────────────────────────
 describe("XA-8-M3: KeyringStatusBadge redundant aria-label", () => {
 	const availableStatus: KeyringStatus = {
@@ -201,7 +201,7 @@ describe("XA-8-M3: KeyringStatusBadge redundant aria-label", () => {
 		);
 		const trigger = container.querySelector("button");
 		expect(trigger).not.toBeNull();
-		// The visible "Secure" span provides the accessible name — a
+		// The visible "Secure" span provides the accessible name, a
 		// duplicate aria-label would have SR users hear the tooltip twice
 		// (once on the button, once when the tooltip opens on focus).
 		expect(trigger?.getAttribute("aria-label")).toBeNull();
@@ -225,7 +225,7 @@ describe("XA-8-M3: KeyringStatusBadge redundant aria-label", () => {
 });
 
 // ────────────────────────────────────────────────────────────────────
-// Test 4 — sonner Toaster localized aria-labels
+// Test 4, sonner Toaster localized aria-labels
 // ────────────────────────────────────────────────────────────────────
 // Capture the most recent props passed to the mocked Sonner so each
 // test can assert on the aria-label props after a render.
@@ -268,7 +268,7 @@ describe("XA-8-M6: sonner Toaster localized aria-labels", () => {
 });
 
 // ────────────────────────────────────────────────────────────────────
-// Test 5 — Slider / Switch / Button dev-mode a11y warn
+// Test 5, Slider / Switch / Button dev-mode a11y warn
 // ────────────────────────────────────────────────────────────────────
 describe("XA-8-L1/L2/L3: Slider / Switch / Button dev-mode a11y warn", () => {
 	it("Slider warns when aria-label / aria-labelledby / thumbLabels are all absent", () => {
@@ -313,7 +313,7 @@ describe("XA-8-L1/L2/L3: Slider / Switch / Button dev-mode a11y warn", () => {
 });
 
 // ────────────────────────────────────────────────────────────────────
-// Test 6 — InfoTooltip: the help glyph carries no redundant accessible name
+// Test 6, InfoTooltip: the help glyph carries no redundant accessible name
 // ────────────────────────────────────────────────────────────────────
 describe("XA-8-L3: InfoTooltip glyph has no redundant <title>", () => {
 	it("renders the icon glyph aria-hidden with no <title> descendant (button aria-label is the source of truth)", () => {
@@ -323,7 +323,7 @@ describe("XA-8-L3: InfoTooltip glyph has no redundant <title>", () => {
 			</TooltipProvider>,
 		);
 		// The help glyph is the shared hugeicons renderer (mocked as a span
-		// in this suite — the real component renders the same contract as
+		// in this suite, the real component renders the same contract as
 		// an SVG): decorative, aria-hidden, and carrying no <title>.
 		const glyph = container.querySelector("[data-testid='hugeicon']");
 		expect(glyph).not.toBeNull();
@@ -348,7 +348,7 @@ describe("XA-8-L3: InfoTooltip glyph has no redundant <title>", () => {
 });
 
 // ────────────────────────────────────────────────────────────────────
-// Test 7 — LastUpdatedIndicator wrapped in aria-live=polite
+// Test 7, LastUpdatedIndicator wrapped in aria-live=polite
 // ────────────────────────────────────────────────────────────────────
 describe("XA-8-L5: LastUpdatedIndicator aria-live region", () => {
 	it("wraps the dynamic 'Last updated' label in an aria-live=polite region", () => {
@@ -372,7 +372,7 @@ describe("XA-8-L5: LastUpdatedIndicator aria-live region", () => {
 });
 
 // ────────────────────────────────────────────────────────────────────
-// Test 8 — Spinner decorative prop
+// Test 8, Spinner decorative prop
 // ────────────────────────────────────────────────────────────────────
 describe("XA-8-L6: Spinner decorative prop", () => {
 	it("decorative={true} renders <div aria-hidden=true> with no role and no aria-label", () => {

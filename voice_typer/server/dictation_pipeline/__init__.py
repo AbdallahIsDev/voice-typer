@@ -1,4 +1,4 @@
-"""DictationPipeline package — split from the 2077-LOC ``dictation_pipeline.py`` monolith.
+"""DictationPipeline package, split from the 2077-LOC ``dictation_pipeline.py`` monolith.
 
 The original ``dictation_pipeline.py`` was a single file containing:
   * shared helpers (``_timed_stage``, ``_AbortWatcher``,
@@ -17,19 +17,19 @@ The original ``dictation_pipeline.py`` was a single file containing:
 
 This package splits the monolith into 7 focused modules:
 
-  * ``helpers`` — shared helpers and exception classes (listed above).
-  * ``transcribe_step`` — ``_TranscribeStepMixin``: Step 1 (transcribe)
+  * ``helpers``: shared helpers and exception classes (listed above).
+  * ``transcribe_step``: ``_TranscribeStepMixin``: Step 1 (transcribe)
     + Step 2 (empty handling) + shared ``_hide_or_idle_bubble`` +
     resource-probe wrappers.
-  * ``text_steps`` — ``_TextStepsMixin``: Step 3 (clean) +
+  * ``text_steps``: ``_TextStepsMixin``: Step 3 (clean) +
     Step 4 (vocabulary) + Step 5 (templates) + Step 6 (punctuation).
-  * ``enhancement_steps`` — ``_EnhancementStepsMixin``: Step 7 (LLM
+  * ``enhancement_steps``: ``_EnhancementStepsMixin``: Step 7 (LLM
     polish) + Step 7b (AI enhancement) + Step 7c (vocabulary-automation).
-  * ``storage_step`` — ``_StorageStepMixin``: Step 8 (history DB +
+  * ``storage_step``: ``_StorageStepMixin``: Step 8 (history DB +
     crash recovery + push event + log line).
-  * ``paste_step`` — ``_PasteStepMixin``: Step 9 (clipboard copy +
+  * ``paste_step``: ``_PasteStepMixin``: Step 9 (clipboard copy +
     paste + failure recovery).
-  * ``orchestrator`` — ``_OrchestratorMixin``: ``__init__``,
+  * ``orchestrator``: ``_OrchestratorMixin``: ``__init__``,
     ``request_abort``, and ``run`` (the god method that drives the
     11-stage pipeline + the 7-step finally block).
 
@@ -37,7 +37,7 @@ This ``__init__.py`` composes the mixins into the final public
 ``DictationPipeline`` class and re-exports the helper symbols so
 existing callers (tests, ``recording_controller._stop_impl``) that
 ``from voice_typer.server.dictation_pipeline import DictationPipeline``
-continue to work — NO behavior change, NO API change.
+continue to work. NO behavior change, NO API change.
 
 The composing class declaration below is intentionally a single
 ``class DictationPipeline(...): pass`` so the regression guard in
@@ -110,7 +110,7 @@ class DictationPipeline(
     _StorageStepMixin,
     _PasteStepMixin,
 ):
-    """Transcription pipeline — one method per step.
+    """Transcription pipeline, one method per step.
 
     The pipeline is run on a background thread by VoiceTyperApp.
     Each method is independently testable and handles its own errors
@@ -119,7 +119,7 @@ class DictationPipeline(
     Composed from 6 mixins (see module docstring for the split layout).
     The public API surface (``__init__``, ``request_abort``, ``run``,
     and the nine ``_<step>`` methods) is identical to the pre-split
-    monolith — no behavior change, no signature change.
+    monolith, no behavior change, no signature change.
     """
 
     pass

@@ -1,11 +1,11 @@
-"""Worker exe package — runtime-pack process for offline transcription.
+"""Worker exe package: runtime-pack process for offline transcription.
 
 Phase 2 / master plan §4.4: a separate Nuitka onefile (parallel to the
 slim-core sidecar) that bundles ``onnxruntime`` + ``ctranslate2`` +
 ``numpy/scipy`` + ``av`` + ``pyrnnoise`` + the Silero VAD ONNX model +
 the Parakeet tokenizer. The worker is launched by the Tauri host AFTER
 the runtime-pack download completes + is verified (see plan §7.3), and
-stays running for the app's lifetime (long-lived worker model — §7.3).
+stays running for the app's lifetime (long-lived worker model, §7.3).
 
 The worker's job:
 
@@ -17,7 +17,7 @@ The worker's job:
    ADR-0020 §1), report the OS-assigned port to the host via a single
    ``{"event":"worker_started","port":N,"protocol":P}`` line on stdout,
    and accept authenticated WS connections from the slim-core sidecar
-   (which acts as the WS client — see plan §7.1 "1-host ↔ 2-processes
+   (which acts as the WS client: see plan §7.1 "1-host ↔ 2-processes
    pattern").
 3. **Auth**: bearer-token handshake via ``hmac.compare_digest`` (pattern
    from :mod:`voice_typer.server.ipc.auth`). The token comes from the

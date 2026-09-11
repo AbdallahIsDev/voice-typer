@@ -39,7 +39,7 @@ if str(_REPO_ROOT) not in sys.path:
 def run_f2():
     """Delegate to tests/manual/diagnose_f2.py.
 
-    Updated import path — the module was moved from
+    Updated import path, the module was moved from
     ``scripts/diagnostics/`` to ``tests/manual/`` and exposes its
     entry point as ``run`` (per tests/manual/README.md).
     """
@@ -51,7 +51,7 @@ def run_f2():
 def run_cublas():
     """Delegate to tests/manual/cublas_fallback.py.
 
-    Updated import path — see ``run_f2`` docstring.
+    Updated import path: see ``run_f2`` docstring.
     """
     from tests.manual.cublas_fallback import run as main
 
@@ -61,7 +61,7 @@ def run_cublas():
 def run_runtime():
     """Delegate to tests/manual/runtime_proof.py.
 
-    Updated import path — see ``run_f2`` docstring.
+    Updated import path: see ``run_f2`` docstring.
     """
     from tests.manual.runtime_proof import run as main
 
@@ -71,7 +71,7 @@ def run_runtime():
 def run_test_runner():
     """Delegate to tests/manual/runtime_test_runner.py.
 
-    Updated import path — see ``run_f2`` docstring.
+    Updated import path: see ``run_f2`` docstring.
     """
     from tests.manual.runtime_test_runner import main
 
@@ -127,7 +127,7 @@ def export_diagnostics() -> str:
     Collects:
       - voice-typer.log (Python host log, if it exists)
       - rust-voice-typer.log[.N] (Rust/Tauri host log + rotated variants,
-        if they exist — lives under ``<config_dir>/logs/``)
+        if they exist, lives under ``<config_dir>/logs/``)
       - config.json (with API keys redacted)
       - System info (OS, GPU, CUDA version, Python version)
       - Model info (which models are downloaded)
@@ -173,7 +173,7 @@ def export_diagnostics() -> str:
             "python_implementation": platform.python_implementation(),
         }
 
-        # GPU / CUDA info — Phase 1c (PLAN_ONNX_INTEGRATION.md §3.7):
+        # GPU / CUDA info. Phase 1c (PLAN_ONNX_INTEGRATION.md §3.7):
         # replaced the ``torch.cuda.*`` block with
         # ``onnxruntime.__version__`` / ``get_available_providers()``
         # / ``get_device()`` so the CLI diagnostic producer no longer
@@ -220,7 +220,7 @@ def export_diagnostics() -> str:
         except Exception as exc:
             sys_info["gpu_error"] = str(exc)
 
-        # ctranslate2 info (preserved — faster-whisper still uses
+        # ctranslate2 info (preserved, faster-whisper still uses
         # ctranslate2 in Phase 1c; the Qwen engine also uses it
         # transitively).
         try:
@@ -262,7 +262,7 @@ def export_diagnostics() -> str:
                     )
                 except Exception:
                     # Fallback: copy of the canonical frozenset. Keep in
-                    # sync with voice_typer/server/ipc_server.py — that
+                    # sync with voice_typer/server/ipc_server.py, that
                     # module is the canonical source.
                     _redact_keys = frozenset(
                         {
@@ -284,7 +284,7 @@ def export_diagnostics() -> str:
         # Previously only the Python log
         # (``config_dir/voice-typer.log``) was collected. The Rust/Tauri
         # host writes to ``config_dir/logs/voice-typer.log`` (rotated to
-        # ``.log.1`` … ``.log.4`` — see ``src-tauri/src/platform/logging.rs``
+        # ``.log.1`` … ``.log.4``: see ``src-tauri/src/platform/logging.rs``
         # ``RotatingFileWriter``). Collect both so bug-report bundles
         # include the full cross-language log picture. The Python log
         # keeps its original ``voice-typer.log`` name; Rust logs are

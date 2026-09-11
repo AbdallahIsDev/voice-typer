@@ -9,7 +9,7 @@ parity against en.json as a whole) by pinning the specific additions
 so that future regressions (e.g. a locale file getting truncated) are caught
 with a focused failure message naming the missing key + locale.
 
-Offline-only — no network calls (C-DATA-1). No task IDs in source (C-STYLE-1).
+Offline-only, no network calls (C-DATA-1). No task IDs in source (C-STYLE-1).
 """
 
 from __future__ import annotations
@@ -63,7 +63,7 @@ ZU_FIX_14_NEW_KEYS: dict[str, list[str]] = {
         "models.disk.freeSpace",
         # (models.disk.lowSpaceTitle / lowSpaceBody / models.status.insufficientDisk
         # already existed in every locale before  and are therefore not
-        # asserted here — they are covered by the broader structural-parity test.)
+        # asserted here, they are covered by the broader structural-parity test.)
     ],
     # vocabulary no-results empty-state description
     "ZU-26": [
@@ -103,7 +103,7 @@ ZU_FIX_14_NEW_KEYS: dict[str, list[str]] = {
     # is satisfied (en/de/es/fr/zh/hi only USE _one/_other at runtime, but the
     # unused _zero/_two/_few/_many leaves are kept in lockstep so the broader
     # structural-parity test stays green).
-    # NOTE: the vocabulary entry-count label is NOT an ICU plural family — the
+    # NOTE: the vocabulary entry-count label is NOT an ICU plural family, the
     # renderer folds the live count into the search placeholder via the plain
     # {count} interpolation key vocabulary.searchPlaceholderCount (no CLDR
     # suffixes), so only the analytics tooltip family is pinned here.
@@ -308,7 +308,7 @@ def test_no_duplicate_keys_in_any_locale(locale):
     """No translation file may contain duplicate sibling JSON keys.
 
     Duplicate keys parse silently (last-wins), shadowing the earlier
-    block's translations — a standing drift trap that key-presence
+    block's translations, a standing drift trap that key-presence
     tests cannot see because they read the merged view.
     """
     path = TRANSLATIONS_DIR / f"{locale}.json"

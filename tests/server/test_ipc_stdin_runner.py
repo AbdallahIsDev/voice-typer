@@ -4,7 +4,7 @@ The stdin/stdout IPC transport is the legacy path (predating TCP and
 WebSocket). It reads JSON-lines from stdin, dispatches each line via
 ``_dispatch``, and writes JSON responses to stdout. The transport is
 gated behind ``VOICE_TYPER_ALLOW_STDIN_IPC=1`` (see
-``test_ipc_lifecycle.py::TestStdinIpcEnvVarGate``) — these tests bypass
+``test_ipc_lifecycle.py::TestStdinIpcEnvVarGate``), these tests bypass
 the gate by calling ``_run`` directly with a fake ``_stdin`` / ``_stdout``
 pair (the ``_run`` method's signature accepts these for testing).
 
@@ -14,10 +14,10 @@ Coverage:
   - Multiple commands in one stream are dispatched in order.
   - Lines with leading/trailing whitespace are stripped before parsing
     (the "partial line" reassembly is implicit in Python's
-    ``for line in stdin`` line-iteration semantics — each iteration
+    ``for line in stdin`` line-iteration semantics, each iteration
     yields one complete line including the trailing ``\\n``).
   - Invalid JSON emits a ``{"message": "invalid JSON"}`` error envelope
-    (bare, no ``code`` field — backward-compat with
+    (bare, no ``code`` field, backward-compat with
     ``tests/test_server.py::test_handles_invalid_json``).
   - Non-dict JSON (e.g. ``[1, 2]``) emits a namespaced
     ``client.invalid_payload`` error envelope.
@@ -78,7 +78,7 @@ class TestFullLineDispatch:
 
     def test_blank_and_whitespace_only_lines_skipped(self, server) -> None:
         """Lines that strip to empty (blank, or only whitespace) are
-        skipped — no error envelope, no dispatch. The loop continues
+        skipped, no error envelope, no dispatch. The loop continues
         to the next line."""
         stdin = io.StringIO(
             "\n"  # blank
@@ -90,13 +90,13 @@ class TestFullLineDispatch:
         server._running = True
         server._run(_stdin=stdin, _stdout=stdout)
         lines = stdout.getvalue().strip().split("\n")
-        # Only one response — the three whitespace-only lines were skipped.
+        # Only one response, the three whitespace-only lines were skipped.
         assert len(lines) == 1
         assert json.loads(lines[0])["id"] == 1
 
     def test_line_with_leading_trailing_whitespace_stripped(self, server) -> None:
         """A real JSON command surrounded by leading/trailing whitespace
-        on the line is stripped before parsing — the JSON parser sees
+        on the line is stripped before parsing, the JSON parser sees
         only the bare command."""
         stdin = io.StringIO('   {"type":"get_status","id":1}   \n')
         stdout = io.StringIO()
@@ -150,7 +150,7 @@ class TestEofAndCleanExit:
     def test_oserror_on_iter_returns_without_raising(self, server) -> None:
         """If ``iter(stdin)`` raises ``OSError`` (e.g. stdin not
         available during testing), the runner returns immediately
-        without raising — the dispatcher's outer try/except catches it."""
+        without raising, the dispatcher's outer try/except catches it."""
 
         class _BrokenStdin:
             def __iter__(self):
@@ -163,7 +163,7 @@ class TestEofAndCleanExit:
         server._run(_stdin=_BrokenStdin(), _stdout=stdout)
         # The disconnect hook is NOT called on the OSError-at-iter path
         # (the runner returns before reaching the post-loop hook). This
-        # is the documented behavior — pin it so a future refactor that
+        # is the documented behavior, pin it so a future refactor that
         # moves the OSError catch doesn't silently change it.
         server._on_ipc_client_disconnect.assert_not_called()
 
@@ -173,13 +173,13 @@ class TestEofAndCleanExit:
 
 class TestUnicodeHandling:
     """JSON payloads with unicode (CJK / emoji / accented Latin)
-    round-trip through the stdin runner intact — the JSON parser handles
+    round-trip through the stdin runner intact, the JSON parser handles
     unicode natively, and the stdout sink (an ``io.StringIO`` in tests,
     real stdout in production) is text-mode so unicode is preserved."""
 
     def test_cjk_characters_in_command_data(self, server) -> None:
         """A command with CJK characters in its data field is dispatched
-        correctly — the handler sees the unicode string verbatim."""
+        correctly, the handler sees the unicode string verbatim."""
         # Use a set_config command with a CJK correction value. The
         # mock_app config is a real dataclass; we can set any field.
         stdin = io.StringIO(
@@ -207,7 +207,7 @@ class TestUnicodeHandling:
         a transcription result with accented Latin / CJK / emoji) is
         serialized to stdout as UTF-8 text without mangling."""
         # Stub the get_status handler to return a unicode-laden message
-        # via the xruns_since_start field — actually we'll use a custom
+        # via the xruns_since_start field, actually we'll use a custom
         # command via _dispatch's handler registry. Simpler: stub
         # _dispatch to return a unicode payload directly.
         unicode_payload = "こんにちは世界 🌍 café"
@@ -242,7 +242,7 @@ class TestUnicodeHandling:
 class TestErrorEnvelopes:
     """The stdin runner emits well-formed error envelopes for the three
     failure modes: invalid JSON, non-dict JSON, and dispatch exceptions.
-    The loop continues after each — a single bad line doesn't kill the
+    The loop continues after each, a single bad line doesn't kill the
     stdin thread."""
 
     def test_invalid_json_emits_bare_error_envelope(self, server) -> None:
@@ -296,7 +296,7 @@ class TestErrorEnvelopes:
         server._running = True
         server._run(_stdin=stdin, _stdout=stdout)
         lines = stdout.getvalue().strip().split("\n")
-        assert len(lines) == 2, "both lines must produce a response — the crash on line 1 must not kill the loop"
+        assert len(lines) == 2, "both lines must produce a response, the crash on line 1 must not kill the loop"
         err_msg = json.loads(lines[0])
         assert err_msg["type"] == "error"
         assert err_msg["data"]["code"] == "server.internal_error"

@@ -1,8 +1,8 @@
 // History clear-all flow hook.
 //
 // Extracted from `pages/History.tsx` (page-root slimming): the Clear All
-// flow — confirmation-dialog state, the filter-aware short-circuit
-// guards, and the destructive `clear_history` apply — is cohesive event
+// flow, confirmation-dialog state, the filter-aware short-circuit
+// guards, and the destructive `clear_history` apply, is cohesive event
 // logic that belongs in a named, testable hook instead of the page
 // root.
 //
@@ -10,7 +10,7 @@
 // subset of ALL history). When a filter is active the arm step checks
 // the cached stats count instead of the visible rows (the visible list
 // may be empty while the total is not) and the confirmation message
-// calls out the hidden entries — the page renders the filter-aware
+// calls out the hidden entries, the page renders the filter-aware
 // message via the returned `filterActive`.
 
 import { useCallback, useState } from "react";

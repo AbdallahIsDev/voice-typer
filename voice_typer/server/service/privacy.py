@@ -4,8 +4,8 @@ Extracted verbatim from the original ``service.py`` god class
 (Phase 4.5 spaghetti split). Owns the two cross-cutting
 privacy methods that don't belong to a single domain mixin:
 
-* :meth:`PrivacyMixin.delete_all_personal_data`   — GDPR Art. 17
-* :meth:`PrivacyMixin.export_gdpr_bundle`          — GDPR Art. 20
+* :meth:`PrivacyMixin.delete_all_personal_data`  , GDPR Art. 17
+* :meth:`PrivacyMixin.export_gdpr_bundle`         : GDPR Art. 20
 
 These methods previously lived on :class:`VoiceTyperService` itself
 because they touch *every* domain (history DB, config, logs, keychain,
@@ -31,7 +31,7 @@ orchestrators. The per-step work is delegated to private
 ``_gdpr_rotate_exports``). Each helper owns
 one well-named slice of the GDPR pipeline; the orchestrator's job
 is to call them in order and assemble the result dict. No behavior
-change — the public return shapes and side effects are identical to
+change, the public return shapes and side effects are identical to
 the pre-refactor implementation, and the existing
 ``tests/test_gdpr_*.py`` suite continues to pass unmodified.
 """
@@ -94,13 +94,13 @@ class PrivacyMixin(ServiceMixinBase):
     for personal-data artifacts.  The artifact set is defined by the
     two class constants below so :meth:`delete_all_personal_data` and
     :meth:`export_gdpr_bundle` stay in lock-step (the export must
-    contain exactly the files the delete would erase — minus the
+    contain exactly the files the delete would erase, minus the
     keychain entries, which are OS-managed and not zippable).
 
     The factory-reset method (``reset_config_to_defaults``) lives on
     :class:`ConfigMutationMixin` since it is config-mutation domain,
     not privacy: it acquires ``_config_mutation_lock``, calls
-    ``Config.save_strict()``, and invalidates cached engines — the
+    ``Config.save_strict()``, and invalidates cached engines, the
     same pattern as ``ConfigMutationMixin.apply_config``.
     """
 
@@ -117,11 +117,11 @@ class PrivacyMixin(ServiceMixinBase):
     #
     # ``history.db-wal`` and ``history.db-shm`` are SQLite's
     # WAL (Write-Ahead Log) sidecar files.  In WAL journal mode
-    # (HistoryDB's default — see ``history_db._open_write_conn``),
+    # (HistoryDB's default: see ``history_db._open_write_conn``),
     # recent writes (transcription text) live in ``history.db-wal``
     # and are only merged into ``history.db`` on checkpoint.  Empirically,
     # unlinking ``history.db`` while leaving ``history.db-wal`` behind
-    # leaves dictated plaintext recoverable from the WAL — a GDPR Art. 17
+    # leaves dictated plaintext recoverable from the WAL, a GDPR Art. 17
     # violation.  We list all three here AND ``delete_all_personal_data``
     # additionally calls ``hdb.checkpoint(truncate=True)`` +
     # ``hdb.close()`` before unlinking so the WAL is empty when removed.
@@ -135,13 +135,13 @@ class PrivacyMixin(ServiceMixinBase):
     _GDPR_PERSONAL_FILES: tuple = _GDPR_PERSONAL_FILES
     # Glob patterns for personal-data files with timestamped / rotated
     # names.  See ``delete_all_personal_data`` / ``export_gdpr_bundle``
-    # for the walk — both iterate this tuple against ``config_dir``.
+    # for the walk, both iterate this tuple against ``config_dir``.
     #
     # ``voice-typer.log.*`` matches the rotating log handler's
     # backups ``voice-typer.log.1`` .. ``voice-typer.log.5`` (set in
     # ``voice_typer/server/log.py`` via
     # ``RotatingFileHandler(backupCount=5)``).  Without this glob the
-    # rotated backups survive GDPR delete — and the rotating log file
+    # rotated backups survive GDPR delete, and the rotating log file
     # contains user-spoken text via
     # ``_crash_excepthook``'s CRITICAL log + per-segment DEBUG logs
     # written by the transcription pipeline, so the leftover backups
@@ -152,8 +152,8 @@ class PrivacyMixin(ServiceMixinBase):
     # (``crash_diagnostics.<PID>.txt``).  ``python_crash.*.txt``
     # matches the Python ``_crash_excepthook``'s marker file at
     # ``crash_handler.py:1190`` (``python_crash.<PID>.txt``).  The
-    # old ``crash-*.dmp`` glob was fictional — no code path writes a
-    # file named ``crash-<anything>.dmp`` — so it matched ZERO
+    # old ``crash-*.dmp`` glob was fictional, no code path writes a
+    # file named ``crash-<anything>.dmp``, so it matched ZERO
     # production crash files and the previous unit test was a
     # false-green.
     #
@@ -181,24 +181,24 @@ class PrivacyMixin(ServiceMixinBase):
         # (High): four config-backup file classes ALL contain
         # full on-disk config.json including plaintext API keys (when
         # keyring is unavailable). Before these globs existed, they
-        # survived GDPR Art. 17 delete — a direct right-to-erasure
+        # survived GDPR Art. 17 delete, a direct right-to-erasure
         # violation.
         #
-        # ``config.json.v*.bak`` — versioned-downgrade backups from
+        # ``config.json.v*.bak``: versioned-downgrade backups from
         # ``Config._backup_before_downgrade`` (the filename format is
         # timestamped: ``config.json.v{N}-{ts}-{pid}-{ns}.bak``,
         # but the glob ``config.json.v*.bak`` also catches the legacy
         # single-slot ``config.json.v{N}.bak`` from pre- builds).
         #
-        # ``config.json.pre-migration-v*.bak`` — pre-migration backups
+        # ``config.json.pre-migration-v*.bak``: pre-migration backups
         # from ``Config._backup_before_migration`` (timestamped:
         # ``config.json.pre-migration-v{N}-{ts}-{pid}-{ns}.bak``).
         #
-        # ``config.json.bak.failed-migration-*`` — failed-migration
+        # ``config.json.bak.failed-migration-*``: failed-migration
         # backups from ``config_internals/migrations.py:_run_migrations``
         # (timestamped: ``config.json.bak.failed-migration-{ts}-to-v{N}``).
         #
-        # ``config.json.corrupt-*`` — corrupt-quarantine backups from
+        # ``config.json.corrupt-*``: corrupt-quarantine backups from
         # ``Config.load`` (timestamped:
         # ``config.json.corrupt-{ts}-{pid}-{ns}``).
         "config.json.v*.bak",
@@ -209,14 +209,14 @@ class PrivacyMixin(ServiceMixinBase):
         # byte-for-byte copy of the full history DB made by
         # ``HistoryDB._backup_before_migration`` before schema
         # migration. Contains all dictated text in plaintext. Before
-        # this glob existed, it survived GDPR Art. 17 delete — same gap as
+        # this glob existed, it survived GDPR Art. 17 delete, same gap as
         # ``history.db.corrupt-*`` which the earlier inventory already
         # covered.
         "history.db.pre-migration-v*",
         # The canonical corrupt-quarantine / pre-migration-backup
         # inventory (``history.db.corrupt-*`` + its ``-wal``/``-shm``
         # sidecars + the ``.bak`` sidecars), single-sourced from
-        # ``_user_data_files._GDPR_PERSONAL_GLOBS`` — the same tuple the
+        # ``_user_data_files._GDPR_PERSONAL_GLOBS``: the same tuple the
         # uninstall-purge path walks. The corrupt-quarantine path
         # (``history_db_internals/recovery.py``) and the pre-migration
         # backup path both create byte-for-byte sidecar copies that
@@ -237,19 +237,19 @@ class PrivacyMixin(ServiceMixinBase):
     #
     # Personal-data file set:
     #
-    #   * ``history.db``                       — transcription history
-    #   * ``recovery.json``                    — crash-recovery buffer
-    #   * ``config.json``                      — user settings + secrets
-    #   * ``voice-typer-corrections.json``     — vocabulary corrections
-    #   * ``vocabulary.json``                  — user vocabulary
-    #   * ``templates.json``                   — user templates
-    #   * ``voice-typer.log``                  — runtime log (Python side)
-    #   * ``voice-typer.log.*``                — rotated backups (.1..5)
-    #   * ``prewarm.log`` / ``prewarm.log.*``  — prewarm process log
-    #   * ``mic-test-*.wav``                   — mic-test recordings
-    #   * ``crash_diagnostics.*.txt``          — Windows VEH crash file
-    #   * ``python_crash.*.txt``               — Python excepthook marker
-    #   * ``logs/`` (subdir)                   — Rust host rotating logs
+    #   * ``history.db``                      : transcription history
+    #   * ``recovery.json``                   : crash-recovery buffer
+    #   * ``config.json``                     : user settings + secrets
+    #   * ``voice-typer-corrections.json``    : vocabulary corrections
+    #   * ``vocabulary.json``                 : user vocabulary
+    #   * ``templates.json``                  : user templates
+    #   * ``voice-typer.log``                 : runtime log (Python side)
+    #   * ``voice-typer.log.*``               : rotated backups (.1..5)
+    #   * ``prewarm.log`` / ``prewarm.log.*`` : prewarm process log
+    #   * ``mic-test-*.wav``                  : mic-test recordings
+    #   * ``crash_diagnostics.*.txt``         : Windows VEH crash file
+    #   * ``python_crash.*.txt``              : Python excepthook marker
+    #   * ``logs/`` (subdir). Rust host rotating logs
     #
     # Electron-logs gap: ``<userData>/electron-main.log`` and
     # ``<userData>/electron-renderer-errors.log`` live in a DIFFERENT
@@ -260,13 +260,13 @@ class PrivacyMixin(ServiceMixinBase):
     # ``docs/privacy/gdpr-delete.md`` "Log files" section.
     #
     # Model weights (``<config_dir>/models/`` and
-    # ``<config_dir>/huggingface/``) are explicitly EXCLUDED — they
+    # ``<config_dir>/huggingface/``) are explicitly EXCLUDED, they
     # are downloadable artifacts, not personal data.
 
     # ───────────────────────────────────────────────────────────────────
     # Refactor: private helpers extracted from the two public methods.
     # Each helper owns one slice of the GDPR pipeline.  They are
-    # ``@staticmethod``s because they don't need ``self`` — they
+    # ``@staticmethod``s because they don't need ``self``, they
     # operate on the parameters passed in (``config_dir``, ``hdb``,
     # ``app``, the ``erased`` / ``failed`` accumulators).  Keeping
     # them on the class (rather than as module-level functions) lets
@@ -289,7 +289,7 @@ class PrivacyMixin(ServiceMixinBase):
 
         Best-effort: if ``checkpoint`` is missing on this build or
         raises, the failure is logged at DEBUG and the
-        caller proceeds — the WAL sidecar unlink / non-inclusion is
+        caller proceeds, the WAL sidecar unlink / non-inclusion is
         still attempted, but stale plaintext written since the last
         passive checkpoint may be recoverable in that case.
 
@@ -342,7 +342,7 @@ class PrivacyMixin(ServiceMixinBase):
         silent no-op; any failure (``OSError`` including
         ``PermissionError``, or anything unexpected) is recorded in
         ``failed`` keyed by path and WARNING-logged with the
-        manual-delete hint — the deleted trees contain PII, so the
+        manual-delete hint, the deleted trees contain PII, so the
         project's "no silent swallows" rule applies, and a GDPR pass
         must never abort partway. On success the
         directory is appended to ``erased`` and logged at DEBUG.
@@ -361,7 +361,7 @@ class PrivacyMixin(ServiceMixinBase):
             )
         except Exception as exc:
             log.warning(
-                "[SERVICE] GDPR delete: could not rmtree %s dir at %s: %s — user may need to delete it manually",
+                "[SERVICE] GDPR delete: could not rmtree %s dir at %s: %s, user may need to delete it manually",
                 label,
                 target_path,
                 exc,
@@ -380,7 +380,7 @@ class PrivacyMixin(ServiceMixinBase):
         unlink records ``"{type}: {exc}"`` in ``failed`` keyed by path
         and returns ``False``. A single ``except Exception`` captures
         both the locked-file case (Windows) and every other unlink
-        error — the previous ``except PermissionError`` + ``except
+        error, the previous ``except PermissionError`` + ``except
         Exception`` pair had byte-identical bodies (dead shadow).
         """
 
@@ -412,7 +412,7 @@ class PrivacyMixin(ServiceMixinBase):
         """Unlink each glob-matched personal-data file in ``config_dir``.
 
         Walks :data:`_GDPR_PERSONAL_GLOBS` (mic-test recordings,
-        rotated log backups, crash diagnostic files — see the per-
+        rotated log backups, crash diagnostic files, see the per-
         pattern rationale on the constant).  Same per-unlink error
         handling as :meth:`_gdpr_unlink_personal_files` (via the shared
         :meth:`_gdpr_safe_unlink`).
@@ -426,7 +426,7 @@ class PrivacyMixin(ServiceMixinBase):
         ``FileNotFoundError`` (a subclass of ``OSError``, NOT
         ``PermissionError``) and be mis-reported as a failure.
         Dedup via a ``seen`` set keyed on the resolved path so each
-        file is unlinked at most once — also prevents the same file
+        file is unlinked at most once, also prevents the same file
         appearing twice in the ``erased`` list reported to the user.
         """
 
@@ -480,7 +480,7 @@ class PrivacyMixin(ServiceMixinBase):
         :meth:`_gdpr_unlink_personal_files` still unlinks the *legacy*
         root-located ``history.db`` (pre-O2 installs that have not run
         the one-time migration), but the O2 location is a subdir, so
-        the whole tree must be removed here — otherwise dictated text
+        the whole tree must be removed here, otherwise dictated text
         survives GDPR delete.
 
         Delegates to the shared :meth:`_gdpr_rmtree_dir` recipe.
@@ -551,7 +551,7 @@ class PrivacyMixin(ServiceMixinBase):
         # Belt-and-suspenders: zero every api_key attribute on the
         # in-memory Config (covers any provider whose delete_secret
         # call above didn't get to setattr, e.g. because of an early
-        # return inside delete_secret — currently impossible, but
+        # return inside delete_secret, currently impossible, but
         # defense in depth).
         if app_config is not None:
             try:
@@ -570,7 +570,7 @@ class PrivacyMixin(ServiceMixinBase):
         GDPR delete path bypasses ``apply_config`` (it deletes the
         on-disk file directly), so we invalidate here explicitly.
 
-        Routes through the shared ``_app_internals`` accessors — the
+        Routes through the shared ``_app_internals`` accessors, the
         same helpers ``config_service.reset_config_to_defaults`` uses —
         so the off-protocol attribute knowledge
         (``_llm_polisher`` / ``_cloud_engine`` per ADR-0008-§3.1) lives
@@ -595,12 +595,12 @@ class PrivacyMixin(ServiceMixinBase):
         in-memory state (``_data`` / ``_templates`` populated with the
         user's now-deleted PII). Without this invalidation step, the
         next dictation would still apply the deleted vocabulary /
-        templates — a GDPR Art. 17 right-to-erasure violation (the
+        templates, a GDPR Art. 17 right-to-erasure violation (the
         data "appears" deleted on disk but is still actively used by
         the running process).
 
         We re-read by calling the managers' own ``_load_and_merge`` /
-        ``_load`` methods — which now see the missing file and fall
+        ``_load`` methods: which now see the missing file and fall
         back to the bundled defaults (vocabulary) / empty list
         (templates). The acquire/release of each manager's ``_lock``
         is required because both methods mutate the manager's
@@ -612,11 +612,11 @@ class PrivacyMixin(ServiceMixinBase):
 
         Best-effort: if a manager is ``None`` (cold-start path where
         the lazy property has not yet been triggered), there is
-        nothing to invalidate — the next access will construct a
+        nothing to invalidate, the next access will construct a
         fresh instance that reads the (now-empty) file.  All
         exceptions are suppressed at WARNING level so a failure here
         does not abort the GDPR delete (the on-disk files are already
-        gone — the user's right-to-erasure is satisfied; only the
+        gone, the user's right-to-erasure is satisfied; only the
         in-memory cache invalidation failed, which is a quality-of-
         service issue, not a privacy issue).
         """
@@ -629,7 +629,7 @@ class PrivacyMixin(ServiceMixinBase):
         except Exception:
             log.warning(
                 "[SERVICE] GDPR delete: could not invalidate live "
-                "VocabularyManager in-memory state — the on-disk file "
+                "VocabularyManager in-memory state, the on-disk file "
                 "is gone but the in-memory cache may still hold deleted "
                 "PII until the next process restart",
                 exc_info=True,
@@ -643,7 +643,7 @@ class PrivacyMixin(ServiceMixinBase):
         except Exception:
             log.warning(
                 "[SERVICE] GDPR delete: could not invalidate live "
-                "TemplateManager in-memory state — the on-disk file "
+                "TemplateManager in-memory state, the on-disk file "
                 "is gone but the in-memory cache may still hold deleted "
                 "PII until the next process restart",
                 exc_info=True,
@@ -658,12 +658,12 @@ class PrivacyMixin(ServiceMixinBase):
         next ``add_transcription`` call would raise (or silently drop
         the write) because the writer queue is closed.  We construct
         a fresh ``HistoryDB`` at the default path
-        (``<config_dir>/history.db``) — ``HistoryDB.__init__`` will
+        (``<config_dir>/history.db``), ``HistoryDB.__init__`` will
         re-create the file with a fresh schema on first write.
 
         Best-effort: if construction fails (e.g. disk full,
         permissions), log and leave ``app.history_db`` as the closed
-        instance — the user will see a "history DB unavailable"
+        instance, the user will see a "history DB unavailable"
         warning on the next dictation, but the GDPR delete itself
         succeeded.
         """
@@ -853,14 +853,14 @@ class PrivacyMixin(ServiceMixinBase):
             )
 
     def delete_all_personal_data(self) -> dict:
-        """GDPR Art. 17 — right to erasure.
+        """GDPR Art. 17, right to erasure.
 
         Delete every personal-data artifact the app owns (history DB,
         crash-recovery buffer, config + secrets, corrections /
         vocabulary / templates, runtime log + rotated backups, prewarm
         log, mic-test recordings, crash diagnostic files, archived
         crash diagnostics, and the Rust host's ``logs/`` subdirectory).
-        Model weights are explicitly preserved — they are not personal
+        Model weights are explicitly preserved, they are not personal
         data.
 
         Returns:
@@ -874,7 +874,7 @@ class PrivacyMixin(ServiceMixinBase):
             uses ``failed`` to show the user which files could not be
             deleted (e.g. locked by another process) so they can manually
             delete them.  A fresh-install config dir (no artifacts) is
-            treated as success — there's nothing to erase, but the user's
+            treated as success, there's nothing to erase, but the user's
             right to erasure is satisfied.
 
         The per-step work is delegated to private ``@staticmethod``
@@ -901,7 +901,7 @@ class PrivacyMixin(ServiceMixinBase):
         lock is an ``RLock`` so a re-entrant call from the same
         thread (e.g. ``delete_secret`` → ``Config.save``) is safe.
         Missing-lock fallback (test fakes / misconfigured host) is
-        preserved — the deletion still proceeds lock-free and a
+        preserved, the deletion still proceeds lock-free and a
         WARNING is logged once per process (mirrors the
         ``config_handlers._handle_set_config`` pattern).
         """
@@ -944,7 +944,7 @@ class PrivacyMixin(ServiceMixinBase):
         # same ``RLock`` from the same thread).
         #
         # Missing-lock fallback (test fakes / misconfigured host) is
-        # preserved — the deletion still proceeds lock-free. A WARNING
+        # preserved, the deletion still proceeds lock-free. A WARNING
         # is logged once per process so the misconfiguration surfaces
         # without spamming the log on every GDPR delete (mirrors the
         # ``config_handlers._handle_set_config`` pattern).
@@ -956,7 +956,7 @@ class PrivacyMixin(ServiceMixinBase):
                 _GDPR_CONFIG_LOCK_MISSING_WARNED = True
                 log.warning(
                     "[SERVICE] GDPR delete_all_personal_data: app has no "
-                    "_config_mutation_lock — running lock-free; concurrent "
+                    "_config_mutation_lock, running lock-free; concurrent "
                     "set_config / reset_config_to_defaults / onboarding_apply "
                     "may interleave with the delete (this warning fires once "
                     "per process)"
@@ -1011,7 +1011,7 @@ class PrivacyMixin(ServiceMixinBase):
         return result
 
     def export_gdpr_bundle(self) -> dict:
-        """GDPR Art. 20 — right to data portability.
+        """GDPR Art. 20, right to data portability.
 
         Produce a single timestamped ``.zip`` at
         ``<config_dir>/gdpr-export-YYYYMMDD-HHMMSS.zip`` containing
@@ -1031,7 +1031,7 @@ class PrivacyMixin(ServiceMixinBase):
             {"success": False, "message": "..."}.
 
         A fresh-install config dir (no artifacts) still produces a
-        (mostly empty) zip rather than raising — the user's right to
+        (mostly empty) zip rather than raising, the user's right to
         portability is satisfied even if there's nothing to export.
 
         The per-step work is delegated to private ``@staticmethod``
@@ -1064,7 +1064,7 @@ class PrivacyMixin(ServiceMixinBase):
         # Build the zip to a temp path (``.zip.tmp``) in the
         # same directory, then ``os.replace`` to the final path on
         # success.  ``ZipFile(zip_path, "w", ...)`` truncates the
-        # destination incrementally — if the process is killed mid-zip
+        # destination incrementally, if the process is killed mid-zip
         # (or disk fills, or an ``zf.write`` raises), the user is left
         # with a partial/corrupt ``.zip`` that may open but be missing
         # entries, or fail CRC checks on extract.  The GDPR export is
@@ -1080,7 +1080,7 @@ class PrivacyMixin(ServiceMixinBase):
         try:
             with _zipfile.ZipFile(tmp_path, "w", _zipfile.ZIP_DEFLATED) as zf:
                 self._gdpr_build_zip(zf, config_dir)
-            # ZipFile block completed successfully — atomic
+            # ZipFile block completed successfully, atomic
             # rename of the completed temp zip into the final path.
             try:
                 os.replace(tmp_path, zip_path)
@@ -1102,7 +1102,7 @@ class PrivacyMixin(ServiceMixinBase):
                 "message": redact_secret(redact_url(str(exc))),
             }
 
-        # rotate ``gdpr-export-*.zip`` — keep most recent 5.
+        # rotate ``gdpr-export-*.zip``: keep most recent 5.
         self._gdpr_rotate_exports(config_dir)
 
         log.info(

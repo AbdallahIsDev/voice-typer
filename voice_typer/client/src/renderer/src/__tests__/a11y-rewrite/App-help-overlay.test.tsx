@@ -1,5 +1,5 @@
 /**
- *  vitest rewrite — behavioral tests for `App.tsx` help overlay.
+ *  vitest rewrite, behavioral tests for `App.tsx` help overlay.
  *
  * Replaces the following string-pattern Python tests from
  * `tests/test_ux_components.py`:
@@ -174,7 +174,7 @@ function dispatchKey(
 	});
 }
 
-describe("App help overlay — RW-0 rewrite of test_app_has_question_mark_keydown_handler", () => {
+describe("App help overlay, RW-0 rewrite of test_app_has_question_mark_keydown_handler", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		mockCall.mockReset();
@@ -248,7 +248,7 @@ describe("App help overlay — RW-0 rewrite of test_app_has_question_mark_keydow
 	});
 });
 
-describe("App help overlay — RW-0 rewrite of test_help_overlay_closes_on_escape", () => {
+describe("App help overlay, RW-0 rewrite of test_help_overlay_closes_on_escape", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		mockCall.mockReset();
@@ -282,7 +282,7 @@ describe("App help overlay — RW-0 rewrite of test_help_overlay_closes_on_escap
 			).toBeGreaterThanOrEqual(1);
 		});
 
-		// Press Escape — App.tsx's handler closes the overlay
+		// Press Escape, App.tsx's handler closes the overlay
 		// (separate from Radix Modal's own Escape handler).
 		dispatchKey("Escape");
 

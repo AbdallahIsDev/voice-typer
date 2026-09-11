@@ -2,7 +2,7 @@
  * Parse a Tauri ``invoke`` rejection string into a real ``Error``.
  *
  * On Tauri v2, when the Rust ``dispatch`` command returns ``Err``, the
- * ``invoke`` promise rejects with the raw ``e.to_string()`` — which for
+ * ``invoke`` promise rejects with the raw ``e.to_string()``, which for
  * structured errors is the JSON-serialized envelope
  * ``{"type":"error","data":{"code":"...","message":"..."}}``
  * (see ``src-tauri/src/commands/sidecar_cmds/dispatch.rs``). The
@@ -15,21 +15,21 @@
  * Tauri.
  *
  * The Rust host passes the sidecar's error envelope through VERBATIM
- * (the ``VoiceTyperError`` passthrough — see ``src-tauri/src/error.rs``),
+ * (the ``VoiceTyperError`` passthrough, see ``src-tauri/src/error.rs``),
  * so every structured field the Python backend attaches to
  * ``data`` reaches this parser. The fields stamped onto the returned
  * ``Error`` mirror the Electron-path semantics in ``usePython.ts``
  * EXACTLY (same non-empty-string / non-empty-array guards):
  *
- * - ``code`` — non-empty string only.
- * - ``errors`` — non-empty string array only (multi-field validation
+ * - ``code``, non-empty string only.
+ * - ``errors``, non-empty string array only (multi-field validation
  *   failures; ``data.message`` stays the ``Error.message``).
- * - ``consent_field`` / ``engine_name`` / ``model_id`` — non-empty
+ * - ``consent_field`` / ``engine_name`` / ``model_id``, non-empty
  *   strings only, carried by ``client.consent_required`` envelopes so
  *   callers can deep-link to the exact Settings toggle. A JSON ``null``
  *   ``model_id`` is NOT stamped (stays ``undefined``), matching the
  *   Electron path's normalization.
- * - ``legacy_code`` — Tauri-only superset: the transitional alias the
+ * - ``legacy_code``, Tauri-only superset: the transitional alias the
  *   server emits alongside the canonical namespaced ``code`` (see the
  *   error-envelope contract doc). The Electron path does not surface
  *   it (its envelopes resolve as values, not rejection strings), but
@@ -45,7 +45,7 @@ export function parseTauriErrorEnvelope(raw: string): Error | null {
 	try {
 		parsed = JSON.parse(raw);
 	} catch {
-		// Not JSON — a plain-string rejection (e.g. "dispatch timeout (120s)").
+		// Not JSON, a plain-string rejection (e.g. "dispatch timeout (120s)").
 		return null;
 	}
 	if (typeof parsed !== "object" || parsed === null) return null;

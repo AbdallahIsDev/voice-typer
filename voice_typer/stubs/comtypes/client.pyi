@@ -1,5 +1,5 @@
 # ruff: noqa: N802, N803
-# PYREFLY-001: stub for `comtypes.client` — the high-level COM helper
+# PYREFLY-001: stub for `comtypes.client`: the high-level COM helper
 # module used by `voice_typer/server/clipboard.py` for UI Automation.
 #
 # Import surface (from grep):

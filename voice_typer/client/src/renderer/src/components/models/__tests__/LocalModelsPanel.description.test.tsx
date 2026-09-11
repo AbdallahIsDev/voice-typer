@@ -1,7 +1,7 @@
 /**
  * test: the LocalModelsPanel renders the localized descriptive
  * subtitle under the panel heading. The `models.localModelsDescription`
- * key exists in all 8 locales — this pins that the panel CONSUMES it.
+ * key exists in all 8 locales, this pins that the panel CONSUMES it.
  */
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -57,7 +57,7 @@ const baseProps = {
 	onOpenModelsFolder: () => {},
 };
 
-describe("LocalModelsPanel — localized description subtitle", () => {
+describe("LocalModelsPanel, localized description subtitle", () => {
 	afterEach(() => {
 		cleanup();
 	});

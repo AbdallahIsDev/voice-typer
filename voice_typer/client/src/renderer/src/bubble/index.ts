@@ -1,5 +1,5 @@
 /**
- * Bubble overlay package — public surface.
+ * Bubble overlay package, public surface.
  *
  * The legacy `../bubble-components.tsx` module now just does
  * `export * from "./bubble";` so existing consumers (e.g. `Bubble.tsx`)
@@ -28,7 +28,7 @@ export type {
 	BubbleAction,
 	BubbleMode,
 } from "./constants";
-// constants — types + tuning knobs + shared button className
+// constants, types + tuning knobs + shared button className
 export {
 	BUBBLE_BUTTON_CLASS,
 	DOT_COUNT,
@@ -39,11 +39,11 @@ export {
 	MIN_HEIGHT,
 	TRANSCRIBING_DOT_COUNT,
 } from "./constants";
-// helpers — pure functions
+// helpers, pure functions
 export { getBubbleAriaLabel, rmsToNorm, tf } from "./helpers";
 export { useAudioLevels } from "./useAudioLevels";
 export type { BubbleBridge, BubbleBridgeOff } from "./useBubbleBridge";
-// bridge — centralises all window.bubble IPC subscriptions into one
+// bridge, centralises all window.bubble IPC subscriptions into one
 // listener per event channel; consumers register handlers via
 // `bridge.on(event, handler)`.
 export { BubbleBridgeProvider, useBubbleBridge } from "./useBubbleBridge";

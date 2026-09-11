@@ -1,6 +1,6 @@
 """Teardown helpers for sounddevice (PortAudio) streams.
 
-Phase 4.5 (OI-36) — extracted verbatim from
+Phase 4.5 (OI-36), extracted verbatim from
 :meth:`ShutdownController._teardown_sounddevice` and
 :meth:`ShutdownController._abort_sounddevice_streams`. The bodies are
 unchanged; only the class boundary moved.
@@ -11,9 +11,9 @@ Cross-helper state
 :class:`ShutdownController` (set by
 :mod:`voice_typer.server.shutdown.teardowns.recorder`):
 
-* ``controller._recorder_teardown_done`` — :class:`threading.Event`
+* ``controller._recorder_teardown_done``: :class:`threading.Event`
   signaled when the recorder teardown helper finished.
-* ``controller._recorder_force_closed`` — True when
+* ``controller._recorder_force_closed``: True when
   ``recorder.stop()`` / ``recorder.discard()`` timed out. When True,
   this helper SKIPS ``sd.stop()`` / ``sd.wait()`` (the leaked worker
   thread is still accessing the PortAudio stream; calling ``sd.stop``
@@ -48,13 +48,13 @@ log = logging.getLogger(__name__)
 
 
 def teardown_sounddevice(controller) -> None:
-    """safety-net ``sd.stop()`` — skipped when
+    """safety-net ``sd.stop()``: skipped when
     ``recorder.stop()`` (or ``discard()``) timed out.
 
     if recorder.stop() above failed or an audio callback
     leaked a stream, this ensures sounddevice doesn't hold the
     microphone. : SKIP this call when the recorder teardown
-    timed out — the leaked recorder.stop() worker thread is still
+    timed out, the leaked recorder.stop() worker thread is still
     holding the PortAudio stream lock, and calling ``sd.stop()``
     while that lock is held deadlocks the cleanup thread on
     PortAudio backends (notably WASAPI).
@@ -70,13 +70,13 @@ def teardown_sounddevice(controller) -> None:
     drain that blocks until each stream has actually closed. Both
     are wrapped via :func:`_run_with_timeout` so the cleanup thread
     is never blocked indefinitely. The ``_run_with_timeout`` return
-    value is checked against :data:`TIMEOUT` — if either call times
+    value is checked against :data:`TIMEOUT`: if either call times
     out (the ``wait()`` case is the dangerous one because
     PortAudio's stream-close handshake can deadlock on backends
     like WASAPI where the audio callback holds the stream lock),
     we log at ERROR and force-abort every active stream via
     :func:`abort_sounddevice_streams` (which calls
-    ``stream.abort()`` on each — ``abort()`` is documented to
+    ``stream.abort()`` on each, ``abort()`` is documented to
     "terminate the stream immediately", bypassing the orderly
     stop handshake and releasing the PortAudio resources the
     deadlock was holding).
@@ -96,7 +96,7 @@ def teardown_sounddevice(controller) -> None:
     # entirely when ``teardown_recorder`` is in ``_timed_out``. So the
     # ``wait()`` here only fires when ``teardown_recorder`` SUCCEEDED
     # but failed to set the event (e.g. raised mid-body after starting
-    # the recorder.stop() worker) — a rare defensive case. 1.0s is
+    # the recorder.stop() worker), a rare defensive case. 1.0s is
     # enough to detect that case while leaving 9.0s of slack for the
     # actual ``sd.stop()`` + ``sd.wait()`` drain.
     #
@@ -107,16 +107,16 @@ def teardown_sounddevice(controller) -> None:
     # happens-before contract assumes the recorder helper always
     # reaches its final line (which sets _recorder_force_closed),
     # so a missing set + a wait timeout means the leaked worker
-    # is still in the stream — calling sd.stop() in that state
+    # is still in the stream, calling sd.stop() in that state
     # reproduces the exact DE-54 PortAudio deadlock the code
     # documents as avoided. Skip sd.stop() on wait timeout
-    # (defense in depth — the subsequent _recorder_force_closed
+    # (defense in depth, the subsequent _recorder_force_closed
     # check still fires for the normal force-close case).
     _teardown_done = controller._recorder_teardown_done.wait(timeout=1.0)
     if not _teardown_done:
         log.warning(
             "[SHUTDOWN] recorder teardown did NOT signal completion "
-            "within 1.0s — skipping sd.stop() to avoid PortAudio "
+            "within 1.0s, skipping sd.stop() to avoid PortAudio "
             "deadlock (leaked worker may still be accessing the stream)"
         )
         return
@@ -134,7 +134,7 @@ def teardown_sounddevice(controller) -> None:
         # so a wedged PortAudio backend (e.g. WASAPI stream lock
         # held by a leaked callback) cannot block the cleanup
         # thread indefinitely. If the call times out, force-abort
-        # every active stream — ``abort()`` bypasses the orderly
+        # every active stream, ``abort()`` bypasses the orderly
         # stop handshake and breaks the deadlock.
         _stop_result = _run_with_timeout(
             "sounddevice.stop",
@@ -143,7 +143,7 @@ def teardown_sounddevice(controller) -> None:
         )
         if _stop_result is TIMEOUT:
             log.error(
-                "[SHUTDOWN] sd.stop() did not return within 3s — "
+                "[SHUTDOWN] sd.stop() did not return within 3s, "
                 "PortAudio may be deadlocked (stream lock held by a "
                 "leaked callback on backends like WASAPI); force-"
                 "aborting active streams to release resources"
@@ -165,7 +165,7 @@ def teardown_sounddevice(controller) -> None:
         )
         if _wait_result is TIMEOUT:
             log.error(
-                "[SHUTDOWN] sd.wait() did not return within 2s — "
+                "[SHUTDOWN] sd.wait() did not return within 2s, "
                 "PortAudio streams did not drain (potential deadlock "
                 "on backends like WASAPI); force-aborting active "
                 "streams to release the audio device"
@@ -181,13 +181,13 @@ def abort_sounddevice_streams(controller, sd_module) -> None:
     ``sounddevice._streams`` is the module-level registry of active
     ``sd.Stream`` / ``sd.InputStream`` / ``sd.OutputStream`` instances
     that ``sd.stop()`` and ``sd.wait()`` operate on. When the
-    orderly drain times out (a PortAudio deadlock — the audio
+    orderly drain times out (a PortAudio deadlock, the audio
     callback is holding the stream lock and the close handshake
     cannot complete), iterate a snapshot of the registry and call
     ``stream.abort()`` on each.
 
     ``Stream.abort()`` is documented as "Terminate the stream
-    immediately" — it sets the stream's ``_CallbackFlags`` and
+    immediately": it sets the stream's ``_CallbackFlags`` and
     invokes ``Pa_AbortStream`` under the hood, which closes the
     stream without waiting for in-flight audio callbacks to drain.
     This breaks the deadlock by releasing the PortAudio resources

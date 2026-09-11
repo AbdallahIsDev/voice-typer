@@ -91,7 +91,7 @@ def _ensure_worker_single_instance() -> _WorkerSingleInstanceHandle | None:
 
     Returns a handle whose ``release()`` method releases the lock (call
     on shutdown). On duplicate launch (POSIX: ``O_EXCL`` fails; Windows:
-    existence check), logs at WARNING and returns ``None`` — the caller
+    existence check), logs at WARNING and returns ``None``, the caller
     decides whether to exit.
 
     Stale-PID recovery (POSIX and Windows): if the lockfile exists but
@@ -104,7 +104,7 @@ def _ensure_worker_single_instance() -> _WorkerSingleInstanceHandle | None:
     try:
         lock_path.parent.mkdir(parents=True, exist_ok=True)
     except OSError:
-        log.debug("[WORKER] could not create lockfile parent dir — single-instance is best-effort", exc_info=True)
+        log.debug("[WORKER] could not create lockfile parent dir: single-instance is best-effort", exc_info=True)
         return None
 
     if os.name == "posix":
@@ -118,7 +118,7 @@ def _ensure_worker_single_instance() -> _WorkerSingleInstanceHandle | None:
             try:
                 os.write(fd, f"{os.getpid()}\n".encode("ascii"))
             except OSError:
-                log.debug("[WORKER] failed to write PID to lockfile — single-instance is best-effort", exc_info=True)
+                log.debug("[WORKER] failed to write PID to lockfile: single-instance is best-effort", exc_info=True)
             # flock as defense-in-depth (mirrors single_instance.py).
             with contextlib.suppress(OSError):
                 fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -129,17 +129,17 @@ def _ensure_worker_single_instance() -> _WorkerSingleInstanceHandle | None:
                 pid_str = lock_path.read_text(encoding="ascii").strip()
                 pid = int(pid_str)
             except (OSError, ValueError):
-                log.warning("[WORKER] worker.lock exists but is unreadable — refusing to start (duplicate instance?)")
+                log.warning("[WORKER] worker.lock exists but is unreadable: refusing to start (duplicate instance?)")
                 return None
             # Check liveness via os.kill(pid, 0). On POSIX this returns
             # None if the process is alive, raises ProcessLookupError if
             # it's dead.
             try:
                 os.kill(pid, 0)
-                log.warning("[WORKER] worker already running (pid=%d) — refusing to start", pid)
+                log.warning("[WORKER] worker already running (pid=%d): refusing to start", pid)
                 return None
             except ProcessLookupError:
-                # Stale lockfile — reclaim it.
+                # Stale lockfile. Reclaim it.
                 log.info("[WORKER] reclaiming stale worker.lock (pid=%d was dead)", pid)
                 with contextlib.suppress(OSError):
                     lock_path.unlink(missing_ok=True)
@@ -152,11 +152,11 @@ def _ensure_worker_single_instance() -> _WorkerSingleInstanceHandle | None:
                         fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
                     return _WorkerSingleInstanceHandle(fd, lock_path)
                 except OSError:
-                    log.warning("[WORKER] could not reclaim worker.lock — refusing to start", exc_info=True)
+                    log.warning("[WORKER] could not reclaim worker.lock: refusing to start", exc_info=True)
                     return None
             except PermissionError:
                 # PID is alive but owned by another user (rare).
-                log.warning("[WORKER] worker.lock held by pid=%d (permission check) — refusing to start", pid)
+                log.warning("[WORKER] worker.lock held by pid=%d (permission check): refusing to start", pid)
                 return None
     else:
         # Windows: existence check + stale-PID recovery, mirroring the
@@ -164,7 +164,7 @@ def _ensure_worker_single_instance() -> _WorkerSingleInstanceHandle | None:
         # shared ``_is_pid_alive`` probe (OpenProcess + GetExitCodeProcess).
         # The Tauri host's ``tauri-plugin-single-instance`` remains the
         # authoritative gate; this is defense-in-depth for dev-runs from
-        # a terminal — but unlike before, a hard-killed worker (Task
+        # a terminal, but unlike before, a hard-killed worker (Task
         # Manager / taskkill / crash) no longer bricks offline
         # transcription: the dead holder's lockfile is reclaimed.
         if lock_path.exists():
@@ -172,21 +172,21 @@ def _ensure_worker_single_instance() -> _WorkerSingleInstanceHandle | None:
                 pid_str = lock_path.read_text(encoding="ascii").strip()
                 pid = int(pid_str)
             except (OSError, ValueError):
-                log.warning("[WORKER] worker.lock exists but is unreadable — refusing to start")
+                log.warning("[WORKER] worker.lock exists but is unreadable: refusing to start")
                 return None
             from voice_typer.server.single_instance import _is_pid_alive
 
             if _is_pid_alive(pid):
-                log.warning("[WORKER] worker already running (pid=%d) — refusing to start", pid)
+                log.warning("[WORKER] worker already running (pid=%d): refusing to start", pid)
                 return None
-            # Stale lockfile — the recorded PID is dead. Reclaim it.
+            # Stale lockfile. The recorded PID is dead. Reclaim it.
             log.info("[WORKER] reclaiming stale worker.lock (pid=%d was dead)", pid)
             with contextlib.suppress(OSError):
                 lock_path.unlink(missing_ok=True)
         try:
             lock_path.write_text(f"{os.getpid()}\n", encoding="ascii")
         except OSError:
-            log.debug("[WORKER] could not write worker.lock — single-instance is best-effort", exc_info=True)
+            log.debug("[WORKER] could not write worker.lock: single-instance is best-effort", exc_info=True)
             return None
         # fd=-1 (no POSIX fd to close); release() will just unlink.
         return _WorkerSingleInstanceHandle(-1, lock_path)

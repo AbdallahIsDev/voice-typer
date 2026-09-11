@@ -2,7 +2,7 @@
 
 Covers two optimisations in :mod:`voice_typer.server.text_cleanup`:
 
-1. ``_capitalize_pronoun_i`` — the per-match O(N) substring slicing
+1. ``_capitalize_pronoun_i``, the per-match O(N) substring slicing
    (``text[:start].rstrip()`` + ``text[end:].lstrip()``) was replaced
    with bounded backward/forward scans
    (:func:`_prev_word_ending_at` / :func:`_next_word_starting_at`).
@@ -11,7 +11,7 @@ Covers two optimisations in :mod:`voice_typer.server.text_cleanup`:
    (many standalone ``i`` tokens) must produce the same output as the
    prior implementation.
 
-2. ``_correct_whisper_phrases`` / ``_remove_extra_words`` — the
+2. ``_correct_whisper_phrases`` / ``_remove_extra_words``, the
    O(N×M) per-phrase membership loop was replaced with a single
    O(N+M) ``re.sub`` pass driven by a combined-alternation regex.
    These tests pin the behaviour-preserving invariants: case-
@@ -40,7 +40,7 @@ def _configure_corrections():
     configure_corrections()
 
 
-# ─── _capitalize_pronoun_i — bounded-scan optimisation ─────────────────
+# ─── _capitalize_pronoun_i, bounded-scan optimisation ─────────────────
 
 
 class TestCapitalizePronounIBoundedScan:
@@ -49,7 +49,7 @@ class TestCapitalizePronounIBoundedScan:
     def test_simple_pronoun_capitalization(self):
         """Standalone 'i' as a pronoun is capitalized to 'I'."""
         assert _capitalize_pronoun_i("i am here") == "I am here"
-        # 'it' has 'i' followed by 't' (alpha) — NOT standalone — unchanged.
+        # 'it' has 'i' followed by 't' (alpha) (NOT standalone) unchanged.
         assert _capitalize_pronoun_i("it is good") == "it is good"
         assert _capitalize_pronoun_i("i think i know") == "I think I know"
 
@@ -65,7 +65,7 @@ class TestCapitalizePronounIBoundedScan:
         assert _capitalize_pronoun_i("big ice cream") == "big ice cream"
 
     def test_i_adjacent_to_digit_is_matched(self):
-        """'i' adjacent to a digit (not alpha) IS standalone — preserves
+        """'i' adjacent to a digit (not alpha) IS standalone, preserves
         the original regex semantics where ``(?<![a-zA-Z])i(?![a-zA-Z])``
         treats digits as word-boundary characters (unlike ``\\b``)."""
         # 'i3' → the 'i' has a digit after, so it IS standalone.
@@ -80,7 +80,7 @@ class TestCapitalizePronounIBoundedScan:
         ``preceding.rsplit(None, 1)[-1]``), so for "king henry i" the
         checked word is "henry" (in the context set) → lowercase. For
         "pope john i" the checked word is "john" (NOT in the context
-        set) → capitalize (the user said "pope john, I ..." — the
+        set) → capitalize (the user said "pope john, I ...", the
         pronoun, not a Roman numeral)."""
         # "king henry i" → last word "henry" IS in context → lowercase.
         assert _capitalize_pronoun_i("king henry i") == "king henry i"
@@ -107,22 +107,22 @@ class TestCapitalizePronounIBoundedScan:
 
     def test_pathological_many_standalone_i(self):
         """Pathological input with many standalone 'i' tokens must still
-        produce correct output — the bounded-scan refactor eliminates
+        produce correct output, the bounded-scan refactor eliminates
         the O(M·N) slicing that made this quadratic on the prior
         implementation. The output must match the simple per-token
         expectation: each standalone 'i' between non-alpha chars becomes
         'I' (no Roman-numeral context applies because the preceding word
-        is itself 'I' — not in the context set)."""
+        is itself 'I', not in the context set)."""
         text = "i " * 100  # 100 standalone 'i' tokens separated by spaces
         result = _capitalize_pronoun_i(text)
         # Every 'i' should be capitalized (the preceding word 'I' is not
         # in _ROMAN_NUMERAL_CONTEXT_WORDS; the following word 'I' is not
-        # in _ROMAN_NUMERAL_FOLLOWING_WORDS — so all are pronouns).
+        # in _ROMAN_NUMERAL_FOLLOWING_WORDS, so all are pronouns).
         assert result == "I " * 100
 
     def test_prev_word_ending_at_helpers(self):
         """Direct test of the bounded-scan helpers."""
-        # "King Henry i" — prev word ending at index 11 (start of 'i') is "henry".
+        # "King Henry i", prev word ending at index 11 (start of 'i') is "henry".
         assert _prev_word_ending_at("king henry i", 11) == "henry"
         # Empty preceding text → no prev word.
         assert _prev_word_ending_at("i", 0) == ""
@@ -135,7 +135,7 @@ class TestCapitalizePronounIBoundedScan:
 
     def test_next_word_starting_at_helpers(self):
         """Direct test of the bounded-scan helpers."""
-        # "i through iv" — next word starting at index 1 (after 'i') is "through".
+        # "i through iv", next word starting at index 1 (after 'i') is "through".
         assert _next_word_starting_at("i through iv", 1) == "through"
         # Empty following text → no next word.
         assert _next_word_starting_at("i", 1) == ""
@@ -145,7 +145,7 @@ class TestCapitalizePronounIBoundedScan:
         assert _next_word_starting_at("i 3", 1) == ""
 
 
-# ─── _correct_whisper_phrases / _remove_extra_words — combined regex ────
+# ─── _correct_whisper_phrases / _remove_extra_words, combined regex ────
 
 
 class TestCombinedRegexPhraseCorrections:
@@ -182,7 +182,7 @@ class TestCombinedRegexPhraseCorrections:
 
         With the combined-regex refactor, this invariant is naturally
         preserved because ``re.sub`` finds all matches in the original
-        text before applying substitutions — a substitution cannot
+        text before applying substitutions, a substitution cannot
         affect another match within the same ``re.sub`` call.
         """
         saved = text_cleanup._active_phrases
@@ -193,7 +193,7 @@ class TestCombinedRegexPhraseCorrections:
         try:
             # 'foo' → 'bar' (introduces 'bar'); 'bar' → 'SHOULD_NOT_APPEAR'.
             # The second phrase must NOT match because 'bar' wasn't in
-            # the original text 'foo' — ``re.sub`` finds all matches in
+            # the original text 'foo': ``re.sub`` finds all matches in
             # the ORIGINAL text before applying substitutions.
             text_cleanup._active_phrases = [
                 ("foo", "bar"),
@@ -221,9 +221,9 @@ class TestCombinedRegexPhraseCorrections:
 
     def test_extra_words_removal_plain_substitution(self):
         """_remove_extra_words uses plain (non-case-preserving) substitution
-        — the replacement is the literal ``good`` string regardless of
-        matched casing (preserving the original ``pattern.sub(good, text)``
-        behaviour)."""
+        , the replacement is the literal ``good`` string regardless of
+          matched casing (preserving the original ``pattern.sub(good, text)``
+          behaviour)."""
         saved = text_cleanup._active_extra_words
         try:
             text_cleanup._active_extra_words = [
@@ -268,9 +268,9 @@ class TestCombinedRegexPhraseCorrections:
             # Replace with a NEW list object: 'bar' → 'Y'.
             # The identity check fails, so the cache must rebuild.
             text_cleanup._active_phrases = [("bar", "Y")]
-            # 'foo' is no longer in the active phrases — must not be replaced.
+            # 'foo' is no longer in the active phrases, must not be replaced.
             assert _correct_whisper_phrases("foo") == "foo"
-            # 'bar' is now active — must be replaced.
+            # 'bar' is now active, must be replaced.
             assert _correct_whisper_phrases("bar") == "Y"
         finally:
             text_cleanup._active_phrases = saved

@@ -131,7 +131,7 @@ class Equalizer(AudioFilter):
         # Equivalent IIR form: low_s[i] = (1-lf) * low_s[i-1] + lf * x[i]
         # _get_lfilter()(b=[lf], a=[1, -(1-lf)]) computes exactly this.
 
-        # reuse the pre-allocated 1-element zi buffer — set [0] to the
+        # reuse the pre-allocated 1-element zi buffer. Set [0] to the
         # current low_state, then pass to lfilter. lfilter reads but does
         # not mutate the caller's zi array.
         self._low_zi_buf[0] = self._low_state
@@ -159,7 +159,7 @@ class Equalizer(AudioFilter):
         # fresh (n+3)-element array per chunk just to read the first n
         # elements. d3[0..2] = (delay3, delay2, delay1); d3[3..n] = x[0..n-3].
         # For n < 3 (rare; only at startup / end-of-stream), fall back to
-        # the original concatenate path — it's correct and cheap at small n.
+        # the original concatenate path, it's correct and cheap at small n.
         # ``extended`` is (re)built on the ``n < 3`` path in the ``else``
         # below; the default keeps pyrefly's definite-assignment analysis
         # happy for the delay-carry block that reads ``extended[-1..-3]``
@@ -238,7 +238,7 @@ class Equalizer(AudioFilter):
             if buf is not None:
                 buf.fill(0)
         # the 1-element zi buffers hold only the carried band state
-        # (a single float, already reset above) — zero for consistency.
+        # (a single float, already reset above), zero for consistency.
         self._low_zi_buf.fill(0)
         self._high_zi_buf.fill(0)
 

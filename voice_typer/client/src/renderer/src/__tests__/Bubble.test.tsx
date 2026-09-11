@@ -2,9 +2,9 @@
  * Tests for the Bubble component (voice level visualiser + transcribing overlay).
  *
  * NEW-BUBBLE-TRANSCRIBING: The bubble has three visual modes:
- *   - "recording" — shows animated voice level bars (default)
- *   - "transcribing" — hides bars, shows "Transcribing…" text with animated dots
- *   - "idle" — empty pill (for always_visible mode)
+ *   - "recording", shows animated voice level bars (default)
+ *   - "transcribing", hides bars, shows "Transcribing…" text with animated dots
+ *   - "idle", empty pill (for always_visible mode)
  */
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";

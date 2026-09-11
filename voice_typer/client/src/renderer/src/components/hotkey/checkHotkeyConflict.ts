@@ -6,7 +6,7 @@
  * the preset-dropdown ``onSelect``). Each site did the same thing:
  *
  *   1. Skip the check when the user is re-selecting the current value
- *      (no-op — the value isn't actually changing).
+ *      (no-op, the value isn't actually changing).
  *   2. If the new hotkey is already in ``occupiedHotkeys`` (a list of
  *      hotkeys owned by sibling pickers), format a human-readable
  *      label via ``formatHotkeyLabel`` and return the localized
@@ -36,7 +36,7 @@ import { formatHotkeyLabel } from "./hotkey-utils";
  *                        pickers (e.g. the dictation key picker passes
  *                        the repaste key's value here so the two can't
  *                        collide). ``undefined`` is treated as "no
- *                        occupied list" — the check is skipped.
+ *                        occupied list", the check is skipped.
  * @param t               The i18n ``t`` function (from
  *                        ``@/i18n/i18n``). Used to localize the
  *                        ``hotkeyValidation.alreadyInUse`` message

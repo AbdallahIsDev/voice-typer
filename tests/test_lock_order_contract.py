@@ -3,7 +3,7 @@
 This file enforces the contract documented in
 ``docs/architecture/lock-order-contract.md``:
 
-1. **Static-analysis layer** — parses ``voice_typer/server/app.py``,
+1. **Static-analysis layer**, parses ``voice_typer/server/app.py``,
    ``voice_typer/server/service.py``, and
    ``voice_typer/server/dictation_pipeline.py`` for ``with self._lock:``,
    ``with self._config_mutation_lock:``, and
@@ -11,19 +11,19 @@ This file enforces the contract documented in
    them nest another of the three app-level locks. Catches accidental
    lock-nesting regressions introduced by future edits.
 
-2. **Lock-graph layer** — builds the directed ``lock A → lock B`` graph
+2. **Lock-graph layer**, builds the directed ``lock A → lock B`` graph
    (A held while B acquired) from the source and asserts no cycle
    exists. Today the graph has zero edges (no nesting), so this is a
    trivially-acyclic check that pins the invariant.
 
-3. **Concurrency stress layer** — constructs a minimal ``VoiceTyperApp``
+3. **Concurrency stress layer**, constructs a minimal ``VoiceTyperApp``
    shell via ``__new__`` (skipping the recorder / hotkey / tray setup
    that needs hardware) and runs N threads through the production
    lock-using paths (``_schedule_timer``, ``_cancel_pending_timers``,
    ``_config_mutation_lock`` holder, ``_lock`` holder). Asserts no
    thread hangs within 2 s (no deadlock).
 
-4. **Reverse-order sanity layer** — acquires the locks in the documented
+4. **Reverse-order sanity layer**, acquires the locks in the documented
    order from one thread and in the REVERSE order from another, to
    prove the locks are independent (no nesting rule ⇒ no possible
    cycle ⇒ reverse-order acquisition must not deadlock). If a future
@@ -47,7 +47,7 @@ import pytest
 
 # test-infrastructure shim: ``voice_typer.server.crash_handler``
 # decorates its VEH callback with ``@ctypes.WINFUNCTYPE(...)`` at
-# module-load time. ``WINFUNCTYPE`` only exists on Windows — on
+# module-load time. ``WINFUNCTYPE`` only exists on Windows, on
 # Linux/macOS the attribute is missing, so importing ``crash_handler``
 # (transitively imported by ``voice_typer.server.app``) raises
 # ``AttributeError``. Alias it to ``CFUNCTYPE`` so we can import
@@ -94,7 +94,7 @@ APP_LOCK_NAMES = ("_lock", "_config_mutation_lock", "_pending_timers_lock")
 # / ``with self._pending_timers_lock:`` (and the ``with app._lock:`` /
 # ``with self._app._lock:`` variants used in service.py and
 # dictation_pipeline.py). We intentionally do NOT match ``with
-# self._lock_something_else:`` — the trailing ``:`` ensures we only match
+# self._lock_something_else:``, the trailing ``:`` ensures we only match
 # the exact lock name.
 _WITH_LOCK_RE = re.compile(
     r"with\s+(?:self\.|self\._app\.|app\.)"
@@ -131,16 +131,16 @@ def _strip_comments_and_docstrings(source: str) -> str:
     ``timer_coordinator.py``; ``app.py:469`` is only a
     shadow assignment (``self._pending_timers_lock =
     self.timers._pending_timers_lock``). Without comment stripping the test
-    passed on a comment — a false green that gave no real coverage.
+    passed on a comment, a false green that gave no real coverage.
 
     This helper removes:
 
-    1. Triple-quoted strings (``\"\"\"...\"\"\"`` / ``'''...'''``) — covers
+    1. Triple-quoted strings (``\"\"\"...\"\"\"`` / ``'''...'''``), covers
        module/function docstrings that quote lock declarations as code
        examples (e.g. ``timer_coordinator.py`` module docstring lists
        ``self._pending_timers_lock = threading.Lock()`` as a migrated
        attribute).
-    2. ``#`` comments per line (``line.split('#', 1)[0]``) — covers inline
+    2. ``#`` comments per line (``line.split('#', 1)[0]``), covers inline
        comments like the false-green in ``app.py:465``.
 
     Line numbers are preserved (each stripped region is replaced with an
@@ -190,7 +190,7 @@ def _find_with_blocks(source: str) -> list[tuple[int, str, int, int]]:
                     body_start = j
                 body_end = j
             else:
-                # First dedented non-blank line — body ended.
+                # First dedented non-blank line, body ended.
                 if body_start is not None:
                     break
         if body_start is None:
@@ -214,7 +214,7 @@ class TestLockInventory:
         # used a raw ``_LOCK_DECL_RE.finditer(source)`` over the unstripped
         # text. That matched a COMMENT at ``app.py:465`` (``# pins app.py
         # source for \`self._pending_timers_lock = threading.Lock()\`)``)
-        # instead of a real declaration — the actual line at ``app.py:469``
+        # instead of a real declaration, the actual line at ``app.py:469``
         # is a SHADOW assignment (``self._pending_timers_lock =
         # self.timers._pending_timers_lock``), not a ``threading.Lock()``
         # construction. The test gave false confidence: removing the
@@ -233,18 +233,18 @@ class TestLockInventory:
         for m in _LOCK_DECL_RE.finditer(app_source):
             app_declarations[m.group(1)] = m.group(2)
         assert "_config_mutation_lock" in app_declarations, (
-            "app._config_mutation_lock (threading.RLock) must be declared — "
+            "app._config_mutation_lock (threading.RLock) must be declared, "
             "see docs/architecture/lock-order-contract.md §1"
         )
         assert app_declarations["_config_mutation_lock"] == "RLock", (
-            "app._config_mutation_lock must be threading.RLock (defensive reentrancy — see contract §3 rationale)"
+            "app._config_mutation_lock must be threading.RLock (defensive reentrancy: see contract §3 rationale)"
         )
 
         # ``_lock`` is owned by ``BusynessCoordinator`` (the app keeps a
         # delegating property shim, mirroring the Phase 7 shadow-attribute
         # arrangement for the timer lock). Read its real source file. The
         # property shims in app.py (``_lock`` getter/setter) do NOT match
-        # ``_LOCK_DECL_RE``, which is correct — the lock is constructed in
+        # ``_LOCK_DECL_RE``, which is correct, the lock is constructed in
         # the coordinator, not the app.
         bc_source = _strip_comments_and_docstrings(_read_source(BUSYNESS_PY))
         bc_declarations: dict[str, str] = {}
@@ -253,7 +253,7 @@ class TestLockInventory:
         assert "_lock" in bc_declarations, (
             "app._lock (threading.Lock) must be declared in _busyness.py "
             "(BusynessCoordinator owns the construction; app.py serves it "
-            "via a delegating property) — see "
+            "via a delegating property): see "
             "docs/architecture/lock-order-contract.md §1"
         )
         assert bc_declarations["_lock"] == "Lock", f"app._lock must be threading.Lock (got {bc_declarations['_lock']})"
@@ -263,7 +263,7 @@ class TestLockInventory:
         # ``app.py:469`` (``self._pending_timers_lock =
         # self.timers._pending_timers_lock``) does NOT match
         # ``_LOCK_DECL_RE`` (the RHS is not ``threading.Lock()``), which is
-        # correct — the lock is constructed in the coordinator, not the app.
+        # correct, the lock is constructed in the coordinator, not the app.
         tc_source = _strip_comments_and_docstrings(_read_source(TIMER_COORDINATOR_PY))
         tc_declarations: dict[str, str] = {}
         for m in _LOCK_DECL_RE.finditer(tc_source):
@@ -272,7 +272,7 @@ class TestLockInventory:
             "app._pending_timers_lock (threading.Lock) must be declared in "
             "timer_coordinator.py (Phase 7 migrated the timer state "
             "to TimerCoordinator; app.py only keeps a shadow attribute "
-            "pointing at the coordinator's lock) — see "
+            "pointing at the coordinator's lock): see "
             "docs/architecture/lock-order-contract.md §1"
         )
         assert tc_declarations["_pending_timers_lock"] == "Lock", (
@@ -285,13 +285,13 @@ class TestLockInventory:
         for m in _EVENT_DECL_RE.finditer(source):
             declared_events.add(m.group(1))
         # ``_bubble_level_worker_stop`` is created conditionally (under
-        # ``if not hasattr(...)``) — the regex above still matches the
+        # ``if not hasattr(...)``), the regex above still matches the
         # ``self._bubble_level_worker_stop = threading.Event()`` line
         # inside the ``if``.
-        assert "_shutting_down_event" in declared_events, "app._shutting_down_event must be declared — see contract §1"
+        assert "_shutting_down_event" in declared_events, "app._shutting_down_event must be declared: see contract §1"
 
         # ``_busy_event`` construction lives in ``BusynessCoordinator``
-        # (app.py serves it via a delegating property shim — see the
+        # (app.py serves it via a delegating property shim: see the
         # lock-inventory note above).
         bc_source = _strip_comments_and_docstrings(_read_source(BUSYNESS_PY))
         bc_declared_events: set[str] = set()
@@ -300,7 +300,7 @@ class TestLockInventory:
         assert "_busy_event" in bc_declared_events, (
             "app._busy_event must be declared in _busyness.py "
             "(BusynessCoordinator owns the construction; app.py serves it "
-            "via a delegating property) — see contract §1"
+            "via a delegating property): see contract §1"
         )
 
 
@@ -330,7 +330,7 @@ class TestNoLockNesting:
                 assert not pattern.search(body_text), (
                     f"{filepath.name}:{with_line}: ``with self.{lock_name}:`` "
                     f"block (lines {body_start}-{body_end}) acquires "
-                    f"``{other}`` — VIOLATES lock-order contract §2 Rule 1. "
+                    f"``{other}``, VIOLATES lock-order contract §2 Rule 1. "
                     f"The three app-level locks must NEVER be nested. See "
                     f"docs/architecture/lock-order-contract.md."
                 )
@@ -339,7 +339,7 @@ class TestNoLockNesting:
 class TestLockOrderGraphIsAcyclic:
     """Build the directed ``lock A → lock B`` graph (A held while B
     acquired) from the source and assert it contains no cycles. With the
-    no-nesting rule above, the graph is empty (zero edges) — so this is a
+    no-nesting rule above, the graph is empty (zero edges), so this is a
     trivially-acyclic check today. It exists to catch future regressions
     if someone intentionally introduces nesting (in which case the test
     must be updated to verify the new ordering is still acyclic)."""
@@ -384,7 +384,7 @@ class TestLockOrderGraphIsAcyclic:
         has_cycle = any(color[n] == white and dfs(n) for n in nodes)
         assert not has_cycle, (
             f"Lock-order graph has a cycle! edges={edges}. "
-            f"This is a deadlock hazard — see "
+            f"This is a deadlock hazard, see "
             f"docs/architecture/lock-order-contract.md §2 Rule 1."
         )
 
@@ -407,20 +407,20 @@ class TestLockOrderGraphIsAcyclic:
 def app_shell():
     """Construct a minimal VoiceTyperApp shell via ``__new__``.
 
-    We skip ``VoiceTyperApp.__init__`` because it eagerly constructs a
-    ``Recorder`` (PortAudio), ``TrayIcon`` (pystray), and ``HotkeyDispatcher``
-    — all of which require hardware not available in this headless
-    container. The lock-using methods under test (``_schedule_timer`` /
-    ``_cancel_pending_timers``) only touch ``self.timers._pending_timers_lock``,
-    ``self.timers._pending_timers``, and ``self.timers._timer_generation``
-    (Phase 7: TimerCoordinator owns the state; VoiceTyperApp keeps
-    thin shadow attributes that point at the coordinator's state, mirroring
-    production), so we initialise just those attributes plus the three
-    contract locks.
+      We skip ``VoiceTyperApp.__init__`` because it eagerly constructs a
+      ``Recorder`` (PortAudio), ``TrayIcon`` (pystray), and ``HotkeyDispatcher``
+    , all of which require hardware not available in this headless
+      container. The lock-using methods under test (``_schedule_timer`` /
+      ``_cancel_pending_timers``) only touch ``self.timers._pending_timers_lock``,
+      ``self.timers._pending_timers``, and ``self.timers._timer_generation``
+      (Phase 7: TimerCoordinator owns the state; VoiceTyperApp keeps
+      thin shadow attributes that point at the coordinator's state, mirroring
+      production), so we initialise just those attributes plus the three
+      contract locks.
 
-    The lock objects are REAL ``threading.Lock`` / ``threading.RLock``
-    instances — same types as production (the coordinator constructs
-    ``_lock``; ``app.py`` constructs ``_config_mutation_lock``).
+      The lock objects are REAL ``threading.Lock`` / ``threading.RLock``
+      instances, same types as production (the coordinator constructs
+      ``_lock``; ``app.py`` constructs ``_config_mutation_lock``).
     """
     from voice_typer.server._busyness import BusynessCoordinator
     from voice_typer.server.app import VoiceTyperApp
@@ -430,7 +430,7 @@ def app_shell():
     # Match the production declarations exactly: ``VoiceTyperApp.__init__``
     # constructs ``self._busyness = BusynessCoordinator()`` (app.py:810)
     # and serves ``_lock`` / ``_busy_event`` through delegating property
-    # shims — so install a real coordinator rather than raw lock/event
+    # shims, so install a real coordinator rather than raw lock/event
     # attributes (assigning ``shell._lock`` directly would route through
     # the property setter into a missing coordinator).
     shell._busyness = BusynessCoordinator()
@@ -495,7 +495,7 @@ class TestConcurrentLockUseNoDeadlock:
         for t in threads:
             t.join(timeout=5.0)
             assert not t.is_alive(), (
-                f"Thread {t.name!r} is still alive after 2s join — likely deadlocked on _pending_timers_lock."
+                f"Thread {t.name!r} is still alive after 2s join, likely deadlocked on _pending_timers_lock."
             )
         assert not errors, f"concurrent timer ops raised: {errors}"
         # Final cleanup so no daemon timers leak into the next test.
@@ -517,7 +517,7 @@ class TestConcurrentLockUseNoDeadlock:
                     # Production code does setattr + save + side-effects
                     # inside this lock; we just exercise the lock itself.
                     # Simulate a brief critical section. The RLock
-                    # allows the SAME thread to re-acquire — exercise
+                    # allows the SAME thread to re-acquire, exercise
                     # that too (defensive reentrancy per contract §3).
                     with app_shell._config_mutation_lock, app_shell._config_mutation_lock:
                         pass
@@ -529,7 +529,7 @@ class TestConcurrentLockUseNoDeadlock:
             t.start()
         for t in threads:
             t.join(timeout=10.0)
-            assert not t.is_alive(), "Thread still alive after 5s — likely deadlocked on _config_mutation_lock."
+            assert not t.is_alive(), "Thread still alive after 5s, likely deadlocked on _config_mutation_lock."
         assert not errors, f"concurrent config-mutation raised: {errors}"
 
     def test_concurrent_app_lock_no_deadlock(self, app_shell):
@@ -544,7 +544,7 @@ class TestConcurrentLockUseNoDeadlock:
             try:
                 barrier.wait(timeout=10.0)
                 for _ in range(iterations):
-                    # Mirror dictation_pipeline.py:282 — acquire app._lock
+                    # Mirror dictation_pipeline.py:282, acquire app._lock
                     # briefly to clear a shared attribute.
                     with app_shell._lock:
                         # Single attribute write (the production code
@@ -559,7 +559,7 @@ class TestConcurrentLockUseNoDeadlock:
             t.start()
         for t in threads:
             t.join(timeout=10.0)
-            assert not t.is_alive(), "Thread still alive after 5s — likely deadlocked on app._lock."
+            assert not t.is_alive(), "Thread still alive after 5s, likely deadlocked on app._lock."
         assert not errors, f"concurrent app._lock raised: {errors}"
 
     def test_mixed_locks_concurrent_no_deadlock(self, app_shell):
@@ -604,7 +604,7 @@ class TestConcurrentLockUseNoDeadlock:
         stop.set()
         for t in threads:
             t.join(timeout=5.0)
-            assert not t.is_alive(), f"Thread {t.name!r} still alive after 2s join — likely deadlocked."
+            assert not t.is_alive(), f"Thread {t.name!r} still alive after 2s join, likely deadlocked."
         assert not errors, f"mixed-lock stress raised: {errors}"
         app_shell._cancel_pending_timers()
 
@@ -613,7 +613,7 @@ class TestReverseOrderAcquisitionNoDeadlock:
     """sanity: prove the three app locks are *independent*
     (i.e., acquiring them in any order from any thread does not deadlock).
 
-    The contract requires NO nesting — so reverse-order acquisition is a
+    The contract requires NO nesting, so reverse-order acquisition is a
     no-op (no edge in the lock-order graph). This test exists to catch a
     future regression where someone introduces nesting in the "forward"
     direction (e.g. ``_config_mutation_lock`` held while
@@ -626,7 +626,7 @@ class TestReverseOrderAcquisitionNoDeadlock:
         """Thread A acquires locks in the documented "forward" order
         (config → timers → app); thread B acquires them in reverse
         (app → timers → config). Each thread acquires only ONE lock at a
-        time (no nesting) — so neither thread blocks the other. If the
+        time (no nesting), so neither thread blocks the other. If the
         production code ever starts nesting these locks, this test will
         deadlock and time out."""
         errors: list[Exception] = []
@@ -652,7 +652,7 @@ class TestReverseOrderAcquisitionNoDeadlock:
                     # given order. If a future regression introduces
                     # nesting, the production code would have edges in
                     # one direction; this test acquires them in BOTH
-                    # directions concurrently — if any nesting exists,
+                    # directions concurrently, if any nesting exists,
                     # one of the two threads will block waiting for a
                     # lock the other holds, and the join will time out.
                     for lock in order:
@@ -668,12 +668,12 @@ class TestReverseOrderAcquisitionNoDeadlock:
         t_forward.join(timeout=10.0)
         t_reverse.join(timeout=10.0)
         assert not t_forward.is_alive(), (
-            "forward-order thread still alive after 5s — production code "
+            "forward-order thread still alive after 5s, production code "
             "has introduced nesting that breaks the no-nesting contract "
             "(see docs/architecture/lock-order-contract.md §2 Rule 1)."
         )
         assert not t_reverse.is_alive(), (
-            "reverse-order thread still alive after 5s — production code "
+            "reverse-order thread still alive after 5s, production code "
             "has introduced nesting that breaks the no-nesting contract "
             "(see docs/architecture/lock-order-contract.md §2 Rule 1)."
         )
@@ -682,4 +682,4 @@ class TestReverseOrderAcquisitionNoDeadlock:
 
 # Ensure no stale ``sys.modules`` entries leak between test modules when
 # this file is collected alongside others that mock ``ctypes`` differently.
-# (No-op here — just a marker that we considered cleanup.)
+# (No-op here, just a marker that we considered cleanup.)

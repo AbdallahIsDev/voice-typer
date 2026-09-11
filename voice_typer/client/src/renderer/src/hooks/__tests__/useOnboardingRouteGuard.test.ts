@@ -107,7 +107,7 @@ describe("useOnboardingRouteGuard", () => {
 		expect(mockReplace).toHaveBeenCalledTimes(1);
 
 		// An unrelated config write replaces the top-level config object
-		// (mergeConfig always allocates) — the guard must NOT re-fire
+		// (mergeConfig always allocates), the guard must NOT re-fire
 		// because onboarding_completed is unchanged.
 		act(() => {
 			useAppStore.setState({

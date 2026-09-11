@@ -1,4 +1,4 @@
-"""lightweight level-bar mode — skip RNNoise filter chain for
+"""lightweight level-bar mode: skip RNNoise filter chain for
 the cosmetic level bar.
 
 The bug (the fix)
@@ -8,7 +8,7 @@ When ``_level_processor`` is set (which happens whenever
 kHz/512, 93.75 Hz @ 48 kHz/512) was passed through
 ``processor.process_chunk(indata.reshape(-1, 1))`` which may include
 RNNoise (5-50 ms per chunk on CPU). This ran continuously while the
-monitor was active — pegging a core at 15-100% for a COSMETIC level
+monitor was active, pegging a core at 15-100% for a COSMETIC level
 bar.
 
 The fix (the fix)
@@ -79,8 +79,8 @@ class TestLightweightLevelBarMode:
 
     def test_filter_chain_skipped_by_default_for_cosmetic_bar(self, _mock_sounddevice):
         """When ``_level_bar_filtered`` is False (default) AND
-        ``_test_mode`` is False, the filter chain MUST NOT be invoked
-        — RMS is computed on raw audio only."""
+          ``_test_mode`` is False, the filter chain MUST NOT be invoked
+        , RMS is computed on raw audio only."""
         import voice_typer.server.level_monitor as lm
 
         processor = MagicMock()
@@ -113,7 +113,7 @@ class TestLightweightLevelBarMode:
             # called (the filter chain was skipped for the cosmetic bar).
             processor.process_chunk.assert_not_called()
             # The RMS should still be computed (on raw audio) so the bar
-            # moves — _monitor_level should be non-zero.
+            # moves, _monitor_level should be non-zero.
             assert lm._monitor_level > 0, (
                 "even with the filter chain skipped, the cosmetic bar "
                 "must still show a non-zero level (RMS computed on raw audio)"
@@ -159,7 +159,7 @@ class TestLightweightLevelBarMode:
 
     def test_filter_chain_runs_in_test_mode_regardless_of_flag(self, _mock_sounddevice):
         """When ``_test_mode`` is True, the filter chain runs EVEN IF
-        ``_level_bar_filtered`` is False — the test's "after" WAV needs
+        ``_level_bar_filtered`` is False, the test's "after" WAV needs
         the filtered audio."""
         import voice_typer.server.level_monitor as lm
 
@@ -173,7 +173,7 @@ class TestLightweightLevelBarMode:
         # EVERY start, which would clobber the injected mock below.
         lm._level_processor_config = None
         lm._level_bar_filtered = False
-        # In test mode — filter chain must run regardless
+        # In test mode, filter chain must run regardless
         lm._test_mode = True
 
         lm.start_monitoring(mic_id=None)
@@ -210,7 +210,7 @@ class TestUpdateLevelProcessorPropagatesFlag:
         # Reset
         lm._level_bar_filtered = True
         # Call update_level_processor with a config dict that doesn't
-        # have level_bar_filtered — should reset to False.
+        # have level_bar_filtered, should reset to False.
         lm.update_level_processor({"noise_filter_enabled": False})
         assert lm._level_bar_filtered is False, "update_level_processor must default _level_bar_filtered to False"
 

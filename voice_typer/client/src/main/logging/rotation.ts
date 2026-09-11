@@ -3,13 +3,14 @@
  * Electron main-process loggers.
  *
  * Single-file policy: each log is ONE file. When it exceeds its size
- * cap it is truncated IN PLACE (emptied) and writing continues — a
+ * cap it is truncated IN PLACE (emptied) and writing continues, a
  * numbered backup (`.1`, `.2`, ...) is NEVER created.
  *
  * Per-path "perms verified" cache + deferred truncation via setImmediate.
  */
 import fs from "node:fs";
 import path from "node:path";
+import { PYTHON_CALL_ERROR_CODES } from "../../shared/python-call-error-code";
 import { computeConfigDir } from "../config-dir";
 import { ANSI_ENABLED_FLAG, DIM, RESET } from "./colors";
 import {
@@ -36,7 +37,7 @@ const _permsVerified = new Set<string>();
  * files in the same directory skip the mkdir entirely.
  *
  * Invalidation: if an append fails (e.g. the logs directory was
- * deleted at runtime — sweep tooling, user action, read-only mount),
+ * deleted at runtime, sweep tooling, user action, read-only mount),
  * the catch site in `appendLogLine` drops the cached entry so the next
  * append re-runs the mkdir and recovers instead of failing forever.
  */
@@ -65,7 +66,7 @@ export function _resetDirVerifiedForTest(): void {
 // `rotateIfNeeded` / `appendLogLine` / `appendLifecycleLine` are no-ops.
 // When logging silently degrades (disk full, perm regression, userData
 // path moved to a read-only mount), there is ZERO durable trace and no
-// way for the app to surface "logging is broken" to the user — the
+// way for the app to surface "logging is broken" to the user, the
 // diagnostics meant to debug crashes are themselves silent.
 //
 // The ring buffer keeps the last `LOGGING_HEALTH_RING_MAX` failure
@@ -73,7 +74,7 @@ export function _resetDirVerifiedForTest(): void {
 // query `getLoggingHealth()` and surface "logging degraded since
 // <timestamp>: <error>" on a Troubleshooting page. The buffer is
 // bounded so it can never grow unbounded on a churning disk failure.
-// It is in-process only (cleared on restart) — durable persistence is
+// It is in-process only (cleared on restart), durable persistence is
 // intentionally NOT provided here because the act of writing to disk
 // is itself the failing operation.
 
@@ -108,7 +109,7 @@ const LOGGING_HEALTH_RING_MAX = 20;
  * every `console.warn` site in the logging package so the orchestrator
  * can later surface "logging degraded" via {@link getLoggingHealth}.
  *
- * Best-effort — never throws. If the ring buffer itself fails (e.g.
+ * Best-effort, never throws. If the ring buffer itself fails (e.g.
  * `JSON.stringify` recursion on a hostile error object), the failure is
  * swallowed so the diagnostic code never crashes the caller.
  *
@@ -118,7 +119,7 @@ const LOGGING_HEALTH_RING_MAX = 20;
  * it directly if a future code path needs to record a non-`console.warn`
  * logging degradation (e.g. a synchronous flush that detected data loss).
  *
- * @internal — the public surface is `getLoggingHealth` /
+ * @internal, the public surface is `getLoggingHealth` /
  * `_resetLoggingHealthForTest`.
  */
 export function recordLoggingFailure(
@@ -145,7 +146,7 @@ export function recordLoggingFailure(
 			);
 		}
 	} catch {
-		// Swallow — the diagnostic code must never crash the caller.
+		// Swallow, the diagnostic code must never crash the caller.
 		// The console.warn at the call site still fires in dev mode.
 	}
 }
@@ -159,12 +160,12 @@ export function recordLoggingFailure(
  *
  * Returns a shallow copy so callers can iterate / mutate without
  * affecting the internal buffer. The entries themselves are NOT frozen
- * — callers should treat them as read-only.
+ *, callers should treat them as read-only.
  *
- * NOT wired to an IPC handler yet — kept as a plain exported function
+ * NOT wired to an IPC handler yet, kept as a plain exported function
  * so the orchestrator can wire it later (e.g. a `logging:get-health`
  * IPC handler in `ipc/window-handlers.ts`). Offline-app compliant
- * (AGENTS.md C-DATA-1) — never phones home, never writes to disk.
+ * (AGENTS.md C-DATA-1), never phones home, never writes to disk.
  */
 export function getLoggingHealth(): LoggingFailureEntry[] {
 	return [...LOGGING_FAILURE_RING];
@@ -237,6 +238,15 @@ const _SECRET_PATTERNS: ReadonlyArray<readonly [RegExp, string]> = [
 
 const _URL_USERINFO = /([a-zA-Z][a-zA-Z0-9+.-]*:\/\/)[^\s:@/]+:[^\s@/]+@/g;
 
+// Known `PythonCallErrorCode` values (canonical union in
+// `src/shared/python-call-error-code.ts`) shielded from the 20+ char
+// catch-all below. Exact whole-token match only (`\b` both sides) —
+// `backend_not_connectedX` still redacts. Codes hold no entropy (public
+// constants), so exact-match shielding leaks no secret. Placeholders
+// stay short (<20 chars) so no redaction pass matches them.
+const _CODE_SHIELDS: ReadonlyArray<readonly [string, string]> =
+	PYTHON_CALL_ERROR_CODES.map((code, i) => [code, `__PYCALLCODE${i}__`]);
+
 /**
  * PII / API-key / URL-credential redaction (TS port of Python's
  * `voice_typer.server.security.redact_pii`, which delegates the
@@ -244,9 +254,9 @@ const _URL_USERINFO = /([a-zA-Z][a-zA-Z0-9+.-]*:\/\/)[^\s:@/]+:[^\s@/]+@/g;
  *
  * Idempotent on already-redacted text so callers that pre-redact
  * (e.g. via `cleanConsoleMsg` chains) don't double-redact. Exported
- * so external callers that bypass `redactArgsForFile` — notably
+ * so external callers that bypass `redactArgsForFile`, notably
  * `ipc/window-handlers.ts`'s `appendRendererError` call site, which
- * writes via direct `appendLogLine` — can apply the same redaction
+ * writes via direct `appendLogLine`, can apply the same redaction
  * the format helpers apply internally. Internal callers
  * (`printfLogger.ts`, `structuredLogger.ts`) import directly from
  * `./rotation` to avoid the barrel re-export overhead on the hot log
@@ -272,6 +282,11 @@ const _URL_USERINFO = /([a-zA-Z][a-zA-Z0-9+.-]*:\/\/)[^\s:@/]+:[^\s@/]+@/g;
  *   - `keyword=value`     → `keyword=***`        (SEC-9 bare form)
  *   - URL userinfo        → stripped
  *
+ * Known `PythonCallErrorCode` values (`backend_not_connected`, …)
+ * survive the 20+ char catch-all via exact-match shielding (restored
+ * verbatim after redaction) so `python-call rejected` lines stay
+ * diagnosable in `electron-main.log`.
+ *
  * The SEC-9 flag / key=value patterns run BEFORE the
  * `_MIN_REDACT_LEN` short-string guard (the explicit keyword makes
  * them specific enough to be safe on short inputs like `--token=abc`).
@@ -288,6 +303,19 @@ export function redactPii(text: string): string {
 	// (specific enough to be safe on short inputs).
 	out = out.replace(_FLAG_VALUE_PATTERN, "$1***");
 	out = out.replace(_BARE_KEY_VALUE_PATTERN, "$1***");
+	// Shield known error codes before the secret passes so the
+	// catch-all cannot redact them. Codes are `[a-z_]`-only, safe
+	// to interpolate into the boundary regex without escaping.
+	const shielded: Array<readonly [string, string]> = [];
+	for (const [code, placeholder] of _CODE_SHIELDS) {
+		if (out.includes(code)) {
+			const next = out.replace(new RegExp(`\\b${code}\\b`, "g"), placeholder);
+			if (next !== out) {
+				out = next;
+				shielded.push([placeholder, code]);
+			}
+		}
+	}
 	if (out.length >= _MIN_REDACT_LEN) {
 		for (const [pat, repl] of _SECRET_PATTERNS) {
 			out = out.replace(pat, repl);
@@ -296,6 +324,9 @@ export function redactPii(text: string): string {
 	if (out.includes("@")) {
 		out = out.replace(_URL_USERINFO, "$1");
 	}
+	for (const [placeholder, code] of shielded) {
+		out = out.split(placeholder).join(code);
+	}
 	return out;
 }
 
@@ -303,7 +334,7 @@ export function redactPii(text: string): string {
  * Truncate the file in place if it exceeds {@link maxSize} bytes.
  *
  * Single-file policy: the file is emptied (truncated to zero bytes) and
- * keeps its single identity — numbered backups are never created.
+ * keeps its single identity, numbered backups are never created.
  * Best-effort: any I/O error is swallowed and recorded to the
  * logging-health ring buffer.
  */
@@ -320,7 +351,7 @@ export function rotateIfNeeded(
 			size = fs.statSync(filePath).size;
 		} catch (e) {
 			// ENOENT is the expected case (file not yet
-			// created on the first append) — return
+			// created on the first append), return
 			// silently so `appendLogLine`'s appendFileSync
 			// creates the file. Any other error (EACCES,
 			// EIO, ENOTDIR, ...) signals a real
@@ -338,7 +369,7 @@ export function rotateIfNeeded(
 	}
 	// Single-file policy: NEVER create a numbered backup (`.1`, `.2`, ...).
 	// When the file exceeds the cap, truncate it IN PLACE (empty it) and
-	// keep writing to the same file — the log stays exactly one file.
+	// keep writing to the same file, the log stays exactly one file.
 	try {
 		fs.truncateSync(filePath, 0);
 		_clearCachedFileSize(filePath);
@@ -374,7 +405,7 @@ export function rotateIfNeeded(
  * crash durability: bytes buffered in the stream's internal WriteStream
  * buffer are LOST on a hard process crash (SIGKILL, segfault, OOM-kill)
  * because the kernel never receives them. `appendFileSync` is
- * synchronous — when the call returns, the bytes are in the kernel's
+ * synchronous, when the call returns, the bytes are in the kernel's
  * page cache (and will reach disk on the next fsync / kernel flush).
  * For a diagnostic log whose last few lines are the MOST valuable
  * lines precisely when the process is about to crash (the crash
@@ -384,13 +415,13 @@ export function rotateIfNeeded(
  * The open/close overhead is ~50-100µs per call on a warm SSD. At the
  * 60 Hz `bubble_level` hot path the deferred-executor already
  * serializes fan-out through a single worker thread, so the main /
- * RT threads never see this cost — only the executor does, and it has
+ * RT threads never see this cost, only the executor does, and it has
  * ample headroom (60 calls/sec × 100µs = 6ms/sec = 0.6% of one core).
  * The write-stream alternative was therefore rejected as a
  * crash-safety regression for a negligible perf gain on a non-RT path.
  *
  * If a future hot path ever needs >1000 writes/sec to the SAME file
- * from a non-deferred thread, revisit this decision — a per-path
+ * from a non-deferred thread, revisit this decision, a per-path
  * WriteStream with an explicit `end()`-on-exit flush hook would then
  * be worth the complexity. Until then, synchronous append is the
  * correct trade.
@@ -406,12 +437,12 @@ export function appendLogLine(
 		// the rotation is not lost on a hard crash exit
 		// (SIGKILL / segfault / OOM-kill). The deferred
 		// `setImmediate` rotation below only fires on the next
-		// event-loop tick — a hard crash before that tick would
+		// event-loop tick, a hard crash before that tick would
 		// lose the rotation entirely, leaving the next process
 		// to inherit an oversized file. The synchronous path
 		// only fires when the cache already knows the file is
 		// over the cap (so we don't pay the `statSync` cost on
-		// the cold-start / cache-miss path — the deferred
+		// the cold-start / cache-miss path, the deferred
 		// `rotateIfNeeded` handles that).
 		const preCachedSize = _getCachedFileSize(filePath);
 		if (preCachedSize !== null && preCachedSize > maxBytes) {
@@ -427,7 +458,7 @@ export function appendLogLine(
 		} else {
 			// Defer rotation to the next event-loop tick
 			// for the non-urgent case (cached size below
-			// the cap, or cache miss — the deferred
+			// the cap, or cache miss, the deferred
 			// `rotateIfNeeded` will stat the file then).
 			setImmediate(() => {
 				try {
@@ -443,7 +474,7 @@ export function appendLogLine(
 		}
 		// O1: ensure the logs directory exists (the Python backend
 		// creates `<config-dir>/logs` at its startup, but Electron may
-		// write earlier — e.g. crash-loop lines before Python boots).
+		// write earlier, e.g. crash-loop lines before Python boots).
 		// Best-effort; a failure here falls through to the catch below
 		// which surfaces the append failure instead of masking it.
 		// The per-directory cache skips the mkdir once the directory
@@ -461,7 +492,7 @@ export function appendLogLine(
 				fs.chmodSync(filePath, 0o600);
 				_permsVerified.add(filePath);
 			} catch (e) {
-				// Best-effort — leave flag unset so next append retries.
+				// Best-effort, leave flag unset so next append retries.
 				// Surface the failure so a perm regression (read-only dir,
 				// Windows ACL reset) is visible in the dev console instead
 				// of silently swallowed.
@@ -476,7 +507,7 @@ export function appendLogLine(
 	} catch (e) {
 		console.warn(`[logging] appendLogLine failed for ${filePath}:`, e);
 		recordLoggingFailure(filePath, "appendLogLine", e);
-		// Invalidate the per-directory cache for this file — a
+		// Invalidate the per-directory cache for this file, a
 		// failed append is the signal that the directory may have
 		// disappeared (ENOENT) or the mount went read-only, so the
 		// next append must re-run the mkdir instead of trusting
@@ -507,7 +538,7 @@ export function ts(): string {
 	const m = String(d.getMinutes()).padStart(2, "0");
 	const s = String(d.getSeconds()).padStart(2, "0");
 	const time = `${h}:${m}:${s}`;
-	// File-redirected output (no terminal — ANSI colors disabled):
+	// File-redirected output (no terminal, ANSI colors disabled):
 	// prefix the date so a multi-session `electron-stderr.log` is
 	// unambiguous. Mirrors the Python side's timestamp split
 	// (`_iso_timestamp`: terminal = time-only, file = date + time).
@@ -522,7 +553,7 @@ export function ts(): string {
 }
 
 /**
- * Startup sweep — Tiers 1 (age) + 2 (size fallback) of the three-tier
+ * Startup sweep, Tiers 1 (age) + 2 (size fallback) of the three-tier
  * log-cleanup design. Deletes any file in the config-dir `logs/`
  * directory that is EITHER older than {@link LOG_AGE_RETENTION_MS}
  * (7 days) OR larger than {@link LOG_SIZE_FALLBACK_BYTES} (25 MB).
@@ -536,10 +567,10 @@ export function ts(): string {
  * Scope: every regular file in `logs/` EXCEPT `*.lock` files. Files
  * locked by another live process (e.g. `voice-typer.log` held open by
  * an already-running Python backend in dev/Tauri mode) fail the unlink
- * and are skipped silently — their owner sweeps them at its own
+ * and are skipped silently, their owner sweeps them at its own
  * startup.
  *
- * Best-effort: every error is swallowed — a sweep failure must never
+ * Best-effort: every error is swallowed, a sweep failure must never
  * break app startup.
  */
 export function sweepStaleLogs(): void {
@@ -547,7 +578,7 @@ export function sweepStaleLogs(): void {
 }
 
 /**
- * Core sweep implementation — operates on an explicit directory so
+ * Core sweep implementation, operates on an explicit directory so
  * tests exercise it without mocking the config-dir resolver.
  * See {@link sweepStaleLogs} for the full contract.
  */
@@ -557,7 +588,7 @@ export function sweepStaleLogsIn(logsDir: string): void {
 		try {
 			entries = fs.readdirSync(logsDir, { withFileTypes: true });
 		} catch {
-			// Missing logs dir (fresh install) — nothing to sweep.
+			// Missing logs dir (fresh install), nothing to sweep.
 			return;
 		}
 		const now = Date.now();
@@ -579,17 +610,17 @@ export function sweepStaleLogsIn(logsDir: string): void {
 				fs.unlinkSync(full);
 			} catch {
 				// Locked by another live process (host-first launch order)
-				// or stat failed — its own startup sweep handles it.
+				// or stat failed, its own startup sweep handles it.
 			}
 		}
 	} catch {
-		// Best-effort — never break startup over a sweep failure.
+		// Best-effort, never break startup over a sweep failure.
 	}
 }
 
 /**
  * File-log timestamp matching the canonical Python `voice-typer.log`
- * format (C-LOG-1): `YYYY-MM-DD  HH:MM:SS` — TWO spaces between the
+ * format (C-LOG-1): `YYYY-MM-DD  HH:MM:SS`, TWO spaces between the
  * date and the time, seconds-only precision, local time, NO `T`
  * separator, NO timezone offset, NO millisecond fraction.
  *
@@ -597,7 +628,7 @@ export function sweepStaleLogsIn(logsDir: string): void {
  * `electron-lifecycle.log`, crash/rejection logs) must use this exact
  * format so the cross-process timeline is consistent with the main
  * Python log.  The old `new Date().toISOString()` produced
- * `YYYY-MM-DDTHH:MM:SS.mmmZ` (UTC, `T`, millis) — a different format
+ * `YYYY-MM-DDTHH:MM:SS.mmmZ` (UTC, `T`, millis), a different format
  * from `voice-typer.log`.
  */
 export function fileTimestamp(): string {

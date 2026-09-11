@@ -35,7 +35,7 @@
  *     end-to-end, so the regression guard belongs here.
  *
  * Platform: Linux sandbox / Windows host / macOS host (the test is a
- * pure static-source check — no runtime CSS evaluation, no platform
+ * pure static-source check, no runtime CSS evaluation, no platform
  * dependency). Validation:
  *   VALIDATE ON LINUX HOST: cd voice_typer/client && npx vitest run \
  *     src/renderer/src/i18n/__tests__/rtl-physical-css-guard.test.ts
@@ -69,10 +69,10 @@ const CURRENTLY_VIOLATING: ReadonlySet<string> = new Set<string>([
 	// a future regression in either About.tsx or ReadonlyRow.tsx is
 	// caught immediately by the stale-entry check below.
 
-	// `components/feedback/Spinner.tsx` — carries `ml-2` on its inline
+	// `components/feedback/Spinner.tsx`, carries `ml-2` on its inline
 	// label while being reworked on another branch; pending migration to
 	// `ms-2` (logical property) by its owning agent. Remove this entry
-	// once the file uses logical utilities only — the stale-entry check
+	// once the file uses logical utilities only, the stale-entry check
 	// below will then demand its removal automatically.
 	"components/feedback/Spinner.tsx",
 ]);
@@ -109,11 +109,11 @@ const CURRENTLY_VIOLATING_SIZE_BOUND = 5;
  * boundary characters.
  *
  * NOT flagged (intentionally):
- *   - `mt-*` / `mb-*` (block-axis — physical is fine; vertical doesn't
+ *   - `mt-*` / `mb-*` (block-axis, physical is fine; vertical doesn't
  *     flip in RTL).
- *   - `px-*` / `py-*` (axis-pair utilities — already direction-agnostic).
+ *   - `px-*` / `py-*` (axis-pair utilities, already direction-agnostic).
  *   - `left-N` / `right-N` (positional utilities for absolute/fixed
- *     positioning — these DO need physical left/right semantics in
+ *     positioning, these DO need physical left/right semantics in
  *     many cases, e.g. centering a modal with `left-1/2`). The
  *     original finding did call these out, but the migration is
  *     per-element (not all `left-1/2` should become `start-1/2`),
@@ -145,7 +145,7 @@ function stripComments(src: string): string {
  * extract EVERY double-quoted, single-quoted, and backtick-delimited
  * string literal from the (comment-stripped) source and rely on the
  * physical-CSS regexes in {@link findViolations} to filter out
- * non-className strings — those simply don't match the patterns.
+ * non-className strings, those simply don't match the patterns.
  *
  * Template literals: `${...}` interpolations are stripped (replaced
  * with a single space) so the static portions between them still
@@ -158,7 +158,7 @@ function stripComments(src: string): string {
  *   - String concatenation across multiple literals, e.g.
  *     `"px-3 " + (cond ? "pl-2" : "pr-2")`. Each literal is extracted
  *     separately (`"px-3 "`, `"pl-2"`, `"pr-2"`). Both `pl-2` and
- *     `pr-2` are flagged — correct behavior. `"px-3 "` matches
+ *     `pr-2` are flagged, correct behavior. `"px-3 "` matches
  *     neither physical pattern, so no false positive.
  *   - Strings constructed via `String.raw` or other dynamic APIs —
  *     vanishingly rare in className contexts; would need an AST parse.
@@ -255,7 +255,7 @@ function collectSourceFiles(): { rel: string; src: string }[] {
  * Returns a list of human-readable violation strings (empty if clean).
  *
  * The `rel` parameter is accepted for symmetry with the caller's
- * (rel, src) tuple shape but is intentionally unused — the violation
+ * (rel, src) tuple shape but is intentionally unused, the violation
  * message embeds the className value (which is what the developer
  * needs to fix), not the file path (the caller adds the path when
  * collecting results). Prefixed with `_` to silence the unused-param
@@ -277,12 +277,12 @@ function findViolations(_rel: string, rawSrc: string): string[] {
 	return out;
 }
 
-describe("S5-CR-45: RTL regression guard — physical-side Tailwind utilities block RTL mirroring", () => {
+describe("S5-CR-45: RTL regression guard, physical-side Tailwind utilities block RTL mirroring", () => {
 	it("CURRENTLY_VIOLATING allowlist size is within the documented bound", () => {
 		// Ratchet: the allowlist should only ever SHRINK (or stay the same).
 		// If a new file is found to violate the rule, add it to the
 		// allowlist AND raise this bound (with a comment explaining why)
-		// — or better, migrate the offending file to logical properties.
+		//, or better, migrate the offending file to logical properties.
 		expect(
 			CURRENTLY_VIOLATING.size,
 			`CURRENTLY_VIOLATING allowlist grew past the bound of ${CURRENTLY_VIOLATING_SIZE_BOUND}. ` +
@@ -295,7 +295,7 @@ describe("S5-CR-45: RTL regression guard — physical-side Tailwind utilities bl
 		const files = collectSourceFiles();
 		const unexpected: string[] = [];
 		for (const { rel, src } of files) {
-			// Skip files in the allowlist — they're tolerated pending
+			// Skip files in the allowlist, they're tolerated pending
 			// migration by their owning agent.
 			if (CURRENTLY_VIOLATING.has(rel)) continue;
 			const violations = findViolations(rel, src);
@@ -307,7 +307,7 @@ describe("S5-CR-45: RTL regression guard — physical-side Tailwind utilities bl
 			unexpected,
 			[
 				"Found physical-side Tailwind utilities (ml-/mr-/pl-/pr-/text-left/text-right) in " +
-					"files NOT in the CURRENTLY_VIOLATING allowlist. These utilities don't flip in RTL — " +
+					"files NOT in the CURRENTLY_VIOLATING allowlist. These utilities don't flip in RTL, " +
 					"the Arabic UI renders a broken (LTR-locked) layout for any component using them. " +
 					"Migrate to logical utilities (ms-/me-/ps-/pe-/text-start/text-end), OR if the file " +
 					"is mid-migration by another agent, add it to CURRENTLY_VIOLATING in this test.",
@@ -318,7 +318,7 @@ describe("S5-CR-45: RTL regression guard — physical-side Tailwind utilities bl
 
 	it("every entry in CURRENTLY_VIOLATING actually still has a violation (no stale allowlist entries)", () => {
 		// Ratchet: when an allowlisted file is migrated, the entry MUST
-		// be removed from the set — otherwise the allowlist accumulates
+		// be removed from the set, otherwise the allowlist accumulates
 		// stale entries that mask future regressions. This test fails
 		// loudly when an entry is no longer needed.
 		const files = collectSourceFiles();
@@ -329,14 +329,14 @@ describe("S5-CR-45: RTL regression guard — physical-side Tailwind utilities bl
 		for (const rel of CURRENTLY_VIOLATING) {
 			const src = fileMap.get(rel);
 			if (src === undefined) {
-				// The file was deleted/renamed — the allowlist entry is stale.
+				// The file was deleted/renamed, the allowlist entry is stale.
 				stale.push(`${rel}: file not found (deleted or renamed)`);
 				continue;
 			}
 			const violations = findViolations(rel, src);
 			if (violations.length === 0) {
 				stale.push(
-					`${rel}: no physical-side utilities found — file was migrated, ` +
+					`${rel}: no physical-side utilities found, file was migrated, ` +
 						"remove this entry from CURRENTLY_VIOLATING.",
 				);
 			}
@@ -344,7 +344,7 @@ describe("S5-CR-45: RTL regression guard — physical-side Tailwind utilities bl
 		expect(
 			stale,
 			[
-				"CURRENTLY_VIOLATING has stale entries — files that no longer use physical-side " +
+				"CURRENTLY_VIOLATING has stale entries, files that no longer use physical-side " +
 					"CSS utilities. Remove them from the allowlist so future regressions are caught:",
 				...stale,
 			].join("\n"),
@@ -360,7 +360,7 @@ describe("S5-CR-45: RTL regression guard — physical-side Tailwind utilities bl
 		const files = collectSourceFiles();
 		expect(
 			files.length,
-			"RENDERER_SRC file walker returned 0 files — the test is broken",
+			"RENDERER_SRC file walker returned 0 files, the test is broken",
 		).toBeGreaterThan(0);
 	});
 });

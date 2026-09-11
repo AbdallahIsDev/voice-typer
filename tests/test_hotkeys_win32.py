@@ -28,7 +28,7 @@ def _wait_until(predicate, timeout: float = 3.0, msg: str = "condition not met")
     the tests deterministic.
 
     Thin wrapper around :func:`tests.fixtures.wait_for.wait_for` that
-    raises ``AssertionError`` on timeout (wait_for returns bool — this
+    raises ``AssertionError`` on timeout (wait_for returns bool, this
     helper converts False to an assertion failure with a message).
     """
     if not wait_for(predicate, timeout=timeout):
@@ -395,7 +395,7 @@ class TestModifierOnlyHotkeys:
 
         Toggle mode (no on_release callback set) defers the fire to the
         release transition so we can verify the modifier was released
-        alone — this is the fix for the "Alt+C fires the dictation"
+        alone, this is the fix for the "Alt+C fires the dictation"
         problem. The test simulates press → hold → release and asserts
         the callback fires exactly once (not zero, not repeatedly).
         """
@@ -423,9 +423,9 @@ class TestModifierOnlyHotkeys:
         try:
             backend.start(callback)
 
-            # Phase 1: nothing pressed — callback must not fire. Wait
+            # Phase 1: nothing pressed, callback must not fire. Wait
             # 30ms and verify (wait_for returns True if the predicate
-            # became truthy — we expect False here).
+            # became truthy, we expect False here).
             assert not wait_for(lambda: callback.call_count > 0, timeout=0.03), "Callback fired before Alt was pressed"
             # Phase 2: press Alt (held). Toggle mode defers the fire to
             # release, so the callback still must not fire while held.
@@ -470,12 +470,12 @@ class TestModifierOnlyHotkeys:
         try:
             backend.start(callback)
 
-            # Hold for 200ms — far longer than the polling interval.
+            # Hold for 200ms, far longer than the polling interval.
             # Wait_for returns True if the predicate became truthy —
             # we expect False (toggle mode defers to release, so the
             # callback must NOT fire while the key is held).
             assert not wait_for(lambda: callback.call_count > 0, timeout=0.2), (
-                f"Callback fired {callback.call_count} times while Alt held — toggle mode must defer to release"
+                f"Callback fired {callback.call_count} times while Alt held, toggle mode must defer to release"
             )
         finally:
             backend.stop()
@@ -517,7 +517,7 @@ class TestModifierOnlyHotkeys:
 
             # Phase 1: press Alt+Ctrl (held). Wait 50ms and verify
             # no fire (wait_for returns True if predicate became
-            # truthy — we expect False here).
+            # truthy, we expect False here).
             state["value"] = 1
             assert not wait_for(lambda: callback.call_count > 0, timeout=0.05), "Callback fired while Alt+Ctrl held"
             # Phase 2: release Alt but keep Ctrl held.
@@ -527,7 +527,7 @@ class TestModifierOnlyHotkeys:
             # Ctrl is still held, the toggle fire is suppressed. Wait
             # 50ms and verify no fire.
             assert not wait_for(lambda: callback.call_count > 0, timeout=0.05), (
-                "Callback fired on Alt release while Ctrl still held — should be suppressed (combo)"
+                "Callback fired on Alt release while Ctrl still held, should be suppressed (combo)"
             )
         finally:
             backend.stop()
@@ -538,11 +538,11 @@ class TestModifierOnlyHotkeys:
     ):
         """FIX-HOTKEY-AND-NOTIFICATION (a): if a non-modifier key (like
         'C') is pressed between the modifier press and release, the
-        press callback must NOT fire on release — the user was doing a
+        press callback must NOT fire on release, the user was doing a
         combo like Alt+C, not invoking the bare Alt hotkey.
 
         FLAKY-FIX: previously used 30/30/50ms sleeps which could be too
-        short under CI load — the polling loop (1ms interval) needs at
+        short under CI load, the polling loop (1ms interval) needs at
         least ~10 cycles per phase to reliably observe each state
         transition. Bumped to 80/80/120ms to give a comfortable margin
         even on slow CI runners. Also added a final state verification
@@ -586,7 +586,7 @@ class TestModifierOnlyHotkeys:
             state["value"] = 3
             assert not wait_for(lambda: callback.call_count > 0, timeout=0.12), (
                 f"Callback fired {callback.call_count} times after Alt+C "
-                f"combo — should be suppressed (user was doing Alt+C, not "
+                f"combo, should be suppressed (user was doing Alt+C, not "
                 f"invoking bare Alt hotkey)"
             )
         finally:
@@ -634,7 +634,7 @@ class TestModifierOnlyHotkeys:
                 f"PTT press callback should fire once on press, got {press_callback.call_count}"
             )
             assert release_callback.call_count == 0
-            # Hold for an extended period — must NOT fire press repeatedly.
+            # Hold for an extended period, must NOT fire press repeatedly.
             # Wait 100ms and verify press_callback.call_count stays at 1
             # (wait_for returns True if the predicate became truthy —
             # we expect False here, meaning no additional fire).
@@ -642,7 +642,7 @@ class TestModifierOnlyHotkeys:
             assert not wait_for(
                 lambda: press_callback.call_count > _press_count_after_hold_start,
                 timeout=0.1,
-            ), f"PTT press callback fired {press_callback.call_count} times during hold — must fire exactly once"
+            ), f"PTT press callback fired {press_callback.call_count} times during hold, must fire exactly once"
             # Phase 3: release Alt. PTT fires on_release.
             state["value"] = 0
             _wait_until(
@@ -707,10 +707,10 @@ class TestToggleFiresOnKeyUp:
 
             # Phase 1: press and HOLD. Must NOT fire while held. Wait
             # 150ms and verify (wait_for returns True if predicate
-            # became truthy — we expect False here).
+            # became truthy, we expect False here).
             state["value"] = 1
             assert not wait_for(lambda: callback.call_count > 0, timeout=0.15), (
-                "Toggle callback fired while the key was held — must defer to key-up (release)"
+                "Toggle callback fired while the key was held, must defer to key-up (release)"
             )
             # Phase 2: release. Must fire exactly once.
             state["value"] = 0
@@ -756,7 +756,7 @@ class TestToggleFiresOnKeyUp:
                 # expected in toggle_on_keyup mode). We track
                 # GetAsyncKeyState call count and wait for it to advance,
                 # confirming the loop has polled at least once since the
-                # press — this avoids the race where we release before
+                # press, this avoids the race where we release before
                 # the loop sees the press.
                 _calls_before_press = mock_user32.GetAsyncKeyState.call_count
                 _wait_until(
@@ -783,7 +783,7 @@ class TestCapsLockSuppression:
     """FIX-HOTKEY-ARCHITECTURE: when the hotkey is <caps_lock>, the
     polling backend should suppress the OS-level caps-state toggle by
     sending a synthetic Caps Lock keypress via SendInput (modern Win32
-    keyboard-injection API — replaces the deprecated ``keybd_event``).
+    keyboard-injection API, replaces the deprecated ``keybd_event``).
     """
 
     def test_caps_lock_hotkey_calls_sendinput_on_press(self, mock_win32):
@@ -817,7 +817,7 @@ class TestCapsLockSuppression:
 
         mock_user32.GetAsyncKeyState.side_effect = fake_get_async_key_state
         mock_user32.GetKeyState.return_value = 1  # toggle bit set
-        # SendInput returns 1 (single event inserted) — the modern
+        # SendInput returns 1 (single event inserted), the modern
         # keyboard-injection success path (mirrors production).
         mock_user32.SendInput.return_value = 1
 
@@ -867,7 +867,7 @@ class TestPollingFallbackTimerHardening:
         """Run the polling loop for exactly one iteration, then exit.
 
         ``Sleep`` flips the stop flag on its first call so the
-        ``while not is_set()`` condition exits after one pass — this
+        ``while not is_set()`` condition exits after one pass, this
         avoids guessing how many times ``is_set()`` is called.
         """
 

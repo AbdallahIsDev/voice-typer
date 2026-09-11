@@ -4,7 +4,7 @@
 Before AP-8, ``sidecar_ws.run()`` bound ``websockets.serve(...)`` without
 an ``origins=`` allowlist or a ``process_request=`` callback. The
 ``websockets`` library does **not** validate the ``Origin`` header by
-default — a malicious web page in the user's browser could call
+default, a malicious web page in the user's browser could call
 ``new WebSocket("ws://127.0.0.1:<port>")`` and the sidecar would accept
 the handshake and park the connection in the 5s auth-wait window. A
 single page can do this many times concurrently and starve the
@@ -26,7 +26,7 @@ These tests stand up a real ``websockets.asyncio.server.serve`` on
 
 1. **Origin present** → handshake MUST fail with HTTP 403.
 2. **Origin absent** → handshake MUST succeed (then we close cleanly).
-3. **Callback unit test** — direct call on a synthetic request, no
+3. **Callback unit test**, direct call on a synthetic request, no
    network, to lock in the allow/deny contract at the API level.
 """
 
@@ -82,7 +82,7 @@ async def _handler(ws) -> None:
 @pytest.mark.asyncio
 async def test_origin_header_present_is_rejected_with_403() -> None:
     """A client that sends ``Origin: https://attacker.example`` MUST be
-    rejected at the HTTP layer (403) — the WS handshake never completes
+    rejected at the HTTP layer (403), the WS handshake never completes
     and the auth-wait slot is never consumed.
 
     This is the browser-attacker scenario: a malicious page calls
@@ -117,7 +117,7 @@ async def test_origin_header_absent_is_allowed() -> None:
     ``process_request`` gate and complete the WS handshake.
 
     The Rust host (Tauri ``externalBin``) opens its WS client with a raw
-    TCP socket and never sends an ``Origin`` header — this is the
+    TCP socket and never sends an ``Origin`` header, this is the
     legitimate-traffic path. The handshake succeeds; the auth frame
     still gates access afterwards.
     """
@@ -132,7 +132,7 @@ async def test_origin_header_absent_is_allowed() -> None:
         # No additional_headers → no Origin header on the wire.
         ws = await connect(f"ws://127.0.0.1:{port}", open_timeout=5)
         try:
-            # If we got here, the handshake completed (HTTP 101) — the
+            # If we got here, the handshake completed (HTTP 101), the
             # process_request callback returned None (allowed). Reaching
             # this line is the success signal. Close cleanly so the test
             # does not hang.
@@ -145,7 +145,7 @@ async def test_origin_header_absent_is_allowed() -> None:
 async def test_origin_header_empty_string_is_rejected() -> None:
     """An empty-string ``Origin`` header is still a *present* header and
     MUST be rejected. This locks in the contract that we test presence,
-    not truthiness — a browser cannot bypass the check by sending
+    not truthiness, a browser cannot bypass the check by sending
     ``Origin: `` (empty).
     """
     port = await _pick_port()
@@ -193,7 +193,7 @@ async def test_reject_browser_origins_rejects_present_origin() -> None:
     response = await sidecar_ws._reject_browser_origins(None, request)
     assert response is not None, "present Origin must be rejected"
     assert response.status_code == 403
-    # The body is the explanatory message — confirms the rejection path.
+    # The body is the explanatory message, confirms the rejection path.
     assert b"origin not allowed" in response.body
 
 
@@ -243,7 +243,7 @@ def test_run_passes_process_request_to_serve(monkeypatch) -> None:
 
     # run() calls asyncio.run(_main()) and _main awaits serve(). We let
     # _main hit the "no sockets bound" branch (FakeServer.sockets == [])
-    # so it returns 3 immediately after the serve() call — that is
+    # so it returns 3 immediately after the serve() call: that is
     # enough to capture the kwargs without standing up a real loop.
     from voice_typer.server import ipc_server
 

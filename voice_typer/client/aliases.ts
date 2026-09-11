@@ -6,12 +6,12 @@ import { fileURLToPath } from "node:url";
 //
 // Previously `electron.vite.config.ts`, `electron.vite.renderer.ts`, and
 // `vitest.config.ts` each duplicated the same three `resolve(__dirname,
-// "src/renderer/src/...")` calls — a maintenance hazard where a path
+// "src/renderer/src/...")` calls, a maintenance hazard where a path
 // change had to be applied in 3 places. Centralising here means a path
 // change is a single-line edit; tsc flags every config that imports
 // `aliases` if the exported shape ever drifts.
 //
-// `vite.config.ts` is intentionally NOT migrated — shadcn CLI requires
+// `vite.config.ts` is intentionally NOT migrated, shadcn CLI requires
 // a Vite-shaped config with inline `resolve.alias` literals (see the
 // comment at the top of `vite.config.ts`).
 const __dirname = path.dirname(fileURLToPath(import.meta.url));

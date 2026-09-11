@@ -15,7 +15,7 @@
  *          IPC bridge is missing).
  * - ModelStep aria-label/placeholder interpolates the {name}
  *          placeholder in onboarding.modelSelectAria (was literal
- *          "{name}" — screen readers announced template tokens).
+ *          "{name}", screen readers announced template tokens).
  */
 
 import {
@@ -123,7 +123,7 @@ vi.mock("@/components/ui/select", () => ({
 }));
 
 //mock the Radix Checkbox wrapper so the Done-step consent checkbox
-// renders as a real <input type="checkbox"> in jsdom — the Radix
+// renders as a real <input type="checkbox"> in jsdom, the Radix
 // primitive is a <button role="checkbox"> whose pointer + keyboard events
 // jsdom does not simulate uniformly, and these tests assert on `.checked`
 // after the consent probe effect flips `consentAccepted`. Mirrors the
@@ -410,7 +410,7 @@ describe("Done step Get Started waits for onboarding_apply to settle", () => {
 	afterEach(() => cleanup());
 
 	it("does NOT complete while onboarding_apply is still pending", async () => {
-		// Make onboarding_apply never resolve — simulating a backend
+		// Make onboarding_apply never resolve, simulating a backend
 		// that hangs. The wizard must treat setup as INCOMPLETE: no
 		// success snack, no navigation, Get Started stays disabled
 		// (submitting) until the call settles. The previous
@@ -458,7 +458,7 @@ describe("Done step Get Started waits for onboarding_apply to settle", () => {
 					});
 				case "onboarding_apply":
 					applyCallCount += 1;
-					// Never resolve — simulates a hanging backend.
+					// Never resolve, simulates a hanging backend.
 					return new Promise(() => {});
 				default:
 					return Promise.resolve({});
@@ -483,7 +483,7 @@ describe("Done step Get Started waits for onboarding_apply to settle", () => {
 			expect(getStarted.hasAttribute("disabled")).toBe(false);
 		});
 
-		// Click "Get Started" — this calls handleApply.
+		// Click "Get Started", this calls handleApply.
 		fireEvent.click(getStarted);
 
 		// The apply call must have been kicked off.
@@ -491,14 +491,14 @@ describe("Done step Get Started waits for onboarding_apply to settle", () => {
 			expect(applyCallCount).toBe(1);
 		});
 
-		// Give every pending microtask/task a chance to flush — if any
+		// Give every pending microtask/task a chance to flush, if any
 		// code path still completed the wizard without awaiting the
 		// apply, onComplete would have fired by now.
 		await new Promise((resolve) => setTimeout(resolve, 50));
 
 		expect(onCompleteCalled).toBe(false);
 		expect(mockShowSnack).not.toHaveBeenCalled();
-		// The wizard is still submitting — the button stays disabled so
+		// The wizard is still submitting, the button stays disabled so
 		// the user can't re-trigger or navigate away mid-apply.
 		expect(getStarted.hasAttribute("disabled")).toBe(true);
 	});
@@ -571,7 +571,7 @@ describe("Done step Get Started waits for onboarding_apply to settle", () => {
 		// resolves and `consentAccepted` flips to true. React 19
 		// does NOT fire onClick on a disabled button, so we must
 		// wait for the consent checkbox to be checked before
-		// clicking — otherwise the click is a no-op and handleApply
+		// clicking, otherwise the click is a no-op and handleApply
 		// never runs.
 		await waitFor(() => {
 			const checkbox = screen.getByTestId(
@@ -583,7 +583,7 @@ describe("Done step Get Started waits for onboarding_apply to settle", () => {
 		// Sanity: no snack has been shown yet.
 		expect(mockShowSnack).not.toHaveBeenCalled();
 
-		// Click "Get Started" — this calls handleApply, which fires
+		// Click "Get Started", this calls handleApply, which fires
 		// the success toast.
 		fireEvent.click(screen.getByRole("button", { name: "Get started" }));
 
@@ -617,7 +617,7 @@ describe("Welcome step renders a language picker", () => {
 
 		// The title is locale-translated (setLocale + the async strings
 		// chunk load can race this assertion), so gate on the language
-		// picker instead — it only renders on the Welcome step.
+		// picker instead, it only renders on the Welcome step.
 		await screen.findByTestId("onboarding-language-picker");
 
 		// The language picker should be present.
@@ -645,7 +645,7 @@ describe("Welcome step renders a language picker", () => {
 
 		// The title is locale-translated (setLocale + the async strings
 		// chunk load can race this assertion), so gate on the language
-		// picker instead — it only renders on the Welcome step.
+		// picker instead, it only renders on the Welcome step.
 		await screen.findByTestId("onboarding-language-picker");
 
 		const picker = screen.getByTestId("onboarding-language-picker");
@@ -753,7 +753,7 @@ describe("Done step reveals Skip button when apply fails", () => {
 						instructions: null,
 					});
 				case "onboarding_apply":
-					// Synchronous throw — simulates a missing
+					// Synchronous throw, simulates a missing
 					// IPC bridge or a broken call() implementation.
 					throw new Error("IPC bridge missing");
 				case "onboarding_skip":
@@ -782,7 +782,7 @@ describe("Done step reveals Skip button when apply fails", () => {
 		// resolves and `consentAccepted` flips to true. React 19
 		// does NOT fire onClick on a disabled button, so we must
 		// wait for the consent checkbox to be checked before
-		// clicking — otherwise the click is a no-op, handleApply
+		// clicking, otherwise the click is a no-op, handleApply
 		// never runs, and the Skip escape hatch never appears.
 		await waitFor(() => {
 			const checkbox = screen.getByTestId(
@@ -791,7 +791,7 @@ describe("Done step reveals Skip button when apply fails", () => {
 			expect(checkbox.checked).toBe(true);
 		});
 
-		// Click Get Started — this triggers handleApply which throws
+		// Click Get Started, this triggers handleApply which throws
 		// synchronously. The wizard must NOT navigate away.
 		fireEvent.click(screen.getByRole("button", { name: "Get started" }));
 
@@ -884,7 +884,7 @@ describe("ModelStep aria-label interpolates the model name", () => {
 		);
 
 		// Its aria-label should be the interpolated string
-		// "Select model: small.en" — NOT "Select model: {name}".
+		// "Select model: small.en", NOT "Select model: {name}".
 		const label = modelTrigger().getAttribute("aria-label") ?? "";
 		expect(label).toContain("tiny");
 		expect(label).not.toContain("{name}");
@@ -1000,7 +1000,7 @@ describe("useOnboardingWizard: selections are seeded from the saved config on ev
 
 	it("on a resume (step>0), get_config IS called and its saved selections are shown", async () => {
 		// The init() effect seeds the React selections from the saved
-		// config on EVERY start — first-run AND resume. An earlier
+		// config on EVERY start, first-run AND resume. An earlier
 		// version skipped get_config when step>0 (the "resume
 		// heuristic") so a re-opened wizard showed the renderer
 		// defaults instead of the user's saved hotkey/model/mic, and
@@ -1012,7 +1012,7 @@ describe("useOnboardingWizard: selections are seeded from the saved config on ev
 		mockCall.mockImplementation((type: string) => {
 			switch (type) {
 				case "onboarding_start":
-					// Resume at the Hotkey step (step index 3) — the
+					// Resume at the Hotkey step (step index 3), the
 					// user picked a mic + advanced through Permissions
 					// before closing the app.
 					return Promise.resolve({
@@ -1022,7 +1022,7 @@ describe("useOnboardingWizard: selections are seeded from the saved config on ev
 					});
 				case "get_config":
 					// If called, returns values that DIFFER from the
-					// renderer defaults — so the test fails if init()
+					// renderer defaults, so the test fails if init()
 					// forgets to skip the override.
 					return Promise.resolve({
 						hotkey: "<f11>",
@@ -1062,14 +1062,14 @@ describe("useOnboardingWizard: selections are seeded from the saved config on ev
 
 		// The init effect's get_config probe MUST have been called (the
 		// consent probe on Onboarding.tsx only fires on the Done step,
-		// which we are not on — so the only get_config caller is the
+		// which we are not on, so the only get_config caller is the
 		// selection-seeding probe). This is the core regression guard.
 		const getConfigCalls = mockCall.mock.calls.filter(
 			(c: unknown[]) => c[0] === "get_config",
 		).length;
 		expect(getConfigCalls).toBeGreaterThanOrEqual(1);
 
-		// The saved config's hotkey ("<f11>") must be shown — NOT the
+		// The saved config's hotkey ("<f11>") must be shown, NOT the
 		// renderer default <caps_lock>. The mocked Select renders the
 		// trigger value as the SelectValue's placeholder, so we assert
 		// the trigger carries the saved config value.

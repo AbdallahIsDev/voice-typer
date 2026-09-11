@@ -1,13 +1,13 @@
-"""MIG-1.6 Phase 0-M Gate Check 1 — Nuitka macOS build validation (x86_64 + aarch64).
+"""MIG-1.6 Phase 0-M Gate Check 1: Nuitka macOS build validation (x86_64 + aarch64).
 
 This test file is the **first of 9 gate checks** in the Phase 0-M
 macOS host validation gate (ADR-0020). It validates the *structure*
 of:
 
-  - ``scripts/build/build_sidecar_macos.sh`` — freezes
+  - ``scripts/build/build_sidecar_macos.sh``, freezes
     ``voice_typer/server/ipc_server.py`` into
     ``python-sidecar-<arch>-apple-darwin`` via Nuitka, AND
-  - ``scripts/build/build_prewarm_macos.sh`` — freezes
+  - ``scripts/build/build_prewarm_macos.sh``, freezes
     ``voice_typer/server/prewarm.py`` into
     ``prewarm-<arch>-apple-darwin`` via Nuitka.
 
@@ -35,7 +35,7 @@ cpython-3.12.x+<arch>-apple-darwin). These tests therefore:
     ``prewarm-aarch64-apple-darwin`` output filenames,
   - validate the sidecar script handles the macOS-specific
     ``--macos-app-mode=background`` flag (sets ``LSUIElement=true`` in
-    the bundle ``Info.plist`` — the macOS equivalent of Windows
+    the bundle ``Info.plist``, the macOS equivalent of Windows
     ``--windows-disable-console``),
   - document the exact ``VALIDATE ON MACOS HOST`` commands a human must
     run on a real macOS host for BOTH arches.
@@ -47,12 +47,12 @@ VALIDATE ON MACOS HOST (x86_64):
     4. uv venv; source .venv/bin/activate
     5. uv pip install -e ".[dev,test]" nuitka==2.5.4 zstandard ordered-set
     6. Download python-build-standalone cpython-3.12.x+x86_64-apple-darwin to /tmp/pybs/python
-       (pinned: cpython-3.12.x install_only tarball — see docs/migration/macos-validation-runbook.md §0)
+       (pinned: cpython-3.12.x install_only tarball: see docs/migration/macos-validation-runbook.md §0)
     7. ARCH=x86_64 bash scripts/build/build_sidecar_macos.sh x86_64
        (on Apple Silicon host: also `softwareupdate --install-rosetta --agree-to-license`)
     Expected: python-sidecar-x86_64-apple-darwin (~180 MB) in src-tauri/bin/
 
-VALIDATE ON MACOS HOST (aarch64 — Apple Silicon):
+VALIDATE ON MACOS HOST (aarch64, Apple Silicon):
     1. Same prerequisites as above
     2. rustup default stable-aarch64-apple-darwin
     3. Download cpython-3.12.x+aarch64-apple-darwin to /tmp/pybs/python
@@ -60,13 +60,13 @@ VALIDATE ON MACOS HOST (aarch64 — Apple Silicon):
     Expected: python-sidecar-aarch64-apple-darwin (~180 MB) in src-tauri/bin/
 
 References:
-  - ADR-0020 §4.3 — Nuitka macOS freeze spec (authoritative for both arches).
-  - ADR-0020 §4.5 — Common Nuitka caveats (per-triple verify).
-  - docs/migration/macos-validation-runbook.md §0 + §1 — exact host commands.
-  - scripts/build/build_sidecar_linux.sh — sibling (XPLAT-3 guard reference).
-  - scripts/build/build_sidecar_windows.sh — sibling (XPLAT-3 gap, see MIG-1.5).
+  - ADR-0020 §4.3, Nuitka macOS freeze spec (authoritative for both arches).
+  - ADR-0020 §4.5. Common Nuitka caveats (per-triple verify).
+  - docs/migration/macos-validation-runbook.md §0 + §1, exact host commands.
+  - scripts/build/build_sidecar_linux.sh, sibling (XPLAT-3 guard reference).
+  - scripts/build/build_sidecar_windows.sh, sibling (XPLAT-3 gap, see MIG-1.5).
 
-Gaps documented (report, do NOT fix — out of scope for this gate check):
+Gaps documented (report, do NOT fix, out of scope for this gate check):
   - GAP-1: ``build_sidecar_macos.sh`` does NOT invoke ``arch -x86_64`` to
     cross-build the Intel binary on an Apple Silicon host, NOR does it pass
     ``--target-arch x86_64`` to Nuitka. ADR-0020 §4.3 + the macOS
@@ -161,7 +161,7 @@ def test_sidecar_script_is_bash_syntax_valid():
     spawned. Safe to run on the Linux sandbox.
     """
     if not bash_usable():
-        pytest.skip("bash not available or not usable on this host — cannot run `bash -n`.")
+        pytest.skip("bash not available or not usable on this host, cannot run `bash -n`.")
     result = subprocess.run(
         ["bash", "-n", str(SIDECAR_SCRIPT)],
         capture_output=True,
@@ -176,7 +176,7 @@ def test_sidecar_script_is_bash_syntax_valid():
 def test_prewarm_script_is_bash_syntax_valid():
     """``bash -n`` must parse the prewarm script without syntax errors."""
     if not bash_usable():
-        pytest.skip("bash not available or not usable on this host — cannot run `bash -n`.")
+        pytest.skip("bash not available or not usable on this host, cannot run `bash -n`.")
     result = subprocess.run(
         ["bash", "-n", str(PREWARM_SCRIPT)],
         capture_output=True,
@@ -287,7 +287,7 @@ def test_sidecar_script_includes_ctranslate2_data_dir(sidecar_text: str):
     )
 
 
-# 4. ctranslate2/libs guard (plural —  pattern, REQUIRED on macOS) ─
+# 4. ctranslate2/libs guard (plural, pattern, REQUIRED on macOS) ─
 def test_sidecar_script_has_xplat3_ctranslate2_libs_guard(sidecar_text: str):
     """The sidecar script must have the XPLAT-3 ``ctranslate2/libs`` guard.
 
@@ -469,7 +469,7 @@ def test_sidecar_script_uses_macos_app_mode_background(sidecar_text: str):
     """The script must pass ``--macos-app-mode=background`` (LSUIElement=true).
 
     ADR-0020 §4.3: ``--macos-app-mode=background`` sets
-    ``LSUIElement=true`` in the bundle's ``Info.plist`` — the sidecar
+    ``LSUIElement=true`` in the bundle's ``Info.plist``, the sidecar
     runs with no Dock icon, no menu bar item. This is the macOS
     equivalent of Windows ``--windows-disable-console``.
 
@@ -479,7 +479,7 @@ def test_sidecar_script_uses_macos_app_mode_background(sidecar_text: str):
     """
     assert "--macos-app-mode=background" in sidecar_text, (
         "build_sidecar_macos.sh must pass --macos-app-mode=background to "
-        "Nuitka (ADR-0020 §4.3 — LSUIElement=true, no Dock icon)."
+        "Nuitka (ADR-0020 §4.3. LSUIElement=true, no Dock icon)."
     )
 
 
@@ -495,7 +495,7 @@ def test_sidecar_script_uses_macos_create_bundle(sidecar_text: str):
     assert "--macos-app-name=" in sidecar_text
     assert "--macos-signed-app-name=" in sidecar_text, (
         "build_sidecar_macos.sh must pass --macos-signed-app-name (matches "
-        "the CFBundleIdentifier used for codesign — see signing-guide.md §13.2)."
+        "the CFBundleIdentifier used for codesign: see signing-guide.md §13.2)."
     )
 
 
@@ -550,7 +550,7 @@ def test_prewarm_script_outputs_to_resources_dir(prewarm_text: str):
     """The prewarm output dir must be ``src-tauri/resources`` (bundle.resource)."""
     assert "src-tauri/resources" in prewarm_text, (
         "build_prewarm_macos.sh must output to src-tauri/resources/ (Tauri "
-        "bundle.resource location — NOT src-tauri/bin, since prewarm is "
+        "bundle.resource location, NOT src-tauri/bin, since prewarm is "
         "launched by the LaunchAgent, not as a Tauri externalBin)."
     )
 
@@ -567,7 +567,7 @@ def test_prewarm_script_uses_macos_app_mode_background(prewarm_text: str):
     """The prewarm script must also pass ``--macos-app-mode=background``."""
     assert "--macos-app-mode=background" in prewarm_text, (
         "build_prewarm_macos.sh must pass --macos-app-mode=background "
-        "(prewarm runs with no Dock icon — LSUIElement=true)."
+        "(prewarm runs with no Dock icon, LSUIElement=true)."
     )
 
 
@@ -577,7 +577,7 @@ def test_prewarm_script_entry_point_is_prewarm_py(prewarm_text: str):
     Originally the entry point was ``voice_typer/server/prewarm.py`` (a single
     module). After the SPLIT-4 refactor (god-file split into a focused package),
     the entry point is ``voice_typer/server/prewarm/__main__.py`` (the package's
-    ``__main__`` runner — equivalent to ``python -m voice_typer.server.prewarm``).
+    ``__main__`` runner, equivalent to ``python -m voice_typer.server.prewarm``).
     """
     assert "voice_typer/server/prewarm/__main__.py" in prewarm_text, (
         "build_prewarm_macos.sh entry point must be voice_typer/server/prewarm/__main__.py (ADR-0011 + ADR-0020 §5)."
@@ -610,7 +610,7 @@ def test_sidecar_script_checks_swiftc(sidecar_text: str):
     Nuitka failure ~10 minutes in.
     """
     assert "command -v swiftc" in sidecar_text, (
-        "build_sidecar_macos.sh --check must verify swiftc (Xcode CLT) is on PATH — required for --macos-create-bundle."
+        "build_sidecar_macos.sh --check must verify swiftc (Xcode CLT) is on PATH, required for --macos-create-bundle."
     )
 
 
@@ -639,7 +639,7 @@ def test_sidecar_script_uses_nuitka_args_array(sidecar_text: str):
     """The script uses the ``NUITKA_ARGS`` bash array pattern.
 
     This is the cleanest way to conditionally append the XPLAT-3
-    ``--include-data-dir=$SITE/ctranslate2/libs`` flag — bash arrays
+    ``--include-data-dir=$SITE/ctranslate2/libs`` flag, bash arrays
     handle the quoting + the conditional ``+=`` append.
     """
     assert "NUITKA_ARGS=(" in sidecar_text
@@ -676,19 +676,19 @@ def test_sidecar_script_documents_signing_next_step(sidecar_text: str):
 def test_linux_sibling_has_xplat3_ctranslate2_libs_guard():
     """Sanity check: the Linux sibling MUST have the XPLAT-3 guard.
 
-    This is a reference-pattern check — if the Linux sibling loses the
+    This is a reference-pattern check, if the Linux sibling loses the
     guard, the macOS sibling becomes the lone reference and the XPLAT-3
     pattern needs re-evaluation.
     """
     if not LINUX_SIDECAR_SCRIPT.is_file():
-        pytest.skip(f"build_sidecar_linux.sh missing ({LINUX_SIDECAR_SCRIPT}) — cannot verify Linux sibling parity.")
+        pytest.skip(f"build_sidecar_linux.sh missing ({LINUX_SIDECAR_SCRIPT}), cannot verify Linux sibling parity.")
     linux_text = LINUX_SIDECAR_SCRIPT.read_text(encoding="utf-8")
     assert "CT2_LIBS_DIR" in linux_text
     assert '--include-data-dir="$CT2_LIBS_DIR=$CT2_LIBS_DIR"' in linux_text
     assert 'if [[ -d "$CT2_LIBS_DIR" ]]' in linux_text
 
 
-# ─── 11. KNOWN GAPS (report, do NOT fix — out of scope for this gate check) ─
+# ─── 11. KNOWN GAPS (report, do NOT fix, out of scope for this gate check) ─
 def test_known_gap_no_arch_x86_64_prefix(sidecar_text: str):
     """KNOWN GAP (GAP-1): the script does NOT invoke ``arch -x86_64`` for
     Rosetta-based Intel builds on an Apple Silicon host, NOR does it pass
@@ -696,7 +696,7 @@ def test_known_gap_no_arch_x86_64_prefix(sidecar_text: str):
 
     The macOS validation runbook §1 (lines 95-97) claims: "the script
     auto-prepends ``arch -x86_64`` and passes ``--target-arch x86_64``
-    to Nuitka". The ACTUAL script does NEITHER — it only relies on
+    to Nuitka". The ACTUAL script does NEITHER, it only relies on
     Rosetta 2 being installed by CI (header comment lines 12-14).
 
     On a real Intel macos-13 host this gap is invisible (host arch is
@@ -709,15 +709,15 @@ def test_known_gap_no_arch_x86_64_prefix(sidecar_text: str):
 
     This test ASSERTS the gap is present (so a future fix will flip it
     to a passing assertion). DO NOT fix this gap as part of MIG-1.6
-    gate check 1 — report it to the primary agent.
+    gate check 1, report it to the primary agent.
     """
     assert "arch -x86_64" not in sidecar_text, (
-        "build_sidecar_macos.sh now invokes `arch -x86_64` — update this "
+        "build_sidecar_macos.sh now invokes `arch -x86_64`, update this "
         "test to assert PRESENCE instead of absence, and remove GAP-1 "
         "from the module docstring."
     )
     assert "--target-arch" not in sidecar_text, (
-        "build_sidecar_macos.sh now passes --target-arch to Nuitka — "
+        "build_sidecar_macos.sh now passes --target-arch to Nuitka, "
         "update this test to assert PRESENCE instead of absence."
     )
 
@@ -729,7 +729,7 @@ def test_known_gap_no_pyobjc_include_flag(sidecar_text: str):
     pyobjc-framework-CoreAudio, pyobjc-framework-Cocoa are required
     (volume ducking + tray). Add ``--include-package=pyobjc`` (and the
     framework sub-packages). Nuitka's ``--include-package=pyobjc`` does
-    not always pick up the framework bridges — run the sidecar once in
+    not always pick up the framework bridges, run the sidecar once in
     dev mode and watch for ``ImportError: pyobjc-...`` to discover
     missing pieces."
 
@@ -738,14 +738,14 @@ def test_known_gap_no_pyobjc_include_flag(sidecar_text: str):
     them without the explicit ``--include-package=pyobjc`` flags.
     The macOS validation runbook does NOT explicitly require this flag
     in §1 (it relies on the dev-mode ImportError discovery loop), so
-    this gap is a SOFT gap — the build may succeed but produce a
+    this gap is a SOFT gap, the build may succeed but produce a
     sidecar that crashes on first tray / volume-ducking call.
 
     This test ASSERTS the gap is present. DO NOT fix this gap as part
-    of MIG-1.6 gate check 1 — report it to the primary agent.
+    of MIG-1.6 gate check 1, report it to the primary agent.
     """
     assert "--include-package=pyobjc" not in sidecar_text, (
-        "build_sidecar_macos.sh now includes --include-package=pyobjc — "
+        "build_sidecar_macos.sh now includes --include-package=pyobjc, "
         "update this test to assert PRESENCE instead of absence, and "
         "remove GAP-2 from the module docstring."
     )
@@ -764,7 +764,7 @@ def test_prewarm_check_delegates_to_sidecar_check(prewarm_text: str):
     binary is non-corrupt (exists, >= 4 KiB, executable).
     """
     # The delegation to the sidecar check must be present (this is the
-    # WR-18 fix — the old "OK if that passes" stub is gone).
+    # WR-18 fix, the old "OK if that passes" stub is gone).
     assert "build_sidecar_macos.sh" in prewarm_text, (
         "build_prewarm_macos.sh --check must delegate to "
         "build_sidecar_macos.sh --check (WR-18) instead of the old "
@@ -773,11 +773,11 @@ def test_prewarm_check_delegates_to_sidecar_check(prewarm_text: str):
     # The old stub text must be gone.
     assert "OK if that passes" not in prewarm_text, (
         "build_prewarm_macos.sh must NOT contain the old 'OK if that "
-        "passes' stub — the WR-18 fix replaced it with a real delegation."
+        "passes' stub, the WR-18 fix replaced it with a real delegation."
     )
     # The prewarm script still must not import nuitka directly (the
     # toolchain probe lives in the sidecar script).
     assert "import nuitka" not in prewarm_text, (
-        "build_prewarm_macos.sh must not import nuitka directly — the "
+        "build_prewarm_macos.sh must not import nuitka directly, the "
         "toolchain probe is delegated to build_sidecar_macos.sh --check."
     )

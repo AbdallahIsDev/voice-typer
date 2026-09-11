@@ -1,7 +1,7 @@
 //! JSON `config.json` merge logic for the Electron → Tauri migration.
 //!
 //! Extracted from the original `migrate.rs` monolith as part of the
-//! Phase 4.5 split. Pure file move — no behavior change
+//! Phase 4.5 split. Pure file move, no behavior change
 //! EXCEPT for the micro-fix that consumes `old_val` (move) in
 //! the merge loop instead of borrowing + cloning. See `mod.rs` for
 //! the gating caller (`migrate_inner`).
@@ -19,7 +19,7 @@ pub(crate) enum MergeOutcome {
     Copied,
     /// Key-by-key merge completed; the payload is the number of keys
     /// taken from `old`. When the payload is 0, nothing was taken AND
-    /// the target was a valid object — the target file is NOT
+    /// the target was a valid object, the target file is NOT
     /// rewritten (no byte/mtime churn for identical content).
     Merged(usize),
 }
@@ -32,7 +32,7 @@ pub(crate) enum MergeOutcome {
 ///   NOT per-key mtime). Keys present only in `old` are always taken.
 ///   Returns Merged(keys_from_old_written). When 0 keys are taken and
 ///   the target parsed as a valid object, the merged content is
-///   exactly the target's parsed content — the file is left untouched
+///   exactly the target's parsed content, the file is left untouched
 ///   (no rewrite, no mtime churn). Pathological targets (corrupt or
 ///   non-object) keep the pre-fix write so the repair path (overwrite
 ///   with the merge result) is unchanged.
@@ -45,10 +45,10 @@ pub(crate) enum MergeOutcome {
 ///
 /// All writes are now ATOMIC (temp-file +
 /// `rename`). Previously `std::fs::copy` and `std::fs::write` truncated
-/// the target before writing — a crash mid-write (power loss, SIGKILL,
+/// the target before writing: a crash mid-write (power loss, SIGKILL,
 /// OOM) would leave `config.json` truncated/corrupt. Since `migrate.rs`
 /// runs BEFORE the Python sidecar spawns, the sidecar would boot against
-/// a corrupt config and fall back to defaults — permanently losing the
+/// a corrupt config and fall back to defaults, permanently losing the
 /// user's migrated Electron config. The atomic write ensures the target
 /// is either fully-old or fully-new, never partial.
 ///
@@ -62,13 +62,13 @@ pub(crate) enum MergeOutcome {
 /// `new_val` is equally owned here and equally never read after the
 /// base map is extracted. For users with multi-MB Electron configs
 /// this drops 2×N deep-clone allocations per migration (first-launch-
-/// only cost, but the pattern is also more idiomatic — future
+/// only cost, but the pattern is also more idiomatic, future
 /// copy-paste won't replicate the clone).
 ///
 /// No-op short-circuit: when the loop takes ZERO keys from `old` and
 /// the target parsed as a valid object, re-serializing and rewriting
 /// `new` would only re-sort the BTreeMap and bump the mtime for
-/// semantically identical content — so the write is skipped entirely
+/// semantically identical content: so the write is skipped entirely
 /// (`Merged(0)` is returned without touching the file).
 pub(crate) fn merge_config(old: &Path, new: &Path) -> Result<MergeOutcome, String> {
     if !new.exists() {
@@ -86,14 +86,14 @@ pub(crate) fn merge_config(old: &Path, new: &Path) -> Result<MergeOutcome, Strin
     // would silently be treated as `null` (an empty object on merge),
     // potentially losing the user's settings on the next migration
     // pass. Log a warning so the failure is observable in user logs
-    // (the merge itself still proceeds fail-open — we prefer to keep
+    // (the merge itself still proceeds fail-open, we prefer to keep
     // whatever parses rather than abort the whole migration).
     //
     //before treating a corrupt source/target as Null,
     // back up the corrupt file to `<path>.corrupt-pre-migration.<ts>.bak`
     // so the user can recover their settings manually. Without the
     // backup, a corrupt `config.json` would be silently dropped on
-    // the next migration pass — the user's old Electron settings
+    // the next migration pass: the user's old Electron settings
     // vanish with no recovery path.
     let old_val: serde_json::Value = match serde_json::from_str(&old_txt) {
         Ok(v) => v,
@@ -123,7 +123,7 @@ pub(crate) fn merge_config(old: &Path, new: &Path) -> Result<MergeOutcome, Strin
     // borrowed `old_val.as_object()` and cloned every key+value pair
     // when inserting into `base`. The owned form lets the loop body
     // MOVE both `k` and `v` into `base` (no clone). If `old_val` is
-    // not an object, there's nothing useful to merge — keep target.
+    // not an object, there's nothing useful to merge, keep target.
     let old_obj: serde_json::Map<String, serde_json::Value> = match old_val {
         serde_json::Value::Object(o) => o,
         _ => return Ok(MergeOutcome::Merged(0)),
@@ -154,9 +154,9 @@ pub(crate) fn merge_config(old: &Path, new: &Path) -> Result<MergeOutcome, Strin
     // on either key or value.
     for (k, v) in old_obj {
         let take_old = match base.get(&k) {
-            // Key present in target — winner determined by file mtime.
+            // Key present in target: winner determined by file mtime.
             Some(_) => old_newer == Some(true),
-            // Key absent in target — always take old.
+            // Key absent in target: always take old.
             None => true,
         };
         if take_old {
@@ -168,7 +168,7 @@ pub(crate) fn merge_config(old: &Path, new: &Path) -> Result<MergeOutcome, Strin
     // Nothing taken from old + a valid-object target means the merged
     // content is EXACTLY the target's parsed content: rewriting would
     // only re-sort the BTreeMap and bump the mtime for identical
-    // semantics. Skip the write — `Merged(0)` already tells the caller
+    // semantics. Skip the write: `Merged(0)` already tells the caller
     // nothing was taken, and the target's original bytes (even its
     // formatting) are preserved.
     if written == 0 && new_was_object {
@@ -192,7 +192,7 @@ pub(crate) fn merge_config(old: &Path, new: &Path) -> Result<MergeOutcome, Strin
 /// ensures we never overwrite a prior backup (two corrupt migrations
 /// at different times produce two distinct .bak files).
 ///
-/// Best-effort — if the backup fails (e.g. disk full, permissions),
+/// Best-effort: if the backup fails (e.g. disk full, permissions),
 /// we log a warning and continue. The migration's fail-open behavior
 /// (treat as Null) proceeds either way; this function only adds a
 /// recovery path, it doesn't change the merge logic.
@@ -228,7 +228,7 @@ fn backup_corrupt_config(path: &Path) {
     match std::fs::copy(path, &backup) {
         Ok(_) => {
             log::warn!(
-                "[MIGRATE] corrupt config backed up to {} — manual recovery recommended",
+                "[MIGRATE] corrupt config backed up to {}: manual recovery recommended",
                 backup.display()
             );
         }

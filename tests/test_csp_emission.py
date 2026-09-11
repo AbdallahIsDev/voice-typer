@@ -14,7 +14,7 @@ This test does:
   2. Source-string checks on `electron.vite.config.ts` to ensure the
      plugin is wired in.
   3. Source-string checks on `index.html` / `bubble.html` to ensure the
-     fail-safe default meta tag is the strict (prod) CSP — so if the
+     fail-safe default meta tag is the strict (prod) CSP, so if the
      plugin fails to fire in prod, the meta tag is already strict.
   4. Source-string check on `main/index.ts` to ensure the HTTP-header
      CSP (set via `onHeadersReceived`) is also strict in prod.
@@ -102,7 +102,7 @@ def _extract_csp_value(source: str) -> str:
     """Extract the content attribute value of the CSP meta tag from an HTML file.
 
     Uses a backreference to handle either single- or double-quoted attributes
-    correctly — the CSP value contains literal single quotes (`'self'`,
+    correctly, the CSP value contains literal single quotes (`'self'`,
     `'unsafe-eval'`, etc.), so a naive `[^"']+` character class would truncate
     at the first inner quote.
     """
@@ -161,18 +161,18 @@ class TestCspPluginConstants:
         assert CSP_PLUGIN_PATH.is_file(), f"Missing: {CSP_PLUGIN_PATH}"
 
     def test_csp_prod_has_no_unsafe_eval(self, csp_prod: str):
-        assert "'unsafe-eval'" not in csp_prod, f"CSP_PROD must not contain 'unsafe-eval' — got: {csp_prod}"
+        assert "'unsafe-eval'" not in csp_prod, f"CSP_PROD must not contain 'unsafe-eval', got: {csp_prod}"
 
     def test_csp_prod_has_no_unsafe_inline_for_script_src(self, csp_prod: str):
         script_src = _script_src_directives(csp_prod)
         assert "'unsafe-inline'" not in script_src, (
-            f"CSP_PROD script-src must not contain 'unsafe-inline' — got: {script_src}"
+            f"CSP_PROD script-src must not contain 'unsafe-inline', got: {script_src}"
         )
 
     def test_csp_prod_script_src_is_only_self(self, csp_prod: str):
         script_src = _script_src_directives(csp_prod)
         assert script_src == "script-src 'self'", (
-            f"CSP_PROD script-src should be exactly `script-src 'self'` — got: {script_src}"
+            f"CSP_PROD script-src should be exactly `script-src 'self'`, got: {script_src}"
         )
 
     def test_csp_prod_excludes_frame_ancestors_from_meta(self, csp_prod: str):
@@ -187,9 +187,9 @@ class TestCspPluginConstants:
         assert "form-action 'none'" in csp_prod
 
     def test_csp_prod_has_no_localhost_ws(self, csp_prod: str):
-        # Production must not allow ws://localhost for HMR — HMR isn't used in prod.
+        # Production must not allow ws://localhost for HMR, HMR isn't used in prod.
         assert "ws://localhost" not in csp_prod, (
-            f"CSP_PROD must not include ws://localhost (no HMR in prod) — got: {csp_prod}"
+            f"CSP_PROD must not include ws://localhost (no HMR in prod), got: {csp_prod}"
         )
 
     def test_csp_prod_allows_github_api(self, csp_plugin_source: str):
@@ -207,20 +207,20 @@ class TestCspPluginConstants:
 
     def test_csp_dev_has_unsafe_eval(self, csp_dev: str):
         # Required for Vite HMR + eval-based sourcemaps.
-        assert "'unsafe-eval'" in csp_dev, f"CSP_DEV must contain 'unsafe-eval' for Vite HMR — got: {csp_dev}"
+        assert "'unsafe-eval'" in csp_dev, f"CSP_DEV must contain 'unsafe-eval' for Vite HMR, got: {csp_dev}"
 
     def test_csp_dev_has_unsafe_inline_for_script_src(self, csp_dev: str):
         # Required for React Refresh preamble (inline script injected by Vite).
         script_src = _script_src_directives(csp_dev)
-        assert "'unsafe-inline'" in script_src, f"CSP_DEV script-src must contain 'unsafe-inline' — got: {script_src}"
+        assert "'unsafe-inline'" in script_src, f"CSP_DEV script-src must contain 'unsafe-inline', got: {script_src}"
 
     def test_csp_dev_has_ws_localhost_for_hmr(self, csp_dev: str):
         # The HMR websocket uses ws://localhost:<port>. 'self' (http://localhost)
         # does NOT cover ws:// because the scheme differs.
-        assert "ws://localhost" in csp_dev, f"CSP_DEV must include ws://localhost for HMR websocket — got: {csp_dev}"
+        assert "ws://localhost" in csp_dev, f"CSP_DEV must include ws://localhost for HMR websocket, got: {csp_dev}"
 
     def test_csp_dev_has_http_localhost(self, csp_dev: str):
-        # Dev server fetches from http://localhost:* — explicit allowlist avoids
+        # Dev server fetches from http://localhost:*, explicit allowlist avoids
         # any ambiguity if Electron ever serves HMR from a different port.
         assert "http://localhost" in csp_dev
 
@@ -272,11 +272,11 @@ class TestSourceHtmlFailSafeDefault:
         csp = _extract_csp_value(src)
         script_src = _script_src_directives(csp)
         assert "'unsafe-eval'" not in csp, (
-            f"index.html source CSP must not contain 'unsafe-eval' (fail-safe default must be strict) — got: {csp}"
+            f"index.html source CSP must not contain 'unsafe-eval' (fail-safe default must be strict), got: {csp}"
         )
         assert "'unsafe-inline'" not in script_src, (
             f"index.html source CSP script-src must not contain 'unsafe-inline' "
-            f"(fail-safe default must be strict) — got: {script_src}"
+            f"(fail-safe default must be strict), got: {script_src}"
         )
 
     def test_bubble_html_csp_is_strict_default(self):
@@ -284,11 +284,11 @@ class TestSourceHtmlFailSafeDefault:
         csp = _extract_csp_value(src)
         script_src = _script_src_directives(csp)
         assert "'unsafe-eval'" not in csp, (
-            f"bubble.html source CSP must not contain 'unsafe-eval' (fail-safe default must be strict) — got: {csp}"
+            f"bubble.html source CSP must not contain 'unsafe-eval' (fail-safe default must be strict), got: {csp}"
         )
         assert "'unsafe-inline'" not in script_src, (
             f"bubble.html source CSP script-src must not contain 'unsafe-inline' "
-            f"(fail-safe default must be strict) — got: {script_src}"
+            f"(fail-safe default must be strict), got: {script_src}"
         )
 
     @pytest.mark.skip(
@@ -308,7 +308,7 @@ class TestSourceHtmlFailSafeDefault:
     @pytest.mark.skip(
         reason="bubble.html now ships CSP_PROD_BUBBLE (no "
         "api.github.com) while CSP_PROD aliases CSP_PROD_MAIN (with "
-        "api.github.com). The two intentionally diverge — bubble has no "
+        "api.github.com). The two intentionally diverge, bubble has no "
         "update-check surface. The strict directives are still verified "
         "by test_bubble_html_csp_is_strict_default."
     )
@@ -323,7 +323,7 @@ class TestSourceHtmlFailSafeDefault:
 class TestMainIndexOnHeadersReceivedStrict:
     """The HTTP-header CSP in main/index.ts is strict in production.
 
-    Belt-and-suspenders alongside the meta tag — HTTP headers take precedence
+    Belt-and-suspenders alongside the meta tag, HTTP headers take precedence
     over meta tags per the CSP spec.
     """
 
@@ -338,7 +338,7 @@ class TestMainIndexOnHeadersReceivedStrict:
         # The script-src directive must be conditionally permissive only when
         # app.isPackaged === false (i.e. dev mode).
         assert "app.isPackaged" in src, "main process CSP must branch on app.isPackaged"
-        # Find the script-src line — it should reference app.isPackaged.
+        # Find the script-src line, it should reference app.isPackaged.
         # The actual code is a template literal whose body includes a
         # ``${...}`` placeholder (`` `script-src 'self'${...} ` ``);
         # match the template-literal form specifically so we don't
@@ -353,7 +353,7 @@ class TestMainIndexOnHeadersReceivedStrict:
         script_src_line = m.group(0)
         assert "isPackaged" in script_src_line, (
             f"main process script-src must conditionally add unsafe-eval/"
-            f"unsafe-inline based on app.isPackaged — got: {script_src_line}"
+            f"unsafe-inline based on app.isPackaged, got: {script_src_line}"
         )
 
 
@@ -387,7 +387,7 @@ def _rmtree_force(path: Path) -> None:
     """Windows-safe recursive delete (read-only attrs + transient locks).
 
     ``shutil.rmtree`` fails with PermissionError (WinError 5) on Windows
-    when a file is read-only — common on generated build output — or
+    when a file is read-only (common on generated build output) or
     transiently locked by another process (a concurrent ``electron-vite``
     build, a dev server, or a parallel pytest worker). Clear the
     read-only attribute on any remaining files and retry with a short
@@ -404,7 +404,7 @@ def _rmtree_force(path: Path) -> None:
             return
         except FileNotFoundError:
             # Another (xdist) worker already removed the tree between the
-            # caller's ``is_dir()`` check and this call — the goal (no
+            # caller's ``is_dir()`` check and this call, the goal (no
             # stale output) is already met, so treat it as success.
             return
         except PermissionError:
@@ -430,7 +430,7 @@ def built_html_files():
     node = _node_bin_path()
     evite = _electron_vite_js_entry()
     if not node or not evite:
-        pytest.skip("Node or electron-vite not available — skipping build test")
+        pytest.skip("Node or electron-vite not available, skipping build test")
 
     out_dir = CLIENT_DIR / "out" / "renderer"
     # Remove stale build output so we don't read stale HTML. Use the
@@ -438,14 +438,14 @@ def built_html_files():
     # (WinError 5) here on Windows when generated assets were read-only
     # or transiently held by a concurrent build / dev server. If the tree
     # is STILL locked after the retries (another xdist worker is mid-build
-    # right now), skip cleanly — the source-string CSP tests still cover
+    # right now), skip cleanly, the source-string CSP tests still cover
     # the emission logic, and the other worker's run covers the e2e check.
     if out_dir.is_dir():
         try:
             _rmtree_force(out_dir)
         except PermissionError as exc:
             pytest.skip(
-                f"out/renderer locked by another process (concurrent build / dev server) — skipping build test: {exc!r}"
+                f"out/renderer locked by another process (concurrent build / dev server), skipping build test: {exc!r}"
             )
 
     env_path = f"{str(Path(node).parent)}:{__import__('os').environ.get('PATH', '')}"
@@ -492,19 +492,19 @@ class TestBuiltHtmlHasStrictCsp:
     def test_built_index_html_has_strict_csp(self, built_html_files):
         index_html, _ = built_html_files
         csp = _extract_csp_value(index_html)
-        assert "'unsafe-eval'" not in csp, f"Built index.html CSP must NOT contain 'unsafe-eval' — got: {csp}"
+        assert "'unsafe-eval'" not in csp, f"Built index.html CSP must NOT contain 'unsafe-eval', got: {csp}"
         script_src = _script_src_directives(csp)
         assert "'unsafe-inline'" not in script_src, (
-            f"Built index.html CSP script-src must NOT contain 'unsafe-inline' — got: {script_src}"
+            f"Built index.html CSP script-src must NOT contain 'unsafe-inline', got: {script_src}"
         )
 
     def test_built_bubble_html_has_strict_csp(self, built_html_files):
         _, bubble_html = built_html_files
         csp = _extract_csp_value(bubble_html)
-        assert "'unsafe-eval'" not in csp, f"Built bubble.html CSP must NOT contain 'unsafe-eval' — got: {csp}"
+        assert "'unsafe-eval'" not in csp, f"Built bubble.html CSP must NOT contain 'unsafe-eval', got: {csp}"
         script_src = _script_src_directives(csp)
         assert "'unsafe-inline'" not in script_src, (
-            f"Built bubble.html CSP script-src must NOT contain 'unsafe-inline' — got: {script_src}"
+            f"Built bubble.html CSP script-src must NOT contain 'unsafe-inline', got: {script_src}"
         )
 
     def test_built_index_html_csp_matches_csp_prod(self, built_html_files, csp_prod: str):
@@ -524,7 +524,7 @@ class TestBuiltHtmlHasStrictCsp:
     def test_built_html_has_no_inline_event_handlers(self, built_html_files):
         """Production HTML must not have inline event handlers (onclick=...)."""
         for html in built_html_files:
-            # Look for inline event-handler attributes — these would need
+            # Look for inline event-handler attributes, these would need
             # 'unsafe-inline' in script-src to function.
             assert not re.search(
                 r"\son(click|load|error|submit|change|mouseover)\s*=",
@@ -537,7 +537,7 @@ class TestBuiltHtmlHasStrictCsp:
         Vite should have replaced them with external script tags.
         """
         for html in built_html_files:
-            # Strip HTML comments before matching — otherwise a comment
+            # Strip HTML comments before matching, otherwise a comment
             # that literally mentions `<script type="module">` (e.g. the
             # PVT-018 FOUC comment in index.html that explains the
             # theme-bootstrap module's ordering) gets matched by the
@@ -557,5 +557,5 @@ class TestBuiltHtmlHasStrictCsp:
             # Filter out truly empty <script></script>.
             non_empty_inline = [s for s in inline_scripts if re.sub(r"<[^>]+>", "", s).strip()]
             assert not non_empty_inline, (
-                f"Built HTML must not contain non-empty inline <script> blocks — found: {non_empty_inline}"
+                f"Built HTML must not contain non-empty inline <script> blocks, found: {non_empty_inline}"
             )

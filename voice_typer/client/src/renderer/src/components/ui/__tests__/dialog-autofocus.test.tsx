@@ -1,5 +1,5 @@
 /**
- * DialogContent autofocus test — covers the fix for the long-standing
+ * DialogContent autofocus test, covers the fix for the long-standing
  * issue where Radix Dialog's default `onOpenAutoFocus` behavior focused
  * the FIRST focusable descendant. Because DialogContent renders the
  * visible X close button as its first child (for visual corner
@@ -42,7 +42,7 @@ afterEach(() => {
 	cleanup();
 });
 
-describe("DialogContent autofocus — title receives focus on open (ZU-46)", () => {
+describe("DialogContent autofocus, title receives focus on open (ZU-46)", () => {
 	it("DialogTitle carries tabIndex={-1} so it is programmatically focusable", () => {
 		render(
 			<Dialog open>
@@ -76,7 +76,7 @@ describe("DialogContent autofocus — title receives focus on open (ZU-46)", () 
 		// Radix Dialog fires onOpenAutoFocus on mount via useEffect.
 		// Our handler calls preventDefault() and focuses the title
 		// element (which is focusable thanks to tabIndex={-1}).
-		// Wait for the focus to land — in jsdom this usually resolves
+		// Wait for the focus to land, in jsdom this usually resolves
 		// within a single tick, but waitFor keeps the test resilient.
 		await waitFor(() => {
 			expect(document.activeElement).toBe(title);
@@ -90,7 +90,7 @@ describe("DialogContent autofocus — title receives focus on open (ZU-46)", () 
 		// DialogContent spreads {...props} onto DialogPrimitive.Content
 		// AFTER its default onOpenAutoFocus, so a caller passing their
 		// own onOpenAutoFocus overrides the title-focus behavior. This
-		// is a positive contract — callers that need custom focus
+		// is a positive contract, callers that need custom focus
 		// management (e.g. focusing a primary action button) can do so.
 		const customHandler = vi.fn((e: Event) => e.preventDefault());
 		render(

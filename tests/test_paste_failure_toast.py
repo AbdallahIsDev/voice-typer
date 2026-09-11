@@ -2,7 +2,7 @@
 
 Pre-fix (``voice_typer/server/dictation_pipeline.py:_copy_and_paste``):
 when ``clipboard.copy()`` raised ``ClipboardCopyError``, the pipeline
-only notified the user via ``tray.notify(...)`` — i.e. the OS tray
+only notified the user via ``tray.notify(...)``, i.e. the OS tray
 icon tooltip. The renderer had no toast indication of the failure, so
 users on Wayland / locked-screen / focus-stealer scenarios got a
 silent recovery-file save unless they happened to glance at the tray
@@ -24,7 +24,7 @@ the payload shape the renderer's toast subscription expects::
 The renderer (``App.tsx``) subscribes via ``usePythonEvent("paste_failed", ...)``
 and shows a sonner warning toast with an "Copy path" action button when
 ``recovery_path`` is present. The existing ``tray.notify(...)`` is
-PRESERVED (kept for redundancy — tray tooltip is visible when the user
+PRESERVED (kept for redundancy, tray tooltip is visible when the user
 is on another app; the toast is visible when the renderer has focus).
 
 These tests verify:
@@ -33,7 +33,7 @@ These tests verify:
   2. The tray notification STILL fires (existing behavior preserved).
   3. ``recovery_path`` is the crash-recovery file path when crash
      recovery is enabled, and ``None`` when disabled.
-  4. A broken ``event_bus.publish`` does NOT abort the pipeline — the
+  4. A broken ``event_bus.publish`` does NOT abort the pipeline, the
      tray notification + crash-recovery write still complete (defence
      in depth: a misbehaving subscriber must never break the recovery
      path).
@@ -58,7 +58,7 @@ class _TestApp:
     ``_crash_recovery``, ``_waveform_bubble``, ``tray``, ``_busyness``,
     and ``_schedule_timer`` to be controllable mocks. Other attributes
     the pipeline touches (history_db, models, etc.) are NOT needed for
-    ``_copy_and_paste`` — that method only touches the clipboard and
+    ``_copy_and_paste``, that method only touches the clipboard and
     recovery state.
     """
 
@@ -80,11 +80,11 @@ class _TestApp:
         self._waveform_bubble = MagicMock()
         # BP-90: production routes the post-paste reset through the
         # BusynessCoordinator (``_busyness.set_idle()``), not the legacy
-        # ``_busy_event`` — the fake mirrors the real app (app.py).
+        # ``_busy_event``, the fake mirrors the real app (app.py).
         self._busyness = MagicMock()
         self._device_info = "test-device"
 
-        # _schedule_timer accepts (delay, callback) — store them so
+        # _schedule_timer accepts (delay, callback), store them so
         # tests can assert on the scheduled teardown timer if needed.
         # We do NOT invoke the callback inline; the production code
         # schedules a 3s tray-state reset that the tests don't need
@@ -116,7 +116,7 @@ def _new_pipeline(app: _TestApp) -> DictationPipeline:
 def _capture_publish(monkeypatch) -> list[dict]:
     """Replace ``event_bus.publish`` with a capture-list-accumulating stub.
 
-    Returns the list that the stub appends to — tests assert on its
+    Returns the list that the stub appends to, tests assert on its
     contents after invoking the pipeline.
     """
     published: list[dict] = []
@@ -183,7 +183,7 @@ class TestPasteFailurePublishesEvent:
         assert "recovery_path" in data, (
             "data.recovery_path is required (renderer uses it for the 'Copy path' action button)"
         )
-        # recovery_path may be a string or None — both are valid; the
+        # recovery_path may be a string or None, both are valid; the
         # renderer hides the action button when it's None.
         assert data["recovery_path"] is None or isinstance(data["recovery_path"], str), (
             f"data.recovery_path must be str | None; got {type(data['recovery_path'])}"
@@ -243,7 +243,7 @@ class TestRecoveryPathPlumbing:
         # "Copy path" action button in this case (toast shows message only).
         assert events[0]["data"]["recovery_path"] is None, (
             "recovery_path must be None when crash_recovery_enabled is "
-            "False — the renderer uses this to decide whether to show "
+            "False, the renderer uses this to decide whether to show "
             "the 'Copy path' action button."
         )
 
@@ -251,7 +251,7 @@ class TestRecoveryPathPlumbing:
 class TestTrayNotificationStillFires:
     """NEW-UX-006 critical rule: the existing tray notification is PRESERVED.
 
-    The event publish is ADDITIVE — both must fire so the user sees the
+    The event publish is ADDITIVE, both must fire so the user sees the
     failure regardless of whether the renderer or the tray is in focus.
     """
 
@@ -266,7 +266,7 @@ class TestTrayNotificationStillFires:
         assert app.tray.notify.called, (
             "tray.notify must STILL fire after the event-bus publish was "
             "added (NEW-UX-006 critical rule: do not remove the tray "
-            "notification — add the renderer toast alongside for "
+            "notification, add the renderer toast alongside for "
             "redundancy)."
         )
         # And the event was published too (sanity).
@@ -312,7 +312,7 @@ class TestPublishFailureDoesNotBreakPipeline:
         monkeypatch.setattr(event_bus, "publish", _boom)
 
         pipeline = _new_pipeline(app)
-        # Must not raise — the publish is wrapped in try/except in the
+        # Must not raise, the publish is wrapped in try/except in the
         # production code so a broken event bus never aborts the
         # clipboard-failure recovery path.
         pipeline._copy_and_paste("hello world")
@@ -320,7 +320,7 @@ class TestPublishFailureDoesNotBreakPipeline:
         # Tray notify still fired (the existing behavior is preserved
         # even when the new event publish fails).
         assert app.tray.notify.called, (
-            "tray.notify must fire even if event_bus.publish raises — "
+            "tray.notify must fire even if event_bus.publish raises, "
             "the publish is wrapped in try/except for defence in depth."
         )
         # _busyness.set_idle was called (so the UI doesn't get stuck in
@@ -333,7 +333,7 @@ class TestPublishFailureDoesNotBreakPipeline:
         app = _TestApp()
         app.clipboard.copy.side_effect = ClipboardCopyError("clipboard locked")
 
-        # Simulate the inline import failing — replace the publish
+        # Simulate the inline import failing, replace the publish
         # callable with one that raises ImportError on call (the
         # try/except in production catches Exception, which includes
         # ImportError).
@@ -380,7 +380,7 @@ class TestPayloadMatchesRendererExpectations:
         assert events
         data = events[0]["data"]
 
-        # Renderer reads data.message as a string — must be present and
+        # Renderer reads data.message as a string, must be present and
         # non-empty so the toast title is not blank.
         assert isinstance(data.get("message"), str)
         assert data["message"], "message must be a non-empty string"

@@ -14,7 +14,7 @@ Covers the public surface of ``voice_typer/server/_text_crypto.py``:
 - the key-unavailable rate-limited ERROR log helper.
 
 The keyring is faked (dict-backed) following the pattern in
-``tests/test_credential_store.py`` — the sandbox has no usable backend
+``tests/test_credential_store.py``, the sandbox has no usable backend
 (``keyring.backends.fail.Keyring``).
 """
 
@@ -117,7 +117,7 @@ class TestRoundTrip:
         assert _text_crypto.decrypt_text(blob, DEK) == plaintext
 
     def test_two_encryptions_differ(self):
-        """Random nonce per call — identical plaintext, distinct blobs."""
+        """Random nonce per call, identical plaintext, distinct blobs."""
         blob_a = _text_crypto.encrypt_text("same text", DEK)
         blob_b = _text_crypto.encrypt_text("same text", DEK)
         assert blob_a != blob_b
@@ -161,7 +161,7 @@ class TestKnownAnswer:
         """A pinned nonce + key must reproduce the AESGCM reference bytes.
 
         Cross-checks the module's blob layout against a direct
-        ``AESGCM`` computation — guards against layout regressions
+        ``AESGCM`` computation, guards against layout regressions
         (nonce/tag ordering, base64 transport, prefix).
         """
         from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -287,7 +287,7 @@ class TestDekPolicy:
 
     def test_missing_cryptography_package_with_encrypted_rows_logs_cause(self, fake_keyring, monkeypatch, caplog):
         """The 'cryptography' dependency missing from the runtime degrades
-        to key-unavailable mode — but the ERROR must name the ACTUAL cause
+        to key-unavailable mode, but the ERROR must name the ACTUAL cause
         (missing package, NOT key loss): the DEK is still healthy in the
         keyring and decryption resumes once the package is installed."""
         dek = _text_crypto.resolve_dek(encrypted_rows_exist=False)
@@ -300,7 +300,7 @@ class TestDekPolicy:
             "ERROR must name the missing cryptography package (not key loss), "
             f"got: {[r.message for r in caplog.records]}"
         )
-        # The keyring DEK is untouched — no regeneration, no deletion.
+        # The keyring DEK is untouched, no regeneration, no deletion.
         from voice_typer.server.credential_store._schema import (
             DATA_ENCRYPTION_KEY_USERNAME,
             KEYRING_SERVICE_NAME,

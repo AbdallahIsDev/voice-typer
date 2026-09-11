@@ -3,15 +3,15 @@
 The ``voice_typer/server/config/`` package was carved out of a single
 monolithic ``__init__.py`` (2,600+ lines) into focused sibling modules:
 
-- ``_defaults.py``    — default-value constants + platform hotkey.
-- ``_accessors.py``   — purge_user_data / purge_all_user_data etc.
-- ``_migration.py``   — versioned downgrade-backup impl.
-- ``_systemroot.py``  — systemroot validation re-export shim.
-- ``_schema.py``      — ``_ConfigSchema`` dataclass base (ALL field
+- ``_defaults.py``  , default-value constants + platform hotkey.
+- ``_accessors.py`` , purge_user_data / purge_all_user_data etc.
+- ``_migration.py`` , versioned downgrade-backup impl.
+- ``_systemroot.py``, systemroot validation re-export shim.
+- ``_schema.py``    : ``_ConfigSchema`` dataclass base (ALL field
   declarations) + enum-reset / secret-field impls.
-- ``_saving.py``      — save-path bodies (atomic write, ACL, warmup).
-- ``_lifecycle.py``   — ``_ConfigLifecycleMixin`` delegator methods.
-- ``coercion.py`` / ``loader.py`` / ``sanitization.py`` — load-time
+- ``_saving.py``    , save-path bodies (atomic write, ACL, warmup).
+- ``_lifecycle.py`` : ``_ConfigLifecycleMixin`` delegator methods.
+- ``coercion.py`` / ``loader.py`` / ``sanitization.py``, load-time
   helpers (pre-existing).
 
 The final ``Config`` combines schema + lifecycle via multiple
@@ -51,7 +51,7 @@ class TestPackageLayout:
         assert init_py.name == "__init__.py"
         line_count = len(init_py.read_text(encoding="utf-8").splitlines())
         assert line_count < 400, (
-            f"config/__init__.py regressed to {line_count} lines (target < 400) — "
+            f"config/__init__.py regressed to {line_count} lines (target < 400), "
             "logic must live in the focused sibling modules, not the entry point."
         )
 
@@ -94,7 +94,7 @@ class TestConfigSchemaBaseClassExtracted:
 
     def test_config_inherits_field_default(self):
         """Field defaults declared on the schema base are visible on
-        ``Config`` — both at class level and on constructed instances."""
+        ``Config``, both at class level and on constructed instances."""
         from voice_typer.server.config._defaults import DEFAULT_HOTKEY
         from voice_typer.server.model_registry import DEFAULT_MODEL_SIZE
 
@@ -237,7 +237,7 @@ class TestLifecycleMixinExtracted:
         cfg.hotkey = "<f7>"
         assert cfg._dirty is True
         object.__setattr__(cfg, "_dirty", False)
-        cfg.last_load_warnings = ["x"]  # transient — must NOT mark dirty
+        cfg.last_load_warnings = ["x"]  # transient, must NOT mark dirty
         assert cfg._dirty is False
 
     def test_set_mutation_lock_is_per_instance(self):
@@ -264,7 +264,7 @@ class TestDelegationContracts:
     def test_backup_before_migration_delegation_via_config_mod(self, tmp_path, monkeypatch):
         """``Config._backup_before_migration`` delegates to the extracted
         impl, which resolves the secure-io helpers via the ``config``
-        module namespace — patches on ``config_mod`` must take effect."""
+        module namespace, patches on ``config_mod`` must take effect."""
         calls: list[str] = []
 
         real_read = config_mod._secure_read_text
@@ -299,7 +299,7 @@ class TestDelegationContracts:
     def test_backup_before_downgrade_argument_order(self, tmp_path, monkeypatch):
         """The public classmethod keeps the legacy argument order
         ``(config_file, loaded_version, data)`` while the extracted impl
-        takes ``(cls, data, loaded_version, config_file)`` — the
+        takes ``(cls, data, loaded_version, config_file)``, the
         delegator must forward positionally-corrected arguments."""
         captured: dict = {}
 
@@ -328,7 +328,7 @@ class TestDelegationContracts:
 
     def test_save_path_resolves_acl_helper_via_config_namespace(self, monkeypatch, tmp_config_dir):
         """``save``/``_save_unlocked`` call ``_enforce_windows_owner_only_acl``
-        through the config module globals — patching ``config_mod.<name>``
+        through the config module globals, patching ``config_mod.<name>``
         replaces what the save path invokes (Windows branch simulated)."""
         acl_calls: list[str] = []
         monkeypatch.setattr(config_mod, "is_windows", lambda: True)
@@ -337,7 +337,7 @@ class TestDelegationContracts:
         # ``config_internals.paths._acquire_config_lock_cross_process``
         # (that helper resolves ``is_windows`` through the config module
         # namespace), so ``save()`` takes the Windows lock branch and
-        # executes ``import msvcrt`` — a Windows-only stdlib module that
+        # executes ``import msvcrt``, a Windows-only stdlib module that
         # does not exist on Linux. Stub it so the simulated-Windows save
         # path completes end-to-end (same fake-module pattern as
         # tests/test_credential_store_migration_lock.py). Only the lock
@@ -370,7 +370,7 @@ class TestDelegationContracts:
 class TestEndToEnd:
     def test_construct_save_reload_roundtrip(self, tmp_config_dir):
         """Construct a Config in an isolated dir, mutate a persisted
-        field, save, reload from disk — the full inherited API path."""
+        field, save, reload from disk, the full inherited API path."""
         cfg = Config()
         cfg.hotkey = "<f9>"
         cfg.text_size = 21

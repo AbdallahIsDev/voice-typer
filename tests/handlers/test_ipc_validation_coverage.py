@@ -12,12 +12,12 @@ Layout
 
 One test class per handler, each with at least:
 
-* ``test_invalid_field_type_returns_invalid_field_error`` — a field
+* ``test_invalid_field_type_returns_invalid_field_error``, a field
   that is present but has the wrong type (e.g. ``{"model": 123}``)
   must return ``{"type": "error", "data": {"code": "invalid_field",
   "field": <name>, ...}}``.
 * ``test_non_dict_payload_returns_invalid_payload_error`` (where
-  applicable) — a non-dict ``data`` payload must return
+  applicable), a non-dict ``data`` payload must return
   ``{"type": "error", "data": {"code": "invalid_payload", ...}}``.
 
 The 10 handlers covered:
@@ -47,7 +47,7 @@ domain-specific validator that is MORE rigorous than
 ``original`` + ``corrected`` string check), or (c) are no-field poll
 handlers (``get_status``, ``get_rms_level``, ``microphone_test_status``,
 etc.) where adding the trivial empty-schema validation is left as
-follow-up work — it would tighten the contract (rejecting non-dict
+follow-up work, it would tighten the contract (rejecting non-dict
 ``data`` that is currently silently ignored) but does not add field
 validation because there are no fields to validate.
 """
@@ -61,7 +61,7 @@ import pytest
 
 
 class TestDownloadModelValidation:
-    """``_handle_download_model`` — IPC-3 invalid-type coverage."""
+    """``_handle_download_model``, IPC-3 invalid-type coverage."""
 
     def test_non_string_model_returns_invalid_field_error(self, ipc_server, fake_service):
         """``{"model": 123}`` → ``code: invalid_field, field: model``."""
@@ -99,7 +99,7 @@ class TestDownloadModelValidation:
 
 
 class TestDeleteModelValidation:
-    """``_handle_delete_model`` — IPC-3 invalid-type coverage."""
+    """``_handle_delete_model``, IPC-3 invalid-type coverage."""
 
     def test_non_string_model_returns_invalid_field_error(self, ipc_server, fake_service):
         resp = ipc_server._handle_delete_model({"model": 123}, {})
@@ -119,7 +119,7 @@ class TestDeleteModelValidation:
 
 
 class TestImportModelValidation:
-    """``_handle_import_model`` — IPC-3 invalid-type coverage."""
+    """``_handle_import_model``, IPC-3 invalid-type coverage."""
 
     def test_non_string_dir_path_returns_invalid_field_error(self, ipc_server, fake_service):
         """``{"dir_path": 123}`` → ``code: invalid_field, field: dir_path``.
@@ -148,7 +148,7 @@ class TestImportModelValidation:
 
 
 class TestMicrophoneTestStartValidation:
-    """``_handle_microphone_test_start`` — IPC-3 invalid-type coverage."""
+    """``_handle_microphone_test_start``, IPC-3 invalid-type coverage."""
 
     def test_non_string_mic_id_returns_invalid_field_error(self, ipc_server, fake_service):
         """``{"mic_id": 123}`` → ``code: invalid_field, field: mic_id``."""
@@ -176,7 +176,7 @@ class TestMicrophoneTestStartValidation:
         """``{"mic_id": None}`` → accepted (None is in the allowed type tuple).
 
         The schema declares ``type: (str, type(None))`` so an explicit
-        JSON null (Python ``None``) is a valid value — it means "use
+        JSON null (Python ``None``) is a valid value, it means "use
         the default microphone".  This preserves the pre-IPC-3 behavior
         where ``d.get("mic_id", None)`` returned None for both absent
         and explicit-null cases.
@@ -195,7 +195,7 @@ class TestMicrophoneTestStartValidation:
 
 
 class TestLevelMonitorStartValidation:
-    """``_handle_level_monitor_start`` — IPC-3 invalid-type coverage."""
+    """``_handle_level_monitor_start``, IPC-3 invalid-type coverage."""
 
     def test_non_string_mic_id_returns_invalid_field_error(self, ipc_server, fake_service):
         resp = ipc_server._handle_level_monitor_start({"mic_id": 123}, {})
@@ -222,7 +222,7 @@ class TestLevelMonitorStartValidation:
 
 
 class TestSetEscCancelPausedValidation:
-    """``_handle_set_esc_cancel_paused`` — IPC-3 invalid-type coverage."""
+    """``_handle_set_esc_cancel_paused``, IPC-3 invalid-type coverage."""
 
     def test_non_bool_paused_returns_invalid_field_error(self, ipc_server, fake_app):
         """``{"paused": "true"}`` → ``code: invalid_field, field: paused``.
@@ -243,7 +243,7 @@ class TestSetEscCancelPausedValidation:
         """``{"paused": 1}`` → ``code: invalid_field, field: paused``.
 
         ``bool`` is a subclass of ``int`` in Python, but
-        ``isinstance(1, bool)`` is ``False`` — so the strict ``bool``
+        ``isinstance(1, bool)`` is ``False``, so the strict ``bool``
         check rejects ``1`` (which the previous ``bool(1)`` coercion
         would have accepted as ``True``).
         """
@@ -262,7 +262,7 @@ class TestSetEscCancelPausedValidation:
 
 
 class TestGetHistoryValidation:
-    """``_handle_get_history`` — IPC-3 invalid-type coverage."""
+    """``_handle_get_history``, IPC-3 invalid-type coverage."""
 
     def test_list_limit_returns_invalid_field_error(self, ipc_server, fake_service):
         """``{"limit": [50]}`` → ``code: invalid_field, field: limit``.
@@ -294,13 +294,13 @@ class TestGetHistoryValidation:
         assert resp["data"]["field"] == "offset"
 
     def test_bool_limit_accepted_due_to_int_subclass(self, ipc_server, fake_service):
-        """``bool`` is a subclass of ``int`` — ``isinstance(True, int)``
-        is ``True``, so a bool passes the ``(int, str)`` type check.
-        We document this as a known gap (the inline
-        ``_bound_history_limit`` helper clamps it to 1 or 0) rather
-        than adding a ``bool`` exclusion to ``_validate_dict_payload``
-        — that would be a behavior change for the 8 already-validated
-        handlers too.
+        """``bool`` is a subclass of ``int``: ``isinstance(True, int)``
+          is ``True``, so a bool passes the ``(int, str)`` type check.
+          We document this as a known gap (the inline
+          ``_bound_history_limit`` helper clamps it to 1 or 0) rather
+          than adding a ``bool`` exclusion to ``_validate_dict_payload``
+        , that would be a behavior change for the 8 already-validated
+          handlers too.
         """
         # bool sneaks through because isinstance(True, int) is True.
         # Document the gap: the call succeeds (no invalid_field error).
@@ -341,7 +341,7 @@ class TestGetHistoryValidation:
 
 
 class TestGetFavoritesValidation:
-    """``_handle_get_favorites`` — IPC-3 invalid-type coverage."""
+    """``_handle_get_favorites``, IPC-3 invalid-type coverage."""
 
     def test_list_limit_returns_invalid_field_error(self, ipc_server, fake_service):
         resp = ipc_server._handle_get_favorites({"limit": [50]}, {})
@@ -361,7 +361,7 @@ class TestGetFavoritesValidation:
 
 
 class TestSearchHistoryValidation:
-    """``_handle_search_history`` — IPC-3 invalid-type coverage."""
+    """``_handle_search_history``, IPC-3 invalid-type coverage."""
 
     def test_non_string_query_returns_invalid_field_error(self, ipc_server, fake_service):
         """``{"query": 123}`` → ``code: invalid_field, field: query``."""
@@ -392,18 +392,18 @@ class TestSearchHistoryValidation:
 
 
 class TestToggleDictationValidation:
-    """``_handle_toggle_dictation`` — IPC-3 invalid-payload coverage.
+    """``_handle_toggle_dictation``, IPC-3 invalid-payload coverage.
 
     ``toggle_dictation`` reads no fields from ``data``, so this is a
     contract-tightening validation: a non-dict ``data`` payload (e.g.
-    ``{"data": "not-a-dict"}`` — a protocol violation of the
+    ``{"data": "not-a-dict"}``, a protocol violation of the
     ``{"type":<cmd>,"data":{...}}`` envelope) is now rejected with
     ``invalid_payload`` rather than silently accepted.
 
     Note: ``None`` (the value ``msg.get("data")`` returns when the
     ``data`` key is absent, as in ``{"id": 1, "type":
     "toggle_dictation"}``) is pre-coerced to ``{}`` so the validation
-    passes cleanly — every existing caller that omits ``data`` still
+    passes cleanly, every existing caller that omits ``data`` still
     gets an ``ack``.
     """
 
@@ -453,7 +453,7 @@ class TestToggleDictationValidation:
 #
 # Covers six findings from the comprehensive Group 4 review:
 #
-# - **DE-38** — ``_base.py: _respond_with_error`` logs the full
+# - **DE-38**: ``_base.py: _respond_with_error`` logs the full
 # traceback to ``voice-typer.log``, which ``export_diagnostics``
 # ships back to the renderer. Tracebacks embed absolute file paths
 # (which contain the username) and may carry API-key fragments. The
@@ -462,13 +462,13 @@ class TestToggleDictationValidation:
 # ``Bearer ...``, 20+ char bare tokens) from both ``str(exc)`` and
 # the formatted traceback BEFORE they land in the log.
 #
-# - **DE-42** — ``system_handlers: _handle_show_electron_notification``
+# - **DE-42**: ``system_handlers: _handle_show_electron_notification``
 # enforces ``max_value_len`` on ``title`` / ``message`` but performs
 # no control-character sanitization. The fix rejects any char in the
 # Unicode ``Cc`` / ``Cf`` categories except ``\\t`` (ANSI escapes,
 # terminal bell, newline / CR, RTL overrides, zero-width marks, BOM).
 #
-# - **DE-43** — ``status_handlers: _handle_get_status`` was the only
+# - **DE-43**: ``status_handlers: _handle_get_status`` was the only
 # handler in the slice with NO ``try/except`` and NO
 # ``_validate_dict_payload`` call. The fix wraps the body in a
 # ``try/except Exception`` routing through
@@ -476,17 +476,17 @@ class TestToggleDictationValidation:
 # ``_validate_dict_payload(data, {})`` call so a non-dict payload is
 # rejected with ``invalid_payload``.
 #
-# - **DE-44** — ``history_handlers: _handle_restore_history`` had no
+# - **DE-44**: ``history_handlers: _handle_restore_history`` had no
 # ``max_payload_bytes`` cap and no per-field cap on
 # ``record['text']``. The fix adds a 256 KB whole-payload cap plus
 # an inline 8192-char per-field cap on ``record['text']``.
 #
-# - **DE-45** — ``microphone_test_handlers: _handle_microphone_test_start``
+# - **DE-45**: ``microphone_test_handlers: _handle_microphone_test_start``
 # had no upper / lower bound on ``duration``. The fix adds
 # ``clamp_range: (1.0, 60.0)`` to the schema, preserving the
 # documented string → float coercion (``"7.5" → 7.5``).
 #
-# - **DE-46** — ``status_handlers: _handle_run_prewarm`` /
+# - **DE-46**: ``status_handlers: _handle_run_prewarm`` /
 # ``_handle_open_prewarm_log`` echoed ``str(e)`` back to the
 # renderer in 4 specific-exception branches, leaking the username
 # via the embedded absolute path on Windows / macOS. The fix
@@ -508,7 +508,7 @@ class TestToggleDictationValidation:
 #
 # (2026-08-14, later the same day): ``_handle_open_prewarm_log`` was
 # RESTORED verbatim from 5a319872 along with ``_handle_get_prewarm_status``
-# (plan §6.3 addendum — Settings → About Cache Status card); it
+# (plan §6.3 addendum, Settings → About Cache Status card); it
 # opens ``worker.log`` instead of the retired ``prewarm.log`` and
 # keeps the DE-46 fixed-string-no-echo invariant. ``_handle_run_prewarm``
 # was ALSO restored (addendum 2nd half) but RE-IMPLEMENTED: instead
@@ -516,7 +516,7 @@ class TestToggleDictationValidation:
 # the worker's warm phase in-process via
 # ``prewarm.status.run_prewarm_now()`` (warm_imports_for_worker on a
 # daemon thread + status-file refresh). The DE-46 fixed-string-no-echo
-# invariant still holds — the handler routes exceptions through
+# invariant still holds, the handler routes exceptions through
 # ``_respond_with_error`` / ``_error_response`` with fixed strings.
 #
 
@@ -562,7 +562,7 @@ class TestScrubTraceback:
 
         home = os.path.expanduser("~")
         if home in ("/", "~", ""):
-            pytest.skip("HOME is not set or is root — cannot test home-dir scrub")
+            pytest.skip("HOME is not set or is root, cannot test home-dir scrub")
         exc = RuntimeError(f"failed to open {home}/.config/voice-typer/config.json")
         scrubbed_str, _ = _scrub_traceback(exc)
         assert home not in scrubbed_str, f"Home directory leaked through scrub: {scrubbed_str!r}"
@@ -573,7 +573,7 @@ class TestScrubTraceback:
 
         home = os.path.expanduser("~")
         if home in ("/", "~", ""):
-            pytest.skip("HOME is not set or is root — cannot test home-dir scrub")
+            pytest.skip("HOME is not set or is root, cannot test home-dir scrub")
         try:
             # Raise an exception whose traceback frames will include
             # the home-dir path (via the file path of this test).
@@ -589,7 +589,7 @@ class TestScrubTraceback:
 
         DE-38's primary guarantee is unchanged by this fix (the
         envelope was always ``{"code": "server.internal_error",
-        "message": "internal error"}``) — but we assert it here as a
+        "message": "internal error"}``), but we assert it here as a
         regression guard so a future careless change can't reintroduce
         the ``str(exc)`` leak in the response.
         """
@@ -607,7 +607,7 @@ class TestScrubTraceback:
 
         The ``voice-typer.log`` file is shipped to the renderer when the
         user attaches a diagnostics bundle to a bug report (the export
-        path is now in the Tauri Rust host — see UE-15), so any secret
+        path is now in the Tauri Rust host: see UE-15), so any secret
         that reaches the log is exfiltrated. This test asserts the
         scrubbed log message redacts the ``sk-...`` key. ``record.exc_info``
         is still set so structured-logging consumers and existing
@@ -656,7 +656,7 @@ class TestScrubTraceback:
         """
         home = os.path.expanduser("~")
         if home in ("/", "~", ""):
-            pytest.skip("HOME is not set or is root — cannot test home-dir scrub")
+            pytest.skip("HOME is not set or is root, cannot test home-dir scrub")
         fake_service.cancel_model_download.side_effect = RuntimeError(
             f"failed to open {home}/.config/voice-typer/config.json"
         )
@@ -796,7 +796,7 @@ class TestGetStatusValidation:
         """A non-dict ``data`` (list) → ``code: invalid_payload``.
 
         Before DE-43, this was the only status handler that silently
-        accepted a non-dict payload — every sibling handler rejected
+        accepted a non-dict payload, every sibling handler rejected
         it. The fix aligns ``get_status`` with the documented
         ADR-0020 §2 contract.
         """
@@ -872,7 +872,7 @@ class TestRestoreHistoryPayloadCap:
         fake_service.restore_history.assert_not_called()
 
     def test_text_at_exactly_8192_chars_is_accepted(self, ipc_server, fake_service):
-        """``record['text']`` of exactly 8192 chars is on the boundary — accepted."""
+        """``record['text']`` of exactly 8192 chars is on the boundary, accepted."""
         fake_service.restore_history.return_value = 42
         boundary_text = "x" * 8192
         record = {"id": 1, "text": boundary_text}
@@ -942,7 +942,7 @@ class TestDurationClampRange:
         would have treated ``0`` as falsy and used the default 10.0.
         The new clamp treats ``0`` as a real value and clamps it to
         the lower bound 1.0. This is the documented behavior change
-        in DE-45 — ``0`` is no longer "use default", it's a clamped
+        in DE-45: ``0`` is no longer "use default", it's a clamped
         value.
         """
         fake_service.microphone_test_start.return_value = {"ok": True}
@@ -1002,7 +1002,7 @@ class TestDurationClampRange:
 #
 # (Wave 3, 2026-08-14): The ``_handle_run_prewarm`` and
 # ``_handle_open_prewarm_log`` handlers were REMOVED entirely (prewarm
-# became a worker startup phase — master plan §6.2 P-1). The four
+# became a worker startup phase, master plan §6.2 P-1). The four
 # tests that pinned the DE-46 fixed-string-no-echo invariant on those
 # handlers were deleted in lockstep. The DE-46 invariant itself is
 # still pinned by the surviving ``TestNoStrEcho`` suite (other
@@ -1010,11 +1010,11 @@ class TestDurationClampRange:
 # the same fixed-string pattern).
 #
 # (2026-08-14, later): ``_handle_open_prewarm_log`` was RESTORED
-# verbatim from 5a319872 (plan §6.3 addendum — Cache Status card);
+# verbatim from 5a319872 (plan §6.3 addendum, Cache Status card);
 # it now opens ``worker.log`` and keeps the DE-46 fixed-string pattern.
 # ``_handle_run_prewarm`` was also restored (addendum 2nd half),
 # re-implemented to re-run the warm phase in-process (see
-# ``prewarm.status.run_prewarm_now``) — the DE-46 fixed-string
+# ``prewarm.status.run_prewarm_now``), the DE-46 fixed-string
 # invariant is pinned by ``TestRunPrewarm`` in
 # ``tests/handlers/test_status_handlers.py``.
 

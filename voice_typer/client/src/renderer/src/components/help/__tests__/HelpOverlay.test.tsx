@@ -2,7 +2,7 @@
  * HelpOverlay unit tests.
  *
  * : HelpOverlay's Modal previously set only `className="w-110"`
- * — a fixed 28rem width with NO scroll container. The Modal body
+ *, a fixed 28rem width with NO scroll container. The Modal body
  * holds 12 shortcut <li> items + a PunctuationCheatSheet that renders
  * up to 19 entries + a search field. On a small viewport the content
  * overflowed with no scroll, clipping the lower shortcut entries and
@@ -16,7 +16,7 @@
  * The overlay previously mounted PunctuationCheatSheetButton (a
  * second `?` that opened its OWN cheat-sheet popup) at the top of
  * the body while ALSO rendering the full PunctuationCheatSheet at
- * the bottom — two cheat sheets from one help overlay. The button
+ * the bottom, two cheat sheets from one help overlay. The button
  * is removed: the only help affordance is the title-bar `?` which
  * opens exactly this overlay, and the cheat sheet section renders
  * once at the bottom.
@@ -69,7 +69,7 @@ vi.mock("@/i18n/i18n", () => ({
 // The real header (title/description) now renders INSIDE HelpOverlay's
 // scroll wrapper using Radix dialog primitives. This test mocks Modal
 // (no Dialog.Root context), so stub the dialog primitives as plain
-// elements — the assertions only care about HelpOverlay's structure.
+// elements, the assertions only care about HelpOverlay's structure.
 vi.mock("@/components/ui/dialog", () => ({
 	DialogHeader: ({ children }: { children: React.ReactNode }) => (
 		<div data-testid="dialog-header">{children}</div>
@@ -82,7 +82,7 @@ vi.mock("@/components/ui/dialog", () => ({
 	),
 }));
 
-describe("HelpOverlay — ZU-26 (scroll container + PunctuationCheatSheetButton mount)", () => {
+describe("HelpOverlay, ZU-26 (scroll container + PunctuationCheatSheetButton mount)", () => {
 	afterEach(() => {
 		cleanup();
 	});
@@ -117,7 +117,7 @@ describe("HelpOverlay — ZU-26 (scroll container + PunctuationCheatSheetButton 
 	it("no longer mounts a second PunctuationCheatSheetButton (single `?` = title bar only)", () => {
 		render(<HelpOverlay {...baseProps} />);
 		// The duplicate `?` affordance that opened its own cheat-sheet
-		// popup is gone — the overlay renders the cheat sheet section
+		// popup is gone, the overlay renders the cheat sheet section
 		// once at the bottom instead.
 		expect(screen.queryByTestId("punctuation-cheat-sheet-button")).toBeNull();
 	});
@@ -125,7 +125,7 @@ describe("HelpOverlay — ZU-26 (scroll container + PunctuationCheatSheetButton 
 	it("ZU-26: still renders the shortcut list + PunctuationCheatSheet body (no regressions)", () => {
 		render(<HelpOverlay {...baseProps} />);
 		// The shortcut <ul> is rendered (we don't assert on each
-		// entry — the PunctuationCheatSheet test file covers that).
+		// entry, the PunctuationCheatSheet test file covers that).
 		expect(screen.getByTestId("punctuation-cheat-sheet")).toBeInTheDocument();
 	});
 

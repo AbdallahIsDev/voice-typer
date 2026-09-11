@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Voice Typer — Nuitka prewarm build (macOS x86_64 + aarch64)
-# ADR-0020 §5 — Prewarm is frozen the SAME Nuitka way as the sidecar, into
+# Voice Typer. Nuitka prewarm build (macOS x86_64 + aarch64)
+# ADR-0020 §5. Prewarm is frozen the SAME Nuitka way as the sidecar, into
 # prewarm-<triple>. Prewarm is a BUNDLE RESOURCE (not externalBin):
 # launched by the macOS LaunchAgent (~/Library/LaunchAgents/com.voicetyper.prewarm.plist)
 # via resolve_prewarm_exe(), NOT by Tauri as a managed child.
 #
 # Codesign (S5-CR-56): Nuitka's `--macos-signed-app-name` only sets the
-# bundle's signed name during bundle creation — it does NOT actually
+# bundle's signed name during bundle creation, it does NOT actually
 # invoke codesign on the output binary. This script explicitly signs the
 # output binary:
 #   - If $MAC_SIGNING_IDENTITY is set (CI release builds), passes
@@ -42,7 +42,7 @@ if [[ "$ARCH" == "--check" ]]; then
     # the exact same Nuitka toolchain as the sidecar, so a successful
     # sidecar --check implies a successful prewarm build.
     # WR-18: previously this was a stub that just echoed "OK if that
-    # passes" and exited 0 without invoking the sibling — masking
+    # passes" and exited 0 without invoking the sibling, masking
     # real toolchain breakage.
     # Delegate to the sibling sidecar build script which performs the
     # real toolchain probe (python-build-standalone interpreter,
@@ -84,7 +84,7 @@ if [[ "$ARCH" == "--check" ]]; then
         done
     fi
     if [[ "$FOUND_PREWARM" -eq 0 ]]; then
-        echo "NOTICE: no prewarm binary found in $PREWARM_DIR — run without --check to build." >&2
+        echo "NOTICE: no prewarm binary found in $PREWARM_DIR. Run without --check to build." >&2
     else
         echo "[build_prewarm_macos.sh] OK: existing prewarm binary verified."
     fi
@@ -200,7 +200,7 @@ echo "[build_prewarm_macos] OK: $OUTPUT_PATH (${SIZE_MB} MB)"
 # S5-CR-56: ad-hoc codesign fallback when no Developer ID identity is set.
 # Mirrors `build_native_listener_macos.sh`. When MAC_SIGNING_IDENTITY is set,
 # Nuitka already signed the binary at build time via --macos-sign-identity
-# (see above) — skip the ad-hoc fallback in that case.
+# (see above), skip the ad-hoc fallback in that case.
 if [[ -z "${MAC_SIGNING_IDENTITY:-}" ]] && command -v codesign >/dev/null; then
     echo "[build_prewarm_macos] Ad-hoc codesign (parent .app will re-sign --deep)..."
     codesign --force --sign - "$OUTPUT_PATH" || true

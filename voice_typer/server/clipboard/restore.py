@@ -2,15 +2,15 @@
 
 Extracted from the original ``clipboard/manager.py`` monolith (pass a). Contains:
 
-* :data:`_pending_restores` / :data:`_pending_restores_lock` — module-
+* :data:`_pending_restores` / :data:`_pending_restores_lock`, module-
   level registry of pending delayed-restores.
-* :data:`_MAX_PENDING_RESTORES` — hard cap on the in-flight list.
-* :func:`_force_restore_pending_at_exit` — atexit handler that
+* :data:`_MAX_PENDING_RESTORES`: hard cap on the in-flight list.
+* :func:`_force_restore_pending_at_exit`: atexit handler that
   force-restores any pending snapshots if the app exits during the
   restore-delay window.
-* :func:`_delayed_restore_impl` — daemon-thread implementation of
+* :func:`_delayed_restore_impl`: daemon-thread implementation of
   :meth:`ClipboardManager._delayed_restore`.
-* :func:`_restore_now_impl` — implementation of
+* :func:`_restore_now_impl`: implementation of
   :meth:`ClipboardManager.restore_now`.
 
 Design contract (preserved verbatim from the pre-split ``manager.py``):
@@ -24,7 +24,7 @@ Design contract (preserved verbatim from the pre-split ``manager.py``):
   through any of the three namespaces are visible through all of them.
 * All patchable symbols (``_cb.time``, ``_cb.log``,
   ``_cb._paste_from_clipboard``) are looked up via the PACKAGE
-  (``_cb.X``) at call time — NOT via this module's globals — so test
+  (``_cb.X``) at call time. NOT via this module's globals, so test
   patches like ``patch("voice_typer.server.clipboard.time", ...)``
   actually take effect on the code paths in this module.
 * :meth:`ClipboardManager._delayed_restore` /
@@ -51,7 +51,7 @@ from voice_typer.server import clipboard as _cb
 # completion. If the app exits while a delayed restore is still
 # pending (e.g. user quits during the 150ms restore-delay window),
 # the atexit handler walks this list and force-restores each snapshot
-# synchronously — preventing the user's original clipboard content
+# synchronously, preventing the user's original clipboard content
 # from being lost forever.
 #
 # Each entry is a tuple of (ClipboardManager, ClipboardSnapshot,
@@ -60,14 +60,14 @@ from voice_typer.server import clipboard as _cb
 #
 # Hard cap on the in-flight pending-restores list. Under normal
 # use (``_restore_delay_ms=150``), entries live ~150 ms so the
-# steady-state size is bounded by paste rate × 0.15 s — typically 1-2
+# steady-state size is bounded by paste rate × 0.15 s, typically 1-2
 # entries. BUT: (a) ``clipboard_restore_delay_ms`` is user-configurable
-# with no upper bound — a user setting it to 5000 ms creates a 5 s
+# with no upper bound, a user setting it to 5000 ms creates a 5 s
 # window per entry; (b) if the daemon thread fails to start, a hang in
 # ``_delayed_restore`` leaves the entry forever; (c) each entry holds a
 # ``ClipboardSnapshot`` whose ``items`` list can be 16 MB × N formats,
 # so the old cap of 64 allowed ~1 GB of pinned snapshots in the worst
-# case. 8 bounds the worst case at ~128 MB — still far above the 1-2
+# case. 8 bounds the worst case at ~128 MB, still far above the 1-2
 # entries normal use ever holds (the force-restore-on-overflow path
 # fires only in the runaway conditions above: a leaked daemon thread or
 # a user-set multi-second restore delay), but small enough that a
@@ -78,7 +78,7 @@ _MAX_PENDING_RESTORES = 8
 
 
 def _force_restore_pending_at_exit() -> None:
-    """atexit handler — force-restore any pending snapshots.
+    """atexit handler, force-restore any pending snapshots.
 
     Walks the module-level ``_pending_restores`` list and synchronously
     restores each snapshot. This prevents data loss when the app exits
@@ -95,7 +95,7 @@ def _force_restore_pending_at_exit() -> None:
         try:
             # Try to read the clipboard to decide whether to restore.
             # If we can't read it, restore anyway (data-loss prevention
-            # beats false-positive restore — see ).
+            # beats false-positive restore: see ).
             try:
                 current = _cb._paste_from_clipboard()
             except Exception:
@@ -123,7 +123,7 @@ if not _ATEXIT_REGISTERED:
     try:
         atexit.register(_force_restore_pending_at_exit)
         _ATEXIT_REGISTERED = True
-    except RuntimeError:  # pragma: no cover — atexit.register only fails if interpreter is shutting down
+    except RuntimeError:  # pragma: no cover, atexit.register only fails if interpreter is shutting down
         # ``RuntimeError`` is raised when atexit hooks fire during
         # interpreter shutdown. Previously a broad
         # ``except Exception: pass``.
@@ -173,7 +173,7 @@ def _delayed_restore_impl(
 
     Fix: claim the ``pending_entry`` under the lock BEFORE calling
     ``snapshot.restore()``. If the entry was already claimed by
-    atexit (ValueError on remove), short-circuit — atexit will restore
+    atexit (ValueError on remove), short-circuit, atexit will restore
     synchronously.
 
     This is the implementation backing
@@ -187,7 +187,7 @@ def _delayed_restore_impl(
         # claim the pending_entry under the lock BEFORE
         # calling snapshot.restore(). If atexit has already taken
         # the entry (cleared the list), the remove() raises
-        # ValueError and we short-circuit — atexit will restore
+        # ValueError and we short-circuit, atexit will restore
         # synchronously. This prevents the concurrent-restore race.
         if pending_entry is not None:
             try:
@@ -196,15 +196,15 @@ def _delayed_restore_impl(
                         _pending_restores.remove(pending_entry)
                     except ValueError:
                         # Entry was already claimed by atexit (or
-                        # another path) — atexit will restore
+                        # another path), atexit will restore
                         # synchronously. Bail out to avoid a
                         # concurrent snapshot.restore() call.
                         _cb.log.debug(
-                            "[CLIPBOARD-AUDIT] Pending entry already claimed by atexit — skipping daemon restore"
+                            "[CLIPBOARD-AUDIT] Pending entry already claimed by atexit, skipping daemon restore"
                         )
                         return  #  short-circuit
-            except Exception:  # pragma: no cover — catastrophic lock failure
-                _cb.log.exception("[CLIPBOARD] Failed to claim pending restore entry — proceeding with restore")
+            except Exception:  # pragma: no cover, catastrophic lock failure
+                _cb.log.exception("[CLIPBOARD] Failed to claim pending restore entry, proceeding with restore")
                 # Continue with restore anyway (best-effort). The
                 # atexit race window is now narrowed to the
                 # catastrophic-lock-failure case.
@@ -224,7 +224,7 @@ def _delayed_restore_impl(
             )
         else:
             _cb.log.debug(
-                "[CLIPBOARD-AUDIT] Restore skipped — clipboard changed (current=%d chars, expected=%d chars)",
+                "[CLIPBOARD-AUDIT] Restore skipped, clipboard changed (current=%d chars, expected=%d chars)",
                 len(current) if current else 0,
                 len(pasted_text),
             )
@@ -233,7 +233,7 @@ def _delayed_restore_impl(
     finally:
         #  (session-4): clear the cached last-copied text
         # after the restore completes (or skips, or raises). The
-        # pasted text is no longer needed — the clipboard has been
+        # pasted text is no longer needed, the clipboard has been
         # restored to the user's original content (or the user
         # replaced it). Keeping ``_last_copied_text`` around for
         # the lifetime of the process was a minor privacy leak
@@ -262,7 +262,7 @@ def _delayed_restore_impl(
         # N formats) for the process lifetime.
         try:
             manager._last_copied_text = ""
-        except Exception:  # pragma: no cover — attribute access broken
+        except Exception:  # pragma: no cover, attribute access broken
             _cb.log.debug("[CLIPBOARD] Failed to clear _last_copied_text", exc_info=True)
         if pending_entry is not None:
             with _pending_restores_lock, contextlib.suppress(ValueError):
@@ -302,7 +302,7 @@ def _restore_now_impl(manager: Any, snapshot: Any) -> None:
         # Best-effort: never raise from the finally block.
         try:
             manager._last_copied_text = ""
-        except Exception:  # pragma: no cover — attribute access broken
+        except Exception:  # pragma: no cover, attribute access broken
             _cb.log.debug(
                 "[CLIPBOARD] Failed to clear _last_copied_text in restore_now",
                 exc_info=True,

@@ -12,23 +12,23 @@ see the facade docstring for the full contract.
 
 Leaf modules:
 
-- :mod:`._engine` — the ``CloudEngine`` orchestration class (lifecycle,
+- :mod:`._engine`: the ``CloudEngine`` orchestration class (lifecycle,
   consent gate, shared retry skeleton, provider send paths,
   connection probe). Resolves the facade-owned singletons
   (``_opener``, ``assert_url_allowed``) at call time so facade-namespace
   patches keep steering the engine.
-- :mod:`._transport` — shared HTTP transport: the pooled secure
+- :mod:`._transport`: shared HTTP transport: the pooled secure
   ``_opener`` (no-redirect), response-body cap (``_read_capped``),
   float32→WAV encoding (``_audio_to_wav_bytes``), and the streaming
   multipart body (``_StreamingMultipartBody``).
-- :mod:`._retry`    — retry-policy primitives: ``_parse_retry_after``
+- :mod:`._retry`   : retry-policy primitives: ``_parse_retry_after``
   (RFC 7231 §7.1.3, 60 s sleep cap) and ``_cloud_http_error_class``
   (HTTP status → typed ``CloudEngineError`` subclass).
-- :mod:`._defaults` — per-provider endpoint/model defaults
+- :mod:`._defaults`: per-provider endpoint/model defaults
   (``_PROVIDER_DEFAULTS``).
-- :mod:`._providers.openai`   — OpenAI-compatible multipart shaping
+- :mod:`._providers.openai`  : OpenAI-compatible multipart shaping
   (OpenAI + Groq endpoints).
-- :mod:`._providers.deepgram` — Deepgram listen-URL building (model /
+- :mod:`._providers.deepgram`: Deepgram listen-URL building (model /
   language token validation + query encoding).
 
 Every leaf name is re-exported here so the package namespace mirrors

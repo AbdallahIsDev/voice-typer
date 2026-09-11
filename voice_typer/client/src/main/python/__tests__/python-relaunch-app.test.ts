@@ -18,11 +18,11 @@ const mockStartPython = vi.fn();
 const mockClearTcpStartupTimeout = vi.fn();
 const mockResetStopPythonFlags = vi.fn();
 // Atomic-write is mocked so the production-branch test never touches the
-// real filesystem (its own behavioral contract — including the Windows
-// fsync open-flag — is pinned in atomic-write.test.ts).
+// real filesystem (its own behavioral contract, including the Windows
+// fsync open-flag, is pinned in atomic-write.test.ts).
 const mockAtomicWriteFile = vi.fn();
 
-// Electron `app` mock — a mutable plain object (NOT the readonly-typed
+// Electron `app` mock, a mutable plain object (NOT the readonly-typed
 // real `App` interface) so tests can flip packaged/dev mode per-test via
 // `mockApp.isPackaged = true` without fighting the read-only typing.
 // Mirrors the mockApp pattern in python-args.test.ts.
@@ -30,7 +30,7 @@ const mockApp = {
 	quit: vi.fn(),
 	exit: vi.fn(),
 	relaunch: vi.fn(),
-	isPackaged: false, // dev mode — flipped to true per-test
+	isPackaged: false, // dev mode, flipped to true per-test
 	isQuitting: false,
 };
 
@@ -172,7 +172,7 @@ describe("ER-26: relaunchApp() dev-mode awaits old proc exit before startPython(
 
 	it("kills the old proc via the shared SIGTERM+SIGKILL helper (no duplicated kill logic)", async () => {
 		// ER-26 dedupe contract: relaunchApp() must NOT carry its own
-		// inline SIGTERM/SIGKILL escalation — the kill goes through
+		// inline SIGTERM/SIGKILL escalation, the kill goes through
 		// killPythonProcessWithSigkillFallback (the same helper
 		// stop-python.ts uses). Dev mode sends SIGTERM first.
 		vi.resetModules();
@@ -184,7 +184,7 @@ describe("ER-26: relaunchApp() dev-mode awaits old proc exit before startPython(
 	});
 
 	it("calls clearTcpStartupTimeout() before startPython() (ER-29 fresh 60s window)", async () => {
-		// TC-41: un-skipped — relaunchApp() clears the 60s startup timeout
+		// TC-41: un-skipped, relaunchApp() clears the 60s startup timeout
 		// as its FIRST action, before any restart spawn, so a stale timer
 		// can't fire mid-restart and trip a false "backend failed to start".
 		vi.resetModules();
@@ -210,7 +210,7 @@ describe("ER-26: relaunchApp() dev-mode awaits old proc exit before startPython(
 		// the fresh backend doesn't race the dying one for IPC_PORT.
 		vi.resetModules();
 		const { relaunchApp } = await import("../relaunch-app");
-		// A proc that does NOT auto-exit on kill — we'll emit "exit" manually.
+		// A proc that does NOT auto-exit on kill, we'll emit "exit" manually.
 		const proc = makeMockProc({ autoExitOnKill: false });
 		mockState.pythonProcess = proc as unknown as MainState["pythonProcess"];
 		let startPythonCalled = false;
@@ -218,13 +218,13 @@ describe("ER-26: relaunchApp() dev-mode awaits old proc exit before startPython(
 			startPythonCalled = true;
 		});
 		const relaunchPromise = relaunchApp();
-		// Yield to the microtask queue — startPython should NOT have been
+		// Yield to the microtask queue, startPython should NOT have been
 		// called yet (we're awaiting the proc exit).
 		await Promise.resolve();
 		await Promise.resolve();
 		await Promise.resolve();
 		expect(startPythonCalled).toBe(false);
-		// Now emit exit — the await should resolve and startPython should fire.
+		// Now emit exit, the await should resolve and startPython should fire.
 		proc.emit("exit", 0);
 		await relaunchPromise;
 		expect(mockStartPython).toHaveBeenCalledTimes(1);
@@ -290,7 +290,7 @@ describe("ER-26: relaunchApp() dev-mode awaits old proc exit before startPython(
 		// Set a fake _tcpRetryTimer.
 		const fakeTimer = setTimeout(() => {}, 10000);
 		mockState._tcpRetryTimer = fakeTimer;
-		// Don't await — call relaunchApp() and check sync state.
+		// Don't await, call relaunchApp() and check sync state.
 		const relaunchPromise = relaunchApp();
 		// _tcpRetryTimer should be null synchronously (before the await).
 		expect(mockState._tcpRetryTimer).toBeNull();
@@ -316,7 +316,7 @@ describe("ER-26: relaunchApp() dev-mode awaits old proc exit before startPython(
 		// Standalone/terminal mode: the original Python CLI set these env
 		// vars when spawning Electron. If they survive into the dev-mode
 		// restart, startPython() takes the "connect to existing backend"
-		// branch and never spawns a new Python — the app is left headless.
+		// branch and never spawns a new Python, the app is left headless.
 		vi.resetModules();
 		// Set the env vars as the Python CLI would have.
 		process.env.VT_PYTHON_PORT = "9876";

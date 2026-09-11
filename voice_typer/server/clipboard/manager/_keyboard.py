@@ -1,4 +1,4 @@
-"""KeyboardMixin — keyboard-controller lifecycle helpers.
+"""KeyboardMixin, keyboard-controller lifecycle helpers.
 
 Split verbatim out of the pre-split ``clipboard/manager.py`` module.
 Holds the stuck-modifier release and the guaranteed modifier-release
@@ -23,7 +23,7 @@ class KeyboardMixin:
         left in a pressed state. Releasing them before the next paste
         prevents stuck-modifier behavior.
         """
-        # pynput is optional — _Key / _Controller stay None in
+        # pynput is optional, _Key / _Controller stay None in
         # headless environments, and self._keyboard is None whenever
         # _Controller is unavailable. Guard both before touching the
         # keyboard controller.
@@ -56,7 +56,7 @@ class KeyboardMixin:
         # AttributeError on the None controller, defeating the
         # try/finally cleanup below.
         if self._keyboard is None:
-            _cb.log.debug("[CLIPBOARD] _safe_key_press skipped — no keyboard controller")
+            _cb.log.debug("[CLIPBOARD] _safe_key_press skipped, no keyboard controller")
             return
         try:
             self._keyboard.press(modifier)

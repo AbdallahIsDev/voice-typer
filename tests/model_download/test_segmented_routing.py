@@ -2,7 +2,7 @@
 
 The service routes big, pinned files to the segmented engine and
 everything else to the classic snapshot path. ANY segmented failure
-must degrade to the classic full download (today's behavior) — never
+must degrade to the classic full download (today's behavior), never
 to a user-facing error for a download the classic path could complete.
 
 All network/HF collaborators are stubbed; no test touches the network.
@@ -55,7 +55,7 @@ def _stub_common(monkeypatch, tmp_config_dir):
 
 class TestWhisperRouting:
     def _drive_branch(self, svc, monkeypatch, plan, snapshot_calls):
-        # NOTE: no manual reset/clear of the gate events here — the branch
+        # NOTE: no manual reset/clear of the gate events here, the branch
         # arms its own lifecycle (guard → reset → … → clear). Pre-arming
         # would trip the single-flight guard (that's what it's for).
 
@@ -64,7 +64,7 @@ class TestWhisperRouting:
             # Cache probe must MISS (raise) to drive the branch into the
             # download path; real transfers return a path.
             if kwargs.get("local_files_only"):
-                raise FileNotFoundError("not cached — drive into download branch")
+                raise FileNotFoundError("not cached, drive into download branch")
             return "/cache/snap"
 
         def fake_retry(fn, **kwargs):
@@ -195,7 +195,7 @@ class TestParakeetRouting:
             if kwargs.get("local_files_only"):
                 probe_hits.append(1)
                 if len(probe_hits) == 1:
-                    raise FileNotFoundError("not cached — drive into download path")
+                    raise FileNotFoundError("not cached, drive into download path")
                 return "/cache/snap"
             return "/cache/snap"
 

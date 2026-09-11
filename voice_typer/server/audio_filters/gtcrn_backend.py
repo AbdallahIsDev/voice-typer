@@ -5,7 +5,7 @@ This module wraps the bundled ``gtcrn_simple.onnx`` model (GTCRN —
 license, ~48K parameters) as a self-contained streaming denoiser. It
 replaces the historical DeepFilterNet option, whose PyPI package is
 unmaintained and whose processing path was never wired into this
-codebase — the ``noisy_room`` audio preset now selects this backend
+codebase, the ``noisy_room`` audio preset now selects this backend
 instead.
 
 Streaming contract (mirrors the upstream streaming demo):
@@ -21,7 +21,7 @@ Streaming contract (mirrors the upstream streaming demo):
     - The model returns the enhanced spectrum ``enh[1, 257, 1, 2]``
       plus three recurrent state caches (``conv_cache``, ``tra_cache``,
       ``inter_cache``). The caches MUST be threaded into the next
-      call — they carry the GRU / conv state across hops and persist
+      call, they carry the GRU / conv state across hops and persist
       for the whole session.
     - The enhanced spectrum is inverse-transformed, multiplied by the
       SAME sqrt-Hann synthesis window (sqrt-Hann x sqrt-Hann = Hann,
@@ -55,7 +55,7 @@ np = lazy_module("numpy")
 
 log = logging.getLogger(__name__)
 
-# Path to the bundled GTCRN ONNX model — sits beside ``silero_vad.onnx``
+# Path to the bundled GTCRN ONNX model, sits beside ``silero_vad.onnx``
 # in ``voice_typer/server/`` so the frozen bundle's
 # ``--include-package-data=voice_typer.server`` picks it up (same
 # packaging story as the Silero VAD ONNX model; see MANIFEST.in).
@@ -96,7 +96,7 @@ def is_available() -> bool:
 
     Mirrors ``vad.is_available``: returns ``True`` only when (a)
     ``onnxruntime`` is importable AND (b) the bundled
-    ``gtcrn_simple.onnx`` exists on disk — so constructing a
+    ``gtcrn_simple.onnx`` exists on disk, so constructing a
     :class:`GtcrnBackend` will succeed without a network round-trip.
     """
     try:
@@ -117,7 +117,7 @@ class GtcrnBackend:
         backend.reset()                   # between sessions
 
     ``process_hop`` returns the enhanced PREVIOUS hop (one hop of
-    algorithmic delay — see the module docstring). The recurrent caches
+    algorithmic delay: see the module docstring). The recurrent caches
     are managed internally; pass ``caches=`` explicitly only to thread
     state yourself (tests). The tuple returned alongside the audio is
     the updated cache tuple, exposed for state-persistence assertions.
@@ -130,16 +130,16 @@ class GtcrnBackend:
             log_rate_limited(
                 log,
                 logging.ERROR,
-                "[GTCRN] onnxruntime not importable — GTCRN noise suppression unavailable",
+                "[GTCRN] onnxruntime not importable. GTCRN noise suppression unavailable",
                 every_n=_LOAD_FAILURE_EVERY_N,
             )
-            raise RuntimeError("onnxruntime not importable — cannot load the GTCRN model") from exc
+            raise RuntimeError("onnxruntime not importable, cannot load the GTCRN model") from exc
 
         if not MODEL_PATH.exists():
             log_rate_limited(
                 log,
                 logging.ERROR,
-                "[GTCRN] bundled model not found at %s — GTCRN noise suppression "
+                "[GTCRN] bundled model not found at %s. GTCRN noise suppression "
                 "unavailable (no network fetch is attempted)",
                 MODEL_PATH,
                 every_n=_LOAD_FAILURE_EVERY_N,
@@ -161,7 +161,7 @@ class GtcrnBackend:
             log_rate_limited(
                 log,
                 logging.ERROR,
-                "[GTCRN] bundled ONNX model load failed: %s — GTCRN noise "
+                "[GTCRN] bundled ONNX model load failed: %s. GTCRN noise "
                 "suppression unavailable (no network fetch is attempted)",
                 exc,
                 every_n=_LOAD_FAILURE_EVERY_N,
@@ -200,7 +200,7 @@ class GtcrnBackend:
         # The 256-sample output block emitted per hop.
         self._out_buf = np.zeros(HOP, dtype=np.float32)
 
-        # Recurrent caches — zeroed at construction, threaded across
+        # Recurrent caches, zeroed at construction, threaded across
         # every ``process_hop`` call, re-zeroed by ``reset()``.
         self._caches: tuple[np.ndarray, ...] = tuple(np.zeros(shape, dtype=np.float32) for shape in CACHE_SHAPES)
 
@@ -223,7 +223,7 @@ class GtcrnBackend:
         Args:
             hop: float32 array of 256 samples at the model's native
                 16 kHz. Shorter inputs are zero-padded, longer ones
-                truncated (defensive — the suppressor always feeds
+                truncated (defensive, the suppressor always feeds
                 exactly-256 hops via its carry accumulator).
             caches: explicit recurrent-cache tuple to thread in. When
                 ``None`` (the production path) the backend's internal
@@ -239,12 +239,12 @@ class GtcrnBackend:
             caches = self._caches
 
         hop = np.asarray(hop, dtype=np.float32).reshape(-1)
-        # Defensive normalization — never crash the audio thread on a
+        # Defensive normalization, never crash the audio thread on a
         # malformed hop length (short → zero-padded, long → truncated).
         normalized = hop if hop.size == HOP else self._normalize_hop(hop)
 
         # 1. Assemble the 512-sample analysis frame: previous hop's tail
-        #    (zeros on the very first hop — the zero-padded edge) + hop.
+        #    (zeros on the very first hop, the zero-padded edge) + hop.
         frame = self._frame_buf
         frame[:HOP] = self._prev_tail_buf
         frame[HOP:] = normalized
@@ -256,7 +256,7 @@ class GtcrnBackend:
         mix[0, :, 0, 0] = spec.real
         mix[0, :, 0, 1] = spec.imag
 
-        # 3. Inference — thread the recurrent caches through. Arity is
+        # 3. Inference, thread the recurrent caches through. Arity is
         # validated at init (len(input_names) == 1 + len(CACHE_SHAPES)),
         # so a length mismatch here is impossible by construction.
         outputs = self._session.run(
@@ -281,7 +281,7 @@ class GtcrnBackend:
         #    transient array is never retained by reference.
         np.copyto(self._prev_tail_buf, normalized)
 
-        # Return a FRESH array — ``self._out_buf`` is reused on the next
+        # Return a FRESH array, ``self._out_buf`` is reused on the next
         # call, so handing it out by reference would alias.
         return out.copy(), new_caches
 
@@ -292,7 +292,7 @@ class GtcrnBackend:
         overlap-add tail of the previous session's audio would bleed
         into the next one; zeroing them in place also keeps derived
         (voice-adjacent) samples from lingering in process memory
-        until the numpy allocator reuses the blocks — the same
+        until the numpy allocator reuses the blocks, the same
         privacy rationale as ``NoiseSuppressor.reset``.
         """
         for cache in self._caches:

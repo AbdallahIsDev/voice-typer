@@ -8,7 +8,7 @@
  * frame on EVERY gate-closed branch (hidden / not monitoring /
  * playing) "so the loop can react to gate flips without a remount".
  * When the Microphone page was mounted but the user wasn't actively
- * testing / monitoring (the common case — user navigates to the page
+ * testing / monitoring (the common case, user navigates to the page
  * and reads / scrolls), the loop ticked at ~60 Hz doing 3 ref reads +
  * visibility check + a no-op reschedule, keeping the renderer's
  * compositing thread awake on battery-constrained laptops.
@@ -19,16 +19,16 @@
  *     and calls `wakeRef.current?.()` on every event.
  *   - The rAF callback checks `performance.now() - lastLevelEventAtRef.current
  *     > IDLE_TIMEOUT_MS` (500ms). If idle, it returns WITHOUT
- *     scheduling the next frame — the loop pauses.
+ *     scheduling the next frame, the loop pauses.
  *   - The next `mic_level` event re-arms via `wake()`.
  *
  * These tests verify:
- *   1. After mount, the loop starts (initial wake) — `requestAnimationFrame`
+ *   1. After mount, the loop starts (initial wake), `requestAnimationFrame`
  *      is called once.
  *   2. When `performance.now()` returns a time > 500ms after the last
- *      `mic_level` event, the loop pauses — `requestAnimationFrame` is
+ *      `mic_level` event, the loop pauses, `requestAnimationFrame` is
  *      NOT called again on the next tick.
- *   3. A `mic_level` event re-arms the loop — `requestAnimationFrame`
+ *   3. A `mic_level` event re-arms the loop, `requestAnimationFrame`
  *      is called again after the event.
  *
  * The test renders a Probe that mounts `useMicrophoneLevelMonitor`
@@ -170,14 +170,14 @@ describe("useMicrophoneLevelMonitor rAF loop pauses on idle", () => {
 		// The first frame fires with now=0, idle check passes (0-0=0).
 		// Verify it schedules the next frame.
 		expect(rafCount).toBe(1);
-		perfNowValue = 100; // 100ms after mount — still within idle window.
+		perfNowValue = 100; // 100ms after mount, still within idle window.
 		act(() => {
 			fireNextFrame();
 		});
 		expect(rafCount).toBe(2); // Next frame scheduled.
 
 		// Advance time past the 500ms idle threshold.
-		perfNowValue = 1000; // 1000ms after the last event — well past 500ms.
+		perfNowValue = 1000; // 1000ms after the last event, well past 500ms.
 		act(() => {
 			fireNextFrame();
 		});
@@ -185,7 +185,7 @@ describe("useMicrophoneLevelMonitor rAF loop pauses on idle", () => {
 		// rafCount should NOT have increased.
 		expect(rafCount).toBe(2);
 
-		// Fire any remaining queued callbacks (should be none — the
+		// Fire any remaining queued callbacks (should be none, the
 		// loop is paused).
 		const fired = fireNextFrame();
 		expect(fired).toBe(false);
@@ -203,7 +203,7 @@ describe("useMicrophoneLevelMonitor rAF loop pauses on idle", () => {
 		});
 		expect(rafCount).toBe(1); // No new rAF scheduled (paused).
 
-		// Invoke the `mic_level` push handler — should update
+		// Invoke the `mic_level` push handler, should update
 		// `lastLevelEventAtRef.current` and call `wake()` to
 		// re-arm the loop.
 		const micLevelHandler = usePythonEventMock.mock.calls.find(
@@ -225,7 +225,7 @@ describe("useMicrophoneLevelMonitor rAF loop pauses on idle", () => {
 
 		// Verify the level was written to the DOM by the resumed
 		// loop's first frame.
-		perfNowValue = 1150; // 50ms after the event — well within idle window.
+		perfNowValue = 1150; // 50ms after the event, well within idle window.
 		act(() => {
 			fireNextFrame();
 		});
@@ -233,7 +233,7 @@ describe("useMicrophoneLevelMonitor rAF loop pauses on idle", () => {
 			'[role="progressbar"] > div',
 		);
 		expect(fill).toBeTruthy();
-		// The rAF loop writes the SAME property LevelBar renders — the
+		// The rAF loop writes the SAME property LevelBar renders, the
 		// fill animates via ``transform: scaleX()`` (see LevelBar.tsx),
 		// NOT ``width``.
 		expect(fill?.style.transform).toContain("scaleX(0.5");
@@ -281,7 +281,7 @@ describe("useMicrophoneLevelMonitor rAF loop pauses on idle", () => {
 	});
 });
 
-describe("useMicrophoneLevelMonitor — consent refusal surfaces the deep-link callback", () => {
+describe("useMicrophoneLevelMonitor, consent refusal surfaces the deep-link callback", () => {
 	it("invokes onConsentRequired with the envelope's consent_field when level_monitor_start is refused", async () => {
 		// Race path: consent revoked between the renderer's client-side
 		// gate and the IPC (or a stale renderer). The backend's

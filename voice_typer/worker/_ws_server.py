@@ -13,8 +13,8 @@ per E3 (no spaghetti entry files). It owns:
   unblocks and the worker exits cleanly), and dispatches
   ``transcribe_offline`` (real ASR via
   :func:`voice_typer.worker._transcribe.get_transcriber`, result pushed
-  back as ``transcribe_offline_result`` — master plan §7.4).
-- The SIGTERM handler :func:`_install_sigterm_handler` (POSIX) — also
+   back as ``transcribe_offline_result``, master plan §7.4).
+- The SIGTERM handler :func:`_install_sigterm_handler` (POSIX), also
   sets ``stop_event`` on signal.
 - The :class:`_ShutdownTimer` that measures the wall-clock duration of
   graceful shutdown for the ``[SHUTDOWN] worker shutdown complete <duration>``
@@ -26,12 +26,12 @@ per E3 (no spaghetti entry files). It owns:
 The shutdown command path is the authoritative graceful-shutdown
 mechanism. When the sidecar sends ``{"cmd":"shutdown"}``, the worker
 sends ``shutdown_ack``, calls ``stop_event.set()``, marks the shutdown
-timer's start, and closes the socket — so ``run_worker_server``'s
+timer's start, and closes the socket, so ``run_worker_server``'s
 ``await stop_event.wait()`` unblocks, ``async with serve()`` exits
 cleanly, and ``run()``'s ``finally: lock_handle.release()`` runs.
 
 NOTE: a sidecar that closes the WS WITHOUT sending ``shutdown`` does
-NOT trigger worker exit (intentional — the respawn scheduler may
+NOT trigger worker exit (intentional, the respawn scheduler may
 briefly disconnect and reconnect). Use the ``shutdown`` command for
 graceful exit; SIGTERM (POSIX) / taskkill (Windows) is the forceful
 backstop.
@@ -63,7 +63,7 @@ log = logging.getLogger("voice_typer.worker")
 # maximum envelope size.
 _MAX_FRAME_BYTES = 1 * 1024 * 1024
 
-# Protocol version — imported from the shared
+# Protocol version: imported from the shared
 # ``voice_typer.server.ipc.protocol_version`` module (single source of
 # truth, kept in lockstep with the TCP/WS transports and the Rust/TS
 # constants). The slim-core sidecar's WS client checks this on the
@@ -86,7 +86,7 @@ def _fast_startup_enabled() -> bool:
 
     The toggle is the user's start/stop switch for prewarm: when
     disabled, the worker skips its warm phase entirely. Read from the
-    config file directly — the worker is a separate process spawned
+    config file directly, the worker is a separate process spawned
     by the host, so there is no live ``app.config`` instance to
     consult. Defaults to ENABLED on any read failure (the historical
     default; a config hiccup must not silently stop warming).
@@ -96,7 +96,7 @@ def _fast_startup_enabled() -> bool:
 
         return bool(getattr(Config.load(), "fast_startup", True))
     except Exception:
-        log.debug("[WORKER] fast_startup config read failed — defaulting to enabled", exc_info=True)
+        log.debug("[WORKER] fast_startup config read failed: defaulting to enabled", exc_info=True)
         return True
 
 
@@ -107,12 +107,12 @@ def _run_prewarm_phase() -> float:
     which pages the runtime-pack libraries' files into the OS standby
     cache (``onnxruntime`` + ``ctranslate2`` + ``numpy`` + ``scipy`` +
     ``faster_whisper``) WITHOUT importing them. The worker still has
-    to execute each library's code once, in its own process — that is
-    unavoidable — but the cold-disk read is paid here, in the
+    to execute each library's code once, in its own process, that is
+    unavoidable, but the cold-disk read is paid here, in the
     background, BEFORE the first transcription request.
 
     Skips warming entirely when the ``fast_startup`` config toggle is
-    disabled (the user's start/stop control — RESTORED 2026-08-14,
+    disabled (the user's start/stop control, RESTORED 2026-08-14,
     see plan §6.3 addendum). Either way, the warm-run timing is
     persisted via :func:`write_prewarm_status_file` so the About-page
     Cache Status card can show "last run + seconds".
@@ -127,7 +127,7 @@ def _run_prewarm_phase() -> float:
 
     t0 = time.perf_counter()
     if not _fast_startup_enabled():
-        log.info("[STARTUP] worker prewarm phase SKIPPED — fast_startup disabled in config")
+        log.info("[STARTUP] worker prewarm phase SKIPPED: fast_startup disabled in config")
         write_prewarm_status_file(last_run=None, elapsed_s=0.0)
         return 0.0
     try:
@@ -137,7 +137,7 @@ def _run_prewarm_phase() -> float:
     except Exception:
         # Prewarm is best-effort: a failure here MUST NOT crash the
         # worker (the cold cache only costs latency, never correctness).
-        log.debug("[WORKER] prewarm phase failed — continuing with cold cache", exc_info=True)
+        log.debug("[WORKER] prewarm phase failed: continuing with cold cache", exc_info=True)
     elapsed = time.perf_counter() - t0
     write_prewarm_status_file(
         last_run=datetime.now().isoformat(timespec="seconds"),
@@ -198,7 +198,7 @@ class _ShutdownTimer:
 
     Used to compute the space-separated ``<duration>`` suffix on the
     ``[SHUTDOWN] worker shutdown complete <duration>`` log line per
-    C-LOG-2. The timer is started ONCE — the first call to
+    C-LOG-2. The timer is started ONCE, the first call to
     :meth:`start` wins, so concurrent shutdown triggers (SIGTERM +
     shutdown command arriving simultaneously) do not reset the
     measurement.
@@ -227,7 +227,7 @@ class _ShutdownTimer:
         """Return seconds since :meth:`start` was first called.
 
         Returns ``0.0`` if :meth:`start` was never called (e.g. the
-        worker exited before any shutdown trigger fired — covered by
+        worker exited before any shutdown trigger fired, covered by
         the ``max(0.0, ...)`` clamp inside :func:`format_duration`).
         """
         if self._t0 is None:
@@ -268,7 +268,7 @@ def _install_sigterm_handler(stop_event: asyncio.Event, shutdown_timer: _Shutdow
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
-        # No running loop — called outside ``asyncio.run``. Fall back
+        # No running loop. Called outside ``asyncio.run``. Fall back
         # to the signal-handler-in-interrupt-context path. This is
         # safe-ish because ``stop_event.set()`` is the only thing the
         # handler does, and on CPython ``asyncio.Event.set()`` is
@@ -281,7 +281,7 @@ def _install_sigterm_handler(stop_event: asyncio.Event, shutdown_timer: _Shutdow
         # ``run()`` outside ``asyncio.run``); the production path
         # always uses the loop-aware branch above.
         def _on_sigterm_fallback(_signum: int, _frame: FrameType | None) -> None:
-            log.info("[WORKER] SIGTERM received — initiating graceful shutdown (fallback)")
+            log.info("[WORKER] SIGTERM received: initiating graceful shutdown (fallback)")
             shutdown_timer.start()
             with contextlib.suppress(Exception):
                 stop_event.set()
@@ -291,13 +291,13 @@ def _install_sigterm_handler(stop_event: asyncio.Event, shutdown_timer: _Shutdow
         return
 
     def _on_sigterm() -> None:
-        log.info("[WORKER] SIGTERM received — initiating graceful shutdown")
+        log.info("[WORKER] SIGTERM received: initiating graceful shutdown")
         shutdown_timer.start()
         stop_event.set()
 
     with contextlib.suppress(NotImplementedError, RuntimeError):
         # ``add_signal_handler`` raises NotImplementedError on Windows
-        # (ProactorEventLoop does not support it) — the
+        # (ProactorEventLoop does not support it), the
         # shutdown-command path is the worker's shutdown mechanism
         # there.
         loop.add_signal_handler(signal.SIGTERM, _on_sigterm)
@@ -316,7 +316,7 @@ async def _handle_connection(  # noqa: ANN001 - websockets type is imported lazi
     """Handle one WS connection from the slim-core sidecar.
 
     Authenticate, acknowledge heartbeats, dispatch ``shutdown``, and
-    dispatch ``transcribe_offline`` (real ASR — the inference runs in
+    dispatch ``transcribe_offline`` (real ASR, the inference runs in
     a thread via :func:`get_transcriber`, the result is pushed back as
     ``transcribe_offline_result``). Unknown commands get an
     ``error`` envelope with ``code: "unknown_command"``.
@@ -328,7 +328,7 @@ async def _handle_connection(  # noqa: ANN001 - websockets type is imported lazi
     the worker does not hang forever waiting for a WS-close event the
     asyncio loop never delivers (regression: the previous code skipped
     ``stop_event.set()`` and the worker hung after every shutdown
-    command — see ``test_shutdown_command_exits_worker``).
+    command: see ``test_shutdown_command_exits_worker``).
     """
 
     # Reject browser origins (defense-in-depth; the worker should only
@@ -354,7 +354,7 @@ async def _handle_connection(  # noqa: ANN001 - websockets type is imported lazi
                     raw = raw.decode("utf-8")
                 frame = json.loads(raw)
             except (json.JSONDecodeError, UnicodeDecodeError):
-                log.warning("[WORKER] non-JSON frame from slim-core sidecar — ignoring")
+                log.warning("[WORKER] non-JSON frame from slim-core sidecar: ignoring")
                 continue
             if not isinstance(frame, dict):
                 continue
@@ -366,7 +366,7 @@ async def _handle_connection(  # noqa: ANN001 - websockets type is imported lazi
                     await websocket.send(json.dumps({"type": "heartbeat_ack"}))
                 continue
             if cmd == "shutdown":
-                log.info("[WORKER] shutdown command received — exiting gracefully")
+                log.info("[WORKER] shutdown command received: exiting gracefully")
                 with contextlib.suppress(Exception):
                     await websocket.send(json.dumps({"type": "shutdown_ack"}))
                 # Mark the shutdown timer BEFORE stop_event.set() so
@@ -384,19 +384,19 @@ async def _handle_connection(  # noqa: ANN001 - websockets type is imported lazi
                     await websocket.close()
                 return
             if cmd == "transcribe_offline":
-                # Master plan §7.4 — real offline ASR in the worker.
+                # Master plan §7.4: real offline ASR in the worker.
                 # The slim-core sidecar forwards ``{audio_path,
                 # sample_rate, language}``; the worker transcribes and
                 # pushes the result back via the
                 # ``transcribe_offline_result`` event. The inference is
-                # blocking C-level work — run it in a thread so
+                # blocking C-level work, run it in a thread so
                 # heartbeats + shutdown stay responsive mid-inference.
                 data = frame.get("data") if isinstance(frame.get("data"), dict) else {}
                 audio_path = str(data.get("audio_path") or "")
                 sample_rate = data.get("sample_rate")
                 language = data.get("language")
                 log.info(
-                    "[WORKER] transcribe_offline request (path=%s, sr=%s, lang=%s) — running in thread",
+                    "[WORKER] transcribe_offline request (path=%s, sr=%s, lang=%s): running in thread",
                     audio_path,
                     sample_rate,
                     language,
@@ -405,7 +405,7 @@ async def _handle_connection(  # noqa: ANN001 - websockets type is imported lazi
 
                 # Bind the loop variables into the closure's defaults so
                 # the thread function does not capture the loop variables
-                # by reference (B023 — the connection handler's frame
+                # by reference (B023, the connection handler's frame
                 # loop mutates them on each iteration).
                 def _run(
                     _path: str = audio_path,
@@ -422,7 +422,7 @@ async def _handle_connection(  # noqa: ANN001 - websockets type is imported lazi
 
                 try:
                     result = await _asyncio.to_thread(_run)
-                except Exception as exc:  # noqa: BLE001 — never drop a result event
+                except Exception as exc:  # noqa: BLE001, never drop a result event
                     log.exception("[WORKER] transcribe_offline thread raised: %s", exc)
                     result = {"text": "", "error": f"internal error: {exc}"}
                 with contextlib.suppress(Exception):
@@ -464,7 +464,7 @@ async def run_worker_server(  # noqa: ANN001 - websockets type is imported lazil
 
     Sequence (master plan §7.3):
 
-    1. Install the SIGTERM handler (POSIX) — sets ``stop_event`` on signal.
+    1. Install the SIGTERM handler (POSIX), sets ``stop_event`` on signal.
     2. Bind ``127.0.0.1:0`` (loopback-only, ADR-0020 §1) via
        ``websockets.asyncio.server.serve`` with the 1 MiB frame cap.
     3. Print ``{"event":"worker_started","port":N,"protocol":P}`` to stdout.
@@ -497,7 +497,7 @@ async def run_worker_server(  # noqa: ANN001 - websockets type is imported lazil
     # ``worker_started`` line. The worker should only ever have ONE
     # authenticated client (the slim-core sidecar); there is NO
     # connection tracking here and the auth step does NOT reject a
-    # same-token second client — single-client exclusivity holds in
+    # same-token second client, single-client exclusivity holds in
     # practice because the slim-core sidecar's respawn scheduler
     # guarantees at most one sidecar is alive at a time.
     async def _handler(websocket) -> None:  # noqa: ANN001
@@ -517,7 +517,7 @@ async def run_worker_server(  # noqa: ANN001 - websockets type is imported lazil
         socks = ws_server.sockets
         first_sock = next(iter(socks), None)
         if first_sock is None:
-            log.error("[WORKER] no sockets bound — aborting")
+            log.error("[WORKER] no sockets bound: aborting")
             return False
         port = first_sock.getsockname()[1]
         _emit_worker_started(port, PROTOCOL_VERSION)

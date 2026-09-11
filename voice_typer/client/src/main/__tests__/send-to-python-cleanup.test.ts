@@ -6,10 +6,10 @@
  *   • deletes the entry for the given id from the
  *     `_rendererCallTimestamps` Map.
  *   • is a no-op (does NOT throw) when the id has no entry.
- *   • only removes the named id — sibling entries are preserved.
+ *   • only removes the named id, sibling entries are preserved.
  *
  * Regression coverage for the finding: previously the Map was never
- * cleared per-renderer — each destroyed BrowserWindow leaked its
+ * cleared per-renderer, each destroyed BrowserWindow leaked its
  * `webContents.id` entry forever (only `_resetIpcBackpressure()`
  * cleared the WHOLE Map, called from stopPython / relaunchApp).
  */
@@ -67,7 +67,7 @@ describe("send-to-python _removeRendererFromBackpressure", () => {
 			/Python backend is not connected/,
 		);
 
-		// Now remove the entry — must NOT throw.
+		// Now remove the entry, must NOT throw.
 		expect(() => _removeRendererFromBackpressure(123)).not.toThrow();
 
 		// After removal, a fresh call with senderId=123 should
@@ -81,14 +81,14 @@ describe("send-to-python _removeRendererFromBackpressure", () => {
 	});
 
 	it("is a no-op when the id has no entry (does not throw)", () => {
-		// No prior sendToPython call with senderId=999 — the
+		// No prior sendToPython call with senderId=999, the
 		// Map has no entry for 999.
 		expect(() => _removeRendererFromBackpressure(999)).not.toThrow();
 		expect(() => _removeRendererFromBackpressure(-1)).not.toThrow();
 		expect(() => _removeRendererFromBackpressure(0)).not.toThrow();
 	});
 
-	it("only removes the named id — sibling entries are preserved", async () => {
+	it("only removes the named id, sibling entries are preserved", async () => {
 		// Seed two entries: senderId=1 and senderId=2.
 		await expect(sendToPython({ type: "get_config" }, 1)).rejects.toThrow(
 			/Python backend is not connected/,

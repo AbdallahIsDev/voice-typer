@@ -1,5 +1,5 @@
 //shared constants extracted from Home.tsx so the
-// main page file stays a thin composition root. Pure values — no
+// main page file stays a thin composition root. Pure values, no
 // behaviour, no React, no IPC.
 
 /**
@@ -24,7 +24,7 @@ export const FIRST_RECORD_CELEBRATED_KEY = "vt_first_recording_celebrated";
 /**
  * After this many milliseconds in the "transcribing" state, the Home page
  * reveals a "Force cancel" affordance so the user can abort a stuck
- * transcription. Lowered from 60s → 5s — a genuinely stuck transcription
+ * transcription. Lowered from 60s → 5s, a genuinely stuck transcription
  * is obvious within seconds; 60s of silence is far too patient.
  */
 export const FORCE_CANCEL_DELAY_MS = 5_000;
@@ -44,7 +44,7 @@ export const LAST_TEXT_AUTO_CLEAR_MS = 30_000;
  * event / `RecordingState` enum.
  *
  * Values are theme CSS variables (NOT raw hex) so the dot adapts to
- * every theme preset and custom palette — the same tokens every other
+ * every theme preset and custom palette, the same tokens every other
  * surface uses (`--success` / `--warning` / `--info` are defined by
  * index.css for both light and dark and backfilled by all presets +
  * the custom-theme generator; see themes/__tests__/status-tokens.test.ts).

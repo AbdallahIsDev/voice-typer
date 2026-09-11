@@ -6,7 +6,7 @@ Before NH-17, three different wordings existed:
 
   1. ``tray_i18n.py`` ``force_cancel_transcription`` → "Force cancel transcription"
   2. ``tray_i18n.py`` ``force_cancel_stuck_transcription`` → "Force Cancel Stuck
-     Transcription" (DEAD KEY — ``tray.py`` never read it).
+     Transcription" (DEAD KEY: ``tray.py`` never read it).
   3. renderer ``home.forceCancelHint`` → "Taking too long? Force cancel transcription"
 
 NH-17 deleted the dead ``force_cancel_stuck_transcription`` key from all 8
@@ -49,7 +49,7 @@ def test_force_cancel_stuck_transcription_key_is_gone_from_all_locales() -> None
     for locale, labels in tray_i18n._TRAY_LABELS_LOCALES.items():
         assert "force_cancel_stuck_transcription" not in labels, (
             f"locale {locale!r} still defines the dead "
-            f"force_cancel_stuck_transcription key — NH-17 canonicalisation "
+            f"force_cancel_stuck_transcription key, NH-17 canonicalisation "
             f"removed it; the tray menu reads force_cancel_transcription."
         )
 

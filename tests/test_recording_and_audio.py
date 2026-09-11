@@ -125,7 +125,7 @@ class TestWatchdogForceRecover:
 
     def test_first_firing_is_silent(self):
         """TRANSCRIBE-NOTIFY-FIX: the first watchdog firing must NOT
-        notify the user — it only logs and updates the tray state.
+        notify the user, it only logs and updates the tray state.
         Notify fires starting on the second firing (see
         test_non_force_re_arms_when_worker_alive)."""
         from voice_typer.server.recording_controller import RecordingController
@@ -204,7 +204,7 @@ class TestQwenTranscribeWithFallback:
     The pre-migration torch engine retried on CPU after a CUDA error. The
     ONNX path is CPU-pinned at ``load()`` (int4 CPU exports are the
     documented fast path; ORT CUDA is not exercised), so there is no
-    device to fall back from — the method delegates and lets exceptions
+    device to fall back from, the method delegates and lets exceptions
     propagate to the caller's friendly error path.
     """
 
@@ -234,7 +234,7 @@ class TestQwenTranscribeWithFallback:
         assert captured["stats"] is stats
 
     def test_exceptions_propagate_no_cpu_retry(self):
-        """The ONNX path has no device to fall back from — the exception
+        """The ONNX path has no device to fall back from, the exception
         propagates (mirrors the old non-CUDA re-raise branch)."""
         from voice_typer.server.qwen_engine import QwenEngine
 
@@ -254,7 +254,7 @@ class TestQwenTranscribeWithFallback:
 
         with pytest.raises(RuntimeError, match="CUDA error: out of memory"):
             engine.transcribe_with_fallback(np.ones(16000, dtype=np.float32))
-        assert call_count["n"] == 1, "must not retry on CPU — no device to fall back from"
+        assert call_count["n"] == 1, "must not retry on CPU, no device to fall back from"
 
     def test_load_pins_device_to_cpu_regardless_of_constructor_arg(self):
         """The ONNX engine is CPU-first: ``load()`` pins ``device`` to
@@ -379,7 +379,7 @@ class TestAudioCallbackPreStartGuard:
         recorder.on_xrun_threshold = MagicMock()
         recorder._audio_processor = None
         # STATE-OWNERSHIP: the buffer lock / buffer / chunk
-        # counter live on the owning ``AudioPipeline`` — the degenerate
+        # counter live on the owning ``AudioPipeline``, the degenerate
         # ``__new__`` instance gets a stand-in namespace (the historical
         # recorder-level setup lines were dead: the test only asserts
         # the event state below).
@@ -497,7 +497,7 @@ class TestGetStatusReturnsDict:
         """get_status exposes the tray-tooltip reason alongside status.
 
         The renderer derives BOTH the Home ERROR pill and its red
-        description line from the {status, message} pair — every
+        description line from the {status, message} pair, every
         status-carrying response must carry both fields (see
         applyStatusWithReason in useConnection.ts).
         """
@@ -628,7 +628,7 @@ class TestSetConfigInvalidatesTrayCache:
         # the app-level test-seam delegates were removed;
         # production code reaches ``startup_tasks.*`` / ``app.hotkeys.*``
         # directly. ``app`` is a MagicMock so those attributes are
-        # auto-stubbed on access — nothing to pre-assign here.
+        # auto-stubbed on access, nothing to pre-assign here.
         app.tray.invalidate_menu_cache = MagicMock()
 
         server = IPCServer(app)
@@ -927,7 +927,7 @@ class TestAudioWorkerThreadLifecycle:
 
         config = MagicMock(sample_rate=16000, microphone=None)
         # Thread-ownership baseline (S5 fix): snapshot BEFORE any worker
-        # spawn so the wait only requires the DELTA to drain — threads
+        # spawn so the wait only requires the DELTA to drain, threads
         # leaked by earlier files in the same xdist worker no longer flake
         # this wait; threads spawned HERE stay fully waited on (leak
         # detection unchanged).
@@ -940,7 +940,7 @@ class TestAudioWorkerThreadLifecycle:
 
         # GT-23-style load guard: a worker that outlived a timed-out join
         # leaves a stale ref (stop() fast-paths when idle and cannot reap
-        # it) — poll the shared guard before asserting the ref cleared.
+        # it), poll the shared guard before asserting the ref cleared.
         assert wait_for_workers_stopped(r, stop=r.stop, baseline=baseline), (
             "stop() must set _worker_thread to None after joining"
         )
@@ -955,7 +955,7 @@ class TestAudioWorkerThreadLifecycle:
         self._make_ok_stream(monkeypatch, recording_mod)
 
         config = MagicMock(sample_rate=16000, microphone=None)
-        # Thread-ownership baseline (S5 fix) — see the stop() variant above.
+        # Thread-ownership baseline (S5 fix): see the stop() variant above.
         baseline = snapshot_worker_threads()
         r = Recorder(config)
         r.start()
@@ -963,7 +963,7 @@ class TestAudioWorkerThreadLifecycle:
 
         r.discard()
 
-        # GT-23-style load guard — see the stop() variant above.
+        # GT-23-style load guard: see the stop() variant above.
         assert wait_for_workers_stopped(r, stop=r.stop, baseline=baseline), (
             "discard() must set _worker_thread to None after joining"
         )
@@ -978,7 +978,7 @@ class TestAudioWorkerThreadLifecycle:
         self._make_ok_stream(monkeypatch, recording_mod)
 
         config = MagicMock(sample_rate=16000, microphone=None)
-        # Thread-ownership baseline (S5 fix) — see the stop() variant above.
+        # Thread-ownership baseline (S5 fix): see the stop() variant above.
         # ONE snapshot at entry covers BOTH sessions: each session's workers
         # spawn after it, so both stay fully waited on.
         baseline = snapshot_worker_threads()
@@ -992,7 +992,7 @@ class TestAudioWorkerThreadLifecycle:
         r.stop()
         assert wait_for_workers_stopped(r, stop=r.stop, baseline=baseline), "worker must stop after stop()"
 
-        # Second session — must start a NEW thread
+        # Second session, must start a NEW thread
         r.start()
         second_thread = r._worker_thread
         assert second_thread is not None
@@ -1044,7 +1044,7 @@ class TestAudioWorkerThreadLifecycle:
     def test_callback_does_not_do_heavy_processing(self, monkeypatch):
         """RT-SAFE-001: the audio callback (_audio_callback_dispatch)
         must NOT contain Silero VAD, scipy resample, or filter chain
-        calls — those run on the worker thread (_process_audio_chunk).
+        calls, those run on the worker thread (_process_audio_chunk).
         This is a source-inspection test that pins the real-time safety
         invariant: the callback must be fast enough to complete within
         the ~32ms PortAudio deadline."""
@@ -1054,18 +1054,18 @@ class TestAudioWorkerThreadLifecycle:
         # The callback must NOT call these heavy operations
         assert "compute_vad_prob" not in callback_src, (
             "RT-SAFE-001: the audio callback must NOT call Silero VAD "
-            "(compute_vad_prob) — that runs on the worker thread"
+            "(compute_vad_prob), that runs on the worker thread"
         )
         assert "_get_resample_poly" not in callback_src, (
-            "RT-SAFE-001: the audio callback must NOT call scipy resample_poly — that runs on the worker thread"
+            "RT-SAFE-001: the audio callback must NOT call scipy resample_poly, that runs on the worker thread"
         )
         assert "process_chunk" not in callback_src, (
             "RT-SAFE-001: the audio callback must NOT call the filter "
-            "chain (process_chunk) — that runs on the worker thread"
+            "chain (process_chunk), that runs on the worker thread"
         )
         assert "_vad_update" not in callback_src, (
             "RT-SAFE-001: the audio callback must NOT run the VAD state "
-            "machine (_vad_update) — that runs on the worker thread"
+            "machine (_vad_update), that runs on the worker thread"
         )
         # The callback MUST push to the ring buffer and signal the worker
         assert "_ring_buffer.append" in callback_src, "RT-SAFE-001: the audio callback must push to the ring buffer"

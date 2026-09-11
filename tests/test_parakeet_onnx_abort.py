@@ -9,13 +9,13 @@ all remaining ones.
 NOTE: mid-run termination of a single-segment ``recognize()`` call is
 NOT supported. onnx-asr 0.12.0's ``recognize_batch()`` invokes
 ``session.run()`` without forwarding a ``run_options`` argument
-(verified by wheel-source inspection — see the note on
+(verified by wheel-source inspection: see the note on
 ``ParakeetEngine._abort_event``), so ORT's ``RunOptions.set_terminate``
 API cannot reach the in-flight decode. The working abort path is the
 inter-chunk ``_abort_event`` check ONLY.
 
 PLAN_ONNX_INTEGRATION.md §3.6 originally specified:
-    > ``tests/test_parakeet_onnx_abort.py`` — verify ``RunOptions`` can
+    > ``tests/test_parakeet_onnx_abort.py``, verify ``RunOptions`` can
     > abort a long-running transcription (ORT supports this via
     > ``RunOptions``).
 
@@ -36,7 +36,7 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
-# NOTE: no module-level ``pytest.importorskip("onnx_asr")`` — these
+# NOTE: no module-level ``pytest.importorskip("onnx_asr")``, these
 # tests mock onnx_asr.load_model + onnxruntime so they run without the real
 # packages.
 from voice_typer.server.parakeet_engine import ParakeetEngine  # noqa: E402
@@ -137,7 +137,7 @@ class TestParakeetOnnxAbortWiring:
 
     def test_request_abort_is_safe_without_inflight_recognize(self):
         """When no ``recognize()`` is in flight, ``request_abort()``
-        must NOT raise — it just sets the internal event so the next
+        must NOT raise, it just sets the internal event so the next
         chunk loop iteration breaks (or, if no loop is running, the
         next transcribe() cycle starts aborted)."""
         engine, _, _ = _make_engine_with_mocks()
@@ -146,7 +146,7 @@ class TestParakeetOnnxAbortWiring:
         assert engine._abort_event.is_set()
 
     def test_request_abort_is_idempotent(self):
-        """Calling ``request_abort()`` twice must not raise — the event
+        """Calling ``request_abort()`` twice must not raise, the event
         is already set; the second call is a no-op."""
         engine, _, _ = _make_engine_with_mocks()
         engine.request_abort()
@@ -170,7 +170,7 @@ class TestParakeetOnnxAbortBetweenChunks:
         result = engine.transcribe(audio)
 
         assert result == "", (
-            "Expected empty result when abort is set before the loop — no "
+            "Expected empty result when abort is set before the loop, no "
             f"chunks should have been decoded. Got: {result!r}"
         )
         (
@@ -217,7 +217,7 @@ class TestParakeetOnnxAbortBetweenChunks:
         engine, _, _ = _make_engine_with_mocks()
         # Set abort BEFORE the loop. If the check is at the top, zero
         # calls. If at the bottom, one call (chunk 1 decoded, then the
-        # bottom check fires and breaks — but chunk 1 was still decoded).
+        # bottom check fires and breaks, but chunk 1 was still decoded).
         engine._abort_event.set()
         audio = np.ones(int(60 * 16000), dtype=np.float32)  # 3 chunks
         engine.transcribe(audio)
@@ -225,7 +225,7 @@ class TestParakeetOnnxAbortBetweenChunks:
         assert engine._model.recognize.call_count == 0, (
             "Abort check must be at the TOP of the chunk loop (before "
             "recognize()). A bottom check would decode one extra chunk "
-            "after ESC — defeating the bounded-latency contract."
+            "after ESC, defeating the bounded-latency contract."
         )
 
     def test_no_abort_decodes_all_chunks(self):
@@ -233,7 +233,7 @@ class TestParakeetOnnxAbortBetweenChunks:
         are decoded and merged. Guards against the abort gate
         accidentally breaking normal (non-aborted) transcription."""
         engine, _, _ = _make_engine_with_mocks()
-        # recognize() returns "hello world" by default — all chunks
+        # recognize() returns "hello world" by default, all chunks
         # produce the same text, so _merge_chunks dedups to one copy.
         audio = np.ones(int(60 * 16000), dtype=np.float32)  # 3 chunks
         result = engine.transcribe(audio)
@@ -269,7 +269,7 @@ class TestParakeetOnnxAbortNoRunOptionsPlumbing:
 
     onnx-asr 0.12.0's ``recognize_batch()`` never forwards
     ``run_options`` to ``session.run`` (verified by wheel-source
-    inspection — see the note on ``ParakeetEngine._abort_event``).
+    inspection: see the note on ``ParakeetEngine._abort_event``).
     ``RunOptions.set_terminate`` therefore cannot reach ORT, and the
     stash/set_terminate plumbing was dead code (CLOUD-AGENT-ROUND2-PROMPT.md
     issue 2). These tests pin its absence so a future revert is caught.
@@ -277,34 +277,34 @@ class TestParakeetOnnxAbortNoRunOptionsPlumbing:
 
     def test_engine_has_no_run_options_attribute(self):
         """``ParakeetEngine`` instances must NOT carry a ``_run_options``
-        attribute — the stash was removed as dead code."""
+        attribute, the stash was removed as dead code."""
         engine = ParakeetEngine(device="cpu", language="en")
         assert not hasattr(engine, "_run_options"), (
-            "ParakeetEngine must NOT have a _run_options attribute — the "
+            "ParakeetEngine must NOT have a _run_options attribute, the "
             "RunOptions stash was removed as dead code (onnx-asr 0.12.0 "
             "does not forward run_options to session.run)."
         )
 
     def test_engine_has_no_make_run_options_method(self):
         """``ParakeetEngine`` must NOT have a ``_make_run_options``
-        method — the helper was removed as dead code."""
+        method, the helper was removed as dead code."""
         assert not hasattr(ParakeetEngine, "_make_run_options"), (
-            "ParakeetEngine must NOT have a _make_run_options method — the "
+            "ParakeetEngine must NOT have a _make_run_options method, the "
             "RunOptions stash was removed as dead code (onnx-asr 0.12.0 "
             "does not forward run_options to session.run)."
         )
 
     def test_request_abort_does_not_touch_run_options(self):
         """``request_abort()`` must NOT call ``RunOptions.set_terminate``
-        — the API cannot reach the in-flight decode through onnx-asr."""
+        , the API cannot reach the in-flight decode through onnx-asr."""
         import inspect
 
         src = inspect.getsource(ParakeetEngine.request_abort)
         assert "set_terminate" not in src, (
-            "request_abort() must NOT call RunOptions.set_terminate — "
+            "request_abort() must NOT call RunOptions.set_terminate, "
             "onnx-asr 0.12.0 does not forward run_options to session.run, "
             "so the call cannot reach the in-flight decode."
         )
         assert "run_options" not in src, (
-            "request_abort() must NOT reference run_options at all — the stash was removed as dead code."
+            "request_abort() must NOT reference run_options at all, the stash was removed as dead code."
         )

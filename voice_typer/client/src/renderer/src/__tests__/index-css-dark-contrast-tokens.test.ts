@@ -1,7 +1,7 @@
 /**
  * Dark-mode `--input` / `--sidebar-border` contrast tokens.
  *
- * WCAG 1.4.11 (Non-Text Contrast, 3:1) — the base `.dark` block in
+ * WCAG 1.4.11 (Non-Text Contrast, 3:1), the base `.dark` block in
  * index.css must define these tokens as OPAQUE values, matching the
  * opaque values every per-preset dark theme already carries (so the
  * base fallback == preset treatment). The previous alpha-composited
@@ -24,7 +24,7 @@ function darkBlock(): string {
 	return css.slice(start, end);
 }
 
-describe("index.css .dark — opaque input/sidebar-border tokens", () => {
+describe("index.css .dark, opaque input/sidebar-border tokens", () => {
 	it("--input is opaque (no alpha) at the preset dark lightness", () => {
 		const match = /--input:\s*([^;]+);/.exec(darkBlock());
 		const value = match?.[1];

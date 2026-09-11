@@ -1,9 +1,9 @@
 /**
- * useModelFolder — disk-space probe + import / open-folder slice.
+ * useModelFolder, disk-space probe + import / open-folder slice.
  *
  * Extracted from the former
  * `useModelLifecycle.ts` (995-line) monolith. This sub-hook owns:
- *   • `diskInfo` — always `null` today. Historically the result of an
+ *   • `diskInfo`, always `null` today. Historically the result of an
  *     optional `get_disk_info` IPC probe; the probe was removed
  *     because the command was never registered in the Python
  *     `_COMMAND_REGISTRY` nor allowed through the renderer
@@ -14,22 +14,22 @@
  *     prop) and so a future backend can re-introduce the probe by
  *     re-adding the interface + allowlist entry without touching
  *     consumers.
- *   • `modelsFolderSupported` — always `false` today. Historically the
+ *   • `modelsFolderSupported`, always `false` today. Historically the
  *     result of an optional `models_folder_supported` probe; the probe
  *     was removed (same phantom-command reason as
  *     `diskInfo`). Preserved in the return type for the same
- *     backwards-compat reason — the consumer's conditional render of
+ *     backwards-compat reason, the consumer's conditional render of
  *     the "Open models folder" button simply always evaluates to
  *     `false`.
- *   • `isImporting` — flag for the "Import Model" button's loading
+ *   • `isImporting`, flag for the "Import Model" button's loading
  *     state.
  *
  * And the two actions that drive them:
- *   • `handleImportModel` — opens the Electron folder picker, fires
+ *   • `handleImportModel`, opens the Electron folder picker, fires
  *     the `import_model` IPC with the picked path, surfaces success /
  *     warning / error snacks, and re-runs `loadConfig` to reconcile the
  *     local model list with the freshly-imported entries.
- *   • `handleOpenModelsFolder` — NO-OP today. Historically called the
+ *   • `handleOpenModelsFolder`, NO-OP today. Historically called the
  *     `open_models_folder` IPC, but that command was never
  *     registered so the button was never rendered (it was
  *     gated behind the always-failing `models_folder_supported`
@@ -73,7 +73,7 @@ export function useModelFolder({
 }: UseModelFolderArgs): UseModelFolderResult {
 	const [isImporting, setIsImporting] = useState(false);
 	// The optional `get_disk_info` / `models_folder_supported`
-	// mount-time probes were removed — both commands were never
+	// mount-time probes were removed, both commands were never
 	// registered in the Python `_COMMAND_REGISTRY` nor allowed
 	// through the renderer allowlist, so the probes always failed
 	// silently and the state stayed at its initial values
@@ -160,7 +160,7 @@ export function useModelFolder({
 	// probe (so the action never executed in practice). The body is
 	// replaced with a no-op to preserve the public interface
 	// (`LocalModelsPanel` / `Models.tsx` still pass it as the "Open
-	// models folder" button's onClick prop — which itself is never
+	// models folder" button's onClick prop, which itself is never
 	// rendered because `modelsFolderSupported === false`).
 	//
 	// If a future backend exposes `open_models_folder`, re-add the
@@ -169,7 +169,7 @@ export function useModelFolder({
 	// `modelsFolderSupported` probe above before reintroducing a
 	// real implementation here.
 	const handleOpenModelsFolder = useCallback(async () => {
-		/* no-op — see the comment above. */
+		/* no-op, see the comment above. */
 	}, []);
 
 	return {

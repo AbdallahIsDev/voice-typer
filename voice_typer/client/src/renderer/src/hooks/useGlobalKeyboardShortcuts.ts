@@ -1,5 +1,5 @@
 /**
- * useGlobalKeyboardShortcuts — app-wide keyboard + Ctrl+Wheel shortcuts.
+ * useGlobalKeyboardShortcuts, app-wide keyboard + Ctrl+Wheel shortcuts.
  *
  * Extracted from App.tsx (App.tsx slimming split) to keep
  * App.tsx a pure layout shell. Behaviour is byte-identical to the original
@@ -22,7 +22,7 @@
  * original `(e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey` guard).
  *
  * The keydown listener dispatches on `IN_APP_BINDINGS` from
- * `components/hotkey/shortcuts.ts` — the catalog owns which
+ * `components/hotkey/shortcuts.ts`, the catalog owns which
  * `KeyboardEvent.key` values map to which binding, so the actual
  * bindings (not just the display strings) can't drift from the Help
  * overlay / tooltips. This hook only supplies the per-binding actions.
@@ -30,16 +30,16 @@
  * The `b`/`,``h`/`=`/`-` shortcuts are suppressed when the user is typing
  * inside an `<input>`, `<textarea>`, `<select>`, or `contentEditable` host
  * so the app doesn't hijack legitimate text-entry keystrokes. The wheel
- * shortcut has no such guard (matches original behaviour — Ctrl+Wheel is
+ * shortcut has no such guard (matches original behaviour, Ctrl+Wheel is
  * rarely sent while typing).
  *
- * The zoom shortcuts perform NO direct `set_config` write — persistence
+ * The zoom shortcuts perform NO direct `set_config` write, persistence
  * goes exclusively through `setTextSize`'s debounced save (the one write
  * path documented in useTheme). A direct per-tick write here would double
  * every zoom step's config write and amplify each one into a
  * `config_changed` push + full `get_config` round-trip in the Home page.
  * Backend write failures are handled (logged) by the debounced save's own
- * catch — the shortcut layer has no error surface of its own.
+ * catch, the shortcut layer has no error surface of its own.
  */
 
 import { useEffect, useRef } from "react";
@@ -50,14 +50,12 @@ import type {
 } from "@/components/hotkey/shortcuts";
 import { IN_APP_BINDINGS } from "@/components/hotkey/shortcuts";
 import type { PythonCall } from "@/hooks/usePython";
+import type { TranslateFn } from "@/i18n/translate-types";
 import type { Page } from "@/types/ipc";
-
-/** Minimal `t` function type matching i18n.t's signature. */
-type TFn = (key: string, params?: Record<string, string>) => string;
 
 // NOTE: these are re-exported for the hook's public type surface; the
 // LOCAL bindings above (`import type`) are what the implementation uses
-// — `export … from` alone does NOT create a module-local binding.
+//, `export … from` alone does NOT create a module-local binding.
 export type {
 	InAppBinding,
 	InAppShortcut,
@@ -66,7 +64,7 @@ export type {
 // The shortcut string catalog (`SHORTCUTS`), the derived
 // `IN_APP_SHORTCUTS` list, and the actual keyboard-event dispatch
 // table (`IN_APP_BINDINGS`) all live in
-// `components/hotkey/shortcuts.ts` — the single source of truth
+// `components/hotkey/shortcuts.ts`, the single source of truth
 // shared with TitleBar, Sidebar, the Help overlay, and the About
 // page. The keydown listener below dispatches on `IN_APP_BINDINGS`,
 // so the bindings themselves (not just the display strings) can't
@@ -84,17 +82,17 @@ import { useLatestRef } from "@/hooks/useLatestRef";
  * catalog: `IN_APP_BINDINGS[].modifier` → the event guard that decides
  * whether a keystroke matches. Keyed exhaustively over
  * `InAppBinding["modifier"]`, so adding a NEW modifier profile to the
- * catalog is a type error until a guard exists here — the modifier
+ * catalog is a type error until a guard exists here, the modifier
  * axis can no longer drift (the binding would otherwise never fire).
  */
 const MODIFIER_GUARDS: Record<
 	InAppBinding["modifier"],
 	(e: KeyboardEvent) => boolean
 > = {
-	// Ctrl OR Cmd, never Shift/Alt — the original
+	// Ctrl OR Cmd, never Shift/Alt, the original
 	// `(e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey` guard.
 	ctrlCmd: (e) => (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey,
-	// Ctrl OR Cmd AND Shift, never Alt — the toggleDictation profile.
+	// Ctrl OR Cmd AND Shift, never Alt, the toggleDictation profile.
 	// e.key arrives uppercased while Shift is held ("M"), and the
 	// catalog's eventKeys cover both cases for non-Shift-modifier
 	// keyboard layouts (e.g. Caps-Locked input).
@@ -111,7 +109,7 @@ interface UseGlobalKeyboardShortcutsArgs {
 	/** Python bridge call function (from usePython). */
 	call: PythonCall;
 	/** i18n translate function (from useT). */
-	t: TFn;
+	t: TranslateFn;
 	/** Setter for sidebar collapsed state (from useState in App.tsx). */
 	setSidebarCollapsed: React.Dispatch<React.SetStateAction<boolean>>;
 }
@@ -141,9 +139,9 @@ export function useGlobalKeyboardShortcuts({
 		textSizeRef.current = textSize;
 	}, [textSize]);
 
-	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract — .current must NOT become a dep
+	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract, .current must NOT become a dep
 	useEffect(() => {
-		// Per-binding handlers keyed by catalog id — the ACTIONS half of
+		// Per-binding handlers keyed by catalog id, the ACTIONS half of
 		// the binding table. Which key triggers which action comes from
 		// `IN_APP_BINDINGS` (the catalog); this map only decides what
 		// each binding DOES. Both halves are exhaustive over
@@ -177,7 +175,7 @@ export function useGlobalKeyboardShortcuts({
 			// SINGLE write path: update the theme store and let its debounced
 			// save coalesce the backend `set_config` write (the pending save
 			// is flushed on unmount/beforeunload, so the last tick of a burst
-			// is never lost). Do NOT add a direct `set_config` here — it
+			// is never lost). Do NOT add a direct `set_config` here, it
 			// double-writes every zoom step and each write fans out into a
 			// config_changed push + get_config round-trip on the Home page.
 			setTextSize(next);
@@ -200,7 +198,7 @@ export function useGlobalKeyboardShortcuts({
 				navigate("home");
 			},
 			// Zoom shortcuts (Ctrl+= / Ctrl+-) are intentionally NOT
-			// modal-gated — they're page-zoom semantics that apply
+			// modal-gated, they're page-zoom semantics that apply
 			// regardless of modal state, and a user adjusting zoom
 			// while a dialog is open is a legitimate action. They ARE
 			// typing-gated so Ctrl+=/Ctrl+- pressed while focus is
@@ -221,15 +219,15 @@ export function useGlobalKeyboardShortcuts({
 				e.preventDefault();
 				bumpTextSize(-1);
 			},
-			// Toggle dictation (Ctrl/Cmd+Shift+M) — reuses the exact
+			// Toggle dictation (Ctrl/Cmd+Shift+M), reuses the exact
 			// `toggle_dictation` IPC the Home mic button fires, so the
 			// keyboard path can never drift from the click path. The
 			// backend's recording-lifecycle consent gate remains the
 			// enforcement backstop for hotkey-triggered dictation (same
-			// as tray/bubble-triggered toggles — the renderer-side
+			// as tray/bubble-triggered toggles, the renderer-side
 			// consent dialog only wraps the Home button path). NOT
 			// typing-gated: dictating INTO the focused field is the
-			// whole point of the shortcut — and not modal-gated for the
+			// whole point of the shortcut, and not modal-gated for the
 			// same reason.
 			toggleDictation: (e) => {
 				e.preventDefault();
@@ -252,7 +250,7 @@ export function useGlobalKeyboardShortcuts({
 			const binding = IN_APP_BINDINGS.find((b) => b.eventKeys.includes(e.key));
 			if (!binding) return;
 			// The Record is exhaustive over the catalog's modifier
-			// profiles, so the guard always exists at runtime — the
+			// profiles, so the guard always exists at runtime, the
 			// optional call is only for noUncheckedIndexedAccess.
 			const guard = MODIFIER_GUARDS[binding.modifier];
 			if (!guard?.(e)) return;

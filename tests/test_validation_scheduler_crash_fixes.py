@@ -9,7 +9,7 @@ These tests pin the fixes applied by SA-09 to:
 The platform-specific Windows registry / schtasks / WaitForSingleObject
 fixes (XZ-EH-009, XZ-EH-010, XZ-EH-011, XZ-EH-023) are exercised by
 the existing ``tests/test_task_scheduler.py`` suite (which runs the
-Windows-gated code paths via ``MagicMock`` on the Linux CI) — the
+Windows-gated code paths via ``MagicMock`` on the Linux CI), the
 regression coverage for those is already in place.
 """
 
@@ -41,7 +41,7 @@ class TestMaxPayloadBytesTopLevel:
 
         # Top-level cap is 50 bytes; per-field rule says 1 MiB.
         # The payload (~30 bytes) fits under both, so the call succeeds
-        # — but we verify the precedence by sending a payload that
+        # , but we verify the precedence by sending a payload that
         # exceeds the top-level cap but NOT the per-field cap.
         big_payload = {"x": "a" * 100}  # > 50 bytes, < 1 MiB
         validated, error = _validate_dict_payload(
@@ -58,7 +58,7 @@ class TestMaxPayloadBytesTopLevel:
 
     def test_multi_field_per_field_rules_use_minimum(self):
         """When MULTIPLE per-field rules declare ``max_payload_bytes``,
-        the helper uses the MINIMUM (most restrictive) cap — NOT the
+        the helper uses the MINIMUM (most restrictive) cap, NOT the
         first field's value.
 
         Pre-XZ-R3-07 the helper broke after the first field, silently
@@ -83,7 +83,7 @@ class TestMaxPayloadBytesTopLevel:
         )
         assert validated is None, (
             "XZ-R3-07: when multiple per-field max_payload_bytes rules "
-            "exist, the MINIMUM (most restrictive) must apply — the "
+            "exist, the MINIMUM (most restrictive) must apply, the "
             "70-byte payload should be rejected by the 50-byte cap on "
             "field 'b', even though field 'a' allows 1 MiB"
         )
@@ -153,7 +153,7 @@ class TestNoneToDefault:
 
     def test_explicit_none_without_default_still_fails_type_check(self):
         """When the rule has no ``default``, ``none_to_default`` has
-        no effect — the explicit ``None`` fails the type check."""
+        no effect, the explicit ``None`` fails the type check."""
         from voice_typer.server.ipc.validation import _validate_dict_payload
 
         validated, error = _validate_dict_payload(
@@ -210,7 +210,7 @@ class TestList2CmdLine:
     def test_list2cmdline_quotes_embedded_double_quote(self):
         """Sanity: ``subprocess.list2cmdline`` quotes an arg containing
         an embedded ``\"`` so it can't break out of the cmd.exe
-        quoting layer. (This is a stdlib behavior test — we pin it
+        quoting layer. (This is a stdlib behavior test, we pin it
         here so a future stdlib change that weakens the quoting is
         caught.)"""
         # An arg with an embedded double-quote must be quoted AND the
@@ -286,7 +286,7 @@ class TestDirEnsuredFlag:
 
         Note: every save also calls ``_secure_atomic_write`` which
         ``os.chmod``s the temp file (and the final renamed file) for
-        ``0o600`` perms — that is per-save by design (the temp file
+        ``0o600`` perms: that is per-save by design (the temp file
         is freshly created each time) and is NOT what this regression
         is guarding. We filter to the directory path so we only count
         the dir-chmod that the ``_dir_ensured`` flag is intended to
@@ -389,7 +389,7 @@ class TestFinalSaveDoneDedup:
 
     def test_shutdown_does_not_set_final_save_done(self, monkeypatch):
         """``shutdown()``'s final save must NOT set
-        ``_final_save_done`` — otherwise a post-shutdown ``__del__``
+        ``_final_save_done``, otherwise a post-shutdown ``__del__``
         save for mutations that bypassed ``_enqueue_save`` would be
         silently dropped (regression-tested by
         ``test_del_saves_unpersisted_post_shutdown_mutations``).
@@ -400,7 +400,7 @@ class TestFinalSaveDoneDedup:
             cr = CrashRecovery(config_dir=Path(tmpdir))
             cr.shutdown()
             assert cr._final_save_done is False, (
-                "XZ-R17-13: shutdown() must NOT set _final_save_done — "
+                "XZ-R17-13: shutdown() must NOT set _final_save_done, "
                 "otherwise a post-shutdown __del__ save for bypassed "
                 "mutations would be silently dropped"
             )
@@ -409,7 +409,7 @@ class TestFinalSaveDoneDedup:
         """When atexit has already set ``_final_save_done``, ``__del__``
         must skip the redundant save (the regression test
         ``test_del_saves_unpersisted_post_shutdown_mutations`` covers
-        the inverse — that __del__ DOES save when the flag is NOT
+        the inverse, that __del__ DOES save when the flag is NOT
         set)."""
         from voice_typer.server import crash_recovery as cr_mod
         from voice_typer.server.crash_recovery import CrashRecovery
@@ -417,7 +417,7 @@ class TestFinalSaveDoneDedup:
         with tempfile.TemporaryDirectory() as tmpdir:
             cr = CrashRecovery(config_dir=Path(tmpdir))
             cr.add("entry that atexit will save")
-            # Force atexit to fire — sets _final_save_done.
+            # Force atexit to fire, sets _final_save_done.
             cr_mod._atexit_flush_all()
             assert cr._final_save_done is True
 
@@ -427,7 +427,7 @@ class TestFinalSaveDoneDedup:
             assert recovery_file.exists()
             mtime_before = recovery_file.stat().st_mtime_ns
 
-            # Force GC of the instance — __del__ fires.
+            # Force GC of the instance, __del__ fires.
             import time
 
             time.sleep(0.05)  # let any FS buffering settle

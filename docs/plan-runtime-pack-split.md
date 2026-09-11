@@ -10,18 +10,18 @@
 > companion document `PLAN_ONNX_INTEGRATION.md` is the **detailed technical
 > reference** for the ONNX migration itself (VAD hidden-state threading,
 > Parakeet TDT decoding, Qwen scope correction, CUDA error classifier
-> preservation). Read both together — this plan references the companion for
+> preservation). Read both together. This plan references the companion for
 > engine internals and focuses on the packaging, distribution, CI/CD, and
 > cross-platform concerns.
 
 ---
 
-## SCOPE — "remove torch" means the project, NOT your device (READ FIRST)
+## SCOPE: "remove torch" means the project, NOT your device (READ FIRST)
 
 > **CRITICAL – user-set boundary (2026-08-13):** Whenever this master plan
 > (or its companion `PLAN_ONNX_INTEGRATION.md`) says "drop torch", "remove
 > torch", or "torch removal", it means **removing torch as a PROJECT
-> dependency and source-code import** — `pyproject.toml`,
+> dependency and source-code import**, `pyproject.toml`,
 > `requirements-lock.txt`, `voice_typer/**/*.py`, Nuitka invocation flags, and
 > the frozen sidecar/worker binaries. It does **NOT** mean uninstalling torch
 > from the user's device.
@@ -37,13 +37,13 @@
 >
 > The migration edits **only** files inside this repository. Dropping torch
 > from `pyproject.toml` / the lockfile / the frozen build is a *project*
-> change and does **not** remove torch from the user's environment — the two
+> change and does **not** remove torch from the user's environment, the two
 > are decoupled.
 >
 > **Whether the user later uninstalls torch from their device is the USER's
 > decision.** Treat it as **OUT OF SCOPE**. The agent finishes the project
 > migration, leaves the user's installed torch (CPU + GPU) fully intact, and
-> the existing torch code paths keep working today — so a migration regression
+> the existing torch code paths keep working today, so a migration regression
 > never destroys the user's pre-existing environment.
 >
 > If an agent believes an environment change (e.g. uninstalling torch to
@@ -66,26 +66,26 @@ This rewrite corrects them:
 | 2 | "Prewarm moves INTO the pack." | Prewarm is a **separate Nuitka-frozen binary** with 3 OS-level schedulers (Windows LogonTrigger, macOS LaunchAgent, Linux systemd). Moving it obsoletes 1,532 LOC of process tracking + 24 OS-scheduler tests + 3 build scripts. | §6 below: prewarm becomes a startup phase of the worker exe, not a separate binary. The OS schedulers are deleted. |
 | 3 | "Torch's ~40,000 files (454 MB)." | Torch 2.13.0 ships **12,118 files / 1,044 MB total**. Only 37 files match prewarm's suffix filter. The 40k number is from a stale comment at `cache_probe.py:221`. | Corrected in §6. |
 | 4 | "onnxruntime already sits in your venv unused." | It's a **transitive dep of `faster-whisper`**. After the split, faster-whisper moves to the pack, so the slim core loses it unless declared explicitly. | §5.3: declare `onnxruntime` explicitly in the slim core's deps for VAD. |
-| 5 | "GPU variants source DLLs from the onnxruntime-gpu package." | `onnxruntime-gpu` does **not** bundle NVIDIA DLLs — it expects system CUDA. | `PLAN_ONNX_INTEGRATION.md` §6.1. Keep `nvidia_dll_paths.py` with `nvidia/*` paths. |
-| 6 | "It already probes the network for update checks — same mechanism." | `docs/auto-update-feature.md` is explicitly **"NOT IMPLEMENTED (design only)"**. No GitHub Releases publishing step exists in CI. | §10: build the auto-update mechanism from scratch. |
-| 7 | "The exact same websocket bridge." | Today's sidecar IS the WS server; Tauri is the client. Adding a worker means the slim core talks to TWO processes — a NEW second hop. | §7: define the worker IPC architecture explicitly. |
+| 5 | "GPU variants source DLLs from the onnxruntime-gpu package." | `onnxruntime-gpu` does **not** bundle NVIDIA DLLs: it expects system CUDA. | `PLAN_ONNX_INTEGRATION.md` §6.1. Keep `nvidia_dll_paths.py` with `nvidia/*` paths. |
+| 6 | "It already probes the network for update checks, same mechanism." | `docs/auto-update-feature.md` is explicitly **"NOT IMPLEMENTED (design only)"**. No GitHub Releases publishing step exists in CI. | §10: build the auto-update mechanism from scratch. |
+| 7 | "The exact same websocket bridge." | Today's sidecar IS the WS server; Tauri is the client. Adding a worker means the slim core talks to TWO processes, a NEW second hop. | §7: define the worker IPC architecture explicitly. |
 | 8 | "Three allowlists in lockstep." | There are **four** allowlists. The fourth (`ALLOWED_EVENT_TYPES` at `event_protocol.rs:49`) has no parity test. | §9.4: add the fourth allowlist + parity test. |
 | 9 | "Pack auto-downloads on first launch by default... no progress bar, no dialog, no toast." | Conflicts with the GDPR-driven `huggingface_consent` gate (`service/model.py:854-912`, CR-11). Pack download phones home to GitHub Releases, revealing user IP to Microsoft. | §8.4: pack download is consent-gated, same as model downloads. |
 | 10 | "Installer drops to ~180 MB; disk drops from ~850 MB to ~430 MB." | Split adds a SECOND Python runtime (~50 MB) inside the worker onefile. Post-split disk is ~530 MB, not ~430 MB. | §5.5: corrected disk footprint. |
-| 11 | "C-CI-8/NU-106 retire." | NU-106 is NOT a AGENTS.md rule — it's an inline evidence tag in the workflow YAML, cited in C-CI-8's rationale. Only C-CI-8 is the rule. | §11.2: correct the rule reference. |
+| 11 | "C-CI-8/NU-106 retire." | NU-106 is NOT a AGENTS.md rule, it's an inline evidence tag in the workflow YAML, cited in C-CI-8's rationale. Only C-CI-8 is the rule. | §11.2: correct the rule reference. |
 | 12 | "Size gate asserts the sidecar stays ≤ ~185 MB." | No such size gate exists in CI today. `tauri-windows-build.yml:509-510` only `Write-Host`s the size. | §11.5: add the size gate. |
 | 13 | "`--nofollow-import-to=torch` is added." | The bare top-level flag is already in `build_prewarm_windows.sh:157`. The sidecar scripts use granular `torch._dynamo`/`_inductor` exclusions, NOT the bare flag. | `PLAN_ONNX_INTEGRATION.md` §8.1. |
-| 14 | "Your own Parakeet engine currently CANNOT run... the transformers library is excluded from the frozen build." | True. Verified: `pyproject.toml` excludes `transformers` from the Nuitka follow set. | Unchanged — this is the motivation for the ONNX migration. |
+| 14 | "Your own Parakeet engine currently CANNOT run... the transformers library is excluded from the frozen build." | True. Verified: `pyproject.toml` excludes `transformers` from the Nuitka follow set. | Unchanged: this is the motivation for the ONNX migration. |
 | 15 | "You already downloaded the ONNX version." | False. No `*.onnx` files, no `grikdotnet` reference, no manifest entry anywhere in the repo. | `PLAN_ONNX_INTEGRATION.md` §3.2. |
 | 16 | 18 edge cases listed. | 0 fully handled by existing code, 5 partially handled, 13 unhandled. No tests exist for any. | §8: re-spec each edge case against the real codebase. |
 
 ---
 
-## 1. The problem — current state (verified)
+## 1. The problem: current state (verified)
 
 ### 1.1 Installer size
 
-The Windows installer is ~253-259 MB (NSIS 259 MB, MSI 257 MB — same content,
+The Windows installer is ~253-259 MB (NSIS 259 MB, MSI 257 MB, same content,
 two installer wrappers). The Linux `.deb`/`.rpm`/AppImage and macOS
 `.dmg`/`.app` are comparable in size. Inside the sidecar, measured from the
 real dev environment:
@@ -115,12 +115,12 @@ real dev environment:
 
 ## 2. The goal (revised)
 
-1. **Remove torch** from VAD + Parakeet (+ Qwen if/when feasible — see
+1. **Remove torch** from VAD + Parakeet (+ Qwen if/when feasible, see
    `PLAN_ONNX_INTEGRATION.md` §4). Installer drops to ~180 MB; disk drops
-   from ~850 MB to ~530 MB (not ~430 MB — the worker onefile includes its
+   from ~850 MB to ~530 MB (not ~430 MB. The worker onefile includes its
    own Python runtime).
 2. **Split the app into two pieces**:
-   - **Slim core** (~30-45 MB): the app itself — UI shell, settings, mic
+   - **Slim core** (~30-45 MB): the app itself, UI shell, settings, mic
      test, cloud engines, tray, hotkeys. Updates cost ~35 MB forever.
    - **ML runtime pack** (~180-200 MB worker onefile, ~450 MB unpacked):
      all offline-transcription machinery (engines + libraries + VAD +
@@ -131,7 +131,7 @@ real dev environment:
 
 ---
 
-## 3. Phase 1 — ONNX migration: remove torch
+## 3. Phase 1: ONNX migration: remove torch
 
 **The detailed technical reference for this phase is
 `PLAN_ONNX_INTEGRATION.md`.** This section is a summary; read the companion
@@ -141,7 +141,7 @@ for engine internals, code sketches, and test lists.
 
 | Engine | Decision | Why | Companion § |
 |---|---|---|---|
-| Silero VAD → ONNX | ✅ Convert (Phase 1a) | `silero_vad.onnx` ~2 MB, runs on `onnxruntime`. **Hidden state must be hoisted into Python** — the JIT module manages it internally, ORT does not. | A |
+| Silero VAD → ONNX | ✅ Convert (Phase 1a) | `silero_vad.onnx` ~2 MB, runs on `onnxruntime`. **Hidden state must be hoisted into Python**. The JIT module manages it internally, ORT does not. | A |
 | Parakeet → ONNX | ✅ Convert (Phase 1b) | Use `onnx-asr` library (Option B-1). TDT decoding handled by the library. Makes Parakeet shippable for the first time. | B |
 | Qwen → ONNX | ⏸ Defer (Phase 1d) | **Qwen is an ASR engine, not an LLM.** `onnxruntime-genai` is the wrong tool. Defer until `qwen_asr` maintainer confirms ONNX support, or export manually (Option C-2). | C |
 | Whisper / faster-whisper / ctranslate2 | ❌ Keep as-is | ctranslate2 does NOT depend on torch (verified via lockfile). | — |
@@ -168,47 +168,47 @@ is "zero hits except `qwen_engine.py`."
 The 2026-08-12 version listed 10 files. The investigation found **30+
 additional sites** that must be swept:
 
-- `scripts/diagnostics.py:177` — actual `import torch` (the CLI diagnostics
+- `scripts/diagnostics.py:177` Actual `import torch` (the CLI diagnostics
   producer, separate from the in-app `diagnostics_export.py`).
-- `tests/conftest.py` — ~190 lines of `mock_torch` plumbing
+- `tests/conftest.py` ~190 Lines of `mock_torch` plumbing
   (`_FakeOutOfMemoryError`, `_FakeTensor`, `_build_mock_torch()`,
   `real_torch` marker, session-scope fixture).
 - 8 literal `import torch` statements in tests
   (`tests/test_vad_dtype_optimization.py` ×7,
   `tests/test_transcription_fallback.py:127`).
-- `scripts/build/voice-typer.spec:112-113,274` — PyInstaller fallback
+- `scripts/build/voice-typer.spec:112-113,274` PyInstaller fallback
   references `silero_vad.jit`, `"transformers"`, `"transformers.models"`,
   `"accelerate"`.
-- `MANIFEST.in:20-26` — `include voice_typer/server/silero_vad.jit`.
-- `pyproject.toml:146` — `"transformers>=5.14.1,<6.0"` (pulls torch
+- `MANIFEST.in:20-26` `include voice_typer/server/silero_vad.jit`.
+- `pyproject.toml:146` `"transformers>=5.14.1,<6.0"` (pulls torch
   transitively).
-- `pyproject.toml:791` — `"transformers.*"` mypy override.
-- `pyproject.toml:632` — `"ignore::DeprecationWarning:torch.jit._serialization"`
+- `pyproject.toml:791` `"transformers.*"` mypy override.
+- `pyproject.toml:632` `"ignore::DeprecationWarning:torch.jit._serialization"`
   pytest filter.
-- `requirements-lock.txt` — 18 Linux `nvidia-*` packages + `triton`/`sympy`/
+- `requirements-lock.txt` 18 Linux `nvidia-*` packages + `triton`/`sympy`/
   `mpmath`/`networkx` + `transformers`/`tokenizers`/`safetensors` (transitive).
 - 6 build shell scripts with `--nofollow-import-to=torch.*` /
   `--module-parameter=torch-disable-jit=no` flags (sidecar + prewarm, ×3
   platforms).
-- `.github/workflows/tauri-windows-build.yml:422-475, 517-535` — full
+- `.github/workflows/tauri-windows-build.yml:422-475, 517-535` Full
   NU-106 flag block.
 - 13 doc files with 30+ torch references (including
   `docs/adr/0020-desktop-runtime-migration-analysis.md:954` which says
-  "vad.py, silero_vad.jit — Unchanged" — becomes false).
+  "vad.py, silero_vad.jit: Unchanged", becomes false).
 - `tests/tauri/test_config_script_drift.py:437-512` —
   `TestNuitkaSidecarBuildsDoNotExcludeTorchDistributed` HARD-ENFORCES the
   `--module-parameter=torch-disable-jit=no` flag and FORBIDS 5
   `--nofollow-import-to=torch.*` flags. Retiring the flag REQUIRES
   deleting/updating this test class.
 
-### 3.4 Prewarm impact — corrected
+### 3.4 Prewarm impact: corrected
 
 The 2026-08-12 version said "prewarm gets FASTER" and cited "torch's ~40,000
 files (454 MB)." Both claims are wrong:
 
 - Torch 2.13.0 ships **12,118 files / 1,044 MB total**. Only **37 files /
   945 MB** match prewarm's suffix filter (`{.pyc,.so,.pyd,.dll,.dylib,.json,.txt}`
-  — `.py` is deliberately excluded). The 40k number is from a stale comment
+ `.py` is deliberately excluded). The 40k number is from a stale comment
   at `cache_probe.py:221`.
 - `_warm_imports` lives at `cache_probe.py:281-365` (85 lines, not 21 as the
   old plan's "lines 282-302" reference implied).
@@ -227,18 +227,18 @@ measures tray-import time, not prewarm). The plan should commit to a target:
 
 ---
 
-## 4. Phase 2 — the split: slim core + runtime pack
+## 4. Phase 2: the split: slim core + runtime pack
 
 ### 4.1 What "splitting" means
 
 Today the installer is one big box. We split into two:
 
-- **Box A — slim core.** Everything except offline-transcription machinery:
+- **Box A: slim core.** Everything except offline-transcription machinery:
   window, settings, tray, hotkeys, mic test, cloud engines, config.
-- **Box B — runtime pack (worker exe).** A frozen Nuitka onefile containing:
+- **Box B: runtime pack (worker exe).** A frozen Nuitka onefile containing:
   onnxruntime, ctranslate2 + faster-whisper, numpy/scipy, av, pyrnnoise,
   Silero VAD ONNX, Parakeet tokenizer, the prewarm logic (absorbed as a
-  startup phase — see §6).
+  startup phase: see §6).
 
 ### 4.2 Why a "worker exe" and not loose files
 
@@ -260,7 +260,7 @@ must be corrected:
   SECOND websocket connection. This is a **new 1-host↔2-processes pattern**,
   not "the same bridge."
 
-### 4.4 Worker exe build — concrete specification
+### 4.4 Worker exe build: concrete specification
 
 The 2026-08-12 version gave no Nuitka flags, no entry point, no build script
 for the worker. This rewrite specifies them:
@@ -271,7 +271,7 @@ for the worker. This rewrite specifies them:
 - **Build script:** `scripts/build/build_worker_windows.sh` (new), plus
   `build_worker_linux.sh` and `build_worker_macos.sh`. Modeled on the
   existing `build_prewarm_*.sh` scripts (which are the closest existing
-  analog — a separate Nuitka onefile).
+  analog: a separate Nuitka onefile).
 - **Nuitka flags:**
   ```bash
   nuitka --standalone --onefile \
@@ -303,33 +303,33 @@ for the worker. This rewrite specifies them:
 
 - The pack gets its **own version number** (e.g., "runtime-pack v3"),
   separate from the app's version. This version only changes when the
-  engines/libraries inside it change — which is rare.
+  engines/libraries inside it change: which is rare.
 - **App update** → download the new slim core only (~35 MB). The pack on
   the user's disk keeps working.
 - **Pack update** → the app checks the pack version on launch, and if a
-  newer pack exists, downloads it in the background (with consent — see §8.4).
+  newer pack exists, downloads it in the background (with consent, see §8.4).
 
-### 4.6 Integrity — verify-before-use
+### 4.6 Integrity: verify-before-use
 
 The 2026-08-12 version said the pack "reuses existing `tauri-binaries.json`
-machinery." This is misleading — the codebase has **three separate
+machinery." This is misleading: the codebase has **three separate
 integrity systems**, and the pack would be a fourth:
 
-1. `model_hashes.json` + `verify_model_integrity()` — for HF model files.
-2. `tauri-binaries.json` + `verify_tauri_binary_or_skip()` — for the Tauri
+1. `model_hashes.json` + `verify_model_integrity()` For HF model files.
+2. `tauri-binaries.json` + `verify_tauri_binary_or_skip()` For the Tauri
    host binary (only 3 entries: `voice-typer-tauri` / `.exe` / `.app`).
 3. `voice_typer/server/native/binaries.json` + `update_native_manifests.py`
-   — for the native hotkey listener.
+ For the native hotkey listener.
 
 **Decision:** create a fourth manifest `pack-manifest.json` at
 `%LOCALAPPDATA%\voice-typer\runtime-pack\<version>\pack-manifest.json`
 (schema: `{version, sha256, files: [{name, sha256, size}], min_proto_version}`).
-Do NOT extend `tauri-binaries.json` — its schema is scoped to a single host
+Do NOT extend `tauri-binaries.json` Its schema is scoped to a single host
 binary spawned by the launcher, and extending it creates coupling between
 unrelated systems.
 
 The `autostart_launcher.py` verify-before-use logic is reused as a pattern
-(not as code) — the worker launcher gets its own `verify_pack_or_skip()`
+(not as code): the worker launcher gets its own `verify_pack_or_skip()`
 function modeled on `verify_tauri_binary_or_skip()`.
 
 ### 4.7 Where the pack lives (cross-platform)
@@ -358,20 +358,20 @@ The worker exe path is resolved per-platform via a new
   the "Preparing…" line.
 - Metered connection: a setting "Download offline engine later", default off
   (auto-download). On Windows, detect metered via `NLM` API; on Linux/macOS,
-  no reliable detection — the setting is manual.
+  no reliable detection: the setting is manual.
 
 ### 4.9 What works without the pack
 
 | User action | Pack present | Pack missing |
 |---|---|---|
 | Mic test page | full levels + VAD sensitivity | RMS meter works; VAD "smartness" degrades silently (VAD is in the pack) |
-| Cloud transcription (Groq/OpenAI/Deepgram) | works | **works — cloud never needs the pack** (verified: `cloud_engines.py` + `llm_polish.py` have zero torch/ctranslate2/onnxruntime imports) |
+| Cloud transcription (Groq/OpenAI/Deepgram) | works | **works: cloud never needs the pack** (verified: `cloud_engines.py` + `llm_polish.py` have zero torch/ctranslate2/onnxruntime imports) |
 | Local whisper / Parakeet | instant | silent download starts, "Preparing…" line, then works |
 | Check for updates | downloads slim core only | same |
 
 **Correction:** the 2026-08-12 version said "mic test... VAD smartness
 degrades silently." The actual mic test (`voice_typer/server/service/microphone_test.py`)
-uses RMS only — no VAD. The degradation is: VAD-dependent features (smart
+uses RMS only: no VAD. The degradation is: VAD-dependent features (smart
 silence trimming) silently skip, but the level meter works. The plan should
 not over-promise VAD features in mic test.
 
@@ -401,7 +401,7 @@ not over-promise VAD features in mic test.
 
 ### 5.4 Why the second Python runtime
 
-The worker is a Nuitka onefile — it bundles its own Python runtime (~50 MB)
+The worker is a Nuitka onefile, it bundles its own Python runtime (~50 MB)
 because Nuitka compiles Python to C and links against libpython. This is
 unavoidable for a standalone frozen binary. The slim core also has its own
 Python runtime. Hence two runtimes.
@@ -418,7 +418,7 @@ is the real prize: 35 MB per release vs 200 MB per release.
 
 ---
 
-## 6. Prewarm — re-architected (not just "moved")
+## 6. Prewarm: re-architected (not just "moved")
 
 ### 6.1 What prewarm is today
 
@@ -465,7 +465,7 @@ worker's startup sequence. The `_warm_imports` package list becomes
 worker-internal (onnxruntime + ctranslate2 + numpy/scipy).
 
 **Trade-off:** the worker takes longer to start (it warms before accepting
-requests). But the user never sees this — the worker starts in the
+requests). But the user never sees this, the worker starts in the
 background after the pack download completes, and by the time the user
 clicks "transcribe," the worker is warm.
 
@@ -498,10 +498,10 @@ surface was **restored verbatim from commit 5a319872** (per user
 instruction: restore the deleted surface, do not reimplement, do not
 revert any unrelated session work). What was restored:
 
-- `voice_typer/server/prewarm/status.py` — `get_prewarm_status`,
+- `voice_typer/server/prewarm/status.py` `get_prewarm_status`,
   `_probe_cache_status` + TTL probe cache, file read/write helpers;
   adapted to read/write the **worker status file** `prewarm-status.json`
-  under the config dir (written by the worker warm phase — see
+  under the config dir (written by the worker warm phase, see
   `voice_typer/worker/_ws_server.py`) instead of the deleted
   sentinel/PID machinery. `prewarm_running` field dropped (no more
   process-tracker).
@@ -519,9 +519,9 @@ revert any unrelated session work). What was restored:
 a detached `pythonw -m voice_typer.server.prewarm --force` subprocess,
 and that module is deleted by design (P-1). The restored handler
 instead runs the warm phase in-process via
-`prewarm.status.run_prewarm_now()` — `warm_imports_for_worker` (the
+`prewarm.status.run_prewarm_now()` `warm_imports_for_worker` (the
 same file-paging pass the worker runs at startup) on a daemon thread,
-plus a status-file refresh — so "Run Prewarm Now" re-warms the OS
+plus a status-file refresh: so "Run Prewarm Now" re-warms the OS
 standby cache on demand with zero deleted machinery. Start/stop of the
 AUTOMATIC warm phase remains the `fast_startup` toggle.
 
@@ -532,7 +532,7 @@ ADR-0020 §16 addendum 2026-08-14).
 
 ---
 
-## 7. Worker IPC architecture (new — was under-specified)
+## 7. Worker IPC architecture (new, was under-specified)
 
 ### 7.1 The new 1-host↔2-processes pattern
 
@@ -588,18 +588,18 @@ The 2026-08-12 version's 18 edge cases implicitly introduce new IPC events
 that must be added to all FOUR allowlists (see §9.4):
 
 1. `pack_download_started` (push)
-2. `pack_download_progress` (push, silent — no UI)
+2. `pack_download_progress` (push, silent: no UI)
 3. `pack_download_completed` (push)
 4. `pack_download_failed` (push)
 5. `pack_verified` (push)
 6. `pack_missing` (push)
 7. `pack_corrupt` (push)
-8. `pack_ready` (push — worker started + prewarmed)
+8. `pack_ready` (push: worker started + prewarmed)
 9. `worker_started` (push)
 10. `worker_crashed` (push)
 11. `worker_unloaded` (push)
-12. `transcribe_offline` (request — slim core → worker)
-13. `transcribe_offline_result` (push — worker → slim core)
+12. `transcribe_offline` (request: slim core → worker)
+13. `transcribe_offline_result` (push: worker → slim core)
 
 Each must be added to:
 - `_COMMAND_REGISTRY` (`voice_typer/server/ipc/registry.py:172`).
@@ -616,11 +616,11 @@ Plus the parity tests:
 - `tests/test_relaunch_event_name_parity.py`.
 - `tests/test_notification_event_name.py`.
 - A **new** `tests/test_event_types_parity.py` (the fourth allowlist has no
-  parity test today — this is a gap to fill).
+  parity test today: this is a gap to fill).
 
 ---
 
-## 8. Edge cases — re-verified against the codebase
+## 8. Edge cases: re-verified against the codebase
 
 The 2026-08-12 version listed 18 edge cases. The investigation found: 0
 fully handled by existing code, 5 partially handled, 13 unhandled. This
@@ -634,7 +634,7 @@ section re-specifies each against the real codebase.
 - **Plan:** the pack downloader reuses the resume pattern from
   `service/model.py:_download_whisper_family`. The partial file is saved as
   `pack-<version>.partial`; on next launch, it continues from the byte
-  offset. The partial file is never trusted — only a fully downloaded,
+  offset. The partial file is never trusted, only a fully downloaded,
   checksum-verified pack is ever used.
 - **Test:** `tests/test_pack_download_resume.py` (new).
 
@@ -660,13 +660,13 @@ section re-specifies each against the real codebase.
   the process exits).
 - **Test:** `tests/test_pack_atomic_swap.py` (new, Windows + POSIX).
 
-### 8.4 Consent gate (CONFLICT — corrected)
+### 8.4 Consent gate (CONFLICT: corrected)
 
-- **Codebase state:** `service/model.py:854-912` — `_require_huggingface_consent()`
+- **Codebase state:** `service/model.py:854-912` `_require_huggingface_consent()`
   blocks all HF model downloads without consent (GDPR-driven, CR-11).
   `tests/test_service_download_consent.py` enforces it.
 - **2026-08-12 plan said:** "no progress bar, no dialog, no toast" for the
-  pack. This **violates** the consent pattern — the pack download phones
+  pack. This **violates** the consent pattern, the pack download phones
   home to GitHub Releases, revealing user IP to Microsoft.
 - **Corrected plan:** the pack download is consent-gated, same as model
   downloads. The consent is requested once (on first launch or first
@@ -680,7 +680,7 @@ section re-specifies each against the real codebase.
 ### 8.5 Metered connection
 
 - **Codebase state:** no metered detection exists.
-- **Plan:** Windows — `NLM` API via `ctypes`/`comtypes`. Linux/macOS — no
+- **Plan:** Windows, `NLM` API via `ctypes`/`comtypes`. Linux/macOS, no
   reliable detection; the setting is manual ("Download offline engine
   later"). Default: auto-download on Windows, manual on Linux/macOS (until
   a reliable detection API is found).
@@ -688,7 +688,7 @@ section re-specifies each against the real codebase.
 
 ### 8.6 Corporate networks / proxies
 
-- **Codebase state:** the existing update check (NOT IMPLEMENTED — see §10)
+- **Codebase state:** the existing update check (NOT IMPLEMENTED, see §10)
   was supposed to handle proxies. The pack downloader should use the same
   `requests`/`httpx` stack with system proxy env vars (`HTTP_PROXY`,
   `HTTPS_PROXY`).
@@ -749,7 +749,7 @@ section re-specifies each against the real codebase.
 ### 8.13 Dual instance race
 
 - **Codebase state:** `VoiceTyperSingleInstance` enforces a single app
-  instance via mutex (Windows) / lockfile (POSIX — best-effort).
+  instance via mutex (Windows) / lockfile (POSIX, best-effort).
 - **Plan:** the pack downloader takes its own lock file
   (`pack-<version>.lock`) to serialize downloads across instances.
 - **Test:** `tests/test_pack_dual_instance.py` (new).
@@ -805,34 +805,34 @@ section re-specifies each against the real codebase.
 
 ---
 
-## 9. Already exists — reuse, don't rebuild (verified)
+## 9. Already exists: reuse, don't rebuild (verified)
 
 The 2026-08-12 version listed 12 existing pieces. The investigation verified
 them and corrected the claims:
 
 | Existing piece | Where | What we reuse it for | Verified? |
 |---|---|---|---|
-| Download-progress events + resume | `useModelDownload.ts`, `event_bus.py`, `download_progress` push | Pattern (not code) for the pack downloader. `useModelDownload.ts` does NOT support silent mode — needs a separate `usePackDownload` hook. | ✅ pattern, ❌ direct reuse |
+| Download-progress events + resume | `useModelDownload.ts`, `event_bus.py`, `download_progress` push | Pattern (not code) for the pack downloader. `useModelDownload.ts` does NOT support silent mode: needs a separate `usePackDownload` hook. | ✅ pattern, ❌ direct reuse |
 | Model download service | `service/model.py` | Pattern for the pack downloader. Only `DownloadOutcome`, `push_progress`, `notify`, `poll_download_progress` are reusable; transport, manifest format, polling strategy, and consent must be new. | ✅ pattern, ❌ direct reuse |
-| Integrity manifest | `tauri-binaries.json`, `autostart_launcher.py`, `update_tauri_manifests.py` | Pattern for `pack-manifest.json` (new file). Do NOT extend `tauri-binaries.json` — different scope. | ✅ pattern, ❌ direct reuse |
-| Websocket IPC bridge | `--ws` flag, `websockets` package, IPC registry | Pattern for the worker's WS server. The slim-core sidecar becomes a WS CLIENT of the worker — a new second hop. | ✅ pattern, ❌ direct reuse |
+| Integrity manifest | `tauri-binaries.json`, `autostart_launcher.py`, `update_tauri_manifests.py` | Pattern for `pack-manifest.json` (new file). Do NOT extend `tauri-binaries.json` Different scope. | ✅ pattern, ❌ direct reuse |
+| Websocket IPC bridge | `--ws` flag, `websockets` package, IPC registry | Pattern for the worker's WS server. The slim-core sidecar becomes a WS CLIENT of the worker, a new second hop. | ✅ pattern, ❌ direct reuse |
 | Prewarm tooling | `voice_typer/server/prewarm/` | Logic moves INTO the worker as a startup phase. The separate binary + OS schedulers are DELETED. | ✅ logic, ❌ binary |
 | Single-instance mutex | `VoiceTyperSingleInstance` | Pattern for the worker's own lock file. | ✅ pattern |
 | Auto-update mechanism | `docs/auto-update-feature.md` | **NOT IMPLEMENTED (design only).** Must be built from scratch. See §10. | ❌ does not exist |
 | Code-signing pipeline | `tauri-windows-build.yml` (4 steps) | Extend to sign the worker exe (5th binary). | ✅ exists, needs extension |
 | Cloud engines | `cloud_engines.py`, `llm_polish.py` | Core works without the pack (verified: zero torch/ctranslate2/onnxruntime imports). | ✅ verified |
 | Mic test service | `service/microphone_test.py` | Degraded mode when pack is absent (RMS only, no VAD). | ✅ verified |
-| NSIS installer config | `tauri.windows-x86_64.conf.json` | "Include offline engine pack" checkbox requires a CUSTOM .nsi template — Tauri v2's `bundle.windows.nsis` config has no checkbox option. | ⚠️ needs custom .nsi |
+| NSIS installer config | `tauri.windows-x86_64.conf.json` | "Include offline engine pack" checkbox requires a CUSTOM .nsi template, Tauri v2's `bundle.windows.nsis` config has no checkbox option. | ⚠️ needs custom .nsi |
 
 ### 9.1 The "three allowlists in lockstep" claim is understated
 
 There are actually **four allowlists** + several auxiliary sync points:
 
-1. `_COMMAND_REGISTRY` — `voice_typer/server/ipc/registry.py:172` (65 entries).
-2. `ALLOWED_COMMANDS` (TS) — `voice_typer/client/src/main/allowed-commands.ts:70`.
-3. `allowed_commands()` (Rust) — `src-tauri/src/commands/sidecar_cmds/allowlist.rs:139`.
-4. **`ALLOWED_EVENT_TYPES`** (Rust) — `src-tauri/src/sidecar/ws/event_protocol.rs:49`
-   (40 entries, **no parity test** — adding a Python event without adding it
+1. `_COMMAND_REGISTRY` `voice_typer/server/ipc/registry.py:172` (65 entries).
+2. `ALLOWED_COMMANDS` (TS), `voice_typer/client/src/main/allowed-commands.ts:70`.
+3. `allowed_commands()` (Rust), `src-tauri/src/commands/sidecar_cmds/allowlist.rs:139`.
+4. **`ALLOWED_EVENT_TYPES`** (Rust), `src-tauri/src/sidecar/ws/event_protocol.rs:49`
+   (40 entries, **no parity test**: adding a Python event without adding it
    here silently drops the frame).
 
 Plus:
@@ -864,7 +864,7 @@ Helper scripts: `scripts/add_i18n_keys.py`, `backfill_i18n_keys.py`,
 - `"Pack corrupt"` (tray notification)
 - `"Disk space low"` (tray notification)
 - `"Pack download complete"` (tray notification)
-- `"Include offline engine pack"` (NSIS installer text — NOT covered by
+- `"Include offline engine pack"` (NSIS installer text: NOT covered by
   renderer i18n parity test; needs separate installer-i18n story +
   `scripts/check_branding.py` `BUILD_CONFIG_FILES` allowlist entry)
 - `"Keep offline engine running"` (settings checkbox, per §7.3)
@@ -874,13 +874,13 @@ Typer"` at `branding.py:31`).
 
 ---
 
-## 10. Auto-update mechanism (must be built — does not exist today)
+## 10. Auto-update mechanism (must be built, does not exist today)
 
 The 2026-08-12 version claimed "it already probes the network for update
-checks — same mechanism." This is **false**:
+checks: same mechanism." This is **false**:
 
 - `docs/auto-update-feature.md` is explicitly **"NOT IMPLEMENTED (design only)"**.
-- No GitHub Releases publishing step exists in CI — only
+- No GitHub Releases publishing step exists in CI, only
   `actions/upload-artifact`.
 - No "network is back" retry trigger exists.
 
@@ -890,7 +890,7 @@ checks — same mechanism." This is **false**:
   to the release workflow. Upload the slim-core installer + the pack
   onefile + `pack-manifest.json` as release assets.
 - **Pack-version check:** on launch, the slim core fetches the latest
-  `pack-manifest.json` from the GitHub Releases URL (with consent — §8.4).
+  `pack-manifest.json` from the GitHub Releases URL (with consent, §8.4).
   If the version is newer than the local pack, download in the background.
 - **Network-is-back trigger:** use Tauri's `window.addEventListener('online')`
   in the renderer (or `tauri-plugin-network` on the Rust side) to retry
@@ -922,7 +922,7 @@ The 2026-08-12 version cited "C-CI-8/NU-106." This is imprecise:
 
 - **C-CI-8** is a AGENTS.md rule that mandates `--module-parameter=torch-disable-jit=no`
   to protect the Nuitka bundle while torch is shipped.
-- **NU-106** is NOT a standalone AGENTS.md rule — it's an inline
+- **NU-106** is NOT a standalone AGENTS.md rule, it's an inline
   evidence tag in `tauri-windows-build.yml:422-448` and
   `build_sidecar_windows.sh:155-166`, cited in C-CI-8's rationale.
 
@@ -937,7 +937,7 @@ FORBIDS 5 `--nofollow-import-to=torch.*` flags. Retiring the flag REQUIRES
 deleting/updating this test class. The plan must list this test as a
 mandatory change in Phase 1c.
 
-### 11.3 "Grep frozen bundle for torch" — implementation
+### 11.3 "Grep frozen bundle for torch", implementation
 
 No existing CI step does this. Nuitka onefile is a single ~100 MB PE binary.
 The grep requires `strings` (Linux/macOS) or a Python script that extracts
@@ -953,7 +953,7 @@ echo "Bundle is torch-free."
 Add as a CI step in `tauri-windows-build.yml` (and macOS/Linux equivalents)
 after the sidecar build.
 
-### 11.4 Size gate — does not exist today
+### 11.4 Size gate: does not exist today
 
 `tauri-windows-build.yml:509-510` only `Write-Host`s the size. Add a real
 gate:
@@ -981,36 +981,36 @@ The user must update C-CI-11 to include it. In CI:
 - **Windows:** add the worker to the foreach array at
   `tauri-windows-build.yml:620-624`.
 - **macOS:** add to `tauri-macos-build.yml:661-667` (currently hardcoded
-  list — needs a new entry).
+  list: needs a new entry).
 - **Linux:** unsigned by design (`tauri-linux-build.yml:393-397`).
 
 ### 11.6 Cross-platform CI
 
 The 2026-08-12 version was Windows-only. The plan must address:
 
-- **macOS:** `tauri-macos-build.yml` — notarization + stapling for the
+- **macOS:** `tauri-macos-build.yml` Notarization + stapling for the
   worker. New `entitlements.plist` entry if the worker needs mic access.
-- **Linux:** `tauri-linux-build.yml` — `.deb`/`.rpm`/AppImage packaging for
+- **Linux:** `tauri-linux-build.yml` `.deb`/`.rpm`/AppImage packaging for
   the slim core. The pack is a separate download (not in the `.deb`).
 
 ### 11.7 Ratchet baselines
 
 After the migration, regenerate all 4 ratchet baselines:
 
-- `coverage-baseline.json` (65.23% today — removing torch tests may drop
+- `coverage-baseline.json` (65.23% today: removing torch tests may drop
   coverage; run `scripts/coverage_ratchet_check.py --regenerate --force`).
-- `mypy-baseline.json` (696 errors — torch-specific ignores go stale).
-- `pyrefly-baseline.json` (~276 entries — 14+ for parakeet/qwen/prewarm go
+- `mypy-baseline.json` (696 errors: torch-specific ignores go stale).
+- `pyrefly-baseline.json` (~276 entries: 14+ for parakeet/qwen/prewarm go
   stale).
 - `ruff-baseline.json` (torch-specific noqa comments go stale).
 
-**Note:** ratchets refuse to auto-regenerate on improvement — the
+**Note:** ratchets refuse to auto-regenerate on improvement, the
 `--regenerate --force` flag is required.
 
 ### 11.8 `.husky/pre-push` no longer runs pytest
 
 The pre-push hook was leaned down: pytest (even the fast subset) was
-removed — the full suite is greened at the end of every task
+removed: the full suite is greened at the end of every task
 (AGENTS.md working convention), so push-time verification keeps only
 the cached client typecheck + the mypy ratchet. The torch-import
 concern below is now moot for pre-push; it applies to local
@@ -1032,23 +1032,23 @@ Update `tauri-build.yml` download steps in lockstep.
 ## 12. Execution order (revised)
 
 > **Status (2026-08-15):** Phases 1a–1d, 2a–2b implemented. Updated:
-> (a) Phase 1d Qwen → ONNX is DONE — torch engine removed entirely
+> (a) Phase 1d Qwen → ONNX is DONE, torch engine removed entirely
 > (``qwen_onnx_model.py``); (b) the Rust host's worker *spawn* is
 > IMPLEMENTED (`spawn_worker_release` / `spawn_worker_dev_mode` in
 > `src-tauri/src/sidecar/spawn/worker.rs`, `parse_worker_started`
-> handshake, 6 unit tests — committed 2026-08-15); the remaining gap is
+> handshake, 6 unit tests: committed 2026-08-15); the remaining gap is
 > main.rs WIRING: `WorkerState` is not yet `app.manage()`d and nothing
 > calls `initialize_worker` (the pack-verified spawn trigger), and the
 > slim-core → worker ``transcribe_offline`` forwarding hop is still a
-> stub ack — the runtime split is NOT yet end-to-end; (c) Phase 2c/2d:
+> stub ack: the runtime split is NOT yet end-to-end; (c) Phase 2c/2d:
 > Phase 2d launch-time existence checks IMPLEMENTED 2026-08-15
 > (``startup_tasks.check_offline_pack_on_launch`` wired into
-> ``StartupSequence`` — cheap existence check, background checksum,
+> ``StartupSequence`` Cheap existence check, background checksum,
 > ``offline_pack_missing`` event, consent-gated silent re-download;
 > ``get_status`` now carries ``offline_pack`` state; degradation markers
 > in ``transcribe_offline`` + mic-test auto-transcribe). Phase 2c CI
 > gates are PRE-WIRED (worker build + signing + torch-free + size gates +
-> artifact uploads — all conditional on ``build_worker_*.sh``). The
+> artifact uploads: all conditional on ``build_worker_*.sh``). The
 > slim-core BUILD (sidecar without ML libs) + custom .nsi pack checkbox
 > + full-offline artifact remain BLOCKED: the slim-core server still
 > imports the ML stack in 10 files (vad.py, transcription.py,
@@ -1057,20 +1057,20 @@ Update `tauri-build.yml` download steps in lockstep.
 > complete the main.rs worker-spawn trigger + transcribe_offline
 > forwarding first (see "Remaining work" below). C-CI-11 (5th binary)
 > + C-CI-13 (worker binary name) updated 2026-08-15 by the user's
-> direction; (d) the C-DATA-1 rule-text extension — DONE
+> direction; (d) the C-DATA-1 rule-text extension, DONE
 > 2026-08-15: the USER added category (4) "offline-pack download from
 > GitHub Releases" to C-DATA-1 in AGENTS.md, so the pack download is
 > explicitly permitted whether or not it is consent-gated (see
 > `docs/auto-update-feature.md`).
 
-1. **Phase 1a — Silero VAD → ONNX.** See `PLAN_ONNX_INTEGRATION.md` §2.
+1. **Phase 1a: Silero VAD → ONNX.** See `PLAN_ONNX_INTEGRATION.md` §2.
    - Rewrite `vad.py` (ORT backend + hidden state threading).
    - Add `silero_vad.onnx` + packaging (`MANIFEST.in`, `voice-typer.spec`,
      `build_sidecar_*.sh`).
    - Rewrite `tests/test_vad.py`, delete `tests/test_vad_dtype_optimization.py`.
    - Update `docs/adr/0005-silero-vad.md`.
    - **Gate:** VAD tests pass with ORT; `bench/bench_vad.py` latency ≤ torch baseline.
-2. **Phase 1b — Parakeet → ONNX.** See `PLAN_ONNX_INTEGRATION.md` §3.
+2. **Phase 1b: Parakeet → ONNX.** See `PLAN_ONNX_INTEGRATION.md` §3.
    - Rewrite `parakeet_engine.py` (use `onnx-asr` Option B-1).
    - Add `voice_typer/stubs/onnx_asr.pyi`.
    - Repopulate `model_hashes.json` via `scripts/populate_model_hashes.py`.
@@ -1079,7 +1079,7 @@ Update `tauri-build.yml` download steps in lockstep.
    - Add `ALLOW_PATTERNS_PARAKEET_ONNX` to `security/model_integrity.py`.
    - Add 5 new `tests/test_parakeet_onnx_*.py`.
    - **Gate:** Parakeet parity test passes (edit distance ≤ threshold).
-3. **Phase 1c — torch sweep (except Qwen).** See `PLAN_ONNX_INTEGRATION.md` §8.3.
+3. **Phase 1c: torch sweep (except Qwen).** See `PLAN_ONNX_INTEGRATION.md` §8.3.
    - Sweep the 30+ torch import sites (§3.3).
    - Update `scripts/diagnostics.py:175-199`.
    - Update `pyproject.toml` (drop `torch>=2.0,<3.0`; keep `transformers`
@@ -1093,36 +1093,36 @@ Update `tauri-build.yml` download steps in lockstep.
    - **Gate:** `grep -ri "import torch" voice_typer/` → zero hits except
      `qwen_engine.py`. Full workflow run, confirmed with user (C-CI-2).
    - **USER action:** retire C-CI-8 in AGENTS.md.
-4. **Phase 2a — worker exe skeleton.** See §4.4, §7.
+4. **Phase 2a: worker exe skeleton.** See §4.4, §7.
    - New `voice_typer/worker/__main__.py` entry point.
    - New `scripts/build/build_worker_*.sh` (3 platforms).
    - New `src-tauri/src/platform/worker_path.rs`.
    - Add worker to all 5 platform tauri conf files (`externalBin`).
    - Pack manifest (`pack-manifest.json`) + `verify_pack_or_skip()`.
-5. **Phase 2b — silent background downloader.** See §8, §10.
+5. **Phase 2b: silent background downloader.** See §8, §10.
    - New `voice_typer/server/service/pack.py` (pack downloader, modeled on
      `service/model.py` but separate).
    - New `usePackDownload.ts` hook (silent mode).
-   - New IPC events (13 — see §7.4) in all 4 allowlists + parity tests.
+   - New IPC events (13: see §7.4) in all 4 allowlists + parity tests.
    - New `tests/test_event_types_parity.py` (4th allowlist).
    - All 18 edge-case tests (§8).
    - Auto-update mechanism (§10): GitHub Releases publishing, pack-version
      check, network-is-back trigger.
    - All 8 locale files updated with new strings (§9.3).
    - **USER action (DONE 2026-08-15):** C-DATA-1 in AGENTS.md extended
-     with category (4) — offline-pack download from GitHub Releases.
-6. **Phase 2c — slim core build.** See §4, §11.
+     with category (4): offline-pack download from GitHub Releases.
+6. **Phase 2c: slim core build.** See §4, §11.
    - Sidecar build without ML libraries.
    - Custom .nsi template for "Include offline engine pack" checkbox.
    - Full-offline artifact (slim core + pack bundled).
    - Worker exe signing added to CI (Windows + macOS).
    - New artifact names (C-CI-13).
    - **USER action:** update C-CI-11 in AGENTS.md (5th binary).
-7. **Phase 2d — launch-time existence check + degradation matrix.** See §8.10.
+7. **Phase 2d: launch-time existence check + degradation matrix.** See §8.10.
    - Cheap existence check on launch.
    - Background checksum check.
    - Degradation matrix live in mic test + cloud paths.
-8. **Phase 1d — Qwen → ONNX (deferred).** See `PLAN_ONNX_INTEGRATION.md` §4.
+8. **Phase 1d: Qwen → ONNX (deferred).** See `PLAN_ONNX_INTEGRATION.md` §4.
    - Decide Option C-1/C-2/C-3.
    - If C-3 (defer indefinitely), document the decision and accept that
      torch stays for Qwen.
@@ -1133,16 +1133,16 @@ Update `tauri-build.yml` download steps in lockstep.
 
 ## 13. Out of scope (not part of this plan)
 
-- Converting whisper to ONNX (decided: no — ctranslate2 already torch-free).
+- Converting whisper to ONNX (decided: no, ctranslate2 already torch-free).
 - Removing av / pyrnnoise / PIL (open decision 3 in the 2026-08-12 version —
   optional later pass).
 - **GPU runtime pack** (open follow-up: CPU pack is the default; a GPU pack
   variant is a separate project. Note: `onnxruntime-gpu` does NOT bundle
-  NVIDIA DLLs — see `PLAN_ONNX_INTEGRATION.md` §6.1. A GPU pack must bundle
+  NVIDIA DLLs, see `PLAN_ONNX_INTEGRATION.md` §6.1. A GPU pack must bundle
   `nvidia-*-cu12` wheels or expect system CUDA.).
 - Cloud-only / streaming transcription alternatives.
 - Removing `sys.path` hacks used by `nvidia_dll_paths.py` (the `nvidia/*`
-  paths survive torch removal — see `PLAN_ONNX_INTEGRATION.md` §6.2).
+  paths survive torch removal, see `PLAN_ONNX_INTEGRATION.md` §6.2).
 
 ---
 
@@ -1157,11 +1157,11 @@ Update `tauri-build.yml` download steps in lockstep.
    with a "Keep offline engine running" setting. See §7.3.
 4. **Metered-connection default.** Auto-download on Windows (NLM detection),
    manual on Linux/macOS. See §8.5.
-5. **Full-offline installer as permanent second artifact.** Yes — always
+5. **Full-offline installer as permanent second artifact.** Yes, always
    publish both. The slim core is the default; the full-offline installer
    exists for offline-install scenarios.
 6. **The optional parallel cut list** (av / pyrnnoise / PIL). Same as the
-   2026-08-12 version — optional later pass, each cut takes a feature.
+   2026-08-12 version: optional later pass, each cut takes a feature.
 7. **macOS GPU for Parakeet.** Test `CoreMLExecutionProvider` speedup. If
    <20% faster than CPU, ship CPU-only. See `PLAN_ONNX_INTEGRATION.md` §6.6.
 8. **Pack source.** GitHub Releases vs. a CDN. Recommendation: GitHub

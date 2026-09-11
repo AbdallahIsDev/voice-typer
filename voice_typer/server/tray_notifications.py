@@ -1,21 +1,21 @@
-"""Tray notification handling — extracted from ``tray.py``.
+"""Tray notification handling, extracted from ``tray.py``.
 
 (Phase 4.5 spaghetti split): the notification concern
 was previously inlined on the ``TrayIcon`` class alongside pystray
 lifecycle, state queuing, menu building, and Electron window
 management. This module owns the four notification-related operations:
 
-  - :func:`notify` — respect the user's notifications-enabled toggle
+  - :func:`notify`: respect the user's notifications-enabled toggle
     before displaying.
-  - :func:`notify_safety` — bypass the toggle (used for safety-critical
+  - :func:`notify_safety`: bypass the toggle (used for safety-critical
     messages that the user must see regardless of preference).
-  - :func:`do_notify` — the low-level ``icon.notify(message, title)``
+  - :func:`do_notify`: the low-level ``icon.notify(message, title)``
     call with exception swallowing (pystray can raise on Win32 toast
     failures; we don't want a notification failure to crash the tray).
-  - :func:`on_parakeet_cpu_fallback` — event_bus callback that flips
+  - :func:`on_parakeet_cpu_fallback`: event_bus callback that flips
     ``tray._cpu_fallback_active`` so the next ``_apply_state`` call
     appends a "(CPU fallback)" suffix to the tooltip.
-  - :func:`on_gpu_cpu_fallback` — same contract for the Whisper-family
+  - :func:`on_gpu_cpu_fallback`: same contract for the Whisper-family
     engine's ``gpu_cpu_fallback`` events; additionally shows the
     user-facing toast (the publisher there runs on the transcription
     thread right before a multi-second reload freeze, so the handler
@@ -30,7 +30,7 @@ these so:
     (which reads ``tray.py`` source for ``def notify_safety``) still pass.
   - the ``event_bus.subscribe(self._on_parakeet_cpu_fallback)`` /
     ``unsubscribe`` pair in ``TrayIcon.start`` / ``TrayIcon.stop`` keeps
-    working — bound methods of the same instance + method are equal +
+    working, bound methods of the same instance + method are equal +
     hash equally, so ``set.discard`` finds the subscribed callback.
 
 Threading: ``notify`` / ``notify_safety`` may be called from any
@@ -40,11 +40,11 @@ notifications are appended to ``tray._pending_notifications`` under
 calls :func:`do_notify` directly.
 
 Dedup: :func:`notify` consults a small in-memory cache keyed by
-``(title, message)`` with a 5-second TTL — within the TTL window a
+``(title, message)`` with a 5-second TTL, within the TTL window a
 second identical (title, message) pair is dropped silently. This
 prevents notification storms when a state-change event fires many
 times in quick succession (e.g. mic-unplug retries, model-load
-restart loops). :func:`notify_safety` BYPASSES the cache — safety-
+restart loops). :func:`notify_safety` BYPASSES the cache, safety-
 critical messages (crash recovery failure, model load error) must
 always surface even if the same message was just shown.
 """
@@ -70,7 +70,7 @@ log = logging.getLogger("voice_typer.server.tray_notifications")
 # ``notify()`` can fire many times per second when the underlying state
 # machine is in a tight retry loop (mic-unplug auto-switch, model-load
 # restart, parakeet CPU-fallback re-application). Each call hits the
-# platform notification daemon — on Windows this is a Win32 toast that
+# platform notification daemon, on Windows this is a Win32 toast that
 # queues visually; on macOS it's a UNUserNotificationCenter banner that
 # stacks; on Linux it's a dbus ``org.freedesktop.Notifications`` call
 # that some desktops (GNOME Shell) rate-limit by silently dropping.
@@ -80,7 +80,7 @@ log = logging.getLogger("voice_typer.server.tray_notifications")
 # saved" every 10 s during heavy dictation) still surfaces each time.
 #
 # The cache is module-level (not on TrayIcon) so all TrayIcon instances
-# in the same process share it — there's only ever one tray icon, so
+# in the same process share it, there's only ever one tray icon, so
 # sharing is the right default. The TTL is enforced lazily on lookup:
 # an expired entry is treated as a miss and overwritten with the new
 # timestamp. The cache is unbounded in theory but in practice holds at
@@ -127,7 +127,7 @@ def _notify_dedup_seen(title: str, message: str) -> bool:
     Records the current monotonic timestamp on a miss so the next call
     within the TTL returns True. On a hit, leaves the timestamp
     unchanged (the original emit time, not the last lookup time, drives
-    expiry — so a repeated storm of identical notifications stops
+    expiry, so a repeated storm of identical notifications stops
     surfacing for the full 5 s after the FIRST one, not after the LAST).
     """
     key = (title, message)
@@ -170,7 +170,7 @@ def notify(tray: TrayIcon, title: str, message: str) -> None:
         )
         return
     if tray._icon or is_tauri_sidecar():
-        # Under Tauri there is no pystray icon — ``do_notify`` detects that
+        # Under Tauri there is no pystray icon, ``do_notify`` detects that
         # combination and routes the toast through the host ``notification``
         # event instead of queueing it for a pystray flush that would never
         # come (the Tauri runtime never creates an icon).
@@ -190,7 +190,7 @@ def notify_safety(tray: TrayIcon, title: str, message: str) -> None:
     RACE-022: guard ``_pending_notifications`` append with
     ``_queue_lock`` to prevent race with the flush in ``run()``.
 
-    (dedup) This path BYPASSES the dedup cache by design — a
+    (dedup) This path BYPASSES the dedup cache by design, a
         safety-critical message must always surface even if the same
         message was just shown. The assumption is that safety-critical
         events are rare (crash recovery failure, model load error) and
@@ -209,7 +209,7 @@ def do_notify(tray: TrayIcon, title: str, message: str) -> None:
 
     Low-level helper used by both :func:`notify` (when the toggle is
     on) and :func:`notify_safety` (always). Swallows exceptions from
-    ``icon.notify`` — pystray can raise on Win32 toast failures
+    ``icon.notify``: pystray can raise on Win32 toast failures
     (``WinError 1402`` stale handle, missing notify-icon area, etc.),
     and a notification failure must not crash the tray.
 
@@ -217,11 +217,11 @@ def do_notify(tray: TrayIcon, title: str, message: str) -> None:
     ``NOTIFYICONDATAW`` limits (256 / 64 WCHARs) BEFORE the call so an
     over-long message doesn't raise ``ValueError: string too long``
     inside ``icon.notify`` and get silently dropped by the
-    ``except Exception`` below — the user never saw the toast at all.
+    ``except Exception`` below, the user never saw the toast at all.
     """
     title, message = _truncate_notification(title, message)
     # Tauri sidecar runtime: there is no pystray icon (the native tray is
-    # owned by the Rust host — see tray.py start()'s TAURI_SIDECAR gate),
+    # owned by the Rust host: see tray.py start()'s TAURI_SIDECAR gate),
     # so route the toast through the ``notification`` event. The Rust host
     # (src-tauri/src/host_events.rs) listens for it and shows the native
     # toast via tauri-plugin-notification. The payload shape mirrors the
@@ -239,7 +239,7 @@ def do_notify(tray: TrayIcon, title: str, message: str) -> None:
 def _publish_notification_event(title: str, message: str) -> None:
     """Publish a ``notification`` event for the Tauri host to render.
 
-    Best-effort: a publish failure is logged and swallowed — a toast must
+    Best-effort: a publish failure is logged and swallowed, a toast must
     never crash the tray (same contract as the pystray path above).
     """
     try:
@@ -262,7 +262,7 @@ def on_parakeet_cpu_fallback(tray: TrayIcon, event: dict) -> None:
     "data": {"device": "cpu", "reason": "..."}}`` when GPU transcription
     fails and it falls back to CPU. We mark ``tray._cpu_fallback_active``
     so the next ``_apply_state`` call appends a "(CPU fallback)" suffix
-    to the tooltip — the user can see at a glance why transcription is
+    to the tooltip, the user can see at a glance why transcription is
     slower. The user-facing toast is already published separately as a
     ``"notification"`` event by parakeet_engine, so we do NOT duplicate
     the notification here.
@@ -277,7 +277,7 @@ def on_parakeet_cpu_fallback(tray: TrayIcon, event: dict) -> None:
         return
     tray._cpu_fallback_active = True
     # Re-apply the current state so the tooltip updates immediately
-    # with the "(CPU fallback)" suffix. Best-effort — if the icon is
+    # with the "(CPU fallback)" suffix. Best-effort, if the icon is
     # None (tray-unavailable path) ``_apply_state`` is a no-op.
     #
     # Also publish the state to the Tauri/Electron side via
@@ -296,7 +296,7 @@ def on_parakeet_cpu_fallback(tray: TrayIcon, event: dict) -> None:
 
 
 _GPU_CPU_FALLBACK_MESSAGE = (
-    "GPU transcription failed — switching to CPU. The next transcription may take up to a minute."
+    "GPU transcription failed, switching to CPU. The next transcription may take up to a minute."
 )
 
 
@@ -307,9 +307,9 @@ def on_gpu_cpu_fallback(tray: TrayIcon, event: dict) -> None:
     ``{"type": "gpu_cpu_fallback", "data": {"device": "cpu",
     "reason": "..."}}`` (same payload shape as the parakeet engine's
     ``parakeet_cpu_fallback``) when GPU transcription fails and it tears
-    down + reloads the model on CPU. Unlike the parakeet path — where
+    down + reloads the model on CPU. Unlike the parakeet path, where
     the engine itself publishes the toast as a separate ``notification``
-    event — here the tray handler owns the user-facing message, because
+    event, here the tray handler owns the user-facing message, because
     the publisher runs on the transcription thread right before a
     synchronous 5-50s reload freeze.
 
@@ -317,7 +317,7 @@ def on_gpu_cpu_fallback(tray: TrayIcon, event: dict) -> None:
     ``tray._cpu_fallback_active`` so the tooltip gains the
     "(CPU fallback)" suffix, re-applies state, and additionally shows
     the toast through :func:`notify` (respects the notifications toggle
-    and dedup — this is informational, not safety-critical: the app
+    and dedup: this is informational, not safety-critical: the app
     keeps transcribing).
 
     Defensive: ignores malformed payloads (non-dict, wrong ``type``).

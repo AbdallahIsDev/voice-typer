@@ -1,8 +1,8 @@
 """Rate-limiter and flood-resistance tests.
 
 Classes:
-- TestRateLimiter        — RELIABILITY-006 sliding-window _RateLimiter
-- TestServerFloodResistance — TEST-001 IPC DoS/flood resilience
+- TestRateLimiter      , RELIABILITY-006 sliding-window _RateLimiter
+- TestServerFloodResistance, TEST-001 IPC DoS/flood resilience
 
 Split out from the original monolithic tests/test_server.py (DT-37, Phase 4.5).
 """
@@ -196,7 +196,7 @@ class TestRateLimiterCommandCosts:
 
     The cost map assigns each known IPC command a "weight" against the
     shared burst/sustained budgets. Pre-this-coverage, the dict had ZERO
-    direct tests — a regression that flipped ``download_model`` from 50
+    direct tests, a regression that flipped ``download_model`` from 50
     to 1 (silently letting a buggy client fire 200 model downloads per
     second instead of 4) would have passed CI. These tests pin the
     configured cost of representative commands from each cost tier
@@ -211,7 +211,7 @@ class TestRateLimiterCommandCosts:
         5 s / 15 s and must NEVER trip the burst cap).
 
         Note: ``_RateLimiter.allow`` short-circuits to ``True`` for
-        ``command == "heartbeat"`` (the limiter bypass — see
+        ``command == "heartbeat"`` (the limiter bypass: see
         ``rate_limiter.py``), so the call does NOT actually consume a
         unit; this test pins the *configured* cost (``COMMAND_COSTS``
         entry) rather than the runtime cost. The configured cost is
@@ -227,7 +227,7 @@ class TestRateLimiterCommandCosts:
             "rate-limit characteristics."
         )
         rl = _RateLimiter(burst=10, sustained_per_sec=10, window=1.0)
-        # Heartbeat bypasses the limiter — returns True without recording.
+        # Heartbeat bypasses the limiter, returns True without recording.
         assert rl.allow(command="heartbeat", now=0.0) is True
         # The bypass means no burst budget is consumed; the configured
         # cost stays pinned at 1 (above) regardless of the bypass.
@@ -241,7 +241,7 @@ class TestRateLimiterCommandCosts:
         from voice_typer.server.ipc_server import _RateLimiter
 
         assert COMMAND_COSTS["download_model"] == 50, (
-            "download_model must cost 50 (was 10 pre-audit) — large "
+            "download_model must cost 50 (was 10 pre-audit), large "
             "model downloads saturate the dispatcher thread pool and "
             "the disk long after the rate-limit window has slid past."
         )
@@ -277,7 +277,7 @@ class TestRateLimiterCommandCosts:
         # Sanity: "frobnicate" is not a known command.
         assert "frobnicate" not in COMMAND_COSTS, (
             "Test fixture sanity: 'frobnicate' should NOT be in "
-            "COMMAND_COSTS — pick a different unknown-command name "
+            "COMMAND_COSTS, pick a different unknown-command name "
             "if this assertion ever fires."
         )
         rl = _RateLimiter(burst=10, sustained_per_sec=10, window=1.0)
@@ -293,7 +293,7 @@ class TestRateLimiterCommandCosts:
 class TestRateLimiterIntegrationWithTransports:
     """Integration: the per-process ``_RateLimiter`` is enforced at the
     three transport chokepoints (TCP read loop, WS dispatch closure,
-    stdin runner) BEFORE ``_dispatch`` is called — NOT inside
+    stdin runner) BEFORE ``_dispatch`` is called, NOT inside
     ``_dispatch`` itself. Enforcing it inside ``_dispatch`` as well
     would charge every accepted command's cost against the
     burst/sustained budget TWICE (once at the transport gate, once in
@@ -320,7 +320,7 @@ class TestRateLimiterIntegrationWithTransports:
         from unittest.mock import MagicMock
 
         # Mock _handle_download_model so the test doesn't actually try
-        # to download a model — we're testing the rate-limit chokepoint,
+        # to download a model, we're testing the rate-limit chokepoint,
         # not the handler body. The mock returns a success envelope so
         # the accepted/rejected count cleanly reflects the limiter's
         # decision.

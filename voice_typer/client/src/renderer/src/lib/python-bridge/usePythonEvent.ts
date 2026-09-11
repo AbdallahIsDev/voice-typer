@@ -1,4 +1,4 @@
-// `usePythonEvent` — typed subscription hook for Python push events.
+// `usePythonEvent`, typed subscription hook for Python push events.
 //
 // Extracted from `hooks/usePython.ts` (now a public barrel) so the
 // bridge modules live by concern under `lib/python-bridge/`. The
@@ -36,12 +36,12 @@ type ExtractEventData<K extends PythonPushEvent["type"]> =
  * matching event arrives.  It may optionally return a cleanup function
  * which is invoked:
  *
- *   1. Before the **next** matching event's handler runs — so rapid
+ *   1. Before the **next** matching event's handler runs, so rapid
  *      successive events don't accumulate stale async work (e.g. the
  *      ``reloadHotkey`` chain in ``Home.tsx`` can cancel its in-flight
  *      ``get_config`` via a per-invocation ``cancelled`` flag).
  *   2. When the subscription is torn down (unmount, ``type`` change, or
- *      bridge going away) — so resources acquired by the most recent
+ *      bridge going away), so resources acquired by the most recent
  *      invocation are released.
  *
  * Handlers that return ``void`` (the common case) keep working unchanged:
@@ -57,7 +57,7 @@ type ExtractEventData<K extends PythonPushEvent["type"]> =
  * ``TranscriptionFinalEvent.data: { text: string }``).
  * For events with NO ``data`` field (e.g. ``RecordingStartedEvent``),
  * ``ExtractEventData<K>`` resolves to ``undefined``, so the handler is
- * typed as ``(data?: undefined) => ...`` — callers that ignore ``data``
+ * typed as ``(data?: undefined) => ...``, callers that ignore ``data``
  * still compile. Existing callers that pass an explicit
  * ``(data?: Record<string, unknown>) => ...`` closure still compile
  * because every per-event ``data`` shape in ``types/ipc/push_events.ts``
@@ -78,10 +78,10 @@ export function usePythonEvent<K extends PythonPushEvent["type"]>(
  *
  * The narrow first overload catches typos at compile time for the
  * events we know about (e.g. ``usePythonEvent("transcription_final",
- * ...)`` — ``"transcription_final"`` is in the union, so a typo like
+ * ...)``, ``"transcription_final"`` is in the union, so a typo like
  * ``"past_failed"`` would fail). This second overload accepts any
  * string so the renderer can subscribe to events the backend ships
- * before the renderer's type definitions catch up — at the cost of
+ * before the renderer's type definitions catch up, at the cost of
  * losing compile-time typo detection for those new events. Callers
  * that pass a string literal matching the union hit the first overload
  * (TS picks the first matching overload); only unknown literals fall
@@ -93,12 +93,12 @@ export function usePythonEvent(
 ): void;
 export function usePythonEvent<K extends PythonPushEvent["type"]>(
 	type: K,
-	// Implementation signature — identical to overload 1 (this is
+	// Implementation signature, identical to overload 1 (this is
 	// the only non-`any` shape TypeScript's overload compatibility
 	// check accepts for it: a plain `Record<string, unknown>` param
 	// or a widened union both fail TS2394 against overload 1's
 	// deferred conditional `ExtractEventData<K>`). Callers never
-	// see this signature — they hit the public overloads above,
+	// see this signature, they hit the public overloads above,
 	// and unknown `string` types fall through to overload 2.
 	handler: (data?: ExtractEventData<K>) => (() => void) | undefined,
 ) {
@@ -110,19 +110,19 @@ export function usePythonEvent<K extends PythonPushEvent["type"]>(
 	// in `PythonPushEvent`. The cost is that a typo like
 	// `usePythonEvent("past_failed", ...)` (intended
 	// `"paste_failed"`) silently falls through to Overload 2 and
-	// compiles — but the subscription never fires because the
+	// compiles, but the subscription never fires because the
 	// backend never emits `past_failed`. The `KNOWN_EVENT_TYPES`
 	// set below mirrors the `PythonPushEvent` union in
-	// `types/ipc/push_events.ts` (kept in sync manually — TS
+	// `types/ipc/push_events.ts` (kept in sync manually, TS
 	// can't enumerate union members at runtime). When a `type`
 	// argument isn't in the set, emit a `console.warn` so the
 	// typo surfaces in the dev console (and the Electron
 	// main-process log via `webContents.on("console-message")`).
-	// The warning is dev-only — production builds skip the check
+	// The warning is dev-only, production builds skip the check
 	// (`import.meta.env.DEV` is `false` in production per Vite).
 	if (import.meta.env.DEV && !KNOWN_EVENT_TYPES.has(type)) {
 		console.warn(
-			`[renderer:usePython] subscribing to unknown event "${type}" — ` +
+			`[renderer:usePython] subscribing to unknown event "${type}", ` +
 				`if this is a typo, fix it; if it's a new backend event, ` +
 				`add it to PythonPushEvent in types/ipc/push_events.ts ` +
 				`and to KNOWN_EVENT_TYPES in lib/python-bridge/known-event-types.ts`,
@@ -174,7 +174,7 @@ export function usePythonEvent<K extends PythonPushEvent["type"]>(
 		// `Map<type, Set<entry>>` keyed by runtime strings, so
 		// its `EventHandler` type cannot express the per-type
 		// narrowing this hook's overload 1 gives callers. The
-		// single `as` cast below is that boundary — it asserts
+		// single `as` cast below is that boundary, it asserts
 		// what the overloads already promise: the dispatcher
 		// calls the handler with the event's `data` payload
 		// (`Record<string, unknown> | undefined` on the wire),

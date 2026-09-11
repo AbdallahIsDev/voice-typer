@@ -1,4 +1,4 @@
-//! ML worker exe spawn (Phase 2b — runtime-pack split, plan-runtime-pack-split
+//! ML worker exe spawn (Phase 2b, runtime-pack split, plan-runtime-pack-split
 //! §7.1/§7.3). Mirrors the sidecar spawn paths (`release_mode` /
 //! `dev_mode`) but for the second spawned child: `voice-typer-worker`.
 //!
@@ -8,23 +8,23 @@
 //! positional args (it parses only `--version` / `--debug` internally;
 //! the OS assigns the WS port). It requires:
 //!
-//! - `VOICE_TYPER_IPC_TOKEN` — the per-launch bearer token. The worker
+//! - `VOICE_TYPER_IPC_TOKEN`: the per-launch bearer token. The worker
 //!   REFUSES to start without it (`EXIT_NO_TOKEN`). This is the SAME
 //!   env var name as the slim-core sidecar uses (`IPC_TOKEN_ENV_VAR`
 //!   in `voice_typer/server/_paths.py`), so the host passes the same
-//!   per-launch token to both children — the slim-core sidecar uses it
+//!   per-launch token to both children, the slim-core sidecar uses it
 //!   to authenticate its WS CLIENT connection to the worker
 //!   (1-host↔2-processes pattern, plan §7.1).
-//! - `VOICE_TYPER_CONFIG_DIR` — the shared config dir (the worker reads
+//! - `VOICE_TYPER_CONFIG_DIR`: the shared config dir (the worker reads
 //!   `fast_startup` for its prewarm phase + its log location).
-//! - `VOICE_TYPER_SESSION_ID` — cross-process log correlation
+//! - `VOICE_TYPER_SESSION_ID`: cross-process log correlation
 //!   (same join key as the host + sidecar).
 //!
 //! # Handshake
 //!
 //! The worker emits `{"event":"worker_started","port":N,"protocol":1}`
 //! on stdout (`_WORKER_STARTED_EVENT` in
-//! `voice_typer/worker/_ws_server.py`) — NOT `server_started` (that
+//! `voice_typer/worker/_ws_server.py`): NOT `server_started` (that
 //! name belongs to the slim-core sidecar). `parse_worker_started`
 //! (handshake.rs) routes the line to this spawn path.
 //!
@@ -65,7 +65,7 @@ use super::initialize_worker;
 
 /// Env pairs shared by BOTH worker spawn paths (release + dev):
 /// the per-launch bearer token, the cross-process session id, and the
-/// shared config dir — the `# Worker spawn contract` section above.
+/// shared config dir: the `# Worker spawn contract` section above.
 /// Applied AFTER `.env_clear()` + `passthrough_env_allowlist()`; the
 /// dev path additionally sets `VOICE_TYPER_DEBUG=1`.
 pub(crate) fn worker_shared_env(token: &str) -> Vec<(&'static str, String)> {
@@ -97,10 +97,10 @@ pub(crate) fn worker_shared_env(token: &str) -> Vec<(&'static str, String)> {
 /// `CommandChild` in `SidecarHandle::ShellPlugin`.
 ///
 /// Kill-on-parent-exit: identical guarantee to `spawn_sidecar_release`
-/// — the ShellPlugin child does NOT kill the OS process on Drop, so a
+///: the ShellPlugin child does NOT kill the OS process on Drop, so a
 /// host crash would orphan the worker (which holds the loaded models).
 /// `register_kill_on_parent_exit` (Job Object on Windows, the
-/// `/bin/sh` reaper subprocess on POSIX — see the note on
+/// `/bin/sh` reaper subprocess on POSIX, see the note on
 /// `spawn_sidecar_release`) reaps it. Best-effort: errors are logged,
 /// spawn proceeds.
 ///
@@ -161,13 +161,13 @@ pub(crate) async fn spawn_worker_release(
     Ok((port, SidecarHandle::ShellPlugin(Some(child)), rx))
 }
 
-/// Dev-mode worker spawn — runs `python -m voice_typer.worker` (no
+/// Dev-mode worker spawn: runs `python -m voice_typer.worker` (no
 /// Nuitka freeze, no `externalBin`), parallel to
 /// `spawn_sidecar_dev_mode`. The developer must have `voice_typer`
 /// importable in their Python environment.
 ///
 /// The stdout-handshake read loop lives in
-/// `super::handshake_loop::read_handshake_from_stdout_lines` — shared
+/// `super::handshake_loop::read_handshake_from_stdout_lines`: shared
 /// with the sidecar dev path. The labels below pin this path's exact
 /// log/error wording.
 pub(crate) async fn spawn_worker_dev_mode(
@@ -269,12 +269,12 @@ pub(crate) async fn stop_worker_child(state: &Arc<WorkerState>) {
 }
 
 /// `offline_pack_verified` trigger (called from the WS reader, sync
-/// context — the async work runs on a spawned task, never `block_on`:
+/// context: the async work runs on a spawned task, never `block_on`:
 /// C-TOKIO-1). Restarts the worker against the just-verified pack:
 /// stop-first (frees the pack dir on Windows) then
 /// `initialize_worker`. Concurrent events serialize on the restart
 /// slot; a missing binary or a quitting host skips quietly. Spawn
-/// failure only logs (no supervisor yet — plan §7.2 — so a bad pack
+/// failure only logs (no supervisor yet, plan §7.2, so a bad pack
 /// can never trip a respawn loop).
 pub(crate) fn on_pack_verified(app: &tauri::AppHandle) {
     let app_handle = app.clone();
@@ -285,7 +285,7 @@ pub(crate) fn on_pack_verified(app: &tauri::AppHandle) {
             .clone();
         if !try_claim_restart_slot(&state.respawn_in_progress) {
             log::info!(
-                "[WORKER-INIT] pack verified while a worker (re)start is in flight — skipping duplicate"
+                "[WORKER-INIT] pack verified while a worker (re)start is in flight: skipping duplicate"
             );
             return;
         }
@@ -299,7 +299,7 @@ pub(crate) fn on_pack_verified(app: &tauri::AppHandle) {
         }
         if !worker_binary_present() {
             log::info!(
-                "[WORKER-INIT] pack verified but no worker binary on disk — skipping worker start"
+                "[WORKER-INIT] pack verified but no worker binary on disk: skipping worker start"
             );
             state.respawn_in_progress.store(false, Ordering::SeqCst);
             return;

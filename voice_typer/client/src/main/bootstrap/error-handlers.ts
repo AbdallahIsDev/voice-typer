@@ -25,11 +25,11 @@ import { clearElectronPidFile, computeConfigDir } from "../single_instance";
  * and exit non-zero after N consecutive errors so the user sees the
  * crash instead of a silent zombie.
  *
- *  (IMPL-7): the crash log used to grow unbounded — `appendFileSync`
+ *  (IMPL-7): the crash log used to grow unbounded, `appendFileSync`
  * with no rotation, no size cap. In a crash-looping renderer scenario
  * `electron-crashes.log` could reach hundreds of MB. We now:
  *   - Call `rotateIfNeeded()` before every append (1 MiB cap, single
- *     `.1` backup — see `logging.ts`).
+ *     `.1` backup, see `logging.ts`).
  *   - Split the two event types into separate files so the crash log
  *     stays a useful signal: `electron-crashes.log` for
  *     `uncaughtException` only, `electron-rejections.log` for
@@ -44,7 +44,7 @@ import { clearElectronPidFile, computeConfigDir } from "../single_instance";
  * every few days (e.g. a transient network race) would eventually
  * accumulate 5 errors across months of healthy operation and exit.
  * We reset `uncaughtCount` to 0 once the process has gone
- * `SLIDING_WINDOW_MS` (60s) without any error — this is long enough
+ * `SLIDING_WINDOW_MS` (60s) without any error, this is long enough
  * to still catch a tight crash loop (5 errors in <60s → exit) but
  * short enough that isolated transient errors do not poison the
  * counter across restarts.
@@ -67,7 +67,7 @@ const SLIDING_WINDOW_MS = 60_000;
  * (no I/O), so testing it directly is safe.
  *
  * O1: crash logs live under `<config-dir>/logs/` (the canonical log
- * folder) — NOT the Electron userData profile dir.  The `logsDir`
+ * folder), NOT the Electron userData profile dir.  The `logsDir`
  * parameter is the folder the caller resolves (production:
  * `computeConfigDir()/logs`).
  */
@@ -96,7 +96,7 @@ export function _crashLogPaths(logsDir: string): {
  *     `rotateIfNeeded` + `appendFileSync` pipeline.
  *
  * Returns a `dispose()` so tests can remove the listeners between
- * cases — otherwise vitest's worker process accumulates handlers across
+ * cases, otherwise vitest's worker process accumulates handlers across
  * tests and the next test's `process.emit("uncaughtException", ...)`
  * would fire stale handlers from the previous test.
  *
@@ -152,7 +152,7 @@ export function _installErrorHandlers(opts: {
 		// REVIEW-9 sliding window: if it has been more than
 		// SLIDING_WINDOW_MS since the last error, the previous
 		// errors are considered an isolated burst (different
-		// root cause) — reset the counter before incrementing.
+		// root cause), reset the counter before incrementing.
 		if (lastErrorAt !== 0 && now - lastErrorAt > SLIDING_WINDOW_MS) {
 			uncaughtCount = 0;
 		}
@@ -164,28 +164,28 @@ export function _installErrorHandlers(opts: {
 	/**
 	 * : shared trip-breaker logic for `uncaughtException` and
 	 * `unhandledRejection`. Both event types share the same counter
-	 * (REVIEW-12 alignment — a rejected promise leaves the app in
+	 * (REVIEW-12 alignment, a rejected promise leaves the app in
 	 * the same half-broken state as an uncaught exception: the
 	 * caller's `await` never resolves, locks may be held, state may
 	 * be inconsistent) and the same exit-cleanup sequence
 	 * ( + ). Only the log file path + the kind
-	 * label differ — those are passed in so the helper can route
+	 * label differ, those are passed in so the helper can route
 	 * the log line + dialog message correctly.
 	 *
 	 * Behaviour (mirrors the original `onUncaught` / `onRejection`):
-	 *   1. `console.error("[VT] <kind>:", err)` — surface on stderr.
-	 *   2. `logEvent(logPath, kind, err)` — append to the per-kind
+	 *   1. `console.error("[VT] <kind>:", err)`, surface on stderr.
+	 *   2. `logEvent(logPath, kind, err)`, append to the per-kind
 	 *      log file (: rotates independently).
-	 *   3. `bumpCount()` — increment + sliding-window reset
+	 *   3. `bumpCount()`, increment + sliding-window reset
 	 *      (REVIEW-9). On trip (`>= MAX_UNCAUGHT`):
 	 *      a. `console.error` the trip message (with " (rejection)"
 	 *         suffix for `unhandledRejection` to preserve the
 	 *         original wording).
 	 *      b. `dialog.showErrorBox(...)` with the kind's log path.
-	 *      c. `stopPython()` + `clearElectronPidFile()` — inline
+	 *      c. `stopPython()` + `clearElectronPidFile()`, inline
 	 *         defensive cleanup so the breaker doesn't orphan the
 	 *         Python backend (microphone, global hotkeys, volume
-	 *         duck, single-instance mutex). Best-effort — these are
+	 *         duck, single-instance mutex). Best-effort, these are
 	 *         wrapped in try/catch internally, but we double-guard
 	 *         here so a throw in either cannot block the exit. The
 	 *         same defensive cleanup applies if a test injects an
@@ -200,7 +200,7 @@ export function _installErrorHandlers(opts: {
 		const suffix = kind === "unhandledRejection" ? " (rejection)" : "";
 		//route through the structured `log` logger so the
 		// uncaught/rejected error is captured in `electron-runtime.log` (with
-		// 5 MiB rotation) for post-mortem analysis — `console.error` alone is
+		// 5 MiB rotation) for post-mortem analysis, `console.error` alone is
 		// lost in packaged GUI builds where stderr is attached to a hidden
 		// console / dev/null. `log.error`'s stdout tee internally calls
 		// `console.error`, so stderr is still captured by Electron's crash
@@ -209,7 +209,7 @@ export function _installErrorHandlers(opts: {
 		logEvent(logPath, kind, err);
 		if (bumpCount()) {
 			log.error(
-				`[VT] ${uncaughtCount} uncaught errors${suffix} — exiting to avoid zombie state`,
+				`[VT] ${uncaughtCount} uncaught errors${suffix}, exiting to avoid zombie state`,
 			);
 			try {
 				dialog.showErrorBox(
@@ -259,19 +259,19 @@ export function _installErrorHandlers(opts: {
  * : production exit hook for the SEC-021 circuit breaker.
  *
  * Replaces the previous `process.exit(1)` (which bypassed Electron's
- * `before-quit` lifecycle — `stopPython()` and `clearElectronPidFile()`
+ * `before-quit` lifecycle, `stopPython()` and `clearElectronPidFile()`
  * never ran, orphaning the Python backend with its IPC port + single-
  * instance mutex + tray icon).
  *
  * Sequence:
- *   1. `stopPython()` — sends `quit_app` over TCP, force-kills after 3s
+ *   1. `stopPython()`, sends `quit_app` over TCP, force-kills after 3s
  *      via the SIGTERM→SIGKILL escalation in `python/stop-python.ts`.
- *   2. `clearElectronPidFile()` — removes `electron.pid` so the next
+ *   2. `clearElectronPidFile()`, removes `electron.pid` so the next
  *      launch doesn't think we're still alive.
- *   3. `app.quit()` — fires `before-quit` → `will-quit` (gives the
+ *   3. `app.quit()`, fires `before-quit` → `will-quit` (gives the
  *      Python-side shutdown ack a chance to land + lets any other
  *      `will-quit` listeners run).
- *   4. 2s `process.exit(1)` backstop — if `app.quit()` hangs (a stuck
+ *   4. 2s `process.exit(1)` backstop, if `app.quit()` hangs (a stuck
  *      `before-quit` handler, a deadlock in the Python IPC ack path),
  *      we still exit so the user isn't left with a zombie process.
  *
@@ -281,10 +281,10 @@ export function _installErrorHandlers(opts: {
  * inside `stopPython()` already covers the "Python won't exit" case
  * within its own 3s+3s schedule, and the `PROCESS_EXIT_BACKSTOP_MS`
  * `process.exit(1)` in step (4) covers the "Electron won't exit" case.
- * The synchronous SIGKILL fired UNCONDITIONALLY — even when Python had
- * already exited cleanly from the `quit_app` IPC — which (a) races the
+ * The synchronous SIGKILL fired UNCONDITIONALLY, even when Python had
+ * already exited cleanly from the `quit_app` IPC, which (a) races the
  * already-exited pid (the kernel may have recycled it for an unrelated
- * process — `kill(SIGKILL)` on a recycled pid is a security-relevant
+ * process, `kill(SIGKILL)` on a recycled pid is a security-relevant
  * footgun), and (b) skips Python's atexit hooks (`tray.py::_atexit`,
  * `single_instance` lock release), leaving stale locks on disk.
  *
@@ -333,7 +333,7 @@ export function setupErrorHandlers(): void {
 	if (_errorHandlersDispose) {
 		_errorHandlersDispose();
 	}
-	// O1: crash logs live under `<config-dir>/logs/` — the canonical
+	// O1: crash logs live under `<config-dir>/logs/`, the canonical
 	// log folder shared with the structured/printf loggers and the
 	// Python backend.  The Electron userData dir (electron-profile) is
 	// NOT a log location.

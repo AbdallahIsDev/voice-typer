@@ -3,24 +3,24 @@
 
 Covers:
 
-* — ``_BubbleLevelExclusionFilter`` hybrid check: avoids the
+*: ``_BubbleLevelExclusionFilter`` hybrid check: avoids the
   ``getMessage()`` call on every DEBUG record by checking ``record.msg``
   first, falling back to ``getMessage()`` only when args are present.
-* **UE-4-F8** — ``quiet=True`` lowers the file handler to WARNING (not
+* **UE-4-F8**: ``quiet=True`` lowers the file handler to WARNING (not
   just the root logger) so the handler level matches the root logger
   level and the ``quiet`` contract is honoured end-to-end.
-* — File-handler dedup uses ``_SecureTruncatingFileHandler``
+*, File-handler dedup uses ``_SecureTruncatingFileHandler``
   (not the parent ``RotatingFileHandler``) so a future caller that
   installs a stock ``RotatingFileHandler`` is NOT mistaken for the
   secure handler.
-* — ``_ensure_last_resort_redacted`` uses
+*: ``_ensure_last_resort_redacted`` uses
   ``isinstance(f, type(pii_filter))`` instead of the string-based
   ``type(f).__name__ == "PIIRedactionFilter"`` check; a subclass of
   ``PIIRedactionFilter`` is recognized for idempotency.
-* — Rotation-lock failure DEBUG log emits only
+*, Rotation-lock failure DEBUG log emits only
   ``type(exc).__name__`` (not ``str(exc)``) so the user's home
   directory in the lock file path does not leak to stderr/debug logs.
-* — Stale comment block (which contradicted XV-130)
+*, Stale comment block (which contradicted XV-130)
   is deleted from the source.
 """
 
@@ -104,7 +104,7 @@ class TestUe4F6BubbleFilterHybridCheck:
 
     def test_warning_record_kept_unconditionally(self):
         """WARNING+ records are always kept, even if
-        the message mentions the marker — no ``getMessage()`` call."""
+        the message mentions the marker, no ``getMessage()`` call."""
         from voice_typer.server.log import _BubbleLevelExclusionFilter
 
         f = _BubbleLevelExclusionFilter()
@@ -121,7 +121,7 @@ class TestUe4F6BubbleFilterHybridCheck:
 
     def test_debug_no_args_marker_in_template_dropped(self):
         """hot path: DEBUG record with no args and the marker
-        in the raw template is dropped — WITHOUT calling getMessage().
+        in the raw template is dropped. WITHOUT calling getMessage().
         """
         from voice_typer.server.log import _BubbleLevelExclusionFilter
 
@@ -131,7 +131,7 @@ class TestUe4F6BubbleFilterHybridCheck:
 
     def test_debug_no_args_marker_not_in_template_kept(self):
         """DEBUG record with no args and no marker in the
-        template is kept — without calling getMessage()."""
+        template is kept, without calling getMessage()."""
         from voice_typer.server.log import _BubbleLevelExclusionFilter
 
         f = _BubbleLevelExclusionFilter()
@@ -176,7 +176,7 @@ class TestUe4F6BubbleFilterHybridCheck:
     def test_no_args_path_does_not_call_get_message(self, monkeypatch):
         """performance contract: when ``record.args`` is empty,
         the filter must NOT call ``record.getMessage()``. Verified by
-        patching ``getMessage`` to raise — if the filter calls it, the
+        patching ``getMessage`` to raise, if the filter calls it, the
         test fails with the sentinel exception.
         """
         from voice_typer.server.log import _BubbleLevelExclusionFilter
@@ -192,7 +192,7 @@ class TestUe4F6BubbleFilterHybridCheck:
             )
 
         monkeypatch.setattr(record, "getMessage", boom)
-        # Should not raise — the no-args path uses record.msg, not getMessage().
+        # Should not raise, the no-args path uses record.msg, not getMessage().
         assert f.filter(record) is False
 
 
@@ -202,7 +202,7 @@ class TestUe4F6BubbleFilterHybridCheck:
 class TestUe4F8QuietFileHandlerLevel:
     """``setup_logging(quiet=True)`` lowers BOTH the root
     logger AND the file handler to WARNING. Pre-UE-4-F8 only the root
-    logger was lowered — the file handler stayed at INFO, so the
+    logger was lowered, the file handler stayed at INFO, so the
     handler still wanted INFO records but the root filtered them out
     before they reached any handler. Now the levels match.
     """
@@ -260,9 +260,9 @@ class TestUe4F8QuietFileHandlerLevel:
 
     def test_quiet_takes_precedence_over_debug(self, tmp_path, clean_env):
         """when BOTH ``quiet=True`` AND ``debug=True`` are
-        passed, the file handler is at WARNING (quiet wins). The
-        formula is ``WARNING if quiet else (DEBUG if debug else INFO)``
-        — ``quiet`` short-circuits the ternary.
+          passed, the file handler is at WARNING (quiet wins). The
+          formula is ``WARNING if quiet else (DEBUG if debug else INFO)``
+        , ``quiet`` short-circuits the ternary.
         """
         from voice_typer.server.log import reset, setup_logging
 
@@ -316,7 +316,7 @@ class TestUe4F9SecureHandlerDedup:
 
     def test_stock_rotating_handler_does_not_count_as_secure(self, tmp_path, clean_env):
         """a stock ``RotatingFileHandler`` installed on the
-        ``voice_typer`` logger does NOT satisfy the dedup check — the
+        ``voice_typer`` logger does NOT satisfy the dedup check, the
         next ``setup_logging`` call still installs the secure handler
         because the secure handler is what guarantees the 0o600 perms
         and the inter-process rotation lock.
@@ -393,7 +393,7 @@ class TestUe4F10LastResortIsinstance:
 
     def test_idempotent_with_subclass(self):
         """a subclass of ``PIIRedactionFilter`` is recognized
-        by the isinstance check — pre-UE-4-F10 the string-based check
+        by the isinstance check, pre-UE-4-F10 the string-based check
         would have treated the subclass as a different filter and
         double-attached the parent class filter.
         """
@@ -401,7 +401,7 @@ class TestUe4F10LastResortIsinstance:
         from voice_typer.server.security import PIIRedactionFilter
 
         class TestSubclassFilter(PIIRedactionFilter):
-            """Subclass named differently from the parent — the
+            """Subclass named differently from the parent, the
             string-based check would have missed this."""
 
         last_resort = logging.lastResort
@@ -430,7 +430,7 @@ class TestUe4F10LastResortIsinstance:
 
     def test_unrelated_filter_does_not_block_attach(self):
         """a filter of a DIFFERENT class does not satisfy the
-        isinstance check — the PIIRedactionFilter IS still attached."""
+        isinstance check, the PIIRedactionFilter IS still attached."""
         from voice_typer.server.log import _ensure_last_resort_redacted
 
         last_resort = logging.lastResort
@@ -456,7 +456,7 @@ class TestUe4F10LastResortIsinstance:
 
 class TestUe4F13LockFailureNoPathLeak:
     """when ``_acquire_rotation_lock`` fails, the DEBUG log
-    emits only ``type(exc).__name__`` (e.g. ``PermissionError``) — NOT
+    emits only ``type(exc).__name__`` (e.g. ``PermissionError``), NOT
     ``str(exc)`` which can include the lock file path (which contains
     the user's home directory).
     """
@@ -464,7 +464,7 @@ class TestUe4F13LockFailureNoPathLeak:
     def test_lock_failure_logs_exception_class_name_only(self, tmp_path, monkeypatch, caplog):
         """force ``_acquire_rotation_lock`` to raise an
         exception whose ``str()`` contains a path; assert the DEBUG log
-        does NOT include the path string — only the exception class
+        does NOT include the path string, only the exception class
         name."""
         from voice_typer.server import log as log_module
 
@@ -519,7 +519,7 @@ class TestUe4F15PiiFilterHandlerOnlyAttachment:
 
     def test_pii_filter_not_attached_to_voice_typer_root(self, tmp_path, clean_env):
         """the ``voice_typer`` root logger has NO
-        ``PIIRedactionFilter`` attached — only the handlers do."""
+        ``PIIRedactionFilter`` attached, only the handlers do."""
         from voice_typer.server.log import reset, setup_logging
         from voice_typer.server.security import PIIRedactionFilter
 

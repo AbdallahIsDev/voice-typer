@@ -12,7 +12,7 @@ interface SearchFieldProps {
 	/**
 	 * Delay in milliseconds before the debounced ``onChange``
 	 * notification fires. Undefined (the default) keeps the historical
-	 * immediate behavior — every keystroke notifies synchronously. When
+	 * immediate behavior, every keystroke notifies synchronously. When
 	 * set, typing notifications are batched on the trailing edge while
 	 * the input itself stays fully controlled: an internal draft (kept
 	 * in sync with the ``value`` prop) renders instantly, so typing
@@ -31,7 +31,7 @@ interface SearchFieldProps {
 	 * different pages.
 	 */
 	ariaLabel?: string;
-	/** Extra classes merged onto the inner ``<Input>`` — lets callers
+	/** Extra classes merged onto the inner ``<Input>``, lets callers
 	 *  compact the field (e.g. the title-bar global search). */
 	className?: string;
 	/** Ref forwarded to the inner ``<Input>``, used by the title bar
@@ -52,7 +52,7 @@ export function SearchField({
 	// decorative (the placeholder + aria-label convey the same meaning),
 	// so it is marked aria-hidden below. Screen readers therefore
 	// announce e.g. "Search settings, edit field" rather than the
-	// generic "edit field" — a WCAG 2.1 SC 1.3.1 / 4.1.2 requirement.
+	// generic "edit field", a WCAG 2.1 SC 1.3.1 / 4.1.2 requirement.
 	const resolvedAriaLabel = ariaLabel ?? t("common.search");
 
 	// Latest-callback ref so the timer bookkeeping never needs to
@@ -121,18 +121,18 @@ export function SearchField({
 		// can navigate to it via the "search" landmark shortcut. biome
 		// suggests the `<search>` element instead; we keep `<div role="search">`
 		// for explicit compatibility with older AT that doesn't recognize `<search>`.
-		// biome-ignore lint/a11y/useSemanticElements: see comment above — keeping role="search" for AT compatibility.
+		// biome-ignore lint/a11y/useSemanticElements: see comment above, keeping role="search" for AT compatibility.
 		<div role="search" className="relative">
 			<HugeiconsIcon
 				icon={Search01Icon}
 				strokeWidth={1.625}
-				// decorative — the input's aria-label
+				// decorative, the input's aria-label
 				// provides the accessible name.
 				aria-hidden="true"
 				className="absolute inset-s-3 top-1/2 -translate-y-1/2 h-4 w-4 text-(--text-muted) pointer-events-none"
 			/>
 			{/* Pointer-vs-keyboard focus modality lives in the shared
-			    Input primitive (components/ui/input.tsx) — SearchField
+			    Input primitive (components/ui/input.tsx), SearchField
 			    must NOT pass its own onPointerDown/onKeyDown/onBlur
 			    (they'd clobber Input's internal handlers via the
 			    {...props} spread). Only presentation classes here. */}

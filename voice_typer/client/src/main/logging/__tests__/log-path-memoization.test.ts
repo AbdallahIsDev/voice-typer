@@ -132,7 +132,7 @@ describe("structuredLogger path resolvers are memoized", () => {
 		expect(configDirMocks.computeConfigDir).toHaveBeenCalledTimes(2);
 		rendererErrorsLogPath();
 		expect(configDirMocks.computeConfigDir).toHaveBeenCalledTimes(3);
-		// Subsequent calls to all three are cache hits — no new calls.
+		// Subsequent calls to all three are cache hits, no new calls.
 		mainLogPath();
 		lifecycleLogPath();
 		rendererErrorsLogPath();

@@ -1,4 +1,4 @@
-// components/settings/useThemeSettings.ts — state machine for the
+// components/settings/useThemeSettings.ts, state machine for the
 //custom-theme editor ( partial split).
 //
 // Extracted from ThemeSettingsSection.tsx so the component file can
@@ -60,7 +60,7 @@ import { _themeColorCache } from "./themeColorCache";
  * Accepts ``unknown`` so it can be called with a ``ThemePreset``
  * without requiring an index signature on the interface (which would
  * weaken type-safety elsewhere).  The runtime check is purely
- * structural — if the value isn't an object, or doesn't have a string
+ * structural, if the value isn't an object, or doesn't have a string
  * ``nameKey`` field, we return ``null``.
  */
 export function _getThemeNameKey(theme: unknown): string | null {
@@ -77,21 +77,21 @@ export function _getThemeNameKey(theme: unknown): string | null {
  * built-in, unknown-with-DOM, unknown-without-DOM) owns a single
  * ``ThemeColorSource`` entry in ``THEME_COLOR_SOURCES``. Adding a new
  * category (e.g. a future "high-contrast" preset family) means adding
- * one entry to the table and one case to ``pickColorSource`` — no more
+ * one entry to the table and one case to ``pickColorSource``, no more
  * editing a 5-branch switch-on-string inline.
  *
  * For ``'default'`` we return the hardcoded ``DEFAULT_CUSTOM_LIGHT`` /
- * ``DEFAULT_CUSTOM_DARK`` maps directly — these are byte-identical to
+ * ``DEFAULT_CUSTOM_DARK`` maps directly, these are byte-identical to
  * what the stylesheet defines, so reading them via ``getComputedStyle``
  * was a waste of two layout passes per call.  For ``'custom'`` we
  * derive the core colours from the in-memory ``customDraft`` (when
- * available) via ``deriveCustomVars`` — the draft is already in
+ * available) via ``deriveCustomVars``, the draft is already in
  * memory, so no DOM read is needed.  Built-in presets still read from
  * the ``THEMES`` array (also in-memory).
  *
  * The DOM-read fallback is kept ONLY for the legacy callers that pass
  * neither ``currentPresetId`` nor ``customDraft`` AND whose preset id
- * isn't in the THEMES array — which in practice never happens.  It
+ * isn't in the THEMES array, which in practice never happens.  It
  * exists to preserve the pre-fix behaviour for any caller we missed,
  * and is gated behind a feature-detect so it doesn't run in jsdom
  * tests that lack ``getComputedStyle``.
@@ -109,7 +109,7 @@ type ThemeColorSourceContext = {
 
 /**
  * A single resolution strategy. Returns the resolved colours, or
- * ``null`` to signal "not applicable — fall through to the next
+ * ``null`` to signal "not applicable, fall through to the next
  * strategy in the chain".
  */
 type ThemeColorSource = {
@@ -125,11 +125,11 @@ const DEFAULT_COLOR_RESULT: ThemeColorResult = {
  * Strategy table for ``getCurrentThemeColors``. Order matters: the
  * resolver walks this list (after picking the primary strategy) and
  * uses the first non-``null`` result. ``dom`` and ``fallback`` are
- * intentionally last — they're the catch-all paths for unknown preset
+ * intentionally last, they're the catch-all paths for unknown preset
  * ids.
  */
 const THEME_COLOR_SOURCES: Record<string, ThemeColorSource> = {
-	// 'default' preset — return the hardcoded DEFAULT_CUSTOM_* values
+	// 'default' preset, return the hardcoded DEFAULT_CUSTOM_* values
 	// (these match the stylesheet defaults exactly, so reading them via
 	// getComputedStyle was a layout-thrash for nothing).
 	default: {
@@ -139,7 +139,7 @@ const THEME_COLOR_SOURCES: Record<string, ThemeColorSource> = {
 		}),
 	},
 
-	// 'custom' preset — derive from the in-memory customDraft (no DOM
+	// 'custom' preset, derive from the in-memory customDraft (no DOM
 	// read).  When no draft is available yet (the very first render
 	// before ``setCustomDraft`` has run), fall back to the
 	// DEFAULT_CUSTOM_* values so the editor still has sensible starting
@@ -158,7 +158,7 @@ const THEME_COLOR_SOURCES: Record<string, ThemeColorSource> = {
 		},
 	},
 
-	// Built-in preset with defined vars — read from THEMES array directly
+	// Built-in preset with defined vars, read from THEMES array directly
 	// (in-memory, no DOM access). Returns null when the preset id isn't
 	// a built-in theme so the resolver falls through to dom/fallback.
 	builtin: {
@@ -177,7 +177,7 @@ const THEME_COLOR_SOURCES: Record<string, ThemeColorSource> = {
 
 	// Last-resort fallback: read from the DOM.  This path is only
 	// reached for unknown preset ids (which shouldn't happen in
-	// practice — the THEMES array covers every valid id).  Kept for
+	// practice, the THEMES array covers every valid id).  Kept for
 	// defensive compatibility with the pre-fix behaviour. Returns
 	// null when DOM APIs aren't available so the resolver falls
 	// through to the final hardcoded fallback.
@@ -211,7 +211,7 @@ const THEME_COLOR_SOURCES: Record<string, ThemeColorSource> = {
 		},
 	},
 
-	// No DOM available (SSR / restricted test env) — fall back to the
+	// No DOM available (SSR / restricted test env), fall back to the
 	// hardcoded defaults so the caller always gets a valid object.
 	fallback: {
 		getColors: () => ({
@@ -299,7 +299,7 @@ export function getThemePreviewColors(
 	isDark: boolean,
 	customDraft: CustomThemeData | null,
 ): { bg: string; fg: string } {
-	// Custom theme — use the primary/accent colour from the custom draft.
+	// Custom theme, use the primary/accent colour from the custom draft.
 	if (themeId === "custom" && customDraft) {
 		const vars = isDark ? customDraft.dark : customDraft.light;
 		return {
@@ -307,7 +307,7 @@ export function getThemePreviewColors(
 			fg: vars["--foreground"] ?? (isDark ? "#ededed" : "#0a0a0a"),
 		};
 	}
-	// Default preset — no CSS var overrides, use the swatch as primary.
+	// Default preset, no CSS var overrides, use the swatch as primary.
 	if (themeId === "default") {
 		const defaultTheme = THEMES[0];
 		const swatch = defaultTheme?.swatch ?? "oklch(0.488 0.243 264.376)";
@@ -398,7 +398,7 @@ export function useThemeSettings({
 	// to the user's saved choice (not the initial default) if they
 	// hover without clicking.  Previously this was an inline
 	// ``if (config) ref.current = ...`` block executed during render
-	// (a ref mutation during render — React forbids writing to refs in
+	// (a ref mutation during render, React forbids writing to refs in
 	// the render phase).  The useEffect form below runs the write
 	// after commit, preserving the same "track the latest saved
 	// preset" semantic without the render-phase side effect.
@@ -412,7 +412,7 @@ export function useThemeSettings({
 	// Track whether the user has actually moved the mouse inside the
 	// dropdown content.  Radix Select mounts the content portal directly
 	// under the cursor when the dropdown opens, which can fire a
-	// spurious ``onMouseEnter`` on the first item — applying that
+	// spurious ``onMouseEnter`` on the first item, applying that
 	// item's theme as a "hover preview" even though the user hasn't
 	// interacted.  We only honour ``onMouseEnter`` after the first
 	// real ``onMouseMove`` inside the content.
@@ -438,7 +438,7 @@ export function useThemeSettings({
 	// Track the last non-custom preset so we can revert when the
 	// custom-theme toggle is turned off.  Previously this was an inline
 	// ``if (config?.theme_preset && ...) ref.current = ...`` block
-	// executed during render — a render-phase ref mutation.  Moved into
+	// executed during render, a render-phase ref mutation.  Moved into
 	// a useEffect so the write happens after commit.  The initial
 	// ``useRef`` value still seeds from the first-seen config so the
 	// first render has a sensible default before the effect runs.
@@ -456,7 +456,7 @@ export function useThemeSettings({
 	// ── Custom theme editor state ───────────────────────────────────
 	// Initial tab matches the user's current dark/light mode so the
 	// editor opens on the tab the user is most likely to edit (was
-	// always "light" — Dark Mode users had to switch tabs manually).
+	// always "light", Dark Mode users had to switch tabs manually).
 	const [customEditorMode, setCustomEditorMode] = useState<"light" | "dark">(
 		() =>
 			typeof document !== "undefined" &&
@@ -479,7 +479,7 @@ export function useThemeSettings({
 	//     half-typed value in the input).
 	//
 	// The drafts are re-seeded from ``customDraft`` whenever the draft
-	// changes via the ``useEffect`` below — this keeps the text input
+	// changes via the ``useEffect`` below, this keeps the text input
 	// in sync when the colour is changed via the native colour picker
 	// (which calls ``handleCustomColorChange`` directly, bypassing the
 	// text input).
@@ -495,7 +495,7 @@ export function useThemeSettings({
 
 	// ``customDraftIsDefault`` is true when the draft matches the
 	// built-in DEFAULT_CUSTOM_LIGHT / DEFAULT_CUSTOM_DARK maps.  The
-	// Reset button is disabled in that state — re-enabled the moment
+	// Reset button is disabled in that state, re-enabled the moment
 	// the user edits any colour.  Compared by JSON.stringify on the 6
 	// core vars (DEFAULT_CUSTOM_* only contain those 6 keys, so this is
 	// exact).
@@ -518,7 +518,7 @@ export function useThemeSettings({
 	}, [customDraft]);
 
 	// One-time init moved into a useEffect. Previously this block
-	// called setCustomDraft during render — a React anti-pattern that
+	// called setCustomDraft during render, a React anti-pattern that
 	// forces a synchronous re-render before commit and breaks
 	// concurrent-rendering invariants. Running it in an effect costs
 	// one extra render (the draft is ``null`` on the first commit) but
@@ -576,12 +576,12 @@ export function useThemeSettings({
 	// Apply a custom color change immediately for preview, then debounce save.
 	//
 	// React state updaters must stay PURE: StrictMode double-invokes them
-	// in dev (which used to double-fire every side effect below — one edit
+	// in dev (which used to double-fire every side effect below, one edit
 	// produced TWO localStorage draft writes and TWO debounced-save
 	// armings), and a replayed/interrupted render can re-invoke an updater
 	// against a different base state in production. The next draft is
 	// therefore computed from the `customDraftRef` mirror OUTSIDE the
-	// updater — the updater only schedules the precomputed value — and the
+	// updater, the updater only schedules the precomputed value, and the
 	// document write + cache invalidation + localStorage write + debounced
 	// backend save all run exactly ONCE, from the handler itself.
 	const handleCustomColorChange = useCallback(
@@ -594,7 +594,7 @@ export function useThemeSettings({
 			};
 			// Refresh the ref mirror synchronously so a second edit in the
 			// same tick (before the ref-sync effect commits) composes off this
-			// one — the same composition the old functional-updater form
+			// one, the same composition the old functional-updater form
 			// provided. The ref-sync effect below re-asserts the same value
 			// after commit, so this write can never desync the mirror.
 			customDraftRef.current = updated;
@@ -643,7 +643,7 @@ export function useThemeSettings({
 				const derived = deriveCustomVars(modeVars, isDark);
 				applyThemeVars(CUSTOM_THEME_ID, isDark, derived);
 			} else {
-				// No draft available — fall back to default (no vars to apply).
+				// No draft available, fall back to default (no vars to apply).
 				applyThemeVars("default", isDark);
 			}
 		} else {
@@ -727,7 +727,7 @@ export function useThemeSettings({
 		[handleCustomColorChange, customEditorMode],
 	);
 
-	// Hex input handler — allows partial typing via the loose regex
+	// Hex input handler, allows partial typing via the loose regex
 	// (so the user can type ``#``, ``#1``, ``#1a``, ``#1a2``, … without
 	// the input rejecting intermediate states), commits to
 	// ``handleCustomColorChange`` only when the strict ``#rrggbb``
@@ -738,7 +738,7 @@ export function useThemeSettings({
 		(varName: string) => (e: ChangeEvent<HTMLInputElement>) => {
 			const val = e.target.value;
 			// Allow the user to clear the input entirely (so they can
-			// retype from scratch) — the blur handler will revert if
+			// retype from scratch), the blur handler will revert if
 			// the value is left empty.
 			if (val === "" || /^#[0-9a-fA-F]{0,6}$/.test(val)) {
 				setHexDrafts((prev) => ({ ...prev, [varName]: val }));
@@ -753,13 +753,13 @@ export function useThemeSettings({
 	// On blur, commit the strict-match value or revert to the
 	// last-committed hex.  Reverting prevents a half-typed value (e.g.
 	// ``#1a2``) from lingering in the input after the user clicks away
-	// — the input snaps back to the colour the document is actually
+	//, the input snaps back to the colour the document is actually
 	// using.
 	const handleHexInputBlur = useCallback(
 		(varName: string, committedHex: string) => () => {
 			const val = hexDrafts[varName] ?? committedHex;
 			if (/^#[0-9a-fA-F]{6}$/.test(val)) {
-				// Already committed on change — nothing to do.
+				// Already committed on change, nothing to do.
 				return;
 			}
 			setHexDrafts((prev) => ({ ...prev, [varName]: committedHex }));

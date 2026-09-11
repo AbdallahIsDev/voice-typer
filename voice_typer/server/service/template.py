@@ -35,7 +35,7 @@ class TemplateMixin(ServiceMixinBase):
     #
     # previously this method read from a non-existent
     # ``config.templates_data`` attribute, so it always returned an
-    # empty list — and ``save_templates`` set the attribute on the
+    # empty list, and ``save_templates`` set the attribute on the
     # dataclass instance but never persisted it (``dataclasses.asdict``
     # only serializes declared fields, so the dynamic attribute was
     # silently dropped on save).  As a result the renderer kept
@@ -85,10 +85,10 @@ class TemplateMixin(ServiceMixinBase):
     def save_templates(self, templates: list[dict]) -> bool:
         """Replace all templates in the persistent store.
 
-        full-replace semantics — the renderer sends the
+        full-replace semantics, the renderer sends the
                 complete list after each add/edit/delete, and we persist the
                 whole list atomically via TemplateManager._save (which uses
-                _secure_atomic_write — O_NOFOLLOW on POSIX, temp+rename).
+                _secure_atomic_write. O_NOFOLLOW on POSIX, temp+rename).
         """
         try:
             tm = self._template_manager()
@@ -118,7 +118,7 @@ class TemplateMixin(ServiceMixinBase):
             # lock is acquired, the indexes are rebuilt, and the
             # on-disk file is updated in one transaction. Pre-fix this
             # directly assigned to tm._templates and called tm._save()
-            # — bypassing the lock (race with concurrent match) and
+            # , bypassing the lock (race with concurrent match) and
             # skipping _rebuild_indexes (so the just-saved templates
             # were not matchable until the next process restart).
             tm.replace_all(normalized)

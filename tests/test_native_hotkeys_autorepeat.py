@@ -3,7 +3,7 @@ in ``voice_typer.server.native_hotkeys.base``.
 
  (auto-repeat filter): the OS auto-repeats key-down / modifier-down
 events while a key is held. Without filtering, each repeat re-fires the
-hotkey callback — for a toggle-mode hotkey that means toggling on/off
+hotkey callback, for a toggle-mode hotkey that means toggling on/off
 every ~30ms while the key is held. The fix tracks previous down-state
 per key/modifier and only calls ``_try_match`` on the not-down → down
 transition.
@@ -71,13 +71,13 @@ class TestKeyAutoRepeatFilter:
 
     def test_second_key_down_without_keyup_is_suppressed(self, monkeypatch):
         """a second KEY_DOWN without an intervening KEY_UP is
-        an OS auto-repeat — must NOT re-fire the callback."""
+        an OS auto-repeat, must NOT re-fire the callback."""
         b = _make_linux_backend(monkeypatch, "<caps_lock>")
         fired: list[str] = []
         b._callback = lambda: fired.append("press")  # noqa: E731
         b._handle_line("KEY_DOWN:CapsLock")
-        b._handle_line("KEY_DOWN:CapsLock")  # auto-repeat — suppressed
-        b._handle_line("KEY_DOWN:CapsLock")  # auto-repeat — suppressed
+        b._handle_line("KEY_DOWN:CapsLock")  # auto-repeat, suppressed
+        b._handle_line("KEY_DOWN:CapsLock")  # auto-repeat, suppressed
         assert fired == ["press"], f"auto-repeat KEY_DOWN should be suppressed; got {fired}"
 
     def test_key_up_resets_state_allows_new_keydown(self, monkeypatch):
@@ -88,9 +88,9 @@ class TestKeyAutoRepeatFilter:
         b._callback = lambda: fired.append("press")  # noqa: E731
         b._on_release_callback = lambda: released.append("release")  # noqa: E731
         b._handle_line("KEY_DOWN:CapsLock")
-        b._handle_line("KEY_DOWN:CapsLock")  # auto-repeat — suppressed
+        b._handle_line("KEY_DOWN:CapsLock")  # auto-repeat, suppressed
         b._handle_line("KEY_UP:CapsLock")  # release fires
-        b._handle_line("KEY_DOWN:CapsLock")  # fresh press — fires
+        b._handle_line("KEY_DOWN:CapsLock")  # fresh press, fires
         assert fired == ["press", "press"], f"got {fired}"
         assert released == ["release"], f"got {released}"
 
@@ -113,30 +113,30 @@ class TestKeyAutoRepeatFilter:
 
     def test_wrong_key_doesnt_set_main_key_down(self, monkeypatch):
         """A KEY_DOWN for the wrong key does not latch _main_key_down
-        for the registered hotkey's main key — so a subsequent
+        for the registered hotkey's main key, so a subsequent
         KEY_DOWN for the RIGHT key still fires (no false suppression)."""
         b = _make_linux_backend(monkeypatch, "<caps_lock>")
         fired: list[str] = []
         b._callback = lambda: fired.append("press")  # noqa: E731
-        # Wrong key — should not fire and should not latch _main_key_down
+        # Wrong key, should not fire and should not latch _main_key_down
         # for CapsLock. (Note: _main_key_down is a single boolean shared
-        # across all keys in the current implementation — this test
+        # across all keys in the current implementation, this test
         # documents that pressing an unrelated key DOES latch it. See
         # the  docstring in base.py for the rationale: the
-        # filter is intentionally simple — it assumes the OS only
+        # filter is intentionally simple, it assumes the OS only
         # auto-repeats the most-recent key, which is the case on all
         # three platforms. If this assumption ever breaks, the fix is
         # to track per-key down-state in a set, not a boolean.)
         b._handle_line("KEY_DOWN:F2")
-        assert fired == []  # wrong key — no fire
-        # KEY_DOWN:CapsLock — _main_key_down is now True (latched by
+        assert fired == []  # wrong key, no fire
+        # KEY_DOWN:CapsLock, _main_key_down is now True (latched by
         # the F2 press), so this is treated as auto-repeat and
         # suppressed. This is a known limitation of the simple boolean
         # tracker; see the docstring above.
         b._handle_line("KEY_DOWN:CapsLock")
         # Accept either behavior: if the simple boolean latches, fired
         # is still []; if it doesn't, fired is ["press"]. The contract
-        # is "auto-repeat of the SAME key is suppressed" — pressing a
+        # is "auto-repeat of the SAME key is suppressed", pressing a
         # DIFFERENT key is not auto-repeat and SHOULD fire. The current
         # implementation may or may not fire depending on whether the
         # boolean was latched by the wrong-key press. We document this
@@ -162,13 +162,13 @@ class TestModifierAutoRepeatFilter:
 
     def test_second_mod_down_without_modup_is_suppressed(self, monkeypatch):
         """a second MOD_DOWN:Alt without an intervening MOD_UP
-        is an OS auto-repeat — must NOT re-fire the callback."""
+        is an OS auto-repeat, must NOT re-fire the callback."""
         b = _make_linux_backend(monkeypatch, "<alt>")
         fired: list[str] = []
         b._callback = lambda: fired.append("press")  # noqa: E731
         b._handle_line("MOD_DOWN:Alt")
-        b._handle_line("MOD_DOWN:Alt")  # auto-repeat — suppressed
-        b._handle_line("MOD_DOWN:Alt")  # auto-repeat — suppressed
+        b._handle_line("MOD_DOWN:Alt")  # auto-repeat, suppressed
+        b._handle_line("MOD_DOWN:Alt")  # auto-repeat, suppressed
         assert fired == ["press"], f"auto-repeat MOD_DOWN should be suppressed; got {fired}"
 
     def test_mod_up_resets_state_allows_new_moddown(self, monkeypatch):
@@ -177,7 +177,7 @@ class TestModifierAutoRepeatFilter:
         Note: for modifier-only hotkeys (e.g. ``<alt>``), the release
         callback currently does NOT fire on MOD_UP because
         ``_try_match(down=False)`` checks ``held == required`` AFTER
-        discarding the modifier — at that point held is empty and
+        discarding the modifier, at that point held is empty and
         required is {alt}, so the check fails. This is a pre-existing
         bug in the modifier-only release path, NOT a regression from
         the  auto-repeat filter. We only assert the press
@@ -186,9 +186,9 @@ class TestModifierAutoRepeatFilter:
         fired: list[str] = []
         b._callback = lambda: fired.append("press")  # noqa: E731
         b._handle_line("MOD_DOWN:Alt")
-        b._handle_line("MOD_DOWN:Alt")  # auto-repeat — suppressed
+        b._handle_line("MOD_DOWN:Alt")  # auto-repeat, suppressed
         b._handle_line("MOD_UP:Alt")  # release (currently doesn't fire cb)
-        b._handle_line("MOD_DOWN:Alt")  # fresh press — fires
+        b._handle_line("MOD_DOWN:Alt")  # fresh press, fires
         assert fired == ["press", "press"], f"got {fired}"
 
     def test_modifier_only_alt_with_extra_doesnt_fire(self, monkeypatch):
@@ -201,7 +201,7 @@ class TestModifierAutoRepeatFilter:
         b._callback = lambda: fired.append("press")  # noqa: E731
         b._handle_line("MOD_DOWN:Ctrl")  # held first
         b._handle_line("MOD_DOWN:Alt")  # now Alt is held, but Ctrl is too
-        assert fired == []  # NOT fired — extra modifier
+        assert fired == []  # NOT fired, extra modifier
 
     def test_repeated_ctrl_then_alt_doesnt_double_fire_alt(self, monkeypatch):
         """A repeat of Ctrl (auto-repeat) followed by a fresh Alt press
@@ -209,10 +209,10 @@ class TestModifierAutoRepeatFilter:
         b = _make_linux_backend(monkeypatch, "<alt>")
         fired: list[str] = []
         b._callback = lambda: fired.append("press")  # noqa: E731
-        b._handle_line("MOD_DOWN:Ctrl")  # Ctrl held — extra modifier
-        b._handle_line("MOD_DOWN:Ctrl")  # auto-repeat of Ctrl — suppressed
-        b._handle_line("MOD_DOWN:Alt")  # fresh Alt — but Ctrl still held
-        assert fired == []  # NOT fired — Ctrl is still an extra modifier
+        b._handle_line("MOD_DOWN:Ctrl")  # Ctrl held, extra modifier
+        b._handle_line("MOD_DOWN:Ctrl")  # auto-repeat of Ctrl, suppressed
+        b._handle_line("MOD_DOWN:Alt")  # fresh Alt, but Ctrl still held
+        assert fired == []  # NOT fired, Ctrl is still an extra modifier
 
 
 # ─── FN auto-repeat (macOS) ─────────────────────────────────────────
@@ -220,7 +220,7 @@ class TestModifierAutoRepeatFilter:
 
 class TestFnAutoRepeatFilter:
     """FN_DOWN auto-repeat filter on macOS. The FN event path
-    is separate from KEY_DOWN / MOD_DOWN — it uses ``_on_fn_event``,
+    is separate from KEY_DOWN / MOD_DOWN, it uses ``_on_fn_event``,
     which currently does NOT have the auto-repeat filter (FN is
     edge-detected in the Swift binary via ``.function`` flag, so the
     binary already only emits FN_DOWN on the false→true transition).
@@ -295,7 +295,7 @@ class TestVersionHandler:
 
     def test_no_expected_version_skips_comparison(self, monkeypatch, caplog):
         """When _expected_version is None (no manifest entry), the
-        comparison is skipped — no warning even if the version looks
+        comparison is skipped, no warning even if the version looks
         weird."""
         b = _make_linux_backend(monkeypatch, "<caps_lock>")
         # _expected_version defaults to None in __init__

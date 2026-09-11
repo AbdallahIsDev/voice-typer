@@ -1,17 +1,17 @@
-# RW-04 — `recording.py` god-class decomposition
+# RW-04, `recording.py` god-class decomposition
 
 ## Status
 
 > **Historical document.** This decomposition plan was authored when
 > `voice_typer/server/recording.py` was a single 3,208-line god class.
-> That file no longer exists — it has since been split into the
+> That file no longer exists, it has since been split into the
 > `voice_typer/server/recording/` package (`__init__.py`, `recorder.py`,
 > `buffer.py`, `device_manager.py`, `resampling.py`, `exceptions.py`,
 > `_recorder_split.py`). Wave 1 (`VadProcessor`) **and** Wave 2
 > (`AudioBuffer` extraction to `recording/buffer.py`, 316 lines) **and**
 > the `AudioDeviceManager` extraction to `recording/device_manager.py`
 > (535 lines) are all COMPLETE. **Reader note:** every reference to
-> `recording.py` in the prose body below is historical — read it as
+> `recording.py` in the prose body below is historical, read it as
 > "the code that now lives in `recording/recorder.py` (and its sibling
 > modules)". The prose is preserved unchanged because it documents the
 > historical decomposition work and the rationale for each extraction.
@@ -44,7 +44,7 @@ the scipy preloader thread, the device-health checker, etc.
 
 ## What was extracted (this wave)
 
-### `voice_typer/server/vad_processor.py` (NEW — 568 lines)
+### `voice_typer/server/vad_processor.py` (NEW: 568 lines)
 
 `VadProcessor` class encapsulating:
 
@@ -91,7 +91,7 @@ read/write properties on `VadProcessor`:
 | `_vad_enabled_cached`        | `vad_enabled_cached`              |
 | `_vad_enabled_cache_ts`      | `vad_enabled_cache_ts`            |
 
-### `voice_typer/server/recording.py` — delegation shims
+### `voice_typer/server/recording.py` Delegation shims
 
 `Recorder` now owns a single `self._vad: VadProcessor` instance
 (created in `__init__`) and delegates the VAD API to it. The
@@ -118,9 +118,9 @@ existing source-inspection tests
 (`test_vad_auto_calibrate_resets_on_start`) continue to pin on the
 literal attribute names appearing in `start()`'s source.
 
-### `tests/test_vad_processor.py` (NEW — 38 tests)
+### `tests/test_vad_processor.py` (NEW: 38 tests)
 
-Unit tests for `VadProcessor` in isolation — no `Recorder`
+Unit tests for `VadProcessor` in isolation, no `Recorder`
 instantiation, no sounddevice mock, no audio worker thread. Covers:
 
 - `__init__` defaults (state, counters, thresholds, frame counts,
@@ -144,7 +144,7 @@ instantiation, no sounddevice mock, no audio worker thread. Covers:
 
 ## What remains in `Recorder` (follow-up waves)
 
-### Wave 2 — `AudioDeviceManager`
+### Wave 2, `AudioDeviceManager`
 
 ~600 lines spanning:
 - `_resolve_device`, `_device_index`, `_host_api_name`,
@@ -161,7 +161,7 @@ Coupling: device resolution reads `self.config.microphone` /
 `self.stop()`. Extraction will need a `device_changed` callback or
 similar to break the back-reference.
 
-### Wave 3 — `AudioBuffer` + 3-tier resampling
+### Wave 3, `AudioBuffer` + 3-tier resampling
 
 ~500 lines spanning:
 - `_buffer` (deque), `_lock`, `_chunk_count`, `_recent_rms_values`.
@@ -191,7 +191,7 @@ together as one cohesive unit, with `Recorder` calling into it for
 `Recorder`'s method count is unchanged because the five VAD methods
 (`_vad_enabled`, `on_config_changed`, `_compute_vad_enabled`,
 `_vad_auto_calibrate`, `_vad_update`) remain on the class as
-**delegating wrappers** — this preserves the public/source-level API
+**delegating wrappers**: this preserves the public/source-level API
 that existing tests pin on (e.g.
 `inspect.getsource(Recorder._vad_update)` is still valid and still
 contains the AUDIO-013 grey-zone comment + `pass` + "State
@@ -200,7 +200,7 @@ transitions" markers required by
 `test_worker_thread_processes_heavy_pipeline`).
 
 The **logic** that used to live in those methods has moved to
-`VadProcessor` — `Recorder._vad_update` is now a 1-line delegation
+`VadProcessor` `Recorder._vad_update` is now a 1-line delegation
 rather than the 70-line state-machine implementation. Lines-of-code
 moved: ~150 (state machine + auto-calibration + vad_enabled cache +
 compute_vad_enabled) out of `recording.py` and into
@@ -231,7 +231,7 @@ compute_vad_enabled) out of `recording.py` and into
 - **Wave 3**: extract `AudioBuffer` (buffer mgmt, snapshot cache,
   3-tier resampling, secure clear).
 - Consider folding `voice_typer/server/vad.py` (the Silero wrapper for
-  the waveform visualizer) into `vad_processor.py` — they're both VAD
+  the waveform visualizer) into `vad_processor.py` They're both VAD
   but serve different consumers (visualizer vs recording state
   machine). Currently `vad.py` is a leaf module imported by both
   `vad_processor.py` (for `_check_vad_available`) and

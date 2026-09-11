@@ -1,23 +1,23 @@
 """Windows desktop shortcut (.lnk) creation.
 
-Phase 4.5 /  — extracted from the original
+Phase 4.5 / , extracted from the original
 ``voice_typer/server/server_platform.py`` god-module.  Implements:
 
-  - :func:`_generate_icon_ico` — render the logo PNG to a .ico file
+  - :func:`_generate_icon_ico`: render the logo PNG to a .ico file
     (skipped if the .ico already exists and is newer than the source
     PNG).
-  - :func:`_universal_launcher_path` — path to ``autostart_launcher.py``
+  - :func:`_universal_launcher_path`: path to ``autostart_launcher.py``
     (the single universal launch entry point).
-  - :func:`_start_menu_programs_dir` — Windows Start Menu → Programs
+  - :func:`_start_menu_programs_dir`: Windows Start Menu → Programs
     directory for the current user.
-  - :func:`_ps_single_quote` — SEC-10 PowerShell single-quote escaping
+  - :func:`_ps_single_quote`: SEC-10 PowerShell single-quote escaping
     (disables all variable expansion, command substitution, escape
     sequences, etc.).
-  - :func:`_build_powershell_lnk_script` — build the .lnk-creation
+  - :func:`_build_powershell_lnk_script`: build the .lnk-creation
     PowerShell script as a single string (extracted for unit testing).
-  - :func:`_create_lnk_shortcut` — create a single .lnk shortcut
+  - :func:`_create_lnk_shortcut`: create a single .lnk shortcut
     (win32com first, PowerShell fallback).
-  - :func:`create_launcher_shortcut` — create Desktop + Start Menu
+  - :func:`create_launcher_shortcut`: create Desktop + Start Menu
     shortcuts for Voice Typer.
 
 Patch-path compatibility
@@ -75,18 +75,18 @@ def _generate_icon_ico() -> Path | None:
     on failure.
 
     Skips regeneration if the icon already exists and is newer than the
-    source PNG — avoids wasteful disk writes on every startup.
+    source PNG, avoids wasteful disk writes on every startup.
     """
     try:
         from PIL import Image
     except ImportError:
-        log.debug("PIL not available — cannot generate icon")
+        log.debug("PIL not available, cannot generate icon")
         return None
 
     # The pre-rendered logo PNG lives at the project root
     # (``logo-256.png``), NOT under ``voice_typer/server/assets/`` (that
     # directory was REMOVED from the MANIFEST.in / packaging entries, so
-    # it is not shipped in installed or bundled builds — confirmed via
+    # it is not shipped in installed or bundled builds, confirmed via
     # the MANIFEST.in cleanup that removed the dead ``recursive-include
     # voice_typer/server/assets *`` entry; the dir may still exist in a
     # dev checkout but is not part of the package). Probe the
@@ -108,7 +108,7 @@ def _generate_icon_ico() -> Path | None:
         None,
     )
     if icon_png is None:
-        log.debug("Pre-rendered logo PNG not found — cannot generate icon")
+        log.debug("Pre-rendered logo PNG not found, cannot generate icon")
         return None
 
     appdata = Path(os.environ.get("APPDATA", Path.home()))
@@ -136,14 +136,14 @@ def _generate_icon_ico() -> Path | None:
 
 
 def _universal_launcher_path() -> Path:
-    """Path to autostart_launcher.py — the single universal launch entry point."""
+    """Path to autostart_launcher.py, the single universal launch entry point."""
     return Path(__file__).resolve().parent.parent / "autostart_launcher.py"
 
 
 # Legacy .lnk filename from builds that predate the APP_NAME-derived
 # shortcut naming. Like other on-disk artifact / OS identifiers (e.g. the
 # ``VoiceTyper.exe`` binary name), this is a stable FILESYSTEM name that
-# older installs already have on disk — not the user-facing brand string
+# older installs already have on disk, not the user-facing brand string
 # (which flows through APP_NAME). Kept so a future product rename still
 # FINDS and reuses the pre-rename shortcut instead of leaving a stale
 # duplicate beside the newly named one (see
@@ -261,7 +261,7 @@ def _create_lnk_shortcut(
     """Create a single .lnk shortcut. Returns True on success.
 
     Tries win32com first (fast, native COM).  Falls back to a PowerShell
-    script written to a temp file — always available on Windows, no extra
+    script written to a temp file, always available on Windows, no extra
     packages needed, and avoids string-escaping problems.
 
     SEC-10: the PowerShell fallback now wraps every user-supplied value
@@ -287,7 +287,7 @@ def _create_lnk_shortcut(
         shortcut.save()
         return True
     except ImportError:
-        log.debug("[STARTUP] win32com unavailable — trying PowerShell fallback")
+        log.debug("[STARTUP] win32com unavailable, trying PowerShell fallback")
     except OSError as e:
         # include both the destination .lnk path AND the target
         # executable so operators can tell which shortcut + which
@@ -301,7 +301,7 @@ def _create_lnk_shortcut(
         )
         return False
 
-    # 2) PowerShell fallback — pass the script directly via `-Command`
+    # 2) PowerShell fallback. Pass the script directly via `-Command`
     # to avoid the temp-file TOCTOU window that the previous
     # ``-File <tmp>`` invocation opened (). The script is
     # already string-built by ``_build_powershell_lnk_script`` (which
@@ -315,7 +315,7 @@ def _create_lnk_shortcut(
     # PowerShell string (see _build_powershell_lnk_script /
     # _ps_single_quote). This is defense-in-depth against path /
     # description / arguments values that contain PowerShell
-    # metacharacters — even though Voice Typer controls most of these
+    # metacharacters, even though Voice Typer controls most of these
     # values today, a future change (e.g. user-customizable shortcut
     # description) shouldn't silently introduce an injection vector.
     try:
@@ -336,7 +336,7 @@ def _create_lnk_shortcut(
         # ``powershell -File`` invocation, substituting arbitrary
         # PowerShell code that would then execute with the user's
         # privileges. The ``-Command`` form passes the script as a
-        # single process argument — no on-disk artifact exists for an
+        # single process argument, no on-disk artifact exists for an
         # attacker to swap.
         subprocess.run(
             ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script],
@@ -364,10 +364,10 @@ def _create_lnk_shortcut(
 # default (electron.exe). Must match the Electron side's
 # ``app.setAppUserModelId("VoiceTyper")`` (bootstrap.ts) and the Python
 # side's ``SetCurrentProcessExplicitAppUserModelID`` (platform_utils.py)
-# — all three compute the same value: APP_NAME with spaces removed.
+# , all three compute the same value: APP_NAME with spaces removed.
 _APP_USER_MODEL_ID = APP_NAME.replace(" ", "")
 
-# System.AppUserModel.ID — the property key Windows reads off the
+# System.AppUserModel.ID, the property key Windows reads off the
 # Start Menu shortcut to attribute toast notifications to an app and
 # pick its icon (electronjs.org/docs/latest/tutorial/notifications).
 _APP_USER_MODEL_ID_FMTID = "9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3"
@@ -381,7 +381,7 @@ def _build_aumid_powershell_script(lnk_path: Path, aumid: str) -> str:
     The WScript.Shell COM interface used for .lnk creation cannot set
     arbitrary property-store values, so we compile a tiny C# helper
     (Add-Type) that drives the **shell-link object's own** property
-    store — the only store whose ``Commit`` actually persists
+    store, the only store whose ``Commit`` actually persists
     ``System.AppUserModel.ID`` into the .lnk file:
 
     1. read the existing shortcut's fields (target, arguments, working
@@ -390,11 +390,11 @@ def _build_aumid_powershell_script(lnk_path: Path, aumid: str) -> str:
        COM class), set ALL of those fields back via ``IShellLinkW``,
        cast the SAME object to ``IPropertyStore`` and ``SetValue`` +
        ``Commit`` the AppUserModel.ID property key;
-    3. ``IPersistFile.Save`` — without this the property is never
+    3. ``IPersistFile.Save``: without this the property is never
        written to disk.
 
     This is the exact pattern Squirrel.Windows uses in ``ShellFile.cs``
-    (``SetAppUserModelId`` — ``(IPropertyStore)linkW`` +
+    (``SetAppUserModelId``: ``(IPropertyStore)linkW`` +
     ``IPersistFile.Save``), which is what produces shortcuts whose
     ``System.AppUserModel.ID`` shows up in ``lnk-parser`` and makes
     Windows toast notifications use the app icon. Two empirically
@@ -407,7 +407,7 @@ def _build_aumid_powershell_script(lnk_path: Path, aumid: str) -> str:
       LOADED object fails with ``E_INVALIDARG``/``STG_E_READFAULT``.
       The working variant is a FRESH coclass with every field re-set
       (``SetPath``/``SetArguments``/``SetWorkingDirectory``/
-      ``SetDescription``/``SetIconLocation``) — verified: all HRESULTs
+      ``SetDescription``/``SetIconLocation``), verified: all HRESULTs
       0 and the property GUID + UTF-16 value physically present in the
       output .lnk at the expected offsets.
 
@@ -546,7 +546,7 @@ def _set_lnk_app_user_model_id(lnk_path: Path) -> bool:
 
     Runs the PowerShell snippet built by
     :func:`_build_aumid_powershell_script` with the module's canonical
-    AUMID (:data:`_APP_USER_MODEL_ID`). Never raises — a failure is
+    AUMID (:data:`_APP_USER_MODEL_ID`). Never raises, a failure is
     logged and returns False so shortcut creation is never broken by a
     property-stamp problem.
 
@@ -558,7 +558,7 @@ def _set_lnk_app_user_model_id(lnk_path: Path) -> bool:
     instead of recompiling the Add-Type C# helper (seconds) on every
     boot. (The byte pattern is how Squirrel-generated shortcuts verify
     with ``lnk-parser``; the property-store read-back APIs are
-    unreliable for this — a fresh-process ``GetValue`` returns empty
+    unreliable for this, a fresh-process ``GetValue`` returns empty
     even when the bytes are in the file.)
     """
     if _platform_flags.SYSTEM != "win32" or not lnk_path.exists():
@@ -570,7 +570,7 @@ def _set_lnk_app_user_model_id(lnk_path: Path) -> bool:
         if bytes.fromhex("55284c9f799f394ba8d0e1d42de1d5f3") in raw and _APP_USER_MODEL_ID.encode("utf-16-le") in raw:
             return True
     except OSError:
-        # unreadable .lnk — fall through to the PowerShell stamp which
+        # unreadable .lnk, fall through to the PowerShell stamp which
         # will log its own failure.
         pass
     script = _build_aumid_powershell_script(lnk_path, _APP_USER_MODEL_ID)
@@ -623,7 +623,7 @@ def create_launcher_shortcut() -> Path | None:
 
     pythonw = Path(sys.executable).parent / "pythonw.exe"
     if not pythonw.exists():
-        log.warning("[STARTUP] pythonw.exe not found at %s — cannot create console-free launcher", pythonw)
+        log.warning("[STARTUP] pythonw.exe not found at %s, cannot create console-free launcher", pythonw)
         return None
 
     launcher = _universal_launcher_path()
@@ -635,7 +635,7 @@ def create_launcher_shortcut() -> Path | None:
     primary_path: Path | None = None
     lnk_desktop = desktop / f"{APP_NAME}.lnk"
 
-    # Skip if the Desktop shortcut already exists — no need to recreate
+    # Skip if the Desktop shortcut already exists, no need to recreate
     # on every startup now that the legacy .bat → .lnk migration is done.
     # A shortcut left by an older build under the legacy fixed filename
     # counts as existing too (see _existing_launcher_lnk), so a product
@@ -646,7 +646,7 @@ def create_launcher_shortcut() -> Path | None:
         # Windows toast notifications attribute their icon via the Start
         # Menu shortcut's System.AppUserModel.ID. Existing shortcuts (from
         # before the AUMID stamp was added) lack the property, so toasts
-        # fall back to the Electron default icon — stamp idempotently.
+        # fall back to the Electron default icon, stamp idempotently.
         _set_lnk_app_user_model_id(existing_desktop)
     else:
         if _create_lnk_shortcut(
@@ -654,7 +654,7 @@ def create_launcher_shortcut() -> Path | None:
             target=str(pythonw),
             arguments=f'"{launcher}"',
             icon_ico=icon_ico,
-            description=f"{APP_NAME} — voice-to-text dictation",
+            description=f"{APP_NAME}, voice-to-text dictation",
         ):
             log.info("[STARTUP] Desktop .lnk created: %s", lnk_desktop)
             primary_path = lnk_desktop
@@ -664,7 +664,7 @@ def create_launcher_shortcut() -> Path | None:
             # so operators can tell which path / launcher failed without
             # having to dig through the rest of the startup log.
             log.warning(
-                "[STARTUP] Could not create desktop .lnk (target=%s, lnk=%s) — install pywin32 or check logs",
+                "[STARTUP] Could not create desktop .lnk (target=%s, lnk=%s). Install pywin32 or check logs",
                 pythonw,
                 lnk_desktop,
             )
@@ -681,7 +681,7 @@ def create_launcher_shortcut() -> Path | None:
             target=str(pythonw),
             arguments=f'"{launcher}"',
             icon_ico=icon_ico,
-            description=f"{APP_NAME} — voice-to-text dictation",
+            description=f"{APP_NAME}, voice-to-text dictation",
         ):
             log.info("[STARTUP] Start Menu .lnk created: %s", lnk_start)
             _set_lnk_app_user_model_id(lnk_start)

@@ -6,18 +6,18 @@ DNS-resolution-time check that the resolved IP is not a
 private/reserved address (RFC 1918 10/8, 172.16/12, 192.168/16;
 link-local 169.254/16 including the cloud metadata endpoint
 169.254.169.254; loopback 127/8).  If a trusted hostname (e.g.
-``api.openai.com``) resolved to a private IP — via ``/etc/hosts``
+``api.openai.com``) resolved to a private IP, via ``/etc/hosts``
 tampering, compromised DNS, DNS rebinding, or a malicious local DNS
-resolver — the request was sent to the private IP, exfiltrating the
+resolver, the request was sent to the private IP, exfiltrating the
 API key (in the Authorization header) and the audio body to the
 cloud metadata endpoint or any internal service.
 
 The fix adds two helpers and a post-allowlist SSRF check:
 
-  * ``_is_ip_literal(host)`` — True if the host string is already an
+  * ``_is_ip_literal(host)``, True if the host string is already an
     IP literal (e.g. ``"10.0.0.1"``, ``"::1"``).
 
-  * ``_is_private_ip(ip_str)`` — True if the IP is in a
+  * ``_is_private_ip(ip_str)``, True if the IP is in a
     private/reserved range.  Covers RFC 1918, link-local, loopback,
     unspecified, IPv6 ULA, IPv6 link-local, and the various
     ``ipaddress`` ``is_reserved`` ranges.
@@ -33,31 +33,31 @@ The fix adds two helpers and a post-allowlist SSRF check:
 
 Test approach:
 
-1. **``_is_private_ip`` direct tests** — verify the helper returns
+1. **``_is_private_ip`` direct tests**, verify the helper returns
    True for private/reserved IPs and False for public IPs.
 
-2. **``_is_ip_literal`` direct tests** — verify the helper
+2. **``_is_ip_literal`` direct tests**, verify the helper
    distinguishes IP literals from hostnames.
 
-3. **``assert_url_allowed`` IP-literal blocklist** — extend the
+3. **``assert_url_allowed`` IP-literal blocklist**, extend the
    allowlist with a private IP and verify ``assert_url_allowed``
    rejects it (defense-in-depth: even explicit allowlist extension
    cannot bypass the blocklist).
 
-4. **``assert_url_allowed`` loopback exemption** — verify that
+4. **``assert_url_allowed`` loopback exemption**, verify that
    ``127.0.0.1`` and ``::1`` (in the default allowlist) are NOT
    rejected by the SSRF check (local dev opt-in).
 
-5. **``assert_url_allowed`` DNS-rebinding defense** — mock
+5. **``assert_url_allowed`` DNS-rebinding defense**, mock
    ``socket.getaddrinfo`` to return a private IP for an allowlisted
    hostname; verify ``assert_url_allowed`` rejects it.
 
-6. **``assert_url_allowed`` DNS failure is non-fatal** — mock
+6. **``assert_url_allowed`` DNS failure is non-fatal**, mock
    ``socket.getaddrinfo`` to raise ``gaierror``; verify
    ``assert_url_allowed`` does NOT reject (the URL is allowed; the
    HTTP layer will surface the DNS error in the normal way).
 
-7. **``check_dns_rebinding=False`` skips the resolution** — verify
+7. **``check_dns_rebinding=False`` skips the resolution**, verify
    the kwarg disables the post-resolution check (IP-literal blocklist
    still runs).
 """
@@ -77,7 +77,7 @@ from voice_typer.server._secrets import (
 )
 
 # ---------------------------------------------------------------------------
-# _is_private_ip — direct tests
+# _is_private_ip, direct tests
 # ---------------------------------------------------------------------------
 
 
@@ -119,7 +119,7 @@ class TestIsPrivateIp:
         assert _is_private_ip(ip) is True, (
             f"FR-25: link-local IP {ip!r} should be rejected by "
             f"_is_private_ip. The cloud metadata endpoint "
-            f"169.254.169.254 is the primary SSRF target — if this "
+            f"169.254.169.254 is the primary SSRF target, if this "
             f"check fails, an attacker can exfiltrate the API key to "
             f"the cloud metadata endpoint."
         )
@@ -186,7 +186,7 @@ class TestIsPrivateIp:
 
 
 # ---------------------------------------------------------------------------
-# _is_ip_literal — direct tests
+# _is_ip_literal, direct tests
 # ---------------------------------------------------------------------------
 
 
@@ -226,7 +226,7 @@ class TestIsIpLiteral:
 
 
 # ---------------------------------------------------------------------------
-# assert_url_allowed — IP-literal blocklist (allowlisted private IP rejected)
+# assert_url_allowed, IP-literal blocklist (allowlisted private IP rejected)
 # ---------------------------------------------------------------------------
 
 
@@ -287,7 +287,7 @@ class TestAssertUrlAllowedIpLiteralBlocklist:
 
 
 # ---------------------------------------------------------------------------
-# assert_url_allowed — DNS-rebinding defense (hostname resolves to private IP)
+# assert_url_allowed, DNS-rebinding defense (hostname resolves to private IP)
 # ---------------------------------------------------------------------------
 
 
@@ -370,7 +370,7 @@ class TestAssertUrlAllowedDnsRebindingDefense:
         """``check_dns_rebinding=False`` disables the post-resolution
         check entirely.  The IP-literal blocklist still runs for IP
         literals, but for hostnames no resolution is attempted."""
-        # Patch getaddrinfo to raise if called — verify it's NOT called.
+        # Patch getaddrinfo to raise if called, verify it's NOT called.
         with patch("socket.getaddrinfo", side_effect=AssertionError("getaddrinfo should not be called")):
             # Must NOT raise (no resolution attempted).
             assert_url_allowed(
@@ -394,7 +394,7 @@ class TestAssertUrlAllowedDnsRebindingDefense:
 
 
 # ---------------------------------------------------------------------------
-# assert_url_allowed — loopback exemption edge cases
+# assert_url_allowed, loopback exemption edge cases
 # ---------------------------------------------------------------------------
 
 
@@ -417,7 +417,7 @@ class TestAssertUrlAllowedLoopbackExemption:
     def test_loopback_named_skips_ssrf_check(self):
         """``localhost`` is in _LOOPBACK_HOSTS and is exempted.  But
         ``localhost`` is NOT an IP literal, so the DNS-rebinding path
-        runs — we mock getaddrinfo to return 127.0.0.1 (loopback) and
+        runs, we mock getaddrinfo to return 127.0.0.1 (loopback) and
         verify the URL is accepted (loopback IPs in the resolution
         are NOT rejected because the host is in _LOOPBACK_HOSTS)."""
         # Actually, the loopback exemption is keyed on the HOST being
@@ -437,7 +437,7 @@ class TestAssertUrlAllowedLoopbackExemption:
 
 
 # ---------------------------------------------------------------------------
-# assert_url_allowed — defense-in-depth regression guards
+# assert_url_allowed, defense-in-depth regression guards
 # ---------------------------------------------------------------------------
 
 

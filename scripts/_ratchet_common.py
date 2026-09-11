@@ -7,7 +7,7 @@ copy-paste clones of one another: the same baseline load/validate
 prelude, the same refuse-to-regrow regenerate flow (metadata preserve,
 missing/corrupt-baseline guards, ``--force`` bypass), the same
 count-comparison algorithm and table renderer, and the same argparse
-flag shape — with only wording and paths differing. Duplicated gates
+flag shape: with only wording and paths differing. Duplicated gates
 drift (one copy already had); this module is the single authoritative
 skeleton so a gate fix lands once.
 
@@ -33,7 +33,7 @@ Import contract: the scripts run directly (``python scripts/
 ruff_ratchet_check.py`` → ``sys.path[0]`` is ``scripts/``) and tests
 import them flat with ``scripts/`` on ``sys.path`` (see
 ``tests/test_coverage_ratchet_strict.py``), so the flat
-``import _ratchet_common`` is required — the same pattern as
+``import _ratchet_common`` is required, the same pattern as
 ``scripts/_i18n_common.py``. A package-relative import would fail
 under direct script execution.
 """
@@ -95,7 +95,7 @@ def load_baseline_prelude(
 
     Field-specific type checks (counts vs. a float percentage) stay in
     the caller. Exits the process (exit code 2 = "cannot evaluate")
-    rather than returning a sentinel — a missing/corrupt floor must
+    rather than returning a sentinel, a missing/corrupt floor must
     never be treated as a pass.
     """
     if not baseline_path.is_file():
@@ -390,9 +390,9 @@ def build_ratchet_parser(
 
     Every ratchet script exposes the same contract:
 
-    * ``--regenerate`` — rewrite the baseline with the current counts /
+    * ``--regenerate``: rewrite the baseline with the current counts /
       percentage (refuses to regress);
-    * ``--force`` — bypass the refuse-to-regress check and the
+    * ``--force``: bypass the refuse-to-regress check and the
       missing/corrupt-baseline guard.
 
     Script-specific flags (``--stdin``, ``--current-path``,

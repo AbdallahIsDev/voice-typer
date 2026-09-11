@@ -11,7 +11,7 @@ both call into.
 IPC poll on ``_state._last_get_level_poll_ts``. The worker thread
 (:mod:`.worker`) checks this timestamp on every iteration and
 auto-stops the stream when no poll has been received in
-``_state._LEVEL_IDLE_TIMEOUT_SEC`` seconds (default 60.0 — a
+``_state._LEVEL_IDLE_TIMEOUT_SEC`` seconds (default 60.0, a
 defensive backstop, NOT a 5 s reaction time; see the attribute's
 docstring in :mod:`._state` for why it was raised). This
 prevents the RNNoise filter chain from pegging a core when the tray
@@ -45,7 +45,7 @@ log = logging.getLogger("voice_typer.server.level_monitor")
 def _emit_device_lost(source: str) -> None:
     """Publish a ``device_lost`` IPC event (idempotent via ``_device_lost_emitted``).
 
-    Safe to call from inside ``_monitor_lock`` — uses a lock-free
+    Safe to call from inside ``_monitor_lock``: uses a lock-free
     check-and-set on ``_device_lost_emitted`` (GIL-safe for bools in
     CPython) to avoid re-entrant lock acquisition.
     """
@@ -66,7 +66,7 @@ def _make_stream_finished_guard(stream_cell: dict[str, object]):
 
     CRITICAL INVARIANT: PortAudio fires ``PaStreamFinishedCallback`` not
     only when a device vanishes mid-stream but ALSO on every INTENTIONAL
-    inactive transition — ``stream.stop()`` / ``stream.close()``, which is
+    inactive transition, ``stream.stop()`` / ``stream.close()``, which is
     exactly what a device SWITCH or a page-unmount ``stop_monitoring``
     does to the OLD stream. Treating those as losses emitted a bogus
     ``device_lost`` for perfectly healthy streams: selecting any concrete
@@ -85,7 +85,7 @@ def _make_stream_finished_guard(stream_cell: dict[str, object]):
             current = _state._monitor_stream
             active = _state._monitor_active
         if stream_cell.get("stream") is not current or not active:
-            # Intentional stop / replaced by a newer stream — not a loss.
+            # Intentional stop / replaced by a newer stream, not a loss.
             log.debug("[LEVEL-MON] finished callback ignored (stream replaced or intentionally stopped)")
             return
         with _state._monitor_lock:
@@ -97,7 +97,7 @@ def _make_stream_finished_guard(stream_cell: dict[str, object]):
 
 
 def _level_stream_finished() -> None:
-    """Legacy unguarded finished callback — device disconnected mid-stream.
+    """Legacy unguarded finished callback, device disconnected mid-stream.
 
     Kept for tests/back-compat; production streams use the identity-aware
     :func:`_make_stream_finished_guard` callback instead.
@@ -134,7 +134,7 @@ def _push_mic_level(rms: float, peak: float, active: bool) -> None:
 def _mic_level_worker_loop() -> None:
     """Background worker thread that publishes ``mic_level`` push-events.
 
-    Drains the coalesce queue (keeping the latest payload only — PERF-3
+    Drains the coalesce queue (keeping the latest payload only, PERF-3
     latest-only drop pattern) and publishes via ``event_bus.publish``.
     Runs on a dedicated thread so the level worker / PortAudio callback
     is never blocked on event_bus publish latency.
@@ -221,9 +221,9 @@ def get_level() -> dict:
 
     Returns:
         dict with keys:
-            - "level": float (0-1) — current RMS level, scaled.
-            - "peak": float (0-1) — peak level since last call.
-            - "active": bool — whether the monitor stream is running.
+            - "level": float (0-1), current RMS level, scaled.
+            - "peak": float (0-1), peak level since last call.
+            - "active": bool, whether the monitor stream is running.
     """
     # record the poll timestamp so the worker thread can detect
     # the idle condition (no polls in N seconds → auto-stop).
@@ -250,14 +250,14 @@ def get_level_diagnostics() -> dict:
     ``_level_worker_loop`` after logging, so this snapshot is
     point-in-time (drops since the last 5s log emission).
 
-    ALSO exposes ``total_dropped_level_chunks`` — the CUMULATIVE
+    ALSO exposes ``total_dropped_level_chunks``: the CUMULATIVE
     counter that NEVER resets in production. The per-burst counter
     flakes under sustained overload (a test that snapshots it
     before/after a single overflow can see 0 if the worker drained it
     between the snapshot and the check); the cumulative counter is the
     stable field for "drops since ``start_monitoring`` first ran"
     telemetry. Lives on ``worker.py`` as a module-level global (NOT on
-    ``_state`` — see ``worker.py``'s cumulative-counter comment block
+    ``_state``: see ``worker.py``'s cumulative-counter comment block
     for the rationale); read here via deferred import so ``monitoring.py``
     does not take a top-level dependency on ``worker.py`` (which would
     short-circuit the package's lazy-import benefits).
@@ -314,7 +314,7 @@ def update_level_processor(config_dict: dict) -> None:
     When enabled, the level monitor's callback will run audio through
     this processor before computing RMS/peak so the level bar reflects
     the active noise filters in real-time (high-pass, noise gate,
-    RNNoise — but not post-capture which is offline-only).
+    RNNoise, but not post-capture which is offline-only).
 
     All mutations of ``_state._level_processor`` and the snapshot read
     of ``_state._monitor_sample_rate`` happen under ``_state._monitor_lock``
@@ -327,17 +327,17 @@ def update_level_processor(config_dict: dict) -> None:
     (RNNoise model load) doesn't block ``get_level()`` / worker drain.
 
     The ``config_dict`` is stashed on ``_state._level_processor_config``
-    so ``start_monitoring``'s "different device — restart" branch can
+    so ``start_monitoring``'s "different device, restart" branch can
     rebuild the chain at the new native sample rate after a hot-swap.
     Pre-fix, the restart path only updated ``_monitor_sample_rate`` and
     left the old processor (built against the previous device's rate)
-    in place — IIR ``zi`` arrays + RNNoise ``_carry`` were tuned to the
+    in place, IIR ``zi`` arrays + RNNoise ``_carry`` were tuned to the
     wrong rate.
 
     ``config_dict["level_bar_filtered"]`` (default False) opts IN to
     running the filter chain for the cosmetic level bar. When False
     (default), the filter chain is SKIPPED for the cosmetic bar (RMS
-    is computed on raw audio) — the filter chain still runs when a
+    is computed on raw audio), the filter chain still runs when a
     test recording is active (the "after" WAV needs the filtered
     audio). This avoids pegging a core at 31-94 Hz with RNNoise for a
     non-functional visualization.
@@ -360,7 +360,7 @@ def update_level_processor(config_dict: dict) -> None:
         _state._level_processor_config = None
 
     # Stash the ``level_bar_filtered`` flag on _state so the worker can
-    # read it without re-parsing the config dict. Default False — the
+    # read it without re-parsing the config dict. Default False, the
     # cosmetic bar uses raw audio only.
     level_bar_filtered = bool(config_dict.get("level_bar_filtered", False))
     with _state._monitor_lock:
@@ -418,7 +418,7 @@ def start_monitoring(mic_id: str | None = None) -> dict:
     """Start continuous real-time audio level monitoring.
 
     If monitoring is already active, this is a no-op unless `mic_id`
-    differs from the current device — in that case the old stream is
+    differs from the current device, in that case the old stream is
     stopped and a new one is opened on the requested device.
 
     Args:
@@ -430,7 +430,7 @@ def start_monitoring(mic_id: str | None = None) -> dict:
     import sounddevice as sd
 
     with _state._monitor_lock:
-        # Already running on the same device — no-op
+        # Already running on the same device, no-op
         if _state._monitor_active and _state._monitor_mic_id == mic_id:
             return {
                 "success": True,
@@ -438,7 +438,7 @@ def start_monitoring(mic_id: str | None = None) -> dict:
                 "sample_rate": _state._monitor_sample_rate,
             }
 
-        # Already running on a DIFFERENT device — restart
+        # Already running on a DIFFERENT device, restart
         if _state._monitor_active:
             old_stream = _state._monitor_stream
             _state._monitor_stream = None
@@ -452,7 +452,7 @@ def start_monitoring(mic_id: str | None = None) -> dict:
             # the new stream opens at a different native rate. The
             # ``stop_monitoring`` path already does this; the restart
             # branch was missing it. Guarded: a failing ``reset()`` must
-            # NOT block the restart — the new ``update_level_processor``
+            # NOT block the restart, the new ``update_level_processor``
             # call below replaces the processor entirely, so a
             # partially-reset old processor is discarded anyway.
             old_processor = _state._level_processor
@@ -527,7 +527,7 @@ def start_monitoring(mic_id: str | None = None) -> dict:
             # under the ~32 ms PortAudio deadline. The blocksize below
             # is scaled to ``max(512, int(native_rate * 0.032))`` so a
             # chunk always represents ~32 ms of audio regardless of the
-            # device native rate — at 16 kHz the block is 512 samples
+            # device native rate, at 16 kHz the block is 512 samples
             # (32 ms), at 44.1 kHz it is 1411 samples (~32 ms), and at
             # 48 kHz it is 1536 samples (32 ms). Without that scaling,
             # a fixed 512-sample block on a 48 kHz device produced a
@@ -535,11 +535,11 @@ def start_monitoring(mic_id: str | None = None) -> dict:
             # ring buffer and worker. To meet this deadline the
             # callback does ONLY:
             #
-            #   1. ``indata.copy()`` — allocates a ~2 KB float32 buffer
+            #   1. ``indata.copy()``: allocates a ~2 KB float32 buffer
             #      for 512 samples (negligible).
-            #   2. ``deque.append`` — atomic under CPython's GIL for
+            #   2. ``deque.append``: atomic under CPython's GIL for
             #      SPSC, ~1 µs.
-            #   3. ``Event.set()`` — wakes the worker thread, ~1 µs.
+            #   3. ``Event.set()``: wakes the worker thread, ~1 µs.
             #
             # All heavy work (filter chain via ``_level_processor``,
             # ``np.abs`` / ``np.sqrt(np.mean(...))`` for RMS/peak, test
@@ -556,12 +556,12 @@ def start_monitoring(mic_id: str | None = None) -> dict:
                 _state._level_ring_buffer.append((indata.copy(), status))
             except Exception:
                 # deque.append only raises on capacity-overflow if a
-                # maxlen isn't set — but we set one, so this is purely
+                # maxlen isn't set, but we set one, so this is purely
                 # defensive. Don't let a callback error kill the stream.
                 log.debug("[LEVEL-MON] ring buffer append failed", exc_info=True)
                 return
             if len(_state._level_ring_buffer) >= _state._LEVEL_RING_BUFFER_CAPACITY:
-                # Ring buffer full — worker can't keep up. Drop the
+                # Ring buffer full, worker can't keep up. Drop the
                 # oldest chunk to make room (deque with maxlen already
                 # does this, but we want to count drops for telemetry).
                 # NOTE: deque(maxlen=N) silently drops the OLDEST entry
@@ -577,7 +577,7 @@ def start_monitoring(mic_id: str | None = None) -> dict:
                 if not _state._first_drop_warning_emitted:
                     _state._first_drop_warning_emitted = True
                     log.warning(
-                        "[LEVEL-MON] ring buffer full — dropped audio chunk "
+                        "[LEVEL-MON] ring buffer full, dropped audio chunk "
                         "(worker thread can't keep up with the PortAudio "
                         "callback rate; consider disabling RNNoise or "
                         "reducing the filter chain cost)",
@@ -669,8 +669,8 @@ def start_monitoring(mic_id: str | None = None) -> dict:
 
     # Rebuild the level processor at the new native rate. Must happen
     # OUTSIDE ``_monitor_lock`` because ``update_level_processor``
-    # acquires the same lock (and constructs the AudioProcessor — which
-    # may load the RNNoise model — outside it). Best-effort: a rebuild
+    # acquires the same lock (and constructs the AudioProcessor, which
+    # may load the RNNoise model, outside it). Best-effort: a rebuild
     # failure must NOT turn a successful stream-open into a failed
     # ``start_monitoring`` return value, so the result dict is
     # preserved regardless.
@@ -710,7 +710,7 @@ def stop_monitoring() -> dict:
         if not _state._monitor_active:
             #  (c-review PERF-03): monitoring was already
             # stopped. Remember this so we can still stop a possibly
-            # leaked worker thread — but that must happen OUTSIDE the lock
+            # leaked worker thread, but that must happen OUTSIDE the lock
             # (see below), because the worker acquires ``_monitor_lock``
             # while draining queued chunks; joining it while we hold the
             # lock could stall up to the join timeout.
@@ -763,7 +763,7 @@ def _idle_timeout_auto_stop() -> bool:
 
     Called from the level worker loop on every iteration. Returns True
     if the stream was auto-stopped (so the caller can ``return`` from
-    the worker loop — see ``_level_worker_loop``).
+    the worker loop: see ``_level_worker_loop``).
 
     The stream is closed (``stream.stop()`` / ``stream.close()``) AND
     the worker thread exits its loop on the next iteration (the caller
@@ -779,7 +779,7 @@ def _idle_timeout_auto_stop() -> bool:
     worker thread, and we ARE the worker thread. Deadlock would result.
     Instead, we close the stream directly and flip ``_monitor_active``
     to False. The caller (``_level_worker_loop``) is responsible for
-    clearing ``_level_worker_thread`` and ``return``ing — it does NOT
+    clearing ``_level_worker_thread`` and ``return``ing, it does NOT
     call ``_stop_level_worker`` (which would deadlock joining itself).
     """
     if not _state._monitor_active:
@@ -796,7 +796,7 @@ def _idle_timeout_auto_stop() -> bool:
         _state._mic_level_last_push_ts,
     )
     if last_activity_ts <= 0.0:
-        # No poll or push has ever been recorded — don't auto-stop yet
+        # No poll or push has ever been recorded, don't auto-stop yet
         # (the stream was just started; the first ``get_level`` poll or
         # ``mic_level`` push will arrive shortly).
         return False
@@ -804,7 +804,7 @@ def _idle_timeout_auto_stop() -> bool:
     if (now - last_activity_ts) < _state._LEVEL_IDLE_TIMEOUT_SEC:
         return False
 
-    # Idle timeout has fired — close the stream.
+    # Idle timeout has fired. Close the stream.
     log.info(
         "[LEVEL-MON] idle-timeout: auto-stopping monitor stream (no get_level poll in %.1fs)",
         _state._LEVEL_IDLE_TIMEOUT_SEC,

@@ -18,7 +18,7 @@ COMPONENT_PATH = Path("voice_typer/client/src/renderer/src/components/audio/Audi
 def _read_component_source() -> str:
     """Read the component source (skip if file missing in CI)."""
     if not COMPONENT_PATH.exists():
-        pytest.skip(f"{COMPONENT_PATH} not found — F-1 not implemented")
+        pytest.skip(f"{COMPONENT_PATH} not found, F-1 not implemented")
     return COMPONENT_PATH.read_text(encoding="utf-8")
 
 
@@ -28,7 +28,7 @@ REGISTRY_PATH = Path("voice_typer/client/src/renderer/src/components/audio/audio
 def _read_registry_source() -> str:
     """Read the descriptor render-spec source (skip if missing in CI)."""
     if not REGISTRY_PATH.exists():
-        pytest.skip(f"{REGISTRY_PATH} not found — F-1 not implemented")
+        pytest.skip(f"{REGISTRY_PATH} not found, F-1 not implemented")
     return REGISTRY_PATH.read_text(encoding="utf-8")
 
 
@@ -78,7 +78,7 @@ class TestAudioFilterChainUsesSharedPrimitives:
         # The Select primitive (used by the noise-suppression method
         # dropdown) moved into the shared `FilterRow` child that
         # AudioFilterChain composes (Select import + <Select> render live
-        # in FilterRow.tsx — the select-type rows are driven by the
+        # in FilterRow.tsx, the select-type rows are driven by the
         # descriptor registry). Assert the Select at its real home so the
         # dropdown keeps using the shared primitive.
         filter_row_path = COMPONENT_PATH.parent / "FilterRow.tsx"
@@ -98,14 +98,14 @@ class TestAudioFilterChainUsesSharedPrimitives:
         # The shared component must NOT define its own ToggleRow helper
         # (that was the duplication F-1 eliminates).
         assert "function ToggleRow" not in src, (
-            "F-1 regression: AudioFilterChain must not define a local ToggleRow helper — use SettingRow instead"
+            "F-1 regression: AudioFilterChain must not define a local ToggleRow helper, use SettingRow instead"
         )
 
     def test_does_not_define_local_slider_row(self):
         src = _read_component_source()
         assert "function SliderRow" not in src, (
             "F-1 regression: AudioFilterChain must not define a local "
-            "SliderRow helper — use SettingRow + RangeSlider instead"
+            "SliderRow helper, use SettingRow + RangeSlider instead"
         )
 
 
@@ -149,13 +149,13 @@ class TestAudioFilterChainRendersAllFilters:
         src = _read_component_source()
         registry = _read_registry_source()
         assert f'configKey: "{field}"' in registry, (
-            f"F-1: AudioFilterChain must render the {field} config field — "
+            f"F-1: AudioFilterChain must render the {field} config field, "
             f"missing from the {self.REGISTRY_PATH.name} render spec"
         )
         # The component must iterate the registry so every descriptor
         # (including the field above) is actually rendered.
         assert "audioFilterRowDescriptors.map" in src, (
-            "F-1: AudioFilterChain must iterate audioFilterRowDescriptors — the registry is the render spec"
+            "F-1: AudioFilterChain must iterate audioFilterRowDescriptors, the registry is the render spec"
         )
 
 
@@ -178,7 +178,7 @@ class TestAudioFilterChainCallSitesUseIt:
         count = src.count("noise_filter_highpass")
         assert count <= 2, (
             f"F-1: AudioSettingsSection still has {count} references to "
-            "noise_filter_highpass — the duplicate filter UI was not removed"
+            "noise_filter_highpass, the duplicate filter UI was not removed"
         )
 
     def test_audio_preset_selector_stays_deleted(self):
@@ -188,7 +188,7 @@ class TestAudioFilterChainCallSitesUseIt:
         # future change does not silently resurrect the dead fork.
         p = Path("voice_typer/client/src/renderer/src/components/microphone/AudioPresetSelector.tsx")
         assert not p.exists(), (
-            "AudioPresetSelector.tsx was resurrected — the preset surface is "
+            "AudioPresetSelector.tsx was resurrected, the preset surface is "
             "the shared lib/utils/audioPresets.ts registry consumed by "
             "AudioSettingsSection + PresetAccordionSelector; do not "
             "reintroduce the dead component fork"
@@ -208,12 +208,11 @@ class TestAudioFilterChainIStrI18nKeys:
         # (no hardcoded English). Verify the wiring AND that the builder
         # actually invokes `t()`.
         assert "buildAudioFilterLabels" in src, (
-            "F-1: AudioFilterChain must use buildAudioFilterLabels (the "
-            "t()-driven label builder) — no hardcoded English"
+            "F-1: AudioFilterChain must use buildAudioFilterLabels (the t()-driven label builder), no hardcoded English"
         )
         labels_path = Path("voice_typer/client/src/renderer/src/components/audio/audioFilterLabels.ts")
         if not labels_path.exists():
-            pytest.skip(f"{labels_path} not found — F-1 not implemented")
+            pytest.skip(f"{labels_path} not found, F-1 not implemented")
         labels_src = labels_path.read_text(encoding="utf-8")
         # The builder must call t() to resolve each key.
         assert "t(key)" in labels_src, "F-1: audioFilterLabels must resolve descriptor i18n keys via t()"
@@ -225,7 +224,7 @@ class TestAudioFilterChainIStrI18nKeys:
         }
         assert len(i18n_keys) >= 10, (
             f"F-1: audioFilterRowDescriptors only has {len(i18n_keys)} "
-            "settings.audioEnhancement keys — expected at least 10 (one per "
+            "settings.audioEnhancement keys, expected at least 10 (one per "
             "label). The Microphone page must NOT use hardcoded English."
         )
 
@@ -244,5 +243,5 @@ class TestAudioFilterChainIStrI18nKeys:
         for forbidden in forbidden_hardcoded:
             assert forbidden not in src, (
                 f"F-1 regression: AudioFilterChain must not contain the "
-                f"hardcoded English label {forbidden} — use t() instead"
+                f"hardcoded English label {forbidden}, use t() instead"
             )

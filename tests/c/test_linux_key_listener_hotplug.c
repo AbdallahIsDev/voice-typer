@@ -1,5 +1,5 @@
 /* =============================================================================
- * Voice Typer — Linux native key-listener hotplug unit test (C-level)
+ * Voice Typer: Linux native key-listener hotplug unit test (C-level)
  *
  * Compiles the production listener source (``linux-key-listener.c``) INTO this
  * test translation unit via ``#include`` (same convention as
@@ -19,7 +19,7 @@
  *      on removal, capacity guard, idempotent add (IN_ATTRIB re-fire).
  *   2. Real inotify wiring: a watch is placed on a mkdtemp() directory and
  *      ``handle_inotify_events`` is driven by REAL kernel events (create /
- *      rename / unlink / chmod) — the remove-by-name path is exercised fully
+ *      rename / unlink / chmod), the remove-by-name path is exercised fully
  *      end-to-end; the add path's graceful-skip (open of a nonexistent
  *      /dev/input node) and the unknown-name ignore path are exercised too.
  *   3. Degrade path: ``setup_hotplug_watch`` on a machine without /dev/input
@@ -111,7 +111,7 @@ static void rename_file(const char *dir, const char *from, const char *to) {
 
 /* "event99999" passes is_event_node_name but is far outside the kernel's
  * evdev minor-number range, so /dev/input/event99999 cannot exist as a real
- * node on any Linux system — the open in add_device_by_name deterministically
+ * node on any Linux system, the open in add_device_by_name deterministically
  * fails and the graceful-skip path is what gets exercised. */
 #define IMPOSSIBLE_NODE "event99999"
 
@@ -180,13 +180,13 @@ int main(void) {
         assert(g_num_fds == 1);
         assert(strcmp(g_dev_names[0], "event17") == 0);
 
-        remove_device_at(1);  /* out of range — no-op, no crash */
-        remove_device_at(-1); /* out of range — no-op, no crash */
+        remove_device_at(1);  /* out of range, no-op, no crash */
+        remove_device_at(-1); /* out of range, no-op, no crash */
         assert(g_num_fds == 1);
 
         remove_device_by_name("event17");
         assert(g_num_fds == 0);
-        remove_device_by_name("event17"); /* not tracked — no-op, no crash */
+        remove_device_by_name("event17"); /* not tracked, no-op, no crash */
         assert(g_num_fds == 0);
         reset_tracked_devices();
     }

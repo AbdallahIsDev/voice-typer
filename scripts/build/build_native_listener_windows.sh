@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Voice Typer — Native key-listener build (Windows)
-# ADR-0020 §6.4 — Windows uses compile_native.ps1 (PowerShell) under the hood.
+# Voice Typer. Native key-listener build (Windows)
+# ADR-0020 §6.4. Windows uses compile_native.ps1 (PowerShell) under the hood.
 # This script is a thin bash wrapper that invokes the PowerShell script from
 # Git Bash / MSYS2 / WSL, then copies the compiled binary into
 # src-tauri/resources/native/ where the Tauri bundler picks it up as a
@@ -41,7 +41,7 @@ fi
 # ─── Compile via the existing PowerShell script ──────────────────────────────
 echo "[build_native_listener_windows] Invoking compile_native.ps1..."
 if ! command -v powershell.exe >/dev/null && ! command -v powershell >/dev/null; then
-    echo "ERROR: powershell not found — this script must run on a Windows host (or under WSL with powershell.exe on PATH)." >&2
+    echo "ERROR: powershell not found: this script must run on a Windows host (or under WSL with powershell.exe on PATH)." >&2
     exit 1
 fi
 PS_BIN="$(command -v powershell.exe || command -v powershell)"

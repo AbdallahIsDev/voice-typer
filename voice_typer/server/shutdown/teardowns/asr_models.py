@@ -1,6 +1,6 @@
 """Teardown helper for active ASR backend + CUDA caching allocator.
 
-Phase 4.5 (OI-36) — extracted verbatim from
+Phase 4.5 (OI-36), extracted verbatim from
 :meth:`ShutdownController._teardown_asr_models`. The body is unchanged;
 only the class boundary moved.
 """
@@ -17,7 +17,7 @@ def teardown_asr_models(controller) -> None:
     blocks so torch's VRAM is returned to the OS before process exit.
 
     Pre-fix, ``shutdown_controller._do_cleanup`` ran 14 parallel
-    teardown helpers — NONE of them touched ``app.models`` /
+    teardown helpers. NONE of them touched ``app.models`` /
     ``app.models.registry``. ``asr_registry.unload()`` was only
     invoked on (a) backend load failure and (b) ``app._change_model()``.
     On a normal quit / restart_app / atexit, the active Parakeet /
@@ -40,7 +40,7 @@ def teardown_asr_models(controller) -> None:
     """
     # Resolve helpers from :mod:`voice_typer.server.shutdown_controller` at
     # call time so tests that monkeypatch ``shutdown_controller._run_with_timeout``
-    # (and the module's ``TIMEOUT`` sentinel / logger) are observed — same lazy
+    # (and the module's ``TIMEOUT`` sentinel / logger) are observed, same lazy
     # lookup convention as the other teardown modules. The unload is
     # wrapped in ``_run_with_timeout("asr_registry.unload", ..., timeout=8.0)``
     # so a hung backend unload can't stall the whole shutdown; on TIMEOUT we
@@ -57,9 +57,9 @@ def teardown_asr_models(controller) -> None:
             )
             if result is _sc.TIMEOUT:
                 # Log at WARNING (the GPU cache may not be fully
-                # released) — we still proceed to release_gpu_memory() below.
+                # released), we still proceed to release_gpu_memory() below.
                 _sc.log.warning(
-                    "[CLEANUP] asr_registry.unload() did not finish within 8s — "
+                    "[CLEANUP] asr_registry.unload() did not finish within 8s, "
                     "proceeding to release_gpu_memory (GPU cache may not be fully released)"
                 )
     except Exception:

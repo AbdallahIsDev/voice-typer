@@ -11,10 +11,10 @@ so the non-Latin count for ASCII text is just the control count, which
 
 These tests pin the two contracts that make the fast path safe:
 
-1. **ASCII classification invariant** — the fast path's model of "which
+1. **ASCII classification invariant**, the fast path's model of "which
    ASCII characters are non-Latin" matches the canonical
    ``is_latin_char`` for ALL 128 ASCII code points.
-2. **End-to-end equivalence** — the wrapped filter returns the SAME
+2. **End-to-end equivalence**, the wrapped filter returns the SAME
    verdict as the canonical implementation for ASCII / CJK / mixed /
    boundary samples, and every REJECT decision (plus its PII-safe
    hallucination logging) still flows through the canonical
@@ -53,7 +53,7 @@ class TestAsciiClassificationInvariant:
             )
 
     def test_delete_table_covers_exactly_the_33_control_chars(self) -> None:
-        """The table is U+0000–U+001F plus DEL — nothing more, nothing less."""
+        """The table is U+0000–U+001F plus DEL, nothing more, nothing less."""
         assert set(_ASCII_NON_LATIN_TRANSLATION) == set(range(0x20)) | {0x7F}
 
     def test_ratio_limit_matches_canonical_constant(self) -> None:
@@ -71,15 +71,15 @@ class TestFastPathEquivalence:
     @pytest.mark.parametrize(
         ("text", "expected"),
         [
-            # Pure-ASCII English — hits the fast path.
+            # Pure-ASCII English, hits the fast path.
             ("Hello world, this is a test.", True),
             ("The year is 2026 and the temperature is 23.5 degrees.", True),
             ("Hello, world! How are you? (I'm fine.)", True),
-            # Empty / whitespace-only — canonical strip() short-circuit.
+            # Empty / whitespace-only, canonical strip() short-circuit.
             ("", True),
             ("   ", True),
             ("\t\n", True),
-            # Pure CJK — non-ASCII, delegates to the canonical loop, rejects.
+            # Pure CJK, non-ASCII, delegates to the canonical loop, rejects.
             ("你好世界", False),
             # Mixed below / above the 30% threshold.
             ("Hello 你 world", True),
@@ -88,9 +88,9 @@ class TestFastPathEquivalence:
             ("abcdefghi你好世", True),
             # Just above the boundary (36% non-Latin) → False.
             ("abcdefghi你好世界", False),
-            # Non-ASCII but Latin-script (é) — delegates, accepts.
+            # Non-ASCII but Latin-script (é), delegates, accepts.
             ("café au lait", True),
-            # Emoji / symbols — symbol category counts as Latin.
+            # Emoji / symbols, symbol category counts as Latin.
             ("great 👍 work", True),
             # ASCII boundary cases driven by CONTROL characters (the only
             # non-Latin ASCII chars): 3/10 = 30% exactly → True (fast path).

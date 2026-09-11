@@ -20,7 +20,7 @@ import { getLocale, isRtlLocale } from "@/i18n/i18n";
 /**
  * A single-select inline "pill" control with an animated active indicator.
  * Renders a row of buttons where the active option is highlighted with a
- * sliding accent bar.  Accepts any number of options — works well for 2–3
+ * sliding accent bar.  Accepts any number of options, works well for 2–3
  * mode toggles (e.g. Toggle vs Push-to-Talk) as well as tab navigation
  * in pages like Settings with 6+ sections.
  *
@@ -48,7 +48,7 @@ export interface SegmentedControlOption<T extends string> {
 	/** Visible label. */
 	label: string;
 	/** Optional icon displayed before the label. When only icons are needed,
-	 *  set label={""} and provide the icon — the aria-label on the radiogroup
+	 *  set label={""} and provide the icon, the aria-label on the radiogroup
 	 *  and title on each option provide screen-reader context. */
 	icon?: IconSvgElement;
 	/** Optional title attribute shown on hover (tooltip). */
@@ -63,8 +63,8 @@ export interface SegmentedControlProps<T extends string> {
 	/** Called with the new value when the user clicks an option. */
 	onChange: (value: T) => void;
 	/**
-	 * ``"default"`` — pill-shaped container with bg/border/rounded.
-	 * ``"tabs"`` — no container background or border-radius. Use for
+	 * ``"default"``, pill-shaped container with bg/border/rounded.
+	 * ``"tabs"``, no container background or border-radius. Use for
 	 * full-width page-level tab bars (e.g. Settings tabs).
 	 * @default "default"
 	 */
@@ -175,7 +175,7 @@ export function SegmentedControl<T extends string>({
 	// re-renders. A fresh closure per option per render (what a bare
 	// `(optValue) => (el) => {...}` factory produces) makes React call
 	// the old ref with `null` and the new one with the element on
-	// EVERY re-render — 2N attach/detach round-trips plus label-Map
+	// EVERY re-render, 2N attach/detach round-trips plus label-Map
 	// churn even when the option list is unchanged.
 	const labelRefCallbacks = useRef<
 		Map<string, (el: HTMLElement | null) => void>
@@ -238,7 +238,7 @@ export function SegmentedControl<T extends string>({
 	// Mirror the current `value` into a ref AFTER every commit so
 	// long-lived async callbacks (the ResizeObserver below, its rAF)
 	// always measure the CURRENT value's label. A closure over the
-	// `value` prop captures the render that created it — the observer
+	// `value` prop captures the render that created it, the observer
 	// is constructed ONCE (useState initializer below), so it would
 	// forever hold the first-render value and re-position the
 	// indicator on the initially-selected option on every resize after
@@ -255,12 +255,12 @@ export function SegmentedControl<T extends string>({
 		setIndicatorStyle(measureElement(el, container));
 	}, [measureElement]);
 
-	// Re-measure whenever the active value changes — this is the path
+	// Re-measure whenever the active value changes, this is the path
 	// that repositions the indicator for EXTERNAL value changes
 	// (parent-driven re-renders, keyboard arrow navigation); clicks
 	// also schedule their own measurement with the clicked value. The
 	// rAF is cancelled if the value changes again before it fires.
-	// biome-ignore lint/correctness/useExhaustiveDependencies: `value` is listed deliberately — this effect must re-run (re-measure) whenever the active value changes, even though the callback reads the value from `valueRef` instead of the closure.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: `value` is listed deliberately, this effect must re-run (re-measure) whenever the active value changes, even though the callback reads the value from `valueRef` instead of the closure.
 	useEffect(() => {
 		const raf = requestAnimationFrame(() => updateIndicator());
 		return () => cancelAnimationFrame(raf);
@@ -269,7 +269,7 @@ export function SegmentedControl<T extends string>({
 	// Use a ResizeObserver so the indicator repositions on container resize.
 	// The observer is created once and its callback closes over the
 	// STABLE `updateIndicator` (which reads `valueRef`), so it stays
-	// correct for the component's whole life — no stale first-render
+	// correct for the component's whole life, no stale first-render
 	// closure.
 	// MEM-LEAK-FIX: the previous implementation created the ResizeObserver
 	// via `useState(() => new ResizeObserver(...))` and only called
@@ -303,12 +303,12 @@ export function SegmentedControl<T extends string>({
 	// + a `requestAnimationFrame(updateIndicator)` to fire repeatedly
 	// (ResizeObserver thrash). Wrapping the callback in `useCallback` with
 	// `[resizeObserver, updateIndicator]` deps gives it a stable identity
-	// across ALL re-renders — value changes included, now that
+	// across ALL re-renders, value changes included, now that
 	// `updateIndicator` no longer depends on `value` (it reads the
 	// value from a ref instead). React only invokes the ref when the
 	// underlying element actually changes; the value-change re-measure
 	// is owned by the explicit `[value]` effect above. The
-	// `containerRef.current !== el` guard is no longer needed — React
+	// `containerRef.current !== el` guard is no longer needed, React
 	// guarantees a stable ref callback is only called when the element
 	// changes. The unmount effect above handles `disconnect()`.
 	const setContainerRef = useCallback(
@@ -326,7 +326,7 @@ export function SegmentedControl<T extends string>({
 	// A11Y-6: tabs variant uses the WAI-ARIA Tabs pattern with roving
 	// tabindex (only the active tab is in the page tab order). ArrowLeft /
 	// ArrowRight move focus between tabs and select the newly-focused tab
-	// (activation follows focus — "automatic" activation model).
+	// (activation follows focus, "automatic" activation model).
 	//
 	//ArrowRight/ArrowLeft direction is now RTL-aware. In an RTL
 	// locale (Arabic), the visual order of tabs is mirrored, so the
@@ -369,7 +369,7 @@ export function SegmentedControl<T extends string>({
 				"relative inline-flex items-center",
 				variant === "default" &&
 					// SURFACE-FIX: use the standard card/surface token
-					// (bg-(--bg-subtle)) instead of bg-input/50 — the input
+					// (bg-(--bg-subtle)) instead of bg-input/50, the input
 					// wash rendered visibly different from the stat cards
 					// on the Analytics page.
 					(radius === "sm"
@@ -379,7 +379,7 @@ export function SegmentedControl<T extends string>({
 				className,
 			)}
 		>
-			{/* Animated indicator pill — slides smoothly between options */}
+			{/* Animated indicator pill, slides smoothly between options */}
 			{indicatorStyle && (
 				<div
 					className={cn(
@@ -433,7 +433,7 @@ export function SegmentedControl<T extends string>({
 							//icon-only options get an explicit accessible name
 							// (title attribute alone is unreliable in JAWS).
 							aria-label={opt.title ?? opt.label}
-							//WAI-ARIA Tabs contract — each tab needs a stable
+							//WAI-ARIA Tabs contract, each tab needs a stable
 							// id (so the panel can aria-labelledby it) and aria-controls
 							// pointing at the matching panel id (so screen readers can
 							// jump from tab → panel). Both are derived from getTabId /

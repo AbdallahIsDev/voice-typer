@@ -20,7 +20,7 @@ afterEach(() => {
 	cleanup();
 });
 
-// ── Shared test options (mutable arrays — don't use `as const` since
+// ── Shared test options (mutable arrays, don't use `as const` since
 // SegmentedControlOption<T>[] is mutable, and `as const` makes readonly tuples) ──
 
 const TWO_OPTIONS = [
@@ -314,7 +314,7 @@ describe("SegmentedControl with many options", () => {
 //
 // The component uses native <input type="radio"> elements, so ArrowLeft /
 // ArrowRight (and Up/Down) navigation is handled by the browser's built-in
-// radio-group behaviour.  In jsdom this should also work — dispatching
+// radio-group behaviour.  In jsdom this should also work, dispatching
 // ArrowRight on a focused radio moves focus (and checked state) to the next
 // radio in the same name group, which triggers our onChange handler.
 //
@@ -486,7 +486,7 @@ describe("SegmentedControl tabs variant", () => {
 		expect(tabs[1]?.className ?? "").not.toContain("text-primary-foreground");
 	});
 	it("active tab is in the tab order (tabIndex=0) and inactive tabs are not (tabIndex=-1)", () => {
-		//WAI-ARIA Tabs "roving tabindex" pattern — only the
+		//WAI-ARIA Tabs "roving tabindex" pattern, only the
 		// active tab is reachable via Tab; inactive tabs require
 		// ArrowLeft/ArrowRight to focus.
 		render(
@@ -506,7 +506,7 @@ describe("SegmentedControl tabs variant", () => {
 		expect(tabs[3]).toHaveAttribute("tabindex", "-1");
 	});
 	it("each tab emits an id and aria-controls linking to its panel id", () => {
-		//WAI-ARIA Tabs contract — each tab needs a
+		//WAI-ARIA Tabs contract, each tab needs a
 		// stable id (so the panel can aria-labelledby it) and
 		// aria-controls pointing at the matching panel id (so
 		// screen readers can jump from tab → panel).

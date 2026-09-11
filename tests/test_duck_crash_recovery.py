@@ -15,7 +15,7 @@ Covers:
   are each pinned by a dedicated test.
 
 * **** (Low): the ``_cache_dirty: bool`` field was
-  write-only (zero read sites) — pinned by a test that asserts the
+  write-only (zero read sites), pinned by a test that asserts the
   class no longer has the attribute.
 
 These tests use the same ``recovery_dir`` / ``crash_recovery`` fixture
@@ -63,7 +63,7 @@ class TestCacheDirtyFieldRemoved:
 
     def test_no_cache_dirty_attribute(self, crash_recovery: DuckCrashRecovery) -> None:
         assert not hasattr(crash_recovery, "_cache_dirty"), (
-            ": _cache_dirty field should be removed — it was write-only (zero read sites) and served no purpose."
+            ": _cache_dirty field should be removed, it was write-only (zero read sites) and served no purpose."
         )
 
     def test_no_cache_dirty_in_source(self) -> None:
@@ -121,20 +121,20 @@ class TestCase1NormalFirstLaunch:
         )
 
     def test_load_stale_does_not_flip_consumed_to_true(self, crash_recovery: DuckCrashRecovery) -> None:
-        """: ``load_stale`` must NOT write ``consumed=True`` — that
+        """: ``load_stale`` must NOT write ``consumed=True``, that
         flip is now deferred to ``clear()`` so a crash between load_stale
         and restore doesn't leave the volume stuck."""
         crash_recovery.save(VolumeState(linear=0.7, muted=False))
         crash_recovery.load_stale()
-        # Read the on-disk file — consumed must still be False.
+        # Read the on-disk file, consumed must still be False.
         raw = crash_recovery.path.read_text(encoding="utf-8")
         data = json.loads(raw)
         assert data["consumed"] is False, (
             ": load_stale must NOT flip consumed=True. The flip is "
             "deferred to clear() so a crash between load_stale and restore "
-            "leaves consumed=False + sentinel exists (Case 3 next launch — "
+            "leaves consumed=False + sentinel exists (Case 3 next launch, "
             "re-attempt restore) instead of consumed=True + sentinel exists "
-            "(Case 4 — return None, volume stuck at ducked level)."
+            "(Case 4, return None, volume stuck at ducked level)."
         )
 
     def test_load_stale_is_idempotent_within_process(self, crash_recovery: DuckCrashRecovery) -> None:
@@ -177,7 +177,7 @@ class TestCase3ReattemptRestore:
 
         assert state is not None, (
             " Case 3: load_stale must RE-ATTEMPT restore when the "
-            "sentinel exists and consumed=False — the previous launch "
+            "sentinel exists and consumed=False, the previous launch "
             "crashed mid-restore and the user's volume is still stuck at "
             "the ducked level. Returning None here would leave the user "
             "with no automatic recovery path."
@@ -225,7 +225,7 @@ class TestCase4CleanupSentinel:
 
         assert state is None, (
             " Case 4: load_stale must return None when consumed=True "
-            "and sentinel exists — the previous restore already succeeded."
+            "and sentinel exists, the previous restore already succeeded."
         )
         assert not crash_recovery._restoring_sentinel_path.exists(), (
             " Case 4: load_stale must clean up the sentinel when "
@@ -267,7 +267,7 @@ class TestCase2PriorRestoreSucceeded:
 
 class TestClearFlipsConsumedAndDeletesBoth:
     """: ``clear`` now performs three steps in order
-    1. ``_mark_consumed(data)`` — flip ``consumed=True`` on the main file.
+    1. ``_mark_consumed(data)``, flip ``consumed=True`` on the main file.
     2. Delete the restoring sentinel.
     3. Delete the main file.
 
@@ -303,7 +303,7 @@ class TestClearFlipsConsumedAndDeletesBoth:
 
     def test_clear_with_only_main_file_no_sentinel(self, crash_recovery: DuckCrashRecovery) -> None:
         """``clear`` works when only the main file exists (no sentinel
-        written yet — e.g. called directly after ``save`` without an
+        written yet, e.g. called directly after ``save`` without an
         intervening ``load_stale``)."""
         crash_recovery.save(VolumeState(linear=0.5, muted=False))
         assert crash_recovery.path.exists()
@@ -346,7 +346,7 @@ class TestOrphanedSentinelCleanup:
 
 
 class TestSaveClearsSentinel:
-    """: a fresh ``save`` starts a new duck cycle — any leftover
+    """: a fresh ``save`` starts a new duck cycle, any leftover
     sentinel from a previous (crashed) restore attempt is stale and
     must be removed so the next ``load_stale`` doesn't mistake it for
     an in-flight restore."""
@@ -359,7 +359,7 @@ class TestSaveClearsSentinel:
         crash_recovery.save(VolumeState(linear=0.5, muted=False))
 
         assert not crash_recovery._restoring_sentinel_path.exists(), (
-            ": save must remove any leftover sentinel — a fresh duck cycle starts a new restore lifecycle."
+            ": save must remove any leftover sentinel, a fresh duck cycle starts a new restore lifecycle."
         )
 
 
@@ -399,7 +399,7 @@ class TestCrashMidRestoreReattemptsOnNextLaunch:
         cr2 = DuckCrashRecovery(config_dir=recovery_dir)
         state2 = cr2.load_stale()
 
-        # load_stale MUST re-attempt the restore (Case 3) — the
+        # load_stale MUST re-attempt the restore (Case 3), the
         # previous launch crashed mid-restore, so the volume is still
         # ducked and the user needs the automatic recovery.
         assert state2 is not None, (
@@ -417,7 +417,7 @@ class TestCrashMidRestoreReattemptsOnNextLaunch:
         cr1.save(VolumeState(linear=0.7, muted=False))
         state = cr1.load_stale()
         assert state is not None
-        # Restore succeeded — clear() runs the full three-step cleanup.
+        # Restore succeeded, clear() runs the full three-step cleanup.
         cr1.clear()
         assert not cr1.path.exists()
         assert not cr1._restoring_sentinel_path.exists()

@@ -1,4 +1,4 @@
-; Voice Typer — Full-offline NSIS installer template (slim core + pack bundled).
+; Voice Typer. Full-offline NSIS installer template (slim core + pack bundled).
 ;
 ; This is a STANDALONE NSIS script (NOT a Tauri-generated installer.nsi).
 ; It produces a SECOND installer artifact alongside the slim-core installer
@@ -22,14 +22,14 @@
 ;
 ; Output: ``voice-typer-full-offline-<APP_VERSION>-<PRODUCT_TRIPLE>.exe``
 ; (a NEW artifact name per §11.9; the existing slim-core
-; ``voice-typer-<version>-<triple>.exe`` name is left UNCHANGED — C-CI-13
+; ``voice-typer-<version>-<triple>.exe`` name is left UNCHANGED, C-CI-13
 ; forbids renaming existing artifacts).
 ;
 ; What this installer does at install time:
 ;   1. Extracts the bundled pack zip to
 ;      ``%LOCALAPPDATA%\voice-typer\runtime-pack\<PACK_VERSION>\``.
 ;      This is the SAME per-user path the slim-core app's runtime-pack
-;      resolver looks at (plan §4.7 — ``src-tauri/src/platform/worker_path.rs``).
+;      resolver looks at (plan §4.7, ``src-tauri/src/platform/worker_path.rs``).
 ;   2. Writes ``%LOCALAPPDATA%\voice-typer\installer-state.json`` with
 ;      ``pack_bundled: true`` so the slim-core app's first-launch
 ;      consent gate (plan §4.8) SKIPS the silent background download —
@@ -38,12 +38,12 @@
 ;      the user passed to this wrapper (so silent installs propagate:
 ;      ``/S`` runs the slim-core installer silently).
 ;
-; The wrapper itself has NO Components-page checkbox — the pack IS
+; The wrapper itself has NO Components-page checkbox, the pack IS
 ; bundled, so the "Include offline engine pack" choice the slim-core
 ; installer exposes is moot here. We always install the pack to disk.
 ; The slim-core installer's own Components page still appears (we run
 ; it after unpacking the pack); the user can untick the checkbox there
-; but the pack is already extracted — the checkbox only governs the
+; but the pack is already extracted, the checkbox only governs the
 ; silent *download*, which is skipped because ``pack_bundled: true``.
 
 !ifndef SLIM_CORE_EXE
@@ -87,11 +87,11 @@ VIAddVersionKey "ProductVersion" "${APP_VERSION}"
 ; The slim-core app's runtime-pack resolver discovers the latest version
 ; by scanning this directory.
 Section "Offline engine pack (bundled)" SecPack
-  SectionIn RO  ; always installed — pack is the entire point of this artifact
+  SectionIn RO  ; always installed, pack is the entire point of this artifact
   SetOutPath "$LOCALAPPDATA\voice-typer\runtime-pack\${PACK_VERSION}"
   DetailPrint "[voice-typer-full-offline] Extracting pack v${PACK_VERSION} to $LOCALAPPDATA\voice-typer\runtime-pack\${PACK_VERSION}\..."
   File "${PACK_ZIP}"
-  ; Unzip via the bundled Python interpreter? No — we don't have one yet
+  ; Unzip via the bundled Python interpreter? No, we don't have one yet
   ; at install time (the slim-core installer hasn't run). Use NSIS's
   ; native unzip via the ``unzip`` plugin OR shell out to PowerShell's
   ; ``Expand-Archive`` (built-in on Windows 10+). PowerShell is the
@@ -99,7 +99,7 @@ Section "Offline engine pack (bundled)" SecPack
   nsExec::ExecToLog 'powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "Expand-Archive -LiteralPath $\'$LOCALAPPDATA\voice-typer\runtime-pack\${PACK_VERSION}\voice-typer-runtime-pack-${PACK_VERSION}-${PRODUCT_TRIPLE}.zip$\' -DestinationPath $\'$LOCALAPPDATA\voice-typer\runtime-pack\${PACK_VERSION}$\' -Force"'
   Pop $0
   ${If} $0 != 0
-    DetailPrint "[voice-typer-full-offline] WARNING: Expand-Archive exit code $0 — pack may be partially extracted."
+    DetailPrint "[voice-typer-full-offline] WARNING: Expand-Archive exit code $0, pack may be partially extracted."
   ${EndIf}
   ; Remove the zip after extraction (saves ~180 MB on disk).
   Delete "$LOCALAPPDATA\voice-typer\runtime-pack\${PACK_VERSION}\voice-typer-runtime-pack-${PACK_VERSION}-${PRODUCT_TRIPLE}.zip"
@@ -111,7 +111,7 @@ SectionEnd
 ;   - The pack was bundled into this installer (``pack_bundled: true``).
 ;   - The user's "Include offline engine pack" checkbox choice from the
 ;     slim-core installer (which runs next) governs the silent
-;     download — but since the pack is already on disk, the slim-core
+;     download, but since the pack is already on disk, the slim-core
 ;     app's pack resolver finds it and skips the download regardless.
 ; We still write ``include_offline_engine_pack: true`` because the user
 ; chose to install the full-offline variant (consent is implicit).
@@ -133,7 +133,7 @@ SectionEnd
 ; propagate). The slim-core installer is invoked with ``ExecWait`` so
 ; this wrapper does NOT exit until the slim-core install completes
 ; (otherwise the user sees the wrapper finish before the actual app
-; install — confusing UX).
+; install, confusing UX).
 Section "Install slim core" SecSlimCore
   SectionIn RO
   SetOutPath "$PLUGINSDIR"

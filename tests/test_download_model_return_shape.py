@@ -69,7 +69,7 @@ def test_generic_exception_return_includes_model_field(monkeypatch) -> None:
     ``model`` so a failed download still reports which model failed.
 
     We force the model-registry import to raise so the failure happens
-    before any branch method runs — exercising the exact path the
+    before any branch method runs, exercising the exact path the
     original finding cited (the bare
     ``return {"success": False, "error": str(exc)}`` at the bottom of
     ``download_model``).
@@ -95,7 +95,7 @@ def test_generic_exception_return_includes_model_field(monkeypatch) -> None:
 # huggingface_hub is installed AND the polling-loop ``poll_download_progress``
 # returns ``"cancelled"``. The structural invariant (that the cancelled
 # return dict contains a ``model`` key) is covered by the AST check in
-# ``test_all_download_model_return_paths_include_model`` below — so we
+# ``test_all_download_model_return_paths_include_model`` below, so we
 # don't duplicate the heavyweight mocking here.
 
 

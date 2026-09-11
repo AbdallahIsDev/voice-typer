@@ -5,10 +5,10 @@ fixing, filler removal, and restructuring. Uses any OpenAI-compatible
 API (OpenAI, Groq, Ollama, vLLM, llama.cpp).
 
 Presets:
-    professional — formal, concise, grammar-perfect
-    casual       — natural, conversational, fix grammar only
-    email        — structured, professional email format
-    code         — preserve code/formatting, fix only prose comments
+    professional, formal, concise, grammar-perfect
+    casual      , natural, conversational, fix grammar only
+    email       , structured, professional email format
+    code        , preserve code/formatting, fix only prose comments
 
 Pipeline order: transcribe → text cleanup → vocabulary → templates → LLM polish → auto-punctuate → paste
 """
@@ -43,7 +43,7 @@ log = logging.getLogger(__name__)
 # SEC-audit-006 (Round 0 forward-port): use a dedicated opener that does NOT
 # include ``HTTPRedirectHandler``.  The default ``urllib.request.urlopen()``
 # follows 3xx redirects silently, and our URL allowlist is only checked on
-# the *initial* request — a malicious or compromised LLM endpoint could
+# the *initial* request, a malicious or compromised LLM endpoint could
 # return ``302 Location: http://attacker.example.com/collect`` and
 # ``urllib`` would POST the request body (which contains the user's
 # transcribed text) to the attacker-controlled redirect target.  By
@@ -61,12 +61,12 @@ log = logging.getLogger(__name__)
 
 # the handler + builder now live in ``_http_safety`` so
 # they're shared with ``cloud_engines._opener`` (single source of
-# truth — previously the class was duplicated verbatim across both
+# truth, previously the class was duplicated verbatim across both
 # modules,  finding #1).
 _opener = build_secure_opener()
 
 # upper bound on input size. Dictations above this length are
-# short-circuited before the API call — shipping 30k+ char inputs in full
+# short-circuited before the API call, shipping 30k+ char inputs in full
 # to the LLM endpoint was wasteful (the ``max_tokens = 1024`` cap below
 # means only the first ~1024 tokens ever come back) and slow (the API
 # round-trip alone took several seconds for huge payloads). 8000 chars
@@ -97,7 +97,7 @@ def _is_openai_first_party_endpoint(api_url: str) -> bool:
     parameter (use ``max_completion_tokens``) and reject any
     non-default ``temperature``. Third-party OpenAI-compatible
     endpoints (Groq, Ollama, vLLM, llama.cpp) still expect the legacy
-    shape, so the payload is chosen per endpoint — never sniff the
+    shape, so the payload is chosen per endpoint, never sniff the
     model name (a custom "o1" deployment behind a proxy would
     misroute).
     """
@@ -282,7 +282,7 @@ class LLMPolisher:
         PII redaction is applied to the user-content text BEFORE it is
         sent to the LLM (defense-in-depth against template
         ``{clipboard}`` substitution, which can inject passwords, 2FA
-        codes, or private messages into the LLM-bound text — the
+        codes, or private messages into the LLM-bound text, the
         redaction patterns cover credit cards, SSNs, email addresses,
         phone numbers, and API keys). The REDACTED text is what leaves
         the device. When the call fails, or redaction itself fails,
@@ -296,7 +296,7 @@ class LLMPolisher:
             timeout_s: Optional override for the API call timeout (seconds).
                 When ``None``, falls back to ``DEFAULT_TIMEOUT_S`` (10s).
         """
-        # Opt in to allow_loopback_http=True — see the
+        # Opt in to allow_loopback_http=True: see the
         # test_connection path above for the rationale.
         assert_url_allowed(
             self.api_url,
@@ -307,7 +307,7 @@ class LLMPolisher:
 
         # redact PII from the user-content text before API send.
         # ``redact_pii`` is the same helper used by the log redaction
-        # filter — it covers credit cards, SSNs, emails, phone numbers,
+        # filter, it covers credit cards, SSNs, emails, phone numbers,
         # and common API-key formats. This is a defense-in-depth gate:
         # if a template's ``{clipboard}`` substitution injects
         # sensitive clipboard content, the redaction strips the most
@@ -331,20 +331,20 @@ class LLMPolisher:
             # template ``{clipboard}`` substitution (passwords, 2FA
             # codes, private messages). Previously this branch
             # swallowed the failure at DEBUG level and shipped the
-            # original text to the LLM anyway — a fail-OPEN PII leak.
+            # original text to the LLM anyway, a fail-OPEN PII leak.
             # Now we log at WARNING (operators need to see this) and
             # return the original text UNPOLISHED, skipping the API
             # call entirely. The user gets their transcription pasted
             # without LLM polish rather than risking a PII leak.
             log.warning(
-                "[LLM_POLISH] redact_pii failed — skipping LLM API call (returning original text unpolished)",
+                "[LLM_POLISH] redact_pii failed, skipping LLM API call (returning original text unpolished)",
                 exc_info=True,
             )
             return text
 
         # BP-134: endpoint-aware sampling params. OpenAI reasoning
         # models reject ``max_tokens`` (use ``max_completion_tokens``)
-        # and reject non-default ``temperature`` — send the default 1
+        # and reject non-default ``temperature``: send the default 1
         # explicitly so non-reasoning first-party models keep a pinned
         # value. Third-party OpenAI-compatible endpoints keep the
         # legacy shape they were built against.
@@ -356,7 +356,7 @@ class LLMPolisher:
         else:
             sampling_params = {
                 "temperature": 0.3,
-                # flat ``max_tokens`` — the previous
+                # flat ``max_tokens``: the previous
                 # ``min(4096, len(text) * 2 + 256)`` formula was dead
                 # code above ~1920 chars (always hit the 4096 ceiling)
                 # and produced tiny requests for short inputs. A flat 1024

@@ -67,7 +67,7 @@ class _RecorderSpy:
 class TestGrowthAcrossDoublingBoundaries:
     def test_sample_continuity_across_many_reallocations(self):
         """Appends crossing several geometric-doubling reallocations must
-        preserve exact sample order and values — no loss, duplication, or
+        preserve exact sample order and values, no loss, duplication, or
         reordering at any boundary."""
         buf = GrowableRecordingBuffer(
             maxlen=None,
@@ -135,7 +135,7 @@ class TestGrowthAcrossDoublingBoundaries:
 
     def test_chunk_count_maxlen_mirrors_deque_eviction(self):
         """maxlen eviction must drop exactly one oldest CHUNK per append
-        once full (deque parity — the pipeline's counter compensation
+        once full (deque parity, the pipeline's counter compensation
         depends on this)."""
         spy = _RecorderSpy()
         buf = GrowableRecordingBuffer(maxlen=4, on_extra_eviction=spy)
@@ -226,7 +226,7 @@ class _FakeRecorderForSnapshot:
         # STATE-OWNERSHIP: the buffer / lock / buffer-side sample
         # rate live on the owning ``AudioPipeline`` (production reads
         # them via ``recorder._audio_pipeline.<attr>``). This fake plays
-        # both roles, so self-delegate the pipeline attribute — the
+        # both roles, so self-delegate the pipeline attribute, the
         # ``take_snapshot`` friend-access path resolves back to the
         # attributes below.
         self._audio_pipeline = self

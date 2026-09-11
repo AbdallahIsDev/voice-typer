@@ -33,7 +33,7 @@ from voice_typer.server.ipc.history_bounds import (
 from voice_typer.server.ipc.validation import _validate_dict_payload
 
 # ══════════════════════════════════════════════════════════════════════════
-# _validate_dict_payload — opt-in reject_bool rule
+# _validate_dict_payload, opt-in reject_bool rule
 # ══════════════════════════════════════════════════════════════════════════
 
 
@@ -71,7 +71,7 @@ class TestRejectBoolRule:
         assert err["data"]["field"] == "limit"
         # the message must call out the bool/int subclass relationship
         # so the caller (renderer dev) understands WHY the value was
-        # rejected — without this hint, the error is confusing because
+        # rejected, without this hint, the error is confusing because
         # ``True`` looks like an ``int`` to a Python-unaware caller.
         assert "bool" in err["data"]["message"]
         assert "subclass of int" in err["data"]["message"]
@@ -111,7 +111,7 @@ class TestRejectBoolRule:
         (backward compat with the 8+ already-validated handlers).
 
         This is the legacy behavior pinned by
-        ``test_bool_limit_accepted_due_to_int_subclass`` — the opt-in
+        ``test_bool_limit_accepted_due_to_int_subclass``, the opt-in
         rule must NOT change it.
         """
         schema = {
@@ -122,7 +122,7 @@ class TestRejectBoolRule:
             }
         }
         validated, err = _validate_dict_payload({"limit": True}, schema)
-        # no error — bool is accepted via the int-subclass loophole.
+        # no error, bool is accepted via the int-subclass loophole.
         assert err is None
         assert validated is not None
         assert validated["limit"] is True
@@ -145,7 +145,7 @@ class TestRejectBoolRule:
 
     def test_reject_bool_no_op_when_bool_in_declared_type_tuple(self):
         """When ``bool`` is explicitly in the declared type tuple,
-        the rule is a no-op — the schema explicitly accepts bools,
+        the rule is a no-op, the schema explicitly accepts bools,
         so the rule would contradict the schema's intent.
 
         E.g. ``type: (bool, int)`` for a field that accepts either a
@@ -180,7 +180,7 @@ class TestRejectBoolRule:
         assert validated["paused"] is True
 
     def test_reject_bool_true_accepts_non_bool_values(self):
-        """The rule ONLY rejects bools — ints, floats, strings still
+        """The rule ONLY rejects bools, ints, floats, strings still
         pass through unchanged.
         """
         schema = {
@@ -197,11 +197,11 @@ class TestRejectBoolRule:
             assert validated["limit"] == ok_value
 
     def test_reject_bool_with_clamp_range_still_rejects_bool(self):
-        """The ``reject_bool`` rule fires BEFORE ``clamp_range`` — a
+        """The ``reject_bool`` rule fires BEFORE ``clamp_range``, a
         bool value is rejected even when the schema also declares a
         clamp range. Without the rule, ``clamp_range`` already skips
         bools (to avoid ``critical: True`` → 1), so the bool would
-        pass through unmodified — a silent type-confusion.
+        pass through unmodified, a silent type-confusion.
         """
         schema = {
             "level": {
@@ -247,7 +247,7 @@ class TestRejectBoolRule:
 
 
 # ══════════════════════════════════════════════════════════════════════════
-# _bound_history_limit — defense-in-depth bool rejection
+# _bound_history_limit, defense-in-depth bool rejection
 # ══════════════════════════════════════════════════════════════════════════
 
 
@@ -282,7 +282,7 @@ class TestBoundHistoryLimitRejectsBool:
 
     def test_integer_values_unchanged(self):
         """Regression guard: integer inputs are NOT affected by the
-        bool rejection — they continue to be clamped to
+        bool rejection, they continue to be clamped to
         ``[1, _HISTORY_LIMIT_MAX]`` exactly as before.
         """
         assert _bound_history_limit(0) == 1
@@ -310,7 +310,7 @@ class TestBoundHistoryLimitRejectsBool:
 
 
 # ══════════════════════════════════════════════════════════════════════════
-# _bound_history_offset — defense-in-depth bool rejection
+# _bound_history_offset, defense-in-depth bool rejection
 # ══════════════════════════════════════════════════════════════════════════
 
 
@@ -367,7 +367,7 @@ class TestValidationAndBounderComposition:
 
     def test_strict_schema_rejects_bool_at_validation_layer(self):
         """A history-style schema with ``reject_bool=True`` rejects
-        ``{"limit": True}`` at the validation layer — the bounder
+        ``{"limit": True}`` at the validation layer, the bounder
         is never called.
         """
         schema = {
@@ -389,12 +389,12 @@ class TestValidationAndBounderComposition:
         assert err is not None
         assert err["data"]["code"] == "client.invalid_field"
         # the FIRST field that fails (in schema iteration order) is
-        # reported — ``limit`` is checked before ``offset``.
+        # reported: ``limit`` is checked before ``offset``.
         assert err["data"]["field"] == "limit"
 
     def test_legacy_schema_accepts_bool_bounder_uses_default(self):
         """A legacy schema (no ``reject_bool``) accepts ``{"limit":
-        True}`` at the validation layer — but the bounder then uses
+        True}`` at the validation layer, but the bounder then uses
         the default instead of silently coercing to 1.
 
         This is the defense-in-depth path: even when validation opts
@@ -413,7 +413,7 @@ class TestValidationAndBounderComposition:
         assert validated is not None
         assert validated["limit"] is True  # validation passed through the bool
 
-        # the bounder is the next step in the handler pipeline — it
+        # the bounder is the next step in the handler pipeline, it
         # catches the bool and uses the default.
         clamped = _bound_history_limit(validated["limit"])
         assert clamped == _HISTORY_LIMIT_DEFAULT

@@ -4,7 +4,7 @@ CI incident (2026-08): the Tauri Linux smoke job (`cargo test --bin
 voice-typer-tauri`) was cancelled mid-run by ``kill_process_tree(0)`` in
 ``test_kill_process_tree_pid_zero_is_noop``. On Unix,
 ``enumerate_children(0)`` failed on ``/proc/0`` and fell back to
-``pgrep -P 0`` — which matches PID 1 (init) + kernel threads. The DFS
+``pgrep -P 0``, which matches PID 1 (init) + kernel threads. The DFS
 then descended into the ENTIRE process tree (the GitHub Actions runner
 agent included) and the per-pid SIGTERM/SIGKILL loop killed it. The job
 died with "The runner has received a shutdown signal" + "The operation
@@ -17,7 +17,7 @@ guard pid 0 too (POSIX ``kill(0, sig)`` signals the caller's own process
 group; ``getpgid(0)`` returns the caller's own pgid).
 
 These checks are static (read-the-source) so they run in the sandbox
-without needing a real process tree — and they fail with a clear message
+without needing a real process tree, and they fail with a clear message
 in the Electron test suite if the guard is ever removed, instead of the
 CI job being silently killed by the Rust test itself.
 """
@@ -28,7 +28,7 @@ import re
 from pathlib import Path
 
 _SRC_TAURI = Path(__file__).resolve().parents[2] / "src-tauri"
-# VP-1: platform/process was split into a directory — the facade
+# VP-1: platform/process was split into a directory, the facade
 # (kill_process_tree) lives in mod.rs, the Unix helpers (signal_pid,
 # enumerate_children_pgrep, kill_process_group_if_safe) in posix.rs.
 _PROCESS_RS = _SRC_TAURI / "src" / "platform" / "process" / "mod.rs"
@@ -45,7 +45,7 @@ def test_kill_process_tree_has_pid_zero_guard_before_platform_branches() -> None
 
     The guard must appear between the function signature and the first
     ``#[cfg(windows)]`` block so it short-circuits on EVERY platform
-    (Windows included — ``taskkill /PID 0`` is also meaningless).
+    (Windows included: ``taskkill /PID 0`` is also meaningless).
     """
     src = _read(_PROCESS_RS)
 

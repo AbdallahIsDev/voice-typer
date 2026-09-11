@@ -5,7 +5,7 @@
 // gate, per-command timeouts, error-envelope parsing, and the
 // `usePython` / `usePythonEvent` hook implementations). This file
 // re-exports the IDENTICAL public API so every existing import site
-// (`@/hooks/usePython`) keeps working unchanged — do NOT add logic
+// (`@/hooks/usePython`) keeps working unchanged, do NOT add logic
 // here.
 
 export { useBridgeReady } from "@/lib/python-bridge/bridge-ready";

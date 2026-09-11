@@ -1,9 +1,9 @@
-// AiEnhancementSettingsSection — AI Enhancement + Vocabulary Automation
+// AiEnhancementSettingsSection, AI Enhancement + Vocabulary Automation
 // sections of the Settings page.
 //
 // Rule-based grammar / punctuation / capitalization applied
 // AFTER LLM polish and BEFORE the result is pasted. Master toggle
-// (ai_enhancement_enabled) defaults OFF — the user must explicitly opt in.
+// (ai_enhancement_enabled) defaults OFF, the user must explicitly opt in.
 // The three sub-toggles default ON so enabling the master toggle "just works".
 //
 // Confidence-score-based vocabulary correction suggestions.
@@ -45,7 +45,7 @@ export const AiEnhancementSettingsSection = memo(
 
 		// Read the master toggle once so we can disable the sub-toggles
 		// when it's off.  This mirrors the server-side behavior in
-		// enhance_transcription() — when ai_enhancement_enabled is
+		// enhance_transcription(), when ai_enhancement_enabled is
 		// False, the sub-toggles have no effect.
 		const aiMasterOn = config.ai_enhancement_enabled ?? false;
 		const vocabMasterOn = config.vocabulary_automation_enabled ?? false;
@@ -101,7 +101,7 @@ export const AiEnhancementSettingsSection = memo(
 		// suggestion would otherwise need a HIGHER confidence than
 		// auto-apply requires, making auto-apply unreachable), so each
 		// change CLAMPS its own value against the other slider's
-		// committed value — the thumbs can touch but never pass.
+		// committed value, the thumbs can touch but never pass.
 		const handleSuggestConfidenceChange = (v: number) => {
 			const applyThreshold = config.vocabulary_auto_apply_threshold ?? 0.95;
 			updateConfigDebounced(

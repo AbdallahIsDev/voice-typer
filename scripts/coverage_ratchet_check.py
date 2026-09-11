@@ -9,7 +9,7 @@ CI policy
 ---------
 * ``total_coverage`` MUST NOT decrease (beyond a small epsilon for
   float jitter).
-* Coverage MAY increase — when it does, contributors SHOULD regenerate
+* Coverage MAY increase: when it does, contributors SHOULD regenerate
   the baseline so the new (higher) number becomes the floor (see
   ``--regenerate``).
 * The fixed ``--cov-fail-under=65`` floor in CI still catches
@@ -37,7 +37,7 @@ Run from the project root.
 
    Rewrites ``coverage-baseline.json`` with the current coverage %.
    The script REFUSES to regenerate if the new total is LOWER than the
-   old total — that would be a regression, not a ratchet.
+   old total, that would be a regression, not a ratchet.
 
 3. Custom coverage.xml path:
    ::
@@ -51,7 +51,7 @@ Run from the project root.
 
    By default, when ``coverage.xml`` is missing AND ``coverage report
    --format=json`` cannot produce a total (e.g. no ``.coverage`` data
-   file), the script prints a NOTE and exits 0 (skip — the ratchet is
+   file), the script prints a NOTE and exits 0 (skip, the ratchet is
    gated on data availability, so missing data is treated as "not our
    problem"). ``--strict`` flips this to exit 1 so CI can fail a job
    that was supposed to have coverage data but lost it (e.g. the
@@ -298,7 +298,7 @@ def main(argv: list[str] | None = None) -> int:
         epilog=__doc__,
         regenerate_help=(
             "Rewrite coverage-baseline.json with the current coverage percentage. "
-            "Only use this after IMPROVING coverage — refuses to lower the baseline."
+            "Only use this after IMPROVING coverage, refuses to lower the baseline."
         ),
         force_help=(
             "Bypass the refuse-to-lower check and the corrupt/missing-baseline "
@@ -331,14 +331,14 @@ def main(argv: list[str] | None = None) -> int:
     else:
         current_pct = _load_current_coverage()
         if current_pct is None:
-            print("NOTE: could not determine current coverage % — skipping ratchet check.")
+            print("NOTE: could not determine current coverage %, skipping ratchet check.")
             print("      Run pytest with --cov-report=xml first, OR install coverage")
             print("      and re-run this script (it will invoke `coverage report`).")
             if args.strict:
                 print("FAIL (--strict): coverage data is unavailable; CI requires it.")
                 print("      The default (non-strict) behavior is to PASS (skip) here.")
                 return 1
-            print("      PASS (skip) — the ratchet is gated on data availability.")
+            print("      PASS (skip), the ratchet is gated on data availability.")
             return 0
 
     if args.regenerate:

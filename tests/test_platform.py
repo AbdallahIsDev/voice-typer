@@ -22,7 +22,7 @@ from voice_typer.server.server_platform import (
 class TestAutostartCommand:
     def test_uses_autostart_launcher(self):
         """The autostart command must run autostart_launcher.py, which
-        spawns npm run dev (Electron dev mode) hidden — not the
+        spawns npm run dev (Electron dev mode) hidden, not the
         standalone ``-m voice_typer`` tray app."""
         cmd = _autostart_command()
         assert "autostart_launcher.py" in cmd
@@ -36,7 +36,7 @@ class TestAutostartCommand:
     @pytest.mark.skipif(sys.platform == "win32", reason="Non-Windows test")
     def test_unix_uses_quoted_executable(self):
         # the autostart command now uses spec-compliant
-        # quoting — paths without reserved characters are NOT wrapped
+        # quoting, paths without reserved characters are NOT wrapped
         # in quotes (per the freedesktop Desktop Entry Spec).  We just
         # verify the executable appears in the command and the
         # launcher is present.
@@ -146,7 +146,7 @@ class TestMacOsAutostartUnload:
 
 class TestListMicrophones:
     def test_returns_list(self):
-        # Just verify it doesn't crash — actual devices depend on system
+        # Just verify it doesn't crash, actual devices depend on system
         result = list_microphones()
         assert isinstance(result, list)
 
@@ -313,7 +313,7 @@ class TestCreateLauncherShortcut:
     # The .lnk filename must be composed from APP_NAME (C-BRAND-1), not
     # hardcoded. These tests monkeypatch APP_NAME to a distinct value so
     # the composition is observable, and run on every platform (win32com
-    # is faked via sys.modules injection — the production code imports it
+    # is faked via sys.modules injection, the production code imports it
     # lazily inside _create_lnk_shortcut).
 
     def _fake_windows_env(self, tmp_path, monkeypatch, app_name):
@@ -347,7 +347,7 @@ class TestCreateLauncherShortcut:
         monkeypatch.setitem(sys.modules, "win32com.client", mock_win32com.client)
 
         # The AUMID stamp falls back to a PowerShell subprocess when the
-        # .lnk bytes lack the property block — record those calls instead
+        # .lnk bytes lack the property block, record those calls instead
         # of spawning powershell (absent on non-Windows hosts).
         run_calls = []
 
@@ -379,7 +379,7 @@ class TestCreateLauncherShortcut:
         Builds predating the APP_NAME-derived naming created the shortcut
         under a fixed legacy filename. When APP_NAME has changed and the
         legacy file exists, the legacy shortcut is returned (and
-        AUMID-stamped) — no second shortcut is created under the new
+        AUMID-stamped), no second shortcut is created under the new
         name, so the user never ends up with a stale duplicate.
         """
         desktop, start_menu, mock_shell, _runs = self._fake_windows_env(
@@ -401,7 +401,7 @@ class TestCreateLauncherShortcut:
 
 
 class TestExistingLauncherLnk:
-    """``_existing_launcher_lnk`` — APP_NAME-named shortcut with
+    """``_existing_launcher_lnk``, APP_NAME-named shortcut with
     legacy-filename fallback.
 
     The primary name is ``{APP_NAME}.lnk``; the legacy fixed filename is
@@ -449,7 +449,7 @@ class TestExistingLauncherLnk:
 
     def test_current_app_name_matches_legacy_name_today(self, tmp_path):
         """Today APP_NAME equals the legacy filename stem, so the primary
-        and legacy paths are the same file — the fallback is a no-op
+        and legacy paths are the same file, the fallback is a no-op
         until the product is actually renamed."""
         from voice_typer.server.branding import APP_NAME
         from voice_typer.server.server_platform.desktop_shortcut import _existing_launcher_lnk
@@ -460,7 +460,7 @@ class TestExistingLauncherLnk:
 
 
 class TestSetLnkAppUserModelId:
-    """``_set_lnk_app_user_model_id`` — toast-icon AUMID stamp on .lnk files.
+    """``_set_lnk_app_user_model_id``, toast-icon AUMID stamp on .lnk files.
 
     The property is written into the .lnk as a ``1SPS`` serialized
     property-store block (the same byte layout Squirrel/electron-builder
@@ -567,7 +567,7 @@ class TestSetLnkAppUserModelId:
         assert f"'{lnk}'" in script
         assert "'VoiceTyper'" in script
         # The generic property-store APIs (which DON'T persist) must NOT
-        # appear — only the IShellLink property-store pattern.
+        # appear, only the IShellLink property-store pattern.
         assert "SHGetPropertyStoreFromParsingName" not in script
         # try/catch → exit 1 on any failure, exit $hr on COM failure.
         assert "} catch {" in script
@@ -629,7 +629,7 @@ class TestGetAutostartDirLinux:
     Regression for the bug where ``os.environ.get("XDG_CONFIG_HOME",
     default)`` returned the empty string when the env var was set but
     empty, causing ``Path("") / "autostart"`` to produce a RELATIVE
-    ``PosixPath("autostart")`` — the .desktop file would be written to
+    ``PosixPath("autostart")``, the .desktop file would be written to
     the process's CWD instead of ``~/.config/autostart/``, and the
     desktop environment would never pick it up. Mirrors the
     ``TestLinuxUnitDirHandlesEmptyXdgConfigHome`` suite already covering

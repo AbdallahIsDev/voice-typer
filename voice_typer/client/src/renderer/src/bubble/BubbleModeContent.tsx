@@ -1,5 +1,5 @@
 /**
- * Bubble overlay package — `BubbleModeContent` (mode-branch renderer).
+ * Bubble overlay package, `BubbleModeContent` (mode-branch renderer).
  *
  * Previously the 8-way mode-branch JSX lived inline in `Bubble.tsx`
  * as a deeply-nested ternary chain (transcribing / fading / idle /
@@ -40,7 +40,7 @@ const TRANSCRIBING_DOT_INDICES: readonly number[] = Array.from(
  * render in the bubble pill. The pill is intentionally compact (max
  * width 400px per `MAX_BUBBLE_W` in `bubble-handlers.ts`); a longer
  * preview would force the pill to grow past the clamp and clip. 60
- * characters is ~10-12 words — enough for the user to confirm the
+ * characters is ~10-12 words, enough for the user to confirm the
  * transcription is on the right track without the pill becoming a
  * second text field.
  */
@@ -50,7 +50,7 @@ const TRANSCRIPT_PREVIEW_MAX_CHARS = 60;
  * Truncate a partial-transcript string for display in the bubble pill.
  * Returns the input unchanged if it fits within the preview budget;
  * otherwise returns a `…`-suffixed prefix. The truncation is character-
- * based (not grapheme-based) for simplicity — emoji composed of
+ * based (not grapheme-based) for simplicity, emoji composed of
  * multiple code points may be split, but the worst case is a stray
  * replacement character at the ellipsis position, not a crash.
  */
@@ -68,13 +68,13 @@ export interface BubbleModeContentProps {
 	 * `bubble:set-state` payload carries a `transcript` field and
 	 * `mode` is `transcribing` or `fading`, the text is rendered
 	 * (truncated to `TRANSCRIPT_PREVIEW_MAX_CHARS`) inside the pill
-	 * so the user sees the live transcription taking shape — matching
+	 * so the user sees the live transcription taking shape, matching
 	 * the UX of macOS Dictation / Google Voice Typing.
 	 */
 	transcript?: string | null;
 	/**
 	 * True when the backend signalled the active engine cannot stream
-	 * live partials (no `transcribe_words` — Parakeet/Qwen). The
+	 * live partials (no `transcribe_words`, Parakeet/Qwen). The
 	 * recording branch renders a small localized hint next to the
 	 * visualizer instead of silently omitting live text.
 	 */
@@ -92,7 +92,7 @@ export interface BubbleModeContentProps {
  * the status label so the user sees the live transcription taking
  * shape. When no transcript has been pushed yet (or the legacy
  * string-only `bubble:set-state` payload is in use), only the status
- * label + animated dots render — matching the pre-fix behaviour byte-
+ * label + animated dots render, matching the pre-fix behaviour byte-
  * for-byte so existing tests stay green.
  *
  * Kept as a plain function component (no `useMemo` / `useCallback`)
@@ -185,7 +185,7 @@ export function BubbleModeContent({
                                             idle (always_visible mode). The empty div below is
                                             preserved as a zero-width sibling so Bubble.test.tsx's
                                             `emptyContainer.textContent === ""` assertion still
-                                            passes — querySelector returns the first match in DOM
+                                            passes, querySelector returns the first match in DOM
                                             order, which is the empty div. */}
 					<div className="flex h-6 items-center" />
 					<div className="flex h-6 items-center gap-2 px-2" aria-hidden>

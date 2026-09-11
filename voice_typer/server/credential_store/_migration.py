@@ -53,7 +53,7 @@ _MIGRATION_LOCK_SLOW_WAIT_WARN_SECONDS = 2.0
 
 
 def _is_windows() -> bool:
-    """Local platform check — delegates to ``platform_utils.is_windows``.
+    """Local platform check, delegates to ``platform_utils.is_windows``.
 
     The helper import stays function-local (this file's convention) so
     module load pulls in nothing beyond stdlib. The delegation reads
@@ -130,15 +130,15 @@ def _acquire_migration_lock(lock_file):
                     if time.monotonic() >= deadline:
                         raise TimeoutError(
                             f"migration lock not acquired within "
-                            f"{migration_lock_timeout_seconds}s — another "
+                            f"{migration_lock_timeout_seconds}s, another "
                             f"process is holding {_redact_sensitive(str(lock_file))}"
                         ) from e
                     if not warned_slow and time.monotonic() - wait_start > migration_lock_slow_wait_warn_seconds:
-                        # redact ``lock_file`` — the path contains the
+                        # redact ``lock_file``: the path contains the
                         # username (e.g. /home/<user>/.config/...).
                         log.warning(
                             "[CREDENTIAL_STORE] migration lock wait on %s "
-                            "exceeds %.1fs — another process may be wedging "
+                            "exceeds %.1fs, another process may be wedging "
                             "config.json.lock (will time out in %.1fs)",
                             _redact_sensitive(str(lock_file)),
                             migration_lock_slow_wait_warn_seconds,
@@ -172,7 +172,7 @@ def _acquire_migration_lock(lock_file):
                             log.warning(
                                 "[CREDENTIAL_STORE] Windows migration "
                                 "lock acquire timed out after %ss on "
-                                "%s — race possible if another process "
+                                "%s, race possible if another process "
                                 "is also migrating secrets to keyring "
                                 "(last error: %s). Proceeding fail-open "
                                 "to avoid blocking startup; check for "
@@ -186,7 +186,7 @@ def _acquire_migration_lock(lock_file):
                     if not warned_slow and time.monotonic() - wait_start > migration_lock_slow_wait_warn_seconds:
                         log.warning(
                             "[CREDENTIAL_STORE] migration lock wait on %s "
-                            "exceeds %.1fs — another process may be wedging "
+                            "exceeds %.1fs, another process may be wedging "
                             "config.json.lock (will time out in %.1fs)",
                             _redact_sensitive(str(lock_file)),
                             migration_lock_slow_wait_warn_seconds,
@@ -208,7 +208,7 @@ def migrate_secrets_to_keyring() -> int:
     """One-time migration of plaintext API keys to the OS keychain.
 
     Reads ``config.json`` directly (NOT the in-memory ``Config``
-    instance — we want to inspect the on-disk representation). For each
+    instance, we want to inspect the on-disk representation). For each
     provider's flat ``<provider>_api_key`` field:
 
       - If the value is empty or already a ``keyring://`` reference,
@@ -225,7 +225,7 @@ def migrate_secrets_to_keyring() -> int:
     The entire read-migrate-write sequence is guarded by an exclusive
     lock on ``config.json.lock``. After acquiring the lock, the config
     is RE-READ so we observe any migration a concurrent process
-    completed while we were waiting — if ``secrets_migrated`` is now
+    completed while we were waiting, if ``secrets_migrated`` is now
     set, we skip the migration entirely.
 
     Returns
@@ -258,13 +258,13 @@ def migrate_secrets_to_keyring() -> int:
         # ABORT migration when the lock can't be acquired (e.g. POSIX
         # TimeoutError, OSError opening the lock file). The fail-open
         # stance is preserved ONLY for the documented Windows
-        # msvcrt.locking timeout — that branch handles the timeout
+        # msvcrt.locking timeout, that branch handles the timeout
         # INLINE (logs a warning and breaks out of the loop without
         # raising), so ``lock_fd`` is the opened fd (NOT None) and
         # this ``except`` is not entered.
         log.warning(
             "[CREDENTIAL_STORE] migration: could not acquire lock on %s "
-            "(%s) — ABORTING migration to avoid racing with the lock holder. "
+            "(%s), ABORTING migration to avoid racing with the lock holder. "
             "The next launch will retry; if the lock is permanently wedged, "
             "manually delete the lock file.",
             _redact_sensitive(str(lock_file)),
@@ -279,7 +279,7 @@ def migrate_secrets_to_keyring() -> int:
             # BP-131: record the DEFERRAL, never success. Setting
             # ``secrets_migrated`` here would gate the next launch's
             # retry (line ~360) and leave plaintext secrets in
-            # config.json forever — the exact trap the "next launch
+            # config.json forever, the exact trap the "next launch
             # will retry" warning above promises won't happen. The
             # ``secrets_migrated_keyring_was_unavailable`` diagnostic
             # follows the established deferral contract (line ~456):
@@ -311,7 +311,7 @@ def migrate_secrets_to_keyring() -> int:
 
 
 def _migrate_secrets_to_keyring_locked(config_file) -> int:
-    """Body of :func:`migrate_secrets_to_keyring` — assumes the lock is held.
+    """Body of :func:`migrate_secrets_to_keyring`: assumes the lock is held.
 
     Split out so the lock acquisition / release is symmetric and easy
     to reason about.
@@ -324,7 +324,7 @@ def _migrate_secrets_to_keyring_locked(config_file) -> int:
     # Re-check whether config.json exists NOW that we hold the lock.
     # A concurrent process may have just created it.
     if not config_file.exists():
-        # No config to migrate — mark as migrated so we don't keep
+        # No config to migrate, mark as migrated so we don't keep
         # checking on every launch.
         try:
             _secure_atomic_write(
@@ -341,7 +341,7 @@ def _migrate_secrets_to_keyring_locked(config_file) -> int:
     try:
         data = json.loads(_secure_read_text(config_file))
         if not isinstance(data, dict):
-            log.warning("[CREDENTIAL_STORE] migration: config.json root is not a dict — skipping")
+            log.warning("[CREDENTIAL_STORE] migration: config.json root is not a dict, skipping")
             return 0
     except Exception as e:
         log.warning(
@@ -355,18 +355,18 @@ def _migrate_secrets_to_keyring_locked(config_file) -> int:
     # successful migration. Gated on the per-hop derived config flag.
     service_name_migrated_this_run = False
     if not data.get(_SERVICE_NAME_MIGRATED_FLAG, False):
-        # ``is_keyring_available`` is monkey-patched by tests — look it
+        # ``is_keyring_available`` is monkey-patched by tests, look it
         # up on the package module at call time.
         if _cs.is_keyring_available():
             _migrate_legacy_service_names_locked()
             data[_SERVICE_NAME_MIGRATED_FLAG] = True
             service_name_migrated_this_run = True
         else:
-            log.info("[CREDENTIAL_STORE] migration: deferring legacy service-name cutover — keyring unavailable")
+            log.info("[CREDENTIAL_STORE] migration: deferring legacy service-name cutover, keyring unavailable")
 
     # Re-check the secrets_migrated flag NOW that we hold the lock.
     if data.get("secrets_migrated", False):
-        log.debug("[CREDENTIAL_STORE] migration: secrets_migrated flag already set — skipping")
+        log.debug("[CREDENTIAL_STORE] migration: secrets_migrated flag already set, skipping")
         if service_name_migrated_this_run:
             try:
                 _secure_atomic_write(config_file, json.dumps(data, indent=2))
@@ -382,7 +382,7 @@ def _migrate_secrets_to_keyring_locked(config_file) -> int:
     keyring_ok = _cs.is_keyring_available()
     # Track whether we skipped any REAL plaintext secret because
     # keyring was unavailable. If so, do NOT set the
-    # ``secrets_migrated`` gate — otherwise the next launch (when
+    # ``secrets_migrated`` gate, otherwise the next launch (when
     # keyring may be available) would skip migration and the plaintext
     # would persist forever.
     skipped_plaintext = False
@@ -397,18 +397,18 @@ def _migrate_secrets_to_keyring_locked(config_file) -> int:
             if value == "" or value is None:
                 continue
             log.warning(
-                "[CREDENTIAL_STORE] migration: provider=%s field=%s has non-string value (type=%s) — skipping",
+                "[CREDENTIAL_STORE] migration: provider=%s field=%s has non-string value (type=%s), skipping",
                 provider,
                 field_name,
                 type(value).__name__,
             )
             continue
         if not value or value.startswith(KEYRING_REF_PREFIX):
-            # Empty or already a reference — nothing to migrate.
+            # Empty or already a reference, nothing to migrate.
             continue
 
         if not keyring_ok:
-            # Keyring unavailable — leave the plaintext value in place.
+            # Keyring unavailable, leave the plaintext value in place.
             log.info(
                 "[CREDENTIAL_STORE] migration: keyring unavailable, keeping provider=%s in plaintext (len=%d)",
                 provider,
@@ -443,11 +443,11 @@ def _migrate_secrets_to_keyring_locked(config_file) -> int:
             # only logged a warning and fell through to ``continue``
             # without setting ``skipped_plaintext``. The gate then saw
             # ``skipped_plaintext == False`` and set
-            # ``secrets_migrated = True`` — meaning the NEXT launch
+            # ``secrets_migrated = True``: meaning the NEXT launch
             # would skip migration entirely and the plaintext would
             # persist in config.json forever.
             log.warning(
-                "[CREDENTIAL_STORE] migration: failed to move provider=%s to keyring: %s — keeping plaintext",
+                "[CREDENTIAL_STORE] migration: failed to move provider=%s to keyring: %s, keeping plaintext",
                 provider,
                 _redact_sensitive(str(e)),
             )
@@ -456,11 +456,11 @@ def _migrate_secrets_to_keyring_locked(config_file) -> int:
 
     # Gate ``secrets_migrated`` on whether we actually had to skip any
     # real plaintext. If keyring was unavailable AND there was real
-    # plaintext to skip, do NOT set the gate — the next launch must
+    # plaintext to skip, do NOT set the gate, the next launch must
     # re-attempt migration. If keyring was unavailable but there was
     # no plaintext to skip, set the gate (nothing to retry).
     if skipped_plaintext:
-        # Defer migration — record diagnostic so the operator knows.
+        # Defer migration, record diagnostic so the operator knows.
         data["secrets_migrated_keyring_was_unavailable"] = True
     else:
         # Either keyring was available and migration succeeded, or
@@ -475,7 +475,7 @@ def _migrate_secrets_to_keyring_locked(config_file) -> int:
             "[CREDENTIAL_STORE] migration: failed to save migrated config: %s",
             _redact_sensitive(str(e)),
         )
-        # Don't return 0 — the secrets were stored in keyring
+        # Don't return 0, the secrets were stored in keyring
         # successfully, even if we couldn't write the flag. The next
         # launch will retry the migration (which is idempotent for
         # already-stored secrets).
@@ -515,7 +515,7 @@ def _migrate_legacy_service_names_locked() -> int:
                 value = _run_keyring_call(keyring.get_password, legacy_name, provider)
             except Exception as e:
                 log.debug(
-                    "[CREDENTIAL_STORE] legacy cutover: get_password(service=%s, provider=%s) raised: %s — skipping",
+                    "[CREDENTIAL_STORE] legacy cutover: get_password(service=%s, provider=%s) raised: %s, skipping",
                     legacy_name,
                     provider,
                     _redact_sensitive(str(e)),
@@ -537,7 +537,7 @@ def _migrate_legacy_service_names_locked() -> int:
             except Exception as e:
                 log.warning(
                     "[CREDENTIAL_STORE] legacy cutover: set_password(service=%s, "
-                    "provider=%s) raised — keeping legacy entry under %s: %s",
+                    "provider=%s) raised, keeping legacy entry under %s: %s",
                     KEYRING_SERVICE_NAME,
                     provider,
                     legacy_name,
@@ -549,7 +549,7 @@ def _migrate_legacy_service_names_locked() -> int:
             except Exception as e:
                 log.debug(
                     "[CREDENTIAL_STORE] legacy cutover: delete_password("
-                    "service=%s, provider=%s) raised: %s — stale legacy entry "
+                    "service=%s, provider=%s) raised: %s, stale legacy entry "
                     "left in place",
                     legacy_name,
                     provider,

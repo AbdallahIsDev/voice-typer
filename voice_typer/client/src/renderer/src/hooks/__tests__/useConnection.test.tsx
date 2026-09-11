@@ -1,5 +1,5 @@
 /**
- * Tests for useConnection — onboarding first-run auto-route (F1 / b-review Finding 5).
+ * Tests for useConnection, onboarding first-run auto-route (F1 / b-review Finding 5).
  *
  * Regression: previously the first-run check was gated on
  * `currentPage === "home"`, so a user who closed the app mid-onboarding
@@ -37,7 +37,7 @@ import { useAppStore } from "@/stores/appStore";
 // Stub localStorage so useNavigation's persisted-nav-state restore
 // (and the beforeEach `clear()` below) doesn't blow up in the jsdom
 // environment. Same pattern as useTheme-flush-pending-save.test.tsx
-// — jsdom 29 with an opaque origin doesn't expose `localStorage`.
+//, jsdom 29 with an opaque origin doesn't expose `localStorage`.
 const lsStub: Record<string, string> = {};
 const lsMock = {
 	getItem: (k: string) => lsStub[k] ?? null,
@@ -57,7 +57,7 @@ Object.defineProperty(window, "localStorage", {
 });
 
 // Stub the Zustand store-backed setters useConnection depends on. We
-// import the real appStore and let it manage state — it's already
+// import the real appStore and let it manage state, it's already
 // isolated per-test via its own slice, so no extra mocking needed.
 
 /**
@@ -81,7 +81,7 @@ function Harness() {
 	return <div data-testid="current-page">{currentPage}</div>;
 }
 
-describe("useConnection — F1: first-run auto-route ignores persisted page", () => {
+describe("useConnection, F1: first-run auto-route ignores persisted page", () => {
 	beforeEach(() => {
 		resetStableMocks();
 		localStorage.clear();
@@ -194,7 +194,7 @@ describe("useConnection — F1: first-run auto-route ignores persisted page", ()
 		expect(getByTestId("current-page").textContent).toBe("settings");
 	});
 
-	describe("status_change — error message surfacing", () => {
+	describe("status_change, error message surfacing", () => {
 		beforeEach(() => {
 			resetStableMocks();
 			vi.resetModules();
@@ -272,7 +272,7 @@ describe("useConnection — F1: first-run auto-route ignores persisted page", ()
 			// The app launches while the backend already sits in
 			// AppState.ERROR (no model installed). The connect-time
 			// snapshot must populate the ERROR pill's state AND the red
-			// reason line together — previously it cleared lastError and
+			// reason line together, previously it cleared lastError and
 			// left the normal dictate hint under an ERROR pill.
 			render(<Harness />);
 			const handler = findHandler("state_changed");
@@ -332,7 +332,7 @@ describe("useConnection — F1: first-run auto-route ignores persisted page", ()
 		});
 	});
 
-	describe("error event — recording-level failure transitions recordingState", () => {
+	describe("error event, recording-level failure transitions recordingState", () => {
 		beforeEach(() => {
 			resetStableMocks();
 			vi.resetModules();

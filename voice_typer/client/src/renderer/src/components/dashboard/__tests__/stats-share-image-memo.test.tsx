@@ -1,5 +1,5 @@
 /**
- *  vitest suite — StatsShareImage React.memo re-render gating.
+ *  vitest suite, StatsShareImage React.memo re-render gating.
  *
  * StatsShareImage is rendered off-screen and captured as a PNG only
  * when the user clicks "Share Stats". Re-rendering it on every
@@ -18,7 +18,7 @@
  *      image refresh (NEVER DOWNGRADE behaviour).
  *
  * Render counting is done via a render counter inside a wrapped
- * StatsShareImage — but since StatsShareImage is the component under
+ * StatsShareImage, but since StatsShareImage is the component under
  * test, we instead count via the i18n `t()` calls it makes on each
  * render (StatsShareImage calls `t()` multiple times per render).
  * Mocking `t` with a counter gives a faithful render-count proxy.
@@ -63,7 +63,7 @@ const stats: ShareStats = {
 	device: "cpu",
 };
 
-// A second stats object — same field values but a DIFFERENT reference,
+// A second stats object, same field values but a DIFFERENT reference,
 // simulating a fresh `computeShareStats()` return value.
 const statsV2: ShareStats = {
 	...stats,
@@ -81,7 +81,7 @@ function TestParent({ statsProp }: { statsProp: ShareStats }) {
 	return <StatsShareImage stats={statsProp} />;
 }
 
-describe("StatsShareImage — React.memo re-render gating", () => {
+describe("StatsShareImage, React.memo re-render gating", () => {
 	beforeEach(() => {
 		cleanup();
 		tCallCount = 0;

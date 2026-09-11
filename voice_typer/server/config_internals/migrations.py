@@ -4,10 +4,10 @@ Extracted verbatim from ``voice_typer.server.config`` (
 partial split).  Every public symbol here is re-exported from
 ``config.py`` (via ``from voice_typer.server.config_internals.migrations
 import _CURRENT_SCHEMA_VERSION, _MIGRATIONS, _migrate_to_v2,
-_migrate_to_v3, _run_migrations``) so existing callers — including the
+_migrate_to_v3, _run_migrations``) so existing callers, including the
 test suite, which mutates ``config_mod._MIGRATIONS`` in place via
 ``monkeypatch.setitem(config_mod._MIGRATIONS, 2, _failing_v2)`` and
-``config_mod._MIGRATIONS.clear() / .update(original)`` — keep working
+``config_mod._MIGRATIONS.clear() / .update(original)``, keep working
 unchanged.
 
 Object-identity contract: ``config._MIGRATIONS`` MUST be the same
@@ -21,7 +21,7 @@ a copy).
 dataclass field default, ``Config._backup_before_migration`` /
 ``Config._backup_before_downgrade`` compare against it, and several
 test modules do ``from voice_typer.server.config import
-_CURRENT_SCHEMA_VERSION`` (read-only — no monkeypatching).
+_CURRENT_SCHEMA_VERSION`` (read-only, no monkeypatching).
 
 No circular imports: this module depends only on the stdlib.
 """
@@ -41,7 +41,7 @@ _CURRENT_SCHEMA_VERSION = 5
 # v3 prunes deprecated dead-code keys.
 # v4 renames the offline-pack consent flag (2026-08-14, offline_pack rename).
 # v5 prunes the dead ``push_to_talk_hotkey`` field (2026-08-24, fully
-#    removed from the Config dataclass — PTT uses the main ``hotkey``).
+#    removed from the Config dataclass. PTT uses the main ``hotkey``).
 # T1-F3: typed as ``dict[int, Callable[[dict[str, Any]], dict[str, Any]]]``
 # so static checkers can verify that every registered migration is a function
 # taking a config dict and returning a (possibly mutated) config dict.
@@ -96,12 +96,12 @@ def _migrate_to_v3(data: dict[str, Any]) -> dict[str, Any]:
 
     ``noise_filter_enabled`` and ``noise_filter_post_capture`` were
         previously in this scrub list but are actually RUNTIME switches (read
-        by ``level_monitor.py`` and synced by ``config_applier.py``) — they
+        by ``level_monitor.py`` and synced by ``config_applier.py``), they
         must NOT be pruned here. Only the 7 truly-dead fields below are
         scrubbed. See ADR 0009 §5 for the canonical field-by-field status.
 
         The 7 dead fields are KEPT in this scrub list even though they were
-        also removed from the ``Config`` dataclass — this guarantees that
+        also removed from the ``Config`` dataclass, this guarantees that
         existing ``config.json`` files written by older app versions (which
         still carry these keys) load without raising ``TypeError`` from
         ``cls(**data)``. The keys are silently popped before construction.
@@ -147,7 +147,7 @@ def _migrate_to_v5(data: dict[str, Any]) -> dict[str, Any]:
     """Migrate config from schema v4 to v5 (prune dead ``push_to_talk_hotkey``).
 
     The ``push_to_talk_hotkey`` field was fully removed from the Config
-    dataclass — PTT uses the main ``hotkey`` field. Existing config files
+    dataclass, PTT uses the main ``hotkey`` field. Existing config files
     that carry the key are silently pruned here.
     """
     data.setdefault("_load_warnings", [])
@@ -183,13 +183,13 @@ def _run_migrations(
         failed migration re-runs on the next launch.  Previously the
         runner silently swallowed the exception, kept the
         partially-migrated data, and bumped the version to
-        ``_CURRENT_SCHEMA_VERSION`` — that bricked the config: the next
+        ``_CURRENT_SCHEMA_VERSION``: that bricked the config: the next
         launch saw version==current and skipped the failed migrator
         permanently, leaving the user with a half-migrated config that
         claimed to be fully migrated.
 
         When ``loaded_version`` is missing or non-int (fresh install /
-        corrupt file), there is nothing to migrate — default to
+        corrupt file), there is nothing to migrate, default to
         ``_CURRENT_SCHEMA_VERSION`` so a fresh config gets the current
         schema.
     """
@@ -257,7 +257,7 @@ def _run_migrations(
                         # instead of ``shutil.copy2``.  ``copy2`` follows
                         # symlinks, so a ``config.json`` symlinked at
                         # an attacker-controlled path would have been
-                        # transparently copied here — defeating the
+                        # transparently copied here, defeating the
                         # symlink-TOCTOU guard the rest of the load()
                         # path enforces.  ``_secure_read_text`` opens
                         # with ``O_NOFOLLOW`` (POSIX) / reparse-point
@@ -273,7 +273,7 @@ def _run_migrations(
 
                         # the previous ``time.strftime("%Y%m%d-
                         # %H%M%S", time.gmtime())`` suffix had 1-second
-                        # resolution — two failures in the same second
+                        # resolution, two failures in the same second
                         # (e.g. renderer-triggered reload + backend
                         # independent load during startup) silently
                         # overwrote each other via ``shutil.copy2``,
@@ -343,20 +343,20 @@ def _backup_before_migration_impl(config_file, loaded_version: Any) -> None:
     The previous implementation used ``shutil.copy2`` which (a) follows
     symlinks on both SOURCE and DEST (a local attacker who replaces
     config.json with a symlink to ~/.bashrc between loads gets ~/.bashrc
-    content copied into the .bak — info disclosure via the .bak file),
-    (b) is non-atomic (file-by-file copy — an interrupted copy leaves a
+    content copied into the .bak, info disclosure via the .bak file),
+     (b) is non-atomic (file-by-file copy, an interrupted copy leaves a
     partial .bak that gives a false sense of recoverability), and (c)
     has no fsync (the .bak may not be durable across power loss). The
     fix routes the READ through ``_secure_read_text`` (POSIX O_NOFOLLOW
     + inode re-verify) and the WRITE through ``_secure_atomic_write``
     (atomic ``os.replace`` + fsync + 0o600). The original
-    ``config.json`` stays in place — the load must NOT modify the
+    ``config.json`` stays in place, the load must NOT modify the
     on-disk file mid-load (only ``os.replace`` is used on the .bak
     destination, not on config.json itself).
 
     The filename embeds a Unix timestamp + PID + sub-second nanoseconds
     so two backup events never collide (even within the same second
-    from different processes — e.g. two app instances launched in
+    from different processes: e.g. two app instances launched in
     parallel against the same user account during a downgrade). We also
     cap retained pre-migration backups to 3 (oldest pruned) so the
     directory doesn't grow unbounded across many version bumps.

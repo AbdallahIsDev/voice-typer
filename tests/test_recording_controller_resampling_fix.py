@@ -3,7 +3,7 @@
 These tests cover the linear-interp fallback path in
 ``voice_typer.server.recording.resampling.resample_audio`` (used when
 ``scipy.signal.resample_poly`` is unavailable). Pre-fix, the fallback
-used pure ``np.interp`` with no anti-aliasing filter — when
+used pure ``np.interp`` with no anti-aliasing filter, when
 DOWNSAMPLING (e.g. 48k→16k, 44.1k→16k), energy above the target
 Nyquist (8 kHz) aliased into the speech band, silently degrading ASR
 accuracy on the streaming partial-transcription path.
@@ -71,7 +71,7 @@ def _force_linear_interp_fallback(monkeypatch):
 
 # ────────────────────────────────────────────────────────────────────────────
 # Test 1: downsampling via linear-interp fallback applies an anti-aliasing
-# FIR filter — high-frequency energy above target_sr/2 is attenuated.
+# FIR filter, high-frequency energy above target_sr/2 is attenuated.
 # ────────────────────────────────────────────────────────────────────────────
 class TestLinearInterpAntialiasing:
     """ER-88: the no-scipy linear-interp fallback applies an anti-aliasing
@@ -90,9 +90,9 @@ class TestLinearInterpAntialiasing:
         from voice_typer.server.recording.resampling import resample_audio
 
         sr_in = 48000
-        duration = 0.5  # 500 ms — long enough for the FIR transient to settle
+        duration = 0.5  # 500 ms, long enough for the FIR transient to settle
         t = np.linspace(0, duration, int(sr_in * duration), endpoint=False)
-        # 12 kHz sine — well above the 8 kHz target Nyquist.
+        # 12 kHz sine, well above the 8 kHz target Nyquist.
         high_freq_audio = (np.sin(2 * np.pi * 12000 * t) * 0.5).astype(np.float32)
 
         result = resample_audio(high_freq_audio, sr_in, 16000, log_resample=False)
@@ -104,7 +104,7 @@ class TestLinearInterpAntialiasing:
         )
         # Skip the FIR transient (first/last 31 samples ≈ filter length).
         # The middle of the result should be near-zero (12 kHz attenuated
-        # by the low-pass at 8 kHz). Allow some residual — the 31-tap FIR
+        # by the low-pass at 8 kHz). Allow some residual, the 31-tap FIR
         # has finite stop-band attenuation (~40 dB), so a small aliased
         # component is expected, but it must be MUCH smaller than the
         # 0.5-amplitude input.
@@ -112,7 +112,7 @@ class TestLinearInterpAntialiasing:
         peak = float(np.max(np.abs(middle)))
         # Pre-fix (no anti-aliasing), peak would be ~0.5 (full aliasing).
         # Post-fix (FIR applied), peak should be < 0.1 (~ -14 dB attenuation
-        # — well below the input amplitude).
+        # , well below the input amplitude).
         assert peak < 0.1, (
             f"ER-88: 12 kHz signal should be attenuated by the anti-aliasing "
             f"FIR (peak < 0.1); got peak={peak:.4f}. The linear-interp "
@@ -134,21 +134,21 @@ class TestLinearInterpAntialiasing:
         sr_in = 16000
         duration = 0.5
         t = np.linspace(0, duration, int(sr_in * duration), endpoint=False)
-        # 4 kHz sine — well below the 8 kHz source Nyquist.
+        # 4 kHz sine, well below the 8 kHz source Nyquist.
         low_freq_audio = (np.sin(2 * np.pi * 4000 * t) * 0.5).astype(np.float32)
 
         result = resample_audio(low_freq_audio, sr_in, 48000, log_resample=False)
 
         # Upsampling should preserve the signal (linear interp of a
         # 4 kHz sine at 16 kHz → 48 kHz retains ~0.5 amplitude after
-        # the (sin x / x) response — close to 0.5 but slightly less).
+        # the (sin x / x) response, close to 0.5 but slightly less).
         middle = result[100:-100]
         peak = float(np.max(np.abs(middle)))
         # The (sin x / x) response at 4 kHz/16 kHz = 0.25 normalized →
         # attenuation is small. Allow some slack.
         assert peak > 0.3, (
             f"ER-88: 4 kHz signal should be preserved on upsampling "
-            f"(peak > 0.3 — no anti-aliasing filter applied); got "
+            f"(peak > 0.3, no anti-aliasing filter applied); got "
             f"peak={peak:.4f}. The fallback may be mis-applying the FIR "
             f"on the upsampling path."
         )
@@ -170,7 +170,7 @@ class TestLinearInterpAntialiasing:
 
     def test_antialias_fir_returns_none_for_upsampling(self, monkeypatch):
         """Upsampling / same-rate resampling returns ``None`` (no filter
-        needed — linear interp's natural response suffices)."""
+        needed, linear interp's natural response suffices)."""
         res_mod = _force_linear_interp_fallback(monkeypatch)
         assert res_mod._get_antialias_fir(16000, 48000) is None, (
             "ER-88: upsampling must return None (no anti-aliasing needed)."
@@ -181,7 +181,7 @@ class TestLinearInterpAntialiasing:
 
     def test_fir_normalized_dc_gain_is_one(self, monkeypatch):
         """The FIR's DC gain must be 1.0 so a constant (DC) signal passes
-        through unchanged — prevents amplitude drift on silent/DC chunks."""
+        through unchanged, prevents amplitude drift on silent/DC chunks."""
         res_mod = _force_linear_interp_fallback(monkeypatch)
         fir = res_mod._get_antialias_fir(48000, 16000)
         assert fir is not None
@@ -211,7 +211,7 @@ class TestLinearInterpOneTimeWarning:
             logging.WARNING,
             logger="voice_typer.server.recording",
         ):
-            # log_resample=False — simulates the streaming partial path
+            # log_resample=False, simulates the streaming partial path
             # which suppresses per-call INFO logs.
             resample_audio(audio, 48000, 16000, log_resample=False)
 
@@ -306,7 +306,7 @@ class TestLengthContractPreserved:
 
 # ────────────────────────────────────────────────────────────────────────────
 # Test 4: the cached-FIR-taps fast path is numerically equivalent to
-# ``resample_poly`` — exercised UNMOCKED (real scipy ``upfirdn``, real
+# ``resample_poly``, exercised UNMOCKED (real scipy ``upfirdn``, real
 # taps). The earlier tests mocked ``upfirdn``, which is exactly why the
 # tuple-unpacking bug survived: every call raised ``ValueError`` inside
 # the fast path and silently fell back to ``resample_poly``.
@@ -320,7 +320,7 @@ class TestCachedTapsFastPathNumericEquivalence:
       ``_resample_via_cached_taps`` helper applies scipy's exact
       ``raw[n_pre_remove : n_pre_remove + n_out]`` trim.
     * Capped "ugly" ratios (44.1k→16k): same length + finite + strongly
-      correlated — the intentionally shorter FIR trades transition-band
+      correlated, the intentionally shorter FIR trades transition-band
       width for ~30× fewer MACs, so exact equality does not hold by
       design.
     """
@@ -365,7 +365,7 @@ class TestCachedTapsFastPathNumericEquivalence:
         from voice_typer.server.recording import resampling
 
         def _boom(*args, **kwargs):
-            raise AssertionError("resample_poly fallback was invoked — fast path failed")
+            raise AssertionError("resample_poly fallback was invoked, fast path failed")
 
         monkeypatch.setattr(resampling, "_get_resample_poly", lambda: _boom)
         audio = np.sin(2 * np.pi * 220.0 * np.arange(512) / 48000).astype(np.float32)

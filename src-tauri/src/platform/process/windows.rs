@@ -6,7 +6,7 @@
 
 use std::sync::Mutex;
 
-// windows-sys is NOT in our Cargo.toml — the existing `windows`
+// windows-sys is NOT in our Cargo.toml, the existing `windows`
 // crate (with `Win32_UI_WindowsAndMessaging`, `Win32_Foundation`,
 // `Win32_System_Threading` features) is. We need additional
 // features for Job Object APIs:
@@ -19,7 +19,7 @@ use std::sync::Mutex;
 // submodules under `windows::Win32::*`). If the build fails with
 // "feature `Win32_System_JobObjects` is not enabled", the Cargo.toml
 // `[target.'cfg(windows)'.dependencies]` windows entry needs the
-// feature added (one-line change — see the fix instructions).
+// feature added (one-line change: see the fix instructions).
 use windows::core::PCWSTR;
 use windows::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE};
 use windows::Win32::System::JobObjects::{
@@ -37,7 +37,7 @@ struct JobHandle(HANDLE);
 impl Drop for JobHandle {
     fn drop(&mut self) {
         // Best-effort close. `CloseHandle` returns Err on failure
-        // (e.g. invalid handle) — we log but don't panic.
+        // (e.g. invalid handle): we log but don't panic.
         if !self.0.is_invalid() {
             unsafe {
                 let _ = CloseHandle(self.0);
@@ -47,7 +47,7 @@ impl Drop for JobHandle {
 }
 
 // SAFETY: `HANDLE` is a raw pointer wrapper, but Windows handles
-// are NOT pointers — they're opaque process-relative tokens. The
+// are NOT pointers: they're opaque process-relative tokens. The
 // `windows` crate's `HANDLE` is `Send`-safe in practice (the Win32
 // API is thread-safe for handle operations). The `windows` crate
 // intentionally does NOT impl `Send` for `HANDLE` to force callers
@@ -62,13 +62,13 @@ unsafe impl Sync for JobHandle {}
 /// subsequent sidecar spawns. The `Mutex` ensures the Job Object
 /// is created exactly once even if multiple threads race to call
 /// `register_kill_on_parent_exit` concurrently (which shouldn't
-/// happen in practice — there's only one sidecar — but the lock
+/// happen in practice: there's only one sidecar, but the lock
 /// makes the invariant explicit).
 ///
 /// Stored as `Mutex<Option<JobHandle>>` (NOT
 /// `OnceLock<Result<JobHandle, String>>`) so a transient
 /// `create_job_object` failure (e.g. Windows HANDLE-table
-/// exhaustion at boot, low-memory condition) is NOT cached — the
+/// exhaustion at boot, low-memory condition) is NOT cached, the
 /// next `register_kill_on_parent_exit` call retries
 /// `create_job_object` from scratch. The prior `OnceLock<Result>`
 /// design permanently cached the first failure, disabling the
@@ -76,8 +76,8 @@ unsafe impl Sync for JobHandle {}
 /// even after the transient condition cleared.
 ///
 /// `try_lock` is used at the call site (not `lock`) so a
-/// contended lock — e.g. another thread mid-`AssignProcessToJobObject`
-/// — returns an error rather than blocking the sidecar-spawn
+/// contended lock: e.g. another thread mid-`AssignProcessToJobObject`
+///: returns an error rather than blocking the sidecar-spawn
 /// path. Contention is virtually impossible (single sidecar per
 /// host) but the non-blocking contract keeps the spawn path
 /// latency-bounded.
@@ -90,7 +90,7 @@ fn open_process_for_job_assignment(pid: u32) -> Result<HANDLE, String> {
     // SAFETY: `OpenProcess` is safe to call with any pid; the
     // returned handle is owned by the caller and must be closed.
     // We close it explicitly after `AssignProcessToJobObject`
-    // (the assignment does NOT take ownership — the pid is now
+    // (the assignment does NOT take ownership, the pid is now
     // tracked by the Job Object, but the process handle is
     // still ours to close).
     let handle = unsafe {
@@ -104,14 +104,14 @@ fn open_process_for_job_assignment(pid: u32) -> Result<HANDLE, String> {
 /// `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`. Called on the first
 /// successful `register_kill_on_parent_exit_windows` invocation
 /// (and re-called if a prior call's `create_job_object` failed
-/// transiently — see the `JOB_OBJECT` static doc for why the
+/// transiently: see the `JOB_OBJECT` static doc for why the
 /// retry-on-failure contract matters).
 fn create_job_object() -> Result<JobHandle, String> {
-    // SAFETY: `CreateJobObjectW(NULL, NULL)` is safe — it returns
+    // SAFETY: `CreateJobObjectW(NULL, NULL)` is safe, it returns
     // either a valid handle or `INVALID_HANDLE_VALUE` (which we
     // check). The `lpJobAttributes` parameter is NULL (default
     // security descriptor, not inheritable). The `lpName` parameter
-    // is NULL (anonymous Job Object — avoids name collisions with
+    // is NULL (anonymous Job Object, avoids name collisions with
     // other Voice Typer instances).
     let handle = unsafe {
         CreateJobObjectW(None, PCWSTR::null())
@@ -160,7 +160,7 @@ pub(crate) fn register_kill_on_parent_exit_windows(pid: u32) -> Result<(), Strin
     // On the `None` path (first call, OR a prior call's
     // `create_job_object` failure left the slot empty), we
     // (re)create the Job Object. A failure here is returned as
-    // `Err` WITHOUT populating the slot — so the next call
+    // `Err` WITHOUT populating the slot, so the next call
     // retries `create_job_object` from scratch. This fixes the
     // prior `OnceLock<Result<JobHandle, String>>` bug where a
     // transient `create_job_object` failure was cached forever,
@@ -192,14 +192,14 @@ pub(crate) fn register_kill_on_parent_exit_windows(pid: u32) -> Result<(), Strin
     // SAFETY: `AssignProcessToJobObject(job, proc)` is safe given
     // valid handles. The process MUST still be running (it is —
     // we just spawned it). The process MUST NOT already be
-    // assigned to a different Job Object (it isn't — Tauri's
+    // assigned to a different Job Object (it isn't, Tauri's
     // shell-plugin spawn doesn't assign it to one).
     unsafe {
         AssignProcessToJobObject(*job_handle, proc_handle)
             .map_err(|e| format!("AssignProcessToJobObject({}) failed: {}", pid, e))?;
     }
 
-    // Close the process handle — the Job Object now tracks the
+    // Close the process handle: the Job Object now tracks the
     // pid, so we don't need to keep the handle open.
     //
     // SAFETY: `CloseHandle` is safe given a valid handle.

@@ -3,8 +3,8 @@
 The TCP handshake (``ipc/transport_tcp.py``'s
 ``_handle_tcp_connection``) and the Tauri sidecar handshake
 (``sidecar_ws.py``'s ``_authenticate``) implemented the SAME contract
-twice — read the first frame, validate ``type == "auth"``, extract the
-bearer token, compare it constant-time — and the two copies had
+twice, read the first frame, validate ``type == "auth"``, extract the
+bearer token, compare it constant-time, and the two copies had
 already drifted once (TCP rejects a ``protocol_version`` mismatch with
 a structured error envelope; WS only warns). Before this module every
 bug fix to the validation contract needed a coordinated edit in BOTH
@@ -13,14 +13,14 @@ files.
 This module is the single source of truth for the transport-independent
 parts of the handshake:
 
-- :func:`extract_auth_token` — frame-shape validation + token
+- :func:`extract_auth_token`: frame-shape validation + token
   extraction (the ADR-0020 §3 / ADR-0014 first-frame contract:
   ``{"type": "auth", "token": "<token>"}``).
-- :func:`tokens_equal` — constant-time token comparison via
+- :func:`tokens_equal`: constant-time token comparison via
   :func:`hmac.compare_digest` (used purely as a timing-safe comparison
-  helper; there is no key derivation, signing, or per-message MAC — see
+  helper; there is no key derivation, signing, or per-message MAC, see
   ``sidecar_ws._authenticate`` for the compensating controls).
-- :data:`AUTH_READ_TIMEOUT_SECONDS` — the shared auth-read deadline
+- :data:`AUTH_READ_TIMEOUT_SECONDS`: the shared auth-read deadline
   (seconds) both transports enforce before dropping a silent client.
 
 The transports keep their transport-specific concerns local
@@ -57,7 +57,7 @@ def extract_auth_token(frame: object) -> str | None:
     their transport-specific rejection behavior (error envelope / close).
 
     The isinstance guards make the helper safe for hostile non-dict
-    JSON values (``42``, ``[1, 2, 3]``, ``"hi"``) — ``.get`` is only
+    JSON values (``42``, ``[1, 2, 3]``, ``"hi"``), ``.get`` is only
     ever called on a real dict.
     """
     if not isinstance(frame, dict):
@@ -73,7 +73,7 @@ def extract_auth_token(frame: object) -> str | None:
 def tokens_equal(provided: str, expected: str) -> bool:
     """Constant-time comparison of two bearer tokens.
 
-    Wraps :func:`hmac.compare_digest` — used purely as a timing-safe
+    Wraps :func:`hmac.compare_digest`: used purely as a timing-safe
     *comparison* helper (byte-exact: rejects whitespace-padded /
     substring tricks). Both transports MUST route their token
     comparison through this function so the constant-time guarantee

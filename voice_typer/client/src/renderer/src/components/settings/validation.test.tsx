@@ -3,7 +3,7 @@
  * LlmPolishingSettingsSection LLM API URL validation.
  *
  * Cross-slider contract: the two confidence sliders (0..1) can touch
- * but never cross — dragging the suggest threshold ABOVE the auto-apply
+ * but never cross, dragging the suggest threshold ABOVE the auto-apply
  * threshold clamps it to the auto-apply value, and dragging auto-apply
  * BELOW the suggest threshold clamps it up to the suggest value.
  *
@@ -71,7 +71,7 @@ import { LlmPolishingSettingsSection } from "@/components/settings/LlmPolishingS
 const alwaysVisible = () => true;
 const noopUpdate = () => {};
 
-describe("AiEnhancementSettingsSection — cross-slider clamping", () => {
+describe("AiEnhancementSettingsSection, cross-slider clamping", () => {
 	beforeEach(() => {
 		sliderInstances.length = 0;
 	});
@@ -171,7 +171,7 @@ describe("AiEnhancementSettingsSection — cross-slider clamping", () => {
 	});
 });
 
-describe("LlmPolishingSettingsSection — LLM API URL validation", () => {
+describe("LlmPolishingSettingsSection, LLM API URL validation", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 	});

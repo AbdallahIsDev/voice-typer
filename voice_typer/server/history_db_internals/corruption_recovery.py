@@ -3,7 +3,7 @@
 Extracted from the once-monolithic ``history_db.py``. The functions in
 this module are free functions that take the
 :class:`~voice_typer.server.history_db.HistoryDB` instance (``db``)
-instead of ``self`` — they read/write the instance's attributes (the DB
+instead of ``self``: they read/write the instance's attributes (the DB
 path, the init-error slot, the read-connection registry) via the
 passed-in reference, and call back into other ``HistoryDB`` methods
 (``_open_write_conn``, ``_check_wal_mode``, ``_try_iterdump_recovery``,
@@ -19,23 +19,23 @@ tests), ``_INSERT_TRANSCRIPTIONS_RE``, ``DB_SUBDIR``.
 
 Free functions:
 
-- :func:`_secure_copy_db_file` — symlink-safe, fsync-on-write
+- :func:`_secure_copy_db_file`: symlink-safe, fsync-on-write
   binary copy used by every DB-file backup path. Re-exported on the
   facade under the same name.
-- :func:`_backup_before_migration` — best-effort pre-migration backup
+- :func:`_backup_before_migration`: best-effort pre-migration backup
   of the main DB + WAL/SHM sidecars.
-- :func:`_maybe_recover_from_corruption` — ``PRAGMA quick_check``
+- :func:`_maybe_recover_from_corruption`: ``PRAGMA quick_check``
   gate: rename a corrupt DB to ``history.db.corrupt-<ts>``, salvage
   user rows via iterdump, reopen a fresh DB.
-- :func:`_try_iterdump_recovery` — read-only iterdump() extraction of
+- :func:`_try_iterdump_recovery`: read-only iterdump() extraction of
   ``INSERT INTO transcriptions`` statements from the renamed corrupt
   file.
-- :func:`_apply_recovered_inserts` — replay recovered INSERTs on the
+- :func:`_apply_recovered_inserts`: replay recovered INSERTs on the
   fresh DB and report the surviving row count.
-- :func:`_notify_corruption_recovered` — user-facing WARNING log +
+- :func:`_notify_corruption_recovered`: user-facing WARNING log +
   ``history_corrupted`` event_bus publication + best-effort tray notify.
 - :func:`_maybe_migrate_legacy_db` / :func:`_maybe_move_legacy_sidecar`
-  — one-time O2 relocation of a legacy root-located ``history.db``
+ , one-time O2 relocation of a legacy root-located ``history.db``
   (and sidecars) into the ``db/`` subdirectory.
 """
 
@@ -125,7 +125,7 @@ def _backup_before_migration(db: HistoryDB, current_version: int) -> None:
     migration runs.
 
     Best-effort: if the copy fails (disk full, permissions,
-    cross-device), log + continue — DO NOT block the migration on
+    cross-device), log + continue. DO NOT block the migration on
     backup failure. The user's history is valuable, but blocking
     the schema migration on a backup failure would leave the app
     in a worse state (stuck on the old schema) than simply
@@ -167,7 +167,7 @@ def _backup_before_migration(db: HistoryDB, current_version: int) -> None:
             secure_copy(db.db_path, bak_main)
         # Copy the -wal and -shm sidecars if they exist (WAL mode).
         # These hold uncheckpointed pages that would otherwise be
-        # lost — including them makes the backup a complete
+        # lost: including them makes the backup a complete
         # restorable snapshot. : routed through the same
         # symlink-safe helper.
         for sidecar in ("-wal", "-shm"):
@@ -183,7 +183,7 @@ def _backup_before_migration(db: HistoryDB, current_version: int) -> None:
     except OSError as e:
         # Best-effort: do NOT block the migration on backup
         # failure. The user's history is more valuable than the
-        # backup — a stuck migration would leave the app on the
+        # backup, a stuck migration would leave the app on the
         # old schema, which is worse than proceeding without a
         # backup.
         log.warning(
@@ -223,7 +223,7 @@ def _maybe_recover_from_corruption(
             "[HISTORY_DB] PRAGMA quick_check raised: %s (treating as corruption and attempting recovery)",
             e,
         )
-        # Fall through to the recovery path — we can't verify
+        # Fall through to the recovery path, we can't verify
         # integrity, so assume the worst and rename.
         rows = [("quick_check raised", str(e))]
 
@@ -235,13 +235,13 @@ def _maybe_recover_from_corruption(
         rows,
     )
     # Close the corrupt connection so we can rename the file.
-    # Suppress errors — the connection may already be in a bad
+    # Suppress errors, the connection may already be in a bad
     # state.
     with contextlib.suppress(sqlite3.Error):
         conn.close()
     # invalidate all existing read connections BEFORE renaming.
     # On POSIX, renaming the corrupt DB file doesn't affect
-    # already-open file descriptors — readers would keep reading
+    # already-open file descriptors, readers would keep reading
     # stale/garbage data from the renamed file, so we close every
     # tracked read conn and bump the generation counter so each
     # reader thread's next ``_get_read_conn`` call detects the
@@ -249,7 +249,7 @@ def _maybe_recover_from_corruption(
     # to the fresh DB file. On Windows, closing first is MANDATORY
     # for a different reason: an open SQLite handle locks the file,
     # so ``os.rename`` of the corrupt DB (below) silently fails
-    # with WinError 32 — the corrupt-renamed file never appears and
+    # with WinError 32, the corrupt-renamed file never appears and
     # ``_try_iterdump_recovery`` finds nothing (recovered_count=0).
     # Closing readers before the rename makes recovery work on both
     # platforms. We can't clear other threads' ``_read_local.conn``
@@ -318,7 +318,7 @@ def _try_iterdump_recovery(db: HistoryDB, old_db_path: Path) -> list[str]:
 
     Schema statements (CREATE TABLE / CREATE INDEX), schema-meta
     rows, FTS5 shadow-table rows, and ``sqlite_sequence`` rows
-    are filtered out — the fresh DB's ``init_schema`` recreates
+    are filtered out, the fresh DB's ``init_schema`` recreates
     the schema, and replaying ``schema_meta`` would PRIMARY
     KEY-conflict with the version row ``init_schema`` writes.
 
@@ -376,7 +376,7 @@ def _try_iterdump_recovery(db: HistoryDB, old_db_path: Path) -> list[str]:
     except sqlite3.Error as e:
         # Severe corruption: iterdump raised mid-iteration.
         # Return whatever we have so far (may be partial) rather
-        # than discarding everything — partial recovery is
+        # than discarding everything, partial recovery is
         # strictly better than no recovery.
         log.warning(
             "[HISTORY_DB] iterdump recovery: iterdump() raised mid-iteration "
@@ -413,7 +413,7 @@ def _apply_recovered_inserts(
 
     The INSERTs are applied via ``executescript`` so a single bad
     statement (e.g. a row that violates a constraint) doesn't
-    roll back all the others — partial recovery is preferable to
+    roll back all the others, partial recovery is preferable to
     no recovery for user dictation history.
 
     Returns the actual number of rows in the ``transcriptions``
@@ -431,7 +431,7 @@ def _apply_recovered_inserts(
         )
 
         _init_schema(db, conn, _is_recovery=True)
-    except Exception as e:  # noqa: BLE001 — best-effort recovery
+    except Exception as e:  # noqa: BLE001, best-effort recovery
         log.warning(
             "[HISTORY_DB] iterdump recovery: could not initialize schema for replay (skipping %d INSERTs): %s",
             len(inserts),
@@ -516,13 +516,13 @@ def _notify_corruption_recovered(
                 },
             }
         )
-    except Exception as e:  # noqa: BLE001 — best-effort notification
+    except Exception as e:  # noqa: BLE001, best-effort notification
         log.warning(
             "[HISTORY_DB] event_bus.publish(history_corrupted) failed (best-effort, recovery continues): %s",
             e,
         )
     # Best-effort tray notification. ``db._app`` is set by the
-    # app shell (not by HistoryDB.__init__) — use getattr so the
+    # app shell (not by HistoryDB.__init__): use getattr so the
     # attribute-missing case during early init is handled.
     app = getattr(db, "_app", None)
     if app is None:
@@ -538,7 +538,7 @@ def _notify_corruption_recovered(
             APP_NAME,
             f"History database was corrupted and backed up. {recovered_count} rows recovered.",
         )
-    except Exception as e:  # noqa: BLE001 — best-effort notification
+    except Exception as e:  # noqa: BLE001, best-effort notification
         log.warning(
             "[HISTORY_DB] tray.notify failed (best-effort, recovery continues): %s",
             e,
@@ -556,14 +556,14 @@ def _maybe_migrate_legacy_db(config_dir: Path) -> None:
     after the upgrade:
 
     * Only fires when the legacy root file exists AND the new
-      ``db/history.db`` does not — the app never clobbers a newer file.
+      ``db/history.db`` does not, the app never clobbers a newer file.
     * ``os.replace`` is atomic on the same filesystem (both paths are
       under the same config dir), so a crash mid-move cannot leave a
       truncated DB.
     * The ``-wal`` / ``-shm`` sidecars are moved first (the writer
       must not open the main file while its WAL still points at the old
       root location), then the main file. Any failure is logged and
-      swallowed — a stuck legacy file (e.g. antivirus lock on Windows)
+      swallowed, a stuck legacy file (e.g. antivirus lock on Windows)
       falls back to opening the legacy path's replacement at ``db/``
       next launch; the app never crashes on migration failure.
     """
@@ -582,7 +582,7 @@ def _maybe_migrate_legacy_db(config_dir: Path) -> None:
     db_dir.mkdir(parents=True, exist_ok=True)
     target = db_dir / "history.db"
     if target.exists():
-        # New location already populated — nothing to migrate. Leave the
+        # New location already populated, nothing to migrate. Leave the
         # stale legacy file alone (a later purge / GDPR walk removes it).
         return
     # Move sidecars first, then the main file. os.replace is atomic on

@@ -3,7 +3,7 @@
  *
  * ThemeSwitch is a small icon-only button that cycles between three
  * theme modes (light → dark → system → light). It renders NO visible
- * text label — the current mode's icon is the only on-screen content.
+ * text label, the current mode's icon is the only on-screen content.
  * The current mode + the mode clicking will switch to are exposed to
  * assistive tech via aria-label (and to sighted hoverers via title).
  */
@@ -63,7 +63,7 @@ describe("ThemeSwitch", () => {
 		rerender(<ThemeSwitch themeMode="system" onThemeChange={vi.fn()} />);
 		// The system mode uses the CUSTOM SunMoonIcon (a raw IconSvgElement,
 		// not a named hugeicons export), so the hugeicons mock's data-name
-		// is undefined — the absence of a hugeicons name IS the assertion.
+		// is undefined, the absence of a hugeicons name IS the assertion.
 		expect(screen.getByTestId("hugeicon").getAttribute("data-name")).toBe(null);
 	});
 
@@ -117,7 +117,7 @@ describe("ThemeSwitch", () => {
 			<ThemeSwitch themeMode="light" onThemeChange={vi.fn()} />,
 		);
 		// The title attribute used to show only the current mode
-		// ("Light mode — click to switch") which left sighted mouse
+		// ("Light mode, click to switch") which left sighted mouse
 		// users with less context than SR users got from the
 		// aria-label. The title mirrors the aria-label so both
 		// audiences see the "current → next" preview.

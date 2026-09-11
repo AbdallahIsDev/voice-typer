@@ -69,7 +69,7 @@ class TestPyobjcCacheBasics:
         """Once cached, subsequent probes don't re-attempt the import.
 
         Verified by patching ``builtins.__import__`` to count
-        ApplicationServices import attempts — only the FIRST probe should
+        ApplicationServices import attempts, only the FIRST probe should
         trigger the import.
         """
         original_import = __import__
@@ -82,11 +82,11 @@ class TestPyobjcCacheBasics:
             return original_import(name, *args, **kwargs)
 
         with patch("builtins.__import__", side_effect=counting_import):
-            _is_pyobjc_available()  # first probe — should attempt import
+            _is_pyobjc_available()  # first probe, should attempt import
             assert call_count["n"] == 1
-            _is_pyobjc_available()  # cached — should NOT attempt import
-            _is_pyobjc_available()  # cached — should NOT attempt import
-            _is_pyobjc_available()  # cached — should NOT attempt import
+            _is_pyobjc_available()  # cached, should NOT attempt import
+            _is_pyobjc_available()  # cached, should NOT attempt import
+            _is_pyobjc_available()  # cached, should NOT attempt import
             assert call_count["n"] == 1, f"cached probes must not re-import; got {call_count['n']} attempts"
 
 
@@ -249,10 +249,10 @@ class TestPyobjcCachePerformance:
             _is_pyobjc_available()
         elapsed_ms = (time.perf_counter() - t0) * 1000
 
-        # 10ms is generous — typical cached probes are <0.1ms total
+        # 10ms is generous, typical cached probes are <0.1ms total
         # for 1000 calls. The point is to verify the cache is consulted
         # (not that we're at any particular speed).
-        assert elapsed_ms < 10.0, f"1000 cached probes took {elapsed_ms:.2f}ms — cache not consulted?"
+        assert elapsed_ms < 10.0, f"1000 cached probes took {elapsed_ms:.2f}ms, cache not consulted?"
 
 
 if __name__ == "__main__":

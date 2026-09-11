@@ -1,5 +1,5 @@
 /**
- * Tests for `lib/theme-palette.ts` — the live-theme palette reader for
+ * Tests for `lib/theme-palette.ts`, the live-theme palette reader for
  * the share-stats image.
  *
  * Verifies:
@@ -63,7 +63,7 @@ describe("readThemePalette", () => {
 	});
 });
 
-describe("legibleOn — minimum-contrast accent fallback", () => {
+describe("legibleOn, minimum-contrast accent fallback", () => {
 	it("keeps an accent that clears the 3:1 threshold", () => {
 		// White on near-black → high contrast.
 		expect(legibleOn("#ffffff", "#101014", "#ececf1")).toBe("#ffffff");
@@ -76,7 +76,7 @@ describe("legibleOn — minimum-contrast accent fallback", () => {
 	});
 
 	it("returns the accent when it exactly meets the threshold", () => {
-		// A mid-grey on white is ~4.6:1 — above 3:1.
+		// A mid-grey on white is ~4.6:1, above 3:1.
 		expect(legibleOn("#666666", "#ffffff", "#111111")).toBe("#666666");
 	});
 });

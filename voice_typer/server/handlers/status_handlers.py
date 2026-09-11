@@ -6,7 +6,7 @@ The methods are mixed into :class:`IPCServer` via multiple inheritance and
 access ``self.app`` / ``self.service`` as before.
 
 (2026-07-30): ``_handle_get_rms_level`` and
-``_handle_get_audio_status`` were REMOVED — both commands were
+``_handle_get_audio_status`` were REMOVED, both commands were
 dropped from ``_COMMAND_REGISTRY`` and the renderer allowlist during
 the Tauri migration. The service-layer methods
 ``service.get_rms_level`` / ``service.get_audio_status`` still exist
@@ -22,14 +22,14 @@ literal (see the restoration note below for the reversal).
 ``_handle_open_prewarm_log`` were restored verbatim from commit
 5a319872 (``voice_typer/server/handlers/status_handlers.py``) because
 the Cache Status card in the About page is a user-facing product
-feature, not prewarm machinery — plan §6.2 P-1 only removed the
+feature, not prewarm machinery, plan §6.2 P-1 only removed the
 machinery (separate prewarm binary, OS schedulers, resolver).
 ``_handle_run_prewarm`` was also restored the same day (second half
 of the §6.3 addendum), but RE-IMPLEMENTED for the post-P-1
 architecture: the old version spawned a detached
 ``pythonw -m voice_typer.server.prewarm --force`` subprocess, and that
 module is deleted by design. The restored handler instead runs the
-worker's warm phase in-process — :func:`run_prewarm_now` in
+worker's warm phase in-process, :func:`run_prewarm_now` in
 ``prewarm/status.py`` executes :func:`warm_imports_for_worker` (a
 pure file-paging pass over the runtime-pack libraries) on a daemon
 thread and refreshes the status file. Same user-visible behavior
@@ -159,13 +159,13 @@ class StatusHandlersMixin(HandlerBase):
         return resp
 
     def _handle_run_prewarm(self, data: dict | None, resp: dict) -> dict | None:
-        """Handle the ``run_prewarm`` IPC command — re-warm the OS cache now.
+        """Handle the ``run_prewarm`` IPC command, re-warm the OS cache now.
 
         RESTORED 2026-08-14 (plan §6.3 addendum, second half). The
         pre-P-1 handler spawned a detached prewarm subprocess; that
         machinery is deleted by design (P-1). The restored handler
         instead re-runs the warm phase in-process via
-        ``prewarm.status.run_prewarm_now()`` — a background daemon
+        ``prewarm.status.run_prewarm_now()``: a background daemon
         thread that calls :func:`warm_imports_for_worker` (pages the
         runtime-pack libraries' files into the OS standby cache) and
         refreshes the worker status file.
@@ -173,7 +173,7 @@ class StatusHandlersMixin(HandlerBase):
         Returns immediately with ``{"started": True}``. The frontend
         polls ``get_prewarm_status`` to show progress (the restored
         status response carries ``enabled`` / ``last_run`` /
-        ``elapsed_s`` — the old ``prewarm_running`` field was dropped
+        ``elapsed_s``: the old ``prewarm_running`` field was dropped
         with the process-tracker machinery).
         """
         try:
@@ -218,7 +218,7 @@ class StatusHandlersMixin(HandlerBase):
 
         try:
             # The worker log lives in the app config dir's logs/ subdir
-            # (O1 — every log file lives under ``logs/``).
+            # (O1, every log file lives under ``logs/``).
             from voice_typer.server import _paths
             from voice_typer.server.log import get_log_file_path
 
@@ -231,7 +231,7 @@ class StatusHandlersMixin(HandlerBase):
                 # Atomic write (temp + os.replace) so a crash mid-write
                 # cannot leave a half-truncated placeholder that the
                 # editor would open as garbled text. durability=False
-                # matches the existing prewarm pattern — this is a
+                # matches the existing prewarm pattern: this is a
                 # non-critical placeholder file.
                 try:
                     from datetime import datetime as _dt
@@ -280,7 +280,7 @@ class StatusHandlersMixin(HandlerBase):
                     stderr=subprocess.DEVNULL,
                 )
             else:
-                # Unknown platform — try xdg-open as a last resort.
+                # Unknown platform, try xdg-open as a last resort.
                 subprocess.Popen(
                     ["xdg-open", str(log_file)],
                     stdout=subprocess.DEVNULL,
@@ -291,13 +291,13 @@ class StatusHandlersMixin(HandlerBase):
             resp["type"] = "prewarm_log"
             resp["data"] = {"opened": True, "path": str(log_file)}
         except FileNotFoundError as e:
-            # Specific-exception branch — keep the
-            # descriptive message (no Python internals / PII — the
+            # Specific-exception branch, keep the
+            # descriptive message (no Python internals / PII, the
             # exception text only echoes the editor binary path the
             # app itself chose) but stamp a structured ``code`` so
             # the renderer can branch on ``not_found``.
             #
-            # (session-DE): drop the ``: {e}`` suffix — the
+            # (session-DE): drop the ``: {e}`` suffix, the
             # ``[Errno 2] No such file: '<path>'`` text embeds the
             # absolute editor path which leaks the username on
             # Windows / macOS. The full ``str(e)`` is still logged
@@ -312,9 +312,9 @@ class StatusHandlersMixin(HandlerBase):
             # ``OSError`` from the editor ``Popen`` —
             # route through ``_error_response`` for envelope-shape
             # consistency (the ``str(e)`` is typically
-            # "[Errno 13] Permission denied: …" — no Python internals).
+            # "[Errno 13] Permission denied: …": no Python internals).
             #
-            # (session-DE): drop the ``: {e}`` suffix — the
+            # (session-DE): drop the ``: {e}`` suffix, the
             # embedded absolute path leaks the username.
             log.error("[IPC] open_prewarm_log: open failed: %s", e, exc_info=True)
             return _error_response(

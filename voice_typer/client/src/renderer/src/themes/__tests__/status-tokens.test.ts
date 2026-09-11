@@ -3,7 +3,7 @@
  * ``--success`` / ``--warning`` / ``--info`` tokens.
  *
  * Before , the renderer had no design tokens for success/warning/info
- * states — components improvised with raw Tailwind palette colors
+ * states, components improvised with raw Tailwind palette colors
  * (``text-emerald-500``, ``text-amber-500``, ``bg-amber-400``) which
  * don't follow the active theme's palette.  added the three new
  * semantic tokens to ``index.css`` (light + dark) AND to every theme
@@ -13,7 +13,7 @@
  *   1. Every non-default / non-custom theme preset defines the three
  *      tokens in BOTH light and dark maps (parity).
  *   2. The tokens are also in the ``THEME_VARIABLES`` superset (so they
- *      get cleared on theme switch — see ``clearThemeVars``).
+ *      get cleared on theme switch, see ``clearThemeVars``).
  *   3. ``deriveCustomVars`` (the runtime builder for user-customised
  *      themes) also emits the three tokens so custom themes don't fall
  *      back to the stylesheet default.
@@ -29,7 +29,7 @@ import { loadThemePreset } from "@/themes/index";
 const STATUS_TOKENS = ["--success", "--warning", "--info"] as const;
 
 // lazy themes: the 10 non-default/non-custom presets are now
-// loaded ON DEMAND via loadThemePreset — their light / dark
+// loaded ON DEMAND via loadThemePreset, their light / dark
 // maps start EMPTY and are populated in place by the dynamic
 // import(). The beforeAll below loads every lazy preset BEFORE
 // any assertion reads preset.light / preset.dark, so the

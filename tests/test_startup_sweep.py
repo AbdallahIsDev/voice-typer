@@ -19,7 +19,7 @@ The fix mirrors the existing
 best-effort, per-file-error-tolerant sweep called once per process
 startup that unlinks any matched file older than 15 days (mtime).
 
-These tests pin the behaviour in isolation — they call
+These tests pin the behaviour in isolation, they call
 ``_sweep_stale_backup_files(tmp_path)`` directly so they don't depend
 on the heavy ``app_for_startup`` fixture.
 """
@@ -35,18 +35,18 @@ from voice_typer.server import startup_sequence as ss_mod
 
 # ── Helpers ────────────────────────────────────────────────────────────
 
-# 16 days in seconds — comfortably past the 15-day cutoff so the file
+# 16 days in seconds, comfortably past the 15-day cutoff so the file
 # is unconditionally "stale" regardless of test runner clock skew.
 _STALE_AGE_SECONDS = 16 * 24 * 60 * 60
-# 1 day in seconds — comfortably inside the 15-day cutoff so the file
-# is unconditionally "fresh" (must NOT be deleted — forensic value).
+# 1 day in seconds, comfortably inside the 15-day cutoff so the file
+# is unconditionally "fresh" (must NOT be deleted, forensic value).
 _FRESH_AGE_SECONDS = 1 * 24 * 60 * 60
 
 
 def _touch_with_age(path: Path, age_seconds: float) -> None:
     """Create ``path`` (empty file) and backdate its mtime by ``age_seconds``.
 
-    Uses ``os.utime`` so the test does NOT have to actually sleep — the
+    Uses ``os.utime`` so the test does NOT have to actually sleep, the
     mtime is set deterministically to ``now - age_seconds`` regardless
     of how long the test takes.
     """
@@ -55,7 +55,7 @@ def _touch_with_age(path: Path, age_seconds: float) -> None:
     os.utime(path, (target_mtime, target_mtime))
 
 
-# ── (a) old .bak file (mtime > 30 days) — deleted ─────────────────────
+# ── (a) old .bak file (mtime > 30 days), deleted ─────────────────────
 
 
 class TestSweepDeletesStaleBackups:
@@ -104,12 +104,12 @@ class TestSweepDeletesStaleBackups:
             assert not (tmp_path / name).exists(), f"expected {name} to be purged (stale)"
 
 
-# ── (b) recent .bak file (mtime < 30 days) — preserved ────────────────
+# ── (b) recent .bak file (mtime < 30 days), preserved ────────────────
 
 
 class TestSweepPreservesFreshBackups:
     """``_sweep_stale_backup_files`` NEVER deletes files newer than 15 days
-    (forensic value — see CONSTRAINT 4 / NEVER DOWNGRADE)."""
+    (forensic value: see CONSTRAINT 4 / NEVER DOWNGRADE)."""
 
     @pytest.mark.parametrize(
         "filename",
@@ -130,7 +130,7 @@ class TestSweepPreservesFreshBackups:
 
         ss_mod._sweep_stale_backup_files(tmp_path)
 
-        assert path.exists(), f"expected {filename} to be PRESERVED (fresh — forensic value)"
+        assert path.exists(), f"expected {filename} to be PRESERVED (fresh, forensic value)"
 
     def test_mixed_dir_only_deletes_stale(self, tmp_path: Path) -> None:
         """In a dir with both stale and fresh files, only stale ones are purged."""
@@ -181,8 +181,8 @@ class TestSweepCorruptFiles:
         even if old. This guards against the sweep being widened
         accidentally (e.g. a glob typo that matches ``config.json``)."""
         unmatched_files = [
-            "config.json",  # the live config — must NEVER be swept
-            "history.db",  # the live history DB — must NEVER be swept
+            "config.json",  # the live config, must NEVER be swept
+            "history.db",  # the live history DB, must NEVER be swept
             "recovery.json",  # the live recovery file
             "config.json.bak",  # plain .bak (not in pattern list)
             "config.json.corrupt",  # no suffix after corrupt
@@ -246,7 +246,7 @@ class TestSweepBoundary:
         strict ``>``, so a file at 14d23h is NOT yet stale).
         This pins the NEVER-DOWNGRADE boundary."""
         path = tmp_path / "config.json.corrupt-boundary"
-        # 14d 23h — strictly under the 15-day cutoff (``>`` must NOT fire).
+        # 14d 23h, strictly under the 15-day cutoff (``>`` must NOT fire).
         just_under_15_days = ss_mod._BACKUP_RETENTION_MAX_AGE_SECONDS - 3600.0
         _touch_with_age(path, just_under_15_days)
 

@@ -1,11 +1,11 @@
 /**
- * ModelCardActions — pure presentational button row for a single model.
+ * ModelCardActions, pure presentational button row for a single model.
  *
  * Extracted from `pages/Models.tsx`'s 60-line nested ternary (the
  * `model.isActive ? <>...</> : !model.downloaded && ... ? <Download/>
  * : <><Select/><Delete/></>)` block). This component takes a `ModelInfo`
  * + handler callbacks and renders one of three visual states without any
- * IPC or state coupling — making it independently testable and reusable.
+ * IPC or state coupling, making it independently testable and reusable.
  *
  * Wrapped in `React.memo` so the row only re-renders when its own props
  * change (mirrors the TemplateListRow / ActivityListRow pattern): the
@@ -18,13 +18,13 @@
  *      disabled "Active" tick + Delete icon. Deleting the active model
  *      is allowed: the backend removes the files and reassigns the
  *      selection (first other downloaded model, or the "no model
- *      selected" state when none exists) — the old refuse-and-switch
+ *      selected" state when none exists), the old refuse-and-switch
  *      flow dead-ended users with a single downloaded model.
  *   2. Not downloaded → "Download" button (ENABLED while another model's
- *      transfer is in flight — the backend QUEUES the request instead of
+ *      transfer is in flight, the backend QUEUES the request instead of
  *      refusing it; disabled only while THIS model is downloading (the
  *      "Downloading…" spinner state) or a deps install is in flight). NO
- *      Delete icon — a model that isn't on
+ *      Delete icon, a model that isn't on
  *      disk has nothing to delete; showing a trash affordance next to
  *      a not-installed model (e.g. the default `tiny` before the
  *      user ever downloads anything) misleads the user into thinking
@@ -43,7 +43,7 @@
  *     hear the in-progress status (not the stale "Select {name}" label).
  *   • Download button: `aria-busy={isDownloadingThis}`, aria-label swaps
  *     to "Downloading…" when in-flight.
- *   • Select uses `Tick02Icon` — Select is a "mark active" affordance,
+ *   • Select uses `Tick02Icon`, Select is a "mark active" affordance,
  *     not a "play media" one.
  *   • Disabled Download buttons get a `title` attribute sourced from
  *     `models.download.oneAtATime` so users hovering over the disabled
@@ -70,7 +70,7 @@ import { formatModelSize, type ModelInfo } from "@/lib/utils/models";
 //
 // (2026-08-21): every "Download <size>" button uses ONE shared width so
 // the buttons line up identically across models regardless of the size
-// shown ("75 MB", "3 GB", "809 MB" — all fit). Apply this token to the Download button in Branch 2.
+// shown ("75 MB", "3 GB", "809 MB", all fit). Apply this token to the Download button in Branch 2.
 // Buttons that display a size also apply `justify-start` so the icon +
 // text begin at the same left position in every row (the Button base
 // centers its content by default). (2026-08-28): width widened to 96px
@@ -90,23 +90,23 @@ export interface ModelCardActionsProps {
 	/** True while THIS model is being downloaded (Download button shows "Downloading…"). */
 	isDownloadingThis: boolean;
 	/** 1-based FIFO position while THIS model is waiting in the pending
-	 * download queue (the backend queues — not refuses — a second
+	 * download queue (the backend queues, not refuses, a second
 	 * concurrent download request). Null/undefined when the model is
 	 * not queued. Drives the Download button's "Queued" state: label
 	 * swap + position tooltip instead of the "one at a time" hint
-	 * (that hint would be misleading — the request IS accepted, it is
+	 * (that hint would be misleading, the request IS accepted, it is
 	 * just waiting its turn). */
 	queuePosition?: number | null;
 	/** Removes THIS model from the pending download queue (the Cancel
 	 * affordance rendered beside the "Queued" button). Optional so
-	 * direct mounts / tests can omit it — when absent, the queued
+	 * direct mounts / tests can omit it, when absent, the queued
 	 * state still renders (label + position) but without the cancel
 	 * control (the queue eventually drains on its own). */
 	onCancelQueued?: (modelName: string) => void;
 	/** Per-model action handlers. The page-level callbacks are passed by
 	 * reference (the parent does NOT wrap them in per-row closures) so
 	 * React.memo's shallow prop comparison holds across download-progress
-	 * ticks — the same handler shape as TemplateListRow /
+	 * ticks, the same handler shape as TemplateListRow /
 	 * ActivityListRow. */
 	onSelect: (model: ModelInfo) => void;
 	onDownload: (model: ModelInfo) => void;
@@ -124,7 +124,7 @@ function oneAtATimeTitle(): string {
 /**
  * Native `title` tooltips never fire on a disabled Button: button.tsx
  * applies `disabled:pointer-events-none`, and a pointer-events:none
- * element is never hit-tested — the hint was dead on arrival. The hint
+ * element is never hit-tested, the hint was dead on arrival. The hint
  * must live on a WRAPPER that keeps pointer events. The button keeps
  * its `title` attribute too (tests assert its presence there).
  */
@@ -206,29 +206,29 @@ export const ModelCardActions = memo(function ModelCardActions({
 	//
 	// The button exposes `aria-busy` while the download is in-flight
 	// and swaps its `aria-label` to "Downloading…" so SR users hear the
-	// in-progress state (previously only the visible text swapped — the
+	// in-progress state (previously only the visible text swapped, the
 	// stale per-model aria-label was announced throughout the entire
 	// download).
 	//
 	// NO Delete icon here: the model isn't installed, so there is
 	// nothing to remove. (Even when this model is the configured active
-	// model — e.g. the default `tiny` before the user downloads
-	// anything — a trash affordance next to "Download" falsely implies
+	// model, e.g. the default `tiny` before the user downloads
+	// anything, a trash affordance next to "Download" falsely implies
 	// an installed model that can be removed.)
 	if (!model.downloaded) {
 		// Queued state: the backend accepted this request into the
 		// pending FIFO queue (a gateable download is already in
-		// flight). The button shows "Queued" — not the "one at a
+		// flight). The button shows "Queued", not the "one at a
 		// time" hint, which would contradict the accepted state.
 		const isQueued = queuePosition != null && queuePosition > 0;
-		// One tooltip/aria string for the queued state — computed
+		// One tooltip/aria string for the queued state, computed
 		// once and shared by the aria-label and title (previously a
 		// verbatim duplicate).
 		const queuedLabel = isQueued
 			? t("models.download.queuedPosition", { position: String(queuePosition) })
 			: undefined;
 		// The Download button stays ENABLED while another model's
-		// transfer is in flight — the backend QUEUES the request
+		// transfer is in flight, the backend QUEUES the request
 		// (that is the queue's primary flow: click N models, each
 		// queues). Disabled only while THIS model is transferring
 		// (its own "Downloading…" spinner state), while it sits in
@@ -252,7 +252,7 @@ export const ModelCardActions = memo(function ModelCardActions({
 						size="sm"
 						// Fixed, identical width for every model-size
 						// Download button at REST (see DOWNLOAD_SIZE_BUTTON_WIDTH
-						// above) — "75 MB" / "3 GB" / "809 MB" all render the same
+						// above), "75 MB" / "3 GB" / "809 MB" all render the same
 						// button width + alignment. The content is left-aligned
 						// (justify-start) so the icon + size text begin at the same
 						// horizontal position in every model row.
@@ -261,7 +261,7 @@ export const ModelCardActions = memo(function ModelCardActions({
 						// content-fitted width is used for that state (user request:
 						// no truncated size text inside a disabled spinner button).
 						// The QUEUED state is also a label swap ("Queued"), not a
-						// size — same content-fitted treatment.
+						// size, same content-fitted treatment.
 						className={cn(
 							"gap-2 text-xs whitespace-nowrap",
 							!isDownloadingThis && !isQueued && DOWNLOAD_SIZE_BUTTON_WIDTH,
@@ -281,7 +281,7 @@ export const ModelCardActions = memo(function ModelCardActions({
 						// (one download at a time) so users don't think the
 						// button is broken. Skip the tooltip when THIS
 						// is the in-flight download (the button is showing
-						// "Downloading…" — the "one at a time" hint would be
+						// "Downloading…", the "one at a time" hint would be
 						// contradictory). Queued models show their position
 						// tooltip instead (the request IS accepted, it is
 						// waiting its turn).
@@ -289,7 +289,7 @@ export const ModelCardActions = memo(function ModelCardActions({
 					>
 						<HugeiconsIcon
 							// In-flight presentation: a LOADING spinner glyph
-							// (spinning) replaces the download glyph — the
+							// (spinning) replaces the download glyph, the
 							// static download icon spinning around itself read
 							// as broken. At rest the compact download icon
 							// matches the text-xs size.
@@ -301,12 +301,12 @@ export const ModelCardActions = memo(function ModelCardActions({
 							)}
 						/>
 						{/* At rest: download icon + model size only (the icon
-                                                    communicates "download" — see the 2026-08-20 overhaul,
+                                                    communicates "download", see the 2026-08-20 overhaul,
                                                     point 7). In-flight: the localized "Downloading…" label
                                                     replaces the size (a frozen size number inside a
                                                     disabled spinner button misreads as "downloaded").
                                                     Queued: the localized "Queued" label replaces the
-                                                    size — the request is accepted and waiting, not
+                                                    size, the request is accepted and waiting, not
                                                     transferring. */}
 						{isDownloadingThis ? (
 							t("models.downloading")
@@ -320,7 +320,7 @@ export const ModelCardActions = memo(function ModelCardActions({
 				{isQueued && onCancelQueued && (
 					// Cancel affordance for the QUEUED state: removes this
 					// model from the pending download queue (the backend's
-					// cancel-anywhere dequeue — the ACTIVE transfer is
+					// cancel-anywhere dequeue, the ACTIVE transfer is
 					// untouched). Visual language mirrors DeleteButton
 					// (ghost icon button, muted → destructive hover).
 					<Button
@@ -346,7 +346,7 @@ export const ModelCardActions = memo(function ModelCardActions({
 	//
 	//#9: Select now uses `Tick02Icon` (was `PlayIcon`) —
 	// Select is a "mark active" affordance, not a "play media" one.
-	// Destructive control sits LEFT of the primary action — same
+	// Destructive control sits LEFT of the primary action, same
 	// position as Branch 1's Delete-before-Active layout, so the
 	// trash icon doesn't jump between card states.
 	return (
@@ -377,7 +377,7 @@ export const ModelCardActions = memo(function ModelCardActions({
 // ── Sub-component: Delete icon button ─────────────────────────────────
 //
 // Extracted because it appears in Branch 1 (Active) and Branch 3
-// (Downloaded) — a verbatim duplicate in the original 60-line ternary.
+// (Downloaded), a verbatim duplicate in the original 60-line ternary.
 
 interface DeleteButtonProps {
 	model: ModelInfo;

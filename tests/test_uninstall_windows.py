@@ -3,7 +3,7 @@ autostart cleanup.
 
 The Windows uninstaller must remove the per-user autostart entries that
 ``voice_typer/server/server_platform/autostart_windows.py`` creates at
-runtime — otherwise the OS will keep trying to launch the (now-deleted)
+runtime, otherwise the OS will keep trying to launch the (now-deleted)
 binary at every login, spamming the system log with "file not found"
 errors.
 
@@ -11,36 +11,36 @@ Pre-fix (S2-CR-69 PARTIAL state): only Linux had the cleanup
 (``scripts/linux/uninstall_permissions.py`` + prerm) and macOS had
 ``scripts/macos/uninstall.sh``. Windows had ``deleteAppDataOnUninstall:
 true`` in electron-builder.yml (which only removes the AppData
-directory — NOT the registry / Task Scheduler entries) and a
+directory, NOT the registry / Task Scheduler entries) and a
 deferred-comment block in the ``nsis:`` section saying the fix
 "needed a .nsh file that was NOT yet in this repo's file tree".
 
 Post-fix (this commit):
-  1. ``scripts/windows/uninstaller.nsh`` (existing — added by an
+  1. ``scripts/windows/uninstaller.nsh`` (existing, added by an
      earlier wave) is now WIRED via ``nsis.include`` in
      electron-builder.yml. The .nsh does the native NSIS registry
      + schtasks sweep.
-2. ``scripts/windows/uninstall_permissions.py`` (NEW) — Python
+2. ``scripts/windows/uninstall_permissions.py`` (NEW), Python
       equivalent, invoked by the .bat wrapper, which calls the
       production helpers in ``autostart_windows.py``:
-        - ``_unregister_all_voicetyper_runkeys`` — enumerates ALL
+        - ``_unregister_all_voicetyper_runkeys``, enumerates ALL
           ``VoiceTyper*`` AND ``com.voicetyper*`` values under
           HKCU\\...\\Run and deletes them (covers stale entries from
           previous installs at different paths, under both the
           pre-rename bare scheme and the current reverse-DNS scheme).
-        - ``_unregister_all_voicetyper_tasks`` — PowerShell
+        - ``_unregister_all_voicetyper_tasks``, PowerShell
           ``Get-ScheduledTask`` sweep for ``VoiceTyper*`` +
           ``com.voicetyper*`` (autostart + prewarm tasks).
-  3. ``scripts/windows/uninstall.bat`` (NEW) — wrapper that invokes
+  3. ``scripts/windows/uninstall.bat`` (NEW), wrapper that invokes
      the Python script (preferred) and falls back to a native
      PowerShell sweep if Python is unavailable at uninstall time.
   4. ``src-tauri/tauri.conf.json`` ``bundle.windows.nsis.installerHooks``
-     points at the .bat (the Tauri v2 NSIS hooks key — per the v2
+     points at the .bat (the Tauri v2 NSIS hooks key, per the v2
      schema NsisConfig has ``installerHooks``, NOT a
      ``preRemoveScript`` key; the v1 ``preRemove`` short form from the
      Tauri v1 schema is also forbidden).
   5. ``src-tauri/tauri.conf.json`` ``bundle.windows.webviewInstallMode``
-     is set to ``downloadBootstrapper`` (Tauri v2 default — pinned
+     is set to ``downloadBootstrapper`` (Tauri v2 default, pinned
      explicitly so a future schema change can't silently flip it).
 
 Tests use the ``fake_winreg`` fixture pattern (mirrors
@@ -183,12 +183,12 @@ class TestUnregisterAllVoiceTyperRunkeys:
         deleted = autostart_windows._unregister_all_voicetyper_runkeys()
         assert deleted == [name]
         fake_winreg.DeleteValue.assert_called_once()
-        # DeleteValue(key, name) — name is the second positional arg.
+        # DeleteValue(key, name), name is the second positional arg.
         assert fake_winreg.DeleteValue.call_args.args[1] == name
 
     def test_multiple_voicetyper_entries_all_deleted(self, fake_winreg, win32_platform):
         """Multiple VoiceTyper entries (different hashes from previous
-        installs) are ALL deleted — the uninstaller does NOT scope to
+        installs) are ALL deleted, the uninstaller does NOT scope to
         the current install's hash (unlike _unregister_app_autostart_runkey).
         """
         from voice_typer.server.server_platform import autostart_windows
@@ -208,7 +208,7 @@ class TestUnregisterAllVoiceTyperRunkeys:
     def test_mixed_entries_only_voicetyper_deleted(self, fake_winreg, win32_platform):
         """When the Run key contains BOTH VoiceTyper entries AND non-
         VoiceTyper entries (OneDrive, Discord, etc.), ONLY the VoiceTyper
-        entries are deleted — non-VoiceTyper entries are left alone.
+        entries are deleted, non-VoiceTyper entries are left alone.
         """
         from voice_typer.server.server_platform import autostart_windows
 
@@ -230,7 +230,7 @@ class TestUnregisterAllVoiceTyperRunkeys:
 
     def test_no_winreg_returns_empty_list(self, monkeypatch):
         """On non-Windows (winreg import fails), the function returns an
-        empty list — no exception raised. This is the production contract:
+        empty list, no exception raised. This is the production contract:
         the uninstaller script calls this unconditionally and relies on
         the empty-list return to signal "nothing to do on this platform".
         """
@@ -272,7 +272,7 @@ class TestUnregisterAllVoiceTyperRunkeys:
     def test_deletevalue_oserror_skips_entry_continues_sweep(self, fake_winreg, win32_platform):
         """If DeleteValue raises OSError on one entry (e.g. transient
         registry permission issue), that entry is skipped but the sweep
-        CONTINUES — the uninstaller must not abort on a single failure.
+        CONTINUES, the uninstaller must not abort on a single failure.
         """
         from voice_typer.server.server_platform import autostart_windows
 
@@ -320,7 +320,7 @@ class TestUnregisterAllVoiceTyperRunkeys:
         assert fake_winreg.EnumValue.call_count <= 2
 
     def test_closekey_called_in_finally(self, fake_winreg, win32_platform):
-        """CloseKey is called even if the sweep raises — the function
+        """CloseKey is called even if the sweep raises, the function
         uses try/finally to release the registry handle. (Defensive
         against a future refactor that drops the finally block.)"""
         from voice_typer.server.server_platform import autostart_windows
@@ -342,7 +342,7 @@ class TestUnregisterAllVoiceTyperTasks:
 
     def test_no_task_scheduler_returns_empty_list(self, monkeypatch):
         """When task_scheduler.is_supported() returns False (non-Windows
-        host), the function returns an empty list — no PowerShell call.
+        host), the function returns an empty list, no PowerShell call.
         """
         import voice_typer.server as server_pkg
         from voice_typer.server.server_platform import autostart_windows
@@ -377,7 +377,7 @@ class TestUnregisterAllVoiceTyperTasks:
         # rationale): without it, the real task_scheduler module stays
         # attached to ``voice_typer.server``, ``is_supported()`` returns
         # False on POSIX CI hosts, and the function returns [] before
-        # ever reaching the PowerShell call — the test then fails on
+        # ever reaching the PowerShell call, the test then fails on
         # every non-Windows leg with ``[] == [task names]``.
         monkeypatch.setattr(server_pkg, "task_scheduler", fake_task_scheduler, raising=False)
 
@@ -406,7 +406,7 @@ class TestUnregisterAllVoiceTyperTasks:
 
     def test_powershell_failure_returns_empty_list(self, monkeypatch, fake_winreg, win32_platform):
         """When PowerShell exits non-zero, the function returns an empty
-        list (best-effort — a single failure should not abort the
+        list (best-effort, a single failure should not abort the
         uninstaller)."""
         from voice_typer.server.server_platform import autostart_windows
 
@@ -429,7 +429,7 @@ class TestUnregisterAllVoiceTyperTasks:
     def test_subprocess_oserror_returns_empty_list(self, monkeypatch, fake_winreg, win32_platform):
         """If subprocess.run raises OSError (e.g. powershell.exe not on
         PATH on a non-Windows host with task_scheduler.is_supported()
-        stubbed True), the function returns an empty list — no exception
+        stubbed True), the function returns an empty list, no exception
         propagates."""
         from voice_typer.server.server_platform import autostart_windows
 
@@ -447,7 +447,7 @@ class TestUnregisterAllVoiceTyperTasks:
 
 
 # ---------------------------------------------------------------------------
-# uninstall_permissions.py — script entry point
+# uninstall_permissions.py, script entry point
 # ---------------------------------------------------------------------------
 
 
@@ -458,7 +458,7 @@ class TestUninstallPermissionsScript:
 
     def test_script_main_returns_zero_with_empty_registry(self, monkeypatch):
         """main() returns 0 when there are no entries to remove (already
-        clean — not an error)."""
+        clean, not an error)."""
         # Force the voice_typer package path to succeed with empty lists.
         from voice_typer.server.server_platform import autostart_windows
 
@@ -487,7 +487,7 @@ class TestUninstallPermissionsScript:
         monkeypatch.setattr(sys, "argv", ["uninstall_permissions.py"])
 
         # Re-import after argv reset (the module reads argv at import
-        # time for _purge_requested — so we need to re-exec).
+        # time for _purge_requested, so we need to re-exec).
         mod2 = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod2)
 
@@ -538,7 +538,7 @@ class TestUninstallPermissionsScript:
 
     def test_purge_env_var_triggers_purge_user_data(self, monkeypatch):
         """The VOICE_TYPER_PURGE=1 env var triggers _purge_user_data
-        (mirrors the Linux pattern — useful when invoked by NSIS/Tauri
+        (mirrors the Linux pattern, useful when invoked by NSIS/Tauri
         which can't pass argv)."""
         import importlib.util
 
@@ -607,8 +607,7 @@ class TestWiring:
             cfg = yaml.safe_load(f)
         nsis = cfg.get("nsis") or {}
         assert "include" in nsis, (
-            "electron-builder.yml nsis.include is missing — the NSIS "
-            "uninstaller hook (.nsh) is not wired. See S2-CR-69."
+            "electron-builder.yml nsis.include is missing, the NSIS uninstaller hook (.nsh) is not wired. See S2-CR-69."
         )
         include_path = nsis["include"]
         assert isinstance(include_path, str), f"nsis.include must be a string, got {type(include_path)}"
@@ -617,7 +616,7 @@ class TestWiring:
         resolved = (ELECTRON_BUILDER_YML.parent / include_path).resolve()
         assert resolved.is_file(), (
             f"nsis.include points at {include_path} (resolved: {resolved}) "
-            f"but the file does NOT exist — the NSIS build would fail."
+            f"but the file does NOT exist, the NSIS build would fail."
         )
 
     def test_electron_builder_yml_keeps_delete_app_data_on_uninstall(self):
@@ -627,13 +626,13 @@ class TestWiring:
             cfg = yaml.safe_load(f)
         nsis = cfg.get("nsis") or {}
         assert nsis.get("deleteAppDataOnUninstall") is True, (
-            "nsis.deleteAppDataOnUninstall must be true (S2-CR-70 — "
+            "nsis.deleteAppDataOnUninstall must be true (S2-CR-70, "
             "removes the %APPDATA%\\voice-typer directory on uninstall)."
         )
 
     def test_tauri_conf_has_windows_webview_install_mode(self):
         """tauri.conf.json bundle.windows.webviewInstallMode must be set
-        (Tauri v2 key — pinned explicitly so a future schema change
+        (Tauri v2 key, pinned explicitly so a future schema change
         can't silently flip it)."""
         with TAURI_CONF_JSON.open("r", encoding="utf-8") as f:
             cfg = json.load(f)
@@ -656,16 +655,16 @@ class TestWiring:
     def test_tauri_conf_has_nsis_installer_hooks_v2_key(self):
         """tauri.conf.json bundle.windows.nsis.installerHooks must be
         set (the Tauri v2 NSIS hooks key). The v1 short form 'preRemove'
-        (no suffix) is FORBIDDEN — see constraint #7.
+        (no suffix) is FORBIDDEN: see constraint #7.
 
         Tauri v2 accepts ``installerHooks`` as EITHER a single string
         path OR a list of paths (the schema is ``string | string[]`` —
         see https://schema.tauri.app/config/2). The list form is used by
         the slim-core / runtime-pack split (plan-runtime-pack-split.md
         §4.8) to register BOTH the existing uninstall-time hooks
-        (``uninstaller.nsh`` — defines ``customUnInstall`` for CR-69 /
+        (``uninstaller.nsh``, defines ``customUnInstall`` for CR-69 /
         CR-70 cleanup) AND the new install-time hooks
-        (``installer-hooks.nsh`` — defines the "Include offline engine
+        (``installer-hooks.nsh``, defines the "Include offline engine
         pack" Components-page Section + ``customInstall`` macro that
         writes ``installer-state.json`` for the first-launch consent
         gate). The string form remains valid for single-hook installs.
@@ -687,7 +686,7 @@ class TestWiring:
         windows = cfg.get("bundle", {}).get("windows", {})
         nsis = windows.get("nsis", {})
         assert "installerHooks" in nsis, (
-            "tauri.conf.json bundle.windows.nsis.installerHooks is missing — "
+            "tauri.conf.json bundle.windows.nsis.installerHooks is missing, "
             "the Tauri NSIS bundler won't run the uninstall .nsh. See S2-CR-69."
         )
         pre_remove = nsis["installerHooks"]
@@ -707,11 +706,11 @@ class TestWiring:
             resolved = (TAURI_CONF_JSON.parent / hook).resolve()
             assert resolved.is_file(), (
                 f"bundle.windows.nsis.installerHooks entry {hook!r} "
-                f"(resolved: {resolved}) does NOT exist — Tauri !includes "
+                f"(resolved: {resolved}) does NOT exist, Tauri !includes "
                 "each entry into installer.nsi; a missing file aborts makensis."
             )
             assert hook.endswith(".nsh"), (
-                f"installerHooks entry {hook!r} must be an NSIS script (.nsh) — "
+                f"installerHooks entry {hook!r} must be an NSIS script (.nsh), "
                 "Tauri !includes it into installer.nsi; a non-NSIS file (e.g. a "
                 ".bat) aborts makensis with 'Invalid command: @echo'."
             )
@@ -720,14 +719,14 @@ class TestWiring:
         """scripts/windows/uninstall_permissions.py must exist (the
         Python cleanup script wired by the .bat)."""
         assert UNINSTALL_PERMISSIONS_PY.is_file(), (
-            f"{UNINSTALL_PERMISSIONS_PY} does not exist — the .bat wrapper has nothing to invoke. See S2-CR-69."
+            f"{UNINSTALL_PERMISSIONS_PY} does not exist, the .bat wrapper has nothing to invoke. See S2-CR-69."
         )
 
     def test_uninstall_bat_exists(self):
         """scripts/windows/uninstall.bat must exist (the .bat wrapper
         wired by tauri.conf.json nsis.installerHooks)."""
         assert UNINSTALL_BAT.is_file(), (
-            f"{UNINSTALL_BAT} does not exist — tauri.conf.json's "
+            f"{UNINSTALL_BAT} does not exist, tauri.conf.json's "
             "nsis.installerHooks points at a non-existent file. See S2-CR-69."
         )
 
@@ -735,13 +734,13 @@ class TestWiring:
         """scripts/windows/uninstaller.nsh must exist (the NSIS custom
         uninstaller macro wired by electron-builder.yml nsis.include)."""
         assert UNINSTALLER_NSH.is_file(), (
-            f"{UNINSTALLER_NSH} does not exist — electron-builder.yml's "
+            f"{UNINSTALLER_NSH} does not exist, electron-builder.yml's "
             "nsis.include points at a non-existent file. See S2-CR-69."
         )
 
     def test_uninstall_permissions_py_py_compile_clean(self):
         """uninstall_permissions.py must pass py_compile (no syntax
-        errors). Runs on Linux (sandbox) — the script uses deferred
+        errors). Runs on Linux (sandbox), the script uses deferred
         imports for winreg so it imports cleanly on non-Windows."""
         import py_compile
 

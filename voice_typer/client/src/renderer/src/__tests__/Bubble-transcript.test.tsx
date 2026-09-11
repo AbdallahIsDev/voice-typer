@@ -6,7 +6,7 @@
  *   - Live partial-transcript text rendered inside the pill when the
  *     `bubble:set-state` payload carries a `transcript` field and the
  *     bubble is in `transcribing` (or `fading`) mode. Forward-
- *     compatible with the existing string-only payload — when no
+ *     compatible with the existing string-only payload, when no
  *     `transcript` is provided, the pill renders only the
  *     "Transcribing" label + animated dots (existing tests still pass).
  *   - Transcript truncation at 60 characters with an ellipsis.
@@ -146,7 +146,7 @@ describe("bubble: live transcript preview (XA-6-2)", () => {
 
 		setBubbleState("transcribing");
 
-		// Legacy string-only payload — no transcript text.
+		// Legacy string-only payload, no transcript text.
 		expect(screen.getByText("Transcribing")).toBeTruthy();
 		// No aria-labelled transcript region.
 		expect(screen.queryByLabelText("Live transcript preview")).toBeNull();
@@ -244,7 +244,7 @@ describe("bubble: in-bubble stop button (XA-6-1)", () => {
 	it("renders a stop button in recording mode by default", () => {
 		render(<Bubble />);
 
-		// Default mode is "recording" — the stop affordance renders
+		// Default mode is "recording", the stop affordance renders
 		// independent of `always_visible` config.
 		const btn = screen.getByLabelText("Stop recording");
 		expect(btn).toBeTruthy();

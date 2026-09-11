@@ -26,7 +26,7 @@
 // it, Models didn't), indicator style (input/50 vs bg+border), and the
 // SegmentedControl className (Models added bg-subtle + rounded-lg).
 //
-// This module exports one constant — `tabPageIndicatorClassName` (the
+// This module exports one constant, `tabPageIndicatorClassName` (the
 // wrapper + inner divs collapsed into one className string applied to
 // the outer sticky element) and `tabPageIndicatorClassName` (the
 // SegmentedControl indicator/label/className props collapsed into a
@@ -54,7 +54,7 @@
  *  />
  *  ```
  *
- * The indicator uses `bg-(--bg) border border-border/5` — the SAME
+ * The indicator uses `bg-(--bg) border border-border/5`, the SAME
  * border token as the model cards beneath the tab bar
  * (`ModelGroupAccordion` uses `rounded-lg border border-border/5
  * bg-(--bg-subtle)`). The active segment therefore reads as the same

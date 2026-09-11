@@ -1,4 +1,4 @@
-"""Tests for voice_typer.audio_quality — AudioQualityAnalyzer and AudioQualityReport."""
+"""Tests for voice_typer.audio_quality: AudioQualityAnalyzer and AudioQualityReport."""
 
 import math
 
@@ -147,7 +147,7 @@ class TestAudioQualityAnalyzerRmsEma:
 
     def test_low_volume_warning_fires_after_sustained_chunks(self, analyzer):
         """AUDIO-8: sustained low RMS for LOW_VOLUME_SUSTAINED_CHUNKS
-        consecutive chunks fires a single 'low input level — increase
+        consecutive chunks fires a single 'low input level, increase
         mic gain' warning."""
         analyzer.LOW_VOLUME_SUSTAINED_CHUNKS = 5  # speed up test
         warnings = []
@@ -204,7 +204,7 @@ class TestAudioQualityAnalyzerRmsEma:
             w = analyzer.update_live_rms(0.001)
             if w is not None:
                 warnings_ep2.append(w)
-        assert len(warnings_ep2) == 1, f"After recovery, a new episode must fire again — got {warnings_ep2}"
+        assert len(warnings_ep2) == 1, f"After recovery, a new episode must fire again, got {warnings_ep2}"
 
     def test_normal_rms_does_not_fire_warning(self, analyzer):
         """AUDIO-8: normal RMS levels (above LOW_VOLUME_THRESHOLD) must
@@ -241,7 +241,7 @@ class TestAnalyzeFullAudioAllocationFreeEquivalence:
     ``np.abs(...)`` / ``np.var(...)``) within tight tolerance.
 
     The original formulas are re-implemented inline here so this test
-    independently pins the numeric contract — if the production code
+    independently pins the numeric contract, if the production code
     ever drifts (e.g. a float32 dot sneaks in), these comparisons catch
     it.
     """
@@ -260,7 +260,7 @@ class TestAnalyzeFullAudioAllocationFreeEquivalence:
         legacy_rms, legacy_peak, legacy_ratio = self._legacy_metrics(audio)
         # Recompute rms/peak the way analyze_full_audio reports them:
         # rms is only stored on the report when low volume fired, and
-        # peak only when clipping fired — so derive them from the same
+        # peak only when clipping fired, so derive them from the same
         # production code path via a fresh analyzer + direct formula
         # comparison instead of reading private fields.
         flat = audio.ravel()
@@ -292,7 +292,7 @@ class TestAnalyzeFullAudioAllocationFreeEquivalence:
         self._assert_equivalent(audio)
 
     def test_dc_shifted_signal_matches_legacy_formulas(self):
-        """DC offset makes variance ≪ E[x²] — the cancellation-heavy case
+        """DC offset makes variance ≪ E[x²], the cancellation-heavy case
         where a float32 dot product would visibly drift."""
         rng = np.random.default_rng(7)
         audio = (0.5 + 0.01 * rng.standard_normal(48000)).astype(np.float32)

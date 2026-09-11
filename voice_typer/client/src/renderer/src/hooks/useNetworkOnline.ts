@@ -1,4 +1,4 @@
-// useNetworkOnline — network-is-back trigger for the auto-update flow.
+// useNetworkOnline, network-is-back trigger for the auto-update flow.
 //
 // Implements the renderer-side half of plan-runtime-pack-split.md §10.1
 // "Network-is-back trigger": when the browser fires the `online` event
@@ -19,14 +19,14 @@
 //     `src-tauri/`).
 //   - The `online` / `offline` browser events are stable, well-
 //     documented, and fire on both Electron (Chromium) and Tauri v2
-//     (WebView2 / WKWebView) — no platform-specific code needed.
+//     (WebView2 / WKWebView), no platform-specific code needed.
 //   - The renderer already has the `call` IPC bridge (via
 //     `usePython()`); re-using it avoids a second transport.
 //
 // ── Subscribes to browser events, calls into useOfflinePackDownload's API ────
 //
 // The hook does NOT directly call `useOfflinePackDownload`
-// (that hook exposes only read state — `{ status, error, isReady }`).
+// (that hook exposes only read state, `{ status, error, isReady }`).
 // Instead, the hook consumes `useOfflinePackDownload`'s STATE indirectly:
 //   - When `online` fires, the hook calls `call("check_offline_pack_update", {})`.
 //   - The Python side (`update_check.py`) re-fetches the manifest + may
@@ -56,7 +56,7 @@
 // `_handle_check_offline_pack_update` in `ipc/lifecycle.py`), the TS
 // `ALLOWED_COMMANDS` set (`allowed-commands.ts`), the Rust
 // `allowlist.rs`, and the renderer `PythonRequest` union
-// (`types/ipc/requests.ts`). The try/catch below stays as defense-ink-depth — a stale renderer bundle could still hit a not-yet-registered
+// (`types/ipc/requests.ts`). The try/catch below stays as defense-ink-depth, a stale renderer bundle could still hit a not-yet-registered
 // command during a partial upgrade, and `isOnline` must update either
 // way.
 //
@@ -102,7 +102,7 @@ export interface UseNetworkOnlineResult {
 
 /** Read the initial `navigator.onLine` state. Returns `true` when
  *  `navigator` is undefined (SSR / Node test env without jsdom) so the
- *  hook's default state is "online" — the safe default (a false
+ *  hook's default state is "online", the safe default (a false
  *  "offline" would block UI that gates on `isOnline`). */
 function readInitialOnline(): boolean {
 	if (typeof navigator === "undefined") return true;
@@ -137,7 +137,7 @@ export function useNetworkOnline(): UseNetworkOnlineResult {
 	// Calls the `check_offline_pack_update` IPC command. The command is exposed
 	// by `voice_typer/server/service/update_check.py` (function
 	// `handle_check_offline_pack_update_ipc`). If the command is not yet
-	// registered in `ipc/registry.py`, the call rejects — we catch and
+	// registered in `ipc/registry.py`, the call rejects, we catch and
 	// log at debug (the `isOnline` state still updates correctly).
 	const triggerRecheck = useCallback(async (): Promise<
 		Record<string, unknown> | undefined
@@ -162,7 +162,7 @@ export function useNetworkOnline(): UseNetworkOnlineResult {
 			// consumers can show "Update check unavailable" if they want.
 			const msg = err instanceof Error ? err.message : String(err);
 			console.debug(
-				"[renderer:hooks/useNetworkOnline] check_offline_pack_update IPC call failed — is the command registered in ipc/registry.py?",
+				"[renderer:hooks/useNetworkOnline] check_offline_pack_update IPC call failed, is the command registered in ipc/registry.py?",
 				err,
 			);
 			setError(msg);
@@ -177,7 +177,7 @@ export function useNetworkOnline(): UseNetworkOnlineResult {
 	// Added once on mount; cleaned up on unmount. The listeners update
 	// `isOnline` state; the `online` listener ALSO triggers a re-check
 	// via `triggerRecheck` (but only on the false → true transition,
-	// not on every `online` event — browsers can fire `online` multiple
+	// not on every `online` event, browsers can fire `online` multiple
 	// times in quick succession during a flaky connection, and we
 	// don't want to spam the IPC).
 	useEffect(() => {
@@ -191,7 +191,7 @@ export function useNetworkOnline(): UseNetworkOnlineResult {
 			// A duplicate `online` event while already online is a no-op
 			// (browsers fire these during connection flapping).
 			if (!wasOnline) {
-				// Fire-and-forget — the IPC result is handled by the
+				// Fire-and-forget, the IPC result is handled by the
 				// `useOfflinePackDownload` hook (via the `offline_pack_download_started`
 				// event the Python side publishes). We don't need to
 				// await it here.

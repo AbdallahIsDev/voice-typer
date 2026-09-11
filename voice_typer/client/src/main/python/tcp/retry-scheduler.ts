@@ -7,6 +7,7 @@
  */
 import { log } from "../../logging";
 import { state } from "../../state";
+import { tcpRetryDelay } from "./retry-delay";
 
 /**
  * Schedule the next connect attempt after a socket close. Called by the
@@ -18,7 +19,7 @@ export function scheduleTcpRetryAfterClose(
 	tryConnect: () => void,
 ): void {
 	// If a full app relaunch is in flight, the process is
-	// about to exit — no point scheduling retries.
+	// about to exit, no point scheduling retries.
 	if (state._relaunching) {
 		return;
 	}
@@ -40,17 +41,16 @@ export function scheduleTcpRetryAfterClose(
 					")",
 			);
 		}
-		// Exponential backoff capped at 2s: the first retry
-		// happens quickly (250ms) so a fast Python startup
-		// doesn't wait a full second, but subsequent retries
-		// back off to avoid hammering the port during a slow
-		// torch import.  This shaves 2-4 seconds off the
-		// typical cold-start reconnection window.
-		const delay = Math.min(250 * 2 ** (state._tcpRetryCount - 1), 2000);
+		// Exponential backoff via tcpRetryDelay (250ms base, 1s cap):
+		// fast first retry so a quick backend bind isn't missed, capped
+		// so a slow cold start (multi-second interpreter + imports)
+		// isn't hammered, each attempt is one localhost SYN refused
+		// at the kernel while nothing listens.
+		const delay = tcpRetryDelay(state._tcpRetryCount);
 		// store the retry timer on shared state so
 		// `stopPython()` and `relaunchApp()` can clearTimeout
 		// it before bumping `_tcpRetryGeneration`. Previously
-		// the timer was a fire-and-forget local — even after
+		// the timer was a fire-and-forget local, even after
 		// `state._tcpRetryGeneration++` invalidated the
 		// generation check at the top of `tryConnect()`, the
 		// pending timer still fired `tryConnect()` once more

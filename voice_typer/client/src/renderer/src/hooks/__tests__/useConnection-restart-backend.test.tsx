@@ -1,5 +1,5 @@
 /**
- * Tests for `useConnection` `handleRetryConnection` — the OPTION-A
+ * Tests for `useConnection` `handleRetryConnection`, the OPTION-A
  * escalation: probe first, and when the probe fails, ask the Electron
  * main process to restart ONLY the Python backend (`backend:restart`
  * channel via `window.window_.restartBackend`).
@@ -7,7 +7,7 @@
  * Status flow under test:
  *   - probe ok                          → "connected" (no restart call)
  *   - probe fail + restart accepted     → "restarting" (fresh backend's
- *     `state_changed` push flips back to "connected" — exercised by the
+ *     `state_changed` push flips back to "connected", exercised by the
  *     existing state_changed tests)
  *   - probe fail + restart declined     → "disconnected" + lastError
  *     (adopted mode / relaunch in-flight / bridge missing)
@@ -88,13 +88,13 @@ function Harness() {
 
 const CONFIG_OK = { onboarding_completed: true };
 
-describe("useConnection — OPTION-A retry escalation (probe → backend restart)", () => {
+describe("useConnection, OPTION-A retry escalation (probe → backend restart)", () => {
 	beforeEach(() => {
 		resetStableMocks();
 		useAppStore.getState().setConnectionStatus("connecting");
 		useAppStore.getState().setLastError(null);
 		// First mount-probe succeeds (backend healthy); subsequent
-		// calls reject (backend dies) — per-test overrides adjust this.
+		// calls reject (backend dies), per-test overrides adjust this.
 		let getConfigCalls = 0;
 		mockCall.mockImplementation((type: string) => {
 			switch (type) {
@@ -124,7 +124,7 @@ describe("useConnection — OPTION-A retry escalation (probe → backend restart
 		(window as unknown as { window_: BridgeLike }).window_ = {
 			restartBackend,
 		};
-		// Backend healthy the whole time — every get_config resolves.
+		// Backend healthy the whole time, every get_config resolves.
 		mockCall.mockImplementation((type: string) => {
 			switch (type) {
 				case "get_config":
@@ -196,7 +196,7 @@ describe("useConnection — OPTION-A retry escalation (probe → backend restart
 	});
 
 	it("probe fail + bridge missing (tauri/old preload) → disconnected + hint, no crash", async () => {
-		// No window_.restartBackend — optional chaining must degrade
+		// No window_.restartBackend, optional chaining must degrade
 		// to the bare-probe behavior.
 		delete (window as unknown as Record<string, unknown>).window_;
 		render(<Harness />);

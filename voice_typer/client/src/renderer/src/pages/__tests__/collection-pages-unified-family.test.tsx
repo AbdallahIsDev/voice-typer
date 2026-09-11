@@ -3,7 +3,7 @@
  * Templates pages' migration onto the Wave-3 shells).
  *
  * Both collection pages render their Toolbar / BulkBar / ListHeader through
- * the shared components (components/common/Collection*.tsx) — the per-page
+ * the shared components (components/common/Collection*.tsx), the per-page
  * mirrors were byte-identical except for i18n keys and a handful of drift
  * points, so the family is one component and each page injects its keys.
  * These tests pin the MIGRATION contracts:
@@ -13,11 +13,11 @@
  *     toolbar fails here)
  *   - drift: the Add button carries an accessible aria-label on BOTH pages
  *     (new key `vocabulary.addNewAria`, all 8 locales); the row action
- *     buttons use the unified compact size (`icon-xs` — 24×24, the WCAG
+ *     buttons use the unified compact size (`icon-xs`, 24×24, the WCAG
  *     2.5.8 AA minimum) and NO native tooltips on either page; each page's
  *     hidden import input keeps its domain-specific file-picker filter
  *   - behavior: a REJECTED export (IPC `success: false`) surfaces an error
- *     toast on both pages — a failed export must not be silent
+ *     toast on both pages, a failed export must not be silent
  *
  * The pages are rendered through their REAL component trees (mocks only at
  * the boundaries: python bridge, snackbar/sonner, hugeicons, next-themes),
@@ -173,7 +173,7 @@ describe("both collection pages render through the shared family", () => {
 	});
 });
 
-describe("Add button accessible name — both pages (a11y)", () => {
+describe("Add button accessible name, both pages (a11y)", () => {
 	it("Vocabulary's Add button carries an aria-label matching its visible label", async () => {
 		seedVocabulary();
 		await renderVocabularyPage();
@@ -222,7 +222,7 @@ describe("Add button accessible name — both pages (a11y)", () => {
 	});
 });
 
-describe("row action buttons — unified compact language", () => {
+describe("row action buttons, unified compact language", () => {
 	it("Vocabulary rows: icon-xs (24px) buttons, aria-labels, no tooltips", async () => {
 		seedVocabulary();
 		await renderVocabularyPage();
@@ -275,7 +275,7 @@ describe("row action buttons — unified compact language", () => {
 	});
 });
 
-describe("import file-picker filters — domain capability wiring", () => {
+describe("import file-picker filters, domain capability wiring", () => {
 	it("Vocabulary accepts JSON + CSV (its parser reads both)", async () => {
 		seedVocabulary();
 		await renderVocabularyPage();

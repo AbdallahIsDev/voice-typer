@@ -8,7 +8,7 @@ Previously:
 - ``ipc_server.main()`` imported ``EXIT_CRASH`` but never used it,
   falling back to ``sys.exit(1)`` on the crash path.
 - The docstring of ``main()`` was placed AFTER the import line,
-  meaning it wasn't actually a docstring at all — it was a string
+  meaning it wasn't actually a docstring at all, it was a string
   expression that did nothing.
 
 These tests verify:
@@ -17,7 +17,7 @@ These tests verify:
 3. ``main.__doc__`` is the real docstring (not None).
 
 Class/method names, assertion logic, and imports below are preserved
-verbatim from the original monolith — only file location has changed.
+verbatim from the original monolith, only file location has changed.
 """
 
 # === Source: tests/test_new_cli_003_exit_codes.py ===
@@ -78,7 +78,7 @@ class TestCrashPathUsesExitCrash:
     def test_crash_path_uses_exit_crash(self, monkeypatch, tmp_config_dir):
         """When ``app.start()`` raises an Exception, ``main()`` must
         exit with ``EXIT_CRASH`` (1), and that 1 must come from the
-        named constant — not a raw literal.
+        named constant, not a raw literal.
         """
         # Isolate the crash-diagnostic writer.  ``main()`` appends the
         # traceback to ``_config_dir() / "startup-error.log"``; without
@@ -89,7 +89,7 @@ class TestCrashPathUsesExitCrash:
         # Set up the argv so argparse doesn't bail.
         monkeypatch.setattr(sys, "argv", ["voice-typer"])
 
-        # Avoid actually starting the IPC server / app — make start() raise.
+        # Avoid actually starting the IPC server / app, make start() raise.
         app_mock = MagicMock()
         app_mock.start.side_effect = RuntimeError("simulated crash")
 
@@ -110,7 +110,7 @@ class TestCrashPathUsesExitCrash:
         # the test runner has already imported it.)
 
         # Stub out the inner import by pre-populating sys.modules with
-        # the constants — main() does `from voice_typer.__main__ import
+        # the constants, main() does `from voice_typer.__main__ import
         # EXIT_BAD_ARGS, EXIT_CRASH`, which works without monkeypatching.
 
         with pytest.raises(SystemExit) as exc_info:
@@ -129,10 +129,11 @@ class TestCrashPathUsesExitCrash:
         ``EXIT_BAD_ARGS`` (4)."""
         monkeypatch.setattr(sys, "argv", ["voice-typer", "--port", "99999"])
 
-        # main() constructs VoiceTyperApp() before parsing --port (an
-        # existing ordering quirk), so we mock it to a no-op MagicMock.
-        # We then assert that app.start() is NEVER called because main()
-        # exits before reaching that point.
+        # main() validates --port via parse_ipc_args() before any
+        # VoiceTyperApp construction, but we still mock the constructor
+        # to a no-op MagicMock for safety. We then assert that
+        # app.start() is NEVER called because main() exits before
+        # reaching that point.
         app_mock = MagicMock()
         app_mock.start.side_effect = AssertionError("app.start() should not be called when --port is invalid")
         monkeypatch.setattr("voice_typer.server.app.VoiceTyperApp", lambda: app_mock)

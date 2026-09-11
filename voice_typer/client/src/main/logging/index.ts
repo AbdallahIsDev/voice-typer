@@ -4,39 +4,39 @@
  * Split out from the original 750-line `main/logging.ts` (spaghetti
  * split). All `import { X } from "../logging"` (or
  * `"./logging"` / `"../../main/logging"`) call sites resolve to THIS
- * file — TypeScript's bundler resolution prefers a directory's
+ * file, TypeScript's bundler resolution prefers a directory's
  * `index.ts` once the sibling `logging.ts` file is removed.
  *
  * Module map (each concern lives in its own file):
  *
- *   - `colors.ts`           — ANSI color constants (`DIM`, `RESET`,
+ *   - `colors.ts`          , ANSI color constants (`DIM`, `RESET`,
  *                             `BUBBLE_CLR`, `RENDERER_CLR`, `INFO_CLR`,
  *                             `WARN_CLR`, `ERROR_CLR`).
- *   - `constants.ts`        — rotation-cap constants
+ *   - `constants.ts`       , rotation-cap constants
  *                             (`DEFAULT_CRASH_LOG_MAX_BYTES`,
  *                             `DEFAULT_MAIN_LOG_MAX_BYTES`,
  *                             `RUNTIME_LOG_MAX_BYTES`).
- *   - `fileSizeCache.ts`    — file-size cache +
+ *   - `fileSizeCache.ts`   , file-size cache +
  *                             `_resetFileSizeCacheForTest`.
- *   - `rotation.ts`         — `rotateIfNeeded`, `appendLogLine`,
+ *   - `rotation.ts`        , `rotateIfNeeded`, `appendLogLine`,
  *                             `cleanConsoleMsg`, `ts`.
- *   - `structuredLogger.ts` — message-first `logger` + `mainLogPath` +
+ *   - `structuredLogger.ts`, message-first `logger` + `mainLogPath` +
  *                             `rendererErrorsLogPath` + `lifecycleLogPath`
  *                             + `appendLifecycleLine` (+ internal
  *                             `PERSIST_INFO` / `formatLine`).
- *   - `printfLogger.ts`     — printf-style `log` + `LogShape` +
+ *   - `printfLogger.ts`    , printf-style `log` + `LogShape` +
  *                             `getRuntimeLogPath` +
  *                             `_getRuntimeLogPathForTest` /
  *                             `_resetRuntimeLogPathForTest`.
  *
  * Public API surface: the barrel re-exports ONLY the names
  * that have at least one external (out-of-package) importer. Internal-
- * only helpers — `DIM`, `INFO_CLR`, `WARN_CLR`, `ERROR_CLR`,
- * `mainLogPath`, `mainRuntimeLogger` — are NOT re-exported from this
+ * only helpers, `DIM`, `INFO_CLR`, `WARN_CLR`, `ERROR_CLR`,
+ * `mainLogPath`, `mainRuntimeLogger`, are NOT re-exported from this
  * barrel. They remain `export`ed from their own leaf modules so the
  * cross-file split can consume them, but external code must import
  * them directly from the leaf (`./colors`, `./structuredLogger`,
- * `./printfLogger`) if it really needs them — making the leak visible
+ * `./printfLogger`) if it really needs them, making the leak visible
  * at the import site. `mainRuntimeLogger` is not even `export`ed
  * from `printfLogger.ts` (it's truly module-private).
  *
@@ -81,7 +81,7 @@ export {
 // Structured logger path memoization test seam. Exported alongside
 // `_resetFileSizeCacheForTest` / `_resetRuntimeLogPathForTest` so test
 // suites can reset ALL logging-module memoization state in one import.
-// Not consumed by production code — see the docstring on
+// Not consumed by production code, see the docstring on
 // `_resetMainLogPathForTest` in `./structuredLogger`.
 // Consecutive-identical log deduper (collapses repeat lines into an
 // `(xN)` summary). Exported for `ipc/python-call-handler.ts`, which
@@ -121,7 +121,7 @@ export {
 } from "./rotation";
 // Message-first structured logger + path resolvers + opt-in lifecycle
 // persistence. `mainLogPath` / `lifecycleLogPath` /
-// `appendLifecycleLine` are NOT re-exported — they have zero external
+// `appendLifecycleLine` are NOT re-exported, they have zero external
 // importers (verified via `rg` across `voice_typer/client/src`). Only
 // `logger` (consumed by `ipc/python-call-handler.ts`, `ipc/window-handlers.ts`,
 // and tests) and `rendererErrorsLogPath` (consumed by

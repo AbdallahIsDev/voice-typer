@@ -7,7 +7,7 @@ When the writer thread died during schema init (migration failure sets
 ``_init_error``, or corruption recovery failure) or mid-loop, the
 writer thread exited but ``_shutdown`` was never set. ``add_transcription``
 enqueued a ``_BatchableInsert`` to the dead writer's queue and returned
-placeholder ``1`` — the INSERT never executed. The subsequent ``flush()``
+placeholder ``1``, the INSERT never executed. The subsequent ``flush()``
 call blocked on ``future.result(timeout=_WRITE_FUTURE_TIMEOUT)`` = 30s
 before the TimeoutError handler noticed the dead writer and raised
 ``HistoryDBError``. Every subsequent dictation repeated: instant enqueue
@@ -88,7 +88,7 @@ class TestAddTranscriptionDeadWriter:
         after = db._queue.qsize()
         assert after == before, (
             "add_transcription must NOT enqueue a _BatchableInsert when the "
-            "writer is dead — that would silently leak memory and mislead callers"
+            "writer is dead, that would silently leak memory and mislead callers"
         )
 
 
@@ -119,9 +119,9 @@ class TestSubmitWriteDeadWriter:
         with contextlib.suppress(Exception):
             db._submit_write(lambda conn: None, wait=True)
         elapsed = time.monotonic() - start
-        # 5s is a generous upper bound — the bug was a 30s hang.
+        # 5s is a generous upper bound, the bug was a 30s hang.
         assert elapsed < 5.0, (
-            f"_submit_write took {elapsed:.1f}s on a dead writer — expected "
+            f"_submit_write took {elapsed:.1f}s on a dead writer, expected "
             "instant failure (FR-10 early-return guard). Pre-FR-10 this took ~30s."
         )
 
@@ -139,7 +139,7 @@ class TestFlushDeadWriter:
         db.flush()
         elapsed = time.monotonic() - start
         assert elapsed < 5.0, (
-            f"flush took {elapsed:.1f}s on a dead writer — expected instant "
+            f"flush took {elapsed:.1f}s on a dead writer, expected instant "
             "no-op (FR-10 early-return guard). Pre-FR-10 this took ~30s."
         )
 
@@ -208,7 +208,7 @@ class TestDictationPipelineHistoryFailNotification:
     """FR-10 + FR-28: when ``add_transcription`` returns ``<= 0``
     (writer dead), ``dictation_pipeline._store_result`` raises a
     RuntimeError that's caught by the existing except clause and
-    triggers the notify-once tray message — instead of silently
+    triggers the notify-once tray message, instead of silently
     treating the placeholder as success."""
 
     def _make_pipeline(self, history_enabled=True):
@@ -269,7 +269,7 @@ class TestDelDoesNotJoinWriter:
 
     Pre-fix, ``__del__`` called ``self.close()``. If a HistoryDB was
     GC'd while the writer was stuck (mid-VACUUM, antivirus-locked WAL),
-    the GC pause blocked for up to 10s — visible to the user as a
+    the GC pause blocked for up to 10s, visible to the user as a
     frozen UI. The writer is a daemon thread and will be killed at
     process exit regardless; the only thing ``__del__`` needs to do is
     close read connections (to suppress ``ResourceWarning``) and signal
@@ -285,9 +285,9 @@ class TestDelDoesNotJoinWriter:
         src = inspect.getsource(HistoryDB.__del__)
         # ``self.close()`` would join the writer thread (10s timeout).
         # ``close`` may appear in the docstring (referencing the method
-        # by name) — we only forbid the call form.
+        # by name), we only forbid the call form.
         assert "self.close()" not in src, (
-            "FR-31 regression: __del__ must NOT call self.close() — that "
+            "FR-31 regression: __del__ must NOT call self.close(), that "
             "joins the writer thread with a 10s timeout and can freeze GC. "
             "Use _shutdown.set() + close read connections instead."
         )
@@ -301,7 +301,7 @@ class TestDelDoesNotJoinWriter:
 
         src = inspect.getsource(HistoryDB.__del__)
         assert "_writer_thread.join" not in src, (
-            "FR-31 regression: __del__ must NOT join the writer thread — "
+            "FR-31 regression: __del__ must NOT join the writer thread, "
             "it can block GC for up to 10s if the writer is stuck."
         )
 
@@ -309,7 +309,7 @@ class TestDelDoesNotJoinWriter:
         """``__del__`` must set ``_shutdown`` and close ``_all_read_connections``.
 
         This is the non-blocking substitute for the old ``self.close()``
-        call — enough to suppress ResourceWarnings without blocking GC.
+        call, enough to suppress ResourceWarnings without blocking GC.
         """
         import inspect
 
@@ -328,7 +328,7 @@ class TestDelDoesNotJoinWriter:
     def test_del_does_not_block_when_writer_is_stuck(self, db, monkeypatch):
         """End-to-end: if the writer thread is "stuck" (we simulate by
         making ``Thread.join`` raise), ``__del__`` must complete in
-        well under the old 10s timeout — proving it never calls join.
+        well under the old 10s timeout, proving it never calls join.
 
         We patch ``_writer_thread.join`` to raise (so any accidental
         call would surface immediately) and assert ``__del__`` returns
@@ -344,7 +344,7 @@ class TestDelDoesNotJoinWriter:
         db.__del__()
         elapsed = _time.monotonic() - start
         assert elapsed < 1.0, (
-            f"FR-31 regression: __del__ took {elapsed:.2f}s — expected "
+            f"FR-31 regression: __del__ took {elapsed:.2f}s, expected "
             "sub-second (no writer join). Pre-FR-31 this blocked up to 10s."
         )
 

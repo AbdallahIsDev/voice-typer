@@ -25,7 +25,7 @@ describe("per-command timeout table (getTimeout)", () => {
 	});
 
 	it("returns 5_000ms for `get_config` (trivial config read)", () => {
-		// Same rationale as get_status — config reads are sub-100ms
+		// Same rationale as get_status, config reads are sub-100ms
 		// in healthy operation; 5s is a generous upper bound.
 		expect(getTimeout("get_config")).toBe(5_000);
 	});
@@ -62,13 +62,13 @@ describe("per-command timeout table (getTimeout)", () => {
 	});
 
 	it("returns 30_000ms for `toggle_dictation` (short control RPC)", () => {
-		//`transcribe` was a stale entry — there is no such
+		//`transcribe` was a stale entry, there is no such
 		// IPC command (the actual control RPC is `toggle_dictation`,
 		// which returns immediately; the transcription itself runs
 		// async on the backend and pushes results via
 		// `transcription_final` events). `toggle_dictation` is now
 		// pinned at 30s so a hung control call surfaces an error
-		// before the user gives up — matching the default but
+		// before the user gives up, matching the default but
 		// explicit so future contributors don't accidentally
 		// remove the entry thinking it's redundant.
 		expect(getTimeout("toggle_dictation")).toBe(30_000);
@@ -91,7 +91,7 @@ describe("VP-6: Tauri rejection-string envelope parsing (parseTauriErrorEnvelope
 		// The Rust `dispatch` command (sidecar_cmds/dispatch.rs)
 		// rejects the invoke promise with the JSON-serialized
 		// `{type:"error", data:{code, message}}` envelope. On Tauri
-		// this arrives as a raw STRING — pre-VP-6 it became
+		// this arrives as a raw STRING, pre-VP-6 it became
 		// `new Error(wholeJSON)` with no `.code`, so callers branching
 		// on the failure class silently fell through on Tauri.
 		const raw = JSON.stringify({
@@ -119,7 +119,7 @@ describe("VP-6: Tauri rejection-string envelope parsing (parseTauriErrorEnvelope
 
 	it("falls back to the raw string when the rejection is plain text", () => {
 		// Rust's `dispatch timeout (120s)` rejection is a bare string,
-		// not a JSON envelope — must return null so `call` wraps it
+		// not a JSON envelope, must return null so `call` wraps it
 		// as `new Error(raw)`.
 		expect(parseTauriErrorEnvelope("dispatch timeout (120s)")).toBeNull();
 	});
@@ -133,7 +133,7 @@ describe("VP-6: Tauri rejection-string envelope parsing (parseTauriErrorEnvelope
 
 	it("stamps a structured Python error code through the Tauri path", () => {
 		// e.g. `client.consent_required` from the level-monitor / mic-test
-		// handlers surfacing over Tauri — the renderer deep-link depends
+		// handlers surfacing over Tauri, the renderer deep-link depends
 		// on `err.code` being present.
 		const err = parseTauriErrorEnvelope(
 			JSON.stringify({

@@ -8,7 +8,7 @@
  * These tests inject the {@link PermissionsResult} directly via the
  * `permissionResult` prop (bypassing the periodic
  * `onboarding_check_permissions` probe in `useKeyboardPermission`) so
- * the assertions are deterministic — no fake-timer dance required to
+ * the assertions are deterministic, no fake-timer dance required to
  * observe the rendered output for a given permission state.
  *
  * Coverage:
@@ -29,7 +29,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // Shared stable-mocks preamble (see helpers/stableMocks.tsx):
 // `usePython` is mocked so the `useKeyboardPermission()` hook's
 // `call("onboarding_check_permissions")` is a no-op that never resolves
-// — the hook stays in its initial `null` state for the duration of each
+//, the hook stays in its initial `null` state for the duration of each
 // test, and the `permissionResult` prop injection is what drives the
 // rendered output. This keeps the tests deterministic without fake
 // timers.
@@ -108,7 +108,7 @@ describe("KeyboardPermissionBanner ", () => {
 		).toBeInTheDocument();
 		expect(
 			screen.getByText(
-				"Hotkeys require accessibility permission — click to fix",
+				"Hotkeys require accessibility permission: click to fix",
 			),
 		).toBeInTheDocument();
 
@@ -152,11 +152,11 @@ describe("KeyboardPermissionBanner ", () => {
 		// Banner body is still shown so the user knows what to do.
 		expect(
 			screen.getByText(
-				"Hotkeys require accessibility permission — click to fix",
+				"Hotkeys require accessibility permission: click to fix",
 			),
 		).toBeInTheDocument();
 
-		// No anchor — Linux has no standard OS-privacy deep-link,
+		// No anchor, Linux has no standard OS-privacy deep-link,
 		// and the renderer cannot directly invoke pkexec. Mirrors
 		// `MicrophonePermissionBanner`'s Linux branch.
 		expect(screen.queryByRole("link")).toBeNull();

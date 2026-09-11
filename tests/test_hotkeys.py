@@ -45,7 +45,7 @@ class TestFallbackListenerChecksAllModifiersHeld:
 
     HOTKEYS-12: previously this test pinned the source text of
     ``PynputHotkey._start_fallback`` via ``inspect.getsource``. That
-    made the test brittle — any cosmetic refactor (renaming a local
+    made the test brittle, any cosmetic refactor (renaming a local
     variable, adding a comment) would break it even if the behavior
     was unchanged. The behavioral tests below verify the actual
     contract: ``_parse_hotkey_to_pynput`` returns the modifier_keys
@@ -95,7 +95,7 @@ class TestFallbackListenerChecksAllModifiersHeld:
 
     def test_parse_returns_modifier_tuple_for_combo(self):
         """For ``<ctrl>+1``, the parser returns ``(modifier_keys, target)``
-        where ``modifier_keys`` contains ctrl — the fallback listener
+        where ``modifier_keys`` contains ctrl, the fallback listener
         uses this tuple to require ALL modifiers held before firing."""
         from voice_typer.server.hotkeys import _parse_hotkey_to_pynput
 
@@ -108,7 +108,7 @@ class TestFallbackListenerChecksAllModifiersHeld:
 
     def test_parse_returns_single_key_for_no_modifiers(self):
         """For ``<f2>`` (no modifiers), the parser returns the bare
-        target key — the fallback listener doesn't gate on modifiers."""
+        target key, the fallback listener doesn't gate on modifiers."""
         from voice_typer.server.hotkeys import _parse_hotkey_to_pynput
 
         Key, KeyCode = self._make_fake_pynput()  # noqa: N806
@@ -119,7 +119,7 @@ class TestFallbackListenerChecksAllModifiersHeld:
 
     def test_parse_returns_all_modifiers_for_multi_combo(self):
         """For ``<ctrl>+<alt>+v``, the parser returns ALL modifiers
-        (ctrl AND alt) — the fallback listener requires BOTH held
+        (ctrl AND alt), the fallback listener requires BOTH held
         before firing the callback."""
         from voice_typer.server.hotkeys import _parse_hotkey_to_pynput
 
@@ -135,7 +135,7 @@ class TestFallbackListenerChecksAllModifiersHeld:
 
     def test_parse_returns_no_modifiers_for_bare_modifier(self):
         """For ``<alt>`` alone, the parser returns the bare modifier key
-        (single-modifier hotkey — no main key, no modifier tuple)."""
+        (single-modifier hotkey, no main key, no modifier tuple)."""
         from voice_typer.server.hotkeys import _parse_hotkey_to_pynput
 
         Key, KeyCode = self._make_fake_pynput()  # noqa: N806
@@ -240,7 +240,7 @@ class TestExtendedVKMap:
 # repaste) on a Wayland session, each backend used to bind the SAME
 # socket path (``$XDG_RUNTIME_DIR/voice-typer-hotkey.sock``). The
 # second ``start()`` would ``os.unlink`` the first backend's socket
-# and bind a new one — silently killing the first backend's IPC
+# and bind a new one, silently killing the first backend's IPC
 # listener. The fix: each backend gets a per-role suffix
 # (``voice-typer-hotkey-{role}.sock``).
 #
@@ -249,7 +249,7 @@ class TestExtendedVKMap:
 # backends running simultaneously (double-fire on the same keypress).
 # The fix: stop the legacy backend BEFORE restarting native.
 #
-# IN-25 / IN-26 (Windows code): statically analyzed on Linux — the
+# IN-25 / IN-26 (Windows code): statically analyzed on Linux, the
 # ``_hook_callback_queue`` worker thread and the modifier-VK matching
 # in ``_hook_proc`` are exercised via mock-based tests that don't
 # require Windows.
@@ -293,7 +293,7 @@ class TestWaylandSocketPathPerInstance:
 
     Without per-instance paths, the three backends created by
     ``HotkeyDispatcher`` (dictation / ESC / repaste) would collide on
-    the same ``voice-typer-hotkey.sock`` — the second ``start()``
+    the same ``voice-typer-hotkey.sock``, the second ``start()``
     unlinks the first backend's socket and the third unlinks the
     second's, leaving only the last backend's socket alive.
     """
@@ -338,7 +338,7 @@ class TestWaylandSocketPathPerInstance:
 
     def test_three_roles_produce_three_distinct_paths(self, xdg_runtime: str) -> None:
         """The three roles used by ``HotkeyDispatcher`` produce three
-        DISTINCT socket paths — no collision.
+        DISTINCT socket paths, no collision.
 
         This is the core IN-24 regression: before the fix, all three
         backends shared the same path and the second ``start()``
@@ -415,7 +415,7 @@ class TestWaylandSocketPathPerInstance:
             assert dictation.SOCKET_PATH is not None
             assert esc.SOCKET_PATH is not None
             assert dictation.SOCKET_PATH != esc.SOCKET_PATH, (
-                "IN-24 regression: both backends bound the same socket path — "
+                "IN-24 regression: both backends bound the same socket path, "
                 "the second start() unlinked the first's socket."
             )
             assert os.path.exists(dictation.SOCKET_PATH), (
@@ -623,7 +623,7 @@ class TestPermissionGrantedStopsLegacy:
     BEFORE restarting native.
 
     Before the fix, the legacy backend was left running alongside the
-    native backend after a permission-grant recovery — both backends
+    native backend after a permission-grant recovery, both backends
     would fire the same callback on the same keypress (double-toggle,
     double-ESC-cancel, double-repaste) until the next ``_retry_native``
     cycle (~5 minutes later) cleaned it up.
@@ -738,7 +738,7 @@ class TestLLHookCallbackWorker:
     worker thread via a bounded queue, so the hook proc returns
     within ~1ms (Windows marks hooks that take longer as unresponsive).
 
-    Windows-specific code is mocked on Linux — these tests verify the
+    Windows-specific code is mocked on Linux, these tests verify the
     queue/worker plumbing, not the actual Win32 hook installation.
     """
 
@@ -771,7 +771,7 @@ class TestLLHookCallbackWorker:
             backend._enqueue_hook_callback(cb)
             # The worker should run the callback within ~0.5s.
             assert fired.wait(timeout=2.0), (
-                "Worker thread did not run the enqueued callback within 2s — "
+                "Worker thread did not run the enqueued callback within 2s, "
                 "IN-25 regression: callback not dispatched to worker."
             )
         finally:
@@ -783,7 +783,7 @@ class TestLLHookCallbackWorker:
     def test_enqueue_none_is_noop(self):
         """``_enqueue_hook_callback(None)`` must not enqueue anything
         (the None sentinel is used by ``stop()`` to shut down the
-        worker — it must not be treated as a callback)."""
+        worker, it must not be treated as a callback)."""
         from voice_typer.server.hotkeys.windows_native import WindowsNativeHotkey
 
         backend = WindowsNativeHotkey("<f2>")
@@ -803,7 +803,7 @@ class TestLLHookCallbackWorker:
         # Fill the queue to capacity.
         for _ in range(backend._hook_callback_queue.maxsize):
             backend._hook_callback_queue.put_nowait(lambda: None)
-        # The next enqueue must not block — it must drop and log.
+        # The next enqueue must not block, it must drop and log.
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.hotkeys"):
             backend._enqueue_hook_callback(lambda: None)
         assert any("queue full" in r.getMessage() for r in caplog.records), (
@@ -857,7 +857,7 @@ class TestModifierOnlyLLHook:
         ``start()`` so the LL hook proc closure can read it.
 
         This test uses mocking to avoid the Windows-only ``ctypes.windll``
-        calls — we verify the attribute is set, not that the hook is
+        calls, we verify the attribute is set, not that the hook is
         actually installed."""
         import ctypes
 
@@ -905,7 +905,7 @@ class TestModifierOnlyLLHook:
 
         Note: there's a SEPARATE ``not self._is_modifier_only`` guard
         earlier in ``start()`` that raises ``ValueError`` when the
-        hotkey can't be parsed at all (no VK AND no modifiers) — that
+        hotkey can't be parsed at all (no VK AND no modifiers), that
         guard is correct and must stay. This test only checks the
         ``simple_key`` assignment."""
         import inspect
@@ -916,7 +916,7 @@ class TestModifierOnlyLLHook:
         # The simple_key assignment must NOT contain the modifier guard.
         assert "simple_key = self._on_release_callback is None and not self._is_modifier_only" not in source, (
             "IN-26 regression: the ``not self._is_modifier_only`` guard on "
-            "simple_key was not removed — modifier-only hotkeys are still "
+            "simple_key was not removed, modifier-only hotkeys are still "
             "forced onto the polling loop."
         )
         # The new simple_key assignment must be present.
@@ -932,10 +932,10 @@ class TestModifierOnlyLLHook:
 
 class TestFactoryDocstringCadence:
     """AB-52: ``hotkeys/factory.py``'s ``create_hotkey_backend`` docstring
-    used to claim ``GetAsyncKeyState`` polling runs at "1 kHz" — but the
+    used to claim ``GetAsyncKeyState`` polling runs at "1 kHz", but the
     actual polling loop in ``WindowsNativeHotkey._run_polling_loop`` calls
     ``kernel32.Sleep(8)`` with ``timeBeginPeriod(8)``, which yields an
-    ~8 ms cadence ≈ 125 Hz (NOT 1 kHz — the docstring was 8× off).
+    ~8 ms cadence ≈ 125 Hz (NOT 1 kHz, the docstring was 8× off).
 
     The mismatch was purely a stale docstring (the runtime code has been
     correct at 125 Hz since PERF-01/CPU-01). AB-52 in review.md marked
@@ -949,7 +949,7 @@ class TestFactoryDocstringCadence:
 
     def test_factory_docstring_does_not_claim_1khz(self):
         """The ``create_hotkey_backend`` docstring must NOT claim the
-        Windows polling fallback runs at "1 kHz" — that was the stale
+        Windows polling fallback runs at "1 kHz", that was the stale
         claim AB-52 flagged. Any form of "1kHz" / "1 kHz" / "1000Hz" /
         "1000 Hz" is a regression.
         """
@@ -961,13 +961,13 @@ class TestFactoryDocstringCadence:
         flat = doc.replace(" ", "").lower()
         assert "1khz" not in flat, (
             "AB-52 regression: factory.py create_hotkey_backend docstring "
-            "must not claim '1 kHz' polling — the actual cadence is ~125 Hz "
+            "must not claim '1 kHz' polling, the actual cadence is ~125 Hz "
             "(8 ms Sleep with timeBeginPeriod(8)). Found '1khz' substring in "
             "docstring."
         )
         assert "1000hz" not in flat, (
             "AB-52 regression: factory.py create_hotkey_backend docstring "
-            "must not claim '1000 Hz' polling — the actual cadence is ~125 Hz. "
+            "must not claim '1000 Hz' polling, the actual cadence is ~125 Hz. "
             "Found '1000hz' substring in docstring."
         )
 
@@ -987,6 +987,6 @@ class TestFactoryDocstringCadence:
             "AB-52: factory.py create_hotkey_backend docstring must document "
             "the actual ~125 Hz / 8 ms polling cadence (any of: '125 Hz', "
             "'8 ms', 'Sleep(8)', or 'timeBeginPeriod(8)'). Found docstring "
-            "without any of these markers — the stale '1 kHz' claim may have "
+            "without any of these markers, the stale '1 kHz' claim may have "
             "been only partially updated."
         )

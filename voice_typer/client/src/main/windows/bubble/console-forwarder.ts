@@ -16,7 +16,7 @@
  *
  * Forwarder gate: `level >= 1` (INFO and above) instead of the old
  * `level >= 2`, so INFO-level renderer telemetry reaches the main
- * process log too. VERBOSE (level 0) is still dropped — too noisy
+ * process log too. VERBOSE (level 0) is still dropped, too noisy
  * for the main log. Routing goes through the structured logger so
  * WARN/ERROR lines also land in electron-runtime.log.
  *
@@ -36,7 +36,7 @@ import { cleanConsoleMsg, log, RESET } from "../../logging";
 /**
  * Detail handed to `ConsoleForwarderOptions.onError` for an
  * ERROR-channel console event. `message` is the ALREADY-CLEANED text
- * (`cleanConsoleMsg` output — printf specifiers and `%c` style
+ * (`cleanConsoleMsg` output, printf specifiers and `%c` style
  * prefixes stripped) so the sink does not re-run the cleaning pass.
  */
 export interface ConsoleForwarderErrorDetail {
@@ -69,7 +69,7 @@ export interface ConsoleForwarderOptions {
 	 * persistence paths (e.g. `renderer-telemetry.ts`'s PII-redacted
 	 * `electron-renderer-errors.log` append) never re-run
 	 * `cleanConsoleMsg`. The sink must be best-effort and must not
-	 * throw — logging must never break the forwarding path.
+	 * throw, logging must never break the forwarding path.
 	 */
 	onError?: (detail: ConsoleForwarderErrorDetail) => void;
 }
@@ -101,7 +101,7 @@ export function attachConsoleForwarder(
 			else if (level === 2) log.warn(msg);
 			else log.info(msg);
 			if (level >= 3 && onError) {
-				// Hand the already-cleaned text to the sink — ERROR
+				// Hand the already-cleaned text to the sink, ERROR
 				// persistence must not re-run cleanConsoleMsg (it ran
 				// twice per ERROR line before this hook existed).
 				onError({

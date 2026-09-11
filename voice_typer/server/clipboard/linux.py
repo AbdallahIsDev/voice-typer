@@ -11,7 +11,7 @@ Extracted from the original ``clipboard.py`` monolith. Contains:
 
 Design contract: all patchable symbols (``pyperclip``, ``subprocess``,
 ``is_linux``, ``_is_wayland_session``, etc.) are looked up via the
-PACKAGE (``_cb.X``) at call time — NOT via this module's globals —
+PACKAGE (``_cb.X``) at call time. NOT via this module's globals —
 so test patches like ``monkeypatch.setattr(clip_mod, "pyperclip",
 mock)`` actually take effect on the code paths in this module.
 """
@@ -32,7 +32,7 @@ if TYPE_CHECKING:  # pragma: no cover
     pass
 
 # the per-submodule `log = logging.getLogger(...)` definition
-# was removed because it was unused — every log call in this module
+# was removed because it was unused, every log call in this module
 # routes through `_cb.log` (the package-level logger imported above
 # as `_cb`). Defining a separate `log` here would shadow the
 # package logger and risk future contributors adding `log.info(...)`
@@ -60,7 +60,7 @@ def _shutil_which_cached(binary: str) -> str | None:
     binary per process.  Returns ``None`` if the binary is not on
     ``$PATH`` (same as :func:`shutil.which`).
     """
-    import shutil  # noqa: PLC0415 — stdlib, kept lazy to mirror existing style
+    import shutil  # noqa: PLC0415, stdlib, kept lazy to mirror existing style
 
     return shutil.which(binary)
 
@@ -136,7 +136,7 @@ _TERMINAL_PROCESS_NAMES: set[str] = {
     # D-Bus-activated helper that owns the PTYs.
     "ptyxis",
     "ptyxis-agent",
-    # BlackBox is a GTK4/libadwaita terminal for GNOME — its binary
+    # BlackBox is a GTK4/libadwaita terminal for GNOME, its binary
     # name does not contain "term" so the existing heuristic missed it.
     "blackbox",
     # Tabby (formerly "Terminus") is an Electron-based terminal whose
@@ -170,7 +170,7 @@ _RICH_EDITOR_PROCESS_NAMES: set[str] = {
 
 # ─── ADR-0020 §6.6: Wayland clipboard fallback (wl-copy / wl-paste) ────
 #
-# On Wayland, `pyperclip.copy()` does NOT work reliably — pyperclip
+# On Wayland, `pyperclip.copy()` does NOT work reliably, pyperclip
 # auto-detects xclip / xsel which are X11-only and silently no-op under
 # native Wayland apps. ADR-0020 §6.6 mandates the clipboard + Ctrl+V
 # fallback path via `wl-copy` / `wl-paste` (provided by the `wl-clipboard`
@@ -200,7 +200,7 @@ def _is_wayland_session(*, broad: bool = False) -> bool:
         patches ``_is_wayland_session`` to ``lambda: True`` / ``lambda:
         False`` and calls it with NO arguments). When ``broad=True``, the
         function ALSO accepts ``XDG_SESSION_TYPE=wayland`` as evidence of a
-        Wayland session — some compositors (e.g. sway launched from a TTY)
+        Wayland session, some compositors (e.g. sway launched from a TTY)
         set ``XDG_SESSION_TYPE`` but not ``WAYLAND_DISPLAY`` in the spawned
         process's env, so the narrow check would miss them. The broad
         variant was previously a separate function
@@ -216,7 +216,7 @@ def _is_wayland_session(*, broad: bool = False) -> bool:
         single source of truth across the codebase. The narrow mode
         (``broad=False``) intentionally checks ONLY ``WAYLAND_DISPLAY``
         because clipboard copy/paste via ``wl-copy`` / ``wl-paste``
-        requires a reachable Wayland socket — if ``WAYLAND_DISPLAY`` is
+        requires a reachable Wayland socket, if ``WAYLAND_DISPLAY`` is
         unset, ``wl-copy`` would fail regardless of ``XDG_SESSION_TYPE``,
         so we should fall through to ``pyperclip`` instead.
     """
@@ -281,7 +281,7 @@ def _linux_wayland_copy(text: str) -> None:
         ``/proc/<pid>/cmdline`` (world-readable on Linux), leaking
         dictated secrets to other accounts on the box. The pre-fix
         docstring claimed "piped to stdin" but the implementation
-        contradicted it — the docstring is now accurate. ``wl-copy`` with
+        contradicted it, the docstring is now accurate. ``wl-copy`` with
         no positional argument reads text from stdin, so we pass an empty
         argv (``["wl-copy"]``) and feed the UTF-8-encoded text via
         ``input=...``.
@@ -343,7 +343,7 @@ def _linux_wayland_paste() -> str:
 
 # Wayland paste fallback (wtype) ──────────────────────────
 #
-# pynput.keyboard.Controller is X11-only — on a native Wayland session it
+# pynput.keyboard.Controller is X11-only, on a native Wayland session it
 # either silently no-ops or raises (depending on whether XWayland is
 # reachable). ADR-0020 §6.6 /  mandate a `wtype` shell-out as the
 # canonical Wayland text-injection path. `ydotool` is a fallback for
@@ -362,7 +362,7 @@ _WTYPE_SHORT_TEXT_THRESHOLD = 300  # chars; matches  recommendation
 def _is_wayland_paste_session() -> bool:
     """Return True if running on a Linux Wayland session (paste routing).
 
-    broader than :func:`_is_wayland_session` — also accepts
+    broader than :func:`_is_wayland_session`: also accepts
         ``XDG_SESSION_TYPE=wayland`` for compositors that don't set
         ``WAYLAND_DISPLAY`` in the spawned process's env.
 
@@ -372,7 +372,7 @@ def _is_wayland_paste_session() -> bool:
         duplication has been eliminated by parameterising the single
         :func:`_is_wayland_session` function. This wrapper is retained so
         existing call sites in ``clipboard/manager.py`` (which import the
-        historical name) don't need a coordinated rename — it delegates
+        historical name) don't need a coordinated rename, it delegates
         directly so behavior is identical to the inline implementation
         that preceded it.
     """
@@ -382,7 +382,7 @@ def _is_wayland_paste_session() -> bool:
 def _have_wtype() -> bool:
     """Return True if `wtype` (Wayland text-injection tool) is on PATH.
 
-    memoised with :func:`functools.lru_cache` — see
+    memoised with :func:`functools.lru_cache`: see
         :func:`_have_wl_clipboard` for rationale.  ``wtype`` is an
         invariant system binary (installed by the distro package manager)
         so the result does not change during a session.
@@ -399,7 +399,7 @@ def _linux_paste_via_wtype(text: str | None, is_terminal: bool = False) -> None:
     (High, Wayland perf): we ALWAYS use the clipboard path
         (``wtype -k ctrl+v``) instead of typing short text directly with
         ``wtype -d 50``. The previous short-text path used a 50ms/keystroke
-        delay, which made pasting 300 chars take ~15 seconds — a noticeable
+        delay, which made pasting 300 chars take ~15 seconds, a noticeable
         UX regression for short dictations. Since :meth:`ClipboardManager.copy`
         already populated the Wayland clipboard via ``wl-copy``, the
         ``Ctrl+V`` path is always available and is O(1) regardless of text
@@ -429,7 +429,7 @@ def _linux_paste_via_wtype(text: str | None, is_terminal: bool = False) -> None:
 
         Raises ``RuntimeError`` if `wtype` is missing or exits non-zero, or
         ``subprocess.TimeoutExpired``-derived ``RuntimeError`` on hang (5s
-    cap — matches the wl-clipboard timeout per ).
+    cap, matches the wl-clipboard timeout per ).
     """
     # always paste from clipboard via Ctrl+V (or Ctrl+Shift+V for
     # terminals). The previous short-text path (`wtype -d 50 -- <text>`)
@@ -437,11 +437,11 @@ def _linux_paste_via_wtype(text: str | None, is_terminal: bool = False) -> None:
     # (Medium, Wayland race): settle delay between the wl-copy return
     # and the wtype fork. Best-effort: a patched ``_cb.time`` (the
     # standard test pattern) becomes a MagicMock, whose ``.sleep``
-    # attribute is auto-created as another MagicMock — so the call is
+    # attribute is auto-created as another MagicMock, so the call is
     # a no-op in tests. The try/except guards against a ``time``
     # module that doesn't expose ``sleep`` (it always does on stdlib
     # ``time``, but the patch may swap it for an object without one).
-    # Narrow the guard — a patched ``_cb.time`` may not expose
+    # Narrow the guard, a patched ``_cb.time`` may not expose
     # ``sleep``, but swallowing a real failure here would mask the
     # settle-delay regression. ``contextlib.suppress`` with the concrete
     # exception types keeps the intent (best-effort delay) without a
@@ -449,7 +449,7 @@ def _linux_paste_via_wtype(text: str | None, is_terminal: bool = False) -> None:
     import contextlib as _ctxlib
     import subprocess
 
-    with _ctxlib.suppress(AttributeError, TypeError):  # pragma: no cover — defensive
+    with _ctxlib.suppress(AttributeError, TypeError):  # pragma: no cover, defensive
         _cb.time.sleep(0.015)
 
     paste_key = "ctrl+shift+v" if is_terminal else "ctrl+v"
@@ -488,21 +488,21 @@ def _linux_copy(text: str) -> None:
             _cb._linux_wayland_copy(text)
             return
         except Exception as exc:
-            _cb.log.warning("[CLIPBOARD] wl-copy failed (%s) — falling back to pyperclip", exc)
+            _cb.log.warning("[CLIPBOARD] wl-copy failed (%s), falling back to pyperclip", exc)
     _cb.pyperclip.copy(text)
 
 
 def _linux_paste() -> str:
     """Read clipboard text on Linux, choosing the right backend.
 
-    Mirrors :func:`_linux_copy` — uses `wl-paste` on Wayland when
+    Mirrors :func:`_linux_copy`: uses `wl-paste` on Wayland when
     available, otherwise `pyperclip.paste()`.
     """
     if _cb._is_wayland_session() and _cb._have_wl_clipboard():
         try:
             return _cb._linux_wayland_paste()
         except Exception as exc:
-            _cb.log.warning("[CLIPBOARD] wl-paste failed (%s) — falling back to pyperclip", exc)
+            _cb.log.warning("[CLIPBOARD] wl-paste failed (%s), falling back to pyperclip", exc)
     return _cb.pyperclip.paste()
 
 
@@ -515,7 +515,7 @@ def _copy_to_clipboard(text: str) -> None:
 
     Tests that monkeypatch ``clipboard.pyperclip`` continue to work
     because the Linux branch only short-circuits to ``wl-copy`` when
-    ``WAYLAND_DISPLAY`` is set — headless test environments fall through
+    ``WAYLAND_DISPLAY`` is set, headless test environments fall through
     to ``pyperclip.copy`` unchanged.
     """
     if _cb.is_linux():

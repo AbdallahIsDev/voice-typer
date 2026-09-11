@@ -8,7 +8,7 @@
  * call sites in the source. A source-level check is more reliable than
  * a behavioural test that would have to instrument React internals
  * (e.g., spy on `React.createElement` to capture prop identity, or
- * count child re-renders via a mocked child) — both of which are flaky
+ * count child re-renders via a mocked child), both of which are flaky
  * under React 19's concurrent renderer and add significant test setup
  * boilerplate. The source grep also fails fast and points the reviewer
  * directly at the regression if a future refactor removes the
@@ -16,7 +16,7 @@
  *
  * Covered invariants:
  *
- *  (a) Settings — `sectionProps` is wrapped in `useMemo` with
+ *  (a) Settings, `sectionProps` is wrapped in `useMemo` with
  *      `[config, updateConfig, updateConfigDebounced, _filter_settings]`
  *      deps so it has a stable identity across re-renders when those
  *      deps are unchanged. Previously a fresh object literal was built
@@ -26,12 +26,12 @@
  *      page render. Also guards: the empty-state visibility derivation
  *      is keyed on the query (not recomputed per render) and
  *      `resetToDefaults` is a stable `useCallback` (ConfirmDialog's
- *      `onConfirm` benefits) — both derivations now live in the
+ *      `onConfirm` benefits), both derivations now live in the
  *      extracted settings hooks (`settings/hooks/useSettingsSearch.ts`
  *      / `settings/hooks/useSettingsReset.ts`) after the page-root
  *      slimming, and are asserted at their new homes.
  *
- *  (b) Home — the status pill, mic toggle button, last-transcription
+ *  (b) Home, the status pill, mic toggle button, last-transcription
  *      preview, and recording timer are extracted into their own files
  *      under `pages/home/components/` and each is wrapped in
  *      `React.memo` (`export default memo(Name)` over a named function,
@@ -42,14 +42,14 @@
  *      subscription (and reused inside `transcription_final`) so those
  *      events don't churn handler identities on every render.
  *
- *  (c) Home hotkey reload — the per-`status_change` `get_config` fetch
+ *  (c) Home hotkey reload, the per-`status_change` `get_config` fetch
  *      moved to the `config_changed` event. `status_change` fires on
  *      every recording → transcribing → idle transition, so a
  *      per-event config round-trip was wasted IPC; the hotkey only
  *      changes when Settings saves (`config_changed`), which is where
  *      it is now re-fetched.
  *
- *  (d) Home initial load — `initialLoading`'s initializer reads the
+ *  (d) Home initial load, `initialLoading`'s initializer reads the
  *      stats/recent caches through the component-scoped ref-memoized
  *      loaders (`loadCachedStats(cachedStatsRef)` /
  *      `loadCachedRecent(cachedRecentRef)`), so repeated calls never
@@ -57,7 +57,7 @@
  *      (module-level mutable cache bindings + repeated raw reads) must
  *      stay gone.
  *
- *  (e) Route switching — the secondary pages' lazy-import registry
+ *  (e) Route switching, the secondary pages' lazy-import registry
  *      lives in ONE shared module (router/pageLoaders.ts: the
  *      `PAGE_LOADERS` loaders + `LAZY_PAGES` components consumed by
  *      both router/PageSwitch.tsx and router/prefetch.ts). Secondary
@@ -67,7 +67,7 @@
  *      fallback component so first-time navigation shows a spinner
  *      instead of a blank frame.
  *
- *  (f) Dashboard — the derived render values (period stats, activity
+ *  (f) Dashboard, the derived render values (period stats, activity
  *      chart bars, correction stats) are computed inside `useMemo`s in
  *      the `useDashboardData` hook keyed on the history sample and the
  *      selected range, and the page consumes the memoized values rather
@@ -98,7 +98,7 @@ function stripLineComments(src: string): string {
  * Slice out the body of a `usePythonEvent("<type>", ...)` call from the
  * given source (line comments stripped). Returns everything from the
  * call start up to (but not including) the next top-level
- * `usePythonEvent(` occurrence — good enough to assert on what a
+ * `usePythonEvent(` occurrence, good enough to assert on what a
  * specific subscription's handler does without parsing balanced parens.
  */
 function sliceUsePythonEventBlock(src: string, type: string): string | null {
@@ -117,7 +117,7 @@ describe("Settings page keeps sectionProps referentially stable via useMemo", ()
 	it("wraps sectionProps in useMemo with the correct deps", () => {
 		const src = readSrc("pages/Settings.tsx");
 
-		// The sectionProps declaration must use useMemo — not be a
+		// The sectionProps declaration must use useMemo, not be a
 		// plain object literal. We match `useMemo(` (not `useMemo `)
 		// to allow either formatting style.
 		expect(src).toMatch(/const\s+sectionProps\s*=\s*useMemo\(/);
@@ -126,7 +126,7 @@ describe("Settings page keeps sectionProps referentially stable via useMemo", ()
 		// reads: `config`, `updateConfig`, `updateConfigDebounced`,
 		// and the filter predicate. Missing any one of these would
 		// cause the memo to return a stale object when the omitted dep
-		// changed — silently breaking the section components.
+		// changed, silently breaking the section components.
 		//
 		// We use a multiline regex so the deps array can span
 		// multiple lines (Biome may wrap it).
@@ -167,7 +167,7 @@ describe("Settings page keeps sectionProps referentially stable via useMemo", ()
 		expect(memoMatch, "hasAnyVisibleRow useMemo not found").not.toBeNull();
 		const depsBody = memoMatch?.[1] ?? "";
 		expect(depsBody).toContain("query");
-		// The derivation consumes the memoized label universe — that must
+		// The derivation consumes the memoized label universe, that must
 		// be a dep too, or a label-universe change would leave a stale
 		// sentinel.
 		expect(depsBody).toContain("sectionLabelsByPage");
@@ -296,7 +296,7 @@ describe("Home reloads the hotkey from config_changed instead of status_change",
 
 	it("re-fetches the hotkey from the config_changed handler", () => {
 		const src = readSrc("pages/Home.tsx");
-		// config_changed fires when Settings saves a new config — that
+		// config_changed fires when Settings saves a new config, that
 		// is the only moment the hotkey can change, so this handler
 		// performs the get_config fallback fetch and updates the
 		// rendered hotkey via setHotkey(...).
@@ -353,14 +353,14 @@ describe("Route switching lazy-loads secondary pages behind a Suspense fallback"
 		const src = readSrc(ROUTE_SRC_PATH);
 		expect(src).toMatch(/import\s+\{[^}]*\bSuspense\b[^}]*\}\s+from\s+"react"/);
 		// The React.lazy() calls moved to the shared registry module
-		// (router/pageLoaders.ts) — `lazy` itself is imported there.
+		// (router/pageLoaders.ts), `lazy` itself is imported there.
 		const registrySrc = readSrc(LOADERS_SRC_PATH);
 		expect(registrySrc).toMatch(
 			/import\s+\{[^}]*\blazy\b[^}]*\}\s+from\s+"react"/,
 		);
 	});
 
-	it("keeps Home as an eager (static) import — default landing page", () => {
+	it("keeps Home as an eager (static) import, default landing page", () => {
 		const src = readSrc(ROUTE_SRC_PATH);
 		// Home is the default landing page; it must NOT be lazy
 		// (loading it via React.lazy would add a Suspense fallback
@@ -400,7 +400,7 @@ describe("Route switching lazy-loads secondary pages behind a Suspense fallback"
 				`Expected: import("${importPath}") in ${LOADERS_SRC_PATH}`,
 			).toBe(true);
 			// The lazy component is created ONCE at module scope from
-			// the SAME loaders map (single registry — no second copy of
+			// the SAME loaders map (single registry, no second copy of
 			// the import specifiers).
 			const lazyPattern = new RegExp(
 				`lazy\\(\\s*PAGE_LOADERS\\.${loaderKey}\\s*\\)`,
@@ -415,7 +415,7 @@ describe("Route switching lazy-loads secondary pages behind a Suspense fallback"
 	it("wraps the routed content in <Suspense> with a real component fallback", () => {
 		const src = readSrc(ROUTE_SRC_PATH);
 		// The Suspense wrapper's fallback must be a dedicated fallback
-		// COMPONENT (`<RouteSuspenseFallback />` today) — not null,
+		// COMPONENT (`<RouteSuspenseFallback />` today), not null,
 		// undefined, or a blank fragment, which would flash an empty
 		// frame on first navigation to a not-yet-loaded chunk.
 		expect(src).toMatch(

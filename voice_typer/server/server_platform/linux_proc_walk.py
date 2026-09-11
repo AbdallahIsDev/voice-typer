@@ -4,11 +4,11 @@ The Linux sibling of :mod:`voice_typer.server.server_platform
 .macos_bundle_id`: the macOS walker runs ``ps -p <pid> -o ppid= -o
 comm=`` to climb from the backend to the nearest ``*.app`` bundle;
 this module climbs the same bounded parent chain on Linux by reading
-``/proc/<pid>/stat`` (parent PID — field 4) and ``/proc/<pid>/cmdline``
-(argv[0] — the executable the process was launched with).
+``/proc/<pid>/stat`` (parent PID, field 4) and ``/proc/<pid>/cmdline``
+(argv[0], the executable the process was launched with).
 
 Bundle-detection semantics (honest): Linux has NO ``*.app`` bundles, so
-host-bundle detection is a documented no-op — the walker exercises the
+host-bundle detection is a documented no-op, the walker exercises the
 full bounded chain (same ``_MAX_CHAIN_DEPTH`` semantics as macOS) and
 returns ``None`` per the current design. The WALK is the point: it
 validates that the ``/proc`` chain is readable and terminates cleanly
@@ -19,7 +19,7 @@ validates that the ``/proc`` chain is readable and terminates cleanly
 changing its termination guarantees.
 
 Linux permission re-grants are udev/polkit-based (not TCC-based), so
-callers treat a ``None`` result as "no host bundle to re-grant" — the
+callers treat a ``None`` result as "no host bundle to re-grant", the
 macOS ``tccutil`` path simply has no Linux counterpart today.
 """
 
@@ -87,7 +87,7 @@ def _read_proc_entry(pid: int, proc_root: str | Path = _PROC_ROOT) -> tuple[int 
     Reads ``/proc/<pid>/stat`` + ``/proc/<pid>/cmdline``. Each read is
     individually guarded: a process that exits mid-read (or a host
     without ``/proc`` at ``proc_root``) yields ``None`` for that field
-    rather than an exception — mirroring ``_process_chain_line``'s
+    rather than an exception, mirroring ``_process_chain_line``'s
     "return \"\" on any failure" contract in the macOS walker.
     """
     proc = Path(proc_root)
@@ -101,14 +101,14 @@ def _read_proc_entry(pid: int, proc_root: str | Path = _PROC_ROOT) -> tuple[int 
 
 
 def resolve_linux_host_bundle_id() -> str | None:
-    """Resolve the (non-existent) Linux host-bundle ID — the walk is the point.
+    """Resolve the (non-existent) Linux host-bundle ID, the walk is the point.
 
     Linux-only (returns ``None`` on other platforms without touching
     ``/proc``). Walks the real parent-process chain via ``/proc``,
     bounded by ``_MAX_CHAIN_DEPTH`` (shared with the macOS walker), and
     always returns ``None``: Linux has no ``*.app`` bundles to detect
     per the current design (see the module docstring). The walk itself
-    is exercised end-to-end — a regression that makes the chain walk
+    is exercised end-to-end, a regression that makes the chain walk
     crash or loop is caught even though the return value is constant.
     """
     if not is_linux():
@@ -120,12 +120,12 @@ def _resolve_linux_host_bundle_id(start_pid: int | None = None, proc_root: str |
     """Walk the real ``/proc`` chain (``start_pid`` injectable for tests).
 
     ``start_pid`` defaults to the backend's own parent
-    (``os.getppid()``) — the Tauri host in the bundled launch path,
+    (``os.getppid()``), the Tauri host in the bundled launch path,
     mirroring the macOS walker. Every hop is logged at DEBUG so a
     failing chain is traceable. Terminates cleanly on: ``pid <= 1``
     (reached init), an unreadable stat entry (process exited between
     hops), a malformed entry, or the depth bound. Always returns
-    ``None`` on Linux today (no bundle detection — see the module
+    ``None`` on Linux today (no bundle detection: see the module
     docstring).
     """
     pid = os.getppid() if start_pid is None else start_pid
@@ -135,7 +135,7 @@ def _resolve_linux_host_bundle_id(start_pid: int | None = None, proc_root: str |
         ppid, exe = _read_proc_entry(pid, proc_root)
         log.debug("[PROC-CHAIN] linux hop pid=%s ppid=%s exe=%s", pid, ppid, exe)
         if ppid is None:
-            # Unreadable / malformed stat — the chain ends here. (On a
+            # Unreadable / malformed stat, the chain ends here. (On a
             # host without ``/proc`` every hop ends here immediately:
             # graceful no-op termination.)
             break

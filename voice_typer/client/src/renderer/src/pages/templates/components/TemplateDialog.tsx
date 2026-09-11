@@ -11,7 +11,7 @@
 // field groups.
 //
 // 2026-09-02 theme pass (native primitives, roomier panel):
-//   - The custom ``rounded-lg`` field chrome is GONE — every control
+//   - The custom ``rounded-lg`` field chrome is GONE, every control
 //     now uses the app's native pill language: the shared ``Input``
 //     (rounded-xl, bg-input/50, pointer/keyboard focus modality), the
 //     new shared ``Textarea`` (same pill + focus contract), and the
@@ -19,7 +19,7 @@
 //     Button). A single overlay-wide field shell fought all three
 //     primitives and read as off-theme next to every other dialog.
 //   - Panel widened 420px → 520px (``size="lg"`` lifts the max-w cap
-//     to max-w-xl; ``w-130`` sets the width) — the form reads less
+//     to max-w-xl; ``w-130`` sets the width), the form reads less
 //     cramped at 5 textarea rows.
 //   - The unknown-variable alert uses the ``--warning`` theme token
 //     (tracks the active theme like the warning Button variant)
@@ -27,7 +27,7 @@
 //
 // 2026-09-03 info architecture pass + field polish:
 //   - Trigger description moved from a body paragraph into an
-//     InfoTooltip beside the label — the exact Settings-page pattern.
+//     InfoTooltip beside the label, the exact Settings-page pattern.
 //   - Output helper split into TWO rows: description paragraph first,
 //     then ALL variable chips grouped on their own row (they used to
 //     flow inline with the sentence).
@@ -36,7 +36,7 @@
 //     default rounded-xl read too round) + ``bg-input/25`` (the 50%
 //     wash was too visible on the bg panel). Match mode is the shared
 //     two-option ``SegmentedControl`` stacked vertically (label above,
-//     control below) — same row layout as the trigger and output fields.
+//     control below), same row layout as the trigger and output fields.
 //   - All spacing uses ``flex gap-`` instead of ``space-y-`` / margin
 //     utilities: each field group is a ``flex-col gap-2`` container,
 //     and the three groups are wrapped in a ``flex-col gap-6`` root.
@@ -88,7 +88,7 @@ export function TemplateDialog({
 	onInsertVariable,
 }: TemplateDialogProps) {
 	// The Save button is disabled until BOTH fields have
-	// non-whitespace content — mirrors the sibling VocabDialog pattern
+	// non-whitespace content, mirrors the sibling VocabDialog pattern
 	// so the user sees the disabled affordance up-front instead of
 	// clicking an enabled button and getting a transient warning toast.
 	const canSave = trigger.trim() !== "" && expansion.trim() !== "";
@@ -97,7 +97,7 @@ export function TemplateDialog({
 	// the overlay, the corner close button, OR the footer Cancel button
 	// while the form holds content that differs from the template being
 	// edited (or any content for a fresh add), confirm the discard
-	// first. Every close path funnels through the same veto — an
+	// first. Every close path funnels through the same veto, an
 	// explicit Cancel click after edits is a silent data-loss path
 	// otherwise. Save is the only ungated exit (it commits the edits).
 	const [confirmingDiscard, setConfirmingDiscard] = useState(false);
@@ -123,7 +123,7 @@ export function TemplateDialog({
 
 	// Surface unknown template-variable tokens (e.g. {date}).
 	// The substitution layer (templates/lib/transform.ts) silently drops
-	// unknown tokens — this warning tells the user why {date} would be
+	// unknown tokens, this warning tells the user why {date} would be
 	// emitted verbatim. Only the 4 supported tokens are treated as known.
 	const unknownVars = Array.from(
 		new Set(
@@ -141,14 +141,14 @@ export function TemplateDialog({
 				editingTemplate ? t("templates.editTitle") : t("templates.addTitle")
 			}
 			// Roomier form panel: size="lg" lifts the dialog max-width cap
-			// to max-w-xl on desktop and w-130 sets a 520px panel — the
+			// to max-w-xl on desktop and w-130 sets a 520px panel, the
 			// default 420px box cramped the 5-row textarea + chip row.
 			size="lg"
 			className="w-130"
 		>
 			<div className="flex flex-col gap-6">
 				<div className="flex flex-col gap-2">
-					{/* Label + help tooltip — the same pattern as every
+					{/* Label + help tooltip, the same pattern as every
 					    Settings row (SettingRow renders InfoTooltip beside
 					    the label). The trigger description moved OUT of the
 					    body into this tooltip. */}
@@ -189,7 +189,7 @@ export function TemplateDialog({
 						className="resize-y rounded-lg bg-input/25"
 					/>
 					{/* Two rows: the description alone on the first row,
-					    ALL variable chips grouped on the second — the chips
+					    ALL variable chips grouped on the second, the chips
 					    no longer flow inline with the sentence. */}
 					<p className="text-xs text-(--text-muted)">
 						{t("templates.outputHelp")}

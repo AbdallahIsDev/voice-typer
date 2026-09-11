@@ -1,6 +1,6 @@
 """Config side-effect dispatcher tests split out of the former ``tests/test_history_and_models.py``.
 
-Domain: config-apply side effects — ``apply_config`` persists via
+Domain: config-apply side effects: ``apply_config`` persists via
 ``save_strict()`` (SVC-11 / PVT-21 / G4-H-12 rollback pattern).
 
 The former ``TestConfigSideEffectDispatcher`` class (SVC-2, which
@@ -10,7 +10,7 @@ over: the registry was deleted when side-effect dispatch moved into
 by ``tests/test_config_applier.py``).
 
 Class/method names + assertions are preserved verbatim from the
-original monolith — only file location has changed.
+original monolith, only file location has changed.
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ class TestApplyConfigPersistsOnSideEffectFailure:
     2. ``config_applier.apply_config`` calls ``apply_config_side_effects``
        then ``app.config.save_strict()`` (NOT ``save()``).
     3. CR-97: ``save_strict()`` raises ``RuntimeError`` if ``save()``
-       returned ``False`` (disk write failure) — the IPC handler is
+       returned ``False`` (disk write failure), the IPC handler is
        expected to catch this and surface the error.
     4. G4-H-12: if ``save_strict()`` raises, in-memory Config is rolled
        back to the pre-setattr snapshot so live state matches disk.
@@ -97,7 +97,7 @@ class TestApplyConfigPersistsOnSideEffectFailure:
         """PVT-21: when ``apply_config_side_effects`` raises, the raise
         propagates and ``save_strict()`` is NOT called. The original
         exception is re-raised so the IPC layer can surface the error.
-        (Replaces the SVC-11 "save in finally" guarantee — see class docstring.)"""
+        (Replaces the SVC-11 "save in finally" guarantee: see class docstring.)"""
 
         service, app = self._make_service_and_app()
         import dataclasses

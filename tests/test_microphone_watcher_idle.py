@@ -3,12 +3,12 @@ wire the microphone watcher's ``set_idle`` gate.
 
 Pre-fix: ``MicrophoneDeviceWatcher.set_idle`` was DEFINED
 (``microphone_watcher.py:177``) and CONSUMED by the macOS/Linux polling
-paths (``microphone_watcher.py:552``, ``:722``, ``:728`` — the cadence
+paths (``microphone_watcher.py:552``, ``:722``, ``:728``, the cadence
 selection reads ``self._is_idle``) but had ZERO production callers —
 verified via ``rg -n "set_idle\\(" voice_typer/`` (only the definition
 itself, no call sites). The default state ``_is_idle = True`` therefore
 stayed ``True`` forever and the active 3 s poll cadence NEVER engaged
-during recording — the watcher idled at 12 s always. Effect INVERTED:
+during recording, the watcher idled at 12 s always. Effect INVERTED:
 the cadence selection logic was correct, but no one toggled it.
 
 Post-fix (Wave 1, sub-agent 11): ``start_recording`` calls
@@ -27,10 +27,10 @@ verify:
   1. Happy-path start calls ``set_idle(False)`` exactly once.
   2. Happy-path stop (non-empty buffer) calls ``set_idle(True)`` once.
   3. Empty-buffer stop (``_buffer`` empty inside the lock) still calls
-     ``set_idle(True)`` — the early-return path is gated on the watcher
+     ``set_idle(True)``, the early-return path is gated on the watcher
      toggle.
   4. Failure path: when ``_start_event_worker`` raises,
-     ``set_idle(False)`` is NOT called — the toggle sits at the very
+     ``set_idle(False)`` is NOT called, the toggle sits at the very
      end of ``start_recording`` so any earlier failure prevents it.
   5. ``None`` guard: when ``recorder._devices._mic_watcher is None``, neither
      ``start`` nor ``stop`` touches the attribute (no ``AttributeError``
@@ -41,7 +41,7 @@ The mock factories here intentionally mirror
 ``tests/test_recorder_split_stop.py::_build_mock_recorder`` so the
 stub surface matches what production ``start_recording`` /
 ``stop_recording`` actually touch (no PortAudio, no real worker
-threads, no OS permissions module — pure unit test).
+threads, no OS permissions module, pure unit test).
 """
 
 from __future__ import annotations
@@ -60,7 +60,7 @@ from voice_typer.server.recording._recorder_split import (
 # ── Module-binding interception ───────────────────────────────────
 # ``start_recording`` / ``stop_recording`` invoke the free functions
 # ``refresh_vad_caches`` / ``prepare_audio`` (imported at
-# :mod:`._recorder_split` module level) — the historical
+# :mod:`._recorder_split` module level), the historical
 # ``Recorder._refresh_vad_caches`` / ``Recorder._prepare_audio``
 # delegators were removed. The autouse fixture below patches those
 # bindings so mock recorders never run the real bodies.
@@ -102,7 +102,7 @@ def _build_start_recorder(*, open_success: bool = True) -> MagicMock:
     ``set_idle`` was/wasn't called. Production ``Recorder._devices._mic_watcher``
     is a property delegating to ``self._devices._mic_watcher``; on a
     MagicMock the property-read is replaced by the explicit attribute
-    set below — preserving the same access pattern.
+    set below, preserving the same access pattern.
     """
     recorder = MagicMock(name="recorder")
     recorder.config = MagicMock(name="config")
@@ -246,7 +246,7 @@ class TestStartRecordingWiresSetIdleFalse:
 
         start_recording(recorder)
 
-        # ``set_idle(False)`` must be the FINAL entry — after
+        # ``set_idle(False)`` must be the FINAL entry, after
         # ``start_device_health_checker``.
         assert call_log[-1] == "set_idle(False)", (
             f"set_idle(False) must be the last call in start_recording; got call_log={call_log}"
@@ -261,7 +261,7 @@ class TestStartRecordingWiresSetIdleFalse:
 
 class TestStartRecordingFailurePath:
     """If ``start_recording`` raises, ``set_idle(False)`` must NOT be
-    called — otherwise the watcher would be left in the active 3 s
+    called, otherwise the watcher would be left in the active 3 s
     cadence even though no recording is in flight (the inverse of the
     cadence-toggle bug, but still wrong)."""
 
@@ -279,7 +279,7 @@ class TestStartRecordingFailurePath:
 
     def test_set_idle_false_not_called_when_audio_worker_raises(self):
         """When ``_start_audio_worker`` raises, the rollback path
-        tears down the stream and re-raises — ``set_idle(False)``
+        tears down the stream and re-raises: ``set_idle(False)``
         must NOT be called."""
         recorder = _build_start_recorder()
         recorder._start_audio_worker.side_effect = RuntimeError("audio worker spawn failed")
@@ -312,12 +312,12 @@ class TestStartRecordingFailurePath:
 
 class TestStartRecordingNoneWatcherGuard:
     """When ``recorder._devices._mic_watcher is None`` (macOS-without-pyobjc
-    fall-back, or the watcher failed to start — see
+    fall-back, or the watcher failed to start: see
     ``DeviceManager.__init__``), ``start_recording`` must NOT touch
     the attribute (no ``None.set_idle(...)`` deref → ``AttributeError``)."""
 
     def test_start_does_not_raise_when_mic_watcher_is_none(self):
-        """A ``None`` ``_mic_watcher`` must be tolerated — the watcher
+        """A ``None`` ``_mic_watcher`` must be tolerated, the watcher
         never came up, so the cadence toggle is a no-op anyway."""
         recorder = _build_start_recorder()
         recorder._devices._mic_watcher = None
@@ -336,7 +336,7 @@ class TestStopRecordingWiresSetIdleTrue:
     def test_stop_calls_set_idle_true_once_non_empty_buffer(self):
         """A successful ``stop_recording`` with a non-empty buffer
         must invoke ``recorder._devices._mic_watcher.set_idle(True)`` exactly
-        once — returning the watcher to the idle 12 s cadence
+        once, returning the watcher to the idle 12 s cadence
         between recordings."""
         recorder = _build_stop_recorder(recording=True)
         stop_recording(recorder)
@@ -346,7 +346,7 @@ class TestStopRecordingWiresSetIdleTrue:
     def test_stop_calls_set_idle_true_on_empty_buffer_path(self):
         """The empty-buffer early-return path (the
         ``if not recorder._audio_pipeline._buffer:`` branch inside the lock) must
-        ALSO call ``set_idle(True)`` — a stop with no audio captured
+        ALSO call ``set_idle(True)``, a stop with no audio captured
         is still a stop, and the watcher must return to idle."""
         recorder = _build_stop_recorder(recording=True, buffer_chunks=[])
         stop_recording(recorder)
@@ -393,7 +393,7 @@ class TestStartStopRoundTrip:
 
     def test_round_trip_calls_set_idle_false_then_true(self):
         recorder = _build_start_recorder()
-        # Reuse the same watcher mock for stop — start populated
+        # Reuse the same watcher mock for stop, start populated
         # ``_mic_watcher`` on the MagicMock, so stop reads the same
         # spied instance.
         start_recording(recorder)
@@ -401,7 +401,7 @@ class TestStartStopRoundTrip:
         # start_recording mock left it set, so stop's fast-path
         # ``if not recorder._recording_event.is_set() and ...``
         # would fire otherwise). Production stop() is called after
-        # start(), so the event IS set — that's the contract.
+        # start(), so the event IS set, that's the contract.
         # ``_buffer`` must be a real deque so stop's snapshot works.
         recorder._audio_pipeline._buffer = collections.deque([np.zeros(100, dtype=np.float32)], maxlen=30000)
         recorder._audio_pipeline._buffer_sr = 16000

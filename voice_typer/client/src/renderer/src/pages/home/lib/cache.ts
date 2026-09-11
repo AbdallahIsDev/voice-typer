@@ -1,7 +1,7 @@
 //localStorage cache helpers extracted from
 // Home.tsx. Each helper takes the component-scoped `RefObject`
 // that owns the in-memory hit-avoidance cache, so the helpers remain
-// pure (no module-level mutable state — the previous `let _cachedRecent`
+// pure (no module-level mutable state, the previous `let _cachedRecent`
 // / `let _cachedStats` bindings leaked across HMR / test re-mounts and
 // were not React-aware).
 //
@@ -52,7 +52,7 @@ export function loadCachedRecent(
 			}
 		}
 	} catch (e) {
-		// localStorage unavailable or payload malformed — non-fatal.
+		// localStorage unavailable or payload malformed, non-fatal.
 		console.warn("[renderer:Home] loadCachedRecent failed:", e);
 	}
 	return ref.current;
@@ -80,7 +80,7 @@ export function loadCachedStats(
 			}
 		}
 	} catch (e) {
-		// localStorage unavailable or payload malformed — non-fatal.
+		// localStorage unavailable or payload malformed, non-fatal.
 		console.warn("[renderer:Home] loadCachedStats failed:", e);
 	}
 	return ref.current;
@@ -99,7 +99,7 @@ export function persistRecent(
 	try {
 		localStorage.setItem(RECENT_CACHE_KEY, JSON.stringify(recent));
 	} catch (e) {
-		// Quota exceeded or unavailable — non-fatal.
+		// Quota exceeded or unavailable, non-fatal.
 		console.warn("[renderer:Home] persistRecent failed:", e);
 	}
 }
@@ -117,7 +117,7 @@ export function persistStats(
 	try {
 		localStorage.setItem(STATS_CACHE_KEY, JSON.stringify(stats));
 	} catch (e) {
-		// Quota exceeded or unavailable — non-fatal.
+		// Quota exceeded or unavailable, non-fatal.
 		console.warn("[renderer:Home] persistStats failed:", e);
 	}
 }

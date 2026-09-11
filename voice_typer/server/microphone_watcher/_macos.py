@@ -1,4 +1,4 @@
-"""Microphone watcher — macOS polling implementation.
+"""Microphone watcher, macOS polling implementation.
 
 Provides :class:`_MacOSMixin` (mixed into ``MicrophoneDeviceWatcher``)
 with the ``sounddevice.query_devices()`` polling loop and the
@@ -18,7 +18,7 @@ class _MacOSMixin:
     # Members provided by the composed ``MicrophoneDeviceWatcher``
     # (``_core.py`` ``__init__``): cross-mixin attribute access is
     # runtime-valid but pyrefly cannot see it on a standalone mixin.
-    # Annotations only — no values — so no runtime attribute is created
+    # Annotations only, no values, so no runtime attribute is created
     # and the runtime MRO is unaffected (same pattern as
     # dictation_pipeline's mixin declarations and model_manager's
     # ``ChangeMixin``).

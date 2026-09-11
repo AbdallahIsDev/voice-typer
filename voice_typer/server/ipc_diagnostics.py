@@ -1,14 +1,14 @@
 """Startup-diagnostic helper extracted from ``ipc_server.main()`` ().
 
 (comprehensive review): the two startup-error diagnostic blocks
-in :func:`voice_typer.server.ipc_server.main` — one for the
+in :func:`voice_typer.server.ipc_server.main`: one for the
 ``VoiceTyperApp()`` construction-failure path (~L2306) and one for the
-``app.start()`` failure path (~L2506) — were ~70 lines each and
+``app.start()`` failure path (~L2506), were ~70 lines each and
 copy-pasted verbatim. Each block built an :class:`io.StringIO` buffer,
 wrote a phase-specific header + the current traceback, redacted the
 payload via :func:`voice_typer.server.security._redact_text`, and
 attempted :func:`voice_typer.server.config._secure_atomic_write` to
-``<config_dir>/startup-error.log`` — falling back to
+``<config_dir>/startup-error.log``: falling back to
 ``print(buf, file=sys.stderr)`` + an owner-only file in
 ``tempfile.gettempdir()`` if the config dir was unwritable.
 
@@ -27,10 +27,10 @@ Behaviour is identical to the inlined blocks:
   ``voice_typer.server.config._secure_atomic_write`` /
   ``voice_typer.server.config._config_dir`` /
   ``voice_typer.server._secrets.redact_for_export`` /
-  ``tempfile.gettempdir`` are observed at call time — matching the
+  ``tempfile.gettempdir`` are observed at call time, matching the
   pre-extraction behaviour where each block imported these symbols
   locally inside the ``except`` clause.
-* The function intentionally does NOT raise — every internal failure
+* The function intentionally does NOT raise, every internal failure
   is caught and logged so a diagnostic-write failure cannot mask the
   original startup exception that triggered it.
 
@@ -40,7 +40,7 @@ the redaction pipeline was switched from
 startup-error path uses the SAME redactor as the diagnostic-bundle
 path (``voice-typer.log`` + archived crash dumps). The two pipelines
 had drifted once already (the diagnostics_export path didn't pass
-``aggressive=True``, missing short bare secrets — ); routing
+``aggressive=True``, missing short bare secrets, ); routing
 both through ``redact_for_export`` ensures a future redaction
 improvement only has to land in one place.
 """
@@ -69,12 +69,12 @@ def write_startup_diagnostic(phase: str, exc: BaseException | None = None) -> No
                 backward compatibility with the historical diagnostic
                 headers:
 
-                  * ``"construction"`` — produces the
+                  * ``"construction"``: produces the
                     ``"Voice Typer startup failed at <time>\\n"`` header
                     followed by ``sys.executable`` and a redacted
                     ``sys.argv`` (matches the pre-extraction
                     ``VoiceTyperApp()`` construction-failure block).
-                  * ``"app.start()"`` — produces the
+                  * ``"app.start()"``: produces the
                     ``"\\n--- app.start() failed at <time> ---\\n"`` header
                     (matches the pre-extraction ``app.start()``-failure
                     block).
@@ -130,10 +130,10 @@ def write_startup_diagnostic(phase: str, exc: BaseException | None = None) -> No
         # ``KEY=value`` pairs that include API keys / bearer tokens.
         # The PIIRedactionFilter attached to the rotating log handler
         # would scrub these in normal log lines, but this diagnostic
-        # file is written via _secure_atomic_write — bypassing the
+        # file is written via _secure_atomic_write, bypassing the
         # logging filter. Pipe each argv entry through the unified
         # ``redact_for_export`` pipeline () so secrets are
-        # masked the same way they would be in a log record — and
+        # masked the same way they would be in a log record, and
         # the same way they ARE masked in the diagnostic bundle's
         # ``voice-typer.log`` and archived crash dumps.
         redacted_argv = [redact_for_export(str(arg)) for arg in sys.argv]
@@ -155,7 +155,7 @@ def write_startup_diagnostic(phase: str, exc: BaseException | None = None) -> No
 
     diag_path = get_logs_dir(_config_dir()) / "startup-error.log"
     try:
-        # O1: the logs live under ``<config_dir>/logs`` — ensure the dir
+        # O1: the logs live under ``<config_dir>/logs``. Ensure the dir
         # exists before the atomic write (its mkstemp requires the parent).
         diag_path.parent.mkdir(parents=True, exist_ok=True)
         if os.name == "posix":
@@ -200,7 +200,7 @@ def write_startup_diagnostic(phase: str, exc: BaseException | None = None) -> No
         try:
             stderr_payload = redact_for_export(buf.getvalue())
         except Exception as exc:
-            stderr_payload = "[redaction failed — traceback suppressed to avoid PII leak] " + type(write_exc).__name__
+            stderr_payload = "[redaction failed, traceback suppressed to avoid PII leak] " + type(write_exc).__name__
             _log.warning(
                 "[LOG-SETUP] redact_for_export raised %s; falling back to redacted marker",
                 type(exc).__name__,
@@ -210,7 +210,7 @@ def write_startup_diagnostic(phase: str, exc: BaseException | None = None) -> No
             # the /tmp fallback must be (a) PII-redacted
             # (same as the config-dir path) and (b) owner-only.
             # ``Path.write_text`` creates the file with the process
-            # umask (typically 0o644) — world-readable, which leaks
+            # umask (typically 0o644), world-readable, which leaks
             # the redacted-but-still-sensitive traceback (paths,
             # library versions, possibly partial secrets that
             # ``redact_for_export`` missed) to any local user.
@@ -218,11 +218,11 @@ def write_startup_diagnostic(phase: str, exc: BaseException | None = None) -> No
             # refuses to clobber an existing file). With ``O_EXCL``,
             # if ``/tmp/voice-typer-startup-error.log`` exists from a
             # previous crash, the next startup crash cannot write its
-            # diagnostic — ``os.open`` raises ``FileExistsError``,
+            # diagnostic, ``os.open`` raises ``FileExistsError``,
             # the outer ``except Exception`` runs, and the traceback
             # is lost. The docstring at line 146-147 says "OVERWRITE
             # (not append) the diagnostic file so repeated relaunch
-            # crashes don't grow it without bound" — the /tmp fallback
+            # crashes don't grow it without bound", the /tmp fallback
             # must honor that same contract. ``O_TRUNC`` opens the
             # existing file (or creates it) and truncates it to zero
             # length before writing. ``O_NOFOLLOW`` still prevents
@@ -239,7 +239,7 @@ def write_startup_diagnostic(phase: str, exc: BaseException | None = None) -> No
             tmp = Path(tempfile.gettempdir()) / "voice-typer-startup-error.log"
             # ``os.O_NOFOLLOW`` is POSIX-only (absent on Windows). Use
             # ``getattr`` so the overwrite-semantics fallback still
-            # works on every platform — on Windows, NTFS reparse
+            # works on every platform, on Windows, NTFS reparse
             # points are governed by the ``FILE_ATTRIBUTE_REPARSE_POINT``
             # ACL surface, and the fallback file lives in the per-user
             # temp dir, so the symlink-hardening flag is best-effort.

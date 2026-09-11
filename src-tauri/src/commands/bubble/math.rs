@@ -22,14 +22,14 @@
 //!   `AppHandle::cursor_position()` reports physical pixels,
 //!   `Monitor::position()` / `Monitor::size()` / `Monitor::work_area()`
 //!   are physical pixels, and the command applies the result via
-//!   `PhysicalPosition` — so no logical↔physical conversion is needed
+//!   `PhysicalPosition`: so no logical↔physical conversion is needed
 //!   anywhere except the one intentional one in
 //!   [`edge_margin_physical`] (Electron expresses its edge margin in
 //!   DIPs; we scale it per-monitor).
-//! - [`clamp_f64_to_i32`] is `#[cfg(test)]`-only — kept for the legacy
+//! - [`clamp_f64_to_i32`] is `#[cfg(test)]`-only: kept for the legacy
 //!   `parse_position` test contract.
 
-//bubble resize bounds — mirror Electron's
+//bubble resize bounds: mirror Electron's
 /// `MIN_BUBBLE_W` / `MAX_BUBBLE_W` / `MIN_BUBBLE_H` / `MAX_BUBBLE_H`
 /// in `voice_typer/client/src/main/ipc/bubble-handlers.ts:45-48` so a
 /// pill measurement (or a compromised sandboxed bubble) can't shrink the
@@ -47,7 +47,7 @@ pub(super) const MAX_BUBBLE_W: u32 = 400;
 pub(super) const MAX_BUBBLE_H: u32 = 200;
 
 //clamp a single resize width to
-/// [`MIN_BUBBLE_W`]..=[`MAX_BUBBLE_W`]. Saturating — `u32::clamp`
+/// [`MIN_BUBBLE_W`]..=[`MAX_BUBBLE_W`]. Saturating: `u32::clamp`
 /// returns `max(min, min(input, max))`, so any input in range passes
 /// through unchanged and any input below / above is clamped to the
 /// bound.
@@ -84,7 +84,7 @@ pub(super) fn round_f64_to_u32_saturating(f: f64) -> u32 {
     }
     let rounded = f.round();
     // `u32::MAX as f64` is exactly 4294967295.0 (f64 mantissa is 53
-    // bits, u32 is 32 bits — exact). Values above saturate to u32::MAX;
+    // bits, u32 is 32 bits, exact). Values above saturate to u32::MAX;
     // the downstream `clamp_resize_*` reduces to MAX_BUBBLE_W/H.
     if rounded > u32::MAX as f64 {
         return u32::MAX;
@@ -243,7 +243,7 @@ impl RectPx {
     ///
     /// Half-open so a cursor sitting EXACTLY on the shared vertical
     /// border of two side-by-side monitors resolves to exactly one
-    /// monitor (the left one) instead of matching both — mirrors
+    /// monitor (the left one) instead of matching both, mirrors
     /// Electron's `getDisplayMatching` rect-intersection semantics
     /// where a zero-area overlap loses.
     ///
@@ -262,7 +262,7 @@ impl RectPx {
 /// resolution: is the cursor point (already rounded to physical `i32`)
 /// inside this monitor's FULL bounds?
 ///
-/// Full bounds — NOT the work area — because a cursor hovering over
+/// Full bounds: NOT the work area, because a cursor hovering over
 /// the taskbar/dock strip still belongs to that monitor; Electron's
 /// `getDisplayMatching` also matches against full display bounds.
 pub(super) fn rect_contains_point(rect: &RectPx, px: i32, py: i32) -> bool {
@@ -274,7 +274,7 @@ pub(super) fn rect_contains_point(rect: &RectPx, px: i32, py: i32) -> bool {
 /// display keeps the same visual gap as Electron's 48-DIP offset.
 ///
 /// - `scale_factor ≤ 0` clamps to 0 margin (degenerate report; a 0
-///   margin still places the bubble INSIDE the work area — the edge
+///   margin still places the bubble INSIDE the work area, the edge
 ///   clamp in [`keyword_edge_y_in_work_area`] guarantees that).
 /// - `NaN` scale factor yields margin 0 via
 ///   [`round_f64_to_i32_saturating`]'s NaN contract (defined behavior
@@ -290,7 +290,7 @@ pub(super) fn edge_margin_physical(scale_factor: f64) -> i32 {
 /// The result is clamped to ≥ `wa.x` (NOT to absolute ≥0): on a
 /// left-of-primary secondary monitor whose work area starts at a
 /// NEGATIVE x, clamping to 0 would shove the bubble onto the primary
-/// display's territory — the whole bug this module fixes. When the
+/// display's territory: the whole bug this module fixes. When the
 /// bubble is wider than the work area, the centered expression goes
 /// negative relative to `wa.x`; clamping pins the bubble's left edge
 /// to the work area's left edge instead of stranding it off-screen
@@ -349,7 +349,7 @@ pub(super) fn keyword_edge_y_in_work_area(
 /// (`voice_typer/client/src/main/windows/bubble/positioning.ts:211-222`)
 /// except that the bubble dimensions come from the LIVE window's
 /// measured `outer_size()` (physical px) rather than compile-time
-/// constants — the Tauri bubble resizes itself to fit its pill content,
+/// constants: the Tauri bubble resizes itself to fit its pill content,
 /// so the measured size is the correct input here.
 ///
 /// # Errors

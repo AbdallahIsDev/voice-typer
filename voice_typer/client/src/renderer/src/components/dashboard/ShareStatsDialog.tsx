@@ -1,4 +1,4 @@
-// ShareStatsDialog — the Share Stats trigger + preview popup.
+// ShareStatsDialog, the Share Stats trigger + preview popup.
 //
 // Clicking the Share icon opens a dialog showing a LIVE preview of the
 // exact image that will be exported (no surprises after the fact),
@@ -9,18 +9,18 @@
 // image is scaled to the frame width via a `--preview-scale` custom
 // property written directly on the frame at attach time (before the
 // first paint). The preview is therefore fully visible and exactly
-// fitted from the very first frame — no clipping, no dead space, no
+// fitted from the very first frame, no clipping, no dead space, no
 // delayed transform correcting its own layout. The landscape image
 // stacks the action controls BELOW the preview.
 //
 // Social targets (WhatsApp / Telegram / X / Facebook): the platform
 // share-composer URLs do NOT support attaching an image from a desktop
-// web/Electron context — every platform's web intent is text/URL-only.
+// web/Electron context, every platform's web intent is text/URL-only.
 // Each social button therefore uses the graceful fallback: copy the
 // image to the clipboard, open the platform's composer in the OS
 // browser (routed through the main process's `setWindowOpenHandler` →
 // `shell.openExternal`), and toast an instruction to paste the image
-// into the composer. All four platforms use this fallback — there is
+// into the composer. All four platforms use this fallback, there is
 // no desktop-web path that attaches the image directly.
 
 import {
@@ -65,7 +65,7 @@ export interface ShareStatsActions {
 
 export interface ShareStatsDialogProps {
 	actions: ShareStatsActions;
-	/** The computed share stats — rendered as the live preview. */
+	/** The computed share stats, rendered as the live preview. */
 	stats: ShareStats | null;
 	/** Live theme palette so the preview matches the exported PNG. */
 	palette: StatsThemePalette;
@@ -77,11 +77,11 @@ export interface ShareStatsDialogProps {
 const EXPORT_WIDTH = 1200;
 const EXPORT_HEIGHT = 630;
 
-/** Project repo — the shared link for platforms whose URL schemes
+/** Project repo, the shared link for platforms whose URL schemes
  * require a link (Telegram's t.me/share/url needs the `url` param). */
 const GITHUB_REPO = "https://github.com/AbdallahIsDev/voice-typer";
 
-/** Social share intents. Web intents are text/URL-only — the image is
+/** Social share intents. Web intents are text/URL-only, the image is
  * attached via the clipboard fallback (see header comment). */
 const SOCIAL_TARGETS: {
 	key: string;
@@ -100,7 +100,7 @@ const SOCIAL_TARGETS: {
 		labelKey: "stats.shareImage.socialTelegram",
 		icon: TelegramIcon,
 		// The official share format is t.me/share/url?url=<url>&text=<text>
-		// — the `url` param is REQUIRED. Without it Telegram's web
+		//, the `url` param is REQUIRED. Without it Telegram's web
 		// handler redirects to telegram.org (its homepage) instead of
 		// opening the app's share/forward picker. Since the stats image
 		// itself can't be attached via URL, we share the project repo as
@@ -138,14 +138,14 @@ export function ShareStatsDialog({
 	// Preview scale = container width ÷ export width. Written as a CSS
 	// custom property DIRECTLY on the frame (not React state) so it is
 	// in place before the first paint: the preview renders fully
-	// visible and exactly fitted from the very first frame — no state
+	// visible and exactly fitted from the very first frame, no state
 	// round-trip, no flash, no delayed correction. The frame itself is
 	// sized by CSS `aspect-ratio` (the export's fixed 1200:630 ratio),
 	// so its height is always right regardless of measurement timing.
 	const applyScale = useCallback(() => {
 		const box = containerRef.current;
 		if (!box) return;
-		// Exact fit — no fudge margin: the scaled image width equals
+		// Exact fit, no fudge margin: the scaled image width equals
 		// the frame's content width (a previous `- 16` margin left a
 		// permanent black strip on the right of the frame).
 		box.style.setProperty(
@@ -158,7 +158,7 @@ export function ShareStatsDialog({
 	// attaches (commit phase, before paint). The container's width is
 	// what determines the scale, so measuring it directly at attach
 	// time guarantees the custom property is set before the first
-	// visible frame — no dependence on a later ResizeObserver
+	// visible frame, no dependence on a later ResizeObserver
 	// delivery. (Radix mounts dialog content via Presence in a
 	// follow-up commit, so a plain useLayoutEffect on `open` cannot
 	// reliably see the ref; the callback ref fires exactly when the
@@ -248,12 +248,12 @@ export function ShareStatsDialog({
 
 				<div className="flex flex-col gap-4">
 					{/* Live preview of the exact exported image. The frame's
-						CSS aspect-ratio (1200:630 — the export's fixed size)
+						CSS aspect-ratio (1200:630, the export's fixed size)
 						makes its height correct from the first frame with no
 						JS measurement; the image is scaled to the frame width
 						exactly via --preview-scale (set on the frame before
 						first paint), so the whole image is always visible
-						with no cropping and no dead space — and never needs a
+						with no cropping and no dead space, and never needs a
 						delayed transform to correct its own layout. The scaled
 						image is position:absolute so its 1200×630 LAYOUT box
 						never stretches the dialog. */}
@@ -278,11 +278,11 @@ export function ShareStatsDialog({
 						)}
 					</div>
 
-					{/* Export + social actions — framed (rounded border +
+					{/* Export + social actions, framed (rounded border +
 						padding) so the buttons read as one coherent block
 						tied to the preview, not full-bleed fragments. */}
 					<div className="flex w-full flex-col gap-2.5 rounded-xl border border-border/5 bg-black/20 p-3">
-						{/* Neutral/secondary style — Download, Copy, and Save As
+						{/* Neutral/secondary style, Download, Copy, and Save As
 						    are equally valid exports; none is privileged (the
 						    previous accent/primary treatment visually pushed
 						    users toward Download specifically). */}

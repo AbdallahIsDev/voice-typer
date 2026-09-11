@@ -1,4 +1,4 @@
-# ADR 0011: Voice Typer — Prewarm & Autostart Architecture
+# ADR 0011: Voice Typer, Prewarm & Autostart Architecture
 
 ## Status
 
@@ -11,7 +11,7 @@ machinery have been deleted. The cache-probe logic (`_warm_imports`,
 `_warm_package_files`) was retained as a **startup phase of the worker
 exe** (`voice_typer/worker/__main__.py`) and the warm-import list was
 updated to `onnxruntime + ctranslate2 + numpy/scipy` (torch +
-transformers are no longer warmed — they are not imported by the
+transformers are no longer warmed: they are not imported by the
 runtime pack after the ONNX migration, see `PLAN_ONNX_INTEGRATION.md`
 §2 and §3).
 
@@ -33,7 +33,7 @@ Accepted (historical)
 > `prewarm/pipeline.py`; `_already_warmed` / `_mark_warmed` live in
 > `prewarm/paths.py`. The prose and code-block comments below retain the
 > historical `prewarm.py` references for traceability against the
-> original implementation analysis — read each `prewarm.py::symbol` as
+> original implementation analysis: read each `prewarm.py::symbol` as
 > `prewarm/<module>.py::symbol` per the package split.
 
 ---
@@ -127,7 +127,7 @@ The main app (`autostart_launcher.py`) is triggered separately via the HKCU `Run
 
 The `--delay 30` flag makes the launcher sleep 30 seconds before spawning Electron, giving prewarm a head start on warming the cache.
 
-> **Plain English:** Your actual app also starts when you log in, but it waits 30 seconds before showing up. This wait is a heuristic — it gives the prewarm script time to load the big files into RAM first. Without this wait, the app would try to load files from disk at the same time as prewarm, and they'd fight over the disk.
+> **Plain English:** Your actual app also starts when you log in, but it waits 30 seconds before showing up. This wait is a heuristic. It gives the prewarm script time to load the big files into RAM first. Without this wait, the app would try to load files from disk at the same time as prewarm, and they'd fight over the disk.
 
 ### Model Loading (GPU Path)
 
@@ -177,7 +177,7 @@ T=40s   App ready
 
 ### Problem
 
-The task XML uses `<LogonTrigger>`, which fires only when a user logs in. This means prewarm cannot start before the user types their password. The 30-second app delay exists to compensate, but it's fragile — if the user logs in quickly (5 seconds to type a password), prewarm won't have finished.
+The task XML uses `<LogonTrigger>`, which fires only when a user logs in. This means prewarm cannot start before the user types their password. The 30-second app delay exists to compensate, but it's fragile, if the user logs in quickly (5 seconds to type a password), prewarm won't have finished.
 
 ### Solution: Dual Trigger + Robust Path Resolution
 
@@ -200,11 +200,11 @@ Register BOTH a boot trigger and a logon trigger on every platform. The boot tri
 
 triggers = ET.SubElement(root, "Triggers")
 
-# Trigger 1: Boot — fires at system boot (cold boot + restart)
+# Trigger 1: Boot, fires at system boot (cold boot + restart)
 boot = ET.SubElement(triggers, "BootTrigger")
 ET.SubElement(boot, "Enabled").text = "true"
 
-# Trigger 2: Logon — fires at user logon (covers Fast Startup)
+# Trigger 2: Logon, fires at user logon (covers Fast Startup)
 logon = ET.SubElement(triggers, "LogonTrigger")
 ET.SubElement(logon, "Enabled").text = "true"
 ET.SubElement(logon, "Delay").text = "PT0S"
@@ -277,17 +277,17 @@ The user reports that even after the sentinel fix, prewarm still re-fires during
 
 ```
 13:48:49  [PREWARM] complete (20.4s)           ← first run at logon
-14:14:51  [PREWARM] free RAM 5705 MB < 6144 MB budget — skipping  ← 26 min later
+14:14:51  [PREWARM] free RAM 5705 MB < 6144 MB budget, skipping  ← 26 min later
 ```
 
 ### Root Cause
 
-The sentinel check (`_already_warmed()`) prevents re-runs within the same boot session. But the re-fire at 14:14:51 is NOT a sentinel miss — it's a **NEW trigger firing**. `LogonTrigger` with `Hidden=true` re-fires when the user unlocks the screen after the display turns off (a known Windows quirk).
+The sentinel check (`_already_warmed()`) prevents re-runs within the same boot session. But the re-fire at 14:14:51 is NOT a sentinel miss, it's a **NEW trigger firing**. `LogonTrigger` with `Hidden=true` re-fires when the user unlocks the screen after the display turns off (a known Windows quirk).
 
-Additionally, the current code checks RAM **before** the sentinel, so the log shows the RAM message instead of the sentinel message — even though the sentinel would have caught it.
+Additionally, the current code checks RAM **before** the sentinel, so the log shows the RAM message instead of the sentinel message, even though the sentinel would have caught it.
 
 ```python
-# prewarm.py::run() — current order (WRONG)
+# prewarm.py::run(), current order (WRONG)
 if not force:
     free = _free_ram_mb()
     if free is not None and free < min_ram_mb:  # ← RAM check FIRST
@@ -296,7 +296,7 @@ if not force and _already_warmed():  # ← sentinel SECOND (never reached)
     return EXIT_OK
 ```
 
-> **Plain English:** The sentinel is actually working, but the log shows the wrong message because the RAM check happens first. The real problem is that Windows re-fires the "logon" trigger when you unlock your screen — so prewarm starts a new Python process, checks RAM, and exits. It's wasteful even though it doesn't re-read the files.
+> **Plain English:** The sentinel is actually working, but the log shows the wrong message because the RAM check happens first. The real problem is that Windows re-fires the "logon" trigger when you unlock your screen, so prewarm starts a new Python process, checks RAM, and exits. It's wasteful even though it doesn't re-read the files.
 
 ### Solution: Event-Based Trigger + Reordered Checks
 
@@ -325,16 +325,16 @@ Replace `<LogonTrigger>` with an event-based trigger that fires ONLY on the actu
 ```
 
 **Cross-platform equivalent:**
-- **Windows:** EventTrigger (Event ID 12) — fires once per boot, never on unlock.
+- **Windows:** EventTrigger (Event ID 12), fires once per boot, never on unlock.
 - **macOS:** LaunchAgent with `RunAtLoad=true` already fires only at login. To make it boot-only, use a system LaunchDaemon with `StartOnMount=false` and a `WatchPaths` on `/var/run/system_boot_complete`. However, since macOS doesn't have the Windows unlock quirk, the existing LaunchAgent is sufficient.
 - **Linux:** systemd user timer with `OnBootSec=10s` already fires once per boot. No unlock quirk exists on Linux.
 
-> **Plain English:** On Windows, use a different trigger that fires once when the operating system starts — this event never fires on screen unlock. On macOS and Linux, the existing triggers already work correctly because those systems don't have the unlock quirk.
+> **Plain English:** On Windows, use a different trigger that fires once when the operating system starts. This event never fires on screen unlock. On macOS and Linux, the existing triggers already work correctly because those systems don't have the unlock quirk.
 
 **Reordered checks (sentinel before RAM):**
 
 ```python
-# prewarm.py::run() — corrected order
+# prewarm.py::run(), corrected order
 def run(min_ram_mb, force=False, delay=0.0) -> int:
     _setup_logging()
     if delay > 0:
@@ -345,19 +345,19 @@ def run(min_ram_mb, force=False, delay=0.0) -> int:
     if not force and not _fast_startup_enabled():
         return EXIT_DISABLED
 
-    # SENTINEL FIRST — cheapest check, prevents all redundant work.
+    # SENTINEL FIRST: cheapest check, prevents all redundant work.
     # This also produces the correct log message when the trigger
     # re-fires (e.g., on Windows session unlock).
     if not force and _already_warmed():
-        log.info("[PREWARM] already ran this boot session — skipping")
+        log.info("[PREWARM] already ran this boot session, skipping")
         return EXIT_OK
 
-    # RAM GUARD SECOND — only check if we're actually going to run.
+    # RAM GUARD SECOND: only check if we're actually going to run.
     if not force:
         free = _free_ram_mb()
         if free is not None and free < min_ram_mb:
             log.info(
-                "[PREWARM] free RAM %d MB < %d MB budget — skipping to avoid evicting the user's working set",
+                "[PREWARM] free RAM %d MB < %d MB budget, skipping to avoid evicting the user's working set",
                 free,
                 min_ram_mb,
             )
@@ -367,7 +367,7 @@ def run(min_ram_mb, force=False, delay=0.0) -> int:
     # ... rest of pipeline (imports, file warming, mark_warmed)
 ```
 
-> **Plain English:** First check "did I already run?" (cheap — just reads a small file). Only if not, check "is there enough RAM?" This way, if the trigger fires again, the script exits in milliseconds with the correct "already ran" message, without starting the RAM check.
+> **Plain English:** First check "did I already run?" (cheap, just reads a small file). Only if not, check "is there enough RAM?" This way, if the trigger fires again, the script exits in milliseconds with the correct "already ran" message, without starting the RAM check.
 
 ---
 
@@ -397,7 +397,7 @@ def _cache_ratio(path: Path, samples: int = 20) -> float:
     - >50μs → page is on disk (cache miss)
 
     The slight cache-warming side effect (reading a cold page pulls it
-    into cache) is acceptable and actually beneficial — it re-warms
+    into cache) is acceptable and actually beneficial, it re-warms
     evicted pages.
     """
     size = path.stat().st_size
@@ -418,7 +418,7 @@ def _cache_ratio(path: Path, samples: int = 20) -> float:
     return hot / samples
 ```
 
-> **Plain English:** To check how much of the file is still in RAM, read 20 tiny pieces (4 KB each) from random spots in the file and time each read. If a read takes less than 50 microseconds, that piece is in RAM (fast). If it takes longer, it's on disk (slow). Count how many out of 20 were fast — that's your cache percentage.
+> **Plain English:** To check how much of the file is still in RAM, read 20 tiny pieces (4 KB each) from random spots in the file and time each read. If a read takes less than 50 microseconds, that piece is in RAM (fast). If it takes longer, it's on disk (slow). Count how many out of 20 were fast, that's your cache percentage.
 
 **IPC endpoint:**
 
@@ -457,7 +457,7 @@ def _handle_get_prewarm_status(app, data):
     }
 ```
 
-**UI: Settings > About page — cache status card:**
+**UI: Settings > About page, cache status card:**
 
 | Field | Example | Description |
 |-------|---------|-------------|
@@ -471,7 +471,7 @@ def _handle_get_prewarm_status(app, data):
 **Sentinel update (store elapsed time):**
 
 ```python
-# prewarm.py::_mark_warmed() — updated to store elapsed time
+# prewarm.py::_mark_warmed(), updated to store elapsed time
 
 
 def _mark_warmed(elapsed_s: float) -> None:
@@ -498,7 +498,7 @@ def _mark_warmed(elapsed_s: float) -> None:
 
 The app launcher currently uses a hardcoded `--delay 30` to give prewarm a head start. This has two flaws:
 
-1. **If the user logs in quickly (5 seconds to type a password), prewarm (which takes ~50 seconds cold) won't have finished by the time the app starts.** The app will then try to load the model from disk while prewarm is still reading those same files into RAM — they fight over the disk, and both slow down.
+1. **If the user logs in quickly (5 seconds to type a password), prewarm (which takes ~50 seconds cold) won't have finished by the time the app starts.** The app will then try to load the model from disk while prewarm is still reading those same files into RAM. They fight over the disk, and both slow down.
 
 2. **If prewarm finishes early (e.g., warm cache, ~20 seconds), the 30-second delay is wasted time.**
 
@@ -506,14 +506,14 @@ The app launcher currently uses a hardcoded `--delay 30` to give prewarm a head 
 
 Investigation of the codebase confirms there is **NO coordination** between the app and the prewarm process:
 
-- `autostart_launcher.py` only checks if the IPC port (9876) is open — it does NOT check if prewarm is running or has completed.
-- `app.py::_do_startup()` calls `_sync_prewarm_task()` which only registers the scheduled task — it does NOT wait for prewarm to finish.
-- `model_manager.py::try_load()` calls `from_pretrained()` immediately — it does NOT check prewarm status.
+- `autostart_launcher.py` only checks if the IPC port (9876) is open. It does NOT check if prewarm is running or has completed.
+- `app.py::_do_startup()` calls `_sync_prewarm_task()` which only registers the scheduled task. It does NOT wait for prewarm to finish.
+- `model_manager.py::try_load()` calls `from_pretrained()` immediately: it does NOT check prewarm status.
 - The `_PREWARM_SENTINEL` file is only read by `prewarm.py` itself, never by the app.
 
 The `--delay 30` is the ONLY "coordination," and it's a fragile heuristic.
 
-> **Plain English:** I checked the code — the app has NO way to know if prewarm is running or done. The 30-second wait is just a guess. If you log in fast, prewarm is still running when the app starts, and they both try to read the same files at the same time, fighting over the disk. This is a real problem.
+> **Plain English:** I checked the code. The app has NO way to know if prewarm is running or done. The 30-second wait is just a guess. If you log in fast, prewarm is still running when the app starts, and they both try to read the same files at the same time, fighting over the disk. This is a real problem.
 
 ### Solution: Reduce Delay to 15s + App Waits for Prewarm Completion
 
@@ -540,14 +540,14 @@ def _autostart_command() -> str:
     # ... rest unchanged
 ```
 
-> **Plain English:** Cut the wait from 30 seconds to 15 seconds. This is a middle ground — short enough that you don't wait too long if prewarm finishes early, long enough that prewarm gets a head start if you log in fast.
+> **Plain English:** Cut the wait from 30 seconds to 15 seconds. This is a middle ground, short enough that you don't wait too long if prewarm finishes early, long enough that prewarm gets a head start if you log in fast.
 
 **Part 2: App waits for prewarm before loading the model**
 
 Add a `_wait_for_prewarm()` function that checks if prewarm is running. If it is, wait for it to finish (with a timeout). If prewarm already finished, proceed immediately. If prewarm never ran (no sentinel, no running process), proceed with cold load.
 
 ```python
-# prewarm.py — new public functions
+# prewarm.py: new public functions
 
 
 def is_prewarm_running() -> bool:
@@ -602,16 +602,16 @@ def wait_for_prewarm(timeout_s: float = 60.0) -> bool:
     deadline = time.perf_counter() + timeout_s
     while time.perf_counter() < deadline:
         if not is_prewarm_running():
-            log.info("[PREWARM] prewarm finished — proceeding with warm cache")
+            log.info("[PREWARM] prewarm finished: proceeding with warm cache")
             return True
         time.sleep(0.5)
 
-    log.warning("[PREWARM] prewarm still running after %.0fs — proceeding anyway", timeout_s)
+    log.warning("[PREWARM] prewarm still running after %.0fs, proceeding anyway", timeout_s)
     return False
 ```
 
 ```python
-# prewarm.py — write PID file at startup, remove on exit
+# prewarm.py: write PID file at startup, remove on exit
 
 
 def _write_pid_file() -> None:
@@ -647,7 +647,7 @@ def run(min_ram_mb, force=False, delay=0.0) -> int:
 ```
 
 ```python
-# model_manager.py::try_load() — wait for prewarm before loading
+# model_manager.py::try_load(), wait for prewarm before loading
 
 def try_load(self, notify_on_failure: bool = False) -> None:
     self._model_load_attempted = True
@@ -711,12 +711,12 @@ The startup scripts (`autostart_launcher.py` and `prewarm.py`) are pure Python, 
 - The Rust binary would be a single ~5 MB executable that starts instantly.
 
 **What NOT to rewrite (ever):**
-- The transcription engine — it's GPU-bound (the actual computation runs on the GPU via CUDA; Python is just glue calling PyTorch's C++ backend).
-- The model loading — it's disk-bound (and prewarm already fixes the disk bottleneck).
-- The audio recording — PortAudio is already C.
-- The hotkey listener — already uses a native C listener.
+- The transcription engine: it's GPU-bound (the actual computation runs on the GPU via CUDA; Python is just glue calling PyTorch's C++ backend).
+- The model loading: it's disk-bound (and prewarm already fixes the disk bottleneck).
+- The audio recording: PortAudio is already C.
+- The hotkey listener: already uses a native C listener.
 
-> **Plain English (future work):** Someday, the startup scripts could be rewritten in Rust to save 200-500 milliseconds. But this is a small gain compared to the other fixes, so do it later, not now. Never rewrite the transcription engine or model loading in Rust — those are limited by the GPU and disk, not by Python.
+> **Plain English (future work):** Someday, the startup scripts could be rewritten in Rust to save 200-500 milliseconds. But this is a small gain compared to the other fixes, so do it later, not now. Never rewrite the transcription engine or model loading in Rust. Those are limited by the GPU and disk, not by Python.
 
 ---
 

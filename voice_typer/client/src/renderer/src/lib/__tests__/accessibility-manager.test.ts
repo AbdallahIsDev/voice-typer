@@ -3,14 +3,14 @@
  * the deaf-accessibility mirror).
  *
  * These tests moved with the flag when it was extracted from
- * sound-manager.ts — same coverage, same localStorage semantics, same
+ * sound-manager.ts, same coverage, same localStorage semantics, same
  * "[renderer:sound-manager]" log prefix (the flags belong to the sound
  * feedback subsystem from an operator's perspective).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { stubGlobalLocalStorage } from "./helpers/local-storage-stub";
 
-describe("AccessibilityManager — visual feedback flag (deaf mirror)", () => {
+describe("AccessibilityManager, visual feedback flag (deaf mirror)", () => {
 	beforeEach(() => {
 		vi.resetModules();
 		localStorage.clear();
@@ -52,7 +52,7 @@ describe("AccessibilityManager — visual feedback flag (deaf mirror)", () => {
 		const { isVisualFeedbackEnabled, _resetAccessibilityManagerForTests } =
 			await import("@/lib/accessibility-manager");
 		_resetAccessibilityManagerForTests();
-		// No localStorage entry — must fall back to the in-memory default (false).
+		// No localStorage entry, must fall back to the in-memory default (false).
 		localStorage.clear();
 		expect(isVisualFeedbackEnabled()).toBe(false);
 	});
@@ -69,7 +69,7 @@ describe("AccessibilityManager — visual feedback flag (deaf mirror)", () => {
 		const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 
 		try {
-			// Must NOT throw — the in-memory flag still updates.
+			// Must NOT throw, the in-memory flag still updates.
 			expect(() => setVisualFeedbackEnabled(true)).not.toThrow();
 			expect(setItemSpy).toHaveBeenCalled();
 			// The warning surfaces the localStorage failure to operators.
@@ -111,7 +111,7 @@ describe("AccessibilityManager — visual feedback flag (deaf mirror)", () => {
 		);
 		setSoundFeedbackEnabled(true);
 		setVisualFeedbackEnabled(false);
-		// Sound is enabled, visual is disabled — the two flags are independent.
+		// Sound is enabled, visual is disabled, the two flags are independent.
 		expect(localStorage.getItem("vt_sound_feedback_enabled")).toBe("1");
 		expect(localStorage.getItem("vt_visual_feedback_enabled")).toBe("0");
 	});

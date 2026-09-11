@@ -1,10 +1,10 @@
 /**
- * useModelDownload — download-progress slice of the Models page.
+ * useModelDownload, download-progress slice of the Models page.
  *
  * Extracted from the former
  * `useModelLifecycle.ts` (995-line) monolith. This sub-hook owns the
  * download progress state machine and the three actions that drive it:
- *   • `downloadModel` — kicks off a model download + surfaces failures
+ *   • `downloadModel`, kicks off a model download + surfaces failures
  *     via a sonner toast with a "Retry" action button —
  *     `showSnack` has no action-button affordance so we bypass it for
  *     the retry-toast path. Failures are ALSO recorded in
@@ -12,17 +12,17 @@
  *     an in-place error UI + Retry button —
  *     previously the bar vanished on failure and the only recovery
  *     path was the 8-second ephemeral toast.
- *   • `retryDownload` — clears `failedDownload` and re-invokes
+ *   • `retryDownload`, clears `failedDownload` and re-invokes
  *     `downloadModel`. Wired to the `<DownloadProgressBar>` Retry
  *     button so users can recover a failed download in place.
- *   • `handleTogglePause` / `handleCancelDownload` — pause/resume/cancel
+ *   • `handleTogglePause` / `handleCancelDownload`, pause/resume/cancel
  *     the in-flight download. Cancel ALSO clears `failedDownload` so
  *     the bar unmounts cleanly. With a model name (the queued-model
  *     Cancel affordance), the cancel targets THAT model's pending queue
- *     entry instead — the active transfer's state is left intact.
- *   • `resetProgress` — internal helper used by `downloadModel` and
+ *     entry instead, the active transfer's state is left intact.
+ *   • `resetProgress`, internal helper used by `downloadModel` and
  *     `handleCancelDownload` to clear local progress state.
- *   • The `download_progress` event subscription — pushes from the
+ *   • The `download_progress` event subscription, pushes from the
  *     backend update `downloadProgress` / `downloadStatus` / byte
  *     counters / `speedBps` / `etaSeconds` / `isPaused`.
  *
@@ -98,7 +98,7 @@ export interface UseModelDownloadResult {
 	downloadModel: (model: ModelInfo) => Promise<void>;
 	retryDownload: (model: ModelInfo) => Promise<void>;
 	handleTogglePause: () => Promise<void>;
-	/** Cancel the ACTIVE download (no argument — legacy shape, wired
+	/** Cancel the ACTIVE download (no argument, legacy shape, wired
 	 * to the progress bar's Cancel button), or cancel/remove a named
 	 * model's pending download (queued-model Cancel affordance: a
 	 * queued entry is removed without touching the active transfer). */
@@ -146,7 +146,7 @@ const INITIAL_DOWNLOAD_STATE: DownloadState = {
 
 /** Zero the progress-related fields (preserving `downloadingModel`,
  * `failedDownload`). Pure so the claim-time
- * updater inside `downloadModel` can reuse it — an updater must not
+ * updater inside `downloadModel` can reuse it, an updater must not
  * call `setState` (which the `resetProgress` callback does). This is
  * the SAME field set `resetProgress` clears, kept in one place. */
 function withResetProgress(prev: DownloadState): DownloadState {
@@ -170,7 +170,7 @@ export function useModelDownload({
 	setModels,
 	reconcileAfterDownload,
 }: UseModelDownloadArgs): UseModelDownloadResult {
-	// Consolidated download-progress state — previously 9 separate
+	// Consolidated download-progress state, previously 9 separate
 	// useState calls. Each `download_progress` event now produces ONE
 	// setState via the functional-update form below.
 	const [state, setState] = useState<DownloadState>(INITIAL_DOWNLOAD_STATE);
@@ -180,7 +180,7 @@ export function useModelDownload({
 	// attempt when the user immediately retries / starts another
 	// download). Without a generation token, the stale resolution's
 	// state writes (resetProgress / failedDownload / bar clear) would
-	// corrupt the NEW download's state — zeroing its progress bar,
+	// corrupt the NEW download's state, zeroing its progress bar,
 	// unmounting it, or showing a stale error toast mid-download.
 	// `downloadModel` captures the generation at start; every state
 	// write after an await is gated on still being the current run.
@@ -188,10 +188,10 @@ export function useModelDownload({
 	// resolution is always treated as stale.
 	const downloadRunRef = useRef(0);
 	// The run that currently OWNS the single progress-bar slot (the
-	// last run that CLAIMED `downloadingModel` — see the claim guard
+	// last run that CLAIMED `downloadingModel`, see the claim guard
 	// in `downloadModel`). The stale-resolution guard honours BOTH the
 	// newest click AND the slot owner: a download request that arrives
-	// while another model transfers resolves as QUEUED — it bumps the
+	// while another model transfers resolves as QUEUED, it bumps the
 	// click generation but never claims the slot, so the ACTIVE
 	// transfer's still-pending promise must stay current (its eventual
 	// success/failure resolution processes normally instead of being
@@ -224,7 +224,7 @@ export function useModelDownload({
 				if (typeof data.total_bytes === "number")
 					patch.totalBytes = data.total_bytes;
 				// Speed/ETA: set when present; cleared ONLY on a state
-				// transition (pause/resume/status change) — the backend
+				// transition (pause/resume/status change), the backend
 				// also pushes transition-only events (e.g. a lone
 				// `paused: true`) whose absent speed/ETA fields mean
 				// "not re-measured", not "reset to zero". Clearing on
@@ -249,7 +249,7 @@ export function useModelDownload({
 				if (typeof data.resumed === "boolean" && data.resumed)
 					patch.isPaused = false;
 				// Only fire setState if the patch actually contains
-				// updates — avoids a no-op state transition.
+				// updates, avoids a no-op state transition.
 				if (Object.keys(patch).length > 0) {
 					// Bail out if no field actually changed value.
 					// The original per-`useState` pattern relied on
@@ -257,7 +257,7 @@ export function useModelDownload({
 					// `setSpeedBps(null)` was a no-op when speedBps
 					// was already null). The consolidated form
 					// creates a new state object on every call, which
-					// would defeat that bailout — so we explicitly
+					// would defeat that bailout, so we explicitly
 					// compare each patched field against `prev` and
 					// return `prev` (same reference) when nothing
 					// changed. React's `Object.is` check then skips
@@ -280,7 +280,7 @@ export function useModelDownload({
 	);
 
 	const resetProgress = useCallback(() => {
-		// Reset only the progress-related fields — preserve
+		// Reset only the progress-related fields, preserve
 		// `downloadingModel` and `failedDownload` (these are managed by
 		// the action callbacks below and would be clobbered if we spread
 		// `INITIAL_DOWNLOAD_STATE` here).
@@ -298,7 +298,7 @@ export function useModelDownload({
 	// `failedDownload` (clear any stale failure for a re-download).
 	const downloadModel = useCallback(
 		async (model: ModelInfo) => {
-			// Claim the download generation — any earlier in-flight
+			// Claim the download generation, any earlier in-flight
 			// `download_model` promise now resolves stale (see the guard
 			// below) and must not touch state.
 			const runId = ++downloadRunRef.current;
@@ -308,14 +308,14 @@ export function useModelDownload({
 			// the live download's state (progress bar, error UI,
 			// toasts). The slot-owner arm keeps the ACTIVE transfer's
 			// promise current even after a QUEUED request bumps the
-			// generation (queued runs never claim the slot — see the
+			// generation (queued runs never claim the slot, see the
 			// claim guard below).
 			const isCurrent = () =>
 				downloadRunRef.current === runId || barOwnerRunRef.current === runId;
 
 			// Claim the SINGLE progress-bar slot. The claim is
 			// conditional (a functional update reads the live slot
-			// state — the closure's `state` is stale by design):
+			// state, the closure's `state` is stale by design):
 			//   • Another model is ACTIVELY transferring (slot
 			//     occupied, no recorded failure) → do NOT claim and do
 			//     NOT zero the live bar's progress. The backend QUEUES
@@ -323,20 +323,20 @@ export function useModelDownload({
 			//     its progress events keep updating it.
 			//   • This model is already the transferring owner →
 			//     duplicate click (the backend answers "already
-			//     active") — leave the live bar untouched.
-			//   • Slot free (or its owner's transfer FAILED — the
+			//     active"), leave the live bar untouched.
+			//   • Slot free (or its owner's transfer FAILED, the
 			//     failure branch keeps the slot mounted for the inline
 			//     error UI) → claim it and zero the progress fields
 			//     for the new attempt.
 			// The queued resolution below then never has to "give the
-			// bar back" — it was never taken.
+			// bar back", it was never taken.
 			setState((prev) => {
 				if (
 					prev.downloadingModel != null &&
 					prev.downloadingModel !== model.name &&
 					prev.failedDownload == null
 				) {
-					// Queued-bound click — the live transfer keeps
+					// Queued-bound click, the live transfer keeps
 					// the bar AND its progress state untouched.
 					return prev;
 				}
@@ -365,12 +365,12 @@ export function useModelDownload({
 					/** Set when the request was accepted into the pending
 					 * download queue instead of starting immediately (a
 					 * gateable transfer is already in flight). Not a
-					 * failure — the request auto-starts when the active
+					 * failure, the request auto-starts when the active
 					 * transfer exits. */
 					queued?: boolean;
 					/** Set when the backend refused to start because the
 					 * model is ALREADY the download in flight (a re-click
-					 * of the active model). Not a failure — the live
+					 * of the active model). Not a failure, the live
 					 * download owns the bar; keep it. */
 					download_already_active?: boolean;
 				}>("download_model", { model: model.name });
@@ -381,7 +381,7 @@ export function useModelDownload({
 					return;
 				}
 				if (result.queued) {
-					// QUEUED — the backend accepted this request into the
+					// QUEUED, the backend accepted this request into the
 					// pending FIFO queue; it auto-starts when the active
 					// transfer exits. NOT a success: the model is not on
 					// disk, so there is no `downloaded: true` marking and
@@ -411,7 +411,7 @@ export function useModelDownload({
 				if (result.download_already_active) {
 					// The requested model IS the download already in
 					// flight (a re-click of the active model). This
-					// attempt never started a second transfer — surface
+					// attempt never started a second transfer, surface
 					// the state and LEAVE the live bar + progress
 					// untouched (they belong to this very model).
 					showSnack(
@@ -427,7 +427,7 @@ export function useModelDownload({
 					setModels((prev) =>
 						prev.map((m) =>
 							m.name === model.name
-								? // downloaded: true only — the ACTIVE badge is
+								? // downloaded: true only, the ACTIVE badge is
 									// NOT set here: the backend does not
 									// auto-activate a downloaded model, so an
 									// optimistic isActive here showed a phantom
@@ -460,7 +460,7 @@ export function useModelDownload({
 					// (handleCancelDownload) already surfaced the
 					// "cancelled" snackbar and cleared state. The
 					// pending download_model resolves after the
-					// cancel IPC completes — treat the cancelled
+					// cancel IPC completes, treat the cancelled
 					// resolution as a clean stop (unmount the bar,
 					// no failure toast).
 					barOwnerRunRef.current = null;
@@ -516,7 +516,7 @@ export function useModelDownload({
 				});
 			}
 			// NOTE: no `finally { setState(prev => ({ ...prev, downloadingModel: null })) }`
-			// here — the failure branch must keep `downloadingModel` set
+			// here, the failure branch must keep `downloadingModel` set
 			// so the bar stays mounted. The success branch clears it
 			// explicitly.
 		},
@@ -577,11 +577,11 @@ export function useModelDownload({
 			// queue it is removed WITHOUT touching the active transfer —
 			// the active bar, progress state, and failure state stay
 			// intact. (Race safety: if the named model IS the active
-			// transfer — it auto-started between render and click — the
+			// transfer, it auto-started between render and click, the
 			// service cancels the transfer and the legacy active-cancel
 			// semantics below run.)
 			// Without a model name (progress-bar Cancel): the legacy
-			// shape — cancel the ACTIVE transfer.
+			// shape, cancel the ACTIVE transfer.
 			let cancelledActiveTransfer = false;
 			try {
 				if (modelName) {
@@ -590,7 +590,7 @@ export function useModelDownload({
 						removed_from_queue?: boolean;
 					}>("cancel_model_download", { model: modelName });
 					if (result?.removed_from_queue) {
-						// Queue removal — the active transfer keeps running.
+						// Queue removal, the active transfer keeps running.
 						showSnack(
 							t("models.snack.queuedCancelled", { name: modelName }),
 							"info",
@@ -602,7 +602,7 @@ export function useModelDownload({
 						showSnack(t("models.snack.cancelled"), "warning");
 					} else {
 						// Neither queued nor active (stale queued chip /
-						// double click) — benign no-op, say so honestly.
+						// double click), benign no-op, say so honestly.
 						showSnack(
 							t("models.snack.cancelNoopName", { name: modelName }),
 							"info",
@@ -624,7 +624,7 @@ export function useModelDownload({
 			} finally {
 				if (cancelledActiveTransfer) {
 					// Always clear local download state when the ACTIVE
-					// transfer was cancelled — whether the IPC succeeded
+					// transfer was cancelled, whether the IPC succeeded
 					// or failed, the user has signalled intent to cancel
 					// it. The bar unmounts (`downloadingModel = null`),
 					// the inline error UI is cleared (`failedDownload =
@@ -656,7 +656,7 @@ export function useModelDownload({
 	);
 
 	// Destructure at the return boundary so consumer identity stays
-	// stable — consumers continue to receive `downloadingModel` /
+	// stable, consumers continue to receive `downloadingModel` /
 	// `downloadProgress` / etc. as top-level fields (no `state.X`
 	// access pattern leaks into the call sites).
 	const {

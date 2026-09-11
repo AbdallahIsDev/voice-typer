@@ -9,7 +9,7 @@ per-connection limiter: each connection gets a bounded number of
 messages per window.  Over-budget messages are dropped (with an error
 response) rather than dispatched.
 
-The limits are intentionally generous — a well-behaved Electron client
+The limits are intentionally generous, a well-behaved Electron client
 sends maybe 1-5 msg/s.
 
 RELIABILITY-006-: ``burst`` (200) is the hard per-second cap; a
@@ -24,8 +24,8 @@ hard per-second cap" but the implementation used a SINGLE deque for
 both checks, with the same ``window`` (10s).  With burst=200 and
 sustained=600 over the same 10s deque, the burst check (>= 200) ALWAYS
 fired first, making the sustained check (>= 600) unreachable dead code.
-The fix: TWO independent deques — ``_burst_timestamps`` (1-second
-window) and ``_sustained_timestamps`` (10-second window) — so burst
+The fix: TWO independent deques, ``_burst_timestamps`` (1-second
+window) and ``_sustained_timestamps`` (10-second window), so burst
 catches fast-burst attacks (201 msgs in any 1s) and sustained catches
 slow-drip attacks (601 msgs in any 10s = 60.1 msg/s average, never
 tripping the 200/s burst).  The two checks are now genuinely
@@ -47,15 +47,15 @@ _RATE_LIMIT_SUSTAINED = 600  # 60 msg/s average over 10s window
 # Previously the rate limiter treated every dispatched command as a
 # single "unit" against the burst (200/s) and sustained (600/10s) caps.
 # That's fine for cheap commands like ``heartbeat`` or ``get_status``,
-# but expensive commands — large model downloads, GDPR bundle exports,
-# full personal-data wipes — can saturate the dispatcher thread pool
+# but expensive commands, large model downloads, GDPR bundle exports,
+# full personal-data wipes, can saturate the dispatcher thread pool
 # and the disk long after the rate-limit window has slid past. A buggy
 # or hostile client could trigger dozens of concurrent
 # ``download_model`` invocations within the burst window.
 #
 # The cost map assigns each known command a "weight" against the same
 # burst/sustained budgets. ``download_model`` consumes 50 of the 200
-# burst units — so a client can fire at most 4 ``download_model``
+# burst units, so a client can fire at most 4 ``download_model``
 # requests in any 1s window before the 5th is rejected. ``heartbeat``
 # is explicitly listed at cost 1 so future changes to ``DEFAULT_COST``
 # don't silently change the heartbeat's rate-limit characteristics
@@ -70,46 +70,46 @@ COMMAND_COSTS: dict[str, int] = {
     # Heavy I/O or subprocess (cost 10+).
     "download_model": 50,
     "import_model": 20,
-    "delete_model": 50,  # was 10 — model delete spawns subprocess + fs writes
+    "delete_model": 50,  # was 10, model delete spawns subprocess + fs writes
     "transcribe_offline": 10,  # forwards audio to worker for ASR inference
-    "check_offline_pack_update": 1,  # auto-update pack check — rare, network-bound
-    "restart_app": 100,  # was 10 — full process restart
-    "quit_app": 100,  # was 5 — full process teardown
+    "check_offline_pack_update": 1,  # auto-update pack check, rare, network-bound
+    "restart_app": 100,  # was 10, full process restart
+    "quit_app": 100,  # was 5, full process teardown
     "resume_model_download": 10,
     "clear_history": 10,
     # Moderate (cost 20).
-    "test_llm_connection": 20,  # was 10 — network call to LLM provider
-    "microphone_test_start": 20,  # was 5 — opens a PortAudio stream
-    "level_monitor_start": 20,  # was 3 — opens a PortAudio stream + spawns thread
+    "test_llm_connection": 20,  # was 10, network call to LLM provider
+    "microphone_test_start": 20,  # was 5, opens a PortAudio stream
+    "level_monitor_start": 20,  # was 3, opens a PortAudio stream + spawns thread
     "shutdown": 5,
     "onboarding_apply": 5,
-    "get_vocabulary_suggestions": 3,  # NOTE: stale per registry — kept for back-compat
+    "get_vocabulary_suggestions": 3,  # NOTE: stale per registry, kept for back-compat
     # Small file writes / single-row mutations (cost 10).
-    "save_vocabulary": 10,  # was 2 — writes vocabulary file
-    "save_templates": 10,  # was 2 — writes templates file
-    "force_cancel_transcription": 10,  # was 2 — interrupts ASR pipeline
+    "save_vocabulary": 10,  # was 2, writes vocabulary file
+    "save_templates": 10,  # was 2, writes templates file
+    "force_cancel_transcription": 10,  # was 2, interrupts ASR pipeline
     "delete_history": 2,
     "restore_history": 2,
     "pause_model_download": 2,
     "cancel_model_download": 2,
-    # Reads / cheap ops (cost 1) — explicitly listed so future DEFAULT_COST
+    # Reads / cheap ops (cost 1), explicitly listed so future DEFAULT_COST
     # changes don't silently alter their rate-limit characteristics.
     "check_accessibility": 1,
     "heartbeat": 1,
     "get_config": 1,
     "get_defaults": 1,
-    "get_download_queue": 1,  # cheap read — pending-download queue snapshot (renderer mount hydration)
+    "get_download_queue": 1,  # cheap read, pending-download queue snapshot (renderer mount hydration)
     "get_favorites": 1,
     "get_history": 1,
     "get_history_count": 1,
     "get_microphones": 1,
     "get_model_catalog": 1,
     "get_model_status": 1,
-    "get_prewarm_status": 1,  # RESTORED 2026-08-14 (About-page Cache Status card — see plan §6.3)
+    "get_prewarm_status": 1,  # RESTORED 2026-08-14 (About-page Cache Status card. See plan §6.3)
     "get_status": 1,
     "get_templates": 1,
     "get_today_stats": 1,
-    "get_correction_usage": 1,  # cheap read — per-correction usage snapshot
+    "get_correction_usage": 1,  # cheap read, per-correction usage snapshot
     "get_transcription_text": 1,
     "get_vocabulary": 1,
     "get_volume_backend_status": 1,
@@ -118,7 +118,7 @@ COMMAND_COSTS: dict[str, int] = {
     "microphone_test_get_level": 1,
     "microphone_test_stop": 1,
     # Chunked WAV-slice reads: each call is a CHEAP bounded disk read
-    # (≤256 KiB + base64), NOT heavy I/O — cost must stay 1 so one full
+    # (≤256 KiB + base64), NOT heavy I/O, cost must stay 1 so one full
     # mic-test transfer (~8 slices across two files, fired back-to-back)
     # fits inside the shared 200/s burst budget. A higher weight here made
     # every completed 10s test exhaust the burst window mid-transfer and
@@ -138,7 +138,7 @@ COMMAND_COSTS: dict[str, int] = {
     "onboarding_set_model": 1,
     "onboarding_skip": 1,
     "onboarding_start": 1,
-    "open_prewarm_log": 1,  # RESTORED 2026-08-14 (About-page Cache Status card — see plan §6.3); launches OS editor
+    "open_prewarm_log": 1,  # RESTORED 2026-08-14 (About-page Cache Status card. See plan §6.3); launches OS editor
     "run_prewarm": 10,  # RESTORED 2026-08-14 (§6.3 addendum 2nd half); warm pass reads ~200 MB
     "relaunch_ack": 1,
     "repaste_last": 1,
@@ -146,13 +146,13 @@ COMMAND_COSTS: dict[str, int] = {
     "set_config": 2,  # writes config file
     "set_esc_cancel_paused": 1,
     "set_tray_locale": 1,
-    "test_vocabulary_correction": 3,  # compute — runs the correction engine pass on user text
+    "test_vocabulary_correction": 3,  # compute, runs the correction engine pass on user text
     "toggle_dictation": 1,
     "toggle_favorite": 2,  # writes to db
     "tray_click": 1,
     "undo_last": 2,  # deletes last history row
     # Stale entries kept for back-compat (the corresponding commands were
-    # removed from _COMMAND_REGISTRY by  — moved to Tauri Rust host).
+    # removed from _COMMAND_REGISTRY by , moved to Tauri Rust host).
     # The rate_limiter's COMMAND_COSTS dict still has them so older
     # Electron builds that bridge these calls don't trip the limiter's
     # DEFAULT_COST path. The contract test
@@ -165,9 +165,9 @@ COMMAND_COSTS: dict[str, int] = {
     # add_trusted_endpoint: small write (appends to a trusted-endpoints list).
     # test_cloud_connection: opens a subprocess to probe connectivity.
     # reset_macos_accessibility: runs a subprocess (tccutil) + re-opens
-    # System Settings — side-effectful, cost 2.
+    # System Settings, side-effectful, cost 2.
     # reset_linux_permissions: runs pkaction/pkexec/pkcheck subprocesses
-    # + restarts the polkit daemon — side-effectful, cost 2.
+    # + restarts the polkit daemon, side-effectful, cost 2.
     "add_trusted_endpoint": 2,
     "test_cloud_connection": 10,
     "reset_macos_accessibility": 2,
@@ -180,7 +180,7 @@ DEFAULT_COST = 1
 # can stop draining its TCP receive buffer.  Without a timeout, sendall
 # blocks indefinitely, holding the IPC lock (pre-) or
 # blocking the bubble_level worker thread (post-).  2
-# seconds is generous for a localhost write — under normal load the
+# seconds is generous for a localhost write, under normal load the
 # kernel buffer accepts data in microseconds.  When the timeout fires,
 # we drop the client connection so the accept loop can pick up the
 # next reconnect.
@@ -202,7 +202,7 @@ _TCP_WRITE_TIMEOUT_SECONDS = 2.0
 #   3. The ``_heartbeat_loop`` daemon thread wakes every 5 seconds and
 #      checks if more than 120 seconds (24 missed heartbeats) have
 #      elapsed since the last heartbeat.  If so, it calls
-#      ``self.app.quit()`` — which runs the shared ``_do_cleanup()``
+#      ``self.app.quit()``, which runs the shared ``_do_cleanup()``
 # path from  (restores volume, flushes recovery, releases the
 #      mutex, closes PortAudio).
 #
@@ -210,8 +210,8 @@ _TCP_WRITE_TIMEOUT_SECONDS = 2.0
 # so the backend doesn't exit prematurely during a slow Electron cold
 # start (10+ seconds for the torch import + window creation).  The
 # cold-start tolerance is provided by the ``_last_heartbeat_at is None``
-# guard in ``_check_heartbeat_timeout`` — NOT by the timeout value
-# itself — so the timeout can be tight.
+# guard in ``_check_heartbeat_timeout``: NOT by the timeout value
+# itself, so the timeout can be tight.
 #
 # The timeout was 120.0s (24 missed heartbeats), which is 4× the
 # Rust-side equivalent (``src-tauri/src/sidecar/ws.rs``: 10s interval,
@@ -219,7 +219,7 @@ _TCP_WRITE_TIMEOUT_SECONDS = 2.0
 # respawn).  A crashed Electron left the Python backend running with
 # the mic stream open, hotkeys registered, volume ducked, and the
 # single-instance mutex held for the full 120s before cleanup fired.
-# Reduced to 45s (9 missed heartbeats) — 3× the Rust-side 15s response
+# Reduced to 45s (9 missed heartbeats), 3× the Rust-side 15s response
 # timeout, giving a wide safety margin against transient GC pauses or
 # main-thread stalls in the renderer while no longer leaving a crashed
 # Electron's resources held for 2 full minutes.  The watchdog only
@@ -228,12 +228,12 @@ _TCP_WRITE_TIMEOUT_SECONDS = 2.0
 # safe.
 # bumped from 5.0s to 15.0s to reduce idle CPU wakeups on laptops
 # on battery. The 45s timeout (3 missed heartbeats) preserves the same
-# detection window as the prior 5s+45s (9 missed) config — a crashed
+# detection window as the prior 5s+45s (9 missed) config, a crashed
 # peer is still detected within 45s. The immediate first-heartbeat on
 # connect (tcp-connect.ts:151-156) handles cold-start arming, so the
 # periodic interval can be looser without losing fast first-heartbeat.
 _HEARTBEAT_INTERVAL_SECONDS = 15.0
-_HEARTBEAT_TIMEOUT_SECONDS = 45.0  # 3 missed heartbeats @ 15s — same detection window as prior 9@5s
+_HEARTBEAT_TIMEOUT_SECONDS = 45.0  # 3 missed heartbeats @ 15s, same detection window as prior 9@5s
 # grace period (seconds) the heartbeat watchdog's force-exit
 # daemon thread waits before calling ``os._exit(1)``. 10s is longer
 # than the slowest legitimate ``app.quit()`` path (PortAudio stream
@@ -251,10 +251,10 @@ class _RateLimiter:
         limiter tracks the timestamp of each accepted message in TWO
         deques:
 
-        * ``_burst_timestamps`` — a 1-second sliding window. If the deque
+        * ``_burst_timestamps``: a 1-second sliding window. If the deque
           reaches ``burst`` entries (default 200), the next message is
           rejected. This catches fast-burst attacks (201+ msgs in any 1s).
-        * ``_sustained_timestamps`` — a ``window``-second sliding window
+        * ``_sustained_timestamps``: a ``window``-second sliding window
           (default 10s). If the deque reaches ``sustained`` entries
           (default 600 = 60 msg/s avg), the next message is rejected.
           This catches slow-drip attacks (601+ msgs in any 10s = 60.1
@@ -316,7 +316,7 @@ class _RateLimiter:
                 rejection decision inside the same lock acquisition as the
                 deque check. Previously ``allow()`` returned False and the
                 caller separately called ``reject()`` (acquiring the lock
-                again) — a benign race where two threads could both observe
+                again), a benign race where two threads could both observe
                 the same deque state, both decide to reject, and double-count
                 the rejection. Now ``allow()`` is the single source of truth
                 for both the decision and the counter.
@@ -328,7 +328,7 @@ class _RateLimiter:
                 decision is atomic.
 
         the cost-weighted check is
-                ``current_window_total + cost > limit`` — equivalent to the
+                ``current_window_total + cost > limit``: equivalent to the
         pre- ``len(deque) >= limit`` check when ``cost == 1``
                 (because each entry contributes 1 to the total). With
                 ``cost == 50`` (e.g. ``download_model``), the limit is
@@ -352,11 +352,11 @@ class _RateLimiter:
         # checks entirely. A compromised renderer sustaining ≥200
         # msg/s of cheap commands would otherwise exhaust the per-
         # process burst budget (200/s shared across ALL connections)
-        # and reject every heartbeat during the attack window — after
+        # and reject every heartbeat during the attack window, after
         # 45s (3 missed @ 15s interval) the heartbeat watchdog calls
         # ``app.quit()``, killing the backend. The bypass is safe
         # because the watchdog only tracks the LAST heartbeat
-        # timestamp (not the count) — a flood of fake heartbeats from
+        # timestamp (not the count), a flood of fake heartbeats from
         # the (already-compromised) renderer is not a new attack
         # vector, but a flood of OTHER commands must not be able to
         # starve the legitimate heartbeat keep-alive.
@@ -375,7 +375,7 @@ class _RateLimiter:
                 # the deque has duplicate timestamps (the
                 # ``popleft`` removes the oldest entry but
                 # another entry with the same ``_old_cost`` is
-                # still in the deque — the running total no
+                # still in the deque, the running total no
                 # longer matches the deque's accumulate-value
                 # because the increment in the append path is
                 # monotonic). The clamp is defense-in-depth: the
@@ -399,7 +399,7 @@ class _RateLimiter:
                 self._rejected += 1
                 return False
             # sustained check (10s window, avg-rate cap).
-            # Independent of burst — a slow-drip attacker who never
+            # Independent of burst, a slow-drip attacker who never
             # sends >200 msgs/s but exceeds 600 msgs in 10s is caught
             # here, where the prior single-deque impl would have
             # missed them (burst fired first at 200).
@@ -427,7 +427,7 @@ class _RateLimiter:
 # Previously, both the TCP path (``_handle_tcp_connection``) and the WS
 # path (``sidecar_ws._make_dispatch``) instantiated a FRESH
 # ``_RateLimiter`` per connection. A local attacker could burst the
-# 200-message budget, disconnect, reconnect, and burst again — bypassing
+# 200-message budget, disconnect, reconnect, and burst again, bypassing
 # the sustained cap entirely.
 #
 # The fix: ONE ``_RateLimiter`` per ``IPCServer`` instance, lazily
@@ -442,7 +442,7 @@ class _RateLimiter:
 #     own limiter, preserving test isolation without needing a reset
 #     hook. ``getattr(server, "_rate_limiter_instance", None)`` returns
 #     None for a real IPCServer (attribute not set) and a child
-#     MagicMock for a test double — the ``isinstance`` check filters
+#     MagicMock for a test double, the ``isinstance`` check filters
 #     both, creating+storing a real ``_RateLimiter`` on first access.
 #
 # (IMPROVE-mode run, 2026-07-19): the lazy get-or-create is now
@@ -456,7 +456,7 @@ class _RateLimiter:
 # a slow-drip attacker could effectively double the rate-limit budget
 # for the brief overlap window (or worse, N× with N racing threads).
 # The init lock is held only for the brief get-or-create window, NOT
-# for the subsequent ``allow()`` call — the per-instance lock inside
+# for the subsequent ``allow()`` call, the per-instance lock inside
 # ``_RateLimiter.allow()`` already serializes deque mutation, so this
 # outer lock does not serialize dispatch.
 _RATE_LIMITER_INIT_LOCK = threading.Lock()
@@ -472,7 +472,7 @@ def _get_rate_limiter(server: "object", _cls: "type[_RateLimiter] | None" = None
 
     the get-or-create sequence is now atomic across threads
         thanks to ``_RATE_LIMITER_INIT_LOCK``. The lock is module-level
-        (shared across all server instances) — that's correct because the
+        (shared across all server instances), that's correct because the
         critical section is "check this specific ``server._rate_limiter_instance``
         and, if missing, create+store". Different server instances have
         different ``_rate_limiter_instance`` attributes, so the lock
@@ -485,12 +485,12 @@ def _get_rate_limiter(server: "object", _cls: "type[_RateLimiter] | None" = None
         class. ``ipc_server._get_rate_limiter`` delegates here with
         ``_cls=ipc_server._RateLimiter`` so tests that monkey-patch
     ``ipc_server._RateLimiter`` to widen the race window (
-    ) still observe the patched class — the canonical
+    ) still observe the patched class, the canonical
         implementation is now single-sourced in this leaf module.
     """
     if _cls is None:
         _cls = _RateLimiter
-    # Fast path: limiter already exists on the server instance — return
+    # Fast path: limiter already exists on the server instance, return
     # it WITHOUT acquiring the init lock. This is the common case after
     # the first dispatch on each server; the lock is only needed for
     # the brief first-call race. The fast path is safe because
@@ -504,7 +504,7 @@ def _get_rate_limiter(server: "object", _cls: "type[_RateLimiter] | None" = None
 
     # Slow path: limiter is None or a non-_RateLimiter (e.g. an
     # auto-vivified MagicMock child). Acquire the init lock and
-    # RE-CHECK — another thread may have created+stored the limiter
+    # RE-CHECK, another thread may have created+stored the limiter
     # between our fast-path check and the lock acquisition (classic
     # double-checked locking pattern).
     with _RATE_LIMITER_INIT_LOCK:

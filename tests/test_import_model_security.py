@@ -5,7 +5,7 @@ Verifies that:
 1. The ``_handle_import_model`` IPC handler rejects ``dir_path`` values
    that fall outside the allowed roots (home directory, OS temp dir, or
    the HF cache).  Without this check, an IPC payload could request
-   scanning — and copying into the app's HF cache — any directory on
+   scanning (and copying into the app's HF cache) any directory on
    the filesystem.
 
 2. ``VoiceTyperService.import_model`` refuses to copy a model cache
@@ -13,7 +13,7 @@ Verifies that:
    ``symlinks=True`` flag preserved symlinks verbatim, so a poisoned
    model dir with a symlink to ``~/.ssh/id_rsa`` would be copied into
    the cache.  Even with ``symlinks=False`` (the new default), copytree
-   *follows* symlinks and copies the target's contents — so the
+   *follows* symlinks and copies the target's contents, so the
    explicit pre-check is the primary gate.
 
 3. A legitimate model dir (no symlinks) still imports successfully —
@@ -92,7 +92,7 @@ class TestImportPathValidation:
         monkeypatch.setattr(cfg, "_config_dir", lambda: fake_cache_root)
         monkeypatch.delenv("HF_HOME", raising=False)
 
-        bad = tmp_path / "outside"  # sibling of all fake roots — not within any
+        bad = tmp_path / "outside"  # sibling of all fake roots, not within any
         bad.mkdir()
 
         with pytest.raises(ValueError, match="outside the allowed roots"):
@@ -276,7 +276,7 @@ class TestImportPathValidationHandler:
 
         assert result["type"] == "error", f"Expected error response, got {result}"
         assert "outside the allowed roots" in result["data"]["message"]
-        # service.import_model must NOT have been called — the handler
+        # service.import_model must NOT have been called, the handler
         # short-circuits on validation failure.
         stub.service.import_model.assert_not_called()
 
@@ -336,7 +336,7 @@ class TestImportModelSymlinkRejection:
 
     def test_rejects_model_dir_with_symlinked_file(self, service, tmp_path, monkeypatch):
         """A model cache dir containing a symlink to an external file
-        must be REJECTED — not silently copied into the app cache."""
+        must be REJECTED, not silently copied into the app cache."""
         monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path / "app_hf")
         monkeypatch.setattr(
             "voice_typer.server.tray_models.invalidate_model_availability_cache",
@@ -350,7 +350,7 @@ class TestImportModelSymlinkRejection:
         # Plant a symlink inside the model cache pointing to a "secret"
         # file outside the source dir.
         secret = tmp_path / "secret_target"
-        secret.write_text("super secret — should NOT be copied")
+        secret.write_text("super secret, should NOT be copied")
         link = model_dir / "leaked_secret"
         try:
             link.symlink_to(secret)
@@ -363,7 +363,7 @@ class TestImportModelSymlinkRejection:
         # is reported in errors and NOT in imported.
         assert result["success"] is True
         assert "tiny" not in result["imported"], (
-            f"Model containing a symlink must NOT be imported — got imported={result['imported']}"
+            f"Model containing a symlink must NOT be imported, got imported={result['imported']}"
         )
         assert len(result["errors"]) == 1
         assert result["errors"][0]["model"] == "tiny"
@@ -376,7 +376,7 @@ class TestImportModelSymlinkRejection:
     def test_rejects_model_dir_with_symlinked_subdir(self, service, tmp_path, monkeypatch):
         """A symlinked subdirectory inside the model cache must also be
         rejected (os.walk's default ``followlinks=False`` lists symlinked
-        dirs in ``dirnames`` — the check must catch them)."""
+        dirs in ``dirnames``, the check must catch them)."""
         monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path / "app_hf")
         monkeypatch.setattr(
             "voice_typer.server.tray_models.invalidate_model_availability_cache",
@@ -426,7 +426,7 @@ class TestImportModelSymlinkRejection:
             pytest.skip("Cannot create symlinks on this system")
 
         # If /etc/hostname doesn't exist on this system, create a temp
-        # file as the target instead — the point is to verify the
+        # file as the target instead, the point is to verify the
         # symlink is detected and rejected, not the specific target.
         if not link.exists():
             link.unlink()
@@ -487,11 +487,11 @@ class TestImportModelSymlinkRejection:
         src_dir = tmp_path / "source"
         src_dir.mkdir()
 
-        # Clean model — should import
+        # Clean model, should import
         clean_dir = _make_model_cache_dir(src_dir, "Systran/faster-whisper-tiny")
         (clean_dir / "config.json").write_text('{"model_type": "tiny"}')
 
-        # Poisoned model — should be rejected
+        # Poisoned model, should be rejected
         poison_dir = _make_model_cache_dir(src_dir, "Systran/faster-whisper-large-v3-turbo")
         secret = tmp_path / "secret"
         secret.write_text("secret")
@@ -548,7 +548,7 @@ class TestIsPathWithin:
 
     def test_prefix_collision_not_within(self, tmp_path):
         """``/home/userX`` must NOT be considered within ``/home/user``
-        — a naive ``str.startswith`` would incorrectly accept it."""
+        , a naive ``str.startswith`` would incorrectly accept it."""
         from voice_typer.server.config import _is_path_within
 
         user = tmp_path / "user"

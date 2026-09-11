@@ -6,7 +6,7 @@ export function sanitizeRendererUrl(
 		const parsed = new URL(raw);
 		if (parsed.protocol === "http:" || parsed.protocol === "https:") return raw;
 	} catch {
-		// invalid URL — fall through to undefined
+		// invalid URL, fall through to undefined
 	}
 	return undefined;
 }

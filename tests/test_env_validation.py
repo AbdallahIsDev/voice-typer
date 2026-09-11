@@ -6,18 +6,18 @@ Covers the single public function ``_validate_env_vars`` defined in
 Important: this validator checks **format** (not "required-ness") of the
 environment variables consumed by the voice-typer server. Invalid values
 are logged at WARNING level and **removed** from ``os.environ`` via
-``os.environ.pop`` — the function never raises.
+``os.environ.pop``, the function never raises.
 
 Vars validated (see ``env_validation.py`` for the authoritative list):
 
-* 4 boolean vars — ``VOICE_TYPER_QUIET``, ``VOICE_TYPER_DEBUG``,
+* 4 boolean vars: ``VOICE_TYPER_QUIET``, ``VOICE_TYPER_DEBUG``,
   ``VOICE_TYPER_NO_TRAY``, ``VOICE_TYPER_STREAMING``
   (pattern: ``^(1|0|true|false|yes|no)$``, case-insensitive).
-* 2 token vars — ``VOICE_TYPER_RESTART``, ``VOICE_TYPER_IPC_TOKEN``
+* 2 token vars: ``VOICE_TYPER_RESTART``, ``VOICE_TYPER_IPC_TOKEN``
   (pattern: ``^[A-Za-z0-9._\\-]{1,128}$``).
-* 2 path vars — ``VOICE_TYPER_CONFIG_DIR``, ``HF_HOME``
+* 2 path vars: ``VOICE_TYPER_CONFIG_DIR``, ``HF_HOME``
   (pattern: ``^[^\\0]+$`` with ``len <= 4096``).
-* ``SystemRoot`` — delegated to
+* ``SystemRoot``, delegated to
   :func:`voice_typer.server.config._validate_systemroot` (no-op on
   non-Windows).
 
@@ -70,11 +70,11 @@ class TestValidateEnvVarsContract:
     """Return value, no-op behaviour, and SystemRoot delegation."""
 
     def test_returns_none_when_no_vars_set(self):
-        """No env vars set — must succeed and return None."""
+        """No env vars set, must succeed and return None."""
         assert _validate_env_vars() is None
 
     def test_no_vars_set_does_not_create_any(self):
-        """No env vars set — must not add anything to os.environ."""
+        """No env vars set, must not add anything to os.environ."""
         before = {v: os.environ.get(v) for v in _ALL_VARS}
         _validate_env_vars()
         after = {v: os.environ.get(v) for v in _ALL_VARS}
@@ -112,7 +112,7 @@ class TestBooleanVars:
 
     @pytest.mark.parametrize("value", ["TRUE", "False", "Yes", "NO", "tRuE", "0No"])
     def test_boolean_pattern_is_case_insensitive(self, monkeypatch, value):
-        # regex compiled with re.IGNORECASE — mixed-case valid values pass.
+        # regex compiled with re.IGNORECASE, mixed-case valid values pass.
         # "0No" is included as a negative control: it must be removed.
         monkeypatch.setenv("VOICE_TYPER_QUIET", value)
         _validate_env_vars()
@@ -129,14 +129,14 @@ class TestBooleanVars:
 
     @pytest.mark.parametrize("var", _BOOL_VARS)
     def test_empty_string_boolean_removed(self, monkeypatch, var):
-        # Empty string is "set but not None" — gets checked and fails.
+        # Empty string is "set but not None", gets checked and fails.
         monkeypatch.setenv(var, "")
         _validate_env_vars()
         assert var not in os.environ
 
     @pytest.mark.parametrize("var", _BOOL_VARS)
     def test_whitespace_only_boolean_removed(self, monkeypatch, var):
-        # Padded valid value — regex anchors ^ and $, so this fails.
+        # Padded valid value, regex anchors ^ and $, so this fails.
         monkeypatch.setenv(var, "  true  ")
         _validate_env_vars()
         assert var not in os.environ
@@ -190,7 +190,7 @@ class TestTokenVars:
 
     @pytest.mark.parametrize("var", _TOKEN_VARS)
     def test_token_at_max_length_preserved(self, monkeypatch, var):
-        # {1,128} is inclusive at both ends — 128 chars passes.
+        # {1,128} is inclusive at both ends, 128 chars passes.
         monkeypatch.setenv(var, "a" * 128)
         _validate_env_vars()
         assert os.environ.get(var) == "a" * 128
@@ -222,14 +222,14 @@ class TestPathVars:
 
     @pytest.mark.parametrize("var", _PATH_VARS)
     def test_empty_path_removed(self, monkeypatch, var):
-        # Path pattern ^[^\0]+ requires at least 1 char — "" fails.
+        # Path pattern ^[^\0]+ requires at least 1 char: "" fails.
         monkeypatch.setenv(var, "")
         _validate_env_vars()
         assert var not in os.environ
 
     @pytest.mark.parametrize("var", _PATH_VARS)
     def test_whitespace_path_preserved(self, monkeypatch, var):
-        # Whitespace (incl. spaces inside) is allowed — only NUL is
+        # Whitespace (incl. spaces inside) is allowed, only NUL is
         # forbidden. Paths legitimately contain spaces.
         # Keep the value under home (like the other preserved tests): a
         # leading-space relative value like "   /tmp/voice typer   "
@@ -259,7 +259,7 @@ class TestPathVars:
         # A relative "a"*4096 resolves against the process CWD, which on
         # CI runners is NOT under home (e.g. D:\\a\\_work on Windows
         # runners), so _validate_path_safety would reject it and the var
-        # would be discarded — the test would fail even though the
+        # would be discarded, the test would fail even though the
         # length-boundary behavior under test is correct.
         home = str(Path.home())
         pad = 4096 - len(home) - 1  # -1 for the path separator
@@ -281,7 +281,7 @@ class TestPathVars:
 
 
 class TestAllVarsSet:
-    """End-to-end: every validated var present and valid — all preserved."""
+    """End-to-end: every validated var present and valid, all preserved."""
 
     def test_all_valid_all_preserved(self, monkeypatch):
         # ``/tmp/voice-typer`` is outside ``Path.home()`` so it
@@ -309,7 +309,7 @@ class TestAllVarsSet:
             monkeypatch.setenv(var, "'; rm -rf /")
         for var in _PATH_VARS:
             monkeypatch.setenv(var, "a" * 5000)
-        # HF_ENDPOINT invalid value (HTTP scheme) — must be popped.
+        # HF_ENDPOINT invalid value (HTTP scheme), must be popped.
         monkeypatch.setenv("HF_ENDPOINT", "http://evil.example.com")
         _validate_env_vars()
         for var in _ALL_VARS:
@@ -354,7 +354,7 @@ class TestHfEndpoint:
     @pytest.mark.parametrize(
         "url",
         [
-            # HTTP scheme — must be rejected even for allowlisted host.
+            # HTTP scheme, must be rejected even for allowlisted host.
             "http://huggingface.co",
             "http://hf-mirror.com",
             "http://localhost:8080",
@@ -385,7 +385,7 @@ class TestHfEndpoint:
         )
 
     def test_empty_hf_endpoint_removed(self, monkeypatch):
-        # Empty string is "set but not None" — basic pattern ^[^\0]+ fails.
+        # Empty string is "set but not None", basic pattern ^[^\0]+ fails.
         monkeypatch.setenv("HF_ENDPOINT", "")
         _validate_env_vars()
         assert "HF_ENDPOINT" not in os.environ
@@ -396,7 +396,7 @@ class TestHfEndpoint:
         assert "HF_ENDPOINT" not in os.environ
 
     def test_unset_hf_endpoint_is_noop(self, monkeypatch):
-        # No HF_ENDPOINT set — validator must not raise or create it.
+        # No HF_ENDPOINT set, validator must not raise or create it.
         monkeypatch.delenv("HF_ENDPOINT", raising=False)
         _validate_env_vars()
         assert "HF_ENDPOINT" not in os.environ
@@ -408,12 +408,12 @@ class TestHfEndpoint:
 class TestGt63EnvVarValuesRedacted:
     """GT-63: ALL env-var values logged by ``_validate_env_vars`` are
     pre-redacted at the call site (``<redacted>`` literal in the message
-    body) — defense-in-depth so a handler that bypasses
+    body), defense-in-depth so a handler that bypasses
     ``PIIRedactionFilter`` cannot leak the raw value.
 
     Booleans and log levels are on the explicit safe-list per the
     spec, but a *failed* boolean validation means the value is NOT a
-    boolean — it's an opaque string the operator typed — so it must
+    boolean (it's an opaque string the operator typed) so it must
     be redacted too.
     """
 

@@ -2,7 +2,7 @@
  * Footer Cancel routes through the unsaved-edits gate.
  *
  * Previously the footer Cancel button called `onClose` directly,
- * bypassing the Modal `onCloseIntent` veto — an explicit Cancel click
+ * bypassing the Modal `onCloseIntent` veto, an explicit Cancel click
  * after edits silently discarded them, inconsistent with Esc / overlay
  * / corner-X which open the discard confirm. Pinned contract:
  *   - Clean form → Cancel closes immediately.
@@ -112,7 +112,7 @@ function renderDialog(overrides: Record<string, unknown> = {}) {
 	return { onClose, onSave };
 }
 
-describe("TemplateDialog — footer Cancel routes through the unsaved-edits gate", () => {
+describe("TemplateDialog, footer Cancel routes through the unsaved-edits gate", () => {
 	afterEach(() => {
 		cleanup();
 	});

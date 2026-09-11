@@ -6,7 +6,7 @@
  * Electron, but `showMainWindow()` only called `show()` + `focus()`.
  * The OS foreground lock (Windows refuses SetForegroundWindow from a
  * background process) meant `focus()` merely flashed the taskbar
- * button — the dashboard stayed visible but buried at the bottom of
+ * button, the dashboard stayed visible but buried at the bottom of
  * the z-order behind other applications' windows. The fix raises the
  * window above everything via a momentary always-on-top lift +
  * `moveTop()`, then drops the flag.

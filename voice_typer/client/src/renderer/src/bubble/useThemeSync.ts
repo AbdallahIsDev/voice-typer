@@ -1,5 +1,5 @@
 /**
- * Bubble overlay package — `useThemeSync` hook.
+ * Bubble overlay package, `useThemeSync` hook.
  *
  * Keeps the bubble's `<html>` in sync with the main app's theme so
  * Tailwind `dark:` variants resolve correctly, and the `dir` attribute
@@ -9,7 +9,7 @@
  *
  * The bubble renderer is a SEPARATE `BrowserWindow` from the main
  * app, so `setLocale()` running in the main renderer does NOT
- * propagate `document.documentElement.dir` (or `.lang`) here — the
+ * propagate `document.documentElement.dir` (or `.lang`) here, the
  * bubble must apply its own `dir` from the same locale signal the
  * main window uses. The inline script in `bubble.html` does the
  * first-paint read from localStorage so the bubble's initial render
@@ -33,13 +33,13 @@
  * received AFTER the React tree mounts + the bubble preload wires
  * `onConfig`. So the very first paint of the bubble uses the
  * inline-script-applied `dir` / `lang` / `.dark` (read from
- * localStorage) — and if those localStorage keys are stale or
+ * localStorage), and if those localStorage keys are stale or
  * missing (e.g. first run, fresh install, cleared prefs), the
  * bubble paints with browser defaults until the first
  * `bubble:config` arrives ~50-200ms later. The proper fix is for
  * the main process to push `bubble:config` in the bubble window's
  * `did-finish-load` listener (so the config arrives before the
- * React tree mounts) — that work is owned by the `main/windows/`
+ * React tree mounts), that work is owned by the `main/windows/`
  * side. Until then, the inline-script + this hook's runtime
  * sync provide a best-effort first paint + correct steady state.
  */
@@ -193,10 +193,10 @@ export function useThemeSync() {
 		return off;
 	}, [applyTheme, applyTextSize, bridge]);
 
-	// Runtime locale-change push (`bubble:locale-changed` — the main
+	// Runtime locale-change push (`bubble:locale-changed`, the main
 	// process forwards the locale whenever the user switches app
 	// language; `notifyBubbleLocaleChanged` in windows/bubble/
-	// lifecycle.ts). This is the LIVE path — the `cfg.locale` branch
+	// lifecycle.ts). This is the LIVE path, the `cfg.locale` branch
 	// above only fires when the config push happens to carry a locale.
 	// The payload is the bare locale code ("en" / "ar" / …); the
 	// `isLocaleValue` guard rejects unknown values so `dir` is never
@@ -205,12 +205,12 @@ export function useThemeSync() {
 	// The handler routes through the PUBLIC `setLocale` (the same
 	// orchestrator the main window uses) so the bubble's i18n runtime
 	// switches wholesale: `_currentLocale`, dynamic translation-table
-	// load, `dir`/`lang`, and subscriber notification — without
+	// load, `dir`/`lang`, and subscriber notification, without
 	// duplicating that choreography here. Its IPC pushes are no-ops in
 	// the sandboxed bubble (`window.window_` / `window.python` are not
 	// exposed here), so no echo loop with the main process is possible.
 	// The state bump forces a re-render because the bubble's labels
-	// resolve via the module-level `t()` at render time — unlike
+	// resolve via the module-level `t()` at render time, unlike
 	// `useT()` subscribers they are not notified by the locale change.
 	useEffect(() => {
 		if (!bridge) return;

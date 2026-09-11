@@ -9,7 +9,7 @@ contributor who only runs the Python suite still catches the regression.
 
 A blanket ``ignore::ResourceWarning`` filter would hide real file-handle
 / socket leaks in the 24/7 long-running tray process. Targeted filters
-(e.g. ``ignore::ResourceWarning:sounddevice``) are still allowed — only
+(e.g. ``ignore::ResourceWarning:sounddevice``) are still allowed, only
 the bare ``"ignore::ResourceWarning"`` form is rejected.
 
 This file also guards two other pyproject.toml + pytest-config
@@ -17,7 +17,7 @@ invariants that have regressed in the past:
 
 - ``norecursedirs`` MUST include ``.hypothesis`` (otherwise the
   hypothesis pytest plugin emits a ``UserWarning: Skipping collection
-  of '.hypothesis' directory`` on every pytest run — see the
+  of '.hypothesis' directory`` on every pytest run: see the
   ``test_norecursedirs_includes_hypothesis`` regression test below).
 - ``filterwarnings`` MUST include ``"error::DeprecationWarning:voice_typer"``
   so voice_typer-originated DeprecationWarnings are ratcheted into
@@ -65,7 +65,7 @@ def test_norecursedirs_includes_hypothesis() -> None:
     EVERY pytest run. The warning is harmless but noisy (it fires once
     per pytest invocation, including for unrelated test files like
     ``tests/test_text_cleanup.py``), and a contributor seeing it on every
-    run will learn to ignore pytest warnings — defeating the
+    run will learn to ignore pytest warnings, defeating the
     ``filterwarnings`` ratchet that promotes real warnings to errors.
 
     Adding ``.hypothesis`` to ``norecursedirs`` silences the warning and
@@ -98,7 +98,7 @@ def test_filterwarnings_has_voice_typer_deprecation_ratchet() -> None:
     """``filterwarnings`` MUST include ``"error::DeprecationWarning:voice_typer"``.
 
     This is a ratchet: once a ``voice_typer``-originated deprecation is
-    fixed, this filter ensures it can never silently regress — the
+    fixed, this filter ensures it can never silently regress, the
     DeprecationWarning is promoted to a hard test error. The filter is
     scoped to the ``voice_typer`` module (via the trailing ``:voice_typer``
     module-regex field) so third-party DeprecationWarnings (e.g. the
@@ -121,7 +121,7 @@ def test_hypothesis_ci_profile_loaded_with_deadline_none() -> None:
     """The ``ci`` hypothesis profile MUST be registered with ``deadline=None``.
 
     Registered + loaded in ``tests/conftest.py:pytest_configure`` (not in
-    ``pyproject.toml`` — hypothesis profiles are runtime-registered via
+    ``pyproject.toml``, hypothesis profiles are runtime-registered via
     ``hypothesis.settings.register_profile``). Without ``deadline=None``,
     the 22 ``@settings``-decorated hypothesis tests across
     ``tests/test_property_based.py``,
@@ -143,7 +143,7 @@ def test_hypothesis_ci_profile_loaded_with_deadline_none() -> None:
 
     Hypothesis ships with a built-in ``ci`` profile that already has
     ``deadline=None``, so this test would pass even without
-    ``conftest.py``'s ``register_profile`` call — but the
+    ``conftest.py``'s ``register_profile`` call, but the
     ``_current_profile == "ci"`` assertion verifies that
     ``conftest.py`` actually LOADS the profile (without ``load_profile``,
     hypothesis stays on the ``default`` profile with ``deadline=200ms``).
@@ -154,7 +154,7 @@ def test_hypothesis_ci_profile_loaded_with_deadline_none() -> None:
     # (1) The ``ci`` profile is registered.
     registered_profiles = settings._profiles
     assert "ci" in registered_profiles, (
-        "hypothesis 'ci' profile is not registered — "
+        "hypothesis 'ci' profile is not registered, "
         "tests/conftest.py:pytest_configure must call "
         "settings.register_profile('ci', deadline=None, ...). "
         f"Registered profiles: {sorted(registered_profiles)!r}"
@@ -171,11 +171,11 @@ def test_hypothesis_ci_profile_loaded_with_deadline_none() -> None:
 
     # (3) The ``ci`` profile is the currently-loaded profile. This is the
     # assertion that catches a future regression where someone removes the
-    # ``settings.load_profile("ci")`` call from conftest.py — without
+    # ``settings.load_profile("ci")`` call from conftest.py, without
     # that call, hypothesis stays on the ``default`` profile (deadline=200ms)
     # even though the ``ci`` profile is registered.
     assert settings._current_profile == "ci", (
-        f"hypothesis 'ci' profile is registered but not loaded — "
+        f"hypothesis 'ci' profile is registered but not loaded, "
         f"current profile is {settings._current_profile!r}. "
         "tests/conftest.py:pytest_configure must call "
         "settings.load_profile('ci') after register_profile."

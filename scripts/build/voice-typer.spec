@@ -1,12 +1,12 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""PyInstaller spec for Voice Typer — background voice-to-text tray app.
+"""PyInstaller spec for Voice Typer, background voice-to-text tray app.
 
-This is the **PyInstaller fallback** for ADR-0020 §4.5 — used when Nuitka
+This is the **PyInstaller fallback** for ADR-0020 §4.5, used when Nuitka
 is unavailable or the Nuitka build fails on a given platform. The primary
 build path is Nuitka (see `scripts/build/nuitka_freeze.sh` + the per-platform
 `build_sidecar_<platform>.sh` scripts), which produces a smaller, faster
 single-file binary. This spec exists so a packaging failure on Nuitka does
-NOT block a release — PyInstaller is the safety net.
+NOT block a release. PyInstaller is the safety net.
 
 Two output modes are selected via the `VOICE_TYPER_TAURI_SIDECAR` env var:
 
@@ -69,7 +69,7 @@ _TAURI_SIDECAR = os.environ.get("VOICE_TYPER_TAURI_SIDECAR", "") == "1"
 # `target_triple_for` in src-tauri/src/sidecar/spawn.rs. This is the suffix
 # Tauri's externalBin expects on the binary name.
 # NOTE: ``platform.machine()`` is used (NOT ``os.uname().machine``) because
-# ``os.uname`` is Unix-only — it raises ``AttributeError`` on Windows when the
+# ``os.uname`` is Unix-only, it raises ``AttributeError`` on Windows when the
 # dict literal below is eagerly evaluated at spec-load time. ``platform.machine``
 # is cross-platform and returns the same string ("x86_64"/"aarch64"/"amd64")
 # on Linux, macOS, and Windows.
@@ -236,7 +236,7 @@ _hiddenimports = [
     # --include-package=faster_whisper explicitly; the PyInstaller spec should
     # do the same defensively (even though static analysis often discovers
     # faster_whisper via ipc_server.py imports, listing it explicitly is the
-    # safe choice — see test_pyinstaller_fallback.py GAP-1).
+    # safe choice: see test_pyinstaller_fallback.py GAP-1).
     "faster_whisper",
     "faster_whisper.transcribe",
     "ctranslate2",
@@ -246,7 +246,7 @@ _hiddenimports = [
 # XPLAT-03: add platform-specific hiddenimports
 if sys.platform == "win32":
     _hiddenimports += [
-        # Windows volume ducking — lazy-imported inside
+        # Windows volume ducking, lazy-imported inside
         # WinVolumeBackend.initialize().
         "pycaw",
         "comtypes",
@@ -259,7 +259,7 @@ if sys.platform == "win32":
         "win32com.client",
     ]
 elif sys.platform == "darwin":
-    # macOS volume ducking — lazy-imported inside
+    # macOS volume ducking, lazy-imported inside
     # MacVolumeBackend.initialize().
     _hiddenimports += ["CoreAudio"]
 
@@ -280,9 +280,9 @@ a = Analysis(
     runtime_hooks=[],
     excludes=[
         # BUILD-003: exclude unused stdlib modules to reduce binary size.
-        # IMPORTANT: do NOT exclude "logging.handlers" — app.py imports
+        # IMPORTANT: do NOT exclude "logging.handlers", app.py imports
         # logging.handlers.RotatingFileHandler at module level.
-        # IMPORTANT: do NOT exclude "http.bsddb" — it is not a valid
+        # IMPORTANT: do NOT exclude "http.bsddb": it is not a valid
         # Python 3 module (Python 2 leftover), causes build warning.
         "tkinter",
         "tkinter.test",
@@ -386,6 +386,6 @@ exe = EXE(
     icon=str(_icon_path) if _icon_path.exists() and not _TAURI_SIDECAR else None,
     # PLAT-037: embed the Windows application manifest with
     # requestedExecutionLevel=asInvoker to prevent UAC prompts.
-    # (Applied to both modes — the manifest is harmless on the sidecar.)
+    # (Applied to both modes, the manifest is harmless on the sidecar.)
     manifest=_manifest_file.name if sys.platform == "win32" else None,
 )

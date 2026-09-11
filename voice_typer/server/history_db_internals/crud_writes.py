@@ -5,8 +5,8 @@ Extracted from the once-monolithic ``history_db.py``. The public
 ``restore``, ``clear_all``, ``toggle_favorite``) stay on the class with
 their ``_wrap_write`` decorators, docstrings, argument parsing,
 cache-invalidation, and ``raise_on_error`` semantics intact; this module
-holds the bodies that run INSIDE the writer thread — submitted by the
-methods via ``db._submit_write(...)`` — as free functions taking the
+holds the bodies that run INSIDE the writer thread, submitted by the
+methods via ``db._submit_write(...)``: as free functions taking the
 :class:`~voice_typer.server.history_db.HistoryDB` instance (``db``) and
 the writer connection (``conn``).
 
@@ -20,23 +20,23 @@ monkeypatch them on the facade keep working.
 
 Free functions:
 
-- :func:`add_transcription` — fire-and-forget enqueue of a bounded
+- :func:`add_transcription`: fire-and-forget enqueue of a bounded
   ``_BatchableInsert`` payload (placeholder row-id contract), including
   the writer-liveness guard.
-- :func:`submit_restore` — caller-side orchestration for
+- :func:`submit_restore`: caller-side orchestration for
   ``HistoryDB.restore``: record parsing, writer submission, cache
   invalidation.
-- :func:`submit_checkpoint` — caller-side orchestration for
+- :func:`submit_checkpoint`: caller-side orchestration for
   ``HistoryDB.checkpoint``: writer submission + error-to-``False``
   mapping.
-- :func:`delete_row` — row DELETE + FTS5 ``'optimize'`` forensic purge
+- :func:`delete_row`: row DELETE + FTS5 ``'optimize'`` forensic purge
   (GDPR Art. 17).
-- :func:`restore_row` — re-insert a previously-deleted record
+- :func:`restore_row`: re-insert a previously-deleted record
   (insert-plaintext + flag-flip when a DEK is cached).
-- :func:`clear_all_rows` — chunked DELETE + VACUUM + FTS5 ``'rebuild'``
+- :func:`clear_all_rows`: chunked DELETE + VACUUM + FTS5 ``'rebuild'``
   with failure escalation.
-- :func:`toggle_favorite_row` — favorite flip.
-- :func:`checkpoint_wal` — ``wal_checkpoint`` body on the writer
+- :func:`toggle_favorite_row`: favorite flip.
+- :func:`checkpoint_wal`: ``wal_checkpoint`` body on the writer
   connection.
 """
 
@@ -73,12 +73,12 @@ def add_transcription(
 
     _BatchableInsert = _hd._BatchableInsert  # noqa: N806
 
-    # early-return guard — if the writer thread never
+    # early-return guard, if the writer thread never
     # started (init error) or died, return -1 immediately instead
     # of silently enqueuing to a dead writer's queue.
     if db._init_error is not None or not db._writer_thread.is_alive():
         log.error(
-            "[HISTORY_DB] add_transcription refused — writer is unavailable: %s",
+            "[HISTORY_DB] add_transcription refused, writer is unavailable: %s",
             db.health_check()["error"],
         )
         return -1
@@ -87,7 +87,7 @@ def add_transcription(
         word_count = len(text.split())
         char_count = len(text)
         if db._shutdown.is_set():
-            log.debug("[HISTORY_DB] add_transcription submitted after shutdown — dropped.")
+            log.debug("[HISTORY_DB] add_transcription submitted after shutdown, dropped.")
             return -1
         item = _BatchableInsert(
             text=text,
@@ -103,7 +103,7 @@ def add_transcription(
         # put_nowait + drop-oldest so a stalled writer doesn't block
         # the calling thread indefinitely. We can't reuse
         # _submit_write here because it enqueues (callable, future)
-        # tuples — _BatchableInsert is its own queue item shape.
+        # tuples, _BatchableInsert is its own queue item shape.
         try:
             db._queue.put_nowait(item)
         except queue.Full:
@@ -111,7 +111,7 @@ def add_transcription(
             try:
                 db._queue.put_nowait(item)
             except queue.Full:
-                log.warning("[HISTORY_DB] Queue still full after drop-oldest — add_transcription dropped.")
+                log.warning("[HISTORY_DB] Queue still full after drop-oldest, add_transcription dropped.")
                 return -1
         # invalidate the today-stats cache at enqueue time.
         # Unlike ``_invalidate_history_count_cache`` (which skips
@@ -124,7 +124,7 @@ def add_transcription(
         # the 15s TTL bounds the staleness and the next
         # ``transcription_final`` refresh re-checks the cache.
         db._invalidate_today_stats_cache()
-        # Placeholder row_id — callers that check ``> 0`` see success.
+        # Placeholder row_id, callers that check ``> 0`` see success.
         return 1
     except Exception as e:
         log.exception("[HISTORY] Failed to enqueue add_transcription: %s", e)
@@ -134,42 +134,42 @@ def add_transcription(
 def delete_row(db: HistoryDB, conn: sqlite3.Connection, transcription_id: int) -> bool:
     """Delete one transcription row + purge its FTS5 segment data.
 
-    Body of the inner ``_do_delete`` closure of
-    :meth:`HistoryDB.delete`. After the row DELETE + commit, issue the
-    FTS5 ``'optimize'`` command so the segment data in
-    ``transcriptions_fts_data`` is purged of the deleted row's
-    dictated text. The FTS5 AFTER DELETE trigger (schema.py:90-92)
-    only marks the rowid as deleted in the delete-bitmap — the
-    segment data (containing the dictated text) remains physically
-    present and is recoverable via forensic tools until FTS5's
-    background compaction happens to merge that segment (days or
-    weeks later). For a user who dictates a password / medical note
-    / financial data and then deletes that single transcription via
-    the History UI, the text is NOT gone without this optimize — a
-    direct GDPR Art. 17 violation.
+     Body of the inner ``_do_delete`` closure of
+     :meth:`HistoryDB.delete`. After the row DELETE + commit, issue the
+     FTS5 ``'optimize'`` command so the segment data in
+     ``transcriptions_fts_data`` is purged of the deleted row's
+     dictated text. The FTS5 AFTER DELETE trigger (schema.py:90-92)
+     only marks the rowid as deleted in the delete-bitmap, the
+     segment data (containing the dictated text) remains physically
+     present and is recoverable via forensic tools until FTS5's
+     background compaction happens to merge that segment (days or
+     weeks later). For a user who dictates a password / medical note
+     / financial data and then deletes that single transcription via
+     the History UI, the text is NOT gone without this optimize, a
+     direct GDPR Art. 17 violation.
 
-    The per-delete command was downgraded from ``'rebuild'`` (O(N)
-    — drops and rebuilds ALL segments from the content table) to
-    ``'optimize'`` (runs the FTS5 optimizer until the index is
-    optimal — typically 3-4x faster than ``'rebuild'`` on a
-    multi-thousand-row DB because it only does the merge work
-    needed to consolidate segments and apply the delete-bitmap).
-    The user-visible MATCH-query correctness is already preserved
-    by the AFTER DELETE trigger (the deleted rowid is immediately
-    hidden from search results); the ``'optimize'`` call provides
-    the forensic-recovery guarantee without paying the full O(N)
-    cost on every single-row delete. The periodic retention tick
-    (``retention.py``) still runs a full ``'rebuild'`` after bulk
-    sweeps with >20% deletion ratio, providing the ultimate safety
-    net.
+     The per-delete command was downgraded from ``'rebuild'`` (O(N)
+    , drops and rebuilds ALL segments from the content table) to
+     ``'optimize'`` (runs the FTS5 optimizer until the index is
+     optimal, typically 3-4x faster than ``'rebuild'`` on a
+     multi-thousand-row DB because it only does the merge work
+     needed to consolidate segments and apply the delete-bitmap).
+     The user-visible MATCH-query correctness is already preserved
+     by the AFTER DELETE trigger (the deleted rowid is immediately
+     hidden from search results); the ``'optimize'`` call provides
+     the forensic-recovery guarantee without paying the full O(N)
+     cost on every single-row delete. The periodic retention tick
+     (``retention.py``) still runs a full ``'rebuild'`` after bulk
+     sweeps with >20% deletion ratio, providing the ultimate safety
+     net.
 
-    The optimize is wrapped in a tolerant ``try/except sqlite3.Error``
-    (matching the retention.py / clear_all pattern) so a transient
-    FTS5 error does not break the row delete (which already
-    committed). The optimize is best-effort privacy hardening — if
-    it fails, the row is still gone from the content table, only the
-    FTS5 segment data lingers — bounded to "between launches" by the
-    startup rebuild sweep.
+     The optimize is wrapped in a tolerant ``try/except sqlite3.Error``
+     (matching the retention.py / clear_all pattern) so a transient
+     FTS5 error does not break the row delete (which already
+     committed). The optimize is best-effort privacy hardening, if
+     it fails, the row is still gone from the content table, only the
+     FTS5 segment data lingers, bounded to "between launches" by the
+     startup rebuild sweep.
     """
     with contextlib.closing(conn.cursor()) as cursor:
         cursor.execute("DELETE FROM transcriptions WHERE id = ?", (transcription_id,))
@@ -181,7 +181,7 @@ def delete_row(db: HistoryDB, conn: sqlite3.Connection, transcription_id: int) -
         # text from ``transcriptions_fts_data`` (the FTS5
         # shadow segment table). The AFTER DELETE trigger
         # at schema.py:90-92 only marks the rowid as
-        # deleted in the delete-bitmap — the segment data
+        # deleted in the delete-bitmap, the segment data
         # survives until background compaction (days/weeks
         # later). ``'optimize'`` runs the FTS5 optimizer
         # until the index is optimal, which both
@@ -203,7 +203,7 @@ def delete_row(db: HistoryDB, conn: sqlite3.Connection, transcription_id: int) -
         # the row delete (which already committed).
         try:
             # Both FTS5 shadow indexes (unicode61 + trigram CJK) in
-            # lockstep — the dictated plaintext lives in both shadow
+            # lockstep, the dictated plaintext lives in both shadow
             # tables (GDPR erasure guarantee). The CJK optimize is gated
             # on table existence (SQLite without the trigram tokenizer
             # never got the V5 migration).
@@ -216,7 +216,7 @@ def delete_row(db: HistoryDB, conn: sqlite3.Connection, transcription_id: int) -
         except sqlite3.Error as optimize_exc:
             log.warning(
                 "[HISTORY_DB] FTS5 'optimize' after delete(id=%d) "
-                "FAILED: %s — dictated text may linger in "
+                "FAILED: %s, dictated text may linger in "
                 "transcriptions_fts_data until the next "
                 "periodic retention sweep or the startup rebuild.",
                 transcription_id,
@@ -255,7 +255,7 @@ def restore_row(
 
     Body of the inner ``_do_restore`` closure of
     :meth:`HistoryDB.restore`. At-rest encryption mirrors the
-    add_transcription write path — the row is inserted with PLAINTEXT
+    add_transcription write path, the row is inserted with PLAINTEXT
     (so the AFTER-INSERT FTS trigger indexes it) and then flipped to
     ciphertext + ``text_is_encrypted=1`` in the same transaction when a
     DEK is cached; without a DEK the row stays plaintext (flag 0).
@@ -298,40 +298,40 @@ def restore_row(
 def clear_all_rows(db: HistoryDB, conn: sqlite3.Connection) -> bool:
     """Clear every transcription row (chunked) + VACUUM + FTS5 rebuild.
 
-    Body of the inner ``_do_clear_all`` closure of
-    :meth:`HistoryDB.clear_all`.
+     Body of the inner ``_do_clear_all`` closure of
+     :meth:`HistoryDB.clear_all`.
 
-    IMPL-A: chunked DELETE (commit per batch)
-    running inside the writer thread. Chunking prevents the WAL
-    from growing unboundedly during a huge clear and lets external
-    readers see progress. The previous single-transaction DELETE
-    held the write lock for the full scan.
+     IMPL-A: chunked DELETE (commit per batch)
+     running inside the writer thread. Chunking prevents the WAL
+     from growing unboundedly during a huge clear and lets external
+     readers see progress. The previous single-transaction DELETE
+     held the write lock for the full scan.
 
-    After the chunked DELETE completes, ``VACUUM`` runs
-    in the writer thread to reclaim the freed pages so the DB file
-    shrinks. Without this, ``clear_all`` leaves the file at its
-    pre-clear size (SQLite keeps free pages for reuse) and the
-    user's dictated text remains recoverable from the file via
-    forensic tools even after a "clear all" — a privacy concern
-    for the GDPR delete path.
+     After the chunked DELETE completes, ``VACUUM`` runs
+     in the writer thread to reclaim the freed pages so the DB file
+     shrinks. Without this, ``clear_all`` leaves the file at its
+     pre-clear size (SQLite keeps free pages for reuse) and the
+     user's dictated text remains recoverable from the file via
+     forensic tools even after a "clear all", a privacy concern
+     for the GDPR delete path.
 
-    The other half: after VACUUM, the FTS5
-    ``'rebuild'`` command is issued so the FTS5 shadow-table
-    segment data (``transcriptions_fts_data``) is also rebuilt
-    from the (now-empty) content table. ``VACUUM`` rebuilds the
-    main DB file but does NOT rebuild FTS5 shadow tables; without
-    this step, dictated text remained recoverable from
-    ``transcriptions_fts_data`` via sqlite3 CLI or forensic tools
-    — defeating GDPR Art. 17 right-to-erasure. The
-    rebuild is wrapped in a tolerant ``try/except sqlite3.Error``
-    matching the pattern in
-    :func:`voice_typer.server.history_db_internals.retention.apply_retention`
-    so an older DB (pre-V3 migration, no FTS table yet) doesn't
-    crash the clear path. On failure the privacy
-    guarantee is broken, so the failure is logged at ERROR,
-    ``db._fts5_rebuild_failures`` is incremented, and an
-    ``event_bus`` event ``{"type": "history_fts5_rebuild_failed"}``
-    is published so the renderer can show a toast.
+     The other half: after VACUUM, the FTS5
+     ``'rebuild'`` command is issued so the FTS5 shadow-table
+     segment data (``transcriptions_fts_data``) is also rebuilt
+     from the (now-empty) content table. ``VACUUM`` rebuilds the
+     main DB file but does NOT rebuild FTS5 shadow tables; without
+     this step, dictated text remained recoverable from
+     ``transcriptions_fts_data`` via sqlite3 CLI or forensic tools
+    , defeating GDPR Art. 17 right-to-erasure. The
+     rebuild is wrapped in a tolerant ``try/except sqlite3.Error``
+     matching the pattern in
+     :func:`voice_typer.server.history_db_internals.retention.apply_retention`
+     so an older DB (pre-V3 migration, no FTS table yet) doesn't
+     crash the clear path. On failure the privacy
+     guarantee is broken, so the failure is logged at ERROR,
+     ``db._fts5_rebuild_failures`` is incremented, and an
+     ``event_bus`` event ``{"type": "history_fts5_rebuild_failed"}``
+     is published so the renderer can show a toast.
     """
     # Lazy read so the batch size tracks monkeypatches on the
     # ``history_db`` module namespace.
@@ -358,12 +358,12 @@ def clear_all_rows(db: HistoryDB, conn: sqlite3.Connection) -> bool:
     # file shrinks and deleted text is not recoverable
     # from free pages. Runs inside the writer thread so
     # it serializes with other writes. VACUUM requires
-    # exclusive access — readers will block briefly.
+    # exclusive access, readers will block briefly.
     try:
         conn.execute("VACUUM")
         log.info("[HISTORY_DB] VACUUM completed after clear_all")
     except sqlite3.Error as e:
-        # VACUUM failure is non-fatal — the rows are
+        # VACUUM failure is non-fatal, the rows are
         # already deleted; only space reclamation failed.
         log.warning("[HISTORY_DB] VACUUM after clear_all failed: %s", e)
     # rebuild FTS5 segments from the (now-empty)
@@ -384,7 +384,7 @@ def clear_all_rows(db: HistoryDB, conn: sqlite3.Connection) -> bool:
         fts_cursor = conn.cursor()
         try:
             # Both FTS5 shadow indexes (unicode61 + trigram CJK) in
-            # lockstep — the dictated plaintext lives in both shadow
+            # lockstep, the dictated plaintext lives in both shadow
             # tables (GDPR erasure guarantee). The CJK rebuild is gated
             # on table existence (SQLite without the trigram tokenizer
             # never got the V5 migration).
@@ -398,23 +398,23 @@ def clear_all_rows(db: HistoryDB, conn: sqlite3.Connection) -> bool:
         finally:
             fts_cursor.close()
     except sqlite3.Error as e:
-        # escalate from WARNING to ERROR — the
+        # escalate from WARNING to ERROR, the
         # GDPR Art. 17 privacy guarantee is
         # broken (deleted dictated text remains
         # recoverable from ``transcriptions_fts_data``
         # via forensic tools), not merely "suboptimal".
         log.exception(
             "[HISTORY_DB] FTS5 'rebuild' after clear_all FAILED: %s "
-            "(FTS5 shadow-table segment data may persist — deleted "
+            "(FTS5 shadow-table segment data may persist, deleted "
             "dictated text remains recoverable; manual re-index advised)",
             e,
         )
-        # observable metric — increment the
+        # observable metric, increment the
         # per-instance failure counter so diagnostics
         # handlers can surface it to the user.
         try:
             db._fts5_rebuild_failures = db._fts5_rebuild_failures + 1
-        except Exception:  # noqa: BLE001 — best-effort metric
+        except Exception:  # noqa: BLE001, best-effort metric
             log.debug(
                 "[HISTORY_DB] could not increment _fts5_rebuild_failures counter",
                 exc_info=True,
@@ -562,12 +562,12 @@ def submit_restore(db: HistoryDB, record: dict) -> int:
     Caller-side orchestration of :meth:`HistoryDB.restore` (which keeps
     its ``_wrap_write`` decorator + ``raise_on_error`` semantics).
     ``record`` is the dict shape returned by ``get_recent`` (id is
-    ignored — a new row with a new id is inserted). Parsing stays on
+    ignored, a new row with a new id is inserted). Parsing stays on
     the CALLER thread so a malformed record raises through the same
     error path as before the split; the row-level body runs on the
     writer thread via :func:`restore_row`.
 
-    At-rest encryption: mirrors the add_transcription write path — the
+    At-rest encryption: mirrors the add_transcription write path, the
     row is inserted with PLAINTEXT (so the AFTER-INSERT FTS trigger
     indexes it) and then flipped to ciphertext + ``text_is_encrypted=1``
     in the same transaction when a DEK is cached; without a DEK the row
@@ -618,7 +618,7 @@ def submit_checkpoint(db: HistoryDB, truncate: bool) -> bool:
     GDPR delete/export paths). ``truncate=True`` additionally truncates
     the WAL to zero size. Returns ``True`` when the checkpoint completed
     without error, ``False`` otherwise (writer unavailable, checkpoint
-    failed) — the caller should treat ``False`` as "WAL may still
+    failed), the caller should treat ``False`` as "WAL may still
     contain data; do not unlink until next attempt".
     """
     from voice_typer.server import history_db as _hd
@@ -628,7 +628,7 @@ def submit_checkpoint(db: HistoryDB, truncate: bool) -> bool:
     try:
         result = db._submit_write(lambda conn: checkpoint_wal(db, conn, truncate), wait=True)
         if result is None:
-            # Writer shut down — can't checkpoint.
+            # Writer shut down, can't checkpoint.
             return False
         return bool(result)
     except HistoryDBError as e:

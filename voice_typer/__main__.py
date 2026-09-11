@@ -14,7 +14,7 @@ script (pyproject.toml ``[project.scripts]``).  The two serve
 different purposes:
 
 - ``voice-typer`` console script → ``voice_typer.server.ipc_server:main``
-  — spawned by Electron as the backend subprocess (TCP IPC mode, no
+  , spawned by Electron as the backend subprocess (TCP IPC mode, no
   CLI arg parsing, --port only).
 
 - ``python -m voice_typer`` (this file) → user-facing CLI with
@@ -41,7 +41,7 @@ def _parse_args(argv=None):
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(
         prog="voice_typer",
-        description=f"{APP_NAME} — background voice-to-text utility",
+        description=f"{APP_NAME}: background voice-to-text utility",
     )
     parser.add_argument(
         "--version",

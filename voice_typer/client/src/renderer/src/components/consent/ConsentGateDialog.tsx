@@ -9,7 +9,7 @@
 //     `set_config` IPC (SEC-002), then invokes the request's `onAllow`
 //     retry (e.g. re-start dictation, re-run the download), then
 //     closes. If persistence fails, the dialog stays open with an
-//     error toast — the UI never claims consent was granted when the
+//     error toast, the UI never claims consent was granted when the
 //     backend rejected it.
 //   - Cancel → closes. No consent is granted.
 //   - "Open Settings" → deep-links to the exact consent row
@@ -56,7 +56,7 @@ export default function ConsentGateDialog() {
 				err,
 			);
 			showSnack(t("consentDialog.persistFailed"), "error");
-			// Keep the dialog open — the grant did not persist, so the
+			// Keep the dialog open, the grant did not persist, so the
 			// UI must not claim it did (mirrors the onboarding Done-step
 			// consent checkbox revert-on-failure contract).
 			return;

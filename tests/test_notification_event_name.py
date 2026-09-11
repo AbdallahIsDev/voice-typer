@@ -6,7 +6,7 @@ Tauri Rust host then renamed it to ``notification`` via a single ``match``
 arm with no fallback. CR-8 fixes the naming inconsistency at the source:
 Python now publishes under the platform-agnostic ``notification`` name
 directly, and the Rust-side rename was removed (with a backward-compat
-alias for rolling upgrades — see ``src-tauri/src/main.rs`` +
+alias for rolling upgrades: see ``src-tauri/src/main.rs`` +
 ``docs/migration/tauri-sidecar-bridge.md``).
 
 These tests pin the new contract:
@@ -41,7 +41,7 @@ class TestShowNotificationEventName:
 
     NOTE: ``show_electron_notification`` was deliberately de-registered
     from ``_COMMAND_REGISTRY`` (it is not in the TS / Rust renderer
-    allowlists) — the Python-side handler is retained for direct tests
+    allowlists), the Python-side handler is retained for direct tests
     per the CHANGELOG convention ("The Python-side ``_handle_*`` methods
     are retained (tests still call them directly)"). These tests
     therefore invoke the handler directly rather than routing through
@@ -152,11 +152,11 @@ class TestStartupSequenceCrashNotificationEventName:
         The branch is gated on ``crash_summary`` being truthy (returned
         by ``crash_handler.report_pending_crash``) AND the previous
         session having ended abnormally (``session_state.
-        was_previous_session_abnormal`` — pinned in ``session_state.py``).
+        was_previous_session_abnormal``, pinned in ``session_state.py``).
         We patch those so we don't depend on a real crash file or session
         marker existing on disk. We also stub ``app.tray.notify_safety``
         (best-effort tray toast) and ``app._shutting_down`` (so the
-        sequence aborts right after the crash branch — we don't need to
+        sequence aborts right after the crash branch, we don't need to
         run the rest of startup).
         """
         app = MagicMock()
@@ -226,7 +226,7 @@ class TestStartupSequenceCrashNotificationEventName:
         assert "Settings" in message
         assert "heap corruption" not in message
         assert "python scripts" not in message
-        # Clicking the toast opens Settings (Diagnostics) — the user's
+        # Clicking the toast opens Settings (Diagnostics), the user's
         # clear next action, no terminal required.
         assert evt["data"].get("click_path") == "/settings"
         # The tray toast gets the same calm copy (title = app name only).
@@ -237,7 +237,7 @@ class TestStartupSequenceCrashNotificationEventName:
 
     def test_crash_branch_suppresses_when_previous_session_clean(self):
         """Crash files + a CLEAN previous shutdown (no session marker)
-        must NOT publish a notification — teardown-noise ``python_crash``
+        must NOT publish a notification, teardown-noise ``python_crash``
         markers from a clean quit / backend restart are not crashes.
         This is the core false-positive fix.
         """
@@ -304,14 +304,14 @@ class TestNoLegacyEventNameInSource:
 
     This catches accidental reintroduction during a future refactor
     (e.g. someone copies the old name from a stale diff). It's a
-    complement to the behavioral tests above — the behavioral tests
+    complement to the behavioral tests above, the behavioral tests
     pin the runtime contract; this pins the source-level intent.
 
     NOTE: the literal ``electron_notification`` MAY still appear in:
       - ``system_handlers.py`` docstrings/comments (referencing the
         legacy name for historical context),
       - ``ipc_server.py::_COMMAND_REGISTRY`` as the COMMAND name
-        ``show_electron_notification`` (a different namespace — the
+        ``show_electron_notification`` (a different namespace, the
         command the renderer invokes, NOT the event the server emits),
       - ADR / docs / migration notes.
     We only forbid it as a ``"type"`` value in the publish call.

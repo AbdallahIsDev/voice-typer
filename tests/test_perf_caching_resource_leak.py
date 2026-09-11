@@ -2,17 +2,17 @@
 
 Covers three fixes from the Group 2 performance/resource review:
 
-* **ER-37** — ``VocabularyManager.apply_to_text`` caches the compiled
+* **ER-37**: ``VocabularyManager.apply_to_text`` caches the compiled
   phrase-correction regex so ``re.compile`` is called once per phrase
   category per session (not per call). Cache is invalidated by every
   mutation of ``self._data``.
 
-* **ER-72** — ``ClipboardManager.paste`` wraps ``Thread().start()`` in
+* **ER-72**: ``ClipboardManager.paste`` wraps ``Thread().start()`` in
   try/except. On start failure the orphaned ``_pending_restores`` entry
   is removed under the lock so it cannot leak for the process lifetime
   (the entry holds ``self``, the snapshot, and the dictated text).
 
-* **ER-79** — ``credential_store._read_plaintext_fallback`` caches the
+* **ER-79**: ``credential_store._read_plaintext_fallback`` caches the
   parsed ``config.json`` at module level with an ``st_mtime_ns`` check
   so the 5-per-startup calls don't each re-read + re-parse the same
   file.
@@ -35,7 +35,7 @@ import pytest
 # Warm import: ``VocabularyManager.apply_to_text`` lazily imports the
 # text_cleanup package on first call, and that first import executes the
 # package leaves' module-level ``re.compile`` calls. The ER-37 tests
-# count ``re.compile`` calls inside a patched window — importing the
+# count ``re.compile`` calls inside a patched window, importing the
 # package here (before any patching) keeps those import-time compiles
 # out of the count, exactly as when the module was a single preloaded
 # file.
@@ -44,7 +44,7 @@ import voice_typer.server.text_cleanup  # noqa: E402,F401
 from tests.fixtures.clipboard_helpers import make_clipboard_manager  # noqa: E402
 
 # pynput / pynput.keyboard / pyperclip are mocked at collection time by
-# tests/clipboard/conftest.py (single source of truth —  dedup).
+# tests/clipboard/conftest.py (single source of truth, dedup).
 
 
 # ===========================================================================
@@ -56,7 +56,7 @@ def _make_vocab(tmp_path) -> object:
     """Build a VocabularyManager with no bundled corrections.
 
     ``bundled_path`` points at a non-existent file so the merge starts
-    from an empty baseline — the test then controls the exact entry
+    from an empty baseline, the test then controls the exact entry
     count via ``add_phrase`` / ``add_entry``.
     """
     from voice_typer.server.vocabulary import VocabularyManager
@@ -93,7 +93,7 @@ def test_apply_to_text_uses_cached_patterns(tmp_path) -> None:
         return real_compile(*args, **kwargs)
 
     # Patch the public ``re.compile`` symbol. ``apply_to_text`` does
-    # ``import re as _re`` then ``_re.compile(...)`` — this lookup hits
+    # ``import re as _re`` then ``_re.compile(...)``, this lookup hits
     # the patched attribute. ``re.sub`` / ``re.match`` use the internal
     # ``re._compile`` (not ``re.compile``), so they do NOT inflate the
     # counter.
@@ -112,7 +112,7 @@ def test_apply_to_text_uses_cached_patterns(tmp_path) -> None:
 
 def test_apply_to_text_cache_rebuilt_after_invalidation(tmp_path) -> None:
     """ER-37: after the cache is invalidated (e.g. by ``add_phrase``),
-    the next ``apply_to_text`` rebuilds it — ``re.compile`` is called
+    the next ``apply_to_text`` rebuilds it: ``re.compile`` is called
     again for every phrase category (one combined-alternation
     pattern)."""
     import re
@@ -146,7 +146,7 @@ def test_apply_to_text_cache_rebuilt_after_invalidation(tmp_path) -> None:
 def test_cache_invalidated_on_add_entry(tmp_path) -> None:
     """ER-37: ``add_entry`` (dict-based category mutation) invalidates
     the compiled-pattern cache even though the cache only covers
-    phrase-based categories. This is the conservative choice — any
+    phrase-based categories. This is the conservative choice, any
     data mutation busts the cache."""
     vm = _make_vocab(tmp_path)
     vm.apply_to_text("hello")  # build cache
@@ -217,7 +217,7 @@ def _isolate_pending_restores():
 
 def test_pending_restores_no_leak_when_thread_start_fails() -> None:
     """ER-72: when ``Thread().start()`` raises, the entry appended to
-    ``_pending_restores`` is removed under the lock — no leak.
+    ``_pending_restores`` is removed under the lock, no leak.
 
     Before the fix, ``paste()`` appended the entry BEFORE calling
     ``.start()`` and did not catch the failure. A failed start (out of
@@ -270,7 +270,7 @@ def test_pending_restores_no_leak_when_thread_start_fails() -> None:
             result = cm.paste(snapshot=snap, pasted_text="the dictation")
             # paste() returns False here because the rate-limit / safety
             # guards short-circuit after the thread-start section; the
-            # return value is irrelevant to this test — we only care
+            # return value is irrelevant to this test, we only care
             # that _pending_restores is empty.
             assert result in (True, False)
     finally:
@@ -351,7 +351,7 @@ def test_pending_restores_no_leak_warning_logged() -> None:
 
 def test_read_plaintext_fallback_uses_mtime_cache(monkeypatch, tmp_path) -> None:
     """ER-79: repeated calls with the same ``st_mtime_ns`` hit the cache
-    — the underlying file read happens once, not once per provider."""
+    , the underlying file read happens once, not once per provider."""
     import os
 
     from voice_typer.server import config as _config_mod, credential_store
@@ -382,11 +382,11 @@ def test_read_plaintext_fallback_uses_mtime_cache(monkeypatch, tmp_path) -> None
     fake_stat.st_mtime_ns = 999
     monkeypatch.setattr(os, "stat", lambda *a, **kw: fake_stat)
 
-    # First call — cache miss, reads file.
+    # First call, cache miss, reads file.
     assert credential_store._read_plaintext_fallback("openai") == "sk-openai"
     assert call_count["n"] == 1, f"first call should read file once, got {call_count['n']}"
 
-    # Second call — same mtime → cache hit, NO read.
+    # Second call, same mtime → cache hit, NO read.
     assert credential_store._read_plaintext_fallback("groq") == "sk-groq"
     assert call_count["n"] == 1, f"second call should hit cache (0 new reads), got {call_count['n']}"
 
@@ -397,7 +397,7 @@ def test_read_plaintext_fallback_uses_mtime_cache(monkeypatch, tmp_path) -> None
 
 
 def test_read_plaintext_fallback_cache_is_per_path(monkeypatch, tmp_path) -> None:
-    """ER-79: the cache is keyed by absolute file path — two different
+    """ER-79: the cache is keyed by absolute file path, two different
     config dirs use separate cache entries."""
     import os
 
@@ -432,12 +432,12 @@ def test_read_plaintext_fallback_cache_is_per_path(monkeypatch, tmp_path) -> Non
     assert credential_store._read_plaintext_fallback("openai") == "sk-a"
     assert call_count["n"] == 1
 
-    # Switch to dir_b — different path, cache miss even though mtime is same.
+    # Switch to dir_b, different path, cache miss even though mtime is same.
     current_dir["v"] = dir_b
     assert credential_store._read_plaintext_fallback("openai") == "sk-b"
     assert call_count["n"] == 2, f"different config dir should be a cache miss, got {call_count['n']} reads"
 
-    # Back to dir_a — same path + same mtime → cache hit.
+    # Back to dir_a, same path + same mtime → cache hit.
     current_dir["v"] = dir_a
     assert credential_store._read_plaintext_fallback("openai") == "sk-a"
     assert call_count["n"] == 2, "returning to dir_a should hit the cache"

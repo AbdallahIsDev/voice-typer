@@ -1,4 +1,4 @@
-"""Microphone watcher — Windows WM_DEVICECHANGE implementation.
+"""Microphone watcher. Windows WM_DEVICECHANGE implementation.
 
 Provides :class:`_WindowsMixin` (mixed into ``MicrophoneDeviceWatcher``)
 with the hidden-window ``GetMessageW`` pump and ``WM_QUIT`` posting.
@@ -216,7 +216,7 @@ class _WindowsMixin:
         posted = user32.PostMessageW(hwnd, wm_quit, 0, 0)
         if not posted:
             log.debug(
-                "[MIC-WATCHER] PostMessageW(WM_QUIT) returned 0 (hwnd=%d, err=%d) — pump may have already exited",
+                "[MIC-WATCHER] PostMessageW(WM_QUIT) returned 0 (hwnd=%d, err=%d), pump may have already exited",
                 int(hwnd) if hwnd else 0,
                 ctypes.get_last_error(),
             )

@@ -6,7 +6,7 @@ test gets a fresh ``(IPCServer, fake_app, fake_service)`` triple
 without having to call the factory inline.
 
 The ``IPCServer`` is constructed via the ARCH-REFAC-004 DI seam
-(``IPCServer(app, service=fake)``) — the injected ``service`` mock
+(``IPCServer(app, service=fake)``), the injected ``service`` mock
 is stored verbatim on ``server.service``, so per-test mutations to
 ``fake_service.X.return_value`` after this fixture yields are
 visible to the server's handlers.

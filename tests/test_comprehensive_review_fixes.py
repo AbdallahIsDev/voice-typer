@@ -1,7 +1,7 @@
 """Targeted tests for Comprehensive Review (CR) fixes.
 
 Each test class covers one CR finding. The tests are intentionally
-focused — they verify the specific behavior change introduced by the
+focused, they verify the specific behavior change introduced by the
 fix, not the full surface area (which is already covered by the
 existing test suite).
 
@@ -25,7 +25,7 @@ class TestPerProcessRateLimiter:
 
     Previously, ``_RateLimiter`` was instantiated fresh per TCP/WS
     connection. A local attacker could burst the 200-message budget,
-    disconnect, reconnect, and burst again — bypassing the sustained
+    disconnect, reconnect, and burst again, bypassing the sustained
     cap. The fix: ONE ``_RateLimiter`` per ``IPCServer`` instance,
     lazily created and stored on the instance via
     ``_get_rate_limiter(server)``.
@@ -75,11 +75,11 @@ class TestPerProcessRateLimiter:
 
         # Simulate reconnect: the server "re-fetches" the limiter.
         # fix: this must return the SAME instance with the budget
-        # still exhausted — NOT a fresh limiter.
+        # still exhausted. NOT a fresh limiter.
         rl_after_reconnect = _get_rate_limiter(server)
         assert rl_after_reconnect is rl1, "reconnect must reuse the same limiter"
         assert rl_after_reconnect.allow(now=0.0) is False, (
-            "budget must persist across reconnect — attacker can no longer "
+            "budget must persist across reconnect, attacker can no longer "
             "reset the 200-message burst by disconnecting and reconnecting"
         )
 
@@ -109,7 +109,7 @@ class TestPerProcessRateLimiter:
         server._dispatch.return_value = {"type": "result", "data": {}}
         dispatch = sidecar_ws._make_dispatch(server)
 
-        # Send one frame — this should create+store the limiter on server.
+        # Send one frame, this should create+store the limiter on server.
         result = asyncio.run(dispatch({"type": "ping", "data": {}}, MagicMock()))
         assert result == {"type": "result", "data": {}}
 

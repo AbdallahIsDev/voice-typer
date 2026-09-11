@@ -1,6 +1,6 @@
 """Qwen3-ASR ONNX Runtime model wrapper.
 
-PLAN_ONNX_INTEGRATION.md §4.3 Option C-2 — implemented 2026-08-14 using the
+PLAN_ONNX_INTEGRATION.md §4.3 Option C-2, implemented 2026-08-14 using the
 pre-exported ONNX model files (``andrewleech/qwen3-asr-1.7b-onnx`` /
 ``qwen3-asr-0.6b-onnx`` on HuggingFace; the export tool is
 ``andrewleech/qwen3-asr-onnx``). The export already exists upstream, so
@@ -11,11 +11,11 @@ card. No torch, no transformers, no ``qwen_asr`` package.
 
 Model dir layout (auto-detects the ``.int4.`` quantized variants):
 
-    encoder.onnx            (or encoder.int4.onnx — encoder weights are
+    encoder.onnx            (or encoder.int4.onnx, encoder weights are
                              always FP32; the .int4 file is a copy)
-    decoder_init.onnx       (or decoder_init.int4.onnx) — prefill
-    decoder_step.onnx       (or decoder_step.int4.onnx) — autoregressive
-    decoder_weights.data    (or decoder_weights.int4.data) — shared ext
+    decoder_init.onnx       (or decoder_init.int4.onnx), prefill
+    decoder_step.onnx       (or decoder_step.int4.onnx), autoregressive
+    decoder_weights.data    (or decoder_weights.int4.data), shared ext
     embed_tokens.bin        [vocab, hidden] float16 embedding matrix
     tokenizer.json          HF tokenizer (BPE, Qwen chat template)
     config.json             architecture config (hidden_size etc.)
@@ -28,7 +28,7 @@ Inference pipeline (verbatim from the model card + the export tool's
 2. ``encoder.onnx``: mel → ``audio_features`` ``[1, enc_len, hidden]``.
 3. Build the ASR prompt: ``<|im_start|>system\\n<|im_end|>\\n
    <|im_start|>user\\n<|audio_start|><|audio_pad|>…<|audio_end|>
-   <|im_end|>\\n<|im_start|>assistant\\n`` — the ``<|audio_pad|>`` count
+   <|im_end|>\\n<|im_start|>assistant\\n``: the ``<|audio_pad|>`` count
    equals ``encoder output length`` (via the same
    ``_get_feat_extract_output_lengths`` formula the export tool uses).
 4. ``decoder_init.onnx`` (prefill): ``input_ids`` + ``position_ids`` +
@@ -52,7 +52,7 @@ real tokenizer.json (and the export tool's hardcoded system/user ids were
 found to be WRONG and corrected here). The encoder I/O names (mel →
 audio_features) were confirmed from the model file header. The actual
 model weights are NOT bundled (multi-GB, user-downloaded per the existing
-Qwen local-path workflow) — a real-inference smoke test must still run on
+Qwen local-path workflow), a real-inference smoke test must still run on
 a host with the downloaded model (see PLAN_ONNX_INTEGRATION §4.3 C-2).
 The unit tests in tests/test_qwen_onnx_model.py mock the ORT sessions and
 verify the pipeline logic (prompt construction, mel shapes, decode loop,
@@ -81,12 +81,12 @@ _MEL_FMAX = 8000.0
 
 # ─── Special token IDs (shared across all Qwen3-ASR sizes; validated by
 #     the export tool at export time against the real tokenizer) ──────
-_ENDOFTEXT_TOKEN_ID = 151643  # <|endoftext|> — pad, also EOS
+_ENDOFTEXT_TOKEN_ID = 151643  # <|endoftext|>, pad, also EOS
 _IM_START_TOKEN_ID = 151644  # <|im_start|>
-_IM_END_TOKEN_ID = 151645  # <|im_end|> — also EOS
+_IM_END_TOKEN_ID = 151645  # <|im_end|>, also EOS
 _AUDIO_START_TOKEN_ID = 151669  # <|audio_start|>
 _AUDIO_END_TOKEN_ID = 151670  # <|audio_end|>
-_AUDIO_PAD_TOKEN_ID = 151676  # <|audio_pad|> — replaced by encoder output
+_AUDIO_PAD_TOKEN_ID = 151676  # <|audio_pad|>, replaced by encoder output
 _EOS_TOKEN_IDS = frozenset({_ENDOFTEXT_TOKEN_ID, _IM_END_TOKEN_ID})
 
 # Hardcoded subword encodings of the prompt scaffolding ("system\\n",
@@ -94,7 +94,7 @@ _EOS_TOKEN_IDS = frozenset({_ENDOFTEXT_TOKEN_ID, _IM_END_TOKEN_ID})
 # tokenizer.json shipped in both andrewleech/qwen3-asr-1.7b-onnx and
 # qwen3-asr-0.6b-onnx ("system" -> [8948], "user" -> [872],
 # "assistant" -> [77091], "\\n" -> [198]). NOTE: the export tool's
-# ``src/prompt.py`` hardcodes system=[9125] / user=[882] — those ids
+# ``src/prompt.py`` hardcodes system=[9125] / user=[882], those ids
 # decode to " Current" / " time" in the real vocab and are WRONG; the
 # values below come from the actual tokenizer, not the tool.
 _NEWLINE_TOKEN_ID = 198
@@ -182,7 +182,7 @@ def _log_mel_spectrogram(audio: np.ndarray) -> np.ndarray:
     (0-8 kHz, 128 bins), ``log10(clamp 1e-10)`` → ``max(x, max-8)`` →
     ``(x+4)/4``, drop the last frame. Uses ``faster_whisper``'s
     FeatureExtractor (already a project dependency via the Whisper
-    backend) for the filterbank + torch-mirroring STFT — DRY, E7.
+    backend) for the filterbank + torch-mirroring STFT, DRY, E7.
     """
     if audio.dtype != np.float32:
         audio = audio.astype(np.float32)
@@ -201,7 +201,7 @@ def _log_mel_spectrogram(audio: np.ndarray) -> np.ndarray:
     )
     # Reuse the static helpers so we control the frame drop ourselves
     # (the reference drops the LAST log-mel frame; FeatureExtractor.__call__
-    # drops it inside the stft — equivalent, but we match the reference
+    # drops it inside the stft, equivalent, but we match the reference
     # formula exactly here).
     window = np.hanning(_MEL_N_FFT + 1)[:-1].astype("float32")  # periodic Hann
     stft = FeatureExtractor.stft(
@@ -235,7 +235,7 @@ def _resolve_onnx_paths(model_dir: Path, prefer_quantized: bool) -> dict[str, Pa
     ``prefer_quantized`` selects ``*.int4.onnx`` when present (RTN int4
     MatMulNBits, ~3x smaller, near-FP32 accuracy on CPU). The encoder
     int4 file carries FP32 weights (per the model card), so either file
-    works — we still prefer the int4-named file for consistency.
+    works, we still prefer the int4-named file for consistency.
     """
     suffixes = (".int4.onnx", ".onnx") if prefer_quantized else (".onnx", ".int4.onnx")
     out: dict[str, Path] = {}
@@ -286,7 +286,7 @@ class QwenOnnxModel:
                 if isinstance(data, dict):
                     return data
             except (OSError, ValueError):
-                log.warning("[QWEN-ONNX] config.json unreadable — using defaults", exc_info=True)
+                log.warning("[QWEN-ONNX] config.json unreadable, using defaults", exc_info=True)
         return {}
 
     def from_pretrained(self, model_path: str | None = None) -> QwenOnnxModel:
@@ -318,7 +318,7 @@ class QwenOnnxModel:
         for key, path in paths.items():
             try:
                 sessions[key] = ort.InferenceSession(str(path), providers=providers)
-            except Exception as exc:  # noqa: BLE001 — surface with file context
+            except Exception as exc:  # noqa: BLE001, surface with file context
                 raise RuntimeError(f"Qwen3-ASR ONNX failed to load {path.name}: {exc}") from exc
         self._sessions = sessions
 
@@ -362,7 +362,7 @@ class QwenOnnxModel:
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Prefill: prompt ids + audio features → logits + KV cache."""
         # Detect the decoder format from the session's input names
-        # (v3 = input_ids; v1 = input_embeds) — the reference inference.py
+        # (v3 = input_ids; v1 = input_embeds), the reference inference.py
         # does the same so both export generations are supported.
         init_input_names = {i.name for i in self._sessions["decoder_init"].get_inputs()}
         if "input_ids" in init_input_names:
@@ -460,7 +460,7 @@ class QwenOnnxModel:
         Matches ``qwen_asr.Qwen3ASRModel.transcribe((audio, sr),
         language=...)`` so ``QwenEngine``'s chunking / hallucination /
         abort plumbing works unchanged. ``language`` is accepted for API
-        compatibility but not used — the ONNX prompt is language-agnostic
+        compatibility but not used, the ONNX prompt is language-agnostic
         (the model auto-detects; language forcing would need tokenizer
         access on the prompt, deferred per the export tool).
         """
@@ -470,7 +470,7 @@ class QwenOnnxModel:
 
         if sample_rate != _MEL_SAMPLE_RATE:
             # Whisper backends always feed 16 kHz; resample defensively
-            # via the shared helper (DRY — same as QwenEngine's contract).
+            # via the shared helper (DRY, same as QwenEngine's contract).
             from voice_typer.server.recording.resampling import resample_audio
 
             audio = resample_audio(audio, sample_rate, _MEL_SAMPLE_RATE)
@@ -481,7 +481,7 @@ class QwenOnnxModel:
         audio_token_count = _get_feat_extract_output_lengths(mel.shape[2])
         if audio_features.shape[1] != audio_token_count:
             log.warning(
-                "[QWEN-ONNX] encoder returned %d tokens, prompt expects %d — clamping prompt to encoder output",
+                "[QWEN-ONNX] encoder returned %d tokens, prompt expects %d, clamping prompt to encoder output",
                 audio_features.shape[1],
                 audio_token_count,
             )

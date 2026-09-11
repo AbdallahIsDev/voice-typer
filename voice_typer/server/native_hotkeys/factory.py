@@ -76,7 +76,7 @@ def create_native_backend(hotkey_str: str) -> SubprocessHotkeyBackend | None:
     to each platform backend's constructor as ``binary_path=`` so the
     backend uses the exact verified file when it spawns the subprocess.
     Pre-fix the constructor ignored the factory's discovery and
-    re-ran ``get_native_binary_path()`` from ``base.__init__`` — that
+    re-ran ``get_native_binary_path()`` from ``base.__init__``, that
     re-discovery was a TOCTOU window between the factory's verification
     and the backend's spawn, and also discarded the factory's work
     (the verifier had already been paid for). ``base.SubprocessHotkeyBackend``
@@ -129,7 +129,7 @@ def create_native_backend(hotkey_str: str) -> SubprocessHotkeyBackend | None:
         # stash the manifest's expected version so the backend
         # can compare it against the binary's runtime-reported VERSION
         # line in ``_on_version_event``. ``None`` here means "manifest
-        # didn't have a version for this binary" — the backend treats
+        # didn't have a version for this binary", the backend treats
         # that as "skip the comparison" rather than "mismatch".
         expected = _manifest_version_for_binary(binary)
         backend._expected_version = expected  # type: ignore[attr-defined]

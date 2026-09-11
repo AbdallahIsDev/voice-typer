@@ -41,7 +41,7 @@ class TestTimedStageContextManager:
         with _timed_stage(timings, "transcribe"):
             time.sleep(0.005)
         assert "transcribe" in timings
-        # 5 ms sleep — allow generous lower bound (CPU contention)
+        # 5 ms sleep, allow generous lower bound (CPU contention)
         # and an upper bound that catches "forgot to subtract t0" bugs.
         assert 1.0 < timings["transcribe"] < 1000.0
 

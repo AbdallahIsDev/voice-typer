@@ -1,5 +1,5 @@
 /**
- * Bubble overlay package — `useBubbleLifecycle` hook.
+ * Bubble overlay package, `useBubbleLifecycle` hook.
  *
  * Composes theme sync + audio levels + visibility tracking.
  *
@@ -9,7 +9,7 @@
  * loop (paused when the bubble is hidden), and visibility tracking
  * (subscribes to the bridge's `show` / `hide` events).
  *
- * Returns the current visibility flag — callers use it to gate any
+ * Returns the current visibility flag, callers use it to gate any
  * side-effects that should be idle while the BrowserWindow is hidden.
  */
 import { type RefObject, useEffect, useState } from "react";

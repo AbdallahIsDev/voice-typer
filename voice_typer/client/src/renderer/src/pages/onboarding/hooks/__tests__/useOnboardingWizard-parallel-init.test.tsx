@@ -20,7 +20,7 @@
  *   - a content-fetch failure surfaces as initError (error paths
  *     preserved),
  *   - a content-fetch failure does NOT discard the already-fetched
- *     config prefill (Promise.allSettled + per-result unwrapping — the
+ *     config prefill (Promise.allSettled + per-result unwrapping, the
  *     pre-parallel sequential code applied prefill before a later
  *     fetch could fail; a plain Promise.all batch had regressed that).
  */
@@ -119,7 +119,7 @@ beforeEach(() => {
 	resetStableMocks();
 });
 
-describe("useOnboardingWizard — parallel content fetch after onboarding_start", () => {
+describe("useOnboardingWizard, parallel content fetch after onboarding_start", () => {
 	it("waits for onboarding_start, then fires all four content fetches concurrently", async () => {
 		const controls = wireControls();
 		const { result } = renderHook(() => useOnboardingWizard());
@@ -171,7 +171,7 @@ describe("useOnboardingWizard — parallel content fetch after onboarding_start"
 		expect(result.current.initError).toBeNull();
 		expect(result.current.hotkeyPresets).toEqual(["<f2>", "<caps_lock>"]);
 		expect(result.current.microphones).toEqual(MIC_LIST);
-		// Config prefill applied BEFORE the mic reconciliation — the
+		// Config prefill applied BEFORE the mic reconciliation, the
 		// config-restored mic (present in the list) survives it.
 		expect(result.current.selectedHotkey).toBe("<ctrl>+<shift>+v");
 		expect(result.current.selectedMic).toBe("mic-2");
@@ -201,7 +201,7 @@ describe("useOnboardingWizard — parallel content fetch after onboarding_start"
 		expect(result.current.loading).toBe(false);
 	});
 
-	it("get_config failure is non-fatal — the wizard continues without prefill", async () => {
+	it("get_config failure is non-fatal, the wizard continues without prefill", async () => {
 		const controls = wireControls();
 		const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 		const { result } = renderHook(() => useOnboardingWizard());
@@ -262,7 +262,7 @@ describe("useOnboardingWizard — parallel content fetch after onboarding_start"
 		await act(async () => {
 			// get_config succeeds with saved selections; the mic fetch fails.
 			// The pre-parallel sequential code had applied the prefill before
-			// the mic round-trip failed — the parallel batch must preserve
+			// the mic round-trip failed, the parallel batch must preserve
 			// that: initError set AND prefill applied (Promise.all discarded
 			// the config the moment the sibling fetch rejected).
 			controls.config.resolve(
@@ -286,7 +286,7 @@ describe("useOnboardingWizard — parallel content fetch after onboarding_start"
 		expect(result.current.selectedHotkey).toBe("<ctrl>+<shift>+v");
 		expect(result.current.selectedMic).toBe("mic-2");
 		expect(result.current.selectedModel).toBe("large-v3");
-		// The mic list never landed (its fetch failed) — no reconciliation,
+		// The mic list never landed (its fetch failed), no reconciliation,
 		// so the config-restored mic selection stays as-is.
 		expect(result.current.microphones).toEqual([]);
 		expect(result.current.hfConsent).toBe(true);
@@ -320,7 +320,7 @@ describe("useOnboardingWizard — parallel content fetch after onboarding_start"
 		expect(result.current.initError).toBe("model catalog failed");
 		// …while every fetch applied before it (in the original apply
 		// order: config prefill → mic reconciliation → presets) stays
-		// applied — the pre-parallel sequential behaviour.
+		// applied, the pre-parallel sequential behaviour.
 		expect(result.current.selectedHotkey).toBe("<ctrl>+<shift>+v");
 		// mic-2 is present in MIC_LIST, so the reconciliation's "keep
 		// prev" check retains the config-restored selection.
@@ -340,7 +340,7 @@ describe("useOnboardingWizard — parallel content fetch after onboarding_start"
 			controls.start.resolve({ step: 5, total_steps: 6, step_name: "Done" });
 		});
 		await flush();
-		// Resolve in REVERSE order — Promise.all must still settle.
+		// Resolve in REVERSE order, Promise.all must still settle.
 		await act(async () => {
 			controls.models.resolve({ models: [] });
 			controls.presets.resolve({ presets: ["<f2>"] });

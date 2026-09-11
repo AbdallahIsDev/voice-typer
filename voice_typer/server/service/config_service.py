@@ -4,14 +4,14 @@ Extracted verbatim from the original ``service.py`` god class
 (Phase 4.5 spaghetti split). Owns the cross-cutting config
 surface that doesn't belong to a single domain mixin:
 
-* :meth:`ConfigMutationMixin.get_config`                — sanitized config read
-* :meth:`ConfigMutationMixin.get_defaults`              — sanitized defaults read
-* :meth:`ConfigMutationMixin.apply_config`              — atomic validate→mutate→save
-* :meth:`ConfigMutationMixin.apply_config_side_effects` — post-mutation side effects
-* :meth:`ConfigMutationMixin.change_model`              — ASR model switch wrapper
-* :meth:`ConfigMutationMixin.set_active_backend`        — ASR backend switch wrapper
-* :meth:`ConfigMutationMixin.reset_config_to_defaults`  — factory reset (config-only)
-* :meth:`ConfigMutationMixin._keyring_status`           — shared keychain probe helper
+* :meth:`ConfigMutationMixin.get_config`               : sanitized config read
+* :meth:`ConfigMutationMixin.get_defaults`             : sanitized defaults read
+* :meth:`ConfigMutationMixin.apply_config`             : atomic validate→mutate→save
+* :meth:`ConfigMutationMixin.apply_config_side_effects`, post-mutation side effects
+* :meth:`ConfigMutationMixin.change_model`             : ASR model switch wrapper
+* :meth:`ConfigMutationMixin.set_active_backend`. ASR backend switch wrapper
+* :meth:`ConfigMutationMixin.reset_config_to_defaults` , factory reset (config-only)
+* :meth:`ConfigMutationMixin._keyring_status`          : shared keychain probe helper
 
 These previously lived on :class:`VoiceTyperService` itself because
 they delegate to :class:`ConfigApplier` for the post-update
@@ -48,7 +48,7 @@ class ConfigMutationMixin(ServiceMixinBase):
         Most mutating methods delegate to ``self._config_applier`` (the
         :class:`ConfigApplier` instance bound in
         :meth:`VoiceTyperService.__init__`) so the config-mutation lock
-        (``_config_mutation_lock``) lives in exactly one place — see
+        (``_config_mutation_lock``) lives in exactly one place, see
     for the rationale and
         ``tests/regressions/test_concurrency.py`` for the regression
         guard that introspects ``ConfigApplier.apply_config`` for the
@@ -109,7 +109,7 @@ class ConfigMutationMixin(ServiceMixinBase):
         sanitized = sanitize_config_for_ipc(self._app.config)
         # SVC-6: route through the shared helper (single try/except).
         sanitized["keyring_status"] = self._keyring_status()
-        # Linux window-button system snapshot (read-only, computed — NOT
+        # Linux window-button system snapshot (read-only, computed, NOT
         # a persisted Config field). Lets the renderer's "follow system"
         # mode know the desktop's button-layout + DE without the renderer
         # ever spawning a subprocess. Cached once per process inside
@@ -138,7 +138,7 @@ class ConfigMutationMixin(ServiceMixinBase):
         from voice_typer.server.config import Config
 
         # import the canonical sanitizer from the
-        # transport-neutral ``config_sanitizer`` module — see
+        # transport-neutral ``config_sanitizer`` module, see
         # :meth:`get_config` for rationale.
         from voice_typer.server.config_sanitizer import sanitize_config_for_ipc
 
@@ -152,13 +152,13 @@ class ConfigMutationMixin(ServiceMixinBase):
     #
     # Rationale:
     #   - ``set_config`` (validated-config helper) had 0 production
-    #     callers — the IPC ``set_config`` command is implemented in
+    #     callers, the IPC ``set_config`` command is implemented in
     #     ``handlers/config_handlers.py::_handle_set_config``, which
     #     calls ``config.validate_config_update`` directly and then
     #     delegates to ``service.apply_config`` (NOT this method).
     #   - ``save_config`` (``self._app.config.save()`` wrapper) had 0
     #     production callers; the IPC ``save_config`` command was
-    #     removed — ``Config.save()`` is now invoked
+    #     removed, ``Config.save()`` is now invoked
     #     inside ``service.apply_config`` under the config-mutation
     #     lock so disk writes can't race.
     #
@@ -220,22 +220,22 @@ class ConfigMutationMixin(ServiceMixinBase):
         Snapshots the current ``config.json`` to ``config.json.bak``
         (so the user can recover their settings if they clicked
         "Reset to defaults" by mistake), then constructs a fresh
-        :class:`Config` (all defaults) and — by default — preserves
+        :class:`Config` (all defaults) and, by default, preserves
         the 5 API-key fields (``openai_api_key`` / ``groq_api_key`` /
         ``deepgram_api_key`` / ``cloud_api_key`` / ``llm_api_key``)
         from the pre-reset config so the user doesn't have to re-enter
         their keys after a reset.  Set ``preserve_api_keys=False`` to
         also wipe API keys (rare; the GDPR delete path is the right
-        tool for that — it also clears the keychain).
+        tool for that, it also clears the keychain).
 
         This method does NOT touch:
 
-          * ``history.db`` (transcription history — GDPR Art. 17
+          * ``history.db`` (transcription history, GDPR Art. 17
             delete is a separate, intentional action).
           * ``voice-typer-corrections.json`` / ``vocabulary.json`` /
-            ``templates.json`` (user customizations — preserved across
+            ``templates.json`` (user customizations, preserved across
             a factory reset).
-          * ``voice-typer.log`` (runtime log — rotated normally).
+          * ``voice-typer.log`` (runtime log, rotated normally).
           * OS keychain entries (only the in-memory + on-disk config
             are reset).
 
@@ -267,7 +267,7 @@ class ConfigMutationMixin(ServiceMixinBase):
 
         app = self._app
         # The mutation lock is one of the private attributes
-        # ADR-0008-§3.1 keeps off ``AppProtocol`` — the accessors in
+        # ADR-0008-§3.1 keeps off ``AppProtocol``: the accessors in
         # ``service/_app_internals.py`` own that boundary (see
         # ``providers.py`` for the full rationale).
         with app_config_mutation_lock(app):
@@ -278,7 +278,7 @@ class ConfigMutationMixin(ServiceMixinBase):
             # 1. Snapshot current config.json → config.json.bak.
             # Best-effort: if config.json doesn't exist (fresh
             # install), skip the backup.  If the backup write fails
-            # (disk full, permissions), return failure — we don't
+            # (disk full, permissions), return failure, we don't
             # want to reset without a recovery path.
             #
             # Use the shared secure helpers instead of ``shutil.copy2``:
@@ -305,7 +305,7 @@ class ConfigMutationMixin(ServiceMixinBase):
 
             # 2. Snapshot the API-key fields from the live Config
             # (these hold the REAL values, not the keyring://
-            # reference tokens — see ``Config.load``).  We preserve
+            # reference tokens: see ``Config.load``).  We preserve
             # them so the user doesn't have to re-enter their keys
             # after a factory reset.
             preserved_keys: dict[str, str] = {}
@@ -333,7 +333,7 @@ class ConfigMutationMixin(ServiceMixinBase):
                         exc_info=True,
                     )
 
-            # 5. Save to disk (raises on failure — see Config.save_strict).
+            # 5. Save to disk (raises on failure: see Config.save_strict).
             old_config = app.config
             try:
                 # Swap the in-memory Config BEFORE save so save() reads
@@ -345,7 +345,7 @@ class ConfigMutationMixin(ServiceMixinBase):
                 # HU-22: restore the pre-swap config so a save failure
                 # does NOT leave the in-memory config diverged from disk
                 # (the renderer/engine would show defaults while the old
-                # values stay on disk and reappear on restart — a stale
+                # values stay on disk and reappear on restart, a stale
                 # API key could even stay active after the user believed
                 # they reset everything).
                 app.config = old_config

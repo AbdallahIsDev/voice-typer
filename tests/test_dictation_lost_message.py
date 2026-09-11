@@ -22,13 +22,13 @@ reaches the exception handler, so nothing is saved.
 
 These tests pin the corrected payload:
 
-* ``message`` — accurate wording that distinguishes soft-crash text
+* ``message``, accurate wording that distinguishes soft-crash text
   recovery from hard-crash total loss and explicitly states no audio
   is recoverable.
-* ``recoverable`` — ``True`` only when an unpasted recovery entry
+* ``recoverable``: ``True`` only when an unpasted recovery entry
   matching the sentinel's ``cycle_id`` exists in the in-memory store.
-* ``recovery_type`` — ``"text_only"`` when recoverable, ``"none"``
-  when not (audio is NEVER recoverable — made explicit).
+* ``recovery_type``: ``"text_only"`` when recoverable, ``"none"``
+  when not (audio is NEVER recoverable, made explicit).
 """
 
 from __future__ import annotations
@@ -44,16 +44,16 @@ from voice_typer.server.crash_recovery import CrashRecovery
 @pytest.fixture
 def recovery_dir(tmp_path, monkeypatch):
     """Point both ``_paths.config_dir`` and ``config._config_dir`` at
-    ``tmp_path``.
+      ``tmp_path``.
 
-    ``_detect_and_notify_lost_dictation`` resolves the
-    ``.dictation-in-flight`` sentinel via the lazy import
-    ``from voice_typer.server._paths import config_dir as _config_dir``
-    — so we must patch ``_paths.config_dir`` (not just
-    ``config._config_dir``, which is what the older ``recovery_dir``
-    fixture in ``test_crash_recovery.py`` patches). Patching both is
-    defensive: it keeps the fixture compatible with future call sites
-    that might resolve the dir through either module.
+      ``_detect_and_notify_lost_dictation`` resolves the
+      ``.dictation-in-flight`` sentinel via the lazy import
+      ``from voice_typer.server._paths import config_dir as _config_dir``
+    , so we must patch ``_paths.config_dir`` (not just
+      ``config._config_dir``, which is what the older ``recovery_dir``
+      fixture in ``test_crash_recovery.py`` patches). Patching both is
+      defensive: it keeps the fixture compatible with future call sites
+      that might resolve the dir through either module.
     """
     monkeypatch.setattr(
         "voice_typer.server._paths.config_dir",
@@ -74,7 +74,7 @@ def _isolate_event_bus():
     by other test modules that ran earlier in the session would otherwise
     receive our ``dictation_lost`` events and could (a) assert on them
     and fail, or (b) hold references that prevent clean GC. Snapshot,
-    clear, yield, restore — mirroring the pattern in
+    clear, yield, restore, mirroring the pattern in
     ``tests/test_event_bus.py::_clean_subscribers``.
     """
     with event_bus._lock:
@@ -104,7 +104,7 @@ class TestDictationLostMessage:
     def test_soft_crash_with_matching_cycle_id_is_recoverable(self, recovery_dir):
         """When an unpasted entry exists for the sentinel's ``cycle_id``,
         the crash was soft (the exception handler ran ``add()`` before
-        the process died) — partial TEXT is recoverable.
+        the process died), partial TEXT is recoverable.
 
         Asserts:
           • ``recoverable`` is ``True``.
@@ -141,7 +141,7 @@ class TestDictationLostMessage:
 
     def test_hard_crash_with_no_matching_entry_is_not_recoverable(self, recovery_dir):
         """When no unpasted entry exists for the sentinel's ``cycle_id``,
-        the crash was hard (SIGKILL / OOM / segfault) — the
+        the crash was hard (SIGKILL / OOM / segfault), the
         transcription thread never reached the exception handler, so
         nothing was saved. Nothing is recoverable.
 
@@ -151,7 +151,7 @@ class TestDictationLostMessage:
         """
         cr = CrashRecovery(config_dir=recovery_dir)
         try:
-            # No add() call — simulates a hard kill before any text was
+            # No add() call, simulates a hard kill before any text was
             # saved. The recovery store is empty for cycle_id="test-2".
             received: list[dict] = []
             event_bus.subscribe(received.append)
@@ -184,7 +184,7 @@ class TestDictationLostMessage:
         """
         cr = CrashRecovery(config_dir=recovery_dir)
         try:
-            # Step 1: soft crash — partial text saved for "test-1".
+            # Step 1: soft crash, partial text saved for "test-1".
             cr.add("partial transcript one", pasted=False, cycle_id="test-1")
             received: list[dict] = []
             event_bus.subscribe(received.append)
@@ -204,7 +204,7 @@ class TestDictationLostMessage:
             cr.clear()
             assert cr.count == 0
 
-            # Step 3: hard crash — sentinel for "test-2" with no
+            # Step 3: hard crash, sentinel for "test-2" with no
             # matching entry. Must report unrecoverable.
             received.clear()
             event_bus.subscribe(received.append)
@@ -223,8 +223,8 @@ class TestDictationLostMessage:
 
     def test_pasted_entry_for_cycle_is_not_recoverable(self, recovery_dir):
         """An entry that was already pasted is NOT a recovery candidate
-        — the user already received that text. The lookup must filter
-        on ``pasted=False``.
+        , the user already received that text. The lookup must filter
+          on ``pasted=False``.
         """
         cr = CrashRecovery(config_dir=recovery_dir)
         try:
@@ -249,12 +249,12 @@ class TestDictationLostMessage:
 
     def test_empty_sentinel_is_not_recoverable(self, recovery_dir):
         """A sentinel file with empty content (crashed mid-write before
-        the cycle_id was persisted) must NOT match any entry — the
+        the cycle_id was persisted) must NOT match any entry, the
         ``cycle_id != ""`` guard treats it as a hard crash.
         """
         cr = CrashRecovery(config_dir=recovery_dir)
         try:
-            # An anonymous entry with no cycle_id — must not match the
+            # An anonymous entry with no cycle_id, must not match the
             # empty sentinel (which would be a false positive if the
             # guard were missing).
             cr.add("anonymous partial", pasted=False)
@@ -284,7 +284,7 @@ class TestDictationLostMessage:
             received: list[dict] = []
             event_bus.subscribe(received.append)
             try:
-                # No sentinel written — _detect_and_notify_lost_dictation
+                # No sentinel written, _detect_and_notify_lost_dictation
                 # must early-return without publishing.
                 cr._detect_and_notify_lost_dictation()
             finally:
@@ -298,7 +298,7 @@ class TestDictationLostMessage:
 class TestHu10SentinelSecureRead:
     """HU-10: the ``.dictation-in-flight`` sentinel is read through
     ``_secure_read_text`` (POSIX ``O_NOFOLLOW`` / Windows reparse-point
-    check) — the same helper the recovery-file load path uses. A symlink
+    check), the same helper the recovery-file load path uses. A symlink
     planted at the sentinel path is REFUSED, so an attacker can never
     exfiltrate an arbitrary file's content into the production WARNING
     log. On refusal ``cycle_id`` stays ``""`` → the hard-crash
@@ -310,7 +310,7 @@ class TestHu10SentinelSecureRead:
             raise OSError("SEC-002: refusing to follow symlink")
 
         monkeypatch.setattr("voice_typer.server.config._secure_read_text", _refuse)
-        # A real sentinel exists — but the secure read refuses it.
+        # A real sentinel exists, but the secure read refuses it.
         _make_sentinel(recovery_dir, "EXFIL-SECRET-CYCLE")
 
         cr = CrashRecovery(config_dir=recovery_dir)

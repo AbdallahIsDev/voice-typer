@@ -17,15 +17,15 @@ they bear on the decision.>
 <What is the change we're making? State the chosen option unambiguously
 — a reader should be able to implement the decision from this section
 alone. If the decision modifies or supersedes an earlier ADR, name it
-explicitly (e.g. "Supersedes ADR-0007 — reverts the Win32-only hotkey
+explicitly (e.g. "Supersedes ADR-0007: reverts the Win32-only hotkey
 backend in favour of the cross-platform spec_parser").>
 
 ## Consequences
 
-<Positive: list the benefits — what becomes easier, faster, safer, or
+<Positive: list the benefits, what becomes easier, faster, safer, or
 cheaper as a result of this decision.>
 
-<Negative: list the costs — what becomes harder, slower, riskier, or
+<Negative: list the costs, what becomes harder, slower, riskier, or
 more expensive. Include migration cost, breaking-change surface, and
 any new test / CI burden.>
 

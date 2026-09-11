@@ -4,22 +4,22 @@ coverage for ``voice_typer.server.audio_filters.noise_suppressor``.
 The ``NoiseSuppressor`` filter has three init-time surfaces that were
 previously under-tested:
 
-  1. **Lazy resampler memoization** — ``_ensure_resamplers(sample_rate)``
+  1. **Lazy resampler memoization**: ``_ensure_resamplers(sample_rate)``
      is called lazily from ``_process_rnnoise`` (NOT from ``__init__``).
      It creates the up/down ``_StreamingResampler`` pair ONCE per sample
      rate and memoizes them in ``self._upsampler`` /
      ``self._downsampler``. A second ``process()`` call at the same rate
      must NOT recreate the resamplers (the FIR filter design inside
-     ``_StreamingResampler.__init__`` is expensive — ``scipy.signal.firwin``
+     ``_StreamingResampler.__init__`` is expensive: ``scipy.signal.firwin``
      with a 30-tap kernel).
 
-  2. **Sample-rate-driven resampler construction** — when the
+  2. **Sample-rate-driven resampler construction**, when the
      ``process()`` sample rate is NOT the RNNoise native rate
      (``RNNOISE_SAMPLE_RATE == 48000``), the up/down resampler pair IS
      constructed (to convert source↔48k). At the native rate (48k) both
      resamplers stay ``None`` (no resampling needed).
 
-  3. **RNNoise init failure → clear degraded reason** — when the
+  3. **RNNoise init failure → clear degraded reason**, when the
      ``pyrnnoise`` import succeeds but ``RNNoise(sample_rate=48000)``
      raises (e.g. model file missing, native library load failure), the
      ``_init_rnnoise`` helper catches the exception and sets
@@ -29,13 +29,13 @@ previously under-tested:
      message reaches ``degraded_reason`` so the user can act on it
      (e.g. "model file not found" → reinstall the package).
 
-All RNNoise / pyrnnoise interactions are mocked — no real model file
+All RNNoise / pyrnnoise interactions are mocked, no real model file
 is loaded, no real inference runs. The tests inject a fake
 ``pyrnnoise`` module via ``sys.modules`` so ``from pyrnnoise import
 RNNoise`` resolves to the test stub.
 
 The ``scipy`` requirement (for ``_StreamingResampler``'s FIR filter
-design) is handled via ``pytest.importorskip`` — matches the
+design) is handled via ``pytest.importorskip``, matches the
 convention in ``tests/test_noise_suppressor_resampler.py``.
 """
 
@@ -88,7 +88,7 @@ def _install_fake_pyrnnoise(monkeypatch: pytest.MonkeyPatch) -> _FakeRNNoise:
 
     ``monkeypatch.setitem(sys.modules, ...)`` ensures the real
     (broken-on-this-host) ``pyrnnoise`` module is shadowed only for the
-    duration of the test — the original ``sys.modules`` entry is
+    duration of the test, the original ``sys.modules`` entry is
     restored on teardown.
     """
     fake_module = MagicMock()
@@ -116,10 +116,10 @@ class TestLazyResamplerInitMemoization:
         call ``process(audio, 16000)`` twice, and assert:
 
           1. The resamplers were constructed (``_upsampler`` /
-             ``_downsampler`` are not ``None``) — the lazy init ran on
+             ``_downsampler`` are not ``None``), the lazy init ran on
              the first ``process()`` call.
           2. ``_StreamingResampler.__init__`` was called exactly TWICE
-             (once for the upsampler, once for the downsampler) — NOT
+             (once for the upsampler, once for the downsampler), NOT
              four times. A second ``process()`` call at the same rate
              must hit the memoization guard (``self._resampler_rate ==
              sample_rate and self._upsampler is not None``) and return
@@ -146,7 +146,7 @@ class TestLazyResamplerInitMemoization:
 
         monkeypatch.setattr(_StreamingResampler, "__init__", _counting_init)
 
-        # First process() call — lazy resampler init runs.
+        # First process() call, lazy resampler init runs.
         audio = np.random.randn(480).astype(np.float32) * 0.1
         result1 = ns.process(audio, 16000)
         # Capture the resampler identities after the first call.
@@ -155,7 +155,7 @@ class TestLazyResamplerInitMemoization:
         assert upsampler_after_first is not None, "upsampler must be constructed after the first process() call"
         assert downsampler_after_first is not None, "downsampler must be constructed after the first process() call"
 
-        # Second process() call — memoization guard must skip recreation.
+        # Second process() call, memoization guard must skip recreation.
         result2 = ns.process(audio, 16000)
 
         # 1. The resamplers were constructed (lazy init ran).
@@ -163,7 +163,7 @@ class TestLazyResamplerInitMemoization:
         assert ns._downsampler is not None
 
         # 2. _StreamingResampler.__init__ was called exactly TWICE (once
-        # for up, once for down) — NOT four times (which would mean the
+        # for up, once for down), NOT four times (which would mean the
         # memoization guard failed and the resamplers were recreated on
         # the second process() call).
         assert len(init_calls) == 2, (
@@ -205,16 +205,16 @@ class TestSampleRateResamplerConstruction:
         the default 16k nor the RNNoise native 48k), and assert:
 
           1. The upsampler was constructed (``_upsampler is not None``)
-             — the source rate (44100) != RNNOISE_SAMPLE_RATE (48000),
+           , the source rate (44100) != RNNOISE_SAMPLE_RATE (48000),
              so resampling is needed.
           2. The downsampler was constructed (``_downsampler is not
-             None``) — the round-trip back to 44100 needs a downsample
+             None``), the round-trip back to 44100 needs a downsample
              from 48k.
           3. ``_resampler_rate`` is set to 44100 (the rate the
              resamplers are configured for).
 
         The test uses 44100 (not 48000 as the task description
-        suggested) because 48000 IS the RNNoise native rate — at 48k
+        suggested) because 48000 IS the RNNoise native rate, at 48k
         no resampler is needed (``_ensure_resamplers`` returns early).
         44100 is a real-world non-native rate (CD-quality audio) that
         exercises the resampler-construction path.
@@ -222,13 +222,13 @@ class TestSampleRateResamplerConstruction:
         _install_fake_pyrnnoise(monkeypatch)
         ns = NoiseSuppressor(method="rnnoise", sample_rate=44100)
 
-        # Before process() — resamplers are NOT yet constructed (lazy).
+        # Before process(), resamplers are NOT yet constructed (lazy).
         assert ns._upsampler is None, "upsampler must NOT be constructed before the first process() call (lazy init)"
         assert ns._downsampler is None, (
             "downsampler must NOT be constructed before the first process() call (lazy init)"
         )
 
-        # 44100 is not the RNNoise native rate (48000) — resamplers
+        # 44100 is not the RNNoise native rate (48000), resamplers
         # must be constructed. Use a 480-sample input so the RNNoise
         # frame loop produces at least one output frame (after the
         # 44100→48000 upsample produces >= 480 samples).
@@ -253,7 +253,7 @@ class TestSampleRateResamplerConstruction:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """At the RNNoise native rate (48000), NO resampler is
-        constructed — the source rate matches the model's required rate,
+        constructed, the source rate matches the model's required rate,
         so no up/downsampling is needed. ``_resampler_rate`` is set to
         48000 (so a subsequent rate change is detected), but both
         resamplers stay ``None``.
@@ -264,12 +264,12 @@ class TestSampleRateResamplerConstruction:
         audio = np.random.randn(480).astype(np.float32) * 0.1
         ns.process(audio, 48000)
 
-        # Both resamplers stay None (native rate — no resampling needed).
+        # Both resamplers stay None (native rate, no resampling needed).
         assert ns._upsampler is None, (
-            "upsampler must stay None at the RNNoise native rate (48000) — no resampling needed"
+            "upsampler must stay None at the RNNoise native rate (48000), no resampling needed"
         )
         assert ns._downsampler is None, (
-            "downsampler must stay None at the RNNoise native rate (48000) — no resampling needed"
+            "downsampler must stay None at the RNNoise native rate (48000), no resampling needed"
         )
         # _resampler_rate is set so a subsequent rate change is detected.
         assert ns._resampler_rate == 48000
@@ -284,7 +284,7 @@ class TestInitFailureClearError:
     catches the exception and sets ``is_degraded=True`` with a
     ``degraded_reason`` that surfaces the original exception message.
 
-    The helper NEVER raises — it always falls back to ``method="none"``
+    The helper NEVER raises, it always falls back to ``method="none"``
     (passthrough) so the audio pipeline doesn't crash. The user sees
     the degraded state in the UI and can act on the message (e.g.
     "model file not found" → reinstall the package).
@@ -305,12 +305,12 @@ class TestInitFailureClearError:
           3. ``degraded_reason`` contains the original exception
              message ("model file not found") so the user can act on
              the specific failure (e.g. reinstall, check disk space).
-          4. ``_method`` is ``"none"`` (fell back to passthrough — the
+          4. ``_method`` is ``"none"`` (fell back to passthrough, the
              audio pipeline doesn't crash).
           5. ``_backend`` is ``None`` (no RNNoise instance was kept).
 
         The test name says "raises_clear_error" but ``_init_rnnoise``
-        never raises — it surfaces the error via ``degraded_reason``.
+        never raises, it surfaces the error via ``degraded_reason``.
         The "clear error" is the degraded_reason string, which must
         contain the original exception message so it's actionable.
         """
@@ -352,7 +352,7 @@ class TestInitFailureClearError:
 
         # 5. _backend is None (no RNNoise instance kept).
         assert ns._backend is None, (
-            "_backend must be None when RNNoise init fails (no instance to keep — the constructor raised)"
+            "_backend must be None when RNNoise init fails (no instance to keep, the constructor raised)"
         )
 
     def test_import_error_degraded_reason_mentions_rnnoise(
@@ -366,7 +366,7 @@ class TestInitFailureClearError:
 
         This is the most common failure mode (user didn't install the
         optional dependency). The test removes the fake pyrnnoise module
-        so the real (broken-on-this-host) import path runs — OR, if the
+        so the real (broken-on-this-host) import path runs, OR, if the
         real pyrnnoise IS installed and working on a future host, the
         test forces the ImportError by replacing the module with one
         whose ``RNNoise`` attribute access raises ImportError.

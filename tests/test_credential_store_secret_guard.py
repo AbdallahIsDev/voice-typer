@@ -3,7 +3,7 @@
 Covers the following findings fixed in this task:
 
  - ** (HIGH)**: ``_write_plaintext_fallback`` silently overwrote a
-    non-dict ``config.json`` root with ``{}`` — destroying the corrupt
+    non-dict ``config.json`` root with ``{}``, destroying the corrupt
     file's recoverable content. Fix: mirror the migration path (log a
     warning, skip the write, preserve the file).
 
@@ -19,14 +19,14 @@ Covers the following findings fixed in this task:
 
  - ** (Medium)**: ``migrate_secrets_to_keyring`` fail-opened on
     lock-acquisition failure (POSIX ``TimeoutError`` or any other
-    exception) — re-opening RACE-001. Fix: ABORT migration when
+    exception), re-opening RACE-001. Fix: ABORT migration when
     ``lock_fd`` is None, log a warning, defensively set
     ``secrets_migrated = True`` so the next launch skips retry (avoids
     a retry storm if the lock is permanently wedged).
 
  - ** (Medium)**: ``single_instance._ensure_single_instance_posix``
     secondary open (the ``O_RDWR`` open of the EXISTING lockfile after
-    ``O_EXCL`` failed) was missing ``O_NOFOLLOW`` — a TOCTOU symlink
+    ``O_EXCL`` failed) was missing ``O_NOFOLLOW``, a TOCTOU symlink
     race. Fix: add ``O_NOFOLLOW``; handle the resulting ``ELOOP`` by
     falling through to the legacy PID-check path.
 
@@ -151,7 +151,7 @@ class TestPreserveNonDictConfig:
 
     def test_non_dict_root_preserves_file(self, tmp_path):
         """A config.json whose root is a JSON list (not a dict) must be
-        preserved — the write must be skipped, NOT overwrite the file
+        preserved, the write must be skipped, NOT overwrite the file
         with ``{<provider>_api_key: <value>}``."""
         config_file = tmp_path / "config.json"
         original_content = '["not", "a", "dict"]'
@@ -166,11 +166,11 @@ class TestPreserveNonDictConfig:
         # function returns False (the secret was NOT saved).
         assert result is False, (
             " regression: _write_plaintext_fallback should return False "
-            "when config.json root is not a dict (write skipped — secret NOT saved)."
+            "when config.json root is not a dict (write skipped, secret NOT saved)."
         )
         assert config_file.read_text() == original_content, (
             " regression: _write_plaintext_fallback overwrote a non-dict "
-            "config.json — the corrupt file's recoverable content was destroyed. "
+            "config.json, the corrupt file's recoverable content was destroyed. "
             "Expected the original content to be preserved."
         )
 
@@ -216,7 +216,7 @@ class TestStoreSecretDetectsFallbackFailure:
     """: ``store_secret`` must surface a distinct ``"failed"``
     outcome when the plaintext fallback itself fails (not just when
     keyring fails). Pre-fix, ``_write_plaintext_fallback`` returned
-    None and swallowed all errors — the user's API key was silently
+    None and swallowed all errors, the user's API key was silently
     dropped (not in keyring, not in config.json) while the outcome
     still said ``"plaintext"``."""
 
@@ -247,7 +247,7 @@ class TestStoreSecretDetectsFallbackFailure:
             " regression: expected outcome['stored_in'] == 'failed' when "
             "the plaintext fallback also failed. Got: "
             f"{outcome['stored_in']!r}. Pre-fix, this was 'plaintext' even "
-            "though the secret was NOT saved anywhere — the user had no way "
+            "though the secret was NOT saved anywhere, the user had no way "
             "to know their API key was dropped."
         )
         assert outcome["provider"] == "openai"
@@ -259,8 +259,8 @@ class TestStoreSecretDetectsFallbackFailure:
         succeeds, the outcome is still ``"plaintext"`` (not ``"failed"``).
         Guards against the fix accidentally marking all fallback
         writes as failed."""
-        # No config.json yet — the fallback will create it (dict root).
-        # (Don't pre-populate — let the fallback write to a fresh file.)
+        # No config.json yet, the fallback will create it (dict root).
+        # (Don't pre-populate, let the fallback write to a fresh file.)
 
         if hasattr(credential_store._last_store_outcome, "outcome"):
             del credential_store._last_store_outcome.outcome
@@ -288,7 +288,7 @@ class TestStoreSecretDetectsFallbackFailure:
 
     def test_write_plaintext_fallback_returns_false_on_non_dict(self, tmp_path):
         """Direct test: returns False when config.json root is not a dict
-        (the write is skipped to preserve the corrupt file — )."""
+        (the write is skipped to preserve the corrupt file, )."""
         (tmp_path / "config.json").write_text('["not", "a", "dict"]')
         result = credential_store._write_plaintext_fallback("openai", "sk-test")
         assert result is False
@@ -306,7 +306,7 @@ class TestStoreSecretDetectsFallbackFailure:
         result = credential_store._write_plaintext_fallback("openai", "sk-test")
         assert result is False, (
             " regression: _write_plaintext_fallback should return False "
-            "when config.json can't be parsed (write skipped — secret NOT saved)."
+            "when config.json can't be parsed (write skipped, secret NOT saved)."
         )
         # The corrupt file must be preserved.
         assert config_file.read_text() == "not valid json {{{"
@@ -341,7 +341,7 @@ class TestStoreSecretDetectsFallbackFailure:
 )
 class TestRedactLockTimeoutWarnings:
     """: migration-lock timeout warnings must redact ``lock_file``
-    (path contains username — PII) and the raw ``OSError`` (may embed
+    (path contains username, PII) and the raw ``OSError`` (may embed
     the path too)."""
 
     def test_posix_slow_wait_redacts_lock_file(self, tmp_path, monkeypatch, caplog):
@@ -426,7 +426,7 @@ class TestRedactLockTimeoutWarnings:
 class TestAbortMigrationOnLockFailure:
     """: when the migration lock can't be acquired (POSIX
     ``TimeoutError`` or any other exception), ``migrate_secrets_to_keyring``
-    must ABORT (return 0) — NOT proceed with
+    must ABORT (return 0), NOT proceed with
     ``_migrate_secrets_to_keyring_locked`` (which would re-open RACE-001)."""
 
     def test_migration_aborts_on_lock_timeout(self, tmp_path, monkeypatch):
@@ -451,7 +451,7 @@ class TestAbortMigrationOnLockFailure:
 
             assert count == 0, (
                 " regression: migrate_secrets_to_keyring should return 0 "
-                "when the lock can't be acquired (aborted — no migration ran)."
+                "when the lock can't be acquired (aborted, no migration ran)."
             )
             # config.json must NOT have been modified by migration (the
             # lock wasn't held, so any write would race with the holder).
@@ -461,11 +461,11 @@ class TestAbortMigrationOnLockFailure:
             # concurrent migration).
             data = json.loads(config_file.read_text())
             # The plaintext secret must still be there (NOT replaced
-            # with a keyring:// reference token — that would mean
+            # with a keyring:// reference token, that would mean
             # migration ran without the lock).
             assert data.get("openai_api_key") == "sk-would-be-migrated", (
                 " regression: migration appears to have run without the "
-                "lock — the plaintext secret was replaced. This re-opens "
+                "lock, the plaintext secret was replaced. This re-opens "
                 "RACE-001 (two concurrent migrations could clobber each other)."
             )
         finally:
@@ -511,7 +511,7 @@ class TestAbortMigrationOnLockFailure:
         holder = open(lock_file, "w+b")  # noqa: SIM115
         fcntl.flock(holder.fileno(), fcntl.LOCK_EX)
         try:
-            # Capture at DEBUG level — if the abort were still at DEBUG,
+            # Capture at DEBUG level, if the abort were still at DEBUG,
             # we'd see the old "could not acquire lock ... proceeding without"
             # message. promotes it to WARNING with new text.
             with caplog.at_level(logging.DEBUG, logger="voice_typer.server.credential_store"):
@@ -524,7 +524,7 @@ class TestAbortMigrationOnLockFailure:
             ]
             assert not old_debug_messages, (
                 " regression: the old DEBUG-level 'proceeding without' "
-                "message is still present — the abort should be at WARNING "
+                "message is still present, the abort should be at WARNING "
                 f"with new text. Got: {old_debug_messages}"
             )
         finally:
@@ -605,7 +605,7 @@ class TestReadPlaintextFallbackGuards:
         config_file = tmp_path / "config.json"
         config_file.write_text("not valid json {{{")
 
-        # Capture at DEBUG — if the level were still DEBUG, we'd see the
+        # Capture at DEBUG, if the level were still DEBUG, we'd see the
         # message at DEBUG. (b) promotes it to WARNING.
         with caplog.at_level(logging.DEBUG, logger="voice_typer.server.credential_store"):
             credential_store._read_plaintext_fallback("openai")
@@ -621,7 +621,7 @@ class TestReadPlaintextFallbackGuards:
             if r.levelno == logging.WARNING and "plaintext fallback read failed" in r.getMessage()
         ]
         assert not debug_records, (
-            "(b) regression: corrupt-json log is still at DEBUG — "
+            "(b) regression: corrupt-json log is still at DEBUG, "
             "the user can't see it at default log levels. "
             f"Debug records: {[r.getMessage() for r in debug_records]}"
         )
@@ -686,13 +686,13 @@ class TestSecondaryOpenNoFollow:
             " regression: expected at least 2 occurrences of O_NOFOLLOW "
             "in _ensure_single_instance_posix (primary O_EXCL open + secondary "
             f"O_RDWR open). Got {no_follow_count}. The secondary open is "
-            "missing O_NOFOLLOW — a TOCTOU symlink race is possible."
+            "missing O_NOFOLLOW, a TOCTOU symlink race is possible."
         )
 
     def test_secondary_open_handles_eloop_fallthrough(self, tmp_path, monkeypatch):
         """When ``O_NOFOLLOW`` raises ``ELOOP`` (because
         ``backend.lock`` is a symlink), the secondary open must fall
-        through to the legacy PID-check path (NOT exit(1) — the
+        through to the legacy PID-check path (NOT exit(1), the
         primary ``_try_acquire`` already exits(1) on ELOOP, but the
         secondary open is reached only when ``O_EXCL`` failed with
         ``FileExistsError``, meaning the file existed as a regular
@@ -704,8 +704,8 @@ class TestSecondaryOpenNoFollow:
         # Pre-create backend.lock as a regular file so _try_acquire's
         # O_EXCL fails with FileExistsError → returns None → reaches
         # the secondary open. The lockfile lives under the config dir's
-        # ``run/`` subdir (RUN_SUBDIR — transient-state lockdown), so
-        # the decoy must sit at that SAME path — otherwise _try_acquire
+        # ``run/`` subdir (RUN_SUBDIR, transient-state lockdown), so
+        # the decoy must sit at that SAME path, otherwise _try_acquire
         # simply creates a fresh lockfile (O_CREAT|O_EXCL succeeds),
         # the secondary open is never reached, and the simulated ELOOP
         # never engages (the function returns without exiting).
@@ -728,12 +728,12 @@ class TestSecondaryOpenNoFollow:
             # The secondary open uses O_RDWR | O_CLOEXEC | O_NOFOLLOW
             # (NO O_CREAT, NO O_EXCL).
             if (flags & os.O_CREAT) and (flags & os.O_EXCL):
-                # Primary path — let the real os.open handle it
+                # Primary path, let the real os.open handle it
                 # (it'll raise FileExistsError since the file exists).
                 return real_os_open(path, flags, *args, **kwargs)
             if (flags & os.O_RDWR) and (flags & os.O_NOFOLLOW) and not (flags & os.O_CREAT):
-                # Secondary open — simulate ELOOP (symlink detected).
-                raise OSError(errno_mod.ELOOP, "simulated ELOOP — too many levels of symbolic links")
+                # Secondary open, simulate ELOOP (symlink detected).
+                raise OSError(errno_mod.ELOOP, "simulated ELOOP, too many levels of symbolic links")
             return real_os_open(path, flags, *args, **kwargs)
 
         monkeypatch.setattr(os, "open", _conditional_open)

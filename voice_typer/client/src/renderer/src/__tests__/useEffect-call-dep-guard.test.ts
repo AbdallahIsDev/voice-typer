@@ -6,7 +6,7 @@
  * dependency array re-fires whenever the `call` identity changes.
  * `call` is `useCallback(..., [])`-stable in production, but a test
  * mock (or future code) that hands out a FRESH `call` on every render
- * re-triggers such an effect — fetch → setState → render → new `call`
+ * re-triggers such an effect, fetch → setState → render → new `call`
  * → effect → … until the heap is exhausted.
  *
  * The sanctioned fix (established in `Home.tsx`, `useHistoryCache.ts`,
@@ -19,7 +19,7 @@
  *
  * and read `callRef.current` inside the effect, keeping the effect's
  * deps free of `call`. The mirror effect itself depends on `call` BY
- * DESIGN — it only writes a ref and never triggers state updates, so
+ * DESIGN, it only writes a ref and never triggers state updates, so
  * it cannot loop.
  *
  * This test statically scans every renderer source file (production
@@ -34,7 +34,7 @@
  * `useLayoutEffect` / `useMemo` dep array re-runs that consumer's work
  * on every `call` identity change (a test mock handing out a fresh
  * `call` per render re-fires the effect / recomputes the memo every
- * render — the same loop class one hop away). Recreating a callback
+ * render, the same loop class one hop away). Recreating a callback
  * for event handlers / JSX props is NOT flagged (no implicit
  * re-execution); only effect/memo consumers re-run work.
  *
@@ -44,10 +44,10 @@
  * with that name nor imports the name from another module (a
  * prop-passed callback, e.g. App → useConnectionToasts). Consumer
  * effects that are themselves ref-mirrors (`xRef.current = X`) are
- * exempt — they write a ref and cannot loop (the sanctioned
+ * exempt, they write a ref and cannot loop (the sanctioned
  * absorption mechanism).
  *
- * Uses a real AST (`@babel/parser`, a vite dependency) — a regex scan
+ * Uses a real AST (`@babel/parser`, a vite dependency), a regex scan
  * would miss the multiline / destructured forms this guard is meant to
  * catch.
  */
@@ -206,7 +206,7 @@ const MEMO_OR_EFFECT_HOOKS = new Set([
 ]);
 
 /** True when an effect body is a single `xRef.current = <id>` assignment
- * (the sanctioned ref-mirror idiom — writes a ref, cannot loop). */
+ * (the sanctioned ref-mirror idiom, writes a ref, cannot loop). */
 function isRefMirrorEffectBody(body: Node | undefined): boolean {
 	if (body?.type !== "BlockStatement" || body.body.length !== 1) {
 		return false;
@@ -413,7 +413,7 @@ function findCallbackFeedViolations(): CallbackFeedViolation[] {
 		visit(ast.program);
 
 		// Resolve hook destructures against the imports collected in
-		// this file (a hook must be imported — `useX` called bare is a
+		// this file (a hook must be imported, `useX` called bare is a
 		// local/global, leave un-attributed).
 		for (const { name, fnName } of hookDestructures) {
 			const source = info.imported.get(fnName);
@@ -421,7 +421,7 @@ function findCallbackFeedViolations(): CallbackFeedViolation[] {
 		}
 
 		// Resolve flagged names (matched by the useCallback call-site
-		// start offset, NOT the line number — VariableDeclarator.init
+		// start offset, NOT the line number, VariableDeclarator.init
 		// keys use byte offsets).
 		info.flagged = info.flagged.map((f) => ({
 			name: initNames.get(f.start) ?? "",

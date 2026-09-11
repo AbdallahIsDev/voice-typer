@@ -13,12 +13,12 @@
 //! - the Rust table stays byte-identical to the Electron
 //!   main-process locale files (`voice_typer/client/src/main/i18n/
 //!   locales/*.json` keys `dialog.selectModelFolder.title` +
-//!   `dialog.export.*`) — the cross-runtime parity guard.
+//!   `dialog.export.*`): the cross-runtime parity guard.
 
 use super::{localized_title, DialogTitle, SUPPORTED_LANGUAGES};
 use serde_json::Value;
 
-/// All title kinds covered by the lookup — every test below iterates
+/// All title kinds covered by the lookup, every test below iterates
 /// this list so adding a new dialog title site without extending the
 /// lookup (or the tests) fails loudly.
 const ALL_KINDS: [DialogTitle; 5] = [
@@ -104,7 +104,7 @@ fn test_none_and_unknown_locales_fall_back_to_english() {
 #[test]
 fn test_uppercase_language_falls_back_to_english_without_normalization_bug() {
     // "EN" (uppercase English) also lands on the English fallback
-    // via the `_` arm after lowercasing — pinned so the normalization
+    // via the `_` arm after lowercasing, pinned so the normalization
     // never accidentally invents a missing arm.
     for kind in ALL_KINDS {
         assert_eq!(

@@ -3,8 +3,8 @@
 Six model-load paths (``load_background``, ``fallback_to_whisper``,
 ``try_load``, ``ensure_active_engine_loaded``'s reload branch,
 ``_change_model_load_phase``, ``_set_active_backend_blocking``) used to
-hand-roll the same completion sequence — LRU touch + evict,
-deliberate-unload flag clear, tray "Ready" message — and three of the
+hand-roll the same completion sequence, LRU touch + evict,
+deliberate-unload flag clear, tray "Ready" message, and three of the
 copies had drifted to hardcoded English strings ("Ready -- …") instead
 of the localized ``state.model_manager.ready_whisper`` /
 ``state.model_manager.ready_other`` keys (which exist in the server's
@@ -76,7 +76,7 @@ def _idle_messages(app: MagicMock) -> list[str]:
 class TestOnLoadSuccessRitual:
     def test_helper_emits_localized_ready_message_for_non_whisper(self):
         """A non-whisper engine must get ``ready_other`` (localized key)
-        — never a hardcoded English string and never the whisper key."""
+        , never a hardcoded English string and never the whisper key."""
         from voice_typer.server import i18n
 
         mm, app, _engine, _registry = _make_manager(backend_name="parakeet")
@@ -111,7 +111,7 @@ class TestOnLoadSuccessRitual:
         assert "parakeet" not in mm._deliberately_unloaded
 
     def test_helper_swallows_lru_tracking_failure(self):
-        """A tracking failure must not break the load (non-fatal) — the
+        """A tracking failure must not break the load (non-fatal), the
         tray still gets the localized ready message."""
         from voice_typer.server import i18n
 
@@ -152,7 +152,7 @@ class TestAllLoadPathsUseSharedRitual:
         src = inspect.getsource(getattr(owner, func_name))
         assert "_on_load_success(" in src, (
             f"{func_name} no longer routes its success branch through the "
-            f"shared _on_load_success ritual — the copy-pasted success "
+            f"shared _on_load_success ritual, the copy-pasted success "
             f"ritual (and its i18n drift) is back."
         )
         for stale_token in ("_evict_lru_model()", "AppState.IDLE"):
@@ -164,7 +164,7 @@ class TestAllLoadPathsUseSharedRitual:
 
     def test_no_hardcoded_english_ready_remains_in_load_paths(self):
         """No model-manager module may hardcode an interpolated English
-        "Ready -- " f-string — the tray message must come from the i18n
+        "Ready -- " f-string, the tray message must come from the i18n
         keys (the per-path ``AppState.IDLE`` absence pin above rules out
         any non-i18n ready set_state outside the helper)."""
         from voice_typer.server.model_manager import _change, _loading
@@ -173,13 +173,13 @@ class TestAllLoadPathsUseSharedRitual:
             src = inspect.getsource(module)
             assert 'f"Ready' not in src, (
                 f"{module.__name__} still hardcodes an English 'Ready -- ' "
-                f"f-string — tray messages must use the localized "
+                f"f-string, tray messages must use the localized "
                 f"state.model_manager.ready_* keys"
             )
 
     def test_ritual_body_exists_once(self):
         """The touch+evict+clear+set_state sequence must be defined once
-        (in ``_on_load_success``) — not re-copied per load path."""
+        (in ``_on_load_success``), not re-copied per load path."""
         from voice_typer.server.model_manager import _loading
 
         assert inspect.getsource(_loading).count("def _on_load_success(") == 1, (

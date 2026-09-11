@@ -64,8 +64,8 @@ class BusyFlag:
         :meth:`busy_context` or :meth:`transcribe_with_fallback`, and
         the IPC thread reads it via this method. Both paths acquire
         ``self._lock`` so the read/write pair is atomic. A ``False``
-        return value is a snapshot — the backend may become busy
-        immediately after the call returns — but callers (e.g.
+        return value is a snapshot, the backend may become busy
+        immediately after the call returns, but callers (e.g.
         :meth:`ModelManager.ensure_active_engine_loaded`) use it as a
         defence-in-depth rejection gate, not as a strict mutual-exclusion
         primitive.
@@ -88,7 +88,7 @@ class BusyFlag:
 
         Callers SHOULD prefer :meth:`busy_context` (or the registry's
         ``transcribe_with_fallback`` wrapper) so the flag is cleared
-        automatically on exit — including the exception path. Manual
+        automatically on exit: including the exception path. Manual
         ``set_busy`` / :meth:`clear_busy` pairs are error-prone (a
         missed ``clear_busy`` leaves the backend permanently busy,
         blocking all subsequent dictations).
@@ -105,7 +105,7 @@ class BusyFlag:
         """Mark the named backend (or the active backend when ``name``
         is None) as not busy.
 
-        Idempotent — calling on a backend that wasn't busy is a no-op.
+        Idempotent, calling on a backend that wasn't busy is a no-op.
         Safe to call from a finally block / context-manager exit even if
         ``set_busy`` was never called (e.g. the ``busy_context``'s
         ``__exit__`` always calls this).
@@ -140,12 +140,12 @@ class BusyFlag:
         enter/exit from any thread. The flag is keyed by backend NAME
         so a backend that was unregistered mid-transcription (e.g. by a
         concurrent ``change_model``) is still correctly marked not-busy
-        on exit — the name doesn't disappear from ``_busy_backends``
+        on exit, the name doesn't disappear from ``_busy_backends``
         just because the backend object was replaced.
         """
         target = name if name is not None else self._active_name_provider()
         if not target:
-            # Nothing to mark busy — yield the empty name and return.
+            # Nothing to mark busy, yield the empty name and return.
             yield target
             return
         self.set_busy(target)

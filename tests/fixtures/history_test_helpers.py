@@ -15,7 +15,7 @@ def history_plaintext_mode(monkeypatch):
     whenever an OS keyring is available (Windows Credential Manager on a
     real user session), which silently activates at-rest encryption and
     breaks every raw-SQL assertion (LIKE / GLOB / iterdump round-trips)
-    against ciphertext — while the same tests pass on keyless CI. These
+    against ciphertext, while the same tests pass on keyless CI. These
     modules test SQL-level search semantics, not crypto, so the DEK
     resolution is forced to "unavailable" here; the encryption behaviors
     themselves are pinned by ``tests/test_history_db_encryption.py`` and

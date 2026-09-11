@@ -6,17 +6,17 @@
 # ``<config_dir>/run/backend.lock`` with PID-based stale-lock recovery.
 #
 # Scenarios covered:
-#   (a) First-instance success — lock acquired, fd returned, PID file written.
-#   (b) Second-instance rejection — lockfile exists with an ALIVE PID;
+#   (a) First-instance success, lock acquired, fd returned, PID file written.
+#   (b) Second-instance rejection, lockfile exists with an ALIVE PID;
 #       ``sys.exit(1)`` is called, lockfile is NOT unlinked.
-#   (c) Stale-lock recovery — lockfile exists with a DEAD PID; lockfile is
+#   (c) Stale-lock recovery, lockfile exists with a DEAD PID; lockfile is
 #       unlinked and reclaimed, fd returned.
-#   (d) Retry-race failure — after stale recovery, the retry ``O_EXCL`` create
+#   (d) Retry-race failure, after stale recovery, the retry ``O_EXCL`` create
 #       also fails with EEXIST (another process raced us); ``sys.exit(1)``.
-#   (e) Unexpected OSError — ``os.open`` raises a non-EEXIST OSError;
+#   (e) Unexpected OSError: ``os.open`` raises a non-EEXIST OSError;
 #       ``sys.exit(1)``.
-#   (f) Garbage PID in lockfile — treated as stale, reclaimed.
-#   (g) Dispatcher routing — ``_ensure_single_instance`` calls
+#   (f) Garbage PID in lockfile, treated as stale, reclaimed.
+#   (g) Dispatcher routing: ``_ensure_single_instance`` calls
 #       ``_ensure_single_instance_posix`` on non-Windows.
 #
 # The Windows mutex path is NOT exercised here (sandbox is Linux). See
@@ -115,7 +115,7 @@ def _hold_flock(lock_path):
     duration of the ``with`` block.
 
     Used by ``TestSecondInstanceRejected`` to simulate a LIVE process
-    holding the lockfile's flock — which is what the new GT-41 logic
+    holding the lockfile's flock, which is what the new GT-41 logic
     checks FIRST (before any PID liveness check). Pre-writing a PID
     string into the lockfile is no longer enough to trigger the
     duplicate-launch rejection, because ``flock`` is the authoritative
@@ -214,7 +214,7 @@ class TestSecondInstanceRejected:
     rejection. That path is now the FALLBACK (only taken when
     ``os.open(O_RDWR)`` on the existing lockfile fails). The PRIMARY
     rejection signal is now ``flock(LOCK_EX | LOCK_NB)`` failing with
-    ``EWOULDBLOCK`` — which we simulate here by holding the flock on
+    ``EWOULDBLOCK``, which we simulate here by holding the flock on
     another fd for the duration of the call.
     """
 
@@ -466,7 +466,7 @@ class TestDispatcherRouting:
         This test forces ``is_windows()`` to return True and verifies the
         POSIX helper is never invoked. The Windows mutex path itself
         requires ctypes.windll which doesn't exist on Linux, so we expect
-        an AttributeError or similar — but the key assertion is that the
+        an AttributeError or similar, but the key assertion is that the
         POSIX helper was NOT called before the Windows path errored out.
         """
         monkeypatch.delenv("VOICE_TYPER_RESTART", raising=False)
@@ -519,7 +519,7 @@ class TestSourceInvariants:
     def test_no_early_non_windows_return(self):
         """``_ensure_single_instance`` must NOT have a code-level ``if not is_windows(): return None``.
 
-        this was the bug — the early return meant no single-instance
+        this was the bug, the early return meant no single-instance
         guard existed on macOS/Linux. We check the AST (not raw source) so
         that docstring mentions of the buggy pattern don't false-positive.
         """
@@ -549,7 +549,7 @@ class TestSourceInvariants:
                 func_id = call.func.id
             if func_id != "is_windows":
                 continue
-            # Found `if not is_windows():` — check the body is `return None`.
+            # Found `if not is_windows():`, check the body is `return None`.
             if len(node.body) != 1:
                 continue
             stmt = node.body[0]
@@ -559,7 +559,7 @@ class TestSourceInvariants:
             if ret_val is None or (isinstance(ret_val, ast.Constant) and ret_val.value is None):
                 pytest.fail(
                     "_ensure_single_instance must NOT contain "
-                    "`if not is_windows(): return None` — that disables "
+                    "`if not is_windows(): return None`, that disables "
                     "single-instance enforcement on POSIX. Use "
                     "`if is_windows(): ... else: _ensure_single_instance_posix(...)` instead."
                 )

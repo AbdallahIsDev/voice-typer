@@ -15,7 +15,7 @@ This test has two layers:
 1. **Source-parsing layer (always runs, no cargo required):** verifies
    that ``platform/logging/rotating.rs`` contains the
    ``OpenOptionsExt::mode(0o600)``
-   call in ``RotatingFileWriter::write_line``, the belt-and-suspenders
+   call in ``RotatingFileWriter::write_line_level``, the belt-and-suspenders
    ``set_permissions(..., 0o600)`` call after rotation, and that
    ``platform/logging/init.rs`` contains the
    ``set_permissions(..., 0o700)`` call on the ``logs/`` dir in
@@ -30,7 +30,7 @@ This test has two layers:
    hosts. On Windows + macOS the source-parsing layer is the only guard
    (cargo is invoked but the test is ``#[cfg(unix)]``-gated, so it
    no-ops on Windows). When cargo or the system libs are missing, the
-   runtime layer is skipped (not failed) — the source-parsing layer
+   runtime layer is skipped (not failed), the source-parsing layer
    still runs.
 
 The two-layer design mirrors the pattern in
@@ -63,7 +63,7 @@ SIDECAR_CARGO_TOML = REPO_ROOT / "src-tauri" / "Cargo.toml"
 
 # Target triples tauri.conf.json's externalBin / bundle.resources entries
 # cover (mirrors the "Create dummy sidecar + resource placeholders" step
-# in the Tauri Linux smoke workflow — outside a full bundle build the
+# in the Tauri Linux smoke workflow, outside a full bundle build the
 # tauri-build build script still validates those paths and hard-fails
 # cargo without them).
 _TAURI_TRIPLES = (
@@ -139,11 +139,11 @@ def _cleanup_cargo_build_placeholders(created: list[Path]) -> None:
 def _rotating_rs_source() -> str:
     """Return the full source of ``platform/logging/rotating.rs``.
 
-    Asserts the file exists — a missing file is a hard error (the test
+    Asserts the file exists, a missing file is a hard error (the test
     infrastructure is broken, not the security posture).
     """
     assert LOGGING_ROTATING_RS.is_file(), (
-        f"{LOGGING_ROTATING_RS} not found — the Rust host's "
+        f"{LOGGING_ROTATING_RS} not found, the Rust host's "
         f"rotating file writer source has moved or been deleted. Update "
         f"this test's LOGGING_ROTATING_RS path constant."
     )
@@ -153,27 +153,28 @@ def _rotating_rs_source() -> str:
 def _init_rs_source() -> str:
     """Return the full source of ``platform/logging/init.rs``.
 
-    Asserts the file exists — a missing file is a hard error (the test
+    Asserts the file exists, a missing file is a hard error (the test
     infrastructure is broken, not the security posture).
     """
     assert LOGGING_INIT_RS.is_file(), (
-        f"{LOGGING_INIT_RS} not found — the Rust host's "
+        f"{LOGGING_INIT_RS} not found, the Rust host's "
         f"logger-init source has moved or been deleted. Update "
         f"this test's LOGGING_INIT_RS path constant."
     )
     return LOGGING_INIT_RS.read_text(encoding="utf-8")
 
 
-def test_pi7_openoptions_mode_0o600_present_in_write_line() -> None:
+def test_pi7_openoptions_mode_0o600_present_in_write_line_level() -> None:
     """``mode(0o600)`` must be present in the file's file-open path.
 
     This is the primary defense: a freshly-created log file gets mode
     ``0o600`` regardless of the process umask. Pre-hardening the call was
     absent and the file inherited umask (typically 0o644).
 
-    FR-44 moved the file-open logic from ``write_line`` into a dedicated
+    FR-44 moved the file-open logic from ``write_line`` (the historical
+    name, since folded into ``write_line_level``) into a dedicated
     writer thread helper; the 0o600 mode is still set there. Search the
-    whole file rather than just ``fn write_line``.
+    whole file rather than just the write function.
     """
     src = _rotating_rs_source()
     assert re.search(r"\.mode\(0o600\)", src), (
@@ -183,10 +184,10 @@ def test_pi7_openoptions_mode_0o600_present_in_write_line() -> None:
     )
 
 
-def test_pi7_chmod_0o600_belt_and_suspenders_in_write_line() -> None:
+def test_pi7_chmod_0o600_belt_and_suspenders_in_write_line_level() -> None:
     """The rotating writer must chmod the log file to ``0o600`` (belt-and-suspenders).
 
-    ``OpenOptionsExt::mode(0o600)`` only applies to NEW files — a leftover
+    ``OpenOptionsExt::mode(0o600)`` only applies to NEW files, a leftover
     0o644 log file from a pre-hardening build would stay world-readable
     otherwise. The ``set_permissions(..., 0o600)`` call re-asserts the
     mode on open so pre-existing files are hardened. FR-44 moved the
@@ -214,9 +215,9 @@ def test_pi7_chmod_0o700_on_logs_dir_in_init_file_logger() -> None:
 
     Mirrors the Python side's ``os.chmod(config_dir, 0o700)`` at
     ``voice_typer/server/log.py:891-893``. Without this, the dir is
-    world-traversable on POSIX — a non-owner user could ``ls`` the
+    world-traversable on POSIX, a non-owner user could ``ls`` the
     directory to enumerate log file names (which include timestamps
-    + rotation counters — a metadata leak).
+    + rotation counters, a metadata leak).
     """
     src = _init_rs_source()
     # Slice the init_file_logger function body.
@@ -248,11 +249,11 @@ def test_pi7_unix_cfg_gates_present() -> None:
     """All ``mode(...)`` + ``set_permissions(... 0o6XX)`` calls must be ``#[cfg(unix)]``-gated.
 
     ``OpenOptionsExt::mode`` and ``PermissionsExt::from_mode`` are
-    POSIX-only APIs — calling them unconditionally would break the
+    POSIX-only APIs, calling them unconditionally would break the
     Windows build. This test counts the ``#[cfg(unix)]`` blocks vs the
     chmod/mode call sites and asserts they match.
     """
-    # Scan every submodule that carries POSIX-only call sites — the
+    # Scan every submodule that carries POSIX-only call sites, the
     # mode/chmod calls live in rotating.rs (file perms) + init.rs
     # (logs-dir perms) after the logging module split.
     src = _rotating_rs_source() + "\n" + _init_rs_source()
@@ -265,7 +266,7 @@ def test_pi7_unix_cfg_gates_present() -> None:
     total_calls = mode_calls + perm_calls
     # Each call site must be gated by a `#[cfg(unix)]`. The `from_mode`
     # calls inside the tests module (which have their own
-    # `#[cfg(unix)]` on the test fn) are also counted here — that's
+    # `#[cfg(unix)]` on the test fn) are also counted here, that's
     # fine, the test fns are themselves gated.
     assert cfg_unix_count >= total_calls, (
         f"found {total_calls} POSIX-only mode/perm "
@@ -301,7 +302,7 @@ def _cargo_available() -> bool:
 )
 @pytest.mark.skipif(
     not _cargo_available(),
-    reason="cargo not available — source-parsing layer (above) is the only guard",
+    reason="cargo not available, source-parsing layer (above) is the only guard",
 )
 def test_pi7_rust_unit_test_log_file_mode_0o600_passes() -> None:
     """Run the Rust unit test ``test_rotating_file_writer_log_file_mode_is_0o600_on_posix``.
@@ -310,13 +311,13 @@ def test_pi7_rust_unit_test_log_file_mode_0o600_passes() -> None:
     ``RotatingFileWriter``, write a line, and assert the resulting log
     file mode is ``0o600``. Skipped if cargo is not installed or the
     GTK/WebKit dev libs aren't available (the Tauri crate fails to
-    compile without them — out of scope for this test).
+    compile without them, out of scope for this test).
     """
     cargo = shutil.which("cargo")
     assert cargo is not None  # belt-and-suspenders (skipif above)
 
     # tauri-build's build script validates the externalBin / bundle
-    # resource paths from tauri.conf.json even for `cargo test` — on a
+    # resource paths from tauri.conf.json even for `cargo test`, on a
     # CI checkout without a prior bundle step those files don't exist
     # and the build fails before any Rust test runs (observed on the
     # macos-14 leg). Create the same placeholders the Tauri Linux smoke
@@ -329,7 +330,7 @@ def test_pi7_rust_unit_test_log_file_mode_0o600_passes() -> None:
     env = os.environ.copy()
     # PKG_CONFIG_PATH is needed on Linux so the tauri crate's build
     # script can find gtk+-3.0 / webkit2gtk-4.1. If unset, cargo
-    # will fail at the gdk-sys build step — we treat that as a skip.
+    # will fail at the gdk-sys build step, we treat that as a skip.
     # (The user can set PKG_CONFIG_PATH in their shell to enable this
     # test; otherwise the source-parsing layer is the only guard.)
 
@@ -359,7 +360,7 @@ def test_pi7_rust_unit_test_log_file_mode_0o600_passes() -> None:
             )
         except subprocess.TimeoutExpired:
             pytest.skip(
-                "cargo test timed out (>600s) — likely a cold dependency "
+                "cargo test timed out (>600s), likely a cold dependency "
                 "build. The source-parsing layer (above) is the only guard "
                 "in this run."
             )
@@ -387,7 +388,7 @@ def test_pi7_rust_unit_test_log_file_mode_0o600_passes() -> None:
                 # own error text is in the "--- stderr" section cargo
                 # only prints on failure). This is an environment gap in
                 # the CI pytest leg (no client build, no bundler
-                # placeholders beyond what this test stubs) — NOT a
+                # placeholders beyond what this test stubs), NOT a
                 # permissions regression. Skip with the full output so
                 # the gap is diagnosable; the source-parsing layer
                 # (above) still guards the mode(0o600) calls.
@@ -399,7 +400,7 @@ def test_pi7_rust_unit_test_log_file_mode_0o600_passes() -> None:
                     f"stdout: {result.stdout.decode('utf-8', errors='replace')[:2000]}\n"
                     f"stderr: {stderr[:2000]}"
                 )
-            # The test compiled but failed — this is a real  regression.
+            # The test compiled but failed, this is a real  regression.
             pytest.fail(
                 "the Rust unit test "
                 "`test_rotating_file_writer_log_file_mode_is_0o600_on_posix` "
@@ -408,14 +409,14 @@ def test_pi7_rust_unit_test_log_file_mode_0o600_passes() -> None:
                 f"stderr: {stderr[:2000]}"
             )
 
-        # The test passed — log file mode is 0o600 on this POSIX host.
+        # The test passed, log file mode is 0o600 on this POSIX host.
         assert (
             b"test result: ok" in result.stdout
             or b"test_rotating_file_writer_log_file_mode_is_0o600_on_posix" in result.stdout
         ), (
             "cargo test returned 0 but the expected test name was "
             "not found in stdout. The test may have been renamed or "
-            "removed — update this Python test's test-name filter.\n"
+            "removed, update this Python test's test-name filter.\n"
             f"stdout: {result.stdout.decode('utf-8', errors='replace')[:500]}"
         )
     finally:

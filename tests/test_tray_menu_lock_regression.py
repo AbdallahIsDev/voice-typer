@@ -8,14 +8,14 @@ These tests guard the thread-safety fixes added for:
     lock.    ``invalidate_menu_cache`` is called from background threads
     (e.g. ``set_microphones`` from the device watcher). On Windows,
     ``pystray.Icon._update_menu()`` calls ``DestroyMenu`` /
-    ``CreatePopupMenu`` — not guaranteed thread-safe.
+    ``CreatePopupMenu``, not guaranteed thread-safe.
     Fix: ``tray._menu_lock`` (``threading.RLock``) serializes the
     check-then-build-then-cache sequence in ``build_menu_for_tray``
     AND the flag-clear + ``_update_menu()`` pair in
     ``invalidate_menu_cache``. RLock (not Lock) because
     ``invalidate_menu_cache`` holds the lock while calling
     ``_icon._update_menu()``, and pystray's ``_update_menu`` iterates
-    the ``pystray.Menu(tray._build_menu)`` callable — which re-enters
+    the ``pystray.Menu(tray._build_menu)`` callable, which re-enters
     ``build_menu_for_tray`` on the SAME thread (a plain Lock would
     self-deadlock, permanently wedging the IPC dispatch worker and
     producing the 15s ``command_timeout`` storm).
@@ -24,7 +24,7 @@ These tests guard the thread-safety fixes added for:
     lock around ``self._icon`` access. Between ``self._icon.stop()``
     returning and ``self._icon = None`` executing, a concurrent
     ``_apply_state`` could read ``self._icon`` as non-None, then call
-    ``self._icon.icon = ...`` on a torn-down Icon — the documented
+    ``self._icon.icon = ...`` on a torn-down Icon, the documented
     WinError 1402 trigger.
     Fix: ``tray._icon_lock`` (``threading.RLock``) serializes the
     ``if not self._icon: return`` + writes in ``_apply_state`` AND
@@ -191,7 +191,7 @@ class TestMenuLockDeclared:
         tray = _make_tray()
         assert tray._menu_lock is not tray._queue_lock, (
             "_menu_lock must be a separate Lock instance from _queue_lock "
-            "(FR-22) — sharing would serialize unrelated queue + menu paths."
+            "(FR-22), sharing would serialize unrelated queue + menu paths."
         )
 
 
@@ -200,7 +200,7 @@ class _CallableMenuIcon:
 
     Mirrors pystray's real behavior: the icon's menu was created as
     ``pystray.Menu(tray._build_menu)`` (a single callable), and
-    ``_update_menu`` iterates the menu — which INVOKES the callable
+    ``_update_menu`` iterates the menu, which INVOKES the callable
     (pystray's ``Menu.items`` property calls ``self._items[0]()`` when
     the menu holds a single callable), synchronously re-entering
     ``build_menu_for_tray`` on the same thread. This is the exact
@@ -231,7 +231,7 @@ class TestConcurrentBuildAndInvalidateNoException:
         calls ``invalidate_menu_cache``, which holds ``_menu_lock``
         while calling ``_icon._update_menu()``. pystray's
         ``_update_menu`` re-enters ``build_menu_for_tray`` (via the
-        callable menu) on the same thread — with a plain Lock that is a
+        callable menu) on the same thread, with a plain Lock that is a
         self-deadlock that permanently wedges the worker (the 15s
         ``command_timeout`` storm in production). With the RLock fix the
         re-entrant acquisition succeeds and the call returns.
@@ -248,7 +248,7 @@ class TestConcurrentBuildAndInvalidateNoException:
             try:
                 invalidate_menu_cache(tray)
                 done.append(True)
-            except Exception:  # noqa: BLE001 — test surface for the regression
+            except Exception:  # noqa: BLE001, test surface for the regression
                 done.append(False)
 
         t = threading.Thread(target=invalidate, daemon=True)
@@ -256,7 +256,7 @@ class TestConcurrentBuildAndInvalidateNoException:
         t.join(timeout=5.0)
         assert not t.is_alive(), (
             "invalidate_menu_cache with a live callable-menu icon self-deadlocked "
-            "on _menu_lock (>5s) — the 15s command_timeout storm root cause (regression)."
+            "on _menu_lock (>5s), the 15s command_timeout storm root cause (regression)."
         )
         assert done == [True], "invalidate_menu_cache raised or did not complete on a live icon."
 
@@ -290,7 +290,7 @@ class TestConcurrentBuildAndInvalidateNoException:
                 iterations = 0
                 while not stop.is_set() and iterations < 200:
                     # invalidate_menu_cache reads tray._icon (None here)
-                    # and calls maybe_publish_tray_menu — both safe headless.
+                    # and calls maybe_publish_tray_menu, both safe headless.
                     invalidate_menu_cache(tray)
                     iterations += 1
             except Exception as e:  # noqa: BLE001
@@ -308,12 +308,12 @@ class TestConcurrentBuildAndInvalidateNoException:
         for t in threads:
             t.join(timeout=3.0)
             assert not t.is_alive(), (
-                f"Thread {t.name!r} still alive after 3s join — likely deadlocked on _menu_lock (FR-22 regression)."
+                f"Thread {t.name!r} still alive after 3s join, likely deadlocked on _menu_lock (FR-22 regression)."
             )
         assert not errors, f"concurrent build_menu_for_tray + invalidate_menu_cache raised: {errors}"
 
     def test_concurrent_builds_produce_consistent_menu(self):
-        """Two concurrent builds must not corrupt _cached_menu — both
+        """Two concurrent builds must not corrupt _cached_menu, both
         must return a tuple of MenuItems (no half-written state)."""
         from voice_typer.server.tray_menu import build_menu_for_tray
 
@@ -341,7 +341,7 @@ class TestConcurrentBuildAndInvalidateNoException:
         assert not errors, f"concurrent builds raised: {errors}"
         # Every result must be a tuple (the cache write is `tuple(items)`).
         assert all(isinstance(r, tuple) for r in results), (
-            "build_menu_for_tray returned a non-tuple — cache was corrupted by a concurrent build (FR-22 regression)."
+            "build_menu_for_tray returned a non-tuple, cache was corrupted by a concurrent build (FR-22 regression)."
         )
         # After the storm, the cache must be valid + point at a tuple.
         assert tray._menu_cache_valid is True
@@ -394,7 +394,7 @@ class TestApplyStateStopRaceNoTornDownIconWrite:
                 iterations = 0
                 while not stop_event.is_set() and iterations < 500:
                     # _apply_state must either write to a LIVE icon or
-                    # no-op after stop() — it must NEVER write to a
+                    # no-op after stop(), it must NEVER write to a
                     # torn-down icon (which raises OSError in _FakeIcon).
                     tray._apply_state(AppState.RECORDING, "recording")
                     tray._apply_state(AppState.IDLE, "")
@@ -433,15 +433,15 @@ class TestApplyStateStopRaceNoTornDownIconWrite:
         for t in threads:
             t.join(timeout=5.0)
             assert not t.is_alive(), (
-                f"Thread {t.name!r} still alive after 5s join — likely deadlocked on _icon_lock (FR-23 regression)."
+                f"Thread {t.name!r} still alive after 5s join, likely deadlocked on _icon_lock (FR-23 regression)."
             )
         torn_down_errors = [e for e in errors if isinstance(e, OSError)]
         assert not torn_down_errors, (
-            f"_apply_state wrote to a torn-down Icon during stop() — "
+            f"_apply_state wrote to a torn-down Icon during stop(), "
             f"FR-23 race NOT fixed. OSError(s): {torn_down_errors}"
         )
         # Other exceptions (e.g. from re-arming _icon) are acceptable
-        # for this test's purpose — the key assertion is no OSError
+        # for this test's purpose, the key assertion is no OSError
         # from a torn-down Icon write.
 
     def test_stop_sets_icon_none_under_lock(self):
@@ -456,9 +456,9 @@ class TestApplyStateStopRaceNoTornDownIconWrite:
 
     def test_apply_state_noop_when_icon_none(self):
         """FR-23: _apply_state must return early (no exception) when
-        _icon is None — the re-check inside the lock is the guard."""
+        _icon is None, the re-check inside the lock is the guard."""
         tray = _make_tray()
-        # _icon is None before start() — _apply_state must no-op.
+        # _icon is None before start(), _apply_state must no-op.
         tray._apply_state(AppState.RECORDING, "recording")
         # No exception raised = pass.
 

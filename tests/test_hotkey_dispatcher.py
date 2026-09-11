@@ -7,7 +7,7 @@ and ``tests/test_app.py``. The most complex method, ``_on_esc_release()``
 repaste callbacks had ZERO direct unit tests. A regression in
 ``_on_esc_release`` (e.g. forgetting to publish ``hotkey_capture_cancel``)
 would silently leave the frontend stuck in capture mode after ESC
-release — and no test would have caught it.
+release, and no test would have caught it.
 
 This file adds focused unit tests for the three callback helpers,
 exercising every branch of ``_on_esc_release`` and the shutdown-guard
@@ -17,7 +17,7 @@ so the dispatcher's branching logic is exercised in isolation.
 
 Existing coverage in ``tests/app/test_hotkeys.py`` covers the
 ownership-guard paths of the callbacks (HOTKEY-FIX-001). The tests here
-are complementary — they focus on the paths that file does NOT cover:
+are complementary, they focus on the paths that file does NOT cover:
 
 * ``_on_esc_release`` no-op when the pending flag is not set
 * ``_on_esc_release`` publishes ``hotkey_capture_cancel`` + resets
@@ -26,7 +26,7 @@ are complementary — they focus on the paths that file does NOT cover:
   the next ESC press doesn't re-fire the release handler
 * ``_on_esc_release`` tolerates a missing backend (no AttributeError)
 * dictation callback is a no-op during app shutdown
-  (``_shutting_down=True``) — even when ownership is normal
+  (``_shutting_down=True``), even when ownership is normal
 * repaste callback is a no-op during app shutdown
 * ESC callback is a no-op during app shutdown
 """
@@ -99,7 +99,7 @@ def _reset_keyboard_ownership():
 class TestOnEscRelease:
     """Direct unit tests for ``HotkeyDispatcher._on_esc_release``.
 
-    The method is the most complex in the dispatcher — it's the
+    The method is the most complex in the dispatcher, it's the
     key-up handler installed by ``_esc_callback`` when ESC is pressed
     during hotkey capture. Its contract has four observable side
     effects that the frontend depends on:
@@ -174,7 +174,7 @@ class TestOnEscRelease:
 
     def test_tolerates_missing_backend(self, dispatcher: HotkeyDispatcher):
         """If ``_esc_backend`` is None (e.g. ESC backend stopped
-        between key-down and key-up), the method must NOT raise — it
+        between key-down and key-up), the method must NOT raise, it
         still resets ownership and publishes the cancel event so the
         frontend exits capture mode."""
         keyboard_ownership().set_owner("hotkey_capture", reason="test setup")
@@ -195,7 +195,7 @@ class TestOnEscRelease:
 
     def test_release_callback_uninstall_failure_is_swallowed(self, dispatcher: HotkeyDispatcher):
         """If ``backend.set_on_release(None)`` raises (e.g. the backend
-        was already torn down), the method must not propagate — the
+        was already torn down), the method must not propagate, the
         cancel event has already been published and ownership already
         reset, so the user-visible state is correct."""
         keyboard_ownership().set_owner("hotkey_capture", reason="test setup")
@@ -229,7 +229,7 @@ class TestShutdownGuards:
     def test_dictation_callback_noop_during_shutdown(self, dispatcher: HotkeyDispatcher):
         callback = dispatcher._make_dictation_callback()
         dispatcher._app._shutting_down = True
-        # Ownership is normal — without the shutdown guard this would
+        # Ownership is normal, without the shutdown guard this would
         # fire toggle_dictation. With the guard, it must be a no-op.
         keyboard_ownership().set_owner("normal", reason="test")
 
@@ -267,7 +267,7 @@ class TestShutdownGuards:
 
     def test_esc_callback_noop_during_shutdown(self, dispatcher: HotkeyDispatcher, monkeypatch):
         """The ESC key-down callback (built in ``register_esc``) must
-        also short-circuit during shutdown — even when ownership is
+        also short-circuit during shutdown, even when ownership is
         NOT hotkey_capture (the path that would otherwise call
         ``app._cancel_dictation``)."""
         # Mock the backend factory so register_esc doesn't touch the
@@ -300,7 +300,7 @@ class TestShutdownGuards:
 
 
 class TestStopAll:
-    """``stop_all`` is the shutdown entry point — must clear all three
+    """``stop_all`` is the shutdown entry point, must clear all three
     backends and swallow ``stop()`` failures so a poisoned backend
     doesn't abort the rest of shutdown."""
 
@@ -361,7 +361,7 @@ class TestRegistrationFailureSurfacesToTray:
     """FR-20: when ``register_esc`` / ``register_repaste`` fail (e.g.
     the OS already claimed the key via Win32 ``RegisterHotKey`` or an X11
     grab), the failure must be surfaced to the user via the tray's
-    safety channel (``tray.notify_safety``) — not just silently
+    safety channel (``tray.notify_safety``), not just silently
     ``log.warning``'d.
 
     Previously the except blocks in ``register_esc`` (line ~351) and
@@ -369,7 +369,7 @@ class TestRegistrationFailureSurfacesToTray:
     nulled the backend reference. The user had no signal that ESC cancel
     or repaste was unavailable until they pressed the key and nothing
     happened. ``register()`` (the main dictation hotkey) already called
-    ``app.tray.notify`` on failure — this contract is now extended to
+    ``app.tray.notify`` on failure, this contract is now extended to
     ESC and repaste via the stronger ``notify_safety`` channel (which
     bypasses the user's notification-toggle preference, since these are
     safety-critical: a missing ESC cancel means the user cannot abort a
@@ -442,7 +442,7 @@ class TestRegistrationFailureSurfacesToTray:
         """Repaste: ``create_hotkey_backend`` raises →
         ``tray.notify_safety`` must be called once with a message that
         mentions repaste."""
-        # ``<f8>`` is a single non-alphanumeric function key — passes
+        # ``<f8>`` is a single non-alphanumeric function key, passes
         # all 8 validation stages in ``_validate_hotkey``.
         dispatcher._app.config.repaste_hotkey = "<f8>"
 
@@ -513,7 +513,7 @@ class TestStopAllTimeoutBudget:
     budget shared across all three backends. A hung backend (e.g. a
     Win32 ``UnregisterHotKey`` that never returns, or a pynput listener
     thread join that blocks forever) cannot block the shutdown sequence
-    for more than 3s — previously the worst case was ~15s (3 backends ×
+    for more than 3s, previously the worst case was ~15s (3 backends ×
     5s sequential join each).
 
     These tests verify the budget ENFORCES the timeout (a slow backend
@@ -529,7 +529,7 @@ class TestStopAllTimeoutBudget:
         method returns promptly.
 
         Note: the test patches the 3.0 budget down to 0.2s and sleeps 2s
-        on the hung backend — the relative ordering is what we're
+        on the hung backend, the relative ordering is what we're
         verifying, not the absolute 3s. If the budget were NOT enforced,
         elapsed would be ~2s.
         """
@@ -546,7 +546,7 @@ class TestStopAllTimeoutBudget:
         monkeypatch.setattr(hd_mod.concurrent.futures, "wait", _fast_wait)
 
         main = MagicMock()
-        # Sleep 2s — far longer than the patched 0.2s budget.
+        # Sleep 2s, far longer than the patched 0.2s budget.
         main.stop.side_effect = lambda: time.sleep(2.0)
         esc = MagicMock()
         repaste = MagicMock()
@@ -560,7 +560,7 @@ class TestStopAllTimeoutBudget:
 
         # Budget is 0.2s; allow generous slack for CI scheduling jitter.
         # If the budget were NOT enforced, elapsed would be ~2s.
-        assert elapsed < 1.0, f"stop_all took {elapsed:.2f}s — 3s budget not enforced"
+        assert elapsed < 1.0, f"stop_all took {elapsed:.2f}s, 3s budget not enforced"
         # The two fast backends stopped normally.
         esc.stop.assert_called_once()
         repaste.stop.assert_called_once()

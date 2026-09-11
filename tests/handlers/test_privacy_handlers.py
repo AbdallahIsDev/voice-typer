@@ -3,14 +3,14 @@
 The historical review entry (XS-79) cited this module as a 217-LOC file
 with two untested IPC handler methods (``_handle_delete_all_personal_data``
 and ``_handle_export_gdpr_bundle``). Those handler methods were removed
-during the Tauri migration — the underlying GDPR service-layer methods
+during the Tauri migration, the underlying GDPR service-layer methods
 (``PrivacyMixin.delete_all_personal_data`` / ``export_gdpr_bundle``) are
 now invoked by dedicated Rust commands with their own allowlist entries,
 not via the generic Python dispatch path.
 
 The service-layer methods are exhaustively covered by
 ``tests/test_gdpr_delete.py``, ``tests/test_gdpr_export.py`` and
-``tests/test_privacy_helpers.py`` — those suites test the real
+``tests/test_privacy_helpers.py``, those suites test the real
 behavioral surface and continue to pass unchanged after the migration.
 
 This file adds DIRECT tests for the handler-module STUB so that:
@@ -27,7 +27,7 @@ This file adds DIRECT tests for the handler-module STUB so that:
 * the module exposes the documented ``__all__`` surface so downstream
   wildcard imports remain stable.
 
-These tests deliberately do NOT construct a live ``IPCServer`` — the
+These tests deliberately do NOT construct a live ``IPCServer``, the
 stub has no behavior to exercise through the dispatch path. They are
 structural / import-time contracts.
 """
@@ -51,7 +51,7 @@ def test_privacy_handlers_module_is_importable() -> None:
     The ``IPCServer`` MRO pulls in ``PrivacyHandlersMixin`` at class
     construction time; an import error here would break the entire
     IPC server bootstrap. A bare ``import`` already happened at the
-    top of this test file — this assertion exists so the test name
+    top of this test file, this assertion exists so the test name
     documents the contract explicitly.
     """
     assert PrivacyHandlersMixin is not None
@@ -83,7 +83,7 @@ def test_mixin_is_constructible_without_args() -> None:
     """The stub mixin must construct without ``app`` / ``service``.
 
     ``HandlerBase`` declares ``service`` / ``app`` / ``_send`` as
-    class-level ``Any`` annotations (no defaults) — construction
+    class-level ``Any`` annotations (no defaults), construction
     must still succeed because the annotations are not descriptors.
     If a future refactor turns them into ``__init__`` parameters,
     this test will fail loudly so the call sites can be updated.
@@ -100,7 +100,7 @@ def test_removed_handler_methods_are_absent() -> None:
     commands (with their own allowlist + consent prompts). The
     Python-side handler envelopes were deleted. Re-introducing them
     here would resurrect a parallel dispatch route that bypasses the
-    Rust allowlist — a security regression.
+    Rust allowlist, a security regression.
 
     The class body is intentionally empty; if a future commit adds
     either method back, this test will fail so the reviewer is
@@ -154,7 +154,7 @@ def test_module_remains_a_thin_stub() -> None:
         )
     )
     assert len(source.splitlines()) <= 120, (
-        "privacy_handlers.py has grown past 120 lines — verify the "
+        "privacy_handlers.py has grown past 120 lines, verify the "
         "module has not regressed into inline dispatch logic. If the "
         "growth is intentional (e.g. handler methods were re-added), "
         "bump this threshold deliberately and add focused tests for "
@@ -171,7 +171,7 @@ def test_inherited_annotations_are_present_on_class(attr_name: str) -> None:
     (``service`` / ``app`` / ``_send``) from :class:`HandlerMixinBase`.
 
     These are pure annotations (no default values), so ``hasattr``
-    returns ``False`` — the check goes through ``__annotations__``
+    returns ``False``, the check goes through ``__annotations__``
     via :func:`typing.get_type_hints` which walks the MRO and
     materializes inherited annotations. If a future refactor
     detaches the inheritance (e.g. by re-declaring
@@ -192,7 +192,7 @@ def test_respond_with_error_helper_is_inherited() -> None:
     """``_respond_with_error`` must be inherited from :class:`HandlerBase`.
 
     Unlike the bare ``Any`` annotations (which have no default
-    values), ``_respond_with_error`` is a real method — so
+    values), ``_respond_with_error`` is a real method, so
     ``hasattr`` is the correct check here. If the inheritance is
     broken, the method disappears.
     """

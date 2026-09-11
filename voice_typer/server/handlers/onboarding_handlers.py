@@ -6,7 +6,7 @@ access ``self.app`` / ``self.service`` as before.
 
 (2026-07-30): ``_handle_onboarding_get_step``,
 ``_handle_onboarding_get_model_catalog``, and
-``_handle_onboarding_request_keyboard_permission`` were REMOVED — the
+``_handle_onboarding_request_keyboard_permission`` were REMOVED, the
 renderer no longer invokes them (wizard state is held client-side;
 the renderer uses ``get_model_catalog`` for catalog data; and the
 permission flow now uses ``onboarding_check_permissions`` + a
@@ -32,7 +32,7 @@ def _redact_service_error(result: dict) -> dict:
         historically delegated the ack-vs-error decision to whether the
         service's return dict contained an ``"error"`` key, and passed the
         dict straight through to the renderer. ``service.py:1452-1453``
-        returns ``{"error": str(exc)}`` unredacted — so an exception
+        returns ``{"error": str(exc)}`` unredacted, so an exception
         message containing a secret (API key in a cloud-config validation
         error, a file path under the user's home dir, a CUDA error string
         with internal module names) would be exfiltrated to the renderer
@@ -101,7 +101,7 @@ class OnboardingHandlersMixin(HandlerBase):
         fix uses ``result.get("error") is not None`` so a ``None`` value
         is correctly treated as "no error". The full typed-exception
         migration (service methods raise ``OnboardingError`` instead of
-        returning ``{"error": ...}`` dicts) was deferred — it's cross-file
+        returning ``{"error": ...}`` dicts) was deferred, it's cross-file
         work that touches ``ServiceProtocol`` and every set_*/skip/apply
         caller, outside this finding's scope.
 
@@ -118,7 +118,7 @@ class OnboardingHandlersMixin(HandlerBase):
     when the service returns an ``{"error": ...}`` dict, the
         handler additionally logs a WARNING with the command name and the
         error string. Previously the failure surfaced only via the IPC
-        response envelope (``resp["type"] = "error"``) — server-side logs
+        response envelope (``resp["type"] = "error"``), server-side logs
         were silent, so an operator investigating a hung wizard had no
         breadcrumb tying the renderer's error toast back to the service
         call that produced it.
@@ -135,13 +135,13 @@ class OnboardingHandlersMixin(HandlerBase):
         is logged at WARNING with ``exc_info=True`` instead of being
         swallowed by ``except Exception: pass``. Rationale: a
         missing ``.onboarding_started`` marker lets ``startup_sequence``'s
-        auto-heal clobber an in-progress wizard on next restart — that's
+        auto-heal clobber an in-progress wizard on next restart, that's
         a real correctness risk, not "non-critical" as the prior comment
         claimed.
     """
 
     # The ``service`` / ``app`` / ``_send`` annotations are
-    # inherited from :class:`HandlerMixinBase` — no per-mixin
+    # inherited from :class:`HandlerMixinBase`: no per-mixin
     # re-declaration needed (the duplicate block removed here was one
     # of four that the  centralization refactor missed).
 
@@ -180,7 +180,7 @@ class OnboardingHandlersMixin(HandlerBase):
         """
         try:
             # re-run guard. ``data`` may be a non-dict (e.g. None
-            # from a renderer that sends no payload) — coerce safely
+            # from a renderer that sends no payload), coerce safely
             # before reading ``force``.
             data_dict = data if isinstance(data, dict) else {}
             force = bool(data_dict.get("force", False))
@@ -188,7 +188,7 @@ class OnboardingHandlersMixin(HandlerBase):
             is_first_run = bool(first_run_result.get("is_first_run", True))
             if not is_first_run and not force:
                 log.warning(
-                    "[IPC] onboarding_start: rejected — onboarding already complete; pass {force: true} to re-run"
+                    "[IPC] onboarding_start: rejected, onboarding already complete; pass {force: true} to re-run"
                 )
                 return _error_response(
                     resp,
@@ -205,10 +205,10 @@ class OnboardingHandlersMixin(HandlerBase):
             except Exception:
                 # was ``pass``. Promoted to WARNING + exc_info so
                 # operators see when the auto-heal gate is left
-                # unprotected — a missing marker is the precondition for
+                # unprotected, a missing marker is the precondition for
                 # the auto-heal-clobbers-in-progress-wizard bug.
                 log.warning(
-                    "[IPC] onboarding_start: mark_started failed — auto-heal may clobber in-progress onboarding",
+                    "[IPC] onboarding_start: mark_started failed, auto-heal may clobber in-progress onboarding",
                     exc_info=True,
                 )
             resp["type"] = "onboarding_step"
@@ -246,20 +246,20 @@ class OnboardingHandlersMixin(HandlerBase):
         Shared by the six onboarding handlers whose service methods signal
         failure by RETURNING ``{"error": "<message>"}`` instead of raising
         (``set_microphone`` / ``set_hotkey`` / ``set_model`` /
-        ``set_backend`` / ``skip`` / ``apply`` — see the class docstring
+        ``set_backend`` / ``skip`` / ``apply``: see the class docstring
         for the full contract):
 
         * ``result.get("error") is not None`` → the response ``type`` is
           ``"error"``; otherwise ``"ack"`` (a ``None``-valued ``error``
-          key is a SUCCESS — key presence alone must not flip the type).
+          key is a SUCCESS, key presence alone must not flip the type).
         * On the error path the RAW error string is logged at WARNING
-          with the command name (operator breadcrumb — the IPC envelope
+          with the command name (operator breadcrumb, the IPC envelope
           alone is invisible in ``voice-typer.log``), and the error
           string is redacted via :func:`_redact_service_error` BEFORE it
           is placed in the envelope so exception messages containing
           secrets (API keys, file paths) never reach the renderer.
         * The (possibly redacted) service result is passed through
-          verbatim as ``data`` — the renderer switches on ``type`` and
+          verbatim as ``data``: the renderer switches on ``type`` and
           reads ``data["error"]`` on failure.
 
         Returns the response envelope ``{"type": "ack" | "error",
@@ -269,7 +269,7 @@ class OnboardingHandlersMixin(HandlerBase):
         """
         if result.get("error") is not None:
             # log the service-returned error at WARNING (raw,
-            # unredacted — operator-only server-side log) so the
+            # unredacted, operator-only server-side log) so the
             # failure leaves a breadcrumb tying the renderer's error
             # toast back to the service call that produced it.
             log.warning(
@@ -296,7 +296,7 @@ class OnboardingHandlersMixin(HandlerBase):
                 skips writing to the config (preserving the default).
 
         Migrated to :meth:`HandlerBase._wrap` with ``pre_coerce=False``
-                — the helper validates via the *schema* and handles the
+               , the helper validates via the *schema* and handles the
                 surrounding ``try/except`` → ``_respond_with_error``
                 catch-all while passing non-dict ``data`` through
                 unchanged.
@@ -325,15 +325,15 @@ class OnboardingHandlersMixin(HandlerBase):
     def _handle_onboarding_set_hotkey(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``onboarding_set_hotkey`` IPC command.
 
-        The default hotkey is ``<caps_lock>`` (matching
-        :attr:`OnboardingController.selected_hotkey` and the first entry
-        of :attr:`OnboardingController.HOTKEY_PRESETS`). Previously the
-        default was ``<f2>``, which silently overrode the backend's
-        Caps Lock default when the renderer sent no explicit value.
+         The default hotkey is ``<caps_lock>`` (matching
+         :attr:`OnboardingController.selected_hotkey` and the first entry
+         of :attr:`OnboardingController.HOTKEY_PRESETS`). Previously the
+         default was ``<f2>``, which silently overrode the backend's
+         Caps Lock default when the renderer sent no explicit value.
 
-        Migrated to :meth:`HandlerBase._wrap` with ``pre_coerce=False``
-        — the helper validates via the *schema* and handles the
-        surrounding ``try/except`` → ``_respond_with_error`` catch-all.
+         Migrated to :meth:`HandlerBase._wrap` with ``pre_coerce=False``
+        , the helper validates via the *schema* and handles the
+         surrounding ``try/except`` → ``_respond_with_error`` catch-all.
         """
 
         def body(d: dict) -> dict:
@@ -359,9 +359,9 @@ class OnboardingHandlersMixin(HandlerBase):
     def _handle_onboarding_set_model(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``onboarding_set_model`` IPC command.
 
-        Migrated to :meth:`HandlerBase._wrap` with ``pre_coerce=False``
-        — the helper validates via the *schema* and handles the
-        surrounding ``try/except`` → ``_respond_with_error`` catch-all.
+         Migrated to :meth:`HandlerBase._wrap` with ``pre_coerce=False``
+        , the helper validates via the *schema* and handles the
+         surrounding ``try/except`` → ``_respond_with_error`` catch-all.
         """
 
         def body(d: dict) -> dict:
@@ -387,16 +387,16 @@ class OnboardingHandlersMixin(HandlerBase):
     def _handle_onboarding_set_backend(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``onboarding_set_backend`` IPC command.
 
-        Stores the local-vs-cloud choice from the wizard's Model step
-        (``"local"`` → download + run a local AI model, where the user
-        clicks Download explicitly — the app never auto-downloads;
-        ``"cloud"`` → connect a cloud transcription API, whose API key
-        + consent the wizard persists through the allowlisted
-        ``set_config`` fields, mirroring the Models page).
+         Stores the local-vs-cloud choice from the wizard's Model step
+         (``"local"`` → download + run a local AI model, where the user
+         clicks Download explicitly, the app never auto-downloads;
+         ``"cloud"`` → connect a cloud transcription API, whose API key
+         + consent the wizard persists through the allowlisted
+         ``set_config`` fields, mirroring the Models page).
 
-        Migrated to :meth:`HandlerBase._wrap` with ``pre_coerce=False``
-        — the helper validates via the *schema* and handles the
-        surrounding ``try/except`` → ``_respond_with_error`` catch-all.
+         Migrated to :meth:`HandlerBase._wrap` with ``pre_coerce=False``
+        , the helper validates via the *schema* and handles the
+         surrounding ``try/except`` → ``_respond_with_error`` catch-all.
         """
 
         def body(d: dict) -> dict:
@@ -447,8 +447,8 @@ class OnboardingHandlersMixin(HandlerBase):
             # failure here is the worst-case "wizard says done but nothing
             # actually saved" bug, so in addition to the shared
             # :meth:`_ack_or_error` WARNING breadcrumb the (already
-            # redacted) error is mirrored at ERROR — the level filter
-            # operators commonly tail — before it lands in the envelope.
+            # redacted) error is mirrored at ERROR, the level filter
+            # operators commonly tail, before it lands in the envelope.
             # Only the redacted form ever reaches ``resp["data"]``.
             envelope = self._ack_or_error("onboarding_apply", result)
             if envelope["data"].get("error") is not None:
@@ -515,7 +515,7 @@ class OnboardingHandlersMixin(HandlerBase):
         (``title_key`` / ``steps_keys``) instead of literal English
         strings. The renderer resolves them via ``t(key)``.
 
-        Does NOT delegate to ``self.service`` — the permission probe
+        Does NOT delegate to ``self.service``: the permission probe
         lives in :mod:`voice_typer.server.permissions` (via
         :meth:`OnboardingController.check_permissions`) and is shared
         with the hotkey-adapter runtime path.

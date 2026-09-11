@@ -2,14 +2,14 @@
 
 The FTS5 index tokenizes with ``unicode61``, which indexes a contiguous
 CJK run (Chinese/Japanese/Korean text has no whitespace word boundaries)
-as a SINGLE token — so a phrase-wrapped MATCH only finds rows where the
+as a SINGLE token, so a phrase-wrapped MATCH only finds rows where the
 entire run equals the query, and searching "你好" never matched
 "今天你好吗".
 
 The contract pinned here: any query containing a character from the
 CJK / fullwidth codepoint ranges is NOT served by the unicode61 index.
 Since schema V5, queries of length >= 3 take the trigram index
-(``transcriptions_fts_cjk``, indexed substring matching — see
+(``transcriptions_fts_cjk``, indexed substring matching: see
 ``tests/test_history_db_trigram_cjk.py``); shorter queries keep the
 bounded LIKE path, which gives true substring semantics for every
 length (1-char included) across Chinese, Japanese kana/kanji, Hangul,
@@ -141,7 +141,7 @@ class TestMixedScriptQuery:
         assert db.search("notes 你好") == []
 
     def test_cjk_query_with_percent_stays_literal(self, db):
-        """LIKE wildcards in the query stay escaped — "100%折" matches
+        """LIKE wildcards in the query stay escaped: "100%折" matches
         the literal percent row, not an unbounded wildcard pattern."""
         assert [r["text"] for r in db.search("100%折")] == ["价格是100%折扣"]
         assert db.search("你好%") == []

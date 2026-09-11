@@ -3,7 +3,7 @@ following and Windows-rename bugs.
 
 (High):
     Pre-fix, ``PersistedJSON.save`` used ``Path.read_bytes()`` and
-    ``Path.write_bytes()`` for the ``.bak`` comparison + write — both
+    ``Path.write_bytes()`` for the ``.bak`` comparison + write, both
     follow symlinks.  An attacker who planted symlinks at BOTH
     ``self._path`` and ``self._bak_path`` got a read-from-arbitrary-
     file + write-to-arbitrary-file primitive: the previous config
@@ -14,7 +14,7 @@ following and Windows-rename bugs.
     The fix:
       * Explicitly check ``is_symlink()`` on BOTH paths and SKIP the
         backup if either is a symlink (the main save via
-        ``_secure_atomic_write`` is unaffected — it uses
+        ``_secure_atomic_write`` is unaffected, it uses
         ``os.replace`` which does NOT follow the destination symlink,
         it replaces it).
       * Use ``_secure_read_text`` (POSIX ``O_NOFOLLOW`` + inode
@@ -29,7 +29,7 @@ following and Windows-rename bugs.
     Even though the ``while corrupt_path.exists()`` loop tries to
     find a non-existing destination, there's a TOCTOU race window
     where another process (or thread) can create the destination
-    file in between the ``exists()`` check and the rename — causing
+    file in between the ``exists()`` check and the rename, causing
     the rename to fail on Windows and the corrupt file to be left
     in place (silent corruption-recovery failure).
 
@@ -51,7 +51,7 @@ Test approach (FR-7):
        backup is skipped because ``self._path`` is a symlink).
     3. Verify the main save still succeeds (the symlink at
        ``self._path`` is REPLACED by ``os.replace`` with a fresh
-       regular file — the attacker's symlink is destroyed).
+       regular file, the attacker's symlink is destroyed).
 
 Test approach (FR-51):
     1. Monkeypatch ``os.rename`` to raise ``OSError`` (simulating
@@ -90,7 +90,7 @@ class TestPersistedJSONSaveSymlinkDefense:
     """``PersistedJSON.save`` must refuse to follow symlinks on
     EITHER ``self._path`` (read side) or ``self._bak_path`` (write
     side).  Pre-fix, both used ``Path.read_bytes`` / ``write_bytes``
-    which follow symlinks — a read-from-arbitrary-file + write-to-
+    which follow symlinks, a read-from-arbitrary-file + write-to-
     arbitrary-file primitive."""
 
     def test_bak_path_symlink_not_followed_on_write(self, tmp_path):
@@ -106,7 +106,7 @@ class TestPersistedJSONSaveSymlinkDefense:
 
         Pre-fix: ``self._bak_path.write_bytes(existing_bytes)`` would
         follow the symlink and write the previous-config bytes to
-        ``attacker_target.json`` — exfiltrating the API key.
+        ``attacker_target.json``, exfiltrating the API key.
 
         Post-fix: the ``is_symlink()`` check on ``self._bak_path``
         skips the backup; ``attacker_target.json`` is untouched.
@@ -138,7 +138,7 @@ class TestPersistedJSONSaveSymlinkDefense:
             "attacker-chosen location."
         )
         # The .bak symlink itself must still exist (we didn't touch
-        # it — the backup was skipped).
+        # it, the backup was skipped).
         assert bak_path.is_symlink()
 
     def test_path_symlink_not_followed_on_read(self, tmp_path):
@@ -153,7 +153,7 @@ class TestPersistedJSONSaveSymlinkDefense:
           * ``save()`` is called.
 
         Pre-fix: ``self._path.read_bytes()`` would follow the symlink
-        and read ``sensitive.json``'s bytes — exfiltrating them into
+        and read ``sensitive.json``'s bytes, exfiltrating them into
         the ``.bak``.
 
         Post-fix: the ``is_symlink()`` check on ``self._path`` skips
@@ -161,7 +161,7 @@ class TestPersistedJSONSaveSymlinkDefense:
         """
         from voice_typer.server.secure_file_io import PersistedJSON
 
-        # Sensitive file outside the "config" — not intended to be
+        # Sensitive file outside the "config", not intended to be
         # read by PersistedJSON.
         sensitive = tmp_path / "sensitive.json"
         sensitive.write_text(json.dumps({"secret": "do-not-exfiltrate"}), encoding="utf-8")
@@ -190,7 +190,7 @@ class TestPersistedJSONSaveSymlinkDefense:
     def test_save_still_proceeds_when_path_is_symlink(self, tmp_path):
         """Even when ``self._path`` is a symlink, the main save (via
         ``_secure_atomic_write`` → ``os.replace``) must still proceed.
-        ``os.replace`` does NOT follow the destination symlink — it
+        ``os.replace`` does NOT follow the destination symlink, it
         REPLACES the symlink itself with a fresh regular file.  So
         the attacker's symlink is destroyed and a real config file
         is written."""
@@ -207,7 +207,7 @@ class TestPersistedJSONSaveSymlinkDefense:
 
         # The symlink at config_path must have been REPLACED by a
         # regular file (os.replace does not follow the destination
-        # symlink — it replaces the symlink itself).
+        # symlink, it replaces the symlink itself).
         assert not config_path.is_symlink(), (
             "the symlink at self._path should have been replaced "
             "by a regular file via os.replace (which does NOT follow "
@@ -252,7 +252,7 @@ class TestPersistedJSONSaveSymlinkDefense:
         backup slot).
 
         Note: the comparison is BYTE-for-byte.  ``save()`` writes
-        ``json.dumps(data, indent=2, ensure_ascii=False)`` — so the
+        ``json.dumps(data, indent=2, ensure_ascii=False)``, so the
         pre-existing file must be in the SAME format for the bytes
         to match."""
         from voice_typer.server.secure_file_io import PersistedJSON
@@ -305,11 +305,11 @@ class TestPersistedJSONSaveUsesSecureHelpers:
         Uses ``ast.walk`` on the parsed function body to collect
         every ``ast.Call`` whose ``func`` is either:
 
-        * an ``ast.Attribute`` — i.e. anything of the form
+        * an ``ast.Attribute``, i.e. anything of the form
           ``obj.method(...)`` (e.g. ``self._path.exists()``,
           ``json.dumps(...)``, ``log.debug(...)``).  The returned
           name is the attribute name (``exists``, ``dumps``, ``debug``).
-        * an ``ast.Name`` — i.e. a bare function call
+        * an ``ast.Name``, i.e. a bare function call
           ``func(...)`` (e.g. ``_secure_read_text(...)``,
           ``_secure_atomic_write(...)``).  The returned name is the
           ``id`` (``_secure_read_text``, ``_secure_atomic_write``).
@@ -388,7 +388,7 @@ class TestQuarantineCorruptUsesOsReplace:
     existing destination, but there's a TOCTOU race window where
     another process can create the destination file in between the
     ``exists()`` check and the rename.  On Windows, ``os.rename``
-    fails with ``OSError`` (winerror 183) in that case — leaving the
+    fails with ``OSError`` (winerror 183) in that case, leaving the
     corrupt file in place and silently breaking the corruption-
     recovery path.  ``os.replace`` is atomic AND overwrites an
     existing destination on both POSIX and Windows, closing the race.
@@ -397,7 +397,7 @@ class TestQuarantineCorruptUsesOsReplace:
     def test_quarantine_survives_os_rename_failure(self, tmp_path, monkeypatch):
         """If ``os.rename`` raises ``OSError`` (simulating Windows
         behaviour where dst exists), ``_quarantine_corrupt`` must
-        still succeed — because the fix uses ``os.replace``, not
+        still succeed, because the fix uses ``os.replace``, not
         ``os.rename``.
 
         We monkeypatch ``os.rename`` to ALWAYS raise.  Path.rename
@@ -417,7 +417,7 @@ class TestQuarantineCorruptUsesOsReplace:
         monkeypatch.setattr(os, "rename", fail_rename)
 
         pj = PersistedJSON(config_path, default=None)
-        # Must NOT raise — the fix uses os.replace, not os.rename.
+        # Must NOT raise, the fix uses os.replace, not os.rename.
         pj._quarantine_corrupt()
 
         # The corrupt file must have been moved aside.
@@ -478,7 +478,7 @@ class TestQuarantineCorruptUsesOsReplace:
         overwritten by ``os.replace`` (which is still the safety net for
         the essentially-impossible case where two calls pick the same
         PID+ns).  This test pins that ``os.replace`` safety-net
-        behaviour — but note that the realistic common case is now
+        behaviour, but note that the realistic common case is now
         distinct filenames (covered by
         ``test_quarantine_disambiguates_same_ts_dst_exists``).
         """
@@ -509,13 +509,13 @@ class TestQuarantineCorruptUsesOsReplace:
         # Pre-create the dst file at the EXACT filename the new
         # implementation will produce (ts-pid-ns pattern).  This
         # simulates the essentially-impossible case where two calls
-        # pick the same PID+ns — the os.replace safety-net must
+        # pick the same PID+ns, the os.replace safety-net must
         # overwrite it.
         dst = tmp_path / f"config.json.corrupt-{fixed_ts}-{fixed_pid}-{fixed_ns}"
         dst.write_text("previous quarantine content", encoding="utf-8")
 
         pj = PersistedJSON(config_path, default=None)
-        # Must NOT raise — os.replace overwrites the dst file.
+        # Must NOT raise, os.replace overwrites the dst file.
         pj._quarantine_corrupt()
 
         # The dst file must have been OVERWRITTEN with the new
@@ -536,7 +536,7 @@ class TestQuarantineCorruptUsesOsReplace:
         filename, so even when ``time.time`` returns a fixed timestamp,
         two back-to-back quarantine calls produce DISTINCT filenames
         (the previous counter-loop ``.corrupt-<ts>.<N>`` pattern is
-        gone — the PID+ns suffix makes collision essentially impossible
+        gone, the PID+ns suffix makes collision essentially impossible
         without an ``exists()`` probe loop, closing the TOCTOU race).
 
         We mock ``time.time`` to a fixed timestamp, mock ``os.getpid``
@@ -544,7 +544,7 @@ class TestQuarantineCorruptUsesOsReplace:
         simulate two back-to-back quarantine calls (the second call's
         ``time.time_ns()`` reading will naturally differ from the
         first's).  Both calls produce distinct ``.corrupt-<ts>-<pid>-<ns>``
-        filenames — neither is clobbered.
+        filenames, neither is clobbered.
         """
         from voice_typer.server.secure_file_io import PersistedJSON
 
@@ -594,7 +594,7 @@ class TestQuarantineCorruptUsesOsReplace:
         # Second quarantine with a DIFFERENT corrupt file at the same
         # path (e.g. the user kept using the app and it corrupted
         # again).  With the new PID+ns suffix, this produces a DISTINCT
-        # filename — no clobber, no overwrite.
+        # filename, no clobber, no overwrite.
         config_path.write_text("second corrupt content", encoding="utf-8")
         pj._quarantine_corrupt()
         # Second call consumes seq=1, so the suffix is ns+1 (222223),
@@ -618,12 +618,12 @@ class TestQuarantineCorruptUsesOsReplace:
     def test_quarantine_handles_missing_file_gracefully(self, tmp_path):
         """Sanity check: if the file disappeared between the
         ``exists()`` check and the rename, ``_quarantine_corrupt``
-        must NOT raise (best-effort — the file is gone, nothing to
+        must NOT raise (best-effort, the file is gone, nothing to
         quarantine)."""
         from voice_typer.server.secure_file_io import PersistedJSON
 
         config_path = tmp_path / "config.json"
-        # Don't create the file — _quarantine_corrupt should no-op.
+        # Don't create the file, _quarantine_corrupt should no-op.
         pj = PersistedJSON(config_path, default=None)
         pj._quarantine_corrupt()  # must NOT raise
         assert not config_path.exists()
@@ -678,7 +678,7 @@ class TestSaveChmodSingleSource:
     runs unconditionally after ``os.replace``; on failure it raises, so
     the caller never reaches a trailing chmod on that path).
     ``PersistedJSON.save`` must NOT re-chmod the same paths a second
-    time — a redundant chmod is dead code that suggests the write path
+    time, a redundant chmod is dead code that suggests the write path
     is insecure when it is not (documented-layer confusion), and it is
     an extra syscall per save on hot paths (vocabulary/templates).
 
@@ -690,7 +690,7 @@ class TestSaveChmodSingleSource:
     def test_chmod_owner_only_invoked_exactly_once_per_write(self, tmp_path, monkeypatch):
         """A save that churns BOTH the ``.bak`` and the main file must
         trigger exactly ONE ``_chmod_owner_only`` call per
-        ``_secure_atomic_write`` call (2 total) — not one inside the
+        ``_secure_atomic_write`` call (2 total), not one inside the
         helper plus a redundant second one from ``save`` itself."""
         import voice_typer.server.security.file_io as _fio
         from voice_typer.server.secure_file_io import PersistedJSON
@@ -716,7 +716,7 @@ class TestSaveChmodSingleSource:
         assert len(calls) == 2, (
             f"expected exactly 2 chmod-to-0o600 calls (one per "
             f"_secure_atomic_write: .bak + main file), got {len(calls)} for "
-            f"{calls} — save() is re-chmoding a path that "
+            f"{calls}, save() is re-chmoding a path that "
             f"_secure_atomic_write already chmod'd (redundant layer)"
         )
         from pathlib import Path as _Path
@@ -729,7 +729,7 @@ class TestSaveChmodSingleSource:
         """End-to-end permission guarantee (state-based): after a save
         that writes both the main file and the ``.bak``, BOTH files are
         0o600 owner-only. The chmod is performed inside
-        ``_secure_atomic_write`` — this test pins the guarantee, not
+        ``_secure_atomic_write``, this test pins the guarantee, not
         the call count."""
         import stat as _stat
 

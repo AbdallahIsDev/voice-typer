@@ -6,7 +6,7 @@ The polling-strategy functions are module-level functions that take
 (Python's descriptor protocol passes the instance as ``self``). This
 test module exercises them IN ISOLATION by binding them to a small
 ``_MockBackend`` and driving the polling loop through synthetic
-key-state cycles — without depending on a Windows host or the heavy
+key-state cycles, without depending on a Windows host or the heavy
 ``WindowsNativeHotkey.start()`` wiring.
 
 The mock pattern mirrors ``tests/test_hotkeys_win32.py`` (mocking
@@ -40,7 +40,7 @@ from voice_typer.server.hotkeys.windows import polling_strategy
 from tests.fixtures.wait_for import wait_for
 
 # ---------------------------------------------------------------------------
-# Mock backend — binds the polling_strategy functions as methods,
+# Mock backend, binds the polling_strategy functions as methods,
 # mimicking how ``WindowsNativeHotkey`` binds them at class body.
 # ---------------------------------------------------------------------------
 
@@ -88,7 +88,7 @@ class _MockBackend:
         self._toggle_on_keyup = False
         # Default: IME is never composing; tests override.
         self._is_ime_composing_throttled = lambda: False
-        # Caps-lock suppression stubs — defaulted to no-ops; tests
+        # Caps-lock suppression stubs, defaulted to no-ops; tests
         # override to assert they were called.
         self._suppress_caps_lock_toggle = MagicMock()
         self._ensure_caps_lock_off = MagicMock()
@@ -130,7 +130,7 @@ def _run_in_thread_and_join(target, args=(), timeout=2.0):
     """Run ``target`` in a daemon thread and join with a timeout.
 
     Used to run the polling loop (which spins until ``_stop_event`` is
-    set) without blocking the test thread — the test thread flips state
+    set) without blocking the test thread, the test thread flips state
     and the stop flag from outside.
     """
     thread = threading.Thread(target=target, args=args, daemon=True)
@@ -234,7 +234,7 @@ class TestSinglePressSingleCallback:
         try:
             # Phase 1: nothing pressed. Wait 30ms and verify the
             # callback does NOT fire (wait_for returns True if the
-            # predicate became truthy — we expect False here).
+            # predicate became truthy, we expect False here).
             assert not wait_for(lambda: callback.call_count > 0, timeout=0.03), "Callback fired before key was pressed"
             state["value"] = 1  # phase 2: press
             # Wait for the callback to fire on the not-held → held
@@ -248,7 +248,7 @@ class TestSinglePressSingleCallback:
             state["value"] = 2  # phase 3: release
             # Toggle mode must NOT fire on release. Wait 40ms and
             # verify the callback count stays at 1 (wait_for returns
-            # True if the predicate became truthy — we expect False).
+            # True if the predicate became truthy, we expect False).
             _count_after_press = callback.call_count
             assert not wait_for(
                 lambda: callback.call_count > _count_after_press,
@@ -297,15 +297,15 @@ class TestPressHoldReleaseNoRepeat:
                 timeout=2.0,
                 msg="Callback did not fire on press",
             )
-            # Hold for 150ms — must NOT re-fire. Wait 150ms and verify
+            # Hold for 150ms, must NOT re-fire. Wait 150ms and verify
             # the callback count stays at 1 (wait_for returns True if
-            # the predicate became truthy — we expect False here).
+            # the predicate became truthy, we expect False here).
             _count_after_press = callback.call_count
             assert not wait_for(
                 lambda: callback.call_count > _count_after_press,
                 timeout=0.15,
             ), (
-                f"Callback fired {callback.call_count} times during hold — "
+                f"Callback fired {callback.call_count} times during hold, "
                 f"must fire exactly once on press, never while held"
             )
             state["value"] = 2  # release
@@ -397,7 +397,7 @@ class TestImeCompositionSuppression:
         try:
             # IME is composing the entire time. Wait 100ms and verify
             # the callback does NOT fire (wait_for returns True if the
-            # predicate became truthy — we expect False here).
+            # predicate became truthy, we expect False here).
             assert not wait_for(lambda: callback.call_count > 0, timeout=0.1), (
                 f"Callback fired during IME composition: {callback.call_count}"
             )
@@ -461,7 +461,7 @@ class TestCapsLockSuppression:
             _caps_lock_suppressing=True,
         )
         mock_user32 = mock_windll.user32
-        # Pretend the key is "pressed" — but suppression should skip
+        # Pretend the key is "pressed", but suppression should skip
         # the press-processing branch entirely.
         mock_user32.GetAsyncKeyState.return_value = 0x8000
 
@@ -471,7 +471,7 @@ class TestCapsLockSuppression:
             # While _caps_lock_suppressing is True, the polling loop
             # skips processing. Wait 80ms and verify the callback does
             # NOT fire (wait_for returns True if the predicate became
-            # truthy — we expect False here).
+            # truthy, we expect False here).
             assert not wait_for(lambda: callback.call_count > 0, timeout=0.08), (
                 f"Callback fired during caps-lock suppression: {callback.call_count}"
             )
@@ -489,10 +489,10 @@ class TestPollIntervalBackoff:
     """The polling loop uses different ``Sleep`` durations depending on
     the loop state:
 
-    - Normal polling: ``Sleep(8)`` (~125 Hz) — the default cadence.
-    - IME composition: ``Sleep(50)`` — back off while the user is
+    - Normal polling: ``Sleep(8)`` (~125 Hz), the default cadence.
+    - IME composition: ``Sleep(50)``, back off while the user is
       typing a composed character.
-    - Caps-lock suppression: ``Sleep(1)`` — brief transient that needs
+    - Caps-lock suppression: ``Sleep(1)``, brief transient that needs
       sub-8ms latency so the suppression flag is observed quickly.
 
     These assertions pin the battery-drain / CPU-backoff fix so a
@@ -524,11 +524,9 @@ class TestPollIntervalBackoff:
         sleep_calls = [c.args[0] for c in mock_kernel32.Sleep.call_args_list]
         assert 8 in sleep_calls, f"Expected Sleep(8) in normal polling, got {sleep_calls}"
         assert 1 not in sleep_calls, (
-            f"Sleep(1) regression — should only be used during caps-lock suppression: {sleep_calls}"
+            f"Sleep(1) regression, should only be used during caps-lock suppression: {sleep_calls}"
         )
-        assert 50 not in sleep_calls, (
-            f"Sleep(50) regression — should only be used during IME composition: {sleep_calls}"
-        )
+        assert 50 not in sleep_calls, f"Sleep(50) regression, should only be used during IME composition: {sleep_calls}"
 
     def test_ime_composition_uses_sleep_50(self, mock_windll):
         backend = _make_backend(mock_windll, _vk=0x71, _modifiers=0)
@@ -585,7 +583,7 @@ class TestPollIntervalBackoff:
 
 
 # ---------------------------------------------------------------------------
-# Modifier-only polling loop — PTT press-and-hold doesn't repeat
+# Modifier-only polling loop, PTT press-and-hold doesn't repeat
 # ---------------------------------------------------------------------------
 
 
@@ -628,14 +626,14 @@ class TestModifierOnlyPollingLoop:
             assert press_callback.call_count == 1, (
                 f"PTT press should fire once on press, got {press_callback.call_count}"
             )
-            # Hold for 150ms — must NOT re-fire. Wait 150ms and verify
+            # Hold for 150ms, must NOT re-fire. Wait 150ms and verify
             # the press callback count stays at 1 (wait_for returns
-            # True if the predicate became truthy — we expect False).
+            # True if the predicate became truthy, we expect False).
             _press_count_after_hold_start = press_callback.call_count
             assert not wait_for(
                 lambda: press_callback.call_count > _press_count_after_hold_start,
                 timeout=0.15,
-            ), f"PTT press fired {press_callback.call_count} times during hold — must fire exactly once"
+            ), f"PTT press fired {press_callback.call_count} times during hold, must fire exactly once"
             assert release_callback.call_count == 0
             state["value"] = 0  # release
             # Wait for the release callback to fire.
@@ -654,7 +652,7 @@ class TestModifierOnlyPollingLoop:
 
 
 # ---------------------------------------------------------------------------
-# Stateful helpers — throttled non-modifier key scan caching
+# Stateful helpers, throttled non-modifier key scan caching
 # ---------------------------------------------------------------------------
 
 
@@ -667,7 +665,7 @@ class TestAnyNonModifierKeyPressedThrottled:
     def test_false_result_cached_within_50ms(self, mock_windll):
         backend = _make_backend(mock_windll, _modifiers=0)
         mock_user32 = mock_windll.user32
-        # No non-modifier key pressed — every VK returns 0.
+        # No non-modifier key pressed, every VK returns 0.
         mock_user32.GetAsyncKeyState.return_value = 0
         backend._last_nonmod_pressed = False
         backend._last_nonmod_check_time = time.monotonic()  # fresh timestamp
@@ -677,7 +675,7 @@ class TestAnyNonModifierKeyPressedThrottled:
         result1 = backend._any_non_modifier_key_pressed_throttled(modifier_vks)
         assert result1 is False
         scan_count_after_first = mock_user32.GetAsyncKeyState.call_count
-        # Second call within 50ms — should NOT re-scan (cache hit).
+        # Second call within 50ms, should NOT re-scan (cache hit).
         result2 = backend._any_non_modifier_key_pressed_throttled(modifier_vks)
         assert result2 is False
         scan_count_after_second = mock_user32.GetAsyncKeyState.call_count
@@ -687,7 +685,7 @@ class TestAnyNonModifierKeyPressedThrottled:
 
     def test_true_result_not_cached(self, mock_windll):
         """When the underlying scan returns True, the wrapper must NOT
-        cache it — the next call within 50ms must re-scan fresh. This
+        cache it, the next call within 50ms must re-scan fresh. This
         prevents a cached True from leaking into the next press cycle
         (which would wrongly suppress the fire)."""
         backend = _make_backend(mock_windll, _modifiers=0)
@@ -708,7 +706,7 @@ class TestAnyNonModifierKeyPressedThrottled:
         result1 = backend._any_non_modifier_key_pressed_throttled(modifier_vks)
         assert result1 is True
         scan_count_after_first = mock_user32.GetAsyncKeyState.call_count
-        # Second call within 50ms — must re-scan (True is NOT cached).
+        # Second call within 50ms, must re-scan (True is NOT cached).
         result2 = backend._any_non_modifier_key_pressed_throttled(modifier_vks)
         assert result2 is True
         assert mock_user32.GetAsyncKeyState.call_count > scan_count_after_first, (

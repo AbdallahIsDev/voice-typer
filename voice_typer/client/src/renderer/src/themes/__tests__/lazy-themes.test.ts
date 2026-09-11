@@ -15,7 +15,7 @@
  * ``import()`` loaders. Vite emits each preset as a SEPARATE async
  * chunk; ``loadThemePreset(id)`` populates the ``THEMES`` entry in
  * place. ``default`` and ``custom`` remain statically imported (they're
- * the fallback pair — both are no-ops with empty light/dark maps).
+ * the fallback pair, both are no-ops with empty light/dark maps).
  *
  * This test does a STATIC source analysis (reads the file as text and
  * regex-matches) to verify the import structure. It also does a
@@ -78,7 +78,7 @@ describe("themes/index.ts lazy-load registry", () => {
 				// match this regex.
 				//
 				// We assert each lazy preset is NOT statically imported
-				// — it should only appear as a dynamic `import("./<id>")`
+				//, it should only appear as a dynamic `import("./<id>")`
 				// inside the loader registry.
 				const staticImportRe = new RegExp(
 					`^\\s*import\\s+.*from\\s+["']\\./${preset.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}["']`,
@@ -140,7 +140,7 @@ describe("themes/index.ts lazy-load registry", () => {
 			const firstLight = { ...nord?.light };
 			const firstDark = { ...nord?.dark };
 
-			// Second call — should NOT re-import or mutate (the
+			// Second call, should NOT re-import or mutate (the
 			// `loadedLazyPresets` set short-circuits).
 			await loadThemePreset("nord");
 			expect(nord?.light).toEqual(firstLight);
@@ -158,7 +158,7 @@ describe("themes/index.ts lazy-load registry", () => {
 
 		it("loadThemePreset(unknownId) is a no-op (logs warning, does not throw)", async () => {
 			const { loadThemePreset } = await import("@/themes/index");
-			// Unknown id — should resolve without throwing (defensive).
+			// Unknown id, should resolve without throwing (defensive).
 			await expect(
 				loadThemePreset("nonexistent-preset"),
 			).resolves.toBeUndefined();

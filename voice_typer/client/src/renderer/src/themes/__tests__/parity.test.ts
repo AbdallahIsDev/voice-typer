@@ -5,7 +5,7 @@
  * light and dark colour schemes.  If the light map and dark map don't
  * cover the SAME set of variable names, components that read a var
  * present in only one map silently fall through to the stylesheet
- * default in the other scheme — producing an inconsistent accent
+ * default in the other scheme, producing an inconsistent accent
  * colour, border, or sidebar tint when the user toggles between
  * light and dark mode.
  *
@@ -32,14 +32,14 @@ import { loadThemePreset } from "@/themes/index";
 // derive fixtures from the canonical THEMES array so every
 // non-default, non-custom preset is covered. The `default` preset is a
 // no-op (no overrides) and `custom` is computed at runtime from
-// user-supplied colours — neither carries a static light/dark map to
+// user-supplied colours, neither carries a static light/dark map to
 // parity-test.
 const PRESETS_UNDER_TEST = THEMES.filter(
 	(t) => t.id !== "default" && t.id !== "custom",
 ).map((preset) => ({ name: preset.id, preset }));
 
 // lazy themes: the 10 non-default/non-custom presets are now
-// loaded ON DEMAND via loadThemePreset — their light / dark
+// loaded ON DEMAND via loadThemePreset, their light / dark
 // maps start EMPTY and are populated in place by the dynamic
 // import(). The beforeAll below loads every lazy preset BEFORE
 // any assertion reads preset.light / preset.dark, so the
@@ -51,7 +51,7 @@ beforeAll(async () => {
 });
 
 describe("theme preset light/dark var coverage parity", () => {
-	// sanity guard — if a future preset is added to THEMES but
+	// sanity guard, if a future preset is added to THEMES but
 	// excluded above by accident, this assertion fires. Update the
 	// filter explicitly when adding a no-op or runtime-computed preset.
 	it("exercises every non-default/non-custom preset (regression guard)", () => {
@@ -179,7 +179,7 @@ describe("theme preset i18n nameKey", () => {
 });
 
 describe("theme preset WCAG contrast invariants", () => {
-	// WCAG 1.4.11 minimum for focus indicators (3:1) — but at /30 alpha
+	// WCAG 1.4.11 minimum for focus indicators (3:1), but at /30 alpha
 	// the effective contrast is lower, so the threshold we assert here
 	// is a conservative proxy: the ring colour's luminance must differ
 	// from the background's luminance enough that even at /30 alpha it
@@ -190,8 +190,8 @@ describe("theme preset WCAG contrast invariants", () => {
 	const TEXT_AA_THRESHOLD = 4.5;
 
 	for (const preset of THEMES) {
-		// Skip 'default' (empty maps — relies on index.css) and 'custom'
-		// (runtime-computed — deriveCustomVars has its own contrast logic).
+		// Skip 'default' (empty maps, relies on index.css) and 'custom'
+		// (runtime-computed, deriveCustomVars has its own contrast logic).
 		if (preset.id === "default" || preset.id === "custom") continue;
 
 		describe(`${preset.id} preset`, () => {
@@ -267,7 +267,7 @@ describe("theme preset WCAG contrast invariants", () => {
 // --ring (light mode), --border, --accent-foreground, and
 // --destructive-foreground. These are SKIPPED because the underlying
 // theme files (themes/{...}.ts) are NOT in this agent's owned-file
-// list — another agent needs to apply the proposed color-value fixes
+// list, another agent needs to apply the proposed color-value fixes
 // (raise --border to oklch(0.78) light / oklch(0.34) dark; darken
 // --destructive in monokai/amoled-light; compute --accent-foreground
 // via pickBestForeground). Once applied, the tests can be un-skipped
@@ -302,7 +302,7 @@ describe("pickBestForeground picks the highest-contrast candidate", () => {
 	it("returns the first candidate when candidates tie", () => {
 		// For a mid-gray (#808080), black actually has higher
 		// contrast than white (the WCAG formula is asymmetric
-		// — gray is closer to white in linear-light luminance).
+		//, gray is closer to white in linear-light luminance).
 		// To test the "first candidate wins on tie" behaviour,
 		// we use two identical candidates.
 		const result = pickBestForeground("#808080", ["#000000", "#000000"]);

@@ -1,5 +1,5 @@
 /**
- * MicrophoneListItem unit tests — the "System Default" badge token.
+ * MicrophoneListItem unit tests, the "System Default" badge token.
  *
  * The badge sits on `bg-accent`, and `--accent` maps to `var(--primary)`
  * in every theme block (light, dark, custom presets). Its foreground

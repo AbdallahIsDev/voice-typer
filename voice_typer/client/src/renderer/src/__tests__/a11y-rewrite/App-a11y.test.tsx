@@ -1,5 +1,5 @@
 /**
- *  vitest rewrite — behavioral tests for `App.tsx` accessibility.
+ *  vitest rewrite, behavioral tests for `App.tsx` accessibility.
  *
  * Replaces the following string-pattern Python tests from
  * `tests/test_ux_components.py`:
@@ -165,7 +165,7 @@ const completedConfig: Partial<VoiceTyperConfig> = {
 	onboarding_completed: true,
 };
 
-describe("App skip-to-main-content link — RW-0 rewrite of test_app_has_skip_link", () => {
+describe("App skip-to-main-content link, RW-0 rewrite of test_app_has_skip_link", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		mockCall.mockReset();
@@ -218,7 +218,7 @@ describe("App skip-to-main-content link — RW-0 rewrite of test_app_has_skip_li
 	});
 });
 
-describe("App aria-live region — RW-0 rewrite of test_app_has_aria_live", () => {
+describe("App aria-live region, RW-0 rewrite of test_app_has_aria_live", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		mockCall.mockReset();
@@ -229,7 +229,7 @@ describe("App aria-live region — RW-0 rewrite of test_app_has_aria_live", () =
 		mockRecordingState.current = "idle";
 		localStorage.clear();
 		// Re-read the (now empty) nav storage so a previous test's
-		// seeded page can't leak into this one — tests that need a
+		// seeded page can't leak into this one, tests that need a
 		// non-Home page seed `vt_nav_state` BEFORE this call.
 		_resetNavigationForTest();
 		useAppStore.setState({
@@ -263,7 +263,7 @@ describe("App aria-live region — RW-0 rewrite of test_app_has_aria_live", () =
 	});
 
 	//The test above only asserts
-	// the live region EXISTS — it never checks that the announced
+	// the live region EXISTS, it never checks that the announced
 	// text actually changes when `recordingState` changes.  The
 	// App.tsx live region (see App.tsx:608-636) renders one of six
 	// i18n strings depending on the current `recordingState`:
@@ -276,7 +276,7 @@ describe("App aria-live region — RW-0 rewrite of test_app_has_aria_live", () =
 	//   cancelling    → t("a11y.cancelling")        = "Cancelling…"
 	//
 	// Double-announce trim: on the HOME page the coarse
-	// transcribing/loading strings are SUPPRESSED — Home's dynamic
+	// transcribing/loading strings are SUPPRESSED, Home's dynamic
 	// status line (its single specific live region) already
 	// announces "Transcribing… please wait" / "Downloading model…".
 	// The suppression is gated on `currentPage === "home"`, so the
@@ -289,7 +289,7 @@ describe("App aria-live region — RW-0 rewrite of test_app_has_aria_live", () =
 	// App, and asserts the FIRST polite live region's textContent
 	// includes the expected translated string.  This catches
 	// regressions where the live region exists but renders the
-	// wrong string (or no string at all) for a given state — the
+	// wrong string (or no string at all) for a given state, the
 	// most common silent failure mode for aria-live regions.
 	//
 	// The App.tsx live region is the FIRST `[aria-live="polite"]`

@@ -33,6 +33,6 @@ _PARAKEET_REASON_MESSAGES: dict[str, str] = {
     ),
     "integrity_check_failed": (
         "Downloaded model failed integrity verification. The cached "
-        "files may be corrupt — the cache was cleared; please retry."
+        "files may be corrupt, the cache was cleared; please retry."
     ),
 }

@@ -1,5 +1,5 @@
 /**
- * CloudModelsPanel — cloud ASR providers tab content for the Models page.
+ * CloudModelsPanel, cloud ASR providers tab content for the Models page.
  *
  * (UI/UX overhaul 2026-08-20): rebuilt to follow the SAME
  * structural pattern as the Local Models tab:
@@ -18,16 +18,16 @@
  *
  * The visual language (borders, spacing, backgrounds, icons,
  * typography) is fully unified with Local Models because BOTH tabs
- * compose the same `ModelGroupList` components — future style updates
+ * compose the same `ModelGroupList` components, future style updates
  * happen in one place.
  *
- * Pure presentational — receives all state + handlers as props from
+ * Pure presentational, receives all state + handlers as props from
  * `useModelLifecycle`.
  */
 
 import {
 	Loading03Icon,
-	Settings03Icon,
+	Settings01Icon,
 	Shield01Icon,
 	SparklesIcon,
 	ViewIcon,
@@ -97,7 +97,7 @@ export const CloudProvidersPanel = memo(function CloudProvidersPanel({
 }: CloudProvidersPanelProps) {
 	// Which providers' API-key forms are currently revealed (via their
 	// "Configure" action). A SET so multiple provider forms can be open
-	// at once — matching the accordion's `type="multiple"` behavior.
+	// at once, matching the accordion's `type="multiple"` behavior.
 	// Purely local UI state.
 	const [configuredProviders, setConfiguredProviders] = useState<string[]>([]);
 
@@ -159,7 +159,7 @@ export const CloudProvidersPanel = memo(function CloudProvidersPanel({
 											}
 										>
 											<HugeiconsIcon
-												icon={Settings03Icon}
+												icon={Settings01Icon}
 												strokeWidth={2}
 												className="h-4 w-4"
 											/>
@@ -179,7 +179,7 @@ export const CloudProvidersPanel = memo(function CloudProvidersPanel({
 											onApiKeyChange={(v) => {
 												onApiKeyChange(provider.key, v);
 												//clear the stale test result whenever the
-												// user edits the key — otherwise the previous
+												// user edits the key, otherwise the previous
 												// "Success" badge stays visible during a re-test.
 												onClearTestResult?.(provider.key);
 											}}
@@ -235,11 +235,11 @@ function ProviderConfigForm({
 	// Show/hide toggle for the API key input. Default is
 	// hidden (type="password"); clicking the eye-icon button reveals
 	// the plain-text value for verification. The reveal state is purely
-	// local — every ProviderConfigForm instance owns its own toggle so
+	// local, every ProviderConfigForm instance owns its own toggle so
 	// opening one provider's key does NOT reveal another's.
 	const [revealKey, setRevealKey] = useState(false);
 
-	//pending state — disable the Test button + show a spinner.
+	//pending state, disable the Test button + show a spinner.
 	const isPending = testResult?.status === "pending";
 	//disable Save Key when the input is empty (prevents
 	// silently clobbering a stored secret with the empty string that
@@ -352,7 +352,7 @@ function ProviderConfigForm({
 						//aria-live=polite so SR
 						// users hear the test-connection outcome as it arrives
 						// (no manual focus required). <output> is the semantic
-						// element for role=status — it's a proper live region
+						// element for role=status, it's a proper live region
 						// with the correct SR semantics.
 						aria-live="polite"
 						className={cn(
@@ -363,7 +363,7 @@ function ProviderConfigForm({
 									? "text-destructive"
 									: //`text-[(--text-muted)]` is invalid Tailwind
 										// v4 syntax. The canonical form is
-										// `text-(--text-muted)` — matches every other call
+										// `text-(--text-muted)`, matches every other call
 										// site in the codebase.
 										"text-(--text-muted)",
 						)}

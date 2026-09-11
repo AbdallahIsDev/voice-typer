@@ -210,7 +210,7 @@ fn test_keyword_edge_y_bottom_clamped_to_workarea_top_on_overflow() {
 #[test]
 fn test_keyword_edge_y_unknown_keyword_error_contract_preserved() {
     // The error message shape is UNCHANGED from the deleted
-    // parse_keyword_position — the renderer surfaces it verbatim.
+    // parse_keyword_position: the renderer surfaces it verbatim.
     let result = keyword_edge_y_in_work_area("middle", &wa_primary(), 80, 48);
     assert!(result.is_err());
     let err = result.unwrap_err();
@@ -232,7 +232,7 @@ fn test_bubble_position_in_work_area_electron_parity_pin() {
     // Exact numbers Electron's centerOnActiveDisplay produces for the
     // reference scenario (1920×1080 display, 40px taskbar, 320×80
     // pill, 48-DIP margin): centered-x 800, top 48, bottom 912.
-    // Cross-host divergence here is a UX regression — pin both edges.
+    // Cross-host divergence here is a UX regression, pin both edges.
     assert_eq!(
         bubble_position_in_work_area("top", &wa_primary(), 320, 80, 48).unwrap(),
         (800, 48)
@@ -246,7 +246,7 @@ fn test_bubble_position_in_work_area_electron_parity_pin() {
 #[test]
 fn test_bubble_position_in_work_area_secondary_monitor_end_to_end() {
     // Cursor on the left-of-primary secondary display: the whole
-    // placement lands in NEGATIVE desktop territory — the exact case
+    // placement lands in NEGATIVE desktop territory, the exact case
     // the old primary-monitor-only code got wrong.
     let (x, y) = bubble_position_in_work_area("bottom", &wa_secondary_left(), 320, 80, 48).unwrap();
     assert_eq!(x, -1120);
@@ -258,7 +258,7 @@ fn test_bubble_position_in_work_area_secondary_monitor_end_to_end() {
 }
 
 //legacy: parse_position (kept test-only for the ───────
-// numeric / NaN / inf edge-case contracts — see the `#[cfg(test)]`
+// numeric / NaN / inf edge-case contracts, see the `#[cfg(test)]`
 // annotation on `parse_position` for the rationale).
 
 #[test]
@@ -308,7 +308,7 @@ fn test_parse_position_bottom_clamped_when_bubble_taller_than_screen() {
     // The centered-x is clamped to >=0 in this legacy test-only helper
     // (see the `((screen_w - bubble_w) / 2).max(0)` arm in
     // `parse_position`; production now clamps to the WORK AREA's left
-    // edge via `centered_x_in_work_area` instead of absolute 0) — a
+    // edge via `centered_x_in_work_area` instead of absolute 0), a
     // bubble wider than the screen
     // must not end up off-screen left. `((320 - 400) / 2).max(0)`
     // evaluates to 0, not -40.
@@ -391,7 +391,7 @@ fn test_parse_position_int_y_overflow_returns_err() {
 fn test_parse_position_int_x_at_i32_boundaries_accepted() {
     //the exact `i32::MAX` / `i32::MIN` values must
     // still be accepted (they're at the edge of the representable
-    // range — `i32::try_from` accepts them).
+    // range: `i32::try_from` accepts them).
     let (x, _) = parse_position(json!(i32::MAX as i64), json!(0), 1920, 1080, 320, 80).unwrap();
     assert_eq!(x, i32::MAX);
     let (x, _) = parse_position(json!(i32::MIN as i64), json!(0), 1920, 1080, 320, 80).unwrap();
@@ -411,7 +411,7 @@ fn test_parse_position_float_nan_x_maps_to_zero() {
     // behavior, but now explicit and documented).
     // serde_json represents NaN as `null` by default, but a custom
     // deserializer or a `f64::NAN`-producing serializer can still
-    // emit it — pin the behavior anyway via the helper directly.
+    // emit it: pin the behavior anyway via the helper directly.
     assert_eq!(clamp_f64_to_i32(f64::NAN), 0);
 }
 
@@ -446,7 +446,7 @@ fn test_parse_position_float_huge_negative_maps_to_i32_min() {
 #[test]
 fn test_parse_position_float_in_range_truncates_toward_zero() {
     //in-range finite f64 truncates toward zero
-    // (standard `as i32` behavior — preserved).
+    // (standard `as i32` behavior: preserved).
     assert_eq!(clamp_f64_to_i32(100.7), 100);
     assert_eq!(clamp_f64_to_i32(-100.7), -100);
     assert_eq!(clamp_f64_to_i32(0.0), 0);
@@ -582,7 +582,7 @@ fn test_compute_move_by_new_pos_x_at_i32_max_with_zero_delta_accepted() {
 fn test_compute_move_by_new_pos_both_axes_overflow_reports_x_first() {
     //when both axes overflow, the x-axis error is reported
     // first (the helper checks x before y). Pin this so error
-    // messages stay deterministic — a future refactor that swaps
+    // messages stay deterministic: a future refactor that swaps
     // the order would break renderer-side error parsing.
     let result = compute_move_by_new_pos(i32::MAX, 1, i32::MIN, -1);
     assert!(result.is_err());
@@ -598,7 +598,7 @@ fn test_compute_move_by_new_pos_both_axes_overflow_reports_x_first() {
 // ───────────────────────────────────────────────────────────────────
 //
 // The pre-fix code passed width/height (u32) straight to set_size
-// with only an 8K (7680) upper cap — no MIN bound, and inconsistent
+// with only an 8K (7680) upper cap, no MIN bound, and inconsistent
 // with Electron's 40-400 × 24-200 pill bounds. The post-fix code
 // (a) accepts `f64` at the FFI boundary (the TS bridge forwards
 // `number`), (b) rounds to `u32` with a saturating cast via
@@ -799,7 +799,7 @@ fn test_round_f64_to_i32_saturating_just_outside_i32_range() {
 // ───────────────────────────────────────────────────────────────────
 //
 //the canonical `main_window_label_check` (now in
-// `commands/mod.rs`) returns `bool` — the testable surface for the
+// `commands/mod.rs`) returns `bool`: the testable surface for the
 // window-label predicate. The full `require_main_window` wrapper
 // (which produces the JSON error envelope + logs the rejection) is
 // exercised end-to-end by the mig19 integration tests in
@@ -819,7 +819,7 @@ fn test_main_window_label_check_accepts_main() {
 #[test]
 fn test_main_window_label_check_rejects_bubble_label() {
     //a call originating from the "bubble" window (the
-    // sandboxed pill renderer) MUST be rejected — this is the
+    // sandboxed pill renderer) MUST be rejected, this is the
     // core security boundary the gate enforces.
     assert!(
         !main_window_label_check("bubble"),
@@ -830,7 +830,7 @@ fn test_main_window_label_check_rejects_bubble_label() {
 #[test]
 fn test_main_window_label_check_rejects_unknown_label() {
     // A future window label (e.g. a settings window) should also be
-    // rejected — the gate is "main only", not "main + a few others".
+    // rejected: the gate is "main only", not "main + a few others".
     assert!(
         !main_window_label_check("settings"),
         "unknown window labels must be rejected by the gate"
@@ -839,7 +839,7 @@ fn test_main_window_label_check_rejects_unknown_label() {
 
 #[test]
 fn test_main_window_label_check_rejects_empty_label() {
-    // An empty window label (defensive — shouldn't happen in
+    // An empty window label (defensive, shouldn't happen in
     // practice, but Tauri doesn't enforce non-empty labels) must
     // be rejected, not silently accepted.
     assert!(
@@ -854,13 +854,13 @@ fn test_main_window_label_check_error_envelope_is_valid_json() {
     // must be valid JSON so the renderer's
     // `JSON.parse(rejection_message)` path (in tauri-bridge's
     // rejection handler) doesn't throw a parse error on top of the
-    // rejection. Pin this contract — a future refactor that
+    // rejection. Pin this contract: a future refactor that
     // switches to a plain-string error would break the renderer.
     //
     //`require_main_window` lives in `commands/mod.rs` and
     // takes a `&tauri::Window` (which the in-process test harness
     // can't construct). We pin the literal envelope shape via the
-    // `json!` macro used inside the function — if anyone changes
+    // `json!` macro used inside the function, if anyone changes
     // the shape in `commands::mod::require_main_window`, this test
     // breaks and forces them to update the renderer's reject
     // handler too. Mirrors the equivalent test in `export.rs`.

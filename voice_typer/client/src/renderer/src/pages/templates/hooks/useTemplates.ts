@@ -3,13 +3,13 @@
 // Owns:
 //   - ``templates`` / ``loading`` / ``loadError`` React state
 //   - ``templatesRef`` (ref mirror so delete-undo callbacks can read the
-//latest list at undo time — see  / D2-FIX comments)
+//latest list at undo time, see  / D2-FIX comments)
 //   - ``loadRows`` (backend → React state, with localStorage migration)
 //   - mount-time effect that calls ``loadRows`` once
 //   - ``searchQuery`` / ``sortOrder`` state + ``filteredSortedTemplates``
-//     memo (client-side search+sort — mirrors the History/Vocabulary pattern)
+//     memo (client-side search+sort, mirrors the History/Vocabulary pattern)
 //``instantDeleteTemplate`` ( / R7-F10 instant delete +
-//6-second Undo toast — see  comment for the ref-based pattern)
+//6-second Undo toast, see  comment for the ref-based pattern)
 //
 // Extracted from the former monolithic ``pages/Templates.tsx`` render
 // function. The dialog + import/export state has been split into
@@ -55,11 +55,11 @@ interface UseTemplatesResult {
 	templatesRef: React.RefObject<TemplateRow[]>;
 	loadRows: () => Promise<void>;
 	instantDeleteTemplate: (tmpl: TemplateRow) => Promise<void>;
-	/** Optimistic list setter — exposed for bulk operations. */
+	/** Optimistic list setter, exposed for bulk operations. */
 	setTemplates: (templates: TemplateRow[]) => void;
 	// Search + sort (client-side, applied via useMemo).
 	searchQuery: string;
-	// setSearchQuery intentionally removed — the global search store
+	// setSearchQuery intentionally removed, the global search store
 	// owns the query now; the title-bar SearchField writes to it.
 	sortOrder: TemplateSortOrder;
 	setSortOrder: (o: TemplateSortOrder) => void;
@@ -73,7 +73,7 @@ export function useTemplates({
 }: UseTemplatesArgs): UseTemplatesResult {
 	// Ref mirror of `call` so `loadRows` keeps a STABLE identity ([]
 	// deps). `call` is useCallback-stable in production, but test mocks
-	// return a FRESH call per render — an identity churn would re-fire
+	// return a FRESH call per render, an identity churn would re-fire
 	// the mount-load effect (loadRows → setTemplates → re-render → new
 	// call → loop → worker OOM). Same pattern as useVocabulary.ts.
 	const callRef = useLatestRef(call);
@@ -87,7 +87,7 @@ export function useTemplates({
 	}, [markUpdated]);
 
 	// SWR seed: revisit renders the last visit's rows instantly from the
-	// module cache (survives page unmount) — `loadRows` below still
+	// module cache (survives page unmount), `loadRows` below still
 	// revalidates fresh data in the background.
 	const cachedTemplates = peekIpcCache<TemplateRow[]>(TEMPLATES_CACHE_KEY);
 	const [templates, setTemplates] = useState<TemplateRow[]>(
@@ -101,7 +101,7 @@ export function useTemplates({
 	// returned garbage).
 	const [loadError, setLoadError] = useState<string | null>(null);
 	// Persist search + sort across page navigation via
-	// sessionStorage — same pattern as Vocabulary. Wraps
+	// sessionStorage, same pattern as Vocabulary. Wraps
 	// useSessionStorage under the hood with a per-page namespaced key.
 	// NOTE: only SORT persists here; the search query now lives in the
 	// shared global-search store (useGlobalSearch) so the title-bar
@@ -123,7 +123,7 @@ export function useTemplates({
 	//      was still in flight (the old `saveTemplates` was fire-and-
 	//      forget on the IPC leg).
 	//   2. Used the `tmpl.index` captured at delete time against the
-	//      fresh localStorage list — if other operations had shifted
+	//      fresh localStorage list, if other operations had shifted
 	//      indices in the interim, the splice landed at the WRONG
 	//      position (data loss / silent reordering).
 	// The ref is kept in sync by the effect below; reads inside
@@ -145,7 +145,7 @@ export function useTemplates({
 	// localStorage fallback is also empty, surface a load error so the
 	// user can retry instead of being presented with the
 	// "create your first template" empty state.
-	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract — .current must NOT become a dep
+	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract, .current must NOT become a dep
 	const loadRows = useCallback(async () => {
 		setLoading(true);
 		// Clear any prior load error before retrying so the EmptyState
@@ -189,11 +189,11 @@ export function useTemplates({
 					}
 				}
 				// Mark migration as complete regardless of whether there was
-				// anything to migrate — we don't want to retry on every load.
+				// anything to migrate, we don't want to retry on every load.
 				try {
 					localStorage.setItem(MIGRATION_FLAG_KEY, "1");
 				} catch (e) {
-					// localStorage unavailable — non-fatal; we'll retry next session.
+					// localStorage unavailable, non-fatal; we'll retry next session.
 					console.warn(
 						"[renderer:useTemplates] migration flag setItem failed:",
 						e,
@@ -203,7 +203,7 @@ export function useTemplates({
 
 			const templateRows = toRows(backendTemplates);
 			setTemplates(templateRows);
-			// SWR write-through — the next visit seeds from this snapshot.
+			// SWR write-through, the next visit seeds from this snapshot.
 			writeIpcCache(TEMPLATES_CACHE_KEY, templateRows);
 			//if the backend failed AND we couldn't recover
 			// from localStorage (or migration), surface a load error
@@ -257,7 +257,7 @@ export function useTemplates({
 	// removed one (in case it was re-added in the interim), and
 	// splice it back at the captured index CLAMPED to the current
 	// length.  This guarantees exactly ONE copy is restored,
-	// regardless of concurrent edits — mirroring Vocabulary.tsx's
+	// regardless of concurrent edits, mirroring Vocabulary.tsx's
 	// D2-FIX pattern.  Previously the undo re-read from localStorage
 	// (which could disagree with React state if a save was in
 	// flight) and used the un-clamped `tmpl.index`, so concurrent
@@ -355,7 +355,7 @@ export function useTemplates({
 	// ── Search + Sort (client-side) ─────────────────────────────────
 	//
 	// Applied via useMemo so the sort/filter only re-runs when the
-	// underlying list, search query, or sort order changes — not on
+	// underlying list, search query, or sort order changes, not on
 	// every keystroke that re-renders the page.
 	const filteredSortedTemplates = useMemo(() => {
 		const q = searchQuery.trim().toLowerCase();

@@ -88,7 +88,7 @@ def _patch_count_disconnect_handler_spawns(monkeypatch):
     The count is incremented synchronously in ``__init__`` (before
     ``.start()``), so there is no race between the spawn and the count
     check. Other threads (audio-worker, event-worker, scipy-preloader)
-    start normally — only ``device-disconnect-handler`` threads are
+    start normally, only ``device-disconnect-handler`` threads are
     suppressed (so the real handler doesn't restart the stream and
     clear ``_device_disconnected`` mid-test).
     """
@@ -103,7 +103,7 @@ def _patch_count_disconnect_handler_spawns(monkeypatch):
 
     def counting_start(self):
         if self.name == "device-disconnect-handler":
-            # Suppress the real disconnect handler — it would try to
+            # Suppress the real disconnect handler, it would try to
             # restart the stream and clear _device_disconnected,
             # defeating the test.
             return
@@ -293,7 +293,7 @@ class TestEventWorkerLifecycle:
 
         config = MagicMock(sample_rate=16000, microphone=None)
         # Thread-ownership baseline (S5 fix): snapshot BEFORE this test spawns
-        # any worker so the wait only requires the DELTA to drain — threads
+        # any worker so the wait only requires the DELTA to drain, threads
         # leaked by earlier files in the same xdist worker no longer flake this
         # wait; threads spawned HERE stay fully waited on (leak detection
         # unchanged).
@@ -306,7 +306,7 @@ class TestEventWorkerLifecycle:
 
         # GT-23-style load guard: a worker that outlived a timed-out join
         # leaves a stale ref (stop() fast-paths when idle and cannot reap
-        # it) — poll the shared guard before asserting the ref cleared.
+        # it), poll the shared guard before asserting the ref cleared.
         assert wait_for_workers_stopped(r, stop=r.stop, baseline=baseline), (
             "stop() must set _event_worker_thread to None after joining"
         )
@@ -318,7 +318,7 @@ class TestEventWorkerLifecycle:
         _patch_ok_stream(monkeypatch, recording_mod)
 
         config = MagicMock(sample_rate=16000, microphone=None)
-        # Thread-ownership baseline (S5 fix) — see the stop() variant above.
+        # Thread-ownership baseline (S5 fix): see the stop() variant above.
         baseline = snapshot_worker_threads()
         r = Recorder(config)
         r.start()
@@ -326,7 +326,7 @@ class TestEventWorkerLifecycle:
 
         r.discard()
 
-        # GT-23-style load guard — see the stop() variant above.
+        # GT-23-style load guard: see the stop() variant above.
         assert wait_for_workers_stopped(r, stop=r.stop, baseline=baseline), (
             "discard() must set _event_worker_thread to None after joining"
         )
@@ -340,7 +340,7 @@ class TestEventWorkerLifecycle:
         _patch_ok_stream(monkeypatch, recording_mod)
 
         config = MagicMock(sample_rate=16000, microphone=None)
-        # Thread-ownership baseline (S5 fix) — see the stop() variant above.
+        # Thread-ownership baseline (S5 fix): see the stop() variant above.
         # ONE snapshot at entry covers BOTH sessions: each session's workers
         # spawn after it, so both stay fully waited on.
         baseline = snapshot_worker_threads()
@@ -354,7 +354,7 @@ class TestEventWorkerLifecycle:
         r.stop()
         assert wait_for_workers_stopped(r, stop=r.stop, baseline=baseline), "event worker must stop after stop()"
 
-        # Second session — must start a NEW thread
+        # Second session, must start a NEW thread
         r.start()
         second = r._event_worker_thread
         assert second is not None
@@ -430,7 +430,7 @@ class TestNonBlockingCallback:
                 f"of offloading to the event queue."
             )
         finally:
-            # stop() drains the event queue — with the 1s-slow publish,
+            # stop() drains the event queue, with the 1s-slow publish,
             # this takes ~1s. The default _EVENT_WORKER_JOIN_TIMEOUT_S
             # (2.0s) covers it.
             r.stop()
@@ -478,7 +478,7 @@ class TestAllEventsPublished:
             clipping = np.ones((512, 1), dtype=np.float32)
             for _ in range(5):
                 # STATE-OWNERSHIP: the clip-throttle timestamp is
-                # owned by ``AudioPipeline`` — reset it on the owner path
+                # owned by ``AudioPipeline``, reset it on the owner path
                 # so each clipping chunk publishes its event.
                 r._audio_pipeline._last_clip_log_time = 0.0  # reset 1 Hz throttle
                 r._current_callback(clipping, 512, None, 0)
@@ -518,7 +518,7 @@ class TestAllEventsPublished:
         r.start()
         try:
             # Enqueue 10 events directly via the queue (bypasses the
-            # audio worker entirely — tests the event worker drain
+            # audio worker entirely, tests the event worker drain
             # in isolation).
             for i in range(10):
                 r._event_queue.put({"type": "test_event", "data": {"i": i}})
@@ -581,12 +581,12 @@ class TestHoistedImports:
         """Behavioral: pushing an audio chunk through the worker must NOT
         trigger a fresh ``__import__`` of ``voice_typer.server.event_bus``.
         If the import were inline in ``_process_audio_chunk`` (the audio
-        hot path), every chunk would re-enter the import system — defeating
+        hot path), every chunk would re-enter the import system, defeating
         the hot-path optimization. We spy on ``builtins.__import__``
         during one chunk's processing and assert no event_bus import fires.
 
         The init-time imports (``VadProcessor.__init__``, etc.) happen
-        during ``Recorder()`` / ``start()`` — we clear the spy log AFTER
+        during ``Recorder()`` / ``start()``, we clear the spy log AFTER
         init and BEFORE pushing the chunk so only hot-path imports are
         counted.
         """
@@ -631,16 +631,16 @@ class TestHoistedImports:
 
     def test_no_inline_vad_import_in_process_audio_chunk(self, monkeypatch):
         """Behavioral: pushing an audio chunk through the worker must NOT
-        trigger a fresh ``__import__`` of ``voice_typer.server.vad`` (or
-        any submodule of it). If ``compute_vad_prob`` were imported inline
-        in ``_process_audio_chunk``, every chunk would re-enter the import
-        system. We spy on ``builtins.__import__`` during one chunk's
-        processing and assert no vad import fires.
+          trigger a fresh ``__import__`` of ``voice_typer.server.vad`` (or
+          any submodule of it). If ``compute_vad_prob`` were imported inline
+          in ``_process_audio_chunk``, every chunk would re-enter the import
+          system. We spy on ``builtins.__import__`` during one chunk's
+          processing and assert no vad import fires.
 
-        The init-time vad imports (``VadProcessor.__init__`` /
-        ``VadProcessor.reset``) happen during ``Recorder()`` / ``start()``
-        — we clear the spy log AFTER init and BEFORE pushing the chunk so
-        only hot-path imports are counted.
+          The init-time vad imports (``VadProcessor.__init__`` /
+          ``VadProcessor.reset``) happen during ``Recorder()`` / ``start()``
+        , we clear the spy log AFTER init and BEFORE pushing the chunk so
+          only hot-path imports are counted.
         """
         import builtins
 
@@ -666,7 +666,7 @@ class TestHoistedImports:
             # Clear after init so only hot-path imports are counted.
             vad_imports.clear()
 
-            # Push a clipping chunk — exercises the full pipeline
+            # Push a clipping chunk, exercises the full pipeline
             # (filter chain, RMS/peak, clipping detection, VAD state
             # machine) which would trigger a vad import if it were inline.
             clipping = np.ones((512, 1), dtype=np.float32)
@@ -688,12 +688,12 @@ class TestHoistedImports:
         ``event_bus.publish`` directly. Instead, it routes events through
         ``self._event_queue.put_nowait`` (drained by the event worker
         thread). Verified by spying on ``event_bus.publish`` and recording
-        the calling thread — no publish call may come from the
+        the calling thread, no publish call may come from the
         ``audio-worker`` thread. Publishes from the ``event-worker``
         thread are expected (that's where the publish was moved to).
 
         The original source-string test also checked the clipping helper
-        ``_detect_and_emit_clipping`` — the behavioral test exercises
+        ``_detect_and_emit_clipping``, the behavioral test exercises
         that helper implicitly (a clipping chunk triggers it).
         """
         import voice_typer.server.recording as recording_mod
@@ -704,7 +704,7 @@ class TestHoistedImports:
 
         # Spy on event_bus.publish, recording the calling thread name.
         # The audio worker thread ("audio-worker") must NEVER call publish
-        # — it routes via _event_queue.put_nowait. The event worker thread
+        # , it routes via _event_queue.put_nowait. The event worker thread
         # ("event-worker") is the legitimate caller.
         publish_calls: list = []
         publish_lock = threading.Lock()
@@ -751,7 +751,7 @@ class TestHoistedImports:
         ``_event_queue`` and calls ``event_bus.publish`` for each queued
         event. Verified by enqueuing an event directly, setting the stop
         event (so the loop drains and returns), and running one iteration
-        of the loop — the event must be published."""
+        of the loop, the event must be published."""
         from voice_typer.server import event_bus
         from voice_typer.server.recording import Recorder
 
@@ -767,13 +767,13 @@ class TestHoistedImports:
             r = Recorder(config)
 
             # Enqueue a test event directly on the queue (bypasses the
-            # audio worker entirely — tests the event worker publish
+            # audio worker entirely, tests the event worker publish
             # path in isolation).
             test_event = {"type": "test_event", "data": {"i": 1}}
             r._event_queue.put(test_event)
 
             # Setting _event_stop_event makes the event worker loop
-            # drain the queue via get_nowait and return on Empty — so
+            # drain the queue via get_nowait and return on Empty, so
             # the loop runs to completion (publishes our event, then
             # exits).
             r._event_stop_event.set()

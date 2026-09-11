@@ -58,14 +58,14 @@ function buildSeed(n: number): VocabularyData {
 	return { misspellings };
 }
 
-describe("Vocabulary page — display cap + Show more", () => {
+describe("Vocabulary page, display cap + Show more", () => {
 	beforeEach(() => {
 		mockCall.mockReset();
 		showSnack.mockReset();
 		toastSuccess.mockClear();
 		toastError.mockClear();
 		// The page persists search/sort filters in sessionStorage via
-		// useFilterState — clear it before every test so a query typed
+		// useFilterState, clear it before every test so a query typed
 		// by an earlier test never filters out the seeded rows a later
 		// test expects.
 		sessionStorage.clear();
@@ -108,7 +108,7 @@ describe("Vocabulary page — display cap + Show more", () => {
 		const showMoreButton = screen.getByText("Show more");
 		expect(showMoreButton).toBeTruthy();
 
-		// Click Show more — the next 200 rows are revealed (word49..word0).
+		// Click Show more, the next 200 rows are revealed (word49..word0).
 		fireEvent.click(showMoreButton);
 		await waitFor(() => {
 			expect(screen.getByText("word49")).toBeTruthy();
@@ -157,7 +157,7 @@ describe("Vocabulary page — display cap + Show more", () => {
 			expect(screen.getByText("word0")).toBeTruthy();
 		});
 
-		// The per-page SearchField was removed — the global title-bar
+		// The per-page SearchField was removed, the global title-bar
 		// search owns the only search input. The entry count is pushed
 		// into the shared useGlobalSearch store so the title-bar
 		// placeholder can show "Search 5 corrections". The count badge
@@ -169,7 +169,7 @@ describe("Vocabulary page — display cap + Show more", () => {
 			expect(storeModule.getState().vocabEntryCount).toBe(5);
 		});
 
-		// Type a search query that matches nothing — set it via the
+		// Type a search query that matches nothing, set it via the
 		// global store (the title-bar search field is not rendered in
 		// this page-level test).
 		const { useGlobalSearch } = await import("@/hooks/useGlobalSearch");
@@ -222,7 +222,7 @@ describe("Vocabulary page — display cap + Show more", () => {
 	});
 });
 
-describe("Vocabulary page — Clear All + ConfirmDialog", () => {
+describe("Vocabulary page, Clear All + ConfirmDialog", () => {
 	beforeEach(() => {
 		mockCall.mockReset();
 		showSnack.mockReset();
@@ -326,13 +326,13 @@ describe("Vocabulary page — Clear All + ConfirmDialog", () => {
 			expect(screen.getByText("Clear All Vocabulary")).toBeTruthy();
 		});
 
-		// Click the dimmed backdrop (outside the dialog content) — a
+		// Click the dimmed backdrop (outside the dialog content), a
 		// document-level pointerdown is how ConfirmDialog's opt-in
 		// backdrop dismissal is implemented (Radix AlertDialog itself
 		// forbids outside dismissal).
 		fireEvent.pointerDown(document.body, { button: 0 });
 
-		// Dialog dismissed without any data write — entries intact.
+		// Dialog dismissed without any data write, entries intact.
 		await waitFor(() => {
 			expect(screen.queryByRole("alertdialog")).toBeNull();
 		});
@@ -373,7 +373,7 @@ describe("Vocabulary page — Clear All + ConfirmDialog", () => {
 			(args: unknown[]) => args[0] === "save_vocabulary",
 		).length;
 
-		// The dialog's confirm button has a different aria-label — find
+		// The dialog's confirm button has a different aria-label, find
 		// it by its text content + role.
 		const dialogConfirm = screen
 			.getByRole("alertdialog")
@@ -443,7 +443,7 @@ describe("Vocabulary page — Clear All + ConfirmDialog", () => {
 		expect(dialogConfirm).toBeTruthy();
 		fireEvent.click(dialogConfirm as HTMLElement);
 
-		// The list is empty AND the bulk bar is gone — a stale
+		// The list is empty AND the bulk bar is gone, a stale
 		// "N selected" bar floating over an empty list was the bug
 		// (Clear All never cleared the selection state).
 		await waitFor(() => {
@@ -453,7 +453,7 @@ describe("Vocabulary page — Clear All + ConfirmDialog", () => {
 	});
 });
 
-describe("Vocabulary page — paginated Show more (incremental reveal)", () => {
+describe("Vocabulary page, paginated Show more (incremental reveal)", () => {
 	beforeEach(() => {
 		mockCall.mockReset();
 		showSnack.mockReset();
@@ -469,7 +469,7 @@ describe("Vocabulary page — paginated Show more (incremental reveal)", () => {
 	});
 
 	it("each Show more click reveals another batch (not all at once)", async () => {
-		// 450 entries — exceeds two DISPLAY_CAP batches (200 + 200 = 400)
+		// 450 entries, exceeds two DISPLAY_CAP batches (200 + 200 = 400)
 		// but not three (600). With the old setShowAll(true) path a
 		// single click would mount all 450 rows at once. With the
 		// paginated path the first click reveals rows 201..400, the
@@ -521,7 +521,7 @@ describe("Vocabulary page — paginated Show more (incremental reveal)", () => {
 	});
 });
 
-describe("Vocabulary page — duplicate detection on save", () => {
+describe("Vocabulary page, duplicate detection on save", () => {
 	beforeEach(() => {
 		mockCall.mockReset();
 		showSnack.mockReset();
@@ -538,7 +538,7 @@ describe("Vocabulary page — duplicate detection on save", () => {
 
 	it("refuses to save a new entry whose wrong→correct pair already exists", async () => {
 		// Seed with one entry: "recieve" → "receive" in misspellings.
-		// Re-adding the same pair must be refused — with categories
+		// Re-adding the same pair must be refused, with categories
 		// hidden, an exact pair is a UI-visible duplicate.
 		mockCall.mockImplementation((arg: unknown) => {
 			const type =
@@ -590,14 +590,14 @@ describe("Vocabulary page — duplicate detection on save", () => {
 			);
 		});
 
-		// No save_vocabulary IPC call was made — the duplicate path
+		// No save_vocabulary IPC call was made, the duplicate path
 		// returns before persisting.
 		const saveCallsAfter = mockCall.mock.calls.filter(
 			(args: unknown[]) => args[0] === "save_vocabulary",
 		).length;
 		expect(saveCallsAfter).toBe(saveCallsBefore);
 
-		// The list still shows exactly one "recieve" row — the
+		// The list still shows exactly one "recieve" row, the
 		// duplicate was NOT appended.
 		expect(screen.getAllByText("recieve").length).toBe(1);
 	});
@@ -605,7 +605,7 @@ describe("Vocabulary page — duplicate detection on save", () => {
 	it("refuses the same trigger re-added to the same backend bucket with a different correction", async () => {
 		// Categories are hidden, so a second entry with the same
 		// original that would land in the SAME bucket (auto-detect)
-		// would silently overwrite the first on save — refuse it.
+		// would silently overwrite the first on save, refuse it.
 		// Seed: "recieve" → "receive" in misspellings; adding
 		// "recieve" → "recieved" (also auto-detected as
 		// misspellings) must be blocked.
@@ -658,11 +658,11 @@ describe("Vocabulary page — duplicate detection on save", () => {
 	});
 
 	it("surfaces the backend's authoritative rejection as an inline error", async () => {
-		// The frontend pre-check is a convenience layer — the AUTHORITATIVE
+		// The frontend pre-check is a convenience layer, the AUTHORITATIVE
 		// check lives in the backend write path (save_vocabulary_with_diff,
 		// which rejects with client.duplicate_entry). This test seeds a
 		// list WITHOUT the phrase so the pre-check passes, then makes the
-		// backend reject the write — the renderer must surface the inline
+		// backend reject the write, the renderer must surface the inline
 		// "already exists" message and NOT append a row.
 		mockCall.mockImplementation((type: unknown, arg?: unknown) => {
 			const cmd =
@@ -715,7 +715,7 @@ describe("Vocabulary page — duplicate detection on save", () => {
 	});
 });
 
-describe("Vocabulary page — duplicate review banner", () => {
+describe("Vocabulary page, duplicate review banner", () => {
 	beforeEach(() => {
 		mockCall.mockReset();
 		showSnack.mockReset();
@@ -732,7 +732,7 @@ describe("Vocabulary page — duplicate review banner", () => {
 
 	it("surfaces pre-existing duplicates and Remove duplicates collapses them", async () => {
 		// "recieve" + "Recieve" normalize to the same wrong phrase
-		// (case-insensitive) — a pre-existing duplicate from before the
+		// (case-insensitive), a pre-existing duplicate from before the
 		// backend check shipped.
 		mockCall.mockImplementation((type: unknown, _arg?: unknown) => {
 			const cmd =

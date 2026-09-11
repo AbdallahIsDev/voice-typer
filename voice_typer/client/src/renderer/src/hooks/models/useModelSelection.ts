@@ -1,15 +1,15 @@
 /**
- * useModelSelection — model-selection + deletion slice of the Models page.
+ * useModelSelection, model-selection + deletion slice of the Models page.
  *
  * Extracted from the former
  * `useModelLifecycle.ts` (995-line) monolith. This sub-hook owns:
- *   • `selectingModel` — the name of the model currently being
+ *   • `selectingModel`, the name of the model currently being
  *     selected (drives the spinner on the model card's Select button).
- *   • `deleteModelTarget` + `setDeleteModelTarget` — the model pending
+ *   • `deleteModelTarget` + `setDeleteModelTarget`, the model pending
  *     deletion confirmation (drives the ConfirmDialog open state).
  *
  * And the three actions that drive them:
- *   • `selectModel` — dep-gated guard (replaces the
+ *   • `selectModel`, dep-gated guard (replaces the
  *     `model.name === "parakeet"` magic string with the
  *     `depsInstallable` flag), persists the new active model via
  *     `updateConfig`, optimistically updates the local model list,
@@ -18,12 +18,12 @@
  *     `get_model_status` block from `loadConfig`). : surfaces
  *     config-save failures instead of silently showing the success
  *     toast.
- *   • `requestDeleteModel` — stashes the target for the ConfirmDialog.
+ *   • `requestDeleteModel`, stashes the target for the ConfirmDialog.
  *     Deleting the ACTIVE model is allowed (ACTIVE-DELETE): the backend
  *     removes the files and reassigns the selection (first other
  *     downloaded model, or the "no model selected" state when none
  *     exists), so no frontend refusal is needed.
- *   • `confirmDelete` — fires the `delete_model` IPC, updates local
+ *   • `confirmDelete`, fires the `delete_model` IPC, updates local
  *     state, and surfaces success / failure via snackbar.
  */
 
@@ -44,7 +44,7 @@ interface UseModelSelectionArgs {
 	setModels: React.Dispatch<React.SetStateAction<ModelInfo[]>>;
 	refreshModelStatus: () => Promise<void>;
 	updateConfig: (updates: Partial<VoiceTyperConfig>) => Promise<void>;
-	/** Optimistic config-state merge after a successful save — the
+	/** Optimistic config-state merge after a successful save, the
 	 * `config_changed` echo would correct this within milliseconds, but
 	 * config-derived UI (e.g. the "No speech model is selected" banner)
 	 * must reflect the user's committed action IMMEDIATELY, without a
@@ -94,7 +94,7 @@ export function useModelSelection({
 				);
 				return;
 			}
-			// A model that is not downloaded (including Qwen — the backend
+			// A model that is not downloaded (including Qwen, the backend
 			// registry declares it local-only, NOT auto-fetched) cannot be
 			// selected: the backend would refuse to load it ("model is not
 			// downloaded yet" tray/Windows notification) while the in-app
@@ -118,7 +118,7 @@ export function useModelSelection({
 					updates.model_size = model.name as VoiceTyperConfig["model_size"];
 				}
 				await updateConfig(updates);
-				// Optimistic config merge — same pattern as
+				// Optimistic config merge, same pattern as
 				// setCloudConsent. The backend publishes the `config_changed`
 				// echo for set_config, but the no-model banner (and every
 				// other config-derived surface) must flip on the committed
@@ -159,7 +159,7 @@ export function useModelSelection({
 	// ── Action: requestDeleteModel + confirmDelete ──────────────────
 	const requestDeleteModel = useCallback((model: ModelInfo) => {
 		// No active-model guard here: deleting the ACTIVE model is
-		// allowed (ACTIVE-DELETE) — the backend removes the files and
+		// allowed (ACTIVE-DELETE), the backend removes the files and
 		// reassigns the selection (first other downloaded model, or the
 		// "no model selected" state when none exists). The old
 		// refuse-and-switch guard dead-ended single-model users.

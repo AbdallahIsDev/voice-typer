@@ -19,7 +19,7 @@
 //
 // The dispatcher is module-level (singleton). It is lazily set up
 // when the first subscriber registers (after the bridge is ready)
-// and torn down when the last subscriber unsubscribes — so a test
+// and torn down when the last subscriber unsubscribes, so a test
 // that mounts + unmounts a single hook leaves no dangling
 // subscription for the next test. If `window.python` is replaced
 // (e.g. test `afterEach` deletes and re-sets it), `ensureDispatcher`
@@ -30,7 +30,7 @@ export type EventHandler = (
 ) => (() => void) | undefined;
 
 interface DispatcherEntry {
-	// () => handlerRef.current — indirection so the dispatcher
+	// () => handlerRef.current, indirection so the dispatcher
 	// always invokes the latest handler identity without
 	// re-subscribing on every render.
 	getHandler: () => EventHandler;

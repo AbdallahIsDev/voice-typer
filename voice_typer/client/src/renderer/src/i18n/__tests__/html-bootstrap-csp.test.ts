@@ -10,14 +10,14 @@
  *   1. The inline bootstrap script (which reads localStorage for the
  *      saved UI locale and sets ``document.documentElement.lang`` /
  *      ``.dir`` before first paint) MUST use block-scoped ``let`` /
- *      ``const`` declarations — no ``var``. ``var`` would leak to the
+ *      ``const`` declarations, no ``var``. ``var`` would leak to the
  *      global ``window`` scope and pollute the renderer's global
  *      namespace before the React app has a chance to set up its own
  *      module boundaries.
  *
  *   2. The strict production CSP meta tag MUST NOT grant
  *      ``connect-src https://api.github.com``. C-DATA-1 forbids any
- *      network call in the production code path — Voice Typer is an
+ *      network call in the production code path, Voice Typer is an
  *      OFFLINE application. The previous ``https://api.github.com``
  *      grant was a latent C-DATA-1 violation (the explicit "Check for
  *      Updates" button would still phone home to GitHub on a user
@@ -34,7 +34,7 @@
  * the page is opened outside Electron).
  *
  * Platform: Linux sandbox / Windows host / macOS host (pure static
- * file read — no DOM, no jsdom). Validation:
+ * file read, no DOM, no jsdom). Validation:
  *   VALIDATE ON LINUX HOST: cd voice_typer/client && npx vitest run \
  *     src/renderer/src/i18n/__tests__/html-bootstrap-csp.test.ts
  */
@@ -88,7 +88,7 @@ describe("HTML inline i18n bootstrap scripts", () => {
 			it("uses `let`/`const` (not `var`) in the inline bootstrap script", () => {
 				const html = readHtml(fileName);
 				// Extract the inline bootstrap <script> block (the first
-				// non-module <script> in <head> — the one that sets
+				// non-module <script> in <head>, the one that sets
 				// document.documentElement.lang from localStorage).
 				const scriptMatch = html.match(
 					/<script>\s*\(\(\)\s*=>\s*\{[\s\S]*?\}\)\(\);\s*<\/script>/,
@@ -102,7 +102,7 @@ describe("HTML inline i18n bootstrap scripts", () => {
 				}
 				const script = scriptMatch[0];
 
-				// The bootstrap must NOT use `var` — block-scoped `let` /
+				// The bootstrap must NOT use `var`, block-scoped `let` /
 				// `const` only, to avoid leaking to the global window scope.
 				expect(script).not.toMatch(/\bvar\s+/);
 
@@ -155,7 +155,7 @@ describe("HTML inline i18n bootstrap scripts", () => {
 	}
 });
 
-describe("HTML CSP meta tags — C-DATA-1 offline compliance", () => {
+describe("HTML CSP meta tags, C-DATA-1 offline compliance", () => {
 	for (const fileName of Object.keys(HTML_FILES) as Array<
 		keyof typeof HTML_FILES
 	>) {
@@ -163,7 +163,7 @@ describe("HTML CSP meta tags — C-DATA-1 offline compliance", () => {
 			it("connect-src does NOT grant https://api.github.com (C-DATA-1)", () => {
 				const html = readHtml(fileName);
 				const connectSrc = extractCspConnectSrc(html);
-				// C-DATA-1: app is OFFLINE — no external network calls
+				// C-DATA-1: app is OFFLINE, no external network calls
 				// are permitted in the production code path. The CSP
 				// meta tag is the strict production policy, so it must
 				// not allow api.github.com.

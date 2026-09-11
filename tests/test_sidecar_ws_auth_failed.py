@@ -15,7 +15,7 @@ the TCP transport:
 - WS path (``sidecar_ws._handle_connection``): closed the socket with
   WS close-code 1008 ("Policy Violation") and sent NO error frame. The
   Rust client's ``auth_failed`` arm was therefore dead code on the WS
-  path — the close-code-1008 teardown path never produced the envelope
+  path, the close-code-1008 teardown path never produced the envelope
   the arm was matching against. Clients could not distinguish an auth
   failure from any other transport-level close without sniffing the
   close reason string.
@@ -33,16 +33,16 @@ These tests exercise:
    with code 1008.
 2. **Missing token env var** → ``auth_failed`` frame is sent, then
    close with code 1008 (the env-missing path is the same rejection
-   surface — a client that connects to a misconfigured sidecar should
+   surface, a client that connects to a misconfigured sidecar should
    still see the envelope, not an opaque close).
 3. **Invalid JSON auth frame** → ``auth_failed`` frame is sent, then
    close with code 1008.
 4. **Non-auth first frame** → ``auth_failed`` frame is sent, then
    close with code 1008.
-5. **Frame ordering** — the error frame is sent BEFORE
+5. **Frame ordering**, the error frame is sent BEFORE
    ``websocket.close`` is called (the test asserts call order via the
    mock's ``call_args_list``).
-6. **Send-then-close suppression** — if ``websocket.send`` raises
+6. **Send-then-close suppression**, if ``websocket.send`` raises
    (e.g. socket already half-closed), the close call still runs. This
    is the ``contextlib.suppress`` contract: a half-dead socket must
    not prevent the authoritative teardown.
@@ -206,7 +206,7 @@ async def test_auth_failed_frame_is_sent_before_close(monkeypatch) -> None:
     If the close runs first, the client may tear down its reader
     before the error frame arrives, making the envelope useless. The
     ``contextlib.suppress`` wrapping on both calls means the ordering
-    is the only contract — the send must precede the close.
+    is the only contract, the send must precede the close.
     """
     monkeypatch.setenv("VOICE_TYPER_IPC_TOKEN", "tok")
     ws = make_fake_websocket(json.dumps({"type": "auth", "token": "wrong"}))
@@ -238,7 +238,7 @@ async def test_send_failure_does_not_block_close(monkeypatch) -> None:
     A client that RSTs after sending a bad token leaves the socket
     half-closed; ``websocket.send`` may raise. The
     ``contextlib.suppress(Exception)`` around the send ensures the
-    close — the authoritative teardown — still runs. Without this, a
+    close (the authoritative teardown) still runs. Without this, a
     half-dead socket would leak the connection handler.
     """
     monkeypatch.setenv("VOICE_TYPER_IPC_TOKEN", "tok")
@@ -258,7 +258,7 @@ async def test_send_failure_does_not_block_close(monkeypatch) -> None:
     server = MagicMock()
     dispatch = MagicMock()
 
-    # Must not raise — the ConnectionResetError is suppressed.
+    # Must not raise, the ConnectionResetError is suppressed.
     await sidecar_ws._handle_connection(ws, server, dispatch)
 
     assert closed == [True], (
@@ -274,7 +274,7 @@ async def test_successful_auth_does_not_emit_auth_failed(monkeypatch) -> None:
     """Sanity check: a successful auth does NOT send an auth_failed frame.
 
     Locks in the contract that the auth_failed emission is gated on
-    auth rejection — a future refactor that accidentally moves the
+    auth rejection, a future refactor that accidentally moves the
     emit outside the ``if not await _authenticate(...)`` branch would
     break this test.
     """
@@ -317,7 +317,7 @@ async def test_successful_auth_does_not_emit_auth_failed(monkeypatch) -> None:
     dispatch = MagicMock()
 
     # Cleanup exceptions from the writer task teardown are
-    # acceptable — we only care that no auth_failed frame was sent.
+    # acceptable, we only care that no auth_failed frame was sent.
     with contextlib.suppress(Exception):
         await sidecar_ws._handle_connection(ws, server, dispatch)
 

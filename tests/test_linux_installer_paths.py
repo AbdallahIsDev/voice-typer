@@ -18,10 +18,10 @@ per ).
 
 So the polkit policy MUST keep pointing at the legacy
 ``/usr/share/voice-typer/scripts/install_permissions.py`` path
-(the polkit-STABLE path) — the postinst installs a symlink at that
+(the polkit-STABLE path), the postinst installs a symlink at that
 path so the polkit action resolves to the actually-installed script.
 A previous version of this test file (test_polkit_does_not_hardcode_legacy_path)
-asserted the opposite — that test was WRONG per the task spec and has
+asserted the opposite, that test was WRONG per the task spec and has
 been replaced with ``test_polkit_points_at_polkit_stable_path`` below.
 
 Coverage:
@@ -50,7 +50,7 @@ Coverage:
     ``purge`` semantics (remove user data dir).
 
   - ``voice_typer/server/autostart_launcher.py`` is Tauri-aware
-    — it detects Tauri mode via ``VOICE_TYPER_TAURI=1`` env var OR
+  , it detects Tauri mode via ``VOICE_TYPER_TAURI=1`` env var OR
     ``sys.executable`` basename and spawns ``voice-typer-tauri``
     directly (no Electron fallback in Tauri mode).
 """
@@ -137,7 +137,7 @@ POLKIT_STABLE_PATH = "/usr/share/voice-typer/scripts/install_permissions.py"
 # runners resolve `bash` to the WSL launcher stub
 # (C:\Windows\System32\bash.exe), which is on PATH but exits non-zero
 # with "Windows Subsystem for Linux has no installed distributions."
-# when invoked — so the tests would fail instead of skip.
+# when invoked, so the tests would fail instead of skip.
 # `bash_usable()` probes that `bash -c 'exit 0'` actually succeeds.
 _skip_no_bash = pytest.mark.skipif(
     not bash_usable(),
@@ -184,13 +184,13 @@ class TestLinuxScriptsResourceDir:
     postinst prints a warning and exits 0), so the udev rule is never
     installed, the user is never added to the ``input`` group, and
     Caps Lock is never neutralized. Native hotkeys silently broken on
-    every Linux Tauri install — the exact NF-R9-2 regression.
+    every Linux Tauri install, the exact NF-R9-2 regression.
     """
 
     def test_linux_scripts_dir_exists(self):
         """``src-tauri/resources/linux-scripts/`` exists as a directory."""
         assert LINUX_SCRIPTS_DIR.is_dir(), (
-            f"{LINUX_SCRIPTS_DIR} must exist as a directory — the Tauri v2 "
+            f"{LINUX_SCRIPTS_DIR} must exist as a directory, the Tauri v2 "
             "bundle resources entry points here . Without this "
             "directory, every Linux Tauri install silently skips the "
             "keyboard permission setup (NF-R9-2 regression)."
@@ -201,7 +201,7 @@ class TestLinuxScriptsResourceDir:
         """Each of the 5 permission-setup files is present in ``linux-scripts/``."""
         path = LINUX_SCRIPTS_DIR / filename
         assert path.is_file(), (
-            f"{path} missing — the Tauri v2 bundle must ship this file so "
+            f"{path} missing, the Tauri v2 bundle must ship this file so "
             "the postinst probe loop finds it at "
             f"/usr/lib/voice-typer/resources/linux-scripts/{filename}."
         )
@@ -221,7 +221,7 @@ class TestLinuxScriptsResourceDir:
         assert canonical.is_file(), f"canonical source missing: {canonical}"
         assert bundled.is_file(), f"bundled copy missing: {bundled}"
         assert canonical.read_bytes() == bundled.read_bytes(), (
-            f"bundled {filename} differs from canonical source {canonical} — "
+            f"bundled {filename} differs from canonical source {canonical}, "
             "re-sync via `cp scripts/linux/<file> src-tauri/resources/linux-scripts/`."
         )
 
@@ -234,7 +234,7 @@ class TestTauriConfigResources:
 
     Tauri v2's platform-config merge REPLACES array values (no concatenation),
     so the linux-scripts entries must be in BOTH the base ``tauri.conf.json``
-    AND each per-platform Linux override — otherwise Linux installs ship
+    AND each per-platform Linux override, otherwise Linux installs ship
     without the scripts even though Windows / macOS builds include them.
 
     the aarch64 Linux override must ALSO list
@@ -253,7 +253,7 @@ class TestTauriConfigResources:
         conf = json.loads(conf_path.read_text())
         resources = conf.get("bundle", {}).get("resources", [])
         assert isinstance(resources, list), (
-            f"bundle.resources in {conf_path.name} must be a list — got {type(resources)}"
+            f"bundle.resources in {conf_path.name} must be a list, got {type(resources)}"
         )
         for filename in LINUX_SCRIPTS_FILES:
             entry = f"resources/linux-scripts/{filename}"
@@ -283,7 +283,7 @@ class TestTauriConfigResources:
         Pre-, the aarch64 override only listed the prewarm binary
         (not ``linux-key-listener``). Because Tauri v2's platform-config
         merge REPLACES array values, the aarch64 bundle would have
-        shipped without the native hotkey binary — completely breaking
+        shipped without the native hotkey binary, completely breaking
         native hotkeys on Linux aarch64 Tauri installs.
         """
         conf = json.loads(TAURI_LINUX_AARCH64.read_text())
@@ -292,7 +292,7 @@ class TestTauriConfigResources:
             "tauri.linux-aarch64.conf.json must list "
             "'resources/native/linux-key-listener'  so native "
             "hotkeys work on aarch64 Linux Tauri installs. Tauri v2's "
-            "platform-config merge REPLACES array values — without this "
+            "platform-config merge REPLACES array values, without this "
             "entry, the aarch64 bundle ships without the native key "
             "listener binary."
         )
@@ -349,7 +349,7 @@ class TestPostinstProbeLoop:
         text = path.read_text()
         assert "WARNING" in text, (
             f"{label} must print a WARNING when install_permissions.py is "
-            "not found (non-fatal — package install must still succeed)."
+            "not found (non-fatal, package install must still succeed)."
         )
         assert "exit 0" in text, f"{label} must exit 0 when the script is not found (non-fatal)."
 
@@ -452,7 +452,7 @@ def test_prerm_rpm_includes_tauri_v2_uninstall_path() -> None:
 
 def test_postinst_debian_still_has_probe_loop() -> None:
     """Sanity: the Debian postinst (already fixed in NF-R9-2) must still
-    have the probe loop — guards against regression."""
+    have the probe loop, guards against regression."""
     text = POSTINST.read_text(encoding="utf-8")
     assert _has_probe_loop(text, "postinst"), "Debian postinst must retain the probe loop (NF-R9-2 regression guard)."
 
@@ -479,7 +479,7 @@ class TestPolkitStableSymlink:
          have the postinst install a symlink or copy there."
 
     A previous iteration of this test file (test_polkit_does_not_hardcode_legacy_path)
-    asserted the OPPOSITE — that test was incorrect per the task spec
+    asserted the OPPOSITE, that test was incorrect per the task spec
     and has been replaced with test_polkit_points_at_polkit_stable_path.
     """
 
@@ -579,7 +579,7 @@ class TestPostrmPurgeSemantics:
     def test_postrm_exists(self):
         """``scripts/linux/postrm`` exists as a regular file."""
         assert POSTRM.is_file(), (
-            f"scripts/linux/postrm missing at {POSTRM} —  requires a "
+            f"scripts/linux/postrm missing at {POSTRM},  requires a "
             "postrm script for purge semantics (Debian convention: leave "
             "user data on remove, only purge on purge)."
         )
@@ -587,7 +587,7 @@ class TestPostrmPurgeSemantics:
     def test_postrm_rpm_exists(self):
         """``scripts/linux/postrm.rpm`` exists as a regular file."""
         assert POSTRM_RPM.is_file(), (
-            f"scripts/linux/postrm.rpm missing at {POSTRM_RPM} —  "
+            f"scripts/linux/postrm.rpm missing at {POSTRM_RPM},  "
             "requires an RPM %postun script for user-data cleanup on "
             "full uninstall."
         )
@@ -619,7 +619,7 @@ class TestPostrmPurgeSemantics:
         text = POSTRM_RPM.read_text()
         # RPM %postun convention: $1 = 0 means full uninstall, $1 = 1 means upgrade.
         assert '"$1" = "0"' in text or '"$1" == "0"' in text, (
-            "postrm.rpm must gate user-data removal on $1 = 0 (full uninstall) — NOT on $1 = 1 (upgrade)."
+            "postrm.rpm must gate user-data removal on $1 = 0 (full uninstall). NOT on $1 = 1 (upgrade)."
         )
         assert "rm -rf" in text, "postrm.rpm must use `rm -rf` to remove user data dirs."
 
@@ -644,7 +644,7 @@ class TestPostrmPurgeSemantics:
         assert purge_idx != -1, "postrm must have a `purge)` case block."
         # The `rm -rf` of user-data dirs MUST appear inside the purge
         # block (i.e. after `purge)`). We look for `rm -rf` AFTER the
-        # `purge)` marker — not the first `rm -rf` in the file (which
+        # `purge)` marker, not the first `rm -rf` in the file (which
         # might be inside a function definition that appears before
         # the case statement).
         rm_after_purge = text.find("rm -rf", purge_idx)
@@ -791,7 +791,7 @@ class TestPrewarmCleanupPortedToRpm:
         text = PRERM_RPM.read_text(encoding="utf-8")
         assert re.search(r"remove_prewarm_for_home\s*\(\s*\)\s*\{", text), (
             "prerm.rpm must define a `remove_prewarm_for_home()` shell "
-            "function  — mirrors the Debian prerm's helper that "
+            "function, mirrors the Debian prerm's helper that "
             "disables + deletes the per-user prewarm systemd units. "
             "Without it, RPM uninstalls leave a stale systemd timer "
             "pointing at the now-deleted frozen prewarm binary."
@@ -815,18 +815,18 @@ class TestPrewarmCleanupPortedToRpm:
         # Called inside the getent passwd while-loop for every non-system user.
         assert 'remove_prewarm_for_home "$home_dir"' in text, (
             'prerm.rpm must call `remove_prewarm_for_home "$home_dir"` '
-            "inside the user iteration loop  — mirrors the Debian prerm."
+            "inside the user iteration loop, mirrors the Debian prerm."
         )
         # Also called for /root explicitly (rare sudo -E case).
         assert "remove_prewarm_for_home /root" in text, (
-            "prerm.rpm must call `remove_prewarm_for_home /root` explicitly  — mirrors the Debian prerm."
+            "prerm.rpm must call `remove_prewarm_for_home /root` explicitly, mirrors the Debian prerm."
         )
 
     def test_prerm_debian_still_has_remove_prewarm_for_home(self):
         """Sanity: the Debian prerm (which the RPM port mirrors) still has the helper."""
         text = PRERM.read_text(encoding="utf-8")
         assert re.search(r"remove_prewarm_for_home\s*\(\s*\)\s*\{", text), (
-            "prerm must still define `remove_prewarm_for_home()` — this is "
+            "prerm must still define `remove_prewarm_for_home()`, this is "
             "the source the RPM port mirrors. If this regressed, the RPM "
             "port would also need to be re-synced."
         )
@@ -844,11 +844,11 @@ class TestProcessTerminationBeforeCleanup:
       1. Read each user's backend PID lockfile at
          ``~/.local/share/voice-typer/backend.pid`` and send a targeted
          SIGTERM so the app runs its shutdown teardown.
-      2. ``pkill -TERM -x voice-typer-tauri`` — catches the Tauri host
+      2. ``pkill -TERM -x voice-typer-tauri``, catches the Tauri host
          binary even if the backend PID file is missing.
-      3. ``pkill -TERM -f 'python-sidecar'`` — catches the frozen Python
+      3. ``pkill -TERM -f 'python-sidecar'``, catches the frozen Python
          sidecar binary by command-line substring match.
-      4. ``sleep 1`` — gives the SIGTERM'd processes time to actually exit
+      4. ``sleep 1``, gives the SIGTERM'd processes time to actually exit
          + release file handles before the rm step.
     These MUST appear BEFORE the autostart / prewarm cleanup calls.
     """
@@ -901,7 +901,7 @@ class TestProcessTerminationBeforeCleanup:
         assert path.is_file()
         text = path.read_text(encoding="utf-8")
         assert "backend.pid" in text, (
-            f"{label} must reference 'backend.pid'  — the single-"
+            f"{label} must reference 'backend.pid', the single-"
             "instance lockfile written by single_instance.py at "
             "~/.local/share/voice-typer/backend.pid. Reading the PID "
             "lets the script send a targeted SIGTERM so the app runs "
@@ -949,7 +949,7 @@ class TestProcessTerminationBeforeCleanup:
         """pkill calls are guarded by ``|| true`` so ``set -e`` doesn't abort on no-match.
 
         ``pkill`` returns exit code 1 when no processes match (which is
-        the common case — the app is often not running at uninstall
+        the common case, the app is often not running at uninstall
         time). With ``set -e`` at the top of both prerm scripts, an
         unguarded pkill would abort the entire uninstall. Each pkill
         MUST be followed by ``|| true`` (and ideally ``2>/dev/null``).
@@ -959,7 +959,7 @@ class TestProcessTerminationBeforeCleanup:
         # Every non-comment pkill -TERM line must be followed by `|| true`.
         # We strip comment lines first (lines whose first non-whitespace
         # char is `#`) because the docstring above the pkill calls
-        # contains `pkill -TERM -x voice-typer-tauri — catches the Tauri`
+        # contains `pkill -TERM -x voice-typer-tauri, catches the Tauri`
         # as inline documentation, which is NOT an actual pkill invocation.
         non_comment_pkill_lines = []
         for line in text.splitlines():
@@ -972,7 +972,7 @@ class TestProcessTerminationBeforeCleanup:
         for line in non_comment_pkill_lines:
             assert "|| true" in line, (
                 f"{label}: pkill line `{line.strip()}` must be guarded by "
-                "`|| true`  — pkill returns 1 when no processes "
+                "`|| true`, pkill returns 1 when no processes "
                 "match, and `set -e` would abort the uninstall otherwise."
             )
 
@@ -999,14 +999,14 @@ class TestDesktopDbAndIconCacheRefresh:
         text = POSTINST.read_text(encoding="utf-8")
         configure_pos = text.find("configure)")
         assert configure_pos != -1, "postinst must have a `configure)` case block."
-        # Find the first `;;` after `configure)` — that's the end of the case.
+        # Find the first `;;` after `configure)`, that's the end of the case.
         end_of_configure = text.find(";;", configure_pos)
         assert end_of_configure != -1, "postinst configure) case must end with `;;`."
         # update-desktop-database MUST appear between configure) and ;;.
         udd_pos = text.find("update-desktop-database", configure_pos)
         assert udd_pos != -1 and udd_pos < end_of_configure, (
             "postinst must call `update-desktop-database` INSIDE the "
-            "`configure)` case block  — i.e. between `configure)` "
+            "`configure)` case block, i.e. between `configure)` "
             "and the closing `;;`. Pre- the call was AFTER the `esac`, "
             "so it ran on every dpkg action (including abort-upgrade)."
         )
@@ -1042,7 +1042,7 @@ class TestDesktopDbAndIconCacheRefresh:
         udd_after_esac = text.find("update-desktop-database", esac_pos)
         assert udd_after_esac == -1, (
             "postinst must NOT call `update-desktop-database` after the "
-            "`esac`  — the call must be INSIDE the `configure)` "
+            "`esac`, the call must be INSIDE the `configure)` "
             "case block so it only runs on `apt install` / `apt configure`, "
             "not on abort-upgrade / abort-remove / abort-deconfigure."
         )
@@ -1082,11 +1082,11 @@ class TestPostinstRpmGatedOnFirstInstall:
     RPM convention for %post: ``$1 = 1`` means first install, ``$1 = 2``
     means upgrade. The postinst.rpm body (keyboard permission setup,
     polkit symlink, desktop/icon cache refresh) should only run on
-    first install — on upgrade the previous install's permissions +
+    first install, on upgrade the previous install's permissions +
     symlink are already correct, and re-running install_permissions.py
     would prompt the user unnecessarily.
 
-    Pre-, postinst.rpm had NO gate — the body ran on every RPM
+    Pre-, postinst.rpm had NO gate, the body ran on every RPM
     install AND upgrade.  wraps it in ``if [ "$1" -eq 1 ]``,
     mirroring prerm.rpm's ``if [ "$1" = "0" ]`` uninstall-gate pattern.
     """
@@ -1097,7 +1097,7 @@ class TestPostinstRpmGatedOnFirstInstall:
         # The gate must use $1 -eq 1 (numeric comparison for RPM's $1 count).
         assert re.search(r'if\s+\[\s*"\$1"\s+-eq\s+1\s*\]\s*;\s*then', text), (
             'postinst.rpm must wrap its body in `if [ "$1" -eq 1 ]; then ... fi` '
-            " — RPM %post passes $1=1 on first install, $1=2 on upgrade. "
+            ", RPM %post passes $1=1 on first install, $1=2 on upgrade. "
             "The body should only run on first install (mirror prerm.rpm's "
             '`if [ "$1" = "0" ]` uninstall-gate pattern).'
         )
@@ -1116,7 +1116,7 @@ class TestPostinstRpmGatedOnFirstInstall:
         exit_pos = text.find("exit 0", fi_pos)
         assert exit_pos != -1, (
             "postinst.rpm: `exit 0` must come AFTER the closing `fi` of "
-            "the $1 -eq 1 gate  — the script must exit 0 whether "
+            "the $1 -eq 1 gate, the script must exit 0 whether "
             "the gate was taken (first install) or skipped (upgrade)."
         )
 
@@ -1139,21 +1139,21 @@ class TestPostinstRpmGatedOnFirstInstall:
 class TestMaintainerScriptsExecutable:
     """all 6 maintainer scripts are chmod 0755 (executable).
 
-    Debian / RPM maintainer scripts MUST be executable (mode 0755) —
-    the package managers (dpkg, rpm) execute them directly. If the
-    scripts ship without the executable bit, every install / uninstall
-    silently fails with "permission denied" and the keyboard permission
-    setup never runs.
+      Debian / RPM maintainer scripts MUST be executable (mode 0755) —
+      the package managers (dpkg, rpm) execute them directly. If the
+      scripts ship without the executable bit, every install / uninstall
+      silently fails with "permission denied" and the keyboard permission
+      setup never runs.
 
-     also requires the git index to record the executable bit
-    (``git update-index --chmod=+x``) so the bit survives a fresh clone
-    — the working-tree mode is reset to the index mode on checkout.
+       also requires the git index to record the executable bit
+      (``git update-index --chmod=+x``) so the bit survives a fresh clone
+    , the working-tree mode is reset to the index mode on checkout.
     """
 
     @pytest.mark.parametrize("path,label", _ALL_MAINTAINER_SCRIPTS)
     @pytest.mark.skipif(
         sys.platform == "win32",
-        reason="Windows filesystems do not store POSIX exec bits in stat() — validated on Linux CI",
+        reason="Windows filesystems do not store POSIX exec bits in stat(), validated on Linux CI",
     )
     def test_script_has_executable_bit_in_working_tree(self, path, label):
         """The working-tree file has the executable bit set (mode 0755)."""
@@ -1184,7 +1184,7 @@ class TestMaintainerScriptsExecutable:
         assert result.returncode == 0, f"`git ls-files -s {rel}` failed (exit {result.returncode}): {result.stderr}"
         output = result.stdout.strip()
         assert output, (
-            f"{label}: `git ls-files -s {rel}` returned no output — the "
+            f"{label}: `git ls-files -s {rel}` returned no output, the "
             "file may not be tracked by git. The git index mode cannot "
             "be verified."
         )

@@ -20,7 +20,7 @@ per-platform launch logic is now factored into a strategy table
 ``ConfigEditorLauncher.launch`` body is platform-agnostic. As part of
 the dedupe the Windows branch picked up the ``contextlib.suppress(
 Exception)`` wrapper around its launch call that the macOS / Linux
-branches already had — previously a Windows launch exception bubbled
+branches already had, previously a Windows launch exception bubbled
 out to the outer try/except and triggered a tray notification, while
 the other two branches silently swallowed subprocess errors. The
 three branches are now consistent.
@@ -33,7 +33,7 @@ launch errors (preserving the  contract). The notepad fallback
 in ``_launch_windows_editor`` and the POSIX branches
 (``_launch_macos_editor`` / ``_launch_linux_editor``) now use a
 bounded ``wait(timeout=...)`` / ``subprocess.run(timeout=...)``
-respectively — pre-fix these were unbounded and could wedge the IPC
+respectively, pre-fix these were unbounded and could wedge the IPC
 thread forever if the editor hung. The primary Windows
 ``ShellExecuteEx`` path was already bounded by  in
 ``voice_typer.server.platform_launch._windows_wait_for_process_exit``.
@@ -43,7 +43,7 @@ imported at call time from their canonical home
 (``voice_typer.server.platform_utils``) so tests that monkeypatch them
 there continue to work unchanged. The Windows launch helpers
 (``_windows_open_with_default_app`` etc.) are still resolved through the
-app-module re-export seam (see ``_resolve``) — tests patch those on
+app-module re-export seam (see ``_resolve``), tests patch those on
 ``voice_typer.server.app``.
 """
 
@@ -67,8 +67,8 @@ log = logging.getLogger(__name__)
 # ``subprocess.Popen([...]).wait()`` with no timeout, and the POSIX
 # branches (``_launch_macos_editor`` / ``_launch_linux_editor``) called
 # ``subprocess.run([...], check=False)`` with no timeout. If the
-# launched editor hung — or the user walked away with the editor
-# open — the calling thread blocked forever. The caller
+# launched editor hung, or the user walked away with the editor
+# open, the calling thread blocked forever. The caller
 # (``ConfigEditorLauncher.launch``) holds ``_config_mutation_lock``
 # AND inherits the IPC thread context, so a hung editor wedged the
 # entire server: no further IPC requests were processed, the tray
@@ -80,7 +80,7 @@ log = logging.getLogger(__name__)
 # editor doesn't wedge the server forever. When the timeout fires
 # the subprocess is killed (SIGKILL on POSIX, TerminateProcess on
 # Windows via ``Popen.kill``) and a clear ``TimeoutError`` is raised
-# so the caller can notify the user — never silently return.
+# so the caller can notify the user, never silently return.
 #
 # This mirrors the  fix on ``_windows_wait_for_process_exit``
 # (``_WAIT_FOR_PROCESS_EXIT_TIMEOUT_MS = 30 * 60 * 1000`` in
@@ -97,7 +97,7 @@ def _raise_editor_timeout(config_path: Any) -> None:
 
     called by the platform launchers when the editor
     subprocess exceeds ``_EDITOR_SESSION_TIMEOUT_SECONDS``. The
-    message tells the user what happened and how to recover — never
+    message tells the user what happened and how to recover, never
     silently return, because the caller holds ``_config_mutation_lock``
     and the IPC thread, so a silent return would leave the server in
     an ambiguous state (lock released but the editor is still
@@ -133,7 +133,7 @@ def _wait_for_editor_subprocess(proc: subprocess.Popen, config_path: Any) -> Non
         # Kill the editor process so it doesn't keep running in the
         # background. ``Popen.kill`` is documented to send SIGKILL on
         # POSIX and call ``TerminateProcess`` on Windows. Best-effort
-        # — if kill itself fails (e.g. already exited, or permission
+        # , if kill itself fails (e.g. already exited, or permission
         # denied) we still need to raise the TimeoutError so the
         # caller can notify the user.
         try:
@@ -146,19 +146,19 @@ def _wait_for_editor_subprocess(proc: subprocess.Popen, config_path: Any) -> Non
         # Reap the (now killed) process to avoid a zombie. Best-effort:
         # if the second wait also times out (process is unkillable,
         # e.g. stuck in a syscall on a hung FUSE mount) we don't want
-        # to block forever again — the kill signal has been sent.
+        # to block forever again, the kill signal has been sent.
         try:
             proc.wait(timeout=5.0)
         except subprocess.TimeoutExpired:
             log.warning(
                 "[CONFIG-EDITOR] Editor process did not exit 5s after "
-                "SIGKILL/TerminateProcess — it may be stuck in an "
+                "SIGKILL/TerminateProcess, it may be stuck in an "
                 "unkillable syscall. Leaving it; the launcher will "
                 "raise TimeoutError anyway."
             )
         except Exception:
             # Don't mask the original TimeoutExpired with a reaper
-            # failure — the kill signal has been sent.
+            # failure, the kill signal has been sent.
             log.warning(
                 "[CONFIG-EDITOR] Reaper wait() raised after kill()",
                 exc_info=True,
@@ -220,7 +220,7 @@ def _launch_windows_editor(config_path: Any) -> None:
     else:
         notepad = _systemroot_notepad_path()
         if notepad is not None:
-            # bounded wait — see ``_wait_for_editor_subprocess``.
+            # bounded wait: see ``_wait_for_editor_subprocess``.
             # Pre-fix this was ``subprocess.Popen([...]).wait()`` with no
             # timeout, blocking the IPC thread forever if Notepad hung.
             proc = subprocess.Popen([str(notepad), str(config_path)])
@@ -230,7 +230,7 @@ def _launch_windows_editor(config_path: Any) -> None:
 
 
 def _launch_macos_editor(config_path: Any) -> None:
-    """macOS-specific editor launch — uses ``open -W`` (blocking).
+    """macOS-specific editor launch, uses ``open -W`` (blocking).
 
     bounded by ``_EDITOR_SESSION_TIMEOUT_SECONDS``. Pre-fix
     this was ``subprocess.run(..., check=False)`` with no timeout,
@@ -251,7 +251,7 @@ def _launch_macos_editor(config_path: Any) -> None:
 
 
 def _launch_linux_editor(config_path: Any) -> None:
-    """Linux-specific editor launch — uses ``xdg-open`` (blocking).
+    """Linux-specific editor launch, uses ``xdg-open`` (blocking).
 
     bounded by ``_EDITOR_SESSION_TIMEOUT_SECONDS``. Pre-fix
     this was ``subprocess.run(..., check=False)`` with no timeout,
@@ -286,7 +286,7 @@ class ConfigEditorLauncher:
     identical. The app delegates to ``launch(config_path)``.
 
     The launcher is constructed with a reference to the owning app so it
-    can access ``_config_mutation_lock``, ``config``, and ``tray`` — the
+    can access ``_config_mutation_lock``, ``config``, and ``tray``, the
     same attributes the original method used.
     """
 
@@ -307,13 +307,13 @@ class ConfigEditorLauncher:
         The per-platform launch logic is delegated to a strategy
         function from ``_PLATFORM_LAUNCHERS``. All three platform
         branches wrap the launch call in a suppress-non-timeout
-        exception filter — the Windows branch historically lacked
+        exception filter, the Windows branch historically lacked
         this wrapper (inconsistent with macOS / Linux which already
         had it).
 
         ``TimeoutError`` raised by the platform launcher
         (when the editor exceeds ``_EDITOR_SESSION_TIMEOUT_SECONDS``)
-        is NOT swallowed by the inner suppress — it propagates to the
+        is NOT swallowed by the inner suppress, it propagates to the
         outer ``except`` block so the user gets a tray notification
         explaining what happened. Other launch exceptions (e.g. the
         editor binary not found) are still silently swallowed to
@@ -328,7 +328,7 @@ class ConfigEditorLauncher:
         editor session. The split-lock approach below preserves the
         save/reload atomicity (each is still under the lock) while
         releasing the lock during the editor wait. A concurrent
-        ``set_config`` during the editor session now succeeds — its
+        ``set_config`` during the editor session now succeeds, its
         save will land on disk, and the user's manual edits (if any)
         will be made on top of the latest on-disk state. The editor's
         save (when the user picks "File → Save") then wins, exactly
@@ -340,7 +340,7 @@ class ConfigEditorLauncher:
         try:
             # Phase 1: save under the lock so the on-disk file is
             # consistent before the editor opens it. The lock is
-            # released immediately after the save returns — we do NOT
+            # released immediately after the save returns, we do NOT
             # hold it during the editor session.
             with self.app._config_mutation_lock:
                 if not self.app.config.save():
@@ -387,7 +387,7 @@ class ConfigEditorLauncher:
                     # ``Config.load()`` returns a brand-new object
                     # whose ``_mutation_lock`` instance attribute is
                     # unset (falls back to the ``ClassVar`` default of
-                    # ``None`` — see config.py:1081), so without this
+                    # ``None``: see config.py:1081), so without this
                     # re-wiring every subsequent ``config.save()`` would
                     # run unlocked until the next app restart, re-opening
                     # the torn-snapshot race that the
@@ -401,7 +401,7 @@ class ConfigEditorLauncher:
                     # Surface ``last_load_warnings`` to the user as a
                     # tray notification. Pre-fix, a hand-edited
                     # ``config.json`` with an invalid value (e.g.
-                    # ``asr_backend="invalid"``) loaded silently — the
+                    # ``asr_backend="invalid"``) loaded silently, the
                     # user editing the file got no toast, no IPC error,
                     # no UI banner. The sanitizer (config_sanitizer.py)
                     # now ships ``last_load_warnings`` to the renderer
@@ -435,7 +435,7 @@ class ConfigEditorLauncher:
                                 f"Config loaded with {len(reload_warnings)} warning(s): {first}",
                             )
                         except Exception:
-                            # ``tray.notify`` is best-effort — a
+                            # ``tray.notify`` is best-effort, a
                             # failure here (e.g. the tray icon isn't
                             # initialized yet on early startup) must
                             # NOT mask the successful config reload.

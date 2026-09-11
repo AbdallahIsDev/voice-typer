@@ -16,7 +16,7 @@ import { appendRendererError } from "./renderer-error-persistence";
  * Register the renderer-console forwarder on the dashboard window.
  *
  * Delegates the forwarding itself (level gate, tag/color prefix,
- * INFO/WARN/ERROR routing through the structured logger — the same
+ * INFO/WARN/ERROR routing through the structured logger, the same
  * byte format the bubble window gets) to `attachConsoleForwarder`,
  * keeping only the ERROR-persistence sink that is specific to the
  * main window's telemetry:
@@ -25,7 +25,7 @@ import { appendRendererError } from "./renderer-error-persistence";
  * the renderer console error to `electron-renderer-errors.log` under
  * the Electron userData dir. Previously the forwarder only re-emitted
  * the message to the main-process terminal (lost when the terminal
- * closed) — operators had no way to see renderer crashes post-mortem.
+ * closed), operators had no way to see renderer crashes post-mortem.
  * The persist call is best-effort: any I/O error is swallowed by
  * `appendRendererError` so logging can never break the renderer
  * console forwarding path.
@@ -35,7 +35,7 @@ import { appendRendererError } from "./renderer-error-persistence";
  * don't land unredacted in `electron-renderer-errors.log`. The
  * forwarded line above (via `log.error(msg)`) already goes through
  * `redactArgsForFile`'s redaction, but `appendRendererError` writes
- * via direct `appendLogLine` and bypasses that — so the redaction is
+ * via direct `appendLogLine` and bypasses that, so the redaction is
  * applied explicitly here. `cleanConsoleMsg` runs once inside the
  * shared forwarder (strips printf specifiers) and hands the cleaned
  * text to this sink, so the clean/redact chain runs a single pass

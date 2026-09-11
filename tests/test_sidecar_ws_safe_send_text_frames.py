@@ -1,7 +1,7 @@
 """C-WS-2 regression guard: ``_safe_send`` must emit WS **TEXT** frames.
 
 tauri-side wire contract (ADR-0020 §7 + AGENTS.md C-WS-2): every
-sidecar→host JSON frame — dispatch responses AND server events — travels
+sidecar→host JSON frame (dispatch responses AND server events) travels
 as a UTF-8 TEXT frame carrying the JSON object. The Rust host's WS reader
 parses ``Message::Text`` only and logs-and-drops ``Message::Binary``
 frames.
@@ -9,7 +9,7 @@ frames.
 Pre-fix, ``_safe_send`` passed the executor's UTF-8 **bytes** straight to
 ``websocket.send()``. The ``websockets`` library maps ``bytes`` → BINARY
 opcode, so EVERY dispatch response left as a binary frame and was
-silently dropped inside the host — all renderer commands timed out while
+silently dropped inside the host, all renderer commands timed out while
 the inline heartbeat acks (sent as ``str`` → TEXT frames) kept flowing.
 Symptom on the first Windows host run (2026-08-21): "Lost connection to
 Python backend" with a perfectly healthy backend.
@@ -49,7 +49,7 @@ async def test_safe_send_sends_text_frame_not_binary() -> None:
     assert len(ws.sent) == 1, "exactly one frame must be sent"
     payload = ws.sent[0]
     assert isinstance(payload, str), (
-        "_safe_send must send str (WS TEXT frame) — sending bytes produces a "
+        "_safe_send must send str (WS TEXT frame), sending bytes produces a "
         "BINARY frame that the Tauri host's reader silently drops "
         "(AGENTS.md C-WS-2)"
     )

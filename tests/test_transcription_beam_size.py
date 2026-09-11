@@ -22,7 +22,7 @@ from voice_typer.server.transcription import (
 
 def _engine_with_device(model_size: str, device: str, **kwargs) -> TranscriptionEngine:
     engine = TranscriptionEngine(model_size=model_size, device=device, **kwargs)
-    # Bypass the real (expensive) CUDA probe — tests pin the beam-width
+    # Bypass the real (expensive) CUDA probe, tests pin the beam-width
     # policy against an already-resolved device, not the probe itself.
     engine._requested_device = None
     engine._device = "cuda" if device == "cuda" else "cpu"

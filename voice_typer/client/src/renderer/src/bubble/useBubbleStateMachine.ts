@@ -1,5 +1,5 @@
 /**
- * Bubble overlay package — `useBubbleStateMachine` hook.
+ * Bubble overlay package, `useBubbleStateMachine` hook.
  *
  * Owns the bubble's mode/animation state machine.
  *
@@ -33,7 +33,7 @@
  *     backend pushes `{ state: "transcribing", transcript: "..." }`,
  *     the renderer will display the live partial text in the bubble
  *     pill (live partial text). No IPC surface change is required on the renderer
- *     side — the existing `bubble:set-state` channel already supports
+ *     side, the existing `bubble:set-state` channel already supports
  *     the richer payload shape.
  *
  * Subscribes to the bridge's `show` / `hide` / `setState` events.
@@ -69,7 +69,7 @@ export interface BubbleStateMachine {
 	transcript: string | null;
 	/**
 	 * True when the backend signalled that the active engine cannot
-	 * stream live partials (no `transcribe_words` — Parakeet/Qwen).
+	 * stream live partials (no `transcribe_words`, Parakeet/Qwen).
 	 * Sticky while recording stays the current mode; cleared on any
 	 * transition to another mode so a later Whisper recording starts
 	 * clean.
@@ -99,7 +99,7 @@ export function useBubbleStateMachine(): BubbleStateMachine {
 	// Latest-mode ref so the `onSetState` callback can read the current
 	// mode synchronously without re-subscribing on every mode change
 	// (which would cancel + re-arm the rAF loop in `useAudioLevels`,
-	// causing visible stutter). Updated inline on every render — this
+	// causing visible stutter). Updated inline on every render, this
 	// is the same pattern `useAudioLevels` uses for `visibleRef`.
 	const modeRef = useRef<BubbleMode>("recording");
 	modeRef.current = mode;
@@ -115,7 +115,7 @@ export function useBubbleStateMachine(): BubbleStateMachine {
 			// where the backend calls set_state("transcribing") and
 			// then show() is re-triggered. The transition table is the
 			// shared `nextBubbleMode` reducer (single source of
-			// truth) — the bridge's authoritative mode ref applies the
+			// truth), the bridge's authoritative mode ref applies the
 			// same function to the same event, so the two stay in
 			// lockstep by construction.
 			setMode((prev) => nextBubbleMode(prev, { type: "show" }));
@@ -169,8 +169,8 @@ export function useBubbleStateMachine(): BubbleStateMachine {
 			// user starts a new dictation while the previous
 			// transcribing pill is still fading out). Without this
 			// override, the new recording's `set_state("recording")`
-			// would be silently ignored — the `prev === "fading"`
-			// guard below ate it — and the bubble would keep exiting,
+			// would be silently ignored, the `prev === "fading"`
+			// guard below ate it, and the bubble would keep exiting,
 			// leaving the user with no visible recording indicator.
 			// Mirrors the `onShow` handler's exit-cancel logic: zero
 			// exitTick so `Bubble.tsx`'s fadeOutTimer effect doesn't
@@ -199,7 +199,7 @@ export function useBubbleStateMachine(): BubbleStateMachine {
 
 			// Surface / clear the live partial-transcript text
 			// (live streaming partials). Update `transcript`
-			// whenever the new payload carries one — during BOTH the
+			// whenever the new payload carries one, during BOTH the
 			// transcribing mode (finalize-time text) and the recording
 			// mode (mid-recording live partials mirrored onto the
 			// bubble channel), including an empty string → null mapping

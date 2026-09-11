@@ -1,5 +1,5 @@
 /**
- *  ( High) — regression tests for the contrast-picker bugfix
+ *  ( High), regression tests for the contrast-picker bugfix
  * ported from the dead theme utility helper module into the live
  * `lib/theme-contrast.ts` consumer.
  *
@@ -9,7 +9,7 @@
  * The live contrast-picker helper in `lib/theme-contrast.ts` was not
  * updated and kept hardcoding `fg: "#ffffff"` for the `--primary` row,
  * so the rendered text (black on a light primary) disagreed with the
- * contrast-picker grid (which still showed white-on-primary) — yielding
+ * contrast-picker grid (which still showed white-on-primary), yielding
  * a spurious "fails AA" warning for light-tone primaries that actually
  * render fine, and no warning at all for the inverse case.
  *
@@ -79,7 +79,7 @@ const draftWithDarkPrimary: CustomThemeData = {
 	},
 };
 
-describe("getContrastPair('--primary') — BG-R18 dynamic foreground", () => {
+describe("getContrastPair('--primary'), BG-R18 dynamic foreground", () => {
 	it("picks a DARK foreground for a light-tone oklch primary (not #ffffff)", () => {
 		const pair = getContrastPair("--primary", draftWithLightPrimary, "light");
 		expect(pair).not.toBeNull();
@@ -104,7 +104,7 @@ describe("getContrastPair('--primary') — BG-R18 dynamic foreground", () => {
 
 	it("returns the hex-normalised primary as `bg` so downstream contrast math works", () => {
 		// The raw draft value is an oklch() string that `_parseHex` cannot
-		// parse — if `getContrastPair` returned it verbatim, the downstream
+		// parse, if `getContrastPair` returned it verbatim, the downstream
 		// `contrastRatio(fg, bg)` call would treat it as black (#000000)
 		// and produce a ratio of 1.0, masking the real contrast. The
 		// hex-normalised value must come back instead.
@@ -133,7 +133,7 @@ describe("getContrastPair('--primary') — BG-R18 dynamic foreground", () => {
 	});
 });
 
-describe("computeRowContrast('--primary') — BG-R18 warning accuracy", () => {
+describe("computeRowContrast('--primary'), BG-R18 warning accuracy", () => {
 	it("does NOT warn for a light-tone primary whose dynamic (black) fg clears AA", () => {
 		// Pre-fix: fg was hardcoded to #ffffff → ratio ≈ 1.35 → warning fired
 		// even though the rendered text (black) clears AA at ~15.6:1.
@@ -170,7 +170,7 @@ describe("computeRowContrast('--primary') — BG-R18 warning accuracy", () => {
 	});
 });
 
-describe("BG-R18 — non-primary rows are untouched (never downgrade)", () => {
+describe("BG-R18, non-primary rows are untouched (never downgrade)", () => {
 	// The fix must not change behaviour for other CSS variables. These
 	// snapshots pin the pre-fix pair shape so a future regression to
 	// the --primary case can't accidentally bleed into sibling rows.

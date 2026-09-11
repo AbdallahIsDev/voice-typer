@@ -93,7 +93,7 @@ describe("GT-10: render-process-gone crash-storm tracking", () => {
 		for (let i = 0; i < 6; i++) {
 			recordBubbleRenderCrash();
 		}
-		// Already in storm state — further crashes still return true
+		// Already in storm state, further crashes still return true
 		expect(recordBubbleRenderCrash()).toBe(true);
 	});
 
@@ -107,7 +107,7 @@ describe("GT-10: render-process-gone crash-storm tracking", () => {
 			expect(recordBubbleRenderCrash()).toBe(false);
 		}
 
-		// Advance 61 seconds — old entries should be dropped on the next push
+		// Advance 61 seconds, old entries should be dropped on the next push
 		currentTime = baseTime + 61_000;
 
 		// Now we can have 5 more crashes without tripping the threshold

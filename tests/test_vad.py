@@ -1,6 +1,6 @@
 """Tests for the Silero VAD wrapper (ONNX Runtime backend).
 
-Companion §2.4 — the JIT-era tests mocked ``torch.from_numpy`` /
+Companion §2.4, the JIT-era tests mocked ``torch.from_numpy`` /
 ``torch.zeros`` / ``torch.cat`` / ``torch.no_grad``. The ORT rewrite
 mocks ``onnxruntime.InferenceSession`` with a fake that returns fixed
 ``(output, stateN)`` tuples and records every call so the hidden-state
@@ -20,7 +20,7 @@ import pytest
 
 
 class _FakeNode:
-    """Minimal stand-in for ``onnxruntime.NodeArg`` — only ``name`` is read."""
+    """Minimal stand-in for ``onnxruntime.NodeArg``, only ``name`` is read."""
 
     def __init__(self, name: str) -> None:
         self.name = name
@@ -34,12 +34,12 @@ class FakeOrtSession:
 
     1. The audio input was padded/truncated/sliced to 512-sample windows.
     2. The LSTM hidden state (shape ``(2, 1, 128)`` float32) is threaded
-       forward — each call receives the previous call's ``stateN`` return
+       forward, each call receives the previous call's ``stateN`` return
        value as its ``state`` input.
     3. The sample-rate feed entry is passed when the session declares an
        ``sr`` input.
 
-    The fake is intentionally minimal — it does NOT validate shapes or
+    The fake is intentionally minimal, it does NOT validate shapes or
     dtypes (real ORT does). The test fixtures pin the shapes via the
     ``compute_vad_prob`` contract: 1-D float32 audio in, float prob out.
     """
@@ -223,7 +223,7 @@ class TestSileroVadSlicesLongChunksIntoSubchunks:
     def test_long_chunk_takes_max_probability(self, monkeypatch):
         """AUDIO-10: when sub-chunks return different probabilities,
         the MAX is returned (speech is an "any sub-chunk contains it"
-        decision — max is more sensitive than mean for short bursts)."""
+        decision, max is more sensitive than mean for short bursts)."""
         import voice_typer.server.vad as vad
 
         session = FakeOrtSession(prob_sequence=[0.2, 0.85])
@@ -234,14 +234,14 @@ class TestSileroVadSlicesLongChunksIntoSubchunks:
         # 1024 samples → exactly 2 sub-chunks of 512.
         audio = np.ones(1024, dtype=np.float32) * 0.1
         prob = vad.compute_vad_prob(audio, sample_rate=16000)
-        # Max of [0.2, 0.85] = 0.85 — speech in the second sub-chunk
+        # Max of [0.2, 0.85] = 0.85, speech in the second sub-chunk
         # is detected. Under OLD truncation, prob would be 0.2 (missed).
         assert prob == pytest.approx(0.85), f"Expected max prob 0.85 (speech in 2nd sub-chunk), got {prob}"
         vad.reset()
 
     def test_very_long_chunk_processes_all_subchunks(self, monkeypatch):
         """AUDIO-10: a 5120-sample chunk (10× the Silero block size)
-        produces exactly 10 model calls — verifies the slicing loop."""
+        produces exactly 10 model calls, verifies the slicing loop."""
         import voice_typer.server.vad as vad
 
         session = FakeOrtSession(prob_sequence=[0.6] * 10)
@@ -282,7 +282,7 @@ class TestSileroVadSlicesLongChunksIntoSubchunks:
 
 
 class TestHiddenStateThreading:
-    """Companion §2.2 — the LSTM hidden state (shape ``(2, 1, 128)``
+    """Companion §2.2, the LSTM hidden state (shape ``(2, 1, 128)``
     float32) MUST be threaded through every ``compute_vad_prob`` call.
     The JIT module held it internally; ORT's stateless InferenceSession
     forces the caller to manage it. If the state is not threaded, VAD
@@ -334,7 +334,7 @@ class TestHiddenStateThreading:
 
     def test_reset_states_zeros_buffer_when_loaded(self, monkeypatch):
         """``reset_states()`` must re-zero ``_state`` when the session
-        is loaded — the load-bearing reset for session boundaries."""
+        is loaded, the load-bearing reset for session boundaries."""
         import voice_typer.server.vad as vad
 
         session = FakeOrtSession(prob_sequence=[0.5])
@@ -358,7 +358,7 @@ class TestHiddenStateThreading:
 
     def test_unload_clears_session_and_state(self, monkeypatch):
         """``unload()`` must drop the ORT session AND reset the hidden
-        state — companion §2.3.5. A subsequent ``preload()`` / first
+        state, companion §2.3.5. A subsequent ``preload()`` / first
         chunk load must start from a clean state."""
         import voice_typer.server.vad as vad
 
@@ -380,7 +380,7 @@ class TestHiddenStateThreading:
 
     def test_reset_states_noop_when_unloaded(self, monkeypatch):
         """``reset_states()`` must NOT trigger a model load when called
-        on an unloaded session — the JIT-era contract."""
+        on an unloaded session, the JIT-era contract."""
         import voice_typer.server.vad as vad
 
         vad.reset()
@@ -394,7 +394,7 @@ class TestHiddenStateThreading:
 
     def test_state_zeroed_on_first_load(self, monkeypatch):
         """The first ``_load_model()`` call must initialize ``_state``
-        to zeros — companion §2.2 says this is the first-load path."""
+        to zeros, companion §2.2 says this is the first-load path."""
         import voice_typer.server.vad as vad
 
         session = FakeOrtSession(prob_sequence=[0.5])
@@ -419,7 +419,7 @@ class TestHiddenStateThreading:
 
 @pytest.fixture
 def bubble():
-    """WaveformBubble fixture — local copy of the one in
+    """WaveformBubble fixture, local copy of the one in
     ``tests/test_waveform_bubble.py`` (moved alongside
     ``TestWaveformVADGate`` in WR-12)."""
     from voice_typer.server.waveform import WaveformBubble
@@ -443,7 +443,7 @@ class TestVADModule:
     def test_compute_vad_prob_without_ort(self, monkeypatch):
         """When onnxruntime is not available, compute_vad_prob returns None.
 
-        Companion §2.3.4 — ``is_available()`` now probes onnxruntime
+        Companion §2.3.4: ``is_available()`` now probes onnxruntime
         instead of torch. The ``_load_model`` failure path returns
         ``(None, None)`` and ``compute_vad_prob`` falls through to None
         so the RMS fallback fires.
@@ -494,7 +494,7 @@ class TestVADModule:
     def test_ort_missing_warning_rate_limited(self, caplog, monkeypatch):
         """When onnxruntime is unavailable, repeated ``_load_model``
         calls (every 16 Hz audio chunk) must NOT re-log the identical
-        WARNING — only the 1st occurrence logs at WARNING; repeats
+        WARNING, only the 1st occurrence logs at WARNING; repeats
         drop to DEBUG (log_rate_limited, first-only).
 
         Regression: ``_load_model`` does not cache a failure (model
@@ -544,12 +544,12 @@ class TestVADModule:
 
     def test_local_load_failure_error_rate_limited(self, caplog, monkeypatch):
         """When ``InferenceSession(...)`` raises (corrupt/undownloadable
-        model), repeated ``_load_model`` calls must NOT spam the ERROR
-        — the 1st + every Nth occurrence logs at ERROR, repeats at DEBUG.
+          model), repeated ``_load_model`` calls must NOT spam the ERROR
+        , the 1st + every Nth occurrence logs at ERROR, repeats at DEBUG.
 
-        Regression: the failure is not cached, so a permanently corrupt
-        model would otherwise log ~960 ERRORs/minute on the 16 Hz audio
-        path.
+          Regression: the failure is not cached, so a permanently corrupt
+          model would otherwise log ~960 ERRORs/minute on the 16 Hz audio
+          path.
         """
         import logging
 
@@ -573,7 +573,7 @@ class TestVADModule:
         vad.reset()
 
     def test_providers_pinned_to_cpu(self, monkeypatch):
-        """Companion §2.3.3 — the ORT session MUST be created with
+        """Companion §2.3.3, the ORT session MUST be created with
         ``providers=["CPUExecutionProvider"]`` only. VAD is CPU-only by
         design; routing to GPU adds upload latency per 512-sample
         window and breaks the latency budget. Source-level guard so a
@@ -584,14 +584,14 @@ class TestVADModule:
 
         src = inspect.getsource(vad._load_model)
         assert 'providers=["CPUExecutionProvider"]' in src, (
-            "VAD must pin providers=['CPUExecutionProvider'] — see "
+            "VAD must pin providers=['CPUExecutionProvider']: see "
             "companion §2.3.3 for the rationale (CPU-only by design, "
             "GPU upload latency dwarfs the ~0.5ms inference for a "
             "512-sample window)."
         )
 
     def test_no_torch_import_in_vad_source(self):
-        """Companion §1 — ``vad.py`` must NOT import torch anywhere.
+        """Companion §1: ``vad.py`` must NOT import torch anywhere.
         Source-level guard so a future refactor doesn't silently
         re-add the torch dependency."""
         import inspect
@@ -608,11 +608,11 @@ class TestVADModule:
             if stripped.startswith("#"):
                 continue
             assert not stripped.startswith("import torch"), (
-                "vad.py must not 'import torch' — torch is removed as a "
+                "vad.py must not 'import torch', torch is removed as a "
                 "project dependency under the ONNX migration (companion §1)."
             )
             assert not stripped.startswith("from torch"), (
-                "vad.py must not 'from torch import ...' — torch is removed "
+                "vad.py must not 'from torch import ...', torch is removed "
                 "as a project dependency under the ONNX migration (companion §1)."
             )
 
@@ -641,7 +641,7 @@ class TestWaveformVADGate:
         the smoothed RMS level, not any VAD output.
 
         The historical ``audio_chunk=`` kwarg (silent zeros) was removed
-        with the dead backward-compat parameter — the visualizer never
+        with the dead backward-compat parameter, the visualizer never
         consumed the chunk.
         """
         bubble.update_level(0.15, 0.3)
@@ -676,13 +676,13 @@ class TestProductionWiring:
     Contract:
 
     - The recorder fires ``on_rms_level`` with EXACTLY two positional
-      arguments ``(chunk_rms, chunk_peak)`` — the 3-arg form that also
+      arguments ``(chunk_rms, chunk_peak)``, the 3-arg form that also
       forwarded the filtered audio chunk was REMOVED (feeding the
       device's native-rate audio to the 16 kHz Silero model biased VAD
       probabilities low and collapsed the waveform bars).
     - ``RecordingController.on_recorder_rms`` is 2-arg
       ``(rms, peak)`` and forwards exactly those to
-      ``WaveformBubble.update_level`` — the dead
+      ``WaveformBubble.update_level``, the dead
       ``audio_chunk=None`` backward-compat kwarg was removed from
       both signatures (no production caller ever passed it; the
       visualizer is RMS-only, the VAD gate was removed entirely).
@@ -701,7 +701,7 @@ class TestProductionWiring:
         WaveformBubble.update_level.
 
         The historical ``audio_chunk`` kwarg is GONE (dead
-        backward-compat surface — the live recorder callback is 2-arg
+        backward-compat surface, the live recorder callback is 2-arg
         and the bubble is RMS-only). Reintroducing it MUST fail this
         test.
         """
@@ -712,7 +712,7 @@ class TestProductionWiring:
 
         sig = inspect.signature(RecordingController.on_recorder_rms)
         assert "audio_chunk" not in sig.parameters, (
-            "on_recorder_rms must NOT carry the dead audio_chunk kwarg — "
+            "on_recorder_rms must NOT carry the dead audio_chunk kwarg, "
             "no production caller passes it and update_level is RMS-only"
         )
         assert list(sig.parameters) == ["self", "rms", "peak"], (
@@ -732,7 +732,7 @@ class TestProductionWiring:
 
         Behavioral pin for the BUBBLE-FIX-4.1 contract: the third
         ``filtered`` (``audio_chunk``) argument was REMOVED from the
-        callback — it forwarded the device's native-sample-rate audio
+        callback, it forwarded the device's native-sample-rate audio
         to a Silero model that assumes 16 kHz, biasing VAD
         probabilities low and collapsing the waveform bars, and no
         consumer reads it (see the invariant comment at the call site
@@ -741,8 +741,8 @@ class TestProductionWiring:
 
         The heavy collaborators are stubbed on the pipeline instance
         (same pattern as ``tests/test_audio_pipeline_process_chunk.py``);
-        the orchestration body under test — including the callback
-        invocation — is the real ``AudioPipeline.process_audio_chunk``
+        the orchestration body under test, including the callback
+        invocation, is the real ``AudioPipeline.process_audio_chunk``
         code, so an arity regression at the real call site is caught.
         """
         import collections
@@ -784,7 +784,7 @@ class TestProductionWiring:
         args, kwargs = recorder.on_rms_level.call_args
         assert kwargs == {}, "on_rms_level must be invoked with positional args only"
         assert len(args) == 2, (
-            "on_rms_level must receive EXACTLY 2 arguments (chunk_rms, chunk_peak) — "
+            "on_rms_level must receive EXACTLY 2 arguments (chunk_rms, chunk_peak), "
             "the 3-arg form was removed in BUBBLE-FIX-4.1 (forwarding the filtered "
             "chunk re-opens the native-rate→16 kHz Silero bias)"
         )
@@ -796,7 +796,7 @@ class TestProductionWiring:
 
         The historical ``audio_chunk`` parameter was accepted-and-ignored
         (``del audio_chunk``) after the Silero VAD gate was removed from
-        the visualizer — the visualizer is RMS-only. The dead
+        the visualizer, the visualizer is RMS-only. The dead
         backward-compat parameter has been removed; the signature is
         pinned so any reintroduction (re-opening the native-rate→16 kHz
         Silero bias) MUST fail this test.
@@ -808,19 +808,19 @@ class TestProductionWiring:
         sig = inspect.signature(WaveformBubble.update_level)
         assert "audio_chunk" not in sig.parameters, (
             "WaveformBubble.update_level must NOT carry the dead audio_chunk "
-            "parameter — the VAD gate is removed and the visualizer is RMS-only"
+            "parameter, the VAD gate is removed and the visualizer is RMS-only"
         )
 
 
 class TestVadLocalOnlyNoNetwork:
     """C-DATA-1 regression: the VAD module must NEVER make a network call.
 
-    The JIT-era ``_load_model`` previously had a ``torch.hub.load``
-    fallback that fired when the bundled ``silero_vad.jit`` was missing
-    — a hard HTTPS call to github.com that violated the offline
-    guarantee. The fallback was removed long ago and the ORT rewrite
-    carries the same contract: missing ``silero_vad.onnx`` → ERROR +
-    ``(None, None)``, NEVER a network fetch.
+      The JIT-era ``_load_model`` previously had a ``torch.hub.load``
+      fallback that fired when the bundled ``silero_vad.jit`` was missing
+    , a hard HTTPS call to github.com that violated the offline
+      guarantee. The fallback was removed long ago and the ORT rewrite
+      carries the same contract: missing ``silero_vad.onnx`` → ERROR +
+      ``(None, None)``, NEVER a network fetch.
     """
 
     _VAD_SRC_PATH = Path(__file__).resolve().parent.parent / "voice_typer" / "server" / "vad.py"
@@ -830,7 +830,7 @@ class TestVadLocalOnlyNoNetwork:
 
         Even when the bundled model file is missing, ``_load_model``
         returns immediately (no hub fetch, no ThreadPoolExecutor
-        deadline) — it logs an ERROR and returns ``(None, None)``.
+        deadline), it logs an ERROR and returns ``(None, None)``.
         """
         import time
 
@@ -838,7 +838,7 @@ class TestVadLocalOnlyNoNetwork:
 
         vad.reset()
         # Point the path at a nonexistent file so the local-load
-        # branch is skipped — exercising the missing-model path that
+        # branch is skipped, exercising the missing-model path that
         # previously fell through to the network call.
         monkeypatch.setattr(vad, "_VAD_MODEL_PATH", Path("/nonexistent/silero_vad.onnx"))
         # Install a fake ORT so we exercise the missing-file branch
@@ -850,10 +850,10 @@ class TestVadLocalOnlyNoNetwork:
         elapsed = time.monotonic() - start
 
         assert result == (None, None)
-        # 3s is far below the old 5s hub-timeout deadline — proves no
+        # 3s is far below the old 5s hub-timeout deadline, proves no
         # network call was attempted.
         assert elapsed < 3.0, (
-            f"_load_model took {elapsed:.2f}s — looks like a network call was attempted (C-DATA-1 violation)"
+            f"_load_model took {elapsed:.2f}s, looks like a network call was attempted (C-DATA-1 violation)"
         )
         vad.reset()
 
@@ -862,18 +862,18 @@ class TestVadLocalOnlyNoNetwork:
 
         Source-level grep assertion so the network fallback cannot be
         silently reintroduced by a future refactor. (Also catches
-        ``requests.get`` / ``urllib`` etc. — defensive pin against any
+        ``requests.get`` / ``urllib`` etc., defensive pin against any
         network egress helper, not just torch.hub.)
         """
         src = self._VAD_SRC_PATH.read_text(encoding="utf-8")
         assert "torch.hub.load" not in src, (
             "C-DATA-1 violation: voice_typer/server/vad.py references "
-            "'torch.hub.load' — a hard network call to github.com that "
+            "'torch.hub.load', a hard network call to github.com that "
             "breaks the offline guarantee."
         )
         assert "hub_load" not in src, (
             "C-DATA-1 violation: voice_typer/server/vad.py still has a "
-            "'hub_load' reference — the network-fallback helper / "
+            "'hub_load' reference, the network-fallback helper / "
             "negative-cache flag should have been removed entirely."
         )
         assert "_HUB_LOAD_TIMEOUT_S" not in src, (
@@ -922,7 +922,7 @@ class TestPreloadWarmup:
         # Exactly one warmup call.
         assert len(session.calls) == 1
         assert session.calls[0]["input"].shape == (1, 512)
-        # State was reset after warmup — _state is zeros, NOT the
+        # State was reset after warmup, _state is zeros, NOT the
         # post-warmup ``state + 1.0`` value the fake would otherwise
         # have left behind.
         assert np.array_equal(vad._state, np.zeros((2, 1, 128), dtype=np.float32)), (
@@ -932,7 +932,7 @@ class TestPreloadWarmup:
 
     def test_preload_returns_false_when_ort_missing(self, monkeypatch):
         """preload() must return False (not raise) when onnxruntime is
-        unavailable — the RMS fallback path fires downstream."""
+        unavailable, the RMS fallback path fires downstream."""
         from voice_typer.server import vad
 
         vad.reset()

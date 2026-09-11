@@ -3,19 +3,19 @@
 Contains the helpers that DETECT the foreground window's identity /
 properties:
 
-* :func:`_get_we_elevated` — cached "are WE elevated?" check (process-
+* :func:`_get_we_elevated`: cached "are WE elevated?" check (process-
   stable; computed once via Win32 token query, cached in
   ``_pkg._WE_ELEVATED``).
-* :func:`_is_elevated_target` — checks if the foreground window belongs
+* :func:`_is_elevated_target`: checks if the foreground window belongs
   to an elevated process (uses :func:`_pkg._get_we_elevated` for the
   "we" side and a fresh Win32 token query for the "target" side).
-* :func:`_focused_window_is_credential_dialog` — checks the foreground
+* :func:`_focused_window_is_credential_dialog`, checks the foreground
   window's class name against ``_pkg._CRED_DIALOG_CLASSES`` (coarse
   comtypes-absence fallback for password-field protection).
-* :func:`_is_content_editable` — uses UIA (via
+* :func:`_is_content_editable`: uses UIA (via
   :func:`_pkg._get_uia_focused_element` from :mod:`.injection`) to check
   if the focused element supports rich-text input.
-* :func:`_find_focused_atspi_accessible` — walks the Linux AT-SPI tree
+* :func:`_find_focused_atspi_accessible`: walks the Linux AT-SPI tree
   to find the focused accessible (used by ``_is_password_field_linux``
   in :mod:`.validation`).
 
@@ -26,7 +26,7 @@ package) so test patches / resets on
 ``voice_typer.server.clipboard_target_safety.NAME`` propagate to the
 functions defined here. A plain ``global NAME`` would write to THIS
 submodule's namespace and be invisible to the test patches applied on
-the package — hence the ``_pkg.NAME`` access pattern.
+the package, hence the ``_pkg.NAME`` access pattern.
 """
 
 from __future__ import annotations
@@ -54,7 +54,7 @@ def _get_we_elevated() -> bool:
     query; subsequent calls return the cached value.
 
     Returns False on non-Windows, on failure, or when we cannot open
-    our own process token (fail-open — same as the previous behavior).
+    our own process token (fail-open, same as the previous behavior).
 
     Init is guarded by ``_pkg._WE_ELEVATED_LOCK`` using double-checked
     locking so concurrent first-callers (e.g. the main IPC paste thread
@@ -62,7 +62,7 @@ def _get_we_elevated() -> bool:
     query and stomp the cache. The fast path (cache hit) is lock-free;
     only the cold path acquires the lock.
     """
-    # Fast path: cache already populated — no lock needed.
+    # Fast path: cache already populated, no lock needed.
     if _pkg._WE_ELEVATED is not None:
         return _pkg._WE_ELEVATED
     # Cold path: acquire the lock and re-check (another thread may
@@ -99,11 +99,11 @@ def _get_we_elevated() -> bool:
                 kernel32.CloseHandle(our_token)
         except Exception as exc:
             # Cached and called once per process, so a plain WARNING
-            # (no dedup) is appropriate — operators get exactly one
+            # (no dedup) is appropriate, operators get exactly one
             # record per session if the Win32 token query path is
             # broken.
             _pkg._log().warning(
-                "[CLIPBOARD] _get_we_elevated failed: %s — failing open (paste allowed)",
+                "[CLIPBOARD] _get_we_elevated failed: %s, failing open (paste allowed)",
                 exc,
                 exc_info=True,
             )
@@ -132,7 +132,7 @@ def _is_elevated_target(hwnd: int | None = None) -> bool:
     callers (:meth:`ClipboardManager._is_safe_paste_target`) that
     already fetched ``GetForegroundWindow`` can pass it in to avoid a
     redundant Win32 round-trip. When ``hwnd`` is ``None`` (the
-    default), the function fetches it itself — preserving backward
+    default), the function fetches it itself, preserving backward
     compatibility with direct callers and tests.
     """
     if not _pkg.is_windows():
@@ -183,7 +183,7 @@ def _is_elevated_target(hwnd: int | None = None) -> bool:
             # If target is elevated and we're not, warn
             if target_elevated and not we_elevated:
                 _pkg._log().warning(
-                    "[CLIPBOARD] Target window (pid=%d) is elevated but we are not — paste may fail due to UIPI",
+                    "[CLIPBOARD] Target window (pid=%d) is elevated but we are not, paste may fail due to UIPI",
                     pid.value,
                 )
                 return True
@@ -191,7 +191,7 @@ def _is_elevated_target(hwnd: int | None = None) -> bool:
         finally:
             kernel32.CloseHandle(h_process)
     except Exception as exc:
-        # fail-closed — if the elevation check itself raises,
+        # fail-closed, if the elevation check itself raises,
         # block paste rather than risk pasting into an elevated target
         # we couldn't verify.
         _pkg._log().warning("paste-safety check failed; failing closed: %s", exc)
@@ -209,7 +209,7 @@ def _focused_window_is_credential_dialog(hwnd: int | None = None) -> bool:
     callers (like :meth:`ClipboardManager._is_safe_paste_target`) that
     already fetched ``GetForegroundWindow`` can pass it in to avoid a
     redundant Win32 round-trip. When ``hwnd`` is ``None`` (the
-    default), the function fetches it itself — preserving backward
+    default), the function fetches it itself, preserving backward
     compatibility with direct callers and tests.
     """
     if not _pkg.is_windows():
@@ -230,7 +230,7 @@ def _focused_window_is_credential_dialog(hwnd: int | None = None) -> bool:
         cls = class_name.value
         return cls in _pkg._CRED_DIALOG_CLASSES
     except Exception as exc:
-        # fail-closed — if the credential-dialog check raises,
+        # fail-closed, if the credential-dialog check raises,
         # block paste rather than risk pasting into an undetected
         # credential prompt.
         _pkg._log().warning("paste-safety check failed; failing closed: %s", exc)
@@ -293,7 +293,7 @@ def _is_content_editable(focused: Any = None) -> bool:
         return False
     except Exception as exc:
         # ``_is_content_editable`` is informational only (the
-        # caller logs but does NOT block paste on True — see
+        # caller logs but does NOT block paste on True, see
         # ``_is_safe_paste_target`` docstring). Fail-OPEN here
         # is correct: returning True would falsely report a rich-editor
         # target without improving security. We still log the failure
@@ -313,7 +313,7 @@ def _find_focused_atspi_accessible(
     """Walk the AT-SPI tree to find the focused accessible.
 
     The AT-SPI spec says the ``ATSPI_STATE_FOCUSED`` state is set on
-    the actual UI element receiving keyboard input — NOT on its
+    the actual UI element receiving keyboard input, NOT on its
     ancestors (which may have ``ATSPI_STATE_ACTIVE`` / ``SHOWING`` but
     not ``FOCUSED``). This helper does a depth-first traversal of the
     tree, returning the first accessible found with ``FOCUSED`` set.
@@ -328,7 +328,7 @@ def _find_focused_atspi_accessible(
     ``_is_password_field_linux`` and read here). The caller resolves
     ``pyatspi.STATE_FOCUSED`` once at the top of
     ``_is_password_field_linux`` (in :mod:`.validation`) and passes it
-    down — eliminates the hidden cross-function coupling via the module
+    down, eliminates the hidden cross-function coupling via the module
     global, and removes the latent ``TypeError`` if
     ``_find_focused_atspi_accessible`` was ever called before the global
     had been initialized (the global defaulted to ``None`` and
@@ -343,7 +343,7 @@ def _find_focused_atspi_accessible(
     within the cache window, the cache hit short-circuits the O(N)
     tree walk (each ``getChildAtIndex`` is a D-Bus RPC, so a busy
     desktop with 5,000-20,000 accessibles can take 0.5-40 s per
-    paste — back-to-back pastes at 5/s into the same field skip the
+    paste, back-to-back pastes at 5/s into the same field skip the
     walk entirely). The cache window is short enough that a user
     switching apps between pastes (typically >500 ms apart) gets a
     fresh walk. On any exception during the cache update (e.g.
@@ -352,7 +352,7 @@ def _find_focused_atspi_accessible(
     caller's own ``getRole()`` call raises (same as pre-fix).
 
     The cache returns a :class:`_CachedFocusedAccessible` shim whose
-    ``getRole()`` returns the cached role — this preserves the
+    ``getRole()`` returns the cached role: this preserves the
     function's contract (caller calls ``.getRole()`` on the result)
     without holding a reference to a potentially stale D-Bus proxy
     across paste cycles.
@@ -366,7 +366,7 @@ def _find_focused_atspi_accessible(
     ``_is_pytest_running`` to return ``False``.
     """
     # ── Cache hit fast-path ───────────────────────────────────────────
-    # Read the cache slot once (no lock — tuple read is atomic under
+    # Read the cache slot once (no lock, tuple read is atomic under
     # the GIL; a concurrent writer at worst causes both threads to
     # miss and walk, which is benign). Skip the cache entirely under
     # pytest so each test case sees a fresh walk.
@@ -376,22 +376,22 @@ def _find_focused_atspi_accessible(
             cached_role, cached_ts = cached
             if (time.monotonic() - cached_ts) < _ATSPI_FOCUSED_ROLE_CACHE_WINDOW_S:
                 return _CachedFocusedAccessible(cached_role)
-            # expired — clear the stale slot and fall through to a fresh walk
+            # expired, clear the stale slot and fall through to a fresh walk
             _invalidate_focused_atspi_cache()
 
     accessible = _find_focused_atspi_accessible_uncached(desktop, state_focused, max_depth)
     if accessible is None:
-        # Don't cache None — let the next call re-walk. A transient
+        # Don't cache None, let the next call re-walk. A transient
         # "no focused accessible" (e.g. mid-alt-tab) should not poison
         # the cache for 200 ms.
         return None
 
-    # Cache the role (only in production — under pytest the cache stays
+    # Cache the role (only in production, under pytest the cache stays
     # cold so tests are isolated). If getRole() raises (stale D-Bus
     # proxy, app crashed mid-traversal), invalidate the cache (don't
     # poison it with a None role that the next call would return as a
     # hit) and return the accessible so the caller's own getRole()
-    # raises — identical to the pre-fix behaviour.
+    # raises, identical to the pre-fix behaviour.
     try:
         role = accessible.getRole()
     except Exception:
@@ -433,7 +433,7 @@ class _CachedFocusedAccessible:
     Only ``getRole()`` is implemented because that's the sole method
     the caller invokes on the returned accessible. If a future caller
     needs additional methods (``getState``, ``getChildAtIndex``, etc.),
-    the cache MUST be invalidated — a cached role is insufficient to
+    the cache MUST be invalidated, a cached role is insufficient to
     satisfy those calls.
     """
 
@@ -442,7 +442,7 @@ class _CachedFocusedAccessible:
     def __init__(self, role: Any) -> None:
         self._role = role
 
-    def getRole(self) -> Any:  # noqa: N802 — mirrors pyatspi.Accessible.getRole
+    def getRole(self) -> Any:  # noqa: N802, mirrors pyatspi.Accessible.getRole
         return self._role
 
 
@@ -452,12 +452,12 @@ class _CachedFocusedAccessible:
 # ``(role, timestamp_monotonic)`` tuple. The timestamp is read with
 # ``time.monotonic()`` so NTP adjustments don't affect the cache
 # window. The slot is module-level (not per-instance) because there's
-# only one focused accessible at a time per desktop — a per-instance
+# only one focused accessible at a time per desktop, a per-instance
 # slot on the caller would just add indirection.
 #
 # This is a plain module-level global in :mod:`.targets` (NOT routed
 # through ``_pkg.NAME`` like ``_WE_ELEVATED`` etc.) because the cache
-# is purely an internal performance optimization — no test or external
+# is purely an internal performance optimization, no test or external
 # code patches it via the package namespace. Tests that want to
 # inspect or reset the cache import
 # ``voice_typer.server.clipboard_target_safety.targets as targets_mod``
@@ -468,14 +468,14 @@ _LAST_FOCUSED_ROLE: tuple[Any, float] | None = None
 # Cache window: 200 ms. Long enough that back-to-back pastes at 5/s
 # into the same field (200 ms < 200 ms gap) skip the O(N) tree walk.
 # Short enough that a user switching apps between pastes (typically
-# >500 ms apart — even a fast alt-tab is ~300 ms) gets a fresh walk.
+# >500 ms apart, even a fast alt-tab is ~300 ms) gets a fresh walk.
 # Worst case: a user pasting into app A, alt-tabbing to app B in
-# <200 ms, and pasting again — the second paste uses app A's cached
+# <200 ms, and pasting again, the second paste uses app A's cached
 # role. This is benign because (a) the cached role is only used to
 # check ``ATSPI_ROLE_PASSWORD_TEXT`` (a password field), (b) the
 # cache window is shorter than the minimum realistic alt-tab time,
 # and (c) on a cache hit the function returns a shim whose only
-# method is ``getRole()`` — no other AT-SPI state is consulted, so
+# method is ``getRole()``: no other AT-SPI state is consulted, so
 # there's no risk of acting on a stale focused element's state.
 _ATSPI_FOCUSED_ROLE_CACHE_WINDOW_S: float = 0.200
 
@@ -506,13 +506,13 @@ def _find_focused_atspi_accessible_uncached(
     This is the pre-cache walk body, extracted so the public
     :func:`_find_focused_atspi_accessible` wrapper can add the cache
     fast-path without entangling the recursion (recursive calls inside
-    this helper do NOT consult the cache — only the top-level call
+    this helper do NOT consult the cache, only the top-level call
     does, which is the desired behaviour).
     """
     if desktop is None or max_depth <= 0:
         return None
 
-    # First check the root itself (defensive — desktop itself is never
+    # First check the root itself (defensive, desktop itself is never
     # FOCUSED in practice, but if a future caller passes a sub-tree
     # root, this catches the case where the root IS the focused leaf).
     try:
@@ -561,7 +561,7 @@ def _find_focused_atspi_accessible_uncached(
             continue
         if child is None:
             continue
-        # Recursive call goes to the UNCACHED helper — only the
+        # Recursive call goes to the UNCACHED helper, only the
         # top-level call (via _find_focused_atspi_accessible) consults
         # the cache. This avoids redundant cache writes during a single
         # traversal and ensures a cache hit at the top short-circuits

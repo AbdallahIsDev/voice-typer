@@ -1,9 +1,9 @@
 /**
- * Focused tests for `useSettingsDeepLinks` — the extracted Settings
+ * Focused tests for `useSettingsDeepLinks`, the extracted Settings
  * consent + cross-page search deep-link machinery.
  *
  * Drives the REAL useNavigation + useGlobalSearch zustand stores (no
- * module mocks — the stores are the app's single source of truth) and
+ * module mocks, the stores are the app's single source of truth) and
  * pins:
  *   - one-shot consumption of the pending consent field (armed exactly
  *     once, global search cleared, the Privacy surface's saved scroll
@@ -28,7 +28,7 @@ function mount(
 ) {
 	const scrollPositionsRef = { current: {} as Record<string, number> };
 	const utils = renderHook(() => {
-		// The REAL nav-store hook — the zustand store behind it is
+		// The REAL nav-store hook, the zustand store behind it is
 		// the app's single source of truth (no module mocks). Its
 		// result exposes the transient deep-link channels
 		// reactively, so tests arm a target through the production
@@ -58,7 +58,7 @@ afterEach(() => {
 	document.body.innerHTML = "";
 });
 
-describe("useSettingsDeepLinks — pending target consumption", () => {
+describe("useSettingsDeepLinks, pending target consumption", () => {
 	it("consumes a pending consent field once, clears the query, zeroes the Privacy scroll offset", () => {
 		useGlobalSearch.setState({ query: "stale filter" });
 
@@ -107,7 +107,7 @@ describe("useSettingsDeepLinks — pending target consumption", () => {
 	});
 });
 
-describe("useSettingsDeepLinks — scroll + highlight lifetime", () => {
+describe("useSettingsDeepLinks, scroll + highlight lifetime", () => {
 	it("scrolls the consent row into view once rendered and clears the ring after 2600ms", () => {
 		vi.useFakeTimers();
 		const scrollSpy = vi.fn();
@@ -160,7 +160,7 @@ describe("useSettingsDeepLinks — scroll + highlight lifetime", () => {
 		act(() => {
 			vi.advanceTimersByTime(3000);
 		});
-		// But the safety net fires at 5s — a stale target can't linger.
+		// But the safety net fires at 5s, a stale target can't linger.
 		act(() => {
 			vi.advanceTimersByTime(2100);
 		});

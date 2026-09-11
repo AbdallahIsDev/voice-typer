@@ -2,18 +2,18 @@
 
 Covers two concurrency findings:
 
-1. **WS connection cap TOCTOU race** — ``_handle_connection`` previously
+1. **WS connection cap TOCTOU race**: ``_handle_connection`` previously
    checked ``sem.locked()`` to reject with 1008 when at cap, THEN called
    ``await sem.acquire()``. The check-then-acquire was not atomic:
    multiple concurrent connections could all pass the ``locked()``
    check (sem not yet locked) and then all block on ``acquire()``,
    exceeding the cap in the WAITING queue. The fix uses a non-blocking
-   acquire via ``asyncio.wait_for(sem.acquire(), timeout=0.0)`` — if
+   acquire via ``asyncio.wait_for(sem.acquire(), timeout=0.0)``, if
    the semaphore has capacity, ``acquire()`` completes synchronously
    inside ``wait_for``; if it is exhausted, ``wait_for`` raises
    ``asyncio.TimeoutError`` and the connection is rejected with 1008.
 
-2. **``_check_duplicate_auth`` read-probe-write race** — the function
+2. **``_check_duplicate_auth`` read-probe-write race**, the function
    previously read ``server._active_ws_connection`` under
    ``server._lock``, RELEASED the lock, probed ``existing.closed``
    WITHOUT the lock, then re-acquired the lock to write. Two concurrent
@@ -72,7 +72,7 @@ async def test_concurrent_connections_at_one_slot_one_rejected_not_blocked(
 ) -> None:
     """When the semaphore has 1 slot and 2 connections arrive concurrently,
     ONE acquires and proceeds to auth; the OTHER is rejected with 1008
-    (``max_connections_reached``) — NOT blocked on ``sem.acquire()``.
+    (``max_connections_reached``), NOT blocked on ``sem.acquire()``.
 
     The original buggy code (``if sem.locked(): reject; await
     sem.acquire()``) had a check-then-acquire TOCTOU race: with 1 slot
@@ -80,7 +80,7 @@ async def test_concurrent_connections_at_one_slot_one_rejected_not_blocked(
     not yet locked), both would call ``acquire()``, and the second would
     BLOCK until the first releases. Both would eventually run auth (both
     getting ``auth_failed`` on a wrong token). With the fix
-    (``_try_acquire_semaphore`` — non-blocking acquire via a Task +
+    (``_try_acquire_semaphore``, non-blocking acquire via a Task +
     ``sleep(0)`` + ``done()`` check), the second is rejected immediately
     with ``max_connections_reached``.
 
@@ -98,7 +98,7 @@ async def test_concurrent_connections_at_one_slot_one_rejected_not_blocked(
     # Both websockets use a WRONG token so the one that acquires proceeds
     # to auth, fails, and releases (so the test doesn't hang waiting for
     # the sem to drain). ``yield_before_recv=True`` simulates the I/O
-    # yield a real ``websockets`` recv performs — without it, the mock
+    # yield a real ``websockets`` recv performs, without it, the mock
     # recv runs synchronously inside the calling task and the winner
     # releases the sem before the loser's acquire Task runs (the race
     # window never opens).
@@ -107,7 +107,7 @@ async def test_concurrent_connections_at_one_slot_one_rejected_not_blocked(
 
     # Run both concurrently. With the fix, both complete in milliseconds.
     # If the original bug were present, both would still complete (after
-    # the first releases), but BOTH would get ``auth_failed`` — the
+    # the first releases), but BOTH would get ``auth_failed``, the
     # second would NOT get ``max_connections_reached``.
     start = time.monotonic()
     await asyncio.wait_for(
@@ -121,7 +121,7 @@ async def test_concurrent_connections_at_one_slot_one_rejected_not_blocked(
     # The cap-rejection path is synchronous (no blocking on acquire);
     # the auth-fail path is also fast (one recv + one send + one close).
     assert elapsed < 1.5, (
-        f"concurrent cap check took {elapsed:.3f}s — expected sub-second "
+        f"concurrent cap check took {elapsed:.3f}s, expected sub-second "
         f"(non-blocking acquire should reject immediately, not block on "
         f"sem.acquire())"
     )
@@ -133,7 +133,7 @@ async def test_concurrent_connections_at_one_slot_one_rejected_not_blocked(
     # on acquire, then proceeded once the first released).
     assert sorted(codes) == ["auth_failed", ErrorCodes.MAX_CONNECTIONS_REACHED], (
         f"expected one auth_failed + one max_connections_reached (fix), "
-        f"got {codes} — if both are auth_failed, the cap TOCTOU race is "
+        f"got {codes}, if both are auth_failed, the cap TOCTOU race is "
         f"back (the second connection blocked on sem.acquire() instead "
         f"of being rejected at cap)"
     )
@@ -150,7 +150,7 @@ async def test_concurrent_connections_at_zero_cap_all_rejected_quickly(
     monkeypatch,
 ) -> None:
     """When the semaphore is fully at cap (value=0), N concurrent acquire
-    attempts ALL reject with 1008 within milliseconds — not blocked.
+    attempts ALL reject with 1008 within milliseconds, not blocked.
 
     This is the "obvious" at-cap case (the original ``sem.locked()``
     check would catch it too), but the test locks in the fix's behavior:
@@ -172,7 +172,7 @@ async def test_concurrent_connections_at_zero_cap_all_rejected_quickly(
     )
     elapsed = time.monotonic() - start
     assert elapsed < 1.0, (
-        f"concurrent at-cap rejections took {elapsed:.3f}s — expected "
+        f"concurrent at-cap rejections took {elapsed:.3f}s, expected "
         f"sub-second (all should reject immediately via non-blocking acquire)"
     )
 
@@ -223,7 +223,7 @@ async def test_concurrent_duplicate_auth_only_one_succeeds() -> None:
 
     # Exactly one returns True, the other returns False.
     assert sorted(results) == [False, True], (
-        f"expected one True + one False, got {results} — both succeeded "
+        f"expected one True + one False, got {results}, both succeeded "
         f"means the duplicate-auth read-probe-write race is back (B "
         f"overwrote A's claim on the active-connection slot)"
     )
@@ -264,7 +264,7 @@ async def test_duplicate_auth_rejects_when_existing_open() -> None:
     """Baseline: when an existing authenticated connection is OPEN, a new
     ``_check_duplicate_auth`` call rejects with ``duplicate_connection``.
 
-    This is the single-threaded (no-race) case — verifies the basic
+    This is the single-threaded (no-race) case, verifies the basic
     invariant still holds after the fix. The active-connection slot is
     UNCHANGED (still the existing ws).
     """
@@ -300,7 +300,7 @@ async def test_duplicate_auth_proceeds_when_existing_closed() -> None:
     """Baseline: when the existing authenticated connection is CLOSED, a
     new ``_check_duplicate_auth`` call proceeds (claims the slot).
 
-    This is the recovery path — the previous connection died without
+    This is the recovery path, the previous connection died without
     clearing the slot (e.g. process kill), and the new connection takes
     over. The probe treats a closed existing as "not open" so the new
     connection can claim the slot.
@@ -330,7 +330,7 @@ async def test_duplicate_auth_proceeds_when_no_existing() -> None:
     """Baseline: when there is no existing connection (slot is ``None``),
     a new ``_check_duplicate_auth`` call proceeds (claims the slot).
 
-    This is the first-connection case — the slot starts empty and the
+    This is the first-connection case, the slot starts empty and the
     first auth claims it.
     """
     server = make_fake_server_with_semaphore(sidecar_ws._MAX_WS_CONNECTIONS)
@@ -361,7 +361,7 @@ async def test_dispatch_pre_executor_toctou_recheck_rejects_when_flag_flips_afte
     executor submission.
 
     Pre-fix the dispatch would proceed to ``loop.run_in_executor`` and
-    the handler would run during shutdown — racing
+    the handler would run during shutdown, racing
     ``ShutdownController._do_cleanup`` (which tears down the recorder /
     history DB / crash-recovery subsystems concurrently). Post-fix the
     pre-executor re-check short-circuits with the structured error and
@@ -372,7 +372,7 @@ async def test_dispatch_pre_executor_toctou_recheck_rejects_when_flag_flips_afte
     The test simulates the race by leaving the flag ``False`` through
     the early gate, the rate-limiter call, and the in-flight-count
     re-check (so all three pass), then flipping it to ``True`` as a
-    side effect of acquiring ``_ws_inflight_lock`` — which the dispatch
+    side effect of acquiring ``_ws_inflight_lock``, which the dispatch
     path acquires AFTER the in-flight-count re-check and BEFORE the
     pre-executor re-check. The lock wrapper delegates to a real
     ``threading.Lock`` so concurrent access (if any) is still
@@ -384,7 +384,7 @@ async def test_dispatch_pre_executor_toctou_recheck_rejects_when_flag_flips_afte
     # ``test_sidecar_ws.py``).
     try:
         from voice_typer.server.ipc_server import _get_rate_limiter  # noqa: F401
-    except Exception as exc:  # noqa: BLE001 — broad on purpose
+    except Exception as exc:  # noqa: BLE001, broad on purpose
         pytest.skip(f"ipc_server.py not importable: {exc}")
 
     monkeypatch.setenv("VOICE_TYPER_IPC_TOKEN", "test-token")
@@ -451,7 +451,7 @@ async def test_dispatch_pre_executor_toctou_recheck_rejects_when_flag_flips_afte
 
     server._ws_inflight_lock = _FlagFlippingInflightLock()
     # Pre-set the count + drain Event so ``_make_dispatch`` does NOT
-    # create new ones (which would shadow our lock wrapper — the
+    # create new ones (which would shadow our lock wrapper, the
     # ``getattr(server, "_ws_inflight_lock", None)`` lookup would find
     # our pre-set wrapper and skip the lazy-create branch).
     server._ws_inflight_count = 0
@@ -480,15 +480,15 @@ async def test_dispatch_pre_executor_toctou_recheck_rejects_when_flag_flips_afte
         f"expected code='server.shutting_down' (pre-executor re-check), got {data!r}"
     )
 
-    # The handler must NOT have been called — the re-check short-circuited
+    # The handler must NOT have been called, the re-check short-circuited
     # before ``loop.run_in_executor``.
     assert dispatch_called == [], (
         "the pre-executor re-check should have short-circuited BEFORE "
-        "loop.run_in_executor(ws_dispatch_pool, server._dispatch, msg) — "
+        "loop.run_in_executor(ws_dispatch_pool, server._dispatch, msg), "
         "the handler ran, which means the re-check is missing or broken"
     )
 
-    # The in-flight count must be back to 0 — the ``finally`` block
+    # The in-flight count must be back to 0, the ``finally`` block
     # decremented it after the early return (net-zero: incremented
     # before the try, decremented in the finally).
     assert server._ws_inflight_count == 0, (
@@ -497,7 +497,7 @@ async def test_dispatch_pre_executor_toctou_recheck_rejects_when_flag_flips_afte
         f"got {server._ws_inflight_count}"
     )
 
-    # The drain Event must be set — the ``finally`` block re-sets it
+    # The drain Event must be set, the ``finally`` block re-sets it
     # when the count drops to 0, so ``_do_cleanup`` is not blocked on
     # a dispatch that never reached the executor.
     assert server._ws_drained_event.is_set(), (

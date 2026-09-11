@@ -7,18 +7,18 @@
 //! - The ``commands::`` layer is the Tauri ``#[tauri::command]`` facade —
 //!   argument deserialization, ``require_main_window`` guards, response
 //!   envelope shaping (``{"success": bool, "error": str}``).
-//! - The ``platform::`` layer is per-OS binary dispatch — choosing
+//! - The ``platform::`` layer is per-OS binary dispatch, choosing
 //!   ``explorer.exe`` / ``open`` / ``xdg-open`` based on
 //!   ``#[cfg(target_os = ...)]``.
 //!
 //! ``platform/`` already hosts ``paths.rs`` (per-OS config-dir
-//! resolution) and ``logging.rs`` (per-OS file logging) — this module
+//! resolution) and ``logging.rs`` (per-OS file logging), this module
 //! is the natural home for per-OS file-manager dispatch.
 //!
 //! pre-flight existence check
 //!
 //! The prior implementation returned ``Ok(())`` based solely on whether
-//! ``Command::spawn()`` succeeded — it did NOT verify the path existed,
+//! ``Command::spawn()`` succeeded. It did NOT verify the path existed,
 //! did NOT wait for the child, did NOT check exit status. Triple
 //! failure mode: (a) config_dir unwritable, (b) mkdir silently failed,
 //! (c) explorer.exe spawns and shows "path not found" to the user
@@ -27,11 +27,11 @@
 //! We now pre-check ``path.exists()`` BEFORE spawning the OS binary
 //! and surface a clear error string if the path is missing. The
 //! ``spawn()`` is fire-and-forget from the CALLER's perspective (the
-//! Tauri command thread does NOT block on ``.wait()`` — file-manager
+//! Tauri command thread does NOT block on ``.wait()``, file-manager
 //! binaries self-detach and waiting would block for the lifetime of
 //! the file-manager window, which the user might keep open for hours).
 //! The spawned ``Child`` handle is moved into a tiny detached reaper
-//! thread that calls ``.wait()`` in the background — this reaps the
+//! thread that calls ``.wait()`` in the background, this reaps the
 //! zombie PID (the OS keeps the child in the process table until a
 //! parent ``wait()``s on it) without blocking the command thread.
 
@@ -43,7 +43,7 @@ use std::path::Path;
 ///
 /// pre-flight
 ///
-/// Returns ``Err`` if ``path`` does not exist — the OS binary would
+/// Returns ``Err`` if ``path`` does not exist, the OS binary would
 /// otherwise spawn and pop a "path not found" dialog to the user
 /// while the caller believed the open succeeded.
 pub(crate) fn open_path_in_file_manager(path: &Path) -> Result<(), String> {
@@ -65,12 +65,12 @@ pub(crate) fn open_path_in_file_manager(path: &Path) -> Result<(), String> {
         // process handle. If we let it drop without `wait()`, the OS
         // keeps the process entry in the kernel's process table until
         // a parent `wait()`s on it. On Windows this manifests as a
-        // handle leak (not a zombie — Windows reaps via reference
+        // handle leak (not a zombie, Windows reaps via reference
         // counting on the handle), but on POSIX it's a true zombie
         // that lingers until the host exits. Spawning a tiny reaper
         // thread that calls `wait()` ensures the child is reaped
         // promptly on ALL platforms. The thread itself is ~8 KB of
-        // stack and exits as soon as the child does — negligible cost
+        // stack and exits as soon as the child does, negligible cost
         // for a user-initiated "open logs" action.
         std::thread::spawn(move || {
             let _ = child.wait();
@@ -126,7 +126,7 @@ pub(crate) fn open_path_in_file_manager(path: &Path) -> Result<(), String> {
 /// OS binary and popping a "path not found" dialog.
 ///
 /// Extracted as a spawn-free helper so unit tests can pin the
-/// contract WITHOUT launching the OS file manager — the previous
+/// contract WITHOUT launching the OS file manager, the previous
 /// `test_open_path_accepts_existing_path` test called
 /// `open_path_in_file_manager` on the temp dir, which spawned
 /// `explorer.exe` and opened a real file-explorer window on the

@@ -58,7 +58,7 @@ export function MicrophoneListItem({
 						{mic.name}
 					</p>
 					{showDefaultBadge && (
-						// text-accent-foreground (not text-white) — --accent maps
+						// text-accent-foreground (not text-white), --accent maps
 						// to var(--primary) in every theme block, so the badge
 						// foreground must be its paired token to stay
 						// contrast-safe in light / dark / custom themes.

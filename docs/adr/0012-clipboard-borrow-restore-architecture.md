@@ -17,11 +17,11 @@ The clipboard is a shared resource. The app borrows it to deliver transcriptions
 
 This ADR defines a **clipboard borrow/restore** architecture in which:
 
-1. Every clipboard borrow is paired with a restore — no exceptions, no flags that silently disable safety.
+1. Every clipboard borrow is paired with a restore, no exceptions, no flags that silently disable safety.
 2. The snapshot captures **all** clipboard formats (text, RTF, HTML, images, file lists) on Windows and macOS; text-only on Linux (documented limitation).
-3. The restore fires **independent of the paste keystroke** — `paste_on_stop = False` does not cause data loss.
+3. The restore fires **independent of the paste keystroke**, `paste_on_stop = False` does not cause data loss.
 4. The restore runs on a **daemon thread** so the transcription pipeline's `finally` block is not delayed.
-5. The snapshot is passed as a **value parameter**, not stored as shared mutable instance state — overlapping cycles cannot clobber each other.
+5. The snapshot is passed as a **value parameter**, not stored as shared mutable instance state, overlapping cycles cannot clobber each other.
 6. Repaste reads from the **history database**, surviving app restarts.
 
 ---
@@ -32,19 +32,19 @@ These findings drive the design. Each is verified against the actual source.
 
 ### 2.1 `schedule_clipboard_clear()` is dead code
 
-`clipboard.py:812` defines `schedule_clipboard_clear()`. It is **never called from production code** — only from unit tests (`test_clipboard_coverage.py`, `test_clipboard_security.py`, `test_platform_fix_regressions.py`, `test_clipboard_win32_coverage.py`). The snapshot at `clipboard.py:714` (`self._saved_clipboard = pyperclip.paste()`) fires on every `copy()` but the captured value is orphaned and overwritten on the next `copy()`.
+`clipboard.py:812` defines `schedule_clipboard_clear()`. It is **never called from production code**, only from unit tests (`test_clipboard_coverage.py`, `test_clipboard_security.py`, `test_platform_fix_regressions.py`, `test_clipboard_win32_coverage.py`). The snapshot at `clipboard.py:714` (`self._saved_clipboard = pyperclip.paste()`) fires on every `copy()` but the captured value is orphaned and overwritten on the next `copy()`.
 
 **Consequence**: Today, transcription text lands on the clipboard and stays there indefinitely. The user's previous clipboard content is captured but never restored.
 
 ### 2.2 The existing snapshot captures plain text only
 
-`clipboard.py:714`: `self._saved_clipboard = pyperclip.paste()`. `pyperclip.paste()` returns `str` — only `CF_UNICODETEXT` (Windows), `pbpaste` plain text (macOS), or `xclip -o` default target (Linux). No image, RTF, HTML, or file-list format is captured.
+`clipboard.py:714`: `self._saved_clipboard = pyperclip.paste()`. `pyperclip.paste()` returns `str` Only `CF_UNICODETEXT` (Windows), `pbpaste` plain text (macOS), or `xclip -o` default target (Linux). No image, RTF, HTML, or file-list format is captured.
 
 ### 2.3 `copy()` actively destroys non-text formats on Windows
 
-`clipboard.py:697` calls `_win32_empty_clipboard()` before `pyperclip.copy(text)`. This is `EmptyClipboard()` — it wipes **all** formats before writing text. The comment at line 693 says this is intentional ("PLAT-006: clear rich text artifacts").
+`clipboard.py:697` calls `_win32_empty_clipboard()` before `pyperclip.copy(text)`. This is `EmptyClipboard()` It wipes **all** formats before writing text. The comment at line 693 says this is intentional ("PLAT-006: clear rich text artifacts").
 
-**Consequence**: Even if we added multi-format save, the snapshot must be captured **before** the empty, which is the current ordering — so the snapshot is salvageable. But on restore, we must write back all formats, not just text.
+**Consequence**: Even if we added multi-format save, the snapshot must be captured **before** the empty, which is the current ordering, so the snapshot is salvageable. But on restore, we must write back all formats, not just text.
 
 ### 2.4 `refresh_config()` exists but is never called
 
@@ -52,7 +52,7 @@ These findings drive the design. Each is verified against the actual source.
 
 ### 2.5 `_last_transcription` is in-memory, set by the pipeline
 
-`app.py:359` initializes `self._last_transcription = ""`. The real value is set at `dictation_pipeline.py:591`: `self._app._last_transcription = text`. It is cleared only at `app.py:1033` (after `undo_last()`). It is **not persisted** — on app restart, it resets to `""`.
+`app.py:359` initializes `self._last_transcription = ""`. The real value is set at `dictation_pipeline.py:591`: `self._app._last_transcription = text`. It is cleared only at `app.py:1033` (after `undo_last()`). It is **not persisted**: on app restart, it resets to `""`.
 
 ### 2.6 `history_db` has no `get_latest()` method
 
@@ -89,7 +89,7 @@ Existing read methods: `get_recent(limit=50)`, `search(query)`, `get_favorites()
 - Password-field detection via UI Automation `IsPassword` property (comtypes), with hardcoded fallback classes if comtypes is unavailable
 - Rich-editor detection (logging-only, not blocking)
 
-On macOS and Linux, `_is_safe_paste_target()` returns `True` immediately — no checks.
+On macOS and Linux, `_is_safe_paste_target()` returns `True` immediately: no checks.
 
 ### 2.9 The transcription pipeline runs on a background thread
 
@@ -99,7 +99,7 @@ On macOS and Linux, `_is_safe_paste_target()` returns `True` immediately — no 
 
 `config_handlers.py:121` delegates to `self.service.apply_config(validated)`. The actual mutation (lock + `setattr` + `apply_config_side_effects` + `config.save()`) happens in `service.py:apply_config()` (lines 1082–1129), **NOT** in `config_handlers.py`. The handler does not hold the lock or call `config.save()` itself. This is the single integration point for `refresh_config()`.
 
-> The earlier draft of this ADR (§8.3) pointed at `config_handlers.py:140`. That location is wrong — the wiring must be inside `service.apply_config()`, after `app.config.save()`.
+> The earlier draft of this ADR (§8.3) pointed at `config_handlers.py:140`. That location is wrong: the wiring must be inside `service.apply_config()`, after `app.config.save()`.
 
 ### 2.11 Clipboard config keys are NOT in the IPC allowlist (BLOCKER for DP7)
 
@@ -112,11 +112,11 @@ On macOS and Linux, `_is_safe_paste_target()` returns `True` immediately — no 
 
 This silently breaks the entire DP7 goal ("config flags are actually consulted"). Both keys **MUST** be added to `IPC_CONFIG_ALLOWLIST` with validators `(bool, _bool_validator)` and `(int, _make_int_validator(lo=0, hi=2000))`, and exposed in the renderer config schema so the UI can reach them. See §8.3 and §14.
 
-### 2.12 `paste_enabled` is stale — runtime `paste_on_stop` toggle is broken (BLOCKER for UX)
+### 2.12 `paste_enabled` is stale: runtime `paste_on_stop` toggle is broken (BLOCKER for UX)
 
-`clipboard.py:530` stores `self.paste_enabled = paste_enabled` **once**, at construction (`app.py:280` passes `self.config.paste_on_stop`). `refresh_config()` (lines 550–562) does **not** update `paste_enabled`. The auto-paste decision in the pipeline reads `config.paste_on_stop` directly (`dictation_pipeline.py:688`), so `apply_config` toggling the flag *does* change the pipeline branch — but `paste()` re-checks `self.paste_enabled` internally (`clipboard.py:953`, `if not self.paste_enabled: return False`).
+`clipboard.py:530` stores `self.paste_enabled = paste_enabled` **once**, at construction (`app.py:280` passes `self.config.paste_on_stop`). `refresh_config()` (lines 550–562) does **not** update `paste_enabled`. The auto-paste decision in the pipeline reads `config.paste_on_stop` directly (`dictation_pipeline.py:688`), so `apply_config` toggling the flag *does* change the pipeline branch, but `paste()` re-checks `self.paste_enabled` internally (`clipboard.py:953`, `if not self.paste_enabled: return False`).
 
-Failure mode: start with `paste_on_stop = False` (so `paste_enabled = False`), toggle auto-paste **ON** in the UI. `config.paste_on_stop` becomes `True`, the pipeline calls `paste(snapshot)` — but `paste()`'s stale `paste_enabled = False` gate returns `False` before sending the keystroke. Auto-paste silently does nothing until restart. The same stale gate also breaks **repaste** (`app.py:repaste_last` calls `clipboard.paste()`), because repaste is a manual user action that must never be coupled to the auto-paste setting.
+Failure mode: start with `paste_on_stop = False` (so `paste_enabled = False`), toggle auto-paste **ON** in the UI. `config.paste_on_stop` becomes `True`, the pipeline calls `paste(snapshot)` But `paste()`'s stale `paste_enabled = False` gate returns `False` before sending the keystroke. Auto-paste silently does nothing until restart. The same stale gate also breaks **repaste** (`app.py:repaste_last` calls `clipboard.paste()`), because repaste is a manual user action that must never be coupled to the auto-paste setting.
 
 Fix (§5.5, §5.3, §7.1, §8.3): `refresh_config()` must sync `self.paste_enabled = bool(getattr(config, "paste_on_stop", True))`, the `refresh_config()` trigger set must include `paste_on_stop`, and `paste()` must accept `force=True` so `repaste_last` bypasses the `paste_enabled` gate.
 
@@ -159,7 +159,7 @@ class ClipboardSnapshot:
 
     Captures all formats (text, RTF, HTML, image, file lists) on
     Windows and macOS. Captures text-only on Linux (X11 and Wayland)
-    due to CLI tool limitations — see §4.5 and §4.6.
+    due to CLI tool limitations: see §4.5 and §4.6.
 
     Usage:
         snap = ClipboardSnapshot.capture()
@@ -198,7 +198,7 @@ class ClipboardSnapshot:
 
 **Key design decisions:**
 - `capture()` is a classmethod returning a **new instance** (or `None`). The snapshot is a value, not stored on a manager.
-- `restore()` dispatches on `self.platform` — the platform tag is captured at creation time and travels with the snapshot. No global state.
+- `restore()` dispatches on `self.platform` The platform tag is captured at creation time and travels with the snapshot. No global state.
 - The snapshot is **immutable** (dataclass). Overlapping cycles each get their own instance.
 
 ### 4.2 Windows capture (Win32 API)
@@ -298,7 +298,7 @@ def _restore_windows(self) -> bool:
         user32.EmptyClipboard()
         for fmt, name, data in self.items:
             # CF_BITMAP (2) and metafile handles cannot be restored
-            # from raw bytes — skip them.
+            # from raw bytes: skip them.
             if fmt in (2, 3, 14):
                 continue
 
@@ -332,8 +332,8 @@ def _restore_windows(self) -> bool:
 ```
 
 **Edge cases handled:**
-- `CF_BITMAP` (2), `CF_METAFILEPICT` (3), `CF_ENHMETAFILE` (14) are GDI handles, not byte streams — skipped on restore (documented limitation; rare in practice since `CF_DIB` / `CF_DIBV5` carry the actual image bits).
-- Registered format IDs are re-obtained via `RegisterClipboardFormatW(name)` — the ID may differ from the original but the name match ensures correct rendering.
+- `CF_BITMAP` (2), `CF_METAFILEPICT` (3), `CF_ENHMETAFILE` (14) are GDI handles, not byte streams, skipped on restore (documented limitation; rare in practice since `CF_DIB` / `CF_DIBV5` carry the actual image bits).
+- Registered format IDs are re-obtained via `RegisterClipboardFormatW(name)` The ID may differ from the original but the name match ensures correct rendering.
 - `SetClipboardData` ownership transfer: if it fails, we free the handle to avoid leaks.
 
 ### 4.4 macOS capture and restore (NSPasteboard)
@@ -404,7 +404,7 @@ def _restore_macos(self) -> bool:
 **Formats captured on macOS** (NSPasteboard handles all automatically):
 `public.utf8-plain-text`, `public.utf16-plain-text`, `public.rtf`, `public.html`, `public.png`, `public.tiff`, `public.jpeg`, `public.file-url`, `NSFilenamesPboardType`, `public.url`, `public.url-name`, and any custom type the source app wrote.
 
-### 4.5 Linux X11 capture and restore (text-only — documented limitation)
+### 4.5 Linux X11 capture and restore (text-only, documented limitation)
 
 ```python
 @classmethod
@@ -470,7 +470,7 @@ def _restore_x11(self) -> bool:
 
 **Why text-only on X11**: `xclip` can only offer one target per clipboard selection. There is no CLI way to atomically set multiple targets (text + image + files). A full multi-format X11 implementation requires `Gtk.Clipboard.set_can_store()` via PyGObject, which would add a `pygobject` dependency. The project currently does not depend on PyGObject; adding it for a marginal X11 use case is not justified. This limitation is documented in §11.
 
-### 4.6 Linux Wayland capture and restore (text-only — documented limitation)
+### 4.6 Linux Wayland capture and restore (text-only, documented limitation)
 
 ```python
 @classmethod
@@ -563,7 +563,7 @@ def capture(cls) -> "ClipboardSnapshot | None":
 
 **Dispatch guarantees:**
 - The platform tag is set at capture time and stored in `self.platform`.
-- `restore()` branches on `self.platform` — no re-detection needed, no global state.
+- `restore()` branches on `self.platform` No re-detection needed, no global state.
 - If capture returns `None` (failure), the caller skips restore (see §5.2).
 
 ---
@@ -588,7 +588,7 @@ def capture(cls) -> "ClipboardSnapshot | None":
 | 540 | `self._last_copied_text: str = ""` | Used at lines 915/919/920 for seq-mismatch re-copy |
 | 548 | `self._clipboard_save_restore_enabled: bool = True` | Now actually consulted (see §5.2) |
 
-### 5.2 Revised `copy()` — returns snapshot instead of storing it
+### 5.2 Revised `copy()` Returns snapshot instead of storing it
 
 ```python
 def copy(self, text: str) -> "ClipboardSnapshot | None":
@@ -610,11 +610,11 @@ def copy(self, text: str) -> "ClipboardSnapshot | None":
     if not text:
         return None
 
-    # ① SNAPSHOT (gated by config flag — DP7)
+    # ① SNAPSHOT (gated by config flag, DP7)
     snapshot: ClipboardSnapshot | None = None
     if self._clipboard_save_restore_enabled:
         snapshot = ClipboardSnapshot.capture()
-        # snapshot may be None if capture failed — that's OK, we
+        # snapshot may be None if capture failed, that's OK, we
         # just won't restore. Log for debugging.
         if snapshot is None:
             log.debug("[CLIPBOARD] Snapshot capture returned None (clipboard locked or empty)")
@@ -669,15 +669,15 @@ def copy(self, text: str) -> "ClipboardSnapshot | None":
 
 **Key changes from current `copy()`:**
 - Returns `ClipboardSnapshot | None` instead of `bool`.
-- Snapshot is gated on `self._clipboard_save_restore_enabled` (DP7 — the flag is now actually consulted).
-- On copy failure, raises `ClipboardCopyError` after immediately restoring the snapshot (defensive — don't leave clipboard torn; the caller handles crash recovery).
+- Snapshot is gated on `self._clipboard_save_restore_enabled` (DP7: the flag is now actually consulted).
+- On copy failure, raises `ClipboardCopyError` after immediately restoring the snapshot (defensive, don't leave clipboard torn; the caller handles crash recovery).
 - `_saved_clipboard` attribute is gone; the snapshot travels as a return value (DP4).
 
 > `ClipboardCopyError` is a new exception defined in `clipboard.py` (subclass of `RuntimeError`), used so `_copy_and_paste` can distinguish "copy failed" from "save/restore disabled" via the return type / exception rather than reading private state (see §6.1).
 >
-> **Import requirement**: because `dictation_pipeline.py` (§6.1) and `app.py` (§7.1) `except ClipboardCopyError`, both modules must import it: `from voice_typer.server.clipboard import ClipboardCopyError`. Add this to the existing clipboard import in each file (do **not** create a circular import — `clipboard.py` must not import from `dictation_pipeline`/`app`).
+> **Import requirement**: because `dictation_pipeline.py` (§6.1) and `app.py` (§7.1) `except ClipboardCopyError`, both modules must import it: `from voice_typer.server.clipboard import ClipboardCopyError`. Add this to the existing clipboard import in each file (do **not** create a circular import, `clipboard.py` must not import from `dictation_pipeline`/`app`).
 
-### 5.3 Revised `paste()` — accepts snapshot, spawns restore thread
+### 5.3 Revised `paste()` Accepts snapshot, spawns restore thread
 
 ```python
 def paste(
@@ -690,17 +690,17 @@ def paste(
     """Send a paste keystroke into the focused window.
 
     If a snapshot is provided, a delayed restore is ALWAYS scheduled on
-    a daemon thread (DP3) — even when the keystroke is later skipped
+    a daemon thread (DP3): even when the keystroke is later skipped
     (pynput missing, rate-limited, paste disabled, unsafe target). This
     guarantees the clipboard borrow is always paired with a restore
     (DP1/DP2), so the user's original clipboard is never orphaned.
 
     `force=True` bypasses the `paste_enabled` gate. Used by `repaste_last()`
-    — a manual user action that must never be coupled to the auto-paste
+ A manual user action that must never be coupled to the auto-paste
     (`paste_on_stop`) setting. See §2.12.
 
     The snapshot and the expected pasted text are passed as value
-    parameters — no instance state is read or written for the snapshot
+    parameters: no instance state is read or written for the snapshot
     or the restore guard (DP4). This makes overlapping cycles safe:
     cycle B's copy() cannot corrupt cycle A's restore, because every
     cycle carries its own expected text. The transcription thread is
@@ -725,7 +725,7 @@ def paste(
     self._release_stuck_modifiers()
 
     if _Controller is None and not is_windows():
-        log.warning("[CLIPBOARD] pynput unavailable — cannot paste")
+        log.warning("[CLIPBOARD] pynput unavailable: cannot paste")
         return False
 
     # PLAT-CLIPRACE: seq-mismatch recovery (existing lines 906–930)
@@ -752,7 +752,7 @@ def paste(
         return False
 
     if not self._is_safe_paste_target():
-        log.warning("[CLIPBOARD] paste blocked — unsafe target")
+        log.warning("[CLIPBOARD] paste blocked: unsafe target")
         return False
 
     time.sleep(paste_delay)
@@ -810,7 +810,7 @@ def _delayed_restore(
             )
         else:
             log.debug(
-                "[CLIPBOARD-AUDIT] Restore skipped — clipboard changed (current=%d chars, expected=%d chars)",
+                "[CLIPBOARD-AUDIT] Restore skipped: clipboard changed (current=%d chars, expected=%d chars)",
                 len(current) if current else 0,
                 len(pasted_text),
             )
@@ -821,11 +821,11 @@ def _delayed_restore(
 **Key changes from current `paste()`:**
 - Accepts `snapshot`, `restore_delay`, and `pasted_text` as parameters (DP4). `pasted_text` is the expected clipboard content after copy, passed as a value so overlapping cycles stay isolated.
 - **Restore is scheduled at the top of `paste()`, before any early return** (DP1/DP2). This was the data-loss hole: previously, early returns (pynput missing, rate-limited, `paste_enabled` False, unsafe target) fired before the restore block, orphaning the snapshot and destroying the user's original clipboard. Now every borrow is paired with a restore.
-- Restore runs on a **daemon thread** (DP3) — the transcription thread is never blocked.
-- The defensive check (`current == pasted_text`) is kept — it's free insurance against the target app rewriting the clipboard (terminals normalizing line endings, IDEs reformatting on paste). With `pasted_text` passed as a value, this guard is correct even under overlapping cycles.
-- `self._restore_delay_ms` is actually used (DP7 — the config field is now read).
+- Restore runs on a **daemon thread** (DP3). The transcription thread is never blocked.
+- The defensive check (`current == pasted_text`) is kept: it's free insurance against the target app rewriting the clipboard (terminals normalizing line endings, IDEs reformatting on paste). With `pasted_text` passed as a value, this guard is correct even under overlapping cycles.
+- `self._restore_delay_ms` is actually used (DP7: the config field is now read).
 
-### 5.4 New `restore_now()` — for the `paste_on_stop = False` case
+### 5.4 New `restore_now()` For the `paste_on_stop = False` case
 
 ```python
 def restore_now(self, snapshot: "ClipboardSnapshot | None") -> None:
@@ -847,9 +847,9 @@ def restore_now(self, snapshot: "ClipboardSnapshot | None") -> None:
 
 **Why this exists**: When `paste_on_stop = False`, the pipeline calls `copy()` (which borrows the clipboard) but never calls `paste()`. Without `restore_now()`, the snapshot would be orphaned and the user's original content lost. `restore_now()` closes that gap (DP2).
 
-**Behavioral note**: This means `paste_on_stop = False` no longer leaves the transcription on the clipboard. The transcription is saved to the DB (§6) and accessible via the repaste hotkey (§7). This is a deliberate behavioral change — see §9.2 for rationale.
+**Behavioral note**: This means `paste_on_stop = False` no longer leaves the transcription on the clipboard. The transcription is saved to the DB (§6) and accessible via the repaste hotkey (§7). This is a deliberate behavioral change, see §9.2 for rationale.
 
-### 5.5 Revised `refresh_config()` — now actually called
+### 5.5 Revised `refresh_config()` Now actually called
 
 ```python
 def refresh_config(self, config) -> None:
@@ -898,17 +898,17 @@ def __init__(self, paste_enabled: bool = True):
     self._last_copied_text: str = ""
 
     # REMOVED: self._clear_thread, self._saved_clipboard
-    # (dead code — see §5.1)
+    # (dead code: see §5.1)
 
     self._clipboard_save_restore_enabled: bool = True
-    self._restore_delay_ms: int = 150  # NEW — actually used in paste()
+    self._restore_delay_ms: int = 150  # NEW, actually used in paste()
 ```
 
 ---
 
 ## 6. Architecture: `dictation_pipeline.py` changes
 
-### 6.1 Revised `_copy_and_paste()` — snapshot/restore is explicit
+### 6.1 Revised `_copy_and_paste()` Snapshot/restore is explicit
 
 ```python
 def _copy_and_paste(self, text: str) -> None:
@@ -924,11 +924,11 @@ def _copy_and_paste(self, text: str) -> None:
     """
     # ── OPTIMIZATION (§9.2): if paste_on_stop is OFF and save/restore is
     #    ON, we would copy the transcription and instantly restore the
-    #    user's clipboard — a redundant clipboard lock round-trip (and its
+    #    user's clipboard: a redundant clipboard lock round-trip (and its
     #    error surface) for zero benefit. Skip the clipboard entirely; the
     #    transcription is already persisted to the DB by _store_result()
     #    and reachable via the repaste hotkey. We only skip the clipboard
-    #    borrow here — the UI teardown below (bubble/tray/timer) still runs.
+    #    borrow here: the UI teardown below (bubble/tray/timer) still runs.
     skip_clipboard = not self._app.config.paste_on_stop and self._app.config.clipboard_save_restore
 
     pasted = False
@@ -943,22 +943,22 @@ def _copy_and_paste(self, text: str) -> None:
             # ... existing crash-recovery path (lines 630–665) ...
             return
 
-        # ② PASTE (if enabled) — paste() schedules the restore thread
+        # ② PASTE (if enabled): paste() schedules the restore thread
         if self._app.config.paste_on_stop:
             pasted = self._app.clipboard.paste(snapshot, pasted_text=text)
         else:
             # paste_on_stop is False + save/restore OFF: leave the
             # transcription on the clipboard for the user to paste manually
             # (legacy behavior). copy() returned None (no snapshot captured),
-            # so there is nothing to restore — the user's original content
+            # so there is nothing to restore, the user's original content
             # was never captured.
             log.info(
-                "[CLIPBOARD-AUDIT] paste_on_stop=False + save/restore off — "
+                "[CLIPBOARD-AUDIT] paste_on_stop=False + save/restore off, "
                 "transcription left on clipboard for manual paste"
             )
     else:
         log.info(
-            "[CLIPBOARD-AUDIT] paste_on_stop=False + save/restore on — "
+            "[CLIPBOARD-AUDIT] paste_on_stop=False + save/restore on, "
             "clipboard untouched; transcription persisted to DB"
         )
 
@@ -979,13 +979,13 @@ def _copy_and_paste(self, text: str) -> None:
 ```
 
 **Key changes:**
-- `copy()` return value is captured as `snapshot` (DP4 — value parameter, not instance state); genuine copy failure now raises `ClipboardCopyError` instead of reading the private `_clipboard_save_restore_enabled` flag.
-- `paste(snapshot, pasted_text=text)` receives the snapshot and the expected pasted text as values (DP4 — fixes overlapping-cycle restore clobbering).
-- **`paste_on_stop = False` + `clipboard_save_restore = True` skips the clipboard entirely** (OPTIMIZATION, §9.2). There is no borrow to restore — the transcription goes to the DB only and the user's clipboard is never touched. This is the fix for the critical data-loss bug (DP2) without the redundant copy-then-restore round-trip.
+- `copy()` return value is captured as `snapshot` (DP4: value parameter, not instance state); genuine copy failure now raises `ClipboardCopyError` instead of reading the private `_clipboard_save_restore_enabled` flag.
+- `paste(snapshot, pasted_text=text)` receives the snapshot and the expected pasted text as values (DP4, fixes overlapping-cycle restore clobbering).
+- **`paste_on_stop = False` + `clipboard_save_restore = True` skips the clipboard entirely** (OPTIMIZATION, §9.2). There is no borrow to restore. The transcription goes to the DB only and the user's clipboard is never touched. This is the fix for the critical data-loss bug (DP2) without the redundant copy-then-restore round-trip.
 - **`paste_on_stop = False` + `clipboard_save_restore = False`** leaves the transcription on the clipboard for manual paste (legacy behavior); `copy()` returns `None` so no restore is scheduled.
 - Status string is three-way: `"(pasted)"` / `"(in DB, use repaste hotkey)"` (skip case) / `"(in clipboard)"` (legacy off+off case).
 
-### 6.2 `flush()` after `add_transcription()` — guarantee DB commit
+### 6.2 `flush()` after `add_transcription()` Guarantee DB commit
 
 In `_store_result()` (Step 8), after `add_transcription()`:
 
@@ -1012,13 +1012,13 @@ def _store_result(self, text: str) -> None:
     # ... existing IPC push event ...
 ```
 
-**Why `flush()` is safe to call here**: `flush()` enqueues a no-op write with `wait=True` and blocks on its future. The writer thread is daemon, FIFO, and single-threaded — no deadlock risk. The block duration is bounded by the time to write one row to SQLite WAL (~1–5ms typical). This is acceptable on the transcription thread (which is already blocking on transcription itself).
+**Why `flush()` is safe to call here**: `flush()` enqueues a no-op write with `wait=True` and blocks on its future. The writer thread is daemon, FIFO, and single-threaded, no deadlock risk. The block duration is bounded by the time to write one row to SQLite WAL (~1–5ms typical). This is acceptable on the transcription thread (which is already blocking on transcription itself).
 
 ---
 
 ## 7. Architecture: `app.py` repaste changes
 
-### 7.1 Revised `repaste_last()` — reads from DB, uses snapshot/restore
+### 7.1 Revised `repaste_last()` Reads from DB, uses snapshot/restore
 
 Replace `app.py:966–1003`:
 
@@ -1031,7 +1031,7 @@ def repaste_last(self) -> None:
     auto-paste so the user's clipboard is preserved.
 
     Fallback chain:
-      1. history_db.get_latest_text()  (primary — survives restart)
+      1. history_db.get_latest_text()  (primary: survives restart)
       2. self._last_transcription       (fallback if DB read fails)
       3. "No previous transcription" toast (both empty)
     """
@@ -1064,7 +1064,7 @@ def repaste_last(self) -> None:
     # ③ PASTE (keystroke + delayed restore scheduled inside paste())
     # paste() schedules the restore of the user's ORIGINAL clipboard at
     # its top, before any early return (DP1). It returns False (does not
-    # raise) when the keystroke is skipped/blocked/rate-limited — and the
+    # raise) when the keystroke is skipped/blocked/rate-limited, and the
     # restore is still scheduled. We therefore do NOT call restore_now()
     # here: that would be redundant and would remove the transcription
     # from the clipboard. The transcription is safely stored in the DB.
@@ -1088,11 +1088,11 @@ def repaste_last(self) -> None:
 - Reads from `history_db.get_latest_text()` (primary) with `_last_transcription` fallback (§7.2).
 - `copy()` return value is captured as `snapshot`; genuine copy failure raises `ClipboardCopyError` (no private-flag read).
 - `paste(snapshot, pasted_text=text)` receives the snapshot and the expected text as values (DP4).
-- Restore of the user's original clipboard is handled inside `paste()` (scheduled before any early return, DP1) — it is NOT re-done here. On a skipped/blocked paste the transcription stays in the DB; the user re-triggers repaste rather than pressing Ctrl+V (the transcription is no longer on the clipboard).
+- Restore of the user's original clipboard is handled inside `paste()` (scheduled before any early return, DP1). It is NOT re-done here. On a skipped/blocked paste the transcription stays in the DB; the user re-triggers repaste rather than pressing Ctrl+V (the transcription is no longer on the clipboard).
 
-### 7.2 `_last_transcription` — kept for undo, no longer primary source for repaste
+### 7.2 `_last_transcription` Kept for undo, no longer primary source for repaste
 
-`_last_transcription` is **not removed** — it's still used by `undo_last()` (lines 1005–1038) to know what to undo. But repaste no longer depends on it; the DB is the primary source.
+`_last_transcription` is **not removed**: it's still used by `undo_last()` (lines 1005–1038) to know what to undo. But repaste no longer depends on it; the DB is the primary source.
 
 | Field | Set by | Read by | Cleared by |
 |---|---|---|---|
@@ -1137,7 +1137,7 @@ def get_latest_text(self) -> str:
 ```python
 # config.py
 
-# REMOVE (dead — was only read by the now-deleted schedule_clipboard_clear):
+# REMOVE (dead: was only read by the now-deleted schedule_clipboard_clear):
 # clipboard_clear_delay_seconds: int = 5
 
 # KEEP (now actually consulted in clipboard.py:5.2):
@@ -1159,14 +1159,14 @@ refresh_config() when the user changes settings.
 
 ### 8.3 Wire `refresh_config()` into `service.apply_config()` AND add allowlist entries
 
-Two changes are required — **both**, not just one. Skipping (a) makes the runtime-setting path dead; skipping (b) means `refresh_config()` never fires.
+Two changes are required: **both**, not just one. Skipping (a) makes the runtime-setting path dead; skipping (b) means `refresh_config()` never fires.
 
 **(a) Add the clipboard keys to `IPC_CONFIG_ALLOWLIST` (`config_validators.py`).**
 
 This is the blocker from §2.11. Without it, `validate_config_update()` drops the keys and the rest of the wiring is moot.
 
 ```python
-# config_validators.py — inside IPC_CONFIG_ALLOWLIST
+# config_validators.py: inside IPC_CONFIG_ALLOWLIST
 "clipboard_save_restore":      (bool, _bool_validator),
 "clipboard_restore_delay_ms":  (int, _make_int_validator(lo=0, hi=2000)),
 ```
@@ -1200,26 +1200,26 @@ if clipboard_keys & set(updates.keys()):
 
 | Behavior | Status |
 |---|---|
-| `paste_on_stop = True` (default): transcription auto-pasted, clipboard restored | Unchanged from current intent (but now actually works — current code never restores) |
+| `paste_on_stop = True` (default): transcription auto-pasted, clipboard restored | Unchanged from current intent (but now actually works, current code never restores) |
 | Repaste hotkey (Ctrl+Alt+V): pastes last transcription | Unchanged, but now reads from DB instead of memory |
 | Undo (in `undo_last()`): backspaces over last transcription | Unchanged (still uses `_last_transcription`) |
 | Windows safety checks (UAC, password fields, elevated targets) | Unchanged (existing `_is_safe_paste_target()` logic) |
 | History page: browse/search/copy old transcriptions | Unchanged |
 
-### 9.2 What changes — `paste_on_stop = False` behavior
+### 9.2 What changes: `paste_on_stop = False` behavior
 
 **Before**: Transcription is copied to the clipboard and stays there. User's original clipboard content is lost. User pastes manually with Ctrl+V.
 
 **After** (`paste_on_stop = False` + `clipboard_save_restore = True`, the default-off combination):
-The clipboard is **never touched**. The transcription is persisted to the DB only (via `_store_result()`) and is accessible via the repaste hotkey. The user's original clipboard content is untouched — no borrow, no restore. This is strictly better than the earlier "copy-then-restore" draft (§6.1 OPTIMIZATION): it removes a redundant clipboard lock round-trip and its error surface.
+The clipboard is **never touched**. The transcription is persisted to the DB only (via `_store_result()`) and is accessible via the repaste hotkey. The user's original clipboard content is untouched, no borrow, no restore. This is strictly better than the earlier "copy-then-restore" draft (§6.1 OPTIMIZATION): it removes a redundant clipboard lock round-trip and its error surface.
 
-**After** (`paste_on_stop = False` + `clipboard_save_restore = False`): legacy behavior — the transcription is copied to the clipboard for the user to paste manually; no snapshot is captured, so nothing is restored.
+**After** (`paste_on_stop = False` + `clipboard_save_restore = False`): legacy behavior. The transcription is copied to the clipboard for the user to paste manually; no snapshot is captured, so nothing is restored.
 
-**Rationale**: This is the fix for the critical data-loss bug (DP2). The old behavior was inconsistent — `paste_on_stop = True` would (in the new design) restore the clipboard, but `paste_on_stop = False` would not. The new behavior is consistent: **the clipboard is always restored, or never borrowed**. Users who disable auto-paste because they want to paste manually should use the repaste hotkey (Ctrl+Alt+V) instead — it pastes the latest transcription without destroying the clipboard.
+**Rationale**: This is the fix for the critical data-loss bug (DP2). The old behavior was inconsistent, `paste_on_stop = True` would (in the new design) restore the clipboard, but `paste_on_stop = False` would not. The new behavior is consistent: **the clipboard is always restored, or never borrowed**. Users who disable auto-paste because they want to paste manually should use the repaste hotkey (Ctrl+Alt+V) instead. It pastes the latest transcription without destroying the clipboard.
 
 **Migration note**: This is a behavioral change that affects users who currently rely on `paste_on_stop = False` leaving the transcription on the clipboard. Document this in the changelog and the settings UI tooltip: *"When off, transcriptions are saved to history but not auto-pasted. Use the repaste hotkey to paste the last transcription."*
 
-### 9.3 What changes — repaste after app restart
+### 9.3 What changes: repaste after app restart
 
 **Before**: Repaste hotkey does nothing after restart (`_last_transcription` is `""`).
 
@@ -1231,7 +1231,7 @@ The clipboard is **never touched**. The transcription is persisted to the DB onl
 
 For a subsystem whose failure mode is **clipboard data loss**, tests are mandatory. The strategy has three tiers.
 
-### 10.1 Unit tests — format round-trips (per platform)
+### 10.1 Unit tests: format round-trips (per platform)
 
 **File**: `tests/test_clipboard_snapshot.py` (new)
 
@@ -1334,7 +1334,7 @@ class TestClipboardSnapshotLinux:
         # ... set image, capture, restore, verify image is gone ...
 ```
 
-### 10.2 Integration tests — borrow/restore cycle
+### 10.2 Integration tests: borrow/restore cycle
 
 **File**: `tests/test_clipboard_borrow_restore.py` (new)
 
@@ -1347,7 +1347,7 @@ class TestCopyPasteRestoreCycle:
         cm = ClipboardManager(paste_enabled=True)
         pyperclip.copy("user's URL")
         cm.copy("transcription text")
-        # paste() would send keystrokes — mock the keystroke sender
+        # paste() would send keystrokes: mock the keystroke sender
         with patch.object(cm, "_send_ctrl_v_win32"):
             cm.paste(snapshot=cm._last_snapshot)  # or however we wire it
         # Wait for restore thread
@@ -1427,7 +1427,7 @@ class TestCopyPasteRestoreCycle:
         pyperclip.copy("user's phone number")
         # Wait for restore thread
         time.sleep(0.3)
-        # Restore was skipped — phone number is still on clipboard
+        # Restore was skipped: phone number is still on clipboard
         assert pyperclip.paste() == "user's phone number"
 
 
@@ -1474,7 +1474,7 @@ class TestRepasteFromDB:
                 assert "No previous transcription" in mock_notify.call_args[0][1]
 ```
 
-### 10.3 Regression tests — existing behavior preserved
+### 10.3 Regression tests: existing behavior preserved
 
 **File**: `tests/test_clipboard_regression.py` (new)
 
@@ -1569,7 +1569,7 @@ class TestExistingBehaviorPreserved:
 
 These limitations are **documented and intentional**, not bugs.
 
-### 11.1 Linux X11 — text-only snapshot/restore
+### 11.1 Linux X11: text-only snapshot/restore
 
 `xclip` can only hold one target per clipboard selection. There is no CLI way to atomically set multiple targets (text + image + files). A full multi-format X11 implementation requires `Gtk.Clipboard.set_can_store()` via PyGObject, which would add a `pygobject` dependency. The project does not currently depend on PyGobject.
 
@@ -1577,15 +1577,15 @@ These limitations are **documented and intentional**, not bugs.
 
 **Workaround**: Users who need image clipboard preservation on X11 should use Wayland, macOS, or Windows.
 
-### 11.2 Linux Wayland — text-only snapshot/restore
+### 11.2 Linux Wayland: text-only snapshot/restore
 
 `wl-copy --type T1 --type T2` reads **one** stdin stream and serves it for **all** types. To restore an image alongside text, each type would need its own data source, which `wl-copy` does not support via CLI. A full multi-format Wayland implementation requires a custom `wl_data_source` client using `libwayland-client`, which is out of scope.
 
-**Impact**: Same as X11 — images and file lists are not preserved on Wayland. Text is preserved.
+**Impact**: Same as X11, images and file lists are not preserved on Wayland. Text is preserved.
 
-### 11.3 Windows — `CF_BITMAP`, `CF_METAFILEPICT`, `CF_ENHMETAFILE` not restored
+### 11.3 Windows: `CF_BITMAP`, `CF_METAFILEPICT`, `CF_ENHMETAFILE` not restored
 
-These formats are GDI handles, not byte streams. They cannot be round-tripped through `GlobalAlloc` + `memmove`. The bitmap **data** is preserved via `CF_DIB` and `CF_DIBV5` (which are byte streams), so images are not lost — only the GDI handle wrappers are.
+These formats are GDI handles, not byte streams. They cannot be round-tripped through `GlobalAlloc` + `memmove`. The bitmap **data** is preserved via `CF_DIB` and `CF_DIBV5` (which are byte streams), so images are not lost, only the GDI handle wrappers are.
 
 **Impact**: Negligible. Apps that paste bitmaps read `CF_DIB` / `CF_DIBV5`, not `CF_BITMAP` directly.
 
@@ -1593,11 +1593,11 @@ These formats are GDI handles, not byte streams. They cannot be round-tripped th
 
 See §9.2. This is a deliberate behavioral change to prevent data loss. Users who relied on the old behavior should use the repaste hotkey.
 
-### 11.5 Problem 3 (auto-paste into wrong window) — user responsibility
+### 11.5 Problem 3 (auto-paste into wrong window), user responsibility
 
 The existing `_is_safe_paste_target()` blocks the worst cases (UAC prompts, password fields, elevated targets) on Windows. Pasting into a normal but unintended app (user alt-tabbed during recording) is **not** blocked and is the user's responsibility. Documented in the README.
 
-### 11.6 Problem 8 (no clipboard history on some systems) — partially solved
+### 11.6 Problem 8 (no clipboard history on some systems), partially solved
 
 The History page in the app UI allows manual copy of old transcriptions. A Paste Palette (Windows+V-like popup for transcriptions) was considered and rejected to avoid adding a third hotkey. Users without OS clipboard history can use the History page.
 
@@ -1621,7 +1621,7 @@ These are low-severity and intentionally left as-is:
 | **`dictation_pipeline.py`** | (c) Import `ClipboardCopyError` from `clipboard` (for §6.1). | import line | 0.0 day |
 | **`app.py`** | (b) Import `ClipboardCopyError` from `clipboard` (for §7.1). | import line | 0.0 day |
 | **`app.py`** | Replace `repaste_last()` body (lines 966–1003) with DB-reading version. | ~966–1003 | 0.25 day |
-| **`config.py`** | (a) Remove `clipboard_clear_delay_seconds` (line 594). (b) Add `clipboard_restore_delay_ms: int = 150`. (`clipboard_save_restore` already exists at line 595 — keep.) | ~594, new field | 0.1 day |
+| **`config.py`** | (a) Remove `clipboard_clear_delay_seconds` (line 594). (b) Add `clipboard_restore_delay_ms: int = 150`. (`clipboard_save_restore` already exists at line 595, keep.) | ~594, new field | 0.1 day |
 | **`config_validators.py`** | Add `clipboard_save_restore` and `clipboard_restore_delay_ms` to `IPC_CONFIG_ALLOWLIST` (lines 466–544) with validators. Expose in renderer config schema. | ~466 | 0.1 day |
 | **`service.py`** | Call `clipboard.refresh_config()` inside `apply_config()` after `config.save()` (line 1122), inside the lock. | ~1122 | 0.1 day |
 | **Tests** | New: `test_clipboard_snapshot.py`, `test_clipboard_borrow_restore.py`, `test_clipboard_regression.py`. | ~600 lines total | 1.5 days |
@@ -1656,7 +1656,7 @@ Each phase is independently shippable. Phase 1+2 solves the critical data-loss b
 
 ### Phase 4: Config wiring (0.25 day)
 - Add `clipboard_restore_delay_ms` to `config.py` (remove `clipboard_clear_delay_seconds`).
-- **Add `clipboard_save_restore` and `clipboard_restore_delay_ms` to `IPC_CONFIG_ALLOWLIST` in `config_validators.py`** (required — see §2.11).
+- **Add `clipboard_save_restore` and `clipboard_restore_delay_ms` to `IPC_CONFIG_ALLOWLIST` in `config_validators.py`** (required, see §2.11).
 - Expose both keys in the renderer config schema.
 - Call `clipboard.refresh_config()` inside `service.apply_config()` (after `config.save()`, in-lock).
 - **Deliverable**: Config changes take effect without restart (and the Settings UI can actually reach the keys).
@@ -1691,21 +1691,21 @@ Before merging, verify every item:
 - [ ] `clipboard_restore_delay_ms = 250`: restore fires after 250ms, not 150ms.
 - [ ] `clipboard_save_restore` and `clipboard_restore_delay_ms` are present in `IPC_CONFIG_ALLOWLIST` (`config_validators.py`).
 - [ ] Setting either clipboard key from the UI reaches `service.apply_config()` (not silently dropped by `validate_config_update()`).
-- [ ] Toggling auto-paste (`paste_on_stop`) in Settings updates `ClipboardManager.paste_enabled` via `refresh_config()` — auto-paste and repaste work immediately without restart (§2.12).
+- [ ] Toggling auto-paste (`paste_on_stop`) in Settings updates `ClipboardManager.paste_enabled` via `refresh_config()`, auto-paste and repaste work immediately without restart (§2.12).
 - [ ] Repaste hotkey works even when auto-paste (`paste_on_stop`) is OFF (`paste(force=True)` bypasses the `paste_enabled` gate).
 - [ ] `paste_on_stop = False` + `clipboard_save_restore = True`: pipeline skips the clipboard entirely; transcription is only in the DB (no redundant copy/restore cycle).
 - [ ] Changing `clipboard_restore_delay_ms` in Settings takes effect without restart.
 - [ ] Changing `clipboard_save_restore` in Settings takes effect without restart.
 - [ ] `history_db.get_latest_text()` orders by `id DESC` (not `timestamp DESC`) so same-second transcriptions return the true latest.
 - [ ] Renderer config schema (Settings UI) exposes `clipboard_save_restore` and `clipboard_restore_delay_ms` so the user can actually change them (§8.3a). Without this, the IPC allowlist entries are unreachable from the UI.
-- [ ] Accepted residual risk: tiny crash window between `copy()` returning and `paste()` scheduling the restore (no clipboard-mutating code runs between them; effectively unreachable — §11.7).
-- [ ] Accepted residual risk: `_delayed_restore()` skips restore if the clipboard is locked at restore time (best-effort, same as current code — §11.7).
+- [ ] Accepted residual risk: tiny crash window between `copy()` returning and `paste()` scheduling the restore (no clipboard-mutating code runs between them; effectively unreachable, §11.7).
+- [ ] Accepted residual risk: `_delayed_restore()` skips restore if the clipboard is locked at restore time (best-effort, same as current code, §11.7).
 - [ ] Repaste hotkey works after app restart (reads from DB).
 - [ ] Repaste hotkey falls back to `_last_transcription` if DB read throws.
 - [ ] Repaste hotkey shows "No previous transcription" if DB is empty.
 - [ ] Two rapid copy/paste cycles do not clobber each other's snapshots.
 - [ ] Restore is skipped if user copies something during the 150ms window.
-- [ ] Restore runs on a daemon thread — pipeline `finally` block is not delayed.
+- [ ] Restore runs on a daemon thread, pipeline `finally` block is not delayed.
 - [ ] `copy()` failure restores the snapshot immediately (defensive).
 - [ ] Repaste with `paste()` skipped/blocked: `paste()` already scheduled the restore of the user's original clipboard before the early return (DP1); no `restore_now()` re-done here, transcription stays in DB, toast instructs re-triggering repaste (not Ctrl+V).
 - [ ] Password fields still blocked (Windows).

@@ -15,12 +15,12 @@ What REMAINS in this module is the small set of schtasks wrappers
 that the autostart path (``server_platform/autostart.py`` /
 ``autostart_windows.py``) reuses:
 
-- :data:`_APP_AUTOSTART_DELAY_SECONDS` — delay the autostart launcher
+- :data:`_APP_AUTOSTART_DELAY_SECONDS`: delay the autostart launcher
   waits before spawning Electron, so the just-launched app doesn't
   contend with the still-warming worker.
-- :func:`is_supported` — True on Windows when ``schtasks.exe`` is
+- :func:`is_supported`: True on Windows when ``schtasks.exe`` is
   present (gates the autostart_windows code paths).
-- :func:`_schtasks` / :func:`_schtasks_elevated` — run
+- :func:`_schtasks` / :func:`_schtasks_elevated`, run
   ``schtasks`` non-elevated / via UAC elevation prompt (used by the
   autostart register / unregister / query / delete calls).
 """
@@ -31,7 +31,7 @@ import contextlib
 import logging
 import os
 import subprocess
-import sys  # noqa: F401  — re-exported for tests that monkeypatch task_scheduler.sys.platform
+import sys  # noqa: F401, re-exported for tests that monkeypatch task_scheduler.sys.platform
 import tempfile
 from pathlib import Path
 
@@ -117,7 +117,7 @@ def _schtasks_elevated(args: list[str], *, timeout_ms: int = 60000) -> tuple[int
     # ``subprocess.list2cmdline`` (the same helper ``subprocess.Popen``
     # uses on Windows internally). The previous hand-rolled join —
     # ``" ".join(f'"{a}"' if " " in a or "&" in a else a for a in args)``
-    # — only quoted args containing a space or ``&`` and NEVER escaped
+    # , only quoted args containing a space or ``&`` and NEVER escaped
     # embedded ``"`` characters. A malicious or misconfigured arg
     # containing ``"`` could break out of the quoting and inject
     # arbitrary cmd.exe metacharacters into the ``cmd_line`` below
@@ -128,7 +128,7 @@ def _schtasks_elevated(args: list[str], *, timeout_ms: int = 60000) -> tuple[int
     # escapes embedded ``"`` as ``\\"`` so the resulting string parses
     # back to the original argv on the cmd.exe side. ``schtasks`` args
     # today are all safe (task name, /Query, /TN, etc.), but the
-    # function is a generic helper — hardening it removes a latent
+    # function is a generic helper, hardening it removes a latent
     # injection vector if a future caller passes a user-supplied arg
     # (e.g. a custom ``--trigger`` value).
     arg_str = subprocess.list2cmdline(args)
@@ -151,7 +151,7 @@ def _schtasks_elevated(args: list[str], *, timeout_ms: int = 60000) -> tuple[int
         # parity with the non-elevated ``_schtasks`` helper
         # (which logs WARNING on ``FileNotFoundError`` and ERROR on
         # ``TimeoutExpired``). The elevated path previously had ZERO
-        # log lines — a UAC-cancel or stale-temp-file failure was
+        # log lines, a UAC-cancel or stale-temp-file failure was
         # silently swallowed, leaving the caller (e.g. an autostart
         # register / unregister flow) to retry blind or give up with
         # no diagnostic trail. Each failure mode now logs at the same
@@ -167,7 +167,7 @@ def _schtasks_elevated(args: list[str], *, timeout_ms: int = 60000) -> tuple[int
 
         # Wait for the process to finish. ``WaitForSingleObject`` returns
         # WAIT_TIMEOUT (258) if the process didn't exit within
-        # ``timeout_ms`` — surface that as a warning so a hung schtasks
+        # ``timeout_ms``: surface that as a warning so a hung schtasks
         # doesn't look like a silent success.
         wait_result = ctypes.windll.kernel32.WaitForSingleObject(
             sei.hProcess,
@@ -175,9 +175,9 @@ def _schtasks_elevated(args: list[str], *, timeout_ms: int = 60000) -> tuple[int
         )
         # check both documented non-success return values.
         # ``WAIT_TIMEOUT`` (258) means the process is still running
-        # after ``timeout_ms`` — log.error so a hung schtasks is
+        # after ``timeout_ms``: log.error so a hung schtasks is
         # visible. ``WAIT_FAILED`` (0xFFFFFFFF) means the wait itself
-        # failed (e.g. ``sei.hProcess`` is invalid) — log.warning so
+        # failed (e.g. ``sei.hProcess`` is invalid), log.warning so
         # the failure is diagnosable before ``GetExitCodeProcess``
         # reads garbage. The finding's suggested ``WAIT_TIMEOUT=124``
         # is incorrect (124 is ETIMEDOUT, not a Win32 wait code); the
@@ -192,7 +192,7 @@ def _schtasks_elevated(args: list[str], *, timeout_ms: int = 60000) -> tuple[int
         elif wait_result == 0xFFFFFFFF:  # WAIT_FAILED
             log.warning(
                 "[TASK] _schtasks_elevated: WaitForSingleObject returned WAIT_FAILED "
-                "(handle invalid?) for args=%r — GetExitCodeProcess may return stale value",
+                "(handle invalid?) for args=%r. GetExitCodeProcess may return stale value",
                 args,
             )
 
@@ -200,7 +200,7 @@ def _schtasks_elevated(args: list[str], *, timeout_ms: int = 60000) -> tuple[int
         # ``GetExitCodeProcess`` returns a BOOL (nonzero on
         # success, zero on failure). The previous call discarded the
         # return value, so a failure (e.g. invalid handle) silently
-        # left ``exit_code`` at its zero-initialized value — the caller
+        # left ``exit_code`` at its zero-initialized value, the caller
         # saw ``rc=0`` (success) and treated a failed read as a
         # successful schtasks run. Now log the failure and fall
         # through with ``STILL_ACTIVE`` (259) sentinel so the caller's
@@ -219,7 +219,7 @@ def _schtasks_elevated(args: list[str], *, timeout_ms: int = 60000) -> tuple[int
         # schtasks exited 0 but produced no stdout) is logged at debug
         # so a silent-success is distinguishable from a failed read.
         # An ``OSError`` here (temp file deleted by AV, permissions,
-        # etc.) is logged at warning — same severity as the sibling
+        # etc.) is logged at warning, same severity as the sibling
         # ``_schtasks`` uses for ``FileNotFoundError``.
         output = ""
         try:
@@ -269,7 +269,7 @@ def is_supported() -> bool:
     POSIX prewarm scheduling path (macOS LaunchAgent / Linux systemd
     user timer via ``prewarm_scheduler_posix``) was deleted along
     with the prewarm binary it launched. ``is_supported`` now only
-    reports whether the Windows schtasks.exe binary exists — the
+    reports whether the Windows schtasks.exe binary exists, the
     POSIX path no longer needs a Task-Scheduler-style gate because
     the autostart code paths on POSIX use LaunchAgent / systemd
     directly (see ``server_platform/autostart_macos.py`` /

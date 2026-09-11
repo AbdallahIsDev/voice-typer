@@ -50,7 +50,7 @@ interface UseMicrophoneTestOptions {
 	/**
 	 * Force-pause the level monitor while the active microphone is
 	 * lost (``device_lost``). Passed straight through to
-	 * ``useMicrophoneLevelMonitor`` — see its ``paused`` option.
+	 * ``useMicrophoneLevelMonitor``, see its ``paused`` option.
 	 */
 	levelMonitorPaused?: boolean;
 }
@@ -114,16 +114,16 @@ export function useMicrophoneTest({
 		false,
 	);
 
-	// Cross-hook ``testRunningRef`` — owned here so the level monitor
+	// Cross-hook ``testRunningRef``, owned here so the level monitor
 	// (reads it) and the session hook (syncs it via internal effect)
 	// can both receive it without a circular declaration dependency.
 	const testRunningRef = useRef(false);
 
-	// Audio playback — created first so its ``playingRef`` is available
+	// Audio playback, created first so its ``playingRef`` is available
 	// to the level monitor below.
 	const playback = useMicrophonePlayback();
 
-	// Level/peak monitoring — created before the session hook so the
+	// Level/peak monitoring, created before the session hook so the
 	// session can receive the level monitor's stable ``useState``
 	// setters. The level monitor reads ``playingRef`` (playback) and
 	// ``testRunningRef`` (composition-owned, synced by the session).
@@ -132,7 +132,7 @@ export function useMicrophoneTest({
 	// triggering parent re-renders at 30 Hz.
 	// Level-monitor consent refusal (a race: consent revoked between the
 	// renderer gate and the IPC) opens the unified point-of-use consent
-	// dialog — Allow → persists the consent → restarts the level
+	// dialog, Allow → persists the consent → restarts the level
 	// monitor; "Open Settings" deep-links to the exact toggle (the
 	// dialog's built-in secondary action, replacing the old snackbar).
 	const handleLevelMonitorConsentRequired = useCallback(
@@ -161,7 +161,7 @@ export function useMicrophoneTest({
 		onConsentRequired: handleLevelMonitorConsentRequired,
 	});
 
-	// Test-session state machine — receives the level monitor's
+	// Test-session state machine, receives the level monitor's
 	// setters (meter resets), the playback hook's ``stopPlayback``
 	// (pause any playing audio when a new test starts), and the
 	// composition-owned ``testRunningRef`` (synced via an internal
@@ -182,7 +182,7 @@ export function useMicrophoneTest({
 		selectMicrophoneRef,
 	});
 
-	// Trivial UI handlers — pure pass-throughs to ``updateConfig``.
+	// Trivial UI handlers, pure pass-throughs to ``updateConfig``.
 	const handlePresetChange = useCallback(
 		(preset: AudioPreset) => {
 			// ADR 0007: backend applies preset → filter mapping.

@@ -1,8 +1,8 @@
-# ONNX Runtime Migration — Technical Reference
+# ONNX Runtime Migration: Technical Reference
 
 > **Status:** Rewritten 2026-08-13 after a 15-agent deep investigation of the
 > voice-typer codebase. Supersedes the earlier "OnnxParakeet Integration Plan"
-> which proposed adding a parallel `onnx-parakeet` backend — that architecture
+> which proposed adding a parallel `onnx-parakeet` backend: that architecture
 > is **obsolete**. The user-approved decision (2026-08-12, see
 > `plan-runtime-pack-split.md`) is to **convert the three existing engines in
 > place** (VAD, Parakeet, Qwen) and remove torch project-wide.
@@ -14,12 +14,12 @@
 
 ---
 
-## SCOPE — "remove torch" means the project, NOT your device (READ FIRST)
+## SCOPE: "remove torch" means the project, NOT your device (READ FIRST)
 
 > **CRITICAL – user-set boundary (2026-08-13):** Whenever this plan (or its
 > companion `plan-runtime-pack-split.md`) says "remove torch", "torch removal",
 > or "torch removed from X", it means **removing torch as a PROJECT
-> dependency and source-code import** — i.e. `pyproject.toml`,
+> dependency and source-code import**, i.e. `pyproject.toml`,
 > `requirements-lock.txt`, `voice_typer/**/*.py` imports, build/Nuitka
 > invocation flags, and the frozen sidecar/worker binaries. It does **NOT**
 > mean uninstalling torch from the user's device.
@@ -35,13 +35,13 @@
 >
 > The migration edits **only** files inside this repository (source, tests,
 > docs, build scripts, workflow files). Any change to the project that makes
-> torch *no longer required* is a project change — it does not entitle the
+> torch *no longer required* is a project change, it does not entitle the
 > agent to uninstall anything from the user's environment.
 >
 > **Whether the user later uninstalls torch from their device is the USER's
 > decision.** This plan treats that as explicitly **OUT OF SCOPE**. The agent
 > finishes the project migration, leaves the user's installed torch (CPU +
-> GPU) fully intact, and the existing torch code paths already work today — so
+> GPU) fully intact, and the existing torch code paths already work today, so
 > if anything about the migration regresses, the user's pre-existing torch
 > environment is untouched and self-contained.
 >
@@ -69,21 +69,21 @@ these reasons:
    `"parakeet"` → `("voice_typer.server.parakeet_engine", "ParakeetEngine")`
    purely by name + class (`asr_registry.py:63-67`). Swapping the
    implementation in place is structurally trivial and requires **zero**
-   registry/config/validator changes — only the engine module itself changes.
+   registry/config/validator changes: only the engine module itself changes.
 3. **Every line number in the old plan is stale.** The codebase has been
    refactored: `config.py` is now a package (`config/__init__.py:799`), and
    `config_validators.py` is now `config_validators/__init__.py:307`. The old
-   plan cited `config.py:585` and `config_validators.py:1237` — both wrong.
+   plan cited `config.py:585` and `config_validators.py:1237` Both wrong.
 4. **Several refactor proposals were already done.** `asr_utils.split_audio()`
    already exists at `voice_typer/server/asr_utils.py:390`. Both
    `ParakeetEngine._split_audio` (`parakeet_engine.py:845`) and
    `QwenEngine._split_audio` (`qwen_engine.py:860`) already delegate to it.
-   The old plan's "Part 1a — Extract `split_audio()`" is unnecessary.
+   The old plan's "Part 1a: Extract `split_audio()`" is unnecessary.
 
 This rewrite corrects all of the above and adds the technical depth that the
 old plan and the companion plan both lack: hidden-state hoisting for Silero
 VAD, TDT decoding options for Parakeet, the **Qwen misidentification** (it is
-an ASR engine, not an LLM — `onnxruntime-genai` is the wrong tool), and the
+an ASR engine, not an LLM, `onnxruntime-genai` is the wrong tool), and the
 GPU/DLL handling reality.
 
 ---
@@ -122,14 +122,14 @@ is added if Parakeet uses `onnx-asr` (see Part B).
 
 ---
 
-## 2. Part A — Silero VAD → ONNX
+## 2. Part A: Silero VAD → ONNX
 
 ### 2.1 Current state (verified)
 
 - **File:** `voice_typer/server/vad.py` (~500 LOC).
 - **Model path:** `voice_typer/server/silero_vad.jit` (2,272,526 bytes ≈ 2.17 MB,
   Silero VAD v4).
-- **Loading:** `vad.py:182` — `_model = torch.jit.load(str(_VAD_MODEL_PATH))`.
+- **Loading:** `vad.py:182` `_model = torch.jit.load(str(_VAD_MODEL_PATH))`.
 - **Hidden state:** The JIT module manages the LSTM hidden state **internally**
   via `_model.reset_states()` (`vad.py:463-481`) and the stateful
   `_model(input, sr)` call. Callers do not see or touch the state.
@@ -137,7 +137,7 @@ is added if Parakeet uses `onnx-asr` (see Part B).
   `reset_states()`, `preload()`, `unload()`.
 - **torch imports:** `vad.py:100`, `:145`, `:289`, `:425` (uses `torch.from_numpy`,
   `torch.zeros`, `torch.cat`, `torch.no_grad`).
-- **Availability probe:** `vad.py:97-104` — `is_available()` does `import torch`
+- **Availability probe:** `vad.py:97-104` `is_available()` does `import torch`
   and returns `True/False`. Called by `vad_processor.py:256-261` during
   `VadProcessor.__init__`.
 - **CPU-only intent:** `vad.py:174-181` explicitly documents that VAD runs on
@@ -146,7 +146,7 @@ is added if Parakeet uses `onnx-asr` (see Part B).
 ### 2.2 The critical gotcha the previous plan missed
 
 `onnxruntime.InferenceSession` is **stateless**. The Silero VAD v4 ONNX export
-takes `(input, state, sr)` as inputs and returns `(output, stateN)` — the
+takes `(input, state, sr)` as inputs and returns `(output, stateN)` The
 caller must hold the LSTM hidden-state buffer (shape `(2, 1, 128)` float32)
 and thread it through every `compute_vad_prob` call, re-zeroing it on
 `reset_states()`, `unload()`, and first load. This is the classic Silero ONNX
@@ -162,12 +162,12 @@ become garbage after the first 512-sample window.
 - Place it at `voice_typer/server/silero_vad.onnx` (next to the current
   `silero_vad.jit`).
 - Update packaging:
-  - `MANIFEST.in:25-31` — add `include voice_typer/server/silero_vad.onnx`.
+  - `MANIFEST.in:25-31` Add `include voice_typer/server/silero_vad.onnx`.
   - `scripts/build/voice-typer.spec:112-113,274` (PyInstaller fallback) —
     add `silero_vad.onnx` to datas.
-  - The three `scripts/build/build_sidecar_*.sh` scripts — Nuitka
+  - The three `scripts/build/build_sidecar_*.sh` scripts: Nuitka
     `--include-data-files=voice_typer/server/silero_vad.onnx=voice_typer/server/silero_vad.onnx`.
-- **Do NOT delete `silero_vad.jit` yet** — it stays until Phase 1c verification
+- **Do NOT delete `silero_vad.jit` yet**: it stays until Phase 1c verification
   is complete (see §2.5).
 
 #### 2.3.2 Rewrite `vad.py` model loading
@@ -195,7 +195,7 @@ class _SileroVadOnnx:
         self._state_out_name: str | None = None
 
     def load(self) -> None:
-        # CPU-only — see §2.3.3 for why providers is pinned
+        # CPU-only: see §2.3.3 for why providers is pinned
         self._session = ort.InferenceSession(
             str(_VAD_MODEL_PATH),
             providers=["CPUExecutionProvider"],
@@ -227,11 +227,11 @@ class _SileroVadOnnx:
         return prob
 ```
 
-#### 2.3.3 CPUExecutionProvider — pinned, not default
+#### 2.3.3 CPUExecutionProvider: pinned, not default
 
 ORT's default provider list is `["CUDAExecutionProvider", "CPUExecutionProvider"]`
 when `onnxruntime-gpu` is installed. VAD is CPU-only by design (`vad.py:174-181`).
-If a user has `onnxruntime-gpu` installed, ORT will route VAD to GPU — which
+If a user has `onnxruntime-gpu` installed, ORT will route VAD to GPU, which
 adds GPU→CPU upload latency per 512-sample window and breaks the existing
 latency budget. The session MUST be created with
 `providers=["CPUExecutionProvider"]` only.
@@ -263,7 +263,7 @@ not enumerate the rewrites. These tests are mandatory:
 | Test file | Current state | Required change |
 |---|---|---|
 | `tests/test_vad.py` | Mocks `torch.from_numpy`, `torch.zeros`, `torch.cat`, `torch.no_grad` | Rewrite mocks to use a fake `ort.InferenceSession` that returns fixed `(prob, state)` tuples. Verify state threading. |
-| `tests/test_vad_dtype_optimization.py` | Tests the `data_ptr()` no-clone invariant (torch-specific) | **Delete.** The invariant is unsatisfiable through ORT's allocator — ORT copies the input buffer. |
+| `tests/test_vad_dtype_optimization.py` | Tests the `data_ptr()` no-clone invariant (torch-specific) | **Delete.** The invariant is unsatisfiable through ORT's allocator, ORT copies the input buffer. |
 | `tests/test_electron_ipc_and_build.py:498` | Source-greps `assert "torch.jit.load" in src` | Change to `assert "InferenceSession" in src` (or remove the assertion if it serves no purpose post-migration). |
 | `bench/bench_vad.py` | Uses real torch + real `silero_vad.jit` | Rewrite to use ORT + `silero_vad.onnx`. Keep the `--include-silero` flag for parity. |
 | `tests/conftest.py` (~190 lines of `mock_torch` plumbing) | `_FakeOutOfMemoryError`, `_FakeTensor`, `_build_mock_torch()` session fixture, `real_torch` marker | Strip VAD-specific torch mocks. Keep the fixture for Parakeet/Qwen until Phase 1c. |
@@ -283,11 +283,11 @@ protects the bundle while torch is still shipped.
   (it describes an older state). Update it to reflect the ONNX migration and
   the hidden-state threading requirement.
 - `docs/adr/0020-desktop-runtime-migration-analysis.md:954` says
-  "vad.py, silero_vad.jit — Unchanged" — this becomes false. Update.
+  "vad.py, silero_vad.jit: Unchanged", this becomes false. Update.
 
 ---
 
-## 3. Part B — Parakeet → ONNX
+## 3. Part B: Parakeet → ONNX
 
 ### 3.1 Current state (verified)
 
@@ -295,12 +295,12 @@ protects the bundle while torch is still shipped.
 - **Class:** `ParakeetEngine` (`parakeet_engine.py:79`).
 - **Current backend:** `transformers` + `torch`. The `transformers` library is
   excluded from the frozen Nuitka build, so Parakeet **cannot run in the
-  shipped app today** — only in dev. This is the primary motivation for the
+  shipped app today**: only in dev. This is the primary motivation for the
   ONNX migration: it makes Parakeet actually shippable.
 - **Model:** NVIDIA Parakeet TDT 0.6B (Token-and-Duration Transducer).
 - **HF repo (final, verified 2026-08-20):** the engine loads
   `onnx_asr.load_model("nemo-conformer-tdt", path=<verified snapshot>, ...)`
-  — onnx-asr 0.12.0 exports ONLY `load_model`/`load_vad` (there is NO
+ Onnx-asr 0.12.0 exports ONLY `load_model`/`load_vad` (there is NO
   `onnx_asr.Model` class in any release). The weights come from the
   **fp16 ONNX export `grikdotnet/parakeet-tdt-0.6b-fp16`**
   (USER-selected 2026-08-20; converted from istupakov's fp32 export —
@@ -308,7 +308,7 @@ protects the bundle while torch is still shipped.
   ai-stenographer project). The earlier pick
   `visuall/parakeet-tdt-0.6b-v3-onnx-fp16` (2026-08-15) was a re-upload
   of the same files minus `config.json` (0 downloads, unknown uploader)
-  — re-pinned to the grikdotnet original. The grikdotnet repo ships a
+ Re-pinned to the grikdotnet original. The grikdotnet repo ships a
   real `config.json` (97 bytes, byte-identical to the previously
   synthesized one; SHA-256 pinned in `model_hashes.json`), so the
   post-download synthesis hack was removed and `verify_model_integrity`
@@ -338,7 +338,7 @@ investigation found **no** `*.onnx` files anywhere in the repo, **no**
 `model_hashes.json`, and **no** `onnx_engine.py`. The plan must specify the
 download path, HF repo, revision, and SHA pinning explicitly.
 
-### 3.3 TDT decoding — pick one approach explicitly
+### 3.3 TDT decoding: pick one approach explicitly
 
 Parakeet TDT (Token-and-Duration Transducer) decoding is non-trivial. There
 are two viable approaches; the plan must pick one:
@@ -348,7 +348,7 @@ are two viable approaches; the plan must pick one:
 The `onnx-asr` library (`pip install onnx-asr`) wraps the ONNX Parakeet model
 and exposes a `load_model(name, path=..., quantization=..., providers=...)`
 function returning an adapter with a `recognize(audio, sample_rate)` API.
-This is the lowest-effort path — the decoding loop is the library's problem.
+This is the lowest-effort path: the decoding loop is the library's problem.
 
 ```python
 # voice_typer/server/parakeet_engine.py (current implementation)
@@ -365,7 +365,7 @@ class ParakeetEngine:
         self._cpu_fallback_notified = False
 
     def load(self, progress_callback=None) -> bool:
-        # onnx-asr 0.12.0 exports ONLY load_model/load_vad — there is NO
+        # onnx-asr 0.12.0 exports ONLY load_model/load_vad, there is NO
         # onnx_asr.Model class in any release. Load by TYPE name
         # ("nemo-conformer-tdt") + the verified local snapshot dir so
         # onnx-asr consumes the integrity-verified files instead of
@@ -394,7 +394,7 @@ class ParakeetEngine:
 ```
 
 **Verified 2026-08-15:** the `onnx_asr` API is `load_model(...)`/`load_vad(...)`
-ONLY — verified against the pinned `onnx-asr==0.12.0` wheel's `__init__.py`
+ONLY: verified against the pinned `onnx-asr==0.12.0` wheel's `__init__.py`
 AND `main`. An earlier plan revision wrongly claimed a class-based
 `Model(...)` API existed; it does not, and `onnx_asr.Model(...)` raises
 AttributeError at runtime. The stub lives at `voice_typer/stubs/onnx_asr.pyi`
@@ -409,7 +409,7 @@ beam search) in Python. This is ~100-200 lines of non-trivial code and
 requires understanding the TDT algorithm (token + duration prediction, blank
 handling, alignment). It should only be chosen if Option B-1 is blocked.
 
-### 3.4 GPU→CPU fallback — session recreation, not `.to("cpu")`
+### 3.4 GPU→CPU fallback: session recreation, not `.to("cpu")`
 
 Unlike PyTorch, ONNX Runtime cannot move a session between providers in place.
 The fallback must recreate the session with `CPUExecutionProvider` only:
@@ -432,7 +432,7 @@ def transcribe_with_fallback(self, audio, audio_stats=None):
 ```
 
 This is multi-second latency (session recreation + weight reload). The plan
-must acknowledge this cost — it is NOT a free swap like torch's `.to("cpu")`.
+must acknowledge this cost: it is NOT a free swap like torch's `.to("cpu")`.
 
 ### 3.5 Model metadata + integrity
 
@@ -445,7 +445,7 @@ Update the existing `"parakeet"` entry in `voice_typer/server/model_registry.py`
 "parakeet": ModelMetadata(
     name="parakeet",
     download_size_mb=1275,  # verified 2026-08-15: grikdotnet fp16 ONNX export ≈ 1,275 MB (encoder-model.fp16.onnx 1,239 MB + decoder_joint 26 MB + nemo128 + vocab)
-    required_vram_mb=3072,  # estimate — verify with real ORT GPU run
+    required_vram_mb=3072,  # estimate: verify with real ORT GPU run
     backend="parakeet",
     multilingual=True,
     supported_languages=None,
@@ -458,7 +458,7 @@ Update the existing `"parakeet"` entry in `voice_typer/server/model_registry.py`
 ```
 
 **Note on `required_vram_mb=3072`:** this was estimated for PyTorch. ONNX
-Runtime's memory footprint differs — typically lower due to no Python overhead
+Runtime's memory footprint differs: typically lower due to no Python overhead
 but the CUDA execution provider allocates arena memory. Verify with a real
 `nvidia-smi` measurement before pinning.
 
@@ -472,13 +472,13 @@ pinned SHA-256 `666903c7…` carried over unchanged; encoder hash refreshed
 to the grikdotnet LFS oid `a2bdeeb9…`). `scripts/populate_model_hashes.py`
 can regenerate the hashes after upstream changes, but the manifest was
 hand-edited 2026-08-20 with hashes pulled from the HF API (the script's
-ALLOW_PATTERNS filter is not wired for this repo yet — see worklog.md).
+ALLOW_PATTERNS filter is not wired for this repo yet, see worklog.md).
 
 `_MODEL_SIZE_MB` in `asr_utils.py` includes `"parakeet": 1275` (parallel to
 the registry entry) so the disk-space pre-check
 (`_check_disk_space_for_download`) uses the real fp16 size.
 
-#### 3.5.3 Consent gating — CONFLICT with the companion plan
+#### 3.5.3 Consent gating: CONFLICT with the companion plan
 
 The existing `"parakeet"` entry is pinned to
 `network_behavior="downloads-on-first-use-no-consent"` by
@@ -515,16 +515,16 @@ the tokenizer files are required for decoding.
 
 ### 3.6 Tests to add
 
-- `tests/test_parakeet_onnx_load.py` — load the ONNX model, verify
+- `tests/test_parakeet_onnx_load.py` Load the ONNX model, verify
   `is_available()` and `load()` succeed.
-- `tests/test_parakeet_onnx_transcribe.py` — transcribe a known WAV fixture,
+- `tests/test_parakeet_onnx_transcribe.py` Transcribe a known WAV fixture,
   verify the text matches the PyTorch baseline within an edit-distance
   threshold (parity test).
-- `tests/test_parakeet_onnx_gpu_fallback.py` — mock a CUDA OOM, verify the
+- `tests/test_parakeet_onnx_gpu_fallback.py` Mock a CUDA OOM, verify the
   session is recreated on CPU and the `parakeet_cpu_fallback` event fires.
-- `tests/test_parakeet_onnx_sha.py` — verify the downloaded model files match
+- `tests/test_parakeet_onnx_sha.py` Verify the downloaded model files match
   `model_hashes.json`.
-- `tests/test_parakeet_onnx_abort.py` — verify `RunOptions` can abort a
+- `tests/test_parakeet_onnx_abort.py` Verify `RunOptions` can abort a
   long-running transcription (ORT supports this via `RunOptions`).
 
 ### 3.7 Diagnostic export
@@ -540,7 +540,7 @@ it has its own torch + ctranslate2 block.
 
 ---
 
-## 4. Part C — Qwen → ONNX (scope correction)
+## 4. Part C: Qwen → ONNX (scope correction)
 
 > **Status: COMPLETED 2026-08-15 (Phase 1d).** Option C-2 was
 > implemented (2026-08-14) and the torch path was REMOVED (2026-08-15):
@@ -548,11 +548,11 @@ it has its own torch + ctranslate2 block.
 > `voice_typer/server/qwen_onnx_model.py` (pre-exported
 > `andrewleech/qwen3-asr-1.7b-onnx` / `qwen3-asr-0.6b-onnx`). The
 > `torch>=2.0`, `transformers`, and `qwen-asr` dependencies were dropped
-> from `pyproject.toml` and the lockfile — the installer is now
+> from `pyproject.toml` and the lockfile: the installer is now
 > torch-free. The ONNX pipeline constants were verified 2026-08-15
 > against the real export (decoder I/O names from the .onnx protobufs,
 > mel params + special-token ids from config.json, prompt word ids from
-> the real tokenizer.json — the export tool's hardcoded system/user ids
+> the real tokenizer.json: the export tool's hardcoded system/user ids
 > were found WRONG and corrected). Remaining validation: a real-weights
 > inference smoke test on a host with the downloaded model (§4.3 C-2).
 
@@ -560,7 +560,7 @@ it has its own torch + ctranslate2 block.
 
 The companion plan (`plan-runtime-pack-split.md` Section 3, Phase 1b) says:
 
-> **Qwen (LLM)** — ✅ Convert. Decided (2026-08-12): Qwen converts to
+> **Qwen (LLM)**: ✅ Convert. Decided (2026-08-12): Qwen converts to
 > `onnxruntime-genai` (Microsoft's LLM runtime). Real work: model export,
 > chat-template + sampling loop in `qwen_engine.py`, reply-quality parity
 > tests. Adds ~15 MB to the pack. This removes the last torch user in the
@@ -573,7 +573,7 @@ This is **based on a misidentification**. The investigation verified:
 - **Library:** `qwen_asr` (`pyproject.toml:351` pins `qwen-asr>=0.1,<1`).
 - **Model:** `Qwen3-ASR-1.7B` (`model_registry.py:357`).
 - **API:** `qwen_asr.Qwen3ASRModel.from_pretrained(path)` then
-  `model.transcribe((audio, sample_rate), language=...)` — this is an **ASR
+  `model.transcribe((audio, sample_rate), language=...)` This is an **ASR
   (audio transcription) API**, not an LLM text-generation API.
 - **There is NO chat template, NO sampling loop, NO streaming, NO tool calls,
   NO text generation in `qwen_engine.py`.**
@@ -584,7 +584,7 @@ This is **based on a misidentification**. The investigation verified:
 **SLMs/LLMs and multi-modal LLMs**. I inspected the actual wheel
 (`onnxruntime-genai==0.15.2` from PyPI): its `models/builders/qwen.py` imports
 `Qwen2ForCausalLM`, `Qwen2_5_VLForConditionalGeneration`,
-`Qwen3VLForConditionalGeneration` from `transformers` — i.e., Qwen **text**
+`Qwen3VLForConditionalGeneration` from `transformers` I.e., Qwen **text**
 LLMs and **VL** multimodal LLMs. **There is no Qwen3-ASR / Qwen-Audio builder
 anywhere in the wheel.** Using `onnxruntime-genai` for Qwen3-ASR is not
 possible without writing a custom builder, which is more work than the
@@ -592,7 +592,7 @@ alternatives below.
 
 ### 4.3 Revised options for Qwen
 
-Pick one of these — the companion plan's "committed decision" is void.
+Pick one of these: the companion plan's "committed decision" is void.
 
 #### Option C-1 (recommended): keep `qwen_asr` library, replace its torch backend
 
@@ -604,7 +604,7 @@ option. If yes, switch the backend flag. If no, this option is blocked.
 support. Do NOT proceed with this option until the maintainer confirms.
 
 > **VERIFIED 2026-08-14 (wheel inspection):** `qwen_asr==0.0.6` (the version
-> in use) ships exactly TWO backends — `core/transformers_backend/`
+> in use) ships exactly TWO backends, `core/transformers_backend/`
 > (torch + transformers 4.57.6 + accelerate) and `core/vllm_backend/`
 > (vLLM 0.14.0, optional extra). There is **no ONNX Runtime backend** and no
 > ONNX export hook anywhere in the wheel. C-1 is therefore **blocked** as
@@ -636,7 +636,7 @@ This is significant work:
 **Rough effort estimate:** 2-4 weeks of focused work, plus parity testing.
 
 > **IMPLEMENTED 2026-08-14 (chose C-2, but the export already exists
-> upstream — no manual `torch.onnx.export` needed):** pre-exported ONNX
+> upstream: no manual `torch.onnx.export` needed):** pre-exported ONNX
 > models are published by a third party for BOTH model sizes:
 > `andrewleech/qwen3-asr-1.7b-onnx` and `andrewleech/qwen3-asr-0.6b-onnx`
 > (HuggingFace; int4 RTN-quantized variants included, CPU-fast per the
@@ -646,11 +646,11 @@ This is significant work:
 > The project now ships a real ONNX Runtime engine that loads those
 > exports with NO torch / transformers / `qwen_asr`:
 >
-> - `voice_typer/server/qwen_onnx_model.py` — `QwenOnnxModel`, a drop-in
+> - `voice_typer/server/qwen_onnx_model.py` `QwenOnnxModel`, a drop-in
 >   replacement for `qwen_asr.Qwen3ASRModel` at the `from_pretrained` +
 >   `transcribe((audio, sr), language=...)` surface: Whisper-compatible
 >   log-mel (128 bins via `faster_whisper`'s pure-numpy feature
->   extractor — verified torch-free), `encoder.onnx` → prompt
+>   extractor: verified torch-free), `encoder.onnx` → prompt
 >   (``<|audio_pad|>`` count via the same
 >   `_get_feat_extract_output_lengths` formula) → `decoder_init.onnx`
 >   prefill → greedy `decoder_step.onnx` loop until EOS (256 cap),
@@ -662,7 +662,7 @@ This is significant work:
 >   `device = "cpu"` so the torch-only paths (`_warm_up_model` CUDA
 >   priming, `transcribe_with_fallback`'s `.to()` fallback, `device_info`)
 >   are correctly skipped; `unload()` closes the ORT sessions.
-> - Tests: `tests/test_qwen_onnx_model.py` (32 tests — prompt/mel/decode
+> - Tests: `tests/test_qwen_onnx_model.py` (32 tests: prompt/mel/decode
 >   pipeline with mocked ORT sessions, both decoder formats, EOS handling,
 >   ONNX auto-detect, torch-guard integration).
 >
@@ -672,14 +672,14 @@ This is significant work:
 > (user-downloaded per the existing Qwen local-path workflow). A
 > real-inference parity pass against the torch baseline must run on a host
 > with the downloaded model + real audio (VALIDATE ON HOST). Runtime
-> dependencies added: `tokenizers>=0.21,<1` (declared in pyproject — was
+> dependencies added: `tokenizers>=0.21,<1` (declared in pyproject, was
 > already transitively present via `transformers`).
 >
 > **Remaining plan delta:** `qwen_engine.py` still imports torch
 > transitively via `transformers`/`qwen_asr` for the legacy torch path.
 > The final torch sweep of `qwen_engine.py` (Phase 1d) can now be
 > completed by making ONNX the DEFAULT backend (or the only backend) once
-> the host parity pass confirms quality — keep the torch path until then.
+> the host parity pass confirms quality, keep the torch path until then.
 
 #### Option C-3 (recommended for Phase 1): defer Qwen migration
 
@@ -700,15 +700,15 @@ while honestly acknowledging that Qwen needs its own investigation.
 
 ### 4.4 What stays the same regardless of option
 
-- `_dedup_overlap` (`qwen_engine.py:811-857`) — pure-string audio-chunk-merge
+- `_dedup_overlap` (`qwen_engine.py:811-857`): pure-string audio-chunk-merge
   algorithm. Must be preserved in any rewrite. It is DIFFERENT from
   Parakeet's `_merge_chunks` (case-sensitive, no punctuation stripping).
-- `_split_audio` (`qwen_engine.py:860`) — already delegates to
+- `_split_audio` (`qwen_engine.py:860`): already delegates to
   `asr_utils.split_audio()`. No change.
-- CUDA error detection — REMOVED 2026-08-15: the ONNX path is CPU-pinned
+- CUDA error detection: REMOVED 2026-08-15: the ONNX path is CPU-pinned
   (no CUDA branch, no GPU→CPU fallback); `transcribe_with_fallback` is a
   thin delegate to `transcribe`.
-- Existing tests mock the model — there is no real-inference baseline for
+- Existing tests mock the model, there is no real-inference baseline for
   "parity tests." Any parity work must first establish a baseline.
 
 ### 4.5 Platform gaps in `onnxruntime-genai` (if Option C-1/C-2 is chosen)
@@ -720,14 +720,14 @@ while honestly acknowledging that Qwen needs its own investigation.
   support for Qwen, or fall back to CPU-only `onnxruntime`).
 - The `onnxruntime-genai` wheel for Windows is ~11.5 MB compressed, but it
   **requires `onnxruntime` as a dep** (already in deps) and does NOT include
-  model weights. Qwen3-ASR-1.7B at FP16 is ~3.4 GB — the "~15 MB" figure in
+  model weights. Qwen3-ASR-1.7B at FP16 is ~3.4 GB, the "~15 MB" figure in
   the companion plan is the wheel size only, not the total pack impact.
 
 ---
 
-## 5. Part D — Shared utilities (what's left)
+## 5. Part D: Shared utilities (what's left)
 
-### 5.1 `is_cuda_error()` — do NOT collapse the classifier
+### 5.1 `is_cuda_error()` Do NOT collapse the classifier
 
 The old plan proposed a shared `CUDA_ERROR_KEYWORDS` frozenset:
 
@@ -739,7 +739,7 @@ def is_cuda_error(exc): ...
 This is **lossy**. The actual classifier in `transcription.py:1377-1386` is a
 5-layer check:
 
-1. `isinstance(exc, torch.cuda.OutOfMemoryError)` — class hierarchy (dies with torch).
+1. `isinstance(exc, torch.cuda.OutOfMemoryError)` Class hierarchy (dies with torch).
 2. `isinstance(exc, RuntimeError)` and MRO check.
 3. Attribute check (`exc.cuda_error`, etc.).
 4. Keyword match on `{"cuda", "cublas", "cudnn"}` (3 keywords, no "out of memory").
@@ -748,7 +748,7 @@ This is **lossy**. The actual classifier in `transcription.py:1377-1386` is a
    critical for Windows DLL-load failure detection.
 
 And `parakeet_engine.py:955` checks OOM with a more specific qualifier
-(`"out of memory"` alone is too broad — it matches CPU RAM exhaustion too).
+(`"out of memory"` alone is too broad: it matches CPU RAM exhaustion too).
 
 **Decision:** extract `is_cuda_error()` to `asr_utils.py` but preserve the
 5-layer structure. Do NOT collapse to a 4-keyword frozenset. The function
@@ -775,7 +775,7 @@ def is_cuda_error(exc: Exception) -> bool:
     if isinstance(exc, RuntimeError):
         if getattr(exc, "cuda_error", False):
             return True
-    # Layer 4: keyword match (3 keywords — OOM handled separately)
+    # Layer 4: keyword match (3 keywords, OOM handled separately)
     err_str = str(exc).lower()
     if any(kw in err_str for kw in ("cuda", "cublas", "cudnn")):
         return True
@@ -785,7 +785,7 @@ def is_cuda_error(exc: Exception) -> bool:
     return False
 
 def is_oom_error(exc: Exception) -> bool:
-    """Separate OOM check — kept distinct to avoid matching CPU RAM exhaustion."""
+    """Separate OOM check: kept distinct to avoid matching CPU RAM exhaustion."""
     err_str = str(exc).lower()
     return "out of memory" in err_str or "oom" in err_str
 ```
@@ -794,21 +794,21 @@ This preserves the behavior of `tests/test_transcription_cuda_classifier.py`
 (which pins the 5-layer classifier) and `parakeet_engine.py:955`'s separate
 OOM check.
 
-### 5.2 `release_gpu_memory()` — no ORT equivalent
+### 5.2 `release_gpu_memory()` No ORT equivalent
 
 `asr_utils.release_gpu_memory()` currently calls `torch.cuda.empty_cache()`.
-ONNX Runtime has **no** `empty_cache()` API — the CUDA arena is freed when
+ONNX Runtime has **no** `empty_cache()` API: the CUDA arena is freed when
 the session is destroyed. The function becomes a no-op:
 
 ```python
 def release_gpu_memory() -> None:
     """No-op for ONNX Runtime. ORT frees the CUDA arena on session destroy."""
-    # Kept for API compatibility — callers in unload() still call this.
+    # Kept for API compatibility: callers in unload() still call this.
     # After total torch removal, this can be deleted and callers updated.
     pass
 ```
 
-### 5.3 `is_likely_english()` / `is_latin_char()` — already module-level
+### 5.3 `is_likely_english()` / `is_latin_char()` Already module-level
 
 The old plan called these "ParakeetEngine's private methods." They are
 **module-level functions** at `parakeet_engine.py:47-78`. Move them to
@@ -816,7 +816,7 @@ The old plan called these "ParakeetEngine's private methods." They are
 the import in `parakeet_engine.py`. The ONNX-rewritten Parakeet engine
 imports them directly from `asr_utils`.
 
-### 5.4 `merge_chunks()` / `compute_overlap_skip()` — extract
+### 5.4 `merge_chunks()` / `compute_overlap_skip()` Extract
 
 Currently module-level in `parakeet_engine.py`. Move to `asr_utils.py` so
 that the rewritten Parakeet engine and any future ONNX variant can share
@@ -824,24 +824,24 @@ them. `QwenEngine._dedup_overlap` stays private (different algorithm).
 
 ### 5.5 What does NOT need extraction
 
-- `split_audio()` — already in `asr_utils.py:390`.
-- `_download_with_retry()` — already in `asr_utils.py`.
-- `cleanup_hf_cache_dir()` — already in `asr_utils.py`.
-- `_check_disk_space_for_download()` — already in `asr_utils.py`.
-- `_require_huggingface_consent()` — already in `asr_utils.py` /
+- `split_audio()` Already in `asr_utils.py:390`.
+- `_download_with_retry()` Already in `asr_utils.py`.
+- `cleanup_hf_cache_dir()` Already in `asr_utils.py`.
+- `_check_disk_space_for_download()` Already in `asr_utils.py`.
+- `_require_huggingface_consent()` Already in `asr_utils.py` /
   `service/model.py:854-912`.
-- `unload()` boilerplate — 5 lines, not worth extracting (the old plan
+- `unload()` boilerplate: 5 lines, not worth extracting (the old plan
   agreed).
 
 ---
 
-## 6. Part E — GPU handling and NVIDIA DLLs
+## 6. Part E: GPU handling and NVIDIA DLLs
 
 ### 6.1 The critical inaccuracy in the companion plan
 
 The companion plan says:
 
-> `nvidia_dll_paths.py` — finds NVIDIA DLLs under `torch/lib` — dies with
+> `nvidia_dll_paths.py` Finds NVIDIA DLLs under `torch/lib` Dies with
 > CPU-only; GPU variants source DLLs from the onnxruntime-gpu package.
 
 This is **false**. `onnxruntime-gpu` does **not** bundle NVIDIA DLLs. The
@@ -860,7 +860,7 @@ matrix:
 
 The `torch/lib` path is the CUDA-DLL-001 fallback for GPU torch wheels. The
 `nvidia/*` paths cover the `nvidia-*-cu12` PyPI wheels (which bundle CUDA
-DLLs without torch). The module is NOT torch-specific — the `nvidia/*` paths
+DLLs without torch). The module is NOT torch-specific, the `nvidia/*` paths
 survive torch removal.
 
 ### 6.3 Post-migration state
@@ -870,14 +870,14 @@ After torch removal:
 - The `nvidia/*` scan paths survive and become the primary DLL source.
 - `nvidia_dll_paths.py` itself is **KEPT** (with the `torch/lib` branch
   removed). The companion plan's claim that it "dies with CPU-only" is wrong
-  — it dies only if `nvidia-*-cu12` wheels are also removed, which they
+ It dies only if `nvidia-*-cu12` wheels are also removed, which they
   should not be (they're the CUDA-DLL source for GPU onnxruntime-gpu).
 - ctranslate2's GPU path also depends on these DLLs (it does NOT depend on
-  torch — verified via lockfile: `ctranslate2==4.8.1` pulls
+  torch: verified via lockfile: `ctranslate2==4.8.1` pulls
   `onnxruntime==1.28.0` CPU). Removing torch preserves ctranslate2's CPU path
   but breaks Windows GPU unless the `nvidia-*-cu12` wheels remain.
 
-### 6.4 `resource_probe.py` — mostly already backend-agnostic
+### 6.4 `resource_probe.py` Mostly already backend-agnostic
 
 `voice_typer/server/resource_probe.py` (276 LOC) probes RAM, disk, and GPU.
 Only the 13-line GPU-memory block (L200-234) is torch-specific, wrapped in
@@ -889,7 +889,7 @@ Only the 13-line GPU-memory block (L200-234) is torch-specific, wrapped in
 - Wrap in the same `try/except Exception` pattern.
 - Update the probe result schema in `diagnostics_export.py` in lockstep.
 
-### 6.5 `transcription.py` — only one torch touchpoint
+### 6.5 `transcription.py` Only one torch touchpoint
 
 `voice_typer/server/transcription.py` has exactly one torch dependency:
 `isinstance(exc, torch.cuda.OutOfMemoryError)` at L1338. The GPU availability
@@ -907,37 +907,37 @@ for non-LLM models). The companion plan is Windows-focused and does not
 address macOS GPU. The ONNX migration should:
 
 - Pin `providers=["CPUExecutionProvider"]` on macOS for VAD (same as Windows
-  + Linux — VAD is CPU-only by design).
+  + Linux: VAD is CPU-only by design).
 - For Parakeet on macOS: test whether `CoreMLExecutionProvider` offers
   meaningful speedup over CPU. If yes, add it as an option. If no, CPU-only
   is acceptable (Parakeet 0.6B FP16 runs in real-time on M1 CPU).
 
 ---
 
-## 7. Part F — Tests, stubs, diagnostics, constraints
+## 7. Part F: Tests, stubs, diagnostics, constraints
 
 ### 7.1 Stubs
 
 Add `voice_typer/stubs/onnx_asr.pyi` if Option B-1 (`onnx-asr` library) is
 chosen for Parakeet. Without this stub, pyrefly/mypy will fail on
-`import onnx_asr  # type: ignore[import-untyped]` — the `# type: ignore` is a
+`import onnx_asr  # type: ignore[import-untyped]` The `# type: ignore` is a
 temporary measure; the stub is the proper fix.
 
 ### 7.2 Ratchet baselines
 
 After the migration, the ratchet baselines need regeneration:
 
-- `coverage-baseline.json` — total is 65.23% today. Removing torch tests may
+- `coverage-baseline.json` Total is 65.23% today. Removing torch tests may
   drop coverage. Run `scripts/coverage_ratchet_check.py --regenerate --force`
   after the test rewrites are stable.
-- `mypy-baseline.json` — 696 errors today. Torch-specific ignores (e.g.,
+- `mypy-baseline.json` 696 Errors today. Torch-specific ignores (e.g.,
   `transformers.*` overrides at `pyproject.toml:791`) become stale. Regenerate.
-- `pyrefly-baseline.json` — ~276 entries. 14+ entries for
+- `pyrefly-baseline.json` ~276 Entries. 14+ entries for
   `parakeet_engine.py`/`qwen_engine.py`/`prewarm/*` go stale when rewritten.
   Regenerate.
-- `ruff-baseline.json` — torch-specific noqa comments become stale.
+- `ruff-baseline.json` Torch-specific noqa comments become stale.
 
-**Note:** ratchets refuse to auto-regenerate on improvement — the
+**Note:** ratchets refuse to auto-regenerate on improvement, the
 `--regenerate --force` flag is required.
 
 ### 7.3 Doc-accuracy tests
@@ -946,7 +946,7 @@ These tests pin specific facts in the docs and will fail if the docs are not
 updated in lockstep with the code:
 
 - `tests/test_api_doc_accuracy.py`
-- `tests/test_architecture_doc_accuracy.py` (pins 36-event bus count — the
+- `tests/test_architecture_doc_accuracy.py` (pins 36-event bus count, the
   count changes if new events are added)
 - `tests/test_doc_command_counts.py`
 - `tests/test_security_doc_command_count.py`
@@ -983,7 +983,7 @@ The companion plan says "three allowlists in lockstep" (`_COMMAND_REGISTRY`,
 `ALLOWED_COMMANDS`, `PythonRequest`/`PythonPushEvent`). There is actually a
 **fourth**: `ALLOWED_EVENT_TYPES` at
 `src-tauri/src/sidecar/ws/event_protocol.rs:49` (40 entries). It has **no
-parity test** — adding a Python event without adding it here silently drops
+parity test**: adding a Python event without adding it here silently drops
 the frame. Any new IPC event added by this plan or the companion plan must
 be added to all four allowlists, and a parity test for the fourth should be
 added (mirroring `tests/test_ipc_command_registry_sync.py`).
@@ -1019,7 +1019,7 @@ added (mirroring `tests/test_ipc_command_registry_sync.py`).
 - `diagnostics_export.py` + `scripts/diagnostics.py` report ORT info.
 - `parakeet_engine.py` no longer imports torch or transformers.
 
-### 8.3 Phase 1c (torch sweep) gate — revised
+### 8.3 Phase 1c (torch sweep) gate, revised
 
 If Option C-3 (defer Qwen) is chosen, the gate is:
 
@@ -1033,7 +1033,7 @@ If Option C-3 (defer Qwen) is chosen, the gate is:
 - Doc-accuracy tests updated.
 - AGENTS.md rule C-CI-8/NU-106 retired by the user.
 
-### 8.4 Phase 1d (Qwen → ONNX) gate — new
+### 8.4 Phase 1d (Qwen → ONNX) gate, new
 
 This gate is defined after the Qwen migration option is chosen (see §4.3).
 Until then, Qwen keeps torch + transformers, and the "total torch removal"
@@ -1055,7 +1055,7 @@ claim is honestly scoped to "total except Qwen."
 | **MODIFY** | `voice_typer/server/nvidia_dll_paths.py` (drop `torch/lib` branch, keep `nvidia/*`) | 1c |
 | **MODIFY** | `voice_typer/server/prewarm/cache_probe.py` (update package list) | 1c |
 | **MODIFY** | `scripts/diagnostics.py:175-199` (CLI producer) | 1c |
-| **MODIFY** | `pyproject.toml` (add `onnx-asr`, drop `torch>=2.0,<3.0` — except Qwen if deferred) | 1c |
+| **MODIFY** | `pyproject.toml` (add `onnx-asr`, drop `torch>=2.0,<3.0` Except Qwen if deferred) | 1c |
 | **REGENERATE** | `requirements-lock.txt` | 1c |
 | **REGENERATE** | `coverage-baseline.json`, `mypy-baseline.json`, `pyrefly-baseline.json`, `ruff-baseline.json` | 1c |
 | **MODIFY** | `MANIFEST.in` (add `silero_vad.onnx`) | 1a |
@@ -1076,7 +1076,7 @@ claim is honestly scoped to "total except Qwen."
 
 1. **Qwen migration option (§4.3).** Pick C-1, C-2, or C-3. Recommendation:
    C-3 (defer) until the `qwen_asr` maintainer confirms ONNX support.
-   **DECIDED 2026-08-14: C-2 — implemented** (see the IMPLEMENTED block in
+   **DECIDED 2026-08-14: C-2, implemented** (see the IMPLEMENTED block in
    §4.3). The pre-exported `andrewleech/qwen3-asr-*-onnx` models + the new
    `voice_typer/server/qwen_onnx_model.py` engine deliver the ONNX path with
    no torch in the runtime. Remaining work is a host-side real-inference

@@ -3,7 +3,7 @@
  *
  * Two test groups:
  *
- * 1. F2 (b-review Finding 6): pre-select existing config values — the
+ * 1. F2 (b-review Finding 6): pre-select existing config values, the
  *    wizard should fetch the user's existing hotkey/model/microphone
  *    via `get_config` after `onboarding_start` resolves and pre-select
  *    them in the wizard UI, instead of overwriting with hardcoded
@@ -21,7 +21,7 @@
  * `voice_typer/server/onboarding.py:131-138` so the renderer test
  * exercises the same step names the server actually emits. If the
  * server adds/reorders steps, this fixture must be updated in lock-
- * step — that's the whole point of branching on `step_name` instead
+ * step, that's the whole point of branching on `step_name` instead
  * of numeric index.
  */
 
@@ -97,7 +97,7 @@ vi.mock("@/components/ui/select", () => ({
 }));
 
 //mock the Radix Checkbox wrapper so the consent checkbox on the
-// Done step renders as a real <input type="checkbox"> in jsdom — the
+// Done step renders as a real <input type="checkbox"> in jsdom, the
 // Radix primitive is a <button role="checkbox"> that toggles via pointer
 // + keyboard events jsdom does not simulate uniformly, and the existing
 // wizard tests drive it via fireEvent.click + assert on `.checked`. The
@@ -157,7 +157,7 @@ if (
 
 // ── F2: pre-select existing config values ────────────────────────────
 
-describe("Onboarding wizard — F2: pre-select existing config values", () => {
+describe("Onboarding wizard, F2: pre-select existing config values", () => {
 	beforeEach(() => {
 		mockCall.mockReset();
 		mockShowSnack.mockReset();
@@ -286,7 +286,7 @@ describe("Onboarding wizard — F2: pre-select existing config values", () => {
 		// not the hardcoded defaults.
 		//
 		// We wait for the Get Started button (aria-label is
-		// "Get started" — note the lowercase 's' — matching the
+		// "Get started", note the lowercase 's', matching the
 		// onboarding.getStartedAria i18n key).
 		await waitFor(() => {
 			expect(screen.getByRole("button", { name: "Get started" })).toBeTruthy();
@@ -301,7 +301,7 @@ describe("Onboarding wizard — F2: pre-select existing config values", () => {
 		// and fall back to the hardcoded hotkey default (<caps_lock>).
 		// 2026-08-28: there is NO default model anymore (MODEL_DEFAULT
 		// is the empty NO_MODEL_SIZE sentinel), so the Model step
-		// blocks Continue until the user explicitly picks one — this
+		// blocks Continue until the user explicitly picks one, this
 		// is the intended no-default-model behavior, not a regression.
 		let currentStep = 0;
 		mockCall.mockImplementation((type: string) => {
@@ -371,7 +371,7 @@ describe("Onboarding wizard — F2: pre-select existing config values", () => {
 		// Now on the Model step. Verify the wizard loaded despite the
 		// get_config failure (hotkey default fallback is exercised by
 		// the dedicated hotkey-hint test) and that Continue is blocked
-		// because no default model exists — the user must pick one.
+		// because no default model exists, the user must pick one.
 		await waitFor(() => {
 			expect(screen.getAllByText("Choose Your Model").length).toBeGreaterThan(
 				0,
@@ -387,7 +387,7 @@ describe("Onboarding wizard — F2: pre-select existing config values", () => {
 
 //Permissions step at index 2 ────────────────────────────────
 
-describe("Onboarding wizard — Permissions step at index 2", () => {
+describe("Onboarding wizard, Permissions step at index 2", () => {
 	beforeEach(() => {
 		mockCall.mockReset();
 		mockShowSnack.mockReset();
@@ -566,7 +566,7 @@ describe("Onboarding wizard — Permissions step at index 2", () => {
 
 		await waitFor(() => {
 			expect(
-				screen.getByText("Permission granted — hotkeys will work."),
+				screen.getByText("Permission granted. Hotkeys will work."),
 			).toBeTruthy();
 		});
 	});
@@ -649,7 +649,7 @@ describe("Onboarding wizard — Permissions step at index 2", () => {
 	it("shows 'Get Started' button (not 'Continue') only on the Done step (index 5)", async () => {
 		// On every step except Done, the primary button is
 		// "Continue"; on Done it's "Get Started" (aria-label is
-		// "Get started" — lowercase 's' — matching the i18n key
+		// "Get started", lowercase 's', matching the i18n key
 		// `getStartedAria`).
 		for (const idx of [0, 1, 2, 3, 4]) {
 			cleanup();
@@ -727,7 +727,7 @@ describe("Onboarding wizard — Permissions step at index 2", () => {
 		})) as HTMLButtonElement;
 
 		// The button is disabled while the permission probe is in
-		// flight (`permissionsLoading`) — clicking a disabled button
+		// flight (`permissionsLoading`), clicking a disabled button
 		// is a no-op. On slow CI the probe can still be loading when
 		// the button first appears, so wait for the enabled state
 		// before clicking (CI flake fix: the click previously landed
@@ -736,7 +736,7 @@ describe("Onboarding wizard — Permissions step at index 2", () => {
 			expect(testHotkeyButton.disabled).toBe(false);
 		});
 
-		// Click the button — should enter listening state and
+		// Click the button, should enter listening state and
 		// show the "Press your hotkey to test" label.
 		fireEvent.click(testHotkeyButton);
 		await waitFor(() => {
@@ -757,7 +757,7 @@ describe("Onboarding wizard — Permissions step at index 2", () => {
 
 //regression guards ────────────────
 
-describe("Onboarding wizard — BG-11 / BG-12 / BG-14 / BG-100 regressions", () => {
+describe("Onboarding wizard, BG-11 / BG-12 / BG-14 / BG-100 regressions", () => {
 	beforeEach(() => {
 		mockCall.mockReset();
 		mockShowSnack.mockReset();
@@ -771,7 +771,7 @@ describe("Onboarding wizard — BG-11 / BG-12 / BG-14 / BG-100 regressions", () 
 	 * Helper identical to `mockStartAtStep` in the  suite but
 	 * parameterised so the BG regression tests can opt into
 	 * per-model VRAM/language metadata (). Older backends
-	 * don't return these fields — the default is to omit them.
+	 * don't return these fields, the default is to omit them.
 	 */
 	function mockStartAtStepWithModels(
 		stepIndex: number,
@@ -864,7 +864,7 @@ describe("Onboarding wizard — BG-11 / BG-12 / BG-14 / BG-100 regressions", () 
 	//visible right-side step-name label was rendering the raw
 	// backend enum ("Permissions" / "Done" / etc.). After the fix it
 	// uses the localized title. Assert the raw enum no longer leaks
-	// (Done step is the cleanest case — "Done" doesn't appear in any
+	// (Done step is the cleanest case, "Done" doesn't appear in any
 	// other visible string).
 	it("BG-12: visible step-name label is localized (no raw 'Done' enum)", async () => {
 		mockStartAtStepWithModels(5);
@@ -906,14 +906,14 @@ describe("Onboarding wizard — BG-11 / BG-12 / BG-14 / BG-100 regressions", () 
 
 		// The hotkey interpolation: <f2> → "F2" (uppercase, <> stripped).
 		// The completeDescription contains "Press your hotkey (F2) to
-		// start dictating." — assert the parenthesised F2 appears.
+		// start dictating.", assert the parenthesised F2 appears.
 		expect(screen.getByText(/\(F2\)/)).toBeTruthy();
 	});
 
 	//ModelStep must render per-option VRAM + language badges
 	// so users can compare models at a glance. The Select UI is mocked
 	// at the top of this file (vi.mock("@/components/ui/select")) so
-	// SelectItem children render inline in the DOM — no need to drive
+	// SelectItem children render inline in the DOM, no need to drive
 	// Radix's pointer-capture / Portal machinery.
 	//
 	// Previously skipped because the `onboarding.vramBadge` /
@@ -964,7 +964,7 @@ describe("Onboarding wizard — BG-11 / BG-12 / BG-14 / BG-100 regressions", () 
 
 //"Default: <selection>" hints + Continue validation ─────
 
-describe("Onboarding wizard — S5-CR-105: default-selection hints + Continue validation", () => {
+describe("Onboarding wizard, S5-CR-105: default-selection hints + Continue validation", () => {
 	beforeEach(() => {
 		mockCall.mockReset();
 		mockShowSnack.mockReset();
@@ -1096,7 +1096,7 @@ describe("Onboarding wizard — S5-CR-105: default-selection hints + Continue va
 	it("Model step: default-model hint is suppressed (no default model exists)", async () => {
 		// 2026-08-28: the app no longer has a concrete default model.
 		// MODEL_DEFAULT is "" (the NO_MODEL_SIZE sentinel), so the
-		// "Default: <name>" model hint is always suppressed — the user
+		// "Default: <name>" model hint is always suppressed, the user
 		// must explicitly pick a model. The hint element should never
 		// render, mirroring the "non-default model" case below.
 		mockStartAtStepWithDefaults(4);
@@ -1226,7 +1226,7 @@ describe("Onboarding wizard — S5-CR-105: default-selection hints + Continue va
 	});
 });
 
-describe("Onboarding wizard — apply failure surfaces an inline error (no false success)", () => {
+describe("Onboarding wizard, apply failure surfaces an inline error (no false success)", () => {
 	beforeEach(() => {
 		mockCall.mockReset();
 		mockShowSnack.mockReset();
@@ -1292,8 +1292,8 @@ describe("Onboarding wizard — apply failure surfaces an inline error (no false
 
 		fireEvent.click(getStarted);
 
-		// The apply rejection must surface the error snack — NOT the
-		// success one — and must not navigate away.
+		// The apply rejection must surface the error snack, NOT the
+		// success one, and must not navigate away.
 		await waitFor(() => {
 			expect(mockShowSnack).toHaveBeenCalledWith(
 				"Failed to save selection",

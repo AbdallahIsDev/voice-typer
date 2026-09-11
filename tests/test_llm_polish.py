@@ -1,4 +1,4 @@
-"""Tests for voice_typer.llm_polish — LLMPolisher presets and API."""
+"""Tests for voice_typer.llm_polish: LLMPolisher presets and API."""
 
 import json
 from unittest.mock import MagicMock, patch
@@ -124,7 +124,7 @@ class TestLLMPolishUrlAllowlist:
     """RELIABILITY-004: LLMPolisher must refuse to send transcribed
     text to any URL whose host is not in the trusted allowlist.
     This is the last-line defense against SEC-002 endpoint-swap
-    attacks against the LLM polish endpoint — an attacker who
+    attacks against the LLM polish endpoint, an attacker who
     manages to set ``llm_api_url`` to an exfiltration endpoint
     would otherwise receive the user's transcribed speech text in
     cleartext."""
@@ -165,7 +165,7 @@ class TestLLMPolishUrlAllowlist:
         from voice_typer.server.llm_polish import LLMPolisher
 
         p = LLMPolisher(api_key="sk-test", enabled=True)
-        # Default URL is api.openai.com — allowlist check passes,
+        # Default URL is api.openai.com, allowlist check passes,
         # but HTTP fails (no network).  We just verify the error is
         # NOT a ValueError from the allowlist.
         with patch(
@@ -209,7 +209,7 @@ class TestLLMPolishUrlAllowlist:
 # fix introduces a configurable ``timeout_s`` parameter (default 10s,
 # ``DEFAULT_TIMEOUT_S``) on both ``polish()`` and ``_call_api``.
 #
-# XV-76 (Medium): ``polish()`` had no upper bound on input size — 30k+
+# XV-76 (Medium): ``polish()`` had no upper bound on input size, 30k+
 # char dictations would ship in full to the LLM endpoint, and the
 # ``max_tokens = min(4096, len(text) * 2 + 256)`` formula was dead code
 # above ~1920 chars (always hit the 4096 ceiling). The fix introduces a
@@ -217,7 +217,7 @@ class TestLLMPolishUrlAllowlist:
 # ``polish()`` before the API call, and flattens ``max_tokens`` to a flat
 # ``1024``.
 #
-# These tests mock ``urllib`` (via ``_opener.open``) — no real network
+# These tests mock ``urllib`` (via ``_opener.open``), no real network
 # calls are made.
 #
 
@@ -255,7 +255,7 @@ class TestMaxInputChars:
         with patch("voice_typer.server.llm_polish._opener.open") as mock_open:
             result = polisher.polish(oversized)
 
-        # Must return the input unchanged — no API call, no transformation.
+        # Must return the input unchanged, no API call, no transformation.
         assert result == oversized
         # CRITICAL: no API call must have been made.
         mock_open.assert_not_called()
@@ -354,7 +354,7 @@ class TestConfigurableTimeout:
     def test_polish_timeout_s_override_is_propagated(self, polisher):
         """XV-75: an explicit timeout_s kwarg on polish() must reach
         _opener.open. (dictation_pipeline.py is responsible for wiring
-        a user-configurable value — this test only verifies the
+        a user-configurable value, this test only verifies the
         plumbing.)"""
         with patch(
             "voice_typer.server.llm_polish._opener.open",
@@ -410,7 +410,7 @@ class TestFlatMaxTokens:
     ``min(4096, len(text) * 2 + 256)`` formula was dead code above
     ~1920 chars).
 
-    BP-134: the budget key is endpoint-aware — ``max_completion_tokens``
+    BP-134: the budget key is endpoint-aware: ``max_completion_tokens``
     on first-party OpenAI endpoints, ``max_tokens`` elsewhere. These
     tests read whichever key the endpoint contract selects and pin the
     flat-1024 / length-independence intent, not the key name (the key
@@ -445,9 +445,9 @@ class TestFlatMaxTokens:
     def test_max_tokens_is_flat_1024_for_long_text(self, polisher):
         """XV-76 (c): a long input (well above the old formula's
         ~1920-char ceiling where it always returned 4096) must now
-        produce max_tokens=1024 — proving the formula was removed, not
+        produce max_tokens=1024, proving the formula was removed, not
         just capped differently."""
-        # 5000 chars — well above the old formula's 4096 ceiling
+        # 5000 chars, well above the old formula's 4096 ceiling
         # (which kicks in at len(text) = (4096 - 256) / 2 = 1920 chars).
         long_text = "word " * 1000  # 5000 chars
         assert len(long_text) > 1920
@@ -493,7 +493,7 @@ class TestFlatMaxTokens:
 
 class TestRedactPiiFailClosed:
     """When ``redact_pii`` raises inside ``_call_api``, the pre-API
-    PII redaction gate must fail CLOSED — i.e. it must NOT send the
+    PII redaction gate must fail CLOSED, i.e. it must NOT send the
     un-redacted user-content to the LLM endpoint. The user-content
     may contain PII injected via template ``{clipboard}`` substitution
     (passwords, 2FA codes, private messages).
@@ -523,7 +523,7 @@ class TestRedactPiiFailClosed:
 
         # Must return the original text UNPOLISHED.
         assert result == original
-        # CRITICAL: no API call must have been made — un-redacted
+        # CRITICAL: no API call must have been made, un-redacted
         # text must NOT be sent to the LLM endpoint.
         mock_open.assert_not_called()
 
@@ -531,7 +531,7 @@ class TestRedactPiiFailClosed:
         """the fail-closed behavior must propagate through
         ``polish()``. The user still gets their original transcription
         pasted (so the dictation isn't dropped), but no LLM API call
-        is made — no un-redacted PII leaves the device."""
+        is made, no un-redacted PII leaves the device."""
         from voice_typer.server import security
 
         original = "Hello world this is a test of the polish path"
@@ -548,7 +548,7 @@ class TestRedactPiiFailClosed:
         """the ``redact_pii`` failure must be logged at
         WARNING level (not DEBUG) so operators can detect when the
         fail-closed path fires. A DEBUG-level log is invisible in the
-        default production log level — which previously meant a
+        default production log level, which previously meant a
         silent PII leak was possible for the entire lifetime of a
         broken ``security`` module."""
         import logging
@@ -579,7 +579,7 @@ class TestRedactPiiFailClosed:
 
         original = "Hello world this is a test of the polish path"
         # ``redact_pii`` returns the input unchanged (no PII found)
-        # — the API call must still happen.
+        # , the API call must still happen.
         with (
             patch.object(security, "redact_pii", return_value=original),
             patch(
@@ -612,7 +612,7 @@ class TestRedactPiiFailClosed:
             result = polisher._call_api(original, "You are a text editor.")
 
         # Must return the original text, NOT the mocked "Polished"
-        # response — because the API call was never made.
+        # response, because the API call was never made.
         assert result == original
         assert result != "SHOULD NOT BE REACHED"
         mock_open.assert_not_called()
@@ -631,13 +631,13 @@ class TestCallApiHttpErrorBranches:
 
     Mapping (llm_polish.py:368-394):
       HTTPError(5xx)   → CloudServerError  (lines 379-380)
-      HTTPError(other) → CloudEngineError  (lines 381)  — includes 4xx
+      HTTPError(other) → CloudEngineError  (lines 381), includes 4xx
       URLError         → CloudNetworkError (lines 382-388)
       Exception (any)  → CloudEngineError  (lines 389-394)
 
     NOTE: ``HTTPError`` is a subclass of ``URLError``, so the
     ``except HTTPError`` branch MUST appear before ``except URLError``
-    in the source — these tests guard that ordering invariant.
+    in the source, these tests guard that ordering invariant.
     """
 
     def test_call_api_http_500_raises_cloud_server_error(self, polisher):
@@ -712,10 +712,10 @@ class TestCallApiHttpErrorBranches:
         )
         # And it must NOT be mis-mapped to CloudNetworkError (which
         # would happen if the except URLError branch caught HTTPError
-        # first — HTTPError is a subclass of URLError).
+        # first. HTTPError is a subclass of URLError).
         assert not isinstance(exc_info.value, CloudNetworkError), (
             "HTTP 401 (HTTPError) must NOT be caught by the except URLError "
-            "branch — the except HTTPError branch MUST appear first in the "
+            "branch, the except HTTPError branch MUST appear first in the "
             "source. A regression here would mis-map 4xx HTTP errors to "
             "CloudNetworkError (network error) instead of CloudEngineError."
         )
@@ -770,7 +770,7 @@ class TestCallApiHttpErrorBranches:
             polisher._call_api("Hello world test", "You are a text editor.")
 
         # The generic exception must NOT be mis-mapped to a more
-        # specific subclass — CloudNetworkError and CloudServerError
+        # specific subclass, CloudNetworkError and CloudServerError
         # both have distinct IPC codes and renderer UX, and a generic
         # exception (ValueError, AttributeError, etc.) is by
         # definition NOT a network or 5xx-server error.
@@ -789,7 +789,7 @@ class TestCallApiHttpErrorBranches:
 
 class TestEndpointAwareSamplingParams:
     """BP-134: OpenAI reasoning models reject ``max_tokens`` and
-    non-default ``temperature`` — first-party endpoints get
+    non-default ``temperature``, first-party endpoints get
     ``max_completion_tokens`` + default temperature, third-party
     OpenAI-compatible endpoints keep the legacy shape."""
 
@@ -799,7 +799,7 @@ class TestEndpointAwareSamplingParams:
 
     def test_openai_endpoint_uses_max_completion_tokens(self, polisher):
         """api.openai.com (the fixture URL): no ``max_tokens``, no
-        non-default temperature — the shape reasoning models accept."""
+        non-default temperature, the shape reasoning models accept."""
         with patch(
             "voice_typer.server.llm_polish._opener.open",
             return_value=_make_mock_response("OK"),

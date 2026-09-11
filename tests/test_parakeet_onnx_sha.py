@@ -5,7 +5,7 @@ Verifies:
 1. ``ALLOW_PATTERNS_PARAKEET_ONNX`` exists in
    ``voice_typer.server.security.model_integrity`` and contains the
    patterns required for the ONNX backend (``*.onnx`` + tokenizer
-   + config JSONs) — see PLAN_ONNX_INTEGRATION.md §3.5.4.
+   + config JSONs): see PLAN_ONNX_INTEGRATION.md §3.5.4.
 2. The ``model_hashes.json`` manifest entry for ``nvidia/parakeet-tdt-0.6b-v3``
    has the expected schema (``revision`` = 40-char SHA, ``files`` dict
    of ``{relative_path: sha256_hex}``).
@@ -13,7 +13,7 @@ Verifies:
 4. (When the model is downloaded) ``verify_model_integrity`` returns
    True for the cached snapshot.
 
-These tests do NOT require ``onnx_asr`` to be installed — they test
+These tests do NOT require ``onnx_asr`` to be installed, they test
 the JSON manifest schema and the allowlist constant directly. The
 optional ``pytest.importorskip("onnx_asr")`` guard is on the parity
 download-verification class only.
@@ -28,7 +28,7 @@ from pathlib import Path
 
 import pytest
 
-# NOTE: no module-level ``pytest.importorskip("onnx_asr")`` — these
+# NOTE: no module-level ``pytest.importorskip("onnx_asr")``, these
 # tests verify the JSON manifest schema + the allowlist constant, which
 # are independent of whether onnx_asr is installed. The download-
 # verification class uses importorskip (it needs the real model).
@@ -49,7 +49,7 @@ _HF_COMMIT_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 
 
 class TestAllowPatternsParakeetOnnx:
-    """``ALLOW_PATTERNS_PARAKEET_ONNX`` — the new ONNX allowlist (§3.5.4)."""
+    """``ALLOW_PATTERNS_PARAKEET_ONNX``, the new ONNX allowlist (§3.5.4)."""
 
     def test_constant_exists_and_is_frozenset(self):
         """The constant must exist and be a ``frozenset`` (immutable,
@@ -64,11 +64,10 @@ class TestAllowPatternsParakeetOnnx:
         )
 
     def test_includes_onnx_glob(self):
-        """``*.onnx`` must be in the allowlist — the ONNX encoder /
+        """``*.onnx`` must be in the allowlist, the ONNX encoder /
         decoder / joint graphs ship as ``.onnx`` files."""
         assert "*.onnx" in ALLOW_PATTERNS_PARAKEET_ONNX, (
-            "*.onnx must be in ALLOW_PATTERNS_PARAKEET_ONNX — the ONNX "
-            "encoder/decoder/joint graphs ship as .onnx files."
+            "*.onnx must be in ALLOW_PATTERNS_PARAKEET_ONNX, the ONNX encoder/decoder/joint graphs ship as .onnx files."
         )
 
     def test_includes_required_json_configs(self):
@@ -99,26 +98,26 @@ class TestAllowPatternsParakeetOnnx:
         """The ONNX allowlist must NOT include ``*.bin`` (pickle RCE
         vector) or ``*.safetensors`` (torch format, not used by the
         ONNX backend). The old ``ALLOW_PATTERNS_PARAKEET`` keeps those
-        for the torch/safetensors cache layout — the ONNX constant is
+        for the torch/safetensors cache layout, the ONNX constant is
         a separate, narrower allowlist."""
         assert "*.bin" not in ALLOW_PATTERNS_PARAKEET_ONNX, (
-            "*.bin must NOT be in the ONNX allowlist — it's a pickle RCE "
+            "*.bin must NOT be in the ONNX allowlist, it's a pickle RCE "
             "vector and the ONNX backend doesn't use torch checkpoints."
         )
         assert "*.safetensors" not in ALLOW_PATTERNS_PARAKEET_ONNX, (
-            "*.safetensors must NOT be in the ONNX allowlist — the ONNX "
+            "*.safetensors must NOT be in the ONNX allowlist, the ONNX "
             "backend uses .onnx files, not torch/safetensors weights."
         )
 
     def test_old_allow_patterns_parakeet_still_exists(self):
         """The pre-migration ``ALLOW_PATTERNS_PARAKEET`` (safetensors-
-        based) must still exist — it covers the torch/safetensors cache
+        based) must still exist, it covers the torch/safetensors cache
         layout that pre-ONNX-migration users have downloaded. The ONNX
         migration adds ``ALLOW_PATTERNS_PARAKEET_ONNX`` alongside, NOT
         as a replacement."""
         assert ALLOW_PATTERNS_PARAKEET is not None, (
             "ALLOW_PATTERNS_PARAKEET (the pre-migration safetensors-based "
-            "allowlist) must still exist — it covers the torch/safetensors "
+            "allowlist) must still exist, it covers the torch/safetensors "
             "cache layout that pre-ONNX-migration users have downloaded."
         )
         assert "*.safetensors" in ALLOW_PATTERNS_PARAKEET, (
@@ -127,9 +126,9 @@ class TestAllowPatternsParakeetOnnx:
 
     def test_whisper_allowlist_unchanged(self):
         """Sanity: ``ALLOW_PATTERNS_WHISPER`` is unchanged (the ONNX
-        migration doesn't touch Whisper — it already uses ctranslate2)."""
+        migration doesn't touch Whisper, it already uses ctranslate2)."""
         assert "*.bin" in ALLOW_PATTERNS_WHISPER, (
-            "ALLOW_PATTERNS_WHISPER must keep *.bin — CTranslate2 loads model.bin (unchanged by the ONNX migration)."
+            "ALLOW_PATTERNS_WHISPER must keep *.bin. CTranslate2 loads model.bin (unchanged by the ONNX migration)."
         )
 
 
@@ -175,7 +174,7 @@ class TestModelHashesManifest:
         files = entry.get("files")
         assert isinstance(files, dict), f"files must be a dict, got {type(files).__name__}"
         assert len(files) > 0, (
-            "files dict must be non-empty — empty files dict triggers the "
+            "files dict must be non-empty, empty files dict triggers the "
             "soft-pass branch in verify_model_integrity (SEC-audit-005 warning)."
         )
 
@@ -189,25 +188,25 @@ class TestModelHashesManifest:
         assert not invalid, f"Invalid SHA-256 entries in parakeet manifest (must be 64-char lowercase hex): {invalid}"
 
     def test_parakeet_manifest_pins_model_safetensors(self, manifest):
-        """The manifest must pin ``model.safetensors`` — the primary
+        """The manifest must pin ``model.safetensors``, the primary
         model weight file. Without this pin, a tampered weight file
         would load unchecked."""
         files = manifest[_PARAKEET_REPO_ID]["files"]
         assert "model.safetensors" in files, (
-            "model.safetensors must be pinned in the parakeet manifest — "
+            "model.safetensors must be pinned in the parakeet manifest, "
             "it's the primary model weight file. Without the pin, "
             "verify_model_integrity cannot detect a tampered weight file."
         )
 
     def test_parakeet_manifest_pins_config_json(self, manifest):
-        """The manifest must pin ``config.json`` — the model architecture
+        """The manifest must pin ``config.json``, the model architecture
         config. A tampered config could redirect the model to load
         different weights."""
         files = manifest[_PARAKEET_REPO_ID]["files"]
         assert "config.json" in files, "config.json must be pinned in the parakeet manifest."
 
     def test_parakeet_manifest_pins_tokenizer_json(self, manifest):
-        """The manifest must pin ``tokenizer.json`` — a tampered
+        """The manifest must pin ``tokenizer.json``, a tampered
         tokenizer could leak transcribed text via malicious token mappings."""
         files = manifest[_PARAKEET_REPO_ID]["files"]
         assert "tokenizer.json" in files, "tokenizer.json must be pinned in the parakeet manifest."
@@ -220,7 +219,7 @@ class TestParakeetOnnxDownloadedModelSha:
     """Verify a DOWNLOADED Parakeet model matches the manifest.
 
     Skips if the model is not in the local HF cache (these tests need
-    a real downloaded model — they don't mock the file system).
+    a real downloaded model, they don't mock the file system).
     Requires ``onnx_asr`` to be installed (the engine's cache probe
     uses it).
     """
@@ -236,7 +235,7 @@ class TestParakeetOnnxDownloadedModelSha:
         from voice_typer.server.parakeet_engine import ParakeetEngine
 
         if not ParakeetEngine._is_cached():
-            pytest.skip("Parakeet model not in HF cache — download via Models page first")
+            pytest.skip("Parakeet model not in HF cache, download via Models page first")
 
         cache_root = _config_dir() / "huggingface" / "hub"
         model_dir = cache_root / f"models--{_PARAKEET_REPO_ID.replace('/', '--')}"
@@ -257,7 +256,7 @@ class TestParakeetOnnxDownloadedModelSha:
                 last_exc = exc
         assert verified, (
             f"verify_model_integrity failed for all snapshots in {snapshots}. "
-            f"Last exception: {last_exc}. The cached model may be tampered — "
+            f"Last exception: {last_exc}. The cached model may be tampered, "
             f"delete it and re-download from the Models page."
         )
 

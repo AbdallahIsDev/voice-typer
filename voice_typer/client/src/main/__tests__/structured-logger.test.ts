@@ -4,12 +4,12 @@
  * the structured `log` logger (ESM import from ../logging) instead of
  * raw console.* calls, so log messages persist in packaged builds.
  *
- * Source-level tests — no module imports required (avoids Electron mock
+ * Source-level tests, no module imports required (avoids Electron mock
  * conflicts with other test files).
  *
  *  (2026-07-27): added `python/relaunch-app.ts` and `bootstrap.ts`
  * to the migration scope. The original  note in review.md claimed
- * these two were "already migrated" — they were not (4 + 12 raw
+ * these two were "already migrated", they were not (4 + 12 raw
  * console.warn/error calls respectively). The migration is now
  * enforced by these source-level tests so the drift cannot recur.
  */

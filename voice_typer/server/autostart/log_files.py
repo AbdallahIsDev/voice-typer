@@ -12,7 +12,7 @@ import subprocess
 
 # C-CROSS-3: this file is executed as part of a script the OS launches
 # directly (``pythonw.exe autostart_launcher.py``), where ``__name__``
-# would be ``"__main__"`` — use the explicit dotted logger name so
+# would be ``"__main__"``: use the explicit dotted logger name so
 # launcher records reach the app's rotating file handler.
 log = logging.getLogger("voice_typer.server.autostart_launcher")
 

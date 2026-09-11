@@ -16,14 +16,14 @@ via ``env_clear()`` in ``src-tauri/src/sidecar/spawn.rs``.
 A developer with ``HF_TOKEN`` exported in their shell would have
 ``huggingface_hub.snapshot_download()`` (called from
 ``asr_setup.py:417`` WITHOUT ``token=``) silently attach their
-personal HF token to model-download requests — rate-limited / quota-
+personal HF token to model-download requests, rate-limited / quota-
 charged against their HF account with no UI indication.
 
 Fix
 ---
 ``_validate_env_vars()`` now pops every name in
 ``env_validation._SENSITIVE_ENV_NAMES`` from ``os.environ`` and logs a
-WARNING with the key NAME ONLY (never the value — GT-63 redaction
+WARNING with the key NAME ONLY (never the value, GT-63 redaction
 contract).
 
 Tests
@@ -34,7 +34,7 @@ Tests
 * Vars NOT in the sensitive list are preserved.
 * ``_SENSITIVE_ENV_NAMES`` in ``env_validation`` matches
   ``electron_launcher._SENSITIVE_ENV_NAMES`` exactly (drift detection
-  — catches a future contributor adding a new provider to one list
+, catches a future contributor adding a new provider to one list
   but not the other).
 """
 
@@ -71,7 +71,7 @@ def _clean_sensitive_env(monkeypatch):
     own env exported). We want each test to start from a known-empty
     state AND we want monkeypatch to restore the original value on
     teardown (so the test doesn't pollute later tests in the session
-    via the SUT's direct ``os.environ.pop`` — which bypasses
+    via the SUT's direct ``os.environ.pop``, which bypasses
     monkeypatch's restoration mechanism).
     """
     for var in _EXPECTED_SENSITIVE_ENV_NAMES:
@@ -91,7 +91,7 @@ class TestSensitiveEnvVarsPopped:
         monkeypatch.setenv(var, "secret-value-do-not-log")
         _validate_env_vars()
         assert var not in os.environ, (
-            f"FR-18 regression: {var} was NOT popped by _validate_env_vars() — "
+            f"FR-18 regression: {var} was NOT popped by _validate_env_vars(), "
             "it should be stripped to prevent the Python sidecar from "
             "inheriting cloud-provider API keys / HF tokens from the parent "
             "shell in Electron / standalone mode."
@@ -139,7 +139,7 @@ class TestNonSensitiveVarsPreserved:
     )
     def test_non_sensitive_var_preserved(self, monkeypatch, var):
         # HF_ENDPOINT and HF_HOME have their own validation logic in
-        # _validate_env_vars() — set them to a valid value so they
+        # _validate_env_vars(), set them to a valid value so they
         # survive the full validator (not just the  strip block).
         if var == "HF_HOME":
             from pathlib import Path
@@ -162,7 +162,7 @@ class TestNonSensitiveVarsPreserved:
         _validate_env_vars()
         assert os.environ.get(var) == original, (
             f"FR-18 regression: non-sensitive var {var} was modified by the "
-            "sensitive-env strip block. The strip must be surgical — only "
+            "sensitive-env strip block. The strip must be surgical, only "
             "the names in _SENSITIVE_ENV_NAMES should be popped."
         )
 
@@ -172,7 +172,7 @@ class TestNonSensitiveVarsPreserved:
 
 class TestSensitiveEnvWarningLogged:
     """FR-18: a WARNING is logged for each stripped var, mentioning the
-    var NAME ONLY (never the value — GT-63 redaction contract)."""
+    var NAME ONLY (never the value, GT-63 redaction contract)."""
 
     def test_warning_logged_for_each_sensitive_var(self, monkeypatch, caplog):
         monkeypatch.setenv("HF_TOKEN", "hf_secret_value_12345")
@@ -185,7 +185,7 @@ class TestSensitiveEnvWarningLogged:
         )
 
     def test_warning_value_never_logged(self, monkeypatch, caplog):
-        """GT-63: the secret VALUE must never appear in the log — only
+        """GT-63: the secret VALUE must never appear in the log, only
         the key name. The warning must use the ``<redacted>`` style or
         simply omit the value entirely."""
         secret = "hf_super_secret_value_DO_NOT_LEAK_abc123"
@@ -225,7 +225,7 @@ class TestSensitiveEnvWarningLogged:
         )
 
     def test_warning_level_is_warning_not_error(self, monkeypatch, caplog):
-        """The log record MUST be at WARNING level (not ERROR — the
+        """The log record MUST be at WARNING level (not ERROR, the
         operator may have set the env var legitimately for another
         tool; we just don't want Voice Typer to inherit it)."""
         monkeypatch.setenv("HF_TOKEN", "hf_test_value")
@@ -249,7 +249,7 @@ class TestSensitiveEnvNamesDriftDetection:
     The duplication is deliberate (env_validation is a low-level
     startup module; importing electron_launcher would pull in
     ``_electron_build`` and ``platform_utils`` at startup time, which
-    is intentionally avoided — see ``shutdown_controller.py:917`` and
+    is intentionally avoided: see ``shutdown_controller.py:917`` and
     ``ipc_server.py:2039`` which both lazy-import electron_launcher
     for the same reason). This drift-detection test catches a future
     contributor who adds a new cloud provider (e.g.
@@ -267,7 +267,7 @@ class TestSensitiveEnvNamesDriftDetection:
             "electron_launcher._SENSITIVE_ENV_NAMES have diverged. "
             f"env_validation={sorted(_SENSITIVE_ENV_NAMES)!r}; "
             f"electron_launcher={sorted(electron_sensitive_names)!r}. "
-            "Both lists MUST stay in sync — a new cloud provider added "
+            "Both lists MUST stay in sync, a new cloud provider added "
             "to one MUST be added to the other (the lists are duplicated "
             "to avoid env_validation importing electron_launcher at "
             "startup time, but the drift is caught by this test)."
@@ -299,7 +299,7 @@ class TestSensitiveEnvNamesDriftDetection:
 
     def test_sensitive_names_is_frozenset(self):
         """The SUT's ``_SENSITIVE_ENV_NAMES`` MUST be a ``frozenset``
-        (immutable — prevents accidental in-place mutation at runtime)."""
+        (immutable, prevents accidental in-place mutation at runtime)."""
         assert isinstance(_SENSITIVE_ENV_NAMES, frozenset), (
             f"FR-18 regression: _SENSITIVE_ENV_NAMES must be a frozenset "
             f"(immutable); got {type(_SENSITIVE_ENV_NAMES).__name__}"

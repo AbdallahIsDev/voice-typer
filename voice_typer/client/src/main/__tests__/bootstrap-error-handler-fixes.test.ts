@@ -3,19 +3,19 @@
  *
  *  regression coverage for three findings:
  *
- *   (a)  — `getRuntimeLogPath()` memoization. Previously called
+ *   (a) , `getRuntimeLogPath()` memoization. Previously called
  *       `require("electron")` + `app.getPath("userData")` on every
  *       `log.warn` / `log.error`. Now caches the result so the
  *       round-trip happens at most once per process lifetime.
  *
- *   (b)  — `setupErrorHandlers` idempotency. Previously discarded
+ *   (b) , `setupErrorHandlers` idempotency. Previously discarded
  *       the `dispose()` handle returned by `_installErrorHandlers`,
  *       so a second `bootstrapRuntime()` call would stack a fresh pair
  *       of `uncaughtException` / `unhandledRejection` listeners on top
  *       of the previous ones (double-logging + double-tripping the
  *       breaker). Now disposes the prior install first.
  *
- *   (c)  — `BUBBLE_ONLY_TYPES` shared constant. The five
+ *   (c) , `BUBBLE_ONLY_TYPES` shared constant. The five
  *       bubble-only Python event types are declared once in
  *       `ipc/bubble-handlers.ts` so `python/handle-message.ts` can
  *       import them (replacing the inline `if (msg.type === "bubble_*")`
@@ -46,7 +46,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // cases". The same pattern is used by the existing `bootstrap.test.ts`
 // / `shutdown-hooks.test.ts` (they use the older vitest-3 style of
 // leaving the spies as plain `const`s and relying on the factory's
-// closure capturing them lazily — vitest 4 tightened that and now
+// closure capturing them lazily, vitest 4 tightened that and now
 // requires `vi.hoisted`).
 // ────────────────────────────────────────────────────────────────────
 
@@ -82,33 +82,33 @@ vi.mock("electron", () => ({
 	},
 }));
 
-// Mock the `./python` barrel — `bootstrap.ts` imports `stopPython`
+// Mock the `./python` barrel, `bootstrap.ts` imports `stopPython`
 // from it, and the real barrel transitively imports `./send-to-python`
 // → `../index` (which fires Electron APIs at module-eval time).
 vi.mock("../python", () => ({
 	stopPython: vi.fn(),
 }));
 
-// Mock `./single_instance` — its real implementation transitively
+// Mock `./single_instance`, its real implementation transitively
 // imports `./windows` (heavy Electron BrowserWindow machinery).
 vi.mock("../single_instance", () => ({
 	computeConfigDir: () => "/tmp/vt-bootstrap-error-handler-fixes-userdata",
 	clearElectronPidFile: vi.fn(),
 }));
 
-// Mock the dependency-free `./config-dir` leaf — the logging package
+// Mock the dependency-free `./config-dir` leaf, the logging package
 // resolves log paths via `computeConfigDir` (O1 logs → logs/), so the
 // getRuntimeLogPath memoization tests assert against this mock.
 vi.mock("../config-dir", () => ({
 	computeConfigDir: configDirMocks.computeConfigDir,
 }));
 
-// Mock `./state` — `bootstrap.ts` reads `state.sessionNonce`.
+// Mock `./state`, `bootstrap.ts` reads `state.sessionNonce`.
 vi.mock("../state", () => ({
 	state: { sessionNonce: "" },
 }));
 
-// Mock `./i18n` — `bootstrap.ts` uses `mainT(...)` inside the breaker
+// Mock `./i18n`, `bootstrap.ts` uses `mainT(...)` inside the breaker
 // dialog. The test never trips the breaker (it doesn't emit 5 errors),
 // but the import + symbol binding still needs to resolve.
 vi.mock("../i18n", () => ({
@@ -116,7 +116,7 @@ vi.mock("../i18n", () => ({
 }));
 
 // ────────────────────────────────────────────────────────────────────
-//(a)  — getRuntimeLogPath memoization
+//(a) , getRuntimeLogPath memoization
 // ────────────────────────────────────────────────────────────────────
 
 import {
@@ -163,7 +163,7 @@ describe("ER-63: getRuntimeLogPath is memoized", () => {
 	});
 
 	it("calls computeConfigDir exactly once across N calls", () => {
-		// 5 calls — without memoization each would re-resolve the
+		// 5 calls, without memoization each would re-resolve the
 		// path; with memoization only the first hits
 		// `computeConfigDir`.
 		_getRuntimeLogPathForTest();
@@ -178,7 +178,7 @@ describe("ER-63: getRuntimeLogPath is memoized", () => {
 		_getRuntimeLogPathForTest();
 		expect(configDirMocks.computeConfigDir).toHaveBeenCalledTimes(1);
 		_getRuntimeLogPathForTest();
-		// Still cached — no new call.
+		// Still cached, no new call.
 		expect(configDirMocks.computeConfigDir).toHaveBeenCalledTimes(1);
 		_resetRuntimeLogPathForTest();
 		_getRuntimeLogPathForTest();
@@ -188,7 +188,7 @@ describe("ER-63: getRuntimeLogPath is memoized", () => {
 
 	it("caches `null` when config-dir resolution fails (no re-attempt on every call)", () => {
 		// Simulate config-dir resolution failing by making
-		// `computeConfigDir` throw — the try/catch branch lands in
+		// `computeConfigDir` throw, the try/catch branch lands in
 		// the `catch` branch, caching `null`.
 		_resetRuntimeLogPathForTest();
 		configDirMocks.computeConfigDir.mockImplementationOnce(() => {
@@ -208,7 +208,7 @@ describe("ER-63: getRuntimeLogPath is memoized", () => {
 });
 
 // ────────────────────────────────────────────────────────────────────
-//(b)  — setupErrorHandlers disposes old handlers before installing new
+//(b) , setupErrorHandlers disposes old handlers before installing new
 // ────────────────────────────────────────────────────────────────────
 
 import {
@@ -239,7 +239,7 @@ describe("ER-86: setupErrorHandlers disposes old handlers before installing new"
 		originalOff = process.off.bind(process);
 		_resetErrorHandlersDisposeForTest();
 		// Spy on `process.on` / `process.off` WITHOUT replacing the
-		// implementation — the real registration must still happen
+		// implementation, the real registration must still happen
 		// so the dispose path can actually unregister.
 		vi.spyOn(process, "on").mockImplementation((event, handler, ...rest) => {
 			onCalls.push({ event, handler });
@@ -290,7 +290,7 @@ describe("ER-86: setupErrorHandlers disposes old handlers before installing new"
 		expect(offEvents).toContain("uncaughtException");
 		expect(offEvents).toContain("unhandledRejection");
 		// The off call's handler reference must match the first
-		// install's handler — verifying it's the SAME listener
+		// install's handler, verifying it's the SAME listener
 		// being removed (not a no-op off of a never-registered
 		// function).
 		const offUncaught = offCalls.find(
@@ -330,14 +330,14 @@ describe("ER-86: setupErrorHandlers disposes old handlers before installing new"
 		// final dispose via a fourth call followed by a direct
 		// off of both events.
 		// (The spy intercepts off() so we can't easily call the
-		// cached dispose here — instead, emit a no-op dispose by
+		// cached dispose here, instead, emit a no-op dispose by
 		// installing once more then removing both via process.off
 		// using the handler references captured above.)
 	});
 });
 
 // ────────────────────────────────────────────────────────────────────
-//(c)  — BUBBLE_ONLY_TYPES contains the 5 expected types
+//(c) , BUBBLE_ONLY_TYPES contains the 5 expected types
 // ────────────────────────────────────────────────────────────────────
 
 import { BUBBLE_ONLY_TYPES } from "../ipc/bubble-handlers";

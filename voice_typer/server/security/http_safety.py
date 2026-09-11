@@ -16,7 +16,7 @@ Security rationale
 ``HTTPRedirectHandler`` (which silently follows 3xx responses) UNLESS
 the caller passes an explicit ``HTTPRedirectHandler`` subclass.  The
 previous code passed only ``HTTPSHandler()``, expecting
-``build_opener`` to skip the redirect handler — but urllib adds the
+``build_opener`` to skip the redirect handler, but urllib adds the
 default handlers in addition to the caller-provided ones (a handler of
 the same *class* replaces the default; ``HTTPSHandler`` replaces
 ``HTTPSHandler`` but does NOT replace ``HTTPRedirectHandler``).  So
@@ -26,8 +26,8 @@ comment claiming otherwise.
 ``_NoRedirectHandler`` overrides ``redirect_request`` to raise
 ``HTTPError`` so the existing ``except HTTPError`` / ``except
 URLError`` branches in the cloud engines handle it as a hard failure
-(no silent exfiltration of the request body — which contains user
-audio + the API key in the Authorization header — to an attacker-
+(no silent exfiltration of the request body, which contains user
+audio + the API key in the Authorization header, to an attacker-
 controlled redirect target).
 """
 
@@ -58,7 +58,7 @@ class _NoRedirectHandler(HTTPRedirectHandler):
     ``HTTPRedirectHandler`` (which silently follows 3xx responses)
     UNLESS the caller passes an explicit ``HTTPRedirectHandler``
     subclass. The previous code passed only ``HTTPSHandler()``,
-    expecting ``build_opener`` to skip the redirect handler — but
+    expecting ``build_opener`` to skip the redirect handler, but
     the urllib source adds the default handlers in addition to the
     caller-provided ones (a handler of the same *class* replaces the
     default; HTTPSHandler replaces HTTPSHandler but does NOT replace
@@ -68,7 +68,7 @@ class _NoRedirectHandler(HTTPRedirectHandler):
     This subclass overrides ``redirect_request`` to raise
     ``HTTPError`` so the existing ``except HTTPError`` / ``except
     URLError`` branches in the cloud engines handle it as a hard
-    failure (no silent exfiltration of the request body — which
+    failure (no silent exfiltration of the request body, which
     contains user audio + the API key in the Authorization header —
     to an attacker-controlled redirect target).
 
@@ -96,8 +96,8 @@ class _NoRedirectHandler(HTTPRedirectHandler):
         # callers and is commonly logged directly (e.g. ``except
         # HTTPError as e: log.warning('failed: %s', e.url)``). Pre-fix,
         # the message was redacted but ``e.url`` preserved the raw
-        # redirect target — including any embedded
-        # ``user:pass@host`` userinfo — which is a credential-leak
+        # redirect target: including any embedded
+        # ``user:pass@host`` userinfo: which is a credential-leak
         # surface. Redacting both fields keeps the two representations
         # consistent.
         raise HTTPError(
@@ -113,7 +113,7 @@ class _HttpsOnlyHTTPHandler(HTTPHandler):
     """SEC: refuse plaintext HTTP requests.
 
     ``urllib.request.build_opener`` ALWAYS installs the default
-    handler set in addition to caller-provided handlers — this
+    handler set in addition to caller-provided handlers, this
     includes ``HTTPHandler`` (plaintext HTTP). The function name and
     docstring of :func:`build_secure_opener` imply HTTPS-only, but
     nothing previously prevented a caller from passing an ``http://``
@@ -139,7 +139,7 @@ class _HttpsOnlyHTTPHandler(HTTPHandler):
     # source of truth (``voice_typer.server._paths.LOOPBACK_HOSTS``)
     # rather than re-declared inline. Pre-fix, this attribute was a
     # separate inline frozenset literal of the three loopback hosts
-    # — a DRY violation: if the canonical set ever changes, two files
+    # , a DRY violation: if the canonical set ever changes, two files
     # would need to be edited in sync, and drift would silently either
     # over-block (breaking local dev servers like Ollama / vLLM) or
     # under-block (SSRF surface). The class-attribute name
@@ -170,9 +170,9 @@ class _HttpsOnlyHTTPHandler(HTTPHandler):
             parsed = None
         host = (parsed.hostname or "").lower() if parsed else ""
         if host in self._LOOPBACK_HOSTS:
-            # Local development server — allow plaintext HTTP.
+            # Local development server, allow plaintext HTTP.
             return super().http_open(req)
-        # Non-loopback plaintext HTTP request — refuse.
+        # Non-loopback plaintext HTTP request, refuse.
         raise URLError(
             "SEC: plaintext HTTP refused for non-loopback host "
             f"{host!r}; use https:// (DE-65). The 'secure opener' is "
@@ -187,13 +187,13 @@ def build_secure_opener():
 
     pass ``_NoRedirectHandler()`` so the opener does NOT follow
     3xx redirects (the default ``HTTPRedirectHandler`` would silently
-    POST the request body — user audio + API key — to an attacker-
+    POST the request body, user audio + API key, to an attacker-
     controlled redirect target).
 
     also install :class:`_HttpsOnlyHTTPHandler` so the opener
     refuses plaintext HTTP requests to non-loopback hosts. Pre-fix,
     ``build_opener(HTTPSHandler(), _NoRedirectHandler())`` left the
-    default ``HTTPHandler`` installed — so a caller passing
+    default ``HTTPHandler`` installed, so a caller passing
     ``http://attacker.example.com/steal`` would have its request body
     (API key + user audio) transmitted in plaintext. Passing
     ``_HttpsOnlyHTTPHandler`` as a *class* (not an instance) makes
@@ -205,7 +205,7 @@ def build_secure_opener():
     ``HTTPConnection`` / ``HTTPSConnection`` per request and sends
     ``Connection: close`` (verified against the CPython source), so
     every request pays a full TCP+TLS handshake. Module-level reuse is
-    still worthwhile — callers should stash the returned opener at
+    still worthwhile, callers should stash the returned opener at
     module level so the handler chain (TLS context, redirect refusal,
     plaintext-HTTP refusal) is built once instead of per request.
 
@@ -229,7 +229,7 @@ def build_secure_opener():
     # ``build_opener`` treats it as a handler-class and REPLACES the
     # default ``HTTPHandler``. Passing an instance would cause
     # ``build_opener`` to ADD a second ``HTTPHandler``-shaped handler
-    # alongside the default — and the default would still handle
+    # alongside the default, and the default would still handle
     # ``http://`` requests in plaintext, defeating the override.
     return build_opener(
         HTTPSHandler(),

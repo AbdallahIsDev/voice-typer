@@ -8,9 +8,9 @@ re-declared as bare literals, so the two modules can never drift apart.
 from __future__ import annotations
 
 from voice_typer.server.asr_utils import (
-    MAX_BOUNDARY_SKIP_WORDS as _MAX_BOUNDARY_SKIP_WORDS,  # noqa: F401 — re-exported alias
-    NON_LATIN_RATIO_LIMIT as _NON_LATIN_RATIO_LIMIT,  # noqa: F401 — re-exported alias
-    OVERLAP_DEDUP_WINDOW as _OVERLAP_DEDUP_WINDOW,  # noqa: F401 — re-exported alias
+    MAX_BOUNDARY_SKIP_WORDS as _MAX_BOUNDARY_SKIP_WORDS,  # noqa: F401, re-exported alias
+    NON_LATIN_RATIO_LIMIT as _NON_LATIN_RATIO_LIMIT,  # noqa: F401, re-exported alias
+    OVERLAP_DEDUP_WINDOW as _OVERLAP_DEDUP_WINDOW,  # noqa: F401, re-exported alias
 )
 
 # The three imports above are the backward-compat re-export surface of
@@ -21,15 +21,15 @@ from voice_typer.server.asr_utils import (
 
 # ─── Constants ──────────────────────────────────────────────────────────
 
-# (``_NON_LATIN_RATIO_LIMIT`` — the maximum allowed ratio of non-Latin-
+# (``_NON_LATIN_RATIO_LIMIT``: the maximum allowed ratio of non-Latin-
 # script characters before a segment is rejected as a language-
-# hallucination — is imported from ``asr_utils`` at the top of this
+# hallucination, is imported from ``asr_utils`` at the top of this
 # module.)
 
 # HuggingFace repo ID of the *original* torch/safetensors Parakeet
 # model. Kept as a module-level constant because ``prewarm/cache_probe``
 # imports it to locate the cached ``model.safetensors`` for OS page-cache
-# warming. The ONNX migration does NOT change this — prewarm still warms
+# warming. The ONNX migration does NOT change this, prewarm still warms
 # the same HF cache directory (the user may have either the torch or
 # ONNX weights cached; both live under the same repo-id key).
 _PARAKERT_MODEL_ID = "nvidia/parakeet-tdt-0.6b-v3"
@@ -43,7 +43,7 @@ _PARAKERT_MODEL_ID = "nvidia/parakeet-tdt-0.6b-v3"
 # files minus config.json); identical WER to fp32 at ~1.28 GB instead
 # of ~2.5 GB (see the repo's README). The repo ships a real
 # ``config.json``, but onnx-asr reads ``model_type`` from it only when
-# resolving a repo BY NAME — the engine still loads by TYPE name + a
+# resolving a repo BY NAME, the engine still loads by TYPE name + a
 # verified local snapshot dir (see ``load()``).
 _PARAKERT_ONNX_REPO_ID = "grikdotnet/parakeet-tdt-0.6b-fp16"
 _PARAKERT_ONNX_CACHE_DIR = f"models--{_PARAKERT_ONNX_REPO_ID.replace('/', '--')}"
@@ -57,7 +57,7 @@ _PARAKERT_ONNX_CACHE_DIR = f"models--{_PARAKERT_ONNX_REPO_ID.replace('/', '--')}
 _PARAKERT_ONNX_MODEL_NAME = "nemo-conformer-tdt"
 
 # Selects the ``.fp16.`` variant files inside the repo (onnx-asr 0.12.0
-# globs ``encoder-model?fp16.onnx`` — matches ``encoder-model.fp16.onnx``).
+# globs ``encoder-model?fp16.onnx``: matches ``encoder-model.fp16.onnx``).
 _PARAKERT_QUANTIZATION = "fp16"
 
 # Approximate ONNX weight size in MB for MB/s read-speed logging.

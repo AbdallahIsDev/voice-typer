@@ -4,7 +4,7 @@ slack in the history DB teardown.
 
 These tests pin three findings fixed in ``_do_cleanup``:
 
-* **(High)** — ``_do_cleanup`` now has an overall 20s deadline
+* **(High)**: ``_do_cleanup`` now has an overall 20s deadline
   (``deadline = time.monotonic() + 20.0``). When the remaining budget
   drops below 5s, non-critical teardowns (hotkeys, level_monitor,
   waveform, electron, event_bus, asr_models, restore_volume,
@@ -13,16 +13,16 @@ These tests pin three findings fixed in ``_do_cleanup``:
   mutex, PID file) plus the late ``tray.stop`` bookend run. Skipped
   teardowns are logged at WARNING.
 
-* **(Medium)** — ``_teardown_history_db`` and
+* **(Medium)**: ``_teardown_history_db`` and
   ``_teardown_crash_recovery`` run SEQUENTIALLY in the
   ``sequenced_items`` phase, after ``_teardown_recorder`` completes
   (the recorder's transcription thread must be joined before the DB
   flush, and the crash-recovery snapshot drains after that). They are
-  NOT in the parallel batch — the source-text contract in
+  NOT in the parallel batch, the source-text contract in
   ``tests/test_shutdown_fast_path.py::TestSequentialHistoryAndCrashRecovery``
   pins this ordering.
 
-* **(Medium)** — ``teardowns/history_db.py`` inner timeouts
+* **(Medium)**: ``teardowns/history_db.py`` inner timeouts
   (``flush=8.0`` + ``close=4.0`` = 12s) are now strictly less than
   the outer wrapper budget (15s), leaving 3s of slack. Previously the
   inner timeouts (10s + 5s = 15s) exactly equaled the outer budget —
@@ -32,7 +32,7 @@ These tests pin three findings fixed in ``_do_cleanup``:
 The tests stub every external dependency (the real ``VoiceTyperApp``,
 filesystem PID/devnull paths, Win32 kernel32, the ``event_bus`` module)
 so they run headless on Linux without touching real subsystems. They
-do NOT import ``voice_typer.server.app`` — instead they construct a
+do NOT import ``voice_typer.server.app``, instead they construct a
 ``_FakeApp`` duck-typed stand-in that satisfies the surface
 ``ShutdownController._do_cleanup`` touches.
 """
@@ -46,7 +46,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-# Direct import — does NOT pull in voice_typer.server.app, so the
+# Direct import, does NOT pull in voice_typer.server.app, so the
 # clipboard_target_safety circular-import breakage in a parallel
 # agent's WIP doesn't block these tests.
 from voice_typer.server.shutdown_controller import ShutdownController
@@ -57,7 +57,7 @@ from voice_typer.server.shutdown_controller import ShutdownController
 # shared autouse fixture tries to ``setattr`` on
 # ``voice_typer.server.app``, which triggers an import of the real
 # app module. These tests use a ``_FakeApp`` and don't need that
-# import — overriding the autouse fixture with a no-op avoids the
+# import, overriding the autouse fixture with a no-op avoids the
 # broken import.
 
 
@@ -76,7 +76,7 @@ class _FakeApp:
     Mirrors the collaborator surface that ``ShutdownController._do_cleanup``
     touches. Every subsystem is a ``MagicMock`` so we can assert call
     counts without running real teardown code. Identical to the
-    ``_FakeApp`` in ``tests/test_shutdown_parallel.py`` — duplicated
+    ``_FakeApp`` in ``tests/test_shutdown_parallel.py``, duplicated
     here so this test file is self-contained.
     """
 
@@ -123,7 +123,7 @@ def fake_app(monkeypatch):
     monkeypatch.setitem(sys.modules, "voice_typer.server.app", fake_app_module)
 
     # The PID-file teardown resolves ``_clear_backend_pid_file`` through
-    # the owning module at call time — stub it so no real PID file is
+    # the owning module at call time, stub it so no real PID file is
     # touched and the (already-imported) real module is not required.
     fake_backend_pid = MagicMock()
     fake_backend_pid._clear_backend_pid_file = MagicMock()
@@ -166,13 +166,13 @@ class TestOverallDeadline:
         We mock ``time.monotonic`` so the FIRST call (which computes
         ``_uu7_deadline = time.monotonic() + 20.0``) returns the real
         wall-clock T, and every subsequent call returns ``T + 25.0``
-        (so ``_uu7_remaining()`` returns ``-5.0`` — deadline is near).
+        (so ``_uu7_remaining()`` returns ``-5.0``, deadline is near).
         ``_run_with_timeout`` uses ``threading.Thread.join(timeout=)``
         which is NOT affected by ``time.monotonic`` mocking, so the
         per-helper timeouts still work normally.
         """
         # Track which teardowns were called (by their canonical
-        # description, WITHOUT the leading underscore — matches the
+        # description, WITHOUT the leading underscore, matches the
         # ``desc`` strings used in ``_do_cleanup``'s parallel_items /
         # sequenced_pre_items tuples).
         called: list[str] = []
@@ -225,7 +225,7 @@ class TestOverallDeadline:
         # Patch ``time.monotonic`` on the ``time`` module that
         # ``shutdown_controller`` imports. ``shutdown_controller`` does
         # ``import time`` at module level, so ``_sc.time`` is the
-        # stdlib ``time`` module — patching its ``monotonic`` attribute
+        # stdlib ``time`` module, patching its ``monotonic`` attribute
         # affects every caller (acceptable for this focused test).
         monkeypatch.setattr(_sc.time, "monotonic", _fake_monotonic)
 
@@ -242,7 +242,7 @@ class TestOverallDeadline:
         for name in critical:
             assert name in called, (
                 f"critical teardown {name!r} MUST run even when the "
-                f"deadline is near — it contains a data-loss-critical flush. "
+                f"deadline is near, it contains a data-loss-critical flush. "
                 f"Called: {called}"
             )
 
@@ -271,7 +271,7 @@ class TestOverallDeadline:
 
     def test_deadline_not_near_runs_all_teardowns(self, controller, fake_app):
         """When the 20s deadline is NOT near (>= 5s remaining), every
-        teardown helper runs as before — no skips. This is the normal
+        teardown helper runs as before, no skips. This is the normal
         shutdown path; only kicks in when the deadline is tight."""
         called: list[str] = []
 
@@ -301,7 +301,7 @@ class TestOverallDeadline:
         for attr_name, desc in all_teardowns:
             setattr(controller, attr_name, MagicMock(side_effect=_make_spy(desc)))
 
-        # No time.monotonic mocking — real wall clock, well under 20s.
+        # No time.monotonic mocking, real wall clock, well under 20s.
         controller._do_cleanup()
 
         # Every teardown must have been called exactly once.
@@ -470,7 +470,7 @@ class TestSequentialHistoryAndCrashRecovery:
         # bookends + thread pool scheduling.
         assert elapsed >= 0.55, (
             f"sequential hist_db + crash_recovery took {elapsed:.3f}s "
-            f"total — expected >= 0.55s (sequential ~0.6s + slack). "
+            f"total, expected >= 0.55s (sequential ~0.6s + slack). "
             f"Concurrent would be ~0.3s."
         )
 
@@ -546,12 +546,12 @@ class TestInnerOuterTimeoutSlack:
         must sum to strictly less than 15.0s (the outer wrapper budget
         that ``_do_cleanup`` allocates for ``teardown_history_db``).
 
-        Previously: 10.0 + 5.0 = 15.0 (zero slack — a slow flush could
+        Previously: 10.0 + 5.0 = 15.0 (zero slack, a slow flush could
         blow the outer deadline and abandon the close call entirely).
         After the refactor: 8.0 + 4.0 = 12.0 (3s slack).
 
         We read the source of ``teardown_history_db`` and assert the
-        timeouts are present. This is a static source-level check — it
+        timeouts are present. This is a static source-level check, it
         pins the contract without depending on runtime behaviour.
         """
         import inspect
@@ -571,7 +571,7 @@ class TestInnerOuterTimeoutSlack:
         """Functional check: even if ``history_db.flush`` takes the full
         inner timeout (8s), ``history_db.close`` still has time to run
         within the outer 15s budget. We simulate by making flush + close
-        each take ~0.1s (fast — we're verifying the structure, not the
+        each take ~0.1s (fast, we're verifying the structure, not the
         timing) and asserting both are called.
 
         The real guarantee is the source-level check above; this test

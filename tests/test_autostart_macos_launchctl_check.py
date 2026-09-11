@@ -1,11 +1,11 @@
-"""FR-38 — regression tests for the macOS launchctl load return-code
+"""FR-38: regression tests for the macOS launchctl load return-code
 check in :mod:`voice_typer.server.server_platform.autostart_macos`.
 
 Pre-fix symptom: ``_enable_autostart_macos`` unconditionally returned
 ``True`` after the ``subprocess.run(["launchctl", "load", ...])`` call,
 even when launchctl load FAILED (non-zero returncode, "Loader.Error"
 in stderr, or TimeoutExpired). The renderer showed "Autostart enabled"
-and the user rebooted to find Voice Typer didn't start — with no
+and the user rebooted to find Voice Typer didn't start, with no
 diagnostic.
 
 Post-fix: the function inspects ``CompletedProcess.returncode`` and
@@ -14,7 +14,7 @@ substrings ("Loader.Error", "exited with"). Returns False on
 TimeoutExpired. Returns True ONLY on a clean launchctl load (rc=0, no
 error substrings).
 
-These tests run on any platform — they mock ``subprocess.run`` and the
+These tests run on any platform, they mock ``subprocess.run`` and the
 ``_pkg.get_autostart_dir()`` / ``Path.home()`` helpers so the test
 doesn't actually write to ``$HOME/Library/LaunchAgents`` or invoke
 ``launchctl``.
@@ -34,7 +34,7 @@ import sys
 # ``urllib.request`` is imported AFTER that monkeypatch, Python tries
 # to load ``_scproxy`` (which doesn't exist on Linux) and raises
 # ``ModuleNotFoundError``. Pre-importing ``xml.sax.saxutils`` (and its
-# transitive deps) here at module-load time — BEFORE any monkeypatch —
+# transitive deps) here at module-load time, BEFORE any monkeypatch —
 # caches them in ``sys.modules`` so the subsequent
 # ``from xml.sax.saxutils import escape`` inside
 # ``_enable_autostart_macos`` is a no-op sys.modules lookup.
@@ -66,12 +66,12 @@ def _setup_darwin_platform(monkeypatch, tmp_path):
     monkeypatch.setenv("VOICE_TYPER_CONFIG_DIR", str(config_dir))
 
     # ``_autostart_mod.get_autostart_dir`` is owned by the autostart
-    # facade module — point it at the tmp LaunchAgents dir.
+    # facade module, point it at the tmp LaunchAgents dir.
     autostart_dir = home / "Library" / "LaunchAgents"
     autostart_dir.mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(autostart_mod, "get_autostart_dir", lambda: autostart_dir)
 
-    # ``_os_uid`` is owned by ``autostart_macos`` — return a stable value.
+    # ``_os_uid`` is owned by ``autostart_macos``, return a stable value.
     from voice_typer.server.server_platform import autostart_macos
 
     monkeypatch.setattr(autostart_macos, "_os_uid", lambda: 501)
@@ -173,7 +173,7 @@ class TestLaunchctlLoadFailure:
     def test_returns_false_on_generic_exception(self, monkeypatch, tmp_path):
         """Any other Exception → return False (was True pre-fix).
 
-        The mock only raises on the ``launchctl load`` call — the
+        The mock only raises on the ``launchctl load`` call, the
         ``_system_python_can_import_launcher`` probe (which also calls
         ``subprocess.run``) returns a normal CompletedProcess so the
         probe doesn't propagate the RuntimeError."""
@@ -192,7 +192,7 @@ class TestLaunchctlLoadFailure:
         assert mod._enable_autostart_macos() is False
 
     def test_case_insensitive_loader_error_match(self, monkeypatch, tmp_path):
-        """The substring check is case-insensitive — "loader.error"
+        """The substring check is case-insensitive: "loader.error"
         (lowercase) should also trigger the failure path."""
         mod = _setup_darwin_platform(monkeypatch, tmp_path)
         monkeypatch.setattr(

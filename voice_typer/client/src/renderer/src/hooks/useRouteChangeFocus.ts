@@ -1,5 +1,5 @@
 /**
- * useRouteChangeFocus — moves keyboard focus to the ``<main>`` landmark
+ * useRouteChangeFocus, moves keyboard focus to the ``<main>`` landmark
  * on every route change (a11y / focus management).
  *
  * Extracted from App.tsx (the entry component stays pure wiring) using
@@ -10,7 +10,7 @@
  * focused nav item after a route transition: focus lands on
  * ``<main id="main-content">`` (the skip link + ``tabIndex={-1}``
  * plumbing lives in the App shell). ``skipFirstRun`` suppresses the
- * focus call on the initial mount — the user hasn't navigated yet, so
+ * focus call on the initial mount, the user hasn't navigated yet, so
  * stealing focus from whatever they were doing would be rude (e.g. if
  * they opened the app and immediately focused the URL bar or a
  * bookmark).
@@ -29,7 +29,7 @@ import type { Page } from "@/types/ipc";
 export function useRouteChangeFocus(currentPage: Page): void {
 	const skipFirstRun = useRef(true);
 	// The effect must re-run on every route change to move focus to the
-	// main landmark — `currentPage` is the intentional reactive trigger
+	// main landmark, `currentPage` is the intentional reactive trigger
 	// and is deliberately NOT read in the body.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: currentPage is the reactive trigger, not a body value
 	useEffect(() => {

@@ -8,7 +8,7 @@
 //
 // Cross-module dependency note:
 //   - `buildActivityBars` calls `dayAbbr` from `./format`; `./format`
-//     imports only from `@/i18n/i18n` — no module cycle exists between
+//     imports only from `@/i18n/i18n`, no module cycle exists between
 //     `./format` and this file.
 
 import { dateKey, localDateKey, parseUtcTimestamp } from "@/lib/format";
@@ -23,7 +23,7 @@ import { dayAbbr } from "./format";
  *
  * Kept in this module (rather than `lib/format.ts`) because the
  * period/activity helpers' return shapes are the `period` /
- * `activity` fields — co-locating the type with the producer keeps the
+ * `activity` fields, co-locating the type with the producer keeps the
  * contract obvious.
  *
  * NOTE: every metric here derives from ONE history sample (the last
@@ -31,7 +31,7 @@ import { dayAbbr } from "./format";
  * with each other. The only exception is `totalCount`, which comes
  * from the dedicated `get_history_count` IPC (the true all-time row
  * count). When `totalCount > sampleSize` the char/duration totals are
- * sampled, not complete — the page surfaces that with a footnote.
+ * sampled, not complete, the page surfaces that with a footnote.
  */
 export interface DashboardData {
 	todayCount: number;
@@ -113,7 +113,7 @@ export function computeStreaks(records: HistoryRecord[]): {
 	let run = 1;
 	for (let i = 1; i < sorted.length; i++) {
 		// noUncheckedIndexedAccess: `sorted[i]` is `string | undefined`;
-		// skip undefined entries — the diff computation is meaningless
+		// skip undefined entries, the diff computation is meaningless
 		// for missing data and the rest of the loop would yield NaN.
 		const prevStr = sorted[i - 1];
 		const currStr = sorted[i];
@@ -285,8 +285,8 @@ export function computePeriodStats(
  * (``voice_typer/server/correction_usage.py``).
  *
  * ``corrections_by_day`` / ``dictations_by_day`` are keyed by the
- * LOCAL calendar day (``YYYY-MM-DD``) — the same bucketing as
- * ``localDateKey`` — so the range window math here joins cleanly.
+ * LOCAL calendar day (``YYYY-MM-DD``), the same bucketing as
+ * ``localDateKey``, so the range window math here joins cleanly.
  */
 export interface CorrectionUsageSnapshot {
 	version?: number;
@@ -443,7 +443,7 @@ function buildHourlyBars(
 			key: `${todayKey}-${h}`,
 			label: String(h),
 			count: counts.get(h) ?? 0,
-			// Future hours can't have data yet — a "no data" slot, not
+			// Future hours can't have data yet, a "no data" slot, not
 			// a zero-activity one.
 			isMissing: h > currentHour,
 		});

@@ -1,5 +1,5 @@
 /**
- * useConnectingProgress — tracks backend ``download_progress`` while
+ * useConnectingProgress, tracks backend ``download_progress`` while
  * the app is still connecting.
  *
  * Extracted from App.tsx (the entry component stays pure wiring) using
@@ -9,10 +9,10 @@
  * ``connectingProgress`` is ONLY consumed by
  * ``<ConnectionStatusScreen>``, which App renders exclusively when
  * ``connectionStatus !== "connected"``. Updating it while connected is
- * therefore wasted work — it would trigger an App re-render for a
+ * therefore wasted work, it would trigger an App re-render for a
  * state value nobody reads. The status is mirrored into a ref and the
  * handler short-circuits while connected. (We can't conditionally call
- * ``usePythonEvent`` — that would violate the rules of hooks — so the
+ * ``usePythonEvent``, that would violate the rules of hooks, so the
  * dispatcher-level subscriber stays registered, but the actual
  * ``setConnectingProgress`` call is gated. The dispatcher fan-out for
  * an unmatched type is a single Map lookup + early return, so the

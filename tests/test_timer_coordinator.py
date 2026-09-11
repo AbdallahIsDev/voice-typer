@@ -94,7 +94,7 @@ class TestScheduleTimer:
 
     def test_schedule_appends_to_pending_timers(self, coordinator):
         """Each call must append exactly one timer to ``_pending_timers``."""
-        coordinator._schedule_timer(10.0, lambda: None)  # long delay — won't fire
+        coordinator._schedule_timer(10.0, lambda: None)  # long delay, won't fire
         assert len(coordinator._pending_timers) == 1, "_schedule_timer must append the new timer to _pending_timers"
         coordinator._schedule_timer(10.0, lambda: None)
         assert len(coordinator._pending_timers) == 2
@@ -124,7 +124,7 @@ class TestScheduleTimer:
     def test_schedule_does_not_increment_generation(self, coordinator):
         """Scheduling must NOT bump the generation counter.
 
-        Only ``_cancel_pending_timers`` bumps the generation — this is
+        Only ``_cancel_pending_timers`` bumps the generation, this is
         what makes the stale-callback guard work.
         """
         gen_before = coordinator._timer_generation
@@ -166,7 +166,7 @@ class TestCancelPendingTimers:
         # Poll the fired flag with a bounded deadline (3x the
         # scheduled delay) instead of a fixed ``time.sleep(0.15)``.
         # ``fired.wait(timeout=...)`` returns True iff the event was set
-        # within the timeout — so ``not fired.wait(0.15)`` asserts the
+        # within the timeout, so ``not fired.wait(0.15)`` asserts the
         # callback never fired. Exits early on failure (faster CI
         # feedback); honors the 0.05s scheduled delay on success.
         assert not fired.wait(timeout=0.15), (
@@ -208,7 +208,7 @@ class TestGenerationGuard:
         # Poll ``fired`` with a bounded deadline (3x the 0.05s
         # scheduled delay) instead of a fixed ``time.sleep(0.15)``.
         # ``fired.wait`` returns True iff the event was set within the
-        # timeout — so ``not fired.wait(0.15)`` asserts the stale
+        # timeout, so ``not fired.wait(0.15)`` asserts the stale
         # callback never fired. Exits early on failure (faster CI
         # feedback); honors the 0.05s scheduled delay on success.
         assert not fired.wait(timeout=0.15), "Generation guard failed: stale callback fired after cancel"
@@ -252,7 +252,7 @@ class TestThreadSafety:
     """Concurrent schedule/cancel from multiple threads must be safe."""
 
     def test_concurrent_schedule_and_cancel_no_errors(self, coordinator):
-        """Two threads — one scheduling, one cancelling — must not raise.
+        """Two threads (one scheduling, one cancelling) must not raise.
 
         Reproduces the ARCH-022 race condition that motivated
         ``_pending_timers_lock``: without the lock, the canceller's
@@ -284,7 +284,7 @@ class TestThreadSafety:
         # ``stop.wait(timeout=...)`` waits up to N seconds for
         # the event to be set (nothing else sets it, so this is
         # equivalent to "run the workers for N seconds") but uses the
-        # Event primitive instead of a bare ``time.sleep`` — the
+        # Event primitive instead of a bare ``time.sleep``, the
         # intent ("let the two threads race for ~0.1s") is preserved
         # while honoring the project's Event-based synchronization
         # convention.
@@ -303,7 +303,7 @@ class TestThreadSafety:
 
         A harder stress: ARCH-022 notes the list is appended to from
         the tray thread, the transcription thread, AND the timer thread
-        itself — so the lock must handle N>2 concurrent appenders.
+        itself, so the lock must handle N>2 concurrent appenders.
         """
         errors: list[Exception] = []
         stop = threading.Event()
@@ -398,10 +398,10 @@ class TestThreadSafety:
         # observer has a chance to attempt (and block on) the lock —
         # if the lock is NOT held (regression), the observer sets the
         # flag and we exit early with a failure.
-        assert clear_started.wait(timeout=1.0), "cancel did not enter the slow clear() — fixture setup wrong"
+        assert clear_started.wait(timeout=1.0), "cancel did not enter the slow clear(), fixture setup wrong"
         # Negative wait: poll ``got_lock_during_clear`` for a short
         # window (50ms) so the observer has a chance to attempt (and
-        # block on) the lock — if the lock is NOT held (regression), the
+        # block on) the lock, if the lock is NOT held (regression), the
         # observer sets the flag and we exit early with a failure.
         assert not wait_until(got_lock_during_clear.is_set, timeout=0.05), (
             "_cancel_pending_timers must hold _pending_timers_lock during the "

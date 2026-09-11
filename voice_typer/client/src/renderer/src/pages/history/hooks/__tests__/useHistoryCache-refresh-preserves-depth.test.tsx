@@ -7,20 +7,20 @@
  * ``records`` with only the first ``HISTORY_PAGE_SIZE`` (50) rows. After a
  * user clicked "Load More" three times to reach 200 visible rows, the next
  * dictation triggered a debounced ``transcription_final`` event that
- * silently shrank the list back to 50 rows — the user lost 150 rows of
+ * silently shrank the list back to 50 rows, the user lost 150 rows of
  * scroll context plus their scroll position. The fix uses
  * ``Math.max(HISTORY_PAGE_SIZE, offsetRef.current)`` as the refresh limit so
  * the refresh is never shallower than the existing visible depth.
  *
- * Second regression: the refresh limit is only a REQUEST — the server
+ * Second regression: the refresh limit is only a REQUEST, the server
  * clamps any single history fetch to its IPC row cap
  * (``_HISTORY_LIMIT_MAX = 500`` in ``server/ipc/history_bounds.py``), so a
  * deep-browsed list (paged-in depth > 500) receives only the newest 500
  * rows back. Replacing ``records`` with that response truncated the list
- * AND set ``hasMore = 500 >= refreshLimit(800) = false`` — older rows
+ * AND set ``hasMore = 500 >= refreshLimit(800) = false``, older rows
  * vanished and Load-More stayed dead until remount. The fix MERGES the
  * returned head with the existing tail keyed by ``id`` (keyset ordering —
- * ``timestamp DESC, id DESC`` — guarantees the retained tail is strictly
+ * ``timestamp DESC, id DESC``, guarantees the retained tail is strictly
  * older than the fresh head), and derives ``hasMore`` from the merged
  * length.
  *
@@ -84,7 +84,7 @@ const zeroStats: TodayStats = {
 
 /**
  * Mirror of the server's per-request history row cap
- * (``_HISTORY_LIMIT_MAX`` in ``server/ipc/history_bounds.py`` — the SEC-010
+ * (``_HISTORY_LIMIT_MAX`` in ``server/ipc/history_bounds.py``, the SEC-010
  * materialization guard). The renderer never hardcodes this value in
  * production code (it is a server-side contract), but the mock IPC layer
  * here MUST honor it so the refresh path is exercised against the real
@@ -181,7 +181,7 @@ describe("refreshFromEvent preserves paged-in depth", () => {
 	});
 
 	it("uses HISTORY_PAGE_SIZE as the minimum refresh limit when no paging has occurred", async () => {
-		// Initial load only — no loadMore calls. offsetRef = 50.
+		// Initial load only, no loadMore calls. offsetRef = 50.
 		// refreshFromEvent should use limit = max(50, 50) = 50.
 		mockCall.mockImplementation((type: string, args?: unknown) => {
 			const a = (args ?? {}) as { limit?: number; offset?: number };
@@ -230,7 +230,7 @@ describe("refreshFromEvent preserves paged-in depth", () => {
 describe("refreshFromEvent merges the capped head with the existing tail", () => {
 	/**
 	 * Mock IPC layer that behaves like the real backend: a global
-	 * newest-first keyset list (``timestamp DESC, id DESC`` — ascending
+	 * newest-first keyset list (``timestamp DESC, id DESC``, ascending
 	 * ``id`` = ascending time), sliced by the requested offset/limit,
 	 * with the per-request row cap applied (ask 800 → get 500). The
 	 * underlying total is mutable so a test can simulate new rows
@@ -304,7 +304,7 @@ describe("refreshFromEvent merges the capped head with the existing tail", () =>
 		expect(lastCallArgs.offset).toBe(0);
 		// ...but only 500 rows came back (server cap). The refresh
 		// fires get_history + get_today_stats in parallel, so the
-		// last mock result may be the stats call — resolve the
+		// last mock result may be the stats call, resolve the
 		// last get_history RESULT by its call index.
 		const lastHistoryCallIdx = mockCall.mock.calls.reduce(
 			(last: number, args: unknown[], i: number) =>
@@ -350,7 +350,7 @@ describe("refreshFromEvent merges the capped head with the existing tail", () =>
 			expect(result.current.records.length).toBe(800);
 		});
 
-		// Five new dictations land (ids 1000..1004 — newest).
+		// Five new dictations land (ids 1000..1004, newest).
 		totalRef.total = 1005;
 		await act(async () => {
 			await result.current.refreshFromEvent();
@@ -435,7 +435,7 @@ describe("refreshFromEvent follow-ups", () => {
 
 		// Inject the legacy twin: same timestamp+text as the last fresh
 		// row, but with no numeric id (cast: the static type requires
-		// ``id: number`` — the gap exists only in pre-id-column data).
+		// ``id: number``, the gap exists only in pre-id-column data).
 		const twinSource = result.current.records[PAGE_SIZE - 1];
 		expect(twinSource).toBeDefined();
 		const legacyTwin = {
@@ -463,7 +463,7 @@ describe("refreshFromEvent follow-ups", () => {
 
 	it("derives hasMore from the committed merge when Load-More lands mid-refresh", async () => {
 		// P2 pin: ``hasMore``/offset must come from the state the
-		// functional updater commits — not the pre-await snapshot — so
+		// functional updater commits, not the pre-await snapshot, so
 		// a page appended between IPC completion and commit is counted.
 		let resolveRefresh: ((rows: HistoryRecord[]) => void) | undefined;
 		mockCall.mockImplementation((type: string, args?: unknown) => {

@@ -1,16 +1,16 @@
 /**
- * Tests for PrewarmAndUpdates — Cache Status + offline Updates surfaces.
+ * Tests for PrewarmAndUpdates, Cache Status + offline Updates surfaces.
  *
  * History: an earlier revision hosted an in-app "Check for Updates"
  * button that fired a renderer `fetch()` to the GitHub releases API.
  * C-DATA-1 (the offline guarantee) forbids ANY network call in the
- * production code path — including an explicit user click — so the
+ * production code path, including an explicit user click, so the
  * button + handler + latestVersion state were removed. The Updates
  * section now shows the installed version + a static offline message
  * + a user-clicked external link to the GitHub releases page.
  *
  * (RESTORED 2026-08-14): the Cache Status card was restored verbatim
- * from commit 5a319872 (plan §6.3 addendum — user-facing feature).
+ * from commit 5a319872 (plan §6.3 addendum, user-facing feature).
  * The "Run Prewarm Now" button was NOT restored (its IPC command
  * `run_prewarm` stayed removed with the deleted standalone-prewarm
  * subprocess machinery), so the action-buttons test below asserts it
@@ -20,7 +20,7 @@
  *   - Cache Status + Updates sections render (headings + action buttons)
  *   - prewarm cache status is fetched on mount and the badge renders
  *   - NO `fetch()` is ever called from this component (mount, click,
- *     unmount, or otherwise) — the offline guarantee is absolute
+ *     unmount, or otherwise), the offline guarantee is absolute
  *   - the "Check for Updates" button is NOT rendered (removed)
  *   - the offline message + "View Changelog" link ARE rendered
  */
@@ -64,7 +64,7 @@ beforeEach(() => {
 	// Default: backend responds with a hot cache.
 	mockCall.mockResolvedValue(PREWARM_HOT);
 	// Stub fetch with a spy so ANY fetch call (mount, click, unmount)
-	// is recorded — C-DATA-1 forbids network calls in the production
+	// is recorded, C-DATA-1 forbids network calls in the production
 	// code path, so the spy must remain uncalled across every test.
 	vi.stubGlobal("fetch", vi.fn());
 });
@@ -89,8 +89,8 @@ describe("PrewarmAndUpdates", () => {
 	// page open. A subsequent fix removed the auto-fire but kept the
 	// manual "Check for Updates" button (which still issued a fetch on
 	// click). C-DATA-1 now forbids both: the manual button has been
-	// removed entirely. This test asserts the stronger contract — no
-	// fetch fires on mount, on unmount, or at any other time — so a
+	// removed entirely. This test asserts the stronger contract, no
+	// fetch fires on mount, on unmount, or at any other time, so a
 	// future regression (re-adding the auto-fire OR the manual button)
 	// fails loudly.
 	it("does NOT fire any fetch on mount (C-DATA-1 offline guarantee)", async () => {
@@ -105,7 +105,7 @@ describe("PrewarmAndUpdates", () => {
 			expect(mockCall).toHaveBeenCalledWith("get_prewarm_status");
 		});
 		// Flush any pending microtasks (the mount effect only calls
-		// IPC — no fetch — but give the scheduler a chance to run
+		// IPC, no fetch, but give the scheduler a chance to run
 		// anything that might have been queued).
 		await new Promise((r) => setTimeout(r, 0));
 
@@ -114,13 +114,13 @@ describe("PrewarmAndUpdates", () => {
 
 	it("renders the prewarm action buttons + the offline Updates notice", () => {
 		render(<PrewarmAndUpdates />);
-		// Prewarm action buttons — "Run Prewarm Now" + "View prewarm
+		// Prewarm action buttons, "Run Prewarm Now" + "View prewarm
 		// log" are both present (RESTORED 2026-08-14 §6.3 addendum).
 		expect(screen.getByText("Run Prewarm Now")).toBeTruthy();
 		expect(screen.getByText("View prewarm log")).toBeTruthy();
-		// "View Changelog" link button — still present (anchor, no fetch).
+		// "View Changelog" link button, still present (anchor, no fetch).
 		expect(screen.getByText("View Changelog")).toBeTruthy();
-		// Offline notice — the new static message replacing the
+		// Offline notice, the new static message replacing the
 		// "Check for Updates" button. The English text is hardcoded
 		// in the en.json locale; the test renders with the default
 		// English locale, so the message substring is stable.
@@ -151,7 +151,7 @@ describe("PrewarmAndUpdates", () => {
 	});
 
 	// C-DATA-1 absolute guarantee: NO fetch is ever called from this
-	// component — not on mount, not on unmount, not on any user
+	// component, not on mount, not on unmount, not on any user
 	// interaction. The previous "surfaces a newer version via the
 	// manual update check" test asserted the OPPOSITE contract (that
 	// clicking "Check for Updates" fires a fetch and surfaces a
@@ -170,7 +170,7 @@ describe("PrewarmAndUpdates", () => {
 		// Flush microtasks.
 		await new Promise((r) => setTimeout(r, 0));
 
-		// Unmount (exercises the cleanup path — a future regression
+		// Unmount (exercises the cleanup path, a future regression
 		// could try to fire a fetch in a cleanup effect).
 		unmount();
 		await new Promise((r) => setTimeout(r, 0));
@@ -209,7 +209,7 @@ describe("PrewarmAndUpdates", () => {
 	});
 
 	// Honest error copy: when the run_prewarm IPC itself fails, the
-	// toast must say RUNNING the prewarm failed — not the View-Log
+	// toast must say RUNNING the prewarm failed, not the View-Log
 	// handler's "Could not open prewarm log" copy (a user who clicked
 	// "Run Prewarm Now" is told the log couldn't be opened, which is
 	// a lie about what failed). The run handler uses the dedicated

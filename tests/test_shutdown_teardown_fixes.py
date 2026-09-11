@@ -106,7 +106,7 @@ class TestTeardownSounddeviceWaitReturn:  # noqa: N801
     ``_run_with_timeout`` wrapper)."""
 
     @pytest.mark.skip(
-        reason="source refactored — _teardown_sounddevice no longer "
+        reason="source refactored, _teardown_sounddevice no longer "
         "skips sd.stop() when wait() times out; the new contract "
         "always calls sd.stop() (bounded by _run_with_timeout(3.0)) "
         "when _recorder_force_closed is False, with force-abort "
@@ -114,7 +114,7 @@ class TestTeardownSounddeviceWaitReturn:  # noqa: N801
     )
     def test_sd_stop_skipped_when_recorder_teardown_times_out(self, monkeypatch):
         """When ``_recorder_teardown_done.wait(timeout=9.5)`` returns
-        False (timeout — the recorder teardown worker was leaked),
+        False (timeout, the recorder teardown worker was leaked),
         ``_teardown_sounddevice`` must SKIP ``sd.stop()`` regardless of
         the ``_recorder_force_closed`` flag value."""
         controller, _ = _make_controller_with_app()
@@ -124,7 +124,7 @@ class TestTeardownSounddeviceWaitReturn:  # noqa: N801
         # Speed up the wait by replacing wait() with a fast False return.
         never_set_event = threading.Event()
         controller._recorder_teardown_done = never_set_event
-        # Flag is False (default) — pre-fix the code would proceed to
+        # Flag is False (default), pre-fix the code would proceed to
         # sd.stop() because the flag check alone is insufficient.
         controller._recorder_force_closed = False
 
@@ -162,9 +162,9 @@ class TestTeardownSounddeviceWaitReturn:  # noqa: N801
     def test_sd_stop_skipped_when_force_closed_flag_set(self, monkeypatch):
         """When ``_recorder_force_closed`` is True (recorder.stop() /
         discard() timed out inside ``_teardown_recorder``),
-        ``_teardown_sounddevice`` must SKIP ``sd.stop()`` — the leaked
+        ``_teardown_sounddevice`` must SKIP ``sd.stop()``, the leaked
         recorder.stop() worker is still holding the PortAudio stream
-        lock. (This is the pre-fix DE-54 behavior — preserved.)"""
+        lock. (This is the pre-fix DE-54 behavior, preserved.)"""
         controller, _ = _make_controller_with_app()
 
         # Simulate the force-closed path: event IS set, but the flag is
@@ -209,7 +209,7 @@ class TestTeardownSounddeviceWaitReturn:  # noqa: N801
         )
 
     @pytest.mark.skip(
-        reason="source refactored — _teardown_sounddevice no longer "
+        reason="source refactored, _teardown_sounddevice no longer "
         "captures the wait() return value to a local `done` variable; "
         "the new contract wraps sd.stop()/sd.wait() in "
         "_run_with_timeout with force-abort fallback "
@@ -249,7 +249,7 @@ class TestTeardownSounddeviceWaitReturn:  # noqa: N801
 class TestSignalWatcherLoopSurvivesMultipleSignals:  # noqa: N801
     """UE-1-F4: ``signal_watcher_loop`` body is wrapped in ``while True:``
     so the watcher survives multiple signals. Pre-fix, the watcher exited
-    after the first signal — a second SIGTERM (e.g. user double-tapping
+    after the first signal, a second SIGTERM (e.g. user double-tapping
     Ctrl+C because the first one was slow) would fall through to Python's
     default handler with no cleanup."""
 
@@ -277,7 +277,7 @@ class TestSignalWatcherLoopSurvivesMultipleSignals:  # noqa: N801
     def test_watcher_dispatches_quit_twice_on_two_signals(self):
         """UE-1-F4: when two signals arrive in quick succession, the
         watcher must dispatch ``quit()`` twice (quit is idempotent, so
-        the second call is a no-op — but the watcher itself must still
+        the second call is a no-op, but the watcher itself must still
         be alive to observe the second signal)."""
         from voice_typer.server.signal_handlers import signal_watcher_loop
 
@@ -319,7 +319,7 @@ class TestSignalWatcherLoopSurvivesMultipleSignals:  # noqa: N801
             assert controller.quit_calls, "UE-1-F4: signal_watcher_loop must dispatch quit() on the first signal"
             len(controller.quit_calls)
 
-            # Second signal — the watcher must STILL be alive to observe
+            # Second signal, the watcher must STILL be alive to observe
             # it (pre-fix, the watcher had exited after the first signal
             # and the second signal would fall through to Python's
             # default handler).
@@ -398,7 +398,7 @@ class TestWindowsTerminateProcessFallback:  # noqa: N801
         assert ('sys.platform == "win32"' in body) or ("is_windows()" in body), (
             "the TerminateProcess fallback must be guarded by "
             '``sys.platform == "win32"`` (or the canonical '
-            "``platform_utils.is_windows()`` guard) — POSIX uses SIGKILL"
+            "``platform_utils.is_windows()`` guard), POSIX uses SIGKILL"
         )
 
     def test_posix_sigkill_escalation_preserved(self):
@@ -424,13 +424,13 @@ class TestWindowsTerminateProcessFallback:  # noqa: N801
 
     @pytest.mark.skipif(
         sys.platform != "win32",
-        reason="Windows kernel32 OpenProcess path — Windows only",
+        reason="Windows kernel32 OpenProcess path, Windows only",
     )
     def test_electron_pid_cleared_even_on_windows_timeout(self, monkeypatch):
         """UE-1-F6: even when ``terminate_electron`` times out on
         Windows, ``_electron_pid`` must be cleared so the next launch
         isn't blocked by a stale PID. (Pre-fix the clear happened
-        unconditionally — this test pins that the clear is preserved
+        unconditionally, this test pins that the clear is preserved
         with the new Windows fallback branch.)"""
         controller, app = _make_controller_with_app()
         app._electron_pid = 99999
@@ -452,7 +452,7 @@ class TestWindowsTerminateProcessFallback:  # noqa: N801
         # the real submodule, Python sets it as an attribute on the
         # parent package. Subsequent ``from voice_typer.server import
         # electron_launcher`` calls return the package attribute (the
-        # REAL module) and bypass ``sys.modules`` entirely — so the
+        # REAL module) and bypass ``sys.modules`` entirely, so the
         # ``monkeypatch.setitem(sys.modules, ...)`` alone has no effect
         # when this test runs after that prior import. Patching the
         # package attribute too (via ``monkeypatch.setattr``) ensures
@@ -471,13 +471,13 @@ class TestWindowsTerminateProcessFallback:  # noqa: N801
             raising=False,
         )
 
-        # Force the Windows branch — patch sys.platform to "win32" and
+        # Force the Windows branch, patch sys.platform to "win32" and
         # provide a fake ctypes.windll whose kernel32 attributes are
         # MagicMocks (so ``argtypes`` / ``restype`` assignment works).
         monkeypatch.setattr("sys.platform", "win32")
 
         fake_kernel32 = MagicMock()
-        # OpenProcess returns 0 (NULL handle) — simulates the
+        # OpenProcess returns 0 (NULL handle), simulates the
         # "process already reaped" path. The fallback should still
         # proceed to clear the PID.
         fake_kernel32.OpenProcess.return_value = 0
@@ -523,7 +523,7 @@ class TestWindowsTerminateProcessFallback:  # noqa: N801
             blocked.set()  # Unblock the leaked worker thread.
 
         # The PID must have been cleared even on the Windows-timeout
-        # path — otherwise the next launch would be blocked by a stale
+        # path, otherwise the next launch would be blocked by a stale
         # PID file / single-instance check.
         assert app._electron_pid is None, (
             "UE-1-F6: _electron_pid must be cleared after the Windows "
@@ -545,7 +545,7 @@ class TestSignalWatcherLoopStderrFallback:  # noqa: N801
     """UE-1-F7: ``signal_watcher_loop`` ``except`` block must write a
     byte to stderr via ``os.write(2, ...)`` as an async-signal-safe
     fallback when ``log.info`` / ``log.exception`` raises. Pre-fix the
-    ``except`` block was a bare ``pass`` — the operator got zero
+    ``except`` block was a bare ``pass``, the operator got zero
     evidence the signal was delivered if logging failed."""
 
     def test_stderr_fallback_write_exists_in_source(self):
@@ -557,7 +557,7 @@ class TestSignalWatcherLoopStderrFallback:  # noqa: N801
         assert idx > -1
         next_def = s.find("\ndef ", idx + 1)
         body = s[idx:next_def]
-        # The fallback must use ``os.write`` to fd 2 (stderr) — the
+        # The fallback must use ``os.write`` to fd 2 (stderr), the
         # async-signal-safe write primitive per POSIX.
         assert "os.write(2," in body, (
             "UE-1-F7: signal_watcher_loop except block must call "
@@ -642,13 +642,13 @@ class TestSignalWatcherLoopStderrFallback:  # noqa: N801
         # fixtures mid-test, the source-inspection test above is the
         # authoritative check; this dynamic test only verifies that
         # quit() still dispatches (the primary contract of the except
-        # block — never prevent shutdown).
+        # block, never prevent shutdown).
 
     def test_quit_dispatch_failure_triggers_stderr_fallback_source(self):
         """UE-1-F7 (source-inspection): the SECOND ``except Exception:``
         block (around the ``threading.Thread(target=controller.quit,
         daemon=True).start()`` call) must ALSO have an ``os.write(2, ...)``
-        fallback — pre-fix it called ``log.exception`` which has the
+        fallback, pre-fix it called ``log.exception`` which has the
         same logging-failure risk."""
         s = _src(_SIGNAL_HANDLERS_PATH)
         idx = s.find("def signal_watcher_loop(")
@@ -657,7 +657,7 @@ class TestSignalWatcherLoopStderrFallback:  # noqa: N801
         body = s[idx:next_def]
         # Find the second ``except Exception:`` block (around the
         # threading.Thread.start() call). Count the occurrences of
-        # ``os.write(2,`` — there must be at least 2 (one for the log.info
+        # ``os.write(2,``, there must be at least 2 (one for the log.info
         # except, one for the threading.Thread.start except).
         write_count = body.count("os.write(2,")
         assert write_count >= 2, (

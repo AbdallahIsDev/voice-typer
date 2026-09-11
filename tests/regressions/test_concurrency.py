@@ -2,7 +2,7 @@
 
 This module is part of the ``tests/regressions/`` package created by
 REF-4. The class/method names, assertion logic, and imports below are
-preserved verbatim from the original 4446-line monolith — only file
+preserved verbatim from the original 4446-line monolith, only file
 location has changed.
 
 Common preamble (imports + Linux test-env shim) is identical to the
@@ -51,7 +51,7 @@ class TestConfigMutationLockSharedAcrossIpc:
     """
 
     def test_app_has_config_mutation_lock(self):
-        # KEEP — pins RACE-011 fix (app holds a re-entrant lock
+        # KEEP, pins RACE-011 fix (app holds a re-entrant lock
         # for Config mutations). A behavioral test would need to spawn
         # two threads doing set_config concurrently and detect a torn
         # state, which is non-deterministic; the source-string check
@@ -70,7 +70,7 @@ class TestConfigMutationLockSharedAcrossIpc:
         assert "threading.RLock()" in src
 
     def test_ipc_set_config_uses_lock(self):
-        # KEEP — pins ADR 0008 §3.1 refactor (lock acquisition
+        # KEEP, pins ADR 0008 §3.1 refactor (lock acquisition
         # moved from IPC handler to service layer). A behavioral test
         # would dispatch set_config concurrently and detect a race,
         # which is non-deterministic; the source-string check catches
@@ -122,7 +122,7 @@ class TestConfigMutationLockSharedAcrossIpc:
         handler_src = handler_path.read_text(encoding="utf-8")
         assert "self.service.apply_config" in handler_src, (
             "IPC set_config handler must delegate to "
-            "self.service.apply_config() (ADR 0008 §3.1) — reaching "
+            "self.service.apply_config() (ADR 0008 §3.1), reaching "
             "into self.app._config_mutation_lock directly is a leaky "
             "abstraction the refactor removed."
         )
@@ -135,7 +135,7 @@ class TestConfigMutationLockSharedAcrossIpc:
         # defensive lookup, which reaches the lock via ``getattr``
         # rather than direct attribute access) don't false-positive.
         # The handler IS allowed to reach the lock via ``getattr`` on
-        # a string literal — that's the documented  defensive
+        # a string literal, that's the documented  defensive
         # pattern. What's forbidden is treating
         # ``_config_mutation_lock`` as a bare identifier (e.g.
         # ``with self.app._config_mutation_lock:``).
@@ -146,7 +146,7 @@ class TestConfigMutationLockSharedAcrossIpc:
         assert "_config_mutation_lock" not in names, (
             "IPC set_config handler must NOT reference "
             "_config_mutation_lock as a bare Python identifier "
-            "(ADR 0008 §3.1) — the lock now lives inside "
+            "(ADR 0008 §3.1), the lock now lives inside "
             "ConfigApplier.apply_config (reached via "
             "VoiceTyperService.apply_config after PVT-21). The "
             "handler MAY still reach it via getattr on a string "
@@ -189,7 +189,7 @@ class TestConfigEditHoldsMutationLock:
         # ``voice_typer.server.platform_utils``, so that is the module to
         # patch.  (Historically the flags were resolved through the
         # ``voice_typer.server.app`` re-export seam, and before that via
-        # ``config_editor._default_is_windows`` — patches there were
+        # ``config_editor._default_is_windows``, patches there were
         # ineffective on a real Windows host, so the platform stayed
         # "windows": the fake ``subprocess.run`` below only intercepted
         # the ``icacls`` ACL call from ``Config.save()``, and after
@@ -201,7 +201,7 @@ class TestConfigEditHoldsMutationLock:
         monkeypatch.setattr("voice_typer.server.platform_utils.is_macos", lambda: False)
         monkeypatch.setattr("voice_typer.server.platform_utils.is_linux", lambda: True)
         # Suppress the Windows ACL-tightening subprocess (``icacls``)
-        # that ``Config.save()`` fires on a real Windows host — it is
+        # that ``Config.save()`` fires on a real Windows host, it is
         # incidental to the lock behavior under test and would otherwise
         # be intercepted by the fake ``subprocess.run`` below (the same
         # suppression ``test_config_editor_lock.py`` applies).
@@ -264,7 +264,7 @@ class TestConfigEditHoldsMutationLock:
         # setter must NEVER acquire the lock during the window (the lock
         # is held continuously from before the editor launch through the
         # post-edit reload). A bounded poll is more robust than a single
-        # fixed 0.15 s sleep on a loaded CI runner — a late-scheduled
+        # fixed 0.15 s sleep on a loaded CI runner, a late-scheduled
         # setter thread is still covered, and a regression that releases
         # the lock early is still caught.
         deadline = _time.monotonic() + 1.0
@@ -301,7 +301,7 @@ class TestBackpressureIncrementsOnBufferOverflow:
         This test simulates the actual callback path: each iteration
         does the locked append + backpressure check (the same code
         the production callback runs). The test does NOT manually
-        set _dropped_chunks — it relies on the production logic.
+        set _dropped_chunks, it relies on the production logic.
         """
         from voice_typer.server.config import Config
         from voice_typer.server.recording import Recorder
@@ -371,7 +371,7 @@ class TestConcurrentConfigWritesNoCorruption:
 
     def test_concurrent_config_writes_no_corruption(self):
         """Concurrent Config attribute writes must not crash or produce
-        a torn state. This test does NOT use a test-level lock — it
+        a torn state. This test does NOT use a test-level lock, it
         relies on Python's GIL for atomic attribute writes (the same
         protection the production code relies on).
         """
@@ -381,7 +381,7 @@ class TestConcurrentConfigWritesNoCorruption:
         cfg.save = lambda: True  # mock save to avoid disk I/O
 
         def setter(val):
-            # NO lock — relies on GIL (same as production)
+            # NO lock, relies on GIL (same as production)
             cfg.hotkey = val
             cfg.model_size = "tiny.en"
 
@@ -438,7 +438,7 @@ class TestConcurrentDispatchNoDeadlock:
 
 class TestConfigMutationLockExercisedByConcurrentWrites:
     """GT-39: ``TestConcurrentConfigWritesNoCorruption`` above relies on
-    the GIL for atomicity — it does NOT acquire
+    the GIL for atomicity, it does NOT acquire
     ``_config_mutation_lock`` and would still pass if production
     removed the lock entirely. ADR 0008 §3.1 / RACE-011 require
     ``set_config`` IPC calls to serialize on
@@ -450,7 +450,7 @@ class TestConfigMutationLockExercisedByConcurrentWrites:
     ``_config_mutation_lock`` in the test setter and verify a second
     concurrent acquirer BLOCKS while the first holds it. A regression
     that removes the lock from production would let the second
-    acquirer proceed immediately — caught here.
+    acquirer proceed immediately, caught here.
     """
 
     def test_concurrent_set_config_serializes_on_config_mutation_lock(self):
@@ -470,7 +470,7 @@ class TestConfigMutationLockExercisedByConcurrentWrites:
 
         # Track how many times a setter had to WAIT for the lock
         # (contention counter). If this stays 0 across 8 concurrent
-        # setters, the lock is effectively a no-op — meaning the test
+        # setters, the lock is effectively a no-op: meaning the test
         # would pass even if production removed the lock.
         waited_count = 0
         waited_lock = threading.Lock()
@@ -481,7 +481,7 @@ class TestConfigMutationLockExercisedByConcurrentWrites:
             nonlocal waited_count
             # Probe whether the lock is currently held by another
             # thread. ``acquire(blocking=False)`` returns False
-            # immediately if held — that proves the lock is real and
+            # immediately if held, that proves the lock is real and
             # contended. We then block on the regular acquire to
             # serialize.
             if not config_mutation_lock.acquire(blocking=False):
@@ -506,7 +506,7 @@ class TestConfigMutationLockExercisedByConcurrentWrites:
         # hotkey is one of the 8 values (no torn / corrupted state).
         assert cfg.hotkey.startswith("<f"), f"GT-39: concurrent writes corrupted hotkey: {cfg.hotkey!r}"
         assert cfg.model_size == "tiny.en"
-        # The lock was contended at least once — proving it's actually
+        # The lock was contended at least once, proving it's actually
         # held during mutation, not a no-op. (On a single-core CI
         # runner this could theoretically be 0 if the scheduler fully
         # serialized the threads, but with 8 threads on a typical
@@ -519,7 +519,7 @@ class TestConfigMutationLockExercisedByConcurrentWrites:
 
     def test_second_acquirer_blocks_while_lock_held(self):
         """GT-39: Directly verify the ``_config_mutation_lock`` blocks a
-        second concurrent acquirer — the property the
+        second concurrent acquirer, the property the
         GIL-only-relying test above does NOT verify. If production
         removed the lock (replaced with a no-op contextmanager), this
         test would fail because the second acquirer would NOT block.
@@ -535,13 +535,13 @@ class TestConfigMutationLockExercisedByConcurrentWrites:
             with config_mutation_lock:
                 acquired_event.set()
                 # Wait until the second thread has confirmed it's
-                # blocked (or timeout after 2s — if the second thread
+                # blocked (or timeout after 2s, if the second thread
                 # acquires immediately, that means the lock is broken).
                 blocked_event.wait(timeout=2.0)
                 first_released.set()
 
         # Second thread: wait for the first to acquire, then try to
-        # acquire — it MUST block. We detect "blocked" by checking
+        # acquire, it MUST block. We detect "blocked" by checking
         # that acquire(blocking=False) returns False.
         def second_acquirer():
             acquired_event.wait(timeout=1.0)
@@ -554,7 +554,7 @@ class TestConfigMutationLockExercisedByConcurrentWrites:
                 config_mutation_lock.acquire()
                 config_mutation_lock.release()
             else:
-                # Lock was NOT held — the production lock contract is
+                # Lock was NOT held, the production lock contract is
                 # broken. Record this by NOT setting blocked_event.
                 config_mutation_lock.release()
 
@@ -568,7 +568,7 @@ class TestConfigMutationLockExercisedByConcurrentWrites:
         assert blocked_event.is_set(), (
             "GT-39: second concurrent acquirer of _config_mutation_lock "
             "did NOT block while the first thread held it. The lock "
-            "contract from RACE-011 / ADR 0008 §3.1 is not exercised — "
+            "contract from RACE-011 / ADR 0008 §3.1 is not exercised, "
             "a regression that removes the lock would pass the "
             "GIL-only test above."
         )

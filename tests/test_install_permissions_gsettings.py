@@ -2,7 +2,7 @@
 ``scripts/linux/install_permissions.py`` .
 
 Background: prior to /19/20, ``install_permissions.py`` clobbered
-the user's existing XKB options when enabling ``caps:none`` — e.g. a
+the user's existing XKB options when enabling ``caps:none``, e.g. a
 GNOME user with ``['altwin:swap_alt_win']`` would have that option
 silently dropped, replaced with just ``['caps:none']``. The fix reads
 the existing value via ``gsettings get`` / ``configparser`` / sway-config
@@ -227,7 +227,7 @@ class TestGnomeFlow:
                     stderr="",
                 )
             # The ``gsettings set`` call goes through the module's ``run``
-            # helper — capture it.
+            # helper, capture it.
             captured_set_calls.append(cmd)
             return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
 
@@ -654,7 +654,7 @@ class TestGp131NoTargetUserFails:
         monkeypatch.setattr(ip_module, "is_root", lambda: True)
         monkeypatch.setattr(ip_module, "get_target_user", lambda: None)
 
-        # Capture ``fail()`` calls — don't actually ``sys.exit``.
+        # Capture ``fail()`` calls, don't actually ``sys.exit``.
         captured_fail: list[tuple[int, str]] = []
 
         def fake_fail(code, msg):

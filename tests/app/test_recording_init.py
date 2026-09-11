@@ -1,9 +1,9 @@
 """Focused tests for the ``AppRecordingInit`` mixin
-(``voice_typer/server/app_recording_init.py``) — the deferred
+(``voice_typer/server/app_recording_init.py``), the deferred
 recorder-subsystem construction slice extracted from ``VoiceTyperApp``.
 
 Covers the mixin's public API on a minimal host class (no real
-``Recorder`` / ``RecordingController`` / PortAudio / torch — external
+``Recorder`` / ``RecordingController`` / PortAudio / torch, external
 dependencies stubbed), mirroring how ``tests/app/test_dictation.py``
 exercises the ``AppDictation`` mixin surface:
 
@@ -137,48 +137,20 @@ class TestInitRecording:
 
 
 class TestPreloadVadModel:
-    def test_spawns_vad_preload_thread_with_historical_flags(self, monkeypatch):
-        # Canonical patch target: the OWNING submodule's attribute (the
-        # worker resolves ``vad.preload`` through the module object at
-        # call time). Importing the real module here also pins the
-        # ``from voice_typer.server import vad`` binding deterministically
-        # regardless of whether an earlier test already imported it.
-        import voice_typer.server.vad as vad_module
+    """The eager Silero VAD preload is owned by ``StartupSequence``
+    phase 1 (``startup_sequence/_phases_early.py``), the SINGLE spawn
+    site per boot. The former construction-time duplicate that lived
+    here was removed (both sites fired on every boot; ``vad.preload()``
+    is idempotent and the lazy-load fallback in ``compute_vad_prob``
+    is preserved either way). These tests pin the new boundary:
+    recording-init construction must NOT spawn its own VAD preload
+    worker; the startup-sequence site's thread/best-effort contract is
+    pinned in ``tests/test_startup_sequence_phases.py`` and
+    ``tests/test_startup_sequence_boot_costs.py``."""
 
-        monkeypatch.setattr(vad_module, "preload", lambda: None)
-        registry = _FakeThreadRegistry()
-        host = _Host(registry)
-
-        host._preload_vad_model()
-
-        _, daemon, join_timeout = _spawned(registry, "vad-preload")
-        assert daemon is True
-        assert join_timeout == 2.0
-
-    def test_failing_preload_is_best_effort(self, monkeypatch, caplog):
-        def _boom():
-            raise RuntimeError("torch missing")
-
-        import voice_typer.server.vad as vad_module
-
-        monkeypatch.setattr(vad_module, "preload", _boom)
-        registry = _FakeThreadRegistry()
-        host = _Host(registry)
-
-        host._preload_vad_model()
-        target, _, _ = _spawned(registry, "vad-preload")
-        with caplog.at_level(logging.DEBUG, logger="voice_typer.server.app"):
-            target()  # must not raise — the worker swallows the failure
-
-        assert any(
-            "vad.preload() failed" in record.message
-            for record in caplog.records
-            if record.name == "voice_typer.server.app"
-        )
-
-    def test_init_recording_preloads_vad(self, monkeypatch):
-        """``_init_recording`` ends with the VAD preload (the historical
-        call order pinned by the docstring)."""
+    def test_init_recording_spawns_no_vad_preload(self, monkeypatch):
+        """``_init_recording`` no longer arms a duplicate VAD preload —
+        the startup sequence's phase-1 spawn is the only one per boot."""
         import voice_typer.server.vad as vad_module
 
         monkeypatch.setattr(vad_module, "preload", lambda: None)
@@ -189,4 +161,13 @@ class TestPreloadVadModel:
 
         names = [spawned[0] for spawned in registry.spawned]
         assert "recorder-init" in names
-        assert "vad-preload" in names
+        assert "vad-preload" not in names, (
+            "recording-init must not spawn its own vad-preload worker; "
+            "the startup sequence phase-1 site owns the single preload"
+        )
+
+    def test_vad_preload_helper_is_gone(self):
+        """The removed helper must stay removed, a construction-time
+        preload would silently duplicate the startup-sequence preload
+        on every boot."""
+        assert not hasattr(_Host, "_preload_vad_model")

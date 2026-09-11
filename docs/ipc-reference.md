@@ -4,10 +4,10 @@ Auto-generated reference for the Voice Typer IPC protocol.
 
 **Source of truth:**
 
-- [_COMMAND_REGISTRY](../voice_typer/server/ipc/registry.py) — server-side handler map (canonical command list)
-- [ALLOWED_COMMANDS](../voice_typer/client/src/main/allowed-commands.ts) — Electron main-process allowlist (renderer-reachable subset)
-- [types/ipc/](../voice_typer/client/src/renderer/src/types/ipc/) — TypeScript subpackage: requests, push_events, bridge, enums, etc.
-- [allowed_commands()](../src-tauri/src/commands/sidecar_cmds.rs) — Rust host's defense-in-depth allowlist gate (CR-4)
+- [_COMMAND_REGISTRY](../voice_typer/server/ipc/registry.py): server-side handler map (canonical command list)
+- [ALLOWED_COMMANDS](../voice_typer/client/src/main/allowed-commands.ts): Electron main-process allowlist (renderer-reachable subset)
+- [types/ipc/](../voice_typer/client/src/renderer/src/types/ipc/): TypeScript subpackage: requests, push_events, bridge, enums, etc.
+- [allowed_commands()](../src-tauri/src/commands/sidecar_cmds.rs): Rust host's defense-in-depth allowlist gate (CR-4)
 
 > This file is a human-readable summary. The four sources above are the
 > authoritative references; if this doc disagrees with any of them, the
@@ -47,10 +47,10 @@ parity test). Commands in `_COMMAND_REGISTRY` but NOT in
 `ALLOWED_COMMANDS` are server-only (invoked internally by the backend or
 via the Rust tray host's `dispatch_inner`, which **bypasses the
 renderer ALLOWED_COMMANDS gate but still routes through
-`_COMMAND_REGISTRY`** — i.e. the handler must be registered or the
+`_COMMAND_REGISTRY`**: i.e. the handler must be registered or the
 dispatch fails with `unknown_command`).
 
-## Commands (75 total — 73 renderer-reachable + 2 host-only: shutdown, tray_click)
+## Commands (75 total: 73 renderer-reachable + 2 host-only: shutdown, tray_click)
 
 Grouped by namespace. "✓" in the Allowlist column means the command is
 in `ALLOWED_COMMANDS` (renderer-reachable); "—" means server-only.
@@ -62,8 +62,8 @@ in `ALLOWED_COMMANDS` (renderer-reachable); "—" means server-only.
 | `get_config` | `_handle_get_config` | ✓ |  |
 | `get_defaults` | `_handle_get_defaults` | ✓ |  |
 | `get_status` | `_handle_get_status` | ✓ |  |
-| `heartbeat` | `_handle_heartbeat` | ✓ | watchdog tick — coalesces repeated ticks so a stalled backend doesn't strand the mic open + mutex held. |
-| `relaunch_ack` | `_handle_relaunch_ack` | ✓ | PERF-005 relaunch ack — event-driven wait bounded by a 2s timeout. |
+| `heartbeat` | `_handle_heartbeat` | ✓ | watchdog tick: coalesces repeated ticks so a stalled backend doesn't strand the mic open + mutex held. |
+| `relaunch_ack` | `_handle_relaunch_ack` | ✓ | PERF-005 relaunch ack: event-driven wait bounded by a 2s timeout. |
 | `set_config` | `_handle_set_config` | ✓ |  |
 
 ### App control (toggle, undo, repaste, tray, force-cancel, restart/quit)
@@ -75,17 +75,17 @@ in `ALLOWED_COMMANDS` (renderer-reachable); "—" means server-only.
 | `repaste_last` | `_handle_repaste_last` | ✓ | UX-23: re-paste the last transcription (repaste_handlers mixin). |
 | `restart_app` | `_handle_restart_app` | ✓ |  |
 | `set_tray_locale` | `_handle_set_tray_locale` | ✓ | TRAY-008: allows set_tray_locale so tray labels update when the user changes the UI locale. |
-| `shutdown` | `_handle_shutdown` | — | Cooperative shutdown — handler runs identically on TCP / stdin / WS. |
+| `shutdown` | `_handle_shutdown` | — | Cooperative shutdown: handler runs identically on TCP / stdin / WS. |
 | `toggle_dictation` | `_handle_toggle_dictation` | ✓ |  |
-| `tray_click` | `_handle_tray_click` | — | Host-only — Rust tray dispatcher invokes via `dispatch_inner`, so a renderer `dispatch` call returns "unknown command". |
+| `tray_click` | `_handle_tray_click` | — | Host-only: Rust tray dispatcher invokes via `dispatch_inner`, so a renderer `dispatch` call returns "unknown command". |
 
 ### macOS permissions (accessibility troubleshooting)
 
 | Command | Handler | Allowlist | Notes |
 |---------|---------|-----------|-------|
-| `reset_macos_accessibility` | `_handle_reset_macos_accessibility` | ✓ | Finding #127 part b — Settings → Troubleshooting "Reset Accessibility Permission" button. Runs `tccutil reset Accessibility <bundle-id>` (bundle ID resolved at runtime via `macos_bundle_id.py` — never hardcoded) and re-opens System Settings → Privacy & Security → Accessibility. `ack` → `{ok, command, error}`. |
-| `reset_linux_permissions` | `_handle_reset_linux_permissions` | ✓ | Finding #127 part b (Linux sibling) — Settings → Troubleshooting "Reset Linux Permission" button. Clears a stale polkit authorization (`auth_admin_keep` is cached ~5 min by polkitd — see finding #134) by restarting the polkit daemon via `pkexec systemctl restart polkit` / `polkitd` / `service polkit restart`; `pkaction` enumerates the Voice Typer action (`com.voicetyper.install-permissions` — the only namespace the app ships since finding #54; the legacy pre-Tauri Electron policy is removed at install/upgrade time) and `pkcheck` verifies the post-reset state. pkexec exit 126 (auth dismissed) is reported as such. `ack` → `{ok, command, error, actions, checks}`. |
-| `check_accessibility` | `_handle_check_accessibility` | ✓ | Finding #919 part b — RE-ADDED 2026-08-10. Settings → Troubleshooting probes the macOS Accessibility grant on mount; on a confirmed stale grant (`AXIsProcessTrusted()` False) the `accessibility_status` response carries `suggest_reset: true` + the runtime `reset_command` string (`tccutil reset Accessibility <bundle-id>`, bundle ID resolved via `macos_bundle_id.py` — never hardcoded) so the section can surface it next to the "Reset Accessibility Permission" button. Was removed in the GT-32 stale-entry cleanup (no renderer caller); re-wired through the registry + TS + Rust allowlists in lockstep. `accessibility_status` → `{granted, platform, reason?, suggest_reset?, reset_command?}`. |
+| `reset_macos_accessibility` | `_handle_reset_macos_accessibility` | ✓ | Finding #127 part b: Settings → Troubleshooting "Reset Accessibility Permission" button. Runs `tccutil reset Accessibility <bundle-id>` (bundle ID resolved at runtime via `macos_bundle_id.py` Never hardcoded) and re-opens System Settings → Privacy & Security → Accessibility. `ack` → `{ok, command, error}`. |
+| `reset_linux_permissions` | `_handle_reset_linux_permissions` | ✓ | Finding #127 part b (Linux sibling), Settings → Troubleshooting "Reset Linux Permission" button. Clears a stale polkit authorization (`auth_admin_keep` is cached ~5 min by polkitd, see finding #134) by restarting the polkit daemon via `pkexec systemctl restart polkit` / `polkitd` / `service polkit restart`; `pkaction` enumerates the Voice Typer action (`com.voicetyper.install-permissions` The only namespace the app ships since finding #54; the legacy pre-Tauri Electron policy is removed at install/upgrade time) and `pkcheck` verifies the post-reset state. pkexec exit 126 (auth dismissed) is reported as such. `ack` → `{ok, command, error, actions, checks}`. |
+| `check_accessibility` | `_handle_check_accessibility` | ✓ | Finding #919 part b: RE-ADDED 2026-08-10. Settings → Troubleshooting probes the macOS Accessibility grant on mount; on a confirmed stale grant (`AXIsProcessTrusted()` False) the `accessibility_status` response carries `suggest_reset: true` + the runtime `reset_command` string (`tccutil reset Accessibility <bundle-id>`, bundle ID resolved via `macos_bundle_id.py` Never hardcoded) so the section can surface it next to the "Reset Accessibility Permission" button. Was removed in the GT-32 stale-entry cleanup (no renderer caller); re-wired through the registry + TS + Rust allowlists in lockstep. `accessibility_status` → `{granted, platform, reason?, suggest_reset?, reset_command?}`. |
 | `undo_last` | `_handle_undo_last` | ✓ |  |
 
 ### Onboarding wizard
@@ -100,7 +100,7 @@ in `ALLOWED_COMMANDS` (renderer-reachable); "—" means server-only.
 | `onboarding_is_first_run` | `_handle_onboarding_is_first_run` | ✓ |  |
 | `onboarding_next_step` | `_handle_onboarding_next_step` | ✓ |  |
 | `onboarding_prev_step` | `_handle_onboarding_prev_step` | ✓ |  |
-| `onboarding_reset` | `_handle_onboarding_reset` | ✓ | G4-M-10 + PVT-G5-025 (session-3 + 5): onboarding reset — invoked by the Onboarding wizard's "Start over" button. |
+| `onboarding_reset` | `_handle_onboarding_reset` | ✓ | G4-M-10 + PVT-G5-025 (session-3 + 5): onboarding reset, invoked by the Onboarding wizard's "Start over" button. |
 | `onboarding_set_hotkey` | `_handle_onboarding_set_hotkey` | ✓ |  |
 | `onboarding_set_microphone` | `_handle_onboarding_set_microphone` | ✓ |  |
 | `onboarding_set_model` | `_handle_onboarding_set_model` | ✓ |  |
@@ -119,21 +119,21 @@ in `ALLOWED_COMMANDS` (renderer-reachable); "—" means server-only.
 | `get_model_catalog` | `_handle_get_model_catalog` | ✓ | Models page: VRAM, languages, speed/accuracy ratings. |
 | `get_model_status` | `_handle_get_model_status` | ✓ |  |
 | `get_volume_backend_status` | `_handle_get_volume_backend_status` | ✓ |  |
-| `get_prewarm_status` | `_handle_get_prewarm_status` | ✓ | RESTORED 2026-08-14 (plan §6.3 addendum): Cache Status card probe — reads the worker's cache stats (status file `prewarm-status.json` under the config dir). Response: `{ enabled, cache_ratio, cache_label, cached_bytes, total_bytes, last_run, elapsed_s }`. |
-| `open_prewarm_log` | `_handle_open_prewarm_log` | ✓ | RESTORED 2026-08-14 (plan §6.3 addendum): opens the worker log (`worker.log` — the retired `prewarm.log` no longer exists). |
-| `run_prewarm` | `_handle_run_prewarm` | ✓ | RESTORED 2026-08-14 (plan §6.3 addendum 2nd half): re-implemented — the handler re-runs the worker's warm phase in-process via `prewarm.status.run_prewarm_now()` (warm_imports_for_worker on a daemon thread + status-file refresh) instead of spawning the retired standalone-prewarm subprocess. Response: `{ started: bool }`. |
+| `get_prewarm_status` | `_handle_get_prewarm_status` | ✓ | RESTORED 2026-08-14 (plan §6.3 addendum): Cache Status card probe, reads the worker's cache stats (status file `prewarm-status.json` under the config dir). Response: `{ enabled, cache_ratio, cache_label, cached_bytes, total_bytes, last_run, elapsed_s }`. |
+| `open_prewarm_log` | `_handle_open_prewarm_log` | ✓ | RESTORED 2026-08-14 (plan §6.3 addendum): opens the worker log (`worker.log` The retired `prewarm.log` no longer exists). |
+| `run_prewarm` | `_handle_run_prewarm` | ✓ | RESTORED 2026-08-14 (plan §6.3 addendum 2nd half): re-implemented. The handler re-runs the worker's warm phase in-process via `prewarm.status.run_prewarm_now()` (warm_imports_for_worker on a daemon thread + status-file refresh) instead of spawning the retired standalone-prewarm subprocess. Response: `{ started: bool }`. |
 | `import_model` | `_handle_import_model` | ✓ | MODEL-IMPORT: allows import_model so the Models page can scan and import pre-downloaded model directories. |
 | `pause_model_download` | `_handle_pause_model_download` | ✓ | NEW-PAUSE-001: pause/resume in-progress model downloads. |
 | `resume_model_download` | `_handle_resume_model_download` | ✓ |  |
-| `test_cloud_connection` | `_handle_test_cloud_connection` | ✓ | Cloud ASR/LLM endpoint reachability probe — invoked from Settings → Models → Cloud "Test connection" button. Handler: `cloud_test_handlers.py`. |
+| `test_cloud_connection` | `_handle_test_cloud_connection` | ✓ | Cloud ASR/LLM endpoint reachability probe: invoked from Settings → Models → Cloud "Test connection" button. Handler: `cloud_test_handlers.py`. |
 | `add_trusted_endpoint` | `_handle_add_trusted_endpoint` | ✓ | ADR-0017 §"Runtime Extensions": extends the per-process URL allowlist at runtime so users can configure self-hosted ASR/LLM endpoints. Handler: `config_handlers.py`. |
 
 ### Offline transcription (runtime-pack worker)
 
 | Command | Handler | Allowlist | Notes |
 |---------|---------|-----------|-------|
-| `transcribe_offline` | `_handle_transcribe_offline` | ✓ | Master plan §7.4 — slim core forwards this request to the runtime-pack worker over the worker's dedicated WS hop. The worker may take seconds to minutes to transcribe, so the result is returned asynchronously via the `transcribe_offline_result` push event rather than a synchronous response. |
-| `check_offline_pack_update` | `_handle_check_offline_pack_update` | ✓ | Auto-update feature (docs/auto-update-feature.md) — runtime-pack manifest check against GitHub Releases (C-DATA-1 category-2 allowed update check) + consent-gated background download (`config.offline_pack_consent` must be true). |
+| `transcribe_offline` | `_handle_transcribe_offline` | ✓ | Master plan §7.4: slim core forwards this request to the runtime-pack worker over the worker's dedicated WS hop. The worker may take seconds to minutes to transcribe, so the result is returned asynchronously via the `transcribe_offline_result` push event rather than a synchronous response. |
+| `check_offline_pack_update` | `_handle_check_offline_pack_update` | ✓ | Auto-update feature (docs/auto-update-feature.md): runtime-pack manifest check against GitHub Releases (C-DATA-1 category-2 allowed update check) + consent-gated background download (`config.offline_pack_consent` must be true). |
 
 ### History (CRUD, favorites, search, today stats, count, transcription text)
 
@@ -143,8 +143,8 @@ in `ALLOWED_COMMANDS` (renderer-reachable); "—" means server-only.
 | `delete_history` | `_handle_delete_history` | ✓ |  |
 | `get_favorites` | `_handle_get_favorites` | ✓ |  |
 | `get_history` | `_handle_get_history` | ✓ |  |
-| `get_history_count` | `_handle_get_history_count` | ✓ | Dashboard "Total Dictations" stat — returns the count of stored history rows without transferring the full row list. |
-| `get_transcription_text` | `_handle_get_transcription_text` | ✓ | History page expansion — fetches the full transcription text for a single history row by id. |
+| `get_history_count` | `_handle_get_history_count` | ✓ | Dashboard "Total Dictations" stat: returns the count of stored history rows without transferring the full row list. |
+| `get_transcription_text` | `_handle_get_transcription_text` | ✓ | History page expansion: fetches the full transcription text for a single history row by id. |
 | `get_today_stats` | `_handle_get_today_stats` | ✓ |  |
 | `restore_history` | `_handle_restore_history` | ✓ |  |
 | `search_history` | `_handle_search_history` | ✓ |  |
@@ -195,7 +195,7 @@ in `ALLOWED_COMMANDS` (renderer-reachable); "—" means server-only.
 |---------|---------|-----------|-------|
 | `set_esc_cancel_paused` | `_handle_set_esc_cancel_paused` | ✓ | Pauses ESC-cancel while the UI is capturing a custom hotkey. |
 
-### Removed / never-existed commands (documented for searchability — do NOT re-add)
+### Removed / never-existed commands (documented for searchability, do NOT re-add)
 
 The following command names appear in older drafts of this document but
 are **not** present in `_COMMAND_REGISTRY` and were never reachable from
@@ -219,11 +219,11 @@ this page find the canonical "this command does not exist" answer:
 > Note: `get_prewarm_status` / `open_prewarm_log` / `run_prewarm`
 > were listed here (retired with the standalone-prewarm pipeline —
 > master plan §6.2 P-1) but were RESTORED on 2026-08-14 (plan §6.3
-> addendum — Settings → About Cache Status card, verbatim from
+> addendum: Settings → About Cache Status card, verbatim from
 > 5a319872): they now have live rows in the Models table above and
 > probe the worker's cache via `prewarm-status.json`. `run_prewarm`
 > was restored the same day (addendum 2nd half) as a RE-IMPLEMENTATION
-> — it re-runs the worker's warm phase in-process via
+> It re-runs the worker's warm phase in-process via
 > `prewarm.status.run_prewarm_now()` (no deleted-subprocess spawn).
 
 The corresponding host-side workflows (vocabulary automation pipeline,
@@ -233,7 +233,7 @@ refresh, Electron notification, RMS / audio-status reads, microphone
 test status, level monitor status) are all handled
 by dedicated service modules invoked directly by the host (not via
 the IPC `dispatch` path) or by renderer-reachable substitutes listed
-in the tables above — the worker-based prewarm path is reached via
+in the tables above: the worker-based prewarm path is reached via
 the `transcribe_offline` command and observed via the `pack_*` /
 `worker_*` push events; the cache-state read + manual re-warm are the
 restored `get_prewarm_status` / `run_prewarm` (worker status file +
@@ -244,7 +244,7 @@ in-process warm pass), not the old
 
 Push events flow server to renderer via `window.python.onEvent(callback)`.
 The `PythonPushEvent` union in `types/ipc/push_events.ts` is the canonical
-list — events not in the union fall through to the `string` overload of
+list: events not in the union fall through to the `string` overload of
 `usePythonEvent` (BG-84) and lose compile-time typo detection.
 
 | Event type | Interface | Data shape |
@@ -252,10 +252,10 @@ list — events not in the union fall through to the `string` overload of
 | `status_change` | `StatusChangeEvent` | `{ status: string }` |
 | `error` | `ErrorEvent` | `{ code: ErrorCodes, message, command?, field?, id? }` |
 | `transcription_final` | `TranscriptionFinalEvent` | `{ text: string, ... }` |
-| `recording_started` | `RecordingStartedEvent` | bare `{ type: "recording_started" }` — fires when recording actually starts; backs the start sound cue. |
-| `recording_stopped` | `RecordingStoppedEvent` | bare `{ type: "recording_stopped" }` — fires when recording actually stops; backs the stop sound cue. |
-| `config_changed` | `ConfigChangedEvent` | `{ key?: string, ... }` — emitted after `set_config` so subscribers can refetch without polling. |
-| `hotkey_capture_cancel` | `HotkeyCaptureCancelEvent` | bare frame — cancels the Settings hotkey-picker capture dialog. |
+| `recording_started` | `RecordingStartedEvent` | bare `{ type: "recording_started" }` Fires when recording actually starts; backs the start sound cue. |
+| `recording_stopped` | `RecordingStoppedEvent` | bare `{ type: "recording_stopped" }` Fires when recording actually stops; backs the stop sound cue. |
+| `config_changed` | `ConfigChangedEvent` | `{ key?: string, ... }` Emitted after `set_config` so subscribers can refetch without polling. |
+| `hotkey_capture_cancel` | `HotkeyCaptureCancelEvent` | bare frame: cancels the Settings hotkey-picker capture dialog. |
 | `history_changed` | `HistoryChangedEvent` | `{ reason: string }` |
 | `state_changed` | `StateChangedEvent` | `Record<string, unknown>` |
 | `paste_failed` | `PasteFailedEvent` | `Record<string, unknown>` |
@@ -279,58 +279,58 @@ list — events not in the union fall through to the `string` overload of
 | `tray_state` | `TrayStateEvent` | `{ icon?: string, label?: string, ... }` |
 | `consent_required` | `ConsentRequiredEvent` | `{ provider: string, ... }` |
 | `parakeet_cpu_fallback` | `ParakeetCpuFallbackEvent` | `{ device: string, ... }` |
-| `asr_backend_disabled` | `AsrBackendDisabledEvent` | `{ backend: string, reason: string, ... }` — emitted from `asr_registry._record_failure` when a backend trips its failure threshold. |
-| `asr_last_resort_unloaded` | `AsrLastResortUnloadedEvent` | `{ backend: string, reason: string, ... }` — emitted when the last-resort ASR backend is force-unloaded. |
-| `llm_polish_failed` | `LlmPolishFailedEvent` | `{ reason: string, ... }` — emitted when LLM polishing fails so the UI can fall back to raw transcription. |
-| `text_enhancement_failed` | `TextEnhancementFailedEvent` | bare `{ type: "text_enhancement_failed" }` — emitted when the rule-based text enhancement pass fails; transcription is still delivered un-enhanced, renderer may surface a one-time toast. |
+| `asr_backend_disabled` | `AsrBackendDisabledEvent` | `{ backend: string, reason: string, ... }` Emitted from `asr_registry._record_failure` when a backend trips its failure threshold. |
+| `asr_last_resort_unloaded` | `AsrLastResortUnloadedEvent` | `{ backend: string, reason: string, ... }` Emitted when the last-resort ASR backend is force-unloaded. |
+| `llm_polish_failed` | `LlmPolishFailedEvent` | `{ reason: string, ... }` Emitted when LLM polishing fails so the UI can fall back to raw transcription. |
+| `text_enhancement_failed` | `TextEnhancementFailedEvent` | bare `{ type: "text_enhancement_failed" }` Emitted when the rule-based text enhancement pass fails; transcription is still delivered un-enhanced, renderer may surface a one-time toast. |
 | `reconnecting` | `ReconnectingEvent` | `{ reason: string }` |
 | `reconnected` | `ReconnectedEvent` | `{ reason: string }` |
-| `mic_level` | `MicLevelEvent` | `{ rms: number, peak: number, active: boolean }` — continuous level monitor stream for the Settings microphone level meter. |
-| `recording_level` | `RecordingLevelEvent` | `{ rms: number, peak: number }` — ≤8 Hz main-window mirror of the recording level published by the bubble-level worker while recording; the typed `bubble_level` channel is consumed by the bubble window only, so Home's live recording indicator rides this generic-envelope event instead. |
-| `device_lost` | `DeviceLostEvent` | `{ source: string }` — the active input device disappeared mid-monitoring; the level monitor auto-stops and the Microphone page surfaces a recovery banner + toast. |
-| `transcription_partial` | `TranscriptionPartialEvent` | `{ text: string, cycle_id: string, supported?: boolean }` — live partial text pushed ≤4 Hz by the hidden streaming session's coalescing broadcaster; mirrored onto the bubble channel as a `bubble_set_state` transcript so the pill paints words mid-recording. One-time `supported: false` payload signals engines without word-level transcription. |
-| `offline_pack_download_started` | `OfflinePackDownloadStartedEvent` | `{ version: string, url: string, total_bytes: number }` — runtime-pack download began; payload mirrors the model-download `download_progress` shape so a `useOfflinePackDownload` hook can reuse the `useModelDownload` UI pattern. |
-| `offline_pack_download_progress` | `OfflinePackDownloadProgressEvent` | `{ version: string, progress: number, downloaded_bytes: number, total_bytes: number, speed_bytes_per_sec: number, eta_seconds: number }` — emitted ~1 Hz while the pack is downloading (currently silent — no UI surface, surfaced for diagnostics). |
-| `offline_pack_download_completed` | `OfflinePackDownloadCompletedEvent` | `{ version: string, sha256: string }` — download finished; verification is the next step (`offline_pack_verified` / `offline_pack_corrupt`). |
-| `offline_pack_download_failed` | `OfflinePackDownloadFailedEvent` | `{ version: string, reason: string, attempts: number }` — download gave up after exhausting the §8.2 / §8.7 retry budgets (corruption recovery + GitHub rate-limit backoff). |
-| `offline_pack_verified` | `OfflinePackVerifiedEvent` | `{ version: string, sha256: string }` — SHA256 + signature (Windows Authenticode / macOS notarization) both pass; the renderer's "Pack status" badge flips green. |
-| `offline_pack_missing` | `OfflinePackMissingEvent` | `{ version: string, path: string }` — expected pack file not found at startup (user deleted it, or a cleaner / AV quarantined it). |
-| `offline_pack_corrupt` | `OfflinePackCorruptEvent` | `{ version: string, path: string, reason: string }` — SHA256 mismatch or signature verification failed (background checksum §8.16). |
-| `offline_pack_ready` | `OfflinePackReadyEvent` | `{ version: string, worker_pid: number }` — worker process started AND prewarmed the ASR engine (Phase 2 of the worker lifecycle per §6.2); queued `transcribe_offline` requests can now be dispatched. |
-| `worker_started` | `WorkerStartedEvent` | `{ pid: number, version: string }` — worker process spawned and completed its WS handshake with the slim core; prewarm NOT yet done (see `offline_pack_ready` for that signal). |
-| `worker_crashed` | `WorkerCrashedEvent` | `{ pid: number, exit_code: number }` — worker process exited non-zero (or was killed by a signal); the slim core's supervisor restarts it with exponential backoff. |
-| `worker_unloaded` | `WorkerUnloadedEvent` | `{ reason: string }` — worker unloaded via idle-timeout path or explicit user action ("Keep offline engine running" toggle off). |
-| `transcribe_offline_result` | `TranscribeOfflineResultEvent` | `{ text: string, latency_ms: number }` — pushed by the worker via the slim core when a `transcribe_offline` request completes; delivered as a push event because the worker may take seconds to minutes (a synchronous request/response would time out). |
-| `asr_backend_ready` | `AsrBackendReadyEvent` | `{ backend: string, model_size: string }` — background model load finished successfully; the renderer's backend-failure toast surface (if shown) is dismissed. |
-| `asr_backend_load_failed` | `AsrBackendLoadFailedEvent` | `{ backend: string, model_size: string, failure_reason: string }` — background model load failed after `set_config` already acked; surfaced as an error toast with an Open Models action. |
-| `microphone_permission_revoked` | `MicrophonePermissionRevokedEvent` | bare frame — OS microphone permission was revoked mid-session; the renderer shows the localized permission-revoked bubble surface. |
-| `microphone_disconnected` | `MicrophoneDisconnectedEvent` | bare frame — the active recording stream lost the selected device (distinct from `device_lost`, which covers level-monitor paths); renderer shows the shared device-lost toast (deduplicated). |
-| `cloud_fallback_used` | `CloudFallbackUsedEvent` | `{ provider: string, reason: string }` — a cloud ASR provider failed and the pipeline fell back (typed in the union; renderer consumer optional). |
-| `dictation_suppressed` | `DictationSuppressedEvent` | `{ duration: number, recorded_rms: number, reason: string }` — a dictation was suppressed before transcription (typed in the union; renderer consumer optional). |
-| `history_corrupted` | `HistoryCorruptedEvent` | `{ path: string, db_path: string, recovered_count: number }` — history DB corruption was detected and recovered (typed in the union; renderer consumer optional). |
-| `paste_deferred` | `PasteDeferredEvent` | `{ reason: string, message?: string }` — paste was deferred (e.g. clipboard safety validation held it back; typed in the union; renderer consumer optional). |
-| `tray_fallback_notification` | `TrayFallbackNotificationEvent` | `{ title?: string, message?: string }` — tray notification fallback path fired (Electron/headless runtime only); generic toast consumer. |
+| `mic_level` | `MicLevelEvent` | `{ rms: number, peak: number, active: boolean }` Continuous level monitor stream for the Settings microphone level meter. |
+| `recording_level` | `RecordingLevelEvent` | `{ rms: number, peak: number }` ≤8 Hz main-window mirror of the recording level published by the bubble-level worker while recording; the typed `bubble_level` channel is consumed by the bubble window only, so Home's live recording indicator rides this generic-envelope event instead. |
+| `device_lost` | `DeviceLostEvent` | `{ source: string }` The active input device disappeared mid-monitoring; the level monitor auto-stops and the Microphone page surfaces a recovery banner + toast. |
+| `transcription_partial` | `TranscriptionPartialEvent` | `{ text: string, cycle_id: string, supported?: boolean }` Live partial text pushed ≤4 Hz by the hidden streaming session's coalescing broadcaster; mirrored onto the bubble channel as a `bubble_set_state` transcript so the pill paints words mid-recording. One-time `supported: false` payload signals engines without word-level transcription. |
+| `offline_pack_download_started` | `OfflinePackDownloadStartedEvent` | `{ version: string, url: string, total_bytes: number }` Runtime-pack download began; payload mirrors the model-download `download_progress` shape so a `useOfflinePackDownload` hook can reuse the `useModelDownload` UI pattern. |
+| `offline_pack_download_progress` | `OfflinePackDownloadProgressEvent` | `{ version: string, progress: number, downloaded_bytes: number, total_bytes: number, speed_bytes_per_sec: number, eta_seconds: number }` Emitted ~1 Hz while the pack is downloading (currently silent, no UI surface, surfaced for diagnostics). |
+| `offline_pack_download_completed` | `OfflinePackDownloadCompletedEvent` | `{ version: string, sha256: string }` Download finished; verification is the next step (`offline_pack_verified` / `offline_pack_corrupt`). |
+| `offline_pack_download_failed` | `OfflinePackDownloadFailedEvent` | `{ version: string, reason: string, attempts: number }` Download gave up after exhausting the §8.2 / §8.7 retry budgets (corruption recovery + GitHub rate-limit backoff). |
+| `offline_pack_verified` | `OfflinePackVerifiedEvent` | `{ version: string, sha256: string }` SHA256 + signature (Windows Authenticode / macOS notarization) both pass; the renderer's "Pack status" badge flips green. |
+| `offline_pack_missing` | `OfflinePackMissingEvent` | `{ version: string, path: string }` Expected pack file not found at startup (user deleted it, or a cleaner / AV quarantined it). |
+| `offline_pack_corrupt` | `OfflinePackCorruptEvent` | `{ version: string, path: string, reason: string }` SHA256 mismatch or signature verification failed (background checksum §8.16). |
+| `offline_pack_ready` | `OfflinePackReadyEvent` | `{ version: string, worker_pid: number }` Worker process started AND prewarmed the ASR engine (Phase 2 of the worker lifecycle per §6.2); queued `transcribe_offline` requests can now be dispatched. |
+| `worker_started` | `WorkerStartedEvent` | `{ pid: number, version: string }` Worker process spawned and completed its WS handshake with the slim core; prewarm NOT yet done (see `offline_pack_ready` for that signal). |
+| `worker_crashed` | `WorkerCrashedEvent` | `{ pid: number, exit_code: number }` Worker process exited non-zero (or was killed by a signal); the slim core's supervisor restarts it with exponential backoff. |
+| `worker_unloaded` | `WorkerUnloadedEvent` | `{ reason: string }` Worker unloaded via idle-timeout path or explicit user action ("Keep offline engine running" toggle off). |
+| `transcribe_offline_result` | `TranscribeOfflineResultEvent` | `{ text: string, latency_ms: number }` Pushed by the worker via the slim core when a `transcribe_offline` request completes; delivered as a push event because the worker may take seconds to minutes (a synchronous request/response would time out). |
+| `asr_backend_ready` | `AsrBackendReadyEvent` | `{ backend: string, model_size: string }` Background model load finished successfully; the renderer's backend-failure toast surface (if shown) is dismissed. |
+| `asr_backend_load_failed` | `AsrBackendLoadFailedEvent` | `{ backend: string, model_size: string, failure_reason: string }` Background model load failed after `set_config` already acked; surfaced as an error toast with an Open Models action. |
+| `microphone_permission_revoked` | `MicrophonePermissionRevokedEvent` | bare frame: OS microphone permission was revoked mid-session; the renderer shows the localized permission-revoked bubble surface. |
+| `microphone_disconnected` | `MicrophoneDisconnectedEvent` | bare frame: the active recording stream lost the selected device (distinct from `device_lost`, which covers level-monitor paths); renderer shows the shared device-lost toast (deduplicated). |
+| `cloud_fallback_used` | `CloudFallbackUsedEvent` | `{ provider: string, reason: string }` A cloud ASR provider failed and the pipeline fell back (typed in the union; renderer consumer optional). |
+| `dictation_suppressed` | `DictationSuppressedEvent` | `{ duration: number, recorded_rms: number, reason: string }` A dictation was suppressed before transcription (typed in the union; renderer consumer optional). |
+| `history_corrupted` | `HistoryCorruptedEvent` | `{ path: string, db_path: string, recovered_count: number }` History DB corruption was detected and recovered (typed in the union; renderer consumer optional). |
+| `paste_deferred` | `PasteDeferredEvent` | `{ reason: string, message?: string }` Paste was deferred (e.g. clipboard safety validation held it back; typed in the union; renderer consumer optional). |
+| `tray_fallback_notification` | `TrayFallbackNotificationEvent` | `{ title?: string, message?: string }` Tray notification fallback path fired (Electron/headless runtime only); generic toast consumer. |
 
 ## Server-only push events (string-overload, not in the typed union)
 
 These events are published on the server's `EVENT_TYPES` registry and
 forwarded over the WS transport, but have no interface in
-`types/ipc/push_events.ts` — the renderer receives them through the
+`types/ipc/push_events.ts` The renderer receives them through the
 `usePythonEvent` string overload (BG-84). Documented here for
 searchability; promote one to the typed union only when a renderer
 consumer needs compile-time typo detection.
 
 | Event type | Emitter | Data shape |
 |------------|---------|------------|
-| `gpu_cpu_fallback` | `transcription_fallback.py` | `{ device: string, reason: string, ... }` — the ASR engine fell back from GPU to CPU; also consumed in-process by the tray notification path (`tray_notifications.on_gpu_cpu_fallback`). |
-| `dictation_lost` | `crash_recovery/_store.py` | `{ message: string, recoverable: boolean, recovery_type: string, cycle_id: string }` — a dictation was interrupted by a crash; partial text may be recoverable, audio is not. |
+| `gpu_cpu_fallback` | `transcription_fallback.py` | `{ device: string, reason: string, ... }` The ASR engine fell back from GPU to CPU; also consumed in-process by the tray notification path (`tray_notifications.on_gpu_cpu_fallback`). |
+| `dictation_lost` | `crash_recovery/_store.py` | `{ message: string, recoverable: boolean, recovery_type: string, cycle_id: string }` A dictation was interrupted by a crash; partial text may be recoverable, audio is not. |
 
 ## WebSocket transport (Tauri sidecar)
 
 Under the Tauri v2 host (ADR-0020), the renderer↔backend transport
 switches from TCP-on-loopback to a localhost WebSocket. The WS transport
 reuses the same `_COMMAND_REGISTRY` and the same per-connection rate
-limiter as the TCP transport — the only differences are the framing and
+limiter as the TCP transport: the only differences are the framing and
 the auth handshake.
 
 - **URL scheme**: `ws://127.0.0.1:<ephemeral>`. The Python sidecar binds
@@ -341,12 +341,12 @@ the auth handshake.
   object of the shape `{type:"auth", token:<hex>, protocol_version?:<int>}`.
   The server compares `token` against `VOICE_TYPER_IPC_TOKEN` using
   `hmac.compare_digest` (constant-time). `protocol_version` is optional
-  — older hosts that don't send it continue to function.
+ Older hosts that don't send it continue to function.
 - **Protocol version**: `PROTOCOL_VERSION = 1` (see `sidecar_ws.py`).
   When the host sends a `protocol_version` that doesn't match the
   sidecar's, the server logs a `protocol_version_mismatch` WARNING
   (visible in diagnostics as the `[SIDECAR-WS] protocol version skew`
-  line) but does NOT reject the connection — version negotiation is
+  line) but does NOT reject the connection, version negotiation is
   defense-in-depth, not a security gate.
 - **Frame cap**: 1 MiB (`_MAX_FRAME_BYTES = 1 * 1024 * 1024`). Frames
   exceeding the cap are dropped with a `[SIDECAR-WS] frame too large`
@@ -355,7 +355,7 @@ the auth handshake.
   `{type:"shutdown"}` frame to request graceful teardown; the sidecar
   closes its accept loop, drains in-flight handlers, and exits. This is
   the same `shutdown` handler documented in the App-control table
-  above — the WS transport just dispatches it via a synthetic frame
+  above: the WS transport just dispatches it via a synthetic frame
   type rather than the regular `dispatch` envelope.
 
 For the full Python-side module deep dive, see
@@ -364,15 +364,15 @@ side, see [`docs/migration/tauri-sidecar-bridge.md`](migration/tauri-sidecar-bri
 
 ## See also
 
-- [python-api.md](./python-api.md) — Python class API reference
+- [python-api.md](./python-api.md): Python class API reference
   (`VoiceTyperApp`, `Recorder`, `IpcServer`, etc.).
-- [ARCHITECTURE.md](./ARCHITECTURE.md) — high-level architecture
+- [ARCHITECTURE.md](./ARCHITECTURE.md): high-level architecture
   overview (renderer <-> Electron main <-> Python backend <-> Rust host).
-- [modules/sidecar_ws.md](./modules/sidecar_ws.md) — Tauri sidecar
+- [modules/sidecar_ws.md](./modules/sidecar_ws.md): Tauri sidecar
   WebSocket transport module reference.
 - [migration/tauri-sidecar-bridge.md](./migration/tauri-sidecar-bridge.md) —
   Tauri ↔ Python sidecar bridge architecture + Rust host layout.
-- [CONTRIBUTING.md §6.4](../CONTRIBUTING.md) — IPC command parity
+- [CONTRIBUTING.md §6.4](../CONTRIBUTING.md): IPC command parity
   contract (the four-allowlist rule enforced here).
-- [SECURITY.md](../SECURITY.md) — security model (SEC-002 allowlist,
+- [SECURITY.md](../SECURITY.md): security model (SEC-002 allowlist,
   SEC-018 TCP auth, SEC-019 renderer gate, SEC-026 sandboxed bubble).

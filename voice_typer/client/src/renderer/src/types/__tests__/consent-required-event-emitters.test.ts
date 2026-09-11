@@ -4,7 +4,7 @@
 // The `ConsentRequiredEvent` interface in `types/ipc/push_events.ts`
 // declares every payload field OPTIONAL. That shape was derived from an
 // inventory of the FOUR real Python emitters (each sends a different
-// subset — only the HuggingFace model-download gate sends
+// subset, only the HuggingFace model-download gate sends
 // provider/model/message, two emitters send ONLY consent_field, and the
 // offline-pack gate sends all five fields). The renderer's single
 // consumer (`useConsentRequiredEvent`) reads only `consent_field`.
@@ -17,7 +17,7 @@
 //      until the interface is widened.
 //   2. Compile-time: sample objects mirroring each emitter's exact
 //      field set are assignable to `ConsentRequiredEvent` (and a
-//      non-declared field is NOT — the optionality can never quietly
+//      non-declared field is NOT, the optionality can never quietly
 //      regress to required fields, which would lie about three of the
 //      four emitters).
 //
@@ -45,7 +45,7 @@ interface EmitterSpec {
 // The four real emitters, with the field sets verified at their current
 // source locations. When an emitter adds/renames a payload field,
 // update its entry here AND widen `ConsentRequiredEvent` in the same
-// change — the source-scan assertions below keep this list honest.
+// change, the source-scan assertions below keep this list honest.
 const EMITTERS: readonly EmitterSpec[] = [
 	{
 		path: "voice_typer/server/recording_lifecycle.py",
@@ -78,7 +78,7 @@ const DECLARED_FIELDS = [
 
 /** Extract the payload keys of the `consent_required` publish in a
  *  Python emitter source. Returns `null` when the file no longer
- *  publishes the event (an emitter deletion — update EMITTERS then). */
+ *  publishes the event (an emitter deletion, update EMITTERS then). */
 function extractConsentPayloadKeys(pySource: string): string[] | null {
 	const marker = '"type": "consent_required"';
 	const idx = pySource.indexOf(marker);
@@ -128,7 +128,7 @@ describe("consent_required emitter inventory ↔ ConsentRequiredEvent payload ty
 			for (const key of emitter.keys) {
 				expect(
 					(DECLARED_FIELDS as readonly string[]).includes(key),
-					`${emitter.path} emits "${key}" which ConsentRequiredEvent does not declare — widen the interface`,
+					`${emitter.path} emits "${key}" which ConsentRequiredEvent does not declare, widen the interface`,
 				).toBe(true);
 			}
 		}
@@ -139,7 +139,7 @@ describe("consent_required emitter inventory ↔ ConsentRequiredEvent payload ty
 		for (const field of DECLARED_FIELDS) {
 			expect(
 				emitted.has(field),
-				`ConsentRequiredEvent declares "${field}" but NO Python emitter sends it — remove the field`,
+				`ConsentRequiredEvent declares "${field}" but NO Python emitter sends it, remove the field`,
 			).toBe(true);
 		}
 	});
@@ -147,7 +147,7 @@ describe("consent_required emitter inventory ↔ ConsentRequiredEvent payload ty
 	it("each emitter's exact payload shape is assignable to ConsentRequiredEvent (compile-time guard)", () => {
 		// A sample object per emitter, built with exactly that
 		// emitter's field set. `satisfies`/assignment checks run at
-		// compile time — if any field were typed REQUIRED (the old
+		// compile time, if any field were typed REQUIRED (the old
 		// lie), the emitters that omit it would fail to compile here.
 		const samples: ConsentRequiredEvent[] = [
 			{

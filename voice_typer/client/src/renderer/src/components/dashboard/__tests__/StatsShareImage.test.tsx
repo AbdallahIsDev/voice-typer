@@ -1,5 +1,5 @@
 /**
- * StatsShareImage — redesigned themed share card tests.
+ * StatsShareImage, redesigned themed share card tests.
  *
  * Verifies:
  *   1. The card renders the real metrics (WPM, minutes saved,
@@ -61,7 +61,7 @@ const palette: StatsThemePalette = {
 	charts: ["#7aa2f7", "#bb9af7", "#9ece6a", "#e0af68", "#f7768e"],
 };
 
-describe("StatsShareImage — redesigned themed card", () => {
+describe("StatsShareImage, redesigned themed card", () => {
 	afterEach(() => {
 		cleanup();
 	});
@@ -88,7 +88,7 @@ describe("StatsShareImage — redesigned themed card", () => {
 		expect(screen.getByText(/parakeet/i)).toBeTruthy();
 	});
 
-	it("zero-data state shows — for WPM and no faster-than-avg claim", () => {
+	it("zero-data state shows, for WPM and no faster-than-avg claim", () => {
 		const zeroToday: ShareStats = {
 			...stats,
 			wpm: 0,
@@ -120,7 +120,7 @@ describe("StatsShareImage — redesigned themed card", () => {
 	it("falls back to the stock palette without a palette prop", () => {
 		const { container } = render(<StatsShareImage stats={stats} />);
 		const root = container.firstChild as HTMLElement;
-		// The fallback palette is a module constant — never empty.
+		// The fallback palette is a module constant, never empty.
 		// #131313 → rgb(19, 19, 19) in jsdom.
 		expect(root.style.background).toBe("rgb(19, 19, 19)");
 	});

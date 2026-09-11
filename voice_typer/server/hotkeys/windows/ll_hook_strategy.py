@@ -2,7 +2,7 @@
 
 Extracted from the original ``windows_native.py`` god-class
 split). The low-level hook is the most robust hotkey-detection
-path on Windows — Windows calls our hook procedure for EVERY
+path on Windows. Windows calls our hook procedure for EVERY
 keystroke system-wide, BEFORE any app sees it and REGARDLESS of
 RegisterHotKey ownership or foreground focus. This is the same
 mechanism the native ``windows-key-listener.exe`` binary uses.
@@ -51,7 +51,7 @@ def start_hook_callback_worker(self) -> None:
                 fn()
             except Exception:
                 log.exception(
-                    "[HOTKEY] Hook callback raised in worker thread — "
+                    "[HOTKEY] Hook callback raised in worker thread, "
                     "callback dropped, hotkey still armed for next press"
                 )
 
@@ -68,11 +68,11 @@ def enqueue_hook_callback(self, fn: Callable[[], None] | None) -> None:
     except queue.Full:
         # raised maxsize from 64 to 256 (4× headroom) so a
         # brief worker stall doesn't drop callbacks. When we DO overflow,
-        # log at ERROR (not WARNING) — a dropped hotkey callback means
+        # log at ERROR (not WARNING), a dropped hotkey callback means
         # the user pressed the hotkey and nothing happened, which is a
         # user-visible failure worth surfacing in error-level metrics.
         log.error(
-            "[HOTKEY] LL hook callback queue full (size=%d) — dropping callback. "
+            "[HOTKEY] LL hook callback queue full (size=%d), dropping callback. "
             "The hook worker thread may be stuck; hotkey presses will be missed "
             "until it recovers.",
             self._hook_callback_queue.maxsize,
@@ -85,7 +85,7 @@ def install_low_level_hook(self, callback) -> bool:
     ESC-CANCEL-DELIVERY (regression fix): returns True if the hook was
     installed successfully. The hook procedure runs in THIS thread (the
     one pumping GetMessageW) and fires *callback* when the configured key
-    (VK + modifiers) goes down — catching ESC/system keys that
+    (VK + modifiers) goes down, catching ESC/system keys that
     GetAsyncKeyState polling and even a failed RegisterHotKey miss.
 
     Returns False if the hook cannot be installed (e.g. SetWindowsHookEx
@@ -149,7 +149,7 @@ def install_low_level_hook(self, callback) -> bool:
                             # the same suppression the native
                             # windows-key-listener.exe binary performs.
                             log.info("[HOTKEY] Swallowed Caps Lock keydown (suppress OS toggle)")
-                            return 1  # swallow — do not call CallNextHookEx
+                            return 1  # swallow, do not call CallNextHookEx
                         if backend._on_release_callback is not None:
                             # Push-to-talk: start recording on press.
                             log.info(
@@ -232,13 +232,13 @@ def install_low_level_hook(self, callback) -> bool:
         if not handle:
             # previously this log line claimed "(GetLastError)"
             # but never fetched the error code. Mirror the RegisterHotKey
-            # pattern at line 198-205 — fetch immediately and include both
+            # pattern at line 198-205, fetch immediately and include both
             # decimal and hex so the user can look up the Win32 error.
             err = self._kernel32.GetLastError()
             self._last_error = err
             log.warning(
                 "[HOTKEY] SetWindowsHookExW(WH_KEYBOARD_LL) failed, "
-                "GetLastError=%d (0x%X) — falling back to RegisterHotKey/polling",
+                "GetLastError=%d (0x%X), falling back to RegisterHotKey/polling",
                 err,
                 err,
             )

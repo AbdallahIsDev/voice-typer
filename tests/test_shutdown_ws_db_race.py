@@ -10,15 +10,15 @@ with ``close()``, losing the user's final transcription.
 Pre-DJ-9 state of the code:
 
   1. ``sidecar_ws._make_dispatch`` had a ``_shutting_down`` gate that
-     rejected NEW dispatches after the flag flipped (G4-H-30) — good.
+     rejected NEW dispatches after the flag flipped (G4-H-30), good.
   2. ``shutdown_controller._do_cleanup`` called
      ``ws_pool.shutdown(wait=False, cancel_futures=True)`` to cancel
      QUEUED dispatches + a 5s ``pool.shutdown(wait=True)`` join to
-     wait for in-flight dispatches — good.
+     wait for in-flight dispatches, good.
   3. BUT: ``pool.shutdown(wait=True)`` only guarantees the
      ``ThreadPoolExecutor`` worker queue has drained. It does NOT
      guarantee the per-dispatch coroutine BODY has finished its DB
-     write — the Future resolves on ``server._dispatch`` return, but
+     write, the Future resolves on ``server._dispatch`` return, but
      the WS ``dispatch`` coroutine may still be in its
      ``await loop.run_in_executor`` unwind / result-serialisation tail
      when the pool reports drained. That tail can race
@@ -34,9 +34,9 @@ Add EXPLICIT ``threading.Event`` coordination between
     the IPC server instance:
       * ``_ws_drained_event`` (``threading.Event``, initially SET) —
         set when no dispatch is in-flight.
-      * ``_ws_inflight_lock`` (``threading.Lock``) — guards count +
+      * ``_ws_inflight_lock`` (``threading.Lock``), guards count +
         Event mutation as a pair.
-      * ``_ws_inflight_count`` (``int``, initially 0) — number of
+      * ``_ws_inflight_count`` (``int``, initially 0), number of
         dispatches currently between entry and exit of the
         ``dispatch`` coroutine body.
   - Each ``dispatch`` call: under the lock, increment count + clear
@@ -47,13 +47,13 @@ Add EXPLICIT ``threading.Event`` coordination between
     ``pool.shutdown(wait=False, cancel_futures=True)`` + 5s join,
     additionally wait on ``_ws_drained_event`` with a 2s bounded
     timeout. If the Event does NOT fire (in-flight handler still
-    mid-DB-write), log a WARNING and proceed — never block
+    mid-DB-write), log a WARNING and proceed, never block
     indefinitely on a single stuck handler.
 
 The ``finally`` block guarantees the Event is set even if the
 dispatch body raises (the in-flight count MUST be consistent with
 the actual dispatch state, otherwise ``_do_cleanup`` would wait on
-an Event that never fires — a deadlock).
+an Event that never fires, a deadlock).
 
 This closes the race: ``_do_cleanup`` blocks on the Event until the
 in-flight dispatch's coroutine body fully returns (including the
@@ -114,14 +114,14 @@ def _make_server_for_dispatch() -> MagicMock:
     ``getattr(server, "_ws_dispatch_pool", None)`` to detect whether
     the pool / Event / lock / count have been attached yet. A bare
     ``MagicMock`` auto-vivifies a child MagicMock for ANY attribute
-    access — including ``_ws_dispatch_pool`` — so the ``is None``
+    access (including ``_ws_dispatch_pool``) so the ``is None``
     check would never fire and the real Event / lock / pool would
     never be installed. We pre-set the four lazy-init slots to
     ``None`` so ``_make_dispatch``'s lazy-init branches actually
     execute (and attach the real primitives to the server).
 
     ``_get_rate_limiter(server)`` (called inside ``_make_dispatch``)
-    has its own lazy-init for ``server._rate_limiter_instance`` — we
+    has its own lazy-init for ``server._rate_limiter_instance``, we
     let it construct a real ``_RateLimiter`` (its ``allow()`` returns
     True on the first call within the burst budget, which is what
     these tests need).
@@ -129,7 +129,7 @@ def _make_server_for_dispatch() -> MagicMock:
     server = MagicMock()
     server.app = MagicMock()
     server.app._shutting_down = False
-    # ``server._dispatch`` is the actual handler — make it a no-op
+    # ``server._dispatch`` is the actual handler, make it a no-op
     # that returns ``{"type": "ok"}``.
     server._dispatch = MagicMock(return_value={"type": "ok"})
     # Pre-set the four lazy-init slots to None so _make_dispatch's
@@ -197,9 +197,9 @@ class TestSourceContracts:
         # fires even if the dispatch body raised. There are TWO
         # ``ws_drained_event.set()`` calls in the source:
         #   1. The lazy-init block: ``ws_drained_event.set()  # initially
-        #      drained — count is 0`` (NOT inside finally).
+        #      drained, count is 0`` (NOT inside finally).
         #   2. The dispatch exit block: inside ``finally:``.
-        # Use ``rfind`` to find the LAST occurrence — that's the
+        # Use ``rfind`` to find the LAST occurrence, that's the
         # dispatch-exit one we care about.
         set_idx = src.rfind("ws_drained_event.set()")
         assert set_idx > -1
@@ -218,7 +218,7 @@ class TestSourceContracts:
         assert "_ws_drained_event" in src, "DJ-9: shutdown_controller._do_cleanup must reference _ws_drained_event"
         # The wait must be bounded (timeout=...).
         assert "ws_drained_event.wait(timeout=" in src, (
-            "DJ-9: _do_cleanup must call ws_drained_event.wait(timeout=...) — bounded wait, never blocks indefinitely"
+            "DJ-9: _do_cleanup must call ws_drained_event.wait(timeout=...), bounded wait, never blocks indefinitely"
         )
 
     def test_shutdown_controller_logs_on_drain_timeout(self):
@@ -237,7 +237,7 @@ class TestSourceContracts:
         assert "log.warning" in block, "the drain-timeout branch must log at WARNING level"
 
 
-# behavioral — dispatch path ───────────────────────────────
+# behavioral, dispatch path ───────────────────────────────
 
 
 class TestDispatchEventCoordination:
@@ -266,7 +266,7 @@ class TestDispatchEventCoordination:
 
     def test_event_stays_cleared_during_inflight_dispatch(self):
         """While a dispatch is in-flight (blocked on the handler),
-        ``_ws_drained_event`` must NOT be set — ``_do_cleanup`` would
+        ``_ws_drained_event`` must NOT be set: ``_do_cleanup`` would
         otherwise proceed without waiting."""
         server = _make_server_for_dispatch()
         # Make ``server._dispatch`` block on an event so we can
@@ -320,7 +320,7 @@ class TestDispatchEventCoordination:
     def test_event_set_on_exit_even_when_dispatch_raises(self):
         """If ``server._dispatch`` raises, the ``finally`` block MUST
         still set the Event (otherwise ``_do_cleanup`` would wait on
-        an Event that never fires — a deadlock)."""
+        an Event that never fires, a deadlock)."""
         server = _make_server_for_dispatch()
         server._dispatch = MagicMock(side_effect=RuntimeError("simulated DB write failure"))
         dispatch = sidecar_ws._make_dispatch(server)
@@ -379,7 +379,7 @@ class TestDispatchEventCoordination:
                 done_events[idx].set()
 
         # Run two dispatches on separate threads (sharing the loop).
-        # Actually, asyncio is single-threaded per loop — we need
+        # Actually, asyncio is single-threaded per loop, we need
         # separate loops per dispatch.
         def _runner_with_own_loop(idx, marker, unblock_ev):
             own_loop = asyncio.new_event_loop()
@@ -406,7 +406,7 @@ class TestDispatchEventCoordination:
             "DJ-9: _ws_drained_event must be CLEARED while dispatches are in-flight"
         )
 
-        # Unblock dispatch A only — count should drop to 1, Event
+        # Unblock dispatch A only, count should drop to 1, Event
         # should STAY cleared (B is still in-flight).
         dispatch_unblock_a.set()
         assert done_events[0].wait(timeout=5.0)
@@ -421,7 +421,7 @@ class TestDispatchEventCoordination:
             "DJ-9: _ws_drained_event must STAY cleared while B is still in-flight (count > 0)"
         )
 
-        # Unblock B — count drops to 0, Event is set.
+        # Unblock B, count drops to 0, Event is set.
         dispatch_unblock_b.set()
         assert done_events[1].wait(timeout=5.0)
         time.sleep(0.1)
@@ -471,13 +471,13 @@ class TestDispatchEventCoordination:
 
         result = asyncio.run(_run())
 
-        # ``shutdown`` is not rejected — it flows through server._dispatch.
+        # ``shutdown`` is not rejected, it flows through server._dispatch.
         assert result == {"type": "ok"}
         assert server._ws_inflight_count == 0, "DJ-9: after the shutdown dispatch completes, count must be 0"
         assert server._ws_drained_event.is_set()
 
 
-# behavioral — _do_cleanup waits on Event ──────────────────
+# behavioral, _do_cleanup waits on Event ──────────────────
 
 
 class TestDoCleanupWaitsOnEvent:
@@ -486,7 +486,7 @@ class TestDoCleanupWaitsOnEvent:
 
     def test_do_cleanup_returns_quickly_when_event_already_set(self):
         """If ``_ws_drained_event`` is already set (no in-flight
-        dispatch), ``_do_cleanup`` must NOT block on the wait — the
+        dispatch), ``_do_cleanup`` must NOT block on the wait, the
         Event.wait returns immediately."""
         from voice_typer.server.shutdown_controller import ShutdownController
 
@@ -553,7 +553,7 @@ class TestDoCleanupWaitsOnEvent:
     def test_do_cleanup_waits_for_inflight_dispatch_to_finish(self):
         """If ``_ws_drained_event`` is NOT set (an in-flight dispatch
         is mid-DB-write), ``_do_cleanup`` must wait for the Event to
-        fire — the in-flight dispatch completes within the 2s budget
+        fire, the in-flight dispatch completes within the 2s budget
         and the Event fires, then _do_cleanup proceeds."""
         from voice_typer.server.shutdown_controller import ShutdownController
 
@@ -569,7 +569,7 @@ class TestDoCleanupWaitsOnEvent:
         ipc_server._ws_dispatch_pool = ws_pool
 
         ws_drained_event = threading.Event()
-        # NOT set — simulate in-flight dispatch.
+        # NOT set, simulate in-flight dispatch.
 
         ipc_server._ws_drained_event = ws_drained_event
         ipc_server._ws_inflight_count = 1
@@ -600,7 +600,7 @@ class TestDoCleanupWaitsOnEvent:
         ]:
             setattr(controller, name, MagicMock())
         # Stub _teardown_history_db to record WHEN it runs relative to
-        # the Event firing — the key race we're fixing.
+        # the Event firing, the key race we're fixing.
         history_telemetry: list = []
         controller._teardown_history_db = MagicMock(
             side_effect=lambda: history_telemetry.append(("history_db_teardown", time.monotonic()))
@@ -645,7 +645,7 @@ class TestDoCleanupWaitsOnEvent:
     def test_do_cleanup_proceeds_after_timeout_when_event_never_fires(self):
         """If ``_ws_drained_event`` NEVER fires (a stuck handler),
         ``_do_cleanup`` MUST log a WARNING and proceed after the
-        bounded timeout — never block indefinitely."""
+        bounded timeout, never block indefinitely."""
         from voice_typer.server.shutdown_controller import ShutdownController
 
         app = MagicMock()
@@ -660,7 +660,7 @@ class TestDoCleanupWaitsOnEvent:
         ipc_server._ws_dispatch_pool = ws_pool
 
         ws_drained_event = threading.Event()
-        # NEVER set — simulate a stuck handler.
+        # NEVER set, simulate a stuck handler.
 
         ipc_server._ws_drained_event = ws_drained_event
         ipc_server._ws_inflight_count = 1
@@ -699,7 +699,7 @@ class TestDoCleanupWaitsOnEvent:
         controller._do_cleanup()
         elapsed = time.monotonic() - start
 
-        # The Event wait must have timed out (~2s) — _do_cleanup
+        # The Event wait must have timed out (~2s), _do_cleanup
         # proceeded anyway (the stuck handler is on its own).
         assert elapsed >= 1.9, (
             f"DJ-9: _do_cleanup must wait the full 2s timeout when "

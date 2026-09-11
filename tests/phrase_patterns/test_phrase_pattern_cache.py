@@ -1,7 +1,7 @@
 """Tests for the combined-alternation regex cache in ``text_cleanup``.
 
 The former per-phrase ``_phrase_pattern_cache`` / ``_get_compiled_phrase_pattern``
-LRU cache was removed (dead on the production hot path — the hot path now
+LRU cache was removed (dead on the production hot path, the hot path now
 goes through ``_get_phrases_regex``). These tests were rewritten to cover
 the live cache contract:
 
@@ -47,7 +47,7 @@ class TestPhraseRegexCache:
             text_cleanup._active_phrases = saved
             # Invalidate the cache so subsequent tests don't see our
             # throwaway list (the cached_list is ``is``-compared, so
-            # restoring ``saved`` already invalidates it — but reset
+            # restoring ``saved`` already invalidates it, but reset
             # explicitly for clarity).
             text_cleanup._phrases_re_cache = (None, None, {})
 
@@ -62,7 +62,7 @@ class TestPhraseRegexCache:
             text_cleanup._phrases_re_cache = (None, None, {})
             p1, _ = text_cleanup._get_phrases_regex()
 
-            # Replace with a NEW list object — different identity, so
+            # Replace with a NEW list object, different identity, so
             # the cache must rebuild.
             text_cleanup._active_phrases = [("beta", "B")]
             p2, lookup2 = text_cleanup._get_phrases_regex()

@@ -1,6 +1,6 @@
 """Teardown helper for the PortAudio recorder + mic watcher.
 
-Phase 4.5 (OI-36) — extracted verbatim from
+Phase 4.5 (OI-36), extracted verbatim from
 :meth:`ShutdownController._teardown_recorder`. The body is unchanged;
 only the class boundary moved.
 
@@ -9,15 +9,15 @@ Cross-helper state
 This helper publishes two pieces of state consumed by
 :mod:`voice_typer.server.shutdown.teardowns.sounddevice`:
 
-* ``controller._recorder_force_closed`` — True when
+* ``controller._recorder_force_closed``: True when
   ``recorder.stop()`` / ``recorder.discard()`` timed out (the leaked
   worker thread is still accessing the PortAudio stream).
-* ``controller._recorder_teardown_done`` — :class:`threading.Event`
+* ``controller._recorder_teardown_done``: :class:`threading.Event`
   set when this helper finishes; gives the sounddevice helper a
   happens-before guarantee on the flag read.
 
 Both attributes are owned by :class:`ShutdownController` (initialized in
-``__init__``) and are NOT moved here — the sounddevice helper reads them
+``__init__``) and are NOT moved here, the sounddevice helper reads them
 off the controller.
 """
 
@@ -72,12 +72,12 @@ def teardown_recorder(controller) -> None:
                     # The ``_force_closed`` field is declared on
                     # ``Recorder.__init__`` (always present on any real
                     # ``Recorder`` instance), so the write is safe without
-                    # ``contextlib.suppress`` — the suppress wrapper would
+                    # ``contextlib.suppress``: the suppress wrapper would
                     # only mask a real bug.
                     app.recorder._force_closed = True
                     controller._recorder_force_closed = True
                     log.warning(
-                        "[SHUTDOWN] recorder.stop() timed out — "
+                        "[SHUTDOWN] recorder.stop() timed out, "
                         "marking recorder as force-closed; downstream "
                         "recorder.shutdown_mic_watcher will be skipped"
                     )
@@ -96,7 +96,7 @@ def teardown_recorder(controller) -> None:
                         app.recorder._force_closed = True
                         controller._recorder_force_closed = True
                         log.warning(
-                            "[SHUTDOWN] recorder.discard() timed out — "
+                            "[SHUTDOWN] recorder.discard() timed out, "
                             "marking recorder as force-closed; downstream "
                             "recorder.shutdown_mic_watcher will be skipped"
                         )
@@ -107,7 +107,7 @@ def teardown_recorder(controller) -> None:
 
     # PERF-MIC-001: stop the OS-event device watcher. : SKIP
     # this step if ``recorder.stop`` / ``recorder.discard`` timed
-    # out above — the leaked worker thread is still accessing the
+    # out above, the leaked worker thread is still accessing the
     # PortAudio stream, and concurrent ``shutdown_mic_watcher``
     # calls can segfault or leave the audio device inconsistent.
     try:

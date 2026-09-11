@@ -122,12 +122,12 @@ class TestValidateRunkeyCommand:
 
         monkeypatch.setattr(Path, "exists", lambda self: False)
         value = r"C:\Program Files\VoiceTyper\app.exe --delay 15"
-        # Ambiguous — can't determine the full exe path, so preserve.
+        # Ambiguous, can't determine the full exe path, so preserve.
         assert _validate_runkey_command(value) is True
 
     def test_doubled_backslash_path_is_invalid_on_windows(self, monkeypatch):
         """A doubled-backslash path (freedesktop Exec quoting leaked onto
-        Windows) is a malformed command line — Path.exists() collapses the
+        Windows) is a malformed command line, Path.exists() collapses the
         doubled separator so it reports the path valid; the raw-string
         check must catch it (AUTOSTART-QUOTING-FIX)."""
         from voice_typer.server.server_platform.autostart_windows import _validate_runkey_command
@@ -227,7 +227,7 @@ class TestIsAppAutostartRunkeyRegisteredStaleDetection:
 
     def test_returns_false_when_command_path_does_not_exist(self, monkeypatch, fake_winreg, win32_platform):
         """If the Run-key value exists but the exe path doesn't exist on
-        disk, the entry is stale — return False."""
+        disk, the entry is stale, return False."""
         from voice_typer.server.server_platform import (
             _is_app_autostart_runkey_registered,
         )
@@ -290,7 +290,7 @@ class TestRunkeySubmoduleFacadePatchSeams:
     be read through the facade module object at call time so the
     documented patch contract (``monkeypatch.setattr(autostart_windows,
     "X", ...)`` on facade-owned names) keeps propagating into the moved
-    submodule — the same idiom the Startup-.bat and sweep submodules
+    submodule, the same idiom the Startup-.bat and sweep submodules
     use."""
 
     def test_facade_patch_on_run_key_name_seen_by_unregister(self, monkeypatch, fake_winreg, win32_platform):
@@ -313,7 +313,7 @@ class TestRunkeySubmoduleFacadePatchSeams:
         from voice_typer.server.server_platform import _is_app_autostart_runkey_registered
 
         fake_winreg.QueryValueEx = MagicMock(return_value=(r'"C:\Python\pythonw.exe" launcher.py --hidden', 1))
-        # The exe path EXISTS — only the patched validator can mark it stale.
+        # The exe path EXISTS, only the patched validator can mark it stale.
         monkeypatch.setattr(Path, "exists", lambda self: True)
         monkeypatch.setattr(autostart_windows_mod, "_validate_runkey_command", lambda value: False)
 
@@ -349,7 +349,7 @@ class TestIsAppAutostartTaskRegisteredStaleDetection:
 
     def test_returns_false_when_command_path_does_not_exist(self, monkeypatch, fake_winreg, win32_platform):
         """If the task exists but its <Command> path doesn't exist on disk,
-        the task is stale — return False."""
+        the task is stale, return False."""
         from voice_typer.server import task_scheduler
         from voice_typer.server.server_platform import _is_app_autostart_task_registered
 
@@ -464,7 +464,7 @@ class TestStartupFolderBatFallback:
         from voice_typer.server import server_platform
 
         monkeypatch.setattr(autostart_mod, "get_autostart_dir", lambda: tmp_path)
-        # No .bat file created — should return True (idempotent).
+        # No .bat file created, should return True (idempotent).
         result = server_platform._unregister_app_autostart_startup()
         assert result is True
 
@@ -510,7 +510,7 @@ class TestStartupFolderBatFallback:
             "set VT_START_HIDDEN=1\r\n"
             'start "" /B "C:\\Deleted\\pythonw.exe" "C:\\app\\launcher.py" --hidden\r\n'
         )
-        # Don't patch Path.exists — the .bat file is a real file on disk
+        # Don't patch Path.exists, the .bat file is a real file on disk
         # (exists returns True), and the exe path C:\Deleted\pythonw.exe
         # doesn't exist on Linux (exists returns False). The validation
         # correctly detects the stale target and cleans up.
@@ -675,7 +675,7 @@ class TestAutostartCommandValidation:
         # AUTOSTART-QUOTING-FIX: on Windows the command is built with
         # ``subprocess.list2cmdline`` (single backslashes preserved); on
         # macOS/Linux it is escaped per the freedesktop Exec spec
-        # (backslashes doubled) — assert the form matching the platform.
+        # (backslashes doubled), assert the form matching the platform.
         raw = str(fake_tauri)
         if sys.platform == "win32":
             assert raw in cmd

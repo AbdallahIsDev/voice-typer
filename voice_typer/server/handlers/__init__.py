@@ -5,7 +5,7 @@ extracted from ``voice_typer/server/ipc_server.py``.
 Each module in this package defines a *mixin* class containing the
 ``_handle_<cmd>`` methods for one logical group of IPC commands (config,
 status, history, etc.).  The mixins access ``self.app`` and
-``self.service`` via the host :class:`IPCServer` instance — they have no
+``self.service`` via the host :class:`IPCServer` instance, they have no
 state of their own.
 
 :class:`IPCServer` inherits from all of these mixins, so the existing
@@ -20,7 +20,7 @@ classes.  The mixins import their helpers directly from the canonical
 ``voice_typer.server.ipc.history_bounds`` for ``_bound_history_limit``
 / ``_bound_history_offset`` / ``_sanitize_config_for_ipc``) and from
 ``voice_typer.server.handlers._base`` / ``handlers._log`` for the
-shared base class and logger — they do NOT import from
+shared base class and logger, they do NOT import from
 :mod:`voice_typer.server.ipc_server`, so there is no circular import
 to break.  (A ``sys.modules`` canonical-name shim that used to live in
 ``ipc_server.py`` was removed in , 2026-07-22, after this import
@@ -77,7 +77,7 @@ __all__ = [
     "VocabularyAutomationHandlersMixin",
     "PrivacyHandlersMixin",
     # ``RepasteHandlersMixin`` () is part of the package
-    # re-export surface — it was previously defined in
+    # re-export surface, it was previously defined in
     # ``repaste_handlers.py`` and imported by ``ipc_server.py`` but
     # missing from ``__all__``.
     "RepasteHandlersMixin",

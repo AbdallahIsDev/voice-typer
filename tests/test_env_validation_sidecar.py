@@ -13,7 +13,7 @@ the sidecar env-var contract set by the Rust host in
     VOICE_TYPER_PREWARM_EXE  = <non-empty path under home>
 
 XZ-R3-09: previously the function only *logged* warnings for unset /
-empty values — it did not pop, reset, or reject unsafe values. A
+empty values, it did not pop, reset, or reject unsafe values. A
 same-user attacker (or a buggy Rust host) could plant e.g.
 ``VOICE_TYPER_NATIVE_DIR=/etc`` and downstream consumers
 (``native_hotkeys.binary_path`` / ``prewarm_resolver``) would happily
@@ -56,7 +56,7 @@ _SIDECAR_VARS = (
     "VOICE_TYPER_NATIVE_DIR",
     "VOICE_TYPER_PREWARM_EXE",
 )
-# Vars from the rest of _validate_env_vars — also cleaned so they don't
+# Vars from the rest of _validate_env_vars, also cleaned so they don't
 # leak between tests / pollute the sidecar validation under test.
 _OTHER_VALIDATED_VARS = (
     "VOICE_TYPER_QUIET",
@@ -87,7 +87,7 @@ def _set_valid_sidecar_env(
 ) -> None:
     """Set every sidecar env var to a valid value under ``Path.home()``.
 
-    VOICE_TYPER_PREWARM_EXE is intentionally NOT set — the prewarm
+    VOICE_TYPER_PREWARM_EXE is intentionally NOT set, the prewarm
     binary was retired (plan-runtime-pack-split §6.2) and the var was
     removed from ``_EXPECTED_SIDECAR_ENV`` (2026-08-30).
     """
@@ -102,7 +102,7 @@ class TestNoOpWhenNotSidecar:
     """When ``TAURI_SIDECAR != "1"``, sidecar validation is skipped entirely."""
 
     def test_no_sidecar_flag_is_noop(self, monkeypatch):
-        # TAURI_SIDECAR not set — must not log warnings or pop anything.
+        # TAURI_SIDECAR not set, must not log warnings or pop anything.
         _validate_env_vars()
         # Nothing was set in the first place, so nothing to assert —
         # the test just verifies no exception is raised.
@@ -113,7 +113,7 @@ class TestNoOpWhenNotSidecar:
         _validate_env_vars()
         # TAURI_SIDECAR != "1" → skip. Empty token must NOT be popped
         # by the sidecar validator (it might be popped by the top-level
-        # token validator — that's tested elsewhere). The point of this
+        # token validator, that's tested elsewhere). The point of this
         # test is that the sidecar-contract block does not run.
         # (Note: the top-level VOICE_TYPER_IPC_TOKEN check at lines
         # 145-153 WILL pop the empty token; that's expected behavior
@@ -134,7 +134,7 @@ class TestEmptyValuesPopped:
         assert "VOICE_TYPER_NATIVE_DIR" not in os.environ
 
     # NOTE: the VOICE_TYPER_PREWARM_EXE empty-value test was removed with
-    # the prewarm retirement (plan-runtime-pack-split §6.2) — the var is
+    # the prewarm retirement (plan-runtime-pack-split §6.2), the var is
     # no longer part of the sidecar env contract.
 
 
@@ -154,7 +154,7 @@ class TestPathSafetyValidation:
         assert "VOICE_TYPER_NATIVE_DIR" not in os.environ
 
     def test_path_outside_home_popped(self, monkeypatch):
-        # /tmp is typically NOT under Path.home() — _validate_path_safety
+        # /tmp is typically NOT under Path.home(), _validate_path_safety
         # rejects it. Use a definitely-out-of-home path.
         bad = "/tmp/voice-typer-native"
         # Skip this test if /tmp happens to be under home (extremely
@@ -166,11 +166,11 @@ class TestPathSafetyValidation:
         assert "VOICE_TYPER_NATIVE_DIR" not in os.environ
 
     # NOTE: the VOICE_TYPER_PREWARM_EXE path-safety test was removed with
-    # the prewarm retirement (plan-runtime-pack-split §6.2) — the var is
+    # the prewarm retirement (plan-runtime-pack-split §6.2), the var is
     # no longer part of the sidecar env contract.
 
     def test_path_traversal_with_dots_popped(self, monkeypatch):
-        # ``..`` traversal that escapes home — rejected by
+        # ``..`` traversal that escapes home, rejected by
         # _validate_path_safety.
         bad = str(Path.home() / ".." / ".." / "etc")
         _set_valid_sidecar_env(monkeypatch, native_dir=bad)

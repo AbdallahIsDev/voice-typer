@@ -1,18 +1,18 @@
 """Session-based audio recording.
 
-Phase 4.5 /  — this file was previously a 3,215-line god-module
+Phase 4.5 / : this file was previously a 3,215-line god-module
 (``voice_typer/server/recording.py``); it has been split into a package
 with one module per concern:
 
-- :class:`Recorder` (the audio recorder) — :mod:`.recorder`
+- :class:`Recorder` (the audio recorder), :mod:`.recorder`
 - :class:`ResampleError` / :class:`ResampleUnavailableError` —
   :mod:`.exceptions`
 - Buffer-clearing helpers (``_secure_clear_array``,
   ``_secure_clear_array_background``, ``_buffer_clear_worker_loop``,
-  etc.) — :mod:`.buffer`
+  etc.), :mod:`.buffer`
 - scipy ``resample_poly`` lazy-loading + background preloader
   (``_get_resample_poly``, ``_start_scipy_preloader``,
-  ``_preload_resample_poly``) — :mod:`.resampling`
+  ``_preload_resample_poly``), :mod:`.resampling`
 
 This ``__init__.py`` re-exports every public name that the original
 module exposed so existing imports of the form
@@ -24,25 +24,25 @@ Patch-path compatibility
 Tests use ``monkeypatch.setattr("voice_typer.server.recording.X", ...)``
 for several names ``X``:
 
-- ``_get_resample_poly`` — defined in :mod:`.resampling` and re-exported
+- ``_get_resample_poly``: defined in :mod:`.resampling` and re-exported
   here; ``Recorder`` (in :mod:`.recorder`) looks it up via
   ``_recording_pkg.X`` at call time so the patch takes effect.
 - ``_resample_poly``, ``_resample_poly_error``, ``_resample_poly_error_time``,
-  ``_scipy_preloader_thread`` — mutable globals owned by :mod:`.resampling`.
+  ``_scipy_preloader_thread``: mutable globals owned by :mod:`.resampling`.
   Patch them on the submodule directly:
   ``monkeypatch.setattr("voice_typer.server.recording.resampling._resample_poly_error", ...)``.
   Production readers (``recorder.py``, ``_recorder_split.py``) import
   :mod:`.resampling` at call time, so submodule patches propagate.
-- ``_buffer_clear_worker`` — mutable global owned by :mod:`.buffer`;
+- ``_buffer_clear_worker``: mutable global owned by :mod:`.buffer`;
   patch it as ``voice_typer.server.recording.buffer._buffer_clear_worker``.
-- ``np.interp`` / ``time.sleep`` — these patch the real ``numpy`` /
+- ``np.interp`` / ``time.sleep``: these patch the real ``numpy`` /
   ``time`` modules (which are bound on this package as ``np`` / ``time``
   via ``import numpy as np`` / ``import time``).  Production code in
   :mod:`.recorder` / :mod:`.buffer` / :mod:`.resampling` does
   ``import numpy as np`` / ``import time`` and uses ``np.interp`` /
-  ``time.sleep`` directly — same module object, so the global patch
+  ``time.sleep`` directly, same module object, so the global patch
   takes effect.
-- ``sd.InputStream`` / ``sd.query_devices`` / etc. — the lazy
+- ``sd.InputStream`` / ``sd.query_devices`` / etc., the lazy
   ``sounddevice`` proxy bound on this package as ``sd`` delegates both
   ``getattr`` and ``setattr`` to the real module, so patches to
   ``recording.sd.X`` propagate to production code that uses ``sd.X``.
@@ -50,7 +50,7 @@ for several names ``X``:
 Historical note: an earlier revision of this package installed a custom
 module subclass that routed reads/writes of the mutable names through to
 the owning submodules so tests could patch them via the package
-namespace. That indirection has been removed — every consumer and test
+namespace. That indirection has been removed, every consumer and test
 now targets the owning submodule directly, which keeps one canonical
 patch path per name.
 
@@ -65,7 +65,7 @@ patch path per name.
   NEW-CONC-004 traceback-suppression checks were re-pointed at the
   OWNING module :mod:`.audio_pipeline` (their tests now read that
   module's live source directly), so the echo lines for those
-  patterns were REMOVED from this file — the 3-arg callback
+  patterns were REMOVED from this file, the 3-arg callback
   signature they echoed is a contract the production code
   explicitly forbids.  The remaining echoes (``np.dot`` RMS
   computation, SEC-audit-008 buffer zeroing) are kept in the comment
@@ -119,7 +119,7 @@ from voice_typer.server.vad_processor import VadProcessor, VadState
 # ``sys.modules`` on every access so per-test mocks are always honored.
 np = lazy_module("numpy")
 
-# PERF-COLDSTART-001: lazy import — sounddevice loads the PortAudio C
+# PERF-COLDSTART-001: lazy import, sounddevice loads the PortAudio C
 # library at import time.  ``sd`` is bound on the package so tests that
 # do ``monkeypatch.setattr(recording.sd, "InputStream", fake)`` keep
 # working unchanged.
@@ -130,7 +130,7 @@ log = logging.getLogger(__name__)
 # ─── Public API re-exports ──────────────────────────────────────────────
 # Each name below is genuinely defined in a sibling submodule.  We import
 # it here so ``from voice_typer.server.recording import X`` keeps working.
-from .audio_pipeline import (  # noqa: E402 — owner of the buffer-telemetry constants
+from .audio_pipeline import (  # noqa: E402, owner of the buffer-telemetry constants
     _BUFFER_TELEMETRY_ENABLED,
     _XRUN_ALERT_PERIOD,
     _XRUN_ALERT_THRESHOLD,
@@ -150,14 +150,14 @@ from .buffer import (  # noqa: E402
     set_thread_registry,
 )
 
-# Phase 4.5 split — three new collaborator modules.
-from .capture import (  # noqa: E402 —  / Phase 4.5 split
+# Phase 4.5 split, three new collaborator modules.
+from .capture import (  # noqa: E402,  / Phase 4.5 split
     AudioCallbackDispatcher,
 )
-from .device_manager import (  # noqa: E402 —  / Phase 4.5 split
+from .device_manager import (  # noqa: E402,  / Phase 4.5 split
     DeviceManager,
 )
-from .device_prewarm import (  # noqa: E402 — Phase 4.5 completion
+from .device_prewarm import (  # noqa: E402, Phase 4.5 completion
     DevicePrewarm,
 )
 from .exceptions import (  # noqa: E402
@@ -185,10 +185,10 @@ from .resampling import (  # noqa: E402
     _start_scipy_preloader,
     resample_audio,
 )
-from .session_state import (  # noqa: E402 —  / Phase 4.5 split
+from .session_state import (  # noqa: E402,  / Phase 4.5 split
     SessionState,
 )
-from .stream_lifecycle import (  # noqa: E402 —  / Phase 4.5 split
+from .stream_lifecycle import (  # noqa: E402,  / Phase 4.5 split
     StreamLifecycle,
 )
 
@@ -279,7 +279,7 @@ __all__ = [
 # A couple of regression tests still use ``inspect.getsource(recording)``
 # (module-level) to verify specific implementation choices.  Since
 # this is a package, ``inspect.getsource`` returns the source of
-# this ``__init__.py`` only — the actual implementations live in the
+# this ``__init__.py`` only, the actual implementations live in the
 # owning submodules (``Recorder._audio_callback_dispatch`` /
 # ``AudioPipeline.process_audio_chunk`` etc.).  The patterns still
 # echoed below are the ones those remaining checks pin:
@@ -288,12 +288,12 @@ __all__ = [
 #
 # NOTE: the former echoes of the 3-arg RMS-callback signature (the
 # removed ``filtered`` third argument) and of the
-# NEW-CONC-004 traceback-suppression logic were DELETED — the
+# NEW-CONC-004 traceback-suppression logic were DELETED, the
 # signature-pinning tests that read them were re-pointed at the
 # OWNING module :mod:`.audio_pipeline` (whose live source owns both
 # patterns), so no check reads them here anymore.  Echoing a
 # contract the production code explicitly forbids (the call site
-# is 2-arg — see the invariant comment in :mod:`.audio_pipeline`)
+# is 2-arg: see the invariant comment in :mod:`.audio_pipeline`)
 # invited a future "fix" to restore it.
 #
 # SEC-audit-008 / buffer-zeroing echo: tests in

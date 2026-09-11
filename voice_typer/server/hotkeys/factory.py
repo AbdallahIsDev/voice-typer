@@ -1,4 +1,4 @@
-"""Factory function :func:`create_hotkey_backend` — picks the best
+"""Factory function :func:`create_hotkey_backend`, picks the best
 backend for the current platform.
 
 Split out from the original ``hotkeys.py`` god-file in Phase 4.5
@@ -48,7 +48,7 @@ def create_hotkey_backend(hotkey_str: str, role: str | None = None) -> HotkeyBac
     The native backends are preferred because they support:
     - The FN key on macOS (firmware-level on Windows/Linux)
     - Modifier-only hotkeys (e.g. ``<alt>``, ``<caps_lock>``) on all
-      platforms — pynput's GlobalHotKeys does not support these
+      platforms, pynput's GlobalHotKeys does not support these
     - Key suppression (so the trigger key doesn't reach the foreground
       app) on macOS and Windows
     - Lower CPU usage and lower latency than polling
@@ -59,9 +59,9 @@ def create_hotkey_backend(hotkey_str: str, role: str | None = None) -> HotkeyBac
     the binary isn't bundled), the factory falls back to the legacy
     backends. On Windows this means ``WindowsNativeHotkey`` uses
     ``GetAsyncKeyState`` polling at ~125 Hz (8 ms cadence via
-    ``kernel32.Sleep(8)`` with ``timeBeginPeriod(8)`` — see
+    ``kernel32.Sleep(8)`` with ``timeBeginPeriod(8)``, see
     ``WindowsNativeHotkey._run_polling_loop``). This is expected
-    behavior — NOT a bug. The polling backend now also supports
+    behavior, NOT a bug. The polling backend now also supports
     modifier-only hotkeys (``<alt>``, ``<ctrl>``, ``<shift>``,
     ``<win>``) via ``_run_modifier_only_polling_loop``, and suppresses
     the Caps Lock toggle for ``<caps_lock>`` via
@@ -114,14 +114,14 @@ def create_hotkey_backend(hotkey_str: str, role: str | None = None) -> HotkeyBac
 
     # #4 PLAT-WAYLAND: detect Wayland and use Unix socket fallback.
     # Delegate env-var detection to platform_utils.is_wayland_session
-    # (single source of truth — handles XDG_SESSION_TYPE + WAYLAND_DISPLAY,
+    # (single source of truth, handles XDG_SESSION_TYPE + WAYLAND_DISPLAY,
     # case-insensitive). The is_linux() gate is retained so tests that
     # mock is_linux can still control the platform branch.
     if is_linux() and is_wayland_session():
         # Wayland compositors do NOT expose a standard global-hotkey
         # portal (the xdg-desktop-portal GlobalShortcuts interface is
         # opt-in and not all compositors implement it). The
-        # ``WaylandHotkey`` backend listens on a Unix socket — it only
+        # ``WaylandHotkey`` backend listens on a Unix socket, it only
         # fires when an external tool (wlr-which-key, a shell script,
         # etc.) connects and sends commands. Without that external tool,
         # the hotkey is effectively dead. Surface this at register time
@@ -129,11 +129,11 @@ def create_hotkey_backend(hotkey_str: str, role: str | None = None) -> HotkeyBac
         # switch to the evdev backend (which requires the ``input``
         # group).
         log.warning(
-            "[HOTKEY] Wayland detected — global hotkeys may not work. "
+            "[HOTKEY] Wayland detected, global hotkeys may not work. "
             "Consider installing wlr-which-key or using the evdev backend "
             "(requires input group)."
         )
-        # Caps Lock on Wayland CANNOT be suppressed — ``WaylandHotkey``
+        # Caps Lock on Wayland CANNOT be suppressed, ``WaylandHotkey``
         # has no key-suppression mechanism (the Unix socket backend just
         # receives commands, it doesn't intercept keystrokes). The OS
         # will toggle caps state on every press, so the user's dictated
@@ -142,7 +142,7 @@ def create_hotkey_backend(hotkey_str: str, role: str | None = None) -> HotkeyBac
         # Lock via the compositor's settings).
         if hotkey_str and "caps_lock" in hotkey_str.lower():
             log.warning(
-                "[HOTKEY] On Wayland, Caps Lock cannot be suppressed — "
+                "[HOTKEY] On Wayland, Caps Lock cannot be suppressed, "
                 "your text will be capitalized. Bind Alt or a function "
                 "key instead, or remap Caps Lock via your compositor's "
                 "settings."

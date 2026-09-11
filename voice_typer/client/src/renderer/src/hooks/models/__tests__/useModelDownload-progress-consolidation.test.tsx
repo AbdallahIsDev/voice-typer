@@ -1,5 +1,5 @@
 /**
- * Tests for useModelDownload — focused on the single-setState
+ * Tests for useModelDownload, focused on the single-setState
  * consolidation of the 10 previously-separate useState fields.
  *
  * Background
@@ -8,7 +8,7 @@
  * (`downloadingModel`, `downloadProgress`, `downloadStatus`, `isPaused`,
  * `downloadedBytes`, `totalBytes`, `speedBps`, `etaSeconds`,
  * `failedDownload`). Each `download_progress`
- * event invoked up to 8 of these setters — React 18 batched them into
+ * event invoked up to 8 of these setters, React 18 batched them into
  * a single re-render, but the per-setter overhead (state-entry lookup
  * + Object.is check + subscriber notification) ran 8 times per event.
  *
@@ -19,7 +19,7 @@
  *
  * These tests verify:
  *   1. A multi-field `download_progress` event updates ALL fields
- *      atomically (single setState — verified by render count).
+ *      atomically (single setState, verified by render count).
  *   2. The return shape is preserved (consumer identity stays stable).
  *   3. A `download_progress` event with only one field updates only
  *      that field (others preserved).
@@ -113,7 +113,7 @@ function getDownloadProgressHandler(): ((data?: unknown) => unknown) | null {
 
 // ── Tests ────────────────────────────────────────────────────────────
 
-describe("useModelDownload — single-setState consolidation", () => {
+describe("useModelDownload, single-setState consolidation", () => {
 	it("updates ALL fields from a multi-field download_progress event in ONE setState (one re-render)", async () => {
 		const { useModelDownload } = await import(
 			"@/hooks/models/useModelDownload"
@@ -169,7 +169,7 @@ describe("useModelDownload — single-setState consolidation", () => {
 		// Exactly ONE re-render should have occurred (consolidated
 		// setState). The original 8-setState pattern would also
 		// produce one re-render under React 18 batching, so this
-		// assertion is a sanity check — the meaningful guarantee
+		// assertion is a sanity check, the meaningful guarantee
 		// is the atomicity of the field updates (asserted below).
 		expect(renderCount.current).toBe(mountRenderCount + 1);
 
@@ -325,7 +325,7 @@ describe("useModelDownload — single-setState consolidation", () => {
 		expect(captures.current?.etaSeconds).toBe(4.2);
 
 		// A partial event WITHOUT a transition marker (no status/paused/
-		// resumed field) means "speed/eta not re-measured" — the previous
+		// resumed field) means "speed/eta not re-measured", the previous
 		// values must be PRESERVED. Clearing on absence made every
 		// transition-only backend event (e.g. a lone `paused: true`)
 		// wipe the readout, but worse, plain partial progress events
@@ -339,7 +339,7 @@ describe("useModelDownload — single-setState consolidation", () => {
 		expect(captures.current?.speedBps).toBe(2000);
 		expect(captures.current?.etaSeconds).toBe(4.2);
 
-		// A TRANSITION event (status present) clears both — the old
+		// A TRANSITION event (status present) clears both, the old
 		// measurement window is over.
 		act(() => {
 			handler?.({

@@ -28,7 +28,7 @@ def mock_faster_whisper(monkeypatch):
 
     # Bypass the load-path cache gate so tests can exercise the fallback
     # chain without a real model on disk. The app NEVER downloads models
-    # automatically — ``_require_model_downloaded`` refuses to load an
+    # automatically: ``_require_model_downloaded`` refuses to load an
     # uncached model with ``ModelNotDownloadedError`` (the GDPR-safe
     # default). In unit tests the model loading is fully mocked via
     # ``faster_whisper``, so the cache gate is irrelevant here. Without
@@ -59,7 +59,7 @@ class TestFallbackChain:
         ``_cuda_runtime_available`` (the Windows fast-path gate added
         for startup speed) returns False on hosts that have a CUDA
         driver but missing cuBLAS/cuLt DLLs (e.g. CPU-only torch
-        installs) — causing ``_resolve_device`` to skip CUDA and the
+        installs), causing ``_resolve_device`` to skip CUDA and the
         chain to start on CPU. These tests exercise the CHAIN
         construction itself, so the gate is pinned open to make them
         deterministic regardless of the host's CUDA state.
@@ -241,7 +241,7 @@ class TestNvidiaDllPaths:
 
         added = []
         monkeypatch.setattr(sys, "platform", "win32")
-        # ``site`` / ``sys`` / ``os`` are stdlib singletons — patch them
+        # ``site`` / ``sys`` / ``os`` are stdlib singletons, patch them
         # directly (not via ``mod.site`` etc.) because ``transcription.py``
         # delegates DLL discovery to ``nvidia_dll_paths.py`` which imports
         # them in its own namespace.
@@ -327,7 +327,7 @@ class TestTranscribeWithFallback:
         """Configurable decode settings should reach faster-whisper.
 
         ``best_of`` is the documented exception: it is stored on the engine
-        but must NOT reach ``model.transcribe`` — faster-whisper only honors
+        but must NOT reach ``model.transcribe``, faster-whisper only honors
         it when sampling with non-zero temperature, and the pinned
         ``temperature=0.0`` made the forwarded value a silent no-op.
         """
@@ -351,7 +351,7 @@ class TestTranscribeWithFallback:
         assert engine.best_of == 2, "the engine still stores the configured value"
         _, kwargs = mock_model.transcribe.call_args
         assert kwargs["beam_size"] == 3
-        assert "best_of" not in kwargs, "best_of is a no-op under temperature=0.0 — it must not be forwarded"
+        assert "best_of" not in kwargs, "best_of is a no-op under temperature=0.0, it must not be forwarded"
         assert kwargs["condition_on_previous_text"] is True
         assert kwargs["without_timestamps"] is True
 
@@ -716,7 +716,7 @@ class TestGpuRuntimeErrorTypeCheck:
 
 # TestCudaDll001TorchLib removed 2026-08-15: the ``("torch", "lib")``
 # DLL-scan entry was removed together with the torch dependency
-# (PLAN_ONNX_INTEGRATION.md §4.3 C-2) — there is no torch/lib to
+# (PLAN_ONNX_INTEGRATION.md §4.3 C-2), there is no torch/lib to
 # discover anymore.
 
 
@@ -728,7 +728,7 @@ computation between Recorder.stop() and the transcription engine.
 
 Previously both ``Recorder.stop()`` (line ~834) and
 ``TranscriptionEngine._transcribe_unlocked()`` (line ~544) computed
-the same RMS, peak, and silence_pct on the same audio array — 1-3 ms
+the same RMS, peak, and silence_pct on the same audio array, 1-3 ms
 wasted per dictation plus 3× 1.9 MB transient memory.
 
 The fix:
@@ -869,7 +869,7 @@ class TestTranscriptionEngineAcceptsAudioStats:
         from voice_typer.server.transcription_result import transcribe_unlocked as _canonical_body
 
         # The body was extracted to ``transcription_result`` (the facade
-        # method is a thin delegate) — pin the canonical home, where both
+        # method is a thin delegate), pin the canonical home, where both
         # substrings below live verbatim.
         source = inspect.getsource(_canonical_body)
         assert "if audio_stats is not None:" in source, "_transcribe_unlocked must check audio_stats before recomputing"
@@ -980,7 +980,7 @@ class TestVadParametersSharedConstant:
     """Both whisper decode loops must pass ONE shared ``_VAD_PARAMETERS``
     constant (previously an identical ``vad_parameters=dict(...)`` literal
     was duplicated in ``transcribe_unlocked`` and
-    ``transcribe_words_unlocked`` — a drift surface for the Silero VAD
+    ``transcribe_words_unlocked``, a drift surface for the Silero VAD
     tuning)."""
 
     @staticmethod
@@ -999,7 +999,7 @@ class TestVadParametersSharedConstant:
             "speech_pad_ms": 200,
         }
         # The tuning keys must not reappear as inline keyword literals in
-        # either decode loop — the constant is the single source.
+        # either decode loop, the constant is the single source.
         src = self._module_source()
         assert "min_silence_duration_ms=500" not in src, (
             "VAD tuning must come from the shared _VAD_PARAMETERS constant, not an inline literal"

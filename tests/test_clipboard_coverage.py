@@ -15,7 +15,7 @@ Coverage gap analysis:
 - _is_terminal_process (line 571): test known terminal names
 - _release_stuck_modifiers (line 693): exercise with mocked keyboard
 - _safe_key_press (line 712): exercise with mocked keyboard
-- _send_keystroke_sequence: DELETED (dead production code — the actual
+- _send_keystroke_sequence: DELETED (dead production code, the actual
   keystroke path uses _safe_key_press). The two former tests
   (test_presses_and_releases_in_order / test_double_release_guarantees_modifier_freed)
   only exercised the dead method; coverage of the live _safe_key_press
@@ -37,7 +37,7 @@ from unittest.mock import MagicMock, PropertyMock, patch
 import pytest
 
 # pynput / pynput.keyboard / pyperclip are mocked at collection time by
-# tests/clipboard/conftest.py (single source of truth —  dedup).
+# tests/clipboard/conftest.py (single source of truth, dedup).
 from voice_typer.server import clipboard as clip_mod  # noqa: E402
 from voice_typer.server.clipboard import (  # noqa: E402
     ClipboardCopyError,
@@ -282,7 +282,7 @@ class TestSendCtrlVWin32:
 # managed) was DELETED from production. The borrow/restore lifecycle
 # is now driven by ``ClipboardSnapshot.capture()`` in ``copy()`` and
 # ``_delayed_restore()`` in ``paste()``. The entire
-# ``TestScheduleClipboardClear`` class below has been removed — the
+# ``TestScheduleClipboardClear`` class below has been removed, the
 # production method it exercised no longer exists.
 # =============================================================================
 
@@ -434,11 +434,11 @@ class TestYj22PynputBindingsTyping:
     applied then reverted (YJ-FIX-B2) because ``type | None`` broke 6
     downstream ``_cb._Key.cmd`` / ``_cb._Key.shift`` /
     ``_cb._Key.insert`` / ``_cb._Key.ctrl`` accesses in
-    :mod:`voice_typer.server.clipboard.manager` — ``type`` and
+    :mod:`voice_typer.server.clipboard.manager`: ``type`` and
     ``None`` don't expose pynput's ``Key`` enum members.
 
     This retry re-applies the narrowing ONLY to ``_Controller`` (where
-    it's safe — the only downstream usage is ``_cb._Controller()``
+    it's safe, the only downstream usage is ``_cb._Controller()``
     instantiation, and ``type`` is callable). ``_Key`` stays ``Any``
     with a documented rationale in the source comment block.
     """
@@ -446,7 +446,7 @@ class TestYj22PynputBindingsTyping:
     def test_controller_annotation_is_type_or_none(self):
         """The ``_Controller`` annotation MUST be ``type | None`` (not
         ``Any``). Verifies by inspecting the module's ``__annotations__``
-        dict — this is the runtime source of truth that pyrefly consults."""
+        dict, this is the runtime source of truth that pyrefly consults."""
         import voice_typer.server.clipboard as clip_mod
 
         ann = clip_mod.__annotations__.get("_Controller")
@@ -478,7 +478,7 @@ class TestYj22PynputBindingsTyping:
 
     def test_controller_no_type_ignore_marker(self):
         """No ``# type: ignore[assignment]`` marker on the ``_Controller``
-        line — ``type | None`` accepts ``None`` without a marker."""
+        line: ``type | None`` accepts ``None`` without a marker."""
         import inspect
 
         import voice_typer.server.clipboard as clip_mod
@@ -490,7 +490,7 @@ class TestYj22PynputBindingsTyping:
             if stripped.startswith("_Controller:") and "=" in stripped:
                 assert "type: ignore" not in stripped, (
                     f"YJ-22: ``_Controller`` line must NOT carry a "
-                    f"``# type: ignore`` marker — ``type | None`` "
+                    f"``# type: ignore`` marker, ``type | None`` "
                     f"accepts ``None`` natively. Got: {stripped!r}"
                 )
                 return
@@ -499,7 +499,7 @@ class TestYj22PynputBindingsTyping:
         )
 
     def test_key_annotation_remains_any_with_documented_rationale(self):
-        """``_Key`` stays ``Any`` (or ``Any | None`` — the ``| None``
+        """``_Key`` stays ``Any`` (or ``Any | None``, the ``| None``
         widening is acceptable because it still admits the lazy-import
         sentinel ``None`` and doesn't narrow away the pynput ``Key``
         enum members the way ``type | None`` did). Narrowing to
@@ -512,7 +512,7 @@ class TestYj22PynputBindingsTyping:
         ann = clip_mod.__annotations__.get("_Key")
         assert ann is not None, "YJ-22: ``_Key`` must have an explicit annotation."
         # ``Any`` (or the widened ``Any | None``) is the documented
-        # retained annotation — full narrowing to ``type | None``
+        # retained annotation, full narrowing to ``type | None``
         # requires a pynput stub or Protocol and is deferred. Because
         # the clipboard package uses ``from __future__ import
         # annotations``, the annotation is stored as a string, so we
@@ -528,7 +528,7 @@ class TestYj22PynputBindingsTyping:
 
     def test_key_no_type_ignore_marker(self):
         """No ``# type: ignore[assignment]`` marker on the ``_Key`` line
-        — ``Any`` accepts ``None`` natively."""
+        , ``Any`` accepts ``None`` natively."""
         import inspect
 
         import voice_typer.server.clipboard as clip_mod
@@ -545,4 +545,4 @@ class TestYj22PynputBindingsTyping:
 
 
 # Need Any import for the assertion above.
-from typing import Any  # noqa: E402 — late import for the assertion helper
+from typing import Any  # noqa: E402, late import for the assertion helper

@@ -3,9 +3,9 @@
 Covers the 2 level-monitor IPC handlers defined in
 ``voice_typer/server/handlers/level_monitor_handlers.py``:
 
-- ``_handle_level_monitor_start`` — start the background level monitor
+- ``_handle_level_monitor_start``, start the background level monitor
   (optional ``mic_id``).
-- ``_handle_level_monitor_stop`` — stop the background level monitor.
+- ``_handle_level_monitor_stop``, stop the background level monitor.
 
 Both handlers are thin pass-throughs that return
 ``{type: level_monitor_status, data: <result>}`` on success.  The
@@ -23,7 +23,7 @@ from __future__ import annotations
 
 
 class TestLevelMonitorStart:
-    """``_handle_level_monitor_start`` — start the background level monitor."""
+    """``_handle_level_monitor_start``, start the background level monitor."""
 
     def test_happy_path_with_mic_id(self, ipc_server, fake_service):
         fake_service.level_monitor_start.return_value = {
@@ -72,7 +72,7 @@ class TestLevelMonitorStart:
         assert resp["data"]["code"] == "client.consent_required"
         assert resp["data"]["consent_field"] == "voice_biometric_consent"
         assert resp["data"]["engine_name"] == "level_monitor"
-        # Service must NOT have been called — the gate fires BEFORE
+        # Service must NOT have been called, the gate fires BEFORE
         # the validation/dispatch block.
         fake_service.level_monitor_start.assert_not_called()
 
@@ -90,7 +90,7 @@ class TestLevelMonitorStart:
 
 
 class TestLevelMonitorStop:
-    """``_handle_level_monitor_stop`` — stop the background level monitor."""
+    """``_handle_level_monitor_stop``, stop the background level monitor."""
 
     def test_happy_path_returns_level_monitor_status(self, ipc_server, fake_service):
         fake_service.level_monitor_stop.return_value = {"running": False}

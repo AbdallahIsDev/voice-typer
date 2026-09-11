@@ -29,7 +29,7 @@ import { describe, expect, it } from "vitest";
 
 import { csvEscape } from "../ipc/export-handlers";
 
-describe("csvEscape (RFC 4180 + SEC-015 — parity with Rust csv_escape)", () => {
+describe("csvEscape (RFC 4180 + SEC-015, parity with Rust csv_escape)", () => {
 	it("returns an empty string for an empty input (no surrounding quotes)", () => {
 		expect(csvEscape("")).toBe("");
 	});
@@ -116,7 +116,7 @@ describe("csvEscape (RFC 4180 + SEC-015 — parity with Rust csv_escape)", () =>
 	it("prefixes cells starting with a CR (and then quotes, since CR is a quoting trigger)", () => {
 		// CR is BOTH a SEC-015 prefix trigger AND an RFC 4180
 		// quoting trigger. So `\rcmd` → `'\rcmd` (prefix) →
-		// `"'rcmd"` — wait, no: the prefixed value is `'\rcmd`
+		// `"'rcmd"`, wait, no: the prefixed value is `'\rcmd`
 		// which still contains a CR, so it gets wrapped in
 		// double quotes.
 		expect(csvEscape("\rcmd")).toBe('"\'\rcmd"');

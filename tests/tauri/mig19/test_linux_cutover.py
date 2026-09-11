@@ -1,21 +1,21 @@
-"""MIG-1.9 Phase 5 — Linux cutover validation.
+"""MIG-1.9 Phase 5: Linux cutover validation.
 
 Validates the Linux portion of the Electron → Tauri cutover plan per
 ADR-0020 Phase 5 + ``docs/migration/cutover-playbook.md``. Linux is the
 3rd platform to cut over (after Windows + macOS). The Linux cutover has
-**two display-server dimensions** (X11 first, then Wayland — `enigo.text()`
+**two display-server dimensions** (X11 first, then Wayland: `enigo.text()`
 works on X11; Wayland needs the clipboard+Ctrl+V fallback) and **two arch
-dimensions** (x86_64 first, then aarch64 — aarch64 may defer per
+dimensions** (x86_64 first, then aarch64, aarch64 may defer per
 ADR-0020 Risk #7). The cutover is **reversible**: the Electron build path
-stays intact and shippable on every platform throughout — Tauri is
+stays intact and shippable on every platform throughout, Tauri is
 strictly additive until the platform's cutover gate (Phase 0-L) is met.
 
-These tests run on any platform (Linux sandbox included) — they only read
+These tests run on any platform (Linux sandbox included), they only read
 static files (``cutover-playbook.md``, ``tauri-linux-build.yml``,
 ``electron-builder.yml``, ``tauri.conf.json``). The actual end-to-end
 cutover validation (install .deb/.rpm/AppImage on a real X11 + Wayland
 host, dictate text, verify the ``runtime=tauri`` log line, rollback to
-Electron) can only be performed on a real Linux display host — see the
+Electron) can only be performed on a real Linux display host: see the
 "VALIDATE ON LINUX HOST" block below.
 
 VALIDATE ON LINUX HOST (X11 + Wayland + both archs):
@@ -82,18 +82,18 @@ VALIDATE ON LINUX HOST (X11 + Wayland + both archs):
     / templates / settings / models all carry over in both directions).
 
 References:
-- ADR-0020 §"Migration Plan" + §"Phase 5 — Validation & cutover"
-  + §"Reversibility" — docs/adr/0020-desktop-runtime-migration-analysis.md
-- docs/migration/cutover-playbook.md — per-platform cutover procedure
+- ADR-0020 §"Migration Plan" + §"Phase 5, Validation & cutover"
+  + §"Reversibility", docs/adr/0020-desktop-runtime-migration-analysis.md
+- docs/migration/cutover-playbook.md, per-platform cutover procedure
   (Linux section: "Linux sub-order (X11 before Wayland, x86_64 before
   aarch64)")
-- docs/migration/linux-validation-runbook.md — Phase 0-L 9-point gate
-- .github/workflows/tauri-linux-build.yml — Phase 0-L Linux CI build
+- docs/migration/linux-validation-runbook.md, Phase 0-L 9-point gate
+- .github/workflows/tauri-linux-build.yml, Phase 0-L Linux CI build
   (matrix: x86_64 + aarch64; uploads .deb + .AppImage; .rpm is built via
   ``cargo tauri build`` + ``bundle.linux.rpm`` config but has NO explicit
-  upload step — see implementation-gap note in
+  upload step: see implementation-gap note in
   ``test_ci_workflow_builds_rpm_via_bundle_config``)
-- voice_typer/client/electron-builder.yml — Electron fallback config
+- voice_typer/client/electron-builder.yml, Electron fallback config
   (Linux ``target: [AppImage, deb, rpm]`` stays intact for rollback)
 """
 
@@ -144,7 +144,7 @@ def tauri_build_orchestrator_text() -> str:
 def _yaml_job_block(text: str, job: str) -> str | None:
     """Return the YAML lines of ``jobs.<job>`` up to the next top-level key.
 
-    Line-scanning (NOT a multi-line regex — ambiguous ``[ \t]+.*`` line
+    Line-scanning (NOT a multi-line regex, ambiguous ``[ \t]+.*`` line
     matchers cause catastrophic backtracking on long workflow files). It
     is newline-agnostic (CRLF checkouts) and comment/blank-line safe: the
     block ends at the first line that starts with EXACTLY two spaces
@@ -337,16 +337,16 @@ def test_ci_workflow_builds_rpm_via_bundle_config(tauri_conf: dict) -> None:
     # (no 'Script' suffix) are legacy Tauri v1 keys. Strict v2-only
     # assertions below catch any regression to the v1 names.
     assert "postInstallScript" in rpm_cfg, (
-        "bundle.linux.rpm.postInstallScript missing — Tauri v2 requires the 'postInstallScript' key"
+        "bundle.linux.rpm.postInstallScript missing, Tauri v2 requires the 'postInstallScript' key"
     )
     assert "postInstall" not in rpm_cfg, (
-        "stale short-form 'postInstall' key present on bundle.linux.rpm — should use Tauri v2 'postInstallScript'"
+        "stale short-form 'postInstall' key present on bundle.linux.rpm, should use Tauri v2 'postInstallScript'"
     )
     assert "preRemoveScript" in rpm_cfg, (
-        "bundle.linux.rpm.preRemoveScript missing — Tauri v2 requires the 'preRemoveScript' key"
+        "bundle.linux.rpm.preRemoveScript missing, Tauri v2 requires the 'preRemoveScript' key"
     )
     assert "preRemove" not in rpm_cfg, (
-        "stale short-form 'preRemove' key present on bundle.linux.rpm — should use Tauri v2 'preRemoveScript'"
+        "stale short-form 'preRemove' key present on bundle.linux.rpm, should use Tauri v2 'preRemoveScript'"
     )
     rpm_postinst = rpm_cfg["postInstallScript"]
     rpm_prerm = rpm_cfg["preRemoveScript"]
@@ -382,7 +382,7 @@ def test_electron_builder_linux_target_includes_all_three_formats(
     """The Electron Linux ``target:`` list must include AppImage + deb + rpm.
 
     Per the cutover playbook Step 2.2, the Electron build PATH stays in
-    the repo (reversible fallback) — only the active ``target:`` entries
+    the repo (reversible fallback), only the active ``target:`` entries
     are DISABLED (commented out) at cutover time. All three Linux formats
     (AppImage, deb, rpm) must be listed in the ``linux.target`` array so
     the Electron fallback can ship any of them if the Tauri cutover is
@@ -406,9 +406,9 @@ def test_electron_builder_linux_target_entries_not_commented_out(
     Per the cutover playbook Step 2.2, the cutover flip COMMENTS OUT the
     platform's ``target:`` entries in electron-builder.yml. As of MIG-1.9
     Phase 5 (Linux cutover validation), the Linux cutover has NOT yet
-    happened — the Electron fallback must remain the active shipping path
+    happened, the Electron fallback must remain the active shipping path
     (``target:`` entries NOT commented out). This test will START FAILING
-    once the Linux cutover is flipped (which is the correct signal — the
+    once the Linux cutover is flipped (which is the correct signal, the
     test should be removed at that point).
     """
     linux_block = _extract_linux_block(electron_builder_text)
@@ -435,7 +435,7 @@ def test_electron_builder_linux_extra_resources_preserved(
 ) -> None:
     """The Electron Linux ``extraResources:`` must remain (Python backend embedded).
 
-    The Electron fallback must remain functional — the PyInstaller-built
+    The Electron fallback must remain functional, the PyInstaller-built
     Python backend (``voice_typer/dist/voice-typer-backend/``) must still
     be embedded into the .deb/.rpm/AppImage. Without this, the Electron
     fallback silently fails to start (no venv on a fresh install).
@@ -478,7 +478,7 @@ def test_ci_workflow_documents_phase_0_l_gate(linux_workflow_text: str) -> None:
         "tauri-linux-build.yml must reference Phase 0-L (the Linux Phase 0 spike gate)"
     )
     # The workflow header must mention that smoke tests need a real Linux
-    # display host (X11 + Wayland) — this is why the bundle `build` job is
+    # display host (X11 + Wayland), this is why the bundle `build` job is
     # gated to workflow_dispatch / the orchestrator's workflow_call until
     # validated on a real host (never a plain `if: true` on push/PR).
     assert "display" in linux_workflow_text.lower() or "X11" in linux_workflow_text, (
@@ -546,22 +546,22 @@ def test_ci_workflow_enabled_for_phase_0_l_validation(linux_workflow_text: str) 
     Per ADR-0020 Phase 5 + the cutover playbook, the per-platform Tauri
     workflow is enabled for Phase 0-L validation once it is ready to
     exercise: the bundle ``build`` job runs on ``workflow_dispatch`` /
-    the tauri-build.yml orchestrator's ``workflow_call`` ONLY — NEVER on
+    the tauri-build.yml orchestrator's ``workflow_call`` ONLY, NEVER on
     push/PR. A plain ``if: true`` would also fire the 30-60 min x2-arch
     bundle build on every push/PR touching ``src-tauri/**`` (the workflow
     has live push/PR triggers for the smoke-cargo-check job), which
-    contradicts ADR-0020 §15 — so the gate is the event conditional, not
+    contradicts ADR-0020 §15, so the gate is the event conditional, not
     ``if: false`` and not ``if: true``.
     """
     assert "if: false" not in linux_workflow_text, (
-        "tauri-linux-build.yml still has an `if: false` job guard — the bundle "
+        "tauri-linux-build.yml still has an `if: false` job guard, the bundle "
         "build job is enabled for Phase 0-L validation (dispatch/orchestrator)."
     )
     assert (
         "if: github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call'" in linux_workflow_text
     ), (
         "tauri-linux-build.yml build job must be gated to "
-        "`workflow_dispatch || workflow_call` (NOT plain `if: true` — push/PR "
+        "`workflow_dispatch || workflow_call` (NOT plain `if: true`, push/PR "
         "triggers would fire the 30-60 min x2-arch bundle build on every push "
         "touching src-tauri/**)."
     )
@@ -577,7 +577,7 @@ def test_orchestrator_build_linux_triggers_linux_bundle_job(
     ``tauri-linux-build.yml``; the Linux ``build`` job's event gate is
     ``github.event_name == 'workflow_dispatch' || 'workflow_call'``, and a
     reusable-workflow call from the orchestrator fires exactly the
-    ``workflow_call`` event — so ``platform: linux`` (or ``all``) on the
+    ``workflow_call`` event, so ``platform: linux`` (or ``all``) on the
     orchestrator runs the bundle job. This test pins both sides: the
     orchestrator must call the Linux workflow with the
     ``target``/``sign`` inputs wired through, AND the Linux workflow's
@@ -604,7 +604,7 @@ def test_orchestrator_build_linux_triggers_linux_bundle_job(
         "if: github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call'" in linux_workflow_text
     ), (
         "Linux bundle job gate must accept the orchestrator's workflow_call "
-        "event — otherwise build-linux dispatches silently produce nothing"
+        "event, otherwise build-linux dispatches silently produce nothing"
     )
 
 
@@ -618,7 +618,7 @@ def test_orchestrator_runs_pre_dispatch_drift_gate_before_fan_out(
     but the orchestrator hoists the same gate (the FULL
     ``test_config_script_drift.py`` file + the identity-parity module + the
     icons nodes, plus ``--check-icons``) into a single ``validate`` job that
-    every platform call ``needs`` — a drift regression (identifier/appId
+    every platform call ``needs``, a drift regression (identifier/appId
     parity, bundle.icon↔git lockstep, config↔script registry pairs,
     tauri-binaries.json ↔ canonical triples / launcher install paths,
     per-arch config overrides ↔ base config) aborts the whole fan-out in
@@ -645,7 +645,7 @@ def test_orchestrator_runs_pre_dispatch_drift_gate_before_fan_out(
         platform_block = _yaml_job_block(tauri_build_orchestrator_text, platform_job)
         assert platform_block, f"tauri-build.yml must define a {platform_job} job"
         assert "needs: validate" in platform_block, (
-            f"{platform_job} must needs: validate — the pre-dispatch drift gate must run once before the fan-out"
+            f"{platform_job} must needs: validate, the pre-dispatch drift gate must run once before the fan-out"
         )
 
 
@@ -707,14 +707,14 @@ def test_playbook_documents_rollback_procedure(playbook_text: str) -> None:
 def test_playback_documents_electron_fallback_preserved(playbook_text: str) -> None:
     """The playbook must state the Electron path stays intact (reversible fallback)."""
     # The intro states: "The Electron build path stays intact and shippable
-    # on every platform throughout — Tauri is strictly additive until the
+    # on every platform throughout, Tauri is strictly additive until the
     # platform's cutover gate is met."
     text_lower = playbook_text.lower()
     assert "intact" in text_lower and "shippable" in text_lower, (
         "playbook must state the Electron build path stays intact + shippable (reversible fallback)"
     )
     # Step 2.2 explicitly says: "The Electron build PATH stays in the repo
-    # (reversible fallback) — only the active target is disabled."
+    # (reversible fallback), only the active target is disabled."
     assert "reversible fallback" in text_lower, (
         "playbook Step 2.2 must call out 'reversible fallback' for the Electron path"
     )
@@ -724,7 +724,7 @@ def test_playbook_documents_data_persistence_on_rollback(playbook_text: str) -> 
     """The playbook must document that data persists across rollback (no data loss).
 
     The "What does NOT change on rollback" section must call out: history
-    DB, vocabulary, templates, automation, models, settings — all carry
+    DB, vocabulary, templates, automation, models, settings, all carry
     over in both directions (Electron→Tauri→Electron). This is the
     reversibility guarantee that lets a Linux user flip back to Electron
     without losing their dictation history.
@@ -760,7 +760,7 @@ def test_playbook_documents_mixed_mode_support(playbook_text: str) -> None:
     """The playbook must document mixed-mode support (Electron + Tauri coexist).
 
     During the transition, some Linux users are on Electron and some on
-    Tauri — both builds read + write the same data dir, so users can
+    Tauri, both builds read + write the same data dir, so users can
     switch freely. The playbook must document how to tell which build a
     user is on (Linux: ``ps aux | grep voice-typer`` shows
     ``voice-typer-tauri`` vs ``voice-typer``).

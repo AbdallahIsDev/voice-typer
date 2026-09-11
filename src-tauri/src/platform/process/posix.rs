@@ -29,7 +29,7 @@ use std::process::Command;
 ///
 /// The script is passed to `/bin/sh -c "<script>"` with the
 /// target pid substituted via `format!` (the pid is a `u32` so
-/// there's no shell-injection risk — only digits can appear).
+/// there's no shell-injection risk: only digits can appear).
 const REAPER_SCRIPT_TEMPLATE: &str = "\
 target={pid}
 orig_parent=$PPID
@@ -80,7 +80,7 @@ pub(crate) fn register_kill_on_parent_exit_posix(pid: u32) -> Result<(), String>
     // correct Ctrl-C behavior: a terminal SIGINT is delivered to
     // every process in the host's process group. Without
     // `setsid()`, the reaper would die at the same time as the
-    // host — before it could kill the sidecar — defeating the
+    // host: before it could kill the sidecar, defeating the
     // kill-on-parent-exit guarantee for terminal-initiated
     // shutdowns. The hard-crash case (SIGKILL, segfault) was
     // already handled because the reaper is a separate process
@@ -88,7 +88,7 @@ pub(crate) fn register_kill_on_parent_exit_posix(pid: u32) -> Result<(), String>
     // the same protection for the soft-signal case (Ctrl-C).
     //
     // `io::Error::last_os_error()` is async-signal-safe in
-    // practice — it stores the raw `errno` integer in the
+    // practice: it stores the raw `errno` integer in the
     // `Error`'s `Repr::Os(i32)` variant without allocating.
     unsafe {
         cmd.pre_exec(|| {
@@ -102,7 +102,7 @@ pub(crate) fn register_kill_on_parent_exit_posix(pid: u32) -> Result<(), String>
         });
     }
 
-    // Spawn the reaper. We do NOT wait for it — it runs in the
+    // Spawn the reaper. We do NOT wait for it, it runs in the
     // background for the lifetime of the host (and a few seconds
     // beyond, to detect parent death and kill the sidecar).
     cmd.spawn()
@@ -134,7 +134,7 @@ pub(crate) fn register_kill_on_parent_exit_posix(pid: u32) -> Result<(), String>
 /// delivered, OR ESRCH race-window where the pid was already gone).
 ///
 /// Replaces the prior `Command::new("kill").args(["-TERM" | "-KILL",
-/// &pid]).status()` shell-out — same POSIX semantics (signal
+/// &pid]).status()` shell-out: same POSIX semantics (signal
 /// delivery to the named pid) without the fork+exec overhead per
 /// descendant. ESRCH (no such process) is expected for a descendant
 /// that already exited between the snapshot and the signal —
@@ -142,7 +142,7 @@ pub(crate) fn register_kill_on_parent_exit_posix(pid: u32) -> Result<(), String>
 /// (every SIGKILL on a SIGTERM-reaped pid returns ESRCH).
 ///
 /// Per-pid non-ESRCH failures (e.g. EPERM on a root-owned descendant)
-/// are also demoted to `debug!` to avoid log spam — a single
+/// are also demoted to `debug!` to avoid log spam, a single
 /// `kill_process_tree` call iterates many descendants, and the prior
 /// per-pid `warn!` made log triage difficult. The caller
 /// (`kill_process_tree`) aggregates the `true` returns into ONE
@@ -151,7 +151,7 @@ pub(crate) fn register_kill_on_parent_exit_posix(pid: u32) -> Result<(), String>
 #[cfg(unix)]
 pub(super) fn signal_pid(pid: u32, sig: libc::c_int) -> bool {
     // pid 0 guard: POSIX `kill(0, sig)` signals the CALLING process's
-    // own process group — a self-kill. Real descendant pids are never
+    // own process group: a self-kill. Real descendant pids are never
     // 0, but a malformed input must not be able to group-signal the
     // caller. Mirrors the `pid > i32::MAX` range guard below.
     if pid == 0 {
@@ -163,7 +163,7 @@ pub(super) fn signal_pid(pid: u32, sig: libc::c_int) -> bool {
     // Range guard: `pid` is `u32` but `libc::pid_t` is `i32` on all
     // supported Unix platforms. A `pid > i32::MAX` would silently
     // wrap to a NEGATIVE `pid_t` (which POSIX `kill(2)` interprets as
-    // a process-GROUP signal — `kill(-pgid, sig)` — and would signal
+    // a process-GROUP signal: `kill(-pgid, sig)`, and would signal
     // an UNRELATED process group). The kernel never assigns pids >
     // `i32::MAX` on any real system, but defensive guarding prevents
     // a malformed `u32::MAX` from triggering a process-group signal.
@@ -172,7 +172,7 @@ pub(super) fn signal_pid(pid: u32, sig: libc::c_int) -> bool {
     // aggregation logic stays consistent.
     if pid > i32::MAX as u32 {
         log::debug!(
-            "[KILL-TREE] signal_pid skipped for out-of-range pid {} (> i32::MAX) — would truncate on cast to pid_t",
+            "[KILL-TREE] signal_pid skipped for out-of-range pid {} (> i32::MAX), would truncate on cast to pid_t",
             pid
         );
         return false;
@@ -182,7 +182,7 @@ pub(super) fn signal_pid(pid: u32, sig: libc::c_int) -> bool {
         let errno = std::io::Error::last_os_error().raw_os_error().unwrap_or(0);
         if errno == libc::ESRCH {
             // Expected: the pid already exited (race between snapshot
-            // and signal). Not a warning — common during the SIGKILL
+            // and signal). Not a warning, common during the SIGKILL
             // phase on pids that already reaped themselves after
             // SIGTERM.
             log::debug!(
@@ -190,7 +190,7 @@ pub(super) fn signal_pid(pid: u32, sig: libc::c_int) -> bool {
                 pid,
                 signal_name(sig)
             );
-            // ESRCH is not a failure — the pid is already gone, which
+            // ESRCH is not a failure, the pid is already gone, which
             // is the desired end state.
             false
         } else {
@@ -218,7 +218,7 @@ pub(super) fn signal_pid(pid: u32, sig: libc::c_int) -> bool {
 }
 
 /// Human-readable signal name for log lines (`"SIGTERM"` / `"SIGKILL"`
-/// / `"sig=<n>"` for unknown signals). Pure formatter — no syscall.
+/// / `"sig=<n>"` for unknown signals). Pure formatter, no syscall.
 #[cfg(unix)]
 pub(super) fn signal_name(sig: libc::c_int) -> &'static str {
     match sig {
@@ -232,7 +232,7 @@ pub(super) fn signal_name(sig: libc::c_int) -> &'static str {
 /// `kill_process_tree` to drop already-exited descendants from
 /// the snapshot BEFORE paying any signal or grace-sleep cost.
 ///
-/// Uses `kill(pid, 0)` — signal 0 performs permission/existence checks
+/// Uses `kill(pid, 0)`: signal 0 performs permission/existence checks
 /// but delivers no signal. Semantics:
 /// - `rc == 0`            → process exists and we may signal it → alive
 /// - `errno == ESRCH`     → no such process → dead
@@ -262,16 +262,16 @@ pub(super) fn pid_is_alive(pid: u32) -> bool {
 /// Enumerate the direct child pids of `pid`. Platform-stratified:
 ///
 /// - **Linux** (`target_os = "linux"`): reads
-///   `/proc/<pid>/task/<pid>/children` directly — a single file read,
+///   `/proc/<pid>/task/<pid>/children` directly: a single file read,
 ///   no fork/exec. The kernel maintains this file exactly for this
 ///   use-case (child-process enumeration for cleanup signals).
 ///
 /// - **macOS / other Unix**: falls back to `pgrep -P <pid>` shell-out
 ///   (macOS doesn't have `/proc`). Returns an empty `Vec` on any
-///   failure (best-effort — `kill_process_tree` is best-effort
+///   failure (best-effort: `kill_process_tree` is best-effort
 ///   overall).
 ///
-/// Returns ONLY the direct children — `kill_process_tree` does the
+/// Returns ONLY the direct children, `kill_process_tree` does the
 /// recursive DFS itself by pushing each child back onto its own
 /// stack. The returned `Vec` is point-in-time: between the snapshot
 /// and the `signal_pid` calls, the parent may spawn NEW children that
@@ -321,7 +321,7 @@ pub(super) fn enumerate_children_pgrep(pid: u32) -> Vec<u32> {
     // pid 0 guard: `pgrep -P 0` matches PID 1 (init) + kernel threads,
     // and the DFS in `kill_process_tree` would then descend into the
     // ENTIRE process tree (the caller's host included). Never run
-    // pgrep with a 0 parent — return empty (best-effort contract).
+    // pgrep with a 0 parent, return empty (best-effort contract).
     if pid == 0 {
         log::debug!(
             "[KILL-TREE] enumerate_children_pgrep skipped for pid 0 (pgrep -P 0 would match init + kernel threads)"
@@ -343,7 +343,7 @@ pub(super) fn enumerate_children_pgrep(pid: u32) -> Vec<u32> {
                 .collect()
         }
         Ok(out) => {
-            // Exit 1 = no children (normal leaf) — skip logging.
+            // Exit 1 = no children (normal leaf), skip logging.
             if out.status.code() != Some(1) {
                 log::warn!(
                     "[KILL-TREE] pgrep exited with code {:?} for pid {}",
@@ -366,12 +366,12 @@ pub(super) fn enumerate_children_pgrep(pid: u32) -> Vec<u32> {
 // send a signal to the sidecar's entire process group via
 // `libc::kill(-pgid, sig)`. The negative `pid` argument to `kill(2)`
 // means "send to every process in the process group whose ID is
-// `abs(pid)`" — a POSIX-guaranteed behavior (see `man 2 kill`).
+// `abs(pid)`": a POSIX-guaranteed behavior (see `man 2 kill`).
 //
 // The CRITICAL safety guard: we ONLY send the group signal when the
 // sidecar's pgid differs from the host's own pgid (`getpgrp()`). The
 // sidecar is spawned via `tauri-plugin-shell`'s `externalBin` API,
-// which does NOT call `setsid()` / `setpgid()` — so the sidecar
+// which does NOT call `setsid()` / `setpgid()`, so the sidecar
 // inherits the HOST's pgid. Sending `kill -<host_pgid>` would kill the
 // HOST (and all its children, including unrelated Tauri threads). This
 // guard makes the process-group kill a safe no-op until the spawn path
@@ -381,23 +381,23 @@ pub(super) fn enumerate_children_pgrep(pid: u32) -> Vec<u32> {
 pub(super) fn signal_process_group(sidecar_pgid: libc::pid_t, sig: libc::c_int) -> bool {
     // Safety guard: refuse to signal a group that includes the host.
     // `sidecar_pgid <= 0` means `getpgid` failed (the sidecar already
-    // exited, or the pid is invalid) — skip the group kill entirely.
+    // exited, or the pid is invalid), skip the group kill entirely.
     // `sidecar_pgid == getpgrp()` means the sidecar shares the host's
-    // pgid — sending the group signal would kill the host.
+    // pgid: sending the group signal would kill the host.
     if sidecar_pgid <= 0 {
         return false;
     }
     let host_pgid = unsafe { libc::getpgrp() };
     if sidecar_pgid == host_pgid {
         // The sidecar is in the host's process group. Sending a signal
-        // to `-<host_pgid>` would kill the host. Skip — we rely on
+        // to `-<host_pgid>` would kill the host. Skip, we rely on
         // the per-pid kills in `kill_process_tree` instead. This is
         // the current production state (the spawn path doesn't put the
         // sidecar in its own group). Logged at debug level to avoid
         // spamming the log on every shutdown (this is expected, not an
         // error).
         log::debug!(
-            "[KILL-TREE] skipping process-group signal (sidecar pgid {} == host pgid {} — \
+            "[KILL-TREE] skipping process-group signal (sidecar pgid {} == host pgid {}: \
              would kill the host; rely on per-pid kills instead)",
             sidecar_pgid,
             host_pgid
@@ -411,7 +411,7 @@ pub(super) fn signal_process_group(sidecar_pgid: libc::pid_t, sig: libc::c_int) 
     if rc != 0 {
         let errno = std::io::Error::last_os_error().raw_os_error().unwrap_or(0);
         // ESRCH (No such process) is expected if the group has already
-        // exited — not a warning-worthy condition.
+        // exited: not a warning-worthy condition.
         if errno != libc::ESRCH {
             // Log format: `kill(-<pgid>, <signal-name>) failed: errno=<n> (<msg>)`.
             // The prior format `kill(-TERM -12345, 15)` was nonsensical
@@ -452,7 +452,7 @@ pub(super) fn kill_process_group_if_safe(pid: u32, sig: libc::c_int) -> bool {
         );
         return false;
     }
-    // Range guard: same as `signal_pid` — `pid_t` is `i32`, so a
+    // Range guard: same as `signal_pid`, `pid_t` is `i32`, so a
     // `u32` value > `i32::MAX` would wrap to a negative `pid_t` and
     // `getpgid` would interpret it as a process-group lookup of an
     // unrelated group. Skip the call entirely in that case.

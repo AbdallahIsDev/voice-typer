@@ -1,4 +1,4 @@
-"""BusynessCoordinator — owns the pipeline's "busy" flag + lock.
+"""BusynessCoordinator, owns the pipeline's "busy" flag + lock.
 
 Pre-refactor: ``VoiceTyperApp.__init__`` declared three
 private attributes consumed by 6 external modules via direct
@@ -10,7 +10,7 @@ private attributes consumed by 6 external modules via direct
     self._lock = threading.Lock()
 
 The ``_busy_event`` semantics were INVERTED (``is_set() == True``
-means NOT busy — the event doubles as a "ready" signal whose
+means NOT busy, the event doubles as a "ready" signal whose
 ``wait()`` blocks while busy). This inversion was documented only
 at the declaration site, which made every consumer call site a
 silent landmine (a careless ``if app._busy_event.is_set():``
@@ -32,7 +32,7 @@ working unchanged. The dictation-flow WRITES are fully migrated:
 the ``recording_lifecycle.py`` stop/cancel writes, and the watchdog
 force-recover reset now call ``set_busy()`` / ``set_idle()`` on this
 coordinator. The remaining raw ``_busy_event`` accesses are READS
-(``is_set()`` checks) kept for back-compat — they observe the same
+(``is_set()`` checks) kept for back-compat, they observe the same
 underlying primitive.
 """
 
@@ -54,7 +54,7 @@ class BusynessCoordinator:
     The underlying primitive is a ``threading.Event`` so callers
     that want to BLOCK until the pipeline returns to idle can call
     :meth:`wait_idle` (this is the original "ready signal" use
-    case — ``wait_idle`` blocks while busy, returns immediately
+    case, ``wait_idle`` blocks while busy, returns immediately
     when idle).
 
     Semantics (NON-inverted):
@@ -63,7 +63,7 @@ class BusynessCoordinator:
       * :meth:`set_idle` → mark idle (sets the underlying event).
 
     The legacy ``_busy_event`` was INVERTED (``is_set() == True``
-    meant NOT busy) — the inversion is internal to this class and
+    meant NOT busy), the inversion is internal to this class and
     the public methods present the natural reading instead.
     """
 
@@ -76,7 +76,7 @@ class BusynessCoordinator:
         # the same wait/notify semantics for non-migrated consumers.
         self._busy_event = threading.Event()
         self._busy_event.set()  # start IDLE
-        # Companion lock — used by the legacy code paths as a
+        # Companion lock, used by the legacy code paths as a
         # coarse-grained mutex around ``_transcription_thread`` writes
         # etc. Kept here (not deleted) because non-owned consumer
         # files (``recording_lifecycle.py``, ``transcription_watchdog.py``)
@@ -95,7 +95,7 @@ class BusynessCoordinator:
         (``is_busy`` / ``set_busy`` / ``set_idle`` / ``wait_idle``)
         operating on the SAME primitive the legacy consumers see.
         The adopted event's flag IS the new busy state (a fresh
-        ``Event()`` starts unset == busy — identical to the pre-extraction
+        ``Event()`` starts unset == busy, identical to the pre-extraction
         rebinding semantics).
         """
         self._busy_event = event
@@ -134,7 +134,7 @@ class BusynessCoordinator:
 
         Returns ``True`` if the pipeline became idle within ``timeout``
         (or ``timeout`` is ``None``), ``False`` otherwise. Mirrors
-        ``threading.Event.wait`` semantics — busy == block, idle ==
+        ``threading.Event.wait`` semantics, busy == block, idle ==
         return. This is the original "ready signal" use case from the
         legacy ``_busy_event.wait()`` callers.
         """
@@ -159,7 +159,7 @@ class BusynessCoordinator:
         Exposed so non-migrated consumer files that read
         ``app._busy_event`` directly (e.g. via the back-compat
         ``VoiceTyperApp._busy_event`` property) get the same primitive
-        the new coordinator owns — no copy, no proxy. New code should
+        the new coordinator owns, no copy, no proxy. New code should
         prefer :meth:`is_busy` / :meth:`set_busy` / :meth:`set_idle`.
         """
         return self._busy_event

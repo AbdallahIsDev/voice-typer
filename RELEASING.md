@@ -5,7 +5,7 @@ ships per-platform installers (Windows `.exe`, macOS `.dmg`, Linux
 `.deb` / `.rpm` / `.AppImage`) built by GitHub Actions on every `v*`
 tag push.
 
-> **TL;DR** — bump the version in `pyproject.toml` +
+> **TL;DR**: bump the version in `pyproject.toml` +
 > `voice_typer/client/package.json` (use `scripts/build/sync_versions.py`),
 > update `CHANGELOG.md`, tag with `vX.Y.Z`, push the tag. CI does the
 > rest.
@@ -16,19 +16,19 @@ tag push.
 
 Voice Typer follows [Semantic Versioning](https://semver.org/):
 
-- **MAJOR** — incompatible API / IPC protocol changes (e.g. a
+- **MAJOR**: incompatible API / IPC protocol changes (e.g. a
   `_COMMAND_REGISTRY` rename or removal that breaks older renderer
   builds).
-- **MINOR** — new backwards-compatible features (new IPC command, new
+- **MINOR**: new backwards-compatible features (new IPC command, new
   ASR backend, new UI page).
-- **PATCH** — bug fixes, doc updates, dependency bumps with no behavior
+- **PATCH**: bug fixes, doc updates, dependency bumps with no behavior
   change.
 
 The version lives in two places that **must stay in sync**:
 
 | File | Field | Notes |
 |------|-------|-------|
-| `pyproject.toml` | `version` | PEP 621 — the Python package version. |
+| `pyproject.toml` | `version` | PEP 621: the Python package version. |
 | `voice_typer/client/package.json` | `version` | The Electron app version (used by electron-builder for the NSIS / DMG / deb / rpm metadata). |
 
 Use `scripts/build/sync_versions.py` to keep the version in sync. The
@@ -59,7 +59,7 @@ Every release updates `CHANGELOG.md`:
 2. Add a fresh `## [Unreleased] - TBD` heading above it for the next
    cycle's entries.
 3. The "User-Facing Changes" and "Developer-Facing Changes" subsections
-   stay — they're a permanent record, not a queue.
+   stay: they're a permanent record, not a queue.
 
 Keep `Keep a Changelog` formatting (the file header links to the spec).
 
@@ -68,7 +68,7 @@ Keep `Keep a Changelog` formatting (the file header links to the spec).
 Run this on `main` (or your release branch) **before** tagging:
 
 ```bash
-# 1. Full Python suite + coverage gate (65% — see pyproject.toml).
+# 1. Full Python suite + coverage gate (65%, see pyproject.toml).
 pytest tests/ -v
 
 # 2. Frontend suite + lint + typecheck + production build.
@@ -79,14 +79,14 @@ cd ../..
 # 3. Pre-commit hooks (ruff, biome, mypy, pyrefly, etc.).
 pre-commit run --all-files
 
-# 4. Verify versions are in sync (CI mode — exits 1 on drift).
+# 4. Verify versions are in sync (CI mode, exits 1 on drift).
 python scripts/build/sync_versions.py --check
 
 # 5. Verify the git tree is clean.
 git status --porcelain
 ```
 
-If any of the above fail, **stop** — do not tag a release from a dirty
+If any of the above fail, **stop**, do not tag a release from a dirty
 or red tree.
 
 ## 4. Tagging
@@ -127,7 +127,7 @@ release but tagged `tauri-` until cutover (ADR-0020).
 The GitHub Release description should be a copy-paste of the
 `## [X.Y.Z]` section from `CHANGELOG.md`, plus a "Known issues" list
 if any. Use the GitHub web UI (or `gh release edit`) to attach the
-release notes — the workflow does not auto-populate the body.
+release notes: the workflow does not auto-populate the body.
 
 ## 6. Post-release
 
@@ -156,7 +156,7 @@ For a hotfix against an already-released version:
 
 If a release ships with a critical regression:
 
-1. **Do not delete the tag** — it's referenced by the GitHub Release
+1. **Do not delete the tag**, it's referenced by the GitHub Release
    and by users who pinned to it. Delete the Release artifacts if
    needed but leave the tag for auditability.
 2. Publish a new patch release (`vX.Y.Z+1`) with the fix.
@@ -169,18 +169,18 @@ If a release ships with a critical regression:
 
 The following CI jobs must be green for a release to ship:
 
-- `build.yml` — full pytest + vitest + lint + typecheck + installer
+- `build.yml` Full pytest + vitest + lint + typecheck + installer
   build on all three platforms.
-- `codeql.yml` — static security analysis.
-- `client-ci.yml` — frontend-only lint / typecheck / test.
-- `populate-hashes.yml` — model hash manifest regeneration (run only
+- `codeql.yml` Static security analysis.
+- `client-ci.yml` Frontend-only lint / typecheck / test.
+- `populate-hashes.yml` Model hash manifest regeneration (run only
   when model files change).
-- `tauri-*-build.yml` — Tauri stack builds (additive during ADR-0020
+- `tauri-*-build.yml` Tauri stack builds (additive during ADR-0020
   migration; failures here do not block an Electron release but should
   be investigated before cutover).
 
 The husky `pre-push` hook (`.husky/pre-push`) is lean by design: it
-runs the cached client typecheck + the mypy ratchet only — no pytest
+runs the cached client typecheck + the mypy ratchet only, no pytest
 (the full suite must be greened during work, per AGENTS.md, before
 any release push). Do not bypass it for release pushes.
 
@@ -211,7 +211,7 @@ The user-facing workaround depends on whether the build is signed:
 ### (a) Signed release builds (signed Electron + future signed Tauri)
 
 When a signed + notarized + stapled build ships, **no workaround is
-needed** — Gatekeeper accepts the stapled ticket and the app launches on
+needed**: Gatekeeper accepts the stapled ticket and the app launches on
 first open with no quarantine warning. SmartScreen on Windows similarly
 accepts Authenticode-signed installers without the "unknown publisher"
 warning.

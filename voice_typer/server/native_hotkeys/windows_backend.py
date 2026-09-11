@@ -38,7 +38,7 @@ class WindowsHookHotkey(SubprocessHotkeyBackend):
             return f"WindowsHookHotkey requires Windows (current: {sys.platform})"
         if self._parsed and "fn" in self._parsed["modifiers"]:
             return (
-                "FN key is not supported on Windows — it is firmware-only "
+                "FN key is not supported on Windows, it is firmware-only "
                 "and never reaches the OS. Use Caps Lock, Alt, or a function "
                 "key instead."
             )

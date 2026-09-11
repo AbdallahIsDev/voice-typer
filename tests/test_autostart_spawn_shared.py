@@ -74,7 +74,7 @@ def test_record_port_roundtrip(tmp_config_dir) -> None:
 
 
 def test_record_port_rejects_out_of_range(tmp_config_dir) -> None:
-    """Out-of-range ports are skipped — the file stays pid-only."""
+    """Out-of-range ports are skipped, the file stays pid-only."""
     si_mod._record_backend_ipc_port(0)
     si_mod._record_backend_ipc_port(70000)
     assert pid_file_mod._read_ipc_port_from_pid_file() is None

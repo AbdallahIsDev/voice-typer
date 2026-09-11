@@ -1,4 +1,4 @@
-"""AB-2 (High) — regression tests for the
+"""AB-2 (High): regression tests for the
 ``AudioCallbackDispatcher.audio_worker_loop`` drain-loop stop-event
 check.
 
@@ -9,7 +9,7 @@ pops + ``_process_audio_chunk`` for every queued chunk with NO
 stop-event check inside the loop. When the worker falls behind
 (RNNoise ~50ms/chunk vs 32ms arrival at 16 Hz), the 64-slot ring
 buffer fills (~1s of headroom). The drain loop then burns 64 × 50ms =
-3.2s of solid CPU before checking the stop event — orphaning the
+3.2s of solid CPU before checking the stop event, orphaning the
 daemon worker after ``stop()`` returns (the join timeout is 2.0s) and
 delaying ``stop()`` latency by the same amount.
 
@@ -17,10 +17,10 @@ Fix
 ---
 The drain loop now checks the effective stop event (``_stop.is_set()``,
 where ``_stop`` is the explicit ``stop_event`` captured at spawn time
-or ``recorder._worker_stop_event`` as a fallback — WM-8) every
+or ``recorder._worker_stop_event`` as a fallback, WM-8) every
 ``_DRAIN_STOP_CHECK_INTERVAL`` (=4) chunks. On stop signal, it
 breaks out of the drain immediately via ``return`` (sacrificing
-in-flight audio — acceptable since ``drain=True`` is best-effort).
+in-flight audio, acceptable since ``drain=True`` is best-effort).
 
 These tests
 -----------
@@ -55,10 +55,10 @@ DRAIN_STOP_CHECK_INTERVAL = capture_mod._DRAIN_STOP_CHECK_INTERVAL
 class _SlowFakeRecorder:
     """Mock recorder that simulates a backlogged drain.
 
-    ``_process_audio_chunk`` sleeps ``chunk_process_seconds`` per call
-    so a 20-chunk backlog takes 20 × ``chunk_process_seconds`` to drain
-    — long enough to reliably observe whether the worker checks the
-    stop event mid-drain.
+      ``_process_audio_chunk`` sleeps ``chunk_process_seconds`` per call
+      so a 20-chunk backlog takes 20 × ``chunk_process_seconds`` to drain
+    , long enough to reliably observe whether the worker checks the
+      stop event mid-drain.
     """
 
     def __init__(
@@ -111,7 +111,7 @@ class TestAudioWorkerLoopDrainStopCheck:
             fake._ring_buffer.append(_make_chunk(i))
         dispatcher = AudioCallbackDispatcher(fake)
 
-        # Start the worker. It will wake (no wake needed — it waits
+        # Start the worker. It will wake (no wake needed, it waits
         # with a 50ms timeout), find 20 chunks, and begin draining.
         t = threading.Thread(
             target=dispatcher.audio_worker_loop,
@@ -138,7 +138,7 @@ class TestAudioWorkerLoopDrainStopCheck:
         # we let process before signaling stop).
         t.join(timeout=2.0)
         assert not t.is_alive(), (
-            "audio_worker_loop did not exit within 2.0s of stop signal — "
+            "audio_worker_loop did not exit within 2.0s of stop signal, "
             "AB-2 regression: drain loop is not checking the stop event"
         )
 
@@ -160,10 +160,10 @@ class TestAudioWorkerLoopDrainStopCheck:
         )
 
         # Sanity: the worker should NOT have processed the full backlog
-        # of 20 chunks — that would mean the stop check didn't fire.
+        # of 20 chunks, that would mean the stop check didn't fire.
         assert total_processed < 20, (
             f"AB-2 regression: worker processed all {total_processed} chunks "
-            f"instead of bailing out early — the drain loop never noticed "
+            f"instead of bailing out early, the drain loop never noticed "
             f"the stop signal."
         )
 
@@ -228,7 +228,7 @@ class TestAudioWorkerLoopDrainStopCheck:
         # Strip the outer-docstring portion (the method's docstring
         # itself mentions ``_worker_stop_event`` so we need to scope
         # the check to the drain-loop region).
-        # Find the drain loop body — it starts after the comment
+        # Find the drain loop body, it starts after the comment
         # "Drain all available chunks".
         drain_marker = "Drain all available chunks"
         drain_idx = src.find(drain_marker)
@@ -240,7 +240,7 @@ class TestAudioWorkerLoopDrainStopCheck:
             "``_stop.is_set()`` check between chunk "
             "iterations. WM-8 renamed the dynamic "
             "``_worker_stop_event`` to the effective ``_stop`` "
-            "local — the check must not be removed."
+            "local, the check must not be removed."
         )
         # The drain body must also yield the GIL with time.sleep(0).
         assert "time.sleep(0)" in drain_body, (

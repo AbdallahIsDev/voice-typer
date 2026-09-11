@@ -18,7 +18,7 @@ import { isLowConfidenceQuality } from "../lib/quality";
 /**
  * Transcriptions longer than this render clamped (two lines) with a
  * show-more / show-less toggle. Roughly the capacity of the card's
- * two display lines at its fixed width — copy / re-paste / undo always
+ * two display lines at its fixed width, copy / re-paste / undo always
  * operate on the FULL text regardless of the collapsed display.
  */
 const LONG_TEXT_THRESHOLD = 160;
@@ -27,7 +27,7 @@ const LONG_TEXT_THRESHOLD = 160;
  * Preview card for the most recent transcription. Offers Copy (clipboard
  * write of the full transcription), Undo (sends backspaces to the
  * previously-pasted field), Re-paste (re-executes the paste of the same
- * text) and — when wired — Discard (removes the ephemeral preview card).
+ * text) and, when wired, Discard (removes the ephemeral preview card).
  *
  * When the engine-reported quality summary (Whisper batch path only)
  * flags a low-confidence decoding, an inline warning is rendered above
@@ -42,7 +42,7 @@ export interface LastTranscriptionPreviewProps {
 	onUndo: () => void;
 	onRepaste: () => void;
 	/** Per-dictation confidence summary from the `transcription_final`
-	 *  push event. Absent for engines without per-segment stats — the
+	 *  push event. Absent for engines without per-segment stats, the
 	 *  warning is then never shown. */
 	quality?: TranscriptionQualitySummary | null;
 	/** Starts a new recording (same mechanism as the mic button).
@@ -69,7 +69,7 @@ export function LastTranscriptionPreview({
 
 	const handleCopy = useCallback(async () => {
 		try {
-			// Always the FULL transcription — the collapsed two-line
+			// Always the FULL transcription, the collapsed two-line
 			// display is a presentation choice and must not truncate
 			// what lands on the clipboard.
 			await navigator.clipboard.writeText(text);

@@ -1,11 +1,11 @@
 """Tests for ``WaylandHotkey``'s no-client grace-period warning.
 
 When the Wayland hotkey backend is selected (Linux + Wayland session,
-native evdev binary unavailable — e.g. aarch64 Linux per XPLAT-11),
+native evdev binary unavailable, e.g. aarch64 Linux per XPLAT-11),
 ``WaylandHotkey`` opens a Unix socket and waits for external tools
 (systemd, wlr-which-key, shell wrappers) to send ``toggle``/``ping``
 commands. If no client ever connects, the dictation hotkey silently
-does nothing — the socket is alive but nobody writes to it, and the
+does nothing, the socket is alive but nobody writes to it, and the
 pynput fallback silently no-ops on Wayland.
 
 These tests pin the no-client detection contract:
@@ -22,7 +22,7 @@ These tests pin the no-client detection contract:
    flow + diagnostics can tell apart "socket listening + clients
    active" from "socket listening but nobody sending commands".
 
-These tests run on any platform — they construct ``WaylandHotkey``
+These tests run on any platform, they construct ``WaylandHotkey``
 directly and manipulate ``$XDG_RUNTIME_DIR`` + the grace-period
 constant to keep the test fast (no real 30s wait).
 """
@@ -45,19 +45,19 @@ from voice_typer.server.hotkeys.wayland import WaylandHotkey
 # ($XDG_RUNTIME_DIR/voice-typer-hotkey.sock) overflows this limit and
 # bind() raises OSError("AF_UNIX path too long"). The tests below
 # construct a real WaylandHotkey and call backend.start() which opens
-# the socket — they must be skipped on such sandboxes and re-validated
+# the socket, they must be skipped on such sandboxes and re-validated
 # on a real Linux host with a short XDG_RUNTIME_DIR.
 #
 # The ``pytest tmp_path`` fixture on Windows lives under a long
 # ``%TEMP%`` path (e.g. ``C:\Users\...\AppData\Local\Temp\pytest-of-...``)
 # which, combined with the per-test ``xdg-runtime`` suffix, exceeds the
-# 108-byte AF_UNIX sun_path limit — so the socket bind fails and
+# 108-byte AF_UNIX sun_path limit, so the socket bind fails and
 # ``start()`` falls back to pynput, never scheduling the timer under
 # test. The Wayland socket backend is Linux-only anyway, so skip the
 # socket-binding tests on non-Linux hosts.
 _AF_UNIX_PATH_TOO_LONG = pytest.mark.skipif(
     sys.platform != "linux" or len(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) > 90,
-    reason=("AF_UNIX socket tests are Linux-only (Wayland) — VALIDATE ON HOST with short XDG_RUNTIME_DIR"),
+    reason=("AF_UNIX socket tests are Linux-only (Wayland), VALIDATE ON HOST with short XDG_RUNTIME_DIR"),
 )
 
 
@@ -68,7 +68,7 @@ def _make_tmp_xdg(tmp_path: Path) -> str:
     embeds the test name (e.g. ``.../test_no_client_timer_canceled_on_
     client_connect0/xdg-runtime``) which, combined with the socket
     filename ``voice-typer-hotkey.sock``, overflows the limit on CI
-    runners (long workspace/user paths) — the socket bind then fails
+    runners (long workspace/user paths), the socket bind then fails
     and the backend silently falls back to pynput, making every
     socket-backend assertion fail. A fixed short dir (per-worker pid)
     keeps the socket path ~40 bytes.
@@ -192,7 +192,7 @@ def test_no_client_timer_canceled_on_client_connect(xdg_runtime: str) -> None:
     ``_client_ever_connected`` flag is set.
     """
     backend = WaylandHotkey("<f8>")
-    backend.NO_CLIENT_GRACE_SECONDS = 5.0  # type: ignore[misc] — long grace; we'll connect immediately
+    backend.NO_CLIENT_GRACE_SECONDS = 5.0  # type: ignore[misc], long grace; we'll connect immediately
     backend.start(lambda: None)
     try:
         socket_path = backend.SOCKET_PATH
@@ -225,10 +225,10 @@ def test_stop_cancels_no_client_timer(xdg_runtime: str) -> None:
 
     Without this, a user who quits Voice Typer within 30s of startup
     would see a "Wayland Hotkey Idle" warning after the app is already
-    gone — confusing and not actionable.
+    gone, confusing and not actionable.
     """
     backend = WaylandHotkey("<f8>")
-    backend.NO_CLIENT_GRACE_SECONDS = 5.0  # type: ignore[misc] — long grace; we'll stop before it fires
+    backend.NO_CLIENT_GRACE_SECONDS = 5.0  # type: ignore[misc], long grace; we'll stop before it fires
     backend.start(lambda: None)
     assert backend._no_client_timer is not None
     backend.stop()
@@ -251,10 +251,10 @@ def test_stop_prevents_warning_from_firing(xdg_runtime: str, caplog: pytest.LogC
     confirm the timer was canceled rather than just slow to fire.
     """
     backend = WaylandHotkey("<f8>")
-    backend.NO_CLIENT_GRACE_SECONDS = 1.0  # type: ignore[misc] — long enough that stop() wins the race
+    backend.NO_CLIENT_GRACE_SECONDS = 1.0  # type: ignore[misc], long enough that stop() wins the race
     with caplog.at_level(logging.WARNING, logger="voice_typer.server.hotkeys"):
         backend.start(lambda: None)
-        # Stop immediately — well before the 1.0s grace elapses.
+        # Stop immediately, well before the 1.0s grace elapses.
         backend.stop()
         # Wait long enough that the timer WOULD have fired (1.0s grace
         # + 0.5s buffer).
@@ -309,7 +309,7 @@ def test_diagnose_reports_true_after_client_connects(xdg_runtime: str) -> None:
 @_AF_UNIX_PATH_TOO_LONG
 def test_callback_exception_does_not_crash_timer(xdg_runtime: str, caplog: pytest.LogCaptureFixture) -> None:
     """If the registered callback raises, the timer thread must NOT
-    crash — the warning was already logged, and the callback is a
+    crash, the warning was already logged, and the callback is a
     best-effort tray notification. A crash would silently lose the
     no-client signal forever (the timer thread dies and never fires
     again on restart).
@@ -338,7 +338,7 @@ def test_callback_exception_does_not_crash_timer(xdg_runtime: str, caplog: pytes
 
 def test_set_no_client_callback_signature() -> None:
     """``set_no_client_callback`` must accept a (title, message)
-    callable — matching ``tray.notify_safety(title, message)``'s
+    callable, matching ``tray.notify_safety(title, message)``'s
     signature so callers can wire them directly.
     """
     backend = WaylandHotkey("<f8>")

@@ -5,9 +5,9 @@
  * confirmedRef-based "Confirm vs Cancel" discrimination:
  *
  *   - Radix AlertDialog fires `onOpenChange(false)` exactly once per
- *     close — whether the user clicked Cancel, pressed Escape, focused
+ *     close, whether the user clicked Cancel, pressed Escape, focused
  *     away and hit Tab, etc.  Without a discriminator, every close
- *     would call both onConfirm and onCancel — bad.
+ *     would call both onConfirm and onCancel, bad.
  *   - The fix flips a `confirmedRef` to true only inside the
  *     Confirm action's onClick.  When `onOpenChange(false)` fires, the
  *     dialog reads the ref: if true → onConfirm was the cause (and
@@ -18,7 +18,7 @@
  * (or that adds an onConfirm+onCancel double-call) is caught here.
  *
  * Additionally,  / : we assert the redundant `aria-label`
- * props were removed — the visible text content provides the accessible
+ * props were removed, the visible text content provides the accessible
  * name, so the buttons should NOT carry a duplicate aria-label.
  */
 import {
@@ -33,7 +33,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import ConfirmDialog from "@/components/common/ConfirmDialog";
 
-describe("ConfirmDialog — BG-R11 (confirmedRef discriminates Confirm vs Cancel)", () => {
+describe("ConfirmDialog, BG-R11 (confirmedRef discriminates Confirm vs Cancel)", () => {
 	afterEach(() => {
 		cleanup();
 	});
@@ -159,7 +159,7 @@ describe("ConfirmDialog — BG-R11 (confirmedRef discriminates Confirm vs Cancel
 		);
 		const confirmBtn = await screen.findByRole("button", { name: "Skip" });
 		// The button component exposes data-variant based on the
-		// `variant` prop — see components/ui/button.tsx.
+		// `variant` prop, see components/ui/button.tsx.
 		expect(confirmBtn).toHaveAttribute("data-variant", "warning");
 	});
 
@@ -201,7 +201,7 @@ describe("ConfirmDialog — BG-R11 (confirmedRef discriminates Confirm vs Cancel
 		expect(onConfirm).toHaveBeenCalledTimes(1);
 		expect(onCancel).not.toHaveBeenCalled();
 
-		// Close (open=false) then reopen (open=true) — the ref must
+		// Close (open=false) then reopen (open=true), the ref must
 		// have been reset by the previous close path so Cancel still
 		// routes to onCancel and NOT silently to onConfirm.
 		rerender(
@@ -233,7 +233,7 @@ describe("ConfirmDialog — BG-R11 (confirmedRef discriminates Confirm vs Cancel
 		await screen.findByRole("alertdialog");
 		await user.click(screen.getByRole("button", { name: "Cancel" }));
 		expect(onCancel).toHaveBeenCalledTimes(1);
-		// onConfirm must still be exactly 1 (not 2) — the second
+		// onConfirm must still be exactly 1 (not 2), the second
 		// session was a Cancel, not a Confirm.
 		expect(onConfirm).toHaveBeenCalledTimes(1);
 	});
@@ -258,7 +258,7 @@ describe("ConfirmDialog — BG-R11 (confirmedRef discriminates Confirm vs Cancel
 		// dimmed backdrop). Radix AlertDialog hard-replaces any caller
 		// onPointerDownOutside with preventDefault, so ConfirmDialog's
 		// opt-in backdrop dismissal is its own document-level pointerdown
-		// listener (containment-checked) — firing on body exercises it.
+		// listener (containment-checked), firing on body exercises it.
 		fireEvent.pointerDown(document.body, { button: 0 });
 
 		await waitFor(() => {
@@ -285,7 +285,7 @@ describe("ConfirmDialog — BG-R11 (confirmedRef discriminates Confirm vs Cancel
 
 		fireEvent.pointerDown(document.body, { button: 0 });
 
-		// No dismiss path (the opt-in listener is absent) — the dialog
+		// No dismiss path (the opt-in listener is absent), the dialog
 		// stays open and neither callback fires (the user must
 		// explicitly acknowledge).
 		expect(screen.getByRole("alertdialog")).toBeTruthy();
@@ -293,7 +293,7 @@ describe("ConfirmDialog — BG-R11 (confirmedRef discriminates Confirm vs Cancel
 		expect(onConfirm).not.toHaveBeenCalled();
 	});
 
-	it("accepts any Button variant (e.g. outline) — widened from the original destructive|warning union", async () => {
+	it("accepts any Button variant (e.g. outline), widened from the original destructive|warning union", async () => {
 		render(
 			<ConfirmDialog
 				open={true}

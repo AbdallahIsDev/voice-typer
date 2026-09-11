@@ -15,7 +15,7 @@ preserves the pre-split behavior where tests could reset module-level
 globals directly (mirrors the crash_handler split pattern).
 
 Submodules:
-- :mod:`voice_typer.server.permissions.checker` — core permission checker
+- :mod:`voice_typer.server.permissions.checker`, core permission checker
   logic: dispatchers (``check_keyboard_permission``,
   ``check_microphone_permission``, ``verify_microphone_accessible``), the
   retry timer (``schedule_permission_retry`` /
@@ -27,15 +27,15 @@ Submodules:
   ``request_microphone_permission_result``), the tray notification helper
   (``show_permission_notification``), and the ``PermissionState`` /
   ``MicrophonePermissionState`` enums.
-- :mod:`voice_typer.server.permissions.mic` — microphone permission
+- :mod:`voice_typer.server.permissions.mic`: microphone permission
   probes (``_check_macos_microphone`` / ``_check_windows_microphone`` /
   ``_check_linux_microphone``) and macOS settings openers
   (``_open_macos_microphone_settings`` /
   ``_trigger_macos_microphone_consent_prompt``).
-- :mod:`voice_typer.server.permissions.accessibility` — macOS
+- :mod:`voice_typer.server.permissions.accessibility`, macOS
   Accessibility permission probe (``_check_macos_accessibility``) and
   settings opener (``_open_macos_accessibility_settings``).
-- :mod:`voice_typer.server.permissions.filesystem` — Linux
+- :mod:`voice_typer.server.permissions.filesystem`, Linux
   ``/dev/input/event*`` permission probe (``_check_linux_input_access``)
   and the pkexec install-permissions launcher
   (``_open_linux_pkexec_prompt`` / ``_find_linux_install_script``).
@@ -65,7 +65,7 @@ The udev rule installed by ``scripts/linux/install_permissions.py`` is::
 (/LINUX-UDEV: the previous onboarding instructions referenced
 ``event*`` + ``MODE="0640"`` which (a) over-matches non-keyboard event
 devices and (b) grants no group-write access. The correct pattern is
-``event[0-9]*`` with ``MODE="0660"`` — group-readable AND group-writable
+``event[0-9]*`` with ``MODE="0660"``: group-readable AND group-writable
 so the ``input`` group can both read events and (rarely needed) write
 LED state. See :data:`LINUX_UDEV_RULE` for the canonical string.)
 
@@ -76,23 +76,23 @@ an error is detected.
 
 from __future__ import annotations
 
-# Stdlib imports — also re-exported as module attributes so tests can
+# Stdlib imports, also re-exported as module attributes so tests can
 # patch ``permissions.subprocess.Popen`` / ``permissions.os.path.exists``
 # / ``permissions.shutil.which`` / ``permissions.threading.Timer``. The
 # patches mutate the underlying global module objects, so submodule
 # references to ``subprocess.Popen`` / ``os.path.exists`` / etc. see
 # the patches automatically.
-import contextlib  # noqa: F401 — used by checker.cancel_permission_retry
+import contextlib  # noqa: F401, used by checker.cancel_permission_retry
 import logging
-import os  # noqa: F401 — re-exported; tests patch permissions.os.path
-import shutil  # noqa: F401 — re-exported; tests patch permissions.shutil.which
-import subprocess  # noqa: F401 — re-exported; tests patch permissions.subprocess.Popen
-import sys  # noqa: F401 — re-exported; filesystem submodules use sys.executable
-import threading  # noqa: F401 — used for _retry_lock; tests patch permissions.threading.Timer
-from collections.abc import Callable  # noqa: F401 — re-exported for type hints
-from typing import Any  # noqa: F401 — re-exported for type hints
+import os  # noqa: F401, re-exported; tests patch permissions.os.path
+import shutil  # noqa: F401, re-exported; tests patch permissions.shutil.which
+import subprocess  # noqa: F401, re-exported; tests patch permissions.subprocess.Popen
+import sys  # noqa: F401, re-exported; filesystem submodules use sys.executable
+import threading  # noqa: F401, used for _retry_lock; tests patch permissions.threading.Timer
+from collections.abc import Callable  # noqa: F401, re-exported for type hints
+from typing import Any  # noqa: F401, re-exported for type hints
 
-# Re-imports of platform helpers and constants — these become module
+# Re-imports of platform helpers and constants, these become module
 # attributes on the facade so tests can monkeypatch
 # ``permissions.is_macos`` / ``permissions.is_windows`` /
 # ``permissions.is_linux`` and the patched values are observed by the
@@ -132,7 +132,7 @@ LINUX_UDEV_RULE = 'KERNEL=="event[0-9]*", SUBSYSTEM=="input", GROUP="input", MOD
 # call below raise ``Object of class `object` has no attribute `cancel``
 # because the ``object`` type has no ``cancel`` method.  Switch to ``Any``
 # to match the runtime ``threading.Timer`` type (which is fully dynamic
-# at the stub level — older Python's threading.Timer is not annotated).
+# at the stub level, older Python's threading.Timer is not annotated).
 _retry_timer: Any | None = None  # threading.Timer
 _retry_count = 0
 # cancellation flag set by ``cancel_permission_retry`` so an
@@ -141,11 +141,11 @@ _retry_count = 0
 _cancelled: bool = False
 # RETRY-LOCK-FIX: previously a dead ``_retry_lock_used = False`` flag
 # that was never read or set anywhere. ``schedule_permission_retry`` and
-# ``cancel_permission_retry`` were not lock-guarded — two concurrent
+# ``cancel_permission_retry`` were not lock-guarded, two concurrent
 # callers could both cancel the old timer, both create new timers, and
 # the second assignment orphans the first Timer reference (thread leak).
 # RLock (not Lock) because ``schedule_permission_retry`` calls
-# ``cancel_permission_retry`` while holding the lock — non-reentrant
+# ``cancel_permission_retry`` while holding the lock, non-reentrant
 # Lock deadlocked; verified by test failure.
 _retry_lock = threading.RLock()
 
@@ -195,13 +195,13 @@ _PERMISSION_NOTIFY_LINUX_BODY_KEY = "notify.permissions.linux_body"
 # Constants, enums, and function references are imported here so they're
 # accessible as ``permissions.<name>`` (tests read/call/patch these
 # directly). The function bodies access mutable state and other functions
-# via ``_p.<name>`` (above), NOT via ``global`` — so test mutations on
+# via ``_p.<name>`` (above), NOT via ``global``, so test mutations on
 # the facade propagate.
 #
 # IMPORTANT: the imports below MUST come after the state declarations
 # above. The submodules do ``import voice_typer.server.permissions as _p``
 # at module load time, and they read ``_p._PYOBJC_AVAILABLE`` /
-# ``_p._retry_lock`` etc. at call time — so those attributes must already
+# ``_p._retry_lock`` etc. at call time, so those attributes must already
 # exist on the facade by the time the submodule functions are called.
 # Declaring the state here (before the submodule imports) ensures that
 # the partial facade object in ``sys.modules`` has the state attributes

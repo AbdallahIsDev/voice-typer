@@ -1,12 +1,12 @@
 /**
- * Tests for the Templates page —  (instant-delete optimisation).
+ * Tests for the Templates page,  (instant-delete optimisation).
  *
  * Scenario under test: clicking the trash icon on a template row fires
  * `instantDeleteTemplate`, which previously:
  *   1. Computed the post-delete `items` array.
  *   2. Awaited `saveTemplates(items, call)` (a 100-500ms IPC round-trip).
  *   3. Called `loadRows()` (another IPC round-trip) to refresh state.
- *   4. The React state only updated AFTER both round-trips — the
+ *   4. The React state only updated AFTER both round-trips, the
  *      deleted row stayed visible for the entire duration, which felt
  *      sluggish and could trigger duplicate-delete clicks.
  *
@@ -16,7 +16,7 @@
  * captured local variable before showing the error toast.
  *
  * The test mocks `save_templates` with a never-resolving promise so the
- * IPC never completes — the only way the row can disappear from the UI
+ * IPC never completes, the only way the row can disappear from the UI
  * is if the optimistic `setTemplates` ran. This is the strongest possible
  * regression assertion: if anyone reverts the optimistic update, the row
  * would still be present when the test asserts its absence (because the
@@ -67,12 +67,12 @@ const seedTemplates = {
 };
 
 /** TemplateListRow renders an InfoTooltip (Radix Tooltip) which throws
- *  without a TooltipProvider ancestor — the real App shell provides
+ *  without a TooltipProvider ancestor, the real App shell provides
  *  one, so tests mounting the page directly must too. */
 const renderWithProviders = (ui: React.ReactElement) =>
 	render(<TooltipProvider delayDuration={200}>{ui}</TooltipProvider>);
 
-describe("Templates page — instant-delete optimisation", () => {
+describe("Templates page, instant-delete optimisation", () => {
 	beforeEach(() => {
 		mockCall.mockReset();
 		mockShowSnack.mockReset();
@@ -116,7 +116,7 @@ describe("Templates page — instant-delete optimisation", () => {
 		// templates.deleteAria template with {name} interpolated).
 		fireEvent.click(screen.getByLabelText("Delete template: hello"));
 
-		// After the click, "hello" should be GONE from the list — even
+		// After the click, "hello" should be GONE from the list, even
 		// though save_templates has not resolved (neverResolve is still
 		// undefined / un-called). This is only possible if the optimistic
 		// setTemplates ran BEFORE the await. The "brb" template must
@@ -192,7 +192,7 @@ describe("Templates page — instant-delete optimisation", () => {
 	});
 });
 
-describe("Templates page — Clear All + single-row toolbar", () => {
+describe("Templates page, Clear All + single-row toolbar", () => {
 	beforeEach(() => {
 		mockCall.mockReset();
 		mockShowSnack.mockReset();

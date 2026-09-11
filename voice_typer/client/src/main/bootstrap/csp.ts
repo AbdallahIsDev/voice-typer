@@ -29,7 +29,7 @@ export function _buildCsp(opts: { isPackaged: boolean }): string {
 		"img-src 'self' data:",
 		"font-src 'self' data:",
 		"media-src 'self' data:",
-		// C-DATA-1: connect-src restricted to 'self' — no external network calls. Cloud-test/check-update calls must route through the Python sidecar.
+		// C-DATA-1: connect-src restricted to 'self', no external network calls. Cloud-test/check-update calls must route through the Python sidecar.
 		"connect-src 'self'",
 		"frame-ancestors 'none'",
 		"form-action 'none'",
@@ -45,8 +45,8 @@ export function _buildCsp(opts: { isPackaged: boolean }): string {
  * that applies, because `onHeadersReceived` never fires for file://
  * requests (there is no HTTP response to intercept). Certain
  * directives are additionally restricted to the HTTP-header channel
- * by the CSP spec — `frame-ancestors` is ignored when delivered via
- * <meta> — so the header CSP installed here is what actually enforces
+ * by the CSP spec, `frame-ancestors` is ignored when delivered via
+ * <meta>, so the header CSP installed here is what actually enforces
  * `frame-ancestors 'none'`, and it does so in DEV MODE ONLY
  * (http://localhost:5173 responses flow through the webRequest API).
  *
@@ -54,7 +54,7 @@ export function _buildCsp(opts: { isPackaged: boolean }): string {
  * `frame-ancestors` is not spec-enforced on any channel. The residual
  * framing risk is negligible because of the compensating controls on
  * every window: the deny-all `setWindowOpenHandler`
- * (`windows/input-nav-guard.ts` — every renderer-initiated
+ * (`windows/input-nav-guard.ts`, every renderer-initiated
  * `window.open()` is denied) and `sandbox: true` in the
  * `webPreferences` block (`windows/window-chrome.ts`), plus the meta
  * CSP's remaining directives (`form-action 'none'`, `base-uri`,

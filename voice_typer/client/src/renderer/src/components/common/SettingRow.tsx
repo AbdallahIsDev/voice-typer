@@ -13,9 +13,9 @@ interface SettingRowProps {
 	 * Optional `htmlFor` to associate this row's visible label with a
 	 * specific form control rendered as a child. When provided, the
 	 * label is rendered as a real `<label htmlFor={htmlFor}>` element
-	 * (clicking the label focuses the control — WCAG 2.4.13 + SC 1.3.1
+	 * (clicking the label focuses the control, WCAG 2.4.13 + SC 1.3.1
 	 * + SC 4.1.2). When omitted, the label is rendered as a `<span>`
-	 * (existing behavior — the child must provide its own accessible
+	 * (existing behavior, the child must provide its own accessible
 	 * name via `aria-label` / `aria-labelledby` / a wrapping `<label>`).
 	 *
 	 * Callers that pass a child without its own accessible name AND
@@ -40,8 +40,8 @@ export function SettingRow({
 	// Dev-mode audit. Inspect the rendered children for form controls
 	// (input, select, textarea, button[role=switch], [role=checkbox],
 	// [role=radio]) and verify each one has an accessible name
-	// (aria-label, aria-labelledby, title, or — when `htmlFor` is set
-	// on the row — is referenced by the row's label). If any control
+	// (aria-label, aria-labelledby, title, or, when `htmlFor` is set
+	// on the row, is referenced by the row's label). If any control
 	// lacks an accessible name, log a one-time warning so the omission
 	// surfaces during development without breaking production builds.
 	const childrenRef = useRef<HTMLDivElement | null>(null);
@@ -62,14 +62,14 @@ export function SettingRow({
 			// Skip controls hidden from the accessibility tree. Radix
 			// primitives (Switch/Checkbox/Radio) mount an invisible
 			// <input aria-hidden="true"> purely for native form
-			// semantics — it is never announced, so it legitimately has
+			// semantics, it is never announced, so it legitimately has
 			// no accessible name and must not trip the warning. The
 			// same applies to `type="hidden"` inputs and any control
 			// under an aria-hidden ancestor.
 			//
 			// Radix Slider's bubble input (SliderBubbleInput) is
-			// hidden via `style: { display: "none" }` — no aria-hidden,
-			// no type="hidden" — so a computed-style check is required
+			// hidden via `style: { display: "none" }`, no aria-hidden,
+			// no type="hidden", so a computed-style check is required
 			// to keep the audit from false-positiving on a correctly
 			// labelled slider (the thumb itself carries the forwarded
 			// aria-label).
@@ -91,7 +91,7 @@ export function SettingRow({
 
 	// The label is rendered as `<label>` only when the caller has
 	// opted in via `htmlFor`. Without `htmlFor`, a `<label>` would
-	// either (a) wrap the child (changing layout — many children are
+	// either (a) wrap the child (changing layout, many children are
 	// flex / Switch / Select and don't tolerate being wrapped) or
 	// (b) carry a dangling `htmlFor` pointing at a non-existent id (the
 	// bug that caused the original `<label>` → `<span>` downgrade).

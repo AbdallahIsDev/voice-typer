@@ -12,18 +12,18 @@
 //! file (a GDPR / security incident).
 //!
 //! The key-matching pattern is `(?i)(api[_-]?key|secret|token|password|
-//! passwd|pwd|credential|auth)` — the same shape as the Python
+//! passwd|pwd|credential|auth)`: the same shape as the Python
 //! `_secrets._KEY_PATTERNS` allowlist, applied case-insensitively as a
 //! substring match (the regex is unanchored, so `my_api_key_v2` and
 //! `X-Auth-Token` both match). It is implemented without the `regex`
 //! crate (substring check on the lowercased key) to avoid pulling a new
-//! dependency into the Tauri host — the pattern is simple enough that
+//! dependency into the Tauri host. The pattern is simple enough that
 //! hand-rolling the matcher is cleaner than adding `regex` to
 //! `Cargo.toml`.
 //!
 //! When a redaction fires, this module logs at `warn` so it lands in the
 //! rotating log file for post-mortem diagnosis (a redaction firing at
-//! this layer means the Python sidecar's redaction FAILED — that's a
+//! this layer means the Python sidecar's redaction FAILED, that's a
 //! bug worth investigating).
 //!
 //! Consumers: `super::export::export_config` (the only production
@@ -38,7 +38,7 @@ pub(crate) const REDACTED_MARKER: &str = "***REDACTED***";
 
 /// Return `true` if `key` matches the redaction pattern
 /// `(?i)(api[_-]?key|secret|token|password|passwd|pwd|credential|auth)`
-/// (case-insensitive substring match — the regex is unanchored).
+/// (case-insensitive substring match: the regex is unanchored).
 pub(crate) fn is_sensitive_key(key: &str) -> bool {
     let k = key.to_ascii_lowercase();
     // `api[_-]?key` → "api_key", "api-key", "apikey" (and any
@@ -50,7 +50,7 @@ pub(crate) fn is_sensitive_key(key: &str) -> bool {
     }
     // The remaining alternatives are plain substring checks. Using
     // `contains` (not `==`) so keys like "auth_token" or
-    // "client_secret_v2" still match — same semantics as the
+    // "client_secret_v2" still match: same semantics as the
     // unanchored regex.
     k.contains("secret")
         || k.contains("token")
@@ -68,7 +68,7 @@ pub(crate) fn is_sensitive_key(key: &str) -> bool {
 /// the count).
 ///
 /// Recurses into objects and arrays. Non-container values (strings,
-/// numbers, bools, null) are leaves — they're only redacted if their
+/// numbers, bools, null) are leaves, they're only redacted if their
 /// PARENT key is sensitive (handled by the parent's iteration).
 pub(crate) fn redact_config_secrets(value: &mut Value) -> usize {
     let mut count = 0usize;
@@ -77,23 +77,23 @@ pub(crate) fn redact_config_secrets(value: &mut Value) -> usize {
 }
 
 /// Recursive helper. `parent_key` is the key under which `value`
-/// lives (None at the root) — used to decide whether to replace
+/// lives (None at the root), used to decide whether to replace
 /// `value` wholesale (if the parent key is sensitive) or to recurse
 /// into it.
 fn redact_config_secrets_inner(value: &mut Value, parent_key: Option<&str>, count: &mut usize) {
     // If the parent key is sensitive, replace this value wholesale
-    // with the redaction marker (regardless of type — a secret could
+    // with the redaction marker (regardless of type, a secret could
     // be a string, number, bool, or even a nested object the sidecar
     // failed to scrub).
     if let Some(key) = parent_key {
         if is_sensitive_key(key) {
-            // Only redact non-null values — redacting `null` would
+            // Only redact non-null values: redacting `null` would
             // be a false positive (a sensitive key with no value is
             // not a leak). This also avoids logging a `warn` line
             // for empty secrets, which would be noise.
             if !value.is_null() {
                 log::warn!(
-                    "[REDACT-DEFENSE] redacted sensitive config key {:?} (value type: {}) — \
+                    "[REDACT-DEFENSE] redacted sensitive config key {:?} (value type: {}), \
                      Python-side redaction may have missed this",
                     key,
                     match value {
@@ -124,7 +124,7 @@ fn redact_config_secrets_inner(value: &mut Value, parent_key: Option<&str>, coun
             }
         }
         Value::Array(arr) => {
-            // Array elements have no key — pass None so they're only
+            // Array elements have no key, pass None so they're only
             // redacted if their value happens to be an object whose
             // OWN keys are sensitive (handled by the Object arm above
             // on the next recursion).

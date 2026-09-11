@@ -7,7 +7,7 @@ verified the framework ALREADY mitigates this at the handler layer:
 ``PIIRedactionFilter.filter`` redacts BOTH the formatted message AND
 the pre-formatted traceback (``record.exc_text``), covering
 home-directory paths (current user), emails, phones, IBAN/SSN/CC,
-API keys/bearer tokens, and URL credentials — in exception text,
+API keys/bearer tokens, and URL credentials, in exception text,
 source lines, and file paths alike.
 
 These tests pin that mitigation end-to-end so a future filter or

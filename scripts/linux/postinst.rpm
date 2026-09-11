@@ -1,5 +1,5 @@
 #!/bin/bash
-# Voice Typer — RPM %post script
+# Voice Typer. RPM %post script
 #
 # Functionally identical to the Debian postinst. Runs as root during
 # `dnf install voice-typer`. Probes the same 5 canonical candidate paths
@@ -11,14 +11,14 @@
 # RPM convention: $1 = 1 means first install, $1 = 2 means upgrade.
 # The body is gated on `$1 -eq 1` so the keyboard-permission setup +
 # polkit symlink + desktop/icon cache refresh only run on first install
-# (NOT on upgrade — the previous install's permissions + symlink are
+# (NOT on upgrade, the previous install's permissions + symlink are
 # already correct and re-running install_permissions.py would prompt
 # the user unnecessarily). This mirrors the prerm.rpm's
 # `if [ "$1" = "0" ]` uninstall-gate pattern.
 
 set -e
 
-# $1 = 1 means first install. $1 = 2 means upgrade (skip — already set up).
+# $1 = 1 means first install. $1 = 2 means upgrade (skip, already set up).
 if [ "$1" -eq 1 ]; then
     # The polkit-stable path: the polkit policy hard-codes this path because
     # polkit requires an absolute, stable path that does not change across
@@ -45,7 +45,7 @@ if [ "$1" -eq 1 ]; then
     done
 
     if [ -z "$INSTALL_SCRIPT" ]; then
-        echo "[voice-typer] WARNING: install_permissions.py not found — skipping keyboard permission setup"
+        echo "[voice-typer] WARNING: install_permissions.py not found, skipping keyboard permission setup"
         echo "[voice-typer] The hotkey may not work. Install the package via dnf to get the setup script."
         exit 0
     fi
@@ -74,7 +74,7 @@ if [ "$1" -eq 1 ]; then
 
     # Refresh the desktop database + icon cache so the launcher
     # entry + hicolor icon appear in application menus immediately
-    # after install (mirrors the Debian postinst). Non-fatal — if the
+    # after install (mirrors the Debian postinst). Non-fatal, if the
     # helpers are missing (minimal container installs), the script
     # still exits 0.
     if [ -x /usr/bin/update-desktop-database ]; then

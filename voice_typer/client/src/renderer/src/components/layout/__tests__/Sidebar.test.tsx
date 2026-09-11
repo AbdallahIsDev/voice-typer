@@ -1,5 +1,5 @@
 /**
- *  vitest suite — covers , , ,
+ *  vitest suite, covers , , ,
  * for the Sidebar component.
  *
  * - : active nav item uses a 2px left accent bar + soft accent
@@ -47,7 +47,7 @@ import { Sidebar } from "@/components/layout/Sidebar";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
 // Sidebar renders real Radix Tooltips (via HotkeyTooltip on the nav
-// items), which REQUIRE a TooltipProvider ancestor — the app shell
+// items), which REQUIRE a TooltipProvider ancestor, the app shell
 // provides one (App.tsx:475). Same props as App.tsx so tooltip timing
 // in tests mirrors production.
 function renderWithProviders(ui: React.ReactElement) {
@@ -114,7 +114,7 @@ describe("Sidebar", () => {
 		const settingsButton = findNavButton("Settings");
 		expect(settingsButton).toBeTruthy();
 		const cls = settingsButton?.className ?? "";
-		// Settings is a SINGLE leaf now — the parent/submenu concept is
+		// Settings is a SINGLE leaf now, the parent/submenu concept is
 		// gone (the hub page holds the section navigation). When a
 		// Settings surface is active the leaf takes the SAME standard
 		// card treatment as every other active page: the shared card
@@ -125,7 +125,7 @@ describe("Sidebar", () => {
 		// the roving tab stop (tabIndex=0) to the Settings leaf on every
 		// Settings surface, but aria-current + the active card styling
 		// follow `isActive` (exact page match), which only the hub
-		// ("settings") satisfies — section pages (e.g. "settingsPrivacy")
+		// ("settings") satisfies, section pages (e.g. "settingsPrivacy")
 		// render the leaf inactive-by-style with the tab stop only (see
 		// Sidebar.settings-leaf.test.tsx).
 		expect(cls).toContain("border-border/5");
@@ -144,7 +144,7 @@ describe("Sidebar", () => {
 		expect(inactiveButton).toBeTruthy();
 		const cls = inactiveButton?.className ?? "";
 		// Inactive leaves carry NO border token beyond the Button base's
-		// transparent border — the legacy border-s-2 alignment bar is gone.
+		// transparent border, the legacy border-s-2 alignment bar is gone.
 		expect(cls).not.toContain("border-s-2");
 		expect(cls).not.toContain("border-s-transparent");
 		expect(cls).not.toContain("border-border/5");
@@ -157,11 +157,11 @@ describe("Sidebar", () => {
 
 	//nav grouping ──────────────────────────────────────────
 
-	it("renders ONE group label (System) — the top group is header-less", () => {
+	it("renders ONE group label (System), the top group is header-less", () => {
 		renderWithProviders(<Sidebar {...baseProps} />);
 		expect(screen.getByText("System")).toBeTruthy();
 		// The top group's heading is not rendered at all (no "Main" and
-		// no "Power features" — the two-group layout has a single visible
+		// no "Power features", the two-group layout has a single visible
 		// heading), while the section's aria-label is preserved for
 		// screen-reader navigation.
 		expect(screen.queryByText("Main")).toBeNull();
@@ -255,7 +255,7 @@ describe("Sidebar", () => {
 		// No plain-text `title` tooltip attribute.
 		expect(home.hasAttribute("title")).toBe(false);
 		// The shortcut is NOT rendered as visible chips inside the
-		// expanded nav item — the sidebar stays clean (the shortcut
+		// expanded nav item, the sidebar stays clean (the shortcut
 		// remains functional via aria-keyshortcuts + the global
 		// shortcut handler).
 		const kbdTexts = Array.from(home.querySelectorAll("kbd")).map(
@@ -278,7 +278,7 @@ describe("Sidebar", () => {
 		);
 		const home = findNavButton("Home");
 		expect(home.hasAttribute("title")).toBe(false);
-		// The label is hidden when collapsed — the right-side tooltip
+		// The label is hidden when collapsed, the right-side tooltip
 		// carries the label + shortcut chips (Radix opens on focus).
 		home.focus();
 		const tooltip = await screen.findByRole("tooltip");
@@ -293,7 +293,7 @@ describe("Sidebar", () => {
 	it("PROD-9: nav items without a keyboard shortcut omit aria-keyshortcuts entirely", () => {
 		renderWithProviders(<Sidebar {...baseProps} />);
 		// History, Templates, Vocabulary, Models, Microphone,
-		// About & Privacy — none have shortcuts bound in App.tsx.
+		// About & Privacy, none have shortcuts bound in App.tsx.
 		const noShortcutItems = [
 			"History",
 			"Templates",
@@ -314,7 +314,7 @@ describe("Sidebar", () => {
 			findNavButton(label).closest("section")?.className ?? "";
 		expect(sectionClassOf("Settings")).toContain("mt-auto");
 		expect(sectionClassOf("About & Privacy")).toContain("mt-auto");
-		// The top groups flow normally — no auto margin competing with
+		// The top groups flow normally, no auto margin competing with
 		// the System group's bottom anchor.
 		expect(sectionClassOf("Home")).not.toContain("mt-auto");
 		expect(sectionClassOf("Templates")).not.toContain("mt-auto");
@@ -322,7 +322,7 @@ describe("Sidebar", () => {
 
 	//sidebar branding removed ──────────────────────────
 
-	it("SIDEBAR-BRANDING: no logo button (collapsed or expanded) — the branding header was removed entirely", () => {
+	it("SIDEBAR-BRANDING: no logo button (collapsed or expanded), the branding header was removed entirely", () => {
 		const { rerender } = renderWithProviders(
 			<Sidebar {...baseProps} collapsed />,
 		);
@@ -341,7 +341,7 @@ describe("Sidebar", () => {
 		renderWithProviders(<Sidebar {...baseProps} />);
 		const nav = screen.getByRole("navigation", { name: "Main navigation" });
 		// The nav's scroll container must be the first child of the
-		// <aside> — no branding header precedes it, so the navigation
+		// <aside>, no branding header precedes it, so the navigation
 		// fills the space the branding previously occupied.
 		const aside = nav.closest("aside");
 		expect(nav.parentElement).toBe(aside?.children[0]);

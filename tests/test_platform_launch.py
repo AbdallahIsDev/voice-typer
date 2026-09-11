@@ -4,23 +4,23 @@ The module under test (REF-3 / XPLAT-01 / SEC-audit-011) contains
 Windows-only editor-launch helpers extracted from
 ``voice_typer/server/app.py``. Every Win32 call is wrapped in a broad
 ``try: ... except Exception:`` block so the functions fail-soft
-(return ``None`` or ``pass``) on non-Windows platforms — which lets us
+(return ``None`` or ``pass``) on non-Windows platforms, which lets us
 unit-test them on Linux by mocking ``ctypes.windll``.
 
 Tests pin:
 
-* ``_systemroot_notepad_path`` — SYSTEMROOT-validated Notepad
+* ``_systemroot_notepad_path``, SYSTEMROOT-validated Notepad
   resolution (priority order, fallback to ``C:\\Windows``, OSError
   tolerance, env-var handling, return type).
-* ``_windows_open_with_default_app`` — ``ShellExecuteExW`` dispatch,
+* ``_windows_open_with_default_app``: ``ShellExecuteExW`` dispatch,
   SHELLEXECUTEINFO field wiring (``SEE_MASK_NOCLOSEPROCESS``,
   ``SW_SHOWNORMAL``, ``lpVerb='open'``, ``lpFile=path``), handle
   return semantics (``None`` on failure or null ``hProcess``), and
   argtypes/restype ABI assignment.
-* ``_windows_wait_for_process_exit`` — ``WaitForSingleObject(handle,
+* ``_windows_wait_for_process_exit``: ``WaitForSingleObject(handle,
   finite-timeout)`` dispatch (30-minute bounded timeout, NOT ``INFINITE``,
   so a hung editor doesn't wedge the IPC thread forever).
-* ``_windows_close_process_handle`` — ``CloseHandle(handle)`` dispatch.
+* ``_windows_close_process_handle``: ``CloseHandle(handle)`` dispatch.
 * The full ``open → wait → close`` lifecycle used by
   ``VoiceTyperApp._open_config_file``.
 
@@ -127,7 +127,7 @@ class TestSystemRootNotepadPath:
         setting ``SYSTEMROOT=C:\\Users\\attacker`` trick the helper
         into returning an attacker-controlled binary. The hardcoded
         path is the OS-installed Notepad (shipped with every Windows
-        install since Windows NT) — preferring it closes the trust
+        install since Windows NT), preferring it closes the trust
         gap. The SYSTEMROOT candidate remains as a fallback for
         non-standard Windows installs (system root on a different
         drive).
@@ -139,7 +139,7 @@ class TestSystemRootNotepadPath:
         default_path = Path(r"C:\Windows") / "System32" / "notepad.exe"
         attacker_path = Path(custom_root) / "System32" / "notepad.exe"
 
-        # Both candidates "exist" — the helper must return the
+        # Both candidates "exist", the helper must return the
         # hardcoded default, NOT the attacker-controlled SYSTEMROOT path.
         monkeypatch.setattr(Path, "exists", lambda self: True)
 
@@ -154,7 +154,7 @@ class TestSystemRootNotepadPath:
 
     def test_returns_systemroot_path_when_it_exists(self, monkeypatch):
         """When ONLY the SYSTEMROOT-derived path exists (hardcoded
-        default is missing — e.g. non-standard Windows install), it's
+        default is missing, e.g. non-standard Windows install), it's
         returned as the fallback. XZ-R6-AS-07: this is now the
         FALLBACK path, not the preferred path."""
         custom_root = r"D:\CustomWin"
@@ -214,7 +214,7 @@ class TestSystemRootNotepadPath:
         assert result is not None
         assert result == default_path
         # The very first candidate checked must NOT be a relative path
-        # (i.e. not "System32\\notepad.exe" — which would happen if an
+        # (i.e. not "System32\\notepad.exe", which would happen if an
         # empty SYSTEMROOT were passed through to Path()). An empty
         # SYSTEMROOT would make ``os.environ.get('SYSTEMROOT', ...)``
         # return ``''``, and ``Path('') / 'System32'`` collapses to a
@@ -224,7 +224,7 @@ class TestSystemRootNotepadPath:
         # (POSIX). The constructed ``Path(r'C:\Windows')`` is absolute
         # on Windows; on Linux it's treated as a relative PosixPath
         # (just characters), but at minimum it must contain the
-        # "Windows" literal — never a bare "System32\\notepad.exe".
+        # "Windows" literal, never a bare "System32\\notepad.exe".
         assert "Windows" in str(first), f"Empty/missing SYSTEMROOT must not produce a relative path; got {first!r}"
 
     def test_continues_on_oserror_during_exists(self, monkeypatch):
@@ -232,7 +232,7 @@ class TestSystemRootNotepadPath:
         denied), the function must continue to the next candidate
         instead of propagating the exception.
 
-        XZ-R6-AS-07: candidate order was reversed — the hardcoded
+        XZ-R6-AS-07: candidate order was reversed, the hardcoded
         ``C:\\Windows\\System32\\notepad.exe`` is now checked FIRST
         (closing the SYSTEMROOT env-var trust gap), with the
         SYSTEMROOT-derived path as the fallback. This test was
@@ -252,7 +252,7 @@ class TestSystemRootNotepadPath:
             call_count["n"] += 1
             if call_count["n"] == 1:
                 # First candidate (default_path per  order)
-                # raises OSError — function must continue to the next.
+                # raises OSError, function must continue to the next.
                 raise OSError("permission denied")
             return self == systemroot_path
 
@@ -394,7 +394,7 @@ class TestWindowsWaitForProcessExit:
 
     def test_calls_wait_for_single_object_with_infinite(self, monkeypatch):
         """``WaitForSingleObject`` must be called with the handle and a
-        finite 30-minute timeout (NOT ``INFINITE`` — a hung editor must
+        finite 30-minute timeout (NOT ``INFINITE``, a hung editor must
         not wedge the IPC thread forever; see DE-68 in platform_launch.py)."""
         mock_kernel32 = MagicMock()
         mock_kernel32.WaitForSingleObject.return_value = 0  # WAIT_OBJECT_0
@@ -546,11 +546,11 @@ class TestOpenWaitCloseLifecycle:
         """If ``WaitForSingleObject`` raises, ``CloseHandle`` must
         still be called (the ``try/finally`` in app.py guarantees
         this; ``_windows_wait_for_process_exit`` swallows the exception
-        so the finally runs normally — but this test pins the
+        so the finally runs normally, but this test pins the
         contract independently)."""
         mock_shell32 = MagicMock()
         mock_kernel32 = MagicMock()
-        # wait() will swallow this and return None — CloseHandle still called.
+        # wait() will swallow this and return None. CloseHandle still called.
         mock_kernel32.WaitForSingleObject.side_effect = OSError("wait failed")
         mock_kernel32.CloseHandle.return_value = 1
         _install_fake_windll(monkeypatch, shell32=mock_shell32, kernel32=mock_kernel32)

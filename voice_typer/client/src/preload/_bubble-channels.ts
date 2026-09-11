@@ -2,13 +2,13 @@
 //
 // `preload/bubble.ts` (sandboxed bubble-window preload, SEC-026) and
 // `preload/index.ts` (main-renderer preload) previously each declared
-// the same ~9 bubble-channel handlers verbatim — a copy-paste
+// the same ~9 bubble-channel handlers verbatim, a copy-paste
 // maintenance hazard where a channel rename or signature fix had to be
 // applied in two places. This module is the single source of truth for
 // the bubble-channel wiring; the two preload files call the factory
 // with `includeRestricted: true` (bubble window gets the full surface)
 // or `includeRestricted: false` (main renderer gets only the shared
-// subset — `onSetState` / `onConfig` / `hideComplete` / `resizeTo` /
+// subset, `onSetState` / `onConfig` / `hideComplete` / `resizeTo` /
 // `toggleDictation` / `dismiss` are bubble-window-only).
 //
 // The factory takes `ipc` (the Electron `ipcRenderer` module) as an
@@ -16,7 +16,7 @@
 // unit-testable with a mock ipcRenderer and so the call sites retain
 // their existing `import { ipcRenderer } from "electron"` line (the
 // preload scripts are the only place in the renderer bundle that's
-// allowed to import from "electron" directly — keeping that import at
+// allowed to import from "electron" directly, keeping that import at
 // the call site makes the security boundary visible).
 //
 // Channel list (shared):
@@ -24,7 +24,7 @@
 //   - bubble:show-from-renderer (renderer → main, request show)
 //   - bubble:ready            (renderer → main, signal ready)
 //   - bubble:set-position    (renderer → main, top/bottom)
-//   - bubble:draggable        (both directions — send + on)
+//   - bubble:draggable        (both directions, send + on)
 //   - bubble:show             (renderer ← main, enter animation)
 //   - bubble:hide             (renderer ← main, exit animation)
 //   - bubble:move-by          (renderer → main, a11y keyboard move)
@@ -40,7 +40,7 @@
 //
 // The restricted set is omitted from `preload/index.ts` so a
 // compromised main renderer cannot invoke bubble-only channels
-// (defense-in-depth — the main-process handlers also assert the
+// (defense-in-depth, the main-process handlers also assert the
 // sender's frame label, but the preload gate is the first line).
 
 import type { IpcRenderer, IpcRendererEvent } from "electron";
@@ -79,7 +79,7 @@ export function makeListener<T>(
 
 /**
  * Register a no-arg listener on `ipc` for `channel` (channels that
- * carry no payload — `bubble:show` / `bubble:hide`). Returns an
+ * carry no payload, `bubble:show` / `bubble:hide`). Returns an
  * unsubscribe function. Same shape as :func:`makeListener` but for
  * the zero-payload case (the IPC `(...args)` are ignored).
  */
@@ -124,7 +124,7 @@ export interface MakeBubbleApiOptions {
 	/** When true, include the bubble-window-only restricted channels
 	 * (`onSetState` / `onConfig` / `hideComplete` / `resizeTo` /
 	 * `toggleDictation` / `dismiss`). When false, the returned object
-	 * only has the shared channels — used by the main-renderer preload
+	 * only has the shared channels, used by the main-renderer preload
 	 * so a compromised main renderer cannot invoke bubble-only IPC. */
 	includeRestricted: boolean;
 }
@@ -133,8 +133,8 @@ export interface MakeBubbleApiOptions {
  * Build the `window.bubble` API surface for the given `ipc` instance.
  *
  * Shared factory used by both `preload/bubble.ts`
- * (`includeRestricted: true` — full bubble-window surface) and
- * `preload/index.ts` (`includeRestricted: false` — main-renderer
+ * (`includeRestricted: true`, full bubble-window surface) and
+ * `preload/index.ts` (`includeRestricted: false`, main-renderer
  * subset). The returned object is passed to
  * `contextBridge.exposeInMainWorld("bubble", ...)` by the caller.
  */
@@ -178,7 +178,7 @@ export function makeBubbleApi(
 		return shared;
 	}
 
-	// Restricted channels — bubble window only.
+	// Restricted channels, bubble window only.
 	const restricted: RestrictedBubbleApi = {
 		onSetState: makeListener<string>(ipc, BubbleChannels.setState, (s) =>
 			String(s),
@@ -225,12 +225,12 @@ export function makeBubbleApi(
 		//dismiss the bubble from its own '×' button. The bubble is
 		// sandboxed (SEC-026) and has NO `python.call`, so it sends a
 		// dedicated, single-purpose channel. The main-process handler
-		// (bubble:dismiss) is owned by F11 — it should hide the bubble
+		// (bubble:dismiss) is owned by F11, it should hide the bubble
 		// window via the existing hideBubbleWindow() helper (and, when
 		// bubble_behavior is always_visible, the bubble will stay hidden
-		// until the next show() — typically the next dictation start).
+		// until the next show(), typically the next dictation start).
 		// Until F11 adds the handler, this IPC send is a no-op (no
-		// listener registered on the main side) — safe by Electron's
+		// listener registered on the main side), safe by Electron's
 		// default ipcMain behavior. Restricted to the bubble frame by the
 		// handler (assertFromBubble) so only the bubble can dismiss
 		// itself.

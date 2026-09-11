@@ -12,13 +12,13 @@
  * `ALLOWED_COMMANDS` or the server's `_COMMAND_REGISTRY`. Because the
  * `ALLOWED_COMMANDS` gate at the top of `sendToPython` rejects unknown
  * commands BEFORE the long-running-timeout lookup runs, these 3 stale
- * entries were dead — `_isLongRunningCommand(cmd)` always returned
+ * entries were dead, `_isLongRunningCommand(cmd)` always returned
  * `false` for them in practice.
  *
  * The practical impact was that the REAL commands
  * (`cancel_model_download`, `pause_model_download`,
  * `resume_model_download`) got the SHORTER 15s timeout instead of the
- * documented 120s "long-running" budget — meaning a slow HuggingFace
+ * documented 120s "long-running" budget, meaning a slow HuggingFace
  * cancel/resume could false-positive as a timeout, leaving the
  * pending-request map in an inconsistent state.
  *
@@ -28,7 +28,7 @@
  * test fails before the broken code ships.
  *
  * The test does NOT assert the inverse (every allowed command is long-
- * running) — that would be wrong, because most commands correctly use
+ * running), that would be wrong, because most commands correctly use
  * the 15s timeout. It only asserts the forward direction.
  */
 import { describe, expect, it } from "vitest";
@@ -67,7 +67,7 @@ describe("YJ-35: _LONG_RUNNING_COMMANDS entries are all in ALLOWED_COMMANDS (par
 	});
 
 	it("the 3 stale YJ-35 entries are ABSENT (regression guard)", () => {
-		// These 3 entries were the original bug — they referenced
+		// These 3 entries were the original bug, they referenced
 		// commands that did not exist. If a future contributor
 		// re-adds any of them, this assertion fails.
 		expect(_LONG_RUNNING_COMMANDS_FOR_TEST.has("cancel_download")).toBe(false);

@@ -1,11 +1,11 @@
-"""MIG-1.7 Phase 0-L Gate Check 4 — faster-whisper transcribe validation (Linux).
+"""MIG-1.7 Phase 0-L Gate Check 4: faster-whisper transcribe validation (Linux).
 
 These tests validate the ASR setup path for the Nuitka-frozen Linux
 sidecar (ADR-0020 §4.4 + §6.3 "faster-whisper transcribes inside the
 Nuitka bundle" gate point 3). They cover BOTH Linux arches:
 
-  - ``x86_64-unknown-linux-gnu``   (Intel / AMD — runs CT2 CPU mode, int8)
-  - ``aarch64-unknown-linux-gnu``  (ARM 64 — runs CT2 CPU mode, int8)
+  - ``x86_64-unknown-linux-gnu``   (Intel / AMD, runs CT2 CPU mode, int8)
+  - ``aarch64-unknown-linux-gnu``  (ARM 64, runs CT2 CPU mode, int8)
 
 Coverage map (each item below maps to a test function):
 
@@ -22,24 +22,24 @@ Coverage map (each item below maps to a test function):
    them at runtime.
 4. The Nuitka invocation includes ``--include-data-dir`` for
    ``ctranslate2/lib`` (the CT2 native .so files: ``libctranslate2.so``,
-   ``libiomp5.so`` / ``libgomp.so`` — OpenMP runtime). This is the
+   ``libiomp5.so`` / ``libgomp.so``. OpenMP runtime). This is the
    singular-layout directory mandated by ADR-0020 §4.4 for the pinned
    Linux wheel.
 5. The build script also handles the plural ``ctranslate2/libs`` layout
    via a guarded conditional (``if [[ -d ... ]]``) so a wheel variant
-   shipping only the plural form doesn't break the build — and so a
+   shipping only the plural form doesn't break the build, and so a
    CPU-only aarch64 wheel that ships no ``ctranslate2/libs/`` (per
    ADR-0020 §4.4 note) doesn't fail the build.
 6. The model path resolves to ``~/.local/share/voice-typer/models``
    on Linux via :func:`voice_typer.server._paths.config_dir` (the
    canonical wrapper over :func:`config._config_dir`).
 7. The transcription engine defaults to ``compute_type=int8`` on Linux
-   (CT2 CPU mode — the ADR-0020 §4.4 + §6.3 default). On Linux both
+   (CT2 CPU mode, the ADR-0020 §4.4 + §6.3 default). On Linux both
    x86_64 and aarch64 ship CPU-only CT2 wheels (no CUDA wheel is
    bundled), so the safe fallback is always CPU/int8.
 8. The engine surfaces a helpful ``RuntimeError`` when ``transcribe()``
-   is called before ``load()`` — not a NoneType crash.
-9. The engine handles short audio (≤ 1 s) without crashing — both the
+   is called before ``load()``, not a NoneType crash.
+9. The engine handles short audio (≤ 1 s) without crashing, both the
    empty-segment (VAD found no speech) and single-segment paths.
 10. The build script accepts an ``ARCH`` argument (``x86_64`` or
     ``aarch64``) and resolves the Rust-style target triple
@@ -58,7 +58,7 @@ install, and we don't want this gate to depend on a network download).
 
 VALIDATE ON LINUX HOST:
     1. Launch Voice Typer
-    2. Press F8 — speak a 5-second test phrase
+    2. Press F8, speak a 5-second test phrase
     3. Press F8 again to stop
     4. Check ~/.local/share/voice-typer/logs/voice-typer.log for:
        - "[ASR] loading model small.en from ~/.local/share/voice-typer/models"
@@ -68,7 +68,7 @@ VALIDATE ON LINUX HOST:
     Expected: transcription completes within 3s on both x86_64 + aarch64
 
     Companion gate: docs/migration/linux-validation-runbook.md §6.3
-    (gate point 3 — faster-whisper transcribes inside the Nuitka bundle,
+    (gate point 3, faster-whisper transcribes inside the Nuitka bundle,
     BOTH arches + BOTH X11 AND Wayland session types). The runbook's
     operational Step 7 is the documented manual procedure for this gate.
     Run on BOTH arches:
@@ -103,7 +103,7 @@ import pytest
 # with sibling modules that monkeypatch ``voice_typer.server.config._config_dir``
 # or ``_paths._config_dir`` under ``pytest -n auto``. xdist's default ``load``
 # scheduler does NOT strictly honor this marker (verified on xdist 3.8.0),
-# so it's a best-effort hint — when it IS honored (e.g. CI runs with
+# so it's a best-effort hint, when it IS honored (e.g. CI runs with
 # ``--dist=loadscope``) it eliminates the cross-module config-cache leak
 # seen in the baseline. No-op when xdist isn't active. (C-TEST-5: test isolation.)
 pytestmark = pytest.mark.xdist_group("faster_whisper_linux")
@@ -128,14 +128,14 @@ def _install_fake_ct2_modules(monkeypatch) -> tuple[types.ModuleType, types.Modu
     and ``_load_transcriber_impl``. We register stub modules in
     ``sys.modules`` so the imports succeed without requiring the real
     CTranslate2 native extension (which can't load in the Linux sandbox
-    even if the wheel were installed for the wrong arch — the test host
+    even if the wheel were installed for the wrong arch, the test host
     here may be either x86_64 or aarch64, and we don't want this gate
     to depend on a wheel install).
 
     Returns the (faster_whisper, ctranslate2) stub modules so individual
     tests can wire return values on them.
     """
-    # ctranslate2 stub — get_cuda_device_count() returns 0 to model the
+    # ctranslate2 stub, get_cuda_device_count() returns 0 to model the
     # Linux default (no CUDA wheel bundled per ADR-0020 §4.4; CT2 falls
     # back to CPU/int8 on both x86_64 and aarch64).
     ct2 = types.ModuleType("ctranslate2")
@@ -167,7 +167,7 @@ def test_build_script_pre_nuitka_check_validates_ct2_backend_importable():
     site-packages (cross-platform CT2 backend importability gate).
 
     The Linux build script doesn't have a separate ``--check`` flag like
-    the macOS build script — instead, it asserts (lines ~133-146) that
+    the macOS build script, instead, it asserts (lines ~133-146) that
     ``$SITE/faster_whisper`` AND ``$SITE/ctranslate2`` directories exist
     before invoking Nuitka. If either is missing, the script aborts with
     a clear error message + a `pip install faster-whisper ctranslate2
@@ -201,7 +201,7 @@ def test_asr_setup_and_transcription_modules_load_with_ct2_stubs(monkeypatch):
 
     ``asr_setup.download_parakeet_weights`` delegates to
     ``transcription._check_disk_space_for_download`` and
-    ``transcription._download_with_retry`` — both of which live in a
+    ``transcription._download_with_retry``, both of which live in a
     module that lazy-imports ``faster_whisper`` / ``ctranslate2``. We
     verify the modules load without ImportError when the stubs are in
     place (proving the CT2 backend gate is satisfiable on Linux without
@@ -244,18 +244,18 @@ def test_build_script_includes_faster_whisper_and_ctranslate2_packages():
 # ─── Tests: CT2 native libs (both lib + libs layouts) ─────────────────────────
 def test_build_script_includes_ct2_native_libs_singular_layout():
     """Nuitka must bundle the entire ``ctranslate2/lib`` directory
-    (singular layout — the pinned Linux wheel layout for both arches).
+    (singular layout, the pinned Linux wheel layout for both arches).
 
     ``ctranslate2/lib`` holds the native .so files: ``libctranslate2.so``
     + ``libiomp5.so`` (Intel OpenMP) on x86_64, and
     ``libctranslate2.so`` + ``libgomp.so`` (GNU OpenMP) on aarch64 —
     both required by CT2's CPU inference path on Linux. Nuitka does NOT
-    auto-collect these — they must be explicitly included via
+    auto-collect these, they must be explicitly included via
     ``--include-data-dir`` or ``import ctranslate2`` crashes at startup
     with "libctranslate2.so: cannot open shared object file: No such
     file or directory" (see ADR-0020 §4.4 + runbook §6.3 fail scenarios).
 
-    This flag is arch-agnostic — the same line ships the .so files for
+    This flag is arch-agnostic, the same line ships the .so files for
     both ``x86_64`` (Intel/AMD) and ``aarch64`` (ARM 64) because the
     build script is invoked once per arch with the matching
     python-build-standalone install.
@@ -268,7 +268,7 @@ def test_build_script_includes_ct2_native_libs_singular_layout():
         "build script must include --include-data-dir for ctranslate2/lib "
         "(the directory holding libctranslate2.so + libiomp5.so/libgomp.so)"
     )
-    # The data-dir include is arch-agnostic — verbatim from the SITE path.
+    # The data-dir include is arch-agnostic, verbatim from the SITE path.
     assert '--include-data-dir="$SITE/ctranslate2/lib=$SITE/ctranslate2/lib"' in text, (
         "build script must include the verbatim --include-data-dir line for $SITE/ctranslate2/lib (singular layout)"
     )
@@ -276,13 +276,13 @@ def test_build_script_includes_ct2_native_libs_singular_layout():
 
 def test_build_script_includes_ct2_libs_plural_layout_guarded():
     """The build script must also handle the plural ``ctranslate2/libs``
-    layout — guarded by a directory-existence check.
+    layout, guarded by a directory-existence check.
 
     ADR-0020 §4.4 mentions the singular ``ctranslate2/lib`` layout as
     the canonical one for the pinned Linux wheel, but some wheel
     variants ship native .so files under ``ctranslate2/libs`` (plural)
     instead. The build script MUST NOT silently break if the plural
-    form is the only one present — and it MUST NOT fail the build when
+    form is the only one present, and it MUST NOT fail the build when
     the plural dir is absent (the CPU-only aarch64 wheel install case,
     which ADR-0020 §4.4 explicitly notes ships libctranslate2.so +
     libiomp5.so under ``ctranslate2/lib/`` only, with no
@@ -302,7 +302,7 @@ def test_build_script_includes_ct2_libs_plural_layout_guarded():
     assert 'CT2_LIBS_DIR="$SITE/ctranslate2/libs"' in text, (
         "build script must resolve CT2_LIBS_DIR from $SITE/ctranslate2/libs"
     )
-    # The guard itself — a conditional that only appends the plural data-dir
+    # The guard itself, a conditional that only appends the plural data-dir
     # include if the directory exists. Without the guard, a singular-only
     # wheel install would fail the build (Nuitka errors on missing
     # --include-data-dir source).
@@ -332,7 +332,7 @@ def test_model_path_resolves_to_xdg_data_home_on_linux(monkeypatch, tmp_path):
     ``~/.local/share/voice-typer``) when neither ``is_windows()`` nor
     ``is_macos()`` returns True.
 
-    ADR-0020 §8 mandates this path for both Linux arches — the Tauri
+    ADR-0020 §8 mandates this path for both Linux arches, the Tauri
     build writes to the same location the Electron build did, so the
     Rollback procedure preserves user data.
     """
@@ -342,7 +342,7 @@ def test_model_path_resolves_to_xdg_data_home_on_linux(monkeypatch, tmp_path):
     # module's import bindings so the call chain sees a Linux env.
     monkeypatch.setattr("voice_typer.server.platform_utils.is_macos", lambda: False)
     monkeypatch.setattr("voice_typer.server.platform_utils.is_windows", lambda: False)
-    # config.py imports is_macos + is_windows at module load — patch the
+    # config.py imports is_macos + is_windows at module load, patch the
     # bound names so the already-imported references see the Linux env.
     import voice_typer.server.config as config_mod
 
@@ -352,7 +352,7 @@ def test_model_path_resolves_to_xdg_data_home_on_linux(monkeypatch, tmp_path):
     # The real ``~/.voice-typer`` legacy dir may exist on developer
     # machines / sandboxes (other tests in this suite create it via
     # _config_dir() side effects). The production _config_dir() checks
-    # for the legacy dir FIRST (migration path — existing users keep
+    # for the legacy dir FIRST (migration path, existing users keep
     # their data where it is) and returns it if it exists, which would
     # short-circuit the Linux XDG branch we want to exercise here. Mock
     # ``Path.home()`` to a tmp_path that has no ``.voice-typer`` subdir
@@ -365,7 +365,7 @@ def test_model_path_resolves_to_xdg_data_home_on_linux(monkeypatch, tmp_path):
     monkeypatch.delenv("XDG_DATA_HOME", raising=False)
 
     # _config_dir() is memoized via functools.lru_cache for the process
-    # lifetime — clear the cache so the monkeypatched Path.home() +
+    # lifetime, clear the cache so the monkeypatched Path.home() +
     # env vars take effect on the next call.
     from voice_typer.server.config_internals.paths import _reset_config_dir_cache
 
@@ -392,7 +392,7 @@ def test_model_path_resolves_to_xdg_data_home_on_linux(monkeypatch, tmp_path):
 # ─── Tests: compute_type=int8 CPU default on Linux ────────────────────────────
 def test_transcription_engine_defaults_to_int8_cpu_on_linux(monkeypatch):
     """The transcription engine MUST default to ``compute_type=int8``
-    on Linux (CT2 CPU mode — no CUDA wheel is bundled per ADR-0020 §4.4).
+    on Linux (CT2 CPU mode, no CUDA wheel is bundled per ADR-0020 §4.4).
 
     ADR-0020 §4.4 + §6.3 explicitly require CPU/int8 as the default on
     both x86_64 and aarch64 Linux. The Linux Nuitka bundle ships no
@@ -404,7 +404,7 @@ def test_transcription_engine_defaults_to_int8_cpu_on_linux(monkeypatch):
     "int8"`` and ``self._device = "cpu"``, and ``_resolve_device("cpu")``
     returns the same. We verify the default AND the explicit "cpu"
     request both land on int8 (not float16, which would require the
-    unbundled CUDA wheel — and not "metal"/"mps", which CT2 doesn't
+    unbundled CUDA wheel, and not "metal"/"mps", which CT2 doesn't
     support and is macOS-only anyway).
     """
     _install_fake_ct2_modules(monkeypatch)
@@ -428,13 +428,13 @@ def test_transcription_engine_defaults_to_int8_cpu_on_linux(monkeypatch):
     # Resolve explicitly. _resolve_device("cpu") must return ("cpu", "int8").
     device, compute_type = engine._resolve_device("cpu")
     assert (device, compute_type) == ("cpu", "int8"), (
-        "explicit device='cpu' must resolve to compute_type=int8 — "
+        "explicit device='cpu' must resolve to compute_type=int8, "
         "float16 would require the unbundled CUDA wheel; CT2 has no MPS "
         "backend on Linux"
     )
 
     # And the auto path with no CUDA device available (stub returns 0)
-    # also lands on int8 (NOT float16) — the safe CPU fallback.
+    # also lands on int8 (NOT float16), the safe CPU fallback.
     # This models the Linux runtime: ctranslate2.get_cuda_device_count()
     # returns 0 on every Linux Nuitka bundle (no CUDA wheel shipped).
     device_auto, compute_auto = engine._resolve_device("auto")
@@ -453,10 +453,10 @@ def test_engine_surfaces_helpful_error_when_model_not_loaded(monkeypatch):
     The frozen sidecar can reach this state if the model download
     fails or the user invokes dictation before the model finishes
     loading. A clear error message lets the IPC layer surface a toast
-    ("Model not loaded — open Settings → Models to download") instead
+    ("Model not loaded, open Settings → Models to download") instead
     of a cryptic traceback.
 
-    See ``transcription.py:_transcribe_unlocked`` — raises
+    See ``transcription.py:_transcribe_unlocked``, raises
     ``RuntimeError("Model not loaded. Call load() first.")``.
     """
     _install_fake_ct2_modules(monkeypatch)
@@ -468,7 +468,7 @@ def test_engine_surfaces_helpful_error_when_model_not_loaded(monkeypatch):
     from voice_typer.server.transcription import TranscriptionEngine
 
     engine = TranscriptionEngine(model_size="small.en", device="cpu")
-    # Engine has NOT had load() called — _model is None.
+    # Engine has NOT had load() called, _model is None.
     assert engine._model is None
     assert engine.is_loaded is False
 
@@ -479,7 +479,7 @@ def test_engine_surfaces_helpful_error_when_model_not_loaded(monkeypatch):
         engine.transcribe(audio)
 
     msg = str(exc_info.value)
-    # Must be a clear, actionable error — not "AttributeError: 'NoneType'
+    # Must be a clear, actionable error, not "AttributeError: 'NoneType'
     # object has no attribute 'transcribe'".
     assert "Model not loaded" in msg, f"expected helpful 'Model not loaded' error, got: {msg!r}"
     # The IPC layer greps for "load" in the error to decide which toast
@@ -494,11 +494,11 @@ def test_engine_handles_short_audio_without_crashing(monkeypatch):
     """The engine MUST handle short audio (≤ 1 s) without crashing.
 
     VAD (voice activity detection) can produce zero segments on very
-    short clips — especially when the user releases the hotkey quickly.
+    short clips, especially when the user releases the hotkey quickly.
     The engine must return an empty string (no speech detected), not
     crash on an empty segment list or a duration-based assertion.
 
-    See ``transcription.py:_transcribe_unlocked`` — returns ``""`` for
+    See ``transcription.py:_transcribe_unlocked``, returns ``""`` for
     empty audio; for non-empty short audio it iterates the (possibly
     empty) segment generator and joins the results.
     """
@@ -538,7 +538,7 @@ def test_engine_handles_short_audio_without_crashing(monkeypatch):
     # the short audio (i.e. the engine didn't short-circuit before
     # the model call, which would hide a real bug).
     assert fake_model.transcribe.called, (
-        "engine must call model.transcribe() even on short audio — short-circuiting would hide VAD / model bugs"
+        "engine must call model.transcribe() even on short audio, short-circuiting would hide VAD / model bugs"
     )
     call_args = fake_model.transcribe.call_args
     # First positional arg is the audio array.
@@ -601,9 +601,9 @@ def test_build_script_supports_both_arches_with_python_build_standalone():
 
     ADR-0020 §4.4 mandates:
       - ``python-build-standalone cpython-3.12.x+x86_64-unknown-linux-gnu``
-        for Intel/AMD builds (glibc 2.35 baseline — Ubuntu 22.04+)
+        for Intel/AMD builds (glibc 2.35 baseline, Ubuntu 22.04+)
       - ``python-build-standalone cpython-3.12.x+aarch64-unknown-linux-gnu``
-        for ARM 64 builds (glibc 2.35 baseline — runs on Pi 5, Ampere
+        for ARM 64 builds (glibc 2.35 baseline, runs on Pi 5, Ampere
         Altra, AWS Graviton, etc.)
 
     The build script doesn't hard-code the python-build-standalone URL —
@@ -655,7 +655,7 @@ def test_build_script_supports_both_arches_with_python_build_standalone():
     assert '$PYBS_DIR"/cpython-3.12.*+"$TRIPLE"/python/bin/python3' in text or ('cpython-3.12.*+"$TRIPLE"' in text), (
         "build script must auto-discover the per-arch python-build-standalone "
         "interpreter via cpython-3.12.*+${TRIPLE}/python/bin/python3 (the "
-        "verbose-layout install) — selects x86_64 vs aarch64 install based "
+        "verbose-layout install), selects x86_64 vs aarch64 install based "
         "on the ARCH argument"
     )
     # 5. Cross-build requires qemu-user-static (aarch64 on x86_64 host).
@@ -669,11 +669,11 @@ def test_build_script_supports_both_arches_with_python_build_standalone():
 def test_build_script_bundles_openmp_runtime_libs():
     """The Linux Nuitka bundle MUST include the OpenMP runtime .so files
     (``libiomp5.so`` on x86_64 Intel OpenMP, ``libgomp.so`` on aarch64
-    GNU OpenMP) — without them, CTranslate2's CPU inference path fails
+    GNU OpenMP), without them, CTranslate2's CPU inference path fails
     to start with "libiomp5.so: cannot open shared object file" or
     "libgomp.so: cannot open shared object file".
 
-    The build script does NOT include these .so files by name — they're
+    The build script does NOT include these .so files by name, they're
     transitively bundled via the ``--include-data-dir`` for
     ``$SITE/ctranslate2/lib`` (which is where the CT2 wheel ships both
     ``libctranslate2.so`` AND the OpenMP runtime .so files together).
@@ -701,7 +701,7 @@ def test_build_script_bundles_openmp_runtime_libs():
     assert "libiomp5.so" in text and "libgomp.so" in text, (
         "build script header must document that the ctranslate2/{lib,libs} "
         "include ships libiomp5.so (Intel OpenMP, x86_64) + libgomp.so "
-        "(GNU OpenMP, aarch64) — these are the OpenMP runtime .so files "
+        "(GNU OpenMP, aarch64), these are the OpenMP runtime .so files "
         "CT2's CPU inference path requires"
     )
 
@@ -716,7 +716,7 @@ def test_build_script_bundles_openmp_runtime_libs():
     # 3. The CT2 libs (plural) guarded include is present (covers the
     #    plural-layout wheel variant).
     assert 'CT2_LIBS_DIR="$SITE/ctranslate2/libs"' in text, (
-        "build script must reference CT2_LIBS_DIR (the plural layout) — "
+        "build script must reference CT2_LIBS_DIR (the plural layout), "
         "some wheel variants ship the OpenMP runtime under "
         "ctranslate2/libs instead of ctranslate2/lib"
     )

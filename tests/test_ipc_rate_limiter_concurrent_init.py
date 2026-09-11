@@ -33,7 +33,7 @@ before creating+storing.
 
 These tests pin the fix. The pre-R4-F18 code would FAIL these tests
 when the race window is widened by stubbing ``_RateLimiter.__init__``
-with a small sleep — without the lock, two threads would each create
+with a small sleep, without the lock, two threads would each create
 their own instance; with the lock, only one instance is created.
 """
 
@@ -57,7 +57,7 @@ class _CountingInitRateLimiter:
     so a naive concurrent-init test would rarely trip the race even
     on the buggy pre-R4-F18 code. By sleeping ~5 ms inside the
     constructor, we guarantee that two threads simultaneously inside
-    the get-or-create block overlap — the lock-free version would
+    the get-or-create block overlap, the lock-free version would
     produce two instances, the locked version produces one.
 
     The class duck-types as a ``_RateLimiter``: the helper only
@@ -70,7 +70,7 @@ class _CountingInitRateLimiter:
 
     init_count = 0
     init_lock = threading.Lock()
-    init_delay_seconds = 0.005  # 5 ms — wide enough to make the race deterministic
+    init_delay_seconds = 0.005  # 5 ms, wide enough to make the race deterministic
 
     def __init__(self) -> None:
         # Sleep BEFORE incrementing the counter so two threads racing
@@ -111,7 +111,7 @@ class TestConcurrentInit:
         exactly ONCE.
 
         Pre-R4-F18: this test would FAIL ~50% of the time (the race is
-        probabilistic without the init lock) — both threads would
+        probabilistic without the init lock), both threads would
         observe ``limiter is None``, both would construct a fresh
         instance, and the second ``setattr`` would orphan the first.
         The constructor would run TWICE; the two threads would
@@ -142,7 +142,7 @@ class TestConcurrentInit:
         server = FakeServer()
 
         # Barrier ensures both threads start the call at the SAME
-        # instant — without it, the OS scheduler might serialize the
+        # instant, without it, the OS scheduler might serialize the
         # two calls, masking the race.
         barrier = threading.Barrier(2)
         results: list[object] = []
@@ -177,21 +177,21 @@ class TestConcurrentInit:
         # Both threads must have received the SAME instance.
         assert len(results) == 2, "both workers must append their result"
         assert results[0] is results[1], (
-            "both threads must observe the same _RateLimiter instance — "
+            "both threads must observe the same _RateLimiter instance, "
             "the R4-F18 init lock guarantees the second thread sees the "
             "instance the first thread stored, not a fresh one"
         )
 
     def test_concurrent_first_call_many_threads_single_instance(self, monkeypatch):
         """Stress test: 16 threads simultaneously hitting
-        ``_get_rate_limiter(server)`` on a fresh server instance must
-        all observe the SAME ``_RateLimiter`` instance, and the
-        constructor must run exactly ONCE.
+          ``_get_rate_limiter(server)`` on a fresh server instance must
+          all observe the SAME ``_RateLimiter`` instance, and the
+          constructor must run exactly ONCE.
 
-        The wider the thread count, the more likely the pre-R4-F18
-        code would produce N constructions (one per racing thread)
-        — the test pins the post-R4-F18 invariant that the lock
-        collapses all N racers to a single construction.
+          The wider the thread count, the more likely the pre-R4-F18
+          code would produce N constructions (one per racing thread)
+        , the test pins the post-R4-F18 invariant that the lock
+          collapses all N racers to a single construction.
         """
         from voice_typer.server import ipc_server as ipc_server_mod
 
@@ -231,7 +231,7 @@ class TestConcurrentInit:
         for i, r in enumerate(results):
             assert r is first, (
                 f"thread {i} must observe the same _RateLimiter instance as "
-                f"thread 0 — R4-F18 init lock guarantees single construction"
+                f"thread 0, R4-F18 init lock guarantees single construction"
             )
 
     def test_concurrent_calls_on_different_servers_are_independent(self, monkeypatch):
@@ -240,7 +240,7 @@ class TestConcurrentInit:
         per server).
 
         This pins that the module-level init lock does NOT serialize
-        different servers' inits to a single instance — the lock only
+        different servers' inits to a single instance, the lock only
         serializes the get-or-create ON THE SAME SERVER. Different
         servers have different ``_rate_limiter_instance`` attributes,
         so they get independent limiters.
@@ -273,7 +273,7 @@ class TestConcurrentInit:
         t2.join(timeout=5.0)
 
         assert _CountingInitRateLimiter.init_count == 2, (
-            "different servers must each construct their own _RateLimiter — "
+            "different servers must each construct their own _RateLimiter, "
             "the init lock does NOT collapse cross-server inits to a single "
             f"instance (ran {_CountingInitRateLimiter.init_count} times, expected 2)"
         )
@@ -290,7 +290,7 @@ class TestConcurrentInit:
 
         assert isinstance(_RATE_LIMITER_INIT_LOCK, type(threading.Lock())), (
             "_RATE_LIMITER_INIT_LOCK must be a threading.Lock instance "
-            "(or compatible reentrant lock) — R4-F18 pins the name + type"
+            "(or compatible reentrant lock), R4-F18 pins the name + type"
         )
 
     def test_leaf_copy_also_has_init_lock(self):
@@ -312,7 +312,7 @@ class TestConcurrentInit:
 
         assert isinstance(_LEAF_LOCK, type(threading.Lock())), (
             "_RATE_LIMITER_INIT_LOCK in ipc/rate_limiter.py must be a "
-            "threading.Lock instance — kept in sync with ipc_server.py"
+            "threading.Lock instance, kept in sync with ipc_server.py"
         )
 
     def test_magic_mock_server_concurrent_init(self, monkeypatch):

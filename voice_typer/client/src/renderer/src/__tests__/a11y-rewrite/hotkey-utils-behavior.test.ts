@@ -1,5 +1,5 @@
 /**
- *  vitest rewrite — behavioral tests for `hotkey-utils.ts`.
+ *  vitest rewrite, behavioral tests for `hotkey-utils.ts`.
  *
  * Replaces the following string-pattern Python tests from
  * `tests/test_hotkeys.py`:
@@ -20,7 +20,7 @@
  * behavioral regression fails.
  *
  * The corresponding Python tests are skipped via `@pytest.mark.skip`
- * with a pointer back to this file.  They are NOT deleted — they
+ * with a pointer back to this file.  They are NOT deleted, they
  * remain as a fallback until CI verifies the vitest versions pass on
  * all platforms.
  */
@@ -33,7 +33,7 @@ async function importUtils() {
 	)) as typeof import("@/components/hotkey/hotkey-utils");
 }
 
-describe("formatHotkeyLabel — RW-0 rewrite of test_formats_single_key", () => {
+describe("formatHotkeyLabel, RW-0 rewrite of test_formats_single_key", () => {
 	beforeAll(() => {
 		vi.resetModules();
 	});
@@ -73,7 +73,7 @@ describe("formatHotkeyLabel — RW-0 rewrite of test_formats_single_key", () => 
 	});
 });
 
-describe("formatHotkeyLabel — RW-0 rewrite of test_formats_combo", () => {
+describe("formatHotkeyLabel, RW-0 rewrite of test_formats_combo", () => {
 	beforeAll(() => {
 		vi.resetModules();
 	});
@@ -95,7 +95,7 @@ describe("formatHotkeyLabel — RW-0 rewrite of test_formats_combo", () => {
 	});
 });
 
-describe("validateHotkey — RW-0 rewrite of test_validate_rejects_empty", () => {
+describe("validateHotkey, RW-0 rewrite of test_validate_rejects_empty", () => {
 	beforeAll(() => {
 		vi.resetModules();
 	});
@@ -127,7 +127,7 @@ describe("validateHotkey — RW-0 rewrite of test_validate_rejects_empty", () =>
 	});
 });
 
-describe("validateHotkey — RW-0 rewrite of test_validate_rejects_modifiers_only_in_combo", () => {
+describe("validateHotkey, RW-0 rewrite of test_validate_rejects_modifiers_only_in_combo", () => {
 	beforeAll(() => {
 		vi.resetModules();
 	});
@@ -163,7 +163,7 @@ describe("validateHotkey — RW-0 rewrite of test_validate_rejects_modifiers_onl
 	});
 });
 
-describe("validateHotkey — RW-0 rewrite of test_validate_rejects_multi_key_in_single_mode", () => {
+describe("validateHotkey, RW-0 rewrite of test_validate_rejects_multi_key_in_single_mode", () => {
 	beforeAll(() => {
 		vi.resetModules();
 	});
@@ -196,7 +196,7 @@ describe("validateHotkey — RW-0 rewrite of test_validate_rejects_multi_key_in_
 	});
 });
 
-describe("hotkey-utils — RW-0 rewrite of test_single_key_presets_include_beyond_f12", () => {
+describe("hotkey-utils, RW-0 rewrite of test_single_key_presets_include_beyond_f12", () => {
 	beforeAll(() => {
 		vi.resetModules();
 	});

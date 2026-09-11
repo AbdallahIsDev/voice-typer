@@ -1,4 +1,4 @@
-"""Audio-quality chunk delegation-loss warning gate — unit tests.
+"""Audio-quality chunk delegation-loss warning gate: unit tests.
 
 The audio pipeline delivers quality chunks at ~94 Hz. When the
 ``audio_quality`` controller is unavailable (lazy-init failed), the
@@ -33,7 +33,7 @@ def _make_app() -> VoiceTyperApp:
 
 def _make_delegateless_app() -> VoiceTyperApp:
     """Build an app whose ``audio_quality`` property returns None for the
-    whole test (fresh lazy-init failure inside the retry TTL — the
+    whole test (fresh lazy-init failure inside the retry TTL, the
     property returns None without re-attempting construction)."""
     app = _make_app()
     app._audio_quality_backing = _LAZY_FAILED

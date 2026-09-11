@@ -9,13 +9,13 @@
 // `types/ipc/push_events.ts`. When a new event is added there, add
 // its `type` literal here too. The dev-time warning will surface
 // forgetfulness the first time a renderer subscribes to the new
-// event (the warning fires for unknown types — including ones added
+// event (the warning fires for unknown types, including ones added
 // to the TS union but not yet to this set).
 //
 // Exported so the parity test
 // (`hooks/__tests__/usePython-known-event-types-parity.test.ts`) can
 // assert the runtime set matches the compile-time `PythonPushEvent["type"]`
-// union. Not part of the public hook API — only consumed by tests.
+// union. Not part of the public hook API, only consumed by tests.
 export const KNOWN_EVENT_TYPES: ReadonlySet<string> = new Set([
 	"status_change",
 	"error",
@@ -42,7 +42,7 @@ export const KNOWN_EVENT_TYPES: ReadonlySet<string> = new Set([
 	"bubble_level",
 	"bubble_config",
 	// Main-window mirror of the recording level (≤8 Hz, generic
-	// envelope) — consumed by Home's RecordingLevelBar. The typed
+	// envelope), consumed by Home's RecordingLevelBar. The typed
 	// `bubble_level` channel reaches the bubble window only.
 	"recording_level",
 	"show_window",
@@ -55,7 +55,7 @@ export const KNOWN_EVENT_TYPES: ReadonlySet<string> = new Set([
 	"asr_backend_disabled",
 	"asr_last_resort_unloaded",
 	"llm_polish_failed",
-	// rule-based AI-enhancement failure (Step 7b) — distinct from
+	// rule-based AI-enhancement failure (Step 7b), distinct from
 	// `llm_polish_failed` (the LLM-polish path).
 	"text_enhancement_failed",
 	"reconnecting",
@@ -72,11 +72,11 @@ export const KNOWN_EVENT_TYPES: ReadonlySet<string> = new Set([
 	// `bubble_set_state` transcript field; this event stays on the
 	// push-event surface for main-window consumers.
 	"transcription_partial",
-	// ── Pack + worker IPC events (master plan §7.4 — 12 push
+	// ── Pack + worker IPC events (master plan §7.4, 12 push
 	// events from the slim-core / runtime-pack split). Each is
 	// published by `event_bus.publish(...)` in the Python sidecar
 	// (the worker→slim-core hop forwards each as a standard event-
-	// bus publish). The 13th §7.4 event — `transcribe_offline` —
+	// bus publish). The 13th §7.4 event, `transcribe_offline` —
 	// is a REQUEST (renderer → slim core → worker), so it lives
 	// in `PythonRequest` (`types/ipc/requests.ts`), NOT here.
 	// Pinned by `tests/test_event_types_parity.py`.
@@ -98,7 +98,7 @@ export const KNOWN_EVENT_TYPES: ReadonlySet<string> = new Set([
 	"worker_unloaded",
 	// Offline transcription result (worker → slim core → renderer).
 	// The request counterpart `transcribe_offline` is a command,
-	// NOT a push event — see `PythonRequest`.
+	// NOT a push event, see `PythonRequest`.
 	"transcribe_offline_result",
 	// ── Backend model-load lifecycle + previously-dropped push
 	// events (each is published by the Python sidecar; the

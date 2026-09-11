@@ -5,11 +5,11 @@ This module holds the 4 sanitization helpers that
 legacy on-disk config values before the dataclass constructor sees
 them:
 
-* :func:`_derive_field_type_registry` — build ``{field_name: type}``
+* :func:`_derive_field_type_registry`: build ``{field_name: type}``
   from the Config dataclass annotations.
-* :func:`_warn_and_reset` — log + record a "reset to default" event.
-* :func:`_warn_and_coerce` — log + record a "coerced to type" event.
-* :func:`_validate_non_numeric_fields` — the migration layer that
+* :func:`_warn_and_reset`: log + record a "reset to default" event.
+* :func:`_warn_and_coerce`: log + record a "coerced to type" event.
+* :func:`_validate_non_numeric_fields`: the migration layer that
   iterates the registry, dispatches per-type coercion, and stashes
   warnings in ``data["_load_warnings"]``.
 
@@ -49,7 +49,7 @@ def _derive_field_type_registry(cls: type[Config]) -> dict[str, type]:
 
     Replaces the 4 hand-maintained sets (``bool_fields`` /
     ``str_fields`` / ``int_fields`` / ``float_fields``) so the field
-    list is sourced from the dataclass declaration itself — adding a
+    list is sourced from the dataclass declaration itself, adding a
     new field to ``Config`` automatically opts it into validation
     without a parallel edit to ``_validate_non_numeric_fields``.
     """
@@ -67,7 +67,7 @@ def _derive_field_type_registry(cls: type[Config]) -> dict[str, type]:
         # ``Optional[T]`` / ``Union[T, None]`` spelling) AND
         # ``types.UnionType`` (the PEP 604 ``T | None`` spelling)
         # must be unwrapped. ``typing.get_origin(str | None)``
-        # returns ``types.UnionType`` — NOT ``typing.Union`` — so
+        # returns ``types.UnionType``: NOT ``typing.Union``, so
         # the pre-fix ``is typing.Union`` check left every PEP 604
         # ``T | None`` field (microphone, qwen_model_path,
         # parakeet_model_path, corrections_path, custom_theme) in
@@ -80,7 +80,7 @@ def _derive_field_type_registry(cls: type[Config]) -> dict[str, type]:
             args = [a for a in typing.get_args(ann) if a is not type(None)]
             if len(args) == 1:
                 ann = args[0]
-        # Literal[...] is a subtype of str — normalize to str so the
+        # Literal[...] is a subtype of str, normalize to str so the
         # str validation branch handles it (e.g. asr_backend).
         if typing.get_origin(ann) is typing.Literal:
             ann = str
@@ -110,7 +110,7 @@ def _warn_and_reset(
     Parameters
     ----------
     cls
-        The :class:`Config` subclass — used to look up the
+        The :class:`Config` subclass, used to look up the
         secret-field-name set via :meth:`Config._secret_field_names`
         so the redaction logic stays in sync with the
         ``credential_store`` provider→field map.
@@ -120,7 +120,7 @@ def _warn_and_reset(
         The invalid value the user had on disk (used in the
         warning message for diagnosis).
     defaults
-        A default-constructed ``Config`` instance — the source
+        A default-constructed ``Config`` instance, the source
         of the fallback value.
     warnings
         The running warnings list (appended in place).
@@ -140,11 +140,11 @@ def _warn_and_reset(
     default_val = getattr(defaults, field_name)
     # redact ``val`` for secret fields so a
     # malformed-on-disk api_key value (e.g. ``"openai_api_key": 123``
-    # — an int instead of a str, which would trigger
+    # , an int instead of a str, which would trigger
     # ``_warn_and_reset`` via the str-validation branch) doesn't
     # get echoed into log files at WARNING level. Pre-fix, the
     # raw value was logged via ``{val!r}`` in the warning message
-    # — if a user had pasted a real API key as an int (unlikely
+    # , if a user had pasted a real API key as an int (unlikely
     # but possible via a botched config-restore), the key would
     # land in ``backend.log`` and any crash-diagnostic bundle.
     # The redaction preserves the diagnostic shape (type + length)
@@ -179,14 +179,14 @@ def _warn_and_coerce(
     Parameters
     ----------
     cls
-        The :class:`Config` subclass — used to look up the
+        The :class:`Config` subclass, used to look up the
         secret-field-name set so the redaction logic mirrors
         :func:`_warn_and_reset`.
     field_name
         The config field being coerced (e.g. ``"vad_threshold"``).
     val
         The original on-disk value (used in the warning message
-        for diagnosis — the user sees what they had vs. what it
+        for diagnosis, the user sees what they had vs. what it
         was coerced to).
     coerced
         The successfully-coerced value.
@@ -207,7 +207,7 @@ def _warn_and_coerce(
     # mirror the redaction in ``_warn_and_reset``
     # for secret fields. ``_warn_and_coerce`` is reached when the
     # on-disk value is coercible (e.g. ``"openai_api_key": 123``
-    # coerced to ``"123"``) — the original int value would be
+    # coerced to ``"123"``), the original int value would be
     # logged via ``{val!r}`` without this guard.
     if field_name in cls._secret_field_names():
         val_repr = f"<redacted {type(val).__name__} length={len(repr(val))}>"
@@ -221,16 +221,16 @@ def _warn_and_coerce(
 def _validate_non_numeric_fields(cls: type[Config], data: dict[str, Any]) -> dict[str, Any]:
     """Validate and coerce bool / str / int / float fields in loaded config data.
 
-    This is a migration layer — collects warnings in
+    This is a migration layer, collects warnings in
     ``data['_load_warnings']`` so the caller (load()) can surface
     them via the ``last_load_warnings`` instance attribute
-    (SCHEMA-1 / MED-I: no longer a dataclass field — see
+    (SCHEMA-1 / MED-I: no longer a dataclass field, see
     :meth:`Config.__post_init__`). Previously warnings were only
     logged; the user had no way to know their config was corrected.
 
     this is NOT a duplicate of the type coercion that
     ``cls(**data)`` would do.  Python dataclasses do NOT coerce
-    ``1`` → ``True`` or ``"true"`` → ``True`` — they store the raw
+    ``1`` → ``True`` or ``"true"`` → ``True``, they store the raw
     value as-is, which would then fail downstream type checks
     (e.g. ``isinstance(cfg.autostart, bool)`` returns False for
     ``1``).  This validator is a migration layer that fixes up
@@ -247,18 +247,18 @@ def _validate_non_numeric_fields(cls: type[Config], data: dict[str, Any]) -> dic
     per-type coercion logic is unchanged; only the field-name
     source changed. The ``optional_str_fields`` allowlist (fields
     that accept ``None`` in addition to ``str``) is preserved
-    verbatim — it captures the ``str | None`` fields whose ``None``
+    verbatim, it captures the ``str | None`` fields whose ``None``
     sentinel is meaningful (no microphone / no Qwen path / no
     Parakeet override).
 
     pre-fix the validator SKIPPED complex types
-    (``list[str]``, ``dict[str, ...]``) — only bool/str/int/float
+    (``list[str]``, ``dict[str, ...]``), only bool/str/int/float
     had explicit branches, and any other annotation fell through
     the loop body without validation. That meant a hand-edited
     config.json with ``"disabled_backends": "whisper"`` (a string
     instead of a list) would silently load as a string, then crash
     ``"whisper" in cfg.disabled_backends`` checks downstream (which
-    expect iteration over a list of strings) — or worse, succeed
+    expect iteration over a list of strings), or worse, succeed
     accidentally (``"w" in "whisper"`` returns True, masking the
     type error). The fix adds a generic ``else`` branch that uses
     ``typing.get_origin`` to extract the container type (``list``,
@@ -309,13 +309,13 @@ def _validate_non_numeric_fields(cls: type[Config], data: dict[str, Any]) -> dic
     defaults = cls()
 
     # VALID-3 (MED-L): int / float field coercion.  Mirrors the
-    # bool/str pattern — if the on-disk value is not already the
+    # bool/str pattern, if the on-disk value is not already the
     # correct type, attempt coercion; if coercion fails, reset to
     # default and add a warning so the user knows the field was
     # corrected.  Note: ``bool`` is a subclass of ``int`` in
     # Python, so we explicitly exclude bools from the int coercion
     # (a bool value for an int field is almost certainly a
-    # misconfiguration, not a legacy int-as-bool — fall through to
+    # misconfiguration, not a legacy int-as-bool, fall through to
     # the default-reset branch).
 
     for field_name, expected_type in registry.items():
@@ -376,11 +376,11 @@ def _validate_non_numeric_fields(cls: type[Config], data: dict[str, Any]) -> dic
             # VALID-3 (MED-L): int field coercion.  Accepts ints,
             # floats (truncated via int()), and numeric strings.
             # Rejects bools (bool is a subclass of int but almost
-            # certainly indicates a misconfigured field — reset to
+            # certainly indicates a misconfigured field, reset to
             # default).  Rejects anything int() can't parse (lists,
             # dicts, None, non-numeric strings).
             #
-            # ``bool`` is a subclass of ``int`` — exclude explicitly
+            # ``bool`` is a subclass of ``int``, exclude explicitly
             # so ``True``/``False`` values are treated as invalid
             # (the user probably toggled a checkbox they shouldn't
             # have).
@@ -394,11 +394,11 @@ def _validate_non_numeric_fields(cls: type[Config], data: dict[str, Any]) -> dic
                 )
                 continue
             if isinstance(val, int):
-                # Already an int (and not a bool — handled above).
+                # Already an int (and not a bool, handled above).
                 continue
             # Attempt coercion: int("42") → 42, int(3.7) → 3,
             # int("3.7") raises ValueError (int() doesn't accept
-            # float-formatted strings — fall through to the
+            # float-formatted strings, fall through to the
             # catch-all).
             try:
                 coerced = int(val)
@@ -441,7 +441,7 @@ def _validate_non_numeric_fields(cls: type[Config], data: dict[str, Any]) -> dic
                 continue
             if isinstance(val, float):
                 # NaN / Inf survive the dataclass constructor because
-                # they ARE valid Python floats — but they poison every
+                # they ARE valid Python floats, but they poison every
                 # downstream range comparison (``nan < lo`` and
                 # ``nan > hi`` both return ``False``, so a NaN value
                 # silently bypasses every ``if cfg.foo > X`` guard) and
@@ -449,7 +449,7 @@ def _validate_non_numeric_fields(cls: type[Config], data: dict[str, Any]) -> dic
                 # ``Infinity`` literals (non-standard JSON) on the next
                 # ``save()``. ``scalar._make_float_validator`` flags
                 # them with a "must be a finite number" warning, but
-                # the validator is advisory — it appends to
+                # the validator is advisory, it appends to
                 # ``last_load_warnings`` without mutating the field,
                 # so without this reset the bad value would persist on
                 # the instance and round-trip back to disk on the next
@@ -482,7 +482,7 @@ def _validate_non_numeric_fields(cls: type[Config], data: dict[str, Any]) -> dic
                     reason="had non-float value",
                 )
                 continue
-            # A coerced value can also be non-finite — e.g.
+            # A coerced value can also be non-finite: e.g.
             # ``float("inf")`` parses successfully out of a numeric
             # string, and ``float("nan")`` likewise. Guard the coerced
             # value with the same NaN/Inf reset so a hand-edited
@@ -511,7 +511,7 @@ def _validate_non_numeric_fields(cls: type[Config], data: dict[str, Any]) -> dic
             # types (``list[str]``, ``dict[str, ...]``, ``tuple[...]``,
             # etc.) that the four primitive branches above don't
             # cover. ``expected_type`` here is a ``typing`` generic
-            # alias (e.g. ``list[str]``) — ``typing.get_origin``
+            # alias (e.g. ``list[str]``), ``typing.get_origin``
             # extracts the bare container type (``list`` / ``dict``)
             # so we can ``isinstance``-check without the
             # subscripted-alias TypeError (``isinstance(x, list[str])``
@@ -533,7 +533,7 @@ def _validate_non_numeric_fields(cls: type[Config], data: dict[str, Any]) -> dic
             # continue guards below are kept as defensive code for
             # any future annotation shape that yields a multi-arg
             # union the registry doesn't unwrap (e.g.
-            # ``str | int | None`` — two non-None args, left
+            # ``str | int | None``: two non-None args, left
             # as-is by the registry's single-arg unwrap filter).
             container_origin = typing.get_origin(expected_type)
             # Skip Union / Optional (``str | None``) annotations —
@@ -552,13 +552,13 @@ def _validate_non_numeric_fields(cls: type[Config], data: dict[str, Any]) -> dic
                 # annotation directly.
                 container_origin = expected_type if isinstance(expected_type, type) else None
             if container_origin is None:
-                # Unrecognized annotation shape — skip validation
+                # Unrecognized annotation shape, skip validation
                 # (don't risk a TypeError on an exotic annotation).
                 continue
             # ``None`` is acceptable for ``T | None`` fields that
             # survived the Optional-unwrap in
             # ``_derive_field_type_registry`` (e.g. ``custom_theme``
-            # is ``dict[str, dict[str, str]] | None`` — when
+            # is ``dict[str, dict[str, str]] | None``: when
             # unwrapped, the bare ``dict[...]`` doesn't carry the
             # ``| None``, but the dataclass field's default is
             # ``None`` so a missing or null on-disk value is valid).
@@ -577,7 +577,7 @@ def _validate_non_numeric_fields(cls: type[Config], data: dict[str, Any]) -> dic
     # stash warnings so load() can surface them
     # via the ``last_load_warnings`` instance attribute.
     # APPEND to any existing ``_load_warnings`` rather
-    # than overwriting — earlier load() stages (e.g.
+    # than overwriting, earlier load() stages (e.g.
     # ``_backup_before_downgrade``) may already have populated
     # the list with non-blocking notices (e.g. "config schema is
     # newer than this build supports"). Overwriting here would

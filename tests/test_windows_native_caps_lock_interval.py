@@ -4,7 +4,7 @@ every 1.6s (200 iterations × 8ms sleep).
 
 Before AB-36, the check at ``_run_polling_loop`` was gated on
 ``_caps_check_iter % 200 == 0`` inside a loop that sleeps 8ms per
-iteration. That gave 200 × 8ms = 1600ms = 1.6s between checks — an
+iteration. That gave 200 × 8ms = 1600ms = 1.6s between checks, an
 8× discrepancy with the documented ~200ms cadence. The fix changes
 the modulus to 25 (25 × 8ms = 200ms), matching the comments.
 
@@ -90,7 +90,7 @@ def test_caps_lock_check_fires_within_30_iterations(mock_win32, monkeypatch):
     mock_user32.RegisterHotKey.return_value = 0
     mock_user32.SetWindowsHookExW.return_value = 0
 
-    # Key never pressed — we're testing the PERIODIC backup check, not
+    # Key never pressed, we're testing the PERIODIC backup check, not
     # the per-press reactive suppression. Return 0 from GetAsyncKeyState
     # so the loop's reactive ``_suppress_caps_lock_toggle`` never fires.
     mock_user32.GetAsyncKeyState.return_value = 0
@@ -116,7 +116,7 @@ def test_caps_lock_check_fires_within_30_iterations(mock_win32, monkeypatch):
     # _run_polling_loop's registration-time check) PLUS the periodic
     # call at iteration 25. So with the fix (% 25) we get ≥3 calls in
     # 30 iterations. With the old bug (% 200) we'd get exactly 2 (no
-    # periodic — iteration 200 is never reached).
+    # periodic, iteration 200 is never reached).
     assert len(ensure_calls) >= 3, (
         f"Periodic caps-lock check should fire at iteration 25 (AB-36: % 25); "
         f"expected ≥3 _ensure_caps_lock_off calls (2 proactive + ≥1 periodic) "
@@ -127,16 +127,16 @@ def test_caps_lock_check_fires_within_30_iterations(mock_win32, monkeypatch):
 
 def test_caps_lock_check_does_not_fire_before_iteration_25(mock_win32, monkeypatch):
     """AB-36 negative: in 24 iterations, the periodic check must NOT
-    fire (it fires at iteration 25). This catches a regression where
-    the modulus is too small (e.g. ``% 5`` would fire at iterations
-    5, 10, 15, 20 — 4 periodic calls in 24 iterations).
+      fire (it fires at iteration 25). This catches a regression where
+      the modulus is too small (e.g. ``% 5`` would fire at iterations
+      5, 10, 15, 20, 4 periodic calls in 24 iterations).
 
-    With the fix (``% 25``) and 24 iterations: 2 proactive calls, 0
-    periodic calls (iteration 25 not reached) → 2 total.
-    With the old bug (``% 200``) and 24 iterations: same (2 total)
-    — this test alone doesn't distinguish, but combined with
-    ``test_caps_lock_check_fires_within_30_iterations`` it pins the
-    modulus at exactly 25.
+      With the fix (``% 25``) and 24 iterations: 2 proactive calls, 0
+      periodic calls (iteration 25 not reached) → 2 total.
+      With the old bug (``% 200``) and 24 iterations: same (2 total)
+    , this test alone doesn't distinguish, but combined with
+      ``test_caps_lock_check_fires_within_30_iterations`` it pins the
+      modulus at exactly 25.
     """
     mock_user32, mock_kernel32, _ = mock_win32
     from voice_typer.server.hotkeys import WindowsNativeHotkey
@@ -160,7 +160,7 @@ def test_caps_lock_check_does_not_fire_before_iteration_25(mock_win32, monkeypat
         backend._ensure_caps_lock_off = orig_ensure  # type: ignore[assignment]
         backend.stop()
 
-    # 2 proactive calls only (no periodic — iteration 25 not reached).
+    # 2 proactive calls only (no periodic, iteration 25 not reached).
     # If the modulus were too small (e.g. % 5), we'd see > 2 calls.
     assert len(ensure_calls) == 2, (
         f"Periodic caps-lock check must NOT fire before iteration 25 "
@@ -172,7 +172,7 @@ def test_caps_lock_check_does_not_fire_before_iteration_25(mock_win32, monkeypat
 
 def test_modulus_source_code_uses_25_not_200():
     """AB-36 source-level pin: the polling loop must use ``% 25`` (200ms
-    cadence at 8ms/iter), not ``% 200`` (1.6s — the bug). This catches
+    cadence at 8ms/iter), not ``% 200`` (1.6s, the bug). This catches
     a future revert even if the behavior tests above are flaky."""
     import inspect
 
@@ -188,5 +188,5 @@ def test_modulus_source_code_uses_25_not_200():
     # The buggy modulus must NOT be present.
     assert "_caps_check_iter % 200 == 0" not in source, (
         "AB-36 regression: polling loop must NOT use `% 200` (1.6s cadence). "
-        "Found `_caps_check_iter % 200 == 0` in source — revert to `% 25`."
+        "Found `_caps_check_iter % 200 == 0` in source, revert to `% 25`."
     )

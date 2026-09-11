@@ -12,7 +12,7 @@ export interface SliderProps
 	/** Additional class name for each thumb element */
 	thumbClassName?: string;
 	/**
-	 * Labels for each thumb — forwarded as aria-label so
+	 * Labels for each thumb, forwarded as aria-label so
 	 * screen readers announce the thumb's purpose. Takes
 	 * precedence over a global aria-label when present.
 	 */
@@ -34,6 +34,15 @@ function Slider({
 	thumbClassName,
 	thumbLabels,
 	getThumbAriaValueText,
+	// Naming attributes are extracted (NOT spread onto the Root). The
+	// Radix Slider root renders a role-less span: aria-label on a
+	// role-less element is prohibited (axe `aria-prohibited-attr`),
+	// because a generic container cannot be named. The THUMB
+	// (role="slider") is the ARIA surface screen readers actually read,
+	// so the name is forwarded there (fallback below) instead of the
+	// root DOM. aria-labelledby is extracted for the same reason.
+	"aria-label": rootAriaLabel,
+	"aria-labelledby": rootAriaLabelledBy,
 	...props
 }: SliderProps) {
 	const thumbValues = props.value ?? props.defaultValue ?? [0];
@@ -43,8 +52,8 @@ function Slider({
 	// to screen readers. Surfaces the gap during development only.
 	if (
 		process.env.NODE_ENV !== "production" &&
-		!props["aria-label"] &&
-		!props["aria-labelledby"] &&
+		!rootAriaLabel &&
+		!rootAriaLabelledBy &&
 		!thumbLabels
 	) {
 		console.warn(
@@ -75,20 +84,21 @@ function Slider({
 			</SliderPrimitive.Track>
 			{Array.from({ length: thumbCount }, (_, i) => (
 				<SliderPrimitive.Thumb
-					//restored biome-ignore — the rule fires under `preset: "recommended"`. Slider thumbs have a fixed count (one per value in props.value / props.defaultValue) and never reorder; the array index is the canonical stable key for radix-ui SliderThumb.
+					//restored biome-ignore, the rule fires under `preset: "recommended"`. Slider thumbs have a fixed count (one per value in props.value / props.defaultValue) and never reorder; the array index is the canonical stable key for radix-ui SliderThumb.
 					// biome-ignore lint/suspicious/noArrayIndexKey: slider thumbs have a fixed count (one per value in props.value / props.defaultValue) and never reorder; the array index is the canonical stable key for radix-ui SliderThumb rendering.
 					key={`thumb-${i}`}
 					data-slot="slider-thumb"
 					// Per-thumb aria-label. ``thumbLabels`` takes precedence
 					// (multi-thumb sliders need distinct names like "Minimum" /
 					// "Maximum"). When ``thumbLabels`` is absent, fall back to
-					// the root ``aria-label`` so a single-thumb slider that
-					// only sets ``aria-label`` still exposes an accessible name
-					// on the focusable thumb. Radix Slider's root aria-label
-					// does not propagate to the thumb element, so without this
-					// fallback the thumb would be nameless to SRs even though
-					// the dev thinks they've labelled it.
-					aria-label={thumbLabels?.[i] ?? props["aria-label"]}
+					// the caller's root-level ``aria-label``/``aria-labelledby``
+					// so a single-thumb slider that only sets ``aria-label``
+					// still exposes an accessible name on the focusable
+					// thumb. The naming attributes are intentionally NOT
+					// rendered on the root span (see the extraction above) —
+					// the thumb (role="slider") is the only ARIA surface.
+					aria-label={thumbLabels?.[i] ?? rootAriaLabel}
+					aria-labelledby={thumbLabels ? undefined : rootAriaLabelledBy}
 					aria-valuetext={
 						getThumbAriaValueText
 							? getThumbAriaValueText(thumbValues[i] ?? 0, i)

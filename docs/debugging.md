@@ -10,7 +10,7 @@ release issues, see `RELEASING.md`.
 ## 1. Environment variables
 
 These are the env vars you'll set most often when debugging. All are
-read once at startup unless noted otherwise — set them before launching
+read once at startup unless noted otherwise, set them before launching
 the app.
 
 ### Backend (Python)
@@ -30,7 +30,7 @@ the app.
 | `VOICE_TYPER_PREWARM_EXE` | path | Override the prewarm binary path (frozen `prewarm-<triple>[.exe]`). Bypasses `resolve_prewarm_exe()`. |
 | `TAURI_SIDECAR` | `1` | Marks the process as running under the Tauri host. Skips ADR-0018 heartbeat-watchdog thread (supervisor owns liveness instead) and the Win32 single-instance mutex (Tauri `single-instance` plugin owns it). |
 
-### Frontend (Electron host — legacy default)
+### Frontend (Electron host: legacy default)
 
 > **Note:** these env vars are read by the Electron main process and
 > are **ignored under the Tauri v2 host** (ADR-0020). Under Tauri,
@@ -47,13 +47,13 @@ the app.
 ### Frontend (Vite / electron-vite)
 
 Standard Vite env vars (`VITE_*`) are exposed to the renderer via
-`import.meta.env`. None are currently defined — the renderer reads all
+`import.meta.env`. None are currently defined: the renderer reads all
 runtime config from the backend via `get_config` IPC.
 
 ## 2. Log tags
 
 The backend uses bracketed uppercase tags at the start of every log
-message — `grep` for the tag to follow one subsystem through a log
+message, `grep` for the tag to follow one subsystem through a log
 file. The most useful tags for debugging:
 
 | Tag | Subsystem |
@@ -74,7 +74,7 @@ file. The most useful tags for debugging:
 | `[AUDIO_QUALITY]` | Per-recording quality report. |
 | `[CONFIG]` | Config load / save / validation. |
 | `[HISTORY_DB]` | SQLite history database. |
-| `[CLEANUP]` | Shutdown controller — every subsystem released in order. |
+| `[CLEANUP]` | Shutdown controller: every subsystem released in order. |
 | `[CRASH]` | Crash-recovery buffer flush. |
 | `[CUDA-PROBE]` / `[CUDA-DLL]` | GPU detection + DLL loading. |
 | `[CLOUD]` | Cloud ASR / LLM HTTP transports. |
@@ -109,15 +109,15 @@ on macOS, `$XDG_DATA_HOME/voice-typer` on Linux).
 
 ## 3. faulthandler
 
-The backend enables `faulthandler` on startup (in `voice_typer/server/ipc_server.py`'s `main()` and `voice_typer/server/app.py`'s `VoiceTyperApp._enable_faulthandler()` helper — RACE-018):
+The backend enables `faulthandler` on startup (in `voice_typer/server/ipc_server.py`'s `main()` and `voice_typer/server/app.py`'s `VoiceTyperApp._enable_faulthandler()` helper: RACE-018):
 
-- `faulthandler.enable()` — prints a Python traceback to `stderr` on
+- `faulthandler.enable()` Prints a Python traceback to `stderr` on
   `SIGSEGV` / `SIGFPE` / `SIGABRT` (would otherwise produce no Python
   stack on a C-extension crash).
-- `faulthandler.dump_traceback_later(timeout, repeat=True)` — dumps all
+- `faulthandler.dump_traceback_later(timeout, repeat=True)` Dumps all
   thread tracebacks every `timeout` seconds. Used to diagnose
   deadlocks (e.g. a thread stuck holding the recorder lock).
-- `faulthandler.register(SIGUSR1)` — on POSIX, sending `SIGUSR1` to
+- `faulthandler.register(SIGUSR1)` On POSIX, sending `SIGUSR1` to
   the backend PID dumps every thread's traceback to `stderr` without
   killing the process. Use `kill -USR1 <pid>` from another terminal.
 
@@ -132,7 +132,7 @@ helps to exercise just that handler without bringing up the whole app.
 The pattern:
 
 ```python
-# tests/handlers/conftest.py already does this — copy the fixture.
+# tests/handlers/conftest.py already does this: copy the fixture.
 from voice_typer.server.handlers.config_handlers import handle_get_config
 from tests.handlers.conftest import make_app  # or build a minimal mock
 
@@ -148,7 +148,7 @@ registered in `_COMMAND_REGISTRY` (see
 without going through the TCP server.
 
 For end-to-end IPC debugging without a real Electron host, use the
-`tests/fixtures/ipc_test_helpers.py` helpers — they spin up the real
+`tests/fixtures/ipc_test_helpers.py` helpers: they spin up the real
 `IPCServer` on an ephemeral port, authenticate with a known token, and
 give you a `send(cmd)` / `recv()` pair.
 
@@ -156,25 +156,25 @@ give you a `send(cmd)` / `recv()` pair.
 
 ### "Hotkey doesn't fire"
 
-1. Check `[HOTKEY]` log lines for `native binary not found` — install
+1. Check `[HOTKEY]` log lines for `native binary not found` Install
    the compiled binary (`scripts/build/compile_native.sh`) or set
    `VOICE_TYPER_NATIVE_BINARY`.
-2. On macOS, check `check_accessibility` IPC response — if `false`,
+2. On macOS, check `check_accessibility` IPC response, if `false`,
    grant Accessibility in System Settings → Privacy & Security →
    Accessibility, then restart.
-3. On Linux, check `ls -l /dev/input/event*` — the user must be in the
+3. On Linux, check `ls -l /dev/input/event*` The user must be in the
    `input` group (`sudo usermod -aG input $USER` + re-login).
-4. If `[HOTKEY]` shows `fallback to pynput` — the native binary died
+4. If `[HOTKEY]` shows `fallback to pynput` The native binary died
    and we fell back. Check `[HOTKEY]` for the crash reason.
 
 ### "Transcription returns empty / wrong text"
 
-1. Set `VOICE_TYPER_STREAMING=0` and re-test — if the bug disappears,
+1. Set `VOICE_TYPER_STREAMING=0` and re-test: if the bug disappears,
    it's the streaming tail-merge path (see
    `docs/duplicated-text.md` for the known timestamp-drift bug).
-2. Check `[TRANSCRIPTION]` for `CUDA OOM` / `fallback to CPU` — a
+2. Check `[TRANSCRIPTION]` for `CUDA OOM` / `fallback to CPU` A
    silently-fallen-back CPU model may transcribe differently.
-3. Check `[VAD]` for `rejected as hallucination` — the hallucination
+3. Check `[VAD]` for `rejected as hallucination` The hallucination
    detector may be too aggressive on near-silence audio. Temporarily
    disable via `config.hallucination_rejection = False`.
 4. Run `tests/manual/runtime_proof.py` to verify the engine end-to-end
@@ -185,30 +185,30 @@ give you a `send(cmd)` / `recv()` pair.
 Two distinct host paths can produce an "app won't start" symptom.
  Pick the sub-path that matches the host you're running.
 
-#### Sub-path A — Electron host (legacy default)
+#### Sub-path A: Electron host (legacy default)
 
 1. Check the Electron main-process log
-   (`<DATA_DIR>/logs/electron-main.log` — see [`docs/home-directory.md`](home-directory.md)
+   (`<DATA_DIR>/logs/electron-main.log` See [`docs/home-directory.md`](home-directory.md)
    for the per-platform `<DATA_DIR>` layout) for
-   `[IPC] failed to connect` — backend didn't come up.
+   `[IPC] failed to connect` Backend didn't come up.
 2. Check the backend log (`voice-typer.log`) for `[FATAL]` /
-   `[ENV]` lines — env-var validation may have killed it before IPC
+   `[ENV]` lines: env-var validation may have killed it before IPC
    bound.
 3. Try launching the backend standalone: `python -m
    voice_typer.server.ipc_server --debug`. If it starts, the issue is in
    the Electron spawn path.
 4. Check for a stale single-instance mutex: on Windows, run
-   `tasklist | findstr voice-typer` — if a ghost process is holding
+   `tasklist | findstr voice-typer` If a ghost process is holding
    the Win32 mutex, `taskkill /F /PID <pid>` it.
 
-#### Sub-path B — Tauri host (ADR-0020)
+#### Sub-path B: Tauri host (ADR-0020)
 
 1. Check `<DATA_DIR>/logs/voice-typer.log` for
-   `{"event":"server_started","port":N}` — if absent, the sidecar
+   `{"event":"server_started","port":N}` If absent, the sidecar
    didn't bind the WebSocket.
 2. Check the Tauri devtools console (right-click → Inspect) for supervisor backoff messages.
 3. Run the sidecar standalone: `python -m voice_typer.server.ipc_server
-   --ws` — should print `{"event":"server_started","port":N}` to
+   --ws`: should print `{"event":"server_started","port":N}` to
    stdout.
 4. Set `RUST_LOG=debug` before launching the Tauri binary to get
    verbose `tokio-tungstenite` logs.
@@ -218,7 +218,7 @@ Two distinct host paths can produce an "app won't start" symptom.
 1. Check `[CLIPBOARD-SNAPSHOT]` for `snapshot captured N formats` —
    should be ≥1 on Windows / macOS. On Linux, only text is captured
    (documented limitation).
-2. Check `[CLIPBOARD]` for `restore scheduled in Xms` — the restore
+2. Check `[CLIPBOARD]` for `restore scheduled in Xms` The restore
    runs on a daemon thread after `clipboard_restore_delay_ms` (default
    150 ms). If you switch focus within that window, the restore may
    land in the wrong window.
@@ -228,7 +228,7 @@ Two distinct host paths can produce an "app won't start" symptom.
 
 ### "Crash recovery not prompting on restart"
 
-1. Check `[CRASH]` for `recovery file written` — should fire on every
+1. Check `[CRASH]` for `recovery file written` Should fire on every
    successful transcription. If absent, the crash-recovery worker
    thread died.
 2. Check `<DATA_DIR>/crash_recovery/recovery.json` —
@@ -257,10 +257,10 @@ For per-recording latency, set `VOICE_TYPER_DEBUG=1` and look for
 
 - **Logs**: always attach `<DATA_DIR>/logs/voice-typer.log` (and
   `electron-main.log` if Electron-side) to bug reports. `<DATA_DIR>` is
-  the platform-specific data directory — see [`docs/home-directory.md`](home-directory.md)
-  for the per-platform layout. Redact API keys first — the `PIIRedactionFilter`
+  the platform-specific data directory, see [`docs/home-directory.md`](home-directory.md)
+  for the per-platform layout. Redact API keys first, the `PIIRedactionFilter`
   should have already done this, but verify.
 - **Repro**: a minimal `pytest` reproduction is gold. The handler
   isolation pattern (§4) makes this tractable even for IPC bugs.
-- **Architecture**: read `docs/ARCHITECTURE.md` first — most "why does
+- **Architecture**: read `docs/ARCHITECTURE.md` first: most "why does
   X behave like Y" questions are answered there.

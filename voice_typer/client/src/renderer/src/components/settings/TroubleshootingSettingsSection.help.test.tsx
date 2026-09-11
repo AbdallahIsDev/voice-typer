@@ -41,7 +41,7 @@ function renderSection(onOpenHelp: () => void) {
 	);
 }
 
-describe("TroubleshootingSettingsSection — Keyboard Shortcuts button", () => {
+describe("TroubleshootingSettingsSection, Keyboard Shortcuts button", () => {
 	afterEach(() => {
 		cleanup();
 	});

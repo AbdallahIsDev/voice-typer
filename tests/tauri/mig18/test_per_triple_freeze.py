@@ -1,4 +1,4 @@
-"""MIG-1.8 Phase 1 — Per-triple Nuitka freeze configuration validation.
+"""MIG-1.8 Phase 1: Per-triple Nuitka freeze configuration validation.
 
 ADR-0020 §4 mandates that the Python sidecar (``voice_typer.server.ipc_server``)
 be frozen into a Nuitka ``--onefile`` binary **per Rust target triple**, because
@@ -14,10 +14,10 @@ Nuitka cannot cross-compile. The mandatory triple set (ADR-0020 §4.1) is:
 This test file validates the **structure** of the three per-platform build
 scripts + the unified wrapper:
 
-    scripts/build/build_sidecar_windows.sh   — Windows x86_64 + aarch64
-    scripts/build/build_sidecar_macos.sh     — macOS x86_64 + aarch64
-    scripts/build/build_sidecar_linux.sh     — Linux x86_64 + aarch64 (qemu cross)
-    scripts/build/nuitka_freeze.sh           — unified wrapper, dispatches by host OS
+    scripts/build/build_sidecar_windows.sh , Windows x86_64 + aarch64
+    scripts/build/build_sidecar_macos.sh   , macOS x86_64 + aarch64
+    scripts/build/build_sidecar_linux.sh   , Linux x86_64 + aarch64 (qemu cross)
+    scripts/build/nuitka_freeze.sh         , unified wrapper, dispatches by host OS
 
 The Linux sandbox CANNOT run a real Nuitka freeze for any triple (no MSVC,
 no Xcode, no python-build-standalone cpython-3.12.x+<triple>). These tests
@@ -38,14 +38,14 @@ therefore validate *configuration*:
   - the Linux + macOS scripts carry the XPLAT-3 ``ctranslate2/libs`` (plural)
     existence guard (the Windows wheel layout puts all DLLs under
     ``ctranslate2/lib`` singular, so the Windows script intentionally omits
-    the libs guard — documented as GAP-1 in tests/tauri/mig15/test_nuitka_windows_build.py),
+    the libs guard, documented as GAP-1 in tests/tauri/mig15/test_nuitka_windows_build.py),
   - the PyInstaller fallback spec (``scripts/build/voice-typer.spec``) exists
     as the safety-net build path (ADR-0020 §4.5),
   - the unified ``nuitka_freeze.sh`` wrapper dispatches to the right
     per-platform script based on the host OS.
 
 =====================================================================
-VALIDATE ON HOST — exact commands a human must run on each platform
+VALIDATE ON HOST, exact commands a human must run on each platform
 =====================================================================
 
 These commands MUST be run on a real host of the matching OS + arch; the
@@ -63,7 +63,7 @@ VALIDATE ON WINDOWS HOST (x86_64-pc-windows-msvc):
     3. pip install uv; uv venv; .venv\\Scripts\\activate
     4. uv pip install -e ".[dev,test]" nuitka==2.5.4 zstandard ordered-set
     5. Download python-build-standalone cpython-3.12.x+x86_64-pc-windows-msvc
-       to C:\\tools\\pybs\\python (install_only layout — see
+       to C:\\tools\\pybs\\python (install_only layout: see
        docs/migration/windows-validation-runbook.md §0.7 for the pinned patch)
     6. set VOICE_TYPER_PYBS_DIR=C:\\tools\\pybs
     7. bash scripts/build/build_sidecar_windows.sh x86_64
@@ -74,16 +74,16 @@ VALIDATE ON WINDOWS HOST (x86_64-pc-windows-msvc):
     9. cargo tauri build --target x86_64-pc-windows-msvc
        Expected: bundles a Windows MSI + NSIS installer embedding the sidecar.
 
-VALIDATE ON WINDOWS HOST (aarch64-pc-windows-msvc — Windows-on-ARM):
+VALIDATE ON WINDOWS HOST (aarch64-pc-windows-msvc, Windows-on-ARM):
     Same as above but: rustup default stable-aarch64-pc-windows-msvc,
     Download cpython-3.12.x+aarch64-pc-windows-msvc,
     bash scripts/build/build_sidecar_windows.sh aarch64,
     Expected: src-tauri/bin/python-sidecar-aarch64-pc-windows-msvc.exe.
-    (Run on a Windows 11 ARM64 host — qemu cross-build is NOT supported
+    (Run on a Windows 11 ARM64 host, qemu cross-build is NOT supported
      for Windows in the script.)
 
 ---------------------------------------------------------------------
-VALIDATE ON macOS HOST (aarch64-apple-darwin — Apple Silicon):
+VALIDATE ON macOS HOST (aarch64-apple-darwin, Apple Silicon):
 ---------------------------------------------------------------------
     1. xcode-select --install
     2. rustup default stable-aarch64-apple-darwin
@@ -102,7 +102,7 @@ VALIDATE ON macOS HOST (aarch64-apple-darwin — Apple Silicon):
     10. cargo tauri build --target aarch64-apple-darwin
         Expected: bundles a .app + .dmg embedding the sidecar.
 
-VALIDATE ON macOS HOST (x86_64-apple-darwin — Intel, via Rosetta 2 on Apple Silicon):
+VALIDATE ON macOS HOST (x86_64-apple-darwin, Intel, via Rosetta 2 on Apple Silicon):
     Same as above but on an Intel Mac (macos-13 runner) OR an Apple Silicon
     Mac with Rosetta 2 installed:
     rustup default stable-x86_64-apple-darwin,
@@ -120,7 +120,7 @@ VALIDATE ON LINUX HOST (x86_64-unknown-linux-gnu):
     3. pip install uv; uv venv; source .venv/bin/activate
     4. uv pip install -e ".[dev,test]" nuitka==2.5.4 zstandard ordered-set
     5. Download python-build-standalone cpython-3.12.x+x86_64-unknown-linux-gnu
-       (built against glibc 2.35 — Ubuntu 22.04 baseline, ADR-0020 §4.4)
+       (built against glibc 2.35, Ubuntu 22.04 baseline, ADR-0020 §4.4)
        to $REPO/.python-build-standalone
     6. bash scripts/build/build_sidecar_linux.sh x86_64
        Expected: src-tauri/bin/python-sidecar-x86_64-unknown-linux-gnu (~150 MB)
@@ -129,8 +129,8 @@ VALIDATE ON LINUX HOST (x86_64-unknown-linux-gnu):
     8. cargo tauri build --target x86_64-unknown-linux-gnu
        Expected: bundles a .deb + .rpm + AppImage embedding the sidecar.
 
-VALIDATE ON LINUX HOST (aarch64-unknown-linux-gnu — ARM64):
-    Option A (native aarch64 host — e.g. Ampere VM, Raspberry Pi 4):
+VALIDATE ON LINUX HOST (aarch64-unknown-linux-gnu, ARM64):
+    Option A (native aarch64 host, e.g. Ampere VM, Raspberry Pi 4):
         rustup default stable-aarch64-unknown-linux-gnu,
         Download cpython-3.12.x+aarch64-unknown-linux-gnu,
         bash scripts/build/build_sidecar_linux.sh aarch64,
@@ -145,21 +145,21 @@ VALIDATE ON LINUX HOST (aarch64-unknown-linux-gnu — ARM64):
         Verify on a real aarch64 host (qemu smoke is not authoritative).
 
 References:
-  - ADR-0020 §4   — Nuitka build per platform (authoritative).
-  - ADR-0020 §4.1 — mandatory target triple set.
-  - ADR-0020 §4.5 — common Nuitka caveats + Phase 0 verify gate.
-  - ADR-0020 §7   — Tauri externalBin naming convention.
-  - ADR-0020 §13  — per-platform signing runbooks.
-  - docs/migration/{windows,macos,linux}-validation-runbook.md — host commands.
-  - tests/tauri/mig15/test_nuitka_windows_build.py — Windows-only structure test.
-  - tests/tauri/mig16/test_nuitka_macos_build.py   — macOS-only structure test.
-  - tests/tauri/mig17/test_nuitka_linux_build.py   — Linux-only structure test.
+  - ADR-0020 §4 , Nuitka build per platform (authoritative).
+  - ADR-0020 §4.1, mandatory target triple set.
+  - ADR-0020 §4.5, common Nuitka caveats + Phase 0 verify gate.
+  - ADR-0020 §7 , Tauri externalBin naming convention.
+  - ADR-0020 §13, per-platform signing runbooks.
+  - docs/migration/{windows,macos,linux}-validation-runbook.md, host commands.
+  - tests/tauri/mig15/test_nuitka_windows_build.py. Windows-only structure test.
+  - tests/tauri/mig16/test_nuitka_macos_build.py , macOS-only structure test.
+  - tests/tauri/mig17/test_nuitka_linux_build.py . Linux-only structure test.
 
-Gaps documented (report, do NOT fix — out of scope for MIG-1.8):
+Gaps documented (report, do NOT fix, out of scope for MIG-1.8):
   - GAP-1: ``build_sidecar_windows.sh`` does NOT carry the XPLAT-3
     ``ctranslate2/libs`` (plural) existence guard. The Windows wheel
     layout puts all DLLs under ``ctranslate2/lib`` (singular), so this
-    is benign on Windows — but for XPLAT-3 pattern parity the script
+    is benign on Windows, but for XPLAT-3 pattern parity the script
     could grow a defensive ``if [[ -d "$CT2_LIBS_DIR" ]]; then ...``
     block. (Already documented in
     tests/tauri/mig15/test_nuitka_windows_build.py::test_known_gap_no_ctranslate2_libs_guard.)
@@ -276,7 +276,7 @@ def test_build_script_is_bash_syntax_valid(script: Path):
     Linux sandbox.
     """
     if not bash_usable():
-        pytest.skip("bash not available or not usable on this host — cannot run `bash -n`.")
+        pytest.skip("bash not available or not usable on this host, cannot run `bash -n`.")
     result = subprocess.run(
         ["bash", "-n", str(script)],
         capture_output=True,
@@ -387,7 +387,7 @@ def test_script_produces_correct_output_filename(
 def test_script_outputs_to_src_tauri_bin(script_texts: dict[str, str], platform: str):
     """Each script must output to ``src-tauri/bin/`` (Tauri externalBin location).
 
-    ADR-0020 §7 — Tauri's ``externalBin`` mechanism expects the sidecar
+    ADR-0020 §7, Tauri's ``externalBin`` mechanism expects the sidecar
     binary at ``src-tauri/bin/<base-name>-<triple>[.exe]`` at build time;
     the per-platform Nuitka scripts must drop their output there directly
     (no manual copy step).
@@ -422,7 +422,7 @@ def test_tauri_conf_shell_config_is_v2_valid():
     """``tauri.conf.json`` ``plugins.shell`` must be v2-valid.
 
     tauri-plugin-shell v2 accepts ONLY an ``open`` key and denies
-    unknown fields — the former v1-style ``plugins.shell.scope`` block
+    unknown fields, the former v1-style ``plugins.shell.scope`` block
     (sidecar entries + args) crashed app startup with "unknown field
     `scope`, expected `open`". The ``--ws`` spawn contract is owned by
     the spawn call sites (``src-tauri/src/sidecar/spawn.rs``), which
@@ -431,7 +431,7 @@ def test_tauri_conf_shell_config_is_v2_valid():
     conf = json.loads(TAURI_CONF.read_text(encoding="utf-8"))
     shell = conf.get("plugins", {}).get("shell")
     assert shell == {"open": False}, (
-        "tauri.conf.json `plugins.shell` must be exactly {'open': false} — "
+        "tauri.conf.json `plugins.shell` must be exactly {'open': false}, "
         "tauri-plugin-shell v2 rejects 'sidecar'/'scope' keys at startup "
         f"('unknown field `scope`, expected `open`'); got {shell!r}"
     )
@@ -459,14 +459,14 @@ def test_script_pins_cpython_3_12(script_texts: dict[str, str], platform: str):
     """Each script must pin to ``cpython-3.12.x`` (NOT 3.13+).
 
     ADR-0020 §4.2: "Pin the build interpreter to python-build-standalone
-    cpython-3.12.x (matches faster-whisper / ctranslate2 wheel tags — do
+    cpython-3.12.x (matches faster-whisper / ctranslate2 wheel tags, do
     NOT use 3.13+ yet)." Each per-platform script's header + interpreter
     discovery must reference cpython-3.12 explicitly.
     """
     text = script_texts[platform]
     assert "cpython-3.12" in text, (
         f"build_sidecar_{platform}.sh must reference cpython-3.12.x "
-        "(ADR-0020 §4.2 — wheel-tag compatibility with faster_whisper + "
+        "(ADR-0020 §4.2, wheel-tag compatibility with faster_whisper + "
         "ctranslate2; do NOT use 3.13+ yet)."
     )
 
@@ -492,13 +492,13 @@ def test_script_contains_expected_nuitka_flag(script_texts: dict[str, str], plat
     """Each per-platform script must include every ADR-0020 §4-mandated Nuitka flag.
 
     These flags are the common set required on ALL three platforms:
-      - ``--standalone --onefile``   — single self-extracting binary
-      - ``--assume-yes-for-downloads`` — non-interactive CI builds
-      - ``--enable-plugin=numpy``    — numpy hidden imports (faster_whisper dep)
-      - ``--include-package=faster_whisper`` — the ASR engine
-      - ``--include-package=ctranslate2``    — the inference backend
-      - ``--include-package=voice_typer``    — the app package
-      - ``--include-package=websockets``     — the WS server transport
+      - ``--standalone --onefile`` , single self-extracting binary
+      - ``--assume-yes-for-downloads``, non-interactive CI builds
+      - ``--enable-plugin=numpy``  , numpy hidden imports (faster_whisper dep)
+      - ``--include-package=faster_whisper``, the ASR engine
+      - ``--include-package=ctranslate2``  , the inference backend
+      - ``--include-package=voice_typer``  , the app package
+      - ``--include-package=websockets``   , the WS server transport
     """
     assert flag in script_texts[platform], (
         f"build_sidecar_{platform}.sh is missing required Nuitka flag `{flag}`. "
@@ -531,7 +531,7 @@ def test_script_includes_ctranslate2_data_dir(script_texts: dict[str, str], plat
 def test_script_entry_point_is_ipc_server(script_texts: dict[str, str], platform: str):
     """The Nuitka entry point must be ``voice_typer/server/ipc_server.py``.
 
-    ADR-0020 §4 — this is the same entry point used by the Electron path +
+    ADR-0020 §4, this is the same entry point used by the Electron path +
     the dev sidecar; only the freeze tool changes.
     """
     assert "voice_typer/server/ipc_server.py" in script_texts[platform], (
@@ -565,14 +565,14 @@ def test_script_verifies_output_after_build(script_texts: dict[str, str], platfo
 def test_script_includes_faster_whisper_package(script_texts: dict[str, str], platform: str):
     """``--include-package=faster_whisper`` must be present (explicit re-assertion).
 
-    ADR-0020 §4.2 / §4.3 / §4.4 all mandate this flag — faster_whisper is
+    ADR-0020 §4.2 / §4.3 / §4.4 all mandate this flag, faster_whisper is
     the ASR engine and is lazy-imported inside the server, so Nuitka's
     auto-discovery does NOT pick it up. Without this flag, the frozen
     binary crashes at first transcription request.
     """
     assert "--include-package=faster_whisper" in script_texts[platform], (
         f"build_sidecar_{platform}.sh must --include-package=faster_whisper "
-        "(lazy-imported ASR engine — Nuitka will not auto-discover it)."
+        "(lazy-imported ASR engine, Nuitka will not auto-discover it)."
     )
 
 
@@ -580,13 +580,13 @@ def test_script_includes_faster_whisper_package(script_texts: dict[str, str], pl
 def test_script_includes_ctranslate2_package(script_texts: dict[str, str], platform: str):
     """``--include-package=ctranslate2`` must be present (explicit re-assertion).
 
-    ADR-0020 §4.2 / §4.3 / §4.4 all mandate this flag — ctranslate2 is
+    ADR-0020 §4.2 / §4.3 / §4.4 all mandate this flag, ctranslate2 is
     the inference backend used by faster_whisper and is lazy-imported,
     so Nuitka's auto-discovery does NOT pick it up.
     """
     assert "--include-package=ctranslate2" in script_texts[platform], (
         f"build_sidecar_{platform}.sh must --include-package=ctranslate2 "
-        "(lazy-imported inference backend — Nuitka will not auto-discover it)."
+        "(lazy-imported inference backend, Nuitka will not auto-discover it)."
     )
 
 
@@ -641,7 +641,7 @@ def test_macos_script_has_xplat3_ctranslate2_libs_guard(script_texts: dict[str, 
 def test_windows_script_known_gap_no_ctranslate2_libs_guard(script_texts: dict[str, str]):
     """BUILD-2 fix: the Windows script now HAS the ctranslate2/libs guard.
 
-    Previously a KNOWN GAP — the Windows script only included the singular
+    Previously a KNOWN GAP, the Windows script only included the singular
     ``lib/`` with no guard for the optional ``libs/`` dir. BUILD-2 added
     the guard (mirroring the Linux + macOS XPLAT-3 pattern). This test
     now ASSERTS the guard IS present.
@@ -687,7 +687,7 @@ def test_pyinstaller_fallback_spec_exists():
 def test_pyinstaller_fallback_spec_references_target_triple():
     """The PyInstaller fallback spec must compute the target triple.
 
-    ADR-0020 §4.5 — when ``VOICE_TYPER_TAURI_SIDECAR=1``, the spec must
+    ADR-0020 §4.5, when ``VOICE_TYPER_TAURI_SIDECAR=1``, the spec must
     emit ``python-sidecar-<triple>[.exe]`` (same filename pattern as the
     Nuitka scripts) so the resulting binary can be dropped into
     ``src-tauri/bin/`` and Tauri's ``externalBin`` mechanism picks it up
@@ -720,7 +720,7 @@ def test_pyinstaller_fallback_spec_uses_same_entry_point():
     text = PYINSTALLER_SPEC.read_text(encoding="utf-8")
     assert "voice_typer" in text and "ipc_server.py" in text, (
         "voice-typer.spec must use voice_typer/server/ipc_server.py as the "
-        "entry point (identical to the Nuitka scripts — ADR-0020 §4.5)."
+        "entry point (identical to the Nuitka scripts, ADR-0020 §4.5)."
     )
 
 
@@ -733,7 +733,7 @@ def test_nuitka_freeze_wrapper_exists_and_is_valid_bash():
     """
     assert NUITKA_FREEZE_WRAPPER.is_file(), f"missing unified Nuitka freeze wrapper: {NUITKA_FREEZE_WRAPPER}"
     if not bash_usable():
-        pytest.skip("bash not available or not usable on this host — cannot run `bash -n`.")
+        pytest.skip("bash not available or not usable on this host, cannot run `bash -n`.")
     result = subprocess.run(
         ["bash", "-n", str(NUITKA_FREEZE_WRAPPER)],
         capture_output=True,
@@ -746,7 +746,7 @@ def test_nuitka_freeze_wrapper_exists_and_is_valid_bash():
 def test_nuitka_freeze_wrapper_dispatches_to_per_platform_scripts():
     """The wrapper must dispatch to ``build_sidecar_<host>.sh`` based on host OS.
 
-    ADR-0020 §4 — Nuitka cannot cross-compile, so the wrapper detects the
+    ADR-0020 §4, Nuitka cannot cross-compile, so the wrapper detects the
     host OS (Darwin → macos, MINGW/MSYS/CYGWIN → windows, Linux → linux)
     + dispatches to the matching per-platform script with the target arch
     as the positional arg.
@@ -776,7 +776,7 @@ def test_nuitka_freeze_wrapper_dispatches_to_per_platform_scripts():
 def test_nuitka_freeze_wrapper_documents_pyinstaller_fallback():
     """The wrapper docstring must point at the PyInstaller fallback spec.
 
-    ADR-0020 §4.5 — the PyInstaller fallback is the safety-net path. The
+    ADR-0020 §4.5, the PyInstaller fallback is the safety-net path. The
     unified wrapper's docstring should reference it so an operator who
     hits a Nuitka failure on a single triple knows where to fall back.
     """

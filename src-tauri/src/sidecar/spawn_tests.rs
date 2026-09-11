@@ -1,4 +1,4 @@
-//! Sibling tests for `sidecar::spawn` (per C-TEST-5 — sibling test
+//! Sibling tests for `sidecar::spawn` (per C-TEST-5, sibling test
 //! file, no inline tests in production source).
 //!
 //! Covers three areas:
@@ -19,7 +19,7 @@
 //!   hidden autostart launches the app) must cross the
 //!   `.env_clear()` boundary so the sidecar's hidden-start privacy
 //!   gates (the recorder prewarm's mic-InputStream gate) see the same
-//!   launch state as the host window — otherwise the gate is inert on
+//!   launch state as the host window, otherwise the gate is inert on
 //!   the Tauri runtime (it only worked on Electron/dev, where the TS
 //!   spawner spreads the full host env).
 //! - **Pre-existing `parse_server_started` + `is_shutting_down` tests**
@@ -44,7 +44,7 @@ fn test_passthrough_env_allowlist_includes_xdg_session_type() {
     // SAFETY: this test mutates the process env; cargo test runs tests
     // in parallel by default, so we use a unique value + a slightly
     // unique var name pattern to avoid races. The XDG_SESSION_TYPE
-    // var is the one we're testing — there's no way around setting it.
+    // var is the one we're testing, there's no way around setting it.
     let sentinel = "vt-spawn-test-xdg-session-type";
     std::env::set_var("XDG_SESSION_TYPE", sentinel);
     let envs = passthrough_env_allowlist();
@@ -88,7 +88,7 @@ fn test_passthrough_env_allowlist_includes_xdg_current_desktop() {
 /// The pre-existing LINUX_GUI vars (`DISPLAY`, `WAYLAND_DISPLAY`,
 /// `XDG_RUNTIME_DIR`, `XDG_DATA_HOME`, `XDG_CONFIG_HOME`,
 /// `DBUS_SESSION_BUS_ADDRESS`) must STILL be in the allowlist after
-/// the allowlist fix (regression guard — the fix ADDED two vars, didn't
+/// the allowlist fix (regression guard, the fix ADDED two vars, didn't
 /// replace the list).
 #[cfg(target_os = "linux")]
 #[test]
@@ -153,7 +153,7 @@ fn test_parse_server_started_port_zero() {
     // has successfully bound a real port never reports 0 in the
     // `server_started` handshake (the value comes from
     // `socket.getsockname()[1]` AFTER bind succeeds). A `port: 0` is
-    // always a bug — returning None forces the spawn loop to time out
+    // always a bug: returning None forces the spawn loop to time out
     // and surface a clear error rather than handing 0 back to
     // `reconnect_ws` which would dial `127.0.0.1:0` and get an
     // unrelated OS-assigned connection.
@@ -296,7 +296,7 @@ fn test_passthrough_env_allowlist_excludes_unrelated_vars() {
     // A sentinel "secret" env var set in the host process
     // must NOT appear in the allowlist (regression guard for the
     // env_clear + allowlist pattern). We set it via std::env::set_var
-    // for the duration of this test — Cargo runs tests in the same
+    // for the duration of this test, Cargo runs tests in the same
     // process by default, so the var is visible to
     // passthrough_env_allowlist's std::env::vars_os() walk.
     //
@@ -322,7 +322,7 @@ fn test_passthrough_env_allowlist_excludes_unrelated_vars() {
 
 #[test]
 fn test_passthrough_env_allowlist_includes_path() {
-    // PATH is in the ALWAYS list — it must be present (the sidecar
+    // PATH is in the ALWAYS list, it must be present (the sidecar
     // needs it to find `python3` / native hotkey binaries).
     let allowlist = passthrough_env_allowlist();
     let names: Vec<String> = allowlist
@@ -346,7 +346,7 @@ fn test_passthrough_env_allowlist_includes_lc_categories_when_set() {
     // the allowlist (locale category pass-through). When unset,
     // the allowlist must NOT contain it (no spurious empty values).
     let lc_all = "VOICE_TYPER_PI2_LC_ALL_DOES_NOT_EXIST";
-    // Sanity: lc_all is not a real LC_* var name — use a real one.
+    // Sanity: lc_all is not a real LC_* var name, use a real one.
     let real_lc = "LC_ALL";
     let was_set = std::env::var_os(real_lc).is_some();
     if !was_set {
@@ -402,7 +402,7 @@ fn test_passthrough_env_allowlist_no_duplicates() {
 // when a hidden autostart launches the app. The sidecar spawn paths
 // `.env_clear()` the host env, so without an explicit forward the flag
 // dies at the host→sidecar boundary and the backend's hidden-start
-// privacy gates (the recorder prewarm's mic-InputStream gate — opening
+// privacy gates (the recorder prewarm's mic-InputStream gate, opening
 // a stream lights the OS mic indicator while the user has not shown
 // the UI) never fire on the Tauri runtime.
 
@@ -421,7 +421,7 @@ fn test_vt_start_hidden_env_forwards_host_flag_verbatim() {
     // flag into other tests.
     let original = std::env::var_os("VT_START_HIDDEN");
 
-    // Phase 1: the autostart case — host has VT_START_HIDDEN=1. The
+    // Phase 1: the autostart case, host has VT_START_HIDDEN=1. The
     // helper must yield the EXACT env pair (name pinned as a literal so
     // a rename on either side of the cross-language contract fails
     // here instead of no-opping in production, mirroring the
@@ -435,7 +435,7 @@ fn test_vt_start_hidden_env_forwards_host_flag_verbatim() {
     );
 
     // Phase 2: a non-"1" host value must forward VERBATIM, not be
-    // normalized — the `== "1"` semantics live in the consumers on
+    // normalized: the `== "1"` semantics live in the consumers on
     // BOTH sides of the boundary (the host's window bootstrap and the
     // sidecar's recorder prewarm), so forwarding as-is keeps host and
     // sidecar in lockstep for any other value (e.g. an explicit `0`).
@@ -446,7 +446,7 @@ fn test_vt_start_hidden_env_forwards_host_flag_verbatim() {
         "a non-1 host value must forward verbatim (no normalization)"
     );
 
-    // Phase 3: the normal-launch case — host has no VT_START_HIDDEN,
+    // Phase 3: the normal-launch case, host has no VT_START_HIDDEN,
     // so the helper must forward NOTHING (empty `.envs()` iterator →
     // the sidecar env stays free of the flag and visible launches
     // behave exactly as before).
@@ -468,7 +468,7 @@ fn test_vt_start_hidden_env_forwards_host_flag_verbatim() {
 // Python side parses (voice_typer/server/startup_timeline.py). The
 // Python side treats absent markers as "skip the Launch timeline
 // line", so a missing or renamed marker disables the startup-latency
-// attribution SILENTLY — only these tests catch the drift.
+// attribution SILENTLY: only these tests catch the drift.
 
 /// Both markers must be present with the EXACT names the Python side
 /// expects (BOOT_EPOCH_ENV / SPAWN_EPOCH_ENV in startup_timeline.py).
@@ -482,14 +482,14 @@ fn test_sidecar_timeline_envs_contains_both_markers() {
     assert!(
         names.contains(&"VOICE_TYPER_BOOT_EPOCH_MS"),
         "sidecar spawn env must set VOICE_TYPER_BOOT_EPOCH_MS (host boot \
-         marker — without it the Python side skips the Launch timeline \
+         marker: without it the Python side skips the Launch timeline \
          line); actual env keys: {:?}",
         names
     );
     assert!(
         names.contains(&"VOICE_TYPER_SPAWN_EPOCH_MS"),
         "sidecar spawn env must set VOICE_TYPER_SPAWN_EPOCH_MS (spawn \
-         marker — without it the Python side skips the Launch timeline \
+         marker: without it the Python side skips the Launch timeline \
          line); actual env keys: {:?}",
         names
     );
@@ -498,8 +498,8 @@ fn test_sidecar_timeline_envs_contains_both_markers() {
 /// Marker values must be decimal epoch MILLISECONDS: parseable as
 /// u64, boot ≤ spawn (the boot marker is recorded once at host start,
 /// the spawn marker is read at call time), and the spawn marker within
-/// 60s of the test's own wall clock (a wrong unit — e.g. seconds
-/// instead of ms — would be off by ~1000× and fail the drift check).
+/// 60s of the test's own wall clock (a wrong unit, e.g. seconds
+/// instead of ms: would be off by ~1000× and fail the drift check).
 #[test]
 fn test_sidecar_timeline_envs_values_are_epoch_ms() {
     let envs = crate::startup_timeline::sidecar_timeline_envs();
@@ -524,7 +524,7 @@ fn test_sidecar_timeline_envs_values_are_epoch_ms() {
     let drift = spawn.abs_diff(now_ms);
     assert!(
         drift <= 60_000,
-        "spawn marker drifted {}ms from the test's wall clock — the \
+        "spawn marker drifted {}ms from the test's wall clock: the \
          value must be epoch MILLISECONDS (Python divides by 1000.0)",
         drift
     );
@@ -532,7 +532,7 @@ fn test_sidecar_timeline_envs_values_are_epoch_ms() {
 
 /// Compile-time contract: the guarded cold-start entry point that
 /// `main.rs` spawns exists under its documented name (rename/delete
-/// breaks the main.rs wiring at COMPILE time — this mirrors the
+/// breaks the main.rs wiring at COMPILE time, this mirrors the
 /// `test_worker_spawn_stubs_exist` name-binding pattern).
 #[test]
 fn test_initialize_sidecar_guarded_exists() {
@@ -541,7 +541,7 @@ fn test_initialize_sidecar_guarded_exists() {
 
 // ── shutting_down check in spawn loops ────────────────────────
 
-/// `is_shutting_down(None)` must return `false` — the cold-start
+/// `is_shutting_down(None)` must return `false`: the cold-start
 /// path (called from `main.rs`) does not pass a shutting_down
 /// flag, so the spawn loop runs to completion (the post-spawn
 /// `shutting_down.load()` re-check in `main.rs` handles the
@@ -568,7 +568,7 @@ fn test_is_shutting_down_some_false_returns_false() {
     );
 }
 
-/// `is_shutting_down(Some(&true_flag))` must return `true` — the
+/// `is_shutting_down(Some(&true_flag))` must return `true`, the
 /// supervisor's respawn path passes a real flag that flips to
 /// `true` when the host is shutting down. The spawn loop must
 /// short-circuit (kill the freshly-spawned child + return
@@ -594,12 +594,12 @@ fn test_is_shutting_down_observes_concurrent_flip() {
     assert!(!is_shutting_down(Some(&flag)));
     // Simulate `shutdown_sidecar_for_exit` flipping the flag.
     flag.store(true, Ordering::SeqCst);
-    // After the flip: true — the spawn loop's next iteration
+    // After the flip: true, the spawn loop's next iteration
     // would short-circuit.
     assert!(is_shutting_down(Some(&flag)));
 }
 
-// ── Worker spawn (Phase 2b — runtime-pack split, §7) ───────────────
+// ── Worker spawn (Phase 2b, runtime-pack split, §7) ───────────────
 //
 // These tests cover the worker spawn slice: `parse_worker_started`
 // (the pure stdout-handshake parser) + the `WorkerState` struct. The
@@ -663,7 +663,7 @@ fn test_parse_worker_started_invalid_json() {
 // BOTH worker spawn paths (release + dev) pass the same three explicit
 // env pairs after `.env_clear()` + the OS-required allowlist. A missing
 // or renamed pair breaks the worker SILENTLY from the host's view (the
-// Python side refuses to start without the token — EXIT_NO_TOKEN; a
+// Python side refuses to start without the token, EXIT_NO_TOKEN; a
 // wrong config dir changes which `fast_startup` / log location the
 // worker reads).
 
@@ -695,7 +695,7 @@ fn test_worker_shared_env_carries_the_worker_contract() {
 }
 
 /// The session-id pair must carry the process-wide join key (stable
-/// per process via OnceLock — the worker's log lines correlate with the
+/// per process via OnceLock: the worker's log lines correlate with the
 /// host + sidecar through it).
 #[test]
 fn test_worker_shared_env_session_id_matches_host_session() {
@@ -711,7 +711,7 @@ fn test_worker_shared_env_session_id_matches_host_session() {
     );
 }
 
-/// The config-dir pair must be a usable (non-empty) path — an empty
+/// The config-dir pair must be a usable (non-empty) path, an empty
 /// value would make the worker resolve its config against the process
 /// CWD instead of the shared config dir.
 #[test]
@@ -754,7 +754,7 @@ fn test_try_claim_restart_slot_serializes_concurrent_verified_events() {
     );
 }
 
-/// `WorkerState::new()` must initialize `child` to `None` — the worker
+/// `WorkerState::new()` must initialize `child` to `None`, the worker
 /// child handle is installed lazily by `initialize_worker` after the
 /// pack is downloaded + verified (Phase 2b). A non-`None` default would
 /// cause `shutdown_worker_for_exit` (TBD) to attempt killing a
@@ -769,7 +769,7 @@ fn test_worker_state_new_child_is_none() {
     );
 }
 
-/// `WorkerState::new()` must initialize `ws_tx` to `None` — the WS
+/// `WorkerState::new()` must initialize `ws_tx` to `None`, the WS
 /// writer channel is installed by `reconnect_worker_ws` (TBD, parallel
 /// to `sidecar::ws::reconnect_ws`) after the worker's `server_started`
 /// handshake completes.
@@ -823,7 +823,7 @@ fn test_worker_state_new_next_id_and_ws_generation() {
 }
 
 /// `WorkerState::new()` must initialize `auth_token` + `lock_file_path`
-/// `OnceLock`s to the empty state — they're populated lazily on first
+/// `OnceLock`s to the empty state, they're populated lazily on first
 /// worker spawn (`initialize_worker` calls `OnceLock::set`).
 /// `OnceLock::get` returns `None` until `set` is called.
 #[test]
@@ -840,7 +840,7 @@ fn test_worker_state_new_auth_token_and_lock_file_empty() {
 }
 
 /// `WorkerState::default()` must produce the same field values as
-/// `WorkerState::new()` — the `Default` impl delegates to `new()`.
+/// `WorkerState::new()`, the `Default` impl delegates to `new()`.
 /// Callers that construct `WorkerState` via `default()` (e.g. a future
 /// `app.manage(WorkerState::default())` in `main.rs`) must get the
 /// same initial state as explicit `new()` callers.
@@ -883,6 +883,6 @@ fn test_worker_spawn_stubs_exist() {
     // compile (E0425: cannot find function).
     let _spawn_fn = spawn_worker_and_get_port_with_shutdown;
     let _init_fn = initialize_worker;
-    // Reaching this line means both stub symbols resolved — the
+    // Reaching this line means both stub symbols resolved, the
     // Phase 2a scaffolding is in place.
 }

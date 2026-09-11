@@ -2,10 +2,10 @@
 // `pages/Dashboard.tsx`.
 //
 // These helpers render human-facing strings (day-of-week abbreviations
-// for chart tick labels). They have no React dependency — `t` resolves
+// for chart tick labels). They have no React dependency, `t` resolves
 // the active i18n locale at call time.
 //
-// This module imports ONLY from `@/i18n/i18n` — in particular it does
+// This module imports ONLY from `@/i18n/i18n`, in particular it does
 // NOT import from `./streaks`, so no import cycle can form between the
 // two dashboard lib modules (`./streaks` imports `dayAbbr` from here).
 
@@ -16,7 +16,7 @@ export function dayAbbr(dateStr: string): string {
 	try {
 		const label = weekdayLabel(new Date(dateStr).getDay());
 		// noUncheckedIndexedAccess: weekdayLabel returns "" for an
-		// out-of-range index — fall back to the original input string so
+		// out-of-range index, fall back to the original input string so
 		// we never lie about the return type.
 		return label || dateStr;
 	} catch {

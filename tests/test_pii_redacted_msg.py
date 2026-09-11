@@ -13,7 +13,7 @@ Idempotence guard: the SAME ``PIIRedactionFilter`` instance is attached
 to BOTH the file handler and the stderr handler (SEC-003), and Python's
 logging fires handler filters once per handler on the SAME LogRecord.
 The guard at the top of ``filter`` accepts an already-redacted record
-(``redacted_msg`` set) WITHOUT re-running the scan — one full scan per
+(``redacted_msg`` set) WITHOUT re-running the scan, one full scan per
 record instead of one per handler. The ``TestFilterIdempotence`` class
 below pins that: the internal scan runs exactly once for a record
 passing through the filter twice, and the second pass is a no-op that
@@ -152,7 +152,7 @@ class TestFilterIdempotence:
     def test_redacted_msg_none_still_gets_full_scan(self):
         """A record without the sentinel attribute gets the full scan.
 
-        The guard checks ``is not None`` — a fresh LogRecord (no
+        The guard checks ``is not None``, a fresh LogRecord (no
         ``redacted_msg``) must always be scrubbed, never skipped."""
         from voice_typer.server.security import PIIRedactionFilter
 

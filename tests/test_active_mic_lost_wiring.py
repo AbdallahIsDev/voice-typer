@@ -51,7 +51,7 @@ def _make_app_with_mock_recorder(mic_id: str | None = "5") -> MagicMock:
     app = MagicMock()
     app.recorder.recording = False
     app.recorder._devices._mic_watcher = MagicMock()
-    # ``recorder.on_device_lost`` is normally a plain attribute — pre-fix
+    # ``recorder.on_device_lost`` is normally a plain attribute, pre-fix
     # it didn't exist. The fix sets it; tests verify the assignment.
     # Remove any pre-existing value so the test asserts the fix SET it.
     for attr in ("on_device_lost",):
@@ -80,7 +80,7 @@ def _assert_bound_methods_equal(actual, expected, msg: str = "") -> None:
     """Assert two bound methods refer to the same (instance, function).
 
     Python creates a fresh ``bound method`` object on each attribute
-    access — ``ctrl._on_device_lost`` returns a NEW bound method each
+    access: ``ctrl._on_device_lost`` returns a NEW bound method each
     time. So ``actual is expected`` is always False even when both
     refer to the same underlying function on the same instance. We
     compare ``__self__`` and ``__func__`` instead.
@@ -99,7 +99,7 @@ def _assert_bound_methods_equal(actual, expected, msg: str = "") -> None:
 
 
 @pytest.mark.skip(
-    reason="RecordingController wiring API changed — _on_device_lost / "
+    reason="RecordingController wiring API changed, _on_device_lost / "
     "_cancel_on_mic_lost / _mic_device_id_provider were renamed to "
     "on_device_lost / on_active_mic_lost / _list_active_mic_ids; "
     "these init-time wiring tests pin the old private names."
@@ -158,7 +158,7 @@ class TestInitWiring:
         )
 
     def test_init_wiring_is_no_op_when_no_mic_watcher(self):
-        """DJ-65: the wiring is defensive — if the recorder has no
+        """DJ-65: the wiring is defensive, if the recorder has no
         ``_mic_watcher`` (the OS watcher failed to start), the init
         wiring silently skips the watcher-side calls but STILL binds
         ``on_device_lost``.
@@ -185,7 +185,7 @@ class TestStartWiring:
     ``recorder.start()`` succeeds."""
 
     @pytest.mark.skip(
-        reason="RecordingController wiring API changed — _start_impl now "
+        reason="RecordingController wiring API changed, _start_impl now "
         "passes recorder._effective_device (the actually-opened "
         "device) to set_active_mic_id, not the configured "
         "app.config.microphone value."
@@ -293,7 +293,7 @@ class TestStopUnwiring:
         )
 
     @pytest.mark.skip(
-        reason="RecordingController wiring API changed — _stop_impl now "
+        reason="RecordingController wiring API changed, _stop_impl now "
         "calls set_active_mic_id(None) AFTER recorder.stop() "
         "(not before), and may call it many times from the audio "
         "worker cleanup path; the strict before-recorder-stop "
@@ -382,7 +382,7 @@ class TestCancelUnwiring:
 
 
 @pytest.mark.skip(
-    reason="RecordingController wiring API changed — _cancel_on_mic_lost "
+    reason="RecordingController wiring API changed, _cancel_on_mic_lost "
     "/ _on_device_lost / _mic_device_id_provider were renamed to "
     "on_active_mic_lost / on_device_lost / _list_active_mic_ids; "
     "these callback-behavior tests reference the old private names."
@@ -394,7 +394,7 @@ class TestCallbackBehavior:
         """``_cancel_on_mic_lost`` (the watcher-side callback) must:
         (1) show a "microphone disconnected" tray notification, and
         (2) defer ``_cancel_dictation`` via ``_schedule_timer(0, ...)``
-            (NOT call cancel directly — would race Recorder._lock).
+            (NOT call cancel directly, would race Recorder._lock).
         """
         app = _make_app_with_mock_recorder()
         ctrl = _make_full_controller(app)
@@ -423,7 +423,7 @@ class TestCallbackBehavior:
         # Cancel was deferred via _schedule_timer(0, ...).
         assert scheduled, (
             "DJ-65: _cancel_on_mic_lost must defer the cancel via "
-            "_schedule_timer(0, ...) — must NOT call cancel() directly."
+            "_schedule_timer(0, ...), must NOT call cancel() directly."
         )
         assert scheduled[0][0] == 0, f"DJ-65: defer delay must be 0; got {scheduled[0][0]}"
         assert scheduled[0][1] == app._cancel_dictation
@@ -453,7 +453,7 @@ class TestCallbackBehavior:
             f"DJ-65: notification must mention 'microphone'; got: {notification_text!r}"
         )
         assert scheduled, (
-            "DJ-65: _on_device_lost must defer the stop via _schedule_timer(0, ...) — must NOT call stop() directly."
+            "DJ-65: _on_device_lost must defer the stop via _schedule_timer(0, ...), must NOT call stop() directly."
         )
         assert scheduled[0][0] == 0
         assert scheduled[0][1] == app._stop_dictation
@@ -479,7 +479,7 @@ class TestCallbackBehavior:
         provider falls back to the cached ``_microphones`` list.
         """
         app = _make_app_with_mock_recorder()
-        # No ``list_microphones`` attribute — the mock won't have one
+        # No ``list_microphones`` attribute, the mock won't have one
         # by default, but MagicMock auto-creates one. Explicitly delete.
         if hasattr(app, "list_microphones"):
             delattr(app, "list_microphones")

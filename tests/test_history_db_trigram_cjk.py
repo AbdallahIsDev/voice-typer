@@ -10,11 +10,11 @@ consulted ONLY for queries containing CJK/fullwidth characters.
 Contracts pinned here:
 
 1. Queries with a CJK/fullwidth char, length >= 3, take the trigram
-   MATCH path (indexed — verified by monkeypatching the LIKE fallback
+   MATCH path (indexed, verified by monkeypatching the LIKE fallback
    to raise and asserting search still works).
 2. 1-2 char CJK queries keep the LIKE path (the trigram tokenizer only
    indexes 3-char substrings, so a shorter MATCH would SILENTLY match
-   nothing — verified against SQLite 3.50).
+   nothing, verified against SQLite 3.50).
 3. Results are identical to the LIKE path (same rows, same order, same
    pagination, same literal wildcard semantics).
 4. Both shadow indexes stay in lockstep at every GDPR rebuild/optimize
@@ -66,7 +66,7 @@ class TestSchemaV5Migration:
         assert _fts_cjk_table_exists(db), "schema V5 must create the transcriptions_fts_cjk trigram index"
 
     def test_migration_backfills_existing_rows(self, db):
-        """The V5 backfill ('rebuild') must index pre-existing rows — a
+        """The V5 backfill ('rebuild') must index pre-existing rows, a
         CJK query must find rows inserted before the migration conceptually ran."""
         texts = [r["text"] for r in db.search("你好吗")]
         assert "今天你好吗" in texts
@@ -226,7 +226,7 @@ class TestGdprLockstep:
     def test_delete_purges_both_shadow_indexes(self, db):
         """After delete(id), the trigram index must no longer surface
         the deleted row (the trigger hides it; the optimize purges the
-        segment data — this asserts the SEARCH contract)."""
+        segment data, this asserts the SEARCH contract)."""
         rows = db.search("今天你好吗")
         target_id = rows[0]["id"]
         assert db.delete(target_id) is True
@@ -259,7 +259,7 @@ class TestGdprLockstep:
                 src = inspect.getsource(func.__call__)  # type: ignore[misc]
             assert "transcriptions_fts_cjk" in src, (
                 f"{name} does not issue its FTS command to the trigram CJK "
-                "index — GDPR erasure and index liveness drift out of lockstep"
+                "index, GDPR erasure and index liveness drift out of lockstep"
             )
 
 

@@ -8,13 +8,13 @@ then, we use the English fallback defined here in ``_INITIAL_LABELS``.
 Naming convention (kept stable so the renderer can override keys
 verbatim):
 
-* ``notify.<module>.<context>`` — bodies/titles passed to
+* ``notify.<module>.<context>``: bodies/titles passed to
   ``tray.notify`` / ``tray.notify_safety``. May contain ``{name}``
   format placeholders.
-* ``state.<value>`` — AppState value labels surfaced in the tray
+* ``state.<value>``: AppState value labels surfaced in the tray
   tooltip (``state.recording`` etc.). Match the lowercase enum values
   in :class:`voice_typer.server.tray_types.AppState`.
-* ``state.<module>.<context>`` — per-call ``set_state`` messages
+* ``state.<module>.<context>``: per-call ``set_state`` messages
   (e.g. ``state.recording_controller.loading_queued``).
 
 The ``tray.py`` module keeps its own ``_TRAY_LABELS_EN`` / ``_TRAY_LABELS_ES``
@@ -49,14 +49,14 @@ _REGISTRY: dict[str, dict[str, str]] = {DEFAULT_LOCALE: {}}
 # ─── English fallback ───────────────────────────────────────────────────────
 # server-side notification strings (kept verbatim from the original
 # hard-coded literals so source-level regression tests that grep for the
-# English text continue to find the substring — see test_notifications.py).
+# English text continue to find the substring: see test_notifications.py).
 # Long lines use implicit string concatenation ("foo" "bar") which Python
 # joins at compile time; ruff's line-length rule still flags each fragment
 # individually so we keep every source line ≤ 120 chars.
 _INITIAL_LABELS: dict[str, str] = {
     # AppState value labels () ────────────────────────────────
     # Lowercase to match AppState.<X>.value and preserve existing tooltip
-    # behavior (``title += f" — {state.value}"`` →
+    # behavior (``title += f": {state.value}"`` →
     # ``i18n.t(f"state.{state.value}")``).
     "state.idle": "idle",
     "state.recording": "recording",
@@ -93,7 +93,7 @@ _INITIAL_LABELS: dict[str, str] = {
     "state.model_manager.model_failed": "Model failed: {error}",
     "state.model_manager.model_not_downloaded": ("No speech model is selected. Open Models to choose one."),
     # no_model_selected: genuine "no model selected" state
-    # (``model_size == NO_MODEL_SIZE``) — distinct from
+    # (``model_size == NO_MODEL_SIZE``), distinct from
     # model_not_downloaded (a concrete model is missing from disk). The
     # text MUST match the renderer's ``home.noModelSelectedHint``
     # translation so the tray tooltip and the Home status pill agree;
@@ -114,7 +114,7 @@ _INITIAL_LABELS: dict[str, str] = {
     "state.dictation_pipeline.no_speech_detected": "No speech detected",
     "state.dictation_pipeline.no_speech_check_mic": "No speech -- check microphone",
     "state.dictation_pipeline.transcription_empty": "Transcription returned empty",
-    # paste_step "Done -- N chars (mode)" statuses — the character count
+    # paste_step "Done -- N chars (mode)" statuses, the character count
     # is dynamic, so the templates use the ``{count}`` placeholder and
     # the renderer pushes localized versions via ``set_tray_locale``
     # (``trayState.pipeline.donePasted`` etc.; ``trayLabelsForLocale``
@@ -149,7 +149,7 @@ _INITIAL_LABELS: dict[str, str] = {
     "notify.settings_controller.mic_changed": "Microphone: {label}",
     # ── startup_tasks.py notifications ──────────────────────────────────
     "notify.startup_tasks.accessibility_granted": ("Accessibility permission granted. Hotkeys are now active."),
-    "notify.startup_tasks.accessibility_revoked_title": "{app} — Accessibility Revoked",
+    "notify.startup_tasks.accessibility_revoked_title": "{app}, Accessibility Revoked",
     "notify.startup_tasks.accessibility_revoked_body": (
         "Global hotkeys have been disabled. "
         "Open System Settings \u2192 Privacy & Security \u2192 Accessibility to re-grant."
@@ -179,7 +179,7 @@ _INITIAL_LABELS: dict[str, str] = {
         "After granting, log out and back in for the change to take effect."
     ),
     # ── startup_sequence.py notifications ───────────────────────────────
-    # CRASH-NOTIFY: the crash toast is calm, user-facing copy — NO
+    # CRASH-NOTIFY: the crash toast is calm, user-facing copy, NO
     # technical details (crash summary, stack traces, python commands)
     # in the notification. The crash summary stays in the log /
     # diagnostics surface only.
@@ -194,20 +194,20 @@ _INITIAL_LABELS: dict[str, str] = {
         "Onboarding setup kept failing. The app will start with default settings. Open Settings to configure manually."
     ),
     "notify.startup_sequence.onboarding_failed_transient": ("Onboarding setup failed; will retry on next start."),
-    "notify.startup_sequence.corrections_error_title": "{app} — Corrections Error",
+    "notify.startup_sequence.corrections_error_title": "{app}, Corrections Error",
     "notify.startup_sequence.corrections_error_body": (
         "{error}\nCorrections will use built-in defaults. Fix the file and restart."
     ),
     "notify.startup_sequence.crash_recovery_body": (
         "Recovered {count} transcriptions from last session. Open History to view."
     ),
-    "notify.startup_sequence.wayland_hotkeys_title": "{app} — Wayland Hotkeys",
+    "notify.startup_sequence.wayland_hotkeys_title": "{app}, Wayland Hotkeys",
     "notify.startup_sequence.wayland_hotkeys_body": (
         "Global hotkeys may not work on Wayland. "
         "Install 'wtype' or 'ydotool' for hotkey support, "
         "or use the tray menu's Start Dictation option."
     ),
-    "notify.startup_sequence.accessibility_title": "{app} — Accessibility Permission",
+    "notify.startup_sequence.accessibility_title": "{app}, Accessibility Permission",
     "notify.startup_sequence.accessibility_body": (
         "Global hotkeys require Accessibility permission. "
         "Open System Settings \u2192 Privacy & Security \u2192 Accessibility "
@@ -218,17 +218,17 @@ _INITIAL_LABELS: dict[str, str] = {
         "Voice biometric consent is required to start recording.\n"
         "Enable it in Settings > Privacy > Voice Biometric Consent."
     ),
-    # consent_check_failed: distinct from consent_required — this fires
+    # consent_check_failed: distinct from consent_required, this fires
     # when the consent CHECK itself raised (corrupted config read, etc.)
     # rather than the consent being False. The user is told the check
     # failed and recording was refused, so they know to investigate the
     # config / re-grant consent rather than just toggling the setting.
     "notify.recording_controller.consent_check_failed": (
-        "Could not verify voice biometric consent.\nRecording refused — check Settings > Privacy."
+        "Could not verify voice biometric consent.\nRecording refused. Check Settings > Privacy."
     ),
     # mic_disconnected: recorder device-lost callback (slow path —
     # zero-fill-chunk retry exhausted). Distinct from mic_unplugged
-    # (fast path — OS device-list change) so the user sees an accurate
+    # (fast path, OS device-list change) so the user sees an accurate
     # "disconnected after retries" message rather than "unplugged".
     "notify.recording_controller.mic_disconnected": (
         "Microphone disconnected. Recording stopped. Reconnect the microphone to resume."
@@ -248,7 +248,7 @@ _INITIAL_LABELS: dict[str, str] = {
         "Re-grant microphone access in your OS privacy settings to resume."
     ),
     # The start_failed notification no longer
-    # interpolates {error} into the user-facing message — exception text
+    # interpolates {error} into the user-facing message, exception text
     # can leak absolute paths, device names, and hostnames. The full
     # exception is still logged via log.exception() above; the tray
     # notification now shows only a generic message + a pointer to the
@@ -257,7 +257,7 @@ _INITIAL_LABELS: dict[str, str] = {
         "Could not start recording.\nCheck logs/voice-typer.log for traceback."
     ),
     # start_failed_with_reason: the typed-failure branch of the start
-    # error path — ``{reason}`` is the ALREADY-LOCALIZED
+    # error path, ``{reason}`` is the ALREADY-LOCALIZED
     # ``state.recording_controller.recording_failed_*`` message (never
     # raw exception text; see ``_recording_start_failure_message``).
     "notify.recording_controller.start_failed_with_reason": "Could not start recording.\n{reason}",
@@ -267,7 +267,7 @@ _INITIAL_LABELS: dict[str, str] = {
     ),
     "notify.recording_controller.silence_auto_stop": ("Recording stopped: no audio detected for an extended period."),
     "notify.recording_controller.max_duration_auto_stop": ("Recording stopped: maximum recording duration reached."),
-    "notify.recording_controller.xrun_title": "{app} — Audio Issues",
+    "notify.recording_controller.xrun_title": "{app}, Audio Issues",
     "notify.recording_controller.xrun_body": (
         "Detected {count} audio buffer underruns. Try closing other audio apps or reducing CPU load."
     ),
@@ -276,7 +276,7 @@ _INITIAL_LABELS: dict[str, str] = {
     ),
     # ``{hotkey}`` is the user's CONFIGURED hotkey, formatted via
     # ``format_hotkey_label`` at the call site (e.g. "Caps Lock" or
-    # "Ctrl+Shift+F2") — never a hardcoded key, so a remapped hotkey is
+    # "Ctrl+Shift+F2"), never a hardcoded key, so a remapped hotkey is
     # reflected in the notification.
     "notify.recording_controller.cancelled_timeout": (
         "Transcription took too long and was cancelled.\nPress {hotkey} to try again."
@@ -301,7 +301,7 @@ _INITIAL_LABELS: dict[str, str] = {
     # last_resort_unloaded: fired by get_active()'s last-resort branch
     # when NO ready backend exists and the configured backend is returned
     # unloaded (transcription would silently return empty). Always points
-    # the user at the Models page with the download instruction — the app
+    # the user at the Models page with the download instruction, the app
     # never auto-downloads models, so the user must go there to install /
     # repair the model.
     "notify.model_manager.last_resort_unloaded": (
@@ -361,7 +361,7 @@ def t(key: str, **fmt: Any) -> str:
         try:
             return text.format(**fmt)
         except (KeyError, IndexError, ValueError):
-            # also catch ValueError — str.format() raises it for
+            # also catch ValueError, str.format() raises it for
             # bad format specs (e.g. "{name:bad}" in a translation).
             # The docstring promises "a bad translation never crashes a
             # notification path"; broaden the catch so it actually holds.

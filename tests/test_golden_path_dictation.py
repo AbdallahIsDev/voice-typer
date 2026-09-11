@@ -1,4 +1,4 @@
-"""Golden-path dictation integration test — real pipeline, boundary mocks only.
+"""Golden-path dictation integration test: real pipeline, boundary mocks only.
 
 This is the first integration test that drives the REAL dictation
 pipeline end to end:
@@ -8,20 +8,20 @@ pipeline end to end:
       → real ``AudioProcessor`` filter chain (high-pass stage active)
       → real ``recorder.stop()`` resample + stats
       → scripted (behavioral) ASR engine via the real registry seam
-      → real ``DictationPipeline.run()`` — all 11 stages unmocked
+      → real ``DictationPipeline.run()``, all 11 stages unmocked
         (cleanup → vocabulary → templates → punctuation → llm-skip →
         ai-skip → vocab-auto-skip → history DB → clipboard paste)
     → assert pasted payload + history row + crash-recovery lifecycle
 
 External boundaries mocked (and ONLY these):
 
-* ``sounddevice.InputStream`` — no audio hardware. The fake captures
+* ``sounddevice.InputStream``, no audio hardware. The fake captures
   the PortAudio callback so the test feeds chunks exactly like the
   driver would (same pattern as ``tests/test_recording_audio_processor.py``).
-* ASR model weights — a small scripted engine object registered through
+* ASR model weights, a small scripted engine object registered through
   the production ``app.models.transcriber`` setter, so the registry /
   busy-flag / active-backend selection machinery stays REAL.
-* OS clipboard + paste keystroke — a behavioral ``ClipboardManager``
+* OS clipboard + paste keystroke, a behavioral ``ClipboardManager``
   stand-in injected through the production ``app.clipboard`` setter.
   The real manager would SendInput Ctrl+V into whatever window has
   focus on the developer's machine.
@@ -41,7 +41,7 @@ Observable contract pinned here (regressions fail CI):
 * pipeline ordering: cleanup capitalizes BEFORE vocabulary corrects
   ("recieve"→"receive", "grammer"→"grammar" from the bundled
   corrections.json) and punctuation appends the terminal period AFTER
-  vocabulary — the final pasted string is fully deterministic.
+  vocabulary, the final pasted string is fully deterministic.
 * storage contract: one history row with the final text; one
   crash-recovery entry added unpasted by the store step and flipped to
   pasted after the successful paste; the in-flight sentinel is cleaned.
@@ -61,7 +61,7 @@ from tests.fixtures.app_helpers import join_model_load_thread, make_sine, make_v
 _WHISPER_SR = 16000
 _CHUNK_SAMPLES = 512  # matches _AUDIO_BLOCKSIZE (VAD-001 contract)
 _CHUNK_COUNT = 24  # 24 * 512 / 16000 = 0.768 s of audio
-_TONE_HZ = 440.0  # speech band — passes the 80 Hz high-pass untouched
+_TONE_HZ = 440.0  # speech band, passes the 80 Hz high-pass untouched
 _TONE_AMP = 0.3
 
 # Deterministic golden transcript: two misspellings covered by the
@@ -197,7 +197,7 @@ def golden_app(tmp_config_dir, monkeypatch):
     noise-filter preset: the REAL AudioProcessor chain runs with the
     high-pass stage active while the stochastic/heavy stages (gate,
     RNNoise, EQ, compressor, limiter) are off so amplitude assertions
-    stay deterministic. VAD is disabled — Silero model loading is an
+    stay deterministic. VAD is disabled, Silero model loading is an
     external-model boundary orthogonal to the filter chain under test.
     """
     instance = make_voice_typer_app(tmp_config_dir, monkeypatch)
@@ -208,13 +208,13 @@ def golden_app(tmp_config_dir, monkeypatch):
     # _get_read_conn mkdir it unconditionally on every platform (fresh
     # installs), and the legacy-DB migration creates it when a pre-O2
     # root ``history.db`` exists. Pre-creating it here keeps this test
-    # independent of those paths — the fresh-install contract is pinned
+    # independent of those paths, the fresh-install contract is pinned
     # by tests/test_history_db_fresh_install_dir.py.
     (tmp_config_dir / "db").mkdir(parents=True, exist_ok=True)
 
     config = instance.config
     config.asr_backend = "whisper"
-    # Deterministic non-"off" filter preset — real chain, highpass active.
+    # Deterministic non-"off" filter preset, real chain, highpass active.
     config.noise_filter_enabled = True
     config.noise_filter_highpass = True
     config.noise_filter_highpass_cutoff_hz = 80.0
@@ -287,7 +287,7 @@ def test_golden_path_sine_to_final_text_history_and_recovery(golden_app, tmp_con
 
     _drain_ring_buffer(recorder)
     assert len(recorder._audio_pipeline._buffer) == _CHUNK_COUNT, (
-        f"expected {_CHUNK_COUNT} buffered chunks, got {len(recorder._audio_pipeline._buffer)} — "
+        f"expected {_CHUNK_COUNT} buffered chunks, got {len(recorder._audio_pipeline._buffer)}, "
         "the real capture→filter-chain path dropped chunks"
     )
 
@@ -299,7 +299,7 @@ def test_golden_path_sine_to_final_text_history_and_recovery(golden_app, tmp_con
     raw_rms = _TONE_AMP / np.sqrt(2.0)
     assert 0.5 * raw_rms <= filtered_rms <= 1.2 * raw_rms, (
         f"filtered RMS {filtered_rms:.4f} outside passband window "
-        f"[{0.5 * raw_rms:.4f}, {1.2 * raw_rms:.4f}] — filter chain mangled the signal"
+        f"[{0.5 * raw_rms:.4f}, {1.2 * raw_rms:.4f}], filter chain mangled the signal"
     )
     assert recorder._last_audio_stats is not None, "stop() did not record _last_audio_stats"
 
@@ -336,7 +336,7 @@ def test_golden_path_sine_to_final_text_history_and_recovery(golden_app, tmp_con
     assert len(recovery_meta) == 1, f"expected exactly one recovery entry, got {len(recovery_meta)}"
     assert recovery_meta[0]["pasted"] is True, "recovery entry was not marked pasted after successful paste"
 
-    # ── Contract 5: teardown — in-flight sentinel cleared, busy released ──
+    # ── Contract 5: teardown, in-flight sentinel cleared, busy released ──
     sentinel = tmp_config_dir / ".dictation-in-flight"
     assert not sentinel.exists(), "in-flight sentinel survived a completed cycle"
     assert app._busy_event.is_set(), "busy event was not re-set (busy=False) by the finally block"

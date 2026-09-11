@@ -1,4 +1,4 @@
-"""macOS volume backend — CoreAudio (pyobjc) with osascript fallback.
+"""macOS volume backend. CoreAudio (pyobjc) with osascript fallback.
 
 Extracted from the original ``voice_typer/server/volume_backends.py``
 monolith per   See ``voice_typer/server/volume_backends/__init__.py``
@@ -43,7 +43,7 @@ def _try_import_coreaudio() -> SimpleNamespace:
 
     The symbols are packaged in a ``SimpleNamespace`` (rather than
     imported at module scope) so that the module's top-level import
-    surface stays stdlib-only — the same pattern used by
+    surface stays stdlib-only, the same pattern used by
     :mod:`voice_typer.server.microphone_watcher_coreaudio`.
     """
     if not is_macos():
@@ -54,7 +54,7 @@ def _try_import_coreaudio() -> SimpleNamespace:
         )
 
     try:
-        from CoreAudio import (  # noqa: PLC0415 — lazy import is the point
+        from CoreAudio import (  # noqa: PLC0415, lazy import is the point
             AudioObjectGetPropertyData,
             AudioObjectSetPropertyData,
             kAudioDevicePropertyDeviceIsRunning,
@@ -116,7 +116,7 @@ class MacVolumeBackend(VolumeBackend):
     The CoreAudio path is enabled automatically when
     ``pyobjc-framework-CoreAudio`` is importable.  If pyobjc is missing
     (or any CoreAudio call fails at runtime), every method falls back
-    to osascript — so the backend degrades gracefully without losing
+    to osascript, so the backend degrades gracefully without losing
     functionality.
 
     macOS has no clean native per-app volume API, so
@@ -132,13 +132,13 @@ class MacVolumeBackend(VolumeBackend):
     def __init__(self) -> None:
         self._use_coreaudio = False
         self._default_device_id: int | None = None
-        # pyobjc CoreAudio symbols — loaded lazily in ``initialize()`` so
+        # pyobjc CoreAudio symbols, loaded lazily in ``initialize()`` so
         # the module imports cleanly on Linux/Windows.  ``None`` when
         # pyobjc is unavailable OR ``initialize()`` has not been called.
         self._ca: SimpleNamespace | None = None
         # consecutive-error counter for ``_osascript_run`` and
         # ``_osascript_get_state`` (the only error-tracked methods on
-        # this backend per  — the CoreAudio path already logs at
+        # this backend per , the CoreAudio path already logs at
         # WARNING on failure and falls through to osascript, so its
         # errors are tracked via the osascript counter).  See
         # ``WinVolumeBackend._consecutive_errors`` for the full
@@ -163,7 +163,7 @@ class MacVolumeBackend(VolumeBackend):
         in-process C call (<1 ms) and the multi-step ``fade_to`` ramp
         is smooth.  When pyobjc is unavailable and we fall back to
         ``osascript``, each ``set_linear`` spawns an ``osascript``
-        subprocess (200–500 ms) — ``fade_to`` collapses to a single
+        subprocess (200–500 ms), ``fade_to`` collapses to a single
         call to avoid 10× subprocess overhead (2–5 s of audible
         stepping).
         """
@@ -189,7 +189,7 @@ class MacVolumeBackend(VolumeBackend):
         (<1 ms per call).  Otherwise, falls back to the osascript
         subprocess path (200–500 ms per call).
 
-        Always returns ``True`` — osascript is always available on
+        Always returns ``True``: osascript is always available on
         macOS, and pyobjc failing just means we use the slower path.
         The CoreAudio path can be re-tried on the next call if pyobjc
         becomes available later (e.g. user installs it); ``_use_coreaudio``
@@ -201,7 +201,7 @@ class MacVolumeBackend(VolumeBackend):
             self._ca = _try_import_coreaudio()
             self._use_coreaudio = True
             log.info(
-                "[VOLUME-MAC] CoreAudio (pyobjc) backend ready — "
+                "[VOLUME-MAC] CoreAudio (pyobjc) backend ready, "
                 "is_speaker_active will use kAudioDevicePropertyDeviceIsRunning"
             )
         except ImportError as exc:
@@ -219,7 +219,7 @@ class MacVolumeBackend(VolumeBackend):
     # error-tracked methods (``_osascript_run`` and
     # ``_osascript_get_state`` per  scope).  To avoid
     # double-counting, ``_osascript_get_state`` only records errors for
-    # parsing failures (``ValueError``) — subprocess failures are
+    # parsing failures (``ValueError``), subprocess failures are
     # already recorded by ``_osascript_run``.
 
     def _record_error(self, context: str, exc: BaseException) -> None:
@@ -242,9 +242,9 @@ class MacVolumeBackend(VolumeBackend):
             state = self._coreaudio_get_state()
             if state is not None:
                 return state
-            # CoreAudio failed — fall through to osascript so the ducker
+            # CoreAudio failed, fall through to osascript so the ducker
             # never silently skips a save/restore cycle.
-            log.debug("[VOLUME-MAC] CoreAudio get_state failed — using osascript")
+            log.debug("[VOLUME-MAC] CoreAudio get_state failed, using osascript")
         return self._osascript_get_state()
 
     def set_linear(self, level: float, muted: bool | None = None) -> bool:
@@ -252,7 +252,7 @@ class MacVolumeBackend(VolumeBackend):
         if self._use_coreaudio:
             if self._coreaudio_set(level, muted):
                 return True
-            log.debug("[VOLUME-MAC] CoreAudio set failed — using osascript")
+            log.debug("[VOLUME-MAC] CoreAudio set failed, using osascript")
         return self._osascript_set(level, muted)
 
     def is_speaker_active(self) -> bool:
@@ -273,7 +273,7 @@ class MacVolumeBackend(VolumeBackend):
         osascript fallback: returns ``True`` unconditionally.  Smart-duck
         is disabled for the osascript backend by
         :meth:`VolumeDucker.initialize` (the osascript
-        ``is_speaker_active`` heuristic was dead code — a 200–500 ms
+        ``is_speaker_active`` heuristic was dead code, a 200–500 ms
         per-call subprocess poll that was never invoked because the
         ducker short-circuits smart-duck on osascript backends).  The
         previous heuristic (matching foreground process names like
@@ -284,7 +284,7 @@ class MacVolumeBackend(VolumeBackend):
         ducker relies on when smart-duck is disabled.
 
         If neither path can determine activity, returns ``True`` (safe
-        default — duck anyway).
+        default, duck anyway).
         """
         if self._use_coreaudio:
             try:
@@ -297,7 +297,7 @@ class MacVolumeBackend(VolumeBackend):
                 return running
             except Exception as exc:
                 log.debug(
-                    "[VOLUME-MAC] CoreAudio is_speaker_active failed: %s — "
+                    "[VOLUME-MAC] CoreAudio is_speaker_active failed: %s, "
                     "returning True (duck anyway) since smart-duck is disabled "
                     "on the osascript path",
                     exc,
@@ -306,7 +306,7 @@ class MacVolumeBackend(VolumeBackend):
         # osascript fallback: no cheap way to query speaker activity.
         # Smart-duck is disabled on this path (see VolumeDucker.initialize),
         # so the return value only matters as a safe default.  ``True``
-        # means "duck anyway" — the conservative choice that never
+        # means "duck anyway": the conservative choice that never
         # silently skips a needed duck.
         return True
 
@@ -315,10 +315,10 @@ class MacVolumeBackend(VolumeBackend):
     def _coreaudio_get_state(self) -> VolumeState | None:
         """Read volume + mute via CoreAudio.
 
-        Returns ``None`` on any failure (caller falls back to osascript).
-        Uses the HardwareService virtual-master selectors which operate
-        on the default output device via ``kAudioHardwareServiceSystemObject``
-        — so we don't need to resolve the device ID here.
+         Returns ``None`` on any failure (caller falls back to osascript).
+         Uses the HardwareService virtual-master selectors which operate
+         on the default output device via ``kAudioHardwareServiceSystemObject``
+        , so we don't need to resolve the device ID here.
         """
         try:
             vol = self._ca_get_volume()
@@ -342,7 +342,7 @@ class MacVolumeBackend(VolumeBackend):
         try:
             ok = self._ca_set_volume(level)
             if muted is not None:
-                # Best-effort mute set — volume success is the
+                # Best-effort mute set, volume success is the
                 # primary signal.  Caller can verify via get_state.
                 self._ca_set_mute(muted)
             return ok
@@ -357,7 +357,7 @@ class MacVolumeBackend(VolumeBackend):
         ``kAudioObjectSystemObject`` (scope=Global, element=Master).
         Returns the ``AudioDeviceID`` (UInt32) or ``None`` on failure.
 
-        The device ID is *not* cached — the default device can change
+        The device ID is *not* cached, the default device can change
         at runtime (user plugs in headphones, etc.) and the query is
         a single in-process C call (~µs).
         """
@@ -365,7 +365,7 @@ class MacVolumeBackend(VolumeBackend):
         if ca is None:
             return None
         try:
-            import ctypes  # noqa: PLC0415 — stdlib, kept lazy to mirror existing style
+            import ctypes  # noqa: PLC0415, stdlib, kept lazy to mirror existing style
 
             address = (
                 ca.prop_default_output_device,
@@ -409,7 +409,7 @@ class MacVolumeBackend(VolumeBackend):
         if ca is None:
             return None
         try:
-            import ctypes  # noqa: PLC0415 — stdlib, kept lazy to mirror existing style
+            import ctypes  # noqa: PLC0415, stdlib, kept lazy to mirror existing style
 
             address = (
                 ca.prop_device_is_running,
@@ -450,7 +450,7 @@ class MacVolumeBackend(VolumeBackend):
         if ca is None:
             return None
         try:
-            import ctypes  # noqa: PLC0415 — stdlib, kept lazy to mirror existing style
+            import ctypes  # noqa: PLC0415, stdlib, kept lazy to mirror existing style
 
             address = (
                 ca.prop_master_volume,
@@ -473,7 +473,7 @@ class MacVolumeBackend(VolumeBackend):
                     status,
                 )
                 return None
-            # Clamp to [0.0, 1.0] — the API guarantees this but we
+            # Clamp to [0.0, 1.0], the API guarantees this but we
             # defend against driver bugs.
             return max(0.0, min(1.0, float(volume.value)))
         except Exception as exc:
@@ -491,7 +491,7 @@ class MacVolumeBackend(VolumeBackend):
         if ca is None:
             return None
         try:
-            import ctypes  # noqa: PLC0415 — stdlib, kept lazy to mirror existing style
+            import ctypes  # noqa: PLC0415, stdlib, kept lazy to mirror existing style
 
             address = (
                 ca.prop_master_mute,
@@ -530,7 +530,7 @@ class MacVolumeBackend(VolumeBackend):
         if ca is None:
             return False
         try:
-            import ctypes  # noqa: PLC0415 — stdlib, kept lazy to mirror existing style
+            import ctypes  # noqa: PLC0415, stdlib, kept lazy to mirror existing style
 
             address = (
                 ca.prop_master_volume,
@@ -568,7 +568,7 @@ class MacVolumeBackend(VolumeBackend):
         if ca is None:
             return False
         try:
-            import ctypes  # noqa: PLC0415 — stdlib, kept lazy to mirror existing style
+            import ctypes  # noqa: PLC0415, stdlib, kept lazy to mirror existing style
 
             address = (
                 ca.prop_master_mute,
@@ -608,7 +608,7 @@ class MacVolumeBackend(VolumeBackend):
             if result.returncode != 0:
                 log.debug("[VOLUME-MAC] osascript error: %s", result.stderr.strip())
                 # track non-zero exit as an error (osascript ran
-                # but returned an error — e.g. revoked AppleScript
+                # but returned an error: e.g. revoked AppleScript
                 # permission on macOS 13+).  The safe-default ``None``
                 # return is preserved.
                 self._record_error(
@@ -616,7 +616,7 @@ class MacVolumeBackend(VolumeBackend):
                     RuntimeError(f"osascript exit {result.returncode}: {result.stderr.strip()}"),
                 )
                 return None
-            # success — reset the counter.
+            # success, reset the counter.
             self._record_success()
             return result.stdout.strip()
         except Exception as exc:
@@ -631,7 +631,7 @@ class MacVolumeBackend(VolumeBackend):
     def _osascript_get_state(self) -> VolumeState | None:
         vol_str = self._osascript_run("output volume of (get volume settings)")
         if vol_str is None:
-            # ``_osascript_run`` already recorded the error — don't
+            # ``_osascript_run`` already recorded the error, don't
             # double-count.
             return None
         try:
@@ -650,7 +650,7 @@ class MacVolumeBackend(VolumeBackend):
         muted = mute_str is not None and mute_str.lower() == "true"
         # only reset the counter if BOTH queries succeeded.  If
         # the mute query failed, ``_osascript_run`` already recorded the
-        # error — don't double-count or reset.
+        # error, don't double-count or reset.
         if mute_str is not None:
             self._record_success()
         return VolumeState(linear=max(0.0, min(1.0, vol)), muted=muted)

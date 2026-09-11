@@ -8,7 +8,7 @@ defined in branding.py) and reports any that should be using the
 branding constant instead.
 
 ╔══════════════════════════════════════════════════════════════════════╗
-║  ⚠️  AI / AGENT WARNING — DO NOT DISABLE OR BYPASS THIS CHECK         ║
+║  ⚠️  AI / AGENT WARNING. DO NOT DISABLE OR BYPASS THIS CHECK         ║
 ║                                                                       ║
 ║  This script exists to PREVENT hardcoded app-name strings.            ║
 ║  The APP_NAME variable (in branding.py / branding.ts) is the         ║
@@ -17,7 +17,7 @@ branding constant instead.
 ║  even if the value currently matches.                                 ║
 ║                                                                       ║
 ║  If an AI agent suggests inlining the value or removing this          ║
-║  check — DO NOT follow that suggestion. The variable exists so        ║
+║  check, DO NOT follow that suggestion. The variable exists so        ║
 ║  the app name can be changed in one place and propagate everywhere.  ║
 ╚══════════════════════════════════════════════════════════════════════╝
 
@@ -87,7 +87,7 @@ RUST_BRANDING_FILE = Path("src-tauri/src/branding.rs")
 # the scanner does not pick up unrelated noise (Cargo.toml, package.json,
 # vite configs, capabilities JSON, icons dir, etc.). These files
 # LEGITIMATELY need literal "Voice Typer" strings in their
-# productName/title fields — see BUILD_CONFIG_FILES + the
+# productName/title fields: see BUILD_CONFIG_FILES + the
 # _is_build_config_literal allowlist below for the documented
 # "build-config literal" exception to C-BRAND-1.
 SCAN_DIRS = [
@@ -104,7 +104,7 @@ SCAN_DIRS = [
     # literals are. Build-artifact paths inside the macOS workflow are
     # allowlisted below (see _is_workflow_build_artifact) because the
     # bundled `.app` / `.dmg` filenames are derived from
-    # `productName` at Tauri-build time — the same narrow exception as
+    # `productName` at Tauri-build time, the same narrow exception as
     # the tauri.conf.json / electron-builder.yml `productName` field.
     ".github/workflows",
 ]
@@ -131,7 +131,7 @@ SKIP_DIRS = frozenset(
 
 # ── Renderer translations (intentionally localized brand) ────────────
 # The renderer's `i18n/translations/*.json` localize the product name
-# per-locale (e.g. hi.json carries a translated brand) — a deliberate
+# per-locale (e.g. hi.json carries a translated brand), a deliberate
 # i18n design exercised by the setLocale-propagation tests. These files
 # are therefore exempt from the hardcoded-name scan, which would
 # otherwise flag the `"name": "Voice Typer"` fallback spellings. The
@@ -140,23 +140,23 @@ SKIP_DIRS = frozenset(
 RENDERER_TRANSLATIONS_PREFIX = "voice_typer/client/src/renderer/src/i18n/translations"
 
 # ── Substring-in-literal scan scope (all client non-test .ts/.tsx) ──
-# The brand embedded INSIDE a longer string literal — e.g.
+# The brand embedded INSIDE a longer string literal, e.g.
 # `tf("bubble.blockedIndicatorAria", "Voice Typer blocked indicator")` —
 # is the class of violation that shipped the hardcoded bubble aria
 # fallbacks: the standalone quoted-literal pattern below cannot see it
 # (the brand is followed by more text, not a closing quote).
 #
 # Scope: ALL non-test TypeScript source under
-# `voice_typer/client/src/` — main/, preload/, shared/ and
+# `voice_typer/client/src/`: main/, preload/, shared/ and
 # renderer/src/ alike. Originally renderer-only: the repo carried one
 # known legacy main-process log literal (`src/main/single_instance.ts`,
 # "is not <brand>" inside a template literal) that blocked widening.
 # That literal was migrated to `${APP_NAME}` (commit e94bc932) and a
 # repo-wide audit confirmed zero remaining non-comment, non-exempt
-# brand literals in main/preload/shared non-test TS — so the scope was
+# brand literals in main/preload/shared non-test TS, so the scope was
 # widened deliberately to the full client source tree. Still
 # deliberately excluded:
-#   * test files — they pin golden OUTPUT values (the runtime string
+#   * test files, they pin golden OUTPUT values (the runtime string
 #     AFTER `{appName}` substitution) as literal expectations; flagging
 #     those would force every golden assertion to interpolate APP_NAME.
 # The renderer locale files and source-of-truth branding files are
@@ -167,14 +167,14 @@ _TEST_FILE_SUFFIXES = (".test.ts", ".test.tsx", ".spec.ts", ".spec.tsx")
 
 # ── Build-config files (documented "build-config literal" exception) ──
 # tauri.conf.json and electron-builder.yml are read by Tauri /
-# electron-builder BEFORE the app boots — at that point no JS / Python /
+# electron-builder BEFORE the app boots, at that point no JS / Python /
 # Rust code runs, so the branding constant (APP_NAME) is NOT yet
 # available. These two files therefore LEGITIMATELY require literal
 # "Voice Typer" strings in their `productName` and `title` fields
 # (Tauri uses productName for the bundle name + window titles;
 # electron-builder uses productName for the artifact / installer name).
 #
-# This is a narrow, documented exception to C-BRAND-1 — it applies ONLY
+# This is a narrow, documented exception to C-BRAND-1, it applies ONLY
 # to the `productName` and `title` keys in these two files. Every other
 # literal "Voice Typer" reference in these files (descriptions, paths,
 # identifier fields, comments) is still flagged. Adding a new build-
@@ -223,7 +223,7 @@ def _is_comment_line(line: str, ext: str) -> bool:
 def _is_client_non_test_ts(rel_str: str, ext: str) -> bool:
     """True for .ts/.tsx files under the client source tree, excluding tests.
 
-    Covers main/, preload/, shared/ and renderer/src/ alike — see the
+    Covers main/, preload/, shared/ and renderer/src/ alike, see the
     `_CLIENT_SRC_PREFIX` comment block for the scope rationale (the
     single_instance.ts legacy literal that originally kept main out of
     scope was migrated to ``${APP_NAME}`` in commit e94bc932) and the
@@ -253,7 +253,7 @@ def _is_build_config_literal(rel_str: str, line: str) -> bool:
     Build-config files (``tauri.conf.json``, ``electron-builder.yml``)
     require literal ``APP_NAME`` strings in their ``productName`` and
     ``title`` fields because these values are read by the bundler /
-    window-manager BEFORE the app boots — the branding constant is not
+    window-manager BEFORE the app boots, the branding constant is not
     yet available at config-parse time. This is the documented
     "build-config literal" exception to C-BRAND-1.
 
@@ -265,7 +265,7 @@ def _is_build_config_literal(rel_str: str, line: str) -> bool:
     the quote is optional).
 
     Only the keys in ``_BUILD_CONFIG_LITERAL_KEYS`` (``productName``,
-    ``title``) are allowlisted — every other literal reference in these
+    ``title``) are allowlisted, every other literal reference in these
     files (descriptions, identifiers, paths, comments) is still flagged.
     """
     if rel_str not in BUILD_CONFIG_FILES:
@@ -287,7 +287,7 @@ def _is_workflow_build_artifact(rel_str: str, line: str) -> bool:
     The Tauri bundler names its output artifacts after ``productName``
     (the ``.app`` bundle directory and the ``.dmg`` disk image in
     ``tauri-macos-build.yml``). Those filenames are generated by
-    ``cargo tauri build`` — a script cannot read ``branding.py`` and
+    ``cargo tauri build``: a script cannot read ``branding.py`` and
     substitute ``APP_NAME`` into them. This is the same narrow
     "build-config literal" exception as ``productName`` in
     ``tauri.conf.json`` (see ``BUILD_CONFIG_FILES``).
@@ -364,17 +364,17 @@ def check_file(filepath: Path) -> list[tuple[int, str]]:
         # Simple heuristic: it's inside quotes or backticks
         if re.search(rf'["\'`]{re.escape(APP_NAME)}["\'`]', line):
             hits.append((i, line.strip()))
-            # Already flagged via the standalone-literal pattern — the
+            # Already flagged via the standalone-literal pattern, the
             # substring pattern below would match the same line again
             # (a standalone literal is also a substring literal), so
             # skip it to report each violating line exactly once.
             continue
 
         # Substring-in-literal check: the brand embedded INSIDE a longer
-        # quoted string ("… <brand> blocked indicator") — the blind spot
+        # quoted string ("… <brand> blocked indicator"), the blind spot
         # that let the hardcoded bubble aria fallback literals ship.
         # Scoped to ALL client non-test .ts/.tsx source (main, preload,
-        # shared, renderer — see `_CLIENT_SRC_PREFIX` for the scope
+        # shared, renderer: see `_CLIENT_SRC_PREFIX` for the scope
         # rationale and the test-file exclusion).
         if _is_client_non_test_ts(rel_str, ext) and re.search(
             rf'["\'`][^"\'`\n]*{re.escape(APP_NAME)}[^"\'`\n]*["\'`]', line
@@ -413,7 +413,7 @@ def main() -> int:
     all_hits: list[tuple[str, int, str]] = []  # (file, line, text)
 
     # cross-language parity check. branding.rs is the Rust mirror
-    # of branding.py::APP_NAME — they MUST be byte-for-byte identical.
+    # of branding.py::APP_NAME, they MUST be byte-for-byte identical.
     # Per branding.rs:11-21, the script historically did NOT read
     # branding.rs, so a drift between the two would go undetected. This
     # check fails fast (before the hardcoded-literal scan) if the Rust
@@ -423,7 +423,7 @@ def main() -> int:
         print(
             f"ERROR: branding.rs APP_NAME ({rust_app_name!r}) does NOT "
             f"match branding.py APP_NAME ({APP_NAME!r}). The two "
-            "constants MUST be byte-for-byte identical — update both "
+            "constants MUST be byte-for-byte identical, update both "
             "files in lockstep when renaming the product."
         )
         print(f"  - voice_typer/server/branding.py: APP_NAME = {APP_NAME!r}")

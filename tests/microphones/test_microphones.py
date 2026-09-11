@@ -1,11 +1,11 @@
 """Microphone refresh tests split out of the former ``tests/test_history_and_models.py``.
 
-Domain: microphone listing — ``refresh_microphones(force=True)``
+Domain: microphone listing: ``refresh_microphones(force=True)``
 bypasses the 5 s TTL cache so callers that *know* a hot-plug event
 happened can refresh immediately (SVC-8).
 
 Class/method names + assertions are preserved verbatim from the
-original monolith — only file location has changed.
+original monolith, only file location has changed.
 """
 
 from __future__ import annotations
@@ -40,7 +40,7 @@ class TestRefreshMicrophonesForce:
         return service
 
     def test_default_call_uses_cache_within_ttl(self, tmp_config_dir, monkeypatch):
-        """Two calls within the 5 s window return the SAME list — the
+        """Two calls within the 5 s window return the SAME list, the
         second call is served from cache, so PortAudio is queried only
         once."""
         mics_v1 = [{"id": 0, "name": "Built-in"}]

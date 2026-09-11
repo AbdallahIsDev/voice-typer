@@ -4,7 +4,7 @@ The bubble renderer's ``useThemeSync`` hook scales the pill's text with
 the user's UI text-size setting. That setting reaches the sandboxed
 bubble renderer ONLY via the ``bubble_config`` push event, so the push
 payload must carry ``text_size`` (with the same truthiness fallback the
-enum keys use — a missing/null value falls back to the config default
+enum keys use, a missing/null value falls back to the config default
 14), and ``set_config({text_size: ...})`` must trigger a fresh push.
 """
 

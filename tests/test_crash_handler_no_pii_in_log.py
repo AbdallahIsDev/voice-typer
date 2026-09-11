@@ -5,7 +5,7 @@ Pre-fix, ``_crash_excepthook`` logged ``"[CRASH] Unhandled Python
 exception: %s: %s" % (exc_type.__name__, _redacted_value)``. Even though
 ``_redacted_value`` was passed through ``redact_secret(redact_pii(...))``,
 ``PIIRedactionFilter`` only catches STRUCTURED PII patterns (email,
-phone, IBAN, SSN, CC) and API-key-shaped tokens — plain user speech like
+phone, IBAN, SSN, CC) and API-key-shaped tokens, plain user speech like
 ``"my name is John Smith"`` passes through verbatim into the rotating
 log file.
 
@@ -128,7 +128,7 @@ class TestCrashExcepthookNoPIIInLog:
     def test_critical_log_uses_exc_type_name_not_value(self, restore_excepthook, caplog):
         """Targeted assertion: the CRITICAL 'Unhandled Python exception'
         record's message format is ``"[CRASH] Unhandled Python exception:
-        %s" % exc_type.__name__`` — NOT the old ``"%s: %s" %
+        %s" % exc_type.__name__``, NOT the old ``"%s: %s" %
         (exc_type.__name__, _redacted_value)`` format.
         """
         crash_handler.install_python_excepthook()
@@ -161,7 +161,7 @@ class TestCrashExcepthookNoPIIInLog:
 
     def test_redacted_traceback_emitted_unconditionally(self, restore_excepthook, caplog):
         """YJ-14: the PII-safe redacted traceback must be emitted
-        UNCONDITIONALLY — not gated on ``VOICE_TYPER_DEBUG=1``.
+        UNCONDITIONALLY, not gated on ``VOICE_TYPER_DEBUG=1``.
 
         ``_format_redacted_traceback`` strips all source-line text and
         argument values, emitting only file basename + line number +
@@ -202,7 +202,7 @@ class TestCrashDumpFileContentRedacted:
 
     ``crash_diagnostics.<PID>.txt`` is written by the Windows-native
     VEH handler (not the Python excepthook), so it cannot be driven
-    portably — but the ``_redact_exc_value`` pipeline it shares with
+    portably, but the ``_redact_exc_value`` pipeline it shares with
     the marker writer is exercised here end-to-end.
     """
 

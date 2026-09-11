@@ -7,7 +7,7 @@ Compares the current ruff violation counts (captured in
 The comparison algorithm, baseline validation, refuse-to-regrow
 regenerate flow, table rendering, and argparse flag shape live in
 ``scripts/_ratchet_common.py`` (shared with the mypy ratchet so gate
-fixes land once); this module is the ruff-specific adapter — the
+fixes land once); this module is the ruff-specific adapter, the
 current-input loading (file / stdin with fail-closed guards), the
 violation->counts summarizer, the F-rule baseline filter, and the
 user-facing wording.
@@ -16,7 +16,7 @@ CI policy
 ---------
 * ``total_count`` MUST NOT grow.
 * Per-rule counts in ``by_rule`` MUST NOT grow.
-* Counts MAY shrink — that's the whole point of the ratchet.
+* Counts MAY shrink, that's the whole point of the ratchet.
 * When a count shrinks, contributors SHOULD regenerate the baseline so
   the new (lower) number becomes the floor (see ``--regenerate``).
 
@@ -39,11 +39,11 @@ Run from the project root.
 
    Rewrites ``ruff-baseline.json`` with the current violation counts.
    The script REFUSES to regenerate if the new total is HIGHER than the
-   old total — that would be a regression, not a ratchet.
+   old total, that would be a regression, not a ratchet.
 
    The script also REFUSES to regenerate if the baseline file is missing
    or corrupt, because the refuse-to-grow check cannot run without a
-   valid prior baseline — a missing or unreadable floor cannot be
+   valid prior baseline, a missing or unreadable floor cannot be
    compared against, so a regeneration would accept any new total,
    however large. To override (e.g. for bootstrap or
    emergency re-baselining after a deliberate scope change), pass
@@ -89,7 +89,7 @@ REGENERATE_CMD = (
     "ruff check voice_typer/ tests/ scripts/ conftest.py --output-format=json | "
     "python scripts/ruff_ratchet_check.py --regenerate"
 )
-ZERO_NOTE = "Ratchet is now at zero — any new ruff violation will fail CI."
+ZERO_NOTE = "Ratchet is now at zero, any new ruff violation will fail CI."
 
 
 def _load_ruff_json(path: Path | None, stdin_data: str | None) -> list[dict[str, Any]]:
@@ -116,7 +116,7 @@ def _load_ruff_json(path: Path | None, stdin_data: str | None) -> list[dict[str,
     elif stdin_data is not None:
         raw = stdin_data
     else:
-        # No source provided — read from the default current path.
+        # No source provided, read from the default current path.
         return _load_ruff_json(CURRENT_PATH, None)
 
     raw = raw.strip()
@@ -178,27 +178,27 @@ def compare(current_violations: list[dict[str, Any]]) -> int:
 def regenerate(current_violations: list[dict[str, Any]], *, force: bool = False) -> int:
     """Rewrite the baseline file with the current violation counts.
 
-    Refuses to write if the new total is HIGHER than the old total —
-    that would be a regression, not a ratchet.
+     Refuses to write if the new total is HIGHER than the old total —
+     that would be a regression, not a ratchet.
 
-    Also refuses to regenerate when the existing baseline is missing or
-    corrupt, because the refuse-to-grow check cannot run without a valid
-    prior baseline — a missing/corrupt baseline must not become a silent
-    escape hatch that locks in an arbitrary regression. Both
-    guards are bypassed when ``force`` is True (intended for bootstrap
-    or emergency re-baselining after a deliberate scope change); a
-    warning is printed in that case.
+     Also refuses to regenerate when the existing baseline is missing or
+     corrupt, because the refuse-to-grow check cannot run without a valid
+     prior baseline, a missing/corrupt baseline must not become a silent
+     escape hatch that locks in an arbitrary regression. Both
+     guards are bypassed when ``force`` is True (intended for bootstrap
+     or emergency re-baselining after a deliberate scope change); a
+     warning is printed in that case.
 
-    F-rule (pyflakes) codes — F401, F811, F821, F841, etc.
-    — are stripped from the regenerated ``by_rule`` and ``total_count``
-    so the baseline never carries a non-zero F-rule floor. Per
-    ``docs/ruff-ratchet.md`` §"Step 1", F-rules must hard-fail at zero
-    tolerance: if any F-rule count > 0 appears in the current ruff
-    output, ``compare()`` sees ``b=0`` (baseline omits F-rules) vs
-    ``c>0`` and reports a per-rule REGRESSION. Locking a non-zero
-    F-rule count into the baseline would silently absorb future
-    regressions in unused-import / undefined-name / unused-variable
-    checks — exactly the hole this filter closes.
+     F-rule (pyflakes) codes. F401, F811, F821, F841, etc.
+    , are stripped from the regenerated ``by_rule`` and ``total_count``
+     so the baseline never carries a non-zero F-rule floor. Per
+     ``docs/ruff-ratchet.md`` §"Step 1", F-rules must hard-fail at zero
+     tolerance: if any F-rule count > 0 appears in the current ruff
+     output, ``compare()`` sees ``b=0`` (baseline omits F-rules) vs
+     ``c>0`` and reports a per-rule REGRESSION. Locking a non-zero
+     F-rule count into the baseline would silently absorb future
+     regressions in unused-import / undefined-name / unused-variable
+     checks, exactly the hole this filter closes.
     """
     _raw_total, raw_by_rule = _summarize(current_violations)
 
@@ -212,7 +212,7 @@ def regenerate(current_violations: list[dict[str, Any]], *, force: bool = False)
             f"NOTE: {f_rule_total} F-rule (pyflakes) violations omitted from the "
             'baseline per docs/ruff-ratchet.md §"Step 1" (F-rules hard-fail at 0; '
             "the ratchet does not track a non-zero F-rule floor). Fix them before "
-            "committing — F-rules are real bugs (unused imports, undefined names, "
+            "committing, F-rules are real bugs (unused imports, undefined names, "
             "unused variables, redefinitions)."
         )
 
@@ -234,7 +234,7 @@ def main(argv: list[str] | None = None) -> int:
         epilog=__doc__,
         regenerate_help=(
             "Rewrite ruff-baseline.json with the current violation counts. "
-            "Only use this after FIXING violations — refuses to grow the "
+            "Only use this after FIXING violations, refuses to grow the "
             "baseline and refuses to run when the baseline is missing/corrupt."
         ),
         force_help=(

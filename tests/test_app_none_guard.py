@@ -18,7 +18,7 @@ property's return value directly:
 
 When the lazy property returned ``None`` (because lazy-init failed),
 each delegate crashed with ``AttributeError: 'NoneType' object has no
-attribute 'X'`` — taking down the audio callback thread (for the
+attribute 'X'``, taking down the audio callback thread (for the
 audio_quality delegates) or the hotkey / tray-menu handler (for the
 undo delegates).
 
@@ -57,7 +57,7 @@ import pytest
 def app(tmp_config_dir, monkeypatch):
     """Create a VoiceTyperApp with mocked dependencies for None-guard tests.
 
-    Minimal setup — we only need the app instance so we can force the
+    Minimal setup, we only need the app instance so we can force the
     lazy-init of ``undo`` / ``audio_quality`` to fail by monkeypatching
     the controller constructors to raise.
     """
@@ -83,7 +83,7 @@ def _force_undo_lazy_init_failure(monkeypatch):
     The lazy property ``VoiceTyperApp.undo`` calls
     ``UndoRepasteController(self)`` inside a ``try/except Exception``
     block, so any exception from the constructor causes the property
-    to log a warning and return ``None`` — which is the path we want
+    to log a warning and return ``None``, which is the path we want
     to exercise.
     """
 
@@ -121,7 +121,7 @@ class TestUndoNoneGuard:
         _force_undo_lazy_init_failure(monkeypatch)
 
         # Belt-and-suspenders: assert the property really does return None
-        # under the monkeypatch — guards against a future refactor that
+        # under the monkeypatch, guards against a future refactor that
         # changes the lazy-init contract.
         assert app.undo is None
 
@@ -269,7 +269,7 @@ class TestHappyPathForwarding:
     not accidentally short-circuit the happy path).
 
     Uses MagicMock collaborators injected via the property setter (which
-    bypasses lazy construction — see the property docstring).
+    bypasses lazy construction: see the property docstring).
     """
 
     def test_undo_last_forwards_to_controller(self, app):

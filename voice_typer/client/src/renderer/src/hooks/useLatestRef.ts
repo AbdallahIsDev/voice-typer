@@ -16,7 +16,7 @@
 // depends on a churning `call` re-runs on every render). Reading
 // `ref.current` inside a stale closure still sees the LATEST callback.
 // The `useEffect` (not `useLayoutEffect`) timing is sufficient for
-// event-handler/effect reads — a handler cannot fire between commit
+// event-handler/effect reads, a handler cannot fire between commit
 // and passive-effect flush in a way that observes a torn value, and
 // where that subtlety matters, the consuming code reads the value
 // during render (not via the mirror).

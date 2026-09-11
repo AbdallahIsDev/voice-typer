@@ -26,7 +26,7 @@ The launcher supports two production shapes:
 
 - **Electron** (legacy / dev): the launcher uses a **build-first**
   strategy: if the Electron app has been built (``out/main/index.js``
-  exists), it runs ``electron .`` directly — no Vite dev server, no
+  exists), it runs ``electron .`` directly, no Vite dev server, no
   HMR watcher, just the compiled production bundles. If the build
   output is missing, it runs ``npm run build`` first, then
   ``electron .``. ``npm run dev`` is used ONLY as a last-resort
@@ -60,7 +60,7 @@ Idempotency
 Before launching, the script checks whether the IPC port (9876) is
 already listening.  If so, a backend is already running (e.g.
 the user logged in twice, or a previous launcher is still alive) and
-the script exits silently — no double launch, no mutex conflict.
+the script exits silently, no double launch, no mutex conflict.
 
 PID tracking
 ------------
@@ -188,7 +188,7 @@ IPC_PORT = _paths.IPC_PORT
 
 # The OS invokes this file as a BARE SCRIPT (``pythonw.exe
 # autostart_launcher.py`` at logon), so ``__name__`` is ``"__main__"`` here
-# — ``logging.getLogger(__name__)`` would create a logger hanging off the
+# , ``logging.getLogger(__name__)`` would create a logger hanging off the
 # root, where the app's rotating file handler (attached to the
 # ``voice_typer`` logger by ``log.setup_logging``) never fires, silently
 # dropping EVERY launcher log line. That is why no ``[AUTOSTART]`` lines
@@ -201,7 +201,7 @@ log = logging.getLogger("voice_typer.server.autostart_launcher")
 
 
 def _setup_logging() -> None:
-    """Minimal logging to the app log file (no console — we run hidden)."""
+    """Minimal logging to the app log file (no console, we run hidden)."""
     # _config_dir() already delegates to _paths.config_dir() which
     # delegates to config._config_dir(). The previous try/except fallback
     # to Path.home() / ".voice-typer" was needed when the local
@@ -274,14 +274,14 @@ def launch() -> int:
        spawn the Tauri binary directly. The Tauri cutover removed the
        Electron ``node_modules/`` tree from production installs, so the
        legacy ``electron .`` / ``npm run dev`` paths would silently
-       fail — this branch keeps autostart-at-login working.
+       fail: this branch keeps autostart-at-login working.
 
     3. **Fresh start, Electron mode** (dev checkout or legacy install):
        a. Build the Electron app if needed (``npm run build`` → ``electron .``).
        b. If ``--dev`` is passed OR the build path fails, fall back to
           ``npm run dev`` as a last resort.
 
-    This means ``npm run dev`` (Vite dev mode) is NEVER the default — it is
+    This means ``npm run dev`` (Vite dev mode) is NEVER the default, it is
     exclusively a fallback when the build fails or when the user explicitly
     requests it via ``--dev``.
 
@@ -312,15 +312,15 @@ def launch() -> int:
         )
         time.sleep(delay_seconds)
     elif delay_seconds > 0:
-        # No installed model (or an unreadable config) — prewarm has no
+        # No installed model (or an unreadable config), prewarm has no
         # weights to page into the OS cache, so the fixed delay would be
         # pure startup latency. Log once at INFO so the skip is traceable.
         log.info(
-            "[AUTOSTART] skipping %.1fs prewarm delay — no installed model to warm",
+            "[AUTOSTART] skipping %.1fs prewarm delay, no installed model to warm",
             delay_seconds,
         )
 
-    # 1) App already running — wake it via single-instance lock.
+    # 1) App already running, wake it via single-instance lock.
     # Check if a VoiceTyper backend is already running via the
     # backend PID file (authoritative) and port 9876 (belt-and-suspenders).
     # Previously only checked port 9876, which is unreliable because the
@@ -353,13 +353,13 @@ def launch() -> int:
         backend_running = _is_port_open(IPC_HOST, ipc_port)
 
     if backend_running:
-        log.info("[AUTOSTART] backend already running — focusing existing instance")
+        log.info("[AUTOSTART] backend already running, focusing existing instance")
         _focus_running_app()
         # No pre-exit sleep: the focus child is spawned detached (POSIX
         # ``start_new_session=True``; Windows inherits the process tree, and
         # Explorer does not wait on autostart entries' children), and neither
         # the OS login sequence nor the parent process needs this launcher to
-        # linger — the sleep only delayed "login complete" by a fixed 0.5s on
+        # linger, the sleep only delayed "login complete" by a fixed 0.5s on
         # every autostart login with a prewarmed backend. The RESULT line
         # below still records the outcome + duration (C-CROSS-5).
         return 0
@@ -388,22 +388,22 @@ def launch() -> int:
                 _wait_for_ipc_ready()
                 log.info("[AUTOSTART] launcher exiting; tauri child continues detached")
                 return 0
-            # no silent Electron fallback — if the Tauri spawn
+            # no silent Electron fallback, if the Tauri spawn
             # fails, exit 1 so the user sees a non-zero exit code and
             # can diagnose, rather than silently launching a stale
             # Electron dev binary that may not exist.
             log.error("[AUTOSTART] Tauri spawn failed; exiting 1 (no Electron fallback)")
             return 1
-        # Tauri mode detected but no binary resolvable — also
+        # Tauri mode detected but no binary resolvable, also
         # exit 1 with a clear log message rather than silently falling
         # back to a stale Electron path.
         log.error("[AUTOSTART] Tauri mode detected but no binary resolvable; exiting 1 (no Electron fallback)")
         return 1
 
-    # 2) Fresh start — legacy Electron path.
+    # 2) Fresh start, legacy Electron path.
     if not _client_dir_exists():
         log.error(
-            "[AUTOSTART] client directory not found at %s — cannot launch",
+            "[AUTOSTART] client directory not found at %s, cannot launch",
             CLIENT_DIR,
         )
         return 1
@@ -411,14 +411,14 @@ def launch() -> int:
     # 3a) Build-first: build if needed, then launch with electron .
     if not force_dev:
         # DEBUG: the "spawned electron ." + "Build-first launch
-        # succeeded" INFO lines below already tell the story — this
+        # succeeded" INFO lines below already tell the story, this
         # path marker duplicated them.
         log.debug("[AUTOSTART] Trying build-first path...")
         if _ensure_built_and_launch(hidden=hidden):
             log.info("[AUTOSTART] Build-first launch succeeded")
             _wait_for_ipc_ready()
             return 0
-        log.warning("[AUTOSTART] Build-first path failed — falling back to dev mode")
+        log.warning("[AUTOSTART] Build-first path failed, falling back to dev mode")
 
     # 3b) Last-resort: npm run dev (Vite dev server).
     log.info("[AUTOSTART] Starting dev mode (npm run dev)...")
@@ -444,7 +444,7 @@ def main() -> int:
     plus, on an unhandled exception, ``[AUTOSTART] RESULT failure
     unhandled-exception`` with the traceback. Without this, a pythonw
     launch that crashes mid-way would exit with a traceback written to a
-    non-existent console — invisible. The duration suffix follows the
+    non-existent console, invisible. The duration suffix follows the
     canonical space-separated ``<duration>`` performance-marker
     convention (C-LOG-2).
     """
@@ -454,7 +454,7 @@ def main() -> int:
     try:
         rc = launch()
     except Exception:
-        # pythonw has no console — an unhandled traceback would vanish.
+        # pythonw has no console, an unhandled traceback would vanish.
         # Log it to the rotating file so autostart failures are traceable.
         log.exception("[AUTOSTART] RESULT failure unhandled-exception")
         rc = 1

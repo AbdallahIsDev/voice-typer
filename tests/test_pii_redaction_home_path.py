@@ -4,7 +4,7 @@ Background
 ----------
 ``PIIRedactionFilter._redact_text`` (in ``voice_typer/server/security.py``)
 previously matched structured PII (email / phone / SSN / CC / IBAN),
-API-secret patterns, and URL-embedded credentials — but did NOT call
+API-secret patterns, and URL-embedded credentials, but did NOT call
 :func:`voice_typer.server._secrets._redact_home_path`.  Filesystem paths
 containing the user's home directory (``/home/alice/…``,
 ``/Users/alice/…``, ``C:\\Users\\alice\\…``) therefore leaked the OS
@@ -14,7 +14,7 @@ The fix calls ``_redact_home_path`` at the top of ``_redact_text``,
 BEFORE the fast-path trigger check.  This is critical because a bare
 path like ``/home/alice/.voice-typer/foo.log`` contains none of the
 fast-path triggers (no ``@``, ``+``, 3+ consecutive digits, ``Bearer``,
-``Token``, ``sk-``, ``key=``, 20+ char token) — the trigger scan would
+``Token``, ``sk-``, ``key=``, 20+ char token), the trigger scan would
 otherwise return the input unchanged and the username would leak.
 
 The ``_redact_home_path`` helper is shared by every export-facing
@@ -92,7 +92,7 @@ def test_home_path_in_traceback_redacted(
 
     ``PIIRedactionFilter.filter`` pre-formats ``record.exc_info`` into a
     string and caches the redacted result on ``record.exc_text``.  The
-    home-path redaction must apply to that string too — otherwise an
+    home-path redaction must apply to that string too, otherwise an
     exception whose message or traceback frames reference a home path
     (e.g. ``FileNotFoundError("/home/testuser/.voice-typer/foo.log")``)
     would leak the username via the traceback block appended to the log

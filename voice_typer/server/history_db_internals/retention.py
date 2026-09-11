@@ -3,19 +3,19 @@
 Extracted from the once-monolithic ``history_db.py`` ( split). The
 functions in this module are free functions that take the
 :class:`~voice_typer.server.history_db.HistoryDB` instance (``db``)
-instead of ``self`` — they read/write the instance's attributes (the
+instead of ``self``: they read/write the instance's attributes (the
 writer queue, the retention lock/stop-event, the count cache) via the
 passed-in reference.
 
 Free functions:
 
-- :func:`apply_retention` — runs the chunked retention sweep on the
+- :func:`apply_retention`: runs the chunked retention sweep on the
   writer thread, then conditionally VACUUMs and hardens the FTS5
   index (``'optimize'`` for small sweeps, ``'rebuild'`` after large
   purges).
-- :func:`schedule_periodic_retention` — spawns the daemon thread that
+- :func:`schedule_periodic_retention`: spawns the daemon thread that
   periodically calls ``apply_retention``.
-- :func:`stop_periodic_retention` — signals + joins the periodic
+- :func:`stop_periodic_retention`: signals + joins the periodic
   retention thread (best-effort).
 """
 
@@ -34,7 +34,7 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 # IMPL-A: writer-thread tuning constants.
-#   _RETENTION_BATCH — chunk size for the bulk DELETEs inside
+#   _RETENTION_BATCH, chunk size for the bulk DELETEs inside
 #   ``apply_retention``. Each batch commits so the WAL doesn't grow
 #   unboundedly and external readers see progress.
 _RETENTION_BATCH = 100
@@ -53,7 +53,7 @@ def _rebuild_fts(
     Extracted from the in-line ``try/except sqlite3.Error`` block that
     previously lived only inside :func:`apply_retention`. The FTS5
     AFTER DELETE trigger (``schema.py:_MIGRATION_V3``) only marks the
-    rowid as deleted in the FTS5 delete-bitmap — the segment data in
+    rowid as deleted in the FTS5 delete-bitmap, the segment data in
     ``transcriptions_fts_data`` (containing the dictated plaintext)
     survives the trigger delete AND ``VACUUM`` (VACUUM rebuilds the
     main DB file but does NOT rebuild FTS5 shadow tables). The
@@ -85,7 +85,7 @@ def _rebuild_fts(
         The writer-thread's ``sqlite3.Connection``. The command is
         issued via ``conn.cursor().execute(...)`` (NOT ``conn.execute``
         directly) so callers that mock the cursor's ``execute`` to
-        simulate FTS5 failures see the failure — ``conn.execute``
+        simulate FTS5 failures see the failure, ``conn.execute``
         bypasses the cursor mock and the simulated failure is silently
         swallowed by the real connection.
     db
@@ -115,7 +115,7 @@ def _rebuild_fts(
     -------
     bool
         ``True`` if the rebuild succeeded (or the FTS5 table doesn't
-        exist — pre-V3 DB — treated as success since there is nothing
+        exist, pre-V3 DB, treated as success since there is nothing
         to rebuild). ``False`` if the rebuild failed (the privacy
         guarantee is broken; callers may surface this via the
         ``RetentionResult.fts5_rebuild_ok`` attribute or their own
@@ -133,7 +133,7 @@ def _rebuild_fts(
     ``conn.execute(...)`` directly) so callers that mock the cursor's
     ``execute`` to simulate FTS5 failures (see
     ``tests/test_history_retention_index.py::TestRetentionFts5RebuildFailure``)
-    see the failure — ``conn.execute`` bypasses the cursor mock and
+    see the failure, ``conn.execute`` bypasses the cursor mock and
     the simulated failure is silently swallowed by the real
     connection. The cursor is closed in a ``finally`` block so the
     cursor-close contract is preserved (matches the
@@ -141,7 +141,7 @@ def _rebuild_fts(
 
     Note: ``'rebuild'`` is O(N) (drops and rebuilds ALL segments from
     the content table). For the single-row delete path this adds
-    latency proportional to the total row count — but the privacy
+    latency proportional to the total row count, but the privacy
     guarantee (deleted text is actually unrecoverable) is more
     important than latency. The per-row ``delete`` path in
     ``history_db.py`` uses the cheaper ``'optimize'`` form; the
@@ -181,19 +181,19 @@ def _rebuild_fts(
             )
         return True
     except sqlite3.Error as e:
-        # escalate from WARNING to ERROR — the GDPR Art. 17 /
+        # escalate from WARNING to ERROR, the GDPR Art. 17 /
         # privacy guarantee is broken (deleted dictated text
         # remains recoverable from ``transcriptions_fts_data`` via
         # forensic tools), not merely "suboptimal".
         log.exception(
             "[HISTORY_DB] FTS5 '%s' after %s FAILED: %s "
-            "(FTS5 shadow-table segment data may persist — deleted "
+            "(FTS5 shadow-table segment data may persist, deleted "
             "dictated text remains recoverable; manual re-index advised)",
             command,
             source,
             e,
         )
-        # observable metric — increment the per-instance failure
+        # observable metric, increment the per-instance failure
         # counter so diagnostics / IPC ``get_diagnostics`` handlers
         # can surface it to the user. ``getattr`` default keeps this
         # safe if the HistoryDB instance was constructed by an older
@@ -202,7 +202,7 @@ def _rebuild_fts(
             try:
                 current = getattr(db, "_fts5_rebuild_failures", 0)
                 db._fts5_rebuild_failures = current + 1
-            except Exception:  # noqa: BLE001 — best-effort metric
+            except Exception:  # noqa: BLE001, best-effort metric
                 log.debug(
                     "[HISTORY_DB] could not increment _fts5_rebuild_failures counter",
                     exc_info=True,
@@ -330,7 +330,7 @@ def apply_retention(
         against ``transcriptions.timestamp`` matches the format used by
         SQLite's own timestamp functions. The previous code used naive
         ``datetime.now()`` (local time) + ``.isoformat()`` which produced
-        a timezone-offset-suffixed string — on a machine whose local TZ
+        a timezone-offset-suffixed string, on a machine whose local TZ
         is ahead of UTC, rows up to ``TZ_offset_hours`` newer than the
         true cutoff were incorrectly deleted.
 
@@ -342,21 +342,21 @@ def apply_retention(
         unboundedly and let external readers see progress.
 
     after the retention sweep, ``VACUUM`` runs only if
-        more than 20% of rows were deleted — this avoids the VACUUM
+        more than 20% of rows were deleted: this avoids the VACUUM
         cost (which requires exclusive access and briefly blocks
         readers) for small sweeps while still reclaiming space after
         large purges.
 
     FTS5 hardening runs whenever rows were actually deleted:
         the full ``'rebuild'`` fires above the same ``ratio > 0.20``
-        threshold (O(N) re-index — the privacy safety net after a
+        threshold (O(N) re-index, the privacy safety net after a
         large purge), while small sweeps issue a single ``'optimize'``
         (cheap, idempotent) so sub-threshold deletes still purge
         segment data from ``transcriptions_fts_data`` without an O(N)
         re-index on every 10-minute tick.
 
     if the FTS5 ``'rebuild'`` command fails after a sweep,
-        the failure is no longer silent — it is logged at ``ERROR``
+        the failure is no longer silent, it is logged at ``ERROR``
         level (the privacy guarantee is broken, not merely suboptimal),
         ``db._fts5_rebuild_failures`` is incremented (observable in
         diagnostics), and an ``event_bus`` event
@@ -397,7 +397,7 @@ def apply_retention(
             # (~200MB wasted on a 50K-row DB). The subsequent
             # VACUUM rewrites the file (old pages not in the new
             # file) or incremental_vacuum removes the free pages
-            # from the file — either way the deleted text is not
+            # from the file, either way the deleted text is not
             # recoverable, providing the equivalent privacy
             # guarantee. ``secure_delete`` is per-connection in
             # modern SQLite, but toggling it on the writer is safe
@@ -406,7 +406,7 @@ def apply_retention(
             #
             # For new DBs created with ``PRAGMA auto_vacuum=INCREMENTAL``
             # (set in ``init_schema``), use ``PRAGMA incremental_vacuum(100)``
-            # instead of full ``VACUUM`` — incremental_vacuum reclaims
+            # instead of full ``VACUUM``: incremental_vacuum reclaims
             # free pages incrementally without rewriting the entire
             # file (no exclusive lock, ~100x faster on large DBs).
             # For existing DBs (auto_vacuum=NONE), keep the full
@@ -443,7 +443,7 @@ def apply_retention(
                     # ``.isoformat()`` (which appends a TZ offset like
                     # ``+02:00``), so the comparison against the
                     # UTC-stamped ``transcriptions.timestamp`` column was
-                    # wrong by the local TZ offset — on a machine whose
+                    # wrong by the local TZ offset, on a machine whose
                     # local TZ is ahead of UTC, rows up to
                     # ``TZ_offset_hours`` newer than the true cutoff were
                     # incorrectly deleted. Using UTC + the bare
@@ -470,7 +470,7 @@ def apply_retention(
                     # Compute ``total`` once before the loop and decrement
                     # by ``batch_deleted`` per iteration. Previously this
                     # block re-ran ``SELECT COUNT(*) FROM transcriptions``
-                    # on every iteration — O(N^2) total (one full COUNT
+                    # on every iteration. O(N^2) total (one full COUNT
                     # scan per batch). For a power-user DB with 50K rows
                     # and max_entries=1000, that's 490 COUNT scans; each
                     # COUNT is O(N) on the favorite=0 subset, so the total
@@ -559,7 +559,7 @@ def apply_retention(
                                 if secure_delete_toggled:
                                     log.exception(
                                         "[HISTORY_DB] VACUUM after retention "
-                                        "FAILED with secure_delete=OFF: %s — "
+                                        "FAILED with secure_delete=OFF: %s, "
                                         "deleted text may be recoverable from "
                                         "free pages until the next successful "
                                         "VACUUM (privacy regression).",
@@ -594,7 +594,7 @@ def apply_retention(
                         # the rebuild is gated by the SAME ``ratio > 0.20``
                         # threshold as VACUUM. Below that threshold, the FTS5
                         # delete-bitmap trigger already hides deleted rows
-                        # from MATCH results — the only thing ``'rebuild'``
+                        # from MATCH results, the only thing ``'rebuild'``
                         # would reclaim is segment data in
                         # ``transcriptions_fts_data``, which isn't worth an
                         # O(N) re-index for a handful of deletes (the
@@ -611,7 +611,7 @@ def apply_retention(
                         # applies the delete-bitmap to the merged output
                         # (so deleted text is purged from the shadow
                         # table) at a cost proportional to the pending
-                        # merges — NOT an O(N) re-index — closing the
+                        # merges, NOT an O(N) re-index, closing the
                         # sub-threshold privacy gap without burning on
                         # every 10-minute tick.
                         # FTS5 hardening is invoked via the
@@ -629,7 +629,7 @@ def apply_retention(
                             fts5_rebuild_ok = False
                     else:
                         # Small sweep (0 < ratio <= 0.20): single
-                        # ``'optimize'`` — see the comment above.
+                        # ``'optimize'``: see the comment above.
                         if not _rebuild_fts(
                             conn,
                             db,
@@ -669,7 +669,7 @@ def apply_retention(
 
         result = db._submit_write(_do_retention, wait=True)
         if result is None:
-            # Writer unavailable — no rebuild was attempted, so the
+            # Writer unavailable, no rebuild was attempted, so the
             # fts5_rebuild_ok flag (still True) is correct: there is
             # no privacy failure to report (the deletes never ran).
             return RetentionResult(0, fts5_rebuild_ok=fts5_rebuild_ok)
@@ -681,7 +681,7 @@ def apply_retention(
             # (``max_entries``). An age-based delete CAN drop today's
             # rows if ``retention_days=0`` (delete everything older
             # than 0 days = delete everything), and a count-based
-            # delete drops the OLDEST rows first — which would only
+            # delete drops the OLDEST rows first: which would only
             # affect today's stats if today's rows are the oldest
             # (unlikely but possible after a DB re-import). Either way
             # the cache must be invalidated so the next read reflects
@@ -733,7 +733,7 @@ def schedule_periodic_retention(
            skip this tick and wait for the next one. This is the
     re-entrancy guard required by
         4. Resolve retention parameters from ``app.config`` if ``app``
-           is provided (preferred — picks up config changes the user
+           is provided (preferred, picks up config changes the user
            made at runtime), else use the keyword arguments.
         5. Call ``db.apply_retention(...)`` inside the lock.
 
@@ -762,7 +762,7 @@ def schedule_periodic_retention(
         retention_days, max_entries, retention_count : int
             Static fallback values used when ``app`` is None or when
             ``app.config`` doesn't expose the corresponding attribute.
-            Default 0 (no retention — caller must supply real values
+            Default 0 (no retention, caller must supply real values
             either via ``app`` or via these keyword args).
 
         Notes
@@ -778,14 +778,14 @@ def schedule_periodic_retention(
         method just exposes the API.
     """
     # Stop any existing periodic retention thread before spawning a
-    # new one — idempotent re-scheduling.
+    # new one, idempotent re-scheduling.
     stop_periodic_retention(db)
 
     stop_event = threading.Event()
     db._retention_stop_event = stop_event
 
     def _periodic_retention_loop() -> None:
-        """inner loop — wait, skip-if-busy, run, repeat."""
+        """inner loop, wait, skip-if-busy, run, repeat."""
         while not stop_event.wait(timeout=interval_s):
             if db._shutdown.is_set() or stop_event.is_set():
                 break
@@ -794,13 +794,13 @@ def schedule_periodic_retention(
             # returns False immediately if the lock is held.
             if not db._retention_lock.acquire(blocking=False):
                 log.debug(
-                    "[HISTORY_DB] periodic retention tick skipped — previous run still active (interval_s=%.1f)",
+                    "[HISTORY_DB] periodic retention tick skipped, previous run still active (interval_s=%.1f)",
                     interval_s,
                 )
                 continue
             try:
                 # Resolve retention parameters from app.config
-                # (preferred — picks up runtime config changes)
+                # (preferred, picks up runtime config changes)
                 # or fall back to the static kwargs.
                 days = retention_days
                 max_ent = max_entries
@@ -824,7 +824,7 @@ def schedule_periodic_retention(
                 )
                 # Per-row FTS5 ``'optimize'`` flush: a previous revision
                 # called ``db._flush_pending_fts_optimize(wait=False)``
-                # here, but that method was never implemented — the call
+                # here, but that method was never implemented, the call
                 # was silently swallowed by ``contextlib.suppress``. The
                 # GDPR Art. 17 right-to-erasure safety net is already
                 # covered by ``apply_retention``'s post-sweep FTS5
@@ -846,7 +846,7 @@ def schedule_periodic_retention(
     db._retention_thread = thread
     thread.start()
 
-    # Register with ThreadRegistry if available on app — this lets
+    # Register with ThreadRegistry if available on app, this lets
     # the central shutdown coordinator signal + join the thread
     # alongside the other app-owned daemon threads.
     registry = getattr(app, "_thread_registry", None) if app is not None else None
@@ -874,7 +874,7 @@ def stop_periodic_retention(db: HistoryDB) -> None:
 
     Called by :meth:`HistoryDB.close` and by
     :meth:`HistoryDB.schedule_periodic_retention` (to support
-    idempotent re-scheduling). Best-effort — if the thread doesn't
+    idempotent re-scheduling). Best-effort, if the thread doesn't
     exit within 2s (e.g. stuck in a long VACUUM), it is left to die
     as a daemon at process exit.
     """
@@ -888,7 +888,7 @@ def stop_periodic_retention(db: HistoryDB) -> None:
         if thread.is_alive():
             log.debug(
                 "[HISTORY_DB] periodic retention thread did not exit "
-                "within 2s — it is a daemon and will exit at process shutdown."
+                "within 2s, it is a daemon and will exit at process shutdown."
             )
     db._retention_thread = None
     db._retention_stop_event = None

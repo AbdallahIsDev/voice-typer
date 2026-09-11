@@ -6,7 +6,7 @@
 // Updates" button was removed because the offline-by-default UX
 // was preferred; if a future iteration wants to add it back
 // (user-initiated GitHub API check), C-DATA-1 permits it under
-// the auto-update category — see docs/auto-update-feature.md.
+// the auto-update category, see docs/auto-update-feature.md.
 // The Updates section now shows the installed version plus a
 // static message directing the user to open the GitHub releases
 // page in their browser.
@@ -16,21 +16,21 @@
 //
 // (RESTORED 2026-08-14): the Cache Status card + `get_prewarm_status`
 // / `open_prewarm_log` IPC calls were restored verbatim from commit
-// 5a319872 — the card is a user-facing product feature, not prewarm
+// 5a319872, the card is a user-facing product feature, not prewarm
 // machinery (plan §6.3 addendum). The "Run Prewarm Now" button was
 // ALSO restored the same day (§6.3 addendum second half), wired to the
 // re-implemented `run_prewarm` IPC: the Python handler no longer
-// spawns the deleted standalone-prewarm subprocess — it re-runs the
+// spawns the deleted standalone-prewarm subprocess, it re-runs the
 // worker's warm phase in-process (warm_imports_for_worker on a daemon
 // thread) and refreshes the status file, so the button re-warms the OS
 // standby cache on demand. Two things were NOT restored, in lockstep
 // with the Python side:
-//   * the `prewarm_running` field — it tracked that subprocess via
+//   * the `prewarm_running` field, it tracked that subprocess via
 //     the deleted process-tracker machinery; the restored status
 //     response carries `enabled` instead. The button's "running"
 //     state is tracked locally (`runPrewarmLoading`) + via a short
 //     poll of `last_run` after starting.
-//   * the 2-minute poll loop — the restored in-process warm pass is
+//   * the 2-minute poll loop, the restored in-process warm pass is
 //     fast (seconds, not the 20-50 s subprocess), so the button
 //     re-fetches status once after starting instead of long-polling.
 
@@ -57,7 +57,7 @@ import type { IsVisibleFn } from "./types";
 const APP_VERSION = pkg.version as string;
 
 // Static anchor URL for the "View Changelog" button. This is NOT a
-// renderer-initiated network call — it is an `<a href>` element the
+// renderer-initiated network call, it is an `<a href>` element the
 // user explicitly clicks, which Electron routes to the system browser
 // (or a new BrowserWindow depending on config). The C-DATA-1 rule
 // forbids automated network calls from the production code path; a
@@ -68,7 +68,7 @@ const RELEASES_URL = "https://github.com/AbdallahIsDev/voice-typer/releases";
 // ADR-0009 Issue 3: shape of the ``get_prewarm_status`` IPC response.
 // Mirrors the dict returned by
 // voice_typer.server.prewarm.status.get_prewarm_status(). RESTORED
-// 2026-08-14: matches the restored response — `enabled` (fast_startup
+// 2026-08-14: matches the restored response, `enabled` (fast_startup
 // config toggle) + worker warm-run timing; `prewarm_running` was
 // dropped with the process-tracker machinery (see header comment).
 interface PrewarmStatus {
@@ -110,12 +110,12 @@ function CacheStatusBadge({ label }: { label: PrewarmStatus["cache_label"] }) {
 }
 
 // Status rows render via the shared `ReadonlyRow` primitive (default
-// `value-emphasized` variant: muted label + prominent value) — see
+// `value-emphasized` variant: muted label + prominent value), see
 // `@/components/common/ReadonlyRow` for the rationale and the contrast
 // with `SettingRow` (which emphasises the LABEL for editable controls).
 
 export interface PrewarmAndUpdatesProps {
-	/** Search-filter predicate. Optional — defaults to "always visible"
+	/** Search-filter predicate. Optional, defaults to "always visible"
 	 *  so the component can render standalone (in tests, etc.). */
 	isVisible?: IsVisibleFn;
 }
@@ -124,7 +124,7 @@ const ALWAYS_VISIBLE: IsVisibleFn = () => true;
 
 /** Translated row + section + action-button labels rendered by this
  *  component. Exported so the Settings page's search auto-switch
- *  can include them in the privacy tab's label set — without
+ *  can include them in the privacy tab's label set, without
  *  this, typing "prewarm", "cache", "version", "update", etc. wouldn't
  *  route to the privacy tab because `getTabLabels()` only knows the
  *  two section titles (`about.cacheTitle`, `about.updatesTitle`).
@@ -157,7 +157,7 @@ export default function PrewarmAndUpdates({
 	const { call } = usePython();
 
 	// Ref mirror of `call` so the mount-load effect keeps `[]` deps.
-	// Test mocks may return a fresh `call` per render — depending on it
+	// Test mocks may return a fresh `call` per render, depending on it
 	// would re-fire the load (get_prewarm_status → setPrewarmStatus →
 	// re-render → new call → loop). Same pattern as useVocabulary.ts.
 	const callRef = useLatestRef(call);
@@ -193,7 +193,7 @@ export default function PrewarmAndUpdates({
 	// Open the prewarm log file in the OS default text editor. Calls the
 	// open_prewarm_log IPC handler which uses os.startfile (Windows), open
 	// (macOS), or xdg-open (Linux). Shows a toast if the log file doesn't
-	// exist or can't be opened. (RESTORED 2026-08-14 — the handler now
+	// exist or can't be opened. (RESTORED 2026-08-14, the handler now
 	// opens the worker log, which carries the [PREWARM] lines.)
 	const handleViewPrewarmLog = async () => {
 		try {
@@ -237,7 +237,7 @@ export default function PrewarmAndUpdates({
 				await fetchPrewarmStatus();
 			}
 		} catch (err) {
-			// Run-failure copy — NOT the View-Log handler's
+			// Run-failure copy, NOT the View-Log handler's
 			// `prewarmLogOpenFailed` string (a user who clicked
 			// "Run Prewarm Now" must be told the RUN failed, not
 			// that opening a log failed).
@@ -254,7 +254,7 @@ export default function PrewarmAndUpdates({
 	// On mount: fetch prewarm status only. No network call is ever
 	// fired from this component (the prewarm status call is a local
 	// IPC bridge to the Python sidecar, not a network call).
-	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract — .current must NOT become a dep
+	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract, .current must NOT become a dep
 	useEffect(() => {
 		let cancelled = false;
 		const load = async () => {
@@ -278,7 +278,7 @@ export default function PrewarmAndUpdates({
 	return (
 		<>
 			{/* ── Cache Status (ADR-0009 Issue 3) ─────────────────────── */}
-			{/* section-level hide-when-empty check — when no row
+			{/* section-level hide-when-empty check, when no row
                                 matches the active search query, hide the whole section
                                 (including its action buttons) so the tab doesn't show a
                                 lonely header above an empty body. */}
@@ -395,7 +395,7 @@ export default function PrewarmAndUpdates({
 			{/* The "Check for Updates" button was removed because the
                                 offline-by-default UX was preferred; if a future iteration
                                 wants to add it back (user-initiated GitHub API check),
-                                C-DATA-1 permits it under the auto-update category — see
+                                C-DATA-1 permits it under the auto-update category, see
                                 docs/auto-update-feature.md. The section now shows the
                                 installed version plus a static offline message + a
                                 user-clicked external link to the GitHub releases page. */}
@@ -423,13 +423,13 @@ export default function PrewarmAndUpdates({
                                                 the offline-by-default UX was preferred; if a future
                                                 iteration wants to add it back (user-initiated GitHub
                                                 API check), C-DATA-1 permits it under the auto-update
-                                                category — see docs/auto-update-feature.md. A static
+                                                category, see docs/auto-update-feature.md. A static
                                                 offline notice now directs the user to open the
                                                 GitHub releases page in their own browser. */}
 						<p className="text-sm text-(--text-muted) mr-auto">
 							{t("about.offlineUpdatesMessage")}
 						</p>
-						{/* "View Changelog" — an `<a href>` link the user
+						{/* "View Changelog", an `<a href>` link the user
                                                 clicks to open the GitHub releases page in their
                                                 browser. This is NOT a renderer network call: it's
                                                 an anchor the user explicitly activates, routed by

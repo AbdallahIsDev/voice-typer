@@ -2,7 +2,7 @@
 vocabulary/text-cleanup constants.
 
 Split out of the former ``tests/test_history_and_models.py`` catch-all
-(Phase 4.5 / TC-15). Verbatim mechanical move — same test names +
+(Phase 4.5 / TC-15). Verbatim mechanical move, same test names +
 assertions, only the file location changed.
 """
 

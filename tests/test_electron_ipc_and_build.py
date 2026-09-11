@@ -26,13 +26,13 @@ class TestElectronExposesDataExportHandlers:
 
     status: the renderer-side type/UX tests below are ported to
     vitest (see ``electron-ipc-build-behavior.test.tsx`` Sections 1–2).
-    The 5 main/preload-source tests stay in Python — they assert on
+    The 5 main/preload-source tests stay in Python, they assert on
     ``src/main/index.ts`` and ``src/preload/index.ts`` source strings,
     which cannot be loaded in the jsdom vitest environment (both files
     import ``electron`` and ``node:*`` built-ins).  A behavioral port
     would require ``@vitest/electron`` or Playwright Electron to spawn
     a real main process and invoke ``ipcMain.handle("templates:export",
-    ...)`` end-to-end — see worklog for the documented dep.
+    ...)`` end-to-end, see worklog for the documented dep.
     """
 
     # REQUIRES-ELECTRON-RUNNER: asserts on src/main/index.ts source which
@@ -45,7 +45,7 @@ class TestElectronExposesDataExportHandlers:
         combined = main_ts + "\n" + export_handlers_ts + "\n" + channels_ts
         assert 'ipcMain.handle("templates:export"' in combined or '"templates:export"' in combined
 
-    # REQUIRES-ELECTRON-RUNNER: same as above — src/main/index.ts source check.
+    # REQUIRES-ELECTRON-RUNNER: same as above, src/main/index.ts source check.
     def test_main_has_config_export_handler(self):
         main_ts = (CLIENT_SRC / "main" / "index.ts").read_text(encoding="utf-8")
         export_handlers_ts = (CLIENT_SRC / "main" / "ipc" / "export-handlers.ts").read_text(encoding="utf-8")
@@ -193,7 +193,7 @@ class TestEntryPointImportable:
 
 
 class TestAllowlistCorrectness:
-    """Allowlist correctness — no dead entries, all have server handlers."""
+    """Allowlist correctness, no dead entries, all have server handlers."""
 
     @pytest.fixture
     def allowlist_entries(self):
@@ -229,11 +229,11 @@ class TestAllowlistCorrectness:
         # ``voice_typer/server/ipc/registry.py`` (the
         # ``ipc_server.py`` god-module used to host it inline, but
         # extraction moved it to the leaf ``ipc.registry``
-        # submodule — reading ``ipc_server.py`` source for handler
+        # submodule, reading ``ipc_server.py`` source for handler
         # patterns would silently miss any new command added in the
         # registry module). Import the registry directly so the
         # parity check is exact (every key in the dict is a
-        # server-recognized command — no regex drift, no stale
+        # server-recognized command, no regex drift, no stale
         # pattern).
         from voice_typer.server.ipc.registry import _COMMAND_REGISTRY
 
@@ -464,7 +464,7 @@ class TestTypeIgnoreBugsFixed:
             candidates.append(monolith)
         if subfolder.is_dir():
             candidates.extend(sorted(subfolder.glob("*.py")))
-        assert candidates, f"Neither {monolith} nor {subfolder}/*.py found — volume_backends missing"
+        assert candidates, f"Neither {monolith} nor {subfolder}/*.py found, volume_backends missing"
         for path in candidates:
             src = path.read_text(encoding="utf-8")
             lines = [ln for ln in src.split("\n") if "type: ignore" in ln and "import-not-found" not in ln]
@@ -482,7 +482,7 @@ class TestTypeIgnoreBugsFixed:
 # introspects Python source via `inspect.getsource`; out of scope for
 # a TS-string vitest rewrite.
 class TestVadStderrRedirect:
-    """vad.py loads the bundled model offline — no torch.hub, no noisy stderr."""
+    """vad.py loads the bundled model offline, no torch.hub, no noisy stderr."""
 
     def test_vad_redirects_both_streams(self):
         from voice_typer.server import vad
@@ -503,11 +503,11 @@ class TestVadStderrRedirect:
         # is RETAINED until Phase 1c per companion §2.5).
         assert "InferenceSession" in src, (
             "vad.py must load the bundled silero_vad.onnx via "
-            "onnxruntime.InferenceSession (offline-only, C-DATA-1) — "
+            "onnxruntime.InferenceSession (offline-only, C-DATA-1), "
             "no network fetch at first use"
         )
         assert "torch.hub.load" not in src, (
-            "vad.py must NOT call torch.hub.load — the network fallback was "
+            "vad.py must NOT call torch.hub.load, the network fallback was "
             "removed; a future re-add must also restore the "
             "stdout/stderr redirect guard (ERR-LINT-001)"
         )
@@ -574,7 +574,7 @@ class TestRestartAppStopsBackends:
             # ``voice_typer/server/shutdown_controller.py``) nulls the
             # ``app.hotkeys._hotkey_backend`` / ``_esc_backend`` /
             # ``_repaste_backend`` attributes AFTER calling ``stop()``
-            # on each one — so re-reading ``app.hotkeys.<attr>`` after
+            # on each one, so re-reading ``app.hotkeys.<attr>`` after
             # ``restart_app()`` returns ``None``, not the mock we
             # installed. Capture the mock references BEFORE the call
             # so we can still assert ``stop`` was invoked on them.

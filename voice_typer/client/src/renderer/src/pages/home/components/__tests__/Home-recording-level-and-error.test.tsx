@@ -2,7 +2,7 @@
  * Home recording-level display + mic-button error state (page-level
  * wiring): while recordingState === "recording" the RecordingLevelBar
  * mounts (fed by `recording_level`), and the MicToggleButton receives
- * `error` when the store's recordingState is "error" — otherwise
+ * `error` when the store's recordingState is "error", otherwise
  * neither treatment renders.
  */
 import { act, cleanup, render, screen } from "@testing-library/react";

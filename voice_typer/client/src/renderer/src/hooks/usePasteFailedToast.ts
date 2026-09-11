@@ -1,5 +1,5 @@
 /**
- * usePasteFailedToast — surfaces backend ``paste_failed`` events as
+ * usePasteFailedToast, surfaces backend ``paste_failed`` events as
  * sonner toasts.
  *
  * Extracted from App.tsx (App.tsx slimming split) to keep
@@ -12,23 +12,21 @@
  *     active locale's translation.
  *   - If the backend supplies a ``recovery_path``, the toast shows a
  *     "Copy path" action that writes it to the clipboard (best-effort
- *     — clipboard API may be unavailable, non-fatal).
+ *    , clipboard API may be unavailable, non-fatal).
  *   - The message may be multi-line: the first line becomes the toast
  *     title, the rest the description.
  */
 
 import { usePythonEvent } from "@/hooks/usePython";
+import type { TranslateFn } from "@/i18n/translate-types";
 import { SNACKBAR_DEFAULT_DURATION_MS, useSnackbar } from "./useSnackbar";
-
-/** Minimal `t` function type matching i18n.t's signature. */
-type TFn = (key: string, params?: Record<string, string>) => string;
 
 /**
  * Subscribe to ``paste_failed`` push events and render the recovery
  * toast. Call once at the top level of a component; the subscription
  * lives for the component's lifetime.
  */
-export function usePasteFailedToast(t: TFn): void {
+export function usePasteFailedToast(t: TranslateFn): void {
 	const { showSnack } = useSnackbar();
 	usePythonEvent("paste_failed", (data): (() => void) | undefined => {
 		const payload = (data ?? {}) as {
@@ -58,7 +56,7 @@ export function usePasteFailedToast(t: TFn): void {
 									),
 								);
 						} catch (e) {
-							// clipboard API may be unavailable — non-fatal.
+							// clipboard API may be unavailable, non-fatal.
 							console.warn(
 								"[renderer:usePasteFailedToast] clipboard writeText (recovery path) failed:",
 								e,

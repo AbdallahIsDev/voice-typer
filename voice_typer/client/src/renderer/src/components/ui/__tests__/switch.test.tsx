@@ -1,11 +1,11 @@
 /**
- * Switch component tests — covers  (RTL thumb translate) and the
+ * Switch component tests, covers  (RTL thumb translate) and the
  *  follow-ups (sub-24px touch target via `after:-inset-y-3`,
  * visible `data-checked:border-primary/30` ring, `bg-clip-padding`
  * Safari-rendering-bug comment presence).
  *
  * The tests assert on `className` strings rather than computed styles
- * because jsdom has no CSS engine — the Tailwind `rtl:` and `data-*:`
+ * because jsdom has no CSS engine, the Tailwind `rtl:` and `data-*:`
  * variants compile to plain CSS selectors in the bundle, so verifying
  * the variant prefix is present in the rendered `class` attribute is
  * sufficient to confirm the intent.
@@ -20,7 +20,7 @@ afterEach(() => {
 	cleanup();
 });
 
-describe("Switch — BG-37 RTL thumb translate", () => {
+describe("Switch, BG-37 RTL thumb translate", () => {
 	it("renders the thumb with the LTR-positive translate variant", () => {
 		render(<VtSwitch aria-label="test-switch" />);
 
@@ -63,7 +63,7 @@ describe("Switch — BG-37 RTL thumb translate", () => {
 	});
 });
 
-describe("Switch — BG-R12 sub-24px touch target", () => {
+describe("Switch, BG-R12 sub-24px touch target", () => {
 	it("uses after:-inset-y-3 (12px each side) on the root for a 44px hit area on the default-size track", () => {
 		render(<VtSwitch aria-label="test-switch" size="default" />);
 
@@ -78,7 +78,7 @@ describe("Switch — BG-R12 sub-24px touch target", () => {
 	});
 });
 
-describe("Switch — BG-R12 visible checked-border ring", () => {
+describe("Switch, BG-R12 visible checked-border ring", () => {
 	it("uses data-checked:border-primary/30 so the 2px border shows as a subtle ring (was invisible at full opacity)", () => {
 		render(<VtSwitch aria-label="test-switch" />);
 

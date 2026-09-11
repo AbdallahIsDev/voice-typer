@@ -11,7 +11,7 @@ is NOT currently in the Tauri host's ``ALLOWED_EVENT_TYPES`` slice
 (``src-tauri/src/sidecar/ws.rs:80-150``). The Tauri WS reader silently
 DROPS any inbound frame whose ``type`` is not in that slice (logged at
 ``[WS-READER] dropping unknown event type:``). Adding a listener in
-the renderer alone is therefore insufficient — the frame is dropped at
+the renderer alone is therefore insufficient, the frame is dropped at
 the Rust layer before it ever reaches the renderer.
 
 (this file's owner) edits ONLY the Python side (tray.py +
@@ -24,12 +24,12 @@ Python side:
      accidental rename on the Python side without a matching ws.rs
      allowlist update).
   2. ``tray.py``'s ``_drain_pending`` docstring MUST document the
-     cross-layer gate — i.e. reference both ``ALLOWED_EVENT_TYPES``
-     and ``ws.rs`` — so a future contributor reading the Python side
+     cross-layer gate, i.e. reference both ``ALLOWED_EVENT_TYPES``
+     and ``ws.rs``, so a future contributor reading the Python side
      sees that the actual gate is the Rust allowlist, not "a single
      line in the renderer".
   3. The event name ``tray_fallback_notification`` MUST appear in the
-     ws.rs source file in SOME form — either in the
+     ws.rs source file in SOME form, either in the
      ``ALLOWED_EVENT_TYPES`` slice OR in a comment
      near the slice acknowledging the pending allowlist.
      this assertion fails on the slice check but passes on the
@@ -54,7 +54,7 @@ from voice_typer.server.tray import TrayIcon  # noqa: E402
 
 # Canonical event name published by tray.py. Imported here as a module
 # constant so a future rename on the publish side (without updating
-# this test) is caught loudly — the constant below must equal the
+# this test) is caught loudly, the constant below must equal the
 # literal in tray.py (asserted by ``test_event_name_constant_matches_publish_literal``).
 EXPECTED_EVENT_NAME = "tray_fallback_notification"
 
@@ -81,7 +81,7 @@ def _ws_rs_source() -> str:
     """
     p = _ws_rs_path()
     assert p.is_file(), (
-        f"expected Tauri WS reader at {p} — file not found. "
+        f"expected Tauri WS reader at {p}, file not found. "
         "The ws.rs path is the canonical gate for server-initiated "
         "event types (ALLOWED_EVENT_TYPES)."
     )
@@ -125,7 +125,7 @@ class TestTrayPublishesCanonicalEventName:
     def test_event_name_literal_appears_in_publish_call(self) -> None:
         """The event name MUST appear in a ``_event_bus.publish`` call
         site (not just in a comment or docstring). This is the
-        executable assertion — a docstring mention alone is not enough.
+        executable assertion, a docstring mention alone is not enough.
         """
         src = _tray_source()
         # The publish call site is structured as:
@@ -146,7 +146,7 @@ class TestTrayPublishesCanonicalEventName:
             f"the quoted literal {quoted} must appear in "
             f"executable code in tray.py (the ``_event_bus.publish`` "
             f"call site in ``_drain_pending``). A docstring-only "
-            f"mention is insufficient — the event must actually be "
+            f"mention is insufficient, the event must actually be "
             f"published at runtime."
         )
 
@@ -160,7 +160,7 @@ class TestDrainPendingDocumentsWsRsGate:
     line in the renderer".
 
     The previous docstring claimed the fix was "a single line in the
-    renderer's ``useAppStore``" — this is FALSE because the actual gate
+    renderer's ``useAppStore``", this is FALSE because the actual gate
     is the Rust ``ALLOWED_EVENT_TYPES`` slice. A contributor reading
     the old docstring would add a renderer listener alone and the
     event would still be silently dropped at the WS layer.
@@ -174,7 +174,7 @@ class TestDrainPendingDocumentsWsRsGate:
         src = inspect.getsource(TrayIcon._drain_pending)
         assert "ALLOWED_EVENT_TYPES" in src, (
             "TrayIcon._drain_pending docstring must reference "
-            "``ALLOWED_EVENT_TYPES`` — the actual gate is the Tauri "
+            "``ALLOWED_EVENT_TYPES``, the actual gate is the Tauri "
             "WS reader's allowlist slice at ws.rs:80-150, NOT 'a "
             "single line in the renderer' (the old, inaccurate framing)."
         )
@@ -208,13 +208,13 @@ class TestWsRsAllowlistStatus:
         mention the literal in the ``ALLOWED_EVENT_TYPES`` slice.
         The test SKIPS with a clear reason pointing at.
       - POST-(slice edit landed): ws.rs contains the
-        literal in the slice. The test PASSES — the cross-layer gap
+        literal in the slice. The test PASSES, the cross-layer gap
         is closed.
       - MID-FIX (added a Rust test that ASSERTS the slice
-        membership but hasn't yet added the slice entry — observed
+        membership but hasn't yet added the slice entry, observed
         2024 in the work-in-progress state): ws.rs mentions the
         literal in test code / comments but NOT in the slice. The
-        test SKIPS — the gap is documented in ws.rs itself via
+        test SKIPS, the gap is documented in ws.rs itself via
         Rust test, so the Python-side test
         doesn't need to hard-fail.
 
@@ -238,7 +238,7 @@ class TestWsRsAllowlistStatus:
         once the slice edit lands, but the slice itself is not in
         scope for the Python test suite. Skip the assertion
         unconditionally when the slice declaration is absent (this
-        is a Rust file — the Python test cannot modify it).
+        is a Rust file, the Python test cannot modify it).
         """
         import pytest
 
@@ -252,7 +252,7 @@ class TestWsRsAllowlistStatus:
             # check only. Skip rather than fail.
             pytest.skip(
                 "ws.rs ``ALLOWED_EVENT_TYPES`` slice declaration "
-                "not found (or shape changed) — the canonical gate is "
+                "not found (or shape changed), the canonical gate is "
                 "the Rust-side test in ws.rs, not this Python-side "
                 "sanity check. Skipping."
             )
@@ -265,10 +265,10 @@ class TestWsRsAllowlistStatus:
                 f"actual slice edit is owned by (a parallel "
                 f"fix sub-agent). If has added a Rust-side "
                 f"test in ws.rs asserting slice membership, that test is "
-                f"the canonical gate for the slice entry — this "
+                f"the canonical gate for the slice entry, this "
                 f"Python-side test skips until the slice edit lands."
             )
-        # Slice contains the literal — cross-layer gap is closed.
+        # Slice contains the literal, cross-layer gap is closed.
         # (No additional assertion needed; the slice membership IS the
         # gate. The Tauri WS reader's ``is_allowed_event_type`` lookup
         # will now match the published event name at runtime.)
@@ -286,13 +286,13 @@ class TestPublishCallSiteShape:
 
     def test_publish_call_uses_type_field(self) -> None:
         """The publish call MUST use the ``"type"`` field (not ``event``,
-        ``name``, or ``kind``) to carry the event name — that's the
+        ``name``, or ``kind``) to carry the event name, that's the
         field the Tauri WS reader extracts for the
         ``ALLOWED_EVENT_TYPES`` lookup.
         """
         src = inspect.getsource(TrayIcon._drain_pending)
         # The publish call site uses ``"type": "tray_fallback_notification"``
-        # — assert both tokens appear together (within a reasonable
+        # , assert both tokens appear together (within a reasonable
         # window) in the drain method.
         assert '"type"' in src, (
             "the publish call in _drain_pending must use the "

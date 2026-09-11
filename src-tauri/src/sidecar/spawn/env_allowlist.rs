@@ -1,12 +1,12 @@
 //! OS-required env-var passthrough allowlist for the `.env_clear()`
-//! spawn paths — extracted from the former single-file
+//! spawn paths: extracted from the former single-file
 //! `sidecar/spawn.rs`.
 
 /// Conservative OS-env allowlist passed through to
 /// the sidecar after `.env_clear()`. The sidecar process should NOT
 /// inherit arbitrary host env vars (e.g. `HF_TOKEN`, `OPENAI_API_KEY`
 /// exported from the user's shell, `http_proxy` from a corporate
-/// machine) — only the OS-required vars it needs to function plus the
+/// machine): only the OS-required vars it needs to function plus the
 /// voice-typer-specific vars already added explicitly via `.env(...)`
 /// calls in `spawn_sidecar_release` / `spawn_sidecar_dev_mode`.
 ///
@@ -17,7 +17,7 @@
 ///
 /// Allowlist (mirrors the Python side's similar `os.environ` filtering
 /// in `voice_typer/server/app.py:main()` for the renderer-driven
-/// restart path — though that filter is more permissive because the
+/// restart path: though that filter is more permissive because the
 /// Python side runs as the user, not as a sandboxed child):
 ///
 /// Always-pass (cross-platform OS infrastructure):
@@ -37,15 +37,15 @@
 ///
 /// macOS-only (LaunchAgent identity): `XPC_SERVICE_NAME` (only
 /// relevant when the host is launched by `launchd`; harmless otherwise
-/// — the var is unset in normal Tauri launches).
+///: the var is unset in normal Tauri launches).
 ///
 /// Voice-typer-specific vars (`TAURI_SIDECAR`, `VOICE_TYPER_IPC_TOKEN`,
 /// `VOICE_TYPER_NATIVE_DIR`,
 /// `VOICE_TYPER_CONFIG_DIR`, `VOICE_TYPER_DEBUG`, `RUST_LOG`,
-/// `VOICE_TYPER_SESSION_ID` — log-correlation join key — and
+/// `VOICE_TYPER_SESSION_ID`: log-correlation join key, and
 /// `VT_START_HIDDEN` via [`vt_start_hidden_env`], the hidden-start
 /// launch-state flag) are added explicitly by the spawn callers AFTER
-/// this function returns — they are NOT in the allowlist (they take
+/// this function returns: they are NOT in the allowlist (they take
 /// precedence over any host value via the subsequent `.env(...)`
 /// call).
 ///
@@ -151,7 +151,7 @@ pub(crate) fn passthrough_env_allowlist() -> Vec<(std::ffi::OsString, std::ffi::
 /// window bootstrap reads it to boot the main window hidden +
 /// skip-taskbar). The sidecar spawn paths `.env_clear()` the host
 /// env, so the flag must be re-added EXPLICITLY or it dies at the
-/// host→sidecar boundary — the backend's hidden-start privacy
+/// host→sidecar boundary: the backend's hidden-start privacy
 /// contract (while the app started hidden, no microphone InputStream
 /// may be opened: opening one lights the OS mic indicator even though
 /// the user has not shown the UI) would never fire on the Tauri
@@ -160,7 +160,7 @@ pub(crate) fn passthrough_env_allowlist() -> Vec<(std::ffi::OsString, std::ffi::
 ///
 /// Semantics:
 /// - `None` when the host does not have the var (a normal,
-///   user-initiated launch) — applied via `.envs(...)`, an empty
+///   user-initiated launch): applied via `.envs(...)`, an empty
 ///   iterator is a no-op, so the sidecar env stays free of the flag
 ///   and visible launches behave exactly as before.
 /// - The VALUE is forwarded VERBATIM (not normalized to `"1"`): the

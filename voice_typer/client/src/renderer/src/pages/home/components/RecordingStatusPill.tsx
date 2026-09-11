@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils";
  * statusLabel changes. Home's single status live region is the dynamic
  * status line under the mic button (`<output aria-live="polite">` in
  * Home.tsx), and coarse state transitions are announced by App.tsx's
- * sr-only region ("Recording started." / "Ready." / …) — a live pill
+ * sr-only region ("Recording started." / "Ready." / …), a live pill
  * would triple-announce every state change (e.g. READY → ERROR) along
  * side the line and the App-level region. (The original `<output>`
  * element silently re-introduced a live region despite this intent;

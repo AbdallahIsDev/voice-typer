@@ -6,7 +6,7 @@ import {
 	HistoryIcon,
 	Home04Icon,
 	Mic02Icon,
-	Settings03Icon,
+	Settings01Icon,
 	ShieldUserIcon,
 } from "@hugeicons/core-free-icons";
 import type { IconSvgElement } from "@hugeicons/react";
@@ -54,15 +54,15 @@ interface NavItem {
 // <section aria-label=...> (no <hr> dividers between groups). The
 // System group is PINNED TO THE BOTTOM of the sidebar via flex auto
 // margin (see NavGroup.pinnedToBottom) so the importance hierarchy —
-// frequent destinations on top, system/device/info at the bottom — is
+// frequent destinations on top, system/device/info at the bottom, is
 // encoded by the layout itself, in both sidebar states.
 //
 // TWO groups, deliberately:
-//   1. Top group — NO visible header (hideLabel): the default page set
+//   1. Top group, NO visible header (hideLabel): the default page set
 //      speaks for itself. Day-to-day destinations (Home / History /
 //      Analytics) first, then the content tools (Models / Templates /
 //      Vocabulary).
-//   2. System group (visible heading) — app + device configuration and
+//   2. System group (visible heading), app + device configuration and
 //      information: Settings, Microphone (input-device configuration
 //      belongs beside app settings), About & Privacy.
 const MAIN_NAV_ITEMS: NavItem[] = [
@@ -76,18 +76,18 @@ const MAIN_NAV_ITEMS: NavItem[] = [
 
 // Settings is a SINGLE leaf destination. The former nested submenu
 // (General / AI & Audio / Appearance / Privacy) is gone: the Settings
-// page itself is now a HUB — one card whose rows open the focused
+// page itself is now a HUB, one card whose rows open the focused
 // section pages (see SettingsHub + settingsSections.ts). Navigation to
 // a specific domain lives on the hub (and in search deep-links), not in
 // the sidebar, keeping the rail calm and consistent with the other
 // single-destination items.
 const SYSTEM_NAV_ITEMS: NavItem[] = [
-	{ id: "settings", icon: Settings03Icon },
-	// Microphone — input-device configuration (selection, quality,
+	{ id: "settings", icon: Settings01Icon },
+	// Microphone, input-device configuration (selection, quality,
 	// test). It is device setup rather than a day-to-day destination,
 	// so it lives in the System cluster directly under Settings.
 	{ id: "microphone", icon: Mic02Icon },
-	// About & Privacy — ONE combined destination (the former About and
+	// About & Privacy, ONE combined destination (the former About and
 	// Privacy pages merged): product identity (what the app is,
 	// version, platforms) plus the data-handling disclosure (how audio
 	// and data are processed and stored). The shield-user glyph
@@ -101,7 +101,7 @@ interface NavGroup {
 	labelKey: string;
 	// English literal used when `labelKey` is missing from the active
 	// locale AND from English. This keeps the UI readable in English
-	// until the i18n translations catch up — and gives
+	// until the i18n translations catch up, and gives
 	// `screen.getByText("Main")` a stable string to assert on.
 	fallback: string;
 	items: NavItem[];
@@ -111,7 +111,7 @@ interface NavGroup {
 	// heading is redundant above the default page set.
 	hideLabel?: boolean;
 	// When true, the group is pinned to the bottom of the sidebar via
-	// `mt-auto` (flex auto margin) — the System/low-priority cluster
+	// `mt-auto` (flex auto margin), the System/low-priority cluster
 	// anchors to the rail's end edge in BOTH states without spacer
 	// elements or fixed heights, so the hierarchy stays stable across
 	// window sizes (on a short window the auto margin collapses to 0
@@ -150,10 +150,10 @@ const ALL_NAV_ITEMS: NavItem[] = [...MAIN_NAV_ITEMS, ...SYSTEM_NAV_ITEMS];
 // for platform-aware labels (e.g. "Ctrl+H" on Windows/Linux, "⌘H" on
 // macOS) instead of hardcoded English. Pages without a shortcut
 // return undefined (no chips rendered). The bindings come from the
-// SHORTCUTS catalog (single source of truth) — same strings TitleBar
+// SHORTCUTS catalog (single source of truth), same strings TitleBar
 // and the Help overlay render.
 //
-// The shortcut for "settings" (Ctrl+,) opens the Settings hub — the
+// The shortcut for "settings" (Ctrl+,) opens the Settings hub, the
 // single leaf destination (its rows lead to the section pages).
 const NAV_KEYSHORTCUTS: Partial<Record<Page, string>> = {
 	home: SHORTCUTS.goHome.ariaKeyshortcuts,
@@ -172,9 +172,9 @@ function navShortcut(page: Page): string | undefined {
 	return undefined;
 }
 
-// Shared label motion — the STATE classes of the sidebar's ONE text
+// Shared label motion, the STATE classes of the sidebar's ONE text
 // exit/enter model: opacity + inline-start X translate (RTL-mirrored)
-// + explicit blur endpoints. X-axis only — never any Y component.
+// + explicit blur endpoints. X-axis only, never any Y component.
 // The element owns its transition-property list (item labels include
 // max-width; group-header containers animate max-height separately),
 // so this helper deliberately declares NO transition classes.
@@ -194,7 +194,7 @@ function navLabelMotion(collapsed: boolean): string {
 //
 // For this transition to actually RUN, the element carrying it must
 // NOT be remounted when `collapsed` flips (CSS transitions only
-// animate computed-style changes on PERSISTENT DOM nodes — a freshly
+// animate computed-style changes on PERSISTENT DOM nodes, a freshly
 // mounted node jumps straight to its end state). That is why every
 // nav button renders through the SAME wrapper element type in both
 // states: leaves are always wrapped in HotkeyTooltip (content
@@ -211,7 +211,7 @@ function navTextClasses(collapsed: boolean): string {
 /**
  * Resolve a group label via `t()` with a fallback to the English
  * literal. `t()` returns the raw key when neither the current locale
- * nor English has the key — we detect that case and fall back so the
+ * nor English has the key, we detect that case and fall back so the
  * UI shows a readable label and tests have a stable string to assert
  * on.
  */
@@ -240,7 +240,7 @@ function SidebarInner({
 
 	const activeFlatIdx = ALL_NAV_ITEMS.findIndex((i) => i.id === currentPage);
 	// Roving-tabindex fallback: when the active page is a Settings
-	// surface (hub or a section page — neither is a nav item), focus the
+	// surface (hub or a section page, neither is a nav item), focus the
 	// Settings leaf so it carries tabIndex=0 + aria-current for the
 	// whole section. Without this fallback, the roving tabindex would
 	// jump to the first nav item (home) on any Settings page, breaking
@@ -310,14 +310,14 @@ function SidebarInner({
 				// p-2 + button px-2; the buttons carry the Button base's
 				// uniform 1px transparent border) in BOTH states. w-12
 				// (48px) centers the 16px icon inside the collapsed rail
-				// (16 + 16/2 = 24 = 48/2) without moving it — the icon
+				// (16 + 16/2 = 24 = 48/2) without moving it, the icon
 				// column never re-centers on collapse.
 				collapsed ? "w-12" : "w-55",
 			)}
 		>
 			{/* Navigation. ``min-h-0`` + ``overflow-y-auto`` so a short
 			    window scrolls instead of clipping the bottom items. The
-			    nav is the sidebar's only content — it fills the full
+			    nav is the sidebar's only content, it fills the full
 			    height now that the branding header and the ThemeSwitch
 			    row have moved out of the sidebar. */}
 			<div className="min-h-0 flex-1 overflow-y-auto p-2">
@@ -337,7 +337,7 @@ function SidebarInner({
 						// (gap-5) when the group headings are visible expanded,
 						// tighter (gap-2) in the collapsed icon rail where the
 						// (zero-height, still-mounted) headings contribute their
-						// surrounding flex gaps — net cluster separation 16px
+						// surrounding flex gaps, net cluster separation 16px
 						// vs the 4px item rhythm, so clusters read as designed
 						// groups instead of a vertically stretched sidebar.
 						collapsed ? "gap-2" : "gap-4",
@@ -352,7 +352,7 @@ function SidebarInner({
 								className={cn(
 									"flex flex-col gap-1",
 									// Low-priority System cluster anchors to the
-									// bottom edge through flex auto margin — layout
+									// bottom edge through flex auto margin, layout
 									// structure, not spacer dividers or fixed
 									// heights.
 									group.pinnedToBottom && "mt-auto",
@@ -377,7 +377,7 @@ function SidebarInner({
 												// block: CSS transforms do not apply to inline elements.
 												"block whitespace-nowrap text-xs font-semibold capitalize tracking-wider text-(--text-muted)",
 												// The text fade runs slightly FASTER (150ms) than the
-												// container's 200ms space collapse — deliberate exit
+												// container's 200ms space collapse, deliberate exit
 												// choreography so the label is gone before the
 												// vertical clip could bite. The shared principles
 												// allow per-layout timing.
@@ -430,9 +430,9 @@ interface NavLeafProps {
 // tabIndex 0 for the active leaf (or first-item fallback), -1 for the
 // rest.
 //
-// The button is ALWAYS wrapped in the same HotkeyTooltip element — in
+// The button is ALWAYS wrapped in the same HotkeyTooltip element, in
 // the expanded state the tooltip CONTENT is suppressed via
-// `disabled` — because swapping the wrapper type between states would
+// `disabled`, because swapping the wrapper type between states would
 // remount the button and skip its label transition (CSS transitions
 // do not run on freshly mounted nodes).
 function NavLeaf({
@@ -466,7 +466,7 @@ function NavLeaf({
 					// Single icon column: px-2 in BOTH states anchors the icon
 					// at the same x-position (container p-2 + this padding =
 					// 16px from the aside edge) whether expanded or collapsed
-					// — the icon never shifts when the rail collapses.
+					//, the icon never shifts when the rail collapses.
 					"px-2",
 					isActive
 						? cn(
@@ -500,7 +500,7 @@ function NavLeaf({
 // wrap in React.memo so stable callbacks from App.tsx can
 // short-circuit re-renders when no props have changed. All props
 // (`currentPage`, `onNavigate`, `collapsed`) are primitives or stable
-// `useCallback` refs from App.tsx (`navigate` from useNavigation) — so
+// `useCallback` refs from App.tsx (`navigate` from useNavigation), so
 // the default shallow-equal comparator (matching the TitleBar.tsx
 // pattern) skips re-renders on unrelated App state changes (e.g.
 // themeMode changes that only re-render the TitleBar, or recordingState

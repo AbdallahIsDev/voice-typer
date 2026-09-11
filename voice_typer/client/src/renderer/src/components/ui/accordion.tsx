@@ -52,7 +52,7 @@ function AccordionTrigger({
 				{/*
 					(2026-08-21): the expand/collapse glyph is a single
 					PlusSignIcon that stays a `+` in BOTH the collapsed and
-					expanded states — it never swaps to a minus, chevron, or
+					expanded states, it never swaps to a minus, chevron, or
 					any other symbol, and there is intentionally NO
 					icon-state transition (the affordance is deliberately
 					identical whether the group is open or closed). A
@@ -91,7 +91,7 @@ function AccordionContent({
 					// OUTER element's height via the --radix-accordion-content-height
 					// keyframes, so the inner wrapper must stay auto-sized. A fixed
 					// ``h-(--radix-accordion-content-height)`` froze the OPEN-time
-					// measurement — any content that shrinks while open (preset
+					// measurement, any content that shrinks while open (preset
 					// switch, disclosure collapse) left a large trailing void
 					// inside the expanded panel.
 					"pt-0 pb-4 [&_a]:underline [&_a]:underline-offset-3 [&_a]:hover:text-foreground [&_p:not(:last-child)]:mb-4",

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Voice Typer — Native key-listener binary build script
+# Voice Typer. Native key-listener binary build script
 #
 # Compiles the three native key-listener binaries for the current platform:
 #   - macOS:   voice_typer/server/native/macos-key-listener   (Swift)
@@ -8,7 +8,7 @@
 #   - Linux:   voice_typer/server/native/linux-key-listener   (C)
 #
 # Only the binary for the current platform is built; the others are skipped
-# (cross-compilation is not supported by this script — use the platform's
+# (cross-compilation is not supported by this script. Use the platform's
 # native CI runner for that).
 #
 # Output binaries are placed alongside the source files in
@@ -25,7 +25,7 @@
 # CR-011: the `--arch` flag is honored ONLY on macOS (Swift supports
 # `-target <triple>`). On Windows / Linux the flag is ignored (those
 # compilers use the host's native ABI and the script never cross-compiles
-# to a different arch). The default on macOS is `universal` — builds
+# to a different arch). The default on macOS is `universal`, builds
 # both x86_64 and arm64 separately then `lipo -create`s them into a
 # single fat binary. The two-matrix-leg CI build (.github/workflows/
 # build.yml::build-native) instead invokes `--arch x86_64` and
@@ -110,7 +110,7 @@ if [[ "$PLATFORM" == "darwin" ]]; then
 elif [[ -n "$ARCH" ]]; then
     # Non-darwin: --arch is silently ignored, but log it so the user
     # sees their flag was parsed (and is a no-op on this platform).
-    echo "[compile_native] ARCH: $ARCH (ignored on $PLATFORM — flag is darwin-only)"
+    echo "[compile_native] ARCH: $ARCH (ignored on $PLATFORM, flag is darwin-only)"
 else
     echo "[compile_native] ARCH: n/a (non-darwin)"
 fi
@@ -173,7 +173,7 @@ case "$PLATFORM" in
         # The macOS min-version (11.0 / Big Sur) matches the Tauri
         # binary's deployment target so the native key-listener loads on
         # the same OS range as the app itself. The target triple format
-        # is `<arch>-apple-macos<version>` — both arches use the same
+        # is `<arch>-apple-macos<version>`: both arches use the same
         # min-version; the resulting single-arch slices are merged via
         # `lipo -create` for the `universal` arch mode.
         build_one_arch() {
@@ -185,7 +185,7 @@ case "$PLATFORM" in
             echo "[compile_native] OK: $out ($arch)"
         }
 
-        # Codesign helper — ad-hoc sign so the binary can be granted
+        # Codesign helper, ad-hoc sign so the binary can be granted
         # Accessibility (required for CGEventTap). Best-effort: errors
         # are logged but don't fail the build (CI runners without a
         # codesigning identity still produce a usable binary).
@@ -232,7 +232,7 @@ case "$PLATFORM" in
         # Prefer MSVC if available, fall back to MinGW gcc
         if command -v cl.exe &>/dev/null; then
             echo "[compile_native] Compiling with MSVC: cl.exe /O2 $SRC /link user32.lib"
-            # MSVC needs the env set up — usually run from "Developer Command Prompt"
+            # MSVC needs the env set up, usually run from "Developer Command Prompt"
             cl.exe /nologo /O2 /D_CRT_SECURE_NO_WARNINGS /D_WIN32_WINNT=0x0600 \
                 "$SRC" /link /NOLOGO user32.lib kernel32.lib \
                 /OUT:"$OUT"

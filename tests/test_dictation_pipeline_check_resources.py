@@ -24,7 +24,7 @@ from voice_typer.server.dictation_pipeline import DictationPipeline
 def _make_pipeline() -> DictationPipeline:
     """Build a minimal DictationPipeline for testing _check_resources.
 
-    _check_resources does not use ``self._app`` — only local imports
+    _check_resources does not use ``self._app``, only local imports
     and logging.  Bypass ``__init__`` via ``__new__`` since ``__init__``
     expects a real ``VoiceTyperApp``.
     """
@@ -72,7 +72,7 @@ def _patch_disk_free(monkeypatch, free_bytes: int) -> None:
     ``resource_probe.check_resources`` calls ``os.statvfs`` when
     ``hasattr(os, "statvfs")`` is true (POSIX) and falls back to
     ``shutil.disk_usage`` only on Windows. Patching both ensures the
-    test exercises the intended branch regardless of platform — a
+    test exercises the intended branch regardless of platform, a
     shutil-only mock is a no-op on Linux/CI-POSIX runners.
     """
     monkeypatch.setattr("shutil.disk_usage", lambda path: _fake_disk_usage(free_bytes))
@@ -125,7 +125,7 @@ class TestCheckResourcesRAM:
 
     def test_infos_moderate_ram_between_1024_and_2048_mb(self, caplog, monkeypatch):
         """When available RAM is 1024-2048 MB, an INFO line about moderate
-        RAM is logged (not an error — the user can still transcribe with
+        RAM is logged (not an error, the user can still transcribe with
         smaller models)."""
         monkeypatch.setattr(
             "psutil.virtual_memory",
@@ -150,7 +150,7 @@ class TestCheckResourcesDisk:
         """When disk has > 1 GB free, an INFO line shows the free space
         and no warning is emitted."""
         # Patch BOTH POSIX (os.statvfs) and Windows (shutil.disk_usage)
-        # probes — resource_probe.check_resources dispatches on
+        # probes, resource_probe.check_resources dispatches on
         # hasattr(os, "statvfs"), so a shutil-only mock is a no-op on
         # Linux/CI-POSIX runners (regression that surfaced after the
         # _check_resources body was extracted to resource_probe.py).
@@ -172,7 +172,7 @@ class TestCheckResourcesDisk:
         """When any monitored drive has < 1 GB free, a WARNING about heap
         corruption risk is logged."""
         # Patch BOTH POSIX (os.statvfs) and Windows (shutil.disk_usage)
-        # probes — see test_logs_disk_info_when_sufficient for rationale.
+        # probes: see test_logs_disk_info_when_sufficient for rationale.
         _patch_disk_free(monkeypatch, 500 * 1024**2)  # 500 MB free
 
         pipeline = _make_pipeline()
@@ -229,7 +229,7 @@ class TestCheckResourcesGPU:
         allocated = 2 * 1024**3  # 2 GB allocated  → 6144 MB free > 512 MB
 
         # Phase 1c (PLAN_ONNX_INTEGRATION.md §6.4): the GPU probe no
-        # longer uses torch.cuda — it queries ``pynvml`` / ``nvidia-smi``
+        # longer uses torch.cuda, it queries ``pynvml`` / ``nvidia-smi``
         # via ``_probe_gpu_memory_via_nvidia_smi`` (MB). Patch that so
         # the test is deterministic on GPU-less CI hosts.
         monkeypatch.setattr(
@@ -256,7 +256,7 @@ class TestCheckResourcesGPU:
         allocated = 900 * 1024**2  # 900 MB allocated → 124 MB free < 512 MB
 
         # Phase 1c (PLAN_ONNX_INTEGRATION.md §6.4): the GPU probe no
-        # longer uses torch.cuda — it queries ``pynvml`` / ``nvidia-smi``
+        # longer uses torch.cuda, it queries ``pynvml`` / ``nvidia-smi``
         # via ``_probe_gpu_memory_via_nvidia_smi`` (MB). Patch that so
         # the test is deterministic on GPU-less CI hosts.
         monkeypatch.setattr(
@@ -337,7 +337,7 @@ class TestCheckResourcesThrottled:
 
 
 class TestCheckResourcesGracefulDegradation:
-    """_check_resources must never raise — every sub-check is wrapped in
+    """_check_resources must never raise, every sub-check is wrapped in
     try/except.  Even when all dependencies fail, the method completes
     and logs a final "complete" line."""
 
@@ -412,7 +412,7 @@ class TestCheckResourcesXZEH008SilentExcept:
     check at :713) were replaced with ``log.debug(..., exc_info=True)``.
 
     The docstring at :545-557 promises "failures are logged at DEBUG
-    level" — these tests pin that contract so a future revert that
+    level", these tests pin that contract so a future revert that
     re-introduces a silent ``pass`` is caught.
 
     Note: the GPU branch's prior ``(ImportError, Exception)`` tuple was
@@ -427,7 +427,7 @@ class TestCheckResourcesXZEH008SilentExcept:
         ``pass``).
 
         We exercise the inner ``except Exception`` branch by patching
-        ``ctypes.Structure`` instantiation to raise — this avoids
+        ``ctypes.Structure`` instantiation to raise, this avoids
         patching ``os.name`` (which breaks pathlib's path-class
         dispatch on non-Windows hosts). The test patches
         ``ctypes.windll.kernel32.GlobalMemoryStatusEx`` to raise
@@ -454,7 +454,7 @@ class TestCheckResourcesXZEH008SilentExcept:
         # ``import os as _os`` and reads ``_os.name``, so patching
         # ``os.name`` directly affects the check. We must NOT patch
         # ``os.name`` globally because pathlib consults it lazily to
-        # pick a Path subclass — instead we patch the dict lookup on
+        # pick a Path subclass, instead we patch the dict lookup on
         # the already-imported ``os`` module to "nt" for the duration
         # of this test only, then restore via monkeypatch.setattr
         # (which uses the default-restore behavior).
@@ -486,7 +486,7 @@ class TestCheckResourcesXZEH008SilentExcept:
         # lazily). ``_check_resources`` itself does not use pathlib
         # for the RAM/ctypes branch, but the subsequent disk-check
         # branch (which runs after the RAM check) calls
-        # ``_Path.home()`` — so the stub needs a ``home()`` classmethod
+        # ``_Path.home()``, so the stub needs a ``home()`` classmethod
         # too.
         import pathlib as _pathlib_mod
 
@@ -531,7 +531,7 @@ class TestCheckResourcesXZEH008SilentExcept:
         (or any other GPU-check exception fires), a DEBUG line is
         emitted (not silent ``pass``)."""
 
-        # Make the nvidia-smi/pynvml probe raise — the production
+        # Make the nvidia-smi/pynvml probe raise, the production
         # GPU-check try/except catches this and (post-) logs
         # a DEBUG line.
         def _raising_probe():
@@ -569,7 +569,7 @@ class TestCheckResourcesXZEH008SilentExcept:
         for i, line in enumerate(lines):
             stripped = line.strip()
             if stripped == "except Exception:":
-                # Find the next non-blank line — it must NOT be ``pass``.
+                # Find the next non-blank line, it must NOT be ``pass``.
                 for j in range(i + 1, min(i + 4, len(lines))):
                     body = lines[j].strip()
                     if not body or body.startswith("#"):
@@ -589,12 +589,12 @@ class TestCheckResourcesXZEH008SilentExcept:
     def test_check_resources_docstring_promises_debug_logging(self):
         """XZ-EH-022: the docstring must still promise "DEBUG level"
         logging for failures (this pins the docstring against future
-        drift — the prior drift was the docstring claiming DEBUG while
+        drift, the prior drift was the docstring claiming DEBUG while
         the code did ``pass``)."""
         doc = DictationPipeline._check_resources.__doc__ or ""
         assert "DEBUG" in doc, (
             "XZ-EH-022 regression: _check_resources docstring must mention "
-            "'DEBUG' level for failure logging — the original finding "
+            "'DEBUG' level for failure logging, the original finding "
             "flagged the docstring drift where it claimed DEBUG logging "
             "but the code did silent `pass`."
         )

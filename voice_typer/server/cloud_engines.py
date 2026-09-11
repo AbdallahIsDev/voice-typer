@@ -6,7 +6,7 @@ backends transparently. CloudEngine lifecycle is **per-transcription**
 ``tests/test_cloud_engines_dead_cache_removed.py``); the engine class
 itself lives in :mod:`voice_typer.server.cloud._engine` and the
 stateless plumbing (transport, retry policy, provider defaults,
-request shaping) in the sibling leaf modules — every moved name is
+request shaping) in the sibling leaf modules, every moved name is
 re-exported here so all historical import sites keep resolving.
 
 Configuration:
@@ -61,7 +61,7 @@ from voice_typer.server.cloud import (
 # ``clear_all_cached_engines``) intended to support long-lived
 # CloudEngine instances that could be invalidated on credential /
 # consent revocation. Verified by repo-wide grep (2026-07-28): ZERO
-# production callers — the only consumers were the unit tests in
+# production callers, the only consumers were the unit tests in
 # ``tests/test_cloud_engines.py::TestCloudEngineCacheInvalidation`` and
 # ``app.py`` lazily sets ``self._cloud_engine = None`` but never
 # assigns a real CloudEngine. The cache was dead code in a "worst of

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
-  Voice Typer — macOS hardened-runtime entitlements
+  Voice Typer: macOS hardened-runtime entitlements
   (ADR-0020 §13.2 + docs/migration/signing-guide.md "Hardened runtime entitlements")
 
   Consumed by the codesign invocation with the entitlements flag pointing
@@ -15,12 +15,12 @@
   BUILD-N02: the previous plist shipped only 3 entitlements and silently
   dropped two that are required for the universal .app to function on
   macOS 14+ under the hardened runtime. Added:
-    - allow-unsigned-executable-memory — Nuitka onefile loaders allocate
+    - allow-unsigned-executable-memory: Nuitka onefile loaders allocate
       RWX pages when unpacking the embedded payload; without this
       entitlement macOS 14 kills the process with EXC_BAD_ACCESS at
       startup, breaking the sidecar + prewarm binaries (which Nuitka
       froze in onefile layout).
-    - automation.apple-events — the volume_ducker + clipboard_snapshot
+    - automation.apple-events: the volume_ducker + clipboard_snapshot
       modules use AppleScript via NSAppleEventDescriptor to drive
       System Events.app (volume ramp, foreground app detection). Without
       this entitlement, every AppleScript invocation fails silently with

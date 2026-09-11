@@ -27,7 +27,7 @@ vi.mock("@/i18n/i18n", () => ({
 	useT: () => (key: string) => key,
 }));
 
-// EmptyState uses HugeiconsIcon — mock to render a plain span so we
+// EmptyState uses HugeiconsIcon, mock to render a plain span so we
 // don't need the @hugeicons/react runtime in the test.
 vi.mock("@hugeicons/react", () => ({
 	HugeiconsIcon: ({ children }: { children?: React.ReactNode }) => (
@@ -110,7 +110,7 @@ describe("NH-1: ConnectionStatusScreen", () => {
 		);
 
 		// The disconnected branch renders an EmptyState error
-		// variant — the title is the lost-connection i18n key
+		// variant, the title is the lost-connection i18n key
 		// (mocked to return the key).
 		expect(
 			screen.getByRole("heading", { name: "app.lostConnection" }),
@@ -177,7 +177,7 @@ describe("NH-1: ConnectionStatusScreen", () => {
 		) as HTMLElement;
 		expect(root).toBeTruthy();
 		expect(root.getAttribute("role")).toBeNull();
-		// The raw error is the description — announced politely via
+		// The raw error is the description, announced politely via
 		// role="status" (implicit aria-live="polite"), rendered as a <p>.
 		const status = document.querySelector(
 			'[data-testid="connection-status"] p[role="status"]',

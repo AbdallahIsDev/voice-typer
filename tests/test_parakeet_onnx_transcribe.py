@@ -3,7 +3,7 @@
 Verifies the ONNX Runtime backend produces text within an edit-distance
 threshold of the pre-migration torch/transformers baseline. This test
 requires the real ``onnx_asr`` + ``onnxruntime`` packages AND a
-downloaded Parakeet ONNX model — it skips cleanly otherwise (no error,
+downloaded Parakeet ONNX model, it skips cleanly otherwise (no error,
 no fixture setup).
 
 PLAN_ONNX_INTEGRATION.md §8.2 (Phase 1b gate):
@@ -24,7 +24,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-# Skip the entire module if onnx_asr isn't installed — the parity test
+# Skip the entire module if onnx_asr isn't installed, the parity test
 # requires the real ONNX backend (no mocks). The model must also be
 # downloaded (see ``_PARAKEET_MODEL_DOWNLOADED``).
 pytest.importorskip("onnx_asr")
@@ -88,7 +88,7 @@ _PARAKEET_MODEL_DOWNLOADED = _parakeet_model_downloaded()
 )
 @pytest.mark.skipif(
     not _PARAKEET_MODEL_DOWNLOADED,
-    reason="Parakeet ONNX model not in HF cache — download via the Models page first",
+    reason="Parakeet ONNX model not in HF cache, download via the Models page first",
 )
 class TestParakeetOnnxParity:
     """Parity test: ONNX transcription vs torch baseline."""
@@ -98,7 +98,7 @@ class TestParakeetOnnxParity:
         the result is within ``_EDIT_DISTANCE_THRESHOLD`` word-edits of
         the pinned torch baseline ``_EXPECTED_TEXT``."""
         # Load the fixture WAV as a 16 kHz mono float32 numpy array.
-        # We don't use ``soundfile`` (optional dep) — use the same
+        # We don't use ``soundfile`` (optional dep), use the same
         # ``wave`` + manual decode path the recorder uses.
         import wave
 
@@ -110,7 +110,7 @@ class TestParakeetOnnxParity:
 
         engine = ParakeetEngine(device="cpu", language="en")
         try:
-            assert engine.load() is True, "Parakeet load() failed — check onnx_asr install + model cache"
+            assert engine.load() is True, "Parakeet load() failed, check onnx_asr install + model cache"
             text = engine.transcribe(audio)
         finally:
             engine.unload()
@@ -147,7 +147,7 @@ class TestParakeetOnnxParity:
             engine.unload()
 
 
-# ─── Edit-distance helper tests (always run — no fixture/model needed) ──
+# ─── Edit-distance helper tests (always run, no fixture/model needed) ──
 
 
 class TestEditDistanceHelper:

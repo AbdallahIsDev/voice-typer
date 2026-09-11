@@ -1,7 +1,7 @@
 """Python-level excepthook + VEH install/remove.
 
 ``_format_redacted_traceback`` formats a traceback with PII-safe fields
-only (file basename, line number, function name — no source line, no
+only (file basename, line number, function name, no source line, no
 argument values) so the ``python_crash.<PID>.txt`` marker file carries
 no PII.
 
@@ -45,7 +45,7 @@ log = logging.getLogger(__name__)
 # otherwise block the crashing thread for N × stuck-time. The budget
 # caps the TOTAL loop time across N handlers so the crash marker still
 # lands on disk promptly. The check happens BEFORE each ``flush()``
-# call — a SINGLE stuck handler can still block (its ``flush()`` runs
+# call, a SINGLE stuck handler can still block (its ``flush()`` runs
 # unchecked), but multiple stuck handlers do NOT accumulate. 0.5s is
 # generous for a healthy handler (~1ms) and tight enough that the crash
 # marker lands within ~1s even with 2 stuck 0.3s handlers.
@@ -63,7 +63,7 @@ def _format_redacted_traceback(exc_tb) -> str:
     literals, f-string interpolations of user data, etc.) is OMITTED
     so the marker file carries no PII.  Only the file basename (not
     the full path, which can leak the user's home directory), the
-    line number, and the function name are kept — enough for a
+    line number, and the function name are kept, enough for a
     support engineer to locate the offending code in the repo.
 
     Returns an empty string if ``exc_tb`` is ``None``.
@@ -94,7 +94,7 @@ def _get_active_asr_backend() -> str:
         Returns the backend name (e.g. ``"whisper"``, ``"parakeet"``,
         ``"qwen"``) or ``"<unknown>"`` if it can't be determined.  Called
         from the excepthook, which runs during interpreter shutdown, so
-        every step is wrapped in ``try/except`` — a failure here must not
+        every step is wrapped in ``try/except``: a failure here must not
         mask the original crash.
 
         Reads from the persisted ``Config`` rather than the live
@@ -112,10 +112,10 @@ def _get_active_asr_backend() -> str:
         read the cached value via ``_get_cached_asr_backend`` (no disk
         I/O).
 
-        This is a legitimate fresh-snapshot read — it runs during crash
+        This is a legitimate fresh-snapshot read, it runs during crash
         cleanup (interpreter shutdown) where the live ``app.config`` may
         be partially dismantled or its lock contaminated. A fresh disk
-        read is the safe choice. Read-only — no mutation, no
+        read is the safe choice. Read-only, no mutation, no
         config-mutation lock required.
     """
     try:
@@ -175,7 +175,7 @@ def _safe_redact_fallback(value: str) -> str:
     Fall back to a SHA-256 hash of the value so the marker file still
     supports crash-deduplication (same exception → same digest) without
     carrying any PII payload. The digest is truncated to 16 hex chars
-    (64 bits) — sufficient for dedup at crash-archive scale (thousands
+    (64 bits), sufficient for dedup at crash-archive scale (thousands
     of records) and short enough not to bloat the marker file.
 
     If even ``hashlib`` is unavailable (interpreter shutdown), return
@@ -206,7 +206,7 @@ def _redact_exc_value(value: str) -> str:
         past ``redact_pii``'s pattern-matching are still redacted before
         persisting to the crash archive. The crash archive is high-risk
         because it sits on disk for weeks (default retention) and is
-        included in ``export_gdpr_bundle`` — false-positive redaction here
+        included in ``export_gdpr_bundle``: false-positive redaction here
         is cheap, leaking a real secret is catastrophic.
     """
     try:
@@ -225,7 +225,7 @@ def _get_secure_atomic_write():
         ``_secure_atomic_write`` to import (e.g. config module circular
         import during interpreter teardown) does NOT also disable
         redaction. When this returns None, the marker is written via
-        ``Path.write_text`` (no O_NOFOLLOW / 0o600 hardening) — the
+        ``Path.write_text`` (no O_NOFOLLOW / 0o600 hardening), the
         redacted content is still safe, the only regression is the file
         perms.
     """
@@ -246,18 +246,18 @@ def _write_crash_marker(exc_type, exc_value, exc_tb, thread_name: str | None) ->
         imports, content-lines assembly, atomic-write fallback). The only
         real differences are:
 
-        1. **Marker filename** — when ``thread_name`` is None (main-thread
+        1. **Marker filename**: when ``thread_name`` is None (main-thread
            path), the marker is ``python_crash.<PID>.txt``; when
            ``thread_name`` is a string (threading path), the marker is
            ``python_crash.<PID>.<sanitized_thread_name>.txt`` (sanitized
            via ``_sanitize_thread_name_for_filename`` so a thread named
            ``"foo/bar"`` doesn't escape the config_dir).
-        2. **``thread=`` field value** — when ``thread_name`` is None, the
+        2. **``thread=`` field value**: when ``thread_name`` is None, the
            field is set to ``threading.current_thread().name`` (preserving
            the main-hook behavior); when it's a string, the field is set
            to ``thread_name`` (preserving the threading-hook behavior).
 
-        Best-effort throughout — the hook must never raise (it runs during
+        Best-effort throughout, the hook must never raise (it runs during
         interpreter teardown). The whole body is wrapped in
         ``contextlib.suppress(Exception)`` so any failure (disk full,
         permissions, encoding error) is swallowed.
@@ -294,7 +294,7 @@ def _write_crash_marker(exc_type, exc_value, exc_tb, thread_name: str | None) ->
         # function names, args stripped).  Frames carry no argument
         # values, so this is PII-safe.
         _traceback_text = _format_redacted_traceback(exc_tb)
-        # Static context for triage — app/python/OS version + active
+        # Static context for triage, app/python/OS version + active
         # ASR backend.  Each lookup is best-effort.
         try:
             import voice_typer
@@ -330,10 +330,10 @@ def _write_crash_marker(exc_type, exc_value, exc_tb, thread_name: str | None) ->
             content_lines.append(_traceback_text)
         content = "\n".join(content_lines) + "\n"
         # atomic-write import is decoupled from the redaction
-        # import — a failure here no longer disables redaction.
+        # import, a failure here no longer disables redaction.
         _atomic_write = _get_secure_atomic_write()
         if _atomic_write is not None:
-            # durability=False — the crash marker is a
+            # durability=False, the crash marker is a
             # best-effort diagnostic; fsync on a process that is
             # already terminating provides no durability benefit
             # and can hang the crashing thread on a stuck disk.
@@ -341,7 +341,7 @@ def _write_crash_marker(exc_type, exc_value, exc_tb, thread_name: str | None) ->
             # fully written or absent (no torn read).
             _atomic_write(marker_path, content, durability=False)
         else:
-            # secure-write fallback — raw ``os.open`` with
+            # secure-write fallback, raw ``os.open`` with
             # explicit 0o600 perms (no umask dependence). The
             # defensive ``os.chmod`` after the write retroactively
             # tightens perms even if the umask was loose on the
@@ -383,7 +383,7 @@ def _crash_excepthook(exc_type, exc_value, exc_tb) -> None:
         config_dir so the next session's ``report_pending_crash`` can
         surface the crash in the startup notification (alongside VEH
         crash diagnostics).  The marker contains the exception type,
-        value, thread name, and timestamp — enough to diagnose the crash
+        value, thread name, and timestamp, enough to diagnose the crash
         without re-running with a debugger attached.
 
     the marker-write logic is shared with
@@ -396,13 +396,13 @@ def _crash_excepthook(exc_type, exc_value, exc_tb) -> None:
     from voice_typer.server import crash_handler as _ch
 
     with contextlib.suppress(Exception):
-        # Log ONLY ``exc_type.__name__`` at CRITICAL — never
+        # Log ONLY ``exc_type.__name__`` at CRITICAL, never
         # ``exc_value``. Exception values can embed dictated speech
         # (e.g. ``ValueError("cannot process: " + transcribed_text)``)
         # or other PII that the PIIRedactionFilter (attached to log
         # handlers) only catches via structured patterns. The redacted
         # ``exc_value`` is persisted ONLY to the marker file (already
-        # 0o600) — see ``_write_crash_marker``.
+        # 0o600): see ``_write_crash_marker``.
         log.critical(
             "[CRASH] Unhandled Python exception: %s",
             exc_type.__name__ if exc_type is not None else "Unknown",
@@ -410,8 +410,8 @@ def _crash_excepthook(exc_type, exc_value, exc_tb) -> None:
         # Emit the PII-safe redacted traceback UNCONDITIONALLY so
         # support engineers can locate the call site without requiring
         # ``VOICE_TYPER_DEBUG=1``. ``_format_redacted_traceback``
-        # emits only file basename + line number + function name — no
-        # argument values, no source-line text, no full paths — so it
+        # emits only file basename + line number + function name, no
+        # argument values, no source-line text, no full paths, so it
         # is safe to ship to the rotating log. The inner try/except is
         # defense-in-depth: traceback formatting must NEVER crash the
         # excepthook (it runs during interpreter shutdown for unhandled
@@ -426,11 +426,11 @@ def _crash_excepthook(exc_type, exc_value, exc_tb) -> None:
         # Full UNREDACTED traceback only when VOICE_TYPER_DEBUG=1
         # (operator opt-in for verbose diagnostics). This emits the raw
         # ``exc_info`` triple which CAN contain argument values / source
-        # lines — so it stays gated.
+        # lines, so it stays gated.
         if os.environ.get("VOICE_TYPER_DEBUG", "") == "1":
             log.critical("[CRASH] Full traceback (VOICE_TYPER_DEBUG=1)", exc_info=(exc_type, exc_value, exc_tb))
     # Write a python_crash.<PID>.txt marker so the next session's
-    # report_pending_crash can surface it.  Best-effort — the hook
+    # report_pending_crash can surface it.  Best-effort, the hook
     # must never raise (it runs during interpreter shutdown for
     # unhandled exceptions, where any failure masks the original
     # error).  Thread-safe: the PID suffix makes collisions extremely
@@ -466,14 +466,14 @@ def install_python_excepthook() -> None:
 
     refreshes ``_ch._cached_active_backend`` on every call so
         the excepthook can read the active ASR backend without a disk
-        read on the crashing thread.  Best-effort — a refresh failure
+        read on the crashing thread.  Best-effort, a refresh failure
         leaves the cache untouched (the excepthook falls back to
         ``"<unknown>"``).
     """
     from voice_typer.server import crash_handler as _ch
 
     # refresh the cache on every call (cheap disk read, runs
-    # at install time — NOT on the crashing thread).  Done BEFORE
+    # at install time. NOT on the crashing thread).  Done BEFORE
     # the idempotent short-circuit so a re-install (e.g. after a
     # config change) also refreshes the cache.
     with contextlib.suppress(Exception):
@@ -487,7 +487,7 @@ def install_python_excepthook() -> None:
 def _sanitize_thread_name_for_filename(name: str) -> str:
     """Map a thread name to a filename-safe token.
 
-    Thread names are arbitrary strings — a C extension or a test could
+    Thread names are arbitrary strings, a C extension or a test could
     spawn a thread named ``"foo/bar"`` or ``"..\\.."`` which would
     either escape the config_dir or collide with the ``python_crash.*``
     glob pattern used by ``report_pending_crash``.  This helper
@@ -513,7 +513,7 @@ def _thread_crash_excepthook(args) -> None:
     Pre-, an unhandled exception in any daemon thread
         (A11yPulse, ModelLoad, heartbeat_loop, crash-recovery-saver,
         history-retention-apply, bubble-level-pusher, shutdown-watchdog,
-        prewarm completion-event listener) silently died — no
+        prewarm completion-event listener) silently died, no
         ``python_crash.<PID>.txt`` marker was written, so the next
         session's ``report_pending_crash`` did not surface it.
 
@@ -525,10 +525,10 @@ def _thread_crash_excepthook(args) -> None:
            scrubbed before persisting to the crash archive).
         3. Chains to the previously-installed ``threading.excepthook``
            so the default stderr path still fires (which is /dev/null
-           under bundled sidecar / pythonw.exe — no duplicate user-visible
+           under bundled sidecar / pythonw.exe, no duplicate user-visible
            output, just defense-in-depth).
 
-        Best-effort throughout — the hook must never raise (it runs during
+        Best-effort throughout, the hook must never raise (it runs during
         interpreter teardown, where any failure masks the original error).
 
         Mutable state (``_original_threading_excepthook``) lives on the
@@ -549,7 +549,7 @@ def _thread_crash_excepthook(args) -> None:
     except AttributeError:
         return  # nothing we can safely do; bail out silently
 
-    # Resolve the thread name defensively — ``thread`` may be None or
+    # Resolve the thread name defensively, ``thread`` may be None or
     # already finalized during interpreter shutdown.
     thread_name = "thread"
     with contextlib.suppress(Exception):
@@ -557,11 +557,11 @@ def _thread_crash_excepthook(args) -> None:
             thread_name = thread.name or "thread"
 
     with contextlib.suppress(Exception):
-        # Log ONLY ``exc_type.__name__`` at CRITICAL — never
+        # Log ONLY ``exc_type.__name__`` at CRITICAL, never
         # ``exc_value`` (exception values can embed dictated speech
         # or other PII that PIIRedactionFilter only catches via
         # structured patterns). The redacted ``exc_value`` is
-        # persisted ONLY to the marker file (already 0o600) — see
+        # persisted ONLY to the marker file (already 0o600), see
         # ``_write_crash_marker``. Mirror ``_crash_excepthook``.
         type_name = exc_type.__name__ if exc_type is not None else "Unknown"
         log.critical(
@@ -569,7 +569,7 @@ def _thread_crash_excepthook(args) -> None:
             thread_name,
             type_name,
         )
-        # PII-safe redacted traceback — same pipeline as the main hook.
+        # PII-safe redacted traceback, same pipeline as the main hook.
         if exc_tb is not None:
             try:
                 redacted_tb = _format_redacted_traceback(exc_tb)
@@ -592,7 +592,7 @@ def _thread_crash_excepthook(args) -> None:
     _write_crash_marker(exc_type, exc_value, exc_tb, thread_name=thread_name)
 
     # Chain to the previously-installed threading.excepthook (typically
-    # the interpreter default, which prints to stderr — /dev/null under
+    # the interpreter default, which prints to stderr, /dev/null under
     # bundled sidecar). Defensive: the previous hook could be None or
     # could raise during interpreter shutdown.
     original = getattr(_ch, "_original_threading_excepthook", None)
@@ -627,7 +627,7 @@ def install_threading_excepthook() -> None:
         threads go through ``threading.excepthook``. Voice Typer spawns
         many daemon threads (A11yPulse, ModelLoad, heartbeat_loop,
         crash-recovery-saver, history-retention-apply, bubble-level-pusher,
-    shutdown-watchdog, prewarm completion-event listener) — pre-,
+    shutdown-watchdog, prewarm completion-event listener), pre-,
         an unhandled exception in any of them silently died with no marker
         file written, so the next session's ``report_pending_crash`` did
         not surface it.
@@ -649,7 +649,7 @@ def install_threading_excepthook() -> None:
     from voice_typer.server import crash_handler as _ch
 
     # refresh the cache on every call (cheap disk read, runs
-    # at install time — NOT on the crashing thread).  Done BEFORE
+    # at install time. NOT on the crashing thread).  Done BEFORE
     # the idempotent short-circuit so a re-install also refreshes.
     with contextlib.suppress(Exception):
         _refresh_cached_asr_backend()
@@ -672,7 +672,7 @@ def install_threading_excepthook() -> None:
 def remove_threading_excepthook() -> None:
     """Restore the original ``threading.excepthook``. Idempotent.
 
-    Symmetric with ``install_threading_excepthook`` — the remove
+    Symmetric with ``install_threading_excepthook``, the remove
     counterpart closes the install/remove pair so test cleanup is
     possible. Calling without a prior install is a no-op (the restore
     falls through to the interpreter's default ``threading.excepthook``,
@@ -702,7 +702,7 @@ def remove_python_excepthook() -> None:
         exactly once across a session had to manually save/restore
         ``sys.excepthook`` because there was no canonical "tear down"
         entry point. Mirrors ``remove_crash_handler`` for the Windows
-        VEH (and the two are now symmetric — both install/remove pairs
+        VEH (and the two are now symmetric, both install/remove pairs
         are part of the public ``crash_handler`` facade).
 
         Calling this without a prior ``install_python_excepthook`` is
@@ -753,7 +753,7 @@ def install_crash_handler() -> bool:
         if handler_ptr:
             _ch._handler_handle = handler_ptr
             log.info(
-                "[CRASH] Windows VEH installed — will capture silent crashes "
+                "[CRASH] Windows VEH installed, will capture silent crashes "
                 "(heap corruption, access violation, stack overrun)"
             )
             return True

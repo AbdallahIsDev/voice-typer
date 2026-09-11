@@ -89,7 +89,7 @@ describe("R6-F13: electron.vite.main.ts (CI-only) sourcemap config", () => {
 	});
 
 	it("does NOT include a renderer section (CI-only main+preload config)", () => {
-		// electron.vite.main.ts is the CI-only main+preload config — it
+		// electron.vite.main.ts is the CI-only main+preload config, it
 		// must NOT accidentally include a renderer block (the renderer
 		// is built separately via electron.vite.renderer.ts).
 		expect(MAIN_CI_SRC).not.toMatch(/^\s*renderer:\s*\{/m);

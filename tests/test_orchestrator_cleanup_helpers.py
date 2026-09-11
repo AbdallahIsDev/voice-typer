@@ -11,18 +11,18 @@ most-mutated code path in the dictation pipeline.
 Post-refactor: each cleanup step is now a named
 private method (``_cleanup_<purpose>``) on ``_OrchestratorMixin``.
 The finally block reads as 7 sequential calls. Each helper owns its
-own try/except with byte-identical log line TEXT (per C-LOG-1) — no
+own try/except with byte-identical log line TEXT (per C-LOG-1), no
 behavior change, just decomposition.
 
 These tests pin the contract:
 
   1. Each helper can be called in isolation (no ``run()`` context
-     needed) — required so future changes to one cleanup step don't
+     needed), required so future changes to one cleanup step don't
      require re-running the entire ``run()`` to verify.
   2. A failure in helper N does NOT prevent helper N+1 from running.
      The original finally block guaranteed this via per-step
      try/except; the extracted helpers must preserve it. This is the
-     critical contract — a single broken cleanup must not leak the
+     critical contract, a single broken cleanup must not leak the
      busy state, the watchdog thread, or the streaming-session slot.
   3. The full finally block runs even on abort (``_PipelineAbortEmpty``),
      cancel (``_PipelineAbortCancelled``), and body Exception paths —
@@ -57,7 +57,7 @@ class _TestApp:
     Mirrors the stub pattern in
     ``test_dictation_pipeline_finally_logging.py``: a custom class
     (not ``MagicMock``) so the notify-once flag attributes default
-    to ``False`` via ``getattr(..., False)`` — MagicMock would
+    to ``False`` via ``getattr(..., False)``, MagicMock would
     auto-create truthy children.
     """
 
@@ -84,11 +84,11 @@ class _TestApp:
         self._crash_recovery = MagicMock()
         self._last_transcription: object = None
         self.models = MagicMock()
-        # ``recording`` is a MagicMock — tests that need real lock
+        # ``recording`` is a MagicMock, tests that need real lock
         # semantics override it via ``_configure_recording_for_helpers``.
         self.recording = MagicMock()
         # ``recorder.recording`` is read by the streaming-session
-        # cleanup branch — make it False so the
+        # cleanup branch, make it False so the
         # ``if session is not None and not recorder.recording``
         # branch short-circuits when ``pop_streaming_session`` returns
         # None (the default MagicMock return).
@@ -173,7 +173,7 @@ class TestEachHelperCallableInIsolation:
         pipeline = _new_pipeline(app)
 
         # Sentinel file path is patched to a stub that returns False
-        # so the unlink branch is skipped — we just verify the helper
+        # so the unlink branch is skipped, we just verify the helper
         # returns None without raising.
         class _StubPath:
             def __truediv__(self, other: str) -> _StubPath:
@@ -182,7 +182,7 @@ class TestEachHelperCallableInIsolation:
             def exists(self) -> bool:
                 return False
 
-            def unlink(self) -> None:  # pragma: no cover — not reached
+            def unlink(self) -> None:  # pragma: no cover, not reached
                 raise AssertionError("should not be called when exists() is False")
 
         monkeypatch.setattr("voice_typer.server._paths.config_dir", lambda: _StubPath())
@@ -193,7 +193,7 @@ class TestEachHelperCallableInIsolation:
         app = _TestApp()
         _configure_recording_for_helpers(app)
         pipeline = _new_pipeline(app)
-        # _audio is None by default — helper must short-circuit cleanly.
+        # _audio is None by default, helper must short-circuit cleanly.
         assert pipeline._cleanup_audio_zero() is None
         assert pipeline._audio is None
 
@@ -258,7 +258,7 @@ class TestFailureInOneHelperDoesNotBlockNext:
     this via per-step try/except; the extracted helpers must preserve
     it (each helper owns its try/except).
 
-    This is the critical contract — a single broken cleanup must not
+    This is the critical contract, a single broken cleanup must not
     leak the busy state, the watchdog thread, or the streaming-session
     slot.
     """
@@ -284,7 +284,7 @@ class TestFailureInOneHelperDoesNotBlockNext:
             pipeline._cleanup_busyness_idle()
             pipeline._cleanup_transcription_thread_clear()
 
-        # Helper N (busyness) failed — log emitted.
+        # Helper N (busyness) failed, log emitted.
         busy_fail_logs = [
             r
             for r in caplog.records
@@ -295,7 +295,7 @@ class TestFailureInOneHelperDoesNotBlockNext:
             "DEBUG log line '[PIPELINE] finally cleanup step busyness idle "
             "failed' (per C-LOG-1)."
         )
-        # Helper N+1 (transcription_thread) STILL ran — cleared the thread.
+        # Helper N+1 (transcription_thread) STILL ran, cleared the thread.
         assert app.recording._transcription_thread is None, (
             "a failure in _cleanup_busyness_idle must NOT prevent "
             "_cleanup_transcription_thread_clear from running. The "
@@ -336,7 +336,7 @@ class TestFailureInOneHelperDoesNotBlockNext:
             else:
                 sys.modules.pop("gc", None)
 
-        # Prior helpers ran — busy_event was set and thread was cleared.
+        # Prior helpers ran, busy_event was set and thread was cleared.
         assert app._busyness.set_idle.called, "gc.collect failure must not block prior busyness-idle clear."
         assert app.recording._transcription_thread is None, (
             "gc.collect failure must not block prior transcription_thread clear."
@@ -375,7 +375,7 @@ class TestFailureInOneHelperDoesNotBlockNext:
             pipeline._cleanup_watchdog_reset()
             pipeline._cleanup_streaming_session_cancel()
 
-        # Helper N (watchdog_reset) failed — log emitted.
+        # Helper N (watchdog_reset) failed, log emitted.
         watchdog_fail_logs = [
             r
             for r in caplog.records
@@ -386,7 +386,7 @@ class TestFailureInOneHelperDoesNotBlockNext:
             "DEBUG log line '[PIPELINE] finally cleanup step watchdog_reset "
             "failed' (per C-LOG-1)."
         )
-        # Helper N+1 (streaming_session_cancel) STILL ran — pop_streaming_session
+        # Helper N+1 (streaming_session_cancel) STILL ran, pop_streaming_session
         # was called and session.cancel() was invoked.
         assert app.recording.pop_streaming_session.called, (
             "a failure in _cleanup_watchdog_reset must NOT prevent "
@@ -426,7 +426,7 @@ class TestFailureInOneHelperDoesNotBlockNext:
             pipeline._cleanup_sentinel_unlink()
             pipeline._cleanup_audio_zero()
 
-        # Helper N (sentinel_unlink) failed — log emitted.
+        # Helper N (sentinel_unlink) failed, log emitted.
         sentinel_fail_logs = [
             r
             for r in caplog.records
@@ -437,7 +437,7 @@ class TestFailureInOneHelperDoesNotBlockNext:
             "DEBUG log line '[PIPELINE] finally cleanup step sentinel_unlink "
             "failed' (per C-LOG-1)."
         )
-        # Helper N+1 (audio_zero) STILL ran — array zeroed in-place.
+        # Helper N+1 (audio_zero) STILL ran, array zeroed in-place.
         assert float(arr.max()) == 0.0, (
             "a failure in _cleanup_sentinel_unlink must NOT prevent _cleanup_audio_zero from zeroing the audio array."
         )
@@ -525,7 +525,7 @@ class TestFinallyRunsOnAbortCancelAndException:
         _configure_recording_for_helpers(app)
         self._drive_run(app, "abort_empty")
         assert app._busyness.set_idle.called, (
-            "finally block must run on _PipelineAbortEmpty — "
+            "finally block must run on _PipelineAbortEmpty, "
             "_busyness.set_idle() must be called (cleanup_busyness_idle helper)."
         )
 
@@ -537,7 +537,7 @@ class TestFinallyRunsOnAbortCancelAndException:
         _configure_recording_for_helpers(app)
         self._drive_run(app, "abort_cancelled")
         assert app._busyness.set_idle.called, (
-            "finally block must run on _PipelineAbortCancelled — "
+            "finally block must run on _PipelineAbortCancelled, "
             "_busyness.set_idle() must be called (cleanup_busyness_idle helper)."
         )
 
@@ -549,11 +549,11 @@ class TestFinallyRunsOnAbortCancelAndException:
         _configure_recording_for_helpers(app)
         self._drive_run(app, "device_loss")
         assert app._busyness.set_idle.called, (
-            "finally block must run on generic Exception — "
+            "finally block must run on generic Exception, "
             "_busyness.set_idle() must be called (cleanup_busyness_idle helper)."
         )
         assert app.recording._reset_watchdog.called, (
-            "finally block must run on generic Exception — "
+            "finally block must run on generic Exception, "
             "recording._reset_watchdog() must be called "
             "(cleanup_watchdog_reset helper)."
         )
@@ -590,8 +590,8 @@ class TestLogLineTextPinned:
     )
     def test_each_helper_emits_pinned_log_line(self, helper_name: str, expected_log_substring: str, caplog) -> None:
         """Pin the exact log line TEXT for each cleanup helper's
-        failure log. C-LOG-1 — byte-identical to pre-refactor."""
-        # We trigger each helper's failure path differently — the
+        failure log. C-LOG-1, byte-identical to pre-refactor."""
+        # We trigger each helper's failure path differently, the
         # simplest unified approach is to monkeypatch the helper's
         # internals to raise. For most helpers, this means stubbing
         # the relevant app attribute.
@@ -650,12 +650,12 @@ class TestLogLineTextPinned:
             )
             with caplog.at_level(logging.DEBUG, logger="voice_typer.server.dictation_pipeline"):
                 pipeline._cleanup_streaming_session_cancel()
-            # NOTE: this helper has TWO log lines — outer except logs
+            # NOTE: this helper has TWO log lines, outer except logs
             # "[TRANSCRIBE] finally: session cleanup failed" and inner
             # except logs "[PIPELINE] ... streaming_session_cancel failed".
             # We pin the OUTER one for this helper since pop_streaming_session
             # is the outer call. The parametrize substring for this helper
-            # is the INNER one — to exercise the inner, we'd need a session
+            # is the INNER one, to exercise the inner, we'd need a session
             # whose .cancel() raises. We test the inner separately below.
             expected_log_substring = "[TRANSCRIBE] finally: session cleanup failed"
         elif helper_name == "_cleanup_busyness_idle":
@@ -667,7 +667,7 @@ class TestLogLineTextPinned:
             del app.recording._watchdog_lock
             with caplog.at_level(logging.DEBUG, logger="voice_typer.server.dictation_pipeline"):
                 pipeline._cleanup_transcription_thread_clear()
-            # NOTE: this helper has TWO log lines — outer logs
+            # NOTE: this helper has TWO log lines, outer logs
             # "[TRANSCRIBE] could not acquire recording._watchdog_lock..."
             # and inner logs "[PIPELINE] ... transcription_thread_clear_unsafe failed".
             # When the lock is absent, the inner branch ALSO needs to fail
@@ -694,7 +694,7 @@ class TestLogLineTextPinned:
                     sys.modules["gc"] = original_gc
                 else:
                     sys.modules.pop("gc", None)
-        else:  # pragma: no cover — defensive
+        else:  # pragma: no cover, defensive
             pytest.fail(f"unknown helper {helper_name!r}")
 
         debug_logs = [
@@ -714,10 +714,10 @@ class TestLogLineTextPinned:
 
     def test_streaming_session_cancel_inner_log_pinned(self, caplog) -> None:
         """C-LOG-1 pin: when ``session.cancel()`` raises, the INNER
-        ``log.debug("[PIPELINE] finally cleanup step "
-        "streaming_session_cancel failed", exc_info=True)`` must fire
-        — distinct from the OUTER ``[TRANSCRIBE] finally: session
-        cleanup failed`` log."""
+          ``log.debug("[PIPELINE] finally cleanup step "
+          "streaming_session_cancel failed", exc_info=True)`` must fire
+        , distinct from the OUTER ``[TRANSCRIBE] finally: session
+          cleanup failed`` log."""
         app = _TestApp()
         _configure_recording_for_helpers(app)
         # pop_streaming_session succeeds (returns a session whose
@@ -748,7 +748,7 @@ class TestLogLineTextPinned:
         ``_transcription_thread = None`` assignment raises, the INNER
         ``log.debug("[PIPELINE] finally cleanup step "
         "transcription_thread_clear_unsafe failed", exc_info=True)``
-        must fire — distinct from the OUTER ``[TRANSCRIBE] could not
+        must fire, distinct from the OUTER ``[TRANSCRIBE] could not
         acquire recording._watchdog_lock...`` log."""
         app = _TestApp()
         _configure_recording_for_helpers(app)

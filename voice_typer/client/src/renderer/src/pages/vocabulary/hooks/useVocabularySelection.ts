@@ -25,7 +25,7 @@ interface UseVocabularySelectionResult {
 	selectedCount: number;
 	selectedRows: VocabRow[];
 	toggleSelect: (id: string) => void;
-	/** Select (or clear) a specific set of ids — used by select-all. */
+	/** Select (or clear) a specific set of ids, used by select-all. */
 	setSelectMany: (ids: string[], selected: boolean) => void;
 	clearSelection: () => void;
 	bulkDeleteSelected: () => Promise<void>;

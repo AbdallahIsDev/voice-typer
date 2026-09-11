@@ -2,16 +2,16 @@
 
 Covers three findings from a-review:
 
-* Finding 5 (C2) — clean log-line rendering.
+* Finding 5 (C2), clean log-line rendering.
   The text formatters (``_FileFormatter`` for the file, ``_ColorFormatter``
   for the terminal) render a CLEAN line: timestamp + level + message.
   The per-line ``[session_id]`` bracket, ``[threadName]``, and
-  ``[component]`` labels were removed — they added noise to every line
+  ``[component]`` labels were removed, they added noise to every line
   without helping the user read the log.  Correlation metadata stays
   available in JSON mode (``VOICE_TYPER_LOG_JSON=1``).  These tests pin
   the clean format so the clutter is not reintroduced.
 
-* Finding 6 (C3) — ``get_logger`` is dead code.
+* Finding 6 (C3): ``get_logger`` is dead code.
   The factory was documented as the canonical logger entry point but
   zero call-sites used it (every module did
   ``logging.getLogger(__name__)`` directly).  These tests pin the
@@ -46,7 +46,7 @@ def test_file_log_line_is_clean_end_to_end(tmp_path: Path) -> None:
 
     The rendered line must be CLEAN: timestamp + level + message.  The
     8-char session ID, thread name, and module path must NOT appear on
-    the line — they added noise to every line without helping the user
+    the line, they added noise to every line without helping the user
     read the log.
     """
     reset()
@@ -83,7 +83,7 @@ def test_file_log_line_is_clean_end_to_end(tmp_path: Path) -> None:
 
 def test_file_formatter_omits_session_thread_component() -> None:
     """``_FileFormatter.format`` must NOT render the session_id bracket,
-    thread name, or component label — the line is timestamp + level +
+    thread name, or component label, the line is timestamp + level +
     message only."""
     record = logging.LogRecord(
         name="voice_typer",
@@ -114,12 +114,12 @@ def test_file_formatter_omits_session_thread_component() -> None:
     assert "+0300" not in line and "+0200" not in line  # tz offset gone
 
 
-# Exact line shape: `<ts>  <LEVEL>  <msg>` — a full-line anchored match,
+# Exact line shape: `<ts>  <LEVEL>  <msg>`, a full-line anchored match,
 # stronger than the substring checks above.  A session id, thread name,
 # or module path inserted ANYWHERE (before the ts, between fields, or
 # appended at the end) breaks the match.
 #
-# Timestamp is `YYYY-MM-DD  HH:MM:SS` — TWO spaces between the date
+# Timestamp is `YYYY-MM-DD  HH:MM:SS`, TWO spaces between the date
 # and the time (so the time column aligns in the file), seconds-only
 # precision (no millisecond fraction).  Level label is the short form
 # (`WARN`, not `WARNING`), left-padded to a fixed 5-char column so the
@@ -139,7 +139,7 @@ def test_file_formatter_exact_line_shape_is_timestamp_level_message() -> None:
 
     The record carries every field the old format printed on every line
     (session id, component / module path, thread name, function name) so
-    a reintroduction anywhere in the rendering pipeline is caught — not
+    a reintroduction anywhere in the rendering pipeline is caught, not
     just the specific bracket styles the substring tests guard against.
     """
     record = logging.LogRecord(
@@ -294,7 +294,7 @@ def test_formatters_do_not_require_session_attribute() -> None:
         args=(),
         exc_info=None,
     )
-    # Deliberately do NOT set record.session_id — simulates a record
+    # Deliberately do NOT set record.session_id, simulates a record
     # that bypassed the _SessionFilter (no attribute on the LogRecord).
     assert not hasattr(record, "session_id")
 
@@ -331,20 +331,20 @@ def test_formatter_empty_session_id_renders_no_bracket() -> None:
 
 
 def test_get_logger_is_not_exported() -> None:
-    """a-review Finding 6: ``get_logger`` was dead code — documented as
+    """a-review Finding 6: ``get_logger`` was dead code, documented as
     the canonical logger factory but used by zero call-sites (every
     module does ``logging.getLogger(__name__)`` directly).  This test
     pins the removal so the dead factory is not reintroduced."""
     assert not hasattr(log_module, "get_logger"), (
         "voice_typer.server.log.get_logger was removed as dead code "
-        "(a-review Finding 6).  Do not re-add it — modules should use "
+        "(a-review Finding 6).  Do not re-add it, modules should use "
         "logging.getLogger(__name__) directly."
     )
 
 
 def test_module_docstring_does_not_advertise_get_logger() -> None:
     """The module docstring must not advertise ``get_logger`` as the
-    canonical entry point — that would mislead readers into using a
+    canonical entry point, that would mislead readers into using a
     function that doesn't exist."""
     assert "get_logger" not in (log_module.__doc__ or "")
 
@@ -353,7 +353,7 @@ def test_module_docstring_does_not_advertise_get_logger() -> None:
 #
 # The runtime-pack WebSocket worker (``voice_typer/worker/__main__.py``)
 # runs as a SEPARATE process alongside the slim-core sidecar.  Both used
-# to write to ``voice-typer.log`` — a multi-process race on the
+# to write to ``voice-typer.log``, a multi-process race on the
 # ``_SecureTruncatingFileHandler``'s in-place truncation rotation
 # (maxBytes=5 MiB, backupCount=0) that could lose data when both
 # processes rotated at once.  The fix routes the worker to its own
@@ -366,7 +366,7 @@ def test_worker_log_file_is_separate_from_sidecar(tmp_path: Path) -> None:
     """``process_name="worker"`` routes to ``worker.log``, NOT the
     shared ``voice-typer.log``.
 
-    This is the core race-elimination invariant — if the worker and
+    This is the core race-elimination invariant, if the worker and
     the slim-core sidecar share ``voice-typer.log``, the
     ``_SecureTruncatingFileHandler``'s in-place truncation rotation
     can race (both processes stat >5 MiB, both truncate, data is
@@ -374,7 +374,7 @@ def test_worker_log_file_is_separate_from_sidecar(tmp_path: Path) -> None:
     because the two processes never share a file descriptor.
 
     Reverting the ``"worker"`` case in :func:`get_log_file_path` makes
-    this test FAIL — the worker path would equal the sidecar path
+    this test FAIL, the worker path would equal the sidecar path
     (``voice-typer.log``) instead of ``worker.log``.
     """
     config_dir = tmp_path / "cfg"
@@ -385,12 +385,12 @@ def test_worker_log_file_is_separate_from_sidecar(tmp_path: Path) -> None:
     default_path = get_log_file_path(config_dir)
     main_path = get_log_file_path(config_dir, process_name="main")
 
-    # 1) Worker gets its OWN file — not the shared sidecar file.
+    # 1) Worker gets its OWN file, not the shared sidecar file.
     assert worker_path == config_dir / "logs" / "worker.log", (
         f"regression: process_name='worker' must route to worker.log, got {worker_path}"
     )
     # 2) The sidecar (explicit "voice-typer" or default "main") still
-    #    routes to voice-typer.log — the routing fix must not break the
+    #    routes to voice-typer.log, the routing fix must not break the
     #    existing sidecar path.
     assert sidecar_path == config_dir / "logs" / "voice-typer.log", (
         f"regression: process_name='voice-typer' must route to voice-typer.log, got {sidecar_path}"
@@ -400,14 +400,14 @@ def test_worker_log_file_is_separate_from_sidecar(tmp_path: Path) -> None:
     # 3) The race-elimination invariant: the two paths MUST differ.
     assert worker_path != sidecar_path, (
         "rotation-race regression: worker and sidecar must NOT share a log file "
-        f"(both resolved to {worker_path}) — the _SecureTruncatingFileHandler "
+        f"(both resolved to {worker_path}), the _SecureTruncatingFileHandler "
         "rotation race would re-emerge."
     )
 
 
 def test_worker_setup_logging_writes_to_worker_log_file(tmp_path: Path) -> None:
     """End-to-end: ``setup_logging(config_dir, process_name="worker")``
-    actually writes log records to ``worker.log`` on disk — and does
+    actually writes log records to ``worker.log`` on disk, and does
     NOT touch the shared ``voice-typer.log``.
 
     Pins the full pipeline (``setup_logging`` → ``get_log_file_path``
@@ -434,10 +434,10 @@ def test_worker_setup_logging_writes_to_worker_log_file(tmp_path: Path) -> None:
         sidecar_log = config_dir / "logs" / "voice-typer.log"
 
         assert worker_log.exists(), (
-            "regression: worker.log was NOT created — process_name='worker' is not routing to worker.log"
+            "regression: worker.log was NOT created, process_name='worker' is not routing to worker.log"
         )
         assert not sidecar_log.exists(), (
-            "regression: voice-typer.log WAS created — process_name='worker' "
+            "regression: voice-typer.log WAS created, process_name='worker' "
             "is racing the slim-core sidecar on the shared file (the exact "
             "race this routing was added to eliminate)."
         )

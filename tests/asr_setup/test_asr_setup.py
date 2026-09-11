@@ -1,12 +1,12 @@
 """ASR setup / recording / streaming tests split out of the former ``tests/test_history_and_models.py``.
 
-Domain: ASR backend setup + recording infrastructure — asr_setup
+Domain: ASR backend setup + recording infrastructure, asr_setup
 no longer caches _config_dir, ResampleUnavailable typed exception,
 StreamingTextAssembler._prune_old_entries invariant, and the
 CloudEngine urlopen timeout (``_REQUEST_TIMEOUT_SECONDS`` = 10 s).
 
 Class/method names + assertions are preserved verbatim from the
-original monolith — only file location has changed.
+original monolith, only file location has changed.
 """
 
 from __future__ import annotations

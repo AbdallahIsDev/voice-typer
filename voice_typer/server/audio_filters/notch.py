@@ -51,7 +51,7 @@ class NotchFilter(AudioFilter):
         try:
             from scipy.signal import iirnotch
         except ImportError:
-            log.warning("[NOTCH] scipy not available — filter disabled")
+            log.warning("[NOTCH] scipy not available, filter disabled")
             self._state = None
             return
 
@@ -101,7 +101,7 @@ class NotchFilter(AudioFilter):
             # previous audio, so zero it for symmetry with the highpass
             # path and the same SEC-audit-008 guarantee.
             # reuse the just-zeroed array instead of allocating a
-            # fresh ``np.zeros(...)`` block on every reset() — same
+            # fresh ``np.zeros(...)`` block on every reset(), same
             # rationale as HighPassFilter.reset.
             if zi.size > 0:
                 zi.fill(0)

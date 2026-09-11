@@ -41,7 +41,7 @@ pub(crate) fn session_id() -> &'static str {
 pub(crate) mod hex {
     /// Writes each byte directly into the pre-allocated String
     /// buffer via `core::fmt::Write`. The `expect` is safe (the
-    /// `fmt::Write` impl for `String` is infallible — it never returns
+    /// `fmt::Write` impl for `String` is infallible, it never returns
     /// `Err`).
     pub fn encode(bytes: &[u8]) -> String {
         use std::fmt::Write;
@@ -62,7 +62,7 @@ pub(crate) mod hex {
     }
 }
 
-// Sibling test module — tests live in `crypto_tests.rs` (per C-TEST-5:
+// Sibling test module: tests live in `crypto_tests.rs` (per C-TEST-5:
 // no inline `#[cfg(test)] mod tests` blocks in production source).
 #[cfg(test)]
 #[path = "crypto_tests.rs"]

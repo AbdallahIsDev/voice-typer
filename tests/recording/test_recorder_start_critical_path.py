@@ -3,7 +3,7 @@
 ``start_recording`` (the body of ``Recorder.start``) used to call
 ``recorder.warm_up_resampler()`` synchronously whenever the device's
 effective sample rate differs from the target rate and scipy's
-``resample_poly`` was not loaded yet — a 1-2s block on the first
+``resample_poly`` was not loaded yet, a 1-2s block on the first
 hotkey press after app launch.
 
 The scipy preloader daemon spawned by ``Recorder.__init__``
@@ -14,7 +14,7 @@ same import is wasted latency. The policy now is:
 - while the recorder's own preloader thread is alive → SKIP the
   synchronous warm-up (the background thread owns the import; the
   resample helpers load scipy on demand under a lock if a resample
-  lands first, so output bytes are identical — only the latency moves
+  lands first, so output bytes are identical, only the latency moves
   off the hotkey path);
 - otherwise (no preloader, or it already exited without loading
   scipy) → warm up synchronously exactly as before, so the failure is
@@ -23,7 +23,7 @@ same import is wasted latency. The policy now is:
 These tests build a lightweight ``MagicMock`` recorder shaped for
 ``start_recording`` (a DIFFERENT shape from the secure-clear factory in
 ``tests/fixtures/recorder_test_helpers.py``, which builds a real
-``Recorder`` — see that module's docstring for why per-contract
+``Recorder``: see that module's docstring for why per-contract
 builders are intentional here), plus one real-Recorder wiring test.
 """
 
@@ -102,7 +102,7 @@ class TestStartWarmUpCriticalPathPolicy:
 
     def test_sync_warm_up_called_without_in_flight_preloader(self, monkeypatch):
         """A recorder with no live preloader thread (the attribute is a
-        plain object / absent) still warms up synchronously — the
+        plain object / absent) still warms up synchronously, the
         historical contract for recorders constructed before the
         preloader existed and for test doubles."""
         _patch_resampler_unloaded(monkeypatch)
@@ -131,8 +131,8 @@ class TestStartWarmUpCriticalPathPolicy:
 
     def test_sync_warm_up_skipped_while_preloader_in_flight(self, monkeypatch):
         """While ``Recorder.__init__``'s scipy preloader thread is still
-        loading scipy, the hotkey path must NOT block on the same import
-        — the warm-up is left to the background thread."""
+          loading scipy, the hotkey path must NOT block on the same import
+        , the warm-up is left to the background thread."""
         _patch_resampler_unloaded(monkeypatch)
         recorder = _build_start_mock_recorder()
         preloader = _AliveThreadHandle()
@@ -146,7 +146,7 @@ class TestStartWarmUpCriticalPathPolicy:
     def test_start_completes_atomically_when_warm_up_skipped(self, monkeypatch):
         """Skipping the warm-up must not skip any other start step: the
         stream opens, the recording event is set, and both workers plus
-        the device-health checker are started — recording still starts
+        the device-health checker are started, recording still starts
         correctly and atomically."""
         _patch_resampler_unloaded(monkeypatch)
         recorder = _build_start_mock_recorder()

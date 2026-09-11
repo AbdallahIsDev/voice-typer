@@ -10,9 +10,9 @@
  * mounted AND sent the IPC. But `mainT()` is called by:
  *
  *   - `bootstrap.ts` criticalError dialog (fires when the app is
- *     crashing — the renderer may NEVER have loaded).
+ *     crashing, the renderer may NEVER have loaded).
  *   - `start-python.ts` singleInstance dialog (fires when Python
- *     exits early — the renderer may not have loaded).
+ *     exits early, the renderer may not have loaded).
  *   - `window-handlers.ts` selectModelFolder dialog.
  *   - `export-handlers.ts` export dialogs.
  *
@@ -21,12 +21,12 @@
  *
  * Post-fix: `currentLocale` is seeded from `app.getLocale()` at module
  * load (with the same primary-subtag fallback `setMainLocale` uses).
- * The renderer's IPC push ALWAYS overrides the seed — the user's
+ * The renderer's IPC push ALWAYS overrides the seed, the user's
  * explicit UI-language choice wins once the renderer mounts.
  *
  * These tests verify:
  *   1. When `app.getLocale()` returns `"fr-FR"`, `currentLocale` is
- *      initialized to `"fr"` (primary-subtag fallback) — proven by
+ *      initialized to `"fr"` (primary-subtag fallback), proven by
  *      `mainT("dialog.criticalError.title")` returning the French
  *      title, NOT the English fallback, BEFORE any `setMainLocale`
  *      call.
@@ -34,12 +34,12 @@
  *      (e.g. `"zh"`), `currentLocale` is initialized to that locale.
  *   3. When `app.getLocale()` returns an unregistered locale whose
  *      primary subtag is also unregistered (e.g. `"klingon-Latn"`),
- *      the seed falls back to `"en"` silently (no warning — the seed
+ *      the seed falls back to `"en"` silently (no warning, the seed
  *      is best-effort, NOT a user-facing locale push).
  *   4. When `app.getLocale()` throws, the seed falls back to `"en"`
  *      silently (the seed must never crash the import).
  *   5. The renderer's `setMainLocale` IPC push ALWAYS overrides the
- *      seed — proving the user's explicit preference wins.
+ *      seed, proving the user's explicit preference wins.
  *
  * Vitest 4 hoists `vi.mock()` above all top-level statements, so the
  * electron mock is in place BEFORE `import("../i18n")` evaluates the
@@ -113,7 +113,7 @@ describe("OS-locale seed: currentLocale initialized from app.getLocale()", () =>
 	it("falls back to 'en' silently when the OS locale is unregistered (klingon-Latn)", async () => {
 		// `"klingon-Latn"` is not registered, and its primary subtag
 		// `"klingon"` is also not registered. The seed must fall back to
-		// `"en"` WITHOUT emitting a console warning — the seed is
+		// `"en"` WITHOUT emitting a console warning, the seed is
 		// best-effort and silent (unlike `setMainLocale`, which warns so
 		// a missing renderer-pushed locale is visible during dev).
 		const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -123,7 +123,7 @@ describe("OS-locale seed: currentLocale initialized from app.getLocale()", () =>
 			const { mainT } = await import("../i18n");
 			const title = mainT("dialog.criticalError.title");
 			expect(title).toContain("Critical Error");
-			// The seed path must NOT warn — the warning is reserved for
+			// The seed path must NOT warn, the warning is reserved for
 			// `setMainLocale` (renderer-pushed unknown locales). The OS
 			// locale is not user-controlled, so warning on it would be
 			// noise.
@@ -176,7 +176,7 @@ describe("OS-locale seed: currentLocale initialized from app.getLocale()", () =>
 
 	it("the renderer's setMainLocale push ALWAYS overrides the OS-locale seed", async () => {
 		// Seed is "fr-FR" → "fr". The renderer then pushes "de" (German).
-		// The push MUST win — the user's explicit UI-language choice
+		// The push MUST win, the user's explicit UI-language choice
 		// overrides the OS-locale seed once the renderer mounts.
 		mocks.getLocale.mockImplementation(() => "fr-FR");
 		vi.resetModules();
@@ -193,7 +193,7 @@ describe("OS-locale seed: currentLocale initialized from app.getLocale()", () =>
 
 	it("a regional renderer push (zh-TW) overrides the OS-locale seed (fr-FR)", async () => {
 		// Seed is "fr-FR" → "fr". The renderer pushes "zh-TW" (regional
-		// variant not directly registered — primary-subtag fallback
+		// variant not directly registered, primary-subtag fallback
 		// resolves to "zh"). The push MUST win over the seed.
 		mocks.getLocale.mockImplementation(() => "fr-FR");
 		vi.resetModules();

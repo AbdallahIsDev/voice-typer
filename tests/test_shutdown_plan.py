@@ -107,7 +107,7 @@ def fake_app(monkeypatch):
     monkeypatch.setitem(sys.modules, "voice_typer.server.app", fake_app_module)
 
     # The PID-file teardown resolves ``_clear_backend_pid_file`` through
-    # the owning module at call time — stub it so no real PID file is
+    # the owning module at call time, stub it so no real PID file is
     # touched and the (already-imported) real module is not required.
     fake_backend_pid = MagicMock()
     fake_backend_pid._clear_backend_pid_file = MagicMock()
@@ -386,7 +386,7 @@ class TestDoCleanupCallOrder:
         """``_teardown_asr_models`` is declared FIRST in the parallel
         plan so the (potentially slow) CUDA context teardown starts as
         early as possible. The parallel batch runs concurrently, so we
-        can't assert strict ordering — but ``_teardown_asr_models``
+        can't assert strict ordering, but ``_teardown_asr_models``
         must be in the FIRST batch of teardowns that run after the
         sequenced phase completes."""
         controller._do_cleanup()
@@ -420,7 +420,7 @@ class TestBarrierEndToEnd:
         ``_run_with_timeout`` to return ``TIMEOUT`` for the
         ``teardown_recorder`` description WITHOUT invoking the inner
         function (the spy on ``_teardown_recorder`` therefore does NOT
-        fire — the barrier fires before the spy is reached). The test
+        fire, the barrier fires before the spy is reached). The test
         asserts only that ``_teardown_sounddevice`` is NOT called
         (which is the barrier contract)."""
         from voice_typer.server import shutdown_controller as _sc
@@ -438,7 +438,7 @@ class TestBarrierEndToEnd:
 
         monkeypatch.setattr(_sc, "_run_with_timeout", _fast_timeout)
 
-        # Spy on _teardown_sounddevice — it should NOT be called.
+        # Spy on _teardown_sounddevice, it should NOT be called.
         sd_spy = MagicMock()
         controller._teardown_sounddevice = sd_spy
 

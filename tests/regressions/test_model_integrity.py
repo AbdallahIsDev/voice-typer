@@ -2,7 +2,7 @@
 
 This module is part of the ``tests/regressions/`` package created by
 REF-4. The class/method names, assertion logic, and imports below are
-preserved verbatim from the original 4446-line monolith — only file
+preserved verbatim from the original 4446-line monolith, only file
 location has changed.
 
 Common preamble (imports + Linux test-env shim) is identical to the
@@ -35,11 +35,11 @@ class TestModelIntegrityWarnsOnEmptyHashes:
     Tests pin:
     - ``verify_model_integrity`` logs a WARNING containing "NO-OP"
       when the manifest's ``files`` dict is empty (for HuggingFace
-      repos — ``revision`` is a SHA pin, so the empty-files state is
+      repos: ``revision`` is a SHA pin, so the empty-files state is
       a "to-be-populated" placeholder that soft-passes).
     - For local models (``revision == "local"``, e.g. qwen) with an
       empty ``files`` dict, ``verify_model_integrity`` HARD-FAILs
-      (NF-R18-9) because there's no upstream SHA pin — a tampered
+      (NF-R18-9) because there's no upstream SHA pin, a tampered
       local directory would load unchecked. The pre-G4-H-33
       ``_verify_qwen_model_hashes`` helper soft-passed (the divergent
       helper was the root cause of G4-H-33: it made the security
@@ -53,7 +53,7 @@ class TestModelIntegrityWarnsOnEmptyHashes:
         from voice_typer.server import security
         from voice_typer.server.security import verify_model_integrity
 
-        # Isolate the integrity cache to tmp_path — the default lives in
+        # Isolate the integrity cache to tmp_path, the default lives in
         # the real config dir, and writing there from a test can block
         # (cross-process lock contention when the app is running).
         monkeypatch.setattr(security, "_integrity_cache_path_override", tmp_path / "integrity_cache.json")
@@ -87,7 +87,7 @@ class TestModelIntegrityWarnsOnEmptyHashes:
         ``files`` dict is empty.
 
         Pre-G4-H-33, the divergent ``_verify_qwen_model_hashes`` helper
-        soft-passed on empty ``pinned_files`` — but
+        soft-passed on empty ``pinned_files``, but
         ``security.verify_model_integrity`` hard-fails in that case
         (NF-R18-9). The soft-pass made the security module's hard-fail
         branch dead code for the qwen path, so a tampered local Qwen
@@ -117,7 +117,7 @@ class TestModelIntegrityWarnsOnEmptyHashes:
 
         # Patch MODEL_HASHES with the real qwen manifest entry shape
         # (revision: "local", files: {}). This is the actual state of
-        # model_hashes.json for the qwen entry — operators who want to
+        # model_hashes.json for the qwen entry, operators who want to
         # load a local qwen model MUST populate the files dict with
         # the expected SHA-256 hashes (the soft-pass branch's INFO
         # logs from a prior run with the correct model print them).
@@ -125,14 +125,14 @@ class TestModelIntegrityWarnsOnEmptyHashes:
         with patch.object(security, "MODEL_HASHES", fake_manifest), caplog.at_level(logging.ERROR):
             result = verify_model_integrity(local_dir=str(model_dir), repo_id="qwen")
 
-        # HARD-FAIL — empty files + revision="local" means
+        # HARD-FAIL, empty files + revision="local" means
         # no upstream SHA pin and no pinned hashes, so a tampered
         # directory would load unchecked. Return False so the caller
         # refuses to load.
         assert result is False, (
             "NF-R18-9 / G4-H-33: verify_model_integrity must HARD-FAIL "
             "(return False) for a local qwen model with an empty files "
-            "dict — there is no upstream SHA pin (revision='local'), so "
+            "dict, there is no upstream SHA pin (revision='local'), so "
             "the empty-files soft-pass would let a tampered directory "
             "load unchecked. The deleted _verify_qwen_model_hashes "
             "helper used to soft-pass here (the G4-H-33 root cause); "
@@ -194,11 +194,11 @@ class TestModelIntegrityWarnsOnEmptyHashes:
             hf_repos_found += 1
             assert commit_sha_re.match(entry["revision"]), (
                 f"model_hashes.json entry {repo_id!r} revision {entry['revision']!r} "
-                f"is not a 40-char hex commit SHA — must not be 'main' or any "
+                f"is not a 40-char hex commit SHA, must not be 'main' or any "
                 f"mutable branch (supply-chain attack surface)."
             )
             assert entry["files"], (
-                f"model_hashes.json entry {repo_id!r} has empty 'files' dict — "
+                f"model_hashes.json entry {repo_id!r} has empty 'files' dict, "
                 f"verify_model_integrity() is a no-op for this repo. "
                 f"Pin at least config.json."
             )

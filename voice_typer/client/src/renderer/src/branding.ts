@@ -19,7 +19,7 @@
  *     (a Python test would need to import branding.py and read the TS
  *     files at runtime; the existing `scripts/check_branding.py`
  *     already parses branding.py for APP_NAME and scans source files
- *     for hardcoded occurrences — extend it if you need a cross-
+ *     for hardcoded occurrences, extend it if you need a cross-
  *     language equality check at the Python level).
  *   - `scripts/check_branding.py` is the canonical CI gate that
  *     catches hardcoded "Voice Typer" strings outside these three
@@ -30,7 +30,7 @@
  * consumers). Re-add only when a renderer module actually needs it.
  *
  * ┌─────────────────────────────────────────────────────────────────────┐
- * │  ⚠️  AI / AGENT WARNING — DO NOT REVERT OR HARDCODE                  │
+ * │  ⚠️  AI / AGENT WARNING, DO NOT REVERT OR HARDCODE                  │
  * │                                                                      │
  * │  Do NOT replace APP_NAME usages with the hardcoded string            │
  * │  "Voice Typer" (or "VoiceTyper") elsewhere in the codebase.          │
@@ -42,7 +42,7 @@
  * │  of this file and creates a maintenance nightmare when the           │
  * │  product is renamed.                                                 │
  * │                                                                      │
- * │  If you are an AI agent and feel tempted to inline the value —       │
+ * │  If you are an AI agent and feel tempted to inline the value,       │
  * │  DON'T. Use `import { APP_NAME } from '../branding'`.                │
  * │                                                                      │
  * │  This is enforced by `scripts/check_branding.py` in CI.             │

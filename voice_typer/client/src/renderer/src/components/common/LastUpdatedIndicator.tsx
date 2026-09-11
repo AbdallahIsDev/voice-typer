@@ -5,7 +5,7 @@ import { t } from "@/i18n/i18n";
 import { cn } from "@/lib/utils";
 
 /**
- * LastUpdatedIndicator — small "Last updated Xs ago [refresh]" widget
+ * LastUpdatedIndicator, small "Last updated Xs ago [refresh]" widget
  * rendered near the top of each page that keeps a module-level cache
  * (Home, History, Models, Microphone, Dashboard).
  *
@@ -24,7 +24,7 @@ import { cn } from "@/lib/utils";
 interface LastUpdatedIndicatorProps {
 	/** Localized relative label, e.g. "5s ago" or "Just now" (from useLastUpdated). */
 	agoLabel: string;
-	/** Refresh callback — calls the page's `load*` function. */
+	/** Refresh callback, calls the page's `load*` function. */
 	onRefresh: () => void;
 	/** True while the refresh is in-flight (disables the button + shows a spinner). */
 	refreshing?: boolean;
@@ -46,7 +46,7 @@ export function LastUpdatedIndicator({
 			)}
 			data-testid="last-updated-indicator"
 		>
-			{/* The timestamp/label is the dynamic part — it lives inside its
+			{/* The timestamp/label is the dynamic part, it lives inside its
 			    own polite live region so screen readers announce updates
 			    ("Last updated 5s ago" → "10s ago") without re-announcing
 			    the refresh button. The button stays OUTSIDE the live

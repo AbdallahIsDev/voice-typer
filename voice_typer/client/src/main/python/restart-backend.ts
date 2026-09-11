@@ -6,10 +6,10 @@
  * probe fails (see `useConnection.ts` `handleRetryConnection`).
  *
  * Contrast with `relaunch-app.ts`:
- *   - `relaunchApp()` — full Electron + Python restart (tray "Restart").
+ *   - `relaunchApp()`, full Electron + Python restart (tray "Restart").
  *     Production mode calls `app.relaunch()` + `app.exit(0)`, replacing
  *     the whole OS process.
- *   - `restartBackend()` — recycles ONLY the Python sidecar: kill +
+ *   - `restartBackend()`, recycles ONLY the Python sidecar: kill +
  *     respawn. Electron, the renderer, and the TCP bridge all stay
  *     alive; the fresh backend connects through the normal
  *     `tcpConnect()` lifecycle when it comes up.
@@ -17,21 +17,21 @@
  * Why this is needed beyond a TCP probe: the "Lost connection" screen
  * appears when the TCP bridge dropped. If the backend process itself
  * died or hung (no longer draining its event loop), a reconnect probe
- * can never succeed — the process must be recreated. `restartBackend()`
+ * can never succeed, the process must be recreated. `restartBackend()`
  * provides that. The renderer only relays here after its probe fails,
  * so a transient TCP flap (socket blip, GC pause) still recovers by
  * plain reconnect without paying the cost of a process kill.
  *
  * Result contract:
- *   - `{ ok: true }` — respawn initiated (or already effectively
+ *   - `{ ok: true }`, respawn initiated (or already effectively
  *     handled; the function is idempotent w.r.t. spawn).
- *   - `{ ok: false, reason: "relaunching" }` — a full app relaunch is
+ *   - `{ ok: false, reason: "relaunching" }`, a full app relaunch is
  *     already in flight; respawning a Python now would be a wasted
  *     child. Renderer should keep the current behavior (probe only).
  *
  * The kill path mirrors `relaunch-app.ts` dev branch: it uses
  * `killPythonProcessWithSigkillFallback`, which removes all `exit`
- * listeners from the old proc before signalling — so the
+ * listeners from the old proc before signalling, so the
  * `start-python.ts` exit handler's "Python backend crashed" dialog +
  * `app.quit()` is NOT triggered by an intentional kill.
  *
@@ -39,7 +39,7 @@
  * IPC command), so it is NOT part of the SEC-002 server command
  * allowlist (`ALLOWED_COMMANDS` parity does not apply). The renderer
  * can only trigger it via the explicit `window.window_.restartBackend`
- * preload exposure — no new Python-side surface is added.
+ * preload exposure, no new Python-side surface is added.
  */
 import { log } from "../logging";
 import { state } from "../state";
@@ -57,10 +57,10 @@ export type BackendRestartResult = { ok: boolean; reason?: string };
 export function restartBackend(): BackendRestartResult {
 	// Only Electron-spawned backends can be restarted here. If the
 	// backend spawned us (standalone mode, VT_PYTHON_PORT set), the
-	// backend is our parent — killing it takes the whole app down.
+	// backend is our parent, killing it takes the whole app down.
 	if (process.env.VT_PYTHON_PORT && process.env.VT_IPC_TOKEN) {
 		log.info(
-			"[RESTART-BACKEND] adopted mode (VT_PYTHON_PORT set) — cannot restart parent backend",
+			"[RESTART-BACKEND] adopted mode (VT_PYTHON_PORT set), cannot restart parent backend",
 		);
 		return { ok: false, reason: "adopted" };
 	}
@@ -69,7 +69,7 @@ export function restartBackend(): BackendRestartResult {
 	// backend now would leak an orphan into the moment of teardown.
 	if (state._relaunching) {
 		log.info(
-			"[RESTART-BACKEND] full app relaunch in flight — skipping backend-only restart",
+			"[RESTART-BACKEND] full app relaunch in flight, skipping backend-only restart",
 		);
 		return { ok: false, reason: "relaunching" };
 	}
@@ -86,7 +86,7 @@ export function restartBackend(): BackendRestartResult {
 
 	// Release the condemned process reference NOW. The kill helper
 	// stripped the exit listeners and armed its SIGTERM+SIGKILL
-	// escalation, so the old process is untracked and dying — but
+	// escalation, so the old process is untracked and dying, but
 	// until it actually exits, `exitCode`/`signalCode` are still
 	// `null`, which `startPython()`'s live-process guard would read
 	// as "backend already running", skipping the respawn entirely.

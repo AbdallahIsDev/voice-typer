@@ -4,35 +4,35 @@
  * Covers the following findings (each in its own describe block so a
  * failure pinpoints which contract regressed):
  *
- *   - R7-F8   Onboarding.tsx — `let cancelled = false` guard prevents
+ *   - R7-F8   Onboarding.tsx, `let cancelled = false` guard prevents
  *             setState-after-unmount during the init() effect.
- *   - R7-F9   Models.tsx — dead isBenchmarking / runBenchmark /
+ *   - R7-F9   Models.tsx, dead isBenchmarking / runBenchmark /
  *             BenchmarkSection removed; no benchmark UI in either tab.
- *   - R7-F10  Vocabulary.tsx + Templates.tsx — dead _requestDeleteEntry
+ *   - R7-F10  Vocabulary.tsx + Templates.tsx, dead _requestDeleteEntry
  *             / _requestDeleteTemplate / deleteTarget state /
  *             ConfirmDialog removed; no role="alertdialog" rendered.
- *   - R7-F11  Vocabulary.tsx + Templates.tsx — placeholder strings use
+ *   - R7-F11  Vocabulary.tsx + Templates.tsx, placeholder strings use
  *             t("vocabulary.triggerPlaceholder") etc. (i18n keys exist
  *             in en.json; other 7 locales backfilled by I12).
- *   - R7-F12  Models.tsx — model card heading uses
+ *   - R7-F12  Models.tsx, model card heading uses
  *             `meta?.display_name ?? model.name` (no hardcoded
  *             "Qwen3-" / "NVIDIA Parakeet TDT v3" strings).
  *   - R7-F13  History (the debounced-refresh pipeline now lives in
  *             history/hooks/useHistoryEventRefresh.ts after the page-root
- *             slimming) + Home.tsx — debouncedRefreshFromEvent is
+ *             slimming) + Home.tsx, debouncedRefreshFromEvent is
  *             extracted via useCallback and passed to both
  *             usePythonEvent subscriptions (single callback identity).
- *   - R7-F15  About.tsx — configDir initial state is "" (empty) and
+ *   - R7-F15  About.tsx, configDir initial state is "" (empty) and
  *             the UI renders t("about.loading") as fallback until the
  *             backend reports the real directory.
- *   - R7-F16  History.tsx — visible records list capped at 200 items
+ *   - R7-F16  History.tsx, visible records list capped at 200 items
  *             via `.slice(0, 200)`.
- *   - R7-F18  Dashboard.tsx — dead `const [, setLoading] = useState`
+ *   - R7-F18  Dashboard.tsx, dead `const [, setLoading] = useState`
  *             and all `setLoading` call sites removed.
- *   -    Microphone.tsx — 100ms level polling short-circuits when
+ *   -    Microphone.tsx, 100ms level polling short-circuits when
  *             `document.visibilityState !== "visible"` OR
  *             `!testRunning && !micMonitoring`.
- *   -  Settings.tsx — HUB + section pages model: the `settings`
+ *   -  Settings.tsx, HUB + section pages model: the `settings`
  *             landing page renders the hub card of section rows, and
  *             each section page renders ONLY its own domain's cards
  *             (no cross-section card stacking).
@@ -43,7 +43,7 @@
  * hugeicons, sonner, next-themes, useLastUpdated). We mock each once
  * at the module level so every describe block can `import` any page
  * without re-declaring mocks. The hugeicons mock uses a `Proxy` so
- * ANY icon-name access returns a tagged `{ name }` object — that way
+ * ANY icon-name access returns a tagged `{ name }` object, that way
  * we don't have to enumerate every icon imported by the page render
  * graph (which spans SearchField, ExportFormatMenu, EmptyState,
  * ui/select, etc.).
@@ -66,7 +66,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // assertable singletons + one vi.mock line per module. The R7-F13
 // single-callback-identity contract is verified by reading the page
 // SOURCE (the hook must pass one callback to both usePythonEvent
-// subscriptions) — the mock itself only needs to be a call-recorder.
+// subscriptions), the mock itself only needs to be a call-recorder.
 import {
 	hugeiconsCoreMock,
 	hugeiconsReactMock,
@@ -241,7 +241,7 @@ const MINIMAL_CONFIG: VoiceTyperConfig = {
 } as unknown as VoiceTyperConfig;
 beforeEach(() => {
 	// Reset the shared singletons (mockCall, mockPythonEvent, showSnack,
-	// toast, …) — replaces the old clearAllMocks + per-fn resets.
+	// toast, …), replaces the old clearAllMocks + per-fn resets.
 	resetStableMocks();
 	localStorage.clear();
 	// Reset locale to English between tests so locale-switch tests
@@ -293,7 +293,7 @@ describe("R7-F8: Onboarding init effect uses cancelled-flag guard", () => {
 			const { unmount } = render(<OnboardingPage onComplete={() => {}} />);
 			// Unmount BEFORE the init() promises resolve.
 			unmount();
-			// Now resolve the pending promises — the cancelled flag
+			// Now resolve the pending promises, the cancelled flag
 			// should prevent any setState calls.
 			for (const resolve of pendingResolvers) {
 				resolve({ step: 0, total_steps: 6, step_name: "welcome" });
@@ -315,11 +315,11 @@ describe("R7-F8: Onboarding init effect uses cancelled-flag guard", () => {
 
 // ── R7-F9 ──────────────────────────────────────────────────────────────
 
-describe("R7-F9: Models.tsx — no dead benchmark UI", () => {
+describe("R7-F9: Models.tsx, no dead benchmark UI", () => {
 	it("source contains no isBenchmarking / runBenchmark / BenchmarkSection", async () => {
 		const fs = await import("node:fs");
 		const src = fs.readFileSync("src/renderer/src/pages/Models.tsx", "utf8");
-		// Comments referencing the removed identifiers are fine — we
+		// Comments referencing the removed identifiers are fine, we
 		// only check for live identifiers (state vars, function defs,
 		// JSX component tags). Strip block + line comments first.
 		const stripped = src
@@ -352,7 +352,7 @@ describe("R7-F9: Models.tsx — no dead benchmark UI", () => {
 
 // ── R7-F10 ─────────────────────────────────────────────────────────────
 
-describe("R7-F10: Vocabulary + Templates — no dead ConfirmDialog", () => {
+describe("R7-F10: Vocabulary + Templates, no dead ConfirmDialog", () => {
 	it("Vocabulary.tsx source has no _requestDeleteEntry / deleteEntryTarget / ConfirmDialog JSX", async () => {
 		const fs = await import("node:fs");
 		const src = fs.readFileSync(
@@ -388,7 +388,7 @@ describe("R7-F10: Vocabulary + Templates — no dead ConfirmDialog", () => {
 		// NOTE: Templates.tsx now legitimately renders a LIVE
 		// <ConfirmDialog> for the "Clear All" destructive action
 		// (mirrors Vocabulary). The R7-F10 finding was specifically
-		// about the DEAD per-template delete-confirm dialog — its
+		// about the DEAD per-template delete-confirm dialog, its
 		// symbols are pinned above. Do NOT re-add a
 		// `not.toContain("<ConfirmDialog")` assertion here without
 		// first removing the live Clear-All usage.
@@ -425,7 +425,7 @@ describe("R7-F10: Vocabulary + Templates — no dead ConfirmDialog", () => {
 
 // ── R7-F11 ─────────────────────────────────────────────────────────────
 
-describe("R7-F11: Vocabulary + Templates — i18n placeholders", () => {
+describe("R7-F11: Vocabulary + Templates, i18n placeholders", () => {
 	it("en.json contains the four placeholder keys", async () => {
 		const en = (await import("@/i18n/translations/en.json")).default as Record<
 			string,
@@ -496,7 +496,7 @@ describe("R7-F11: Vocabulary + Templates — i18n placeholders", () => {
 			expect(screen.getByText(t("templates.addTemplate"))).toBeTruthy();
 		});
 
-		// Add-Template opens the pop-up dialog — both fields carry the
+		// Add-Template opens the pop-up dialog, both fields carry the
 		// i18n placeholders.
 		fireEvent.click(screen.getByText(t("templates.addTemplate")));
 		const dialogTrigger = (await screen.findByLabelText(
@@ -517,7 +517,7 @@ describe("R7-F11: Vocabulary + Templates — i18n placeholders", () => {
 			expect(screen.queryByLabelText(t("templates.triggerPhrase"))).toBeNull();
 		});
 
-		// The EDIT flow uses the same dialog — its labeled fields keep
+		// The EDIT flow uses the same dialog, its labeled fields keep
 		// the same placeholders (trigger input + output textarea).
 		fireEvent.click(
 			screen.getByLabelText(t("templates.editAria", { name: "brb" })),
@@ -537,7 +537,7 @@ describe("R7-F11: Vocabulary + Templates — i18n placeholders", () => {
 
 // ── R7-F12 ─────────────────────────────────────────────────────────────
 
-describe("R7-F12: Models.tsx — display_name fallback for variant heading", () => {
+describe("R7-F12: Models.tsx, display_name fallback for variant heading", () => {
 	it("variant headings derive from getModelVariantDisplayName (no hardcoded strings)", async () => {
 		const fs = await import("node:fs");
 		// R7-F12 (UI/UX overhaul point 5): the display-name resolution
@@ -584,12 +584,12 @@ describe("R7-F12: Models.tsx — display_name fallback for variant heading", () 
 
 // ── R7-F13 ─────────────────────────────────────────────────────────────
 
-describe("R7-F13: History + Home — debouncedRefreshFromEvent via useCallback", () => {
+describe("R7-F13: History + Home, debouncedRefreshFromEvent via useCallback", () => {
 	it("History's refresh hook declares debouncedRefreshFromEvent via useCallback and passes it to both usePythonEvent calls", async () => {
 		const fs = await import("node:fs");
 		// The background-refresh pipeline (the debounced handler +
 		// both event subscriptions) was extracted from the page
-		// root into the refresh hook — the contract follows the
+		// root into the refresh hook, the contract follows the
 		// code: one useCallback'd handler shared by BOTH
 		// subscriptions.
 		const src = fs.readFileSync(
@@ -597,7 +597,7 @@ describe("R7-F13: History + Home — debouncedRefreshFromEvent via useCallback",
 			"utf8",
 		);
 		expect(src).toContain("const debouncedRefreshFromEvent = useCallback(");
-		// Count usePythonEvent invocations — there should be at least
+		// Count usePythonEvent invocations, there should be at least
 		// two, and both should pass `debouncedRefreshFromEvent` as the
 		// handler.
 		const matches = src.match(/usePythonEvent\(/g) ?? [];
@@ -624,17 +624,17 @@ describe("R7-F13: History + Home — debouncedRefreshFromEvent via useCallback",
 
 // ── R7-F15 ─────────────────────────────────────────────────────────────
 
-describe("R7-F15: DiagnosticsSettingsSection — configDir starts empty and falls back to t('about.loading')", () => {
+describe("R7-F15: DiagnosticsSettingsSection, configDir starts empty and falls back to t('about.loading')", () => {
 	it("source initialises configDir with empty string", async () => {
 		const fs = await import("node:fs");
 		const src = fs.readFileSync(
 			"src/renderer/src/components/settings/DiagnosticsSettingsSection.tsx",
 			"utf8",
 		);
-		// The useState<string>("") call is the contract — previously
+		// The useState<string>("") call is the contract, previously
 		// it was useState<string>("~/.voice-typer").
 		expect(src).toContain('useState<string>("")');
-		// Strip comments before checking — the R7-F15 fix leaves a
+		// Strip comments before checking, the R7-F15 fix leaves a
 		// comment marker explaining what was removed.
 		const stripped = src
 			.replace(/\/\*[\s\S]*?\*\//g, "")
@@ -673,7 +673,7 @@ describe("R7-F15: DiagnosticsSettingsSection — configDir starts empty and fall
 
 // ── R7-F16 ─────────────────────────────────────────────────────────────
 
-describe("R7-F16: History.tsx — Load More reveals paged rows (no dead zone)", () => {
+describe("R7-F16: History.tsx, Load More reveals paged rows (no dead zone)", () => {
 	function makeRecord(index: number) {
 		return {
 			id: index + 1,
@@ -716,7 +716,7 @@ describe("R7-F16: History.tsx — Load More reveals paged rows (no dead zone)", 
 		const { default: HistoryPage } = await import("@/pages/History");
 		renderWithProviders(<HistoryPage />);
 
-		// First paint shows exactly the first page — row 51 must NOT be
+		// First paint shows exactly the first page, row 51 must NOT be
 		// mounted yet.
 		await waitFor(() => {
 			expect(screen.getByText("Record 1")).toBeTruthy();
@@ -743,11 +743,11 @@ describe("R7-F16: History.tsx — Load More reveals paged rows (no dead zone)", 
 
 // ── R7-F18 ─────────────────────────────────────────────────────────────
 
-describe("R7-F18: Dashboard.tsx — dead setLoading removed", () => {
+describe("R7-F18: Dashboard.tsx, dead setLoading removed", () => {
 	it("source has no live setLoading calls (comments allowed)", async () => {
 		const fs = await import("node:fs");
 		const src = fs.readFileSync("src/renderer/src/pages/Dashboard.tsx", "utf8");
-		// Strip comments before checking — the R7-F18 fix leaves a
+		// Strip comments before checking, the R7-F18 fix leaves a
 		// comment marker explaining what was removed.
 		const stripped = src
 			.replace(/\/\*[\s\S]*?\*\//g, "")
@@ -763,7 +763,7 @@ describe("R7-F18: Dashboard.tsx — dead setLoading removed", () => {
 
 // ── CR-57 ──────────────────────────────────────────────────────────────
 
-describe("CR-57: Microphone.tsx — polling gated on visibility + active state", () => {
+describe("CR-57: Microphone.tsx, polling gated on visibility + active state", () => {
 	it("source checks document.visibilityState and the testRunning/micMonitoring refs inside the interval", async () => {
 		const fs = await import("node:fs");
 		// CR-57: the polling logic was extracted from the former
@@ -847,7 +847,7 @@ describe("CR-57: Microphone.tsx — polling gated on visibility + active state",
 
 // ── Settings hub + section pages render model ─────────────────────────
 
-describe("Settings.tsx — hub + section pages render model", () => {
+describe("Settings.tsx, hub + section pages render model", () => {
 	it("renders only the Audio section's cards on the Audio section page", async () => {
 		mockCall.mockImplementation((type: string) => {
 			if (type === "get_config") return Promise.resolve(MINIMAL_CONFIG);
@@ -855,7 +855,7 @@ describe("Settings.tsx — hub + section pages render model", () => {
 			return Promise.resolve({});
 		});
 
-		// Section pages render exactly one domain's cards — the old
+		// Section pages render exactly one domain's cards, the old
 		// 4-tab stack (which mounted every section at once) is gone.
 		renderWithProviders(<SettingsPage page="settingsAudio" />);
 
@@ -866,7 +866,7 @@ describe("Settings.tsx — hub + section pages render model", () => {
 			).toBeTruthy();
 		});
 
-		// NO other section's cards render here — e.g. the Advanced
+		// NO other section's cards render here, e.g. the Advanced
 		// page's Troubleshooting card (with its "Re-run Setup Wizard"
 		// button) is absent.
 		expect(

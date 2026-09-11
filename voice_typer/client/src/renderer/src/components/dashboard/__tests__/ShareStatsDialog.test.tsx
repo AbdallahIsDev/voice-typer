@@ -276,7 +276,7 @@ describe("ShareStatsDialog", () => {
 		const dialog = await screen.findByRole("dialog");
 
 		// The frame is sized by CSS aspect-ratio (the export's fixed
-		// 1200:630 shape) — its height is correct from the first frame
+		// 1200:630 shape), its height is correct from the first frame
 		// with no JS measurement, so the preview can never clip or
 		// leave dead space (Part E).
 		const previewFrame = dialog.querySelector(
@@ -292,7 +292,7 @@ describe("ShareStatsDialog", () => {
 		expect(scaled?.className).toContain("absolute");
 		expect(scaled?.style.transform ?? "").toContain("--preview-scale");
 		expect(scaled?.style.transformOrigin ?? "").toBe("top left");
-		// No spacer child — the frame's only child is the absolute
+		// No spacer child, the frame's only child is the absolute
 		// preview.
 		expect(previewFrame?.children.length).toBe(1);
 
@@ -327,7 +327,7 @@ describe("ShareStatsDialog", () => {
 			expect(actions.copyImageToClipboard).toHaveBeenCalled();
 		});
 		// Regression: the URL previously omitted the `url` param
-		// (t.me/share/url?text=...) — Telegram's web handler redirects
+		// (t.me/share/url?text=...), Telegram's web handler redirects
 		// to telegram.org instead of the share picker. The `url` param
 		// is required for the app/forward flow to open.
 		const opened = openSpy.mock.calls[0]?.[0] as string;

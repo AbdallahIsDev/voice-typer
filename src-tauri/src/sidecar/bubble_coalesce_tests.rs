@@ -87,13 +87,13 @@ fn test_bubble_level_coalesce_respects_30hz_cap() {
         emitted
     );
     // The 60 Hz stream downsampled to a 30 Hz cap should emit ~30
-    // events per second (exactly 30 with 16.667ms spacing — every
+    // events per second (exactly 30 with 16.667ms spacing, every
     // other event). Allow a small ±2 tolerance in case the
     // sub-millisecond precision shift (33 ms → 33.333 ms) moves the
     // boundary by one emit.
     assert!(
         emitted >= 28,
-        "emitted {} events in 1s, expected ~30 — coalesce is too aggressive",
+        "emitted {} events in 1s, expected ~30: coalesce is too aggressive",
         emitted
     );
 }
@@ -106,7 +106,7 @@ fn test_ue3_f12_hz_above_1000_does_not_silently_disable_coalescing() {
     // hz=2000 produced `1000 / 2000 == 0` (Rust integer division) →
     // `from_millis(0)` → coalescing silently disabled (every event
     // passes). The fix uses `Duration::from_nanos(1_000_000_000 / hz)`
-    // which for hz=2000 yields 500_000 ns = 0.5 ms — a small but
+    // which for hz=2000 yields 500_000 ns = 0.5 ms, a small but
     // non-zero interval that still rate-limits bursts.
     let hz: u64 = 2000;
     let start = Instant::now();
@@ -117,16 +117,16 @@ fn test_ue3_f12_hz_above_1000_does_not_silently_disable_coalescing() {
         "first event must always emit regardless of hz"
     );
 
-    // Event 100 µs after the last emit — well below the 500 µs min
+    // Event 100 µs after the last emit, well below the 500 µs min
     // interval. Under the old form this would WRONGLY pass (min
     // interval was 0); under the fixed form it must be suppressed.
     let too_soon = start + Duration::from_micros(100);
     assert!(
         !bubble_coalesce_should_emit(Some(start), too_soon, hz),
-        "UE-3-F12: hz=2000 must produce a 500 µs min interval — 100 µs gap should be suppressed (old form silently disabled coalescing here)"
+        "UE-3-F12: hz=2000 must produce a 500 µs min interval, 100 µs gap should be suppressed (old form silently disabled coalescing here)"
     );
 
-    // Event 600 µs after the last emit — above the 500 µs min
+    // Event 600 µs after the last emit, above the 500 µs min
     // interval. Should pass under both old and new forms.
     let just_enough = start + Duration::from_micros(600);
     assert!(

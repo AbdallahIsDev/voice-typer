@@ -1,6 +1,6 @@
 """Lifecycle mixin for the IPC server (split from ``ipc_server.py``).
 
-Contains the :class:`LifecycleMixin` class — the per-instance lifecycle
+Contains the :class:`LifecycleMixin` class, the per-instance lifecycle
 methods (``start`` / ``stop`` / heartbeat watchdog / tray-state hook /
 relaunch-ack coordination) that are mixed into :class:`IPCServer` via
 multiple inheritance.
@@ -21,7 +21,7 @@ Source-string-pinning tests (``tests/test_ipc_server.py``,
 ``inspect.getsource(IPCServer.start)`` / ``.stop`` and assert substrings
 appear in the source. Because ``IPCServer.start`` resolves through MRO
 to ``LifecycleMixin.start``, ``inspect.getsource`` returns the source from
-this module — the bodies are moved verbatim so every pinned substring
+this module, the bodies are moved verbatim so every pinned substring
 (``_cached_shutting_down = False``, ``_cached_shutting_down = True``,
 ``_tcp_worker_pool``, ``shutdown``, ``_tcp_server_socket``,
 ``_STDIN_IPC_ENV_VAR``, ``os.environ.get(_STDIN_IPC_ENV_VAR) == "1"``)
@@ -60,8 +60,8 @@ def _in_pool_worker(pool) -> bool:
     ``tcp-dispatch`` pool, so the quit handler calls ``app.quit()`` →
     ``_do_cleanup()`` → ``ipc_server.stop()`` FROM INSIDE one of that
     pool's own workers. Draining the pool there is a self-join that
-    can never complete — ``shutdown(wait=True)`` waits for EVERY
-    worker, including the caller blocked inside ``stop()`` — so the
+    can never complete, ``shutdown(wait=True)`` waits for EVERY
+    worker, including the caller blocked inside ``stop()``, so the
     drain burned its full 5s timeout on every quit (measured: quit
     took 8.6s, of which 5s was this deadlock).
 
@@ -123,7 +123,7 @@ class LifecycleMixin:
     _shutdown_completed_event: threading.Event
     _relaunch_ack_event: threading.Event
     _last_heartbeat_at: float | None
-    # host app object — declared (mirroring ``TCPTransportMixin``) so
+    # host app object, declared (mirroring ``TCPTransportMixin``) so
     # the mixin's ``self.app`` accesses type-check; ``Any`` avoids an
     # override conflict with the host's concrete ``app`` attribute.
     app: typing.Any
@@ -138,21 +138,21 @@ class LifecycleMixin:
         """Test-only: reset the per-instance ``_ready_emitted`` flag.
 
         in production, ``_ready_emitted`` is set to ``True`` on the
-        first authenticated WS connection and never reset — this is the
+        first authenticated WS connection and never reset, this is the
         intended behavior so a transient WS reconnect after a drop does
         NOT re-emit the ``ready`` event. However, tests that construct a
         single ``IPCServer`` and call ``sidecar_ws.run(server)`` multiple
         times in the same process need to reset the flag between runs to
         verify the "first connection emits ready" path.
 
-        The cleaner alternative — constructing a fresh ``IPCServer`` per
-        test — is what we recommend, and is what the per-instance move
+        The cleaner alternative, constructing a fresh ``IPCServer`` per
+        test, is what we recommend, and is what the per-instance move
         enables (a fresh instance starts with ``_ready_emitted = False``
         automatically). This helper exists for the small number of tests
         that, for fixture-sharing reasons, must reuse the same instance.
 
         Marked "test-only" by convention (leading underscore + docstring)
-        rather than by a runtime guard — the cost of an accidental
+        rather than by a runtime guard, the cost of an accidental
         production call is just a duplicate ``ready`` event, which the
         host already tolerates (it's idempotent on the UI side).
         """
@@ -198,7 +198,7 @@ class LifecycleMixin:
         #  (High): the unauthenticated stdin IPC path is gated
         # behind ``VOICE_TYPER_ALLOW_STDIN_IPC=1``. When ``_tcp_mode`` is
         # False (the legacy stdin/stdout path) AND the env var is not
-        # set, the stdin listener is REFUSED — a WARNING is logged and
+        # set, the stdin listener is REFUSED, a WARNING is logged and
         # ``_stdin_thread`` is set to ``None``. This prevents an
         # unauthenticated command channel from opening on the user's
         # terminal: on Linux TIOCSTI injection is possible, and on every
@@ -206,7 +206,7 @@ class LifecycleMixin:
         # unintended IPC commands. Direct API users and tests that need
         # the stdin listener must set ``VOICE_TYPER_ALLOW_STDIN_IPC=1``
         # (the ``--allow-stdin`` CLI flag in :func:`parse_ipc_args` is
-        # the alternative gate — it sets the env var).
+        # the alternative gate, it sets the env var).
         if not self._tcp_mode:
             if os.environ.get(_STDIN_IPC_ENV_VAR) == "1":
                 self._stdin_thread = threading.Thread(
@@ -219,7 +219,7 @@ class LifecycleMixin:
                 # refuse to start the unauthenticated stdin
                 # listener. ``_tcp_mode`` is False (so the caller did
                 # NOT explicitly opt into TCP/WS mode) AND the env-var
-                # gate is unset — this is the "unprotected stdin IPC
+                # gate is unset: this is the "unprotected stdin IPC
                 # path is still the default" scenario the gate exists
                 # to close. Log a WARNING (not an error: the server is
                 # still usable for TCP/WS dispatch via the methods on
@@ -227,7 +227,7 @@ class LifecycleMixin:
                 # leave ``_stdin_thread = None`` so ``stop()`` /
                 # ``_thread_registry`` see no thread to join.
                 log.warning(
-                    "[IPC] stdin listener gated off — set %s=1 (or pass "
+                    "[IPC] stdin listener gated off. Set %s=1 (or pass "
                     "--allow-stdin) to enable unauthenticated stdin/stdout "
                     "IPC mode. Refusing to start the listener.",
                     _STDIN_IPC_ENV_VAR,
@@ -246,7 +246,7 @@ class LifecycleMixin:
         # via TWO mechanisms: (1) WS-close / process exit triggers
         # respawn, and (2) the Rust host dispatches a
         # ``heartbeat`` command every 10s and triggers respawn
-        # on 3 consecutive misses (≥30s unresponsive — catches GIL
+        # on 3 consecutive misses (≥30s unresponsive, catches GIL
         # contention / infinite loops / blocking C calls that keep
         # the socket open but don't respond to dispatches). The
         # Python ``_handle_heartbeat`` handler is registered in
@@ -258,7 +258,7 @@ class LifecycleMixin:
         _tauri_sidecar = is_tauri_sidecar()
         if _tauri_sidecar:
             log.info(
-                "[IPC] TAURI_SIDECAR=1 — skipping heartbeat-watchdog thread "
+                "[IPC] TAURI_SIDECAR=1: skipping heartbeat-watchdog thread "
                 "(Tauri Rust host owns liveness via WS-close + heartbeat dispatch)"
             )
             self._heartbeat_thread = None
@@ -276,7 +276,7 @@ class LifecycleMixin:
         #
         # heartbeat-watchdog: registers WITH a stop_event
         # (``_heartbeat_stop_event``) because the loop wakes on
-        # ``Event.wait(timeout)`` — setting the event unblocks it
+        # ``Event.wait(timeout)``: setting the event unblocks it
         # immediately and the thread exits cleanly.
         #
         # ipc-server (stdin listener): registers with ``stop_event=None``
@@ -314,12 +314,12 @@ class LifecycleMixin:
         """Signal the stdin loop and TCP accept loop to stop.
 
         Runs the WS graceful-shutdown hook FIRST (when the WebSocket
-        layer attached one — see
+        layer attached one: see
         ``sidecar_ws_internals.graceful_shutdown._attach_ws_graceful_shutdown``
         which installs it into ``self._ws_stop_hook``): the hook sends
         close(1001) to authenticated WS connections, bounded-waits for
         in-flight dispatch futures, and stops the WS loop BEFORE the TCP
-        teardown tears down shared state. The hook is best-effort — an
+        teardown tears down shared state. The hook is best-effort, an
         exception is logged at DEBUG and the TCP teardown STILL runs (a
         failure in the WS close path must never prevent the server from
         stopping). Previously this ordering was implemented by wrapping
@@ -330,8 +330,8 @@ class LifecycleMixin:
 
         previously ``stop()`` only set ``_running = False``
         and cleared the push hook, but the TCP accept loop checked
-        ``getattr(self, '_stopped', False)`` — a flag that was never
-        set anywhere — and the listening socket was a local variable
+        ``getattr(self, '_stopped', False)``: a flag that was never
+        set anywhere, and the listening socket was a local variable
         in ``_accept_tcp`` with no external reference.  The result was
         that ``stop()`` could not unblock a daemon thread sitting in
         ``server.accept()``; the thread (and socket) leaked until
@@ -348,21 +348,21 @@ class LifecycleMixin:
         the thread is properly tracked and doesn't leak in test
         start/stop cycles. The stdin thread is a daemon that blocks
         on ``for line in iter(stdin)``, so a 0.5s timeout is
-        sufficient — the thread exits naturally on stdin EOF/OSError.
+        sufficient, the thread exits naturally on stdin EOF/OSError.
         """
         self._running = False
         # Refresh the cached shutdown flag. ``stop()`` is the canonical
         # "we're shutting down" transition point. ``_send`` reads
         # ``self._cached_shutting_down`` (defensively via ``getattr``) on
         # every push event and short-circuits the TCP write for
-        # non-critical events when this is True — see
+        # non-critical events when this is True: see
         # ``_SHUTDOWN_ALLOWLIST`` for the allowlist of events that MUST
         # still be delivered.
         #
         # NOTE: ``restart_app`` sets ``self.app._shutting_down = True``
         # BEFORE ``stop()`` is called, so during the brief window between
         # that set and this ``stop()`` call, the cache is stale (still
-        # False). This is acceptable — see the ``__init__`` comment for
+        # False). This is acceptable: see the ``__init__`` comment for
         # ``_cached_shutting_down``.
         self._cached_shutting_down = True
         # WS graceful-shutdown hook FIRST (see docstring): best-effort,
@@ -373,7 +373,7 @@ class LifecycleMixin:
             try:
                 stop_hook()
             except Exception:
-                log.debug("[IPC] _ws_stop_hook raised — continuing TCP teardown", exc_info=True)
+                log.debug("[IPC] _ws_stop_hook raised, continuing TCP teardown", exc_info=True)
         # Unregister our push callable.  Other servers in the registry
         # are unaffected.
         # Unsubscribe through the event_bus directly.
@@ -414,7 +414,7 @@ class LifecycleMixin:
             # called from inside the dispatch pool itself.  ``quit_app``
             # runs on a ``tcp-dispatch`` worker, so draining the pool
             # here would wait on a worker that is blocked inside this
-            # very ``stop()`` call — a self-join that always burned the
+            # very ``stop()`` call, a self-join that always burned the
             # full 5s timeout on every quit.  The caller exits right
             # after ``stop()`` returns, ``cancel_futures=True`` already
             # dropped queued work, and the accept-loop's own drain
@@ -422,7 +422,7 @@ class LifecycleMixin:
             #
             # The thread-membership check alone is NOT enough: the
             # production shutdown path runs ``stop()`` on a separate
-            # helper thread — ``_do_cleanup()`` → ``_run_with_timeout(
+            # helper thread, ``_do_cleanup()`` → ``_run_with_timeout(
             # "ipc_server.stop", ...)`` spawns a ``cleanup-*`` thread —
             # NOT on the pool worker itself. The ``quit_app`` dispatch
             # worker is then *transitively* blocked waiting for that
@@ -442,7 +442,7 @@ class LifecycleMixin:
                 dispatch_join.start()
                 dispatch_join.join(timeout=5.0)
                 if dispatch_join.is_alive():
-                    log.warning("[SHUTDOWN] tcp_dispatch_pool did not drain in 5s — proceeding anyway")
+                    log.warning("[SHUTDOWN] tcp_dispatch_pool did not drain in 5s, proceeding anyway")
         pool = self._tcp_worker_pool
         if pool is not None:
             pool.shutdown(wait=False, cancel_futures=True)
@@ -451,12 +451,12 @@ class LifecycleMixin:
             # above. The connection read-loop worker blocks in ``recv`` on
             # the client socket while the client keeps it open during the
             # quit handshake, and Windows does NOT unblock that recv from
-            # ``close()`` — so the drain join below would burn its full
+            # ``close()``, so the drain join below would burn its full
             # 5s timeout on EVERY quit (measured end-to-end: 8.8s, of
             # which 5s was this worker-pool join; the dispatch drain
             # fixed the other 5s). During app shutdown the process exits
             # right after cleanup, so in-flight connection handlers are
-            # daemon-thread reaped — nothing to wait for.
+            # daemon-thread reaped, nothing to wait for.
             if getattr(getattr(self, "app", None), "_shutting_down", False) is not True:
                 # Bound the in-flight handler drain so teardown doesn't
                 # race with running handlers. ``shutdown(wait=False)`` only
@@ -468,12 +468,12 @@ class LifecycleMixin:
                 join_thread.start()
                 join_thread.join(timeout=5.0)
                 if join_thread.is_alive():
-                    log.warning("[SHUTDOWN] tcp_worker_pool did not drain in 5s — proceeding anyway")
+                    log.warning("[SHUTDOWN] tcp_worker_pool did not drain in 5s, proceeding anyway")
         # signal the heartbeat watchdog to exit.  The thread
         # sleeps on ``_heartbeat_stop_event.wait(timeout=INTERVAL)``;
         # setting the event wakes it immediately so it doesn't linger
         # past shutdown.  (It's a daemon thread, so even if it lingered
-        # it wouldn't block process exit — but explicit shutdown is
+        # it wouldn't block process exit, but explicit shutdown is
         # cleaner for test start/stop cycles.)
         self._heartbeat_stop_event.set()
         # THREAD-REGISTRY: unregister both IPC threads so a subsequent
@@ -488,7 +488,7 @@ class LifecycleMixin:
         # Join the stdin thread so it doesn't leak in test
         # start/stop cycles.  The thread is a daemon that blocks on
         # ``for line in iter(stdin)``, so a 0.5s timeout is sufficient
-        # — the thread exits naturally on stdin EOF/OSError (set by
+        # , the thread exits naturally on stdin EOF/OSError (set by
         # closing the TCP client socket above) or when _running becomes
         # False (checked between lines).
         stdin_thread = getattr(self, "_stdin_thread", None)
@@ -537,7 +537,7 @@ class LifecycleMixin:
         - ``now - last <= _HEARTBEAT_TIMEOUT_SECONDS``: the most
           recent heartbeat is fresh enough; Electron is still alive.
 
-        The ``True`` case calls ``self.app.quit()`` — which runs the
+        The ``True`` case calls ``self.app.quit()``: which runs the
         shared ``_do_cleanup()`` cleanup path () so the mic
         stream, hotkeys, volume duck, and single-instance mutex are
         properly released before the process exits.  ``app.quit()``
@@ -553,14 +553,14 @@ class LifecycleMixin:
         period. The thread waits on the shutdown-completion event
         (set when ``_do_cleanup()`` finishes) instead of a bare sleep,
         so a healthy-but-slow quit() that completes cleanup within the
-        grace window is NOT force-killed — the event is set and the
+        grace window is NOT force-killed, the event is set and the
         thread returns without ``os._exit(1)``. Only the genuine-hang
         case (no completion signal before the grace elapses) fires the
         hard force-exit. See the inline comment in the ``True`` branch.
         """
         last = self._last_heartbeat_at
         if last is None:
-            # No heartbeat yet — Electron hasn't connected.  Don't
+            # No heartbeat yet. Electron hasn't connected.  Don't
             # fire.  This is the critical guard that prevents a false
             # positive during a slow Electron cold start.
             return False
@@ -587,7 +587,7 @@ class LifecycleMixin:
         # calls ``sys.exit(0)`` from the main thread). pystray on
         # certain Linux backends (AppIndicator with stale dbus) and on
         # Windows Server (with RDP session disconnects) has been
-        # observed to hang inside ``stop()`` — leaving the process
+        # observed to hang inside ``stop()``: leaving the process
         # stuck with the mic open and the single-instance mutex held.
         #
         # Mitigation: schedule a daemon thread that waits on the
@@ -621,13 +621,13 @@ class LifecycleMixin:
                 # Wait for the cleanup-completion event instead of a bare
                 # sleep. If ``_do_cleanup()`` finishes within the grace
                 # window (the event is set), the process is exiting
-                # cleanly — return without force-exiting. Only the
+                # cleanly, return without force-exiting. Only the
                 # genuine-hang case (no completion signal before the
                 # grace elapses) fires the hard force-exit.
                 if _shutdown_completed_event.wait(_HEARTBEAT_FORCE_EXIT_GRACE_SECONDS):
                     return
                 log.error(
-                    "[HEARTBEAT] app.quit() did not exit within %ds — "
+                    "[HEARTBEAT] app.quit() did not exit within %ds, "
                     "force-exiting via os._exit(1) (tray.stop() likely hung)",
                     int(_HEARTBEAT_FORCE_EXIT_GRACE_SECONDS),
                 )
@@ -642,7 +642,7 @@ class LifecycleMixin:
             ).start()
         except Exception:
             log.exception(
-                "[HEARTBEAT] failed to schedule force-exit watchdog — process may hang if tray.stop() is stuck"
+                "[HEARTBEAT] failed to schedule force-exit watchdog, process may hang if tray.stop() is stuck"
             )
         return True
 
@@ -655,7 +655,7 @@ class LifecycleMixin:
         the :meth:`_heartbeat_loop` daemon thread knows Electron is
         still alive.
 
-        The response is a trivial ``heartbeat_ack`` — Electron does
+        The response is a trivial ``heartbeat_ack``: Electron does
         not act on it (the heartbeat is fire-and-forget), but
         returning a well-formed response keeps the IPC dispatcher's
         ``result.setdefault('data', {})`` path happy and lets
@@ -671,7 +671,7 @@ class LifecycleMixin:
 
         ``restart_app`` waits on ``self._relaunch_ack_event`` (bounded by a
         2s timeout) instead of a fixed ``time.sleep(0.3)``, so the tray
-        thread is unblocked as soon as Electron acks — rather than always
+        thread is unblocked as soon as Electron acks, rather than always
         blocking 300ms.  The handler returns ``None`` (no response body):
         restart_app owns the socket teardown, and any response write races
         the imminent shutdown, so there is nothing meaningful to return.
@@ -714,7 +714,7 @@ class LifecycleMixin:
         ``set_state``. Without the guard, each state change would emit
         N ``status_change`` events after N start cycles.
         """
-        # Already wrapped on a prior start() — leave the existing
+        # Already wrapped on a prior start(), leave the existing
         # wrapper in place so push events stay deduplicated.
         if getattr(self.app.tray.set_state, "_vt_wrapped", False):
             return
@@ -736,13 +736,13 @@ class LifecycleMixin:
             # Published through ``event_bus`` (not ``server.push``)
             # so BOTH runtimes deliver it: in TCP mode the server's
             # own ``_push_fn`` subscriber (installed at start(),
-            # lifecycle.py) bridges the bus to the TCP client — the
+            # lifecycle.py) bridges the bus to the TCP client, the
             # same single delivery the old direct ``push`` call
-            # produced — while in WS mode the sidecar writer task's
+            # produced, while in WS mode the sidecar writer task's
             # ``_push_to_ws`` subscriber delivers it over the
             # WebSocket. A direct ``self.push`` dead-ends in the
             # TCP-only ``_pending_tcp`` buffer in WS mode (no TCP
-            # client ever exists there — same rationale as
+            # client ever exists there, same rationale as
             # ``_emit_ready_if_first``'s documented WS fix, which
             # converted the ``ready`` push for exactly this reason).
             # The dead-end buffer is capped (SEC-008), so the
@@ -759,7 +759,7 @@ class LifecycleMixin:
         self.app.tray.set_state = wrapped
 
     def _handle_transcribe_offline(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope:
-        """Master plan §7.4 — handle the transcribe_offline IPC command.
+        """Master plan §7.4, handle the transcribe_offline IPC command.
 
         FORWARDER handler. The renderer invokes this to run an offline
         transcription through the runtime-pack worker (slim core →
@@ -767,7 +767,7 @@ class LifecycleMixin:
         ASR is implemented in
         ``voice_typer/worker/_transcribe.py`` + the
         ``transcribe_offline`` branch of
-        ``voice_typer/worker/_ws_server.py::_handle_connection`` — the
+        ``voice_typer/worker/_ws_server.py::_handle_connection``, the
         worker transcribes the file and pushes
         ``transcribe_offline_result`` back.
 
@@ -781,7 +781,7 @@ class LifecycleMixin:
         Pinned by tests/test_event_types_parity.py.
 
         Phase 2d degradation matrix (§8.10): when the offline pack is
-        NOT installed, the request cannot ever complete — respond with
+        NOT installed, the request cannot ever complete, respond with
         ``queued: False`` + ``degraded: True`` + ``reason:
         "offline_pack_missing"`` so the renderer surfaces the
         "offline engine unavailable" state instead of queueing
@@ -791,18 +791,18 @@ class LifecycleMixin:
         """
         resp["type"] = "ack"
         # ResponseEnvelope is dict[str, object], so setdefault's static
-        # return type is `object` — cast to the dict it actually is at
+        # return type is `object`: cast to the dict it actually is at
         # runtime so the resp_data["queued"] writes type-check. Named
         # resp_data (not `data`) because the handler's REQUEST parameter
         # is already `data`.
         resp_data = typing.cast(dict[str, object], resp.setdefault("data", {}))
-        # Cheap existence check — no hashing (§8.10).
+        # Cheap existence check, no hashing (§8.10).
         pack_missing = True
         try:
             from voice_typer.server.service import update_check
 
             pack_missing = update_check._local_offline_pack_version() is None
-        except Exception:  # noqa: BLE001 — fail-safe: assume missing (degrade, don't queue silently)
+        except Exception:  # noqa: BLE001, fail-safe: assume missing (degrade, don't queue silently)
             log.debug("[PACK] transcribe_offline pack check failed", exc_info=True)
         if pack_missing:
             resp_data["queued"] = False
@@ -818,13 +818,13 @@ class LifecycleMixin:
         return resp
 
     def _handle_check_offline_pack_update(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope:
-        """Auto-update feature (docs/auto-update-feature.md) — pack update check.
+        """Auto-update feature (docs/auto-update-feature.md), pack update check.
 
         Delegates to ``update_check.handle_check_offline_pack_update_ipc`` which
         fetches the remote ``pack-manifest.json`` from GitHub Releases
         (C-DATA-1 category-2 allowed: silent update check against the
         GitHub API) and, if a newer pack is available, triggers a
-        background download — gated on ``config.offline_pack_consent``
+        background download, gated on ``config.offline_pack_consent``
         (C-DATA-1 category-3 model-download consent; the download
         refuses to start without the user's opt-in flag).
 
@@ -836,7 +836,7 @@ class LifecycleMixin:
             from voice_typer.server.service.update_check import handle_check_offline_pack_update_ipc
 
             result = handle_check_offline_pack_update_ipc(self.app, data if isinstance(data, dict) else None)
-        except Exception as exc:  # noqa: BLE001 — IPC handlers must never raise
+        except Exception as exc:  # noqa: BLE001, IPC handlers must never raise
             log.exception("[UPDATE] check_offline_pack_update IPC handler failed: %s", exc)
             result = {"success": False, "error": str(exc), "reason": "handler_error"}
         resp["type"] = "ack"

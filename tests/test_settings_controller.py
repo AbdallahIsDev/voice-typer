@@ -68,10 +68,10 @@ class TestSettingsControllerWiring:
     def test_settings_controller_back_references_app(self, app_for_settings):
         """SettingsController must hold a back-reference to the app.
 
-        RW-9 Phase 6 contract: the controller reads/writes app state via
-        ``self._app.config`` / ``self._app.tray`` / ``self._app.recorder``
-        — same attribute surface the original ``VoiceTyperApp`` methods
-        used via ``self``.
+          RW-9 Phase 6 contract: the controller reads/writes app state via
+          ``self._app.config`` / ``self._app.tray`` / ``self._app.recorder``
+        , same attribute surface the original ``VoiceTyperApp`` methods
+          used via ``self``.
         """
         assert app_for_settings.settings._app is app_for_settings, (
             "SettingsController._app must be the VoiceTyperApp instance that "
@@ -81,7 +81,7 @@ class TestSettingsControllerWiring:
 
 class TestSettingsControllerDelegates:
     """Each VoiceTyperApp delegate method must call the corresponding
-    SettingsController method — no inline logic should remain on the app."""
+    SettingsController method, no inline logic should remain on the app."""
 
     def test_toggle_autostart_delegates(self, app_for_settings, monkeypatch):
         called = []
@@ -294,7 +294,7 @@ class TestSettingsControllerSelectMicrophone:
         app_for_settings.settings.select_microphone("mic-2")
 
         assert recorder_constructor_called == [], (
-            "select_microphone must NOT recreate Recorder when recording is active — "
+            "select_microphone must NOT recreate Recorder when recording is active, "
             "the in-flight audio would be truncated."
         )
         assert app_for_settings.recorder is original_recorder, "app.recorder must be unchanged when recording is active"

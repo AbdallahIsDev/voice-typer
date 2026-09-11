@@ -1,6 +1,6 @@
 // @vitest-environment node
 /**
- *  (session NH) regression test — preload bridge surface for
+ *  (session NH) regression test, preload bridge surface for
  * the `i18n:set-locale` IPC channel.
  *
  *  added an `i18n:set-locale` IPC handler on the main-process side

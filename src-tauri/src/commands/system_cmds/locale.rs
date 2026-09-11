@@ -18,7 +18,7 @@ use crate::state::{lock, SidecarState};
 /// `SidecarState::host_locale` (via the poison-safe [`lock`] helper),
 /// and returns the Electron-parity `{ok, error?}` envelope:
 /// - whitespace/empty locale → `{"ok": false, "error": "empty locale"}`
-///   (resolves instead of rejecting — byte-mirrors the Electron
+///   (resolves instead of rejecting: byte-mirrors the Electron
 ///   `i18n:set-locale` handler's resolve-not-reject behavior)
 /// - otherwise → stores `Some(locale)` and returns `{"ok": true}`
 pub(crate) fn set_host_locale_core(locale: String, state: &Arc<SidecarState>) -> Value {
@@ -37,7 +37,7 @@ pub(crate) fn set_host_locale_core(locale: String, state: &Arc<SidecarState>) ->
 /// `{ok: boolean; error?: string}` promise shape as the Electron
 /// preload's `window.window_.setLocale`, and never rejects for
 /// domain-level failures (an empty locale resolves with
-/// `ok: false` — see [`set_host_locale_core`]).
+/// `ok: false`, see [`set_host_locale_core`]).
 ///
 /// The `window` parameter is auto-injected by Tauri at runtime;
 /// `require_main_window(&window)?` runs FIRST so the sandboxed bubble

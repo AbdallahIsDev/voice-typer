@@ -1,18 +1,18 @@
-"""Prewarm — cache-probe package (pure re-export shim).
+"""Prewarm, cache-probe package (pure re-export shim).
 
 This package owns two modules:
 
-- :mod:`.cache_probe` — HF-cache probing + file-warming primitives that
+- :mod:`.cache_probe`: HF-cache probing + file-warming primitives that
   page the runtime-pack libraries' files into the OS standby cache
   without importing them (:func:`cache_probe.warm_imports_for_worker`
   is the public entry point the worker exe calls once at startup).
-- :mod:`.status` — the prewarm status probe feeding the About page's
+- :mod:`.status`: the prewarm status probe feeding the About page's
   Cache Status card, plus the worker-written status-file writer.
 
 This ``__init__`` exists only to re-export those modules' names so
 ``from voice_typer.server.prewarm import X`` keeps working for existing
 consumers (the worker entry point, IPC handlers, tests). All names are
-genuinely defined in the submodules above — nothing is implemented here.
+genuinely defined in the submodules above, nothing is implemented here.
 """
 
 from __future__ import annotations

@@ -12,14 +12,14 @@ dicts on type-conflict while ``merge_in_en_order`` does not).
 This module provides the canonical implementations so all three scripts
 share one source of truth:
 
-  - ``flatten_keys``      — collect every dot-separated key from a
+  - ``flatten_keys``     : collect every dot-separated key from a
                             nested dict (returns a ``set[str]``).
-  - ``load_json``         — read a JSON file as UTF-8.
-  - ``save_json``         — write a JSON file with ``indent="\\t"``,
+  - ``load_json``        : read a JSON file as UTF-8.
+  - ``save_json``        : write a JSON file with ``indent="\\t"``,
                             ``ensure_ascii=False``, and a trailing
                             newline (matches the existing files' format
                             so diffs stay minimal).
-  - ``merge_en_into_locale`` — recursively add missing keys from
+  - ``merge_en_into_locale``: recursively add missing keys from
                             ``en`` into ``locale`` with an explicit
                             conflict policy.
 """
@@ -37,7 +37,7 @@ def flatten_keys(obj: dict, prefix: str = "") -> set[str]:
     ``{"app.name", "app.version"}``.
 
     Non-dict values (strings, numbers, booleans, nulls) all produce a
-    leaf key — the value type is irrelevant for the key-set membership
+    leaf key, the value type is irrelevant for the key-set membership
     checks the scripts perform.
     """
     keys: set[str] = set()
@@ -86,18 +86,18 @@ def merge_en_into_locale(
     ``locale``):
 
       - ``"skip"`` (default): leave the existing locale value untouched.
-        Used by ``backfill_i18n_keys`` — translators' work is never
+        Used by ``backfill_i18n_keys``: translators' work is never
         clobbered. Note: when ``en`` has a dict and ``locale`` has a
         scalar at the same key (e.g. a scalar key was promoted to a
         nested object in en.json), the scalar is left in place under
-        this policy — the nested en keys are NOT added.
+        this policy, the nested en keys are NOT added.
       - ``"overwrite"``: replace the locale value with the en value.
         Used when a key was renamed and the old translation should be
         discarded.
       - ``"replace_scalar_with_dict"``: when ``en`` has a dict and
         ``locale`` has a scalar at the same key, replace the scalar
         with the en dict (using English values). This is the
-        ``add_i18n_keys`` behavior — it handles the case where a
+        ``add_i18n_keys`` behavior, it handles the case where a
         previously-scalar key was promoted to a nested object in
         en.json. Scalar-vs-scalar conflicts are still skipped (existing
         translations are preserved).
@@ -121,20 +121,20 @@ def merge_en_into_locale(
                 if on_conflict in ("overwrite", "replace_scalar_with_dict"):
                     loc_sub[k] = v
                     added.add(full)
-                # else: "skip" — leave the scalar in place.
+                # else: "skip": leave the scalar in place.
             elif not isinstance(v, dict) and isinstance(loc_sub[k], dict):
                 # en has a scalar, locale has a dict at the same key.
                 if on_conflict == "overwrite":
                     loc_sub[k] = v
                     added.add(full)
-                # else: "skip" / "replace_scalar_with_dict" — leave the
+                # else: "skip" / "replace_scalar_with_dict": leave the
                 # locale dict in place (the locale has richer structure).
             else:
                 # Both scalars (or both non-dict values).
                 if on_conflict == "overwrite":
                     loc_sub[k] = v
                     added.add(full)
-                # else: skip — preserve the existing translation.
+                # else: skip, preserve the existing translation.
 
     _recurse(en, locale, "")
     return locale, added

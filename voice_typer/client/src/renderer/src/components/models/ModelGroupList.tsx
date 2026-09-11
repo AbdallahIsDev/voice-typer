@@ -1,5 +1,5 @@
 /**
- * ModelGroupList — shared list/group primitives for the Models page.
+ * ModelGroupList, shared list/group primitives for the Models page.
  *
  * (UI/UX overhaul 2026-08-20): the Local Models tab and the Cloud
  * Models tab previously rendered two completely different visual
@@ -10,16 +10,16 @@
  *     the collapsible group shell (header with brand logo + name, the
  *     plus/minus expand glyph from `ui/accordion.tsx`, hover
  *     affordance on the header row ONLY).
- *   • `ModelVariantRow` — a single model/plan list row (name + status
+ *   • `ModelVariantRow`, a single model/plan list row (name + status
  *     badges on the left, metadata line below, actions on the right).
- *     The row itself is NOT clickable — only the action button is —
+ *     The row itself is NOT clickable, only the action button is —
  *     so it carries no hover affordance (see point 10 of the
  *     overhaul).
- *   • `MetadataPair` — a label+value pair ("VRAM: ~512 MB", "WER:
+ *   • `MetadataPair`, a label+value pair ("VRAM: ~512 MB", "WER:
  *     2.0%"): the LABEL renders in muted/secondary text, followed by a
- *     colon + the VALUE in primary text — visually "a named metric
+ *     colon + the VALUE in primary text, visually "a named metric
  *     with a measured value".
- *   • `MetadataTag` — a standalone descriptive tag ("Multilingual",
+ *   • `MetadataTag`, a standalone descriptive tag ("Multilingual",
  *     "Fast Speed") rendered as a neutral pill/badge chip, visually
  *     distinct from the label+value pairs.
  *
@@ -126,7 +126,7 @@ export interface ModelVariantRowProps {
 
 /**
  * A single list row for one model version / cloud plan. The row is NOT
- * independently clickable — only `actions` is — so it renders no hover
+ * independently clickable, only `actions` is, so it renders no hover
  * affordance on the row itself.
  */
 export function ModelVariantRow({
@@ -164,7 +164,7 @@ export function ModelVariantRow({
 
 /**
  * Label+value pair: the LABEL word renders muted/secondary, then a
- * colon, then the VALUE in the primary text color — visually a
+ * colon, then the VALUE in the primary text color, visually a
  * "named metric with a measured value" (e.g. "VRAM: ~512 MB",
  * "WER: 2.0%").
  */
@@ -185,7 +185,7 @@ export function MetadataPair({
 
 /**
  * Standalone descriptive tag ("Multilingual", "Fast Speed", "Cloud")
- * rendered as a small neutral pill — visually distinct from
+ * rendered as a small neutral pill, visually distinct from
  * label+value pairs so users can immediately tell "a characteristic"
  * from "a measured value".
  */

@@ -4,11 +4,11 @@
 Reads JSON commands from stdin (legacy) or a TCP socket (Electron),
 dispatches to the VoiceTyperApp instance, and writes JSON responses.
 
-Usage (TCP mode — Electron)::
+Usage (TCP mode, Electron)::
 
     python -m voice_typer.server.ipc_server --port 9876
 
-Usage (stdin/stdout mode — ``voice-typer`` CLI)::
+Usage (stdin/stdout mode, ``voice-typer`` CLI)::
 
     python -m voice_typer.server.ipc_server
 """
@@ -57,7 +57,7 @@ if TYPE_CHECKING:
 # ``ipc_server.py`` were replaced with the re-export imports below so the
 # two implementations cannot silently drift.  The ``IPCServer`` class,
 # ``_push_event_now``, ``_set_process_metadata`` and ``main`` remain
-# canonical to this module — they have no parallel implementation under
+# canonical to this module, they have no parallel implementation under
 # ``ipc/``.
 #
 # The ``noqa: F401`` markers flag these as intentional re-exports: the
@@ -69,7 +69,7 @@ if TYPE_CHECKING:
 # ``tests/test_dead_code_stays_removed.py``
 # and ``tests/tauri/mig19/test_phase4_validation.py``).  Object identity
 # (``ipc_server._RateLimiter is ipc.rate_limiter._RateLimiter``) is the
-# single-source-of-truth guarantee — see
+# single-source-of-truth guarantee: see
 # ``test_ipc_server_imports_TCPLineIO_from_transport`` for the pinned
 # pattern.
 # Canonical home for ``_SECRET_CONFIG_FIELDS`` is the transport-neutral
@@ -115,7 +115,7 @@ from voice_typer.server.config_sanitizer import (  # noqa: F401
 # moved to voice_typer.server.ipc.validation (breaks the circular import
 # and lets handler modules import them from a non-god-module location).
 # ``_READONLY_COMMANDS`` now lives in ``ipc.registry`` (
-# extraction — see the import above).  The set lists dispatch commands
+# extraction: see the import above).  The set lists dispatch commands
 # whose handlers do NOT mutate shared app/service state; they bypass the
 # per-server ``_dispatch_lock`` so a long-running state-mutating handler
 # (e.g. ``download_model``) does not block a quick status poll from a
@@ -123,7 +123,7 @@ from voice_typer.server.config_sanitizer import (  # noqa: F401
 #  (High): the unauthenticated stdin/stdout IPC listener is gated
 # behind this env var. ``start()`` refuses to spawn the stdin listener
 # thread when ``_tcp_mode`` is False AND the env var is not set to
-# ``"1"`` — closing the "unprotected stdin IPC path is still the
+# ``"1"``: closing the "unprotected stdin IPC path is still the
 # default" hole. The ``--allow-stdin`` CLI flag in :func:`parse_ipc_args`
 # sets this env var as the alternative gate for development / testing.
 # Production callers (``main()``) always set ``_tcp_mode = True`` before
@@ -173,7 +173,7 @@ from voice_typer.server.ipc.rate_limiter import (  # noqa: F401
 # on :class:`IPCServer` (defined ~1,400 lines into this 2,100-line
 # god-module) and ``_READONLY_COMMANDS`` lived in ``ipc._helpers``; the
 # split made the three-layers-must-agree parity contract harder to
-# reason about.  The extraction is behavior-preserving — same dict,
+# reason about.  The extraction is behavior-preserving, same dict,
 # same keys, same values.  The names are re-exported here
 # ('noqa: F401' on the import line) so existing
 # ``from voice_typer.server.ipc_server import _COMMAND_REGISTRY`` /
@@ -182,19 +182,19 @@ from voice_typer.server.ipc.rate_limiter import (  # noqa: F401
 # :class:`IPCServer` re-aliases ``_COMMAND_REGISTRY`` and
 # ``_PYTHON_ONLY_COMMANDS`` as class attributes (see the class body
 # below) so every ``IPCServer._COMMAND_REGISTRY`` /
-# ``IPCServer._PYTHON_ONLY_COMMANDS`` call site — pinned by
+# ``IPCServer._PYTHON_ONLY_COMMANDS`` call site, pinned by
 # ``tests/test_ipc_shutdown_registry.py``,
 # ``tests/test_ipc_server.py``,
 # ``tests/test_ipc_command_registry_sync.py``,
 # ``tests/tauri/mig19/test_phase4_validation.py``,
-# ``tests/tauri/test_tauri_sidecar_gate.py`` — keeps working unchanged.
+# ``tests/tauri/test_tauri_sidecar_gate.py``: keeps working unchanged.
 from voice_typer.server.ipc.registry import (  # noqa: E402
     _COMMAND_REGISTRY,
     _PYTHON_ONLY_COMMANDS,
     _READONLY_COMMANDS,  # noqa: F401  # re-exported for tests (tests/test_ipc_server.py)
 )
 
-# NOTE: ``_get_rate_limiter`` is intentionally NOT imported here — it is
+# NOTE: ``_get_rate_limiter`` is intentionally NOT imported here, it is
 # defined locally below as a thin re-export (see the
 #  comment block) so tests that monkey-patch
 # ``ipc_server._RateLimiter`` are still observed (the re-export passes
@@ -214,7 +214,7 @@ from voice_typer.server.ipc.validation import (  # noqa: F401
 
 # ──: per-process rate limiter get-or-create ───────────────
 #
-# this is a THIN RE-EXPORT — the canonical implementation lives in
+# this is a THIN RE-EXPORT, the canonical implementation lives in
 # ``voice_typer.server.ipc.rate_limiter._get_rate_limiter``. Tests in
 # ``tests/test_ipc_rate_limiter_concurrent_init.py`` monkey-patch
 # ``ipc_server._RateLimiter`` with
@@ -224,7 +224,7 @@ from voice_typer.server.ipc.validation import (  # noqa: F401
 # still observed (preserving the test contract) while the get-or-create
 # logic is single-sourced in the leaf module.
 def _get_rate_limiter(server: "object") -> _RateLimiter:
-    """Thin re-export — canonical implementation in
+    """Thin re-export, canonical implementation in
     ``voice_typer.server.ipc.rate_limiter``.
 
     Tests monkey-patch ``ipc_server._RateLimiter`` to widen the race
@@ -238,12 +238,12 @@ def _get_rate_limiter(server: "object") -> _RateLimiter:
 
 
 # Module-level push hook.  ``_push_event_now`` now lives in
-# ``ipc._helpers`` ( refactor — see the import above).  It is a
+# ``ipc._helpers`` ( refactor: see the import above).  It is a
 # thin shim over ``event_bus.publish`` so existing lazy imports
 # (``from voice_typer.server.ipc_server import _push_event_now``) keep
 # working.  Domain code should call ``event_bus.publish`` directly.
 # The _push_event_registry/_push_event_registry_lock aliases
-# and _set_push_event/_clear_push_event shims have been removed — domain
+# and _set_push_event/_clear_push_event shims have been removed, domain
 # code and tests now call ``event_bus.subscribe`` /
 # ``event_bus.unsubscribe`` directly.
 
@@ -261,7 +261,7 @@ def _get_rate_limiter(server: "object") -> _RateLimiter:
 # and the handler mixins used to import ``log`` / ``_push_event_now``
 # from the canonical name.  Both preconditions are now gone:
 #
-#   1. The handler mixins no longer import from this module — they
+#   1. The handler mixins no longer import from this module, they
 #      import ``log`` from ``voice_typer.server.handlers._log`` and
 #      validation helpers from ``voice_typer.server.ipc.validation``.
 #      The import cycle the hack was working around no longer exists.
@@ -309,20 +309,20 @@ from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMi
 # :class:`IPCServer` via multiple inheritance. ``inspect.getsource``
 # resolves through MRO so the source-string-pinning tests that do
 # ``inspect.getsource(IPCServer.<method>)`` keep finding the moved
-# bodies — every pinned substring is preserved verbatim.
+# bodies, every pinned substring is preserved verbatim.
 from voice_typer.server.ipc.dispatcher import DispatcherMixin  # noqa: E402
 
 # Process entry-point functions (``main`` / ``parse_ipc_args`` /
 # ``_set_process_metadata``) extracted to
 # :mod:`voice_typer.server.ipc.entrypoint`. Re-exported here so existing
 # ``from voice_typer.server.ipc_server import main`` /
-# ``... import parse_ipc_args`` callers — and the
+# ``... import parse_ipc_args`` callers, and the
 # ``inspect.getsource(ipc_server.main)`` source-string-pinning tests in
 # ``tests/test_ipc_server.py``, ``tests/test_startup_error_log_cap.py``,
 # ``tests/server/test_ipc_server_regressions.py``,
 # ``tests/test_electron_ipc_and_build.py``,
 # ``tests/regressions/test_cli_exit_codes.py``,
-# ``tests/app/test_lifecycle.py`` — keep working unchanged.
+# ``tests/app/test_lifecycle.py``: keep working unchanged.
 # The tests' substring checks (``_frame: FrameType | None``,
 # ``sys.exit(EXIT_CRASH)``, ``server._tcp_mode = True``,
 # ``startup-error.log``, ``write_startup_diagnostic(``,
@@ -396,7 +396,7 @@ class IPCServer(
     # per-instance ``threading.Lock`` so two IPCServer instances
     # don't share a lock. The class-level fallback exists ONLY for
     # tests that bypass ``__init__`` via ``IPCServer.__new__(IPCServer)``
-    # and exercise ``_send`` — those tests don't set ``_tcp_write_lock``
+    # and exercise ``_send``: those tests don't set ``_tcp_write_lock``
     # explicitly, so without the fallback they'd raise
     # ``AttributeError``. Sequential test execution makes the
     # shared fallback safe (no cross-test contention).
@@ -404,7 +404,7 @@ class IPCServer(
 
     # ``_COMMAND_REGISTRY`` and ``_PYTHON_ONLY_COMMANDS`` are
     # canonical to :mod:`voice_typer.server.ipc.registry` (imported at
-    # module top — see the ```` comment block above).  They are
+    # module top: see the ```` comment block above).  They are
     # re-aliased here as class attributes so every existing
     # ``IPCServer._COMMAND_REGISTRY`` / ``IPCServer._PYTHON_ONLY_COMMANDS``
     # call site (pinned by ``tests/test_ipc_shutdown_registry.py``,
@@ -427,7 +427,7 @@ class IPCServer(
         # dependency-injection seam.
         #
         # ``IPCServer(app)`` (no ``service``) is the backward-compatible
-        # path used by all existing call sites — production entry point
+        # path used by all existing call sites, production entry point
         # and 20+ test files.  It constructs a real ``VoiceTyperService``
         # over ``app`` exactly as before.
         #
@@ -476,7 +476,7 @@ class IPCServer(
             # thread instead of blocking IPC-server startup on
             # ``app.recorder`` (the lazy property would wait for the
             # whole multi-second build). The invalidator is a best-effort
-            # nicety — until it is wired, the DeviceManager's own cache
+            # nicety, until it is wired, the DeviceManager's own cache
             # invalidation (30s TTL fallback) still applies.
             def _wire_service_cache_invalidator() -> None:
                 try:
@@ -510,7 +510,7 @@ class IPCServer(
         # Per-instance override of the class-level ``_tcp_write_lock``
         # fallback. See the class-level docstring above for the
         # rationale (write-serialization lock separate from
-        # ``self._lock`` so a slow client blocks other writers — not
+        # ``self._lock`` so a slow client blocks other writers, not
         # other dispatchers' snapshots or the read path).
         self._tcp_write_lock = threading.Lock()
         self._tcp_client: _TCPLineIO | None = None
@@ -520,7 +520,7 @@ class IPCServer(
         # and the cap-drop in ``OutputMixin._send`` was an O(N)
         # ``del list[:dropped]`` on every append (15-50 Hz waveform-bubble
         # push rate while the client was disconnected). Now a
-        # ``_PendingBuffer`` (a ``deque`` subclass with ``maxlen``) — the
+        # ``_PendingBuffer`` (a ``deque`` subclass with ``maxlen``), the
         # cap is enforced automatically by ``append``/``extend`` (O(1)
         # popleft on overflow). The manual cap-drop logic in ``_send``
         # is kept in source for backward compat with the source-string
@@ -539,7 +539,7 @@ class IPCServer(
         # start_tcp() so test-only IPCServer constructions don't spawn
         # background threads. Each accepted connection is handed off to
         # this pool IMMEDIATELY after accept(), so the auth handshake
-        # (with its 5s timeout) runs on a worker thread — a slow or
+        # (with its 5s timeout) runs on a worker thread, a slow or
         # malicious client that opens a connection and sends nothing
         # can no longer stall the accept loop and block the next
         # legitimate client from being accepted.
@@ -576,7 +576,7 @@ class IPCServer(
         # watchdog (``_check_heartbeat_timeout``) waits on this event
         # instead of a bare sleep, so a healthy-but-slow quit() that
         # completes cleanup within the grace window is NOT force-killed
-        # mid-teardown — previously a >10s cleanup (PortAudio teardown +
+        # mid-teardown, previously a >10s cleanup (PortAudio teardown +
         # history-DB flush + mutex release) was cut short by
         # ``os._exit(1)`` before it finished. See ``_check_heartbeat_timeout``.
         self._shutdown_completed_event = threading.Event()
@@ -631,18 +631,18 @@ class IPCServer(
         # in ``sidecar_ws.py``; 9 ``# type: ignore[attr-defined]``
         # suppressions in ``sidecar_ws.py`` are removed as a result.
         #
-        # The attributes are genuinely ``Optional`` — they are ``None``
+        # The attributes are genuinely ``Optional``: they are ``None``
         # until the WS dispatch path is first entered (a server running
         # in TCP / standalone mode never touches them). The lazy-attach
         # pattern is preserved: ``sidecar_ws._get_ws_dispatch_pool``
         # (and siblings) still call ``getattr(server, "_ws_...", None)``
-        # first and only construct + assign on miss — but the assignment
+        # first and only construct + assign on miss, but the assignment
         # is now a plain ``server._ws_... = x`` with no type-ignore.
         # NOTE: these five are PRE-CONSTRUCTED here (not left ``None``
         # for lazy first-use): the WS dispatch factory
         # (``sidecar_ws._make_dispatch``) previously created them on the
         # first frame, but the creation logic is pure constructor work
-        # with no WS-loop dependency — doing it here removes a lazy-
+        # with no WS-loop dependency, doing it here removes a lazy-
         # init branch from every dispatch and from the shutdown drain
         # path. ``_ws_connection_semaphore`` stays ``None``: an
         # ``asyncio.Semaphore`` binds to the loop it is first awaited on,
@@ -654,7 +654,7 @@ class IPCServer(
             thread_name_prefix="sidecar-ws-dispatch",
         )
         self._ws_drained_event: threading.Event = threading.Event()
-        self._ws_drained_event.set()  # initially drained — count is 0
+        self._ws_drained_event.set()  # initially drained, count is 0
         self._ws_inflight_lock: threading.Lock = threading.Lock()
         self._ws_inflight_count: int = 0
         self._ws_connection_semaphore: asyncio.Semaphore | None = None
@@ -662,7 +662,7 @@ class IPCServer(
         # Declare the WS lifecycle attributes injected by
         # ``sidecar_ws`` / ``sidecar_ws_internals.graceful_shutdown``
         # (previously raw dynamic ``setattr`` sites, each needing a
-        # ``# type: ignore[attr-defined]`` suppression — the injectors
+        # ``# type: ignore[attr-defined]`` suppression, the injectors
         # now assign plain attributes and the type checker can verify
         # both sides). All are genuinely Optional/preset-able: the
         # graceful-shutdown install only initializes them when unset,
@@ -686,7 +686,7 @@ class IPCServer(
         # Cached snapshot of ``self.app._shutting_down`` for the hot
         # ``_send`` path. Previously ``_send`` did
         # ``getattr(self.app, "_shutting_down", False) is True`` on every
-        # call (15-50 Hz waveform-bubble push rate) — the ``getattr`` with
+        # call (15-50 Hz waveform-bubble push rate), the ``getattr`` with
         # a default is ~2× slower than a direct attribute access because
         # it always invokes ``__getattribute__`` even on hit. We cache
         # the value on the IPCServer instance and refresh it in
@@ -696,11 +696,11 @@ class IPCServer(
         # fixtures that bypass ``__init__`` (e.g.
         # ``IPCServer.__new__(IPCServer)`` in
         # ``tests/test_ipc_server.py``) keep working without explicitly
-        # setting the field — they get the ``False`` default, matching
+        # setting the field, they get the ``False`` default, matching
         # the previous ``getattr(self.app, "_shutting_down", False)``
         # behaviour for tests that set ``server.app._shutting_down = False``.
         # The cache is intentionally a SNAPSHOT taken at start/stop time,
-        # not a live view of ``self.app._shutting_down`` — the
+        # not a live view of ``self.app._shutting_down``, the
         # ``restart_app`` path sets ``self.app._shutting_down = True``
         # BEFORE calling ``stop()``, so during the brief window between
         # that set and the ``stop()`` call, the cache is stale (still
@@ -715,8 +715,8 @@ class IPCServer(
         # per-server dispatch lock serializing state-mutating
         # handler invocations. Read-only handlers (see
         # ``_READONLY_COMMANDS``) bypass this lock. The lock is held ONLY
-        # for the handler body — NOT for the dispatch I/O (read, parse,
-        # response write) — so a slow state-mutating handler (e.g.
+        # for the handler body. NOT for the dispatch I/O (read, parse,
+        # response write), so a slow state-mutating handler (e.g.
         # ``download_model``) blocks OTHER state-mutating dispatches but
         # NOT read-only status polls or the accept loop. ``RLock`` so a
         # handler that re-enters ``_dispatch`` on the same thread (e.g.
@@ -729,7 +729,7 @@ class IPCServer(
         # the second invocation. Pre-, a double-``shutdown`` (e.g.
         # the Tauri host's WS transport retrying after a slow ack) would
         # spawn a SECOND untracked ``ipc-shutdown-cleanup`` daemon thread
-        # — both threads would race into ``service.quit()`` /
+        # , both threads would race into ``service.quit()`` /
         # ``_do_cleanup()`` and double-free the mic stream, hotkey
         # listeners, single-instance mutex, etc. The event is set BEFORE
         # the cleanup thread is spawned so the second invocation's
@@ -755,17 +755,17 @@ class IPCServer(
             if not callable(_bound):
                 raise RuntimeError(
                     f"_COMMAND_REGISTRY[{_cmd!r}] resolves to non-callable "
-                    f"attribute {_method_name!r} on IPCServer — registry "
+                    f"attribute {_method_name!r} on IPCServer, registry "
                     "entry and handler method have drifted out of sync."
                 )
 
     # ── Lifecycle / Dispatcher / Stdin-runner methods live on the
     # corresponding mixins (``LifecycleMixin``, ``DispatcherMixin``,
-    # ``StdinRunnerMixin`` — see the imports above). They were moved
+    # ``StdinRunnerMixin``: see the imports above). They were moved
     # verbatim from this class body so ``inspect.getsource(IPCServer.X)
     # still resolves through MRO to the mixin's source, preserving
     # every source-string-pinning test contract.
-    pass  # class body intentionally minimal — see mixins above.
+    pass  # class body intentionally minimal: see mixins above.
 
 
 # ── Entry point ─────────────────────────────────────────────────────────

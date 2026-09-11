@@ -86,7 +86,7 @@ class TestServiceErrorRedaction:
             service = VoiceTyperService(mock_app)
             result = service.test_llm_connection()
             assert result["success"] is False
-            # The Bearer token must be redacted — the literal key value
+            # The Bearer token must be redacted, the literal key value
             # must not survive into the returned message.
             assert "sk-secret-key-12345" not in result["message"]
             # The "Bearer " prefix is preserved by redact_secret, but

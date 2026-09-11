@@ -15,7 +15,7 @@ bumps the version when all remaining statements succeed.
 
 These tests pin the reconciliation:
 
-1. ``test_partial_prior_state_favorite_exists_language_missing`` — the
+1. ``test_partial_prior_state_favorite_exists_language_missing``, the
    core scenario: ``favorite`` present, ``language`` missing, version=1.
    After init, BOTH columns exist and the version is current.
 
@@ -23,7 +23,7 @@ These tests pin the reconciliation:
    both columns present but version=1 (prior run added both, crashed
    before bumping). After init, version is current and no ALTERs re-run.
 
-3. ``test_clean_v1_db_migrates_both_columns`` — sanity: a clean v1 DB
+3. ``test_clean_v1_db_migrates_both_columns``, sanity: a clean v1 DB
    (no favorite/language) gets both columns and the current version.
 """
 
@@ -114,7 +114,7 @@ class TestPartialPriorStateMigration:
         cols = _columns(verify)
         assert "favorite" in cols, f"favorite missing after migration: {cols}"
         assert "language" in cols, (
-            "language missing after migration — the partial-prior-state "
+            "language missing after migration, the partial-prior-state "
             f"reconciliation did NOT add the missing column: {cols}"
         )
         assert _version(verify) == _CURRENT_SCHEMA_VERSION, (

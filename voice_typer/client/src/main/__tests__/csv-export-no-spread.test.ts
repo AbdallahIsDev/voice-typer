@@ -25,7 +25,7 @@
  * (c) Runtime: verify a 100k-row export completes without throwing.
  *
  * ON LINUX (sandbox): runtime test via mocked fs.
- * ON WINDOWS / macOS: same join logic — platform-agnostic.
+ * ON WINDOWS / macOS: same join logic, platform-agnostic.
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -77,7 +77,7 @@ describe("export-handlers.ts CSV join does NOT use spread", () => {
 
 	it("does NOT use the spread-then-join anti-pattern", () => {
 		// The spread materializes a new array of 1 + csvRows.length
-		// elements — memory spike + V8 arg-count risk at 100k rows.
+		// elements, memory spike + V8 arg-count risk at 100k rows.
 		expect(src).not.toMatch(/\[header,\s*\.\.\.csvRows\]\.join\("\\n"\)/);
 	});
 
@@ -87,7 +87,7 @@ describe("export-handlers.ts CSV join does NOT use spread", () => {
 
 	it("prepends the header via string concat (header + newline + body)", () => {
 		// The fix joins the body in place and prepends the header via
-		// string concat — O(n) time, O(1) extra heap. The production code
+		// string concat, O(n) time, O(1) extra heap. The production code
 		// writes `${header}\n${body}` (template literal).
 		expect(src).toMatch(/\$\{header\}\s*\\n\s*\$\{body\}/);
 	});
@@ -157,18 +157,18 @@ describe("history:export CSV write path receives correct concatenation", () => {
 	it("handles empty data gracefully (no crash)", async () => {
 		// rows[0] ?? {} → {} → Object.keys({}) = [] → header is "".
 		// csvRows is [] → body is "" → written is "" + "\n" + "" = "\n".
-		// This matches the previous behavior — the join path is robust
+		// This matches the previous behavior, the join path is robust
 		// to empty arrays.
 		await historyHandler(null, { data: [], format: "csv" });
 
 		const written = writeSpy.mock.calls[0]?.[1] as string;
-		// No crash — the join path is robust to empty arrays.
+		// No crash, the join path is robust to empty arrays.
 		expect(typeof written).toBe("string");
 	});
 
 	it("completes a 100k-row export without throwing (no V8 arg-count ceiling)", async () => {
 		// The previous spread-then-join would spread 100_001 elements as
-		// function arguments — risking the V8 ~65k argument ceiling on
+		// function arguments, risking the V8 ~65k argument ceiling on
 		// older engines. The fix's csvRows.join operates on the array
 		// in place.
 		const huge = Array.from({ length: 100_000 }, () => ({ a: "x" }));

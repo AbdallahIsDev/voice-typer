@@ -1,13 +1,13 @@
-"""clipboard/manager.py split — structural + delegation tests.
+"""clipboard/manager.py split: structural + delegation tests.
 
 Verifies the behavior-preserving extraction of:
 
-* (a) ``clipboard/restore.py`` — ``_pending_restores`` registry,
+* (a) ``clipboard/restore.py``: ``_pending_restores`` registry,
   ``_pending_restores_lock``, ``_MAX_PENDING_RESTORES``,
   ``_force_restore_pending_at_exit`` atexit handler, and the
   implementations of ``ClipboardManager._delayed_restore`` /
   ``ClipboardManager.restore_now``.
-* (b) ``clipboard/safety.py`` — implementations of
+* (b) ``clipboard/safety.py``, implementations of
   ``ClipboardManager._is_safe_paste_target`` /
   ``ClipboardManager._is_terminal_process`` /
   ``ClipboardManager._detect_focused_process`` /
@@ -20,7 +20,7 @@ unmodified after the split). They assert the SPLIT CONTRACT:
 1. The new submodules exist and expose the expected symbols.
 2. The re-exported registry objects (list / lock / int / atexit fn) are
    the SAME object across ``clipboard``, ``clipboard.manager``, and
-   ``clipboard.restore`` namespaces — so mutations made through any
+   ``clipboard.restore`` namespaces, so mutations made through any
    namespace are visible through all of them.
 3. The ``ClipboardManager`` staticmethods / methods that were extracted
    are now thin delegators that forward to the ``*_impl`` functions in
@@ -248,9 +248,9 @@ class TestManagerSlimmed:
             " split did not actually remove code."
         )
         # Sanity floor: the slim manager must still contain __init__,
-        # refresh_config, copy, paste, and the delegators — at least 400 LOC.
+        # refresh_config, copy, paste, and the delegators, at least 400 LOC.
         assert loc >= 400, (
-            f"manager package is suspiciously small ({loc} LOC) — did the split "
+            f"manager package is suspiciously small ({loc} LOC), did the split "
             "accidentally delete preserved methods (copy/paste/__init__)?"
         )
 
@@ -261,8 +261,8 @@ class TestManagerSlimmed:
             restore_loc = sum(1 for _ in _rf)
         with Path(safety.__file__).open(encoding="utf-8") as _sf:
             safety_loc = sum(1 for _ in _sf)
-        assert restore_loc >= 200, f"restore.py too small ({restore_loc} LOC) — extraction incomplete?"
-        assert safety_loc >= 200, f"safety.py too small ({safety_loc} LOC) — extraction incomplete?"
+        assert restore_loc >= 200, f"restore.py too small ({restore_loc} LOC), extraction incomplete?"
+        assert safety_loc >= 200, f"safety.py too small ({safety_loc} LOC), extraction incomplete?"
 
 
 # ---------------------------------------------------------------------------

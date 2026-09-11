@@ -7,7 +7,7 @@
  */
 
 //prefer the static ``node:crypto`` import over the prior
-// defensive dynamic ``require("node:crypto")`` — ``node:crypto`` is a
+// defensive dynamic ``require("node:crypto")``, ``node:crypto`` is a
 // guaranteed-built-in module (built into Node since v0.1.92), so the
 // dynamic require added ~0 safety at the cost of one extra require
 // resolution per ``generateSessionNonce()`` call. The static import
@@ -29,23 +29,23 @@ import { state } from "../state";
  * : also derives the per-process `VOICE_TYPER_SESSION_ID`
  * (8-char lowercase-hex) used by the cross-process log-correlation
  * bracket. If the env var is already set (e.g. by a parent process
- * like a test harness), the existing value is preserved — otherwise
+ * like a test harness), the existing value is preserved, otherwise
  * a fresh ID is minted via `crypto.randomUUID()` truncated to 8 hex
  * chars (mirrors the Rust host's `generate_or_load_session_id` and
  * the Python sidecar's `uuid.uuid4().hex[:8]`). The Python sidecar
  * (spawned via `python/index.ts`) inherits the env var via Node's
  * default `child_process` env propagation, so its file log carries
- * the SAME `[session_id]` bracket — operators can grep a single
+ * the SAME `[session_id]` bracket, operators can grep a single
  * bracket across Rust / Python / Electron log files.
  */
 export function generateSessionNonce(): void {
 	try {
 		//``randomUUID`` is a top-level binding imported from
-		// ``node:crypto`` (see the import block above) — no dynamic
+		// ``node:crypto`` (see the import block above), no dynamic
 		// require needed.
 		//
 		// ``randomUUID`` is available on Node 14.17+ / Electron 12+
-		// (both well below our minimum supported versions — see
+		// (both well below our minimum supported versions, see
 		// ``package.json``'s ``engines.node`` field).
 		const uuid = randomUUID();
 		state.sessionNonce = uuid;
@@ -60,7 +60,7 @@ export function generateSessionNonce(): void {
 		}
 	} catch {
 		state.sessionNonce = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-		//best-effort fallback — if ``randomUUID``
+		//best-effort fallback, if ``randomUUID``
 		// threw (truly broken Crypto module), mint a less-random
 		// 8-char ID from ``Date.now()`` + ``Math.random`` so the
 		// bracket is still present for cross-process correlation.

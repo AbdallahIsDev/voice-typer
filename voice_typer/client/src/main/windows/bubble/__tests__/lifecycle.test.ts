@@ -6,7 +6,7 @@
  * Background: the previous implementation called
  * `screen.removeAllListeners("display-removed")` before re-registering its
  * own handler to avoid stacking duplicate listeners across bubble window
- * re-creations. That anti-pattern was too aggressive — it evicted
+ * re-creations. That anti-pattern was too aggressive, it evicted
  * listeners registered by OTHER parts of the app, not just the bubble's
  * own. The fix replaces it with a tracked-handle pattern:
  *
@@ -45,7 +45,7 @@ const screenSpies = vi.hoisted(() => {
 
 // A minimal BrowserWindow-like mock. `createBubbleWindow` reads
 // `state.bubbleWindow` first and short-circuits if it's already set and not
-// destroyed — we set `state.bubbleWindow = null` in `beforeEach` to force
+// destroyed, we set `state.bubbleWindow = null` in `beforeEach` to force
 // the creation path.
 const winSpies = vi.hoisted(() => {
 	return {
@@ -82,7 +82,7 @@ const mockState = vi.hoisted(() => ({
 vi.mock("electron", () => ({
 	// `BrowserWindow` is invoked with `new` by `createBubbleWindow`.
 	// The mock must therefore be a regular function (NOT an arrow
-	// function — arrow functions cannot be used as constructors). When
+	// function, arrow functions cannot be used as constructors). When
 	// a constructor returns an object, that object is used as the
 	// result of `new`, so we return `winSpies` to give the lifecycle
 	// code a stable, spied window instance.
@@ -223,7 +223,7 @@ describe("bubble lifecycle.ts: display-removed tracked-handle pattern", () => {
 		closedHandler();
 
 		// screen.off must have been called with the SAME function
-		// reference that was registered via screen.on — this is the
+		// reference that was registered via screen.on, this is the
 		// core guarantee of the tracked-handle pattern (vs the old
 		// removeAllListeners which took no function argument).
 		const offCalls = screenSpies.off.mock.calls.filter(
@@ -252,7 +252,7 @@ describe("bubble lifecycle.ts: display-removed tracked-handle pattern", () => {
 		// does not short-circuit on the cached window.
 		mockState.bubbleWindow = null;
 
-		// Re-create — attachDisplayRemovedHandler should call
+		// Re-create, attachDisplayRemovedHandler should call
 		// screen.off for the FIRST handler before registering the
 		// second one.
 		createBubbleWindow();
@@ -278,7 +278,7 @@ describe("bubble lifecycle.ts: display-removed tracked-handle pattern", () => {
 	});
 
 	it("detachDisplayRemovedHandler is a no-op when no handler is registered", () => {
-		// Fresh state — no handler attached yet.
+		// Fresh state, no handler attached yet.
 		expect(__getDisplayRemovedHandlerForTest()).toBeNull();
 		expect(() => detachDisplayRemovedHandler()).not.toThrow();
 		// screen.off must NOT be called when there is nothing to detach.
@@ -302,7 +302,7 @@ describe("bubble lifecycle.ts: regressions", () => {
 	it("FZ-64: render-process-gone reload uses RENDER_RELOAD_BACKOFF_MS constant, not literal 2000", () => {
 		// Source-text assertion: lifecycle.ts must import
 		// `RENDER_RELOAD_BACKOFF_MS` from `../../constants` and use
-		// it as the reload setTimeout delay (FZ-64 — magic-number
+		// it as the reload setTimeout delay (FZ-64, magic-number
 		// cleanup). The literal `2000` must NOT appear in the
 		// render-process-gone reload setTimeout call.
 		const src = fs.readFileSync(

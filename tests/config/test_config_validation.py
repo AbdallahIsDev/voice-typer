@@ -69,7 +69,7 @@ class TestNonNumericFieldValidation:
         range; no warning should fire.
         """
         config_file = tmp_path / "config.json"
-        # Write the default value explicitly — this is what Config.save() produces
+        # Write the default value explicitly, this is what Config.save() produces
         config_file.write_text(json.dumps({"volume_duck_smart_poll_interval_ms": 500}))
         import logging
 
@@ -193,7 +193,7 @@ class TestCfg5AccumulateAllErrors:
 
     def test_type_error_and_range_error_both_returned(self):
         """A type error (wrong type) and a range error (right type, bad
-        value) on different fields both surface — the function doesn't
+        value) on different fields both surface, the function doesn't
         abort after the first kind."""
         from voice_typer.server.config import validate_config_update
 
@@ -245,7 +245,7 @@ class TestCfg6ControlCharRejection:
         assert v("hello world") is None
         assert v("api-key_sk-abc123") is None
         assert v("https://api.example.com/v1") is None
-        # Unicode is fine — only C0 control chars + DEL are rejected.
+        # Unicode is fine, only C0 control chars + DEL are rejected.
         assert v("héllo wörld 中文") is None
 
     def test_str_validator_accepts_high_codepoints(self):
@@ -258,7 +258,7 @@ class TestCfg6ControlCharRejection:
         v = _make_str_validator()
         # C1 control chars (0x80-0x9f) are rejected.
         assert v("café\x80") is not None
-        # 0xA0 (NBSP), emoji, CJK — all OK (above C1 range).
+        # 0xA0 (NBSP), emoji, CJK, all OK (above C1 range).
         assert v("\xa0space") is None
         assert v("emoji 😀") is None
 
@@ -311,7 +311,7 @@ class TestCfg7UrlCredentialsRejection:
     credentials-leak vector: the renderer would otherwise persist them
     to config.json on disk, echo them into logs, and potentially leak
     them to a proxy.  Legitimate API endpoints (OpenAI, Groq,
-    Deepgram, Ollama) never use embedded credentials — auth is via
+    Deepgram, Ollama) never use embedded credentials, auth is via
     the ``X-Api-Key`` / ``Authorization`` header, supplied separately.
     """
 
@@ -340,7 +340,7 @@ class TestCfg7UrlCredentialsRejection:
         from voice_typer.server.config_validators import _make_url_validator
 
         v = _make_url_validator(allow_empty=False)
-        # ``:pass@host`` — urlparse parses this as password-only.
+        # ``:pass@host``, urlparse parses this as password-only.
         result = v("https://:pass@api.example.com/v1/chat")
         assert result is not None
         assert "credential" in result.lower()
@@ -362,7 +362,7 @@ class TestCfg7UrlCredentialsRejection:
         assert v("http://localhost:11434/v1/chat/completions") is None
 
     def test_rejects_credentials_on_loopback_too(self):
-        """applies even to loopback URLs — credentials are
+        """applies even to loopback URLs, credentials are
         rejected regardless of host.  (A local dev server shouldn't
         need embedded credentials either; use a separate header.)"""
         from voice_typer.server.config_validators import _make_url_validator
@@ -401,7 +401,7 @@ class TestCfg7UrlCredentialsRejection:
         assert "cloud_api_url" not in validated
         # If the credential check ran, the message mentions credentials.
         # If the HTTPS check ran first, the message mentions HTTPS.
-        # Both are acceptable rejections — we just need the URL rejected.
+        # Both are acceptable rejections, we just need the URL rejected.
         assert any("credential" in e.lower() or "HTTPS" in e or "loopback" in e.lower() for e in errors)
 
 

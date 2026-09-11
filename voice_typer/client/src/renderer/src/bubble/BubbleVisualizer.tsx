@@ -1,12 +1,12 @@
 /**
- * Bubble overlay package — `BubbleVisualizer` (recording mode).
+ * Bubble overlay package, `BubbleVisualizer` (recording mode).
  *
  * The recording-mode pill content: a destructive-token "● REC"
  * indicator + 7-bar spectrum visualiser. The bars are animated by
  * `useBubbleLifecycle`'s rAF loop via the shared `dotRefs`.
  *
  * The 7 bar `<span>`s live inside a `<div class="gap-0.75">` wrapper
- * — this preserves the `Bubble.test.tsx` selector
+ *, this preserves the `Bubble.test.tsx` selector
  * `.gap-0\.75 > span` which expects exactly 7 bars.
  *
  * The per-dot ref setters are memoised once per `dotRefs` instance via
@@ -41,7 +41,7 @@ export function BubbleVisualizer({
 	);
 	return (
 		<div className="flex h-6 items-center gap-2">
-			{/* REC indicator — destructive token, not hardcoded red. */}
+			{/* REC indicator, destructive token, not hardcoded red. */}
 			<span
 				className="w-1.5 h-1.5 rounded-full bg-destructive animate-pulse"
 				aria-hidden
@@ -63,7 +63,7 @@ export function BubbleVisualizer({
 			 * spacing values were valid); upgrading to v3 or earlier
 			 * would require falling back to arbitrary values
 			 * (`gap-[3px]` / `w-[3px]`). The project pins
-			 * `tailwindcss@^4.3.2` in `client/package.json` — see the
+			 * `tailwindcss@^4.3.2` in `client/package.json`, see the
 			 * `@import "tailwindcss";` directive in `index.css`.
 			 */}
 			<div className="flex h-6 items-center gap-0.75 ms-1" aria-hidden>

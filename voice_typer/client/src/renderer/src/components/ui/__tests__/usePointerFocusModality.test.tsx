@@ -1,5 +1,5 @@
 /**
- * usePointerFocusModality — behavior-preservation tests for the shared
+ * usePointerFocusModality, behavior-preservation tests for the shared
  * pointer-vs-keyboard focus-modality contract (C-FOCUS-3).
  *
  * The state machine was previously duplicated verbatim in
@@ -13,14 +13,14 @@
  *      the full-opacity keyboard ring classes are NOT applied.
  *   2. a Tab or Arrow keydown returns the field to keyboard modality →
  *      the full-opacity `focus-visible:ring-3 focus-visible:ring-ring`
- *      classes return (WCAG 1.4.11 3:1 — keyboard ring intact).
+ *      classes return (WCAG 1.4.11 3:1, keyboard ring intact).
  *   3. blur resets the modality (a later keyboard focus is announced
  *      with the full ring even after a previous pointer interaction).
  *   4. non-navigation keys (e.g. typing "a") do NOT leave pointer
- *      modality — only Tab/Arrow switch back to keyboard modality.
+ *      modality, only Tab/Arrow switch back to keyboard modality.
  *   5. caller-supplied onPointerDown/onKeyDown/onBlur OVERRIDE the
  *      hook's handlers (the documented `{...props}`-spread clobber
- *      semantics pinned by SearchField's comment — the same contract
+ *      semantics pinned by SearchField's comment, the same contract
  *      C-FOCUS-4 describes for the shared inputs).
  *
  * jsdom has no CSS engine, so the assertions read className strings
@@ -62,7 +62,7 @@ function expectKeyboardMode(cls: string) {
 	for (const c of POINTER_BRANCH) expect(cls).not.toContain(c);
 }
 
-describe("usePointerFocusModality — Input", () => {
+describe("usePointerFocusModality, Input", () => {
 	it("starts in keyboard modality (full ring classes, no suppression)", () => {
 		const { container } = render(<Input type="text" />);
 		expectKeyboardMode(classes(container.querySelector("input")));
@@ -115,14 +115,14 @@ describe("usePointerFocusModality — Input", () => {
 		const input = container.querySelector("input") as HTMLInputElement;
 
 		fireEvent.pointerDown(input);
-		// The caller's handler ran — the internal one did NOT, so the
+		// The caller's handler ran, the internal one did NOT, so the
 		// field stays in keyboard modality (suppression inactive).
 		expect(callerPointerDown).toHaveBeenCalledTimes(1);
 		expectKeyboardMode(classes(input));
 	});
 });
 
-describe("usePointerFocusModality — Textarea", () => {
+describe("usePointerFocusModality, Textarea", () => {
 	it("starts in keyboard modality (full ring classes, no suppression)", () => {
 		const { container } = render(<Textarea />);
 		expectKeyboardMode(classes(container.querySelector("textarea")));

@@ -1,5 +1,5 @@
 /**
- * Tests for useGlobalKeyboardShortcuts — covers the modal-open guard
+ * Tests for useGlobalKeyboardShortcuts, covers the modal-open guard
  * added for the Ctrl+B / Ctrl+, / Ctrl+H navigation shortcuts.
  *
  * Strategy: render a harness component that calls the hook, then
@@ -99,7 +99,7 @@ afterEach(() => {
 		});
 });
 
-describe("useGlobalKeyboardShortcuts — modal-open guard", () => {
+describe("useGlobalKeyboardShortcuts, modal-open guard", () => {
 	it("Ctrl+B toggles the sidebar when NO modal is open", () => {
 		renderHook();
 		dispatchKey("b");
@@ -145,7 +145,7 @@ describe("useGlobalKeyboardShortcuts — modal-open guard", () => {
 	});
 
 	it("Ctrl++ (zoom in via the '+' alternative key) rides the same setTextSize path", () => {
-		// The catalog pins eventKeys ["=", "+"] — the "+" form is the
+		// The catalog pins eventKeys ["=", "+"], the "+" form is the
 		// unshifted alternative on some layouts. Both must dispatch to
 		// the same zoom-in handler.
 		const { setTextSize } = renderHook();
@@ -156,7 +156,7 @@ describe("useGlobalKeyboardShortcuts — modal-open guard", () => {
 	it("zoom performs NO direct set_config write (single debounced save path)", async () => {
 		// Persistence is owned by useTheme's debounced save (flushed on
 		// unmount/beforeunload). The shortcut layer must not write config
-		// directly — a per-tick write double-writes every zoom step and
+		// directly, a per-tick write double-writes every zoom step and
 		// fans each write out into a config_changed push + get_config
 		// round-trip. Pinned here so the second write path can't return.
 		const { setTextSize } = renderHook();
@@ -187,7 +187,7 @@ describe("useGlobalKeyboardShortcuts — modal-open guard", () => {
 	});
 });
 
-describe("useGlobalKeyboardShortcuts — rapid consecutive zoom events", () => {
+describe("useGlobalKeyboardShortcuts, rapid consecutive zoom events", () => {
 	// The bumpTextSize body mirrors textSize into a ref and advances it
 	// SYNCHRONOUSLY, so a burst of events between renders accumulates
 	// (14 → 15 → 16) instead of replaying the stale rendered value.
@@ -200,7 +200,7 @@ describe("useGlobalKeyboardShortcuts — rapid consecutive zoom events", () => {
 		dispatchWheel(-1);
 		expect(setTextSize).toHaveBeenNthCalledWith(1, 15);
 		expect(setTextSize).toHaveBeenNthCalledWith(2, 16);
-		// No direct IPC from the shortcut layer — the debounced save
+		// No direct IPC from the shortcut layer, the debounced save
 		// in useTheme coalesces the burst into ONE backend write.
 		expect(mockCall).not.toHaveBeenCalled();
 	});

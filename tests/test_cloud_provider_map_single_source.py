@@ -1,10 +1,10 @@
 """The cloud "Test Connection" handler must use the canonical provider
-map — not a manual copy.
+map, not a manual copy.
 
 ``handlers/cloud_test_handlers.py`` historically kept a 3-key manual
 copy of ``credential_store.PROVIDER_TO_CONFIG_FIELD`` (the canonical
 5-key map) with a comment claiming the copy existed to "avoid
-importing the keyring module" — a false rationale: the
+importing the keyring module", a false rationale: the
 ``credential_store`` package imports keyring lazily (only inside the
 backend probe), so importing the map costs no keyring import.
 
@@ -16,7 +16,7 @@ of the app fully supports.
 
 These tests pin:
 1. The handler module resolves the SAME map object as the canonical
-   source (identity — a re-copy or a rebind to a different dict fails).
+   source (identity, a re-copy or a rebind to a different dict fails).
 2. Every provider with a test endpoint is covered by the canonical map
    (endpoint-map keys are a subset of canonical providers).
 3. A provider newly added to the canonical map (+ an endpoint) is
@@ -52,11 +52,11 @@ class TestProviderMapSingleSource:
 
     def test_handler_uses_canonical_provider_map_object(self):
         """The handler's map IS ``credential_store.PROVIDER_TO_CONFIG_FIELD``
-        (same object) — never a re-copied dict that can drift."""
+        (same object), never a re-copied dict that can drift."""
         handler_map = getattr(cloud_test_handlers, "PROVIDER_TO_CONFIG_FIELD", None)
         assert handler_map is PROVIDER_TO_CONFIG_FIELD, (
             "cloud_test_handlers must use credential_store.PROVIDER_TO_CONFIG_FIELD "
-            "directly (same object) — a manual copy of the provider map drifts when "
+            "directly (same object), a manual copy of the provider map drifts when "
             "the canonical map gains a provider (the cloud/llm entries were already "
             "missing from the copy)."
         )
@@ -68,14 +68,14 @@ class TestProviderMapSingleSource:
 
         source = inspect.getsource(cloud_test_handlers)
         assert "_PROVIDER_TO_CONFIG_FIELD" not in source, (
-            "cloud_test_handlers defines a module-local provider→field map — the "
+            "cloud_test_handlers defines a module-local provider→field map, the "
             "canonical credential_store.PROVIDER_TO_CONFIG_FIELD must be imported "
             "instead (no second definition to keep in sync)."
         )
 
     def test_endpoint_map_providers_are_canonical(self):
         """Every provider that has a test endpoint must exist in the
-        canonical map — otherwise the endpoint is unreachable dead
+        canonical map, otherwise the endpoint is unreachable dead
         config and the key lookup has no field to read."""
         endpoints = cloud_test_handlers._PROVIDER_TEST_ENDPOINTS
         unknown = set(endpoints) - set(PROVIDER_TO_CONFIG_FIELD)
@@ -86,7 +86,7 @@ class TestProviderMapSingleSource:
 
     def test_importing_handler_does_not_import_keyring(self):
         """The historical rationale for the copy ("avoid importing the
-        keyring module") was false — importing the handler module (and
+        keyring module") was false, importing the handler module (and
         with it ``credential_store``) never imports keyring, which is
         resolved lazily inside the backend probe.
 
@@ -103,7 +103,7 @@ class TestProviderMapSingleSource:
         )
         completed = subprocess.run([sys.executable, "-c", code], capture_output=True, timeout=60)
         assert completed.returncode == 0, (
-            "importing cloud_test_handlers pulled keyring into sys.modules — the "
+            "importing cloud_test_handlers pulled keyring into sys.modules, the "
             "credential-store keyring import must stay lazy (the old 'avoid "
             "importing the keyring module' rationale for the manual map copy)."
             f" stderr: {completed.stderr.decode()[:500]}"
@@ -141,7 +141,7 @@ class TestKeyLookupFollowsCanonicalMap:
     )
     def test_authorization_header_uses_canonical_config_field(self, provider, config_field, auth_scheme):
         """The Authorization header is ``<scheme> <key>`` where <key>
-        comes from ``app.config.<canonical field name>`` — pinning the
+        comes from ``app.config.<canonical field name>``, pinning the
         provider→field resolution behaviorally for every testable
         provider."""
         secret = f"{provider}-test-key-DO-NOT-USE"
@@ -166,7 +166,7 @@ class TestKeyLookupFollowsCanonicalMap:
         )
 
     def test_newly_added_canonical_provider_is_supported_without_third_edit(self):
-        """A provider added to the canonical map (in place — the
+        """A provider added to the canonical map (in place, the
         handler's binding is the same dict object, exactly like a new
         process start) plus a test endpoint is AUTOMATICALLY supported:
         the handler reads its API key from the canonical field name with
@@ -200,11 +200,11 @@ class TestKeyLookupFollowsCanonicalMap:
             assert resp["type"] == "cloud_test_result"
             assert captured["headers"].get("Authorization") == f"Bearer {secret}", (
                 "a provider present in the canonical map (and the endpoint map) must "
-                "have its API key read via the canonical field — no third dict to edit"
+                "have its API key read via the canonical field, no third dict to edit"
             )
             assert captured["url"] == "https://api.provtest.example/v1/models"
         finally:
-            # In-place mutation of the canonical map must be undone — it
+            # In-place mutation of the canonical map must be undone, it
             # is the SAME dict object shared with credential_store.
             del PROVIDER_TO_CONFIG_FIELD[provider]
             if saved_endpoint is None:

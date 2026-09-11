@@ -1,10 +1,10 @@
-// useDeviceLostToast — surfaces backend ``device_lost`` push events.
+// useDeviceLostToast, surfaces backend ``device_lost`` push events.
 //
 // The active microphone can disappear mid-session (USB unplug,
 // Bluetooth power-off, driver reset). The backend detects the loss in
-// BOTH subsystems that hold mic streams — the mic-test level monitor
+// BOTH subsystems that hold mic streams, the mic-test level monitor
 // (`level_monitor/monitoring.py`) and the dictation recorder
-// (`mic_lifecycle_hooks.py`) — retries a few times, then publishes
+// (`mic_lifecycle_hooks.py`), retries a few times, then publishes
 // ``device_lost``. Without this hook the event reached the renderer and
 // was dropped: dictation silently stopped working and the Microphone
 // page kept showing a dead meter with no explanation.
@@ -21,14 +21,12 @@
 // notification. A fixed sonner ``id`` replaces any in-flight toast.
 
 import { usePythonEvent } from "@/hooks/usePython";
+import type { TranslateFn } from "@/i18n/translate-types";
 import {
 	DEVICE_LOST_TOAST_DEDUPE_MS,
 	useDeviceLostStore,
 } from "@/stores/deviceLostStore";
 import { SNACKBAR_DEFAULT_DURATION_MS, useSnackbar } from "./useSnackbar";
-
-/** Minimal `t` function type matching i18n.t's signature. */
-type TFn = (key: string, params?: Record<string, string>) => string;
 
 /**
  * Subscribe to ``device_lost`` push events; show the recovery toast +
@@ -46,7 +44,10 @@ type TFn = (key: string, params?: Record<string, string>) => string;
  * @param onOpenMicrophone callback that navigates to the Microphone page
  *   (App wires ``() => navigate("microphone")``).
  */
-export function useDeviceLostToast(t: TFn, onOpenMicrophone: () => void): void {
+export function useDeviceLostToast(
+	t: TranslateFn,
+	onOpenMicrophone: () => void,
+): void {
 	const { showSnack } = useSnackbar();
 	usePythonEvent("device_lost", (data): (() => void) | undefined => {
 		const payload = (data ?? {}) as { source?: unknown };

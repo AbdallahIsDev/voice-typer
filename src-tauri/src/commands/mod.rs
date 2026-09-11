@@ -13,12 +13,12 @@ pub(crate) mod system_cmds;
 //for the full deletion rationale.
 
 //`dispatch_inner` + `DispatchArgs` are `pub(crate)` (NOT Tauri
-// commands — they are the allowlist-bypass inner function the tray
+// commands: they are the allowlist-bypass inner function the tray
 // menu click handler uses). Re-exported with crate visibility because
 // `crate::tray` imports them via `use crate::commands::{...}`.
 //
 //the 5 `pub use` re-export blocks for the `#[tauri::command]`
-// functions that used to live here were DEAD — `main.rs` imports each
+// functions that used to live here were DEAD, `main.rs` imports each
 // command directly from its submodule, so the `pub use` re-exports had
 // no caller. Both the re-exports and the `#[allow(unused_imports)]`
 // annotations are deleted here; `cargo check` confirms `generate_handler!`
@@ -49,7 +49,7 @@ use crate::error::VoiceTyperError;
 // existing reject path treats this identically to a server-side rejection.
 //
 // `main_window_label_check` is the pure-helper that does NOT require a
-// `tauri::Window` — extracted so unit tests can verify the gate logic
+// `tauri::Window`, extracted so unit tests can verify the gate logic
 // without constructing a Tauri runtime. Returns `true` iff `label == "main"`.
 
 //pure main-window label predicate. Returns `true` iff `label` is
@@ -64,7 +64,7 @@ pub(crate) fn main_window_label_check(label: &str) -> bool {
 /// window. Logs a `[window-guard]` warning on rejection so the security
 /// audit trail shows the rejected call attempt + the offending window
 /// label. Returns `Err(VoiceTyperError::disallowed_main_window())` for
-/// non-main windows — the variant serializes to the same
+/// non-main windows: the variant serializes to the same
 /// `{"type":"error","data":{"code":"disallowed_window",...}}`
 /// envelope string the renderer's reject path has always parsed, so it
 /// is handled identically to a server-side rejection.
@@ -81,8 +81,8 @@ pub(crate) fn require_main_window(window: &tauri::Window) -> Result<(), VoiceTyp
 
 /// Gate a `#[tauri::command]` on the calling window being the bubble
 /// window. Mirrors `require_main_window` but for bubble-only commands
-/// (e.g. `bubble_signal_ready` — the bubble renderer's readiness signal).
-/// Returns `Err(VoiceTyperError::disallowed_bubble_window())` — the same
+/// (e.g. `bubble_signal_ready`. The bubble renderer's readiness signal).
+/// Returns `Err(VoiceTyperError::disallowed_bubble_window())`, the same
 /// canonical JSON error envelope on the wire, so the renderer's reject
 /// path handles it identically to a server-side rejection.
 pub(crate) fn require_bubble_window(window: &tauri::Window) -> Result<(), VoiceTyperError> {

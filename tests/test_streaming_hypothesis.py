@@ -1,6 +1,6 @@
 """Property-based tests for streaming.py using hypothesis.
 
-TEST-009: Property-based tests for streaming — random word timings,
+TEST-009: Property-based tests for streaming, random word timings,
 verify committed_text is always sorted and non-empty when words are added.
 """
 
@@ -12,7 +12,7 @@ import pytest
 # ``pytestmark = pytest.mark.skipif(True, ...)`` then reassigned it to
 # ``pytest.mark.skipif(False, ...)`` inside the ``try`` block if
 # hypothesis imported cleanly. The reassignment worked but was
-# confusing — the two-stage pattern read as "always skip first, then
+# confusing, the two-stage pattern read as "always skip first, then
 # maybe un-skip". The single-assignment form below is equivalent and
 # clearer: detect hypothesis up front, then set the skipif mark based
 # on the result.
@@ -25,7 +25,7 @@ except ImportError:
 
 pytestmark = pytest.mark.skipif(
     not HAS_HYPOTHESIS,
-    reason="hypothesis not installed — install with: pip install hypothesis",
+    reason="hypothesis not installed, install with: pip install hypothesis",
 )
 
 
@@ -72,11 +72,11 @@ if HAS_HYPOTHESIS:
         def test_committed_text_sorted_by_time(self, words):
             """Words in committed_text should be ordered by start_seconds.
 
-            TEST-009: Pre-fix this test only asserted ``isinstance(result, str)``
-            — the docstring promised sort-order verification but the body
-            delivered a type check. Now we verify the actual chronological
-            order by comparing the emitted word sequence against the input
-            sorted by ``start_seconds``.
+              TEST-009: Pre-fix this test only asserted ``isinstance(result, str)``
+            , the docstring promised sort-order verification but the body
+              delivered a type check. Now we verify the actual chronological
+              order by comparing the emitted word sequence against the input
+              sorted by ``start_seconds``.
             """
             assembler = StreamingTextAssembler()
             for wt in words:
@@ -90,7 +90,7 @@ if HAS_HYPOTHESIS:
             # (start_seconds, end_seconds).
             emitted_words = result.split()
             # Build expected order: sort input words by the same key the
-            # assembler uses — (start_seconds, end_seconds) — then extract
+            # assembler uses ((start_seconds, end_seconds)) then extract
             # the .word field. This handles the case where two words share
             # the same start_seconds (the assembler breaks ties by
             # end_seconds).

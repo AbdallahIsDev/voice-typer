@@ -19,7 +19,7 @@ import type { ModelStatusMap } from "@/types/ipc";
 // ── Default model sentinel ─────────────────────────────────────────────
 //
 // Canonical home of the renderer's default-model constant. This module
-// is layer-neutral shared lib code — `lib/` may be imported by `pages/`,
+// is layer-neutral shared lib code, `lib/` may be imported by `pages/`,
 // but `lib/` must never import from `pages/` (inverted layering; this
 // module previously imported the value from
 // `pages/onboarding/lib/constants`). The onboarding constants module
@@ -29,12 +29,12 @@ import type { ModelStatusMap } from "@/types/ipc";
 // The renderer default must match the backend's canonical default
 // `DEFAULT_MODEL_SIZE` (`voice_typer/server/model_registry.py`) so the
 // wizard behaves identically to the backend's config default / coercion
-// reset target. The value is the empty string — the app has NO concrete
+// reset target. The value is the empty string, the app has NO concrete
 // default model: a fresh install starts with "no model selected" and the
 // user explicitly chooses one (onboarding or the Models page). The old
 // `"tiny"` default made every consumer surface a phantom model name when
 // its weights were never installed. Change the default in the backend's
-// `DEFAULT_MODEL_SIZE` (ONE place); keep THIS value in lockstep — the
+// `DEFAULT_MODEL_SIZE` (ONE place); keep THIS value in lockstep, the
 // Python test `tests/test_default_model_sync.py` asserts the two match.
 export const MODEL_DEFAULT = "";
 
@@ -51,7 +51,7 @@ export interface ModelInfo {
 	// NOTE: a former `alwaysAvailable?: boolean` flag was REMOVED.
 	// It claimed Qwen "auto-downloads on first use" and hid the
 	// Download button + bypassed the select guard for a model that
-	// was never installed — a lie (the backend registry declares Qwen
+	// was never installed, a lie (the backend registry declares Qwen
 	// `network_behavior="local-only"`, NOT auto-fetched; the engine
 	// requires `qwen_model_path` or an HF cache dir). "Installed" is
 	// determined solely by the backend's `get_model_status`
@@ -84,7 +84,7 @@ export interface ModelMetadata {
 	/**
 	 * Published WER (%) on LibriSpeech test-clean (lower is better),
 	 * sourced from each model's official model card / evaluation.
-	 * `null`/absent = no reliable published figure — the UI must omit
+	 * `null`/absent = no reliable published figure, the UI must omit
 	 * the WER field for this model (never guess). See
 	 * `voice_typer/server/model_registry.py` for the per-model sources.
 	 */
@@ -143,7 +143,7 @@ export const INITIAL_MODELS: ModelInfo[] = [
 		size: "Variable",
 		speed: "Fast",
 		backend: "qwen",
-		// Qwen is local-only per the backend registry — it is NOT
+		// Qwen is local-only per the backend registry, it is NOT
 		// auto-fetched. `downloaded` is set by `get_model_status`
 		// (true when `qwen_model_path` points at an existing dir or the
 		// HF cache holds the repo). Until then the card shows
@@ -154,7 +154,7 @@ export const INITIAL_MODELS: ModelInfo[] = [
 		// the backend's `_check_qwen_deps()` → `deps_ok`). With
 		// `depsInstallable: true`, a qwen_asr-missing install shows the
 		// "Download Deps" button and `useModelSelection` blocks the
-		// Select action — mirroring Parakeet's gating. `depsOk` is
+		// Select action, mirroring Parakeet's gating. `depsOk` is
 		// reconciled at runtime by `get_model_status` (seeded `true` so
 		// first paint shows "Download", not a false "Dependencies
 		// required" flash, for users who DO have qwen_asr installed).
@@ -231,7 +231,7 @@ export function getProviderLabel(providerKey: string): string {
 // `2.5gb` → `2.5 GB`) instead of passing the raw string through. This
 // keeps display consistent for arbitrary model sizes/providers even
 // when the source value carries a `~`/`≈` approximation marker or
-// missing spacing — the renderer seed in `INITIAL_MODELS` is already
+// missing spacing, the renderer seed in `INITIAL_MODELS` is already
 // canonical, and this normalizer guards against any future drift.
 const MODEL_SIZE_NORMALIZER = /^(?:~|≈)?\s*(\d+(?:[.,]\d+)?)\s*([A-Za-z]+)$/;
 export function formatModelSize(size: string): string {
@@ -266,7 +266,7 @@ function capitalizeFirst(value: string): string {
  * Format a speed rating for display. Accepts both the legacy
  * capitalized source values ("Fast", "Fastest") and the backend
  * catalog's lowercase `speed_rating` values ("fast", "medium",
- * "slow") — the latter are Title-Cased before lookup so the metadata
+ * "slow"), the latter are Title-Cased before lookup so the metadata
  * line renders "Fast Speed" / "Medium Speed" / "Slow Speed" (point 5d
  * of the overhaul: one consistent capitalization rule).
  */
@@ -279,7 +279,7 @@ export function formatModelSpeed(speed: string): string {
 // (`models.displayNames.{name}`). The previous `getModelDisplayName(name)`
 // helper was DELETED because it had ZERO
 // callers in `src/` or `tests/` AND ZERO inline `t(\`models.displayNames.${...}\`)`
-// call sites — the helper was orphaned by an earlier refactor that moved
+// call sites, the helper was orphaned by an earlier refactor that moved
 // display-name resolution out of the renderer entirely (the backend's
 // `ModelMetadata.display_name` field is now the canonical source, surfaced
 // via the `get_model_catalog` IPC). Do NOT re-add this helper without
@@ -288,7 +288,7 @@ export function formatModelSpeed(speed: string): string {
 // Decision: DELETE. Alternative considered: search the
 // renderer for inline `t(\`models.displayNames.${...}\`)` patterns and
 // route them through the helper. Search returned ZERO matches in
-// `voice_typer/client/src`, so there is nothing to wire — the helper
+// `voice_typer/client/src`, so there is nothing to wire, the helper
 // was genuinely dead. Verified via:
 //   rg 'models\.displayNames' voice_typer/client/src
 //   rg 'getModelDisplayName' voice_typer (only the definition matched)
@@ -321,7 +321,7 @@ export function formatWer(wer: number): string {
  *
  * : the default ``fallback`` is now ``t("models.errors.unknown")``
  * (``"Unknown error"`` in en, translated for every locale) instead of
- * the hardcoded English string — so a backend failure surfacing in a
+ * the hardcoded English string, so a backend failure surfacing in a
  * non-English UI no longer leaks English into the snackbar. Callers
  * that explicitly pass a custom ``fallback`` (e.g. for context-specific
  * messages like ``t("models.snack.downloadFailedName", { name })``)
@@ -354,7 +354,7 @@ export function formatErrorMessage(
 // lowercase hyphen-joined identifiers ("large-v3-turbo"). For DISPLAY
 // only, each hyphen is treated as a word separator: hyphen → space +
 // first-letter capitalization ("Large V3 Turbo"). The internal slug /
-// repo_id / config key is NEVER altered — this is purely the rendered
+// repo_id / config key is NEVER altered, this is purely the rendered
 // label, so new models get correctly formatted names automatically.
 export function formatModelDisplayName(rawId: string): string {
 	return rawId
@@ -369,10 +369,10 @@ export function formatModelDisplayName(rawId: string): string {
  *
  * Priority:
  *   1. The backend catalog's `display_name` (set for parakeet
- *      "Parakeet-TDT-0.6b-V3" and qwen "Qwen-3" — these already carry
+ *      "Parakeet-TDT-0.6b-V3" and qwen "Qwen-3", these already carry
  *      the family name, so no prefix is added).
  *   2. Otherwise the formatted slug (`formatModelDisplayName`), with
- *      the Whisper family prefix prepended — the group header shows
+ *      the Whisper family prefix prepended, the group header shows
  *      the COMPANY ("OpenAI") while each version name carries the
  *      FAMILY ("Whisper Tiny", "Whisper Large V3", …), mirroring how
  *      the OpenAI logo sits next to the company name in the header.
@@ -424,7 +424,7 @@ export function groupModelsByFamily(models: ModelInfo[]): ModelFamily[] {
 		families.push({
 			id: "parakeet",
 			// The family is branded under NVIDIA (the model underneath
-			// is Parakeet-v3-TDT — its display_name comes from the
+			// is Parakeet-v3-TDT, its display_name comes from the
 			// backend catalog).
 			name: "Nvidia",
 			description: null,
@@ -449,7 +449,7 @@ export function isModelActive(
 	activeModel: string,
 ): boolean {
 	// An empty active model is the genuine "no model selected" state
-	// (the backend's `NO_MODEL_SIZE` sentinel) — NOTHING is active,
+	// (the backend's `NO_MODEL_SIZE` sentinel), NOTHING is active,
 	// including backend-keyed models (qwen / parakeet) whose active
 	// check below ignores `model_size`.
 	if (!activeModel) {
@@ -464,7 +464,7 @@ export function isModelActive(
 /**
  * Map a config's active backend/model over a models list, returning a
  * new array with `isActive` set on the matching entry (and cleared on
- * every other entry). Pure function — used by `useModelLifecycle` to
+ * every other entry). Pure function, used by `useModelLifecycle` to
  * reconcile model state after `get_config` / `config_changed` events.
  */
 export function applyActiveState(
@@ -485,7 +485,7 @@ export function applyActiveState(
  * or null if no model is active or no family match is found.
  *
  * Previously this function inlined a duplicate copy
- * of `INITIAL_MODELS` (the `candidates` array) — a 30-line verbatim
+ * of `INITIAL_MODELS` (the `candidates` array), a 30-line verbatim
  * duplicate that drifted whenever a new model was added. Now it
  * imports the single source of truth from `INITIAL_MODELS`.
  */
@@ -505,10 +505,10 @@ export function getActiveFamilyId(cfg: VoiceTyperConfig | null): string | null {
 
 // The previous "family ID for backend" helper that lived here
 // was DELETED. It had ZERO importers in `voice_typer/client/src`
-// (verified via `rg` on the function name — only the definition
+// (verified via `rg` on the function name, only the definition
 // matched). Its own docstring claimed "Used by the sync-guard effect
 // that auto-expands the active family accordion", but `rg 'sync-guard'`
-// on `voice_typer/client/src` returned ZERO matches — the sync-guard
+// on `voice_typer/client/src` returned ZERO matches, the sync-guard
 // effect was either never landed or was refactored to inline the
 // logic. The function was genuine dead code (not a public API, no test
 // coverage, no external importer). Do NOT re-add without also wiring
@@ -516,13 +516,13 @@ export function getActiveFamilyId(cfg: VoiceTyperConfig | null): string | null {
 //
 // (Note: the literal function name is intentionally NOT spelled out
 // in this comment so that `rg '<function-name>' voice_typer/client/src`
-// returns ZERO matches — verifying the function is truly gone. The
+// returns ZERO matches, verifying the function is truly gone. The
 // previous docstring + 6-line function body have been excised.)
 
 // ── Active-model resolution from the backend's install truth ────────
 //
 // SINGLE source of truth for "is a model currently installed and active,
-// and on which device" — shared by the Analytics page (Current Setup
+// and on which device", shared by the Analytics page (Current Setup
 // cards), the About page (Diagnostics table), and any future surface.
 // "Installed" is determined SOLELY by the backend's `get_model_status`
 // (`downloaded: true` for the configured `model_size`); the config's
@@ -544,7 +544,7 @@ export interface ResolvedActiveModel {
  * the backend's `get_model_status` install truth.
  *
  * Returns ``{ model: null, device: null }`` when the configured model
- * is empty or its weights are not downloaded — callers must render
+ * is empty or its weights are not downloaded, callers must render
  * "Not selected" / "Unknown" in that state, never the config defaults.
  */
 export function resolveActiveModel(
@@ -597,7 +597,7 @@ export function hasInsufficientDiskSpace(
 // huggingface.co (whisper variants + parakeet per the backend
 // registry's `network_behavior="downloads-on-first-use-consent-gated"`).
 // Qwen is `network_behavior="local-only"` (user supplies the model
-// path — nothing phones home), so its Download action is NOT gated.
+// path, nothing phones home), so its Download action is NOT gated.
 export function requiresHuggingFaceConsent(model: ModelInfo): boolean {
 	return (
 		model.backend === "whisper" ||

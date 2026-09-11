@@ -10,7 +10,7 @@ Verifies that:
   callers that need to wait (e.g. ``apply_pending_model_change``).
 
 The fix moves the heavy ``_change_model_load_phase`` (which calls
-``load_active`` — disk + torch import + weight load, 5-30s on cold boot)
+``load_active``, disk + torch import + weight load, 5-30s on cold boot)
 to a background daemon thread. The IPC worker returns immediately with
 a "loading" ack; the background thread publishes ``asr_backend_ready``
 on completion.
@@ -50,7 +50,7 @@ def _make_mm_with_mock_backend(
     app._pending_dictation = False
     app._thread_registry = MagicMock()
     app._config_mutation_lock = threading.RLock()
-    # Ensure change_model is NOT deferred — ``_change_model_setattr_phase``
+    # Ensure change_model is NOT deferred: ``_change_model_setattr_phase``
     # checks ``recorder.recording`` (must be False) and
     # ``_busy_event.is_set()`` (must return True = not busy).
     app.recorder.recording = False
@@ -107,7 +107,7 @@ class TestChangeModelReturnsImmediately:
         # Release the background thread so it can complete.
         barrier.set()
         # Join the background ModelChange thread so its
-        # ``asr_backend_ready`` publish completes INSIDE this test — a
+        # ``asr_backend_ready`` publish completes INSIDE this test, a
         # late publish would land in a later test's event_bus
         # subscription window and flake it (see
         # ``test_model_manager_load_races.py::TestBackendLoadFailedEvent``).
@@ -241,7 +241,7 @@ class TestConcurrentCallsSerialize:
 
     def test_concurrent_change_model_calls_do_not_interleave(self):
         """Two concurrent ``change_model`` calls must not both run the load phase
-        at the same time — ``_model_change_lock`` serializes them."""
+        at the same time: ``_model_change_lock`` serializes them."""
         mm, app, engine, _ = _make_mm_with_mock_backend(backend_name="whisper")
 
         # Track concurrent load_active calls.
@@ -278,10 +278,10 @@ class TestConcurrentCallsSerialize:
         if mm._model_change_thread is not None:
             mm._model_change_thread.join(timeout=5.0)
 
-        # The loads must have serialized — never more than 1 concurrent.
+        # The loads must have serialized, never more than 1 concurrent.
         assert max_concurrent_loads[0] <= 1, (
             f"Concurrent load_active calls detected: max={max_concurrent_loads[0]} "
-            "(expected ≤1 — _model_change_lock should serialize)"
+            "(expected ≤1, _model_change_lock should serialize)"
         )
 
     def test_concurrent_change_model_and_set_active_backend_serialize(self):
@@ -314,7 +314,7 @@ class TestConcurrentCallsSerialize:
         t2.join(timeout=5.0)
         # Join the background ModelChange + BackendChange threads (they
         # serialize on ``_model_change_lock``) so their publishes
-        # complete inside this test — see the comment in
+        # complete inside this test: see the comment in
         # ``test_concurrent_change_model_calls_do_not_interleave``.
         if mm._model_change_thread is not None:
             mm._model_change_thread.join(timeout=5.0)
@@ -323,7 +323,7 @@ class TestConcurrentCallsSerialize:
 
         assert max_concurrent_loads[0] <= 1, (
             f"Concurrent load_active calls detected: max={max_concurrent_loads[0]} "
-            "(expected ≤1 — _model_change_lock should serialize)"
+            "(expected ≤1, _model_change_lock should serialize)"
         )
 
 
@@ -386,7 +386,7 @@ class TestApplyPendingModelChangeUsesBlocking:
         mm, app, engine, _ = _make_mm_with_mock_backend(backend_name="whisper")
         # Set up a pending change.
         mm._pending_model_change = "parakeet"
-        # Make sure the background path is NOT taken — verify the load
+        # Make sure the background path is NOT taken, verify the load
         # completes before return by checking the event was published.
         received: list[dict] = []
 

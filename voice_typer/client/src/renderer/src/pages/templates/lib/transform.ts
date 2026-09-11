@@ -35,7 +35,7 @@ export function toRows(items: Template[]): TemplateRow[] {
 	});
 }
 
-//inverse of `toRows` — maps the React-state TemplateRow[]
+//inverse of `toRows`, maps the React-state TemplateRow[]
 // back to the persisted Template[] shape so `saveTemplate` and the
 // `instantDeleteTemplate` undo callback can read the LATEST list from
 // the `templatesRef` mirror (kept in sync by the effect below) instead
@@ -44,7 +44,7 @@ export function toRows(items: Template[]): TemplateRow[] {
 //   1. Stale-closure: the undo callback previously closed over the
 //      `tmpl.index` captured at delete time, but re-read from
 //      localStorage which may have been re-written by other
-//      add/edit/delete operations in the 6s undo window — so the
+//      add/edit/delete operations in the 6s undo window, so the
 //      splice at the captured index landed at the WRONG position and
 //      could silently reorder templates or insert duplicates.
 //   2. Lost-edits: any add/edit of OTHER templates between the delete

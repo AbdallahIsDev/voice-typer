@@ -2,7 +2,7 @@
 
 This file pins the Group-4 fixes for the two findings:
 
-* **DE-30** — ``ConsentRequiredError`` had no ``provider`` / ``scope``
+* **DE-30**: ``ConsentRequiredError`` had no ``provider`` / ``scope``
   attributes, so the IPC layer could not distinguish "HuggingFace
   download consent missing" from "OpenAI cloud-transcription consent
   missing".  The fix added ``provider: str = ""`` and ``scope: str = ""``
@@ -12,10 +12,10 @@ This file pins the Group-4 fixes for the two findings:
   ``scope="transcribe"`` and a per-instance ``provider`` set in
   ``__init__``).
 
-* **DE-31** — the cloud-engine fallback path
+* **DE-31**, the cloud-engine fallback path
   (``CloudEngine.transcribe_with_fallback``) caught a broad
   ``except Exception`` that swallowed ``ConsentRequiredError`` and
-  silently routed the request to the local whisper engine — defeating
+  silently routed the request to the local whisper engine, defeating
   the NEW-PRIV-006 consent gate.  Similarly, the IPC dispatch path
   (TCP + stdin) caught a broad ``except Exception`` that turned the
   consent signal into a generic ``server.internal_error`` toast,
@@ -28,16 +28,16 @@ This file pins the Group-4 fixes for the two findings:
 
 The tests are split into four classes:
 
-1. ``TestConsentRequiredErrorAttributes`` — pins the class-attribute
+1. ``TestConsentRequiredErrorAttributes``, pins the class-attribute
    defaults and subclass overrides introduced by DE-30.
-2. ``TestCloudEngineRaisesCloudConsentRequiredError`` — verifies the
+2. ``TestCloudEngineRaisesCloudConsentRequiredError``, verifies the
    cloud-engines raise site now raises the typed subclass carrying
    ``provider`` / ``scope``.
-3. ``TestTranscribeWithFallbackRespectsConsent`` — verifies the
+3. ``TestTranscribeWithFallbackRespectsConsent``, verifies the
    narrowed ``except`` clause in
    ``CloudEngine.transcribe_with_fallback`` no longer swallows
    ``ConsentRequiredError`` (DE-31 cloud-side fix).
-4. ``TestIpcDispatchConsentRequiredEnvelope`` — end-to-end TCP test
+4. ``TestIpcDispatchConsentRequiredEnvelope``, end-to-end TCP test
    that a handler raising ``ConsentRequiredError`` produces a
    structured ``consent_required`` envelope (not the generic
    ``server.internal_error`` toast) and keeps the connection alive
@@ -102,7 +102,7 @@ class TestConsentRequiredErrorAttributes:
         assert exc.provider == "huggingface"
         assert exc.scope == "download"
         assert "hf consent missing for model X" in str(exc)
-        # isinstance check for the base class still passes — backward
+        # isinstance check for the base class still passes, backward
         # compat for legacy ``except ConsentRequiredError`` clauses.
         from voice_typer.server.asr_errors import ConsentRequiredError
 
@@ -117,7 +117,7 @@ class TestConsentRequiredErrorAttributes:
         assert issubclass(CloudConsentRequiredError, ConsentRequiredError)
         # scope is a class attribute (always "transcribe").
         assert CloudConsentRequiredError.scope == "transcribe"
-        # provider is per-instance (NOT set at class level) — the class
+        # provider is per-instance (NOT set at class level), the class
         # attribute is inherited from the base (empty string).
         assert CloudConsentRequiredError.provider == ""
 
@@ -138,7 +138,7 @@ class TestConsentRequiredErrorAttributes:
     def test_cloud_subclass_accepts_message_only(self):
         """DE-30: ``CloudConsentRequiredError(message)`` still works
         without ``provider=`` kwarg (degrades to empty string for the
-        provider attribute — backward-compat for callers that haven't
+        provider attribute, backward-compat for callers that haven't
         been updated yet).
         """
         from voice_typer.server.asr_errors import CloudConsentRequiredError
@@ -171,7 +171,7 @@ class TestCloudEngineRaisesCloudConsentRequiredError:
         with pytest.raises(CloudConsentRequiredError) as exc_info:
             eng.transcribe(audio)
 
-        # The typed subclass is also an instance of the base — so
+        # The typed subclass is also an instance of the base, so
         # legacy ``except ConsentRequiredError`` clauses still catch it.
         assert isinstance(exc_info.value, ConsentRequiredError)
         # Provider is carried through from the CloudEngine instance.
@@ -200,7 +200,7 @@ class TestCloudEngineRaisesCloudConsentRequiredError:
 class TestTranscribeWithFallbackRespectsConsent:
     """DE-31: ``CloudEngine.transcribe_with_fallback`` must NOT silently
     fall back to the local engine when the cloud path raised
-    ``ConsentRequiredError`` — the consent denial is an intentional user
+    ``ConsentRequiredError``, the consent denial is an intentional user
     action and must propagate to the IPC layer for the consent dialog.
     """
 
@@ -233,7 +233,7 @@ class TestTranscribeWithFallbackRespectsConsent:
         ):
             eng.transcribe_with_fallback(audio, local_engine=local_engine)
 
-        # The local fallback MUST NOT have been called — consent
+        # The local fallback MUST NOT have been called, consent
         # denial propagates instead of triggering a silent fallback.
         local_engine.transcribe.assert_not_called()
 
@@ -241,7 +241,7 @@ class TestTranscribeWithFallbackRespectsConsent:
         """DE-31: the narrowed ``except (RuntimeError, OSError)`` clause
         must STILL trigger the local-engine fallback for genuine
         cloud failures (network outage, 5xx, etc.).  This is the
-        original PERF-NEW-010 resilience behavior — we must not
+        original PERF-NEW-010 resilience behavior, we must not
         regress it while narrowing the broad ``except Exception``.
         """
         import numpy as np
@@ -262,8 +262,8 @@ class TestTranscribeWithFallbackRespectsConsent:
         local_engine.transcribe.assert_called_once()
 
     def test_oserror_still_triggers_local_fallback(self):
-        """DE-31: ``URLError`` (an ``OSError``) — the most common
-        cloud-failure mode — must still trigger the local fallback.
+        """DE-31: ``URLError`` (an ``OSError``), the most common
+        cloud-failure mode, must still trigger the local fallback.
         This pins the second half of the narrowed clause
         (``RuntimeError, OSError``).
         """
@@ -287,8 +287,8 @@ class TestTranscribeWithFallbackRespectsConsent:
         local_engine.transcribe.assert_called_once()
 
     def test_unexpected_exception_does_not_silently_fallback(self):
-        """DE-31: a non-(RuntimeError, OSError) exception — e.g. a
-        ``TypeError`` from a signature-drift bug — must NOT silently
+        """DE-31: a non-(RuntimeError, OSError) exception, e.g. a
+        ``TypeError`` from a signature-drift bug, must NOT silently
         trigger the local fallback.  Previously the broad
         ``except Exception`` caught it and the bug was masked by the
         fallback succeeding; now the unexpected exception propagates
@@ -303,7 +303,7 @@ class TestTranscribeWithFallbackRespectsConsent:
         local_engine.transcribe.return_value = "local fallback text"
 
         def raise_type_error(_audio):
-            raise TypeError("signature drift bug — wrong number of args")
+            raise TypeError("signature drift bug, wrong number of args")
 
         with (
             pytest.raises(TypeError, match="signature drift bug"),
@@ -311,7 +311,7 @@ class TestTranscribeWithFallbackRespectsConsent:
         ):
             eng.transcribe_with_fallback(audio, local_engine=local_engine)
 
-        # The local fallback MUST NOT have been called — TypeError
+        # The local fallback MUST NOT have been called, TypeError
         # indicates a programmer error, not a cloud outage.
         local_engine.transcribe.assert_not_called()
 
@@ -501,7 +501,7 @@ class TestIpcDispatchConsentRequiredEnvelope:
     """DE-31: a handler raising ``ConsentRequiredError`` must produce a
     structured ``consent_required`` error envelope (carrying
     ``provider`` / ``scope``) instead of the generic
-    ``server.internal_error`` toast — and must NOT tear down the TCP
+    ``server.internal_error`` toast, and must NOT tear down the TCP
     connection.
     """
 
@@ -512,7 +512,7 @@ class TestIpcDispatchConsentRequiredEnvelope:
 
         def raise_cloud_consent(data, resp):  # noqa: ARG001
             raise CloudConsentRequiredError(
-                "Cloud openai consent not given — refusing to send audio.",
+                "Cloud openai consent not given, refusing to send audio.",
                 provider="openai",
             )
 
@@ -524,7 +524,7 @@ class TestIpcDispatchConsentRequiredEnvelope:
         assert resp["type"] == "error", f"Expected error envelope, got: {resp}"
         assert resp.get("id") == 42, f"Response id mismatch: {resp}"
         # The consent handler produces ``code: consent_required`` (NOT
-        # ``server.internal_error`` — that would hide the consent signal
+        # ``server.internal_error``, that would hide the consent signal
         # from the renderer's consent-dialog logic).
         assert resp["data"]["code"] == "server.consent_required", f"Expected code=consent_required, got: {resp}"
         # provider / scope are surfaced from the exception so the
@@ -542,7 +542,7 @@ class TestIpcDispatchConsentRequiredEnvelope:
 
         def raise_hf_consent(data, resp):  # noqa: ARG001
             raise HuggingFaceConsentRequiredError(
-                "HuggingFace consent not given — refusing to download model 'small.en'."
+                "HuggingFace consent not given, refusing to download model 'small.en'."
             )
 
         monkeypatch.setattr(server, "_handle_get_status", raise_hf_consent)
@@ -554,7 +554,7 @@ class TestIpcDispatchConsentRequiredEnvelope:
         assert resp.get("id") == 7
         assert resp["data"]["code"] == "server.consent_required"
         # ``provider`` / ``scope`` come from the subclass's class
-        # attributes () — they're NOT set per-instance like
+        # attributes (), they're NOT set per-instance like
         # ``CloudConsentRequiredError``.
         assert resp["data"]["provider"] == "huggingface"
         assert resp["data"]["scope"] == "download"
@@ -564,7 +564,7 @@ class TestIpcDispatchConsentRequiredEnvelope:
         """DE-30 backward compat: a legacy ``raise
         ConsentRequiredError("...")`` callsite (no provider/scope set)
         must still produce a ``consent_required`` envelope, with empty
-        ``provider`` / ``scope`` strings — so the IPC layer's
+        ``provider`` / ``scope`` strings, so the IPC layer's
         ``getattr(exc, "provider", "")`` reads degrade gracefully on
         older raise sites that haven't been migrated to the typed
         subclasses yet (e.g. transcription.py / parakeet_engine.py
@@ -593,7 +593,7 @@ class TestIpcDispatchConsentRequiredEnvelope:
 
     def test_consent_error_does_not_mask_as_internal_error(self, authenticated_client, monkeypatch):
         """DE-31 regression: the ``except ConsentRequiredError`` clause
-        MUST come BEFORE the generic ``except Exception`` — otherwise
+        MUST come BEFORE the generic ``except Exception``, otherwise
         the consent signal would be swallowed into a generic
         ``server.internal_error`` toast.  This test pins the clause
         ordering by asserting that a ``ConsentRequiredError`` produces
@@ -612,17 +612,17 @@ class TestIpcDispatchConsentRequiredEnvelope:
         resp = _read_response_line(client, timeout=2.0)
 
         # The deciding assertion: code is consent_required, NOT
-        # server.internal_error — the consent handler ran first.
+        # server.internal_error, the consent handler ran first.
         assert resp["data"]["code"] != "server.internal_error", (
             f"ConsentRequiredError was swallowed by the generic except "
-            f"Exception clause — clause ordering is wrong: {resp}"
+            f"Exception clause, clause ordering is wrong: {resp}"
         )
         assert resp["data"]["code"] == "server.consent_required"
         assert resp["data"]["provider"] == "groq"
 
     def test_connection_survives_consent_error(self, authenticated_client, monkeypatch):
         """DE-31: after a ``consent_required`` envelope, the same TCP
-        socket must accept and respond to a subsequent request — the
+        socket must accept and respond to a subsequent request, the
         connection survives (mirrors the B-6 contract for the generic
         dispatch safety net).
         """
@@ -641,18 +641,18 @@ class TestIpcDispatchConsentRequiredEnvelope:
 
         monkeypatch.setattr(server, "_handle_get_status", consent_then_ok)
 
-        # First call — consent required envelope.
+        # First call, consent required envelope.
         _send_line(client, {"id": 1, "type": "get_status"})
         resp1 = _read_response_line(client, timeout=2.0)
         assert resp1["type"] == "error"
         assert resp1["data"]["code"] == "server.consent_required"
 
-        # Second call on the SAME socket — connection must survive
+        # Second call on the SAME socket, connection must survive
         # and the handler (now un-flaked) returns a normal status.
         _send_line(client, {"id": 2, "type": "get_status"})
         resp2 = _read_response_line(client, timeout=2.0)
         assert resp2["type"] == "status", (
-            f"Second response should be a normal status — connection "
+            f"Second response should be a normal status, connection "
             f"did not survive the prior consent_required envelope: {resp2}"
         )
         assert resp2.get("id") == 2

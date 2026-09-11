@@ -2,7 +2,7 @@
 
 The ``durability`` parameter on :meth:`PersistedJSON.save` forwards
 to :func:`_secure_atomic_write`. ``True`` (default) preserves the
-existing POSIX-durability behavior (two ``fsync`` calls — file data
+existing POSIX-durability behavior (two ``fsync`` calls, file data
 + parent dir) used by :meth:`Config.save` and ``credential_store``
 where the fsync cost is justified. ``False`` skips the fsync calls
 — the atomic ``os.replace`` still guarantees consistency (no
@@ -37,7 +37,7 @@ def _patched_atomic_write(monkeypatch):
     """Replace ``_secure_atomic_write`` with a MagicMock that records
     the ``durability`` kwarg it was called with.
 
-    The mock does NOT touch the filesystem — the test asserts on the
+    The mock does NOT touch the filesystem, the test asserts on the
     call args only, so the actual write is irrelevant.
     """
     mock = MagicMock()
@@ -55,7 +55,7 @@ def _patched_atomic_write(monkeypatch):
 def test_save_default_passes_durability_true(tmp_path: Path, _patched_atomic_write: MagicMock) -> None:
     """Default ``save(data)`` forwards ``durability=True``.
 
-    Preserves the historical behaviour — callers that do not opt in
+    Preserves the historical behaviour, callers that do not opt in
     to the durability-skipping path get the same fsync-on-every-save
     guarantee as before DJ-52.
     """
@@ -74,7 +74,7 @@ def test_save_default_passes_durability_true(tmp_path: Path, _patched_atomic_wri
 def test_save_durability_false_is_forwarded(tmp_path: Path, _patched_atomic_write: MagicMock) -> None:
     """``save(data, durability=False)`` forwards ``durability=False``.
 
-    This is the DJ-52 fix — vocabulary/templates callers pass
+    This is the DJ-52 fix, vocabulary/templates callers pass
     ``durability=False`` to skip the two fsync calls per save.
     """
     store = PersistedJSON(tmp_path / "fast.json", default={})
@@ -91,7 +91,7 @@ def test_save_durability_false_is_forwarded(tmp_path: Path, _patched_atomic_writ
 def test_save_durability_true_is_forwarded(tmp_path: Path, _patched_atomic_write: MagicMock) -> None:
     """Explicit ``save(data, durability=True)`` is equivalent to the default.
 
-    Defensive — callers that want to be explicit about the durability
+    Defensive, callers that want to be explicit about the durability
     guarantee (e.g. credential_store) should get the same behaviour
     as the default.
     """
@@ -107,7 +107,7 @@ def test_save_durability_false_still_writes_atomically(tmp_path: Path, monkeypat
     """``durability=False`` does NOT skip the atomic write itself.
 
     The atomicity guarantee (``os.replace`` of a fully-written tmp
-    file) is preserved regardless of the durability flag — only the
+    file) is preserved regardless of the durability flag, only the
     ``fsync`` calls are skipped. This test verifies the file is
     actually written to disk with the expected content when
     ``durability=False``.
@@ -137,7 +137,7 @@ def test_save_durability_false_skips_fsync(tmp_path: Path, monkeypatch) -> None:
 
     def counting_fsync(fd: int) -> None:
         fsync_calls.append(fd)
-        # Don't actually call real_fsync — the test doesn't need
+        # Don't actually call real_fsync, the test doesn't need
         # durability, and skipping the real syscall speeds up the
         # test. The fd is real but the test doesn't care about the
         # data being durable.
@@ -148,15 +148,14 @@ def test_save_durability_false_skips_fsync(tmp_path: Path, monkeypatch) -> None:
     store.save({"key": "value"}, durability=False)
 
     assert fsync_calls == [], (
-        "durability=False must NOT call os.fsync — that's the whole point "
-        f"of DJ-52 (got {len(fsync_calls)} fsync calls)"
+        f"durability=False must NOT call os.fsync, that's the whole point of DJ-52 (got {len(fsync_calls)} fsync calls)"
     )
 
 
 def test_save_durability_true_calls_fsync(tmp_path: Path, monkeypatch) -> None:
     """``durability=True`` (default) DOES call ``os.fsync``.
 
-    Regression guard for the inverse direction — the durability flag
+    Regression guard for the inverse direction, the durability flag
     must actually control whether fsync is called, not be a no-op.
     """
     import os
@@ -167,7 +166,7 @@ def test_save_durability_true_calls_fsync(tmp_path: Path, monkeypatch) -> None:
         fsync_calls.append(fd)
         # Call the real fsync so the durability guarantee is preserved
         # (the test asserts the call count, not the durability
-        # outcome — but calling the real fsync makes the test more
+        # outcome, but calling the real fsync makes the test more
         # realistic).
 
     monkeypatch.setattr(os, "fsync", counting_fsync)
@@ -176,6 +175,6 @@ def test_save_durability_true_calls_fsync(tmp_path: Path, monkeypatch) -> None:
     store.save({"key": "value"}, durability=True)
 
     assert len(fsync_calls) >= 1, (
-        "durability=True must call os.fsync at least once (file data) — "
+        "durability=True must call os.fsync at least once (file data), "
         "the durability flag must actually control the fsync behaviour"
     )

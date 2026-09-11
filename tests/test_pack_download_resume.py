@@ -1,11 +1,11 @@
-"""§8.1 — Partial download resume.
+"""§8.1: Partial download resume.
 
 Spec (plan-runtime-pack-split.md §8.1):
 
   The pack downloader reuses the resume pattern from
   ``service/model.py:_download_whisper_family``. The partial file is
   saved as ``pack-<version>.partial``; on next launch, it continues
-  from the byte offset. The partial file is never trusted — only a
+  from the byte offset. The partial file is never trusted, only a
   fully downloaded, checksum-verified pack is ever used.
 
 Tested behaviors:
@@ -15,7 +15,7 @@ Tested behaviors:
      records the request offset).
   2. The resumed download appends to the partial (not truncates).
   3. The final SHA-256 covers the whole file (partial + appended
-     bytes) — a wrong SHA-256 → False + partial deleted.
+     bytes), a wrong SHA-256 → False + partial deleted.
   4. A correct SHA-256 → True + ``pack_download_completed`` event.
   5. A truncated/corrupt partial (re-hash fails) restarts from 0.
 """
@@ -68,7 +68,7 @@ def _iter_chunks(buf: bytes, chunk_bytes: int):
 
 
 class TestResumeFromPartial:
-    """§8.1 — a partial file triggers a resumed download."""
+    """§8.1, a partial file triggers a resumed download."""
 
     def test_resume_sends_range_header(self, tmp_path: Path):
         """A partial file at ``pack-v1.partial`` causes the next call to
@@ -232,7 +232,7 @@ class TestResumeStatusContract:
     means the file is already complete."""
 
     def test_resume_with_206_appends(self, tmp_path: Path):
-        """A 206 response (partial content) appends at the offset — the
+        """A 206 response (partial content) appends at the offset, the
         normal, well-behaved resume path."""
         full = b"z" * 2048
         expected = hashlib.sha256(full).hexdigest()
@@ -258,7 +258,7 @@ class TestResumeStatusContract:
 
     def test_resume_with_200_restarts_from_zero(self, tmp_path: Path):
         """A 200 (server ignored the Range header) MUST NOT be appended
-        after the existing partial — that corrupts the file. The download
+        after the existing partial, that corrupts the file. The download
         restarts from byte 0 with a fresh write."""
         full = b"a" * 3000
         expected = hashlib.sha256(full).hexdigest()
@@ -287,7 +287,7 @@ class TestResumeStatusContract:
 
     def test_416_with_matching_total_is_already_complete(self, tmp_path: Path):
         """A 416 whose Content-Range total equals the partial size means
-        the pack is fully downloaded — verify + succeed WITHOUT a second
+        the pack is fully downloaded, verify + succeed WITHOUT a second
         request or any body transfer."""
         full = b"q" * 1024
         expected = hashlib.sha256(full).hexdigest()
@@ -311,7 +311,7 @@ class TestResumeStatusContract:
         )
 
         assert ok is True
-        # No body was consumed — the file was already complete.
+        # No body was consumed, the file was already complete.
         assert consumed["chunks_read"] is False
         assert dest.read_bytes() == full
 
@@ -338,11 +338,11 @@ class TestResumeStatusContract:
 
     def test_416_with_larger_total_restarts(self, tmp_path: Path):
         """A 416 whose total does NOT match the partial (partial larger
-        than the file — corrupt) restarts from byte 0."""
+        than the file, corrupt) restarts from byte 0."""
         full = b"b" * 400
         expected = hashlib.sha256(full).hexdigest()
         dest = tmp_path / "pack-v1.partial"
-        dest.write_bytes(b"garbage" * 200)  # 1400 bytes — larger than the file
+        dest.write_bytes(b"garbage" * 200)  # 1400 bytes, larger than the file
         fake, calls = _make_status_transport(
             {1400: full, 0: full},
             statuses={0: 416, 1: 200},
@@ -362,7 +362,7 @@ class TestResumeStatusContract:
         assert dest.read_bytes() == full
 
     def test_416_at_offset_zero_raises(self, tmp_path: Path):
-        """A 416 for a zero-offset request is a server anomaly — surface
+        """A 416 for a zero-offset request is a server anomaly, surface
         it instead of looping."""
 
         def fake(url, *, offset=0):
@@ -385,7 +385,7 @@ def _boom_iter(consumed: dict):
 
 
 # ── Default transport: resource + redirect discipline (proactive
-# close-out — the response-close/SSRF-redirect-handler half of the
+# close-out, the response-close/SSRF-redirect-handler half of the
 # offline-pack transport hardening)
 # ─────────────────────────────────────────────────────────────────────────
 
@@ -417,13 +417,13 @@ class _FakeStreamingResponse:
 
 
 class TestHttpStreamingResourceDiscipline:
-    """``_http_get_streaming`` — the response is closed on EVERY exit
-    path (rate-limit raise, non-200/206 raise, generator exhaustion,
-    early generator close), and the opener installs the SSRF-aware
-    redirect handler from ``update_check`` (imported — not copied).
+    """``_http_get_streaming``, the response is closed on EVERY exit
+      path (rate-limit raise, non-200/206 raise, generator exhaustion,
+      early generator close), and the opener installs the SSRF-aware
+      redirect handler from ``update_check`` (imported, not copied).
 
-    All network I/O is faked via a patched ``urllib.request.build_opener``
-    — no real connections are made.
+      All network I/O is faked via a patched ``urllib.request.build_opener``
+    , no real connections are made.
     """
 
     @staticmethod
@@ -449,7 +449,7 @@ class TestHttpStreamingResourceDiscipline:
         return handler_args
 
     def test_non_200_raise_path_closes_response(self, monkeypatch):
-        """A non-200/206 status raises AND closes the response — the
+        """A non-200/206 status raises AND closes the response, the
         socket is not left to GC."""
         resp = _FakeStreamingResponse(500)
         self._patch_build_opener(monkeypatch, resp)
@@ -474,7 +474,7 @@ class TestHttpStreamingResourceDiscipline:
 
     def test_open_installs_ssrf_aware_redirect_handler(self, monkeypatch):
         """Structural pin: the opener is built with update_check's
-        ``_SSRFAwareRedirectHandler`` (imported — E7, not copied), so a
+        ``_SSRFAwareRedirectHandler`` (imported, E7, not copied), so a
         3xx hop is re-validated on the body-download path too."""
         from voice_typer.server.service.update_check import _SSRFAwareRedirectHandler
 
@@ -490,7 +490,7 @@ class TestHttpStreamingResourceDiscipline:
 
     def test_generator_closes_response_on_exhaustion(self, monkeypatch):
         """Consuming the body to EOF closes the response (the
-        generator's ``finally``) — not just the next GC cycle."""
+        generator's ``finally``), not just the next GC cycle."""
         resp = _FakeStreamingResponse(200, b"chunk-of-bytes")
         self._patch_build_opener(monkeypatch, resp)
 
@@ -501,7 +501,7 @@ class TestHttpStreamingResourceDiscipline:
         assert resp.close_calls == 1, "response was not closed after body exhaustion"
 
     def test_generator_closes_response_on_early_close(self, monkeypatch):
-        """An abandoned generator (caller ``close()`` — e.g. the disk-full
+        """An abandoned generator (caller ``close()``, e.g. the disk-full
         path in ``_stream_response_to_disk``) closes the response without
         exhausting the body."""
         resp = _FakeStreamingResponse(200, b"chunk-of-bytes")
@@ -516,11 +516,11 @@ class TestHttpStreamingResourceDiscipline:
 
     def test_stream_to_disk_closes_the_transport_iterator(self, monkeypatch, tmp_path: Path):
         """``_stream_response_to_disk`` deterministically closes the
-        transport iterator when the write loop is abandoned (disk full)
-        — the transport generator's ``finally`` runs then, not at GC.
+          transport iterator when the write loop is abandoned (disk full)
+        , the transport generator's ``finally`` runs then, not at GC.
 
-        The write failure is simulated by making ``dest.open`` raise
-        after the first chunk is pulled.
+          The write failure is simulated by making ``dest.open`` raise
+          after the first chunk is pulled.
         """
         resp = _FakeStreamingResponse(200, b"chunk-of-bytes")
         self._patch_build_opener(monkeypatch, resp)
@@ -540,7 +540,7 @@ class TestHttpStreamingResourceDiscipline:
                 return len(data)
 
             def __enter__(self):
-                # ``real_open`` bypasses the patched ``Path.open`` — no
+                # ``real_open`` bypasses the patched ``Path.open``, no
                 # recursion into ``fake_open``.
                 self._real = real_open(dest, "wb")
                 return self
@@ -579,7 +579,7 @@ class TestHttpStreamingResourceDiscipline:
 
     def test_redirect_to_private_ip_is_rejected(self, monkeypatch):
         """Behavioral pin: a 3xx redirect to a private IP on the
-        body-download path raises ``RuntimeError`` (SSRF block) — the
+        body-download path raises ``RuntimeError`` (SSRF block), the
         SSRF-aware handler actually routes, not just installs.
 
         This test FAILS on revert: with urllib's default redirect

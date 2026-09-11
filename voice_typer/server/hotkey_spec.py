@@ -1,15 +1,15 @@
-"""Canonical hotkey spec parser — the single source of truth.
+"""Canonical hotkey spec parser, the single source of truth.
 
 (Hotkey parser unification): previously the codebase had four
 independent hotkey parsers with subtly different behaviour:
 
-1. ``_parse_hotkey_parts`` in ``config_validators.py`` — simple
+1. ``_parse_hotkey_parts`` in ``config_validators.py``, simple
    strip + split + lower.
-2. ``_parse_hotkey_to_pynput`` in ``hotkeys.py`` — returns pynput
+2. ``_parse_hotkey_to_pynput`` in ``hotkeys.py``, returns pynput
    ``Key`` / ``KeyCode`` objects.
-3. ``parse_hotkey_to_win32`` in ``hotkeys.py`` — returns
+3. ``parse_hotkey_to_win32`` in ``hotkeys.py``, returns
    ``(vk, modifiers)`` for Win32 ``RegisterHotKey``.
-4. ``parse_hotkey_spec`` in ``native_hotkeys.py`` — returns a dict
+4. ``parse_hotkey_spec`` in ``native_hotkeys.py``, returns a dict
    with ``modifiers``, ``main_key``, ``is_modifier_only``, etc.
 
 They diverged on modifier-alias handling (e.g. ``win`` / ``super`` /
@@ -17,7 +17,7 @@ They diverged on modifier-alias handling (e.g. ``win`` / ``super`` /
 vs ``CapsLock`` wire-protocol name) and multi-key handling
 (first-match-wins vs. silently dropping extras).
 
-This module provides :func:`parse_hotkey` — the SINGLE CANONICAL
+This module provides :func:`parse_hotkey`: the SINGLE CANONICAL
 parser. All other parsers should delegate to it for the
 tokenisation / alias-resolution step, then apply their own
 platform-specific concerns (VK-code lookup, pynput ``Key`` mapping,
@@ -42,7 +42,7 @@ log = logging.getLogger(__name__)
 
 # Canonical modifier names (lowercase). All aliases normalise to one of
 # these. This is the SINGLE SOURCE OF TRUTH for modifier alias
-# resolution — no other module should maintain its own alias table.
+# resolution, no other module should maintain its own alias table.
 MODIFIER_ALIASES: dict[str, str] = {
     "ctrl": "ctrl",
     "control": "ctrl",
@@ -83,7 +83,7 @@ class HotkeySpec:
         keys: Non-modifier key names (lowercase, no angle brackets).
             The first element (if any) is the "main" key. Subsequent
             elements are extra keys that the canonical parser kept
-            rather than silently dropping — adapters that only support
+            rather than silently dropping, adapters that only support
             one main key (Win32 ``RegisterHotKey``, pynput) take
             ``keys[0]`` and ignore the rest.
         is_modifier_only: True if there is at least one modifier and
@@ -143,7 +143,7 @@ def parse_hotkey(spec: str) -> HotkeySpec:
     - Preserves the distinction between ``alt`` and ``alt_gr``.
 
     The parser does NOT do key-name normalisation (e.g. ``caps_lock``
-    → ``CapsLock`` wire-protocol name) — that is a separate concern
+    → ``CapsLock`` wire-protocol name): that is a separate concern
     handled by ``_normalize_key_name`` in ``native_hotkeys.py``.
     Likewise, VK-code lookup (``hotkeys._VK_MAP``) and pynput
     ``Key`` / ``KeyCode`` conversion are separate concerns handled by

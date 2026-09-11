@@ -16,7 +16,7 @@ These tests verify:
    - Refuses to grow the baseline (exit 1).
    - Successfully shrinks the baseline when counts decrease.
    - Preserves underscore-prefixed metadata fields.
-4. The ratchet *currently* holds — i.e. the actual ruff violation count
+4. The ratchet *currently* holds, i.e. the actual ruff violation count
    in ``voice_typer/server/`` is ``<=`` the baseline. This catches the
    case where a contributor adds a violation but forgets to update the
    baseline (CI would catch this too, but the local test surfaces it
@@ -122,7 +122,7 @@ class TestBaselineSchema:
         tc = baseline["total_count"]
         assert isinstance(tc, int), f"total_count must be int, got {type(tc).__name__}"
         assert tc >= 0, f"total_count must be >= 0, got {tc}"
-        # bool is a subclass of int in Python — reject it explicitly.
+        # bool is a subclass of int in Python, reject it explicitly.
         assert isinstance(tc, int) and not isinstance(tc, bool), "total_count must be int, not bool"
 
     def test_by_rule_is_object(self) -> None:
@@ -157,7 +157,7 @@ class TestBaselineSchema:
     def test_metadata_fields_are_optional_and_ignored(self) -> None:
         """Underscore-prefixed metadata fields are allowed but not required."""
         baseline = _load_baseline()
-        # No assertion on presence — just verify no non-underscore non-required fields exist.
+        # No assertion on presence, just verify no non-underscore non-required fields exist.
         allowed = set(REQUIRED_FIELDS)
         for key in baseline:
             if key in allowed:
@@ -220,14 +220,14 @@ class TestCompareLogic:
         The two-rule baseline (B007 + UP007) is needed by
         ``test_per_rule_regression_with_same_total_fails`` which
         grows one rule's count and shrinks another's to keep the
-        total constant — that's the only way to trigger the
+        total constant, that's the only way to trigger the
         per-rule-regression-with-same-total code path.
         """
         baseline_file = tmp_path / "ruff-baseline.json"
         baseline_file.write_text(
             json.dumps(
                 {
-                    "_comment": "synthetic baseline for TestCompareLogic — tmp_path",
+                    "_comment": "synthetic baseline for TestCompareLogic, tmp_path",
                     "_target": "voice_typer/ tests/ scripts/ conftest.py",
                     "_schema_version": 1,
                     "total_count": 4,
@@ -345,7 +345,7 @@ class TestRegenerateLogic:
     synthetic non-empty baseline before each test (in addition to
     restoring the original after). The previous version only
     restored, which left the test exposed to the actual repo
-    baseline content — when parallel-agent cleanup reset
+    baseline content, when parallel-agent cleanup reset
     ``total_count`` to 0, the regenerate-refuses-to-grow guard
     rejected every test's synthetic input as a "regression" (3 > 0),
     breaking 3 tests. Seeding a known starting point (3 violations
@@ -360,7 +360,7 @@ class TestRegenerateLogic:
         the regenerate tests seed a synthetic non-empty baseline
         so they are deterministic and independent of the repo baseline
         state. The synthetic file now lives in ``tmp_path`` and the
-        script is redirected there via ``RUFF_BASELINE_PATH`` — the
+        script is redirected there via ``RUFF_BASELINE_PATH``, the
         repo's real ``ruff-baseline.json`` is never written, so an
         interrupted test run cannot leave a fake baseline on disk.
         """
@@ -368,7 +368,7 @@ class TestRegenerateLogic:
         baseline_file.write_text(
             json.dumps(
                 {
-                    "_comment": "synthetic baseline for TestRegenerateLogic — tmp_path",
+                    "_comment": "synthetic baseline for TestRegenerateLogic, tmp_path",
                     "_target": "voice_typer/ tests/ scripts/ conftest.py",
                     "_schema_version": 1,
                     "total_count": 3,
@@ -381,7 +381,7 @@ class TestRegenerateLogic:
         yield
 
     def test_regenerate_refuses_to_grow(self) -> None:
-        # More violations than current baseline total — should refuse.
+        # More violations than current baseline total, should refuse.
         _baseline = json.loads(_baseline_path().read_text(encoding="utf-8"))
         _old_total = _baseline["total_count"]
         stdin = json.dumps([{"code": "UP007"}] * (_old_total + 5))
@@ -395,7 +395,7 @@ class TestRegenerateLogic:
         assert baseline["total_count"] == _old_total
 
     def test_regenerate_same_count_succeeds(self) -> None:
-        # Same count as input — should succeed (idempotent).
+        # Same count as input, should succeed (idempotent).
         stdin = json.dumps([{"code": "UP007"}] * 3)
         result = _run_script(["--regenerate", "--stdin"], stdin=stdin)
         assert result.returncode == 0
@@ -404,7 +404,7 @@ class TestRegenerateLogic:
         assert baseline["by_rule"] == {"UP007": 3}
 
     def test_regenerate_smaller_count_succeeds(self) -> None:
-        # 2 violations (down from 3) — should succeed.
+        # 2 violations (down from 3), should succeed.
         stdin = json.dumps([{"code": "UP007"}, {"code": "UP007"}])
         result = _run_script(["--regenerate", "--stdin"], stdin=stdin)
         assert result.returncode == 0
@@ -447,7 +447,7 @@ class TestRatchetHolds:
         # scope now matches ruff-baseline.json _target
         # (voice_typer/ tests/ scripts/ conftest.py). Previously this
         # test ran ruff against voice_typer/server/ only (3 violations)
-        # but compared against the 180-violation baseline — the test
+        # but compared against the 180-violation baseline, the test
         # always passed with "improved by 177" regardless of regressions
         # in tests/ or scripts/.
         ruff_result = subprocess.run(
@@ -467,7 +467,7 @@ class TestRatchetHolds:
             cwd=PROJECT_ROOT,
             timeout=60,
         )
-        # ruff exits 1 when violations are found — that's expected.
+        # ruff exits 1 when violations are found, that's expected.
         # Only fail on crashes (e.g. ruff not found, config errors).
         assert ruff_result.returncode in (0, 1), (
             f"ruff exited with unexpected code {ruff_result.returncode}.\n"
@@ -485,7 +485,7 @@ class TestRatchetHolds:
         )
 
     def test_f_rules_have_zero_violations(self) -> None:
-        """F-rules (pyflakes) are a hard-fail in CI — verify zero violations currently.
+        """F-rules (pyflakes) are a hard-fail in CI, verify zero violations currently.
 
         If this test fails, a real bug (unused import, undefined name,
         redefinition) was introduced. Fix it immediately; do NOT update
@@ -520,7 +520,7 @@ class TestRatchetHolds:
         assert ruff_result.returncode == 0, (
             f"F-rule violations found (these are real bugs):\n"
             f"{ruff_result.stdout}\n{ruff_result.stderr}\n"
-            f"Fix the violations — F-rules are a hard-fail in CI and are NOT "
+            f"Fix the violations, F-rules are a hard-fail in CI and are NOT "
             f"tracked by the ratchet baseline."
         )
 

@@ -2,11 +2,11 @@
 
 The default model is defined ONCE in the Python backend as
 ``voice_typer.server.model_registry.DEFAULT_MODEL_SIZE`` (the single
-source of truth — changing the default is a one-line change there).
+source of truth, changing the default is a one-line change there).
 The renderer's onboarding wizard has a TS-side copy at
 ``voice_typer/client/src/renderer/src/pages/onboarding/lib/constants.ts::MODEL_DEFAULT``.
 
-The two are independent — the TS file ships in the client bundle and
+The two are independent, the TS file ships in the client bundle and
 cannot import the Python constant at runtime. Drift between the two
 would make the onboarding wizard pre-select a different model than the
 backend's config default / load-time coercion reset target, so a user
@@ -20,7 +20,7 @@ the standard pytest collection. Mirrors the HOTKEY_DEFAULT parity test
 in ``tests/test_hotkey_default_parity.py``.
 
 The TS constant's canonical home is
-``voice_typer/client/src/renderer/src/lib/utils/models.ts`` — the
+``voice_typer/client/src/renderer/src/lib/utils/models.ts``, the
 layering fix moved the definition out of the onboarding page tree
 (the onboarding ``constants.ts`` now re-exports it for compatibility
 with the ~20 existing importers), so the extraction reads the lib
@@ -90,7 +90,7 @@ def test_constants_ts_model_default_matches_backend_default() -> None:
     resolves the same name (so the ~20 legacy importers keep working).
     """
     assert MODEL_DEFAULT_TS_PATH.exists(), (
-        f"models.ts not found at {MODEL_DEFAULT_TS_PATH} — has the renderer's lib/utils directory moved?"
+        f"models.ts not found at {MODEL_DEFAULT_TS_PATH}, has the renderer's lib/utils directory moved?"
     )
     ts_source = MODEL_DEFAULT_TS_PATH.read_text(encoding="utf-8")
     ts_value = _extract_model_default(ts_source)

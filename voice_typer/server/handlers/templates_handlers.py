@@ -8,7 +8,7 @@ this mixin's ``except Exception`` catch-alls call
 :meth:`HandlerBase._respond_with_error` (generic WS-path envelope,
 no ``str(e)`` leak). Per-command VALIDATION errors (``missing_field``,
 ``invalid_field``, ``invalid_payload``, ``payload_too_large``) remain
-EXPLICIT and are NOT routed through ``_respond_with_error`` — they are
+EXPLICIT and are NOT routed through ``_respond_with_error``, they are
 part of the documented IPC contract that the renderer switches on.
 """
 
@@ -40,7 +40,7 @@ class TemplatesHandlersMixin(HandlerBase):
             # Size-cap guard: the template store is unbounded at the
             # service layer (accumulated across saves). An oversized
             # serialized response would be SILENTLY dropped by the 1 MiB
-            # transport frame cap — fail fast with a clear structured
+            # transport frame cap, fail fast with a clear structured
             # error instead.
             payload = {"templates": templates}
             cap_error = _enforce_payload_size_cap(
@@ -69,14 +69,14 @@ class TemplatesHandlersMixin(HandlerBase):
         the IPC thread or blow up the on-disk JSON store. After the
         schema check, an inline loop rejects any ``trigger`` or
         ``output`` string longer than the module's per-field caps
-        (``MAX_TRIGGER_LENGTH`` / ``MAX_OUTPUT_LENGTH``) — a
+        (``MAX_TRIGGER_LENGTH`` / ``MAX_OUTPUT_LENGTH``), a
         defense-in-depth IPC guard that mirrors the templates module's
         own validation so the renderer gets a structured error with the
         offending field name. Oversized values return the explicit
         ``client.invalid_field`` envelope (with the offending field
         name) so the renderer can highlight the bad row.
         """
-        # TODO: not migrated to ``_wrap`` — has side effects
+        # TODO: not migrated to ``_wrap``: has side effects
         # (``self.service.save_templates`` writes to the on-disk JSON
         # store + ``log.warning`` calls + per-field validation loop
         # with ``_error_response`` + ``return resp`` early exits that
@@ -87,7 +87,7 @@ class TemplatesHandlersMixin(HandlerBase):
                 {
                     "templates": {"type": list, "required": True},
                     # 256 KB payload cap. ``_payload`` is a
-                    # sentinel field name — ``max_payload_bytes`` is a
+                    # sentinel field name, ``max_payload_bytes`` is a
                     # whole-payload rule, not a per-field rule, but the
                     # schema is keyed by field name so we use a ``_``
                     # prefix to signal "not a real field" (same idiom
@@ -104,7 +104,7 @@ class TemplatesHandlersMixin(HandlerBase):
                 # ``dict[str, str | dict[str, str]]`` (unifying all the
                 # ``"type": "error", "data": {...}`` branches). At runtime
                 # ``error["data"]`` is always a dict, but the type system
-                # can't prove it — narrow with ``isinstance`` so the
+                # can't prove it, narrow with ``isinstance`` so the
                 # ``["code"]`` / ``["message"]`` indexing type-checks.
                 _err_data = error.get("data")
                 if isinstance(_err_data, dict) and _err_data.get("code") == "invalid_payload":
@@ -118,7 +118,7 @@ class TemplatesHandlersMixin(HandlerBase):
 
             # Per-field length caps. The templates module enforces the
             # SAME caps downstream (MAX_TRIGGER_LENGTH / MAX_OUTPUT_LENGTH)
-            # — this IPC-level guard mirrors them so the renderer gets a
+            #: this IPC-level guard mirrors them so the renderer gets a
             # structured ``client.invalid_field`` envelope (with the
             # offending field name) instead of an oversized value
             # propagating into ``templates.save`` and surfacing as a

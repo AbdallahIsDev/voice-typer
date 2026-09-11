@@ -15,9 +15,9 @@ These tests pin the XV-103 fix:
 
 1. The module exposes ``_WE_ELEVATED_LOCK`` and ``_UIA_SINGLETON_LOCK``
    as ``threading.Lock`` instances.
-2. The fast path (cache hit) does NOT acquire the lock — verified by
+2. The fast path (cache hit) does NOT acquire the lock, verified by
    asserting the lock is un-acquired after a populated-cache call.
-3. The cold path serializes concurrent callers — verified by spawning
+3. The cold path serializes concurrent callers, verified by spawning
    N threads that all hit the cold path simultaneously and asserting
    the underlying Win32 / comtypes init runs exactly once.
 
@@ -59,7 +59,7 @@ def _set_byref_value(byref_obj: Any, value: int) -> None:
 def reset_caches():
     """Reset both module-level caches before AND after each test.
 
-    XV-103: the locks themselves are NOT reset (they're stateless) — only
+    XV-103: the locks themselves are NOT reset (they're stateless), only
     the cached values they protect. This mirrors what the existing
     ``_reset_we_elevated`` / ``_reset_uia_singleton`` fixtures in
     ``test_win32_copy_paste.py`` do.
@@ -231,9 +231,9 @@ class TestGetWeElevatedLockSemantics:
             t.join(timeout=0.2)
             assert t.is_alive(), (
                 "Worker should be blocked on the lock while the cache is "
-                "empty — cold path must acquire the lock before init."
+                "empty, cold path must acquire the lock before init."
             )
-            # Release the lock — worker should now complete.
+            # Release the lock, worker should now complete.
             lock.release()
             t.join(timeout=2.0)
             assert not t.is_alive(), "Worker should have completed after lock release"
@@ -259,7 +259,7 @@ class TestGetWeElevatedLockSemantics:
         before another observes the cache is still ``None``. We add a
         small ``time.sleep`` to the OpenProcessToken side_effect so the
         init holds the GIL long enough for all racing threads to observe
-        the empty cache — making the test reliably fail without the lock.
+        the empty cache, making the test reliably fail without the lock.
         """
         n_threads = 16
         barrier = threading.Barrier(n_threads)
@@ -343,7 +343,7 @@ class TestGetUiaSingletonLockSemantics:
             t.join(timeout=0.2)
             assert t.is_alive(), (
                 "Worker should be blocked on the lock while init hasn't "
-                "been attempted — cold path must acquire the lock."
+                "been attempted, cold path must acquire the lock."
             )
             lock.release()
             t.join(timeout=2.0)
@@ -366,7 +366,7 @@ class TestGetUiaSingletonLockSemantics:
         before another observes the flag is still ``False``. We add a
         small ``time.sleep`` to the CoCreateInstance side_effect so the
         init holds the GIL long enough for all racing threads to observe
-        the un-attempted init — making the test reliably fail without
+        the un-attempted init, making the test reliably fail without
         the lock.
         """
         n_threads = 16

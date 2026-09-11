@@ -5,27 +5,27 @@ authenticated GET via the bare ``urllib.request.urlopen(req, timeout=...)``
 call. The default ``urlopen`` opener installs ``HTTPRedirectHandler``,
 which silently follows 3xx responses. A malicious or compromised provider
 endpoint that returned ``302 Location: https://attacker.example.com/steal``
-would have caused urllib to re-issue the request — with the
-``Authorization: Bearer <api_key>`` header still attached — to the
+would have caused urllib to re-issue the request, with the
+``Authorization: Bearer <api_key>`` header still attached, to the
 attacker-controlled target. That is an API-key exfiltration surface.
 
 Post-fix, the handler uses the module-level secure opener
 ``_opener = build_secure_opener()`` (mirroring ``cloud_engines._opener``).
 ``build_secure_opener`` installs ``_NoRedirectHandler``, whose
-``redirect_request`` override raises ``HTTPError`` on a 3xx — so the
+``redirect_request`` override raises ``HTTPError`` on a 3xx, so the
 handler's existing ``except HTTPError`` branch catches the redirect and
 surfaces it as a hard ``cloud_test_result`` failure with the redirect's
 status code, rather than silently following it.
 
 These tests verify BOTH layers of the fix:
 
-1. **Structural** — the module-level ``_opener`` is a
+1. **Structural**, the module-level ``_opener`` is a
    ``build_secure_opener()`` instance whose handler chain contains
    ``_NoRedirectHandler`` (and the module does NOT import bare
    ``urlopen``). If a future refactor reverts to ``urlopen(req, ...)`` or
    swaps the opener for the default one, the structural test fails.
 
-2. **Behavioral** — when the provider endpoint returns a 3xx, the
+2. **Behavioral**, when the provider endpoint returns a 3xx, the
    handler surfaces a ``cloud_test_result`` envelope with the redirect's
    status code (NOT a 200 from a silently-followed redirect), and the
    opener is invoked exactly once (no retransmission to the redirect
@@ -71,12 +71,12 @@ class TestSecureOpenerWiring:
         _NoRedirectHandler). A bare ``urlopen``-style default opener
         would NOT contain ``_NoRedirectHandler``."""
         opener = cloud_test_handlers._opener
-        # The secure opener must install _NoRedirectHandler — the
+        # The secure opener must install _NoRedirectHandler, the
         # default ``urlopen`` opener does NOT.
         handler_types = {type(h) for h in opener.handlers}
         assert _NoRedirectHandler in handler_types, (
             "cloud_test_handlers._opener does NOT contain "
-            "_NoRedirectHandler — the opener would silently follow 3xx "
+            "_NoRedirectHandler, the opener would silently follow 3xx "
             "redirects, retransmitting the Authorization: Bearer <api_key> "
             "header to an attacker-controlled redirect target. The module "
             "must use build_secure_opener() (mirrors cloud_engines._opener)."
@@ -91,7 +91,7 @@ class TestSecureOpenerWiring:
         fresh_handler_types = {type(h) for h in build_secure_opener().handlers}
         assert module_handler_types == fresh_handler_types, (
             "cloud_test_handlers._opener handler set has drifted from "
-            "build_secure_opener() — the module must use the shared "
+            "build_secure_opener(), the module must use the shared "
             "secure opener (single source of truth in _http_safety)."
         )
 
@@ -103,14 +103,13 @@ class TestSecureOpenerWiring:
 
         We inspect the module source (not the module namespace) so a
         future contributor who adds ``from urllib.request import
-        urlopen`` is flagged even if the imported name is unused — the
+        urlopen`` is flagged even if the imported name is unused, the
         import itself is the regression smell.
         """
         src = inspect.getsource(cloud_test_handlers)
-        # The module must use _opener.open(req, ...) — the call site.
+        # The module must use _opener.open(req, ...), the call site.
         assert "_opener.open(" in src, (
-            "cloud_test_handlers does not call _opener.open(...) — the "
-            "secure opener is not wired into the request path."
+            "cloud_test_handlers does not call _opener.open(...), the secure opener is not wired into the request path."
         )
         # The module must NOT import the bare ``urlopen`` symbol. We
         # match the specific import-statement form rather than the
@@ -118,12 +117,12 @@ class TestSecureOpenerWiring:
         # legitimately) so the assertion is precise.
         assert "from urllib.request import Request, urlopen" not in src, (
             "cloud_test_handlers imports bare ``urlopen`` from "
-            "urllib.request — the default opener follows 3xx redirects "
+            "urllib.request, the default opener follows 3xx redirects "
             "(SEC-2 bypass). Use _opener.open(req, ...) instead."
         )
         assert "from urllib.request import urlopen" not in src, (
             "cloud_test_handlers imports bare ``urlopen`` from "
-            "urllib.request — the default opener follows 3xx redirects "
+            "urllib.request, the default opener follows 3xx redirects "
             "(SEC-2 bypass). Use _opener.open(req, ...) instead."
         )
 
@@ -172,7 +171,7 @@ def _redirect_http_error(code: int = 302, target: str = "https://attacker.exampl
 class TestHandlerRefusesRedirect:
     """When the provider endpoint returns a 3xx redirect, the handler
     MUST surface it as a ``cloud_test_result`` failure with the
-    redirect's status code — NOT silently follow the redirect and report
+    redirect's status code, NOT silently follow the redirect and report
     a 200 from the redirect target.
 
     These tests mock ``cloud_test_handlers._opener.open`` so NO real
@@ -183,13 +182,13 @@ class TestHandlerRefusesRedirect:
 
     def test_redirect_surfaces_as_cloud_test_result_with_redirect_status(self):
         """A 302 redirect from the provider MUST be surfaced as
-        ``cloud_test_result`` with ``ok=False`` and ``status=302`` — the
+        ``cloud_test_result`` with ``ok=False`` and ``status=302``, the
         redirect's status code, NOT a 200 from a silently-followed
         redirect target.
 
         Pre-fix, ``urlopen`` would have followed the 302 to
         ``attacker.example.com`` and returned the (attacker-controlled)
-        final status — typically 200 — so the handler would have
+        final status (typically 200) so the handler would have
         reported ``ok=True, status=200`` and the user would believe
         their key was valid while it had just been exfiltrated.
         """
@@ -204,17 +203,17 @@ class TestHandlerRefusesRedirect:
         assert result is resp
         assert resp["type"] == "cloud_test_result"
         assert resp["data"]["ok"] is False
-        # The redirect's status code (302) MUST be surfaced — NOT a 200
+        # The redirect's status code (302) MUST be surfaced, NOT a 200
         # from a silently-followed redirect target.
         assert resp["data"]["status"] == 302, (
-            "Handler reported a status other than 302 for a 302 redirect — "
+            "Handler reported a status other than 302 for a 302 redirect, "
             "this means the opener silently followed the redirect (SEC-2 "
             "bypass) and reported the final status (typically 200)."
         )
 
     def test_handler_does_not_retry_or_follow_after_redirect(self):
         """When the opener raises ``HTTPError(302)``, the handler MUST
-        invoke ``_opener.open`` exactly ONCE — it must NOT retry the
+        invoke ``_opener.open`` exactly ONCE, it must NOT retry the
         request against the redirect target (which would retransmit the
         ``Authorization`` header).
 
@@ -234,7 +233,7 @@ class TestHandlerRefusesRedirect:
             handler._handle_test_cloud_connection({"provider": "openai"}, resp)
 
         assert mock_open.call_count == 1, (
-            f"Handler invoked _opener.open {mock_open.call_count} times — "
+            f"Handler invoked _opener.open {mock_open.call_count} times, "
             "expected exactly 1 (the redirect must NOT be followed by a "
             "second request to the redirect target, which would "
             "retransmit the Authorization: Bearer <api_key> header)."
@@ -244,8 +243,8 @@ class TestHandlerRefusesRedirect:
         """The ``Authorization: Bearer <api_key>`` header MUST be
         present on the original request passed to ``_opener.open``.
         This pins the contract that the API key is constructed in
-        Python (not in the renderer) AND that — because the redirect is
-        refused — the header is NOT retransmitted to the redirect
+        Python (not in the renderer) AND that, because the redirect is
+        refused, the header is NOT retransmitted to the redirect
         target.
 
         We assert the header value on the ``Request`` object the handler
@@ -277,7 +276,7 @@ class TestHandlerRefusesRedirect:
         auth = captured["headers"].get("Authorization")
         assert auth is not None, (
             "The Authorization header was NOT on the original request "
-            "passed to _opener.open — the API key must be attached in "
+            "passed to _opener.open, the API key must be attached in "
             "Python (the renderer never sees the key)."
         )
         assert auth.startswith("Bearer sk-test-key-DO-NOT-USE"), (
@@ -286,9 +285,9 @@ class TestHandlerRefusesRedirect:
             f"construct 'Bearer <api_key>' for the openai provider."
         )
         # The original request URL MUST be the provider's endpoint, NOT
-        # the redirect target — proving the redirect was not followed.
+        # the redirect target, proving the redirect was not followed.
         assert captured["url"] == "https://api.openai.com/v1/models", (
-            f"Original request URL was {captured['url']!r} — expected the "
+            f"Original request URL was {captured['url']!r}, expected the "
             "OpenAI test endpoint. If this is the redirect target URL, "
             "the handler followed the redirect (SEC-2 bypass)."
         )
@@ -296,7 +295,7 @@ class TestHandlerRefusesRedirect:
     @pytest.mark.parametrize("code", [301, 302, 303, 307, 308])
     def test_each_redirect_status_is_surfaced_not_followed(self, code: int):
         """Every 3xx status code MUST be surfaced as a
-        ``cloud_test_result`` failure with that status — NOT silently
+        ``cloud_test_result`` failure with that status, NOT silently
         followed. ``_NoRedirectHandler`` raises ``HTTPError`` for all
         3xx codes (its ``redirect_request`` override is called by
         urllib for any 3xx, regardless of the specific code)."""
@@ -312,7 +311,7 @@ class TestHandlerRefusesRedirect:
         assert resp["data"]["ok"] is False
         assert resp["data"]["status"] == code, (
             f"Handler reported status {resp['data']['status']} for a {code} "
-            f"redirect — expected the redirect status itself (the opener "
+            f"redirect, expected the redirect status itself (the opener "
             f"must NOT follow any 3xx)."
         )
         # No retry / no follow for any 3xx code.

@@ -9,13 +9,13 @@
  *  (session-5 dead-code cleanup): the previous re-exports
  * of `createBubbleWindow`, `isForegroundFullscreen` (from
  * `./bubble-window`) and `broadcastMaximized` (from `./main-window`)
- * were removed — grep across `src/main/**` confirms no caller imports
+ * were removed, grep across `src/main/**` confirms no caller imports
  * them through `../windows`; they are only used internally by their
  * own modules. `centerOnActiveDisplay` and `resetSavedBubblePosition`
  * are likewise imported directly from `./bubble-window` by their sole
  * consumer (`ipc/bubble-handlers.ts`), so they are not re-exported
  * here. (`getSavedBubblePosition` stays exported from positioning.ts
- * as a test-observability accessor only — no production callers.)
+ * as a test-observability accessor only, no production callers.)
  */
 
 export {

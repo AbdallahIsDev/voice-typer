@@ -1,5 +1,5 @@
 /**
- * Render-process-gone crash-storm tracking — sliding 60s window.
+ * Render-process-gone crash-storm tracking, sliding 60s window.
  *
  * Extracted from `main-window.ts` (split). Shared by both the
  * main window (`createMainWindow()`) and the bubble window
@@ -12,13 +12,13 @@
  * dialog instead of entering a CPU-bound crash loop.
  *
  * Public API:
- *   - `recordRenderCrash(timestamps, label, prefix)` — internal helper;
+ *   - `recordRenderCrash(timestamps, label, prefix)`, internal helper;
  *     returns true when the sliding window is over the threshold. The
  *     `prefix` is the log-line window tag (e.g. `[MAIN]` / `[BUBBLE]`,
  *     HU-29) so storm lines are attributed to the right window.
  *   - `recordMainWindowRenderCrash()` / `recordBubbleRenderCrash()` —
  *     window-specific wrappers that pin the timestamp array + log label.
- *   - `_resetRenderCrashTrackingForTest()` — test seam that clears both
+ *   - `_resetRenderCrashTrackingForTest()`, test seam that clears both
  *     window arrays; used by `__tests__/crash-storm-recovery.test.ts`.
  */
 import { log } from "../logging";

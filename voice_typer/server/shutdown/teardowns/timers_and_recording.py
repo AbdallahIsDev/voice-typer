@@ -1,6 +1,6 @@
 """Teardown helper for the timer coordinator + recording watchdog.
 
-Phase 4.5 (OI-36) — extracted verbatim from
+Phase 4.5 (OI-36), extracted verbatim from
 :meth:`ShutdownController._teardown_timers_and_recording`. The body is
 unchanged; only the class boundary moved. See the module docstring of
 :mod:`voice_typer.server.shutdown.teardowns` for the convention.
@@ -26,7 +26,7 @@ def teardown_timers_and_recording(controller) -> None:
     # Cancel all pending timers.
     # ``_cancel_pending_timers`` (on TimerCoordinator) bumps
     # ``_timer_generation`` and calls ``Timer.cancel()`` on every
-    # pending timer — but ``Timer.cancel()`` only prevents a timer
+    # pending timer, but ``Timer.cancel()`` only prevents a timer
     # that hasn't fired yet. A timer whose ``guarded_func`` has
     # already been invoked by the Timer thread (passed the
     # ``gen == self._timer_generation`` check) but hasn't yet called
@@ -45,7 +45,7 @@ def teardown_timers_and_recording(controller) -> None:
                     in_flight_timers = list(getattr(timers_coord, "_pending_timers", []))
         app._cancel_pending_timers()
         # Drain in-flight timer threads with a short total budget.
-        # Per-timer timeout of 0.5s × N timers — for the typical
+        # Per-timer timeout of 0.5s × N timers, for the typical
         # 3-5 pending timers, total drain is ≤2.5s, well within the
         # 10s shared deadline.
         for timer in in_flight_timers:

@@ -1,4 +1,4 @@
-# Won't Fix Tasks — Review & Analysis
+# Won't Fix Tasks: Review & Analysis
 
 > This document explains the 31 tasks marked as "Won't Fix" in `review.md`.
 > Each entry describes what the issue is, why it was deferred, and what
@@ -9,35 +9,35 @@
 ## How to read this document
 
 Each task has:
-- **What it is** — the technical issue in plain English
-- **Gain vs trade-off** — what we get by fixing vs what we lose/cost
-- **If we do it** — real-world effect on the user or developer
-- **If we don't** — real-world effect of leaving it alone
-- **My recommendation** — whether to implement, leave, or try-and-revert
+- **What it is**: the technical issue in plain English
+- **Gain vs trade-off**: what we get by fixing vs what we lose/cost
+- **If we do it**: real-world effect on the user or developer
+- **If we don't**: real-world effect of leaving it alone
+- **My recommendation**: whether to implement, leave, or try-and-revert
 
 ---
 
 ## The 22 Tasks
 
-### 1. GQ-48 — slow search when typing only punctuation marks
+### 1. GQ-48: slow search when typing only punctuation marks
 
-**What it is:** When you search your history by typing only punctuation (like `%` or `_`), the search is slow (~58ms for 500K records, scaling to ~580ms for 5M records). This is because the database engine has to scan every single row — it can't use an index. In practice, this only happens when someone types `%` or `_` alone in the search box, which is very rare.
+**What it is:** When you search your history by typing only punctuation (like `%` or `_`), the search is slow (~58ms for 500K records, scaling to ~580ms for 5M records). This is because the database engine has to scan every single row. It can't use an index. In practice, this only happens when someone types `%` or `_` alone in the search box, which is very rare.
 
 **Gain vs trade-off:** If we fix it, the search would be fast even for separator-only queries. But the fix requires either a complex database workaround or rejecting these queries client-side. The extra complexity doesn't justify the benefit since almost no one searches for `%` alone.
 
 **If we do it:** The search stays fast (sub-ms) even when someone types `%` in the search box. The code becomes more complex and harder to maintain.
 
-**If we don't:** If someone types `%` in the search box, it takes ~58ms on a 500K database. On a 5M database it would take ~580ms. This is an edge case — the user would need to deliberately type only punctuation characters.
+**If we don't:** If someone types `%` in the search box, it takes ~58ms on a 500K database. On a 5M database it would take ~580ms. This is an edge case. The user would need to deliberately type only punctuation characters.
 
 **My recommendation:** Leave as Won't Fix. The likelihood of a normal user typing `%` or `_` alone in the search box is extremely low. The fix was actually attempted in a previous session and had to be REVERTED because it broke real search functionality for Chinese and Japanese text. If the database grows very large, this can be revisited.
 
 ---
 
-### 2. GQ-L7 — redundant memory fill in noise suppressor
+### 2. GQ-L7: redundant memory fill in noise suppressor
 
-**What it is:** The noise suppressor (a filter that removes background noise) fills a memory buffer with zeros on every chunk of audio. This fill is unnecessary — the buffer is already zeroed. The wasted operation is so small (< 0.001ms) that no user would ever notice.
+**What it is:** The noise suppressor (a filter that removes background noise) fills a memory buffer with zeros on every chunk of audio. This fill is unnecessary. The buffer is already zeroed. The wasted operation is so small (< 0.001ms) that no user would ever notice.
 
-**Gain vs trade-off:** Removing the redundant fill saves a tiny CPU operation per audio chunk. The code is clearer. But it's a trivial change that requires touching a working audio filter — risk of introducing a bug.
+**Gain vs trade-off:** Removing the redundant fill saves a tiny CPU operation per audio chunk. The code is clearer. But it's a trivial change that requires touching a working audio filter, risk of introducing a bug.
 
 **If we do it:** The audio pipeline runs 0.001ms faster per chunk. No user would notice. The code is slightly cleaner.
 
@@ -47,19 +47,19 @@ Each task has:
 
 ---
 
-### 3. GQ-L8 — per-chunk list copy in audio filter chain
+### 3. GQ-L8: per-chunk list copy in audio filter chain
 
 **What it is:** Every chunk of audio, the filter chain makes a copy of its filter list (`list(self._filters)`). This copy is a safety measure so that the list can't change mid-processing. The copy is tiny (usually 5-10 items) and takes negligible time.
 
-**Gain vs trade-off:** Removing the copy would save a tiny allocation per chunk. But the copy is there for thread safety — without it, a race condition could crash the audio processing.
+**Gain vs trade-off:** Removing the copy would save a tiny allocation per chunk. But the copy is there for thread safety. Without it, a race condition could crash the audio processing.
 
-**If we do it:** The audio pipeline runs slightly faster. The code becomes more fragile — a filter could be modified while audio is being processed, causing a crash or audio glitch.
+**If we do it:** The audio pipeline runs slightly faster. The code becomes more fragile. A filter could be modified while audio is being processed, causing a crash or audio glitch.
 
 **If we don't:** The audio pipeline allocates a tiny list per chunk (5-10 items). No measurable impact on performance or user experience.
 
 **My recommendation:** Leave as Won't Fix. The copy is a deliberate safety measure. Removing it for negligible performance gain is not worth the risk of audio glitches.
 
-### 5. GQ-L11 — single-chunk audio glitch on filter swap
+### 5. GQ-L11: single-chunk audio glitch on filter swap
 
 **What it is:** When the audio filters are swapped (e.g., changing noise reduction settings), there's a tiny race window where one chunk of audio could be processed with the wrong filter state. This could cause a single audio chunk to sound slightly different. The window is extremely narrow (microseconds) and has never been observed in practice.
 
@@ -73,21 +73,21 @@ Each task has:
 
 ---
 
-### 6. GQ-L18 — config file re-read after key migration
+### 6. GQ-L18: config file re-read after key migration
 
-**What it is:** When the app migrates encryption keys to the system keychain, it re-reads the config file from disk. This is a redundant read — the config was already loaded in memory. The redundant read costs ~0.5ms.
+**What it is:** When the app migrates encryption keys to the system keychain, it re-reads the config file from disk. This is a redundant read. The config was already loaded in memory. The redundant read costs ~0.5ms.
 
-**Gain vs trade-off:** Removing the redundant read would save 0.5ms at startup. However, the re-read is a DELIBERATE security measure — it ensures the config file is in a consistent state after the key migration. Removing it could hide a corruption bug.
+**Gain vs trade-off:** Removing the redundant read would save 0.5ms at startup. However, the re-read is a DELIBERATE security measure. It ensures the config file is in a consistent state after the key migration. Removing it could hide a corruption bug.
 
 **If we do it:** The app starts 0.5ms faster. If the config file was corrupted during migration, the app would silently use stale data instead of crashing and alerting the user.
 
-**If we don't:** The app takes 0.5ms longer to read a file it already read. The security guarantee is preserved — if the file is corrupted, the app detects it.
+**If we don't:** The app takes 0.5ms longer to read a file it already read. The security guarantee is preserved, if the file is corrupted, the app detects it.
 
 **My recommendation:** Leave as Won't Fix. The redundant read is a deliberate security check. 0.5ms is not worth compromising the safety of the config migration.
 
 ---
 
-### 7. GQ-L24 — warm-up test uses 0.5s silence instead of real audio
+### 7. GQ-L24: warm-up test uses 0.5s silence instead of real audio
 
 **What it is:** When the speech model warms up, it uses a 0.5-second silence sample. In production, transcriptions are much longer (25+ seconds). The warm-up completes faster than necessary because the test input is too short.
 
@@ -101,11 +101,11 @@ Each task has:
 
 ---
 
-### 8. GQ-L33 — atomic operations use stronger ordering than needed
+### 8. GQ-L33: atomic operations use stronger ordering than needed
 
 **What it is:** Atomic operations (like incrementing a counter) use the strongest memory ordering (`SeqCst`) when weaker ordering (`Relaxed`) would suffice. This is a Rust-specific optimization. The actual performance difference is negligible on modern CPUs (sub-1 nanosecond).
 
-**Gain vs trade-off:** Using weaker ordering would be slightly faster and more idiomatic. The downside: proving that weaker ordering is safe requires careful analysis of every code path that reads the atomic variable. Some of these variables are accessed from multiple threads — a mistake could cause a crash that's hard to debug.
+**Gain vs trade-off:** Using weaker ordering would be slightly faster and more idiomatic. The downside: proving that weaker ordering is safe requires careful analysis of every code path that reads the atomic variable. Some of these variables are accessed from multiple threads. A mistake could cause a crash that's hard to debug.
 
 **If we do it:** The code runs ~1 nanosecond faster per atomic operation. The code is more idiomatic but harder to audit for correctness.
 
@@ -115,11 +115,11 @@ Each task has:
 
 ---
 
-### 9. GQ-L34 — synchronous file writes on boot path
+### 9. GQ-L34: synchronous file writes on boot path
 
 **What it is:** When the app starts, the single-instance lock creates a file using synchronous file operations (`mkdirSync`, `writeFileSync`). These block the main thread during boot. The operations take <1ms total.
 
-**Gain vs trade-off:** Converting to async would unblock the main thread during boot. But the operations are <1ms total — the user would never notice the difference. The single-instance lock is a critical security feature: if the async write failed silently, multiple instances of the app could run simultaneously, causing data corruption.
+**Gain vs trade-off:** Converting to async would unblock the main thread during boot. But the operations are <1ms total. The user would never notice the difference. The single-instance lock is a critical security feature: if the async write failed silently, multiple instances of the app could run simultaneously, causing data corruption.
 
 **If we do it:** The boot sequence is 1ms faster. The single-instance lock becomes async, which could theoretically fail silently, allowing duplicate app instances.
 
@@ -129,11 +129,11 @@ Each task has:
 
 ---
 
-### 10. GQ-L36 — buffer concatenation per TCP chunk
+### 10. GQ-L36: buffer concatenation per TCP chunk
 
 **What it is:** The TCP connection handler uses `Buffer.concat` to reassemble data chunks. This creates a new buffer each time rather than growing a single buffer. The allocation is tiny and happens on the connection thread, which is not performance-critical.
 
-**Gain vs trade-off:** Using a growing buffer would reduce allocations. But the TCP connection is already fast enough — the bottleneck is the Python backend, not the buffer assembly. The optimization would save microseconds per connection.
+**Gain vs trade-off:** Using a growing buffer would reduce allocations. But the TCP connection is already fast enough. The bottleneck is the Python backend, not the buffer assembly. The optimization would save microseconds per connection.
 
 **If we do it:** The connection handler allocates less memory. No user-visible improvement.
 
@@ -143,9 +143,9 @@ Each task has:
 
 ---
 
-### 11. GQ-L37 — `setImmediate` retry on window show
+### 11. GQ-L37, `setImmediate` retry on window show
 
-**What it is:** When showing a window, the code uses `setImmediate` to retry if the window isn't ready yet. This is a defensive pattern — a safety net for a rare race condition. The retry is almost never needed.
+**What it is:** When showing a window, the code uses `setImmediate` to retry if the window isn't ready yet. This is a defensive pattern. A safety net for a rare race condition. The retry is almost never needed.
 
 **Gain vs trade-off:** Removing the `setImmediate` would make the show-window code simpler. But the retry exists because under certain conditions, the window really isn't ready. Removing it could cause a window to fail to show.
 
@@ -157,11 +157,11 @@ Each task has:
 
 ---
 
-### 12. GQ-L38 — dynamic locale import on every language switch
+### 12. GQ-L38: dynamic locale import on every language switch
 
 **What it is:** When the user switches the app language, the localization module imports the translation file dynamically. This import happens every time the locale changes, even though the file is already loaded. The import is cached by the module system, so the actual cost is near-zero.
 
-**Gain vs trade-off:** Caching the import result would avoid a redundant check. But the module system already caches imports — the overhead is a dictionary lookup (< 0.001ms). The fix would add complexity to save a lookup that's already optimized.
+**Gain vs trade-off:** Caching the import result would avoid a redundant check. But the module system already caches imports. The overhead is a dictionary lookup (< 0.001ms). The fix would add complexity to save a lookup that's already optimized.
 
 **If we do it:** Language switching is 0.001ms faster. The code is slightly more complex.
 
@@ -171,7 +171,7 @@ Each task has:
 
 ---
 
-### 13. GQ-L40 — CSS color conversion without input cache
+### 13. GQ-L40: CSS color conversion without input cache
 
 **What it is:** When the app derives theme colors, it converts CSS color strings to hex format using the DOM API. This is called multiple times for the same input values. A cache would avoid redundant DOM calls.
 
@@ -185,11 +185,11 @@ Each task has:
 
 ---
 
-### 14. GQ-L42 — redundant window event listener in sound manager
+### 14. GQ-L42: redundant window event listener in sound manager
 
-**What it is:** The sound manager registers 4 window event listeners for the capture phase. One of them (`pointerdown`) is redundant — it doesn't add any functionality beyond what the other 3 listeners already cover.
+**What it is:** The sound manager registers 4 window event listeners for the capture phase. One of them (`pointerdown`) is redundant: it doesn't add any functionality beyond what the other 3 listeners already cover.
 
-**Gain vs trade-off:** Removing the redundant listener would clean up the code. The listener is harmless — it fires but does nothing useful. The only cost is a tiny memory allocation for the closure.
+**Gain vs trade-off:** Removing the redundant listener would clean up the code. The listener is harmless. It fires but does nothing useful. The only cost is a tiny memory allocation for the closure.
 
 **If we do it:** One less event listener. The code is slightly cleaner.
 
@@ -199,7 +199,7 @@ Each task has:
 
 ---
 
-### 15. GQ-L43 — unbounded number format cache (bounded in practice)
+### 15. GQ-L43: unbounded number format cache (bounded in practice)
 
 **What it is:** The number formatting utility uses a `Map` as a cache for `Intl.NumberFormat` instances. The cache has no explicit size limit, but in practice it never exceeds ~48 entries (one per locale × number of unique formats). The "unbounded" concern is theoretical.
 
@@ -213,35 +213,35 @@ Each task has:
 
 ---
 
-### 16. GQ-L44 — React effect runs on every render without dependency array
+### 16. GQ-L44: React effect runs on every render without dependency array
 
 **What it is:** A `useEffect` in the theme settings hook has no dependency array, meaning it runs after EVERY component render. This is a React anti-pattern. The effect itself is lightweight (reads a few values from state), so the performance impact is negligible.
 
-**Gain vs trade-off:** Adding a proper dependency array would make the effect run only when its dependencies change. The fix requires understanding which values the effect actually depends on — getting it wrong could cause the theme to not update correctly.
+**Gain vs trade-off:** Adding a proper dependency array would make the effect run only when its dependencies change. The fix requires understanding which values the effect actually depends on, getting it wrong could cause the theme to not update correctly.
 
 **If we do it:** The effect runs only when needed. The code is more idiomatic React. The fix could introduce a theme update bug if the dependency array is wrong.
 
-**If we don't:** The effect runs on every render, checking values that usually haven't changed. The overhead is < 0.1ms per render — invisible to the user.
+**If we don't:** The effect runs on every render, checking values that usually haven't changed. The overhead is < 0.1ms per render, invisible to the user.
 
 **My recommendation:** Leave as Won't Fix. The overhead is negligible. The dependency array analysis is non-trivial and could introduce bugs. Defer to when the theme settings code is being refactored for other reasons.
 
 ---
 
-### 17. GQ-L46 — inline closures create new function objects per sidebar render
+### 17. GQ-L46: inline closures create new function objects per sidebar render
 
 **What it is:** Each sidebar navigation item creates a new inline arrow function (closure) on every render: `onClick={() => navigate("/page")}`. These 10 closures are allocated and garbage-collected on every render. The allocation is tiny (~64 bytes each).
 
-**Gain vs trade-off:** Moving the closures to stable callback references would avoid 10 allocations per render. The fix is moderate — requires extracting the click handlers to memoized callbacks or using data attributes.
+**Gain vs trade-off:** Moving the closures to stable callback references would avoid 10 allocations per render. The fix is moderate, requires extracting the click handlers to memoized callbacks or using data attributes.
 
 **If we do it:** The sidebar creates 10 fewer closures per render. The code is slightly more complex.
 
-**If we don't:** The sidebar creates 10 tiny closures per render that are immediately garbage-collected. The allocation is ~640 bytes per render — invisible to the user.
+**If we don't:** The sidebar creates 10 tiny closures per render that are immediately garbage-collected. The allocation is ~640 bytes per render, invisible to the user.
 
 **My recommendation:** Leave as Won't Fix. 10 tiny closures per render is negligible. The fix would make the code harder to read for no measurable benefit.
 
 ---
 
-### 18. GQ-L47 — theme settings file is 648 lines
+### 18. GQ-L47: theme settings file is 648 lines
 
 **What it is:** The theme settings component is 648 lines long, mixing 4 sub-sections (custom color picker, contrast settings, draft theme, state machine). It's above the preferred file size threshold but well below the 800-line critical threshold.
 
@@ -255,7 +255,7 @@ Each task has:
 
 ---
 
-### 19. GQ-L53 — per-sample loop in beep generation script
+### 19. GQ-L53: per-sample loop in beep generation script
 
 **What it is:** The beep generation script (`generate_beeps.py`) uses a Python `for` loop to pack each audio sample into a binary string. This is a build-time script (not production code), so its performance doesn't affect the user. The script runs once when the developer runs it.
 
@@ -269,7 +269,7 @@ Each task has:
 
 ---
 
-### 20. GQ-L54 — branding check script takes 314ms
+### 20. GQ-L54: branding check script takes 314ms
 
 **What it is:** The `check_branding.py` script (which verifies the app name isn't hardcoded in the wrong places) takes 314ms to run. It could be faster by using `ripgrep` instead of Python's string search. The script runs in CI on every commit.
 
@@ -283,9 +283,9 @@ Each task has:
 
 ---
 
-### 21. GQ-L56 — keyring thread count not hard-capped
+### 21. GQ-L56: keyring thread count not hard-capped
 
-**What it is:** The credential store (which manages encryption keys) spawns threads for keyring operations. The number of orphan threads is not hard-capped — in theory, if the keyring keeps failing, threads could accumulate. In practice, the keyring either works or fails permanently, so the thread count stays at 1.
+**What it is:** The credential store (which manages encryption keys) spawns threads for keyring operations. The number of orphan threads is not hard-capped, in theory, if the keyring keeps failing, threads could accumulate. In practice, the keyring either works or fails permanently, so the thread count stays at 1.
 
 **Gain vs trade-off:** Adding a hard cap would prevent theoretical thread accumulation. The fix is small (add a cap check before spawning). The scenario it prevents (repeated keyring failures) has never been observed.
 
@@ -297,7 +297,7 @@ Each task has:
 
 ---
 
-### 22. GQ-L58 — model eviction refactor tied to larger changes
+### 22. GQ-L58: model eviction refactor tied to larger changes
 
 **What it is:** The model manager's LRU eviction logic (which removes old models to free memory) could be refactored. But the refactor is tied to 3 other changes (GQ-6, GQ-7, GQ-29) that haven't been done yet. Fixing it alone would create a partial state that's messy.
 
@@ -309,4 +309,4 @@ Each task has:
 
 **If we don't:** The current code works. The eviction logic is functional but not modular.
 
-**My recommendation:** Leave as Won't Fix until the related changes are picked up. The refactor is tied to GQ-6, GQ-7, and GQ-29 — fixing it alone would create more problems than it solves.
+**My recommendation:** Leave as Won't Fix until the related changes are picked up. The refactor is tied to GQ-6, GQ-7, and GQ-29, fixing it alone would create more problems than it solves.

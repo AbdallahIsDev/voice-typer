@@ -23,7 +23,7 @@ vi.mock("../i18n", () => ({ mainT: (k: string) => k }));
 
 import fs from "node:fs";
 
-// Production `atomicWriteFile` is ASYNC — it writes via
+// Production `atomicWriteFile` is ASYNC, it writes via
 // `fs.promises.writeFile` + `fs.promises.rename` (see
 // export-handlers.ts; the sync `atomicWriteFileSync` variant is
 // deprecated and no longer used by the export handlers). Spy the

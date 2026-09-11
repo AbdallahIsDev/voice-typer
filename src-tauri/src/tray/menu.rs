@@ -16,7 +16,7 @@ use tauri::AppHandle;
 
 type R = tauri::Wry;
 
-// Field visibility: `pub(crate)` — the sibling test module
+// Field visibility: `pub(crate)`, the sibling test module
 // (`tray_tests.rs`, child of `crate::tray`) and the `create_tray`
 // wiring in the parent module read the deserialized fields directly.
 #[derive(Debug, Clone, Deserialize)]
@@ -46,7 +46,7 @@ pub(crate) struct MenuItemData {
     //   - Modifiers: "Control" / "Ctrl", "Shift", "Alt" / "Option",
     //     "Super" / "Cmd" / "Command"
     //   - Key: a single key name ("A", "F5", "Space", "Enter", etc.)
-    //   - Joined with "+" — e.g. "Cmd+Shift+R"
+    //   - Joined with "+": e.g. "Cmd+Shift+R"
     // Tauri validates the string at build time; an invalid accelerator
     // surfaces as a `tauri::Error` from `MenuItemBuilder::build`.
     #[serde(default)]
@@ -63,7 +63,7 @@ pub(crate) struct TrayMenuPayload {
 /// Python sidecar. `icon` is a logical name (`"idle"`, `"recording"`,
 /// `"transcribing"`, `"error"`) that the Rust host maps to a bundled
 /// tray icon resource. `tooltip` is the new tooltip string (e.g.
-/// "Voice Typer — Recording (12s)"). Both fields are optional — the
+/// "Voice Typer: Recording (12s)"). Both fields are optional, the
 /// host only updates the fields present in the payload.
 #[derive(Debug, Clone, Deserialize)]
 pub(crate) struct TrayStatePayload {
@@ -75,7 +75,7 @@ pub(crate) struct TrayStatePayload {
 
 /// Build the list of `IsMenuItem` boxed items for `items`. Each entry is
 /// either a separator, a leaf `MenuItem` (or `CheckMenuItem` when
-//`checked` is `Some` — : native checkmark, not accelerator
+//`checked` is `Some`: : native checkmark, not accelerator
 /// text), or a nested `Submenu`.
 fn build_item_refs(
     app: &AppHandle,
@@ -101,7 +101,7 @@ fn build_item_refs(
         //use the native `CheckMenuItemBuilder` (Tauri v2) for
         // items with a `checked` state instead of faking the checkmark
         // via `.accelerator("✓")` (accelerators are keyboard shortcuts,
-        // not visual state — the old hack rendered as a literal "✓"
+        // not visual state: the old hack rendered as a literal "✓"
         // keyboard-equivalent on macOS and as no-op accelerator text on
         // Windows/Linux, never as a real native checkmark).
         //
@@ -116,7 +116,7 @@ fn build_item_refs(
                 .checked(checked);
             // Forward the optional accelerator to the
             // native menu item. `CheckMenuItemBuilder::accelerator` takes
-            // `S: AsRef<str>` — `&String` satisfies that. Tauri validates
+            // `S: AsRef<str>`, `&String` satisfies that. Tauri validates
             // the accelerator string at `build` time; an invalid string
             // (e.g. "Cmd+XYZ") surfaces as a `tauri::Error` from `.build()`
             // below, which the caller (`build_menu` → `rebuild_tray_menu`)

@@ -192,7 +192,7 @@ function getConfigCallCount(): number {
 	).length;
 }
 
-describe("Settings page — config cache invalidation on re-mount", () => {
+describe("Settings page, config cache invalidation on re-mount", () => {
 	beforeEach(() => {
 		resetStableMocks();
 		localStorage.clear();
@@ -224,7 +224,7 @@ describe("Settings page — config cache invalidation on re-mount", () => {
 			expect(getConfigCallCount()).toBeGreaterThanOrEqual(1);
 		});
 
-		// Unmount the first instance — _cachedConfig is now
+		// Unmount the first instance, _cachedConfig is now
 		// populated with the first mount's loaded config.
 		unmount1();
 		cleanup();
@@ -245,7 +245,7 @@ describe("Settings page — config cache invalidation on re-mount", () => {
 		const { unmount: unmount2 } = render(<SettingsPage />);
 		await waitFor(() => {
 			// The second mount must call get_config at least
-			// once — proving the cache didn't short-circuit.
+			// once, proving the cache didn't short-circuit.
 			expect(getConfigCallCount()).toBeGreaterThanOrEqual(1);
 		});
 
@@ -297,7 +297,7 @@ describe("Settings page — config cache invalidation on re-mount", () => {
 		// Wait for the second mount's get_config to resolve.
 		// Pre-fix (with the `if (!config)` guard), the second
 		// mount would NOT call get_config because the cache is
-		// already populated — so this assertion would time out.
+		// already populated, so this assertion would time out.
 		// Post-fix, get_config fires on every mount.
 		await waitFor(() => {
 			expect(getConfigCallCount()).toBeGreaterThanOrEqual(1);
@@ -316,7 +316,7 @@ describe("Settings page — config cache invalidation on re-mount", () => {
 		expect(getConfigCalls.length).toBeGreaterThanOrEqual(1);
 		// The mock returned freshConfig, so the second mount's
 		// loadConfig resolved with audio_preset="studio". The
-		// page's config state is now "studio" — not the stale
+		// page's config state is now "studio", not the stale
 		// "auto" from the first mount's cache.
 		expect(freshConfig.audio_preset).toBe("studio");
 		expect(initialConfig.audio_preset).toBe("auto");

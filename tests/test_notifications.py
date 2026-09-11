@@ -34,7 +34,7 @@ class TestCriticalNotificationsBypassToggle:
     """
 
     @pytest.mark.skip(
-        reason="source refactored — startup_sequence.py now uses "
+        reason="source refactored, startup_sequence.py now uses "
         "`new_count >= 3` (persisted counter from disk) instead of "
         "`app._onboarding_fail_count >= 3` (in-memory); the "
         "notify_safety() critical-bypass behavior on 3 consecutive "
@@ -42,7 +42,7 @@ class TestCriticalNotificationsBypassToggle:
     )
     def test_onboarding_failure_uses_notify_safety(self):
         src = _read_ux018(STARTUP_SEQUENCE_PY)
-        # Phase 5: extracted to startup_sequence.py — uses
+        # Phase 5: extracted to startup_sequence.py, uses
         # ``app._onboarding_fail_count`` (not ``self.``) because the
         # function takes ``app`` as a parameter, not as ``self``.
         assert "app._onboarding_fail_count >= 3" in src
@@ -107,7 +107,7 @@ class TestNonCriticalNotificationsRespectToggle:
     """Non-critical notifications use tray.notify() (respects the toggle)."""
 
     @pytest.mark.skip(
-        reason="source refactored — repaste_last() implementation moved "
+        reason="source refactored, repaste_last() implementation moved "
         "from app.py to UndoRepasteController (app_undo.py); the "
         "toggle-respect behavior (notify() vs notify_safety()) is "
         "verified end-to-end by TestRepasteLastSplitsErrors"
@@ -128,7 +128,7 @@ class TestNonCriticalNotificationsRespectToggle:
         # Phase 6: _select_microphone moved to SettingsController. The
         # English notification strings moved to i18n keys
         # (notify.settings_controller.mic_next_recording /
-        # mic_save_failed) — assert the i18n keys + the notify() call
+        # mic_save_failed), assert the i18n keys + the notify() call
         # site (notify, not notify_safety, so the toggle is respected).
         src = _read_ux018(SETTINGS_CONTROLLER_PY)
         assert "notify.settings_controller.mic_next_recording" in src
@@ -180,7 +180,7 @@ class TestStoreResultFailurePromotion:
         app.config.crash_recovery_enabled = False
         app.config.log_transcriptions = False
         # a-review Finding 2: notify-once flags now live on ``app``
-        # (session-scoped) — explicitly seed to False so the failure
+        # (session-scoped), explicitly seed to False so the failure
         # path triggers the first notification.
         app._history_fail_notified = False
         app.history_db.add_transcription.side_effect = RuntimeError("DB locked")
@@ -207,7 +207,7 @@ class TestApplyVocabularyTemplateNotify:
         app._vocabulary_manager.apply_to_text.side_effect = RuntimeError("vocab boom")
         app.tray.notify = MagicMock()
         # a-review Finding 2: notify-once flags now live on ``app``
-        # (session-scoped) — explicitly seed to False.
+        # (session-scoped), explicitly seed to False.
         app._vocab_fail_notified = False
         pipeline._app = app
 
@@ -228,7 +228,7 @@ class TestApplyVocabularyTemplateNotify:
         app._template_manager.match.side_effect = RuntimeError("template boom")
         app.tray.notify = MagicMock()
         # a-review Finding 2: notify-once flags now live on ``app``
-        # (session-scoped) — explicitly seed to False.
+        # (session-scoped), explicitly seed to False.
         app._template_fail_notified = False
         pipeline._app = app
 

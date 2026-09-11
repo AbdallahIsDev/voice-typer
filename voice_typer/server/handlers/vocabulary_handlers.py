@@ -36,7 +36,7 @@ class VocabularyHandlersMixin(HandlerBase):
             # service layer (the user can accumulate thousands of
             # corrections). Serializing an oversized response would
             # exceed the 1 MiB transport frame cap and be SILENTLY
-            # dropped by the WS/TCP layer — fail fast with a clear
+            # dropped by the WS/TCP layer, fail fast with a clear
             # structured error instead.
             cap_error = _enforce_payload_size_cap(
                 result,
@@ -70,13 +70,13 @@ class VocabularyHandlersMixin(HandlerBase):
             # ``len(json.dumps(data)) > _max_vocab_payload`` check.
             # The non-dict case is handled by the helper's first
             # guard (returns ``code: "invalid_payload"`` with the
-            # ``"data must be an object"`` message — different from
+            # ``"data must be an object"`` message, different from
             # the pre- ``"save_vocabulary requires data: object"``
             # message, but the test was updated to assert on
             # ``code`` instead of the message text).
             #
             # The placeholder field name ``"_payload"`` is a sentinel
-            # — ``max_payload_bytes`` is a whole-payload rule, not a
+            # , ``max_payload_bytes`` is a whole-payload rule, not a
             # per-field rule, but the schema is keyed by field name
             # so we use ``"_"``-prefixed name to signal "not a real
             # field". The helper checks the rule on the FIRST field
@@ -99,7 +99,7 @@ class VocabularyHandlersMixin(HandlerBase):
                 # ``dict[str, str | dict[str, str]]`` (unifying all the
                 # ``"type": "error", "data": {...}`` branches). At runtime
                 # ``error["data"]`` is always a dict, but the type system
-                # can't prove it — narrow with ``isinstance`` so the
+                # can't prove it, narrow with ``isinstance`` so the
                 # ``["code"]`` / ``["message"]`` indexing type-checks.
                 _err_data = error.get("data")
                 if isinstance(_err_data, dict) and _err_data.get("code") == "invalid_payload":
@@ -111,7 +111,7 @@ class VocabularyHandlersMixin(HandlerBase):
 
             # Per-value length cap (NESTED). Kept inline because the
             # schema rule ``max_value_len`` only applies to TOP-LEVEL
-            # string fields — vocabulary entries are nested inside
+            # string fields, vocabulary entries are nested inside
             # dict-of-entries or list-of-tuples, so the rule can't
             # express the per-(category, key) check.  centralizes
             # the type + payload-size checks but leaves this loop in
@@ -164,7 +164,7 @@ class VocabularyHandlersMixin(HandlerBase):
             resp["data"] = result
         except VocabularyDuplicateError as exc:
             # Backend duplicate enforcement (see
-            # ``save_vocabulary_with_diff``) — reject the write with a
+            # ``save_vocabulary_with_diff``), reject the write with a
             # structured ``client.duplicate_entry`` envelope so the
             # renderer can surface the localized "This correction
             # already exists" message and NOT add the duplicate row.
@@ -206,16 +206,16 @@ class VocabularyHandlersMixin(HandlerBase):
     def _handle_test_vocabulary_correction(self, data: dict | None, resp: dict) -> dict | None:
         """Handle the ``test_vocabulary_correction`` IPC command.
 
-        Applies the LIVE vocabulary rules to a phrase so the "Test
-        corrections" panel on the Vocabulary page previews the exact
-        engine dictation uses (``VocabularyManager.apply_to_text``)
-        instead of a client-side mirror that can drift.
+         Applies the LIVE vocabulary rules to a phrase so the "Test
+         corrections" panel on the Vocabulary page previews the exact
+         engine dictation uses (``VocabularyManager.apply_to_text``)
+         instead of a client-side mirror that can drift.
 
-        Migrated to :meth:`HandlerBase._wrap` with ``pre_coerce=False``
-        — the helper handles the surrounding ``try/except`` →
-        ``_respond_with_error`` catch-all while passing non-dict
-        ``data`` through unchanged so the schema still rejects it with
-        ``invalid_payload``.
+         Migrated to :meth:`HandlerBase._wrap` with ``pre_coerce=False``
+        , the helper handles the surrounding ``try/except`` →
+         ``_respond_with_error`` catch-all while passing non-dict
+         ``data`` through unchanged so the schema still rejects it with
+         ``invalid_payload``.
         """
 
         def body(d: dict) -> dict:

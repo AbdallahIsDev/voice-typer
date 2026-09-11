@@ -3,7 +3,7 @@
 // `statusLabelFor` resolves at render time so the pill honours the
 // current locale on every render (not just at module-import time). The
 // `RecordingState` union from `@/types/ipc` is the source of truth for
-// the input string — the helpers gracefully fall back to the "ready"
+// the input string, the helpers gracefully fall back to the "ready"
 // label for any unrecognised state (defensive against future backend
 // additions).
 
@@ -43,14 +43,14 @@ export function statusLabelFor(key: string): string {
 /**
  * Map a `RecordingState` (+ error flag) onto the lowercase status key
  * used to look up `STATUS_COLORS` / `statusLabelFor`. The `error` state
- * only surfaces when there is also a non-empty `lastError` — without an
+ * only surfaces when there is also a non-empty `lastError`, without an
  * error message the user can't act on, the pill falls back to the
  * ready/idle key so it always agrees with the dynamic description line
  * below the mic button (which shows the normal dictate hint whenever
  * `lastError` is empty).
  *
  * PILL/DESCRIPTION INVARIANT: the pill and the description are two views
- * of the same authoritative `{recordingState, lastError}` pair — they
+ * of the same authoritative `{recordingState, lastError}` pair, they
  * must be derived from the same predicate, never from independent
  * sources (an ERROR pill above a "Press <hotkey> or click to dictate"
  * hint is the divergence bug this guards against). The renderer-side

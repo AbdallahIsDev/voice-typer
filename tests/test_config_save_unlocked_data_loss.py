@@ -8,14 +8,14 @@ Pre-fix (around ``voice_typer/server/config.py::_save_unlocked``)::
 The return value of :func:`credential_store.store_secret` was IGNORED.
 ``store_secret`` returns:
 
-* ``True``  — secret committed to the OS keychain (or deleted via the
+* ``True``, secret committed to the OS keychain (or deleted via the
   empty-value path).
-* ``False`` — keyring was unavailable or errored; the secret was
+* ``False``, keyring was unavailable or errored; the secret was
   written to ``config.json`` as a plaintext fallback.
 
 By unconditionally overwriting ``data[field_name]`` with the
-``keyring://<provider>`` reference token — EVEN WHEN ``store_secret``
-returned ``False`` — the final
+``keyring://<provider>`` reference token, EVEN WHEN ``store_secret``
+returned ``False``, the final
 ``_secure_atomic_write(config_file, content)`` at the end of
 ``_save_unlocked`` persisted the REFERENCE TOKEN instead of the
 plaintext value. The plaintext that
@@ -32,23 +32,23 @@ Post-fix::
     )
     if stored_to_keyring:
         data[field_name] = f"{credential_store.KEYRING_REF_PREFIX}{provider}"
-    # else: leave data[field_name] as the plaintext value — the final
+    # else: leave data[field_name] as the plaintext value, the final
     # _secure_atomic_write persists it in one write.
 
 Tests
 -----
 
 1. ``test_save_preserves_plaintext_and_single_write_on_keyring_set_password_failure``
-   — simulates a keyring ``set_password`` failure during ``Config.save()``.
+ , simulates a keyring ``set_password`` failure during ``Config.save()``.
    Asserts (a) only one ``config.json`` write occurs (the final
    ``_secure_atomic_write`` from ``_save_unlocked``), and (b) the
    plaintext secret is preserved in config.json after save (NOT
    replaced with a ``keyring://<provider>`` reference token).
 
-2. ``test_save_replaces_with_keyring_reference_on_success`` — when
+2. ``test_save_replaces_with_keyring_reference_on_success``, when
    ``store_secret`` returns ``True`` (keyring success), the on-disk
    field IS replaced with the ``keyring://<provider>`` reference token
-   (the happy path is preserved — no regression).
+   (the happy path is preserved, no regression).
 
 3. ``test_save_preserves_plaintext_via_real_store_secret_fallback`` —
    end-to-end regression: real ``store_secret`` with a broken keyring
@@ -77,7 +77,7 @@ def _isolated_config_dir(tmp_config_dir):
     Also resets the keyring availability cache so each test re-probes
     (the probe is cached at module level for the lifetime of the
     process, which would leak state across tests), and clears the
-    orphan/wedge state owned by ``credential_store._backend`` — the
+    orphan/wedge state owned by ``credential_store._backend``, the
     wedge cooldown is global with a 60 s window, so a wedged backend
     left behind by any other test file would short-circuit every
     ``store_secret`` call here into a plaintext fallback.
@@ -104,7 +104,7 @@ def keyring_raises_on_set(monkeypatch):
     Simulates the case where the backend is selected (so
     ``is_keyring_available()`` returns True and ``Config._save_unlocked``
     routes the API key through ``store_secret``) but the actual write
-    fails — e.g. the Keychain is locked, D-Bus dropped mid-call, or the
+    fails, e.g. the Keychain is locked, D-Bus dropped mid-call, or the
     secret-service helper crashed. ``store_secret`` catches the
     exception, falls back to ``_write_plaintext_fallback``, and returns
     ``False``.
@@ -215,7 +215,7 @@ class TestConfigSaveUnlockedDataLoss:
             loss).
 
         (b) The plaintext secret is preserved in config.json after
-            save — NOT replaced with a ``keyring://openai`` reference
+            save, NOT replaced with a ``keyring://openai`` reference
             token. Pre-fix, the final write replaced the plaintext
             with the reference token, clobbering the value that
             ``_write_plaintext_fallback`` had just written and
@@ -259,7 +259,7 @@ class TestConfigSaveUnlockedDataLoss:
         assert result is True, "Config.save() must succeed even when keyring fails"
 
         # Filter writes to config.json (exclude config.json.bak writes
-        # and config.json.lock acquires — those are not "config.json
+        # and config.json.lock acquires, those are not "config.json
         # writes" in the data-loss sense).
         config_file_str = str(tmp_path / "config.json")
         config_json_writes = [(p, c) for (p, c) in write_calls if p == config_file_str]
@@ -289,7 +289,7 @@ class TestConfigSaveUnlockedDataLoss:
         assert not on_disk["openai_api_key"].startswith(credential_store.KEYRING_REF_PREFIX), (
             "Data-loss regression: openai_api_key on disk was "
             f"replaced with a {credential_store.KEYRING_REF_PREFIX!r} "
-            "reference token even though keyring failed — the user "
+            "reference token even though keyring failed, the user "
             "has no keyring, so the reference points at nothing and "
             "the secret is effectively lost."
         )
@@ -298,7 +298,7 @@ class TestConfigSaveUnlockedDataLoss:
         """Happy-path regression: when ``store_secret`` returns ``True``
         (keyring success), the on-disk ``openai_api_key`` field IS
         replaced with the ``keyring://openai`` reference token. This
-        must not regress — the fix only changes the ``False`` branch.
+        must not regress, the fix only changes the ``False`` branch.
         """
         from voice_typer.server import credential_store
         from voice_typer.server.config import Config
@@ -335,7 +335,7 @@ class TestConfigSaveUnlockedDataLoss:
 
     def test_save_preserves_plaintext_via_real_store_secret_fallback(self, tmp_path, keyring_raises_on_set):
         """End-to-end regression: real ``store_secret`` with a broken
-        keyring (NO mock on ``_write_plaintext_fallback`` — the
+        keyring (NO mock on ``_write_plaintext_fallback``, the
         redundant per-provider read-modify-write DOES run).
 
         This test verifies the data-preservation aspect of the fix
@@ -380,6 +380,6 @@ class TestConfigSaveUnlockedDataLoss:
         assert not on_disk["openai_api_key"].startswith(credential_store.KEYRING_REF_PREFIX), (
             "End-to-end data-loss regression: the final config.json "
             "contains a keyring:// reference token even though keyring "
-            "failed — the reference points at a keyring the user does "
+            "failed, the reference points at a keyring the user does "
             "not have, so the secret is effectively lost."
         )

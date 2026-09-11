@@ -15,7 +15,7 @@
  *
  * Combined with the bubble BrowserWindow's `backgroundThrottling: false`
  * (lifecycle.ts:99), this meant the renderer process never entered an
- * idle/low-power state — the rAF chain kept the process warm at 60 Hz
+ * idle/low-power state, the rAF chain kept the process warm at 60 Hz
  * for the entire app lifetime, even when the bubble was hidden (which
  * is ~90 % of the lifetime in `show_on_record` mode, the default).
  *
@@ -47,7 +47,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Bubble } from "@/Bubble";
 
 // ── Mock window.bubble API ──────────────────────────────────────────
-// Mirrors the mock in bubble_rAF_pause.test.tsx — provides the
+// Mirrors the mock in bubble_rAF_pause.test.tsx, provides the
 // `onShow` / `onHide` / `onSetState` / `onLevel` subscribers so the
 // test can drive visibility + mode transitions.
 
@@ -122,7 +122,7 @@ beforeEach(() => {
 	});
 
 	// jsdom's getComputedStyle returns empty strings for CSS custom
-	// properties — stub it so the barColor fallback path doesn't throw.
+	// properties, stub it so the barColor fallback path doesn't throw.
 	vi.spyOn(window, "getComputedStyle").mockImplementation(
 		() =>
 			({
@@ -184,7 +184,7 @@ describe("AB-39: useAudioLevels rAF scheduling gate", () => {
 
 		//at least one cancelAnimationFrame call must have
 		// fired against the in-flight frame. (Exactly one is expected,
-		// but `>= 1` is the safe assertion — React may re-run the
+		// but `>= 1` is the safe assertion, React may re-run the
 		// effect in edge cases.)
 		const cancelCalls = cancelSpy.mock.calls.length;
 		expect(cancelCalls).toBeGreaterThanOrEqual(1);
@@ -242,13 +242,13 @@ describe("AB-39: useAudioLevels rAF scheduling gate", () => {
 		await tickFrames(5);
 		expect(rafSpy.mock.calls.length).toBe(0);
 
-		// Show again — the visibility-watcher effect's wake() should
+		// Show again, the visibility-watcher effect's wake() should
 		// kick off a fresh rAF, and the loop should resume scheduling
 		// per-frame.
 		showBubble();
 		await tickFrames(3);
 
-		//the loop resumed — rAF calls are happening again.
+		//the loop resumed, rAF calls are happening again.
 		expect(rafSpy.mock.calls.length).toBeGreaterThan(0);
 
 		rafSpy.mockRestore();
@@ -265,7 +265,7 @@ describe("AB-39: useAudioLevels rAF scheduling gate", () => {
 		// subscription is active.
 		expect(mockBubble._listeners.level.length).toBe(1);
 
-		// Drive setState("blocked") — a mid-flow mode the OLD local
+		// Drive setState("blocked"), a mid-flow mode the OLD local
 		// mode tracker silently ignored (it only knew transcribing /
 		// idle / recording / error), so the visualizer kept animating
 		// and the ~50-60 Hz onLevel subscription stayed active behind a

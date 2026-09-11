@@ -2,11 +2,11 @@
  * : Accessibility screen-reader runtime tests for HotkeyPicker.
  *
  * Directive Section 5 ("Accessibility Screen-Reader Testing") notes that
- * no NVDA/VoiceOver runtime verification was performed — only source-
+ * no NVDA/VoiceOver runtime verification was performed, only source-
  * inspection tests for ARIA attributes existed. This file closes that gap
  * by using @testing-library/react's ARIA queries (`getByRole`,
- * `findByRole`, `queryByRole`) — the SAME accessible-name computation
- * that screen readers use to traverse the DOM at runtime — to verify
+ * `findByRole`, `queryByRole`), the SAME accessible-name computation
+ * that screen readers use to traverse the DOM at runtime, to verify
  * that HotkeyPicker's live regions (role="alert", role="status"), button
  * labels, and dropdown menu items are actually announced to assistive
  * technology.
@@ -25,7 +25,7 @@
  *     role="status" live region appears with capture instructions.
  *   - Error state (HOTKEY-FULLMSG-001): role="alert" live region
  *     appears with the FULL attempted combo (e.g. "Shift+Z"), proving
- *     screen readers will announce the complete shortcut — not just the
+ *     screen readers will announce the complete shortcut, not just the
  *     bare key.
  *   - Keyboard accessibility: record button is reachable via Tab;
  *     preset dropdown menu items have role="menuitem" and can be
@@ -40,7 +40,7 @@ import axe from "axe-core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { HotkeyPicker } from "../hotkey/HotkeyPicker";
 
-// Disable color-contrast — the test environment doesn't load the full
+// Disable color-contrast, the test environment doesn't load the full
 // Tailwind stylesheet, so axe's computed contrast values would be
 // meaningless and produce false positives.
 const AXE_OPTIONS: axe.RunOptions = {
@@ -60,7 +60,7 @@ interface DispatchOpts {
 }
 
 // HotkeyPicker attaches its keydown/keyup listeners to `window` (not the
-// button), so we dispatch KeyboardEvents directly on window — same
+// button), so we dispatch KeyboardEvents directly on window, same
 // pattern as HotkeyPicker-multikey.test.tsx. Each dispatch is wrapped in
 // act() so React flushes any state updates synchronously before the
 // assertion runs.
@@ -101,7 +101,7 @@ function renderPicker(
 	return render(<HotkeyPicker {...props} />);
 }
 
-describe("HotkeyPicker — Accessibility (ARIA runtime verification)", () => {
+describe("HotkeyPicker, Accessibility (ARIA runtime verification)", () => {
 	afterEach(() => {
 		cleanup();
 	});
@@ -110,7 +110,7 @@ describe("HotkeyPicker — Accessibility (ARIA runtime verification)", () => {
 	describe("Initial render (not recording)", () => {
 		it("record button has aria-label containing 'Record new hotkey'", () => {
 			renderPicker();
-			// getByRole uses the accessible-name computation — same
+			// getByRole uses the accessible-name computation, same
 			// algorithm screen readers run at runtime. If this query
 			// succeeds, a screen reader will announce the button by this
 			// name.
@@ -143,7 +143,7 @@ describe("HotkeyPicker — Accessibility (ARIA runtime verification)", () => {
 
 		it("renders no role='alert' live region initially (no error)", () => {
 			renderPicker();
-			// queryByRole returns null when not found — this is the
+			// queryByRole returns null when not found, this is the
 			// canonical "no element" assertion and proves a screen reader
 			// would not announce an alert in the idle state.
 			expect(screen.queryByRole("alert")).toBeNull();
@@ -166,7 +166,7 @@ describe("HotkeyPicker — Accessibility (ARIA runtime verification)", () => {
 			});
 			await user.click(recordBtn);
 
-			// findByRole waits for the re-render — the label MUST flip
+			// findByRole waits for the re-render, the label MUST flip
 			// because the click handler toggled `recording` state.
 			const cancelBtn = await screen.findByRole("button", {
 				name: /cancel recording/i,
@@ -177,7 +177,7 @@ describe("HotkeyPicker — Accessibility (ARIA runtime verification)", () => {
 				expect.stringMatching(/Cancel recording/),
 			);
 
-			// The original "Record new hotkey" button is gone — only one
+			// The original "Record new hotkey" button is gone, only one
 			// button can have either label at a time, so the screen reader
 			// will announce the new state.
 			expect(
@@ -216,11 +216,11 @@ describe("HotkeyPicker — Accessibility (ARIA runtime verification)", () => {
 				name: /record new hotkey/i,
 			});
 			await user.click(recordBtn);
-			// Wait for the label to flip — this guarantees the keydown
+			// Wait for the label to flip, this guarantees the keydown
 			// listener (which checks recordingRef.current) is active.
 			await screen.findByRole("button", { name: /cancel recording/i });
 
-			// Press Shift+Z (invalid in single mode — full combo is shown
+			// Press Shift+Z (invalid in single mode, full combo is shown
 			// in the error per HOTKEY-FULLMSG-001).
 			dispatchKey({ code: "ShiftLeft", key: "Shift", type: "keydown" });
 			dispatchKey({
@@ -258,7 +258,7 @@ describe("HotkeyPicker — Accessibility (ARIA runtime verification)", () => {
 			});
 			// Native <button> elements have an implicit tabIndex of 0
 			// (focusable via Tab). tabIndex < 0 (i.e. -1) would mean
-			// programmatically focusable only — not in the tab order.
+			// programmatically focusable only, not in the tab order.
 			// We assert >= 0 to be tolerant of any future explicit
 			// tabIndex={0} annotation while still catching the regression
 			// of tabIndex={-1}.
@@ -295,7 +295,7 @@ describe("HotkeyPicker — Accessibility (ARIA runtime verification)", () => {
 			// Radix DropdownMenu uses roving tabindex + arrow-key
 			// navigation. Pressing ArrowDown should move focus to the
 			// first menuitem (the menu opens with focus on the first
-			// item, ArrowDown moves to the second — so at minimum one
+			// item, ArrowDown moves to the second, so at minimum one
 			// item must be focused after a single ArrowDown press).
 			await user.keyboard("{ArrowDown}");
 
@@ -315,7 +315,7 @@ describe("HotkeyPicker — Accessibility (ARIA runtime verification)", () => {
 			const { container } = renderPicker();
 
 			const results = await axe.run(container, AXE_OPTIONS);
-			// Filter out color-contrast defensively — it's disabled in
+			// Filter out color-contrast defensively, it's disabled in
 			// AXE_OPTIONS above, but a future axe upgrade could re-enable
 			// it; the filter guarantees the assertion is robust.
 			const violations = results.violations.filter(

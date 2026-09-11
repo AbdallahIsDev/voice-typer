@@ -23,7 +23,7 @@ pub(crate) enum SidecarHandle {
     // the Drop impl would have no way to move the child out for the
     // kill call. The Option is always `Some(...)` at construction
     // (spawn.rs) and is set to `None` only by `kill()` / `kill_tree()`
-    // / `Drop` — all of which consume or `&mut`-borrow the handle, so
+    // / `Drop`: all of which consume or `&mut`-borrow the handle, so
     // no external caller can observe the `None` state.
     ShellPlugin(Option<CommandChild>),
     DevMode(tokio::process::Child),
@@ -31,7 +31,7 @@ pub(crate) enum SidecarHandle {
 
 impl SidecarHandle {
     /// Return the OS process id of the sidecar, if available. Used by
-    /// `kill_tree` (ADR-0020 §10 — recursive "kill_children" backstop)
+    /// `kill_tree` (ADR-0020 §10: recursive "kill_children" backstop)
     /// to also reap grandchildren (native hotkey binary, model processes)
     /// that the Python sidecar does not reap on its own exit.
     ///
@@ -48,7 +48,7 @@ impl SidecarHandle {
             // uniformity with `tokio::process::Child::id()` (which
             // returns None after the child has been reaped). When the
             // Option<CommandChild> has already been `take()`n
-            // (post-kill), we return None — `kill_tree` then skips
+            // (post-kill), we return None: `kill_tree` then skips
             // the recursive walk (the process is already dead).
             SidecarHandle::ShellPlugin(c) => c.as_ref().map(|c| c.pid()),
             SidecarHandle::DevMode(c) => c.id(),
@@ -72,7 +72,7 @@ impl SidecarHandle {
             // `take()` the inner CommandChild so the subsequent
             // Drop on `self` (which runs after this async fn returns,
             // because `self` was consumed by value) sees `None` and is
-            // a no-op — preventing a double-kill.
+            // a no-op: preventing a double-kill.
             SidecarHandle::ShellPlugin(c) => match c.take() {
                 Some(child) => child.kill().map_err(|e| {
                     // Preserve the original shell-plugin error variant as
@@ -99,7 +99,7 @@ impl SidecarHandle {
     ///
     /// Best-effort and OS-native: shells out to the platform tool
     /// (`taskkill /T` on Windows, `pgrep -P` recursive walk on Unix).
-    /// Failures are logged but do not abort shutdown — the direct child
+    /// Failures are logged but do not abort shutdown, the direct child
     /// is still reaped afterwards via `self.kill()`.
     ///
     //on Unix this performs a cooperative SIGTERM
@@ -109,7 +109,7 @@ impl SidecarHandle {
     /// release the mic / close IPC sockets before force-killing).
     ///
     //(session 2): wraps the synchronous `kill_process_tree`
-    /// (which does `std::process::Command::status()` — a blocking
+    /// (which does `std::process::Command::status()`, a blocking
     /// syscall) in `spawn_blocking` so we don't stall a Tokio worker
     /// thread for the duration of the kill-walk. `taskkill /T` on a
     /// large tree or `pgrep` under load can take >1s.
@@ -136,12 +136,12 @@ impl SidecarHandle {
 
     /// Non-blocking "has the child exited?" probe for the dev-mode
     /// variant. Returns:
-    /// - `Ok(Some(true))` — DevMode child has exited (reaped by the OS).
-    /// - `Ok(Some(false))` — DevMode child still running.
-    /// - `Ok(None)` — ShellPlugin variant has no `try_wait` equivalent
+    /// - `Ok(Some(true))`: DevMode child has exited (reaped by the OS).
+    /// - `Ok(Some(false))`: DevMode child still running.
+    /// - `Ok(None)`: ShellPlugin variant has no `try_wait` equivalent
     ///   (the `CommandEvent` stream is the canonical exit signal);
     ///   callers should fall back to their deadline-based wait.
-    /// - `Err(_)` — best-effort: an OS error from the underlying
+    /// - `Err(_)`: best-effort: an OS error from the underlying
     ///   `waitpid(WNOHANG)` syscall. Callers treat this the same as
     ///   `Ok(Some(false))` (don't short-circuit; let the deadline +
     ///   force-kill path handle it).
@@ -169,13 +169,13 @@ impl SidecarHandle {
 //
 // For `ShellPlugin`: takes the inner `CommandChild` and calls `kill()`
 // on it. `CommandChild::kill` is a cheap synchronous call that sends
-// the OS kill signal — safe to run inside Drop. We deliberately do NOT
+// the OS kill signal: safe to run inside Drop. We deliberately do NOT
 // call `kill_process_tree` here (the recursive grandchild walk) because
 // that walks `pgrep` / `taskkill /T` via blocking
 // `std::process::Command::status()` syscalls that could stall a Tokio
 // worker thread for >1s. The release-path spawn already registers
 // `kill_on_parent_exit` at spawn time (see `spawn_sidecar_release`),
-// which is the OS-level guarantee for orphan reaping — Drop's
+// which is the OS-level guarantee for orphan reaping, Drop's
 // `child.kill()` is the redundant fallback for the in-process "I
 // forgot to kill this handle" case.
 //
@@ -186,7 +186,7 @@ impl SidecarHandle {
 // is async, which we can't await from a sync Drop).
 //
 // After `take()`, the inner Option is `None`, so a subsequent Drop on
-// the same handle (impossible in safe Rust — Drop runs once) would be
+// the same handle (impossible in safe Rust, Drop runs once) would be
 // a no-op. The `kill()` / `kill_tree()` methods also `take()` the
 // inner Option, so when they consume `self` and Drop runs on the
 // consumed value, this Drop arm sees `None` and does nothing —

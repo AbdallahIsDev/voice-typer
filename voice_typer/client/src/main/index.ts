@@ -4,23 +4,23 @@
  * REF-2: this file is now wiring-only (≤300 lines). All cohesive
  * function groups have been extracted into focused modules:
  *
- *   - `./state`             — shared mutable state (pythonProcess, tcpSocket,
+ *   - `./state`            , shared mutable state (pythonProcess, tcpSocket,
  *                             mainWindow, bubbleWindow, pendingRequests, …)
- *   - `./logging`           — `ts()`, `cleanConsoleMsg()`, ANSI color constants
- *   - `./constants`         — `IPC_PORT`, `IPC_TOKEN`, `START_HIDDEN`,
+ *   - `./logging`          , `ts()`, `cleanConsoleMsg()`, ANSI color constants
+ *   - `./constants`        , `IPC_PORT`, `IPC_TOKEN`, `START_HIDDEN`,
  *                             `BUBBLE_WIDTH`, `BUBBLE_HEIGHT`, `HEARTBEAT_INTERVAL_MS`
- *   - `./single_instance`   — `computeConfigDir`, `electronPidFile*`,
+ *   - `./single_instance`  , `computeConfigDir`, `electronPidFile*`,
  *                             `acquireSingleInstanceLock` (+ `app.on("second-instance")`)
- *   - `./windows/`          — `createMainWindow`, `createBubbleWindow`,
+ *   - `./windows/`         , `createMainWindow`, `createBubbleWindow`,
  *                             `showBubbleWindow`, `hideBubbleWindow`,
  *                             `centerOnPrimaryDisplay`, `showMainWindow`,
  *                             `createWindows` aggregator
- *   - `./python/`           — `pythonArgs`, `startPython`, `stopPython`,
+ *   - `./python/`          , `pythonArgs`, `startPython`, `stopPython`,
  *                             `tcpConnect`, `sendToPython`, `handleMessage`,
  *                             `relaunchApp`
- *   - `./ipc/`              — `registerIpcHandlers()` (window controls, config
+ *   - `./ipc/`             , `registerIpcHandlers()` (window controls, config
  *                             export, bubble IPC, python-call bridge)
- *   - `./bootstrap`         — `bootstrapRuntime()` (sessionNonce, userData,
+ *   - `./bootstrap`        , `bootstrapRuntime()` (sessionNonce, userData,
  *                             CSP, error handlers)
  *
  * What stays here:
@@ -41,9 +41,12 @@ import { registerIpcHandlers } from "./ipc";
 // `console.warn` has no terminal attached.
 import { BUBBLE_CLR, log, RESET, sweepStaleLogs, ts } from "./logging";
 // powerMonitor suspend/resume/on-battery handlers. Registered
-// after `app.whenReady()` (see call site below) — `powerMonitor` is
+// after `app.whenReady()` (see call site below), `powerMonitor` is
 // not usable before the app is ready.
-import { registerPowerMonitorHandlers } from "./power";
+import {
+	registerPowerMonitorHandlers,
+	startAppSuspensionBlocker,
+} from "./power";
 import { startPython, stopPython } from "./python";
 import { ESCALATE_TIMER_MS, KILL_TIMER_MS } from "./python/stop-python";
 import {
@@ -60,13 +63,13 @@ import { createWindows, showMainWindow } from "./windows";
 
 // Suppress Electron's built-in security-warning console spam in dev mode
 // (the "Insecure Content-Security-Policy" message about unsafe-eval).
-// Vite dev mode needs unsafe-eval for sourcemaps — this is expected.
+// Vite dev mode needs unsafe-eval for sourcemaps, this is expected.
 if (process.env.npm_lifecycle_event === "dev" || !app.isPackaged) {
 	process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = "true";
 }
 
 // Startup-timeline marker (read by the Python backend at its first log
-// line — see `voice_typer/server/startup_timeline.py`): module-eval time
+// line, see `voice_typer/server/startup_timeline.py`): module-eval time
 // ≈ Electron process boot. Together with VOICE_TYPER_SPAWN_EPOCH_MS
 // (set in start-python.ts right before the spawn) it lets the backend
 // log one line attributing the launch gap: electron boot vs backend init.
@@ -75,26 +78,26 @@ process.env.VOICE_TYPER_BOOT_EPOCH_MS ??= String(Date.now());
 // Prevent Chromium from persisting its HTTP + V8-code caches into the
 // shared `electron-profile/`. The renderer only ever loads the local
 // bundle (`file://` via `loadFile` in production, `http://localhost:5173`
-// in dev) — it never fetches remote content — yet the disk cache still
+// in dev), it never fetches remote content, yet the disk cache still
 // accumulated ~400 MB of stale entries there (212 MB HTTP `Cache` +
 // 180 MB V8 `Code Cache` from dev-server URLs). Both switches are
 // documented Chromium content-layer switches:
-//   - `disable-http-cache` — disables the DISK cache for HTTP requests
+//   - `disable-http-cache`, disables the DISK cache for HTTP requests
 //     (the in-memory cache stays, so HMR / repeated loads are unaffected).
-//   - `v8-cache-options=none` — disables V8's on-disk script code cache
+//   - `v8-cache-options=none`, disables V8's on-disk script code cache
 //     (`Code Cache/`); production loads via `file://` where code cache
 //     is not used anyway (https URLs only), so nothing is lost.
-// Must be appended before `app.whenReady()` — the switches are parsed
+// Must be appended before `app.whenReady()`, the switches are parsed
 // by Chromium's browser process at startup.
 app.commandLine.appendSwitch("disable-http-cache");
 app.commandLine.appendSwitch("v8-cache-options", "none");
 
 try {
-	// Best-effort — only matters on Windows 7+.
+	// Best-effort, only matters on Windows 7+.
 	app.setAppUserModelId("VoiceTyper");
 } catch (e) {
 	// setAppUserModelId can throw on non-Windows or if the registry
-	// write fails; non-fatal — Windows taskbar grouping falls back
+	// write fails; non-fatal, Windows taskbar grouping falls back
 	// to the default (app.exe name) which is acceptable.
 	log.warn("[main] setAppUserModelId failed (non-fatal):", e);
 }
@@ -104,27 +107,27 @@ try {
 // `app.whenReady()`).
 //
 // Chromium spawns its GPU + network-service utility processes while
-// the app is still initializing — before `whenReady()` resolves. If
+// the app is still initializing, before `whenReady()` resolves. If
 // `app.setPath("userData", …)` runs inside `bootstrapRuntime()`, those
 // early processes are spawned with the DEFAULT userData
 // (`%APPDATA%/voice-typer-desktop`), leaving a mixed profile: the
 // renderer (created later) uses `electron-profile/` while the GPU /
 // network processes keep writing Cache / GPU Cache / Network state to
-// the old default dir. Calling `setupUserData()` here — before
-// `acquireSingleInstanceLock()` and `app.whenReady()` — guarantees
+// the old default dir. Calling `setupUserData()` here, before
+// `acquireSingleInstanceLock()` and `app.whenReady()`, guarantees
 // EVERY Chromium child process inherits the unified data root.
 // Idempotent: `bootstrapRuntime()` re-invokes it inside `whenReady`
 // (harmless re-set of the same path).
 setupUserData();
 
 // Single-instance gate + `app.on("second-instance")` handler. Must run
-// before `app.whenReady()` — the lock is checked at process start.
+// before `app.whenReady()`, the lock is checked at process start.
 // On a duplicate launch it calls `app.exit(0)`; on the primary instance
 // it writes the PID file and registers the second-instance → showMainWindow
 // handler. See `./single_instance.ts` for the stale-PID recovery path.
 acquireSingleInstanceLock();
 
-// Startup log sweep — Tiers 1 (age, 7 days) + 2 (size fallback, 25 MB)
+// Startup log sweep, Tiers 1 (age, 7 days) + 2 (size fallback, 25 MB)
 // of the three-tier cleanup design. Runs AFTER the single-instance gate
 // (only the primary instance sweeps) and BEFORE any log writes
 // (error handlers install later, inside `whenReady()`), so stale /
@@ -154,24 +157,28 @@ app.whenReady().then(() => {
 	//SEC-029 nonce,  userData, SEC-012 CSP, SEC-021 error handlers.
 	bootstrapRuntime();
 	// register powerMonitor suspend/resume/on-battery
-	// listeners. Must run after `app.whenReady()` — powerMonitor
+	// listeners. Must run after `app.whenReady()`, powerMonitor
 	// is not usable before the app is ready. Idempotent: safe to
 	// call more than once (tests, future double-call sites).
 	registerPowerMonitorHandlers();
+	// BP-160: keep the hidden background instance responsive to tray
+	// clicks / the global hotkey after long idle (OS app-suspension
+	// made the first restore take ~15s). Display sleep unaffected.
+	startAppSuspensionBlocker();
 	// register the OS-global bubble-dismiss accelerator
 	// (CommandOrControl+Shift+D). Same whenReady constraint as the
-	// powerMonitor registration above — `globalShortcut` is not usable
+	// powerMonitor registration above, `globalShortcut` is not usable
 	// before the app is ready. Idempotent.
 	registerGlobalShortcuts();
 
 	//pre-create the dashboard BrowserWindow IMMEDIATELY after
 	// bootstrapRuntime, BEFORE startPython(). Previously the window
 	// was created lazily by `tcp-connect.ts:158`'s `createWindows()`
-	// call — which fires only after the Python backend has spawned,
+	// call, which fires only after the Python backend has spawned,
 	// bound its TCP port, accepted our socket, AND completed the
 	// SEC-018 auth handshake. Cold-start first paint was therefore
 	// gated end-to-end by Python spawn + torch import + TCP accept
-	// + auth round-trip — typically 2–5s on warm cache, 8–10s+ on
+	// + auth round-trip, typically 2–5s on warm cache, 8–10s+ on
 	// cold cache / AV scan. During that entire window the user saw
 	// NO UI at all (no window, no tray icon yet because the tray is
 	// created by the Python backend, no taskbar entry), with up to
@@ -180,7 +187,7 @@ app.whenReady().then(() => {
 	//
 	// Pre-creating the window here lets the React bundle start
 	// loading immediately so the renderer's "connecting" spinner
-	// (App.tsx) actually has a chance to render — turning a
+	// (App.tsx) actually has a chance to render, turning a
 	// multi-second "is this thing even running?" silence into a
 	// visible "connecting to backend…" state.
 	//
@@ -194,7 +201,7 @@ app.whenReady().then(() => {
 	// start.
 	//
 	// `createWindows()` defaults `forceShow` to `false`, which
-	// preserves the START_HIDDEN behavior — an autostarted
+	// preserves the START_HIDDEN behavior, an autostarted
 	// background instance (`VT_START_HIDDEN=1`) still creates the
 	// BrowserWindow off-screen (so opening it later is instant via
 	// second-instance / tray "Open app") but leaves no taskbar
@@ -225,7 +232,7 @@ app.whenReady().then(() => {
 	// after spawning the backend without awaiting its readiness.
 	// Synchronously calling `isLinuxWaylandWithoutSni()` here
 	// would shell out to `gdbus`/`dbus-send` on the same
-	// event-loop tick — stalling the `app.whenReady().then(...)`
+	// event-loop tick, stalling the `app.whenReady().then(...)`
 	// resolution and delaying the dashboard's first `loadURL` /
 	// `loadFile` microtask. By deferring to the next tick, the
 	// BrowserWindow's `loadURL` Promise gets its first event-loop
@@ -234,12 +241,12 @@ app.whenReady().then(() => {
 	// `window-all-closed` (a window close is a user-initiated
 	// event that requires the React dashboard to have rendered
 	// first, which itself requires the Python backend's TCP
-	// handshake — both >1 event-loop tick away).
+	// handshake, both >1 event-loop tick away).
 	//
 	// Tradeoff vs. an async `execFile` refactor (the "Option B"
 	// alternative considered): the probe itself stays
 	// synchronous, so the function signature stays synchronous
-	// and no caller needs to be refactored — but the probe runs
+	// and no caller needs to be refactored, but the probe runs
 	// on the next event-loop tick instead of blocking the
 	// `whenReady` Promise resolution. The `setImmediate` callback
 	// is wrapped in `try/catch` because, unlike the inline call,
@@ -260,8 +267,8 @@ app.whenReady().then(() => {
 // window to fire BEFORE Electron exits:
 //   - t=KILL_TIMER_MS                     : killTimer sends SIGTERM
 //   - t=KILL_TIMER_MS+ESCALATE_TIMER_MS   : escalateTimer sends SIGKILL
-// Pre-fix the backstop was a hardcoded 3000ms — equal to the killTimer
-// delay — so on SIGTERM-with-Python-stuck-in-C-extension the unref'd
+// Pre-fix the backstop was a hardcoded 3000ms, equal to the killTimer
+// delay, so on SIGTERM-with-Python-stuck-in-C-extension the unref'd
 // backstop fired at t=3s, exited Electron, and the escalateTimer
 // (scheduled for t=6s) NEVER fired. Python was orphaned, still holding
 // the single-instance mutex. The extra +500ms is a safety margin so the
@@ -269,7 +276,7 @@ app.whenReady().then(() => {
 // wheel is briefly delayed under load.
 //
 // The timer is `.unref()`'d so it does NOT keep the event loop alive
-// on its own — if all other handles (including the non-`.unref()`'d
+// on its own, if all other handles (including the non-`.unref()`'d
 // killTimer in stop-python.ts) have settled and Python has exited
 // cleanly, Electron can exit promptly without waiting the full 6.5s.
 let _signalQuitFired = false;
@@ -295,12 +302,12 @@ app.on("before-quit", () => {
 	stopPython();
 	//clear the dev-only bubble-test diagnostic timers so they
 	// don't fire `webContents.send` against a destroyed window during
-	// slow shutdown. Best-effort — `bubbleTestCleanup` is `null` in
+	// slow shutdown. Best-effort, `bubbleTestCleanup` is `null` in
 	// production (env var never set) and the cleanup function itself
 	// is idempotent (safe to call multiple times).
 	if (bubbleTestCleanup) bubbleTestCleanup();
 	// P1-1.4: clear our PID file so the next launch doesn't think
-	// we're still alive.  Best-effort — if the disk is gone, the
+	// we're still alive.  Best-effort, if the disk is gone, the
 	// stale-PID recovery path will handle it on next start.
 	clearElectronPidFile();
 });
@@ -314,7 +321,7 @@ let _willQuitStopPythonFired = false;
 app.on("will-quit", (event) => {
 	// Release the OS-global accelerator FIRST so a quit that hangs in
 	// the stopPython gate below never leaves Ctrl+Shift+D firing
-	// against a half-dead process. Idempotent — safe on repeat events.
+	// against a half-dead process. Idempotent, safe on repeat events.
 	unregisterGlobalShortcuts();
 	if (_willQuitStopPythonFired) return;
 	_willQuitStopPythonFired = true;
@@ -333,7 +340,7 @@ app.on("will-quit", (event) => {
 	}
 });
 
-// With close-to-tray, closing the dashboard window just hides it — the
+// With close-to-tray, closing the dashboard window just hides it, the
 // process keeps running.  So window-all-closed only fires on a real quit
 // (last window destroyed) or on macOS when all windows are closed by the
 // user.  Guard accordingly.
@@ -374,7 +381,7 @@ app.on("activate", () => {
 // obsolete after REF-2 split it into submodules. The follow-up
 //comment claimed the re-export preserved "the public API
 // surface so any external consumer importing from `./index` still
-//resolves `APP_NAME`" — but a repo-wide audit
+//resolves `APP_NAME`", but a repo-wide audit
 // found ZERO such consumers: every APP_NAME import goes directly to
 // `./branding`. Keeping a dead re-export on the wiring-only entry
 // point risks confusion (the canonical declaration lives in

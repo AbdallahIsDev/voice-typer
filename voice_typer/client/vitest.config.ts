@@ -11,7 +11,7 @@ import { aliases } from "./aliases";
 // only the `@`, `#ui`, and `#utils` aliases are kept here because they
 // are the only ones with real backing files. The stale `#components`,
 // `#lib`, and `#hooks` aliases (which pointed at non-existent barrel
-// files) were removed — code uses `@/components/...`,
+// files) were removed, code uses `@/components/...`,
 // `@/lib/...`, and `@/hooks/...` instead.
 //
 // Main-process tests (`src/main/**`) opt into a node environment via the
@@ -48,7 +48,7 @@ export default defineConfig({
 		// "localStorage", ...)` in other test files leaked into them.
 		isolate: true,
 		// clear mock.calls / mock.results before every test.
-		// `clearMocks: true` resets only the call history — it does NOT
+		// `clearMocks: true` resets only the call history, it does NOT
 		// reset implementations (so `vi.fn(() => x)` keeps its impl) and
 		// does NOT restore originals (so `vi.spyOn(obj, "m")` stays
 		// spied). This is the safe middle ground between "do nothing"
@@ -83,7 +83,7 @@ export default defineConfig({
 			provider: "istanbul",
 			reporter: ["text", "html"],
 			// vitest 4.x dropped the `all: true` option for the v8
-			// provider — it only reports executed files, so untested
+			// provider, it only reports executed files, so untested
 			// files are excluded from the denominator and the threshold
 			// can't detect "new file without tests". Switching to the
 			// istanbul provider (`@vitest/coverage-istanbul`) which
@@ -122,7 +122,7 @@ export default defineConfig({
 			],
 			// Use a floor on coverage so deletions / untested branches
 			// surface in CI rather than silently rotting. Thresholds are
-			// deliberately conservative — raising them is encouraged as
+			// deliberately conservative, raising them is encouraged as
 			// the suite grows, but lowering them requires justification.
 			thresholds: {
 				lines: 70,

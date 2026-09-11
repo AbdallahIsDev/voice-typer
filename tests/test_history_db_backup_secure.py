@@ -103,7 +103,7 @@ class TestSecureCopyDbFile:
 
         src = tmp_path / "src.bin"
         src.write_bytes(b"payload")
-        # Plant a symlink where the backup would land — the secure copy
+        # Plant a symlink where the backup would land, the secure copy
         # must refuse to write through it to the symlink target.
         target = tmp_path / "exfil-target.bin"
         link = tmp_path / "out.bin"
@@ -172,7 +172,7 @@ class TestBackupBeforeMigrationSecure:
         # The DB file exists (HistoryDB.__init__ created it). Remove
         # it to simulate the missing-file case. On Windows an open
         # SQLite handle locks the file, so close the DB first (the
-        # fixture re-closes after the test — close() is idempotent).
+        # fixture re-closes after the test, close() is idempotent).
         db.close()
         db.db_path.unlink()
         # Should not raise.
@@ -215,7 +215,7 @@ class TestSecureCopyDbFileSingleDefinition:
     ``history_db.py``.
 
     Pre-fix, the module had two byte-for-byte identical definitions
-    (the second silently shadowed the first — 58 lines of dead code,
+    (the second silently shadowed the first, 58 lines of dead code,
     and a maintenance trap: edits to the first definition had no
     runtime effect). This test pins the single-definition invariant
     via ``inspect.getsource`` so future copy-paste regressions are

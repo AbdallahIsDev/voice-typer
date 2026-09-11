@@ -21,7 +21,7 @@ This test pins several attribute-initialization invariants:
 - ``base.py`` ``set_tray`` docstring references ``_NativeBackendAdapter``
   (not ``WindowsNativeHotkey`` which doesn't override ``set_tray``).
 
-These checks run on Linux without calling ``start()`` — the goal is to
+These checks run on Linux without calling ``start()``, the goal is to
 prove the attributes exist immediately after construction, so a caller
 that introspects a backend before wiring it up doesn't blow up.
 """
@@ -45,7 +45,7 @@ class TestPynputHotkeyInitAttrs:
 
     def test_fallback_attr_exists_after_init(self) -> None:
         backend = PynputHotkey("<ctrl>+<shift>+d")
-        # Must exist *before* start() — diagnose() reads it.
+        # Must exist *before* start(), diagnose() reads it.
         assert hasattr(backend, "_fallback")
         assert backend._fallback is False
 
@@ -61,7 +61,7 @@ class TestWindowsNativeHotkeyInitAttrs:
     """``WindowsNativeHotkey.__init__`` must initialize the start()-only attrs."""
 
     def test_last_error_attr_exists_after_init(self) -> None:
-        # Construction must NOT require Windows — start() does, but
+        # Construction must NOT require Windows, start() does, but
         # __init__ only sets Python attributes and never touches ctypes.
         backend = WindowsNativeHotkey("<f2>")
         assert hasattr(backend, "_last_error")
@@ -90,7 +90,7 @@ class TestWindowsNativeHotkeyInitAttrs:
 
 
 # --------------------------------------------------------------------------- #
-# WaylandHotkey ( — partial: thread attribute presence; the join
+# WaylandHotkey (, partial: thread attribute presence; the join
 # behavior is exercised in test_hotkeys_wayland_stop_joins_thread)
 # --------------------------------------------------------------------------- #
 class TestWaylandHotkeyInitAttrs:
@@ -125,7 +125,7 @@ class TestBaseSetTrayDocstring:
 
     def test_windows_native_hotkey_does_not_override_set_tray(self) -> None:
         """Sanity-check that the docstring was indeed false before the
-        fix — ``WindowsNativeHotkey`` does NOT override ``set_tray``."""
+        fix: ``WindowsNativeHotkey`` does NOT override ``set_tray``."""
         # ``set_tray`` is defined on ``HotkeyBackend`` (the base class).
         # If ``WindowsNativeHotkey`` overrode it, the function objects
         # would differ.
@@ -144,7 +144,7 @@ def inspect_getsource(module) -> str:
     return inspect.getsource(module)
 
 
-# Allow running this file directly when XDG_RUNTIME_DIR is unset — the
+# Allow running this file directly when XDG_RUNTIME_DIR is unset, the
 # tests above don't actually start the Wayland socket, so they work in a
 # bare environment.
 @pytest.fixture(autouse=True)

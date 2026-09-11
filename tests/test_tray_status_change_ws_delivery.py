@@ -2,10 +2,10 @@
 
 DEFECT (found by the 2026-08-31 headless e2e checklist): the tray
 ``set_state`` hook in ``ipc/lifecycle.py`` forwarded every state change
-via ``server.push`` — the TCP-only path. In the Tauri ws-mode sidecar no
+via ``server.push``, the TCP-only path. In the Tauri ws-mode sidecar no
 TCP client ever exists, so ``status_change`` frames were never delivered
 to the renderer (the status pill lagged up to the 15 s ``get_status``
-health poll, while the Electron runtime received them live — the exact
+health poll, while the Electron runtime received them live, the exact
 cross-runtime divergence this delivery contract targets).
 
 The fix publishes through ``event_bus`` (same rationale as the
@@ -48,8 +48,8 @@ class TestStatusChangeWsDelivery:
 
     def test_set_state_publishes_status_change(self, ws_mode_app, monkeypatch):
         """Every ``tray.set_state`` call lands a ``status_change`` event
-        on the event bus — the transport the WS writer task subscribes
-        to. (Pre-fix this was a direct ``server.push`` — TCP-only, never
+        on the event bus, the transport the WS writer task subscribes
+        to. (Pre-fix this was a direct ``server.push``, TCP-only, never
         delivered in ws-mode; this test fails against that code.)"""
         from voice_typer.server import event_bus
 
@@ -63,7 +63,7 @@ class TestStatusChangeWsDelivery:
             ws_mode_app.tray.set_state(AppState.ERROR, "No speech model selected")
             status_events = [e for e in captured if e.get("type") == "status_change"]
             assert status_events, (
-                "tray.set_state must publish status_change on event_bus — "
+                "tray.set_state must publish status_change on event_bus, "
                 "a direct server.push dead-ends in the TCP-only path and the "
                 "Tauri renderer never receives live status updates"
             )
@@ -76,7 +76,7 @@ class TestStatusChangeWsDelivery:
     def test_wrapped_hook_survives_restart_idempotently(self, ws_mode_app, monkeypatch):
         """The hook wrapper is installed once (the ``_vt_wrapped`` guard)
         and repeated ``server.start()`` cycles do not duplicate the
-        publish path — N set_state calls still produce exactly N
+        publish path, N set_state calls still produce exactly N
         status_change events."""
         from voice_typer.server import event_bus
 
@@ -91,7 +91,7 @@ class TestStatusChangeWsDelivery:
                 ws_mode_app.tray.set_state(AppState.LOADING, expected_message)
             status_events = [e for e in captured if e.get("type") == "status_change"]
             assert len(status_events) == 3, (
-                f"exactly one status_change per set_state call — no duplicate delivery (got {len(status_events)})"
+                f"exactly one status_change per set_state call, no duplicate delivery (got {len(status_events)})"
             )
             assert [e["data"]["message"] for e in status_events] == ["first", "second", "third"]
         finally:

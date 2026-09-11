@@ -14,7 +14,7 @@ keep working) AND on ``Path.write_text`` (to assert the legacy
 non-atomic call was NOT used).
 
 The spy patches the canonical definition in
-``voice_typer.server.secure_file_io`` — every call site imports the
+``voice_typer.server.secure_file_io``, every call site imports the
 helper lazily via ``from voice_typer.server.secure_file_io import
 _secure_atomic_write`` so the patched attribute is what the call site
 sees at runtime.
@@ -36,7 +36,7 @@ from voice_typer.server.server_platform import (
 )
 
 # ──────────────────────────────────────────────────────────────────
-# 1. macOS autostart plist — _enable_autostart_macos
+# 1. macOS autostart plist, _enable_autostart_macos
 # ──────────────────────────────────────────────────────────────────
 
 
@@ -122,7 +122,7 @@ class TestAutostartMacOsAtomicWrite:
 
 
 # ──────────────────────────────────────────────────────────────────
-# 2. Linux .desktop entry — _enable_autostart_linux
+# 2. Linux .desktop entry, _enable_autostart_linux
 # ──────────────────────────────────────────────────────────────────
 
 
@@ -186,13 +186,13 @@ class TestAutostartLinuxAtomicWrite:
 
 
 # ──────────────────────────────────────────────────────────────────
-# 3. systemd user unit — register_linux_app_service
+# 3. systemd user unit, register_linux_app_service
 # ──────────────────────────────────────────────────────────────────
 #
 # (Wave 3, 2026-08-14): ``TestPrewarmLinuxAppServiceAtomicWrite`` was
-# DELETED — the entire ``prewarm_scheduler_posix`` module (which
+# DELETED, the entire ``prewarm_scheduler_posix`` module (which
 # defined ``register_linux_app_service`` + ``_linux_app_service_path``)
-# was removed (prewarm became a worker startup phase — master plan
+# was removed (prewarm became a worker startup phase, master plan
 # §6.2 P-1). The systemd user-unit management for the main app lived
 # in that module; it was the ONLY caller of ``_secure_atomic_write``
 # for a ``voice-typer.service`` systemd unit. The new architecture
@@ -203,7 +203,7 @@ class TestAutostartLinuxAtomicWrite:
 
 
 # ──────────────────────────────────────────────────────────────────
-# 4. dictation-in-flight sentinel — DictationPipeline.run
+# 4. dictation-in-flight sentinel, DictationPipeline.run
 # ──────────────────────────────────────────────────────────────────
 
 
@@ -218,7 +218,7 @@ class TestDictationPipelineSentinelAtomicWrite:
         # Force the config dir to tmp_path so the sentinel lands there.
         monkeypatch.setattr(paths_mod, "config_dir", lambda: tmp_path)
 
-        # The .run() method is heavy — short-circuit right after the
+        # The .run() method is heavy, short-circuit right after the
         # sentinel write by making set_correlation_id raise. The
         # sentinel write itself is wrapped in contextlib.suppress so
         # the spy returns None (no exception) and execution proceeds
@@ -251,7 +251,7 @@ class TestDictationPipelineSentinelAtomicWrite:
 
 
 # ──────────────────────────────────────────────────────────────────
-# 5. onboarding fail counter — _write_onboarding_fail_count
+# 5. onboarding fail counter, _write_onboarding_fail_count
 # ──────────────────────────────────────────────────────────────────
 
 
@@ -305,11 +305,11 @@ class TestOnboardingFailCountAtomicWrite:
 
 
 # ──────────────────────────────────────────────────────────────────
-# 6. prewarm.log placeholder — _handle_open_prewarm_log
+# 6. prewarm.log placeholder, _handle_open_prewarm_log
 # ──────────────────────────────────────────────────────────────────
 #
 # (Wave 3, 2026-08-14): ``TestPrewarmLogPlaceholderAtomicWrite`` was
-# DELETED — ``_handle_open_prewarm_log`` was removed from
+# DELETED: ``_handle_open_prewarm_log`` was removed from
 # ``StatusHandlersMixin`` (and the matching ``_COMMAND_REGISTRY`` /
 # TS allowlist / Rust allowlist entries) because prewarm became a
 # worker startup phase (master plan §6.2 P-1). The slim core no
@@ -321,8 +321,8 @@ class TestOnboardingFailCountAtomicWrite:
 # longer applies.
 #
 # (2026-08-14, later the same day): ``_handle_open_prewarm_log`` was
-# RESTORED verbatim from 5a319872 (plan §6.3 addendum — Cache Status
-# card). It no longer writes a ``prewarm.log`` placeholder — it opens
+# RESTORED verbatim from 5a319872 (plan §6.3 addendum, Cache Status
+# card). It no longer writes a ``prewarm.log`` placeholder, it opens
 # the worker log (``<config_dir>/worker.log``) and its behavior is
 # pinned by ``tests/handlers/test_status_handlers.py``
 # (``TestOpenPrewarmLog``). The placeholder-atomic-write contract

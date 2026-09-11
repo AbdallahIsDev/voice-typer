@@ -18,7 +18,7 @@
  * Exercising it would require mocking the full Electron `BrowserWindow`
  * + `screen` surface, which is fragile. The clamp is verified at the
  * source level via the `MIN_BUBBLE_*` / `MAX_BUBBLE_*` constants
- * exported from this module — any code calling `clampBubbleSize` (which
+ * exported from this module, any code calling `clampBubbleSize` (which
  * uses those constants) is bounded by them.
  */
 import { describe, expect, it, vi } from "vitest";

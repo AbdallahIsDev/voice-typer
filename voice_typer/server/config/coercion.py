@@ -17,7 +17,7 @@ appending a human-readable notice to ``data["_load_warnings"]`` so the
 renderer can surface "your config was corrected" messages via
 ``Config.last_load_warnings``.
 
-These helpers are intentionally pure-dict transforms — they take a
+These helpers are intentionally pure-dict transforms, they take a
 ``dict[str, Any]`` and return ``None`` (mutating in place). They do NOT
 import the :class:`Config` dataclass, so there is no circular
 dependency between this module and ``config/__init__.py``. The
@@ -67,7 +67,7 @@ def _coerce_streaming_fields(data: dict[str, Any]) -> None:
     """Coerce streaming_* fields with min/max clamping + invariant checks.
 
     Extracted verbatim from ``load()``. Config fields were
-    renamed (no migration needed): VALID-1 (MED-K) — each inline
+    renamed (no migration needed): VALID-1 (MED-K), each inline
     ``float()``/``int()`` coercion is wrapped in its own
     ``try/except`` so a SINGLE bad value resets ONLY that field to
     its default rather than aborting the entire load (which would
@@ -92,12 +92,12 @@ def _coerce_streaming_fields(data: dict[str, Any]) -> None:
     # pre-fix the clamp used ``max(value, 3.0)`` /
     # ``max(value, 1.5)`` which SILENTLY raised sub-minimum values
     # to the floor. That created a split-brain with the IPC
-    # validator (``config_validators.py:1191-1192`` — F1's
+    # validator (``config_validators.py:1191-1192``, F1's
     # territory, which at the time of writing still uses
     # ``lo=0.0``): a user could ``set_config`` a 0.5-second
     # overlap, the IPC validator would accept it, ``Config.save()``
     # would persist it to disk, and on the next ``Config.load()``
-    # the clamp would silently bump it to 3.0 — desyncing the
+    # the clamp would silently bump it to 3.0, desyncing the
     # renderer's in-memory state from the on-disk config.json.
     #
     # The fix: stop silently clamping. If the on-disk value is
@@ -199,7 +199,7 @@ def _coerce_streaming_fields(data: dict[str, Any]) -> None:
         data["streaming_step_seconds"] = 5.0
     # Block 1 already validated, clamped, and stored
     # ``streaming_left_overlap_seconds`` above (lines 110-141), so the
-    # key is guaranteed present and numeric here — no default or
+    # key is guaranteed present and numeric here, no default or
     # try/except needed. The previous re-read used a bare ``3.0``
     # default that could drift from ``STREAMING_LEFT_OVERLAP_SECONDS_MIN``
     # (see module docstring on the parallel ``max_recording_time_seconds``
@@ -259,30 +259,30 @@ def _coerce_max_recording_time(data: dict[str, Any]) -> None:
 def _validate_model_path(data: dict[str, Any]) -> None:
     """Validate ``model_size`` against :data:`ALLOWED_USER_MODELS`.
 
-    Extracted verbatim from ``load()``. If the on-disk
-    ``model_size`` is not in the allowlist (e.g. a stale entry from
-    a previous build, or a model that was removed from the catalog),
-    reset to ``DEFAULT_MODEL_SIZE`` (the canonical default — see
-    ``voice_typer/server/model_registry.py``; change the default in
-    that ONE place).
+     Extracted verbatim from ``load()``. If the on-disk
+     ``model_size`` is not in the allowlist (e.g. a stale entry from
+     a previous build, or a model that was removed from the catalog),
+     reset to ``DEFAULT_MODEL_SIZE`` (the canonical default, see
+     ``voice_typer/server/model_registry.py``; change the default in
+     that ONE place).
 
-    ``NO_MODEL_SIZE`` (the empty string) is a REAL value, not a
-    correction: it means the user has genuinely not selected a model
-    (see ``model_registry.NO_MODEL_SIZE``). It is preserved as-is —
-    the app reports "No model selected" and waits for the user to pick
-    one instead of silently resetting to the default.
+     ``NO_MODEL_SIZE`` (the empty string) is a REAL value, not a
+     correction: it means the user has genuinely not selected a model
+     (see ``model_registry.NO_MODEL_SIZE``). It is preserved as-is —
+     the app reports "No model selected" and waits for the user to pick
+     one instead of silently resetting to the default.
 
-    the reset is now logged at WARNING and appended to
-    ``data["_load_warnings"]`` so the renderer can surface a
-    "your config was corrected" notice via
-    ``instance.last_load_warnings``. Pre-fix, the reset was silent
-    — the user's ``model_size`` was changed without any signal.
+     the reset is now logged at WARNING and appended to
+     ``data["_load_warnings"]`` so the renderer can surface a
+     "your config was corrected" notice via
+     ``instance.last_load_warnings``. Pre-fix, the reset was silent
+    , the user's ``model_size`` was changed without any signal.
 
-    Note: only warn when ``model_size`` is EXPLICITLY present in
-    ``data`` (i.e. on-disk) with an invalid value. If the key is
-    missing entirely (a partial config.json from a fresh install),
-    the dataclass default applies silently — the user has no
-    "correction" to be notified about.
+     Note: only warn when ``model_size`` is EXPLICITLY present in
+     ``data`` (i.e. on-disk) with an invalid value. If the key is
+     missing entirely (a partial config.json from a fresh install),
+     the dataclass default applies silently, the user has no
+     "correction" to be notified about.
     """
     # ``model_size`` missing from on-disk config → dataclass default
     # applies silently (no correction to surface).
@@ -290,7 +290,7 @@ def _validate_model_path(data: dict[str, Any]) -> None:
         return
     _model_size = data.get("model_size")
     if _model_size == NO_MODEL_SIZE:
-        # Genuine "no model selected" state — valid, nothing to reset.
+        # Genuine "no model selected" state, valid, nothing to reset.
         return
     if _model_size not in ALLOWED_USER_MODELS:
         log.warning(
@@ -316,7 +316,7 @@ def _validate_qwen_model_path(data: dict[str, Any]) -> None:
     pre-fix, a non-``str`` value (e.g.
     ``qwen_model_path: 123`` or ``qwen_model_path: ["/tmp"]`` in a
     hand-edited config.json) crashed ``Path(qwen_path)`` with
-    ``TypeError`` — which propagated up through ``Config.load()``'s
+    ``TypeError``: which propagated up through ``Config.load()``'s
     outer ``except`` (catches ``TypeError``), reset the ENTIRE
     config to defaults, and moved config.json aside as corrupt
     (even though only one field was bad). The fix adds an
@@ -377,7 +377,7 @@ def _validate_corrections_path(data: dict[str, Any]) -> None:
     """Validate ``corrections_path``: must be an existing file if set.
 
     Extracted verbatim from ``load()``. SEC-audit-006 (Round
-    0 forward-port — M6): defense-in-depth path-traversal check.
+    0 forward-port. M6): defense-in-depth path-traversal check.
     ``corrections_path`` is NOT in the IPC allowlist (can only be
     set via direct ``config.json`` edit), but a user who manually
     edits the config could point it at an arbitrary file.  The
@@ -385,13 +385,13 @@ def _validate_corrections_path(data: dict[str, Any]) -> None:
     this file, so a malicious or accidentally-chosen path could
     expose sensitive data (e.g. log transcription text being
     matched against ``/etc/passwd`` contents).  Restrict the path
-    to the user's home directory or the config directory — both are
+    to the user's home directory or the config directory, both are
     user-writable locations where the user has explicitly chosen to
     store data.
 
     pre-fix, a non-``str`` value (e.g.
     ``corrections_path: 42``) crashed ``Path(corrections)`` with
-    ``TypeError`` — propagated up through ``Config.load()``'s outer
+    ``TypeError``: propagated up through ``Config.load()``'s outer
     ``except`` (catches ``TypeError``), reset the ENTIRE config to
     defaults, and moved config.json aside as corrupt. The fix adds
     an ``isinstance(corrections, str)`` guard at the top.
@@ -458,7 +458,7 @@ def _validate_privacy_consents(data: dict[str, Any]) -> None:
     """
     if data.get("log_transcriptions"):
         log.warning(
-            "[CONFIG] log_transcriptions is enabled — transcription text "
+            "[CONFIG] log_transcriptions is enabled, transcription text "
             "(potentially containing PII) will be written to log files. "
             "Disable this setting if you do not want speech content persisted "
             "to disk."

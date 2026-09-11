@@ -1,18 +1,18 @@
-"""Session-liveness marker — distinguishes genuine crashes from expected restarts.
+"""Session-liveness marker, distinguishes genuine crashes from expected restarts.
 
 The backend writes a small ``session_active`` marker file in the config
 directory when a real session begins (:meth:`StartupSequence.run`) and
 removes it on every clean-shutdown path (``ShutdownController._do_cleanup``
 and ``_do_fast_cleanup``). At the next launch, the crash check
 (``crash_handler.report_pending_crash``) only surfaces the "previous
-session crashed" notification when the marker is STILL present — i.e. the
+session crashed" notification when the marker is STILL present, i.e. the
 previous process ended WITHOUT a clean shutdown.
 
 Why this is needed
 ------------------
 Before this marker, any leftover ``crash_diagnostics.*.txt`` /
 ``python_crash.*.txt`` file triggered the "Previous Session Crashed"
-notification — even when the previous session exited cleanly. Daemon
+notification, even when the previous session exited cleanly. Daemon
 threads that raise during interpreter teardown (socket close, watchdogs
 being killed, ``--reload`` / backend-restart kills) write
 ``python_crash`` markers that are NOT application crashes, and a clean
@@ -21,18 +21,18 @@ not be reported as a crash.
 
 Contract
 --------
-* ``mark_session_active(config_dir)`` — called when a real session
+* ``mark_session_active(config_dir)``: called when a real session
   begins, AFTER the previous session's crash check has consumed its
   state.
-* ``clear_session_marker(config_dir)`` — called on every clean-shutdown
+* ``clear_session_marker(config_dir)``: called on every clean-shutdown
   path (quit / restart_app / atexit safety net / Windows logoff fast
   path). Idempotent.
-* ``was_previous_session_abnormal(config_dir)`` — True iff the marker
+* ``was_previous_session_abnormal(config_dir)``. True iff the marker
   survived, i.e. the previous process was terminated without running
   the clean-shutdown path.
 
 Reuses the config-dir + secure-atomic-write machinery already used by
-``single_instance._write_backend_pid_file`` — no new persistence
+``single_instance._write_backend_pid_file``: no new persistence
 mechanism is introduced.
 """
 
@@ -64,7 +64,7 @@ def was_previous_session_abnormal(config_dir: Path) -> bool:
     The marker is written at session start and removed on clean
     shutdown, so its presence at launch means the previous process was
     terminated without the clean-shutdown path running (crash, SIGKILL,
-    power loss) — or this is a leftover from a session that never
+    power loss), or this is a leftover from a session that never
     reached the marker-write point (startup aborted before ``run()``
     marked the session active).
     """
@@ -78,7 +78,7 @@ def was_previous_session_abnormal(config_dir: Path) -> bool:
 def mark_session_active(config_dir: Path) -> None:
     """Write the session-active marker (best-effort).
 
-    Called at the start of a real session — AFTER the previous session's
+    Called at the start of a real session. AFTER the previous session's
     crash check has consumed the previous marker state. Content carries
     the PID + start timestamp for diagnostics. Atomic write
     (``_secure_atomic_write``) so the marker is never half-written.
@@ -89,7 +89,7 @@ def mark_session_active(config_dir: Path) -> None:
         marker = session_marker_path(config_dir)
         marker.parent.mkdir(parents=True, exist_ok=True)
         content = f"pid={os.getpid()}\nstarted={datetime.now().isoformat()}\n"
-        # durability=False — recreated every launch; atomic rename still
+        # durability=False, recreated every launch; atomic rename still
         # guarantees no torn reads (same policy as backend.pid).
         _secure_atomic_write(marker, content, durability=False)
     except Exception as exc:

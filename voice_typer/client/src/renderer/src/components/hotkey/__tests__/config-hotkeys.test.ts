@@ -1,5 +1,5 @@
 /**
- * Contract tests for `configHotkeyLabels` — the single helper that
+ * Contract tests for `configHotkeyLabels`, the single helper that
  * computes the user-facing dictation + repaste hotkey labels from the
  * app config. App.tsx feeds it the config selectors and passes the
  * results to the Help overlay; the defaults it falls back to must
@@ -17,7 +17,7 @@ import { HOTKEY_DEFAULT as ONBOARDING_HOTKEY_DEFAULT } from "@/pages/onboarding/
 // formatHotkey renders macOS glyph forms (⌃⌥V) on macOS, so these
 // label assertions are platform-dependent. Pin a Windows UA so the
 // expected labels ("Caps Lock", "Ctrl+Alt+V") are deterministic on
-// every CI OS — same stub pattern as shortcuts.test.ts.
+// every CI OS, same stub pattern as shortcuts.test.ts.
 beforeEach(() => {
 	vi.stubGlobal("navigator", {
 		userAgent:
@@ -29,7 +29,7 @@ afterEach(() => {
 	vi.unstubAllGlobals();
 });
 
-describe("configHotkeyLabels — config-driven dictation/repaste labels", () => {
+describe("configHotkeyLabels, config-driven dictation/repaste labels", () => {
 	it("falls back to the canonical defaults when config fields are unset", () => {
 		expect(configHotkeyLabels({})).toEqual({
 			dictationLabel: "Caps Lock",
@@ -56,7 +56,7 @@ describe("configHotkeyLabels — config-driven dictation/repaste labels", () => 
 
 	it("keeps the onboarding re-export in lockstep with the hotkey module default", () => {
 		// `onboarding/lib/constants.ts` re-exports HOTKEY_DEFAULT from
-		// the hotkey module — if that re-export ever regresses to a
+		// the hotkey module, if that re-export ever regresses to a
 		// local copy, the value (and future changes) drift silently.
 		expect(ONBOARDING_HOTKEY_DEFAULT).toBe(HOTKEY_DEFAULT);
 		expect(HOTKEY_DEFAULT).toBe("<caps_lock>");

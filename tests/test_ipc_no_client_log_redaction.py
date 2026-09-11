@@ -9,7 +9,7 @@ INFO level with the full message body::
     log.info("[IPC] no client; dropping %s event: %s", msg_type, msg)
 
 Push events include ``transcription_partial`` and
-``transcription_final`` which carry the dictated text — i.e. user PII.
+``transcription_final`` which carry the dictated text, i.e. user PII.
 Logging them to the file handler leaks dictated content (passwords,
 medical dictation, private correspondence) to the log file.
 
@@ -60,7 +60,7 @@ class TestNoClientLogRedaction:
     def test_send_source_does_not_log_msg_body(self):
         """The source of ``_send`` must NOT format ``msg`` into the
         no-client log line.  The old format string was
-        ``"... dropping %s event: %s", msg_type, msg`` — the new format
+        ``"... dropping %s event: %s", msg_type, msg``, the new format
         is ``"... dropping %s event (size=%d)", msg_type, len(str(msg))``.
         """
         src = inspect.getsource(IPCServer._send)
@@ -77,7 +77,7 @@ class TestNoClientLogRedaction:
         # The body must NOT be passed as a log arg (only msg_type and
         # the size).  Look at the log.info call args in the source.
         assert "len(str(msg))" in src, (
-            "_send must pass len(str(msg)) — not msg itself — as the size hint so the dictated text isn't interpolated."
+            "_send must pass len(str(msg)) (not msg itself) as the size hint so the dictated text isn't interpolated."
         )
 
     def test_no_client_log_does_not_include_transcription_text(self, server, caplog):
@@ -165,7 +165,7 @@ class TestNoClientLogRedaction:
 
     def test_high_freq_bubble_level_still_uses_debug(self, server, caplog):
         """``bubble_level`` and ``waveform`` events must STILL be logged
-        at DEBUG (not INFO) — CR-8 only redacts the body of the INFO
+        at DEBUG (not INFO), CR-8 only redacts the body of the INFO
         log; the high-freq DEBUG log must remain so the operator can
         filter it out if needed.
         """

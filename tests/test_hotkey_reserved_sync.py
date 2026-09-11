@@ -250,7 +250,7 @@ class TestJsonStructure:
 
 # ──────────────────────────────────────────────────────────────────────
 # the ``TestNoiseFilterDefaultsSync`` class that previously lived
-# here was deleted along with the ``_DEFAULTS`` dict it pinned — see
+# here was deleted along with the ``_DEFAULTS`` dict it pinned: see
 # ``voice_typer/server/audio_chain_builder.py`` for the  fix notes.
 # The classes above test the hotkey reserved-sync invariant (server JSON
 # ↔ client JSON copy ↔ frontend TS re-exports) and are unrelated to

@@ -41,7 +41,7 @@ function getHandler(
 	const call = usePythonEventMock.mock.calls.find((c) => c[0] === eventName);
 	if (!call) {
 		throw new Error(
-			`no usePythonEvent subscription found for "${eventName}" — ` +
+			`no usePythonEvent subscription found for "${eventName}", ` +
 				`got calls for: ${usePythonEventMock.mock.calls
 					.map((c) => c[0])
 					.join(", ")}`,
@@ -62,7 +62,7 @@ afterEach(() => {
 
 // ── Tests ────────────────────────────────────────────────────────────
 
-describe("useOfflinePackDownload — initial state", () => {
+describe("useOfflinePackDownload, initial state", () => {
 	it("subscribes to all 11 pack/worker lifecycle push events", () => {
 		renderHook(() => useOfflinePackDownload());
 
@@ -94,7 +94,7 @@ describe("useOfflinePackDownload — initial state", () => {
 	});
 });
 
-describe("useOfflinePackDownload — download lifecycle transitions", () => {
+describe("useOfflinePackDownload, download lifecycle transitions", () => {
 	it("offline_pack_download_started → downloading + clears error", () => {
 		const { result } = renderHook(() => useOfflinePackDownload());
 
@@ -115,7 +115,7 @@ describe("useOfflinePackDownload — download lifecycle transitions", () => {
 		const { result } = renderHook(() => useOfflinePackDownload());
 
 		// From idle, progress flips to downloading (catches up if
-		// `offline_pack_download_started` was missed — e.g. renderer mounted
+		// `offline_pack_download_started` was missed, e.g. renderer mounted
 		// after the download already began).
 		act(() => getHandler("offline_pack_download_progress")({ percent: 12 }));
 		expect(result.current.status).toBe("downloading");
@@ -162,13 +162,13 @@ describe("useOfflinePackDownload — download lifecycle transitions", () => {
 		act(() => getHandler("offline_pack_download_failed")({ error: "first" }));
 		// A second failure with no message field preserves the prior error
 		// (a transient progress event shouldn't wipe a recorded failure
-		// message — see the comment in `useOfflinePackDownload.ts`).
+		// message, see the comment in `useOfflinePackDownload.ts`).
 		act(() => getHandler("offline_pack_download_failed")({ code: 42 }));
 		expect(result.current.error).toBe("first");
 	});
 });
 
-describe("useOfflinePackDownload — pack verification + worker readiness", () => {
+describe("useOfflinePackDownload, pack verification + worker readiness", () => {
 	it("offline_pack_verified transitions idle → worker-starting (pack OK, worker pending)", () => {
 		const { result } = renderHook(() => useOfflinePackDownload());
 		act(() => getHandler("offline_pack_verified")());
@@ -200,7 +200,7 @@ describe("useOfflinePackDownload — pack verification + worker readiness", () =
 		expect(result.current.status).toBe("ready");
 	});
 
-	it("offline_pack_ready is terminal — clears error and sets isReady", () => {
+	it("offline_pack_ready is terminal, clears error and sets isReady", () => {
 		const { result } = renderHook(() => useOfflinePackDownload());
 		// Seed a failure first.
 		act(() =>
@@ -216,7 +216,7 @@ describe("useOfflinePackDownload — pack verification + worker readiness", () =
 	});
 });
 
-describe("useOfflinePackDownload — pack missing / corrupt (§8.2 / §8.10)", () => {
+describe("useOfflinePackDownload, pack missing / corrupt (§8.2 / §8.10)", () => {
 	it("offline_pack_missing → missing status", () => {
 		const { result } = renderHook(() => useOfflinePackDownload());
 		act(() => getHandler("offline_pack_missing")());
@@ -241,7 +241,7 @@ describe("useOfflinePackDownload — pack missing / corrupt (§8.2 / §8.10)", (
 	});
 });
 
-describe("useOfflinePackDownload — worker crash + unload", () => {
+describe("useOfflinePackDownload, worker crash + unload", () => {
 	it("worker_crashed → worker-crashed + records reason", () => {
 		const { result } = renderHook(() => useOfflinePackDownload());
 		act(() => getHandler("worker_crashed")({ reason: "SIGSEGV" }));
@@ -253,7 +253,7 @@ describe("useOfflinePackDownload — worker crash + unload", () => {
 	it("worker_unloaded only transitions from ready → worker-unloaded", () => {
 		const { result } = renderHook(() => useOfflinePackDownload());
 
-		// From idle: stray event is a no-op (defensive — see comment
+		// From idle: stray event is a no-op (defensive, see comment
 		// in useOfflinePackDownload.ts about avoiding wiping failed/missing/
 		// corrupt status on a late-arriving worker_unloaded).
 		act(() => getHandler("worker_unloaded")());
@@ -277,7 +277,7 @@ describe("useOfflinePackDownload — worker crash + unload", () => {
 	});
 });
 
-describe("useOfflinePackDownload — full happy-path sequence", () => {
+describe("useOfflinePackDownload, full happy-path sequence", () => {
 	it("download → completed → verified → worker_started → offline_pack_ready", () => {
 		const { result } = renderHook(() => useOfflinePackDownload());
 

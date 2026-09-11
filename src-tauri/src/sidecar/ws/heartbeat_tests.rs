@@ -86,7 +86,7 @@ async fn test_gt8_shutdown_sidecar_for_exit_aborts_heartbeat_handle() {
 
     // Poll for the early handle-clear with a bounded deadline. The
     // 20ms interval is intentional (event-based poll, not a fixed
-    // sleep — matches the XS-53 bounded-polling pattern elsewhere).
+    // sleep: matches the XS-53 bounded-polling pattern elsewhere).
     tokio::time::timeout(Duration::from_millis(3000), async {
         loop {
             if state.heartbeat_handle.lock().await.is_none() {
@@ -98,7 +98,7 @@ async fn test_gt8_shutdown_sidecar_for_exit_aborts_heartbeat_handle() {
     .await
     .expect("GT-8: shutdown_sidecar_for_exit must abort + clear the heartbeat handle within 3s");
 
-    // Stop the spawned shutdown task — its remaining 30s dev-mode
+    // Stop the spawned shutdown task, its remaining 30s dev-mode
     // sleep is irrelevant to the assertion above.
     shutdown_task.abort();
 }
@@ -107,14 +107,14 @@ async fn test_gt8_shutdown_sidecar_for_exit_aborts_heartbeat_handle() {
 
 /// `abort_heartbeat` must clear the `heartbeat_handle`
 /// slot and abort the in-flight task. Verifies the helper is
-/// callable and idempotent — the two shutdown paths
+/// callable and idempotent: the two shutdown paths
 /// (`shutdown_sidecar_for_exit` in state.rs, `shutdown_sidecar` in
 /// sidecar_cmds.rs) both need to call it safely even if the other
 /// path already ran.
 #[tokio::test]
 async fn test_ue8_f10_abort_heartbeat_clears_handle_and_aborts_task() {
     let state = Arc::new(crate::state::SidecarState::new());
-    // Spawn a long-running task (sleep 60s — well beyond the test
+    // Spawn a long-running task (sleep 60s, well beyond the test
     // timeout). The heartbeat task in production runs an infinite
     // loop; a 60s sleep simulates "in-flight" for the test window.
     let h = tauri::async_runtime::spawn(async {
@@ -165,9 +165,9 @@ async fn test_ue8_f10_abort_heartbeat_on_fresh_state_is_noop() {
 
 // dispatch cancellation cleans up its pending entry ────────────────────
 
-/// Cancelling an in-flight `dispatch_inner` future — exactly what the
+/// Cancelling an in-flight `dispatch_inner` future, exactly what the
 /// heartbeat task's liveness-probe wrapper does at its response
-/// deadline (`tokio::time::timeout` drops the inner future) — must NOT
+/// deadline (`tokio::time::timeout` drops the inner future), must NOT
 /// leak the dispatch's pending-map entry.
 ///
 /// The dispatch's own timeout arm (the pending-map removal in
@@ -182,7 +182,7 @@ async fn test_ue8_f10_abort_heartbeat_on_fresh_state_is_noop() {
 /// Cancellation is driven with `tokio::select!`: the cancel branch
 /// completes only AFTER the pending entry is observable, so the drop
 /// is guaranteed to land while the dispatch is parked on its
-/// unfulfilled response oneshot (never before the insert — the test
+/// unfulfilled response oneshot (never before the insert, the test
 /// cannot pass vacuously). Nothing fulfills the oneshot (the WS-writer
 /// receiver is held but never polled), mirroring a hung sidecar.
 #[tokio::test]

@@ -6,18 +6,18 @@
  * Root cause (fixed in `hooks/models/useModelConfig.ts` via the
  * `callRef` + `markUpdatedRef` mirrors): a test mock (or future code)
  * that hands out a FRESH `call` identity on every render re-fires any
- * effect listing `call` in its deps — each run re-fetches the full
+ * effect listing `call` in its deps, each run re-fetches the full
  * models payload (get_config + get_model_status + get_model_catalog)
  * and stores fresh state → render → new `call` → … → unbounded render
  * loop until the heap is exhausted.
  *
  * The harness below (shared `renderLoopGuard` helper) drives the page
- * with the SAME worst-case mock shape — a NEW `call` per render — and
+ * with the SAME worst-case mock shape, a NEW `call` per render, and
  * asserts the page still settles: the mount load fires EXACTLY once per
  * command and the committed render count stays bounded. If future code
  * puts an unstable value in an effect dep (or re-introduces `call`
  * directly), the load re-fires and/or the render count explodes and
- * this test fails fast — instead of the worker OOMing.
+ * this test fails fast, instead of the worker OOMing.
  */
 
 import {
@@ -27,7 +27,7 @@ import {
 import { modelsConfigMock } from "@/__tests__/helpers/stableMocks";
 
 // The canonical minimal models-page config shape (one source of truth
-// in helpers/stableMocks.tsx — shared with ModelsPage.test.tsx,
+// in helpers/stableMocks.tsx, shared with ModelsPage.test.tsx,
 // ModelsPage-cancel-download-reset and the data-pages live-region guards).
 const MOCK_CONFIG = modelsConfigMock();
 

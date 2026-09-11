@@ -3,20 +3,20 @@
 // sub-components + 1 inline hook. It is now a thin composition root
 // that imports the extracted pieces from `./home/`:
 //
-//   - `./home/lib/constants.ts`    — cache keys, timing constants, STATUS_COLORS
-//   - `./home/lib/status.ts`       — normalizeHotkey, statusLabelFor, statusKeyFor
-//   - `./home/lib/cache.ts`        — loadCachedRecent/Stats, persistRecent/Stats
-//   - `./home/hooks/useFirstRecordingCelebration.ts` — first-run celebration
-//   - `./home/hooks/useLastTranscriptionPreview.ts`  — last-transcription card
+//   - `./home/lib/constants.ts`   , cache keys, timing constants, STATUS_COLORS
+//   - `./home/lib/status.ts`      , normalizeHotkey, statusLabelFor, statusKeyFor
+//   - `./home/lib/cache.ts`       , loadCachedRecent/Stats, persistRecent/Stats
+//   - `./home/hooks/useFirstRecordingCelebration.ts`, first-run celebration
+//   - `./home/hooks/useLastTranscriptionPreview.ts` , last-transcription card
 //       state (text + quality + auto-clear timer), undo/repaste/discard, and
 //       the `recording_started` reset
-//   - `./home/hooks/useForceCancel.ts` — "Force cancel" state machine
+//   - `./home/hooks/useForceCancel.ts`, "Force cancel" state machine
 //       (status_change transitions + reveal delay + store sync + cancel IPC)
-//   - `./home/hooks/useDownloadProgressEvent.ts` — download-progress bar
-//   - `./home/hooks/useDictationToggle.ts` — consent-gated dictation toggle
-//   - `./home/components/MicToggleButton.tsx`         — mic toggle button
-//   - `./home/components/RecordingStatusPill.tsx`     — status pill
-//   - `./home/components/LastTranscriptionPreview.tsx` — last transcription card
+//   - `./home/hooks/useDownloadProgressEvent.ts`, download-progress bar
+//   - `./home/hooks/useDictationToggle.ts`, consent-gated dictation toggle
+//   - `./home/components/MicToggleButton.tsx`        , mic toggle button
+//   - `./home/components/RecordingStatusPill.tsx`    , status pill
+//   - `./home/components/LastTranscriptionPreview.tsx`, last transcription card
 //
 // Status is kept minimal: the coloured status pill + a live MM:SS
 // timer appear above the mic button, and a single dynamic line below
@@ -26,12 +26,12 @@
 //
 // The `export default function Home` signature is unchanged so App.tsx
 // routing and existing tests (Home.test.tsx, pages-improvements.test.tsx
-// ) continue to work. Pure structural refactor — no behaviour
+// ) continue to work. Pure structural refactor, no behaviour
 // changes.
 //
 // Wiring note: the `usePythonEvent` subscriptions stay in this
 // composition root (the source-guard regression tests grep Home.tsx for
-// them) and delegate their business logic to the hooks above — except
+// them) and delegate their business logic to the hooks above, except
 // `recording_started` (owned by useLastTranscriptionPreview) and
 // `download_progress` (owned by useDownloadProgressEvent), whose
 // subscriptions live inside their hooks.
@@ -102,7 +102,7 @@ export default function Home() {
 
 	// Ref mirrors of `call` / `markUpdated` so the mount-load effect
 	// keeps `[]` deps. Both are useCallback-stable in production, but
-	// test mocks return FRESH functions per render — depending on them
+	// test mocks return FRESH functions per render, depending on them
 	// re-fires the initial load (get_config/get_today_stats/get_history
 	// → setState → re-render → new call → loop → worker OOM). Same
 	// pattern as useVocabulary.ts.
@@ -111,7 +111,7 @@ export default function Home() {
 
 	const [hotkey, setHotkey] = useState("F2");
 	// The live MM:SS recording timer (elapsed seconds + its 1s interval)
-	// is owned by <RecordingTimer /> (./home/components) — keeping the
+	// is owned by <RecordingTimer /> (./home/components), keeping the
 	// per-second tick state here re-rendered the whole Home tree every
 	// second. See RecordingTimer.tsx.
 	const isRecording = recordingState === "recording";
@@ -157,19 +157,19 @@ export default function Home() {
 	);
 	const { agoLabel, markUpdated } = useLastUpdated();
 	// Ref mirror of `markUpdated` (declared above via useLastUpdated) so
-	// the mount-load effect keeps `[]` deps — see the callRef comment.
+	// the mount-load effect keeps `[]` deps, see the callRef comment.
 	const markUpdatedRef = useRef(markUpdated);
 	useEffect(() => {
 		markUpdatedRef.current = markUpdated;
 	}, [markUpdated]);
 	const [refreshing, setRefreshing] = useState(false);
 
-	// Runtime-pack readiness — drives the "Preparing offline engine…"
+	// Runtime-pack readiness, drives the "Preparing offline engine…"
 	// banner. Local whisper / Parakeet transcription degrades silently
 	// to "silent download starts, 'Preparing…' line, then works" when
 	// the pack isn't ready (§4.9). Cloud transcription (Groq/OpenAI/
 	// Deepgram) never needs the pack, so we suppress the banner when
-	// the active ASR backend is a cloud one (§4.9: "works — cloud
+	// the active ASR backend is a cloud one (§4.9: "works, cloud
 	// never needs the pack").
 	const { isReady: packReady } = useOfflinePackDownload();
 	const {
@@ -179,7 +179,7 @@ export default function Home() {
 		copyImageToClipboard,
 		revealInFolder,
 	} = useStatsShare();
-	// Live theme palette for the share image — re-reads when the theme
+	// Live theme palette for the share image, re-reads when the theme
 	// changes so the exported PNG always matches the active preset.
 	const themePalette = useThemePalette();
 
@@ -205,18 +205,18 @@ export default function Home() {
 	// or `history_changed` event arrives while the window is hidden
 	// (document.visibilityState !== "visible"). The visibilitychange
 	// listener below checks this flag on focus and triggers a single
-	// debounced refresh — so background events don't fire 2 IPC calls
+	// debounced refresh, so background events don't fire 2 IPC calls
 	// each (get_history + get_today_stats) while the user isn't looking
 	// at the page. The next focus collapses the backlog into ONE fetch.
 	const staleRef = useRef(false);
 
-	// Shared refresh routine — used by both `transcription_final` and
+	// Shared refresh routine, used by both `transcription_final` and
 	// `history_changed` handlers (refresh consolidation).
 	//
 	// declared via `useCallback` and passed to BOTH usePythonEvent
 	// subscriptions below so they share a single callback identity (the
 	// test greps Home.tsx for this declaration).
-	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract — .current must NOT become a dep
+	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract, .current must NOT become a dep
 	const debouncedRefreshFromEvent = useCallback(():
 		| (() => void)
 		| undefined => {
@@ -251,7 +251,7 @@ export default function Home() {
 					setStats(newStats);
 				}
 			} catch (e) {
-				// Silently ignore — next manual load picks up fresh data.
+				// Silently ignore, next manual load picks up fresh data.
 				console.warn(
 					"[renderer:Home] event refresh (get_history/get_today_stats) failed:",
 					e,
@@ -266,7 +266,7 @@ export default function Home() {
 	// a single debounced refresh. This collapses the "triple
 	// subscription per dictation" pattern (Home + History + Dashboard
 	// all subscribed to transcription_final) into at most ONE active
-	// refresh — only the page the user is actually looking at refreshes.
+	// refresh, only the page the user is actually looking at refreshes.
 	useEffect(() => {
 		const onVisibility = () => {
 			if (document.visibilityState === "visible" && staleRef.current) {
@@ -281,14 +281,14 @@ export default function Home() {
 	}, [debouncedRefreshFromEvent]);
 
 	// ── Initial data load (config + today stats + recent history) ──
-	// Parallelized — the three IPC calls are independent, so running
+	// Parallelized, the three IPC calls are independent, so running
 	// them concurrently cuts initial-load wall time from 3 sequential
 	// round-trips (~15-150ms) to one (~5-50ms). Each call updates its
 	// own state as soon as it settles (so e.g. `cfg`/`hotkey` aren't
 	// blocked on a slow `get_history`), and `Promise.allSettled` is
 	// used to mark the load complete once all three have settled —
 	// mirroring the parallel-fetch pattern in `handleManualRefresh`.
-	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract — .current must NOT become a dep
+	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract, .current must NOT become a dep
 	useEffect(() => {
 		let cancelled = false;
 		const cfgSettled = callRef
@@ -366,10 +366,10 @@ export default function Home() {
 		}
 	}, [call, markUpdated]);
 
-	// status_change listener — delegates to the force-cancel state
+	// status_change listener, delegates to the force-cancel state
 	// machine (tracks entry into "transcribing" so the "Force cancel"
 	// affordance can reveal after FORCE_CANCEL_DELAY_MS). The hotkey
-	// is NOT re-fetched here — see the `config_changed` handler
+	// is NOT re-fetched here, see the `config_changed` handler
 	// below: `status_change` fires on every recording → transcribing
 	// → idle transition, so a per-event `get_config` round-trip
 	// would be wasted work.
@@ -378,7 +378,7 @@ export default function Home() {
 		return undefined;
 	});
 
-	// config_changed listener — re-fetches the hotkey when the
+	// config_changed listener, re-fetches the hotkey when the
 	// backend reports that Settings saved a new config (the
 	// `config_changed` event is published by `apply_config` in
 	// `config_handlers.py`). This replaces the per-status_change
@@ -388,7 +388,7 @@ export default function Home() {
 	//
 	// Also refreshes ``cfg`` (the full config snapshot) so the
 	// GDPR ``voice_biometric_consent`` gate in ``handleToggle`` can
-	// never go stale — e.g. consent granted in Settings must unblock
+	// never go stale, e.g. consent granted in Settings must unblock
 	// dictation immediately even if Home stays mounted.
 	usePythonEvent("config_changed", (): (() => void) | undefined => {
 		let cancelled = false;
@@ -454,9 +454,9 @@ export default function Home() {
 	// hotkey changes). Without this, every Home re-render produced
 	// a fresh `computeShareStats(...)` return value, defeating the
 	// React.memo wrapper on StatsShareImage. Keyed on `stats` and
-	// `cfg?.asr_backend` — the only inputs `computeShareStats` reads.
+	// `cfg?.asr_backend`, the only inputs `computeShareStats` reads.
 	// Home's share image derives from the today-stats cache + config
-	// (no lifetime aggregates on this page) — `computeShareStats`
+	// (no lifetime aggregates on this page), `computeShareStats`
 	// defaults the lifetime fields to today's values, and the model /
 	// device come from the config snapshot.
 	const asrBackend = cfg?.asr_backend;
@@ -464,7 +464,7 @@ export default function Home() {
 		() =>
 			stats && asrBackend
 				? computeShareStats(stats, asrBackend, {
-						// Pre-formatted display values ("Tiny", "GPU") — the
+						// Pre-formatted display values ("Tiny", "GPU"), the
 						// share image renders them as-is.
 						model: cfg?.model_size ? formatModel(cfg.model_size) : "",
 						device: cfg?.device ? formatDevice(cfg.device) : "",
@@ -498,7 +498,7 @@ export default function Home() {
 	// so only `loading` / `transcribing` need a textual reason.
 	const micDisabledReason = micDisabled && !toggling ? inlineStatus : undefined;
 
-	// Single dynamic status line under the mic button — ONE element that
+	// Single dynamic status line under the mic button, ONE element that
 	// swaps its content (and color) based on the current state, instead
 	// of separate hotkey-hint / "Preparing offline engine…" / inline
 	// status lines (or a status pill above the button):
@@ -525,7 +525,7 @@ export default function Home() {
 		hint = { variant: "status", text: t("pack.preparingOfflineEngine") };
 	}
 
-	// Status pill — computed AFTER the dynamic line so the pill always
+	// Status pill, computed AFTER the dynamic line so the pill always
 	// agrees with it: when the line below the button is showing an error
 	// (no model selected, or a recording error with a message), the pill
 	// flips to the `error` state instead of staying in the underlying
@@ -599,12 +599,12 @@ export default function Home() {
 				error={recordingState === "error" && !!lastError}
 			/>
 
-			{/* Single dynamic status line under the mic button — see the
+			{/* Single dynamic status line under the mic button, see the
                                 `hint` computation above for the state → content mapping.
                                 This is Home's ONE status live region: the pill above is a
                                 plain <div> (no implicit `status` role) and the recording
                                 timer is role="timer" with explicit aria-live="off", so a
-                                state change announces exactly once here — no double
+                                state change announces exactly once here, no double
                                 announcements. Coarse transitions ("Recording started." /
                                 "Ready." / …) are additionally covered by App.tsx's sr-only
                                 region (app-level, visible on every page). Errors switch to
@@ -697,7 +697,7 @@ export default function Home() {
 					className="w-full flex items-center justify-center py-6"
 					aria-label={t("home.loadingTodayStatsAria")}
 				>
-					{/* Decorative — the wrapping <section aria-label>
+					{/* Decorative, the wrapping <section aria-label>
                                             already supplies the accessible name; the bare
                                             Spinner's own role="img" aria-label="Loading" would
                                             compete with it. */}
@@ -727,7 +727,7 @@ export default function Home() {
 					className="w-full flex items-center justify-center py-6"
 					aria-label={t("home.loadingRecentAria")}
 				>
-					{/* Decorative — same reasoning as the
+					{/* Decorative, same reasoning as the
                                             today-stats section above. */}
 					<Spinner decorative />
 				</section>

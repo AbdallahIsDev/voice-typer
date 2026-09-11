@@ -5,7 +5,7 @@
  * The `bubble:hidden` IPC handler (registered once in
  * bubble-handlers.ts) consumes this callback atomically. The previous
  * design used `ipcMain.once("bubble:hidden", onHidden)` per hide,
- * which mutated the global IPC bus — `showBubbleWindow` had to
+ * which mutated the global IPC bus, `showBubbleWindow` had to
  * defensively `ipcMain.removeAllListeners("bubble:hidden")` to avoid
  * stale callbacks. Concentrating the registration in a module-level
  * slot removes that global side effect: the show/hide paths now just
@@ -37,7 +37,7 @@
  *   - `consume()` atomically retrieves AND clears the slot. Used by
  *     the persistent `bubble:hidden` IPC listener in
  *     bubble-handlers.ts so a single `bubble:hidden` event fires the
- *     callback exactly once — even if the fallback timeout already
+ *     callback exactly once, even if the fallback timeout already
  *     ran, the slot is already null and the IPC event becomes a
  *     no-op (and vice versa: the timeout's `unsubscribe()` clears
  *     the slot before the IPC event arrives).
@@ -107,7 +107,7 @@ export function clearCurrentHideAnimationCallback(): void {
  * Atomically retrieve AND clear the current hide-animation callback.
  * Called by the persistent `bubble:hidden` IPC handler in
  * bubble-handlers.ts so a single `bubble:hidden` event fires the
- * callback exactly once — even if the fallback timeout already ran,
+ * callback exactly once, even if the fallback timeout already ran,
  * the slot is already null and the IPC event becomes a no-op (and
  * vice versa: the timeout's `unsubscribe()` clears the slot before the
  * IPC event arrives).

@@ -13,11 +13,11 @@ This module simulates total network outage by monkeypatching
 ``urllib.request.urlopen`` to raise ``ConnectionError`` and verifies:
 1. Cloud engines fail gracefully with a clear error message.
 2. LLM polish fails gracefully.
-3. Local ASR (mocked) still works — the app doesn't crash.
+3. Local ASR (mocked) still works, the app doesn't crash.
 4. The ``_read_capped`` function handles network errors without OOM.
 
 Class/method names, assertion logic, and imports below are preserved
-verbatim from the original monolith — only file location has changed.
+verbatim from the original monolith, only file location has changed.
 """
 
 # === Source: tests/test_new_ux_029_offline_mode.py ===
@@ -88,7 +88,7 @@ class TestCloudEngineFailsGracefullyOnNetworkError:
 
     def test_read_capped_handles_network_error_without_oom(self):
         """SEC-030: ``_read_capped`` must handle a network error mid-stream
-        without OOM — the error should propagate, not hang or accumulate.
+        without OOM, the error should propagate, not hang or accumulate.
         """
         from urllib.error import URLError
 
@@ -138,7 +138,7 @@ class TestCloudEngineFailsGracefullyOnNetworkError:
 
         audio = np.full(16000, 0.5, dtype=np.float32)
 
-        # Monkeypatch all network calls to fail — local ASR must not use them
+        # Monkeypatch all network calls to fail, local ASR must not use them
         with patch("urllib.request.urlopen") as mock_urlopen, patch("socket.socket") as mock_socket:
             mock_urlopen.side_effect = ConnectionError("No network")
             mock_socket.side_effect = ConnectionError("No network")
@@ -171,7 +171,7 @@ class TestCloudEngineFailsGracefullyOnNetworkError:
             except Exception as e:
                 msg = str(e).lower()
                 # The error message should mention "network" or "connection"
-                # or "url" — not be a raw SSL/socket error with hex addresses
+                # or "url", not be a raw SSL/socket error with hex addresses
                 assert any(word in msg for word in ("network", "connection", "url", "reach", "timeout", "error")), (
                     f"NEW-UX-029: cloud engine error message is not user-friendly: {e!r}"
                 )

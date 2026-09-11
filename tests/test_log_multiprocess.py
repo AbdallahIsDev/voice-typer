@@ -1,4 +1,4 @@
-"""DJ-49: multi-process log race — prewarm + main must write different files.
+"""DJ-49: multi-process log race: prewarm + main must write different files.
 
 Python's :class:`logging.handlers.RotatingFileHandler` is NOT
 multi-process safe. When both the main backend and the detached
@@ -7,7 +7,7 @@ concurrent ``stream.write(msg + terminator)`` calls can interleave
 (lines split mid-write), and the rotation race is worse: both
 processes stat the file at >5 MiB, both call ``os.rename``, the
 second rename fails silently, and the second process then re-opens
-the original file in write mode — **truncating the log mid-session**.
+the original file in write mode, **truncating the log mid-session**.
 
 The fix in :func:`voice_typer.server.log.setup_logging` adds a
 ``process_name`` parameter (default ``"main"``). When the prewarm
@@ -22,7 +22,7 @@ These tests assert:
 1. ``setup_logging(config_dir)`` (default ``process_name="main"``)
    writes to ``<config_dir>/voice-typer.log``.
 2. ``setup_logging(config_dir, process_name="prewarm")`` writes to
-   ``<config_dir>/prewarm.log`` — a DIFFERENT path.
+   ``<config_dir>/prewarm.log``, a DIFFERENT path.
 3. ``get_log_file_path`` mirrors the same disambiguation.
 4. The two paths are NOT equal (the core race-elimination invariant).
 """
@@ -51,7 +51,7 @@ def _flush_handlers() -> None:
 def test_main_process_writes_to_voice_typer_log(tmp_path: Path) -> None:
     """Default ``process_name="main"`` writes to ``voice-typer.log``.
 
-    This is the historical path — preserved so existing tests, log
+    This is the historical path, preserved so existing tests, log
     viewers, and operators that grep ``voice-typer.log`` keep working.
     """
     reset()
@@ -77,7 +77,7 @@ def test_main_process_writes_to_voice_typer_log(tmp_path: Path) -> None:
 def test_prewarm_process_writes_to_prewarm_log(tmp_path: Path) -> None:
     """``process_name="prewarm"`` writes to ``prewarm.log``.
 
-    This is the DJ-49 fix — the prewarm process gets its own file so
+    This is the DJ-49 fix, the prewarm process gets its own file so
     the shared RotatingFileHandler is never opened by two processes
     at once.
     """
@@ -95,7 +95,7 @@ def test_prewarm_process_writes_to_prewarm_log(tmp_path: Path) -> None:
 
         assert prewarm_log.exists(), "prewarm log file should exist when process_name='prewarm'"
         assert not main_log.exists(), (
-            "main log file should NOT exist when process_name='prewarm' — "
+            "main log file should NOT exist when process_name='prewarm', "
             "this is the core race-elimination invariant (prewarm must not "
             "touch the shared voice-typer.log)"
         )
@@ -146,7 +146,7 @@ def test_get_log_file_path_unknown_process_name_falls_back_to_main(
 ) -> None:
     """An unrecognised ``process_name`` falls back to the main log path.
 
-    This is defensive — the only two valid values today are ``"main"``
+    This is defensive, the only two valid values today are ``"main"``
     and ``"prewarm"``, but if a future caller passes a typo or an
     unrecognised name, the safest fallback is the well-known main log
     path (rather than crashing or silently writing to a strange

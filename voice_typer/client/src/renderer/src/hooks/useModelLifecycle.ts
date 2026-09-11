@@ -1,31 +1,31 @@
 /**
- * useModelLifecycle — facade composing the Models-page sub-hooks.
+ * useModelLifecycle, facade composing the Models-page sub-hooks.
  *
  *  (monolith split): the former 995-line monolith has
  * been decomposed into 5 cohesive sub-hooks, each owning one concern:
  *
- *   • `useModelConfig`     — config + models + catalog state, the
+ *   • `useModelConfig`    , config + models + catalog state, the
  *                            `config_changed` subscription, and the
  *                            load / refresh / update actions.
- *   • `useModelDownload`   — download-progress state machine, the
+ *   • `useModelDownload`  , download-progress state machine, the
  *                            `download_progress` subscription, and the
  *                            download / pause / cancel actions.
- *   • `useModelSelection`  — `selectingModel` / `deleteModelTarget`
+ *   • `useModelSelection` , `selectingModel` / `deleteModelTarget`
  *                            state + the select / request-delete /
  *                            confirm-delete actions.
- *   • `useCloudProviders`  — cloud-provider API keys + test results +
+ *   • `useCloudProviders` , cloud-provider API keys + test results +
  *                            the save-key / set-consent / test-
  *                            connection actions (also owns the 3
  *                            module-level helpers: `consentKeyFor`,
  *                            `apiKeyConfigField`, `safeApiKey`).
- *   • `useModelFolder`     — disk-info + open-folder-IPC probe state
+ *   • `useModelFolder`    , disk-info + open-folder-IPC probe state
  *                            + the import / open-folder actions.
  *
  * This facade wires the sub-hooks together, forwarding the shared
  * state (`models` / `setModels` / `apiKeys` / `setConfig` /
  * `updateConfig` / `loadConfig`) from `useModelConfig` into the
  * sub-hooks that need it (`refreshModelStatus` is forwarded to
- * `useModelSelection` only — the download sub-hook stopped consuming
+ * `useModelSelection` only, the download sub-hook stopped consuming
  * it when the deps-install flow was removed). It also pulls in
  * the cross-cutting `usePython` / `useSnackbar` hooks so the sub-hooks
  * can stay focused on their own state. (`useLastUpdated` is consumed
@@ -95,7 +95,7 @@ export function useModelLifecycle() {
 	//    subscription + the download / pause / cancel actions. Needs
 	//    `setModels` (to mark the just-downloaded model as
 	//    `downloaded: true`) and `loadConfig`
-	//    (post-download reconcile — the backend does not auto-activate,
+	//    (post-download reconcile, the backend does not auto-activate,
 	//    so config/status truth is re-fetched instead of guessed).
 	const download = useModelDownload({
 		call,
@@ -142,19 +142,19 @@ export function useModelLifecycle() {
 		loadConfig: configRest.loadConfig,
 	});
 
-	// 6. (UI/UX overhaul 2026-08-20, point 4) — just-in-time
+	// 6. (UI/UX overhaul 2026-08-20, point 4), just-in-time
 	//    HuggingFace-consent gate for downloads. The persistent
 	//    consent banner was removed; consent is checked ONLY at
 	//    the moment the user clicks a model's Download button:
 	//      • consent already granted (or the model doesn't download
 	//        from HuggingFace, e.g. qwen) → proceed immediately;
 	//      • consent missing → block the download and open the shared
-	//        point-of-use consent dialog (`openConsentGate` — the SAME
+	//        point-of-use consent dialog (`openConsentGate`, the SAME
 	//        modal every other consent-gated flow uses). Allow persists
 	//        `huggingface_consent=true` and re-invokes the blocked
 	//        download; Cancel leaves it blocked. The backend's own
 	//        `_require_huggingface_consent` gate remains the GDPR
-	//        enforcement — this only changes when/how the requirement
+	//        enforcement, this only changes when/how the requirement
 	//        is surfaced to the user.
 	const handleDownloadModel = useCallback(
 		(model: ModelInfo) => {

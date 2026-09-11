@@ -2,7 +2,7 @@
 //
 // `usePythonEvent` previously returned early from its `useEffect` when
 // `window.python` was undefined at mount, and the effect's only
-// dependency was `[type]` — so if `window.python` was installed later
+// dependency was `[type]`, so if `window.python` was installed later
 // (e.g. by the Tauri bridge's auto-install on first import, or by the
 // Electron preload under slow HMR), the subscription was never
 // re-attempted and events were silently dropped.
@@ -18,7 +18,7 @@ import { useSyncExternalStore } from "react";
 // Import `installTauriBridge` so `subscribeBridgeReady` can
 // re-trigger the installer when the Tauri runtime appears AFTER the
 // initial module-import-time auto-install ran (which no-op'd because
-// the Tauri global wasn't yet present — a rare timing edge under
+// the Tauri global wasn't yet present, a rare timing edge under
 // Tauri v2 with `withGlobalTauri: true`). The installer itself is
 // idempotent (no-ops when not in Tauri mode or when the namespaces
 // are already installed), so the hook stays transport-agnostic:
@@ -47,18 +47,18 @@ function subscribeBridgeReady(callback: () => void): () => void {
 	// tick (≤100ms later) detects it and calls `callback()`. React
 	// re-renders, `getSnapshot()` returns the same `true`, and the
 	// effect (which already ran with `bridgeReady=true` on the
-	// initial render) does not re-run — so the no-op re-render is
+	// initial render) does not re-run, so the no-op re-render is
 	// harmless.
 	//
 	// Also detect the Tauri runtime appearing AFTER the
 	// initial module-import-time auto-install. The auto-install in
-	// the tauri-bridge installer runs once at module load — if
+	// the tauri-bridge installer runs once at module load, if
 	// the Tauri global isn't yet present (rare timing edge under
 	// Tauri v2 with `withGlobalTauri: true`), the auto-install
 	// no-ops and `window.python` is never installed. The previous
 	// code polled `window.python` forever with NO mechanism to
 	// re-trigger the installer. We now re-invoke
-	// `installTauriBridge()` (idempotent — no-ops if not in Tauri
+	// `installTauriBridge()` (idempotent, no-ops if not in Tauri
 	// mode or if already installed) on every tick, which installs
 	// the three namespaces, and the next tick's
 	// `window.python` check then succeeds and notifies React.
@@ -69,7 +69,7 @@ function subscribeBridgeReady(callback: () => void): () => void {
 			return;
 		}
 		// The Tauri global appeared after the auto-install
-		// no-op'd — re-trigger the installer. The installer is
+		// no-op'd, re-trigger the installer. The installer is
 		// idempotent: it no-ops again if the runtime isn't fully
 		// ready yet (e.g. the global is partial) and the next
 		// tick retries.

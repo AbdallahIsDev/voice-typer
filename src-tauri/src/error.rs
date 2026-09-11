@@ -4,20 +4,20 @@
 //! [`VoiceTyperError`]. The type has two deliberately different
 //! representations:
 //!
-//! - **`Display`** — the human/log-facing string. It preserves the
+//! - **`Display`**: the human/log-facing string. It preserves the
 //!   exact strings the host emitted before this enum existed
 //!   (`"sidecar not connected"`, `"dispatch timeout (120s)"`,
 //!   `"server error [<code>]: <message>"`, and the JSON envelope
 //!   strings for the envelope-shaped rejections), so log consumers
 //!   (the tray menu handler, the WS heartbeat task, the bubble
-//!   position persister — all of which only ever `{}`-format the
+//!   position persister: all of which only ever `{}`-format the
 //!   error) see byte-identical lines.
-//! - **`Serialize`** — the renderer-facing wire payload. Tauri v2's
+//! - **`Serialize`**: the renderer-facing wire payload. Tauri v2's
 //!   `InvokeError` serializes the rejection value with
 //!   `serde_json::to_value`, and the renderer's `usePython.ts`
 //!   normalizes ONLY `typeof err === "string"` rejections (anything
 //!   else collapses to `"unknown IPC error"`). The impl therefore
-//!   emits `serialize_str` — a JSON *string* whose contents are
+//!   emits `serialize_str`: a JSON *string* whose contents are
 //!   either a plain message or the serialized
 //!   `{"type":"error","data":{...}}` envelope, matching what the
 //!   former `Err(json!(...).to_string())` sites put on the wire.
@@ -25,19 +25,19 @@
 //! Envelope rejections are built with the same `json!(...).to_string()`
 //! construction the former inline sites used, so the wire bytes are
 //! identical by construction (serde_json without `preserve_order`
-//! emits map keys in sorted order — `"data"` before `"type"` — and
+//! emits map keys in sorted order, `"data"` before `"type"`, and
 //! both the old and new paths share that ordering).
 //!
 //! Envelope codes are single-sourced from the `allowlist.rs` constants
 //! (`DISALLOWED_COMMAND_CODE`, `DISALLOWED_WINDOW_CODE`,
-//! `PENDING_FULL_CODE`) — no inline code literals here.
+//! `PENDING_FULL_CODE`): no inline code literals here.
 //!
 //! The `Server` variant is the error-envelope passthrough: when the
 //! Python sidecar answers a dispatch with `{"type":"error","data":{...}}`,
 //! the host re-emits the envelope VERBATIM (only wrapping it in
 //! `{"type":"error","data":<data>}` at serialization) so structured
-//! payload fields the renderer branches on — `data.errors[]`,
-//! `consent_field`, `engine_name`, `model_id` — survive the hop.
+//! payload fields the renderer branches on, `data.errors[]`,
+//! `consent_field`, `engine_name`, `model_id`: survive the hop.
 //! Before this variant existed the host flattened the envelope to
 //! `"server error [<code>]: <message>"`, destroying those fields.
 
@@ -93,7 +93,7 @@ fn data_too_large_envelope() -> String {
 
 /// The `disallowed_window` envelope (window-origin guard rejection).
 /// `message` distinguishes the main-window guard from the bubble-window
-/// guard — both share the `disallowed_window` code.
+/// guard: both share the `disallowed_window` code.
 fn disallowed_window_envelope(message: &str) -> String {
     json!({
         "type": "error",
@@ -111,25 +111,25 @@ fn disallowed_window_envelope(message: &str) -> String {
 ///
 /// See the module docs for the `Display` vs `Serialize` split. Variants:
 /// - plain host conditions (`NotConnected`, `ShuttingDown`, `Timeout`,
-///   `ChannelClosed`, `SendFailed`) — `Display` and wire string are the
+///   `ChannelClosed`, `SendFailed`): `Display` and wire string are the
 ///   same plain message the host emitted pre-enum.
 /// - envelope rejections (`PendingFull`, `DisallowedCommand`,
-///   `DataTooLarge`, `DisallowedWindow`) — both `Display` and wire
+///   `DataTooLarge`, `DisallowedWindow`): both `Display` and wire
 ///   string are the envelope JSON (log lines and renderer payload stay
 ///   identical to the former `Err(err.to_string())` sites).
-/// - `Server` — the sidecar error-envelope passthrough (see module
+/// - `Server`: the sidecar error-envelope passthrough (see module
 ///   docs); `Display` is the log-facing `"server error [code]: message"`
 ///   while the wire payload re-wraps the envelope verbatim.
-/// - `Host` — catch-all for legacy formatted-string errors that have no
+/// - `Host`: catch-all for legacy formatted-string errors that have no
 ///   more specific variant (kept byte-identical for the renderer).
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum VoiceTyperError {
-    /// `state.ws_tx` is `None` — the sidecar WS link is down (or the
+    /// `state.ws_tx` is `None`: the sidecar WS link is down (or the
     /// writer task exited, surfaced as `TrySendError::Closed`).
     #[error("sidecar not connected")]
     NotConnected,
 
-    /// `state.shutting_down` is set — dispatch short-circuits so it
+    /// `state.shutting_down` is set: dispatch short-circuits so it
     /// can't orphan a pending entry in the shutdown window.
     #[error("sidecar shutting down")]
     ShuttingDown,
@@ -139,7 +139,7 @@ pub(crate) enum VoiceTyperError {
     #[error("dispatch timeout ({secs}s)")]
     Timeout { secs: u64 },
 
-    /// The response oneshot sender was dropped without sending — the
+    /// The response oneshot sender was dropped without sending, the
     /// WS reader task exited mid-dispatch (sidecar crashed / WS closed).
     #[error("dispatch response channel closed")]
     ChannelClosed,
@@ -148,7 +148,7 @@ pub(crate) enum VoiceTyperError {
     #[error("WS send failed: {message}")]
     SendFailed { message: String },
 
-    /// The dispatch pending-map hit its capacity cap — a transient
+    /// The dispatch pending-map hit its capacity cap, a transient
     /// backpressure signal the renderer retries after backing off.
     #[error("{}", pending_full_envelope())]
     PendingFull,
@@ -164,7 +164,7 @@ pub(crate) enum VoiceTyperError {
     #[error("{}", data_too_large_envelope())]
     DataTooLarge,
 
-    /// A window-origin guard rejected the call — the invoking window's
+    /// A window-origin guard rejected the call, the invoking window's
     /// label is not the one the command is restricted to. `message` is
     /// the guard's exact human message ("command only allowed from
     /// main window" / "command only allowed from bubble window").
@@ -215,7 +215,7 @@ impl VoiceTyperError {
     /// Wrap the `data` payload of a sidecar `type:"error"` response.
     ///
     /// When `data` is a JSON object the result is the `Server` variant
-    /// (envelope passthrough — every field in `data` reaches the
+    /// (envelope passthrough: every field in `data` reaches the
     /// renderer). When the sidecar violated the envelope contract
     /// (`data` missing / not an object), the result degrades to the
     /// legacy flat string `"server error [unknown]: server error"` —
@@ -268,17 +268,17 @@ impl Serialize for VoiceTyperError {
     ///
     /// Tauri's `InvokeError` runs `serde_json::to_value` on the
     /// rejection; `serialize_str` makes that value a `Value::String`,
-    /// so the renderer's `invoke` promise rejects with a string — the
+    /// so the renderer's `invoke` promise rejects with a string, the
     /// only shape `usePython.ts` normalizes (`typeof err === "string"`
     /// is parsed as an error envelope; everything else becomes
     /// `"unknown IPC error"`).
     ///
-    /// - `Server` → `{"type":"error","data":<data verbatim>}` — the
+    /// - `Server` → `{"type":"error","data":<data verbatim>}`, the
     ///   passthrough envelope, re-wrapped. All structured fields
     ///   (`errors[]`, `consent_field`, `engine_name`, `model_id`, …)
     ///   ride along untouched.
     /// - every other variant → its `Display` string (plain message or
-    ///   envelope JSON — both already wire-shaped).
+    ///   envelope JSON: both already wire-shaped).
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,

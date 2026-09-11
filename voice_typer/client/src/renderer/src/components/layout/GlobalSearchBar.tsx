@@ -9,12 +9,12 @@ import { t } from "@/i18n/i18n";
 import type { Page } from "@/types/ipc";
 
 /**
- * Global search bar — lives in the title bar's middle spacer.
+ * Global search bar, lives in the title bar's middle spacer.
  *
  * Fully wired: the query state lives in the shared `useGlobalSearch`
  * store. Each searchable page reads the query from that store and
  * filters/loads its data, and the per-page SearchFields have been
- * removed — this is the ONLY search input in the app.
+ * removed, this is the ONLY search input in the app.
  *
  * Searchable pages mirror the pages that today render their own
  * per-page SearchField:
@@ -23,7 +23,7 @@ import type { Page } from "@/types/ipc";
  *   - vocabulary         → t("vocabulary.searchPlaceholderCount") "Search {count} corrections"
  *   - settings* (hub + all section pages) → t("settings.searchPlaceholder") "Search settings…"
  * All other pages (home, models, microphone, analytics, aboutAndPrivacy,
- * onboarding) hide the bar entirely — no search exists there.
+ * onboarding) hide the bar entirely, no search exists there.
  */
 const SEARCHABLE_PAGES: ReadonlySet<Page> = new Set<Page>([
 	"history",
@@ -40,7 +40,7 @@ function isSettingsPage(page: Page): boolean {
 /**
  * Stable group identity for query-reset purposes. The Settings hub and
  * its section pages share one search (and its auto-switch navigates
- * BETWEEN section pages while preserving the query) — so the query must
+ * BETWEEN section pages while preserving the query), so the query must
  * NOT reset on section-page navigation, only when leaving the whole
  * Settings group.
  */
@@ -81,7 +81,7 @@ export const GlobalSearchBar = memo(function GlobalSearchBar({
 
 	// Reset the query when navigating to a different search GROUP
 	// (page), so each page starts clean. Settings subpage↔subpage
-	// navigation keeps the query — its auto-switch relies on it.
+	// navigation keeps the query, its auto-switch relies on it.
 	const prevGroupRef = useRef<string>(searchGroup(currentPage));
 	useEffect(() => {
 		const group = searchGroup(currentPage);
@@ -118,7 +118,7 @@ export const GlobalSearchBar = memo(function GlobalSearchBar({
 		// no-drag ONLY on the field itself: the title bar root is
 		// -webkit-app-region: drag. A full-width no-drag wrapper around
 		// the field would cover the entire middle strip and kill window
-		// dragging there — the surrounding flex-1 spacer stays draggable.
+		// dragging there, the surrounding flex-1 spacer stays draggable.
 		<div className="no-drag w-72">
 			<SearchField
 				value={query}

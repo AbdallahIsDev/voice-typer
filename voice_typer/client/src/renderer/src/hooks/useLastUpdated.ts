@@ -2,14 +2,14 @@ import { useCallback, useEffect, useState } from "react";
 import { t, tChoice } from "@/i18n/i18n";
 
 /**
- * useLastUpdated — tracks when a page's data was last fetched and
+ * useLastUpdated, tracks when a page's data was last fetched and
  * exposes a relative "Xs ago" / "Xm ago" label that updates over time.
  *
  * F4 (b-review Finding 11): several pages (Home, History, Models,
  * Microphone, Dashboard) keep a module-level mutable cache that
  * survives React's mount/unmount lifecycle. The cache is only refreshed
  * by explicit user action, the `transcription_final` push event, or the
- * `config_changed` event — so if the backend state changes through any
+ * `config_changed` event, so if the backend state changes through any
  * other path while the renderer is open, the next navigation shows
  * stale data.
  *
@@ -17,7 +17,7 @@ import { t, tChoice } from "@/i18n/i18n";
  * add a visible "Last updated Xs ago" indicator + a small refresh
  * button. This hook provides the timestamp tracking + relative label;
  * each page renders its own indicator (the refresh action differs per
- * page — `load()`, `loadConfig()`, `loadData()`, etc.).
+ * page, `load()`, `loadConfig()`, `loadData()`, etc.).
  *
  * The `now` state ticks every 5 seconds so the relative label updates
  * without forcing the page to re-render on every second. 5s matches
@@ -41,7 +41,7 @@ import { t, tChoice } from "@/i18n/i18n";
  *   }, [loadData]);
  *
  * That pattern is correct (try/finally clears `refreshing` on error)
- * but it has to be re-implemented per page — easy to forget the
+ * but it has to be re-implemented per page, easy to forget the
  * `finally` block, in which case a single failed refresh leaves the
  * spinner stuck forever (the bug this fix guards against). This hook
  * now exposes a centralized `refreshing` flag plus a `withRefresh`
@@ -52,7 +52,7 @@ import { t, tChoice } from "@/i18n/i18n";
  *   (b) migrate to the hook's `refreshing` + `withRefresh` so the
  *       invariant lives in one place.
  *
- * `withRefresh` does NOT call `markUpdated` itself — the caller decides
+ * `withRefresh` does NOT call `markUpdated` itself, the caller decides
  * whether to bump the timestamp (e.g. only on successful load, or
  * always after the attempt regardless of outcome). This preserves the
  * flexibility the existing pages need (Dashboard bumps in finally;
@@ -75,12 +75,12 @@ export function useLastUpdated(): {
 	 * Wrap an async refresh operation with the `refreshing` flag.
 	 *
 	 * Sets `refreshing=true` before the op starts and `refreshing=false`
-	 * in a `finally` block — so the flag is GUARANTEED to be cleared
+	 * in a `finally` block, so the flag is GUARANTEED to be cleared
 	 * on both success AND error. This is the fix for "refreshing
-	 * state stuck on after a failed refresh" — pages that use this
+	 * state stuck on after a failed refresh", pages that use this
 	 * wrapper can't forget the cleanup.
 	 *
-	 * Does NOT call `markUpdated` — the caller decides when to bump
+	 * Does NOT call `markUpdated`, the caller decides when to bump
 	 * the timestamp (e.g. only on successful load, or always).
 	 *
 	 * @returns The wrapped op's resolved value (or rethrows its error).
@@ -100,7 +100,7 @@ export function useLastUpdated(): {
 		// implementation unconditionally ran the interval, which
 		// re-rendered every mounted page that consumes `useLastUpdated`
 		// (Home, History, Models, Microphone, Dashboard) even when the
-		// tab was hidden — pure waste (no one is looking at the "Xs ago"
+		// tab was hidden, pure waste (no one is looking at the "Xs ago"
 		// label when the tab is in the background). Browsers throttle
 		// hidden-tab intervals to ~1 Hz but don't pause them, so the
 		// interval still fires; we CLEAR it on hide and RE-ARM on show
@@ -126,7 +126,7 @@ export function useLastUpdated(): {
 				disarm();
 			}
 		};
-		// Initial arm — only if the tab is visible at mount.
+		// Initial arm, only if the tab is visible at mount.
 		if (
 			typeof document === "undefined" ||
 			document.visibilityState === "visible"
@@ -151,12 +151,12 @@ export function useLastUpdated(): {
 	// `withRefresh` wraps an async op with the `refreshing` flag.
 	// React guarantees `setRefreshing` (the setter returned by
 	// `useState`) is stable across renders, so listing it in the
-	// deps array keeps `withRefresh` itself stable — no `useRef`
+	// deps array keeps `withRefresh` itself stable, no `useRef`
 	// indirection is required. Earlier this used a `setRefreshingRef`
 	// to hold the setter, which added a ref-mutation on every render
 	// (a side effect during the render phase) without buying any
-	// extra stability. The `try/finally` invariant — `refreshing`
-	// is cleared on BOTH success and error — is preserved.
+	// extra stability. The `try/finally` invariant, `refreshing`
+	// is cleared on BOTH success and error, is preserved.
 	const withRefresh = useCallback(
 		async <T>(op: () => Promise<T>): Promise<T> => {
 			setRefreshing(true);

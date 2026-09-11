@@ -2,14 +2,14 @@
 
 Provides platform-aware hotkey listening with these implementations:
 
-- :class:`PynputHotkey` — uses ``pynput.keyboard.GlobalHotKeys`` (cross-platform).
-- :class:`WindowsNativeHotkey` — uses Win32 ``RegisterHotKey`` via ctypes
+- :class:`PynputHotkey`: uses ``pynput.keyboard.GlobalHotKeys`` (cross-platform).
+- :class:`WindowsNativeHotkey`: uses Win32 ``RegisterHotKey`` via ctypes
   (Windows only).  Also implements the ``GetAsyncKeyState`` polling
   fallback, the low-level ``WH_KEYBOARD_LL`` hook path, the
   modifier-only polling loop, and the Caps Lock toggle suppression.
-- :class:`WaylandHotkey` — listens on a Unix domain socket (Wayland
+- :class:`WaylandHotkey`: listens on a Unix domain socket (Wayland
   fallback).
-- :class:`_NativeBackendAdapter` — wraps a native
+- :class:`_NativeBackendAdapter`: wraps a native
   ``SubprocessHotkeyBackend`` to satisfy the ``HotkeyBackend``
 interface; implements the  runtime fallback chain (native →
 legacy) and the  macOS Accessibility permission onboarding.
@@ -24,7 +24,7 @@ All backends share a common interface:
     - ``is_alive() -> bool``
     - ``diagnose() -> str``
 
-Phase 4.5 /  — this file was previously a 2,939-line god-module
+Phase 4.5 / : this file was previously a 2,939-line god-module
 (``voice_typer/server/hotkeys.py``); it has been split into a package
 with one module per backend.  This ``__init__.py`` re-exports every
 public name that the original module exposed so existing imports of the
@@ -61,7 +61,7 @@ from voice_typer.server.hotkeys.factory import create_hotkey_backend
 from voice_typer.server.hotkeys.native_adapter import _NativeBackendAdapter
 
 # =====================================================================
-# CRITICAL — DO NOT REMOVE (2026-07-20)
+# CRITICAL, DO NOT REMOVE (2026-07-20)
 # =====================================================================
 # These three platform predicates (is_windows, is_linux, is_macos) MUST
 # remain importable at package level here. They are NOT dead code.
@@ -76,7 +76,7 @@ from voice_typer.server.hotkeys.native_adapter import _NativeBackendAdapter
 #     AttributeError: module 'voice_typer.server.hotkeys' has no attribute
 #     'is_windows'
 # which silently disables ALL hotkeys (caps_lock, ESC cancel, repaste, etc.)
-# without crashing the app — the user just gets a non-functional hotkey layer.
+# without crashing the app, the user just gets a non-functional hotkey layer.
 #
 # They are zero-arg callables resolved through THIS module's namespace on
 # every call, so both patch styles keep working:

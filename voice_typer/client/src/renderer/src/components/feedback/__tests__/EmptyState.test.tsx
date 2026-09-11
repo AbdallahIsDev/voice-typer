@@ -46,7 +46,7 @@ vi.mock("@hugeicons/core-free-icons", async () => {
 	return createHugeiconsMock();
 });
 
-describe("EmptyState — BG-R13 (title as <h3> + icon prop wiring)", () => {
+describe("EmptyState, BG-R13 (title as <h3> + icon prop wiring)", () => {
 	afterEach(() => {
 		cleanup();
 	});
@@ -166,7 +166,7 @@ describe("EmptyState — BG-R13 (title as <h3> + icon prop wiring)", () => {
 		expect(ref.current).toBeNull();
 	});
 
-	it("info icon relies on the muted token alone — no stacked opacity wash", () => {
+	it("info icon relies on the muted token alone, no stacked opacity wash", () => {
 		// Stacking opacity-50 on top of text-(--text-muted) pushed the
 		// icon below the WCAG 1.4.11 non-text contrast minimum; the
 		// muted token must carry the hierarchy by itself.

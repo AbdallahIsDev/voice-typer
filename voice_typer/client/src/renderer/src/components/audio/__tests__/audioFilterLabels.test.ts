@@ -1,5 +1,5 @@
 /**
- * unit tests for `components/audio/audioFilterLabels.ts` — the pure
+ * unit tests for `components/audio/audioFilterLabels.ts`, the pure
  * builder for the AudioFilterChain labels dictionary.
  *
  * The `buildAudioFilterLabels(t)` function resolves every i18n key
@@ -13,11 +13,11 @@
  *      `options[].labelKey`) is PRESENT in every one of the 8 shipped
  *      locale JSON files. Catches the regression where a key was added
  *      to the registry (or to en.json) but a translator forgot to add
- *      it to (say) hi.json — without this check, Hindi users silently
+ *      it to (say) hi.json, without this check, Hindi users silently
  *      fall back to English.
  *   2. `buildAudioFilterLabels` calls `t()` exactly once per unique key
  *      (deduplicates the section title key shared across all descriptors).
- *   3. The returned dictionary is keyed by the full i18n key — callers
+ *   3. The returned dictionary is keyed by the full i18n key, callers
  *      can look up by `descriptor.labelKey` etc. without mangling.
  *   4. The `t` function receives only the key (no params) for these
  *      label/info/aria lookups.
@@ -64,7 +64,7 @@ const localeKeySets: Record<string, Set<string>> = Object.fromEntries(
 // Collect every i18n key referenced by the descriptor registry. Each
 // descriptor contributes: labelKey, infoSearchKey, sectionTitleKey,
 // infoKey, ariaKey, and (for `kind: "select"`) every option's `labelKey`
-// (plain `label` strings like "RNNoise" are NOT i18n keys — they're
+// (plain `label` strings like "RNNoise" are NOT i18n keys, they're
 // rendered verbatim).
 const registryKeys: string[] = [];
 for (const d of audioFilterRowDescriptors) {
@@ -81,9 +81,9 @@ for (const d of audioFilterRowDescriptors) {
 }
 const uniqueRegistryKeys = Array.from(new Set(registryKeys));
 
-describe("audioFilterLabels — i18n key parity across all 8 locales (C-I18N-1)", () => {
+describe("audioFilterLabels, i18n key parity across all 8 locales (C-I18N-1)", () => {
 	// Sanity: the registry actually references keys. If this fails, the
-	// descriptor registry has been emptied (regression) — every other
+	// descriptor registry has been emptied (regression), every other
 	// test below would silently pass with 0 assertions.
 	it("registry references a non-empty set of i18n keys", () => {
 		expect(uniqueRegistryKeys.length).toBeGreaterThan(0);
@@ -99,7 +99,7 @@ describe("audioFilterLabels — i18n key parity across all 8 locales (C-I18N-1)"
 	}
 });
 
-describe("audioFilterLabels — buildAudioFilterLabels(t) dedup + keying", () => {
+describe("audioFilterLabels, buildAudioFilterLabels(t) dedup + keying", () => {
 	it("calls t() exactly once per unique key (no duplicate resolutions)", () => {
 		const t = vi.fn((key: string) => `resolved:${key}`);
 		const labels = buildAudioFilterLabels(t);
@@ -110,7 +110,7 @@ describe("audioFilterLabels — buildAudioFilterLabels(t) dedup + keying", () =>
 		// `uniqueRegistryKeys.length` times.
 		expect(t).toHaveBeenCalledTimes(uniqueRegistryKeys.length);
 
-		// Every call received exactly one arg (the key) — no params
+		// Every call received exactly one arg (the key), no params
 		// for label/info/aria lookups.
 		for (const call of t.mock.calls) {
 			expect(call).toHaveLength(1);
@@ -126,7 +126,7 @@ describe("audioFilterLabels — buildAudioFilterLabels(t) dedup + keying", () =>
 		const labels = buildAudioFilterLabels(t);
 
 		// Lookups by descriptor.labelKey / .infoKey / .ariaKey all work
-		// without any name-mangling — the dictionary is flat.
+		// without any name-mangling, the dictionary is flat.
 		for (const d of audioFilterRowDescriptors) {
 			expect(labels[d.labelKey]).toBe(`[${d.labelKey}]`);
 			expect(labels[d.infoKey]).toBe(`[${d.infoKey}]`);

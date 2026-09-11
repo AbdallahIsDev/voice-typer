@@ -8,7 +8,7 @@
  * `win.hide()`, preventing a stale callback from firing on a subsequent
  * (slow) renderer `bubble:hidden` emit. The persistent `ipcMain.on`
  * listener lives in `bubble-handlers.ts` and calls
- * `consumeHideAnimationCallback()` — not tested here.
+ * `consumeHideAnimationCallback()`, not tested here.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { MainState } from "../state";
@@ -167,7 +167,7 @@ describe("R6-F4: hideBubbleWindow fallback clears hide callback slot", () => {
 		cb?.();
 		expect(win.hide).toHaveBeenCalledTimes(1);
 
-		// Advance past the timeout — it should NOT hide again because the
+		// Advance past the timeout, it should NOT hide again because the
 		// callback was already consumed (slot is empty).
 		vi.advanceTimersByTime(500);
 		expect(win.hide).toHaveBeenCalledTimes(1);

@@ -14,25 +14,25 @@
  * branch-specific extras (kill, await-exit, renderer reload, env-var
  * cleanup, fresh spawn) inline around a single call here.
  *
- * Ordering contract (do not reorder — the retry-timer clear MUST stay
+ * Ordering contract (do not reorder, the retry-timer clear MUST stay
  * before the generation bump so a stale `tryConnect()` closure can't
  * fire once more against the new generation, and pending rejections
  * MUST come last so callers never observe half-reset state):
  *
  *   1. destroy `state.tcpSocket` (best-effort, failure logged)
  *   2. `state.tcpSocket = null`
- *   3. `_resetIpcBackpressure()` — drop per-renderer rate-limit entries
- *   4. `state.tcpBuffer = Buffer.alloc(0)` — drop stale partial frames
+ *   3. `_resetIpcBackpressure()`, drop per-renderer rate-limit entries
+ *   4. `state.tcpBuffer = Buffer.alloc(0)`, drop stale partial frames
  *   5. `state._tcpAuthed = false`
  *   6. `state.pythonReady = false`
  *   7. `state.pythonExitedEarly = false`
  *   8. `state._hadConnectedBefore = false`
  *   9. `state._tcpRetryCount = 0`
  *  10. clear `state._tcpRetryTimer` (before the generation bump)
- *  11. `state._tcpRetryGeneration++` — invalidate stale retry loops
+ *  11. `state._tcpRetryGeneration++`, invalidate stale retry loops
  *  12. clear `state.heartbeatInterval`
  *  13. reject + delete every `state.pendingRequests` entry with a
- *      typed `PythonIpcError(reason)` — the code is chosen by restart
+ *      typed `PythonIpcError(reason)`, the code is chosen by restart
  *      class (`command_failed` while a full app relaunch is in flight,
  *      `backend_not_connected` for a backend-only restart; see the
  *      rejection site below). `reason` is caller-supplied so each
@@ -74,13 +74,13 @@ export function resetTcpBridgeState(reason: string): void {
 	// Clear the pending TCP retry timer BEFORE bumping the
 	// generation, so a stale tryConnect closure can't fire once more
 	// (creating a fresh socket that immediately hits the generation
-	// mismatch and bails — wasted work + brief socket churn).
+	// mismatch and bails, wasted work + brief socket churn).
 	if (state._tcpRetryTimer) {
 		clearTimeout(state._tcpRetryTimer);
 		state._tcpRetryTimer = null;
 	}
 	state._tcpRetryGeneration++;
-	// Clear the heartbeat interval — the next connect callback will
+	// Clear the heartbeat interval, the next connect callback will
 	// arm a fresh one when the new backend accepts our TCP
 	// connection. Without this clear the timer would fire
 	// sendToPython() against a dead socket mid-restart.
@@ -94,7 +94,7 @@ export function resetTcpBridgeState(reason: string): void {
 	// the `python-call` bridge classifies it via `err.code` instead
 	// of the generic bare-Error fallback, carrying the SAME code the
 	// equivalent typed sites use for each restart class:
-	//   - full app relaunch (`state._relaunching` true — the
+	//   - full app relaunch (`state._relaunching` true, the
 	//     relaunch-app dev branch's "Application is restarting") →
 	//     `command_failed`, matching the typed pre-flight
 	//     `_relaunching` rejection in `send-to-python.ts` and the

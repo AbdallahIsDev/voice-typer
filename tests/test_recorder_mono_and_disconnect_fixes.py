@@ -68,18 +68,18 @@ class TestEnsureMonoScratchBuffer:
         """The returned array must NOT alias the scratch buffer.
 
         If the result were a view, the next ``_ensure_mono`` call would
-        overwrite it — corrupting any stored reference (``_buffer``,
+        overwrite it, corrupting any stored reference (``_buffer``,
         ``_preroll_buffer``).
         """
         r = _make_recorder()
         audio = np.array([[1.0, 3.0], [2.0, 4.0]], dtype=np.float32)
         first = ensure_mono(r, audio)
-        # Mutate the returned array — must not affect the scratch.
+        # Mutate the returned array, must not affect the scratch.
         first[0] = 999.0
-        # Second call with the same input — result must reflect the
+        # Second call with the same input, result must reflect the
         # original mean, not the mutation we applied to ``first``.
         second = ensure_mono(r, audio)
-        assert second[0] != 999.0, "result aliased the scratch — stored references would corrupt"
+        assert second[0] != 999.0, "result aliased the scratch, stored references would corrupt"
 
     def test_repeated_calls_do_not_corrupt_prior_results(self):
         """Multiple sequential calls must each return an independent array.
@@ -105,7 +105,7 @@ class TestEnsureMonoScratchBuffer:
         np.testing.assert_array_equal(result, np.array([1.0, 2.0, 3.0], dtype=np.float32))
 
     def test_multi_channel_falls_back_to_np_mean(self):
-        """>2-channel input uses ``np.mean`` (rare — channels clamped to
+        """>2-channel input uses ``np.mean`` (rare, channels clamped to
         [1,2] at stream-open, but the fallback must still be correct)."""
         r = _make_recorder()
         audio = np.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]], dtype=np.float32)
@@ -145,7 +145,7 @@ class TestEnsureMonoScratchBuffer:
 
 class TestEnsureMonoThreadLocal:
     """The scratch is ``threading.local`` so the RT callback (pre-roll)
-    and the audio worker each get their own buffer — no race."""
+    and the audio worker each get their own buffer, no race."""
 
     def test_concurrent_calls_from_multiple_threads_do_not_corrupt(self):
         """Each thread must get its own scratch; concurrent calls must
@@ -215,7 +215,7 @@ class TestRestartStreamLockAtomicity:
         between = src[lock_idx:log_idx]
         # All three writes must be in the lock block (between lock-open
         # and log.info). The real test is that they're INDENTED to the
-        # lock level — we verify they're present in the span.
+        # lock level, we verify they're present in the span.
         for name in (
             "_actual_channels = channels",
             "_device_disconnected = False",
@@ -258,7 +258,7 @@ class TestRestartStreamLockAtomicity:
     def test_no_broad_outer_except_without_reraise(self):
         """The outer ``except Exception`` must be preceded by a re-raise
         clause for programming bugs. Inner ``except Exception`` clauses
-        for individual device-query operations are acceptable — they
+        for individual device-query operations are acceptable, they
         guard against flaky ``sd.query_devices`` calls and don't mask
         programming bugs in the restart logic itself."""
         src = inspect.getsource(DisconnectHandler.restart_stream)
@@ -442,7 +442,7 @@ class TestRestartStreamRuntimeBehavior:
         monkeypatch.setattr(dh_mod.sd, "InputStream", raise_transient)
 
         handler = DisconnectHandler(r)
-        # The except clause CATCHES the transient error — no propagation.
+        # The except clause CATCHES the transient error, no propagation.
         handler.restart_stream(_captured_generation=0)
 
         assert r._devices._device_disconnected is False, (
@@ -471,7 +471,7 @@ class TestRestartStreamRuntimeBehavior:
 
     def test_runtime_error_clears_disconnect_flag(self, monkeypatch):
         """A non-programming-bug ``RuntimeError`` (e.g. from a flaky
-        driver) is also caught and cleared — preserving the pre-fix
+        driver) is also caught and cleared, preserving the pre-fix
         recovery behavior for unknown transient errors."""
         r = _make_recorder()
         _setup_recorder_for_restart(monkeypatch, r)
@@ -529,7 +529,7 @@ class TestRestartStreamRuntimeBehavior:
         ``_device_disconnected`` so the health checker re-probes."""
         # The Recorder constructor spawns the device-cache prewarm daemon,
         # whose nested probe thread ALSO opens ``sd.InputStream(...)`` and
-        # calls ``start()`` on it — that would race the call-count asserts
+        # calls ``start()`` on it, that would race the call-count asserts
         # below with a second (prewarm) stream. Disable the prewarm spawn
         # BEFORE construction (the documented class-level patch seam) so
         # this test observes only the restart path.
@@ -559,7 +559,7 @@ class TestRestartStreamRuntimeBehavior:
 
     def test_successful_restart_leaves_handed_off_stream_open(self, monkeypatch):
         """The close-on-raise guard must NOT close a stream that was
-        successfully handed to the lifecycle — from the STATE-OWNERSHIP
+        successfully handed to the lifecycle, from the STATE-OWNERSHIP
         handoff onward the live stream is owned by StreamLifecycle."""
         # Disable the construction-time prewarm daemon (same isolation
         # rationale as in the start-failure test above).

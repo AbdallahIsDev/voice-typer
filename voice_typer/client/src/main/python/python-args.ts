@@ -23,7 +23,7 @@ import { computeConfigDir } from "../single_instance";
  *
  * Previously the Windows branch had this robust 2-path + try/catch
  * pattern ( / Wave 3) but macOS and Linux had single-path lookups
- * with no try/catch — if a future macOS/Linux PyInstaller spec changed
+ * with no try/catch, if a future macOS/Linux PyInstaller spec changed
  * the output layout (e.g. added COLLECT() to switch from onefile to
  * onedir), the packaged build would silently fall through to the dev
  * venv path on those platforms. This helper applies the Windows
@@ -33,12 +33,12 @@ import { computeConfigDir } from "../single_instance";
  * no candidate exists (caller falls through to the dev venv).
  */
 function resolveBundledBackend(platform: NodeJS.Platform): string | null {
-	// Each candidate is a [dir, ...pathParts] tuple — we join them
+	// Each candidate is a [dir, ...pathParts] tuple, we join them
 	// against ``process.resourcesPath`` so the helper stays pure.
 	const candidates: string[] = [];
 	const resourcesPath = process.resourcesPath;
 	if (platform === "darwin") {
-		// macOS: PyInstaller .app bundle (current spec — onedir-style).
+		// macOS: PyInstaller .app bundle (current spec, onedir-style).
 		candidates.push(
 			path.join(
 				resourcesPath,
@@ -86,7 +86,7 @@ function resolveBundledBackend(platform: NodeJS.Platform): string | null {
 			}
 		} catch (e) {
 			// fs.existsSync can throw on broken symlinks / permission
-			// errors — try the next candidate before falling through
+			// errors, try the next candidate before falling through
 			// to the dev venv. Log at debug so the failure
 			// is observable in the diagnostic log without spamming the
 			// default level (mirrors `relaunch-app.ts:158`).
@@ -99,7 +99,7 @@ function resolveBundledBackend(platform: NodeJS.Platform): string | null {
 export function pythonArgs(): [string, string[]] {
 	// Each platform has its own guarded branch in
 	// resolveBundledBackend (per-platform if/else-if, mirrors the
-	// earlier ``switch`` design) — they are independent so we don't
+	// earlier ``switch`` design), they are independent so we don't
 	// accidentally clobber the others. The dev-mode venv path at the
 	// bottom of this function is the fallback for any platform that
 	// doesn't match (or whose bundled backend is missing on disk).

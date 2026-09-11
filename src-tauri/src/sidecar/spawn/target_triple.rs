@@ -1,13 +1,13 @@
 //! Target-triple table for `externalBin` + worker exe naming
-//! (Phase 2a — runtime-pack split, plan-runtime-pack-split §4.4)
-//! (ADR-0020 §4.1) — extracted from the former single-file
+//! (Phase 2a: runtime-pack split, plan-runtime-pack-split §4.4)
+//! (ADR-0020 §4.1): extracted from the former single-file
 //! `sidecar/spawn.rs`.
 
 pub(crate) fn current_target_triple() -> String {
     target_triple_for(std::env::consts::ARCH, std::env::consts::OS)
 }
 
-/// Pure form of `current_target_triple` for unit testing — accepts
+/// Pure form of `current_target_triple` for unit testing, accepts
 /// arch+os as args so tests can verify all (arch, os) combos without
 /// running on each platform. Returns the same triple strings the
 /// `tauri-plugin-shell` `externalBin` mechanism expects as the binary

@@ -1,5 +1,5 @@
 /**
- * Canonical mock for `@hugeicons/core-free-icons` — the SINGLE source of
+ * Canonical mock for `@hugeicons/core-free-icons`, the SINGLE source of
  * truth for icon stubs across every renderer test file.
  *
  * WHY THIS FILE EXISTS (drift guard):
@@ -17,7 +17,7 @@
  *     2. no test file may hand-roll its own `...: make("...")` stub list —
  *        they must all delegate to `createHugeiconsMock()`.
  *
- * Each icon is a `{ name }`-tagged object (NOT the real icon data — the real
+ * Each icon is a `{ name }`-tagged object (NOT the real icon data, the real
  * exports are raw SVG path arrays with no `.name` property). The test-side
  * `HugeiconsIcon` mock (from `@hugeicons/react`) renders
  * `<span data-name={icon?.name} />`, so the tag is what the ~76
@@ -101,7 +101,7 @@ const hugeiconsMock = {
 	QuoteUpIcon: make("QuoteUpIcon"),
 	RefreshIcon: make("RefreshIcon"),
 	Search01Icon: make("Search01Icon"),
-	Settings03Icon: make("Settings03Icon"),
+	Settings01Icon: make("Settings01Icon"),
 	Share08Icon: make("Share08Icon"),
 	Shield01Icon: make("Shield01Icon"),
 	ShieldBanIcon: make("ShieldBanIcon"),

@@ -3,7 +3,7 @@
 Extracted from ``voice_typer/server/server_platform/autostart_windows.py``
 (the orchestrating facade). This module owns the uninstaller-path
 cleanup that removes ALL autostart entries in the app's namespace —
-HKCU Run-key values and Task Scheduler tasks — regardless of which
+HKCU Run-key values and Task Scheduler tasks, regardless of which
 install registered them. Unlike the per-install register/unregister
 helpers, these enumerate and delete every matching entry (current
 canonical ``com.voicetyper.*`` names AND pre-rename bare ``VoiceTyper*``
@@ -13,7 +13,7 @@ Patch contract: the Windows-only dependencies (``winreg``,
 ``task_scheduler``, ``subprocess``) are imported at CALL time inside the
 functions, so tests inject a fake ``winreg`` module into
 ``sys.modules`` and patch ``task_scheduler`` / ``subprocess.run`` on the
-owning modules — no module-level binding of this module depends on them.
+owning modules, no module-level binding of this module depends on them.
 The uninstaller script (``scripts/windows/uninstall_permissions.py``)
 and tests reach these helpers through the facade module
 (``voice_typer.server.server_platform.autostart_windows``), which
@@ -35,14 +35,14 @@ def _unregister_all_voicetyper_runkeys() -> list[str]:
     (which removes ONLY the current install's hash-suffixed entry), this
     function enumerates every value under
     ``HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run`` whose
-    name starts with the app's namespace — ``com.voicetyper`` (current
+    name starts with the app's namespace, ``com.voicetyper`` (current
     canonical rename-DNS names) OR ``VoiceTyper`` (pre-rename bare
-    names) — and deletes it. It is intended
+    names), and deletes it. It is intended
     for the **uninstaller** path (NSIS ``customUnInstall`` macro /
     Tauri ``preRemoveScript`` / manual ``uninstall_permissions.py``
     invocation) where the goal is to leave the registry CLEAN of any
-    Voice Typer autostart entry — including stale entries from previous
-    installs at different paths (different hashes — see PLAT-RUN).
+    Voice Typer autostart entry: including stale entries from previous
+    installs at different paths (different hashes: see PLAT-RUN).
 
     Returns the list of value names that were deleted (empty list if
     nothing matched / not Windows / registry inaccessible). The caller
@@ -53,14 +53,14 @@ def _unregister_all_voicetyper_runkeys() -> list[str]:
     value doesn't abort the whole sweep.
 
     Tested on Linux via the ``fake_winreg`` fixture pattern (see
-    ``tests/test_uninstall_windows.py``) — the ``winreg`` import is
+    ``tests/test_uninstall_windows.py``), the ``winreg`` import is
     deferred to call time so the module imports cleanly on non-Windows
     hosts.
     """
     try:
         import winreg
     except ImportError:
-        return []  # not Windows — caller (uninstall script) logs + exits 0
+        return []  # not Windows, caller (uninstall script) logs + exits 0
     deleted: list[str] = []
     try:
         key = winreg.OpenKey(
@@ -86,7 +86,7 @@ def _unregister_all_voicetyper_runkeys() -> list[str]:
                     winreg.DeleteValue(key, name)
                     deleted.append(name)
                     log.info("[UNINSTALL] Removed HKCU Run key: %s", name)
-                    # Don't increment i — the next value shifts into the
+                    # Don't increment i, the next value shifts into the
                     # current slot after DeleteValue (same pattern as the
                     # stale-entry cleanup loop in _register_app_autostart_runkey).
                     continue
@@ -112,7 +112,7 @@ def _unregister_all_voicetyper_tasks() -> list[str]:
     (``VoiceTyperAutostart*``, ``VoiceTyperPrewarm``) so installs that
     predate the namespace rename are fully cleaned too.
 
-    Returns the list of task names deleted (best-effort — empty list on
+    Returns the list of task names deleted (best-effort, empty list on
     any failure including non-Windows or Task Scheduler not running).
     The caller can log the list for the uninstall summary.
 
@@ -121,7 +121,7 @@ def _unregister_all_voicetyper_tasks() -> list[str]:
     """
     try:
         from voice_typer.server import task_scheduler
-    except Exception as exc:  # pragma: no cover — defensive
+    except Exception as exc:  # pragma: no cover, defensive
         log.warning("[UNINSTALL] task_scheduler import failed: %s", exc)
         return []
     if not task_scheduler.is_supported():

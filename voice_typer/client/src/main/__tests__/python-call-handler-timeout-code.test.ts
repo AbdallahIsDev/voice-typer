@@ -11,7 +11,7 @@
  *   `Timeout after ${timeoutMs / 1000}s for command: ${cmd}`.
  * If that string ever changed (localization, rewording, unit change
  * from seconds to ms), the regex silently failed and
- * `command_timeout` became `command_failed` — breaking the renderer's
+ * `command_timeout` became `command_failed`, breaking the renderer's
  * retry logic.
  *
  *  fix:
@@ -35,7 +35,7 @@
  *   (d) Verify non-timeout Errors are classified as `command_failed`.
  *
  * ON LINUX (sandbox): runtime test via vitest fake timers.
- * ON WINDOWS / macOS (not run here): same contract — the `err.code`
+ * ON WINDOWS / macOS (not run here): same contract, the `err.code`
  *   property is platform-agnostic.
  */
 import fs from "node:fs";
@@ -49,12 +49,12 @@ import type { MainState } from "../state";
 // ────────────────────────────────────────────────────────────────────
 
 const mocks = vi.hoisted(() => ({
-	// Fake socket.write — captures the outbound line so we can verify
+	// Fake socket.write, captures the outbound line so we can verify
 	// the command was sent.
 	socketWrite: vi.fn(),
 }));
 
-// Mock `electron` — `python-call-handler.ts` imports `ipcMain` from it.
+// Mock `electron`, `python-call-handler.ts` imports `ipcMain` from it.
 // The handler also calls `logger.warn(...)` on the error path, which
 // routes through `mainLogPath()` → `app.getPath("userData")`, so the
 // mock must provide `getPath` too.
@@ -71,7 +71,7 @@ vi.mock("electron", () => ({
 	},
 }));
 
-// Mock `allowed-commands` — `sendToPython` validates `msg.type` against
+// Mock `allowed-commands`, `sendToPython` validates `msg.type` against
 // this Set. We expose a known-good command so the test can pass the
 // allowlist gate.
 vi.mock("../allowed-commands", () => ({
@@ -88,7 +88,7 @@ vi.mock("../allowed-commands", () => ({
 	]),
 }));
 
-// Mock `state` — `sendToPython` reads `state.tcpSocket`, writes to
+// Mock `state`, `sendToPython` reads `state.tcpSocket`, writes to
 // `state.pendingRequests`, and bumps `state.nextId`. We install a
 // fake socket with a `write` method so the command line is captured.
 function makeMockState(overrides: Partial<MainState> = {}): MainState {
@@ -129,7 +129,7 @@ vi.mock("../state", () => ({
 	RATE_LIMIT_WINDOW_MS: 1000,
 }));
 
-// Mock `i18n` — `python-call-handler` doesn't currently use mainT, but
+// Mock `i18n`, `python-call-handler` doesn't currently use mainT, but
 // the import resolves cleanly.
 vi.mock("../i18n", () => ({ mainT: (k: string) => k }));
 
@@ -137,7 +137,7 @@ vi.mock("../i18n", () => ({ mainT: (k: string) => k }));
 // (a) sendToPython attaches err.code = "timeout" on timeout.
 // ────────────────────────────────────────────────────────────────────
 
-describe.skip("legacy-timeout-contract (a) [SUPERSEDED by PythonIpcError — PythonIpcError replaces err.code=timeout]: sendToPython attaches err.code = 'timeout' when the timeout fires", () => {
+describe.skip("legacy-timeout-contract (a) [SUPERSEDED by PythonIpcError, PythonIpcError replaces err.code=timeout]: sendToPython attaches err.code = 'timeout' when the timeout fires", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		vi.useFakeTimers();
@@ -173,7 +173,7 @@ describe.skip("legacy-timeout-contract (a) [SUPERSEDED by PythonIpcError — Pyt
 
 	it("does NOT set code='timeout' for the not-connected rejection (only the timeout path sets it)", async () => {
 		const { sendToPython } = await import("../python/send-to-python");
-		// Tear down the socket — sendToPython should reject with
+		// Tear down the socket, sendToPython should reject with
 		// "Python backend is not connected" and NO code property.
 		mockState.tcpSocket = null;
 
@@ -195,7 +195,7 @@ describe.skip("legacy-timeout-contract (a) [SUPERSEDED by PythonIpcError — Pyt
 // (b) python-call-handler classifies err.code='timeout' as command_timeout.
 // ────────────────────────────────────────────────────────────────────
 
-describe.skip("legacy-timeout-contract (b) [SUPERSEDED by PythonIpcError — PythonIpcError replaces err.code=timeout]: python-call-handler classifies err.code='timeout' as command_timeout", () => {
+describe.skip("legacy-timeout-contract (b) [SUPERSEDED by PythonIpcError, PythonIpcError replaces err.code=timeout]: python-call-handler classifies err.code='timeout' as command_timeout", () => {
 	const mockUserData = "/tmp/vt-fr31-test-userdata";
 
 	beforeEach(() => {
@@ -270,7 +270,7 @@ describe.skip("legacy-timeout-contract (b) [SUPERSEDED by PythonIpcError — Pyt
 
 		expect(handleSpy.mock.calls.length).toBeGreaterThanOrEqual(1);
 		const lastCall = handleSpy.mock.calls[handleSpy.mock.calls.length - 1];
-		// ipcMain.handle("python-call", handler) — handler is 2nd arg.
+		// ipcMain.handle("python-call", handler), handler is 2nd arg.
 		const handler = lastCall?.[1] as (
 			event: unknown,
 			msg: Record<string, unknown>,
@@ -358,7 +358,7 @@ describe.skip("legacy-timeout-contract (b) [SUPERSEDED by PythonIpcError — Pyt
 // (c) Source-text assertions pinning the contract.
 // ────────────────────────────────────────────────────────────────────
 
-describe.skip("legacy-timeout-contract (c) [SUPERSEDED by PythonIpcError — PythonIpcError replaces err.code=timeout]: source-text contract for the typed err.code", () => {
+describe.skip("legacy-timeout-contract (c) [SUPERSEDED by PythonIpcError, PythonIpcError replaces err.code=timeout]: source-text contract for the typed err.code", () => {
 	it("send-to-python.ts source attaches err.code = 'timeout' on the timeout path", async () => {
 		const fs = await import("node:fs");
 		const path = await import("node:path");

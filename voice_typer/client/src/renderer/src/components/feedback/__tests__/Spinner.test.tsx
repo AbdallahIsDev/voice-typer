@@ -8,7 +8,7 @@
  * As a result, AT users heard "Loading" announced every time ANY page
  * rendered a Spinner (e.g. while data was being fetched on the History,
  * Vocabulary, Templates, Microphone, Models, Settings, and Onboarding
- * pages) — even though the spinner in those contexts is incidental,
+ * pages), even though the spinner in those contexts is incidental,
  * not a primary status message.
  *
  * The fix (): the default root is now a `<span role="img">`
@@ -40,7 +40,7 @@ afterEach(() => {
 	cleanup();
 });
 
-describe("Spinner — S5-CR-100 (no implicit aria-live region)", () => {
+describe("Spinner, S5-CR-100 (no implicit aria-live region)", () => {
 	beforeEach(() => {
 		// jsdom doesn't ship a layout engine, so the cn() merge
 		// is just string concatenation. We don't need any DOM
@@ -49,7 +49,7 @@ describe("Spinner — S5-CR-100 (no implicit aria-live region)", () => {
 
 	it("default render is a <span role=img> with aria-label (NOT an <output> live region)", () => {
 		const { container } = render(<Spinner />);
-		// The root element must NOT be <output> — that would
+		// The root element must NOT be <output>, that would
 		// re-introduce the implicit aria-live="polite" region
 		//removed.
 		expect(container.querySelector("output")).toBeNull();
@@ -89,7 +89,7 @@ describe("Spinner — S5-CR-100 (no implicit aria-live region)", () => {
 		expect(root?.getAttribute("aria-label")).toBeNull();
 	});
 
-	it("applies the size via inline style (PVT-025 — Tailwind JIT can't see dynamic class names)", () => {
+	it("applies the size via inline style (PVT-025, Tailwind JIT can't see dynamic class names)", () => {
 		const { container } = render(<Spinner size={24} />);
 		const root = container.firstElementChild as HTMLElement;
 		expect(root.style.width).toBe("24px");
@@ -112,7 +112,7 @@ describe("Spinner — S5-CR-100 (no implicit aria-live region)", () => {
 		expect(root.className).toContain("border-t-transparent");
 	});
 
-	it("merges consumer className (tailwind-merge) — border-current overrides border-accent", () => {
+	it("merges consumer className (tailwind-merge), border-current overrides border-accent", () => {
 		const { container } = render(
 			<Spinner className="border-current h-3 w-3" />,
 		);

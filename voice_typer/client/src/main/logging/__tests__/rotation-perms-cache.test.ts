@@ -5,7 +5,7 @@
  * Background
  * ----------
  * Pre-: `appendLogLine` called `fs.chmodSync(filePath, 0o600)` on
- * EVERY append — even though the chmod is idempotent (the file is
+ * EVERY append, even though the chmod is idempotent (the file is
  * already 0o600 after the first call). This was 30 sync chmods/sec
  * when `VOICE_TYPER_ELECTRON_INFO_LOG=1` (30 Hz bubble_level lifecycle
  * logging).
@@ -20,7 +20,7 @@
  *      a new file.
  *   2. `fs.chmodSync` is NOT called on subsequent appends to the same
  *      file (the flag is set after the first call).
- *   3. After rotation, the flag is reset — the next append re-chmods.
+ *   3. After rotation, the flag is reset, the next append re-chmods.
  *   4. Different file paths have independent flags.
  */
 import fs from "node:fs";
@@ -135,12 +135,12 @@ describe("AB-40: appendLogLine per-path perms cache", () => {
 		expect(chmodCalls.length).toBe(1);
 	});
 
-	it("resets the perms cache on rotation — next append re-chmods", async () => {
+	it("resets the perms cache on rotation, next append re-chmods", async () => {
 		const { appendLogLine } = await import("../rotation");
 		_resetFileSizeCacheForTest();
 		_resetPermsVerifiedForTest();
 
-		// First append — chmod fires, flag is set. Use a tiny cap (10
+		// First append, chmod fires, flag is set. Use a tiny cap (10
 		// bytes) so the next append triggers rotation.
 		appendLogLine(logPath, "first line\n", 10);
 		expect(
@@ -151,7 +151,7 @@ describe("AB-40: appendLogLine per-path perms cache", () => {
 		await new Promise<void>((resolve) => setImmediate(resolve));
 		await new Promise<void>((resolve) => setImmediate(resolve));
 
-		// Second append — the truncation emptied the file in place and
+		// Second append, the truncation emptied the file in place and
 		// reset the perms flag. chmod fires again (flag was reset by
 		// the truncation).
 		appendLogLine(logPath, "second line\n", 1024 * 1024);

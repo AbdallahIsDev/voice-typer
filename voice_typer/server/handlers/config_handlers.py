@@ -44,7 +44,7 @@ class ConfigHandlersMixin(HandlerBase):
 
     when ``change_model`` / ``set_active_backend`` raises, the
         failed key is dropped from the dict passed to ``apply_config`` AND
-        from the ``applied`` list echoed back to the renderer — otherwise
+        from the ``applied`` list echoed back to the renderer, otherwise
         the failed model/backend value would be persisted to disk via
         ``apply_config`` AND reported as "applied" in the partial-success
         envelope, contradicting the ``model_errors`` entry. The dropped
@@ -92,7 +92,7 @@ class ConfigHandlersMixin(HandlerBase):
             # instead of silently no-oping. Previously, if data was a
             # list/string/None, the isinstance guard skipped all
             # setattr + side-effect blocks but still returned
-            # {type: "ack"} success — the worst IPC failure mode.
+            # {type: "ack"} success, the worst IPC failure mode.
             if not isinstance(data, dict):
                 # route the inline validation error through
                 # ``_error_response`` so the envelope carries the
@@ -122,7 +122,7 @@ class ConfigHandlersMixin(HandlerBase):
                 # ``validate_config_update`` was changed ()
                 # to accumulate ALL field errors instead of stopping at
                 # the first. The handler previously threw away the
-                # extra context — only ``errors[0]`` was returned in
+                # extra context, only ``errors[0]`` was returned in
                 # the envelope, so the user had to fix-and-resubmit N
                 # times to see all N errors (bad UX for batched
                 # Settings flushes). We now include the FULL ``errors``
@@ -133,7 +133,7 @@ class ConfigHandlersMixin(HandlerBase):
                 # for the toast dispatcher, which truncates long
                 # messages). We construct the envelope inline (rather
                 # than calling ``_error_response``) because that helper
-                # doesn't accept an extra-data dict — touching it
+                # doesn't accept an extra-data dict, touching it
                 # would require modifying ``ipc/validation.py``, which
                 # is owned by a different agent (P4-A9).
                 resp["type"] = "error"
@@ -151,7 +151,7 @@ class ConfigHandlersMixin(HandlerBase):
             # optional-int fields treat ``None`` as "never dragged") so
             # hosts fall back to their default edge centering. Explicit
             # ``bubble_x`` / ``bubble_y`` values in the SAME payload win
-            # (``setdefault``) — a drag-persist write never carries
+            # (``setdefault``), a drag-persist write never carries
             # ``bubble_position``, and an explicit pair is always the more
             # recent user intent. Injected AFTER ``validate_config_update``
             # so the accepted-keys echo lists them; ``None`` is the
@@ -176,7 +176,7 @@ class ConfigHandlersMixin(HandlerBase):
             # ``set_active_backend`` + ``apply_config`` so concurrent
             # IPC ``set_config`` calls can't interleave attribute
             # writes between the three operations. The lock is an RLock
-            # on the real app (re-entry safe — ``apply_config`` and
+            # on the real app (re-entry safe, ``apply_config`` and
             # ``change_model`` re-acquire internally); for fakes that
             # don't expose the attribute, we fall back to a no-op
             # context manager.
@@ -185,14 +185,14 @@ class ConfigHandlersMixin(HandlerBase):
             # failures via a partial-success envelope in the response
             # data (``data.model_errors``) instead of swallowing them.
             # The response type stays ``ack`` so the renderer continues
-            # to apply the rest of the payload — only the model swap
+            # to apply the rest of the payload, only the model swap
             # failed. Errors are logged at ERROR with ``exc_info=True``.
             model_errors: list[dict] = []
             applied: list[str] = []
             # ``change_model`` / ``set_active_backend`` now return
             # immediately (the heavy load runs in a background daemon
             # thread). Capture the ack dicts here so the response can
-            # surface a "loading" status to the renderer — the renderer
+            # surface a "loading" status to the renderer, the renderer
             # shows a spinner and dismisses it on the ``asr_backend_ready``
             # event (published by the background thread on completion).
             # Without this field the renderer would see ``ack`` and
@@ -202,7 +202,7 @@ class ConfigHandlersMixin(HandlerBase):
             # we can DROP them from the dict passed to ``apply_config``
             # (otherwise the failed model value gets persisted to disk)
             # and from the ``applied`` list echoed to the renderer
-            # (otherwise the partial-success envelope lies — it claims
+            # (otherwise the partial-success envelope lies, it claims
             # ``model_size`` was applied while ``model_errors`` says it
             # failed). Also excluded from the ``config_changed`` event
             # below so the renderer doesn't mirror the stale value.
@@ -222,14 +222,14 @@ class ConfigHandlersMixin(HandlerBase):
             # per process instead of silently running lock-free. The
             # fallback path is preserved (test fakes / misconfigured
             # hosts still work), but operators get a one-shot signal
-            # that the concurrency guard is inactive — without that,
+            # that the concurrency guard is inactive: without that,
             # ``set_config`` races with ``change_model`` /
             # ``_open_config_file`` silently.
             global _CONFIG_LOCK_MISSING_WARNED
             if config_lock is None and not _CONFIG_LOCK_MISSING_WARNED:
                 _CONFIG_LOCK_MISSING_WARNED = True
                 log.warning(
-                    "[IPC] set_config: app has no _config_mutation_lock — "
+                    "[IPC] set_config: app has no _config_mutation_lock, "
                     "running lock-free; concurrent set_config / change_model "
                     "may interleave (this warning fires once per process)"
                 )
@@ -270,7 +270,7 @@ class ConfigHandlersMixin(HandlerBase):
                         # operation input in the log so operators can
                         # see which model_size failed without having to
                         # cross-reference the IPC payload. The full
-                        # exception text is logged server-side only — it
+                        # exception text is logged server-side only, it
                         # is NOT echoed in ``model_errors`` to avoid
                         # leaking server internals (CUDA error strings,
                         # HF repo IDs, internal module names, file
@@ -360,7 +360,7 @@ class ConfigHandlersMixin(HandlerBase):
                 # doesn't get persisted to disk via ``apply_config``.
                 # The previous code passed ``validated`` verbatim, which
                 # meant a failed model swap still wrote the new
-                # ``model_size`` to config.json — leaving the on-disk
+                # ``model_size`` to config.json, leaving the on-disk
                 # config pointing at a model the running engine had
                 # refused to load.
                 to_persist = {k: v for k, v in validated.items() if k not in failed_keys}
@@ -409,7 +409,7 @@ class ConfigHandlersMixin(HandlerBase):
             #
             # publish ``to_persist`` (not ``validated``) so the
             # renderer doesn't mirror a failed model/backend value into
-            # its local config state — that would leave the renderer's
+            # its local config state, that would leave the renderer's
             # UI showing e.g. "model: medium" while the running engine
             # is still on "small" because ``change_model`` raised.
             try:
@@ -428,7 +428,7 @@ class ConfigHandlersMixin(HandlerBase):
             # has no get_config) learns whether to show its mic button.
             # ``bubble_position`` is included because the handler above
             # clears the persisted bubble_x/bubble_y pair whenever the edge
-            # preference changes — the repush carries the cleared pair to
+            # preference changes, the repush carries the cleared pair to
             # BOTH runtimes (Electron main + Tauri host cache it from this
             # frame) so an in-flight durable position doesn't survive the
             # toggle. ``text_size`` is included so a UI text-size change
@@ -465,7 +465,7 @@ class ConfigHandlersMixin(HandlerBase):
             # also include ``data.model_errors`` +
             # ``data.applied`` when ``change_model`` /
             # ``set_active_backend`` failed, so the renderer can
-            # surface a "model switch failed — other settings
+            # surface a "model switch failed, other settings
             # applied" toast without parsing log lines.
             response_data: dict = {}
             if rejected_keys:
@@ -491,11 +491,11 @@ class ConfigHandlersMixin(HandlerBase):
             # NOTE: the per-command validation errors above (non-dict
             # payload rejection, ``validate_config_update`` failures)
             # use explicit envelopes with structured ``code`` fields
-            # the renderer switches on — they are NOT routed through
+            # the renderer switches on, they are NOT routed through
             # this catch-all because they carry field-level context
             # the generic envelope cannot represent. The
             # partial-success ``model_errors`` envelope is also NOT
-            # routed through here — it's part of the success-path
+            # routed through here, it's part of the success-path
             # ``ack`` response, not an error path.
             self._respond_with_error(resp, exc, "set_config")
         return resp
@@ -507,13 +507,13 @@ class ConfigHandlersMixin(HandlerBase):
         ``config.json`` under ``trusted_extra_hosts`` so the extension
         survives a restart (``Config.load()`` re-applies the persisted
         list). This is the in-app remediation path for users running
-        self-hosted LLM/ASR endpoints on non-loopback hosts — without
+        self-hosted LLM/ASR endpoints on non-loopback hosts, without
         it, ``assert_url_allowed`` raises ``ValueError`` for every
         request to e.g. ``https://my-vllm.lan/v1``.
 
         The host is normalized (lowercase, port stripped) and remains
         subject to the SSRF IP-literal blocklist + DNS-rebinding check
-        in ``_secrets.assert_url_allowed`` — a user cannot bypass SSRF
+        in ``_secrets.assert_url_allowed``: a user cannot bypass SSRF
         defense by adding a private IP here.
 
         Payload: ``{"host": "<hostname[:port]>"}``.
@@ -534,13 +534,13 @@ class ConfigHandlersMixin(HandlerBase):
                 log.warning("[IPC] add_trusted_endpoint rejected: invalid host %r", raw_host)
                 return _error_response(
                     resp,
-                    f"invalid host {raw_host!r} — expected a bare hostname like 'my-vllm.lan'",
+                    f"invalid host {raw_host!r}, expected a bare hostname like 'my-vllm.lan'",
                     code="invalid_field",
                 )
             # Extract the bare host: IPv6 literals (``fc00::1`` or
             # ``[fc00::1]:8080``) survive intact; hostnames / IPv4 have
             # the port stripped. Colon-bearing entries MUST be genuine
-            # IPv6 literals — a hostname containing ``:`` is invalid
+            # IPv6 literals, a hostname containing ``:`` is invalid
             # (IPv6 is the only legal colon-bearing host form). Mirrors
             # ``_normalize_host`` in ``security.url_allowlist`` and the
             # ``trusted_extra_hosts`` config validator (HU-35 follow-up).
@@ -552,7 +552,7 @@ class ConfigHandlersMixin(HandlerBase):
                 if closing <= 0:
                     return _error_response(
                         resp,
-                        f"invalid host {raw_host!r} — is not a valid IPv6 literal",
+                        f"invalid host {raw_host!r}, is not a valid IPv6 literal",
                         code="invalid_field",
                     )
                 inner = raw_host[1:closing]
@@ -561,25 +561,25 @@ class ConfigHandlersMixin(HandlerBase):
                 except ValueError:
                     return _error_response(
                         resp,
-                        f"invalid host {raw_host!r} — is not a valid IPv6 literal",
+                        f"invalid host {raw_host!r}, is not a valid IPv6 literal",
                         code="invalid_field",
                     )
                 host = inner
             elif raw_host.count(":") > 1:
                 # Bare IPv6 literal (``fc00::1``) OR a multi-colon
-                # hostname (invalid — IPv6 is the only legal
+                # hostname (invalid. IPv6 is the only legal
                 # colon-bearing host form).
                 try:
                     ipaddress.ip_address(raw_host)
                 except ValueError:
                     return _error_response(
                         resp,
-                        f"invalid host {raw_host!r} — is not a valid IPv6 literal",
+                        f"invalid host {raw_host!r}, is not a valid IPv6 literal",
                         code="invalid_field",
                     )
                 host = raw_host
             else:
-                # Generic hostname / IPv4 / hostname:port — strip the
+                # Generic hostname / IPv4 / hostname:port, strip the
                 # first ``:port`` (e.g. ``My-Vllm.Lan:8443`` →
                 # ``my-vllm.lan``).
                 host = raw_host.split(":")[0]
@@ -588,13 +588,13 @@ class ConfigHandlersMixin(HandlerBase):
                 log.warning("[IPC] add_trusted_endpoint rejected: invalid host %r", raw_host)
                 return _error_response(
                     resp,
-                    f"invalid host {raw_host!r} — expected a bare hostname like 'my-vllm.lan'",
+                    f"invalid host {raw_host!r}, expected a bare hostname like 'my-vllm.lan'",
                     code="invalid_field",
                 )
             if not all(c.isalnum() or c in "-._" or c == ":" for c in host):
                 return _error_response(
                     resp,
-                    f"invalid host {raw_host!r} — contains invalid characters",
+                    f"invalid host {raw_host!r}, contains invalid characters",
                     code="invalid_field",
                 )
 

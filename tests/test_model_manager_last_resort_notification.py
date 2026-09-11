@@ -4,13 +4,13 @@ Pre-fix, ``AsrBackendRegistry.get_active()``'s last-resort branch (the
 ``for b in list(self._backends.values())`` loop) returned an *unloaded*
 backend when no ready backend was available and fired the
 ``on_last_resort`` subscriber set + an ``asr_last_resort_unloaded``
-event — but NO production subscriber was ever wired. The documented
+event, but NO production subscriber was ever wired. The documented
 tray notification was dead code: the user got zero visible feedback
 that voice recognition wasn't working (transcription silently returns
 empty), only a WARN log line repeating every 15s:
 
     [ASR_REGISTRY] returning unloaded backend <name> (is_loaded=False)
-    as last-resort active — transcription may return empty silently
+    as last-resort active, transcription may return empty silently
 
 Post-fix, ``ModelManager.__init__`` wires ``_on_last_resort_unloaded``
 as the production subscriber. When ``get_active()`` falls through to an
@@ -20,11 +20,11 @@ auto-downloads models).
 
 Suppression logic (so the notification is accurate, not noise):
 
-* shutting down — tray may be torn down;
+* shutting down, tray may be torn down;
 * a load / model-change / backend-change thread is alive (the backend
-  is registered but about to load — not actually broken);
+  is registered but about to load, not actually broken);
 * the backend was deliberately unloaded this session (idle-unload /
-  force-unload / LRU eviction / model change) — the model IS on disk,
+  force-unload / LRU eviction / model change), the model IS on disk,
   a download nudge would be wrong;
 * the same backend was notified within
   ``_LAST_RESORT_NOTIFY_COOLDOWN_SECS`` (the 15s get_status probe can
@@ -134,7 +134,7 @@ class TestLastResortSubscriberWired:
         """After ``ModelManager(app)``, the bound ``_on_last_resort_unloaded``
         must be in the registry's ``on_last_resort`` subscriber set.
 
-        Pre-fix the subscriber set existed but nothing subscribed — the
+        Pre-fix the subscriber set existed but nothing subscribed, the
         documented tray notification was dead code.
         """
         mm, _ = _make_mm()
@@ -167,7 +167,7 @@ class TestLastResortNotificationShown:
         assert "download a model" in message, (
             f"last-resort notification must include the download instruction. Got message: {message!r}"
         )
-        # 2026-08-15 user request: the message must be GENERIC — it must
+        # 2026-08-15 user request: the message must be GENERIC, it must
         # NOT name the backend/model (the stale ``model_size`` in config
         # may not match anything on disk, and naming it misleads the
         # user into thinking that specific model is the one being
@@ -198,8 +198,8 @@ class TestLastResortNotificationSuppressed:
 
     def test_suppressed_while_load_in_progress(self):
         """While a background load thread is alive (backend registered but
-        not yet loaded), the last-resort fall-through is a false positive
-        — the notification must NOT fire."""
+          not yet loaded), the last-resort fall-through is a false positive
+        , the notification must NOT fire."""
         mm, app = _make_mm()
         _trigger_last_resort(mm)  # first transition notifies (no load thread)
         app.tray.notify.reset_mock()
@@ -227,7 +227,7 @@ class TestLastResortNotificationSuppressed:
         """While a synchronous ``load_active`` is running on the calling
         thread (``ensure_active_engine_loaded``'s reload-after-idle-
         unload / retry branch), a concurrent get_status probe must NOT
-        fire the download nudge — the model is literally loading."""
+        fire the download nudge, the model is literally loading."""
         mm, app = _make_mm()
         _trigger_last_resort(mm)
         app.tray.notify.reset_mock()
@@ -241,7 +241,7 @@ class TestLastResortNotificationSuppressed:
             mm._sync_load_in_progress = False
 
     def test_suppressed_while_shutting_down(self):
-        """During shutdown the tray may be torn down — no notification."""
+        """During shutdown the tray may be torn down, no notification."""
         mm, app = _make_mm()
         app._shutting_down = True
         _trigger_last_resort(mm)
@@ -250,7 +250,7 @@ class TestLastResortNotificationSuppressed:
     def test_suppressed_for_deliberately_unloaded_backend(self):
         """A backend that was deliberately unloaded (idle-unload /
         force-unload / LRU eviction / model change) must NOT trigger a
-        download nudge — the model IS on disk."""
+        download nudge, the model IS on disk."""
         mm, app = _make_mm()
         mm._mark_deliberately_unloaded("whisper")
         _trigger_last_resort(mm)
@@ -292,7 +292,7 @@ class TestLastResortNotificationClickable:
     """When a host (Electron/Tauri) is connected, the last-resort
     notification is published as a ``notification`` event carrying a
     ``click_path`` so the host renders a CLICKABLE native toast that
-    opens the Models page directly — pystray Win32 balloons cannot carry
+    opens the Models page directly, pystray Win32 balloons cannot carry
     a click handler. Without a live transport, the pystray balloon
     fallback keeps working."""
 
@@ -363,7 +363,7 @@ class TestLastResortNotificationClickable:
         app.tray.notify.assert_called_once()
 
     def test_live_transport_but_notifications_disabled_no_notification(self, monkeypatch):
-        """The notifications toggle must gate the clickable path too — a
+        """The notifications toggle must gate the clickable path too, a
         user who disabled notifications gets neither a toast nor a
         balloon (mirrors ``tray_notifications.notify``)."""
         mm, app = _make_mm()
@@ -384,7 +384,7 @@ class TestLastResortNotificationClickable:
 class TestLastResortEventGateWired:
     """ModelManager wires the event_bus suppression gate so the renderer
     toast (which consumes the ``asr_last_resort_unloaded`` event) matches
-    the tray notification's suppressions exactly — the toast cannot see
+    the tray notification's suppressions exactly, the toast cannot see
     the ModelManager-side checks otherwise.
 
     The gate is checked by the breaker BEFORE the subscribers fire, so a
@@ -393,7 +393,7 @@ class TestLastResortEventGateWired:
 
     def test_init_wires_event_gate(self):
         """After ``ModelManager(app)``, the breaker's event gate must be
-        the bound ``_should_suppress_last_resort_notification`` — the
+        the bound ``_should_suppress_last_resort_notification``, the
         renderer toast and the tray share ONE suppression decision."""
         mm, _ = _make_mm()
         gate = mm._registry._breaker._last_resort_event_gate
@@ -407,7 +407,7 @@ class TestLastResortEventGateWired:
     def test_deliberate_unload_suppresses_event_publish(self, monkeypatch):
         """A deliberately-unloaded backend (idle-unload / force-unload /
         LRU eviction / model change) must NOT publish the
-        ``asr_last_resort_unloaded`` event — the renderer toast must not
+        ``asr_last_resort_unloaded`` event, the renderer toast must not
         tell the user to download a model that is on disk."""
         mm, app = _make_mm()
         mm._mark_deliberately_unloaded("whisper")
@@ -424,7 +424,7 @@ class TestLastResortEventGateWired:
 
     def test_load_in_progress_suppresses_event_publish(self, monkeypatch):
         """While a synchronous load is running (the model is literally
-        loading), the event must NOT be published — the renderer toast
+        loading), the event must NOT be published, the renderer toast
         must not fire during the reload-after-idle-unload window."""
         mm, app = _make_mm()
         mm._sync_load_in_progress = True
@@ -457,7 +457,7 @@ class TestLastResortEventGateWired:
 
     def test_genuine_broken_backend_publishes_event(self, monkeypatch):
         """A genuinely broken backend (NOT deliberately unloaded, no load
-        in progress) must still publish the event — the renderer toast
+        in progress) must still publish the event, the renderer toast
         and the tray both alert the user."""
         mm, app = _make_mm()
         published: list[dict] = []
@@ -472,7 +472,7 @@ class TestLastResortEventGateWired:
 
     def test_cooldown_suppresses_repeat_event_publish(self, monkeypatch):
         """When the registry latch resets (15s probe) within the cooldown,
-        the repeat transition must NOT re-publish the event — the
+        the repeat transition must NOT re-publish the event, the
         renderer toast, like the tray, is rate-limited per backend."""
         mm, app = _make_mm()
         published: list[dict] = []
@@ -492,7 +492,7 @@ class TestLastResortEventGateWired:
 
     def test_renotifies_event_after_cooldown_expires(self, monkeypatch):
         """Once the cooldown elapses, a new genuine transition re-publishes
-        the event — the user is still pointed at the Models page."""
+        the event, the user is still pointed at the Models page."""
         mm, app = _make_mm()
         published: list[dict] = []
         monkeypatch.setattr("voice_typer.server.event_bus.publish", published.append)
@@ -547,7 +547,7 @@ class TestLastResortNotificationRateLimit:
         _trigger_last_resort(mm)  # whisper notified
         assert app.tray.notify.call_count == 1
 
-        # Now break parakeet (configured backend switch) — different key,
+        # Now break parakeet (configured backend switch), different key,
         # must notify independently. The registry's one-shot latch is
         # reset first (as the probe / load retry would) so the subscriber
         # actually re-fires for the new transition.
@@ -565,7 +565,7 @@ class TestBackendDisabledEventGateWired:
     """ModelManager wires the breaker's backend-disabled suppression gate
     so the ``asr_backend_disabled`` event_bus publish (consumed by the
     renderer) is suppressed during the same deliberate-unload windows as
-    the last-resort alert — a backend that was deliberately unloaded / is
+    the last-resort alert, a backend that was deliberately unloaded / is
     mid-load must not publish a spurious 'disabled' event when the
     switch's own transient failure trips the breaker."""
 
@@ -580,7 +580,7 @@ class TestBackendDisabledEventGateWired:
     def test_init_wires_backend_disabled_event_gate(self):
         """After ``ModelManager(app)``, the breaker's backend-disabled
         event gate must be the bound
-        ``_should_suppress_backend_disabled_notification`` — the
+        ``_should_suppress_backend_disabled_notification``, the
         ``asr_backend_disabled`` event and the deliberate-unload windows
         share ONE suppression decision."""
         mm, _ = _make_mm()
@@ -596,12 +596,12 @@ class TestBackendDisabledEventGateWired:
     def test_deliberate_unload_suppresses_backend_disabled_publish(self, monkeypatch):
         """A deliberately-unloaded backend (idle-unload / force-unload /
         LRU eviction / model change) must NOT publish the
-        ``asr_backend_disabled`` event — the breaker can trip on the
+        ``asr_backend_disabled`` event, the breaker can trip on the
         switch's own transient failure, but the app is merely releasing /
         switching, not reporting a permanently-broken backend.
 
         The circuit-breaker state mutation (disabling the backend) is
-        NOT gated — only the notification surface."""
+        NOT gated, only the notification surface."""
         mm, _ = _make_mm()
         mm._mark_deliberately_unloaded("whisper")
         published: list[dict] = []
@@ -615,13 +615,13 @@ class TestBackendDisabledEventGateWired:
         )
         assert "whisper" in mm._registry._disabled_backends, (
             "the gate must NOT prevent the breaker from disabling the "
-            "backend — only the notification surface is suppressed."
+            "backend, only the notification surface is suppressed."
         )
 
     def test_load_in_progress_suppresses_backend_disabled_publish(self, monkeypatch):
         """While a synchronous load is running (the model is literally
         loading), the ``asr_backend_disabled`` event must NOT be
-        published — a transient failure during the reload window is not
+        published, a transient failure during the reload window is not
         a permanent disable."""
         mm, _ = _make_mm()
         mm._sync_load_in_progress = True
@@ -639,7 +639,7 @@ class TestBackendDisabledEventGateWired:
     def test_genuine_broken_backend_publishes_backend_disabled(self, monkeypatch):
         """A genuinely broken backend (NOT deliberately unloaded, no load
         in progress) must still publish the ``asr_backend_disabled``
-        event — the gate only suppresses during deliberate-unload
+        event, the gate only suppresses during deliberate-unload
         windows, never a real alert."""
         mm, _ = _make_mm()
         published: list[dict] = []
@@ -656,12 +656,12 @@ class TestBackendDisabledEventGateWired:
         notification for the same backend (which engages the
         ``_LAST_RESORT_NOTIFY_COOLDOWN_SECS`` rate limit in
         ``_should_suppress_last_resort_notification``) must NOT suppress
-        a genuine ``asr_backend_disabled`` event — the cooldown lives
+        a genuine ``asr_backend_disabled`` event, the cooldown lives
         only in the last-resort helper, never in the backend-disabled
         gate. Locks the boundary so a future refactor can't merge the
         two gates' suppression sets."""
         mm, _ = _make_mm()
-        # Fire a last-resort transition first — records
+        # Fire a last-resort transition first, records
         # ``_last_resort_notified_at["whisper"]`` (the tray subscriber
         # timestamps it).
         _trigger_last_resort(mm)

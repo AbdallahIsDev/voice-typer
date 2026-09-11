@@ -63,13 +63,13 @@ describe("sortRecords", () => {
 
 	it("'az' sorts text ascending via locale-aware collation (case-insensitive)", () => {
 		const result = sortRecords(records, "az");
-		// apple, Banana, Cherry — case-insensitive ascending.
+		// apple, Banana, Cherry, case-insensitive ascending.
 		expect(result.map((r) => r.text)).toEqual(["apple", "Banana", "Cherry"]);
 	});
 
 	it("'za' sorts text descending via locale-aware collation (case-insensitive)", () => {
 		const result = sortRecords(records, "za");
-		// Cherry, Banana, apple — case-insensitive descending.
+		// Cherry, Banana, apple, case-insensitive descending.
 		expect(result.map((r) => r.text)).toEqual(["Cherry", "Banana", "apple"]);
 	});
 

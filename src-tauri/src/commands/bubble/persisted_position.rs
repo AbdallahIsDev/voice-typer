@@ -3,15 +3,15 @@
 //! The Python sidecar owns the authoritative `bubble_x` / `bubble_y`
 //! config pair. This module gives the host three capabilities around it:
 //!
-//! 1. **Cache** — the WS reader task (`sidecar/ws.rs`) forwards every
+//! 1. **Cache**: the WS reader task (`sidecar/ws.rs`) forwards every
 //!    sidecar-published `bubble_config` frame here so the host always
 //!    holds the most recent persisted pair (both coordinates, or `None`
 //!    after the Settings edge-toggle clears them server-side).
-//! 2. **Consume** — `bubble_show` (`commands/bubble/commands.rs`)
+//! 2. **Consume**: `bubble_show` (`commands/bubble/commands.rs`)
 //!    restores the cached pair when it is still on-screen, mirroring
 //!    Electron's in-session restore in
 //!    `voice_typer/client/src/main/windows/bubble/positioning.ts`.
-//! 3. **Persist** — the window-event hook in `main.rs` observes user
+//! 3. **Persist**: the window-event hook in `main.rs` observes user
 //!    drags of the bubble window and writes the pair back through the
 //!    fire-and-forget dispatch path after a 500ms debounce. Programmatic
 //!    placements arm a suppression window so they are never mistaken for
@@ -112,12 +112,12 @@ pub(crate) fn persisted_pos() -> Option<(i32, i32)> {
 /// (`IPC_CONFIG_ALLOWLIST` in
 /// `voice_typer/server/config_validators/allowlist.py`, pinned by
 /// `tests/tauri/test_config_script_drift.py::test_persisted_position_
-/// bound_matches_server_allowlist`) — if the server widens the range,
+/// bound_matches_server_allowlist`): if the server widens the range,
 /// update this constant in the same change.
 const PERSISTED_COORDINATE_LIMIT: i32 = 100_000;
 
 /// True when `(x, y)` lies inside at least one attached monitor's work
-/// area (physical pixels) — mirrors Electron's `isPositionOnAnyDisplay`.
+/// area (physical pixels): mirrors Electron's `isPositionOnAnyDisplay`.
 /// Best-effort: if the monitor list can't be read, fall back to a loose
 /// sanity range so a transient monitor-API failure doesn't strand the
 /// restore (the position came from the validated server config).
@@ -149,7 +149,7 @@ pub(crate) fn restore_position(app: &tauri::AppHandle) -> Option<(i32, i32)> {
         Some(pos)
     } else {
         log::info!(
-            "[BUBBLE] durable position {:?} is off-screen — falling back to centering",
+            "[BUBBLE] durable position {:?} is off-screen, falling back to centering",
             pos
         );
         None
@@ -160,7 +160,7 @@ pub(crate) fn restore_position(app: &tauri::AppHandle) -> Option<(i32, i32)> {
 /// (`bubble_set_position`, show-time restores). Any drag move still
 /// queued for the debounced persist fires inside this window (the
 /// window strictly outlives the debounce window) and is skipped at
-/// fire time — same net effect as the old generation invalidation.
+/// fire time: same net effect as the old generation invalidation.
 pub(crate) fn suppress_persist_for_window() {
     if let Ok(mut slot) = SUPPRESS_UNTIL.lock() {
         *slot = Some(Instant::now() + Duration::from_millis(SUPPRESS_WINDOW_MS));
@@ -186,7 +186,7 @@ fn store_pending_move(x: i32, y: i32) {
 
 /// Schedule the debounced persist of a dragged bubble position. Called
 /// from the event-loop's `WindowEvent::Moved` branch for the bubble
-/// window — must never block the event loop, hence fire-and-forget all
+/// window: must never block the event loop, hence fire-and-forget all
 /// the way down: record the move, then wake the ONE long-lived debounce
 /// task (spawned on the first drag, parked on `PERSIST_NOTIFY` in
 /// between). No per-event task spawn: at ~60 `Moved` events/sec during
@@ -206,15 +206,15 @@ pub(crate) fn schedule_persist(state: &std::sync::Arc<SidecarState>, x: i32, y: 
 }
 
 /// Park until a queued move has been quiet for the full debounce
-/// window, then hand it back — a latest-wins trailing debounce whose
+/// window, then hand it back, a latest-wins trailing debounce whose
 /// fire time is `PERSIST_DEBOUNCE_MS` after the LAST `schedule_persist`
 /// call (identical timing to the previous per-event sleeper). `None`
 /// means the wakeup had nothing queued (a surplus notify permit).
 async fn wait_for_quiesced_move() -> Option<(i32, i32)> {
     enum Step {
-        /// Quiet window elapsed — fire this move.
+        /// Quiet window elapsed: fire this move.
         Fire((i32, i32)),
-        /// Move still inside its window — sleep this long, then re-check.
+        /// Move still inside its window, sleep this long, then re-check.
         Wait(Duration),
         /// Nothing queued (surplus wakeup permit).
         Empty,
@@ -225,7 +225,7 @@ async fn wait_for_quiesced_move() -> Option<(i32, i32)> {
     loop {
         // Atomically decide under one lock: fire the queued move, or
         // sleep out the remainder of its quiet window. The lock guard
-        // is confined to this block — never held across the sleep.
+        // is confined to this block, never held across the sleep.
         let step = match PENDING_MOVE.lock() {
             Ok(mut slot) => match slot.take() {
                 None => Step::Empty,
@@ -234,7 +234,7 @@ async fn wait_for_quiesced_move() -> Option<(i32, i32)> {
                     if remaining.is_zero() {
                         Step::Fire(p.pos)
                     } else {
-                        // A move landed inside the window — put it back
+                        // A move landed inside the window, put it back
                         // and re-arm (a newer schedule_persist may have
                         // replaced it by the time we wake).
                         *slot = Some(p);
@@ -262,7 +262,7 @@ async fn debounce_persist_loop(state: std::sync::Arc<SidecarState>) {
             continue;
         };
         if currently_suppressed() {
-            log::debug!("[BUBBLE] persist suppressed — skipping programmatic move");
+            log::debug!("[BUBBLE] persist suppressed, skipping programmatic move");
             continue;
         }
         match dispatch_fire_and_forget(

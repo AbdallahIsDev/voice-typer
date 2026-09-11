@@ -19,12 +19,12 @@ offline (no GitHub fetch at first-use time) and ensures the PyInstaller
 bundle is self-contained. If the bundled file is missing or the load
 fails, ``_load_model`` logs an ERROR and returns ``(None, None)`` so VAD
 degrades to the RMS energy fallback (already handled by callers). No
-network call is ever made — the offline guarantee (C-DATA-1) is preserved.
+network call is ever made, the offline guarantee (C-DATA-1) is preserved.
 
-CRITICAL — hidden-state threading (companion §2.2):
+CRITICAL, hidden-state threading (companion §2.2):
     ``onnxruntime.InferenceSession`` is **stateless**. The Silero v4
     ONNX export takes ``(input, state, sr)`` as inputs and returns
-    ``(output, stateN)`` — the caller must hold the LSTM hidden-state
+    ``(output, stateN)``: the caller must hold the LSTM hidden-state
     buffer (shape ``(2, 1, 128)`` float32) and thread it through every
     ``compute_vad_prob`` call, re-zeroing it on ``reset_states()``,
     ``unload()``, and first load. If the state is not threaded
@@ -51,7 +51,7 @@ log = logging.getLogger(__name__)
 # does NOT cache a failure (``_model`` stays None), so when VAD is
 # permanently unavailable (onnxruntime missing / bundled model missing or
 # corrupt) every 16 Hz audio chunk re-attempts the load and re-logs the
-# error — ~960 lines/minute of identical ERROR spam. The first
+# error, ~960 lines/minute of identical ERROR spam. The first
 # occurrence logs at the configured level (with full context); repeats
 # drop to DEBUG with a 60s INFO suppression summary
 # (``log_rate_limited``), so the operator still sees the chronic
@@ -69,7 +69,7 @@ _VAD_LOAD_FAILED_EVERY_N: int = 225  # every ~14s at 16 Hz
 # fall back to the 16 kHz default of 512.
 _EXPECTED_SAMPLES: dict[int, int] = {16000: 512, 8000: 256}
 
-# Silero VAD probability threshold — values above this are considered speech.
+# Silero VAD probability threshold, values above this are considered speech.
 # this is now a *fallback default* used only when callers don't pass
 # their own threshold. Upstream callers (VadProcessor) pass a config-derived
 # value via ``is_speech(..., threshold=...)`` so the VAD module doesn't
@@ -78,7 +78,7 @@ VAD_THRESHOLD = 0.5
 
 # early-exit threshold for the multi-sub-chunk inference loop in
 # :func:`compute_vad_prob`. Once a sub-chunk returns a probability ≥ this
-# value, the loop breaks — speech is an "any sub-chunk contains it"
+# value, the loop breaks, speech is an "any sub-chunk contains it"
 # decision, so a single high-confidence sub-chunk is sufficient evidence
 # and we skip further ORT inference cycles. The threshold is chosen
 # above the typical +50 dB speech-prob ceiling so the early-exit only
@@ -89,14 +89,14 @@ _VAD_EARLY_EXIT_PROB: float = 0.95
 
 # Path to the bundled Silero VAD ONNX model (next to this file).
 # The legacy ``silero_vad.jit`` is RETAINED in the repo and the frozen
-# bundle until Phase 1c (companion §2.5) — Parakeet + Qwen still need
+# bundle until Phase 1c (companion §2.5). Parakeet + Qwen still need
 # torch between Phase 1a and Phase 1c, and the Nuitka flag
 # ``--module-parameter=torch-disable-jit=no`` (C-CI-8 / NU-106) stays
 # until then. Do NOT delete the .jit file or the .jit MANIFEST.in entry
 # in Phase 1a.
 _VAD_MODEL_PATH = Path(__file__).resolve().parent / "silero_vad.onnx"
 
-# Silero v4 LSTM hidden-state shape — see the module docstring's
+# Silero v4 LSTM hidden-state shape: see the module docstring's
 # "hidden-state threading" note. The buffer is hoisted to module level
 # (one per process) so every ``compute_vad_prob`` call threads the
 # running state forward, exactly mirroring the JIT-era model's internal
@@ -111,7 +111,7 @@ _model = None
 #: The LSTM hidden-state buffer threaded across ``compute_vad_prob``
 #: calls. Re-zeroed on ``reset_states()``, ``unload()``, and first load.
 #: Module-level (single per process) because the JIT model's internal
-#: state was also per-process — preserving that semantics keeps the
+#: state was also per-process, preserving that semantics keeps the
 #: call-site contract unchanged.
 _state = None  # initialized lazily in _load_model to avoid eager numpy use
 
@@ -128,7 +128,7 @@ _state_out_name: str | None = None
 #: Guards the one-time ``[VAD] Silero VAD model loaded from local ONNX,
 #: preloaded + warmed`` INFO line. ``preload()`` is invoked from BOTH the
 #: app-startup background thread (app.py) AND the startup-sequence
-#: prewarm task — without the guard the identical line was logged twice
+#: prewarm task: without the guard the identical line was logged twice
 #: within milliseconds from two threads, cluttering the log with a
 #: duplicate.
 _preload_warmed_logged: bool = False
@@ -140,7 +140,7 @@ def is_available() -> bool:
     Companion §2.3.4: replaced the JIT-era ``import torch`` probe with
     an ``onnxruntime`` probe + bundled-file existence check. Returns
     ``True`` only when both (a) ``onnxruntime`` is importable AND (b)
-    ``silero_vad.onnx`` exists on disk — so a real ``InferenceSession``
+    ``silero_vad.onnx`` exists on disk, so a real ``InferenceSession``
     can be constructed without a network round-trip.
     """
     try:
@@ -165,10 +165,10 @@ def _load_model():
         ``(session, io_names)`` on success where ``io_names`` is the
         5-tuple ``(input, state, sr, output, stateN)`` of ORT I/O names
         discovered at load time. ``(None, None)`` on any failure path
-        — preserves the JIT-era 2-tuple contract so callers (and tests)
+       , preserves the JIT-era 2-tuple contract so callers (and tests)
         that destructure the result keep working unchanged.
 
-    Companion §2.3.3 — ``providers=["CPUExecutionProvider"]`` is PINNED,
+    Companion §2.3.3, ``providers=["CPUExecutionProvider"]`` is PINNED,
         not defaulted. ORT's default provider list is
         ``["CUDAExecutionProvider", "CPUExecutionProvider"]`` when
         ``onnxruntime-gpu`` is installed. VAD is CPU-only by design
@@ -192,7 +192,7 @@ def _load_model():
         log_rate_limited(
             log,
             logging.WARNING,
-            "[VAD] onnxruntime not importable — Silero VAD disabled",
+            "[VAD] onnxruntime not importable. Silero VAD disabled",
             every_n=_VAD_FAILURE_FIRST_ONLY_EVERY_N,
         )
         return None, None
@@ -201,7 +201,7 @@ def _load_model():
         log_rate_limited(
             log,
             logging.ERROR,
-            "[VAD] bundled model not found at %s — Silero VAD disabled; "
+            "[VAD] bundled model not found at %s. Silero VAD disabled; "
             "degrading to RMS fallback (no network fetch is attempted)",
             _VAD_MODEL_PATH,
             every_n=_VAD_FAILURE_FIRST_ONLY_EVERY_N,
@@ -213,7 +213,7 @@ def _load_model():
         # Silero VAD is a small LSTM (~2 MB). For 512-sample
         # chunks at 16 Hz, CPU inference (~0.5 ms) is faster than the
         # GPU transfer overhead (~1-2 ms roundtrip). Keep on CPU even
-        # when CUDA is available — intentionally NOT probing / moving
+        # when CUDA is available, intentionally NOT probing / moving
         # to CUDA. Other ML paths (parakeet_engine, qwen_engine,
         # transcription) DO probe CUDA because their workloads benefit
         # from it; VAD's small model + tiny per-call tensor size does
@@ -254,7 +254,7 @@ def _load_model():
         log_rate_limited(
             log,
             logging.ERROR,
-            "[VAD] local Silero VAD ONNX model load failed: %s — Silero VAD "
+            "[VAD] local Silero VAD ONNX model load failed: %s, Silero VAD "
             "disabled; degrading to RMS fallback (no network fetch is attempted)",
             local_exc,
             every_n=_VAD_LOAD_FAILED_EVERY_N,
@@ -272,8 +272,8 @@ def _reflect_pad_to(chunk: np.ndarray, expected: int) -> np.ndarray:
         padding mirrors the chunk's own spectral content, keeping the input
         in-distribution.
 
-        Done in numpy so the test fake ORT session — which only stubs
-        ``InferenceSession.run`` — does not need ``flip`` / ``repeat``
+        Done in numpy so the test fake ORT session, which only stubs
+        ``InferenceSession.run``: does not need ``flip`` / ``repeat``
         shims.
 
         Strategy:
@@ -302,7 +302,7 @@ def _reflect_pad_to(chunk: np.ndarray, expected: int) -> np.ndarray:
 def _run_one_inference(audio_1d: np.ndarray, sr: int) -> float:
     """Run one ORT forward pass and thread the LSTM hidden state.
 
-    Companion §2.2 — the stateless ``InferenceSession`` cannot hold the
+    Companion §2.2, the stateless ``InferenceSession`` cannot hold the
     LSTM hidden state internally (unlike the JIT module). The caller
     (``compute_vad_prob``) holds it at module level via ``_state``;
     this helper passes the current state in, runs the session, and
@@ -311,16 +311,16 @@ def _run_one_inference(audio_1d: np.ndarray, sr: int) -> float:
 
     Args:
         audio_1d: 1-D float32 numpy array of length ``expected`` (512 at
-            16 kHz). Reshaped to ``(1, N)`` before the feed dict — Silero
+            16 kHz). Reshaped to ``(1, N)`` before the feed dict, Silero
             v4 ONNX expects a batched input.
-        sr: sample rate (passed as a scalar int64 tensor — Silero v4
+        sr: sample rate (passed as a scalar int64 tensor, Silero v4
             ONNX takes ``sr`` as an input).
 
     Returns:
         The float speech probability from ``output`` (shape ``(1, 1)``).
 
     Raises:
-        Whatever ``session.run`` raises — the caller (``compute_vad_prob``)
+        Whatever ``session.run`` raises, the caller (``compute_vad_prob``)
         wraps the call in a ``try/except`` that returns ``None`` on
         failure so the RMS fallback fires.
     """
@@ -330,7 +330,7 @@ def _run_one_inference(audio_1d: np.ndarray, sr: int) -> float:
     # model isn't loaded, so they are guaranteed set at every call site.
     assert _input_name is not None
     assert _state_name is not None
-    # Silero v4 ONNX expects shape (1, N) — batch dim of 1.
+    # Silero v4 ONNX expects shape (1, N), batch dim of 1.
     audio_batched = np.asarray(audio_1d, dtype=np.float32).reshape(1, -1)
     feed: dict[str, np.ndarray] = {
         _input_name: audio_batched,
@@ -344,7 +344,7 @@ def _run_one_inference(audio_1d: np.ndarray, sr: int) -> float:
     # against either a (1,1) ndarray or a (1,) ndarray returned by the
     # session.
     prob = float(np.asarray(out[0]).reshape(-1)[0])
-    # Thread the new hidden state forward — companion §2.2 says this is
+    # Thread the new hidden state forward, companion §2.2 says this is
     # the critical step. If we forget, VAD probabilities are garbage
     # after the first 512-sample window.
     _state = np.asarray(out[1], dtype=np.float32)
@@ -375,12 +375,12 @@ def compute_vad_prob(audio_chunk: np.ndarray, sample_rate: int = WHISPER_SAMPLE_
         and the model is run on each. The MAX probability is returned —
         speech is an "any sub-chunk contains it" decision, so max is more
         sensitive than mean for short bursts. (Cost is bounded by the
-    worker-thread context per  — VAD no longer runs on the
+    worker-thread context per. VAD no longer runs on the
         audio callback, so N× inference is acceptable.)
 
     option (c) "move compute_vad_prob to a dedicated VAD worker
         thread fed by a queue (decouple from capture)" is ALREADY
-    IMPLEMENTED per  — ``recorder._audio_callback_dispatch``
+    IMPLEMENTED per , ``recorder._audio_callback_dispatch``
         enqueues the chunk into an SPSC ring buffer and wakes the audio
         worker thread (``_audio_worker_loop`` / ``_process_audio_chunk``),
         which calls ``compute_vad_prob`` from ``audio_pipeline.run_vad_state_machine``.
@@ -388,7 +388,7 @@ def compute_vad_prob(audio_chunk: np.ndarray, sample_rate: int = WHISPER_SAMPLE_
         "drop the multi-sub-chunk loop" and (b) "batch sub-chunks as a
         single 2D tensor" would break the ``test_compute_vad_prob_long_chunk_returns_max``
         contract (pinned call_count=2 for a 1024-sample input sliced into
-        two 512-sample sub-chunks) and are NOT applied here — the worker-
+        two 512-sample sub-chunks) and are NOT applied here, the worker-
         thread context makes N× inference acceptable per  The
         ``_VAD_EARLY_EXIT_PROB`` threshold below provides a partial speed-up:
         once a sub-chunk returns a very-high probability, no further sub-
@@ -396,7 +396,7 @@ def compute_vad_prob(audio_chunk: np.ndarray, sample_rate: int = WHISPER_SAMPLE_
         decision, so a single high-prob sub-chunk is sufficient evidence).
 
     Hidden-state threading (companion §2.2): each sub-chunk call
-        consumes the running ``_state`` and produces a new one — the
+        consumes the running ``_state`` and produces a new one, the
         next sub-chunk inherits it. This mirrors the JIT-era model's
         internal stateful behavior. ``reset_states()`` zeros the buffer
         at session boundaries.
@@ -422,11 +422,11 @@ def compute_vad_prob(audio_chunk: np.ndarray, sample_rate: int = WHISPER_SAMPLE_
             n = expected
 
         if n == expected:
-            # Exact fit — single inference, no slicing overhead.
+            # Exact fit, single inference, no slicing overhead.
             return _run_one_inference(audio, sample_rate)
 
         # multi-sub-chunk path. Run the model on each
-        # full 512-sample sub-chunk and take MAX — speech is an "any
+        # full 512-sample sub-chunk and take MAX, speech is an "any
         # sub-chunk contains it" decision. The trailing remainder
         # (< 512 samples) is dropped: at 16 kHz that's ≤31 ms of audio,
         # below the Silero false-negative floor.
@@ -434,7 +434,7 @@ def compute_vad_prob(audio_chunk: np.ndarray, sample_rate: int = WHISPER_SAMPLE_
         # early-exit once a sub-chunk returns a very-high
         # probability. Speech is an "any sub-chunk contains it"
         # decision, so a single high-prob sub-chunk is sufficient
-        # evidence — no need to spend further ORT inference cycles on
+        # evidence, no need to spend further ORT inference cycles on
         # the remaining sub-chunks. The threshold (0.95) is chosen
         # above the typical noise-floor +50 dB speech-prob ceiling so
         # the early-exit only fires on high-confidence speech frames;
@@ -448,7 +448,7 @@ def compute_vad_prob(audio_chunk: np.ndarray, sample_rate: int = WHISPER_SAMPLE_
             prob = _run_one_inference(sub, sample_rate)
             probs.append(prob)
             if prob >= _VAD_EARLY_EXIT_PROB:
-                # High-confidence speech — skip remaining sub-chunks.
+                # High-confidence speech, skip remaining sub-chunks.
                 # MAX is now ``prob`` (it's >= the threshold, and
                 # all prior probs were < threshold).
                 break
@@ -486,7 +486,7 @@ def is_speech(
 
     # Fallback: simple RMS energy check if VAD is unavailable.
     # the RMS-fallback energy floor (0.01) is intentionally NOT
-    # derived from ``effective_threshold`` — the two are in different
+    # derived from ``effective_threshold``: the two are in different
     # units (probability vs. linear amplitude) and conflating them
     # would silently change semantics for the rare RMS path. A future
     # refactor could expose this as a separate config field.
@@ -517,7 +517,7 @@ def preload() -> bool:
         Returns:
             True if the model is loaded (and warm-up inference succeeded),
             False if VAD is unavailable or warm-up failed. Safe to call
-            multiple times — the cached model is returned immediately on
+            multiple times, the cached model is returned immediately on
             subsequent calls.
     """
     # C-LOG-2: report total preload duration (model load + warmup) on
@@ -530,13 +530,13 @@ def preload() -> bool:
         # Silero expects 512 samples at 16kHz for warmup.
         dummy = np.zeros(512, dtype=np.float32)
         _run_one_inference(dummy, WHISPER_SAMPLE_RATE)
-        # warmup pollutes the LSTM hidden state — reset to fresh zeros
+        # warmup pollutes the LSTM hidden state, reset to fresh zeros
         # so the first real audio chunk starts from a clean state (the
         # JIT-era model exposed ``reset_states()`` for the same reason;
         # see companion §2.3.5).
         reset_states()
     except Exception:
-        # Loaded but not warmed — still usable (first chunk pays the
+        # Loaded but not warmed, still usable (first chunk pays the
         # JIT cost), so INFO with an explicit "not warmed" marker
         # instead of silence; the failure detail stays at DEBUG.
         log.info("[VAD] Silero VAD model loaded from local ONNX, not warmed")
@@ -546,7 +546,7 @@ def preload() -> bool:
     if not _preload_warmed_logged:
         # Emit the one-time INFO so the log stays clean when both
         # startup paths (app thread + prewarm task) call preload().
-        # Merged with the old "loaded from local ONNX" line — model
+        # Merged with the old "loaded from local ONNX" line, model
         # load + warmup are one event, so they share one line.
         _preload_warmed_logged = True
         log.info(
@@ -568,7 +568,7 @@ def unload() -> None:
         (CPU-only) arena. Safe to call when VAD is already unloaded (no-op).
 
     Companion §2.3.5: also calls ``reset_states()`` so the LSTM hidden
-        buffer is zeroed — a subsequent ``preload()`` / first-chunk load
+        buffer is zeroed, a subsequent ``preload()`` / first-chunk load
         starts from a fresh state (otherwise stale state from the prior
         session bleeds into the next).
     """
@@ -581,7 +581,7 @@ def unload() -> None:
 def reset_states() -> None:
     """Reset the Silero VAD LSTM hidden state.
 
-    Silero VAD is an LSTM — its hidden state accumulates across
+    Silero VAD is an LSTM, its hidden state accumulates across
         chunks. Without reset, state from one session bleeds into the next,
         causing the model to "expect" speech patterns from the prior
         speaker/environment and produce stale probabilities. Call this at
@@ -589,18 +589,18 @@ def reset_states() -> None:
 
     Companion §2.2 / §2.3.5: under the ORT backend the state lives at
         module level (``_state``) instead of inside the JIT model.
-        Re-zeroing it here is the load-bearing reset — every
+        Re-zeroing it here is the load-bearing reset, every
         ``compute_vad_prob`` call threads whatever ``_state`` currently
         holds into the next session.run, so a non-zeroed state would
         produce garbage probabilities on the first chunk after a
         session boundary.
 
         No-op if the model isn't loaded (avoids triggering a load just to
-        reset state — the model starts with a fresh state on first load).
+        reset state, the model starts with a fresh state on first load).
     """
     global _state
     if _model is None:
-        # No active session — leave ``_state`` as ``None`` so the next
+        # No active session, leave ``_state`` as ``None`` so the next
         # ``_load_model`` initializes it. Calling ``np.zeros`` here
         # would allocate a buffer that's never read and would mask a
         # "model unloaded" bug as "model loaded with zeroed state".
@@ -613,7 +613,7 @@ def reset():
     """Reset the cached model + hidden state (for testing or re-loading)."""
     global _model
     _model = None
-    # ``reset_states()`` checks ``_model`` — we just set it to None, so
+    # ``reset_states()`` checks ``_model``: we just set it to None, so
     # call the inline zeroing path here directly to keep the post-condition
     # "``_state`` is None after ``reset()``" honest (matches the JIT-era
     # behavior where ``reset()`` cleared both the cached model and the

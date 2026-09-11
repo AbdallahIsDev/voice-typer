@@ -10,7 +10,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
-// Minimal YAML parser — the file uses a constrained subset (lists of
+// Minimal YAML parser, the file uses a constrained subset (lists of
 // scalars, nested maps) so we don't need a full YAML dep. We just
 // assert on the raw text for `python3` absence and structural shape.
 const BUILDER_YML = readFileSync(

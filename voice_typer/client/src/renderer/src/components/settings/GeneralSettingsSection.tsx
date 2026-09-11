@@ -1,4 +1,4 @@
-// GeneralSettingsSection — the General section of the Settings surface.
+// GeneralSettingsSection, the General section of the Settings surface.
 //
 // Extracted from src/renderer/src/pages/Settings.tsx. Renders one
 // SettingsSection block: "General" (Launch at Login, Fast Startup,
@@ -39,10 +39,10 @@ const TRAY_CLICK_OPTIONS = [
 	{ value: "open_app", labelKey: "settings.trayClickOpenApp" },
 ] as const;
 
-// Locale selector options — derived from SUPPORTED_LOCALES so adding a
+// Locale selector options, derived from SUPPORTED_LOCALES so adding a
 // new locale in i18n.ts automatically appears here. The labels are
 // locale-name strings ("English", "العربية", …) which don't go through
-// t() — they're the same in every UI language.
+// t(), they're the same in every UI language.
 const LOCALE_OPTIONS = SUPPORTED_LOCALES.map((locale) => ({
 	value: locale,
 	label: getLocaleLabel(locale),
@@ -57,8 +57,8 @@ const LOCALE_OPTIONS = SUPPORTED_LOCALES.map((locale) => ({
 // re-resolves them against the CURRENT locale. The locale switcher no
 // longer calls ``window.location.reload()``: ``setLocale`` (i18n.ts)
 // notifies subscribers via ``subscribeLocale``, and ``useT()``
-// (useSyncExternalStore) re-renders this section — and every other
-// subscribed component — in place when the locale changes. The App root
+// (useSyncExternalStore) re-renders this section, and every other
+// subscribed component, in place when the locale changes. The App root
 // subscribes so the whole tree cascades a re-render; memoized sections
 // (like this one) subscribe directly via ``useT()``. Covered by
 // GeneralSettingsSection.test.tsx.
@@ -91,7 +91,7 @@ export const GeneralSettingsSection = memo(function GeneralSettingsSection({
 	const FAST_STARTUP_LABEL = t("settings.fastStartup");
 	const FAST_STARTUP_INFO = t("settings.fastStartupDescription");
 	//runtime-pack download consent (auto-update feature,
-	// docs/auto-update-feature.md §8.4). Defaults OFF — the pack is
+	// docs/auto-update-feature.md §8.4). Defaults OFF, the pack is
 	// never downloaded without explicit opt-in (C-DATA-1 consent gate).
 	const RUNTIME_PACK_CONSENT_LABEL = t("settings.offlinePackConsent");
 	const RUNTIME_PACK_CONSENT_INFO = t("settings.offlinePackConsentDescription");
@@ -147,7 +147,7 @@ export const GeneralSettingsSection = memo(function GeneralSettingsSection({
 					/>
 				</SettingRow>
 			)}
-			{/*Fast Startup (prewarm) toggle — defaults ON.
+			{/*Fast Startup (prewarm) toggle, defaults ON.
                                 Disabling saves ~6 GB of disk reads at boot for users who
                                 don't want the prewarm process (gamers, low-RAM machines).
                                 : the "Run Prewarm Now" button lives in
@@ -170,7 +170,7 @@ export const GeneralSettingsSection = memo(function GeneralSettingsSection({
 				</SettingRow>
 			)}
 			{/*Offline engine pack download consent (auto-update feature,
-                                docs/auto-update-feature.md §8.4). Defaults OFF — the pack is
+                                docs/auto-update-feature.md §8.4). Defaults OFF, the pack is
                                 never downloaded without explicit opt-in. When enabled, the
                                 network-is-back trigger (useNetworkOnline) can start a
                                 consent-gated background download of the offline engines. */}
@@ -190,7 +190,7 @@ export const GeneralSettingsSection = memo(function GeneralSettingsSection({
 					/>
 				</SettingRow>
 			)}
-			{/*App Language selector — distinct from the spoken-language
+			{/*App Language selector, distinct from the spoken-language
                                 selector in Post-Processing. This controls the Electron UI
                                 language via the i18n framework. The choice is persisted to
                                 localStorage so it survives restarts, and pushed to the
@@ -220,7 +220,7 @@ export const GeneralSettingsSection = memo(function GeneralSettingsSection({
 							// `pushLocaleToPythonBackend` helper so this component
 							// does not invoke the Python bridge directly
 							// (the PythonBridge type only exposes `call` and
-							// `onEvent` — direct calls bypass the i18n contract
+							// `onEvent`, direct calls bypass the i18n contract
 							// and re-introduce the delegation-boundary violation).
 							try {
 								pushLocaleToPythonBackend(v as Locale);

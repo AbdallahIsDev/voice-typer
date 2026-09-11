@@ -14,7 +14,7 @@
  * Post-fix: the hook registers a `visibilitychange` listener
  * that CLEARS the interval (`clearInterval`) when the tab becomes
  * hidden and RE-ARMS it when the tab becomes visible again. No ticks
- * fire while hidden — no setState, no re-render, no reconciliation.
+ * fire while hidden, no setState, no re-render, no reconciliation.
  *
  * These tests verify:
  *   1. `clearInterval` IS called when the tab becomes hidden.
@@ -24,7 +24,7 @@
  *
  * NOTE: these tests use REAL timers (not `vi.useFakeTimers()`) because
  * `vi.useFakeTimers()` replaces `window.setInterval` / `clearInterval`
- * with fakes AFTER `vi.spyOn` wraps them — the spy would be bypassed.
+ * with fakes AFTER `vi.spyOn` wraps them, the spy would be bypassed.
  * The 5s interval is long enough that it won't fire during the
  * sub-second test, so real timers are safe.
  */
@@ -35,7 +35,7 @@ import { useLastUpdated } from "@/hooks/useLastUpdated";
 
 // ── Helpers ─────────────────────────────────────────────────────────
 //
-// `document.visibilityState` is a read-only property in jsdom — we
+// `document.visibilityState` is a read-only property in jsdom, we
 // override it via `Object.defineProperty` so the test can flip it
 // between "visible" and "hidden". The `visibilitychange` event is
 // dispatched via `document.dispatchEvent` after flipping the property.

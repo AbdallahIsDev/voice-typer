@@ -2,7 +2,7 @@
 safety timeout, the  ``_registration_degraded`` property, and the
  LL hook queue maxsize increase.
 
-These tests run on Linux without pynput/Windows deps — the listener is
+These tests run on Linux without pynput/Windows deps, the listener is
 mocked so the watchdog's restart path is exercised in isolation.
 """
 
@@ -190,7 +190,7 @@ class TestPynputWatchdog:
         backend = PynputHotkey("<f2>")
         backend._WATCHDOG_POLL_INTERVAL_SECONDS = 30.0  # long interval
         backend._user_callback = lambda: None
-        # Don't call start() — we only want to test the watchdog exit.
+        # Don't call start(), we only want to test the watchdog exit.
         backend._watchdog_stop_event.clear()
         backend._start_watchdog()
         assert backend._watchdog_thread is not None
@@ -264,7 +264,7 @@ class TestPTTSafetyTimeout:
         assert dispatcher._app._stop_dictation.called, "PTT safety timeout should call app._stop_dictation"
         assert dispatcher._app.tray.notify_safety.called, "PTT safety timeout should surface a tray notification"
         # The notification message should mention the 60s timeout (the
-        # message hardcodes "60s" — the test uses a shorter timeout but
+        # message hardcodes "60s", the test uses a shorter timeout but
         # the message is the same).
         call_args = dispatcher._app.tray.notify_safety.call_args
         message = call_args[0][1] if call_args[0] else call_args[1].get("message", "")

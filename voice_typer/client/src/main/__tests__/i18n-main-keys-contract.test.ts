@@ -8,7 +8,7 @@
  * Background
  * ----------
  * `MAIN_KEYS` was added so `mainT(key: MainKey, ...)` can narrow its
- * `key` parameter to a string-literal union — catching typos like
+ * `key` parameter to a string-literal union, catching typos like
  * `mainT("dialog.criticalError.titl")` at compile time instead of
  * silently returning the raw key to the user-facing dialog. Because
  * `MAIN_STRINGS` is loaded from JSON (`Record<string, string>`), the
@@ -24,16 +24,16 @@
  *   2. Every entry in `MAIN_KEYS` resolves via `mainT(key)` (i.e.,
  *      is present in `MAIN_STRINGS.en`). If a key were declared in
  *      `MAIN_KEYS` but missing from the JSON, `mainT` would return
- *      the raw key — the assertion `v !== key` catches this.
+ *      the raw key, the assertion `v !== key` catches this.
  *   3. `MAIN_KEYS` has no duplicates (a duplicate would silently
- *      mask a missing key — the array length would still match but
+ *      mask a missing key, the array length would still match but
  *      the missing key would never be probed).
  *   4. Spot-check the canonical well-known keys are present
  *      (defensive against an accidental mass-rename of the array).
  *
  * The reverse direction (the JSON has a key NOT in `MAIN_KEYS`) is
  * enforced by the `MAIN_KEYS.length === 15` assertion plus the
- * spot-check — adding a key to `en.json` without extending
+ * spot-check, adding a key to `en.json` without extending
  * `MAIN_KEYS` would make `en.json` have 16 keys while `MAIN_KEYS`
  * stays at 15, but this test doesn't enumerate `en.json`'s keys
  * directly (we don't export `MAIN_STRINGS` to avoid widening the
@@ -53,7 +53,7 @@ describe("MAIN_KEYS contract: MAIN_KEYS matches the keys in MAIN_STRINGS.en", ()
 		// Lock the locale to English so `mainT(key)` resolves
 		// against `MAIN_STRINGS.en` (the canonical reference
 		// table). A non-English locale could mask a missing
-		// key via the English-fallback chain — but here we want
+		// key via the English-fallback chain, but here we want
 		// to probe the English table directly.
 		setMainLocale("en");
 	});
@@ -82,7 +82,7 @@ describe("MAIN_KEYS contract: MAIN_KEYS matches the keys in MAIN_STRINGS.en", ()
 		// If a key were declared in MAIN_KEYS but missing from
 		// MAIN_STRINGS.en, mainT would return the raw key
 		// (the fallback chain's last resort). The assertion
-		// `v !== key` catches this — combined with the
+		// `v !== key` catches this, combined with the
 		// `v.length > 0` sanity check.
 		for (const key of MAIN_KEYS) {
 			const v = mainT(key);
@@ -97,7 +97,7 @@ describe("MAIN_KEYS contract: MAIN_KEYS matches the keys in MAIN_STRINGS.en", ()
 		// well-known keys disappear from MAIN_KEYS, the call
 		// sites in bootstrap.ts / start-python.ts /
 		// export-handlers.ts / window-handlers.ts would fail
-		// to compile — but the spot-check here surfaces the
+		// to compile, but the spot-check here surfaces the
 		// drift at the contract-test layer too, closer to the
 		// source of truth.
 		expect(MAIN_KEYS).toContain("dialog.criticalError.title");

@@ -78,7 +78,7 @@ export const RtlLayout: Story = {
 		docs: {
 			description: {
 				story:
-					'Rendered inside a `dir="rtl"` wrapper — the `(?)` glyph must sit on the correct side of inline Arabic text and the popup must align with the RTL anchor. Portal content renders at document.body, so its own positioning is governed by the real document direction.',
+					'Rendered inside a `dir="rtl"` wrapper, the `(?)` glyph must sit on the correct side of inline Arabic text and the popup must align with the RTL anchor. Portal content renders at document.body, so its own positioning is governed by the real document direction.',
 			},
 		},
 	},

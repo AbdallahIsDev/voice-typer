@@ -17,7 +17,7 @@ from unittest.mock import MagicMock
 #
 # NOTE: PIL is deliberately NOT mocked here. app.py transitively imports
 # tray.py, which imports pystray (mocked below), but tray.py never
-# imports PIL at module load time — tray_icon.py uses lazy imports for
+# imports PIL at module load time, tray_icon.py uses lazy imports for
 # PIL inside its drawing functions. Mocking PIL at module level here
 # would permanently pollute ``sys.modules`` and break later tests that
 # need real PIL (e.g. tests/test_tray_icon.py with @pytest.mark.real_pil).

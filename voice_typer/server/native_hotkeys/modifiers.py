@@ -5,15 +5,15 @@ Split out from the original ``native_hotkeys.py`` god-file in Phase 4.5
 
 This module owns:
 
-- :data:`_MOD_CANONICAL_MAP` — wire-protocol modifier name →
+- :data:`_MOD_CANONICAL_MAP`: wire-protocol modifier name →
   canonical lowercase form (collapses ``Cmd``/``Win``/``Super`` to
   ``"cmd"`` for cross-platform matching).
-- :func:`_canonical_modifier` — wire-protocol name → canonical.
-- :func:`_canonical_modifier_name_for_token` — hotkey-spec token →
+- :func:`_canonical_modifier`: wire-protocol name → canonical.
+- :func:`_canonical_modifier_name_for_token`: hotkey-spec token →
   canonical.
-- :func:`_modifier_to_token` — wire-protocol name → spec token
+- :func:`_modifier_to_token`: wire-protocol name → spec token
   (used by the recorder to rebuild a spec from captured events).
-- :func:`_key_name_to_token` — wire-protocol key name → spec token
+- :func:`_key_name_to_token`: wire-protocol key name → spec token
   (reverse of :func:`._normalize_key_name`).
 """
 

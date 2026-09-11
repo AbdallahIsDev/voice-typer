@@ -7,7 +7,7 @@ onboarding fail counter ONLY as an in-memory attribute
 (``app._onboarding_fail_count``). The "after 3 failures" circuit
 breaker (which marks ``onboarding_completed=True`` +
 ``onboarding_failed=True`` so the app stays usable) therefore only
-tripped if all 3 failures occurred in the SAME process session — a
+tripped if all 3 failures occurred in the SAME process session, a
 user whose onboarding failed once per app-start would NEVER hit the
 breaker and would be stuck on the onboarding wizard forever.
 
@@ -52,7 +52,7 @@ def isolated_config_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path
 
     ``startup_sequence._phases_early._config_dir`` is imported from
     ``voice_typer.server.config``; patching the binding inside the
-    OWNING submodule (``_phases_early`` — where the helper functions
+    OWNING submodule (``_phases_early``, where the helper functions
     live and resolve ``_config_dir()`` at call time) is sufficient.
     """
     monkeypatch.setattr(ss_mod, "_config_dir", lambda: tmp_path)
@@ -68,7 +68,7 @@ class TestReadOnboardingFailCount:
     failure."""
 
     def test_returns_zero_when_file_missing(self, isolated_config_dir: Path) -> None:
-        # No file written yet — fresh install / first run.
+        # No file written yet, fresh install / first run.
         count, ts = ss_mod._read_onboarding_fail_count()
         assert count == 0
         assert ts == 0.0
@@ -159,7 +159,7 @@ class TestWriteOnboardingFailCount:
 
     def test_write_failure_is_swallowed(self, isolated_config_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         # Simulate a read-only filesystem by making write_text raise.
-        # The helper must NOT propagate the exception — the in-memory
+        # The helper must NOT propagate the exception, the in-memory
         # counter on ``app._onboarding_fail_count`` is still updated by
         # the caller, so the circuit breaker can still trip in-session
         # even if persistence is broken.
@@ -209,7 +209,7 @@ class TestResetOnboardingFailCount:
 
     def test_reset_preserves_started_completed_flags(self, isolated_config_dir: Path) -> None:
         # The fail counter shares the status document with the
-        # started/completed flags — resetting the counter must NOT
+        # started/completed flags, resetting the counter must NOT
         # un-complete onboarding (this is exactly why the reset writes
         # fail_count=0 instead of deleting the file).
         from voice_typer.server import onboarding_status as os_status
@@ -277,7 +277,7 @@ class TestStaleCounterTTLResetBehavior:
     ``run()`` can rely on them.
 
     Specifically: a counter written 8 days ago is still readable (the
-    read helper doesn't apply the TTL — that's the caller's job); the
+    read helper doesn't apply the TTL, that's the caller's job); the
     caller's TTL check is ``(now - last_fail_ts) > TTL_SECONDS``.
     """
 

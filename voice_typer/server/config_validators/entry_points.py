@@ -1,17 +1,17 @@
-"""IPC ``set_config`` entry points — :func:`validate_config_update`
+"""IPC ``set_config`` entry points, :func:`validate_config_update`
 and :func:`validate_config`.
 
 This submodule was split out of the original monolithic
 ``config_validators/__init__.py`` so the two IPC / load-time entry
 points have their own focused home.  It owns:
 
-* :func:`validate_config_update` — the IPC ``set_config`` payload
+* :func:`validate_config_update`: the IPC ``set_config`` payload
   validator.  Filters caller-supplied updates against
   :data:`IPC_CONFIG_ALLOWLIST` (silently dropping unknown keys with a
   single ``log.warning`` side effect) and runs every per-field
   validator, accumulating ALL errors rather than short-circuiting
   on the first.
-* :func:`validate_config` — the load-time / whole-config choke-point.
+* :func:`validate_config`: the load-time / whole-config choke-point.
   Re-validates an already-loaded :class:`Config` instance against the
   SAME validators the IPC path uses (so the two paths cannot drift),
   plus the cross-field hotkey / cloud-consistency checks that the
@@ -19,7 +19,7 @@ points have their own focused home.  It owns:
 
 Both functions are pure (apart from the single ``log.warning`` call
 inside :func:`validate_config_update` when an unknown field is
-silently dropped — matching the original behaviour in ``config.py``).
+silently dropped, matching the original behaviour in ``config.py``).
 
 Cross-field helper lookup
 --------------------------
@@ -60,7 +60,7 @@ def validate_config_update(data: dict[str, object]) -> tuple[dict[str, object], 
         ----------
         data : dict
             The raw ``data`` field from an IPC ``set_config`` command.  Must
-            be a dict — callers should check before invoking.
+            be a dict, callers should check before invoking.
 
         Returns
         -------
@@ -69,7 +69,7 @@ def validate_config_update(data: dict[str, object]) -> tuple[dict[str, object], 
             :data:`IPC_CONFIG_ALLOWLIST` and whose values passed their
             validators.  ``errors`` is a list of human-readable error
     strings for ALL invalid fields encountered (: the function
-            accumulates all errors rather than stopping at the first — the
+            accumulates all errors rather than stopping at the first, the
             dispatcher treats the entire payload atomically, see
             ``ipc_server.set_config``).
 
@@ -87,7 +87,7 @@ def validate_config_update(data: dict[str, object]) -> tuple[dict[str, object], 
     for k, v in data.items():
         spec = IPC_CONFIG_ALLOWLIST.get(k)
         if spec is None:
-            # Unknown key — silently drop.  : promoted to
+            # Unknown key, silently drop.  : promoted to
             # WARNING (was DEBUG) to match ``Config._filter_unknown_keys``
             # in ``config.py``. Previously the two paths diverged:
             # on-disk load logged WARNING for unknown keys while the
@@ -138,7 +138,7 @@ def validate_config_update(data: dict[str, object]) -> tuple[dict[str, object], 
             continue
         validated[k] = v
     # cross-field hotkey conflict check.  Only fields that
-    # passed their per-field validator are in ``validated`` — invalid
+    # passed their per-field validator are in ``validated``, invalid
     # hotkeys don't participate in the cross-field check (they already
     # produced their own per-field error and would just add noise).
     # The only hotkey fields on the wire are ``hotkey`` and
@@ -175,7 +175,7 @@ def validate_config_update(data: dict[str, object]) -> tuple[dict[str, object], 
     errors.extend(_check_cross_field_hotkey_conflicts(hotkey_values))
     # cross-field cloud/LLM config consistency check.
     # Only fields that passed their per-field validator are in
-    # ``validated`` — invalid cloud/LLM fields don't participate in
+    # ``validated``: invalid cloud/LLM fields don't participate in
     # the cross-field check (they already produced their own per-field
     # error and would just add noise).
     cloud_field_values: dict[str, object] = {}
@@ -218,7 +218,7 @@ def validate_config(cfg: object) -> list[str]:
         Parameters
         ----------
         cfg
-            A :class:`Config` dataclass instance (duck-typed — only
+            A :class:`Config` dataclass instance (duck-typed, only
             ``getattr`` is used, so any object exposing the allowlisted
             fields as attributes works for testing).
 
@@ -233,7 +233,7 @@ def validate_config(cfg: object) -> list[str]:
         Notes
         -----
         - Fields absent from ``cfg`` (``getattr`` returns ``None`` or
-          raises ``AttributeError``) are SKIPPED — this function does not
+          raises ``AttributeError``) are SKIPPED: this function does not
           require every allowlisted field to be present on the object.
           This matches the IPC semantics where the renderer may push a
           partial update.
@@ -245,7 +245,7 @@ def validate_config(cfg: object) -> list[str]:
         try:
             value = getattr(cfg, key)
         except AttributeError:
-            # Field isn't present on the object — treat as "not set"
+            # Field isn't present on the object, treat as "not set"
             # and skip (mirrors the IPC validator's None handling).
             continue
         if value is None:
@@ -256,7 +256,7 @@ def validate_config(cfg: object) -> list[str]:
     # cross-field hotkey conflict check on the FULL config.
     # Unlike :func:`validate_config_update` (which can only see fields
     # the renderer pushed), this function sees ALL hotkey fields via
-    # getattr — so it catches conflicts in a hand-edited config.json
+    # getattr, so it catches conflicts in a hand-edited config.json
     # that the IPC path alone could not surface.
     hotkey_values: dict[str, str | None] = {}
     for name in _HOTKEY_FIELD_NAMES:
@@ -284,7 +284,7 @@ def validate_config(cfg: object) -> list[str]:
     # cross-field cloud/LLM config consistency check
     # on the FULL config. Unlike :func:`validate_config_update` (which
     # only sees fields the renderer pushed), this function sees ALL
-    # cloud/LLM fields via getattr — so it catches inconsistencies
+    # cloud/LLM fields via getattr, so it catches inconsistencies
     # introduced by hand-edited config.json files.
     cloud_field_values: dict[str, object] = {}
     for cloud_name in (
@@ -295,7 +295,7 @@ def validate_config(cfg: object) -> list[str]:
         "llm_polish_consent",
         *_CLOUD_CONSENT_FIELD_NAMES,
     ):
-        # Field isn't present on the object — treat as "not set"
+        # Field isn't present on the object, treat as "not set"
         # and skip (mirrors the IPC validator's None handling).
         with contextlib.suppress(AttributeError):
             cloud_field_values[cloud_name] = getattr(cfg, cloud_name)

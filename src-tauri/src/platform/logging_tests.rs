@@ -39,11 +39,11 @@ use std::sync::{Mutex, OnceLock};
 /// sink: `install_early_logger` callers and the `init_file_logger`
 /// banner test below. `log::set_logger` is a process-global one-shot
 /// and `install_early_logger` sets `EARLY_LOGGER_HANDLE` a few
-/// instructions AFTER its `set_logger` succeeds — without this lock,
+/// instructions AFTER its `set_logger` succeeds, without this lock,
 /// an `init_file_logger` call racing through that window sees
 /// `instance() == None`, takes the direct-`set_logger` fallback, and
 /// fails because the EarlyLogger already won the one-shot. Current
-/// holders (KEEP IN SYNC — any NEW test that calls `install_early_logger`
+/// holders (KEEP IN SYNC: any NEW test that calls `install_early_logger`
 /// or `init_file_logger` MUST acquire this lock and be added here):
 ///
 /// - `test_si15_3_install_early_logger_does_not_orphan_handle`
@@ -69,9 +69,9 @@ fn test_rotating_file_writer_basic_write() {
     let tmp = std::env::temp_dir().join(format!("voice-typer-test-{}-basic", std::process::id()));
     std::fs::remove_dir_all(&tmp).ok();
     let writer = RotatingFileWriter::new(tmp.clone(), "test-log");
-    writer.write_line("hello").unwrap();
-    writer.write_line("world").unwrap();
-    // Flush the BufWriter before reading on disk — without this the
+    writer.write_line_level("hello", log::Level::Info).unwrap();
+    writer.write_line_level("world", log::Level::Info).unwrap();
+    // Flush the BufWriter before reading on disk, without this the
     // two short lines (12 bytes total) would still be in the 8 KB
     // in-memory buffer and the file would appear empty.
     writer.flush().unwrap();
@@ -83,7 +83,7 @@ fn test_rotating_file_writer_basic_write() {
 #[test]
 fn test_rotating_file_writer_truncates_in_place() {
     // Single-file policy: writing past LOG_MAX_BYTES (40 MB) truncates
-    // the log IN PLACE — the file keeps its single identity and a
+    // the log IN PLACE: the file keeps its single identity and a
     // numbered backup (`.log.1`) is NEVER created.
     let tmp = std::env::temp_dir().join(format!("voice-typer-test-{}-rotate", std::process::id()));
     std::fs::remove_dir_all(&tmp).ok();
@@ -92,7 +92,7 @@ fn test_rotating_file_writer_truncates_in_place() {
     // ceiling at line ~420).
     let big_line = "x".repeat(100_000);
     for _ in 0..450 {
-        writer.write_line(&big_line).unwrap();
+        writer.write_line_level(&big_line, log::Level::Info).unwrap();
     }
     writer.flush().unwrap();
     // The single `.log` file exists (current + only file) ...
@@ -105,7 +105,7 @@ fn test_rotating_file_writer_truncates_in_place() {
     // The file is bounded: the single-file policy guarantees the
     // on-disk log never exceeds the rotation cap (the write that
     // crosses the threshold is flushed then truncated away). All
-    // writes AFTER the truncation point survive — with a 40 MiB cap
+    // writes AFTER the truncation point survive, with a 40 MiB cap
     // and 100 KB lines, the first ~420 lines cross the cap and are
     // truncated, leaving the remaining ~30 lines (~3 MB) well under
     // the cap.
@@ -123,7 +123,7 @@ fn test_rotating_file_writer_truncates_in_place() {
 
 #[test]
 fn test_rotating_file_writer_keeps_single_file_after_many_truncations() {
-    // Write well past the cap many times over — the file count on disk
+    // Write well past the cap many times over, the file count on disk
     // must stay EXACTLY ONE (no `.log.N` backups ever).
     let tmp = std::env::temp_dir().join(format!(
         "voice-typer-test-{}-gt67-count",
@@ -131,10 +131,10 @@ fn test_rotating_file_writer_keeps_single_file_after_many_truncations() {
     ));
     std::fs::remove_dir_all(&tmp).ok();
     let writer = RotatingFileWriter::new(tmp.clone(), "test-log");
-    // ~50 MB total (100 KB/line × 500 lines) — ~10 truncation cycles.
+    // ~50 MB total (100 KB/line × 500 lines), ~10 truncation cycles.
     let big_line = "x".repeat(100_000);
     for _ in 0..500 {
-        writer.write_line(&big_line).unwrap();
+        writer.write_line_level(&big_line, log::Level::Info).unwrap();
     }
     writer.flush().unwrap();
 
@@ -160,7 +160,7 @@ fn test_rotating_file_writer_keeps_single_file_after_many_truncations() {
 
 #[test]
 fn test_rotating_file_writer_thread_safety() {
-    // Spawn multiple threads writing to the same writer — should
+    // Spawn multiple threads writing to the same writer, should
     // not panic or corrupt (Mutex protects the inner File).
     let tmp = std::env::temp_dir().join(format!("voice-typer-test-{}-threads", std::process::id()));
     std::fs::remove_dir_all(&tmp).ok();
@@ -170,7 +170,7 @@ fn test_rotating_file_writer_thread_safety() {
         let w = writer.clone();
         handles.push(std::thread::spawn(move || {
             for j in 0..50 {
-                w.write_line(&format!("thread-{}-line-{}", i, j)).unwrap();
+                w.write_line_level(&format!("thread-{}-line-{}", i, j), log::Level::Info).unwrap();
             }
         }));
     }
@@ -178,7 +178,7 @@ fn test_rotating_file_writer_thread_safety() {
         h.join().unwrap();
     }
     // 4 threads × 50 lines = 200 lines total.
-    // Flush the BufWriter before reading on disk — without this the
+    // Flush the BufWriter before reading on disk, without this the
     // last few hundred bytes (still in the 8 KB in-memory buffer)
     // would not be visible to `read_to_string` and the assertion
     // could fail on a fast machine where all 200 lines fit in the
@@ -193,17 +193,17 @@ fn test_rotating_file_writer_thread_safety() {
     std::fs::remove_dir_all(&tmp).ok();
 }
 
-// Concurrent rotation must not deadlock — the rotation_lock
+// Concurrent rotation must not deadlock, the rotation_lock
 // is separate from `inner`, so two writers that both cross the
 // threshold serialize on `rotation_lock` (one rotates, the other
-// blocks briefly on the lock — NOT on `inner`). Pre-fix this would
+// blocks briefly on the lock, NOT on `inner`). Pre-fix this would
 // have held `inner` throughout `rotate()`, blocking ALL writers
 // (including ones below the threshold) for the duration of the
 // rename chain. Post-fix, the `inner` guard is dropped before
 // `rotate()`, so non-rotating writers proceed in parallel.
 #[test]
 fn test_rotating_file_writer_concurrent_truncation_no_deadlock() {
-    // 4 threads write ~200 MB total — well past the 5 MB threshold, so
+    // 4 threads write ~200 MB total, well past the 5 MB threshold, so
     // each thread triggers many truncate-in-place cycles. All writes
     // serialize on the `inner` Mutex; the test passes if all threads
     // join (no deadlock / panic) and no numbered backup is created.
@@ -218,12 +218,12 @@ fn test_rotating_file_writer_concurrent_truncation_no_deadlock() {
         let line = big_line.clone();
         handles.push(std::thread::spawn(move || {
             for _ in 0..500 {
-                w.write_line(&line).unwrap();
+                w.write_line_level(&line, log::Level::Info).unwrap();
             }
         }));
     }
     for h in handles {
-        h.join().expect("writer thread panicked — likely deadlock");
+        h.join().expect("writer thread panicked: likely deadlock");
     }
     writer.flush().unwrap();
     // The active file exists (single-file identity preserved) ...
@@ -252,7 +252,7 @@ fn test_rotating_file_writer_concurrent_truncation_no_deadlock() {
 fn test_rotating_file_writer_recovers_from_poisoned_mutex() {
     // This test fires a REAL panic through the process-global hook
     // (if `install_panic_hook` has run), which toggles the global
-    // `PANIC_HOOK_REENTRY` — serialize against the other
+    // `PANIC_HOOK_REENTRY`: serialize against the other
     // panic-firing / flag-mutating tests (see test_support.rs).
     let _panic_lock = PANIC_HOOK_TEST_LOCK
         .lock()
@@ -264,12 +264,12 @@ fn test_rotating_file_writer_recovers_from_poisoned_mutex() {
     // the guard (and the inner File handle) so logging can
     // continue. This test simulates the poison by manually
     // poisoning the mutex via `std::sync::PoisonError`, then
-    // verifies that `write_line` and `flush` do NOT panic.
+    // verifies that `write_line_level` and `flush` do NOT panic.
     let tmp = std::env::temp_dir().join(format!("voice-typer-test-{}-poison", std::process::id()));
     std::fs::remove_dir_all(&tmp).ok();
     let writer = RotatingFileWriter::new(tmp.clone(), "test-log");
     // Write an initial line so the inner File handle is opened.
-    writer.write_line("before-poison").unwrap();
+    writer.write_line_level("before-poison", log::Level::Info).unwrap();
     // Poison the mutex: lock it, then panic while holding it
     // (caught via `catch_unwind` so the test process survives).
     let poison_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -281,7 +281,7 @@ fn test_rotating_file_writer_recovers_from_poisoned_mutex() {
         "test setup: panic should have fired"
     );
     // Now the mutex is poisoned. The post-fix code must NOT panic.
-    writer.write_line("after-poison").unwrap();
+    writer.write_line_level("after-poison", log::Level::Info).unwrap();
     writer.flush().unwrap();
     // Verify both lines landed (the recovered guard carries the
     // previously-opened File handle, so the post-poison write
@@ -304,7 +304,7 @@ fn test_rotating_file_writer_recovers_from_poisoned_mutex() {
 //
 // These tests mirror the `RUST_LOG` parse chain in isolation
 // instead of calling `init_file_logger` (which installs the
-// process-global `log` sink — one-shot, so only ONE test per
+// process-global `log` sink: one-shot, so only ONE test per
 // process can call it successfully; that test is the startup-banner
 // test below, serialized via LOGGER_INSTALL_TEST_LOCK). Mirroring
 // the chain here pins the default-Info + unparseable-fallback
@@ -337,7 +337,7 @@ fn test_rust_log_parsing_unparseable_falls_back_to_info() {
     let parsed = "debog".parse::<log::LevelFilter>();
     assert!(parsed.is_err(), "garbage value should not parse");
     // The init_file_logger chain uses `.ok()` then `.unwrap_or(Info)`,
-    // so an unparseable value yields Info — verified here.
+    // so an unparseable value yields Info, verified here.
     let effective = parsed.ok().unwrap_or(log::LevelFilter::Info);
     assert_eq!(effective, log::LevelFilter::Info);
 }
@@ -395,7 +395,7 @@ fn test_si11_panic_hook_reentry_swap_semantics() {
     // without triggering a real panic (which would race with
     // parallel tests). The first `swap(false→true)` returns false
     // (proceed with hook body). A second `swap(true→true)` returns
-    // true (bail out — re-entrant call). After `store(false)`, a
+    // true (bail out: re-entrant call). After `store(false)`, a
     // subsequent swap returns false again (guard reset).
     let _panic_lock = PANIC_HOOK_TEST_LOCK
         .lock()
@@ -517,14 +517,14 @@ fn test_si15_5_is_debug_env_truthy_delegates_to_shared_matcher() {
 
 #[test]
 fn test_si15_3_install_early_logger_does_not_orphan_handle() {
-    // smoke test — calling install_early_logger must not
+    // smoke test: calling install_early_logger must not
     // panic regardless of whether log::set_logger succeeds. The
     // actual set_logger-failure path is verified by code
     // inspection: EARLY_LOGGER_HANDLE.set is now inside the
     // success branch of `if log::set_logger(logger).is_err() { return; }`.
     //
     // LOGGER_INSTALL_TEST_LOCK: this call installs the process-global
-    // `log` sink — serialize against the init_file_logger banner test
+    // `log` sink: serialize against the init_file_logger banner test
     // (see the static's doc comment above).
     let _install_lock = LOGGER_INSTALL_TEST_LOCK
         .lock()
@@ -537,8 +537,8 @@ fn test_si15_3_install_early_logger_does_not_orphan_handle() {
 
 #[test]
 fn test_combined_logger_log_format_is_clean() {
-    // Verify the format string is clean — `ts LEVEL msg` with no
-    // `record.target()` module path and no `file:line` segment — by
+    // Verify the format string is clean, `ts LEVEL msg` with no
+    // `record.target()` module path and no `file:line` segment, by
     // constructing a logger and calling `log()` with a synthetic
     // Record. We can't capture stderr (eprintln! goes to fd 2) but we
     // CAN capture the file write and assert the line shape.
@@ -610,7 +610,7 @@ fn test_combined_logger_log_format_renders_without_file_line() {
     // The format no longer depends on `record.file()` / `record.line()`
     // (they are `None` for records emitted from non-`#[track_caller]`
     // paths or release builds with debuginfo stripped), so the line
-    // must render cleanly regardless — no panic, no `Option` debug
+    // must render cleanly regardless: no panic, no `Option` debug
     // string, no `?` / `0` fallback markers.
     let tmp = std::env::temp_dir().join(format!(
         "voice-typer-test-{}-fmt-nofile",
@@ -661,7 +661,7 @@ fn test_combined_logger_file_line_has_no_session_id() {
     // The per-line `[sid xxxxxxxx]` join-key field is GONE: the
     // canonical file line is `ts  LEVEL  msg` with NO session id,
     // thread name, or module path. The id appears exactly once per
-    // session — as the trailing `session=` field of the first-line
+    // session: as the trailing `session=` field of the first-line
     // startup banner (see the init_file_logger banner test below).
     // The file sink and the stderr sink are built from the same
     // parts, so pinning the file line pins the terminal line too.
@@ -672,7 +672,7 @@ fn test_combined_logger_file_line_has_no_session_id() {
     let logger = CombinedLogger {
         file_writer: Some(writer),
         level_filter: log::LevelFilter::Info,
-        // stderr off — this test asserts only on the file sink.
+        // stderr off: this test asserts only on the file sink.
         stderr_verbose: AtomicBool::new(false),
     };
     let record = log::Record::builder()
@@ -700,7 +700,7 @@ fn test_combined_logger_file_line_has_no_session_id() {
 fn test_combined_logger_file_line_matches_canonical_shape() {
     // The file line must mirror Python's `_FileFormatter`
     // (`formatters.py`: `f"{ts}  {label:<5} {msg}"`) line-for-line:
-    // `YYYY-MM-DD  HH:MM:SS  LEVEL  msg` — timestamp (20 chars), TWO
+    // `YYYY-MM-DD  HH:MM:SS  LEVEL  msg`, timestamp (20 chars), TWO
     // spaces, level left-padded to a 5-char column, ONE space,
     // message. Column layout (byte indices, all ASCII):
     //   [0..10)  date        [10..12)  two spaces (inside the ts)
@@ -721,7 +721,7 @@ fn test_combined_logger_file_line_matches_canonical_shape() {
     // must equal one of them even if a second boundary is straddled.
     let (ts_before, _) = crate::util::now_timestamps();
     // NOTE: `format_args!` with only a literal format string (no
-    // runtime arguments) is rvalue-promoted to 'static — a dynamic
+    // runtime arguments) is rvalue-promoted to 'static, a dynamic
     // message would hit E0716 (temporary dropped while `record`
     // still borrows it), so both records use literal messages.
     let record = log::Record::builder()
@@ -804,7 +804,7 @@ fn test_init_file_logger_startup_banner_first_line_session_once() {
     // `init_file_logger` must write, as the FIRST line of the fresh
     // session file, the startup banner mirroring the Python side's
     // (`logging_setup.py`): `[STARTUP] logging initialized: ...`
-    // with the trailing `session=<id>` field — and the field must
+    // with the trailing `session=<id>` field, and the field must
     // appear EXACTLY once across the whole file, in that first line,
     // no matter how many more records are logged afterwards. No
     // `[sid` per-line field may ever appear.
@@ -812,7 +812,7 @@ fn test_init_file_logger_startup_banner_first_line_session_once() {
     // Serialization: `init_file_logger` installs the process-global
     // `log` sink (one-shot `set_logger` / EarlyLogger swap), so it
     // must not run concurrently with the `install_early_logger`
-    // tests (LOGGER_INSTALL_TEST_LOCK — see its doc comment) nor
+    // tests (LOGGER_INSTALL_TEST_LOCK: see its doc comment) nor
     // with the panic-firing tests (PANIC_HOOK_TEST_LOCK): the panic
     // hook's `log::error!` would otherwise interleave into the
     // freshly installed file sink ahead of the banner. This test is
@@ -826,7 +826,7 @@ fn test_init_file_logger_startup_banner_first_line_session_once() {
         .unwrap_or_else(|e| e.into_inner());
     // Pin the level gate so the INFO banner lands regardless of any
     // ambient RUST_LOG (the only other RUST_LOG readers in this
-    // process — the parse-chain mirror tests — assert nothing about
+    // process: the parse-chain mirror tests, assert nothing about
     // its value, so a brief window with it set to "info" is safe).
     let rust_log_prev = std::env::var("RUST_LOG").ok();
     std::env::set_var("RUST_LOG", "info");
@@ -839,14 +839,14 @@ fn test_init_file_logger_startup_banner_first_line_session_once() {
         Some(v) => std::env::set_var("RUST_LOG", v),
         None => std::env::remove_var("RUST_LOG"),
     }
-    // Several more records AFTER the banner — the session id must
+    // Several more records AFTER the banner, the session id must
     // NOT reappear on any of them.
     log::info!("post banner info line");
     log::warn!("post banner warn line");
     log::error!("post banner error line");
     // Flush the global sink: INFO records stay buffered until a
     // flush barrier (the warn/error records flush on write, but be
-    // explicit — the banner itself is INFO).
+    // explicit: the banner itself is INFO).
     log::logger().flush();
     let log_path = tmp.join("logs").join("voice-typer-rust.log");
     let content = std::fs::read_to_string(&log_path).unwrap_or_else(|e| {
@@ -898,10 +898,10 @@ fn test_init_file_logger_startup_banner_first_line_session_once() {
 #[cfg(unix)]
 #[test]
 fn test_rotating_file_writer_log_file_mode_is_0o600_on_posix() {
-    // The log file created by `write_line` must have mode
-    // `0o600` (owner rw only — no group/other access) on POSIX.
+    // The log file created by `write_line_level` must have mode
+    // `0o600` (owner rw only: no group/other access) on POSIX.
     // Pre-fix the file inherited the process umask (typically
-    // 0o022), producing `0o644` — readable by group + others.
+    // 0o022), producing `0o644`: readable by group + others.
     // The dictation log may contain raw transcription text + PII
     //(), so it must be owner-only.
     use std::os::unix::fs::PermissionsExt;
@@ -909,11 +909,11 @@ fn test_rotating_file_writer_log_file_mode_is_0o600_on_posix() {
         std::env::temp_dir().join(format!("voice-typer-test-{}-pi7-mode", std::process::id()));
     std::fs::remove_dir_all(&tmp).ok();
     let writer = RotatingFileWriter::new(tmp.clone(), "test-log");
-    writer.write_line("secret-dictation-text").unwrap();
+    writer.write_line_level("secret-dictation-text", log::Level::Info).unwrap();
     writer.flush().unwrap();
 
     let path = tmp.join("test-log.log");
-    let meta = std::fs::metadata(&path).expect("log file must exist after write_line");
+    let meta = std::fs::metadata(&path).expect("log file must exist after write_line_level");
     let mode = meta.permissions().mode() & 0o777;
     assert_eq!(
         mode, 0o600,
@@ -929,7 +929,7 @@ fn test_rotating_file_writer_truncate_keeps_0o600_on_posix() {
     // After truncate-in-place cycles, the SINGLE active `.log` file
     // must still be 0o600 (owner rw only) and no `.log.1` backup may
     // exist. `set_len(0)` preserves the existing file mode, and the
-    // belt-and-suspenders `chmod` in `write_line` re-asserts it.
+    // belt-and-suspenders `chmod` in the write path re-asserts it.
     use std::os::unix::fs::PermissionsExt;
     let tmp = std::env::temp_dir().join(format!(
         "voice-typer-test-{}-pi7-rotate-mode",
@@ -941,7 +941,7 @@ fn test_rotating_file_writer_truncate_keeps_0o600_on_posix() {
     // (LOG_MAX_BYTES = 40 MB).
     let big_line = "x".repeat(100_000);
     for _ in 0..450 {
-        writer.write_line(&big_line).unwrap();
+        writer.write_line_level(&big_line, log::Level::Info).unwrap();
     }
     writer.flush().unwrap();
 
@@ -1011,7 +1011,7 @@ fn test_init_file_logger_tightens_logs_dir_to_0o700_on_posix() {
 #[test]
 fn test_fr33_bubble_level_filter_drops_info_record() {
     // INFO-level bubble_level event must be dropped from the file
-    // log (the original ADR-0020 §11 behavior — 60 Hz events would
+    // log (the original ADR-0020 §11 behavior, 60 Hz events would
     // fill disk fast).
     let tmp =
         std::env::temp_dir().join(format!("voice-typer-test-{}-fr33-info", std::process::id()));
@@ -1077,7 +1077,7 @@ fn test_fr33_bubble_level_filter_preserves_warn_record() {
 #[test]
 fn test_fr33_bubble_level_filter_preserves_error_record() {
     //ERROR-level bubble_level record must be PRESERVED.
-    // This is the most important case — a future
+    // This is the most important case, a future
     // `log::error!("[WS-READER] bubble_level event handler crashed")`
     // would be silently lost without the level guard.
     let tmp =
@@ -1132,7 +1132,7 @@ fn test_fr96_stderr_verbose_atomic_toggle_at_runtime() {
 // We can't call `install_early_logger` from a test that runs in
 // the same process as other tests (it calls `log::set_logger`
 // which is process-global one-shot, AND it leaks memory via
-// `Box::leak`). But we CAN verify the idempotency guard — a
+// `Box::leak`). But we CAN verify the idempotency guard, a
 // second call after the EARLY_LOGGER_HANDLE is set must be a
 // no-op that doesn't panic.
 
@@ -1142,10 +1142,10 @@ fn test_fr16_install_early_logger_idempotent() {
     // not panic (the function's idempotency guard short-circuits
     // when `EARLY_LOGGER_HANDLE` is already set). The first call
     // may or may not have been made by another test in the same
-    // process — either way, this call must not panic.
+    // process: either way, this call must not panic.
     //
     // LOGGER_INSTALL_TEST_LOCK: this call installs the process-global
-    // `log` sink — serialize against the init_file_logger banner test
+    // `log` sink: serialize against the init_file_logger banner test
     // (see the static's doc comment near the top of this file).
     let _install_lock = LOGGER_INSTALL_TEST_LOCK
         .lock()
@@ -1176,7 +1176,7 @@ fn test_fr16_early_logger_pre_init_fallback_does_not_panic() {
         .line(Some(1))
         .args(format_args!("early logger test"))
         .build();
-    // Must not panic — the pre-init fallback just eprintln!'s
+    // Must not panic: the pre-init fallback just eprintln!'s
     // (suppressed here via stderr_verbose=false).
     early.log(&record);
     early.flush();
@@ -1254,7 +1254,7 @@ fn test_redact_pii_no_false_positive_on_normal_log_lines() {
         "[WS-READER] bubble_level event rms=0.42",
         "[SUPERVISOR] respawn attempt 1/3 after 500ms backoff",
         "config dir: /home/user/.local/share/voice-typer",
-        "shutdown ack timeout (2000ms) — force-killing",
+        "shutdown ack timeout (2000ms): force-killing",
     ];
     for input in inputs {
         let out = redact_pii(input);
@@ -1271,7 +1271,7 @@ fn test_redact_pii_multiple_patterns_in_one_line() {
     // patterns would win. The bare-keyword pattern (`auth=` and
     // `key=` are both in `SECRET_KEYWORDS`) fires FIRST for
     // `auth=Bearer` and `key=sk-...`, redacting the whole value
-    // (`auth=***`, `key=***`) — the `abc123` token between them
+    // (`auth=***`, `key=***`): the `abc123` token between them
     // is not a secret and survives. The email is redacted via the
     // PII email pattern. The Python authority (`redact_secret`)
     // agrees on the key parts (`auth=***`, `key=***`) but leaves
@@ -1343,7 +1343,7 @@ fn test_redact_pii_ssn_with_dashes() {
 #[test]
 fn test_redact_pii_ssn_no_dashes_not_redacted() {
     // 9-digit run without dashes is NOT an SSN (matches Python
-    // behaviour — the `-` separators are required).
+    // behaviour: the `-` separators are required).
     let input = "order id 123456789 processed";
     let out = redact_pii(input);
     assert_eq!(out, input);
@@ -1398,7 +1398,7 @@ fn test_redact_pii_iban_lowercase_redacted_via_generic_run() {
     // requires uppercase country code `[A-Z]{2}`, mirroring
     // Python `_PATTERNS[1]`). BUT `gb82west12345698765432` is a
     // 22-char alphanumeric run, so it IS caught by the generic
-    // 20+ char bare-token catch-all (`***`) — same as the Python
+    // 20+ char bare-token catch-all (`***`), same as the Python
     // authority (`redact_secret('code gb82west12345698765432
     // end')` → `'code *** end'`). The IBAN-specific `[IBAN]`
     // placeholder is not used for lowercase forms; the generic
@@ -1454,7 +1454,7 @@ fn test_redact_pii_bearer_token_trailing_comma_preserved() {
 
 #[test]
 fn test_bare_key_value_gitlab_pat() {
-    // `pat=glpt_Xb8zV9pT3q2aR1wM5sN7` — 24-char GitLab PAT with
+    // `pat=glpt_Xb8zV9pT3q2aR1wM5sN7`: 24-char GitLab PAT with
     // no Bearer prefix. `pat` is NOT a secret keyword, so the
     // bare-keyword pattern does NOT match. The 20+ char catch-all
     // matches `glpt_Xb8zV9pT3q2aR1wM5sN7` (27 chars) → `***`.
@@ -1466,7 +1466,7 @@ fn test_bare_key_value_gitlab_pat() {
 
 #[test]
 fn test_bare_key_value_api_key() {
-    // `api_key=A1B2C3D4E5F6G7H8I9J0K1L2M3N4O7P8` — `api_key` IS a
+    // `api_key=A1B2C3D4E5F6G7H8I9J0K1L2M3N4O7P8`: `api_key` IS a
     // secret keyword, so the bare-keyword pattern matches and
     // redacts the 32-char value → `api_key=***`.
     // Python: `redact_secret` → `_BARE_KEY_VALUE_PATTERN` → `api_key=***`.
@@ -1477,7 +1477,7 @@ fn test_bare_key_value_api_key() {
 
 #[test]
 fn test_bearer_with_sk_prefix() {
-    // `Bearer sk-abc123def456ghi789` — Bearer prefix pattern fires
+    // `Bearer sk-abc123def456ghi789`: Bearer prefix pattern fires
     // first, redacting the entire value (`sk-abc123...`) →
     // `Bearer ***`. The bare-keyword pattern does NOT fire (no
     // `keyword=` form).
@@ -1489,7 +1489,7 @@ fn test_bearer_with_sk_prefix() {
 
 #[test]
 fn test_24char_bare_token() {
-    // `Xb8zV9pT3q2aR1wM5sN7abcd` — 24-char bare token, no prefix.
+    // `Xb8zV9pT3q2aR1wM5sN7abcd`: 24-char bare token, no prefix.
     // The 20+ char catch-all matches → `***`.
     // Python: `redact_secret` → `_KEY_PATTERNS[4]` → `***`.
     let input = "Xb8zV9pT3q2aR1wM5sN7abcd";
@@ -1499,7 +1499,7 @@ fn test_24char_bare_token() {
 
 #[test]
 fn test_flag_form_equals() {
-    // `--token=secret123` — flag-form Pattern A (`--keyword=value`).
+    // `--token=secret123`: flag-form Pattern A (`--keyword=value`).
     // `token` is a keyword, `=` delimiter, value `secret123`.
     // Python: `_FLAG_VALUE_PATTERN` → `--token=***`.
     let input = "--token=secret123";
@@ -1509,7 +1509,7 @@ fn test_flag_form_equals() {
 
 #[test]
 fn test_flag_form_space() {
-    // `--token secret123` — flag-form Pattern A (`--keyword value`).
+    // `--token secret123`: flag-form Pattern A (`--keyword value`).
     // `token` is a keyword, space delimiter, value `secret123`.
     // Python: `_FLAG_VALUE_PATTERN` → `--token ***`.
     let input = "--token secret123";
@@ -1519,7 +1519,7 @@ fn test_flag_form_space() {
 
 #[test]
 fn test_flag_form_multiple_spaces() {
-    // `--token   secret123` — multiple spaces between keyword and
+    // `--token   secret123`: multiple spaces between keyword and
     // value. Python's `\s+` captures all whitespace in group 1, so
     // the output preserves the spaces.
     let input = "--token   secret123";
@@ -1529,11 +1529,11 @@ fn test_flag_form_multiple_spaces() {
 
 #[test]
 fn test_bare_key_value_password() {
-    // `password=secret123` — bare-keyword Pattern B. The value
+    // `password=secret123`: bare-keyword Pattern B. The value
     // `secret123` contains 3+ consecutive digits (`123`), which
     // triggers the fast path (mirrors Python's `_FAST_TRIGGER`
     // `\d{3,}` alternative). Without a trigger, the fast path
-    // would skip this short string — matching Python's behavior.
+    // would skip this short string, matching Python's behavior.
     // Python: `_BARE_KEY_VALUE_PATTERN` → `password=***`.
     let input = "password=secret123";
     let out = redact_pii(input);
@@ -1542,7 +1542,7 @@ fn test_bare_key_value_password() {
 
 #[test]
 fn test_bare_key_value_secret() {
-    // `secret=topsecret123` — bare-keyword Pattern B. Same 3+-digit
+    // `secret=topsecret123`: bare-keyword Pattern B. Same 3+-digit
     // trigger rationale as `test_bare_key_value_password`.
     let input = "secret=topsecret123";
     let out = redact_pii(input);
@@ -1551,7 +1551,7 @@ fn test_bare_key_value_secret() {
 
 #[test]
 fn test_bare_key_value_case_sensitive_fast_path() {
-    // `TOKEN=abc` — the fast-path trigger `key=` is case-sensitive
+    // `TOKEN=abc`: the fast-path trigger `key=` is case-sensitive
     // (mirrors Python's `_FAST_TRIGGER`). `TOKEN=` does NOT contain
     // `key=` (lowercase). And `abc` has no 3+ digits, no 20+ char
     // run, and no other trigger. So the fast path skips this string
@@ -1574,7 +1574,7 @@ fn test_bare_key_value_case_sensitive_fast_path() {
 
 #[test]
 fn test_bare_key_value_case_insensitive_with_trigger() {
-    // `TOKEN=secret123456789012345` — the fast-path trigger `key=`
+    // `TOKEN=secret123456789012345`: the fast-path trigger `key=`
     // is case-sensitive, so `TOKEN=` does NOT trigger via `key=`.
     // But the value `secret123456789012345` is 25 chars, triggering
     // the 20+ char catch-all in the fast path. The slow path then
@@ -1587,7 +1587,7 @@ fn test_bare_key_value_case_insensitive_with_trigger() {
 
 #[test]
 fn test_no_false_positive_monkey() {
-    // `monkey=abc` — `key` is a keyword but `\b` prevents matching
+    // `monkey=abc`: `key` is a keyword but `\b` prevents matching
     // inside `monkey` (the `n` before `key` is a word char, so no
     // word boundary). NOT redacted.
     let input = "monkey=abc";
@@ -1597,7 +1597,7 @@ fn test_no_false_positive_monkey() {
 
 #[test]
 fn test_no_false_positive_hotkey() {
-    // `hotkey=abc` — same as `monkey=`: `key` is preceded by `t`
+    // `hotkey=abc`: same as `monkey=`: `key` is preceded by `t`
     // (word char), so `\b` does not hold. NOT redacted.
     let input = "hotkey=abc";
     let out = redact_pii(input);
@@ -1606,7 +1606,7 @@ fn test_no_false_positive_hotkey() {
 
 #[test]
 fn test_no_false_positive_unknown_flag() {
-    // `--unknown=abc` — `unknown` is NOT a secret keyword. NOT
+    // `--unknown=abc`: `unknown` is NOT a secret keyword. NOT
     // redacted.
     let input = "--unknown=abc";
     let out = redact_pii(input);
@@ -1615,7 +1615,7 @@ fn test_no_false_positive_unknown_flag() {
 
 #[test]
 fn test_empty_value_not_redacted() {
-    // `--token=` with no value — Python's `[^\s=]+` requires at
+    // `--token=` with no value: Python's `[^\s=]+` requires at
     // least 1 char. NOT redacted.
     let input = "--token=";
     let out = redact_pii(input);
@@ -1624,11 +1624,11 @@ fn test_empty_value_not_redacted() {
 
 #[test]
 fn test_flag_value_stops_at_equals() {
-    // `--api_key=abc=def` — value runs until `=` (`[^\s=]+`), so the
+    // `--api_key=abc=def`: value runs until `=` (`[^\s=]+`), so the
     // value is `abc` and `=def` is left alone. Uses `api_key` (not
     // `token`) so the fast path triggers via the `key=` substring
     // in `api_key=`. (`--token=abc=def` would NOT trigger the fast
-    // path — no `key=`, no 3+ digits, no 20+ run — and would be
+    // path: no `key=`, no 3+ digits, no 20+ run, and would be
     // returned unchanged, matching Python's `_redact_text`.)
     // Python: `_FLAG_VALUE_PATTERN` → `--api_key=***=def`.
     let input = "--api_key=abc=def";
@@ -1638,7 +1638,7 @@ fn test_flag_value_stops_at_equals() {
 
 #[test]
 fn test_flag_value_stops_at_whitespace() {
-    // `--api_key=abc def` — value runs until whitespace, so the
+    // `--api_key=abc def`: value runs until whitespace, so the
     // value is `abc` and ` def` is left alone. Uses `api_key` so
     // the fast path triggers via the `key=` substring.
     let input = "--api_key=abc def";
@@ -1648,7 +1648,7 @@ fn test_flag_value_stops_at_whitespace() {
 
 #[test]
 fn test_api_key_wins_over_key() {
-    // `api_key=secret123` — both `api_key` and `key` are keywords.
+    // `api_key=secret123`: both `api_key` and `key` are keywords.
     // `api_key` comes first in SECRET_KEYWORDS (most-specific
     // first), so it wins. The prefix preserved is `api_key=` (not
     // `key=`).
@@ -1659,7 +1659,7 @@ fn test_api_key_wins_over_key() {
 
 #[test]
 fn test_access_token_keyword() {
-    // `access_token=abc123` — `access_token` is a keyword.
+    // `access_token=abc123`: `access_token` is a keyword.
     let input = "access_token=abc123";
     let out = redact_pii(input);
     assert_eq!(out, "access_token=***");
@@ -1667,7 +1667,7 @@ fn test_access_token_keyword() {
 
 #[test]
 fn test_client_secret_keyword() {
-    // `client_secret=abc123` — `client_secret` is a keyword.
+    // `client_secret=abc123`: `client_secret` is a keyword.
     let input = "client_secret=abc123";
     let out = redact_pii(input);
     assert_eq!(out, "client_secret=***");
@@ -1675,7 +1675,7 @@ fn test_client_secret_keyword() {
 
 #[test]
 fn test_bearer_keyword_added() {
-    //`bearer=abc123` — `bearer` is a  task-specified addition
+    //`bearer=abc123`: `bearer` is a  task-specified addition
     // (not in Python's `_SECRET_KEYWORDS`). The bare-keyword pattern
     // matches → `bearer=***`. Python would NOT redact this (no
     // `bearer` keyword), but the task explicitly requests it.
@@ -1686,7 +1686,7 @@ fn test_bearer_keyword_added() {
 
 #[test]
 fn test_credential_keyword_added() {
-    //`credential=abc123` — `credential` is a  task-specified
+    //`credential=abc123`: `credential` is a  task-specified
     // addition. Same rationale as `bearer=`.
     let input = "credential=abc123";
     let out = redact_pii(input);
@@ -1695,7 +1695,7 @@ fn test_credential_keyword_added() {
 
 #[test]
 fn test_20char_run_exactly_20() {
-    // Exactly 20 chars — the minimum for the catch-all. Should
+    // Exactly 20 chars: the minimum for the catch-all. Should
     // match → `***`.
     let input = "abcdefghijklmnopqrst";
     let out = redact_pii(input);
@@ -1704,7 +1704,7 @@ fn test_20char_run_exactly_20() {
 
 #[test]
 fn test_19char_run_not_redacted() {
-    // 19 chars — below the 20-char threshold. NOT redacted.
+    // 19 chars: below the 20-char threshold. NOT redacted.
     let input = "abcdefghijklmnopqrs";
     let out = redact_pii(input);
     assert_eq!(out, input);
@@ -1712,7 +1712,7 @@ fn test_19char_run_not_redacted() {
 
 #[test]
 fn test_20char_run_with_internal_dash() {
-    // `glpt_Xb8zV9pT3q2aR1wM5sN7` — 27 chars with an internal
+    // `glpt_Xb8zV9pT3q2aR1wM5sN7`: 27 chars with an internal
     // `-`. The 20+ char catch-all includes `-` in the char class,
     // so the entire run matches → `***`.
     let input = "glpt_Xb8zV9pT3q2aR1wM5sN7";
@@ -1722,7 +1722,7 @@ fn test_20char_run_with_internal_dash() {
 
 #[test]
 fn test_20char_run_does_not_match_inside_word() {
-    // `a` + 20-char run + `b` — the `a` and `b` are word chars
+    // `a` + 20-char run + `b`, the `a` and `b` are word chars
     // adjacent to the run, so the run extends to include them
     // (22 chars total). The whole 22-char run matches → `***`.
     // (There's no "inside word" false-positive issue because `\b`
@@ -1790,7 +1790,7 @@ fn test_no_false_positive_on_normal_paths() {
 // ── Startup sweep (Tiers 1 + 2) ───────────────────────────────────
 
 /// Backdate a file's mtime using std only (`File::set_modified`,
-/// stable since 1.75 — above the crate's 1.77 MSRV).
+/// stable since 1.75: above the crate's 1.77 MSRV).
 fn _backdate_mtime(path: &std::path::Path, secs_ago: u64) {
     let file = std::fs::OpenOptions::new()
         .append(true)
@@ -1814,7 +1814,7 @@ fn test_sweep_stale_logs_deletes_old_and_oversized() {
     std::fs::write(&old_path, b"ancient").unwrap();
     _backdate_mtime(&old_path, crate::util::LOG_AGE_RETENTION_SECS + 60);
 
-    // Oversized fresh file (Tier 2 — size only).
+    // Oversized fresh file (Tier 2, size only).
     let oversized_path = tmp.join("voice-typer-rust.log");
     std::fs::write(
         &oversized_path,
@@ -1822,11 +1822,11 @@ fn test_sweep_stale_logs_deletes_old_and_oversized() {
     )
     .unwrap();
 
-    // Recent + small file — must survive.
+    // Recent + small file: must survive.
     let recent_path = tmp.join("voice-typer-rust.log.2");
     std::fs::write(&recent_path, b"recent").unwrap();
 
-    // Lock file — must survive even when ancient.
+    // Lock file: must survive even when ancient.
     let lock_path = tmp.join("voice-typer-rust.log.lock");
     std::fs::write(&lock_path, b"").unwrap();
     _backdate_mtime(&lock_path, crate::util::LOG_AGE_RETENTION_SECS * 10);
@@ -1974,7 +1974,7 @@ fn test_fast_trigger_scan_matches_legacy_predicates_on_corpus() {
 #[test]
 fn test_fast_trigger_scan_run_boundaries_with_separator_reset() {
     // 19 alnum + separator + more alnum never reaches a 20-run if the
-    // separator resets — but '-' IS in the run charset, so only a
+    // separator resets: but '-' IS in the run charset, so only a
     // truly foreign byte resets. Pin both sides of that distinction.
     assert!(!has_any_fast_trigger(
         "abcdefghijklmnopqrs" // 19 alnum, no separator
@@ -2000,4 +2000,327 @@ fn test_fast_trigger_scan_digit_run_boundaries() {
     assert!(!has_any_fast_trigger("9a9a9")); // no consecutive 3
     assert!(has_any_fast_trigger("×999×")); // digits after multibyte
     assert!(!has_any_fast_trigger("12.34.5")); // separated
+}
+
+// ── RotatingFileWriter: bounded flush barrier + bounded queue ────
+//
+// The flush barrier and the command queue are BOUNDED so a stalled
+// disk can never wedge the threads that log warnings/errors:
+//
+// - `flush()` waits for the writer thread's ack with a 2 s timeout
+//   (not forever); on timeout it returns Ok (best-effort) after
+//   logging a once-per-process missed-flush warn.
+// - At most ONE flush barrier is outstanding at a time (concurrent
+//   warn-level flushes during a pending barrier are coalesced) —
+//   sequential flushes are NOT coalesced (each waits for its own
+//   ack), which is what the existing read-after-flush tests rely on.
+// - The writer thread auto-flushes when idle, so coalesced-barrier
+//   lines and ordinary buffered info lines land within the idle
+//   window even without an explicit flush.
+// - The in-flight queue is byte-bounded: non-error records are
+//   dropped once saturated; ERROR records bypass the gate.
+
+// Stall the writer thread by holding the `inner` mutex: the writer
+// blocks inside `write_to_file` / `flush_file` (both take the mutex),
+// so commands keep queuing and flush acks stop arriving, the exact
+// "stalled disk" shape the flush timeout and queue gate must survive.
+// The guard's type is inferred (naming `WriterState` from this sibling
+// module is not possible: `rotating` is private to `logging`), so
+// each test holds the guard in a local binding.
+//
+#[test]
+fn test_rotating_flush_barrier_timeout_returns_instead_of_hanging() {
+    // Pre-fix: `flush()` blocked on `ack_rx.recv()` with NO timeout —
+    // a stalled writer hung every warning-logging thread (including
+    // the panic hook, which fires while panic-point locks are still
+    // held). Post-fix: the deadline expires, the flush returns
+    // best-effort Ok, and the calling thread keeps running.
+    let tmp = std::env::temp_dir().join(format!(
+        "voice-typer-test-{}-flush-timeout",
+        std::process::id()
+    ));
+    std::fs::remove_dir_all(&tmp).ok();
+    let writer = RotatingFileWriter::new(tmp.clone(), "test-log");
+    writer.write_line_level("stalled-line", log::Level::Info).unwrap();
+    // Hold the inner mutex so the writer thread cannot complete the
+    // flush syscall → the ack never arrives.
+    let _stall = writer.inner.lock().unwrap_or_else(|e| e.into_inner());
+    let started = std::time::Instant::now();
+    let result = writer
+        .flush_with_timeout(std::time::Duration::from_millis(50))
+        .expect("timed-out flush must return Ok (best-effort), not Err");
+    let _ = result;
+    let elapsed = started.elapsed();
+    // Bounded: the deadline (50ms) settles the await. Generous 5 s
+    // ceiling so a loaded CI runner never flakes while still proving
+    // the flush did not hang indefinitely.
+    assert!(
+        elapsed < std::time::Duration::from_secs(5),
+        "flush must be bounded by its deadline, took {elapsed:?}"
+    );
+    drop(_stall);
+    // The writer thread recovers once the stall clears, the barrier
+    // gate must not be latched shut by the timeout.
+    assert!(
+        writer.try_begin_flush_barrier(),
+        "barrier gate must be released after a timed-out flush"
+    );
+    writer.end_flush_barrier();
+    std::fs::remove_dir_all(&tmp).ok();
+}
+
+#[test]
+fn test_rotating_flush_barrier_gate_pins_at_most_one_in_flight() {
+    // The coalescing contract: at most ONE flush barrier outstanding
+    // at a time. Pinned directly on the gate helpers (no timing) —
+    // the swap semantics are what `flush_with_timeout` relies on to
+    // collapse concurrent warn-level barriers into one.
+    let tmp = std::env::temp_dir().join(format!(
+        "voice-typer-test-{}-barrier-gate",
+        std::process::id()
+    ));
+    std::fs::remove_dir_all(&tmp).ok();
+    let writer = RotatingFileWriter::new(tmp.clone(), "test-log");
+    // Fresh gate: first claim succeeds.
+    assert!(
+        writer.try_begin_flush_barrier(),
+        "first barrier claim on a fresh writer must succeed"
+    );
+    // While the barrier is in flight, a second claim is coalesced.
+    assert!(
+        !writer.try_begin_flush_barrier(),
+        "second barrier claim while one is in flight must be coalesced"
+    );
+    // After release, the next claim succeeds again.
+    writer.end_flush_barrier();
+    assert!(
+        writer.try_begin_flush_barrier(),
+        "barrier claim after release must succeed"
+    );
+    writer.end_flush_barrier();
+    std::fs::remove_dir_all(&tmp).ok();
+}
+
+#[test]
+fn test_rotating_sequential_flushes_still_each_flush() {
+    // Regression guard for the coalescing: SEQUENTIAL (non-concurrent)
+    // flushes must NOT be coalesced, each flush's ack completes
+    // before the next is issued, so the gate is free and every flush
+    // is a real barrier. This is the property the existing
+    // read-after-flush tests (and the panic-hook flush path) rely on.
+    let tmp = std::env::temp_dir().join(format!(
+        "voice-typer-test-{}-seq-flush",
+        std::process::id()
+    ));
+    std::fs::remove_dir_all(&tmp).ok();
+    let writer = RotatingFileWriter::new(tmp.clone(), "test-log");
+    writer.write_line_level("first", log::Level::Info).unwrap();
+    writer.flush().unwrap();
+    assert!(std::fs::read_to_string(tmp.join("test-log.log"))
+        .unwrap()
+        .contains("first"));
+    writer.write_line_level("second", log::Level::Info).unwrap();
+    writer.flush().unwrap();
+    let content = std::fs::read_to_string(tmp.join("test-log.log")).unwrap();
+    assert!(
+        content.contains("first") && content.contains("second"),
+        "sequential flushes must each land their lines, got: {content}"
+    );
+    std::fs::remove_dir_all(&tmp).ok();
+}
+
+#[test]
+fn test_rotating_writer_idle_autoflush_lands_unflushed_lines() {
+    // The idle auto-flush bounds the buffering of lines whose flush
+    // barrier was coalesced (and ordinary info lines): without an
+    // explicit flush() call, the line must still land on disk within
+    // the idle window. Under cfg(test) the idle interval is 60 ms, so
+    // polling up to a few seconds is a generous, load-tolerant bound.
+    let tmp = std::env::temp_dir().join(format!(
+        "voice-typer-test-{}-idle-flush",
+        std::process::id()
+    ));
+    std::fs::remove_dir_all(&tmp).ok();
+    let writer = RotatingFileWriter::new(tmp.clone(), "test-log");
+    writer.write_line_level("idle-autoflush-line", log::Level::Info).unwrap();
+    // NO explicit flush(): the writer thread's idle auto-flush must
+    // land the line.
+    let log_path = tmp.join("test-log.log");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    let mut landed = false;
+    while std::time::Instant::now() < deadline {
+        if std::fs::read_to_string(&log_path)
+            .map(|c| c.contains("idle-autoflush-line"))
+            .unwrap_or(false)
+        {
+            landed = true;
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    assert!(
+        landed,
+        "idle auto-flush must land unflushed lines within the idle window"
+    );
+    std::fs::remove_dir_all(&tmp).ok();
+}
+
+#[test]
+fn test_rotating_queue_byte_gate_drops_non_error_keeps_error() {
+    // Bounded queue gate, pinned DETERMINISTICALLY (no scheduling
+    // dependence on the writer thread's asynchronous accounting).
+    //
+    // The writer thread decrements `queued_bytes` the moment it
+    // RECEIVES a command: BEFORE it blocks on the stalled `inner`
+    // mutex: so any assertion that can race a receive-side decrement
+    // is flaky (the previous version's "enqueue until the counter
+    // stops growing" loop broke on a previous command's decrement
+    // landing between two loads, faking saturation ~100 KB into a
+    // 4 MB gate and failing the later drop assertion).
+    //
+    // Deterministic shape: after the stall mutex is taken, ONE
+    // sacrificial line parks the writer inside its command handler
+    // (it receives the line, decrements for it, then blocks on the
+    // mutex to write it). Once that decrement is observed, the writer
+    // provably cannot receive or decrement anything else until the
+    // stall is released: its single-threaded loop must finish the
+    // blocked handler first, and finishing requires the mutex this
+    // test holds. Every counter read below is therefore exact.
+    //
+    // Contract at saturation (in-flight bytes >= the ceiling): a
+    // non-error record returns Ok WITHOUT touching the counter (the
+    // bounded-memory drop; once-per-process stderr notice), while an
+    // ERROR record bypasses the gate and enqueues (crash-path
+    // evidence is never sacrificed).
+
+    // QUEUE_BYTE_CEILING (4 MB) is a const in the private
+    // `logging::rotating` submodule and is not re-exported through
+    // `logging`, so it cannot be named from this sibling module (same
+    // path-visibility limitation as `WriterState`, see the stall
+    // helper note above). This literal is tied to that const: if the
+    // ceiling is ever RAISED, the primed value falls below the gate
+    // and the drop leg below fails loudly (update this literal); if
+    // it is lowered, the primed value still saturates (the gate is a
+    // `>=` comparison) and the drop/keep semantics below stay
+    // meaningful.
+    const TEST_QUEUE_BYTE_CEILING: usize = 4 * 1024 * 1024;
+
+    let tmp = std::env::temp_dir().join(format!(
+        "voice-typer-test-{}-queue-gate",
+        std::process::id()
+    ));
+    std::fs::remove_dir_all(&tmp).ok();
+    let writer = RotatingFileWriter::new(tmp.clone(), "test-log");
+    // Stall the writer thread BEFORE any write: it will receive the
+    // first Write command, decrement for it, and then block inside
+    // `write_to_file` on this mutex: every subsequent command stays
+    // queued and un-decremented.
+    let _stall = writer.inner.lock().unwrap_or_else(|e| e.into_inner());
+    // Sacrificial line: parks the writer inside its command handler.
+    // Poll until its decrement lands, a bounded wait on a guaranteed
+    // event (the idle writer wakes on the send and runs the decrement
+    // before blocking on the mutex). If this ever times out the
+    // writer thread is dead, which must fail loudly.
+    writer
+        .write_line_level("gate-sync-line", log::Level::Info)
+        .unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    let mut parked = false;
+    while std::time::Instant::now() < deadline {
+        if writer.queued_bytes.load(Ordering::Relaxed) == 0 {
+            parked = true;
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    assert!(
+        parked,
+        "writer thread must receive and account the first line \
+         (queued_bytes never returned to 0: writer thread dead?)"
+    );
+    // Prime the counter AT the gate threshold: the queue is now
+    // deterministically saturated without any enqueue loop.
+    writer
+        .queued_bytes
+        .store(TEST_QUEUE_BYTE_CEILING, Ordering::Relaxed);
+    // Non-error write at saturation: Ok + counter EXACTLY unchanged.
+    // Dropped means no fetch_add and no command sent; since the
+    // writer is parked, no asynchronous decrement can land either —
+    // this asserts the exact gate boundary, not a growth heuristic.
+    // (The dropped record also fires the once-per-process stderr
+    // saturation notice, which is not directly assertable from this
+    // sibling module.)
+    writer
+        .write_line_level("dropped-warn-line", log::Level::Warn)
+        .unwrap();
+    assert_eq!(
+        writer.queued_bytes.load(Ordering::Relaxed),
+        TEST_QUEUE_BYTE_CEILING,
+        "non-error record at saturation must be dropped without \
+         touching the in-flight counter"
+    );
+    // ERROR write at saturation: bypasses the gate, the counter grows
+    // by exactly the enqueued line's bytes (payload + trailing
+    // newline). The command is queued but NOT received (the writer is
+    // parked), so its decrement provably cannot land before the read.
+    let error_line = "error-line-kept";
+    let error_line_bytes = error_line.len() + 1;
+    writer
+        .write_line_level(error_line, log::Level::Error)
+        .unwrap();
+    assert_eq!(
+        writer.queued_bytes.load(Ordering::Relaxed),
+        TEST_QUEUE_BYTE_CEILING + error_line_bytes,
+        "ERROR record must bypass the saturated-queue drop gate"
+    );
+    // The gate stays armed above the ceiling: a second non-error
+    // write is still dropped (an error bypass must not un-saturate).
+    writer
+        .write_line_level("dropped-warn-line-2", log::Level::Warn)
+        .unwrap();
+    assert_eq!(
+        writer.queued_bytes.load(Ordering::Relaxed),
+        TEST_QUEUE_BYTE_CEILING + error_line_bytes,
+        "non-error record must stay dropped even after an error bypass"
+    );
+    // Restore honest accounting before releasing the stall: the only
+    // real in-flight command is the error line (the primed ceiling
+    // bytes were synthetic). The writer's decrement for the error
+    // command then nets the counter back to exactly 0.
+    writer
+        .queued_bytes
+        .store(error_line_bytes, Ordering::Relaxed);
+    // Release the stall: the writer finishes the sacrificial write,
+    // drains the queued error command, and the file lands.
+    drop(_stall);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    let mut drained = false;
+    while std::time::Instant::now() < deadline {
+        if writer.queued_bytes.load(Ordering::Relaxed) == 0 {
+            drained = true;
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    assert!(
+        drained,
+        "writer thread must drain the queue once the stall clears \
+         (queued={})",
+        writer.queued_bytes.load(Ordering::Relaxed)
+    );
+    writer.flush().unwrap();
+    let content = std::fs::read_to_string(tmp.join("test-log.log")).unwrap();
+    assert!(
+        content.contains("gate-sync-line"),
+        "the sacrificial line must land after the stall clears"
+    );
+    assert!(
+        content.contains("error-line-kept"),
+        "the error record that bypassed the gate must land after drain"
+    );
+    assert!(
+        !content.contains("dropped-warn-line"),
+        "dropped non-error records must never land in the file"
+    );
+    std::fs::remove_dir_all(&tmp).ok();
 }

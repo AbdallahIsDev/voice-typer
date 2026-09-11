@@ -12,7 +12,7 @@ These tests are designed to run without a working scipy installation
 (the sandbox venv has a numpy/scipy version mismatch that makes
 ``scipy.signal`` unimportable). They verify source-level and
 behavioral contracts via ``inspect.getsource`` and ``MagicMock``
-stubs — no real scipy / Silero / PortAudio is touched.
+stubs, no real scipy / Silero / PortAudio is touched.
 """
 
 from __future__ import annotations
@@ -38,7 +38,7 @@ class TestScipyImportHoisted:
     module-top aliases (``_sp_signal`` / ``_resampling_mod``).
 
     ``run_vad_state_machine`` must NOT contain any ``from ... import``
-    statement for these names — the imports resolve through the
+    statement for these names, the imports resolve through the
     module aliases at call time, which keeps the path patchable in
     tests (``patch("scipy.signal.upfirdn", ...)`` etc.).
     """
@@ -48,8 +48,7 @@ class TestScipyImportHoisted:
     ) -> None:
         src = inspect.getsource(AudioPipeline.run_vad_state_machine)
         assert "from scipy.signal import upfirdn" not in src, (
-            "run_vad_state_machine must not contain a per-call "
-            "'from scipy.signal import upfirdn' — hoist to module top."
+            "run_vad_state_machine must not contain a per-call 'from scipy.signal import upfirdn', hoist to module top."
         )
 
     def test_run_vad_state_machine_has_no_per_call_resampling_import(
@@ -114,18 +113,18 @@ def _make_vad_recorder_stub() -> MagicMock:
     exercises the auto-calibrate call at the top of the method.
     """
     recorder = MagicMock(name="RecorderStub")
-    # Disable Silero VAD branch — skip resample + compute_vad_prob.
+    # Disable Silero VAD branch, skip resample + compute_vad_prob.
     recorder._cached_vad_enabled = False
     recorder._cached_use_silero_vad = False
     recorder._cached_silero_available = False
-    # State-machine downstream — return SPEECH to avoid silence-timer
+    # State-machine downstream, return SPEECH to avoid silence-timer
     # side effects.
-    # Silence-timer state — pre-initialised so the SPEECH branch's
+    # Silence-timer state, pre-initialised so the SPEECH branch's
     # writes don't fail on MagicMock attribute access.
     recorder._silence_start_time = None
     recorder._silence_timer = 0.0
     recorder._silence_warning_count = 0
-    # Cached silence / max-duration thresholds — large so callbacks
+    # Cached silence / max-duration thresholds, large so callbacks
     # don't fire.
     recorder._cached_silence_warning = 10_000.0
     recorder._cached_stop_on_silence = 10_000.0
@@ -154,7 +153,7 @@ def _make_process_chunk_pipeline_stub() -> AudioPipeline:
     # than the raw indata, so the test can distinguish raw vs filtered.
     pipeline.apply_filter_chain = MagicMock(return_value=np.array([0.5, -0.5, 0.5, -0.5], dtype=np.float32))
     pipeline.append_to_buffer_locked = MagicMock(return_value=(1, 1))
-    # compute_rms_and_peak returns the FILTERED RMS (0.5) — distinct
+    # compute_rms_and_peak returns the FILTERED RMS (0.5), distinct
     # from the raw RMS of the test's indata.
     pipeline.compute_rms_and_peak = MagicMock(return_value=(0.5, 0.9, 0.032))
     pipeline.detect_and_emit_clipping = MagicMock()
@@ -190,7 +189,7 @@ class TestVadAutoCalibrateReceivesRawRms:
     ) -> None:
         """When ``_pending_raw_chunk_rms`` is set (by
         ``process_audio_chunk``), ``vad_auto_calibrate`` is called
-        with that value — NOT the filtered ``chunk_rms`` argument."""
+        with that value. NOT the filtered ``chunk_rms`` argument."""
         import voice_typer.server.recording.audio_pipeline as ap_mod
 
         recorder = _make_vad_recorder_stub()
@@ -233,11 +232,11 @@ class TestVadAutoCalibrateReceivesRawRms:
         recorder = _make_vad_recorder_stub()
         pipeline = AudioPipeline(recorder)
         # The stub disables the VAD branch (``_cached_vad_enabled=False``),
-        # so the real ``vad_auto_calibrate`` would short-circuit — patch
+        # so the real ``vad_auto_calibrate`` would short-circuit, patch
         # it with a mock to observe the call arguments.
         calibrate_mock = MagicMock()
         monkeypatch.setattr(ap_mod, "vad_auto_calibrate", calibrate_mock)
-        # Do NOT set _pending_raw_chunk_rms — simulate a direct caller.
+        # Do NOT set _pending_raw_chunk_rms, simulate a direct caller.
 
         filtered_rms = 0.456
         pipeline.run_vad_state_machine(
@@ -261,7 +260,7 @@ class TestVadAutoCalibrateReceivesRawRms:
         """``process_audio_chunk`` computes the raw (pre-filter) RMS
         from ``indata`` and stores it on ``self._pending_raw_chunk_rms``
         BEFORE the filter chain runs. The stored value must match the
-        RMS of the raw ``indata`` — NOT the filtered array returned by
+        RMS of the raw ``indata``, NOT the filtered array returned by
         ``_apply_filter_chain``."""
         pipeline = _make_process_chunk_pipeline_stub()
 
@@ -339,13 +338,13 @@ class TestAudioQualityControllerLazyNumpy:
 
     def test_np_not_in_module_dict_at_import_time(self) -> None:
         """After importing ``audio_quality_controller``, ``np`` must
-        NOT be in the module's ``__dict__`` — it's only imported under
+        NOT be in the module's ``__dict__``, it's only imported under
         ``TYPE_CHECKING`` (which is ``False`` at runtime)."""
         import voice_typer.server.audio_quality_controller as aqc
 
         assert "np" not in aqc.__dict__, (
             "'np' must not be in audio_quality_controller.__dict__ at "
-            "runtime — move 'import numpy as np' under TYPE_CHECKING."
+            "runtime, move 'import numpy as np' under TYPE_CHECKING."
         )
         assert "numpy" not in aqc.__dict__, "'numpy' must not be in audio_quality_controller.__dict__ at runtime."
 
@@ -356,7 +355,7 @@ class TestAudioQualityControllerLazyNumpy:
 
         src = inspect.getsource(aqc)
         # The top-level (un-indented) 'import numpy as np' must NOT
-        # appear — only the indented one under TYPE_CHECKING.
+        # appear, only the indented one under TYPE_CHECKING.
         lines = src.splitlines()
         for line in lines:
             stripped = line.lstrip()

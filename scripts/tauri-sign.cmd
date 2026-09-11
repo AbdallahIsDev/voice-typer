@@ -18,7 +18,7 @@ REM without signing material still succeed.
 REM
 REM CAVEAT (verified on-host): Tauri's NSIS bundler LOCATES signtool.exe on
 REM PATH before it ever invokes this wrapper when `bundle.windows.signCommand`
-REM is set — on a host without the Windows SDK (no signtool.exe), `cargo tauri
+REM is set, on a host without the Windows SDK (no signtool.exe), `cargo tauri
 REM build` fails with "failed to bundle project: SignTool not found" even with
 REM no certs configured. For unsigned local builds on such a host, either
 REM install the Windows SDK signing tools or build with a config that omits

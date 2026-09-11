@@ -61,7 +61,7 @@ _LIVE_INSTANCES: "weakref.WeakSet[CrashRecovery]" = weakref.WeakSet()
 
 
 def _atexit_flush_all() -> None:
-    """Module-level atexit — flush every still-live CrashRecovery instance.
+    """Module-level atexit, flush every still-live CrashRecovery instance.
 
     Previously, ``CrashRecovery.__init__`` registered a PER-INSTANCE
     ``atexit.register(_atexit_save)`` closure that held a ``weakref`` to
@@ -76,7 +76,7 @@ def _atexit_flush_all() -> None:
     Best-effort: each ``_save_sync()`` is wrapped in
     ``contextlib.suppress(Exception)`` so a failure on one instance
     doesn't skip the others. Mirrors the original per-instance handler's
-    contract — atexit must never raise.
+    contract, atexit must never raise.
 
     ``_stopped`` is set to ``True`` before ``_save_sync``
     so the worker drain path (if any) knows to exit. After the save,
@@ -96,7 +96,7 @@ def _atexit_flush_all() -> None:
     helper using a separate thread + ``Event.wait(timeout=2.0)``. Pre-fix
     a hung ``_save_sync`` (e.g. an NFS hang on the atomic write, an
     antivirus lock on Windows, fsync on a dying SSD) blocked atexit
-    indefinitely — the interpreter refused to exit until the save
+    indefinitely, the interpreter refused to exit until the save
     returned, which on a misbehaving disk could be never. Post-fix
     the save runs in a short-lived worker thread; if it doesn't
     complete within 2.0 s, the atexit handler logs a WARNING and
@@ -115,21 +115,21 @@ def _atexit_flush_all() -> None:
             # pass ``durability=True`` so the final shutdown
             # save runs both fsyncs (file data + parent dir). The
             # per-dictation path uses ``durability=False`` (5+ saves/sec
-            # under streaming — fsync cost not worth it for non-critical
+            # under streaming, fsync cost not worth it for non-critical
             # data), but atexit is a one-time cost where the durability
             # guarantee matters (a crash immediately after exit must
             # not lose the final state).
             _run_save_with_timeout(inst, _ATEXIT_FLUSH_TIMEOUT_S, durability=True)
             # mark the final save as done so the subsequent
             # __del__ (fired by GC) skips the redundant write. Set
-            # under no lock here — atexit is single-threaded by
+            # under no lock here, atexit is single-threaded by
             # definition (the interpreter only fires it once, after
             # all non-daemon threads have exited), so there's no race
             # with another final-save path. ``_save_sync`` checks the
             # flag under ``_save_lock``, but the check+set here is
             # safe because no concurrent caller can reset the flag
             # (the only reset path is ``_enqueue_save``, which
-            # requires the worker thread to be running — but the
+            # requires the worker thread to be running, but the
             # worker is a daemon thread that has already exited by
             # the time atexit fires).
             inst._final_save_done = True
@@ -138,28 +138,28 @@ def _atexit_flush_all() -> None:
 def _run_save_with_timeout(inst: "CrashRecovery", timeout: float, *, durability: bool = False) -> None:
     """run ``inst._save_sync()`` with a bounded wait.
 
-    Spawns a daemon thread to invoke ``_save_sync``; if the call
-    doesn't return within ``timeout`` seconds, logs WARNING and
-    returns (the daemon worker is reaped when the process exits).
+     Spawns a daemon thread to invoke ``_save_sync``; if the call
+     doesn't return within ``timeout`` seconds, logs WARNING and
+     returns (the daemon worker is reaped when the process exits).
 
-    Rationale: ``_save_sync`` does atomic-write + rename + (on the
-    first save) mkdir + chmod. On a healthy disk this completes in
-    <50 ms, but on a misbehaving disk (NFS hang, antivirus lock,
-    dying SSD with slow fsync) it can block for tens of seconds.
-    Pre-fix a hung save blocked atexit indefinitely; post-fix the
-    atexit handler moves on after ``timeout`` so the interpreter can
-    exit. The hung save itself is best-effort — if it eventually
-    completes (e.g. NFS recovers), the file lands on disk; if it
-    doesn't, the recovery state for that instance is lost (acceptable
-    — atexit is a safety net, not a guarantee).
+     Rationale: ``_save_sync`` does atomic-write + rename + (on the
+     first save) mkdir + chmod. On a healthy disk this completes in
+     <50 ms, but on a misbehaving disk (NFS hang, antivirus lock,
+     dying SSD with slow fsync) it can block for tens of seconds.
+     Pre-fix a hung save blocked atexit indefinitely; post-fix the
+     atexit handler moves on after ``timeout`` so the interpreter can
+     exit. The hung save itself is best-effort, if it eventually
+     completes (e.g. NFS recovers), the file lands on disk; if it
+     doesn't, the recovery state for that instance is lost (acceptable
+    , atexit is a safety net, not a guarantee).
 
-    ``durability`` is forwarded to ``_save_sync``. The atexit
-    caller passes ``durability=True`` (one-time final shutdown save —
-    durability guarantee matters there); other callers use the
-    default ``False``.
+     ``durability`` is forwarded to ``_save_sync``. The atexit
+     caller passes ``durability=True`` (one-time final shutdown save —
+     durability guarantee matters there); other callers use the
+     default ``False``.
 
-    The helper is module-level (not a method) so it doesn't capture
-    ``self`` and can be unit-tested in isolation.
+     The helper is module-level (not a method) so it doesn't capture
+     ``self`` and can be unit-tested in isolation.
     """
     done = threading.Event()
     worker_exc: list[BaseException] = []
@@ -173,7 +173,7 @@ def _run_save_with_timeout(inst: "CrashRecovery", timeout: float, *, durability:
             # re-write the file. See ``_save_sync``'s docstring for
             # the full rationale.
             inst._save_sync(durability=durability, set_final_save_done=True)
-        except BaseException as exc:  # noqa: BLE001 — re-raised below
+        except BaseException as exc:  # noqa: BLE001, re-raised below
             worker_exc.append(exc)
         finally:
             done.set()
@@ -195,7 +195,7 @@ def _run_save_with_timeout(inst: "CrashRecovery", timeout: float, *, durability:
         return
     # If the worker raised, re-raise so the outer ``contextlib.suppress``
     # in ``_atexit_flush_all`` catches it (preserves the original
-    # best-effort contract — atexit must never raise).
+    # best-effort contract, atexit must never raise).
     if worker_exc:
         raise worker_exc[0]
 
@@ -237,10 +237,10 @@ class _SaveWorker:
         mutation would be silently dropped by ``_save_sync``'s
         short-circuit. The reset is safe because we're about to call
         ``_save_sync`` immediately after (and ``_save_sync`` does
-        NOT re-set the flag — only ``_atexit_flush_all`` does).
+        NOT re-set the flag, only ``_atexit_flush_all`` does).
         """
         if self._stopped:
-            # Worker has exited (or never started) — persist on the
+            # Worker has exited (or never started), persist on the
             # caller's thread.  ``_save_sync`` takes ``_save_lock``
             # so concurrent post-shutdown callers serialize cleanly.
             # a previous atexit save may have set
@@ -313,7 +313,7 @@ class _SaveWorker:
         site swallows the put failure). A 30s fallback achieves the
         same safety net at 1/30th the wakeup cost. The ``None`` sentinel
         from ``shutdown()`` wakes the blocking ``get()`` immediately on
-        normal shutdown — the 30s timeout is ONLY for the rare
+        normal shutdown, the 30s timeout is ONLY for the rare
         queue.Full failure mode.
 
         the loop body is now wrapped in a top-level
@@ -322,7 +322,7 @@ class _SaveWorker:
         failure that ``_save_sync``'s inner try/except didn't catch,
         ``MemoryError`` during snapshot serialization, or a stray
         ``RuntimeError`` from the JSON encoder) killed the worker
-        thread silently — subsequent ``add()`` calls enqueued saves
+        thread silently, subsequent ``add()`` calls enqueued saves
         that were never drained, and the final shutdown save was the
         only path to disk. Post-fix the worker logs the exception at
         ERROR (so the operator sees the degradation) and continues
@@ -340,11 +340,11 @@ class _SaveWorker:
                 if item is None:
                     # Sentinel: stop signal
                     # Balance the ``get()`` with ``task_done()`` before
-                    # breaking — maintains the ``get()``/``task_done()``
+                    # breaking, maintains the ``get()``/``task_done()``
                     # pairing invariant for any future ``Queue.join()`` caller
                     # (no current caller exists, but the pairing is the
                     # documented contract). ``flush()`` does NOT rely on this
-                    # — it uses an explicit ``flush_event`` sentinel +
+                    # , it uses an explicit ``flush_event`` sentinel +
                     # ``threading.Event.wait(timeout)``, NOT the
                     # unfinished-tasks counter.
                     self._save_queue.task_done()
@@ -353,7 +353,7 @@ class _SaveWorker:
                     # flush barrier sentinel.  All saves queued
                     # before this sentinel have now been processed, so
                     # signal the waiting flush() caller.  Do NOT treat
-                    # this as a save — it is a barrier, not a snapshot
+                    # this as a save, it is a barrier, not a snapshot
                     # request.  The worker continues running and remains
                     # ready for more items.
                     event = item.get("flush_event")
@@ -385,7 +385,7 @@ class _SaveWorker:
                 # log and continue. Pre-fix the worker would
                 # die silently on an unexpected exception, leaving
                 # subsequent saves un-processed. The ``task_done()``
-                # for the current item may not have fired yet — the
+                # for the current item may not have fired yet, the
                 # ``Queue.join()`` invariant is best-effort (no current
                 # caller exists), and a missed ``task_done()`` only
                 # affects ``flush()`` if the failing item happened to
@@ -411,7 +411,7 @@ class _SaveWorker:
         before the process exits.
 
         previously this called ``Queue.join()``, which has no
-        ``timeout`` parameter in the stdlib — if the worker stalled
+        ``timeout`` parameter in the stdlib, if the worker stalled
         (disk full, NFS hang, fsync on a dying SSD, antivirus lock
         on Windows), ``flush()`` blocked forever, preventing clean
         shutdown.  Now we enqueue a sentinel carrying a
@@ -419,14 +419,14 @@ class _SaveWorker:
         reaches the sentinel (meaning all prior saves are done).
         We wait on the event with the timeout, so the timeout is
         actually enforced.  The worker thread is NOT killed when
-        the timeout fires — it keeps running and will eventually
+        the timeout fires, it keeps running and will eventually
         process the sentinel (the event.set() becomes a no-op).
         """
         event = threading.Event()
         sentinel = {"flush_event": event}
         # Enqueue the sentinel.  If the queue is full (worker is way
         # behind), try to make room by dropping the oldest pending
-        # item — matching the _enqueue_save strategy.  We call
+        # item, matching the _enqueue_save strategy.  We call
         # task_done() on the dropped item to keep the queue's
         # unfinished_tasks counter consistent.
         try:
@@ -466,7 +466,7 @@ class _SaveWorker:
         a-review Finding A3: after joining the worker, do one final
         ``_save_sync()`` so any mutations queued or in-flight when
         shutdown was called are guaranteed persisted.  This is cheap
-        insurance on top of the worker's natural drain — and it also
+        insurance on top of the worker's natural drain, and it also
         covers the rare window where a concurrent ``add()`` races
         with shutdown() and enqueues after the sentinel.
         """

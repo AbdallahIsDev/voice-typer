@@ -3,13 +3,13 @@
 Verifies the engine's load path with a mocked ``onnx_asr.load_model``
 so the tests run on CI without downloading the real ~1.3 GB FP16 ONNX
 model. The mock pattern mirrors ``tests/test_parakeet_engine.py``'s
-torch/transformers mocks (the pre-migration tests) — the engine's
+torch/transformers mocks (the pre-migration tests), the engine's
 ``_ensure_imports()`` lazily imports ``onnx_asr`` + ``onnxruntime``
 and stashes them on class attributes, so we inject our mocks via
 ``patch.dict("sys.modules", ...)`` before triggering the lazy import.
 
 PLAN_ONNX_INTEGRATION.md §3.3 (Option B-1). onnx-asr 0.12.0 exports
-``load_model(...)`` (verified 2026-08-15) — there is NO
+``load_model(...)`` (verified 2026-08-15), there is NO
 ``onnx_asr.Model`` class in any onnx-asr release. The engine loads by
 TYPE name (``nemo-conformer-tdt``) + a verified local snapshot dir.
 These tests pin that contract.
@@ -22,7 +22,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-# NOTE: no module-level ``pytest.importorskip("onnx_asr")`` — these
+# NOTE: no module-level ``pytest.importorskip("onnx_asr")``, these
 # tests use mocks for ``onnx_asr.load_model`` so they run on CI without
 # the real ~1.3 GB ONNX model downloaded. The ``is_available()`` tests
 # explicitly exercise BOTH the present and absent cases. The lazy
@@ -215,7 +215,7 @@ class TestParakeetOnnxLoad:
         mock_onnx_asr.load_model.assert_called_once()
         call_args, call_kwargs = mock_onnx_asr.load_model.call_args
         # First positional arg is the onnx-asr TYPE name
-        # (``nemo-conformer-tdt`` — the engine loads the verified local
+        # (``nemo-conformer-tdt``, the engine loads the verified local
         # snapshot dir by type name instead of by repo name).
         assert call_args[0] == "nemo-conformer-tdt"
         assert call_kwargs.get("quantization") == "fp16"
@@ -327,7 +327,7 @@ class TestParakeetOnnxInit:
     def test_init_default_batch_size_is_two(self):
         """``_INFERENCE_BATCH_SIZE`` default is 2 (kept for backward
         compat with pre-migration tests even though the ONNX backend
-        doesn't batch — ``onnx_asr.recognize`` processes one audio at
+        doesn't batch: ``onnx_asr.recognize`` processes one audio at
         a time)."""
         engine = _make_engine()
         assert engine._INFERENCE_BATCH_SIZE == 2

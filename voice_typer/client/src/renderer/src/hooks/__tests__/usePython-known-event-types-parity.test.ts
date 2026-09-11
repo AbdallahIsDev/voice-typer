@@ -44,7 +44,7 @@ import type { PythonPushEvent } from "@/types/ipc";
 //   - Extra type → "Object literal may only specify known properties" error.
 //
 // If you add a new event to `PythonPushEvent`, add it here AND to
-// `KNOWN_EVENT_TYPES` in `hooks/usePython.ts` — this test will fail
+// `KNOWN_EVENT_TYPES` in `hooks/usePython.ts`, this test will fail
 // tsc until both are updated.
 const _PARITY = {
 	status_change: true,
@@ -87,12 +87,12 @@ const _PARITY = {
 	reconnected: true,
 	mic_level: true,
 	transcription_partial: true,
-	// Master plan §7.4 — 12 new push events from the
+	// Master plan §7.4, 12 new push events from the
 	// slim-core / runtime-pack split. Pinned by
 	// `tests/test_event_types_parity.py` (Python-side cross-layer
 	// parity test that also covers the Rust `ALLOWED_EVENT_TYPES`
 	// slice + the Python `event_bus` catalogue docstring). The 13th
-	// §7.4 event — `transcribe_offline` — is a REQUEST (member of
+	// §7.4 event, `transcribe_offline`, is a REQUEST (member of
 	// `PythonRequest`), NOT a push event, so it is absent here.
 	offline_pack_download_started: true,
 	offline_pack_download_progress: true,
@@ -108,7 +108,7 @@ const _PARITY = {
 	transcribe_offline_result: true,
 	// Backend model-load lifecycle + previously-dropped push events
 	// (published by the Python sidecar; wired through the Rust
-	// allowlist + this union — see the per-interface docstrings in
+	// allowlist + this union, see the per-interface docstrings in
 	// types/ipc/push_events.ts and the emitting-direction parity
 	// test in tests/test_event_types_parity.py).
 	asr_backend_ready: true,

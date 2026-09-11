@@ -16,7 +16,7 @@ The lock was added in RACE-011 but was NOT retrofitted to the 10+ other
 a background thread can interleave with an in-flight ``apply_config``
 IPC call: the mic-fallback's ``asdict(self)`` reads every field, and if
 ``apply_config`` is mid-setattr when that snapshot is taken, the
-snapshot is torn — half the fields from the IPC request, half from the
+snapshot is torn, half the fields from the IPC request, half from the
 prior state.  The mic-fallback save then persists that torn snapshot to
 disk, overwriting the user's intended change.
 
@@ -26,7 +26,7 @@ giving ``Config`` a class-level ``_mutation_lock`` reference (set via
 :meth:`save` wraps the actual save work (:meth:`_save_unlocked`) in the
 lock so the lock is impossible to forget at any call site.  When not
 set (e.g. tests that construct ``Config()`` directly without an app),
-saves proceed without locking — preserving backward compat.
+saves proceed without locking, preserving backward compat.
 
 These tests pin the new contract:
 
@@ -34,7 +34,7 @@ These tests pin the new contract:
 * ``save()`` MUST still work without a lock (backward compat).
 * The lock is an ``RLock``, so reentrant acquisition is allowed (a
   thread that already holds the lock can call ``save()`` without
-  self-deadlock — required for the ``apply_config`` path which acquires
+  self-deadlock, required for the ``apply_config`` path which acquires
   the lock and then calls ``save()``).
 * ``_mutation_lock`` MUST be a ``ClassVar`` so ``asdict(self)`` does
   not try to serialize it into ``config.json`` (an ``RLock`` is not
@@ -58,7 +58,7 @@ class TestConfigMutationLock:
     def test_default_mutation_lock_is_none(self):
         """A freshly-constructed ``Config()`` has ``_mutation_lock = None``.
 
-        This is the backward-compat path — tests that construct
+        This is the backward-compat path, tests that construct
         ``Config()`` directly (without an app) must still work, and the
         save must proceed without trying to acquire a lock that doesn't
         exist.
@@ -71,7 +71,7 @@ class TestConfigMutationLock:
 
         The reference is stored as an instance attribute (shadowing the
         ``ClassVar`` default of ``None``) so each ``Config`` instance
-        can have its own lock — multiple ``VoiceTyperApp`` instances in
+        can have its own lock, multiple ``VoiceTyperApp`` instances in
         the same process (rare but possible in tests) don't share a
         single global lock.
         """
@@ -85,7 +85,7 @@ class TestConfigMutationLock:
 
         This is the core  regression test.  We spy on
         ``_save_unlocked`` and assert that the lock IS held when the
-        spy runs — if ``save()`` forgot to acquire the lock, the spy
+        spy runs, if ``save()`` forgot to acquire the lock, the spy
         would see the lock as not-held and the assertion would fail.
         """
         lock = threading.RLock()
@@ -97,7 +97,7 @@ class TestConfigMutationLock:
         # the lock is held by the current thread (RLock supports
         # reentrant acquisition, so acquire(blocking=False) on a thread
         # that already holds the lock returns True and increments the
-        # ownership count — we then release to balance).
+        # ownership count, we then release to balance).
         acquired_state: list[bool] = []
         original_unlocked = cfg._save_unlocked
 
@@ -118,7 +118,7 @@ class TestConfigMutationLock:
         cfg.save()
 
         assert any(acquired_state), (
-            "Config.save() did not acquire the mutation lock — "
+            "Config.save() did not acquire the mutation lock, "
             "the spy saw the lock as not-held.   regression: "
             "save() must wrap _save_unlocked() in 'with self._mutation_lock:' "
             "when _mutation_lock is set."
@@ -128,7 +128,7 @@ class TestConfigMutationLock:
         """``Config.save()`` MUST work without a lock set (backward compat).
 
         Tests that construct ``Config()`` directly (without an app)
-        must still be able to save — the save path must not raise
+        must still be able to save, the save path must not raise
         ``AttributeError`` or similar when ``_mutation_lock is None``.
         """
         cfg = Config()
@@ -171,14 +171,14 @@ class TestConfigMutationLock:
 
          regression: without the lock, two threads could
         simultaneously call ``save()``, and the ``asdict(self)`` of
-        one could race with attribute writes from the other — producing
+        one could race with attribute writes from the other, producing
         a torn snapshot that gets persisted to disk.  With the lock,
         the two saves are serialized: the second save's ``asdict``
         sees the state left by the first save's writes (or the state
         before, but not a torn mix).
 
         We test this by making ``_save_unlocked`` block on a barrier
-        inside the lock — if the lock is NOT held, both threads would
+        inside the lock, if the lock is NOT held, both threads would
         reach the barrier simultaneously and the barrier would
         unblock; if the lock IS held, only one thread enters
         ``_save_unlocked`` at a time and the barrier never reaches 2
@@ -206,7 +206,7 @@ class TestConfigMutationLock:
                 # barrier unblocks (returns without raising).  If only
                 # one thread is here (because the other is blocked on
                 # the mutation lock), the barrier times out and raises
-                # BrokenBarrierError — which is the EXPECTED case (the
+                # BrokenBarrierError, which is the EXPECTED case (the
                 # lock is serializing the saves).
                 # Expected: the second thread is blocked on the
                 # mutation lock, so only one thread reached the
@@ -232,14 +232,14 @@ class TestConfigMutationLock:
             t.start()
         for t in threads:
             t.join(timeout=5.0)
-            assert not t.is_alive(), "save() thread did not finish — possible deadlock"
+            assert not t.is_alive(), "save() thread did not finish, possible deadlock"
 
         # Both saves must succeed.
         assert results == [True, True]
-        # max_concurrent must be 1 — the lock serialized the saves so
+        # max_concurrent must be 1, the lock serialized the saves so
         # only one thread was inside _save_unlocked at a time.
         assert max_concurrent == 1, (
-            f"Config.save() did not serialize concurrent calls — "
+            f"Config.save() did not serialize concurrent calls, "
             f"max_concurrent={max_concurrent} (expected 1).  "
             f" regression: the mutation lock must ensure only "
             f"one thread is inside _save_unlocked() at a time."
@@ -250,7 +250,7 @@ class TestConfigMutationLock:
 
         If it were a regular dataclass field, ``asdict(self)`` (used by
         ``_save_unlocked``) would include it in the dict passed to
-        ``json.dumps`` — and ``json.dumps`` would raise ``TypeError``
+        ``json.dumps``, and ``json.dumps`` would raise ``TypeError``
         because ``threading.RLock`` is not JSON-serializable.  This
         would crash every save after ``set_mutation_lock`` was called.
 
@@ -283,14 +283,14 @@ class TestConfigMutationLock:
         config_file = tmp_path / "config.json"
         data = json.loads(config_file.read_text())
         assert "_mutation_lock" not in data, (
-            "Config.save() leaked the _mutation_lock RLock into config.json — "
+            "Config.save() leaked the _mutation_lock RLock into config.json, "
             "ClassVar annotation must exclude it from asdict() output."
         )
 
     def test_save_unlocked_bypasses_lock(self, tmp_path, tmp_config_dir):
         """``_save_unlocked`` is the lock-free entry point for tests.
 
-        Direct callers of ``_save_unlocked`` (rare — only tests that
+        Direct callers of ``_save_unlocked`` (rare, only tests that
         want to bypass the lock to inspect mid-save state) must NOT
         acquire the lock.  This lets tests that already hold the lock
         call ``_save_unlocked`` directly without self-deadlock, and
@@ -330,14 +330,14 @@ class TestConfigMutationLock:
 
         assert lock_touched == [], (
             f"_save_unlocked() touched the mutation lock: {lock_touched}. "
-            f"_save_unlocked must be the lock-free entry point — only save() "
+            f"_save_unlocked must be the lock-free entry point, only save() "
             f"should acquire the lock."
         )
 
     def test_save_strict_also_acquires_lock(self, tmp_path, tmp_config_dir):
         """``save_strict`` MUST also acquire the lock (it delegates to save).
 
-        ``save_strict`` is the raising variant of ``save`` — it wraps
+        ``save_strict`` is the raising variant of ``save``, it wraps
         ``save()`` and raises ``RuntimeError`` if ``save()`` returned
         ``False``.  Since it delegates to ``save()``, the lock
         acquisition happens automatically.  This test pins that
@@ -364,7 +364,7 @@ class TestConfigMutationLock:
         cfg.save_strict()
 
         assert any(acquired_state), (
-            "Config.save_strict() did not acquire the mutation lock — "
+            "Config.save_strict() did not acquire the mutation lock, "
             "save_strict() must delegate to save() (which acquires the lock) "
             "rather than calling _save_unlocked() directly."
         )
@@ -372,7 +372,7 @@ class TestConfigMutationLock:
     def test_save_strict_raises_on_failure_even_with_lock(self, tmp_path, tmp_config_dir):
         """``save_strict`` must still raise on failure when the lock is set.
 
-        The lock acquisition must not swallow the failure path — if
+        The lock acquisition must not swallow the failure path, if
         ``_save_unlocked`` returns ``False`` (e.g. disk full), the
         lock is released and ``save_strict`` raises ``RuntimeError``.
         """

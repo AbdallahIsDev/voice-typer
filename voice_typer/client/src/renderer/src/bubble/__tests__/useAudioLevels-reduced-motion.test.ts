@@ -27,7 +27,7 @@
  *      `requestAnimationFrame`, count calls after the first frame —
  *      should be 0.)
  *   2. The bars ARE rendered at the static mid-height (the one
- *      `renderReducedMotion()` call DID fire — not a no-op).
+ *      `renderReducedMotion()` call DID fire, not a no-op).
  *
  * NOTE: this file is `.ts` (not `.tsx`) per the task spec. The
  * existing `useAudioLevels-reduced-motion.test.tsx` covers the
@@ -112,7 +112,7 @@ beforeEach(() => {
 	);
 
 	// jsdom's getComputedStyle returns empty strings for CSS custom
-	// properties — stub it so the barColor fallback path doesn't throw.
+	// properties, stub it so the barColor fallback path doesn't throw.
 	vi.spyOn(window, "getComputedStyle").mockImplementation(
 		() =>
 			({
@@ -176,7 +176,7 @@ describe("useAudioLevels reduced-motion rAF stop", () => {
 		// Reset the spy so we count ONLY post-initial-frame calls.
 		rafSpy.mockClear();
 
-		// Flush more macrotasks — if the loop were still spinning,
+		// Flush more macrotasks, if the loop were still spinning,
 		// additional rAF calls would happen here.
 		await flushMacrotasks(10);
 

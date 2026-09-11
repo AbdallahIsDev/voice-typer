@@ -28,7 +28,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 # pynput / pynput.keyboard / pyperclip are mocked at collection time by
-# tests/clipboard/conftest.py (single source of truth —  dedup).
+# tests/clipboard/conftest.py (single source of truth, dedup).
 from voice_typer.server import clipboard_snapshot as snap_mod  # noqa: E402
 from voice_typer.server.clipboard_snapshot import (  # noqa: E402
     _BUILTIN_FORMAT_NAMES,
@@ -155,7 +155,7 @@ class TestCaptureWindowsFailures:
         user32.GetClipboardData.return_value = 1234  # non-zero handle
 
         kernel32 = MagicMock()
-        # Report a size just over the cap — should be skipped.
+        # Report a size just over the cap, should be skipped.
         kernel32.GlobalSize.return_value = _MAX_FORMAT_BYTES + 1
 
         windll = MagicMock()

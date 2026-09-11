@@ -74,7 +74,7 @@ describe("ErrorBoundary", () => {
 	});
 
 	it('"Try Again" resets the error state so children re-render', () => {
-		// Start in the throwing state — the boundary shows the fallback.
+		// Start in the throwing state, the boundary shows the fallback.
 		shouldThrow = true;
 		render(
 			<ErrorBoundary>
@@ -86,7 +86,7 @@ describe("ErrorBoundary", () => {
 		// Flip the toggle so the child will render cleanly after reset.
 		shouldThrow = false;
 
-		// Click "Try Again" — the boundary clears its error state and
+		// Click "Try Again", the boundary clears its error state and
 		// re-renders the children.
 		fireEvent.click(screen.getByText("Try Again"));
 

@@ -4,7 +4,7 @@
 // guidance + a deep-link button to the OS privacy settings when the
 // renderer can prove the OS has denied microphone access
 // (``micPermission === "denied"``). ``"prompt"`` / ``"unknown"`` do
-// not render the banner — ``"prompt"`` is the user's first-run chance
+// not render the banner, ``"prompt"`` is the user's first-run chance
 // to grant, ``"unknown"`` means the API is unavailable (e.g. Linux
 // WebKitGTK) and a false-positive banner would be worse than silence.
 //
@@ -13,7 +13,7 @@
 // no equivalent standard, so the button is omitted (the message text
 // still tells the user where to look).
 
-import { AlertCircleIcon, Settings03Icon } from "@hugeicons/core-free-icons";
+import { AlertCircleIcon, Settings01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { t } from "@/i18n/i18n";
 import type { MicPermission } from "../hooks/useMicrophonePermission";
@@ -76,7 +76,7 @@ export function MicrophonePermissionBanner({
 					className="inline-flex items-center gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-1.5 text-xs font-medium text-destructive hover:bg-destructive/10 transition-colors"
 				>
 					<HugeiconsIcon
-						icon={Settings03Icon}
+						icon={Settings01Icon}
 						strokeWidth={1.625}
 						className="h-3.5 w-3.5"
 					/>

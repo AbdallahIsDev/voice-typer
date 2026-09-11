@@ -52,20 +52,20 @@ class TestUACFocus:
         and skip foreground manipulation.
 
         S2-CR-61: the original test set up Win32 mocks but ended with
-        ``assert True`` — never invoking the SUT, so the mock setup was
+        ``assert True``, never invoking the SUT, so the mock setup was
         dead code and gave zero coverage. We now invoke
         ``tray_window.bring_electron_to_front()`` against the same mocks
         and assert (a) the return is a bool, (b) it returns ``False``
         (no matching window found under NULL foreground), and (c)
-        ``GetForegroundWindow`` was actually called — proving the SUT
+        ``GetForegroundWindow`` was actually called, proving the SUT
         read the mock setup rather than short-circuiting.
         """
         mock_ctypes = MagicMock()
         mock_user32 = MagicMock()
 
-        # GetForegroundWindow returns 0 (no foreground — secure desktop)
+        # GetForegroundWindow returns 0 (no foreground, secure desktop)
         mock_user32.GetForegroundWindow.return_value = 0
-        # EnumWindows callback wrapping needs CFUNCTYPE — provide it so
+        # EnumWindows callback wrapping needs CFUNCTYPE, provide it so
         # the Win32 code path doesn't AttributeError under the mock.
         mock_ctypes.CFUNCTYPE = MagicMock(return_value=MagicMock())
         mock_ctypes.windll.user32 = mock_user32
@@ -81,7 +81,7 @@ class TestUACFocus:
 
         monkeypatch.setattr(tray_window, "is_windows", lambda: True)
 
-        # Invoke the SUT — this is the missing piece the original
+        # Invoke the SUT, this is the missing piece the original
         # ``assert True`` skipped.
         result = tray_window.bring_electron_to_front()
 
@@ -94,9 +94,9 @@ class TestUACFocus:
             "window is found (NULL foreground / Winlogon secure desktop)."
         )
         # (c) The SUT must have actually consulted the Win32 foreground
-        # state — otherwise the mock setup is dead code (false coverage).
+        # state, otherwise the mock setup is dead code (false coverage).
         assert mock_user32.GetForegroundWindow.called, (
-            "bring_electron_to_front did not call GetForegroundWindow — "
+            "bring_electron_to_front did not call GetForegroundWindow, "
             "the Win32 mock setup was not exercised by the SUT."
         )
 

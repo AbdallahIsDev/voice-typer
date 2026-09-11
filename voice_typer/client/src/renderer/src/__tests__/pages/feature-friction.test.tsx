@@ -3,24 +3,24 @@
  *
  * Verifies the specific XA-5 fixes covered by this suite:
  *
- *   • XA-5-6 — the Cancel-download button is wrapped in a
+ *   • XA-5-6, the Cancel-download button is wrapped in a
  *     ``ConfirmDialog`` with ``variant="destructive"``. A single
- *     stray click must NOT immediately invoke ``onCancel`` — it must
+ *     stray click must NOT immediately invoke ``onCancel``, it must
  *     open the confirmation dialog, and only the dialog's "confirm"
  *     action triggers ``onCancel``.
- *   • XA-5-16 — the ``models.download.oneAtATime`` key exists in ALL
+ *   • XA-5-16, the ``models.download.oneAtATime`` key exists in ALL
  *     8 locale files; the ``ModelCardActions`` source no longer
  *     contains a hardcoded English-literal fallback (the catalogue
  *     is the single source of truth).
- *   • XA-5-7 — the inline ``Retry`` button renders on the
+ *   • XA-5-7, the inline ``Retry`` button renders on the
  *     ``DownloadProgressBar`` when (error + onRetry) are both
  *     provided (already covered by the canonical DownloadProgressBar
  *     suite; re-asserted here from the W1-A4 perspective).
- *   • XA-5-12 — the preset selector keeps the primary "improve your
+ *   • XA-5-12, the preset selector keeps the primary "improve your
  *     mic" control OUTSIDE any disclosure: the collapsed selector
  *     header (label + current selection) renders without expanding.
  *     Re-pointed at the LIVE Microphone-page surface
- *     (``PresetAccordionSelector``) — the former dropdown variant
+ *     (``PresetAccordionSelector``), the former dropdown variant
  *     (``AudioPresetSelector``) was production-dead and has been
  *     deleted (both live surfaces now share the preset data registry
  *     ``lib/utils/audioPresets.ts``).
@@ -50,7 +50,7 @@ import zh from "@/i18n/translations/zh.json";
 // Stub `t()` so the rendered labels are deterministic sentinels we can
 // assert on without depending on the catalogue's copy text. Use
 // `importOriginal` so the rest of the i18n module (getLocale, setLocale,
-// useT, etc.) keeps its real implementation — DownloadProgressBar pulls
+// useT, etc.) keeps its real implementation, DownloadProgressBar pulls
 // `formatBytes` → `lib/format` → `getLocale` from the same module.
 vi.mock("@/i18n/i18n", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("@/i18n/i18n")>();
@@ -78,7 +78,7 @@ vi.mock("@/components/feedback/InfoTooltip", () => ({
 // The former per-page VocabToolbar mirror was replaced by the shared
 // CollectionToolbar shell (the page injects its label keys); the XA-5-15
 // sort-in-toolbar contract now pins the shared shell wired with the
-// Vocabulary page's keys — exactly what pages/Vocabulary.tsx renders.
+// Vocabulary page's keys, exactly what pages/Vocabulary.tsx renders.
 import { CollectionToolbar } from "@/components/common/CollectionToolbar";
 import { TestReviewPanel } from "@/components/microphone/TestReviewPanel";
 import { DownloadProgressBar } from "@/components/models/DownloadProgressBar";
@@ -122,7 +122,7 @@ const baseProps = {
 	onCancel: vi.fn(),
 };
 
-describe("XA-5-6 — Cancel-download is wrapped in ConfirmDialog", () => {
+describe("XA-5-6, Cancel-download is wrapped in ConfirmDialog", () => {
 	afterEach(() => {
 		cleanup();
 	});
@@ -138,7 +138,7 @@ describe("XA-5-6 — Cancel-download is wrapped in ConfirmDialog", () => {
 			name: /\[t\]models\.download\.cancelAria/,
 		});
 		fireEvent.click(cancelBtn);
-		// The ConfirmDialog opens instead — onCancel must NOT fire yet.
+		// The ConfirmDialog opens instead, onCancel must NOT fire yet.
 		expect(onCancel).not.toHaveBeenCalled();
 	});
 
@@ -149,7 +149,7 @@ describe("XA-5-6 — Cancel-download is wrapped in ConfirmDialog", () => {
 				name: /\[t\]models\.download\.cancelAria/,
 			}),
 		);
-		// The dialog title + message render as live text — they come
+		// The dialog title + message render as live text, they come
 		// from the new `models.download.cancelConfirmTitle` /
 		// `cancelConfirmMessage` / `cancelConfirmAction` i18n keys.
 		expect(
@@ -178,7 +178,7 @@ describe("XA-5-6 — Cancel-download is wrapped in ConfirmDialog", () => {
 	});
 });
 
-describe("XA-5-7 — inline Retry button on failed download", () => {
+describe("XA-5-7, inline Retry button on failed download", () => {
 	afterEach(() => {
 		cleanup();
 	});
@@ -216,7 +216,7 @@ describe("XA-5-7 — inline Retry button on failed download", () => {
 	});
 });
 
-describe("XA-5-16 — `models.download.oneAtATime` locale parity", () => {
+describe("XA-5-16, `models.download.oneAtATime` locale parity", () => {
 	const KEY = "models.download.oneAtATime";
 	it.each(Object.keys(LOCALES))("locale `%s` contains the key", (locale) => {
 		expect(hasKey(LOCALES[locale], KEY)).toBe(true);
@@ -232,7 +232,7 @@ describe("XA-5-16 — `models.download.oneAtATime` locale parity", () => {
 			),
 			"utf8",
 		);
-		// The catalogue is the single source of truth — `oneAtATimeTitle`
+		// The catalogue is the single source of truth, `oneAtATimeTitle`
 		// calls `t("models.download.oneAtATime")` directly with no
 		// fallback. A literal English string in this function (e.g.
 		// `return "Only one download at a time"`) would be a regression.
@@ -242,7 +242,7 @@ describe("XA-5-16 — `models.download.oneAtATime` locale parity", () => {
 	});
 });
 
-describe("XA-5-6 — cancel-confirm locale keys exist in ALL 8 locale files", () => {
+describe("XA-5-6, cancel-confirm locale keys exist in ALL 8 locale files", () => {
 	const KEYS = [
 		"models.download.cancelConfirmTitle",
 		"models.download.cancelConfirmMessage",
@@ -257,7 +257,7 @@ describe("XA-5-6 — cancel-confirm locale keys exist in ALL 8 locale files", ()
 	});
 });
 
-describe("XA-5-12 — preset selector keeps the primary CTA outside any disclosure", () => {
+describe("XA-5-12, preset selector keeps the primary CTA outside any disclosure", () => {
 	afterEach(() => {
 		cleanup();
 	});
@@ -273,7 +273,7 @@ describe("XA-5-12 — preset selector keeps the primary CTA outside any disclosu
 				onConfigChange={vi.fn()}
 			/>,
 		);
-		// The collapsed header always shows the section label — the
+		// The collapsed header always shows the section label, the
 		// primary "improve your mic" control is visible without
 		// expanding anything (the same friction guarantee the old
 		// always-visible Select provided).
@@ -332,29 +332,29 @@ describe("XA-5-12 — preset selector keeps the primary CTA outside any disclosu
 // W3-A6 / XA-5 friction-items continuation.
 //
 // Verifies the additional XA-5 items implemented in the follow-up batch:
-//   • XA-5-4 — useFilterState persists values across re-mounts via
+//   • XA-5-4, useFilterState persists values across re-mounts via
 //     sessionStorage.
-//   • XA-5-8 — TestReviewPanel renders a recommendation block per
+//   • XA-5-8, TestReviewPanel renders a recommendation block per
 //     detected issue (text always; one-click CTA when onApplyPreset
 //     is wired).
-//   • XA-5-11 — CloudProvidersPanel renders an eye-icon show/hide
+//   • XA-5-11, CloudProvidersPanel renders an eye-icon show/hide
 //     toggle next to the API key input.
-//   • XA-5-13 — useMicrophoneTestSession exposes a module-level cache
+//   • XA-5-13, useMicrophoneTestSession exposes a module-level cache
 //     reset helper (the cache itself is exercised indirectly via the
 //     session hook's stop/start/selectMicrophone paths).
-//   • XA-5-15 — VocabToolbar renders the sort control in its single
+//   • XA-5-15, VocabToolbar renders the sort control in its single
 //     toolbar row (no count badge, no orphaned second row).
-//   • XA-5-17 — Models page computes an ``activeModelSummary`` from
-//     the lifecycle.config (verified by source scan — mounting the
+//   • XA-5-17, Models page computes an ``activeModelSummary`` from
+//     the lifecycle.config (verified by source scan, mounting the
 //     full page requires too many mock dependencies for a focused
 //     unit test).
-//   • XA-5-20 — Import buttons carry a ``title`` attribute pointing
+//   • XA-5-20, Import buttons carry a ``title`` attribute pointing
 //     at the importFormatHint i18n key.
 //
 // Tests run on LINUX (sandbox).
 // ─────────────────────────────────────────────────────────────────────
 
-describe("XA-5-4 — useFilterState persists values across re-mounts", () => {
+describe("XA-5-4, useFilterState persists values across re-mounts", () => {
 	beforeEach(() => {
 		sessionStorage.clear();
 	});
@@ -396,7 +396,7 @@ describe("XA-5-4 — useFilterState persists values across re-mounts", () => {
 	});
 });
 
-describe("XA-5-8 — TestReviewPanel renders per-issue recommendations", () => {
+describe("XA-5-8, TestReviewPanel renders per-issue recommendations", () => {
 	afterEach(() => {
 		cleanup();
 	});
@@ -466,7 +466,7 @@ describe("XA-5-8 — TestReviewPanel renders per-issue recommendations", () => {
 	});
 });
 
-describe("XA-5-11 — CloudProvidersPanel renders the API-key eye toggle", () => {
+describe("XA-5-11, CloudProvidersPanel renders the API-key eye toggle", () => {
 	it("CloudProvidersPanel source wires the eye-icon show/hide toggle", () => {
 		// Source-scan assertion: the ProviderConfigForm sub-component
 		// declares a ``revealKey`` state + a button that flips it +
@@ -494,7 +494,7 @@ describe("XA-5-11 — CloudProvidersPanel renders the API-key eye toggle", () =>
 	});
 });
 
-describe("XA-5-13 — useMicrophoneTestSession exposes a cache-reset helper", () => {
+describe("XA-5-13, useMicrophoneTestSession exposes a cache-reset helper", () => {
 	it("exports _resetMicrophoneTestCache as a function", async () => {
 		const mod = await import(
 			"@/pages/microphone/hooks/useMicrophoneTestSession"
@@ -503,7 +503,7 @@ describe("XA-5-13 — useMicrophoneTestSession exposes a cache-reset helper", ()
 	});
 });
 
-describe("XA-5-15 — the collection toolbar keeps the sort control in the single toolbar row", () => {
+describe("XA-5-15, the collection toolbar keeps the sort control in the single toolbar row", () => {
 	afterEach(() => {
 		cleanup();
 	});
@@ -534,14 +534,14 @@ describe("XA-5-15 — the collection toolbar keeps the sort control in the singl
 			/>,
 		);
 		// The sort control lives in the toolbar's secondary cluster
-		// (single-row toolbar — no orphaned second row). The i18n mock
+		// (single-row toolbar, no orphaned second row). The i18n mock
 		// resolves aria-label to "[t]common.sortAria".
 		expect(screen.getByRole("combobox")).toBeTruthy();
 		expect(screen.queryByTestId("vocab-entry-count-badge")).toBeNull();
 	});
 });
 
-describe("XA-5-17 — Models page computes an active-model summary", () => {
+describe("XA-5-17, Models page computes an active-model summary", () => {
 	it("source does NOT render the active-model summary banner (removed per user decision)", () => {
 		const src = fs.readFileSync(
 			path.join(RENDERER_SRC_ROOT, "pages", "Models.tsx"),
@@ -557,7 +557,7 @@ describe("XA-5-17 — Models page computes an active-model summary", () => {
 	});
 });
 
-describe("XA-5-20 — Import buttons carry a format-hint title attribute", () => {
+describe("XA-5-20, Import buttons carry a format-hint title attribute", () => {
 	it("Vocabulary page wires the importFormatHint key into the shared toolbar's Import title", () => {
 		const src = fs.readFileSync(
 			path.join(RENDERER_SRC_ROOT, "pages", "Vocabulary.tsx"),
@@ -615,7 +615,7 @@ describe("XA-5 locale parity for the new keys", () => {
 // The 5-preset microphone-quality surface was forked three ways: two
 // live presentations (the Settings → Audio Select and the Microphone
 // page's PresetAccordionSelector) plus a production-DEAD dropdown
-// variant (components/microphone/AudioPresetSelector.tsx — zero render
+// variant (components/microphone/AudioPresetSelector.tsx, zero render
 // sites outside this suite's own renders, kept compiling only by the
 // `AudioPreset` type imports). The dead file was deleted and both live
 // surfaces now share the preset data registry
@@ -646,7 +646,7 @@ describe("dead preset dropdown stays deleted (one shared preset-data source)", (
 				}
 				if (!/\.(ts|tsx)$/.test(entry.name)) continue;
 				// Tests (and Storybook fixtures) may name the deleted
-				// component while documenting the guard itself — only
+				// component while documenting the guard itself, only
 				// production source is forbidden from referencing it.
 				if (entry.name.includes(".test.") || entry.name.includes(".spec.")) {
 					continue;

@@ -1,5 +1,5 @@
 /**
- * Shared hotkey validation system — used by all keyboard shortcut settings.
+ * Shared hotkey validation system, used by all keyboard shortcut settings.
  *
  * previously validation was duplicated between
  * HotkeyPicker, hotkey-utils.ts, and backend config_validators.py.
@@ -11,7 +11,7 @@
  *
  * The matching backend mirror lives in
  * ``voice_typer/server/config_validators.py`` as ``_RESERVED_HOTKEYS``.
- * The two MUST be kept in sync — if you add a shortcut here, add it there.
+ * The two MUST be kept in sync, if you add a shortcut here, add it there.
  *
  * the prior fix over-corrected by
  * adding letters/digits to KEY_CODE_TO_PYNPUT without adding a
@@ -119,7 +119,7 @@ const _MESSAGE_SPECIAL_LABELS: Readonly<Record<string, string>> = {
  *
  * Implemented locally (rather than importing ``formatHotkey`` from
  * ``hotkey-utils.ts``) because ``hotkey-utils.ts`` imports from this
- * module — re-importing it here would create a circular dependency.
+ * module, re-importing it here would create a circular dependency.
  * This formatter is intentionally simple and platform-agnostic: it
  * strips angle brackets, capitalizes the first letter of each part,
  * uppercases single letters/digits, and joins with "+".
@@ -148,7 +148,7 @@ export interface ValidationResult {
 	reason?: string;
 	/**
 	 * NEVER set by validateHotkey. Documented here only so callers can
-	 * assert it's absent — the partial-assign bug (Problem 2.2) hinged
+	 * assert it's absent, the partial-assign bug (Problem 2.2) hinged
 	 * on a hypothetical "partial" return value that never existed, but
 	 * we explicitly test `not.toHaveProperty("partial")` to lock the
 	 * contract: validateHotkey either accepts the whole combo or
@@ -177,7 +177,7 @@ export function detectPlatform(): string {
 /**
  * Check if a hotkey is reserved by the OS for the given platform.
  *
- * Comparison is case-insensitive — both sides are lowercased before
+ * Comparison is case-insensitive, both sides are lowercased before
  * comparing. The hotkey string is compared as-is (with angle brackets,
  * e.g. ``"<win>+e"``); callers should NOT pre-normalize.
  */
@@ -190,7 +190,7 @@ export function isReserved(hotkey: string, platform: string): boolean {
 	// (e.g. ``"<win>+<e>"``), but callers pass hotkeys using the pynput
 	// convention with brackets only on the modifier (e.g. ``"<win>+e"``).
 	// The previous raw-lowercase comparison only matched when the caller
-	// used the exact same bracket convention as the table — so Win+E,
+	// used the exact same bracket convention as the table, so Win+E,
 	// Cmd+Space, Super+L, etc. were all silently accepted as valid
 	// despite being OS-reserved. Normalizing both sides makes the
 	// comparison bracket-agnostic.
@@ -230,10 +230,10 @@ export function normalizeHotkey(hotkey: string): string {
  *     the prior fix added letters
  *     and digits to KEY_CODE_TO_PYNPUT (so Alt+Q works) but forgot to
  *     add a rule preventing them from being assigned as standalone
- *     hotkeys — silently accepting ``<a>`` and triggering dictation
+ *     hotkeys, silently accepting ``<a>`` and triggering dictation
  *     every time the user typed 'a'.
  *  5. Structural: a single part can be any NON-LETTER, NON-DIGIT key
- *     (including a modifier alone — ``<shift>``, ``<alt>``, etc., are
+ *     (including a modifier alone, ``<shift>``, ``<alt>``, etc., are
  *     valid single-key triggers via modifier-only release detection;
  *     ``<caps_lock>``, ``<f2>``, ``<tab>``, etc. are also valid). A
  *     combo (2+ parts) must NOT end with a modifier.
@@ -246,14 +246,14 @@ export function normalizeHotkey(hotkey: string): string {
  * 10. Shift+<letter> block: interferes with text capitalization. Only
  *     applies to PURE Shift+<letter> (no other modifier).
  *
- * IMPORTANT (Problem 2.2 — partial-assign bug): this function never
+ * IMPORTANT (Problem 2.2, partial-assign bug): this function never
  * returns a "partial" result. If a combo is invalid, the WHOLE combo
  * is rejected; the caller must keep the previous shortcut unchanged.
  * The ``partial`` field on ValidationResult is typed as ``never`` to
  * make this contract enforceable at the type level.
  *
  * the prior frontend validator
- * was missing rules 2, 6, 7, 8, 9, 10 — only rules 1, 3, 5 were
+ * was missing rules 2, 6, 7, 8, 9, 10, only rules 1, 3, 5 were
  * enforced. This allowed the frontend to accept combos the backend
  * would reject (e.g. ``<ctrl>+<c>``, ``<alt>+<tab>``) and combos the
  * user could never use (``<a>``, ``<1>``). The rules now mirror the
@@ -268,7 +268,7 @@ export function validateHotkey(
 		return { valid: false, reason: t("hotkeyValidation.empty") };
 	}
 
-	// Parse parts once — used by rules 3-10.
+	// Parse parts once, used by rules 3-10.
 	const parts = hotkey
 		.split("+")
 		.map((p) => p.replace(/[<>]/g, "").trim().toLowerCase())
@@ -277,7 +277,7 @@ export function validateHotkey(
 		return { valid: false, reason: t("hotkeyValidation.noKeys") };
 	}
 
-	// 2. Universal reserved (Alt+Tab/F4/Esc/Space) — every platform.
+	// 2. Universal reserved (Alt+Tab/F4/Esc/Space), every platform.
 	const normalized = parts.map((p) => `<${p}>`).join("+");
 	if (
 		UNIVERSAL_RESERVED_SHORTCUTS.some(
@@ -325,7 +325,7 @@ export function validateHotkey(
 	// 5. Structural: a combo that includes a NON-MODIFIER must NOT end with
 	//    a modifier (e.g. ``Ctrl+Alt+V`` is fine, ``Ctrl+V+Alt`` is not).
 	//    pure-modifier combos (e.g.
-	//    ``Ctrl+Shift``, ``Ctrl+Alt``) are now ALLOWED — they're valid
+	//    ``Ctrl+Shift``, ``Ctrl+Alt``) are now ALLOWED, they're valid
 	//    modifier-only release triggers in the native backends. The
 	//    previous blanket rule "combo must not end with a modifier"
 	//    incorrectly rejected these, causing a frontend/backend mismatch
@@ -353,7 +353,7 @@ export function validateHotkey(
 	// blanket block now applies only on Windows (where the Win key is
 	// heavily reserved by the OS shell). On Linux, Super combos are
 	// checked against the per-platform reserved list (Super+L, Super+D,
-	// Super+Tab) — all other Super combos are allowed.
+	// Super+Tab), all other Super combos are allowed.
 	const hasWin = parts.some((p) => p === "win" || p === "super");
 	if (hasWin && platform === "win32") {
 		//include the conflicting combo.

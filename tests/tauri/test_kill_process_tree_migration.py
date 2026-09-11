@@ -13,7 +13,7 @@ method referenced it. With the migration complete:
   EO-33 split) MUST NOT reference ``crate::state::kill_process_tree`` any more.
 * the spawn module MUST route every process-tree kill through the shared
   ``kill_process_tree_off_thread`` helper in ``spawn/handshake_loop.rs``
-  (the handshake-loop consolidation) — the helper holds the single
+  (the handshake-loop consolidation), the helper holds the single
   ``crate::platform::process::kill_process_tree`` call site and is
   invoked once per handshake cleanup path.
 
@@ -67,11 +67,11 @@ def test_state_rs_kill_process_tree_shim_is_removed() -> None:
     #       crate::platform::process::kill_process_tree(pid)
     #   }
     # We forbid any module-level `fn kill_process_tree` definition in state.rs.
-    # (An `async fn kill_tree` is allowed — that's the SidecarHandle method
+    # (An `async fn kill_tree` is allowed, that's the SidecarHandle method
     # that delegates to the platform module.)
     shim_re = re.compile(r"^\s*pub\s*\([^)]*\)\s*fn\s+kill_process_tree\s*\(", re.MULTILINE)
     assert not shim_re.search(body), (
-        "state.rs must NOT define `pub(crate) fn kill_process_tree` any more — "
+        "state.rs must NOT define `pub(crate) fn kill_process_tree` any more, "
         "the deprecated shim should be removed and all callers should invoke "
         "`crate::platform::process::kill_process_tree` directly."
     )
@@ -122,7 +122,7 @@ def test_state_rs_kill_tree_routes_to_platform_module() -> None:
     ]
     assert not unqualified_hits, (
         "SidecarHandle::kill_tree must not call the unqualified "
-        "`kill_process_tree(...)` — the shim is gone; use the fully-qualified "
+        "`kill_process_tree(...)`, the shim is gone; use the fully-qualified "
         "`crate::platform::process::kill_process_tree(...)` path."
     )
 
@@ -144,7 +144,7 @@ def test_spawn_rs_does_not_reference_state_shim() -> None:
     """The spawn module must not call the removed ``crate::state::kill_process_tree``."""
     body = _read_spawn_module()
     assert "crate::state::kill_process_tree" not in body, (
-        "the spawn module must not reference `crate::state::kill_process_tree` — "
+        "the spawn module must not reference `crate::state::kill_process_tree`, "
         "the shim has been removed; callers must use "
         "`crate::platform::process::kill_process_tree` directly."
     )
@@ -153,20 +153,20 @@ def test_spawn_rs_does_not_reference_state_shim() -> None:
 def test_spawn_rs_uses_platform_module_exactly_four_times() -> None:
     """All spawn-module cleanup callers must route through the platform module.
 
-    The four stdout-handshake loops (sidecar release/dev + worker
-    release/dev) were copy-paste twins; their kill/drain/deadline
-    semantics were consolidated into ``spawn/handshake_loop.rs``. All
-    process-tree kills now route through ONE shared off-thread helper
-    — ``kill_process_tree_off_thread`` — which contains the single
-    ``crate::platform::process::kill_process_tree`` call site, and is
-    invoked once per handshake cleanup path (release-path
-    ``Terminated`` / ``Error`` arms, the server-started-deadline
-    fallbacks, and the worker-path siblings). The platform module
-    remains the ONLY tree-kill implementation in the spawn module —
-    the state.rs shim must stay dead (guarded by the tests above).
+      The four stdout-handshake loops (sidecar release/dev + worker
+      release/dev) were copy-paste twins; their kill/drain/deadline
+      semantics were consolidated into ``spawn/handshake_loop.rs``. All
+      process-tree kills now route through ONE shared off-thread helper
+    , ``kill_process_tree_off_thread``, which contains the single
+      ``crate::platform::process::kill_process_tree`` call site, and is
+      invoked once per handshake cleanup path (release-path
+      ``Terminated`` / ``Error`` arms, the server-started-deadline
+      fallbacks, and the worker-path siblings). The platform module
+      remains the ONLY tree-kill implementation in the spawn module —
+      the state.rs shim must stay dead (guarded by the tests above).
     """
     body = _read_spawn_module()
-    # The platform-module call now appears exactly ONCE — inside the
+    # The platform-module call now appears exactly ONCE, inside the
     # shared off-thread helper. Any NEW direct call site (bypassing
     # the helper) would show up here as a count > 1 and should be
     # routed through the helper instead.
@@ -175,11 +175,11 @@ def test_spawn_rs_uses_platform_module_exactly_four_times() -> None:
         f"the spawn module must call `crate::platform::process::kill_process_tree` "
         f"exactly once (inside the shared `kill_process_tree_off_thread` helper in "
         f"spawn/handshake_loop.rs); found {len(platform_matches)}. Route any new "
-        f"kill path through the helper — do not duplicate the platform call."
+        f"kill path through the helper, do not duplicate the platform call."
     )
     # The helper is defined once and invoked from exactly six cleanup
     # paths (the handshake-loop arms enumerated in the docstring above).
-    # Bump this pin deliberately when adding ANOTHER kill path — the
+    # Bump this pin deliberately when adding ANOTHER kill path, the
     # point is that every spawn kill routes through the shared helper,
     # never resurrects the state.rs shim, and never re-duplicates the
     # platform call.

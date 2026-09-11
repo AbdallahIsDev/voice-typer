@@ -3,27 +3,27 @@
 Extracted from the once-monolithic ``history_db.py`` (wave 1 split).
 The functions in this module are free functions that take the
 :class:`~voice_typer.server.history_db.HistoryDB` instance (``db``)
-instead of ``self`` — they read/write the instance's attributes (the
+instead of ``self``: they read/write the instance's attributes (the
 thread-local ``_read_local``, the ``_all_read_connections`` list, the
 ``_connections_lock``, the ``_read_conn_generation`` counter, and the
 prune-thread handles) via the passed-in reference.
 
 Free functions:
 
-- :func:`_get_read_conn` — get (or lazily create) a thread-local
+- :func:`_get_read_conn`: get (or lazily create) a thread-local
   READ-ONLY connection. PRAGMA ``query_only=1`` enforces read-only
   access at the SQLite layer.
-- :func:`_prune_dead_read_connections_locked` — close read
+- :func:`_prune_dead_read_connections_locked`: close read
   connections whose owning thread has exited (must be called with
   ``_connections_lock`` held).
-- :func:`_periodic_read_conn_prune_loop` — the daemon-thread body
+- :func:`_periodic_read_conn_prune_loop`: the daemon-thread body
   that periodically calls ``_prune_dead_read_connections_locked``
   every ``_READ_CONN_PRUNE_INTERVAL_S`` seconds.
-- :func:`_start_read_conn_prune_thread` — start the prune daemon
+- :func:`_start_read_conn_prune_thread`: start the prune daemon
   (idempotent).
-- :func:`_stop_read_conn_prune_thread` — signal + join the prune
+- :func:`_stop_read_conn_prune_thread`: signal + join the prune
   daemon (best-effort, called by ``HistoryDB.close``).
-- :func:`_get_conn` — backwards-compat alias for ``_get_read_conn``.
+- :func:`_get_conn`: backwards-compat alias for ``_get_read_conn``.
 
 The ``_READ_CONN_PRUNE_INTERVAL_S`` constant continues to live on
 :mod:`voice_typer.server.history_db` so existing test monkeypatches
@@ -54,14 +54,14 @@ def _get_read_conn(db: HistoryDB) -> sqlite3.Connection:
 
     IMPL-A: each reader thread gets its own connection (stored in
     ``threading.local()``). ``PRAGMA query_only=1`` enforces
-    read-only access at the SQLite layer — even if a bug tried to
+    read-only access at the SQLite layer, even if a bug tried to
     write through this connection, SQLite would reject it. In WAL
     mode, readers never block the writer and the writer never
     blocks readers.
 
     SEC-007: directory + file permission tightening (0o700 / 0o600
     on POSIX) is owned by the writer's ``open_write_conn`` (single
-    source of truth) — readers inherit the already-tightened file
+    source of truth), readers inherit the already-tightened file
     perms and don't repeat the mkdir/chmod churn on every
     new-reader creation.
 
@@ -98,7 +98,7 @@ def _get_read_conn(db: HistoryDB) -> sqlite3.Connection:
         db._read_local.conn = None
     if not hasattr(db._read_local, "conn") or db._read_local.conn is None:
         # Mirror open_write_conn: the parent directory must exist before
-        # SQLite can open the file, on EVERY platform — a reader thread
+        # SQLite can open the file, on EVERY platform, a reader thread
         # may be the first to touch a fresh install whose ``<config>/db/``
         # has not been created yet. Idempotent.
         try:
@@ -125,7 +125,7 @@ def _get_read_conn(db: HistoryDB) -> sqlite3.Connection:
         conn.execute("PRAGMA cache_size=-2000")  # 2 MB
         # Enforce read-only at the SQLite layer.
         conn.execute("PRAGMA query_only=1")
-        # Don't force WAL here — the writer already set it on the
+        # Don't force WAL here, the writer already set it on the
         # DB file; readers inherit whatever journal mode the DB
         # file is in. Forcing WAL on a read-only connection on a
         # network FS could fail.
@@ -212,7 +212,7 @@ def _start_read_conn_prune_thread(db: HistoryDB) -> None:
 
     Pre-fix, ``_prune_dead_read_connections_locked`` only fired when
     a NEW connection was created on a thread that didn't already
-    have one — purely reactive. If N threads each created a read
+    have one, purely reactive. If N threads each created a read
     connection then died, and NO new thread created a connection
     afterward, the N dead-thread connections (each 2 MB page cache
     post-) sat in ``_all_read_connections`` until the next
@@ -224,7 +224,7 @@ def _start_read_conn_prune_thread(db: HistoryDB) -> None:
     exited. This bounds the leak window to 60s regardless of
     new-thread read-conn churn.
 
-    Idempotent — if a prune thread is already running, the call is
+    Idempotent, if a prune thread is already running, the call is
     a no-op. Tests can shorten the interval by patching
     ``history_db._READ_CONN_PRUNE_INTERVAL_S`` and then calling
     ``_stop_read_conn_prune_thread()`` / ``_start_read_conn_prune_thread()``
@@ -245,7 +245,7 @@ def _stop_read_conn_prune_thread(db: HistoryDB) -> None:
     """Stop the periodic prune daemon (called by close()).
 
     Signals the stop event, joins the worker thread (so it has
-    fully exited before we return — prevents a race where close()
+    fully exited before we return, prevents a race where close()
     closes a connection the prune worker is about to walk), and
     clears the ``_read_conn_prune_thread`` /
     ``_read_conn_prune_stop_event`` attributes so callers can
@@ -267,7 +267,7 @@ def _periodic_read_conn_prune_loop(db: HistoryDB) -> None:
     Reads ``_READ_CONN_PRUNE_INTERVAL_S`` from the MODULE namespace
     (not the class) on each iteration so tests can patch
     ``history_db._READ_CONN_PRUNE_INTERVAL_S`` and have the change
-    take effect without restarting the worker — although the
+    take effect without restarting the worker, although the
     existing tests restart the worker anyway for determinism.
     """
     # Lazy import so the constant tracks monkeypatches on the

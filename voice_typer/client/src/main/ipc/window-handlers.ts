@@ -18,7 +18,7 @@
  * the tray path goes through `showMainWindow()` directly.
  *
  * : the `window:open-electron-logs` handler (: open the
- * Electron userData directory) was removed — the preload bridge no
+ * Electron userData directory) was removed, the preload bridge no
  * longer exposes an `openElectronLogs` entry, so the handler was
  * unreachable. The Tauri bridge's `openElectronLogs` impl (which
  * invoked the Rust `open_host_logs` command) was deleted in lockstep,
@@ -61,11 +61,11 @@ import {
 //      bundle). The static import would pull `../i18n` → `./branding`
 //      → ... into the window-handlers module graph eagerly; the
 //      dynamic import defers that cost to when the handler is
-//      actually invoked (which is rare — only on locale change).
+//      actually invoked (which is rare, only on locale change).
 
 // Saved bounds for window:toggle-maximize to restore on unmaximize.
 //this used to live on `state.preMaximizeBounds` but no
-// other module reads/writes it — kept local for encapsulation (matches
+// other module reads/writes it, kept local for encapsulation (matches
 // session-4 + session-5 consensus; session-1's `state.preMaximizeBounds`
 // refactor was reverted by session-5's dead-code cleanup).
 let preMaximizeBounds: Electron.Rectangle | null = null;
@@ -85,7 +85,7 @@ let preMaximizeBounds: Electron.Rectangle | null = null;
  * Best-effort: the regex handles the common cases (single/double
  * quoted strings, braced expressions without nested braces). Non-
  * string PII (e.g. user data in a JSON-stringified prop, or in the
- * `message`/`stack` fields) may still slip through — the log file
+ * `message`/`stack` fields) may still slip through, the log file
  * must be treated as sensitive regardless (see the reworded comment
  * on the `renderer:log-error` handler above).
  *
@@ -98,7 +98,7 @@ export function scrubComponentStackPii(s: string): string {
 			// prop="value" → prop="[scrubbed]"
 			.replace(/(\b\w+)=(['"])[^'"]*\2/g, "$1=$2[scrubbed]$2")
 			// prop={expr} → prop={[scrubbed]}
-			// (single-level — nested braces are rare in componentStack)
+			// (single-level, nested braces are rare in componentStack)
 			.replace(/(\b\w+)=\{[^}]*\}/g, "$1={[scrubbed]}")
 	);
 }
@@ -157,10 +157,10 @@ export function registerWindowHandlers(): void {
 	// directory via `computeConfigDir()` + `/logs` (mirrors
 	// `voice_typer/server/config.py:_config_dir()` and
 	// `bootstrap.ts::setupUserData()`), and we NO LONGER create the
-	// directory — the Python backend creates it on its own startup.
+	// directory, the Python backend creates it on its own startup.
 	//
 	// The sibling `window:open-electron-logs` handler (which
-	// opened the Electron userData dir) was removed — the preload
+	// opened the Electron userData dir) was removed, the preload
 	// bridge no longer exposes an `openElectronLogs` entry, so the
 	// handler was unreachable. The Tauri bridge's
 	// `openElectronLogs` impl (which invoked the Rust
@@ -195,7 +195,7 @@ export function registerWindowHandlers(): void {
 	// `dialog.showOpenDialog` can reject (Linux with no display
 	// server, internal Electron error, etc.). Previously this rejection
 	// became an unhandled promise rejection that the SEC-021 breaker
-	// counted toward the 5-error crash-loop exit threshold — a single
+	// counted toward the 5-error crash-loop exit threshold, a single
 	// failed folder-picker could force-exit the app. We now wrap the
 	// body in try/catch and return a structured `{ canceled: true,
 	// error?: string }` envelope so the renderer can show a snackbar
@@ -230,7 +230,7 @@ export function registerWindowHandlers(): void {
 	// alongside the ERROR-level console messages persisted by the
 	// main-window `console-message` handler (G4-M-67).
 	//
-	// DE-85: payload MAY contain PII — treat as sensitive. React
+	// DE-85: payload MAY contain PII, treat as sensitive. React
 	// `componentStack` strings can include string-literal prop
 	// values (e.g. `<Transcription text='user utterance'>`) in
 	// development and, depending on bundler config, even in
@@ -249,7 +249,7 @@ export function registerWindowHandlers(): void {
 	//   - stack: the Error.stack string (may be undefined for non-Error
 	//     throws)
 	//   - componentStack: React's component tree trace (only present
-	//     for `componentDidCatch` calls) — scrubbed before writing
+	//     for `componentDidCatch` calls), scrubbed before writing
 	//   - message: short summary for one-line log scanning
 	//
 	// The handler always resolves with `{ ok: true }` so the renderer's
@@ -303,11 +303,11 @@ export function registerWindowHandlers(): void {
 	//       `notifyBubbleLocaleChanged` so its separate JS context
 	//       re-renders in the new locale without a full reload.
 	//
-	// Payload contract (Rule 26 / P4 — IPC types must match): the
+	// Payload contract (Rule 26 / P4, IPC types must match): the
 	// handler accepts a BARE STRING only ("ar", "en-US", …). This
-	// matches the ONLY production caller — the preload's
+	// matches the ONLY production caller, the preload's
 	// `setLocale: (locale: string) =>
-	// ipcRenderer.invoke(I18nChannels.setLocale, locale)` — which
+	// ipcRenderer.invoke(I18nChannels.setLocale, locale)`, which
 	// always passes a bare string. The previous implementation also
 	// accepted `{ locale: string }` for legacy/test-contract reasons,
 	// but that dual-shape acceptance violates Rule 26/P4 (the
@@ -315,12 +315,12 @@ export function registerWindowHandlers(): void {
 	// string }`) and lets a compromised renderer probe the handler's
 	// shape with object payloads. Empty / null / non-string
 	// payloads return `{ ok: false, error: "empty locale" }` so the
-	// renderer's `.catch(() => {})` swallow doesn't fire — the push
+	// renderer's `.catch(() => {})` swallow doesn't fire, the push
 	// is best-effort.
 	//
 	// NOTE: the `i18n-set-locale-handler.test.ts` suite (at
 	// `src/main/__tests__/i18n-set-locale-handler.test.ts`) was
-	// updated in lockstep with this tightening — it now asserts
+	// updated in lockstep with this tightening, it now asserts
 	// the `{ locale: string }` object shape is REJECTED
 	// ("rejects a {locale} object payload (bare-string-only
 	// contract)"). Keep the test and the handler's shape in
@@ -343,7 +343,7 @@ export function registerWindowHandlers(): void {
 	// instead of compiling silently.
 	ipcMain.removeHandler?.(I18nChannels.setLocale);
 	ipcMain.handle(I18nChannels.setLocale, async (_event, payload: unknown) => {
-		// Bare-string only — see Rule 26/P4 note above.
+		// Bare-string only, see Rule 26/P4 note above.
 		if (typeof payload !== "string" || payload.length === 0) {
 			return { ok: false, error: "empty locale" };
 		}
@@ -364,7 +364,7 @@ export function registerWindowHandlers(): void {
 		try {
 			setMainLocale(locale);
 		} catch (e) {
-			// Defensive — setMainLocale currently never throws, but
+			// Defensive, setMainLocale currently never throws, but
 			// a future refactor must not crash the main process.
 			return { ok: false, error: (e as Error).message };
 		}
@@ -379,7 +379,7 @@ export function registerWindowHandlers(): void {
 			);
 			notifyBubbleLocaleChanged(locale);
 		} catch (e) {
-			// Best-effort — bubble may not be loaded yet (early
+			// Best-effort, bubble may not be loaded yet (early
 			// startup) or the dynamic import may fail in test
 			// environments. The locale still took effect for
 			// native dialogs via setMainLocale above.

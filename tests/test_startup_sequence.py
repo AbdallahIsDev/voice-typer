@@ -20,7 +20,7 @@ then call ``app._do_startup()`` and assert the recorded call order.
 
 Pure-refactor safety: behaviour must be IDENTICAL to the pre-extraction
 ``VoiceTyperApp._do_startup`` (~340 lines). These tests would have
-passed before the extraction too — they exist to catch regressions if
+passed before the extraction too, they exist to catch regressions if
 the StartupSequence body is edited in a way that reorders phases or
 drops a RACE-020 gate.
 """
@@ -46,7 +46,7 @@ def app_for_startup(tmp_config_dir, monkeypatch):
     enable/disable_autostart, list_microphones) and the
     hardware/IO-bound startup_tasks functions.
     """
-    # raising=False — these app-module attributes may have
+    # raising=False, these app-module attributes may have
     # been removed/renamed in a prior refactor (autostart functions
     # moved to voice_typer.server.server_platform). The monkeypatch
     # is a defensive no-op when they're absent (the StartupSequence
@@ -74,7 +74,7 @@ class TestStartupSequenceDelegate:
 
         Phase 5 contract: the body of ``_do_startup`` is now a
         1-line delegate. The actual logic lives in
-        ``StartupSequence(self).run()`` — verified by patching
+        ``StartupSequence(self).run()``, verified by patching
         ``StartupSequence.run`` to a sentinel and asserting it was called.
         """
         from voice_typer.server import startup_sequence
@@ -101,25 +101,30 @@ class TestStartupSequenceDelegate:
 
 
 class TestStartupSequenceRunOrder:
-    """Pin the boot phase ordering — reordering risks documented in
-    startup_sequence.py module docstring (hotkey-before-model,
-    mic-before-hotkey, onboarding-before-save)."""
+    """Pin the boot phase ordering, hotkey-before-model and
+    hotkey-before-mic (late mics recover via ``microphones_changed``),
+    onboarding-before-save."""
 
     def test_run_dispatches_autostart_then_hotkey_then_model(self, app_for_startup, monkeypatch):
         """The expected startup contract is:
 
             1. startup_tasks.sync_autostart(app) DISPATCHED (fire-and-
-               forget daemon thread — BP-129: never waited on, so a
+               forget daemon thread, BP-129: never waited on, so a
                hung schtasks /Query cannot stall the hotkey)
             2. startup_tasks.ensure_desktop_shortcut(app)
-            3. (parallel) load_microphones in the bounded pool
-               (sync_prewarm_task is NEVER called — dead ceremony)
-            4. app.hotkeys.register()
+            3. app.hotkeys.register(), BEFORE the mic task, so a hung
+               audio stack cannot keep the dictation hotkey dead
+               through the mic task's 5s budget
+            4. (parallel) load_microphones in the bounded pool
+               (sync_prewarm_task is NEVER called, dead ceremony)
             5. app.models.start_background_load()
 
         Hotkey registration must run (it gates dictation); model load
-        must start after it. Autostart + mic work must be underway
-        without blocking the hotkey.
+        must start after it. Mic results arriving after the hotkey are
+        handled by the existing recovery path —
+        ``load_microphones`` pushes ``microphones_changed`` and calls
+        ``app.tray.set_microphones``, so nothing requires mics to
+        finish first.
         """
         import threading
 
@@ -188,7 +193,7 @@ class TestStartupSequenceRunOrder:
         # BP-129: the dead prewarm ceremony is never dispatched.
         assert prewarm_calls == [], "startup must never call sync_prewarm_task (no-op stub)"
         assert "startup-prewarm-sync" not in autostart_threads, (
-            "the prewarm sync thread is deleted — no such thread may spawn"
+            "the prewarm sync thread is deleted, no such thread may spawn"
         )
         # Autostart sync IS dispatched (fire-and-forget daemon thread).
         assert "startup-autostart-sync" in autostart_threads, (
@@ -206,16 +211,22 @@ class TestStartupSequenceRunOrder:
             "F2 must work even if the model fails to load."
         )
 
-        # Mic enumeration must run before the hotkey is bound (the tray
-        # menu needs the mic list).
+        # Mic enumeration runs AFTER the hotkey is bound: the mic task
+        # carries a 5s timeout budget, and late mic results recover via
+        # the microphones_changed push + tray rebuild inside
+        # load_microphones (see startup_tasks.load_microphones).
         assert "load_microphones" in call_order, "mic enumeration must run"
         mic_idx = call_order.index("load_microphones")
-        assert mic_idx < hotkey_idx, "Phase ordering: mic enumeration MUST precede hotkey registration"
+        assert hotkey_idx < mic_idx, (
+            "Phase ordering: hotkey registration MUST precede mic enumeration, "
+            "the mic task's 5s budget must not delay the dictation hotkey (late "
+            "mics recover via the microphones_changed push)."
+        )
 
     def test_run_marks_session_active_after_crash_check(self, app_for_startup, monkeypatch, tmp_config_dir):
         """SESSION-STATE: once startup passes the crash-check phase, run()
         records the session-active marker (``session_state.py``) so a crash
-        later in the session is detectable on the next launch — while an
+        later in the session is detectable on the next launch, while an
         aborted startup (``_shutting_down``) must NOT leave a marker."""
         from voice_typer.server import session_state, startup_tasks
 
@@ -224,8 +235,8 @@ class TestStartupSequenceRunOrder:
             lambda config_dir: None,
         )
 
-        # Abort the sequence right after the first phase — which runs
-        # AFTER the marker write — so the test doesn't need the full
+        # Abort the sequence right after the first phase, which runs
+        # AFTER the marker write, so the test doesn't need the full
         # startup surface.
         def _sync_autostart_abort(app):
             app._shutting_down = True
@@ -332,7 +343,7 @@ class TestStartupSequenceRunOrder:
     def test_crash_file_plus_clean_session_suppressed(self, app_for_startup, monkeypatch, tmp_config_dir):
         """SESSION-STATE gate (end-to-end): the SAME crash file with NO
         session marker (previous session shut down cleanly) → NO
-        notification — teardown-noise markers are archived, not reported.
+        notification, teardown-noise markers are archived, not reported.
         This is the core false-positive fix (restart / reload / clean
         quit must not produce a crash notification)."""
         from voice_typer.server import session_state
@@ -365,7 +376,7 @@ class TestStartupSequenceRACE020ShutdownGates:
     def test_run_returns_early_if_shutting_down_at_start(self, app_for_startup, monkeypatch):
         """If _shutting_down is True at the very start, NO phases run.
 
-        This is the strongest RACE-020 invariant — a quit() that landed
+        This is the strongest RACE-020 invariant, a quit() that landed
         before startup even began must leave all subsystems untouched.
         """
         from voice_typer.server import startup_tasks
@@ -390,7 +401,7 @@ class TestStartupSequenceRACE020ShutdownGates:
         app_for_startup.models = MagicMock()
         app_for_startup.models.start_background_load = lambda: _inc_call("models.start_background_load")
 
-        # Set shutting_down BEFORE run() — quit() landed during the
+        # Set shutting_down BEFORE run(), quit() landed during the
         # tray.start(bg_work=_do_startup) handoff, before the bg thread
         # actually started running _do_startup.
         app_for_startup._shutting_down = True
@@ -452,7 +463,7 @@ class TestStartupSequenceRACE020ShutdownGates:
 class TestStartupSequenceDoesNotCrashOnMissingDeps:
     """StartupSequence.run() must not raise on common test-environment
     degradations (no sounddevice, no torch, etc.). Each subsystem's
-    failure is logged and the sequence continues — startup resilience
+    failure is logged and the sequence continues, startup resilience
     is a hard product requirement (see test_app.py:TestStartupResilience)."""
 
     def test_run_swallows_onboarding_exceptions(self, app_for_startup, monkeypatch):
@@ -460,13 +471,13 @@ class TestStartupSequenceDoesNotCrashOnMissingDeps:
         the rest of startup (RACE-020 / startup resilience).
 
         The onboarding block in startup_sequence.py wraps its body in
-        try/except and increments ``app._onboarding_fail_count`` — after
+        try/except and increments ``app._onboarding_fail_count``, after
         3 failures it marks onboarding complete with a failure flag.
         """
         from voice_typer.server import startup_sequence as ss_mod, startup_tasks
         from voice_typer.server.onboarding import OnboardingController
 
-        # Force is_first_run() to raise — simulates a permissions error
+        # Force is_first_run() to raise, simulates a permissions error
         # reading the onboarding marker file.
         def _exploding_is_first_run(self):
             raise OSError("permission denied")
@@ -493,7 +504,7 @@ class TestStartupSequenceDoesNotCrashOnMissingDeps:
         app_for_startup.config.bubble_show_on_startup = False
         monkeypatch.delenv("VOICE_TYPER_RESTART", raising=False)
 
-        # Must NOT raise — onboarding failure is logged and the
+        # Must NOT raise, onboarding failure is logged and the
         # sequence proceeds to hotkey registration + model load.
         ss_mod.StartupSequence(app_for_startup).run()
 
@@ -513,12 +524,12 @@ class TestOnboardingStartedMarkerGate:
     ``OnboardingController.mark_started()``).
 
     Pre-fix, auto-heal fired whenever ``not onboarding_completed AND
-    config.json exists`` — so a wizard that crashed/restarted mid-flow
+    config.json exists``, so a wizard that crashed/restarted mid-flow
     silently had its in-progress selections overwritten with onboarding
     defaults (``<caps_lock>``, ``small.en``, ``None``).
 
     The fix gates auto-heal on ``config_file.exists() and not
-    started_marker.exists()`` — if the started marker is present, we
+    started_marker.exists()``, if the started marker is present, we
     defer to the wizard (save default config + let the renderer pick
     up where it left off).
     """
@@ -543,7 +554,7 @@ class TestOnboardingStartedMarkerGate:
         """If ``.onboarding_started`` exists, auto-heal MUST NOT fire.
 
         The user is mid-wizard (e.g. crashed/restarted before
-        completing) — auto-heal would silently overwrite their
+        completing), auto-heal would silently overwrite their
         in-progress selections with onboarding defaults. The fix
         defers to the wizard: the default config is saved (so the
         app can boot), but ``onboarding_completed`` stays False so
@@ -579,7 +590,7 @@ class TestOnboardingStartedMarkerGate:
 
         onboarding_status.write_status(tmp_config_dir, started=True)
 
-        # Spy on OnboardingController.mark_complete — auto-heal calls
+        # Spy on OnboardingController.mark_complete, auto-heal calls
         # it; the deferred-to-wizard path does NOT.
         mark_complete_calls = []
         monkeypatch.setattr(
@@ -592,7 +603,7 @@ class TestOnboardingStartedMarkerGate:
 
         StartupSequence(app_for_startup).run()
 
-        # Auto-heal was SKIPPED — mark_complete was NOT called.
+        # Auto-heal was SKIPPED, mark_complete was NOT called.
         assert mark_complete_calls == [], (
             "XZ-R12-01: auto-heal must NOT call mark_complete when "
             ".onboarding_started marker is present (wizard is in progress)"
@@ -604,12 +615,12 @@ class TestOnboardingStartedMarkerGate:
 
     def test_auto_heal_fires_when_started_marker_absent(self, app_for_startup, tmp_config_dir, monkeypatch):
         """If ``.onboarding_started`` does NOT exist (and config.json
-        does), auto-heal MUST fire — this is the "stale state from a
+        does), auto-heal MUST fire, this is the "stale state from a
         previous install" scenario the auto-heal was designed for.
 
         Without the started marker, the wizard has never run in this
         config dir, so the False ``onboarding_completed`` flag is
-        genuinely stale (the marker was lost/deleted) — auto-heal
+        genuinely stale (the marker was lost/deleted), auto-heal
         fixes it to prevent the wizard from re-showing and clobbering
         the user's existing settings.
         """
@@ -641,7 +652,7 @@ class TestOnboardingStartedMarkerGate:
 
         StartupSequence(app_for_startup).run()
 
-        # Auto-heal DID fire — mark_complete was called exactly once.
+        # Auto-heal DID fire, mark_complete was called exactly once.
         assert len(mark_complete_calls) == 1, (
             "XZ-R12-01: auto-heal MUST call mark_complete when "
             ".onboarding_started marker is absent and config.json exists "
@@ -657,7 +668,7 @@ class TestOnboardingStartedMarkerGate:
         """If ``config.json`` does NOT exist, auto-heal must defer to
         the wizard regardless of the ``.onboarding_started`` marker.
 
-        This is the genuine first-run path — no prior config to
+        This is the genuine first-run path, no prior config to
         clobber, so we save defaults and let the wizard show.
         """
         from voice_typer.server.onboarding import OnboardingController
@@ -689,9 +700,9 @@ class TestOnboardingStartedMarkerGate:
 
         StartupSequence(app_for_startup).run()
 
-        # Genuine first run — auto-heal does NOT fire.
+        # Genuine first run, auto-heal does NOT fire.
         assert mark_complete_calls == [], (
-            "XZ-R12-01: auto-heal must NOT fire on genuine first run (config.json absent) — defer to the wizard"
+            "XZ-R12-01: auto-heal must NOT fire on genuine first run (config.json absent), defer to the wizard"
         )
         # onboarding_completed stays False so the wizard shows.
         assert app_for_startup.config.onboarding_completed is False, (

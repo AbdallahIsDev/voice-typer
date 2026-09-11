@@ -2,7 +2,7 @@
 
 Extracted from the original ``tests/test_history_and_models.py`` catch-all
 (Epic EC-25 / Entry #23 test-file split). This module pins the behavior of
-:meth:`voice_typer.server.history_db.HistoryDB.apply_retention` — the
+:meth:`voice_typer.server.history_db.HistoryDB.apply_retention`, the
 policy that trims the SQLite history table to a configured ``max_entries``
 while preserving user-favorited rows even when they fall outside the
 retention window.

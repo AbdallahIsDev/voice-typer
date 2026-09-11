@@ -1,22 +1,22 @@
 #!/bin/bash
-# Voice Typer — RPM %preun script
+# Voice Typer. RPM %preun script
 #
 # Runs as root during `dnf remove voice-typer`. Removes the udev rule and
 # XKB config. Does NOT remove the user from the input group (other apps
-# may rely on it — see uninstall_permissions.py).
+# may rely on it: see uninstall_permissions.py).
 #
 # Also removes the per-user autostart .desktop entry
 # (~/.config/autostart/voice-typer.desktop) so the launcher does not
 # respawn the app on next login after uninstall.
 #
 # Also removes the per-user prewarm systemd user units
-# (~/.config/systemd/user/voice-typer-prewarm.{timer,service}) — mirrors
+# (~/.config/systemd/user/voice-typer-prewarm.{timer,service}), mirrors
 # the Debian prerm's remove_prewarm_for_home() cleanup so RPM uninstalls
 # don't leave a stale systemd timer pointing at the now-deleted frozen
 # prewarm binary (which would log failed-unit journal spam on every
 # login).
 #
-# Functionally identical to the Debian prerm — probes the same 5 canonical
+# Functionally identical to the Debian prerm, probes the same 5 canonical
 # candidate paths so the uninstall script is found regardless of which
 # installer produced the package (Tauri v2 .rpm, legacy Electron .rpm,
 # AppImage, manual install).
@@ -43,7 +43,7 @@ if [ "$1" = "0" ]; then
         echo "[voice-typer] Removing keyboard permissions (using $UNINSTALL_SCRIPT)..."
         python3 "$UNINSTALL_SCRIPT" || true
     else
-        echo "[voice-typer] uninstall_permissions.py not found — skipping keyboard-permission cleanup"
+        echo "[voice-typer] uninstall_permissions.py not found, skipping keyboard-permission cleanup"
     fi
 
     # Terminate any running voice-typer processes BEFORE removing the
@@ -53,16 +53,16 @@ if [ "$1" = "0" ]; then
     # which would leave a stale launcher pointing at the now-deleted
     # binary on next login. We:
     #   1. Read each user's backend PID lockfile
-    #      (~/.local/share/voice-typer/backend.pid — written by
+    #      (~/.local/share/voice-typer/backend.pid, written by
     #      single_instance.py) and send a targeted SIGTERM so the
     #      app can run its shutdown teardown (flush history DB,
     #      release the audio device, clear the PID file).
-    #   2. pkill -TERM -x voice-typer-tauri — catches the Tauri
+    #   2. pkill -TERM -x voice-typer-tauri, catches the Tauri
     #      host binary even if the backend PID file is missing
     #      (e.g. crashed hard and never wrote it).
-    #   3. pkill -TERM -f 'python-sidecar' — catches the frozen
+    #   3. pkill -TERM -f 'python-sidecar': catches the frozen
     #      Python sidecar binary by command-line substring match.
-    #   4. sleep 1 — gives the SIGTERM'd processes time to actually
+    #   4. sleep 1, gives the SIGTERM'd processes time to actually
     #      exit and release file handles before we rm their unit
     #      files. 1s is enough on every desktop we've tested; the
     #      teardown is well under 200ms (see shutdown_controller.py).
@@ -111,7 +111,7 @@ if [ "$1" = "0" ]; then
         fi
     }
 
-    # Prewarm systemd user-unit cleanup — mirrors the Debian prerm's
+    # Prewarm systemd user-unit cleanup, mirrors the Debian prerm's
     # remove_prewarm_for_home() exactly. The prewarm scheduler
     # (voice_typer/server/prewarm_scheduler_posix.py) registers a
     # SEPARATE systemd user timer + service at

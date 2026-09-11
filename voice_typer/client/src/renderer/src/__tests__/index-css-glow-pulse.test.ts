@@ -6,7 +6,7 @@
  * re-rasterize the shadow (paint) on every frame of the infinite
  * loop. The current contract:
  *
- *   1. `@keyframes glowPulse` animates OPACITY ONLY — never
+ *   1. `@keyframes glowPulse` animates OPACITY ONLY, never
  *      box-shadow (or any paint-triggering property).
  *   2. The glow itself is a STATIC box-shadow painted once on the
  *      `.animate-glow-pulse::after` pseudo-element (compositor-only
@@ -61,7 +61,7 @@ function extractRule(selector: string): string | null {
 	return null;
 }
 
-describe("glowPulse — compositor-only glow animation contract", () => {
+describe("glowPulse, compositor-only glow animation contract", () => {
 	it("the keyframes animate opacity ONLY (no box-shadow repaint per frame)", () => {
 		const keyframes = extractKeyframes("glowPulse");
 		expect(keyframes).toBeTruthy();
@@ -97,7 +97,7 @@ describe("glowPulse — compositor-only glow animation contract", () => {
 		expect(reduceIdx).toBeGreaterThanOrEqual(0);
 		const reduceBlock = css.slice(reduceIdx, css.indexOf("}", reduceIdx) + 200);
 		// The global selector list includes *::after, which matches the
-		// glow pseudo-element — the 0.01ms/1-iteration clamp settles it
+		// glow pseudo-element, the 0.01ms/1-iteration clamp settles it
 		// onto its base (static, dim) opacity instead of looping.
 		expect(reduceBlock).toContain("*::after");
 		expect(reduceBlock).toContain("animation-duration: 0.01ms");

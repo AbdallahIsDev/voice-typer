@@ -1,8 +1,8 @@
 /**
  * Shared keyset-pagination cursor for the History page.
  *
- * Both history data paths — the page cache (`hooks/useHistoryCache`) and
- * the export loop (`hooks/useHistoryExport`) — paginate with the same
+ * Both history data paths, the page cache (`hooks/useHistoryCache`) and
+ * the export loop (`hooks/useHistoryExport`), paginate with the same
  * keyset contract: ask the backend for rows strictly older than
  * `(before_timestamp, before_id)` in `(timestamp DESC, id DESC)` order.
  * When either field is absent, the backend falls back to the OFFSET path
@@ -22,7 +22,7 @@ export interface HistoryCursor {
  * result set.
  *
  * Returns `undefined` when the last row lacks a usable `timestamp`/`id`
- * (e.g. legacy rows written before the `id` column existed) — the caller
+ * (e.g. legacy rows written before the `id` column existed), the caller
  * then falls back to the OFFSET path, same as the backend's contract.
  */
 export function deriveHistoryCursor(

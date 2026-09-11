@@ -49,7 +49,7 @@ def _try_load_whisper_languages() -> tuple[frozenset[str], str] | None:
 
     Returns ``(frozenset, source_label)`` on success, or ``None`` if the
     ``whisper`` package is not importable OR the imported ``LANGUAGES``
-    dict is suspiciously small (fewer than 50 entries — Whisper's
+    dict is suspiciously small (fewer than 50 entries, Whisper's
     upstream dict has 99, so anything under 50 is almost certainly a
     broken / stubbed / partially-initialized import).  Returning
     ``None`` triggers the hardcoded fallback in
@@ -81,7 +81,7 @@ def _try_load_whisper_languages() -> tuple[frozenset[str], str] | None:
 
 
 def _hardcoded_language_codes() -> frozenset[str]:
-    """Hardcoded fallback — the 99 codes from openai-whisper's tokenizer.py.
+    """Hardcoded fallback, the 99 codes from openai-whisper's tokenizer.py.
 
     Kept in sync with the upstream list.  When whisper IS importable we
     use the live dict (above) so new languages are picked up automatically.
@@ -236,7 +236,7 @@ def _format_invalid_language_error(value: str) -> str:
     Pulled into its own helper so future tweaks to the wording (e.g.
     listing valid codes when the set is small) live in one place.
     """
-    return f"Invalid language code {value!r} — expected a 2-letter ISO 639-1 code like 'en', 'zh', 'ja'"
+    return f"Invalid language code {value!r}, expected a 2-letter ISO 639-1 code like 'en', 'zh', 'ja'"
 
 
 def _check_language_membership(value: str) -> str | None:
@@ -245,7 +245,7 @@ def _check_language_membership(value: str) -> str | None:
     Returns ``None`` if ``value`` is ``""`` (interpreted as "auto-detect")
     or a known 2-letter code; otherwise returns the formatted error string.
     """
-    # Empty string is interpreted as "auto-detect" — accept it.
+    # Empty string is interpreted as "auto-detect", accept it.
     if value == "":
         return None
     if value not in _ALLOWED_LANGUAGES:
@@ -267,7 +267,7 @@ def _validate_language(value: object) -> str | None:
         1. Reuses :data:`_LANGUAGE_BASE_VALIDATOR` for type / length /
            control-character checks (so the existing
            ``test_str_validator_via_ipc_rejects_nul_in_language`` regression
-           test still passes — the error must contain the word "control").
+           test still passes, the error must contain the word "control").
         2. Accepts the empty string as valid (interpreted as "auto-detect" —
            the renderer's ``value={config.language || "auto"}`` fallback relies
            on this).

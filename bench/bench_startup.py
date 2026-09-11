@@ -20,13 +20,13 @@ Measures:
      - WS server bind on ``127.0.0.1:0``
 
    This is the metric the master plan §3.4 commits to ≤ 600 ms
-   post-migration (the old tray-import baseline was 800 ms — see
+   post-migration (the old tray-import baseline was 800 ms, see
    ``bench/bench-baseline.json``'s
    ``bench_startup.cold_import.first_run_ms`` entry, updated by this
    retarget).
 
    A fresh subprocess is the only honest way to measure cold-start
-   latency — in-process re-imports are contaminated by cached C
+   latency: in-process re-imports are contaminated by cached C
    extensions (``numpy``, ``sounddevice``, etc. stay in ``sys.modules``
    even after ``del`` / ``importlib.reload``).
 2. **Model load time** for each model size (kept for backwards
@@ -52,7 +52,7 @@ no longer reflects the user-visible cold-start cost. The bench is
 retargeted to measure the worker's startup time (which includes the
 prewarm phase). The CI ratchet baseline ``bench_startup.cold_import.
 first_run_ms`` is updated from 800.0 ms (tray-import) to 600.0 ms
-(worker-startup) — the master plan §3.4 commits to ≤ 600 ms (25%
+(worker-startup): the master plan §3.4 commits to ≤ 600 ms (25%
 improvement over the 800 ms baseline).
 """
 
@@ -73,7 +73,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 # Imported here (after sys.path insertion) so the bench can construct
 # the worker subprocess env dict with the canonical env-var name.
-# Lightweight module — just literal constants (see voice_typer/server/
+# Lightweight module: just literal constants (see voice_typer/server/
 # _paths.py).
 from voice_typer.server._paths import IPC_TOKEN_ENV_VAR  # noqa: E402
 
@@ -87,7 +87,7 @@ DEFAULT_TARGET = "voice_typer.worker"
 
 # The token value passed to the worker subprocess. The worker only
 # checks that ``VOICE_TYPER_IPC_TOKEN`` is non-empty (it does not
-# validate the value at startup — validation happens per-connection at
+# validate the value at startup, validation happens per-connection at
 # auth time). A fixed test token keeps the bench deterministic.
 _BENCH_TOKEN = "bench-worker-startup-token"
 
@@ -139,7 +139,7 @@ def _measure_one_import(target: str, *, python: str) -> float:
 
     Returns wall-clock seconds.  Raises ``subprocess.CalledProcessError``
     on import failure.  A fresh subprocess is the only honest cold-start
-    measurement — see the module docstring above.
+    measurement: see the module docstring above.
 
     Used for the legacy ``--target voice_typer.server.tray`` mode; the
     default worker-startup mode uses :func:`_measure_one_worker_startup`
@@ -171,7 +171,7 @@ def _measure_one_worker_startup(*, python: str) -> float:
     check passes. The worker runs:
 
     1. Single-instance lock acquisition.
-    2. Prewarm phase (master plan §6.2 P-1) — pages
+    2. Prewarm phase (master plan §6.2 P-1), pages
        ``onnxruntime`` + ``ctranslate2`` + ``numpy`` + ``scipy`` +
        ``faster_whisper`` files into the OS standby cache.
     3. WS server bind on ``127.0.0.1:0``.
@@ -191,7 +191,7 @@ def _measure_one_worker_startup(*, python: str) -> float:
     the previous subprocess was killed before ``release()`` ran. We
     pass ``VOICE_TYPER_RESTART=1`` so the worker's stale-PID recovery
     path reclaims it (mirrors the slim-core sidecar's restart-env-var
-    hint — see ``voice_typer/server/single_instance.py``).
+    hint: see ``voice_typer/server/single_instance.py``).
     """
     env = {
         **os.environ,
@@ -259,7 +259,7 @@ def _measure_one_worker_startup(*, python: str) -> float:
                 proc.wait(timeout=2.0)
 
 
-class contextlib_suppress:  # noqa: N801 — intentional lowercase, mimics stdlib contextlib.suppress (see docstring)
+class contextlib_suppress:  # noqa: N801, intentional lowercase, mimics stdlib contextlib.suppress (see docstring)
     """Context manager that suppresses ALL exceptions (cleanup-only).
 
     The bench's ``finally`` block calls ``proc.terminate()`` /
@@ -270,7 +270,7 @@ class contextlib_suppress:  # noqa: N801 — intentional lowercase, mimics stdli
     the measurement is the wall-clock seconds, not the cleanup status.
 
     Named ``contextlib_suppress`` (lowercase, no underscore) so it
-    reads like the stdlib ``contextlib.suppress`` it imitates — but it
+    reads like the stdlib ``contextlib.suppress`` it imitates, but it
     suppresses ALL exceptions (not just the listed ones), so we use a
     custom class rather than ``contextlib.suppress(BaseException)``.
     """
@@ -298,7 +298,7 @@ def measure_import_times(
 
     For any other ``target`` (e.g. ``voice_typer.server.tray`` for the
     legacy tray-import measurement), each run spawns ``python -c
-    "import <target>"`` and measures the wall-clock — the original
+    "import <target>"`` and measures the wall-clock, the original
     behavior.
 
     Returns a dict with:
@@ -380,7 +380,7 @@ def main() -> int:
             sys.stdout.write("\n")
             return 0
         print("=" * 60)
-        print("Voice Typer — Model Size Benchmark")
+        print("Voice Typer: Model Size Benchmark")
         print("=" * 60)
         print("\n## Model Sizes on Disk\n")
         print(f"{'Model':<15} {'Size (MB)':<12} {'Status'}")
@@ -410,14 +410,14 @@ def main() -> int:
     # must drive the EXIT CODE. Previously main() returned 0
     # unconditionally, so a first_run above the 600 ms target printed
     # "FAIL" but the bench (and any CI wrapper trusting its exit code)
-    # still reported success — the perf-ratchet baseline (913.4 ms)
+    # still reported success: the perf-ratchet baseline (913.4 ms)
     # passed while the product budget was missed. The perf-ratchet
     # remains the relative-regression guard; this gate is the ABSOLUTE
     # budget. Non-worker targets carry no absolute budget and keep
     # returning 0.
 
     print("=" * 60)
-    print("Voice Typer — Worker Startup & Model Size Benchmark")
+    print("Voice Typer: Worker Startup & Model Size Benchmark")
     print("=" * 60)
 
     # Model sizes
@@ -430,7 +430,7 @@ def main() -> int:
         else:
             print(f"{name:<15} {mb:<12} downloaded")
 
-    # Worker startup — fresh subprocess per run, so run 0 is the true cold
+    # Worker startup: fresh subprocess per run, so run 0 is the true cold
     # start (OS page cache cold). Subsequent runs warm the page cache,
     # so the median reflects steady-state cold-start after a recent
     # launch; the first_run reflects a cold-boot launch.
@@ -473,7 +473,7 @@ def main() -> int:
         if stats["first_run_ms"] > target_ms:  # type: ignore[typeddict-item]
             print(
                 f"\nGATE FAIL: first_run {stats['first_run_ms']:.0f} ms exceeds "
-                f"the §3.4 budget of {target_ms:.0f} ms — exiting non-zero."
+                f"the §3.4 budget of {target_ms:.0f} ms, exiting non-zero."
             )
             return 1
     return 0

@@ -11,7 +11,7 @@ The Equalizer's 3-sample delay line has two code paths:
 Historically the d3-construction branch and the delay-update branch
 were two SEPARATE ``if n >= 3:`` blocks. Both referenced ``extended``
 but it was assigned in only one of them. That worked only because
-both branches shared the same guard — a future refactor that
+both branches shared the same guard, a future refactor that
 diverged the two conditions would trigger ``NameError: name
 'extended' is not defined`` at runtime. Short chunks (1-2 samples)
 occur at stream startup / teardown and would surface such a bug

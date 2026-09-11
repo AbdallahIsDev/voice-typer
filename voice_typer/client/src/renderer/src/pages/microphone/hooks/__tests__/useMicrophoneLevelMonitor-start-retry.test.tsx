@@ -5,7 +5,7 @@
  * ----------
  * On a cold start with the Microphone page restored (persisted last
  * page), the mount effect fires ``level_monitor_start`` the moment the
- * config round-trip lands — which can be while the host bridge is still
+ * config round-trip lands, which can be while the host bridge is still
  * establishing (renderer connects before the backend finishes booting).
  * A rejected/failed start used to be terminal (console warn only), so
  * the live level bar stayed dead for the page's entire lifetime and the
@@ -14,7 +14,7 @@
  *
  *   1. A failed start retries up to 3 times, then gives up (no infinite
  *      loop against a genuinely broken backend).
- *   2. A ``client.consent_required`` refusal is terminal — the consent
+ *   2. A ``client.consent_required`` refusal is terminal, the consent
  *      dialog's onAllow path restarts the monitor explicitly.
  *   3. A pending retry is cancelled on unmount / dep change (the
  *      cleanup's ``level_monitor_stop`` owns teardown).
@@ -106,7 +106,7 @@ function countStartCalls(): number {
 		.length;
 }
 
-describe("useMicrophoneLevelMonitor — bounded level_monitor_start retry", () => {
+describe("useMicrophoneLevelMonitor, bounded level_monitor_start retry", () => {
 	it("retries a failed start on the backoff schedule and stops after success", async () => {
 		vi.useFakeTimers();
 		let startCalls = 0;
@@ -226,7 +226,7 @@ describe("useMicrophoneLevelMonitor — bounded level_monitor_start retry", () =
 		});
 		expect(countStartCalls()).toBe(1);
 
-		// Unmount BEFORE the +1s retry fires — the cleanup must cancel
+		// Unmount BEFORE the +1s retry fires, the cleanup must cancel
 		// the scheduled retry so no start outlives its effect instance.
 		act(() => {
 			utils.unmount();

@@ -1,20 +1,20 @@
-## Auto-Update System Architecture (Runtime Pack — Implemented 2026-08-13)
+## Auto-Update System Architecture (Runtime Pack, Implemented 2026-08-13)
 
 > **STATUS: IMPLEMENTED (2026-08-13).** This document previously read
 > "NOT IMPLEMENTED (design only)". Sub-agent 13 (master plan §10) built
 > the runtime-pack auto-update mechanism from scratch. The earlier
 > Tauri-v2 `tauri-plugin-updater` design proposed below the
-> "Historical design — Tauri v2 `tauri-plugin-updater`" section has
+> "Historical design: Tauri v2 `tauri-plugin-updater`" section has
 > been superseded by the Python-side implementation described in the
 > first half of this document. Both halves are retained for
-> traceability — the historical design is the original spec, and the
+> traceability: the historical design is the original spec, and the
 > "Implemented" section describes what actually ships.
 
 ────────────────────────────────────────────────────────────────────────────────
 ## Architecture Overview (Implemented)
 
 The auto-update system covers the **runtime pack** (the worker exe
-onefile + `pack-manifest.json`) — NOT the slim-core installer. The
+onefile + `pack-manifest.json`): NOT the slim-core installer. The
 slim core is updated via the platform's native installer (NSIS on
 Windows, DMG on macOS, AppImage/deb/rpm on Linux); the runtime pack
 is updated silently in-app because it ships outside the installer.
@@ -22,24 +22,24 @@ is updated silently in-app because it ships outside the installer.
 The implementation consists of three components:
 
 1. **Pack-version checker** (Python, `voice_typer/server/service/update_check.py`)
-   — fetches the remote `pack-manifest.json` from GitHub Releases,
+ Fetches the remote `pack-manifest.json` from GitHub Releases,
    compares its `version` field against the locally installed pack,
    and (if newer + consent given) triggers a background download via
    `voice_typer/server/service/offline_pack.py::download_offline_pack_with_resume`.
    Consent-gated via `config.offline_pack_consent` (NOT
-   `huggingface_consent` — the pack phones home to GitHub/Microsoft,
+   `huggingface_consent` The pack phones home to GitHub/Microsoft,
    not HuggingFace).
 2. **GitHub Releases publisher** (`scripts/release/publish_pack_release.py`)
-   — release-engineering CLI that publishes the pack onefile + manifest
+ Release-engineering CLI that publishes the pack onefile + manifest
    to GitHub Releases. Two backends: `gh` CLI (preferred) and GitHub
    REST API (fallback). Idempotent (re-running with the same tag skips
    `gh release create` if the release exists + uses `--clobber` to
    replace existing assets).
 3. **Network-online trigger** (renderer, `voice_typer/client/src/renderer/src/hooks/useNetworkOnline.ts`)
-   — React hook that subscribes to the browser's `online` event and
+ React hook that subscribes to the browser's `online` event and
    triggers a `check_offline_pack_update` IPC call on the false → true
    transition. No `fetch()` / `XMLHttpRequest` / `axios` in the
-   renderer — every network call goes through the Python IPC bridge so
+   renderer: every network call goes through the Python IPC bridge so
    the SSRF defense runs server-side.
 
 The renderer also has a sibling hook `useOfflinePackDownload.ts` (Sub-agent 9)
@@ -51,7 +51,7 @@ and exposes `{ status, error, isReady }` for UI components.
 ## `pack-manifest.json` (Implemented)
 
 Each pack release publishes a `pack-manifest.json` manifest at a
-stable URL — GitHub Releases serves the latest release's manifest from:
+stable URL: GitHub Releases serves the latest release's manifest from:
 
 ```
 https://github.com/AbdallahIsDev/voice-typer/releases/latest/download/pack-manifest.json
@@ -59,7 +59,7 @@ https://github.com/AbdallahIsDev/voice-typer/releases/latest/download/pack-manif
 
 (Pinned in `voice_typer/server/service/update_check.py` as
 `DEFAULT_PACK_MANIFEST_URL`. Override via the `VT_PACK_MANIFEST_URL`
-env var — test escape hatch + power-user override.)
+env var: test escape hatch + power-user override.)
 
 The pack onefile itself is version-pinned:
 
@@ -71,7 +71,7 @@ The manifest schema is defined by
 `voice_typer/server/service/offline_pack.py::load_offline_pack_manifest` and includes
 `version`, `sha256`, `files` (list of `{name, sha256, size}`), and
 `min_proto_version`. Manifests larger than `MAX_MANIFEST_BYTES = 1 MiB`
-are rejected (defense-in-depth — chunked read in transport +
+are rejected (defense-in-depth: chunked read in transport +
 `_secure_read_text` on the temp file).
 
 ────────────────────────────────────────────────────────────────────────────────
@@ -80,24 +80,24 @@ are rejected (defense-in-depth — chunked read in transport +
 ### Python (`voice_typer/server/service/update_check.py`)
 
 - `check_offline_pack_update(config, event_bus, *, http_get=None, manifest_url=None, local_version=None, root=None, trigger_download=True) -> UpdateCheckResult`
-  — main entry point. Consent-gated (raises / publishes
+ Main entry point. Consent-gated (raises / publishes
   `consent_required` event when `config.offline_pack_consent` is
   False). Triggers `pack.download_offline_pack_with_resume` on a daemon thread
   when a newer version is found.
 - `handle_check_offline_pack_update_ipc(app, data, *, http_get=None, ...) -> dict`
-  — thin IPC handler wrapper. **NOT auto-registered in
-  `ipc/registry.py`** — wiring is owned by whoever owns the shared
+ Thin IPC handler wrapper. **NOT auto-registered in
+  `ipc/registry.py`**: wiring is owned by whoever owns the shared
   registry file. The renderer hook fails gracefully (caught + logged
   at debug) until the command is registered.
 - `fetch_remote_manifest(url, *, http_get=None) -> PackManifest | None`
-  — pure helper. SSRF-gated (`pack.assert_offline_pack_url_allowed`), max-bytes-capped.
-- `is_newer_version(remote, local) -> bool` — semver-ish comparison
+ Pure helper. SSRF-gated (`pack.assert_offline_pack_url_allowed`), max-bytes-capped.
+- `is_newer_version(remote, local) -> bool` Semver-ish comparison
   (handles `v1.2.3`, `1.2.3-rc1`, shorter tuples).
 
 ### Publisher (`scripts/release/publish_pack_release.py`)
 
 - `publish_release(tag, assets, *, repo, notes, ..., backend=None) -> PublishResult`
-  — publishes a GitHub Release with the given assets. Auto-selects
+ Publishes a GitHub Release with the given assets. Auto-selects
   backend: `gh` CLI when `shutil.which("gh")` finds it, else GitHub
   REST API (uses `GH_TOKEN` / `GITHUB_TOKEN` env vars).
 - CLI entry point (`main`) with argparse + `--json` output for CI
@@ -105,8 +105,8 @@ are rejected (defense-in-depth — chunked read in transport +
   - `VoiceTyper-Setup-<version>.exe` (Windows NSIS installer).
   - `VoiceTyper-<version>.<arch>.app.tar.gz` (macOS bundle).
   - `voice-typer-<version>-<arch>.AppImage` (Linux).
-  - `pack-<version>.zip` (pack onefile — version-pinned).
-  - `pack-manifest.json` (NOT versioned — served from
+  - `pack-<version>.zip` (pack onefile: version-pinned).
+  - `pack-manifest.json` (NOT versioned: served from
     `/releases/latest/download/`).
 
 ### Renderer (`voice_typer/client/src/renderer/src/hooks/useNetworkOnline.ts`)
@@ -126,9 +126,9 @@ function useNetworkOnline(): UseNetworkOnlineResult
 - On the false → true `navigator.onLine` transition, calls
   `call("check_offline_pack_update", {})` via `usePython()`.
 - Transition dedup via `useRef` (browsers fire duplicate `online`
-  events during connection flapping — without dedup, IPC would be
+  events during connection flapping: without dedup, IPC would be
   spammed).
-- NO direct `fetch()` / `XMLHttpRequest` / `axios` — all network
+- NO direct `fetch()` / `XMLHttpRequest` / `axios` All network
   routes through the Python IPC bridge so the SSRF defense runs
   server-side.
 
@@ -162,13 +162,13 @@ calls: (1) cloud transcription / LLM providers, (2) auto-update —
 "Check for Updates" / silent update check against the GitHub API, (3)
 model downloads, (4) the offline-pack (runtime pack) download from
 GitHub Releases. Category (4) was added by the USER on 2026-08-15 so
-that the pack download is explicitly permitted — the code keeps the
+that the pack download is explicitly permitted, the code keeps the
 `offline_pack_consent` toggle (currently default OFF) as a
 product/UX choice, and the user may flip that default without needing
 another rule change.
 
 ────────────────────────────────────────────────────────────────────────────────
-## Wiring status (2026-08-14 — wired)
+## Wiring status (2026-08-14: wired)
 
 The auto-update mechanism is now wired end-to-end:
 
@@ -179,14 +179,14 @@ The auto-update mechanism is now wired end-to-end:
   `voice_typer/client/src/main/allowed-commands.ts:ALLOWED_COMMANDS`,
   the Rust `allowed_commands()` literal
   (`src-tauri/src/commands/sidecar_cmds/allowlist.rs`), the
-  `PythonRequest` TS union, and the rate-limiter cost table — all in
+  `PythonRequest` TS union, and the rate-limiter cost table, all in
   lockstep (Python 70 / TS 68 / Rust 66).
 - **`offline_pack_consent` config field.** Added to
   `voice_typer/server/config/__init__.py` (dataclass field
   `offline_pack_consent: bool = False`, renamed from
   `runtime_pack_consent` on 2026-08-14 with a schema v3→v4 migration)
   + the SEC-002 `IPC_CONFIG_ALLOWLIST` + the renderer
-  `VoiceTyperConfig` type. Defaults `False` — consent required.
+  `VoiceTyperConfig` type. Defaults `False` Consent required.
 - **Settings consent toggle.** `GeneralSettingsSection.tsx` renders a
   Switch bound to `offline_pack_consent` (i18n keys
   `settings.offlinePackConsent` / `settings.offlinePackConsentDescription`
@@ -197,10 +197,10 @@ The auto-update mechanism is now wired end-to-end:
 - **Vitest test for `useNetworkOnline.ts`.** A Python structural test
   (`tests/test_update_network_online.py`) pins the contract; a
   vitest test would verify the runtime behavior (event listener
-  registration, IPC call, transition dedup) — still open.
+  registration, IPC call, transition dedup): still open.
 - **CI workflow integration.** The release pipeline is the manual-dispatch
   orchestrator `.github/workflows/tauri-build.yml` (per C-CI-2 / ADR-0020
-  §15 — releases are manual-only, NOT triggered on push or tag). A
+  §15: releases are manual-only, NOT triggered on push or tag). A
   maintainer kicks off a release by dispatching `tauri-build.yml` with
   `sign=true`; the orchestrator fans out to the per-platform workflows
   (`tauri-windows-build.yml` / `tauri-macos-build.yml` /
@@ -210,7 +210,7 @@ The auto-update mechanism is now wired end-to-end:
   then invoked (manually or as a follow-up dispatch step) to publish
   the pack onefile + `pack-manifest.json` as additional release assets
   on the same release tag. There is no `release.yml` workflow in the
-  repo — the file does not exist.
+  repo: the file does not exist.
 
 ────────────────────────────────────────────────────────────────────────────────
 ## Tests (Implemented)
@@ -232,7 +232,7 @@ The auto-update mechanism is now wired end-to-end:
   `TestAssetNameTemplates` (C-CI-13), `TestCli`, `TestIdempotency`,
   `TestPublishResultDataclass`.
 - `tests/test_update_network_online.py` (19 tests, 300 LOC) —
-  structural / drift test (Python reads the TS file as text — mirrors
+  structural / drift test (Python reads the TS file as text, mirrors
   `tests/test_branding_scan_coverage.py` pattern).
   `TestFileExists`, `TestExports`, `TestBrowserEventSubscription`,
   `TestIpcIntegration`, `TestTransitionDedup`, `TestReturnType`,
@@ -243,13 +243,13 @@ Test command: `pytest tests/test_update*.py -x --no-cov` → 137 passed
 `test_update_tauri_manifests.py`).
 
 ────────────────────────────────────────────────────────────────────────────────
-## Historical design — Tauri v2 `tauri-plugin-updater` (NOT what shipped)
+## Historical design: Tauri v2 `tauri-plugin-updater` (NOT what shipped)
 
 > The section below is the **original design spec** that pre-dated the
 > 2026-08-13 implementation. It proposed using
 > `tauri-plugin-updater` for the slim-core installer auto-update. The
 > actual implementation (above) is Python-side and covers the
-> runtime PACK (not the slim-core installer — that still uses the
+> runtime PACK (not the slim-core installer, that still uses the
 > platform's native installer). This section is retained for
 > traceability against the design that motivated the implemented
 > approach; **the "NOT IMPLEMENTED (design only)" banner that used
@@ -258,15 +258,15 @@ Test command: `pytest tests/test_update*.py -x --no-cov` → 137 passed
 
 The original design proposed three components:
 
-1. **Update runner** (Rust host, `src-tauri/src/`) — drives
+1. **Update runner** (Rust host, `src-tauri/src/`): drives
    `tauri-plugin-updater` from the Rust side: checks the published
    `latest.json` manifest, downloads the signed update artifact in the
    background, verifies the signature, and orchestrates the silent
    install + relaunch sequence via `AppHandle::restart()`.
-2. **React hook** (renderer) — subscribes to update status changes via
+2. **React hook** (renderer): subscribes to update status changes via
    Tauri events and exposes `checkNow()`, `installNow()`, and
    `ignore()` to UI components.
-3. **Update banner** (renderer component) — a persistent sticky
+3. **Update banner** (renderer component): a persistent sticky
    notification that appears when an update is downloaded and ready to
    install.
 
@@ -285,7 +285,7 @@ instead of requiring a download.
 > onefile + manifest) ships OUTSIDE the platform installer and needs
 > its own silent-update path. Implementing the pack update via
 > `tauri-plugin-updater` would have required a second updater plugin
-> instance scoped to the pack — complex + bypassed by the simpler
+> instance scoped to the pack, complex + bypassed by the simpler
 > Python-side approach (fetch manifest, compare versions, daemon
 > thread download with resume, verify SHA-256, atomic swap). The
 > slim-core installer may still adopt `tauri-plugin-updater` in a
@@ -294,7 +294,7 @@ instead of requiring a download.
 > implementation above.
 
 ────────────────────────────────────────────────────────────────────────────────
-## `latest.json` manifest (historical — Tauri v2 updater contract)
+## `latest.json` manifest (historical: Tauri v2 updater contract)
 
 The historical Tauri-v2 design published a `latest.json` manifest at
 a stable URL (e.g.
@@ -331,7 +331,7 @@ The signature is produced offline with the project's minisign private
 key. The Tauri host embeds only the **public** key (in
 `tauri.conf.json` → `plugins.updater.pubkey`) and verifies each
 downloaded artifact before applying it. A mismatched signature aborts
-the update with a visible error — there is no silent fallthrough.
+the update with a visible error, there is no silent fallthrough.
 
 > **Note:** the implemented pack auto-update uses a different manifest
 > schema (`pack-manifest.json` with `version` + `sha256` + `files` +
@@ -342,7 +342,7 @@ the update with a visible error — there is no silent fallthrough.
 > slim-core installer updater based on `tauri-plugin-updater`.
 
 ────────────────────────────────────────────────────────────────────────────────
-## State Machine (historical — Tauri v2 updater)
+## State Machine (historical: Tauri v2 updater)
 
 The Rust-side update runner proposed the following state machine:
 
@@ -367,7 +367,7 @@ The Rust-side update runner proposed the following state machine:
 > canonical state machine.
 
 ────────────────────────────────────────────────────────────────────────────────
-## Historical design — IPC / Tauri command surface (NOT implemented)
+## Historical design: IPC / Tauri command surface (NOT implemented)
 
 The historical design proposed these Tauri commands and events:
 
@@ -388,21 +388,21 @@ The historical design proposed these Tauri commands and events:
 
 > **Implemented equivalent:** the pack update path uses the existing
 > `call("check_offline_pack_update", {})` IPC dispatch (no new Tauri command
-> needed — the Python side handles it via the standard
+> needed: the Python side handles it via the standard
 > `_COMMAND_REGISTRY` → `_handle_*` flow). State changes flow as
 > standard push events (`offline_pack_download_started` /
 > `offline_pack_download_progress` / `offline_pack_download_completed` /
 > `offline_pack_download_failed`) consumed by `useOfflinePackDownload`.
 
 ────────────────────────────────────────────────────────────────────────────────
-## Historical design — Pre-Download Strategy, Install & Relaunch, Persistence, UI, Scheduling, Edge Cases, File Impact, Architecture Rationale
+## Historical design: Pre-Download Strategy, Install & Relaunch, Persistence, UI, Scheduling, Edge Cases, File Impact, Architecture Rationale
 
 The original design spec's sections on Pre-Download Strategy, Install
 & Relaunch Sequence, Persistence (Survive App Restart), UI Components
 (Update Banner, Settings Page Section), Scheduling & Rate Limiting,
 Edge Cases & Error Handling, File Impact Summary, and "Why This
 Architecture Is Correct" are retained verbatim below for
-traceability — they describe the Tauri-v2 `tauri-plugin-updater`
+traceability: they describe the Tauri-v2 `tauri-plugin-updater`
 design that was NOT implemented as-is. The implemented pack
 auto-update (above) covers the equivalent concerns via the
 Python-side `update_check.py` + `pack.py` + `useNetworkOnline.ts` +
@@ -418,7 +418,7 @@ When a background check finds a new version:
    `updater://status-changed` events.
 4. When complete + signature-verified, state transitions to `downloaded`.
 5. User clicks "Update Now" → `AppHandle::restart()` → the plugin
-   swaps the bundle on disk and relaunches the app — no separate
+   swaps the bundle on disk and relaunches the app, no separate
    installer process and no shell-out to `/S`.
 
 Total time from clicking "Update Now" to app relaunch: ~3-5 seconds.
@@ -434,7 +434,7 @@ Total time from clicking "Update Now" to app relaunch: ~3-5 seconds.
 
 The install sequence would:
 1. Emit `installing` state so UI shows "Updating..."
-2. Call `AppHandle::restart()` — the Tauri runtime handles the swap
+2. Call `AppHandle::restart()` The Tauri runtime handles the swap
    atomically (the new bundle is already downloaded + verified).
 3. The current process exits; Tauri's relauncher spawns the new bundle
    with the same working directory + env.
@@ -447,16 +447,16 @@ in the user's default browser.
 > **Implemented equivalent:** the pack update path uses
 > `verify_pack_or_skip` (SHA-256) + atomic file swap + worker-exe
 > restart. The slim-core installer restart is NOT covered by the
-> pack auto-update — it remains a platform-installer concern.
+> pack auto-update: it remains a platform-installer concern.
 
 ### Persistence (Survive App Restart)
 
 Since checks happen every 6 hours, the runner needs to remember:
-- `lastCheckedAt` — stored in `tauri-plugin-store` (a small JSON file
-  under the platform-specific config dir — see
+- `lastCheckedAt` Stored in `tauri-plugin-store` (a small JSON file
+  under the platform-specific config dir, see
   [`docs/home-directory.md`](home-directory.md)).
-- `ignoredVersion` — stored in `tauri-plugin-store`.
-- Downloaded installer path — `tauri-plugin-updater`'s internal cache
+- `ignoredVersion` Stored in `tauri-plugin-store`.
+- Downloaded installer path, `tauri-plugin-updater`'s internal cache
   directory; checked for existence on startup.
 
 > **Implemented equivalent:** the pack update path stores
@@ -466,7 +466,7 @@ Since checks happen every 6 hours, the runner needs to remember:
 
 ### UI Components (proposed)
 
-#### Update Banner — Persistent In-App Notification
+#### Update Banner: Persistent In-App Notification
 
 A sticky banner between the TitleBar and page content that appears
 when state is `downloaded`. Shows the new version number and has
@@ -482,7 +482,7 @@ An "Updates & Version" section in Settings showing:
 - Update status (up-to-date or update available)
 
 > **Implemented equivalent:** the pack UI surfaces "Preparing offline
-> engine…" in the transcription area (master plan §4.8 / §9.3 — i18n
+> engine…" in the transcription area (master plan §4.8 / §9.3, i18n
 > key `pack.preparingOfflineEngine` added by Sub-agent 14). The
 > settings checkbox `downloadOfflineEngineLater` +
 > `keepOfflineEngineRunning` (Sub-agent 14) covers the
@@ -520,19 +520,19 @@ An "Updates & Version" section in Settings showing:
 > recovery (`verify_pack_or_skip` retries up to 3 times with
 > exponential backoff), disk space check (`asr_utils._check_disk_space_for_download`
 > reused), and metered-connection detection (Windows NLM API via
-> ctypes; manual on Linux/macOS — master plan §8.5). See master
+> ctypes; manual on Linux/macOS: master plan §8.5). See master
 > plan §8 for the full edge-case matrix.
 
-### File Impact Summary (historical — proposed, none shipped as-is)
+### File Impact Summary (historical: proposed, none shipped as-is)
 
 **New files (Rust host):**
-1. `src-tauri/src/updater/mod.rs` — Rust-side update runner wrapping `tauri-plugin-updater`.
-2. `src-tauri/src/updater/commands.rs` — `#[tauri::command]` handlers (`updater_check_now`, `updater_get_status`, `updater_install_now`, `updater_ignore_version`).
-3. `src-tauri/src/updater/state.rs` — `UpdateRunnerState` shared via `tauri::State`.
+1. `src-tauri/src/updater/mod.rs` Rust-side update runner wrapping `tauri-plugin-updater`.
+2. `src-tauri/src/updater/commands.rs` `#[tauri::command]` handlers (`updater_check_now`, `updater_get_status`, `updater_install_now`, `updater_ignore_version`).
+3. `src-tauri/src/updater/state.rs` `UpdateRunnerState` shared via `tauri::State`.
 
 **New files (renderer):**
-1. `voice_typer/client/src/renderer/src/hooks/useUpdater.ts` — React hook subscribing to `updater://status-changed`.
-2. `voice_typer/client/src/renderer/src/components/UpdateBanner.tsx` — Banner component.
+1. `voice_typer/client/src/renderer/src/hooks/useUpdater.ts` React hook subscribing to `updater://status-changed`.
+2. `voice_typer/client/src/renderer/src/components/UpdateBanner.tsx` Banner component.
 
 > **Implemented equivalent:** the actual files shipped are listed in
 > the "Architecture Overview (Implemented)" section above
@@ -541,29 +541,29 @@ An "Updates & Version" section in Settings showing:
 
 ### Why This Architecture Is Correct (historical rationale)
 
-1. **Native Tauri primitives** — `tauri-plugin-updater` is the
+1. **Native Tauri primitives**, `tauri-plugin-updater` is the
    upstream-recommended path under Tauri v2; reinventing it would
    re-implement signature verification + atomic install + cross-platform
    bundle handling.
-2. **Pre-download** — Download happens in background hours before user clicks "Update Now"
-3. **Persistent banner** — Never auto-dismisses; user must explicitly act
-4. **Signature verification** — minisign signatures are checked by the plugin before the swap; a tampered artifact is rejected hard
-5. **Clean state machine** — Every state explicit; UI maps 1:1 to states
-6. **Graceful degradation** — No network? Shows version. Download fails? Retries. Manifest unreachable? Falls back to the releases page.
-7. **User in control** — Auto-check can be disabled; manual check always available
+2. **Pre-download**: Download happens in background hours before user clicks "Update Now"
+3. **Persistent banner**: Never auto-dismisses; user must explicitly act
+4. **Signature verification**: minisign signatures are checked by the plugin before the swap; a tampered artifact is rejected hard
+5. **Clean state machine**: Every state explicit; UI maps 1:1 to states
+6. **Graceful degradation**: No network? Shows version. Download fails? Retries. Manifest unreachable? Falls back to the releases page.
+7. **User in control**: Auto-check can be disabled; manual check always available
 
 > **Implemented equivalent (rationale for the Python-side approach):**
-> 1. **Simpler SSRF defense** — `pack.assert_offline_pack_url_allowed` extends
+> 1. **Simpler SSRF defense**, `pack.assert_offline_pack_url_allowed` extends
 >    the existing URL allowlist (no Rust-side reimplementation).
-> 2. **Reuses pack downloader** — `download_offline_pack_with_resume` is the
+> 2. **Reuses pack downloader**, `download_offline_pack_with_resume` is the
 >    same path the first-launch pack download uses (no second
 >    downloader to maintain).
-> 3. **Reuses consent UI** — `offline_pack_consent` mirrors the
+> 3. **Reuses consent UI**, `offline_pack_consent` mirrors the
 >    existing `huggingface_consent` flow.
-> 4. **Renderer hook is minimal** — `useNetworkOnline.ts` only fires
+> 4. **Renderer hook is minimal**, `useNetworkOnline.ts` only fires
 >    the IPC call on the false → true online transition (no
 >    per-second timer, no Tauri plugin dependency).
 > 5. **Tauri v2 `tauri-plugin-updater` may still be adopted later
->    for the slim-core installer** — the implemented path is
+>    for the slim-core installer**: the implemented path is
 >    scoped to the runtime pack, leaving the slim-core installer
 >    update path open for the upstream-recommended plugin.

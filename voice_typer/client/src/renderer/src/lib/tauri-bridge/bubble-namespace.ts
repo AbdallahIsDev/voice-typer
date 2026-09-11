@@ -13,7 +13,7 @@
 // asynchronously.
 //
 //bubble-window-only methods (onConfig, onSetState, resizeTo,
-// toggleDictation, hideComplete) — port of preload/bubble.ts:64-71 /
+// toggleDictation, hideComplete), port of preload/bubble.ts:64-71 /
 // 100-102 / 120-122. These are ONLY installed on the bubble window
 // (see `windowLabel` parameter on `createBubbleNamespace` below —
 //). The main renderer's `window.bubble` exposes only
@@ -28,7 +28,7 @@
 // The event-subscription methods (`onLevel` / `onShow` /
 // `onHide` / `onDraggable`) are now ONLY installed on the bubble
 // window. The main renderer has no reason to subscribe to bubble-
-// window lifecycle events — the prior version installed dead
+// window lifecycle events, the prior version installed dead
 // listeners on main that silently no-op'd when the events never
 // arrived. The type system enforces this: the main renderer's
 // `window.bubble` is typed `MainRendererBubbleMutators` (no
@@ -43,7 +43,7 @@
 // (onLevel / onShow / onHide / onDraggable / onConfig / onSetState).
 // Using `makeListener` per listener collapses each to a single call.
 // `onShow` / `onHide` have no payload so they use `makeListener<void>`
-// — the subscribe wrapper invokes `handler(undefined)` so the consumer
+//, the subscribe wrapper invokes `handler(undefined)` so the consumer
 // callback (which takes no args) is called with the same effect.
 //
 //(security/observability): every fire-and-forget `invoke(...)`
@@ -54,7 +54,7 @@
 // (forwarded via webContents.on("console-message")). The corresponding
 // observability fix for the `bubble_level` listener SUBSCRIBE promise
 // (and every other listener in this namespace) lives in
-// `makeListener()` itself — see `detect.ts` (it now logs subscribe
+// `makeListener()` itself, see `detect.ts` (it now logs subscribe
 // rejections rather than letting them surface as unhandled promise
 // rejections).
 
@@ -76,7 +76,7 @@ import { makeListener, type TauriGlobal } from "./detect";
  * it), so we cast here. Tauri v2's `Window` object always exposes
  * `label` as a public field set from `tauri.conf.json`.
  *
- * Unknown labels default to "main" — the safer (smaller) subset, so a
+ * Unknown labels default to "main", the safer (smaller) subset, so a
  * misconfigured window label never accidentally exposes bubble-only
  * methods on the main renderer (SEC-026 regression).
  */
@@ -89,7 +89,7 @@ function detectWindowLabel(tauri: TauriGlobal): "main" | "bubble" {
  * Build the `window.bubble` namespace using Tauri's global API.
  *
  * (SEC-026 regression): the previous version installed
- * the FULL bubble API on BOTH windows — no window-label check. A
+ * the FULL bubble API on BOTH windows, no window-label check. A
  * compromised main renderer could invoke `bubble_resize` /
  * `bubble_toggle_dictation` directly, bypassing the bubble-window
  * sandbox. The installer now takes an optional `windowLabel` parameter
@@ -104,16 +104,16 @@ function detectWindowLabel(tauri: TauriGlobal): "main" | "bubble" {
  *
  * Event subscriptions (`onLevel` / `onShow` / `onHide` /
  * `onDraggable`) are now bubble-only. The main renderer has no reason
- * to subscribe to bubble-window lifecycle events — the prior version
+ * to subscribe to bubble-window lifecycle events, the prior version
  * installed dead listeners on main that silently no-op'd.
  *
  * `hideComplete` is now bubble-only (was in the shared mutators).
  * Only the bubble renderer's exit-animation handler should invoke it.
  *
  * `setPosition` accepts a single string `position` (
- * fix). Both production call sites — `useConnection.ts:117` (syncing
+ * fix). Both production call sites, `useConnection.ts:117` (syncing
  * the saved `bubble_position` config) and `GeneralSettingsSection.tsx:151`
- * (the bubble-position dropdown) — pass one of `"top"` / `"bottom"`.
+ * (the bubble-position dropdown), pass one of `"top"` / `"bottom"`.
  * The Rust `bubble_set_position(position: String)` command parses the
  * keyword server-side and resolves it to absolute physical coordinates
  * based on the primary monitor's bounds (see
@@ -172,7 +172,7 @@ export function createBubbleNamespace(
 		// primary monitor's bounds (see
 		// src-tauri/src/commands/bubble.rs). The previous
 		// `(x: Value, y: Value)` signature was a leaky
-		// abstraction — the bridge had to forward the keyword
+		// abstraction, the bridge had to forward the keyword
 		// as BOTH `x` and `y` because Tauri v2 arg
 		// deserialization rejected a single `{ position }`
 		// payload for a 2-arg command. The single-string `position` collapses the
@@ -212,7 +212,7 @@ export function createBubbleNamespace(
 		},
 
 		//nudge the bubble window by a relative delta
-		//(keyboard-based move — ). The Rust command takes
+		//(keyboard-based move, ). The Rust command takes
 		// `{dx, dy}` (renamed from the renderer's `deltaX`/`deltaY` to
 		// match the snake_case Rust convention).
 		moveBy: (deltaX: number, deltaY: number) => {
@@ -231,11 +231,11 @@ export function createBubbleNamespace(
 	};
 
 	if (label === "main") {
-		// SEC-026: main renderer — return only the shared
+		// SEC-026: main renderer, return only the shared
 		// mutators. Omit onSetState / onConfig / resizeTo /
-		// toggleDictation / hideComplete (bubble-window-only — matches
+		// toggleDictation / hideComplete (bubble-window-only, matches
 		// preload/index.ts). ALSO omit the event subscriptions
-		// (onLevel / onShow / onHide / onDraggable) — the main
+		// (onLevel / onShow / onHide / onDraggable), the main
 		// renderer has no reason to subscribe to bubble-window
 		// lifecycle events, and installing dead listeners was a
 		// leaky abstraction.
@@ -288,13 +288,13 @@ export function createBubbleNamespace(
 			),
 
 		//Locale-change push (both-runtime parity with the Electron
-		// preload's `onLocaleChanged` — same `bubble:locale-changed`
+		// preload's `onLocaleChanged`, same `bubble:locale-changed`
 		// event name + same string payload). Under Electron the main
 		// process sends the channel directly
 		// (`notifyBubbleLocaleChanged` in windows/bubble/lifecycle.ts).
 		// The Tauri host does not yet broadcast a locale event to the
 		// bubble window (its `set_host_locale` command only stores the
-		// pushed locale — `SidecarState::host_locale` parity sink), so
+		// pushed locale, `SidecarState::host_locale` parity sink), so
 		// this listener is wired for parity: once the host emits
 		// `bubble:locale-changed` to the bubble webview, the renderer
 		// reacts with zero further changes. Payload is the bare locale
@@ -343,7 +343,7 @@ export function createBubbleNamespace(
 		// pill content (eliminates the transparent dead zone around the
 		// bubble that blocks clicks to the windows underneath). Matches
 		// Electron's `ipcRenderer.send("bubble:resize", {width, height})`
-		// in preload/bubble.ts:100-102. Fire-and-forget — the Rust
+		// in preload/bubble.ts:100-102. Fire-and-forget, the Rust
 		// `bubble_resize` command updates the window size asynchronously.
 		resizeTo: (width: number, height: number) => {
 			tauri.core
@@ -358,12 +358,12 @@ export function createBubbleNamespace(
 
 		//Toggle dictation from the bubble's own mic
 		//button. The bubble is sandboxed (SEC-026) with NO
-		// `dispatch` access — the Rust `check_dispatch_window_label`
+		// `dispatch` access, the Rust `check_dispatch_window_label`
 		// guard rejects any `dispatch` call from a non-main window. So
 		// instead of `invoke('dispatch', ...)`, the bubble invokes this
 		// dedicated `bubble_toggle_dictation` command which forwards the
 		// `toggle_dictation` envelope to the sidecar via the WS bridge
-		// (fire-and-forget — the bubble learns the new state via the
+		// (fire-and-forget, the bubble learns the new state via the
 		// `bubble:set-state` event). Matches Electron's
 		// `ipcRenderer.send("bubble:toggle-dictation")` in
 		// preload/bubble.ts:120-122.
@@ -380,7 +380,7 @@ export function createBubbleNamespace(
 
 		// notify the host that the bubble's exit animation has
 		// finished and the window can be hidden. Only the bubble
-		// renderer's exit-animation handler should invoke this — the
+		// renderer's exit-animation handler should invoke this, the
 		// main renderer has no equivalent lifecycle. Matches Electron's
 		// `ipcRenderer.send("bubble:hidden")` in preload/bubble.ts.
 		hideComplete: () => {
@@ -396,11 +396,11 @@ export function createBubbleNamespace(
 
 		//dismiss the bubble from its own '×' button
 		//( / always_visible mode). The Rust `bubble_dismiss`
-		// command mirrors `bubble_hide_complete` — emits
+		// command mirrors `bubble_hide_complete`, emits
 		// `bubble:hide` (so the renderer's cleanup runs BEFORE
 		// the window becomes invisible) then hides the window
 		// unconditionally. Gated by `require_bubble_window` on the
-		// Rust side (SEC-016 — only the bubble window may dismiss
+		// Rust side (SEC-016, only the bubble window may dismiss
 		// itself). Matches Electron's
 		// `ipcRenderer.send("bubble:dismiss")` in preload/bubble.ts
 		// (routed to `hideBubbleWindow()` in bubble-handlers.ts).
@@ -416,7 +416,7 @@ export function createBubbleNamespace(
 		},
 	};
 
-	// Bubble window — return the full BubbleWindowBubble shape:
+	// Bubble window, return the full BubbleWindowBubble shape:
 	// MainRendererBubbleMutators & BubbleEventSubscriptions & BubbleWindowExtras.
 	return { ...mutators, ...subscriptions, ...bubbleOnly };
 }

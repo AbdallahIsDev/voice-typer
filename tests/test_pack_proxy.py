@@ -1,4 +1,4 @@
-"""§8.6 — Corporate networks / proxies + SSRF protection.
+"""§8.6: Corporate networks / proxies + SSRF protection.
 
 Spec (§8.6):
 
@@ -24,7 +24,7 @@ from voice_typer.server.service import offline_pack
 
 
 class TestProxyEnv:
-    """§8.6 — proxy env vars are respected."""
+    """§8.6, proxy env vars are respected."""
 
     def test_reads_http_proxy(self, monkeypatch):
         monkeypatch.delenv("HTTP_PROXY", raising=False)
@@ -61,7 +61,7 @@ class TestProxyEnv:
 
 
 class TestAssertPackUrlAllowed:
-    """§8.6 + §8.10 (SSRF) — pack URL allowlist + IP-literal blocklist."""
+    """§8.6 + §8.10 (SSRF), pack URL allowlist + IP-literal blocklist."""
 
     def test_https_github_url_allowed(self):
         # Should not raise.

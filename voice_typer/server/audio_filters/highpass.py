@@ -22,7 +22,7 @@ class HighPassFilter(AudioFilter):
 
     Removes low-frequency rumble (HVAC, traffic, fan noise, proximity
     effect) below the cutoff frequency. Order 4 gives a 24 dB/octave
-    rolloff — steeper than the previous order-2 design.
+    rolloff, steeper than the previous order-2 design.
 
     Stateful: the IIR ``zi`` state carries across ``process()`` calls
     for click-free continuity. Anti-denormal epsilon prevents CPU-killing
@@ -34,7 +34,7 @@ class HighPassFilter(AudioFilter):
     tightly-clustered poles near z=1; in ``b``/``a`` form, casting the
     coefficients to float32 rounds the pole radii OUTSIDE the unit
     circle at 44.1/48/96 kHz sample rates, making the recursion
-    unstable — output diverges to inf/NaN within ~150 ms of audio
+    unstable, output diverges to inf/NaN within ~150 ms of audio
     (observed as "invalid value encountered in subtract" downstream in
     the equalizer). SOS sections keep each section's poles far enough
     from the unit circle that the same float32 rounding stays stable at
@@ -54,7 +54,7 @@ class HighPassFilter(AudioFilter):
         try:
             from scipy.signal import butter
         except ImportError:
-            log.warning("[HIGHPASS] scipy not available — filter disabled")
+            log.warning("[HIGHPASS] scipy not available, filter disabled")
             self._state = None
             return
 
@@ -72,12 +72,12 @@ class HighPassFilter(AudioFilter):
             # strictly INSIDE the unit circle. An order-4 Butterworth
             # high-pass has four tightly-clustered poles near z=1; the
             # old b/a form rounded them outward at high sample rates and
-            # diverged to inf/NaN within ~150 ms — the failure mode the
+            # diverged to inf/NaN within ~150 ms, the failure mode the
             # SOS form exists to prevent. Verified against the real
             # design at every native rate (max|pole| ≈ 0.998 at 96 kHz,
             # comfortably < 1), so this only trips on a genuinely broken
             # design (e.g. a future order/cutoff change). An explicit
-            # raise — not an ``assert``, which ``-O`` strips — routes
+            # raise, not an ``assert``, which ``-O`` strips, routes
             # through the ``except`` below to the degraded-passthrough
             # path instead of ever running a recursion known to diverge.
             _zeros, poles, _gain = sos2zpk(sos)
@@ -89,7 +89,7 @@ class HighPassFilter(AudioFilter):
                 )
             # Start from silence: all-zero IIR memory, exactly like the
             # previous b/a form (``zi = zeros``). Do NOT use
-            # ``sosfilt_zi`` here — it returns the steady-state DC
+            # ``sosfilt_zi`` here, it returns the steady-state DC
             # initial condition, which for a HIGH-pass is an enormous
             # impulse-like start-up transient (a few units of amplitude
             # on the first samples) instead of a silent start.
@@ -119,7 +119,7 @@ class HighPassFilter(AudioFilter):
         sos, zi = self._state
         original_shape = audio.shape
         # process in float32 (coefficients are float32 from init).
-        # No per-chunk astype upcast — keeps the float32 zero-copy path.
+        # No per-chunk astype upcast, keeps the float32 zero-copy path.
         flat = np.ravel(audio).astype(np.float32, copy=False)
         filtered, zi = _get_sosfilt()(sos, flat, zi=zi)
         self._state = (sos, zi)

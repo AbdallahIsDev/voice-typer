@@ -2,13 +2,13 @@
 
 ## Status
 
-<Accepted — COMPLETE for the recording package (2026-08-25). The
+<Accepted: COMPLETE for the recording package (2026-08-25). The
 `_RecordingModule` custom module class, the `_MUTABLE_*` frozensets,
 and every package-namespace patch site have been removed;
 production readers (`recorder.py`, `_recorder_split.py`) import
 `voice_typer.server.recording.resampling` at call time and tests patch
 submodules directly. `prewarm/__init__.py` and `server_platform/__init__.py`
-keep only the milder `_pkg.X` call-time indirection — no custom module
+keep only the milder `_pkg.X` call-time indirection: no custom module
 classes remain anywhere in the codebase.>
 
 ## Context
@@ -28,29 +28,29 @@ This custom module class exists **only** to preserve test-patch compatibility
 during the Phase 4.5 god-class decomposition: tests historically did
 `monkeypatch.setattr("voice_typer.server.recording._resample_poly_error", ...)`
 or `rec_mod._resample_poly_error = ...` and expected the write to land on
-`resampling.__dict__` (where production code reads it via `global`) — but a
+`resampling.__dict__` (where production code reads it via `global`), but a
 plain module's `__dict__` snapshot wouldn't propagate the write.
 
 `_RecordingModule` is ~50 LOC of `__init__.py` boilerplate whose sole purpose
 is to keep these tests passing.  Once every test site has been migrated to
 patch the owning submodule directly (e.g.
 `monkeypatch.setattr(resampling, "_resample_poly_error", ...)`),
-`_RecordingModule` and the `_MUTABLE_*` frozensets can be deleted — shrinking
+`_RecordingModule` and the `_MUTABLE_*` frozensets can be deleted: shrinking
 `recording/__init__.py` and removing a non-obvious metaprogramming pattern
-that future contributors must understand (E3 — no spaghetti; E13 — no
+that future contributors must understand (E3, no spaghetti; E13, no
 band-aids).
 
 **Note on review.md scope drift:** review.md entry #4 (S1-CR-67) also
 mentions `_PrewarmModule` and `_ServerPlatformModule`.  Investigation during
 Wave 1 (rg `class _(Prewarm|ServerPlatform)Module`) confirms **neither
-exists** in the current codebase — `prewarm/__init__.py` and
+exists** in the current codebase, `prewarm/__init__.py` and
 `server_platform/__init__.py` have only plain `import` re-exports (no custom
 module subclass).  The migration is therefore scoped to `_RecordingModule`
 only.
 
 ## Decision
 
-Chip-away migration (per E16 — partial progress acceptable): migrate test
+Chip-away migration (per E16: partial progress acceptable): migrate test
 sites that read/write `_MUTABLE_*` names through the `voice_typer.server.
 recording.X` package namespace to instead target the owning submodule
 directly (`voice_typer.server.recording.resampling.X` or
@@ -58,31 +58,31 @@ directly (`voice_typer.server.recording.resampling.X` or
 
 **Why this works without breaking production code (this wave):**
 `_RecordingModule.__getattr__` and `__setattr__` route the `_MUTABLE_*`
-names to the submodule at call time — so they are *indifferent* to whether
+names to the submodule at call time, so they are *indifferent* to whether
 the test wrote to the package namespace or directly to the submodule.  A
 test that patches `resaming._resample_poly_error` (directly) and a test
 that patches `recording._resample_poly_error` (via `_RecordingModule`'s
 `__setattr__` routing) both end up writing the same `resampling.__dict__`
-slot — and production code (which reads via `global` in `resampling.py`)
+slot: and production code (which reads via `global` in `resampling.py`)
 sees the patched value either way.  This means each test site can be
 migrated independently without breaking others; no flag-day cutover is
 required.
 
 **Removal criterion:** `_RecordingModule`, `_MUTABLE_RESAMPLING`, and
 `_MUTABLE_BUFFER` may be deleted once the count of remaining sites (below,
-§3) reaches 0.  Until then, they MUST remain in place (E15 — no premature
-removal; E14 — no regressions).
+§3) reaches 0.  Until then, they MUST remain in place (E15, no premature
+removal; E14: no regressions).
 
 ## Consequences
 
 ### Positive
 - Each migrated test site is one step closer to deleting `_RecordingModule`
   (~50 LOC reduction in `recording/__init__.py`).
-- Migrated tests no longer depend on the metaprogramming hack — they read
+- Migrated tests no longer depend on the metaprogramming hack, they read
   more straightforwardly (`resampling._resample_poly_error` instead of
   `recording._resample_poly_error`), reducing the "magic" surface for new
   contributors.
-- Each migration is atomic and low-risk (see "Why this works" above) — no
+- Each migration is atomic and low-risk (see "Why this works" above), no
   flag-day cutover required.
 
 ### Negative
@@ -91,7 +91,7 @@ removal; E14 — no regressions).
 - The non-`_MUTABLE` package-namespace patches (e.g.
   `voice_typer.server.recording._get_resample_poly`,
   `voice_typer.server.recording._secure_clear_array_background`) cannot be
-  migrated in isolation — production code reads those via
+  migrated in isolation: production code reads those via
   `_recording_pkg.X` (not via local globals), so changing only the test
   side would break the patch.  These are a separate cleanup item that
   requires coordinated production-code changes (out of scope for the
@@ -103,12 +103,12 @@ removal; E14 — no regressions).
   names (stdlib modules, submodule functions) so existing patches of the
   form `voice_typer.server.{prewarm,server_platform}.X` keep working.  This
   is unrelated to `_RecordingModule` (no custom class is installed on
-  those packages) — it is plain re-export boilerplate.  Future cleanup
+  those packages): it is plain re-export boilerplate.  Future cleanup
   could shrink it, but it is not blocking the `_RecordingModule` removal.
 
 ---
 
-## Section 1 — Migration Plan
+## Section 1: Migration Plan
 
 1. For each test file with `monkeypatch.setattr(...)` or direct attribute
    writes targeting `voice_typer.server.recording.X` where `X` is one of
@@ -129,22 +129,22 @@ removal; E14 — no regressions).
 
 ---
 
-## Section 2 — Completed This Wave (W1-A8)
+## Section 2: Completed This Wave (W1-A8)
 
 **Date:** 2026-08-22 (Implementation Wave 1, Sub-Agent #8)
 
-### File: `tests/test_recording.py` — 13 sites migrated (4 test methods)
+### File: `tests/test_recording.py` 13 Sites migrated (4 test methods)
 
 | Test method | Lines (post-edit) | Names migrated |
 |---|---|---|
 | `TestResampleRetry.test_resample_retry_after_timeout` | 730-759 | `rec_mod._resample_poly_error` → `resampling._resample_poly_error`; `rec_mod._resample_poly_error_time` → `resampling._resample_poly_error_time`; `rec_mod._RESAMPLE_RETRY_INTERVAL` → `resampling._RESAMPLE_RETRY_INTERVAL`; `rec_mod._resample_poly_error` (read) → `resampling._resample_poly_error` |
-| `TestResampleRetry.test_resample_not_retried_before_timeout` | 761-778 | Same names — `rec_mod._resample_poly_error` (write + read) and `rec_mod._resample_poly_error_time` |
+| `TestResampleRetry.test_resample_not_retried_before_timeout` | 761-778 | Same names, `rec_mod._resample_poly_error` (write + read) and `rec_mod._resample_poly_error_time` |
 | `TestScipyPreloader.test_start_scipy_preloader_is_idempotent` | 1007-1043 | `monkeypatch.setattr(recording, "_scipy_preloader_thread", None)` → `monkeypatch.setattr(resampling, ...)`; same for `_resample_poly`; `recording._start_scipy_preloader()` → `resampling._start_scipy_preloader()`; `recording._scipy_preloader_thread` (reads) → `resampling._scipy_preloader_thread` |
 | `TestScipyPreloader.test_start_scipy_preloader_skips_when_scipy_already_loaded` | 1045-1061 | Same as above |
 
 Each migrated test method now imports `resampling` locally and uses it in
 place of the package namespace for the `_MUTABLE_*` names.  The
-`_RecordingModule` class is **still installed** (per E15) — these migrated
+`_RecordingModule` class is **still installed** (per E15), these migrated
 sites simply bypass the routing by writing directly to the submodule.
 
 ### Files with NO `_MUTABLE_*` patches found (no migration needed this wave)
@@ -153,47 +153,47 @@ Reviewed all 5 in-scope test files plus `tests/test_recorder_secure_clear_array.
 Only `tests/test_recording.py` had `_MUTABLE_*` patches.  The other 4 in-scope
 files contain:
 
-- **`tests/test_recording_discard.py`** — patches `voice_typer.server.recording.time.sleep`
+- **`tests/test_recording_discard.py`**: patches `voice_typer.server.recording.time.sleep`
   (stdlib `time` module via the package re-export) and `rec_mod.time.sleep`
   (object form on the `time` module).  These do NOT go through
   `_RecordingModule.__setattr__` (the dotted-path lookup resolves
   `recording.time` via the package's regular `__dict__` first, yielding the
   `time` module object, then sets `sleep` on it).  Not part of the
-  `_RecordingModule` hack — separate cleanup if/when we remove the
+  `_RecordingModule` hack: separate cleanup if/when we remove the
   `import time` re-export.
-- **`tests/test_recorder_double_resample.py`** — patches `rec_mod.sd.*`
+- **`tests/test_recorder_double_resample.py`**: patches `rec_mod.sd.*`
   (object form on the `sounddevice` module) and one already-submodule-direct
   patch of `voice_typer.server.recording.disconnect_handler.retune_audio_processor`.
   No `_MUTABLE_*` usage.
-- **`tests/test_recorder_device_cache_prewarm.py`** — only `recording_mod.sd.*`
+- **`tests/test_recorder_device_cache_prewarm.py`**, only `recording_mod.sd.*`
   object-form patches.  No `_MUTABLE_*` usage.
-- **`tests/test_secure_clear_array.py`** — one object-form patch of
+- **`tests/test_secure_clear_array.py`**: one object-form patch of
   `rec_pkg._secure_clear_array_background`.  This name is NOT in
   `_MUTABLE_BUFFER` (only `_buffer_clear_worker` is).  Production code reads
   it via `_recording_pkg._secure_clear_array_background`, so migrating this
-  site requires coordinated production-code changes — out of scope for the
+  site requires coordinated production-code changes: out of scope for the
   `_RecordingModule` removal itself (see §3 "Related but separate").
-- **`tests/test_recorder_secure_clear_array.py`** — only `inspect.getsource`
+- **`tests/test_recorder_secure_clear_array.py`**, only `inspect.getsource`
   source-string checks; no `monkeypatch.setattr` calls.  Contains one
   docstring mention of the patch pattern (not an actual patch).
 
 ### Validation
 
 - `python -m pytest tests/test_recording.py -x -q --no-cov` → 89 passed
-  on LINUX (sandbox) (was 89 before migration — no regression, E14).
+  on LINUX (sandbox) (was 89 before migration, no regression, E14).
 - `python -m pytest tests/test_recording.py tests/test_recording_discard.py
   tests/test_recorder_double_resample.py tests/test_recorder_device_cache_prewarm.py
   tests/test_secure_clear_array.py tests/test_recorder_secure_clear_array.py
   -q --no-cov` → 141 passed on LINUX (sandbox).
 - `python -m pytest tests/test_buffer_clear_worker.py tests/test_retry_regressions.py
   tests/test_recorder_split_start.py tests/test_recording_controller.py
-  -q --no-cov` → 77 passed on LINUX (sandbox) — no regression in related
+  -q --no-cov` → 77 passed on LINUX (sandbox), no regression in related
   tests that still use the package-namespace patches (verifies
   `_RecordingModule` routing is still active).
 
 ---
 
-## Section 3 — Remaining Work
+## Section 3: Remaining Work
 
 ### 3a. Direct `_MUTABLE_*` patches still on the package namespace
 
@@ -230,23 +230,23 @@ break if `_RecordingModule` were removed without migrating them):
 string `"recording._scipy_preloader_thread"` inside a Python source string
 that is executed in a subprocess (test
 `test_no_scipy_preloader_thread_after_pure_import`).  This is a behavioral
-test of the package's import-time side effects — it must continue to read
+test of the package's import-time side effects, it must continue to read
 via the `recording` package namespace so that the test remains valid even
 after `_RecordingModule` is removed (because `_scipy_preloader_thread` is
 re-exported via `from .resampling import _scipy_preloader_thread` in
 `__init__.py`, the package-namespace read will continue to work without
-`_RecordingModule`).  **No migration needed for this site** — the test
+`_RecordingModule`).  **No migration needed for this site**, the test
 exercises the public package API, not the routing hack.
 
 ### 3b. Total remaining `_MUTABLE_*` sites
 
-**9 sites in 2 test files** (6 patches + 3 reads) — to be migrated in a
+**9 sites in 2 test files** (6 patches + 3 reads), to be migrated in a
 future wave (Wave 3 or Wave 5 per orchestrator's plan).
 
 ### 3c. Related but separate (NOT blocking `_RecordingModule` removal)
 
 These patches use the package namespace but target names that are NOT in
-`_MUTABLE_*` — they are regular re-exports, and migrating them requires
+`_MUTABLE_*` They are regular re-exports, and migrating them requires
 coordinated production-code changes (changing `_recording_pkg.X` →
 `resampling.X` or `buffer.X` at the call sites in `recorder.py`,
 `audio_pipeline.py`, `_recorder_split.py`, `disconnect_handler.py`, etc.):
@@ -272,7 +272,7 @@ a separate cleanup, not part of the `_RecordingModule` removal.
 
 ---
 
-## Section 4 — When to Remove the Custom Module Classes
+## Section 4: When to Remove the Custom Module Classes
 
 `_RecordingModule` (and the `_MUTABLE_RESAMPLING` / `_MUTABLE_BUFFER`
 frozensets, and the `sys.modules[__name__].__class__ = _RecordingModule`

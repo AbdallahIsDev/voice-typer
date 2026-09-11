@@ -11,14 +11,14 @@
 //! Unit tests for the Electron → Tauri migration module.
 //!
 //! Moved verbatim from the original `migrate.rs` monolith as part of
-//! the Phase 4.5 split. No test logic changed — only the
+//! the Phase 4.5 split. No test logic changed, only the
 //! `use super::*;` parent path now points at `migrate/mod.rs`
 //! instead of `migrate.rs` (the file).
 
 use super::*;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-/// Best-effort scratch directory — unique per test invocation so
+/// Best-effort scratch directory: unique per test invocation so
 /// parallel `cargo test` threads don't race on the same path. The
 /// directory is created fresh and removed on drop (best-effort —
 /// if removal fails we leak a temp dir, which is harmless in tests).
@@ -47,14 +47,14 @@ impl ScratchDir {
 }
 impl Drop for ScratchDir {
     fn drop(&mut self) {
-        // Best-effort recursive remove — ignore errors (test runner
+        // Best-effort recursive remove: ignore errors (test runner
         // may have left files open on Windows).
         let _ = std::fs::remove_dir_all(&self.0);
     }
 }
 
 //a symlink in the source `models/` dir must NOT be
-/// followed — neither the link itself nor its target is copied.
+/// followed: neither the link itself nor its target is copied.
 /// Pre-fix, `path.is_file()` followed the symlink and `std::fs::copy`
 /// happily copied whatever the link pointed at (potentially
 /// `~/.ssh/id_rsa`).
@@ -67,7 +67,7 @@ fn copy_missing_recursive_skips_symlinks() {
     std::fs::create_dir_all(&src).unwrap();
     std::fs::create_dir_all(&dst).unwrap();
 
-    // Regular file — should be copied.
+    // Regular file: should be copied.
     std::fs::write(src.join("real.bin"), b"model-weights").unwrap();
     // Symlink pointing OUTSIDE the source dir (the exfil scenario).
     // Create the target file first so the symlink resolves.
@@ -77,7 +77,7 @@ fn copy_missing_recursive_skips_symlinks() {
     std::os::unix::fs::symlink(&outside, src.join("evil.bin")).unwrap();
 
     let stats = copy_missing_files(&src, &dst);
-    // Only `real.bin` should have been copied — the symlink is skipped.
+    // Only `real.bin` should have been copied, the symlink is skipped.
     assert_eq!(stats.copied, 1, "only the regular file should be copied");
     assert_eq!(stats.failed, 0, "no copy should fail in this scenario");
     assert!(dst.join("real.bin").is_file());
@@ -104,7 +104,7 @@ fn atomic_copy_file_produces_identical_destination() {
     let mut data = Vec::with_capacity(8 * 1024);
     let mut state: u32 = 0x1234_5678;
     for _ in 0..(8 * 1024) {
-        // xorshift32 — fast, deterministic, no extra deps.
+        // xorshift32: fast, deterministic, no extra deps.
         state ^= state << 13;
         state ^= state >> 17;
         state ^= state << 5;
@@ -273,15 +273,15 @@ fn merge_config_whole_file_mtime_wins() {
 
 /// a no-op merge (nothing taken from old) must NOT rewrite the
 /// target file. Pre-fix, `merge_config` ALWAYS re-serialized and
-/// atomically rewrote `new` after the loop — even when `written == 0`
-/// — churning the mtime and re-sorting the BTreeMap for identical
+/// atomically rewrote `new` after the loop, even when `written == 0`
+///: churning the mtime and re-sorting the BTreeMap for identical
 /// content on every launch after the first.
 ///
 /// Observability: the target is written in COMPACT form (one line,
 /// no pretty-printing). A rewrite always round-trips through
 /// `serde_json::to_string_pretty`, so a rewrite would change the
 /// bytes AND bump the mtime; a true skip leaves both untouched.
-/// (Mtime alone is not sufficient on coarse-mtime filesystems — the
+/// (Mtime alone is not sufficient on coarse-mtime filesystems, the
 /// repo's existing mtime tests sleep 1100ms for exactly that reason —
 /// so both signals are asserted.)
 #[test]
@@ -378,7 +378,7 @@ fn merge_config_changed_values_still_writes() {
 
 //`sidecar_path` appends the suffix to the file_name
 /// (NOT to the extension) so `history.db` -> `history.db-wal`.
-/// Critical for SQLite WAL mode — the sidecar files live next to
+/// Critical for SQLite WAL mode, the sidecar files live next to
 /// the main db with the literal `-wal` / `-shm` suffix.
 #[test]
 fn sidecar_path_appends_suffix_to_filename() {
@@ -394,7 +394,7 @@ fn sidecar_path_appends_suffix_to_filename() {
 }
 
 //(companion): `sidecar_path` for a db whose name
-/// already contains dots — the suffix is appended to the WHOLE
+/// already contains dots: the suffix is appended to the WHOLE
 /// name, not after the first dot.
 #[test]
 fn sidecar_path_handles_dotfiles() {
@@ -435,13 +435,13 @@ fn copy_missing_files_does_not_clobber_existing() {
 /// not just logged. Pre-fix `copy_missing_files` returned only the
 /// copied count; a failed copy (disk full, unwritable target, name
 /// too long) was invisible to the migration summary and the sentinel
-/// gate — the sentinel was written success-shaped and the failed
+/// gate: the sentinel was written success-shaped and the failed
 /// model file was silently never migrated.
 ///
 /// Failure injection: a 250-char source filename. The atomic copy
 /// derives its in-flight temp name from the dst filename plus a
 /// `.tmp.copy.<pid>.<hex>` suffix, pushing it past the 255-byte
-/// per-component NAME_MAX enforced by ext4/APFS/NTFS alike — a
+/// per-component NAME_MAX enforced by ext4/APFS/NTFS alike, a
 /// deterministic, cross-platform copy failure with no permission
 /// tricks and no platform-specific code.
 #[test]
@@ -498,8 +498,8 @@ fn copy_missing_files_all_success_reports_zero_failed() {
 
 //when `migration_failed == 0`, the sentinel marker
 /// MUST be written so the next launch skips re-migration.
-/// Pre-fix, the sentinel was written UNCONDITIONALLY — even after
-/// a partial failure — which silently dropped the user's data on
+/// Pre-fix, the sentinel was written UNCONDITIONALLY, even after
+/// a partial failure: which silently dropped the user's data on
 /// the next launch (migration skipped because sentinel present).
 #[test]
 fn write_sentinel_if_clean_writes_on_success() {
@@ -514,7 +514,7 @@ fn write_sentinel_if_clean_writes_on_success() {
         "sentinel should be written when migration_failed == 0"
     );
     assert!(sentinel.exists(), "sentinel file must exist on disk");
-    // The sentinel is an empty marker file — its presence (not its
+    // The sentinel is an empty marker file, its presence (not its
     // contents) is what the early-return guard checks.
     assert_eq!(
         std::fs::read(&sentinel).unwrap(),
@@ -525,7 +525,7 @@ fn write_sentinel_if_clean_writes_on_success() {
 
 //when `migration_failed > 0`, the sentinel marker
 /// MUST NOT be written. Next launch will re-attempt the migration
-/// (the operations are idempotent — atomic_copy uses temp+rename,
+/// (the operations are idempotent: atomic_copy uses temp+rename,
 /// merge_config is key-by-key). This is the core fix: a partial
 /// failure must not silently skip re-migration on next launch.
 #[test]
@@ -574,7 +574,7 @@ fn write_sentinel_if_clean_skips_on_multiple_failures() {
 /// behavior.
 #[test]
 fn write_sentinel_if_clean_handles_write_error() {
-    // Use a path whose parent doesn't exist — std::fs::write will
+    // Use a path whose parent doesn't exist, std::fs::write will
     // fail with NotFound.
     let bogus_dir = std::env::temp_dir().join(format!(
         "vt-migrate-sentinel-noexist-{}-{}",
@@ -631,7 +631,7 @@ fn atomic_copy_uses_local_atomic_write_bytes_import() {
 //
 // The two tests below pin the new behavior:
 //   1. `migrate_inner` short-circuits when the sentinel marker is
-//      already present (no env-var manipulation needed — the
+//      already present (no env-var manipulation needed, the
 //      sentinel check runs BEFORE `electron_userdata_candidates()`
 //      reads any env vars).
 //   2. `migrate_inner` is callable from a `spawn_blocking` closure
@@ -684,7 +684,7 @@ fn migrate_inner_returns_early_when_sentinel_present() {
 }
 
 /// `migrate_inner` runs unchanged when called from inside a
-/// `spawn_blocking` closure — the exact pattern
+/// `spawn_blocking` closure: the exact pattern
 /// `migrate_electron_userdata_async` uses to move the fs-heavy
 /// migration off the async runtime's worker threads.
 ///
@@ -697,7 +697,7 @@ fn migrate_inner_returns_early_when_sentinel_present() {
 /// identical.
 ///
 /// We pre-create the sentinel marker so `migrate_inner` short-circuits
-/// at its first guard (no env-var manipulation needed — see the
+/// at its first guard (no env-var manipulation needed, see the
 /// companion sync test above).
 #[tokio::test]
 async fn migrate_inner_runs_under_spawn_blocking_without_panic() {

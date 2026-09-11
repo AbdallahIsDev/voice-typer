@@ -51,7 +51,7 @@ import { sendToPython } from "./send-to-python";
 //
 //handlers are keyed on the exact `msg.type` string. Unknown
 // string-typed event types fall through past the dispatch to the
-// broadcast below — preserving back-compat with renderer code that
+// broadcast below, preserving back-compat with renderer code that
 // listens on `python-event` for types not explicitly handled here (e.g.
 // future event types added on the Python side before a corresponding
 // handler is wired up here). Non-string `msg.type` values are dropped
@@ -81,7 +81,7 @@ const PUSH_HANDLERS: Record<string, PushHandler> = {
 		log.info(
 			`${ts()}  ${BUBBLE_CLR}[BUBBLE] received bubble_set_state: ${state_}${RESET}`,
 		);
-		// Cache the bubble mode at the source — BEFORE the
+		// Cache the bubble mode at the source, BEFORE the
 		// `webContents.send`. The dismiss handler reads this
 		// cached mode to decide whether to send
 		// `toggle_dictation` before stopping the pipeline. The
@@ -93,7 +93,7 @@ const PUSH_HANDLERS: Record<string, PushHandler> = {
 		setLastKnownBubbleMode(state_);
 		// Forward the FULL payload when the backend additionally
 		// carries `message` (error reason) or `transcript`
-		// (live partial text) — falling back to the bare
+		// (live partial text), falling back to the bare
 		// state string for legacy state-only payloads so existing
 		// renderers + tests keep receiving the minimal shape. The
 		// renderer's `parseSetStatePayload` accepts both.
@@ -131,10 +131,17 @@ const PUSH_HANDLERS: Record<string, PushHandler> = {
 		state.bubbleWindow?.webContents.send(BubbleChannels.config, cfgData);
 	},
 	show_window: () => {
+		// BP-160: time the tray-click → visible path so a future slow
+		// restore is diagnosable from electron-main.log (tray-side
+		// timing lands in voice-typer.log via tray_window.py).
+		const t0 = Date.now();
 		log.info(
-			`${ts()}  [TRAY] show_window received from Python — showing + raising dashboard window to front`,
+			`${ts()}  [TRAY] show_window received from Python, showing + raising dashboard window to front`,
 		);
 		showMainWindow();
+		log.info(
+			`${ts()}  [TRAY] dashboard shown + raised in ${Date.now() - t0}ms (show_window request)`,
+		);
 	},
 	// OS notification events from the Python backend (the
 	// ``show_electron_notification`` IPC handler + the last-resort
@@ -153,7 +160,7 @@ const PUSH_HANDLERS: Record<string, PushHandler> = {
 		const body = typeof data.message === "string" ? data.message : "";
 		const clickPath =
 			typeof data.click_path === "string" ? data.click_path : undefined;
-		// ``click_consent_field`` — a consent-gate notification (e.g.
+		// ``click_consent_field``, a consent-gate notification (e.g.
 		// the voice-biometric dictation gate) deep-links to the EXACT
 		// Settings consent row instead of a plain page: clicking the
 		// toast broadcasts navigate {path:"/settings",
@@ -170,7 +177,7 @@ const PUSH_HANDLERS: Record<string, PushHandler> = {
 			typeof data.duration_ms === "number" ? data.duration_ms : 0;
 		if (!title && !body) {
 			log.debug(
-				`${ts()}  [NOTIFY] notification event with empty title/body — skipping`,
+				`${ts()}  [NOTIFY] notification event with empty title/body, skipping`,
 			);
 			return;
 		}
@@ -181,7 +188,7 @@ const PUSH_HANDLERS: Record<string, PushHandler> = {
 		// an in-app toast still get the event.
 		if (!Notification.isSupported()) {
 			log.debug(
-				`${ts()}  [NOTIFY] native notifications unsupported — skipping toast (title=${title})`,
+				`${ts()}  [NOTIFY] native notifications unsupported, skipping toast (title=${title})`,
 			);
 			return;
 		}
@@ -194,7 +201,7 @@ const PUSH_HANDLERS: Record<string, PushHandler> = {
 			// session nonce or the renderer drops it as a replayed frame.
 			notif.on("click", () => {
 				log.info(
-					`${ts()}  [NOTIFY] notification clicked — opening ${
+					`${ts()}  [NOTIFY] notification clicked, opening ${
 						clickConsentField
 							? `settings consent field ${clickConsentField}`
 							: (clickPath ?? "")
@@ -206,7 +213,7 @@ const PUSH_HANDLERS: Record<string, PushHandler> = {
 				// flow the window is created on the first TCP connect and
 				// the React tree (incl. the ``navigate`` listener in
 				// App.tsx) mounts while hidden, so by the time a toast can
-				// be clicked the listener is live — same convention as the
+				// be clicked the listener is live, same convention as the
 				// tray ``open_models_page`` path.
 				showMainWindow();
 				broadcastToMainWindow(PythonChannels.event, {
@@ -228,7 +235,7 @@ const PUSH_HANDLERS: Record<string, PushHandler> = {
 				try {
 					notif.close();
 				} catch {
-					// already closed/dismissed — safe to ignore
+					// already closed/dismissed, safe to ignore
 				}
 			}, durationMs);
 		}
@@ -244,7 +251,7 @@ const PUSH_HANDLERS: Record<string, PushHandler> = {
 		// surface the ack-write failure at debug level
 		// instead of silently swallowing. The ack is best-effort
 		// (the backend proceeds to sys.exit(0) regardless), but a
-		// failure here is worth logging for diagnostics — the
+		// failure here is worth logging for diagnostics, the
 		// previous `.catch(() => {})` hid genuine socket-closed
 		// errors during the teardown race.
 		sendToPython({ type: "relaunch_ack" }).catch((e) =>
@@ -254,7 +261,7 @@ const PUSH_HANDLERS: Record<string, PushHandler> = {
 	},
 };
 
-// T2-005: explicit `void` return type — `handleMessage` always returns
+// T2-005: explicit `void` return type, `handleMessage` always returns
 // synchronously and callers (tcp-connect.ts, sidecar ws reader) ignore
 // the return value. Pinning `void` prevents a future contributor from
 // accidentally `return`-ing a Promise/value and expecting it to be
@@ -262,7 +269,7 @@ const PUSH_HANDLERS: Record<string, PushHandler> = {
 export function handleMessage(msg: Record<string, unknown>): void {
 	// Narrow `msg.id` with `typeof` so the `Map<number, …>.get()` lookup
 	// receives a real `number` (no `as number` cast). Non-number ids are
-	// treated as push events — matching the original `msg.id != null`
+	// treated as push events, matching the original `msg.id != null`
 	// happy path (ids are always numeric on the wire) while refusing to
 	// silently coerce stray shapes.
 	if (typeof msg.id === "number") {
@@ -285,7 +292,7 @@ export function handleMessage(msg: Record<string, unknown>): void {
 				// renderer's `_code` field. Previously a bare
 				// `new Error(message)` was constructed with `code`
 				// attached ad-hoc, but `python-call-handler` checks
-				// `instanceof PythonIpcError` — the ad-hoc `code` was
+				// `instanceof PythonIpcError`, the ad-hoc `code` was
 				// lost (the handler fell back to the generic
 				// `"command_failed"` classification for EVERY
 				// Python-side error, even timeouts).
@@ -299,11 +306,11 @@ export function handleMessage(msg: Record<string, unknown>): void {
 				// `err.code` see the real value. The cast is necessary
 				// because `PythonIpcError.code` is typed as the finite
 				// `PythonCallErrorCode` union, but the Python side may
-				// emit codes outside that union — at runtime the field
+				// emit codes outside that union, at runtime the field
 				// is just a string, so the cast is sound.
 				//
 				//Previously only `message` was
-				// surfaced on the rejected Error — `data.code` was discarded.
+				// surfaced on the rejected Error, `data.code` was discarded.
 				// Attach the optional `field`/`command`/`id` context
 				// fields too so consumers can do
 				// `if ((err as any).code === "rate_limited") ...` instead of
@@ -353,7 +360,7 @@ export function handleMessage(msg: Record<string, unknown>): void {
 		//type guard. If `msg.type` is not a string (e.g. a
 		// malformed message with `type: null` or `type: 42`), drop it with
 		// a warning instead of letting it fall through to the renderer
-		// broadcast — a non-string type can never match a handler and the
+		// broadcast, a non-string type can never match a handler and the
 		// renderer's `python-event` listeners key on `msg.type` as a string.
 		if (typeof msg.type !== "string") {
 			log.warn(
@@ -375,7 +382,7 @@ export function handleMessage(msg: Record<string, unknown>): void {
 		// bubble_set_state / bubble_level / bubble_config) are consumed
 		// entirely by the bubble window (the dispatch handler above already
 		// routed them). They MUST NOT be broadcast to the main window
-		// renderer — doing so causes 30-60 Hz IPC churn (one `bubble_level`
+		// renderer, doing so causes 30-60 Hz IPC churn (one `bubble_level`
 		// per audio frame while recording) and contradicts the event-filtering
 		// comment at the top of this block. The filter set is sourced from
 		// `bubble-handlers.ts` so the bubble-IPC module remains the single
@@ -395,7 +402,7 @@ export function handleMessage(msg: Record<string, unknown>): void {
 
 		// Previously this broadcast every Python event to every
 		// window.  Transcription text and history records were thus sent
-		// to the bubble window too — a data leak (the bubble only needs
+		// to the bubble window too, a data leak (the bubble only needs
 		// waveform level + show/hide events).  Filter to the main window
 		// only; the bubble gets its own dedicated channel for waveform.
 		//route through broadcastToMainWindow instead of calling

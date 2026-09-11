@@ -1,10 +1,10 @@
-// useSettingsConfig — owns the VoiceTyperConfig state and the debounced /
+// useSettingsConfig, owns the VoiceTyperConfig state and the debounced /
 // batched `set_config` IPC writes. Settings auto-save silently: there is
 // no visible save-status indicator (removed), but the save-state flags
 // (saving / pending) remain internally for `hasPendingOrSaving` (nav-guard).
 //
 //Extracted from src/renderer/src/pages/Settings.tsx () so the
-// page component is responsible for layout/UX only — not for the
+// page component is responsible for layout/UX only, not for the
 // intricate batched-write + diff + flush + sync logic.
 //
 // Behaviour is identical to the previous inline implementation:
@@ -46,7 +46,7 @@ import { t } from "@/i18n/i18n";
 import { useAppStore } from "@/stores/appStore";
 import type { VoiceTyperConfig } from "@/types/config";
 
-// Module-level cache — persists across page navigations so settings
+// Module-level cache, persists across page navigations so settings
 // render instantly on re-visit instead of showing a loading spinner.
 let _cachedConfig: VoiceTyperConfig | null = null;
 
@@ -152,7 +152,7 @@ export function useSettingsConfig(): UseSettingsConfigResult {
 	// Retry instead of an infinite spinner.
 	const [loadError, setLoadError] = useState<string | null>(null);
 
-	// batched writes — accumulate updates in `pendingUpdatesRef`
+	// batched writes, accumulate updates in `pendingUpdatesRef`
 	// and flush them in a single `set_config` IPC via a microtask.
 	const lastSavedConfigRef = useRef<VoiceTyperConfig | null>(_cachedConfig);
 	const pendingUpdatesRef = useRef<Partial<VoiceTyperConfig>>({});
@@ -194,7 +194,7 @@ export function useSettingsConfig(): UseSettingsConfigResult {
 		};
 	}, []);
 
-	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract — .current must NOT become a dep
+	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract, .current must NOT become a dep
 	const loadConfig = useCallback(
 		async (isCancelled: () => boolean = () => cancelledRef.current) => {
 			try {
@@ -341,7 +341,7 @@ export function useSettingsConfig(): UseSettingsConfigResult {
 			}
 			await flushPromise;
 		},
-		[], // stable identity — reads from refs
+		[], // stable identity, reads from refs
 	);
 
 	//debounced update for text inputs that fire on every
@@ -352,7 +352,7 @@ export function useSettingsConfig(): UseSettingsConfigResult {
 	);
 	//pending debounced values keyed by field name. The
 	// timer callbacks capture `(key, value)` in their closures, but
-	// closures are inaccessible from the unmount cleanup — so we
+	// closures are inaccessible from the unmount cleanup, so we
 	// mirror the latest pending value here.  On unmount / page
 	// unload, we merge this object into `pendingUpdatesRef` and
 	// flush, so a user who types into a text field and navigates
@@ -405,12 +405,12 @@ export function useSettingsConfig(): UseSettingsConfigResult {
 	// typed into a text field, with the user navigating to another
 	// page within the 500ms debounce window).  We now merge the
 	// pending debounced values into `pendingUpdatesRef` BEFORE
-	// clearing the timers, then flush — so the IPC write actually
+	// clearing the timers, then flush, so the IPC write actually
 	// reaches the backend.  Mirrors `useTheme.ts`'s QUIT-FLUSH-FIX.
 	//
 	// A `beforeunload` listener covers the close-to-tray / window-
 	// close / app-quit path (the React unmount cleanup does NOT
-	// fire on `beforeunload` — Electron tears down the renderer
+	// fire on `beforeunload`, Electron tears down the renderer
 	// process directly).  The listener calls the same flush path
 	// so a pending edit isn't dropped when the user quits the app
 	// mid-debounce.  Fire-and-forget: the IPC layer queues the
@@ -449,7 +449,7 @@ export function useSettingsConfig(): UseSettingsConfigResult {
 	// already has.
 	//
 	// The merged value is computed from the `configRef` mirror and
-	// applied with a PLAIN `setConfig(merged)` call — the
+	// applied with a PLAIN `setConfig(merged)` call, the
 	// module-level `_cachedConfig` write stays OUTSIDE the state
 	// updater (updaters must be pure: StrictMode double-invokes
 	// them in dev, and a replayed/interrupted render could cache a

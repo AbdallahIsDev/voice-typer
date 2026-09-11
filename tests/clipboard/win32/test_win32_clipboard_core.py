@@ -13,8 +13,8 @@ The strategy:
    becomes a mock call whose return value we control.
 3. For functions that use ``ctypes.byref(dword)`` to receive an output
    value (e.g. ``GetWindowThreadProcessId``), we install ``side_effect``
-   callbacks that mutate ``byref_obj._obj.value`` — the underlying
-   ``c_ulong`` instance — to fake the kernel writing into the buffer.
+   callbacks that mutate ``byref_obj._obj.value``, the underlying
+   ``c_ulong`` instance, to fake the kernel writing into the buffer.
 4. For ``_send_ctrl_v_win32``, we provide *real* ``ctypes.Structure``
    subclasses (``INPUT``, ``KEYBDINPUT``, ``INPUT_union``) so the
    ``(INPUT * 4)(...)`` array-construction syntax and
@@ -36,7 +36,7 @@ import pytest
 
 # ---------------------------------------------------------------------------
 # pynput / pynput.keyboard / pyperclip are mocked at collection time by
-# tests/clipboard/conftest.py (single source of truth —  dedup).
+# tests/clipboard/conftest.py (single source of truth, dedup).
 # ---------------------------------------------------------------------------
 # UIA singleton moved to clipboard_target_safety; reset it there.
 from voice_typer.server import (
@@ -61,7 +61,7 @@ class _KEYBDINPUT(ctypes.Structure):
         ("wScan", wintypes.WORD),
         ("dwFlags", wintypes.DWORD),
         ("time", wintypes.DWORD),
-        # ULONG_PTR — accepts int 0
+        # ULONG_PTR, accepts int 0
         ("dwExtraInfo", wintypes.WPARAM),
     )
     KEYUP = 0x0002
@@ -137,7 +137,7 @@ def fake_win32():
         patch("ctypes.windll", mock_windll, create=True),
         patch("ctypes.create_unicode_buffer") as mock_buf,
     ):
-        # Default buffer returns "Edit" — a benign window class.
+        # Default buffer returns "Edit", a benign window class.
         buf_instance = MagicMock()
         buf_instance.value = "Edit"
         mock_buf.return_value = buf_instance
@@ -281,14 +281,14 @@ class TestWin32EmptyClipboard:
         """If Win32Clipboard.__init__ raises OSError, _win32_empty_clipboard returns.
 
         EC-15 narrowed the catch from bare ``except Exception: pass`` to
-        ``(OSError, AttributeError)`` — the expected failure modes for
+        ``(OSError, AttributeError)``, the expected failure modes for
         Win32 ctypes calls. RuntimeError (a programmer error) is intentionally
         NOT swallowed so it surfaces during development.
         """
         # Even though is_windows() is True, force the constructor to raise
         # by patching it.
         with patch.object(clip_mod, "Win32Clipboard", side_effect=OSError("nope")):
-            # Should not raise — the function has the narrowed except.
+            # Should not raise, the function has the narrowed except.
             _win32_empty_clipboard()
 
 

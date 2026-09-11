@@ -18,14 +18,14 @@
 //
 // ``decorative`` prop renders a plain ``<div aria-hidden>``
 // (no ``<output>``, no aria-label) for cases where the spinner sits
-// inside an already-labeled button/region — avoids the nested live
+// inside an already-labeled button/region, avoids the nested live
 // region announcing "Loading…" on top of the parent's accessible name.
 //
 // The DEFAULT root was previously an ``<output>`` element
 // (implicit ARIA role of ``status``, which carries an implicit
 // ``aria-live="polite"``). That meant every page that rendered a
-// Spinner — History, Vocabulary, Templates, Microphone, Models,
-// Settings, Onboarding, etc. — caused screen readers to announce
+// Spinner, History, Vocabulary, Templates, Microphone, Models,
+// Settings, Onboarding, etc., caused screen readers to announce
 // "Loading" the moment the spinner appeared, even though in those
 // contexts the spinner is incidental (not a primary status message).
 // The default root is now a ``<span role="img" aria-label=...>`` —
@@ -65,7 +65,7 @@ interface SpinnerProps {
 	 * don't hear "Loading…" redundantly on top of the parent's label.
 	 *
 	 * Default: ``false`` (renders
-	 * ``<span role="img" aria-label="Loading">`` — a focusable image
+	 * ``<span role="img" aria-label="Loading">``, a focusable image
 	 * with an accessible name, but NO implicit live region).
 	 */
 	decorative?: boolean;
@@ -95,7 +95,7 @@ export function Spinner({
 	// instead of <output>. The <output> element has an implicit
 	// ARIA role of "status" (i.e. aria-live="polite"), which caused
 	// every page that rendered a Spinner to announce "Loading" to
-	// screen-reader users — even when the spinner was incidental to
+	// screen-reader users, even when the spinner was incidental to
 	// the page's primary content. <span role="img"> gives the
 	// spinner an accessible name (so AT users hear "Loading" when
 	// they focus it) without the implicit live region. Pages that
@@ -103,7 +103,7 @@ export function Spinner({
 	// wrap the Spinner in their own <output aria-live="polite">.
 	//
 	// When a contextual ``label`` is provided it ALSO renders as
-	// visible text next to the glyph — "Loading microphones…" reads
+	// visible text next to the glyph, "Loading microphones…" reads
 	// better than an anonymous spinner for sighted users too. The
 	// glyph span stays the FIRST element (the component's root in the
 	// DOM) carrying role/aria-label/size/classes, and the label is a

@@ -1,7 +1,7 @@
 """Tests for ``OnboardingController`` callback removal and service change-model routing.
 
 Split out of the former ``tests/test_history_and_models.py`` catch-all.
-Verbatim mechanical move — same test names +
+Verbatim mechanical move, same test names +
 assertions, only the file location changed.
 """
 

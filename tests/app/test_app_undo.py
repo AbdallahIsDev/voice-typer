@@ -1,5 +1,5 @@
 """Direct unit tests for
-``voice_typer/server/app_undo.py`` — the ``UndoRepasteController``
+``voice_typer/server/app_undo.py``, the ``UndoRepasteController``
 extracted from ``VoiceTyperApp`` (Phase 4.5 spaghetti split).
 
 Previously this module was tested only indirectly via the
@@ -9,7 +9,7 @@ Previously this module was tested only indirectly via the
 tests cover the integration through the delegate; they do NOT pin the
 controller's grapheme-counting contract (one backspace per
 user-perceived character, not per code point) for the specific inputs
-called out in the original review entry — ASCII / ZWJ emoji family / CJK — nor do they
+called out in the original review entry (ASCII / ZWJ emoji family / CJK) nor do they
 pin the chunking boundary at exactly 10 backspaces.
 
 All heavy dependencies are mocked via the project-wide
@@ -19,7 +19,7 @@ which installs ``pynput.keyboard`` as a ``MagicMock`` in
 (see ``_install_fake_regex``) is installed per-test via
 ``monkeypatch.setitem(sys.modules, ...)`` because the ``regex``
 package is listed in ``requirements-lock.txt`` (as a transitive dep of
-``transformers``) but NOT installed in the test virtualenv — the
+``transformers``) but NOT installed in the test virtualenv, the
 production code's ``except ImportError`` fallback would otherwise
 kick in and use the code-point count, which is buggy for multi-code-
 point graphemes.
@@ -58,7 +58,7 @@ def _install_fake_regex(monkeypatch) -> None:
     def findall(pattern: str, text: str, flags: int = 0) -> list[str]:  # noqa: ARG001
         if pattern != r"\X":
             # We only need the \X pattern for these tests. Returning
-            # an empty list for other patterns is safe — undo_last
+            # an empty list for other patterns is safe, undo_last
             # only calls findall(r"\X", text).
             return []
         if not text:
@@ -140,7 +140,7 @@ def _install_pynput_controller_spy(monkeypatch) -> tuple[MagicMock, list[str]]:
     ``mock_heavy_imports`` already installs ``pynput.keyboard`` as a
     ``MagicMock`` in ``sys.modules``. ``undo_last`` does
     ``import pynput.keyboard as _pk_keyboard`` at call time, then
-    ``_pk_keyboard.Controller()`` — so we set the ``Controller``
+    ``_pk_keyboard.Controller()``, so we set the ``Controller``
     attribute on the already-mocked module to a callable that returns
     our spy instance.
 
@@ -166,7 +166,7 @@ class TestUndoLastGraphemeCount:
 
     Pre-fix: ``len(text)`` returned the code-point count, so a ZWJ-
     joined emoji family (5 code points, 1 grapheme) was undone with 5
-    backspaces — the extra 4 deleted the user's PREVIOUS text.
+    backspaces, the extra 4 deleted the user's PREVIOUS text.
 
     Cases:
       (a) ``"hello"``        → 5 backspaces  (5 ASCII graphemes)
@@ -271,7 +271,7 @@ class TestUndoLastChunking:
 
 class TestRepasteLastFallback:
     """ADR-0010 §7.1 / DP6: ``repaste_last`` reads from
-    ``history_db.get_latest_text()`` (primary — survives app restart),
+    ``history_db.get_latest_text()`` (primary, survives app restart),
     falling back to ``self._app._last_transcription`` (memory) when
     the DB read FAILS (raises).
 
@@ -289,7 +289,7 @@ class TestRepasteLastFallback:
         self, controller: UndoRepasteController, stub_app: _StubApp
     ) -> None:
         stub_app._last_transcription = "from memory fallback"
-        # DB read raises — the except branch sets text = _last_transcription.
+        # DB read raises, the except branch sets text = _last_transcription.
         stub_app.history_db.get_latest_text = MagicMock(side_effect=RuntimeError("sqlite locked"))
         # paste() must return True so the "repaste_done" toast fires.
         stub_app.clipboard.paste = MagicMock(return_value=True)
@@ -366,18 +366,18 @@ class TestRepasteLastClipboardCopyFailure:
 #
 # Note on acceptance-criterion interpretation: the literal wording
 # "paste-keystroke raises → 'paste keystroke failed' toast" does not
-# match the production code — ``app.clipboard.paste()`` does NOT raise
+# match the production code: ``app.clipboard.paste()`` does NOT raise
 # on failure; it returns ``False`` (the paste was skipped / blocked /
 # rate-limited). The user-facing toast that fires in that case is
 # ``notify.app.repaste_blocked`` ("Re-paste was blocked (unsafe
-# target or rate-limited). ...") — that IS the 'paste keystroke
+# target or rate-limited). ..."): that IS the 'paste keystroke
 # failed' toast (the keystroke did not land). This test pins that
 # contract.
 
 
 class TestRepasteLastPasteKeystrokeFailure:
     """When ``clipboard.paste()`` returns ``False`` (the keystroke was
-    skipped / blocked / rate-limited — paste does NOT raise),
+    skipped / blocked / rate-limited, paste does NOT raise),
     repaste_last MUST surface the 'repaste blocked' toast (the
     'paste keystroke failed' toast) instead of the 'repaste done'
     success toast.
@@ -392,7 +392,7 @@ class TestRepasteLastPasteKeystrokeFailure:
         # matches the real ClipboardManager.copy contract).
         stub_app.clipboard.copy = MagicMock(return_value=None)
         # paste() returns False (keystroke was skipped / blocked /
-        # rate-limited — paste does NOT raise).
+        # rate-limited, paste does NOT raise).
         stub_app.clipboard.paste = MagicMock(return_value=False)
 
         controller.repaste_last()

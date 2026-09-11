@@ -85,7 +85,7 @@ class TestSaveSyncDurabilityFalse:
 
     def test_save_sync_explicit_durability_false(self, recovery, recovery_dir):
         """``_save_sync(durability=False)`` is the explicit form of the
-        default — used by the post-shutdown sync fallback in
+        default, used by the post-shutdown sync fallback in
         ``_enqueue_save``."""
         recovery.add("hello", pasted=False)
         with mock.patch.object(
@@ -109,7 +109,7 @@ class TestMkdirGatedByFlag:
         exists).  Then ``_dir_ensured`` is set so subsequent saves skip
         both mkdir and chmod."""
         # The parent dir already exists (recovery_dir fixture creates
-        # it), but ``_save_sync`` doesn't know that — it still calls
+        # it), but ``_save_sync`` doesn't know that, it still calls
         # mkdir on the first save because ``_dir_ensured`` is False.
         recovery.add("hello", pasted=False)
         # test-setup note: ``recovery.add()`` above triggers a
@@ -117,7 +117,7 @@ class TestMkdirGatedByFlag:
         # ``recovery`` fixture), which sets ``_dir_ensured = True``.
         # Reset the flag here so the NEXT ``_save_sync()`` call (inside
         # the mkdir patch below) is treated as the "first save" for the
-        # purposes of this test — i.e. mkdir WILL be called.
+        # purposes of this test, i.e. mkdir WILL be called.
         recovery._dir_ensured = False
         mkdir_calls: list[str] = []
         original_mkdir = recovery._path.parent.mkdir.__func__
@@ -143,11 +143,11 @@ class TestMkdirGatedByFlag:
         """Subsequent saves: ``mkdir`` is NOT called (gated by
         ``_dir_ensured``).  Only the atomic write remains."""
         recovery.add("hello", pasted=False)
-        # First save — populates _dir_ensured.
+        # First save, populates _dir_ensured.
         recovery._save_sync()
         assert recovery._dir_ensured is True
 
-        # Second save — mkdir should NOT be called.
+        # Second save, mkdir should NOT be called.
         recovery.add("world", pasted=False)
         mkdir_calls: list[str] = []
         original_mkdir = recovery._path.parent.mkdir.__func__
@@ -172,11 +172,11 @@ class TestMkdirGatedByFlag:
         import os as _os
 
         recovery.add("hello", pasted=False)
-        # First save — populates _dir_ensured.
+        # First save, populates _dir_ensured.
         recovery._save_sync()
         assert recovery._dir_ensured is True
 
-        # Second save — chmod should NOT be called.
+        # Second save, chmod should NOT be called.
         recovery.add("world", pasted=False)
         with mock.patch("voice_typer.server.crash_recovery.os.chmod", wraps=_os.chmod) as mock_chmod:
             recovery._save_sync()
@@ -230,7 +230,7 @@ class TestAtexitDelUseDurabilityTrue:
         # Capture _save_sync calls via a mock that wraps the real method.
         with mock.patch.object(CrashRecovery, "_save_sync", wraps=cr._save_sync) as mock_save:
             # Manually invoke __del__ (calling cr.__del__() directly is
-            # safe — it's just a method; the GC will call it again later
+            # safe, it's just a method; the GC will call it again later
             # but the body is idempotent via _final_save_done / the
             # _stopped flag).
             cr.__del__()
@@ -249,7 +249,7 @@ class TestAtexitDelUseDurabilityTrue:
 
 
 class TestSaveStillWorks:
-    """AB-44 doesn't break the save semantics — the file is still
+    """AB-44 doesn't break the save semantics, the file is still
     written atomically with the correct content."""
 
     def test_save_persists_entries(self, recovery, recovery_dir):

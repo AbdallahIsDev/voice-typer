@@ -1,4 +1,4 @@
-// PostProcessingSettingsSection — the Post-Processing section of the
+// PostProcessingSettingsSection, the Post-Processing section of the
 // Settings surface.
 //
 // Extracted from the former ModelSettingsSection (which stacked the

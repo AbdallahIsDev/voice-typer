@@ -5,29 +5,29 @@ port-binding fallback coverage for
 The entrypoint's ``main()`` function wires three signal-driven shutdown
 surfaces:
 
-  1. **Signal handler registration** — ``main()`` calls ``signal.signal``
+  1. **Signal handler registration**: ``main()`` calls ``signal.signal``
      on POSIX to register a SIGUSR1 handler that invokes
      ``faulthandler.dump_traceback_later(timeout=1.0)`` for on-demand
      thread dumps. SIGINT/SIGTERM are NOT registered by ``main()``
-     itself — they're handled by ``signal_handlers.install_signal_handlers``
+     itself, they're handled by ``signal_handlers.install_signal_handlers``
      (invoked from ``app.start()``'s tray loop). When a SIGINT arrives,
      Python's default handler raises ``KeyboardInterrupt`` in the main
      thread; ``main()``'s ``except Exception`` block (narrowed from the
      pre-fix ``except BaseException``) does NOT swallow it, so the
      shutdown propagates cleanly to the OS.
 
-  2. **Stdin EOF shutdown** — the legacy stdin/stdout IPC transport
+  2. **Stdin EOF shutdown**, the legacy stdin/stdout IPC transport
      (``StdinRunnerMixin._run``) reads JSON lines from stdin. When stdin
      reaches EOF, the loop exits and calls
      ``_on_ipc_client_disconnect`` so the keyboard ownership is reset
      (a crashed CLI client doesn't leave the backend stuck in
      ``hotkey_capture`` state). ``main()`` itself sets
      ``server._tcp_mode = True`` so the stdin listener is NOT spawned
-     in production — but the EOF→disconnect wiring is the canonical
+     in production, but the EOF→disconnect wiring is the canonical
      "stdin closed → shutdown" path the entrypoint exposes via the
      IPCServer composition.
 
-  3. **Port binding fallback** — in standalone mode (no ``--port``, no
+  3. **Port binding fallback**, in standalone mode (no ``--port``, no
      ``--ws``), ``main()`` calls ``_pick_available_port(IPC_PORT)`` to
      auto-pick a free TCP port. The helper tries ports starting at
      ``IPC_PORT`` (9876) and increments; if every port in the range is
@@ -39,9 +39,9 @@ Platform-qualified: the SIGINT test mocks ``app.start()`` to raise
 no real signal is delivered. The stdin-EOF test uses an ``io.StringIO``
 so no real file descriptor is touched. The port-fallback test pre-binds
 a real socket on the configured port (the only OS-level resource
-touched — a loopback TCP socket, cleaned up in the test).
+touched, a loopback TCP socket, cleaned up in the test).
 
-All other OS-level calls are mocked — no real signals, no real
+All other OS-level calls are mocked, no real signals, no real
 subprocess, no real Win32 handles.
 """
 
@@ -92,25 +92,25 @@ class TestSignalHandlerWiring:
 
         Asserts:
 
-          1. ``main()`` does NOT swallow ``KeyboardInterrupt`` — it
+          1. ``main()`` does NOT swallow ``KeyboardInterrupt``, it
              propagates out so the OS sees the signal-driven shutdown.
              Pre-fix (when the except block was ``except
              BaseException``), ``KeyboardInterrupt`` was swallowed and
              the entrypoint exited with code 0 instead of 130 (the
-             conventional SIGINT exit code) — masking the signal-driven
+             conventional SIGINT exit code), masking the signal-driven
              shutdown from the parent process.
 
           2. The shutdown diagnostic path (``write_startup_diagnostic``)
              is NOT triggered for a ``KeyboardInterrupt`` (it's reserved
-             for ``Exception`` subclasses — ``KeyboardInterrupt`` is a
+             for ``Exception`` subclasses: ``KeyboardInterrupt`` is a
              ``BaseException`` but not an ``Exception``).
 
-        No real signal is delivered — ``app.start()`` is mocked.
+        No real signal is delivered: ``app.start()`` is mocked.
         """
         # Mock every heavy dependency so main() runs to the
         # app.start() call without touching real subsystems.
         app_mock = MagicMock()
-        # app.start() raises KeyboardInterrupt — simulates SIGINT
+        # app.start() raises KeyboardInterrupt, simulates SIGINT
         # arriving during the tray event loop.
         app_mock.start.side_effect = KeyboardInterrupt()
         monkeypatch.setattr("voice_typer.server.app.VoiceTyperApp", lambda: app_mock)
@@ -141,7 +141,7 @@ class TestSignalHandlerWiring:
 
         # Spy on write_startup_diagnostic so we can assert it's NOT
         # called for KeyboardInterrupt (the except Exception block is
-        # skipped — KeyboardInterrupt is BaseException, not Exception).
+        # skipped. KeyboardInterrupt is BaseException, not Exception).
         diagnostic_calls: list[str] = []
         monkeypatch.setattr(
             "voice_typer.server.ipc_diagnostics.write_startup_diagnostic",
@@ -153,11 +153,11 @@ class TestSignalHandlerWiring:
             entrypoint.main()
 
         # The shutdown diagnostic was NOT written (KeyboardInterrupt is
-        # not an Exception subclass — the except Exception block is
+        # not an Exception subclass, the except Exception block is
         # skipped).
         assert diagnostic_calls == [], (
             "main() must NOT write a startup diagnostic for "
-            "KeyboardInterrupt (SIGINT) — the except Exception block is "
+            "KeyboardInterrupt (SIGINT), the except Exception block is "
             "narrowed from BaseException so SIGINT-driven shutdown "
             "propagates cleanly without masking the signal as a crash"
         )
@@ -177,10 +177,10 @@ class TestSignalHandlerWiring:
 
         Platform-qualified: on Windows ``signal.SIGUSR1`` does not exist,
         so the ``hasattr(signal, "SIGUSR1")`` guard in ``main()`` skips
-        the registration — the assertion is gated on ``hasattr`` so the
+        the registration, the assertion is gated on ``hasattr`` so the
         test passes everywhere but only pins the wiring where it exists.
 
-        No real signal is delivered — the handler is invoked directly.
+        No real signal is delivered, the handler is invoked directly.
         """
         import signal
 
@@ -230,7 +230,7 @@ class TestSignalHandlerWiring:
 
         monkeypatch.setattr(signal, "signal", _capture_signal)
 
-        # Run main() — it registers the SIGUSR1 handler.
+        # Run main(), it registers the SIGUSR1 handler.
         entrypoint.main()
 
         # The SIGUSR1 handler was registered.
@@ -263,11 +263,11 @@ class TestStdinEofTriggersShutdown:
     ``main()`` itself sets ``server._tcp_mode = True`` so the stdin
     listener is NOT spawned in production (the TCP transport is used
     instead). But the EOF→disconnect wiring is the entrypoint's
-    contract for the stdin path — this test pins it so a future
+    contract for the stdin path, this test pins it so a future
     refactor that re-enables stdin mode doesn't silently drop the
     disconnect hook.
 
-    No real file descriptor is touched — an ``io.StringIO`` simulates
+    No real file descriptor is touched, an ``io.StringIO`` simulates
     EOF.
     """
 
@@ -276,10 +276,10 @@ class TestStdinEofTriggersShutdown:
 
         1. ``_run`` exits cleanly (no exception).
         2. ``_on_ipc_client_disconnect`` is called exactly once with
-           a reason string mentioning "stdin EOF" — the shutdown hook
+           a reason string mentioning "stdin EOF", the shutdown hook
            that resets keyboard ownership so a crashed CLI client
            doesn't leave the backend stuck.
-        3. No output was written (no commands processed — EOF was
+        3. No output was written (no commands processed, EOF was
            immediate).
         """
         stdin = io.StringIO("")  # EOF immediately
@@ -305,7 +305,7 @@ class TestStdinEofTriggersShutdown:
         """After processing commands and reaching EOF, the disconnect
         hook still fires (once, at the end). This pins that the EOF
         shutdown wiring fires even when commands were processed
-        successfully — a command-then-close sequence doesn't leave the
+        successfully, a command-then-close sequence doesn't leave the
         disconnect hook un-fired."""
         stdin = io.StringIO('{"type":"get_status","id":1}\n')
         stdout = io.StringIO()
@@ -373,7 +373,7 @@ class TestPortBindingFallback:
         # TIME_WAIT socket on ``IPC_PORT`` (e.g. another test bound and
         # closed it). Without SO_REUSEADDR the blocker's ``bind()`` then
         # fails with EADDRINUSE, the blocker is dropped (``blocker =
-        # None``), and the probe — which DOES set SO_REUSEADDR on POSIX
+        # None``), and the probe, which DOES set SO_REUSEADDR on POSIX
         # (``transport._pick_available_port`` skips TIME_WAIT rebinds) —
         # binds 9876 successfully and returns it, failing the "must skip
         # the busy port" assertion. Setting SO_REUSEADDR on the blocker
@@ -391,7 +391,7 @@ class TestPortBindingFallback:
         except OSError:
             # IPC_PORT is ALREADY occupied on this host (e.g. a real
             # backend process running, or another test holds it). That
-            # is fine — the "port is busy" condition holds either way;
+            # is fine, the "port is busy" condition holds either way;
             # we just don't own the blocker.
             blocker.close()
             blocker = None
@@ -412,7 +412,7 @@ class TestPortBindingFallback:
                     f"returned socket must be bound to the returned port {port}; got {bound_port}"
                 )
 
-                # 4. The socket is usable (listen succeeds — the
+                # 4. The socket is usable (listen succeeds, the
                 # contract is "bound but not listening; caller calls
                 # listen()").
                 sock.listen(1)
@@ -439,7 +439,7 @@ class TestPortBindingFallback:
         Retry loop: under a parallel xdist run, a CONCURRENT test can
         transiently hold one port of the range while this test pre-binds
         its blockers (the blocker bind then fails with EADDRINUSE). If a
-        blocker failed, the "ALL ports busy" premise does NOT hold — the
+        blocker failed, the "ALL ports busy" premise does NOT hold, the
         foreign socket may close mid-test and the helper could
         legitimately return a port inside the range. The scenario is
         therefore retried until the full range is bound by THIS test's
@@ -455,7 +455,7 @@ class TestPortBindingFallback:
                 all_bound = True
                 for offset in range(max_tries):
                     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                    # No SO_REUSEADDR here either — a plain (exclusive)
+                    # No SO_REUSEADDR here either, a plain (exclusive)
                     # listening socket blocks the probe's REUSEADDR bind
                     # on both Linux (listening port is never shareable)
                     # and Windows (SO_REUSEADDR only allows
@@ -501,7 +501,7 @@ class TestPortBindingFallback:
                         s.close()
         pytest.skip(
             f"could not pre-bind the full busy range [{IPC_PORT}.."
-            f"{IPC_PORT + max_tries - 1}] after 5 attempts — a concurrent "
+            f"{IPC_PORT + max_tries - 1}] after 5 attempts, a concurrent "
             f"process keeps holding one of the ports (environmental; "
             f"the all-bound path still verifies the fallback)"
         )

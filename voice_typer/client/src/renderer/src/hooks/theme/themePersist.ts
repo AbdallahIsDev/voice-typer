@@ -1,5 +1,5 @@
 /**
- * themePersist.ts — the persistence concern of the theme subsystem,
+ * themePersist.ts, the persistence concern of the theme subsystem,
  * split out of ``hooks/useTheme.ts``. Owns the single debounced backend
  * write path (``scheduleThemeSave``), the quit-time flush
  * (``flushPendingThemeSave``), and the localStorage cache sync.
@@ -22,7 +22,7 @@
  * pending save fires synchronously before the renderer tears down.
  *
  * The bridge (``call``) is read via ``getActiveCall()`` at fire/flush
- * time — never captured — so the write always targets the latest
+ * time, never captured, so the write always targets the latest
  * registered bridge even if the consumer that scheduled the save has
  * since unmounted.
  */
@@ -57,14 +57,14 @@ export function flushPendingThemeSave(): void {
 		pendingThemeUpdates = null;
 		const activeCall = getActiveCall();
 		if (activeCall) {
-			// Fire-and-forget — the renderer may be tearing down, so we
+			// Fire-and-forget, the renderer may be tearing down, so we
 			// can't await. The IPC layer queues the write before the
 			// process exits. The Promise's rejection MUST be handled
-			// here (via `.catch`) — `void call(...)` alone discards the
+			// here (via `.catch`), `void call(...)` alone discards the
 			// Promise without installing a rejection handler, which
 			// surfaces as an "unhandled promise rejection" warning in
 			// Electron (and can crash the renderer in strict modes).
-			// Theme is local-only if backend unavailable — the warn is
+			// Theme is local-only if backend unavailable, the warn is
 			// the entire recovery path.
 			void activeCall("set_config", pending).catch((e) => {
 				console.warn("[renderer:useTheme] set_config (flush) failed:", e);
@@ -133,7 +133,7 @@ export function installBeforeUnloadFlush(): void {
 	window.addEventListener("beforeunload", flushPendingThemeSave);
 }
 
-/** Remove the ``beforeunload`` flush listener — used by the
+/** Remove the ``beforeunload`` flush listener, used by the
  * ``_resetThemeStoreForTest`` seam. */
 export function removeBeforeUnloadFlush(): void {
 	if (typeof window !== "undefined") {
@@ -141,7 +141,7 @@ export function removeBeforeUnloadFlush(): void {
 	}
 }
 
-/** Drop any pending save + cancel the debounce timer — used by the
+/** Drop any pending save + cancel the debounce timer, used by the
  * ``_resetThemeStoreForTest`` seam. */
 export function resetThemePersistState(): void {
 	if (themeSaveTimer) {

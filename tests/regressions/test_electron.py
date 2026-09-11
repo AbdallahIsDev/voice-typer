@@ -2,7 +2,7 @@
 
 This module is part of the ``tests/regressions/`` package created by
 REF-4. The class/method names, assertion logic, and imports below are
-preserved verbatim from the original 4446-line monolith — only file
+preserved verbatim from the original 4446-line monolith, only file
 location has changed.
 
 Common preamble (imports + Linux test-env shim) is identical to the
@@ -42,7 +42,7 @@ class TestElectronLogFilesCaptured:
 
     def test_electron_log_files_returns_devnull(self, tmp_path, monkeypatch):
         """The helper must return a dict with stdout/stderr as DEVNULL
-        (O4: no duplicate capture — the app's own loggers already write
+        (O4: no duplicate capture, the app's own loggers already write
         to electron-main.log / electron-runtime.log)."""
         import subprocess
 
@@ -120,7 +120,7 @@ class TestElectronNotificationIpcEndpoint:
 
         # Call the handler method directly. The command was removed
         # from _COMMAND_REGISTRY (Tauri host handles it natively), so
-        # _dispatch would route to ``unknown_command`` — but the
+        # _dispatch would route to ``unknown_command``, but the
         # handler method itself is unchanged.
         resp = server._handle_show_electron_notification("not a dict", {"id": "test"})
         assert resp["type"] == "error"
@@ -151,7 +151,7 @@ class TestElectronNotificationFieldValidation:
 
     Stale-test refresh: the test now calls the handler method
     directly (``_handle_show_electron_notification``) instead of
-    routing through ``_dispatch`` — the command was removed from
+    routing through ``_dispatch``, the command was removed from
     ``_COMMAND_REGISTRY`` when the Tauri host took over the
     notification path natively.
     """
@@ -223,7 +223,7 @@ class TestElectronNotificationFieldValidation:
         assert resp["data"]["field"] == "title"
 
     def test_duration_ms_is_clamped_to_24h(self):
-        """A huge ``duration_ms`` is clamped, not rejected — callers can pass any int."""
+        """A huge ``duration_ms`` is clamped, not rejected, callers can pass any int."""
 
         server = self._make_server()
         captured = {}
@@ -235,7 +235,7 @@ class TestElectronNotificationFieldValidation:
                 {
                     "title": "Hi",
                     "message": "Body",
-                    "duration_ms": 10_000_000_000,  # ~115 days — well over the 24h cap
+                    "duration_ms": 10_000_000_000,  # ~115 days, well over the 24h cap
                 },
                 {"id": "t4"},
             )
@@ -262,7 +262,7 @@ class TestElectronNotificationFieldValidation:
             )
         assert resp["type"] == "ack"
         # event renamed from `electron_notification` → `notification`
-        # (platform-agnostic — the Tauri Rust host no longer renames it).
+        # (platform-agnostic, the Tauri Rust host no longer renames it).
         assert captured["type"] == "notification"
         assert captured["data"] == {
             "title": "Hello",
@@ -302,7 +302,7 @@ class TestUpxDisabledInPyinstallerSpec:
     """
 
     def test_upx_is_false_in_spec(self):
-        # KEEP — pins  (upx=False in voice-typer.spec).
+        # KEEP, pins  (upx=False in voice-typer.spec).
         # A behavioral test would need to run PyInstaller and inspect the
         # build output, which is heavy; the file-content check catches
         # reintroduction of upx=True directly.
@@ -322,7 +322,7 @@ class TestSettingsRendererCallsPythonBridgeCall:
     """
 
     def test_settings_uses_call_not_ipc(self):
-        # KEEP — pins TS error fix (Settings uses window.python?.call(),
+        # KEEP, pins TS error fix (Settings uses window.python?.call(),
         # not .ipc()). A behavioral test would need to render the component
         # and click a setting, but the TypeScript compiler already catches
         # .ipc() usage at build time; the file-content check is a belt-and-
@@ -334,7 +334,7 @@ class TestSettingsRendererCallsPythonBridgeCall:
         # turn calls ``window.python.call({type: "set_tray_locale", ...})``
         # in ``pushLocaleToPythonBackend`` (i18n.ts). The actual
         # ``window.python.call(...)`` invocation therefore lives in i18n.ts
-        # — both files MUST use ``.call(`` and MUST NOT use ``.ipc(`` so
+        # , both files MUST use ``.call(`` and MUST NOT use ``.ipc(`` so
         # the TypeScript PythonBridge type (which only exposes ``call`` and
         # ``onEvent``) does not break the build.
         client_root = Path(__file__).resolve().parent.parent.parent / "voice_typer" / "client"
@@ -355,15 +355,15 @@ class TestSettingsRendererCallsPythonBridgeCall:
 
         # GeneralSettingsSection.tsx delegates to ``setLocale()`` and must
         # NOT call the Python bridge directly via ``.ipc(`` (the original
-        # TS error). It also must not use ``.call(`` directly — that's now
+        # TS error). It also must not use ``.call(`` directly, that's now
         # encapsulated in i18n's ``pushLocaleToPythonBackend``.
         assert "window.python?.ipc(" not in settings_src, (
-            "TS error: GeneralSettingsSection.tsx must NOT use window.python?.ipc() — "
+            "TS error: GeneralSettingsSection.tsx must NOT use window.python?.ipc(), "
             "the PythonBridge type does not expose an 'ipc' method"
         )
         assert "window.python?.call(" not in settings_src, (
             "TS error: GeneralSettingsSection.tsx must NOT call "
-            "window.python?.call(...) directly — setLocale dispatch is "
+            "window.python?.call(...) directly, setLocale dispatch is "
             "encapsulated in i18n.ts's pushLocaleToPythonBackend. This "
             "negative check pins the delegation boundary."
         )
@@ -377,12 +377,11 @@ class TestSettingsRendererCallsPythonBridgeCall:
         )
         assert ".call(" in i18n_src, (
             "TS error: i18n.ts must dispatch set_tray_locale via "
-            "window.python.call(...) — the PythonBridge type only exposes "
+            "window.python.call(...), the PythonBridge type only exposes "
             "'call' and 'onEvent' (not 'ipc')."
         )
         assert "window.python?.ipc(" not in i18n_src, (
-            "TS error: i18n.ts must NOT use window.python?.ipc() — "
-            "the PythonBridge type does not expose an 'ipc' method"
+            "TS error: i18n.ts must NOT use window.python?.ipc(), the PythonBridge type does not expose an 'ipc' method"
         )
 
     def test_python_bridge_type_has_no_ipc_method(self):
@@ -475,7 +474,7 @@ class TestShutdownControllerPhasesContract:
 
     def test_do_cleanup_is_decomposed(self):
         """``_do_cleanup`` must be an orchestrator (≤350 lines, ≤5 except
-        clauses, 0 dynamic imports) — not the original 466-line monolith
+        clauses, 0 dynamic imports), not the original 466-line monolith
         with 25 except clauses and 9 dynamic imports.
         """
         import ast

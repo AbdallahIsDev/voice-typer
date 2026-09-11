@@ -25,13 +25,13 @@ use tokio_tungstenite::tungstenite::Message;
 /// Fixed-budget form: the wait phase uses the canonical exit budget
 /// `EXIT_SHUTDOWN_ACK_TIMEOUT_MS` (30s). Paths that need a different
 /// (e.g. shorter, user-visible-restart) budget call
-/// [`shutdown_sidecar_for_exit_with_budget`] directly — the budget is
+/// [`shutdown_sidecar_for_exit_with_budget`] directly: the budget is
 /// the ONLY thing that varies between callers, so the whole sequence
 /// below is shared (no forked twin).
 ///
 /// **Idempotent** via `SidecarState::begin_shutdown()` (the canonical
 /// `shutting_down.swap(true, SeqCst)` + supervisor-wakeup
-/// `notify_one()` pair) — returns immediately if a shutdown is already
+/// `notify_one()` pair): returns immediately if a shutdown is already
 /// in flight (either the renderer's `shutdown_sidecar` command, a prior
 /// `ExitRequested`, tray Quit's `on_quit_app`, or the pre-restart
 /// teardown in `lifecycle.rs::on_relaunch_app`). This makes it safe
@@ -41,7 +41,7 @@ use tokio_tungstenite::tungstenite::Message;
 /// Sequence:
 /// 1. Set `shutting_down` (idempotency guard) + wake the supervisor
 ///    (`begin_shutdown()`).
-/// 2. Send the `{"type":"shutdown"}` WS frame (best-effort — skipped
+/// 2. Send the `{"type":"shutdown"}` WS frame (best-effort, skipped
 ///    if the WS is already torn down).
 /// 3. Wait up to the caller's budget for the sidecar
 ///    to exit gracefully (polling the `CommandEvent` receiver if
@@ -64,13 +64,13 @@ pub(crate) async fn shutdown_sidecar_for_exit(state: &Arc<SidecarState>) {
     shutdown_sidecar_for_exit_with_budget(state, EXIT_SHUTDOWN_ACK_TIMEOUT_MS).await;
 }
 
-/// Budget-parameterized core of [`shutdown_sidecar_for_exit`] — same
+/// Budget-parameterized core of [`shutdown_sidecar_for_exit`], same
 /// sequence (begin_shutdown → shutdown frame → bounded graceful-exit
 /// wait → force-kill backstop), with the caller choosing how long the
 /// graceful-exit wait may run. The relaunch path in
 /// `lifecycle.rs::on_relaunch_app` passes a much shorter budget: a
 /// user-visible tray Restart must not stall the app for the full 30s
-/// cold-disk worst case — if the sidecar hasn't exited within the
+/// cold-disk worst case: if the sidecar hasn't exited within the
 /// short budget, the force-kill backstop (step 4) reaps the tree the
 /// same way the OS-level exit path would.
 pub(crate) async fn shutdown_sidecar_for_exit_with_budget(
@@ -84,11 +84,11 @@ pub(crate) async fn shutdown_sidecar_for_exit_with_budget(
     // `shutdown_notify.notify_one()`). `begin_shutdown()` returns the
     // PREVIOUS flag value, so `true` here means a teardown is already in
     // flight. On that path `begin_shutdown()` has already fired a
-    // best-effort `notify_one()` before we return — a benign spurious
+    // best-effort `notify_one()` before we return, a benign spurious
     // wakeup: the supervisor re-checks `shutting_down` when it wakes and
     // goes back to sleep.
     if state.begin_shutdown() {
-        log::info!("[EXIT-SHUTDOWN] shutting_down already set — skipping duplicate teardown");
+        log::info!("[EXIT-SHUTDOWN] shutting_down already set, skipping duplicate teardown");
         return;
     }
 
@@ -113,7 +113,7 @@ pub(crate) async fn shutdown_sidecar_for_exit_with_budget(
             );
         }
     } else {
-        log::info!("[EXIT-SHUTDOWN] no ws_tx — skipping cooperative shutdown frame");
+        log::info!("[EXIT-SHUTDOWN] no ws_tx, skipping cooperative shutdown frame");
     }
 
     // Wait up to the caller's budget for graceful exit.
@@ -131,7 +131,7 @@ pub(crate) async fn shutdown_sidecar_for_exit_with_budget(
     // await blocked any other code path that needed `child_exit_rx`
     // (e.g. a concurrent `Exit` + `ExitRequested` callback pair, or a
     // late renderer `shutdown_sidecar` command) for the entire grace
-    // window — even though the idempotency guard already short-circuits
+    // window: even though the idempotency guard already short-circuits
     // duplicate teardowns, the lock itself was still contended. This
     // path is the app's terminal exit, so leaving the slot `None` after
     // `take()` is fine (no later code needs the receiver back; the
@@ -161,14 +161,14 @@ pub(crate) async fn shutdown_sidecar_for_exit_with_budget(
             }
             Err(_) => {
                 log::warn!(
-                    "[EXIT-SHUTDOWN] sidecar did not exit within {}ms — force-killing",
+                    "[EXIT-SHUTDOWN] sidecar did not exit within {}ms: force-killing",
                     wait_budget_ms
                 );
             }
         }
     } else {
         log::info!(
-            "[EXIT-SHUTDOWN] dev-mode sidecar — polling for exit (up to {}ms, 100ms interval) before force-kill",
+            "[EXIT-SHUTDOWN] dev-mode sidecar: polling for exit (up to {}ms, 100ms interval) before force-kill",
             wait_budget_ms
         );
         // Poll `SidecarHandle::try_wait()` in a bounded loop with a
@@ -179,8 +179,8 @@ pub(crate) async fn shutdown_sidecar_for_exit_with_budget(
         // exits within milliseconds, and the next poll observes the
         // reaped pid). The sync `Mutex` lock on `state.child` is held
         // only for the duration of the `try_wait()` syscall
-        // (microseconds — `waitpid(WNOHANG)` is a non-blocking kernel
-        // call), never across the `tokio::time::sleep` await — so
+        // (microseconds: `waitpid(WNOHANG)` is a non-blocking kernel
+        // call), never across the `tokio::time::sleep` await, so
         // other code paths needing `state.child` (e.g. supervisor
         // respawn, which takes + kills the slot) are not blocked.
         // On ShellPlugin (release builds) this arm is unreachable:
@@ -197,10 +197,10 @@ pub(crate) async fn shutdown_sidecar_for_exit_with_budget(
                 match guard.as_mut() {
                     Some(handle) => match handle.try_wait() {
                         Ok(Some(exited)) => exited,
-                        Ok(None) => false, // ShellPlugin — no poll, wait for deadline
+                        Ok(None) => false, // ShellPlugin: no poll, wait for deadline
                         Err(_) => false,   // best-effort, don't fail the shutdown
                     },
-                    None => true, // No child — already gone
+                    None => true, // No child: already gone
                 }
             };
             if reaped {
@@ -224,7 +224,7 @@ pub(crate) async fn shutdown_sidecar_for_exit_with_budget(
         }
     }
 
-    // Force-kill backstop. Gate on `!graceful` — if the sidecar exited
+    // Force-kill backstop. Gate on `!graceful`, if the sidecar exited
     // cooperatively, the grandchildren (native hotkey binary, model
     // subprocesses) were already reaped by the sidecar itself; we still
     // `take()` the child handle (dropping it cleanly) but skip the
@@ -251,7 +251,7 @@ pub(crate) async fn shutdown_sidecar_for_exit_with_budget(
 //ADR-0020 module-layout gate: fire-and-forget WS frame send
 /// used by ``main.rs``'s ``relaunch_app`` listener. Extracted from the
 /// host entrypoint so ``main.rs`` stays wiring-only (no direct
-/// ``tungstenite::`` reference — see the
+/// ``tungstenite::`` reference, see the
 /// ``test_main_rs_has_no_business_logic_patterns`` gate in
 /// ``tests/tauri/mig19/test_final_glue.py``).
 ///
@@ -261,23 +261,23 @@ pub(crate) async fn shutdown_sidecar_for_exit_with_budget(
 ///
 /////# Return value semantics ()
 ///
-/// The returned `Option<u64>` is for **tracing only** — it does NOT
+/// The returned `Option<u64>` is for **tracing only**, it does NOT
 /// indicate whether the frame was successfully delivered to the WS
 /// writer task. Specifically:
 ///
-/// - `None`: there is no `ws_tx` (the WS was already torn down — the
+/// - `None`: there is no `ws_tx` (the WS was already torn down, the
 ///   caller should treat this as "no sidecar connected").
 /// - `Some(id)`: an id was assigned for the frame. **The frame may or
 ///   may not have been enqueued.** If `try_send` failed (e.g. WS
 ///   channel full or closed), the failure is logged at `warn` level
-///   and `Some(id)` is still returned — the id is purely a tracing
+///   and `Some(id)` is still returned, the id is purely a tracing
 ///   artifact and the peer will time out waiting for a response.
 ///
 /// Callers that need to know whether the frame was actually sent
 /// should use the full `dispatch_frame` path (which returns a
 /// `Result`). This helper exists for fire-and-forget frames where the
 /// caller cannot react to a send failure anyway (e.g. `relaunch_app`
-/// — the process is about to exit regardless).
+///: the process is about to exit regardless).
 pub(crate) fn send_fire_and_forget_frame(
     state: &Arc<SidecarState>,
     frame_type: &str,
@@ -293,7 +293,7 @@ pub(crate) fn send_fire_and_forget_frame(
     match ws_tx.try_send(Message::Text(frame.to_string().into())) {
         Ok(_) => log::info!("[WS] {} frame sent (id={})", frame_type, id),
         Err(e) => log::warn!(
-            "[WS] failed to send {} frame (id={}): {} — peer will wait for its timeout",
+            "[WS] failed to send {} frame (id={}): {}, peer will wait for its timeout",
             frame_type,
             id,
             e

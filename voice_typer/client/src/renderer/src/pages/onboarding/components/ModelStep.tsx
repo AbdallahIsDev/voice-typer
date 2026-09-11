@@ -20,7 +20,7 @@ import type { ModelOption } from "../lib/types";
 // The onboarding wizard only offers the curated MODEL_OPTIONS subset
 // (currently the multilingual Whisper variants + Parakeet), so the
 // brand strip is derived from the options actually present rather than
-// a static list — a future option (e.g. Qwen) shows up automatically.
+// a static list, a future option (e.g. Qwen) shows up automatically.
 // Mirrors the Models page family grouping: whisper → OpenAI, parakeet →
 // NVIDIA, qwen → Qwen.
 function familyForModelName(name: string): string | null {
@@ -31,7 +31,7 @@ function familyForModelName(name: string): string | null {
 	return null;
 }
 
-// Family display labels — brand names (proper nouns, kept literal like
+// Family display labels, brand names (proper nouns, kept literal like
 // the Models page family headers). The whisper family strip shows the
 // COMPANY name (OpenAI) next to the OpenAI logo, matching the Models
 // page group headers (UI/UX overhaul point 5a); each variant name
@@ -48,7 +48,7 @@ export interface ModelStepProps {
 	selectedModel: string;
 	setSelectedModel: (v: string) => void;
 	// Local-vs-cloud choice (Model step). The app NEVER auto-downloads a
-	// model — the user either picks a local model and clicks Download
+	// model, the user either picks a local model and clicks Download
 	// explicitly, or connects a cloud transcription API.
 	selectedBackend: BackendChoice;
 	setSelectedBackend: (v: BackendChoice) => void;
@@ -133,7 +133,7 @@ export function ModelStep({
 	const isDownloading = downloadingModel !== null;
 	const progressPct = Math.round(downloadProgress);
 	// Families present in the offered local models (whisper → OpenAI,
-	// parakeet → NVIDIA, qwen → Qwen) — drives the brand strip above
+	// parakeet → NVIDIA, qwen → Qwen), drives the brand strip above
 	// the picker. Derived from the options so a catalog change
 	// automatically updates the strip.
 	const localFamilies = Array.from(
@@ -154,14 +154,14 @@ export function ModelStep({
 			</p>
 
 			{/* Local vs cloud choice. This is the single place where the
-                            user decides how transcription will run — the app never
+                            user decides how transcription will run, the app never
                             downloads a model on its own. */}
 			<div
 				role="radiogroup"
 				aria-label={t("onboarding.backendAria")}
 				className="grid grid-cols-1 gap-3 sm:grid-cols-2"
 			>
-				{/* biome-ignore lint/a11y/useSemanticElements: custom-styled radio card — a native <input type="radio"> cannot render the card layout; role="radio" + aria-checked in a radiogroup is the correct ARIA pattern */}
+				{/* biome-ignore lint/a11y/useSemanticElements: custom-styled radio card, a native <input type="radio"> cannot render the card layout; role="radio" + aria-checked in a radiogroup is the correct ARIA pattern */}
 				<button
 					type="button"
 					role="radio"
@@ -177,7 +177,7 @@ export function ModelStep({
 						{t("onboarding.backendLocalDescription")}
 					</span>
 				</button>
-				{/* biome-ignore lint/a11y/useSemanticElements: custom-styled radio card — a native <input type="radio"> cannot render the card layout; role="radio" + aria-checked in a radiogroup is the correct ARIA pattern */}
+				{/* biome-ignore lint/a11y/useSemanticElements: custom-styled radio card, a native <input type="radio"> cannot render the card layout; role="radio" + aria-checked in a radiogroup is the correct ARIA pattern */}
 				<button
 					type="button"
 					role="radio"
@@ -197,7 +197,7 @@ export function ModelStep({
 
 			{selectedBackend === "local" ? (
 				<div className="flex flex-col gap-4">
-					{/* Brand strip — lets the user see which families the
+					{/* Brand strip, lets the user see which families the
                                             local models come from BEFORE opening the picker.
                                             Families are derived from the options list so the
                                             strip stays accurate if the catalog changes. */}
@@ -242,15 +242,15 @@ export function ModelStep({
 									<SelectItem
 										key={m.name}
 										value={m.name}
-										textValue={`${m.description} — ${m.size} (${formatModelSpeed(m.speed)})`}
+										textValue={`${m.description}, ${m.size} (${formatModelSpeed(m.speed)})`}
 									>
 										<span className="flex flex-wrap items-center gap-2">
 											<span>
-												{m.description} — {m.size} ({formatModelSpeed(m.speed)})
+												{m.description}, {m.size} ({formatModelSpeed(m.speed)})
 											</span>
 											{/*per-option badge row showing VRAM
                                                                                         requirement and language coverage. Both
-                                                                                        badges are optional — older backends don't
+                                                                                        badges are optional, older backends don't
                                                                                         return these fields. */}
 											{m.vram_gb != null && (
 												<span className="rounded-full bg-bg-subtle px-1.5 py-0.5 text-[0.625rem] font-medium uppercase tracking-wide text-(--text-muted)">
@@ -271,7 +271,7 @@ export function ModelStep({
 						</SelectContent>
 					</Select>
 
-					{/* HuggingFace consent — gates the EXPLICIT download. */}
+					{/* HuggingFace consent, gates the EXPLICIT download. */}
 					<div className="rounded-lg border border-border/5 bg-(--bg-subtle) p-4">
 						<label
 							className="flex items-start gap-3 text-sm"
@@ -296,7 +296,7 @@ export function ModelStep({
 						</label>
 					</div>
 
-					{/* Explicit download area — the ONLY way a model is
+					{/* Explicit download area, the ONLY way a model is
                                             downloaded from this wizard. */}
 					{isDownloading ? (
 						<div
@@ -365,7 +365,7 @@ export function ModelStep({
 				</div>
 			) : (
 				<div className="flex flex-col gap-4">
-					{/* Cloud provider selection — mirrors the Models page
+					{/* Cloud provider selection, mirrors the Models page
                                             cloud tab (same config fields). */}
 					<div className="flex flex-col gap-1">
 						<label

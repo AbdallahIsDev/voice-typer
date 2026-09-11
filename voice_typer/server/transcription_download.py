@@ -4,14 +4,14 @@ Extracted from ``voice_typer/server/transcription.py`` (which stays the
 public facade and keeps thin one-line delegator methods on the engine
 class) so the load-path cache gate can be unit-tested in isolation:
 
-* :func:`probe_cache` — phase 1 local-only cache probe. Returns
+* :func:`probe_cache`: phase 1 local-only cache probe. Returns
   ``(local_dir, integrity_failed)`` for the caller to turn into typed
   errors.
-* :func:`require_model_downloaded` — the NEVER-auto-download gate:
+* :func:`require_model_downloaded`: the NEVER-auto-download gate:
   raises ``ModelNotDownloadedError`` on a cache miss and
   ``ModelIntegrityError`` on a tampered cache hit (without deleting
-  anything — deletion is an explicit user action on the Models page).
-* :func:`whisper_size_cached` — local-only probe used by the fallback
+  anything, deletion is an explicit user action on the Models page).
+* :func:`whisper_size_cached`: local-only probe used by the fallback
   chain to skip entries whose model has not been downloaded.
 
 TEST PATCH COMPATIBILITY
@@ -55,13 +55,13 @@ def probe_cache(
 
     Returns ``(local_dir, integrity_failed)``:
 
-    * ``(path, False)`` — cache hit AND integrity verified. The
+    * ``(path, False)``: cache hit AND integrity verified. The
       caller can proceed to load.
-    * ``(None, True)`` — cache hit BUT integrity check failed. The
+    * ``(None, True)``: cache hit BUT integrity check failed. The
       caller must refuse to load (raise ``ModelIntegrityError``)
-      without deleting the tampered files — deletion is an explicit
+      without deleting the tampered files, deletion is an explicit
       user action (Models page Delete button).
-    * ``(None, False)`` — cache miss (or local probe raised). The
+    * ``(None, False)``: cache miss (or local probe raised). The
       caller raises ``ModelNotDownloadedError`` (never downloads).
 
     ``snapshot_download_fn`` is the ``huggingface_hub.snapshot_download``
@@ -77,14 +77,14 @@ def probe_cache(
             local_files_only=True,
         )
     except Exception:
-        log.debug("[MODEL] HF cache probe failed — will attempt download", exc_info=True)
+        log.debug("[MODEL] HF cache probe failed, will attempt download", exc_info=True)
         return None, False
 
     from voice_typer.server.security import verify_model_integrity
 
     if not verify_model_integrity(local_dir, repo_id):
         log.error(
-            "[MODEL] Cached model '%s' failed integrity check (cache hit path) — "
+            "[MODEL] Cached model '%s' failed integrity check (cache hit path), "
             "refusing to load tampered files (no automatic deletion).",
             model_size,
         )
@@ -105,15 +105,15 @@ def require_model_downloaded(engine, model_size: str, progress_callback=None) ->
     so callers can point the user at the Models page. A cached-but-
     tampered model raises
     :class:`~voice_typer.server.asr_errors.ModelIntegrityError` and is
-    NOT deleted automatically — deletion is an explicit user action
+    NOT deleted automatically, deletion is an explicit user action
     (Models page Delete button).
 
     The probe is local-only (``local_files_only=True``) so no network
-    traffic is generated and no consent is required — consent is only
+    traffic is generated and no consent is required, consent is only
     relevant for the explicit download path (``service.download_model``).
     """
     # Skip the gate for non-Whisper model sizes (e.g. "parakeet" or
-    # "qwen") — those backends have their own load path.
+    # "qwen"), those backends have their own load path.
     if not model_size or model_size in ("parakeet", "qwen"):
         log.debug(
             "[MODEL] Skipping download-required check for non-Whisper model '%s'",
@@ -162,7 +162,7 @@ def require_model_downloaded(engine, model_size: str, progress_callback=None) ->
             repo_id=repo_id,
         )
     except ImportError:
-        # huggingface_hub unavailable — we cannot verify the cache, so
+        # huggingface_hub unavailable, we cannot verify the cache, so
         # refuse to load (never auto-download) and point at Models page.
         raise ModelNotDownloadedError(
             f"The Whisper model '{model_size}' is not downloaded yet. "
@@ -178,7 +178,7 @@ def whisper_size_cached(engine, model_size: str) -> bool:
     Used by the fallback chain to skip entries whose model has not been
     downloaded (the app never auto-downloads). Returns ``True`` when the
     probe is inconclusive (``huggingface_hub`` unavailable) so the load
-    attempt is allowed to proceed — ``WhisperModel`` will surface its own
+    attempt is allowed to proceed, ``WhisperModel`` will surface its own
     error if the files are genuinely missing.
     """
     try:
@@ -200,11 +200,11 @@ def whisper_size_cached(engine, model_size: str) -> bool:
         )
         return True
     except ImportError:
-        # Cannot probe — allow the load attempt (WhisperModel will
+        # Cannot probe, allow the load attempt (WhisperModel will
         # surface its own error if the files are missing).
         return True
     except Exception:
-        # Cache miss (or local probe failure) — never auto-download.
+        # Cache miss (or local probe failure), never auto-download.
         return False
 
 
@@ -214,13 +214,13 @@ def is_model_snapshot_complete(repo_id: str) -> bool:
 
     WHY THIS EXISTS: the Models-page status poll and the tray availability
     check previously treated a bare ``models--<repo>`` directory as
-    "downloaded" — but huggingface_hub creates that directory (plus
+    "downloaded", but huggingface_hub creates that directory (plus
     ``refs/``) at download START. A paused / cancelled / killed download
     therefore reported a usable model in the UI while the weights were
     still partial (the user-visible lie: a "Select" button for a model
     that cannot load). This probe reuses the loader's own gate —
     ``snapshot_download`` with ``local_files_only=True``, the pinned
-    revision, and the same allow-patterns the download uses — so it only
+    revision, and the same allow-patterns the download uses, so it only
     returns ``True`` when EVERY file the download would fetch is fully
     present. A partial download reports ``False`` and the UI honestly
     shows the Download button (clicking it resumes/repairs the cache).
@@ -230,7 +230,7 @@ def is_model_snapshot_complete(repo_id: str) -> bool:
     ``ALLOW_PATTERNS_WHISPER``. Qwen is a user-managed local path (the
     download path never writes its cache), so it is not probed here.
 
-    Returns ``False`` when ``huggingface_hub`` is unavailable — the
+    Returns ``False`` when ``huggingface_hub`` is unavailable, the
     honest UI answer is "not downloaded" (the load path independently
     refuses via ``require_model_downloaded``).
     """
@@ -238,7 +238,7 @@ def is_model_snapshot_complete(repo_id: str) -> bool:
 
     repo_dir = _config_dir() / "huggingface" / "hub" / (f"models--{repo_id.replace('/', '--')}")
     if not repo_dir.is_dir():
-        # Never downloaded (or fully deleted) — skip the hf probe.
+        # Never downloaded (or fully deleted), skip the hf probe.
         return False
     try:
         from huggingface_hub import snapshot_download
@@ -266,5 +266,5 @@ def is_model_snapshot_complete(repo_id: str) -> bool:
         return True
     except Exception:
         # Incomplete snapshot (missing files), cache-schema mismatch, or
-        # hf unavailable — the honest status answer is "not downloaded".
+        # hf unavailable, the honest status answer is "not downloaded".
         return False

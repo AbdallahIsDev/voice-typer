@@ -1,32 +1,32 @@
-"""Regression tests for GT-FIX-01 (Group 5 — Reliability & Observability) in
+"""Regression tests for GT-FIX-01 (Group 5: Reliability & Observability) in
 ``voice_typer/server/log.py``.
 
 Covers six findings from the comprehensive review:
 
-* **GT-2 (Critical)** — custom formatters must append ``exc_info`` /
+* **GT-2 (Critical)**, custom formatters must append ``exc_info`` /
   tracebacks.  ``log.exception(...)`` / ``log.error(..., exc_info=True)``
   used to silently lose their stack trace because none of the three
   custom :class:`logging.Formatter` subclasses called
   ``super().format()`` or appended ``record.exc_text``.
-* **GT-13 (High)** — a stderr :class:`_FlushingStreamHandler` must be
+* **GT-13 (High)**, a stderr :class:`_FlushingStreamHandler` must be
   attached even when stderr is not a TTY (Tauri sidecar / piped) so
   early startup failures remain visible when the rotating-file write
   silently fails (disk full, read-only config dir, bad perms).
-* **GT-65 (Medium)** — :func:`_apply_per_module_log_levels` must log
+* **GT-65 (Medium)**, :func:`_apply_per_module_log_levels` must log
   a WARNING for each skipped ``VOICE_TYPER_LOG_LEVEL_MODULES`` entry
   so a typo no longer silently disables DEBUG output.
-* **GT-61 (Medium)** — timestamps must be distinguishable and
+* **GT-61 (Medium)**, timestamps must be distinguishable and
   cross-timezone readable.  Text output (file + terminal) is a clean
   space-separated local timestamp with seconds precision
-  (``YYYY-MM-DD  HH:MM:SS`` — two spaces between date and time in the
+  (``YYYY-MM-DD  HH:MM:SS``, two spaces between date and time in the
   file; time-only ``HH:MM:SS`` on the terminal, the date lives only in
   the file).  JSON output keeps the millisecond fraction + UTC ``Z``
   suffix for log aggregators.
-* **GT-62 (Medium)** — :class:`_BubbleLevelExclusionFilter` must keep
+* **GT-62 (Medium)**, :class:`_BubbleLevelExclusionFilter` must keep
   WARNING+ records unconditionally (cheap path) so a legitimate
   ``"bubble_level handler crashed"`` error is never dropped from the
   file.
-* **GT-64 (Medium)** — :func:`set_module_level` and
+* **GT-64 (Medium)**, :func:`set_module_level` and
   :func:`get_module_levels` provide a runtime API for changing a
   subsystem's log level without restarting the sidecar.
 """
@@ -65,7 +65,7 @@ def _restore_logging_state():
     Tests that call :func:`setup_logging` mutate the global
     ``voice_typer`` logger (handlers, filters, level) and the module-level
     :data:`_module_level_overrides` dict.  Without snapshot/restore the
-    state would leak across tests and break isolation — especially
+    state would leak across tests and break isolation, especially
     relevant because :func:`set_module_level` (GT-64) mutates the
     registry.
     """
@@ -194,7 +194,7 @@ def test_setup_logging_attaches_stream_handler_without_tty(tmp_path: Path, monke
     early startup failures remain visible when the rotating-file write
     silently fails (disk full / read-only config dir / bad perms)."""
 
-    # Stub isatty() so the code path under test is exercised — pytest
+    # Stub isatty() so the code path under test is exercised, pytest
     # captures stderr via a non-TTY wrapper, but to make this test
     # resilient against a future pytest that does provide a TTY we
     # force the non-TTY answer explicitly.
@@ -214,7 +214,7 @@ def test_setup_logging_attaches_stream_handler_without_tty(tmp_path: Path, monke
         root = logging.getLogger("voice_typer")
         stream_handlers = [h for h in root.handlers if isinstance(h, _FlushingStreamHandler)]
         assert stream_handlers, (
-            "GT-13 regression: no _FlushingStreamHandler attached when stderr is not a TTY — "
+            "GT-13 regression: no _FlushingStreamHandler attached when stderr is not a TTY, "
             "Tauri sidecar startup failures would be invisible if the file write failed."
         )
     finally:
@@ -224,12 +224,12 @@ def test_setup_logging_attaches_stream_handler_without_tty(tmp_path: Path, monke
 def test_port_mode_with_redirected_stderr_uses_plain_formatter(tmp_path: Path, monkeypatch) -> None:
     """A ``--port`` run with a NON-TTY stderr (the Electron launcher
     redirects the backend's stderr to ``electron-stderr.log``) must use
-    the plain ``_FileFormatter`` on the stream handler — no ANSI escape
+    the plain ``_FileFormatter`` on the stream handler, no ANSI escape
     codes in the log file.
 
     Regression: ``do_color = sys.stderr.isatty() or port_mode`` forced
     colours whenever ``--port`` was in argv, and the Electron TCP path
-    (``python -m ipc_server --port N``) IS such a run — so every backend
+    (``python -m ipc_server --port N``) IS such a run, so every backend
     line landed in ``electron-stderr.log`` with raw ``\x1b[...`` codes
     mixed with the Electron + Vite output. Colors now require a real
     TTY; redirected output stays plain.
@@ -259,7 +259,7 @@ def test_port_mode_with_redirected_stderr_uses_plain_formatter(tmp_path: Path, m
 
 def test_port_mode_with_tty_stderr_keeps_color_formatter(tmp_path: Path, monkeypatch) -> None:
     """A real terminal (TTY stderr) keeps the coloured
-    ``_ColorFormatter`` even in ``--port`` mode — the palette is
+    ``_ColorFormatter`` even in ``--port`` mode, the palette is
     terminal-only, so an interactive ``python -m ipc_server --port N``
     run is unchanged."""
 
@@ -286,7 +286,7 @@ def test_port_mode_with_tty_stderr_keeps_color_formatter(tmp_path: Path, monkeyp
 
 
 def test_setup_logging_no_duplicate_stream_handlers_when_reinvoked(tmp_path: Path, monkeypatch) -> None:
-    """GT-13 must not break idempotency — repeated ``setup_logging``
+    """GT-13 must not break idempotency, repeated ``setup_logging``
     calls do not duplicate the stderr stream handler."""
     monkeypatch.delenv("VOICE_TYPER_LOG_JSON", raising=False)
     reset()
@@ -305,7 +305,7 @@ def test_setup_logging_no_duplicate_stream_handlers_when_reinvoked(tmp_path: Pat
 
 def test_winerror1_on_write_is_benign_and_silent(monkeypatch) -> None:
     """On a Windows console, ``write()`` itself can raise WinError 1
-    (ERROR_INVALID_FUNCTION) even though the data reached the OS — the
+    (ERROR_INVALID_FUNCTION) even though the data reached the OS, the
     raise comes from the underlying flush.  This is benign and must be
     silent: NO diagnostic, handler stays attached, later writes still
     reach the stream.
@@ -377,7 +377,7 @@ def test_winerror1_on_write_is_benign_and_silent(monkeypatch) -> None:
 
 def test_broken_console_stream_silently_swallowed(tmp_path: Path, monkeypatch) -> None:
     """A Windows console flush that raises WinError 1 (ERROR_INVALID_FUNCTION)
-    is a benign, expected quirk — not actual degradation.  The handler must
+    is a benign, expected quirk, not actual degradation.  The handler must
     NOT emit a diagnostic, must NOT detach, and must keep writing."""
     written: list[str] = []
     flushed = 0
@@ -430,7 +430,7 @@ def test_broken_console_stream_silently_swallowed(tmp_path: Path, monkeypatch) -
 
 def test_apply_per_module_log_levels_warns_on_unknown_level(tmp_path: Path, monkeypatch, caplog) -> None:
     """GT-65: an invalid level name logs a WARNING so the operator can
-    see *which* entry was skipped (previously a silent trap — a typo
+    see *which* entry was skipped (previously a silent trap, a typo
     silently disabled DEBUG output)."""
     monkeypatch.setenv(
         "VOICE_TYPER_LOG_LEVEL_MODULES",
@@ -476,9 +476,9 @@ def test_apply_per_module_log_levels_warns_on_missing_equals(tmp_path: Path, mon
 
 
 # Text output (file): clean space-separated local timestamp
-# `YYYY-MM-DD  HH:MM:SS` — TWO spaces between the date and the time,
+# `YYYY-MM-DD  HH:MM:SS`, TWO spaces between the date and the time,
 # seconds-only precision (no millisecond fraction), no ``T`` separator,
-# no tz offset — reads naturally.
+# no tz offset, reads naturally.
 _TS_RE_TEXT = re.compile(r"\d{4}-\d{2}-\d{2}  \d{2}:\d{2}:\d{2}")
 # Terminal output: time only `HH:MM:SS` (no date, no millis).
 _TS_RE_TERM = re.compile(r"\d{2}:\d{2}:\d{2}")
@@ -488,7 +488,7 @@ _ISO_RE_JSON = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z")
 
 def test_file_formatter_clean_timestamp_no_millis() -> None:
     """``_FileFormatter`` emits a clean space-separated timestamp with
-    seconds-only precision: ``YYYY-MM-DD  HH:MM:SS`` — TWO spaces
+    seconds-only precision: ``YYYY-MM-DD  HH:MM:SS``, TWO spaces
     between the date and the time, no millisecond fraction, no ``T``
     separator, no timezone offset."""
     record = logging.LogRecord(
@@ -514,7 +514,7 @@ def test_file_formatter_clean_timestamp_no_millis() -> None:
 
 def test_color_formatter_clean_timestamp_time_only() -> None:
     """``_ColorFormatter`` (terminal) emits a TIME-ONLY timestamp
-    ``HH:MM:SS`` — the date is deliberately kept out of console output
+    ``HH:MM:SS``, the date is deliberately kept out of console output
     (it lives only in the log file).  No millis, no tz offset."""
     record = logging.LogRecord(
         name="voice_typer.server.fake",
@@ -560,7 +560,7 @@ def test_json_formatter_iso_timestamp_utc_z_suffix() -> None:
 
 def test_bubble_filter_keeps_warning_records_mentioning_marker() -> None:
     """GT-62: a WARNING (or higher) record whose message mentions
-    ``bubble_level`` must NOT be dropped — it's the most diagnostic
+    ``bubble_level`` must NOT be dropped, it's the most diagnostic
     record in a bubble-related failure and must reach the file."""
     filt = _BubbleLevelExclusionFilter()
     for level in (logging.WARNING, logging.ERROR, logging.CRITICAL):
@@ -575,7 +575,7 @@ def test_bubble_filter_keeps_warning_records_mentioning_marker() -> None:
         )
         assert filt.filter(rec) is True, (
             f"GT-62 regression: {logging.getLevelName(level)} record mentioning "
-            "'bubble_level' was dropped — diagnostic errors must reach the file."
+            "'bubble_level' was dropped, diagnostic errors must reach the file."
         )
 
 
@@ -594,7 +594,7 @@ def test_bubble_filter_still_drops_debug_bubble_records() -> None:
         exc_info=None,
     )
     assert filt.filter(rec) is False, (
-        "GT-62 regression: DEBUG bubble_level record not dropped — high-frequency "
+        "GT-62 regression: DEBUG bubble_level record not dropped, high-frequency "
         "noise would dominate the rotating file."
     )
 

@@ -16,7 +16,7 @@ These tests verify:
    - Refuses to grow the baseline (exit 1).
    - Successfully shrinks the baseline when counts decrease.
    - Preserves underscore-prefixed metadata fields.
-4. The ratchet *currently* holds — i.e. the actual mypy error count in
+4. The ratchet *currently* holds, i.e. the actual mypy error count in
    ``voice_typer/server/`` is ``<=`` the baseline. This catches the case
    where a contributor adds a mypy error but forgets to update the
    baseline (the pre-push hook would catch this too, but the local test
@@ -138,7 +138,7 @@ class TestBaselineSchema:
         tc = baseline["total_count"]
         assert isinstance(tc, int), f"total_count must be int, got {type(tc).__name__}"
         assert tc >= 0, f"total_count must be >= 0, got {tc}"
-        # bool is a subclass of int in Python — reject it explicitly.
+        # bool is a subclass of int in Python, reject it explicitly.
         assert isinstance(tc, int) and not isinstance(tc, bool), "total_count must be int, not bool"
 
     def test_by_code_is_object(self) -> None:
@@ -172,7 +172,7 @@ class TestBaselineSchema:
     def test_metadata_fields_are_optional_and_ignored(self) -> None:
         """Underscore-prefixed metadata fields are allowed but not required."""
         baseline = _load_baseline()
-        # No assertion on presence — just verify no non-underscore non-required fields exist.
+        # No assertion on presence, just verify no non-underscore non-required fields exist.
         allowed = set(REQUIRED_FIELDS)
         for key in baseline:
             if key in allowed:
@@ -227,7 +227,7 @@ class TestCompareLogic:
         baseline_file.write_text(
             json.dumps(
                 {
-                    "_comment": "synthetic baseline for TestCompareLogic — tmp_path",
+                    "_comment": "synthetic baseline for TestCompareLogic, tmp_path",
                     "_target": "voice_typer/server/",
                     "_schema_version": 1,
                     "total_count": 4,
@@ -348,7 +348,7 @@ class TestRegenerateLogic:
         baseline_file.write_text(
             json.dumps(
                 {
-                    "_comment": "synthetic baseline for TestRegenerateLogic — tmp_path",
+                    "_comment": "synthetic baseline for TestRegenerateLogic, tmp_path",
                     "_target": "voice_typer/server/",
                     "_schema_version": 1,
                     "total_count": 3,
@@ -361,7 +361,7 @@ class TestRegenerateLogic:
         yield
 
     def test_regenerate_refuses_to_grow(self) -> None:
-        # More errors than current baseline total — should refuse.
+        # More errors than current baseline total, should refuse.
         _baseline = json.loads(_baseline_path().read_text(encoding="utf-8"))
         _old_total = _baseline["total_count"]
         stdin = _mypy_lines(["name-defined"] * (_old_total + 5))
@@ -375,7 +375,7 @@ class TestRegenerateLogic:
         assert baseline["total_count"] == _old_total
 
     def test_regenerate_same_count_succeeds(self) -> None:
-        # Same count as input — should succeed (idempotent).
+        # Same count as input, should succeed (idempotent).
         stdin = _mypy_lines(["name-defined"] * 3)
         result = _run_script(["--regenerate", "--stdin"], stdin=stdin)
         assert result.returncode == 0
@@ -384,7 +384,7 @@ class TestRegenerateLogic:
         assert baseline["by_code"] == {"name-defined": 3}
 
     def test_regenerate_smaller_count_succeeds(self) -> None:
-        # 2 errors (down from 3) — should succeed.
+        # 2 errors (down from 3), should succeed.
         stdin = _mypy_lines(["name-defined"] * 2)
         result = _run_script(["--regenerate", "--stdin"], stdin=stdin)
         assert result.returncode == 0
@@ -434,7 +434,7 @@ class TestRatchetHolds:
             cwd=PROJECT_ROOT,
             timeout=540,
         )
-        # mypy exits 1 when type errors are found — that's expected.
+        # mypy exits 1 when type errors are found, that's expected.
         # Only fail on crashes (e.g. mypy not found, config errors).
         assert mypy_result.returncode in (0, 1), (
             f"mypy exited with unexpected code {mypy_result.returncode}.\n"

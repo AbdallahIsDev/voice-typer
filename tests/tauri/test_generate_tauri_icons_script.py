@@ -25,7 +25,7 @@ SCRIPT = PROJECT_ROOT / "scripts" / "build" / "generate_tauri_icons.py"
 # (``src-tauri/icons/``, ``src-tauri/tauri.conf.json``). That raced with
 # ``test_gen_tauri_icons_stub.py``'s corrupt-writer tests, which
 # transiently overwrite the same committed files under their own module
-# lock (a lock this module does not hold) — under ``pytest -n auto`` the
+# lock (a lock this module does not hold), under ``pytest -n auto`` the
 # byte-compare fixtures then read half-written bytes and failed in
 # chunks (C-TEST-5 isolation). ``git show`` reads the object store, NOT
 # the working tree, so the snapshot is authoritative even when the tree
@@ -65,7 +65,7 @@ BUNDLE_ICONS = {
 
 
 def _load_script():
-    """Import the script as a module (no side effects — main() is guarded)."""
+    """Import the script as a module (no side effects, main() is guarded)."""
     spec = importlib.util.spec_from_file_location("_vt_generate_tauri_icons", SCRIPT)
     assert spec is not None and spec.loader is not None, f"cannot load {SCRIPT}"
     module = importlib.util.module_from_spec(spec)
@@ -77,7 +77,7 @@ def _make_fake_icons_dir(tmp_path: Path, extras: list[str] | None = None) -> Pat
     """A fake src-tauri/icons/ with the bundle icons + (optional) extras.
 
     The bundle icons are COPIED from the committed real ``tauri icon``
-    output — read via ``git show`` (see the snapshot note at the top of
+    output, read via ``git show`` (see the snapshot note at the top of
     this module), NOT from the live working tree, so concurrent stub-
     test corruption of ``src-tauri/icons/`` can never leak into these
     fixtures. The prune/compare fixtures stay structurally identical to
@@ -119,7 +119,7 @@ def test_bundle_icon_paths_matches_committed_set(tmp_path) -> None:
     """Reading tauri.conf.json yields exactly the 6 committed bundle icons.
 
     The config is read from the committed snapshot (``git show``), not
-    the live working tree — ``test_gen_tauri_icons_stub.py`` temporarily
+    the live working tree: ``test_gen_tauri_icons_stub.py`` temporarily
     rewrites ``src-tauri/tauri.conf.json`` during its unsupported-
     extension red-test, and reading the live file here would race with
     that window under xdist.

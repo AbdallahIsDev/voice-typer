@@ -1,6 +1,6 @@
 """Tray models menu tests split out of the former ``tests/test_history_and_models.py``.
 
-Domain: tray menu — ``build_models_submenu_data`` config_provider
+Domain: tray menu: ``build_models_submenu_data`` config_provider
 support + corrupt-config fallback.
 
 The former ``TestTrayIconNoLongerReferencesStaleSvg`` /
@@ -10,7 +10,7 @@ completion) so each tray-icon regression lives next to the rest of
 the tray-icon tests.
 
 Class/method names + assertions are preserved verbatim from the
-original monolith — only file location has changed.
+original monolith, only file location has changed.
 """
 
 from __future__ import annotations
@@ -74,7 +74,7 @@ class TestTrayModelLabelsCarryFamilyGlyphs:
     """Family logo marks on the tray model labels.
 
     Native tray menus are text-only (pystray's ``MenuItem`` has no
-    image support — verified 2026-08-15), so the family logos from the
+    image support, verified 2026-08-15), so the family logos from the
     Models page (``src/assets/models/``) cannot be rendered as real
     images in the submenu. Each model label instead carries a per-family
     Unicode mark approximating its brand: ``✱`` ≈ OpenAI (Whisper),

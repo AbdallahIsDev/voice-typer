@@ -1,5 +1,5 @@
 /**
- * LocalModelsPanel — local-models tab content for the Models page.
+ * LocalModelsPanel, local-models tab content for the Models page.
  *
  * extracted from `pages/Models.tsx`. Renders:
  *   • Disk-space warning banner (when `diskInfo` is available
@@ -11,7 +11,7 @@
  *     `DownloadProgressBar` when its model is actively downloading).
  *
  * (UI/UX overhaul 2026-08-20):
- *   • The persistent HuggingFace consent banner was REMOVED — consent
+ *   • The persistent HuggingFace consent banner was REMOVED, consent
  *     is now checked just-in-time in the download flow
  *     (`useModelLifecycle.handleDownloadModel`), which opens the
  *     shared point-of-use consent dialog (`openConsentGate`) when the
@@ -21,16 +21,16 @@
  *     tab) so both tabs share one visual system.
  *   • The metadata line distinguishes label+value pairs (VRAM, WER —
  *     muted label, colon, primary value) from standalone tags
- *     (Multilingual / English Only / speed / Distilled — neutral
+ *     (Multilingual / English Only / speed / Distilled, neutral
  *     pills).
  *   • Model size moved out of the metadata line into the download
  *     button (see `ModelCardActions`).
  *   • Display names are derived: family header = company ("OpenAI"),
  *     variant names = "Whisper Tiny" / "Whisper Large V3" etc. via
- *     `getModelVariantDisplayName` (display-layer only — slugs,
+ *     `getModelVariantDisplayName` (display-layer only, slugs,
  *     repo_ids and config keys are untouched).
  *
- * This panel is a pure presentational component — it receives all
+ * This panel is a pure presentational component, it receives all
  * state + handlers as props from `useModelLifecycle`. No IPC, no
  * useState (except the accordion open-state which is purely local UI
  * and the co-located download-queue subscription below).
@@ -96,7 +96,7 @@ export interface LocalModelsPanelProps {
 	// `<DownloadProgressBar>` enters its inline error state.
 	// The bar stays mounted because `downloadingModel` is NOT cleared
 	// on failure. Wired through to the bar's `error` + `modelName` props.
-	// Optional so direct mounts / tests can omit it — the canonical
+	// Optional so direct mounts / tests can omit it, the canonical
 	// consumer (Models.tsx) always passes it.
 	failedDownload?: { modelName: string; error: string } | null;
 	// handlers
@@ -104,13 +104,13 @@ export interface LocalModelsPanelProps {
 	onDownloadModel: (model: ModelInfo) => void;
 	onDeleteModel: (model: ModelInfo) => void;
 	// Wired to <DownloadProgressBar>'s Retry button.
-	// Optional so direct mounts / tests can omit it — the canonical
+	// Optional so direct mounts / tests can omit it, the canonical
 	// consumer (Models.tsx) always passes it; when absent, the bar's
 	// Retry button simply doesn't render (the toast's Retry action
 	// button still works as a fallback).
 	onRetryDownload?: (model: ModelInfo) => void;
 	onTogglePause: () => void;
-	/** Cancel the ACTIVE download (no argument — wired to the progress
+	/** Cancel the ACTIVE download (no argument, wired to the progress
 	 * bar's Cancel button) or remove a NAMED model from the pending
 	 * download queue (wired to the queued card's Cancel affordance).
 	 * Optional argument keeps both call sites on one handler. */
@@ -119,11 +119,11 @@ export interface LocalModelsPanelProps {
 	diskInfo: DiskInfo | null;
 	modelsFolderSupported: boolean;
 	onOpenModelsFolder: () => void;
-	//      optional initial open-accordion state (the active family) — seeds
+	//      optional initial open-accordion state (the active family), seeds
 	// INTERNAL state only (uncontrolled mode).
 	initialAccordionValue?: string[];
 	// Controlled accordion state (page-lifted): keeps the user's
-	// expanded families alive across tab flips — Models.tsx unmounts
+	// expanded families alive across tab flips, Models.tsx unmounts
 	// this panel when switching to Cloud, which would otherwise reset
 	// the accordion to `initialAccordionValue` on return. When absent
 	// the panel falls back to internal state (uncontrolled, for direct
@@ -134,7 +134,7 @@ export interface LocalModelsPanelProps {
 
 // Wrapped in `React.memo` (same pattern as the memo'd settings
 // sections): the download-progress props churn 2-10× per second during
-// a transfer, and this panel re-renders with them — but the memo'd
+// a transfer, and this panel re-renders with them, but the memo'd
 // per-row children (ModelCardActions) receive stable handler refs
 // (passed straight through, NOT wrapped in per-row closures), so only
 // the active row's progress bar re-renders on a tick.
@@ -240,7 +240,7 @@ export const LocalModelsPanel = memo(function LocalModelsPanel({
 			)}
 
 			<div className="flex flex-col gap-4">
-				{/* Model Cards — grouped by family (shared ModelGroupList
+				{/* Model Cards, grouped by family (shared ModelGroupList
                                     primitives, same as the Cloud Models tab). */}
 				<ModelGroupAccordion
 					type="multiple"
@@ -260,7 +260,7 @@ export const LocalModelsPanel = memo(function LocalModelsPanel({
 									const isSelectingThis = selectingModel === model.name;
 									const isDownloadingThis = downloadingModel === model.name;
 									// 1-based FIFO position while this model waits behind the
-									// active download (backend event-derived — see
+									// active download (backend event-derived, see
 									// useModelDownloadQueue).
 									const queuePosition = queuedPositions[model.name] ?? null;
 									// The bar's error prop is
@@ -275,7 +275,7 @@ export const LocalModelsPanel = memo(function LocalModelsPanel({
 
 									// per-model disk-space pre-flight indicator.
 									// We don't block the download here (the user might
-									// know better — e.g. they're about to free up space).
+									// know better, e.g. they're about to free up space).
 									// We just visually flag the model when its catalog
 									// size exceeds free disk space.
 									const insufficientSpace =
@@ -337,7 +337,7 @@ export const LocalModelsPanel = memo(function LocalModelsPanel({
 														// Forward the model name + error state + retry
 														// handler so the bar can render the inline error UI
 														// + Retry button instead of vanishing on failure.
-														// The retry closure is per-render — acceptable: the
+														// The retry closure is per-render, acceptable: the
 														// bar is mounted ONLY for the active download, which
 														// re-renders with every progress tick anyway.
 														modelName={model.name}
@@ -364,9 +364,9 @@ export const LocalModelsPanel = memo(function LocalModelsPanel({
 
 // ── Metadata line (label+value pairs vs standalone tags) ─────────────
 //
-// Distinguishes label+value pairs (VRAM, WER — muted label, colon,
+// Distinguishes label+value pairs (VRAM, WER, muted label, colon,
 // primary value) from standalone descriptive tags (Multilingual /
-// English Only, speed, Distilled — neutral pills). Size is NOT part of
+// English Only, speed, Distilled, neutral pills). Size is NOT part of
 // this line anymore (moved into the download button).
 function ModelMetadataLine({ meta }: { meta: ModelMetadata }) {
 	return (
@@ -375,7 +375,7 @@ function ModelMetadataLine({ meta }: { meta: ModelMetadata }) {
 				label={t("models.card.vramLabel")}
 				value={`~${formatVram(meta.required_vram_mb)}`}
 			/>
-			{/* WER — only when the backend catalog supplies a real,
+			{/* WER, only when the backend catalog supplies a real,
                             published figure (meta.wer). Never guessed. */}
 			{typeof meta.wer === "number" && (
 				<MetadataPair
@@ -384,7 +384,7 @@ function ModelMetadataLine({ meta }: { meta: ModelMetadata }) {
 				/>
 			)}
 			{/* (2026-08-21): the metadata line is now TWO independent
-                            groups — the information group (VRAM/WER pairs above) and
+                            groups, the information group (VRAM/WER pairs above) and
                             this label group (all descriptive tags). The outer flex
                             (`ModelVariantRow`) keeps `gap-x-3` between the last
                             information pair and this group; the tags WITHIN the group
@@ -413,7 +413,7 @@ function ModelMetadataLine({ meta }: { meta: ModelMetadata }) {
 // ── Local helper: status badge for dep-required models ────────────────
 //
 // Kept inside the panel (not in lib/utils/models.ts) because it's
-// purely presentational — it returns CSS color strings tied to the
+// purely presentational, it returns CSS color strings tied to the
 // amber-400 token used by the deps-required badge. The lib module stays
 // free of styling concerns.
 
@@ -424,7 +424,7 @@ function getStatusBadge(
 		return {
 			label: t("models.status.depsRequired"),
 			// warning token pair (same treatment as the low-disk banner
-			// above) — tracks light/dark/custom themes, unlike the
+			// above), tracks light/dark/custom themes, unlike the
 			// previous hardcoded #f59e0b hex.
 			className: "bg-warning/15 text-warning border-warning/40",
 		};

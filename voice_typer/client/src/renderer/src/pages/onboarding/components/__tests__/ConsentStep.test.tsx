@@ -8,7 +8,7 @@
  *     plain-language label (labels are the settings.privacy.* keys,
  *     the single source of truth shared with Settings → Privacy).
  *   - Each row's switch reflects the `consents` prop state.
- *   - Toggling a switch calls onToggleConsent(field, value) — the
+ *   - Toggling a switch calls onToggleConsent(field, value), the
  *     wizard persists it immediately via set_config.
  *   - "Agree to All" calls onAgreeToAll (single batched grant).
  */
@@ -40,7 +40,7 @@ vi.mock("@/components/ui/switch", () => ({
 import ConsentStep from "../ConsentStep";
 
 // The six fields surfaced on the step (mirrors CONSENT_STEP_FIELDS in
-// ConsentStep.tsx — any drift here fails the label assertions below).
+// ConsentStep.tsx, any drift here fails the label assertions below).
 const EXPECTED_FIELDS = [
 	"voice_biometric_consent",
 	"huggingface_consent",
@@ -75,7 +75,7 @@ function renderStep(
 	return props;
 }
 
-describe("ConsentStep — consolidated first-run consent", () => {
+describe("ConsentStep, consolidated first-run consent", () => {
 	afterEach(() => cleanup());
 
 	it("renders the Privacy & Consent heading and description", () => {
@@ -144,7 +144,7 @@ describe("ConsentStep — consolidated first-run consent", () => {
 
 		// The button carries an aria-label ("Agree to all privacy
 		// consents") which overrides its visible text as the
-		// accessible name — assert via the aria-label.
+		// accessible name, assert via the aria-label.
 		const btn = screen.getByRole("button", {
 			name: "Agree to all privacy consents",
 		});

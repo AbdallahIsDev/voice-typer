@@ -1,6 +1,6 @@
 """Securely zero audio buffers on a background worker thread.
 
-Phase 4.5 /  — extracted from the original ``recording.py``
+Phase 4.5 / , extracted from the original ``recording.py``
 god-module.  Owns the long-lived buffer-clear worker thread and its
 bounded queue ().
 
@@ -61,11 +61,11 @@ def _secure_clear_handed_off_buffer(buffer: Any) -> None:
     Dispatches on the container kind:
 
     - Contiguous growable storage (any object exposing its backing
-      array through a ``storage`` attribute — the growable recording
+      array through a ``storage`` attribute, the growable recording
       buffer): wipe the ENTIRE backing array with one ``fill(0)``, not
       just the occupied chunk regions. The buffer has been handed off
       (the caller already swapped in a fresh container and nobody reads
-      the old one afterwards), so a full-storage wipe is safe — and it
+      the old one afterwards), so a full-storage wipe is safe, and it
       is the stronger secure-clear posture: the storage is lazily
       allocated with ``np.empty``, so its unoccupied tail is recycled
       heap memory that may still hold a previous session's audio.
@@ -113,7 +113,7 @@ def _secure_clear_handed_off_buffer(buffer: Any) -> None:
 # (``_buffer_clear_worker``) drains the queue and zeros each deque's
 # chunks in turn. The worker is created lazily on first enqueue (under a
 # lock) so simply importing the module has no thread-creation side
-# effects — important for tests and for short-lived CLI invocations.
+# effects, important for tests and for short-lived CLI invocations.
 #
 # The queue is bounded (``_BUFFER_CLEAR_QUEUE_MAXSIZE``). In practice it
 # should never fill: the worker zeros ~30K chunks in ~30-100ms, so it
@@ -123,7 +123,7 @@ def _secure_clear_handed_off_buffer(buffer: Any) -> None:
 # we fall back to clearing the deque synchronously on the caller's
 # thread with a single warning log. That preserves the secure-clear
 # guarantee (data is still zeroed) at the cost of a one-off blocking
-# call — a strictly better failure mode than dropping the clear.
+# call, a strictly better failure mode than dropping the clear.
 _BUFFER_CLEAR_QUEUE_MAXSIZE = 64
 _buffer_clear_queue: queue.Queue = queue.Queue(maxsize=_BUFFER_CLEAR_QUEUE_MAXSIZE)
 _buffer_clear_worker_lock = threading.Lock()
@@ -141,7 +141,7 @@ _BUFFER_CLEAR_WORKER_JOIN_TIMEOUT_S = 5.0
 # When set via ``set_thread_registry``, the lazily-started buffer-clear
 # worker registers itself so ``shutdown_all()`` can signal/join it during
 # ``VoiceTyperApp.quit()``. Mirrors the scipy-preloader pattern in
-# ``recorder.py``. ``None`` (the default) means no registry — behaviour
+# ``recorder.py``. ``None`` (the default) means no registry, behaviour
 # is unchanged (the worker is still tracked via the module-global
 # ``_buffer_clear_worker`` and can be joined by
 # ``_stop_buffer_clear_worker``).
@@ -160,13 +160,13 @@ def set_thread_registry(registry: Any | None) -> None:
         lazily started by an earlier ``_secure_clear_array_background`` call
         that ran before the registry was set.
 
-        Passing ``None`` clears the registry — subsequent worker starts will
+        Passing ``None`` clears the registry, subsequent worker starts will
         not register. The already-running worker (if any) is left alone.
 
     the read of ``_buffer_clear_worker`` and the subsequent call
         to ``registry.register(...)`` are now performed under
         ``_buffer_clear_worker_lock``. Previously the read happened outside
-        the lock — a concurrent ``_stop_buffer_clear_worker`` could clear
+        the lock, a concurrent ``_stop_buffer_clear_worker`` could clear
         the global to ``None`` and the underlying worker thread could exit
         between our read and the ``register`` call, leaving the central
         ThreadRegistry with a stale/dead thread reference that
@@ -220,7 +220,7 @@ def _stop_buffer_clear_worker(timeout: float = 2.0) -> bool:
     if worker is None:
         return True
     # Send the None sentinel so the worker exits its loop. ``put_nowait``
-    # because the queue is bounded — if it's full (worker starved for an
+    # because the queue is bounded, if it's full (worker starved for an
     # extended period), we still proceed with the join; the daemon will
     # exit on its next iteration when it eventually drains to the
     # sentinel.
@@ -248,7 +248,7 @@ def _stop_buffer_clear_worker(timeout: float = 2.0) -> bool:
 def _ensure_buffer_clear_worker() -> threading.Thread:
     """Lazily start the single long-lived buffer-clear worker thread.
 
-    idempotent — repeated calls return the same running thread.
+    idempotent, repeated calls return the same running thread.
         The worker is a daemon so it never blocks process exit. Acquired
         under ``_buffer_clear_worker_lock`` to make the lazy-start race-free
         under concurrent ``stop()``/``discard()`` calls.
@@ -297,13 +297,13 @@ def _buffer_clear_worker_loop() -> None:
 
     Loops until a ``None`` sentinel is popped from the queue (sent by
     ``_stop_buffer_clear_worker``). Each non-None item popped is a
-    handed-off buffer object — a ``collections.deque`` of audio chunks
+    handed-off buffer object, a ``collections.deque`` of audio chunks
     or the contiguous growable recording buffer.
 
     Deque chunks are popped OFF the deque one at a time
     (``popleft`` → ``fill(0)`` → reference dropped), instead of
     iterating the deque in place. Iterating kept the deque (and every
-    chunk in it) alive for the whole zeroing pass — ~30–100 ms at
+    chunk in it) alive for the whole zeroing pass, ~30–100 ms at
     16 kHz / ~85–283 ms at 48 kHz during ``stop()``/``discard()``,
     which is exactly the window that compounds the stop-time memory
     peak. With the pop-drain, each chunk becomes garbage the moment
@@ -314,7 +314,7 @@ def _buffer_clear_worker_loop() -> None:
     buffer after installing a fresh one and (on ``stop()``) after
     exporting the captured audio, so nobody reads it concurrently.
 
-    Best effort — any exception is swallowed (the deque will be GC'd
+    Best effort, any exception is swallowed (the deque will be GC'd
     anyway, and we don't want one bad buffer to poison the worker for
     the rest).
     """
@@ -355,7 +355,7 @@ def _secure_clear_array_background(buffer: Any) -> None:
         replaced it with a fresh empty container, so the worker can zero
         it at its leisure without blocking the hot path. Accepted
         container kinds: the contiguous growable recording buffer (its
-        ENTIRE backing storage is wiped — see
+        ENTIRE backing storage is wiped: see
         ``_secure_clear_handed_off_buffer``), a ``collections.deque`` of
         chunk arrays, or any other iterable yielding chunk arrays.
 

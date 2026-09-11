@@ -13,6 +13,12 @@ import { cleanup } from "@testing-library/react";
 // clean localStorage between tests, regardless of what an individual
 // spec forgets to do.
 //
+// sessionStorage is cleared too: page filter state lives in
+// sessionStorage (`vt:filters:*` via useFilterState), and the same
+// intra-file order-drift class the localStorage clear exists to
+// prevent applies to it (a `vt:filters:*` key written by one test
+// leaking into the next test's default-filter-state assertion).
+//
 // The guards (`typeof`, `!= null`) make this safe to import in Node
 // unit-test contexts that don't have a DOM or localStorage at all —
 // vitest evaluates `setupFiles` once per worker, but a config can
@@ -26,6 +32,12 @@ afterEach(() => {
 	__resetIpcCacheForTests();
 	if (typeof localStorage !== "undefined") {
 		localStorage.clear();
+	}
+	// The Node-webstorage fallback installed below (and jsdom's own
+	// Storage) both implement `clear()`, so the same guard pattern as
+	// localStorage covers every environment this setup file runs in.
+	if (typeof sessionStorage !== "undefined") {
+		sessionStorage.clear();
 	}
 });
 
@@ -41,7 +53,7 @@ afterEach(() => {
 // identically on Node 24 (CI) and Node 26+ (local dev).
 // Detect the built-in WITHOUT invoking its getter. Reading the
 // descriptor is side-effect free, whereas ``typeof globalThis.localStorage``
-// CALLS the getter — and invoking the getter is what emits Node's
+// CALLS the getter, and invoking the getter is what emits Node's
 // "localStorage is not available because --localstorage-file was not
 // provided" ExperimentalWarning on every worker-thread evaluation of
 // this setup file (once per test file under ``pool: "threads"``).
@@ -49,7 +61,7 @@ const lsDesc = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
 const ssDesc = Object.getOwnPropertyDescriptor(globalThis, "sessionStorage");
 // The Node experimental-webstorage stub is a plain accessor (``get``,
 // no ``value``). jsdom's real Storage and any previously-installed
-// shim are data properties (``value``) — leave those alone.
+// shim are data properties (``value``), leave those alone.
 const isNodeWebstorageStub = (desc: PropertyDescriptor | undefined): boolean =>
 	desc !== undefined && desc.get !== undefined && !("value" in desc);
 const lsIsStub = isNodeWebstorageStub(lsDesc);
@@ -139,7 +151,7 @@ if (
 	typeof Element.prototype.scrollIntoView !== "function"
 ) {
 	Element.prototype.scrollIntoView = function scrollIntoView() {
-		// no-op — jsdom doesn't actually scroll
+		// no-op, jsdom doesn't actually scroll
 	};
 }
 

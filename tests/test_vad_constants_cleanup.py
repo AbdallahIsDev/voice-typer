@@ -3,7 +3,7 @@
 The original finding flagged six duplicated VAD default constants spread
 across ``vad_processor.py`` (canonical) and ``recording/recorder.py``
 (compat shim). The recorder comment admitted four of the six were "no
-longer referenced internally after VadProcessor extraction" — pure
+longer referenced internally after VadProcessor extraction", pure
 dead-code duplication. The fix removed the four dead constants from
 ``recorder.py`` and from ``recording/__init__.py``'s public re-exports,
 leaving only the two genuinely used (``_DEFAULT_VAD_SPEECH_THRESHOLD_DB``
@@ -107,7 +107,7 @@ class TestDeadVadConstantsRemoved:
         for name in _DEAD_VAD_CONSTANTS:
             assert not hasattr(recording_pkg, name), (
                 f"XZ-CC-1 regression: `voice_typer.server.recording.{name}` "
-                f"is still accessible as a package attribute — the dead "
+                f"is still accessible as a package attribute, the dead "
                 f"compat-shim constant must not be re-exported."
             )
 
@@ -123,6 +123,6 @@ class TestDeadVadConstantsRemoved:
                 f"XZ-CC-1 sanity check failed: canonical `{canonical}` is "
                 f"missing from `vad_processor`. The dead constants were "
                 f"removed on the assumption that the canonical names still "
-                f"exist — if the canonicals moved, re-add an alias in the "
+                f"exist, if the canonicals moved, re-add an alias in the "
                 f"canonical module rather than reviving the dead duplicates."
             )

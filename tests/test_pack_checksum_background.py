@@ -1,4 +1,4 @@
-"""§8.16 — Checksum slows startup: background checksum + cheap existence.
+"""§8.16: Checksum slows startup: background checksum + cheap existence.
 
 Spec (§8.16):
 
@@ -54,13 +54,13 @@ def _write_valid_pack(tmp_path: Path, version: str = "v1") -> Path:
 
 
 class TestCheapExistenceCheck:
-    """§8.16 — ``pack_exists`` is cheap (no hashing)."""
+    """§8.16: ``pack_exists`` is cheap (no hashing)."""
 
     def test_pack_exists_is_fast(self, tmp_path: Path):
         """``pack_exists`` should complete in <<1s even on a large pack
         (it does NOT hash)."""
         _write_valid_pack(tmp_path, "v1")
-        # Write a "large" pack (100 MB) — ``pack_exists`` should NOT
+        # Write a "large" pack (100 MB): ``pack_exists`` should NOT
         # take 100ms (it doesn't hash).
         big_file = tmp_path / "v1" / "big.bin"
         big_file.write_bytes(b"x" * (10 * 1024 * 1024))  # 10 MB (keep test fast)
@@ -80,7 +80,7 @@ class TestCheapExistenceCheck:
 
 
 class TestBackgroundChecksumNonBlocking:
-    """§8.16 — background checksum runs on a daemon thread."""
+    """§8.16, background checksum runs on a daemon thread."""
 
     def test_start_returns_immediately(self, tmp_path: Path):
         _write_valid_pack(tmp_path, "v1")
@@ -98,7 +98,7 @@ class TestBackgroundChecksumNonBlocking:
         # Immediately after start, result is None (not done yet).
         # Give the background thread a moment to finish on a slow CI.
         time.sleep(0.05)
-        # By now it MIGHT be done (fast pack) — but if it is, ``result``
+        # By now it MIGHT be done (fast pack), but if it is, ``result``
         # is True; if not, it's None. We assert that EITHER result is
         # None OR ``done`` is True (the only valid states).
         assert bg.result is None or bg.done is True

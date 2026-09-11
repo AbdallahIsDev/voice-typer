@@ -1,7 +1,7 @@
 """regression tests for the Windows Electron installer PyInstaller bundling.
 
 The d-review found that CI builds the Python backend (PyInstaller) for
-Windows but NOT the Electron UI — the Windows installer contained only
+Windows but NOT the Electron UI, the Windows installer contained only
 Python, with no Electron shell. Dev-mode from source worked, but
 end-users installing the released Windows package got a broken app
 (ship-blocker).
@@ -88,11 +88,11 @@ def test_win_section_has_extra_resources_for_backend() -> None:
         "electron-builder.yml must define `extraResources` (top-level or "
         "under `win:`) to bundle the PyInstaller backend in the Windows "
         "installer. Without it, the installer ships Electron only with no "
-        "Python backend — ship-blocker for Windows users."
+        "Python backend, ship-blocker for Windows users."
     )
     # At least one entry must point at the PyInstaller backend output dir.
     # CI runs `pyinstaller --distpath voice_typer/dist` from the repo root
-    # (Wave 3 path-consistency fix — matches macOS/Linux), so the PyInstaller
+    # (Wave 3 path-consistency fix, matches macOS/Linux), so the PyInstaller
     # output lands at <repo>/voice_typer/dist/. electron-builder runs from
     # voice_typer/client/, so the `from:` field is `../dist` (or equivalent).
     # The `to:` field is `voice-typer-backend` so the bundle lands at
@@ -106,7 +106,7 @@ def test_win_section_has_extra_resources_for_backend() -> None:
             break
     assert matched is not None, (
         "No `extraResources` entry bundles the PyInstaller backend. "
-        "Expected an entry with `from: ../dist` (or similar — must "
+        "Expected an entry with `from: ../dist` (or similar, must "
         "reference the PyInstaller `dist/` output dir) and "
         "`to: voice-typer-backend`. Got entries: "
         f"{entries}"
@@ -137,7 +137,7 @@ def test_index_ts_pythonargs_looks_up_embedded_backend() -> None:
 
     REF-2 extracted ``pythonArgs()`` from ``index.ts`` into
     ``main/python/python-args.ts`` (re-exported from the ``python``
-    module) — the packaged-mode lookup lives in its
+    module), the packaged-mode lookup lives in its
     ``resolveBundledBackend`` helper. This test therefore reads the
     extracted module.
     """
@@ -155,7 +155,7 @@ def test_index_ts_pythonargs_looks_up_embedded_backend() -> None:
     )
 
     # Must reference process.resourcesPath (the Electron packaged-resources
-    # dir where electron-builder's extraResources lands) — inside the
+    # dir where electron-builder's extraResources lands), inside the
     # resolveBundledBackend helper.
     assert "process.resourcesPath" in src, (
         "pythonArgs() must check process.resourcesPath for the embedded PyInstaller backend (packaged mode)."
@@ -168,15 +168,15 @@ def test_index_ts_pythonargs_looks_up_embedded_backend() -> None:
         "(matches electron-builder.yml's `extraResources.to`)."
     )
     # Must be Windows-gated (either `case "win32":` or a
-    # `platform === "win32"` branch — the helper's platform param).
+    # `platform === "win32"` branch, the helper's platform param).
     assert 'case "win32"' in src or 'platform === "win32"' in src, (
         "pythonArgs() packaged-mode lookup must be Windows-gated so macOS/Linux branches are not affected."
     )
-    # Must spawn the bundled exe with --port (no -m flag — the frozen
+    # Must spawn the bundled exe with --port (no -m flag, the frozen
     # exe is already the IPC server entry point).
     assert '"--port"' in src or "'--port'" in src, (
         "pythonArgs() must pass `--port <N>` to the bundled backend so "
-        "ipc_server.main() binds the TCP listener (no `-m` flag — the "
+        "ipc_server.main() binds the TCP listener (no `-m` flag, the "
         "frozen exe already imports voice_typer.server.ipc_server)."
     )
 
@@ -222,7 +222,7 @@ def test_build_windows_job_runs_electron_builder_win_after_pyinstaller() -> None
     assert seen_electron_builder_win, (
         "build-windows job is missing the `electron-builder --win` step. "
         "Without it, the Windows installer contains only the PyInstaller "
-        "backend (no Electron UI) — ship-blocker. See RW-4."
+        "backend (no Electron UI), ship-blocker. See RW-4."
     )
 
 

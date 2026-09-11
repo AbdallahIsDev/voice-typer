@@ -53,7 +53,7 @@ class TestDesktopQuoteFollowsFreedesktopSpec:
 
     def test_newline_rejected(self):
         """XZ-R6-AS-04: args containing a newline/carriage-return are
-        rejected with ValueError — a literal newline inside a quoted
+        rejected with ValueError, a literal newline inside a quoted
         Exec field would still terminate the line and inject a new
         .desktop field, so no amount of quoting can make it safe.
         """
@@ -108,7 +108,7 @@ class TestTrayWindowUsesShutilWhichNotShellTrue:
         tray_window = REPO_ROOT / "voice_typer" / "server" / "tray_window.py"
         src = tray_window.read_text(encoding="utf-8")
         # Either the shared ``_npm_command`` helper (preferred) or an
-        # inline ``shutil.which`` call is acceptable — both resolve the
+        # inline ``shutil.which`` call is acceptable, both resolve the
         # binary path explicitly so we don't need a shell.
         assert "_npm_command" in src or "shutil.which" in src
         # S-7: no ``shell=True`` keyword argument may appear in any
@@ -199,7 +199,7 @@ class TestTrayThreadAttributeNaming:
         """
         tray_py = (REPO_ROOT / "voice_typer" / "server" / "tray.py").read_text(encoding="utf-8")
         # The canonical thread attribute is assigned in exactly ONE place
-        # (the shared launch helper) — no drift between paths.
+        # (the shared launch helper), no drift between paths.
         assert tray_py.count("self._bg_thread = threading.Thread") == 1
         # All start paths call the shared helper.
         assert tray_py.count("_launch_bg_work()") >= 3
@@ -271,7 +271,7 @@ class TestPlatformChecksUseExactMatchNotStartswith:
 
     (Wave 3, 2026-08-14): the previous ``TestLinuxUnitDirHandlesEmptyXdgConfigHome``
     (4 tests) and ``TestIoprioSetUsesSyscallNotLibcSymbol`` (2 tests)
-    classes were DELETED — they pinned helpers in the deleted
+    classes were DELETED, they pinned helpers in the deleted
     ``voice_typer.server.prewarm_scheduler_posix`` module
     (``_linux_unit_dir``) and the deleted ``prewarm._lower_io_priority``
     function. Prewarm became a worker startup phase (master plan §6.2
@@ -357,16 +357,16 @@ class TestConsoleHandlerPythonw:
         #
         # (Wave 3, 2026-08-14): added a non-Windows skip guard. The
         # production code's pythonw detection uses
-        # ``Path(sys.executable).name.lower()`` — on a non-Windows host,
+        # ``Path(sys.executable).name.lower()``, on a non-Windows host,
         # ``PurePosixPath("C:\\Python312\\pythonw.exe").name`` returns
         # the whole string (backslash is a regular char on POSIX), so
         # the ``exe_name == "pythonw.exe"`` check NEVER fires and the
         # function proceeds into the ``ctypes.windll`` branch (which
         # raises ``AttributeError`` on non-Windows). The test monkey-
         # patches ``sys.platform = "win32"`` but cannot make ``Path`` parse
-        # backslash as a separator — the underlying pythonw-skip
+        # backslash as a separator, the underlying pythonw-skip
         # invariant is only testable on a Windows host. The pre-existing
-        # failure (predates the FG session — confirmed via ``git stash``)
+        # failure (predates the FG session, confirmed via ``git stash``)
         # is documented here so a future fix to ``signal_handlers.py``
         # (e.g. switching to ``os.path.basename`` or ``PureWindowsPath``)
         # can drop this skipif.
@@ -390,7 +390,7 @@ class TestConsoleHandlerPythonw:
             "Windows-only: production uses Path(sys.executable).name which "
             "doesn't parse backslash as a separator on POSIX; the pythonw "
             "skip only fires on a real Windows host. Pre-existing failure "
-            "documented in Wave 3 Sub-agent 2 worklog — fix requires "
+            "documented in Wave 3 Sub-agent 2 worklog, fix requires "
             "signal_handlers.py changes (out of this sub-agent's scope)."
         ),
     )(test_skipped_on_pythonw)

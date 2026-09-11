@@ -5,11 +5,11 @@ point goes through (quick-add, edit dialog, import, delete, clear) —
 the renderer always sends the full merged list. The authoritative
 duplicate check therefore lives here: a save is rejected when it would
 CREATE a duplicate wrong phrase (case-insensitive, whitespace-
-collapsed — the same key the matcher uses), while a plain echo of
+collapsed, the same key the matcher uses), while a plain echo of
 pre-existing duplicates (e.g. the bundled "to 2" pair in legacy data)
 is allowed so normal saves keep working.
 
-Also covers ``test_vocabulary_correction`` — the "Test corrections"
+Also covers ``test_vocabulary_correction``, the "Test corrections"
 panel runs against the LIVE engine (``VocabularyManager.apply_to_text``).
 """
 
@@ -99,7 +99,7 @@ def _full_payload(vm, extra_misspellings=None, extra_phrases=None):
 class TestSaveRejectsNewDuplicates:
     def test_echo_of_pre_existing_duplicate_pair_is_allowed(self, vocab_mixin, live_vm):
         """A normal save that merely echoes the (legacy) bundled "to 2"
-        duplicate pair must NOT be rejected — otherwise every unrelated
+        duplicate pair must NOT be rejected, otherwise every unrelated
         edit on an old install would hard-fail."""
         payload = _full_payload(live_vm)
         result = vocab_mixin.save_vocabulary_with_diff(payload)
@@ -107,7 +107,7 @@ class TestSaveRejectsNewDuplicates:
 
     def test_rejects_adding_third_to2_occurrence(self, vocab_mixin, live_vm):
         """Adding one more "to 2 → to" entry (a new occurrence of an
-        already-existing wrong phrase) must be rejected — the flat list
+        already-existing wrong phrase) must be rejected, the flat list
         would show three near-identical rows."""
         payload = _full_payload(live_vm, extra_phrases=[["to 2", "to"]])
         with pytest.raises(VocabularyDuplicateError) as exc_info:
@@ -128,7 +128,7 @@ class TestSaveRejectsNewDuplicates:
 
     def test_rejects_case_insensitive_collision_in_dict_category(self, vocab_mixin, live_vm):
         """The matcher lowercases word tokens, so "Teh" collides with
-        the existing "teh" entry — the save must be rejected instead of
+        the existing "teh" entry, the save must be rejected instead of
         silently overwriting the dict key."""
         payload = _full_payload(live_vm, extra_misspellings={"Teh": "THE"})
         with pytest.raises(VocabularyDuplicateError) as exc_info:
@@ -154,7 +154,7 @@ class TestSaveRejectsNewDuplicates:
 
     def test_delete_of_duplicate_is_allowed(self, vocab_mixin, live_vm):
         """Removing one of the two "to 2" occurrences (via the flat
-        list delete) collapses the group to one entry — allowed."""
+        list delete) collapses the group to one entry, allowed."""
         phrases = live_vm.get_category("phrase_corrections")
         payload = _full_payload(live_vm)
         payload["phrase_corrections"] = [p for p in phrases if not (len(p) >= 2 and p[0] == " to 2")]
@@ -182,7 +182,7 @@ class TestFindNewDuplicate:
 
 class TestTestVocabularyCorrection:
     def test_applies_live_engine_rules(self, vocab_mixin):
-        """The panel preview runs the REAL engine — phrase-level and
+        """The panel preview runs the REAL engine, phrase-level and
         word-level corrections both fire."""
         result = vocab_mixin.test_vocabulary_correction("voice of teh to 2 x")
         assert isinstance(result["output"], str)

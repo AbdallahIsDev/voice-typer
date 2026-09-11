@@ -112,7 +112,7 @@ def _make_tray(monkeypatch) -> TrayIcon:
             stop_on_silence_seconds=120.0,
         ),
     )
-    # Disable elapsed-timer side-effects — we're testing set_state's
+    # Disable elapsed-timer side-effects, we're testing set_state's
     # short-circuit, not the timer machinery.
     monkeypatch.setattr(tray, "_start_elapsed_timer", lambda: None)
     monkeypatch.setattr(tray, "_cancel_elapsed_timer", lambda: None)
@@ -135,17 +135,17 @@ class TestSetStateNoop:
         monkeypatch.setattr(tray, "_apply_state", lambda s, m: apply_calls.append((s, m)))
         monkeypatch.setattr(tray, "_publish_tray_state", lambda: publish_calls.append(None))
 
-        # First call — applies + publishes.
+        # First call, applies + publishes.
         tray.set_state(AppState.IDLE, "msg")
         assert len(apply_calls) == 1, f"First call should apply, got {apply_calls}"
         assert len(publish_calls) == 1, f"First call should publish, got {publish_calls}"
 
-        # Same state + same message — short-circuited ().
+        # Same state + same message, short-circuited ().
         tray.set_state(AppState.IDLE, "msg")
         assert len(apply_calls) == 1, f"No-op call should NOT _apply_state, got {apply_calls}"
         assert len(publish_calls) == 1, f"No-op call should NOT _publish_tray_state, got {publish_calls}"
 
-        # A third identical call — still short-circuited.
+        # A third identical call, still short-circuited.
         tray.set_state(AppState.IDLE, "msg")
         assert len(apply_calls) == 1
         assert len(publish_calls) == 1
@@ -166,7 +166,7 @@ class TestSetStateNoop:
         assert len(apply_calls) == 1
         assert len(publish_calls) == 1
 
-        # Different message — NOT a no-op.
+        # Different message. NOT a no-op.
         tray.set_state(AppState.IDLE, "second")
         assert len(apply_calls) == 2, "Different message should NOT be a no-op"
         assert len(publish_calls) == 2
@@ -186,14 +186,14 @@ class TestSetStateNoop:
         assert len(apply_calls) == 1
         assert len(publish_calls) == 1
 
-        # Different state — NOT a no-op.
+        # Different state. NOT a no-op.
         tray.set_state(AppState.RECORDING, "msg")
         assert len(apply_calls) == 2, "Different state should NOT be a no-op"
         assert len(publish_calls) == 2
 
     def test_noop_skips_elapsed_timer_side_effects(self, monkeypatch):
         """The no-op short-circuit happens BEFORE the elapsed-timer
-        start/stop logic — a redundant ``set_state(RECORDING, msg)``
+        start/stop logic, a redundant ``set_state(RECORDING, msg)``
         doesn't re-call ``_start_elapsed_timer`` (which would cancel +
         restart the worker thread)."""
         tray = _make_tray(monkeypatch)
@@ -252,7 +252,7 @@ class TestSetStateNoop:
         monkeypatch.setattr(tray, "_publish_tray_state", lambda: publish_calls.append(None))
         monkeypatch.setattr(tray, "_maybe_publish_tray_menu", lambda: menu_publish_calls.append(None))
 
-        # Initial state is IDLE — set_state(IDLE, "") should be a no-op
+        # Initial state is IDLE, set_state(IDLE, "") should be a no-op
         # because __init__ set _state=IDLE + _message="".
         tray.set_state(AppState.IDLE, "")
         assert apply_calls == [], f"Initial no-op should NOT apply, got {apply_calls}"

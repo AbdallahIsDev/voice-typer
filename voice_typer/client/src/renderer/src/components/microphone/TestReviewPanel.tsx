@@ -37,7 +37,7 @@ interface TestReviewPanelProps {
 	 * parent. When provided, detected-noise issues render a one-click
 	 * "Apply Noisy Room preset" CTA alongside the recommendation text.
 	 * When absent, only the recommendation text is shown (still satisfies
-	 * the same spirit — every detected issue has an actionable
+	 * the same spirit, every detected issue has an actionable
 	 * recommendation, even without the one-click apply).
 	 */
 	onApplyPreset?: (preset: AudioPreset) => void;
@@ -60,18 +60,18 @@ const DETECTED_ISSUE_LITERALS: Record<string, string> = {
 	"Moderate background noise":
 		"microphoneTest.detectedIssueCodes.moderate_noise",
 	"Audio clipping detected": "microphoneTest.detectedIssueCodes.clipping",
-	"Volume too low — speak closer to the microphone":
+	"Volume too low, speak closer to the microphone":
 		"microphoneTest.detectedIssueCodes.volume_too_low",
-	"Volume is low — consider raising input gain":
+	"Volume is low, consider raising input gain":
 		"microphoneTest.detectedIssueCodes.volume_low",
-	"No voice detected — try speaking during the test":
+	"No voice detected, try speaking during the test":
 		"microphoneTest.detectedIssueCodes.no_voice",
 };
 
 /**
  * Translate a backend `detected_issues` literal into the user's locale.
  * Falls back to the raw string when the literal is not in the known map
- * (e.g. a newer backend emits a code we haven't catalogued yet) — this
+ * (e.g. a newer backend emits a code we haven't catalogued yet), this
  * preserves whatever information the backend did send rather than
  * dropping it silently.
  */
@@ -84,8 +84,8 @@ function translateDetectedIssue(raw: string): string {
 /**
  * Per-issue recommendation + optional one-click CTA. Maps each
  * known detected-issue code to:
- *   • ``text`` — the actionable recommendation (always rendered).
- *   • ``applyPreset`` — when present AND the parent wired
+ *   • ``text``, the actionable recommendation (always rendered).
+ *   • ``applyPreset``, when present AND the parent wired
  *     ``onApplyPreset``, the row renders a one-click CTA button that
  *     invokes the parent's preset-applier (e.g. "Apply Noisy Room
  *     preset" for ``high_noise``).
@@ -98,7 +98,7 @@ function translateDetectedIssue(raw: string): string {
  *
  * Lookup is keyed by the canonical i18n-issue-code KEY (the
  * ``microphoneTest.detectedIssueCodes.*`` suffix), NOT by the backend's
- * raw English literal — that way the recommendation lookup is locale-
+ * raw English literal, that way the recommendation lookup is locale-
  * independent (the same code resolves in every locale) and survives a
  * backend rewording.
  */
@@ -195,7 +195,7 @@ export function TestReviewPanel({
 				</Button>
 			</div>
 
-			{/* Test transcription — the primary "what did it hear" result.
+			{/* Test transcription, the primary "what did it hear" result.
                             Rendered when the backend produced text; when no speech
                             model is loaded (``transcriptionUnavailable``) a localized
                             explanation names the actual state instead of silence. */}
@@ -230,7 +230,7 @@ export function TestReviewPanel({
 					<div
 						className="flex items-center justify-between"
 						// BG-71: the quality summary is the primary live
-						// result of a mic test — announce updates to AT
+						// result of a mic test, announce updates to AT
 						// as one atomic polite region so screen-reader
 						// users hear the full verdict, not fragments.
 						aria-live="polite"
@@ -240,7 +240,7 @@ export function TestReviewPanel({
 							{t("microphoneTest.estimatedQuality")}
 						</span>
 						{/* HONEST-METRIC INVARIANT: without a loaded speech model the
-                                                transcription-quality estimate cannot be computed — showing a
+                                                transcription-quality estimate cannot be computed, showing a
                                                 numeric score would fabricate a result from absent data (the
                                                 old bug rendered a false "0%"). Render an explicit
                                                 not-applicable state instead; audio-derived metrics below stay
@@ -338,7 +338,7 @@ export function TestReviewPanel({
 							<output
 								className="font-medium text-warning"
 								// BG-71: detected issues are a status
-								// update — <output> (role=status)
+								// update, <output> (role=status)
 								// announces them without stealing focus.
 							>
 								{t("microphoneTest.detectedIssues")}

@@ -7,7 +7,7 @@
  * branding.py live OUTSIDE the renderer's tsconfig include (they're
  * compiled under tsconfig.node.json and the Python toolchain
  * respectively), so we read them at test-time with `node:fs` and
- * regex out the APP_NAME literal — mirroring the approach used by
+ * regex out the APP_NAME literal, mirroring the approach used by
  * `scripts/check_branding.py`.
  *
  * Python-side parity: a separate Python test (e.g. in

@@ -14,7 +14,7 @@ renderer-side fetch:
   * violated the C-DATA-1 "offline application" promise: even though
     the *test* network call is initiated by an explicit user action on
     the Cloud tab, the production code path is "renderer makes a network
-    call" — which is exactly the pattern C-DATA-1 prohibits.
+    call": which is exactly the pattern C-DATA-1 prohibits.
 
 Routing the probe through a Python IPC handler resolves all three:
 
@@ -34,7 +34,7 @@ provider endpoint cannot block the IPC dispatcher thread indefinitely.
 
 Consent: this handler does NOT consult the per-provider consent flag.
 Consent governs audio transmission during dictation; the "Test
-Connection" probe sends no audio — it issues an authenticated GET to
+Connection" probe sends no audio, it issues an authenticated GET to
 the provider's ``/models`` (or ``/projects``) endpoint to verify the
 key. Requiring consent for a key-validity probe would be confusing
 (the user clicks "Test Connection" specifically to validate the key
@@ -64,7 +64,7 @@ _opener = build_secure_opener()
 
 # Per-provider HTTP test endpoint + Authorization header scheme.
 # ``/v1/models`` (OpenAI / Groq) and ``/v1/projects`` (Deepgram) are
-# the cheapest authenticated GETs each provider exposes — they return a
+# the cheapest authenticated GETs each provider exposes, they return a
 # small JSON list and require a valid API key, so a 200 means "the key
 # works", a 401/403 means "the key is invalid", and any other status
 # (or network failure) means "the provider is unreachable / erroring".
@@ -84,7 +84,7 @@ _PROVIDER_TEST_ENDPOINTS: dict[str, dict[str, str]] = {
 }
 
 # Provider name → Config dataclass field name holding the API key.
-# Imported from ``credential_store`` — the single authoritative source
+# Imported from ``credential_store``: the single authoritative source
 # (adding a provider there automatically widens this handler's key
 # lookup; no second dict to keep in sync). Importing the package does
 # NOT import ``keyring``: the credential-store backend resolves
@@ -116,14 +116,14 @@ class CloudTestHandlersMixin(HandlerBase):
         Returns a response envelope with ``type = "cloud_test_result"``
         and ``data = {"ok": bool, "status": int, "message": str}``:
 
-          * ``ok=True, status=200`` — the API key is valid; the provider
+          * ``ok=True, status=200``: the API key is valid; the provider
             is reachable.
-          * ``ok=False, status=401|403`` — the API key is invalid or
+          * ``ok=False, status=401|403``: the API key is invalid or
             revoked. The renderer surfaces a "key invalid" message.
-          * ``ok=False, status=429`` — rate-limited. The renderer
+          * ``ok=False, status=429``: rate-limited. The renderer
             surfaces a "rate-limited, retry shortly" message.
-          * ``ok=False, status=5xx`` — provider server error.
-          * ``ok=False, status=0`` — network / DNS / TLS failure (the
+          * ``ok=False, status=5xx``: provider server error.
+          * ``ok=False, status=0``: network / DNS / TLS failure (the
             request never reached the provider). The renderer surfaces
             a "network blocked the request" message.
 
@@ -134,7 +134,7 @@ class CloudTestHandlersMixin(HandlerBase):
         WS-path envelope via ``_respond_with_error`` (no ``str(exc)``
         leak).
         """
-        # TODO: not migrated to ``_wrap`` — has side effects
+        # TODO: not migrated to ``_wrap``: has side effects
         # (HTTP request via ``_opener.open``, multiple ``log.info`` /
         # ``log.warning`` calls, multiple early-return error envelopes
         # with distinct shapes that don't fit ``_wrap``'s merge contract).
@@ -189,7 +189,7 @@ class CloudTestHandlersMixin(HandlerBase):
 
             api_key = getattr(self.app.config, config_field, "") or ""
             if not api_key:
-                # No key configured — surface as an "info" result so the
+                # No key configured, surface as an "info" result so the
                 # renderer can prompt the user to enter a key first
                 # (matches the renderer-side pre-check that existed
                 # before this handler was added).
@@ -202,7 +202,7 @@ class CloudTestHandlersMixin(HandlerBase):
                 return resp
 
             # Build the authenticated GET request. The ``Authorization``
-            # header value is constructed here in Python — the renderer
+            # header value is constructed here in Python, the renderer
             # never sees the key (only the provider name crosses IPC).
             url = endpoint["url"]
             auth_scheme = endpoint["auth_scheme"]
@@ -224,9 +224,9 @@ class CloudTestHandlersMixin(HandlerBase):
                     # Drain the response body so the connection can be
                     # reused (urllib's connection pool benefits from a
                     # fully-consumed response). The body itself is not
-                    # needed — the test only cares about the status code.
+                    # needed, the test only cares about the status code.
                     with contextlib.suppress(Exception):
-                        # Body read failure is non-fatal — the status
+                        # Body read failure is non-fatal, the status
                         # code is what we report.
                         http_resp.read()
             except HTTPError as http_err:
@@ -279,7 +279,7 @@ class CloudTestHandlersMixin(HandlerBase):
                 }
                 return resp
 
-            # 2xx — the API key is valid and the provider is reachable.
+            # 2xx, the API key is valid and the provider is reachable.
             resp["type"] = "cloud_test_result"
             resp["data"] = {
                 "ok": True,
@@ -304,14 +304,14 @@ def _http_error_message(status_code: int) -> str:
     these tokens (rather than the raw HTTP status) so the i18n layer
     can localize the message. Tokens:
 
-      * ``auth_failed``    — 401, 403 (key invalid / revoked)
-      * ``rate_limited``   — 429
-      * ``server_error``   — 5xx
-      * ``http_error``     — any other non-2xx status
+      * ``auth_failed``   : 401, 403 (key invalid / revoked)
+      * ``rate_limited``  : 429
+      * ``server_error``  : 5xx
+      * ``http_error``    : any other non-2xx status
 
     Kept module-private (no underscore prefix on the export would make
     it part of the public surface); the renderer never sees these
-    tokens directly — they're an internal contract between this handler
+    tokens directly, they're an internal contract between this handler
     and the renderer's status-code-to-i18n-key mapping.
     """
     if status_code in (401, 403):

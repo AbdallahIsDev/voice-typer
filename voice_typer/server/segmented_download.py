@@ -4,20 +4,20 @@ WHY THIS EXISTS: ``snapshot_download`` fetches each file over a SINGLE
 HTTP connection. On high-latency / per-connection-throttled / lossy
 links that single stream stalls well below line rate (the classic "starts
 at 10 MB/s, drops to 500 kB/s" symptom). This module downloads ONE large
-file as N concurrent byte-range segments — the aria2 / ADM approach —
+file as N concurrent byte-range segments, the aria2 / ADM approach —
 on the standard HTTP path (NOT xet), so the pause/cancel transfer gate
 keeps working and no native code is involved.
 
-Design principles (E3/E13 — a reusable subsystem, not a service hack):
+Design principles (E3/E13, a reusable subsystem, not a service hack):
 
 - **Pure engine.** No imports from the service layer, tray, or config.
   The caller supplies ``gate_check`` (pause-block / abort-raise, e.g.
   :func:`asr_setup.check_download_gate`), a progress callback, and an
   ``opener_factory`` seam. Everything else is stdlib (``urllib``,
-  ``threading``) — no new dependencies, frozen-app safe.
+  ``threading``), no new dependencies, frozen-app safe.
 - **Crash-safe resume (ADM semantics).** Per-segment part files + an
   atomic JSON state file record completion. A kill -9 mid-download
-  resumes finished segments and re-fetches only the rest — strictly
+  resumes finished segments and re-fetches only the rest, strictly
   better than huggingface_hub 1.26's cache path, which discards
   partial-file progress on failure (process-unique tmp names).
 - **Never trusts the network.** The assembled file MUST match
@@ -73,7 +73,7 @@ SEGMENT_TARGET_BYTES = 256 * 1024 * 1024
 #: Upper bound on concurrent Range connections (politeness: HF's own
 #: client opens ~8 across files; per-file parallelism stays below that).
 MAX_SEGMENTS = 6
-#: Wire read size — also the pause/cancel checkpoint granularity.
+#: Wire read size, also the pause/cancel checkpoint granularity.
 READ_CHUNK_BYTES = 1024 * 1024
 #: Per-request socket timeout (connect + idle read).
 REQUEST_TIMEOUT_S = 30
@@ -214,7 +214,7 @@ def state_matches(
         or state.get("expected_sha256") != expected_sha256
     ):
         return False
-    # An ETag change means the server-side file changed — stale parts
+    # An ETag change means the server-side file changed, stale parts
     # must not be trusted. (Both None counts as a match.)
     return state.get("etag") == etag
 
@@ -247,7 +247,7 @@ class _NoAutoRedirectHandler(urllib.request.HTTPRedirectHandler):
 
     The engine resolves redirects MANUALLY (single hop chain) so it can
     strip the Authorization header when the host changes (the HF resolve
-    URL 302-redirects to a presigned CDN URL that needs no auth — and
+    URL 302-redirects to a presigned CDN URL that needs no auth, and
     must never receive our token) and enforce https-only targets.
     """
 
@@ -389,7 +389,7 @@ def _sleep_interruptible(delay_s: float, gate_check: GateCheck | None) -> None:
 
     A plain ``time.sleep`` would deafen the transfer to cancel for the
     whole backoff. Looping through the gate keeps abort latency at
-    ~0.2 s; on pause the sleep simply extends (correct — nothing should
+    ~0.2 s; on pause the sleep simply extends (correct, nothing should
     happen while paused).
     """
     deadline = time.monotonic() + max(0.0, delay_s)
@@ -423,7 +423,7 @@ def _fetch_segment(
     """
     offset = part_path.stat().st_size if part_path.exists() else 0
     if offset > seg.length:
-        # Torn state (part longer than its segment) — restart it.
+        # Torn state (part longer than its segment), restart it.
         part_path.unlink(missing_ok=True)
         offset = 0
     if offset == seg.length:
@@ -447,7 +447,7 @@ def _fetch_segment(
                     continue
                 if status == 416:
                     # Range unsatisfiable: our offset is likely already
-                    # complete (another attempt finished it) — re-check.
+                    # complete (another attempt finished it), re-check.
                     if part_path.exists() and part_path.stat().st_size >= seg.length:
                         return 0
                     offset = 0
@@ -457,7 +457,7 @@ def _fetch_segment(
                 if status == 200 and (offset > 0 or not _body_matches_segment(resp, seg)):
                     # Server ignored Range: only acceptable when the body
                     # IS the whole segment (single-segment file). Anything
-                    # else cannot be spliced — fail over to classic.
+                    # else cannot be spliced, fail over to classic.
                     raise _RangeUnsupportedError("server ignored Range request (HTTP 200)")
                 if status not in (200, 206):
                     raise SegmentedDownloadError(f"unexpected HTTP {status}")
@@ -486,9 +486,9 @@ def _fetch_segment(
                 raise  # disk-full is fatal, never retried
             last_error = e
             _sleep_interruptible(RETRY_BACKOFF_S[min(attempt, len(RETRY_BACKOFF_S) - 1)], gate_check)
-        except Exception as e:  # noqa: BLE001 — transport errors retried uniformly
+        except Exception as e:  # noqa: BLE001, transport errors retried uniformly
             # NOTE: ModelDownloadAborted is a BaseException, so it is NOT
-            # caught here — aborts unwind immediately, never retried.
+            # caught here, aborts unwind immediately, never retried.
             last_error = e
             _sleep_interruptible(RETRY_BACKOFF_S[min(attempt, len(RETRY_BACKOFF_S) - 1)], gate_check)
     raise SegmentedDownloadError(f"segment {seg.index} failed after {SEGMENT_ATTEMPTS} attempts: {last_error}")
@@ -627,7 +627,7 @@ def download_file_segmented(
 
     assembled = scratch_dir / f"{_safe_filename(filename)}.assembled.tmp"
     _assemble_and_verify(scratch_dir, filename, segments, expected_sha256, assembled)
-    # Success: resume state + parts are now redundant — remove them so a
+    # Success: resume state + parts are now redundant. Remove them so a
     # later retry cannot trust stale parts. The verified bytes live on
     # in the returned file; the caller moves it into place.
     _discard_resume_state(scratch_dir, filename, state_path)
@@ -754,12 +754,12 @@ def plan_segmented_files(
 
     Returns the list of big, pinned files (empty list = everything is
     small, use classic for all) or ``None`` when planning itself is
-    impossible (listing failed, sizes unknown) — the caller then uses
+    impossible (listing failed, sizes unknown), the caller then uses
     the classic whole-repo path, i.e. today's behavior.
 
     A file qualifies iff: it matches ``allow_patterns``, its size is
     known and ≥ ``threshold_bytes``, the manifest pins a sha256 for it,
-    a blob id is known, AND pin == blob_id (LFS content hash — guards
+    a blob id is known, AND pin == blob_id (LFS content hash, guards
     against manifest/tree drift; mismatch falls back to classic).
 
     NEVER raises.
@@ -777,7 +777,7 @@ def plan_segmented_files(
                 continue
             if str(pin).lower() != str(blob_id).lower():
                 log.warning(
-                    "[SEGDL] manifest pin != tree blob_id for %s:%s (drift?) — classic path",
+                    "[SEGDL] manifest pin != tree blob_id for %s:%s (drift?), classic path",
                     repo_id,
                     path,
                 )
@@ -786,7 +786,7 @@ def plan_segmented_files(
         return planned
     except Exception:
         log.debug(
-            "[SEGDL] file planning failed for %s — classic path",
+            "[SEGDL] file planning failed for %s, classic path",
             repo_id,
             exc_info=True,
         )
@@ -874,7 +874,7 @@ def run_segmented_phase(
         with lock:
             base[0] += plan.size
     # Best-effort scratch cleanup (ignore_errors already suppresses;
-    # leftovers are harmless — the next run reconciles by part size).
+    # leftovers are harmless, the next run reconciles by part size).
     shutil.rmtree(repo_scratch, ignore_errors=True)
 
 
@@ -895,7 +895,7 @@ def install_blob_into_hf_cache(
 
     Writes ``blobs/<sha256>`` (atomic rename) + ``snapshots/<commit>/
     <filename>`` (relative symlink, copied when symlinks are
-    unavailable — mirroring huggingface_hub's own fallback). Refs/tree
+    unavailable, mirroring huggingface_hub's own fallback). Refs/tree
     bookkeeping stays owned by the classic ``snapshot_download`` run
     that must precede segmented files (it lists the full tree and writes
     the tree cache).

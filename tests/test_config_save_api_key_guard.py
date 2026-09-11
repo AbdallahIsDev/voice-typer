@@ -15,7 +15,7 @@ These tests pin the DE-23 fix in ``voice_typer/server/config.py``'s
                     value = str(value)
                     data[field_name] = value
                 else:
-                    # dict / list / other — skip with warning.
+                    # dict / list / other, skip with warning.
                     continue
             if value and not value.startswith(credential_store.KEYRING_REF_PREFIX):
                 credential_store.store_secret(provider, value)
@@ -26,13 +26,13 @@ instance (e.g. ``int`` from a hand-edited config or a buggy IPC
 caller) would crash with ``AttributeError: 'int' object has no
 attribute 'startswith'`` at ``value.startswith(...)``.  The crash
 propagated up through ``Config.save()``'s outer ``except Exception``,
-logging a warning and aborting the entire save — so the user's other
+logging a warning and aborting the entire save, so the user's other
 config changes were lost.
 
 Post-fix:
 - ``int`` / ``float`` values (excluding ``bool``) are coerced to
   ``str`` (backward compat with old configs that stored api_key as
-  int — the value is preserved as a string).
+  int, the value is preserved as a string).
 - Other non-string truthy values (``dict``, ``list``, etc.) are
   skipped with a WARNING log so the user can locate the corrupted
   field, and the save proceeds for the remaining providers.
@@ -107,7 +107,7 @@ class TestConfigSaveCoercesNumericApiKey:
         crashed the entire save.
         """
         c = Config()
-        # Bypass the dataclass field type (str) — simulate a buggy
+        # Bypass the dataclass field type (str), simulate a buggy
         # caller or a hand-edited in-memory state.
         c.openai_api_key = 12345  # type: ignore[assignment]
 
@@ -231,7 +231,7 @@ class TestConfigSaveSkipsNonStringApiKey:
 
 class TestConfigSaveFalsyNonStringApiKey:
     """DE-23: falsy non-string api_key values (``None``, ``0``, ``[]``,
-    ``{}``) are skipped silently — matches the historical ``not value``
+    ``{}``) are skipped silently, matches the historical ``not value``
     short-circuit for empty strings."""
 
     @pytest.mark.parametrize("falsy_value", [None, 0, [], {}])
@@ -239,7 +239,7 @@ class TestConfigSaveFalsyNonStringApiKey:
         self, isolated_config_dir, mock_keyring_available_in_config_save, falsy_value
     ):
         """A falsy non-string api_key (None, 0, [], {}) must be skipped
-        silently — no warning, no routing, no crash."""
+        silently, no warning, no routing, no crash."""
         c = Config()
         c.openai_api_key = falsy_value  # type: ignore[assignment]
 
@@ -263,7 +263,7 @@ class TestConfigSaveBoolApiKey:
     skipped silently via the ``not value`` short-circuit."""
 
     def test_truthy_bool_skipped_with_warning(self, isolated_config_dir, mock_keyring_available_in_config_save, caplog):
-        """``True`` is truthy but not int/float — must be skipped (not
+        """``True`` is truthy but not int/float, must be skipped (not
         coerced to ``"True"``)."""
         c = Config()
         c.openai_api_key = True  # type: ignore[assignment]

@@ -12,7 +12,7 @@ A previous version of ``recording.py`` had the audio-callback structure:
 
 This raised ``NameError: name 'filtered' is not defined`` on every
 audio chunk.  PortAudio swallows callback exceptions silently, so the
-recording captured nothing — no audio, no buffer growth, no RMS
+recording captured nothing, no audio, no buffer growth, no RMS
 updates.  This went undetected because no test exercised the
 callback with an AudioProcessor attached (without a processor,
 ``filtered = indata`` was a separate code path that worked).
@@ -24,7 +24,7 @@ callback directly, and assert that:
 1. The callback does not raise.
 2. The buffer grows by the expected number of chunks.
 3. The stored audio is the FILTERED audio (high-pass filter actually
-   applied — low-frequency content attenuated).
+   applied, low-frequency content attenuated).
 4. The RMS callback fires with values derived from the filtered audio.
 5. The quality callback (wired via ``set_quality_callback``) receives
    (rms, peak) per chunk.
@@ -115,7 +115,7 @@ def _drain_ring_buffer(rec, timeout_s: float = 2.0) -> None:
     buffer length to be STABLE across consecutive polls: the worker
     pops a chunk BEFORE appending it to ``_buffer`` (the filter chain +
     VAD bookkeeping run in between), so a single ring-empty observation
-    can land in the pop→append window — the pre-fix "return on first
+    can land in the pop→append window, the pre-fix "return on first
     ring-empty" raced the final append and under-counted the buffer on
     loaded CI machines (observed: ``Expected 5 buffered chunks, got 4``).
     Requiring quiescence (ring empty + unchanged buffer length for
@@ -138,7 +138,7 @@ def _drain_ring_buffer(rec, timeout_s: float = 2.0) -> None:
             stable_polls = 0
             last_len = buf_len
         time.sleep(0.012)
-    # If we get here, the worker didn't reach quiescence in time — let
+    # If we get here, the worker didn't reach quiescence in time, let
     # the caller's assertion fail with a clear message rather than
     # timing out here.
 
@@ -190,7 +190,7 @@ class TestRecorderCallbackWithAudioProcessor:
     def test_callback_does_not_raise_with_processor(self, monkeypatch):
         """The bug: callback referenced `filtered` before assignment.
         With an AudioProcessor attached, every chunk would raise
-        NameError — silently swallowed by PortAudio.  This test makes
+        NameError, silently swallowed by PortAudio.  This test makes
         sure the buffer actually grows."""
         from voice_typer.server import recording as rec_mod
         from voice_typer.server.audio_processor import AudioProcessor
@@ -231,7 +231,7 @@ class TestRecorderCallbackWithAudioProcessor:
         r.start()
         stream = _capture_stream(captured_streams)
 
-        # Push 5 chunks of 1024 samples each — this would have raised
+        # Push 5 chunks of 1024 samples each, this would have raised
         # NameError on the FIRST chunk in the buggy version.
         for _ in range(5):
             chunk = _make_sine(freq=440, duration_s=1024 / 16000, amp=0.3)
@@ -244,7 +244,7 @@ class TestRecorderCallbackWithAudioProcessor:
 
         # If the callback had raised, the buffer would be empty.
         assert len(r._audio_pipeline._buffer) == 5, (
-            f"Expected 5 buffered chunks, got {len(r._audio_pipeline._buffer)} — "
+            f"Expected 5 buffered chunks, got {len(r._audio_pipeline._buffer)}, "
             "callback may have raised NameError (the bug we're regression-testing)"
         )
         r.stop()
@@ -357,7 +357,7 @@ class TestRecorderCallbackWithAudioProcessor:
 
     def test_quality_callback_fires_per_chunk(self, monkeypatch):
         """The AudioProcessor's quality callback should fire once per
-        chunk — this is what wires AudioQualityAnalyzer back into the
+        chunk, this is what wires AudioQualityAnalyzer back into the
         pipeline."""
         from voice_typer.server import recording as rec_mod
         from voice_typer.server.audio_processor import AudioProcessor
@@ -490,7 +490,7 @@ class TestRecorderCallbackWithAudioProcessor:
         chunk = _make_sine(freq=440, duration_s=0.05, amp=0.3)
         # Manually invoke the callback with status=sd.InputStream.flags  # noqa: E501
         # We use the string "input overflow" which is what sounddevice
-        # actually passes — but any truthy value exercises the path.
+        # actually passes, but any truthy value exercises the path.
         stream.callback(chunk, chunk.shape[0], None, "input overflow")
 
         # wait for the worker to drain the ring buffer.

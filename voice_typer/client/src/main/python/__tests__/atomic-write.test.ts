@@ -15,7 +15,7 @@ const fsSpy = vi.hoisted(() => ({
 
 // `atomic-write.ts` uses a default import (`import fs from "node:fs"`),
 // so the mock must expose the spies via `default` (plus named bindings
-// for good measure). The factory must be fully inline — referencing an
+// for good measure). The factory must be fully inline, referencing an
 // outer `const` here would hit the TDZ because vi.mock factories are
 // hoisted above top-level statements.
 vi.mock("node:fs", () => ({
@@ -75,7 +75,7 @@ describe("atomicWriteFile", () => {
 		// the fsync handle must carry write access so Win32
 		// FlushFileBuffers (libuv's fsyncSync implementation) does
 		// not reject it. A read-only "r" handle threw EACCES/EPERM
-		// on Windows before the atomic rename — the restart-history
+		// on Windows before the atomic rename, the restart-history
 		// crash-loop breaker never persisted. See the comment in
 		// the first test for the full mechanism.
 		atomicWriteFile("/data/restart_history.json", "[]");

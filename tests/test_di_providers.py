@@ -16,7 +16,7 @@ introduced in ``voice_typer/server/providers.py`` and the
    ``ServiceProtocol`` declare every attribute / method that the IPC
    handler mixins actually access.  If a future handler starts reading
    ``self.app.new_field`` without ``new_field`` being declared on
-   ``AppProtocol``, the introspection test fails — forcing an
+   ``AppProtocol``, the introspection test fails, forcing an
    explicit decision about whether to widen the protocol or refactor
    the handler to go through the service layer.
 
@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import ast
 
-# Mock heavy imports BEFORE importing the server stack — mirrors the
+# Mock heavy imports BEFORE importing the server stack, mirrors the
 # pattern in tests/test_server.py.  Without this, pystray tries to
 # connect to an X display on Linux and crashes in headless CI.
 import threading
@@ -56,10 +56,10 @@ def _protocol_declared_names(proto_cls) -> set:
 
     Combines:
 
-    - Annotated data attributes (``__annotations__`` keys) — e.g.
+    - Annotated data attributes (``__annotations__`` keys), e.g.
       ``config``, ``history_db``, ``_shutting_down``.
     - Methods defined directly on the class (callable values in
-      ``__dict__``) — e.g. ``change_model``, ``toggle_dictation``.
+      ``__dict__``), e.g. ``change_model``, ``toggle_dictation``.
 
     Excludes dunder attributes (``__init__``, ``__repr__``, etc.) and
     names inherited from ``Protocol`` / ``object``.
@@ -67,7 +67,7 @@ def _protocol_declared_names(proto_cls) -> set:
     names = set()
     # Annotated data attributes (no default value → only in __annotations__).
     names.update(getattr(proto_cls, "__annotations__", {}).keys())
-    # Methods (def foo(self, ...): ...) — only those defined directly
+    # Methods (def foo(self, ...): ...), only those defined directly
     # on THIS class, not inherited from Protocol/object.
     for name, value in vars(proto_cls).items():
         if name.startswith("__"):
@@ -83,7 +83,7 @@ def _collect_attr_accesses(py_path: Path, base_attr: str) -> set:
     Walks the AST of ``py_path`` and collects every ``X`` where the
     source contains ``self.<base_attr>.X`` (e.g. ``self.app.config``
     yields ``"config"``).  Handles chained accesses like
-    ``self.app.config.save()`` (returns just ``"config"`` — the
+    ``self.app.config.save()`` (returns just ``"config"``, the
     immediate attribute on ``self.<base_attr>``).
 
     Parameters
@@ -91,7 +91,7 @@ def _collect_attr_accesses(py_path: Path, base_attr: str) -> set:
     py_path :
         Path to a ``.py`` file to introspect.
     base_attr :
-        The attribute on ``self`` to look for — typically ``"app"``
+        The attribute on ``self`` to look for, typically ``"app"``
         (for ``AppProtocol`` drift detection) or ``"service"``
         (for ``ServiceProtocol`` drift detection).
     """
@@ -99,7 +99,7 @@ def _collect_attr_accesses(py_path: Path, base_attr: str) -> set:
     tree = ast.parse(source, filename=str(py_path))
     used: set[str] = set()
     for node in ast.walk(tree):
-        # We're looking for `self.<base_attr>.<something>` — that's
+        # We're looking for `self.<base_attr>.<something>`, that's
         # ast.Attribute(value=ast.Attribute(value=ast.Name('self'),
         # attr=<base_attr>), attr=<something>).
         if not isinstance(node, ast.Attribute):
@@ -123,7 +123,7 @@ def _collect_getattr_string_accesses(py_path: Path, base_attr: str) -> set:
     CR-59: the original :func:`_collect_attr_accesses` only catches
     *direct* ``self.<base_attr>.X`` access (``ast.Attribute`` nodes).
     A handler can silently bypass the introspection test by writing
-    ``getattr(self.app, "_X", None)`` instead — the ``ast.Attribute``
+    ``getattr(self.app, "_X", None)`` instead, the ``ast.Attribute``
     walk doesn't see string-form attribute access, so a new private
     field read via ``getattr`` would not trigger drift detection.
 
@@ -141,14 +141,14 @@ def _collect_getattr_string_accesses(py_path: Path, base_attr: str) -> set:
     py_path :
         Path to a ``.py`` file to introspect.
     base_attr :
-        The attribute on ``self`` to look for — typically ``"app"``
+        The attribute on ``self`` to look for, typically ``"app"``
         or ``"service"``.
 
     Notes
     -----
     - Dynamic attribute names (e.g. ``getattr(self.app, name, None)``
       where ``name`` is a variable) are NOT detected by this helper
-      — the AST walk requires the second argument to be a string
+    , the AST walk requires the second argument to be a string
       literal.  This is a deliberate trade-off: catching dynamic
       access would require data-flow analysis, which is out of scope
       for an introspection test.
@@ -199,9 +199,9 @@ def _collect_getattr_string_accesses(py_path: Path, base_attr: str) -> set:
 # ``AppProtocol``.  They are grandfathered in here so the
 # strengthened test does not fail on pre-existing code; future
 # cleanups should either promote the attribute to ``AppProtocol``
-# (preferred — keeps the contract honest) or refactor the call site
+# (preferred, keeps the contract honest) or refactor the call site
 # to go through the service layer.  New entries here are NOT
-# acceptable — fix the underlying access instead.
+# acceptable, fix the underlying access instead.
 _KNOWN_APP_GETATTR_BYPASSES: set[str] = {
     # TODO Fix-K (follow-up): promote ``_thread_registry`` to
     # ``AppProtocol``.  ``ipc_server.py`` reads it via
@@ -242,7 +242,7 @@ class TestDIInjection:
         assert server.app is fake_app
         # Type check: confirms the DI seam is in effect.
         assert not isinstance(server.service, VoiceTyperService), (
-            "DI mode must NOT construct a real VoiceTyperService — "
+            "DI mode must NOT construct a real VoiceTyperService, "
             "the whole point is to substitute a fake for the service "
             "layer so the IPC dispatch path can be tested in isolation."
         )
@@ -261,7 +261,7 @@ class TestDIInjection:
 
         result = server._dispatch({"id": 1, "type": "get_status"})
 
-        # The injected service must have been called — not a real
+        # The injected service must have been called, not a real
         # VoiceTyperService that would have tried to read
         # app.tray.state.value etc.
         fake_service.get_status.assert_called_once()
@@ -289,10 +289,10 @@ class TestBackwardCompat:
         server = IPCServer(fake_app)
 
         # The server must have constructed a real VoiceTyperService
-        # over the app — not stored None, not stored a MagicMock.
+        # over the app, not stored None, not stored a MagicMock.
         assert isinstance(server.service, VoiceTyperService), (
             "IPCServer(app) without `service=` must construct a real "
-            "VoiceTyperService over `app` — this is the backward-compat "
+            "VoiceTyperService over `app`, this is the backward-compat "
             "path that all existing call sites depend on."
         )
         # And the service must have been wired to the same app.
@@ -320,7 +320,7 @@ class TestBackwardCompat:
         """A plain ``MagicMock()`` app (no AppProtocol import) must work.
 
         This mirrors the pattern in tests/test_server.py:MockApp and
-        ~20 other test files — they pass a MagicMock (or a hand-rolled
+        ~20 other test files, they pass a MagicMock (or a hand-rolled
         MockApp) positionally to IPCServer(app).  The DI refactor
         must not require them to import AppProtocol.
         """
@@ -357,11 +357,11 @@ class TestProtocolDrift:
         also reaches into ``self.app.X`` for tray hooking / shutdown
         detection) and collects every attribute name accessed via
         ``self.app.<name>``.  Each must be declared on
-        ``AppProtocol`` — either as an annotated data attribute
+        ``AppProtocol``, either as an annotated data attribute
         (in ``__annotations__``) or as a method (in ``__dict__``).
 
         CR-59: the walk now ALSO collects names read via
-        ``getattr(self.app, "X", ...)`` — see
+        ``getattr(self.app, "X", ...)``: see
         :func:`_collect_getattr_string_accesses`.  Previously a
         handler could silently bypass this introspection test by
         writing ``getattr(self.app, "_X", None)`` instead of
@@ -397,7 +397,7 @@ class TestProtocolDrift:
             f"{sorted(missing)}.  Either add these to AppProtocol (if "
             f"the access is an accepted part of the IPC layer's "
             f"contract with the app) or refactor the handler to go "
-            f"through the service layer (preferred — the protocol "
+            f"through the service layer (preferred, the protocol "
             f"surface should stay small)."
         )
 
@@ -418,7 +418,7 @@ class TestProtocolDrift:
         # Also include self.service.X accesses in ipc_server.py.
         used_attrs |= _collect_attr_accesses(_IPC_SERVER_PY, base_attr="service")
 
-        # Filter out private attributes — _app is the main one and is
+        # Filter out private attributes, _app is the main one and is
         # intentionally NOT in ServiceProtocol (handlers reaching into
         # service._app is a leaky abstraction; the right fix is to
         # add a public method to the service for whatever the handler
@@ -452,7 +452,7 @@ class TestProtocolDrift:
         ``start``).
 
         TASK-2 (ADR 0008 §3.1) removed ``_audio_processor``,
-        ``_volume_ducker``, and ``_config_mutation_lock`` — those
+        ``_volume_ducker``, and ``_config_mutation_lock``, those
         private attrs are no longer accessed by handlers because the
         ``get_audio_status``, ``get_volume_backend_status``, and
         ``apply_config`` paths now go through :class:`ServiceProtocol`.
@@ -477,7 +477,7 @@ class TestProtocolDrift:
             "tray",
         ):
             assert required in declared, (
-                f"AppProtocol must declare `{required}` — it's a core domain object the IPC layer exposes."
+                f"AppProtocol must declare `{required}`, it's a core domain object the IPC layer exposes."
             )
         # Private attributes handlers / ipc_server still access
         # post-ADR-0008-§3.1.
@@ -491,7 +491,7 @@ class TestProtocolDrift:
             "_waveform_bubble",
         ):
             assert required in declared, (
-                f"AppProtocol must declare `{required}` — handlers or ipc_server.py access it via self.app.{required}."
+                f"AppProtocol must declare `{required}`, handlers or ipc_server.py access it via self.app.{required}."
             )
         # Methods the service layer delegates to the app.
         for required in (
@@ -505,11 +505,11 @@ class TestProtocolDrift:
             "start",
         ):
             assert required in declared, (
-                f"AppProtocol must declare `{required}()` — the service layer delegates this call to the app."
+                f"AppProtocol must declare `{required}()`, the service layer delegates this call to the app."
             )
         # private attrs removed from AppProtocol because the
         # service layer now wraps their access.  These MUST NOT be
-        # re-added — handlers reaching into them is a smell that ADR
+        # re-added, handlers reaching into them is a smell that ADR
         # 0008 §3.1 explicitly prohibits.
         for forbidden in (
             "_audio_processor",
@@ -518,7 +518,7 @@ class TestProtocolDrift:
         ):
             assert forbidden not in declared, (
                 f"AppProtocol must NOT declare `{forbidden}` post-"
-                f"ADR-0008-§3.1 — the service layer (get_audio_status / "
+                f"ADR-0008-§3.1, the service layer (get_audio_status / "
                 f"get_volume_backend_status / apply_config) wraps its "
                 f"access.  Re-adding it would re-introduce the leaky "
                 f"abstraction the refactor removed."
@@ -527,7 +527,7 @@ class TestProtocolDrift:
     def test_service_protocol_declares_core_methods(self):
         """Smoke test: ``ServiceProtocol`` declares the core service methods."""
         declared = _protocol_declared_names(ServiceProtocol)
-        # A representative sample — the full surface is large; this
+        # A representative sample, the full surface is large; this
         # test just catches accidental removal of the most-used ones.
         for required in (
             "get_status",
@@ -548,7 +548,7 @@ class TestProtocolDrift:
             "restart",
             "quit",
             # export_diagnostics removed with the dead server-side
-            # bundle pipeline — support bundles come from the CLI
+            # bundle pipeline, support bundles come from the CLI
             # (scripts/diagnostics.py export).
             "apply_config_side_effects",
             # (ADR 0008 §3.1): new service-layer wrappers for
@@ -560,7 +560,7 @@ class TestProtocolDrift:
             "force_cancel_transcription",
         ):
             assert required in declared, (
-                f"ServiceProtocol must declare `{required}()` — it's part of the service surface handlers call."
+                f"ServiceProtocol must declare `{required}()`, it's part of the service surface handlers call."
             )
 
 
@@ -582,7 +582,7 @@ class TestBuildIPCServer:
         # Must have wired the app.
         assert server.app is fake_app
         # Must have constructed a real VoiceTyperService (the factory
-        # is the production path — it does NOT accept an injected
+        # is the production path, it does NOT accept an injected
         # service; tests that want DI should call IPCServer(app,
         # service=fake) directly).
         assert isinstance(server.service, VoiceTyperService)
@@ -594,7 +594,7 @@ class TestBuildIPCServer:
         assert result["type"] == "status"
 
     def test_build_ipc_server_does_not_accept_service_kwarg(self):
-        """``build_ipc_server`` is the production path — no DI.
+        """``build_ipc_server`` is the production path, no DI.
 
         Tests that want DI should call ``IPCServer(app, service=fake)``
         directly.  Keeping the factory signature simple means future
@@ -607,7 +607,7 @@ class TestBuildIPCServer:
         sig = inspect.signature(build_ipc_server)
         params = list(sig.parameters.keys())
         assert params == ["app"], (
-            "build_ipc_server should take exactly one parameter (app) — "
+            "build_ipc_server should take exactly one parameter (app), "
             f"got {params}.  The factory is the production composition "
             f"root; tests that need DI should call IPCServer(app, "
             f"service=fake) directly."
@@ -649,7 +649,7 @@ class TestProtocolStructuralCompat:
         declared on ``AppProtocol`` is present on the fake app.  For
         annotated attributes (``config``, ``history_db``, etc.) we
         additionally check that ``make_fake_app`` explicitly configured
-        them (not just relying on MagicMock's auto-stub) — this catches
+        them (not just relying on MagicMock's auto-stub), this catches
         drift where a new attribute is added to the protocol but
         ``make_fake_app`` isn't updated.
         """
@@ -658,7 +658,7 @@ class TestProtocolStructuralCompat:
         fake_app = make_fake_app()
         assert _structurally_satisfies(fake_app, AppProtocol), (
             "make_fake_app() must return an object that has every "
-            "attribute/method declared on AppProtocol — otherwise "
+            "attribute/method declared on AppProtocol, otherwise "
             "tests using the fake would diverge from the real contract."
         )
 
@@ -666,7 +666,7 @@ class TestProtocolStructuralCompat:
         # must be EXPLICITLY set on the fake (not auto-stubbed by
         # MagicMock).  This catches the case where someone adds a new
         # annotated attribute to AppProtocol but forgets to add it to
-        # make_fake_app — the test would still pass the structural
+        # make_fake_app, the test would still pass the structural
         # check above (MagicMock auto-stubs) but the fake wouldn't have
         # the right default value (e.g. a real RLock for
         # _config_mutation_lock vs. a child mock that breaks `with`).
@@ -677,7 +677,7 @@ class TestProtocolStructuralCompat:
         # "_X")`` reads.  Their production default is ``None`` and
         # handlers read them via ``getattr(self.app, "_X", None)``,
         # so a MagicMock auto-stub (truthy child mock) is an
-        # acceptable fake — tests that need to assert on the "attr
+        # acceptable fake, tests that need to assert on the "attr
         # is None" branch can override locally.  ``make_fake_app``
         # is owned by another fix sub-agent; a follow-up should
         # add explicit ``app._vocabulary_automation = None`` /
@@ -696,7 +696,7 @@ class TestProtocolStructuralCompat:
             if name.startswith("__"):
                 continue
             assert name in fake_app_dict, (
-                f"make_fake_app() does NOT explicitly set `{name}` — "
+                f"make_fake_app() does NOT explicitly set `{name}`, "
                 f"it's relying on MagicMock's auto-stub.  Add an "
                 f"explicit assignment in make_fake_app so the fake "
                 f"has a sensible default (e.g. a real RLock for "
@@ -720,7 +720,7 @@ class TestProtocolStructuralCompat:
         implementation: if someone renames a method on
         ``VoiceTyperService`` without updating the protocol, this
         test fails.  Uses ``isinstance`` (which works for real
-        classes — only MagicMock fails the runtime_checkable check).
+        classes, only MagicMock fails the runtime_checkable check).
         """
         from tests.fixtures.ipc_test_helpers import make_fake_app
 
@@ -730,14 +730,14 @@ class TestProtocolStructuralCompat:
         # class with real methods on its type's __dict__.
         assert isinstance(real_service, ServiceProtocol), (
             "VoiceTyperService must structurally satisfy "
-            "ServiceProtocol — if not, the protocol has drifted "
+            "ServiceProtocol, if not, the protocol has drifted "
             "from the implementation."
         )
         # Also confirm via our manual check (belt-and-suspenders).
         assert _structurally_satisfies(real_service, ServiceProtocol)
 
 
-# Tests:  — ServiceProtocol parameter type narrowing ────────────
+# Tests:, ServiceProtocol parameter type narrowing ────────────
 
 
 def _service_protocol_method_node(method_name: str):
@@ -787,7 +787,7 @@ class TestServiceProtocolTypeNarrowing:
 
         func_node = _service_protocol_method_node(method_name)
         assert func_node is not None, (
-            f"ServiceProtocol must declare `{method_name}()` — YJ-7 test depends on this method existing."
+            f"ServiceProtocol must declare `{method_name}()`, YJ-7 test depends on this method existing."
         )
         # Skip 'self' (positional 0); locate the named arg.
         all_args = list(func_node.args.args) + list(func_node.args.kwonlyargs)
@@ -799,14 +799,14 @@ class TestServiceProtocolTypeNarrowing:
                 # written in source (Python 3.9+).
                 return _ast.unparse(arg.annotation)
         raise AssertionError(
-            f"`{method_name}()` does not declare a parameter named `{param_name}` — has the signature changed?"
+            f"`{method_name}()` does not declare a parameter named `{param_name}`, has the signature changed?"
         )
 
     def test_microphone_test_start_mic_id_not_any(self):
         """``mic_id`` on ``microphone_test_start`` must not be ``Any``."""
         ann = self._param_annotation_text("microphone_test_start", "mic_id")
         assert ann != "Any", (
-            "YJ-7 regression: `microphone_test_start(self, mic_id: Any)` — "
+            "YJ-7 regression: `microphone_test_start(self, mic_id: Any)`, "
             "`mic_id` must be narrowed to a concrete union (e.g. "
             "`str | None`).  The IPC handler validates it as `str | None`."
         )
@@ -836,13 +836,13 @@ class TestServiceProtocolTypeNarrowing:
         """``mic_id`` on ``level_monitor_start`` must not be ``Any``."""
         ann = self._param_annotation_text("level_monitor_start", "mic_id")
         assert ann != "Any", (
-            "YJ-7 regression: `level_monitor_start(self, mic_id: Any)` — `mic_id` must be narrowed (e.g. `str | None`)."
+            "YJ-7 regression: `level_monitor_start(self, mic_id: Any)`: `mic_id` must be narrowed (e.g. `str | None`)."
         )
 
     def test_onboarding_set_microphone_mic_id_not_any(self):
         """``mic_id`` on ``onboarding_set_microphone`` must not be ``Any``."""
         ann = self._param_annotation_text("onboarding_set_microphone", "mic_id")
         assert ann != "Any", (
-            "YJ-7 regression: `onboarding_set_microphone(self, mic_id: Any)` — "
+            "YJ-7 regression: `onboarding_set_microphone(self, mic_id: Any)`, "
             "`mic_id` must be narrowed (e.g. `str | None`)."
         )

@@ -56,8 +56,8 @@ def _install_fake_sounddevice(monkeypatch, devices, hostapis=None, default_input
 class TestListMicrophonesCache:
     def test_second_call_within_ttl_hits_cache(self, monkeypatch):
         """Two consecutive ``list_microphones()`` calls within the TTL
-        window must invoke the underlying PortAudio query exactly once
-        — the second call is served from the cache."""
+          window must invoke the underlying PortAudio query exactly once
+        , the second call is served from the cache."""
         from voice_typer.server.server_platform import microphone_list as _ml
 
         devices = [
@@ -71,13 +71,13 @@ class TestListMicrophonesCache:
         ]
         fake_sd = _install_fake_sounddevice(monkeypatch, devices)
 
-        # First call — cache miss, invokes PortAudio.
+        # First call, cache miss, invokes PortAudio.
         result1 = _ml.list_microphones()
         assert len(result1) == 1
         assert result1[0]["name"] == "Built-in Mic"
         first_call_count = fake_sd.query_devices.call_count
 
-        # Second call within TTL — must be served from cache (no new
+        # Second call within TTL, must be served from cache (no new
         # PortAudio calls).
         result2 = _ml.list_microphones()
         assert fake_sd.query_devices.call_count == first_call_count, (
@@ -147,7 +147,7 @@ class TestListMicrophonesCache:
 
     def test_cache_returns_shallow_copy_not_internal_list(self, monkeypatch):
         """The cached list returned to callers must be a fresh shallow
-        copy — mutating the outer list must not corrupt the cache."""
+        copy, mutating the outer list must not corrupt the cache."""
         from voice_typer.server.server_platform import microphone_list as _ml
 
         devices = [

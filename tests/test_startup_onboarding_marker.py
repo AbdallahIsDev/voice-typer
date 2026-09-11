@@ -1,4 +1,4 @@
-"""Regression tests for XA-11-2 — startup_sequence honors .onboarding_started.
+"""Regression tests for XA-11-2: startup_sequence honors .onboarding_started.
 
 ``voice_typer/server/startup_sequence.py`` runs an "auto-heal" pass on every
 startup when ``config.onboarding_completed`` is False. The auto-heal marks
@@ -8,7 +8,7 @@ and clobbering the user's hotkey/model/microphone selections.
 The original PVT-006 fix had a hole: if the user started the wizard
 (writing ``config.json`` to disk) and then crashed mid-wizard before
 flipping ``onboarding_completed`` to True, the auto-heal would silently
-mark onboarding complete on next startup — the wizard would never resume,
+mark onboarding complete on next startup, the wizard would never resume,
 and the user's partial onboarding state would be discarded.
 
 The XA-11-2 fix adds a ``.onboarding_started`` marker check:
@@ -37,7 +37,7 @@ def app_for_onboarding(tmp_path, monkeypatch):
     StartupSequence onboarding-auto-heal branch.
 
     Mirrors the ``app_for_startup`` fixture in
-    ``tests/test_startup_sequence.py`` but is intentionally lighter — we
+    ``tests/test_startup_sequence.py`` but is intentionally lighter, we
     only need the onboarding branch to execute, not the full boot
     sequence (autostart, mic enumeration, hotkey, model load). All
     downstream startup phases are short-circuited via
@@ -119,7 +119,7 @@ class TestOnboardingStartedMarker:
         """If ``config.json`` exists but ``.onboarding_started`` does NOT
         exist, the auto-heal must fire (mark onboarding complete + save).
 
-        This is the "stale onboarding state" path — the marker was
+        This is the "stale onboarding state" path, the marker was
         lost/deleted but the user has clearly been using the app (config
         exists), so we mark onboarding complete to prevent the wizard
         from showing on every restart and overwriting the user's settings.
@@ -131,9 +131,9 @@ class TestOnboardingStartedMarker:
         (tmp_path / "config.json").write_text("{}", encoding="utf-8")
         assert not (tmp_path / ".onboarding_started").exists()
 
-        # Short-circuit downstream startup phases — we only care about
+        # Short-circuit downstream startup phases, we only care about
         # the onboarding branch.
-        # (original_run removed — the monkeypatch fixture auto-undoes
+        # (original_run removed, the monkeypatch fixture auto-undoes
         # patches at test teardown, so an explicit restore isn't needed.)
 
         # Set _shutting_down AFTER the onboarding block runs. Easiest way
@@ -167,7 +167,7 @@ class TestOnboardingStartedMarker:
         self, app_for_onboarding, tmp_path, monkeypatch, caplog
     ):
         """If ``config.json`` exists AND ``.onboarding_started`` exists,
-        the auto-heal must NOT fire — the user is mid-wizard and the
+        the auto-heal must NOT fire, the user is mid-wizard and the
         wizard state must be preserved so it can resume on next startup.
 
         This is the XA-11-2 fix: previously, the auto-heal fired whenever
@@ -199,6 +199,6 @@ class TestOnboardingStartedMarker:
 
         # The auto-heal must NOT have fired: onboarding_completed is still False.
         assert app_for_onboarding.config.onboarding_completed is False, (
-            "Mid-wizard state (.onboarding_started exists) must NOT auto-heal — "
+            "Mid-wizard state (.onboarding_started exists) must NOT auto-heal, "
             "the wizard state must be preserved so it can resume on next startup"
         )

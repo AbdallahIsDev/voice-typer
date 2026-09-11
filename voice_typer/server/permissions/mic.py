@@ -40,17 +40,17 @@ def _check_windows_microphone() -> _p.MicrophonePermissionState:
     ``OSError`` whose message contains "access denied" (the Windows
     MediaFoundation signature). On any OTHER OSError (no default device,
     driver issue, etc.) we return ``GRANTED`` and let the runtime
-    PortAudio-open path in the recorder re-classify — this matches the
+    PortAudio-open path in the recorder re-classify, this matches the
     pre-fix behavior for those cases and avoids false-positive DENIED
     reports that would block the user from starting a recording.
 
     The probe is gated behind try/except so a probe failure (e.g.
     sounddevice not importable, or the test suite's ``mock_heavy_imports``
     autouse fixture replaces ``sd.InputStream`` with a Mock) NEVER takes
-    down the caller — we fall back to ``GRANTED`` with a warning log.
+    down the caller, we fall back to ``GRANTED`` with a warning log.
     """
     try:
-        # Lazy import — sounddevice loads the PortAudio C library at
+        # Lazy import, sounddevice loads the PortAudio C library at
         # import time, which we don't want to pay on the pre-flight
         # check path. The lazy_module proxy in ``recording.device_manager``
         # re-resolves ``sys.modules`` on every attribute access so test
@@ -63,7 +63,7 @@ def _check_windows_microphone() -> _p.MicrophonePermissionState:
     except Exception:
         log.warning(
             "[PERMISSION] Windows mic permission probe: sounddevice not "
-            "importable — pre-check is limited; runtime PortAudio failure "
+            "importable, pre-check is limited; runtime PortAudio failure "
             "will be re-classified by the recorder"
         )
         return _p.MicrophonePermissionState.GRANTED
@@ -71,7 +71,7 @@ def _check_windows_microphone() -> _p.MicrophonePermissionState:
     try:
         # Open a 1-frame InputStream. ``framesize=1`` + immediate
         # ``stop()``/``close()`` minimizes the audio pipeline cost. We
-        # do NOT call ``start()`` — just constructing the InputStream
+        # do NOT call ``start()``: just constructing the InputStream
         # triggers the PortAudio device-open which is where Windows
         # MediaFoundation checks the mic privacy setting.
         stream = _sd.InputStream(
@@ -135,11 +135,11 @@ def _check_linux_microphone() -> _p.MicrophonePermissionState:
     table. The ``microphone`` permission is in the ``portals`` section
     under the app's app-id. If the file is missing or the schema
     changed between flatpak versions, we fall back to ``GRANTED`` with
-    a warning log — we never want a probe failure to take down the
+    a warning log, we never want a probe failure to take down the
     caller.
 
     On non-Flatpak Linux (PulseAudio/PipeWire), there's no standard
-    per-app mic permission system — the session manager grants access
+    per-app mic permission system, the session manager grants access
     by default. We return ``GRANTED`` and log a one-time warning that
     the pre-check is limited on Linux.
     """
@@ -154,12 +154,12 @@ def _check_linux_microphone() -> _p.MicrophonePermissionState:
 
     if not is_flatpak:
         # Non-Flatpak Linux: no standard per-app mic permission system.
-        # Log a one-time warning (well, every call — but the call is
+        # Log a one-time warning (well, every call, but the call is
         # gated by the device_health_checker ~60s interval so it's
         # not spammy) so the operator knows the pre-check is limited.
         log.debug(
             "[PERMISSION] Linux mic permission pre-check is limited on "
-            "non-Flatpak Linux — runtime PortAudio failure will be "
+            "non-Flatpak Linux, runtime PortAudio failure will be "
             "re-classified by the recorder"
         )
         return _p.MicrophonePermissionState.GRANTED
@@ -173,11 +173,11 @@ def _check_linux_microphone() -> _p.MicrophonePermissionState:
         xdg_data = os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share")
         perm_path = Path(xdg_data) / "flatpak" / "permissions" / "permissions.json"
         if not perm_path.exists():
-            # No permission file — fall back to GRANTED (flatpak may
+            # No permission file, fall back to GRANTED (flatpak may
             # not have written it yet, or the app may not have any
             # portal permissions configured).
             log.debug(
-                "[PERMISSION] Flatpak mic permission file not found at %s — falling back to GRANTED",
+                "[PERMISSION] Flatpak mic permission file not found at %s, falling back to GRANTED",
                 perm_path,
             )
             return _p.MicrophonePermissionState.GRANTED
@@ -233,7 +233,7 @@ def _check_macos_microphone() -> _p.MicrophonePermissionState:
     - ``AVAuthorizationStatusAuthorized`` (2) → ``GRANTED``
     - ``AVAuthorizationStatusDenied`` (1) → ``DENIED``
     - ``AVAuthorizationStatusRestricted`` (3) → ``DENIED`` (parental
-      controls block access — functionally denied for the user)
+      controls block access, functionally denied for the user)
     - ``AVAuthorizationStatusNotDetermined`` (0) → ``PROMPT`` (the OS
       will show the consent dialog on first access)
     """

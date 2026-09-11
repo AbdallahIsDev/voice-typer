@@ -2,7 +2,7 @@
 
 This module is part of the ``tests/regressions/`` package.
 The class/method names, assertion logic, and imports below are
-preserved verbatim from the original 4446-line monolith — only file
+preserved verbatim from the original 4446-line monolith, only file
 location has changed.
 
 Common preamble (imports + Linux test-env shim) is identical to the
@@ -107,7 +107,7 @@ class TestDuplicateDiskSpaceCheckRemoved:
         ``download_parakeet_weights`` source for the substring
         ``_check_disk_space_for_download``) to a behavioral test that
         mocks the canonical function and verifies it is invoked. The
-        behavioral test is robust to refactors — if the call is moved
+        behavioral test is robust to refactors, if the call is moved
         into a helper or renamed, the test still catches the regression
         as long as disk-space checking is bypassed.
         """
@@ -126,7 +126,7 @@ class TestDuplicateDiskSpaceCheckRemoved:
         # 6/13 safe default), so a bare ``download_parakeet_weights()``
         # call returns ``(False, "huggingface_consent_false", None)``
         # before reaching the disk-space check. We pass ``force=True``
-        # to bypass the consent gate — this test isn't exercising
+        # to bypass the consent gate, this test isn't exercising
         # consent, it's exercising the disk-space delegation path.
         # ``force=True`` is the documented escape hatch for legacy /
         # test paths that have verified consent upstream.
@@ -172,7 +172,7 @@ class TestDaemonThreadRationaleDocumented:
     """
 
     def test_hotkeys_win32_thread_has_rationale(self):
-        # KEEP — pins RACE-008 rationale comment on the daemon
+        # KEEP, pins RACE-008 rationale comment on the daemon
         # thread. The comment is documentation, not behavior; a
         # behavioral test can't verify rationale presence. Source-string
         # check is the only way to catch removal.
@@ -187,7 +187,7 @@ class TestDaemonThreadRationaleDocumented:
         )
 
     def test_hotkeys_ipc_thread_has_rationale(self):
-        # KEEP — pins RACE-008 rationale comment on the WaylandHotkey
+        # KEEP, pins RACE-008 rationale comment on the WaylandHotkey
         # socket-accept daemon thread. Same rationale as the win32 variant.
         from voice_typer.server.hotkeys import WaylandHotkey
 
@@ -195,7 +195,7 @@ class TestDaemonThreadRationaleDocumented:
         # The rationale comment is in _start_socket_server which is
         # called from start(). Check the whole class source.
         class_src = inspect.getsource(WaylandHotkey)
-        # Assert the rationale PHRASE — the RACE-008 ticket token is
+        # Assert the rationale PHRASE, the RACE-008 ticket token is
         # stripped by C-STYLE-1 cleanup, but the daemon=True rationale
         # comment on the socket-accept thread must never be removed.
         assert "daemon=True is acceptable" in class_src, (
@@ -203,15 +203,15 @@ class TestDaemonThreadRationaleDocumented:
         )
 
     def test_tray_bg_thread_has_rationale(self):
-        # KEEP — pins RACE-008 rationale comment on the tray
+        # KEEP, pins RACE-008 rationale comment on the tray
         # background-thread daemon. Same rationale as the win32 variant.
         from voice_typer.server.tray import TrayIcon
 
         # The background daemon thread is spawned in the shared
         # `_launch_bg_work` helper (start() delegates to it from 4
-        # call sites). Inspect THAT method — it owns the spawn site.
+        # call sites). Inspect THAT method, it owns the spawn site.
         src = inspect.getsource(TrayIcon._launch_bg_work)
-        # Assert the rationale PHRASE — the RACE-008 ticket token is
+        # Assert the rationale PHRASE, the RACE-008 ticket token is
         # stripped by C-STYLE-1 cleanup, but the daemon=True rationale
         # comment must never be removed from the background-thread site.
         assert "daemon=True is acceptable" in src, (
@@ -219,17 +219,17 @@ class TestDaemonThreadRationaleDocumented:
         )
 
     def test_service_download_thread_has_rationale(self):
-        # KEEP — pins RACE-008 rationale comment on the service.py
+        # KEEP, pins RACE-008 rationale comment on the service.py
         # model-download daemon thread. Same rationale as the win32 variant.
         # The model-download daemon thread lives in the split service/model
-        # package (composed from domain mixin modules) — search every leaf.
+        # package (composed from domain mixin modules), search every leaf.
         from pathlib import Path
 
         import voice_typer.server.service.model as service_model_pkg
 
         pkg_dir = Path(service_model_pkg.__file__).resolve().parent
         src = "".join(p.read_text(encoding="utf-8") for p in sorted(pkg_dir.glob("*.py")))
-        # Assert the rationale PHRASE — the RACE-008 ticket token is
+        # Assert the rationale PHRASE, the RACE-008 ticket token is
         # stripped by C-STYLE-1 cleanup, but the daemon=True rationale
         # comment on the download thread must never be removed.
         assert "daemon=True is acceptable" in src, (
@@ -273,7 +273,7 @@ class TestContainerEnvironmentDetection:
         assert result is None or isinstance(result, str)
 
     def test_container_detect_called_in_startup(self):
-        # KEEP — pins  (app.py calls warn_if_in_container
+        # KEEP, pins  (app.py calls warn_if_in_container
         # at startup). A behavioral test would need to capture log output
         # from app startup, which is heavy; the source-string check
         # catches removal of the call directly.
@@ -322,11 +322,11 @@ class TestPlatMacBlocked:
 
     def test_macos_ci_runner_exists(self):
         """A macOS CI runner IS configured in build.yml.
-        This test pins that state — if the runner is removed, this
+        This test pins that state, if the runner is removed, this
         test will fail and alert maintainers that macOS code is
         no longer being tested in CI.
 
-        KEEP — pins (macOS CI runner in build.yml).
+        KEEP, pins (macOS CI runner in build.yml).
         # A behavioral test would need to run the workflow and verify the
         # runner executes, which is heavy (CI-only); the file-content
         # check catches removal of the macOS runner directly.
@@ -334,4 +334,4 @@ class TestPlatMacBlocked:
         build_yml = Path(__file__).resolve().parent.parent.parent / ".github" / "workflows" / "build.yml"
         if build_yml.exists():
             src = build_yml.read_text(encoding="utf-8")
-            assert "macos-latest" in src or "macos" in src.lower(), "No macOS CI runner found — macOS code is untested."
+            assert "macos-latest" in src or "macos" in src.lower(), "No macOS CI runner found, macOS code is untested."

@@ -18,16 +18,16 @@ running in the same session (including other users in multi-user
 scenarios like Terminal Services, Fast User Switching, or run-as
 contexts) to ``OpenMutex`` *our* mutex and either:
 
-  * **Hold it open forever** — denying service to legitimate Voice
+  * **Hold it open forever**, denying service to legitimate Voice
     Typer launches (denial-of-service).
-  * **Release it prematurely** — allowing a second instance to start
+  * **Release it prematurely**, allowing a second instance to start
     and corrupt the on-disk config / crash-recovery state (safety
     bypass).
 
 To prevent both, we build a SECURITY_ATTRIBUTES whose DACL contains
 exactly one ACE: ``MUTEX_ALL_ACCESS`` granted to the *current* user's
 SID.  Any other principal (including other SIDs in the same session)
-is implicitly denied by the absence of a matching ACE — DACLs are
+is implicitly denied by the absence of a matching ACE, DACLs are
 allow-lists, so anything not explicitly allowed is denied.
 
 Failure mode ( fix, IMPROVE-mode run 2026-07-21)
@@ -41,21 +41,21 @@ level rather than WIDENING access to world-open.
 
 **Pre- bug**: the fallback installed a NULL DACL via
 ``SetSecurityDescriptorDacl(sd, True, None, False)``.  Win32 semantics:
-a NULL DACL is NOT the same as an empty DACL — it grants EVERY token
+a NULL DACL is NOT the same as an empty DACL, it grants EVERY token
 ``MUTEX_ALL_ACCESS``.  Combined with / (struct offset bugs
 that made ``SetEntriesInAclW`` always fail), the fallback was always
 taken, so every single-instance mutex on Windows effectively had a
-NULL DACL — allowing any process in any session to ``OpenMutex`` and
+NULL DACL, allowing any process in any session to ``OpenMutex`` and
 either hold it (DoS) or release it prematurely (second-instance
 corruption).   removes the NULL-DACL fallback entirely.
 
 fix (struct offset bugs)
 ----------------------------------------
 The pre- code used manual ``addressof(buf) + sizeof(LPVOID)``
-arithmetic to extract the SID pointer from ``TOKEN_USER`` — but
+arithmetic to extract the SID pointer from ``TOKEN_USER``, but
 ``TOKEN_USER.User.Sid`` is at offset 0, not ``sizeof(LPVOID)`` (which
 lands on the ``Attributes`` DWORD on x64).  The pre- code used
-manual byte-array + ``memmove`` to build ``TRUSTEE_W`` — but the
+manual byte-array + ``memmove`` to build ``TRUSTEE_W``, but the
 manual offset calculation skipped the 4-byte alignment pad before
 ``ptstrName`` on x64, so ``ptstrName`` ended up NULL and
 ``SetEntriesInAclW`` always returned ``ERROR_INVALID_PARAMETER``.
@@ -79,14 +79,14 @@ log = logging.getLogger(__name__)
 # field. Two problems:
 #   1. ``wintypes.VOID`` does NOT exist on non-Windows Python builds
 #      (only ``wintypes.LPVOID`` does), so referencing ``wintypes.VOID``
-#      raised ``AttributeError`` on Linux/macOS — caught by the broad
+#      raised ``AttributeError`` on Linux/macOS, caught by the broad
 #      ``except Exception``, silently forcing the NULL-DACL fallback.
 #   2. Even on Windows where ``wintypes.VOID`` is defined (as an alias
 #      for ``ctypes.c_void_p``), ``ctypes.POINTER(wintypes.VOID)`` is
-#      ``POINTER(c_void_p)`` — a *pointer-to-pointer-to-void*. The
+#      ``POINTER(c_void_p)``: a *pointer-to-pointer-to-void*. The
 #      Win32 ``SID_AND_ATTRIBUTES.Sid`` field is ``PSID`` which is
 #      ``PVOID`` (a single pointer), NOT ``PVOID*``. So the previous
-#      type was one indirection too many — the layout was still
+#      type was one indirection too many, the layout was still
 #      correct on x64 (both are 8 bytes) so reads succeeded, but the
 #      type was semantically wrong and would have broken any
 #      downstream code that dereferenced ``tu.User.Sid``.
@@ -111,14 +111,14 @@ def _create_restrictive_security_attributes():
 
     Returns a ctypes SECURITY_ATTRIBUTES structure, or None on failure
     (in which case the caller passes NULL ``lpMutexAttributes`` to
-    ``CreateMutexW`` — using the default per-user DACL from the process
+    ``CreateMutexW``: using the default per-user DACL from the process
     token, which is still per-user-restrictive but offers no additional
     cross-session hardening).
     """
     # Resolve ``is_windows`` through the back-compat shim at call time so
     # tests that monkeypatch ``voice_typer.server._security_attributes.is_windows``
     # keep working (the shim re-exports the canonical function; the re-export
-    # is what the tests patch — same pattern as ``PersistedJSON.save``'s lazy
+    # is what the tests patch, same pattern as ``PersistedJSON.save``'s lazy
     # ``voice_typer.server.config._secure_atomic_write`` lookup).
     from voice_typer.server import _security_attributes as _sa_shim
 
@@ -135,7 +135,7 @@ def _create_restrictive_security_attributes():
         # construction that had wrong offsets on x64.
         # (this session): ``Sid`` is ``PSID`` (= ``PVOID``),
         # so the correct ctypes type is ``c_void_p`` (NOT
-        # ``POINTER(c_void_p)`` — that would be one indirection too
+        # ``POINTER(c_void_p)``: that would be one indirection too
         # many). ``c_void_p`` is importable on every Python build
         # (Windows + Linux + macOS), so the Structure can be defined
         # inside the mocked test path without needing the
@@ -150,12 +150,12 @@ def _create_restrictive_security_attributes():
             _fields_ = [("User", SID_AND_ATTRIBUTES)]
 
         # Win32 TRUSTEE_W on x64 (with _pack_ = 8):
-        #   pMultipleTrustee        @ 0   (8 bytes — pointer)
-        #   MultipleTrusteeOperation @ 8   (4 bytes — DWORD)
-        #   TrusteeForm             @ 12  (4 bytes — DWORD)
-        #   TrusteeType             @ 16  (4 bytes — DWORD)
+        #   pMultipleTrustee        @ 0   (8 bytes, pointer)
+        #   MultipleTrusteeOperation @ 8   (4 bytes, DWORD)
+        #   TrusteeForm             @ 12  (4 bytes, DWORD)
+        #   TrusteeType             @ 16  (4 bytes, DWORD)
         #   <4-byte align pad>      @ 20
-        #   ptstrName               @ 24  (8 bytes — pointer)
+        #   ptstrName               @ 24  (8 bytes, pointer)
         # Total: 32 bytes.
         #
         # ``ptstrName`` is ``PVOID`` (a single pointer) —
@@ -163,7 +163,7 @@ def _create_restrictive_security_attributes():
         # pointer-to-void), which was one indirection too many.  The
         # layout was still correct on x64 (both types are 8 bytes), so
         # reads succeeded via the ``ctypes.cast`` workaround at the
-        # assignment site — but the type was semantically wrong and
+        # assignment site, but the type was semantically wrong and
         # required the cast to coerce the ``c_void_p`` SID pointer into
         # a ``POINTER(c_void_p)``.  Switching the field type to
         # ``c_void_p`` lets us drop the cast entirely (see the
@@ -236,7 +236,7 @@ def _create_restrictive_security_attributes():
             # indirection too many and required a ``ctypes.cast`` here
             # to coerce ``p_sid`` (also ``c_void_p``) into the wrong
             # shape.  With the corrected field type we can assign
-            # directly — no cast needed.
+            # directly, no cast needed.
             ea.Trustee.ptstrName = p_sid
 
             # Set the DACL
@@ -244,16 +244,16 @@ def _create_restrictive_security_attributes():
             if advapi32.SetEntriesInAclW(1, ctypes.byref(ea), None, ctypes.byref(new_acl)) != 0:
                 # NO NULL DACL fallback. Pre-fix, this branch
                 # installed a NULL DACL via SetSecurityDescriptorDacl(sd,
-                # True, None, False) — Win32 semantics: NULL DACL grants
+                # True, None, False). Win32 semantics: NULL DACL grants
                 # EVERY token MUTEX_ALL_ACCESS (world-open). Combined with
                 # (which made SetEntriesInAclW always fail),
                 # the fallback was always taken, so every mutex had a NULL
                 # DACL. Now we return None and let CreateMutexW use the
                 # default per-user DACL from the process token (the safe
-                # baseline — still per-user-restrictive).
+                # baseline, still per-user-restrictive).
                 log.warning(
                     "[SECURITY] SetEntriesInAclW failed; falling back to "
-                    "default per-user DACL (no NULL DACL — cross-user "
+                    "default per-user DACL (no NULL DACL, cross-user "
                     "protection preserved at the default level)"
                 )
                 return None
@@ -286,7 +286,7 @@ def _create_restrictive_security_attributes():
             # by the single-instance gate), we register a weakref.finalize
             # that calls LocalFree when ``sa`` is garbage-collected (which
             # happens at process exit). This is correct hygiene and
-            # documents intent — without it, static analyzers (PVS-Studio,
+            # documents intent: without it, static analyzers (PVS-Studio,
             # Coverity) flag the LocalAlloc-without-Free pattern.
             sa._acl_finalizer = weakref.finalize(
                 sa,
@@ -298,11 +298,11 @@ def _create_restrictive_security_attributes():
     except Exception as exc:
         # previously this swallowed the exception silently.
         # The fallback (default per-user DACL) is documented as safe, but
-        # the failure itself was invisible — a regression of the
+        # the failure itself was invisible, a regression of the
         # struct-offset kind (which made ``SetEntriesInAclW`` always fail)
         # would be undetectable. Log at WARNING so operators notice.
         log.warning(
-            "[SECURITY] Restrictive DACL construction failed: %s — falling back to default per-user DACL",
+            "[SECURITY] Restrictive DACL construction failed: %s, falling back to default per-user DACL",
             exc,
             exc_info=True,
         )
@@ -310,7 +310,7 @@ def _create_restrictive_security_attributes():
 
 
 def __local_free_safe(kernel32, handle) -> None:  # noqa: N801
-    """Best-effort LocalFree — never raises (called from weakref.finalize)."""
+    """Best-effort LocalFree, never raises (called from weakref.finalize)."""
     try:
         kernel32.LocalFree(handle)
     except Exception:

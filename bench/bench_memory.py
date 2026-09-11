@@ -4,17 +4,17 @@
 Measures peak RSS for the three memory-sensitive phases of the Voice
 Typer lifecycle:
 
-1. **Cold import** — peak RSS after ``import voice_typer.server.tray``
+1. **Cold import**: peak RSS after ``import voice_typer.server.tray``
    in a fresh subprocess.  This is the "how much RAM does the tray
    process consume at idle" number.  A regression here means a new
    heavy dependency was added to the import graph.
 
-2. **Model load** — peak RSS after ``TranscriptionEngine.load()``.  In
+2. **Model load**: peak RSS after ``TranscriptionEngine.load()``.  In
    environments where the model is unavailable (sandbox without
    HuggingFace consent), the bench records the import-only RSS and
    marks the model-load phase as skipped.
 
-3. **Sustained transcription** — peak RSS after 60s of
+3. **Sustained transcription**: peak RSS after 60s of
    ``transcribe_with_fallback`` calls on a deterministic audio signal.
    This catches leaks in the transcription hot path (e.g. a buffer that
    grows per call).  In environments without a loaded model, the bench
@@ -54,7 +54,7 @@ DEFAULT_IMPORT_TARGET = "voice_typer.server.tray"
 def _peak_rss_mb() -> int | None:
     """Return current peak RSS in MB, or ``None`` if unavailable.
 
-    On Linux, ``psutil`` does not expose ``peak_rss`` directly — we
+    On Linux, ``psutil`` does not expose ``peak_rss`` directly, we
     parse ``VmHWM`` from ``/proc/<pid>/status``.  On Windows / macOS,
     ``memory_info().peak_rss`` is used directly.
     """
@@ -67,7 +67,7 @@ def _peak_rss_mb() -> int | None:
         mi = proc.memory_info()
         if hasattr(mi, "peak_rss"):
             return int(mi.peak_rss / (1024 * 1024))
-    except Exception:  # noqa: BLE001 — best-effort
+    except Exception:  # noqa: BLE001, best-effort
         pass
     try:
         status_path = Path(f"/proc/{proc.pid}/status")  # type: ignore[possibly-undefined]
@@ -75,11 +75,11 @@ def _peak_rss_mb() -> int | None:
             for line in status_path.read_text(encoding="utf-8").splitlines():
                 if line.startswith("VmHWM:"):
                     return int(line.split()[1]) // 1024
-    except Exception:  # noqa: BLE001 — best-effort
+    except Exception:  # noqa: BLE001, best-effort
         pass
     try:
         return int(proc.memory_info().rss / (1024 * 1024))  # type: ignore[attr-defined]
-    except Exception:  # noqa: BLE001 — best-effort
+    except Exception:  # noqa: BLE001, best-effort
         return None
 
 
@@ -175,7 +175,7 @@ def bench_model_load(model_size: str = "small.en", device: str = "cpu") -> dict:
             "delta_rss_mb": (rss_after - rss_before) if (rss_before is not None and rss_after is not None) else None,
             "skipped": False,
         }
-    except Exception as exc:  # noqa: BLE001 — soft skip on missing model
+    except Exception as exc:  # noqa: BLE001, soft skip on missing model
         rss_after = _peak_rss_mb()
         return {
             "name": "model_load",
@@ -193,7 +193,7 @@ def bench_sustained_transcription(duration_seconds: float) -> dict:
 
     If a model is loadable, runs ``transcribe_with_fallback`` in a
     loop.  Otherwise falls back to a ``FilterChain.process`` loop on
-    synthetic audio — the chain is always available (it degrades
+    synthetic audio: the chain is always available (it degrades
     gracefully when scipy / RNNoise are missing) and exercises a
     comparable sustained-load memory profile (audio buffers + filter
     state).
@@ -217,9 +217,10 @@ def bench_sustained_transcription(duration_seconds: float) -> dict:
         import numpy as np
 
         rng = np.random.default_rng(seed=0xA4A4)
-        audio = (0.3 * np.sin(2 * np.pi * 440 * np.linspace(0, 5.0, 5 * 16000, False))
-                 + 0.1 * rng.standard_normal(5 * 16000)).astype(np.float32)
-    except Exception:  # noqa: BLE001 — fall back to FilterChain
+        audio = (
+            0.3 * np.sin(2 * np.pi * 440 * np.linspace(0, 5.0, 5 * 16000, False)) + 0.1 * rng.standard_normal(5 * 16000)
+        ).astype(np.float32)
+    except Exception:  # noqa: BLE001, fall back to FilterChain
         mode = "filter_chain_fallback"
         engine = None
         audio = None
@@ -249,7 +250,7 @@ def bench_sustained_transcription(duration_seconds: float) -> dict:
 
             rng = np.random.default_rng(seed=0xA4A4)
             chunk = np.zeros(512, dtype=np.float32)
-        except Exception as exc:  # noqa: BLE001 — both paths failed
+        except Exception as exc:  # noqa: BLE001, both paths failed
             rss_after = _peak_rss_mb()
             return {
                 "name": "sustained_load",
@@ -274,8 +275,10 @@ def bench_sustained_transcription(duration_seconds: float) -> dict:
             n_iters += 1
     elif chain is not None and chunk is not None:
         while time.perf_counter() < deadline:
-            chunk[:] = (0.4 * np.sin(2 * np.pi * 440 * np.arange(512, dtype=np.float32) / 16000.0)
-                        + 0.05 * rng.standard_normal(512)).astype(np.float32)
+            chunk[:] = (
+                0.4 * np.sin(2 * np.pi * 440 * np.arange(512, dtype=np.float32) / 16000.0)
+                + 0.05 * rng.standard_normal(512)
+            ).astype(np.float32)
             chain.process(chunk, 16000)
             n_iters += 1
 
@@ -319,7 +322,7 @@ def main() -> int:
         return 0
 
     print("=" * 72)
-    print("Voice Typer — Memory Footprint Benchmark")
+    print("Voice Typer: Memory Footprint Benchmark")
     print("=" * 72)
 
     ci = results["cold_import"]

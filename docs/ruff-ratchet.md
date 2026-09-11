@@ -1,6 +1,6 @@
 # Ruff Ratchet
 
-This document explains the **ruff ratchet** — the CI mechanism that
+This document explains the **ruff ratchet**, the CI mechanism that
 prevents new ruff violations from being introduced without breaking the
 build on the (small) set of pre-existing violations that have not been
 fixed yet.
@@ -9,7 +9,7 @@ fixed yet.
 
 * **F-rules** (pyflakes: unused imports, undefined names, redefinitions)
   are a **hard-fail** in CI. Zero tolerance. Fix them immediately.
-* **All other configured rules** (E, W, I, N, UP, B, A, SIM — see
+* **All other configured rules** (E, W, I, N, UP, B, A, SIM, see
   `pyproject.toml` `[tool.ruff.lint] select`) are tracked via a
   **ratchet**: a baseline file (`ruff-baseline.json`) records the
   current violation count. CI fails if the count **grows**. The count
@@ -60,7 +60,7 @@ python -m ruff check voice_typer/server/ --select F --no-fix
 ```
 
 * Scope: `voice_typer/server/` only.
-* Selects: `F` (pyflakes — real bugs).
+* Selects: `F` (pyflakes: real bugs).
 * `--no-fix`: never auto-fix; the developer must fix and commit.
 * Exit code 1 → CI fails. No baseline, no soft-fail. Fix the bug.
 
@@ -80,12 +80,12 @@ python scripts/ruff_ratchet_check.py
   and fails CI if:
   * `total_count` grew above the baseline, OR
   * any individual rule's count grew above its baseline value (even if
-    the total stayed the same — e.g. UP037 dropped by 2 but F401 grew
+    the total stayed the same: e.g. UP037 dropped by 2 but F401 grew
     by 2).
 
 ## Developer workflow
 
-### You fixed some ruff violations — how to update the baseline
+### You fixed some ruff violations, how to update the baseline
 
 After you fix violations (e.g. you wrapped a long line, removed an
 unused import, or split a circular import), the ratchet will report
@@ -102,8 +102,8 @@ ruff check voice_typer/server/ --output-format=json \
 ```
 
 The script **refuses** to regenerate if the new total is *higher* than
-the old total — that would be a regression, not a ratchet. If you
-genuinely need to grow the baseline (rare — e.g. a new rule was added
+the old total: that would be a regression, not a ratchet. If you
+genuinely need to grow the baseline (rare, e.g. a new rule was added
 to `select`), you must:
 
 1. Discuss in the PR description *why* the baseline needs to grow.
@@ -111,7 +111,7 @@ to `select`), you must:
    you).
 3. Get reviewer sign-off.
 
-### You introduced a new ruff violation — CI is failing
+### You introduced a new ruff violation, CI is failing
 
 Two options:
 
@@ -120,7 +120,7 @@ Two options:
 2. **Justify it** (rare). If the new violation is unavoidable (e.g. a
    third-party API forces a quoted annotation), document why in the PR
    description, manually bump `ruff-baseline.json`, and get reviewer
-   sign-off. Do NOT make this a habit — the ratchet only works if the
+   sign-off. Do NOT make this a habit, the ratchet only works if the
    baseline trends to zero.
 
 ### You added a new rule to `select` in `pyproject.toml`
@@ -196,14 +196,14 @@ comparison logic.
 * Has `total_count == sum(by_rule.values())`.
 * Has all `by_rule` values be non-negative ints.
 * Is consistent with the *actual* current ruff output (the actual
-  count is `<=` the baseline — i.e. the ratchet is not currently
+  count is `<=` the baseline: i.e. the ratchet is not currently
   regressed).
 
 ## Rule onboarding history
 
 | Date | Rule | Action | Notes |
 |---|---|---|---|
-| RW-11 | (initial) | Baseline = 3 UP037 violations in `voice_typer/server/event_bus.py` | Quoted type annotations — `from __future__ import annotations` makes the quotes redundant. Safe to fix with `ruff check --fix`. |
+| RW-11 | (initial) | Baseline = 3 UP037 violations in `voice_typer/server/event_bus.py` | Quoted type annotations, `from __future__ import annotations` makes the quotes redundant. Safe to fix with `ruff check --fix`. |
 
 ## Out of scope (future work)
 
@@ -214,5 +214,5 @@ comparison logic.
   `tests/test_event_bus.py`). Onboard the new scope by adding it to
   the CI step, regenerating the baseline, and fixing or accepting the
   new violations.
-* **Auto-fix on CI.** Not done — `--no-fix` is intentional. Developers
+* **Auto-fix on CI.** Not done, `--no-fix` is intentional. Developers
   must run `ruff check --fix` locally and review the diff.

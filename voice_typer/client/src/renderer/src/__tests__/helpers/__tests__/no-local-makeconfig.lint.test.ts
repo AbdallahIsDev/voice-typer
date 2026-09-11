@@ -15,8 +15,8 @@
  * guards against NEW violations: it scans every renderer test file
  * outside `__tests__/helpers/` for a top-level `function makeConfig`
  * declaration and, if any are found, prints a `console.warn` listing
- * them. The test PASSES unconditionally — emitting the warning is the
- * only signal — so it does not break the build (the existing 9 files
+ * them. The test PASSES unconditionally, emitting the warning is the
+ * only signal, so it does not break the build (the existing 9 files
  * would otherwise turn this red on every CI run until migrated).
  *
  * If/when the deferred migration is complete, flip this to a hard
@@ -32,7 +32,7 @@ const HELPERS_DIR = resolve(__dirname, ".."); // .../src/renderer/src/__tests__/
 
 // Match `function makeConfig` at any indentation. We deliberately do
 // NOT match `makeConfig(` calls (which are the legitimate imports from
-// `helpers/fixtures.ts`) — only the function DECLARATION. We also match
+// `helpers/fixtures.ts`), only the function DECLARATION. We also match
 // arrow/const forms (`const makeConfig = (...)`) so a future renamer
 // can't bypass the lint by switching syntax.
 const LOCAL_MAKECONFIG_DECL_RE =
@@ -48,7 +48,7 @@ function walkTestFiles(dir: string, out: string[] = []): string[] {
 		const full = join(dir, entry);
 		const st = statSync(full);
 		if (st.isDirectory()) {
-			// Skip the helpers dir itself — `makeConfig` is DEFINED here.
+			// Skip the helpers dir itself, `makeConfig` is DEFINED here.
 			if (full === HELPERS_DIR) continue;
 			// Skip node_modules / build artefacts defensively.
 			if (entry === "node_modules" || entry === "dist" || entry === "out") {
@@ -92,13 +92,13 @@ describe("lint: no local `function makeConfig` outside helpers/", () => {
 				`[lint] ${violations.length} local \`function makeConfig\` ` +
 					`declarations found outside \`__tests__/helpers/\`. ` +
 					`Import \`makeConfig\` from \`@/__tests__/helpers/fixtures\` ` +
-					`instead. (Non-blocking — see the ZU-19 finding in ` +
+					`instead. (Non-blocking, see the ZU-19 finding in ` +
 					`review.md for the deferred migration.) Violations:\n` +
 					violations.map((v) => `  - ${v.path}:${v.line}`).join("\n"),
 			);
 		}
 
-		// Always pass — this is a WARNING lint, not a hard assertion.
+		// Always pass, this is a WARNING lint, not a hard assertion.
 		// Migrating the existing 9 files is intentionally deferred; flip
 		// this to `expect(violations).toEqual([])` once the migration
 		// is complete and the convention should be enforced.
@@ -151,7 +151,7 @@ describe("lint: Settings test files use shared makeConfig (XA-15-2 regression)",
 		"%s does NOT declare a local baseConfig object literal (must use makeConfig factory)",
 		(file) => {
 			const src = readFileSync(file, "utf8");
-			// Matches `const baseConfig ... = {` — i.e. an inline object
+			// Matches `const baseConfig ... = {`, i.e. an inline object
 			// literal assigned to `baseConfig`. The factory form
 			// `const baseConfig = makeConfig({...})` does NOT match because
 			// the RHS starts with `makeConfig(`, not `{`.

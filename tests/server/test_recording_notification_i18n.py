@@ -24,7 +24,7 @@ from voice_typer.server.recording_lifecycle import RecordingLifecycle
 
 class TestKeysRegisteredInServerRegistry:
     """Every notification key used by the recording surface must exist
-    in ``_INITIAL_LABELS`` — a typo'd key would silently render as the
+    in ``_INITIAL_LABELS``, a typo'd key would silently render as the
     key name in the tray."""
 
     @pytest.mark.parametrize(
@@ -76,7 +76,7 @@ class _RecordingControllerAppStub:
         self._schedule_timer_calls: list[tuple[float, object]] = []
         self._cycle_id = "#1"
         self._AppState = AppState
-        # Inverted busy semantics (is_set() == not busy) — the watchdog's
+        # Inverted busy semantics (is_set() == not busy), the watchdog's
         # force-recover clears it after resetting the tray state.
         self._busy_event = threading.Event()
         self._busy_event.set()
@@ -191,7 +191,7 @@ class TestWatchdogStillRunningUsesI18n:
 class TestStartFailureReasonUsesI18n:
     """Both start-failure branches (``_start_impl`` and the start
     worker) must resolve the typed-reason notification through the
-    ``start_failed_with_reason`` key — never the hardcoded f-string."""
+    ``start_failed_with_reason`` key, never the hardcoded f-string."""
 
     def test_start_impl_uses_key(self) -> None:
         src = inspect.getsource(RecordingLifecycle._start_impl)

@@ -18,7 +18,7 @@ log = logging.getLogger(__name__)
 class DownloadsMixin:
     # Members provided by the composed ``ModelMixin`` (mixin.py);
     # ``_download_queue`` is initialised by ``DownloadStateMixin.__init__``
-    # (_download_state.py). Annotations only — no values — so no runtime
+    # (_download_state.py). Annotations only, no values, so no runtime
     # attribute is created and the MRO is unaffected (same pattern as
     # ``LoadingMixin`` in model_manager/_loading.py).
     _download_queue: list[str]
@@ -27,7 +27,7 @@ class DownloadsMixin:
         """Test the LLM polish API connection.
 
         ``LLMPolisher.test_connection`` was previously
-        dead — no IPC route or UI button invoked it.  We now expose
+        dead, no IPC route or UI button invoked it.  We now expose
         it via the service layer so the renderer can wire up a "Test
         connection" button on the Settings page (where the user
         configures llm_api_key / llm_api_url / llm_model).
@@ -43,7 +43,7 @@ class DownloadsMixin:
         # BOTH `llm_polish` AND `llm_polish_consent` to be True before
         # sending any HTTP request to the LLM endpoint. The previous
         # implementation of test_llm_connection bypassed the consent gate
-        # — a user who explicitly denied consent (llm_polish_consent=False)
+        # , a user who explicitly denied consent (llm_polish_consent=False)
         # but had an API key configured could trigger an outbound HTTP POST
         # to llm_api_url (with Authorization: Bearer <key> header + the
         # literal "Hello" body) by clicking "Test Connection" in Settings.
@@ -81,7 +81,7 @@ class DownloadsMixin:
     # ── Model import ──────────────────────────────────────────────────────
 
     def cancel_model_download(self, model_name: str | None = None) -> dict:
-        """Cancel a model download — the active transfer and/or a queued
+        """Cancel a model download, the active transfer and/or a queued
         request.
 
         With ``model_name`` (cancel-anywhere): if that model is waiting
@@ -93,7 +93,7 @@ class DownloadsMixin:
         active is a no-op.
 
         Without ``model_name`` (the legacy IPC shape): cancels the
-        ACTIVE transfer only — queued items stay queued and drain when
+         ACTIVE transfer only, queued items stay queued and drain when
         the active transfer exits (the queue's whole point is that the
         next request auto-starts).
 
@@ -112,7 +112,7 @@ class DownloadsMixin:
 
         ALSO signals the transfer gate (:func:`asr_setup.request_download_abort`)
         so the HuggingFace transfer threads unwind at the next chunk
-        boundary — pre-fix, cancel only stopped the progress REPORTER
+        boundary, pre-fix, cancel only stopped the progress REPORTER
         and the daemon transfer thread kept downloading in the
         background.
         """
@@ -131,10 +131,10 @@ class DownloadsMixin:
                     model_name,
                 )
                 return {"cancelled": False}
-            # Named the ACTIVE model — fall through to the active-cancel
+            # Named the ACTIVE model, fall through to the active-cancel
             # path below.
         cancelled_any = False
-        #  SERVICE-1: per-download dict path — signal the
+        #  SERVICE-1: per-download dict path, signal the
         # currently-active download's Event, if any.
         with self._download_cancel_lock:
             active_id = self._active_download_id
@@ -143,11 +143,11 @@ class DownloadsMixin:
             active_event.set()
             cancelled_any = True
         # ALSO signal the transfer gate whenever a gateable download is
-        # active — the Parakeet path never registers a per-download
+        # active, the Parakeet path never registers a per-download
         # Event (it downloads synchronously inside the IPC call), so the
         # registry lookup alone could not stop it. The gate raises
         # ModelDownloadAborted at the next chunk boundary (works from a
-        # PAUSED state too — the parked gate wakes and unwinds).
+        # PAUSED state too, the parked gate wakes and unwinds).
         try:
             from voice_typer.server.asr_setup import (
                 is_download_active,
@@ -190,10 +190,10 @@ class DownloadsMixin:
         top of the single-flight gate: transfers stay serialized (the
         shared pause/abort events are module-level and MUST NOT be
         recycled under a live transfer), but the request is no longer
-        refused with an error — it waits its turn and auto-starts when
+        refused with an error, it waits its turn and auto-starts when
         the active transfer exits.
 
-        Holds model NAMES only (unbounded by design — short strings;
+        Holds model NAMES only (unbounded by design, short strings;
         the UI caps display, not storage). Duplicate enqueues are
         idempotent: the model keeps its existing position and the
         queued event is re-pushed so the renderer state refreshes.
@@ -203,7 +203,7 @@ class DownloadsMixin:
         returned instead (queueing the model behind itself would drain
         later as a cache-hit no-op transfer once the live one exits).
 
-        Returns the queued outcome (success — the request was accepted)
+        Returns the queued outcome (success, the request was accepted)
         and pushes a ``download_progress`` event carrying the new
         ``queue_position`` field so the renderer can render the queued
         state from the existing event stream.
@@ -212,11 +212,11 @@ class DownloadsMixin:
         from voice_typer.server.service._download_helpers import push_progress
 
         if self._is_active_download_model(model_name):
-            # The requested model IS the active download — answer with
+            # The requested model IS the active download, answer with
             # the already-active outcome (the ``download_already_active``
             # envelope the renderer's download hook already branches on)
             # instead of queueing it behind itself. Only models with a
-            # REGISTERED per-download id resolve here — the Parakeet
+            # REGISTERED per-download id resolve here, the Parakeet
             # path registers no id, so its re-clicks still queue
             # idempotently.
             log.info(
@@ -238,7 +238,7 @@ class DownloadsMixin:
                 position = len(self._download_queue)
                 already_queued = False
         log.info(
-            "[SERVICE] Download of '%s' %s (position %d) — another gateable download is active",
+            "[SERVICE] Download of '%s' %s (position %d), another gateable download is active",
             model_name,
             "already queued" if already_queued else "queued",
             position,
@@ -255,14 +255,14 @@ class DownloadsMixin:
             "queued": True,
             "model": model_name,
             "queue_position": position,
-            "message": "Queued — it starts automatically when the current download finishes.",
+            "message": "Queued, it starts automatically when the current download finishes.",
         }
 
     def _remove_queued_download(self, model_name: str) -> int | None:
         """Remove ``model_name`` from the pending queue; return the
         1-based position it held (``None`` when it was not queued).
 
-        After a removal the remaining items advance — their refreshed
+        After a removal the remaining items advance, their refreshed
         positions are re-pushed as ``download_progress`` events so the
         renderer's queue state stays accurate.
         """
@@ -300,7 +300,7 @@ class DownloadsMixin:
     def _is_active_download_model(self, model_name: str) -> bool:
         """True when ``model_name`` is the model of the ACTIVE download.
 
-        ``_active_download_id`` is ``f"{model_name}:{hex}"`` — the
+        ``_active_download_id`` is ``f"{model_name}:{hex}"``, the
         registered id is prefixed with the model name, so a prefix
         match on the ``:`` boundary identifies the active model.
         """
@@ -314,7 +314,7 @@ class DownloadsMixin:
         """Auto-start the next queued download once the gate is free.
 
         Called from the ``download_model`` dispatcher's ``finally`` (so
-        every exit — success, failure, cancel — advances the queue) and
+        every exit, success, failure, cancel, advances the queue) and
         safe to call at any time: while a gateable transfer is still
         active it does nothing (the live download's own exit path will
         drain later). The next download runs on its OWN daemon thread
@@ -324,7 +324,7 @@ class DownloadsMixin:
         Self-healing by construction: if a concurrent download arms the
         gate between the check and the pop, the spawned thread's
         ``download_model`` hits the single-flight guard and re-queues
-        the model — the next drain cycle picks it up again.
+        the model, the next drain cycle picks it up again.
         """
         from voice_typer.server.asr_setup import is_download_active
 
@@ -335,7 +335,7 @@ class DownloadsMixin:
                 return
             model_name = self._download_queue.pop(0)
             remaining = list(self._download_queue)
-        # Refresh the remaining positions (outside the lock — it pushes
+        # Refresh the remaining positions (outside the lock, it pushes
         # events).
         self._push_queue_positions(remaining)
         import threading
@@ -349,7 +349,7 @@ class DownloadsMixin:
         t.start()
 
     def _queued_download_runner(self, model_name: str) -> None:
-        """Thread body for a drained queued download (never raises — an
+        """Thread body for a drained queued download (never raises, an
         exception in a daemon thread would silently drop the request)."""
         try:
             self.download_model(model_name)
@@ -402,7 +402,7 @@ class DownloadsMixin:
         Art. 13/44 consent that ``config.huggingface_consent`` was
         specifically designed to gate ().
 
-        Returns ``None`` when consent has been given — the caller
+        Returns ``None`` when consent has been given, the caller
         proceeds with the download.  Returns a :data:`DownloadOutcome`
         failure dict AND publishes a ``consent_required`` event when
         consent is missing; the renderer is responsible for showing
@@ -411,7 +411,7 @@ class DownloadsMixin:
 
         Defensive: ``self._app.config`` may be ``None`` in degenerate
         paths (test stubs, benchmark harness).  Treat missing config
-        as NOT consented — safe default per GDPR Art. 6/13.
+        as NOT consented, safe default per GDPR Art. 6/13.
 
         Returns a :data:`DownloadOutcome` (TypedDict) so the caller's
         ``return consent_err`` line type-checks without
@@ -425,7 +425,7 @@ class DownloadsMixin:
         consent = False if cfg is None else bool(getattr(cfg, "huggingface_consent", False))
         if not consent:
             log.warning(
-                "[SERVICE] HuggingFace consent not given — refusing to download "
+                "[SERVICE] HuggingFace consent not given, refusing to download "
                 "model '%s' via IPC. The renderer should show the consent dialog.",
                 model_name,
             )
@@ -486,7 +486,7 @@ class DownloadsMixin:
         so it is exempt from the consent gate.
 
         daemon=True is acceptable because _do_download only
-        writes to the HF cache dir — no critical cleanup. The download
+        writes to the HF cache dir, no critical cleanup. The download
         completes or fails naturally; on force-kill the partial
         download is resumed on next start via HF's resume_download=True.
 
@@ -510,7 +510,7 @@ class DownloadsMixin:
             model_dir = cache_dir / f"models--{repo_id.replace('/', '--')}"
             ... = sum(f.stat().st_size for f in model_dir.rglob("*") if f.is_file())
 
-        (Regression guard — kept as a docstring snippet so the
+        (Regression guard, kept as a docstring snippet so the
         ``tests/test_perf_fixes.py::TestDownloadPollScopedToModelDir``
         source-pin still trips if a future refactor re-widens the
         rglob to walk the whole ``cache_dir``.)
@@ -543,7 +543,7 @@ class DownloadsMixin:
             return dict(outcome)  # Convert TypedDict to regular dict for IPC
         except ModelDownloadAborted:
             # An abort unwinding the transfer surfaces here as a
-            # BaseException (NOT Exception) — map it to the same
+            # BaseException (NOT Exception), map it to the same
             # cancelled outcome the poll-loop path returns so a cancel
             # never reaches the user as an error toast.
             log.info(
@@ -567,7 +567,7 @@ class DownloadsMixin:
             # The per-download Event cleanup is handled by the
             # ``finally:`` block in each ``_download_*`` branch method
             # (e.g. ``_download_whisper_family``). The outer
-            # ``download_id`` here is always ``None`` — Python does
+            # ``download_id`` here is always ``None``: Python does
             # not propagate assignments from nested method scopes —
             # so a previous ``if download_id is not None`` guard was
             # dead code and has been removed.
@@ -598,7 +598,7 @@ class DownloadsMixin:
             }
         finally:
             # Queue drain: EVERY exit path (success, failure, cancel,
-            # refusal) advances the pending download queue — the next
+            # refusal) advances the pending download queue, the next
             # queued request auto-starts once the transfer gate is free.
             # Skips while a gateable transfer is still active; the
             # spawned runner re-queues itself if the gate re-arms in the
@@ -624,11 +624,11 @@ class DownloadsMixin:
         """
         # SINGLE-FLIGHT GUARD: only one gateable download may run at a
         # time (the shared pause/abort events are module-level). A second
-        # download_model IPC — e.g. the renderer's Retry after its
-        # promise timed out during a long PAUSE — must NOT start a second
+        # download_model IPC: e.g. the renderer's Retry after its
+        # promise timed out during a long PAUSE, must NOT start a second
         # transfer and recycle the events underneath the live one. It is
         # QUEUED instead of refused: the request waits its turn (FIFO)
-        # and auto-starts when the active transfer exits — the queue is
+        # and auto-starts when the active transfer exits, the queue is
         # the UX layer on top of this unchanged serialization gate.
         from voice_typer.server.asr_setup import is_download_active
 
@@ -664,7 +664,7 @@ class DownloadsMixin:
         # every fresh download so stale state from a previous download
         # doesn't carry over, and force the gateable HTTP transfer path
         # (the pause/abort gate lives in the HTTP chunk loop's progress
-        # callbacks — the xet path reports from native threads where a
+        # callbacks, the xet path reports from native threads where a
         # blocking callback does not stop the transfer).
         from voice_typer.server.asr_setup import (
             clear_download_pause_state,
@@ -717,7 +717,7 @@ class DownloadsMixin:
                     local_files_only=True,
                 )
                 log.info(
-                    "[SERVICE] Model '%s' already cached (repo=%s) — skipping download",
+                    "[SERVICE] Model '%s' already cached (repo=%s), skipping download",
                     model_name,
                     repo_id,
                 )
@@ -784,14 +784,14 @@ class DownloadsMixin:
                             resume_download=True,
                             cache_dir=str(cache_dir),
                             # pause/abort gate: intercepts every ~10 MB
-                            # chunk boundary — pause BLOCKS the transfer
+                            # chunk boundary, pause BLOCKS the transfer
                             # thread, cancel raises ModelDownloadAborted
                             # (a BaseException, so the retry wrapper
                             # cannot swallow it and resume downloading).
                             tqdm_class=get_download_tqdm_class(),
                         )
                     except BaseException as e:
-                        # ModelDownloadAborted is a BaseException — catch
+                        # ModelDownloadAborted is a BaseException, catch
                         # it here (the thread boundary swallows
                         # BaseExceptions silently) so download_err
                         # carries it for the cancelled-outcome mapping.
@@ -842,7 +842,7 @@ class DownloadsMixin:
                     # call's cancel signal can't reach us after
                     # we've already exited the polling loop. Also
                     # clear the pause flag so a subsequent download
-                    # starts unpaused. Both are idempotent — the
+                    # starts unpaused. Both are idempotent, the
                     # post-try/except cleanup below and the outer
                     # ``download_model`` except handler may call
                     # them again, which is a harmless no-op.
@@ -882,9 +882,9 @@ class DownloadsMixin:
                             "retry to resume.",
                         }
                     raise download_err[0] from None
-                # Phase B — segmented fast lane for the big files (runs on
+                # Phase B, segmented fast lane for the big files (runs on
                 # THIS thread now that the poll loop exited, so its direct
-                # progress pushes are the single source of truth — no bar
+                # progress pushes are the single source of truth, no bar
                 # jitter). Pause/cancel keep working through the shared
                 # gate (pause blocks inside the engine, cancel raises
                 # ModelDownloadAborted → mapped below).
@@ -967,7 +967,7 @@ class DownloadsMixin:
                         # full-repo snapshot (today's behavior), which
                         # refetches the big files single-stream.
                         log.warning(
-                            "[SERVICE] Segmented fast lane failed for '%s' (%s) — falling back to classic download",
+                            "[SERVICE] Segmented fast lane failed for '%s' (%s), falling back to classic download",
                             model_name,
                             e,
                         )
@@ -1005,7 +1005,7 @@ class DownloadsMixin:
                     except Exception as e:
                         log.warning(
                             "[SERVICE] Post-segmented snapshot probe failed "
-                            "for '%s' (%s) — falling back to classic download",
+                            "for '%s' (%s), falling back to classic download",
                             model_name,
                             e,
                         )
@@ -1030,8 +1030,8 @@ class DownloadsMixin:
         except ImportError:
             # huggingface_hub is missing or broken (stripped venv /
             # damaged install). This arm previously only logged a debug
-            # line claiming a "fallback to engine.load()" — a fallback
-            # that no longer exists — and then FELL THROUGH to the
+            # line claiming a "fallback to engine.load()", a fallback
+            # that no longer exists, and then FELL THROUGH to the
             # success report: 100% progress, a "downloaded successfully"
             # toast, and {"success": True} with NO model files on
             # disk. Report a structured failure instead (same shape as
@@ -1059,7 +1059,7 @@ class DownloadsMixin:
         # engine.load() which allocated GPU/CPU memory and disrupted
         # the currently active model (Parakeet).  The model files are
         # already verified by HuggingFace's snapshot_download hash
-        # checks — there's no need to load the entire model just to
+        # checks, there's no need to load the entire model just to
         # confirm the files exist.
         log.info("[SERVICE] Download of '%s' verified via HF cache (no full model load)", model_name)
         # Single terminal 100% push per download call: the cache-hit
@@ -1088,7 +1088,7 @@ class DownloadsMixin:
         # path on exceptions). These calls are retained for the
         # cache-hit path (where ``download_id`` is ``None`` and the
         # ``finally`` never ran) and as belt-and-braces on the success
-        # path — both ``_unregister_download`` and
+        # path, both ``_unregister_download`` and
         # ``clear_download_pause_state`` are idempotent no-ops if
         # already done.
         if download_id is not None:
@@ -1097,7 +1097,7 @@ class DownloadsMixin:
         # pause calls return False (no active download).
         clear_download_pause_state()
         _notify(self._app.tray, model_name, APP_NAME, f"Model '{model_name}' downloaded successfully")
-        # PERF-10 / SVC-9: on-disk model state changed — force the
+        # PERF-10 / SVC-9: on-disk model state changed, force the
         # next get_model_status() poll to recompute so the freshly
         # downloaded model shows as available immediately.
         self._invalidate_model_status_cache()
@@ -1178,7 +1178,7 @@ class DownloadsMixin:
         )
 
         # Parakeet's transfer gate reads the same shared pause/abort
-        # events as the whisper branch — arm them for this download and
+        # events as the whisper branch, arm them for this download and
         # clean them up on every exit (reset is idempotent; a
         # download_already_active refusal returns BEFORE this line).
         reset_download_pause_state()

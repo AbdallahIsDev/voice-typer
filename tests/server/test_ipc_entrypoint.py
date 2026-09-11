@@ -3,9 +3,9 @@
 These tests exercise the three module-level functions that turn a CLI
 invocation into a running ``IPCServer``:
 
-  - :func:`_set_process_metadata` — Windows console title / AppUserModelID,
-  - :func:`parse_ipc_args` — argparse + env-var side-effects,
-  - :func:`main` — the actual subprocess entry point.
+  - :func:`_set_process_metadata`, Windows console title / AppUserModelID,
+  - :func:`parse_ipc_args`, argparse + env-var side-effects,
+  - :func:`main`, the actual subprocess entry point.
 
 The ``main()`` tests stub out every heavy dependency
 (``VoiceTyperApp``, ``build_ipc_server``, ``_setup_logging``,
@@ -20,7 +20,7 @@ event loop or binding a TCP socket. The tests pin:
     helper returns early at the top).
   - ``main()`` registers a signal handler via ``signal.signal`` on POSIX
     (the codebase registers ``SIGUSR1`` for faulthandler thread-dumps;
-    SIGINT/SIGTERM are not registered by ``main()`` — that's the
+    SIGINT/SIGTERM are not registered by ``main()``, that's the
     pystray / Tauri host's responsibility, noted in SKIPPED).
   - ``main()`` returns cleanly (exit code 0) on a clean shutdown.
 """
@@ -131,7 +131,7 @@ class TestParseIpcArgs:
         import os
 
         assert os.environ.get("TAURI_SIDECAR") == "1"
-        # parse_ipc_args mutated the process env directly — monkeypatch
+        # parse_ipc_args mutated the process env directly, monkeypatch
         # cannot track a raw ``os.environ[...] = ...`` assignment (the
         # ``delenv`` above only guards the pre-test state). Restore here
         # so ``TAURI_SIDECAR=1`` does not leak into every later test in
@@ -150,13 +150,174 @@ class TestParseIpcArgs:
         assert exc_info.value.code == 4
 
 
+class TestLazyVersionResolution:
+    """The installed-package version is resolved ONLY when ``--version``
+    is actually present in argv.
+
+    Every normal boot used to pay an ``importlib.metadata.version()``
+    dist-metadata scan just to feed the argparse ``--version`` action —
+    a flag that is almost never passed (the packaged sidecar boots with
+    ``--ws``). The resolution is now gated on the flag's presence (the
+    ``"1.0.0"`` placeholder covers the not-requested case), and the
+    ``--version`` output itself is byte-identical when requested.
+    """
+
+    def test_no_version_flag_skips_metadata_lookup(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A normal boot (``--ws``, no ``--version``) must not call
+        ``importlib.metadata.version`` at all."""
+        import importlib.metadata
+
+        calls: list[str] = []
+
+        def _spy_version(name: str) -> str:
+            calls.append(name)
+            return "9.9.9-test"
+
+        monkeypatch.setattr(importlib.metadata, "version", _spy_version)
+        monkeypatch.setattr(sys, "argv", ["ipc_server", "--ws"])
+        monkeypatch.delenv("TAURI_SIDECAR", raising=False)
+
+        entrypoint.parse_ipc_args()
+
+        assert calls == [], (
+            "parse_ipc_args must not resolve the installed package version "
+            "when --version is absent from argv, a normal boot pays no "
+            "dist-metadata scan. Observed lookups: "
+            f"{calls}"
+        )
+        # Restore the env side-effect the --ws path applies (raw
+        # os.environ assignment is not tracked by monkeypatch).
+        os.environ.pop("TAURI_SIDECAR", None)
+
+    def test_version_flag_prints_resolved_version_and_exits_zero(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """With ``--version`` present, the real installed version is
+        resolved and printed with the argparse action's exact format
+        (``%(prog)s <version>``, exit code 0)."""
+        import importlib.metadata
+
+        monkeypatch.setattr(importlib.metadata, "version", lambda name: "9.9.9-test")
+        monkeypatch.setattr(sys, "argv", ["ipc_server", "--version"])
+
+        with pytest.raises(SystemExit) as exc_info:
+            entrypoint.parse_ipc_args()
+
+        assert exc_info.value.code == 0, "--version must exit with code 0"
+        captured = capsys.readouterr()
+        assert captured.out.strip() == "voice_typer.server.ipc_server 9.9.9-test", (
+            f"--version output must stay identical when requested: {captured.out!r}"
+        )
+
+    def test_version_flag_falls_back_when_metadata_lookup_fails(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """When ``importlib.metadata.version`` raises (package metadata
+        unreadable / not installed), the ``"1.0.0"`` placeholder is
+        printed instead, the pre-existing fallback behavior."""
+        import importlib.metadata
+
+        def _boom(name: str) -> str:
+            raise importlib.metadata.PackageNotFoundError(name)
+
+        monkeypatch.setattr(importlib.metadata, "version", _boom)
+        monkeypatch.setattr(sys, "argv", ["ipc_server", "--version"])
+
+        with pytest.raises(SystemExit) as exc_info:
+            entrypoint.parse_ipc_args()
+
+        assert exc_info.value.code == 0
+        captured = capsys.readouterr()
+        assert captured.out.strip() == "voice_typer.server.ipc_server 1.0.0", (
+            f"--version must print the 1.0.0 placeholder on lookup failure: {captured.out!r}"
+        )
+
+    def test_abbreviated_version_flag_still_resolves(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """An unambiguous argparse prefix abbreviation (``--vers``)
+        resolves to the same version action, the lazy resolution must
+        treat it as a version request, not fall back to the
+        placeholder."""
+        import importlib.metadata
+
+        monkeypatch.setattr(importlib.metadata, "version", lambda name: "9.9.9-test")
+        monkeypatch.setattr(sys, "argv", ["ipc_server", "--vers"])
+
+        with pytest.raises(SystemExit) as exc_info:
+            entrypoint.parse_ipc_args()
+
+        assert exc_info.value.code == 0
+        captured = capsys.readouterr()
+        assert captured.out.strip() == "voice_typer.server.ipc_server 9.9.9-test", (
+            f"abbreviated --vers must resolve the real version: {captured.out!r}"
+        )
+
+
+class TestVersionRequestedBareDashGuard:
+    """``_version_requested`` must NOT treat a bare ``--`` token as a
+    version request.
+
+    The abbreviation matcher checks ``"version".startswith(arg[2:])``;
+    for the bare ``--`` token ``arg[2:]`` is the empty string, and
+    EVERY string satisfies ``startswith("")``, so a bare ``--`` (the
+    argparse end-of-options marker, legitimately present when a host or
+    launcher appends it) was misclassified as a ``--version`` request
+    and paid the ``importlib.metadata`` dist-metadata scan on every
+    such boot. The guard: a prefix match requires a NON-EMPTY prefix.
+    """
+
+    def test_bare_double_dash_is_not_a_version_request(self) -> None:
+        assert entrypoint._version_requested(["--"]) is False, (
+            "a bare `--` (end-of-options marker) must not be treated as a "
+            "--version request: `'version'.startswith('')` is vacuously true"
+        )
+
+    def test_bare_dash_does_not_trigger_metadata_scan(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A boot whose argv carries a bare ``--`` token (e.g. a launcher
+        appending an options terminator) must not pay the dist-metadata
+        scan, the lazy-resolution gate must see no version request."""
+        import importlib.metadata
+
+        calls: list[str] = []
+
+        def _spy_version(name: str) -> str:
+            calls.append(name)
+            return "9.9.9-test"
+
+        monkeypatch.setattr(importlib.metadata, "version", _spy_version)
+        monkeypatch.setattr(sys, "argv", ["ipc_server", "--ws", "--"])
+        monkeypatch.delenv("TAURI_SIDECAR", raising=False)
+
+        entrypoint.parse_ipc_args()
+
+        assert calls == [], (
+            f"a bare `--` in argv must not resolve the installed package version, observed lookups: {calls}"
+        )
+        os.environ.pop("TAURI_SIDECAR", None)
+
+    def test_exact_flag_and_real_prefixes_still_match(self) -> None:
+        """The exactness guard must not break the intended matches: the
+        exact flag and genuine non-empty unambiguous prefixes."""
+        assert entrypoint._version_requested(["--version"]) is True
+        assert entrypoint._version_requested(["--vers"]) is True
+        assert entrypoint._version_requested(["--v"]) is True
+
+    def test_non_matching_flags_are_not_version_requests(self) -> None:
+        assert entrypoint._version_requested(["--verbose"]) is False, (
+            "`--verbose` is not a prefix of `--version` and must not match"
+        )
+        assert entrypoint._version_requested(["--ws"]) is False
+        assert entrypoint._version_requested([]) is False
+
+
 # ── _set_process_metadata ─────────────────────────────────────────────
 
 
 class TestSetProcessMetadata:
     """``_set_process_metadata`` sets Windows console title + AppUserModelID
     via the platform helper. On non-Windows the helper returns early at
-    the top (``if not is_windows(): return``) — the function is a no-op.
+    the top (``if not is_windows(): return``), the function is a no-op.
     """
 
     def test_no_op_on_non_windows(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -164,7 +325,7 @@ class TestSetProcessMetadata:
         must not attempt any Windows-specific ctypes calls.
 
         The platform helper's ``if not is_windows(): return`` is the
-        canonical gate — this test pins it by mocking
+        canonical gate, this test pins it by mocking
         ``_set_windows_process_metadata`` and asserting it WAS called
         (so we know the entry point routed correctly) but that the
         helper itself short-circuited via its own ``is_windows()`` check.
@@ -206,7 +367,7 @@ class TestSetProcessMetadata:
         src = inspect.getsource(entrypoint._set_process_metadata)
         assert "from voice_typer.server.branding import APP_NAME" in src, (
             "_set_process_metadata must import APP_NAME from branding.py "
-            "(single source of truth) — never hardcode the app name."
+            "(single source of truth), never hardcode the app name."
         )
 
 
@@ -217,7 +378,7 @@ class TestDetachProcessGroup:
     The Tauri host cannot apply pre_exec(setpgid) to release-mode
     externalBin children, so the sidecar performs the detach ITSELF.
     Contract: POSIX-only (Windows is a hard no-op), best-effort (a
-    refusal is logged and swallowed — never blocks startup), and wired
+    refusal is logged and swallowed, never blocks startup), and wired
     into ``main()`` before any subsystem init.
     """
 
@@ -242,7 +403,7 @@ class TestDetachProcessGroup:
 
     def test_no_call_on_windows(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """On Windows (os.name == 'nt') the helper returns False WITHOUT
-        touching ``os.setpgid`` — process groups are a POSIX concept and
+        touching ``os.setpgid``, process groups are a POSIX concept and
         a crash here would break every Windows sidecar start."""
         calls: list[tuple[int, int]] = []
 
@@ -258,7 +419,7 @@ class TestDetachProcessGroup:
     def test_setpgid_failure_is_swallowed(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """A best-effort detach: ``os.setpgid`` raising OSError (EACCES /
         EPERM in a sandboxed frozen environment) must be logged and
-        swallowed — the helper returns False and startup continues."""
+        swallowed, the helper returns False and startup continues."""
 
         def _raising_setpgid(pid: int, pgid: int) -> None:
             raise PermissionError(1, "operation not permitted")
@@ -267,23 +428,26 @@ class TestDetachProcessGroup:
         monkeypatch.setattr(entrypoint.os, "setpgid", _raising_setpgid, raising=False)
 
         assert entrypoint._detach_process_group() is False, (
-            "a setpgid refusal must never raise out of the helper — the sidecar stays in the host's group instead"
+            "a setpgid refusal must never raise out of the helper, the sidecar stays in the host's group instead"
         )
 
     def test_main_wires_detach_before_subsystem_init(self) -> None:
-        """``main()`` must call ``_detach_process_group()`` early — before
-        the app construction path — so the detach (and the process group
+        """``main()`` must call ``_detach_process_group()`` early, before
+        the app construction path, so the detach (and the process group
         its children inherit) is in place before anything is spawned."""
         import inspect
 
         src = inspect.getsource(entrypoint.main)
         assert "_detach_process_group()" in src, (
-            "main() must invoke the process-group self-detach — the "
+            "main() must invoke the process-group self-detach, the "
             "release-mode Tauri host cannot pre_exec(setpgid) externalBin "
             "children, so the sidecar must detach ITSELF at startup."
         )
         detach_idx = src.index("_detach_process_group()")
-        app_idx = src.index("VoiceTyperApp(")
+        # Anchor on the construction DELEGATION (the single VoiceTyperApp
+        # call site lives in _construct_app_with_diagnostics, so a bare
+        # "VoiceTyperApp(" index could hit a stray comment instead).
+        app_idx = src.index("_construct_app_with_diagnostics()")
         assert detach_idx < app_idx, (
             "the detach must run BEFORE app construction (children spawned by the sidecar inherit its process group)"
         )
@@ -297,7 +461,7 @@ class TestWsModeStartupLaunch:
     startup background work.
 
     ``main()``'s ws branch exits via ``sys.exit()`` and never reaches the
-    ``app.start()`` at the bottom of the function — but ``app.start()`` is
+    ``app.start()`` at the bottom of the function, but ``app.start()`` is
     the ONLY production launcher of the StartupSequence (microphone
     enumeration, hotkey registration, background model load, autostart
     sync) and of the tray's CPU-fallback alert subscriptions. The branch
@@ -318,7 +482,7 @@ class TestWsModeStartupLaunch:
         assert "target=_ws_startup_thread_main" in src, (
             "main()'s ws branch must launch app.start() through the "
             "fail-fast _ws_startup_thread_main wrapper on a daemon "
-            "thread — the ws exit path otherwise never runs the "
+            "thread, the ws exit path otherwise never runs the "
             "StartupSequence (microphones/hotkeys/model load) and the "
             "Tauri sidecar serves an empty microphone list forever."
         )
@@ -328,11 +492,11 @@ class TestWsModeStartupLaunch:
         # it must call app.start() in its body.
         wrapper_src = inspect.getsource(entrypoint._ws_startup_thread_main)
         assert "app.start()" in wrapper_src, (
-            "_ws_startup_thread_main must invoke app.start() — the "
+            "_ws_startup_thread_main must invoke app.start(), the "
             "thread target exists solely to run the StartupSequence."
         )
         # The thread must be started BEFORE sidecar_ws.run() blocks the
-        # main thread — otherwise the startup work never begins.
+        # main thread, otherwise the startup work never begins.
         ws_branch = src.split("if ws_mode:", 1)[1].split("elif port is not None", 1)[0]
         thread_start = ws_branch.index("_ws_startup_thread.start()")
         ws_run = ws_branch.index("sidecar_ws.run(server)")
@@ -346,7 +510,7 @@ class TestWsStartupThreadFailFast:
     ``app.start()`` raises on the ws-sidecar startup daemon thread.
 
     An unhandled exception on a daemon thread only reaches the process
-    threading excepthook (crash marker + log) — the process would keep
+    threading excepthook (crash marker + log), the process would keep
     running DEGRADED: WS server alive, but no microphones / hotkeys /
     model. The wrapper must instead log FATAL, write the startup
     diagnostic, and exit with ``EXIT_CRASH`` (``os._exit``, the canonical
@@ -368,7 +532,7 @@ class TestWsStartupThreadFailFast:
         thread.join(timeout=10)
         assert not thread.is_alive(), (
             "the startup wrapper thread must return after handling the "
-            "crash (it force-exits via the patched os._exit) — a live "
+            "crash (it force-exits via the patched os._exit), a live "
             "thread after join means the crash path never ran"
         )
         return thread
@@ -381,7 +545,7 @@ class TestWsStartupThreadFailFast:
         """``app.start()`` raising inside the wrapper terminates the
         process with ``EXIT_CRASH`` (via ``os._exit``) AND writes the
         startup diagnostic to ``<config_dir>/logs/startup-error.log``
-        (the real helper — the traceback must survive pythonw.exe)."""
+        (the real helper, the traceback must survive pythonw.exe)."""
         from voice_typer.__main__ import EXIT_CRASH
 
         exit_calls: list[int] = []
@@ -498,7 +662,7 @@ class TestMainEntrypoint:
 
         Platform-qualified: on Windows ``signal.SIGUSR1`` does not exist,
         so the ``hasattr(signal, "SIGUSR1")`` guard in ``main()`` skips
-        the registration — the assertion is gated on ``hasattr`` so the
+        the registration, the assertion is gated on ``hasattr`` so the
         test passes on both platforms but only asserts the SIGUSR1
         registration where it's available.
         """
@@ -515,7 +679,7 @@ class TestMainEntrypoint:
             "voice_typer.server.ipc_server._set_process_metadata",
             lambda: None,
         )
-        # build_ipc_server returns a MagicMock server — no real threads.
+        # build_ipc_server returns a MagicMock server, no real threads.
         fake_server = MagicMock()
         monkeypatch.setattr(
             "voice_typer.server.providers.build_ipc_server",
@@ -525,7 +689,7 @@ class TestMainEntrypoint:
         # passing --port (start_tcp is mocked on the fake server).
         monkeypatch.setattr(sys, "argv", ["ipc_server", "--port", "9876"])
         # Disable faulthandler.enable so the test doesn't alter real
-        # process state — but keep signal.signal mockable.
+        # process state, but keep signal.signal mockable.
         import faulthandler
 
         monkeypatch.setattr(faulthandler, "enable", lambda: None)
@@ -543,14 +707,14 @@ class TestMainEntrypoint:
 
         monkeypatch.setattr(signal, "signal", _capture_signal)
 
-        # main() should return None (clean shutdown) — no SystemExit.
+        # main() should return None (clean shutdown), no SystemExit.
         result = entrypoint.main()
         assert result is None, "main() must return None on a clean shutdown (Python exit code 0)."
 
         # On POSIX, main() registers a SIGUSR1 faulthandler-dump handler
         # via signal.signal. On Windows SIGUSR1 does not exist and
         # main() legitimately registers nothing (faulthandler.enable()
-        # alone does not call signal.signal) — gate both assertions on
+        # alone does not call signal.signal), gate both assertions on
         # the platform so the test passes everywhere but only pins the
         # registration where it exists.
         if hasattr(signal, "SIGUSR1"):
@@ -572,7 +736,7 @@ class TestMainEntrypoint:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """When ``app.start()`` returns cleanly (no exception), ``main()``
-        must NOT raise ``SystemExit`` — Python's implicit exit code 0
+        must NOT raise ``SystemExit``, Python's implicit exit code 0
         applies. This pins the clean-shutdown contract."""
         app_mock = MagicMock()
         app_mock.start.return_value = None  # clean shutdown
@@ -594,12 +758,12 @@ class TestMainEntrypoint:
         # Use --port mode so the standalone electron-launch path is
         # skipped (start_tcp is a no-op MagicMock).
         monkeypatch.setattr(sys, "argv", ["ipc_server", "--port", "9876"])
-        # faulthandler.enable would alter real process state — stub it.
+        # faulthandler.enable would alter real process state, stub it.
         import faulthandler
 
         monkeypatch.setattr(faulthandler, "enable", lambda: None)
 
-        # main() returns None on clean shutdown — no SystemExit raised.
+        # main() returns None on clean shutdown, no SystemExit raised.
         result = entrypoint.main()
         assert result is None
         # The IPC server was started + the ready event was pushed.

@@ -9,11 +9,11 @@ binary on every login.
 
 The tests exercise:
 
-1. ``_unlink_autostart_desktop_at`` — removes the ``.desktop`` file when
+1. ``_unlink_autostart_desktop_at``, removes the ``.desktop`` file when
    present, no-ops when absent, logs a warning on ``OSError``.
-2. ``_remove_autostart_desktop`` — uses ``target_user``'s home dir from
+2. ``_remove_autostart_desktop``, uses ``target_user``'s home dir from
    ``pwd.getpwnam`` and scans ``/home/*`` as a defensive fallback.
-3. ``uninstall()`` — invokes ``_remove_autostart_desktop`` with the
+3. ``uninstall()``, invokes ``_remove_autostart_desktop`` with the
    manifest's ``target_user``.
 """
 
@@ -104,7 +104,7 @@ class TestRemoveAutostartDesktop:
     def test_empty_target_user_skips_pwd_lookup(self, ip_module, tmp_path, monkeypatch):
         """When ``target_user`` is empty, ``pwd.getpwnam`` is never called."""
         # If pwd.getpwnam were called with "", it would raise KeyError.
-        # We assert no exception bubbles up — the function should skip the
+        # We assert no exception bubbles up, the function should skip the
         # pwd path entirely when target_user is falsy.
         call_count = {"n": 0}
         original_getpwnam = ip_module.pwd.getpwnam
@@ -141,7 +141,7 @@ class TestRemoveAutostartDesktop:
         desktop_path = autostart_dir / "voice-typer.desktop"
         desktop_path.write_text("[Desktop Entry]\n")
 
-        # Fake pwd entry — pw_dir points at tmp_path.
+        # Fake pwd entry, pw_dir points at tmp_path.
         fake_pw = type("FakePw", (), {"pw_dir": str(tmp_path)})()
         monkeypatch.setattr(ip_module.pwd, "getpwnam", lambda u: fake_pw)
 
@@ -218,7 +218,7 @@ class TestRemoveAutostartDesktop:
 
         monkeypatch.setattr(Path, "is_dir", _guarded_is_dir)
 
-        # Should not raise — user_bad is skipped, user_good is cleaned up.
+        # Should not raise, user_bad is skipped, user_good is cleaned up.
         ip_module._remove_autostart_desktop("")
 
         assert not good_desktop.exists()

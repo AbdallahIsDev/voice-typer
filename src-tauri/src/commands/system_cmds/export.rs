@@ -13,13 +13,13 @@ use crate::commands::require_main_window;
 use crate::error::VoiceTyperError;
 
 /// GDPR right-to-export for templates. Opens a save-file dialog (JSON
-/// only — no CSV filter and no CSV shape for templates) and writes the
+/// only: no CSV filter and no CSV shape for templates) and writes the
 /// data as pretty-printed JSON. Mirrors the Electron `templates:export`
 /// IPC handler in
 /// `voice_typer/client/src/main/ipc/export-handlers.ts`.
 ///
 /// The dialog title follows the renderer-pushed `host_locale` (see
-/// `super::dialog_titles`) — byte-mirroring the Electron main
+/// `super::dialog_titles`), byte-mirroring the Electron main
 /// process's `dialog.export.templates` string per locale.
 ///
 /// Returns the same `{success, path?, canceled?, error?}` shape as
@@ -27,7 +27,7 @@ use crate::error::VoiceTyperError;
 /// (Tauri `canceled:true` → Electron `{success:false}` parity) works
 /// identically.
 ///
-/// `window` is auto-injected by Tauri at runtime — the renderer's
+/// `window` is auto-injected by Tauri at runtime, the renderer's
 /// `invoke('export_templates', { data })` call is unchanged.
 /// `require_main_window(&window)?` runs FIRST.
 #[tauri::command]
@@ -55,7 +55,7 @@ pub async fn export_templates(
 /// contractually responsible for redacting API keys BEFORE the data
 /// reaches this command; this command adds a Rust-side
 /// defense-in-depth redaction pass via
-/// [`redact_config_secrets`] (see `super::redaction`) — if the Python
+/// [`redact_config_secrets`] (see `super::redaction`), if the Python
 /// path regresses, the Rust host still scrubs obvious secret-shaped
 /// keys (api_key / secret / token / password / passwd / pwd /
 /// credential / auth, case-insensitive substring match) before writing
@@ -64,10 +64,10 @@ pub async fn export_templates(
 /// Same return shape as `export_templates`.
 ///
 /// The dialog title follows the renderer-pushed `host_locale` (see
-/// `super::dialog_titles`) — byte-mirroring the Electron main
+/// `super::dialog_titles`), byte-mirroring the Electron main
 /// process's `dialog.export.config` string per locale.
 ///
-/// `window` is auto-injected by Tauri at runtime — the renderer's
+/// `window` is auto-injected by Tauri at runtime, the renderer's
 /// `invoke('export_config', { data })` call is unchanged.
 /// `require_main_window(&window)?` runs FIRST.
 #[tauri::command]

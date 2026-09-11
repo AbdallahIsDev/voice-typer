@@ -1,9 +1,9 @@
 """IPC dispatch tests for status / defaults / today-stats commands.
 
 Classes:
-- TestDispatchGetStatus   — get_status dispatcher
-- TestDispatchGetTodayStats — get_today_stats dispatcher
-- TestGetDefaultsIpc       — UX-018 get_defaults IPC command
+- TestDispatchGetStatus , get_status dispatcher
+- TestDispatchGetTodayStats, get_today_stats dispatcher
+- TestGetDefaultsIpc     , UX-018 get_defaults IPC command
 
 Split out from the original monolithic tests/test_server.py (DT-37, Phase 4.5).
 """
@@ -102,7 +102,7 @@ class TestGetDefaultsIpc:
 
         assert data["hotkey"] == _default_hotkey_for_platform()
         # Compare against the canonical constant: since the "no default
-        # model" change, DEFAULT_MODEL_SIZE is the empty string — the app
+        # model" change, DEFAULT_MODEL_SIZE is the empty string, the app
         # loads nothing until the user picks a model in onboarding.
         assert data["model_size"] == DEFAULT_MODEL_SIZE
         assert data["language"] == "en"

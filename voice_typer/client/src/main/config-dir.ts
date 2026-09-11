@@ -7,7 +7,7 @@
  *
  * Mirrors `_config_dir()` in `voice_typer/server/config.py`:
  *   1. `VOICE_TYPER_CONFIG_DIR` env var (if set)
- *   2. Legacy `~/.voice-typer` (if it exists — migration path)
+ *   2. Legacy `~/.voice-typer` (if it exists, migration path)
  *   3. Platform-appropriate path (`%APPDATA%/voice-typer` on Windows,
  *      `~/Library/Application Support/voice-typer` on macOS,
  *      `$XDG_DATA_HOME/voice-typer` on Linux)
@@ -23,7 +23,7 @@ export function computeConfigDir(): string {
 	try {
 		if (fs.existsSync(legacy)) return legacy;
 	} catch (e) {
-		// ignore — fs.existsSync may throw on permission denied or
+		// ignore, fs.existsSync may throw on permission denied or
 		// if the homedir is unreachable. Fall through to the
 		// platform-appropriate default path below.
 		console.warn("[config-dir] legacy config dir probe failed:", e);

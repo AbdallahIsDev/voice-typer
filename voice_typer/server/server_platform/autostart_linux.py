@@ -1,13 +1,13 @@
-"""Linux autostart — freedesktop ``.desktop`` entry.
+"""Linux autostart, freedesktop ``.desktop`` entry.
 
-Phase 4.5 /  — extracted from the original
+Phase 4.5 / , extracted from the original
 ``voice_typer/server/server_platform.py`` god-module.  Implements the
 three Linux autostart primitives:
 
-  - :func:`_enable_autostart_linux` — write
+  - :func:`_enable_autostart_linux`: write
     ``<XDG_CONFIG_HOME or ~/.config>/autostart/voice-typer.desktop``.
-  - :func:`_disable_autostart_linux` — ``unlink()`` the .desktop file.
-  - :func:`_is_autostart_linux` — file-existence probe on the .desktop.
+  - :func:`_disable_autostart_linux`: ``unlink()`` the .desktop file.
+  - :func:`_is_autostart_linux`: file-existence probe on the .desktop.
 
 Patch-path compatibility
 ------------------------
@@ -47,7 +47,7 @@ def _enable_autostart_linux() -> bool:
     # _autostart_command() returns each space-containing argument already
     # double-quoted per the Desktop Entry Spec's Exec quoting rules
     # (https://specifications.freedesktop.org/desktop-entry/latest/exec-variables.html).
-    # Use the command VERBATIM — stripping quotes corrupts the first arg
+    # Use the command VERBATIM, stripping quotes corrupts the first arg
     # (e.g. "/usr/bin/python3" "/path/launcher.py" -> python3" "/path...).
     exec_field = _autostart_mod._autostart_command()
 
@@ -58,7 +58,7 @@ def _enable_autostart_linux() -> bool:
     # Start Menu / launcher). The Exec field is intentionally different
     # from the template: autostart launches `python launcher.py --hidden
     # --delay 15` (hidden at login) whereas the template's Exec points at
-    # the interactive `voice-typer-tauri` app binary — aligning Exec
+    # the interactive `voice-typer-tauri` app binary, aligning Exec
     # would break the hidden-autostart behavior, so only Icon is aligned.
     # The template carries a matching `#` comment block explaining the
     # reverse direction; keep both comments in sync if this changes.
@@ -74,7 +74,7 @@ NoDisplay=true
     # Atomic write (temp + os.replace) so a crash mid-write cannot
     # leave a half-truncated .desktop file that the desktop
     # environment silently skips on next login. durability=False
-    # matches the existing prewarm/autostart pattern — these files do
+    # matches the existing prewarm/autostart pattern, these files do
     # not need fsync. No chmod(0o600) is applied: desktop environments
     # must be able to read the .desktop file (see comment below).
     from voice_typer.server.secure_file_io import _secure_atomic_write
@@ -85,7 +85,7 @@ NoDisplay=true
     # permissions (0o600) are NOT applied here because:
     # 1. The autostart directory is per-user and already private.
     # 2. Desktop environments must be able to read the .desktop file
-    #    to launch the app at login — overly restrictive permissions
+    #    to launch the app at login, overly restrictive permissions
     #    can cause the autostart entry to be silently skipped.
     log.info("[CONFIG] Autostart enabled (Linux): %s", desktop_path)
     return True
@@ -103,7 +103,7 @@ def _desktop_exec_path_exists(desktop_path: Path) -> bool:
     """Validate that a .desktop entry's ``Exec=`` program exists on disk.
 
     AUTOSTART-CMD-VALIDATE: the .desktop file's existence alone is not
-    enough — the ``Exec=`` line points at the python interpreter and the
+    enough, the ``Exec=`` line points at the python interpreter and the
     launcher script, and if either was deleted (e.g. the user removed
     their venv or moved the install directory), the login item
     silently fails to launch. Extracts the leading program token per
@@ -119,7 +119,7 @@ def _desktop_exec_path_exists(desktop_path: Path) -> bool:
     try:
         content = desktop_path.read_text(encoding="utf-8", errors="replace")
     except OSError:
-        log.debug("[AUTOSTART] Linux .desktop unreadable — treating as valid: %s", desktop_path)
+        log.debug("[AUTOSTART] Linux .desktop unreadable, treating as valid: %s", desktop_path)
         return True
     exec_line = None
     for line in content.splitlines():
@@ -128,7 +128,7 @@ def _desktop_exec_path_exists(desktop_path: Path) -> bool:
             exec_line = stripped[len("Exec=") :].strip()
             break
     if not exec_line:
-        log.debug("[AUTOSTART] Linux .desktop has no Exec= line — treating as valid: %s", desktop_path)
+        log.debug("[AUTOSTART] Linux .desktop has no Exec= line, treating as valid: %s", desktop_path)
         return True
     # Extract the leading program token per the freedesktop Exec
     # quoting rules: the program is everything up to the first
@@ -151,13 +151,13 @@ def _desktop_exec_path_exists(desktop_path: Path) -> bool:
             break
         program += ch
     if not program or in_quotes:
-        # Malformed / unbalanced quote — conservatively valid (can't
+        # Malformed / unbalanced quote, conservatively valid (can't
         # parse confidently; don't claim stale on ambiguity).
-        log.debug("[AUTOSTART] Linux .desktop Exec unparseable — treating as valid: %s", desktop_path)
+        log.debug("[AUTOSTART] Linux .desktop Exec unparseable, treating as valid: %s", desktop_path)
         return True
     if not Path(program).exists():
         log.warning(
-            "[AUTOSTART] Linux .desktop references missing program path: %s — treating autostart as disabled",
+            "[AUTOSTART] Linux .desktop references missing program path: %s, treating autostart as disabled",
             program,
         )
         return False
@@ -169,7 +169,7 @@ def _is_autostart_linux() -> bool:
     exists on disk.
 
     AUTOSTART-CMD-VALIDATE: mirrors the validation in the Windows
-    ``_is_app_autostart_startup_registered`` — the .desktop file's
+    ``_is_app_autostart_startup_registered``: the .desktop file's
     existence alone is not enough; we also verify the program it
     launches exists. A stale .desktop (venv deleted or install moved)
     reports disabled so Settings shows the true state instead of a

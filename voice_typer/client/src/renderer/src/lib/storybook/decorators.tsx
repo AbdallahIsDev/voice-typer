@@ -10,8 +10,8 @@ import type { Decorator } from "@storybook/react";
  *   `document.documentElement` (see hooks/useTheme.ts) and
  *   `index.css` defines every theme token under the plain `.dark`
  *   class selector. Applying the same class on a scoped wrapper
- *   therefore re-uses the real production stylesheet — no duplicated
- *   dark palette — and Tailwind's `@custom-variant dark (&:is(.dark *))`
+ *   therefore re-uses the real production stylesheet, no duplicated
+ *   dark palette, and Tailwind's `@custom-variant dark (&:is(.dark *))`
  *   activates for the wrapped subtree.
  *
  * - RTL: the app sets `document.documentElement.dir = "rtl"` AND
@@ -21,7 +21,7 @@ import type { Decorator } from "@storybook/react";
  *   descendant-selector behaviour.
  *
  * Radix portals (e.g. InfoTooltip's popup) render at document.body,
- * outside the wrapper, so portal content stays light/LTR — a known,
+ * outside the wrapper, so portal content stays light/LTR, a known,
  * accepted limitation of scoped previews.
  */
 export function themeVariantDecorator(options: {

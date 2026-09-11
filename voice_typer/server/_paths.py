@@ -17,7 +17,7 @@ interpreters) routes through the platform-aware logic in
 The ``config.py`` module retains its own ``legacy = Path.home() /
 ".voice-typer"`` migration probe (it IS the canonical legacy-path
 check) and is the only other module allowed to reference that literal
-directly — see ``tests/test_paths.py`` for the regression guard.
+directly: see ``tests/test_paths.py`` for the regression guard.
 
 this module also owns shared network + LLM default constants
 (``LOOPBACK_HOSTS``, ``LOOPBACK_HOST``, ``DEFAULT_LLM_API_URL``,
@@ -46,7 +46,7 @@ from voice_typer.server.platform_utils import is_windows
 # (config → llm_polish → _http_safety → _paths → config). The eager
 # import has been replaced by the lazy :func:`_resolve_config_dir`
 # resolver below, so the constants block no longer has a positional
-# constraint — but it stays at the top of the module because that is
+# constraint, but it stays at the top of the module because that is
 # the conventional layout and makes the public surface easy to scan.
 LOOPBACK_HOSTS: frozenset[str] = frozenset({"localhost", "127.0.0.1", "::1"})
 LOOPBACK_HOST: str = "127.0.0.1"
@@ -79,7 +79,7 @@ IPC_PORT: int = 9876
 # canonical name is defined in exactly one place; the parity test
 # ``tests/test_ipc_token_env_var_sync.py`` asserts every reference
 # matches this constant.  Internal identifier (not a user-facing
-# brand) — renaming requires a coordinated host (Electron / Tauri)
+# brand), renaming requires a coordinated host (Electron / Tauri)
 # update + this constant change.
 IPC_TOKEN_ENV_VAR: str = "VOICE_TYPER_IPC_TOKEN"
 
@@ -88,7 +88,7 @@ IPC_TOKEN_ENV_VAR: str = "VOICE_TYPER_IPC_TOKEN"
 # Previously this module eagerly did ``from voice_typer.server.config
 # import _config_dir`` at module load. That eager import pulled in the
 # heavy ``config`` package (validators, secure_file_io, volume_ducker,
-# duck_crash_recovery, etc.) — measured cold-start cost: ~54ms. The
+# duck_crash_recovery, etc.), measured cold-start cost: ~54ms. The
 # import is now deferred to first use via :func:`_resolve_config_dir`
 # so this module imports in <5ms (only ``sys`` + ``pathlib`` at the
 # top). The first call to any helper that needs the config dir pays
@@ -187,7 +187,7 @@ def venv_pythonw() -> Path:
     to launch the autostart task in the same Python environment the
     app uses at runtime.
 
-    The path may not exist on a fresh install (no venv yet) — callers
+    The path may not exist on a fresh install (no venv yet), callers
     must check ``.exists()`` before relying on it. On non-Windows the
     path uses ``bin/python`` (POSIX venv layout); the existing Windows
     callers gate on ``is_windows()`` first so they never actually
@@ -220,7 +220,7 @@ def hf_cache_dir() -> Path:
     """Path to the canonical HuggingFace model cache directory.
 
     (): the canonical HF cache lives at
-        ``<config_dir>/huggingface`` (NOT ``~/.cache/huggingface`` — Voice
+        ``<config_dir>/huggingface`` (NOT ``~/.cache/huggingface``, Voice
         Typer isolates its model cache inside its own data dir so an
         uninstall can purge all of it via a single ``rm -rf`` of the
         config dir). The uninstaller's ``--purge`` flag
@@ -228,7 +228,7 @@ def hf_cache_dir() -> Path:
         NSIS installer's ``deleteAppDataOnUninstall`` option both rely on
         the config dir being the single root for all user data.
 
-        Used as a documentation anchor — the actual cache is populated by
+        Used as a documentation anchor, the actual cache is populated by
         the ASR engines (``qwen_engine.py``, ``parakeet_engine.py``) which
         set ``HF_HOME=<config_dir>/huggingface`` via
         :mod:`voice_typer.server.asr_setup`. This helper exists so
@@ -246,7 +246,7 @@ def user_data_dir() -> Path:
     """Path to the canonical user data directory (root of all user data).
 
     (): Voice Typer stores ALL user data inside
-        ``_config_dir()`` — logs, the venv, the HuggingFace model cache,
+        ``_config_dir()``: logs, the venv, the HuggingFace model cache,
         the SQLite history DB, crash-recovery snapshots, the
         ``backend.lock`` single-instance lockfile, the autostart /
         prewarm logs, etc. This helper is the single root an uninstaller

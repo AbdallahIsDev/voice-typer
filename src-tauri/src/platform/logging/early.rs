@@ -1,4 +1,4 @@
-//! EarlyLogger — the Python `logging.lastResort`-equivalent stderr-only
+//! EarlyLogger: the Python `logging.lastResort`-equivalent stderr-only
 //! fallback sink installed as the first line of `main()`.
 
 use super::combined::{is_truthy_env_var, CombinedLogger};
@@ -9,7 +9,7 @@ use std::sync::OnceLock;
 
 //EarlyLogger (lastResort-equivalent for the Rust host) ──────
 //
-// Python's `logging` module ships with `logging.lastResort` — a
+// Python's `logging` module ships with `logging.lastResort`, a
 // stderr-only handler of level WARNING that fires when no other
 // handlers are configured, so `log.warning(...)`/`log.error(...)`
 // calls during early startup (before `logging.basicConfig` runs) are
@@ -28,13 +28,13 @@ use std::sync::OnceLock;
 // The EarlyLogger is a minimal stderr-only `log::Log` impl that runs
 // until `init_file_logger` upgrades it to the combined file+stderr
 // sink via a swap pattern (the global `log::set_logger` can only be
-// called ONCE per process, so we can't replace the EarlyLogger — we
+// called ONCE per process, so we can't replace the EarlyLogger, we
 // swap a `CombinedLogger` INTO it via a `OnceLock`).
 
 /// Process-global handle to the leaked `&'static EarlyLogger` instance,
 /// set by `install_early_logger`. Read by `init_file_logger` so it can
 /// swap the file sink in without calling `log::set_logger` a second
-/// time (which would fail — `set_logger` is process-global one-shot).
+/// time (which would fail: `set_logger` is process-global one-shot).
 pub(crate) static EARLY_LOGGER_HANDLE: OnceLock<&'static EarlyLogger> = OnceLock::new();
 
 //minimal stderr-only `log::Log` impl installed as the FIRST
@@ -46,14 +46,14 @@ pub(crate) static EARLY_LOGGER_HANDLE: OnceLock<&'static EarlyLogger> = OnceLock
 /// `inner` and all subsequent records delegate to it (file + stderr).
 ///
 /// The hot path (`log()`) is a single `OnceLock::get` (one atomic
-/// load) — same cost as a `bool` load. The pre-init fallback path
-/// (rare — only runs between `install_early_logger` and
+/// load): same cost as a `bool` load. The pre-init fallback path
+/// (rare: only runs between `install_early_logger` and
 /// `init_file_logger`, a window of microseconds in `main()`) does
 /// the format + `eprintln!` inline.
 pub(crate) struct EarlyLogger {
     /// The `CombinedLogger` installed by `init_file_logger`. `None`
     /// (via `OnceLock::get()` returning `None`) until that call.
-    /// `OnceLock::get` is a single atomic load — no mutex on the hot
+    /// `OnceLock::get` is a single atomic load, no mutex on the hot
     /// path. `OnceLock::set` is called exactly once (init_file_logger
     /// returns Err if called twice).
     pub(crate) inner: OnceLock<CombinedLogger>,
@@ -98,13 +98,13 @@ impl log::Log for EarlyLogger {
             return;
         }
         // Pre-init fallback (only runs between `install_early_logger`
-        // and `init_file_logger` — a window of microseconds in
+        // and `init_file_logger`: a window of microseconds in
         // `main()`). Format the line and emit to stderr only.
         if !self.enabled(record.metadata()) {
             return;
         }
         let raw_msg = record.args().to_string();
-        // Apply PII redaction in the pre-init fallback too — the
+        // Apply PII redaction in the pre-init fallback too, the
         // CombinedLogger path calls redact_pii at line 325, but this
         // pre-init path (between install_early_logger and
         // init_file_logger) previously emitted the raw message to
@@ -114,18 +114,18 @@ impl log::Log for EarlyLogger {
         // log::*! call would land on stderr unredacted. Mirror the
         // CombinedLogger's redaction here.
         let msg = redact_pii(&raw_msg);
-        // stderr-only pre-init sink — clean time-only line
+        // stderr-only pre-init sink: clean time-only line
         // (`HH:MM:SS LEVEL msg`), matching the CombinedLogger terminal
         // line + Python `_ColorFormatter`. The module path / file:line
         // are deliberately NOT rendered (they add noise to every line;
         // the message carries its own `[TOPIC]` prefix).
         let ts = now_time_only();
         let line = format!("{} {:5} {}", ts, record.level(), msg);
-        //AtomicBool::load(Relaxed) — runtime-toggleable.
+        //AtomicBool::load(Relaxed), runtime-toggleable.
         if self.stderr_verbose.load(Ordering::Relaxed) {
             eprintln!("{}", line);
         }
-        // No file sink in the pre-init fallback — `init_file_logger`
+        // No file sink in the pre-init fallback, `init_file_logger`
         // hasn't run yet, so there's no `RotatingFileWriter` to write
         // to. The record is preserved on stderr, which is the
         // Python `lastResort` equivalent.
@@ -136,13 +136,13 @@ impl log::Log for EarlyLogger {
             combined.flush();
         }
         // Pre-init fallback: no buffered state to flush (eprintln! is
-        // unbuffered on POSIX — writes go straight to the fd via
+        // unbuffered on POSIX: writes go straight to the fd via
         // `write(2)`).
     }
 }
 
 //install the `EarlyLogger` as the process-global `log` sink.
-/// MUST be the FIRST line of `main()` — before `install_panic_hook`,
+/// MUST be the FIRST line of `main()`, before `install_panic_hook`,
 /// before `config_dir_from_env`, before any other code that might
 /// call `log::*!`. Mirrors Python's `logging.lastResort` pattern.
 ///
@@ -157,7 +157,7 @@ impl log::Log for EarlyLogger {
 /// in `EARLY_LOGGER_HANDLE` and `log::set_logger` was already called).
 ///
 /// if `log::set_logger` returns `Err` (another logger is
-/// already installed as the process-global sink — e.g. a test that
+/// already installed as the process-global sink, e.g. a test that
 /// called `log::set_logger` before `install_early_logger`), this
 /// function does NOT set `EARLY_LOGGER_HANDLE`. Pre-fix it set the
 /// handle unconditionally, which orphaned the EarlyLogger:
@@ -168,13 +168,13 @@ impl log::Log for EarlyLogger {
 /// failure to the caller.
 pub fn install_early_logger() {
     if EARLY_LOGGER_HANDLE.get().is_some() {
-        // Already installed — no-op. Allows `main()` to call this
+        // Already installed: no-op. Allows `main()` to call this
         // defensively (e.g. in tests that exercise `main`'s startup
         // path) without panicking on the second `log::set_logger`.
         return;
     }
     //same stderr_verbose computation as
-    // `init_file_logger` — debug builds OR `RUST_LOG_STDERR=1`. Now
+    // `init_file_logger`: debug builds OR `RUST_LOG_STDERR=1`. Now
     // delegates to the shared `is_truthy_env_var` helper so the
     // truthy contract is defined in exactly one place (the prior
     // 4-line `matches!` block was duplicated at lines 143-146 of
@@ -189,7 +189,7 @@ pub fn install_early_logger() {
         // `log::set_max_level` once it parses `RUST_LOG`.
         level_filter: log::LevelFilter::Info,
     }));
-    // `log::set_logger` is a one-shot — returns Err if a
+    // `log::set_logger` is a one-shot, returns Err if a
     // logger is already installed. Pre-fix this code did `let _ =` and
     // unconditionally set `EARLY_LOGGER_HANDLE` below, which ORPHANED
     // the EarlyLogger: `init_file_logger` would later find the handle,
@@ -201,7 +201,7 @@ pub fn install_early_logger() {
     // Fix: if `set_logger` failed, do NOT set `EARLY_LOGGER_HANDLE`.
     // `init_file_logger` will then take its fallback path (call
     // `log::set_logger` directly with the `CombinedLogger`), which
-    // also fails — but that failure is propagated to the caller as an
+    // also fails: but that failure is propagated to the caller as an
     // `Err`, which is the correct outcome (the caller can fall back
     // to `env_logger` for stderr-only output). Emit a stderr warning
     // so operators see the orphan in `journalctl` output.
@@ -209,7 +209,7 @@ pub fn install_early_logger() {
         eprintln!(
             "[EarlyLogger] install_early_logger: log::set_logger failed \
              (another logger is already installed as the process-global \
-             log sink). EARLY_LOGGER_HANDLE NOT set — init_file_logger \
+             log sink). EARLY_LOGGER_HANDLE NOT set: init_file_logger \
              will fall back to direct log::set_logger. Subsequent \
              log::*! records route to the pre-installed logger until \
              init_file_logger runs."

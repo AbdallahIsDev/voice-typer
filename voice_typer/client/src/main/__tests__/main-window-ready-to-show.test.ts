@@ -15,7 +15,7 @@
  *
  * Uses `vi.hoisted` for all mock capture state so the hoisted
  * `vi.mock` factory can reference the spies (vitest 4 hoists
- * `vi.mock` above all top-level `const` bindings — the factory
+ * `vi.mock` above all top-level `const` bindings, the factory
  * closure can only see hoisted bindings).
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -23,7 +23,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // All mock capture state MUST be declared via `vi.hoisted` so the
 // hoisted `vi.mock("electron", ...)` factory can reference them.
 // Vitest 4 hoists `vi.mock` factories above all top-level `const`
-// declarations — a factory that closes over a plain `const` throws
+// declarations, a factory that closes over a plain `const` throws
 // "Cannot access X before initialization" at mock-evaluation time.
 const mocks = vi.hoisted(() => {
 	// Captured BrowserWindow ctor options + `once` handler so the
@@ -165,7 +165,7 @@ describe("main-window ready-to-show gating", () => {
 		(state as { mainWindow: unknown }).mainWindow = null;
 		createMainWindow(true);
 
-		// show must ALWAYS be false in the ctor — the ready-to-show
+		// show must ALWAYS be false in the ctor, the ready-to-show
 		// listener below is what actually calls .show().
 		const opts = mocks.getCapturedOptions();
 		expect(opts?.show).toBe(false);
@@ -188,7 +188,7 @@ describe("main-window ready-to-show gating", () => {
 		(state as { mainWindow: unknown }).mainWindow = null;
 		createMainWindow(false);
 
-		// Fire the ready-to-show handler — should call .show()
+		// Fire the ready-to-show handler, should call .show()
 		const handler = mocks.getCapturedReadyToShowHandler();
 		handler?.();
 		expect(mocks.showMock).toHaveBeenCalledTimes(1);

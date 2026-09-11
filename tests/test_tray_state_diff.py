@@ -2,9 +2,9 @@
 
 Context: ``TrayIcon._publish_tray_state`` pushes the (icon_name,
 tooltip) tuple to the Tauri host via ``publish_tray_state`` on every
-call. Pre-DJ-38, callers that re-issued the same state — e.g. a stale
+call. Pre-DJ-38, callers that re-issued the same state, e.g. a stale
 IPC replay, the ``set_state`` post-``refresh_config`` path, or a
-double-fired event-bus subscription — would emit a redundant
+double-fired event-bus subscription, would emit a redundant
 ``tray_state`` event with identical icon_name + tooltip. The Tauri
 Rust host then re-ran ``tray.set_icon`` + ``tray.set_tooltip`` (which
 on Windows does a ``DestroyIcon`` / ``LoadIcon`` round-trip per call).
@@ -23,7 +23,7 @@ These tests pin the contract:
 4. Changing the state (→ icon_name + tooltip both change) emits again.
 5. ``stop()`` clears the cache so a restarted tray re-publishes.
 6. The cache key is the FULL (icon_name, tooltip) tuple, not just
-   icon_name — so a tooltip-only change still emits.
+   icon_name, so a tooltip-only change still emits.
 """
 
 from __future__ import annotations
@@ -130,7 +130,7 @@ class TestPublishTrayStateDiff:
         tray._publish_tray_state()
         assert len(publish_calls) == 1, f"Redundant call should be suppressed, got {len(publish_calls)}"
 
-        # A third redundant call — still suppressed.
+        # A third redundant call, still suppressed.
         tray._publish_tray_state()
         assert len(publish_calls) == 1
 
@@ -150,7 +150,7 @@ class TestPublishTrayStateDiff:
         assert len(publish_calls) == 2, f"Tooltip change should emit, got {len(publish_calls)}"
         assert "new message" in publish_calls[1]["tooltip"]
 
-        # Same again — suppressed.
+        # Same again, suppressed.
         tray._publish_tray_state()
         assert len(publish_calls) == 2
 
@@ -174,7 +174,7 @@ class TestPublishTrayStateDiff:
 
     def test_state_change_with_same_tooltip_emits(self, monkeypatch):
         """Even if the tooltip happens to be identical, a state change
-        (icon_name change) still emits — the cache key is the FULL
+        (icon_name change) still emits, the cache key is the FULL
         (icon_name, tooltip) tuple, not just tooltip."""
         publish_calls: list[dict] = []
         tray = _make_tray(monkeypatch, publish_calls)
@@ -190,7 +190,7 @@ class TestPublishTrayStateDiff:
         tray._state = AppState.LOADING  # icon_name is "idle" (per the map)
         tray._publish_tray_state()
         # LOADING maps to "idle" icon_name AND (since state.value != IDLE
-        # but no message) the tooltip would append " — loading". So
+        # but no message) the tooltip would append ", loading". So
         # tooltip DOES change here. Verify the cache key is the tuple.
         # If tooltip changed, publish fires (which is correct).
         assert len(publish_calls) == 2, "State change with different tooltip should emit"
@@ -206,13 +206,13 @@ class TestPublishTrayStateDiff:
         tray._publish_tray_state()
         assert len(publish_calls) == 1
 
-        # Same state — suppressed.
+        # Same state, suppressed.
         tray._publish_tray_state()
         assert len(publish_calls) == 1
 
         tray.stop()
 
-        # After stop(), the cache is cleared — the next publish emits
+        # After stop(), the cache is cleared, the next publish emits
         # even though the state + message are unchanged.
         tray._publish_tray_state()
         assert len(publish_calls) == 2, "After stop() the cache is cleared so the next publish must emit"
@@ -250,7 +250,7 @@ class TestPublishTrayStateDiff:
         assert len(publish_calls) == 2  # the failing call still recorded
         assert publish_calls[1].get("raised") is True
 
-        # Restore the working publish — the next call should retry
+        # Restore the working publish, the next call should retry
         # (not be suppressed by a stale cache from the failed call).
         # Keep the SAME message as the failed call so the only way the
         # call reaches publish_tray_state is if the cache was NOT set.
@@ -262,5 +262,5 @@ class TestPublishTrayStateDiff:
 
         tray._publish_tray_state()
         assert len(publish_calls) == 3, (
-            "After a failed publish the cache should NOT be set — the next call must retry, not suppress"
+            "After a failed publish the cache should NOT be set, the next call must retry, not suppress"
         )

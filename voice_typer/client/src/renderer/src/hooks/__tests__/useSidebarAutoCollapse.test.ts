@@ -52,7 +52,7 @@ describe("useSidebarAutoCollapse", () => {
 		viewport.narrow = false;
 		rerender();
 		// The user may have intentionally collapsed the sidebar on a
-		// wide window — the manual toggle wins.
+		// wide window, the manual toggle wins.
 		expect(result.current.sidebarCollapsed).toBe(true);
 	});
 

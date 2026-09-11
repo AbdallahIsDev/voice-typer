@@ -5,7 +5,7 @@ Pre-fix bug:
     (which correctly zeros cached concat arrays) and THEN called
     ``recorder._audio_pipeline._buffer.clear()`` and ``recorder._ring_buffer.clear()``.
     The ``.clear()`` calls drop all chunk references WITHOUT zeroing
-    the underlying numpy arrays — leaving the user's voice data in
+    the underlying numpy arrays, leaving the user's voice data in
     process memory until GC reclaims the arrays. This was inconsistent
     with the ``discard()`` path in ``_recorder_split.py:467-475`` which
     correctly calls ``_secure_clear_array_background(_old_buffer)``
@@ -19,7 +19,7 @@ Post-fix:
     the swap-and-secure-clear-background pattern (mirrors ``discard()``).
   - ``disconnect_handler.py`` and ``capture.py`` iterate the ring
     buffer and call ``.fill(0)`` on each chunk's numpy array BEFORE
-    ``.clear()`` (synchronous zeroing is acceptable — ring buffer
+    ``.clear()`` (synchronous zeroing is acceptable, ring buffer
     chunks are small ~2KB).
 
 These tests:
@@ -89,7 +89,7 @@ def _make_ring_buffer_chunk(value: float = 0.5) -> tuple:
     """Build a ring-buffer 5-tuple payload with a NON-zero numpy array.
 
     The ring buffer holds 5-tuples ``(chunk_copy, frames, time_info,
-    status, perf_ts)`` — the numpy array is the first element. We use a
+    status, perf_ts)``, the numpy array is the first element. We use a
     non-zero fill so we can distinguish "array was zeroed" from "array
     was always zero" (regression guard against a no-op test).
     """
@@ -107,7 +107,7 @@ class TestRestartStreamRingBufferSecureClear:
 
     def test_ring_buffer_chunks_are_zeroed_before_clear(self, monkeypatch):
         """Each ring-buffer chunk's numpy array must be ``.fill(0)``-ed
-        BEFORE the deque is cleared — otherwise the user's voice data
+        BEFORE the deque is cleared, otherwise the user's voice data
         lingers in process memory until GC reclaims the arrays."""
         r = _make_recorder()
         _setup_recorder_for_restart(monkeypatch, r)
@@ -126,7 +126,7 @@ class TestRestartStreamRingBufferSecureClear:
 
         # Deque must be empty after restart.
         assert len(r._ring_buffer) == 0, "ring buffer must be cleared on hot-swap restart"
-        # Every previously-held array must now be all-zeros — proving
+        # Every previously-held array must now be all-zeros, proving
         # the restart path zeroed each chunk BEFORE dropping the deque
         # reference. The external references (``chunk_arrays``) simulate
         # another holder of the same array (e.g. a downstream consumer
@@ -134,7 +134,7 @@ class TestRestartStreamRingBufferSecureClear:
         # independent of the deque's lifetime.
         for i, arr in enumerate(chunk_arrays):
             assert not arr.any(), (
-                f"ring-buffer chunk {i} was NOT zeroed before .clear() — "
+                f"ring-buffer chunk {i} was NOT zeroed before .clear(), "
                 f"max abs value after restart: {np.abs(arr).max()}. "
                 f"The disconnect-restart path must call .fill(0) on each "
                 f"chunk's numpy array BEFORE .clear() so the user's voice "
@@ -143,7 +143,7 @@ class TestRestartStreamRingBufferSecureClear:
 
     def test_ring_buffer_clear_handles_direct_array_items(self, monkeypatch):
         """The zeroing loop is defensive against direct-numpy-array items
-        (not wrapped in a 5-tuple) — legacy/fallback robustness."""
+        (not wrapped in a 5-tuple), legacy/fallback robustness."""
         r = _make_recorder()
         _setup_recorder_for_restart(monkeypatch, r)
         # Mix of 5-tuples and direct numpy arrays.
@@ -218,7 +218,7 @@ class TestRestartStreamBufferSecureClearBackground:
 
         # Spy on the package-level helper (production calls it via
         # ``_recording_pkg._secure_clear_array_background`` after a lazy
-        # import — patching the package binding is the correct injection
+        # import, patching the package binding is the correct injection
         # point per the module docstring).
         import voice_typer.server.recording as recording_pkg
 
@@ -235,7 +235,7 @@ class TestRestartStreamBufferSecureClearBackground:
         assert args[0] is original_buffer, (
             "_secure_clear_array_background must be called with the OLD "
             "_buffer reference (not the fresh deque). Got a different "
-            "object — the swap-and-secure-clear pattern is broken."
+            "object, the swap-and-secure-clear pattern is broken."
         )
 
 
@@ -252,7 +252,7 @@ def _build_dispatcher_recorder(
     buffer (so the test can verify they were zeroed in-place).
     """
     recorder = MagicMock(name="recorder")
-    # ``_worker_thread`` is checked for is_alive() — None / MagicMock
+    # ``_worker_thread`` is checked for is_alive(), None / MagicMock
     # depending on the caller's intent.
     if worker_alive:
         fake_thread = MagicMock()
@@ -275,7 +275,7 @@ def _build_dispatcher_recorder(
         chunks = ring_chunks
         arrays = [c[0] if isinstance(c, tuple) else c for c in chunks]
     recorder._ring_buffer = collections.deque(chunks)
-    # ``_thread_registry`` is optional — None short-circuits the register
+    # ``_thread_registry`` is optional, None short-circuits the register
     # / unregister calls.
     recorder._thread_registry = None
     return recorder, arrays
@@ -301,7 +301,7 @@ class TestStartAudioWorkerBodyRingBufferSecureClear:
         # Each held array must now be zero.
         for i, arr in enumerate(arrays):
             assert not arr.any(), (
-                f"ring-buffer chunk {i} was NOT zeroed before .clear() — "
+                f"ring-buffer chunk {i} was NOT zeroed before .clear(), "
                 f"max abs value: {np.abs(arr).max()}. The start-audio-"
                 f"worker path must call .fill(0) on each chunk's numpy "
                 f"array BEFORE .clear()."
@@ -317,7 +317,7 @@ class TestStartAudioWorkerBodyRingBufferSecureClear:
 
         dispatcher.start_audio_worker_body(recorder)
 
-        # Early return — ring buffer untouched.
+        # Early return, ring buffer untouched.
         assert len(recorder._ring_buffer) == 3, (
             "start_audio_worker_body must be a no-op when the worker is already alive (early-return guard)."
         )
@@ -344,14 +344,14 @@ class TestStopAudioWorkerBodyRingBufferSecureClear:
         for i, arr in enumerate(arrays):
             assert not arr.any(), (
                 f"ring-buffer chunk {i} was NOT zeroed before .clear() "
-                f"on the discard path — max abs value: {np.abs(arr).max()}. "
+                f"on the discard path, max abs value: {np.abs(arr).max()}. "
                 f"stop_audio_worker_body(drain=False) must call .fill(0) "
                 f"on each chunk's numpy array BEFORE .clear()."
             )
 
     def test_drain_true_does_not_clear_ring_buffer(self):
         """When ``drain=True`` (the stop path), the ring buffer is NOT
-        cleared — the worker drains it fully before exiting so no
+        cleared, the worker drains it fully before exiting so no
         in-flight audio is lost. The zeroing loop must NOT run in this
         case (it would zero chunks the worker is still draining)."""
         dispatcher = AudioCallbackDispatcher(MagicMock())
@@ -363,13 +363,13 @@ class TestStopAudioWorkerBodyRingBufferSecureClear:
         # drain=True → ring buffer NOT cleared (worker drains it).
         assert len(recorder._ring_buffer) == original_len, (
             "stop_audio_worker_body(drain=True) must NOT clear the ring "
-            "buffer — the worker drains it fully so no in-flight audio "
+            "buffer, the worker drains it fully so no in-flight audio "
             "is lost."
         )
         # Chunks must NOT have been zeroed (worker may still process them).
         assert all(arr.any() for arr in arrays), (
             "stop_audio_worker_body(drain=True) must NOT zero ring-buffer "
-            "chunks — the worker may still drain and process them."
+            "chunks, the worker may still drain and process them."
         )
 
     def test_stop_is_noop_when_worker_is_none(self):
@@ -380,7 +380,7 @@ class TestStopAudioWorkerBodyRingBufferSecureClear:
 
         dispatcher.stop_audio_worker_body(recorder, timeout=0.1, drain=False)
 
-        # Early return — ring buffer untouched.
+        # Early return, ring buffer untouched.
         assert len(recorder._ring_buffer) == 3
         assert all(arr.any() for arr in arrays)
 

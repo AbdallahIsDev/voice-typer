@@ -44,20 +44,20 @@ pub(crate) fn redact_pii(input: &str) -> String {
     // the Python side's `_FAST_TRIGGER` shortcut (security.py:63). Each
     // trigger is a *necessary* condition for at least one downstream
     // pattern:
-    // `@`      — email / URL credentials
-    // `+`      — international phone (`+<cc>…`)
-    // `Bearer` — bearer token
-    // `Token`  — token keyword
-    // `sk-`    — OpenAI-style key
-    // `gsk_`   — Groq-style key
-    // `://`    — URL credentials (`https://user:pass@host`)
-    // 3+ consecutive ASCII digits — US phone, SSN, CC, IBAN (BBAN
+    // `@`     : email / URL credentials
+    // `+`     : international phone (`+<cc>…`)
+    // `Bearer`: bearer token
+    // `Token` : token keyword
+    // `sk-`   : OpenAI-style key
+    // `gsk_`  : Groq-style key
+    // `://`   , URL credentials (`https://user:pass@host`)
+    // 3+ consecutive ASCII digits: US phone, SSN, CC, IBAN (BBAN
     // portion always contains 3+ consecutive digits)
-    // `key=`   — bare `key=value` flag form (Python `_FAST_TRIGGER`);
+    // `key=`  : bare `key=value` flag form (Python `_FAST_TRIGGER`);
     // also a substring of `--key=`, `--api_key=`, `--api-key=`, and
     // any `--<keyword>=` flag whose keyword ends in `key`. Case-
     //sensitive (mirrors Python).
-    // 20+ char alphanumeric run — the generic 20+ char bare-token
+    // 20+ char alphanumeric run: the generic 20+ char bare-token
     // pattern (`\b[A-Za-z0-9_\-]{20,}\b`, Python `_KEY_PATTERNS[4]`).
     //
     if !has_any_fast_trigger(input) {
@@ -69,7 +69,7 @@ pub(crate) fn redact_pii(input: &str) -> String {
     while i < input.len() {
         let rest = &input[i..];
 
-        // 1. `Bearer <token>` — token runs until a char that's NOT in
+        // 1. `Bearer <token>`: token runs until a char that's NOT in
         // the Python `_KEY_PATTERNS[0]` charset `[A-Za-z0-9_\-\.=]`.
         // Pre-fix the token ran until whitespace, which consumed
         // trailing punctuation (e.g. the comma in `Bearer abc123,`)
@@ -82,7 +82,7 @@ pub(crate) fn redact_pii(input: &str) -> String {
             i += "Bearer ".len() + token_len;
             continue;
         }
-        // 2. `Token <token>` — same charset as Bearer.
+        // 2. `Token <token>`: same charset as Bearer.
         if let Some(stripped) = rest.strip_prefix("Token ") {
             let token_len = stripped
                 .find(|c: char| !is_api_token_char(c))
@@ -91,7 +91,7 @@ pub(crate) fn redact_pii(input: &str) -> String {
             i += "Token ".len() + token_len;
             continue;
         }
-        // 3. `sk-<token>` — token runs until non-alphanumeric / non
+        // 3. `sk-<token>`: token runs until non-alphanumeric / non
         // dash / non underscore (the typical API-key charset).
         if let Some(stripped) = rest.strip_prefix("sk-") {
             let token_len = stripped
@@ -106,7 +106,7 @@ pub(crate) fn redact_pii(input: &str) -> String {
                 continue;
             }
         }
-        // 4. `gsk_<token>` — Groq-style API key. Same charset and
+        // 4. `gsk_<token>`: Groq-style API key. Same charset and
         // length threshold as `sk-` (8+ chars after the prefix).
         if let Some(stripped) = rest.strip_prefix("gsk_") {
             let token_len = stripped
@@ -138,7 +138,7 @@ pub(crate) fn redact_pii(input: &str) -> String {
             continue;
         }
 
-        // 6. `user:pass@host` — strip everything up to and including
+        // 6. `user:pass@host`, strip everything up to and including
         // the `@` IF the prefix contains a `:` (the URL-credential
         // marker). The host part is preserved.
         if rest.contains('@') {
@@ -238,13 +238,13 @@ pub(crate) fn redact_pii(input: &str) -> String {
             continue;
         }
 
-        // No pattern matched at this position — copy the char and
+        // No pattern matched at this position, copy the char and
         //advance by its UTF-8 length. : use `if let Some` instead
-        // of `unwrap()` — defense-in-depth. The loop invariant
+        // of `unwrap()`: defense-in-depth. The loop invariant
         // (`i < input.len()`) guarantees `rest` is non-empty, so the
         // `else { break; }` branch is unreachable today. But a future
         // refactor that changes the loop bound (e.g. off-by-one) would
-        // turn `unwrap()` into a panic inside the logger — and logger
+        // turn `unwrap()` into a panic inside the logger, and logger
         // panics are self-reinforcing (the panic hook calls `log::error!`
         // which calls `redact_pii` which panics again → abort). The
         // `if let Some` form degrades gracefully instead.
@@ -274,7 +274,7 @@ fn is_api_token_char(c: char) -> bool {
 //plus `bearer` and `credential` ( task-specified additions not in
 /// Python's list but unambiguously secret-bearing).
 ///
-/// **Order matters**: most-specific first, `key` last — so `api_key=`
+/// **Order matters**: most-specific first, `key` last, so `api_key=`
 /// wins over `key=` when both could match at the same position. Python's
 /// regex alternation is leftmost-first (tries each alternative in order),
 /// so we iterate in the same order. The `\b` word boundary (checked in
@@ -305,13 +305,13 @@ const SECRET_KEYWORDS: &[&str] = &[
     // but unambiguously secret-bearing).
     "bearer",
     "credential",
-    // `key` MUST be last — Python orders from most-specific to least-
+    // `key` MUST be last: Python orders from most-specific to least-
     // specific so `api_key=` / `access_token=` / etc. win over `key=`.
     "key",
 ];
 
 /// Single-pass fast-path trigger scan. Returns `true` iff at least one
-/// of the trigger conditions below holds — the same set the previous
+/// of the trigger conditions below holds, the same set the previous
 /// per-pattern scans checked, now evaluated in ONE byte loop instead
 /// of 10 separate passes (8 substring scans + 2 dedicated run scans).
 /// A miss on every trigger lets [`redact_pii`] return the input
@@ -319,19 +319,19 @@ const SECRET_KEYWORDS: &[&str] = &[
 ///
 /// Trigger conditions (each is a *necessary* condition for at least one
 /// downstream pattern):
-/// - `@`      — email / URL credentials
-/// - `+`      — international phone (`+<cc>…`)
-/// - `Bearer` / `Token` — keyword prefixes
-/// - `sk-`    — OpenAI-style key
-/// - `gsk_`   — Groq-style key
-/// - `://`    — URL credentials (`https://user:pass@host`)
-/// - `key=`   — bare `key=value` flag form (Python `_FAST_TRIGGER`);
+/// - `@`     : email / URL credentials
+/// - `+`     : international phone (`+<cc>…`)
+/// - `Bearer` / `Token`: keyword prefixes
+/// - `sk-`   : OpenAI-style key
+/// - `gsk_`  : Groq-style key
+/// - `://`   , URL credentials (`https://user:pass@host`)
+/// - `key=`  : bare `key=value` flag form (Python `_FAST_TRIGGER`);
 ///   also a substring of `--key=`, `--api_key=`, `--api-key=`, and any
 ///   `--<keyword>=` flag whose keyword ends in `key`. Case-sensitive
 ///   (mirrors Python).
-/// - 3+ consecutive ASCII digits — US phone, SSN, CC, IBAN (the BBAN
+/// - 3+ consecutive ASCII digits, US phone, SSN, CC, IBAN (the BBAN
 ///   portion always contains 3+ consecutive digits)
-/// - 20+ char `[A-Za-z0-9_\-]` run — the generic bare-token catch-all
+/// - 20+ char `[A-Za-z0-9_\-]` run. The generic bare-token catch-all
 ///   (`\b[A-Za-z0-9_\-]{20,}\b`, Python `_KEY_PATTERNS[4]`)
 ///
 /// Equivalence with the previous separate scans: all substring needles
@@ -339,7 +339,7 @@ const SECRET_KEYWORDS: &[&str] = &[
 /// matches exactly where `str::contains` would (ASCII bytes occur only
 /// as themselves in UTF-8); the digit-run and long-run counters track
 /// the identical byte predicates the removed dedicated scans used
-/// (non-matching bytes — including non-ASCII — reset both runs).
+/// (non-matching bytes: including non-ASCII, reset both runs).
 ///
 /// `pub(crate)` so `platform::logging` can re-export it (cfg(test))
 /// to the sibling `logging_tests` module.
@@ -431,16 +431,16 @@ fn is_python_word_char(b: u8) -> bool {
 /// (Pattern B: `keyword=value`) from `voice_typer/server/_secrets.py`.
 ///
 /// Returns `Some((total_len, prefix_len))` on success:
-/// - `total_len` — total byte length of the match (to advance the main
+/// - `total_len`: total byte length of the match (to advance the main
 ///   loop index `i`).
-/// - `prefix_len` — byte length of the prefix to preserve in the output
+/// - `prefix_len`: byte length of the prefix to preserve in the output
 ///   (e.g. `--token=`, `--token ` with whitespace, or `token=`). The
 ///   caller outputs `&rest[..prefix_len]` + `"***"`.
 ///
 /// Matching is case-insensitive (mirrors Python's `(?i)` flag on both
 /// patterns). The value (`[^\s=]+` in Python) runs until the next
 /// whitespace or `=` char and must be at least 1 char (empty values are
-/// NOT redacted — `--token=` with nothing after the `=` is left alone).
+/// NOT redacted: `--token=` with nothing after the `=` is left alone).
 ///
 /// Pattern A (flag form) requires `--` prefix; no word boundary is
 /// required before `--` (mirrors Python's `_FLAG_VALUE_PATTERN` which
@@ -534,7 +534,7 @@ fn try_match_flag_or_bare_key(rest: &str, input: &str, pos: usize) -> Option<(us
 ///
 /// The match starts at a word char (`[A-Za-z0-9_]`, not `-`): if the
 /// first char of the run were `-`, `\b` at the start would require the
-/// prev char to be a word char — but then the run could have started
+/// prev char to be a word char, but then the run could have started
 /// earlier (at that prev word char) and we'd have already matched at
 /// the earlier position in the single-pass loop. So restricting the
 /// start to word chars is correct and avoids the `\b` edge case.
@@ -549,7 +549,7 @@ fn try_match_long_alphanumeric_run(rest: &str, input: &str, pos: usize) -> Optio
         return None;
     }
     // The match must start at a word char ([A-Za-z0-9_]) for \b to hold
-    // at `pos` (when the prev char is non-word or start of string — the
+    // at `pos` (when the prev char is non-word or start of string, the
     // common case handled by the single-pass loop).
     if !is_python_word_char(bytes[0]) {
         return None;
@@ -571,7 +571,7 @@ fn try_match_long_alphanumeric_run(rest: &str, input: &str, pos: usize) -> Optio
     // Find the largest M with 20 <= M <= greedy_len such that \b holds
     // at pos+M. \b at pos+M holds iff word-ness differs between
     // input[pos+M-1] and input[pos+M] (or end of string). We scan
-    // backwards from greedy_len (the greedy match) — for typical inputs
+    // backwards from greedy_len (the greedy match), for typical inputs
     // the run ends with a word char, so the first check succeeds and we
     // return immediately (O(1)).
     let mut m = greedy_len;
@@ -592,7 +592,7 @@ fn try_match_long_alphanumeric_run(rest: &str, input: &str, pos: usize) -> Optio
 /// Word-boundary check mirroring Python's `\b`. Returns true if the
 /// byte at `pos - 1` is NOT an ASCII word char (`[A-Za-z0-9_]`), or if
 /// `pos == 0`. We use byte indexing (not `chars()`) because all the
-/// patterns that call this are ASCII-only — a multi-byte UTF-8 lead
+/// patterns that call this are ASCII-only, a multi-byte UTF-8 lead
 /// byte (>= 0x80) is never an ASCII word char, so the check is sound
 /// even when `pos` lands just after a non-ASCII character.
 fn word_boundary_before(input: &str, pos: usize) -> bool {

@@ -3,10 +3,10 @@
 Extracted from the original ``windows_native.py`` god-class
 split). Contains:
 
-- ``run_polling_loop`` — the main GetAsyncKeyState polling loop
+- ``run_polling_loop``: the main GetAsyncKeyState polling loop
   (used for non-modifier hotkeys when RegisterHotKey and the LL
   hook both fail / are skipped).
-- ``run_modifier_only_polling_loop`` — a separate polling loop for
+- ``run_modifier_only_polling_loop``: a separate polling loop for
   modifier-only hotkeys (e.g. ``<alt>``) that fires on the
   modifier press/release itself.
 - Small stateless key-state helpers (``modifiers_pressed``,
@@ -42,7 +42,7 @@ from ..win32_vk import (
 )
 
 # ---------------------------------------------------------------------------
-# Key-state helpers (stateless — operate on backend._user32)
+# Key-state helpers (stateless, operate on backend._user32)
 # ---------------------------------------------------------------------------
 
 
@@ -54,7 +54,7 @@ def key_pressed(self, vk: int) -> bool:
     call would raise ``AttributeError: 'NoneType' object has no
     attribute 'GetAsyncKeyState'``.
     """
-    # defensive guard — sibling methods (``_other_modifiers_pressed``,
+    # defensive guard, sibling methods (``_other_modifiers_pressed``,
     # ``_is_altgr_pressed``, and ``_modifiers_pressed`` above) already
     # early-return ``False`` when ``self._user32`` is None. Add the
     # same guard here so a direct call to ``_key_pressed(vk)`` from
@@ -71,7 +71,7 @@ def is_altgr_pressed(self) -> bool:
 
     PLAT-ALTGR: Windows simulates AltGr as Ctrl+RightAlt. We detect
     this by checking if Right Alt (VK=0xA5) is pressed AND Ctrl is
-    also pressed. If both are held, it's AltGr — not a Ctrl+Alt combo.
+    also pressed. If both are held, it's AltGr, not a Ctrl+Alt combo.
     Returns True if AltGr is detected.
     """
     if not self._user32:
@@ -92,7 +92,7 @@ def modifiers_pressed(self) -> bool:
     Windows simulates AltGr as Ctrl+Alt. If AltGr is detected, don't
     treat it as a modifier press for hotkey purposes.
     """
-    # defensive guard — sibling methods (``_other_modifiers_pressed``
+    # defensive guard, sibling methods (``_other_modifiers_pressed``
     # and ``_is_altgr_pressed``) already early-return ``False`` when
     # ``self._user32`` is None (non-Windows test host). Without this
     # guard, ``_key_pressed`` (below) would raise
@@ -125,7 +125,7 @@ def other_modifiers_pressed(self) -> bool:
     used by the modifier-only polling loop
     to ensure the user is pressing ONLY the configured modifier (e.g.
     just Alt, not Alt+Ctrl). If another modifier is held, the press
-    callback is suppressed — the user's intent is probably a
+    callback is suppressed, the user's intent is probably a
     multi-key combo, not the bare modifier.
     """
     if not self._user32:
@@ -147,7 +147,7 @@ def other_modifiers_pressed(self) -> bool:
             return True
     # Also detect AltGr (Right Alt + Ctrl simulated by Windows).
     # If AltGr is pressed and our configured modifier is NOT Alt,
-    # treat it as "another modifier held" — it's a real key press
+    # treat it as "another modifier held", it's a real key press
     # that the user likely didn't intend as the hotkey.
     return bool(not self._modifiers & _MOD_ALT and self._is_altgr_pressed())
 
@@ -160,7 +160,7 @@ def any_non_modifier_key_pressed(self, modifier_vks: frozenset[int]) -> bool:
     excluding the modifier VKs passed in ``modifier_vks``. Used by
     the modifier-only polling loop to detect when the user has
     pressed a non-modifier key (e.g. ``C``) while holding the
-    configured modifier (e.g. ``Alt``) — that pattern indicates
+    configured modifier (e.g. ``Alt``), that pattern indicates
     the user was doing a combo like Alt+C, not invoking the bare
     modifier hotkey, so the fire is suppressed on release.
 
@@ -237,7 +237,7 @@ def any_non_modifier_key_pressed_throttled(self, modifier_vks: frozenset[int]) -
     now = time.monotonic()
     # Only consult the cache when the last result was False. A
     # cached True would leak into the next press cycle (see the
-    # docstring) — when the last result was True, always re-scan.
+    # docstring): when the last result was True, always re-scan.
     if not self._last_nonmod_pressed and now - self._last_nonmod_check_time < 0.05:
         return False
     result = self._any_non_modifier_key_pressed(modifier_vks)
@@ -259,7 +259,7 @@ def run_polling_loop(self, callback):
     timer resolution is bumped to 8ms via ``timeBeginPeriod(8)``
     before the loop so ``Sleep(8)`` actually sleeps ~8ms instead of
     the default ~15.6ms. This is still technically polling but at a
-    much lower cost than the previous 100ms (10Hz) approach — the key
+    much lower cost than the previous 100ms (10Hz) approach, the key
     is checked every 8ms (~125 Hz), giving sub-perceptible response
     while the kernel Sleep(8) yields the CPU between checks. On
     Linux/macOS, pynput's event-driven Listener is used instead of
@@ -272,7 +272,7 @@ def run_polling_loop(self, callback):
 
     dispatches to
     ``_run_modifier_only_polling_loop`` for modifier-only hotkeys
-    (e.g. ``<alt>``) — those need a different detection logic that
+    (e.g. ``<alt>``), those need a different detection logic that
     fires on the modifier press itself, not on a subsequent
     non-modifier keypress. Also suppresses the OS-level caps-lock
     toggle when the hotkey is ``<caps_lock>`` (see
@@ -292,7 +292,7 @@ def run_polling_loop(self, callback):
     # and the IPC set_config reached the backend before the keyUP),
     # the polling loop would otherwise see the still-held key as a
     # fresh press on the first iteration and immediately fire the
-    # callback — starting recording without the user intending it.
+    # callback, starting recording without the user intending it.
     # Seeding was_pressed=True when the key is already held makes
     # the first iteration skip the "is_pressed and not was_pressed"
     # branch, requiring a genuine release+repress cycle before the
@@ -317,7 +317,7 @@ def run_polling_loop(self, callback):
     # lock and does a dict lookup even for cached modules). The
     # import is now done once before the loop starts. If win32gui
     # is unavailable (non-Windows or pywin32 not installed), we
-    # skip the message pump entirely — WM_HOTKEY delivery is a
+    # skip the message pump entirely. WM_HOTKEY delivery is a
     # Windows-only concern.
     _pump_messages = None
     try:
@@ -339,9 +339,9 @@ def run_polling_loop(self, callback):
 
     # Iteration counter for periodic caps lock state checks (~200ms cadence).
     # the loop body sleeps ~8ms per iteration (PERF-01/CPU-01), so
-    # a check every 25 iterations fires every 25 × 8ms = 200ms — matching
+    # a check every 25 iterations fires every 25 × 8ms = 200ms, matching
     # the documented cadence. Previously this was ``% 200``, which (with
-    # the 8ms sleep) gave 200 × 8ms = 1600ms — an 8× discrepancy with the
+    # the 8ms sleep) gave 200 × 8ms = 1600ms, an 8× discrepancy with the
     # comments. The modulus was likely chosen when the sleep was 1ms; the
     # sleep was later increased to 8ms without updating the modulus.
     _caps_check_iter = 0
@@ -366,7 +366,7 @@ def run_polling_loop(self, callback):
             # check catches any missed toggles and re-silences caps lock.
             # ``% 25`` matches the documented 200ms cadence
             # (25 iterations × 8ms sleep = 200ms). Previously ``% 200``
-            # delivered 1.6s — see the comment at the ``_caps_check_iter``
+            # delivered 1.6s: see the comment at the ``_caps_check_iter``
             # declaration above for the root-cause analysis.
             _caps_check_iter += 1
             if is_caps_lock_hotkey and _caps_check_iter % 25 == 0 and not self._caps_lock_suppressing:
@@ -411,7 +411,7 @@ def run_polling_loop(self, callback):
             if not is_pressed and was_pressed:
                 if is_ptt:
                     log.info("[HOTKEY] Key released (PTT on_release)")
-                    # pyrefly not-callable — ``_on_release_callback``
+                    # pyrefly not-callable, ``_on_release_callback``
                     # is typed as ``Callable[[], None] | None`` and pyrefly
                     # can't propagate the narrowing from ``is_ptt =
                     # self._on_release_callback is not None`` (line 559)
@@ -442,52 +442,52 @@ def run_polling_loop(self, callback):
 def run_modifier_only_polling_loop(self, callback):
     """Polling loop for modifier-only hotkeys (e.g. ``<alt>``).
 
-    detects press/release of a single
-    modifier key WITHOUT any other modifiers held. The previous
-    polling loop required a non-modifier "main key" to be pressed,
-    which made modifier-only hotkeys (like just Alt) non-functional
-    — selecting Alt in the dropdown did nothing because there was no
-    main key for GetAsyncKeyState to detect.
+     detects press/release of a single
+     modifier key WITHOUT any other modifiers held. The previous
+     polling loop required a non-modifier "main key" to be pressed,
+     which made modifier-only hotkeys (like just Alt) non-functional
+    , selecting Alt in the dropdown did nothing because there was no
+     main key for GetAsyncKeyState to detect.
 
-    the loop was overhauled to fix two
-    annoying misfire scenarios:
+     the loop was overhauled to fix two
+     annoying misfire scenarios:
 
-    a) **Alt+C (or any modifier+key combo) used to fire the dictation
-       because Alt was pressed.** The fix: track whether ANY
-       non-modifier key was pressed between the modifier press and
-       release. If so, suppress the fire — the user was using a
-       combo like Alt+C for copy, not invoking the dictation hotkey.
+     a) **Alt+C (or any modifier+key combo) used to fire the dictation
+        because Alt was pressed.** The fix: track whether ANY
+        non-modifier key was pressed between the modifier press and
+        release. If so, suppress the fire, the user was using a
+        combo like Alt+C for copy, not invoking the dictation hotkey.
 
-    b) **Press-and-hold used to fire the callback repeatedly.** The
-       fix: fire the press callback exactly ONCE on the
-       not-held → held transition (for push-to-talk mode) or ONCE
-       on the held → not-held transition (for toggle mode). The
-       callback is never re-fired while the modifier stays held.
+     b) **Press-and-hold used to fire the callback repeatedly.** The
+        fix: fire the press callback exactly ONCE on the
+        not-held → held transition (for push-to-talk mode) or ONCE
+        on the held → not-held transition (for toggle mode). The
+        callback is never re-fired while the modifier stays held.
 
-    Per-mode behavior:
+     Per-mode behavior:
 
-    **Toggle mode** (``_on_release_callback is None``):
-    - On press: nothing (defer).
-    - While held: monitor for non-modifier key presses; set
-      ``_other_key_pressed`` if any are detected.
-    - On release: if ``_other_key_pressed`` is False AND no other
-      modifiers are currently held, fire the press callback (which
-      is ``toggle_dictation``). Otherwise, do NOT fire — the user
-      was using a combo.
+     **Toggle mode** (``_on_release_callback is None``):
+     - On press: nothing (defer).
+     - While held: monitor for non-modifier key presses; set
+       ``_other_key_pressed`` if any are detected.
+     - On release: if ``_other_key_pressed`` is False AND no other
+       modifiers are currently held, fire the press callback (which
+       is ``toggle_dictation``). Otherwise, do NOT fire, the user
+       was using a combo.
 
-    **Push-to-talk mode** (``_on_release_callback is not None``):
-    - On press: if no other modifiers are held at the moment of
-      press, fire the press callback immediately (start recording)
-      and set ``press_fired = True``. (We can't predict future
-      non-modifier key presses at the moment of press.)
-    - While held: monitor for non-modifier key presses; set
-      ``_other_key_pressed`` if any are detected.
-    - On release: if ``press_fired`` is True, fire the
-      ``on_release`` callback (stop recording) — this fires
-      regardless of ``_other_key_pressed`` to prevent the recording
-      from running forever. If ``press_fired`` is False (other
-      modifiers were held at moment of press), do NOT fire
-      ``on_release`` (nothing was started).
+     **Push-to-talk mode** (``_on_release_callback is not None``):
+     - On press: if no other modifiers are held at the moment of
+       press, fire the press callback immediately (start recording)
+       and set ``press_fired = True``. (We can't predict future
+       non-modifier key presses at the moment of press.)
+     - While held: monitor for non-modifier key presses; set
+       ``_other_key_pressed`` if any are detected.
+     - On release: if ``press_fired`` is True, fire the
+       ``on_release`` callback (stop recording): this fires
+       regardless of ``_other_key_pressed`` to prevent the recording
+       from running forever. If ``press_fired`` is False (other
+       modifiers were held at moment of press), do NOT fire
+       ``on_release`` (nothing was started).
     """
     # Map the configured _MOD_* flags to the VK codes we need to poll.
     # VK_MENU (0x12) covers both LAlt (0xA4) and RAlt (0xA5).
@@ -510,7 +510,7 @@ def run_modifier_only_polling_loop(self, callback):
     # excluded from the ``_any_non_modifier_key_pressed`` check
     # because holding another modifier (e.g. Ctrl while Alt is the
     # configured hotkey) is handled separately by
-    # ``_other_modifiers_pressed`` — it shouldn't itself suppress
+    # ``_other_modifiers_pressed``: it shouldn't itself suppress
     # the fire (the user might press Ctrl+Alt intending both, but
     # that's a separate hotkey spec).
     all_modifier_vks = frozenset(
@@ -518,7 +518,7 @@ def run_modifier_only_polling_loop(self, callback):
             _VK_SHIFT,  # 0x10
             _VK_CONTROL,  # 0x11
             _VK_MENU,  # 0x12 (Alt)
-            _VK_CAPITAL,  # 0x14 (Caps Lock — handled separately)
+            _VK_CAPITAL,  # 0x14 (Caps Lock, handled separately)
             _VK_LWIN,  # 0x5B
             _VK_RWIN,  # 0x5C
             0xA0,  # VK_LSHIFT
@@ -583,7 +583,7 @@ def run_modifier_only_polling_loop(self, callback):
             # FIX-MULTI-MOD: require ALL configured modifiers to be held
             # simultaneously for multi-modifier combos like ``<ctrl>+<alt>``.
             # Previously used ``any()``, which meant pressing EITHER Ctrl
-            # OR Alt alone would fire the hotkey — instead of requiring
+            # OR Alt alone would fire the hotkey, instead of requiring
             # BOTH to be pressed together.
             is_held = all(self._key_pressed(vk) for vk in modifier_vks)
 
@@ -620,7 +620,7 @@ def run_modifier_only_polling_loop(self, callback):
                     else:
                         log.debug(
                             "[HOTKEY] Modifier pressed but other modifiers "
-                            "also held (mods=0x%X) — suppressing PTT press fire",
+                            "also held (mods=0x%X), suppressing PTT press fire",
                             self._modifiers,
                         )
 
@@ -628,7 +628,7 @@ def run_modifier_only_polling_loop(self, callback):
             # NOTIFICATION (a): this is the key fix for
             # the "Alt+C fires the dictation" problem. If the user
             # pressed any non-modifier key while holding our modifier,
-            # they were using a combo (e.g. Alt+C for copy) — we'll
+            # they were using a combo (e.g. Alt+C for copy), we'll
             # suppress the fire on release.
             #
             # PERF- the scan is O(248) per iteration
@@ -645,7 +645,7 @@ def run_modifier_only_polling_loop(self, callback):
             #     wrapper only caches False), so the next press cycle
             #     always re-scans fresh;
             #   - 50ms detection latency for non-modifier keys is
-            #     acceptable — typists press keys ≥50ms apart, and the
+            #     acceptable, typists press keys ≥50ms apart, and the
             #     polling loop's 8ms cadence still gives ~8ms modifier
             #     press/release latency (the scan throttle only affects
             #     combo detection, not the hotkey fire itself).
@@ -658,7 +658,7 @@ def run_modifier_only_polling_loop(self, callback):
                 other_key_pressed = True
                 log.debug(
                     "[HOTKEY] Non-modifier key pressed during modifier "
-                    "hold (mods=0x%X) — will suppress fire on release "
+                    "hold (mods=0x%X), will suppress fire on release "
                     "(user was doing a combo like Alt+C)",
                     self._modifiers,
                 )
@@ -668,7 +668,7 @@ def run_modifier_only_polling_loop(self, callback):
                 if not other_key_pressed:
                     # Modifier was pressed and released without any
                     # non-modifier key in between. This is the "alone"
-                    # case — fire the appropriate callback.
+                    # case, fire the appropriate callback.
                     if is_ptt:
                         # PTT mode: fire on_release (stop recording) if
                         # we fired the press callback. If we didn't
@@ -688,7 +688,7 @@ def run_modifier_only_polling_loop(self, callback):
                         # Toggle mode: fire the press callback
                         # (toggle_dictation). Double-check no other
                         # modifiers are currently held at release time
-                        # — if the user is still holding Ctrl when they
+                        # , if the user is still holding Ctrl when they
                         # release Alt, that's a combo, not the hotkey.
                         if not self._other_modifiers_pressed():
                             log.info(
@@ -705,24 +705,24 @@ def run_modifier_only_polling_loop(self, callback):
                         else:
                             log.debug(
                                 "[HOTKEY] Modifier released alone but other "
-                                "modifiers still held (mods=0x%X) — suppressing "
+                                "modifiers still held (mods=0x%X), suppressing "
                                 "toggle fire (combo)",
                                 self._modifiers,
                             )
                 else:
-                    # other_key_pressed is True — user was doing a combo
+                    # other_key_pressed is True, user was doing a combo
                     # like Alt+C. Per spec, do NOT fire the press callback.
                     # for PTT mode, if we
                     # already fired the press callback (and thus started
                     # a recording), we MUST fire on_release to stop the
-                    # recording — otherwise it would run forever. This
+                    # recording, otherwise it would run forever. This
                     # is a safety net; the recording will be very short
                     # and the user will hear the brief dictation chime,
                     # but it's better than a stuck recording.
                     if is_ptt and press_fired and self._on_release_callback is not None:
                         log.info(
                             "[HOTKEY] Modifier released after combo "
-                            "(PTT on_release safety, mods=0x%X) — stopping "
+                            "(PTT on_release safety, mods=0x%X), stopping "
                             "recording started by the press fire",
                             self._modifiers,
                         )

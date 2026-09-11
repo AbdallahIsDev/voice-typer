@@ -87,7 +87,7 @@ class TestWritePidFile:
 
     def test_non_int_child_pid_normalized_to_empty(self, tmp_path, monkeypatch):
         """A non-int child PID (e.g. a test double's MagicMock leaking into
-        the call site) must NEVER be persisted — it would poison the pid
+        the call site) must NEVER be persisted, it would poison the pid
         file with a garbage ``child=`` value no reader can parse."""
         monkeypatch.setattr(
             "voice_typer.server.autostart_launcher._config_dir",
@@ -100,7 +100,7 @@ class TestWritePidFile:
         )
 
     def test_non_int_launcher_pid_not_persisted(self, tmp_path, monkeypatch):
-        """A non-int launcher PID is normalized to ``0`` — never a garbage
+        """A non-int launcher PID is normalized to ``0``, never a garbage
         string from a test double's ``__str__``."""
         monkeypatch.setattr(
             "voice_typer.server.autostart_launcher._config_dir",
@@ -295,7 +295,7 @@ class TestLauncherOutcomeLogging:
     """main() logs a single greppable outcome line for every autostart attempt.
 
     The OS runs this file as a bare script (``pythonw autostart_launcher.py``),
-    so ``__name__`` is ``"__main__"`` — the module logger MUST use the
+    so ``__name__`` is ``"__main__"``, the module logger MUST use the
     explicit dotted name (``voice_typer.server.autostart_launcher``) or its
     records never reach the ``voice_typer`` file handler and autostart
     attempts are invisible in ``voice-typer.log`` (the bug that produced
@@ -340,7 +340,7 @@ class TestLauncherOutcomeLogging:
 
     def test_main_catches_unhandled_exception_and_logs_traceback(self, monkeypatch, caplog):
         """A pythonw launch that crashes mid-way must not lose the traceback
-        (no console) — main() logs it and returns 1."""
+        (no console), main() logs it and returns 1."""
         from voice_typer.server.autostart_launcher import main
 
         def boom():
@@ -367,7 +367,7 @@ class TestLauncherOutcomeLogging:
 
 
 def test_pid_helpers_resolve_without_importing_app():
-    """BP-126: the login path must stay light — importing single_instance
+    """BP-126: the login path must stay light, importing single_instance
     (where the launcher now resolves its PID helpers) must not import
     the app orchestrator. If this regresses, every logon pays the full
     backend-app import just to read a PID file.

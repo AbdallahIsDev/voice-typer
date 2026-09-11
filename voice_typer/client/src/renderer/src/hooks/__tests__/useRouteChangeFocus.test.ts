@@ -2,7 +2,7 @@
  * Tests for useRouteChangeFocus (extracted from App.tsx).
  *
  * Contract: move keyboard focus to ``<main id="main-content">`` on
- * every route change — EXCEPT the initial mount (the skip-first-run
+ * every route change, EXCEPT the initial mount (the skip-first-run
  * guard: the user hasn't navigated yet, so stealing focus would be
  * rude).
  */
@@ -44,7 +44,7 @@ describe("useRouteChangeFocus", () => {
 		const { rerender } = renderHook(() => useRouteChangeFocus(currentPage));
 		rerender();
 		rerender();
-		// Still on the first run — no focus steal, no crash.
+		// Still on the first run, no focus steal, no crash.
 		expect(document.activeElement).not.toBe(mainEl);
 	});
 

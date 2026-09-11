@@ -2,7 +2,7 @@
 //
 // The single production gate for installing the Tauri bridge before
 // React mounts. Previously this gate (and its ~30-line rationale
-// comment) was duplicated — comment and all — in BOTH renderer
+// comment) was duplicated, comment and all, in BOTH renderer
 // entrypoints (`main.tsx`, `bubble-main.tsx`); it lives here now so
 // the contract has one home.
 //
@@ -19,18 +19,18 @@
 // top-level import: a static `import "./lib/tauri-bridge/install"`
 // would pull the whole install graph into the eagerly-loaded renderer
 // bundle even under Electron, where it is never needed. Gated on
-// `isTauri()` (`./detect.ts` — the `window.__TAURI__?.core?.invoke`
+// `isTauri()` (`./detect.ts`, the `window.__TAURI__?.core?.invoke`
 // check), the bundler emits `install.ts` as a SEPARATE async chunk
 // that is fetched ONLY when the renderer actually runs inside a
 // Tauri WebView. Under Electron the gate is false and the chunk is
 // never fetched.
 //
 // This module MUST stay dependency-light: it may import `./detect`
-// (pure — no `window` mutation, no Tauri API surface) and NOTHING
+// (pure, no `window` mutation, no Tauri API surface) and NOTHING
 // else from the bridge. That is why `ensureTauriBridgeInstalled`
 // lives here and not in `install.ts` itself: statically importing a
 // function from `install.ts` would drag `install.ts` (and its import
-// graph) back into the entrypoints' eager bundle — exactly the
+// graph) back into the entrypoints' eager bundle, exactly the
 // regression the runtime gate exists to prevent.
 //
 // Callers use top-level await, which guarantees ordering: the
@@ -47,7 +47,7 @@ import { isTauri } from "./detect";
  * mounts. No-op under Electron (the preload script owns the
  * namespaces there); under Tauri it fetches the install chunk and
  * runs `installTauriBridge()` before resolving. Safe to call from
- * both entrypoints — `installTauriBridge()` is idempotent.
+ * both entrypoints, `installTauriBridge()` is idempotent.
  */
 export async function ensureTauriBridgeInstalled(): Promise<void> {
 	if (isTauri()) {

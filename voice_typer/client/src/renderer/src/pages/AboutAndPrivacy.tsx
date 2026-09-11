@@ -1,4 +1,4 @@
-// About & Privacy page — merged product identity + data-handling
+// About & Privacy page, merged product identity + data-handling
 // disclosure.
 //
 // The previously separate About page (product identity) and Privacy
@@ -7,14 +7,14 @@
 // app is + how it treats your data" story, and the merge removes a
 // low-traffic second navigation entry.
 //
-// The page stays static AT LOAD — the only dynamic values are:
+// The page stays static AT LOAD, the only dynamic values are:
 //   - the installed version, read directly from package.json at build
 //     time (VERSION-SOURCE-FIX) so it never drifts from the canonical
 //     source of truth on a release bump;
 //   - an USER-INITIATED runtime-pack update check (click "Check for
 //     Updates"; no fetch happens on mount), so the identity card still
 //     renders fine when the backend is down;
-//   - the config directory (from the backend's get_status — the same
+//   - the config directory (from the backend's get_status, the same
 //     authoritative source the Settings diagnostics section and
 //     Analytics data path use), interpolated into the Local data
 //     description. On a failed fetch the row falls back to a neutral
@@ -46,7 +46,7 @@ import { t, useT } from "@/i18n/i18n";
 import { consentBodyKey, openConsentGate } from "@/lib/consentGate";
 import pkg from "../../../../package.json";
 
-// App version — read directly from package.json (see VERSION-SOURCE-FIX
+// App version, read directly from package.json (see VERSION-SOURCE-FIX
 // comment at the top of the file) so this never drifts from the
 // canonical source of truth on a release bump.
 const APP_VERSION = pkg.version as string;
@@ -56,7 +56,7 @@ const APP_VERSION = pkg.version as string;
  *
  * Mirrors `UpdateCheckResult` in
  * `voice_typer/server/service/update_check.py` (`total=False`, so every
- * field is optional) — the handler
+ * field is optional), the handler
  * (`_handle_check_offline_pack_update` in `server/ipc/lifecycle.py`)
  * returns it as a plain dict over the bridge. Only the field the page
  * actually consults is listed; the server may send more.
@@ -65,7 +65,7 @@ interface PackUpdateCheckResult {
 	consent_required?: boolean;
 }
 
-/** Privacy topics — icon + existing i18n title/description keys. */
+/** Privacy topics, icon + existing i18n title/description keys. */
 const PRIVACY_TOPICS = [
 	{
 		icon: Mic02Icon,
@@ -96,17 +96,17 @@ export default function AboutAndPrivacyPage() {
 
 	const { call } = usePython();
 	// Ref mirror of `call` (PrewarmAndUpdates pattern) shared by BOTH
-	// dynamic paths on this page — the pack update check click handler
-	// and the mount-time configDir probe — so neither goes stale across
+	// dynamic paths on this page, the pack update check click handler
+	// and the mount-time configDir probe, so neither goes stale across
 	// renders and a test mock handing out a fresh `call` per render can
 	// never re-fire the probe.
 	const callRef = useLatestRef(call);
 
-	// Runtime-pack update check — user-initiated only. No fetch on
+	// Runtime-pack update check, user-initiated only. No fetch on
 	// mount: the check hits the GitHub Releases manifest (C-DATA-1
 	// category-2 allowed update check) and may trigger a consent-gated
 	// background download, so it must never fire implicitly. There is
-	// deliberately NO status readout on this page — the button label
+	// deliberately NO status readout on this page, the button label
 	// flips to "Checking…" while in flight, and the shared consent gate
 	// opens at the moment the backend refuses the download for missing
 	// consent.
@@ -122,10 +122,10 @@ export default function AboutAndPrivacyPage() {
 			// Point-of-use consent gate: the backend found an update but
 			// refused to start the download because
 			// `offline_pack_consent` is off. Ask via the SHARED consent
-			// dialog right now — Allow persists the consent and re-runs
+			// dialog right now, Allow persists the consent and re-runs
 			// the check (which then triggers the download); Cancel
 			// leaves the pack untouched. No persistent "enable in
-			// Settings" nag — the modal only opens at the moment of the
+			// Settings" nag, the modal only opens at the moment of the
 			// blocked attempt, and only while the consent is missing.
 			if (result?.consent_required) {
 				openConsentGate({
@@ -135,7 +135,7 @@ export default function AboutAndPrivacyPage() {
 				});
 			}
 		} catch {
-			// Silent by design — there is no status readout to update;
+			// Silent by design, there is no status readout to update;
 			// the user can simply click the button again.
 		} finally {
 			setPackChecking(false);
@@ -151,7 +151,7 @@ export default function AboutAndPrivacyPage() {
 	// a failed fetch leaves it empty and the row shows "—".
 	const [configDir, setConfigDir] = useState("");
 
-	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract — .current must NOT become a dep
+	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract, .current must NOT become a dep
 	useEffect(() => {
 		let cancelled = false;
 		(async () => {
@@ -161,7 +161,7 @@ export default function AboutAndPrivacyPage() {
 				);
 				if (!cancelled && status?.config_dir) setConfigDir(status.config_dir);
 			} catch {
-				// leave configDir empty — the Local data row falls back
+				// leave configDir empty, the Local data row falls back
 				// to a neutral "—" (never a permanent "Loading…").
 			}
 		})();
@@ -177,7 +177,7 @@ export default function AboutAndPrivacyPage() {
 				description={t("aboutAndPrivacy.description")}
 			/>
 
-			{/* Product identity card — compact, native-app About block.
+			{/* Product identity card, compact, native-app About block.
 			    No marketing copy, no hero section: identity, capability
 			    split, version + update check. */}
 			<div className="rounded-xl border border-border/5 bg-(--bg-subtle)">
@@ -198,7 +198,7 @@ export default function AboutAndPrivacyPage() {
 					{t("about.productDesc")}
 				</p>
 
-				{/* Local vs Cloud — the capability split made visually
+				{/* Local vs Cloud, the capability split made visually
 				    obvious: two side-by-side blocks with their own icon
 				    + title + one-line description. */}
 				<div className="grid pt-5 sm:grid-cols-2">
@@ -236,7 +236,7 @@ export default function AboutAndPrivacyPage() {
 					</div>
 				</div>
 
-				{/* Version + update check — the card's single meta row: the
+				{/* Version + update check, the card's single meta row: the
 			    version pair (label + value, visually bound as one unit)
 			    on the left, the update-check action pushed to the row's
 			    right edge via justify-between. The check is user-initiated
@@ -262,7 +262,7 @@ export default function AboutAndPrivacyPage() {
 				</div>
 			</div>
 
-			{/* The privacy disclosure — five topic rows with thin dividers (the
+			{/* The privacy disclosure, five topic rows with thin dividers (the
                             section card's divide-y supplies them). Icons render
                             directly (no chip), in the standard muted icon tone. */}
 			<div className="divide-y divide-border/5 rounded-xl border border-border/5 bg-(--bg-subtle)">

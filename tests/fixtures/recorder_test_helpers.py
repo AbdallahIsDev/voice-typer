@@ -15,18 +15,18 @@ Both copies construct a real ``Recorder`` with a ``MagicMock`` config
 patch ``voice_typer.server.vad.is_available`` to return ``False`` so
 the test doesn't pay the ~17s torch-import cost on the sandbox.
 
-The two copies were literally identical (verified by ``diff``) — a
+The two copies were literally identical (verified by ``diff``), a
 classic copy-paste leak that drifts the next time one is updated and
 the other isn't.
 
 Centralising the factory here means future additions to the
 ``Recorder`` constructor (e.g. a new ``_secure_clear`` field that
 tests need to reset between cases) only need to update ONE place —
-this module — and every secure-clear test picks up the fix
+this module, and every secure-clear test picks up the fix
 automatically.
 
 The migration target is documented as Remaining Work:
-this module ONLY provides the factory — call sites
+this module ONLY provides the factory, call sites
 (``tests/test_secure_clear_no_resample_segments.py`` and
 ``tests/test_secure_clear_array.py``) still use their inline
 ``_make_recorder`` until a follow-up task migrates them.
@@ -37,7 +37,7 @@ This module ALSO owns the shared zombie-ref guard used by every test
 that hammers a real ``Recorder`` (concurrent ``start()``/``stop()`` /
 ``discard()``) and then asserts ``_worker_thread is None`` /
 ``_event_worker_thread is None``. See :func:`reap_stale_worker_refs`
-and :func:`wait_for_workers_stopped` — both exist in ONE place so a
+and :func:`wait_for_workers_stopped`, both exist in ONE place so a
 future fix cannot drift between the hammer tests that need them.
 
 NOTE: there are OTHER ``_make_recorder`` helpers in the test tree
@@ -49,7 +49,7 @@ NOTE: there are OTHER ``_make_recorder`` helpers in the test tree
 ``tests/test_stream_lifecycle_module.py``). Those have DIFFERENT
 shapes (different config field sets, different post-construction
 mutations like ``r._recording_event.set()`` / ``r._stream = MagicMock()``)
-and are NOT byte-for-byte duplicates — they are documented as
+and are NOT byte-for-byte duplicates, they are documented as
 Remaining Work for a separate consolidation pass. This module targets
 ONLY the two byte-for-byte identical copies that were explicitly
 called out for consolidation.
@@ -91,7 +91,7 @@ def make_recorder(config: Any = None, **config_fields: Any) -> Any:
         ``**config_fields`` is rejected (the caller owns the config).
     **config_fields:
         Extra config overrides, applied to the ``MagicMock`` config
-        BEFORE the ``Recorder`` constructor runs — so fields the
+        BEFORE the ``Recorder`` constructor runs, so fields the
         constructor itself reads (e.g. ``pre_roll_buffer_seconds``,
         which sizes ``_preroll_buffer.maxlen`` during ``__init__``) are
         honoured, as are lazily-read fields. Overrides replace the
@@ -134,7 +134,7 @@ def make_recorder(config: Any = None, **config_fields: Any) -> Any:
 # and the ``"stream-finished-handler"`` / ``"device-disconnect-handler"``
 # spawn-site names in ``voice_typer/server/recording/recorder.py``. Kept
 # as literals (NOT imported) so this module stays free of heavy server
-# imports — if the source constants are ever renamed, update them here.
+# imports, if the source constants are ever renamed, update them here.
 WORKER_THREAD_NAMES = frozenset(
     {
         "audio-worker",
@@ -218,7 +218,7 @@ def wait_for_workers_stopped(
     recorder: Any,
     *,
     stop: Any = None,
-    # 15s (was 5s): the poll is CONDITION-BASED — this bound only
+    # 15s (was 5s): the poll is CONDITION-BASED, this bound only
     # absorbs scheduler contention under ``-n auto`` xdist (a worker
     # thread mid-teardown just needs CPU). A REAL leak keeps the
     # threads alive past ANY deadline, so the caller's terminal
@@ -244,7 +244,7 @@ def wait_for_workers_stopped(
     worker process no longer block (or flake) this test's wait. The
     recorder's own spawn sites tag each worker thread with a unique
     owner id (``base|owner`` names), so threads this test spawned are
-    always outside the baseline and remain FULLY waited on — a real
+    always outside the baseline and remain FULLY waited on, a real
     leak spawned by the test itself still fails the caller's terminal
     assert exactly as strongly as before. When ``baseline`` is ``None``
     (the default), the wait is global over all worker-named threads —
@@ -261,7 +261,7 @@ def wait_for_workers_stopped(
     stop:
         Callable re-invoked each poll iteration (``stop()`` is
         idempotent) to drive a mid-teardown worker out. Defaults to
-        ``recorder.stop`` when the recorder has one — pass ``None`` to
+        ``recorder.stop`` when the recorder has one, pass ``None`` to
         skip re-invoking (required for fakes without a ``stop``
         method).
     timeout:

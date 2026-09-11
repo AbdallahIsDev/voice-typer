@@ -32,13 +32,13 @@ design rules (NO behavior change):
   for it.
 * The cancellation check that lived between ``_store_result`` and
   ``_copy_and_paste`` in the original is preserved by wrapping
-  ``PasteStage`` in ``CancellationGuard`` — the guard runs the SAME
+  ``PasteStage`` in ``CancellationGuard``: the guard runs the SAME
   crash-recovery write + bubble teardown as the original inline block,
   then raises ``_PipelineAbortCancelled`` to skip the paste and exit
   the pipeline cleanly.
 * Each stage delegates to the corresponding ``_<step>`` method on the
   owning ``DictationPipeline`` (reached via ``ctx.pipeline``). The
-  step methods themselves are unchanged — they keep their existing
+  step methods themselves are unchanged, they keep their existing
   signatures, error handling, and side effects so the existing
   direct-call tests (``tests/app/test_notify_once_flags.py``,
   ``tests/test_transcription_audio_stats.py``,
@@ -66,7 +66,7 @@ class _PipelineAbort(Exception):  # noqa: N818
     the generic ``except Exception`` failure path that flips the tray
     to ERROR). The owning ``DictationPipeline.run`` catches each
     subclass and runs the appropriate teardown (which is the standard
-    ``finally`` block — the same one that runs on the success path).
+    ``finally`` block, the same one that runs on the success path).
     """
 
 
@@ -77,7 +77,7 @@ class _PipelineAbortEmpty(_PipelineAbort):
     ``pipeline._handle_empty_transcription()`` (which sets the tray
     state, fires any "no speech detected" notification, and clears the
     busy event) BEFORE raising this exception. ``run`` catches it and
-    does nothing — the finally block runs as usual, clearing the
+    does nothing, the finally block runs as usual, clearing the
     in-flight sentinel, zeroing the audio, resetting the watchdog, and
     clearing ``_transcription_thread``.
 
@@ -136,12 +136,12 @@ class PipelineStage(Protocol):
     """A single stage in the dictation pipeline.
 
     A stage takes the current ``text`` (the empty string for the first
-    stage — :class:`TranscribeStage` ignores its argument and produces
+    stage, :class:`TranscribeStage` ignores its argument and produces
     text from the audio in ``ctx``) and a :class:`PipelineContext`,
     and returns the (possibly transformed) text for the next stage.
 
     The ``name`` attribute is used as the per-stage timing key in the
-    ``_timed_stage`` context manager — it MUST match the original
+    ``_timed_stage`` context manager, it MUST match the original
     inline ``with _timed_stage(_timings, "<name>")`` keys so the
     consolidated ``[PIPE-PERF]`` log format strings stay unchanged.
 
@@ -162,7 +162,7 @@ class PipelineStage(Protocol):
 #
 # Each stage is a thin delegator: it calls the corresponding ``_<step>``
 # method on ``ctx.pipeline`` and returns the (possibly transformed)
-# text. The step methods are unchanged from the pre- code — they
+# text. The step methods are unchanged from the pre- code, they
 # keep their existing signatures, error handling, and side effects so
 # the existing direct-call tests keep passing.
 
@@ -190,7 +190,7 @@ class EmptyCheckStage:
     busy event) and raises :class:`_PipelineAbortEmpty` to abort the
     pipeline cleanly.
 
-    Not timed — the original empty-check ``if not text: …; return`` sat
+    Not timed, the original empty-check ``if not text: …; return`` sat
     between two ``with _timed_stage`` blocks without its own wrapper,
     so we set ``timed = False`` to keep the ``_timings`` dict keys
     identical to the original.
@@ -199,7 +199,7 @@ class EmptyCheckStage:
     backend WAS loaded but produced empty output (genuine silence or
     a cloud provider returning 200 with an empty body). When the
     backend was NOT loaded, ``DictationPipeline._transcribe`` raises
-    ``BackendNotLoadedError`` BEFORE returning text — that exception
+    ``BackendNotLoadedError`` BEFORE returning text, that exception
     propagates out of :class:`TranscribeStage` (which calls
     ``self._transcribe()``) and is caught by ``run()``'s generic
     ``except Exception`` block, so this stage never runs in the
@@ -243,7 +243,7 @@ class TemplatesStage:
     """Step 5: Apply template matching.
 
     Sets ``pipeline._templates_applied = True`` when a template match
-    modifies the text — see meth:`DictationPipeline._apply_templates`.
+    modifies the text: see meth:`DictationPipeline._apply_templates`.
     """
 
     name = "templates"
@@ -290,7 +290,7 @@ class AIEnhancementStage:
 class VocabularyAutomationStage:
     """Step 7c: Analyze transcription for vocabulary suggestions (P5).
 
-    Pure side-effect stage — analyzes the text for high-confidence
+    Pure side-effect stage, analyzes the text for high-confidence
     vocabulary suggestions and publishes them to the frontend via
     ``event_bus``. Does NOT modify the text; returns it unchanged.
     """
@@ -306,7 +306,7 @@ class VocabularyAutomationStage:
 class StoreResultStage:
     """Step 8: Store in history DB and crash recovery.
 
-    Pure side-effect stage — writes the text to ``history_db`` and
+    Pure side-effect stage, writes the text to ``history_db`` and
     (if enabled) the crash-recovery buffer. Returns the text unchanged
     so :class:`CancellationGuard` can decide whether to paste it.
     """
@@ -363,10 +363,10 @@ class CancellationGuard:
     ``run`` catches the exception and lets the finally block run.
 
     The membership check is performed under
-    ``_cancelled_cycle_ids_lock`` — the SAME lock used by
+    ``_cancelled_cycle_ids_lock``: the SAME lock used by
     ``recording_controller._force_recover`` when mutating the set, to
     avoid the torn-read hazard. Falls back to "not cancelled" if the
-    lock or set is missing (defensive — the attrs always exist on a
+    lock or set is missing (defensive, the attrs always exist on a
     real RecordingController).
 
     Note: this guard is intentionally NARROW (wraps only the paste
@@ -382,7 +382,7 @@ class CancellationGuard:
         # ``_timed_stage(_timings, stage.name)`` records under the
         # same key the original used ("paste"). The guard's
         # cancellation check is fast (a set lookup under a lock) and
-        # is intentionally NOT timed separately — the original
+        # is intentionally NOT timed separately, the original
         # inline check ran outside the ``with _timed_stage("paste")``
         # block, but the timing delta is negligible (sub-millisecond)
         # and rolling it into the paste timing keeps the
@@ -420,7 +420,7 @@ class CancellationGuard:
                     "[DICTATION] crash-recovery write for cancelled cycle failed",
                     exc_info=True,
                 )
-            # Tear down the bubble + tray state — the watchdog already
+            # Tear down the bubble + tray state, the watchdog already
             # set tray to IDLE, but the bubble may still be showing
             # "Transcribing…" if the watchdog's tray update happened
             # before the bubble wiring was reset. BP-89: folded into the
@@ -428,7 +428,7 @@ class CancellationGuard:
             # duplicated inline block; the mixin method centralizes the
             # always_visible/otherwise choice + best-effort try/except).
             ctx.pipeline._hide_or_idle_bubble("bubble hide on cancelled cycle")
-            # Skip the wrapped paste stage — the cycle was cancelled.
+            # Skip the wrapped paste stage, the cycle was cancelled.
             raise _PipelineAbortCancelled()
 
         return self._wrapped.run(text, ctx)
@@ -441,19 +441,19 @@ def build_default_stages() -> list[PipelineStage]:
     """Construct the standard 11-stage dictation pipeline.
 
         The order is preserved EXACTLY from the original inline
-    ``DictationPipeline.run`` ( refactor — no behavior change):
+    ``DictationPipeline.run`` ( refactor, no behavior change):
 
-          1. ``transcribe``   — streaming finalize or direct ASR
-          2. ``empty_check``  — handle empty transcription (not timed)
-          3. ``clean``        — text cleanup (spacing, self-corrections)
-          4. ``vocab``        — vocabulary correction
-          5. ``templates``    — template matching (sets ``_templates_applied``)
-          6. ``punct``        — auto-punctuation
-          7. ``llm``          — LLM polish (gated by consent + API key)
-          8. ``ai``           — rule-based AI enhancement (P4)
-          9. ``vocab_auto``   — vocabulary automation analysis (P5)
-         10. ``store``        — history DB + crash-recovery write
-         11. ``paste``        — clipboard copy + paste (wrapped by
+          1. ``transcribe``  : streaming finalize or direct ASR
+          2. ``empty_check`` : handle empty transcription (not timed)
+          3. ``clean``       : text cleanup (spacing, self-corrections)
+          4. ``vocab``       : vocabulary correction
+          5. ``templates``   : template matching (sets ``_templates_applied``)
+          6. ``punct``       : auto-punctuation
+          7. ``llm``         : LLM polish (gated by consent + API key)
+          8. ``ai``          : rule-based AI enhancement (P4)
+          9. ``vocab_auto``  : vocabulary automation analysis (P5)
+         10. ``store``       : history DB + crash-recovery write
+         11. ``paste``       : clipboard copy + paste (wrapped by
     class:`CancellationGuard` for the
                                 watchdog cancellation check)
 

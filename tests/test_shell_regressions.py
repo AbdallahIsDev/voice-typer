@@ -26,7 +26,7 @@ Test strategy
    resolution matrix (POSIX-with-npm, POSIX-without-npm,
    Windows-with-npm, Windows-with-npm.cmd-only, Windows-without-npm).
 3. **Per-site behavioural tests**: when ``_npm_command`` returns
-   ``None``, the site MUST log and skip — never call ``Popen`` /
+   ``None``, the site MUST log and skip, never call ``Popen`` /
    ``run`` with ``shell=True``.
 """
 
@@ -86,7 +86,7 @@ class TestNoShellTrueInSource:
         count = _shell_true_call_count(src)
         assert count == 0, (
             f"S-7: {src_path.name} still contains {count} calls with "
-            f"shell=True — all such fallbacks must be replaced with "
+            f"shell=True, all such fallbacks must be replaced with "
             f"shutil.which-resolved binary paths."
         )
 
@@ -108,7 +108,7 @@ class TestNpmCommandResolution:
     def test_posix_returns_list_when_which_misses(self, monkeypatch):
         """On POSIX, when ``shutil.which("npm")`` returns None, still return a list.
 
-        Popen's PATH lookup may still find npm — no shell needed.
+        Popen's PATH lookup may still find npm, no shell needed.
         """
         from voice_typer.server import _electron_build as eb
 
@@ -120,7 +120,7 @@ class TestNpmCommandResolution:
         """On Windows, when ``shutil.which("npm")`` finds npm.cmd, return [path, run, script].
 
         ``shutil.which("npm")`` on Windows consults PATHEXT and resolves
-        to ``npm.cmd`` automatically — that's the common case.
+        to ``npm.cmd`` automatically, that's the common case.
         """
         from voice_typer.server import _electron_build as eb
 
@@ -160,7 +160,7 @@ class TestNpmCommandResolution:
     def test_windows_returns_none_when_truly_unresolvable(self, monkeypatch):
         """On Windows when both ``shutil.which`` calls miss, return None.
 
-        Caller MUST log and skip — no shell=True fallback.
+        Caller MUST log and skip, no shell=True fallback.
         """
         from voice_typer.server import _electron_build as eb
 
@@ -344,7 +344,7 @@ class TestTrayWindowShellTrueRemoved:
             "voice_typer.server.autostart_launcher._ensure_built_and_launch",
             lambda hidden=False: False,
         )
-        # 4. EO-16 duplicate-launch gate disabled — these tests exercise
+        # 4. EO-16 duplicate-launch gate disabled, these tests exercise
         #    the dev-fallback path, not the pgrep probe. Without this,
         #    ``_electron_process_is_running()`` spawns a real
         #    ``pgrep -f <APP_NAME>`` subprocess on POSIX CI, which trips
@@ -378,7 +378,7 @@ class TestTrayWindowShellTrueRemoved:
         assert captured["shell"] is False
 
     def test_skips_when_npm_unresolvable(self, monkeypatch):
-        """When ``_npm_command`` returns None, log and skip — no shell=True.
+        """When ``_npm_command`` returns None, log and skip, no shell=True.
 
         Previously this fell back to ``Popen("npm run dev", shell=True)``.
         S-7: we log and return without spawning.
@@ -409,17 +409,17 @@ class TestTrayWindowShellTrueRemoved:
 
 class TestBuildElectronRemoved:
     """S-7 follow-up: ``_build_electron`` (npm run build at launch time)
-    was removed from :mod:`voice_typer.server._electron_build`.
+      was removed from :mod:`voice_typer.server._electron_build`.
 
-    The launcher no longer builds the Electron app from source at launch
-    — packaged installs ship pre-built bundles (``out/main/index.js``)
-    and the dev path uses ``npm run dev``.  ``_ensure_built_and_launch``
-    now fails fast (no subprocess build, hence no shell=True risk)
-    when the pre-built main entry is missing.
+      The launcher no longer builds the Electron app from source at launch
+    , packaged installs ship pre-built bundles (``out/main/index.js``)
+      and the dev path uses ``npm run dev``.  ``_ensure_built_and_launch``
+      now fails fast (no subprocess build, hence no shell=True risk)
+      when the pre-built main entry is missing.
     """
 
     def test_build_electron_no_longer_defined(self):
-        """Removal guard: the auto-build function must NOT exist — a
+        """Removal guard: the auto-build function must NOT exist, a
         regression to build-on-launch (with its subprocess + shell
         handling) is a security regression."""
         from voice_typer.server import _electron_build as eb
@@ -434,6 +434,6 @@ class TestBuildElectronRemoved:
         monkeypatch.setattr(al, "_electron_binary", lambda: "/fake/electron")
         monkeypatch.setattr(al, "_main_entry_built", lambda: False)
         # If _ensure_built_and_launch attempted a build it would raise
-        # AttributeError (the module has no _build_electron) — returning
+        # AttributeError (the module has no _build_electron), returning
         # False without a build is the required behaviour.
         assert al._ensure_built_and_launch(hidden=True) is False

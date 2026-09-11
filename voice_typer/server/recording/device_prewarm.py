@@ -1,6 +1,6 @@
 """Device-cache prewarm + stream-open validation for :class:`Recorder`.
 
-Phase 4.5 completion — the device-prewarm bodies that previously lived
+Phase 4.5 completion, the device-prewarm bodies that previously lived
 on :class:`Recorder` (``_prewarm_device_cache`` /
 ``_prewarm_input_stream`` / ``_cached_max_input_channels`` /
 ``_classify_portaudio_open_error``) are owned by
@@ -16,10 +16,10 @@ owning ``Recorder`` instance (``DevicePrewarm(recorder)``). The
 collaborator accesses shared state that lives on ``Recorder`` /
 ``DeviceManager`` and is NOT moved here:
 
-- ``self._recorder._devices`` — :class:`.device_manager.DeviceManager`
+- ``self._recorder._devices``: :class:`.device_manager.DeviceManager`
   (``_refresh_device_list`` / ``_resolve_device`` /
   ``_resolve_effective_sample_rate``)
-- ``self._recorder._PORTAUDIO_PERMISSION_DENIED_SUBSTRINGS`` — the
+- ``self._recorder._PORTAUDIO_PERMISSION_DENIED_SUBSTRINGS``, the
   PortAudio permission-denial substring table (owned by ``Recorder``)
 
 Patch-path compatibility
@@ -43,7 +43,7 @@ from typing import Any
 from voice_typer.server._audio_constants import _AUDIO_BLOCKSIZE
 from voice_typer.server._lazy_import import lazy_module
 
-# PERF-COLDSTART-001: lazy import — sounddevice loads the PortAudio C
+# PERF-COLDSTART-001: lazy import, sounddevice loads the PortAudio C
 # library at import time. The lazy proxy re-resolves ``sys.modules`` on
 # every attribute access, so test patches of the form
 # ``monkeypatch.setattr(recording.sd, "InputStream", fake)`` (which
@@ -87,10 +87,10 @@ class DevicePrewarm:
         # construct this class in ``RecorderInitMixin``).
         self._recorder = recorder
         # Memoized channel count for the OS-DEFAULT input device
-        # (``device=None`` / ``config.microphone: null`` — the
+        # (``device=None`` / ``config.microphone: null``, the
         # fresh-install majority per C-MIC-1). Keyed on the device-list
-        # cache's timestamp (a new device-list generation — TTL refresh
-        # or OS device-event invalidation — forces a re-resolve), so
+        # cache's timestamp (a new device-list generation, TTL refresh
+        # or OS device-event invalidation, forces a re-resolve), so
         # repeated default-path lookups cost zero PortAudio calls while
         # the prewarmed device-list cache is warm. Benign-race
         # semantics match the device-list cache itself (attribute
@@ -115,11 +115,11 @@ class DevicePrewarm:
         The thread is a one-shot daemon (no stop mechanism, no join needed).
         If PortAudio is unavailable (headless CI, no audio HW), the cache
         stays empty and ``start()`` falls back to direct
-        ``sd.query_devices()`` calls — no regression.
+        ``sd.query_devices()`` calls, no regression.
 
         In addition to warming the device-list cache, the prewarm thread
         also opens a brief ``sd.InputStream`` against the configured mic
-        (via :meth:`prewarm_input_stream`) — but ONLY when the app did
+        (via :meth:`prewarm_input_stream`), but ONLY when the app did
         NOT start hidden. Opening a stream lights the OS mic indicator,
         which must not happen while the window is hidden (autostart with
         ``VT_START_HIDDEN=1``); on a hidden start the stream-open phase
@@ -127,7 +127,7 @@ class DevicePrewarm:
         open warms PortAudio. The device-list cache warm (a query-only
         enumeration that does not touch the microphone) runs on every
         launch, hidden or not. Failures are logged at INFO and never
-        propagated — the prewarm is purely best-effort.
+        propagated, the prewarm is purely best-effort.
         """
 
         def _warm() -> None:
@@ -137,7 +137,7 @@ class DevicePrewarm:
                 log.debug("[RECORDING] device cache pre-warm failed", exc_info=True)
             # Phase 2: briefly open + start + stop + close an InputStream
             # against the configured mic. This is the actual "warm"
-            # operation — the device-list cache only avoids query RPCs,
+            # operation, the device-list cache only avoids query RPCs,
             # not the open/start cost. See ``prewarm_input_stream`` for
             # the rationale and timeout guard.
             #
@@ -148,12 +148,12 @@ class DevicePrewarm:
             # normal start() candidate loop if the cold open fails).
             if _started_hidden():
                 log.info(
-                    "[RECORDING] Input stream prewarm skipped: app started hidden — PortAudio warms on first dictation",
+                    "[RECORDING] Input stream prewarm skipped: app started hidden. PortAudio warms on first dictation",
                 )
                 return
             # Routed through ``recorder._prewarm_input_stream()`` (the
-            # documented Recorder delegator) — NOT this collaborator's
-            # method directly — so the class-level test patch
+            # documented Recorder delegator). NOT this collaborator's
+            # method directly, so the class-level test patch
             # (``monkeypatch.setattr(Recorder, "_prewarm_input_stream", ...)``)
             # keeps intercepting the prewarm probe.
             self._recorder._prewarm_input_stream()
@@ -177,11 +177,11 @@ class DevicePrewarm:
         ``stream.start()`` then immediately ``stream.stop()`` +
         ``stream.close()``. This validates the device, warms PortAudio's
         internal device-state cache, and surfaces permission errors at
-        app launch (visible launches — hidden starts defer the stream
+        app launch (visible launches, hidden starts defer the stream
         open to the first dictation) instead of at first hotkey press.
 
         The open/start/stop/close sequence runs on a NESTED daemon thread
-        joined with a 2s timeout — if the device is stuck (e.g. a flaky
+        joined with a 2s timeout, if the device is stuck (e.g. a flaky
         BT headset), the prewarm thread returns without blocking process
         startup. The nested thread is a daemon so it never blocks process
         exit. Failures are logged at INFO (not WARNING) because the
@@ -208,7 +208,7 @@ class DevicePrewarm:
                     channels=1,
                     dtype="float32",
                     device=device,
-                    # No callback — the stream is opened only to warm
+                    # No callback, the stream is opened only to warm
                     # PortAudio's device state and validate permissions.
                     # Passing ``callback=None`` makes sounddevice use an
                     # internal no-op callback (PortAudio still
@@ -221,7 +221,7 @@ class DevicePrewarm:
                 # still reaches the finally's close(): if it raised
                 # outside, a constructor-opened-but-never-started
                 # stream handle would leak (the OS mic indicator stays
-                # lit — the C-BG-1 privacy concern, on the visible-
+                # lit, the C-BG-1 privacy concern, on the visible-
                 # launch prewarm path).
                 try:
                     prewarm_stream.start()
@@ -247,13 +247,13 @@ class DevicePrewarm:
         )
         worker.start()
         # Bound the wait so a stuck device doesn't stall the prewarm
-        # thread (which itself is a daemon — the wait is defensive
+        # thread (which itself is a daemon, the wait is defensive
         # against the rare case where the prewarm thread was joined
         # by a caller that expected it to terminate quickly).
         if not result["done"].wait(timeout=timeout_s):
             log.info(
                 "[RECORDING] Input stream prewarm timed out after %.1fs "
-                "(device may be stuck — the first start() will retry)",
+                "(device may be stuck, the first start() will retry)",
                 timeout_s,
             )
             return
@@ -273,12 +273,12 @@ class DevicePrewarm:
         ``MicrophoneDeviceWatcher``) and pre-warmed by
         :meth:`prewarm_device_cache` in ``__init__``.
 
-        For ``device=None`` (System Default — the fresh-install
+        For ``device=None`` (System Default, the fresh-install
         MAJORITY selection, not the minority: ``config.microphone``
         defaults to ``null``), the OS-default device's identity is
         resolved with a single default-device lookup and its channel
         count is served from the same cached device list (memoized per
-        device-list generation — see ``__init__``). On a cache miss
+        device-list generation: see ``__init__``). On a cache miss
         (the default device is not yet in the cached list) the resolved
         device dict's own ``max_input_channels`` is used, preserving
         the pre-fix authoritative fallback. Falls back to ``1`` (mono)
@@ -303,7 +303,7 @@ class DevicePrewarm:
         """Channel count for the OS-default input (``device=None``).
 
         Resolves the OS default's index with ONE default-device lookup
-        (``sd.query_devices(kind="input")`` — the same resolution the
+        (``sd.query_devices(kind="input")``: the same resolution the
         device health checker uses; NOT a full device enumeration), then
         reads the channel count from the cached device-list entry. The
         result is memoized against the device-list cache's timestamp so

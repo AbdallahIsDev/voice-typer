@@ -9,20 +9,20 @@ call/sec/client cap, this was continuous background CPU on the reader
 thread during active dictation.
 
 The fix mirrors the existing ``get_history_count`` 60s cache pattern
-but with a 15s TTL and stricter invalidation — invalidated on EVERY
+but with a 15s TTL and stricter invalidation, invalidated on EVERY
 mutation that could change today's stats (add/delete/clear/restore/
 retention), including fire-and-forget ``add_transcription``.
 
 These tests pin the new behavior:
 
-- ``test_cache_returns_same_value_within_ttl`` — second call within
+- ``test_cache_returns_same_value_within_ttl``, second call within
   TTL serves from cache, no re-scan.
-- ``test_cache_invalidated_on_add_transcription`` — add invalidates.
-- ``test_cache_invalidated_on_delete`` — delete invalidates.
-- ``test_cache_invalidated_on_clear_all`` — clear_all invalidates.
-- ``test_cache_invalidated_on_restore`` — restore invalidates.
-- ``test_cache_invalidated_on_apply_retention`` — retention invalidates.
-- ``test_cache_expires_after_ttl`` — post-TTL call re-scans.
+- ``test_cache_invalidated_on_add_transcription``, add invalidates.
+- ``test_cache_invalidated_on_delete``, delete invalidates.
+- ``test_cache_invalidated_on_clear_all``, clear_all invalidates.
+- ``test_cache_invalidated_on_restore``, restore invalidates.
+- ``test_cache_invalidated_on_apply_retention``, retention invalidates.
+- ``test_cache_expires_after_ttl``, post-TTL call re-scans.
 """
 
 from __future__ import annotations
@@ -60,7 +60,7 @@ class TestAb26TodayStatsCache:
         original_get_read_conn = db._get_read_conn
 
         def _explode(*args, **kwargs):
-            raise RuntimeError("cache miss — aggregating scan was re-run")
+            raise RuntimeError("cache miss, aggregating scan was re-run")
 
         with patch.object(db, "_get_read_conn", _explode):
             second = db.get_today_stats()
@@ -77,7 +77,7 @@ class TestAb26TodayStatsCache:
         stats1 = db.get_today_stats()
         assert stats1["count"] == 1
 
-        # Add a second entry — this invalidates the cache.
+        # Add a second entry, this invalidates the cache.
         db.add_transcription("second")
         db.flush()
         # Next call must re-scan and reflect the new row.
@@ -131,7 +131,7 @@ class TestAb26TodayStatsCache:
         stats1 = db.get_today_stats()
         assert stats1["count"] == 0
 
-        # Restore takes a record dict — the id is ignored, a new row is inserted.
+        # Restore takes a record dict, the id is ignored, a new row is inserted.
         assert db.restore({"text": "original"}) > 0
 
         stats2 = db.get_today_stats()
@@ -164,7 +164,7 @@ class TestAb26TodayStatsCache:
         stats1 = db.get_today_stats()
         assert stats1["count"] == 0
 
-        # apply_retention deletes 10 old rows — invalidates the cache.
+        # apply_retention deletes 10 old rows, invalidates the cache.
         deleted = db.apply_retention(retention_days=1)
         assert deleted == 10
 
@@ -226,7 +226,7 @@ class TestAb26TodayStatsCache:
         db.add_transcription("first")
         db.flush()
         stats1 = db.get_today_stats()
-        # Mutate the returned dict — must not corrupt the cache.
+        # Mutate the returned dict, must not corrupt the cache.
         stats1["count"] = 999
         stats1["chars"] = 999
 

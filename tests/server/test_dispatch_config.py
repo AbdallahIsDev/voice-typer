@@ -1,12 +1,12 @@
 """IPC dispatch tests for config commands (get_config / set_config).
 
 Classes:
-- TestDispatchGetConfig                  — get_config dispatcher
-- TestDispatchSetConfig                  — set_config dispatcher (basic)
-- TestDispatchEscCancelLive              — live ESC/repaste hotkey registration
-- TestDispatchSetConfigAllowlist         — SEC-002 set_config allowlist + types
-- TestGetConfigRedactsSecrets            — SEC-003 get_config redacts API keys
-- TestTrustedPathFieldsBlockedInSetConfig — SEC-006 trusted-path field rejection
+- TestDispatchGetConfig                , get_config dispatcher
+- TestDispatchSetConfig                , set_config dispatcher (basic)
+- TestDispatchEscCancelLive            , live ESC/repaste hotkey registration
+- TestDispatchSetConfigAllowlist       , SEC-002 set_config allowlist + types
+- TestGetConfigRedactsSecrets          , SEC-003 get_config redacts API keys
+- TestTrustedPathFieldsBlockedInSetConfig, SEC-006 trusted-path field rejection
 
 Split out from the original monolithic tests/test_server.py (DT-37, Phase 4.5).
 """
@@ -48,7 +48,7 @@ class TestDispatchSetConfig:
         assert mock_app.config._saved is True
 
     def test_empty_data_acks_without_saving(self, server, mock_app):
-        # G4-L-20: an empty update is a no-op — apply_config's dirty-check
+        # G4-L-20: an empty update is a no-op, apply_config's dirty-check
         # skips save_strict() when nothing changed. The contract is
         # "ack + no disk write", not "ack + always save".
         mock_app.config._saved = False
@@ -217,7 +217,7 @@ class TestDispatchSetConfigAllowlist:
                 "data": {"schema_version": 999},
             }
         )
-        # Silent drop — preserves the existing "unknown field" contract.
+        # Silent drop, preserves the existing "unknown field" contract.
         assert result["type"] == "ack"  # may include data field
         assert real_config.schema_version == original
 
@@ -328,7 +328,7 @@ class TestDispatchSetConfigAllowlist:
         real_config.save.assert_not_called()  # no save on validation failure
 
     def test_rejects_bool_field_with_int_value(self, real_server, real_config):
-        """Python bool is a subclass of int — guard against 1/0 being silently
+        """Python bool is a subclass of int, guard against 1/0 being silently
         accepted as a bool."""
         original = real_config.autostart
         result = real_server._dispatch(
@@ -474,7 +474,7 @@ class TestDispatchSetConfigAllowlist:
     # ── Enum validation ──────────────────────────────────────────────
 
     def test_rejects_invalid_model_size(self, real_server, real_config):
-        """model_size must be in ALLOWED_USER_MODELS — a non-registry id is not."""
+        """model_size must be in ALLOWED_USER_MODELS, a non-registry id is not."""
         # NOTE: 'large' IS in ALLOWED_USER_MODELS (the model registry now
         # includes the generic model ids); use a value that is genuinely
         # NOT in the registry.

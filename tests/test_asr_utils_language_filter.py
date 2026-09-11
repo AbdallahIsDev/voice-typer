@@ -11,7 +11,7 @@ them directly.
 These tests pin the moved contract:
 
 - ``is_latin_char`` returns True for Latin-script chars, digits,
-  punctuation, separators, symbols — False for CJK / Arabic / etc.
+  punctuation, separators, symbols. False for CJK / Arabic / etc.
 - ``is_likely_english`` returns False when the non-Latin ratio exceeds
   ``NON_LATIN_RATIO_LIMIT`` (0.30).
 - ``compute_overlap_skip`` returns the number of leading words to skip
@@ -52,19 +52,19 @@ class TestIsLatinChar:
             assert is_latin_char(ch) is True, f"Punctuation {ch!r} should return True"
 
     def test_whitespace_returns_true(self):
-        # Space (U+0020) is in Unicode category Zs (Separator, Space) — returns True.
+        # Space (U+0020) is in Unicode category Zs (Separator, Space), returns True.
         assert is_latin_char(" ") is True
-        # Tab (\t) and newline (\n) are in category Cc (Control) — they
+        # Tab (\t) and newline (\n) are in category Cc (Control), they
         # fall through to the script check. ``unicodedata.name("\t", "")``
         # returns "" so the script check returns ``"" == "LATIN"`` → False.
         # This matches the original ``parakeet_engine._is_latin_char``
-        # behavior — preserved verbatim per PLAN_ONNX_INTEGRATION.md §5.3.
+        # behavior, preserved verbatim per PLAN_ONNX_INTEGRATION.md §5.3.
         assert is_latin_char("\t") is False
         assert is_latin_char("\n") is False
         assert is_latin_char("\r") is False
 
     def test_cjk_chars_return_false(self):
-        # Chinese, Japanese, Korean characters — common Parakeet hallucination targets.
+        # Chinese, Japanese, Korean characters, common Parakeet hallucination targets.
         for ch in "你好世界こんにちは안녕하세요":
             assert is_latin_char(ch) is False, f"CJK char {ch!r} should return False"
 
@@ -77,7 +77,7 @@ class TestIsLatinChar:
             assert is_latin_char(ch) is False, f"Devanagari char {ch!r} should return False"
 
     def test_empty_string_raises_typeerror(self):
-        """The function does NOT handle empty strings — ``unicodedata.category("")``
+        """The function does NOT handle empty strings: ``unicodedata.category("")``
         raises ``TypeError``. This matches the original
         ``parakeet_engine._is_latin_char`` behavior (preserved verbatim
         per PLAN_ONNX_INTEGRATION.md §5.3). Callers must guard against
@@ -143,7 +143,7 @@ class TestIsLikelyEnglish:
         10 chars with 3 non-Latin), so this test uses a slightly-below
         threshold to confirm the boundary is exclusive.
         """
-        # 3 non-Latin / 10 total = 30% — exactly at threshold → True.
+        # 3 non-Latin / 10 total = 30%, exactly at threshold → True.
         text = "abcdefghi你好世"  # 7 Latin + 3 CJK = 10 chars, 30% non-Latin.
         assert is_likely_english(text) is True
 
@@ -213,7 +213,7 @@ class TestComputeOverlapSkip:
         """The match strips leading/trailing punctuation (``.,;:!?"'()[]{}``)."""
         prev = ["the", "quick", "brown", "fox."]
         new = ["fox", "jumps", "over"]
-        # "fox." normalizes to "fox" — matches the new chunk's "fox".
+        # "fox." normalizes to "fox", matches the new chunk's "fox".
         assert compute_overlap_skip(prev, new) == 1
 
     def test_match_must_end_within_overlap_dedup_window(self):
@@ -225,7 +225,7 @@ class TestComputeOverlapSkip:
         prev = ["one", "two", "three", "four", "five"]
         new = ["one", "two", "next"]
         # "one two" appears at the START of prev_tail, but the match
-        # would end at index 2 — which is NOT within the last 3 words
+        # would end at index 2, which is NOT within the last 3 words
         # (last_word_idx = 5 - 2 = 3 >= OVERLAP_DEDUP_WINDOW=3). So the
         # match is rejected and the skip is 0.
         assert compute_overlap_skip(prev, new) == 0
@@ -251,7 +251,7 @@ class TestMergeChunks:
     def test_two_chunks_with_overlap_skips_duplicate(self):
         """When the new chunk's leading words duplicate the prev
         chunk's tail, the duplicate is skipped."""
-        # prev tail: "world foo" — new head: "foo bar" — "foo" matches → skip 1.
+        # prev tail: "world foo" (new head: "foo bar") "foo" matches → skip 1.
         result = merge_chunks(["hello world foo", "foo bar baz"])
         assert result == "hello world foo bar baz"
 
@@ -275,7 +275,7 @@ class TestMergeChunks:
         when there are 2+ chunks (the ``" ".join(...).strip()`` path).
 
         Note: the single-chunk early-return path (``texts[0]``) does NOT
-        strip — this matches the original ``parakeet_engine._merge_chunks``
+        strip, this matches the original ``parakeet_engine._merge_chunks``
         behavior preserved verbatim per §5.4.
         """
         result = merge_chunks(["  hello world  ", "foo bar"])
@@ -287,7 +287,7 @@ class TestMergeChunks:
         """A single-chunk input returns ``texts[0]`` verbatim (NOT stripped).
 
         This matches the original ``parakeet_engine._merge_chunks``
-        behavior — the early-return path for ``len(texts) <= 1`` does
+        behavior, the early-return path for ``len(texts) <= 1`` does
         not apply the ``.strip()`` that the multi-chunk path applies.
         Documented here so a future refactor that adds stripping to the
         single-chunk path is a conscious decision, not an accident.
@@ -305,14 +305,14 @@ class TestMergeChunks:
             ]
         )
         # Chunk 1: "the quick brown fox"
-        # Chunk 2: "fox jumps over" — "fox" matches prev tail → skip 1 → "jumps over"
-        # Chunk 3: "over the lazy dog" — "over" matches prev tail → skip 1 → "the lazy dog"
+        # Chunk 2: "fox jumps over": "fox" matches prev tail → skip 1 → "jumps over"
+        # Chunk 3: "over the lazy dog": "over" matches prev tail → skip 1 → "the lazy dog"
         assert result == "the quick brown fox jumps over the lazy dog"
 
     def test_chunks_with_punctuation_in_overlap(self):
         """Punctuation in the overlap region is stripped before matching."""
         result = merge_chunks(["hello world.", "world. foo bar"])
-        # "world." normalizes to "world" — matches "world." in the new chunk (also "world").
+        # "world." normalizes to "world", matches "world." in the new chunk (also "world").
         # Skip 1 → "foo bar".
         assert result == "hello world. foo bar"
 

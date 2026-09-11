@@ -41,7 +41,7 @@ def _set_last_store_outcome(
         ``"plaintext"`` if it was written to ``config.json`` as a
         fallback. ``"deleted"`` is used when an empty value triggered
         :func:`delete_secret`. ``"failed"`` is used when keyring
-        failed AND the plaintext fallback also failed — the secret was
+        failed AND the plaintext fallback also failed, the secret was
         NOT saved anywhere.
     reason : str | None
         Short, redacted reason string when ``stored_in`` is

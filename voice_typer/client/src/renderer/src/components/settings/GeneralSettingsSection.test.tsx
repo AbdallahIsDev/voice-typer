@@ -1,5 +1,5 @@
 /**
- * Tests for GeneralSettingsSection — locale re-rendering (B-REVIEW-3).
+ * Tests for GeneralSettingsSection, locale re-rendering (B-REVIEW-3).
  *
  * b-review Finding 3 documented that the 10 *_LABEL / *_INFO
  * translation constants used to live at module scope, so they were
@@ -14,7 +14,7 @@
  * notifies subscribers, so the section re-renders with the CURRENT
  * locale WITHOUT a full page reload. These tests verify that:
  *   1. The section renders English labels when the locale is "en".
- *   2. After ``setLocale("ar")`` the labels switch to Arabic — WITHOUT
+ *   2. After ``setLocale("ar")`` the labels switch to Arabic, WITHOUT
  *      ``window.location.reload()`` (the reload was removed entirely).
  *   3. The round-trip ar -> en also re-renders in-place.
  */
@@ -207,12 +207,12 @@ function makeConfig(
 /** isVisible that always returns true (we're not testing search here). */
 const alwaysVisible: SettingsSectionSharedProps["isVisible"] = () => true;
 
-describe("GeneralSettingsSection — B-REVIEW-3 locale re-rendering", () => {
+describe("GeneralSettingsSection, B-REVIEW-3 locale re-rendering", () => {
 	const originalReload = window.location.reload;
 
 	beforeEach(() => {
 		// Spy on window.location.reload so we can assert it's NOT
-		// called during the in-test locale switch — the whole
+		// called during the in-test locale switch, the whole
 		// point of B-REVIEW-3 is that the section re-renders
 		// WITHOUT a reload.
 		// jsdom's window.location.reload is a no-op stub; replace
@@ -275,7 +275,7 @@ describe("GeneralSettingsSection — B-REVIEW-3 locale re-rendering", () => {
 		// Sanity check: English label present on first render.
 		expect(screen.getByText("Launch at Login")).toBeTruthy();
 
-		// Switch the locale to Arabic — this is the action that
+		// Switch the locale to Arabic, this is the action that
 		// USED TO require a full page reload to take effect on
 		// this section.
 		act(() => {
@@ -294,7 +294,7 @@ describe("GeneralSettingsSection — B-REVIEW-3 locale re-rendering", () => {
 
 		// The Arabic translation table loads via an async dynamic import
 		// (ensureLocaleLoaded), so the label swap lands on the second
-		// subscriber notification. Wait for it — the load completes in a
+		// subscriber notification. Wait for it, the load completes in a
 		// microtask chain, well within waitFor's budget.
 		await waitFor(() => {
 			// The English label must be GONE (replaced by Arabic).
@@ -305,7 +305,7 @@ describe("GeneralSettingsSection — B-REVIEW-3 locale re-rendering", () => {
 		});
 
 		// CRITICAL: the locale switch must NOT have triggered a
-		// full page reload — the whole point of B-REVIEW-3 is
+		// full page reload, the whole point of B-REVIEW-3 is
 		// that the section re-renders in-place.
 		expect(window.location.reload).not.toHaveBeenCalled();
 	});
@@ -325,7 +325,7 @@ describe("GeneralSettingsSection — B-REVIEW-3 locale re-rendering", () => {
 			/>,
 		);
 
-		// The Arabic table loads async — wait for the label to appear
+		// The Arabic table loads async, wait for the label to appear
 		// before asserting the round-trip back to English.
 		await waitFor(() => {
 			expect(screen.getByText("التشغيل عند تسجيل الدخول")).toBeTruthy();

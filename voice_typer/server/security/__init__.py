@@ -3,19 +3,19 @@
 Consolidates the former top-level security modules into one cohesive
 package so a security review reads a single threat-model surface:
 
-- :mod:`voice_typer.server.security.redaction` — secret + PII redaction
+- :mod:`voice_typer.server.security.redaction`, secret + PII redaction
   (the redaction half of the former ``_secrets.py`` merged with the PII
   filter from the former ``security.py``).
-- :mod:`voice_typer.server.security.url_allowlist` — cloud URL allowlist
+- :mod:`voice_typer.server.security.url_allowlist`, cloud URL allowlist
   + SSRF defense (the allowlist half of the former ``_secrets.py``).
-- :mod:`voice_typer.server.security.file_io` — secure atomic file I/O
+- :mod:`voice_typer.server.security.file_io`: secure atomic file I/O
   (the former ``secure_file_io.py``).
-- :mod:`voice_typer.server.security.http_safety` — no-redirect /
+- :mod:`voice_typer.server.security.http_safety`, no-redirect /
   HTTPS-only urllib opener (the former ``_http_safety.py``).
-- :mod:`voice_typer.server.security.model_integrity` — SHA-256 model
+- :mod:`voice_typer.server.security.model_integrity`, SHA-256 model
   verification + download allowlists (the integrity half of the former
   ``security.py`` merged with the former ``_model_integrity.py``).
-- :mod:`voice_typer.server.security.win32_dacl` — Win32 restrictive DACL
+- :mod:`voice_typer.server.security.win32_dacl`. Win32 restrictive DACL
   (the former ``_security_attributes.py``).
 
 Backward compatibility: the old top-level module paths
@@ -26,7 +26,7 @@ remain importable as re-export shims. New code should import from this
 package (or its submodules) directly.
 """
 
-from pathlib import Path as _Path  # noqa: F401 — re-exported for tests that patch security.Path.exists
+from pathlib import Path as _Path  # noqa: F401, re-exported for tests that patch security.Path.exists
 
 from .file_io import (  # noqa: F401
     PersistedJSON,
@@ -86,7 +86,7 @@ from .url_allowlist import (  # noqa: F401
 )
 from .win32_dacl import _create_restrictive_security_attributes  # noqa: F401
 
-# ``security.Path`` must be the ``pathlib.Path`` class itself — tests
+# ``security.Path`` must be the ``pathlib.Path`` class itself, tests
 # monkeypatch ``security.Path.exists`` (see ``tests/test_model_integrity.py``)
 # and the re-export keeps that contract identical to the former
 # ``security.py`` module (which did ``from pathlib import Path``).

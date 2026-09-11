@@ -1,4 +1,4 @@
-// Hook-level tests for useRowSelection — the shared selection state
+// Hook-level tests for useRowSelection, the shared selection state
 // machine the Vocabulary and Templates pages run on (via their thin
 // feature wrappers). The hook previously had NO direct tests (only
 // page-level coverage); these pin the state-machine contract for the
@@ -115,7 +115,7 @@ afterEach(() => {
 	vi.restoreAllMocks();
 });
 
-describe("useRowSelection — selection state machine", () => {
+describe("useRowSelection, selection state machine", () => {
 	it("toggleSelect adds an id, then removes it on the second toggle", () => {
 		const { result } = setup();
 		select(result, "id-a");
@@ -166,7 +166,7 @@ describe("useRowSelection — selection state machine", () => {
 		expect(result.current.selectedRows.map((r) => r.label)).toEqual(["a", "c"]);
 
 		// The list re-renders with fresh row objects (e.g. re-sorted or
-		// reloaded) — selectedRows follows the NEW objects while the
+		// reloaded), selectedRows follows the NEW objects while the
 		// selection ids stay stable.
 		const fresh = rows("b", "a", "c");
 		rerender({ rows: fresh });
@@ -182,7 +182,7 @@ describe("useRowSelection — selection state machine", () => {
 	});
 });
 
-describe("useRowSelection — bulk delete with undo", () => {
+describe("useRowSelection, bulk delete with undo", () => {
 	it("no-ops when nothing is selected (no persist, no state write, no toast)", async () => {
 		const { result, persist, setRows } = setup();
 		await act(async () => {
@@ -227,7 +227,7 @@ describe("useRowSelection — bulk delete with undo", () => {
 			await capturedUndo?.();
 		});
 
-		// a and c return to their original indexes (0 and 2) — asserted
+		// a and c return to their original indexes (0 and 2), asserted
 		// through the state writes the undo performs (the page's rowsRef
 		// mirror is the page's concern, not the hook's).
 		expect(setRows).toHaveBeenLastCalledWith(rows("a", "b", "c"));
@@ -237,7 +237,7 @@ describe("useRowSelection — bulk delete with undo", () => {
 
 	it("undo still inserts rows (clamped) when intervening rows were removed underneath the toast", async () => {
 		// Delete a + c from [a, b, c]; while the toast is up a concurrent
-		// write removes b too — the restore must clamp its insert
+		// write removes b too, the restore must clamp its insert
 		// positions instead of splicing past the end.
 		const { result, setRows, commit } = setup();
 		select(result, "id-a", "id-c");

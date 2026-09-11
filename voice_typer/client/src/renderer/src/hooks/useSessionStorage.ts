@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 
 /**
- * ``useSessionStorage`` — a ``useState``-shaped hook that persists its
+ * ``useSessionStorage``, a ``useState``-shaped hook that persists its
  * value to ``sessionStorage`` so the value survives page navigation
  * within the same browser session (per-tab / per-Electron-window).
  *
@@ -10,17 +10,19 @@ import { useCallback, useEffect, useState } from "react";
  * value or an updater function. JSON-serialised on every set; the
  * stored JSON is parsed back on the first mount.
  *
- * Cross-tab propagation: listens to the window ``storage`` event and
- * re-syncs when another tab/window writes the SAME key. (Electron
- * renderer windows share the same ``sessionStorage`` per profile, so a
- * write from one tab fires ``storage`` in the others — this keeps
- * in-flight filter state in sync across multi-window setups.)
+ * No cross-tab propagation, deliberately. The window ``storage``
+ * event does NOT fire in other tabs/windows for ``sessionStorage``
+ * writes (per MDN, the event syncs other documents only for
+ * ``localStorage``; ``sessionStorage`` is per-tab by design, and the
+ * document that makes a change never receives its own event). A
+ * previous version registered a ``storage`` listener here that could
+ * never fire cross-tab, dead code removed; filter state stays per-tab.
  *
  * Failure modes are silent + non-fatal: a corrupt JSON blob, a
  * disabled ``sessionStorage`` (private mode, sandbox restrictions), or
  * a thrown serialisation error all fall back to the initial value
  * without crashing the renderer. This matches the contract callers
- * rely on (filter state is best-effort persistence — losing it never
+ * rely on (filter state is best-effort persistence, losing it never
  * breaks the page).
  *
  * Naming: the ``vt:`` prefix used by callers (via ``useFilterState``)
@@ -47,7 +49,7 @@ export function useSessionStorage<T>(
 				try {
 					sessionStorage.setItem(key, JSON.stringify(next));
 				} catch {
-					/* ignore — storage may be unavailable (private mode,
+					/* ignore, storage may be unavailable (private mode,
                                            sandbox restrictions). The in-memory state still
                                            updates; only the persistence is best-effort. */
 				}
@@ -56,21 +58,6 @@ export function useSessionStorage<T>(
 		},
 		[key],
 	);
-
-	useEffect(() => {
-		const handler = (e: StorageEvent) => {
-			if (e.key === key && e.newValue) {
-				try {
-					setStored(JSON.parse(e.newValue) as T);
-				} catch {
-					/* ignore — a corrupt cross-tab write falls back to
-                                           the current value rather than crashing. */
-				}
-			}
-		};
-		window.addEventListener("storage", handler);
-		return () => window.removeEventListener("storage", handler);
-	}, [key]);
 
 	return [stored, setValue];
 }

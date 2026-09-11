@@ -1,14 +1,14 @@
 """TCP transport mixin for the IPC server (Phase 4.5 split).
 
 Extracted from the original ``voice_typer/server/ipc_server.py``
-god-module. Contains the ``TCPTransportMixin`` class — the TCP transport
+god-module. Contains the ``TCPTransportMixin`` class, the TCP transport
 methods (``start_tcp``, ``_accept_tcp``, ``_run_tcp_handler_safely``,
 ``_handle_tcp_connection``, ``_on_ipc_client_disconnect``) that are
 mixed into :class:`IPCServer` via multiple inheritance.
 
 The mixin accesses instance state (``self._lock``, ``self._tcp_client``,
 ``self._tcp_write_lock``, ``self._tcp_worker_pool`` etc.) which is
-declared on :class:`IPCServer` itself — the mixin provides only the
+declared on :class:`IPCServer` itself, the mixin provides only the
 method bodies.
 """
 
@@ -66,11 +66,11 @@ def _app_is_shutting_down(app: typing.Any) -> bool:
 # Validate-if-present semantics: a missing ``protocol_version`` field is
 # accepted (legacy senders continue to the token check), only an
 # explicit mismatch is rejected. This makes the change fully backward
-# compatible — new senders opt in by sending ``"protocol_version": 1``
+# compatible, new senders opt in by sending ``"protocol_version": 1``
 # and get a structured rejection on mismatch.
 # Canonical source of truth: ``voice_typer/server/ipc/protocol_version.py``.
 # Importing (rather than redefining) prevents drift between the WS and
-# TCP transports — see ``tests/test_protocol_version_consolidated.py``.
+# TCP transports: see ``tests/test_protocol_version_consolidated.py``.
 # The local ``IPC_PROTOCOL_VERSION`` name is kept as a backward-compat
 # alias so existing tests/imports continue to resolve.
 from voice_typer.server.ipc.protocol_version import PROTOCOL_VERSION as IPC_PROTOCOL_VERSION  # noqa: E402
@@ -129,11 +129,11 @@ class TCPTransportMixin:
 
          fix: ``port`` may be either:
 
-        - an ``int`` (legacy / backward-compatible) — this method will
+        - an ``int`` (legacy / backward-compatible), this method will
           create and bind its own socket to ``127.0.0.1:port``.  There
           is an inherent race window between this call and the bind
           (another local process could grab the port).
-        - a ``(port_int, bound_socket)`` tuple (gold-standard — no race
+        - a ``(port_int, bound_socket)`` tuple (gold-standard, no race
           window).  The caller has already bound the socket (typically
           via :func:`_pick_available_port`); this method simply calls
           ``listen()`` on it and starts accepting connections.  The
@@ -145,16 +145,16 @@ class TCPTransportMixin:
         # ``tray_window.open_electron_window()`` can tell whether a
         # ``show_window`` push actually has a live host client to reach.
         # ``event_bus.publish`` returns True when ANY in-process subscriber
-        # accepts — the TCP push swallows write failures (buffers to
+        # accepts, the TCP push swallows write failures (buffers to
         # ``_pending_tcp`` and marks the client dead) and unrelated
         # listeners (e.g. the tray's parakeet-cpu-fallback handler) accept
-        # every event — so the probe is the only truthful delivery signal.
+        # every event, so the probe is the only truthful delivery signal.
         # Unregistered in ``LifecycleMixin.stop()``. Registered here (not
         # in ``start()``) so the non-TCP transports (stdin, Tauri WS
         # sidecar) never register a probe and keep their previous
         # publish-and-return behavior. A BOUND METHOD (not a lambda) is
         # registered so ``event_bus`` can store it via
-        # ``weakref.WeakMethod`` — a lambda would capture ``self`` in a
+        # ``weakref.WeakMethod``: a lambda would capture ``self`` in a
         # strong closure and pin this server alive (and its probe
         # stale) even if ``stop()`` is never reached.
         self._transport_live_probe = self._transport_has_live_client
@@ -229,28 +229,27 @@ class TCPTransportMixin:
         process can know it.
 
         ``port`` may be either an ``int`` (legacy) or a
-        ``(port_int, bound_socket)`` tuple (gold-standard — eliminates
+        ``(port_int, bound_socket)`` tuple (gold-standard, eliminates
         the probe-then-bind race window).  See :meth:`start_tcp`.
         """
         # Read the expected token from the env var set by Electron.
         expected_token = os.environ.get(IPC_TOKEN_ENV_VAR, "")
         if not expected_token:
-            # mirror the WS path (sidecar_ws._authenticate) — refuse
+            # mirror the WS path (sidecar_ws._authenticate), refuse
             # ALL connections when the token is unset. The host must always
             # set this env var; an unset token means any local process
             # could otherwise connect to 127.0.0.1:9876 and dispatch
             # arbitrary IPC commands (quit_app, set_config, etc.).
             #
             # We still bind+listen (so stop()/socket cleanup semantics work
-            # — see test_accept_loop_can_be_stopped), but every accepted
+            #: see test_accept_loop_can_be_stopped), but every accepted
             # connection is immediately closed in _handle_tcp_connection
             # below before any auth or dispatch runs.
             log.error(
-                "[TCP] VOICE_TYPER_IPC_TOKEN not set — refusing ALL connections "
-                "(the host must always set this env var)."
+                "[TCP] VOICE_TYPER_IPC_TOKEN not set, refusing ALL connections (the host must always set this env var)."
             )
 
-        # unpack the (port, bound_socket) tuple if provided — the
+        # unpack the (port, bound_socket) tuple if provided, the
         # socket is already bound, so we skip the bind() call entirely
         # and go straight to listen().  This eliminates the race window
         # where another local process could grab the port between the
@@ -263,7 +262,7 @@ class TCPTransportMixin:
                 # DEBUG: the entrypoint's "[IPC] TCP server listening on
                 # port ..." INFO line is the single startup marker.
                 log.debug(
-                    "[TCP] listening on 127.0.0.1:%d (pre-bound socket — no race window)",
+                    "[TCP] listening on 127.0.0.1:%d (pre-bound socket, no race window)",
                     port_num,
                 )
             except Exception:
@@ -276,7 +275,7 @@ class TCPTransportMixin:
             port_num = port
             server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             # P1-1.4 (Windows parity): on Windows ``SO_REUSEADDR`` has the
-            # OPPOSITE semantics — it lets a second socket FORCIBLY bind a
+            # OPPOSITE semantics, it lets a second socket FORCIBLY bind a
             # port already in use (the hijack behavior). That would let a
             # stale second backend silently steal port 9876 from the live
             # backend (e.g. an orphaned pythonw from a crashed Electron),
@@ -314,7 +313,7 @@ class TCPTransportMixin:
         #
         # We check `self._running` (the canonical lifecycle flag set to
         # False by stop()) instead of the legacy getattr(self, "_stopped",
-        # False) — that flag was never set anywhere, so the loop only
+        # False), that flag was never set anywhere, so the loop only
         # exited via OSError when stop() closed the socket (which it
         # couldn't do, because the socket was a local variable).
         while self._running:
@@ -322,7 +321,7 @@ class TCPTransportMixin:
                 conn, addr = server.accept()
                 # DEBUG: pre-auth connects include the launcher's
                 # readiness probe (connect + immediate close) on every
-                # autostart — the INFO line is the post-auth
+                # autostart, the INFO line is the post-auth
                 # "client ... connected, auth OK" instead.
                 log.debug("[TCP] client connected from %s:%d", *addr)
                 # SEC: set a defensive blocking budget on the accepted
@@ -343,7 +342,7 @@ class TCPTransportMixin:
             # accept loop. Previously _handle_tcp_connection was called
             # inline here, so a client that opened a connection and sent
             # nothing would stall the accept loop for the full 5-second
-            # auth timeout (soft DoS) — any other client that connected
+            # auth timeout (soft DoS), any other client that connected
             # during that window would be queued in the kernel backlog
             # and not picked up until the stalled auth timed out. The
             # auth handshake (and its timeout) now runs on a worker
@@ -380,7 +379,7 @@ class TCPTransportMixin:
         # dispatches can finish writing their responses before the
         # connection handlers' sockets are torn down.
         # PERF-SHUTDOWN-002: during app shutdown that "exit promptly"
-        # does NOT hold — the read-loops are parked in a blocked
+        # does NOT hold, the read-loops are parked in a blocked
         # ``recv`` that Windows ``close()`` does not unblock, so the
         # ``wait=True`` joins below would burn their full 5s budget on
         # every quit. ``stop()`` (the canonical shutdown path) already
@@ -388,7 +387,7 @@ class TCPTransportMixin:
         # exit drain is the belt-and-suspenders path (also reached when
         # the listening socket is closed by a test fixture) and must
         # gate identically. During shutdown the process is exiting
-        # right after cleanup — in-flight handlers are reaped as daemon
+        # right after cleanup, in-flight handlers are reaped as daemon
         # threads, nothing to wait for.
         _skip_drain = _app_is_shutting_down(self.app)
         dispatch_pool = self._tcp_dispatch_pool
@@ -400,7 +399,7 @@ class TCPTransportMixin:
                 dispatch_join.start()
                 dispatch_join.join(timeout=5.0)
                 if dispatch_join.is_alive():
-                    log.warning("[SHUTDOWN] tcp_dispatch_pool did not drain in 5s — proceeding anyway")
+                    log.warning("[SHUTDOWN] tcp_dispatch_pool did not drain in 5s, proceeding anyway")
         pool = self._tcp_worker_pool
         if pool is not None:
             pool.shutdown(wait=False, cancel_futures=True)
@@ -416,7 +415,7 @@ class TCPTransportMixin:
                 join_thread.start()
                 join_thread.join(timeout=5.0)
                 if join_thread.is_alive():
-                    log.warning("[SHUTDOWN] tcp_worker_pool did not drain in 5s — proceeding anyway")
+                    log.warning("[SHUTDOWN] tcp_worker_pool did not drain in 5s, proceeding anyway")
 
         with contextlib.suppress(OSError):
             server.close()
@@ -488,19 +487,19 @@ class TCPTransportMixin:
         # tcp-connect.ts (set immediately after ``new net.Socket()``).
         # ``IPPROTO_TCP`` may be unavailable on non-TCP mock sockets in
         # tests, so the setsockopt is wrapped in suppress(OSError,
-        # AttributeError) — same defensive pattern as the settimeout
+        # AttributeError), same defensive pattern as the settimeout
         # above.
         with contextlib.suppress(OSError, AttributeError):
             conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
 
-        # mirror the WS path — if the token is unset, refuse the
+        # mirror the WS path, if the token is unset, refuse the
         # connection immediately. We log ERROR once at bind time (above)
         # and once per connection so a misconfigured launch surfaces in
         # either spot. Closing the conn unblocks the accept loop so the
         # server stays responsive to stop().
         if not expected_token:
             log.error(
-                "[TCP] refusing connection from %s:%d — VOICE_TYPER_IPC_TOKEN not set",
+                "[TCP] refusing connection from %s:%d. VOICE_TYPER_IPC_TOKEN not set",
                 addr[0],
                 addr[1],
             )
@@ -511,7 +510,7 @@ class TCPTransportMixin:
         # Perform the auth handshake OUTSIDE self._lock so
         # a stalled auth read doesn't block push() events from other
         # threads. The ``not expected_token`` guard above returns
-        # early, so ``expected_token`` is always truthy here — the old
+        # early, so ``expected_token`` is always truthy here, the old
         # ``if expected_token: ... else: auth_client = _TCPLineIO(conn)``
         # wrapper's else branch was dead code. The auth body runs
         # unconditionally (de-indented).
@@ -521,7 +520,7 @@ class TCPTransportMixin:
             if not auth_line:
                 # DEBUG: covers the launcher's readiness probe (connect +
                 # immediate close, fires on every autostart) as well as a
-                # client that crashes pre-auth — neither warrants INFO.
+                # client that crashes pre-auth, neither warrants INFO.
                 log.debug(
                     "[TCP] client %s:%d disconnected before auth",
                     addr[0],
@@ -537,14 +536,14 @@ class TCPTransportMixin:
             # structured ``server.protocol_version_mismatch`` error
             # envelope instead of an opaque ``auth_failed``. Clients
             # that omit the field (legacy senders) continue to the
-            # token check unchanged — backward compatible.
+            # token check unchanged, backward compatible.
             if (
                 isinstance(auth_msg, dict)
                 and "protocol_version" in auth_msg
                 and auth_msg.get("protocol_version") != IPC_PROTOCOL_VERSION
             ):
                 log.warning(
-                    "[TCP] auth rejected — protocol_version mismatch (client sent %r, server expects %r)",
+                    "[TCP] auth rejected, protocol_version mismatch (client sent %r, server expects %r)",
                     auth_msg.get("protocol_version"),
                     IPC_PROTOCOL_VERSION,
                 )
@@ -568,7 +567,7 @@ class TCPTransportMixin:
                         + "\n"
                     )
                     auth_client.flush()
-                except Exception as exc:  # noqa: BLE001 — best-effort error frame to a client that's about to be closed
+                except Exception as exc:  # noqa: BLE001, best-effort error frame to a client that's about to be closed
                     log.debug(
                         "[TCP] failed to send protocol_version_mismatch error frame: %s",
                         type(exc).__name__,
@@ -578,7 +577,7 @@ class TCPTransportMixin:
                 return
             # Frame-shape validation + token extraction are shared
             # with the WS transport (shared via ``ipc/auth.py``
-            # ``extract_auth_token`` — the DEDUP note in
+            # ``extract_auth_token``: the DEDUP note in
             # ``sidecar_ws._authenticate`` documents the shared
             # contract). ``tokens_equal`` wraps ``hmac.compare_digest``
             # so the constant-time comparison guarantee (a timing
@@ -593,7 +592,7 @@ class TCPTransportMixin:
                 # Include the peer address so repeated stale-client
                 # retries (e.g. a leftover Electron/Tauri host holding an
                 # old token) are distinguishable from a real attack.
-                log.warning("[TCP] auth failed — invalid token (from %s)", addr)
+                log.warning("[TCP] auth failed, invalid token (from %s)", addr)
                 try:
                     auth_client.write(
                         json.dumps(
@@ -611,7 +610,7 @@ class TCPTransportMixin:
                                     # with code 1008 instead of
                                     # emitting an error frame, so
                                     # there is no WS-side code to
-                                    # match — but a client reading
+                                    # match, but a client reading
                                     # the TCP error frame can now
                                     # distinguish auth failure
                                     # from other errors without
@@ -625,7 +624,7 @@ class TCPTransportMixin:
                         + "\n"
                     )
                     auth_client.flush()
-                except Exception as exc:  # noqa: BLE001 — best-effort auth_failed error frame to a client that's about to be closed
+                except Exception as exc:  # noqa: BLE001, best-effort auth_failed error frame to a client that's about to be closed
                     log.debug(
                         "[TCP] failed to send auth_failed error frame: %s",
                         type(exc).__name__,
@@ -635,7 +634,7 @@ class TCPTransportMixin:
                 return
             log.info("[TCP] client %s:%d connected, auth OK", addr[0], addr[1])
         except json.JSONDecodeError:
-            log.warning("[TCP] auth failed — invalid JSON on first line")
+            log.warning("[TCP] auth failed, invalid JSON on first line")
             auth_client.close()
             return
         except Exception:
@@ -677,7 +676,7 @@ class TCPTransportMixin:
             if pending_flush:
                 self._pending_tcp.clear()
 
-        # Flush the snapshot OUTSIDE the lock — a slow Electron
+        # Flush the snapshot OUTSIDE the lock, a slow Electron
         # renderer can stall here without blocking other dispatchers.
         # Write ALL pending entries with a SINGLE ``flush()``
         # after the loop, rather than one ``flush()`` per entry. The
@@ -688,7 +687,7 @@ class TCPTransportMixin:
         # reconnect = 50 flushes instead of 1). A single flush after
         # the loop lets the kernel coalesce the writes into one TCP
         # segment burst. The ``break`` on a write failure is preserved
-        # — if the client's socket buffer is full mid-flush, the
+        # , if the client's socket buffer is full mid-flush, the
         # remaining entries are dropped (they'll be re-sent on the
         # next state_changed push, which re-snapshots the queue).
         if pending_flush:
@@ -701,7 +700,7 @@ class TCPTransportMixin:
             else:
                 # Single flush after the loop completed without
                 # ``break``. If a write raised, the ``break`` skips
-                # this flush — the partially-written buffer is left
+                # this flush, the partially-written buffer is left
                 # for the kernel / socket layer to drain (or drop on
                 # close), matching the pre-fix behavior for the
                 # failure path.
@@ -735,7 +734,7 @@ class TCPTransportMixin:
         # across all TCP connections to this server (looked up via
         # ``_get_rate_limiter(self)``) so a local attacker can no longer
         # reset the 200-message burst budget by disconnecting and
-        # reconnecting — the 10s sliding window continues to evict old
+        # reconnecting, the 10s sliding window continues to evict old
         # timestamps across reconnects.
         rate_limiter = _get_rate_limiter(self)
 
@@ -757,7 +756,7 @@ class TCPTransportMixin:
                     continue
                 # parse JSON BEFORE the rate-limit check so
                 # the request ``id`` (when present) is available for the
-                # rate-limit error response — clients using id-based
+                # rate-limit error response, clients using id-based
                 # JSON-RPC-style correlation can then match the rejection
                 # back to the originating request. Previously the check
                 # fired on the raw line BEFORE ``json.loads``, so the
@@ -774,13 +773,13 @@ class TCPTransportMixin:
                     # fast-auth reconnect that reassigns ``self._tcp_client``
                     # doesn't redirect this error to the wrong socket.
                     # ``id`` is unavailable here (json.loads
-                    # failed before we could parse it) — match the WS path
+                    # failed before we could parse it), match the WS path
                     # which also omits ``id`` on invalid_payload.
                     self._send(
                         {
                             "type": "error",
                             "data": {
-                                # Namespaced form (canonical) — see
+                                # Namespaced form (canonical): see
                                 # ``voice_typer/server/ipc/validation.py``
                                 # for the migration contract.
                                 "code": "client.invalid_payload",
@@ -791,7 +790,7 @@ class TCPTransportMixin:
                     )
                     continue
                 # Pass ``command=msg_type`` so the per-command
-                # cost map (``COMMAND_COSTS``) is applied — e.g.
+                # cost map (``COMMAND_COSTS``) is applied, e.g.
                 # ``download_model`` consumes 50 of the 200 burst units,
                 # so a buggy client can fire at most 4 expensive commands
                 # per second before the 5th is rejected. Cheap commands
@@ -807,10 +806,10 @@ class TCPTransportMixin:
                 # a compromised renderer cannot invoke the Python-only
                 # handlers (``shutdown`` = backend DoS, ``tray_click`` =
                 # spoofed tray actions). The WS (Tauri host) path is NOT
-                # gated — the host legitimately sends both (registry
+                # gated, the host legitimately sends both (registry
                 # comment; ADR-0020 §6.5 / §16 / §10). The rejection is
                 # a structured envelope (surfaced as an unknown command
-                # to this transport) and the read loop continues — the
+                # to this transport) and the read loop continues, the
                 # connection is NOT torn down for a bad command type.
                 if msg_type in _PYTHON_ONLY_COMMANDS:
                     log.warning(
@@ -819,7 +818,7 @@ class TCPTransportMixin:
                     )
                     # Code ``server.unknown_command`` is deliberate: to
                     # this renderer-facing transport the command IS
-                    # unknown — the TS ``ALLOWED_COMMANDS`` omits it by
+                    # unknown, the TS ``ALLOWED_COMMANDS`` omits it by
                     # contract. The message is intentionally more
                     # specific so the client-side diagnostic (and the
                     # WARNING above) explains WHY rather than echoing
@@ -835,7 +834,7 @@ class TCPTransportMixin:
                 # the read loop BEFORE ``self._dispatch(msg)`` so the
                 # heartbeat-ack is not delayed by an in-flight long
                 # dispatch (e.g. ``download_model``,
-                # ``transcribe_final``) — Electron's main-process
+                # ``transcribe_final``), Electron's main-process
                 # heartbeat watchdog (see ``client/src/main/index.ts``)
                 # would otherwise fire spuriously during a legitimate
                 # long-running command, restarting the IPC connection
@@ -854,7 +853,7 @@ class TCPTransportMixin:
                     continue
                 if not rate_limiter.allow(command=msg_type):
                     # ``allow()`` increments the rejected counter
-                    # atomically when it returns False — no separate
+                    # atomically when it returns False, no separate
                     # ``reject()`` call needed (and calling it would
                     # double-count under the new atomic semantics).
                     #
@@ -892,7 +891,7 @@ class TCPTransportMixin:
                 # NOT block the read loop from reading subsequent commands
                 # from the same Electron client (head-of-line blocking).
                 # Mirrors the WS path's ``run_in_executor`` pattern at
-                # ``sidecar_ws.py:572`` — but TCP is thread-based (not
+                # ``sidecar_ws.py:572``, but TCP is thread-based (not
                 # asyncio), so we use ``ThreadPoolExecutor.submit`` instead
                 # of ``loop.run_in_executor``. The Future is discarded
                 # because the response is sent from within
@@ -912,12 +911,12 @@ class TCPTransportMixin:
                 # above) so the heartbeat-ack is never delayed by an
                 # in-flight long dispatch.
                 self._tcp_dispatch_pool.submit(self._tcp_dispatch_and_respond, msg, client)
-        except socket.timeout:  # noqa: UP041 — the idle-read tests pin this exact text in source
-            # Idle-read timeout fired — the authenticated client sent
+        except socket.timeout:  # noqa: UP041, the idle-read tests pin this exact text in source
+            # Idle-read timeout fired, the authenticated client sent
             # nothing within the heartbeat window (authenticated-idle
             # DoS mitigation). Log at WARNING (not the routine disconnect
             # DEBUG) and let the finally block close the connection.
-            log.warning("[TCP] idle-read timeout fired for authenticated client — disconnecting")
+            log.warning("[TCP] idle-read timeout fired for authenticated client, disconnecting")
         except OSError:
             # Routine socket close / EOF: the client disconnected.
             log.debug("[TCP] client connection closed")
@@ -956,7 +955,7 @@ class TCPTransportMixin:
         NOT block the read loop from reading subsequent commands from
         the same Electron client. This mirrors the WS path's
         ``run_in_executor(ws_dispatch_pool, server._dispatch, msg)``
-        pattern at ``sidecar_ws.py:572`` — adapted for the thread-based
+        pattern at ``sidecar_ws.py:572``: adapted for the thread-based
         TCP transport by wrapping the dispatch + response-send in a
         single callable so the read loop can discard the Future.
 
@@ -992,7 +991,7 @@ class TCPTransportMixin:
             # clients using ``id``-based request/response correlation
             # (the standard JSON-RPC-like pattern) can match the error
             # back to the originating request. Without this, a buggy
-            # handler effectively orphaned every pending request — the
+            # handler effectively orphaned every pending request, the
             # client received an ``{"type": "error"}`` with no ``id``
             # and could not tell which request failed. The message
             # stays the generic ``"internal error"`` (we deliberately
@@ -1046,17 +1045,17 @@ class TCPTransportMixin:
 
         Skipped during server shutdown (``self._running == False``)
         so an active recording isn't interrupted by the teardown
-        sequence — we only want to fire on an *unexpected* client
+        sequence, we only want to fire on an *unexpected* client
         disconnect, not on a planned stop().
 
         The reset is idempotent: calling it when ownership is
         already ``"normal"`` is a no-op. Safe to call from multiple
-        disconnect paths (TCP + stdin EOF) — the second call is a
+        disconnect paths (TCP + stdin EOF), the second call is a
         no-op.
         """
         if not self._running:
             # Server is shutting down (stop() was called). Don't
-            # reset ownership — a recording might be in progress
+            # reset ownership, a recording might be in progress
             # and the teardown sequence will handle cleanup.
             log.debug("[IPC] client disconnect during shutdown; skipping keyboard ownership reset")
             return

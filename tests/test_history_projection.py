@@ -8,7 +8,7 @@ for a single row.
 The 500-char projection keeps list responses under the 1 MiB WS frame
 cap (``sidecar_ws._MAX_FRAME_BYTES``). Without it, ~50 long-form
 dictations with ~10KB text each exceeded the cap and the response was
-SILENTLY DROPPED by the Tauri WS layer — the Dashboard's "Total
+SILENTLY DROPPED by the Tauri WS layer, the Dashboard's "Total
 Dictations" stat never updated.
 
 Test plan (from the TY-FIX-G task spec):
@@ -187,7 +187,7 @@ class TestGetTranscriptionText:
 
     def test_full_text_matches_preview_prefix(self, db):
         """TY-8: the first 500 chars of the full text equal the
-        preview returned by ``get_recent`` — no data was lost."""
+        preview returned by ``get_recent``, no data was lost."""
         long_text = _make_long_text(2048)
         db.add_transcription(long_text)
         db.flush()

@@ -4,7 +4,7 @@ Two classes of duplication crept into the suite historically:
 
 1. Local config-factory functions copy-pasted across test files
    (``def makeConfig(...)``) instead of importing a shared helper from
-   ``tests/fixtures/``. Copies drift independently — each divergence is
+   ``tests/fixtures/``. Copies drift independently, each divergence is
    a silent behavioral difference between suites that all claim to test
    the same config shape.
 
@@ -43,7 +43,7 @@ _LOCAL_MAKE_CONFIG_FACTORY_RE = re.compile(r"\bdef\s+makeConfig\s*\(")
 def _iter_test_sources():
     """Yield ``(path, text)`` for every non-fixture test source file.
 
-    This module itself is skipped — its docstring quotes the forbidden
+    This module itself is skipped, its docstring quotes the forbidden
     pattern and would otherwise self-match.
     """
     for path in sorted(TESTS_DIR.rglob("*.py")):
@@ -68,7 +68,7 @@ def test_no_local_make_config_factories() -> None:
             line = text[: match.start()].count("\n") + 1
             offenders.append(f"{path.relative_to(TESTS_DIR.parent)}:{line}")
     assert not offenders, (
-        "Local config factories found outside tests/fixtures/ — "
+        "Local config factories found outside tests/fixtures/, "
         "import the shared helper instead of redefining it: "
         f"{offenders}"
     )
@@ -84,7 +84,7 @@ def test_consolidated_files_import_shared_fake_config(path: Path) -> None:
     """
     text = path.read_text(encoding="utf-8", errors="replace")
     assert not _LOCAL_CONFIG_CLASS_RE.search(text), (
-        f"{path.name} re-defines a local config class — import FakeConfig from tests.fixtures.config_helpers instead"
+        f"{path.name} re-defines a local config class, import FakeConfig from tests.fixtures.config_helpers instead"
     )
     assert "from tests.fixtures.config_helpers import FakeConfig" in text, (
         f"{path.name} must import FakeConfig from tests.fixtures.config_helpers"

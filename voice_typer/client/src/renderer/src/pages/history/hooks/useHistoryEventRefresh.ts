@@ -1,10 +1,10 @@
 // History background-event refresh + manual refresh hook.
 //
 // Extracted from `pages/History.tsx` (page-root slimming): the whole
-// background-refresh pipeline — the 500ms-debounced
+// background-refresh pipeline, the 500ms-debounced
 // `transcription_final` / `history_changed` handler, the
 // hidden-window stale flag, the visibilitychange one-shot refresh, the
-// `refreshing` spinner state, and the manual refresh wrapper — is one
+// `refreshing` spinner state, and the manual refresh wrapper, is one
 // cohesive concern that belongs in a named, testable hook instead of
 // the page root. The data fetch itself stays in `useHistoryCache`
 // (`refreshFromEvent` / passed-in `runLoad`); this hook only owns WHEN
@@ -45,7 +45,7 @@ export function useHistoryEventRefresh({
 	// or `history_changed` event arrives while the window is hidden
 	// (document.visibilityState !== "visible"). The visibilitychange
 	// listener below checks this flag on focus and triggers a single
-	// debounced refresh — so background events don't fire IPC calls
+	// debounced refresh, so background events don't fire IPC calls
 	// while the user isn't looking at the page. The next focus
 	// collapses the backlog into ONE fetch (per-page; only the visible
 	// page's listener actually runs because only the mounted page

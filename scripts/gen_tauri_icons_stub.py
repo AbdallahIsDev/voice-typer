@@ -12,7 +12,7 @@ immediately with::
     error: resource path 'bin/python-sidecar-x86_64-unknown-linux-gnu' doesn't exist
 
 This script writes minimal, valid placeholder binaries so the packaging
-dry-run succeeds. The stubs are intentionally NOT real — every stub
+dry-run succeeds. The stubs are intentionally NOT real, every stub
 sidecar / native / prewarm binary prints a clear ``STUB: not a real
 sidecar`` message to stderr and exits 1, so anyone who accidentally
 tries to run the app against the stubs fails loudly rather than
@@ -37,7 +37,7 @@ WHAT IS GENERATED
 
 Binary stubs are written ONLY when the path is absent or already a stub
 (``_is_stub_file`` heuristic). A real Nuitka / compiled artifact that a
-CI step or developer built at one of these paths is preserved — CI runs
+CI step or developer built at one of these paths is preserved, CI runs
 the per-platform binary builds BEFORE the stub step, and clobbering them
 would ship a broken (exit-1) sidecar in the installer.
 
@@ -50,18 +50,18 @@ git-committed files generated once with ``tauri icon`` from
 — see ``scripts/build/generate_icon.py``). This script does NOT generate
 them and ``--clean`` never touches the icons directory. Its only icon
 duty is the fail-fast CI gates that structurally validate the committed
-icons before each platform's ``cargo tauri build`` — ``tauri-build``
+icons before each platform's ``cargo tauri build``, ``tauri-build``
 hard-fails the whole build if the platform's icon is missing or corrupt:
 
 The gates validate at the FULL container level of real ``tauri icon``
 output (magic, IHDR fields, IHDR CRC, IDAT presence, ICO blob↔entry
-dimensions, the canonical ICNS chunk set) — so a stub / hand-built
+dimensions, the canonical ICNS chunk set), so a stub / hand-built
 icon that only mimics the file magic cannot pass as production; the
 structural tests in ``tests/tauri/test_gen_tauri_icons_stub.py`` pin
 the same layout against the committed files.
 
 - ``--check-icons`` → validates EVERY file in ``tauri.conf.json``
-  ``bundle.icon`` (the 4 PNGs, ``icon.ico``, ``icon.icns``) — the single
+  ``bundle.icon`` (the 4 PNGs, ``icon.ico``, ``icon.icns``), the single
   cross-platform gate, run identically by every Tauri workflow
   (tauri-windows-build.yml / tauri-macos-build.yml /
   tauri-linux-build.yml) before ``cargo tauri build``
@@ -98,7 +98,7 @@ PROJECT_ROOT = SCRIPT_PATH.parent.parent
 SRC_TAURI = PROJECT_ROOT / "src-tauri"
 
 # ─── Configuration (must match src-tauri/tauri.conf.json) ─────────────────
-# The Windows resource icon path — validated by ``--check-icons``. The
+# The Windows resource icon path, validated by ``--check-icons``. The
 # icon files themselves are REAL committed artifacts (generated once with
 # ``tauri icon`` from ``voice_typer/client/scripts/logo.svg``); this
 # script only validates the .ico, it does not generate icons.
@@ -111,7 +111,7 @@ SRC_TAURI = PROJECT_ROOT / "src-tauri"
 # icon list contains no ``.ico``.
 ICO_ICON: str = "icons/icon.ico"
 
-# The macOS bundle icon — validated by ``--check-icons``. Also a REAL
+# The macOS bundle icon, validated by ``--check-icons``. Also a REAL
 # committed artifact (see the module docstring); the macOS bundler
 # copies it into the ``.app`` bundle.
 ICNS_ICON: str = "icons/icon.icns"
@@ -123,8 +123,8 @@ ICNS_ICON: str = "icons/icon.icns"
 # source of truth enforced by the fail-fast CI gate (``--check-icons``)
 # AND by the drift-guard tests in
 # ``tests/tauri/test_gen_tauri_icons_stub.py`` (which import this
-# module). A bad regeneration — e.g. ``tauri icon`` emitting a 64px
-# ``32x32.png`` — must fail CI instead of shipping a wrong-sized
+# module). A bad regeneration: e.g. ``tauri icon`` emitting a 64px
+# ``32x32.png``: must fail CI instead of shipping a wrong-sized
 # window / dock / tray icon.
 
 # bundle.icon PNGs: src-tauri-relative path -> (width, height). Every
@@ -179,7 +179,7 @@ ICNS_LEGACY_OSTYPES: set[bytes] = {
     b"l8mk",  # 32x32 8-bit mask
 }
 
-# Target triples (6 per-arch builds — ADR-0020 §4.1 + §5)
+# Target triples (6 per-arch builds. ADR-0020 §4.1 + §5)
 SIDECAR_TRIPLES: list[str] = [
     "x86_64-pc-windows-msvc",
     "aarch64-pc-windows-msvc",
@@ -193,21 +193,21 @@ WINDOWS_TRIPLES: set[str] = {
     "aarch64-pc-windows-msvc",
 }
 
-# externalBin base name — Tauri appends -<triple>[.exe]
+# externalBin base name. Tauri appends -<triple>[.exe]
 SIDECAR_BASENAME = "python-sidecar"
 
-# externalBin base name for the ML worker exe (Phase 2a — runtime-pack split,
+# externalBin base name for the ML worker exe (Phase 2a, runtime-pack split,
 # plan-runtime-pack-split §4.4). Same triple set as the sidecar.
 WORKER_BASENAME = "voice-typer-worker"
 
-# bundle.resources — native hotkey binaries
+# bundle.resources, native hotkey binaries
 NATIVE_RESOURCES: list[tuple[str, str]] = [
     ("resources/native/windows-key-listener.exe", "windows"),
     ("resources/native/macos-key-listener", "darwin"),
     ("resources/native/linux-key-listener", "linux"),
 ]
 
-# NOTE: prewarm resources DELETED 2026-08-13 — prewarm became a startup phase
+# NOTE: prewarm resources DELETED 2026-08-13, prewarm became a startup phase
 # of the worker exe (plan-runtime-pack-split §6.2 Option P-1). The separate
 # prewarm-<triple>[.exe] binary + its OS-level schedulers (Windows
 # LogonTrigger / macOS LaunchAgent / Linux systemd) are gone. The worker
@@ -219,15 +219,15 @@ NATIVE_RESOURCES: list[tuple[str, str]] = [
 STUB_MARKER = "STUB: not a real sidecar"
 
 # A non-stub file at a stub path is either a REAL artifact (Nuitka
-# onefile / compiled native binary — always tens of KB to tens of MB)
+# onefile / compiled native binary, always tens of KB to tens of MB)
 # or corruption (truncated write, bad checkout). Our canonical stubs
 # are < 200 bytes; a file smaller than this that is not our exact stub
-# is neither — ``--check`` rejects it so a truncated or corrupt stub
+# is neither, ``--check`` rejects it so a truncated or corrupt stub
 # cannot sail past the gate into ``cargo tauri build``.
 MIN_REAL_BINARY_SIZE = 512
 
 
-# ─── Icon validation (stdlib only — no Pillow) ────────────────────────────
+# ─── Icon validation (stdlib only, no Pillow) ────────────────────────────
 PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 
 
@@ -249,12 +249,12 @@ def _png_container_problems(data: bytes, expected: tuple[int, int] | None = None
 
     Used by ``--check-icons`` for the bundle PNGs and the PNG-compressed
     blobs inside the ICO. Enforces the container-level layout ``tauri
-    icon`` emits — the committed icon set was generated with it and the
-    structural tests pin that layout — so a stub / hand-built icon that
+    icon`` emits, the committed icon set was generated with it and the
+    structural tests pin that layout, so a stub / hand-built icon that
     only mimics the magic bytes cannot pass as production:
 
     - magic + IHDR with correct dimensions (``expected`` when given)
-    - bit depth 8 / color type 6 (RGBA) — tauri-codegen's
+    - bit depth 8 / color type 6 (RGBA), tauri-codegen's
       ``generate_context!()`` rejects non-RGBA
     - compression method 0, filter method 0, interlace 0 (tauri icon
       emits plain non-interlaced PNGs)
@@ -285,7 +285,7 @@ def _png_container_problems(data: bytes, expected: tuple[int, int] | None = None
     if bit_depth != 8 or color_type != 6:
         return [
             f"IHDR is {bit_depth}-bit color-type-{color_type}, expected "
-            "8-bit RGBA (color type 6) — what tauri icon emits"
+            "8-bit RGBA (color type 6), what tauri icon emits"
         ]
     if compression != 0 or filter_method != 0:
         return [f"IHDR compression/filter {compression}/{filter_method}, expected 0/0"]
@@ -307,13 +307,13 @@ def _validate_png(path: Path, expected: tuple[int, int] | None = None) -> list[s
 
     Deep structural check (stdlib): magic bytes, IHDR chunk (dimensions /
     bit depth / color type / compression / filter / interlace), a valid
-    IHDR CRC, a present IDAT, and a terminating IEND chunk — the
+    IHDR CRC, a present IDAT, and a terminating IEND chunk, the
     container layout ``tauri icon`` emits, and the properties
     tauri-codegen's ``image``-crate decode depends on at compile time.
     Validates every ``*.png`` in ``bundle.icon`` for the Linux CI gate
     (the .desktop-entry / package icons).
 
-    ``expected`` — when given, the IHDR dimensions must match exactly
+    ``expected``: when given, the IHDR dimensions must match exactly
     (the committed files are generated at fixed sizes; a mismatched
     regeneration is caught here instead of shipping a wrong-sized icon).
     """
@@ -330,10 +330,10 @@ def _validate_icns(path: Path) -> list[str]:
     Mirrors the structural test in tests/tauri/test_gen_tauri_icons_stub.py:
     8-byte header (``icns`` magic + u32 BE total length), a chunk table
     (4-byte OSType + u32 BE chunk length covering the file exactly), the
-    FULL canonical chunk set of real ``tauri icon`` output — all 8
+    FULL canonical chunk set of real ``tauri icon`` output, all 8
     PNG-compressed chunks (ic07..ic14, each pixel size matching its
     ostype's canonical size, 8-bit RGBA, non-interlaced) plus the 4
-    legacy raw-ARGB/mask chunks (is32/s8mk/il32/l8mk) — and no unknown
+    legacy raw-ARGB/mask chunks (is32/s8mk/il32/l8mk), and no unknown
     chunk types. The macOS bundler copies this .icns into the ``.app``
     bundle, so a corrupt or stub-shaped file must fail the CI gate
     before ``cargo tauri build``. Chunk ORDER is deliberately not
@@ -373,7 +373,7 @@ def _validate_icns(path: Path) -> list[str]:
             png_ostypes.append(ostype)
             # Decode the PNG payload's IHDR and check the pixels match
             # the chunk ostype's canonical size (EXPECTED_ICNS_CHUNK_SIZES
-            # — the sizes macOS actually renders). A PNG chunk carrying
+            # , the sizes macOS actually renders). A PNG chunk carrying
             # the wrong dimensions is a corrupt / bad-regeneration
             # signal; an unregistered PNG ostype is a fail-closed unknown.
             expected_size = EXPECTED_ICNS_CHUNK_SIZES.get(ostype)
@@ -386,7 +386,7 @@ def _validate_icns(path: Path) -> list[str]:
                 if (w, h) != (expected_size, expected_size):
                     problems.append(f"{path} PNG chunk {ostype!r} is {w}x{h}, expected {expected_size}x{expected_size}")
                 # Container-level: PNG payloads must be the same 8-bit
-                # RGBA non-interlaced layout tauri icon emits — a stub
+                # RGBA non-interlaced layout tauri icon emits, a stub
                 # PNG with different fields must not pass as production.
                 bit_depth, color_type, interlace = payload[24], payload[25], payload[28]
                 if (bit_depth, color_type, interlace) != (8, 6, 0):
@@ -423,7 +423,7 @@ def _validate_ico(path: Path) -> list[str]:
     """Validate ``path`` as a Windows ``.ico``; return a list of problems.
 
     Structural validation only (stdlib): ICONDIR header, entry records
-    and PNG signatures at each image offset — the same properties
+    and PNG signatures at each image offset, the same properties
     tauri-codegen's ``image``-crate decode relies on at compile time.
     An empty list means the file is a valid ICO.
     """
@@ -448,7 +448,7 @@ def _validate_ico(path: Path) -> list[str]:
         w, h, _, _, planes, bpp, size, img_off = struct.unpack("<BBBBHHII", data[offset : offset + 16])
         offset += 16
         # planes: the ICO spec says 1, but the `ico` crate (used by
-        # `tauri icon`) writes 0 — Windows + the `image` crate both
+        # `tauri icon`) writes 0. Windows + the `image` crate both
         # ignore the field for PNG-compressed entries, so accept 0 or 1.
         if planes not in (0, 1) or bpp != 32:
             problems.append(f"{path} entry {i}: planes={planes} bpp={bpp} (expected 0/1 and 32)")
@@ -468,7 +468,7 @@ def _validate_ico(path: Path) -> list[str]:
                 bw, bh = struct.unpack(">II", blob[16:24])
                 if (bw, bh) != (dw, dh):
                     problems.append(f"{path} entry {i} PNG IHDR {bw}x{bh} does not match declared {dw}x{dh}")
-            # Deep PNG checks on the blob (RGBA b8, CRC, IDAT, IEND) — a
+            # Deep PNG checks on the blob (RGBA b8, CRC, IDAT, IEND), a
             # stub blob that merely starts with the PNG magic cannot pass.
             for p in _png_container_problems(blob):
                 problems.append(f"{path} entry {i} PNG: {p}")
@@ -486,7 +486,7 @@ def _validate_ico(path: Path) -> list[str]:
 def _stub_content(platform: str, kind: str) -> bytes:
     """Build stub script content for the given platform + kind.
 
-    ``kind`` is ``"sidecar"``, ``"native"``, or ``"prewarm"`` — included
+    ``kind`` is ``"sidecar"``, ``"native"``, or ``"prewarm"``, included
     in the stderr message so the failure is self-describing.
     """
     msg = f"{STUB_MARKER} ({kind})"
@@ -494,7 +494,7 @@ def _stub_content(platform: str, kind: str) -> bytes:
         # Batch-file content written with .exe extension. Windows
         # CreateProcess rejects non-PE files with ERROR_BAD_EXE_FORMAT
         # -> loud failure at runtime. For the packaging dry-run, Tauri
-        # just bundles the bytes — extension is what matters there.
+        # just bundles the bytes, extension is what matters there.
         return f"@echo off\recho {msg} >&2\rexit /b 1\r".encode("ascii")
     # POSIX shell script. chmod +x'd so a real spawn runs the script
     # and exits 1 with the marker on stderr.
@@ -516,7 +516,7 @@ def _is_stub_file(path: Path) -> bool:
     not contain the ``STUB_MARKER`` string in their first 8 KB; our
     binary stubs are < 200 bytes and contain it. Used by ``--clean`` so
     we never delete a real artifact. (The icons are committed real files
-    and are NOT in the stub path registry — this heuristic only applies
+    and are NOT in the stub path registry: this heuristic only applies
     to the binary paths below.)
     """
     if not path.exists():
@@ -533,13 +533,13 @@ def _stub_problems(path: Path, platform: str, kind: str) -> list[str]:
     """Structural problems with the file at a stub path (empty list = OK).
 
     A stub path may hold either our exact canonical stub bytes
-    (``_stub_content`` — what ``generate`` writes) or a REAL artifact a
+    (``_stub_content``: what ``generate`` writes) or a REAL artifact a
     CI step / developer built there. ``--check`` accepts both, but must
     fail on anything else:
 
     - a truncated / modified stub (STUB_MARKER present but the bytes do
       not match the canonical content),
-    - an EMPTY file (a partial write — neither our stub nor a binary),
+    - an EMPTY file (a partial write, neither our stub nor a binary),
     - a tiny non-stub file (too small to be a real compiled binary).
 
     Real binaries are never read here: the size gate short-circuits
@@ -552,7 +552,7 @@ def _stub_problems(path: Path, platform: str, kind: str) -> list[str]:
         return [f"cannot stat {path.relative_to(PROJECT_ROOT)}: {exc}"]
     canonical = _stub_content(platform, kind)
     if size == len(canonical):
-        # Only our exact stub bytes fit this size class — read + compare.
+        # Only our exact stub bytes fit this size class, read + compare.
         try:
             data = path.read_bytes()
         except OSError as exc:
@@ -562,23 +562,23 @@ def _stub_problems(path: Path, platform: str, kind: str) -> list[str]:
         if _is_stub_file(path):
             return [
                 f"{path.relative_to(PROJECT_ROOT)} is a stub but does not match "
-                f"the canonical {platform}/{kind} stub ({len(canonical)} bytes) — "
+                f"the canonical {platform}/{kind} stub ({len(canonical)} bytes), "
                 "truncated or corrupt; re-run the generator to repair"
             ]
         return [
-            f"{path.relative_to(PROJECT_ROOT)} is {size} bytes and not our stub — "
+            f"{path.relative_to(PROJECT_ROOT)} is {size} bytes and not our stub, "
             "too small to be a real binary; truncated or corrupt"
         ]
     if size == 0:
-        return [f"{path.relative_to(PROJECT_ROOT)} is EMPTY — truncated/corrupt (neither our stub nor a real binary)"]
+        return [f"{path.relative_to(PROJECT_ROOT)} is EMPTY, truncated/corrupt (neither our stub nor a real binary)"]
     if size < MIN_REAL_BINARY_SIZE:
         if _is_stub_file(path):
             return [
                 f"{path.relative_to(PROJECT_ROOT)} is a stub but {size} bytes "
-                f"(expected {len(canonical)}) — truncated or corrupt"
+                f"(expected {len(canonical)}), truncated or corrupt"
             ]
         return [
-            f"{path.relative_to(PROJECT_ROOT)} is {size} bytes and not our stub — "
+            f"{path.relative_to(PROJECT_ROOT)} is {size} bytes and not our stub, "
             "too small to be a real compiled binary; truncated or corrupt"
         ]
     return []  # large non-stub -> real artifact (Nuitka/compiled binary)
@@ -597,7 +597,7 @@ def _write_stub_file_if_needed(path: Path, platform: str, kind: str) -> None:
     ``_stub_problems`` is the gate: a REAL artifact (large, marker-free)
     returns no problems and is preserved byte-for-byte; a missing file,
     a truncated/corrupt stub, an empty file or a tiny garbage file all
-    return problems and are REPLACED with a fresh canonical stub — so
+    return problems and are REPLACED with a fresh canonical stub, so
     the ``--check || generate`` CI idiom both detects AND heals corrupt
     stubs before ``cargo tauri build``.
     """
@@ -611,10 +611,10 @@ def _all_stub_specs() -> list[tuple[Path, str, str]]:
     """``(path, platform, kind)`` for every stub this script owns.
 
     ``platform`` is ``"windows"`` or ``"unix"`` and ``kind`` is
-    ``"sidecar"`` / ``"native"`` / ``"prewarm"`` — the same values
+    ``"sidecar"`` / ``"native"`` / ``"prewarm"``: the same values
     ``generate`` passes, so ``--check`` can byte-compare each file
     against the canonical stub it SHOULD contain. Icons are
-    intentionally NOT included — they are committed real files, not
+    intentionally NOT included, they are committed real files, not
     stubs (see the module docstring).
     """
     specs: list[tuple[Path, str, str]] = []
@@ -632,7 +632,7 @@ def _all_stub_specs() -> list[tuple[Path, str, str]]:
 def _all_stub_paths() -> list[Path]:
     """Return every stub path this script owns (absolute, under src-tauri).
 
-    Icons are intentionally NOT included — they are committed real files,
+    Icons are intentionally NOT included, they are committed real files,
     not stubs (see the module docstring).
     """
     return [p for p, _, _ in _all_stub_specs()]
@@ -642,18 +642,18 @@ def _all_stub_paths() -> list[Path]:
 def generate() -> list[Path]:
     """Generate all binary stubs. Returns the list of created file paths.
 
-    Icons are NOT generated here — they are committed real files.
+    Icons are NOT generated here, they are committed real files.
     """
     created: list[Path] = []
 
-    # 1. Sidecar binaries (externalBin — Tauri resolves per-arch at build time).
+    # 1. Sidecar binaries (externalBin. Tauri resolves per-arch at build time).
     bin_dir = SRC_TAURI / "bin"
     bin_dir.mkdir(parents=True, exist_ok=True)
     for triple in SIDECAR_TRIPLES:
         ext = ".exe" if triple in WINDOWS_TRIPLES else ""
         platform = "windows" if triple in WINDOWS_TRIPLES else "unix"
         # Preserve a REAL sidecar a CI step / developer already built at
-        # this path — never clobber it with a placeholder stub.
+        # this path, never clobber it with a placeholder stub.
         _write_stub_file_if_needed(bin_dir / f"{SIDECAR_BASENAME}-{triple}{ext}", platform, "sidecar")
         created.append(bin_dir / f"{SIDECAR_BASENAME}-{triple}{ext}")
         # Worker exe stubs (externalBin, parallel to the sidecar).
@@ -699,7 +699,7 @@ def _bundle_icon_paths() -> list[str]:
 def check_icons() -> int:
     """Exit 0 iff EVERY file in ``bundle.icon`` is present + structurally valid.
 
-    The single cross-platform fail-fast icon gate — it replaces the old
+    The single cross-platform fail-fast icon gate, it replaces the old
     per-platform ``--check-ico`` / ``--check-icns`` / ``--check-png``
     flags, so every platform workflow runs the identical step. Reads the
     icon list from ``tauri.conf.json`` and dispatches each entry to the
@@ -710,7 +710,7 @@ def check_icons() -> int:
     ``tauri-build`` hard-fails the whole build when the platform's icon
     is missing or corrupt (the window-icon embed / bundler decodes it
     via the ``image`` crate), and a corrupt file would otherwise only
-    surface minutes into the compile — this gate fails in milliseconds.
+    surface minutes into the compile: this gate fails in milliseconds.
     """
     try:
         icons = _bundle_icon_paths()
@@ -732,7 +732,7 @@ def check_icons() -> int:
             if expected is None:
                 print(
                     f"[gen_tauri_icons_stub] INVALID {rel_display}: no expected "
-                    f"dimensions registered for {rel} — add it to "
+                    f"dimensions registered for {rel}, add it to "
                     "EXPECTED_PNG_DIMENSIONS",
                     file=sys.stderr,
                 )
@@ -773,12 +773,12 @@ def check() -> int:
     """Exit 0 iff every expected stub exists AND is structurally valid.
 
     Designed for CI: a non-zero exit blocks the build pipeline. Presence
-    alone is not enough — a truncated or corrupt stub (partial write,
+    alone is not enough, a truncated or corrupt stub (partial write,
     bad checkout) would otherwise pass a presence-only ``--check`` and
     fail only inside ``cargo tauri build`` (or ship a broken bundle).
     Each path must be either the exact canonical stub bytes or a
-    plausible real binary (large, marker-free); anything else — a
-    truncated/mangled stub, an empty file, a tiny garbage file — fails
+    plausible real binary (large, marker-free); anything else, a
+    truncated/mangled stub, an empty file, a tiny garbage file, fails
     here in milliseconds.
     """
     specs = _all_stub_specs()
@@ -817,7 +817,7 @@ def clean() -> int:
         if not p.exists():
             continue
         if not _is_stub_file(p):
-            # Real artifact — preserve it.
+            # Real artifact, preserve it.
             skipped += 1
             print(f"[gen_tauri_icons_stub] SKIP (not a stub): {p.relative_to(PROJECT_ROOT)}")
             continue
@@ -839,7 +839,7 @@ def clean() -> int:
     ):
         if d.exists() and d.is_dir():
             with contextlib.suppress(OSError):
-                # not empty (real artifacts left) — leave it alone
+                # not empty (real artifacts left), leave it alone
                 d.rmdir()
 
     print(f"[gen_tauri_icons_stub] Removed {removed} stub file(s); skipped {skipped} real artifacts.")
@@ -864,7 +864,7 @@ def _print_summary(created: list[Path]) -> None:
     print(f"  Native resources:  {len(NATIVE_RESOURCES)}")
     print(f"  Total:             {len(created)}")
     print()
-    print("[gen_tauri_icons_stub] WARNING: stubs are NOT real binaries — they print")
+    print("[gen_tauri_icons_stub] WARNING: stubs are NOT real binaries, they print")
     print(f"  '{STUB_MARKER}' to stderr and exit 1 if executed. Replace with real")
     print("  artifacts (Nuitka sidecar, compiled native binaries, frozen prewarm)")
     print("  before any release build. See docs/migration/tauri-build-runbook.md.")
@@ -874,7 +874,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
             "Generate placeholder binary stubs (sidecar / native / prewarm) "
-            "for the Tauri build. Stubs are NOT real — replace with real "
+            "for the Tauri build. Stubs are NOT real, replace with real "
             "artifacts before release. Icons are committed real files "
             "(validated by --check-icons, not generated)."
         ),
@@ -898,7 +898,7 @@ def main() -> int:
         action="store_true",
         help=(
             "exit 0 iff every bundle.icon file (PNGs + icon.ico + icon.icns) "
-            "exists and is structurally valid — the single cross-platform "
+            "exists and is structurally valid, the single cross-platform "
             "fail-fast gate, run by every Tauri workflow before cargo tauri build"
         ),
     )

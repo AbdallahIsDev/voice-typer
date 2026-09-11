@@ -9,7 +9,7 @@ The location is platform-specific and is resolved by
 | Platform | Default data directory |
 |----------|------------------------|
 | Windows (new installs) | `%APPDATA%\voice-typer` → `C:\Users\<you>\AppData\Roaming\voice-typer` |
-| Windows (existing users) | `%USERPROFILE%\.voice-typer` is still honored if it already exists. The app checks the legacy path **first** (see `config._config_dir()`) and keeps using it, so upgrades are seamless — no data is moved. |
+| Windows (existing users) | `%USERPROFILE%\.voice-typer` is still honored if it already exists. The app checks the legacy path **first** (see `config._config_dir()`) and keeps using it, so upgrades are seamless, no data is moved. |
 | macOS | `~/Library/Application Support/voice-typer` |
 | Linux | `$XDG_DATA_HOME/voice-typer` (falls back to `~/.local/share/voice-typer`) |
 
@@ -24,17 +24,17 @@ S5-CR-70: the log file path was previously inconsistent across docs —
 `README.md` mentioned only the Windows path (`%APPDATA%/voice-typer/voice-typer.log`),
 `CONTRIBUTING.md` mentioned only the Unix path (`$HOME/.voice-typer/voice-typer.log`),
 and `bug_report.md` mentioned only `~/.voice-typer/voice-typer.log`. This
-section is the canonical source of truth — `README.md` and `CONTRIBUTING.md`
+section is the canonical source of truth, `README.md` and `CONTRIBUTING.md`
 both link here.
 
 There are **two** log files (one per process): the Python backend log
-and the Tauri Rust host log. They live at *different* paths — the
+and the Tauri Rust host log. They live at *different* paths, the
 Python log is at `<DATA_DIR>/voice-typer.log` (directly under the data
 dir), while the Rust host log is at `<DATA_DIR>/logs/voice-typer.log`
 (in a `logs/` subdir). Verified via:
 
-- Python: `voice_typer/server/logging_setup.py:_setup_logging()` (canonical entry point — re-exported from `app.py` for backwards compatibility) → delegates to `voice_typer/server/log.py:setup_logging`; path literal at `log.py:898` — `log_file = config_dir / "voice-typer.log"`
-- Rust: `src-tauri/src/platform/logging.rs:22,47,61` — `config_dir.join("logs")` + writer prefix `"voice-typer"`
+- Python: `voice_typer/server/logging_setup.py:_setup_logging()` (canonical entry point: re-exported from `app.py` for backwards compatibility) → delegates to `voice_typer/server/log.py:setup_logging`; path literal at `log.py:898` `log_file = config_dir / "voice-typer.log"`
+- Rust: `src-tauri/src/platform/logging.rs:22,47,61` `config_dir.join("logs")` + writer prefix `"voice-typer"`
 
 ### Python backend log
 
@@ -43,7 +43,7 @@ Written by `_SecureTruncatingFileHandler` in
 `voice_typer/server/logging_setup.py:_setup_logging()` (canonical entry point
 — re-exported from `app.py` for backwards compatibility). **Single-file
 policy:** when the log exceeds 5 MiB it is truncated IN PLACE (emptied) and
-writing continues to the same file — numbered backups
+writing continues to the same file, numbered backups
 (`voice-typer.log.1`, `.2`, ...) are NEVER created
 (`_SecureTruncatingFileHandler(maxBytes=5_242_880, backupCount=0)` —
 ADR-0020 §11, hardened).
@@ -51,14 +51,14 @@ ADR-0020 §11, hardened).
 | Platform | Python log file path |
 |----------|----------------------|
 | Windows (new installs) | `%APPDATA%\voice-typer\voice-typer.log` → `C:\Users\<you>\AppData\Roaming\voice-typer\voice-typer.log` |
-| Windows (existing users) | `%USERPROFILE%\.voice-typer\voice-typer.log` (legacy data directory is honored if it already exists — see above) |
+| Windows (existing users) | `%USERPROFILE%\.voice-typer\voice-typer.log` (legacy data directory is honored if it already exists, see above) |
 | macOS | `~/Library/Application Support/voice-typer/voice-typer.log` |
 | Linux | `$XDG_DATA_HOME/voice-typer/voice-typer.log` (falls back to `~/.local/share/voice-typer/voice-typer.log`) |
 
 Override the location by setting `VOICE_TYPER_CONFIG_DIR` (the log lives
-directly under the resolved `<DATA_DIR>` — **not** in a `logs/` subdir).
+directly under the resolved `<DATA_DIR>` **Not** in a `logs/` subdir).
 An earlier draft of this doc claimed the Python log was at
-`<DATA_DIR>/logs/voice-typer.log`; that was a bug — the Python
+`<DATA_DIR>/logs/voice-typer.log`; that was a bug: the Python
 `RotatingFileHandler` writes at `<DATA_DIR>/voice-typer.log` directly
 (see `log.py:898`). The `logs/` subdir is reserved for the Rust host
 log (below).
@@ -67,9 +67,9 @@ log (below).
 
 When running under the Tauri runtime (ADR-0020), the Rust host writes
 its own log at `<DATA_DIR>/logs/voice-typer.log` (single-file policy: it
-is truncated in place at 5 MB — numbered backups are never created —
+is truncated in place at 5 MB, numbered backups are never created —
 see `src-tauri/src/platform/logging.rs`). The file is
-named `voice-typer.log` (NOT `voice-typer-rust.log` — an earlier draft
+named `voice-typer.log` (NOT `voice-typer-rust.log` An earlier draft
 of this doc mis-named it; the diagnostics bundle renames it to
 `rust-voice-typer.log` only inside the exported zip so the two files
 don't collide, but on disk it's `voice-typer.log` in both processes).
@@ -77,7 +77,7 @@ don't collide, but on disk it's `voice-typer.log` in both processes).
 | Platform | Rust host log file path |
 |----------|-------------------------|
 | Windows (new installs) | `%APPDATA%\voice-typer\logs\voice-typer.log` → `C:\Users\<you>\AppData\Roaming\voice-typer\logs\voice-typer.log` |
-| Windows (existing users) | `%USERPROFILE%\.voice-typer\logs\voice-typer.log` (legacy data directory is honored if it already exists — see above) |
+| Windows (existing users) | `%USERPROFILE%\.voice-typer\logs\voice-typer.log` (legacy data directory is honored if it already exists, see above) |
 | macOS | `~/Library/Application Support/voice-typer/logs/voice-typer.log` |
 | Linux | `$XDG_DATA_HOME/voice-typer/logs/voice-typer.log` (falls back to `~/.local/share/voice-typer/logs/voice-typer.log`) |
 
@@ -86,15 +86,15 @@ Electron crash logs (when running under the Electron host) land at
 
 This design is:
 
-- **Self-contained** — wipe the folder to factory-reset the app
-- **Backup-friendly** — one folder to copy
-- **Transparent** — you can explore it and understand what is stored
+- **Self-contained**: wipe the folder to factory-reset the app
+- **Backup-friendly**: one folder to copy
+- **Transparent**: you can explore it and understand what is stored
 
 ## Folder Structure
 
 ```
 <DATA_DIR>/
-├── README.md                    # This file — describes every file/folder
+├── README.md                    # This file: describes every file/folder
 ├── config.json                  # User settings (hotkey, model, mic, etc.)
 ├── history.db                   # SQLite transcription history
 ├── huggingface/                 # HF_HOME cache (models + tokenizers)
@@ -123,7 +123,7 @@ This design is:
 > **Windows note:** on a fresh install the directory is
 > `%APPDATA%\voice-typer`. If you upgraded from a version that used
 > `%USERPROFILE%\.voice-typer`, that folder remains the live data
-> directory — do not delete it expecting the app to recreate your data
+> directory: do not delete it expecting the app to recreate your data
 > under `%APPDATA%`; it will keep using the legacy folder.
 
 ## File Descriptions
@@ -137,7 +137,7 @@ SQLite database (via `voice_typer.server.history_db.HistoryDB`). Contains transc
 ### `huggingface/`
 HuggingFace cache directory. Set via `os.environ["HF_HOME"]` in `logging_setup.py:_setup_logging()` (re-exported from `app.py` for backwards compatibility). The `hub/` subdirectory uses HuggingFace's standard `snapshot_download` layout:
 - `models--org--name/` directories containing snapshots, blobs, refs
-- Managed entirely by `huggingface_hub` — the app does **not** write here directly
+- Managed entirely by `huggingface_hub` The app does **not** write here directly
 
 ### `venv/`
 Python virtual environment created by the installer or first-run setup. Contains:
@@ -147,25 +147,25 @@ Python virtual environment created by the installer or first-run setup. Contains
 - CLI entry point (`voice-typer`)
 
 ### `electron-profile/`
-Electron/Chromium browser profile for the desktop host — caches
+Electron/Chromium browser profile for the desktop host, caches
 (`Cache/`, `GPUCache/`, `Code Cache/`, `Crashpad/`, …), `Local Storage/`,
 `Network/`, `Session Storage/`, `Preferences`, `DIPS`, `blob_storage/`.
 Pinned there by `voice_typer/client/src/main/bootstrap.ts`
 (`app.setPath("userData", <DATA_DIR>/electron-profile)` so the browser-
 engine noise stays out of the data-dir root while both sides still share
 one data root for uninstall/factory-reset. Safe to delete while the app
-is closed — Electron recreates it. Removed on uninstall purge and GDPR
+is closed: Electron recreates it. Removed on uninstall purge and GDPR
 erasure; not included in GDPR export bundles.
 
 ### `vocabulary.json` and `voice-typer-corrections.json`
-User-defined vocabulary and correction files. Read by `VocabularyManager` and `configure_corrections()` respectively to build replacement maps for `clean_transcribed_text()`. Both are optional — the app ships with bundled defaults (`voice_typer/server/corrections.json`) that are merged with the user file.
+User-defined vocabulary and correction files. Read by `VocabularyManager` and `configure_corrections()` respectively to build replacement maps for `clean_transcribed_text()`. Both are optional: the app ships with bundled defaults (`voice_typer/server/corrections.json`) that are merged with the user file.
 
 ## Model Management
 
 ### How models are stored
 - `HF_HOME` = `<DATA_DIR>/huggingface/`
 - Models download via HuggingFace `snapshot_download` → `huggingface/hub/models--org--name/`
-- The app never writes model files directly — HF libraries manage the cache
+- The app never writes model files directly, HF libraries manage the cache
 
 ### Why NOT `<DATA_DIR>/models/`
 - `faster-whisper` expects the HF cache layout. Custom download logic would be fragile, hard to maintain, and break with upstream changes.
@@ -189,11 +189,11 @@ The old code created a junction from `<DATA_DIR>/huggingface/` → `~/.cache/hug
 - Python CUDA packages: installed by pip into `venv/Lib/site-packages/`
   - `ctranslate2` (with CUDA extensions)
   - `nvidia-*` wheels (CUDA runtime DLLs, cuBLAS, cuDNN)
-  - `torch` — **transient**: retained only while the Qwen ASR engine still depends on it (Phase 1d of the ONNX migration, `PLAN_ONNX_INTEGRATION.md` §4). VAD and Parakeet no longer import torch post-Phase-1a/1b. Check `pyproject.toml` for the current canonical dep list.
+  - `torch` **Transient**: retained only while the Qwen ASR engine still depends on it (Phase 1d of the ONNX migration, `PLAN_ONNX_INTEGRATION.md` §4). VAD and Parakeet no longer import torch post-Phase-1a/1b. Check `pyproject.toml` for the current canonical dep list.
 
 ### What does NOT live in `<DATA_DIR>`
-- **NVIDIA system driver** (`C:\Program Files\NVIDIA GPU Computing Toolkit\`) — this is a system-level component installed by the user or driver update. The Python process merely **loads** these DLLs at runtime. Cannot be bundled.
-- **CUDA toolkit** (`C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.x`) — only needed for compilation, not runtime. Not required for users.
+- **NVIDIA system driver** (`C:\Program Files\NVIDIA GPU Computing Toolkit\`): this is a system-level component installed by the user or driver update. The Python process merely **loads** these DLLs at runtime. Cannot be bundled.
+- **CUDA toolkit** (`C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.x`): only needed for compilation, not runtime. Not required for users.
 
 ### How GPU detection works
 - `TranscriptionEngine._probe_cuda()` checks `ctranslate2.get_cuda_device_count()`
@@ -205,11 +205,11 @@ The old code created a junction from `<DATA_DIR>/huggingface/` → `~/.cache/hug
 When a user launches the app for the first time (no `<DATA_DIR>` exists yet):
 
 ### Python backend (`app.py` + `config.py`)
-1. `_migrate_from_legacy()` — copies from `%APPDATA%/voice-typer/` if present (one-time)
-2. `_config_dir().mkdir(parents=True, exist_ok=True)` — creates `<DATA_DIR>`
+1. `_migrate_from_legacy()` Copies from `%APPDATA%/voice-typer/` if present (one-time)
+2. `_config_dir().mkdir(parents=True, exist_ok=True)` Creates `<DATA_DIR>`
 3. `Config.load()` detects missing config.json → creates with defaults
 4. `os.environ["HF_HOME"]` set to `<DATA_DIR>/huggingface/`
-5. Logging handler creates `<DATA_DIR>/voice-typer.log` (Python backend log; the Tauri Rust host's `voice-typer.log` lives under `<DATA_DIR>/logs/` — see §Log File Paths above)
+5. Logging handler creates `<DATA_DIR>/voice-typer.log` (Python backend log; the Tauri Rust host's `voice-typer.log` lives under `<DATA_DIR>/logs/` See §Log File Paths above)
 6. Tray icon renders (assets from `voice_typer/server/assets/`)
 7. `create_launcher_shortcut()` creates desktop shortcut + `<DATA_DIR>/icon.ico`
 8. `models/` junction/symlink → `huggingface/hub/` is created if missing
@@ -221,7 +221,7 @@ When a user launches the app for the first time (no `<DATA_DIR>` exists yet):
 4. `get_history` + `get_today_stats` populate History page
 5. StatusBar shows connection state and recording state
 
-### NSIS installer (`electron-builder`) — TBD
+### NSIS installer (`electron-builder`), TBD
 Currently the installer does NOT create `<DATA_DIR>`. The Python backend creates it on first launch. Options:
 
 - **Option A** (current, simple): Python backend creates everything on first run. No installer changes needed.
@@ -263,7 +263,7 @@ For an AI agent tasked with implementing the folder structure recommendations:
 ### 3. Vocabulary / corrections files (DONE)
 - [x] `VocabularyManager` reads `config_dir / "vocabulary.json"` (merged with bundled defaults)
 - [x] `configure_corrections()` reads `config_dir / "voice-typer-corrections.json"` (merged with bundled defaults)
-- [x] Both files are optional — the app works without them using bundled defaults
+- [x] Both files are optional, the app works without them using bundled defaults
 
 ### 4. Write `<DATA_DIR>/README.md` on first run
 - [ ] In `logging_setup.py:_setup_logging()` or `VoiceTyperApp.__init__()`, check if `config_dir / "README.md"` exists
@@ -289,18 +289,18 @@ For an AI agent tasked with implementing the folder structure recommendations:
 
 ### 7. CUDA detection & display
 - [ ] In Settings UI, show detected device info (e.g. "NVIDIA GeForce RTX 3060 (CUDA 12.2)")
-- [ ] If CUDA not available, show "No GPU detected — using CPU (slower)"
+- [ ] If CUDA not available, show "No GPU detected, using CPU (slower)"
 - [ ] Let user override device in Settings (CUDA → CPU fallback)
 
 ### 8. CUDA runtime probe (`_probe_cuda_runtime`)
-- [ ] Already implemented in `transcription.py` — runs a 10ms silent transcription after model load on CUDA
+- [ ] Already implemented in `transcription.py` Runs a 10ms silent transcription after model load on CUDA
 - [ ] Forces early cuBLAS/cuDNN DLL resolution so failures surface at startup, not mid-recording
 - [ ] On probe failure: tears down GPU model, reloads on CPU via `_reload_under_lock()`
 - [ ] Logs `[CUDA-PROBE]` entries for every step
 - [ ] Probe uses `vad_filter=False` + `word_timestamps=False` for minimal kernel touch
 
 ### 9. Debug logging for CUDA DLL loading (`_configure_nvidia_dll_paths`)
-- [ ] Already implemented — `[CUDA-DLL]` tags on every path check
+- [ ] Already implemented, `[CUDA-DLL]` tags on every path check
 - [ ] Logs each root path searched, whether directories exist, how many DLLs found
 - [ ] Logs each `os.add_dll_directory()` call result (success/failure)
 - [ ] Logs final `PATH` entries containing `nvidia` for post-mortem debugging

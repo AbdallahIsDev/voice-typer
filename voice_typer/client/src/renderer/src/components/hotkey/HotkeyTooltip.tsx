@@ -45,12 +45,12 @@ interface HotkeyTooltipProps {
 
 /**
  * Tooltip that renders a label plus the hotkey as design-system `Kbd`
- * chips — the same primitive Home's dynamic line and the Help overlay
+ * chips, the same primitive Home's dynamic line and the Help overlay
  * use (`HotkeyChips`). Replaces the native `title` attribute for
  * hotkey tooltips: `title` is plain text and cannot contain chips.
  *
  * Pass `disabled` to hide the popup while keeping the wrapper (and
- * therefore the trigger element identity) stable — see the prop doc.
+ * therefore the trigger element identity) stable, see the prop doc.
  */
 export function HotkeyTooltip({
 	label,

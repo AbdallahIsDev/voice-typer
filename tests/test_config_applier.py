@@ -1,4 +1,4 @@
-"""regression guard — verify ``config_applier`` module extraction.
+"""regression guard: verify ``config_applier`` module extraction.
 
 Finding (Medium): ``VoiceTyperService.apply_config_side_effects``
 is a 215-line branching method that mixes autostart, prewarm, hotkey,
@@ -72,7 +72,7 @@ def fake_app() -> MagicMock:
 def test_config_applier_module_exists() -> None:
     """The extracted module must exist after Fix-D."""
     assert _has_module("voice_typer.server.config_applier"), (
-        "voice_typer.server.config_applier module not found — "
+        "voice_typer.server.config_applier module not found, "
         "Fix-D should extract apply_config_side_effects into this "
         "module."
     )
@@ -91,7 +91,7 @@ def test_config_applier_exposes_callable(fake_app) -> None:
 
 def test_service_apply_config_delegates_to_module(fake_app) -> None:
     """``VoiceTyperService.apply_config_side_effects`` delegates to the
-    extracted module — calling it should invoke the ``ConfigApplier``
+    extracted module, calling it should invoke the ``ConfigApplier``
     instance method (or the module-level function) on the extracted
     ``config_applier`` module."""
     if not _has_module("voice_typer.server.config_applier"):
@@ -129,7 +129,7 @@ def test_service_apply_config_delegates_to_module(fake_app) -> None:
 
 def test_extraction_preserves_hotkey_restart_behavior(fake_app) -> None:
     """After extraction, a hotkey change must still trigger
-    ``app.hotkeys.restart`` — regression guard for behavior parity."""
+    ``app.hotkeys.restart``, regression guard for behavior parity."""
     from voice_typer.server.service import VoiceTyperService
 
     svc = VoiceTyperService(fake_app)

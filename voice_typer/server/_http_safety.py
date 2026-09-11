@@ -1,4 +1,4 @@
-"""Backward-compat shim — code moved to ``voice_typer.server.security``.
+"""Backward-compat shim, code moved to ``voice_typer.server.security``.
 
 The no-redirect / HTTPS-only urllib opener helpers moved to
 :mod:`voice_typer.server.security.http_safety`. This module re-exports
@@ -16,7 +16,7 @@ directly.
 """
 
 # Source-text contract: the LOOPBACK_HOSTS import line must stay
-# verbatim — ``TestLoopbackHostsIsDRY`` inspects this module's source.
+# verbatim, ``TestLoopbackHostsIsDRY`` inspects this module's source.
 from voice_typer.server._paths import LOOPBACK_HOSTS  # noqa: F401
 from voice_typer.server.security.http_safety import (  # noqa: F401
     _HttpsOnlyHTTPHandler,

@@ -29,7 +29,7 @@ except ImportError:
     def assume(condition):
         pass
 
-    class settings:  # noqa: N801 — matches hypothesis.settings name
+    class settings:  # noqa: N801, matches hypothesis.settings name
         def __init__(self, **kwargs):
             pass
 
@@ -40,7 +40,7 @@ except ImportError:
         too_slow = None
         function_scoped_fixture = None
 
-    class st:  # noqa: N801 — matches hypothesis.strategies alias
+    class st:  # noqa: N801, matches hypothesis.strategies alias
         @staticmethod
         def text(**kwargs):
             return None
@@ -84,7 +84,7 @@ except ImportError:
 
 pytestmark = pytest.mark.skipif(
     not HAS_HYPOTHESIS,
-    reason="hypothesis not installed — install with: pip install hypothesis",
+    reason="hypothesis not installed, install with: pip install hypothesis",
 )
 
 
@@ -92,7 +92,7 @@ pytestmark = pytest.mark.skipif(
 
 
 class TestCorrectionsRoundtrip:
-    """Apply then reverse corrections — the text should be recoverable."""
+    """Apply then reverse corrections, the text should be recoverable."""
 
     @given(text=st.text(min_size=1, max_size=200, alphabet=st.characters(whitelist_categories=("L", "N", "P", "Z"))))
     @settings(max_examples=50, suppress_health_check=[HealthCheck.too_slow])

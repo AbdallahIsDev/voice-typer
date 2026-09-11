@@ -44,18 +44,18 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "models.snack.deleteFailed": "فشل الحذف",
         "models.snack.deleteFailedError": "فشل الحذف: {error}",
         "models.snack.apiKeySaved": "تم حفظ مفتاح API لـ {provider}",
-        "models.snack.consentGranted": "تم منح الموافقة لـ {provider} — سيتم إرسال الصوت إلى هذا المزود.",
-        "models.snack.consentRevoked": "تم إلغاء الموافقة لـ {provider} — لن يتم إرسال الصوت.",
-        "models.snack.hfConsentGranted": "تم منح الموافقة — ستستمر تحميلات النماذج من HuggingFace.",
-        "models.snack.hfConsentRevoked": "تم إلغاء الموافقة — تم حظر تحميلات النماذج من HuggingFace.",
+        "models.snack.consentGranted": "تم منح الموافقة لـ {provider}, سيتم إرسال الصوت إلى هذا المزود.",
+        "models.snack.consentRevoked": "تم إلغاء الموافقة لـ {provider}, لن يتم إرسال الصوت.",
+        "models.snack.hfConsentGranted": "تم منح الموافقة, ستستمر تحميلات النماذج من HuggingFace.",
+        "models.snack.hfConsentRevoked": "تم إلغاء الموافقة, تم حظر تحميلات النماذج من HuggingFace.",
         "models.snack.resumeFailed": "فشل الاستئناف: {error}",
         "models.snack.pauseFailed": "فشل الإيقاف المؤقت: {error}",
         "models.snack.cancelled": "تم إلغاء التحميل. ستتم إعادة استخدام الملفات الجزئية عند إعادة المحاولة.",
         "models.snack.cancelFailed": "فشل الإلغاء: {error}",
         "models.test.needApiKey": "الرجاء إدخال مفتاح API أولاً",
-        "models.test.connectionSuccessful": "نجح الاتصال — مفتاح API صالح.",
+        "models.test.connectionSuccessful": "نجح الاتصال, مفتاح API صالح.",
         "models.test.connectionFailed": "فشل الاتصال: {status} {statusText}",
-        "models.test.endpointUnavailable": "تم حفظ مفتاح API — نقطة الاختبار غير متاحة لهذا المزود.",
+        "models.test.endpointUnavailable": "تم حفظ مفتاح API, نقطة الاختبار غير متاحة لهذا المزود.",
         "models.test.connectionTestFailed": "فشل اختبار الاتصال: {error}",
         "models.benchmark.notImplemented": "لم يتم تنفيذ المعيار بعد.",
         "models.benchmark.title": "معيار الأداء للنموذج",
@@ -70,7 +70,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "models.hfConsent.title": "موافقة تحميل HuggingFace مطلوبة",
         "models.hfConsent.description": "نماذج Whisper المحلية"
         "(tiny.en، base.en، إلخ) تقوم بتحميل الأوزان من huggingface.co عند أول استخدام. امنح الموافقة لتمكين تحميلات"
-        "النماذج. لا يتم رفع أي صوت — يتم فقط جلب أوزان النموذج.",
+        "النماذج. لا يتم رفع أي صوت, يتم فقط جلب أوزان النموذج.",
         "models.hfConsent.grantAria": "منح موافقة تحميل HuggingFace",
         "models.hfConsent.grant": "منح الموافقة",
         "models.hfConsent.blockedHint": "تحميلات النماذج محظورة حتى تمنح الموافقة.",
@@ -107,8 +107,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "models.cloud.consentDescription": "عند تحديد هذا المزود كخلفية ASR النشطة، سيتم إرسال تسجيلاتك الصوتية إلى"
         "{provider} للتفريغ. امنح الموافقة لتمكين إرسال الصوت.",
         "models.cloud.statusLabel": "الحالة:",
-        "models.cloud.consentGrantedStatus": "تم منح الموافقة — سيتم إرسال الصوت عندما يكون هذا المزود نشطاً.",
-        "models.cloud.consentNotGrantedStatus": "لم يتم منح الموافقة — سيرفض هذا المزود التفريغ.",
+        "models.cloud.consentGrantedStatus": "تم منح الموافقة, سيتم إرسال الصوت عندما يكون هذا المزود نشطاً.",
+        "models.cloud.consentNotGrantedStatus": "لم يتم منح الموافقة, سيرفض هذا المزود التفريغ.",
         "models.cloud.consentAria": "منح موافقة إرسال الصوت لـ {provider}",
         "models.deleteDialog.title": "حذف النموذج",
         "models.deleteDialog.message": 'هل أنت متأكد أنك تريد حذف "{name}"؟ لا يمكن التراجع عن هذا الإجراء.',
@@ -156,20 +156,20 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "models.snack.deleteFailed": "Error al eliminar",
         "models.snack.deleteFailedError": "Error al eliminar: {error}",
         "models.snack.apiKeySaved": "Clave API de {provider} guardada",
-        "models.snack.consentGranted": "Consentimiento otorgado para {provider} — el audio se enviará a esteproveedor.",
-        "models.snack.consentRevoked": "Consentimiento revocado para {provider} — el audio NO se enviará.",
-        "models.snack.hfConsentGranted": "Consentimiento otorgado — las descargas de modelos desde HuggingFace"
+        "models.snack.consentGranted": "Consentimiento otorgado para {provider}, el audio se enviará a esteproveedor.",
+        "models.snack.consentRevoked": "Consentimiento revocado para {provider}, el audio NO se enviará.",
+        "models.snack.hfConsentGranted": "Consentimiento otorgado, las descargas de modelos desde HuggingFace"
         "continuarán.",
-        "models.snack.hfConsentRevoked": "Consentimiento revocado — las descargas de modelos desde HuggingFace están"
+        "models.snack.hfConsentRevoked": "Consentimiento revocado, las descargas de modelos desde HuggingFace están"
         "bloqueadas.",
         "models.snack.resumeFailed": "Error al reanudar: {error}",
         "models.snack.pauseFailed": "Error al pausar: {error}",
         "models.snack.cancelled": "Descarga cancelada. Los archivos parciales se reutilizarán al reintentar.",
         "models.snack.cancelFailed": "Error al cancelar: {error}",
         "models.test.needApiKey": "Por favor, introduce una clave API primero",
-        "models.test.connectionSuccessful": "Conexión exitosa — la clave API es válida.",
+        "models.test.connectionSuccessful": "Conexión exitosa, la clave API es válida.",
         "models.test.connectionFailed": "Error de conexión: {status} {statusText}",
-        "models.test.endpointUnavailable": "Clave API guardada — endpoint de prueba no disponible para este proveedor.",
+        "models.test.endpointUnavailable": "Clave API guardada, endpoint de prueba no disponible para este proveedor.",
         "models.test.connectionTestFailed": "Error en la prueba de conexión: {error}",
         "models.benchmark.notImplemented": "Benchmark aún no implementado.",
         "models.benchmark.title": "Benchmark de Modelo",
@@ -184,7 +184,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "models.hfConsent.title": "Se requiere consentimiento de descarga de HuggingFace",
         "models.hfConsent.description": "Los modelos Whisper"
         "locales (tiny.en, base.en, etc.) descargan pesos desde huggingface.co en el primer uso. Otorga"
-        "consentimiento para habilitar las descargas de modelos. No se sube audio — solo se obtienen los pesos del "
+        "consentimiento para habilitar las descargas de modelos. No se sube audio, solo se obtienen los pesos del "
         "modelo.",
         "models.hfConsent.grantAria": "Otorgar consentimiento de descarga de HuggingFace",
         "models.hfConsent.grant": "Otorgar consentimiento",
@@ -223,9 +223,9 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "proveedor se selecciona como backend ASR activo, tus grabaciones de audio se enviarán a {provider} para"
         "transcripción. Otorga consentimiento para habilitar la transmisión de audio.",
         "models.cloud.statusLabel": "Estado:",
-        "models.cloud.consentGrantedStatus": "Consentimiento otorgado — el audio se enviará cuando este proveedor"
+        "models.cloud.consentGrantedStatus": "Consentimiento otorgado, el audio se enviará cuando este proveedor"
         "esté activo.",
-        "models.cloud.consentNotGrantedStatus": "Consentimiento no otorgado — este proveedor se negará a transcribir.",
+        "models.cloud.consentNotGrantedStatus": "Consentimiento no otorgado, este proveedor se negará a transcribir.",
         "models.cloud.consentAria": "Otorgar consentimiento de transmisión de audio para {provider}",
         "models.deleteDialog.title": "Eliminar Modelo",
         "models.deleteDialog.message": '¿Estás seguro de que quieres eliminar "{name}"? Esta acción no se puede'
@@ -344,7 +344,7 @@ def set_nested(data: dict, dot_key: str, value: str) -> bool:
     locale file (e.g. a brand-new ``models.download.progressAria`` when the
     locale only has ``models.download.resume``) are no longer silently
     dropped. If a non-dict scalar is in the way, the function logs a warning
-    and returns False instead of clobbering it — that would be a real
+    and returns False instead of clobbering it, that would be a real
     data-loss bug worth surfacing loudly.
     """
     parts = dot_key.split(".")
@@ -362,7 +362,7 @@ def set_nested(data: dict, dot_key: str, value: str) -> bool:
             # the old scalar). Surface it instead of silently dropping the
             # translation.
             print(
-                f"  WARNING: cannot set {dot_key!r} — path segment {part!r} "
+                f"  WARNING: cannot set {dot_key!r}, path segment {part!r} "
                 f"is a scalar ({existing!r}), not a dict. Translation skipped.",
                 flush=True,
             )
@@ -390,14 +390,14 @@ def main() -> int:
     for locale, translations in TRANSLATIONS.items():
         loc_file = TRANSLATIONS_DIR / f"{locale}.json"
         if not loc_file.exists():
-            print(f"  {locale}: FILE MISSING — skipped")
+            print(f"  {locale}: FILE MISSING, skipped")
             continue
         loc_data = load_json(loc_file)
         applied = 0
         for dot_key, translated_value in translations.items():
             en_value = get_nested(en_data, dot_key)
             if en_value is None:
-                continue  # key doesn't exist in en.json — skip
+                continue  # key doesn't exist in en.json, skip
             current_value = get_nested(loc_data, dot_key)
             # Only overwrite if the current value is identical to English
             # (i.e. untranslated) OR missing.  Never clobber an existing

@@ -107,7 +107,7 @@ def _push_event_types() -> set[str]:
     # Slice at the ``// WebSocket transport auth frame`` marker (or
     # similar) so the WS-only ``type: "auth"`` and the duplicate
     # ``type: "error"`` near the bottom of the file are not counted.
-    # If the marker isn't present, take the whole file — the test
+    # If the marker isn't present, take the whole file, the test
     # will simply assert the larger count and we'll notice the drift.
     # Slice at the ``export const IPC_PROTOCOL_VERSION`` marker so the
     # WS-transport ``AuthFrame`` and ``ProtocolVersionMismatchError``
@@ -304,7 +304,7 @@ def test_ipc_reference_doc_removed_section_lists_known_dead_commands() -> None:
         f"does not exist' answer."
     )
     # None of the dead names should secretly have been added to the
-    # registry — that would mean the doc's "Removed / never-existed"
+    # registry, that would mean the doc's "Removed / never-existed"
     # claim is now a lie.
     registry = _command_registry_entries()
     resurrected = expected_dead & registry

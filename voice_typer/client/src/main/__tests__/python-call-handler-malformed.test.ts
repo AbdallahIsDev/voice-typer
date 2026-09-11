@@ -23,8 +23,8 @@
  *   - `{}` (no `type` field)
  *   - `{ type: 42 }` (non-string `type`)
  *   - `{ type: null }` (null `type`)
- *   - `"get_config"` (string, not an object — defensive)
- *   - `42` (number — defensive)
+ *   - `"get_config"` (string, not an object, defensive)
+ *   - `42` (number, defensive)
  *
  * And verify:
  *   - `sendToPython` is NEVER called for malformed requests (no
@@ -151,7 +151,7 @@ describe("UE-39: python-call-handler rejects malformed requests at runtime", () 
 		expect(mocks.sendToPython).not.toHaveBeenCalled();
 	});
 
-	it("rejects a bare string payload (defensive — handler expects an object)", async () => {
+	it("rejects a bare string payload (defensive, handler expects an object)", async () => {
 		const result = (await handler({}, "get_config")) as {
 			_error: string;
 			_code: string;
@@ -169,7 +169,7 @@ describe("UE-39: python-call-handler rejects malformed requests at runtime", () 
 		expect(mocks.sendToPython).not.toHaveBeenCalled();
 	});
 
-	it("rejects an array payload (defensive — arrays are typeof 'object' but have no string `type`)", async () => {
+	it("rejects an array payload (defensive, arrays are typeof 'object' but have no string `type`)", async () => {
 		const result = (await handler({}, ["get_config"])) as {
 			_error: string;
 			_code: string;

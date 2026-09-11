@@ -14,7 +14,7 @@ the existing file content and APPENDED the new traceback::
     _secure_atomic_write(diag_path, existing + buf.getvalue())
 
 If the operator hit the same crash on every relaunch (the common case
-for a startup-time bug), the file grew without bound — one traceback
+for a startup-time bug), the file grew without bound, one traceback
 per launch, accumulating across days/weeks of debugging.  A 4-KB
 traceback × 1000 relaunches = a 4-MB append-only log.
 
@@ -46,6 +46,15 @@ from pathlib import Path
 import pytest
 from voice_typer.server import ipc_server
 
+# Module-wide diagnostic-helper call count for the REAL entrypoint module
+# (``ipc_server`` is the compatibility shim; ``main``'s implementation, and
+# the shared ``_construct_app_with_diagnostics`` helper, live in
+# ``voice_typer/server/ipc/entrypoint.py``).
+from voice_typer.server.ipc import entrypoint as _entrypoint_module
+
+_ENTRYPOINT_PATH = Path(_entrypoint_module.__file__).resolve()
+_ENTRYPOINT_MODULE_DIAGNOSTIC_CALLS = _ENTRYPOINT_PATH.read_text(encoding="utf-8").count("write_startup_diagnostic(")
+
 
 def _simulate_app_start_failure(diag_path: Path, message: str) -> None:
     """Reproduce the diagnostic-write block from ``main()``'s
@@ -53,7 +62,7 @@ def _simulate_app_start_failure(diag_path: Path, message: str) -> None:
     to point at a temp directory.
 
     This mirrors the code in ``ipc_server.main`` at the
-    ``app.start() raised — shutting down`` handler.  The CR-10 fix
+    ``app.start() raised, shutting down`` handler.  The CR-10 fix
     makes this path OVERWRITE (not append) ``startup-error.log``.
     """
     import io
@@ -85,11 +94,11 @@ class TestStartupErrorLogOverwrite:
         # The old append pattern read existing content first.
         assert "existing = diag_path.read_text" not in src, (
             "CR-10 regression: main() reads existing startup-error.log "
-            "content to append.  The fix overwrites — cap the file at one "
+            "content to append.  The fix overwrites, cap the file at one "
             "entry."
         )
         assert "existing + buf.getvalue()" not in src, (
-            "CR-10 regression: main() appends to startup-error.log.  The fix overwrites — cap the file at one entry."
+            "CR-10 regression: main() appends to startup-error.log.  The fix overwrites, cap the file at one entry."
         )
 
     def test_repeated_failures_do_not_grow_file(self, tmp_path, monkeypatch):
@@ -124,7 +133,7 @@ class TestStartupErrorLogOverwrite:
         # (one traceback, overwritten).
         assert second_size < first_size * 1.5, (
             f"CR-10 regression: startup-error.log grew from {first_size} "
-            f"to {second_size} bytes after a second failure — the file is "
+            f"to {second_size} bytes after a second failure, the file is "
             "being appended to instead of overwritten.  Repeated relaunch "
             "crashes would grow this file without bound."
         )
@@ -133,7 +142,7 @@ class TestStartupErrorLogOverwrite:
         # The first traceback must NOT be present (overwrite, not append).
         assert "first failure" not in second_content, (
             "CR-10 regression: the first failure's traceback is still in "
-            "startup-error.log after the second failure — the file is "
+            "startup-error.log after the second failure, the file is "
             "being appended to instead of overwritten."
         )
 
@@ -141,7 +150,7 @@ class TestStartupErrorLogOverwrite:
         """The ``app.start()`` failure path must use the SAME diagnostic
         helper as the ``VoiceTyperApp()`` construction failure path
         (both call ``write_startup_diagnostic``).  This guards against
-        the two paths diverging again — EC-8 extracted the duplicated
+        the two paths diverging again, EC-8 extracted the duplicated
         inline diagnostic blocks (which had already drifted: CR-10's
         overwrite-vs-append fix was applied to only one) into
         :func:`voice_typer.server.ipc_diagnostics.write_startup_diagnostic`.
@@ -151,12 +160,30 @@ class TestStartupErrorLogOverwrite:
         # duplicating the ``_secure_atomic_write(diag_path, buf.getvalue())``
         # pattern inline.  Counting the helper invocations guards against
         # a future regression that re-inlines one of the call sites.
-        helper_count = src.count("write_startup_diagnostic(")
-        assert helper_count >= 2, (
-            "Both the construction-failure path and the app.start()-failure "
-            "path must call write_startup_diagnostic(...) (single source of "
-            "truth in ipc_diagnostics.py, EC-8). Found "
-            f"{helper_count} occurrence(s); expected at least 2."
+        # Structure note (early server-started launch order): the
+        # construction-failure diagnostics moved into the shared
+        # ``_construct_app_with_diagnostics`` helper (the SINGLE
+        # VoiceTyperApp construction site used by BOTH launch orders),
+        # so ``main``'s own source now delegates to the helper instead
+        # of calling ``write_startup_diagnostic("construction")`` inline
+        # , the module-wide count keeps the EC-8 single-source-of-truth
+        # invariant: one construction call (the helper), one per
+        # app.start()-failure site (main + the ws-startup thread).
+        assert 'write_startup_diagnostic("app.start()")' in src, (
+            'main()\'s app.start()-failure path must call write_startup_diagnostic("app.start()") (EC-8 shared helper).'
+        )
+        assert "_construct_app_with_diagnostics()" in src, (
+            "main() must delegate VoiceTyperApp construction to the shared "
+            "_construct_app_with_diagnostics helper (construction-failure "
+            "diagnostics live there, EC-8 single source of truth, shared by "
+            "both launch orders)."
+        )
+        assert _ENTRYPOINT_MODULE_DIAGNOSTIC_CALLS >= 3, (
+            "The entrypoint module must route ALL startup-failure "
+            "diagnostics through write_startup_diagnostic(...) (EC-8): "
+            "one construction call (the shared helper) + one per "
+            "app.start()-failure site (main + the ws-startup thread). "
+            f"Found {_ENTRYPOINT_MODULE_DIAGNOSTIC_CALLS} occurrence(s)."
         )
 
 
@@ -176,7 +203,7 @@ class TestStartupErrorLogConstructionFailureAlsoOverwrites:
         src = inspect.getsource(ipc_server.main)
         assert "write_startup_diagnostic(" in src, (
             "The construction-failure path must call "
-            "write_startup_diagnostic(...) (EC-8 shared helper) — "
+            "write_startup_diagnostic(...) (EC-8 shared helper), "
             "overwrite, not append."
         )
 

@@ -4,9 +4,9 @@ Before CR-4, ``sidecar_ws._push_to_ws`` was registered as an
 ``event_bus`` subscriber and called ``outbound.full() / get_nowait()
 / put_nowait()`` directly on an ``asyncio.Queue`` from whatever
 thread invoked ``event_bus.publish()``. Since ``event_bus.publish``
-is called from many non-event-loop threads — transcription, hotkey,
+is called from many non-event-loop threads, transcription, hotkey,
 tray, IPC dispatch workers (``server._dispatch`` runs via
-``loop.run_in_executor``), and the audio-worker deferred path — and
+``loop.run_in_executor``), and the audio-worker deferred path, and
 ``asyncio.Queue`` is explicitly NOT thread-safe, the queue's
 internal deque + ``_getawaiter`` / ``_putawaiter`` futures could
 corrupt. Observed symptoms (per CR-4 in review.md):
@@ -33,12 +33,12 @@ threads and verify:
    fail to wake the writer's ``await outbound.get()``).
 
 2. **Writer does not deadlock under overflow** (total >> maxsize=256)
-   — the writer task stays alive and continues making progress after
+ , the writer task stays alive and continues making progress after
    thousands of concurrent publishes. Pre-fix, the queue's internal
    deque could corrupt, hanging the writer forever.
 
 3. **Structural guard**: ``_push_to_ws`` no longer touches the queue
-   directly — it delegates to ``_enqueue_safe`` via
+   directly, it delegates to ``_enqueue_safe`` via
    ``call_soon_threadsafe``. A grep-level assertion locks this in.
 
 4. **Shutdown safety**: publishing during loop shutdown raises
@@ -79,7 +79,7 @@ def _reset_event_bus_subscribers():
     ``event_bus._subscribers``) leaks forever. A leaked subscriber
     makes ``_subscriber_count() >= 1`` immediately, so these tests
     skip their auth-wait and publish before their own ``_push_to_ws``
-    is installed — 0 events delivered (order-dependent failure that
+    is installed, 0 events delivered (order-dependent failure that
     only shows in the full suite).
     """
     event_bus._subscribers = event_bus._SubscriberSet()
@@ -100,7 +100,7 @@ def test_push_to_ws_does_not_touch_queue_directly() -> None:
     ``outbound.get_nowait()``, and ``outbound.put_nowait()`` inline.
     Those calls happen in the publisher's thread (transcription,
     hotkey, tray, IPC workers), and ``asyncio.Queue`` is not
-    thread-safe — direct mutation corrupts its internal deque + Future
+    thread-safe, direct mutation corrupts its internal deque + Future
     state.
 
     The fix moves the queue dance into a separate ``_enqueue_safe``
@@ -132,15 +132,15 @@ def test_push_to_ws_does_not_touch_queue_directly() -> None:
     push_end = src.index("from voice_typer.server import event_bus", push_start)
     push_body = src[push_start:push_end]
     assert "outbound.full" not in push_body, (
-        "_push_to_ws must NOT call outbound.full() directly — that is a "
+        "_push_to_ws must NOT call outbound.full() directly: that is a "
         "cross-thread mutation of an asyncio.Queue (CR-4 regression)"
     )
     assert "outbound.get_nowait" not in push_body, (
-        "_push_to_ws must NOT call outbound.get_nowait() directly — that is "
+        "_push_to_ws must NOT call outbound.get_nowait() directly: that is "
         "a cross-thread mutation of an asyncio.Queue (CR-4 regression)"
     )
     assert "outbound.put_nowait" not in push_body, (
-        "_push_to_ws must NOT call outbound.put_nowait() directly — that is "
+        "_push_to_ws must NOT call outbound.put_nowait() directly: that is "
         "a cross-thread mutation of an asyncio.Queue (CR-4 regression)"
     )
     # _enqueue_safe is a module-level callable that does the dance.
@@ -160,7 +160,7 @@ async def test_concurrent_publish_no_events_lost(monkeypatch) -> None:
     Publishes ``N_THREADS * N_PER_THREAD`` events from non-event-loop
     threads while the writer is paused (so the queue fills up). With
     the total kept under ``maxsize=256``, NO events should be dropped
-    by the drop-oldest policy — every published event must reach
+    by the drop-oldest policy, every published event must reach
     ``websocket.send``. After unblocking the writer, we count the
     delivered events and assert equality.
 
@@ -240,7 +240,7 @@ async def test_concurrent_publish_no_events_lost(monkeypatch) -> None:
         # have been processed. Each ``await asyncio.sleep(0)`` yields
         # once, processing all currently-ready callbacks in batch
         # (CPython's loop processes ALL ready callbacks in a single
-        # iteration — no chunk cap). We poll the loop's internal
+        # iteration, no chunk cap). We poll the loop's internal
         # ``_ready`` deque (stable since Python 3.7) and exit as soon
         # as it's empty, with a 0.5s bounded deadline as a safety net.
         # Replaces the fixed ``await asyncio.sleep(0.2)`` which always
@@ -253,7 +253,7 @@ async def test_concurrent_publish_no_events_lost(monkeypatch) -> None:
             if ready is None or len(ready) == 0:
                 break
 
-        # Unblock the writer — let it drain the queue.
+        # Unblock the writer, let it drain the queue.
         send_block.set()
 
         # Wait for all events to be delivered.
@@ -262,7 +262,7 @@ async def test_concurrent_publish_no_events_lost(monkeypatch) -> None:
             await asyncio.sleep(0.05)
 
         assert len(sent_events) == TOTAL, (
-            f"expected {TOTAL} events delivered, got {len(sent_events)} — "
+            f"expected {TOTAL} events delivered, got {len(sent_events)}, "
             f"events lost (asyncio.Queue corrupted by cross-thread mutation, "
             f"CR-4 regression)"
         )
@@ -292,14 +292,14 @@ async def test_concurrent_publish_writer_alive_under_overflow(monkeypatch) -> No
     Before the fix, concurrent ``put_nowait`` / ``get_nowait`` from
     non-loop threads could corrupt the queue's internal deque +
     ``_getawaiter`` Future, causing the writer's
-    ``await outbound.get()`` to hang forever (no wakeup) — a
+    ``await outbound.get()`` to hang forever (no wakeup), a
     deadlock that nothing in the system recovers from until the
     process is killed.
 
     The assertion is twofold:
 
     1. The connection task (which owns the writer task) is STILL
-       alive after all publish threads have returned — proving the
+       alive after all publish threads have returned, proving the
        writer didn't crash and the dispatch loop didn't error out.
     2. Some events were delivered (``len(sent_events) > 0``) —
        proving the writer was making progress and not parked on a
@@ -351,7 +351,7 @@ async def test_concurrent_publish_writer_alive_under_overflow(monkeypatch) -> No
         for t in threads:
             t.join(timeout=10.0)
 
-        # All publish threads must have returned — _push_to_ws did
+        # All publish threads must have returned, _push_to_ws did
         # not hang (call_soon_threadsafe is non-blocking from the
         # caller's perspective).
         dead = [t.name for t in threads if t.is_alive()]
@@ -370,24 +370,24 @@ async def test_concurrent_publish_writer_alive_under_overflow(monkeypatch) -> No
                 if stable_since is None:
                     stable_since = loop.time()
                 elif loop.time() - stable_since > 0.3:
-                    break  # count stable for 0.3s — queue drained
+                    break  # count stable for 0.3s, queue drained
             else:
                 stable_since = None
                 prev_count = current
             await asyncio.sleep(0.05)
 
         # The connection task (parent of the writer) must STILL be
-        # alive — the writer did not crash, the dispatch loop did not
+        # alive, the writer did not crash, the dispatch loop did not
         # raise, the asyncio loop did not die.
         assert not conn_task.done(), (
-            "connection/writer task exited during concurrent publish — "
+            "connection/writer task exited during concurrent publish, "
             "CR-4 regression (queue corruption crashed the loop or "
             "deadlocked the writer)"
         )
         # Some events must have been delivered (the writer was making
         # progress, not parked on a dead Future).
         assert len(sent_events) > 0, (
-            "no events delivered — writer deadlocked after cross-thread queue mutation (CR-4 regression)"
+            "no events delivered, writer deadlocked after cross-thread queue mutation (CR-4 regression)"
         )
         # We can't assert an exact count (drop-oldest under overflow
         # is timing-dependent), but we CAN assert the writer drained
@@ -412,7 +412,7 @@ async def test_push_to_ws_swallows_runtime_error_on_closed_loop(monkeypatch) -> 
     When the sidecar is shutting down (respawn, host kill), the
     event loop is closed. ``loop.call_soon_threadsafe`` raises
     ``RuntimeError`` in that state. ``_push_to_ws`` must swallow it
-    (drop the event at DEBUG level) — otherwise every event published
+    (drop the event at DEBUG level), otherwise every event published
     during teardown would propagate a traceback through
     ``event_bus._deliver`` (which itself swallows exceptions, but the
     log noise per published event during shutdown is unacceptable).
@@ -484,7 +484,7 @@ async def test_push_to_ws_swallows_runtime_error_on_closed_loop(monkeypatch) -> 
         assert not t.is_alive(), "publish thread blocked"
         assert error_in_publish == [], f"_push_to_ws propagated exception during shutdown: {error_in_publish}"
         assert raised, (
-            "test setup failed: the stub call_soon_threadsafe was never invoked — _push_to_ws did not actually marshal"
+            "test setup failed: the stub call_soon_threadsafe was never invoked, _push_to_ws did not actually marshal"
         )
     finally:
         conn_task.cancel()

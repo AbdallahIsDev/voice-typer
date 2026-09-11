@@ -1,9 +1,9 @@
-// lib/theme-contrast.ts — WCAG contrast-ratio helpers extracted from
+// lib/theme-contrast.ts, WCAG contrast-ratio helpers extracted from
 // ThemeSettingsSection.tsx (partial split).
 //
 // The actual WCAG math (``contrastRatio`` and its private
 // ``_relativeLuminance`` / ``_parseHex`` helpers) already lives in
-// ``@/lib/color-utils`` — we re-export ``contrastRatio`` from there
+// ``@/lib/color-utils``, we re-export ``contrastRatio`` from there
 // rather than duplicating the implementation. This module bundles the
 // contrast-related constants and helpers that are specific to the
 // custom-theme editor: the AA threshold, the hex-input validation
@@ -67,7 +67,7 @@ export const HEX_STRICT_RE = /^#[0-9a-fA-F]{6}$/;
  *                          user-chosen primary, mirroring
  *                          ``deriveCustomVars``'s --primary-foreground
  *                          derivation. The warning fires only when
- *                          NEITHER clears AA — i.e. the user picked a
+ *                          NEITHER clears AA, i.e. the user picked a
  *                          mid-tone primary that can't carry either
  *                          text colour.)
  *   - ``--bg-subtle``    → foreground vs bg-subtle (text on cards)
@@ -94,7 +94,7 @@ export function getContrastPair(
 		case "--primary": {
 			// deriveCustomVars now picks the foreground dynamically
 			// (white or black, whichever has higher contrast). The warning
-			// fires only when NEITHER clears AA — i.e. the user picked a
+			// fires only when NEITHER clears AA, i.e. the user picked a
 			// mid-tone primary that can't carry either text colour. We
 			// normalise the primary to hex first so oklch/hsl/named colours
 			// the user picked in the editor are scored correctly (the

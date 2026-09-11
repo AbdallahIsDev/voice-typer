@@ -1,5 +1,5 @@
 /**
- * unit tests for `hooks/useModelLifecycle.ts` — the facade composing
+ * unit tests for `hooks/useModelLifecycle.ts`, the facade composing
  * the Models-page sub-hooks (split from the former App-level
  * monolith).
  *
@@ -17,7 +17,7 @@
  * The 4 internal helpers from `useModelConfig` are destructured OUT of the
  * public return shape (they're not part of the pre-split facade contract).
  * The merged return is `{ ...configRest, ...download, ...selection,
- * ...cloud, ...folder, cloudProviders }` — `agoLabel` was removed when the
+ * ...cloud, ...folder, cloudProviders }`, `agoLabel` was removed when the
  * "Last updated / refresh" indicator was removed from the Models page.
  *
  * Coverage:
@@ -29,11 +29,11 @@
  *      `setModels` AS THE SAME REFERENCE returned by
  *      `useModelConfig`. When the download sub-hook's
  *      `handleCancelDownload` calls `setModels(prev => ...)`, it mutates
- *      the SAME state owned by `useModelConfig` — without this referential
+ *      the SAME state owned by `useModelConfig`, without this referential
  *      equality, cancel-state-reset would silently no-op.
  *   3. Args wiring: `useModelDownload` receives `setModels` and
  *      `reconcileAfterDownload` (full config re-fetch after a
- *      successful download) — and does NOT receive `refreshModelStatus`
+ *      successful download), and does NOT receive `refreshModelStatus`
  *      (the download sub-hook stopped consuming it when the deps-install
  *      flow was removed; the facade forwards it to `useModelSelection`
  *      only).
@@ -82,7 +82,7 @@ const {
 	mockCLOUD_PROVIDERS,
 } = vi.hoisted(() => {
 	const order: string[] = [];
-	// Stable refs returned by useModelConfig — these are the values
+	// Stable refs returned by useModelConfig, these are the values
 	// the facade destructures out + forwards to the other sub-hooks.
 	// Tests assert that the SAME references are passed through.
 	const refreshModelStatus = vi.fn().mockResolvedValue(undefined);
@@ -207,7 +207,7 @@ vi.mock("@/lib/utils/models", () => ({
 // ── Import AFTER mocks ────────────────────────────────────────────────
 import { useModelLifecycle } from "@/hooks/useModelLifecycle";
 
-describe("useModelLifecycle — facade composition ", () => {
+describe("useModelLifecycle, facade composition ", () => {
 	beforeEach(() => {
 		callOrder.length = 0;
 		useModelConfigArgs.value = undefined;
@@ -267,7 +267,7 @@ describe("useModelLifecycle — facade composition ", () => {
 			expect(cfgArgs.markUpdated).toBe(mockMarkUpdated);
 			// agoLabel was REMOVED from the public return shape when the
 			// "Last updated / refresh" indicator was removed from the
-			// Models page — the facade must not re-add dead surface.
+			// Models page, the facade must not re-add dead surface.
 			expect(
 				(result.current as Record<string, unknown>).agoLabel,
 			).toBeUndefined();
@@ -321,7 +321,7 @@ describe("useModelLifecycle — facade composition ", () => {
 			// On success, downloadModel calls
 			// `setModels(prev => prev.map(m => m.name === model.name
 			//   ? { ...m, downloaded: true, isActive: !anyActive }
-			//   : m))` — the post-install "activation" path.
+			//   : m))`, the post-install "activation" path.
 			// Verifying setModels is forwarded pins this wiring.
 			renderHook(() => useModelLifecycle());
 			const dlArgs = useModelDownloadArgs.value as {
@@ -432,7 +432,7 @@ describe("useModelLifecycle — facade composition ", () => {
 			expect(r.diskInfo).toBe(folderHookReturn.diskInfo);
 			expect(r.handleImportModel).toBe(folderHookReturn.handleImportModel);
 
-			// agoLabel is REMOVED (the refresh indicator is gone) — the
+			// agoLabel is REMOVED (the refresh indicator is gone), the
 			// facade must not resurrect dead public surface.
 			expect(r.agoLabel).toBeUndefined();
 
@@ -444,7 +444,7 @@ describe("useModelLifecycle — facade composition ", () => {
 			const { result } = renderHook(() => useModelLifecycle());
 			const r = result.current as Record<string, unknown>;
 			// The facade destructures these out so they don't leak
-			// into the pre-split return shape — Models.tsx and its
+			// into the pre-split return shape, Models.tsx and its
 			// tests don't expect them.
 			expect(r.refreshModelStatus).toBeUndefined();
 			expect(r.updateConfig).toBeUndefined();
@@ -461,7 +461,7 @@ describe("useModelLifecycle — facade composition ", () => {
 
 	describe("ApiTestResult type re-export (back-compat)", () => {
 		it("the type alias is re-exported from the facade module", async () => {
-			// The re-export is a TypeScript type-only export — at
+			// The re-export is a TypeScript type-only export, at
 			// runtime there's no value to assert on, but the
 			// import must resolve (no missing-export error).
 			// We verify by importing the module's named exports

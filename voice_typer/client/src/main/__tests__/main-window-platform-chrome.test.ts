@@ -15,7 +15,7 @@
  *
  * Regression coverage for: previously `frame: false` was set on EVERY
  * platform, so macOS users saw Windows-style buttons on the right and
- * no traffic lights at all — a cross-platform UX error.
+ * no traffic lights at all, a cross-platform UX error.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -25,11 +25,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => {
 	let capturedBrowserWindowOptions: Record<string, unknown> | null = null;
 	let capturedWindow: Record<string, unknown> | null = null;
-	// Mutable per-test value — the window's isMaximized reads it through a
+	// Mutable per-test value, the window's isMaximized reads it through a
 	// closure so the leave-full-screen test can simulate the macOS
 	// zoom-then-fullscreen flow (window still maximized on return).
 	let isMaximizedValue = false;
-	// Mutable per-test value — the window's isFullScreen reads it through
+	// Mutable per-test value, the window's isFullScreen reads it through
 	// a closure; setFullScreen writes it back, so a second F11 press
 	// toggles off (the F11 handler reads current state at call time).
 	let isFullScreenValue = false;
@@ -152,7 +152,7 @@ describe("main-window cross-platform window chrome", () => {
 		return mocks.getCapturedOptions();
 	}
 
-	it("Windows: frameless window (frame:false) — renderer draws the window-control buttons", async () => {
+	it("Windows: frameless window (frame:false), renderer draws the window-control buttons", async () => {
 		const opts = await createWindowWithPlatform("win32");
 		expect(opts).not.toBeNull();
 		expect(opts?.frame).toBe(false);
@@ -161,7 +161,7 @@ describe("main-window cross-platform window chrome", () => {
 		expect(opts?.trafficLightPosition).toBeUndefined();
 	});
 
-	it("Linux: frameless window (frame:false) — same custom window-control buttons as Windows", async () => {
+	it("Linux: frameless window (frame:false), same custom window-control buttons as Windows", async () => {
 		const opts = await createWindowWithPlatform("linux");
 		expect(opts).not.toBeNull();
 		expect(opts?.frame).toBe(false);

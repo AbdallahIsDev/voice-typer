@@ -17,7 +17,7 @@ These tests lock in the corrected docstring wording so a future
 refactor does not silently revert the docstring to claim an HMAC
 scheme that the implementation does not provide. A docstring claiming
 HMAC would mislead reviewers into believing per-message MAC / nonce /
-replay protection exists when it does not — a security-relevant
+replay protection exists when it does not, a security-relevant
 documentation drift.
 
 Scope
@@ -58,13 +58,13 @@ def test_module_docstring_describes_bearer_token_not_hmac_scheme() -> None:
     """The module docstring must describe the bearer-token auth model.
 
     The module-level docstring's architecture block previously said
-    "sends the HMAC auth frame" — misleading because the
+    "sends the HMAC auth frame", misleading because the
     implementation is a one-shot bearer-token comparison. After the
     XZ-R4-001 fix, the docstring must:
 
       1. Mention "bearer-token" (the actual model).
       2. Document the compensating controls (loopback-only bind,
-         ephemeral port, per-respawn token rotation) — these are the
+         ephemeral port, per-respawn token rotation), these are the
          threat-model note ADR-0020 §3 requires.
       3. NOT claim an HMAC scheme (the implementation does not derive
          a key, sign, or verify a MAC).
@@ -92,7 +92,7 @@ def test_module_docstring_describes_bearer_token_not_hmac_scheme() -> None:
     lowered = cleaned.lower()
     for misleading_phrase in ("hmac scheme", "hmac token", "hmac auth frame", "validate the hmac"):
         assert misleading_phrase not in lowered, (
-            f"module docstring must not claim '{misleading_phrase}' — the "
+            f"module docstring must not claim '{misleading_phrase}', the "
             "implementation is a bearer-token comparison, not an HMAC scheme "
             "(XZ-R4-001). References to the ``hmac.compare_digest`` Python "
             "helper are accurate and allowed."
@@ -103,7 +103,7 @@ def test_authenticate_docstring_describes_bearer_token_not_hmac_scheme() -> None
     """The ``_authenticate`` docstring must describe the bearer-token model.
 
     Previously the docstring opened with "Read the first WS frame and
-    validate the HMAC token" — misleading for the same reason as the
+    validate the HMAC token", misleading for the same reason as the
     module docstring. After XZ-R4-001 the docstring must:
 
       1. Open with "bearer token" (not "HMAC token").
@@ -138,7 +138,7 @@ def test_authenticate_docstring_describes_bearer_token_not_hmac_scheme() -> None
     # The opening line must NOT say "validate the HMAC token".
     first_line = auth_doc.splitlines()[0] if auth_doc else ""
     assert "hmac token" not in first_line.lower(), (
-        f"_authenticate docstring opening line must not say 'HMAC token' — got: {first_line!r}"
+        f"_authenticate docstring opening line must not say 'HMAC token', got: {first_line!r}"
     )
 
 
@@ -147,14 +147,14 @@ def test_authenticate_uses_hmac_compare_digest_at_runtime() -> None:
 
     A regression that swapped ``hmac.compare_digest`` for a plain ``==``
     would reintroduce a timing side-channel on the auth comparison.
-    This test locks in the constant-time comparison contract — the
+    This test locks in the constant-time comparison contract, the
     XZ-R4-001 fix is docstring-only and must NOT change the runtime
     behaviour.
     """
     source = inspect.getsource(sidecar_ws._authenticate)
     # VP-8: the constant-time comparison moved to the shared helper
     # ``voice_typer.server.ipc.auth.tokens_equal`` (which wraps
-    # ``hmac.compare_digest``). Accept either form — the contract is
+    # ``hmac.compare_digest``). Accept either form, the contract is
     # "constant-time comparison via hmac", and a regression to a plain
     # ``==`` fails BOTH anchors.
     assert "hmac.compare_digest" in source or "tokens_equal" in source, (

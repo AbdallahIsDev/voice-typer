@@ -1,5 +1,5 @@
 /**
- *  vitest rewrite — behavioral tests for consent & privacy UI.
+ *  vitest rewrite, behavioral tests for consent & privacy UI.
  *
  * This file replaces 19 TS-string Python tests from
  * `tests/test_consent_and_privacy.py`. Each Python test asserted on
@@ -43,7 +43,7 @@
  *     - test_models_has_hugging_face_consent_banner
  *     - test_models_consent_section_only_shown_when_key_present
  *
- * Python tests that remain KEEP (Python-only behavior — no TS
+ * Python tests that remain KEEP (Python-only behavior, no TS
  * counterpart): TestConfigDeclaresConsentFlags,
  * TestCloudEngineRefusesWithoutConsent,
  * TestWhisperPreDownloadRespectsHuggingFaceConsent,
@@ -56,7 +56,7 @@
  *   - test_settings_has_all_consent_toggles_consolidated
  *                                                → PrivacySettings-consent.test.tsx
  *
- * The Python tests are NOT deleted — they remain skipped so they stay
+ * The Python tests are NOT deleted, they remain skipped so they stay
  * available as a fallback until CI verifies the vitest versions pass on
  * all platforms.
  */
@@ -75,7 +75,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
  * Page-level render helper. Pages like Settings mount Radix Tooltip
  * (via SettingRow / ui primitives); the real App shell wraps everything
  * in a TooltipProvider (App.tsx), so tests mounting pages directly must
- * provide one too — otherwise every Tooltip render throws "Tooltip must
+ * provide one too, otherwise every Tooltip render throws "Tooltip must
  * be used within TooltipProvider" and the page mounts empty.
  */
 const renderWithProviders = (ui: React.ReactElement) =>
@@ -151,7 +151,7 @@ vi.mock("next-themes", () => ({
 	useTheme: () => ({ theme: "light" as const }),
 }));
 
-// ─── Module imports (after vi.mock — these run with mocks in place) ───
+// ─── Module imports (after vi.mock, these run with mocks in place) ───
 import { useConsentGateStore } from "@/lib/consentGate";
 import ModelsPage from "@/pages/Models";
 import type { VoiceTyperConfig } from "@/types/config";
@@ -268,7 +268,7 @@ function makeConfig(
 		noise_filter_limiter_release_ms: 0,
 		noise_filter_notch: false,
 		noise_filter_notch_frequency_hz: 0,
-		// Consent flags — start all at false (privacy by default).
+		// Consent flags, start all at false (privacy by default).
 		huggingface_consent: false,
 		voice_biometric_consent: false,
 		cloud_openai_consent: false,
@@ -311,7 +311,7 @@ function lastSetConfigPayload(): Record<string, unknown> | null {
 // Group 1: TestAboutPageHasPrivacyDisclosure (3 PORT tests)
 // =====================================================================
 
-describe("About page — updates / help / feedback sections", () => {
+describe("About page, updates / help / feedback sections", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		mockCall.mockReset();
@@ -340,7 +340,7 @@ describe("About page — updates / help / feedback sections", () => {
 			}
 		});
 
-		// Stub global.fetch — C-DATA-1 regression guard. The Updates
+		// Stub global.fetch, C-DATA-1 regression guard. The Updates
 		// section previously fired a fetch to api.github.com on mount
 		// and again when the (now-removed) "Check for Updates" button
 		// was clicked. The manual button has been removed entirely;
@@ -363,7 +363,7 @@ describe("About page — updates / help / feedback sections", () => {
 		// C-DATA-1 (offline guarantee): the previous "Check for Updates"
 		// button fired a renderer `fetch()` to
 		// `https://api.github.com/repos/AbdallahIsDev/voice-typer/releases/latest`
-		// on click — a network call in the production code path, which
+		// on click, a network call in the production code path, which
 		// the offline guarantee forbids. The button + handler +
 		// latestVersion state have all been removed; the Updates section
 		// now shows the installed version plus a static offline message.
@@ -396,7 +396,7 @@ describe("About page — updates / help / feedback sections", () => {
 			screen.getByText(/Voice Typer is an offline application/i),
 		).toBeTruthy();
 
-		// No fetch should have fired — C-DATA-1 absolute guarantee.
+		// No fetch should have fired, C-DATA-1 absolute guarantee.
 		expect(fetchSpy).not.toHaveBeenCalled();
 	});
 
@@ -459,7 +459,7 @@ describe("About page — updates / help / feedback sections", () => {
 // Group 2: TestSettingsTroubleshootHasDiagnosticActions (2 PORT tests)
 // =====================================================================
 
-describe("Settings page — Troubleshooting section", () => {
+describe("Settings page, Troubleshooting section", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		mockCall.mockReset();
@@ -489,7 +489,7 @@ describe("Settings page — Troubleshooting section", () => {
 		const { default: SettingsPage } = await import("@/pages/Settings");
 		renderWithProviders(<SettingsPage page="settingsAdvanced" />);
 
-		// Wait for the Advanced sub-page to mount — the Diagnostics
+		// Wait for the Advanced sub-page to mount, the Diagnostics
 		// section heading renders once get_config resolves (the
 		// Troubleshooting / Diagnostics / Resources / Prewarm cards all
 		// live on this section page in the hub IA).
@@ -510,7 +510,7 @@ describe("Settings page — Troubleshooting section", () => {
 		// section heading renders directly there. The Troubleshooting
 		// buttons carry aria-labels (en.json:
 		// settings.troubleshooting.*Aria) that differ from their
-		// visible text — we assert BOTH the visible text (per the
+		// visible text, we assert BOTH the visible text (per the
 		// Python invariant) and the accessible name (per WCAG SC
 		// 4.1.2) so a regression in either dimension fails the test.
 		await renderSettingsOnAdvancedPage();
@@ -522,7 +522,7 @@ describe("Settings page — Troubleshooting section", () => {
 		});
 		expect(screen.getByText("Help & FAQ")).toBeTruthy();
 		// "Report a Bug" appears in BOTH the Troubleshooting button
-		// and the Resources grid — accept either occurrence.
+		// and the Resources grid, accept either occurrence.
 		expect(screen.getAllByText("Report a Bug").length).toBeGreaterThan(0);
 		expect(screen.getByText("Open Log Folder")).toBeTruthy();
 
@@ -542,7 +542,7 @@ describe("Settings page — Troubleshooting section", () => {
 		// Behavioral: the diagnostics panel that previously lived on
 		// the About page now renders INLINE on the Settings → Advanced
 		// section page (DiagnosticsSettingsSection, alongside the
-		// Troubleshooting section) — no navigation to "about" is
+		// Troubleshooting section), no navigation to "about" is
 		// involved, and no "Open Diagnostics" button remains.
 		mockCall.mockImplementation((type: string) => {
 			if (type === "get_config") return Promise.resolve(makeConfig());
@@ -568,7 +568,7 @@ describe("Settings page — Troubleshooting section", () => {
 // Group 3: TestAboutAndSettingsShowVoiceBiometricConsent (3 PORT tests)
 // =====================================================================
 
-describe("About & Settings — voice biometric consent disclosure", () => {
+describe("About & Settings, voice biometric consent disclosure", () => {
 	afterEach(() => {
 		cleanup();
 	});
@@ -730,13 +730,13 @@ describe("About & Settings — voice biometric consent disclosure", () => {
 //
 // The Python tests asserted on substring presence inside
 // `types/config.ts`. The TS type system already enforces the existence
-// of these keys at compile time — if a key is removed from the
+// of these keys at compile time, if a key is removed from the
 // interface, code that references it fails typecheck. The vitest
 // versions below add a runtime assertion that the field name is a
 // `keyof VoiceTyperConfig`, which catches the case where a field is
 // renamed but the rename isn't propagated to consumers.
 
-describe("VoiceTyperConfig type — consent flags", () => {
+describe("VoiceTyperConfig type, consent flags", () => {
 	it("declares sound_feedback_enabled as a key of VoiceTyperConfig", () => {
 		// Python invariant (test_sound_feedback_enabled_in_type):
 		//   "sound_feedback_enabled" in types/config.ts source.
@@ -788,7 +788,7 @@ describe("VoiceTyperConfig type — consent flags", () => {
 // Group 5: TestModelsPageExposesCloudConsentToggles (6 PORT tests)
 // =====================================================================
 
-describe("Models page — cloud consent toggles", () => {
+describe("Models page, cloud consent toggles", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		mockCall.mockReset();
@@ -798,7 +798,7 @@ describe("Models page — cloud consent toggles", () => {
 		// the next.
 		useConsentGateStore.setState({ request: null });
 		// The page persists the active tab (Local / Cloud) in
-		// sessionStorage — clear it so every test starts on the
+		// sessionStorage, clear it so every test starts on the
 		// default Local tab regardless of what a previous test did.
 		sessionStorage.clear();
 	});
@@ -835,12 +835,12 @@ describe("Models page — cloud consent toggles", () => {
 			).toBeGreaterThan(0);
 		});
 
-		// Switch to the Cloud Models tab — the cloud consent
+		// Switch to the Cloud Models tab, the cloud consent
 		// Switches (apiKeys[provider.key] gate) only render there.
 		// The SegmentedControl renders each option as a radio with
 		// a clickable label.
 		if (switchToCloudTab) {
-			// Query the TAB by role — the panel heading inside the
+			// Query the TAB by role, the panel heading inside the
 			// Cloud tab also reads "Cloud Models", so a plain
 			// getByText would match two elements.
 			fireEvent.click(screen.getByRole("tab", { name: "Cloud Models" }));
@@ -872,7 +872,7 @@ describe("Models page — cloud consent toggles", () => {
 		await renderModels({ openai_api_key: "sk-test-key" });
 
 		// (overhaul point 11) the form is hidden behind the group's
-		// Configure action — reveal it first.
+		// Configure action, reveal it first.
 		openApiKeyForm("OpenAI Whisper API");
 
 		// The OpenAI provider consent Switch carries aria-label
@@ -922,7 +922,7 @@ describe("Models page — cloud consent toggles", () => {
 		//   "consentKeyFor" in src
 		//
 		// Behavioral: the consentKeyFor helper maps each provider
-		// to its own consent flag — toggling the Groq Switch
+		// to its own consent flag, toggling the Groq Switch
 		// persists cloud_groq_consent, and toggling the Deepgram
 		// Switch persists cloud_deepgram_consent.  Provider
 		// labels come from en.json (models.providers.{key}.label):
@@ -985,7 +985,7 @@ describe("Models page — cloud consent toggles", () => {
 		});
 
 		// en.json: models.cloud.consentDescription contains
-		// "audio recordings will be sent to {provider}" — the
+		// "audio recordings will be sent to {provider}", the
 		// {provider} placeholder is interpolated with the
 		// localized provider label ("OpenAI Whisper API").
 		expect(document.body.textContent ?? "").toMatch(
@@ -1000,7 +1000,7 @@ describe("Models page — cloud consent toggles", () => {
 		// the same modal every other consent-gated flow uses). Contract:
 		//   • no consent UI on page load;
 		//   • clicking Download with consent missing does NOT fire
-		//     download_model — it opens the shared dialog request with
+		//     download_model, it opens the shared dialog request with
 		//     the huggingface_consent field + body key;
 		//   • Allow persists huggingface_consent=true (persistence itself
 		//     is covered by ConsentGateDialog.test.tsx) and re-invokes
@@ -1028,7 +1028,7 @@ describe("Models page — cloud consent toggles", () => {
 		});
 		fireEvent.click(downloadButton);
 
-		// The download is BLOCKED — no download_model IPC fired — and
+		// The download is BLOCKED, no download_model IPC fired, and
 		// the shared gate opens instead of a transient toast.
 		await waitFor(() => {
 			const req = useConsentGateStore.getState().request;

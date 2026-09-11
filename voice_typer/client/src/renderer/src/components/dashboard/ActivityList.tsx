@@ -58,7 +58,7 @@ interface ActivityListProps {
 	/**
 	 * Group the list into one separate card per date ("Today" /
 	 * Yesterday / long date as the card header). Rows then show only
-	 * their TIME — the date lives in the card header. Only meaningful
+	 * their TIME, the date lives in the card header. Only meaningful
 	 * for chronologically-sorted lists; the History page disables
 	 * grouping for alphabetical sorts.
 	 */
@@ -72,7 +72,7 @@ interface ActivityListProps {
 	onFetchFullText?: (id: number) => Promise<string | null>;
 	/**
 	 * Hide the section header row (title + "View all"). The History page
-	 * renders the list directly under its toolbar — a "Recent Activity"
+	 * renders the list directly under its toolbar, a "Recent Activity"
 	 * heading there would duplicate the page title.
 	 */
 	hideHeader?: boolean;
@@ -83,26 +83,26 @@ interface ActivityListProps {
 // Extracted from the inline `.map()` body in ActivityList and
 // wrapped in `React.memo`. Previously, every render of ActivityList
 // allocated 3 fresh closure functions per row (`handleItemFavorite`,
-// `handleItemCopy`, `handleItemDelete`) — on a 200-row dashboard list
+// `handleItemCopy`, `handleItemDelete`), on a 200-row dashboard list
 // that's 600 closure allocations per copy/favorite click (because the
 // click flips `copiedId`, re-rendering the parent and rebuilding every
 // row's handlers).
 //
 // The memo'd row receives:
-//   - `item`              — the HistoryRecord (stable reference unless the
+//   - `item`             , the HistoryRecord (stable reference unless the
 //                           underlying record changes)
-//   - `copied`            — a primitive boolean (true when this row is the
+//   - `copied`           , a primitive boolean (true when this row is the
 //                           copied one) instead of the parent's `copiedId`
 //                           so only the row whose copied-state actually
 //                           changed re-renders
-//   - `lineClamp`         — primitive number
-//   - `grouped`           — primitive boolean (date-grouped list mode:
+//   - `lineClamp`        , primitive number
+//   - `grouped`          , primitive boolean (date-grouped list mode:
 //                           rows show time only)
-//   - `onCopy`            — stable useCallback from parent (receives the
+//   - `onCopy`           , stable useCallback from parent (receives the
 //                           item, so the row's onClick can pass it through)
-//   - `onDelete`          — stable useCallback from parent (or undefined)
-//   - `onToggleFavorite`  — stable useCallback from parent (or undefined)
-//   - `onFetchFullText`   — stable useCallback from parent (or undefined)
+//   - `onDelete`         , stable useCallback from parent (or undefined)
+//   - `onToggleFavorite` , stable useCallback from parent (or undefined)
+//   - `onFetchFullText`  , stable useCallback from parent (or undefined)
 //
 // All non-primitive props are stable useCallbacks from the parent, so
 // `memo`'s default shallow-equal comparator skips re-renders for every
@@ -131,7 +131,7 @@ const ActivityListRow = memo(function ActivityListRow({
 	const [expanded, setExpanded] = useState(false);
 	// Full text fetched on demand. Local to the row so expanding never
 	// churns the parent's records array (and survives background list
-	// refreshes — the record id is stable). ``null`` until fetched.
+	// refreshes, the record id is stable). ``null`` until fetched.
 	const [fullText, setFullText] = useState<string | null>(null);
 	const [loadingText, setLoadingText] = useState(false);
 
@@ -139,7 +139,7 @@ const ActivityListRow = memo(function ActivityListRow({
 	// A row is expandable when the parent can supply full text AND the
 	// text is (or may be) clamped: either the backend flagged the
 	// 500-char preview, or the text exceeds the length where the line
-	// clamp kicks in. Short rows stay inert — no cursor, no hover, no
+	// clamp kicks in. Short rows stay inert, no cursor, no hover, no
 	// button semantics (hover states only where a genuine click action
 	// exists).
 	const expandable =
@@ -155,7 +155,7 @@ const ActivityListRow = memo(function ActivityListRow({
 		}
 		// First expansion of a backend-truncated row: fetch the FULL text
 		// (the list payload carries only the 500-char preview). An empty
-		// result means the row is gone (or the fetch failed) — surface a
+		// result means the row is gone (or the fetch failed), surface a
 		// toast instead of expanding to a clipped preview.
 		if (item.text_truncated === true && fullText === null) {
 			setLoadingText(true);
@@ -217,7 +217,7 @@ const ActivityListRow = memo(function ActivityListRow({
 					    mouse-selectable, so the disclosure semantics are
 					    carried by role/tabIndex/aria-expanded with explicit
 					    keyboard activation instead. */}
-					{/* biome-ignore lint/a11y/noStaticElementInteractions: the block IS the disclosure control (see comment above) — text selection inside a native <button> is blocked by the UA stylesheet. */}
+					{/* biome-ignore lint/a11y/noStaticElementInteractions: the block IS the disclosure control (see comment above), text selection inside a native <button> is blocked by the UA stylesheet. */}
 					{/* biome-ignore lint/a11y/useAriaPropsSupportedByRole: aria-expanded is the disclosure state; the conditional undefined keeps it off inert rows. */}
 					<div
 						role={expandable ? "button" : undefined}
@@ -246,7 +246,7 @@ const ActivityListRow = memo(function ActivityListRow({
 						>
 							{displayedText}
 							{/* Inline collapse affordance at the end of the
-							    expanded text — same treatment as the "Show
+							    expanded text, same treatment as the "Show
 							    more" reveal (muted inline text, no separate
 							    row, no extra vertical space). Nested inside
 							    the toggle block, so it stops propagation to
@@ -276,7 +276,7 @@ const ActivityListRow = memo(function ActivityListRow({
 					    A small right-anchored overlay fades the clipped
 					    text out (transparent → card background) with the
 					    "Show more" control sitting on the solid end of the
-					    fade, inline with the text line — no separate button
+					    fade, inline with the text line, no separate button
 					    row, no extra vertical space, no horizontal padding
 					    stolen from the text. The wrapper is
 					    pointer-events-none so text selection and clicks
@@ -318,7 +318,7 @@ const ActivityListRow = memo(function ActivityListRow({
 			<div className="flex items-center gap-1">
 				{/* Action order: Copy first (copying a past transcription is
 				    the primary reason a user opens History), then
-				    Star/Favorite, then Delete LAST — destructive actions
+				    Star/Favorite, then Delete LAST, destructive actions
 				    never lead the group. Copy always receives the DISPLAYED
 				    text, so an expanded row copies the full transcript. */}
 				<Button
@@ -423,7 +423,7 @@ function ActivityListInner({
 	}, []);
 
 	// The previous `handleDelete` / `handleFavorite` pass-through
-	// wrappers have been removed — the memo'd `ActivityListRow` now calls
+	// wrappers have been removed, the memo'd `ActivityListRow` now calls
 	// `onDelete(item.id)` / `onToggleFavorite(item.id)` directly. Both
 	// parent callbacks are already stable (passed in as props), so the
 	// row's `memo` shallow-equal comparator keeps them referentially
@@ -432,7 +432,7 @@ function ActivityListInner({
 	// Previously returned ``null`` when ``items`` was empty,
 	// which meant a parent rendering ``<ActivityList items={[]} />``
 	// (e.g. the Home page before any dictation has happened) showed
-	// nothing at all — no heading, no "no recent activity" hint, just
+	// nothing at all, no heading, no "no recent activity" hint, just
 	// blank space.  We now render an inline muted message so the user
 	// knows the section exists but has no entries yet.  The message is
 	// rendered inside the same ``rounded-lg border`` container as a
@@ -440,7 +440,7 @@ function ActivityListInner({
 	if (items.length === 0) {
 		return (
 			// No top margin here (or below): vertical rhythm comes from
-			// the PARENT's gap — a margin on this root would stack with
+			// the PARENT's gap, a margin on this root would stack with
 			// it and double the space above the card.
 			<div className="flex w-full flex-col gap-2.5">
 				{!hideHeader && (
@@ -493,7 +493,7 @@ function ActivityListInner({
 				</div>
 			)}
 			{groups ? (
-				// One SEPARATE card per date — the card surface (background,
+				// One SEPARATE card per date, the card surface (background,
 				// border, rounded corners) matches the flat list's card, and
 				// the parent gap between cards makes "new card = new day"
 				// readable at a glance without scanning for labels.
@@ -508,12 +508,17 @@ function ActivityListInner({
 						>
 							{group.label && (
 								<div className="px-4 pt-3 pb-1">
-									<h3
+									{/* h2, not h3: the page title is the only
+									    h1 and nothing renders an h2 between it
+									    and this header, an h3 here skips a
+									    level (axe heading-order). Visual style
+									    unchanged (still the muted 12px label). */}
+									<h2
 										id={`history-date-${group.key}`}
 										className="text-xs font-semibold tracking-wide text-(--text-muted)"
 									>
 										{group.label}
-									</h3>
+									</h2>
 								</div>
 							)}
 							<div className="divide-y divide-border/5">

@@ -15,10 +15,10 @@ on historical ``linux2`` values).
 This test walks ``voice_typer/server/**/*.py`` and fails when a new
 inline comparison appears outside the allowlist:
 
-* ``platform_utils.py`` — the canonical implementations themselves.
-* ``crash_handler/**`` — deliberately standalone (must stay importable
+* ``platform_utils.py``, the canonical implementations themselves.
+* ``crash_handler/**``, deliberately standalone (must stay importable
   without pulling in the rest of the server package).
-* ``server_platform/platform_flags.py`` — the legacy snapshot-based
+* ``server_platform/platform_flags.py``, the legacy snapshot-based
   flag module kept for its own documented reasons.
 
 Only CODE tokens are scanned (comments and string literals are
@@ -28,7 +28,7 @@ false-positives.
 
 To fix a failure, replace the inline check with the matching
 ``platform_utils`` helper (import placement: module-level import is
-fine — ``platform_utils`` is stdlib-only; keep it function-local only
+fine: ``platform_utils`` is stdlib-only; keep it function-local only
 when the file's own convention requires lazy imports).
 """
 
@@ -52,7 +52,7 @@ _ALLOWLISTED_FILES = frozenset(
 _ALLOWLISTED_TOP_DIRS = frozenset({"crash_handler"})
 
 # Matches ``sys.platform == ...`` / ``sys.platform != ...`` (including
-# ``_sys.platform ==`` — the trailing substring is what matters),
+# ``_sys.platform ==``, the trailing substring is what matters),
 # ``sys.platform.startswith(...)``, and membership forms like
 # ``sys.platform not in (...)`` / ``sys.platform in (...)``.
 _INLINE_CHECK_RE = re.compile(
@@ -139,7 +139,7 @@ def test_no_inline_sys_platform_comparisons_outside_allowlist() -> None:
 
 
 def test_allowlist_files_still_exist() -> None:
-    """The allowlist entries must point at real files — otherwise the
+    """The allowlist entries must point at real files, otherwise the
     main assertion above silently stops covering anything."""
     assert (SERVER_DIR / "platform_utils.py").is_file()
     assert (SERVER_DIR / "crash_handler").is_dir()

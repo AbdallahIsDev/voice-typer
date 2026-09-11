@@ -3,9 +3,9 @@
  *
  * Coverage :
  *   - diskInfo + modelsFolderSupported stay at their constant null/false values
- *     (the optional probes were removed — see the hook's docstring)
+ *     (the optional probes were removed, see the hook's docstring)
  *   - handleImportModel bails out (info-level snackbar) when window.window_
- *     is unavailable (e.g. outside Electron) — covers the "outside-Electron"
+ *     is unavailable (e.g. outside Electron), covers the "outside-Electron"
  *     permission/error path
  *   - handleImportModel surfaces a warning snack when no models are found
  *     in the picked folder (success=true, found.length=0)
@@ -61,7 +61,7 @@ function makeHookArgs() {
 	};
 }
 
-/** Stub `window.window_.openModelImportDialog` — the Electron folder picker. */
+/** Stub `window.window_.openModelImportDialog`, the Electron folder picker. */
 function setOpenModelImportDialog(
 	impl: () => Promise<{ canceled: boolean; path: string | null }>,
 ) {
@@ -92,8 +92,8 @@ afterEach(() => {
 	clearWindowBridge();
 });
 
-describe("useModelFolder — initial state (phantom probes removed)", () => {
-	it("exposes diskInfo=null + modelsFolderSupported=false (constants — phantom probes removed)", () => {
+describe("useModelFolder, initial state (phantom probes removed)", () => {
+	it("exposes diskInfo=null + modelsFolderSupported=false (constants, phantom probes removed)", () => {
 		const { result } = renderHook(() => useModelFolder(makeHookArgs()));
 		expect(result.current.diskInfo).toBeNull();
 		expect(result.current.modelsFolderSupported).toBe(false);
@@ -105,9 +105,9 @@ describe("useModelFolder — initial state (phantom probes removed)", () => {
 	});
 });
 
-describe("useModelFolder — handleImportModel error paths", () => {
+describe("useModelFolder, handleImportModel error paths", () => {
 	it("bails out with a warning snack when window.window_ is unavailable (outside Electron)", async () => {
-		// No window.window_ stub installed — simulates running outside
+		// No window.window_ stub installed, simulates running outside
 		// Electron (e.g. in a browser dev shell or a test environment
 		// without the preload bridge).
 		clearWindowBridge();
@@ -217,12 +217,12 @@ describe("useModelFolder — handleImportModel error paths", () => {
 			expect.stringContaining("EACCES permission denied"),
 			"error",
 		);
-		// isImporting cleared in the finally block — even on error.
+		// isImporting cleared in the finally block, even on error.
 		expect(result.current.isImporting).toBe(false);
 	});
 });
 
-describe("useModelFolder — handleImportModel success path", () => {
+describe("useModelFolder, handleImportModel success path", () => {
 	it("calls loadConfig + surfaces success snack when ≥1 model is imported", async () => {
 		setOpenModelImportDialog(async () => ({
 			canceled: false,
@@ -250,7 +250,7 @@ describe("useModelFolder — handleImportModel success path", () => {
 	});
 });
 
-describe("useModelFolder — handleOpenModelsFolder (no-op)", () => {
+describe("useModelFolder, handleOpenModelsFolder (no-op)", () => {
 	it("resolves without invoking any IPC (no-op preserved for backwards-compat)", async () => {
 		const { result } = renderHook(() => useModelFolder(makeHookArgs()));
 

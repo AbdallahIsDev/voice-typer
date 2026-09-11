@@ -1,6 +1,6 @@
 """RDP / SSH remote-session detection + non-microphone device predicate.
 
-Phase 4.5 /  — extracted from the original
+Phase 4.5 / , extracted from the original
 ``voice_typer/server/server_platform.py`` god-module.  The two helpers in
 this file have no cross-submodule state: they only read ``SYSTEM`` (the
 ``sys.platform`` snapshot owned by :mod:`.platform_flags`) and stdlib
@@ -45,30 +45,30 @@ log = logging.getLogger(__name__)
 
 
 # POSIX env vars that indicate a remote-desktop session. Each
-# entry is checked via ``os.environ.get(name)`` — a truthy value means
+# entry is checked via ``os.environ.get(name)``, a truthy value means
 # we're inside that remote-session backend. The list covers the major
 # Linux/POSIX remote-desktop technologies that the pre-fix code missed:
 #
-# - ``VNCDESKTOP`` — set by the vncserver wrapper script (TigerVNC,
+# - ``VNCDESKTOP``: set by the vncserver wrapper script (TigerVNC,
 #   TightVNC, RealVNC) when a VNC session is active. Set on the
 #   per-session X server process tree.
-# - ``X2GO_SESSION`` — set by x2goclient / x2goserver (NX-based remote
+# - ``X2GO_SESSION``: set by x2goclient / x2goserver (NX-based remote
 #   desktop, popular in education and enterprise).
-# - ``NX_TEMP`` — set by NoMachine / NX (the commercial successor to
+# - ``NX_TEMP``: set by NoMachine / NX (the commercial successor to
 #   the original NX protocol). ``NX_TEMP`` is the temp-dir env var
 #   that NX sets when a session is active.
-# - ``CITRIX_SESSION`` — set by Citrix Workspace (ICA protocol) inside
+# - ``CITRIX_SESSION``: set by Citrix Workspace (ICA protocol) inside
 #   the published-app session.
-# - ``TERM_PROGRAM == "Hyper"`` — Chrome Remote Desktop sets
+# - ``TERM_PROGRAM == "Hyper"``: Chrome Remote Desktop sets
 #   ``TERM_PROGRAM=Hyper`` inside its remoting shell (a quirk of the
 #   CRD host-side shell wrapper). Other terminals (iTerm2, GNOME
 #   Terminal) set ``TERM_PROGRAM`` too, but only CRD sets it to
 #   ``"Hyper"`` (which is also the name of an Electron-based terminal
-#   emulator — false positive risk is low because Hyper users on a
+#   emulator, false positive risk is low because Hyper users on a
 #   local desktop don't typically rely on ``is_remote_session``-gated
 #   behavior).
 #
-# The list is intentionally NOT exhaustive — there are dozens of
+# The list is intentionally NOT exhaustive, there are dozens of
 # niche remote-desktop tools (Sun Ray, SPICE, Guacamole, X11-forwarding
 # over SSH without SSH_TTY, etc.). The goal is to cover the major
 # technologies that the original finding () called out by name.
@@ -98,7 +98,7 @@ def _posix_proc_has_remote_desktop() -> bool:
     import os.path
 
     # The process names to look for (kernel truncates comm at 15 chars,
-    # so we match by substring — case-sensitive because comm is the
+    # so we match by substring, case-sensitive because comm is the
     # literal argv[0] basename).
     targets = ("Xvnc", "x2goagent", "nxagent")
 
@@ -133,7 +133,7 @@ def is_remote_session() -> bool:
 
     On Windows, uses GetSystemMetrics(SM_REMOTESESSION = 0x1000).
         additionally attempts ``WTSQuerySessionInformation`` (WTSConnectState)
-        via wtsapi32 — Microsoft docs note that SM_REMOTESESSION is not
+        via wtsapi32, Microsoft docs note that SM_REMOTESESSION is not
         updated for Windows Virtual Desktop / Azure RemoteApp sessions, so
         the WTS API is the authoritative probe when available.
 
@@ -146,12 +146,12 @@ def is_remote_session() -> bool:
           6. Chrome Remote Desktop env var (``$TERM_PROGRAM == "Hyper"``).
           7. /proc/*/comm scan for Xvnc / x2goagent / nxagent processes
              (covers sessions that don't export an env var to the user's
-             shell — e.g. re-attached VNC sessions).
+             shell: e.g. re-attached VNC sessions).
 
         RDP/VNC clipboard may be redirected, so clipboard operations may
         behave differently (e.g. clipboard sync delays, missing formats).
         Keystroke injection via XTest may not propagate to the remote
-        display on VNC/xrdp — the app now logs a warning when a remote
+        display on VNC/xrdp, the app now logs a warning when a remote
         session is detected so the user understands the degraded behavior.
 
         Returns True if a remote session is detected.
@@ -177,7 +177,7 @@ def _is_windows_remote_session() -> bool:
         Azure RemoteApp that SM_REMOTESESSION misses.
 
         The WTS API is gated behind try/except so the probe never takes
-        down the caller — on Windows Home editions or stripped-down
+        down the caller, on Windows Home editions or stripped-down
         Windows containers, wtsapi32 may not be present.
     """
     try:
@@ -221,7 +221,7 @@ def _is_windows_remote_session() -> bool:
             # The returned buffer is a DWORD (4 bytes) holding the
             # WTS_CONNECTSTATE_CLASS enum value. 0 = WTSActive.
             connect_state = ctypes.cast(buffer, ctypes.POINTER(ctypes.c_ulong)).contents.value
-            # Free the buffer — WTSFreeMemory is mandatory on success.
+            # Free the buffer. WTSFreeMemory is mandatory on success.
             import contextlib
 
             with contextlib.suppress(Exception):
@@ -232,11 +232,11 @@ def _is_windows_remote_session() -> bool:
             console_session_id = kernel32.WTSGetActiveConsoleSessionId()
             # ``WTSGetActiveConsoleSessionId`` returns 0xFFFFFFFF if
             # there is no attached physical console (e.g. headless
-            # server) — in that case, any non-console session is remote.
+            # server), in that case, any non-console session is remote.
             if connect_state == 0 and console_session_id == 0xFFFFFFFF:
                 log.warning(
                     "[PLATFORM] Remote Windows session detected via WTS API "
-                    "(WTSActive, no physical console) — SM_REMOTESESSION missed this "
+                    "(WTSActive, no physical console). SM_REMOTESESSION missed this "
                     "(likely Windows Virtual Desktop / Azure RemoteApp)"
                 )
                 return True
@@ -267,7 +267,7 @@ def _is_posix_remote_session() -> bool:
                 value,
             )
             log.warning(
-                "[PLATFORM] Running in a remote session (%s) — clipboard "
+                "[PLATFORM] Running in a remote session (%s), clipboard "
                 "sync may be delayed and keystroke injection may not "
                 "propagate to the remote display",
                 var_name,
@@ -281,19 +281,19 @@ def _is_posix_remote_session() -> bool:
     if term_program == "Hyper":
         log.info("[PLATFORM] Chrome Remote Desktop session detected (TERM_PROGRAM=Hyper)")
         log.warning(
-            "[PLATFORM] Running in Chrome Remote Desktop — clipboard "
+            "[PLATFORM] Running in Chrome Remote Desktop, clipboard "
             "sync may be delayed and keystroke injection may not "
             "propagate to the remote display"
         )
         return True
 
     # 7: /proc/*/comm scan for VNC/NX/X2GO daemons (covers sessions
-    # that don't export an env var to the user's shell — e.g.
+    # that don't export an env var to the user's shell, e.g.
     # re-attached VNC sessions started by a system service).
     if _posix_proc_has_remote_desktop():
         log.warning(
             "[PLATFORM] Remote-desktop daemon process detected in /proc "
-            "(Xvnc/x2goagent/nxagent) — clipboard sync may be delayed and "
+            "(Xvnc/x2goagent/nxagent), clipboard sync may be delayed and "
             "keystroke injection may not propagate to the remote display"
         )
         return True

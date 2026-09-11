@@ -1,5 +1,5 @@
 /**
- * Canonical ExportFormat union — shared between main process, preload, and renderer.
+ * Canonical ExportFormat union, shared between main process, preload, and renderer.
  *
  * Extracted from the 12+ inline `"json" | "csv"` declarations that were
  * redeclared at each call site (export-handlers, preload bridge types,
@@ -14,7 +14,7 @@
  * format (e.g. `"tsv"`) now requires touching exactly one file.
  *
  * Stability contract: these literal strings are also used as file
- * extensions and as serialized IPC payload fields — never rename an
+ * extensions and as serialized IPC payload fields, never rename an
  * existing member (only add new ones).
  */
 export type ExportFormat = "json" | "csv";

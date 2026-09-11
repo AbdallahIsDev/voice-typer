@@ -1,15 +1,15 @@
 // @vitest-environment node
 /**
- * Unit tests for `restart-backend.ts` — the backend-only restart that the
+ * Unit tests for `restart-backend.ts`, the backend-only restart that the
  * renderer's "Lost connection" Retry button escalates to after a plain
  * reconnect probe fails (`useConnection` `handleRetryConnection`).
  *
  * Covers the result contract:
- *   - `{ ok: false, reason: "adopted" }` — the backend spawned us
+ *   - `{ ok: false, reason: "adopted" }`, the backend spawned us
  *     (VT_PYTHON_PORT + VT_IPC_TOKEN set); killing it kills the app.
- *   - `{ ok: false, reason: "relaunching" }` — full app relaunch in
+ *   - `{ ok: false, reason: "relaunching" }`, full app relaunch in
  *     flight, or startPython() threw during the restart.
- *   - `{ ok: true }` — kill + full bridge-state reset + fresh spawn
+ *   - `{ ok: true }`, kill + full bridge-state reset + fresh spawn
  *     (mirrors the relaunch-app.ts dev branch).
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";

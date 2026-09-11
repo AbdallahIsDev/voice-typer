@@ -4,8 +4,8 @@
 ``audio_chain_builder`` module function, the ``AudioProcessor``
 method, and the ``FilterChain`` method) as the server-side surface for
 a renderer-facing runtime filter-toggle IPC command. That command was
-never wired — the docstrings on all three layers stated the IPC
-handler was "NOT wired in this change" — and no production or test
+never wired, the docstrings on all three layers stated the IPC
+handler was "NOT wired in this change", and no production or test
 caller ever invoked any layer (repo-wide search found only the three
 definitions). The dead layers were deleted (E15 dead-code removal);
 these tests pin the ABSENCE so the scaffold cannot silently creep back.
@@ -29,13 +29,13 @@ class TestFilterToggleApiRemoved:
 
     def test_chain_builder_module_function_removed(self) -> None:
         """``audio_chain_builder`` must not define a module-level
-        ``set_filter_enabled`` — it had zero callers and duplicated the
+        ``set_filter_enabled``, it had zero callers and duplicated the
         chain-level method."""
         import voice_typer.server.audio_chain_builder as mod
 
         assert not hasattr(mod, "set_filter_enabled"), (
             "audio_chain_builder re-introduced the dead module-level "
-            "set_filter_enabled wrapper. It had zero callers — wire a real "
+            "set_filter_enabled wrapper. It had zero callers, wire a real "
             "IPC command first if a runtime toggle is needed."
         )
 
@@ -46,16 +46,16 @@ class TestFilterToggleApiRemoved:
 
         assert not hasattr(AudioProcessor, "set_filter_enabled"), (
             "AudioProcessor re-introduced the dead set_filter_enabled "
-            "method. It had zero callers — wire a real IPC command first "
+            "method. It had zero callers, wire a real IPC command first "
             "if a runtime toggle is needed."
         )
 
     def test_filter_chain_method_removed(self) -> None:
-        """``FilterChain`` must not define ``set_filter_enabled`` — the
+        """``FilterChain`` must not define ``set_filter_enabled``, the
         method had zero callers outside the two deleted wrapper layers."""
         assert not hasattr(FilterChain, "set_filter_enabled"), (
             "FilterChain re-introduced the dead set_filter_enabled "
-            "method. It had zero callers — wire a real IPC command first "
+            "method. It had zero callers, wire a real IPC command first "
             "if a runtime toggle is needed."
         )
 

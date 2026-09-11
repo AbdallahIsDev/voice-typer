@@ -86,11 +86,11 @@ file).
 The real secret lives in the OS keychain under the service name
 `com.voicetyper.keyring` with the provider name as the username key.
 (Prior app versions used the legacy service names `app.voicetyper`
-and `voice-typer` — the migration auto-copies those entries to the
+and `voice-typer` The migration auto-copies those entries to the
 current name and deletes the originals, gated by the
 `service_name_migrated_<name>` config flag.)
 
-### After migration (keyring unavailable — plaintext fallback)
+### After migration (keyring unavailable: plaintext fallback)
 
 `config.json` retains the plaintext values (with `0o600` perms on POSIX):
 
@@ -110,11 +110,11 @@ current name and deletes the originals, gated by the
 The `secrets_migrated` flag is set to `true` ONLY when migration
 succeeds OR when there is no plaintext to skip (i.e. nothing to
 migrate). When keyring is unavailable AND real plaintext keys are
-present, the flag is NOT set — instead a diagnostic flag
+present, the flag is NOT set, instead a diagnostic flag
 `secrets_migrated_keyring_was_unavailable` is recorded and migration
 is DEFERRED: the next launch (once a keyring backend becomes
 available, e.g. the user installs `gnome-keyring-daemon`) automatically
-re-runs migration. No user intervention is required — the plaintext
+re-runs migration. No user intervention is required, the plaintext
 keys do NOT persist forever.
 
 An operator can still force an earlier re-migration attempt by
@@ -188,7 +188,7 @@ def get_keyring_status() -> dict:
 2. **Secret values are never echoed over IPC.** The existing
    `_sanitize_config_for_ipc` in `ipc_server.py` replaces secret
    fields with `"<redacted>"` in `get_config` responses. doesn't
-   change this — the renderer still sees `"<redacted>"` for any set
+   change this: the renderer still sees `"<redacted>"` for any set
    key, regardless of whether it's in keyring or plaintext fallback.
 
 3. **The on-disk `config.json` never contains secrets when keyring is
@@ -198,7 +198,7 @@ def get_keyring_status() -> dict:
 
 4. **The plaintext fallback uses `0o600` perms on POSIX.** This is
    enforced by `_secure_atomic_write`.
-   The file is owner-read/write only — not world-readable.
+   The file is owner-read/write only: not world-readable.
 
 5. **Migration is one-shot.** The `secrets_migrated` flag in
    `config.json` ensures the migration doesn't run on every launch
@@ -238,7 +238,7 @@ verify the credential store works correctly on each platform.
 
 #### Linux (with GNOME Keyring)
 
-> **VALIDATE ON LINUX DISPLAY HOST** — requires a graphical session
+> **VALIDATE ON LINUX DISPLAY HOST**, requires a graphical session
 > with `gnome-keyring-daemon` running. Cannot run in a headless
 > container.
 
@@ -283,14 +283,14 @@ verify the credential store works correctly on each platform.
 
 #### macOS (Keychain)
 
-> **VALIDATE ON MACOS HOST** — requires a macOS graphical session.
+> **VALIDATE ON MACOS HOST**: requires a macOS graphical session.
 > Cannot run in a Linux container.
 
 1. Install the app (the `pyobjc` deps are pulled in automatically via
    `keyring`).
 
 2. Run the app and enter an OpenAI API key in Settings → Models.
-   macOS will show a Keychain access prompt — click "Always Allow".
+   macOS will show a Keychain access prompt, click "Always Allow".
 
 3. Verify the key is NOT in
    `~/Library/Application Support/voice-typer/config.json`:
@@ -311,7 +311,7 @@ verify the credential store works correctly on each platform.
 
 #### Windows (Credential Manager)
 
-> **VALIDATE ON WINDOWS HOST** — requires a Windows graphical session.
+> **VALIDATE ON WINDOWS HOST**: requires a Windows graphical session.
 > Cannot run in a Linux container.
 
 1. Install the app (the `pywin32` deps are pulled in automatically via
@@ -336,7 +336,7 @@ verify the credential store works correctly on each platform.
 
 5. Restart the app and verify the key is still loaded.
 
-#### Linux (headless — plaintext fallback)
+#### Linux (headless: plaintext fallback)
 
 This is the default behavior in CI containers and headless servers
 without a desktop environment.
@@ -382,7 +382,7 @@ auto-migrated on the next app launch:
    from keyring or plaintext) so `cloud_engines` / `llm_polish` /
    `dictation_pipeline` work without modification.
 
-The migration is idempotent — running it twice doesn't double-store
+The migration is idempotent: running it twice doesn't double-store
 or re-migrate already-migrated keys (verified by
 `test_migrate_is_idempotent`).
 
@@ -392,7 +392,7 @@ or re-migrate already-migrated keys (verified by
   an attacker who gains read access to the user's home directory
   (e.g. via a stolen laptop with an unencrypted home partition, or a
   cloud-synced `~/.config` folder).`config.json` had
-  `0o600` perms but was still plaintext — a backup or snapshot would
+  `0o600` perms but was still plaintext: a backup or snapshot would
   leak all API keys. ensures the plaintext is only in the
   keychain, which is encrypted at rest by the OS.
 
@@ -400,7 +400,7 @@ or re-migrate already-migrated keys (verified by
   code execution as the user. The keyring is unlocked when the user
   is logged in, so any process running as the user can read the
   secrets via `keyring.get_password`. This is the same threat model
-  as the plaintext `config.json` — no regression.
+  as the plaintext `config.json` No regression.
 
 - **Keychain lock / unlock**: on macOS and Linux (with
   `gnome-keyring-daemon`), the keychain is unlocked at login. If the
@@ -415,20 +415,20 @@ or re-migrate already-migrated keys (verified by
   GNOME Keyring), the `keyring://` reference tokens in `config.json`
   point to nothing. On the next `Config.load()`, the reference is
   resolved to `None` and the field is cleared. The user sees an empty
-  API key field — they must re-enter the key. There is no automatic
+  API key field: they must re-enter the key. There is no automatic
   recovery (the secret is genuinely gone).
 
 ## See also
 
-- `voice_typer/server/credential_store.py` — implementation.
-- `voice_typer/server/config.py:Config.save()` — on-disk format with
+- `voice_typer/server/credential_store.py` Implementation.
+- `voice_typer/server/config.py:Config.save()` On-disk format with
   reference tokens.
-- `voice_typer/server/config.py:Config.load()` — migration trigger and
+- `voice_typer/server/config.py:Config.load()` Migration trigger and
   reference resolution.
-- `voice_typer/server/service.py:apply_config()` — IPC `set_config`
+- `voice_typer/server/service.py:apply_config()` IPC `set_config`
   routing through `store_secret`.
-- `voice_typer/server/service.py:get_config()` — `keyring_status`
+- `voice_typer/server/service.py:get_config()` `keyring_status`
   field in the IPC response.
 - `voice_typer/client/src/renderer/src/components/common/KeyringStatusBadge.tsx`
-  — renderer indicator component.
-- `tests/test_credential_store.py` — unit tests.
+ Renderer indicator component.
+- `tests/test_credential_store.py` Unit tests.

@@ -119,7 +119,7 @@ def _free_port() -> tuple[int, socket.socket]:
     handoff (see its docstring).
 
     The socket is bound with ``SO_REUSEADDR`` set and is *not* yet
-    listening — ``start_tcp()`` will call ``listen()`` on it.
+    listening: ``start_tcp()`` will call ``listen()`` on it.
     """
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -215,7 +215,7 @@ def e2e_server(tmp_path, monkeypatch):
     port, bound_sock = _free_port()
     token = "e2e-token-67890"
     monkeypatch.setenv("VOICE_TYPER_IPC_TOKEN", token)
-    # Patch _config_dir to return tmp_path — avoids SEC-005 path traversal
+    # Patch _config_dir to return tmp_path, avoids SEC-005 path traversal
     # rejection of tmp_path (which is outside the home directory).
     from voice_typer.server import config as config_module
 
@@ -238,7 +238,7 @@ def e2e_server(tmp_path, monkeypatch):
     server._running = True
     server._hook_tray_set_state()
     # pass the (port, bound_socket) tuple so start_tcp
-    # listens on the already-bound socket — no race window between
+    # listens on the already-bound socket, no race window between
     # _free_port()'s probe and the listen call.
     server.start_tcp((port, bound_sock))
 
@@ -357,7 +357,7 @@ class TestFullPipeline:
               in the repository (verified via Glob). A copy of its
               contents was inlined into ``test_feature_hardening_
               regressions.py`` after a ``# === Source: ... ===``
-              header, but that copy does NOT cover set_config — it
+              header, but that copy does NOT cover set_config, it
               only covers get_status, get_config, unknown_command,
               reconnect, and server-stop scenarios.
           (b) The "hang" claim is inaccurate. The actual behavior is
@@ -365,7 +365,7 @@ class TestFullPipeline:
               event to the socket *before* the ack; the test read a
               single line and raised ``KeyError: 'id'`` on the
               push event (which has no ``id`` field). It did not
-              truly hang — the assertion just failed on the wrong
+              truly hang, the assertion just failed on the wrong
               response.
 
         Fix: ``_read_line`` now maintains a persistent per-socket buffer
@@ -386,7 +386,7 @@ class TestFullPipeline:
             # Send set_config with a simple boolean field
             _send_line(sock, {"id": 2, "type": "set_config", "data": {"show_notifications": False}})
 
-            # Read responses — the config_changed push event arrives
+            # Read responses, the config_changed push event arrives
             # FIRST (written from inside _handle_set_config), followed
             # by the ack (written by the dispatcher after the handler
             # returns). Both lines may be coalesced into a single TCP
@@ -505,7 +505,7 @@ class TestFullPipeline:
         assert resp["type"] == "error"
         assert "message" in resp["data"]
 
-        # Server should still be alive — send a valid command
+        # Server should still be alive, send a valid command
         _send_line(sock, {"id": 7, "type": "get_status"})
         resp2 = _read_line(sock, timeout=3.0)
         assert resp2["id"] == 7
@@ -591,7 +591,7 @@ class TestAuthEnforcement:
 
         WR-12: the production ``_tcp_auth_timeout_seconds`` is a LOCAL
         variable inside ``IPCServer._handle_tcp_connection`` (set to
-        5.0) — it is NOT a module-level constant, so it cannot be
+        5.0), it is NOT a module-level constant, so it cannot be
         patched via ``monkeypatch.setattr``. We instead intercept
         ``socket.socket.settimeout`` and convert the 5.0 value to 0.5
         so the test completes in ~1s instead of ~6s. The test's own
@@ -621,7 +621,7 @@ class TestAuthEnforcement:
         sock.settimeout(8.0)
         sock.connect(("127.0.0.1", port))
 
-        # Send NOTHING — the server should disconnect us after ~0.5s
+        # Send NOTHING, the server should disconnect us after ~0.5s
         # (scaled down from 5s by the settimeout patch above).
         # We read from the socket to detect EOF (the server closed
         # the connection).
@@ -636,14 +636,14 @@ class TestAuthEnforcement:
                 assert resp["type"] == "error", f"Expected error response on stall, got: {resp}"
         except ConnectionError:
             # Server closed the connection before we could read.
-            # This is the expected path — the server closes the
+            # This is the expected path, the server closes the
             # connection after the auth timeout fires.
             elapsed = time.monotonic() - start
-            pass  # Expected — server disconnected us.
+            pass  # Expected, server disconnected us.
         except TimeoutError:
             elapsed = time.monotonic() - start
             # The socket didn't receive an error or close within 8s
-            # — the timeout may have regressed.
+            # , the timeout may have regressed.
             sock.close()
             pytest.fail(
                 "Stalled connection was NOT closed within 8 seconds "
@@ -659,7 +659,7 @@ class TestAuthEnforcement:
         # waits 5s for the timeout to fire, so it completes ~10x faster).
         assert 0.3 <= elapsed <= 3.0, (
             f"Connection closed after {elapsed:.1f}s, expected ~0.5s "
-            f"(auth timeout, scaled down from 5s by the WR-12 patch) — "
+            f"(auth timeout, scaled down from 5s by the WR-12 patch), "
             f"the _tcp_auth_timeout may have changed."
         )
         sock.close()

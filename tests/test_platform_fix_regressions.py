@@ -39,7 +39,7 @@ class TestWin32ClipboardAbstraction:
     """PLAT-027: Win32Clipboard wraps Open/Empty/Close/SeqNum."""
 
     def test_get_sequence_number_returns_zero_on_non_windows(self, monkeypatch):
-        # Patch is_windows() directly — pytest 9.0.2's monkeypatch no
+        # Patch is_windows() directly, pytest 9.0.2's monkeypatch no
         # longer accepts the dotted "...clipboard.sys.platform" form
         # because it tries to resolve the prefix as a module path.
         monkeypatch.setattr("voice_typer.server.clipboard.is_windows", lambda: False)
@@ -121,8 +121,8 @@ class TestClipboardVerification:
 
         mock_pyperclip = MagicMock()
         mock_pyperclip.copy.return_value = None
-        # First paste: verification attempt 1 — returns WRONG, triggers retry
-        # Second paste: verification attempt 2 — returns correct value, success
+        # First paste: verification attempt 1, returns WRONG, triggers retry
+        # Second paste: verification attempt 2, returns correct value, success
         mock_pyperclip.paste.side_effect = ["wrong_value", "hello world"]
         clip_mod.pyperclip = mock_pyperclip
 
@@ -186,7 +186,7 @@ class TestClipboardSaveRestore:
     ADR-0010 §5.2: ``copy()`` now captures a ``ClipboardSnapshot`` of
     the prior clipboard contents via ``ClipboardSnapshot.capture()``
     (replacing the old ``pyperclip.paste()`` save). The snapshot is
-    returned to the caller — it is NOT stored on ``self``.
+    returned to the caller, it is NOT stored on ``self``.
     """
 
     def test_copy_saves_existing_clipboard(self, monkeypatch):
@@ -298,11 +298,11 @@ class TestEnvVarValidation:
         from voice_typer.server.env_validation import _validate_env_vars
 
         # Path with shell metacharacters (null bytes can't be set in
-        # os.environ on POSIX — Python raises ValueError). Use a path
+        # os.environ on POSIX, Python raises ValueError). Use a path
         # that fails the validation regex instead.
         monkeypatch.setenv("VOICE_TYPER_CONFIG_DIR", "")
         _validate_env_vars()
-        # Empty string is not a valid path — should be removed
+        # Empty string is not a valid path, should be removed
         # Note: _PATH_PATTERN allows non-empty strings without null bytes,
         # so a truly empty string may pass. Test with an overlength path.
         long_path = "/a" * 3000  # > 4096 chars
@@ -491,7 +491,7 @@ class TestMutexPathHash:
         from voice_typer.server.server_platform import _run_key_name
 
         # The Run-key name hashes the STABLE install identifier (the
-        # autostart launcher path), NOT sys.executable — sys.executable
+        # autostart launcher path), NOT sys.executable, sys.executable
         # differs between python.exe / pythonw.exe / the venv for the
         # SAME install, so a sys.executable-derived name would be
         # registered by one process and never found by the next (the
@@ -562,7 +562,7 @@ class TestMutexHandleClose:
 
         from voice_typer.server.hotkeys import PynputHotkey
 
-        # app.create_hotkey_backend re-export removed — the dispatcher
+        # app.create_hotkey_backend re-export removed, the dispatcher
         # resolves the factory from its own module namespace.
         monkeypatch.setattr(
             "voice_typer.server.hotkey_dispatcher.create_hotkey_backend",
@@ -659,4 +659,4 @@ class TestPynputFallbackDocumentation:
         assert "UIPI" in source
 
 
-# Need inspect for some tests — imported locally in each test function
+# Need inspect for some tests, imported locally in each test function

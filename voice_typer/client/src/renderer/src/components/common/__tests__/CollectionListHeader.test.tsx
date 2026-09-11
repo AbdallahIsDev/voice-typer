@@ -1,5 +1,5 @@
 /**
- * CollectionListHeader — the shared column-header row extracted from
+ * CollectionListHeader, the shared column-header row extracted from
  * the VocabListHeader / TemplateListHeader mirror (the pair differed
  * ONLY in i18n keys and data-testid).
  *
@@ -15,7 +15,7 @@
  *     fixed 6.25rem actions column, and the C-UI-10 gap-x-3 spacing
  *
  * The Checkbox is the real Radix-based design-system component (the
- * same one the rows use) — driven with fireEvent.click like the
+ * same one the rows use), driven with fireEvent.click like the
  * Vocabulary page suites do.
  */
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
@@ -67,7 +67,7 @@ afterEach(() => {
 	cleanup();
 });
 
-describe("CollectionListHeader — domain label injection", () => {
+describe("CollectionListHeader, domain label injection", () => {
 	it("renders the three column labels from their keys", () => {
 		setupHeader();
 		expect(screen.getByText("test.columnPrimary")).toBeTruthy();
@@ -82,7 +82,7 @@ describe("CollectionListHeader — domain label injection", () => {
 	});
 });
 
-describe("CollectionListHeader — select-all state machine", () => {
+describe("CollectionListHeader, select-all state machine", () => {
 	it("is unchecked when no visible row is selected", () => {
 		setupHeader({ selectedIds: new Set() });
 		expect(headerCheckbox()).toHaveAttribute("aria-checked", "false");
@@ -95,7 +95,7 @@ describe("CollectionListHeader — select-all state machine", () => {
 
 	it("is mixed (ARIA indeterminate) when selected rows include ids not in the visible list", () => {
 		// A stale selection id (row scrolled out of the display cap)
-		// still counts as "some, not all" — matches the pages' current
+		// still counts as "some, not all", matches the pages' current
 		// someSelected derivation.
 		setupHeader({ selectedIds: new Set(["a", "gone"]) });
 		expect(headerCheckbox()).toHaveAttribute("aria-checked", "mixed");
@@ -117,7 +117,7 @@ describe("CollectionListHeader — select-all state machine", () => {
 		expect(props.onSelectAll).toHaveBeenCalledWith(["a", "b", "c"], true);
 	});
 
-	it("clicking a mixed (indeterminate) header selects all (NOT deselects — matches the pages' !allSelected direction)", () => {
+	it("clicking a mixed (indeterminate) header selects all (NOT deselects, matches the pages' !allSelected direction)", () => {
 		const props = setupHeader({ selectedIds: new Set(["a"]) });
 		fireEvent.click(headerCheckbox());
 		expect(props.onSelectAll).toHaveBeenCalledWith(["a", "b", "c"], true);
@@ -132,7 +132,7 @@ describe("CollectionListHeader — select-all state machine", () => {
 	});
 });
 
-describe("CollectionListHeader — visual tokens (byte-identical extraction)", () => {
+describe("CollectionListHeader, visual tokens (byte-identical extraction)", () => {
 	it("keeps the sticky header treatment with backdrop blur and the subtle surface", () => {
 		setupHeader();
 		const header = screen.getByTestId("test-list-header");

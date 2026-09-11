@@ -1,5 +1,5 @@
 /**
- *  —  regression test: Settings search empty state.
+ * ,  regression test: Settings search empty state.
  *
  * When the user types a search query that matches no row on the active
  * tab, the Settings page must render an empty-state banner with the
@@ -7,7 +7,7 @@
  * search ran but found nothing (instead of staring at a blank tab).
  *
  * The sentinel `hasAnyVisibleRow` is computed by lifting the per-section
- * visibility calls via the `_filter_settings` function — it bumps a
+ * visibility calls via the `_filter_settings` function, it bumps a
  * render-phase counter on each positive match, and a layout effect reads
  * the counter to derive the boolean state. This test verifies the
  * end-to-end behaviour (typing a non-matching query shows the banner;
@@ -15,7 +15,7 @@
  * counter mechanism.
  *
  * The query is set via the shared `useGlobalSearch` store (the
- * per-page SearchField was removed — the global title-bar search
+ * per-page SearchField was removed, the global title-bar search
  * owns the only search input).
  */
 import {
@@ -52,14 +52,14 @@ import { TooltipProvider } from "@/components/ui/tooltip";
  * Settings-page render helper. The page's render graph uses Radix
  * `Tooltip` (via SettingRow and other ui primitives); the real App shell
  * wraps the page in a `TooltipProvider` (App.tsx), so tests mounting
- * `<SettingsPage />` directly must provide one too — otherwise every
+ * `<SettingsPage />` directly must provide one too, otherwise every
  * Tooltip render throws "Tooltip must be used within TooltipProvider"
  * and the page mounts empty.
  */
 const renderWithProviders = (ui: React.ReactElement) =>
 	render(<TooltipProvider delayDuration={200}>{ui}</TooltipProvider>);
 
-/** Minimal valid config — same shape as Settings.test.tsx's baseConfig.
+/** Minimal valid config, same shape as Settings.test.tsx's baseConfig.
  *
  *  Built on the shared `makeConfig` fixture so this file no longer keeps
  *  its own ~120-field copy of `VoiceTyperConfig` (XA-15-2 drift hazard).
@@ -81,7 +81,7 @@ describe("UX-18: Settings search empty state", () => {
 		// Reset the global search store to a fresh instance
 		// (vi.resetModules re-evaluates the store module; the dynamic
 		// import below resolves the SAME fresh instance SettingsPage
-		// will consume — same pattern as Vocabulary tests).
+		// will consume, same pattern as Vocabulary tests).
 		const { useGlobalSearch } = await import("@/hooks/useGlobalSearch");
 		useGlobalSearch.setState({ query: "" });
 	});
@@ -142,7 +142,7 @@ describe("UX-18: Settings search empty state", () => {
 			).toBeTruthy();
 		});
 
-		// Clear the query — the banner must disappear.
+		// Clear the query, the banner must disappear.
 		useGlobalSearch.getState().setQuery("");
 		await waitFor(() => {
 			expect(
@@ -184,7 +184,7 @@ describe("UX-18: Settings search empty state", () => {
 		});
 
 		// "appearance" matches the Appearance tab label AND the
-		// Appearance section title — so it's a positive match (no banner).
+		// Appearance section title, so it's a positive match (no banner).
 		const { useGlobalSearch } = await import("@/hooks/useGlobalSearch");
 		useGlobalSearch.getState().setQuery("appearance");
 
@@ -260,7 +260,7 @@ describe("Settings initial-load failure shows an error state with Retry", () => 
 		});
 		// The load-failure card is gone once the config loads. (The
 		// recovered page may legitimately contain OTHER role="alert"
-		// regions, e.g. the keyboard-permission banner — assert on the
+		// regions, e.g. the keyboard-permission banner, assert on the
 		// error card's own title instead of the alert role.)
 		expect(screen.queryByText("Couldn't load settings")).toBeNull();
 	});

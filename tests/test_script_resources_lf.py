@@ -22,10 +22,10 @@ leaves open by asserting three invariants per file:
      checkout is clean so this is always true; locally it catches any
      uncommitted drift in a file that ships in the installer. Note that
      with ``eol=lf`` in effect git never converts at checkout, so the
-     CRLF regressions are caught by (1) + (3) — this test is about
+     CRLF regressions are caught by (1) + (3), this test is about
      working-tree drift from the committed canonical bytes.
   3. **Attribute resolution**: ``git check-attr text eol`` reports
-     ``text: set`` + ``eol: lf`` — i.e. the ``.gitattributes`` rule is
+     ``text: set`` + ``eol: lf``, i.e. the ``.gitattributes`` rule is
      actually in effect for the file, so a deleted / edited rule fails
      here before any CR byte ever appears.
 
@@ -78,7 +78,7 @@ def _git_blob_bytes(path: Path) -> bytes:
     if result.returncode != 0:
         pytest.fail(
             f"`git show HEAD:{rel}` failed (exit {result.returncode}): "
-            f"{result.stderr.decode(errors='replace').strip()!r} — the file must "
+            f"{result.stderr.decode(errors='replace').strip()!r}, the file must "
             "be committed (it ships in the installer bundle) and git must be "
             "available in the test environment."
         )
@@ -91,7 +91,7 @@ class TestScriptResourceDirs:
     def test_macos_and_windows_script_dirs_exist(self):
         for directory in (_MACOS_DIR, _WINDOWS_DIR):
             assert directory.is_dir(), (
-                f"{directory} missing — the macOS / Windows installer scripts "
+                f"{directory} missing, the macOS / Windows installer scripts "
                 "must live here so they can be referenced by the Tauri bundle."
             )
 
@@ -105,7 +105,7 @@ class TestScriptResourceLf:
         data = path.read_bytes()
         assert b"\r" not in data, (
             f"{path.relative_to(_REPO_ROOT)} contains CR bytes (CRLF line "
-            "endings). The .gitattributes `text eol=lf` rule was bypassed — "
+            "endings). The .gitattributes `text eol=lf` rule was bypassed, "
             "normalize to LF (`dos2unix` or a CRLF-stripping editor) and "
             "commit. On macOS the POSIX shell scripts would break with "
             "`\\r: command not found`."
@@ -119,7 +119,7 @@ class TestScriptResourceLf:
         assert tree == blob, (
             f"{path.relative_to(_REPO_ROOT)} differs from its committed blob "
             "(git show HEAD). Either the file has uncommitted edits, or a "
-            "line-ending conversion (CRLF) happened at checkout — both must "
+            "line-ending conversion (CRLF) happened at checkout, both must "
             "be resolved so the shipped script is byte-identical to the "
             "committed LF form."
         )
@@ -138,6 +138,6 @@ class TestScriptResourceLf:
         assert "text: set" in output and "eol: lf" in output, (
             f"{rel}: .gitattributes must resolve `text eol=lf` for this file, "
             f"but git reports: {output.strip()!r}. The rule was removed or "
-            "edited — restore `scripts/macos/* text eol=lf` / "
+            "edited, restore `scripts/macos/* text eol=lf` / "
             "`scripts/windows/* text eol=lf` in .gitattributes."
         )

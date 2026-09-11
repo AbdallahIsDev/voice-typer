@@ -101,7 +101,7 @@ export const DarkBackground: Story = {
 		docs: {
 			description: {
 				story:
-					"Rendered inside a dark-themed scoped wrapper (`dark` class on a container div, mirroring `useTheme`'s contract on `document.documentElement`) — verifies the track/fill/thumb contrast against the dark palette.",
+					"Rendered inside a dark-themed scoped wrapper (`dark` class on a container div, mirroring `useTheme`'s contract on `document.documentElement`), verifies the track/fill/thumb contrast against the dark palette.",
 			},
 		},
 	},
@@ -123,7 +123,7 @@ export const RtlLayout: Story = {
 		docs: {
 			description: {
 				story:
-					'Rendered inside a `dir="rtl"` wrapper — native range inputs flip their fill direction with the document direction, and the label/value row must mirror.',
+					'Rendered inside a `dir="rtl"` wrapper, native range inputs flip their fill direction with the document direction, and the label/value row must mirror.',
 			},
 		},
 	},

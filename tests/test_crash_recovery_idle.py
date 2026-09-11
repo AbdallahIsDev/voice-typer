@@ -3,12 +3,12 @@
 The save-loop worker previously used ``queue.get(timeout=1.0)`` which
 woke the worker every second even when no saves were queued. Each wake
 cost a ``queue.Empty`` exception (cheap) but kept the process pinned at
-1 Hz wakeups — preventing the kernel from promoting the process to a
+1 Hz wakeups, preventing the kernel from promoting the process to a
 deeper idle state and showing up as a constant ~0.1% CPU drain in
 Task Manager / top.
 
 DJ-42 bumps the timeout to 30 s. The ``None`` sentinel from
-``shutdown()`` is what wakes the worker in the normal stop path — the
+``shutdown()`` is what wakes the worker in the normal stop path, the
 timeout only exists as a fallback for the rare ``queue.Full`` failure
 mode where ``shutdown()``'s ``put_nowait(None)`` is suppressed. The
 30 s fallback still recovers that rare path (the worker re-checks
@@ -57,7 +57,7 @@ class TestCrashRecoveryIdleFootprint:
         Approach: drain pending saves via ``flush()``, then patch
         ``_save_queue.get`` to count calls. Wait 2.5 s and assert the
         call count is 0 (the new 30 s timeout means the blocking
-        ``get()`` is still in progress — no timeout fires).
+        ``get()`` is still in progress, no timeout fires).
 
         With the old 1 s timeout, this test would observe ~2-3 calls
         in the 2.5 s window.
@@ -73,7 +73,7 @@ class TestCrashRecoveryIdleFootprint:
             return original_get(*args, **kwargs)
 
         # The worker is currently blocked inside its existing ``get()``
-        # call — patching ``get`` on the queue instance does NOT
+        # call, patching ``get`` on the queue instance does NOT
         # interrupt that in-flight call. The patch only takes effect on
         # the NEXT call (i.e., after the existing call returns). With
         # the new 30 s timeout, the existing call doesn't return within
@@ -84,14 +84,14 @@ class TestCrashRecoveryIdleFootprint:
         # Old code (1 s timeout): ~2-3 calls.
         # New code (30 s timeout): 0 calls.
         assert call_count["n"] == 0, (
-            f"DJ-42: save loop woke {call_count['n']} times in 2.5 s while idle — "
+            f"DJ-42: save loop woke {call_count['n']} times in 2.5 s while idle, "
             f"the 1 s timeout was supposed to be bumped to 30 s. The old code "
             f"would produce ~2-3 wakes; the new code should produce 0."
         )
 
     def test_idle_loop_wakes_on_shutdown_sentinel(self, cr):
         """The ``None`` sentinel from ``shutdown()`` must wake the worker
-        immediately — the longer 30 s timeout must NOT delay shutdown.
+        immediately, the longer 30 s timeout must NOT delay shutdown.
 
         This pins the contract that ``shutdown()`` remains responsive:
         the longer idle timeout is a fallback, not the primary wake
@@ -110,12 +110,12 @@ class TestCrashRecoveryIdleFootprint:
         elapsed = time.perf_counter() - t0
 
         assert elapsed < 1.5, (
-            f"DJ-42: shutdown took {elapsed:.2f}s — the None sentinel should "
+            f"DJ-42: shutdown took {elapsed:.2f}s, the None sentinel should "
             f"wake the worker immediately, regardless of the 30 s idle timeout."
         )
         if cr._save_thread is not None:
             assert not cr._save_thread.is_alive(), (
-                "DJ-42: worker thread is still alive after shutdown — the "
+                "DJ-42: worker thread is still alive after shutdown, the "
                 "None sentinel did not wake it from the blocking get()."
             )
 
@@ -152,7 +152,7 @@ class TestCrashRecoveryIdleFootprint:
         # The first captured call is the post-save get(); its timeout
         # must be the production 30 s, not the old 1 s.
         assert captured_timeouts, (
-            "DJ-42: spy never observed a queue.get() call — the worker "
+            "DJ-42: spy never observed a queue.get() call, the worker "
             "did not re-enter get() within the 0.5 s window. Test setup issue."
         )
         # The most recent call is the idle re-entry (after the save was
@@ -160,11 +160,11 @@ class TestCrashRecoveryIdleFootprint:
         last_timeout = captured_timeouts[-1]
         assert last_timeout is not None, (
             f"DJ-42: queue.get() was called with timeout=None (blocking "
-            f"forever) — that's a different fix than intended; expected "
+            f"forever), that's a different fix than intended; expected "
             f"a 30 s fallback timeout. Captured: {captured_timeouts!r}"
         )
         assert last_timeout >= 30.0, (
-            f"DJ-42: queue.get() called with timeout={last_timeout}s — "
+            f"DJ-42: queue.get() called with timeout={last_timeout}s, "
             f"the old 1 s value would cause 1 Hz idle wakes. Expected "
             f">= 30 s. Captured: {captured_timeouts!r}"
         )

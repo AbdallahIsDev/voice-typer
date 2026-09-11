@@ -2,7 +2,7 @@
 
 Covers:
 - ``build_tray_menu_model`` produces well-formed MenuItem dicts (no pystray
-  import required for the model path — ``TAURI_SIDECAR`` guarded).
+  import required for the model path: ``TAURI_SIDECAR`` guarded).
 - ``publish_tray_menu`` emits a ``tray_menu`` event only under
   ``TAURI_SIDECAR=1`` (Electron/pystray path untouched).
 - ``tray_click`` command dispatches to the correct action by id and returns
@@ -35,7 +35,7 @@ def _make_model(**overrides):
         "restart_app": _noop,
         "quit_app": _noop,
         # Models submenu rows come from the DATA builder (list of
-        # (name, downloaded, is_active, change_fn) tuples) — NOT from
+        # (name, downloaded, is_active, change_fn) tuples), NOT from
         # pystray MenuItems. Empty default = "no downloaded models".
         "build_models_submenu_data": lambda: [],
         "on_open_models": _noop,
@@ -85,7 +85,7 @@ def test_build_tray_menu_model_top_level_ids_present():
     """Stable top-level ids the host relies on are present.
 
     Per C-TRAY-1 in AGENTS.md, ``repaste_last`` MUST NOT appear
-    in the tray menu model — the constraint forbids that item on both
+    in the tray menu model, the constraint forbids that item on both
     runtimes. This test now asserts its absence (regression guard).
     Per C-TRAY-2, ``undo_last`` is also forbidden in the tray menu.
     """
@@ -97,12 +97,12 @@ def test_build_tray_menu_model_top_level_ids_present():
     # C-TRAY-1 guard: repaste_last MUST NOT be in the model.
     assert "repaste_last" not in ids, (
         "C-TRAY-1 violation: repaste_last must NOT appear in the tray "
-        "menu model — the constraint forbids a 'Repaste Last' button."
+        "menu model, the constraint forbids a 'Repaste Last' button."
     )
     # C-TRAY-2 guard: undo_last MUST NOT be in the model.
     assert "undo_last" not in ids, (
         "C-TRAY-2 violation: undo_last must NOT appear in the tray "
-        "menu model — the constraint forbids an 'Undo Last' button."
+        "menu model, the constraint forbids an 'Undo Last' button."
     )
 
     # id_map maps every actionable id to a callable.
@@ -375,7 +375,7 @@ def _make_tauri_tray(*, controller=None, icon=None, hotkey="<f2>"):
             # AttributeError.
             self._menu_lock = threading.Lock()
             # ``set_state`` queues pre-run state under ``_queue_lock`` when
-            # ``_icon`` is None — provide a real lock so the with-block works.
+            # ``_icon`` is None, provide a real lock so the with-block works.
             self._queue_lock = threading.Lock()
             self._pending_states = []
             self._pending_notifications = []
@@ -407,12 +407,12 @@ def test_publish_tray_state_guarded_by_tauri_sidecar(monkeypatch):
 
         # 2. With the env var: event emitted with both fields.
         monkeypatch.setenv("TAURI_SIDECAR", "1")
-        assert publish_tray_state(icon="recording", tooltip="Voice Typer — Recording") is True
+        assert publish_tray_state(icon="recording", tooltip="Voice Typer: Recording") is True
         assert len(captured) == 1
         ev = captured[0]
         assert ev["type"] == "tray_state"
         assert ev["data"]["icon"] == "recording"
-        assert ev["data"]["tooltip"] == "Voice Typer — Recording"
+        assert ev["data"]["tooltip"] == "Voice Typer: Recording"
 
         # 3. With only icon field: payload only has icon.
         assert publish_tray_state(icon="idle") is True
@@ -429,9 +429,9 @@ def test_publish_tray_state_guarded_by_tauri_sidecar(monkeypatch):
 def test_maybe_publish_tray_menu_works_without_pystray_icon(monkeypatch):
     """Under Tauri the pystray Icon is never created (Rust owns the tray).
 
-    The publish helper must NOT short-circuit on ``self._icon is None``
-    — otherwise the tray_menu event never reaches the Rust host and the
-    tray stays frozen at the empty placeholder for the whole session.
+      The publish helper must NOT short-circuit on ``self._icon is None``
+    , otherwise the tray_menu event never reaches the Rust host and the
+      tray stays frozen at the empty placeholder for the whole session.
     """
     tray = _make_tauri_tray(controller=_make_full_controller(), icon=None)
     assert tray._icon is None, "test setup: Tauri runtime has no pystray Icon"
@@ -448,7 +448,7 @@ def test_maybe_publish_tray_menu_works_without_pystray_icon(monkeypatch):
         published = tray._maybe_publish_tray_menu()
         assert published is True, (
             "_maybe_publish_tray_menu must publish under Tauri even when "
-            "self._icon is None — the Rust host owns the native tray"
+            "self._icon is None, the Rust host owns the native tray"
         )
         assert len(captured) == 1
         assert captured[0]["type"] == "tray_menu"
@@ -486,7 +486,7 @@ def test_set_state_publishes_tray_state_under_tauri(monkeypatch):
 def test_set_state_publishes_tray_menu_only_on_transcribing_change(monkeypatch):
     """Menu publishes fire on {RECORDING, TRANSCRIBING} membership changes
     (the ``record_or_transcribe_changed`` predicate in ``set_state``) —
-    the "Stop Dictation" label flips on entry/exit — but NOT on
+    the "Stop Dictation" label flips on entry/exit, but NOT on
     within-set transitions (RECORDING → TRANSCRIBING) or message-only
     changes. Mirrors the per-transition matrix in
     ``test_tray_state_transitions.py::TestRecordingTransitionInvalidatesMenuCache``.
@@ -508,7 +508,7 @@ def test_set_state_publishes_tray_menu_only_on_transcribing_change(monkeypatch):
     try:
         monkeypatch.setenv("TAURI_SIDECAR", "1")
 
-        # IDLE → RECORDING: membership change — menu publish (the
+        # IDLE → RECORDING: membership change, menu publish (the
         # "Stop Dictation" label flips on the host's tray).
         tray.set_state(AppState.RECORDING)
         menu_after_recording = len(menu_events)
@@ -516,15 +516,15 @@ def test_set_state_publishes_tray_menu_only_on_transcribing_change(monkeypatch):
         assert len(state_events) == 1
 
         # RECORDING → TRANSCRIBING: stays inside {RECORDING, TRANSCRIBING}
-        # — no menu publish (membership unchanged).
+        # , no menu publish (membership unchanged).
         tray.set_state(AppState.TRANSCRIBING)
         assert len(menu_events) == 1, "RECORDING→TRANSCRIBING must NOT publish tray_menu (stays in membership set)"
 
-        # TRANSCRIBING → TRANSCRIBING: message-only change — no menu publish.
+        # TRANSCRIBING → TRANSCRIBING: message-only change, no menu publish.
         tray.set_state(AppState.TRANSCRIBING, "still transcribing")
         assert len(menu_events) == 1, "TRANSCRIBING→TRANSCRIBING (msg change) must NOT publish tray_menu"
 
-        # TRANSCRIBING → IDLE: membership change — menu publish (label
+        # TRANSCRIBING → IDLE: membership change, menu publish (label
         # flips back to "Start Dictation").
         tray.set_state(AppState.IDLE)
         assert len(menu_events) == 2, "TRANSCRIBING→IDLE must publish tray_menu (membership change)"
@@ -578,7 +578,7 @@ def test_set_microphones_publishes_tray_menu(monkeypatch):
         mics = [{"id": "0", "name": "Built-in"}, {"id": "1", "name": "USB"}]
         # Mirror production ordering: the caller (e.g. startup_tasks.py)
         # updates ``controller._microphones`` BEFORE calling
-        # ``tray.set_microphones`` — ``_maybe_publish_tray_menu`` reads
+        # ``tray.set_microphones``: ``_maybe_publish_tray_menu`` reads
         # ``controller._microphones`` (not ``self._microphones``).
         ctrl._microphones = mics
         tray.set_microphones(mics)
@@ -628,7 +628,7 @@ def test_ws_reader_allowlist_includes_tray_state():
     """The Rust WS reader's ALLOWED_EVENT_TYPES must include ``tray_state``.
 
     Without this, the WS reader silently drops the ``tray_state`` event
-    at the protocol boundary — the Rust tray.rs listener never fires,
+    at the protocol boundary, the Rust tray.rs listener never fires,
     so the Tauri tray icon stays frozen at the startup placeholder
     regardless of recording/transcribing/error state.
     """
@@ -652,7 +652,7 @@ def test_ws_reader_allowlist_includes_tray_state():
         "so the Rust WS reader forwards the event to the tray_state "
         "listener registered in tray.rs::create_tray"
     )
-    # Also verify tray_menu is still there (regression guard — we
+    # Also verify tray_menu is still there (regression guard, we
     # edited the same line that lists tray_menu).
     assert '"tray_menu"' in src
 
@@ -732,7 +732,7 @@ def test_bg_work_wrapper_publishes_even_when_bg_work_raises(monkeypatch):
 #   * the Microphones parent vanished entirely when the device list
 #     was momentarily empty.
 # The dict path must consume the shared DATA layer
-# (``tray_models.build_models_submenu_data`` tuples) directly — never a
+# (``tray_models.build_models_submenu_data`` tuples) directly, never a
 # pystray round-trip.
 
 
@@ -744,7 +744,7 @@ def _models_row(name, downloaded, is_active, change_fn):
 def test_models_submenu_zero_models_has_no_leading_separator():
     """Zero downloaded models → submenu is exactly [more_models].
 
-    The user reported a first item that is "just a dash" — that was
+    The user reported a first item that is "just a dash", that was
     pystray's ``Menu.SEPARATOR`` (text ``'- - - -'``) flattened into a
     normal label row by the old pystray-item round-trip. With no model
     rows there must be NO separator at all.
@@ -767,7 +767,7 @@ def test_models_submenu_more_models_registered_and_opens_models_page():
     """``more_models`` must be in the id_map and invoke the open callback.
 
     Clicking "More models..." previously dispatched an unknown id (the
-    user's log: ``server.unknown_tray_item``) — the item had no callback.
+    user's log: ``server.unknown_tray_item``), the item had no callback.
     """
     opened = []
     model, id_map = _make_model(
@@ -847,7 +847,7 @@ def test_microphones_item_present_with_empty_list():
     sub = mic_item["submenu"]
     ids = [i["id"] for i in sub]
 
-    # No device rows, no separator rows — just the useful actions.
+    # No device rows, no separator rows, just the useful actions.
     assert ids == ["refresh_mics", "more_microphones"], f"got {ids}"
     assert all(not i["separator"] for i in sub)
 
@@ -861,7 +861,7 @@ def test_microphones_item_present_with_empty_list():
 def test_microphones_submenu_rows_keep_separator_before_actions():
     """With devices present, a separator divides rows from the actions.
 
-    Never a LEADING separator (the dash-defect class) — the first row
+    Never a LEADING separator (the dash-defect class), the first row
     must be a ``mic:`` row.
     """
     mics = [{"id": "0", "name": "Default"}, {"id": "1", "name": "USB Mic"}]
@@ -948,7 +948,7 @@ def test_pystray_models_submenu_contract_unchanged(monkeypatch):
     """Regression guard: the pystray (Electron) path is untouched.
 
     ``build_models_menu_items`` still emits [model rows…] + separator +
-    "More models..." with ``checked`` callables — the exact behavior the
+    "More models..." with ``checked`` callables, the exact behavior the
     Electron runtime has today.
     """
     from voice_typer.server import tray_models
@@ -974,7 +974,7 @@ def test_pystray_models_submenu_contract_unchanged(monkeypatch):
         return item
 
     items = tray_models.build_models_menu_items(
-        lambda: None,  # config_dir_fn (unused — data is stubbed)
+        lambda: None,  # config_dir_fn (unused, data is stubbed)
         lambda name: None,
         lambda fn: fn,  # wrap_fn: identity
         lambda: None,  # open_electron_window_fn

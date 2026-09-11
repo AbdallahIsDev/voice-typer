@@ -89,7 +89,7 @@ class _FakeApp:
         self._cancel_pending_timers = MagicMock()
         self._restore_volume = MagicMock()
 
-        # Bubble level worker (optional on VoiceTyperApp — _do_cleanup
+        # Bubble level worker (optional on VoiceTyperApp, _do_cleanup
         # guards with hasattr; initialize to None so the worker-stop
         # branch is skipped by default).
         self._bubble_level_worker_stop = None
@@ -109,10 +109,10 @@ def fake_app(tmp_config_dir, monkeypatch):
     Stubs (so ``_do_cleanup`` doesn't touch the real filesystem / Win32
     API / devnull FDs):
 
-    - ``voice_typer.server.app._clear_backend_pid_file`` — no-op recorder.
-    - ``voice_typer.server.app._close_devnull_files`` — no-op.
-    - ``voice_typer.server.app._register_devnull_file`` — no-op.
-    - ``voice_typer.server.platform_utils.is_windows`` — returns False (POSIX test env).
+    - ``voice_typer.server.app._clear_backend_pid_file``, no-op recorder.
+    - ``voice_typer.server.app._close_devnull_files``, no-op.
+    - ``voice_typer.server.app._register_devnull_file``, no-op.
+    - ``voice_typer.server.platform_utils.is_windows``, returns False (POSIX test env).
     """
     monkeypatch.setattr("voice_typer.server.app._clear_backend_pid_file", lambda: None, raising=False)
     monkeypatch.setattr("voice_typer.server.app._close_devnull_files", lambda: None, raising=False)
@@ -142,14 +142,14 @@ def controller(fake_app):
 class TestShutdownControllerWiring:
     """Verify ``VoiceTyperApp.__init__`` wires up ``ShutdownController``.
 
-    the wiring has landed — ``VoiceTyperApp.__init__``
+    the wiring has landed: ``VoiceTyperApp.__init__``
     constructs ``self.shutdown = ShutdownController(self)`` (see
     ``voice_typer/server/app.py:228``). These tests now run unmarked.
     """
 
     def test_app_has_shutdown_attribute(self, tmp_config_dir, monkeypatch):
         """``self.shutdown`` must be a ``ShutdownController`` instance."""
-        # raising=False — these app-module attributes may have
+        # raising=False, these app-module attributes may have
         # been removed/renamed in a prior refactor; the monkeypatch is
         # a defensive no-op when they're absent.
         monkeypatch.setattr(f"{_AUTOSTART}.is_autostart_enabled", lambda: False, raising=False)
@@ -165,7 +165,7 @@ class TestShutdownControllerWiring:
 
     def test_shutdown_back_references_app(self, tmp_config_dir, monkeypatch):
         """``ShutdownController._app`` must be the ``VoiceTyperApp`` instance."""
-        # raising=False — see test_app_has_shutdown_attribute.
+        # raising=False: see test_app_has_shutdown_attribute.
         monkeypatch.setattr(f"{_AUTOSTART}.is_autostart_enabled", lambda: False, raising=False)
         monkeypatch.setattr(f"{_AUTOSTART}.enable_autostart", lambda: True, raising=False)
         monkeypatch.setattr(f"{_AUTOSTART}.disable_autostart", lambda: True, raising=False)
@@ -189,8 +189,8 @@ class TestQuitCallsDoCleanupAndExits:
 
     def test_quit_calls_app_do_cleanup_delegate(self, controller, fake_app, monkeypatch):
         """``quit()`` must call ``app._do_cleanup()`` (the delegate on
-        VoiceTyperApp) — NOT ``self._do_cleanup()`` (the body on the
-        controller) — so test spies that
+        VoiceTyperApp), NOT ``self._do_cleanup()`` (the body on the
+        controller), so test spies that
         ``monkeypatch.setattr(app, "_do_cleanup", spy)`` still intercept
         the call."""
         # Replace the delegate with a plain MagicMock so we can assert
@@ -218,7 +218,7 @@ class TestQuitCallsDoCleanupAndExits:
 
     def test_quit_is_idempotent_when_already_shutting_down(self, controller, fake_app, monkeypatch):
         """If ``_shutting_down`` is already True, ``quit()`` must
-        short-circuit — no ``_do_cleanup``, no ``sys.exit``."""
+        short-circuit, no ``_do_cleanup``, no ``sys.exit``."""
         fake_app._shutting_down = True
         fake_app._do_cleanup = MagicMock()
         exit_calls = []
@@ -267,7 +267,7 @@ class TestQuitCallsDoCleanupAndExits:
         channel when the caller did NOT go through ``quit_app()`` (the
         Win32 Ctrl+C handler / POSIX signal watcher call ``quit()``
         directly). This makes Electron close its window immediately on
-        every shutdown path — not just the tray menu — instead of being
+        every shutdown path (not just the tray menu) instead of being
         force-killed by ``_teardown_electron`` seconds later."""
         fake_app._do_cleanup = MagicMock()
         monkeypatch.setattr(sys, "exit", lambda code=0: None)
@@ -286,7 +286,7 @@ class TestQuitCallsDoCleanupAndExits:
 
     def test_quit_skips_quit_app_publish_when_already_published(self, controller, fake_app, monkeypatch):
         """When ``quit()`` is reached via ``quit_app()`` (tray menu / IPC
-        handler), the event was already published there — ``quit()`` must
+        handler), the event was already published there: ``quit()`` must
         NOT send a redundant second write."""
         fake_app._do_cleanup = MagicMock()
         monkeypatch.setattr(sys, "exit", lambda code=0: None)
@@ -302,7 +302,7 @@ class TestQuitCallsDoCleanupAndExits:
         assert not pushed, f"quit() must skip the quit_app publish when quit_app() already published; got: {pushed!r}"
 
     def test_quit_publish_failure_does_not_block_shutdown(self, controller, fake_app, monkeypatch):
-        """A raising ``event_bus.publish`` must be swallowed — shutdown
+        """A raising ``event_bus.publish`` must be swallowed, shutdown
         must never be blocked by a broken TCP client / subscriber."""
         fake_app._do_cleanup = MagicMock()
         monkeypatch.setattr(sys, "exit", lambda code=0: None)
@@ -322,12 +322,12 @@ class TestQuitCallsDoCleanupAndExits:
 
 
 class TestDoCleanupIdempotency:
-    """``_do_cleanup`` must be safe to call multiple times — the
+    """``_do_cleanup`` must be safe to call multiple times, the
     ``_cleanup_done`` flag is the hard guarantee."""
 
     def test_do_cleanup_twice_is_noop(self, controller, fake_app):
         """Calling ``_do_cleanup()`` twice must invoke each subsystem
-        exactly once — the second call is a true no-op."""
+        exactly once, the second call is a true no-op."""
         # capture backend refs BEFORE _do_cleanup() because the
         # fix nulls _hotkey_backend/_esc_backend/_repaste_backend
         # after _teardown_hotkeys (production code is correct; tests must
@@ -368,7 +368,7 @@ class TestDoCleanupIdempotency:
         fake_app.recorder.discard.side_effect = RuntimeError("already discarded")
 
         # First call: recorder.stop() raises, discard() is called as
-        # fallback (also raises — both caught by try-except). Must not
+        # fallback (also raises, both caught by try-except). Must not
         # propagate.
         controller._do_cleanup()
         # Second call must be a no-op.
@@ -384,7 +384,7 @@ class TestDoCleanupIdempotency:
         """PVT-G5-026: the check-then-set on ``_cleanup_done`` must be
         atomic under concurrent callers. Two threads calling
         ``_do_cleanup()`` at the same time must NOT both execute the
-        cleanup body — only one wins the check-then-set race; the
+        cleanup body, only one wins the check-then-set race; the
         other short-circuits.
 
         Pre-fix, the check-then-set was unsynchronized, so two callers
@@ -445,7 +445,7 @@ class TestDoCleanupIdempotency:
 
 
 class TestDoCleanupSubsystemCoverage:
-    """``_do_cleanup`` must call shutdown on every subsystem — no
+    """``_do_cleanup`` must call shutdown on every subsystem, no
     subsystem should be silently skipped (the RW-3 bug)."""
 
     def test_calls_cancel_pending_timers(self, controller, fake_app):
@@ -503,7 +503,7 @@ class TestDoCleanupSubsystemCoverage:
         it was step 13 of 19, which broke the pystray loop on the main
         thread before the remaining cleanups (sd.stop, electron
         terminate, PID file clear, CloseHandle, devnull close,
-        event_bus.shutdown) could finish — the daemon TCP worker
+        event_bus.shutdown) could finish, the daemon TCP worker
         thread running ``_do_cleanup()`` was killed mid-cleanup when
         the main thread returned.
 
@@ -521,7 +521,7 @@ class TestDoCleanupSubsystemCoverage:
 
         fake_app.tray.stop = _spy_tray_stop
 
-        # Spy on event_bus.shutdown() — patch the module-level
+        # Spy on event_bus.shutdown(), patch the module-level
         # function so the call is recorded. Don't run the real
         # shutdown (it mutates module-global state other tests need).
         import voice_typer.server.event_bus as _eb
@@ -577,7 +577,7 @@ class TestDoCleanupSubsystemCoverage:
         # Patch the real electron_launcher.terminate_electron function
         # (the module is already imported at app.py import time, so
         # monkeypatching the attribute on the real module is what
-        # actually intercepts the call — mirrors the convention used
+        # actually intercepts the call, mirrors the convention used
         # for ``_clear_backend_pid_file``).
         monkeypatch.setattr(
             "voice_typer.server.electron_launcher.terminate_electron",
@@ -672,7 +672,7 @@ class TestInstallSignalHandlers:
 class TestAtexitCleanupSafetyNet:
     """``_atexit_cleanup`` must be safe to call multiple times, must
     short-circuit when ``_shutting_down`` is True, and must NEVER
-    raise — even if ``_do_cleanup`` raises."""
+    raise, even if ``_do_cleanup`` raises."""
 
     def test_atexit_cleanup_when_not_shutting_down_runs_do_cleanup(self, controller, fake_app):
         """When ``_shutting_down`` is False, ``_atexit_cleanup`` must
@@ -684,7 +684,7 @@ class TestAtexitCleanupSafetyNet:
     def test_atexit_cleanup_when_shutting_down_short_circuits(self, controller, fake_app):
         """When ``_shutting_down`` is True (quit/restart already ran),
         ``_atexit_cleanup`` must early-return WITHOUT calling
-        ``_do_cleanup()`` again — avoids the spurious "[ATEXIT] Running
+        ``_do_cleanup()`` again, avoids the spurious "[ATEXIT] Running
         emergency cleanup" log line on every intentional shutdown."""
         fake_app._shutting_down = True
         controller._atexit_cleanup()
@@ -708,7 +708,7 @@ class TestAtexitCleanupSafetyNet:
 
     def test_atexit_cleanup_never_raises_when_do_cleanup_raises(self, controller, fake_app):
         """If ``app._do_cleanup()`` raises, ``_atexit_cleanup`` must
-        catch the exception and log it — NEVER propagate out of an
+        catch the exception and log it, NEVER propagate out of an
         atexit handler (would mask the original exit cause).
 
         Mirrors ``tests/test_app_cleanup.py::
@@ -740,7 +740,7 @@ class TestAtexitLog:
 
     def test_atexit_log_silent_when_shutting_down(self, controller, fake_app, caplog):
         """When ``_shutting_down_event`` is set (intentional shutdown),
-        ``_atexit_log`` must NOT warn — the exit was expected."""
+        ``_atexit_log`` must NOT warn, the exit was expected."""
         fake_app._shutting_down_event.set()
         with caplog.at_level("WARNING"):
             controller._atexit_log()
@@ -878,13 +878,13 @@ class TestShutdownWatchdog:
         assert exit_calls == [0], (
             f"GT-43: watchdog must call os._exit(0) after the timeout; got exit_calls={exit_calls}"
         )
-        assert elapsed >= 0.2, f"GT-43: watchdog fired too early — expected ≥0.2s, got {elapsed:.2f}s"
+        assert elapsed >= 0.2, f"GT-43: watchdog fired too early, expected ≥0.2s, got {elapsed:.2f}s"
 
     def test_drain_shutdown_watchdogs_cancels_before_os_exit(self, monkeypatch):
         """A leaked shutdown watchdog (armed by a non-main-thread
         restart/quit test that never lets the process exit) must be
         disarmable via ``_drain_shutdown_watchdogs()`` before it fires
-        the real ``os._exit(0)`` — otherwise it kills the whole xdist
+        the real ``os._exit(0)``, otherwise it kills the whole xdist
         worker mid-suite with no traceback."""
         from voice_typer.server.shutdown.lifecycle import (
             _LIVE_SHUTDOWN_WATCHDOG_THREADS,
@@ -977,19 +977,19 @@ class TestForceClosedReadSideGuard:
     Pre-fix, ``shutdown_controller._do_cleanup()`` set
     ``app.recorder._force_closed = True`` under a
     ``contextlib.suppress(Exception)`` wrapper when ``recorder.stop()``
-    timed out — but the ``Recorder`` class never declared, read, nor
+    timed out, but the ``Recorder`` class never declared, read, nor
     used ``_force_closed``. The attribute was dead write-only state,
     and the old test (TestRecorderForceClosedBarrier above) only
     asserted the WRITE happened, not that any behavior depended on it.
     The comment in ``shutdown_controller.py`` promised "so the
-    recorder itself can [use it]" — the read side never landed.
+    recorder itself can [use it]", the read side never landed.
 
     The fix (landed in ``recorder.py`` by another agent) implements
     the read side: ``Recorder.__init__`` declares
     ``self._force_closed: bool = False`` and
     ``Recorder.shutdown_mic_watcher`` short-circuits with ``return``
     when ``self._force_closed`` is True. These tests pin the
-    behavior contract — that calling ``shutdown_mic_watcher`` on a
+    behavior contract, that calling ``shutdown_mic_watcher`` on a
     force-closed recorder does NOT delegate to
     ``_devices.shutdown_mic_watcher()`` (so the leaked worker thread
     still touching the PortAudio stream is not raced).
@@ -1001,7 +1001,7 @@ class TestForceClosedReadSideGuard:
     def _make_test_recorder(self):
         """Construct a real ``Recorder`` with mocked collaborators.
 
-        Avoids PortAudio / sounddevice initialization — we only need
+        Avoids PortAudio / sounddevice initialization, we only need
         the ``shutdown_mic_watcher`` method to run, which delegates to
         ``self._devices.shutdown_mic_watcher()``. The ``_devices``
         attribute is replaced with a MagicMock so we can assert
@@ -1030,7 +1030,7 @@ class TestForceClosedReadSideGuard:
         ``_devices.shutdown_mic_watcher()``.
 
         This is the core read-side guard. Without it, the flag is dead
-        state — ``shutdown_controller`` writes True but nothing reads
+        state: ``shutdown_controller`` writes True but nothing reads
         it, so a subsequent cleanup call would race the leaked worker
         thread still touching the PortAudio stream.
         """
@@ -1042,7 +1042,7 @@ class TestForceClosedReadSideGuard:
         # does when recorder.stop() times out).
         recorder._force_closed = True
 
-        # Call shutdown_mic_watcher — should short-circuit.
+        # Call shutdown_mic_watcher, should short-circuit.
         recorder.shutdown_mic_watcher()
 
         # The delegate MUST NOT have been called.
@@ -1111,7 +1111,7 @@ class TestInFlightTimerDrain:
         fake_app.timers = timers_coord
 
         timer.start()
-        assert in_flight_started.wait(timeout=2.0), "GT-72: test setup failed — in-flight timer never started"
+        assert in_flight_started.wait(timeout=2.0), "GT-72: test setup failed, in-flight timer never started"
 
         cleanup_done = _threading.Event()
         cleanup_errors: list = []

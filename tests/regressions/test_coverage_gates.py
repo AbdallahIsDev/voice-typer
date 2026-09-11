@@ -1,10 +1,10 @@
-"""Trimmed — trivial existence-check meta-tests removed.
+"""Trimmed: trivial existence-check meta-tests removed.
 
 Previously this file was 738 LOC of pure existence-check meta-tests
 (e.g., ``assert "TestFoo" in test_bar.read_text()``) that pinned
 whether a test class/file existed somewhere in the suite. These
 meta-tests were brittle (broke on every test-file rename) and provided
-no behavioral value — they asserted on test infrastructure rather
+no behavioral value, they asserted on test infrastructure rather
 than product behavior.
 
 The classes that pinned trivial existence (file/class/string
@@ -15,9 +15,9 @@ presence) have been DELETED. The meaningful invariants KEPT here are:
   implementation contract (dict.get O(1) lookup, not linear scan).
 - ``TestParametrizeUsageCountAboveThirty`` (TEST-032): count
   threshold (≥ 30 ``@pytest.mark.parametrize`` uses across the suite
-  — catches a regression where parametrized tests get replaced with
+, catches a regression where parametrized tests get replaced with
   copy-paste variants).
-- ``TestNoImportMockInTests`` (TEST-033): behavioral scan — actually
+- ``TestNoImportMockInTests`` (TEST-033): behavioral scan, actually
   walks every test file and fails if any uses the deprecated
   ``import mock`` form (vs the canonical ``from unittest.mock
   import``).
@@ -55,7 +55,7 @@ class TestVkLookupBenchmarkExists:
         assert elapsed_ms < 100, f"VK map init took {elapsed_ms:.1f}ms (target < 100ms)"
 
     def test_vk_lookup_is_o1_dict_get(self):
-        # KEEP — pins  (VK lookup uses dict.get, O(1)).
+        # KEEP, pins  (VK lookup uses dict.get, O(1)).
         # The sibling test_vk_map_initialization_is_fast and
         # test_vk_lookup_returns_correct_code_for_f2 test the speed and
         # correctness, but don't catch a regression where the lookup
@@ -89,7 +89,7 @@ class TestParametrizeUsageCountAboveThirty:
         Uses Python's pathlib + grep instead of the Unix `grep` command
         so it works on Windows too.
 
-        KEEP — pins (>= 30 @pytest.mark.parametrize uses).
+        KEEP, pins (>= 30 @pytest.mark.parametrize uses).
         A behavioral test would need to count parametrize uses at runtime,
         which is the same operation; the file-content check is the most
         direct way to catch a regression where parametrize uses drop.

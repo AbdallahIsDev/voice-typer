@@ -1,4 +1,4 @@
-"""Tests for ``VoiceTyperService.import_model()`` — scanning directories for
+"""Tests for ``VoiceTyperService.import_model()``: scanning directories for
 HuggingFace model cache folders and importing recognized models into the
 app's HF cache.
 
@@ -145,7 +145,7 @@ class TestImportModelEdgeCases:
     """Edge cases for the import_model method."""
 
     def test_empty_directory(self, service, tmp_path, monkeypatch):
-        """Empty source dir — no models found, none imported."""
+        """Empty source dir, no models found, none imported."""
         monkeypatch.setattr(
             "voice_typer.server.config._config_dir",
             lambda: tmp_path / "app_hf",

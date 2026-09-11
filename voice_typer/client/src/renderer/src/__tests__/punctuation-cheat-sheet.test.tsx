@@ -4,13 +4,13 @@
  * Verifies that the cheat sheet:
  *   1. Renders with the expected testid container.
  *   2. Surfaces every punctuation entry from `PUNCTUATION_ENTRIES`
- *      (the canonical list — see the component file for the source
+ *      (the canonical list, see the component file for the source
  *      of truth link to text_cleanup.py).
  *   3. Includes the canonical punctuation characters that
  *      text_cleanup.py:374 recognizes: `, . ; : ! ?`.
  *   4. Surfaces "new line" (the directive's required example).
  *
- * This is a vitest unit test, not a full App integration test — the
+ * This is a vitest unit test, not a full App integration test, the
  * App.test.tsx mock of `@/components/common/Modal` returns a stub
  * that swallows children, so we mount the component directly.
  */
@@ -40,7 +40,7 @@ describe("PunctuationCheatSheet (NEW-UX-026)", () => {
 	});
 
 	it("includes all six text_cleanup.py punctuation characters: , . ; : ! ?", () => {
-		// text_cleanup.py:374 — `_RE_SPACING_PUNCT_BEFORE = re.compile(r"\s+([,.;:!?])")`
+		// text_cleanup.py:374, `_RE_SPACING_PUNCT_BEFORE = re.compile(r"\s+([,.;:!?])")`
 		// is the canonical source of truth for the punctuation Voice Typer
 		// preserves. The cheat sheet must surface each of these so users
 		// know how to produce them by voice.
@@ -54,10 +54,10 @@ describe("PunctuationCheatSheet (NEW-UX-026)", () => {
 		}
 	});
 
-	it('includes "new line" — the directive-required example', () => {
+	it('includes "new line", the directive-required example', () => {
 		render(<PunctuationCheatSheet />);
 		// The localized label for help.punctuation.newLine in en.json is
-		// "New line" — assert it surfaces in the document text.
+		// "New line", assert it surfaces in the document text.
 		const section = screen.getByTestId("punctuation-cheat-sheet");
 		expect(section.textContent).toContain("New line");
 	});

@@ -1,20 +1,20 @@
-# Sidebar Navigation — Two-Group Consolidation
+# Sidebar Navigation: Two-Group Consolidation
 
 **Status**: Decided (2026-08-25, user product decision)
 **Decision owner**: voice-typer UX
 **Supersedes**: the earlier three-group hierarchy (Main / Power features / System)
 **Related code**:
-- `voice_typer/client/src/renderer/src/components/layout/Sidebar.tsx` — nav group definitions (`nav.group.main`, `nav.group.system`, `pinnedToBottom`)
-- `voice_typer/client/src/renderer/src/index.css` — `[dir="rtl"] .nav-directional-icon`
-- `voice_typer/client/src/renderer/src/components/layout/__tests__/Sidebar.test.tsx` — group structure + `mt-auto` pinning tests
+- `voice_typer/client/src/renderer/src/components/layout/Sidebar.tsx` Nav group definitions (`nav.group.main`, `nav.group.system`, `pinnedToBottom`)
+- `voice_typer/client/src/renderer/src/index.css` `[dir="rtl"] .nav-directional-icon`
+- `voice_typer/client/src/renderer/src/components/layout/__tests__/Sidebar.test.tsx` Group structure + `mt-auto` pinning tests
 
 ## Context
 
 The sidebar previously organized its destinations into three labeled groups:
 
-1. **Main** — Home, History, Analytics
-2. **Power features** — Templates, Vocabulary, Models, Microphone
-3. **System** — Settings, About & Privacy
+1. **Main**: Home, History, Analytics
+2. **Power features**: Templates, Vocabulary, Models, Microphone
+3. **System**: Settings, About & Privacy
 
 In practice the split produced a two-item delta between the first two groups
 (3 items vs. 4 items), and the "Power features" heading added no information —
@@ -27,7 +27,7 @@ The sidebar has exactly **two groups**:
 
 1. A **header-less top group** (visually unlabeled; `aria-label="Main"`
    preserved for assistive technology) containing Home, History, Analytics,
-   Models, Templates, Vocabulary — the destinations a user touches daily and
+   Models, Templates, Vocabulary: the destinations a user touches daily and
    weekly.
 2. The **System group** (visible heading, pinned to the sidebar's bottom edge
    via `mt-auto`) containing Settings, Microphone, About & Privacy. Microphone
@@ -41,7 +41,7 @@ or a "Power features" heading.
 
 - **Heading budget vs. information gain.** A heading earns its vertical space
   when it separates clusters that users mentally treat differently. "Main"
-  vs. "Power features" did not survive that test — the distinction is
+  vs. "Power features" did not survive that test, the distinction is
   frequency, not kind, and frequency is already encoded by position.
 - **Position encodes priority.** Frequently used destinations sit at the top;
   low-traffic informational/system destinations cluster at the bottom. This
@@ -66,7 +66,7 @@ or a "Power features" heading.
 
 - Daily destinations (Home, History, Analytics, Models, Templates,
   Vocabulary) are reachable with less scrolling and one fewer visual anchor.
-- System destinations stay in a stable, bottom-pinned cluster — muscle memory
+- System destinations stay in a stable, bottom-pinned cluster, muscle memory
   for "Settings is at the bottom" keeps working in both sidebar states.
 - Screen-reader users get the same hierarchy (`aria-label="Main"` retained;
   visible-heading removal is presentation-only).

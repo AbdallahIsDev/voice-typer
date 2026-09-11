@@ -10,7 +10,7 @@ const meta: Meta<typeof PageHeading> = {
 		docs: {
 			description: {
 				component:
-					"Standard page header with a 2xl semibold title and an optional muted description. When `children` are provided, the header lays out as a two-column row (title/description on the left, actions on the right) — this is the pattern every Settings sub-page uses for its action buttons.",
+					"Standard page header with a 2xl semibold title and an optional muted description. When `children` are provided, the header lays out as a two-column row (title/description on the left, actions on the right), this is the pattern every Settings sub-page uses for its action buttons.",
 			},
 		},
 	},
@@ -88,7 +88,7 @@ export const RtlLayout: Story = {
 		docs: {
 			description: {
 				story:
-					'Rendered inside a `dir="rtl"` wrapper, mirroring how `i18n/store.ts` flips `document.documentElement.dir` for Arabic — the title/description column must start from the right and the action column must sit on the left.',
+					'Rendered inside a `dir="rtl"` wrapper, mirroring how `i18n/store.ts` flips `document.documentElement.dir` for Arabic, the title/description column must start from the right and the action column must sit on the left.',
 			},
 		},
 	},

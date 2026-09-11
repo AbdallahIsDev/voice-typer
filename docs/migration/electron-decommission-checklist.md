@@ -1,15 +1,15 @@
-# Electron Decommission Checklist — Gated on T-1 Host Validation
+# Electron Decommission Checklist: Gated on T-1 Host Validation
 
 **Status**: planning artifact. **Nothing in this document may be executed
 until T-1's Windows-host validation completes** (browser-driven visual
-walkthrough + real-model dictation on the Tauri host — see `review.md` T-1
+walkthrough + real-model dictation on the Tauri host, see `review.md` T-1
 and the cutover criteria in `docs/migration/cutover-playbook.md`). This
 checklist exists so the future session executes a written plan instead of
 re-deriving one (E15 discipline: deletions recorded in
 `archive/deleted_files.txt`, one operation per line).
 
 **Direction** (ADR-0020): the Electron shell is being removed; Tauri becomes
-the main — and only — runtime. Electron is a behavioral REFERENCE during the
+the main: and only, runtime. Electron is a behavioral REFERENCE during the
 migration, nothing more.
 
 **Two crash-loop breaker files must NOT be merged** (C-PERSIST-4):
@@ -19,7 +19,7 @@ have incompatible schemas and lifecycles. Each dies with its own shell.
 
 ---
 
-## Phase A — Pre-deletion extraction (do BEFORE deleting anything)
+## Phase A: Pre-deletion extraction (do BEFORE deleting anything)
 
 These steps are sequenced first because deleting the modules they extract
 from would break the live Tauri path. Each is create-first (E1): the new
@@ -44,16 +44,16 @@ removed.
   `_security_attributes.py` + `security/win32_dacl.py`, ~1,176 LOC) is
   gated OFF in Tauri-WS mode (`ipc/entrypoint.py`:
   `None if _tauri_sidecar else _ensure_single_instance(...)`), but three
-  symbols stay LIVE on the Tauri path. **Extraction DONE** — they now
+  symbols stay LIVE on the Tauri path. **Extraction DONE**, they now
   live in the runtime-neutral leaf `voice_typer/server/backend_pid.py`
   (single source, DRY):
   - `_is_pid_alive` (consumer: `tray_window.py`)
   - `_backend_pid_file` (consumers: `autostart_launcher.py`,
     `autostart/pid_file.py`)
   - `_clear_backend_pid_file` (consumers: `shutdown/cleanup.py`,
-    `shutdown/lifecycle.py`, `shutdown/teardowns/pid_file.py` — all
+    `shutdown/lifecycle.py`, `shutdown/teardowns/pid_file.py` All
     resolving through the owning module at call time)
-  (NOT `_write_backend_pid_file` — it is gated off with the subsystem;
+  (NOT `_write_backend_pid_file` It is gated off with the subsystem;
   `_record_backend_ipc_port` also stays in `single_instance.py`.)
   `single_instance.py` re-exports the three from the leaf for backwards
   compatibility (`app.py`'s re-export chain keeps working); the live
@@ -66,10 +66,10 @@ removed.
   logging-health ring buffer (`logging/rotation.ts`, `getLoggingHealth`)
   is Electron-main-only, unported, and unwired (zero consumers). Choose
   explicitly: port it to the Tauri host (new IPC surface + Rust-side buffer)
-  or delete it at cutover. Do not leave it undecided — an unwired port
+  or delete it at cutover. Do not leave it undecided, an unwired port
   target is how dead code re-accumulates.
 
-## Phase B — Port-or-drop decisions for unported Electron surfaces
+## Phase B: Port-or-drop decisions for unported Electron surfaces
 
 Four Electron surfaces take LIVE features with them. For each: port to the
 Tauri host (with tests) or accept the drop as a product decision (recorded
@@ -89,52 +89,52 @@ in `WONT_FIX.md`-style rationale). None may be deleted silently.
 - [ ] **B4. The Ctrl/Cmd+Shift+D dismiss accelerator** —
   `client/src/main/shortcuts/global-shortcuts.ts`.
 
-## Phase C — Deletion order (execute only after T-1 gate passes)
+## Phase C: Deletion order (execute only after T-1 gate passes)
 
 Ordered so that each step is independently verifiable (tests green,
 `cargo check` + `npm run typecheck:ci` + `pytest --collect-only` after
 every step; wiring audit per E1). Enumerate the affected test files per
-item BEFORE deleting — do not discover them via red CI.
+item BEFORE deleting: do not discover them via red CI.
 
-1. [ ] **C1. Electron main tree** — delete `voice_typer/client/src/main/`
-   (except files Phase B decided to port — port first, then delete the
+1. [ ] **C1. Electron main tree**, delete `voice_typer/client/src/main/`
+   (except files Phase B decided to port, port first, then delete the
    originals), plus the renderer's Electron-only preload/bridge glue.
    Includes `main/index.ts`, `main/bootstrap/*`, `main/windows/*`,
-   `main/python/*` (the Electron spawn/restart/relaunch machinery — the
+   `main/python/*` (the Electron spawn/restart/relaunch machinery, the
    Tauri host owns its own), `main/ipc/*`, `main/logging/*` (after A3/A4),
    `main/shortcuts/*`, `power.ts`, `allowed-commands.ts` (the renderer
    allowlist parity source moves to the Tauri-side allowlist contract —
    keep the parity test green against `registry.py`).
-2. [ ] **C2. Python Electron-support modules** — delete
+2. [ ] **C2. Python Electron-support modules**, delete
    `voice_typer/server/electron_launcher.py` and
    `voice_typer/server/_electron_build.py` (A1 must be done), plus
    `autostart/electron_spawn.py`; sweep the Electron-branch residue the
    BP-22 enrichment verified:
    - `app_lifecycle.py` "STANDALONE IN-PLACE RESTART" branch
-     (`_electron_pid is not None` gate — always None in Tauri-WS mode)
+     (`_electron_pid is not None` gate: always None in Tauri-WS mode)
      and its `_electron_pid` plumbing
    - `autostart/focus.py` `VT_FOCUS_ONLY=1` writes (zero `src-tauri/src`
-     readers — verified by grep)
+     readers: verified by grep)
    - `autostart.py` docstring still describing "npm run dev … Electron"
      spawn
    - `desktop_shortcut.py` docstrings citing the "Electron
      single-instance lock"
    - `_phases_late.py` "opening Electron window" log string
-3. [ ] **C3. `transport_tcp.py`** — delete
+3. [ ] **C3. `transport_tcp.py`**: delete
    `voice_typer/server/ipc/transport_tcp.py` ONLY after WS parity is
    confirmed on the Tauri host (T-1 evidence), together with its tests.
    The Electron TCP transport and the WS transport do not coexist after
    the shell dies.
-4. [ ] **C4. Python single-instance subsystem** — delete
+4. [ ] **C4. Python single-instance subsystem**, delete
    `single_instance.py`, `_security_attributes.py`,
-   `security/win32_dacl.py` (A2 is done — the live helpers now live in
+   `security/win32_dacl.py` (A2 is done: the live helpers now live in
    `backend_pid.py`; BP-144), plus the Electron-subsystem teardown
    `shutdown/teardowns/electron.py` (the `_electron_pid` machinery it
    serves only exists on the Electron path). Sweep the removals:
    - the re-export block in `app.py` (imports `_backend_pid_file` /
      `_clear_backend_pid_file` / `_is_pid_alive` /
      `_write_backend_pid_file` / `_read_stale_backend_pid` from
-     `single_instance`) — replace or delete per remaining callers
+     `single_instance`): replace or delete per remaining callers
    - `ipc/entrypoint.py`'s `_record_backend_ipc_port` imports (the
      BP-130 port-record writer dies with the subsystem)
    - the single-instance test files
@@ -142,16 +142,16 @@ item BEFORE deleting — do not discover them via red CI.
      `_PosixSingleInstanceHandle` import) and any remaining
      `monkeypatch` targets on `voice_typer.server.single_instance`
    Re-exports removed with the module.
-5. [ ] **C5. Two re-export shims + remaining shims** — after C1–C4, delete
+5. [ ] **C5. Two re-export shims + remaining shims**, after C1–C4, delete
    the compatibility re-export shims whose consumers are all gone (sweep
    `grep` for each shim name; a shim with remaining live consumers stays
    until they are migrated).
-6. [ ] **C6. `restart_history.json` handling** — delete the
+6. [ ] **C6. `restart_history.json` handling**: delete the
    Electron-side writer/reader (`relaunch-app.ts` dies with C1's
    `main/python/` deletion). Do NOT touch `restart_counter.json`
    (Tauri-owned; C-PERSIST-4).
 
-## Phase D — Post-deletion verification
+## Phase D: Post-deletion verification
 
 - [ ] Full-suite green on the final code state (pytest + vitest + cargo,
   C-TEST-6), recorded in `worklog.md` with counts + OS qualifier.

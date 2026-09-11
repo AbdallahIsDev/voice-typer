@@ -8,14 +8,14 @@ Previously ``Recorder``'s audio callback logged
 ``log.debug("[RECORDING] on_rms_level callback raised", exc_info=True)``
 on EVERY callback raise.  The audio callback fires at ~16 Hz; a buggy
 downstream consumer would trigger full traceback formatting 16 times
-per second — a significant CPU cost on the audio thread that can
+per second, a significant CPU cost on the audio thread that can
 cause XRUNs.
 
 The fix only formats the traceback on the 1st occurrence and every
 100th subsequent occurrence; the rest are logged without exc_info.
 
 Class/method names, assertion logic, and imports below are preserved
-verbatim from the original monolith — only file location has changed.
+verbatim from the original monolith, only file location has changed.
 """
 
 # === Source: tests/test_new_conc_004_rms_callback.py ===

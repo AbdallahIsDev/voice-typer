@@ -3,7 +3,7 @@
 // The backend config stores machine values ("cuda", "cpu", "tiny",
 // "en"). These helpers map them to user-facing labels so every surface
 // (Analytics Current Setup, About, Home share image) renders the same
-// friendly text. The internal config values are NOT changed — only the
+// friendly text. The internal config values are NOT changed, only the
 // rendered text.
 //
 // - device: "cuda" → "GPU" (friendly; the config keeps "cuda" to avoid

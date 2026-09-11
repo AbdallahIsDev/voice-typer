@@ -4,13 +4,13 @@ Extracted from ``voice_typer/server/transcription.py`` (which stays the
 public facade and keeps thin one-line delegator methods on the engine
 class) so the device-detection concern can be unit-tested in isolation:
 
-* :func:`resolve_device` — auto-detect the best (device, compute_type)
+* :func:`resolve_device`: auto-detect the best (device, compute_type)
   pair for a requested device string ("auto" / "cuda" / "cpu").
-* :func:`resolve_device_once` — run the (expensive) CUDA detection once,
+* :func:`resolve_device_once`: run the (expensive) CUDA detection once,
   near load time, and cache the result on the engine.
-* :func:`apply_auto_beam_size` — re-resolve ``engine.beam_size`` when the
+* :func:`apply_auto_beam_size`: re-resolve ``engine.beam_size`` when the
   user left it on auto, after the resolved device changed.
-* :func:`whisper_cpu_threads` — derive the CTranslate2 intra-op thread
+* :func:`whisper_cpu_threads`: derive the CTranslate2 intra-op thread
   budget for ``WhisperModel`` from the machine's core count (capped), so
   CPU dictation uses the hardware instead of CTranslate2's fixed
   4-thread default.
@@ -23,7 +23,7 @@ TEST PATCH COMPATIBILITY
 the ``voice_typer.server.transcription.<name>`` path, so the helpers
 below resolve them through **late binding**
 (``from voice_typer.server import transcription as _t`` then
-``_t.<name>``) so the patched binding is read at call time — the same
+``_t.<name>``) so the patched binding is read at call time, the same
 pattern used by ``transcription_load.py``.
 
 Engine methods (``_resolve_device`` etc.) are dispatched via the engine
@@ -69,12 +69,12 @@ def resolve_device(engine, device: str) -> tuple[str, str]:
             # Windows fast path: when the CUDA runtime DLLs cannot
             # be loaded (CPU-only torch, missing nvidia-* wheels),
             # skip the expensive ``import ctranslate2`` + CUDA device
-            # probe — the import alone costs ~20s of CUDA
+            # probe, the import alone costs ~20s of CUDA
             # enumeration and the probe would fail at load time
             # anyway, forcing a CPU reload.
             if _t._cuda_runtime_available() is False:
                 log.warning(
-                    "[MODEL] CUDA runtime DLLs unavailable on Windows — using CPU directly (skipped ~20s CUDA probe)"
+                    "[MODEL] CUDA runtime DLLs unavailable on Windows, using CPU directly (skipped ~20s CUDA probe)"
                 )
                 if device == "cuda":
                     log.warning("[MODEL] CUDA requested but DLLs unavailable, falling back to CPU")
@@ -127,7 +127,7 @@ def whisper_cpu_threads() -> int:
     """Return the ``cpu_threads`` budget to pass to ``WhisperModel``.
 
     CTranslate2 defaults to 4 intra-op threads when ``cpu_threads`` is
-    left unset, which under-uses multi-core machines — the CPU decode
+    left unset, which under-uses multi-core machines, the CPU decode
     path is the primary non-GPU path and the whole GPU→CPU fallback
     chain. This derives the budget from the available cores, capped at
     :data:`_WHISPER_CPU_THREADS_CAP` so decode threads never contend
@@ -135,12 +135,12 @@ def whisper_cpu_threads() -> int:
 
     Resolution order:
 
-    1. ``psutil.cpu_count(logical=False)`` — physical cores (psutil is
+    1. ``psutil.cpu_count(logical=False)``: physical cores (psutil is
        a declared project dependency; ``logical=False`` avoids paying
        SMT hyperthreads that barely help batched matrix work).
-    2. ``os.sched_getaffinity(0)`` — affinity-aware logical CPU count
+    2. ``os.sched_getaffinity(0)``: affinity-aware logical CPU count
        (Linux; used when the physical count is unavailable).
-    3. ``os.cpu_count()`` — final fallback (Windows/macOS have no
+    3. ``os.cpu_count()``: final fallback (Windows/macOS have no
        ``sched_getaffinity``).
 
     Always returns ``>= 1``.

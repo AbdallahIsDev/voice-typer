@@ -1,7 +1,7 @@
 // Duplicate-corrections review banner.
 //
 // Shown when the loaded list contains two or more entries sharing the
-// same wrong phrase (case-insensitive, whitespace-collapsed — the same
+// same wrong phrase (case-insensitive, whitespace-collapsed, the same
 // rule the backend enforces on write). This surfaces PRE-EXISTING
 // duplicates from before the backend check shipped (e.g. hand-edited
 // JSON or double-imports) so the user can resolve them, while the

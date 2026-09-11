@@ -2,7 +2,7 @@
  * Toaster position must react to runtime locale changes.
  *
  * Previously the position was computed once at mount from
- * `isRtlLocale(getLocale())` — switching to Arabic at runtime kept the
+ * `isRtlLocale(getLocale())`, switching to Arabic at runtime kept the
  * toaster pinned bottom-right until a page reload. The fix subscribes
  * via the i18n module's locale-subscriber registry (useSyncExternalStore),
  * so the position mirrors the ACTIVE locale: bottom-right in LTR,
@@ -61,7 +61,7 @@ function lastPosition(): string | undefined {
 	return capturedProps[capturedProps.length - 1]?.position;
 }
 
-describe("Toaster — locale-reactive position", () => {
+describe("Toaster, locale-reactive position", () => {
 	beforeEach(() => {
 		cleanup();
 		capturedProps.length = 0;

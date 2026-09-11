@@ -55,13 +55,13 @@
           // Mirror the i18n module's dir contract (setLocale sets
           // dir="rtl" for Arabic and dir="ltr" for every other locale)
           // so the very first paint already has the correct writing
-          // direction — no LTR flash for Arabic users, no stale RTL
+          // direction, no LTR flash for Arabic users, no stale RTL
           // direction if a user switches back to an LTR locale.
           document.documentElement.dir = tag === "ar" ? "rtl" : "ltr";
         }
       } catch {
         // localStorage unavailable (sandboxed frame, Tauri webview, etc.)
-        // — fall through to the hardcoded lang="en" attribute.
+        //, fall through to the hardcoded lang="en" attribute.
       }
     })();
   </script>
@@ -76,7 +76,7 @@
       that adds 'unsafe-eval' and 'unsafe-inline' for script-src (Vite HMR +
       React Refresh preamble + eval sourcemaps) and ws://localhost:* to
       connect-src for the HMR websocket.  The production build leaves this
-      strict policy in place — no inline scripts and no eval in the bundle.
+      strict policy in place, no inline scripts and no eval in the bundle.
 
       Belt-and-suspenders: main/index.ts also sets CSP via onHeadersReceived
       (HTTP headers take precedence over meta tags per the CSP spec).
@@ -85,19 +85,19 @@
       visibly (loud failure).  If it fails in prod, the meta tag is already
       strict (safe failure).
 
-      - script-src 'self' — only same-origin scripts.
-      - style-src 'self' 'unsafe-inline' — Tailwind 4 injects styles at
+      - script-src 'self', only same-origin scripts.
+      - style-src 'self' 'unsafe-inline', Tailwind 4 injects styles at
         runtime; 'unsafe-inline' for styles is low-risk (no script
         execution from CSS in modern browsers).
-      - img-src 'self' data: — data: URIs for inline icons.
-      - connect-src 'self' — backend only; no external network calls
+      - img-src 'self' data:, data: URIs for inline icons.
+      - connect-src 'self', backend only; no external network calls
         (C-DATA-1: app is OFFLINE). The previous `https://api.github.com`
         grant was removed because it was a latent C-DATA-1 violation;
         update checks must route through the Python sidecar instead of
         a renderer-direct HTTPS call.
-      - form-action 'none' — no form submissions.
+      - form-action 'none', no form submissions.
       NOTE: `frame-ancestors 'none'` is intentionally NOT in this meta
-      tag — the CSP spec ignores `frame-ancestors` delivered via <meta>
+      tag, the CSP spec ignores `frame-ancestors` delivered via <meta>
       (only HTTP headers honor it) and the browser logs a console warning
       for it. It is enforced via the HTTP-header CSP set by the Electron
       main process (`bootstrap.ts::_buildCsp` → onHeadersReceived).

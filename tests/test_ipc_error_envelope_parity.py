@@ -72,7 +72,7 @@ def _send_line(sock: socket.socket, obj: dict) -> None:
 
 
 def _send_raw(sock: socket.socket, raw: str) -> None:
-    """Send a raw string (no JSON encoding) — used for invalid-JSON tests."""
+    """Send a raw string (no JSON encoding), used for invalid-JSON tests."""
     sock.sendall((raw + "\n").encode("utf-8"))
 
 
@@ -241,7 +241,7 @@ class TestTcpErrorEnvelopes:
     def test_tcp_invalid_json_returns_invalid_payload_code(self, authenticated_client):
         """Invalid JSON on the TCP socket must return
         ``{"type":"error","data":{"code":"client.invalid_payload",
-        "message":"invalid JSON"}}`` — matching the WS path.
+        "message":"invalid JSON"}}``, matching the WS path.
         """
         client, _ = authenticated_client
         _send_raw(client, "{not valid json")
@@ -262,7 +262,7 @@ class TestTcpErrorEnvelopes:
         (``ipc/dispatcher.py``) stamps ``code=ErrorCodes.HANDLER_ERROR``
         (``"server.handler_error"``) via ``_error_response`` (R13-F3)
         so clients branching on ``code`` see the namespaced
-        handler-fault signal — distinct from the
+        handler-fault signal, distinct from the
         ``server.internal_error`` envelope that ``sidecar_ws._make_dispatch``'s
         outer catch emits when ``_dispatch`` ITSELF raises (which the
         WS parity test exercises by replacing ``_dispatch`` with a
@@ -283,14 +283,14 @@ class TestTcpErrorEnvelopes:
         # legacy bare ``internal_error`` / namespaced ``server.internal_error``
         # are emitted ONLY by the outer catch-alls (stdin runner /
         # ``sidecar_ws._make_dispatch``) when ``_dispatch`` itself raises
-        # — a different scenario covered by the WS parity test below.
+        # , a different scenario covered by the WS parity test below.
         assert resp["data"]["code"] == "server.handler_error"
         assert resp["data"]["message"] == "internal error"
 
     def test_tcp_rate_limit_returns_rate_limited_code(self, authenticated_client, monkeypatch):
         """When the rate limiter rejects a frame, the TCP path must
         return ``{"type":"error","data":{"code":"rate_limited",
-        "message":"rate limit exceeded; backing off"}}`` — matching
+        "message":"rate limit exceeded; backing off"}}``, matching
         the WS path.
 
         We patch the rate limiter's ``allow()`` to always return False
@@ -315,7 +315,7 @@ class TestTcpErrorEnvelopes:
 
 
 class TestWsErrorEnvelopes:
-    """WS path baseline — confirms the envelopes the TCP path
+    """WS path baseline, confirms the envelopes the TCP path
     now matches.
 
     These tests are the WS-side mirror of ``TestTcpErrorEnvelopes``.
@@ -344,7 +344,7 @@ class TestWsErrorEnvelopes:
 
     def test_ws_dispatch_exception_returns_internal_error_code(self):
         """If ``server._dispatch`` raises, the WS path returns the
-        internal_error envelope — the parity baseline for the TCP path.
+        internal_error envelope, the parity baseline for the TCP path.
         """
         import asyncio
 
@@ -367,7 +367,7 @@ class TestWsErrorEnvelopes:
 
     def test_ws_rate_limit_returns_rate_limited_code(self):
         """When the rate limiter rejects a frame, the WS path returns
-        the rate_limited envelope — the parity baseline for the TCP
+        the rate_limited envelope, the parity baseline for the TCP
         path.
         """
         import asyncio
@@ -380,7 +380,7 @@ class TestWsErrorEnvelopes:
 
         # Call dispatch once to populate ``server._rate_limiter_instance``
         # with a real ``_RateLimiter`` (``_get_rate_limiter`` creates one
-        # lazily on first access — a MagicMock's auto-vivified child
+        # lazily on first access, a MagicMock's auto-vivified child
         # fails the ``isinstance(limiter, _RateLimiter)`` check, so the
         # first call creates a real one and stores it on the server).
         asyncio.run(dispatch({"type": "get_status", "data": {}}, MagicMock()))
@@ -449,7 +449,7 @@ class TestTcpWsEnvelopeParity:
         ``server.handler_error`` (via ``_error_response`` / R13-F3).
         The WS parity test (``test_ws_envelope_matches_expected``)
         instead REPLACES ``_dispatch`` with a MagicMock that raises
-        directly — that scenario bubbles up to
+        directly, that scenario bubbles up to
         ``sidecar_ws._make_dispatch``'s outer catch and emits
         ``server.internal_error``. The two parametrize cases exercise
         DIFFERENT fault layers, so the TCP path overrides the shared
@@ -463,7 +463,7 @@ class TestTcpWsEnvelopeParity:
         elif error_class == "internal_error":
             # TCP-side override: the dispatcher catches the handler
             # exception and stamps ``server.handler_error`` (NOT
-            # ``server.internal_error`` — that code is reserved for
+            # ``server.internal_error``, that code is reserved for
             # ``_dispatch`` itself raising, which the WS parity test
             # covers by mocking ``_dispatch`` directly).
             expected = {

@@ -1,4 +1,4 @@
-# Voice Typer — Public API Reference
+# Voice Typer: Public API Reference
 
 ## Overview
 
@@ -20,10 +20,10 @@ model management, and IPC server.
 | Method | Parameters | Returns | Description |
 |--------|-----------|---------|-------------|
 | `__init__()` | — | — | Initializes app state, does NOT start services. |
-| `start()` | — | `None` | Starts the tray icon, IPC server, and main event loop. Blocks until `quit()`. (Renamed from the historical `run()` — see `def start` in `voice_typer/server/app.py`.) |
+| `start()` | — | `None` | Starts the tray icon, IPC server, and main event loop. Blocks until `quit()`. (Renamed from the historical `run()` See `def start` in `voice_typer/server/app.py`.) |
 | `quit()` | — | `None` | Graceful shutdown: stops recording, restores volume, closes IPC, releases mutex. |
 | `toggle_dictation()` | — | `None` | Toggle dictation on/off. Thread-safe (serialized via `_toggle_lock`). |
-| `restart_app()` | — | `None` | Spawns a new process and quits the current one. Uses restart token for mutex bypass. (Renamed from the historical `restart()` — locate by `def restart_app` in `voice_typer/server/app.py`.) |
+| `restart_app()` | — | `None` | Spawns a new process and quits the current one. Uses restart token for mutex bypass. (Renamed from the historical `restart()` Locate by `def restart_app` in `voice_typer/server/app.py`.) |
 
 ### Key Properties
 
@@ -73,7 +73,7 @@ Wraps faster-whisper CTranslate2 models for speech-to-text transcription.
 | Method | Parameters | Returns | Description |
 |--------|-----------|---------|-------------|
 | `load(progress_callback=None)` | `progress_callback: Callable[[float], None] \| None` | `None` | Load the model into memory. The optional callback receives a 0.0–1.0 progress fraction (used by the Models page progress bar). Locate by `def load` in `voice_typer/server/transcription.py`. |
-| `transcribe(audio, audio_stats=None)` | `audio: np.ndarray`, `audio_stats: tuple[float, float, float] \| None` | `str` | Transcribe audio to text. `audio_stats` is the `(rms_db, peak_db, snr_db)` tuple from the recorder's level monitor — passed through so the engine can log quality telemetry alongside the transcription. Locate by `def transcribe` in `voice_typer/server/transcription.py`. (The historical `transcribe(audio, sample_rate)` signature was removed when sample-rate normalization moved into `AudioBuffer` — the recorder now hands the engine an already-resampled array plus its `effective_sample_rate`.) |
+| `transcribe(audio, audio_stats=None)` | `audio: np.ndarray`, `audio_stats: tuple[float, float, float] \| None` | `str` | Transcribe audio to text. `audio_stats` is the `(rms_db, peak_db, snr_db)` tuple from the recorder's level monitor, passed through so the engine can log quality telemetry alongside the transcription. Locate by `def transcribe` in `voice_typer/server/transcription.py`. (The historical `transcribe(audio, sample_rate)` signature was removed when sample-rate normalization moved into `AudioBuffer` The recorder now hands the engine an already-resampled array plus its `effective_sample_rate`.) |
 | `is_loaded` | — | `bool` | Whether a model is currently loaded in memory. |
 | `unload()` | — | `None` | Release the model from memory. |
 
@@ -111,7 +111,7 @@ The defaults below are read from the `Config` dataclass in
 `voice_typer/server/config.py` and the enum validators in
 `voice_typer/server/config_validators.py`.  A CI test
 (`tests/test_api_doc_accuracy.py`) parses this table and asserts each
-row matches the actual `Config` default — if you change a default in
+row matches the actual `Config` default: if you change a default in
 `Config`, update this table in the same commit or CI will fail.
 
 | Key | Type | Default | Description |
@@ -120,17 +120,17 @@ row matches the actual `Config` default — if you change a default in
 | `model_size` | `str` | `"small.en"` | Whisper model name (one of `ALLOWED_USER_MODELS`) or `"qwen"` / `"parakeet"`. |
 | `language` | `str` | `"en"` | ISO-639-1 language code for transcription (e.g. `"en"`, `"fr"`, `"de"`). |
 | `paste_on_stop` | `bool` | `True` | Whether to auto-paste transcribed text when recording stops. |
-| `log_transcriptions` | `bool` | `False` | Whether to log transcription text (privacy-sensitive — see SEC-009). |
+| `log_transcriptions` | `bool` | `False` | Whether to log transcription text (privacy-sensitive, see SEC-009). |
 | `silence_warning_seconds` | `float` | `20.0` | Seconds of silence before the silence-warning tray notification fires. |
 | `stop_on_silence_seconds` | `float` | `60.0` | Seconds of silence before auto-stop. |
 | `clipboard_restore_delay_ms` | `int` | `150` | Delay (ms) between the paste keystroke and restoring the previous clipboard contents (ADR-0010). |
-| `max_recording_time_seconds` | `int` | `900` | Hard cap on recording length (clamped to `[300, 3600]` — 5 to 60 minutes). |
+| `max_recording_time_seconds` | `int` | `900` | Hard cap on recording length (clamped to `[300, 3600]` 5 To 60 minutes). |
 
-Removed / renamed fields (documented for searchability — do NOT re-add):
+Removed / renamed fields (documented for searchability, do NOT re-add):
 
 - `paste_enabled` → renamed to `paste_on_stop`.
 - `clipboard_clear_delay_seconds` → removed in ADR-0010 §8.2 (was dead
-  code — only read by the deleted `schedule_clipboard_clear`).
+  code: only read by the deleted `schedule_clipboard_clear`).
 - `check_updates` → never existed on `Config` (the auto-update flow is
   driven by Electron's `electron-updater`, not a Python config flag).
 - `voice_activity` recording mode → never implemented; the enum is
@@ -173,7 +173,7 @@ Python backend.
 
 ### Protocol
 
-- **Transport:** TCP on `127.0.0.1:9876` (loopback only). The port defaults to `9876` and `_pick_available_port()` in `voice_typer/server/ipc_server.py` falls forward to `9877`, `9878`, … (up to 100 tries) if `9876` is already taken by another Voice Typer instance — in practice the default install binds `9876`. The Tauri sidecar path uses an ephemeral localhost WebSocket instead — see `voice_typer/server/sidecar_ws.py` and ADR-0020.
+- **Transport:** TCP on `127.0.0.1:9876` (loopback only). The port defaults to `9876` and `_pick_available_port()` in `voice_typer/server/ipc_server.py` falls forward to `9877`, `9878`, … (up to 100 tries) if `9876` is already taken by another Voice Typer instance, in practice the default install binds `9876`. The Tauri sidecar path uses an ephemeral localhost WebSocket instead, see `voice_typer/server/sidecar_ws.py` and ADR-0020.
 - **Framing:** Newline-delimited JSON
 - **Auth:** Per-connection token. The **first** message on a connection must be a JSON `auth` object whose `token` field matches the `VOICE_TYPER_IPC_TOKEN` env var (constant-time comparison via `hmac.compare_digest`). Once the handshake succeeds, subsequent messages on that authenticated connection bypass the token check and go straight to dispatch. See `SEC-018` in `SECURITY.md` for the threat model.
 
@@ -204,7 +204,7 @@ Qwen, Parakeet).
 |--------|-----------|---------|-------------|
 | `ensure_active_engine_loaded()` | — | `None` | Load the active engine if not already loaded. |
 | `start_background_load()` | — | `None` | Start background model loading (non-blocking). |
-| `force_unload_active()` | — | `None` | Force-unload the currently active backend (replaces the historical `unload_all()` — the latter never had a real caller because the model manager only tracks one active backend at a time; the active-backend teardown path is what the IPC `force_cancel_transcription` and ASR-backend-failure recovery code paths invoke). Locate by `def force_unload_active` in `voice_typer/server/model_manager.py`. |
+| `force_unload_active()` | — | `None` | Force-unload the currently active backend (replaces the historical `unload_all()` The latter never had a real caller because the model manager only tracks one active backend at a time; the active-backend teardown path is what the IPC `force_cancel_transcription` and ASR-backend-failure recovery code paths invoke). Locate by `def force_unload_active` in `voice_typer/server/model_manager.py`. |
 
 ---
 
@@ -215,7 +215,7 @@ Qwen, Parakeet).
 Security utilities including PII redaction and model integrity
 checking. (The historical SEC-001 restart-token machinery —
 `generate_restart_token` / `verify_restart_token` /
-`consume_restart_token` — was dead code and has been removed; the
+`consume_restart_token` Was dead code and has been removed; the
 `VOICE_TYPER_RESTART` env var is still honored as a hint that a restart
 is in progress, but no token file is created or verified.)
 
@@ -226,7 +226,7 @@ is in progress, but no token file is created or verified.)
 | `compute_file_sha256(path)` | `path: Path` | `str` | Compute SHA-256 hash of a file. Locate by `def compute_file_sha256` in `voice_typer/server/security.py`. |
 | `verify_model_integrity(local_dir, repo_id)` | `local_dir: str`, `repo_id: str` | `bool` | Verify model files against the hash manifest. Locate by `def verify_model_integrity` in `voice_typer/server/security.py`. |
 
-> **Removed functions (documented for searchability — do NOT re-add):**
+> **Removed functions (documented for searchability, do NOT re-add):**
 > `generate_restart_token()` and `verify_restart_token()` were removed
 > from this module because the single-instance enforcement path relies
 > on the old process releasing the mutex/flock before the new process

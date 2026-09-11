@@ -54,7 +54,7 @@ describe("R6-F10: allowed-commands.ts", () => {
 	it("does NOT contain the GT-32 (session-6) removed stale entries", () => {
 		//16 entries removed because no renderer code invokes them
 		// (the 17th, ``check_accessibility``, was re-added on
-		// 2026-08-10 — finding #919 part b gave it a renderer
+		// 2026-08-10, finding #919 part b gave it a renderer
 		// caller in the Settings → Troubleshooting section).
 		// They previously appeared only in this Set (sometimes also in a
 		// doc comment). The matching Python-side `_COMMAND_REGISTRY`
@@ -92,10 +92,10 @@ describe("R6-F10: allowed-commands.ts", () => {
 		// RESTORED 2026-08-14: `get_prewarm_status` +
 		// `open_prewarm_log` came back in lockstep with the Python
 		// `_COMMAND_REGISTRY` and the Rust `allowed_commands()`
-		// literal — the About-page Cache Status card is a user-facing
+		// literal, the About-page Cache Status card is a user-facing
 		// product feature (plan §6.3 addendum), not prewarm machinery.
 		// `run_prewarm` was ALSO restored the same day (§6.3 addendum
-		// 2nd half) — the Python handler was re-implemented to re-run
+		// 2nd half), the Python handler was re-implemented to re-run
 		// the worker's warm phase in-process (warm_imports_for_worker
 		// on a daemon thread) instead of spawning the deleted
 		// standalone-prewarm subprocess, so the renderer→backend call

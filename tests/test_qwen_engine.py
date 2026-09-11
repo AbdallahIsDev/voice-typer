@@ -31,7 +31,7 @@ def real_faster_whisper(monkeypatch):
 
 
 class TestQwenEngineUnit:
-    """Unit tests for QwenEngine — all model calls are mocked."""
+    """Unit tests for QwenEngine, all model calls are mocked."""
 
     def _make_engine(self, model_path="/fake/qwen/model", **kwargs):
         from voice_typer.server.qwen_engine import QwenEngine
@@ -76,7 +76,7 @@ class TestQwenEngineUnit:
         assert isinstance(result, str)
 
     def test_load_failure_non_onnx_dir_returns_false(self, tmp_path):
-        """A torch/safetensors (non-ONNX) directory is refused — the
+        """A torch/safetensors (non-ONNX) directory is refused, the
         torch engine was removed; load() returns False with a migration
         error instead of crashing."""
         model_dir = tmp_path / "torch_qwen"
@@ -96,7 +96,7 @@ class TestQwenEngineUnit:
 
     def test_load_failure_incomplete_onnx_dir_raises(self, tmp_path):
         """An ONNX-layout dir that fails mid-load raises RuntimeError
-        (fail-closed — no silent fallback)."""
+        (fail-closed, no silent fallback)."""
         from tests.test_qwen_onnx_model import make_onnx_dir, patch_ort, patch_tokenizer, scripted_sessions
 
         model_dir = make_onnx_dir(tmp_path, hidden=4, vocab=64)
@@ -215,7 +215,7 @@ class TestQwenBackendSelection:
     reason="Qwen integration tests require VOICE_TYPER_TEST_QWEN=1 and real model weights",
 )
 class TestQwenIntegration:
-    """Integration tests — only run when user has downloaded Qwen weights."""
+    """Integration tests, only run when user has downloaded Qwen weights."""
 
     def test_real_qwen_transcribe(self):
         """Test with real Qwen model. Requires VOICE_TYPER_TEST_QWEN=1."""
@@ -285,7 +285,7 @@ class TestWhisperSkipWhenQwenActive:
                     "asr_backend": "qwen",
                     "qwen_model_path": str(tmp_config_dir / "qwen_model"),
                     # dictation now requires explicit voice-biometric
-                    # consent — without this the recorder refuses to start.
+                    # consent, without this the recorder refuses to start.
                     "voice_biometric_consent": True,
                 }
             )
@@ -559,7 +559,7 @@ class TestQwenOnnxFailClosed:
 
     def test_missing_required_onnx_file_raises(self, tmp_path):
         """An ONNX-layout dir missing a decoder session (a file
-        ``is_onnx_model_dir`` does NOT check — it only requires encoder
+        ``is_onnx_model_dir`` does NOT check, it only requires encoder
         + embed_tokens.bin + tokenizer.json) raises RuntimeError
         (fail-closed, no silent fallback)."""
         from tests.test_qwen_onnx_model import make_onnx_dir, patch_ort, patch_tokenizer, scripted_sessions

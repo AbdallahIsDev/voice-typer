@@ -5,7 +5,7 @@ Before AB-34, ``register()`` unconditionally called ``register_esc()``
 and ``register_repaste()`` on every invocation. Because ``restart()``
 calls ``register()`` to swap the MAIN dictation hotkey, a user changing
 only the main hotkey caused the ESC and repaste backends to be torn
-down and re-created even though their specs hadn't changed — costing
+down and re-created even though their specs hadn't changed, costing
 subprocess spawns / thread creation / Win32 hook installs and briefly
 leaving ESC/repaste dead during the stop→start window.
 
@@ -64,7 +64,7 @@ def dispatcher() -> HotkeyDispatcher:
 
 def test_first_time_register_calls_aux_backends(dispatcher: HotkeyDispatcher, monkeypatch):
     """AB-34: the FIRST call to ``register()`` (at startup) MUST install
-    all 3 backends — ``register_esc()`` and ``register_repaste()`` are
+    all 3 backends: ``register_esc()`` and ``register_repaste()`` are
     each called once. This pins the "first-time setup" contract so a
     future refactor doesn't accidentally pass ``skip_aux=True`` to the
     first call."""
@@ -75,7 +75,7 @@ def test_first_time_register_calls_aux_backends(dispatcher: HotkeyDispatcher, mo
         MagicMock(return_value=new_backend),
     )
 
-    # Spy on register_esc / register_repaste (don't replace — we want to
+    # Spy on register_esc / register_repaste (don't replace, we want to
     # verify they're called with their default behavior).
     register_esc_calls: list[int] = []
     register_repaste_calls: list[int] = []
@@ -111,7 +111,7 @@ def test_first_time_register_calls_aux_backends(dispatcher: HotkeyDispatcher, mo
 
 def test_restart_does_not_call_register_esc(dispatcher: HotkeyDispatcher, monkeypatch):
     """AB-34: ``restart()`` swaps ONLY the main dictation hotkey. It
-    MUST NOT call ``register_esc()`` — the ESC backend's spec hasn't
+    MUST NOT call ``register_esc()``, the ESC backend's spec hasn't
     changed, so re-creating it would waste subprocess spawns / thread
     creation / Win32 hook installs and briefly leave ESC dead during
     the stop→start window."""
@@ -138,7 +138,7 @@ def test_restart_does_not_call_register_esc(dispatcher: HotkeyDispatcher, monkey
 
 
 def test_restart_does_not_call_register_repaste(dispatcher: HotkeyDispatcher, monkeypatch):
-    """AB-34: ``restart()`` MUST NOT call ``register_repaste()`` — same
+    """AB-34: ``restart()`` MUST NOT call ``register_repaste()``, same
     rationale as ``register_esc`` (the repaste spec hasn't changed)."""
     old_backend = MagicMock()
     old_backend.is_alive.return_value = True

@@ -3,14 +3,14 @@
 Owns the §11.9 naming contract for the NEW artifacts introduced by the
 installer split:
 
-- ``voice-typer-slim-core-<app-version>-<triple>[.exe]`` — the slim-core
+- ``voice-typer-slim-core-<app-version>-<triple>[.exe]``, the slim-core
   installer (Windows carries ``.exe``; macOS/Linux binaries carry no
   suffix, mirroring the sidecar/worker naming convention).
-- ``voice-typer-runtime-pack-<pack-version>-<triple>.zip`` — the
-  runtime-pack zip (always ``.zip`` — platform-agnostic container).
-- ``voice-typer-full-offline-<app-version>-<triple>[.exe]`` — the
+- ``voice-typer-runtime-pack-<pack-version>-<triple>.zip``, the
+  runtime-pack zip (always ``.zip``: platform-agnostic container).
+- ``voice-typer-full-offline-<app-version>-<triple>[.exe]``, the
   full-offline installer (slim core + bundled pack).
-- ``pack-manifest.json`` — the integrity manifest release asset
+- ``pack-manifest.json``: the integrity manifest release asset
   (platform-agnostic, no triple suffix).
 
 Every function validates its inputs (malformed app-version / unsupported
@@ -18,7 +18,7 @@ target triple raise ``ValueError``) so a typo in CI YAML or a release
 script fails loudly instead of producing an un-canonical artifact name.
 
 C-CI-13 guard: the NEW names above must never collide with the
-EXISTING protected artifact names (``EXISTING_PROTECTED_NAMES``) — the
+EXISTING protected artifact names (``EXISTING_PROTECTED_NAMES``), the
 new artifacts are ADDITIVE. The disjointness is asserted by
 ``tests/tauri/test_installer_naming.py::TestNoRenameOfExistingArtifacts``.
 
@@ -35,7 +35,7 @@ import sys
 from collections.abc import Sequence
 
 # The 6 canonical build triples (3 platforms × 2 archs). MUST match
-# ``gen_tauri_icons_stub.SIDECAR_TRIPLES`` — the Pair-D drift guard in
+# ``gen_tauri_icons_stub.SIDECAR_TRIPLES``: the Pair-D drift guard in
 # tests/tauri/test_installer_naming.py asserts equality.
 SUPPORTED_TRIPLES: tuple[str, ...] = (
     "x86_64-pc-windows-msvc",
@@ -49,7 +49,7 @@ SUPPORTED_TRIPLES: tuple[str, ...] = (
 WINDOWS_TRIPLES: frozenset[str] = frozenset({"x86_64-pc-windows-msvc", "aarch64-pc-windows-msvc"})
 
 # C-CI-13: existing release artifacts that must NEVER be renamed. New
-# §11.9 names are additive — the disjoint guard in the installer-naming
+# §11.9 names are additive, the disjoint guard in the installer-naming
 # test asserts no overlap. These are the literal artifact/step names in
 # `.github/workflows/tauri-windows-build.yml` + `tauri-build.yml` plus
 # the on-disk binary basenames the signing tests grep for.
@@ -105,7 +105,7 @@ def slim_core_installer_name(app_version: str, triple: str) -> str:
 def runtime_pack_name(pack_version: str, triple: str) -> str:
     """§11.9 runtime-pack zip name: ``voice-typer-runtime-pack-<n>-<triple>.zip``.
 
-    The zip is the platform-agnostic container — every platform ships a
+    The zip is the platform-agnostic container, every platform ships a
     ``.zip`` (the pack's internal layout differs, not the container).
     """
     _check_pack_version(pack_version)

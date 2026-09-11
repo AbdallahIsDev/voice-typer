@@ -1,8 +1,8 @@
-# ADR: EC-25 — Test Organization (Catch-all Split Plan)
+# ADR: EC-25, Test Organization (Catch-all Split Plan)
 
 ## Status
 
-Accepted — 2026-08-22 (Wave 1, Sub-Agent 12 / W1-A12).
+Accepted: 2026-08-22 (Wave 1, Sub-Agent 12 / W1-A12).
 
 This ADR documents the catch-all test-file split plan per EC-25.
 EC-25 is explicitly a "chip away" task (E16): the full split across
@@ -28,7 +28,7 @@ pinned. The largest Python catch-alls at the time of this audit:
 (Three TS catch-alls are also flagged —
 `ux-components-behavior.test.tsx` (1815 lines, 11 components),
 `electron-ipc-build-behavior.test.tsx` (1339 lines, 28 concerns),
-`pages-improvements.test.tsx` (898 lines, 9 pages) — these are
+`pages-improvements.test.tsx` (898 lines, 9 pages): these are
 out of scope for this Python-only sub-agent and will be split in a
 later wave by a TS-scoped agent.)
 
@@ -36,12 +36,12 @@ The root cause is procedural: there was no policy that says "every new
 test goes in the matching per-domain test file." Each review wave's
 sub-agent wrote a fresh `<round>_review_fixes.py` because that was
 the lowest-friction path. The catch-all files then grew monotonically
-across waves — every wave's review fixes piled on top of the previous
+across waves: every wave's review fixes piled on top of the previous
 wave's review fixes, none of which were ever re-homed to their
 proper domain files.
 
 This is a maintainability problem (rule #20: tests must go in matching
-domain module) but not a correctness one — every test in every
+domain module) but not a correctness one, every test in every
 catch-all passes. The split is pure mechanical refactoring: move
 classes verbatim, delete the catch-all, verify test count is
 preserved.
@@ -57,7 +57,7 @@ file per domain. The split rule is:
    tests `text_cleanup` regex precompilation belongs in
    `test_perf_text_cleanup.py`; a class that tests `Recorder.start()`
    secure-clear belongs in `test_recorder_secure_clear_array.py`
-   (which already exists for that domain — append, don't duplicate).
+   (which already exists for that domain, append, don't duplicate).
 3. **Move each class verbatim** into the new per-domain file. No
    edits to the test body. Add a header docstring to the new file
    that names the findings it pins (PERF-004, PERF-PIPE, etc.).
@@ -74,7 +74,7 @@ observable change is the file path pytest reports.
 
 ## Completed this wave (W1-A12)
 
-### `tests/test_perf_review_fixes.py` — SPLIT (941 → 0 lines)
+### `tests/test_perf_review_fixes.py` SPLIT (941 → 0 lines)
 
 The largest catch-all was split into 4 per-domain files. The 6 test
 classes were grouped by their production-code domain:
@@ -91,24 +91,24 @@ classes were grouped by their production-code domain:
 
 The split rationale:
 
-- **`test_perf_text_cleanup.py`** — both `TestCleanTranscribedTextUsesPrecompiledRegex`
+- **`test_perf_text_cleanup.py`**, both `TestCleanTranscribedTextUsesPrecompiledRegex`
   (PERF-004) and `TestPipeTokenKeyUsesPrecompiledRegex` (PERF-PIPE) pin
   the same production module (`voice_typer.server.text_cleanup`) and
   the same invariant (precompiled regex). They belong together
   because a future regression in either will be investigated by
   reading the same source file.
-- **`test_perf_hotkey_polling.py`** — `TestWin32PollingLoopUsesSleepEight`
+- **`test_perf_hotkey_polling.py`**, `TestWin32PollingLoopUsesSleepEight`
   (PERF-012) is the only Win32-specific test in the catch-all. It
   pins a polling-cadence invariant in `hotkeys.WindowsNativeHotkey`
   that has nothing to do with the other 5 classes.
-- **`test_perf_asr_engines_audio_stats.py`** — both
+- **`test_perf_asr_engines_audio_stats.py`**, both
   `TestAllLocalEnginesAcceptAudioStats` (PERF-STATS) and
   `TestTranscribeBatchSequentialDesignDecision` (PERF-009) test the
   same production module (`qwen_engine.QwenEngine` /
   `parakeet_engine.ParakeetEngine`) and share the same `_make_qwen_engine`
   / `_make_parakeet_engine` private helpers. Co-locating them lets the
   helpers stay private to the file.
-- **`test_perf_audio_window_eq.py`** — `TestAudioWindowEqualityUsesLayeredFastPaths`
+- **`test_perf_audio_window_eq.py`**, `TestAudioWindowEqualityUsesLayeredFastPaths`
   (PERF-EQ) pins the `AudioWindow.__eq__` layered comparison. It is
   the only test of `voice_typer.server.streaming.AudioWindow`'s equality
   contract.
@@ -136,11 +136,11 @@ Original catch-all deleted; deletion recorded in
 DELETE  |  tests/test_perf_review_fixes.py  |  W1-A12 (EC-25): split into 4 per-domain files ...
 ```
 
-### `tests/fixtures/ipc_test_helpers.py` — EXTENDED (XS-42 work, EC-25-adjacent)
+### `tests/fixtures/ipc_test_helpers.py` EXTENDED (XS-42 work, EC-25-adjacent)
 
 Extended with two new factory exports per the XS-42 directive
 (review.md lines 382-420). Both are thin delegates to the existing
-canonical factory modules — no logic duplication:
+canonical factory modules: no logic duplication:
 
 - `make_fake_sidecar_ws_server()` → delegates to
   `tests.fixtures.sidecar_ws_test_helpers._make_fake_server` (the
@@ -152,14 +152,14 @@ canonical factory modules — no logic duplication:
   secure-clear / hot-swap test suite).
 
 The delegates exist so that `tests.fixtures.ipc_test_helpers` is the
-single canonical import surface for IPC-layer test doubles — every
+single canonical import surface for IPC-layer test doubles, every
 "fake thing" a test might need (`fake_app`, `fake_service`,
 `fake_sidecar_ws_server`, `fake_recorder`) is importable from one
 module. This is what XS-42's "promote `ipc_test_helpers.py` to also
 export `make_fake_sidecar_ws_server()` and `make_fake_recorder()`
 factories" directive asks for.
 
-### `tests/fixtures/app_helpers.py` — already existed, docstring updated
+### `tests/fixtures/app_helpers.py` Already existed, docstring updated
 
 The file already existed (added by an earlier XS-FIX-2 wave) with the
 two factories `make_voice_typer_app()` and `make_sine()`. W1-A12
@@ -183,7 +183,7 @@ exactly ONE place:
 
 The alias pattern (rather than rewriting every call site to call
 `make_fake_recorder()` / `make_sine(...).reshape(-1, 1)` directly)
-preserves the call-site shape contract — every `rec = _make_recorder()`
+preserves the call-site shape contract, every `rec = _make_recorder()`
 and `chunk = _make_sine(...)` line continues to work unchanged. This
 is the minimum-risk migration: only the duplicated computation body
 is deleted; the call sites remain verbatim.
@@ -222,8 +222,8 @@ here so the next wave's sub-agent has a ready work-queue:
 |-------------------------------------------------------|------:|------------:|-------------------------------------------------------------|
 | `tests/test_dictation_pipeline_review_fixes.py`      |   619 |           7 | dictation_pipeline notify-once + transcription backends + stage-timer |
 | `tests/test_low_findings_batch.py`                   |   448 |           6 | config-dir + privacy redaction + GDPR docs + UX + security + packaging |
-| `tests/test_remaining_fixes.py`                       |  267 |           ? | (audit pending — file not opened this wave)                 |
-| `tests/test_comprehensive_review_fixes.py`            |   ?   |           ? | (audit pending — file not in original EC-25 list but flagged in adjacent reviews) |
+| `tests/test_remaining_fixes.py`                       |  267 |           ? | (audit pending: file not opened this wave)                 |
+| `tests/test_comprehensive_review_fixes.py`            |   ?   |           ? | (audit pending: file not in original EC-25 list but flagged in adjacent reviews) |
 
 ### TS catch-alls (out of scope for Python-only sub-agents)
 
@@ -241,7 +241,7 @@ later wave. The Python catch-alls above are the next wave's work.
 The following test files from XS-42's related-files list still have
 private factory definitions that are candidates for future migration:
 
-- `tests/test_recorder_device_cache_prewarm.py` — has `_make_recorder(config=None)`
+- `tests/test_recorder_device_cache_prewarm.py` Has `_make_recorder(config=None)`
   with a DIFFERENT shape (extra config-arg + post-construction
   mutations). NOT byte-for-byte duplicate. Would need either a
   parameterized `make_recorder(config=None)` overload in
@@ -249,13 +249,13 @@ private factory definitions that are candidates for future migration:
   `recorder_test_helpers.py`'s docstring as Remaining Work.)
 - `tests/test_recording_discard.py`, `tests/test_hot_swap_secure_clear.py`,
   `tests/test_audio_pipeline_process_chunk.py`, `tests/test_stream_lifecycle_module.py`
-  — all have file-specific `_make_recorder` shapes that differ from
+ All have file-specific `_make_recorder` shapes that differ from
   the canonical. Each needs its own audit before consolidation.
-- `tests/test_concurrent_resample_safety.py` — has `_make_recorder`
-  (different shape — see file). Candidate for future migration.
+- `tests/test_concurrent_resample_safety.py` Has `_make_recorder`
+  (different shape: see file). Candidate for future migration.
 - The 6 sidecar-WS test files (`tests/tauri/mig15..17/test_ws_hmac_*.py`,
   `tests/test_sidecar_ws_thread_safety.py`, `tests/tauri/test_sidecar_ws_unit.py`,
-  `tests/test_ipc5_error_envelope_parity.py`) — already migrated to
+  `tests/test_ipc5_error_envelope_parity.py`): already migrated to
   import `_make_fake_server` from `tests.fixtures.sidecar_ws_test_helpers`.
   Could optionally be re-migrated to import `make_fake_sidecar_ws_server`
   from `ipc_test_helpers` instead (the new canonical entry point
@@ -264,7 +264,7 @@ private factory definitions that are candidates for future migration:
 ## Consequences
 
 - **Positive**: The 6 PERF-finding regression tests are now navigable
-  by domain — a maintainer investigating a regression in `text_cleanup`
+  by domain: a maintainer investigating a regression in `text_cleanup`
   regex precompilation opens `test_perf_text_cleanup.py` directly
   rather than scanning a 941-line catch-all.
 - **Positive**: 4 more test files now share the canonical
@@ -276,7 +276,7 @@ private factory definitions that are candidates for future migration:
   (`from __future__ import annotations`, `import pytest`, etc.) at
   the top of each file. This is the standard Python per-file-import
   cost and is unavoidable. The 4 new files cost ~20 lines of
-  duplicated import boilerplate total — acceptable.
+  duplicated import boilerplate total: acceptable.
 
 ## Validation Performed (Linux sandbox)
 
@@ -291,10 +291,10 @@ private factory definitions that are candidates for future migration:
 
 ## References
 
-- review.md entry #6 (EC-25, lines 264-277) — original finding.
-- review.md entry #12 (XS-42, lines 382-420) — related factory-dedup finding.
-- `archive/deleted_files.txt` — records the deletion of `tests/test_perf_review_fixes.py`.
-- `tests/fixtures/ipc_test_helpers.py` — extended with the new factory exports.
-- `tests/fixtures/app_helpers.py` — pre-existing, docstring updated.
-- `tests/fixtures/recorder_test_helpers.py` — pre-existing, docstring updated.
-- `tests/fixtures/sidecar_ws_test_helpers.py` — pre-existing, unchanged.
+- review.md entry #6 (EC-25, lines 264-277), original finding.
+- review.md entry #12 (XS-42, lines 382-420), related factory-dedup finding.
+- `archive/deleted_files.txt` Records the deletion of `tests/test_perf_review_fixes.py`.
+- `tests/fixtures/ipc_test_helpers.py` Extended with the new factory exports.
+- `tests/fixtures/app_helpers.py` Pre-existing, docstring updated.
+- `tests/fixtures/recorder_test_helpers.py` Pre-existing, docstring updated.
+- `tests/fixtures/sidecar_ws_test_helpers.py` Pre-existing, unchanged.

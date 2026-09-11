@@ -1,7 +1,7 @@
 //! WS reader task (ADR-0020 §1 + §7 + §9).
 //!
 //! Extracted from the parent `ws.rs` module-split pipeline. Holds:
-//! - `spawn_reader_task` — parses inbound WS frames, fulfills pending
+//! - `spawn_reader_task`: parses inbound WS frames, fulfills pending
 //!   dispatch requests by id, and fans out server-initiated events
 //!   (`bubble_level` typed-only coalesced fast path + the generic
 //!   specific-event / `python-event` dual emit), wrapped in
@@ -9,7 +9,7 @@
 //!   cleanup block.
 //!
 //! Visibility contract:
-//! - `spawn_reader_task` is `pub(super)` — visible to the parent
+//! - `spawn_reader_task` is `pub(super)`: visible to the parent
 //!   `ws` module (single call site in `reconnect_ws`), mirroring
 //!   `heartbeat::spawn_heartbeat_task`.
 //! - Shared helpers stay in `ws.rs` (`WsStream` alias,
@@ -58,7 +58,7 @@ pub(super) fn spawn_reader_task(
     mut read: SplitStream<WsStream>,
     // generation captured at reconnect time so the cleanup block
     // can skip clearing `ws_tx` if a newer reconnect has already stored
-    // its own sender (race — see `SidecarState::ws_generation`).
+    // its own sender (race: see `SidecarState::ws_generation`).
     my_generation: u64,
 ) {
     let app_for_reader = app.clone();
@@ -77,7 +77,7 @@ pub(super) fn spawn_reader_task(
             // frame precedes the `take()` inside the coalesce-emit block,
             // so the Option only ever held the current frame's payload).
             // The current `payload` local is used directly inside the
-            // coalesce-emit block — same behavior, no per-frame Option
+            // coalesce-emit block: same behavior, no per-frame Option
             // allocation, no `#[allow(unused_assignments)]` needed.
             // per-task counters for the flood-prone warning
             // sites (invalid JSON + dropped unknown events + non-numeric
@@ -99,7 +99,7 @@ pub(super) fn spawn_reader_task(
                                 if invalid_json_count == 1 || invalid_json_count % 100 == 0 {
                                     // HU-31: the malformed frame may still
                                     // contain partial transcription text
-                                    // (PII) — log a bounded prefix, never
+                                    // (PII): log a bounded prefix, never
                                     // the full frame.
                                     log::warn!(
                                         "[WS-READER] invalid JSON frame (count={}): {}",
@@ -111,7 +111,7 @@ pub(super) fn spawn_reader_task(
                             }
                         };
                         // If the frame has an `id`, it's a dispatch
-                        // response — fulfill the pending oneshot.
+                        // response: fulfill the pending oneshot.
                         //
                         // take the sender out of the map under the
                         // lock, then send OUTSIDE the lock. `oneshot::send`
@@ -149,7 +149,7 @@ pub(super) fn spawn_reader_task(
                         // T3-06: a frame that HAS an `id` field but where
                         // `as_u64()` returns None (e.g. the field is a
                         // string, float, bool, array, or object) is
-                        // malformed — previously it fell through to the
+                        // malformed: previously it fell through to the
                         // server-event emit path below, where it would be
                         // emitted to the renderer as a bogus event with
                         // `type: "unknown"`. Log + skip instead so we
@@ -159,7 +159,7 @@ pub(super) fn spawn_reader_task(
                             non_numeric_id_count = non_numeric_id_count.saturating_add(1);
                             if non_numeric_id_count == 1 || non_numeric_id_count % 100 == 0 {
                                 // HU-31: same bounded-logging contract as
-                                // the invalid-JSON site — the frame may
+                                // the invalid-JSON site: the frame may
                                 // carry transcription text, so never log
                                 // it verbatim.
                                 log::warn!(
@@ -213,7 +213,7 @@ pub(super) fn spawn_reader_task(
                                 // Typed-only carve-out for `bubble_level`
                                 // (ADR-0020 §9 + "Sidecar→UI Event Table"):
                                 // this frame is emitted on the typed channel
-                                // ONLY — NO generic `python-event` duplicate.
+                                // ONLY: NO generic `python-event` duplicate.
                                 // Its bubble-window consumer listens typed
                                 // (`onLevel` → tauri.event.listen("bubble_level"));
                                 // the MAIN renderer's live recording indicator
@@ -223,7 +223,7 @@ pub(super) fn spawn_reader_task(
                                 // envelope instead (see ALLOWED_EVENT_TYPES),
                                 // so this carve-out's PERF rationale holds
                                 // while both windows stay fed.
-                                // moved (not cloned) into the emit — this
+                                // moved (not cloned) into the emit, this
                                 // branch `continue`s right after, so the
                                 // payload has no further readers and the
                                 // clone was a per-frame allocation on the
@@ -254,7 +254,7 @@ pub(super) fn spawn_reader_task(
 
                         // BP-33 (Phase 2c): the sidecar publishes
                         // `offline_pack_verified` after a pack passes
-                        // SHA256 + signature checks — (re)start the ML
+                        // SHA256 + signature checks: (re)start the ML
                         // worker here (stop-first so the just-swapped
                         // pack files are never held open on Windows).
                         // Falls through to the dual emit below (the
@@ -307,17 +307,17 @@ pub(super) fn spawn_reader_task(
                         // WIRE CONTRACT: sidecar→host JSON travels as
                         // UTF-8 TEXT frames only (see
                         // sidecar_ws.py::_safe_send). A binary frame here
-                        // means a sender is violating the contract — log
+                        // means a sender is violating the contract, log
                         // it loudly instead of silently swallowing it
                         // (pre-fix, binary dispatch responses were
                         // dropped HERE, so every renderer command timed
                         // out while heartbeat acks kept flowing).
                         log::warn!(
-                            "[WS-READER] ignoring BINARY frame — wire contract \
+                            "[WS-READER] ignoring BINARY frame: wire contract \
                              is UTF-8 TEXT frames (AGENTS.md C-WS-2)"
                         );
                     }
-                    Ok(_) => {} // ping/pong/control — ignore
+                    Ok(_) => {} // ping/pong/control: ignore
                     Err(e) => {
                         log::warn!("[WS-READER] error: {}", e);
                         break;
@@ -326,7 +326,7 @@ pub(super) fn spawn_reader_task(
             }
             // log the silent stream-end explicitly. `read.next()`
             // returning `None` (vs an `Err`) means the WS stream ended
-            // cleanly with no error frame — without this log line the
+            // cleanly with no error frame, without this log line the
             // transition from "reader active" to "reader cleanup running"
             // was invisible in diagnostics. This line also fires on the
             // `break` paths above (Close frame, Err), but those arms log
@@ -339,24 +339,24 @@ pub(super) fn spawn_reader_task(
 
         if let Err(_panic_payload) = &result {
             log::error!(
-                "[WS-READER] reader task panicked during body — running \
+                "[WS-READER] reader task panicked during body: running \
                  cleanup (drain pending, clear ws_tx, emit supervisor_relaunching, \
                  trigger supervisor respawn)"
             );
         }
 
-        // WS reader exited (normally or via caught panic) — drain
+        // WS reader exited (normally or via caught panic), drain
         // pending dispatch requests + clear ws_tx so new dispatch
         // calls fail fast instead of queueing onto a dead channel
         // (findings 1 + 3). Then trigger supervisor respawn (unless we're
         // shutting down). This cleanup block runs UNCONDITIONALLY on
-        // reader exit — even if the body panicked — because it uses the
+        // reader exit: even if the body panicked, because it uses the
         // cloned `state_for_cleanup` / `app_for_cleanup` handles (not
         // the originals, which were moved into the `AssertUnwindSafe`
         // body and may have been partially consumed before the panic).
         // The THREE side effects inside (ws_tx clear, drain pending,
         // respawn trigger) are individually gated on the generation
-        // check below — see the next comment block for the race
+        // check below: see the next comment block for the race
         // rationale.
         //
         // only clear `ws_tx` / drain pending / trigger respawn if the
@@ -369,7 +369,7 @@ pub(super) fn spawn_reader_task(
         // wipes the NEW connection's pending dispatches and arms a
         // spurious supervisor respawn on top of the new reconnect's
         // own recovery. The generation check makes the old reader's
-        // cleanup a no-op across ALL three side effects — the new
+        // cleanup a no-op across ALL three side effects, the new
         // reconnect owns recovery and handles its own drain/respawn if
         // it later fails.
         let current_generation = state_for_cleanup.ws_generation.load(Ordering::SeqCst);
@@ -400,7 +400,7 @@ pub(super) fn spawn_reader_task(
                 // (on exhaustion) supersedes this event.
                 let _ = app_for_cleanup
                     .emit("supervisor_relaunching", json!({"reason": "disconnected"}));
-                log::warn!("[WS-READER] unexpected close — triggering supervisor");
+                log::warn!("[WS-READER] unexpected close, triggering supervisor");
                 // spawn supervisor respawn on a separate thread via the
                 // shared `trigger_respawn_off_thread` helper. The thread
                 // + `block_on` bridge is required because `respawn`
@@ -410,7 +410,7 @@ pub(super) fn spawn_reader_task(
                 // documents the failed attempt to use a direct
                 // `tokio::spawn` here. See the helper's doc comment for
                 // the full rationale.
-                // pass `Some(my_generation)` — same asynchronous-landing
+                // pass `Some(my_generation)`: same asynchronous-landing
                 // stale-request rationale as the writer cleanup site.
                 trigger_respawn_off_thread(
                     app_for_cleanup.clone(),
@@ -420,7 +420,7 @@ pub(super) fn spawn_reader_task(
             }
         } else {
             log::info!(
-                "[WS-READER] cleanup skipping drain + respawn trigger — generation mismatch \
+                "[WS-READER] cleanup skipping drain + respawn trigger: generation mismatch \
                  (mine={}, current={}); a newer reconnect owns recovery",
                 my_generation,
                 current_generation

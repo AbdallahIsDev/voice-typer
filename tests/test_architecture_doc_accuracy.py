@@ -88,7 +88,7 @@ def test_gp92_capabilities_row_lists_accurate_perms():
         "allow-new",
     ]:
         assert stale_tray_perm not in body, (
-            f"granular tray perm '{stale_tray_perm}' was dropped — must not be listed as an active grant."
+            f"granular tray perm '{stale_tray_perm}' was dropped, must not be listed as an active grant."
         )
 
     # Required claims from . The notification perms are listed in
@@ -158,7 +158,7 @@ def test_gp93_cargo_manifest_row_does_not_mention_removed_deps():
     assert "futures-util" in body
     assert "libc" in body
     # The Cargo manifest row MUST mention that clipboard-manager and enigo
-    # were removed (per ) — the absence is part of the finding's
+    # were removed (per ), the absence is part of the finding's
     # required text. But the row must NOT list either as an active dep
     # (e.g. as `tauri-plugin-clipboard-manager`).
     assert "clipboard-manager" in body, "Cargo manifest row must mention clipboard-manager's removal (XE-4-4)."
@@ -179,7 +179,7 @@ def test_gp93_cargo_manifest_row_does_not_mention_removed_deps():
         "tauri-plugin-clipboard-manager must NOT be declared as a dependency "
         "in Cargo.toml (XE-4-4). Comments mentioning it are fine."
     )
-    # Same for enigo — must not be a declared dep.
+    # Same for enigo, must not be a declared dep.
     enigo_dep_pattern = re.compile(r"^enigo\s*=", re.MULTILINE)
     assert not enigo_dep_pattern.search(cargo), "enigo must NOT be declared as a dependency in Cargo.toml (FZ-19)."
     assert 'features = ["tray-icon"' in cargo
@@ -256,7 +256,7 @@ def test_gp94_main_rs_line_count_is_385():
     the runtime-pack split (additional setup wiring for the worker
     exe + listener registrations). Doc + test pin updated in lockstep.
 
-    Updated 2026-08-21: main.rs grew from 288 → 326 lines — the first
+    Updated 2026-08-21: main.rs grew from 288 → 326 lines, the first
     Windows host run documented the tauri.conf.json plugin-config
     contract inline at the ``.plugin()`` registration site (the
     comment block is deliberate: CI builds but never launches the
@@ -265,49 +265,49 @@ def test_gp94_main_rs_line_count_is_385():
     ceiling counts non-comment lines and is unaffected. Doc + test
     pin updated in lockstep.
 
-    Updated 2026-08-22: main.rs grew from 326 → 333 lines — host_events
+    Updated 2026-08-22: main.rs grew from 326 → 333 lines, host_events
     event-forwarding wiring was added. Still wiring-only: the bodies
     live in the extracted ``host_events`` module, satisfying AGENTS.md
     C-ARCH-1 (~138 non-comment code lines). Doc + test pin updated in
     lockstep.
 
-    Updated 2026-08-24: main.rs grew from 349 → 378 lines — durable
+    Updated 2026-08-24: main.rs grew from 349 → 378 lines, durable
     bubble-position persistence wiring (WindowEvent::Moved branch for
     the bubble label + generation-debounced persist schedule). Bodies
     live in ``commands/bubble/persisted_position.rs``. Doc + test pin
     updated in lockstep.
 
-    Updated 2026-08-25: main.rs grew from 378 → 385 lines — the unified
+    Updated 2026-08-25: main.rs grew from 378 → 385 lines, the unified
     command-error enum wiring (``mod error;`` + ``#[cfg(test)] mod
     error_tests;`` declarations only; all bodies live in ``error.rs`` /
     ``error_tests.rs``). Still wiring-only. Doc + test pin updated in
     lockstep.
 
-    Updated 2026-08-26: main.rs grew from 385 → 389 lines — the
+    Updated 2026-08-26: main.rs grew from 385 → 389 lines, the
     ``set_host_locale`` command registration (renderer i18n push parity
     with the Electron ``i18n:set-locale`` channel; body lives in
     ``commands/system_cmds.rs``, state field in ``state.rs``). Still
     wiring-only. Doc + test pin updated in lockstep.
 
-    Updated 2026-08-31: main.rs grew from 389 → 407 lines — the
+    Updated 2026-08-31: main.rs grew from 389 → 407 lines, the
     repo-wide rustfmt pass (line-wrapping normalization) re-wrapped
     long lines; no new logic, still wiring-only. Doc + test pin
     updated in lockstep.
 
-    Updated 2026-09-02: main.rs grew from 407 → 413 lines — the
+    Updated 2026-09-02: main.rs grew from 407 → 413 lines, the
     Windows toast AUMID registration (``notify_aumid`` module:
     ``mod`` declaration + one ``register()`` wiring call in setup;
     body lives in ``notify_aumid.rs``). Still wiring-only. Doc +
     test pin updated in lockstep.
 
-    Updated 2026-09-06: main.rs grew from 413 → 434 lines — the
+    Updated 2026-09-06: main.rs grew from 413 → 434 lines, the
     OS-theme-reactive window icon (``theme_icon`` module: ``mod`` +
     ``theme_icon_tests`` declarations, one ``apply_startup()`` wiring
     call, and a ``WindowEvent::ThemeChanged`` branch that forwards to
     ``apply_to_window()``; bodies live in ``theme_icon.rs``). Still
     wiring-only. Doc + test pin updated in lockstep.
 
-    Updated 2026-09-07: main.rs shrank from 434 → 342 lines — the
+    Updated 2026-09-07: main.rs shrank from 434 → 342 lines, the
     main-window bootstrap block (window construction +
     ``VT_START_HIDDEN`` env handling) moved to
     ``window_bootstrap.rs``, and the sidecar cold-start init (guarded
@@ -318,7 +318,7 @@ def test_gp94_main_rs_line_count_is_385():
     test pin updated in lockstep.
 
     Updated 2026-09-07 (Wave 3): main.rs shrank from 342 → 274
-    lines — the ``.on_window_event`` arm dispatch (close-to-tray /
+    lines, the ``.on_window_event`` arm dispatch (close-to-tray /
     theme-icon / bubble-persist forwarding) moved to
     ``window_events.rs``, and the tray-init error-log +
     ``tray_available`` marking moved into ``tray.rs``
@@ -327,7 +327,7 @@ def test_gp94_main_rs_line_count_is_385():
     plugin-contract comment and the C-TOKIO-1 spawn-site guard stay
     inline by design). Still wiring-only. Doc + test pin updated in
     lockstep.
-    Updated 2026-09-09: main.rs grew from 274 → 279 lines — the
+    Updated 2026-09-09: main.rs grew from 274 → 279 lines, the
     BP-33 Phase-2c worker-state manage wiring (``use WorkerState``
     import + ``.manage(Arc::new(WorkerState::new()))`` call; bodies
     live in ``sidecar/spawn/worker.rs``). Still wiring-only. Doc +
@@ -401,7 +401,7 @@ def test_gp96_shutdown_controller_entry_points_match_code():
     )
     assert "`is_shutting_down`" not in doc or "no" in doc.lower(), (
         "doc must clarify that `is_shutting_down` is NOT a public "
-        "property — the actual flag is the private `_shutting_down` attribute."
+        "property, the actual flag is the private `_shutting_down` attribute."
     )
     # Code-side cross-check: ShutdownController has these methods.
     from voice_typer.server.shutdown_controller import ShutdownController
@@ -529,7 +529,7 @@ def test_error_envelope_contract_uses_transport_tcp_path():
         "'ipc/transport_tcp.py:_handle_tcp_connection'."
     )
     assert "ipc_server._handle_tcp_connection" not in doc, "Stale 'ipc_server._handle_tcp_connection' must be replaced."
-    # New path must be present (twice — line 25 + line 91).
+    # New path must be present (twice, line 25 + line 91).
     assert "ipc/transport_tcp.py:_handle_tcp_connection" in doc
     assert doc.count("ipc/transport_tcp.py:_handle_tcp_connection") >= 2, (
         "Expected at least 2 references to ipc/transport_tcp.py:_handle_tcp_connection."
@@ -551,7 +551,7 @@ def test_prewarm_resolver_module_deleted_per_plan_p1():
 
     Per ``plan-runtime-pack-split.md`` §6.2 Option P-1 (Decision §6.3),
     the prewarm binary + the OS-level schedulers + ``prewarm_resolver.py``
-    (242 LOC) are in the DELETE list — prewarm is now a startup phase of
+    (242 LOC) are in the DELETE list, prewarm is now a startup phase of
     the worker exe (``voice_typer/worker/__main__.py``), and the Tauri
     build no longer bundles a ``prewarm-<triple>[.exe]`` (see
     ``src-tauri/tauri.conf.json`` ``externalBin`` / ``resources`` —
@@ -562,22 +562,22 @@ def test_prewarm_resolver_module_deleted_per_plan_p1():
     cherry-pick that resurrects ``prewarm_resolver.py``) fails here
     instead of silently undoing the migration. The companion
     ``docs/modules/prewarm_resolver.md`` is intentionally NOT checked
-    here — that page is now a stale historical artifact owned by the
+    here, that page is now a stale historical artifact owned by the
     docs workstream; it will be cleaned up separately.
     """
     prewarm_resolver_py = ROOT / "voice_typer" / "server" / "prewarm_resolver.py"
     assert not prewarm_resolver_py.is_file(), (
-        f"{prewarm_resolver_py} must NOT exist — it was deleted per "
+        f"{prewarm_resolver_py} must NOT exist, it was deleted per "
         "plan-runtime-pack-split.md §6.2 P-1 (prewarm is now a startup "
         "phase of voice_typer/worker/__main__.py, and the Tauri build no "
         "longer bundles a prewarm-<triple>[.exe]). See ADR-0011 "
         "(Status: Superseded)."
     )
-    # The worker module — which absorbed the prewarm startup phase —
+    # The worker module, which absorbed the prewarm startup phase —
     # MUST exist. This anchors the migration's target state.
     worker_main = ROOT / "voice_typer" / "worker" / "__main__.py"
     assert worker_main.is_file(), (
-        f"{worker_main} must exist — it is the worker exe entry point "
+        f"{worker_main} must exist, it is the worker exe entry point "
         "that absorbed prewarm as a startup phase per plan-runtime-pack-"
         "split.md §6.2 P-1."
     )

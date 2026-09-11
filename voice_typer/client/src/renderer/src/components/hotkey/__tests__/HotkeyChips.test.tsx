@@ -60,7 +60,7 @@ describe("HotkeyChips", () => {
 		}
 		// The group wrapper carries the kbd-group slot marker.
 		expect(groups()).toHaveLength(1);
-		// The "+" separators are GONE — the KbdGroup's own gap provides
+		// The "+" separators are GONE, the KbdGroup's own gap provides
 		// the spacing between chips (keycaps separated by a small visual
 		// gap, never a "+").
 		const plusSeparators = Array.from(

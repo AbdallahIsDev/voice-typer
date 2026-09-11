@@ -1,5 +1,5 @@
 /**
- * "Default" theme preset — no CSS variable overrides.
+ * "Default" theme preset, no CSS variable overrides.
  *
  * The ``default`` preset is a no-op: it means "use whatever is in the
  * stylesheet" (no overrides needed).  See ``themes.ts`` for the

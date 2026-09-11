@@ -6,7 +6,7 @@ The refactor extracted the per-step work into 11 private
 ``@staticmethod`` helpers so the two public methods are now ~20-LOC
 orchestrators. The full GDPR pipeline is still covered by the
 existing ``tests/test_gdpr_delete.py`` / ``tests/test_gdpr_export.py``
-/ ``tests/test_reset_config_to_defaults.py`` suites — these tests run
+/ ``tests/test_reset_config_to_defaults.py`` suites, these tests run
 unchanged against the refactor (regression guard).
 
 This file adds DIRECT unit tests for each helper so a future change
@@ -18,7 +18,7 @@ helper needs (a tmp ``config_dir``, a fake ``hdb`` / ``app``, the
 contract.
 
 These tests do NOT depend on a live ``VoiceTyperService`` /
-``VoiceTyperApp`` — they call the ``@staticmethod`` helpers directly
+``VoiceTyperApp``, they call the ``@staticmethod`` helpers directly
 via ``PrivacyMixin._gdpr_*``.  This keeps them fast (no service
 construction) and isolates the helper-under-test from the rest of
 the pipeline.
@@ -182,7 +182,7 @@ def test_gdpr_globs_single_sourced_from_user_data_files() -> None:
     ``PrivacyMixin._GDPR_PERSONAL_GLOBS`` must contain EVERY pattern
     from ``_user_data_files._GDPR_PERSONAL_GLOBS`` (the same tuple the
     uninstall-purge path walks) via the ``*`` unpacking in the class
-    body — so a filename-format change in the corruption-recovery or
+    body, so a filename-format change in the corruption-recovery or
     pre-migration-backup paths lands in exactly one place.
     """
     from voice_typer.server._user_data_files import _GDPR_PERSONAL_GLOBS as _INVENTORY
@@ -190,7 +190,7 @@ def test_gdpr_globs_single_sourced_from_user_data_files() -> None:
     for pattern in _INVENTORY:
         assert pattern in PrivacyMixin._GDPR_PERSONAL_GLOBS, (
             f"pattern {pattern!r} from _user_data_files._GDPR_PERSONAL_GLOBS "
-            "is missing from PrivacyMixin._GDPR_PERSONAL_GLOBS — the "
+            "is missing from PrivacyMixin._GDPR_PERSONAL_GLOBS, the "
             "inventory unpacking was broken."
         )
 
@@ -374,7 +374,7 @@ def test_invalidate_cached_engines_sets_attrs_to_none() -> None:
 def test_invalidate_cached_engines_swallows_missing_attrs() -> None:
     """An app object without the cached attrs is silently initialized.
 
-    ``setattr`` creates the attribute if it doesn't exist — the
+    ``setattr`` creates the attribute if it doesn't exist, the
     ``contextlib.suppress`` contract is that no exception propagates
     even if the underlying ``__setattr__`` would reject the write
     (e.g. a frozen dataclass).  For a plain ``SimpleNamespace`` the
@@ -497,7 +497,7 @@ def test_build_zip_skips_missing_files(tmp_path: Path) -> None:
 
 def test_build_zip_skips_directories(tmp_path: Path) -> None:
     """A glob-matched directory is silently skipped (only files are zipped)."""
-    # ``mic-test-*`` matches the glob — but a directory named
+    # ``mic-test-*`` matches the glob, but a directory named
     # ``mic-test-bad`` should NOT be added to the zip.
     (tmp_path / "mic-test-bad").mkdir()
     zip_buf = io.BytesIO()
@@ -563,14 +563,14 @@ def test_delete_all_personal_data_is_thin_orchestrator() -> None:
 
     Asserts the public method exists, has the documented name, and
     delegates to the extracted helpers.  The full pipeline behavior
-    is covered by ``tests/test_gdpr_delete.py`` — this test only
+    is covered by ``tests/test_gdpr_delete.py``, this test only
     verifies the refactor's structural contract.
     """
     import inspect
 
     method = PrivacyMixin.delete_all_personal_data
     src = inspect.getsource(method)
-    # The orchestrator must NOT inline the per-step work — it must
+    # The orchestrator must NOT inline the per-step work, it must
     # delegate to the extracted helpers.
     assert "_gdpr_checkpoint_history_db" in src
     assert "_gdpr_unlink_personal_files" in src

@@ -1,6 +1,6 @@
 // Backend vocabulary categories.
 //
-// Categories are part of the persisted data layer ONLY — the UI no
+// Categories are part of the persisted data layer ONLY, the UI no
 // longer surfaces them (the Vocabulary page is a flat two-column
 // correction list). This module keeps the canonical category list the
 // flatten/rebuild transforms and the import parser need, plus the
@@ -9,7 +9,7 @@
 //
 // ``getCategoryLabels`` / ``CATEGORY_META`` were removed when the
 // category UI (badges, group headers, filter, picker, bulk move) was
-// deleted — see archive/deleted_files.txt.
+// deleted, see archive/deleted_files.txt.
 
 import { normalizeWrongPhrase, type VocabRow } from "./transform";
 
@@ -28,7 +28,7 @@ export type VocabCategory = (typeof CATEGORIES)[number];
 /**
  * Frontend pre-check for the quick-add row: find an existing entry
  * whose wrong phrase collides with *original* (case-insensitive,
- * whitespace-collapsed — the same rule the backend enforces
+ * whitespace-collapsed, the same rule the backend enforces
  * authoritatively in ``save_vocabulary_with_diff``).
  *
  * This is a CONVENIENCE layer only: the authoritative check that
@@ -47,7 +47,7 @@ export function findDuplicate(
 	return entries.find((it) => normalizeWrongPhrase(it.original) === key);
 }
 
-// Auto-detect heuristics (conservative — when in doubt, fall through to
+// Auto-detect heuristics (conservative, when in doubt, fall through to
 // misspellings so existing entries don't silently shift category):
 //   1. Multi-word phrases → phrase_corrections
 //   1b. Script-detection fallback for non-Latin scripts:
@@ -75,7 +75,7 @@ const PRODUCT_EXAMPLES: ReadonlySet<string> = new Set(["ipad", "iphone"]);
 // CJK Unified Ideographs cover the vast majority of Chinese / Japanese
 // Kanji; Arabic covers the core block; Cyrillic is intentionally NOT
 // special-cased here (it has upper/lower case, so the case-based rules
-// below apply directly — but those rules currently strip non-A-Z-a-z,
+// below apply directly, but those rules currently strip non-A-Z-a-z,
 // so Cyrillic falls through to the misspellings default, which is the
 // conservative behaviour we want for an unknown Cyrillic trigger).
 const CJK_RANGE = /[\u4e00-\u9fff]/;

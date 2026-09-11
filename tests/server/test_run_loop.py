@@ -1,10 +1,10 @@
 """IPC run-loop tests (stdin/stdout) and TCP accept-loop / end-to-end coverage.
 
 Classes:
-- TestRunLoop                — basic stdin/stdout dispatch loop
-- TestRunLoopRestartQuit     — restart/quit ack ordering inside the loop
-- TestStopUnblocksAcceptLoop — NEW-IPC-001 stop() must unblock accept()
-- TestEndToEndHappyPath      — TEST-002 multi-command roundtrip
+- TestRunLoop              , basic stdin/stdout dispatch loop
+- TestRunLoopRestartQuit   , restart/quit ack ordering inside the loop
+- TestStopUnblocksAcceptLoop, NEW-IPC-001 stop() must unblock accept()
+- TestEndToEndHappyPath    , TEST-002 multi-command roundtrip
 
 Split out from the original monolithic tests/test_server.py (DT-37, Phase 4.5).
 """
@@ -197,7 +197,7 @@ class TestStopUnblocksAcceptLoop:
         s.close()
 
         # Disable auth so the test doesn't need a token.  The accept
-        # loop doesn't care about auth — it just needs to listen and
+        # loop doesn't care about auth, it just needs to listen and
         # accept; we never actually connect a client.
         with patch.dict("os.environ", {}, clear=False):
             # Make sure VOICE_TYPER_IPC_TOKEN is not set so the loop
@@ -255,7 +255,7 @@ class TestStopUnblocksAcceptLoop:
                 continue
             # Strip inline comments.
             if "#" in line:
-                # Naive split — good enough for this static check.
+                # Naive split, good enough for this static check.
                 line = line.split("#", 1)[0]
             code_lines.append(line)
         code_only = "\n".join(code_lines)

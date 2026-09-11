@@ -14,7 +14,7 @@ The bug (AB-38, original)
 The ``raw.encode("utf-8")`` call produced a temporary ``bytes`` object
 just to compute its length, then discarded it; ``websocket.send(raw)``
 then re-encoded the str to bytes internally for the WS TEXT frame. So
-every outbound frame was UTF-8 encoded TWICE — 1-5 MiB/sec of garbage
+every outbound frame was UTF-8 encoded TWICE, 1-5 MiB/sec of garbage
 allocation on the asyncio loop thread for near-cap frames.
 
 The current design (supersedes the char-count heuristic)
@@ -29,12 +29,12 @@ task) now:
 
 - The frame is encoded exactly ONCE (``_encode_ws_frame`` runs
   ``json.dumps`` + ``.encode`` together, off the event loop).
-- The size check measures the exact UTF-8 byte count — this catches
+- The size check measures the exact UTF-8 byte count, this catches
   multi-byte-heavy frames (CJK / emoji dictation) that a char-count
   check missed (the char-count heuristic was a safe *lower bound*, but
   the byte count is the authoritative limit the Rust host's tungstenite
   ``max_size`` enforces on receive).
-- The once-encoded buffer is reused for ``send`` — no double encode.
+- The once-encoded buffer is reused for ``send``, no double encode.
   Per AGENTS.md constraint C-WS-2 the payload is decoded back to
   ``str`` right before ``send`` so the websockets library emits a WS
   **TEXT** frame (the Rust host's reader parses ``Message::Text``
@@ -75,7 +75,7 @@ class TestWSFrameSizeCheckSource:
         code_only = "\n".join(code_lines)
         assert "raw.encode(" not in code_only, (
             "AB-38: _safe_send must NOT encode the frame to measure its "
-            "size — that is a wasted O(n) pass. It must encode once via "
+            "size: that is a wasted O(n) pass. It must encode once via "
             "_encode_ws_frame and measure the resulting bytes."
         )
 
@@ -93,7 +93,7 @@ class TestWSFrameSizeCheckSource:
         )
         assert 'websocket.send(raw_bytes.decode("utf-8"))' in src, (
             "AB-38 + C-WS-2: _safe_send must send the SAME single-encoded "
-            "frame — decoded to str for a TEXT frame, not re-encoded and "
+            "frame, decoded to str for a TEXT frame, not re-encoded and "
             "not sent as raw bytes (BINARY frames are dropped by the host)."
         )
 
@@ -119,7 +119,7 @@ class TestWSFrameSizeCheckSemantics:
 
     def test_multibyte_frame_exceeds_byte_cap_but_not_char_cap(self):
         """A frame with 4-byte emoji chars can exceed ``_MAX_FRAME_BYTES``
-        in bytes while its char count stays under — the exact byte-count
+        in bytes while its char count stays under, the exact byte-count
         check must drop it."""
         n_chars = _MAX_FRAME_BYTES // 3  # byte count = 4N > cap, char count = N < cap
         event = {"type": "test_multibyte", "data": "😀" * n_chars}
@@ -132,7 +132,7 @@ class TestWSFrameSizeCheckSemantics:
             "but whose byte count exceeds it MUST be caught by the exact "
             "byte-count check. The old char-count heuristic would have "
             "passed it to send (relying on the Rust host to close with "
-            "1009) — the byte-count check drops it proactively."
+            "1009), the byte-count check drops it proactively."
         )
 
     def test_ascii_frame_byte_count_matches_char_count(self):
@@ -191,7 +191,7 @@ class TestWSFrameSizeCheckBehavioral:
 
     @pytest.mark.asyncio
     async def test_normal_frame_is_sent_as_text_str(self):
-        """A small frame is sent — and the payload handed to
+        """A small frame is sent, and the payload handed to
         ``websocket.send`` must be the once-encoded frame decoded back
         to ``str`` (a WS TEXT frame per the C-WS-2 wire contract: the
         Rust host parses ``Message::Text`` only, so raw bytes would be
@@ -207,7 +207,7 @@ class TestWSFrameSizeCheckBehavioral:
         )
         assert sent[0] == raw_bytes.decode("utf-8"), (
             "C-WS-2: the TEXT payload must be exactly the single-encoded "
-            "frame decoded back to str — no re-serialization, no bytes."
+            "frame decoded back to str, no re-serialization, no bytes."
         )
 
 

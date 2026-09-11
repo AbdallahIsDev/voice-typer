@@ -1,4 +1,4 @@
-"""Extracted helpers for :mod:`.recorder` — partial split of the Recorder god-class.
+"""Extracted helpers for :mod:`.recorder`: partial split of the Recorder god-class.
 
 This module is the first step of the  / god-class decomposition. The
 ``Recorder`` class in :mod:`.recorder` mixed 7+ disjoint concerns in a single
@@ -19,20 +19,20 @@ that look for the method on the ``Recorder`` class continue to work.
 The full split plan (to be completed once parallel surgical fixes to
 ``recorder.py`` land) is:
 
-  - ``recorder/capture.py`` — audio callback + worker loop
+  - ``recorder/capture.py``: audio callback + worker loop
     (``_audio_callback_dispatch``, ``_audio_worker_loop``,
     ``_event_worker_loop``, ``_start_audio_worker``, ``_stop_audio_worker``,
     ``_start_event_worker``, ``_stop_event_worker``).
-  - ``recorder/lifecycle.py`` — stream lifecycle
+  - ``recorder/lifecycle.py``: stream lifecycle
     (``start``, ``stop``, ``discard``, ``_teardown_stream``). ``discard``
     is extracted here as the first step.
-  - ``recorder/device_management.py`` — the 12 device methods (most already
+  - ``recorder/device_management.py``: the 12 device methods (most already
     delegated to :class:`.device_manager.DeviceManager`).
-  - ``recorder/format.py`` — audio format helpers
+  - ``recorder/format.py``: audio format helpers
     (``resample_chunk``, ``prepare_audio``, ``ensure_mono``), backed by
     :func:`.resampling.resample_audio`. ``snapshot`` remains a 1-line
     public-API delegator on ``Recorder``.
-  - ``recorder/worker_threads.py`` — worker-thread management.
+  - ``recorder/worker_threads.py``: worker-thread management.
 
 The conversion from ``recorder.py`` (module) to ``recorder/`` (package) is
 deferred until all in-flight surgical fixes to specific ``recorder.py``
@@ -77,23 +77,23 @@ from voice_typer.server._lazy_import import lazy_module
 #     ``_cached_resampled`` capacity array managed by :func:`take_snapshot`.
 #
 # Capacity policy (all numbers chosen once, here):
-#   * INITIAL — 30 seconds of audio at the stream's nominal rate. Small
+#   * INITIAL, 30 seconds of audio at the stream's nominal rate. Small
 #     enough that short dictations never over-allocate, large enough that
 #     a typical session never reallocates at all.
-#   * GROWTH — exact doubling (``new = max(2×current, needed)``), clamped
+#   * GROWTH, exact doubling (``new = max(2×current, needed)``), clamped
 #     to the hard cap. Amortized O(1) per appended sample; total copy
 #     traffic over a whole session is ≤ 2× the final data size (a few
 #     hundred MB worst case) versus the previous ~100 GB rebuild churn.
-#   * HARD CAP — ``maxlen_chunks × 1024`` samples. ``maxlen`` is counted
+#   * HARD CAP, ``maxlen_chunks × 1024`` samples. ``maxlen`` is counted
 #     in device-rate chunks (``_AUDIO_BLOCKSIZE`` = 512 samples); stored
 #     audio is post-chain, typically downsampled (≤512 samples/chunk) but
 #     up to 1024 for an upsampled chain (e.g. 8 kHz device → 16 kHz chain),
 #     hence the 2× factor. This preserves the duration semantics of the old
 #     ``DEFAULT_MAX_BUFFER_CHUNKS`` deque cap (~31 min at the default).
-#   * SATURATION — once the hard cap is reached the storage stops growing
+#   * SATURATION, once the hard cap is reached the storage stops growing
 #     and behaves as a ring: further appends evict the oldest samples
 #     (mirroring the old deque ``maxlen`` eviction). Snapshots taken while
-#     the data physically wraps return an O(N) concatenated COPY — strictly
+#     the data physically wraps return an O(N) concatenated COPY, strictly
 #     no worse than the old every-poll rebuild, and unreachable in normal
 #     operation because auto-stop fires at ``max_recording_time_seconds``
 #     (< the cap duration).
@@ -113,8 +113,8 @@ _GROWABLE_BUFFER_HARD_CAP_SAMPLES_PER_CHUNK = 2 * _AUDIO_BLOCKSIZE
 # / ``Recorder._prepare_audio`` delegators). Imported at module level so
 # tests can patch ``voice_typer.server.recording._recorder_split.resample_chunk``
 # / ``...prepare_audio``.
-from . import buffer as _buffer_mod  # noqa: E402 — owning module of the secure-clear helpers (C-ARCH-2)
-from .exceptions import (  # noqa: E402 — post-threshold import kept for direct unit tests (see comment above)
+from . import buffer as _buffer_mod  # noqa: E402, owning module of the secure-clear helpers (C-ARCH-2)
+from .exceptions import (  # noqa: E402, post-threshold import kept for direct unit tests (see comment above)
     ResampleError,
 )
 from .format import prepare_audio, resample_chunk  # noqa: E402
@@ -140,32 +140,32 @@ class GrowableRecordingBuffer:
     re-concatenations.
 
     Deque-compatibility surface (consumers that were not migrated keep
-    working unchanged — notably :meth:`AudioPipeline.append_to_buffer_locked`,
+    working unchanged, notably :meth:`AudioPipeline.append_to_buffer_locked`,
     whose peek/evict-compensate arithmetic around ``maxlen`` is mirrored
     EXACTLY by :meth:`append`):
 
-    - ``.maxlen`` — chunk-count capacity, same semantics as ``deque.maxlen``.
+    - ``.maxlen``: chunk-count capacity, same semantics as ``deque.maxlen``.
       When ``None`` (never in production) no chunk-count eviction happens.
-    - ``len(buf)`` / ``bool(buf)`` — CHUNK count (deque parity; the sample
+    - ``len(buf)`` / ``bool(buf)``: CHUNK count (deque parity; the sample
       count is :attr:`total_samples`).
-    - ``buf[i]`` — the i-th appended chunk as a 1-D float32 view (a copy
+    - ``buf[i]``: the i-th appended chunk as a 1-D float32 view (a copy
       only when a chunk physically straddles the ring wrap).
-    - ``iter(buf)`` / ``list(buf)`` — per-chunk views, oldest first.
+    - ``iter(buf)`` / ``list(buf)``: per-chunk views, oldest first.
     - ``.append`` / ``.appendleft`` / ``.extend`` / ``.clear``.
 
     Sample-level surface (used by the snapshot/stop/discard paths):
 
-    - :attr:`storage` — the backing ndarray object (the provenance anchor
+    - :attr:`storage`: the backing ndarray object (the provenance anchor
       streaming.py's zero-gate compares ``arr.base`` against). Stable until
       the next growth reallocation.
     - :attr:`total_samples` / :attr:`appended_samples_total` /
-      :attr:`evicted_samples_total` — absolute sample bookkeeping.
-    - :meth:`view` — contiguous filled region: a zero-copy view while the
+      :attr:`evicted_samples_total`: absolute sample bookkeeping.
+    - :meth:`view`: contiguous filled region: a zero-copy view while the
       data is physically linear, an O(N) concatenated copy only past the
       ring-wrap point.
     - :meth:`sample_range` / :meth:`export_copy`.
 
-    Thread-safety: NOT internally synchronized — exactly like the deque it
+    Thread-safety: NOT internally synchronized, exactly like the deque it
     replaces, every mutation happens under ``recorder._audio_pipeline._lock`` held by the
     caller (audio-worker append path, snapshot path, stop/discard swaps).
     """
@@ -252,7 +252,7 @@ class GrowableRecordingBuffer:
     def storage(self) -> Any:
         """The backing ndarray (provenance anchor for view-identity gates).
 
-        ``None`` until the first append allocates it lazily — an idle
+        ``None`` until the first append allocates it lazily, an idle
         recorder holds no buffer at all."""
         return self._storage
 
@@ -299,7 +299,7 @@ class GrowableRecordingBuffer:
 
         Negative indices follow deque semantics; ``IndexError`` matches
         deque's out-of-range behaviour. Walking the boundary list from the
-        front is O(i) — acceptable because production only indexes ``[0]``
+        front is O(i), acceptable because production only indexes ``[0]``
         (the backpressure peek) and tests use tiny indices.
         """
         n = self._n_chunks
@@ -322,7 +322,7 @@ class GrowableRecordingBuffer:
             return self._storage[b:e]
         if b >= cap:
             return self._storage[b - cap : e - cap]
-        # Chunk straddles the physical wrap — must join the two halves.
+        # Chunk straddles the physical wrap, must join the two halves.
         return np.concatenate((self._storage[b:], self._storage[: e - cap]))
 
     def __getitem__(self, index: int) -> Any:
@@ -378,7 +378,7 @@ class GrowableRecordingBuffer:
         """Copy one chunk into the storage (caller holds ``recorder._audio_pipeline._lock``).
 
         Eviction mirrors ``collections.deque(maxlen=...)`` EXACTLY for the
-        chunk-count rule — when ``len(self) >= maxlen``, exactly ONE oldest
+        chunk-count rule: when ``len(self) >= maxlen``, exactly ONE oldest
         chunk is dropped per append, which is precisely the eviction the
         append-path caller already compensated its running sample counter
         for (it peeks ``buf[0]`` before calling this method). A secondary
@@ -390,13 +390,13 @@ class GrowableRecordingBuffer:
         arr = np.asarray(chunk, dtype=np.float32).reshape(-1)
         n = int(arr.shape[0])
         extra_evicted = 0
-        # Rule 1 — chunk-count eviction (deque maxlen parity, see docstring).
+        # Rule 1, chunk-count eviction (deque maxlen parity, see docstring).
         # This eviction is exactly the one the append caller peeked and
         # compensated its counter for, so it is NOT reported through the
         # extra-eviction hook.
         if self.maxlen is not None and self._n_chunks >= self.maxlen:
             self._evict_oldest()
-        # Rule 2 — growth, then capacity.
+        # Rule 2, growth, then capacity.
         storage = self._storage
         if storage is None:
             # Lazy first allocation (30 s nominal capacity floor).
@@ -530,7 +530,7 @@ class GrowableRecordingBuffer:
     def export_copy(self) -> Any:
         """Fresh contiguous OWNING copy of the filled region (stop() handoff).
 
-        Always allocates — the returned array is independent of the storage,
+        Always allocates, the returned array is independent of the storage,
         so the background secure-clear of the old storage cannot touch it
         (preserves the stop()-race fix ordering: copy first, enqueue the
         zeroing after)."""
@@ -567,7 +567,7 @@ def _ensure_growable_buffer(recorder: Recorder) -> None:
     2. tests inject plain lists/deques directly.
 
     An EMPTY legacy container is replaced with a fresh buffer (O(1)); a
-    populated one has its chunks migrated (one bulk copy — a rare event:
+    populated one has its chunks migrated (one bulk copy, a rare event:
     hot-swap flushes the buffer before swapping, so production always hits
     the empty case). Subsequent appends land in the installed buffer
     because every consumer re-reads ``recorder._audio_pipeline._buffer`` per call.
@@ -646,26 +646,26 @@ def take_snapshot(recorder: Recorder) -> np.ndarray:
     float32 ndarray (:class:`GrowableRecordingBuffer` on
     ``recorder._audio_pipeline._buffer``), so both snapshot flavors are O(1):
 
-      - no-resample path (the COMMON production path — an AudioProcessor
+      - no-resample path (the COMMON production path, an AudioProcessor
         resamples each chunk to 16 kHz before it is appended, so
         ``_buffer_sr == target_sr``): return a zero-copy VIEW over the
         buffer's filled region. Zero allocation, zero memcpy per 4 Hz poll.
       - resample path (raw native-rate audio whose rate differs from the
         target): newly arrived samples are resampled ONCE and appended to
         the incremental ``_cached_resampled`` capacity array (geometric
-        growth — no segment lists, no rebuild-on-demand concat); return a
+        growth, no segment lists, no rebuild-on-demand concat); return a
         view of its filled prefix.
 
     View contract (pinned by ``tests/test_recorder_snapshot_view.py``):
     every non-empty snapshot is a numpy VIEW sharing memory with its
-    backing store — ``recorder._cached_resampled`` on the resample path,
+    backing store, ``recorder._cached_resampled`` on the resample path,
     ``recorder._audio_pipeline._buffer.storage`` on the no-resample path. The cache arrays
     are REPLACED (never mutated in place) on growth/invalidation, so
     previously-returned views remain valid until released. streaming.py's
     zero-gate (zero the audio buffer before release) relies on exactly
     this identity.
 
-    Lock discipline: unchanged from the deque implementation — a lock-free
+    Lock discipline: unchanged from the deque implementation, a lock-free
     empty fast path (avoids 4 Hz contention with the audio callback when
     idle), then everything else under ``recorder._audio_pipeline._lock``, which serializes
     against the audio worker's append path.
@@ -684,13 +684,13 @@ def take_snapshot(recorder: Recorder) -> np.ndarray:
         # ``recorder._audio_pipeline._buffer``) instead of ``_effective_sr`` (the device's
         # native rate). When an AudioProcessor is active, ``process_chunk``
         # resamples to the chain's construction rate (typically 16 kHz)
-        # before appending — so the buffer holds chain-rate audio. Using
+        # before appending, so the buffer holds chain-rate audio. Using
         # ``_effective_sr`` here would cause ``_resample_chunk`` to
         # resample a second time (chain→target on top of the native→chain
         # resample already done by ``process_chunk``), which (a) wastes
         # CPU and (b) can introduce artifacts from the double resample.
         # Fall back to ``_effective_sr`` when ``_buffer_sr`` is 0/unset
-        # (defensive — should never happen because ``__init__`` and
+        # (defensive, should never happen because ``__init__`` and
         # ``start()`` both initialize it).
         effective_sr = recorder._audio_pipeline._buffer_sr or recorder._effective_sr
         # read the cached target_sr instead of
@@ -712,7 +712,7 @@ def take_snapshot(recorder: Recorder) -> np.ndarray:
         if effective_sr != target_sr:
             return _snapshot_resampled_locked(recorder, buf, effective_sr, target_sr)
         # No resampling needed: the contiguous storage IS the snapshot.
-        # Return a VIEW into it — the caller (streaming.py) only reads and
+        # Return a VIEW into it, the caller (streaming.py) only reads and
         # slices; the storage is replaced (not mutated) on growth, so the
         # view stays valid until its reference is released.
         return buf.view()
@@ -727,7 +727,7 @@ def _snapshot_resampled_locked(
     """Incremental-resample branch of :func:`take_snapshot`.
 
     Resamples ONLY the samples that arrived since the previous call
-    (absolute cursor ``_cached_native_chunk_count`` — repurposed from
+    (absolute cursor ``_cached_native_chunk_count``, repurposed from
     chunk-count to SAMPLE-count by the contiguous-storage change), appends
     them to the incremental cache, and returns a view over the cache's
     filled prefix. Caller holds ``recorder._audio_pipeline._lock``.
@@ -736,7 +736,7 @@ def _snapshot_resampled_locked(
     start_abs = max(int(recorder._cached_native_chunk_count), buf.evicted_samples_total)
     cached_len = int(getattr(recorder, "_cached_resampled_len", 0))
     if end_abs <= start_abs:
-        # Nothing new to resample — return the current prefix view.
+        # Nothing new to resample. Return the current prefix view.
         return recorder._cached_resampled[:cached_len]
     raw_new = buf.sample_range(start_abs, end_abs)
     # if resampling fails, drop the bad chunk rather
@@ -791,7 +791,7 @@ def discard_recording(recorder: Recorder) -> None:
     # 17-H-: increment stop_generation for symmetry with stop() so
     # any stale disconnect handler launched from the audio callback
     # (during discard's stream.stop()) bails out instead of racing with
-    # the teardown — matching stop()'s HOTKEY-CRASH guard.
+    # the teardown, matching stop()'s HOTKEY-CRASH guard.
     recorder._stop_generation += 1
     # guard _effective_sr reset with the lock so a concurrent
     # snapshot() reader sees a consistent value.
@@ -825,12 +825,12 @@ def discard_recording(recorder: Recorder) -> None:
     # idempotent if the stream was already None.
     recorder._teardown_stream()
     # stop the audio worker thread. drain=False because
-    # discard() doesn't need the in-flight audio — it's about to clear
+    # discard() doesn't need the in-flight audio, it's about to clear
     # recorder._audio_pipeline._buffer anyway. The worker clears the ring buffer and exits
     # after its current chunk (if any). Any chunk the worker appends to
     # recorder._audio_pipeline._buffer before exiting is cleared below.
     recorder._stop_audio_worker(timeout=_AUDIO_WORKER_DISCARD_JOIN_TIMEOUT_S, drain=False)
-    # stop the IPC event worker with drain=False — the recording was
+    # stop the IPC event worker with drain=False, the recording was
     # cancelled, so queued IPC events (e.g. audio_clip from the discarded
     # audio) don't need to be published. The queue is cleared so the
     # worker exits promptly. The lock is held across the lifecycle
@@ -842,7 +842,7 @@ def discard_recording(recorder: Recorder) -> None:
     # that sleeps 30s between probes, so joining it almost always times out.
     # Worse, the underlying ``DeviceManager._start_device_health_checker``
     # (in a sibling module we don't own) assigns the thread reference BEFORE
-    # calling ``Thread.start()`` without holding a lock — a concurrent
+    # calling ``Thread.start()`` without holding a lock, a concurrent
     # discard() that calls ``_stop_device_health_checker()`` can observe the
     # not-yet-started thread and raise
     # ``RuntimeError("cannot join thread before it is started")`` when the
@@ -865,7 +865,7 @@ def discard_recording(recorder: Recorder) -> None:
         # from here on; its backing array is zeroed by the background
         # worker below (``__iter__`` yields every occupied chunk region).
         recorder._audio_pipeline._buffer = _fresh_recording_buffer_like(recorder, _old_buffer)
-        # PERF: zero the running buffered-samples counter — the fresh
+        # PERF: zero the running buffered-samples counter, the fresh
         # buffer above is empty, so the counter must be 0 to match.
         # Without this, ``current_duration_seconds`` would continue
         # returning the discarded session's total until the next
@@ -878,14 +878,14 @@ def discard_recording(recorder: Recorder) -> None:
 def start_recording(recorder: Recorder) -> None:
     """Body of :meth:`Recorder.start` (after the ``_start_lock`` permission-gate block).
 
-    Phase 4.5 — extracted from :mod:`.recorder` to shrink the
+    Phase 4.5, extracted from :mod:`.recorder` to shrink the
         3772-LOC ``recorder.py`` god class. The ``with self._start_lock:``
         block (containing the recording-event check + microphone-permission
         pre-flight) stays on ``Recorder.start`` so the source-inspection
         test (``tests/test_recording.py::TestRec5StartLock``) continues to
         pin the lock contract.
 
-        This function runs WITHOUT holding ``_start_lock`` — it is called
+        This function runs WITHOUT holding ``_start_lock``, it is called
         after ``Recorder.start`` releases the lock. The lock contract is
         that ``start()`` and ``discard()`` cannot both pass the
         ``_recording_event.is_set()`` check at the same time, which the
@@ -899,11 +899,11 @@ def start_recording(recorder: Recorder) -> None:
     (revised): The dead ``_silence_warning_sent`` and
         ``_max_duration_warning_sent`` boolean flags have been REMOVED.
         They were declared and reset here but NEVER read in any
-        conditional — the actual silence-warning state machine uses
+        conditional, the actual silence-warning state machine uses
         the integer counter ``_silence_warning_count`` (which IS read
         at recording.py:1109). The dead flags were misleading
         maintainers into thinking warning deduplication existed when
-    it didn't — see FORENSIC_REVIEW_COMPLETE.md →
+    it didn't: see FORENSIC_REVIEW_COMPLETE.md →
 
         SEC-audit-008: ``_secure_clear_array`` is now actually used
         here to zero cached audio arrays (``_cached_resampled`` and
@@ -911,13 +911,13 @@ def start_recording(recorder: Recorder) -> None:
         prevents forensic recovery of audio data from process memory
         between sessions.
 
-        CRITICAL — DO NOT RESTRUCTURE (2026-07-20)
+        CRITICAL, DO NOT RESTRUCTURE (2026-07-20)
         ========================================
         The device-enumeration block below (``last_error``,
         ``selected_device``, ``effective_sr``, the ``for candidate in
         candidates`` loop, the fallback loop, and the
         ``if recorder._stream is None:`` check) MUST stay at this
-        function's body scope — OUTSIDE the ``callback`` closure built
+        function's body scope. OUTSIDE the ``callback`` closure built
         by ``recorder._stream_lifecycle.build_audio_callback(recorder)``
         above. A previous
         merge accidentally nested this block INSIDE the ``def
@@ -932,7 +932,7 @@ def start_recording(recorder: Recorder) -> None:
         structural contract above is preserved.
 
         DO NOT move device enumeration inside the callback closure.
-        DO NOT re-add ``set_thread_registry`` — it was merge damage.
+        DO NOT re-add ``set_thread_registry``: it was merge damage.
     """
     # Lazy import: ``recorder.py`` is still loading when this module
     # is first imported (it imports this module near the top, before
@@ -961,12 +961,12 @@ def start_recording(recorder: Recorder) -> None:
     callback = recorder._stream_lifecycle.build_audio_callback(recorder)
 
     # =====================================================================
-    # CRITICAL — DO NOT RESTRUCTURE (2026-07-20)
+    # CRITICAL, DO NOT RESTRUCTURE (2026-07-20)
     # =====================================================================
     # The device-enumeration block below (last_error, selected_device,
     # effective_sr, ``for candidate in candidates``, the fallback loop,
     # and the ``if recorder._stream is None:`` check) MUST stay at
-    # this function's body scope — this 4-space indent level, OUTSIDE
+    # this function's body scope: this 4-space indent level, OUTSIDE
     # the ``callback`` closure defined above.
     #
     # A previous merge accidentally nested this block INSIDE the
@@ -978,7 +978,7 @@ def start_recording(recorder: Recorder) -> None:
     # → recording start crashed on every attempt.
     #
     # The fallback loop (``for candidate in all_candidates``) was also
-    # misplaced — trapped inside the preroll-buffer block instead of
+    # misplaced, trapped inside the preroll-buffer block instead of
     # ``if recorder._stream is None and not used_fallback:``.
     #
     # DO NOT move device enumeration inside the callback closure.
@@ -986,7 +986,7 @@ def start_recording(recorder: Recorder) -> None:
     # ``_open_stream_for_candidates`` / ``_open_stream_fallback`` (both
     # called from this function's scope, OUTSIDE the callback closure),
     # so the structural contract above is preserved.
-    # DO NOT re-add ``set_thread_registry`` — it was merge damage, not
+    # DO NOT re-add ``set_thread_registry``: it was merge damage, not
     # in the original codebase, and referenced a function that did not
     # exist. The ``recording/__init__.py`` stub for it is dead code.
     # =====================================================================
@@ -1018,7 +1018,7 @@ def start_recording(recorder: Recorder) -> None:
     # ``SessionState.resize_buffers_for_sample_rate`` (in
     # ``session_state.py``) has already sized the ring from the
     # ``VOICE_TYPER_RING_BUFFER_SECONDS`` env var (default 2.0) with a
-    # floor of 64 chunks — sufficient for VAD inference spikes (Silero
+    # floor of 64 chunks, sufficient for VAD inference spikes (Silero
     # ~1-5ms per chunk on CPU), RNNoise worker stalls (~50ms/chunk on
     # CPU) and the pre-roll filter-chain prepend that now runs on the
     # worker thread while live audio accumulates in the ring. This
@@ -1028,7 +1028,7 @@ def start_recording(recorder: Recorder) -> None:
     # consuming.
     #
     # Chunk math: callback chunks are rate-scaled ~32 ms blocks
-    # (``scaled_audio_blocksize`` — 512 @ 16 kHz, 1536 @ 48 kHz), so
+    # (``scaled_audio_blocksize``: 512 @ 16 kHz, 1536 @ 48 kHz), so
     # ``int(sr / blocksize * 2.0)`` chunks hold ~2 s of audio at every
     # native rate. Computing the capacity from a fixed 512 while the
     # callback delivers scaled chunks would over-allocate the chunk
@@ -1041,13 +1041,13 @@ def start_recording(recorder: Recorder) -> None:
     # memory after the deque reference is dropped (mirrors the
     # preroll-buffer / disconnect-handler pattern). Ring buffer items
     # are 5-tuples ``(chunk_copy, frames, time_info, status, perf_ts)``
-    # — the numpy array is the first element. Defensive against
+    # , the numpy array is the first element. Defensive against
     # direct-array items too.
     #
     # ``start_audio_worker_body`` (capture.py:380-384) re-zeros and
     # clears the deque immediately after this, so the reassignment here
     # is the capacity-change vehicle (the clear is redundant but the
-    # zeroing is not — once we drop the reference, the underlying
+    # zeroing is not, once we drop the reference, the underlying
     # float32 arrays survive until GC).
     _uu36_sizing_sr = effective_sr if effective_sr > 0 else recorder.config.sample_rate
     if _uu36_sizing_sr > 0:
@@ -1085,7 +1085,7 @@ def start_recording(recorder: Recorder) -> None:
     # audio chunks accumulated in the ring buffer unprocessed for the
     # entire prepend duration. The prepend now runs as a "phase 0"
     # inside ``AudioCallbackDispatcher.audio_worker_loop`` (capture.py)
-    # BEFORE the main drain loop — so start() returns immediately
+    # BEFORE the main drain loop, so start() returns immediately
     # after ``_start_audio_worker()``. The ring buffer (sized for 2.0s
     # of headroom per the headroom requirement) absorbs the prepend duration; the worker
     # drains the live backlog as soon as the prepend finishes.
@@ -1104,13 +1104,13 @@ def start_recording(recorder: Recorder) -> None:
     ):
         # Skip the synchronous warm-up when the scipy preloader daemon
         # spawned by ``Recorder.__init__`` (``_register_scipy_preloader``)
-        # is still in flight — that thread already owns the import, so
+        # is still in flight, that thread already owns the import, so
         # blocking the hotkey path here would pay the 1-2s scipy cost a
         # second time. Correctness is unaffected: the resample helpers
         # (``resample_audio`` → ``_get_resample_poly``) load scipy
         # on demand and under a lock if a resample lands before the
         # preloader finishes, so the output bytes are identical either
-        # way — only the first-start latency moves off the hotkey thread
+        # way, only the first-start latency moves off the hotkey thread
         # (worst case it resurfaces once inside a very early stop(), the
         # same place the import cost landed before the preloader existed).
         # The isinstance guard keeps the check deterministic for test
@@ -1122,7 +1122,7 @@ def start_recording(recorder: Recorder) -> None:
         # the failure is logged once at start time.
         _preloader = getattr(recorder, "_scipy_preloader_thread", None)
         if isinstance(_preloader, threading.Thread) and _preloader.is_alive():
-            log.debug("[RECORDING] scipy preloader in flight — resampler warm-up left to the background thread")
+            log.debug("[RECORDING] scipy preloader in flight, resampler warm-up left to the background thread")
         else:
             # Warm up synchronously when no background preloader is
             # running, so the first stop()/snapshot() resample never
@@ -1139,7 +1139,7 @@ def start_recording(recorder: Recorder) -> None:
     # ``input_sample_rate=recorder._effective_sr``) handles the
     # 48 kHz → 16 kHz downsample on the worker thread as the robust
     # fallback. We now re-add the retune inside a try/except that
-    # logs-but-continues on failure — unifying the start() and
+    # logs-but-continues on failure, unifying the start() and
     # hot-plug paths (``disconnect_handler.retune_audio_processor``)
     # and eliminating the 3× RNNoise resample roundtrip per chunk on
     # 48 kHz devices. The per-chunk resample remains as the fallback
@@ -1162,7 +1162,7 @@ def start_recording(recorder: Recorder) -> None:
         )
     except Exception:
         log.warning(
-            "[RECORDING] retune_audio_processor failed on start — per-chunk resample will run on the worker thread",
+            "[RECORDING] retune_audio_processor failed on start, per-chunk resample will run on the worker thread",
             exc_info=True,
         )
 
@@ -1178,7 +1178,7 @@ def start_recording(recorder: Recorder) -> None:
     # pipeline (filter chain, VAD, resample, state machine) off the
     # real-time audio thread. As of  the worker ALSO drains
     # ``_preroll_buffer`` and prepends it to ``_buffer`` as a
-    # "phase 0" before entering the main drain loop — so start()
+    # "phase 0" before entering the main drain loop, so start()
     # returns immediately after this call (no synchronous prepend
     # on the start() thread).
     #
@@ -1191,13 +1191,13 @@ def start_recording(recorder: Recorder) -> None:
     # it: catch BaseException (so ``MemoryError`` / ``KeyboardInterrupt``
     # propagate after cleanup), bump ``_stop_generation`` (so any
     # in-flight disconnect handler bails out instead of racing with
-    # the teardown — mirroring ``discard()``'s HOTKEY-CRASH guard),
+    # the teardown, mirroring ``discard()``'s HOTKEY-CRASH guard),
     # clear the ``_recording_event`` flag (set earlier in this
     # function so the audio callback would push to the ring buffer —
     # without this clear, a failed start leaves the event set and
     # the next ``start()``'s ``is_set()`` early-return fires,
     # masking the retry), tear down the stream, optionally stop the
-    # audio worker (only if it was started — i.e. the failure is in
+    # audio worker (only if it was started: i.e. the failure is in
     # ``_start_event_worker``, not ``_start_audio_worker``), then
     # re-raise so the caller sees the original error.
     try:
@@ -1214,7 +1214,7 @@ def start_recording(recorder: Recorder) -> None:
     # Start the IPC event worker thread AFTER the audio worker
     # so the audio worker can enqueue IPC events (e.g. audio_clip)
     # as soon as it begins processing chunks. The event worker is
-    # stopped by stop()/discard() — the lifecycle lock is held across
+    # stopped by stop()/discard(), the lifecycle lock is held across
     # the read-check-create-start sequence (the collaborator body must
     # NOT acquire it itself).
     try:
@@ -1236,17 +1236,17 @@ def start_recording(recorder: Recorder) -> None:
 
     # Wire the idle-recording gate. ``Recorder.start`` is the
     # production caller that toggles
-    # ``MicrophoneDeviceWatcher.set_idle`` — pre-fix, ``set_idle`` was
+    # ``MicrophoneDeviceWatcher.set_idle``: pre-fix, ``set_idle`` was
     # defined and consumed by the macOS/Linux polling paths but had
     # ZERO production callers, so ``_is_idle`` stayed ``True`` forever
     # and the active 3 s poll cadence never engaged during recording
     # (the watcher idled at 12 s always). The call is placed at the
     # very end of ``start_recording`` so any earlier failure (stream-open,
-    # worker spawn, retune) prevents the toggle — matching the
+    # worker spawn, retune) prevents the toggle, matching the
     # ``stop_recording`` contract that ``set_idle(True)`` only runs after
     # a successful stop. The ``None`` guard covers the
     # macOS-without-pyobjc fall-back (``_mic_watcher`` is ``None`` when
-    # the watcher failed to start — see ``DeviceManager.__init__``) so
+    # the watcher failed to start: see ``DeviceManager.__init__``) so
     # this branch is a no-op on hosts where the watcher never came up.
     _mic_watcher = recorder._devices._mic_watcher
     if _mic_watcher is not None:
@@ -1256,14 +1256,14 @@ def start_recording(recorder: Recorder) -> None:
 def stop_recording(recorder: Recorder) -> np.ndarray:
     """Stop recording and return the complete audio array.
 
-        Body of :meth:`Recorder.stop` — extracted verbatim (with ``self.X``
+        Body of :meth:`Recorder.stop`: extracted verbatim (with ``self.X``
     rewritten to ``recorder.X``) by  / Phase 4.5 to shrink the
         ~2748-LOC ``recorder.py`` god class. ``Recorder.stop`` becomes a
         1-line delegator so existing call sites, subclass overrides, and
         ``inspect.getsource`` checks that look for the method on the
         ``Recorder`` class continue to work. There is NO source-inspection
         test contract pinning ``Recorder.stop`` source (verified via
-        ``rg "inspect.getsource.*Recorder\\.stop\\b" tests/`` — the matches
+        ``rg "inspect.getsource.*Recorder\\.stop\\b" tests/``, the matches
         on ``IPCServer.stop`` are unrelated); the simple Option B delegate
         is sufficient.
 
@@ -1278,20 +1278,20 @@ def stop_recording(recorder: Recorder) -> np.ndarray:
           4. Set ``_user_stop_pending = True`` (STREAM-FIX:
              ``_stream_finished_callback`` suppresses the false "Stream
              finished unexpectedly" warning during the intentional stop).
-          5. ``_teardown_stream()`` — 300 ms callback-drain poll, then
+          5. ``_teardown_stream()``: 300 ms callback-drain poll, then
              ``stream.stop()`` + ``stream.close()`` (shared with
              ``discard_recording``; see the helper's docstring for the
     PERF- history).
           6. Clear ``_user_stop_pending`` (any future
              ``_stream_finished_callback`` is now a genuine disconnect).
           7. ``_stop_audio_worker(timeout=_AUDIO_WORKER_JOIN_TIMEOUT_S,
-             drain=True)`` — drain=True so the last few hundred ms of
+             drain=True)``: drain=True so the last few hundred ms of
              audio (chunks still in the ring buffer) end up in
              ``recorder._audio_pipeline._buffer`` and are concatenated below
     ().
           8. ``_stop_event_worker(timeout=_EVENT_WORKER_JOIN_TIMEOUT_S,
-             drain=True)`` — drains the IPC event queue.
-          9. ``_stop_device_health_checker(timeout=0.0)`` — fire-and-
+             drain=True)``: drains the IPC event queue.
+          9. ``_stop_device_health_checker(timeout=0.0)``, fire-and-
              forget (the daemon exits on its next 30 s wait() return).
          10. Snapshot ``_buffer`` under ``_lock``: swap the deque for a
              fresh empty one + capture the chunk list + capture
@@ -1303,7 +1303,7 @@ def stop_recording(recorder: Recorder) -> np.ndarray:
          11. Compute audio stats (RMS via ``np.dot``, peak, silence
              percentage) and store them in ``_last_audio_stats`` so the
     transcription engine can reuse them ().
-         12. ``_prepare_audio(audio, effective_sr)`` — H15: resample from
+         12. ``_prepare_audio(audio, effective_sr)``: H15: resample from
              scratch (no cache) for the full audio.
          13. ``log.info`` the stop summary (duration, sr, samples, RMS,
              peak, silence_pct, stream/concat/resample/total ms); near-
@@ -1311,13 +1311,13 @@ def stop_recording(recorder: Recorder) -> np.ndarray:
 
         The empty-buffer fast path zeros the cached audio arrays
         (``_secure_clear_caches``), resets ``_chunk_count = 0``, and
-    returns an empty ``float32`` array —  secure-clear
+    returns an empty ``float32`` array,  secure-clear
         contract.
 
         Critical: ``_buffer_sr`` (the actual rate of the audio in
         ``recorder._audio_pipeline._buffer``) is captured into a local BEFORE
         ``_secure_clear_caches`` resets it to ``None``. The local is the
-        authoritative source rate for the snapshotted audio — the chunks
+        authoritative source rate for the snapshotted audio, the chunks
         in ``_captured_chunks`` were appended at this rate by
         ``_process_audio_chunk``. Using ``_effective_sr`` here (the
         device's native rate) would cause ``_prepare_audio`` to resample
@@ -1326,7 +1326,7 @@ def stop_recording(recorder: Recorder) -> np.ndarray:
     # Lazy import: ``recorder.py`` is still loading when this module
     # is first imported (it imports this module near the top, before
     # the constants are defined). By deferring the import to call time
-    # we read the constants from the fully-loaded module — mirrors
+    # we read the constants from the fully-loaded module, mirrors
     # ``discard_recording`` and ``start_recording``.
     from voice_typer.server.recording.recorder import (
         _AUDIO_WORKER_JOIN_TIMEOUT_S,
@@ -1337,7 +1337,7 @@ def stop_recording(recorder: Recorder) -> np.ndarray:
     # start()/discard() race can leave ``_recording_event`` cleared but
     # a live worker (a start() spawned it after a concurrent discard
     # already cleared the event). In that state stop() must still stop
-    # the worker — otherwise the daemon leaks until process exit (the
+    # the worker, otherwise the daemon leaks until process exit (the
     # recorder worker-lifecycle guard surfaces it as a timeout).
     if (
         not recorder._recording_event.is_set()
@@ -1360,7 +1360,7 @@ def stop_recording(recorder: Recorder) -> np.ndarray:
 
     # 17-H-: drain callback + stop + close via _teardown_stream()
     # (shared with discard()). The 300ms callback poll is preserved
-    # verbatim — see the helper's docstring/comments for the
+    # verbatim: see the helper's docstring/comments for the
     # PERF- history.
     recorder._teardown_stream()
     # STREAM-FIX: clear the user-stop-pending flag now
@@ -1392,7 +1392,7 @@ def stop_recording(recorder: Recorder) -> np.ndarray:
     # Use the full _EVENT_WORKER_JOIN_TIMEOUT_S (2.0s) so a slow
     # event_bus.publish (e.g. a backed-up TCP subscriber) has time
     # to drain. Pre-fix this was 0.1s which was too short for any
-    # publish > 100ms — the daemon was left running and the test
+    # publish > 100ms, the daemon was left running and the test
     # contract (drain completes within stop()) was violated.
     # The lifecycle lock is held across the read-check-clear-join-
     # unregister sequence (the collaborator body must NOT acquire it
@@ -1408,8 +1408,8 @@ def stop_recording(recorder: Recorder) -> np.ndarray:
 
     # snapshot the buffer under the lock, then release the lock BEFORE
     # materializing the returned audio. With contiguous storage there is
-    # nothing to concatenate — the recording already IS one contiguous
-    # array — so the outside-the-lock step is a single O(N) copy of the
+    # nothing to concatenate, the recording already IS one contiguous
+    # array, so the outside-the-lock step is a single O(N) copy of the
     # filled region (same cost class as the old np.concatenate, but paid
     # once per SESSION instead of once per 250 ms poll). The lock scope
     # stays minimal exactly as before: inside the lock, swap in a fresh
@@ -1432,7 +1432,7 @@ def stop_recording(recorder: Recorder) -> np.ndarray:
             # would otherwise retain the previous session's total until
             # the next ``start()`` reset).
             recorder._audio_pipeline._total_buffered_samples = 0
-            # idle-recording gate — return to the 12 s idle
+            # idle-recording gate. Return to the 12 s idle
             # cadence even on the empty-buffer early-return path so the
             # watcher doesn't stay in the active 3 s mode after a
             # successful stop with no audio captured. Mirrors the
@@ -1446,12 +1446,12 @@ def stop_recording(recorder: Recorder) -> np.ndarray:
         # Non-empty: normalize legacy containers (hot-swap deque / test
         # injections) to contiguous storage, then swap in a fresh empty
         # buffer INSIDE the lock (O(1)). The old buffer object is captured
-        # and frozen — nobody mutates it after this point, so the export
+        # and frozen, nobody mutates it after this point, so the export
         # below can read it without the lock.
         _ensure_growable_buffer(recorder)
         _old_buffer = recorder._audio_pipeline._buffer
         recorder._audio_pipeline._buffer = _fresh_recording_buffer_like(recorder, _old_buffer)
-        # PERF: zero the running buffered-samples counter — the fresh
+        # PERF: zero the running buffered-samples counter, the fresh
         # buffer above is empty, so the counter must be 0 to match.
         # Without this, ``current_duration_seconds`` would continue
         # returning the snapshot session's total duration until the
@@ -1461,7 +1461,7 @@ def stop_recording(recorder: Recorder) -> np.ndarray:
         # Critical: capture ``_buffer_sr`` into a local
         # BEFORE ``_secure_clear_caches`` resets it to ``None``.
         # The local is the authoritative source rate for the
-        # audio we just snapshotted — the samples in
+        # audio we just snapshotted, the samples in
         # ``_old_buffer`` were appended at this rate by
         # ``_process_audio_chunk``.
         _captured_buffer_sr = recorder._audio_pipeline._buffer_sr
@@ -1496,7 +1496,7 @@ def stop_recording(recorder: Recorder) -> np.ndarray:
     # ``_buffer_sr == 16000`` regardless of the device's native
     # rate. Pre-fix, ``stop()`` read ``_effective_sr`` (e.g.
     # 48000) and the subsequent ``_prepare_audio`` call did
-    # ``resample_poly(audio, 1, 3)`` — decimating the already-16
+    # ``resample_poly(audio, 1, 3)``, decimating the already-16
     # kHz audio 3:1 → ~5333 samples presented as "16 kHz" →
     # pitched up 3× (chipmunk voice). The captured local is the
     # snapshot taken inside the lock above (before
@@ -1508,12 +1508,12 @@ def stop_recording(recorder: Recorder) -> np.ndarray:
     # Pipeline ``prepare_audio`` with the stats computation below.
     # The resample (``prepare_audio`` calls ``resample_audio``
     # → ``resample_poly``) is the most expensive single step in
-    # stop() — ~200 ms for 30 s of 16 kHz mono audio, and proportionally
+    # stop(), ~200 ms for 30 s of 16 kHz mono audio, and proportionally
     # more for longer recordings. The stats computation (np.dot for RMS,
     # np.abs + np.sum for silence_pct) is also non-trivial for large
     # buffers (~150 ms for 30-min 16 kHz mono). Running them in parallel
     # (instead of sequentially) cuts the worst-case stop() tail latency
-    # by the smaller of the two — typically the stats duration.
+    # by the smaller of the two, typically the stats duration.
     #
     # Safety: ``_prepare_audio`` returns a NEW ndarray (the resampled
     # audio); it does NOT mutate the input. The stats below read
@@ -1524,7 +1524,7 @@ def stop_recording(recorder: Recorder) -> np.ndarray:
     # ``prepare_audio``) is preserved: the thread STARTS
     # ``_prepare_audio`` immediately after the concat (the
     # ``secure_clear_caches`` call inside the lock above already ran).
-    # H15: stop() should NOT use cache — resample from scratch for
+    # H15: stop() should NOT use cache, resample from scratch for
     # the full audio (the resample thread does this directly).
     resample_started = time.perf_counter()
     _resample_result: dict[str, Any] = {"audio": None, "exc": None}
@@ -1532,7 +1532,7 @@ def stop_recording(recorder: Recorder) -> np.ndarray:
     def _run_prepare_audio() -> None:
         try:
             _resample_result["audio"] = prepare_audio(recorder, audio, effective_sr)
-        except BaseException as exc:  # noqa: BLE001 — re-raised after join
+        except BaseException as exc:  # noqa: BLE001, re-raised after join
             _resample_result["exc"] = exc
 
     _resample_thread = threading.Thread(
@@ -1556,8 +1556,8 @@ def stop_recording(recorder: Recorder) -> np.ndarray:
         if audio.size:
             flat = audio.reshape(-1)
             rms = float(np.sqrt(np.dot(flat, flat) / flat.size))
-            # PERF: allocation-free peak — ``max(|x|) == max(max(x),
-            # -min(x))`` — two reductions on the existing ``flat``
+            # PERF: allocation-free peak, ``max(|x|) == max(max(x),
+            # -min(x))``: two reductions on the existing ``flat``
             # view, no intermediate ``np.abs(flat)`` array allocated.
             # Mirrors the per-chunk peak in
             # ``AudioPipeline.compute_rms_and_peak``. Pre-fix, this
@@ -1568,11 +1568,11 @@ def stop_recording(recorder: Recorder) -> np.ndarray:
             peak = 0.0
             rms = 0.0
         # PERF: compute ``np.abs(flat)`` ONCE and reuse it for
-        # silence_pct — pre-fix this line allocated a SECOND ~115 MB
+        # silence_pct, pre-fix this line allocated a SECOND ~115 MB
         # transient (``np.abs(audio)``) for the silence mask, on top
         # of the peak's ~115 MB allocation above. Combined transient
         # was ~230 MB; now reduced to a single ~115 MB allocation
-        # (only the silence mask — peak is allocation-free). ``flat``
+        # (only the silence mask, peak is allocation-free). ``flat``
         # is a 1-D view of ``audio`` so ``np.abs(flat)`` and
         # ``np.abs(audio)`` are elementwise-identical.
         abs_flat = np.abs(flat) if audio.size else None
@@ -1593,7 +1593,7 @@ def stop_recording(recorder: Recorder) -> np.ndarray:
     # runtime (the thread is already running); if the stats above took
     # longer than the resample, the join returns immediately. The
     # ``daemon=True`` flag is a safety net for the case where stop()
-    # is interrupted (e.g. Ctrl-C) mid-resample — the daemon thread
+    # is interrupted (e.g. Ctrl-C) mid-resample, the daemon thread
     # will not block process exit.
     _resample_thread.join()
     if _resample_result["exc"] is not None:
@@ -1637,12 +1637,12 @@ def stop_recording(recorder: Recorder) -> np.ndarray:
         # Warning already emitted above when len(audio) == 0
         pass
 
-    # idle-recording gate — return to the 12 s idle cadence
+    # idle-recording gate. Return to the 12 s idle cadence
     # now that the recording has been stopped (stream torn down,
     # workers joined, buffer snapshotted). Mirrors the
     # ``set_idle(False)`` call at the end of ``start_recording`` so
     # the watcher's macOS/Linux poll cadence widens from the active
-    # 3 s back to the idle 12 s between recordings — saving the
+    # 3 s back to the idle 12 s between recordings, saving the
     # 10–50 ms CoreAudio round trip per poll when no recording is
     # in flight. The ``None`` guard covers hosts where the watcher
     # never came up (macOS-without-pyobjc fall-back).

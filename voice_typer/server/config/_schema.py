@@ -6,7 +6,7 @@ dataclass field declarations live here (moved verbatim from
 ``_ConfigSchema``. The final ``Config`` class in
 ``config/__init__.py`` combines this base with the
 ``_ConfigLifecycleMixin`` (``config/_lifecycle.py``) via multiple
-inheritance — the ``@dataclass`` decorator on ``Config`` picks up the
+inheritance, the ``@dataclass`` decorator on ``Config`` picks up the
 inherited field declarations via ``__dataclass_fields__`` so callers
 see the same public API (``Config(schema_version=1, hotkey='x', ...)``).
 
@@ -20,7 +20,7 @@ This module also hosts the schema-adjacent implementation helpers:
 Import-safety: this module is imported at the TOP of
 ``config/__init__.py`` (via the lifecycle mixin and the re-export
 block). It must NOT import from ``voice_typer.server.config``
-(circular) — every heavy consumer (``credential_store``,
+(circular), every heavy consumer (``credential_store``,
 ``config_validators.validate_config``, ...) is imported lazily inside
 the function bodies below.
 """
@@ -56,13 +56,13 @@ log = logging.getLogger("voice_typer.server.config")
 # ``noise_suppressor.py`` dispatch and produce no filter at all).
 #
 # The set is intentionally a hardcoded allowlist rather than
-# "every Literal field on Config" — ``audio_preset`` is the one
+# "every Literal field on Config": ``audio_preset`` is the one
 # Literal field whose Literal ALSO includes the legacy
 # ``"none"`` / ``"recommended"`` values (kept for static-typing
 # backward-compat with pre-migration config.json). The migration
 # already rewrites those before this reset runs, but to be safe we
 # only reset fields explicitly in this list and rely on the
-# Literal's own allowed-values set for the truth — so if
+# Literal's own allowed-values set for the truth, so if
 # ``audio_preset="none"`` somehow survives migration, this reset
 # will NOT touch it (the migration handles it; touching it here
 # would mask a migration bug).
@@ -93,10 +93,10 @@ _ENUM_FIELDS_TO_RESET_ON_LOAD: frozenset[str] = frozenset(
 # (fail-closed): this historical fallback literal (a 5-field hardcoded
 # set) is RETAINED for parity assertions in tests, but
 # :func:`_secret_field_names_impl` NO LONGER returns it on import
-# failure — it logs ``CRITICAL`` and RE-RAISES instead. A silent
+# failure, it logs ``CRITICAL`` and RE-RAISES instead. A silent
 # fallback to a stale literal would leave any newly added provider's
 # API key un-redacted in warning log lines whenever the fallback kicks
-# in — a security degradation. Failing loudly surfaces the breakage at
+# in, a security degradation. Failing loudly surfaces the breakage at
 # the first call site (typically ``Config.load()`` redaction).
 #
 # Bound as a ``ClassVar`` on :class:`_ConfigSchema` below AND
@@ -120,13 +120,13 @@ class _ConfigSchema:
     The field declarations below were moved verbatim from the
     pre-split ``config/__init__.py`` monolith. ``Config`` (in
     ``config/__init__.py``) inherits them via
-    ``class Config(_ConfigSchema, _ConfigLifecycleMixin)`` — the
+    ``class Config(_ConfigSchema, _ConfigLifecycleMixin)``, the
     ``@dataclass`` decorator on ``Config`` merges the inherited
     ``__dataclass_fields__`` so ``Config(**kwargs)`` /
     ``dataclasses.asdict(cfg)`` behave exactly as before the split.
 
     The two ``ClassVar`` attributes are NOT fields (``asdict`` skips
-    them) — they are schema-adjacent constants consumed by the
+    them), they are schema-adjacent constants consumed by the
     load-time helpers (``_reset_invalid_enum_fields_impl`` /
     ``_warn_and_reset`` redaction).
     """
@@ -138,7 +138,7 @@ class _ConfigSchema:
     # warnings would be read back as if they applied to THIS load,
     # producing a confusing "your config was corrected" notice for a
     # problem that no longer exists.  It's now a plain instance
-    # attribute set in :meth:`load` (and ``__post_init__``) — since
+    # attribute set in :meth:`load` (and ``__post_init__``), since
     # ``asdict()`` only serializes declared dataclass fields, the
     # attribute is excluded from ``config.json`` automatically.
 
@@ -149,7 +149,7 @@ class _ConfigSchema:
     # any plaintext keys to keyring and replace them with
     # ``keyring://<provider>`` reference tokens. The flag is then set
     # to True so the migration doesn't run again on every launch
-    # (idempotent — see credential_store.migrate_secrets_to_keyring).
+    # (idempotent: see credential_store.migrate_secrets_to_keyring).
     secrets_migrated: bool = False
 
     # Hotkey
@@ -166,7 +166,7 @@ class _ConfigSchema:
 
     # Transcription
     # Default comes from the canonical ``DEFAULT_MODEL_SIZE`` constant
-    # in ``model_registry.py`` — change the default in ONE place there.
+    # in ``model_registry.py``: change the default in ONE place there.
     model_size: str = DEFAULT_MODEL_SIZE
     language: str = "en"
     device: str = "cuda"  # cuda, cpu
@@ -174,18 +174,18 @@ class _ConfigSchema:
     best_of: int = 1
     condition_on_previous_text: bool = False
     # Voice-activity (silence) filtering before transcription. When True
-    # (default — identical to historical behavior), the engine trims
+    # (default, identical to historical behavior), the engine trims
     # leading/trailing silence itself (faster-whisper ``vad_filter``) or
     # via the duration-aware pre-trim in ``vad_policy``. When False, audio
-    # reaches the model completely unfiltered — the model-testing mode:
+    # reaches the model completely unfiltered, the model-testing mode:
     # raw audio in, plain transcription out, no silence processing, so
     # different models/backends can be compared fairly. Recording-side
-    # behavior (silence auto-stop, level meter) is unaffected — this gate
+    # behavior (silence auto-stop, level meter) is unaffected, this gate
     # covers only what is filtered out of the audio sent for decoding.
     # In the SEC-002 IPC allowlist so the Settings UI toggle persists it.
     vad_filter_enabled: bool = True
     # Whisper-specific beam size override. Defaults to 1 (matching the
-    # legacy ``beam_size`` field above) for backwards compat — existing
+    # legacy ``beam_size`` field above) for backwards compat, existing
     # config files without this key continue to behave identically.
     # When set to a non-default value (e.g. 3 or 5),
     # ``TranscriptionEngine.__init__`` picks it up via the ``config``
@@ -229,7 +229,7 @@ class _ConfigSchema:
     fast_startup: bool = True
     # Auto-update feature (docs/auto-update-feature.md §8.4): user
     # opt-in for the offline-pack background download from GitHub
-    # Releases. Defaults OFF — the pack is never downloaded without
+    # Releases. Defaults OFF, the pack is never downloaded without
     # explicit consent (C-DATA-1 category-3 model-download consent
     # gate; ``check_offline_pack_update`` refuses to start the download
     # when this is False). In the SEC-002 IPC allowlist so the Settings
@@ -253,7 +253,7 @@ class _ConfigSchema:
     # ``_persist_disabled``. Persisted to ``config.json`` so disabled
     # backends survive a restart (previously: the field was missing
     # from the dataclass, so ``asdict(self)`` skipped it and the list
-    # reset to empty on every app launch — disabled backends silently
+    # reset to empty on every app launch, disabled backends silently
     # re-enabled). NOT in ``IPC_CONFIG_ALLOWLIST`` because it is
     # backend-managed state, not a renderer-writable setting.
     disabled_backends: list[str] = field(default_factory=list)
@@ -340,14 +340,14 @@ class _ConfigSchema:
 
     # explicit consent that model weights are downloaded
     # from HuggingFace on first use.  The download reveals the user's
-    # IP to a US-headquartered third party — GDPR Art. 13/44 require
+    # IP to a US-headquartered third party. GDPR Art. 13/44 require
     # disclosure + consent for this.  When False, the first model
     # download shows a consent dialog in the renderer; only after the
     # user accepts does the download proceed.
     huggingface_consent: bool = False
 
     # explicit per-provider consent for cloud ASR.
-    # Storing an API key alone is NOT consent — the user must
+    # Storing an API key alone is NOT consent, the user must
     # explicitly agree that audio will be sent to that provider.
     # Each provider has its own flag so consent is granular.
     cloud_openai_consent: bool = False
@@ -363,7 +363,7 @@ class _ConfigSchema:
     # play a short audio cue when recording starts/stops.
     # Many users (especially blind users) prefer an auditory signal
     # instead of (or in addition to) the visual indicator.  Default
-    # ON — most users benefit from the audible start/stop cue; those
+    # ON, most users benefit from the audible start/stop cue; those
     # who prefer silence can disable it in Settings → Behavior.
     sound_feedback_enabled: bool = True
 
@@ -380,7 +380,7 @@ class _ConfigSchema:
 
     # Superseded: an earlier draft removed AudioQualityAnalyzer as
     # dead code and archived a stale copy to archive/. The analyzer was
-    # subsequently revived and is actively used — see app.py:208
+    # subsequently revived and is actively used, see app.py:208
     # (instantiation), app.py:_on_audio_quality_chunk and
     # _finalize_audio_quality_report (per-chunk + post-stop analysis),
     # and recording_controller.py:403 (invocation after stop()).
@@ -388,7 +388,7 @@ class _ConfigSchema:
     # reported "Low volume / High noise" after each dictation was deemed
     # annoying. The default is now False, AND the app-side code path that
     # shows the notification is short-circuited (see
-    # ``_finalize_audio_quality_report`` in app.py — early return at the
+    # ``_finalize_audio_quality_report`` in app.py, early return at the
     # top so no tray notification is EVER shown, even if a user manually
     # flips this flag to True in their config file). The quality analysis
     # may still run for internal logging, but NEVER surfaces a tray
@@ -399,7 +399,7 @@ class _ConfigSchema:
     # Waveform visualization bubble
     waveform_bubble: bool = False
 
-    # Bubble screen position (top / bottom).  Default "bottom" — the
+    # Bubble screen position (top / bottom).  Default "bottom", the
     # recording bubble sits at bottom-center, out of the way of most
     # app title bars and camera notches.
     bubble_position: Literal["top", "bottom"] = "bottom"
@@ -415,7 +415,7 @@ class _ConfigSchema:
     bubble_show_on_startup: bool = True
 
     # when in `always_visible` mode, show a mic button next to the
-    # waveform that toggles dictation on click. Default ON — primary
+    # waveform that toggles dictation on click. Default ON, primary
     # remediation for  (the always-visible bubble was non-interactive).
     bubble_click_to_toggle: bool = True
 
@@ -427,7 +427,7 @@ class _ConfigSchema:
     # Persisted bubble window position (screen-space pixel coords) and
     # scale factor. The renderer writes these via ``set_config`` after
     # the user drags / resizes the bubble window so the choice survives
-    # across restarts. Both default to ``None`` (meaning "not set — let
+    # across restarts. Both default to ``None`` (meaning "not set, let
     # the renderer pick a sensible default position / 1.0x scale"), and
     # older config.json files that predate the fields are treated the
     # same way. ``bubble_scale`` is a multiplier on the base DPI (so
@@ -442,7 +442,7 @@ class _ConfigSchema:
 
     # Persisted microphone-test duration (seconds). The Microphone
     # page's "Test" button records for this many seconds before
-    # auto-stopping. Default ``None`` — the renderer treats absence as
+    # auto-stopping. Default ``None``: the renderer treats absence as
     # the in-app default of 5s, and the server-side validator accepts
     # the range ``[1, 60]`` (wider than the renderer's visible
     # ``[1, 30]`` clamp so a future renderer change can loosen the
@@ -452,7 +452,7 @@ class _ConfigSchema:
     # History database
     # master toggle for whether dictated text is persisted to the
     # history SQLite DB. When False, dictation_pipeline._store_result
-    # skips the ``add_transcription`` call entirely — nothing is written
+    # skips the ``add_transcription`` call entirely, nothing is written
     # to disk for the current session. Defaults True to preserve the
     # existing "history on" behavior for upgrades; users who dictate
     # sensitive content (passwords, medical/financial/PII) can toggle
@@ -479,7 +479,7 @@ class _ConfigSchema:
     # Theme mode (system/light/dark)
     # ``Literal[...]`` for static-type narrowing.
     theme_mode: Literal["system", "light", "dark"] = "system"
-    # Theme preset — a built-in colour scheme applied on top of the
+    # Theme preset, a built-in colour scheme applied on top of the
     # current theme_mode. "default" means no overrides.
     # ``Literal[...]`` enumerates the built-in presets.
     theme_preset: Literal[
@@ -540,17 +540,17 @@ class _ConfigSchema:
     max_recording_time_seconds: int = 900  # 15 minutes
 
     # NOTE: dead_air_timeout (float) was REMOVED in
-    # It was redundant with stop_on_silence_seconds — both called the same
+    # It was redundant with stop_on_silence_seconds, both called the same
     # on_silence_auto_stop callback. Auto-stop already resets on every speech
     # detection, so the "only after speech" condition dead air added was
     # unnecessary. Do NOT re-add. See RecordingSettingsSection.tsx comment.
 
     # silence_rms_threshold / silence_peak_threshold were REMOVED
-    # from the Config dataclass — they were declared, validated, and
+    # from the Config dataclass, they were declared, validated, and
     # persisted, but never read by any runtime code path (ADR 0007 §4.3).
     # Existing config.json files that still carry these keys are silently
     # scrubbed by the v3 schema migration (``_migrate_to_v3``), so loading
-    # an old config does NOT raise — the keys are simply dropped before
+    # an old config does NOT raise, the keys are simply dropped before
     # construction. Do NOT re-add.
 
     # Idle-unload timer for the active ASR backend. After this
@@ -562,7 +562,7 @@ class _ConfigSchema:
     # next ``toggle_dictation`` via the existing
     # ``ensure_active_engine_loaded()`` lazy-init path.
     #
-    # The default is 30 minutes — keeps the model warm for short
+    # The default is 30 minutes, keeps the model warm for short
     # conversational gaps (sub-30-minute silences) while still
     # unloading it for genuinely long idle periods (lunch breaks,
     # meetings, overnight). This is the right tradeoff for the typical
@@ -570,7 +570,7 @@ class _ConfigSchema:
     # of idle GPU power are worth reclaiming after a real "stepped away
     # from keyboard" gap. Users with abundant VRAM who want the model
     # resident for the lifetime of the process can set this to 0
-    # (disables the feature — current "always loaded" behaviour is
+    # (disables the feature, current "always loaded" behaviour is
     # preserved exactly). Cold-reload latency (2-5 s warm, 5-15 s cold)
     # is off the critical path of the next dictation because the
     # ``ensure_active_engine_loaded()`` reload path runs on
@@ -593,12 +593,12 @@ class _ConfigSchema:
     # during the first ~1.5s of each session (RMS path; Silero-prob path
     # when use_silero_vad is active). Consumed by VadProcessor
     # (vad_processor.py) via Recorder._vad_auto_calibrate. Was previously
-    # read via getattr() fallback while unregistered here — the flag could
+    # read via getattr() fallback while unregistered here, the flag could
     # never be enabled, leaving the calibration feature dead.
     vad_auto_calibrate: bool = False
 
     # AUDIO-CH: number of channels to request from the input device.
-    # Default 1 (mono) — appropriate for dictation. Set to 0 for
+    # Default 1 (mono), appropriate for dictation. Set to 0 for
     # device default (auto-detect from device's max_input_channels).
     recording_channels: int = 1
 
@@ -610,7 +610,7 @@ class _ConfigSchema:
 
     # ADR 0007 §5.2: normalize_audio and normalize_target_peak REMOVED.
     # Replaced by the Compressor filter in the audio filter chain.
-    # the dataclass fields themselves were removed — they were
+    # the dataclass fields themselves were removed, they were
     # declared, validated, and persisted, but never read at runtime (the
     # Compressor filter supersedes them entirely). Existing config.json
     # files that still carry these keys are silently scrubbed by the v3
@@ -630,7 +630,7 @@ class _ConfigSchema:
     volume_duck_enabled: bool = True
     volume_duck_level: float = 0.20  # 0.0–1.0 perceptual-linear (20% duck)
     #  ``volume_duck_per_session`` REMOVED from the Config
-    # dataclass — ducking now always applies to the master volume
+    # dataclass, ducking now always applies to the master volume
     # cross-platform. Existing config.json files that still carry the key
     # are silently scrubbed by the v3 schema migration. Do NOT re-add.
     # fade duration is now a fixed 200ms default (was 150ms).
@@ -650,11 +650,11 @@ class _ConfigSchema:
 
     # ─── Audio enhancement preset (ADR 0007) ─────────────────────────
     # Preset name that controls the entire filter chain:
-    #   "auto"        — all filters ON, RNNoise (best for 90% of users)
-    #   "studio"      — minimal processing (quiet room, good mic)
-    #   "noisy_room"  — aggressive, DeepFilterNet
-    #   "off"         — all filters OFF
-    #   "custom"      — user controls each filter individually
+    #   "auto"       : all filters ON, RNNoise (best for 90% of users)
+    #   "studio"     : minimal processing (quiet room, good mic)
+    #   "noisy_room" : aggressive, DeepFilterNet
+    #   "off"        : all filters OFF
+    #   "custom"     : user controls each filter individually
     # The preset is applied at startup (Config.load) and on explicit
     # set_config. See voice_typer/server/audio_presets.py for the
     # single source of truth.
@@ -672,7 +672,7 @@ class _ConfigSchema:
         "recommended",
     ] = "auto"
 
-    # ─── Noise filtering (ADR 0007 — filter chain) ───────────────────
+    # ─── Noise filtering (ADR 0007, filter chain) ───────────────────
     # Each filter has an enable flag + parameters. The filter chain
     # (voice_typer/server/audio_filters/) is built from these fields
     # by audio_chain_builder.build_chain(). Chain order:
@@ -685,24 +685,24 @@ class _ConfigSchema:
     # audio_preset != "off"``). The legacy ``noise_filter_rnnoise`` field
     # is still kept for backward compat with old config.json files but is
     # migrated/ignored per ADR 0007 §5.
-    noise_filter_enabled: bool = True  # runtime switch — see ADR 0009
+    noise_filter_enabled: bool = True  # runtime switch, see ADR 0009
     noise_filter_highpass: bool = True
     noise_filter_highpass_cutoff_hz: float = 80.0  # 20–500
     noise_filter_gate: bool = True
     # ``noise_filter_gate_threshold`` REMOVED from the Config
-    # dataclass — replaced by the open/close threshold pair below per
+    # dataclass, replaced by the open/close threshold pair below per
     # ADR 0007. Existing config.json files that still carry the key are
     # silently scrubbed by the v3 schema migration. Do NOT re-add.
     noise_filter_gate_hold_ms: float = 200.0  # ADR 0007: was 150, now 200 (matches OBS)
     noise_filter_rnnoise: bool = True  # ADR 0007: was False, now True (RNNoise is default dep)
-    noise_filter_post_capture: bool = True  # runtime switch — see ADR 0009
+    noise_filter_post_capture: bool = True  # runtime switch, see ADR 0009
 
     # ADR 0007 §5.1: New filter chain fields
     # Noise suppressor backend selection.
     # ``Literal[...]`` matches ``NOISE_SUPPRESSION_METHODS``
     # in ``config_validators.py`` (the authoritative allowlist). The
-    # historical ``"speex"`` option was never implemented — there is
-    # no speex backend in ``audio_filters/noise_suppressor.py`` — and
+    # historical ``"speex"`` option was never implemented, there is
+    # no speex backend in ``audio_filters/noise_suppressor.py``, and
     # is intentionally omitted so static type-checkers reject it.
     # (``"deepfilternet"`` was likewise retired when the bundled GTCRN
     # ONNX streaming model replaced it; ``Config.load()`` remaps the
@@ -737,7 +737,7 @@ class _ConfigSchema:
     noise_filter_limiter_ceiling_db: float = -6.0
     noise_filter_limiter_release_ms: float = 60.0
 
-    # Notch filter (50/60Hz hum) — optional, default OFF
+    # Notch filter (50/60Hz hum), optional, default OFF
     noise_filter_notch: bool = False
     noise_filter_notch_frequency_hz: float = 0.0  # 0 = auto-detect (60Hz Americas default)
 
@@ -745,7 +745,7 @@ class _ConfigSchema:
     # Rule-based, offline enhancement applied AFTER LLM polish and
     # BEFORE the result is stored to history / pasted.  See
     # ``voice_typer/server/ai_enhancement.py``.  The master toggle
-    # defaults to OFF — the user must explicitly opt in via Settings
+    # defaults to OFF, the user must explicitly opt in via Settings
     # → AI Enhancement so existing users don't see behavior changes
     # after upgrading.  The three sub-toggles default to True so
     # that, once the master toggle is flipped, the feature "just
@@ -761,7 +761,7 @@ class _ConfigSchema:
     # transcription for low-confidence words and suggests vocabulary
     # corrections.  Suggestions above ``vocabulary_auto_apply_threshold``
     # are auto-applied; the rest are queued for the user to review.
-    # Defaults to OFF — the user must explicitly opt in via Settings.
+    # Defaults to OFF, the user must explicitly opt in via Settings.
     vocabulary_automation_enabled: bool = False  # master toggle (opt-in)
     # Below this segment-confidence, suggest corrections.  0.7 is a
     # common Whisper "low confidence" threshold (the model emits
@@ -791,7 +791,7 @@ def _reset_invalid_enum_fields_impl(cls, instance) -> None:
     ``validate_config(instance)`` (called from :meth:`load` just
     before this helper) flags invalid enum values and appends
     human-readable errors to ``instance.last_load_warnings``, but
-    it does NOT mutate the field — the invalid value remains on
+    it does NOT mutate the field, the invalid value remains on
     the instance and propagates to runtime code, which either
     crashes (KeyError in a dispatch dict) or silently takes the
     wrong branch.
@@ -808,7 +808,7 @@ def _reset_invalid_enum_fields_impl(cls, instance) -> None:
        ``instance.last_load_warnings``.
 
     Non-str values (e.g. a hand-edited ``"asr_backend": 123``)
-    are also reset — they can never be in a ``Literal[str, ...]``
+    are also reset, they can never be in a ``Literal[str, ...]``
     allowed set. The ``_validate_non_numeric_fields`` pre-pass
     normally coerces such values to ``str`` first, but this
     helper is defensive against a value that slipped through
@@ -816,11 +816,11 @@ def _reset_invalid_enum_fields_impl(cls, instance) -> None:
 
     The reset is idempotent: a value already at the default is a
     no-op (it's in the allowed set). The reset is also safe to
-    re-run — calling it twice produces no extra warnings.
+    re-run, calling it twice produces no extra warnings.
 
     Warnings are appended to ``instance.last_load_warnings`` (NOT
     ``data["_load_warnings"]``, which has already been popped and
-    transferred to the instance by the time this runs — see the
+    transferred to the instance by the time this runs, see the
     :meth:`load` orchestrator). The warning text mirrors the
     format used by the per-field reset helpers
     (``_validate_model_path`` etc.) so the renderer can display
@@ -834,11 +834,11 @@ def _reset_invalid_enum_fields_impl(cls, instance) -> None:
         # ``typing.get_type_hints`` resolves forward refs and can
         # raise if a referenced name isn't importable in the
         # current sandbox. Fall back to the raw ``__annotations__``
-        # (no forward-ref resolution) — for Literal[...] fields
+        # (no forward-ref resolution), for Literal[...] fields
         # the raw annotation IS the Literal, so this works.
         hints = dict(getattr(cls, "__annotations__", {}))
 
-    # Build the defaults instance ONCE (not per-field) — Config()
+    # Build the defaults instance ONCE (not per-field), Config()
     # construction is cheap but not free, and the per-field loop
     # may reset multiple values.
     defaults = cls()
@@ -846,12 +846,12 @@ def _reset_invalid_enum_fields_impl(cls, instance) -> None:
     for field_name in cls._ENUM_FIELDS_TO_RESET_ON_LOAD:
         ann = hints.get(field_name)
         if ann is None:
-            # Field was removed or renamed — skip silently (the
+            # Field was removed or renamed, skip silently (the
             # set is a ClassVar that should stay in sync with the
             # dataclass declaration, but a stale entry shouldn't
             # crash load).
             continue
-        # Unwrap ``T | None`` / ``Optional[T]`` — none of the 9
+        # Unwrap ``T | None`` / ``Optional[T]``, none of the 9
         # fields are optional, but the unwrap is cheap insurance
         # against a future contributor adding an optional enum.
         if typing.get_origin(ann) in (typing.Union, types.UnionType):
@@ -861,7 +861,7 @@ def _reset_invalid_enum_fields_impl(cls, instance) -> None:
         if typing.get_origin(ann) is not typing.Literal:
             # Field's annotation isn't a Literal (e.g. it was
             # widened to bare ``str`` in a future refactor). Skip
-            # — we can't enumerate allowed values without a
+            # , we can't enumerate allowed values without a
             # Literal. ``validate_config`` (via the IPC
             # allowlist) still catches genuinely invalid values.
             continue
@@ -871,8 +871,8 @@ def _reset_invalid_enum_fields_impl(cls, instance) -> None:
             continue
         default_value = getattr(defaults, field_name)
         # Defensive: if the default ITSELF isn't in the allowed
-        # set (shouldn't happen — the dataclass declaration
-        # defines both — but guards against a malformed Literal),
+        # set (shouldn't happen, the dataclass declaration
+        # defines both, but guards against a malformed Literal),
         # pick the first allowed value rather than resetting to
         # an invalid default.
         if default_value not in allowed and allowed:
@@ -889,7 +889,7 @@ def _reset_invalid_enum_fields_impl(cls, instance) -> None:
         # compatible and avoids triggering any future
         # ``__setattr__`` override).
         object.__setattr__(instance, field_name, default_value)
-        # Append to ``last_load_warnings`` — initialize the list
+        # Append to ``last_load_warnings``: initialize the list
         # if it's ``None`` (the ``__post_init__`` default).
         warnings = getattr(instance, "last_load_warnings", None)
         if warnings is None:
@@ -944,7 +944,7 @@ def _secret_field_names_impl() -> frozenset[str]:
         # early-startup path that relied on the silent fallback.
         log.critical(
             "[CONFIG] could not import credential_store for "
-            "_secret_field_names — secret-field redaction may be "
+            "_secret_field_names, secret-field redaction may be "
             "incomplete. Refusing to fall back to a hardcoded "
             "literal (fail-closed). Original error: %s",
             exc,

@@ -8,9 +8,9 @@ methods.
 
 Submodules:
 
-- :mod:`voice_typer.server.history_db_internals.schema` — connection
+- :mod:`voice_typer.server.history_db_internals.schema`, connection
   setup, schema initialization, migrations, corruption recovery hooks.
-- :mod:`voice_typer.server.history_db_internals.writer` — writer-thread
+- :mod:`voice_typer.server.history_db_internals.writer`, writer-thread
   queue draining, batched INSERT, drop-oldest overflow handling, write
   submission, flush, and writer teardown (``_close_writer``). Extracted
   from ``HistoryDB`` so the writer logic is testable in isolation; the
@@ -20,13 +20,13 @@ Submodules:
   ``flush``, ``_close_writer``) so the 173+ test monkeypatch sites
   (``monkeypatch.setattr(HistoryDB, "_writer_loop", ...)``) keep
   working unchanged.
-- :mod:`voice_typer.server.history_db_internals.reader` — thread-local
+- :mod:`voice_typer.server.history_db_internals.reader`, thread-local
   read-connection pool, periodic dead-thread prune daemon. Extracted
   from ``HistoryDB``; the public class keeps thin delegating methods
   (``_get_read_conn``, ``_prune_dead_read_connections_locked``,
   ``_periodic_read_conn_prune_loop``, ``_start_read_conn_prune_thread``,
   ``_stop_read_conn_prune_thread``, ``_get_conn``).
-- :mod:`voice_typer.server.history_db_internals.encryption` — at-rest
+- :mod:`voice_typer.server.history_db_internals.encryption`, at-rest
   encryption lifecycle: DEK resolution on the writer thread, bounded
   plaintext→ciphertext backfill, decrypt-aware FTS re-index, and the
   ``fts5_rebuild_failed`` flag persistence. The public class keeps thin
@@ -43,7 +43,7 @@ Submodules:
   public class keeps thin delegating methods (``_backup_before_migration``,
   ``_maybe_recover_from_corruption``, ``_try_iterdump_recovery``,
   ``_apply_recovered_inserts``, ``_notify_corruption_recovered``).
-- :mod:`voice_typer.server.history_db_internals.crud_writes` — writer-
+- :mod:`voice_typer.server.history_db_internals.crud_writes`, writer-
   thread bodies of the CRUD write paths (add/delete/restore/clear_all/
   toggle_favorite). The decorated public methods stay on the class and
   submit these free functions via ``db._submit_write(...)`` so the
@@ -61,6 +61,6 @@ All functions read mutable module constants (e.g.
 back through the ``history_db`` facade namespace at call time, so tests
 that monkeypatch those constants on the facade keep working.
 
-Nothing in this package is part of the public API — callers should always
+Nothing in this package is part of the public API, callers should always
 import from :mod:`voice_typer.server.history_db`.
 """

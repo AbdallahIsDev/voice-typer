@@ -7,7 +7,7 @@ structurally derived from
 ``credential_store.PROVIDER_TO_CONFIG_FIELD.values()``). A contributor
 adding a new provider to ``PROVIDER_TO_CONFIG_FIELD`` without updating
 the history_bounds literal would silently leave the new API key
-un-redacted on the IPC path — a credential disclosure.
+un-redacted on the IPC path, a credential disclosure.
 
 The fix: ``history_bounds._SECRET_CONFIG_FIELDS`` is now an ALIAS
 IMPORT from ``config_sanitizer``, so the two names refer to the SAME
@@ -33,8 +33,8 @@ class TestSecretConfigFieldsAlias:
 
     def test_history_bounds_alias_is_canonical_object(self):
         """``history_bounds._SECRET_CONFIG_FIELDS`` must be the SAME
-        frozenset object as ``config_sanitizer._SECRET_CONFIG_FIELDS``
-        — not a copy, not a divergent literal."""
+          frozenset object as ``config_sanitizer._SECRET_CONFIG_FIELDS``
+        , not a copy, not a divergent literal."""
         assert _HISTORY_BOUNDS_FIELDS is _CANONICAL_FIELDS, (
             "history_bounds._SECRET_CONFIG_FIELDS must be an alias import "
             "from config_sanitizer (same object identity), not a separate "
@@ -72,7 +72,7 @@ class TestSecretConfigFieldsContainsKnownProviders:
     """The canonical frozenset must contain AT LEAST the 5 known
     provider fields (the historical literal). A future contributor
     adding a provider to ``PROVIDER_TO_CONFIG_FIELD`` will expand this
-    set — the test asserts "contains at least" rather than "exactly"
+    set, the test asserts "contains at least" rather than "exactly"
     so the addition doesn't break the test."""
 
     @pytest.mark.parametrize(
@@ -109,7 +109,7 @@ class TestSecretConfigFieldsContainsKnownProviders:
 
 class TestSanitizerUsesCanonicalSet:
     """``_sanitize_config_for_ipc`` (in history_bounds) must use the
-    canonical frozenset — redacting a field that's in the canonical
+    canonical frozenset, redacting a field that's in the canonical
     set but NOT in a stale local literal."""
 
     def test_canonical_field_is_redacted_by_history_bounds_sanitizer(self):

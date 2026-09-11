@@ -19,13 +19,13 @@
  *     matchMedia listener installed at module load below).  This is
  *     necessary because the listener clears the cache so the next
  *     ``getCurrentThemeColors`` call re-reads from the DOM with the
- *     new effective colour scheme — otherwise the cached hex values
+ *     new effective colour scheme, otherwise the cached hex values
  *     from the normal-contrast reading would persist and produce
  *     stale swatches in the custom-theme editor.
  */
 
 // type narrowing (kept non-exported): ``ThemeColorCacheEntry`` is only
-// used by this module (no external importer — verified by grep across
+// used by this module (no external importer, verified by grep across
 // the renderer tree). Keep the type NON-exported so the surface area
 // stays minimal and future renames don't ripple into other files.
 type ThemeColorCacheEntry = {
@@ -89,7 +89,7 @@ if (typeof window !== "undefined" && typeof window.matchMedia === "function") {
 		// Vite HMR cleanup. ``import.meta.hot`` is only defined
 		// in dev (the production build tree-shakes this branch away).
 		// When Vite hot-replaces this module, the dispose callback
-		// fires BEFORE the new module is installed — we remove the
+		// fires BEFORE the new module is installed, we remove the
 		// listener here so the old module's `handler` closure (which
 		// captures the OLD `_themeColorCache` Map) is no longer
 		// referenced by the MediaQueryList.
@@ -99,7 +99,7 @@ if (typeof window !== "undefined" && typeof window.matchMedia === "function") {
 			});
 		}
 	} catch (e) {
-		// matchMedia may throw in restricted sandboxes — non-fatal.
+		// matchMedia may throw in restricted sandboxes, non-fatal.
 		// The cache simply won't auto-invalidate on contrast change;
 		// the per-color-change invalidation in
 		// ``handleCustomColorChange`` still applies.

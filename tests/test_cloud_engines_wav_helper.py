@@ -73,7 +73,7 @@ def test_audio_to_wav_bytes_empty_input_48k_byte_identical_to_hand_crafted() -> 
 
 # ---------------------------------------------------------------------------
 # 3. ``test_connection`` Deepgram path uses ``_audio_to_wav_bytes``.
-#    (Source inspection — avoids the real network call the method makes.)
+#    (Source inspection, avoids the real network call the method makes.)
 # ---------------------------------------------------------------------------
 def _read_facade_source() -> str:
     with open(CLOUD_ENGINES_PATH, encoding="utf-8") as fh:
@@ -87,7 +87,7 @@ def _read_engine_source() -> str:
 
 def test_test_connection_deepgram_branch_uses_helper() -> None:
     """The Deepgram branch of ``test_connection`` must obtain its empty
-    WAV payload from ``_audio_to_wav_bytes`` — NOT from a hand-crafted
+    WAV payload from ``_audio_to_wav_bytes``, NOT from a hand-crafted
     ``b\"RIFF...\"`` literal."""
     src = _read_engine_source()
     # The method body must be present.
@@ -101,7 +101,7 @@ def test_test_connection_deepgram_branch_uses_helper() -> None:
 
 def test_no_hand_crafted_wav_magic_bytes_in_module() -> None:
     """The hand-crafted 44-byte WAV literal must not appear anywhere in
-    the engine module anymore — the helper is the single source of
+    the engine module anymore, the helper is the single source of
     truth for WAV encoding."""
     src = _read_engine_source()
     hand_crafted = (
@@ -132,7 +132,7 @@ def test_stdlib_imports_hoisted_to_module_top() -> None:
     # The lazy aliases must NOT survive anywhere in the file.
     full_src = _read_facade_source()
     assert "import time as _time" not in full_src, "lazy `import time as _time` still present"
-    # `import wave` may only appear once — at module top. A second
+    # `import wave` may only appear once, at module top. A second
     # occurrence inside a function would be a lazy import regression.
     assert full_src.count("import wave") == 1, (
         f"expected exactly one `import wave` (module-top); found {full_src.count('import wave')}"

@@ -2,7 +2,7 @@
 
 The recent  (keyring) and §3.2-§3.7 (punctuation cheat sheet) sub-agents
 added new English keys but didn't update the other 7 locale files. This script
-copies the English values as placeholders — translators can refine later.
+copies the English values as placeholders, translators can refine later.
 
 Run: python scripts/backfill_i18n_keys.py
 """
@@ -50,7 +50,7 @@ def backfill_locale(locale: str, en: dict, en_keys: set[str]) -> int:
 
     # Reload original to preserve existing top-level order, then merge
     # en's missing keys into it. ``on_conflict="skip"`` preserves
-    # translator-authored values — only ADDS keys that are absent.
+    # translator-authored values, only ADDS keys that are absent.
     original = load_json(path)
     _, added = merge_en_into_locale(en, original, on_conflict="skip")
     save_json(path, original)

@@ -4,12 +4,12 @@
 // Tauri runtime.
 //
 // Contract preserved (identical on both Tauri and Electron paths):
-//   • `window.python.call({type, data}) → Promise<data>` — dispatches
+//   • `window.python.call({type, data}) → Promise<data>`, dispatches
 //     an IPC command to the Python sidecar. On Tauri this routes
 //     through `invoke('dispatch', {cmd: type, data})`; the Rust host
 //     forwards it over WS to the sidecar and returns `response.data`.
 //     Rejects on `type:"error"` envelopes (Rust at main.rs:515).
-//   • `window.python.onEvent(callback) → () => void` — subscribes to
+//   • `window.python.onEvent(callback) → () => void`, subscribes to
 //     all server-initiated events. On Tauri this listens to the
 //     `python-event` Tauri event (emitted by main.rs:455 with
 //     `{type, data}` envelope).
@@ -19,7 +19,7 @@
 // `cancelled` flag (the primary `python-event` channel + two relay
 // channels). Using `makeListener` per channel collapses each
 // subscription to ~5 LOC and lets each listener own its own
-// cancellation state — the shared flag is no longer needed because
+// cancellation state, the shared flag is no longer needed because
 // each listener's cleanup is independent.
 
 import type { PythonBridge, PythonPushEvent } from "@/types/ipc";
@@ -29,7 +29,7 @@ import { makeListener, type TauriGlobal } from "./detect";
 /**
  * Build the `window.python` namespace using Tauri's global API.
  *
- * Idempotent at the orchestrator level — `installTauriBridge()` checks
+ * Idempotent at the orchestrator level, `installTauriBridge()` checks
  * `window.python` before calling this. The returned object is a fresh
  * allocation each call (no shared state), so HMR re-imports are safe.
  */
@@ -61,7 +61,7 @@ export function createPythonNamespace(tauri: TauriGlobal): PythonBridge {
 		//when `supervisor_relaunching` carries
 		// `reason: "backoff_exhausted"` (emitted by `supervisor.rs:495`
 		// right before the full-app `app.restart()`), synthesize an
-		// `error` event instead of a `reconnecting` event — the
+		// `error` event instead of a `reconnecting` event, the
 		// supervisor has given up retrying and the renderer must flip
 		// to `"disconnected"` with a user-facing error message rather
 		// than staying stuck on the transient `"restarting"` UI. The
@@ -77,7 +77,7 @@ export function createPythonNamespace(tauri: TauriGlobal): PythonBridge {
 		//and `ReconnectedEvent` members.  has since added both
 		// members, so the object literals now type-check directly —
 		// the stale casts and TODOs were removed. The cast on the
-		// `python-event` channel itself stays — the Rust host forwards
+		// `python-event` channel itself stays, the Rust host forwards
 		// arbitrary server events whose `type` field may not be in the
 		// union (e.g. legacy / unknown events).
 		onEvent: (callback) => {
@@ -154,7 +154,7 @@ export function createPythonNamespace(tauri: TauriGlobal): PythonBridge {
 			// transient ``"restarting"`` banner. We synthesise
 			// the same ``"respawn exhausted"`` sentinel
 			// substring so ``useConnection``'s ``error`` handler
-			// flips the connection status — the supervisor's
+			// flips the connection status, the supervisor's
 			// ``message`` field is appended so the user-facing
 			// text in ``lastError`` carries the reinstall
 			// instructions verbatim.

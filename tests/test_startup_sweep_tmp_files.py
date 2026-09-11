@@ -15,14 +15,14 @@ The pre-fix startup sweep (``_sweep_stale_backup_files``) covered
 
 JB-42 fix: ``_sweep_stale_backup_files`` now also sweeps ``*.tmp`` files
 with a SHORTER age gate (``_TMP_RETENTION_MAX_AGE_SECONDS = 300``,
-5 min) — long enough that a concurrent process mid-write (e.g. another
+5 min), long enough that a concurrent process mid-write (e.g. another
 Voice Typer instance, a long-running gdpr-export zip build) is NOT
 swept out from under it, short enough that crash-leftover ``.tmp``
 files don't accumulate. The sweep walks the top-level ``config_dir``
 AND each subdir in ``_TMP_SWEEP_SUBDIRS`` (e.g.
 ``crash_diagnostics/``).
 
-These tests pin the behaviour in isolation — they call
+These tests pin the behaviour in isolation, they call
 ``_sweep_stale_backup_files(tmp_path)`` directly.
 """
 
@@ -35,11 +35,11 @@ from pathlib import Path
 import pytest
 from voice_typer.server import startup_sequence as ss_mod
 
-# 6 minutes in seconds — comfortably past the 5-minute cutoff so the file
+# 6 minutes in seconds, comfortably past the 5-minute cutoff so the file
 # is unconditionally "stale" regardless of test runner clock skew.
 _STALE_TMP_AGE_SECONDS = 6 * 60
-# 1 minute in seconds — comfortably inside the 5-minute cutoff so the file
-# is unconditionally "fresh" (must NOT be deleted — might belong to a
+# 1 minute in seconds, comfortably inside the 5-minute cutoff so the file
+# is unconditionally "fresh" (must NOT be deleted, might belong to a
 # concurrent process mid-write).
 _FRESH_TMP_AGE_SECONDS = 1 * 60
 
@@ -51,7 +51,7 @@ def _touch_with_age(path: Path, age_seconds: float) -> None:
     os.utime(path, (target_mtime, target_mtime))
 
 
-# ── (a) stale .tmp file (mtime > 5 min) — deleted ─────────────────────
+# ── (a) stale .tmp file (mtime > 5 min), deleted ─────────────────────
 
 
 class TestSweepDeletesStaleTmpFiles:
@@ -80,11 +80,11 @@ class TestSweepDeletesStaleTmpFiles:
         assert not path.exists(), f"expected {filename} to be purged (stale .tmp)"
 
 
-# ── (b) fresh .tmp file (mtime < 5 min) — preserved ───────────────────
+# ── (b) fresh .tmp file (mtime < 5 min), preserved ───────────────────
 
 
 class TestSweepPreservesFreshTmpFiles:
-    """A recent ``.tmp`` file is PRESERVED — it might belong to a concurrent
+    """A recent ``.tmp`` file is PRESERVED, it might belong to a concurrent
     process mid-write (another Voice Typer instance, a long-running
     gdpr-export zip build)."""
 
@@ -103,12 +103,10 @@ class TestSweepPreservesFreshTmpFiles:
 
         ss_mod._sweep_stale_backup_files(tmp_path)
 
-        assert path.exists(), (
-            f"expected {filename} to be PRESERVED (fresh .tmp — concurrent process might be mid-write)"
-        )
+        assert path.exists(), f"expected {filename} to be PRESERVED (fresh .tmp, concurrent process might be mid-write)"
 
 
-# ── (c) mixed .tmp dir — only stale ones purged ───────────────────────
+# ── (c) mixed .tmp dir, only stale ones purged ───────────────────────
 
 
 class TestSweepMixedTmpDir:
@@ -132,10 +130,10 @@ class TestSweepMixedTmpDir:
         stale_tmp = tmp_path / "config.json.abc.tmp"
         fresh_bak = tmp_path / "config.json.corrupt-1800000000"
         fresh_tmp = tmp_path / "config.json.def.tmp"
-        # 31-day age — past the 30-day backup cutoff.
+        # 31-day age, past the 30-day backup cutoff.
         _touch_with_age(stale_bak, 31 * 24 * 60 * 60)
         _touch_with_age(fresh_bak, 1 * 24 * 60 * 60)
-        # 6-min age — past the 5-min tmp cutoff.
+        # 6-min age, past the 5-min tmp cutoff.
         _touch_with_age(stale_tmp, _STALE_TMP_AGE_SECONDS)
         _touch_with_age(fresh_tmp, _FRESH_TMP_AGE_SECONDS)
 
@@ -147,7 +145,7 @@ class TestSweepMixedTmpDir:
         assert fresh_tmp.exists(), "fresh .tmp must be preserved"
 
 
-# ── (d) subdir sweep — crash_diagnostics ──────────────────────
+# ── (d) subdir sweep, crash_diagnostics ──────────────────────
 
 
 class TestSweepTmpSubdirs:
@@ -178,12 +176,12 @@ class TestSweepTmpSubdirs:
 
     def test_missing_subdir_is_noop(self, tmp_path: Path) -> None:
         """A missing subdir is silently skipped (no error, no creation)."""
-        # No crash_diagnostics/ created — sweep must not raise.
+        # No crash_diagnostics/ created, sweep must not raise.
         ss_mod._sweep_stale_backup_files(tmp_path)
         assert not (tmp_path / "crash_diagnostics").exists()
 
 
-# ── (e) boundary — exactly 5 min ──────────────────────────────────────
+# ── (e) boundary, exactly 5 min ──────────────────────────────────────
 
 
 class TestSweepTmpBoundary:
@@ -217,13 +215,13 @@ class TestTmpSweepConstants:
     """Pin the constants so a future change is intentional."""
 
     def test_tmp_retention_is_5_minutes(self) -> None:
-        """5 min = 300 s — long enough for concurrent mid-write, short enough
+        """5 min = 300 s, long enough for concurrent mid-write, short enough
         to bound accumulation."""
         assert ss_mod._TMP_RETENTION_MAX_AGE_SECONDS == 300.0
 
     def test_tmp_retention_much_shorter_than_backup_retention(self) -> None:
         """The ``.tmp`` retention (5 min) must be MUCH shorter than the
-        30-day backup retention — ``.tmp`` files are mid-write intermediates
+        30-day backup retention: ``.tmp`` files are mid-write intermediates
         with no forensic value."""
         assert ss_mod._TMP_RETENTION_MAX_AGE_SECONDS < ss_mod._BACKUP_RETENTION_MAX_AGE_SECONDS / 100
 

@@ -14,7 +14,7 @@
  *     `relaunchApp()`; `show_window` calls `showMainWindow()`.
  *
  * The existing `structured-logger.test.ts` only inspects the
- * source for log usage — it doesn't exercise the routing behavior.
+ * source for log usage, it doesn't exercise the routing behavior.
  * This file complements it with behavioral coverage of the 8+ push
  * event types listed in
  */
@@ -199,7 +199,7 @@ describe("XS-78: handle-message.ts", () => {
 		});
 
 		it("is a no-op when the pending entry is missing (stale reply)", () => {
-			// No entry for id=999 — must not throw.
+			// No entry for id=999, must not throw.
 			expect(() =>
 				handleMessage({ id: 999, type: "result", data: "late" }),
 			).not.toThrow();
@@ -374,7 +374,7 @@ describe("XS-78: handle-message.ts", () => {
 				notif.clickHandlers[0]?.();
 
 				// Clicking a consent-gate toast opens the main window and
-				// deep-links to the EXACT Settings consent row — App.tsx's
+				// deep-links to the EXACT Settings consent row, App.tsx's
 				// navigate handler forwards ``consent_field`` to Settings'
 				// pendingConsentField deep-link (scroll-to + highlight).
 				expect(mocks.showMainWindow).toHaveBeenCalledTimes(1);
@@ -410,7 +410,7 @@ describe("XS-78: handle-message.ts", () => {
 				// target (/models). ``toHaveBeenCalledWith`` matches ANY
 				// broadcast (the raw notification event is also
 				// broadcast), and the objectContaining data constraint
-				// proves only the consent-row navigate exists — a
+				// proves only the consent-row navigate exists, a
 				// navigate to /models would NOT match this assertion.
 				expect(mocks.broadcastToMainWindow).toHaveBeenCalledWith(
 					"python-event",

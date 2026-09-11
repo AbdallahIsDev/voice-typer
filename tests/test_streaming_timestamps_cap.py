@@ -4,7 +4,7 @@ size cap so a runaway ``finalize()`` (which passes
 cannot grow the dedup set without bound.
 
 Pre-fix, ``_words`` was bounded by a ``deque(maxlen=_MAX_WORDS=10000)``
-but ``_seen_timestamps`` was a plain ``set`` with no maxlen — its only
+but ``_seen_timestamps`` was a plain ``set`` with no maxlen, its only
 eviction path was ``_prune_old_entries``, which short-circuits on
 ``math.isfinite(commit_horizon_seconds)``. ``finalize()`` passes
 ``math.inf``, so the set grew by one entry per unique (start, end)
@@ -48,7 +48,7 @@ def test_seen_timestamps_hard_cap_prevents_unbounded_growth():
     assert cap == 50000, "DJ-21: cap must be 50000 (per fix spec)"
 
     # Pre-populate the set to just over the cap (bypassing add_words
-    # for speed — see helper docstring).
+    # for speed: see helper docstring).
     _populate_set_directly(assembler, cap + 1)
     assert len(assembler._seen_timestamps) == cap + 1
 
@@ -88,7 +88,7 @@ def test_seen_timestamps_below_cap_not_reset():
     assert len(assembler._seen_timestamps) == 101, (
         "DJ-21: below the cap, _seen_timestamps must grow normally (no spurious reset)."
     )
-    assert cap > 101, "DJ-21: test setup invariant — cap must be > 101"
+    assert cap > 101, "DJ-21: test setup invariant, cap must be > 101"
 
 
 def test_seen_timestamps_cap_resets_to_fresh_set():
@@ -127,7 +127,7 @@ def test_seen_timestamps_cap_resets_to_fresh_set():
 
 def test_seen_timestamps_cap_does_not_break_committed_text():
     """DJ-21: after a cap-triggered reset, the assembler still produces
-    correct ``committed_text`` (dedup is best-effort — a missed
+    correct ``committed_text`` (dedup is best-effort, a missed
     duplicate just produces a duplicate word, which the near-duplicate
     detector handles).
     """

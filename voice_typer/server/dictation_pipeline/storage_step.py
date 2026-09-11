@@ -2,7 +2,7 @@
 
 Holds Step 8 of the dictation pipeline:
 
-  * :meth:`_store_result` — persist the transcription to the history
+  * :meth:`_store_result`: persist the transcription to the history
     DB (gated on ``config.history_enabled``), the crash-recovery
     buffer (gated on ``config.crash_recovery_enabled``), and the
     ``_last_transcription`` slot (for repaste / undo). Also publishes
@@ -42,7 +42,7 @@ class _StorageStepMixin:
     _app: Any
     # Same provision pattern: assigned by ``_OrchestratorMixin.__init__``
     # and read by Step 8 (history-row duration + crash-recovery cycle
-    # correlation id). Annotations only — no values — so no runtime
+    # correlation id). Annotations only, no values, so no runtime
     # attribute is created and the composed MRO is unaffected (same
     # pattern as ``_TranscribeStepMixin``).
     _cycle_id: str
@@ -59,7 +59,7 @@ class _StorageStepMixin:
         ADR-0010 §6.2: the history row must be committed before
         ``repaste_last()`` could read it back. The blocking ``flush()``
         was moved OUT of this pre-paste step onto the
-        repaste boundary — ``_store_result`` only ENQUEUES
+        repaste boundary, ``_store_result`` only ENQUEUES
         (``add_transcription`` is fire-and-forget) so the paste path
         carries zero flush latency; ``repaste_last`` now calls
         ``history_db.flush()`` before its ``get_latest_text()`` read
@@ -68,7 +68,7 @@ class _StorageStepMixin:
 
          (privacy): if ``self._app.config.history_enabled`` is
         ``False``, the ``add_transcription`` call is skipped entirely
-        (but the clipboard paste still happens — incognito mode only
+        (but the clipboard paste still happens, incognito mode only
         disables persistence, not the dictation flow). There is no
         history ``flush()`` on this path at all (it lives at the
         repaste boundary), so disabling history simply means nothing
@@ -79,12 +79,12 @@ class _StorageStepMixin:
         older Config instance that hasn't yet picked up the new field.
 
          (resilience): when ``add_transcription`` returns ``<= 0``
-        (writer thread is dead or schema init failed — see
+        (writer thread is dead or schema init failed, see
         ``history_db.add_transcription``'s  guard), we log +
         trigger the notify-once tray message instead of silently
         treating the placeholder as success. Previously the pipeline
         would call ``flush()`` after the failed enqueue and block 30s
-        on a future that would never resolve — the  fix in
+        on a future that would never resolve, the  fix in
         ``history_db._submit_write`` makes the failure instant, and
         this check makes it visible to the user.
         """
@@ -106,9 +106,9 @@ class _StorageStepMixin:
                 if row_id <= 0:
                     raise RuntimeError(
                         "history_db.add_transcription returned a non-positive row_id "
-                        f"({row_id}) — writer is unavailable; transcription was NOT persisted"
+                        f"({row_id}), writer is unavailable; transcription was NOT persisted"
                     )
-                # NO blocking flush on the paste path — the history row
+                # NO blocking flush on the paste path, the history row
                 # is ENQUEUED (fire-and-forget) and the
                 # writer commits it in the background. The
                 # ADR-0010 §6.2 read-after-write guarantee now lives at
@@ -120,7 +120,7 @@ class _StorageStepMixin:
             except Exception:
                 log.exception("[PIPELINE] History DB add failed")
                 # a-review Finding 2: notify-once flag lives on ``self._app``
-                # (session-scoped) — see ``_apply_vocabulary`` for rationale.
+                # (session-scoped): see ``_apply_vocabulary`` for rationale.
                 if not getattr(self._app, "_history_fail_notified", False):
                     self._app._history_fail_notified = True
                     with contextlib.suppress(Exception):
@@ -148,7 +148,7 @@ class _StorageStepMixin:
             except Exception:
                 log.exception("[PIPELINE] Crash recovery add failed")
                 # a-review Finding 2: notify-once flag lives on ``self._app``
-                # (session-scoped) — see ``_apply_vocabulary`` for rationale.
+                # (session-scoped): see ``_apply_vocabulary`` for rationale.
                 if not getattr(self._app, "_crash_recovery_fail_notified", False):
                     self._app._crash_recovery_fail_notified = True
                     with contextlib.suppress(Exception):
@@ -160,7 +160,7 @@ class _StorageStepMixin:
 
         # Per-correction usage tracking: count this completed dictation
         # (denominator for the Analytics corrections-applied rate). Runs
-        # regardless of ``history_enabled`` — the vocabulary corrections
+        # regardless of ``history_enabled``: the vocabulary corrections
         # fire even in incognito mode, so the rate's denominator must
         # count every dictation. The tracker lives on the shared
         # ``_vocabulary_manager`` (same config dir) and swallows its own
@@ -194,9 +194,9 @@ class _StorageStepMixin:
         except Exception:
             # previously a bare ``except Exception: pass``. If
             # the event bus is broken, the renderer never receives the
-            # ``transcription_final`` push event — Home / Dashboard /
+            # ``transcription_final`` push event. Home / Dashboard /
             # History pages won't auto-refresh and the user sees stale
-            # data. Log at DEBUG (this is non-fatal — the transcription
+            # data. Log at DEBUG (this is non-fatal, the transcription
             # was already pasted; only the proactive refresh is lost)
             # so an issue with the event bus is at least visible in the
             # log file when debugging UI staleness.

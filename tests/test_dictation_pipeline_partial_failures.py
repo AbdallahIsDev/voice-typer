@@ -5,16 +5,16 @@ Background
 ----------
 Two related findings from the XZ review:
 
-* **XZ-R18-02 (Medium)** — ``_clean_text()`` and ``_apply_punctuation()``
+* **XZ-R18-02 (Medium)**: ``_clean_text()`` and ``_apply_punctuation()``
   were the only two middle-pipeline steps NOT wrapped in try/except.
   If either threw, the exception propagated to the outer ``run()``
-  ``except Exception`` block — the tray flipped to ERROR, the
+  ``except Exception`` block, the tray flipped to ERROR, the
   dictation was aborted, and the transcription was NEVER saved to
   crash recovery because ``_store_result()`` runs AFTER these steps.
   Fix: wrap in try/except matching the ``_apply_vocabulary`` pattern
   (``log.warning(...)`` + notify-once + return original text).
 
-* **XZ-R18-05 (Medium)** — ``_apply_llm_polish``'s except block only
+* **XZ-R18-05 (Medium)**: ``_apply_llm_polish``'s except block only
   logged a WARNING. The user paid for an LLM API call that never
   produced output (or believed the feature was broken) with NO
   diagnostic. Fix: add the notify-once pattern (tray notification on
@@ -66,11 +66,11 @@ class _TestApp:
         self.config.text_cleanup_enabled = True
         self.config.vocabulary_enabled = True
         self.config.auto_punctuation = True
-        self.config.llm_polish = False  # default OFF — per-test opt-in
+        self.config.llm_polish = False  # default OFF, per-test opt-in
         self.config.llm_api_key = ""
         self.config.llm_polish_consent = False
         self.config.crash_recovery_enabled = False
-        self.config.templates_enabled = False  # off — not under test
+        self.config.templates_enabled = False  # off, not under test
         self.config.log_transcriptions = False
         self.config.model_size = "tiny.en"
         self.config.device = "cpu"
@@ -353,7 +353,7 @@ class TestApplyLlmPolishNotifyOnceAndEventPublish:
 class TestApplyLlmPolishEventBusFailureIsSwallowed:
     """If ``event_bus.publish`` raises (e.g. the bus is shutting down
     or the queue is full), the polish-failure path must NOT propagate
-    the exception — the original text is still returned to the user
+    the exception, the original text is still returned to the user
     and the tray notification (which has its own suppress(Exception)
     guard) is the user-visible signal."""
 
@@ -376,6 +376,6 @@ class TestApplyLlmPolishEventBusFailureIsSwallowed:
         import voice_typer.server.event_bus as event_bus_mod
 
         monkeypatch.setattr(event_bus_mod, "publish", _boom_publish)
-        # Must NOT raise — the publish is wrapped in contextlib.suppress(Exception).
+        # Must NOT raise, the publish is wrapped in contextlib.suppress(Exception).
         result = pipeline._apply_llm_polish("hello world")
         assert result == "hello world"

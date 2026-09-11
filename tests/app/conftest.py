@@ -1,7 +1,7 @@
 """CR-25 / CR-60: shared fixtures for tests/app/* (split from test_app.py).
 
 The local ``mock_heavy_imports`` autouse fixture that used to live in
-``tests/test_app.py`` was DELETED — its ``force_pynput_hotkey_backend``
+``tests/test_app.py`` was DELETED, its ``force_pynput_hotkey_backend``
 branch has been hoisted into the project-wide ``mock_heavy_imports``
 fixture in ``tests/conftest.py`` (CR-60). Tests in this directory
 inherit that project-wide mock automatically.
@@ -24,7 +24,7 @@ def app(tmp_config_dir, monkeypatch):
     """Create a VoiceTyperApp with mocked dependencies.
 
     WR-2: yield-style fixture so the background ``_model_load_thread``
-    is joined in teardown — previously it was leaked across test
+    is joined in teardown, previously it was leaked across test
     boundaries (the thread kept running after the test finished,
     occasionally touching the now-torn-down VoiceTyperApp and causing
     flaky failures in later tests).
@@ -55,7 +55,7 @@ def app(tmp_config_dir, monkeypatch):
     # TranscriptionEngine is now created in _do_startup (background), not __init__
     # Set a mock transcriber for tests that need it.
     # The ``transcriber`` attribute is a @property whose setter delegates
-    # to ``self._registry.register("whisper", ...)`` — so this assignment
+    # to ``self._registry.register("whisper", ...)``, so this assignment
     # keeps the registry in sync automatically and ensure_active_engine_loaded()
     # won't try to create a fresh TranscriptionEngine.
     instance.models.transcriber = MagicMock()
@@ -81,11 +81,11 @@ def app(tmp_config_dir, monkeypatch):
             instance.history_db.close()
     # Cancel the tray elapsed-recording timer worker thread (a real
     # ``tray_elapsed_timer`` daemon thread per recording session) if the
-    # test started one. Defensive — ``tray`` may be a MagicMock.
+    # test started one. Defensive: ``tray`` may be a MagicMock.
     with contextlib.suppress(Exception):
         instance.tray._cancel_elapsed_timer()
     # join the background model-load thread so it doesn't outlive
-    # the test and touch a torn-down VoiceTyperApp. Best-effort — if the
+    # the test and touch a torn-down VoiceTyperApp. Best-effort, if the
     # thread is None or already finished, the join is a no-op.
     loader = getattr(instance.models, "_model_load_thread", None)
     if loader is not None and loader.is_alive():

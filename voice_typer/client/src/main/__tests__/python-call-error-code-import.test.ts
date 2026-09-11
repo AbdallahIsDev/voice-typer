@@ -25,7 +25,7 @@
  *       handler's `ERROR_MESSAGES` record is keyed by the shared type.
  *
  * ON LINUX (sandbox): source-text + runtime type check.
- * ON WINDOWS / macOS: same contract — the type alias is platform-agnostic.
+ * ON WINDOWS / macOS: same contract, the type alias is platform-agnostic.
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -82,7 +82,7 @@ describe("python-call-handler.ts imports PythonCallErrorCode from shared", () =>
 	});
 
 	it("does NOT contain any literal union member definitions (backend_not_connected etc.)", () => {
-		// The shared module is the single source of truth — the handler
+		// The shared module is the single source of truth, the handler
 		// must not re-declare any of the 4 codes locally.
 		const localDeclPattern =
 			/export\s+type\s+PythonCallErrorCode\s*=[\s\S]*?(backend_not_connected|backend_exited_early|command_timeout)/;

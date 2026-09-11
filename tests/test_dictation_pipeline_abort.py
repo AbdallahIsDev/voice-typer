@@ -3,9 +3,9 @@ DJ-13 (cloud engines block transcription thread) fixes.
 
 Coverage:
 
-* **DJ-12** — the abort hotkey (ESC) and the watchdog force-recover
+* **DJ-12**, the abort hotkey (ESC) and the watchdog force-recover
   path used to set ``_cancelled_cycle_ids`` and let the inference run
-  to completion — the late result was dropped by the paste guard, but
+  to completion, the late result was dropped by the paste guard, but
   the ctranslate2 / transformers / cloud-HTTP call kept the
   transcription thread busy for up to 30s. The fix wires an
   ``_abort_event`` through all three engines (Whisper, Parakeet,
@@ -13,7 +13,7 @@ Coverage:
   via a polling ``_AbortWatcher`` thread started in
   ``DictationPipeline._transcribe``.
 
-* **DJ-13** — the cloud engines used a 30s per-request timeout and
+* **DJ-13**, the cloud engines used a 30s per-request timeout and
   retried 3x with no abort check, so a stuck cloud could block the
   transcription thread for up to 35s. The fix reduces the timeout to
   10s and checks the abort token before each retry.
@@ -32,7 +32,7 @@ from unittest.mock import MagicMock
 import numpy as np
 import pytest
 
-# Whisper (transcription.py) —  abort infrastructure ────────────
+# Whisper (transcription.py), abort infrastructure ────────────
 
 
 @pytest.fixture(autouse=True)
@@ -94,7 +94,7 @@ class TestTranscriptionEngineAbort:
 
     def test_request_abort_does_not_raise_when_interrupt_missing(self):
         """Older ctranslate2 / mock models may not expose
-        ``interrupt()``. ``request_abort()`` must NOT raise — only the
+        ``interrupt()``. ``request_abort()`` must NOT raise, only the
         between-segments check fires in that case."""
         from voice_typer.server.transcription import TranscriptionEngine
 
@@ -140,7 +140,7 @@ class TestTranscriptionEngineAbort:
 
         engine._model = MagicMock()
         engine._model.transcribe.side_effect = fake_transcribe
-        # Pre-set the abort event — the loop's first iteration check
+        # Pre-set the abort event, the loop's first iteration check
         # fires before any segment is produced (the check is at the top
         # of the for-loop body, before ``segment_count += 1``).
         # To exercise the "mid-loop break" path we instead set the
@@ -171,7 +171,7 @@ class TestTranscriptionEngineAbort:
         assert "segment 4" not in result, f"abort should have stopped the loop early, but got full result: {result!r}"
 
 
-# Parakeet (parakeet_engine.py) — abort infrastructure ─────────
+# Parakeet (parakeet_engine.py), abort infrastructure ─────────
 
 
 class TestParakeetAbortStoppingCriteria:
@@ -179,7 +179,7 @@ class TestParakeetAbortStoppingCriteria:
     stopping-criteria shim. After the ONNX Runtime migration
     (PLAN_ONNX_INTEGRATION.md §3), the production engine no longer
     wires ``stopping_criteria`` into ``model.generate()`` (there is no
-    ``generate()`` — the ONNX path uses the onnx-asr adapter's
+    ``generate()``, the ONNX path uses the onnx-asr adapter's
     ``recognize()``).
     The class is retained as a no-op shim so this module's imports keep
     resolving; its ``__call__`` still reflects the abort-event state
@@ -191,7 +191,7 @@ class TestParakeetAbortStoppingCriteria:
 
         event = threading.Event()
         criteria = _AbortStoppingCriteria(event)
-        # ``input_ids`` / ``scores`` are arbitrary — the criteria only
+        # ``input_ids`` / ``scores`` are arbitrary, the criteria only
         # checks the event.
         assert criteria(input_ids=None, scores=None) is False
 
@@ -219,7 +219,7 @@ class TestParakeetAbortStoppingCriteria:
             )
         criteria = _AbortStoppingCriteria(threading.Event())
         # Duck-typed: NOT a subclass instance. (If this assertion ever
-        # fails because someone made it a subclass, that's fine — the
+        # fails because someone made it a subclass, that's fine, the
         # docstring just says it doesn't NEED to be.)
         assert not isinstance(criteria, StoppingCriteria)
 
@@ -259,7 +259,7 @@ class TestParakeetEngineAbort:
         The pre-ONNX engine called ``model.generate(stopping_criteria=...)``
         to wire abort into per-token generation. The ONNX backend has no
         per-token stopping hook (``onnx-asr`` 0.12.0 does not forward
-        ``RunOptions`` to ``session.run`` — see the production docstring
+        ``RunOptions`` to ``session.run``: see the production docstring
         on ``ParakeetEngine._abort_event``). Mid-segment abort is a
         documented limitation; abort only fires BETWEEN chunks (see
         ``test_chunk_loop_breaks_on_abort`` below).
@@ -271,7 +271,7 @@ class TestParakeetEngineAbort:
         from voice_typer.server.parakeet_engine import ParakeetEngine
 
         engine = ParakeetEngine()
-        # Mock the ONNX model — ``recognize`` returns a string per the
+        # Mock the ONNX model: ``recognize`` returns a string per the
         # onnx-asr ``load_model`` adapter contract.
         engine._model = MagicMock()
         engine._model.recognize.return_value = "hello world"
@@ -286,7 +286,7 @@ class TestParakeetEngineAbort:
         # calls ``recognize(audio, sample_rate=WHISPER_SAMPLE_RATE)``).
         assert call_args[0] is audio or np.array_equal(call_args[0], audio)
         assert call_kwargs.get("sample_rate") == WHISPER_SAMPLE_RATE
-        # The ONNX API has no ``stopping_criteria`` parameter — that was
+        # The ONNX API has no ``stopping_criteria`` parameter, that was
         # a torch/transformers ``generate()`` kwarg. If a future revert
         # re-introduces it, this assertion fails.
         assert "stopping_criteria" not in call_kwargs
@@ -295,13 +295,13 @@ class TestParakeetEngineAbort:
 
     def test_chunk_loop_breaks_on_abort(self):
         """When the abort event is set, the chunk-iteration loop in
-        ``_transcribe_chunks`` breaks early — long audio split into 13
+        ``_transcribe_chunks`` breaks early, long audio split into 13
         chunks stops after the current chunk rather than decoding all
         remaining ones.
 
         This is the working abort path in the ONNX backend: the
         ``_abort_event`` is checked BETWEEN chunks (the only effective
-        hook — ``onnx-asr`` 0.12.0 does not forward ``RunOptions`` to
+        hook: ``onnx-asr`` 0.12.0 does not forward ``RunOptions`` to
         ``session.run``, so mid-segment termination is not supported;
         see the production docstring on
         ``ParakeetEngine._abort_event``).
@@ -331,7 +331,7 @@ class TestParakeetEngineAbort:
         assert results == ["chunk-1", "chunk-2"]
 
 
-# Cloud (cloud_engines.py) —  +  ───────────────────────────
+# Cloud (cloud_engines.py), +  ───────────────────────────
 
 
 class TestCloudEngineAbort:
@@ -363,7 +363,7 @@ class TestCloudEngineAbort:
     def test_transcribe_skips_network_call_when_abort_already_set(self):
         """If the abort token is set BEFORE ``transcribe`` is called
         (e.g.ESC hit during audio finalization), the network call is
-        skipped entirely — return empty so the pipeline's empty-check
+        skipped entirely, return empty so the pipeline's empty-check
         path runs instead of waiting 10s for a request the user
         already cancelled."""
         from voice_typer.server.cloud_engines import CloudEngine
@@ -397,7 +397,7 @@ class TestCloudEngineAbort:
 
         def failing_open(*args, **kwargs):
             attempt_count["n"] += 1
-            # Set abort after the 1st attempt fails — the 2nd iteration
+            # Set abort after the 1st attempt fails, the 2nd iteration
             # should bail out before opening another connection.
             if attempt_count["n"] == 1:
                 engine._abort_event.set()
@@ -414,7 +414,7 @@ class TestCloudEngineAbort:
             # Should raise (not retry through all 3 attempts).
             with pytest.raises(CloudEngineError):
                 engine.transcribe(audio)
-        # Only 1 attempt was made — the 2nd iteration saw the abort
+        # Only 1 attempt was made, the 2nd iteration saw the abort
         # token and bailed out before opening another connection.
         assert attempt_count["n"] == 1, (
             f"expected retry loop to abort after attempt 1, but got {attempt_count['n']} attempts"
@@ -530,7 +530,7 @@ class TestCloudEngineTimeout:
         assert captured_kwargs.get("timeout") == 10.0
 
 
-# Pipeline (dictation_pipeline.py) —  wiring ────────────────────
+# Pipeline (dictation_pipeline.py), wiring ────────────────────
 
 
 class TestDictationPipelineRequestAbort:
@@ -569,7 +569,7 @@ class TestDictationPipelineRequestAbort:
 
     def test_request_abort_swallows_engine_exceptions(self):
         """If the engine's ``request_abort()`` raises, the pipeline
-        must NOT propagate the failure — the abort token is
+        must NOT propagate the failure, the abort token is
         best-effort."""
         from voice_typer.server.dictation_pipeline import DictationPipeline
 
@@ -634,7 +634,7 @@ class TestAbortWatcher:
             watcher.stop()
 
     def test_watcher_stop_is_bounded(self):
-        """``stop()`` joins the watcher thread with a 1s timeout — it
+        """``stop()`` joins the watcher thread with a 1s timeout, it
         must NOT block indefinitely even if the watcher is mid-poll."""
         from voice_typer.server.dictation_pipeline import _AbortWatcher
 
@@ -653,7 +653,7 @@ class TestAbortWatcher:
 
     def test_watcher_handles_missing_recording_attrs(self):
         """If the app's recording lacks ``_cancelled_cycle_ids`` or the
-        lock, the watcher must NOT raise — it just keeps polling
+        lock, the watcher must NOT raise, it just keeps polling
         (no-op) until stopped."""
         from voice_typer.server.dictation_pipeline import _AbortWatcher
 
@@ -749,11 +749,11 @@ class TestPipelineTranscribeInstallsAbortWatcher:
     def test_transcribe_does_not_install_watcher_for_engine_without_abort_api(self):
         """If the active engine doesn't expose ``clear_abort`` /
         ``request_abort`` (e.g. a legacy backend), the pipeline must
-        NOT crash — it just skips the abort watcher."""
+        NOT crash, it just skips the abort watcher."""
         from voice_typer.server.dictation_pipeline import DictationPipeline
 
         app = MagicMock()
-        # spec=[] means MagicMock with NO attributes — hasattr returns False.
+        # spec=[] means MagicMock with NO attributes, hasattr returns False.
         engine = MagicMock(spec=[])
         # Manually set the attributes the pipeline reads.
         engine.is_loaded = True

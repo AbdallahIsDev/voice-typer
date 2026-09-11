@@ -6,19 +6,19 @@ on 64-bit Windows, ``_post_quit_to_windows`` called
 to ``c_int`` restype and untyped argtypes, which TRUNCATES the 64-bit
 ``HWND`` handle to 32 bits. The truncated handle is almost never a
 valid window, so ``PostMessageW`` returns 0 (failure) without posting
-``WM_QUIT`` — the ``GetMessageW`` pump never wakes and ``stop()``'s
+``WM_QUIT``, the ``GetMessageW`` pump never wakes and ``stop()``'s
 2s ``join`` times out, leaking a thread on every ``stop()`` on 64-bit
 Windows.
 
 These tests run on Linux by mocking ``ctypes.windll`` (which doesn't
-exist on non-Windows) — following the same pattern as
+exist on non-Windows), following the same pattern as
 ``tests/test_microphone_watcher.py::fake_windows_windll``. They
 verify:
 
 - ``restype`` is set to ``wintypes.BOOL`` before the ``PostMessageW`` call.
 - ``argtypes`` is set to ``[HWND, UINT, WPARAM, LPARAM]`` before the call.
 - ``PostMessageW`` is actually invoked with the watcher's hwnd + WM_QUIT.
-- A failure return (``PostMessageW`` returns 0) does NOT raise — the
+- A failure return (``PostMessageW`` returns 0) does NOT raise, the
   method logs and returns, so ``stop()`` still completes (the pump
   thread will time out independently, but the caller is not blocked).
 - No-op when ``_windows_hwnd`` is unset (e.g. pump never started).
@@ -34,7 +34,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from voice_typer.server.microphone_watcher import MicrophoneDeviceWatcher
 
-# WM_QUIT — the message ``_post_quit_to_windows`` posts to wake the
+# WM_QUIT, the message ``_post_quit_to_windows`` posts to wake the
 # blocking ``GetMessageW`` pump. 0x0012 is the Win32 constant
 # (winuser.h ``#define WM_QUIT 0x0012``).
 _WM_QUIT = 0x0012
@@ -83,18 +83,18 @@ class TestPostQuitToWindowsArgtypes:
 
         # restype must be wintypes.BOOL (not the ctypes default c_int).
         assert fake_windll_for_post_quit["user32"].PostMessageW.restype is wintypes.BOOL, (
-            "PostMessageW.restype must be wintypes.BOOL — without this, the "
+            "PostMessageW.restype must be wintypes.BOOL, without this, the "
             "BOOL return is read as c_int and may truncate on 64-bit Windows"
         )
 
     def test_post_quit_sets_argtypes_to_hwnd_uint_wparam_lparam(self, fake_windll_for_post_quit):
         """``PostMessageW.argtypes`` is set to
-        ``[HWND, UINT, WPARAM, LPARAM]`` before the call.
+          ``[HWND, UINT, WPARAM, LPARAM]`` before the call.
 
-        Without ``argtypes``, ctypes treats every argument as ``c_int``
-        — which on 64-bit Windows truncates the 64-bit HWND to 32 bits,
-        producing an invalid handle that ``PostMessageW`` silently
-        rejects (returns 0).
+          Without ``argtypes``, ctypes treats every argument as ``c_int``
+        , which on 64-bit Windows truncates the 64-bit HWND to 32 bits,
+          producing an invalid handle that ``PostMessageW`` silently
+          rejects (returns 0).
         """
         from ctypes import wintypes
 
@@ -110,14 +110,14 @@ class TestPostQuitToWindowsArgtypes:
             wintypes.WPARAM,
             wintypes.LPARAM,
         ], (
-            "PostMessageW.argtypes must be [HWND, UINT, WPARAM, LPARAM] — "
+            "PostMessageW.argtypes must be [HWND, UINT, WPARAM, LPARAM], "
             f"got {argtypes!r}. Without HWND in argtypes, the 64-bit handle "
             "is truncated to c_int and PostMessageW returns 0."
         )
 
     def test_post_quit_calls_post_message_with_hwnd_and_wm_quit(self, fake_windll_for_post_quit):
         """``PostMessageW`` is called with the watcher's hwnd and
-        ``WM_QUIT`` (0x0012) — the message that wakes the blocking
+        ``WM_QUIT`` (0x0012), the message that wakes the blocking
         ``GetMessageW`` pump so it exits and ``stop()``'s join
         succeeds."""
         watcher = MicrophoneDeviceWatcher(on_change=lambda: None)
@@ -128,7 +128,7 @@ class TestPostQuitToWindowsArgtypes:
 
         fake_windll_for_post_quit["user32"].PostMessageW.assert_called_once()
         call_args = fake_windll_for_post_quit["user32"].PostMessageW.call_args
-        # ``PostMessageW(hwnd, WM_QUIT, 0, 0)`` — wparam/lparam are 0.
+        # ``PostMessageW(hwnd, WM_QUIT, 0, 0)``, wparam/lparam are 0.
         assert call_args.args[0] == hwnd, f"PostMessageW called with hwnd={call_args.args[0]!r}, expected {hwnd!r}"
         assert call_args.args[1] == _WM_QUIT, (
             f"PostMessageW called with msg={call_args.args[1]!r}, expected WM_QUIT (0x0012)"
@@ -136,7 +136,7 @@ class TestPostQuitToWindowsArgtypes:
 
     def test_post_quit_sets_argtypes_before_call(self, fake_windll_for_post_quit):
         """The argtypes/restype assignment MUST happen before the
-        ``PostMessageW`` call — not after. This is the actual SI-18
+        ``PostMessageW`` call, not after. This is the actual SI-18
         fix: without prior argtypes, the HWND is truncated DURING the
         call (the truncation happens in ctypes' argument conversion,
         which runs before the function pointer is invoked).
@@ -165,7 +165,7 @@ class TestPostQuitToWindowsArgtypes:
         watcher._post_quit_to_windows()
 
         assert captured.get("restype_at_call") is wintypes.BOOL, (
-            "restype was not set to wintypes.BOOL BEFORE the PostMessageW call — "
+            "restype was not set to wintypes.BOOL BEFORE the PostMessageW call, "
             "the 64-bit HWND truncation happens during ctypes' argument "
             "conversion, which runs BEFORE the function pointer is invoked. "
             f"Captured restype at call time: {captured.get('restype_at_call')!r}"
@@ -182,7 +182,7 @@ class TestPostQuitToWindowsArgtypes:
         )
 
     def test_post_quit_returns_without_raising_on_failure(self, fake_windll_for_post_quit, caplog):
-        """If ``PostMessageW`` returns 0 (failure — e.g. window
+        """If ``PostMessageW`` returns 0 (failure, e.g. window
         already destroyed by a concurrent ``DestroyWindow``), the
         method must NOT raise. ``stop()`` calls
         ``_post_quit_to_windows`` unconditionally and a raise would
@@ -221,7 +221,7 @@ class TestPostQuitToWindowsArgtypes:
         equivalent to ``None``.
         """
         watcher = MicrophoneDeviceWatcher(on_change=lambda: None)
-        # ``_windows_hwnd`` is NOT set by the constructor — verify the
+        # ``_windows_hwnd`` is NOT set by the constructor, verify the
         # production code's ``getattr(..., None)`` handles the missing
         # attribute gracefully.
         assert getattr(watcher, "_windows_hwnd", None) is None
@@ -233,7 +233,7 @@ class TestPostQuitToWindowsArgtypes:
     def test_post_quit_noop_when_hwnd_falsy(self, fake_windll_for_post_quit):
         """When ``_windows_hwnd`` is 0 (window creation failed but the
         attribute was set to a falsy value), ``PostMessageW`` is NOT
-        called — there's no valid window to post to."""
+        called, there's no valid window to post to."""
         watcher = MicrophoneDeviceWatcher(on_change=lambda: None)
         watcher._windows_hwnd = 0
 
@@ -245,11 +245,11 @@ class TestPostQuitToWindowsArgtypes:
         """When ``ctypes.windll`` is unavailable (non-Windows, or
         ``ctypes`` failed to expose it), the method logs and returns
         without raising.
-        This is the normal Linux/macOS path — ``_post_quit_to_windows``
+        This is the normal Linux/macOS path: ``_post_quit_to_windows``
         is called unconditionally from ``stop()`` and must not raise
         on platforms where ``windll`` doesn't exist.
         On any platform we patch ``ctypes.windll`` with a stub whose
-        ``user32`` lookup raises ``AttributeError`` — simulating the
+        ``user32`` lookup raises ``AttributeError``, simulating the
         "windll exists but user32 lookup fails" edge case (Windows) and
         the naturally-absent case (POSIX) uniformly.
         """
@@ -273,7 +273,7 @@ class TestPostQuitToWindowsArgtypes:
 
 class _NoUser32Windll:
     """Stand-in for ``ctypes.windll`` whose ``user32`` lookup fails.
-    A plain class attribute would not raise — the production code does
+    A plain class attribute would not raise, the production code does
     ``ctypes.windll.user32`` (attribute access). A ``@property`` on the
     class raises ``AttributeError`` on access, which is exactly the
     failure the production code guards against.

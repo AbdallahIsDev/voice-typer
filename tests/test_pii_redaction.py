@@ -130,7 +130,7 @@ def test_rw6_url_credential_redaction():
 
     f = PIIRedactionFilter()
     # Use ``localhost:8080`` (no dot in the host) so the existing
-    # email-PII pattern — which requires a dotted domain after ``@`` —
+    # email-PII pattern, which requires a dotted domain after ``@`` —
     # does NOT fire and consume the userinfo.  This lets us verify
     # ``redact_url`` actually strips the credentials.  The password is
     # 32+ chars so ``redact_secret`` also fires on it.
@@ -224,7 +224,7 @@ def test_rw6_traceback_redaction_via_default_formatter():
     f.filter(record)
 
     # The default logging.Formatter appends record.exc_text to the
-    # formatted message — this verifies the redacted traceback is what
+    # formatted message, this verifies the redacted traceback is what
     # gets emitted.
     formatter = logging.Formatter("%(message)s")
     output = formatter.format(record)
@@ -266,7 +266,7 @@ def test_rw6_traceback_redaction_chained_exception():
     assert "***" in record.exc_text
 
 
-# End-to-end — actual log file does not contain the key ──────────
+# End-to-end, actual log file does not contain the key ──────────
 
 
 def test_rw6_end_to_end_log_file_no_api_key(tmp_path):
@@ -284,7 +284,7 @@ def test_rw6_end_to_end_log_file_no_api_key(tmp_path):
     config_dir.mkdir()
     setup_logging(config_dir)
 
-    # Use a child logger — the common case via get_logger(__name__)
+    # Use a child logger, the common case via get_logger(__name__)
     log = logging.getLogger("voice_typer.server.fake_module")
 
     api_key = "sk-abcdefghijklmnopqrstuvwxyz1234567890ABCDEF"
@@ -442,7 +442,7 @@ def test_g4_h_03_lastresort_is_stream_handler_with_pii_filter():
     )
 
     # Self-contained: the filter is process-global and per-test logging
-    # hygiene fixtures may remove it — (re)install explicitly rather
+    # hygiene fixtures may remove it: (re)install explicitly rather
     # than relying on a prior test's side effect.
     install_lastresort_pii_filter()
 
@@ -490,7 +490,7 @@ def test_g4_h_03_lastresort_filter_redacts_pii():
 
 
 def test_g4_h_03_third_party_logger_output_redacted_via_lastresort():
-    """end-to-end — a third-party logger with NO handlers
+    """end-to-end, a third-party logger with NO handlers
     routes through ``logging.lastResort``, which redacts PII.
 
     This simulates the production scenario: a buggy keyring backend
@@ -520,7 +520,7 @@ def test_g4_h_03_third_party_logger_output_redacted_via_lastresort():
     try:
         # Create a third-party logger that mimics keyring/urllib3:
         # no handlers of its own, no propagation to the root logger
-        # (so root's handlers — if any — don't catch it). This forces
+        # (so root's handlers (if any) don't catch it). This forces
         # the record to flow through ``lastResort``.
         logger = logging.getLogger("test_g4_h_03_fake_third_party_lib")
         # Clear any handlers a previous test may have left behind.
@@ -565,7 +565,7 @@ def test_g4_h_03_install_lastresort_pii_filter_idempotent():
 
     # The handler should still be a StreamHandler.
     assert isinstance(logging.lastResort, logging.StreamHandler)
-    # Count PIIRedactionFilter instances — should be exactly 1
+    # Count PIIRedactionFilter instances, should be exactly 1
     # (each install replaces the handler, so no duplicates accumulate).
     pii_filters = [f for f in logging.lastResort.filters if isinstance(f, PIIRedactionFilter)]
     assert len(pii_filters) == 1, (

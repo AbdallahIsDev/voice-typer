@@ -2,7 +2,7 @@
 
 This test file is a SECOND layer of defense for the YJ-10 invariant
 (Rust ``allowed_commands()`` set MUST mirror the TS ``ALLOWED_COMMANDS``
-Set exactly — same count + same entries). The primary guard lives in
+Set exactly, same count + same entries). The primary guard lives in
 ``tests/test_security_doc_command_count.py`` (functions
 ``test_rust_allowlist_matches_ts_allowlist_count`` and
 ``test_rust_allowlist_matches_ts_allowlist_entries``). This file
@@ -12,7 +12,7 @@ exists so that:
    review process assigns each finding a regression test that lives
    close to the finding's documentation.
    ``test_security_doc_command_count.py`` predates YJ-10 (it was
-   d-review Finding 5 + CR-4 Fix-C) — its scope is broader (also
+   d-review Finding 5 + CR-4 Fix-C), its scope is broader (also
    covers SECURITY.md doc-count parity). This file is YJ-10-specific:
    it asserts ONLY the Rust ↔ TS parity invariant, with a clearer
    failure message that points at the YJ-10 fix's two files.
@@ -25,7 +25,7 @@ exists so that:
    ``rg --type=ts '<cmd>' voice_typer/client/src/renderer/src/``
    and confirmed to have ZERO renderer callers; re-adding one would
    re-open the defense-in-depth gap. (``check_accessibility`` was
-   removed from the guard set on 2026-08-10 — finding #919 part b
+   removed from the guard set on 2026-08-10, finding #919 part b
    gave it a legitimate renderer caller, so it was re-added to all
    three allowlists in lockstep instead.)
 
@@ -37,7 +37,7 @@ inside ``allowed_commands()``) and compares against the TS
 
 If you're modifying the Rust allowlist shape and the parser here
 breaks, prefer updating the parser (the regex is intentionally
-specific) over skipping the test — the YJ-10 invariant is a
+specific) over skipping the test, the YJ-10 invariant is a
 defense-in-depth gate against a compromised renderer reaching
 server-side handlers the renderer never legitimately invokes.
 """
@@ -93,7 +93,7 @@ def _rust_allowed_commands() -> set[str]:
     the error-envelope field names like ``"type"``, ``"code"``,
     ``"data"``, ``"message"``, ``"disallowed_window"`` that appear in
     ``require_main_window`` above the literal). The duplication is
-    intentional — if the literal shape changes, both parsers fail
+    intentional, if the literal shape changes, both parsers fail
     loudly with the same actionable error message.
     """
     src = _read_sidecar_cmds_module()
@@ -135,7 +135,7 @@ def test_rust_allowlist_count_matches_ts() -> None:
     the documented ``_TS_ONLY_EXCEPTIONS`` set).
 
     A count mismatch means a command was added to one file but not
-    the other — the entry-level test below pinpoints which one.
+    the other, the entry-level test below pinpoints which one.
 
     DT-50: ``heartbeat`` and ``relaunch_ack`` are intentionally TS-only
     (the Rust host dispatches them directly via ``dispatch_inner``, not
@@ -204,7 +204,7 @@ def test_rust_allowlist_does_not_contain_removed_commands() -> None:
     """YJ-10 negative regression guard.
 
     The 16 commands removed by the YJ-10 fix (none had renderer
-    callers — see the reconciliation note in
+    callers: see the reconciliation note in
     ``sidecar_cmds.rs::allowed_commands``) MUST NOT silently creep
     back into the Rust allowlist. Each of these 16 was audited via
     ``rg --type=ts '<cmd>' voice_typer/client/src/renderer/src/`` and
@@ -222,7 +222,7 @@ def test_rust_allowlist_does_not_contain_removed_commands() -> None:
       2. Remove the command name from the ``yj10_removed`` set below
          so this negative-regression guard no longer flags it.
     (``check_accessibility`` followed exactly this path on
-    2026-08-10 — finding #919 part b gave it a renderer caller, so
+    2026-08-10, finding #919 part b gave it a renderer caller, so
     it was dropped from the set below and re-added to both
     allowlists plus the Python registry.)
     """

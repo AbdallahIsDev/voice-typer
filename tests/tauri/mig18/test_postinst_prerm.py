@@ -1,4 +1,4 @@
-"""MIG-1.8 Phase 1 + ADR-0020 §13.3 — postinst / prerm script content validation.
+"""MIG-1.8 Phase 1 + ADR-0020 §13.3: postinst / prerm script content validation.
 
 ADR-0020 §13.3 mandates REUSING the existing ``scripts/linux/postinst`` +
 ``scripts/linux/prerm`` maintainer scripts (the same ones shipped with the
@@ -13,12 +13,12 @@ contract clauses is caught at CI time:
   - ``postinst`` adds the installing user to the ``input`` group.  This
     happens via the helper ``install_permissions.py`` which calls
     ``usermod -aG input <user>`` (the Debian postinst + RPM ``%post`` both
-    delegate to that Python helper — single source of truth).
+    delegate to that Python helper, single source of truth).
   - ``postinst`` installs a udev rule at
     ``/etc/udev/rules.d/99-voice-typer.rules`` (via install_permissions.py).
   - The udev rule grants ``GROUP="input"`` + ``MODE="0660"`` for
     ``/dev/input/event*`` devices (so the ``input`` group gets rw, others
-    get nothing — standard /dev/input access pattern).
+    get nothing, standard /dev/input access pattern).
   - ``postinst`` triggers ``udevadm control --reload-rules`` +
     ``udevadm trigger --subsystem-match=input`` (via install_permissions.py)
     so the rule takes effect without a reboot.
@@ -27,7 +27,7 @@ contract clauses is caught at CI time:
   - ``prerm`` exists + is bash-syntax-valid.
   - ``prerm`` removes the udev rule (via uninstall_permissions.py).
   - ``prerm`` does NOT remove the user from the ``input`` group (other apps
-    may rely on it — explicitly documented in the prerm header comment +
+    may rely on it, explicitly documented in the prerm header comment +
     uninstall_permissions.py).
   - ``postinst.rpm`` + ``prerm.rpm`` exist + are bash-syntax-valid
     (rpm-specific equivalents for Fedora / dnf).
@@ -37,7 +37,7 @@ IMPLEMENTATION ARCHITECTURE (recap)
 ``scripts/linux/postinst`` (Debian, runs as root during ``apt install``):
   1. Locates ``/usr/share/voice-typer/scripts/install_permissions.py``
      (with a dev-mode source-tree fallback).
-  2. Runs it via ``python3 "$INSTALL_SCRIPT"`` (non-fatal on failure — the
+  2. Runs it via ``python3 "$INSTALL_SCRIPT"`` (non-fatal on failure, the
      hotkey may not work, but the package install must still succeed).
   3. Prints the log-out + log-back-in warning.
 
@@ -76,7 +76,7 @@ could mislead a future maintainer into "fixing" prerm.rpm to call
 GAP-2 (postinst.rpm lacks the dev-mode source-tree fallback): The Debian
 ``postinst`` has a fallback to the source-tree location
 (``$(dirname "$0")/../share/voice-typer/scripts/install_permissions.py``)
-for dev-mode testing.  ``postinst.rpm`` does NOT have this fallback — it
+for dev-mode testing.  ``postinst.rpm`` does NOT have this fallback, it
 only checks the production path ``/usr/share/voice-typer/scripts/``.  This
 means dev-mode testing on Fedora hosts (running postinst.rpm directly from
 the source tree without `dnf install`) would skip the permission setup
@@ -124,7 +124,7 @@ Debian / Ubuntu (.deb path):
          ls /etc/udev/rules.d/99-voice-typer.rules
          # Expected: No such file or directory
  11. Verify the user is STILL in the input group (prerm must NOT remove
-     the user from the group — other apps may rely on it):
+     the user from the group, other apps may rely on it):
          groups | grep input
          # Expected: ... input ... (still present)
  12. To manually remove group membership (optional, only if no other app
@@ -184,7 +184,7 @@ UDEV_RULE_INSTALL_PATH = "/etc/udev/rules.d/99-voice-typer.rules"
 # runners resolve `bash` to the WSL launcher stub
 # (C:\Windows\System32\bash.exe), which is on PATH but exits non-zero
 # with "Windows Subsystem for Linux has no installed distributions."
-# when invoked — so the tests would fail instead of skip.
+# when invoked, so the tests would fail instead of skip.
 # `bash_usable()` probes that `bash -c 'exit 0'` actually succeeds.
 _skip_no_bash = pytest.mark.skipif(
     not bash_usable(),
@@ -225,7 +225,7 @@ def test_postinst_exists():
     mandates reusing this exact script (not authoring a new one).
     """
     assert POSTINST.is_file(), (
-        f"scripts/linux/postinst missing at {POSTINST} — the Debian .deb "
+        f"scripts/linux/postinst missing at {POSTINST}, the Debian .deb "
         f"maintainer script must exist (ADR-0020 §13.3 reuses it)."
     )
 
@@ -254,7 +254,7 @@ def test_postinst_adds_user_to_input_group():
     """
     assert POSTINST.is_file()
     assert INSTALL_PERMISSIONS.is_file(), (
-        f"install_permissions.py missing at {INSTALL_PERMISSIONS} — postinst "
+        f"install_permissions.py missing at {INSTALL_PERMISSIONS}, postinst "
         f"delegates the usermod call to this helper (single source of truth)."
     )
     install_text = INSTALL_PERMISSIONS.read_text(encoding="utf-8")
@@ -307,7 +307,7 @@ def test_postinst_installs_udev_rule():
     # The udev rule source file must exist in the repo (install_permissions.py
     # copies it to /etc/udev/rules.d/ during install).
     assert UDEV_RULE.is_file(), (
-        f"99-voice-typer.rules missing at {UDEV_RULE} — install_permissions.py "
+        f"99-voice-typer.rules missing at {UDEV_RULE}, install_permissions.py "
         f"ships this file so it can be copied to /etc/udev/rules.d/."
     )
 
@@ -329,13 +329,13 @@ def test_udev_rule_grants_input_group_and_mode_0660():
     rule_text = UDEV_RULE.read_text(encoding="utf-8")
 
     # Match the event-device rule.  We require ALL of:
-    #   - KERNEL=="event[0-9]*"  (or KERNEL=="event*" — match event devices)
+    #   - KERNEL=="event[0-9]*"  (or KERNEL=="event*", match event devices)
     #   - SUBSYSTEM=="input"
     #   - GROUP="input"
     #   - MODE="0660"
     # The rule may be on a single line or split across lines; we search
     # the whole text with re.DOTALL semantics (use re.search on the joined
-    # text — comments + blank lines are skipped).
+    # text, comments + blank lines are skipped).
     # Strip comments + blank lines for a cleaner match.
     rule_lines = [line.strip() for line in rule_text.splitlines() if line.strip() and not line.lstrip().startswith("#")]
     rule_joined = " ".join(rule_lines)
@@ -351,7 +351,7 @@ def test_udev_rule_grants_input_group_and_mode_0660():
         "get rw access to /dev/input/event* (per ADR-0020 §13.3)."
     )
     assert 'MODE="0660"' in rule_joined, (
-        'udev rule must set MODE="0660" (owner rw, group rw, others none) — the standard /dev/input access pattern.'
+        'udev rule must set MODE="0660" (owner rw, group rw, others none), the standard /dev/input access pattern.'
     )
 
 
@@ -363,7 +363,7 @@ def test_postinst_triggers_udevadm_reload_and_trigger():
 
     Without these, the newly-installed udev rule would not take effect
     until the next boot (or the next udev event).  install_permissions.py
-    runs both commands (best-effort — failures are non-fatal because some
+    runs both commands (best-effort, failures are non-fatal because some
     minimal containers don't have udev running).
     """
     assert INSTALL_PERMISSIONS.is_file()
@@ -427,7 +427,7 @@ def test_prerm_exists():
     mandates reusing this exact script.
     """
     assert PRERM.is_file(), (
-        f"scripts/linux/prerm missing at {PRERM} — the Debian .deb "
+        f"scripts/linux/prerm missing at {PRERM}, the Debian .deb "
         f"maintainer script must exist (ADR-0020 §13.3 reuses it)."
     )
 
@@ -457,7 +457,7 @@ def test_prerm_removes_udev_rule():
     """
     assert PRERM.is_file()
     assert UNINSTALL_PERMISSIONS.is_file(), (
-        f"uninstall_permissions.py missing at {UNINSTALL_PERMISSIONS} — prerm delegates the cleanup to this helper."
+        f"uninstall_permissions.py missing at {UNINSTALL_PERMISSIONS}, prerm delegates the cleanup to this helper."
     )
 
     # prerm must reference + invoke uninstall_permissions.py.
@@ -510,7 +510,7 @@ def test_prerm_does_not_remove_user_from_input_group():
     #    group" decision (so future maintainers don't "fix" it).
     assert "input" in prerm_text.lower(), (
         "prerm must mention 'input' in its header comment (documenting the "
-        "decision NOT to remove the user from the input group — other apps "
+        "decision NOT to remove the user from the input group, other apps "
         "may rely on it)."
     )
 
@@ -526,9 +526,9 @@ def test_prerm_does_not_remove_user_from_input_group():
     # gpasswd -d is the canonical "remove from group" command.  It must
     # NOT appear in any of the cleanup scripts (it's only mentioned in
     # the user-facing NOTE telling them how to remove themselves manually
-    # — but that NOTE goes to stdout, not into actual command execution).
+    # , but that NOTE goes to stdout, not into actual command execution).
     # We check for the command form `gpasswd -d` followed by a username
-    # placeholder (e.g. `<user>`, `$USER`, `<username>`) — NOT the literal
+    # placeholder (e.g. `<user>`, `$USER`, `<username>`), NOT the literal
     # string in a NOTE message.
     #
     # The uninstall path uses subprocess.run([...]) lists, so an actual
@@ -550,7 +550,7 @@ def test_prerm_does_not_remove_user_from_input_group():
     )
     assert not gpasswd_remove_pattern.search(cleanup_text), (
         "prerm / uninstall_permissions.py must NOT invoke `gpasswd -d` "
-        "(that would remove the user from the input group — other apps may "
+        "(that would remove the user from the input group, other apps may "
         "rely on it). The user-facing NOTE may *mention* `gpasswd -d` as a "
         "manual command, but the script itself must not execute it."
     )
@@ -584,7 +584,7 @@ def test_postinst_rpm_exists():
     Debian postinst (same install_permissions.py helper).
     """
     assert POSTINST_RPM.is_file(), (
-        f"scripts/linux/postinst.rpm missing at {POSTINST_RPM} — the RPM "
+        f"scripts/linux/postinst.rpm missing at {POSTINST_RPM}, the RPM "
         f"%post maintainer script must exist (ADR-0020 §13.3 reuses the "
         f"parallel .rpm scripts alongside the .deb ones)."
     )
@@ -599,7 +599,7 @@ def test_prerm_rpm_exists():
     Debian prerm (same uninstall_permissions.py helper).
     """
     assert PRERM_RPM.is_file(), (
-        f"scripts/linux/prerm.rpm missing at {PRERM_RPM} — the RPM %preun "
+        f"scripts/linux/prerm.rpm missing at {PRERM_RPM}, the RPM %preun "
         f"maintainer script must exist (ADR-0020 §13.3 reuses the parallel "
         f".rpm scripts alongside the .deb ones)."
     )
@@ -635,7 +635,7 @@ def test_postinst_rpm_delegates_to_same_install_permissions_helper():
     rpm_text = POSTINST_RPM.read_text(encoding="utf-8")
     assert "install_permissions.py" in rpm_text, (
         "postinst.rpm must reference install_permissions.py (the same helper "
-        "used by the Debian postinst — single source of truth)."
+        "used by the Debian postinst, single source of truth)."
     )
     assert re.search(r'python3\s+"\$INSTALL_SCRIPT"', rpm_text), (
         "postinst.rpm must run install_permissions.py via "
@@ -655,7 +655,7 @@ def test_prerm_rpm_delegates_to_same_uninstall_permissions_helper():
     rpm_text = PRERM_RPM.read_text(encoding="utf-8")
     assert "uninstall_permissions.py" in rpm_text, (
         "prerm.rpm must reference uninstall_permissions.py (the same helper "
-        "used by the Debian prerm — single source of truth)."
+        "used by the Debian prerm, single source of truth)."
     )
     assert re.search(r'python3\s+"\$UNINSTALL_SCRIPT"', rpm_text), (
         "prerm.rpm must run uninstall_permissions.py via "

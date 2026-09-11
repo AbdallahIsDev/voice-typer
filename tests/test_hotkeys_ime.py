@@ -3,7 +3,7 @@
 TEST-018 / PLAT-020: The IME-composition gate is implemented in
 ``WindowsNativeHotkey._is_ime_composing()`` (a static method on the
 hotkey backend). The dispatcher no longer carries per-hotkey callbacks
-or a mutable ``_ime_composing`` flag — instead, the Win32 polling loop
+or a mutable ``_ime_composing`` flag, instead, the Win32 polling loop
 calls ``_is_ime_composing()`` each iteration and skips the callback
 while the IME is composing.
 

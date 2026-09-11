@@ -5,7 +5,7 @@ not ``shutil.copy2`` / ``Path.read_bytes()`` / ``Path.write_bytes()``
 
 FR-23: ``Config._backup_before_downgrade`` (invoked when an older
 build loads a newer-version config.json) previously used
-``shutil.copy2`` — a local attacker who replaces config.json with a
+``shutil.copy2``, a local attacker who replaces config.json with a
 symlink to ~/.bashrc between the user's downgrade-launch and the
 copy2 call gets ~/.bashrc content copied into the .bak (info
 disclosure via the .bak file).
@@ -61,7 +61,7 @@ class TestBackupBeforeDowngradeSecure:
 
         XE-10-1: the filename now embeds a timestamp + PID + ns suffix
         (``config.json.v{N}-{ts}-{pid}-{ns}.bak``) so two backup events
-        never collide — the test globs for any matching filename.
+        never collide, the test globs for any matching filename.
         """
         config_file = _isolated_config_dir / "config.json"
         original_content = {
@@ -75,7 +75,7 @@ class TestBackupBeforeDowngradeSecure:
 
         cfg = Config.load()
 
-        # backup filename now has a timestamp suffix — glob
+        # backup filename now has a timestamp suffix, glob
         # for any matching filename.
         bak_candidates = sorted(_isolated_config_dir.glob(f"config.json.v{_CURRENT_SCHEMA_VERSION + 5}-*.bak"))
         assert bak_candidates, (
@@ -88,11 +88,11 @@ class TestBackupBeforeDowngradeSecure:
         bak_path = bak_candidates[0]
 
         # The backup must contain the ORIGINAL on-disk content
-        # (including the future field) — not the in-memory filtered
+        # (including the future field), not the in-memory filtered
         # view that drops unknown keys.
         bak_data = json.loads(bak_path.read_text())
         assert bak_data["future_field_xyz"] == "future-value-that-should-be-preserved-in-bak", (
-            "FR-23: downgrade backup lost the future field — the "
+            "FR-23: downgrade backup lost the future field, the "
             "backup should preserve the EXACT on-disk bytes (the "
             "user needs this to recover after re-upgrading)."
         )
@@ -107,7 +107,7 @@ class TestBackupBeforeDowngradeSecure:
     ) -> None:
         """FR-23: if config.json is a symlink, ``_secure_read_text``
         must refuse to follow it (POSIX ``O_NOFOLLOW``). The backup
-        must NOT be created with the symlink target's content — info
+        must NOT be created with the symlink target's content, info
         disclosure prevention.
 
         Setup: config.json is a symlink to ~/.bashrc (simulated as a
@@ -159,7 +159,7 @@ class TestBackupBeforeDowngradeSecure:
             bak_text = bak_path.read_text()
             assert secret_content not in bak_text, (
                 "FR-23 regression: _backup_before_downgrade copied the "
-                "symlink target's content into the .bak file — info "
+                "symlink target's content into the .bak file, info "
                 "disclosure via .bak. The fix must use _secure_read_text "
                 "(O_NOFOLLOW) so symlinks are refused."
             )
@@ -175,18 +175,18 @@ class TestBackupBeforeDowngradeSecure:
         _isolated_config_dir: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """FR-23: the backup write must be atomic — if the write is
+        """FR-23: the backup write must be atomic, if the write is
         interrupted mid-flight, no partial .bak should be visible on
         disk. ``_secure_atomic_write`` writes to a temp file and
         ``os.replace``s it into place, so the .bak either appears in
         full or doesn't appear at all.
 
         We verify the atomicity contract by inspecting the .bak after
-        a successful backup — it must be a complete, valid JSON file
+        a successful backup, it must be a complete, valid JSON file
         (no truncation, no partial writes).
 
         XE-10-1: the filename now embeds a timestamp + PID + ns suffix
-        (``config.json.v{N}-{ts}-{pid}-{ns}.bak``) — the test globs for
+        (``config.json.v{N}-{ts}-{pid}-{ns}.bak``), the test globs for
         any matching filename.
         """
         config_file = _isolated_config_dir / "config.json"
@@ -200,7 +200,7 @@ class TestBackupBeforeDowngradeSecure:
 
         Config.load()
 
-        # backup filename now has a timestamp suffix — glob
+        # backup filename now has a timestamp suffix, glob
         # for any matching filename.
         bak_candidates = sorted(_isolated_config_dir.glob(f"config.json.v{_CURRENT_SCHEMA_VERSION + 2}-*.bak"))
         assert bak_candidates, (
@@ -233,7 +233,7 @@ class TestSaveUnlockedBackupSecure:
         as a separate file), ``Config.save()`` must NOT copy the
         symlink target's content into config.json.bak. The backup
         READ uses ``_secure_read_text`` (O_NOFOLLOW) which raises
-        OSError on a symlink — the except branch fires and no .bak
+        OSError on a symlink, the except branch fires and no .bak
         is written. The actual config.json write still proceeds (via
         ``_secure_atomic_write`` which uses os.replace and replaces
         the SYMLINK itself, not the target)."""
@@ -271,7 +271,7 @@ class TestSaveUnlockedBackupSecure:
             bak_text = bak_path.read_text()
             assert secret_content not in bak_text, (
                 "FR-24 regression: Config.save() copied the symlink "
-                "target's content into config.json.bak — info "
+                "target's content into config.json.bak, info "
                 "disclosure via .bak. The backup READ must use "
                 "_secure_read_text (O_NOFOLLOW) so symlinks are refused."
             )
@@ -301,7 +301,7 @@ class TestSaveUnlockedBackupSecure:
 
         monkeypatch.setattr(config_mod, "_secure_read_text", spy_read)
 
-        # Modify and save — should trigger backup block (since
+        # Modify and save, should trigger backup block (since
         # _last_saved_bytes won't match).
         cfg.hotkey = "<f8>"
         object.__setattr__(cfg, "_last_saved_bytes", None)
@@ -329,7 +329,7 @@ class TestSaveUnlockedBackupSecure:
         which itself writes a new config.json (with the diagnostic
         ``secrets_migrated`` flag + the merged defaults). So by the
         time we call ``cfg.save()``, the on-disk config is the
-        post-migrate state — the .bak preserves THAT, not the
+        post-migrate state, the .bak preserves THAT, not the
         original pre-load file. We capture the post-load on-disk
         content and assert the .bak matches it.
         """
@@ -343,7 +343,7 @@ class TestSaveUnlockedBackupSecure:
         # flag).
         pre_save_on_disk = config_file.read_text()
 
-        # Modify and save — should create .bak with the pre-save
+        # Modify and save, should create .bak with the pre-save
         # on-disk content.
         cfg.hotkey = "<f9>"
         object.__setattr__(cfg, "_last_saved_bytes", None)
@@ -351,7 +351,7 @@ class TestSaveUnlockedBackupSecure:
 
         bak_path = _isolated_config_dir / "config.json.bak"
         assert bak_path.exists(), (
-            "FR-24: Config.save() did not create config.json.bak — the backup block should fire when content changes."
+            "FR-24: Config.save() did not create config.json.bak, the backup block should fire when content changes."
         )
         bak_text = bak_path.read_text()
         assert bak_text == pre_save_on_disk, (
@@ -504,7 +504,7 @@ class TestPreMigrationBackupSecure:
             now = int(time.time())
             assert abs(now - ts) < 60, f"backup timestamp {ts} not recent (now={now})."
             assert pid == _os.getpid(), (
-                f"backup PID {pid} does not match current PID {_os.getpid()} — the PID suffix must use os.getpid()."
+                f"backup PID {pid} does not match current PID {_os.getpid()}, the PID suffix must use os.getpid()."
             )
             assert 0 <= us < 1_000_000, f"microsecond fraction {us} out of range [0, 1_000_000)."
 
@@ -514,7 +514,7 @@ class TestPreMigrationBackupSecure:
     ) -> None:
         """if config.json is a symlink, the secure read must
         refuse it (POSIX O_NOFOLLOW). The backup must NOT contain the
-        symlink target's content — info disclosure prevention."""
+        symlink target's content, info disclosure prevention."""
         secret_file = _isolated_config_dir / "attacker_secret.txt"
         secret_content = "ATTACKER_SECRET_should_not_appear_in_pre_mig_bak"
         secret_file.write_text(secret_content)

@@ -7,27 +7,27 @@ Pre-fix, ``get_native_binary_path()`` was called up to 3× at startup
 ``SubprocessHotkeyBackend.__init__`` in ``base.py``). Each call walked
 the 6-step lookup chain (env var override → env dir → dev mode →
 PyInstaller onedir → ``_MEIPASS``), issuing up to 6 ``Path.is_file()``
-probes per call — ~18 stats at boot for a result that cannot change
+probes per call, ~18 stats at boot for a result that cannot change
 within a single process.
 
 XV-112 wraps the function in ``functools.lru_cache(maxsize=1)`` so the
 lookup runs at most once per process. This test file pins:
 
 1. The cache HITS on the second call (the second call does NOT re-walk
-   the lookup chain — verified by spying on the internal
+   the lookup chain, verified by spying on the internal
    ``_candidate_binary_names`` helper).
 2. ``cache_clear()`` resets the cache so the next call re-walks.
 3. The cached value is the SAME object across calls (not just an equal
-   one — ``lru_cache`` returns the literal first result).
+   one: ``lru_cache`` returns the literal first result).
 4. The autouse ``clear_binary_path_cache`` fixture in
    ``tests/conftest.py`` clears the cache before every test, so tests
    that monkeypatch platform / env / filesystem state see fresh
    results (this test exercises that contract directly).
-5. The function exposes ``cache_clear`` and ``cache_info`` — the
+5. The function exposes ``cache_clear`` and ``cache_info``, the
    ``functools.lru_cache`` decorator's standard introspection hooks —
    so tests and tooling can manage the cache explicitly.
 
-These tests do NOT depend on a real native binary being present — they
+These tests do NOT depend on a real native binary being present, they
 monkeypatch ``_candidate_binary_names`` and ``Path.is_file`` to make
 the lookup deterministic and to count how many times the function
 actually re-resolves.
@@ -42,15 +42,15 @@ import pytest
 from voice_typer.server.native_hotkeys import binary_path
 
 # Hint for xdist schedulers that respect ``xdist_group`` (loadgroup /
-# loadscope): pin every test in this module — and its siblings
+# loadscope): pin every test in this module, and its siblings
 # ``test_native_hotkeys_binary_path.py``,
 # ``test_native_hotkeys_factory_binary_path.py`` and
-# ``tests/tauri/test_native_binary_path_tauri.py`` — onto a single
+# ``tests/tauri/test_native_binary_path_tauri.py``, onto a single
 # worker. All four exercise ``get_native_binary_path``'s process-wide
 # ``lru_cache(maxsize=1)`` (cleared between tests by the conftest
 # autouse cache-reset fixture); grouping them on one worker is
 # defense-in-depth for that shared cache. xdist's default ``load``
-# scheduler does NOT strictly honor this marker — it is a hint, not a
+# scheduler does NOT strictly honor this marker, it is a hint, not a
 # correctness guarantee. No-op when xdist isn't active. (C-TEST-5.)
 pytestmark = pytest.mark.xdist_group("native_binary_path")
 
@@ -87,14 +87,14 @@ class TestCacheDecoratorPresent:
     """Verify ``get_native_binary_path`` is wrapped in ``lru_cache``."""
 
     def test_exposes_cache_clear(self):
-        """``functools.lru_cache`` adds ``cache_clear`` — its presence
+        """``functools.lru_cache`` adds ``cache_clear``, its presence
         proves the decorator was applied. The autouse ``clear_binary_path_cache``
         conftest fixture relies on this attribute.
         """
         assert callable(getattr(binary_path.get_native_binary_path, "cache_clear", None))
 
     def test_exposes_cache_info(self):
-        """``functools.lru_cache`` adds ``cache_info`` — its presence
+        """``functools.lru_cache`` adds ``cache_info``, its presence
         lets tests assert hit/miss counts.
         """
         assert callable(getattr(binary_path.get_native_binary_path, "cache_info", None))
@@ -142,7 +142,7 @@ class TestCacheHitMiss:
             lambda: ["linux-key-listener-x86_64"],
         )
         monkeypatch.setattr(Path, "is_file", lambda self: self == fake_binary)
-        # The env-var override path is name-agnostic — set it to the
+        # The env-var override path is name-agnostic, set it to the
         # fake binary so the function returns it on the first probe.
         monkeypatch.setenv("VOICE_TYPER_NATIVE_BINARY", str(fake_binary))
 
@@ -164,7 +164,7 @@ class TestCacheHitMiss:
         # Both calls return the same cached Path object.
         assert first == fake_binary
         assert second == fake_binary
-        # The lookup chain ran exactly ONCE — the second call hit the
+        # The lookup chain ran exactly ONCE, the second call hit the
         # cache and did not call _candidate_binary_names again.
         assert call_count["n"] == 1, (
             f"expected _candidate_binary_names to be called once (cached on 2nd call), got {call_count['n']}"
@@ -209,7 +209,7 @@ class TestCacheHitMiss:
     def test_cached_value_is_same_object_identity(self, monkeypatch):
         """``lru_cache`` returns the LITERAL first result (same object
         identity), not a fresh equal copy. This is the documented
-        ``lru_cache`` contract — pinning it here so a future refactor
+        ``lru_cache`` contract, pinning it here so a future refactor
         that swaps to a hand-rolled cache dict doesn't accidentally
         break the identity guarantee.
         """
@@ -231,7 +231,7 @@ class TestCacheHitMiss:
         assert second is third
 
     def test_none_result_is_cached(self, monkeypatch):
-        """A ``None`` result (no binary found) is also cached — the
+        """A ``None`` result (no binary found) is also cached, the
         function does NOT re-walk the lookup chain on every call when
         the binary is absent. This matters for headless test
         environments where the binary is never present: without
@@ -292,7 +292,7 @@ class TestConftestAutouseClearsCache:
         """This test populates the cache (currsize=1) and then ends.
         The NEXT test in this class (``test_cache_is_empty_at_test_start``
         if pytest re-runs it, or any other test in the file) MUST see
-        currsize=0 — proving the autouse fixture cleared the cache
+        currsize=0, proving the autouse fixture cleared the cache
         between tests.
 
         We can't directly assert "the next test sees empty" from within

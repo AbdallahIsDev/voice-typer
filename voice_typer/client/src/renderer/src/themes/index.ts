@@ -4,7 +4,7 @@
  * Lazy theme registry: the 10 non-default/non-custom preset
  * modules are loaded ON DEMAND via a dynamic ``import()`` registry
  * instead of being statically imported at module load. Only ``default``
- * and ``custom`` (the fallback pair — both are no-ops with empty
+ * and ``custom`` (the fallback pair, both are no-ops with empty
  * light/dark maps) remain statically imported so the renderer always
  * has a valid preset to fall back to without an async fetch.
  *
@@ -17,8 +17,8 @@
  * This module re-aggregates every preset back into the original shapes
  * consumed by ``themes.ts``:
  *
- * - ``THEME_PRESETS`` — a ``Record<string, ThemePreset>`` keyed by id.
- * - ``THEMES`` — the canonical ordered ``ThemePreset[]`` (matches the
+ * - ``THEME_PRESETS``, a ``Record<string, ThemePreset>`` keyed by id.
+ * - ``THEMES``, the canonical ordered ``ThemePreset[]`` (matches the
  *   pre-refactor array literal in ``themes.ts`` exactly).
  *
  * ``themes.ts`` re-exports both, so existing consumers that import
@@ -84,7 +84,7 @@ interface LazyPresetMetadata {
 	swatch: string;
 	/** Named export in the preset file (e.g. ``amoledTheme``). */
 	exportName: string;
-	/** Static ``import()`` loader — Vite creates a separate chunk per entry. */
+	/** Static ``import()`` loader, Vite creates a separate chunk per entry. */
 	loader: () => Promise<Record<string, unknown>>;
 }
 
@@ -203,18 +203,18 @@ const loadedLazyPresets = new Set<string>();
 /**
  * Dynamically ``import()`` the preset file for ``id`` and populate the
  * corresponding ``THEMES`` / ``THEME_PRESETS`` entry's ``light`` /
- * ``dark`` maps in place. Idempotent — safe to call multiple times.
+ * ``dark`` maps in place. Idempotent, safe to call multiple times.
  *
  * No-op for ``default`` and ``custom`` (already full from static
- * imports) and for unknown ids (defensive — logs a warning).
+ * imports) and for unknown ids (defensive, logs a warning).
  *
  * @returns A Promise that resolves when the entry is populated (or
  *   immediately for ``default`` / ``custom`` / unknown ids).
  */
 export async function loadThemePreset(id: string): Promise<void> {
-	// ``default`` and ``custom`` are statically imported — always full.
+	// ``default`` and ``custom`` are statically imported, always full.
 	if (id === "default" || id === "custom") return;
-	// Already loaded — avoid the redundant dynamic import.
+	// Already loaded, avoid the redundant dynamic import.
 	if (loadedLazyPresets.has(id)) return;
 
 	const loader = lazyThemeLoaders[id];
@@ -230,7 +230,7 @@ export async function loadThemePreset(id: string): Promise<void> {
 		const entry = THEMES.find((t) => t.id === id);
 		if (entry) {
 			// Mutate in place so all references (THEMES, THEME_PRESETS,
-			// DEFAULT_THEME_PRESET if it were this id — it never is, since
+			// DEFAULT_THEME_PRESET if it were this id, it never is, since
 			// DEFAULT is index 0 = ``default``) see the populated vars.
 			entry.light = preset.light;
 			entry.dark = preset.dark;
@@ -238,7 +238,7 @@ export async function loadThemePreset(id: string): Promise<void> {
 		loadedLazyPresets.add(id);
 	} catch (err) {
 		console.error(`[renderer:themes] loadThemePreset("${id}") failed:`, err);
-		// Leave the entry with empty light/dark — the caller falls back
+		// Leave the entry with empty light/dark, the caller falls back
 		// to the stylesheet default (same as the ``default`` preset).
 	}
 }
@@ -286,12 +286,12 @@ function makeLazyThemeEntry(meta: LazyPresetMetadata): ThemePreset {
 }
 
 /**
- * raw preset list (no ``nameKey`` — injected below). The ``default``
+ * raw preset list (no ``nameKey``, injected below). The ``default``
  * and ``custom`` entries are full (static import); the 10 lazy entries
  * are metadata-only (light/dark empty until ``loadThemePreset`` runs).
  *
  * The list below is the source of both ``THEME_PRESETS`` (record) and
- * ``THEMES`` (ordered array) — keeping them in sync is enforced by
+ * ``THEMES`` (ordered array), keeping them in sync is enforced by
  * deriving both from the same constant.
  */
 // LAZY_PRESETS is a static literal whose length is known at compile
@@ -334,7 +334,7 @@ const THEMES_WITH_NAME_KEY: ThemePreset[] = RAW_THEMES.map((t) => ({
  * All built-in theme presets keyed by their ``id``.
  *
  * Use this when you need O(1) id → preset lookup. The order of keys is
- * not guaranteed — use ``THEMES`` if you need the canonical display
+ * not guaranteed, use ``THEMES`` if you need the canonical display
  * order.
  *
  * NOTE: for lazy presets, the entry's ``light`` / ``dark`` maps are
@@ -373,6 +373,6 @@ export const DEFAULT_THEME_PRESET: ThemePreset =
 
 // Re-export the two statically-imported presets so direct consumers
 // (tests, tooling) can access them without a dynamic import. The 10
-// lazy presets are NOT re-exported here — use ``loadThemePreset(id)``
+// lazy presets are NOT re-exported here, use ``loadThemePreset(id)``
 // or ``getThemeByIdLazy(id)`` to access them.
 export { customTheme, defaultTheme };

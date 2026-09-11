@@ -49,7 +49,7 @@ function AlertDialogContent({
 	size?: "default" | "sm";
 }) {
 	// AlertDialog intentionally omits `onInteractOutside` (and the rest of
-	// the dismissable-layer API) — outside-click / escape dismissal is
+	// the dismissable-layer API), outside-click / escape dismissal is
 	// suppressed by design so users must explicitly acknowledge the dialog
 	// via one of its Action / Cancel buttons. Do NOT re-add onInteractOutside
 	// here; that would silently defeat the AlertDialog contract.
@@ -61,7 +61,7 @@ function AlertDialogContent({
 				data-size={size}
 				aria-modal={true}
 				// bg-(--bg): modal panels intentionally share the app/sidebar
-				// background color — the old bg-popover sat one step lighter
+				// background color, the old bg-popover sat one step lighter
 				// and read as a detached grey box against the window.
 				className={cn(
 					"group/alert-dialog-content fixed top-1/2 left-1/2 z-50 grid w-full -translate-x-1/2 -translate-y-1/2 gap-6 rounded-lg bg-(--bg) p-6 text-foreground ring-1 ring-foreground/5 duration-100 outline-hidden data-[size=default]:max-w-xs data-[size=sm]:max-w-xs data-[size=default]:sm:max-w-md dark:ring-foreground/10 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
@@ -163,7 +163,7 @@ function AlertDialogAction({
 	return (
 		// className routes through Button's OWN className prop (not the
 		// slotted Action element): Button applies `cn(buttonVariants(...),
-		// className)` — tailwind-merge — so a caller className that
+		// className)`, tailwind-merge, so a caller className that
 		// conflicts with a variant utility (e.g. overriding
 		// `text-destructive` on the destructive variant) resolves in the
 		// caller's favour deterministically. Putting it on the Action
@@ -184,7 +184,7 @@ function AlertDialogCancel({
 }: React.ComponentProps<typeof AlertDialogPrimitive.Cancel> &
 	Pick<React.ComponentProps<typeof Button>, "variant" | "size">) {
 	return (
-		// See AlertDialogAction — className routes through Button's own
+		// See AlertDialogAction, className routes through Button's own
 		// className prop so tailwind-merge resolves variant conflicts
 		// (e.g. overriding the outline variant's border / text colour).
 		<Button variant={variant} size={size} className={className} asChild>

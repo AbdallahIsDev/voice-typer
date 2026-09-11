@@ -1,4 +1,4 @@
-"""MIG-1.5 Phase 0-W Gate Check 9 — native ``windows-key-listener.exe``.
+"""MIG-1.5 Phase 0-W Gate Check 9: native ``windows-key-listener.exe``.
 
 Validates that the native Windows hotkey binary (built by
 ``scripts/build/compile_native.ps1`` from
@@ -8,7 +8,7 @@ Python sidecar's ``native_hotkeys.SubprocessHotkeyBackend`` /
 ``WindowsHookHotkey``.
 
 ADR-0020 §6.4 mandates KEEPING the native binary (do NOT switch to
-``tauri-plugin-global-shortcut`` — it lacks key suppression +
+``tauri-plugin-global-shortcut``, it lacks key suppression +
 modifier-only hotkeys). The binary is spawned as a subprocess by the
 PYTHON SIDECAR (not by the Tauri host); Tauri only ships it as a
 ``bundle.resource``. The sidecar discovers it via
@@ -17,25 +17,25 @@ PYTHON SIDECAR (not by the Tauri host); Tauri only ships it as a
 paths. See ``native_hotkeys.get_native_binary_path`` for the full
 6-step lookup chain.
 
-These tests run on any platform (Linux sandbox included) — they mock
+These tests run on any platform (Linux sandbox included), they mock
 ``subprocess.Popen``, ``pathlib.Path.exists``, and the
 ``is_windows()``/``is_macos()``/``is_linux()`` platform predicates so
 the Windows code path is exercised without a real Windows host. The
 actual ``WH_KEYBOARD_LL`` hook + key suppression + modifier-only
-detection can only be validated on a real Windows host — see the
+detection can only be validated on a real Windows host: see the
 "VALIDATE ON WINDOWS HOST" block below.
 
 VALIDATE ON WINDOWS HOST:
     1. Launch Voice Typer
-    2. Press F8 (default dictation hotkey) — verify dictation starts
-    3. Press F8 again — verify dictation stops + transcribed text pastes
-    4. Press ESC — verify dictation cancels
+    2. Press F8 (default dictation hotkey), verify dictation starts
+    3. Press F8 again, verify dictation stops + transcribed text pastes
+    4. Press ESC, verify dictation cancels
     5. Check log for:
        - "[HOTKEY] spawning native listener: windows-key-listener.exe"
        - "[HOTKEY] native listener ready (pid=...)"
        - "[HOTKEY] dictation hotkey pressed (F8)"
     6. Verify the hotkey is SUPPRESSED (F8 doesn't reach the foreground
-       app — e.g. doesn't trigger F8 in browser dev tools)
+       app, e.g. doesn't trigger F8 in browser dev tools)
     7. Verify modifier-only hotkeys work (e.g. Caps Lock alone, if
        configured)
     Expected: hotkey responds within 50ms; key suppression works;
@@ -57,7 +57,7 @@ VALIDATE ON WINDOWS HOST:
           appears + recording starts; second press stops + pastes).
         - No ``native binary not found`` errors in ``sidecar.log``.
 
-Wire protocol note (implementation gap — see report):
+Wire protocol note (implementation gap: see report):
     The task brief mentioned JSON-lines ``{"event":"hotkey","id":"dictation"}``,
     but the ACTUAL wire protocol (native_hotkeys.py module docstring +
     windows-key-listener.c) is line-delimited TEXT, not JSON:
@@ -91,7 +91,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 TAURI_CONF = PROJECT_ROOT / "src-tauri" / "tauri.conf.json"
 COMPILE_NATIVE_PS1 = PROJECT_ROOT / "scripts" / "build" / "compile_native.ps1"
 WINDOWS_KEY_LISTENER_C = PROJECT_ROOT / "voice_typer" / "server" / "native" / "windows-key-listener.c"
-# Phase 4.5 /  — ``native_hotkeys.py`` was split into a package at
+# Phase 4.5 /: ``native_hotkeys.py`` was split into a package at
 # ``voice_typer/server/native_hotkeys/`` with one submodule per concern
 # (base / mac_backend / windows_backend / linux_backend / factory / ...).
 # The ``__init__.py`` re-exports every public name.  Tests below that
@@ -161,7 +161,7 @@ class TestTauriBundleResources:
 
         ADR-0020 §6.4: "Tauri does not touch the hotkey subsystem at
         all." If the binary were in ``externalBin``, Tauri would own
-        its lifecycle — that would violate the ADR. It must be a
+        its lifecycle, that would violate the ADR. It must be a
         ``resource`` so the Python sidecar spawns it via
         ``subprocess.Popen``.
         """
@@ -175,14 +175,14 @@ class TestTauriBundleResources:
         for ext in external_bins:
             assert "windows-key-listener" not in ext, (
                 f"windows-key-listener must NOT be in externalBin "
-                f"(Tauri must not spawn it — ADR-0020 §6.4). Found: {ext}"
+                f"(Tauri must not spawn it, ADR-0020 §6.4). Found: {ext}"
             )
 
     def test_tauri_conf_also_bundles_macos_and_linux_listeners(self):
         """All three platform binaries are bundled (cross-platform ship).
 
         ADR-0020 §7 lists all three. This is a sanity check that the
-        Windows entry isn't alone — confirms the resources array is
+        Windows entry isn't alone, confirms the resources array is
         the cross-platform native-listener block.
         """
         conf = json.loads(TAURI_CONF.read_text(encoding="utf-8"))
@@ -202,7 +202,7 @@ class TestSubprocessSpawn:
         """Bypass SHA-256 verification for the dummy test binaries.
 
         ``_spawn_process`` re-verifies the binary's checksum BEFORE every
-        spawn (including watchdog respawns — the TOCTOU mitigation). The
+        spawn (including watchdog respawns, the TOCTOU mitigation). The
         tests inject a ``tmp_path`` dummy file whose SHA-256 is not in the
         manifest, so verification would fail and ``_spawn_process`` would
         set ``_failed=True`` and return early without ever calling
@@ -250,7 +250,7 @@ class TestSubprocessSpawn:
 
         ``_spawn_process`` builds ``cmd = [str(binary_path), self.hotkey_str]``.
         The native binary parses ``argv[1]`` to know which hotkey to
-        watch + suppress. This is NOT stdin, NOT JSON — it's a plain
+        watch + suppress. This is NOT stdin, NOT JSON, it's a plain
         pynput-style spec string as argv[1].
         """
         backend = windows_env.WindowsHookHotkey("<f8>")
@@ -275,11 +275,11 @@ class TestSubprocessSpawn:
     def test_spawn_pipes_stdout_for_wire_protocol(self, windows_env, monkeypatch, tmp_path):
         """stdout=PIPE, stderr=STDOUT, stdin=DEVNULL.
 
-        stdout MUST be piped — the reader thread reads line-delimited
+        stdout MUST be piped, the reader thread reads line-delimited
         wire-protocol events (READY / KEY_DOWN / MOD_DOWN / ERROR) from
         it. stderr is redirected to stdout so error output is visible
         in the same stream. stdin is DEVNULL (the binary doesn't read
-        commands from stdin — it's event-driven via the hook).
+        commands from stdin, it's event-driven via the hook).
         """
         backend = windows_env.WindowsHookHotkey("<f8>")
         fake_bin = tmp_path / "windows-key-listener.exe"
@@ -297,14 +297,12 @@ class TestSubprocessSpawn:
 
         backend._spawn_process()
         kwargs = captured["kwargs"]
-        assert kwargs.get("stdout") == subprocess.PIPE, (
-            "stdout must be PIPE — reader thread streams wire-protocol lines"
-        )
+        assert kwargs.get("stdout") == subprocess.PIPE, "stdout must be PIPE, reader thread streams wire-protocol lines"
         assert kwargs.get("stderr") == subprocess.STDOUT, (
             "stderr must redirect to stdout so errors surface in the wire stream"
         )
         assert kwargs.get("stdin") == subprocess.PIPE, (
-            "stdin must be PIPE — the liveness watchdog writes PING\\n to it "
+            "stdin must be PIPE, the liveness watchdog writes PING\\n to it "
             "(the binary answers PONG; see _watchdog_loop)"
         )
 
@@ -343,7 +341,7 @@ class TestSubprocessSpawn:
     def test_spawn_failure_raises_runtime_error(self, windows_env, monkeypatch, tmp_path):
         """If ``Popen`` raises ``OSError``, ``_spawn_process`` raises ``RuntimeError``.
 
-        This covers the "binary disappeared mid-restart" path — the
+        This covers the "binary disappeared mid-restart" path, the
         reader loop catches the RuntimeError and notifies the adapter
         via ``_on_permanent_failure_callback``.
         """
@@ -455,7 +453,7 @@ class TestBinaryDiscovery:
         # After the Phase 4.5 split, the package lives at
         # ``voice_typer/server/native_hotkeys/``; production code in
         # ``native_hotkeys/binary_path.py`` resolves the dev path via
-        # ``Path(__file__).resolve().parent.parent / "native"`` — i.e.
+        # ``Path(__file__).resolve().parent.parent / "native"``, i.e.
         # the package's *parent* directory (``voice_typer/server/``).
         module_dir = NATIVE_HOTKEYS_PKG.parent
         expected_dev_path = module_dir / "native" / "windows-key-listener.exe"
@@ -551,7 +549,7 @@ class TestWireProtocol:
         fired: list[str] = []
         backend._callback = lambda: fired.append("press")
 
-        # V alone — no fire.
+        # V alone, no fire.
         backend._handle_line("KEY_DOWN:V")
         assert fired == []
         # Release V so the next KEY_DOWN is a fresh press (the
@@ -560,7 +558,7 @@ class TestWireProtocol:
         # suppresses it).
         backend._handle_line("KEY_UP:V")
 
-        # Hold Ctrl+Alt, then press V — fire.
+        # Hold Ctrl+Alt, then press V, fire.
         backend._handle_line("MOD_DOWN:Ctrl")
         backend._handle_line("MOD_DOWN:Alt")
         backend._handle_line("KEY_DOWN:V")
@@ -579,7 +577,7 @@ class TestKeySuppression:
     foreground app never sees it. This is the critical feature
     ``tauri-plugin-global-shortcut`` lacks.
 
-    These are source-inspection tests — the actual suppression can
+    These are source-inspection tests, the actual suppression can
     only be validated on a Windows host (runbook §6.8 step 6).
     """
 
@@ -612,7 +610,7 @@ class TestKeySuppression:
         """
         src = WINDOWS_KEY_LISTENER_C.read_text(encoding="utf-8")
         assert "should_suppress_keydown" in src, (
-            "windows-key-listener.c must define should_suppress_keydown() — "
+            "windows-key-listener.c must define should_suppress_keydown(), "
             "the decision function that returns 1 to swallow a keystroke"
         )
 
@@ -629,7 +627,7 @@ class TestKeySuppression:
         assert "should_suppress_keydown" in src
         assert "return 1" in src, (
             "The WH_KEYBOARD_LL hook proc must `return 1` (non-zero) to "
-            "suppress a matched keystroke — calling CallNextHookEx would "
+            "suppress a matched keystroke, calling CallNextHookEx would "
             "pass it through to the foreground app"
         )
 
@@ -686,7 +684,7 @@ class TestModifierOnlyHotkeys:
 
         backend._handle_line("MOD_DOWN:Ctrl")  # extra modifier
         backend._handle_line("MOD_DOWN:Alt")
-        assert fired == []  # NOT fired — Ctrl is held too
+        assert fired == []  # NOT fired, Ctrl is held too
 
     def test_caps_lock_hotkey_fires_on_key_down(self, windows_env):
         """``<caps_lock>`` is a single-key hotkey that fires on ``KEY_DOWN:CapsLock``.
@@ -749,7 +747,7 @@ class TestSidecarOwnership:
 
         The sidecar is the Nuitka-frozen Python process spawned by
         Tauri's ``externalBin`` mechanism. All hotkey logic —
-        discovery, spawn, wire-protocol parsing, matching — lives in
+        discovery, spawn, wire-protocol parsing, matching, lives in
         the sidecar, not in the Rust host.
         """
         assert NATIVE_HOTKEYS_PY.is_file(), f"native_hotkeys.py must exist in the Python sidecar: {NATIVE_HOTKEYS_PY}"
@@ -834,7 +832,7 @@ class TestSidecarOwnership:
 class TestCompileNativeScript:
     """Verify ``compile_native.ps1`` exists and compiles the C binary.
 
-    Source-inspection tests — the actual compilation requires a
+    Source-inspection tests, the actual compilation requires a
     Windows host with MSVC or MinGW installed.
     """
 

@@ -1,5 +1,5 @@
 /**
- * "GitHub" theme preset — clean neutral greys with blue accents.
+ * "GitHub" theme preset, clean neutral greys with blue accents.
  *
  * See ``themes.ts`` for the ``ThemePreset`` interface and how presets
  * are consumed.

@@ -7,7 +7,7 @@ tray_window.py) can import it without creating a TrayIcon instance.
 (HOTKEY-UNIFY-003): this function now mirrors the canonical
 TypeScript implementation in
 ``client/src/renderer/src/components/hotkey-utils.ts::formatHotkeyLabel``
-exactly — same displayMap, same F-key regex (``^f\\d{1,2}$``), same
+exactly, same displayMap, same F-key regex (``^f\\d{1,2}$``), same
 single-char uppercasing, same "capitalize first letter" fallback, and
 the same empty-string → "None" behavior. This keeps the tray menu
 labels byte-identical to the Settings UI labels for any given hotkey
@@ -25,7 +25,7 @@ log = logging.getLogger(__name__)
 # Display map for known keys. Mirrors the TS displayMap in
 # hotkey-utils.ts verbatim. Keys are intentionally lowercase; the
 # lookup below is case-sensitive (the TS version does NOT lowercase
-# the key before lookup, so we don't either — this preserves parity
+# the key before lookup, so we don't either, this preserves parity
 # for inputs like "<F12>" which fall through to the default
 # capitalize-first-letter branch).
 _DISPLAY_MAP: dict[str, str] = {
@@ -67,7 +67,7 @@ _DISPLAY_MAP: dict[str, str] = {
     "right": "\u2192",  # →
 }
 
-# Matches f1..f99 — same as the TS /^f\d{1,2}$/ regex (case-sensitive,
+# Matches f1..f99, same as the TS /^f\d{1,2}$/ regex (case-sensitive,
 # lowercase f only). Used to uppercase function-key tokens like "f2"
 # → "F2". Two-digit support (f10..f99) matches the TS regex even
 # though only f1..f12 are practically used; this keeps parity exact.
@@ -84,7 +84,7 @@ def notification_hotkey_label(hotkey: object) -> str:
     Returns ``format_hotkey_label`` output for a configured hotkey
     (e.g. ``"Caps Lock"`` for ``<caps_lock>``), or the generic
     ``"your hotkey"`` when nothing is configured. Notification paths
-    are safety nets — they must never crash or render a raw "None"
+    are safety nets, they must never crash or render a raw "None"
     just because the config has no hotkey yet.
     """
     if not hotkey:
@@ -106,7 +106,7 @@ def format_hotkey_label(hotkey: str) -> str:
     """
     # Mirror the TS early-return: `if (!hotkey) return "None"`.
     # In Python, `not ""` is True and `not None` is True, so this
-    # catches both empty-string and None inputs (defensive — the
+    # catches both empty-string and None inputs (defensive, the
     # signature is `str`, but tray_menu.display_hotkey can pass the
     # fallback through here, and a stray None would otherwise crash
     # the .split() call below).

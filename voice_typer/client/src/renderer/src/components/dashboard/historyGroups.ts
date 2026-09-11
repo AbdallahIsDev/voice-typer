@@ -11,7 +11,7 @@
 // default sort, oldest→newest when the user flips it); groups are
 // emitted in FIRST-ENCOUNTER order so section headers follow the
 // user's chosen sort direction. Alphabetical sorts ("az" / "za") never
-// reach this module — the page disables grouping for them because
+// reach this module, the page disables grouping for them because
 // interleaved date headers would break the alphabetical reading order.
 
 import { getLocale, t } from "@/i18n/i18n";
@@ -44,7 +44,7 @@ export function recordDayKey(timestamp: string | undefined): string {
  *
  * Today / Yesterday reuse the ``analytics.today`` / ``analytics.yesterday``
  * keys (shipped in all 8 locales by the dashboard). Older days render
- * as a locale-aware long date — month + day, plus the year when the
+ * as a locale-aware long date, month + day, plus the year when the
  * entry is not from the current year (history routinely spans years).
  */
 export function dayGroupHeading(key: string): string {
@@ -91,7 +91,7 @@ export function groupRecordsByDate(
 
 /**
  * Locale-aware time-of-day for a history timestamp ("05:54 PM").
- * Rows in a grouped list show ONLY the time — the date lives in the
+ * Rows in a grouped list show ONLY the time, the date lives in the
  * section header. Falls back to the raw string when unparseable.
  */
 export function formatRecordTime(timestamp: string | undefined): string {

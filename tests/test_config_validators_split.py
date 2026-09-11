@@ -3,12 +3,12 @@
 This file pins the config_validators split contract so a future refactor cannot
 silently regress it:
 
-1. **Allowlist snapshot** — :data:`IPC_CONFIG_ALLOWLIST` must contain
+1. **Allowlist snapshot**, :data:`IPC_CONFIG_ALLOWLIST` must contain
    the same 127 keys with the same per-field validators. The key set
    is a frozen snapshot embedded in this test; the validators are
    checked by identity against the imported ``_VALIDATOR_*``
    instances (so a future change that swaps a validator for a fresh
-   instance of the same factory call is still detected — the
+   instance of the same factory call is still detected, the
    ``_VALIDATOR_*`` constants are the canonical references).
    (Snapshot count updated 124→125 when ``sound_volume`` was added
    deliberately for the Settings sound-feedback volume slider;
@@ -16,14 +16,14 @@ silently regress it:
    the duration-aware VAD filter policy, commit ee181780;
    126→127 when ``noise_filter_gate_adaptive`` was added deliberately
    to make the adaptive noise-gate calibration knob settable from
-   the UI — the schema field existed but was unreachable via IPC.)
-2. **Re-export shim** — every public name in ``__all__`` must resolve
+   the UI, the schema field existed but was unreachable via IPC.)
+2. **Re-export shim**, every public name in ``__all__`` must resolve
    on the package namespace and point at the same object that the
    new submodules expose (so old import paths keep working).
-3. **Public API identity** — ``validate_config`` and
+3. **Public API identity**: ``validate_config`` and
    ``validate_config_update`` must be the SAME function objects the
    new ``entry_points`` submodule defines (no shadow copies).
-4. **Monkeypatch surface** — the test patches
+4. **Monkeypatch surface**, the test patches
    ``voice_typer.server.config_validators._check_cross_field_hotkey_conflicts``
    and expects :func:`validate_config` / :func:`validate_config_update`
    to see the patched binding at call time. This pins the
@@ -191,7 +191,7 @@ class TestAllowlistSnapshot:
         """The allowlist must still contain exactly 127 keys."""
         assert len(IPC_CONFIG_ALLOWLIST) == 127, (
             f"IPC_CONFIG_ALLOWLIST size drifted: expected 127, got {len(IPC_CONFIG_ALLOWLIST)}. "
-            "SEC-002 contract (AGENTS.md §6.3) — adding/removing keys is a "
+            "SEC-002 contract (AGENTS.md §6.3), adding/removing keys is a "
             "security-sensitive change that must be reviewed explicitly."
         )
 
@@ -205,20 +205,20 @@ class TestAllowlistSnapshot:
         extra = actual - _PRE_SPLIT_ALLOWLIST_KEYS
         assert not missing, (
             f"IPC_CONFIG_ALLOWLIST is missing keys present in the pre-split snapshot: {sorted(missing)}. "
-            "SEC-002 allowlist shrunk during the split — non-negotiable regression."
+            "SEC-002 allowlist shrunk during the split, non-negotiable regression."
         )
         assert not extra, (
             f"IPC_CONFIG_ALLOWLIST has extra keys not present in the pre-split snapshot: {sorted(extra)}. "
-            "SEC-002 allowlist grew during the split — must be reviewed explicitly."
+            "SEC-002 allowlist grew during the split, must be reviewed explicitly."
         )
 
     def test_allowlist_is_same_object_as_submodule(self) -> None:
         """The package-level ``IPC_CONFIG_ALLOWLIST`` must be the SAME
-        dict object the new ``allowlist`` submodule defines — the
+        dict object the new ``allowlist`` submodule defines, the
         package shim re-exports it, never copies it."""
         assert cv.IPC_CONFIG_ALLOWLIST is _al.IPC_CONFIG_ALLOWLIST, (
             "cv.IPC_CONFIG_ALLOWLIST must be the same object as "
-            "config_validators.allowlist.IPC_CONFIG_ALLOWLIST — the "
+            "config_validators.allowlist.IPC_CONFIG_ALLOWLIST, the "
             "package shim must re-export, not copy."
         )
 
@@ -240,7 +240,7 @@ class TestAllowlistSnapshot:
             "_VALIDATOR_TRUSTED_HOSTS",
         ):
             assert getattr(cv, cv_name) is getattr(_al, cv_name), (
-                f"cv.{cv_name} must be the same object as allowlist.{cv_name} — "
+                f"cv.{cv_name} must be the same object as allowlist.{cv_name}, "
                 "the package shim must re-export, not copy."
             )
 
@@ -258,13 +258,13 @@ class TestAllowlistSnapshot:
             "STREAMING_RIGHT_GUARD_SECONDS_MIN",
         ):
             assert getattr(cv, cv_name) is getattr(_al, cv_name), (
-                f"cv.{cv_name} must be the same object as allowlist.{cv_name} — "
+                f"cv.{cv_name} must be the same object as allowlist.{cv_name}, "
                 "the package shim must re-export, not copy."
             )
 
 
 class TestReExportShim:
-    """``__init__.py`` is now a re-export shim — every name in
+    """``__init__.py`` is now a re-export shim, every name in
     ``__all__`` must resolve on the package namespace."""
 
     def test_all_symbols_resolve(self) -> None:
@@ -277,7 +277,7 @@ class TestReExportShim:
         missing = [name for name in cv.__all__ if not hasattr(cv, name)]
         assert not missing, (
             f"cv.__all__ lists symbols that are NOT re-exported by the shim: {missing}. "
-            "Existing callers cannot import them — backward-compat regression."
+            "Existing callers cannot import them, backward-compat regression."
         )
 
     def test_sys_alias_preserved(self) -> None:
@@ -288,7 +288,7 @@ class TestReExportShim:
         import sys
 
         assert cv._sys is sys, (
-            "cv._sys must be the sys module — tests in "
+            "cv._sys must be the sys module, tests in "
             "tests/test_hotkey_validation.py mutate cv._sys.platform to "
             "fake the OS for the reserved-hotkey denylist."
         )
@@ -332,7 +332,7 @@ class TestMonkeyPatchSurface:
     via the PACKAGE namespace at call time (lazy import inside the
     function body). This pattern lets tests patch
     ``voice_typer.server.config_validators._check_cross_field_hotkey_conflicts``
-    and have the patched binding take effect — the regression test
+    and have the patched binding take effect, the regression test
     suite in ``tests/test_config_validators_hotkey_nonstring.py``
     relies on it."""
 
@@ -343,7 +343,7 @@ class TestMonkeyPatchSurface:
         ``entry_points.validate_config`` (a direct ``from .cross_field
         import _check_cross_field_hotkey_conflicts`` at module top
         would bind a private local that the package-namespace patch
-        wouldn't touch — and the regression test would silently
+        wouldn't touch, and the regression test would silently
         regress)."""
         cfg = SimpleNamespace(
             hotkey="<caps_lock>",
@@ -363,12 +363,12 @@ class TestMonkeyPatchSurface:
 
         assert "field_values" in captured, (
             "_check_cross_field_hotkey_conflicts was not invoked via the "
-            "package namespace — the entry-point function is binding the "
+            "package namespace, the entry-point function is binding the "
             "helper at module load time (lazy-import pattern is broken)."
         )
         assert "PATCHED-CROSS-FIELD-ERROR" in errors, (
             "The patched cross-field helper's return value did not propagate "
-            "through validate_config — the entry-point function is bypassing "
+            "through validate_config, the entry-point function is bypassing "
             "the package-namespace lookup."
         )
 
@@ -388,18 +388,18 @@ class TestMonkeyPatchSurface:
 
         assert "field_values" in captured, (
             "_check_cross_field_hotkey_conflicts was not invoked via the "
-            "package namespace in validate_config_update — lazy-import "
+            "package namespace in validate_config_update, lazy-import "
             "pattern is broken."
         )
         assert "PATCHED-CROSS-FIELD-ERROR" in errors, (
             "The patched cross-field helper's return value did not propagate "
-            "through validate_config_update — the entry-point function is "
+            "through validate_config_update, the entry-point function is "
             "bypassing the package-namespace lookup."
         )
 
     def test_validate_config_sees_patched_cloud_helper(self) -> None:
         """The cloud/LLM consistency check helper must also be patched
-        via the package namespace — same lazy-import pattern."""
+        via the package namespace, same lazy-import pattern."""
         captured: dict = {}
 
         def _capture(cloud_values):
@@ -414,22 +414,22 @@ class TestMonkeyPatchSurface:
 
         assert "cloud_values" in captured, (
             "_check_cross_field_cloud_config was not invoked via the package "
-            "namespace in validate_config — lazy-import pattern is broken."
+            "namespace in validate_config, lazy-import pattern is broken."
         )
         assert "PATCHED-CLOUD-ERROR" in errors
 
 
 class TestSplitCompleteness:
-    """The split must be COMPLETE (E15 — debt removal). No body of
+    """The split must be COMPLETE (E15, debt removal). No body of
     ``IPC_CONFIG_ALLOWLIST``, the ``_VALIDATOR_*`` instances, or the
     two entry-point functions may remain in ``__init__.py``.
     """
 
     def test_init_py_is_shim_only(self) -> None:
         """``__init__.py`` must NOT contain the ``IPC_CONFIG_ALLOWLIST``
-        dict literal — that body has been moved to ``allowlist.py``.
+        dict literal, that body has been moved to ``allowlist.py``.
         Reading the source file and checking for the literal is a
-        proxy for "the body has been moved, not copied" (E15 — debt
+        proxy for "the body has been moved, not copied" (E15, debt
         removal)."""
         from pathlib import Path
 
@@ -443,21 +443,21 @@ class TestSplitCompleteness:
         # split, the shim only re-imports the name; the body lives in
         # allowlist.py. So the literal should NOT appear in __init__.py.
         assert '"hotkey": (str, _VALIDATOR_HOTKEY)' not in source, (
-            "IPC_CONFIG_ALLOWLIST dict body still present in __init__.py — "
+            "IPC_CONFIG_ALLOWLIST dict body still present in __init__.py, "
             "the split is incomplete (E15 debt removal). Move the body to "
             "voice_typer/server/config_validators/allowlist.py and replace "
             "with a re-export."
         )
         # Likewise the ``def validate_config_update`` body must NOT
-        # remain in __init__.py — it now lives in entry_points.py.
+        # remain in __init__.py, it now lives in entry_points.py.
         assert "def validate_config_update(" not in source, (
-            "validate_config_update function body still present in __init__.py — "
+            "validate_config_update function body still present in __init__.py, "
             "the split is incomplete (E15 debt removal). Move the body to "
             "voice_typer/server/config_validators/entry_points.py and "
             "replace with a re-export."
         )
         assert "def validate_config(" not in source, (
-            "validate_config function body still present in __init__.py — "
+            "validate_config function body still present in __init__.py, "
             "the split is incomplete (E15 debt removal). Move the body to "
             "voice_typer/server/config_validators/entry_points.py and "
             "replace with a re-export."
@@ -480,7 +480,7 @@ class TestSplitCompleteness:
         that the package + both new submodules import cleanly.
         """
         # Re-importing the package must be a no-op (already in
-        # sys.modules) — if the split had introduced a circular import,
+        # sys.modules), if the split had introduced a circular import,
         # the original ``import voice_typer.server.config_validators``
         # at the top of this module would already have raised.
         import importlib

@@ -1,4 +1,4 @@
-"""Native hotkey backend — shared constants.
+"""Native hotkey backend, shared constants.
 
 Kept in a dedicated leaf module so mixin modules can import them
 without circular dependencies.

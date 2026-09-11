@@ -1,6 +1,6 @@
 """Focused unit tests for :mod:`voice_typer.server.recording.stream_lifecycle`.
 
-Phase 4.5 — extracted from the 3772-LOC ``Recorder`` god class.
+Phase 4.5, extracted from the 3772-LOC ``Recorder`` god class.
 These tests exercise the public API of
 :class:`StreamLifecycle` (the collaborator extracted from ``Recorder``)
 without instantiating a real :class:`Recorder` and without touching real
@@ -8,10 +8,10 @@ audio hardware / subprocess.
 
 External dependencies are mocked:
 
-- ``sd.InputStream`` — patched on the ``stream_lifecycle`` module's lazy
+- ``sd.InputStream``, patched on the ``stream_lifecycle`` module's lazy
   ``sd`` proxy with a fake factory (returns a ``MagicMock`` that records
   ``start()`` / ``stop()`` / ``close()`` calls).
-- ``recorder`` — a small ``MagicMock``-backed stub exposing only the
+- ``recorder``, a small ``MagicMock``-backed stub exposing only the
   attributes the extracted bodies touch (``_lock``,
   ``_effective_sr``, ``_actual_channels``, ``config``,
   ``_devices._resolve_effective_sample_rate``,
@@ -20,7 +20,7 @@ External dependencies are mocked:
   ``_stream_finished_callback``,
   ``_is_in_audio_callback``, ``_audio_callback_dispatch``,
   ``_current_callback``).
-- ``time.sleep`` — patched on the ``stream_lifecycle`` module so the
+- ``time.sleep``, patched on the ``stream_lifecycle`` module so the
   in-flight callback poll loop in :meth:`teardown_stream_body` does not
   actually sleep during tests.
 """
@@ -51,7 +51,7 @@ def _make_recorder_stub() -> Any:
     recorder = MagicMock()
     # ``_lock`` MUST be a real Lock because the bodies use it as a
     # context manager. ``MagicMock``'s ``__enter__`` would silently
-    # succeed but not provide real serialization — fine for these
+    # succeed but not provide real serialization, fine for these
     # tests, but a real Lock makes the tests representative of the
     # production behaviour.
     recorder._audio_pipeline._lock = threading.Lock()
@@ -66,12 +66,12 @@ def _make_recorder_stub() -> Any:
     # production Config dataclass.
     recorder.config.recording_channels = 1
     # ``_resolve_effective_sample_rate`` returns ``(rate, dev_info)``
-    # by default — tests override per-call returns via ``side_effect``.
+    # by default, tests override per-call returns via ``side_effect``.
     recorder._devices._resolve_effective_sample_rate.return_value = (16000, None)
     # ``_cached_max_input_channels`` returns 1 (mono) by default.
     recorder._devices._cached_max_input_channels.return_value = 1
     # ``_all_input_device_candidates`` returns an empty list by
-    # default — tests override.
+    # default, tests override.
     recorder._devices._all_input_device_candidates.return_value = []
     # ``_stream_finished_callback`` is just a callable marker.
     recorder._stream_finished_callback = MagicMock(name="_stream_finished_callback")
@@ -89,11 +89,11 @@ def _make_fake_stream_factory(
     tuples in invocation order so tests can assert on which candidates were
     attempted and with what parameters.
 
-    ``fail_indices`` (optional) — a set of 0-based attempt-indices that
+    ``fail_indices`` (optional), a set of 0-based attempt-indices that
     should raise ``RuntimeError`` from the factory instead of returning
     a stream (simulates a PortAudio open failure on the Nth candidate).
 
-    ``actual_samplerate`` (optional) — sets ``stream.samplerate`` on the
+    ``actual_samplerate`` (optional), sets ``stream.samplerate`` on the
     returned fake stream so the AUDIO-BT detection branch can be
     exercised. ``None`` means the fake stream has no ``samplerate``
     attribute (matching the ``hasattr`` fallback).
@@ -134,7 +134,7 @@ def _make_fake_stream_factory(
 
 class TestBuildAudioCallback:
     """Body of ``Recorder._build_audio_callback`` (no source-inspection
-    constraints — full extraction)."""
+    constraints, full extraction)."""
 
     def test_returns_callable_and_stores_current_callback(self):
         recorder = _make_recorder_stub()
@@ -154,7 +154,7 @@ class TestBuildAudioCallback:
         # Pre-condition: flag is clear.
         assert not recorder._is_in_audio_callback.is_set()
 
-        # Sentinel payload — the closure is supposed to forward all
+        # Sentinel payload, the closure is supposed to forward all
         # four positional args verbatim to ``_audio_callback_dispatch``.
         indata, frames, time_info, status = object(), 512, object(), 0
         cb(indata, frames, time_info, status)
@@ -175,7 +175,7 @@ class TestBuildAudioCallback:
             cb(object(), 0, object(), 0)
 
         # Flag is cleared in the ``finally`` clause even when dispatch
-        # raised — without this, ``_teardown_stream`` would hang in its
+        # raised, without this, ``_teardown_stream`` would hang in its
         # poll loop waiting for a callback that already exited.
         assert not recorder._is_in_audio_callback.is_set()
 
@@ -185,7 +185,7 @@ class TestBuildAudioCallback:
 
 class TestOpenStreamForCandidates:
     """Body of ``Recorder._open_stream_for_candidates`` (no source-
-    inspection constraints — full extraction)."""
+    inspection constraints, full extraction)."""
 
     def test_success_on_first_candidate(self, monkeypatch):
         recorder = _make_recorder_stub()
@@ -306,7 +306,7 @@ class TestOpenStreamForCandidates:
         an INFO message (no exception). The body must not raise."""
         recorder = _make_recorder_stub()
         # The fake stream reports an actual sample rate of 8000, while
-        # the candidate requested 16000 — that triggers the BT branch.
+        # the candidate requested 16000, that triggers the BT branch.
         _make_fake_stream_factory(monkeypatch, actual_samplerate=8000)
         recorder._devices._resolve_effective_sample_rate.return_value = (16000, None)
         candidates = [1]
@@ -317,7 +317,7 @@ class TestOpenStreamForCandidates:
             recorder, candidates, callback, effective_sr=16000, last_error=None
         )
 
-        # The BT branch only logs — it does NOT change selected_device
+        # The BT branch only logs, it does NOT change selected_device
         # or effective_sr.
         assert selected == 1
         assert eff_sr == 16000
@@ -329,7 +329,7 @@ class TestOpenStreamForCandidates:
 
 class TestOpenStreamFallback:
     """Body of ``Recorder._open_stream_fallback`` (no source-inspection
-    constraints — full extraction)."""
+    constraints, full extraction)."""
 
     def test_success_returns_used_fallback_true(self, monkeypatch):
         recorder = _make_recorder_stub()
@@ -380,7 +380,7 @@ class TestOpenStreamFallback:
             last_error=None,
         )
 
-        # Candidate 5 was excluded — only 7 and 9 attempted.
+        # Candidate 5 was excluded, only 7 and 9 attempted.
         assert [a[0]["device"] for a in attempts] == [7, 9]
         assert selected == 9
         assert used_fb is True
@@ -493,7 +493,7 @@ class TestTeardownStreamBody:
     def test_stops_closes_and_clears_stream(self, monkeypatch):
         recorder = _make_recorder_stub()
         fake_stream = MagicMock(name="fake_stream")
-        # In-flight callback flag is NOT set — poll loop exits immediately.
+        # In-flight callback flag is NOT set, poll loop exits immediately.
         recorder._is_in_audio_callback.clear()
         lifecycle = StreamLifecycle(recorder)
         # STATE-OWNERSHIP: the stream slot is set on the OWNING lifecycle.
@@ -516,7 +516,7 @@ class TestTeardownStreamBody:
         # Flag starts SET (callback in-flight).
         recorder._is_in_audio_callback.set()
 
-        # Track sleep calls — the FIRST sleep should clear the flag
+        # Track sleep calls, the FIRST sleep should clear the flag
         # (simulating the callback finishing).  Subsequent iterations of
         # the poll loop will see the flag clear and break.
         sleep_calls: list[float] = []
@@ -529,17 +529,17 @@ class TestTeardownStreamBody:
 
         monkeypatch.setattr(sl_module.time, "sleep", fake_sleep)
         # Also patch ``perf_counter`` so the deadline math is
-        # deterministic — return a fixed time so ``_deadline - perf_counter``
+        # deterministic, return a fixed time so ``_deadline - perf_counter``
         # is always positive (avoids early break on a busy CI box).
         monkeypatch.setattr(sl_module.time, "perf_counter", lambda: 0.0)
         lifecycle = StreamLifecycle(recorder)
         # STATE-OWNERSHIP: the stream slot is set on the OWNING lifecycle
-        # (after construction — ``__init__`` initializes it to ``None``).
+        # (after construction: ``__init__`` initializes it to ``None``).
         lifecycle._stream = fake_stream
 
         lifecycle.teardown_stream_body(recorder)
 
-        # The poll loop ran at least once — the first iteration saw the
+        # The poll loop ran at least once, the first iteration saw the
         # flag set, slept, and the side-effect cleared the flag.  The
         # second iteration saw it clear and broke.
         assert len(sleep_calls) >= 1
@@ -555,7 +555,7 @@ class TestTeardownStreamBody:
     def test_poll_budget_exhaustion_closes_anyway(self, monkeypatch):
         """When the 300ms poll budget elapses and the flag is STILL set
         (callback genuinely stuck), the body must still call
-        ``close()`` and clear ``_stream`` — the worst-case contract is
+        ``close()`` and clear ``_stream``, the worst-case contract is
         "tear down anyway after the budget".  Without this,
         ``discard()`` could hang indefinitely on a stuck callback."""
         recorder = _make_recorder_stub()
@@ -566,7 +566,7 @@ class TestTeardownStreamBody:
         sleep_calls: list[float] = []
         # Drive ``perf_counter`` forward so the deadline math crosses
         # the 300ms budget.  Each call returns the next value in the
-        # sequence — the budget check uses ``_deadline - perf_counter``
+        # sequence, the budget check uses ``_deadline - perf_counter``
         # and breaks when ``remaining <= 0``.
         perf_counter_values = iter([0.0, 0.005, 0.010, 0.015, 0.350])
 
@@ -596,10 +596,10 @@ class TestTeardownStreamBody:
 
     def test_close_exception_propagates(self, monkeypatch):
         """If ``stream.close()`` raises, the exception propagates out of
-        ``teardown_stream_body`` — the body does NOT swallow close
+        ``teardown_stream_body``, the body does NOT swallow close
         failures.  (The ``_stream = None`` assignment in the body is
         after ``close()``, so a close failure leaves ``_stream`` set;
-        the caller — ``Recorder._teardown_stream`` — is responsible for
+        the caller (``Recorder._teardown_stream``) is responsible for
         handling that case via its ``finally: lock.release()`` block.)"""
         recorder = _make_recorder_stub()
         fake_stream = MagicMock(name="fake_stream")
@@ -708,7 +708,7 @@ class TestRestartStreamScaledBlocksize:
     open paths use (``scaled_audio_blocksize(candidate_sr)``).
 
     ``DisconnectHandler.restart_stream`` re-opens with
-    ``recorder._current_callback`` directly — a fixed 512 there would
+    ``recorder._current_callback`` directly, a fixed 512 there would
     restore the ~94 callbacks/s cadence on 48 kHz devices after every
     hot-swap recovery, and the buffers sized by
     ``SessionState.resize_buffers_for_sample_rate`` (scaled chunk math)
@@ -749,7 +749,7 @@ class TestRestartStreamScaledBlocksize:
 
     def test_restart_stream_keeps_512_at_16khz_candidate(self, monkeypatch):
         """At a 16 kHz reconnect candidate the scaled blocksize is
-        exactly 512 (the Silero window) — the floor, not a special case."""
+        exactly 512 (the Silero window), the floor, not a special case."""
         from voice_typer.server.recording import disconnect_handler as dh_module
         from voice_typer.server.recording.disconnect_handler import DisconnectHandler
         from voice_typer.server.recording.recorder import Recorder

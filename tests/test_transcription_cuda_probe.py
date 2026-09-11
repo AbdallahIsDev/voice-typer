@@ -7,7 +7,7 @@ loaded, the probe catches the error at startup and falls back to CPU
 *immediately* (instead of failing mid-dictation when the user is
 already speaking).
 
-Pre-fix this method was completely untested — meaning:
+Pre-fix this method was completely untested: meaning:
 
   * The early-return guard at line 520-522 (``self._model is None``)
     could silently regress to a ``AttributeError`` without anyone
@@ -45,7 +45,7 @@ def cuda_engine():
     not attempt the (real) ``ctranslate2.get_cuda_device_count()`` probe.
     We then set ``_device = "cuda"`` and ``_compute_type = "float16"``
     directly to mirror the state the engine is in immediately after a
-    successful CUDA load — the caller of ``_probe_cuda_runtime`` runs
+    successful CUDA load, the caller of ``_probe_cuda_runtime`` runs
     the probe right after the CUDA model is loaded, so at probe time
     ``_device == "cuda"`` is an invariant.
     """
@@ -64,7 +64,7 @@ class TestProbeCudaRuntime:
 
       1. Early return when ``self._model is None`` (no transcribe call,
          no exception).
-      2. Success path — segments iterate cleanly and ``_device`` stays
+      2. Success path, segments iterate cleanly and ``_device`` stays
          ``"cuda"``.
       3. cuBLAS-class error triggers CPU fallback (``_device = "cpu"``,
          ``_compute_type = "int8"``, ``_reload_under_lock`` was called).
@@ -75,7 +75,7 @@ class TestProbeCudaRuntime:
         """#1: ``self._model is None`` must trigger an early
         return at line 520-522 BEFORE any ``model.transcribe()`` call.
 
-        Pre-fix the guard existed but was untested — a refactor that
+        Pre-fix the guard existed but was untested, a refactor that
         moved the ``import numpy`` above the guard (or removed the
         guard entirely) would crash with ``AttributeError: 'NoneType'
         object has no attribute 'transcribe'`` the first time the probe
@@ -85,12 +85,12 @@ class TestProbeCudaRuntime:
         probe returns ``None`` without raising. If the early-return
         guard regresses, the production code dereferences
         ``self._model.transcribe(...)`` and Python raises
-        ``AttributeError`` — which ``pytest`` surfaces as a test
+        ``AttributeError``, which ``pytest`` surfaces as a test
         failure (no exception expected).
         """
         cuda_engine._model = None
 
-        # Call probe — must return None without raising.
+        # Call probe, must return None without raising.
         result = cuda_engine._probe_cuda_runtime()
         assert result is None, (
             "_probe_cuda_runtime must return None when _model is None (early-return contract at line 520-522)."
@@ -108,18 +108,18 @@ class TestProbeCudaRuntime:
              kwargs as ``_transcribe_unlocked`` (beam_size,
              temperature=0.0, vad_filter=False, language,
              condition_on_previous_text, without_timestamps=True;
-             ``best_of`` is deliberately NOT forwarded — it is a no-op
+             ``best_of`` is deliberately NOT forwarded, it is a no-op
              under ``temperature=0.0``).
           2. Iterates through every segment (lazy ctranslate2 generator
-             — the real GPU work happens during iteration).
+           , the real GPU work happens during iteration).
           3. Logs "CUDA runtime OK" and returns normally.
 
-        The fallback branch must NOT fire — ``_device`` stays
+        The fallback branch must NOT fire: ``_device`` stays
         ``"cuda"``, ``_compute_type`` stays ``"float16"``, and
         ``_reload_under_lock`` must NOT be called.
         """
         mock_model = MagicMock()
-        # model.transcribe returns (segments, info) — segments must be
+        # model.transcribe returns (segments, info), segments must be
         # iterable. An empty list is fine: the ``for _seg in segments``
         # loop is a no-op, which is the cleanest success path.
         segments_returned: list[object] = []
@@ -145,10 +145,8 @@ class TestProbeCudaRuntime:
         # from every decode call site (probe + warm-up included).
         assert "best_of" not in probe_kwargs
         assert probe_kwargs["temperature"] == 0.0
-        # Device stays CUDA — the fallback did NOT fire.
-        assert cuda_engine._device == "cuda", (
-            "on probe success _device must remain 'cuda' — the fallback must NOT fire."
-        )
+        # Device stays CUDA, the fallback did NOT fire.
+        assert cuda_engine._device == "cuda", "on probe success _device must remain 'cuda', the fallback must NOT fire."
         assert cuda_engine._compute_type == "float16", "on probe success _compute_type must remain 'float16'."
         # _reload_under_lock must NOT have been called.
         cuda_engine._reload_under_lock.assert_not_called()
@@ -161,7 +159,7 @@ class TestProbeCudaRuntime:
         exception whose ``str()`` contains any of those substrings, it
         must:
 
-          1. Acquire ``self._lock`` (race-safety — see comment at
+          1. Acquire ``self._lock`` (race-safety: see comment at
              line 572-579).
           2. ``del self._model`` and ``gc.collect()`` (release VRAM).
           3. Set ``self._model = None``, ``self._device = "cpu"``,
@@ -176,14 +174,14 @@ class TestProbeCudaRuntime:
         mock_model = MagicMock()
 
         # Raise the cuBLAS error during the segment iteration, not
-        # during the transcribe() call itself — mirrors the real
+        # during the transcribe() call itself, mirrors the real
         # failure mode (the lazy generator doesn't try to load cuBLAS
         # until the first ``next()`` call). This also exercises the
         # ``for _seg in segments: pass`` loop's exception propagation.
         def _transcribe_side_effect(*args, **kwargs):
             def _gen():
                 raise Exception("cuBLAS load library failed")
-                yield  # unreachable — makes this a generator function
+                yield  # unreachable, makes this a generator function
 
             return (_gen(), MagicMock())
 
@@ -196,7 +194,7 @@ class TestProbeCudaRuntime:
         cuda_engine._reload_under_lock = MagicMock(name="_reload_under_lock")
 
         # Patch gc.collect so we don't trigger real GC (cheap but
-        # noisy — and a real GC pass could collect other test fixtures
+        # noisy, and a real GC pass could collect other test fixtures
         # in unpredictable order).
         import gc
 
@@ -221,7 +219,7 @@ class TestProbeCudaRuntime:
         )
         # HU-25: the RACE-023 deferred release must be armed so the next
         # caller outside the lock (transcribe / unload) runs
-        # gc.collect() + release_gpu_memory() — otherwise the freed CUDA
+        # gc.collect() + release_gpu_memory(), otherwise the freed CUDA
         # blocks stay cached in the allocator and VRAM is never returned
         # to the OS after repeated CUDA-probe-failure reloads.
         assert cuda_engine._pending_gc_collect is True, "cuBLAS fallback must set _pending_gc_collect = True (HU-25)"
@@ -237,7 +235,7 @@ class TestProbeCudaRuntime:
         silently masked as a "CUDA fallback" event.
 
         Pre-fix the ``except Exception`` clause at line 551 was
-        permissive enough to swallow any exception — only the inner
+        permissive enough to swallow any exception, only the inner
         ``if any(...)`` check distinguished CUDA errors. The ``else:
         raise`` at line 610-611 is the contract: non-CUDA errors must
         propagate verbatim.

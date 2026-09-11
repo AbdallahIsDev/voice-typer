@@ -1,9 +1,9 @@
 """Generate a 64x64 microphone icon (ICO) for the installer.
 
 DEAD-015: There are two icon generators in this repo:
-  - ``scripts/build/generate_icon.py`` (this file) — generates the
+  - ``scripts/build/generate_icon.py`` (this file), generates the
     Windows .ico used by PyInstaller + Inno Setup.
-  - ``voice_typer/client/scripts/generate-icons.mjs`` — generates the
+  - ``voice_typer/client/scripts/generate-icons.mjs``, generates the
     Electron app's PNG icons (different sizes for tray, taskbar, etc.)
     from an SVG source.
 

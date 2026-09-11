@@ -16,11 +16,11 @@ surface (``sidecar_ws._check_duplicate_auth(...)``,
   → ``_emit_initial_state_snapshot``) lives in the canonical module,
   untouched.
 - Signatures are pinned by
-  ``tests/test_sidecar_ws_handle_connection_split.py`` — moved verbatim.
+  ``tests/test_sidecar_ws_handle_connection_split.py``, moved verbatim.
 - The lazy ``from voice_typer.server import event_bus`` imports inside
   ``_install_subscriber`` / ``_emit_ready_if_first`` /
   ``_emit_initial_state_snapshot`` stay call-time (tests patch
-  ``event_bus.publish``) — preserved by the verbatim move.
+  ``event_bus.publish``), preserved by the verbatim move.
 """
 
 from __future__ import annotations
@@ -38,20 +38,20 @@ if TYPE_CHECKING:  # pragma: no cover - type-checker-only
 
 # Same logger object as the canonical module (``logging.getLogger`` is
 # idempotent per name). Keeps every log record's ``name`` attribute
-# byte-identical to the pre-split output — several tests pin
+# byte-identical to the pre-split output, several tests pin
 # ``caplog.at_level(..., logger="voice_typer.server.sidecar_ws")``.
 log = logging.getLogger("voice_typer.server.sidecar_ws")
 
 
 def _enqueue_safe(outbound: asyncio.Queue, event: dict) -> None:
-    """Drop-oldest enqueue — MUST run on the event-loop thread.
+    """Drop-oldest enqueue. MUST run on the event-loop thread.
 
     ``_push_to_ws`` is an ``event_bus`` subscriber, so it is
     invoked from whatever thread called ``event_bus.publish()``. The
     publishers are non-event-loop threads: transcription, hotkey, tray,
     IPC dispatch workers (``_dispatch`` runs via
     ``loop.run_in_executor``), and the audio-worker deferred path.
-    ``asyncio.Queue`` is explicitly NOT thread-safe — mutating its
+    ``asyncio.Queue`` is explicitly NOT thread-safe, mutating its
     internal deque + ``_getawaiter`` / ``_putawaiter`` futures from a
     non-loop thread corrupts state. Symptoms seen pre-fix: silently
     dropped events (transcription_final never reached the Tauri host),
@@ -81,13 +81,13 @@ def _enqueue_safe(outbound: asyncio.Queue, event: dict) -> None:
     if outbound.full():
         try:
             outbound.get_nowait()
-            log.debug("[SIDECAR-WS] outbound queue full — dropped oldest event")
+            log.debug("[SIDECAR-WS] outbound queue full, dropped oldest event")
         except asyncio.QueueEmpty:
             pass
     try:
         outbound.put_nowait(event)
     except asyncio.QueueFull:
-        log.warning("[SIDECAR-WS] outbound queue still full — dropping event")
+        log.warning("[SIDECAR-WS] outbound queue still full, dropping event")
 
 
 def _get_ws_connection_semaphore(server: IPCServer) -> asyncio.Semaphore:
@@ -95,7 +95,7 @@ def _get_ws_connection_semaphore(server: IPCServer) -> asyncio.Semaphore:
     # Resolve the cap from the canonical module at CALL time (a
     # module-top import would be circular: sidecar_ws imports this leaf
     # at its own module top). Call-time resolution preserves the
-    # pre-split patch seam — an assignment to
+    # pre-split patch seam, an assignment to
     # ``sidecar_ws._MAX_WS_CONNECTIONS`` is observed here exactly as it
     # was when this body lived in that module.
     from voice_typer.server import sidecar_ws as _canonical
@@ -125,7 +125,7 @@ async def _check_duplicate_auth(websocket, server: IPCServer, peer) -> bool:
     protocol bug. The previous connection is cleared from
     ``server._active_ws_connection`` in the ``finally`` block of
     :func:`_handle_connection_inner` (only if it still points at THIS
-    socket — a race-safe compare).
+    socket, a race-safe compare).
 
     Defensive: ``server`` may be a ``MagicMock`` in tests, where
     ``getattr(server, "_active_ws_connection", None)`` auto-vivifies
@@ -137,7 +137,7 @@ async def _check_duplicate_auth(websocket, server: IPCServer, peer) -> bool:
     Returns ``True`` if the connection should proceed (no duplicate,
     and the active-connection slot was claimed). Returns ``False`` if
     the connection was rejected (duplicate_connection frame sent +
-    socket closed) — the caller MUST return immediately.
+    socket closed), the caller MUST return immediately.
     """
     with server._lock:
         existing = getattr(server, "_active_ws_connection", None)
@@ -149,7 +149,7 @@ async def _check_duplicate_auth(websocket, server: IPCServer, peer) -> bool:
             is_existing_open = False
     if is_existing_open:
         log.warning(
-            "[SIDECAR-WS] duplicate authenticated connection from %s — "
+            "[SIDECAR-WS] duplicate authenticated connection from %s, "
             "an existing authenticated connection is already active; "
             "rejecting new connection with 1008 to preserve the "
             "single-connection invariant",
@@ -161,7 +161,7 @@ async def _check_duplicate_auth(websocket, server: IPCServer, peer) -> bool:
         # ``outbound._safe_send``. Deliberate: (1) the frame is a tiny
         # fixed-size error envelope, so the 1 MiB cap / off-loop encode
         # defenses are moot for it; (2) the close code contract here is
-        # 1008 (Policy Violation — the host's reconnect logic branches
+        # 1008 (Policy Violation, the host's reconnect logic branches
         # on it), and routing through ``_safe_send`` would introduce a
         # competing 1011 close on its timeout/error paths, racing this
         # authoritative 1008 close; (3) the send + close are both
@@ -186,7 +186,7 @@ async def _check_duplicate_auth(websocket, server: IPCServer, peer) -> bool:
         return False
     # Mark this as the active connection. Cleared in the ``finally``
     # block of ``_handle_connection_inner`` (only if it still points at
-    # THIS socket — a concurrent rejection path may have already
+    # THIS socket, a concurrent rejection path may have already
     # swapped it).
     with server._lock:
         server._active_ws_connection = websocket
@@ -201,7 +201,7 @@ def _emit_ready_if_first(server: IPCServer) -> None:
     (mirrors the Electron path's ``ready`` push at
     ``ipc_server.py:1899``). Using ``event_bus.publish`` (not
     ``server.push``) because the WS writer task subscribes to
-    event_bus — ``server.push`` would go to the TCP path's
+    event_bus, ``server.push`` would go to the TCP path's
     ``_tcp_client`` which is ``None`` in WS mode.
 
     the caller (:func:`_handle_connection_inner`) MUST call
@@ -237,69 +237,69 @@ def _emit_ready_if_first(server: IPCServer) -> None:
     if not already_emitted:
         from voice_typer.server import event_bus
 
-        log.info("[SIDECAR-WS] first authenticated connection — emitting `ready` event")
+        log.info("[SIDECAR-WS] first authenticated connection, emitting `ready` event")
         event_bus.publish({"type": "ready"})
 
 
 def _install_subscriber(server: IPCServer, loop: asyncio.AbstractEventLoop, outbound: asyncio.Queue) -> object:
     """register ``_push_to_ws`` as an
-    ``event_bus`` subscriber (sync API) and emit the initial
-    ``state_changed`` snapshot.
+     ``event_bus`` subscriber (sync API) and emit the initial
+     ``state_changed`` snapshot.
 
-    ``_push_to_ws`` is invoked from WHATEVER thread
-    ``event_bus.publish`` runs on — typically a domain thread (tray,
-    transcription, dictation_pipeline, audio-worker, IPC dispatch
-    workers) that is NOT the asyncio loop thread. ``asyncio.Queue``
-    is documented as NOT thread-safe; the GIL makes immediate deque
-    ops atomic but the ``_getters``/``_putters`` future-scheduling
-    path can miss wakeups. The captured ``loop`` (captured ONCE here
-    —  cleanup: previously re-captured three times with a
-    dead ``_ws_loop`` local) is closed over in ``_push_to_ws`` so the
-    sync subscriber can route all queue mutations through
-    ``loop.call_soon_threadsafe`` (the documented way to bridge a
-    sync caller to an asyncio primitive from a non-loop thread).
+     ``_push_to_ws`` is invoked from WHATEVER thread
+     ``event_bus.publish`` runs on, typically a domain thread (tray,
+     transcription, dictation_pipeline, audio-worker, IPC dispatch
+     workers) that is NOT the asyncio loop thread. ``asyncio.Queue``
+     is documented as NOT thread-safe; the GIL makes immediate deque
+     ops atomic but the ``_getters``/``_putters`` future-scheduling
+     path can miss wakeups. The captured ``loop`` (captured ONCE here
+    ,  cleanup: previously re-captured three times with a
+     dead ``_ws_loop`` local) is closed over in ``_push_to_ws`` so the
+     sync subscriber can route all queue mutations through
+     ``loop.call_soon_threadsafe`` (the documented way to bridge a
+     sync caller to an asyncio primitive from a non-loop thread).
 
-    The previous ``server._ws_loop = loop`` write was removed — it
-    had zero production readers (the per-connection closure-captured
-    ``loop`` is the only source of truth used by ``_push_to_ws``),
-    and writing it without ``server._lock`` created a race-on-write
-    hazard for any future diagnostic reader. The WS path runs ONE
-    accept loop on ONE asyncio event loop, so all connections share
-    the same loop; if a future refactor permits multiple loops, the
-    closure-captured ``loop`` remains the per-connection source of
-    truth.
+     The previous ``server._ws_loop = loop`` write was removed, it
+     had zero production readers (the per-connection closure-captured
+     ``loop`` is the only source of truth used by ``_push_to_ws``),
+     and writing it without ``server._lock`` created a race-on-write
+     hazard for any future diagnostic reader. The WS path runs ONE
+     accept loop on ONE asyncio event loop, so all connections share
+     the same loop; if a future refactor permits multiple loops, the
+     closure-captured ``loop`` remains the per-connection source of
+     truth.
 
-     ( /  parity): the connect-time ``state_changed`` snapshot used to
-    be emitted HERE (right after subscribing). It moved to
-    :func:`_emit_initial_state_snapshot`, which
-    ``_handle_connection_inner`` calls AFTER
-    :func:`_emit_ready_if_first` — see that function for why the
-    order matters (the Tauri host's auth handshake requires ``ready``
-    as the FIRST post-auth frame).
+      ( /  parity): the connect-time ``state_changed`` snapshot used to
+     be emitted HERE (right after subscribing). It moved to
+     :func:`_emit_initial_state_snapshot`, which
+     ``_handle_connection_inner`` calls AFTER
+     :func:`_emit_ready_if_first`: see that function for why the
+     order matters (the Tauri host's auth handshake requires ``ready``
+     as the FIRST post-auth frame).
 
-    Returns the ``_push_to_ws`` subscriber callable so the caller can
-    ``event_bus.unsubscribe`` it in the connection ``finally`` block.
+     Returns the ``_push_to_ws`` subscriber callable so the caller can
+     ``event_bus.unsubscribe`` it in the connection ``finally`` block.
     """
 
     def _push_to_ws(event: dict) -> None:
-        """Subscriber for event_bus.publish — enqueues for the writer task.
+        """Subscriber for event_bus.publish, enqueues for the writer task.
 
          this subscriber is invoked synchronously in the
         publisher's thread (``event_bus._deliver`` calls ``fn(event)``
         directly, modulo the RT-thread deferred path). Because the
         publisher is typically a non-event-loop thread, we MUST NOT
-        touch ``outbound`` (an ``asyncio.Queue``) here — ``asyncio.Queue``
+        touch ``outbound`` (an ``asyncio.Queue``) here, ``asyncio.Queue``
         is documented as NOT thread-safe and direct mutation from a
         non-loop thread corrupts the queue's internal deque + Future
         state. Instead we schedule ``_enqueue_safe`` on the loop thread
-        via ``call_soon_threadsafe`` — the only documented thread-safe
+        via ``call_soon_threadsafe``: the only documented thread-safe
         way to hand work to an asyncio loop from outside it. The
         drop-oldest dance (``full`` / ``get_nowait`` / ``put_nowait``)
         lives in ``_enqueue_safe`` and runs entirely on the loop thread.
 
         removed the pre-marshaling queue-overflow check and
         the ``put_nowait`` fallback. They touched the asyncio.Queue from
-        the publisher's thread — exactly the corruption ``_enqueue_safe``
+        the publisher's thread, exactly the corruption ``_enqueue_safe``
         was created to prevent. ``_enqueue_safe`` already does the
         drop-oldest dance ON the loop thread. Also removed the dead
         ``except asyncio.QueueFull`` clause (``call_soon_threadsafe``
@@ -316,7 +316,7 @@ def _install_subscriber(server: IPCServer, loop: asyncio.AbstractEventLoop, outb
         try:
             loop.call_soon_threadsafe(_enqueue_safe, outbound, event)
         except RuntimeError:
-            log.debug("[SIDECAR-WS] event dropped during shutdown — event loop closed")
+            log.debug("[SIDECAR-WS] event dropped during shutdown, event loop closed")
 
     from voice_typer.server import event_bus
 
@@ -338,7 +338,7 @@ def _emit_initial_state_snapshot(server: IPCServer) -> None:
     ORDERING CONTRACT (do not reorder): this MUST be called AFTER
     :func:`_emit_ready_if_first` in ``_handle_connection_inner``. The
     Tauri host's ``wait_for_auth_ok`` requires ``ready`` as the FIRST
-    post-auth frame — any other frame type is treated as a protocol
+    post-auth frame, any other frame type is treated as a protocol
     violation and triggers a supervisor respawn loop. This snapshot
     previously lived inside :func:`_install_subscriber`, so it raced
     in AHEAD of ``ready`` on the wire and killed every Tauri
@@ -348,7 +348,7 @@ def _emit_initial_state_snapshot(server: IPCServer) -> None:
     Defensive: the tray may not be initialized yet on the very first
     connection (the app boots the IPC server before the tray icon is
     constructed). ``getattr(..., None)`` + the ``is not None`` guard
-    skip the emit in that case — the host will pick up the next state
+    skip the emit in that case, the host will pick up the next state
     transition via the normal ``status_change`` hook.
     """
     from voice_typer.server import event_bus

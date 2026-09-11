@@ -32,7 +32,7 @@ def test_venv_guard_stays_in_callers_not_helper() -> None:
 
     The shared probe deliberately has no guard (it answers "is this
     candidate swappable?"). If a future cleanup drops a caller's guard,
-    venv users would get swap warnings on every registration — pin the
+    venv users would get swap warnings on every registration, pin the
     guard text in all three call sites.
     """
     import inspect

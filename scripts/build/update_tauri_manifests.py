@@ -25,7 +25,7 @@ Manifest key resolution
 -----------------------
 
 The manifest's per-arch ``sha256`` keys are derived from the Rust target
-triple via :data:`TRIPLE_TO_MANIFEST_KEY` — the SAME mapping
+triple via :data:`TRIPLE_TO_MANIFEST_KEY`: the SAME mapping
 ``tests/tauri/test_config_script_drift.py`` pins against the manifest
 (and the stub generator's ``SIDECAR_TRIPLES``), so a new triple forces
 this map and the drift test to move together. macOS collapses both
@@ -55,7 +55,7 @@ Design notes
 ------------
 
 - Idempotent: running twice produces the same manifest.
-- Never deletes manifest entries — only rewrites the ``sha256`` sub-key
+- Never deletes manifest entries, only rewrites the ``sha256`` sub-key
   that belongs to the given triple. Other platforms' keys (populated by
   other CI legs) are left untouched.
 - Preserves the ``version`` / ``min_proto_version`` / ``_install_paths``
@@ -77,7 +77,7 @@ from pathlib import Path
 
 log = logging.getLogger("update_tauri_manifests")
 
-# The Cargo binary name — MUST stay in lockstep with the ``package.name``
+# The Cargo binary name. MUST stay in lockstep with the ``package.name``
 # in src-tauri/Cargo.toml (drift-pinned by
 # tests/tauri/test_config_script_drift.py::TestTauriBinariesManifestBinaryNames).
 _BINARY_NAME = "voice-typer-tauri"
@@ -205,8 +205,7 @@ def record_sha256(
     entry = _find_entry(manifest, key)
     if entry is None:
         raise ValueError(
-            f"manifest has no sha256 sub-key {key!r} — the manifest must "
-            "declare every per-arch key (drift test Pair 2)."
+            f"manifest has no sha256 sub-key {key!r}, the manifest must declare every per-arch key (drift test Pair 2)."
         )
     entry["sha256"][key] = sha
     _write_manifest(manifest_path, manifest)
@@ -218,7 +217,7 @@ def check_manifest(manifest_path: Path, triple: str | None = None) -> list[str]:
     """Return a list of violations, empty iff the manifest is valid.
 
     With ``triple``, only that triple's own key is validated (used by the
-    per-leg enforce step right after the record step — other platforms'
+    per-leg enforce step right after the record step, other platforms'
     keys may legitimately still be empty mid-build). Without it, every
     ``sha256`` sub-key must be non-empty 64-char lowercase hex (the
     full-manifest release gate, run post-merge in the aggregate job).
@@ -322,7 +321,7 @@ def main(argv: list[str]) -> int:
         for violation in violations:
             log.error("violation: %s", violation)
         log.error(
-            "manifest integrity check FAILED (%d violation(s)) — refusing to mark the build as release-ready.",
+            "manifest integrity check FAILED (%d violation(s)), refusing to mark the build as release-ready.",
             len(violations),
         )
         return 1

@@ -6,7 +6,7 @@ all cite the IPC command surface counts. After the  narrowing
 and the subsequent +1 reconciliation across all three allowlists
 (+1 again 2026-08-13 for `transcribe_offline`), then −3 for the
 2026-08-14 prewarm retirements (`get_prewarm_status` / `run_prewarm` /
-`open_prewarm_log` — prewarm became a worker startup phase, master
+`open_prewarm_log`, prewarm became a worker startup phase, master
 plan §6.2 P-1), then +2 restored 2026-08-14 (plan §6.3 addendum —
 `get_prewarm_status` / `open_prewarm_log` brought back for the
 Settings → About Cache Status card, verbatim from 5a319872;
@@ -55,7 +55,7 @@ def test_security_md_states_current_counts() -> None:
     reconciliation blockquote cited stale counts of "64 Python ↔ 62 TS
     ↔ 60 Rust". The actual counts (asserted by
     ``tests/test_security_doc_command_count.py``) are 69 / 67 / 65
-    (2026-08-14: +2 restored prewarm status commands — plan §6.3
+    (2026-08-14: +2 restored prewarm status commands, plan §6.3
     addendum).
     This test pins the prose so a future drift is caught.
     """
@@ -93,9 +93,9 @@ def test_features_md_states_command_counts() -> None:
 
     the IPC allowlist row in the Developer/Build
     feature table previously stated "63 commands total" for the Python
-    registry and "renderer-callable count is 61" — both stale. The
+    registry and "renderer-callable count is 61", both stale. The
     actual counts are 69 (registry) and 67 (renderer-callable) as of
-    2026-08-14 (prewarm status surface restored — plan §6.3 addendum).
+    2026-08-14 (prewarm status surface restored, plan §6.3 addendum).
     """
     text = FEATURES_MD.read_text(encoding="utf-8")
     # Strip Markdown emphasis so "**65**" parses as 65.
@@ -134,7 +134,7 @@ def test_changelog_md_states_command_counts() -> None:
     the  reconciliation entry previously stated
     "TS allowlist = 61, Rust allowlist = 61, Python registry = 63".
     The actual counts are 67/65/69 (2026-08-14: +2 restored prewarm
-    status commands — plan §6.3 addendum). This test pins the prose so
+    status commands, plan §6.3 addendum). This test pins the prose so
     the historical record stays accurate to the current state.
     """
     text = CHANGELOG_MD.read_text(encoding="utf-8")
@@ -165,8 +165,8 @@ def test_contributing_md_states_registry_count() -> None:
     """CONTRIBUTING.md must state the current registry count (69).
 
     the ``sidecar_ws.py`` module table row previously
-    cited a "63-command registry" — stale. The actual count is 69
-    (2026-08-14: prewarm status surface restored — plan §6.3 addendum).
+    cited a "63-command registry", stale. The actual count is 69
+    (2026-08-14: prewarm status surface restored, plan §6.3 addendum).
     """
     text = CONTRIBUTING_MD.read_text(encoding="utf-8")
     # The sidecar_ws.py row says "reuses the N-command registry unchanged".

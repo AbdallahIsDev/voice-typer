@@ -3,13 +3,13 @@
 Single source of truth for the three helpers that outlived the
 single-instance subsystem's Tauri-mode gating:
 
-- :func:`_is_pid_alive` — cross-platform PID liveness probe (POSIX
+- :func:`_is_pid_alive`: cross-platform PID liveness probe (POSIX
   ``os.kill(pid, 0)`` / Windows ``OpenProcess``).
-- :func:`_backend_pid_file` — the ``<config_dir>/run/backend.pid`` path
+- :func:`_backend_pid_file`: the ``<config_dir>/run/backend.pid`` path
   (belt-and-suspenders companion to the single-instance mutex on the
   Electron path; the authoritative "is a backend running?" source for
   the autostart launcher on every runtime).
-- :func:`_clear_backend_pid_file` — best-effort removal on shutdown
+- :func:`_clear_backend_pid_file`: best-effort removal on shutdown
   (teardowns, the shutdown watchdog, and atexit).
 
 This module is deliberately dependency-light (stdlib +
@@ -77,7 +77,7 @@ def _is_pid_alive(pid: int) -> bool:
     Cross-platform: uses ``os.kill(pid, 0)`` on POSIX and ``OpenProcess``
     on Windows.  Returns False if the PID is invalid or the process has
     exited.  On Windows, error_access_denied (5) is treated as "alive"
-    (the process exists but is owned by another session — better to
+    (the process exists but is owned by another session, better to
     block a duplicate than to proceed when unsure).
     """
     if pid <= 0:
@@ -97,7 +97,7 @@ def _is_pid_alive(pid: int) -> bool:
             )
             if not handle:
                 # error_access_denied (5) means the process exists but is
-                # owned by another user/session — treat as alive.
+                # owned by another user/session, treat as alive.
                 return kernel32.GetLastError() == 5
             try:
                 if not kernel32.GetExitCodeProcess(handle, ctypes.byref(still_active)):

@@ -10,7 +10,7 @@ The :data:`_plaintext_config_cache` dict lives in
 "global caches" concern); the read/write helpers here look it up via
 ``_cs._plaintext_config_cache`` so a test that does
 ``monkeypatch.setattr(credential_store, "_plaintext_config_cache", {})``
-sees the *patched* dict populated/cleared by these helpers — preserving
+sees the *patched* dict populated/cleared by these helpers, preserving
 the cache-coherence invariants that the GDPR-delete regression suite
 asserts.
 """
@@ -35,7 +35,7 @@ def _read_plaintext_fallback(provider: str) -> str | None:
 
     Returns None if config.json doesn't exist, the field is missing, or
     the field contains a ``keyring://`` reference token (the real value
-    lives in keychain — caller should have tried keyring first).
+    lives in keychain, caller should have tried keyring first).
     """
     try:
         import os
@@ -55,7 +55,7 @@ def _read_plaintext_fallback(provider: str) -> str | None:
             mtime_ns = 0
         # ``_plaintext_config_cache`` is monkey-patched by tests via
         # ``monkeypatch.setattr(credential_store, "_plaintext_config_cache", ...)``
-        # — look it up on the package module at call time so the
+        # , look it up on the package module at call time so the
         # patched dict is the one we read/write here.
         plaintext_config_cache = _cs._plaintext_config_cache
         cached = plaintext_config_cache.get(config_file_str)
@@ -66,7 +66,7 @@ def _read_plaintext_fallback(provider: str) -> str | None:
             plaintext_config_cache[config_file_str] = (mtime_ns, data)
     except Exception as e:
         # A parse failure here means config.json is corrupt (or
-        # unreadable) — the user has no way to notice this at DEBUG
+        # unreadable), the user has no way to notice this at DEBUG
         # level (which is off by default). WARNING surfaces it in the
         # default log level so the user can manually recover.
         log.warning(
@@ -84,7 +84,7 @@ def _read_plaintext_fallback(provider: str) -> str | None:
     # ``isinstance(value, str)`` guard.
     if not isinstance(data, dict):
         log.warning(
-            "[CREDENTIAL_STORE] plaintext fallback: config.json root is not a dict (type=%s) — skipping provider=%s",
+            "[CREDENTIAL_STORE] plaintext fallback: config.json root is not a dict (type=%s), skipping provider=%s",
             type(data).__name__,
             provider,
         )
@@ -94,7 +94,7 @@ def _read_plaintext_fallback(provider: str) -> str | None:
         if value == "" or value is None:
             return None
         log.warning(
-            "[CREDENTIAL_STORE] plaintext fallback: provider=%s field=%s has non-string value (type=%s) — skipping",
+            "[CREDENTIAL_STORE] plaintext fallback: provider=%s field=%s has non-string value (type=%s), skipping",
             provider,
             field,
             type(value).__name__,
@@ -103,7 +103,7 @@ def _read_plaintext_fallback(provider: str) -> str | None:
     if not value:
         return None
     if value.startswith(KEYRING_REF_PREFIX):
-        # Reference token — real value is in keychain. Caller should
+        # Reference token, real value is in keychain. Caller should
         # have tried keyring already; if it returned None, the secret
         # is genuinely missing.
         return None
@@ -116,13 +116,13 @@ def _write_plaintext_fallback(provider: str, value: str, *, caller_holds_config_
     Reads config.json, updates the single field, and writes it back via
     ``_secure_atomic_write`` (which enforces ``0o600`` on POSIX).
     Preserves all other config fields. On any I/O error, logs and
-    returns ``False`` — never raises.
+    returns ``False``: never raises.
 
     The read-modify-write is wrapped in ``_acquire_config_lock()``
     (the same cross-process lock used by ``Config.save()`` and
     ``migrate_secrets_to_keyring``). When ``caller_holds_config_lock``
     is ``True``, the lock re-acquisition is SKIPPED (``fcntl.flock`` is
-    per-open-file-description, NOT per-fd — a second ``LOCK_EX`` on a
+    per-open-file-description, NOT per-fd, a second ``LOCK_EX`` on a
     fresh fd in the same process would deadlock).
     """
     try:
@@ -148,20 +148,20 @@ def _write_plaintext_fallback(provider: str, value: str, *, caller_holds_config_
                         # False so store_secret surfaces a "failed"
                         # outcome.
                         log.warning(
-                            "[CREDENTIAL_STORE] config.json root is not a dict — "
+                            "[CREDENTIAL_STORE] config.json root is not a dict, "
                             "skipping write to preserve existing data for manual recovery"
                         )
                         return False
                 except Exception as e:
                     log.error(
-                        "[CREDENTIAL_STORE] config.json parse failed — refusing to overwrite; "
+                        "[CREDENTIAL_STORE] config.json parse failed, refusing to overwrite; "
                         "preserving corrupt file for recovery: %s",
                         _redact_sensitive(str(e)),
                     )
                     return False
             field = PROVIDER_TO_CONFIG_FIELD.get(provider)
             if not field:
-                # Unknown provider — no-op (not a failure).
+                # Unknown provider, no-op (not a failure).
                 return True
             if value:
                 data[field] = value
@@ -169,14 +169,14 @@ def _write_plaintext_fallback(provider: str, value: str, *, caller_holds_config_
                 # Clear the field rather than leaving a stale value.
                 data[field] = ""
             else:
-                # Field not present and we're clearing — nothing to do.
+                # Field not present and we're clearing, nothing to do.
                 return True
             _secure_atomic_write(config_file, json.dumps(data, indent=2))
             return True
 
         if caller_holds_config_lock:
             # Caller (Config._save_unlocked) already holds the
-            # cross-process lock — re-acquiring would deadlock.
+            # cross-process lock, re-acquiring would deadlock.
             ok = _do_read_modify_write()
         else:
             # Hold the cross-process lock for the full

@@ -7,7 +7,7 @@ the bare literal ``"VOICE_TYPER_IPC_TOKEN"`` was duplicated across 7+
 files (``electron_launcher.py``, ``env_validation.py``,
 ``ipc/entrypoint.py``, ``ipc/transport_tcp.py``, ``sidecar_ws.py``,
 plus docstrings / comments / test docs). A typo in any of those would
-silently break IPC auth — the host sets X, the sidecar reads Y, every
+silently break IPC auth, the host sets X, the sidecar reads Y, every
 TCP connection is refused at SEC-018 with no diagnostic beyond a
 ``[TCP] refusing connection from <addr>`` ERROR.
 
@@ -18,7 +18,7 @@ This test asserts:
    variant) outside of ``_paths.py`` itself.
 
 The doc-comment / test-docstring case is tolerated by the test
-itself — the constant is the source of truth, the docstring may
+itself, the constant is the source of truth, the docstring may
 still mention the name for human readers.
 
 C-DATA-1 compliance: no network access. Pure import + ast-grep check.
@@ -44,7 +44,7 @@ def test_ipc_token_env_var_constant_is_canonical() -> None:
     a deprecation shim across the host and sidecar.
     """
     assert IPC_TOKEN_ENV_VAR == "VOICE_TYPER_IPC_TOKEN", (
-        f"IPC_TOKEN_ENV_VAR changed to {IPC_TOKEN_ENV_VAR!r} — this is a "
+        f"IPC_TOKEN_ENV_VAR changed to {IPC_TOKEN_ENV_VAR!r}, this is a "
         f"breaking change requiring coordinated Electron + Tauri host + "
         f"sidecar updates. Revert or add the migration shim."
     )
@@ -56,7 +56,7 @@ def test_ipc_token_env_var_constant_is_canonical() -> None:
 # - _paths.py itself (the constant definition + its docstring)
 # - The test file itself (the literal in the docstring)
 # - Files under tests/ that explicitly test the env-var name (this one)
-# - Stub files (voice_typer/stubs/) — vendored type stubs, not production
+# - Stub files (voice_typer/stubs/), vendored type stubs, not production
 _EXEMPT_PATH_FRAGMENTS = (
     "voice_typer/server/_paths.py",
     "voice_typer/stubs/",

@@ -10,13 +10,13 @@
  *  - `install_parakeet_deps` / `installDeps` / `installingDepsModel`:
  *    the "Download Deps" flow called an IPC command that existed in NO
  *    backend layer (Python registry, Rust allowlist, TS
- *    ALLOWED_COMMANDS, PythonRequest union — zero server matches), and
+ *    ALLOWED_COMMANDS, PythonRequest union, zero server matches), and
  *    its UI gate (`depsOk === false`) could never hold in steady state
  *    because the backend hardcodes `deps_ok: true` for every engine.
  *    The whole flow (hook action + state + the "Download Deps" UI
  *    branch + its tests + the orphaned snack/download i18n keys) was
  *    deleted.
- *  - `lib/semver.ts`: whole module was production-dead — only its own
+ *  - `lib/semver.ts`: whole module was production-dead, only its own
  *    test imported it (the docstring cited an About.tsx comparison
  *    that no longer existed client-side).
  *  - `refreshTrayAvailableCache`: zero references; its docstring
@@ -24,21 +24,21 @@
  *  - `ONBOARDING_MIC_TEST_DURATION_SEC`: zero references; the mic test
  *    duration is fixed at 10s elsewhere (C-MIC-18).
  *  - Rust `csv_escape`: `#[allow(dead_code)]` allocation-returning twin
- *    of `csv_escape_into` — production (`json_to_csv`) only ever calls
+ *    of `csv_escape_into`, production (`json_to_csv`) only ever calls
  *    the in-place variant; the twin existed solely so tests could
  *    assert on a returned `String`. Tests now wrap `csv_escape_into`.
  *
  * i18n: the removal deleted `models.snack.depsInstalled`,
  * `models.download.deps`, and `models.download.depsAria` from ALL
- * locales (complete removal — no partial locale edits). The keys that
- * REMAIN live (`models.snack.depsRequiredName` — the select-guard
- * snack; `models.download.oneAtATime` — the pinned hint key) are
+ * locales (complete removal, no partial locale edits). The keys that
+ * REMAIN live (`models.snack.depsRequiredName`, the select-guard
+ * snack; `models.download.oneAtATime`, the pinned hint key) are
  * asserted present so this guard also catches accidental
  * over-removal.
  *
  * NOTE: `isModelActive` (lib/utils/models.ts) was verified LIVE at
  * removal time (called by `applyActiveState` and `getActiveFamilyId`)
- * and is intentionally NOT listed here — it must stay.
+ * and is intentionally NOT listed here, it must stay.
  */
 
 import { existsSync, readFileSync } from "node:fs";
@@ -57,7 +57,7 @@ function readMain(relPath: string): string {
 	return readFileSync(resolve(CLIENT_SRC, "main", relPath), "utf8");
 }
 
-describe("dead exports stay removed — renderer hooks/components", () => {
+describe("dead exports stay removed, renderer hooks/components", () => {
 	it("useModelDownload has no installDeps flow (phantom install_parakeet_deps IPC)", () => {
 		const src = readRenderer("hooks/models/useModelDownload.ts");
 		expect(src).not.toContain("installDeps");
@@ -87,7 +87,7 @@ describe("dead exports stay removed — renderer hooks/components", () => {
 	});
 });
 
-describe("dead exports stay removed — main process + Rust host", () => {
+describe("dead exports stay removed, main process + Rust host", () => {
 	it("tray_available has no refreshTrayAvailableCache export", () => {
 		const src = readMain("tray_available.ts");
 		expect(src).not.toContain("refreshTrayAvailableCache");
@@ -98,7 +98,7 @@ describe("dead exports stay removed — main process + Rust host", () => {
 			resolve(REPO_ROOT, "src-tauri/src/commands/export.rs"),
 			"utf8",
 		);
-		// The exact-twin signature — must not match `fn csv_escape_into(`.
+		// The exact-twin signature, must not match `fn csv_escape_into(`.
 		expect(src).not.toContain("fn csv_escape(s: &str) -> String");
 		expect(src).not.toContain("#[allow(dead_code)]");
 		// The production escape path must still exist.
@@ -115,7 +115,7 @@ describe("dead exports stay removed — main process + Rust host", () => {
 	});
 });
 
-describe("dead exports stay removed — orphaned i18n keys (all 8 locales)", () => {
+describe("dead exports stay removed, orphaned i18n keys (all 8 locales)", () => {
 	const LOCALES = ["ar", "de", "en", "es", "fr", "hi", "ru", "zh"] as const;
 
 	it.each(LOCALES)(
@@ -126,7 +126,7 @@ describe("dead exports stay removed — orphaned i18n keys (all 8 locales)", () 
 				string,
 				Record<string, unknown>
 			>;
-			// Orphaned by the flow removal — deleted from every locale.
+			// Orphaned by the flow removal, deleted from every locale.
 			expect(
 				models.snack,
 				`${loc}: models.snack.depsInstalled`,

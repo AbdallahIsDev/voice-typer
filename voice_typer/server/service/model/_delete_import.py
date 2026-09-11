@@ -17,7 +17,7 @@ class DeleteImportMixin:
 
         On-disk model state changed, so the tray Models submenu must be
         rebuilt on the next right-click. Invalidation failures are logged
-        at DEBUG with the calling context — never raised (a stale tray
+        at DEBUG with the calling context, never raised (a stale tray
         cache must not fail the delete/import itself).
         """
         try:
@@ -63,7 +63,7 @@ class DeleteImportMixin:
         # SVC-7: also resolve parakeet + qwen via the registry so
         # ``delete_model("qwen")`` returns the "not downloaded" message
         # (instead of the legacy "Unknown model" error) when the cache
-        # dir is absent — the registry now carries the repo_id for both.
+        # dir is absent, the registry now carries the repo_id for both.
         meta = get_model_metadata(model_name)
         if meta is not None and meta.backend in ("whisper", "distil-whisper", "parakeet", "qwen"):
             repo_id = meta.repo_id
@@ -71,7 +71,7 @@ class DeleteImportMixin:
             repo_id = "nvidia/parakeet-tdt-0.6b-v3"
         elif model_name == "qwen":
             # Qwen is registered in MODEL_REGISTRY
-            # (repo_id="andrewleech/qwen3-asr-1.7b-onnx" — the ONNX export,
+            # (repo_id="andrewleech/qwen3-asr-1.7b-onnx": the ONNX export,
             # torch-era "Qwen/Qwen-Audio" removed 2026-08-15); fall
             # through to the same cache-dir check so absent models
             # report "not downloaded" rather than "Unknown model".
@@ -95,7 +95,7 @@ class DeleteImportMixin:
         if not model_dir.exists():
             # The model is NOT on disk. If it's ALSO the configured active
             # model, the config points at a model that was removed
-            # out-of-band (deleted folder, moved cache) — a stale
+            # out-of-band (deleted folder, moved cache), a stale
             # selection. Clearing it removes the phantom "Active" state
             # from the Models page: the user can't delete a model that
             # isn't there, and must not be stuck with a dead disabled
@@ -123,7 +123,7 @@ class DeleteImportMixin:
             # Invalidate the tray models submenu cache so the next
             # right-click reflects the deletion.
             self._invalidate_tray_model_cache("delete_model")
-            # PERF-10 / SVC-9: on-disk model state changed — force the next
+            # PERF-10 / SVC-9: on-disk model state changed, force the next
             # get_model_status() poll to recompute instead of serving stale
             # (still-present) cache.
             self._invalidate_model_status_cache()
@@ -141,7 +141,7 @@ class DeleteImportMixin:
         """Clear a stale active-model selection whose files are missing from disk.
 
         Called by :meth:`delete_model` when the configured active model is
-        NOT present in the HF cache (removed out-of-band — deleted folder,
+        NOT present in the HF cache (removed out-of-band, deleted folder,
         moved cache, wiped disk). The config keeps pointing at a model that
         doesn't exist, so the Models page would otherwise show a phantom
         "Active" model with no way to clear it.
@@ -152,7 +152,7 @@ class DeleteImportMixin:
         state immediately, and invalidates the model-status cache.
 
         Defensive by design: any config-mutation failure is logged and the
-        delete still returns success — the files are already gone, and the
+        delete still returns success, the files are already gone, and the
         status-cache invalidation alone guarantees the next UI poll reflects
         truth (``downloaded: false``).
         """
@@ -167,7 +167,7 @@ class DeleteImportMixin:
             else:
                 updates = {"asr_backend": replacement.backend, "model_size": replacement.name}
         else:
-            # NO downloaded model exists to fall back to — enter the
+            # NO downloaded model exists to fall back to, enter the
             # genuine "no model selected" state (``model_size=""``)
             # instead of leaving the config pointing at a phantom
             # model. ``NO_MODEL_SIZE`` is allowlisted for the IPC
@@ -185,13 +185,13 @@ class DeleteImportMixin:
             self._config_applier.apply_config(updates)
             if replacement is not None:
                 log.info(
-                    "[SERVICE] delete_model: stale active model '%s' cleared — switched to '%s'",
+                    "[SERVICE] delete_model: stale active model '%s' cleared, switched to '%s'",
                     model_name,
                     replacement.name,
                 )
             else:
                 log.info(
-                    "[SERVICE] delete_model: stale active model '%s' cleared — "
+                    "[SERVICE] delete_model: stale active model '%s' cleared, "
                     "no other model is downloaded, entering 'no model selected' state",
                     model_name,
                 )
@@ -201,7 +201,7 @@ class DeleteImportMixin:
             # invalidation below still un-sticks the phantom state on the
             # next poll). ``apply_config`` rolls the in-memory config back
             # to the pre-setattr values on ``save_strict`` failure, so
-            # ``updates`` is reset — the message + ``config_changed``
+            # ``updates`` is reset, the message + ``config_changed``
             # push below must not claim the switch happened.
             log.warning(
                 "[SERVICE] delete_model: cleared stale selection for '%s' but failed to persist config %s: %s",
@@ -220,11 +220,11 @@ class DeleteImportMixin:
         self._invalidate_model_status_cache()
         if updates:
             if updates.get("model_size") == NO_MODEL_SIZE:
-                message = f"Model '{model_name}' was not on disk — no model selected. Pick a model on the Models page."
+                message = f"Model '{model_name}' was not on disk, no model selected. Pick a model on the Models page."
             else:
-                message = f"Model '{model_name}' was not on disk — switched to '{updates['model_size']}'."
+                message = f"Model '{model_name}' was not on disk, switched to '{updates['model_size']}'."
         else:
-            message = f"Model '{model_name}' was not on disk — nothing to delete."
+            message = f"Model '{model_name}' was not on disk, nothing to delete."
         log.info("[SERVICE] delete_model: %s", message)
         return {"success": True, "message": message}
 
@@ -237,14 +237,14 @@ class DeleteImportMixin:
         ``downloaded=True``. Returns ``None`` when no other model is on disk.
 
         Used by :meth:`_clear_stale_active_model` to pick the replacement
-        for a deleted stale-active model — preferring the first downloaded
+        for a deleted stale-active model, preferring the first downloaded
         model keeps the app immediately usable after the config clear.
 
         Distil-whisper variants are SKIPPED: the frontend's ``isModelActive``
         keys distil models by ``asr_backend === "distil-whisper"`` (a value
         the ``set_config`` allowlist never writes), so a distil fallback
         written as ``asr_backend: "whisper"`` would never render as active
-        in the UI — an inconsistency worse than leaving the config as-is.
+        in the UI, an inconsistency worse than leaving the config as-is.
         """
         from voice_typer.server.model_registry import MODEL_REGISTRY
 
@@ -325,7 +325,7 @@ class DeleteImportMixin:
                 # refuse to import a model cache that contains
                 # symlinks.  ``shutil.copytree`` with ``symlinks=False``
                 # would *follow* any symlink in the source tree and copy
-                # the target's contents into the destination — so a
+                # the target's contents into the destination, so a
                 # poisoned model dir with a symlink to ``~/.ssh/id_rsa``
                 # would silently copy the SSH key into the app's HF
                 # cache.  Later, ``verify_model_integrity()`` follows
@@ -338,7 +338,7 @@ class DeleteImportMixin:
                 symlink = _find_symlink_in_tree(src_path)
                 if symlink is not None:
                     log.warning(
-                        "[SERVICE] import_model: refusing to import %s — "
+                        "[SERVICE] import_model: refusing to import %s, "
                         "symlink detected at %s (symlinks are not allowed "
                         "in imported model cache dirs)",
                         model_name,
@@ -393,7 +393,7 @@ class DeleteImportMixin:
             )
         elif found_models:
             log.warning(
-                "[SERVICE] Model import: %d found, 0 imported, %d errors — all imports failed",
+                "[SERVICE] Model import: %d found, 0 imported, %d errors, all imports failed",
                 len(found_models),
                 len(errors),
             )

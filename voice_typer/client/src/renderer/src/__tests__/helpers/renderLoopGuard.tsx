@@ -6,12 +6,12 @@
  * `usePython` mock, the standard module mocks (useSnackbar / hugeicons /
  * sonner / next-themes / useNavigation), the `<Profiler>` wrapper, the
  * waitFor-settle dance, the once-per-command counter assertions, and the
- * commit bound. This module owns all of it — a page guard is now a call
+ * commit bound. This module owns all of it, a page guard is now a call
  * to `renderLoopGuard({ id, page, commands, settle })`.
  *
  * The bug class under guard: a test mock (or future code) that hands out
  * a FRESH `call` identity on every render re-fires any effect listing
- * `call` in its deps — each run re-fetches and stores fresh state →
+ * `call` in its deps, each run re-fetches and stores fresh state →
  * render → new `call` → … → unbounded render loop until the worker heap
  * is exhausted (the axe-core scan OOM, FATAL heap, whole suite died at
  * ~356 files). The harness drives the page with that worst-case mock
@@ -19,12 +19,12 @@
  * EXACTLY `expected` times per command, and the committed render count
  * stays bounded. If future code re-introduces an unstable value into an
  * effect dep, the load re-fires and/or the render count explodes and
- * this fails fast — instead of the worker OOMing.
+ * this fails fast, instead of the worker OOMing.
  *
  * Mock-install mechanics (verified empirically, see git history of this
  * file): vitest re-evaluates `vi.mock` factories in the IMPORTING test
  * file's scope, so a factory can never close over this module's
- * bindings. Every factory below is therefore fully self-contained — it
+ * bindings. Every factory below is therefore fully self-contained, it
  * dynamic-imports this module and calls an exported factory, which reads
  * the module-level `activeCommands` / `activeCounters` state that
  * `renderLoopGuard`'s `beforeEach` sets for the current test run.
@@ -61,7 +61,7 @@ export interface RenderLoopGuardOptions {
 	page: () => Promise<{ default: React.ComponentType<object> }>;
 	/** Extra props passed to the page (e.g. Onboarding's onComplete). */
 	props?: Record<string, unknown>;
-	/** IPC command table — the only page-specific contract besides
+	/** IPC command table, the only page-specific contract besides
 	 *  `settle`. */
 	commands: GuardCommand[];
 	/** Assert the page settled. Called in waitFor and again after the
@@ -115,7 +115,7 @@ vi.mock("next-themes", async () => {
 	return m.nextThemesMock();
 });
 
-/** The usePython mock with a DELIBERATELY UNSTABLE `call` — a fresh
+/** The usePython mock with a DELIBERATELY UNSTABLE `call`, a fresh
  *  identity on every render (the axe-core mock's old shape). The page
  *  must settle anyway: hooks hold `call` behind a ref. `activeCounters`
  *  tracks the real IPC volume regardless of which wrapper instance the
@@ -222,7 +222,7 @@ export function nextThemesMock() {
 export function renderLoopGuard(opts: RenderLoopGuardOptions) {
 	const maxCommits = opts.maxCommits ?? 20;
 
-	describe(`${opts.id} page — render-loop guard`, () => {
+	describe(`${opts.id} page, render-loop guard`, () => {
 		beforeEach(() => {
 			activeCommands = opts.commands;
 			activeCounters = {};
@@ -234,7 +234,7 @@ export function renderLoopGuard(opts: RenderLoopGuardOptions) {
 			// file's scope, so they cannot close over this module's
 			// bindings). resetModules would wipe this module from the
 			// cache, and the factory's next dynamic import would evaluate
-			// a FRESH copy with empty state — counters never increment and
+			// a FRESH copy with empty state, counters never increment and
 			// every command returns {}. Per-file isolation (isolate: true)
 			// already guarantees a fresh module registry per test file,
 			// and these suites are one test per file, so no reset is
@@ -266,7 +266,7 @@ export function renderLoopGuard(opts: RenderLoopGuardOptions) {
 				</TooltipProvider>,
 			);
 
-			// The page settles (per-page predicate) — the empty state
+			// The page settles (per-page predicate), the empty state
 			// / heading / button replaces the loading spinner once
 			// the initial load lands.
 			await waitFor(
@@ -278,7 +278,7 @@ export function renderLoopGuard(opts: RenderLoopGuardOptions) {
 				{ timeout: 3000 },
 			);
 			// Let any trailing effects / microtasks settle, then
-			// confirm the tree is still stable — an effect loop would
+			// confirm the tree is still stable, an effect loop would
 			// keep mutating the DOM (and inflating `commits`).
 			await new Promise((resolve) => setTimeout(resolve, 150));
 			if (!opts.settle(screen)) {
@@ -286,7 +286,7 @@ export function renderLoopGuard(opts: RenderLoopGuardOptions) {
 			}
 
 			// The mount load fired EXACTLY `expected` times per
-			// command — no re-fetch loop.
+			// command, no re-fetch loop.
 			for (const c of opts.commands) {
 				expect(activeCounters[c.name] ?? 0).toBe(c.expected ?? 1);
 			}

@@ -32,7 +32,7 @@ async def test_sidecar_round_trip_auth_dispatch_response(monkeypatch):
     """End-to-end: sidecar binds, client auths, client dispatches, gets response."""
     from voice_typer.server import sidecar_ws
 
-    # Mock the IPCServer — we only need _dispatch + app.quit. The
+    # Mock the IPCServer, we only need _dispatch + app.quit. The
     # canonical fake defaults to ``{"ok": True}``; the assertions below
     # pin the idle-status payload, so override ``_dispatch`` here.
     server = make_fake_sidecar_ws_server(
@@ -158,7 +158,7 @@ async def test_sidecar_handles_malformed_frame_without_crashing(monkeypatch):
             # renderer migrated to the namespaced form.
             assert err["data"]["code"] == "client.invalid_payload"
 
-            # The connection must still be open — send a real command.
+            # The connection must still be open, send a real command.
             await client.send(json.dumps({"type": "get_status", "data": {}, "id": 1}))
             raw = await asyncio.wait_for(client.recv(), timeout=2.0)
             response = json.loads(raw)

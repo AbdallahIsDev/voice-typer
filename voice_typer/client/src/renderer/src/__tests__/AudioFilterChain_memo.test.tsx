@@ -112,7 +112,7 @@ describe("DJ-88: AudioFilterChain hoists ALL info/aria strings into a per-locale
 		// First render: t() is called for every label + uiText entry
 		// (initial resolution). The exact count is ~97 (49 labels +
 		// 49 uiText entries minus 1 duplicate title), but we just
-		// assert "many" — the important check is the DELTA below.
+		// assert "many", the important check is the DELTA below.
 		const firstRenderCount = tSpy.mock.calls.length;
 		expect(firstRenderCount).toBeGreaterThan(40);
 
@@ -121,7 +121,7 @@ describe("DJ-88: AudioFilterChain hoists ALL info/aria strings into a per-locale
 
 		// Re-render with the SAME props. Both `labels` and `uiText`
 		// memos hit (locale is unchanged), so t() should NOT be called
-		// at all — the JSX reads from the cached `uiText` object.
+		// at all, the JSX reads from the cached `uiText` object.
 		rerender(
 			<AudioFilterChain config={config} onConfigChange={onConfigChange} />,
 		);

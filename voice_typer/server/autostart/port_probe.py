@@ -11,7 +11,7 @@ import logging
 import socket
 import time
 
-# C-CROSS-3: explicit dotted logger name — see log_files.py for why
+# C-CROSS-3: explicit dotted logger name: see log_files.py for why
 # ``__name__`` cannot be used here.
 log = logging.getLogger("voice_typer.server.autostart_launcher")
 
@@ -29,7 +29,7 @@ def _is_port_open(host: str, port: int) -> bool:
 # Linux ``.desktop``) waits for the launcher to exit before considering
 # login complete. Polling the IPC port lets the launcher exit AS SOON AS
 # the backend is ready (typically 200-500 ms on a warm start with
-# prewarm) instead of a fixed 2 s sleep — saving up to 1.5 s on the
+# prewarm) instead of a fixed 2 s sleep, saving up to 1.5 s on the
 # user's login critical path. The 5 s ceiling preserves the original
 # "give the child time to detach" safety net for slow systems where the
 # backend takes longer to start (cold start without prewarm, slow disk,
@@ -51,16 +51,16 @@ def _wait_for_backend_ready(
     seconds (or ``deadline_s`` if provided). Returns as soon as the
     port opens (early-exit on fast systems) or after the timeout
     (preserves the original "give the child time to detach" safety
-    net on slow systems). Never raises — a port that never opens is
+    net on slow systems). Never raises, a port that never opens is
     the backend's problem to surface (crash dialog, log), not the
     launcher's.
 
     Two calling conventions are supported:
 
-    * Legacy: ``_wait_for_backend_ready(timeout=5.0)`` — used by the
+    * Legacy: ``_wait_for_backend_ready(timeout=5.0)``, used by the
       call sites in :func:`launch` (returns ``None``).
     * Test-friendly: ``_wait_for_ipc_ready(deadline_s=5.0,
-      poll_interval_s=0.25)`` — returns ``True`` on port-open,
+      poll_interval_s=0.25)``: returns ``True`` on port-open,
       ``False`` on deadline. See
       ``tests/test_perf_fixes.py::TestWaitForIpcReady``.
 
@@ -72,7 +72,7 @@ def _wait_for_backend_ready(
     The loop is bounded by an iteration count (derived from
     ``deadline / interval``) rather than a ``time.monotonic()`` deadline
     so that tests which monkeypatch ``time.sleep`` to a no-op don't
-    busy-wait for the full ``deadline`` in real time — the loop runs
+    busy-wait for the full ``deadline`` in real time, the loop runs
     ``int(deadline / interval)`` iterations and exits regardless of
     wall-clock elapsed time.
 

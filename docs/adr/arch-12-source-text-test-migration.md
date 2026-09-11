@@ -1,17 +1,17 @@
-# ARCH-12 / S3-CR-21 — Source-text-pinning tests (`inspect.getsource`) migration
+# ARCH-12 / S3-CR-21: Source-text-pinning tests (`inspect.getsource`) migration
 
 - **Status:** Proposed (chip-away migration in progress)
 - **Date:** 2026-08-22
 - **Review.md entries:** #2 ARCH-12 + #5 S3-CR-21
 - **Severity:** High (blocks safe refactoring of large files)
-- **Confidence:** High (R1, R14 — see `review.md` lines 251-260)
+- **Confidence:** High (R1, R14, see `review.md` lines 251-260)
 
 ## Context
 
 The voice-typer test suite contains **478 `inspect.getsource()` source-string
 tests across 150 test files** (re-verified 2026-08-12; the count has GROWN
 from 164/35 since the previous measurement). These tests assert on the
-literal source text of a function, class, or module — pinning
+literal source text of a function, class, or module, pinning
 implementation structure (variable names, call-site spellings, call
 counts) rather than behavior.
 
@@ -19,7 +19,7 @@ When a refactor MOVES a method off a class, RENAMES an internal variable,
 or ADDS/REMOVES a comment, `inspect.getsource(ClassName.method)` tests
 break even though behavior is preserved. This makes safe refactoring of
 large files (e.g. the credential_store split [AC-128], config split
-[AC-131], orchestrator decomposition [AC-73]) expensive — every test that
+[AC-131], orchestrator decomposition [AC-73]) expensive: every test that
 pinned a moved method must be hand-edited.
 
 The "static-source check echo" pattern in `recording/__init__.py:229-258`
@@ -32,8 +32,8 @@ inputs + outputs (not source text).
 
 1. **BAN new `inspect.getsource` tests.** The project rule is documented
    in `CONTRIBUTING.md` section "Source-text-pinning tests
-   (inspect.getsource) — banned". New code must not introduce source-text
-   assertions — exercise the function via inputs + outputs instead.
+   (inspect.getsource): banned". New code must not introduce source-text
+   assertions: exercise the function via inputs + outputs instead.
 
 2. **Migrate existing tests incrementally.** This is a project-wide
    migration that CANNOT be completed in one wave (478 calls / 150
@@ -57,7 +57,7 @@ inputs + outputs (not source text).
 For each `inspect.getsource` test:
 
 1. **Identify the function under test** in `voice_typer/server/`.
-2. **Understand the invariant** the source-text pin was guarding — read
+2. **Understand the invariant** the source-text pin was guarding, read
    the assertions to extract the actual behavioral contract (e.g.
    "timeout is 8.0s", "version check runs before token check",
    "broad-except calls log.debug instead of pass").
@@ -86,14 +86,14 @@ For each `inspect.getsource` test:
   tests already cover the invariant (e.g. one behavioral test verifies
   the same ordering / output that the source-text pin was structurally
   asserting), the source-text pin can be DELETED without adding a new
-  behavioral test — just document the coverage in the test file's
+  behavioral test: just document the coverage in the test file's
   migration note.
 
 ### Unacceptable approaches
 
 - Inline-copying the production code into the test body and asserting on
   the copy's behavior (the test would still pass after the production
-  code regressed — the copy is decoupled from production).
+  code regressed: the copy is decoupled from production).
 - Stubbing out the function under test entirely (the test no longer
   exercises real code).
 - Leaving the `inspect.getsource` test in place "for now" with a TODO
@@ -107,9 +107,9 @@ For each `inspect.getsource` test:
 |-----------|------------------------|----------------------|----------|
 | `tests/test_task_scheduler.py` | `test_is_supported_source_references_schtasks_exe` (asserted `"schtasks.exe" in inspect.getsource(task_scheduler)`) | `test_is_supported_behaviorally_gates_on_schtasks_exe` | Restore real `is_supported()` (captured at module-import time before the autouse fixture stubs it); inject a `_FakePath` that records constructed path strings + returns a configurable `.exists()`. Verify (1) non-Windows → False + no Path construction, (2) Windows + binary present → True + Path constructed mentions `schtasks.exe` + `System32`, (3) Windows + binary absent → False. |
 | `tests/test_shutdown_deadline.py` | `test_inner_timeouts_sum_to_less_than_outer_budget` (asserted `"timeout=8.0"` + `"timeout=4.0"` + absence of `"timeout=10.0"`/`"timeout=5.0"` in `inspect.getsource(teardown_history_db)`) | `test_inner_timeouts_are_8_and_4_seconds` | Monkeypatch `hist_module._run_with_timeout` with a capturing wrapper that records `(label, timeout)` tuples and executes the underlying callable. Call real `teardown_history_db(controller)`; assert the captured flush timeout = 8.0, close timeout = 4.0, sum < 15.0 (outer budget), neither equals 10.0/5.0 (regression guard). |
-| `tests/test_ipc_protocol_versioning.py` | `test_source_contains_protocol_version_check_before_token_check` (asserted `"protocol_version"` / `"IPC_PROTOCOL_VERSION"` / `PROTOCOL_VERSION_MISMATCH_CODE` in `inspect.getsource(TCPTransportMixin._handle_tcp_connection)` BEFORE `extract_auth_token(`) | (No new test — existing behavioral tests already cover the invariant) | The existing behavioral tests `test_auth_accepts_frame_without_protocol_version`, `test_auth_accepts_frame_with_matching_protocol_version`, `test_auth_rejects_frame_with_mismatched_protocol_version` already verify the version-check-before-token-check ordering invariant: the mismatch test uses a CORRECT token but a MISMATCHED version and asserts a `protocol_version_mismatch` envelope is emitted (which would NOT happen if the version check ran AFTER the token check — the correct token would pass). Added a NOTE block + docstring expansion documenting the coverage. |
-| `tests/test_clipboard_error_handling.py` | `test_source_has_broad_except_with_debug_log` (asserted `'log.debug("[CLIPBOARD] signal handler registration failed", exc_info=True)'` in `inspect.getsource(clip_mod)`) | `test_broad_except_emits_debug_log_via_reload` | Patch `signal.signal` to raise `RuntimeError` + assert `SIGHUP` exists; `importlib.reload(clip_mod)` to re-trigger the module-level registration block. Attach a `logging.Handler` to `clip_mod.log` (which is `logging.getLogger("voice_typer.server.clipboard")` — same instance across reloads). Assert exactly 1 DEBUG record with `[CLIPBOARD] signal handler registration failed` message + `exc_info[0] is RuntimeError`. |
-| `tests/test_model_operations.py` | `test_poll_walks_model_dir_not_cache_root` (asserted `model_dir = cache_dir / f"models--{repo_id.replace('/', '--')}"` + `model_dir.rglob("*")` in `inspect.getsource(poll_download_progress)`, absence of `cache_dir.rglob("*")` in actual code) | (replaced in place — same test name) | Set up real `cache_dir / models--<repo_id>/model.bin` + monkeypatch `Path.rglob` with a spy that records the path object each call was made on (delegating to the real rglob so stat() still works). Run `poll_download_progress` with a fake thread (alive once then dead). Assert (1) `rglob` was called at least once, (2) walked path includes `models--<repo_id>`, (3) `rglob` was NEVER called on `cache_dir` itself. |
+| `tests/test_ipc_protocol_versioning.py` | `test_source_contains_protocol_version_check_before_token_check` (asserted `"protocol_version"` / `"IPC_PROTOCOL_VERSION"` / `PROTOCOL_VERSION_MISMATCH_CODE` in `inspect.getsource(TCPTransportMixin._handle_tcp_connection)` BEFORE `extract_auth_token(`) | (No new test: existing behavioral tests already cover the invariant) | The existing behavioral tests `test_auth_accepts_frame_without_protocol_version`, `test_auth_accepts_frame_with_matching_protocol_version`, `test_auth_rejects_frame_with_mismatched_protocol_version` already verify the version-check-before-token-check ordering invariant: the mismatch test uses a CORRECT token but a MISMATCHED version and asserts a `protocol_version_mismatch` envelope is emitted (which would NOT happen if the version check ran AFTER the token check. The correct token would pass). Added a NOTE block + docstring expansion documenting the coverage. |
+| `tests/test_clipboard_error_handling.py` | `test_source_has_broad_except_with_debug_log` (asserted `'log.debug("[CLIPBOARD] signal handler registration failed", exc_info=True)'` in `inspect.getsource(clip_mod)`) | `test_broad_except_emits_debug_log_via_reload` | Patch `signal.signal` to raise `RuntimeError` + assert `SIGHUP` exists; `importlib.reload(clip_mod)` to re-trigger the module-level registration block. Attach a `logging.Handler` to `clip_mod.log` (which is `logging.getLogger("voice_typer.server.clipboard")` Same instance across reloads). Assert exactly 1 DEBUG record with `[CLIPBOARD] signal handler registration failed` message + `exc_info[0] is RuntimeError`. |
+| `tests/test_model_operations.py` | `test_poll_walks_model_dir_not_cache_root` (asserted `model_dir = cache_dir / f"models--{repo_id.replace('/', '--')}"` + `model_dir.rglob("*")` in `inspect.getsource(poll_download_progress)`, absence of `cache_dir.rglob("*")` in actual code) | (replaced in place: same test name) | Set up real `cache_dir / models--<repo_id>/model.bin` + monkeypatch `Path.rglob` with a spy that records the path object each call was made on (delegating to the real rglob so stat() still works). Run `poll_download_progress` with a fake thread (alive once then dead). Assert (1) `rglob` was called at least once, (2) walked path includes `models--<repo_id>`, (3) `rglob` was NEVER called on `cache_dir` itself. |
 
 ### Validation
 
@@ -119,7 +119,7 @@ python -m pytest tests/test_task_scheduler.py tests/test_shutdown_deadline.py \
   tests/test_model_operations.py -q --no-cov
 ```
 
-→ **52 passed in 2.37s on LINUX (sandbox)** (was 53 before — 1 source-text
+→ **52 passed in 2.37s on LINUX (sandbox)** (was 53 before, 1 source-text
 pin removed in test_ipc_protocol_versioning.py; the invariant it pinned
 was already behaviorally covered by the existing mismatch test).
 
@@ -133,11 +133,11 @@ $ rg 'inspect\.getsource\(' tests/ -c | awk -F: '{sum+=$2} END {print sum}'
 ```
 
 **149 files** with **437 `inspect.getsource(` calls** remain (down from
-153 files / 478 calls at wave start — net 4 files / 41 calls migrated this
-wave). Note: `inspect.getsourcefile` (4 sites — distinct function, returns
+153 files / 478 calls at wave start, net 4 files / 41 calls migrated this
+wave). Note: `inspect.getsourcefile` (4 sites: distinct function, returns
 the source FILE path, not the source TEXT) is excluded from this count.
 
-## Per-file migration tracking (sampled — full list is 149 files)
+## Per-file migration tracking (sampled: full list is 149 files)
 
 Status legend: ✅ done (this wave) · ⏳ in-progress · ⏳ pending · ⏭️ skipped (redundant)
 
@@ -148,7 +148,7 @@ Status legend: ✅ done (this wave) · ⏳ in-progress · ⏳ pending · ⏭️ 
 | `tests/test_ipc_protocol_versioning.py` | 1→0 | ✅ done | Source-pin removed; existing behavioral tests cover invariant. |
 | `tests/test_clipboard_error_handling.py` | 1→0 | ✅ done | Behavioral via `importlib.reload(clip_mod)` + log capture. |
 | `tests/test_model_operations.py` | 1→0 | ✅ done | Behavioral via `Path.rglob` spy. |
-| `tests/regressions/audio_test.py` | 22 | ⏳ pending | Large file — chip away next. |
+| `tests/regressions/audio_test.py` | 22 | ⏳ pending | Large file: chip away next. |
 | `tests/test_electron_ipc_and_build.py` | 13 | ⏳ pending | |
 | `tests/test_capture_worker_lifecycle.py` | 12 | ⏳ pending | |
 | `tests/test_sidecar_ws_handle_connection_split.py` | 11 | ⏳ pending | |
@@ -166,7 +166,7 @@ Status legend: ✅ done (this wave) · ⏳ in-progress · ⏳ pending · ⏭️ 
 ## Next Actions (for future waves)
 
 1. Pick 5-10 small/isolated files (1-2 `inspect.getsource` calls each)
-   per wave — use:
+   per wave, use:
    ```
    rg 'inspect\.getsource\(' tests/ -c | sort -t: -k2 -n | head -20
    ```
@@ -176,16 +176,16 @@ Status legend: ✅ done (this wave) · ⏳ in-progress · ⏳ pending · ⏭️ 
    wave.
 4. Once `inspect.getsource(` count drops below 50, consider a final
    push to migrate the remaining complex cases (large classes with
-   many source-text pins — these will need careful behavioral test
+   many source-text pins: these will need careful behavioral test
    design).
-5. NEVER relax the CONTRIBUTING.md ban — it's the prevention mechanism
+5. NEVER relax the CONTRIBUTING.md ban, it's the prevention mechanism
    that stops the count from re-growing.
 
 ## References
 
-- `review.md` entries #2 (ARCH-12) + #5 (S3-CR-21) — original findings.
-- `CONTRIBUTING.md` §"Source-text-pinning tests (inspect.getsource) — banned".
-- AGENTS.md rules E6 / E13 / E14 / E15 / E16 / E19 — binding.
-- `voice_typer/server/recording/__init__.py:229-258` — "static-source
+- `review.md` entries #2 (ARCH-12) + #5 (S3-CR-21), original findings.
+- `CONTRIBUTING.md` §"Source-text-pinning tests (inspect.getsource): banned".
+- AGENTS.md rules E6 / E13 / E14 / E15 / E16 / E19, binding.
+- `voice_typer/server/recording/__init__.py:229-258` "Static-source
   check echo" pattern (short-term workaround for module-level
   source-text tests; superseded by this ADR's long-term migration).

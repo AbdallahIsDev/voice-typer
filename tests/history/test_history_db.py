@@ -1,11 +1,11 @@
 """HistoryDB unit tests split out of the former ``tests/test_history_and_models.py``.
 
-Domain: history database — typed exceptions, retention (favorites
+Domain: history database, typed exceptions, retention (favorites
 preservation), search edge cases (LIKE-escape + length cap), and
 soft-delete restore.
 
 Class/method names + assertions are preserved verbatim from the
-original monolith — only file location has changed. The shared
+original monolith, only file location has changed. The shared
 ``history_db`` fixture (temporary SQLite file) is provided by the
 top-level ``tests/conftest.py``.
 """
@@ -91,27 +91,27 @@ class TestSearchHistoryEdgeCases:
 #
 # Covers three fixes:
 #
-# 1. **Composite covering index ``idx_timestamp_id``** — the schema
+# 1. **Composite covering index ``idx_timestamp_id``**, the schema
 # initializer must create ``idx_timestamp_id ON transcriptions(timestamp
 # DESC, id DESC)`` so the ``ORDER BY timestamp DESC, id DESC`` clause
 # in ``get_recent`` / ``search`` / ``get_favorites`` is index-served
 # (no sort pass). On a 500K-row DB the single-column ``idx_timestamp``
 # forced a sort pass that pushed OFFSET pagination to ~594ms.
 #
-# 2. **OFFSET guard** — ``get_recent`` and ``search`` must ``assert
+# 2. **OFFSET guard**: ``get_recent`` and ``search`` must ``assert
 # offset < 1000`` on their OFFSET (non-cursor) branches. Deep OFFSET
 # pagination is O(offset) on SQLite; the assert forces callers
 # paginating past the first ~1000 rows to switch to cursor
 # pagination (``before_timestamp`` + ``before_id``), which is O(log N).
 #
-# 3. **FTS5 LIMIT push-down** — ``search`` must push the ``LIMIT``
+# 3. **FTS5 LIMIT push-down**: ``search`` must push the ``LIMIT``
 # (and ``OFFSET`` when present) INTO the FTS5 subquery on the
 # no-cursor path so FTS5 only materialises the rowids that will
 # actually be returned, rather than the full match set. On a query
 # with many matches this cuts the JOIN+sort working set from
 # N_matches to ``limit + offset``.
 #
-# 4. **Delegation split** — the inline SQL methods in ``history_db.py``
+# 4. **Delegation split**, the inline SQL methods in ``history_db.py``
 # must now delegate to ``history_db_internals.search`` (thin stubs),
 # and the module-level helpers (``_prepare_like_search_pattern``,
 # ``_is_fts_compatible_query``, ``_sanitize_fts_query``,
@@ -156,7 +156,7 @@ class TestTimestampIdCoveringIndex:
         # PRAGMA index_xinfo to get the column names + sort order.
         rows = conn.execute("PRAGMA index_xinfo('idx_timestamp_id')").fetchall()
         # Each row: (seqno, cid, name, desc, coll, key)
-        # We care about the KEY columns (key=1) — the indexed columns,
+        # We care about the KEY columns (key=1), the indexed columns,
         # not the auxiliary PK columns SQLite appends.
         key_cols = [(r[2], r[3]) for r in rows if r[5] == 1]
         assert key_cols == [("timestamp", 1), ("id", 1)], (
@@ -173,7 +173,7 @@ class TestTimestampIdCoveringIndex:
         db1.add_transcription("first")
         db1.flush()
         db1.close()
-        # Re-open — init_schema runs again on the existing DB file.
+        # Re-open, init_schema runs again on the existing DB file.
         db2 = HistoryDB(db_path=db_path)
         try:
             conn = db2._get_read_conn()
@@ -226,12 +226,12 @@ class TestOffsetGuard:
 
     def test_get_recent_cursor_path_bypasses_offset_guard(self, db):
         """Cursor pagination (before_timestamp + before_id) must NOT
-        be subject to the OFFSET guard — it's the O(log N) alternative
+        be subject to the OFFSET guard, it's the O(log N) alternative
         we want callers to migrate TO."""
         self._seed_rows(db, 10)
         first_page = db.get_recent(limit=5)
         last_row = first_page[-1]
-        # Cursor past the first 5 rows — no offset, no assertion.
+        # Cursor past the first 5 rows, no offset, no assertion.
         second_page = db.get_recent(
             limit=5,
             before_timestamp=last_row["timestamp"],
@@ -335,12 +335,12 @@ class TestFtsLimitPushDown:
         db_instance.close()
 
     def test_search_returns_correct_results_with_pushdown(self, seeded_db):
-        """The push-down must not change the visible results — top-N by
+        """The push-down must not change the visible results, top-N by
         (timestamp DESC, id DESC) is still returned."""
         results = seeded_db.search("commonword", limit=10)
         assert len(results) == 10
         # Results must be ordered by id DESC (autoincrement, all same
-        # second so timestamp ties — id DESC is the tiebreaker).
+        # second so timestamp ties, id DESC is the tiebreaker).
         ids = [r["id"] for r in results]
         assert ids == sorted(ids, reverse=True), f"Results must be in id DESC order; got {ids}"
 
@@ -350,7 +350,7 @@ class TestFtsLimitPushDown:
         assert len(results) == 5
 
     def test_search_respects_offset_with_pushdown(self, seeded_db):
-        """OFFSET must work with the push-down — page 2 returns the
+        """OFFSET must work with the push-down, page 2 returns the
         next ``limit`` rows (by timestamp DESC, id DESC)."""
         page1 = seeded_db.search("commonword", limit=5, offset=0)
         page2 = seeded_db.search("commonword", limit=5, offset=5)
@@ -381,7 +381,7 @@ class TestFtsLimitPushDown:
 
     def test_search_order_preserved_with_explicit_timestamps(self, tmp_path):
         """The push-down must preserve the (timestamp DESC, id DESC)
-        ordering contract — pinned by the existing
+        ordering contract, pinned by the existing
         ``test_search_preserves_order_by_timestamp_desc`` test, but we
         re-pin it here with more rows to exercise the FTS subquery
         LIMIT (not just the all-rows-fit-in-LIMIT case)."""
@@ -418,7 +418,7 @@ class TestFtsLimitPushDown:
 
 
 # ──────────────────────────────────────────────────────────────
-# 4. Delegation split — re-exports must be the SAME function objects
+# 4. Delegation split, re-exports must be the SAME function objects
 # ──────────────────────────────────────────────────────────────
 
 
@@ -427,9 +427,9 @@ class TestDelegationSplit:
 
     def test_module_level_helpers_are_reexported_from_search(self):
         """``history_db._is_fts_compatible_query`` etc. must be the SAME
-        function objects as ``history_db_internals.search.is_fts_compatible_query``
-        — proving the inline duplicates were removed and replaced with
-        re-exports."""
+          function objects as ``history_db_internals.search.is_fts_compatible_query``
+        , proving the inline duplicates were removed and replaced with
+          re-exports."""
         from voice_typer.server import history_db
         from voice_typer.server.history_db_internals import search
 
@@ -440,7 +440,7 @@ class TestDelegationSplit:
 
     def test_reexported_helpers_behave_identically(self):
         """The re-exported helpers must produce identical results to the
-        underlying functions (sanity check — no wrapper indirection)."""
+        underlying functions (sanity check, no wrapper indirection)."""
         from voice_typer.server import history_db
         from voice_typer.server.history_db_internals import search
 
@@ -461,7 +461,7 @@ class TestDelegationSplit:
 
     def test_get_recent_delegates_to_search_module(self, db, monkeypatch):
         """``HistoryDB.get_recent`` must call
-        ``history_db_internals.search.get_recent`` — verified by
+        ``history_db_internals.search.get_recent``, verified by
         monkeypatching the target and asserting the call."""
         from voice_typer.server.history_db_internals import search
 
@@ -637,7 +637,7 @@ class TestDelegationSplit:
 
 class TestTodayStatsTimezoneQueryPreserved:
     """The timezone-aware ``DATETIME('now', 'localtime', 'start of day', 'utc')``
-    query must be preserved through the delegation — the search.py
+    query must be preserved through the delegation, the search.py
     implementation must NOT regress to the old ``DATE('now')`` UTC-only
     query (which silently excluded rows for users in negative UTC
     offsets dictating in their local evening)."""

@@ -13,15 +13,15 @@
 //! Old Electron `userData` locations ( fix: probe all three in order,
 //! use the first that exists on disk):
 //!
-//! 1. `voice-typer-desktop` — Electron `package.json` `name` field (very
+//! 1. `voice-typer-desktop`: Electron `package.json` `name` field (very
 //!    old Electron builds that never ran `setupUserData`, so Electron
 //!    derived its default `userData` path from the package name).
-//! 2. `voice-typer` — `bootstrap.ts:52-67` `setupUserData` override path
+//! 2. `voice-typer`: `bootstrap.ts:52-67` `setupUserData` override path
 //!    via `app.setPath("userData", computeConfigDir())`. This is the SAME
 //!    path Tauri now uses as its `config_dir`, so a migration from here
-//!    would be a no-op self-copy — the probe loop skips it when it equals
+//!    would be a no-op self-copy. The probe loop skips it when it equals
 //!    the Tauri target.
-//! 3. `Voice Typer` (capital+space) — defensive third probe in case some
+//! 3. `Voice Typer` (capital+space): defensive third probe in case some
 //!    ancient unreleased build used a human-readable capitalized name.
 //!
 //! Platform base paths:
@@ -35,7 +35,7 @@
 //! Merge rules (do NOT overwrite newer data):
 //! - `config.json`: if absent in target, copy whole; if present but differs,
 //!   merge key-by-key. The entire newer file's values win for overlapping
-//!   keys (single whole-file mtime comparison — NOT per-key mtime; see
+//!   keys (single whole-file mtime comparison, NOT per-key mtime; see
 //!   fix on `merge_config`). When nothing is taken from the old file, the
 //!   target is left untouched (no rewrite, no mtime churn).
 //! - `models/`: copy only files ABSENT from the target (: symlinks
@@ -58,14 +58,14 @@
 //! failures are non-critical for the rest of the walk, but they also
 //! defer the sentinel: a failed copy leaves the target file absent,
 //! and only a re-run (which copies exactly the still-missing files)
-//! can recover it — a success-shaped sentinel after failed copies
+//! can recover it: a success-shaped sentinel after failed copies
 //! would silently strand the user's models.
 //!
 //! # Module layout (Phase 4.5 split)
 //!
 //! The original `migrate.rs` (1339-line monolith) was split into a
 //! `migrate/` directory with focused submodules. Public API preserved
-//! — pure file move + `mod` declarations, no behavior change.
+//!: pure file move + `mod` declarations, no behavior change.
 //!
 //! - `mod.rs` (this file): entry points (`migrate_electron_userdata`,
 //!   `migrate_electron_userdata_async`) + `migrate_inner` orchestration
@@ -83,7 +83,7 @@ use std::path::{Path, PathBuf};
 
 // bring the `util` module into scope so the atomic-fs helpers
 // (`util::atomic_copy`, `util::atomic_copy_file`, `util::atomic_write_bytes`)
-// — which were moved from this module to `crate::util` — resolve without
+//: which were moved from this module to `crate::util`, resolve without
 // a per-call-site `crate::util::` qualification. Replaces the prior
 // `use crate::util::atomic_write_bytes;` bridge import (which imported
 // only the function, not the module) that lived here pre-.
@@ -101,7 +101,7 @@ mod tests;
 // monolith used (e.g. `merge_config(...)`, `MergeOutcome::Copied`,
 // `write_sentinel_if_clean(...)`, `copy_missing_files(...)`,
 // `sidecar_path(...)`, `electron_userdata_candidates()`). Pure
-// mechanical relocation — no behavior change.
+// mechanical relocation: no behavior change.
 pub(crate) use candidates::electron_userdata_candidates;
 pub(crate) use config_merge::{merge_config, MergeOutcome};
 pub(crate) use copy::{copy_missing_files, sidecar_path};
@@ -112,13 +112,13 @@ pub(crate) use sentinel::write_sentinel_if_clean;
 /// async task is not stalled for 5-30s on first launch.
 ///
 /// The returned future resolves once the migration has completed (or
-/// failed — `migrate_inner` never panics, all fs errors are logged and
+/// failed: `migrate_inner` never panics, all fs errors are logged and
 /// swallowed), so a caller like the Tauri `setup` task can safely
 /// `.await` it BEFORE `spawn_sidecar_and_get_port` to guarantee the
 /// sidecar boots against already-migrated data without blocking the
 /// async runtime's worker threads.
 ///
-/// This wrapper is now the production entry point — `main.rs`
+/// This wrapper is now the production entry point, `main.rs`
 /// calls it inside the existing `tauri::async_runtime::spawn` block
 /// at the start of `.setup`, BEFORE `sidecar::spawn::initialize_sidecar`.
 /// The previous `#[allow(dead_code)]` is removed now that the call
@@ -139,19 +139,19 @@ pub(crate) async fn migrate_electron_userdata_async(_app: &tauri::AppHandle) {
     // so the fs ops (`atomic_copy`, `merge_config`,
     // `copy_missing_files`) do not starve other futures sharing the
     // runtime. `await` yields the calling task until the migration
-    // completes — the sidecar spawn can then proceed against the
+    // completes: the sidecar spawn can then proceed against the
     // fully-migrated `config_dir`.
     //
     // Errors from the closure itself are impossible (`migrate_inner`
-    // returns `()` and never panics — every fs op is wrapped in
+    // returns `()` and never panics, every fs op is wrapped in
     // `match`/`if let Err(e)` with a log-and-continue). The only
     // `Err` the `JoinHandle` can yield is `JoinError` (task panicked
     // OR was cancelled); we log-and-continue either way so a failed
-    // migration never breaks the sidecar spawn — the next launch
+    // migration never breaks the sidecar spawn, the next launch
     // re-attempts (idempotent).
     if let Err(e) = tauri::async_runtime::spawn_blocking(move || migrate_inner(&new_dir)).await {
         log::error!(
-            "[MIGRATE] async spawn_blocking join failed: {} — migration skipped this launch; will retry next launch",
+            "[MIGRATE] async spawn_blocking join failed: {}, migration skipped this launch; will retry next launch",
             e
         );
     }
@@ -177,7 +177,7 @@ fn migrate_inner(new_dir: &Path) {
     // is true after the very first launch even when migration hasn't actually
     // run. Users upgrading from Electron who launched Tauri once (even
     // briefly) before the migration was wired would never get their old
-    // Electron config merged — silently losing their settings. The
+    // Electron config merged: silently losing their settings. The
     // merge_config logic (newest-mtime-wins per key) was dead code in the
     // common case. The sentinel marker is touched ONLY after successful
     // migration, so merge_config can actually run when both configs exist.
@@ -196,7 +196,7 @@ fn migrate_inner(new_dir: &Path) {
     // without writing the sentinel (so next launch re-probes cheaply).
     let candidates = electron_userdata_candidates();
     if candidates.is_empty() {
-        log::info!("[MIGRATE] nothing to do (could not resolve old userData dir — platform env vars missing)");
+        log::info!("[MIGRATE] nothing to do (could not resolve old userData dir, platform env vars missing)");
         return;
     }
 
@@ -205,7 +205,7 @@ fn migrate_inner(new_dir: &Path) {
         log::info!("[MIGRATE] probing electron userdata at: {:?}", candidate);
         if candidate.as_os_str() == new_dir.as_os_str() {
             log::info!(
-                "[MIGRATE]   skipping {:?} (same as Tauri config_dir target — self-copy no-op)",
+                "[MIGRATE]   skipping {:?} (same as Tauri config_dir target, self-copy no-op)",
                 candidate
             );
             continue;
@@ -248,7 +248,7 @@ fn migrate_inner(new_dir: &Path) {
     // critical from non-critical) and it defers the sentinel (see the
     // write_sentinel_if_clean call at the end) so the next launch
     // retries the still-absent files. Pre-fix this counter did not
-    // exist — failed model copies were logged (ERROR level) and then
+    // exist: failed model copies were logged (ERROR level) and then
     // invisible: the sentinel was written success-shaped and the
     // failed models were silently never migrated (disk-full during a
     // GB-scale models copy = the silent re-download trap).
@@ -257,7 +257,7 @@ fn migrate_inner(new_dir: &Path) {
     let mut recovery_copied = false;
     //track critical-step failures so the sentinel marker
     // is only written when ALL critical migration steps succeeded.
-    // Pre-fix, the sentinel was written UNCONDITIONALLY — if config,
+    // Pre-fix, the sentinel was written UNCONDITIONALLY, if config,
     // history.db, or recovery.json migration failed, the user's data
     // was silently dropped (next launch saw the sentinel and skipped
     // re-migration). Models dir creation failure also counts as
@@ -284,7 +284,7 @@ fn migrate_inner(new_dir: &Path) {
         }
     }
 
-    // 4b. models/ — copy only files absent from target.
+    // 4b. models/: copy only files absent from target.
     let old_models = old_dir.join("models");
     let new_models = new_dir.join("models");
     if old_models.is_dir() {
@@ -300,7 +300,7 @@ fn migrate_inner(new_dir: &Path) {
             }
             if models_failed > 0 {
                 log::warn!(
-                    "[MIGRATE] models/ {} file copies failed — targets left absent; \
+                    "[MIGRATE] models/ {} file copies failed: targets left absent; \
                      sentinel deferred so next launch retries them",
                     models_failed
                 );
@@ -308,13 +308,13 @@ fn migrate_inner(new_dir: &Path) {
         }
     }
 
-    // 4c. history.db — copy only if target absent (append unsafe for SQLite).
+    // 4c. history.db: copy only if target absent (append unsafe for SQLite).
     let old_db = old_dir.join("history.db");
     let new_db = new_dir.join("history.db");
     if old_db.is_file() {
         if new_db.exists() {
             log::warn!(
-                "[MIGRATE] history.db skipped (target exists) — NOT overwriting to avoid corruption"
+                "[MIGRATE] history.db skipped (target exists): NOT overwriting to avoid corruption"
             );
         } else {
             // M-65: copy main db atomically (temp + rename in same dir)
@@ -341,7 +341,7 @@ fn migrate_inner(new_dir: &Path) {
             // target sidecars so SQLite starts fresh on next open.
             // Without this, the target db could end up with `history.db`
             // plus a partial `-wal` (no `-shm`), which SQLite refuses
-            // to open — losing the entire migrated history, not just
+            // to open: losing the entire migrated history, not just
             // the WAL transactions.
             let mut sidecar_failed = false;
             for suffix in &["-wal", "-shm"] {
@@ -350,7 +350,7 @@ fn migrate_inner(new_dir: &Path) {
                 if old_side.is_file() && !new_side.exists() {
                     if let Err(e) = util::atomic_copy(&old_side, &new_side) {
                         log::warn!(
-                            "[MIGRATE] history.db{} copy failed: {} — will delete target sidecars",
+                            "[MIGRATE] history.db{} copy failed: {}, will delete target sidecars",
                             suffix,
                             e
                         );
@@ -374,21 +374,21 @@ fn migrate_inner(new_dir: &Path) {
                     }
                 }
                 log::warn!(
-                    "[MIGRATE] history.db WAL sidecar migration incomplete — \
+                    "[MIGRATE] history.db WAL sidecar migration incomplete: \
                      WAL transactions from source may be lost; SQLite will start fresh"
                 );
             }
         }
     }
 
-    // 4d. voice-typer-recovery.json — copy if target absent.
+    // 4d. voice-typer-recovery.json: copy if target absent.
     let old_rec = old_dir.join("voice-typer-recovery.json");
     let new_rec = new_dir.join("voice-typer-recovery.json");
     if old_rec.is_file() && !new_rec.exists() {
         //use atomic_copy for recovery.json too (was
         // std::fs::copy). A partial recovery.json would load as
         // invalid JSON on next launch and the user's recovery
-        // snapshot would be silently dropped — same data-loss
+        // snapshot would be silently dropped, same data-loss
         // risk as the config.json case. The recovery file is
         // small (a few KB), so atomic_copy's read-into-memory is
         // fine here.
@@ -403,7 +403,7 @@ fn migrate_inner(new_dir: &Path) {
 
     // 5. Summary.
     log::info!(
-        "[MIGRATE] done — config: copied={} merged_keys={}, models_new_files={}, \
+        "[MIGRATE] done: config: copied={} merged_keys={}, models_new_files={}, \
          models_failed={}, history_copied={}, recovery_copied={}, failures={}",
         config_copied,
         config_merged,
@@ -422,7 +422,7 @@ fn migrate_inner(new_dir: &Path) {
     //only write the sentinel if ALL critical migration
     // steps succeeded AND no model copy failed. If any failed, skip
     // the sentinel so the next launch re-attempts the migration (the
-    // operations are idempotent — atomic_copy uses temp+rename,
+    // operations are idempotent: atomic_copy uses temp+rename,
     // merge_config is key-by-key, and the models walk only copies
     // files still absent). This prevents silently losing the user's
     // config / history.db / recovery.json when a step fails, and
@@ -430,7 +430,7 @@ fn migrate_inner(new_dir: &Path) {
     //
     // Sentinel schema note (backward compatibility): the
     // `.migrated-from-electron` marker is an EMPTY presence-only file
-    // — every reader (the early-return guard above) checks existence,
+    //: every reader (the early-return guard above) checks existence,
     // never contents. There is no per-field payload to extend, so the
     // backward-compatible way to make non-critical model-copy
     // failures retry-able is to FOLD them into the single failure

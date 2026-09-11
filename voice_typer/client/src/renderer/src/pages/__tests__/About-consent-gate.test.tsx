@@ -1,5 +1,5 @@
 /**
- * About page — offline-pack consent gate (point-of-use contract).
+ * About page, offline-pack consent gate (point-of-use contract).
  *
  * When `check_offline_pack_update` returns `{consent_required: true}`
  * (update found but the download refused because
@@ -12,7 +12,7 @@
  *   • Allow persists the consent (persistence itself is covered by
  *     ConsentGateDialog.test.tsx) and re-runs the check, which then
  *     triggers the download;
- *   • Cancel leaves everything untouched — no download, no nag;
+ *   • Cancel leaves everything untouched, no download, no nag;
  *   • a successful check never opens the dialog.
  */
 import {
@@ -51,7 +51,7 @@ function packResult(overrides: Record<string, unknown> = {}) {
 	};
 }
 
-describe("About & Privacy page — offline-pack consent gate (point-of-use)", () => {
+describe("About & Privacy page, offline-pack consent gate (point-of-use)", () => {
 	beforeEach(() => {
 		mockCall.mockReset();
 		mockCall.mockImplementation(() => Promise.resolve({}));
@@ -99,7 +99,7 @@ describe("About & Privacy page — offline-pack consent gate (point-of-use)", ()
 			expect(req?.bodyKey).toBe("consentDialog.field.offline_pack_consent");
 		});
 
-		// No persistent "go enable it in Settings" instruction — the
+		// No persistent "go enable it in Settings" instruction, the
 		// refusal surfaces ONLY as the point-of-use dialog (there is no
 		// status readout on the page to carry it).
 		expect(screen.queryByText(/enable them in Settings/i)).toBeNull();
@@ -144,7 +144,7 @@ describe("About & Privacy page — offline-pack consent gate (point-of-use)", ()
 		await waitFor(() => {
 			expect(checkCount).toBe(2);
 		});
-		// The retried check ran to completion (button re-enabled) — the
+		// The retried check ran to completion (button re-enabled), the
 		// page shows no status readout, so the call count IS the signal.
 		await waitFor(() => {
 			expect(
@@ -157,7 +157,7 @@ describe("About & Privacy page — offline-pack consent gate (point-of-use)", ()
 		});
 	});
 
-	it("keeps everything untouched after Cancel — no retry, no download", async () => {
+	it("keeps everything untouched after Cancel, no retry, no download", async () => {
 		let checkCount = 0;
 		mockCall.mockImplementation((type: string) => {
 			if (type === "check_offline_pack_update") {
@@ -205,7 +205,7 @@ describe("About & Privacy page — offline-pack consent gate (point-of-use)", ()
 		clickCheck();
 
 		// The check ran to completion (button re-enabled) and opened NO
-		// dialog — a clean result is silent by design (no status
+		// dialog, a clean result is silent by design (no status
 		// readout exists on the page).
 		await waitFor(() => {
 			expect(

@@ -1,5 +1,5 @@
 /* =============================================================================
- * Voice Typer — Linux native key listener
+ * Voice Typer. Linux native key listener
  *
  * Reads keyboard events from /dev/input/event* (evdev) and emits line-delimited
  * events on stdout for the Python parent process to match against the registered
@@ -17,11 +17,11 @@
  * Hotplug: an inotify watch on /dev/input detects keyboards being plugged
  * in or unplugged while the listener runs. On add the new event node is
  * opened and joins the poll() set; on remove the stale fd is closed. This
- * uses only the kernel inotify API (sys/inotify.h) — no extra libraries.
+ * uses only the kernel inotify API (sys/inotify.h), no extra libraries.
  * If the watch cannot be set up, the listener degrades to the pre-hotplug
  * behavior (devices fixed at startup) and logs a warning.
  *
- * Limitation: evdev is read-only — we cannot suppress keystrokes on Linux.
+ * Limitation: evdev is read-only, we cannot suppress keystrokes on Linux.
  * The foreground app will still see the keystroke that triggers dictation.
  * (Same limitation as Freestyle's Linux backend.)
  *
@@ -130,7 +130,7 @@ static void *stdin_reader_thread(void *arg) {
     char line[64];
     while (!g_should_exit) {
         if (fgets(line, sizeof(line), stdin) == NULL) {
-            /* stdin EOF — the Python parent is gone (crash, force-kill,
+            /* stdin EOF, the Python parent is gone (crash, force-kill,
              * power loss). Without this, the process would linger until
              * the next keystroke broke a dead pipe, holding the keyboard
              * device files the whole time. Set the exit flag; the main
@@ -161,7 +161,7 @@ typedef struct {
 } key_name_t;
 
 static const key_name_t KEY_NAMES[] = {
-    /* Modifiers — emit MOD_DOWN/MOD_UP instead of KEY_DOWN/KEY_UP */
+    /* Modifiers, emit MOD_DOWN/MOD_UP instead of KEY_DOWN/KEY_UP */
     {KEY_LEFTCTRL,   "Ctrl",  1},
     {KEY_RIGHTCTRL,  "Ctrl",  1},
     {KEY_LEFTSHIFT,  "Shift", 1},
@@ -257,7 +257,7 @@ static const key_name_t KEY_NAMES[] = {
     {KEY_KPSLASH,    "NumDivide",   0},
     {KEY_KPENTER,    "NumEnter",    0},
 
-    /* Media keys — not all keyboards emit these, but if they do we report them */
+    /* Media keys, not all keyboards emit these, but if they do we report them */
 #ifdef KEY_PLAYPAUSE
     {KEY_PLAYPAUSE,       "MediaPlay", 0},
 #endif
@@ -287,7 +287,7 @@ static const key_name_t *lookup_key(int code) {
 
 static int g_fds[MAX_DEVICES];
 static int g_num_fds = 0;
-/* Basename of each open device node (parallel to g_fds) — used for
+/* Basename of each open device node (parallel to g_fds), used for
  * hotplug add idempotency (IN_ATTRIB must not double-open a device) and
  * remove-by-name (IN_DELETE). */
 static char g_dev_names[MAX_DEVICES][DEV_NAME_LEN];
@@ -342,7 +342,7 @@ static void on_signal(int sig) {
     g_should_exit = 1;
 }
 
-/* ─── Hotkey spec parsing (validation only — no suppression on Linux) ────── */
+/* ─── Hotkey spec parsing (validation only, no suppression on Linux) ────── */
 
 /* accepted tokens for validation. "fn" is rejected at parse time. */
 static int is_valid_token(const char *t) {
@@ -352,7 +352,7 @@ static int is_valid_token(const char *t) {
     if (!strcmp(t, "alt") || !strcmp(t, "alt_l") || !strcmp(t, "alt_r") ||
         !strcmp(t, "altgr") || !strcmp(t, "right_alt") || !strcmp(t, "ralt")) return 1;
     if (!strcmp(t, "cmd") || !strcmp(t, "win") || !strcmp(t, "super")) return 1;
-    /* fn — explicitly rejected on Linux (firmware-only on most laptops) */
+    /* fn, explicitly rejected on Linux (firmware-only on most laptops) */
     if (!strcmp(t, "fn") || !strcmp(t, "globe")) return -1;
     /* special keys */
     if (!strcmp(t, "caps_lock") || !strcmp(t, "capslock")) return 1;
@@ -494,11 +494,11 @@ static int is_event_node_name(const char *name) {
     if (name == NULL) return 0;
     if (strncmp(name, "event", 5) != 0) return 0;
     size_t i = 5;
-    if (name[i] == '\0') return 0; /* bare "event" — not a node */
+    if (name[i] == '\0') return 0; /* bare "event", not a node */
     for (; name[i] != '\0'; i++) {
         if (name[i] < '0' || name[i] > '9') return 0;
     }
-    if (i >= DEV_NAME_LEN) return 0; /* defensive — real nodes are short */
+    if (i >= DEV_NAME_LEN) return 0; /* defensive, real nodes are short */
     return 1;
 }
 
@@ -521,13 +521,13 @@ static int find_device_index_by_fd(int fd) {
 }
 
 /* Open /dev/input/<name> and add it to the tracked set. Safe to call for
- * an already-open device (no-op) — required because IN_ATTRIB re-fires
+ * an already-open device (no-op), required because IN_ATTRIB re-fires
  * when udev adjusts node permissions. Returns 1 if a new device was added.
  * Open failures and non-keyboard devices are skipped gracefully. */
 static int add_device_by_name(const char *name) {
     if (!is_event_node_name(name)) return 0;
     if (g_num_fds >= MAX_DEVICES) {
-        log_diag("WARN: device /dev/input/%s ignored — at MAX_DEVICES (%d)", name, MAX_DEVICES);
+        log_diag("WARN: device /dev/input/%s ignored, at MAX_DEVICES (%d)", name, MAX_DEVICES);
         return 0;
     }
     if (find_device_index_by_name(name) >= 0) return 0; /* already open */
@@ -539,7 +539,7 @@ static int add_device_by_name(const char *name) {
         /* Typically EACCES between node creation and the udev permission
          * fixup (IN_ATTRIB fires then and we retry), or ENODEV for a node
          * that vanished. Skip gracefully either way. */
-        log_diag("hotplug: open(%s) failed: %s — skipping", path, strerror(errno));
+        log_diag("hotplug: open(%s) failed: %s, skipping", path, strerror(errno));
         return 0;
     }
     if (!is_keyboard_device(fd)) {
@@ -623,7 +623,7 @@ static void close_devices(void) {
 static void setup_hotplug_watch(void) {
     g_inotify_fd = inotify_init1(IN_NONBLOCK | IN_CLOEXEC);
     if (g_inotify_fd < 0) {
-        log_diag("WARN: inotify_init1 failed: %s — hotplug monitoring disabled",
+        log_diag("WARN: inotify_init1 failed: %s, hotplug monitoring disabled",
                  strerror(errno));
         return;
     }
@@ -632,7 +632,7 @@ static void setup_hotplug_watch(void) {
      * if already open). IN_DELETE / IN_MOVED_FROM: node gone → close. */
     uint32_t mask = IN_CREATE | IN_MOVED_TO | IN_ATTRIB | IN_DELETE | IN_MOVED_FROM;
     if (inotify_add_watch(g_inotify_fd, "/dev/input", mask) < 0) {
-        log_diag("WARN: inotify_add_watch(/dev/input) failed: %s — hotplug monitoring disabled",
+        log_diag("WARN: inotify_add_watch(/dev/input) failed: %s, hotplug monitoring disabled",
                  strerror(errno));
         close(g_inotify_fd);
         g_inotify_fd = -1;
@@ -684,7 +684,7 @@ static void handle_inotify_events(void) {
             } else if (ev->mask & (IN_DELETE | IN_MOVED_FROM)) {
                 remove_device_by_name(ev->name);
             }
-            /* other bits (IN_IGNORED etc.) — ignored */
+            /* other bits (IN_IGNORED etc.), ignored */
         }
     }
 }
@@ -729,7 +729,7 @@ static int run_loop(void) {
             emitf("ERROR:poll() failed: %s", strerror(errno));
             return 1;
         }
-        if (n == 0) continue; /* timeout — check g_should_exit */
+        if (n == 0) continue; /* timeout. Check g_should_exit */
 
         /* Hotplug events first: they may add/remove devices, and the
          * device drain below re-validates each snapshot fd against the
@@ -742,7 +742,7 @@ static int run_loop(void) {
          * entries), each fd re-checked against the current g_fds set. */
         for (int i = dev_count - 1; i >= 0; i--) {
             short re = pfds[dev_base + i].revents;
-            /* POLLHUP / POLLERR mean the device went away — enter the
+            /* POLLHUP / POLLERR mean the device went away, enter the
              * drain path so read() confirms it (EOF or ENODEV). */
             if (!(re & (POLLIN | POLLHUP | POLLERR))) continue;
 
@@ -760,10 +760,10 @@ static int run_loop(void) {
                 ssize_t r = read(fd, &ev, sizeof(ev));
                 if (r == (ssize_t)sizeof(ev)) {
                     if (ev.type != EV_KEY) continue;
-                    if (ev.value == 2) continue; /* autorepeat — ignore */
+                    if (ev.value == 2) continue; /* autorepeat, ignore */
 
                     const key_name_t *kn = lookup_key((int)ev.code);
-                    if (kn == NULL) continue; /* unmapped key — skip silently */
+                    if (kn == NULL) continue; /* unmapped key, skip silently */
 
                     /* Cross-device dedup: suppress duplicate broadcasts of the
                      * same hardware event arriving on multiple open keyboard fds. */
@@ -782,7 +782,7 @@ static int run_loop(void) {
                     device_gone = 1;
                     break;
                 }
-                if (errno == EAGAIN) break; /* O_NONBLOCK drained — expected */
+                if (errno == EAGAIN) break; /* O_NONBLOCK drained, expected */
                 if (errno == EINTR) continue;
                 /* ENODEV / EIO etc.: device unplugged or hard error */
                 device_gone = 1;
@@ -841,7 +841,7 @@ int main(int argc, char **argv) {
         return 1;
     }
     if (v == -1) {
-        emitf("ERROR:Invalid hotkey spec: %s (FN key not supported on Linux — firmware-only)", argv[1]);
+        emitf("ERROR:Invalid hotkey spec: %s (FN key not supported on Linux, firmware-only)", argv[1]);
         log_diag("ERROR: invalid hotkey spec (FN rejected): %s", argv[1]);
         return 1;
     }
@@ -859,7 +859,7 @@ int main(int argc, char **argv) {
     setvbuf(stdout, NULL, _IOLBF, 0);
 
     /* start the stdin reader thread so we can respond to PING
-     * with PONG. Detached — exits on EOF or g_should_exit. */
+     * with PONG. Detached, exits on EOF or g_should_exit. */
     pthread_t stdin_tid;
     if (pthread_create(&stdin_tid, NULL, stdin_reader_thread, NULL) != 0) {
         log_diag("WARN: failed to start stdin reader thread; PING/PONG disabled");

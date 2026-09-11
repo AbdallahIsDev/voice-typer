@@ -3,17 +3,17 @@
 Holds the three enhancement-family steps that run after the text
 cleanup steps and before the storage step:
 
-  * :meth:`_call_polish_with_timeout` — helper that runs
+  * :meth:`_call_polish_with_timeout`: helper that runs
     ``polisher.polish(text)`` in a side-thread with a hard
     ``_LLM_POLISH_PIPELINE_TIMEOUT_S`` timeout (4s by default).
-  * :meth:`_apply_llm_polish` — Step 7: LLM polish via
+  * :meth:`_apply_llm_polish`: Step 7: LLM polish via
     ``LLMPolisher``. Logs a privacy NOTICE when templates were
     applied this cycle and fail-closes if ``redact_pii`` is not
     importable (so template-substituted clipboard content cannot
     reach the third-party LLM API without the redaction gate).
-  * :meth:`_apply_ai_enhancement` — Step 7b: rule-based AI
+  * :meth:`_apply_ai_enhancement`: Step 7b: rule-based AI
     enhancement via ``ai_enhancement.enhance_transcription``.
-  * :meth:`_analyze_vocabulary` — Step 7c: vocabulary-automation
+  * :meth:`_analyze_vocabulary`: Step 7c: vocabulary-automation
     analysis via the lazily-initialized ``VocabularyAutomation``.
 
 All methods preserve the pre-split error handling: failures are
@@ -94,7 +94,7 @@ def _get_shared_polish_executor() -> concurrent.futures.ThreadPoolExecutor:
 
 
 def _reset_shared_polish_executor() -> None:
-    """Drop the singleton executor (TEST-ONLY — used by tests to assert
+    """Drop the singleton executor (TEST-ONLY, used by tests to assert
     reuse across cycles without leaking the executor between test
     cases). Production code never calls this.
     """
@@ -119,8 +119,8 @@ class _EnhancementStepsMixin:
     # the mixin so mypy / pyrefly resolve every ``self._app.*`` access —
     # the attributes are provided by the composed parent class at
     # runtime (same pattern as ``_StorageStepMixin._app`` and the
-    # declarations on ``_TranscribeStepMixin``). Annotations only — no
-    # values — so no runtime attribute is created and the runtime MRO
+    # declarations on ``_TranscribeStepMixin``). Annotations only, no
+    # values, so no runtime attribute is created and the runtime MRO
     # is unaffected.
     _app: Any
     _cycle_id: str
@@ -129,13 +129,13 @@ class _EnhancementStepsMixin:
     # transcripts above this word count skip LLM polish
     # entirely. A 1000-word transcript (~1.5 K tokens) typically
     # round-trips in 2-4 s on a healthy endpoint, but a 5000-word
-    # transcript (~7.5 K tokens) takes 8-20 s — well past the 4 s
+    # transcript (~7.5 K tokens) takes 8-20 s, well past the 4 s
     # pipeline-side cap (``_LLM_POLISH_PIPELINE_TIMEOUT_S``). On
     # timeout the unpolished text is returned silently, so the user
     # pays for an LLM API call that never produces output. Skipping
     # polish for long transcripts preserves the 4 s budget for short
     # utterances where polish is most valuable. 1500 words ≈ 9-10
-    # minutes of dictation at 150 wpm — a reasonable cutoff for
+    # minutes of dictation at 150 wpm, a reasonable cutoff for
     # "long-form dictation" where the user expects the raw transcript
     # to be saved quickly and polish is a "nice-to-have" not a "must".
     _LLM_POLISH_WORD_LIMIT: int = 1500
@@ -197,8 +197,8 @@ class _EnhancementStepsMixin:
         timeout_s = self._LLM_POLISH_PIPELINE_TIMEOUT_S
         # reuse the shared singleton executor across cycles.
         # ``max_workers=1`` means a concurrent polish call queues
-        # behind the first (the queue is unbounded by default — see
-        # ``concurrent.futures.ThreadPoolExecutor`` docs — so the
+        # behind the first (the queue is unbounded by default, see
+        # ``concurrent.futures.ThreadPoolExecutor`` docs, so the
         # submit call never blocks). The executor is never shut down
         # here; it lives for the process lifetime.
         executor = _get_shared_polish_executor()
@@ -212,14 +212,14 @@ class _EnhancementStepsMixin:
             return future.result(timeout=timeout_s)
         except concurrent.futures.TimeoutError:
             log.warning(
-                "[LLM_POLISH] Polish timed out after %.1fs — returning unpolished text "
+                "[LLM_POLISH] Polish timed out after %.1fs, returning unpolished text "
                 "(the polish thread continues in the background and will exit when the "
                 "inner 10s socket timeout fires or the LLM responds). (cycle=%s)",
                 timeout_s,
                 self._cycle_id,
             )
             return text
-        # NO ``executor.shutdown(wait=False)`` here — the
+        # NO ``executor.shutdown(wait=False)`` here, the
         # executor is shared across cycles and must not be torn down
         # on the timeout path. The daemon worker thread exits on its
         # own when ``polish`` returns (or the inner socket timeout
@@ -235,7 +235,7 @@ class _EnhancementStepsMixin:
         messages from ``{clipboard}``). When LLM polish is enabled,
         that content would flow to a third-party LLM API. The
         fix in ``llm_polish._call_api`` applies ``redact_pii`` to the
-        user-content before the API send — this method does NOT
+        user-content before the API send: this method does NOT
         duplicate that redaction (it would change the final pasted
         text on polish-failure paths). Instead, it:
 
@@ -245,13 +245,13 @@ class _EnhancementStepsMixin:
           2. Performs a sanity check that ``redact_pii`` is importable
              BEFORE calling ``polish()``. If the import fails AND
              templates were applied this cycle, polish is SKIPPED
-             entirely (fail-closed) — without ``redact_pii``, the
+             entirely (fail-closed), without ``redact_pii``, the
              gate inside ``_call_api`` would also fail open
              (its try/except falls through to sending the original
              text). Skipping polish preserves the original text on
              the paste path (the user sees their transcription, not a
              leaked LLM payload). When templates were NOT applied,
-             the sanity check is skipped — the text is the user's own
+             the sanity check is skipped, the text is the user's own
              dictation, not substituted content, so the privacy risk
              is much lower and the  fail-open is acceptable.
         """
@@ -261,14 +261,14 @@ class _EnhancementStepsMixin:
             # before LLM polish. The  redaction gate inside
             # ``llm_polish._call_api`` strips common PII patterns
             # (credit cards, SSNs, emails, phone numbers, API keys)
-            # before the API send — but operators should be able to
+            # before the API send, but operators should be able to
             # audit when template-substituted content is flowing
             # toward that gate. Logged at INFO so it's visible at the
             # default log level without being alarmist (the redaction
             # is in place; this is observability, not a warning).
             if self._templates_applied:
                 log.info(
-                    "[LLM_POLISH] Templates were applied before LLM polish this cycle — "
+                    "[LLM_POLISH] Templates were applied before LLM polish this cycle, "
                     "text MAY contain substituted content (e.g. {clipboard}). The "
                     "redact_pii gate in llm_polish._call_api will strip common PII "
                     "patterns (cards/SSNs/emails/phones/API keys) before the API send. "
@@ -287,7 +287,7 @@ class _EnhancementStepsMixin:
                 except ImportError:
                     log.warning(
                         "[LLM_POLISH] redact_pii not importable (security module broken) "
-                        "AND templates were applied this cycle — skipping LLM polish to "
+                        "AND templates were applied this cycle, skipping LLM polish to "
                         "prevent potential clipboard-content exfiltration (fail-closed). "
                         "(cycle=%s)",
                         self._cycle_id,
@@ -309,7 +309,7 @@ class _EnhancementStepsMixin:
                 # is tuned for short utterances (a 1000-word transcript
                 # round-trips in 2-4 s on a healthy endpoint). Long
                 # transcripts (1500+ words ≈ 9-10 min @ 150 wpm)
-                # typically take 8-20 s — well past the 4 s cap — so
+                # typically take 8-20 s, well past the 4 s cap, so
                 # on timeout the user pays for an LLM API call that
                 # never produces output, and a leaked daemon thread
                 # keeps running for up to 10 s. Skipping polish here
@@ -323,7 +323,7 @@ class _EnhancementStepsMixin:
                 if _word_count > self._LLM_POLISH_WORD_LIMIT:
                     log.info(
                         "[LLM_POLISH] Skipping polish for long transcript "
-                        "(word_count=%d > limit=%d) — preserves 4s pipeline "
+                        "(word_count=%d > limit=%d), preserves 4s pipeline "
                         "budget for short utterances; raw transcript returned. "
                         "(cycle=%s)",
                         _word_count,
@@ -339,12 +339,12 @@ class _EnhancementStepsMixin:
                 # in their body; ``redact_secret`` masks ``Bearer …`` /
                 # ``sk-…`` / 20+ char bare tokens so the log line is
                 # safe to surface in the tray / log file. The import
-                # lives at module top (guarded) — an inline import
+                # lives at module top (guarded), an inline import
                 # here could itself raise inside this except block and
                 # abort the dictation.
                 log.warning("[LLM_POLISH] Polish failed: %s", redact_secret(str(exc)))
                 # previously this except block only logged a
-                # WARNING — the user paid for an LLM API call that never
+                # WARNING, the user paid for an LLM API call that never
                 # produced output (or believed the feature was broken)
                 # with NO diagnostic. Mirror the ``_apply_vocabulary``
                 # notify-once pattern (tray notification on the FIRST
@@ -352,7 +352,7 @@ class _EnhancementStepsMixin:
                 # event to the in-process event bus so the renderer can
                 # surface a one-time toast. The push event shape is a
                 # bare ``{"type": "llm_polish_failed"}`` frame (no
-                # payload) — see ``LLMPolishFailedEvent`` in
+                # payload): see ``LLMPolishFailedEvent`` in
                 # ``voice_typer/client/src/renderer/src/types/ipc/push_events.ts``.
                 # The transcription itself is still delivered to the
                 # user UN-polished (the original ``text`` is returned
@@ -373,12 +373,12 @@ class _EnhancementStepsMixin:
             and effective_llm_key
             and not getattr(self._app.config, "llm_polish_consent", False)
         ) and not getattr(self._app, "_llm_consent_warned", False):
-            log.info("[LLM_POLISH] llm_polish is enabled but llm_polish_consent is False — skipping polish.")
+            log.info("[LLM_POLISH] llm_polish is enabled but llm_polish_consent is False, skipping polish.")
             self._app._llm_consent_warned = True
             # Surface the silent skip: publish a ``consent_required``
             # event so the renderer's unified point-of-use consent
             # dialog can offer to grant ``llm_polish_consent`` in
-            # place (previously the skip was invisible — the user had
+            # place (previously the skip was invisible, the user had
             # no idea the polish toggle was doing nothing). Once
             # granted, polish applies to the NEXT transcription; there
             # is no re-runnable action from here, so no retry is
@@ -400,7 +400,7 @@ class _EnhancementStepsMixin:
         Delegates to ``voice_typer.server.ai_enhancement.enhance_transcription``,
         which reads the four ``ai_enhancement_*`` / ``auto_*`` /
         ``fix_grammar_basics`` flags off the config. The master
-        toggle (``ai_enhancement_enabled``) defaults OFF — when off,
+        toggle (``ai_enhancement_enabled``) defaults OFF, when off,
         ``enhance_transcription`` returns the text unchanged.
 
          hardening: failures here are logged at WARNING
@@ -415,14 +415,14 @@ class _EnhancementStepsMixin:
         except Exception:
             log.warning("[AI_ENHANCE] Enhancement failed", exc_info=True)
             # This failure path previously published
-            # ``llm_polish_failed`` — an LLM-specific event — for a
+            # ``llm_polish_failed``: an LLM-specific event, for a
             # RULE-BASED enhancer failure (E9-class event-type
             # mismatch): the renderer surfaced the "LLM polish failed"
             # toast for a failure that had nothing to do with the LLM.
             # Publish the enhancement-specific ``text_enhancement_failed``
             # event instead, wrapped in ``contextlib.suppress``
             # (mirroring the ``_apply_llm_polish`` path) so a raising
-            # event bus can never abort the whole dictation — the
+            # event bus can never abort the whole dictation, the
             # module contract is that failures here degrade to the
             # un-enhanced text, never abort the cycle.
             with contextlib.suppress(Exception):
@@ -436,7 +436,7 @@ class _EnhancementStepsMixin:
 
         Delegates to the app's ``VocabularyAutomation`` instance. The
         master toggle (``vocabulary_automation_enabled``) defaults
-        OFF — when off, this method is a no-op.
+        OFF: when off, this method is a no-op.
 
         Suggestions above ``vocabulary_auto_apply_threshold`` are
         auto-applied (added to the user's vocabulary); the rest are
@@ -479,7 +479,7 @@ class _EnhancementStepsMixin:
             # the previous ``getattr(self, "_segments", None) or []``
             # and ``getattr(self, "_confidence", 0.9)`` fell back to a
             # fabricated confidence of ``0.9`` when the attributes were
-            # absent — that fed vocabulary-automation with a confident
+            # absent, that fed vocabulary-automation with a confident
             # empty segment list, causing the analyzer to consider
             # every word as high-confidence. Replaced with explicit
             # module-level sentinels (no ``self.*`` reads, no
@@ -515,7 +515,7 @@ class _EnhancementStepsMixin:
                 # (up to MAX_PENDING=200, ~50 KB per event). For 1000
                 # cycles with a full pending list, that was ~50 MB of
                 # redundant IPC traffic. The signature is
-                # ``(count, sha256_of_serialized_items)`` — count is a
+                # ``(count, sha256_of_serialized_items)``: count is a
                 # cheap short-circuit for the common case (suggestion
                 # accepted / dismissed → count changes); the hash
                 # catches the rare case where the count is the same but
@@ -536,12 +536,12 @@ class _EnhancementStepsMixin:
                 )
                 _last_sig = getattr(self._app, "_last_vocab_sig", None)
                 if _last_sig == _current_sig:
-                    # No change since last publish — skip the redundant
+                    # No change since last publish, skip the redundant
                     # IPC event. Logged at DEBUG so the delta-publish
                     # behavior is observable without spamming the log
                     # at the default level.
                     log.debug(
-                        "[VOCAB_AUTO] pending list unchanged (count=%d, sig=%s…) — "
+                        "[VOCAB_AUTO] pending list unchanged (count=%d, sig=%s…), "
                         "skipping redundant vocabulary_suggestion publish. (cycle=%s)",
                         _current_sig[0],
                         _current_sig[1][:8],

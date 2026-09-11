@@ -1,6 +1,6 @@
 """Tests for ASR auto-setup utilities.
 
-GT-15 / GT-B2-4 (Session 8 — Group 5): tests for the download-failure
+GT-15 / GT-B2-4 (Session 8, Group 5): tests for the download-failure
 traceback capture (``sys.exc_info()`` into the return tuple, full
 traceback logged via ``exc_info=True``) and the
 ``_verify_model_integrity -> (ok, details)`` tuple return.
@@ -24,7 +24,7 @@ def _install_hf_stub():
     The download-gate tqdm subclass imports
     ``huggingface_hub.utils.tqdm`` lazily, so the stub must be a real
     package in ``sys.modules`` (``huggingface_hub`` + ``.utils`` +
-    ``.utils.tqdm`` with a minimal ``tqdm`` class) — a bare module
+    ``.utils.tqdm`` with a minimal ``tqdm`` class), a bare module
     would make that import raise ``ModuleNotFoundError`` (``'huggingface_hub'
     is not a package``) before the patched ``snapshot_download`` ever runs.
     """
@@ -210,7 +210,7 @@ class TestDownloadParakeetWeightsIntegrityCheckLogsDetails:
 
 class TestConsentGateReturnShape:
     """GT-15: the consent-gate return path also returns a 3-tuple
-    (exc_info=None — no exception was raised)."""
+    (exc_info=None, no exception was raised)."""
 
     def test_consent_false_returns_three_tuple_with_none_exc_info(self):
         class _Config:
@@ -233,7 +233,7 @@ class TestConsentGateReturnShape:
 # default.  Pre-fix, a ``None`` config silently bypassed the gate.
 #
 # NOTE: the return shape here follows the  3-tuple contract
-# ``(success, reason, exc_info)`` — ``exc_info`` is ``None`` for the
+# ``(success, reason, exc_info)``: ``exc_info`` is ``None`` for the
 # consent-gate path because no exception was raised. If the production
 # ``download_parakeet_weights`` is reverted to the 2-tuple contract,
 # these assertions must be updated in lock-step.
@@ -245,7 +245,7 @@ class TestConsentGateSafeDefault:
     with ``parakeet_engine.ParakeetEngine.load``'s safe default.
 
     Pre-fix: when ``config`` was ``None`` the consent gate was silently
-    SKIPPED — the function proceeded straight to ``snapshot_download``,
+    SKIPPED, the function proceeded straight to ``snapshot_download``,
     leaking the user's IP to HuggingFace and pulling ~2.5 GB over the
     network without explicit opt-in.  Any future refactor that invoked
     ``download_parakeet_weights`` from a production path without
@@ -255,7 +255,7 @@ class TestConsentGateSafeDefault:
     def test_config_none_returns_consent_false(self):
         """``download_parakeet_weights(config=None)`` MUST return
         ``(False, "huggingface_consent_false", None)`` and MUST NOT touch the
-        network — even though no exception is raised.
+        network, even though no exception is raised.
         """
         with patch("huggingface_hub.snapshot_download") as mock_sd:
             result = download_parakeet_weights(config=None)
@@ -321,7 +321,7 @@ class TestConsentGateSafeDefault:
 
     def test_force_true_does_not_require_config(self):
         """``force=True`` works even when ``config`` is ``None`` (the
-        legacy bypass scenario) — but the bypass is now EXPLICIT at the
+        legacy bypass scenario), but the bypass is now EXPLICIT at the
         call site, not implicit.
         """
         with (
@@ -331,7 +331,7 @@ class TestConsentGateSafeDefault:
                 return_value=(True, {}),
             ),
         ):
-            # Both config=None AND force=True — force wins.
+            # Both config=None AND force=True, force wins.
             result = download_parakeet_weights(config=None, force=True)
 
         assert result == (True, "", None)

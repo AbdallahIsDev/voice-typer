@@ -6,7 +6,7 @@ The controller holds a reference to the owning app (``app``) and opens
 :class:`voice_typer.server.config_editor.ConfigEditorLauncher`, which
 holds ``_config_mutation_lock`` for the full editor session and
 reloads the config from disk afterwards. Behaviour is preserved
-verbatim — only the class boundary moved.
+verbatim, only the class boundary moved.
 """
 
 from __future__ import annotations

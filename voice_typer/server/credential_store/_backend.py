@@ -88,7 +88,7 @@ _keyring_probe_lock = threading.Lock()
 #: Cache for parsed ``config.json`` in :func:`_read_plaintext_fallback`.
 #: Keyed by config_file path, value is ``(mtime_ns, parsed_dict)``.
 #: ``Config.load()`` resolves ``keyring://<provider>`` references by
-#: calling ``load_secret()`` for each of the 5 providers — without this
+#: calling ``load_secret()`` for each of the 5 providers, without this
 #: cache, each call re-opens and re-parses the same config.json (5 reads
 #: + 5 parses at startup when keyring is unavailable). Lives here
 #: (rather than in :mod:`_plaintext`) because the "global caches"
@@ -123,7 +123,7 @@ def _run_keyring_call(func: Callable[..., _T], *args: Any, **kwargs: Any) -> _T:
     The timeout / cooldown / threshold values are read from the
     *package* module (``_cs.<NAME>``) at call time so test-time
     monkey-patches on ``voice_typer.server.credential_store`` propagate
-    here — see the module docstring for the pattern rationale.
+    here: see the module docstring for the pattern rationale.
     """
     global _orphaned_thread_count, _consecutive_timeouts, _wedged_until
 
@@ -155,7 +155,7 @@ def _run_keyring_call(func: Callable[..., _T], *args: Any, **kwargs: Any) -> _T:
         global _orphaned_thread_count
         try:
             state["result"] = func(*args, **kwargs)
-        except BaseException as exc:  # noqa: BLE001 — re-raised on the caller
+        except BaseException as exc:  # noqa: BLE001, re-raised on the caller
             state["exc"] = exc
         finally:
             # Atomically mark completion AND decrement the orphan
@@ -181,7 +181,7 @@ def _run_keyring_call(func: Callable[..., _T], *args: Any, **kwargs: Any) -> _T:
                 # Race: the thread finished between ``t.is_alive()``
                 # and the lock acquisition. Its ``finally`` already
                 # ran with ``orphaned=False`` (so it didn't
-                # decrement). Don't increment either — fall through
+                # decrement). Don't increment either, fall through
                 # to the normal result-handling path below.
                 pass
             else:
@@ -194,14 +194,14 @@ def _run_keyring_call(func: Callable[..., _T], *args: Any, **kwargs: Any) -> _T:
                     _wedged_until = time.monotonic() + keyring_wedge_cooldown_s
                     log.warning(
                         "[CREDENTIAL] keyring backend wedged after %d consecutive "
-                        "timeouts — short-circuiting all calls for %.0fs",
+                        "timeouts, short-circuiting all calls for %.0fs",
                         consecutive,
                         keyring_wedge_cooldown_s,
                     )
                 if orphan_count > keyring_orphan_warn_threshold:
                     log.warning(
                         "[CREDENTIAL] %d orphaned keyring-io threads still running "
-                        "(threshold %d) — backend may be permanently stuck",
+                        "(threshold %d), backend may be permanently stuck",
                         orphan_count,
                         keyring_orphan_warn_threshold,
                     )
@@ -211,7 +211,7 @@ def _run_keyring_call(func: Callable[..., _T], *args: Any, **kwargs: Any) -> _T:
                     f"(orphaned threads: {orphan_count}, consecutive timeouts: {consecutive})"
                 )
 
-    # Call completed (success or exception) — reset the consecutive
+    # Call completed (success or exception), reset the consecutive
     # timeout counter so a single success after a wedged state gives
     # the backend a clean slate.
     with _keyring_state_lock:
@@ -226,7 +226,7 @@ def _run_keyring_call(func: Callable[..., _T], *args: Any, **kwargs: Any) -> _T:
 def _probe_keyring() -> tuple[bool, str | None, str | None]:
     """Probe the keyring library and return ``(available, backend_name, reason)``.
 
-    ``available`` is True only when a real backend is installed — the
+    ``available`` is True only when a real backend is installed, the
     ``keyring.backends.fail.Keyring`` backend raises on every operation,
     so we treat it as unavailable and fall back to plaintext.
 
@@ -238,7 +238,7 @@ def _probe_keyring() -> tuple[bool, str | None, str | None]:
 
     The returned ``reason`` (when not None) is passed through
     :func:`_redact_sensitive` to strip filesystem paths and
-    API-key-like substrings — defense in depth against buggy or custom
+    API-key-like substrings, defense in depth against buggy or custom
     keyring backends that might embed sensitive data in their exception
     text.
     """
@@ -312,7 +312,7 @@ def is_keyring_available() -> bool:
     # Slow path: probe (or re-probe). Serialize so two concurrent
     # ``load_secret`` calls don't each fire a probe.
     with _keyring_probe_lock:
-        # Re-check under the lock — another thread may have probed
+        # Re-check under the lock, another thread may have probed
         # while we were waiting for the lock.
         if _keyring_available_cache is True:
             return True
@@ -357,7 +357,7 @@ def _clear_plaintext_config_cache() -> None:
     on-disk + in-memory ``Config`` attributes via
     :func:`delete_secret` / :func:`clear_in_memory_secrets`, but
     without this helper the stale parsed dict would persist in process
-    memory until the next restart — a memory dump taken between the
+    memory until the next restart, a memory dump taken between the
     delete and the next restart would still contain the plaintext
     secrets.
 

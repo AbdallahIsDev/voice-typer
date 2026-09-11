@@ -1,5 +1,5 @@
 /**
- * useNavigateEvent — routes backend ``navigate`` push events into the
+ * useNavigateEvent, routes backend ``navigate`` push events into the
  * shared navigation store.
  *
  * Extracted from App.tsx (the entry component stays pure wiring) using
@@ -11,7 +11,7 @@
  *     ``router/routes.ts`` via ``isKnownPage`` (previously a
  *     hand-maintained ``pageMap`` had drifted and silently dropped
  *     unknown-but-real pages like ``onboarding``).
- *   - ``consent_field`` — deep-link to a specific Settings consent row
+ *   - ``consent_field``, deep-link to a specific Settings consent row
  *     (CLICKABLE OS notifications: the main process broadcasts
  *     ``navigate {path: "/settings", consent_field}`` when the user
  *     clicks the toast; Settings consumes the ``consentField`` option
@@ -20,7 +20,7 @@
  *     ``consent_field``, the deep-link must land on the Privacy
  *     sub-page (where the consent toggles live), not the General
  *     default. The ``useNavigation.navigate`` action redirects bare
- *     ``"settings"`` to ``"settingsGeneral"`` — so the target is
+ *     ``"settings"`` to ``"settingsGeneral"``, so the target is
  *     overridden to ``"settingsPrivacy"`` when a ``consent_field`` is
  *     present (the user's intent is "open the consent row", not "open
  *     Settings General"). The ``pendingConsentField`` transient field

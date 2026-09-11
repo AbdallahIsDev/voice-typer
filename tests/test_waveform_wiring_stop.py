@@ -1,4 +1,4 @@
-"""DJ-28 — WaveformBubbleWiring closure reference cycle; stop() must null callbacks.
+"""DJ-28: WaveformBubbleWiring closure reference cycle; stop() must null callbacks.
 
 ``_wire_waveform_bubble`` defines 5 closures (``on_show``, ``on_hide``,
 ``on_level``, ``on_set_state``, ``on_config``) that capture ``self``
@@ -28,10 +28,10 @@ This test file asserts:
 
   1. After ``stop()``, all 5 callbacks on ``app._waveform_bubble`` are
      ``None``.
-  2. ``stop()`` is idempotent — calling it twice doesn't raise and
+  2. ``stop()`` is idempotent, calling it twice doesn't raise and
      the callbacks stay ``None``.
   3. ``stop()`` is safe to call before ``_wire_waveform_bubble`` has
-     run (the bubble's callbacks are already ``None`` — nulling them
+     run (the bubble's callbacks are already ``None``, nulling them
      is a no-op).
   4. ``stop()`` is safe to call when ``app._waveform_bubble`` is
      missing entirely (defensive ``getattr`` guard).
@@ -96,7 +96,7 @@ class TestStopNullsCallbacks:
 
     def test_stop_nulls_all_five_callbacks_after_wiring(self, wiring, bubble):
         """DJ-28: after ``stop()``, all 5 callbacks on the bubble are ``None``."""
-        # Wire — sets all 5 callbacks to closures.
+        # Wire, sets all 5 callbacks to closures.
         wiring._wire_waveform_bubble()
         for attr in self._CALLBACK_ATTRS:
             assert callable(getattr(bubble, attr)), f"precondition: {attr} must be callable after wiring"
@@ -106,7 +106,7 @@ class TestStopNullsCallbacks:
         for attr in self._CALLBACK_ATTRS:
             assert getattr(bubble, attr) is None, (
                 f"DJ-28: bubble.{attr} must be None after stop() (was "
-                f"{getattr(bubble, attr)!r}) — breaks the closure → self "
+                f"{getattr(bubble, attr)!r}), breaks the closure → self "
                 "reference cycle deterministically"
             )
 
@@ -123,7 +123,7 @@ class TestStopNullsCallbacks:
 
     def test_stop_is_safe_before_wiring(self, wiring, bubble):
         """DJ-28: calling ``stop()`` before ``_wire_waveform_bubble`` has
-        run is a no-op — the callbacks are already ``None`` (set by
+        run is a no-op, the callbacks are already ``None`` (set by
         ``WaveformBubble.__init__``), so nulling them is a no-op. Must
         not raise."""
         # Pre-wiring state: callbacks are None (set by WaveformBubble.__init__).
@@ -141,7 +141,7 @@ class TestStopNullsCallbacks:
         was never set (defensive ``getattr(..., None)`` guard)."""
 
         # An app mock WITHOUT the _waveform_bubble attribute.
-        # getattr returns MagicMock by default for MagicMock — use a
+        # getattr returns MagicMock by default for MagicMock, use a
         # real object with no _waveform_bubble to test the guard.
         class _AppNoBubble:
             _thread_registry = MagicMock()
@@ -171,7 +171,7 @@ class TestStopNullsCallbacks:
 
         wiring.stop()
 
-        # After stop(), the bubble no longer holds the closure — the
+        # After stop(), the bubble no longer holds the closure, the
         # cycle is broken. The closure object itself may still exist
         # (Python doesn't immediately GC), but the bubble → closure
         # link is gone.
@@ -190,7 +190,7 @@ class TestStopNullsCallbacks:
         for attr in self._CALLBACK_ATTRS:
             assert getattr(bubble, attr) is None
 
-        # Re-wire — must re-create the worker and re-set callbacks.
+        # Re-wire, must re-create the worker and re-set callbacks.
         wiring._wire_waveform_bubble()
         for attr in self._CALLBACK_ATTRS:
             assert callable(getattr(bubble, attr)), f"DJ-28: re-wire after stop() must re-set {attr}"

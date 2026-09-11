@@ -12,7 +12,7 @@
 //!
 //! Moved verbatim from the inline `#[cfg(test)] mod tests` block in
 //! `supervisor.rs` as part of the C-TEST-5 test-isolation migration.
-//! No test logic changed — only the module path adjusted (now a sibling
+//! No test logic changed: only the module path adjusted (now a sibling
 //! of `supervisor` rather than a child). Private items in
 //! `supervisor.rs` that the tests reference were bumped to `pub(super)`
 //! so the sibling test file (within the `sidecar` parent module) can
@@ -27,12 +27,12 @@ use crate::state::SidecarHandle;
 use crate::state::SidecarState;
 // NOTE: the panic-hook test lock is a `std::sync::MutexGuard` (non-Send),
 // held across an `.await` below. This only compiles because
-// `#[tokio::test]` defaults to the current_thread flavor — if a future
+// `#[tokio::test]` defaults to the current_thread flavor, if a future
 // edit flips this test to `flavor = "multi_thread"`, it must switch to
 // a `tokio::sync::Mutex` (see test_support.rs).
 use crate::test_support::PANIC_HOOK_TEST_LOCK;
 // The cr14 tests below spawn REAL `sleep 30` subprocesses (children of
-// the test binary) — serialize against the own-pid enumeration tests
+// the test binary): serialize against the own-pid enumeration tests
 // (see test_support.rs CHILD_PROCESS_TEST_LOCK). Same non-Send-guard-
 // across-await constraint as PANIC_HOOK_TEST_LOCK above.
 #[cfg(target_os = "linux")]
@@ -85,7 +85,7 @@ fn test_parse_restart_counter_non_numeric_count() {
 
 #[test]
 fn test_parse_restart_counter_float_truncates() {
-    // `as_u64()` returns None for floats — JSON numbers are parsed
+    // `as_u64()` returns None for floats, JSON numbers are parsed
     // as f64 by serde_json::Value, and `as_u64()` only succeeds for
     // integer-valued numbers. A 1.5 count is malformed → return 0.
     // (This matches the saturating
@@ -96,7 +96,7 @@ fn test_parse_restart_counter_float_truncates() {
 
 #[test]
 fn test_parse_restart_counter_u32_max_passthrough() {
-    // u32::MAX exactly fits in u32 — passes through unchanged.
+    // u32::MAX exactly fits in u32, passes through unchanged.
     let v = json!({"count": u32::MAX as u64});
     assert_eq!(parse_restart_counter(&v), u32::MAX);
 }
@@ -139,16 +139,16 @@ fn test_parse_restart_counter_saturating_trips_circuit_breaker() {
 //
 // The 3 `bubble_coalesce_should_emit` tests that lived here have
 // been moved to `sidecar/bubble_coalesce.rs::tests` alongside the
-// function itself. See that module for the test bodies — they're
+// function itself. See that module for the test bodies, they're
 // preserved EXACTLY (same assertions, same comments), only the
 // module path changed.
 
-// respawn race — flag cleared before inner returns ──
+// respawn race: flag cleared before inner returns ──
 //
 // The fast-double-crash race `respawn_inner` spawns a
 // new sidecar + starts a new WS reader task (via `reconnect_ws`)
 // BEFORE returning Ok(()). If the new sidecar dies immediately, the
-// new WS reader tries `respawn` — but if the flag is still set
+// new WS reader tries `respawn`, but if the flag is still set
 // (cleared in the wrapper AFTER the inner returns), the reader bails
 // with "already in progress" and the sidecar is permanently dead.
 //
@@ -159,7 +159,7 @@ fn test_parse_restart_counter_saturating_trips_circuit_breaker() {
 /// initialized to their default (empty) state.
 ///
 /// the `token: Mutex<String>` field was removed
-/// from `SidecarState` — it was write-only dead state. The test
+/// from `SidecarState`: it was write-only dead state. The test
 /// helper no longer initializes it.
 fn make_test_state() -> Arc<SidecarState> {
     Arc::new(SidecarState::new())
@@ -171,7 +171,7 @@ fn test_cr13_flag_is_clear_after_simulated_successful_respawn() {
     // uses the fix (flag cleared inside the inner function
     // before returning Ok(())).
     //
-    // Step 1: respawn entry — acquire the flag.
+    // Step 1: respawn entry, acquire the flag.
     // Step 2: respawn_inner runs, spawns new sidecar, starts WS
     //          reader, reconnects WS, succeeds.
     // Step 3: respawn_inner clears the flag BEFORE
@@ -201,7 +201,7 @@ fn test_cr13_flag_is_clear_after_simulated_successful_respawn() {
     );
 
     // Step 3 inner function clears the flag BEFORE
-    // returning Ok(()). This is the key change — the flag is cleared
+    // returning Ok(()). This is the key change, the flag is cleared
     // inside the inner function, not in the wrapper after it returns.
     state.respawn_in_progress.store(false, Ordering::SeqCst);
 
@@ -216,7 +216,7 @@ fn test_cr13_flag_is_clear_after_simulated_successful_respawn() {
             .respawn_in_progress
             .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
             .is_ok(),
-        "compare_exchange after clear should succeed — \
+        "compare_exchange after clear should succeed: \
          the new WS reader's respawn must be able to proceed"
     );
 }
@@ -275,7 +275,7 @@ fn proc_state(pid: u32) -> Option<char> {
     // contain spaces and parens, so find the LAST ')' to skip comm.
     let after_comm = stat.rfind(')')?;
     let rest = &stat[after_comm + 1..];
-    // rest is ` state ...` — trim leading space, take first char.
+    // rest is ` state ...`, trim leading space, take first char.
     rest.trim_start().chars().next()
 }
 
@@ -311,7 +311,7 @@ async fn test_cr14_kill_tree_kills_dev_mode_child() {
     // fix relies on (the retry loop calls `old.kill_tree().await`
     // before storing the new child).
     //
-    // Spawns a REAL child of the test binary — serialize against the
+    // Spawns a REAL child of the test binary, serialize against the
     // own-pid enumeration tests (see test_support.rs).
     let _child_lock = CHILD_PROCESS_TEST_LOCK
         .lock()
@@ -357,7 +357,7 @@ async fn test_cr14_retry_loop_kills_old_child_before_storing_new() {
     // This is the exact pattern added by the fix in
     // `respawn_inner`'s retry loop.
     //
-    // Spawns REAL children of the test binary — serialize against
+    // Spawns REAL children of the test binary, serialize against
     // the own-pid enumeration tests (see test_support.rs).
     let _child_lock = CHILD_PROCESS_TEST_LOCK
         .lock()
@@ -448,7 +448,7 @@ async fn test_cr14_retry_loop_first_iteration_kills_crashed_sidecar() {
     // Edge case: on the FIRST retry iteration (attempt=0), the
     // `state.child` slot holds the CRASHED sidecar's handle (the WS
     // reader detected the disconnect, but the host's child handle is
-    // still there). The fix must kill it too — the sidecar
+    // still there). The fix must kill it too, the sidecar
     // process may not be fully dead (the WS thread could have died
     // while the process is still running with mic/hotkeys held).
     //
@@ -456,7 +456,7 @@ async fn test_cr14_retry_loop_first_iteration_kills_crashed_sidecar() {
     // when the "old" child is still alive (simulating a half-dead
     // sidecar where the WS thread died but the process is running).
     //
-    // Spawns REAL children of the test binary — serialize against
+    // Spawns REAL children of the test binary, serialize against
     // the own-pid enumeration tests (see test_support.rs).
     let _child_lock = CHILD_PROCESS_TEST_LOCK
         .lock()
@@ -513,7 +513,7 @@ async fn test_cr14_retry_loop_first_iteration_kills_crashed_sidecar() {
 async fn test_gt9_catch_unwind_clears_respawn_in_progress_on_panic() {
     // This test fires a REAL panic through the process-global hook
     // (if `install_panic_hook` has run), which toggles the global
-    // `PANIC_HOOK_REENTRY` — serialize against the other
+    // `PANIC_HOOK_REENTRY`: serialize against the other
     // panic-firing / flag-mutating tests (see test_support.rs).
     let _panic_lock = PANIC_HOOK_TEST_LOCK
         .lock()
@@ -531,7 +531,7 @@ async fn test_gt9_catch_unwind_clears_respawn_in_progress_on_panic() {
     // Pre-existing baseline syntax error: `let x = async fn() -> T { ... };`
     // is not valid Rust (`async fn` is an item declaration, not an
     // expression). The intent was a callable that returns a panicking
-    // future — fixed by switching to a closure
+    // future: fixed by switching to a closure
     // that returns an `async move { ... }` block. The closure is
     // called with `panicking_inner()` (matching the original
     // `panicking_inner()` call below), preserving the test's
@@ -637,7 +637,7 @@ async fn test_gt_c4_8_child_install_race_clears_flag() {
 // invocations to verify the breaker trips on the 3rd relaunch attempt
 // (not the 4th) after the increment was moved from the top of
 // `respawn` to `respawn_inner`'s exhaustion path. Pure-logic
-// simulation — does NOT spin up a Tauri runtime / mock sidecar
+// simulation: does NOT spin up a Tauri runtime / mock sidecar
 // (the integration test would be ~50 lines of Tauri bootstrap for
 // 5 lines of decision logic). The simulation mirrors the actual
 // code paths in `respawn` (top-of-respawn check) and
@@ -663,7 +663,7 @@ fn test_ue4_breaker_trips_on_third_relaunch_attempt() {
             break;
         }
         // ── `respawn_inner` runs the backoff schedule + exhausts ──
-        // (simulated — every iteration exhausts because the test
+        // (simulated: every iteration exhausts because the test
         // scenario is a permanently-broken install).
         //
         // ── Exhaustion path: increment + check ──
@@ -680,7 +680,7 @@ fn test_ue4_breaker_trips_on_third_relaunch_attempt() {
         app_restart_calls += 1;
     }
 
-    // the breaker must trip on the 3rd attempt — 2 prior
+    // the breaker must trip on the 3rd attempt, 2 prior
     // app.restart()s actually fired, the 3rd attempt detected the
     // counter at max in the exhaustion path and bailed.
     assert_eq!(
@@ -707,7 +707,7 @@ fn test_ue4_breaker_trips_on_third_relaunch_attempt() {
 fn test_ue4_breaker_counter_only_increments_on_exhaustion_not_success() {
     // verify the counter semantics changed. With the OLD code
     // (increment at top of respawn), every `respawn` invocation
-    // bumped the counter — even successful reconnects. With the NEW
+    // bumped the counter: even successful reconnects. With the NEW
     // code (increment in exhaustion path), a successful respawn
     // resets the counter to 0 (via `write_restart_counter(0)` on
     // the reconnect-success path) and the counter only goes up when
@@ -742,7 +742,7 @@ fn test_ue3_f6_shutting_down_check_after_flag_acquisition() {
     let state = make_test_state();
 
     // Step 1: simulate the `compare_exchange(false → true)` at the
-    // top of `respawn` — flag acquisition succeeds on a fresh
+    // top of `respawn`: flag acquisition succeeds on a fresh
     // state.
     let acquired = state
         .respawn_in_progress
@@ -755,7 +755,7 @@ fn test_ue3_f6_shutting_down_check_after_flag_acquisition() {
     // and the disk-I/O counter read (race window).
     state.shutting_down.store(true, Ordering::SeqCst);
 
-    // Step 3: the check fires — `shutting_down` is true, so
+    // Step 3: the check fires, `shutting_down` is true, so
     // respawn clears the flag + returns Ok(()) WITHOUT touching the
     // disk counter. Mirror the actual code's branch:
     let mut disk_io_performed = false;
@@ -839,7 +839,7 @@ fn test_ue3_f13_last_error_tracks_most_recent_iteration_error() {
 fn test_ue3_f5_install_arm_handles_some_child() {
     // Mirror the install arm's `if let Some(new_child) = child.take()`
     // form. The `child` variable is `Option<u32>` here (stand-in for
-    // `Option<SidecarHandle>` — the type doesn't matter for this
+    // `Option<SidecarHandle>`: the type doesn't matter for this
     // structural test; only the Option pattern matters).
     let mut child: Option<u32> = Some(42);
     let mut child_guard: Option<u32> = None; // state.child was empty
@@ -868,7 +868,7 @@ fn test_ue3_f5_install_arm_handles_some_child() {
 // parses the `count` field via `parse_restart_counter` AFTER passing
 // the `ts` freshness check (ts must be present + within
 // COUNTER_STALE_SECS). This test exercises the full contract with a
-// FRESH ts (the normal post-write case) — verifying the value written
+// FRESH ts (the normal post-write case), verifying the value written
 // is the value read back, including the `ts` field that was added to
 // defeat stale-count accumulation across sessions.
 //
@@ -905,7 +905,7 @@ fn test_write_read_restart_counter_round_trip_json_contract() {
         let parsed = parse_restart_counter(&payload);
         assert_eq!(
             parsed, count,
-            "round-trip failed for count {} — write_restart_counter produces a \
+            "round-trip failed for count {}: write_restart_counter produces a \
              payload that read_restart_counter parses back to a different value ({})",
             count, parsed
         );
@@ -925,7 +925,7 @@ fn test_write_read_restart_counter_round_trip_json_contract() {
 // test execution, we set `VOICE_TYPER_CONFIG_DIR` to a unique temp
 // dir BEFORE the first `config_dir()` call. Since no other test in
 // this module calls `config_dir()`, there is no race to populate the
-// cache — this test owns the first call.
+// cache: this test owns the first call.
 //
 // The test writes a non-zero counter first (to prove `clear` actually
 // resets a non-zero value, not just writes 0 to an already-zero
@@ -959,7 +959,7 @@ fn test_clear_restart_counter_for_user_restart_sets_zero() {
 
     // Step 1: write a non-zero counter to prove the clear actually
     // resets a real value. If the write silently fails (unwritable
-    // dir), skip — the test can't prove the round-trip on a
+    // dir), skip: the test can't prove the round-trip on a
     // read-only filesystem, and that's an environment issue, not a
     // code regression.
     write_restart_counter(2);
@@ -971,7 +971,7 @@ fn test_clear_restart_counter_for_user_restart_sets_zero() {
         // Either way, the disk round-trip can't be tested here —
         // skip with a diagnostic rather than fail spuriously.
         eprintln!(
-            "skipping clear_restart_counter integration assertion — \
+            "skipping clear_restart_counter integration assertion: \
              config dir unwritable or cache pre-populated (read returned {} \
              after write 2)",
             before
@@ -1020,7 +1020,7 @@ fn test_clear_restart_counter_for_user_restart_sets_zero() {
 //
 // Guard against the docstring drifting back to claiming a
 // cold-start reset exists. There is NO `write_restart_counter(0)`
-// call on cold start — the only reset is on the post-respawn
+// call on cold start: the only reset is on the post-respawn
 // reconnect-success path. main.rs deliberately omits a cold-start
 // reset (an unconditional one there previously defeated the circuit
 // breaker). Cross-session staleness is handled by the `ts` field +
@@ -1049,7 +1049,7 @@ fn test_write_restart_counter_docstring_has_no_cold_start_reset_claim() {
     assert!(
         !doc.contains(&stale),
         "write_restart_counter docstring must not claim a reset happens on a \
-         fresh app launch — there is no `write_restart_counter(0)` call on \
+         fresh app launch: there is no `write_restart_counter(0)` call on \
          cold start; the only reset is on reconnect-success in `respawn_inner`"
     );
     // Positive assertion: the docstring must explicitly state the
@@ -1067,7 +1067,7 @@ fn test_write_restart_counter_docstring_has_no_cold_start_reset_claim() {
 //
 // The respawn-success path used to call `write_restart_counter(0)`
 // INLINE on the Tokio worker (an atomic temp-file write + fsync +
-// rename) at the most latency-sensitive moment — right after the
+// rename) at the most latency-sensitive moment, right after the
 // fresh reconnect. The file's own blocking-I/O rule (the
 // spawn_blocking(read_restart_counter) rationale at the top of
 // `respawn`) and the exhaustion path (:spawn_blocking read+write
@@ -1075,7 +1075,7 @@ fn test_write_restart_counter_docstring_has_no_cold_start_reset_claim() {
 // success path must too. No mock/AppHandle seam exists for
 // `respawn_inner` (constructing a Tauri runtime in a unit test is not
 // possible without the `test` feature), so the routing is pinned by
-// source inspection — the same pattern the docstring test above uses.
+// source inspection: the same pattern the docstring test above uses.
 
 #[test]
 fn test_success_path_counter_reset_routes_through_spawn_blocking() {
@@ -1095,13 +1095,13 @@ fn test_success_path_counter_reset_routes_through_spawn_blocking() {
 
     assert!(
         region.contains("tauri::async_runtime::spawn_blocking(|| write_restart_counter(0))"),
-        "the success-path counter reset must be routed through spawn_blocking — \
+        "the success-path counter reset must be routed through spawn_blocking: \
          an inline write blocks the Tokio worker for the fsync duration right at \
          the fresh-reconnect moment (the rule the exhaustion path already \
          follows)"
     );
     // The inline (worker-blocking) STATEMENT form must not reappear in
-    // the success arm — every reset-to-0 there is the spawn_blocking
+    // the success arm: every reset-to-0 there is the spawn_blocking
     // form (the log message inside the JoinError arm is fine; it is not
     // a statement).
     assert!(
@@ -1115,7 +1115,7 @@ fn test_success_path_counter_reset_routes_through_spawn_blocking() {
 //
 // On the supervisor-exhaustion leg the sidecar is already dead (every
 // spawn attempt failed; the last child was killed), so no shutdown
-// frame or exit wait is needed — arming the host-shutdown flag before
+// frame or exit wait is needed, arming the host-shutdown flag before
 // `app.restart()` is the fix: it aborts any respawn racing the
 // pre-restart delay window and makes the RunEvent::Exit teardown fire
 // as a short-circuit instead of a detached thread racing process exit.
@@ -1136,7 +1136,7 @@ fn test_exhaustion_relaunch_marks_host_shutdown_before_restart() {
         .expect("the exhaustion path must call app.restart()");
     assert!(
         begin_shutdown < restart,
-        "the exhaustion arm must mark host shutdown BEFORE app.restart() — the \
+        "the exhaustion arm must mark host shutdown BEFORE app.restart(): the \
          sidecar is already dead there, so begin_shutdown (respawn abort + \
          Exit-teardown short-circuit) is the only shutdown work that path needs"
     );
@@ -1164,7 +1164,7 @@ fn test_clear_restart_counter_helper_is_wired_not_dead_code() {
     assert!(
         !head.contains("#[allow(dead_code)]"),
         "clear_restart_counter_for_user_restart must not carry #[allow(dead_code)] \
-         — its live caller is the tray-Restart relaunch listener \
+        : its live caller is the tray-Restart relaunch listener \
          (lifecycle.rs::on_relaunch_app); a dead helper leaves the tripped \
          breaker armed across a user-initiated restart"
     );

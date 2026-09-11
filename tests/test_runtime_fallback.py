@@ -31,7 +31,7 @@ def _make_mock_native_backend(hotkey_str: str = "<f2>"):
     backend.start = MagicMock(return_value=None)
     backend.stop = MagicMock(return_value=None)
     backend.set_on_release = MagicMock(return_value=None)
-    # The adapter assigns to these — make them assignable
+    # The adapter assigns to these, make them assignable
     backend._on_error_callback = None
     backend._on_permanent_failure_callback = None
     return backend
@@ -234,7 +234,7 @@ class TestSwapToLegacy:
         # Register a callback so the swap can hand it to the legacy
         # backend (the no-callback path is a separate defensive
         # branch that returns early without transitioning to
-        # FALLBACK — covered by ``test_swap_when_legacy_also_fails``
+        # FALLBACK, covered by ``test_swap_when_legacy_also_fails``
         # indirectly).
         adapter._callback = MagicMock()
         legacy = _make_mock_legacy_backend()

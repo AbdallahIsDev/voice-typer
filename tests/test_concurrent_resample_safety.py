@@ -4,7 +4,7 @@ The finding: the cached resampled prefix (``_cached_resampled``,
 ``_cached_resample_key``, ``_cached_native_chunk_count``) is tested for
 correctness and invalidation in unit tests, but NEVER under concurrent
 load. The streaming thread polls ``snapshot()`` at ~4 Hz while the audio
-callback appends chunks under ``self._lock`` — no test verifies that
+callback appends chunks under ``self._lock``, no test verifies that
 N threads calling ``snapshot()`` simultaneously don't corrupt the cache
 or produce torn reads.
 
@@ -112,7 +112,7 @@ class TestResampleCacheConcurrentLoadSafety:
 
     def test_concurrent_snapshot_cache_stays_bounded(self):
         """The cached resampled prefix must not grow unboundedly under
-        concurrent access — it should always be the same length as the
+        concurrent access, it should always be the same length as the
         current buffer (or empty).
         """
         rec = _make_recorder()
@@ -165,7 +165,7 @@ class TestResampleCacheConcurrentLoadSafety:
                 assert rec._cached_native_chunk_count <= rec._audio_pipeline._chunk_count, (
                     f"H15/M8: cached native chunk count "
                     f"({rec._cached_native_chunk_count}) > current chunk count "
-                    f"({rec._audio_pipeline._chunk_count}) — cache corruption under concurrent access"
+                    f"({rec._audio_pipeline._chunk_count}), cache corruption under concurrent access"
                 )
 
     def test_concurrent_snapshot_no_torn_reads(self):
@@ -199,7 +199,7 @@ class TestResampleCacheConcurrentLoadSafety:
                 try:
                     arr = rec.snapshot()
                     # Must be 1-D (flattened)
-                    assert arr.ndim == 1, f"H15/M8: torn read — snapshot returned {arr.ndim}-D array"
+                    assert arr.ndim == 1, f"H15/M8: torn read, snapshot returned {arr.ndim}-D array"
                     # Must be non-negative length
                     assert arr.shape[0] >= 0
                     # Must be contiguous

@@ -1,4 +1,4 @@
-"""Tauri sidecar WebSocket transport — server side.
+"""Tauri sidecar WebSocket transport, server side.
 
 ADR-0020 §1 + §2: this module turns the existing :class:`IPCServer`
 dispatch layer into a localhost WebSocket server so the Tauri Rust
@@ -27,13 +27,13 @@ Architecture
     The handshake is a **one-shot bearer-token** check, NOT an HMAC
     scheme. The Rust host generates a 256-bit bearer token via
     ``secrets.token_bytes(32)`` and the Python sidecar compares it with
-    :func:`hmac.compare_digest` (constant-time *comparison only* — no
+    :func:`hmac.compare_digest` (constant-time *comparison only*, no
     key derivation, no signing). There is no per-message MAC, no nonce,
     and no replay protection; subsequent frames skip re-auth (mirroring
     the TCP handshake-once model from ADR-0014).
 
     Compensating controls for the absence of per-message MAC:
-      - **Loopback-only bind**: ``127.0.0.1:0`` — never exposed to the
+      - **Loopback-only bind**: ``127.0.0.1:0``: never exposed to the
         network.
       - **Ephemeral port**: chosen by the OS at sidecar startup and
         reported to the host over stdout; not predictable ahead of time.
@@ -54,7 +54,7 @@ Why a separate module (not a flag on ipc_server.py)?
 - This module is additive: the TCP path stays intact for the
   Electron fallback, the WS path is opt-in via ``--ws`` on
   ``ipc_server.py`` (which delegates here).
-- The dispatch + handler mixins are 100% reused — only the transport
+- The dispatch + handler mixins are 100% reused, only the transport
   changes (per ADR-0020 §2).
 
 Cross-platform
@@ -62,11 +62,11 @@ Cross-platform
 - ``websockets.serve`` binds on 127.0.0.1:0 on all three platforms
   (Windows/macOS/Linux). The OS assigns the port.
 - stdout is force-set to line-buffered at the top of :func:`run` so
-  the ``server_started`` JSON is flushed immediately — the host's
+  the ``server_started`` JSON is flushed immediately, the host's
   pipe would otherwise block-buffer it and the host would hang
   waiting for the line (ADR-0020 §1 Phase-0 blocker).
 - All non-handshake logs go to **stderr** (or the rotating file log
-  via ``log.py``), never stdout — keeps the stdout JSON protocol
+  via ``log.py``), never stdout, keeps the stdout JSON protocol
   unambiguous.
 
 Rate limiting
@@ -96,11 +96,11 @@ detection mechanisms:
 2. **Application-level**: the Rust host dispatches a ``heartbeat``
    command every 10s (handled here in Python by
    ``_handle_heartbeat``, registered in ``_COMMAND_REGISTRY``). On
-   3 consecutive misses (≥30s of unresponsiveness — socket open but
+   3 consecutive misses (≥30s of unresponsiveness, socket open but
    no response, e.g. GIL contention / infinite loop / blocking C
    call), the Rust host triggers respawn. This catches sidecar
    hangs that keep the TCP/WS socket open but don't respond to
-   dispatches — a scenario the WS-close-only detection misses.
+   dispatches, a scenario the WS-close-only detection misses.
 
 Together these replace the Electron path's 120-second-heartbeat-
 timeout watchdog with a faster, more accurate liveness probe.
@@ -115,28 +115,28 @@ Focused helper concerns live in the
 re-exported here (see the "Split leaves" comment near the imports for
 the pin map):
 
-- ``connection`` — per-connection helpers (duplicate-auth invariant,
+- ``connection``: per-connection helpers (duplicate-auth invariant,
   connection semaphore, browser-origin rejection, drop-oldest enqueue,
   ready emit, event-bus subscriber, initial state snapshot).
-- ``dispatch`` — the WS dispatch factory (``_make_dispatch``): the
+- ``dispatch``: the WS dispatch factory (``_make_dispatch``): the
   ADR-0019 per-frame rate-limit gate, the cooperative-shutdown
   gates, the dedicated dispatch thread pool, and the in-flight
   drain coordination consumed by ``ShutdownController._do_cleanup``.
-- ``encode_pool`` — WS frame-encode ThreadPoolExecutor lifecycle
+- ``encode_pool``: WS frame-encode ThreadPoolExecutor lifecycle
   (``_get_ws_encode_pool``, ``shutdown_encode_pool``).
-- ``graceful_shutdown`` — ``_attach_ws_graceful_shutdown`` /
+- ``graceful_shutdown``: ``_attach_ws_graceful_shutdown`` /
   ``_graceful_close_all_conns`` (close(1001) pass + loop stop).
-- ``handshake`` — the one-shot bearer-token auth handshake
+- ``handshake``: the one-shot bearer-token auth handshake
   (``_authenticate``); its auth-read deadline resolves this module's
   ``_AUTH_TIMEOUT_SECONDS`` alias at call time.
-- ``outbound`` — the outbound frame path (``_encode_ws_frame``,
+- ``outbound``: the outbound frame path (``_encode_ws_frame``,
   ``_safe_send``, ``_start_writer``, the 1 MiB frame cap and the
   send timeout): the C-WS-2 TEXT-frame wire contract's enforcement
   site.
-- ``read_loop`` — the inbound read/dispatch loop (``_read_loop``
+- ``read_loop``: the inbound read/dispatch loop (``_read_loop``
   + ``_dispatch_and_respond``) with the heartbeat fast-path and its
   per-connection sliding-window rate cap.
-- ``stdout_banner`` — ``_emit_server_started`` +
+- ``stdout_banner``: ``_emit_server_started`` +
   ``_force_line_buffered_stdout`` (the stdout ``server_started`` JSON
   handshake + line buffering for it).
 """
@@ -147,13 +147,14 @@ import asyncio
 import contextlib
 import json
 import logging
+from collections import deque
 from typing import TYPE_CHECKING
 
 # Shared TCP/WS auth-handshake helpers: frame-shape validation
 # + token extraction (``extract_auth_token``) and the constant-time
 # token comparison (``tokens_equal``, wrapping ``hmac.compare_digest``)
 # live in :mod:`voice_typer.server.ipc.auth` so the two transports
-# cannot silently drift — the WS consumer is
+# cannot silently drift, the WS consumer is
 # :mod:`voice_typer.server.sidecar_ws_internals.handshake`
 # (``_authenticate``; see its DEDUP note). That module also owns the
 # shared auth-read deadline (``AUTH_READ_TIMEOUT_SECONDS``), imported
@@ -165,7 +166,7 @@ from voice_typer.server.ipc.auth import AUTH_READ_TIMEOUT_SECONDS
 # Namespaced error code constants. Imported here so the bare-string
 # literals used elsewhere in this module (e.g. ``"max_connections_reached"``,
 # ``"duplicate_connection"``) can be replaced with ``ErrorCodes.X`` at
-# import time — which keeps the static-structural test
+# import time: which keeps the static-structural test
 # ``test_error_codes_registry`` happy (it scans for emitted code
 # literals and requires each to either match a registered code or a
 # declared legacy alias). The constants themselves are defined in
@@ -195,7 +196,7 @@ if TYPE_CHECKING:  # pragma: no cover - type-checker-only
 # _LOOPBACK_HOST, ...)`) keep working unchanged.
 from voice_typer.server._paths import LOOPBACK_HOST as _LOOPBACK_HOST
 
-# Module objects of the split leaves — the canonical observers resolve
+# Module objects of the split leaves, the canonical observers resolve
 # the moved functions through THESE attribute reads at call time
 # (C-ARCH-2 canonical form) so owning-submodule patches are observed
 # by production: run() → dispatch._make_dispatch /
@@ -215,7 +216,7 @@ from voice_typer.server.sidecar_ws_internals import (  # C-ARCH-2 canonical call
 # The once-monolithic sidecar_ws.py (2081 LOC, 8+ concerns) was split
 # into focused leaf modules under
 # ``voice_typer/server/sidecar_ws_internals/`` (the history_db.py /
-# history_db_internals/ precedent — deliberately NOT a sidecar_ws/
+# history_db_internals/ precedent, deliberately NOT a sidecar_ws/
 # package, which would move this file and break the ~14 test files
 # that pin the literal voice_typer/server/sidecar_ws.py path).
 #
@@ -227,7 +228,7 @@ from voice_typer.server.sidecar_ws_internals import (  # C-ARCH-2 canonical call
 # working.
 #
 # C-ARCH-2 PATCH-PATH NOTE: for every name extracted to a leaf, the
-# OWNING-SUBMODULE form is the canonical patch path — production
+# OWNING-SUBMODULE form is the canonical patch path, production
 # observers resolve them through sibling MODULE-OBJECT reads at call
 # time, so a ``monkeypatch.setattr(<owning submodule>, "X", ...)`` is
 # observed. Patching the RE-EXPORT on this module is
@@ -235,7 +236,7 @@ from voice_typer.server.sidecar_ws_internals import (  # C-ARCH-2 canonical call
 # and reads the bare name (see the per-leaf pin notes below).
 #
 # Pin map for the re-exported names:
-# - _get_ws_encode_pool / shutdown_encode_pool — referenced by name
+# - _get_ws_encode_pool / shutdown_encode_pool, referenced by name
 #   in ``_safe_send`` (sidecar_ws_internals/outbound.py; the
 #   whole-module getsource pin in
 #   tests/test_ipc_server.py::TestWriterEncodesOnce reads that leaf).
@@ -244,7 +245,7 @@ from voice_typer.server.sidecar_ws_internals import (  # C-ARCH-2 canonical call
 #   rebind it); it lives in sidecar_ws_internals/encode_pool.py with
 #   its accessors.
 # - _encode_ws_frame / _safe_send / _start_writer /
-#   _WS_SEND_TIMEOUT_SECONDS / _MAX_FRAME_BYTES — OWNED by
+#   _WS_SEND_TIMEOUT_SECONDS / _MAX_FRAME_BYTES, OWNED by
 #   sidecar_ws_internals/outbound.py. Direct calls
 #   (``sidecar_ws._safe_send(ws, event)`` etc.) and getsource pins
 #   follow the re-exported function objects; the canonical observers
@@ -256,7 +257,7 @@ from voice_typer.server.sidecar_ws_internals import (  # C-ARCH-2 canonical call
 #   (tests/test_sidecar_ws_permissions_fixes.py). The C-WS-2
 #   TEXT-frame wire contract's enforcement site moved WITH them.
 # - _read_loop / _dispatch_and_respond / _HEARTBEAT_RATE_WINDOW_SECONDS
-#   / _HEARTBEAT_RATE_MAX_PER_WINDOW — OWNED by
+#   / _HEARTBEAT_RATE_MAX_PER_WINDOW, OWNED by
 #   sidecar_ws_internals/read_loop.py. Direct calls
 #   (``sidecar_ws._read_loop(ws, server, dispatch)`` —
 #   tests/test_sidecar_ws.py, tests/test_sidecar_ws_permissions_fixes.py,
@@ -265,16 +266,16 @@ from voice_typer.server.sidecar_ws_internals import (  # C-ARCH-2 canonical call
 #   re-exported function object (the getsource assertions require
 #   the rate-cap constant names in the body, so the constants moved
 #   with the loop; THIS module keeps pure value aliases for the
-#   read/assert surface — nothing rebinds them, so they cannot go
+#   read/assert surface, nothing rebinds them, so they cannot go
 #   stale). The canonical observer (_handle_connection_inner) resolves
 #   the loop via the ``_read_loop_mod`` module-object read, and
 #   ``_dispatch_and_respond`` resolves ``_safe_send`` through the
 #   ``_outbound_mod`` module-object read (both C-ARCH-2 canonical).
-# - _graceful_close_all_conns / _attach_ws_graceful_shutdown — driven
+# - _graceful_close_all_conns / _attach_ws_graceful_shutdown, driven
 #   via ``sidecar_ws._attach_ws_graceful_shutdown(server)`` by
 #   tests/test_sidecar_ws.py.
-# - _authenticate — OWNED by sidecar_ws_internals/handshake.py. Direct
-#   calls (``sidecar_ws._authenticate(ws)`` — the mig15-17 ws_hmac
+# - _authenticate. OWNED by sidecar_ws_internals/handshake.py. Direct
+#   calls (``sidecar_ws._authenticate(ws)``: the mig15-17 ws_hmac
 #   suites, tests/tauri/test_sidecar_ws_unit.py,
 #   tests/test_sidecar_ws_protocol_version.py) and the getsource pins
 #   (tests/test_sidecar_ws_bearer_token_doc.py) follow the re-exported
@@ -286,11 +287,11 @@ from voice_typer.server.sidecar_ws_internals import (  # C-ARCH-2 canonical call
 #   deadline from THIS module's ``_AUTH_TIMEOUT_SECONDS`` alias at
 #   call time so the mig15-17 / unit-suite patch surface keeps
 #   working (see the alias block above).
-# - _force_line_buffered_stdout — PATCHED by the mig15/mig16/mig17
+# - _force_line_buffered_stdout. PATCHED by the mig15/mig16/mig17
 #   ws_hmac suites; observed by run() (canonical).
-# - _emit_server_started — OWNED by
+# - _emit_server_started, OWNED by
 #   sidecar_ws_internals/stdout_banner.py. Direct calls
-#   (``sidecar_ws._emit_server_started(port, protocol)`` — the
+#   (``sidecar_ws._emit_server_started(port, protocol)``, the
 #   mig15-17 ws_hmac / unit suites, tests/test_app_sidecar_protocol.py,
 #   tests/tauri/mig19/test_phase4_validation.py) follow the re-exported
 #   function object; the ``"def _emit_server_started"`` + payload-shape
@@ -301,19 +302,19 @@ from voice_typer.server.sidecar_ws_internals import (  # C-ARCH-2 canonical call
 #   passes PROTOCOL_VERSION (see tests/test_app_sidecar_protocol.py's
 #   run()-call-site source pin).
 # - _check_duplicate_auth / _emit_ready_if_first / _install_subscriber
-#   / _emit_initial_state_snapshot — signatures pinned by
+#   / _emit_initial_state_snapshot, signatures pinned by
 #   tests/test_sidecar_ws_handle_connection_split.py; source pins in
 #   tests/test_sidecar_ws_thread_safety.py;
 #   _install_subscriber + _emit_ready_if_first are PATCHED by
 #   tests/test_sidecar_ws_ready_ordering.py and observed by
 #   _handle_connection_inner (canonical, C-WS-1 ordering site).
-# - _enqueue_safe / _get_ws_connection_semaphore — source + direct-call
+# - _enqueue_safe / _get_ws_connection_semaphore, source + direct-call
 #   pins in tests/test_sidecar_ws_thread_safety.py and
 #   tests/test_sidecar_ws_connection_cap.py.
-# - _reject_browser_origins — direct-call + process_request identity
+# - _reject_browser_origins, direct-call + process_request identity
 #   pins in tests/test_sidecar_ws_origin_check.py; passed by run().
-# - _make_dispatch — OWNED by sidecar_ws_internals/dispatch.py. Direct
-#   calls (``sidecar_ws._make_dispatch(server)`` — mig15-17 ws_hmac
+# - _make_dispatch. OWNED by sidecar_ws_internals/dispatch.py. Direct
+#   calls (``sidecar_ws._make_dispatch(server)``, mig15-17 ws_hmac
 #   suites, tests/test_ipc_server.py, rate-limiter chokepoint tests)
 #   keep working via the re-export; ``inspect.getsource`` pins follow
 #   the function object; run() (canonical) resolves the factory via
@@ -362,7 +363,7 @@ log = logging.getLogger("voice_typer.server.sidecar_ws")
 # ADR-0020 round-2 fix: the `ready` event is emitted only once per
 # IPCServer instance, on the first authenticated WS connection.
 # Previously ipc_server.py:main() called `server.push({"type": "ready"})`
-# BEFORE sidecar_ws.run() started the WS server — so the event was
+# BEFORE sidecar_ws.run() started the WS server, so the event was
 # dropped (no subscriber yet). Now we emit `ready` via event_bus.publish
 # AFTER the first client authenticates, so the Tauri host receives it
 # over the WS and can hydrate the UI.
@@ -371,14 +372,14 @@ log = logging.getLogger("voice_typer.server.sidecar_ws")
 # subscriber (`_push_to_ws`) on `event_bus`. Pre- the emit ran
 # BEFORE the subscriber was registered, so the event was published to
 # an empty subscriber set (modulo other transports) and the WS writer
-# task never received it — the Tauri host never got `ready` over the WS
+# task never received it, the Tauri host never got `ready` over the WS
 # on first connection and the UI stayed un-hydrated. See
 # `_handle_connection_inner` for the ordered call sites.
 #
 # this flag USED to be a module-level global (`_ready_emitted`).
 # That was correct for production (one ready event per process), but
 # never reset between test runs that import the module once and call
-# `run()` multiple times with different IPCServer instances — so the
+# `run()` multiple times with different IPCServer instances, so the
 # second `run()` would not emit `ready` even with a fresh server. The
 # flag is now a per-instance attribute on the IPCServer
 # (`server._ready_emitted`, initialized to False in
@@ -395,7 +396,7 @@ log = logging.getLogger("voice_typer.server.sidecar_ws")
 # the import statement near the top of this module) so the same
 # constant is shared with ``_http_safety.py`` and ``_secrets.py``.
 
-# ADR-0020 §10: 1 MiB WS frame cap — OWNED by
+# ADR-0020 §10: 1 MiB WS frame cap, OWNED by
 # :mod:`voice_typer.server.sidecar_ws_internals.outbound` (where
 # ``_safe_send`` enforces the outbound half; the docstring context on
 # the constant lives there: download_progress and
@@ -403,7 +404,7 @@ log = logging.getLogger("voice_typer.server.sidecar_ws")
 # malformed/huge frame can OOM the client). The value alias below is
 # read by ``run()``'s ``serve(..., max_size=_MAX_FRAME_BYTES)`` call —
 # the exact ``max_size=_MAX_FRAME_BYTES`` literal is source-grepped by
-# tests/tauri/mig19/test_wire_swap_recovery.py — and by the value
+# tests/tauri/mig19/test_wire_swap_recovery.py, and by the value
 # assertions in the mig15-17 / unit suites. Nothing rebinds the
 # constant in production and no test patches it, so the alias cannot
 # go stale; if the cap ever needs test control, patch the OWNING
@@ -414,16 +415,16 @@ _MAX_FRAME_BYTES: int = _outbound_mod._MAX_FRAME_BYTES
 # sends the auth frame must not hold the connection indefinitely —
 # the budget is single-sourced as ``AUTH_READ_TIMEOUT_SECONDS`` in
 # :mod:`voice_typer.server.ipc.auth` and imported by BOTH transports
-# (the WS path — via the handshake leaf — and the TCP path in
+# (the WS path, via the handshake leaf, and the TCP path in
 # ``ipc/transport_tcp.py::_handle_tcp_connection``), so the two
 # handshakes cannot drift apart (previously each transport carried
-# its own 5.0 literal with a comment requiring manual sync — that
+# its own 5.0 literal with a comment requiring manual sync, that
 # duplication is what this single-sourcing removed).
 #
 # The module-level alias below preserves the historical patch
 # surface: tests read/patch ``sidecar_ws._AUTH_TIMEOUT_SECONDS``
 # (tests/tauri/mig15-17 ``ws_hmac`` suites, tests/tauri/
-# test_sidecar_ws_unit.py) and ``_authenticate`` — now owned by
+# test_sidecar_ws_unit.py) and ``_authenticate``, now owned by
 # :mod:`voice_typer.server.sidecar_ws_internals.handshake` —
 # resolves the deadline from THIS module's attribute at call time
 # (module-object read, C-ARCH-2 canonical form), so the patch is
@@ -433,7 +434,7 @@ _AUTH_TIMEOUT_SECONDS = AUTH_READ_TIMEOUT_SECONDS
 # concurrent-connection limit (DoS protection).
 _MAX_WS_CONNECTIONS = 16
 
-# Heartbeat fast-path rate cap — OWNED by
+# Heartbeat fast-path rate cap, OWNED by
 # :mod:`voice_typer.server.sidecar_ws_internals.read_loop` (moved with
 # ``_read_loop`` whose heartbeat fast-path enforces the cap and whose
 # body references the constant NAMES; the full design comment lives
@@ -453,7 +454,7 @@ _HEARTBEAT_RATE_MAX_PER_WINDOW: int = _read_loop_mod._HEARTBEAT_RATE_MAX_PER_WIN
 # connection, then sleeps for this long so the WS close handshake has
 # time to complete on the wire BEFORE the asyncio loop is stopped.
 # Without this sleep, ``loop.stop()`` can fire before the peer
-# receives the close frame — the TCP socket is torn down mid-handshake
+# receives the close frame, the TCP socket is torn down mid-handshake
 # and the host sees a TCP RST instead of a clean WS close, triggering
 # the respawn path as if the sidecar had crashed (the exact failure
 # mode the graceful-shutdown path was added to prevent). 500 ms is
@@ -464,7 +465,7 @@ _WS_GRACEFUL_CLOSE_HANDSHAKE_SECONDS = 0.5
 # Bounded-wait budget (seconds) for in-flight dispatch futures during
 # ``ws_graceful_shutdown``. Each future registered on
 # ``server._ws_dispatch_futures`` gets its own ``.result(timeout=...)``
-# call — a single stuck handler cannot block the shutdown indefinitely.
+# call, a single stuck handler cannot block the shutdown indefinitely.
 # 2.0 s matches the Rust host's ``SHUTDOWN_ACK_TIMEOUT_MS = 2000`` (in
 # ``src-tauri/src/util.rs``): if a handler has not completed by the
 # time the host's hard-timeout fires, the host force-kills the process
@@ -478,7 +479,7 @@ _WS_DISPATCH_DRAIN_TIMEOUT_SECONDS = 2.0
 # the process tree via kill_children.
 #
 # the previous ``_SHUTDOWN_ACK_TIMEOUT_SECONDS = 2.0`` constant
-# was dead code — referenced nowhere in this module and misleadingly
+# was dead code, referenced nowhere in this module and misleadingly
 # suggested Python enforces the timeout. The Rust host's
 # ``SHUTDOWN_ACK_TIMEOUT_MS = 2000`` (in ``src-tauri/src/util.rs``)
 # is the single source of truth for the cooperative-shutdown hard
@@ -499,7 +500,7 @@ _WS_DISPATCH_DRAIN_TIMEOUT_SECONDS = 2.0
 # ``src-tauri/src/sidecar/ws.rs`` MUST match this value. Bump this
 # integer whenever the ``_COMMAND_REGISTRY`` (in
 # ``voice_typer/server/ipc_server.py``) adds/removes/renames a
-# command OR the push-event ``type`` vocabulary changes — both are
+# command OR the push-event ``type`` vocabulary changes, both are
 # observable contracts the host depends on. The version is monotonic
 # and never reused.
 #
@@ -511,7 +512,7 @@ _WS_DISPATCH_DRAIN_TIMEOUT_SECONDS = 2.0
 #
 # Canonical source of truth: ``voice_typer/server/ipc/protocol_version.py``.
 # Importing (rather than redefining) prevents drift between the WS and
-# TCP transports — see ``tests/test_protocol_version_consolidated.py``.
+# TCP transports: see ``tests/test_protocol_version_consolidated.py``.
 from voice_typer.server.ipc.protocol_version import PROTOCOL_VERSION  # noqa: E402
 
 
@@ -527,7 +528,7 @@ async def _handle_connection(websocket, server: IPCServer, dispatch) -> None:
     sem = _get_ws_connection_semaphore(server)
     if sem.locked():
         log.warning(
-            "[SIDECAR-WS] max_connections (%d) reached — rejecting %s with 1008",
+            "[SIDECAR-WS] max_connections (%d) reached, rejecting %s with 1008",
             _MAX_WS_CONNECTIONS,
             peer,
         )
@@ -607,7 +608,7 @@ async def _handle_connection_inner(websocket, server: IPCServer, dispatch, peer)
     # ``server._ws_authenticated_conns`` so ``ws_graceful_shutdown``
     # can send ``close(1001)`` to it during graceful shutdown. The
     # websocket is removed in the ``finally`` block below (only if it
-    # is still in the set — a concurrent shutdown may have already
+    # is still in the set, a concurrent shutdown may have already
     # snapshotted and cleared the set). ``discard`` is used (not
     # ``remove``) so the cleanup is idempotent if the websocket was
     # already removed. The ``getattr(..., None)`` guard skips the
@@ -644,13 +645,13 @@ async def _handle_connection_inner(websocket, server: IPCServer, dispatch, peer)
     try:
         await _read_loop_mod._read_loop(websocket, server, dispatch)
     except ConnectionClosedOK:
-        # Clean WebSocket close (1000/1001 normal close) — log at DEBUG.
+        # Clean WebSocket close (1000/1001 normal close), log at DEBUG.
         log.debug("[SIDECAR-WS] client disconnected cleanly")
     except ConnectionClosedError as exc:
-        # Abnormal WebSocket close (1006 / 1011, etc.) — log at DEBUG.
+        # Abnormal WebSocket close (1006 / 1011, etc.), log at DEBUG.
         log.debug("[SIDECAR-WS] connection closed with error: %s", exc)
     except Exception:
-        # Genuinely unexpected error — log at WARNING with traceback.
+        # Genuinely unexpected error, log at WARNING with traceback.
         log.warning("[SIDECAR-WS] connection ended unexpectedly", exc_info=True)
     finally:
         event_bus.unsubscribe(_push_to_ws)
@@ -666,12 +667,154 @@ async def _handle_connection_inner(websocket, server: IPCServer, dispatch, peer)
             with contextlib.suppress(Exception):
                 authed_conns.discard(websocket)
         # clear the active-connection slot ONLY if it still
-        # points at THIS socket — a concurrent auth may have already
+        # points at THIS socket, a concurrent auth may have already
         # replaced it. Compare-and-clear under ``server._lock``.
         with server._lock:
             if getattr(server, "_active_ws_connection", None) is websocket:
                 server._active_ws_connection = None
         log.info("[SIDECAR-WS] connection closed (peer=%s)", peer)
+
+
+# ── Early server-started mode: bounded pre-app dispatch buffer ─────────
+#
+# Flag-gated from the entry point (``VT_EARLY_SERVER_STARTED``): when
+# the ws sidecar binds its listener BEFORE the heavy ``VoiceTyperApp()``
+# construction (the construction runs on the ws-sidecar startup thread),
+# dispatch frames can arrive while no app object exists yet. Those
+# frames are buffered (bounded) and drained the moment the entry
+# point's startup thread late-binds the constructed app, never
+# unbounded growth, never a silently lost frame: on overflow the OLDEST
+# frame is dropped and immediately answered with a retryable
+# ``server.not_initialized`` busy error, so the requester always has a
+# response path. The heartbeat / relaunch_ack fast-paths in
+# ``_read_loop`` are app-free by design and stay live during the
+# construction window (the host's liveness probe keeps working, no
+# spurious supervisor respawn). Auth is likewise app-free (env token),
+# and the C-WS-1 ready-first ordering is entirely untouched: the
+# initial ``state_changed`` snapshot helper already carries the
+# designed "tray not initialized yet" guard (``server.app.tray``
+# raising → snapshot skipped → host re-hydrates on the next state
+# transition), which is exactly the pre-bind case.
+_EARLY_BIND_BUFFER_CAP: int = 32
+
+
+def _wrap_dispatch_for_early_bind(server: IPCServer, dispatch):
+    """Wrap ``dispatch`` with the bounded pre-app buffer (early mode).
+
+    Installed by :func:`run` ONLY when the entry point marked the server
+    with ``_early_ws_bind``. Before the app is bound
+    (``server._early_bind_app_ready``: set by the entry point's
+    startup thread after the late bind), every dispatch frame is
+    appended to a bounded in-memory buffer and the wrapper returns
+    ``None`` (response deferred to the drain, the frame is NOT lost).
+    On overflow the oldest entry is dropped and answered immediately
+    with a retryable busy error through ``_safe_send`` (C-WS-2 TEXT
+    frame, request id echoed). After the bind the wrapper is a pure
+    passthrough (one attribute read per frame).
+
+    The buffer is mutated ONLY on the asyncio loop thread: the wrapper
+    runs inside dispatch coroutines, and the drain is scheduled via
+    ``loop.call_soon_threadsafe``: the same single-thread-access
+    invariant the read loop's heartbeat window relies on. The one
+    cross-thread bit is the ``_early_bind_app_ready`` flag write (an
+    atomic bool assignment from the startup thread).
+
+    Documented tolerance (flag-gated mode, default OFF): pre-app frames
+    bypass the per-renderer rate limiter (the wrapper sits OUTSIDE
+    ``_make_dispatch``, which owns the limiter). The bound is the buffer
+    itself (32 frames) and each overflow costs exactly one busy-error
+    send for the DROPPED frame, so a misbehaving client cannot grow
+    memory or spam beyond the cap. The surface is loopback-only and
+    behind the authenticated WS handshake (ADR-0019 token boundary),
+    so pre-app unthrottled dispatch is a trusted-inner-sender window of
+    a few seconds at most (construction duration). Accepted for the
+    escape-hatch mode; if the limiter must cover the pre-app window,
+    install the wrapper inside ``_make_dispatch`` at flag-flip time.
+    """
+    buffer: deque = deque()
+    server._early_bind_dispatch_buffer = buffer
+
+    async def _early_bind_dispatch(msg: dict, websocket) -> dict | None:
+        if getattr(server, "_early_bind_app_ready", False):
+            return await dispatch(msg, websocket)
+        dropped: tuple | None = None
+        if len(buffer) >= _EARLY_BIND_BUFFER_CAP:
+            dropped = buffer.popleft()
+            log.warning(
+                "[SIDECAR-WS] early-bind dispatch buffer full (%d), dropped oldest frame, busy error sent",
+                _EARLY_BIND_BUFFER_CAP,
+            )
+        buffer.append((msg, websocket))
+        if dropped is not None:
+            # The dropped frame gets an immediate retryable error so its
+            # requester is never left waiting on a response that will
+            # not come (the frame itself is gone from the buffer).
+            dropped_msg, dropped_ws = dropped
+            busy: dict = {
+                "type": "error",
+                "data": {
+                    "code": ErrorCodes.NOT_INITIALIZED,
+                    "message": "backend is starting; retry shortly",
+                },
+            }
+            dropped_id = dropped_msg.get("id") if isinstance(dropped_msg, dict) else None
+            if dropped_id is not None:
+                busy["id"] = dropped_id
+            await _outbound_mod._safe_send(dropped_ws, busy)
+        return None
+
+    server._early_bind_dispatch = _early_bind_dispatch
+    return _early_bind_dispatch
+
+
+def flush_early_dispatch_buffer(server: IPCServer) -> None:
+    """Drain the buffered pre-app frames onto the WS loop (thread-safe).
+
+    Called by the entry point's startup thread right after it sets
+    ``server._early_bind_app_ready``. The drain itself runs on the loop
+    thread via ``call_soon_threadsafe``; each buffered frame is replayed
+    through the read loop's own ``_dispatch_and_respond`` so the replay
+    reuses verbatim the id echo + ``_safe_send`` (C-WS-2 TEXT frame) +
+    close-on-failure semantics of the normal dispatch path.
+
+    Documented tolerance (flag-gated mode, default OFF): between the
+    flag flip and the scheduled drain, NEW frames pass straight through
+    while older buffered frames still await replay, responses can
+    arrive out of FIFO order within that sub-millisecond window. Every
+    frame is id-correlated (the renderer resolves by id, not order), so
+    the renderer sees every response exactly once; scheduling the drain
+    BEFORE flipping the flag would invert the hazard instead (the drain
+    would race frames arriving before it). Accepted for the escape-hatch
+    mode; revisit if the flag ever flips default-ON.
+
+    Safe when no loop exists yet (construction finished before ``run``
+    even bound the listener, nothing was buffered, so there is nothing
+    to drain: frames can only be buffered while the loop is live) and
+    during loop teardown (RuntimeError → DEBUG log).
+    """
+    loop = getattr(server, "_ws_loop", None)
+    if loop is None or loop.is_closed():
+        return
+    try:
+        loop.call_soon_threadsafe(_drain_early_dispatch_buffer, server)
+    except RuntimeError:
+        # The loop closed between the liveness checks above and the
+        # scheduling call (process shutdown / respawn). The buffered
+        # frames die with the connection they belonged to.
+        log.debug("[SIDECAR-WS] early-bind buffer drain skipped, event loop closed")
+
+
+def _drain_early_dispatch_buffer(server: IPCServer) -> None:
+    """Loop-thread body of :func:`flush_early_dispatch_buffer`."""
+    buffer = getattr(server, "_early_bind_dispatch_buffer", None)
+    dispatch = getattr(server, "_early_bind_dispatch", None)
+    if not buffer or dispatch is None:
+        return
+    loop = asyncio.get_running_loop()
+    while buffer:
+        msg, websocket = buffer.popleft()
+        request_id = msg.get("id") if isinstance(msg, dict) else None
+        loop.create_task(_read_loop_mod._dispatch_and_respond(msg, request_id, websocket, dispatch))
 
 
 def run(server: IPCServer) -> int:
@@ -686,13 +829,20 @@ def run(server: IPCServer) -> int:
 
     The function blocks until the asyncio loop is cancelled (e.g.
     SIGTERM from the host's kill_children backstop).
+
+    In early server-started mode (the entry point set
+    ``server._early_ws_bind`` before calling) the dispatch closure is
+    additionally wrapped with the bounded pre-app buffer; without the
+    marker the dispatch closure is used verbatim (the default
+    build-then-serve launch order needs no buffering, the app already
+    exists when the first frame can arrive).
     """
     _force_line_buffered_stdout()
 
     # Local import so the module imports cleanly without `websockets`
     # installed (the Electron-only build path doesn't need it).
     try:
-        import websockets  # noqa: F401 — imported for availability probe
+        import websockets  # noqa: F401, imported for availability probe
         from websockets.asyncio.server import serve
     except ImportError as exc:
         log.exception(
@@ -710,6 +860,18 @@ def run(server: IPCServer) -> int:
     # compatibility surface.
     dispatch = _dispatch_mod._make_dispatch(server)
 
+    # Early server-started mode (flag-gated): when the entry point
+    # marked the server (``server._early_ws_bind``) the app is still
+    # being constructed on the ws-startup thread, wrap the dispatch
+    # closure with the bounded pre-app buffer so pre-bind frames are
+    # buffered (with a retryable busy error on overflow) and drained
+    # once the entry point late-binds the constructed app. Without the
+    # marker the dispatch closure is used verbatim: the default
+    # launch order has the app fully constructed before the listener
+    # even binds, so there is nothing to buffer.
+    if getattr(server, "_early_ws_bind", False):
+        dispatch = _wrap_dispatch_for_early_bind(server, dispatch)
+
     # Install the graceful-shutdown hooks BEFORE the loop starts so the
     # ``server.stop`` wrapper (which calls ``ws_graceful_shutdown``) is
     # in place before any connection arrives. ``_attach_ws_graceful_shutdown``
@@ -725,7 +887,7 @@ def run(server: IPCServer) -> int:
         # available even if no WS connection has been established yet
         # (e.g. the host sends ``shutdown`` before the first
         # connection). ``_handle_connection_inner`` ALSO sets this per
-        # connection (idempotently — same loop, shared across all
+        # connection (idempotently, same loop, shared across all
         # connections).
         with contextlib.suppress(Exception):
             server._ws_loop = asyncio.get_running_loop()
@@ -743,7 +905,7 @@ def run(server: IPCServer) -> int:
             # exposes the underlying socket via .sockets.
             socks = ws_server.sockets
             if not socks:
-                log.error("[SIDECAR-WS] no sockets bound — aborting")
+                log.error("[SIDECAR-WS] no sockets bound, aborting")
                 return 3
             port = socks[0].getsockname()[1]
             _stdout_banner_mod._emit_server_started(port, PROTOCOL_VERSION)
@@ -760,12 +922,12 @@ def run(server: IPCServer) -> int:
     try:
         return asyncio.run(_main())
     except KeyboardInterrupt:
-        log.info("[SIDECAR-WS] interrupted — shutting down")
+        log.info("[SIDECAR-WS] interrupted, shutting down")
         return 0
     except RuntimeError as exc:
         # 2026-08-30: ``ws_graceful_shutdown`` stops the loop via
         # ``loop.call_soon_threadsafe(loop.stop)`` while ``_main``'s
-        # ``await asyncio.Future()`` is still pending — asyncio.run then
+        # ``await asyncio.Future()`` is still pending, asyncio.run then
         # raises "Event loop stopped before Future completed". That is
         # the DESIGNED stop path (tray Restart / Quit), not a fault:
         # log it at INFO with exit code 0 instead of a spurious ERROR
@@ -773,7 +935,7 @@ def run(server: IPCServer) -> int:
         # was NOT requested by the graceful path) still lands in the
         # generic handler below.
         if _is_graceful_loop_stop(server, exc):
-            log.info("[SIDECAR-WS] loop stopped by graceful shutdown — clean WS stop")
+            log.info("[SIDECAR-WS] loop stopped by graceful shutdown, clean WS stop")
             return 0
         log.exception("[SIDECAR-WS] fatal error in run()")
         return 1

@@ -1,4 +1,4 @@
-"""Tests for voice_typer.cloud_engines — CloudEngine factory and API."""
+"""Tests for voice_typer.cloud_engines: CloudEngine factory and API."""
 
 from unittest.mock import MagicMock, patch
 
@@ -94,7 +94,7 @@ class TestCloudEngineProtocol:
         surfaced to the caller.
 
         Pre-fix this code path existed but no caller wired
-        ``local_engine=`` — the fallback was dead code.
+        ``local_engine=``, the fallback was dead code.
         """
         import numpy as np
         from voice_typer.server.cloud_engines import CloudEngine
@@ -245,7 +245,7 @@ class TestCloudEngineTestConnection:
 
     def test_test_connection_requires_consent(self):
         """HU-16: ``test_connection`` must refuse when consent is not
-        given — the API key must not be sent to a provider the user
+        given, the API key must not be sent to a provider the user
         hasn't consented to.
 
         Mirrors the ``transcribe`` consent gate (ADR-0016 Design Rule 1:
@@ -281,7 +281,7 @@ class TestCloudEngineTestConnection:
                 return_value=None,
             ) as mock_url,
             # Isolated network: the probe fails fast once the allowlist
-            # check has passed — we only need to see the consent gate
+            # check has passed, we only need to see the consent gate
             # let the engine through to the probe.
             patch(
                 "voice_typer.server.cloud_engines._opener.open",
@@ -291,7 +291,7 @@ class TestCloudEngineTestConnection:
             success, msg = engine.test_connection()
 
         # The consent gate let the engine through to the probe (which
-        # then failed on the isolated network) — proving the gate did
+        # then failed on the isolated network), proving the gate did
         # NOT over-block.
         assert mock_url.called, "consent-given engine must reach the URL-allowlist check in test_connection"
         assert success is False
@@ -346,7 +346,7 @@ class TestCloudEngineUrlAllowlist:
         network egress. The patch raises ``URLError`` so the engine
         raises ``RuntimeError`` (the existing assertion). We then
         assert the mock was called with a Request whose ``full_url`` is
-        the OpenAI default — proving the allowlist let the URL through.
+        the OpenAI default, proving the allowlist let the URL through.
         """
         from urllib.error import URLError
 
@@ -364,7 +364,7 @@ class TestCloudEngineUrlAllowlist:
             pytest.raises(RuntimeError),
         ):
             engine.transcribe(np.zeros(16000, dtype=np.float32))
-        # The mock must have been called — proving the allowlist let
+        # The mock must have been called, proving the allowlist let
         # the default OpenAI URL through. The engine retries 3x on
         # URLError, so call_count is >= 1 (typically 3).
         assert mock_open.call_count >= 1
@@ -378,7 +378,7 @@ class TestCloudEngineUrlAllowlist:
         network egress. The patch raises ``URLError`` so the engine
         raises ``RuntimeError`` (the existing assertion). We then
         assert the mock was called with a Request whose ``full_url`` is
-        the localhost URL — proving the allowlist let it through.
+        the localhost URL, proving the allowlist let it through.
         """
         from urllib.error import URLError
 
@@ -400,7 +400,7 @@ class TestCloudEngineUrlAllowlist:
             pytest.raises(RuntimeError),
         ):
             engine.transcribe(np.zeros(16000, dtype=np.float32))
-        # The mock must have been called — proving the allowlist let
+        # The mock must have been called, proving the allowlist let
         # the localhost URL through. The engine retries 3x on URLError,
         # so call_count is >= 1 (typically 3).
         assert mock_open.call_count >= 1
@@ -444,7 +444,7 @@ class TestCloudEngineKeyRedaction:
         )
         # Patch _opener.open to raise a URLError whose str includes the
         # request URL (which the engine constructs with the key in
-        # the Authorization header — not the URL, but if a future
+        # the Authorization header, not the URL, but if a future
         # change puts the key in the URL this test will catch it).
         # SEC-audit-006: cloud_engines now uses ``_opener.open()`` (no
         # redirect handler) instead of ``urlopen()`` for all HTTP egress
@@ -529,7 +529,7 @@ class TestDeepgramUrlParameterInjection:
         network egress. The patch raises ``URLError`` so the engine
         raises ``RuntimeError`` (the existing assertion). We then
         assert the mock was called with a Request whose ``full_url`` is
-        the Deepgram URL — proving both validation and the allowlist
+        the Deepgram URL, proving both validation and the allowlist
         let the request through.
         """
         from urllib.error import URLError
@@ -554,7 +554,7 @@ class TestDeepgramUrlParameterInjection:
             pytest.raises(RuntimeError) as exc_info,
         ):
             engine.transcribe(np.zeros(16000, dtype=np.float32))
-        # The mock must have been called — proving validation passed
+        # The mock must have been called, proving validation passed
         # and the allowlist let the Deepgram URL through. The engine
         # retries 3x on URLError, so call_count is >= 1 (typically 3).
         assert mock_open.call_count >= 1
@@ -636,7 +636,7 @@ class TestCloudEngineTypedExceptions:
 
     def test_cloud_engine_raises_rate_limit_on_429(self):
         """A 429 HTTPError from the cloud provider raises
-        ``CloudRateLimitError`` (PI-17) — AFTER the retry budget is
+        ``CloudRateLimitError`` (PI-17), AFTER the retry budget is
         exhausted (the engine retries 429 once honoring Retry-After).
         """
         import io
@@ -710,7 +710,7 @@ class TestCloudEngineTypedExceptions:
 
     def test_cloud_engine_raises_network_error_on_urlerror(self):
         """A ``URLError`` (timeout / DNS / connection reset) raises
-        ``CloudNetworkError`` (PI-17) — AFTER the 3-attempt retry budget
+        ``CloudNetworkError`` (PI-17), AFTER the 3-attempt retry budget
         is exhausted.
         """
         from urllib.error import URLError
@@ -783,7 +783,7 @@ class TestCloudEngineTestConnectionErrorBranches:
 
     def test_catch_all_chains_redact_url_through_redact_secret(self):
         """The non-HTTP-error catch-all branch must run the exception
-        message through ``redact_secret(redact_url(...))`` — not just
+        message through ``redact_secret(redact_url(...))``, not just
         ``redact_secret(...)``.
 
         Pre-fix the branch called only ``redact_secret``, which masks
@@ -799,13 +799,13 @@ class TestCloudEngineTestConnectionErrorBranches:
         alphanumeric pattern in ``redact_secret`` cannot catch it —
         only ``redact_url``'s userinfo-component removal can.  The
         assertion therefore discriminates between the pre-fix
-        (``redact_secret`` only — password leaks) and post-fix
-        (``redact_secret(redact_url(...))`` — password stripped) code
+        (``redact_secret`` only, password leaks) and post-fix
+        (``redact_secret(redact_url(...))``, password stripped) code
         paths.
         """
         from voice_typer.server.cloud_engines import CloudEngine
 
-        password = "shortpw"  # 7 chars — below the 20-char generic threshold
+        password = "shortpw"  # 7 chars, below the 20-char generic threshold
         url_with_userinfo = f"https://alice:{password}@api.openai.com/v1/audio/transcriptions"
         engine = CloudEngine(
             provider="openai",
@@ -858,7 +858,7 @@ class TestCloudEngineTestConnectionErrorBranches:
             side_effect=http_err,
         ):
             success, msg = engine.test_connection()
-        # Connection itself succeeded — the server answered.
+        # Connection itself succeeded, the server answered.
         assert success is True
         # Message must surface the status code and the "temporarily
         # unavailable" hint so the user can tell this is NOT a clean
@@ -903,7 +903,7 @@ class TestCloudEngineTestConnectionErrorBranches:
     def test_4xx_other_than_401_403_still_plain_success(self):
         """A 4xx other than 401/403 (e.g. 400 "bad body", 422
         "validation error") means the server is reachable and the key
-        was accepted at the auth layer — the 5xx branch must NOT fire
+        was accepted at the auth layer, the 5xx branch must NOT fire
         for these.  This guards the boundary between the new 5xx
         branch and the existing "any other HTTP error" success.
         """
@@ -933,20 +933,20 @@ class TestCloudEngineTestConnectionErrorBranches:
         assert success is True
         assert "HTTP 400" in msg
         # The 5xx "temporarily unavailable" hint must NOT appear for
-        # a 4xx — that would mislead the user into thinking the
+        # a 4xx, that would mislead the user into thinking the
         # provider is down when their request body was the problem.
         assert "temporarily unavailable" not in msg
 
     def test_uses_request_timeout_seconds_constant_not_hardcoded_10(self):
         """The HTTP probe in ``test_connection`` must pass
         ``self._REQUEST_TIMEOUT_SECONDS`` as the timeout to
-        ``_opener.open()`` — not a hardcoded ``10``.
+        ``_opener.open()``, not a hardcoded ``10``.
 
         ``_REQUEST_TIMEOUT_SECONDS`` defaults to ``10.0``, so a plain
         ``timeout == 10`` assertion would pass either way.  This test
         patches the instance attribute to a sentinel value (``42.0``)
         that the literal ``10`` could never match, then asserts the
-        sentinel flows through to the opener — proving the constant
+        sentinel flows through to the opener, proving the constant
         is being read at call time, not inlined as a literal.
         """
         from voice_typer.server.cloud_engines import CloudEngine
@@ -996,13 +996,13 @@ class TestCloudEngineTestConnectionBranches:
     The three observable branches of ``test_connection`` not previously
     pinned by named regression tests:
 
-      1. Deepgram provider path — builds a ``audio/wav`` POST request
+      1. Deepgram provider path, builds a ``audio/wav`` POST request
          (vs. the OpenAI-compatible multipart path) and asserts a 200
          response surfaces as ``success=True``.
-      2. HTTP 401 — the API key was rejected at the auth layer.
+      2. HTTP 401, the API key was rejected at the auth layer.
          ``test_connection`` returns ``success=False`` with a message
          naming the rejection so the renderer can prompt for a new key.
-      3. HTTP 5xx — the server is reachable but failing. The connection
+      3. HTTP 5xx, the server is reachable but failing. The connection
          itself succeeded (``success=True``) but the message carries a
          "temporarily unavailable" warning so the user knows their
          transcriptions will fail until the provider recovers.
@@ -1013,14 +1013,14 @@ class TestCloudEngineTestConnectionBranches:
 
     def test_test_connection_deepgram_path(self):
         """#1: provider="deepgram" must use the Deepgram branch
-        at line 960-972 — POSTing ``audio/wav`` bytes (NOT multipart)
+        at line 960-972, POSTing ``audio/wav`` bytes (NOT multipart)
         with an ``Authorization: Token …`` header.
 
         A 200 response from the patched opener must surface as
         ``success=True`` with a message naming Deepgram and the status.
 
         Pre-fix the Deepgram branch of ``test_connection`` was
-        completely untested — a refactor that swapped the
+        completely untested, a refactor that swapped the
         ``audio/wav`` content-type for ``multipart/form-data`` (or
         dropped the ``Token`` auth scheme in favor of ``Bearer``) would
         silently break Deepgram users without a test failure.
@@ -1082,13 +1082,13 @@ class TestCloudEngineTestConnectionBranches:
         ``success=False`` with a message that names the rejection.
 
         The 401/403 branch at line 1013-1014 is the user-facing
-        diagnostic for a revoked / typo'd API key — without it the user
+        diagnostic for a revoked / typo'd API key, without it the user
         would see a generic "Connection failed" message and have no
         way to tell their key was the problem (vs. a network outage).
 
         Pre-fix the only 401 test was ``test_cloud_engine_raises_auth_error_on_401``
         which exercises the ``transcribe()`` path (not
-        ``test_connection()``) — the test_connection 401 branch was
+        ``test_connection()``), the test_connection 401 branch was
         untested.
         """
         import io
@@ -1120,7 +1120,7 @@ class TestCloudEngineTestConnectionBranches:
         assert "rejected" in msg.lower() or "api key" in msg.lower(), (
             f"message must surface the key-rejection diagnostic, got {msg!r}"
         )
-        # The API key must NOT leak into the returned message — even
+        # The API key must NOT leak into the returned message, even
         # though the HTTPError carries the request URL / headers in
         # some Python versions.
         assert "revoked-key" not in msg
@@ -1132,14 +1132,14 @@ class TestCloudEngineTestConnectionBranches:
 
         The 5xx branch at line 1024-1028 surfaces a diagnostic that
         names the status and hints at the cause while still reporting
-        ``success=True`` — the connection itself DID succeed; the
+        ``success=True``, the connection itself DID succeed; the
         provider is the problem, not our config. The user's
         transcriptions will fail until the provider recovers, so the
         warning is critical context.
 
         Pre-fix this branch was tested by
         ``test_5xx_http_error_returns_temporarily_unavailable_diagnostic``
-        in ``TestCloudEngineTestConnectionErrorBranches`` — this test
+        in ``TestCloudEngineTestConnectionErrorBranches``, this test
         is a focused regression guard that pins the success=True
         contract and the warning wording explicitly.
         """
@@ -1167,7 +1167,7 @@ class TestCloudEngineTestConnectionBranches:
         ):
             success, msg = engine.test_connection()
 
-        # Connection itself succeeded — server answered.
+        # Connection itself succeeded, server answered.
         assert success is True, (
             f"HTTP 503 must report success=True (connection itself succeeded), got success={success!r}"
         )
@@ -1176,5 +1176,5 @@ class TestCloudEngineTestConnectionBranches:
         assert "temporarily unavailable" in msg.lower(), (
             f"message must include the 'temporarily unavailable' warning so "
             f"the user knows transcriptions will fail until the provider "
-            f"recovers — got {msg!r}"
+            f"recovers, got {msg!r}"
         )

@@ -44,7 +44,7 @@ def _parse_frontend_reserved_shortcuts() -> dict:
 
     The TS file (``hotkey/hotkey-validation.ts``) re-exports the JSON's
     ``per_platform_reserved`` field as ``RESERVED_SHORTCUTS``, so reading
-    the JSON directly is equivalent to parsing the TS literal — and is
+    the JSON directly is equivalent to parsing the TS literal, and is
     robust to future TS source formatting changes.
     """
     if not _HOTKEY_RESERVED_JSON_CLIENT.exists():
@@ -121,7 +121,7 @@ def test_is_reserved_hotkey_cross_platform(monkeypatch: pytest.MonkeyPatch) -> N
 
 
 def test_is_reserved_hotkey_case_insensitive(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Comparison is case-insensitive — <WIN>+<E> matches <win>+<e>."""
+    """Comparison is case-insensitive, <WIN>+<E> matches <win>+<e>."""
     monkeypatch.setattr(sys, "platform", "win32")
     assert _validate_hotkey("<WIN>+<E>") is not None
 

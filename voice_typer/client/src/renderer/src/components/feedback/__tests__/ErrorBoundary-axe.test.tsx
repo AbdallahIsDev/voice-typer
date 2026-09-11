@@ -19,7 +19,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { ErrorBoundary } from "@/components/feedback/ErrorBoundary";
 
-// Disable color-contrast — the test environment doesn't load the full
+// Disable color-contrast, the test environment doesn't load the full
 // Tailwind stylesheet, so axe's computed contrast values would be
 // meaningless and produce false positives.
 const AXE_OPTIONS: axe.RunOptions = {
@@ -47,7 +47,7 @@ class Thrower extends Component<ThrowerProps> {
 	}
 }
 
-/** Axe helper — filters out the disabled color-contrast rule. */
+/** Axe helper, filters out the disabled color-contrast rule. */
 async function expectNoAxeViolations(container: HTMLElement): Promise<void> {
 	const results = await axe.run(container, AXE_OPTIONS);
 	const violations = results.violations.filter(
@@ -56,7 +56,7 @@ async function expectNoAxeViolations(container: HTMLElement): Promise<void> {
 	expect(violations).toEqual([]);
 }
 
-describe("F-17: axe-core WCAG scan — ErrorBoundary fallback UI", () => {
+describe("F-17: axe-core WCAG scan, ErrorBoundary fallback UI", () => {
 	afterEach(() => {
 		cleanup();
 		shouldThrow = false;

@@ -10,7 +10,7 @@
  *   - Help overlay static rows (cancel, navigate, toggle, activate,
  *     open-help, nav-back/forward) and its Esc close hint
  *   - The About page's hotkey row (config-driven, but rendered through
- *     `formatHotkey` from `hotkey-utils.ts` — the same canonical
+ *     `formatHotkey` from `hotkey-utils.ts`, the same canonical
  *     formatting path)
  *
  * The hook implementations live in `useGlobalKeyboardShortcuts` /
@@ -18,7 +18,7 @@
  * can't drift from each other or from the bindings the hooks implement.
  *
  * `keys` is the canonical cross-platform display string (e.g. "Ctrl+B")
- * — the literal text `HotkeyChips` renders as `Kbd` chips on
+ *, the literal text `HotkeyChips` renders as `Kbd` chips on
  * Windows/Linux; on macOS the modifier labels render as native glyphs
  * automatically ("Ctrl+B" → "⌃B", via `formatHotkeyForPlatform`, the
  * same treatment `formatHotkey` applies in the Sidebar). `pynput` is
@@ -28,7 +28,7 @@
  * controls that expose the binding to assistive tech.
  *
  * Keep `keys`/`pynput` in lockstep: `formatHotkey(pynput)` must equal
- * `keys` on Windows/Linux — `components/hotkey/__tests__/shortcuts.test.ts`
+ * `keys` on Windows/Linux, `components/hotkey/__tests__/shortcuts.test.ts`
  * enforces that contract.
  */
 
@@ -52,7 +52,7 @@ export interface ShortcutDef extends InAppShortcut {
 	/**
 	 * The actual `KeyboardEvent.key` values the binding reacts to in
 	 * `useGlobalKeyboardShortcuts` (e.g. "b" for Ctrl+B). Only the five
-	 * in-app bindings carry this — the dictation bindings (Esc, Tab,
+	 * in-app bindings carry this, the dictation bindings (Esc, Tab,
 	 * Space, Enter) are handled server-side by the backend's hotkey
 	 * engine, not by the renderer hook. Keep these in lockstep with
 	 * `keys`/`pynput`: `IN_APP_BINDINGS` (below) derives the hook's
@@ -62,9 +62,9 @@ export interface ShortcutDef extends InAppShortcut {
 	eventKeys?: readonly string[];
 	/**
 	 * Modifier profile the binding requires. "ctrlCmd" = Ctrl OR Cmd
-	 * pressed, never Shift/Alt — the guard `useGlobalKeyboardShortcuts`
+	 * pressed, never Shift/Alt, the guard `useGlobalKeyboardShortcuts`
 	 * applies to the navigation/zoom bindings. "ctrlShiftCmd" = Ctrl OR
-	 * Cmd AND Shift, never Alt — the guard the toggleDictation binding
+	 * Cmd AND Shift, never Alt, the guard the toggleDictation binding
 	 * requires (Shift is part of the combo, and e.key arrives
 	 * uppercased, hence the "M" eventKey entry).
 	 */
@@ -77,7 +77,7 @@ export interface ShortcutDef extends InAppShortcut {
 	 * Esc / Tab / Space / Enter; "main" = an Electron main-process
 	 * OS-global accelerator (`globalShortcut`, works without app
 	 * focus). Server/main-handled entries must NOT carry
-	 * `eventKeys` — the renderer never dispatches them, and the
+	 * `eventKeys`, the renderer never dispatches them, and the
 	 * catalog contract test enforces that split.
 	 */
 	handledBy?: "renderer" | "server" | "main";
@@ -147,7 +147,7 @@ export const SHORTCUTS = {
 	},
 	cancel: {
 		keys: "Esc",
-		// Backend hotkey engine (pynput) — NOT the renderer keydown
+		// Backend hotkey engine (pynput), NOT the renderer keydown
 		// listener, so no eventKeys (the catalog contract test enforces
 		// that server-handled entries never claim renderer dispatch).
 		handledBy: "server",
@@ -176,7 +176,7 @@ export const SHORTCUTS = {
 		// Renderer keydown binding (Ctrl OR Cmd + Shift + M): toggles
 		// dictation through the same `toggle_dictation` IPC the Home
 		// page's mic button uses. NOT an OS-global accelerator and NOT
-		// a pynput reserved-key candidate — the backend's reserved list
+		// a pynput reserved-key candidate, the backend's reserved list
 		// only gates the user-configurable global dictation hotkey
 		// (pure Ctrl+<letter> blocks and OS combos), so a renderer-level
 		// Ctrl+Shift+M doesn't conflict with it (Ctrl+Shift is outside
@@ -198,7 +198,7 @@ export const SHORTCUTS = {
 		// in the cross-process shared constant
 		// (`src/shared/dismiss-shortcut.ts`): this catalog consumes the
 		// display form, the main process registers the accelerator form.
-		// Displayed as plain keycap chips — no eventKeys: the renderer
+		// Displayed as plain keycap chips, no eventKeys: the renderer
 		// never dispatches this binding, the main process owns it.
 		keys: DISMISS_SHORTCUT.display,
 		handledBy: "main",
@@ -211,7 +211,7 @@ export type ShortcutId = keyof typeof SHORTCUTS;
 
 /**
  * The six in-app bindings `useGlobalKeyboardShortcuts` actually
- * handles, in display order for the Help overlay — sourced from the
+ * handles, in display order for the Help overlay, sourced from the
  * catalog so the overlay can never drift from the tooltips.
  */
 export const IN_APP_SHORTCUT_IDS = [
@@ -226,7 +226,7 @@ export const IN_APP_SHORTCUT_IDS = [
 export type InAppShortcutId = (typeof IN_APP_SHORTCUT_IDS)[number];
 
 /**
- * The in-app shortcuts in display order for the Help overlay — the
+ * The in-app shortcuts in display order for the Help overlay, the
  * five bindings `useGlobalKeyboardShortcuts` actually handles, sourced
  * from the catalog so the overlay can never drift from the tooltips.
  */
@@ -236,7 +236,7 @@ export const IN_APP_SHORTCUTS: InAppShortcut[] = IN_APP_SHORTCUT_IDS.map(
 
 /**
  * One entry per in-app binding, carrying the ACTUAL keyboard event
- * descriptor (`eventKeys` + `modifier`) the hook dispatches on — the
+ * descriptor (`eventKeys` + `modifier`) the hook dispatches on, the
  * display strings (`keys`) and the bindings themselves now share one
  * catalog, so they can't drift.
  */ export interface InAppBinding {
@@ -247,13 +247,13 @@ export const IN_APP_SHORTCUTS: InAppShortcut[] = IN_APP_SHORTCUT_IDS.map(
 	eventKeys: readonly string[];
 	/** Modifier profile ("ctrlCmd" = Ctrl OR Cmd, no Shift/Alt).
 	 *  Derived from ShortcutDef so a NEW profile in the catalog
-	 *  automatically widens this union — which forces the hook's
+	 *  automatically widens this union, which forces the hook's
 	 *  MODIFIER_GUARDS map to gain an entry (type error otherwise). */
 	modifier: NonNullable<ShortcutDef["modifier"]>;
 }
 
 /**
- * The dispatch table `useGlobalKeyboardShortcuts` iterates — derived
+ * The dispatch table `useGlobalKeyboardShortcuts` iterates, derived
  * from `SHORTCUTS` so the bindings themselves can't drift from the
  * catalog. Throws at import time if a catalog edit drops the
  * `eventKeys`/`modifier` descriptors, so the failure is loud and
@@ -264,7 +264,7 @@ export const IN_APP_BINDINGS: readonly InAppBinding[] = IN_APP_SHORTCUT_IDS.map(
 		const def = SHORTCUTS[id];
 		if (!def.eventKeys?.length || !def.modifier) {
 			throw new Error(
-				`[hotkey] IN_APP_BINDINGS: "${id}" is missing eventKeys/modifier — ` +
+				`[hotkey] IN_APP_BINDINGS: "${id}" is missing eventKeys/modifier, ` +
 					"every in-app catalog entry must declare its keyboard descriptor " +
 					"so useGlobalKeyboardShortcuts can't drift from the catalog.",
 			);

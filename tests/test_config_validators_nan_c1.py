@@ -3,16 +3,16 @@
 Two related input-validation gaps that both let hostile / hand-edited
 ``config.json`` payloads slip past the validators:
 
-* **AP-23** — :func:`voice_typer.server.config_validators._make_float_validator`
+* **AP-23**, :func:`voice_typer.server.config_validators._make_float_validator`
   only ran ``if v < lo or v > hi``. For ``v = float('nan')`` BOTH
   comparisons return ``False``, so NaN passed for ANY float field.
   Python's ``json.loads`` accepts ``NaN`` / ``Infinity`` as a non-standard
   extension by default, so a hand-edited
   ``"vad_speech_threshold": NaN`` would parse, validate, and silently
   disable downstream comparisons (``if cfg.vad_speech_threshold > 0.5:``
-  is always ``False`` for NaN — VAD would never fire).
+  is always ``False`` for NaN, VAD would never fire).
 
-* **AP-24** — :func:`_make_str_validator` and
+* **AP-24**, :func:`_make_str_validator` and
   :func:`_make_url_validator` rejected C0 controls (0x00-0x1F) and DEL
   (0x7F) but NOT C1 control characters (0x80-0x9F). C1 escapes (CSI =
   0x9B, OSC = 0x9D) can reprogram a terminal / poison logs and crash
@@ -51,7 +51,7 @@ class TestFloatValidatorRejectsNaNAndInf:
     """AP-23: NaN / Inf must be rejected for any float field."""
 
     def setup_method(self) -> None:
-        # A representative float field — vad_speech_threshold lives in
+        # A representative float field, vad_speech_threshold lives in
         # [0.0, 1.0]. NaN would previously pass this range because every
         # comparison with NaN returns False.
         self.validate = _make_float_validator(lo=0.0, hi=1.0)
@@ -171,14 +171,14 @@ class TestURLValidatorStripsWhitespaceAndRejectsC1:
         # (urlparse will produce a weird host).
         err = self.validate("https://api .openai.com")
         # Either rejected as a bad host (no host) or as some other
-        # parse-level failure — the key assertion is "not silently
+        # parse-level failure, the key assertion is "not silently
         # accepted as if it were a clean URL".
         # In practice urlparse keeps the space inside the hostname,
         # which is then lowercased but still non-empty, so the URL
-        # passes. We don't pin that behaviour here — we only pin that
+        # passes. We don't pin that behaviour here, we only pin that
         # leading/trailing whitespace is stripped (test above) and that
         # C1 controls are rejected (tests below).
-        _ = err  # intentionally not asserted — see docstring above.
+        _ = err  # intentionally not asserted: see docstring above.
 
     def test_newline_wrapped_url_stripped_and_accepted(self) -> None:
         # Common paste artifact: surrounding newlines.
@@ -190,7 +190,7 @@ class TestURLValidatorStripsWhitespaceAndRejectsC1:
         assert err is None
 
     def test_url_with_c1_control_char_rejected(self) -> None:
-        # C1 introducer 0x9B (CSI) embedded inside the URL — this is
+        # C1 introducer 0x9B (CSI) embedded inside the URL, this is
         # the terminal-poisoning attack vector.
         err = self.validate("https://api.openai.com\x9becho hi")
         assert err is not None
@@ -198,7 +198,7 @@ class TestURLValidatorStripsWhitespaceAndRejectsC1:
         assert "155" in err  # 0x9B == 155
 
     def test_url_with_c1_pad_char_rejected(self) -> None:
-        # 0x80 (PAD) at the start of the URL — even after stripping
+        # 0x80 (PAD) at the start of the URL, even after stripping
         # (0x80 is not whitespace), it must be rejected.
         err = self.validate("\x80https://api.openai.com")
         assert err is not None
@@ -206,7 +206,7 @@ class TestURLValidatorStripsWhitespaceAndRejectsC1:
         assert "128" in err  # 0x80 == 128
 
     def test_url_with_high_c1_rejected(self) -> None:
-        # 0x9F (APC — Application Program Command) at end of URL.
+        # 0x9F (APC. Application Program Command) at end of URL.
         err = self.validate("https://api.openai.com\x9f")
         assert err is not None
         assert "control character" in err
@@ -247,7 +247,7 @@ class TestURLValidatorStripsWhitespaceAndRejectsC1:
     def test_strip_does_not_persist_after_validation(self) -> None:
         """The validator is pure: it must NOT mutate the caller's string.
 
-        The strip is internal to the validator — the original value
+        The strip is internal to the validator, the original value
         passed in by the caller must be unchanged (validators return
         None or an error string, they do not return coerced values).
         The caller is responsible for re-stripping if it wants to

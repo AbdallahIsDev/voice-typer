@@ -1,5 +1,5 @@
 /**
- * Tests for useLastUpdated — focused on the `withRefresh` wrapper
+ * Tests for useLastUpdated, focused on the `withRefresh` wrapper
  * invariant: `refreshing` MUST be cleared on BOTH success and error
  * (try/finally contract). Earlier this was implemented through a
  * `setRefreshingRef` indirection; the test pins the behaviour after
@@ -48,7 +48,7 @@ afterEach(() => {
 	cleanup();
 });
 
-describe("useLastUpdated — withRefresh", () => {
+describe("useLastUpdated, withRefresh", () => {
 	it("refreshing flag is false on initial render", async () => {
 		const { captures } = await renderWithHook();
 		expect(captures.refreshing).toBe(false);
@@ -67,7 +67,7 @@ describe("useLastUpdated — withRefresh", () => {
 		// After `act` flushes the synchronous setState, the Probe body
 		// re-runs and captures.refreshing reflects the in-flight state.
 		expect(captures.refreshing).toBe(true);
-		// Resolve the op — refreshing should flip back to false.
+		// Resolve the op, refreshing should flip back to false.
 		await act(async () => {
 			resolveOp("done");
 			await pending;
@@ -88,7 +88,7 @@ describe("useLastUpdated — withRefresh", () => {
 		// refreshing should be true.
 		await Promise.resolve();
 		expect(captures.refreshing).toBe(true);
-		// The op rejects — withRefresh rethrows. The finally block
+		// The op rejects, withRefresh rethrows. The finally block
 		// MUST clear refreshing before the rejection surfaces.
 		await act(async () => {
 			await expect(pending).rejects.toBe(opError);
@@ -100,7 +100,7 @@ describe("useLastUpdated — withRefresh", () => {
 		const { captures, rerender } = await renderWithHook();
 		const first = captures.withRefresh;
 		rerender(null);
-		// Re-render the same Probe by re-invoking render — but the
+		// Re-render the same Probe by re-invoking render, but the
 		// stable-callback guarantee is per-hook-instance. Force a
 		// re-render via rerender to verify the identity survives.
 		// Note: `rerender` doesn't trigger the Probe body unless we
@@ -114,7 +114,7 @@ describe("useLastUpdated — withRefresh", () => {
 		void captures2;
 		// Re-render the FIRST hook instance to check identity.
 		// (renderWithHook creates a fresh instance each call, so the
-		// `first` reference is from the original render — we can't
+		// `first` reference is from the original render, we can't
 		// re-render it directly here without a different harness.)
 		// Sanity check: the captured callback exists and is a function.
 		expect(typeof first).toBe("function");

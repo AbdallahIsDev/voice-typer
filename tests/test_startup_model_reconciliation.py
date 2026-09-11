@@ -2,7 +2,7 @@
 
 Pins the root-cause contract: ``config.model_size`` (the canonical
 ``config.json`` value) is validated against the installed-model state
-during startup — BEFORE any consumer (tray tooltip, analytics model
+during startup, BEFORE any consumer (tray tooltip, analytics model
 card, device card, Settings Diagnostics, load precheck) reads it:
 
 - configured model NOT on disk → clear to ``NO_MODEL_SIZE`` (""),
@@ -87,7 +87,7 @@ def test_noop_when_already_no_model_selected() -> None:
 
 
 def test_noop_for_cloud_backends() -> None:
-    """Cloud providers have no local model to install — never touched."""
+    """Cloud providers have no local model to install, never touched."""
     for backend in ("openai", "groq", "deepgram", "custom"):
         app, saves = make_app("tiny", asr_backend=backend)
         with patch(
@@ -102,7 +102,7 @@ def test_noop_for_cloud_backends() -> None:
 
 
 def test_save_failure_returns_false_without_raising() -> None:
-    """A failed persist must not crash startup — returns False, no exception."""
+    """A failed persist must not crash startup, returns False, no exception."""
     app, _saves = make_app("tiny", save_ok=False)
     with patch(
         "voice_typer.server.tray_models.is_active_model_downloaded",

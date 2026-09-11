@@ -2,13 +2,13 @@
 //
 // Extracted from `pages/Settings.tsx` (page-root slimming): the consent
 // deep-link (``client.consent_required`` path) and the cross-page search
-// deep-link machinery — two near-twin "consume → scroll-to-row → ring"
+// deep-link machinery, two near-twin "consume → scroll-to-row → ring"
 // effects plus their shared one-shot guard, ring-lifetime timer, and
-// max-lifetime safety net — was the page's largest cohesive EFFECT
+// max-lifetime safety net, was the page's largest cohesive EFFECT
 // block. It lives here so the page root stays layout + wiring.
 //
 // The two scroll effects share ONE parameterized helper
-// (`pages/settings/lib/scrollToRowWithHighlight.ts`) — the bounded
+// (`pages/settings/lib/scrollToRowWithHighlight.ts`), the bounded
 // retry loop, the one-shot guard, the scrollIntoView call, and the
 // ring-lifetime timer live there once; each effect supplies only its
 // row matcher and how the ring is applied (consent: state-driven,
@@ -16,7 +16,7 @@
 //
 // IMPORTANT: the effects inside this hook must run in the ORIGINAL page
 // order (consume → consume → scroll → scroll → safety net) relative to
-// the page's surface-scroll restore effect — the consent consumption
+// the page's surface-scroll restore effect, the consent consumption
 // zeroes the saved privacy-page scroll offset BEFORE the restore effect
 // reads it. The page must call this hook BEFORE `useSettingsSurfaceScroll`.
 
@@ -28,7 +28,7 @@ import type { VoiceTyperConfig } from "@/types/config";
 import type { Page } from "@/types/ipc";
 
 export interface UseSettingsDeepLinksOptions {
-	/** The loaded config (or `null` while loading) — gates the scroll effects. */
+	/** The loaded config (or `null` while loading), gates the scroll effects. */
 	config: VoiceTyperConfig | null;
 	/** The active Settings surface page literal (route-switch prop). */
 	page: Page;
@@ -64,20 +64,20 @@ export function useSettingsDeepLinks({
 	// navigates here with ``{ consentField }`` (see NavigateOptions in
 	// useNavigation.ts); the field is staged in the nav store as
 	// ``pendingConsentField`` and consumed ONCE on the Privacy section
-	// page — the only surface that renders the consent toggles.
+	// page, the only surface that renders the consent toggles.
 	const [focusedConsentField, setFocusedConsentField] = useState<string | null>(
 		null,
 	);
 	// One-shot scroll guard + ring-lifetime timer for the consent
 	// deep-link highlight (see the scroll effect below). Also reused
-	// for the cross-page Settings search deep-link highlight — both
+	// for the cross-page Settings search deep-link highlight, both
 	// share the same ring-lifetime mechanism since only one deep-link
 	// target can be active at a time.
 	const scrolledTargetRef = useRef<string | null>(null);
 	const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	// Cross-page search deep-link target hint (consumed on section-page
 	// mount + on page change). The Settings search may fire this from
-	// any section page — the source page sets it via
+	// any section page, the source page sets it via
 	// `navigate(bestPage, { settingsScrollTarget: { rowHint } })`,
 	// the destination page consumes it here.
 	const [searchScrollHint, setSearchScrollHint] = useState<string | null>(null);
@@ -127,8 +127,8 @@ export function useSettingsDeepLinks({
 	// the shared scrollToRowWithHighlight helper retries until found
 	// (bounded) in case the lazy page / config fetch is still settling.
 	// The scroll is ONE-SHOT per deep-link target (the helper's shared
-	// ``scrolledTargetRef`` guard) so a config identity change — e.g. the
-	// user toggling the just-highlighted consent — doesn't re-trigger a
+	// ``scrolledTargetRef`` guard) so a config identity change, e.g. the
+	// user toggling the just-highlighted consent, doesn't re-trigger a
 	// smooth re-center. The highlight ring's lifetime starts when the
 	// row is actually found, so a slow ``get_config`` can't clear the
 	// ring before the row renders. The ring itself is state-driven:
@@ -143,7 +143,7 @@ export function useSettingsDeepLinks({
 			},
 			target: focusedConsentField,
 			// Match by attribute VALUE rather than interpolating the
-			// field into a selector — the field comes from the backend
+			// field into a selector, the field comes from the backend
 			// envelope, and value-filtering avoids any selector
 			// injection edge.
 			matchFn: () =>
@@ -160,7 +160,7 @@ export function useSettingsDeepLinks({
 	// Cross-page Settings search deep-link scroll + highlight. Mirrors
 	// the consent-deep-link scroll via the SAME shared helper but
 	// matches by VISIBLE TEXT (the rowHint string) rather than by
-	// attribute value — the search deep-link carries the matched label
+	// attribute value, the search deep-link carries the matched label
 	// text (translated at the moment the user typed), so we walk
 	// rendered SettingRow elements and pick the first whose label text
 	// contains the hint. The match is intentionally substring +

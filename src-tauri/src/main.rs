@@ -1,4 +1,4 @@
-//! Voice Typer — Tauri v2 host (ADR-0020 implementation).
+//! Voice Typer: Tauri v2 host (ADR-0020 implementation).
 //!
 //! Rust shell replacing the Electron main process. Responsibilities:
 //! 1. Spawn the Python sidecar via Tauri's `externalBin` mechanism,
@@ -51,7 +51,7 @@ mod window_events;
 
 // C-TEST-5: sibling `#[cfg(test)]` test files, declared here (not
 // inside their production modules) so the sibling-file paths resolve
-// without `#[path]` attributes — mirrors the pattern at
+// without `#[path]` attributes: mirrors the pattern at
 // `commands/bubble/mod.rs` and `migrate/mod.rs`.
 #[cfg(test)]
 mod state_tests;
@@ -68,7 +68,7 @@ mod error_tests;
 
 // Shared test-only state (e.g. the panic-hook serialization lock used
 // by every test that fires a real panic through the process-global
-// hook — see `test_support.rs` for the race rationale).
+// hook: see `test_support.rs` for the race rationale).
 #[cfg(test)]
 mod test_support;
 
@@ -98,12 +98,12 @@ use state::SidecarState;
 use state::WorkerState;
 
 fn main() {
-    // Launch-timeline host-boot marker — must stay the first statement
+    // Launch-timeline host-boot marker: must stay the first statement
     // so the measured host-boot phase stays honest (derivation:
     // `startup_timeline.rs` + `voice_typer/server/startup_timeline.py`).
     crate::startup_timeline::record_boot_epoch();
 
-    // Logger bootstrap (order matters — details in `platform::logging`):
+    // Logger bootstrap (order matters: details in `platform::logging`):
     // EarlyLogger first so pre-init `log::*!` lands on stderr; the panic
     // hook next so panics during logger init are captured; the file
     // logger then upgrades the EarlyLogger via the OnceLock swap (it
@@ -136,21 +136,21 @@ fn main() {
             }
         }))
         // PLUGIN CONFIG CONTRACT (src-tauri/tauri.conf.json `plugins`
-        // block) — verified against the plugins-workspace v2 sources +
+        // block): verified against the plugins-workspace v2 sources +
         // tauri#8769 on the first successful Windows host run
         // (2026-08-21). DO NOT "restore" the old shapes; they crash the
         // app AT STARTUP and CI cannot catch it (CI builds but never
         // launches the app):
         //   - single-instance / notification / dialog register NO
         //     config type (plain `Builder::new(...)` init), so their
-        //     entries must be `null` or absent — an empty map `{}`
+        //     entries must be `null` or absent, an empty map `{}`
         //     fails with PluginInitialization("...", "invalid type:
         //     map, expected unit").
         //   - shell: the ONLY plugin with a real config struct; it
         //     accepts exactly ONE key, `open`. The v1-style
         //     `{sidecar: true, scope: [...]}` block fails with
         //     "unknown field `scope`, expected `open`". Sidecar scoping
-        //     is NOT done via plugins.shell in v2 — the Rust host
+        //     is NOT done via plugins.shell in v2, the Rust host
         //     spawns via `app.shell().sidecar(...)`.
         // Regression guards: tests/tauri/mig19/test_final_glue.py::
         // test_tauri_conf_unit_config_plugins_are_null and the
@@ -194,7 +194,7 @@ fn main() {
             set_host_locale,
         ])
         .setup(|app| {
-            // Windows toast identity (AUMID) registration — idempotent,
+            // Windows toast identity (AUMID) registration, idempotent,
             // body in `notify_aumid.rs`.
             crate::notify_aumid::register(app.handle());
 
@@ -203,7 +203,7 @@ fn main() {
             crate::window_bootstrap::bootstrap_main_window(app);
 
             let app_handle = app.handle().clone();
-            //log only the basename — the absolute path can leak the
+            //log only the basename: the absolute path can leak the
             // user's home directory / username (PII in shared logs).
             log::info!(
                 "[SETUP] config_dir resolved to: <redacted>/{}",
@@ -218,7 +218,7 @@ fn main() {
             // published by the Python sidecar) → shutdown flag +
             // `app.exit(0)`. The Electron→Tauri userData migration that
             // must precede the sidecar spawn runs inside the spawned
-            // task below (ADR-0020 §8 — see `sidecar::spawn`).
+            // task below (ADR-0020 §8: see `sidecar::spawn`).
             let restart_handle = app.handle().clone();
             app.listen("relaunch_app", move |event| {
                 crate::state::on_relaunch_app(&restart_handle, event);
@@ -228,18 +228,18 @@ fn main() {
                 crate::state::on_quit_app(&quit_handle);
             });
             // ADR-0020 §6.5: create the system tray. Failure is
-            // non-fatal — the app still runs without a tray; the
+            // non-fatal: the app still runs without a tray; the
             // `tray_menu` / `tray_state` listener wiring lives in
             // `tray.rs`. On success, `tray_available` is marked so the
             // main-window close handler can pick hide-to-tray vs. a
             // real close (rationale in `state.rs`).
             crate::tray::create_tray_and_mark_state(app.handle());
             // Electron-parity host events: `show_window` (tray "Open
-            // App") + `notification` (native toast) — bodies in
+            // App") + `notification` (native toast), bodies in
             // `host_events.rs`.
             crate::host_events::setup(app.handle());
             //(Critical): the unconditional `write_restart_counter(0)`
-            // that used to live here DEFEATED the circuit breaker — the
+            // that used to live here DEFEATED the circuit breaker, the
             // reset is now ONLY done on successful `reconnect_ws`
             // (supervisor.rs; see git history).
             //
@@ -259,7 +259,7 @@ fn main() {
         //split `.run(ctx)` into `.build(ctx)?.run(callback)` so we get
         // a callback for `RunEvent::Exit` / `ExitRequested`. Without it
         // the sidecar is leaked when the host exits via `app.exit()` /
-        // quit-tray / Ctrl-C / SIGTERM — the close handler only fires on
+        // quit-tray / Ctrl-C / SIGTERM. The close handler only fires on
         // user-initiated window close. A `build` failure logs a [FATAL]
         // line to the file logger AND stderr before exit(1).
         .build(tauri::generate_context!())
@@ -270,7 +270,7 @@ fn main() {
         })
         .run(|app_handle, event| match event {
             RunEvent::ExitRequested { .. } | RunEvent::Exit => {
-                // Teardown body: `state::on_host_exit` — dedicated thread
+                // Teardown body: `state::on_host_exit`, dedicated thread
                 // + bounded-time `block_on` (see `sidecar::lifecycle`).
                 crate::state::on_host_exit(app_handle);
             }

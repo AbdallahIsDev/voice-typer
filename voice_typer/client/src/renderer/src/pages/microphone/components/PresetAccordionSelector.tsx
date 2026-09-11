@@ -1,4 +1,4 @@
-// Accordion-style "Microphone Quality" preset selector — Microphone
+// Accordion-style "Microphone Quality" preset selector, Microphone
 // page only.
 //
 // Collapsed, the header shows the section label + a general help
@@ -9,7 +9,7 @@
 // → Audio Select; the canonical preset → filter mapping lives in
 // `voice_typer/server/audio_presets.py`). Each option's description
 // lives in a per-row InfoTooltip instead of being permanently visible
-// — keeps the accordion compact and kills the duplicated header
+//, keeps the accordion compact and kills the duplicated header
 // paragraph.
 //
 // Selecting a radio applies the preset immediately (ADR 0007: backend
@@ -44,7 +44,7 @@ import type { VoiceTyperConfig } from "@/types/config";
 
 interface PresetAccordionSelectorProps {
 	preset: AudioPreset;
-	/** Full config — used to read/write the individual noise_filter_* fields. */
+	/** Full config, used to read/write the individual noise_filter_* fields. */
 	config: VoiceTyperConfig;
 	/** Whether the Custom-filters panel is expanded. */
 	showAdvanced: boolean;
@@ -63,7 +63,7 @@ interface PresetOption {
 }
 
 // Resolve the shared registry's label/description keys through `t`
-// (one lookup per key per mount — memoized per mount). The DATA
+// (one lookup per key per mount, memoized per mount). The DATA
 // (values + keys) lives in `lib/utils/audioPresets.ts`; only the
 // locale resolution happens here.
 function getPresetOptions(): PresetOption[] {
@@ -109,7 +109,7 @@ export function PresetAccordionSelector({
 					// equal and matches the option rows' content boundary.
 					// The primitive's persistent PlusSignIcon is hidden on THIS
 					// instance (user decision for this selector) and replaced by
-					// the dedicated rotating chevron below — the primitive itself
+					// the dedicated rotating chevron below, the primitive itself
 					// is untouched, so every other accordion keeps its "+".
 					className="items-center gap-3 px-4 py-2.5 hover:bg-foreground/5 hover:no-underline focus-visible:ring-ring/30 **:data-[slot=accordion-trigger-icon]:hidden **:data-[slot=accordion-trigger-icon]:text-(--text-muted)"
 				>
@@ -120,7 +120,7 @@ export function PresetAccordionSelector({
 						{/* Inline (span) trigger: this tooltip lives INSIDE the
                                                 AccordionTrigger <button>, where a nested real <button>
                                                 would be invalid DOM and would toggle the accordion.
-                                                Anchored in normal flow beside the label — it can never
+                                                Anchored in normal flow beside the label, it can never
                                                 slide into the option list during the expand animation. */}
 						<InfoTooltip
 							triggerAs="inline"
@@ -129,12 +129,12 @@ export function PresetAccordionSelector({
 						/>
 					</span>
 					{/* Active-filter field + chevron: a NON-interactive chip
-                                        (plain span — the whole row is the one control) that visually
+                                        (plain span, the whole row is the one control) that visually
                                         communicates the current selection, grouped with the expand
                                         control it belongs to. Mirrors the SelectTrigger shell
                                         (bg-background lifts it off the bg-(--bg-subtle) card). The
                                         chevron is decorative (the trigger owns aria-expanded) and
-                                        rotates via the primitive's data-state — collapsed points
+                                        rotates via the primitive's data-state, collapsed points
                                         down (can expand), expanded points up (can collapse). */}
 					<span className="flex items-center gap-2 shrink-0">
 						<span
@@ -153,10 +153,10 @@ export function PresetAccordionSelector({
 				</AccordionTrigger>
 				{/* No extra padding on AccordionContent itself: the shared
                                 primitive already pads horizontally (px-4) and vertically
-                                (inner pb-4) — a second layer there produced a double
+                                (inner pb-4), a second layer there produced a double
                                 indent/double bottom gap vs the header. The RadioGroup adds
                                 ONE deliberate px-2 so option text and right-aligned radios
-                                sit at 24px insets — balanced breathing room, never touching
+                                sit at 24px insets, balanced breathing room, never touching
                                 the container edges. The hairline separates options from
                                 header. Rows keep the radio FIRST in DOM (Radix
                                 roving-tabindex/reading order) and push it to the visual far
@@ -173,7 +173,7 @@ export function PresetAccordionSelector({
 								// The a11y pair (nested RadioGroupItem is the accessible
 								// control; row click is pointer-only convenience) + the
 								// skip-nested-button click gating (the radio AND the row's
-								// InfoTooltip trigger are <button>s — clicking either must
+								// InfoTooltip trigger are <button>s, clicking either must
 								// never change the preset as a side effect) live in the
 								// shared SelectableRow wrapper.
 								<SelectableRow
@@ -190,7 +190,7 @@ export function PresetAccordionSelector({
 									}}
 								>
 									{/* Explicit aria-label keeps the radio's accessible
-                                                                    name to the preset LABEL — an implicit-label
+                                                                    name to the preset LABEL, an implicit-label
                                                                     fallback would concatenate the whole row text.
                                                                     The radio stays FIRST in DOM (Radix roving
                                                                     tabindex + screen-reader reading order hit the

@@ -1,4 +1,4 @@
-# ADR 0008: Voice Typer — Zero-Command Hotkey Architecture Design
+# ADR 0008: Voice Typer, Zero-Command Hotkey Architecture Design
 
 > **Path-note (post-ADR decomposition):** the hotkey backends have since
 > been split from a single `voice_typer/server/hotkeys.py` module into the
@@ -11,13 +11,13 @@
 > `modifiers.py`, `recorder.py`, `spec_parser.py`, `windows_backend.py`).
 > The prose, file-inventory, and code-block comments below retain the
 > historical `hotkeys.py` / `native_hotkeys.py` references for
-> traceability against the original implementation analysis — read each
+> traceability against the original implementation analysis, read each
 > `hotkeys.py::symbol` as `hotkeys/<module>.py::symbol` (and similarly
 > for `native_hotkeys/`) per the package splits.
 
 ## Status
 
-Accepted — all 4 gaps closed (status normalized to the template enum from the prior "Implemented — all 4 gaps closed" inline value).
+Accepted: all 4 gaps closed (status normalized to the template enum from the prior "Implemented. All 4 gaps closed" inline value).
 
 **Document version**: 1.0
 **Date**: 2026-06-30
@@ -29,19 +29,19 @@ Accepted — all 4 gaps closed (status normalized to the template enum from the 
 
 1. [Executive Summary](#1-executive-summary)
 2. [Gap Inventory](#2-gap-inventory)
-3. [Section A — Cross-Platform CI Build Pipeline (Gap 1)](#section-a--cross-platform-ci-build-pipeline-gap-1)
-4. [Section B — macOS Accessibility Onboarding (Gap 2)](#section-b--macos-accessibility-onboarding-gap-2)
-5. [Section C — Linux Zero-Command Setup (Gap 3)](#section-c--linux-zero-command-setup-gap-3)
-6. [Section D — Runtime Fallback Chain (Gap 4)](#section-d--runtime-fallback-chain-gap-4)
-7. [Section E — Hidden Edge Cases Catalog](#section-e--hidden-edge-cases-catalog)
-8. [Section F — Implementation Order & Verification Plan](#section-f--implementation-order--verification-plan)
-9. [Appendix — File Inventory](#appendix--file-inventory)
+3. [Section A: Cross-Platform CI Build Pipeline (Gap 1)](#section-a--cross-platform-ci-build-pipeline-gap-1)
+4. [Section B: macOS Accessibility Onboarding (Gap 2)](#section-b--macos-accessibility-onboarding-gap-2)
+5. [Section C: Linux Zero-Command Setup (Gap 3)](#section-c--linux-zero-command-setup-gap-3)
+6. [Section D: Runtime Fallback Chain (Gap 4)](#section-d--runtime-fallback-chain-gap-4)
+7. [Section E: Hidden Edge Cases Catalog](#section-e--hidden-edge-cases-catalog)
+8. [Section F: Implementation Order & Verification Plan](#section-f--implementation-order--verification-plan)
+9. [Appendix: File Inventory](#appendix--file-inventory)
 
 ---
 
 ## 1. Executive Summary
 
-The native hotkey architecture (NATIVE-001) is functionally complete — the three native binaries exist, the Python backends work, and 659 tests pass. However, four gaps stand between "the architecture works in tests" and "the user installs and it just works on all three platforms with zero manual commands":
+The native hotkey architecture (NATIVE-001) is functionally complete. The three native binaries exist, the Python backends work, and 659 tests pass. However, four gaps stand between "the architecture works in tests" and "the user installs and it just works on all three platforms with zero manual commands":
 
 | Gap | User-facing symptom | Severity |
 |---|---|---|
@@ -94,7 +94,7 @@ This document specifies the complete design for closing all four gaps, including
 
 ---
 
-## Section A — Cross-Platform CI Build Pipeline (Gap 1)
+## Section A: Cross-Platform CI Build Pipeline (Gap 1)
 
 ### A.1 Design Goals
 
@@ -105,19 +105,19 @@ This document specifies the complete design for closing all four gaps, including
 - Sign the macOS binary (ad-hoc) so it can be granted Accessibility
 - Sign the Windows binary with EV cert when available (otherwise skip)
 
-### A.2 Design Decision — One Workflow File
+### A.2 Design Decision: One Workflow File
 
 **Decision**: Add the `build-native` matrix job to the existing `.github/workflows/build.yml`, NOT a separate workflow file.
 
 **Rationale**:
-1. **Artifacts don't cross workflows** — `build-native` must upload the compiled binary; the installer jobs (`build-windows`, `build-macos`, `build-linux`) need `actions/download-artifact` which only works within the same workflow.
-2. **Test matrix already runs on all 3 OSes** — the existing `test` job already spins up Windows + Linux + macOS runners. Adding a `build-native` matrix alongside it fits the same pattern.
-3. **Tight release coordination** — the sequence is: compile 3 native binaries → build 3 installers → upload to release. One file with `needs:` chains keeps ordering clean.
-4. **Not bloated** — at ~245 lines, `build.yml` has room for ~3 more jobs.
+1. **Artifacts don't cross workflows**, `build-native` must upload the compiled binary; the installer jobs (`build-windows`, `build-macos`, `build-linux`) need `actions/download-artifact` which only works within the same workflow.
+2. **Test matrix already runs on all 3 OSes**, the existing `test` job already spins up Windows + Linux + macOS runners. Adding a `build-native` matrix alongside it fits the same pattern.
+3. **Tight release coordination**. The sequence is: compile 3 native binaries → build 3 installers → upload to release. One file with `needs:` chains keeps ordering clean.
+4. **Not bloated**: at ~245 lines, `build.yml` has room for ~3 more jobs.
 
 ### A.3 Jobs
 
-**New job — `build-native`** (matrix on 3 OSes, compiles native binary, uploads as artifact):
+**New job, `build-native`** (matrix on 3 OSes, compiles native binary, uploads as artifact):
 
 **`build-native` matrix**:
 
@@ -135,8 +135,8 @@ This document specifies the complete design for closing all four gaps, including
 4. Smoke test:
    - macOS: `./macos-key-listener '<f2>' &; sleep 1; kill %1` (expect non-crash exit)
    - Windows: `Start-Process windows-key-listener.exe '<f2>' -PassThru \| Wait-Process -Timeout 1` (expect timeout, not crash)
-   - Linux: `./linux-key-listener '<caps_lock>'` (expect `ERROR:No keyboard devices found` since CI has no input devices — proves the binary runs and parses the spec)
-5. (macOS only) `codesign --force --sign - <binary>` — ad-hoc signing
+   - Linux: `./linux-key-listener '<caps_lock>'` (expect `ERROR:No keyboard devices found` since CI has no input devices, proves the binary runs and parses the spec)
+5. (macOS only) `codesign --force --sign - <binary>` Ad-hoc signing
 6. (Windows only, if EV cert secret available) `signtool sign /f cert.pfx /p $SECRET /tr http://timestamp.digicert.com <binary>`
 7. Upload binary as artifact (`actions/upload-artifact@v4`)
 8. (On tag only) Upload to release (`softprops/action-gh-release@v2`)
@@ -166,7 +166,7 @@ build-native ──┼─→ build-windows ─┐
 
 - **Toolchain missing on runner**: Each job explicitly checks for `swiftc` / `cl.exe` / `gcc` and fails fast with a helpful message.
 - **Binary already exists in repo** (developer committed a compiled binary by mistake): CI overwrites it. Build always wins.
-- **Smoke test fails on macOS CI** (no GUI session, no Accessibility permission): The Swift binary will emit `ERROR:Accessibility permission required...` — this is treated as a *successful* smoke test (binary ran, parsed args, hit expected permission wall). The job greps for either `READY` or the Accessibility error.
+- **Smoke test fails on macOS CI** (no GUI session, no Accessibility permission): The Swift binary will emit `ERROR:Accessibility permission required...` This is treated as a *successful* smoke test (binary ran, parsed args, hit expected permission wall). The job greps for either `READY` or the Accessibility error.
 - **Windows smoke test hangs** (binary runs forever waiting for hook events): Use `Start-Process -PassThru` + `Wait-Process -Timeout 3`; timeout is success (binary didn't crash).
 - **Linux smoke test fails with `ERROR:No keyboard devices found`**: Treated as success (binary ran, parsed args, hit expected no-input-devices state in CI).
 - **Codesigning fails on macOS** (no Developer ID): Ad-hoc signing (`codesign --force --sign -`) always succeeds; no cert needed.
@@ -176,7 +176,7 @@ build-native ──┼─→ build-windows ─┐
 
 ---
 
-## Section B — macOS Accessibility Onboarding (Gap 2)
+## Section B: macOS Accessibility Onboarding (Gap 2)
 
 ### B.1 Design Goals
 
@@ -185,14 +185,14 @@ build-native ──┼─→ build-windows ─┐
 - Deep-link to `x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_Accessibility`
 - Re-check permission after the user returns to the app (not just on startup)
 - Survive macOS updates that reset Accessibility (re-prompt if the binary starts failing again)
-- Don't spam the user — at most one notification per app session per failure episode
+- Don't spam the user: at most one notification per app session per failure episode
 
 ### B.2 New Module: `voice_typer/server/permissions.py`
 
 This module centralizes all OS permission logic. It's the single source of truth for "can we use the keyboard on this platform?"
 
 ```python
-# Pseudocode — full implementation in the next phase
+# Pseudocode: full implementation in the next phase
 
 
 def check_keyboard_permission() -> PermissionState:
@@ -254,7 +254,7 @@ def _on_native_error(self, error_message: str) -> None:
     if permission_error_is_permission_denied(error_message):
         self._show_permission_notification(error_message)
     # Other errors (binary not found, parse error) are handled by the
-    # startup fallback chain — no notification needed.
+    # startup fallback chain: no notification needed.
 ```
 
 ### B.4 Notification UX
@@ -295,22 +295,22 @@ def _retry_native_backend(self) -> None:
     try:
         self._native.start(self._callback)
         if self._native.is_alive():
-            log.info("[HOTKEY] Permission retry succeeded — native backend running")
+            log.info("[HOTKEY] Permission retry succeeded: native backend running")
             self._failed = False
             return
     except Exception:
         pass
-    # Still failing — schedule another retry
+    # Still failing: schedule another retry
     self._schedule_permission_retry()
 ```
 
 ### B.6 Edge Cases
 
 - **User denies permission permanently**: macOS doesn't have a "permanent deny" for Accessibility. If the user removes Voice Typer from the Accessibility list later, the next hotkey press fails → notification reappears.
-- **macOS update resets Accessibility**: After a major macOS update, Accessibility entries are sometimes cleared. The runtime fallback chain (Section D) handles this — the native backend fails, swaps to pynput, shows notification. User re-grants → retry timer swaps back to native.
-- **App not in Accessibility list at all (first launch)**: Same flow — binary fails, notification appears, user clicks, adds the app, retry succeeds.
+- **macOS update resets Accessibility**: After a major macOS update, Accessibility entries are sometimes cleared. The runtime fallback chain (Section D) handles this. The native backend fails, swaps to pynput, shows notification. User re-grants → retry timer swaps back to native.
+- **App not in Accessibility list at all (first launch)**: Same flow, binary fails, notification appears, user clicks, adds the app, retry succeeds.
 - **Multiple binaries in the Accessibility list** (e.g. both the Python interpreter and the Swift binary): macOS requires *both* to be granted (the Python parent spawns the Swift child; both need Accessibility). The notification body says: "Add both Voice Typer and its key-listener helper to the Accessibility list."
-- **User closes notification before reading it**: The notification is also logged to the tray menu as a persistent "⚠️ Permission required — click to fix" item until resolved.
+- **User closes notification before reading it**: The notification is also logged to the tray menu as a persistent "⚠️ Permission required, click to fix" item until resolved.
 - **`open` command fails**: Fall back to `subprocess.Popen(["open", "/System/Library/PreferencePanes/Security.prefPane/"])` (older path, works on more macOS versions).
 - **User on macOS 10.13 or earlier** (no `x-apple.systempreferences:` scheme): Fall back to opening System Preferences via the bundle path.
 - **User runs the Python script directly** (not the bundled app): The notification body should say "Add Python (or your terminal) to the Accessibility list" since that's what macOS will show.
@@ -320,14 +320,14 @@ def _retry_native_backend(self) -> None:
 
 ---
 
-## Section C — Linux Zero-Command Setup (Gap 3)
+## Section C: Linux Zero-Command Setup (Gap 3)
 
 ### C.1 Design Goals
 
 - `.deb` package: postinst script installs udev rule, adds user to `input` group, configures Caps Lock neutralization. User types sudo password once (OS prompt, not ours).
 - `.rpm` package: same via `%post` script.
 - AppImage: on first launch, detect missing permissions, show a dialog, run `pkexec` to install the udev rule and add the user to the group. User types password once.
-- Flatpak: not supported in v1 (portals-based keyboard access is a separate architecture — documented as future work).
+- Flatpak: not supported in v1 (portals-based keyboard access is a separate architecture, documented as future work).
 - Snap: not supported in v1 (same reason as Flatpak).
 - All modifications are reversible: `prerm` / `postrm` scripts clean up on uninstall.
 - Modifications are tracked in a manifest file so we can detect "user uninstalled but files remained" scenarios.
@@ -337,13 +337,13 @@ def _retry_native_backend(self) -> None:
 | File | Purpose |
 |---|---|
 | `scripts/linux/99-voice-typer.rules` | udev rule granting `input` group read access to keyboard event devices |
-| `scripts/linux/postinst` | Debian postinst script — runs as root during `apt install` |
-| `scripts/linux/prerm` | Debian prerm script — runs as root during `apt remove` |
+| `scripts/linux/postinst` | Debian postinst script: runs as root during `apt install` |
+| `scripts/linux/prerm` | Debian prerm script: runs as root during `apt remove` |
 | `scripts/linux/postinst.rpm` | RPM `%post` script (functionally identical to Debian postinst) |
 | `scripts/linux/prerm.rpm` | RPM `%preun` script |
 | `scripts/linux/voice-typer.polkit` | polkit policy file for `pkexec` (AppImage path) |
-| `scripts/linux/install_permissions.py` | Python script invoked by postinst AND by pkexec — does the actual system modifications |
-| `scripts/linux/uninstall_permissions.py` | Python script invoked by prerm — removes the modifications |
+| `scripts/linux/install_permissions.py` | Python script invoked by postinst AND by pkexec, does the actual system modifications |
+| `scripts/linux/uninstall_permissions.py` | Python script invoked by prerm: removes the modifications |
 | `scripts/linux/00-voice-typer-capslock.conf` | XKB config snippet that neutralizes Caps Lock |
 | `electron-builder.yml` | Updated to add Linux targets (`.deb`, `.rpm`, `AppImage`) |
 | `voice_typer/server/permissions.py` | Runtime permission checker + AppImage pkexec helper |
@@ -353,10 +353,10 @@ def _retry_native_backend(self) -> None:
 **File**: `scripts/linux/99-voice-typer.rules`
 
 ```
-# Voice Typer — keyboard event device access
+# Voice Typer: keyboard event device access
 # Grants read access to keyboard event devices for members of the "input" group.
 # Installed by the Voice Typer package (or via pkexec for AppImage users).
-# Do not edit — remove this file to revoke access.
+# Do not edit: remove this file to revoke access.
 
 # Match all input event devices (keyboards, mice, etc.)
 KERNEL=="event[0-9]*", SUBSYSTEM=="input", GROUP="input", MODE="0660"
@@ -376,7 +376,7 @@ ACTION=="add", SUBSYSTEM=="input", RUN+="/usr/bin/udevadm trigger --subsystem-ma
 **File**: `scripts/linux/00-voice-typer-capslock.conf`
 
 ```
-# Voice Typer — neutralize Caps Lock toggle
+# Voice Typer: neutralize Caps Lock toggle
 # This file tells the X server to ignore Caps Lock as a caps-state toggle,
 # so it can be used as a hotkey without affecting text capitalization.
 # Installed by the Voice Typer package.
@@ -398,7 +398,7 @@ EndSection
 - Sway: `input * xkb_options caps:none` in `~/.config/sway/config`
 - wlroots-generic: not configurable from us
 
-The install script detects the session type and applies the appropriate configuration. For unsupported compositors, it logs a warning and skips — the user can still use a non-Caps Lock hotkey.
+The install script detects the session type and applies the appropriate configuration. For unsupported compositors, it logs a warning and skips. The user can still use a non-Caps Lock hotkey.
 
 ### C.5 The install_permissions.py Script
 
@@ -444,7 +444,7 @@ This is the single source of truth for "what system modifications does Voice Typ
 
 ```bash
 #!/bin/bash
-# Debian postinst — runs as root after apt install voice-typer
+# Debian postinst: runs as root after apt install voice-typer
 set -e
 
 case "$1" in
@@ -466,7 +466,7 @@ esac
 exit 0
 ```
 
-**Post-install message**: Tells the user about the one-time log-out requirement. This is a Linux kernel limitation — group membership changes don't affect existing processes, only new logins.
+**Post-install message**: Tells the user about the one-time log-out requirement. This is a Linux kernel limitation, group membership changes don't affect existing processes, only new logins.
 
 ### C.7 The Debian prerm Script
 
@@ -474,7 +474,7 @@ exit 0
 
 ```bash
 #!/bin/bash
-# Debian prerm — runs as root before apt remove voice-typer
+# Debian prerm: runs as root before apt remove voice-typer
 set -e
 
 case "$1" in
@@ -592,8 +592,8 @@ appImage:
 
 ### C.11 Edge Cases
 
-- **User installs via `apt install ./voice-typer.deb` (local file)**: Same flow — `dpkg -i` runs postinst. `SUDO_USER` may not be set; the script falls back to detecting the user from `/proc/self/loginuid` or `logname`.
-- **User installs via Software Center (GNOME Software / KDE Discover)**: Same — they call `dpkg` under the hood. postinst runs. `SUDO_USER` is the user who clicked install.
+- **User installs via `apt install ./voice-typer.deb` (local file)**: Same flow, `dpkg -i` runs postinst. `SUDO_USER` may not be set; the script falls back to detecting the user from `/proc/self/loginuid` or `logname`.
+- **User installs via Software Center (GNOME Software / KDE Discover)**: Same, they call `dpkg` under the hood. postinst runs. `SUDO_USER` is the user who clicked install.
 - **User installs as actual root** (e.g. in a container): `SUDO_USER` is empty. Script skips the `usermod` step (root already has access). Logs a warning.
 - **Multi-user system** (5 users share a Linux box): postinst adds the *installing* user to `input`. Other users need to run the AppImage flow individually, or the admin manually adds them. Documented in README.
 - **User is already in `input` group** (set up manually before installing): Script detects this, skips `usermod`, logs "already in group."
@@ -608,25 +608,25 @@ appImage:
 - **User uninstalls Voice Typer but wants to keep the udev rule** (they use it for another app): `prerm` script asks via `debconf` "Remove keyboard permission configuration? [Y/n]". Default Y.
 - **AppImage user runs the app, denies the pkexec prompt**: App shows "Permission denied. Voice Typer can't read keyboard events. Click here to try again." Button re-invokes pkexec.
 - **AppImage user grants permission, logs out, logs back in, app still can't read keyboard**: Likely the udev rule didn't trigger. App shows a troubleshooting dialog with the exact `ls -l /dev/input/event*` output and the manifest contents.
-- **Package installed on a system without X11 or Wayland** (headless server): postinst detects no display server, skips XKB config, logs "no display server detected — Caps Lock neutralization skipped." Hotkey won't work anyway (no keyboard to listen to in a headless context).
+- **Package installed on a system without X11 or Wayland** (headless server): postinst detects no display server, skips XKB config, logs "no display server detected, Caps Lock neutralization skipped." Hotkey won't work anyway (no keyboard to listen to in a headless context).
 - **`pkexec` not available** (minimal Linux install): AppImage helper falls back to `gksu` (deprecated but still present on some systems), then `kdesu`, then a terminal-based prompt as a last resort. If all fail, show error: "Install `polkit` or run `sudo /usr/share/voice-typer/scripts/install_permissions.py` manually."
 - **SELinux denies the binary from reading /dev/input/event*** (Fedora with strict SELinux): postinst runs `setsebool -P voice_typer_read_input on` if a custom SELinux policy module is bundled. For v1, we document this as a known limitation and fall back to the legacy pynput backend.
-- **User has multiple keyboards** (laptop + external): udev rule applies to all event devices — both keyboards work.
+- **User has multiple keyboards** (laptop + external): udev rule applies to all event devices, both keyboards work.
 - **Hotplug keyboard after app start**: udev rule applies automatically (the `ACTION=="add"` rule). New keyboard works without app restart.
 - **User runs the app before logging out and back in**: Group membership change hasn't taken effect. Binary emits permission error. App detects this, shows: "Please log out and log back in for the permission change to take effect."
 - **User upgrades the package** (apt upgrade): postinst runs again. All operations are idempotent, so this is safe.
-- **User downgrades the package**: prerm of new version + postinst of old version. Manifest may not match — uninstall_permissions.py is defensive about this.
-- **AppImage updated to a new version** (user replaces the .AppImage file): No system changes needed — the udev rule persists. AppImage just works.
+- **User downgrades the package**: prerm of new version + postinst of old version. Manifest may not match, uninstall_permissions.py is defensive about this.
+- **AppImage updated to a new version** (user replaces the .AppImage file): No system changes needed. The udev rule persists. AppImage just works.
 
 ---
 
-## Section D — Runtime Fallback Chain (Gap 4)
+## Section D: Runtime Fallback Chain (Gap 4)
 
 ### D.1 Design Goals
 
 - When the native backend permanently fails (5 retries exhausted), automatically swap to a legacy backend
-- The swap is transparent to `HotkeyDispatcher` — same callback, same `on_release`
-- The swap is atomic — no window where `is_alive()` returns wrong state
+- The swap is transparent to `HotkeyDispatcher` Same callback, same `on_release`
+- The swap is atomic: no window where `is_alive()` returns wrong state
 - If the legacy backend also fails, give up gracefully (no infinite loop)
 - Show a tray notification on swap: "Hotkey running in compatibility mode"
 - Allow auto-recovery: periodically retry the native backend; if it recovers, swap back
@@ -700,7 +700,7 @@ class _NativeBackendAdapter(HotkeyBackend):
             self._native.start(callback)
             self._state = "NATIVE"
         except Exception as exc:
-            log.warning("[HOTKEY] Native backend failed to start: %s — trying legacy", exc)
+            log.warning("[HOTKEY] Native backend failed to start: %s, trying legacy", exc)
             self._swap_to_legacy()
 
     def set_on_release(self, callback: Optional[Callable[[], None]]) -> None:
@@ -714,7 +714,7 @@ class _NativeBackendAdapter(HotkeyBackend):
             if self._retry_timer:
                 self._retry_timer.cancel()
                 self._retry_timer = None
-            # Stop both — the inactive one is a no-op
+            # Stop both: the inactive one is a no-op
             for backend in (self._native, self._legacy):
                 if backend:
                     try:
@@ -749,7 +749,7 @@ class _NativeBackendAdapter(HotkeyBackend):
 
     def _on_native_permanent_failure(self) -> None:
         """Called when the native backend exhausts its retries."""
-        log.warning("[HOTKEY] Native backend permanently failed — swapping to legacy")
+        log.warning("[HOTKEY] Native backend permanently failed: swapping to legacy")
         self._swap_to_legacy()
 
     def _swap_to_legacy(self) -> None:
@@ -768,7 +768,7 @@ class _NativeBackendAdapter(HotkeyBackend):
                 # Schedule periodic retry of the native backend
                 self._schedule_native_retry()
             except Exception as exc:
-                log.error("[HOTKEY] Legacy backend also failed: %s — giving up", exc)
+                log.error("[HOTKEY] Legacy backend also failed: %s, giving up", exc)
                 self._state = "FAILED"
                 self._show_failure_notification(exc)
 
@@ -808,12 +808,12 @@ class _NativeBackendAdapter(HotkeyBackend):
                     self._state = "NATIVE"
                 if self._on_release_callback:
                     self._native.set_on_release(self._on_release_callback)
-                log.info("[HOTKEY] Native backend recovered — swapped back from legacy")
+                log.info("[HOTKEY] Native backend recovered: swapped back from legacy")
                 self._show_recovery_notification()
                 return
         except Exception as exc:
-            log.warning("[HOTKEY] Native retry failed: %s — staying on legacy", exc)
-        # Retry failed — go back to legacy
+            log.warning("[HOTKEY] Native retry failed: %s, staying on legacy", exc)
+        # Retry failed: go back to legacy
         try:
             self._legacy = self._create_legacy_backend()
             self._legacy.start(self._callback)
@@ -825,7 +825,7 @@ class _NativeBackendAdapter(HotkeyBackend):
         except Exception:
             with self._swap_lock:
                 self._state = "FAILED"
-            log.error("[HOTKEY] Both native and legacy backends failed — hotkey dead")
+            log.error("[HOTKEY] Both native and legacy backends failed, hotkey dead")
 ```
 
 **Changes to `SubprocessHotkeyBackend._reader_loop`**: After the 5-retry loop exhausts, instead of just setting `_failed = True`, invoke `_on_permanent_failure_callback`:
@@ -862,27 +862,27 @@ Three notifications, each shown at most once per app session:
 - **`stop()` called during a swap**: `stop()` acquires `_swap_lock`. The swap also acquires `_swap_lock`. So they're serialized. If swap is in progress, `stop()` waits, then stops both backends. If `stop()` is in progress, swap waits, then sees `state == "STOPPED"` and bails.
 - **Retry timer fires during `stop()`**: Timer is canceled in `stop()`. If it already fired and is running `_retry_native`, the function checks `state != "FALLBACK"` and returns.
 - **Native backend recovers, but user changed the hotkey in the meantime**: The native backend was constructed with the old hotkey. On recovery, it uses the old hotkey. Mitigation: when the user changes the hotkey, `HotkeyDispatcher.restart()` calls `stop()` on the adapter, which cancels the retry timer. A new adapter is constructed with the new hotkey.
-- **Legacy backend fails after running successfully for an hour**: Not handled — only the native backend has retry logic. The legacy backends (pynput, polling) are in-process and don't crash (they fail by silently not firing, which is harder to detect). Documented as a known limitation.
+- **Legacy backend fails after running successfully for an hour**: Not handled, only the native backend has retry logic. The legacy backends (pynput, polling) are in-process and don't crash (they fail by silently not firing, which is harder to detect). Documented as a known limitation.
 - **Adapter is constructed but `start()` is never called**: `_state` remains uninitialized. `is_alive()` returns `False`. `stop()` is a no-op. No retry timer is scheduled. Clean.
 - **Adapter is constructed, `start()` succeeds, `stop()` is called immediately**: `stop()` acquires the lock, sees state NATIVE, stops native, sets state STOPPED. No retry timer was scheduled yet. Clean.
 - **Native backend emits ERROR immediately on start** (e.g. binary not found): `_on_error_callback` fires → `_show_permission_notification` (if it's a permission error). Then `_reader_loop` exhausts retries (5 spawns, each dies immediately) → `_on_native_permanent_failure` → `_swap_to_legacy`. Total time: ~31 seconds (1+2+4+8+16). User sees notification + fallback within 31s.
 - **Multiple adapters exist** (dictation + ESC + repaste): Each has its own retry timer. If all native backends fail, all swap to legacy independently. If one recovers, only that one swaps back.
-- **Permission notification and fallback notification fire in rapid succession**: Order is: permission notification → 31s later → fallback notification. The permission notification says "Click to fix"; if the user clicks within 31s, the retry timer in `permissions.py` (Section B.5) may recover the native backend before the fallback kicks in. This is fine — both paths lead to the native backend running again.
+- **Permission notification and fallback notification fire in rapid succession**: Order is: permission notification → 31s later → fallback notification. The permission notification says "Click to fix"; if the user clicks within 31s, the retry timer in `permissions.py` (Section B.5) may recover the native backend before the fallback kicks in. This is fine. Both paths lead to the native backend running again.
 - **User clicks "Restart app" in the fallback notification**: We don't implement a restart button (out of scope). The notification body just suggests restarting. The 5-minute retry timer will attempt auto-recovery regardless.
 - **Race: native backend dies while `_swap_to_legacy` is executing**: `_swap_lock` protects the swap. The dead native backend's reader thread has already exited by the time `_on_native_permanent_failure` is called, so there's no concurrent access to `_native`.
 
 ---
 
-## Section E — Hidden Edge Cases Catalog
+## Section E: Hidden Edge Cases Catalog
 
 Beyond the per-section edge cases above, these are cross-cutting edge cases that affect multiple sections.
 
 ### E.1 Permission Edge Cases
 
 - **User has multiple Voice Typer installs** (e.g. .deb and AppImage on same machine): The .deb postinst runs first (installs udev rule). When the AppImage runs, it sees the udev rule exists → skips installation. When the user uninstalls the .deb, the prerm removes the udev rule → AppImage breaks. Mitigation: AppImage always checks "can I read /dev/input/event*?" at startup, regardless of whether the rule file exists. If it can't, it runs the pkexec flow.
-- **User installs for "all users" vs "single user"**: .deb is always system-wide. AppImage is always single-user. The udev rule is system-wide (must be — `/dev/input/event*` is a system resource). The XKB config is system-wide on X11, user-specific on GNOME/KDE/Wayland. Documented.
+- **User installs for "all users" vs "single user"**: .deb is always system-wide. AppImage is always single-user. The udev rule is system-wide (must be, `/dev/input/event*` is a system resource). The XKB config is system-wide on X11, user-specific on GNOME/KDE/Wayland. Documented.
 - **Permission changes between app launches**: App always checks at startup. If permission was revoked, it re-runs the permission flow.
-- **User runs Voice Typer as root** (Linux): The `input` group check is skipped (root has access). XKB config may not apply (root has no X session). The app warns: "Running as root is not recommended — keyboard permission setup is skipped."
+- **User runs Voice Typer as root** (Linux): The `input` group check is skipped (root has access). XKB config may not apply (root has no X session). The app warns: "Running as root is not recommended, keyboard permission setup is skipped."
 - **User runs Voice Typer via `sudo -E`** (preserve env): `SUDO_USER` is set. Script adds `SUDO_USER` to `input` group. But the running process is still root, so it can read `/dev/input/event*` regardless. The group add is for the user's normal sessions.
 
 ### E.2 Build & CI Edge Cases
@@ -893,13 +893,13 @@ Beyond the per-section edge cases above, these are cross-cutting edge cases that
 - **ARM64 builds**: macOS M-series, Windows ARM, Linux ARM64 (Raspberry Pi 4). All three toolchains support ARM64. Matrix includes `arm64` where applicable.
 - **Universal binary on macOS** (x64 + arm64 in one binary): `swiftc -target universal-apple-macos11` produces a fat binary. PyInstaller bundles it. Users on Intel and Apple Silicon both work.
 - **`actions/upload-artifact` size limit** (10 GB per artifact): Our binaries are <1 MB each. No issue.
-- **Release fails partway** (some binaries uploaded, some not): Use `softprops/action-gh-release` with `fail_on_unmatched_patterns: false`. Partial releases are still usable — users on the missing platform just don't get an installer that day.
+- **Release fails partway** (some binaries uploaded, some not): Use `softprops/action-gh-release` with `fail_on_unmatched_patterns: false`. Partial releases are still usable, users on the missing platform just don't get an installer that day.
 
 ### E.3 Runtime Fallback Edge Cases
 
 - **Fallback fires during system shutdown**: `stop()` is called as part of shutdown. It acquires `_swap_lock`. If a swap is in progress, `stop()` waits. If the swap is taking too long (legacy backend slow to start), shutdown is delayed by up to 5 seconds. Mitigation: `_swap_lock` is held only briefly during state transitions, not during backend `start()` calls.
-- **Fallback fires during a hotkey press**: The press callback already fired. The recording is in progress. The native backend dies. The fallback swap happens. The legacy backend starts. The user releases the key — but the native backend (which detected the press) is dead, so it can't detect the release. The legacy backend doesn't know the key was pressed, so it won't fire `on_release` either. Result: recording gets stuck. Mitigation: on swap to legacy, fire `_on_release_callback` if we know a recording is in progress (check `app.recorder.recording`).
-- **User changes the hotkey while fallback is active**: `HotkeyDispatcher.restart()` calls `adapter.stop()` (cancels retry timer), then creates a new adapter with the new hotkey. Old adapter's legacy backend is stopped. New adapter starts fresh — tries native first.
+- **Fallback fires during a hotkey press**: The press callback already fired. The recording is in progress. The native backend dies. The fallback swap happens. The legacy backend starts. The user releases the key, but the native backend (which detected the press) is dead, so it can't detect the release. The legacy backend doesn't know the key was pressed, so it won't fire `on_release` either. Result: recording gets stuck. Mitigation: on swap to legacy, fire `_on_release_callback` if we know a recording is in progress (check `app.recorder.recording`).
+- **User changes the hotkey while fallback is active**: `HotkeyDispatcher.restart()` calls `adapter.stop()` (cancels retry timer), then creates a new adapter with the new hotkey. Old adapter's legacy backend is stopped. New adapter starts fresh, tries native first.
 - **User changes the hotkey while native retry is in progress**: Same as above. The retry timer is canceled. New adapter starts fresh.
 - **Adapter's native and legacy backends both use the same key** (e.g. both try to register `<f2>`): Only one backend is active at a time (either native OR legacy, never both). So no conflict. The swap stops the native backend before starting the legacy.
 - **`WaylandHotkey` as legacy** (Linux): The WaylandHotkey backend uses a Unix socket + pynput fallback. It may not work on pure Wayland. If it fails, `FALLBACK` state → `FAILED` state. User is notified.
@@ -938,16 +938,16 @@ Beyond the per-section edge cases above, these are cross-cutting edge cases that
 
 ---
 
-## Section F — Implementation Order & Verification Plan
+## Section F: Implementation Order & Verification Plan
 
 ### F.1 Implementation Order
 
 The four gaps have dependencies. Implement in this order:
 
-1. **Gap 4 (Runtime fallback)** — first, because it's pure code with no system dependencies. Once done, the other gaps benefit from it (e.g. permission denial triggers fallback).
-2. **Gap 2 (macOS Accessibility onboarding)** — second, builds on Gap 4's error callback infrastructure.
-3. **Gap 3 (Linux zero-command setup)** — third, builds on Gap 2's permission module.
-4. **Gap 1 (CI pipeline)** — last, because it packages everything else.
+1. **Gap 4 (Runtime fallback)**: first, because it's pure code with no system dependencies. Once done, the other gaps benefit from it (e.g. permission denial triggers fallback).
+2. **Gap 2 (macOS Accessibility onboarding)**, second, builds on Gap 4's error callback infrastructure.
+3. **Gap 3 (Linux zero-command setup)**, third, builds on Gap 2's permission module.
+4. **Gap 1 (CI pipeline)**: last, because it packages everything else.
 
 ### F.2 Verification Plan
 
@@ -1019,7 +1019,7 @@ All four gaps are "done" when:
 
 ---
 
-## Appendix — File Inventory
+## Appendix: File Inventory
 
 ### New Files (to be created)
 

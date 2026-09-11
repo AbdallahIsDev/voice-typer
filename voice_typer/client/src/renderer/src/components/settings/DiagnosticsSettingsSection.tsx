@@ -1,4 +1,4 @@
-// DiagnosticsSettingsSection — the live diagnostics table + "Copy
+// DiagnosticsSettingsSection, the live diagnostics table + "Copy
 // diagnostics" button.
 //
 // IA split: the diagnostics that previously lived on the About page
@@ -6,7 +6,7 @@
 // destination). The About page is product identity only.
 //
 // NOTE ON KEY NAMESPACE: the section renders the `about.*` i18n keys
-// (about.diagnosticsTitle etc.) — the keys predate the IA split and
+// (about.diagnosticsTitle etc.), the keys predate the IA split and
 // are consumed by this section, the Privacy page, and the About page.
 // The namespaces are internal; the user-facing destinations are
 // correct.
@@ -14,10 +14,10 @@
 // Behaviour is identical to the previous About-page implementation:
 //   - probes get_status / get_config / get_model_status on mount
 //   - the Speech recognizer / Device rows derive from the SHARED
-//     resolveActiveModel helper (lib/utils/models.ts) — the same
+//     resolveActiveModel helper (lib/utils/models.ts), the same
 //     source of truth as the Analytics page's Current Setup cards
 //   - Config Directory resolves from get_status's config_dir (the
-//     backend's authoritative path — never a hardcoded Windows path)
+//     backend's authoritative path, never a hardcoded Windows path)
 //   - Copy diagnostics formats a labeled block to the clipboard
 
 import { Copy01Icon } from "@hugeicons/core-free-icons";
@@ -54,7 +54,7 @@ function StatusDot({ connected }: { connected: boolean }) {
 				(connected ? "text-(--text-primary)" : "text-destructive")
 			}
 		>
-			{/* the colored dot is purely decorative — the adjacent
+			{/* the colored dot is purely decorative, the adjacent
                             "Connected" / "Disconnected" text conveys the state to
                             assistive tech. */}
 			<span
@@ -70,7 +70,7 @@ function StatusDot({ connected }: { connected: boolean }) {
 }
 
 /**
- * Live status value — a colored dot + text for diagnostics rows that
+ * Live status value, a colored dot + text for diagnostics rows that
  * reflect live/dynamic backend state (vs. static config facts).
  */
 function LiveValue({
@@ -154,7 +154,7 @@ export function formatRelativeTime(iso: string | null): string {
 }
 
 interface DiagnosticsSettingsSectionProps {
-	/** Search-filter predicate — same shape as the page-level helper. */
+	/** Search-filter predicate, same shape as the page-level helper. */
 	isVisible: IsVisibleFn;
 }
 
@@ -165,7 +165,7 @@ export const DiagnosticsSettingsSection = memo(
 		const { call } = usePython();
 		const { showSnack } = useSnackbar();
 		// callRef mirror (Home.tsx pattern): the mount probe effect reads
-		// `callRef.current` so its deps stay identity-free — a test mock
+		// `callRef.current` so its deps stay identity-free, a test mock
 		// handing out a fresh `call` per render must not re-fire the probe.
 		const callRef = useLatestRef(call);
 		const [config, setConfig] = useState<VoiceTyperConfig | null>(null);
@@ -178,7 +178,7 @@ export const DiagnosticsSettingsSection = memo(
 		const [loadedVia, setLoadedVia] = useState("");
 		const [modelStatus, setModelStatus] = useState<ModelStatusMap | null>(null);
 
-		// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract — .current must NOT become a dep
+		// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract, .current must NOT become a dep
 		useEffect(() => {
 			let cancelled = false;
 
@@ -192,7 +192,7 @@ export const DiagnosticsSettingsSection = memo(
 					if (!cancelled) {
 						setBackendConnected(true);
 						// The backend returns config_dir since 2026-08-16
-						// (service/status.py) — the row resolves to a real
+						// (service/status.py), the row resolves to a real
 						// path. Older backends fall back to "—".
 						if (status?.config_dir) setConfigDir(status.config_dir);
 						if (status?.loaded_via) setLoadedVia(status.loaded_via);
@@ -205,7 +205,7 @@ export const DiagnosticsSettingsSection = memo(
 					const cfg = await callRef.current<VoiceTyperConfig>("get_config");
 					if (!cancelled) setConfig(cfg);
 				} catch (e) {
-					// intentionally leave config as null — diagnostics
+					// intentionally leave config as null, diagnostics
 					// simply show "—" until the backend comes back.
 					console.warn(
 						"[renderer:DiagnosticsSettingsSection] get_config failed:",
@@ -230,7 +230,7 @@ export const DiagnosticsSettingsSection = memo(
 			};
 		}, []);
 
-		// SHARED model-install truth (lib/utils/models.ts) — the same
+		// SHARED model-install truth (lib/utils/models.ts), the same
 		// function the Analytics page's Current Setup cards use.
 		const activeModel = resolveActiveModel(
 			config?.model_size ?? "",
@@ -277,7 +277,7 @@ export const DiagnosticsSettingsSection = memo(
 
 		const copyDiagnostics = useCallback(async () => {
 			const lines = [
-				`${APP_NAME} ${t("about.versionValue", { version: APP_VERSION })} — ${t("about.diagnosticsTitle")}`,
+				`${APP_NAME} ${t("about.versionValue", { version: APP_VERSION })}, ${t("about.diagnosticsTitle")}`,
 				"=".repeat(28),
 				`${t("about.appVersion")}: ${t("about.versionValue", { version: APP_VERSION })}`,
 				`${t("about.backend")}: ${backendLabel}`,
@@ -323,7 +323,7 @@ export const DiagnosticsSettingsSection = memo(
 		const description = t("about.diagnosticsDescription");
 		const copyLabel = t("about.copyDiagnostics");
 		const appVersionLabel = t("about.appVersion");
-		// Row label for the backend row — distinct from the pre-existing
+		// Row label for the backend row, distinct from the pre-existing
 		// `backendLabel` status string (Connected/Disconnected) below.
 		const backendRowLabel = t("about.backend");
 		const configDirectoryLabel = t("about.configDirectory");
@@ -405,7 +405,7 @@ export const DiagnosticsSettingsSection = memo(
 				)}
 				{/* show which device/compute_type the model actually
                                     loaded via. Hidden entirely when the backend reported
-                                    nothing (no model loaded yet) — a bare "—" would be
+                                    nothing (no model loaded yet), a bare "—" would be
                                     confusing. */}
 				{loadedVia && isVisible(loadedViaLabel, undefined, title) && (
 					<>

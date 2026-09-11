@@ -50,7 +50,7 @@ class TestPhraseRegexCache:
             text_cleanup._phrases_re_cache = (None, None, {})
             p1, _ = text_cleanup._get_phrases_regex()
 
-            # Replace with a NEW list object — different identity, so
+            # Replace with a NEW list object, different identity, so
             # the cache must rebuild.
             text_cleanup._active_phrases = [("beta", "B")]
             p2, lookup2 = text_cleanup._get_phrases_regex()

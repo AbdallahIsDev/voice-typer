@@ -12,7 +12,7 @@ Two realistic concurrent callers:
 - ``credential_store._write_plaintext_fallback()`` from an IPC handler
   thread that just stored a new API key.
 
-Both target ``config.json`` — the second one's failure surfaces as
+Both target ``config.json``, the second one's failure surfaces as
 ``Config.save()`` returning False (logged at ERROR level) and the
 user's setting silently not persisting.
 
@@ -21,14 +21,14 @@ The fix uses ``tempfile.mkstemp(dir=str(path.parent), prefix=path.name
 
 Tests:
 
-1. ``test_concurrent_saves_no_false_return`` — hammer
+1. ``test_concurrent_saves_no_false_return``, hammer
    ``Config.save()`` from 4 threads, assert no False return.
 
-2. ``test_concurrent_writes_no_data_loss`` — hammer
+2. ``test_concurrent_writes_no_data_loss``, hammer
    ``_secure_atomic_write`` directly from multiple threads, assert
    every write lands on disk (no silent loss).
 
-3. ``test_unique_tmp_name_per_call`` — verify each call to
+3. ``test_unique_tmp_name_per_call``, verify each call to
    ``_secure_atomic_write`` uses a different tmp name (no fixed name).
 """
 
@@ -50,7 +50,7 @@ class TestSecureAtomicWriteConcurrent:
     """CR-40: _secure_atomic_write must use a unique tmp name per call."""
 
     def test_concurrent_saves_no_false_return(self, tmp_path):
-        """Hammer Config.save() from 4 threads — assert no False return.
+        """Hammer Config.save() from 4 threads, assert no False return.
 
         With the OLD fixed-tmp-name implementation, concurrent saves
         would collide on the same tmp file (EEXIST), the second
@@ -92,7 +92,7 @@ class TestSecureAtomicWriteConcurrent:
 
     def test_concurrent_writes_no_data_loss(self, tmp_path):
         """Hammer _secure_atomic_write directly from multiple threads
-        targeting the same file — assert every write's content can
+        targeting the same file, assert every write's content can
         be observed (no silent loss).
 
         With the OLD fixed-tmp-name implementation, the second caller's
@@ -118,7 +118,7 @@ class TestSecureAtomicWriteConcurrent:
         # final file might be empty or corrupted.
         assert target.exists(), (
             "CR-40 regression: target file does not exist after "
-            "concurrent writes — the tmp file was deleted by another "
+            "concurrent writes, the tmp file was deleted by another "
             "caller's unlink before os.replace."
         )
         content = target.read_text()
@@ -162,7 +162,7 @@ class TestSecureAtomicWriteConcurrent:
         # All 5 calls must have generated different tmp names.
         assert len(captured_names) == 5, f"Expected 5 mkstemp calls, got {len(captured_names)}."
         assert len(set(captured_names)) == 5, (
-            "CR-40 regression: tmp names are not unique across calls — "
+            "CR-40 regression: tmp names are not unique across calls, "
             f"names: {captured_names}. The OLD implementation used a "
             "fixed name (path.with_suffix(path.suffix + '.tmp')), "
             "causing concurrent writers to collide on the same tmp file."
@@ -205,8 +205,8 @@ class TestSecureAtomicWriteConcurrent:
         data = json.loads(target.read_text())
         assert data["fresh"] is True
         # The OLD fixed-name tmp file should still be there (we didn't
-        # touch it — the new code uses unique names). This proves the
+        # touch it, the new code uses unique names). This proves the
         # new code doesn't rely on the OLD fixed name.
         assert old_tmp.exists(), (
-            "Pre-existing OLD tmp file was unexpectedly removed — the new unique-name code should NOT touch it."
+            "Pre-existing OLD tmp file was unexpectedly removed, the new unique-name code should NOT touch it."
         )

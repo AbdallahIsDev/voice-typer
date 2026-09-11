@@ -5,7 +5,7 @@
  *
  * The HTTP-header CSP injected by `setupCsp()` via
  * `session.defaultSession.webRequest.onHeadersReceived` is the
- * authoritative CSP for every renderer window — HTTP headers take
+ * authoritative CSP for every renderer window, HTTP headers take
  * precedence over the per-window meta tags emitted by `csp-plugin.ts`
  * (CSP spec: when both sources are present, the intersection of allowed
  * sources is enforced, so the stricter HTTP-header policy wins).
@@ -14,7 +14,7 @@
  *   - `connect-src` MUST be exactly `'self'` (no `api.github.com`).
  *   - All other directives (`default-src`, `script-src`, `style-src`,
  *     `img-src`, `font-src`, `media-src`, `frame-ancestors`,
- *     `form-action`, `base-uri`) MUST be preserved — only `connect-src`
+ *     `form-action`, `base-uri`) MUST be preserved, only `connect-src`
  *     was tightened.
  *
  * The mocks mirror `bootstrap.test.ts` so importing `bootstrap.ts`
@@ -23,7 +23,7 @@
  */
 import { describe, expect, it, vi } from "vitest";
 
-// vi.mock calls are hoisted by vitest to before all imports — they
+// vi.mock calls are hoisted by vitest to before all imports, they
 // intercept the imports done by `bootstrap.ts` even though the import
 // statement appears later in the file.
 vi.mock("electron", () => ({
@@ -59,7 +59,7 @@ vi.mock("../state", () => ({
 // Import the unit under test AFTER the mocks are registered.
 import { _buildCsp } from "../bootstrap";
 
-describe("_buildCsp — C-DATA-1 offline guarantee", () => {
+describe("_buildCsp, C-DATA-1 offline guarantee", () => {
 	describe("connect-src (the C-DATA-1 target)", () => {
 		it("does NOT include api.github.com in production mode", () => {
 			const csp = _buildCsp({ isPackaged: true });
@@ -68,7 +68,7 @@ describe("_buildCsp — C-DATA-1 offline guarantee", () => {
 
 		it("does NOT include api.github.com in dev mode either", () => {
 			// Dev mode adds 'unsafe-eval'/'unsafe-inline' to script-src, but
-			// must NOT loosen connect-src — the offline guarantee holds in
+			// must NOT loosen connect-src, the offline guarantee holds in
 			// both modes.
 			const csp = _buildCsp({ isPackaged: false });
 			expect(csp).not.toContain("api.github.com");
@@ -77,7 +77,7 @@ describe("_buildCsp — C-DATA-1 offline guarantee", () => {
 		it("is exactly connect-src 'self' in production (no extra grants)", () => {
 			const csp = _buildCsp({ isPackaged: true });
 			// Extract the full connect-src directive and assert it is
-			// exactly "connect-src 'self'" — no trailing hosts, no
+			// exactly "connect-src 'self'", no trailing hosts, no
 			// 'unsafe-inline', nothing.
 			const match = csp.match(/connect-src [^;]+/);
 			expect(match).not.toBeNull();
@@ -155,7 +155,7 @@ describe("_buildCsp — C-DATA-1 offline guarantee", () => {
 			expect(csp).toContain("'unsafe-eval'");
 			expect(csp).toContain("'unsafe-inline'");
 			// The 'unsafe-inline' must appear in script-src (not just
-			// style-src, which always has it) — assert by checking the
+			// style-src, which always has it), assert by checking the
 			// script-src directive directly.
 			const scriptSrc = csp.match(/script-src [^;]+/)?.[0] ?? "";
 			expect(scriptSrc).toContain("'unsafe-eval'");

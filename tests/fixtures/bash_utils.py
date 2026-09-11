@@ -1,7 +1,7 @@
 """Shared ``bash``-availability probe for tests that run ``bash -n``.
 
 GitHub Actions Windows runners resolve ``bash`` to
-``C:\\Windows\\System32\\bash.exe`` — the WSL launcher stub — which
+``C:\\Windows\\System32\\bash.exe`` (the WSL launcher stub) which
 ``shutil.which`` happily finds but which exits non-zero with "Windows
 Subsystem for Linux has no installed distributions." when actually
 invoked. Tests that gate on ``shutil.which("bash")`` alone therefore

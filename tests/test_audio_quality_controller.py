@@ -74,7 +74,7 @@ class TestAudioQualityControllerWiring:
 
 
 class TestOnAudioQualityChunk:
-    """Per-chunk callback runs in the PortAudio thread — MUST be non-blocking."""
+    """Per-chunk callback runs in the PortAudio thread. MUST be non-blocking."""
 
     def test_updates_accumulators_without_io(self, caplog):
         ctrl, app = _make_controller()
@@ -111,7 +111,7 @@ class TestOnAudioQualityChunk:
         assert aq._peak == pytest.approx(0.9), "peak must be max-seen, not last-seen"
 
     def test_non_blocking_runs_fast_for_many_chunks(self):
-        """The per-chunk callback must complete in bounded time — no I/O,
+        """The per-chunk callback must complete in bounded time, no I/O,
         no allocation of large structures. 10k calls must finish well under
         1 second (true even on a slow CI box); we assert <2s for headroom."""
         ctrl, app = _make_controller()
@@ -123,7 +123,7 @@ class TestOnAudioQualityChunk:
 
     def test_swallows_exceptions_from_analyzer(self, caplog):
         """If ``app._audio_quality`` is missing or raises, the callback must
-        swallow the error — quality analysis must NEVER break the audio
+        swallow the error, quality analysis must NEVER break the audio
         callback."""
         ctrl, app = _make_controller()
         # Remove the analyzer entirely → AttributeError inside the try/except.
@@ -158,7 +158,7 @@ class TestRebuildAudioProcessor:
 
     def test_skips_on_config_changed_when_recorder_lacks_it(self):
         """Some recorders (mocks in tests, or stubs) may not expose
-        ``on_config_changed`` — the rebuild must skip the refresh
+        ``on_config_changed``, the rebuild must skip the refresh
         gracefully via the ``getattr(... None)`` + ``callable`` guard."""
         ctrl, app = _make_controller()
         # Replace recorder with a plain object lacking on_config_changed.
@@ -181,7 +181,7 @@ class TestRebuildAudioProcessor:
 
     def test_swallows_exceptions_from_rebuild(self, caplog):
         """If ``rebuild_from_config`` raises, the controller must not
-        propagate — service.apply_config_side_effects calls this in a
+        propagate, service.apply_config_side_effects calls this in a
         try/except already, but the controller must be self-contained."""
         ctrl, app = _make_controller()
         app._audio_processor.rebuild_from_config.side_effect = RuntimeError("chain boom")
@@ -200,7 +200,7 @@ class TestRebuildAudioProcessor:
 class TestFinalizeAudioQualityReport:
     def test_short_circuits_when_warnings_disabled(self):
         """``audio_quality_warnings=False`` (the default) means we skip
-        the analysis entirely for efficiency — no ``analyze_full_audio``
+        the analysis entirely for efficiency, no ``analyze_full_audio``
         call, no tray notification.
 
         ER-44: ``reset()`` IS still called in the ``finally:`` block so
@@ -217,7 +217,7 @@ class TestFinalizeAudioQualityReport:
         ctrl._finalize_audio_quality_report(audio)
 
         # analyze_full_audio lives on the analyzer (a real
-        # AudioQualityAnalyzer here) — spy on it via a wrapper.
+        # AudioQualityAnalyzer here), spy on it via a wrapper.
         # Easier: replace the analyzer with a MagicMock and assert no
         # analyze_full_audio call.
         app._audio_quality = MagicMock()
@@ -289,7 +289,7 @@ class TestFinalizeAudioQualityReport:
 
     def test_swallows_exceptions_from_analyzer(self, caplog):
         """If ``analyze_full_audio`` raises, the controller must not
-        propagate — RecordingController.stop() calls this in a
+        propagate, RecordingController.stop() calls this in a
         try/except, but the controller must be self-contained."""
         ctrl, app = _make_controller()
         app.config.audio_quality_warnings = True
@@ -308,7 +308,7 @@ class TestFinalizeAudioQualityReport:
     def test_reset_not_called_when_analyze_raises(self):
         """If analyze_full_audio raises, reset() MUST still be called
         (reset is in the ``finally:`` block so it ALWAYS runs,
-        even on exception — preventing state leakage across sessions
+        even on exception, preventing state leakage across sessions
         when the analyzer crashes)."""
         ctrl, app = _make_controller()
         app.config.audio_quality_warnings = True
@@ -360,7 +360,7 @@ class TestOnAudioQualityChunkRmsEma:
     def test_sustained_low_rms_logs_single_warning(self, caplog):
         """sustained low RMS for LOW_VOLUME_SUSTAINED_CHUNKS
         consecutive chunks logs exactly ONE WARNING containing
-        'low input level — increase mic gain'."""
+        'low input level, increase mic gain'."""
         ctrl, app = _make_controller()
         aq = app._audio_quality
         aq.LOW_VOLUME_SUSTAINED_CHUNKS = 5  # speed up test
@@ -371,7 +371,7 @@ class TestOnAudioQualityChunkRmsEma:
         assert len(warn_records) == 1, f"Expected 1 latched warning, got {len(warn_records)}"
         msg = warn_records[0].getMessage()
         assert "low input level" in msg and "increase mic gain" in msg, (
-            f"Warning must say 'low input level — increase mic gain', got: {msg}"
+            f"Warning must say 'low input level, increase mic gain', got: {msg}"
         )
         assert "rms_ema=" in msg, f"Warning must include rms_ema diagnostic: {msg}"
 
@@ -388,7 +388,7 @@ class TestOnAudioQualityChunkRmsEma:
             # (alpha=0.05, rms=0.5 → ema = 0.05*0.5 = 0.025). With 20
             # chunks, EMA would converge to ~0.32 and the second
             # low-volume episode (5 chunks of 0.001) wouldn't be enough
-            # to bring EMA back below 0.005 — the warning wouldn't fire.
+            # to bring EMA back below 0.005, the warning wouldn't fire.
             ctrl._on_audio_quality_chunk(rms=0.5, peak=0.5)
             for _ in range(50):
                 ctrl._on_audio_quality_chunk(rms=0.001, peak=0.001)
@@ -396,7 +396,7 @@ class TestOnAudioQualityChunkRmsEma:
         assert len(warn_records) == 2, f"Expected 2 warnings (one per episode), got {len(warn_records)}"
 
     def test_rms_ema_update_does_not_block_callback(self):
-        """the EMA update must remain non-blocking — 10k calls
+        """the EMA update must remain non-blocking, 10k calls
         must complete well under 2s."""
         ctrl, app = _make_controller()
         start = time.perf_counter()
@@ -424,14 +424,14 @@ class TestRebuildAudioProcessorForceSr:
 
     def test_force_sr_none_does_not_call_set_sample_rate(self):
         """when force_sr is None (the default), set_sample_rate
-        must NOT be called — preserves backward compatibility."""
+        must NOT be called, preserves backward compatibility."""
         ctrl, app = _make_controller()
         ctrl._rebuild_audio_processor()
         app._audio_processor.set_sample_rate.assert_not_called()
         app._audio_processor.rebuild_from_config.assert_called_once_with(app.config)
 
     def test_force_sr_with_real_processor_updates_rate(self):
-        """AUDIO-6 + AUDIO-9: end-to-end — force_sr with a REAL
+        """AUDIO-6 + AUDIO-9: end-to-end, force_sr with a REAL
         AudioProcessor rebuilds the chain at the new rate."""
         from voice_typer.server.audio_processor import AudioProcessor
 

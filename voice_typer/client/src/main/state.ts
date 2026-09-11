@@ -6,7 +6,7 @@
  * variables without re-declaring them.
  *
  * All fields are intentionally `let`-style mutable properties on a single
- * exported object — this preserves the exact runtime semantics of the
+ * exported object, this preserves the exact runtime semantics of the
  * original module-level `let` declarations (every reader sees the latest
  * value written by any writer).
  *
@@ -14,7 +14,7 @@
  * field was removed. It used to live on `state` but is now a local
  * module-level variable inside `ipc/window-handlers.ts` (de-shadowed
  * in a prior refactor). No reader/writer of
- * `state.preMaximizeBounds` remained — only the local `preMaximizeBounds`
+ * `state.preMaximizeBounds` remained, only the local `preMaximizeBounds`
  * in window-handlers.ts is used. 4 test fixtures still include
  * `preMaximizeBounds: null` for backward-compat; they compile due to
  * `as MainState` casts (the extra property is silently ignored at
@@ -37,7 +37,7 @@ export interface PendingRequest {
 /**
  * Hard ceiling on the number of simultaneously-pending IPC
  * requests. Each pending entry pins a `setTimeout` closure that
- * captures the `msg`, `resolve`, `reject`, and `timer` — without a cap,
+ * captures the `msg`, `resolve`, `reject`, and `timer`, without a cap,
  * a buggy or compromised renderer polling `python-call` at 60 Hz for 2
  * minutes retains ~7,200 live entries × ~120s timers (tens of MB of
  * closures). The cap is generous enough for genuine concurrent IPC
@@ -91,7 +91,7 @@ export interface MainState {
 	tcpBuffer: Buffer;
 	/** True once the first TCP connect succeeded (gates `pythonExitedEarly` handling). */
 	pythonReady: boolean;
-	/** True if Python exited before the first connect — surfaces a clear error to the user. */
+	/** True if Python exited before the first connect, surfaces a clear error to the user. */
 	pythonExitedEarly: boolean;
 	/**  heartbeat interval handle (5s tick). Cleared on TCP close / stopPython / relaunch. */
 	heartbeatInterval: ReturnType<typeof setInterval> | null;
@@ -105,7 +105,7 @@ export interface MainState {
 	_hideTimeout: ReturnType<typeof setTimeout> | null;
 	/** tryConnect() retry counter (for log messaging + exponential backoff). */
 	_tcpRetryCount: number;
-	/** Monotonic generation counter — bumped by startPython() to invalidate stale retry loops. */
+	/** Monotonic generation counter, bumped by startPython() to invalidate stale retry loops. */
 	_tcpRetryGeneration: number;
 	/** R6-F6: pending TCP retry timer handle (cleared by stopPython/relaunchApp/startPython before bumping generation). */
 	_tcpRetryTimer: ReturnType<typeof setTimeout> | null;

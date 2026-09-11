@@ -1,5 +1,5 @@
 {
-    "_comment": "SEC-audit-005 manifest. See security.py::_load_model_hashes docstring for full schema. revision = HF commit SHA (immutable); files = {relative_path: sha256_hex}. verify_model_integrity() hard-fails on any pinned-file hash mismatch. qwen is local (revision=local). SHAs fetched 2026-07-10. Parakeet ONNX entry re-pinned 2026-08-20 to grikdotnet/parakeet-tdt-0.6b-fp16 (revision dc9871ec — the upstream original of the fp16 export; ships a real config.json byte-identical to the previously synthesized file; decoder/nemo128/vocab unchanged, encoder hash refreshed from the HF LFS oid).",
+    "_comment": "SEC-audit-005 manifest. See security.py::_load_model_hashes docstring for full schema. revision = HF commit SHA (immutable); files = {relative_path: sha256_hex}. verify_model_integrity() hard-fails on any pinned-file hash mismatch. qwen is local (revision=local). SHAs fetched 2026-07-10. Parakeet ONNX entry re-pinned 2026-08-20 to grikdotnet/parakeet-tdt-0.6b-fp16 (revision dc9871ec, the upstream original of the fp16 export; ships a real config.json byte-identical to the previously synthesized file; decoder/nemo128/vocab unchanged, encoder hash refreshed from the HF LFS oid).",
     "nvidia/parakeet-tdt-0.6b-v3": {
         "revision": "7c35754d166cca382ad1e53e68b01e7c575f3a1d",
         "files": {

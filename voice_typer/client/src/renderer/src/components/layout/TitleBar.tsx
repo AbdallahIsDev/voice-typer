@@ -18,19 +18,19 @@ import type { VoiceTyperConfig } from "@/types/config";
 import type { Page, WindowBridge } from "@/types/ipc";
 
 // Focus-aware title bar: native OS title bars DIM their whole bar
-// while the window is unfocused (the user clicked another app — e.g.
-// VS Code — so the window is visible but inactive), and restore it to
+// while the window is unfocused (the user clicked another app, e.g.
+// VS Code, so the window is visible but inactive), and restore it to
 // full brightness on refocus. We mirror that using the DOM
 // `focus`/`blur` events on `window`, which fire in BOTH runtimes with
 // zero IPC / main-process code: Electron's Chromium, and the Tauri
 // webviews (WebView2 on Windows, WKWebView on macOS, WebKitGTK on
-// Linux). The dim is CONTAINER OPACITY (see TitleBarInner) — not a
-// specific dim color — so it scales whatever colors the active theme
+// Linux). The dim is CONTAINER OPACITY (see TitleBarInner), not a
+// specific dim color, so it scales whatever colors the active theme
 // resolves and cannot break light/dark/custom themes.
 function useWindowFocused(): boolean {
 	// Start FOCUSED: a window opens focused, and the blur/focus events
 	// below are the source of truth from there on. Deliberately NOT
-	// synced from `document.hasFocus()` at mount — that call returns
+	// synced from `document.hasFocus()` at mount, that call returns
 	// false in jsdom and varies across webviews, which would start the
 	// glyphs dimmed in tests; the event-driven state is deterministic.
 	const [focused, setFocused] = useState(true);
@@ -57,20 +57,20 @@ interface TitleBarProps {
 	//(session-6 dedup): ``isMaximized`` is now a REQUIRED prop.
 	// Previously TitleBar had its own local ``useState`` +
 	// ``onMaximizedChanged`` subscription as a fallback for when the
-	// prop was undefined — duplicating the subscription already living
+	// prop was undefined, duplicating the subscription already living
 	// in App.tsx (App.tsx:161-189) which always passes the prop. The
 	// duplicate subscription is deleted; App.tsx is the single owner of
 	// the maximize-state subscription.
 	isMaximized: boolean;
 	//open the keyboard-shortcut help overlay. Previously the
-	// overlay was only reachable via the "?" key — invisible to users
+	// overlay was only reachable via the "?" key, invisible to users
 	// who never discover that shortcut. Exposing a TitleBar button
 	// makes the overlay discoverable for mouse + keyboard users alike.
 	onOpenHelp?: () => void;
 	// THEME CONTROL LIVES IN THE TITLE BAR (moved out of the sidebar).
 	// The icon-only theme button sits in the window-control cluster so
 	// it is part of the bar's control language. App.tsx passes the
-	// SAME state + change handler the sidebar's ThemeSwitch used — no
+	// SAME state + change handler the sidebar's ThemeSwitch used, no
 	// second theme implementation.
 	themeMode: VoiceTyperConfig["theme_mode"];
 	onThemeChange: (mode: VoiceTyperConfig["theme_mode"]) => void;
@@ -78,17 +78,17 @@ interface TitleBarProps {
 	 *  circle-vs-square shell). App.tsx computes it from the
 	 *  `linux_window_buttons` config + the sidecar's
 	 *  `linux_window_buttons_system` snapshot via
-	 *  `resolveLinuxWindowButtons`. Optional — omitted (undefined)
+	 *  `resolveLinuxWindowButtons`. Optional, omitted (undefined)
 	 *  falls back to the classic right-side trio, and the prop is
 	 *  ignored entirely on Windows/macOS. */
 	linuxWindowButtons?: ResolvedLinuxWindowButtons;
-	/** Active route — drives the global search bar's per-page
+	/** Active route, drives the global search bar's per-page
 	 *  placeholder + visibility. Optional so existing TitleBar call
 	 *  sites (tests, splash) render without the search bar. */
 	currentPage?: Page;
 }
 
-// Window-control glyphs — native Windows caption icon geometry.
+// Window-control glyphs, native Windows caption icon geometry.
 // CLOSE and RESTORE are the TRUE outlines of the glyphs Windows uses
 // for its caption buttons, extracted from the `Segoe Fluent Icons`
 // font that ships with Windows 11 (C:\Windows\Fonts\SegoeIcons.ttf,
@@ -102,12 +102,12 @@ interface TitleBarProps {
 
 //
 // WHY FILLED OUTLINES INSTEAD OF STROKED SHAPES: hand-rolled stroked
-// SVGs can never match the native icons — a 0.5px stroke is sub-pixel
+// SVGs can never match the native icons, a 0.5px stroke is sub-pixel
 // at DPR 1 and antialiases to ~50% alpha (the "gray / toned-down"
 // look), diagonal strokes land on half-pixel boundaries, and the X
 // geometry (span/weight/caps) drifts from Microsoft's design. These
 // paths are the font's own filled contours: solid currentColor mass,
-// no stroke, no opacity — every covered pixel is pure #fff in dark
+// no stroke, no opacity, every covered pixel is pure #fff in dark
 // mode, exactly like the OS rendering. The icons are purely
 // decorative (the wrapping button carries the aria-label), so
 // ``aria-hidden`` with NO child <title> (a <title> inside an
@@ -117,11 +117,11 @@ interface TitleBarProps {
 // Platform note: the GLYPHS are identical on Windows and Linux (the
 // shapes below match GNOME's caption icons closely enough that no
 // branch is needed); what differs is the BUTTON, not the icon
-// (Windows square 46×36 hit targets vs Linux circular buttons — see
+// (Windows square 46×36 hit targets vs Linux circular buttons, see
 // TitleBarButton).
 const MINIMIZE_GLYPH_PATH =
 	// Sharp-cornered bar snapped to WHOLE pixels (y 5→6). The native
-	// ChromeMinimize outline spans y 4.50-5.50 with rounded caps — its
+	// ChromeMinimize outline spans y 4.50-5.50 with rounded caps, its
 	// edges sit ON half-pixel boundaries, so at DPR 1 both edges
 	// antialias to ~50% alpha = the same soft/gray bar as the old
 	// hand-drawn rect. Snapping to an integer pixel row renders one
@@ -131,7 +131,7 @@ const MAXIMIZE_GLYPH_PATH =
 	// Sharp square outline (1px frame): outer contour clockwise, inner
 	// contour counter-clockwise → nonzero fill-rule punches the hole.
 	// Deliberately NOT the native ChromeMaximize outline, whose outer
-	// corners are rounded (~1.5px radius) — product decision: crisp
+	// corners are rounded (~1.5px radius), product decision: crisp
 	// right angles, all edges on integer pixels.
 	"M0.00 0.00H10.00V10.00H0.00ZM1.00 1.00V9.00H9.00V1.00Z";
 
@@ -192,7 +192,7 @@ function TitleBarButton({
 	// Red close hover is a WINDOWS convention (the native Windows
 	// close button turns solid red on hover). GNOME/KDE draw a
 	// neutral hover for the close button, so on Linux the close
-	// button must NOT go red — it uses the same neutral hover as
+	// button must NOT go red, it uses the same neutral hover as
 	// minimize/maximize. The caller passes the resolved variant
 	// (`IS_WIN ? "close" : "default"`); this component just applies
 	// the styling for whichever variant it receives.
@@ -203,7 +203,7 @@ function TitleBarButton({
 	// (rounded-4xl, outline-hidden, border-transparent) is overridden
 	// via className to match the title-bar's edge-to-edge framing —
 	// no rounded corners, no visible border, fixed 8x11.5 sizing.
-	// NOTE: deliberately NOT `asChild` — the children are bare SVG icon
+	// NOTE: deliberately NOT `asChild`, the children are bare SVG icon
 	// components, and `Slot.Root` would merge the click handler +
 	// aria-label onto the <svg> itself, replacing the <button> element
 	// entirely (breaking keyboard activation, screen-reader semantics,
@@ -233,13 +233,13 @@ function TitleBarButton({
 				// off-white (L 0.90-0.92), so the glyphs rendered gray
 				// instead of white. `dark:text-white` pins the dark-mode
 				// glyph to true #fff regardless of preset/custom theme.
-				// NOTE: the unfocused-window DIM does NOT live here — it's
+				// NOTE: the unfocused-window DIM does NOT live here, it's
 				// applied as container opacity on the whole bar (see
 				// TitleBarInner), which dims every element uniformly and
 				// cannot clash with theme colors.
 				"text-(--text-primary) dark:text-white transition-colors duration-150",
 				// Linux shell styles. GNOME/Ubuntu (Yaru): circular buttons
-				// with an ALWAYS-VISIBLE subtle circle background — the
+				// with an ALWAYS-VISIBLE subtle circle background, the
 				// gray circle is the button's resting state, NOT a hover
 				// effect (matches the native Ubuntu header bar). KDE
 				// Plasma (Breeze): flat SQUARES with a transparent rest
@@ -300,7 +300,7 @@ function TitleBarButton({
 }
 
 interface ToolbarButtonProps extends React.ComponentProps<"button"> {
-	/** Click handler (optional — the parent may not wire the action). */
+	/** Click handler (optional, the parent may not wire the action). */
 	onClick: (() => void) | undefined;
 	/** Accessible name (localized). */
 	ariaLabel: string;
@@ -313,7 +313,7 @@ interface ToolbarButtonProps extends React.ComponentProps<"button"> {
 	ariaKeyshortcuts?: string;
 	/**
 	 * Back/Forward pass a boolean (their nav stack gates availability);
-	 * the sidebar toggle and help buttons omit it — no `disabled`
+	 * the sidebar toggle and help buttons omit it, no `disabled`
 	 * attribute and no disabled-* classes, exactly like the previous
 	 * inline buttons.
 	 */
@@ -323,16 +323,16 @@ interface ToolbarButtonProps extends React.ComponentProps<"button"> {
 
 /**
  * Shared toolbar icon button (sidebar toggle / back / forward / help):
- * h-6 (24px) inside the p-1 padded toolbar group — the 4px padding
+ * h-6 (24px) inside the p-1 padded toolbar group, the 4px padding
  * keeps every button off the full 36px bar height with room to breathe
- * — with the app's standard muted→primary hover treatment, the
+ *, with the app's standard muted→primary hover treatment, the
  * press-scale active state, and the shared focus ring. Extracted from
  * four inline near-copies of the same class stack.
  *
  * Extends the native button props (spread onto the underlying
- * `<button>`) so Radix `asChild` wrappers — `HotkeyTooltip`'s
+ * `<button>`) so Radix `asChild` wrappers, `HotkeyTooltip`'s
  * `TooltipTrigger` clones this element and injects its focus/pointer
- * handlers + ref — actually reach the DOM node; without the spread the
+ * handlers + ref, actually reach the DOM node; without the spread the
  * injected props would be silently dropped and the tooltip would never
  * open on focus.
  */
@@ -356,7 +356,7 @@ function ToolbarButton({
 				// the 4px padding keeps them off the full 36px bar height.
 				"no-drag press-scale flex h-6 w-6 items-center justify-center rounded",
 				// Theme-aware hover (muted at rest, primary text + subtle wash on
-				// hover — works for custom + dark themes, unlike a physical
+				// hover, works for custom + dark themes, unlike a physical
 				// black/white pairing).
 				"text-(--text-muted) transition-colors duration-150",
 				"hover:bg-foreground/5 hover:text-(--text-primary)",
@@ -373,7 +373,7 @@ function ToolbarButton({
 
 interface NavChevronButtonProps {
 	/**
-	 * Tooltip label — EXACTLY the localized Back/Forward action word
+	 * Tooltip label, EXACTLY the localized Back/Forward action word
 	 * (concise, no mechanism wording like "or mouse back button"); the
 	 * shortcut chips come from HotkeyTooltip's HotkeyChips, never the
 	 * label string.
@@ -385,7 +385,7 @@ interface NavChevronButtonProps {
 	ariaLabel: string;
 	onClick: (() => void) | undefined;
 	disabled: boolean;
-	/** Chevron path — "back" points start-ward, "forward" end-ward. */
+	/** Chevron path, "back" points start-ward, "forward" end-ward. */
 	path: string;
 }
 
@@ -415,7 +415,7 @@ function NavChevronButton({
 					viewBox="0 0 16 16"
 					fill="none"
 					aria-hidden="true"
-					// RTL: the chevron points "back"/"forward" — mirrored under
+					// RTL: the chevron points "back"/"forward", mirrored under
 					// dir=rtl by the shared index.css rule so it points the
 					// semantically correct way for right-to-left locales (the bar
 					// root is pinned dir="ltr", but the [dir="rtl"] ancestor
@@ -485,7 +485,7 @@ function TitleBarInner({
 	// ── Linux window-button layout (option: system / custom / KDE) ──
 	// Resolved from the config + sidecar snapshot by App.tsx; undefined
 	// falls back to the classic right-side trio. Only the IS_LINUX
-	// cluster below consumes this — Windows keeps its fixed native
+	// cluster below consumes this, Windows keeps its fixed native
 	// convention and macOS has no custom buttons at all.
 	const linuxButtons =
 		linuxWindowButtons ?? resolveLinuxWindowButtons(undefined, undefined);
@@ -521,7 +521,7 @@ function TitleBarInner({
 				// Right side: ms-1 separates from the theme switch and pe-2
 				// keeps the close button off the window's right edge.
 				// Left side: mirrored insets (the bar is pinned dir="ltr",
-				// so these are PHYSICAL sides — see the root's LTR pin).
+				// so these are PHYSICAL sides, see the root's LTR pin).
 				side === "right" ? "ms-1 pe-2" : "me-1 ps-2",
 			)}
 		>
@@ -543,7 +543,7 @@ function TitleBarInner({
 			// PHYSICAL-SIDE PINNING: the bar is forced LTR so the window
 			// chrome keeps its platform-conventional geometry regardless
 			// of the document direction. Under dir=rtl a plain flex row
-			// would mirror the whole bar — the macOS traffic-light gutter
+			// would mirror the whole bar, the macOS traffic-light gutter
 			// would flip to the right edge and the Windows/Linux
 			// minimize/maximize/close cluster to the left, both wrong:
 			// native window controls never move when the UI language is
@@ -558,7 +558,7 @@ function TitleBarInner({
 			className={cn(
 				"drag-region flex w-full shrink-0 items-center select-none h-9 transition-opacity duration-150",
 				// Native OS title bars dim the WHOLE bar while the window
-				// is unfocused — every element (sidebar toggle, back,
+				// is unfocused, every element (sidebar toggle, back,
 				// forward, help, and all three window controls) tones
 				// down together. Opacity is THE theme-agnostic dim: it
 				// scales whatever colors the active theme resolves
@@ -570,10 +570,10 @@ function TitleBarInner({
 		>
 			{/* macOS traffic-light gutter: the native red/yellow/green dots
                             are drawn by the OS at trafficLightPosition x:12 spanning
-                            ~52px — reserve 72px so the bar's buttons never collide
+                            ~52px, reserve 72px so the bar's buttons never collide
                             with them. Windows/Linux don't need it (their window
                             controls are the custom ones on the right). */}
-			{/* Linux window controls pinned to the LEFT edge — either the
+			{/* Linux window controls pinned to the LEFT edge, either the
                             desktop's own button-layout says so (gsettings, "follow
                             system" mode) or the user picked "Left" in Settings →
                             Appearance. Rendered BEFORE the toolbar group so the app
@@ -581,7 +581,7 @@ function TitleBarInner({
                             this is the physical left edge in every locale. */}
 			{IS_LINUX && linuxButtons.side === "left" && renderLinuxCluster("left")}
 			{IS_MAC && <div className="h-9 w-18 shrink-0" aria-hidden="true" />}
-			{/* Toolbar button group — sidebar/back/forward/help wrapped in
+			{/* Toolbar button group, sidebar/back/forward/help wrapped in
                             a p-1 (4px) padded flex container so no button takes the
                             full 36px bar height; the 4px padding gives breathing room
                             top/bottom/left/right, and gap-1 separates the buttons. */}
@@ -645,7 +645,7 @@ function TitleBarInner({
 				</HotkeyTooltip>
 			</div>
 
-			{/* Global search bar — centered in the middle of the title bar.
+			{/* Global search bar, centered in the middle of the title bar.
                             Only rendered on searchable pages (history, templates,
                             vocabulary, settings*). On non-searchable pages the flex-1
                             spacer keeps the toolbar pushed left and controls on the
@@ -654,7 +654,7 @@ function TitleBarInner({
 				{currentPage ? <GlobalSearchBar currentPage={currentPage} /> : null}
 			</div>
 
-			{/* Theme control — icon-only, in its OWN p-1 (4px) padded
+			{/* Theme control, icon-only, in its OWN p-1 (4px) padded
                             container (separate from the toolbar group). It sits on
                             the right edge of the bar, immediately LEFT of the window
                             controls. The 4px padding insets the 24px button from the
@@ -663,7 +663,7 @@ function TitleBarInner({
                             minimize circle, whose always-visible background the theme
                             hover would otherwise collide with). On macOS the native
                             traffic lights occupy the left gutter and there are no
-                            window controls — the button anchors the bar's right edge
+                            window controls, the button anchors the bar's right edge
                             instead. The accessible name + hover title carry the
                             current→next theme info (no visible text). */}
 			<div className="flex items-center p-1">
@@ -677,11 +677,11 @@ function TitleBarInner({
 				/>
 			</div>
 
-			{/* Window controls — Windows/Linux only. macOS uses the native
+			{/* Window controls, Windows/Linux only. macOS uses the native
                             traffic lights (titleBarStyle: 'hiddenInset' in the main
                             window), so rendering Windows-style buttons there would
                             duplicate the chrome with wrong-style buttons.
-                            Windows: the fixed 46×36 edge-to-edge trio — the layout is
+                            Windows: the fixed 46×36 edge-to-edge trio, the layout is
                             NOT user-configurable on Windows (native convention).
                             Linux: the resolved cluster (side/visibility/shape from
                             the linux_window_buttons setting + system snapshot); the

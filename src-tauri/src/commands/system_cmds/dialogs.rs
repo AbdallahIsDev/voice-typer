@@ -8,6 +8,7 @@ use tauri_plugin_dialog::DialogExt;
 use tokio::sync::oneshot;
 
 use super::dialog_titles::{localized_title_for, DialogTitle};
+use crate::commands::export::await_dialog_bridge;
 use crate::commands::require_main_window;
 use crate::error::VoiceTyperError;
 use crate::platform::open_path::open_path_in_file_manager;
@@ -15,10 +16,10 @@ use crate::platform::paths::config_dir;
 
 /// Pure decision core for [`open_logs`]: the directory the command
 /// opens in the OS file manager. The host's logs live in
-/// `<config_dir>/logs/` — the same directory
+/// `<config_dir>/logs/`: the same directory
 /// `platform::logging::init::init_file_logger` creates and rotates
 /// `voice-typer-rust.log` in (and the Python sidecar's logs land
-/// alongside) — NOT the config-dir root. Extracted as a pure helper
+/// alongside): NOT the config-dir root. Extracted as a pure helper
 /// so unit tests can pin the exact target directory without
 /// spawning the OS file manager (the command itself needs a live
 /// `tauri::Window`, which cannot be constructed in unit tests).
@@ -36,7 +37,7 @@ pub(crate) fn logs_dir_path(config_dir: &std::path::Path) -> std::path::PathBuf 
 /// - macOS:   `open <path>`
 /// - Linux:   `xdg-open <path>`
 ///
-/// The opened path is `<config_dir>/logs/` — the exact directory the
+/// The opened path is `<config_dir>/logs/`, the exact directory the
 /// host's rotating file logger writes to (see
 /// `platform::logging::init::init_file_logger`, which creates the
 /// dir and writes `<config_dir>/logs/voice-typer-rust.log`), resolved
@@ -47,14 +48,14 @@ pub(crate) fn logs_dir_path(config_dir: &std::path::Path) -> std::path::PathBuf 
 /// install where no log line has been written yet, so the file
 /// manager never opens a "path not found" dead end.
 ///
-/// The response no longer includes the `path` field — the absolute
+/// The response no longer includes the `path` field, the absolute
 /// path can contain the user's home directory / username (PII leak in
 /// shared logs / crash reports), and no renderer call site consumes it
 /// (`window-namespace.ts::openLogs` strips `path` before returning to
 /// the React layer). Returns `{"success": true}` on success or
 /// `{"success": false, "error": "<msg>"}` on failure.
 ///
-/// `window` is auto-injected by Tauri at runtime — the renderer's
+/// `window` is auto-injected by Tauri at runtime, the renderer's
 /// `invoke('open_logs')` call is unchanged.
 /// `require_main_window(&window)?` runs FIRST so a compromised bubble
 /// renderer cannot trigger OS file-manager opens.
@@ -77,7 +78,7 @@ pub async fn open_logs(
     //
     // `open_path_in_file_manager` is also moved into the closure
     // because it does its own `path.exists()` syscall + spawns an
-    // OS-binary child (explorer.exe / open / xdg-open) — both are
+    // OS-binary child (explorer.exe / open / xdg-open), both are
     // blocking work that should NOT run on the async worker pool.
     // The closure returns a single `Result<(), String>` so we can
     // uniformly shape both the mkdir failure and the open failure into
@@ -124,7 +125,7 @@ pub async fn open_logs(
 /// The dialog title is localized from the renderer-pushed
 /// `SidecarState::host_locale` (see `super::dialog_titles`) so the
 /// native surface follows the app language instead of hardcoded
-/// English — byte-mirroring the Electron main process's
+/// English: byte-mirroring the Electron main process's
 /// `dialog.selectModelFolder.title` string for every supported
 /// locale, with English as the fallback before the first push.
 ///
@@ -133,7 +134,7 @@ pub async fn open_logs(
 /// Electron handler's shape so `Models.tsx`'s import handler is
 /// unchanged on both runtimes.
 ///
-/// `window` is auto-injected by Tauri at runtime — the renderer's
+/// `window` is auto-injected by Tauri at runtime, the renderer's
 /// `invoke('open_model_import_dialog')` call is unchanged.
 /// `require_main_window(&window)?` runs FIRST so a compromised bubble
 /// renderer cannot trigger a folder-picker dialog.
@@ -153,7 +154,11 @@ pub async fn open_model_import_dialog(
     app.dialog().file().set_title(title).pick_folder(move |f| {
         let _ = tx.send(f);
     });
-    let file_path = rx.await.unwrap_or(None);
+    // Bounded await: a picker whose callback never fires (window
+    // destroyed mid-dialog, plugin edge case) resolves to the
+    // user-cancel shape instead of parking this command future, and
+    // the renderer's `invoke()` promise: forever.
+    let file_path = await_dialog_bridge(rx).await;
     let path = match file_path {
         Some(fp) => fp.into_path().map_err(|e| format!("invalid path: {e}"))?,
         None => return Ok(json!({"canceled": true})),
@@ -165,7 +170,7 @@ pub async fn open_model_import_dialog(
 }
 
 // Unit tests for the `open_logs` target-directory helper live in the
-// sibling `dialogs_tests.rs` file (C-TEST-5 — keeps production source
+// sibling `dialogs_tests.rs` file (C-TEST-5: keeps production source
 // free of inline test code, matching the `commands/bubble/tests.rs`
 // pattern). The module is wired as a child of `dialogs` so the test
 // file can use `use super::logs_dir_path` directly.

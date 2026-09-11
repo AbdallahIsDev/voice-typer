@@ -1,8 +1,8 @@
-"""VolumeDucker — orchestrates system audio volume ducking during dictation.
+"""VolumeDucker, orchestrates system audio volume ducking during dictation.
 
 When dictation starts, system volume is reduced (ducked) to a
-configurable level (default 20% — :data:`DEFAULT_DUCK_LEVEL`).  When
-dictation stops, the original volume — including mute state — is
+configurable level (default 20%, :data:`DEFAULT_DUCK_LEVEL`).  When
+dictation stops, the original volume: including mute state, is
 restored with a short fade ramp.
 
 Key behaviours:
@@ -35,7 +35,7 @@ Key behaviours:
   duck (no audio at start), a background daemon thread polls
   ``is_speaker_active()`` every ``poll_interval_ms`` (default 500ms)
   during dictation.  If audio starts playing mid-dictation, the monitor
-  retroactively applies the duck — closing the gap where speaker bleed
+  retroactively applies the duck, closing the gap where speaker bleed
   could leak into the mic.  The monitor stops automatically when
   ``restore()`` is called or smart-duck is disabled.  See
   :meth:`_smart_duck_monitor_loop`.
@@ -55,7 +55,7 @@ Key behaviours:
 
 Platform backends are selected by ``platform.get_volume_backend()`` and
 implement the :class:`VolumeBackend` ABC.  If no backend is available,
-ducking is a silent no-op — the app continues normally.
+ducking is a silent no-op, the app continues normally.
 """
 
 from __future__ import annotations
@@ -84,7 +84,7 @@ _MANUAL_OVERRIDE_THRESHOLD = 0.05
 # missing-config fallback, and ``duck()``'s ``level`` default plus the
 # ``_ducked_level`` initial value use it here. (Pre-fix those two
 # module-internal sites carried a drifted 0.25 that no production path
-# ever reached — every production duck passes ``level`` explicitly
+# ever reached, every production duck passes ``level`` explicitly
 # from config, so aligning them changes no effective value.)
 DEFAULT_DUCK_LEVEL: float = 0.20
 
@@ -112,7 +112,7 @@ class VolumeDucker(SmartDuckMonitorMixin):
     ``is_monitor_running``) is contributed by :class:`SmartDuckMonitorMixin`
     in ``voice_typer/server/volume_ducker_monitor.py``. Extracted to keep
     this module under the 800-line ceiling. The mixin owns NO state of
-    its own — all instance attributes are initialised by
+    its own, all instance attributes are initialised by
     :meth:`VolumeDucker.__init__` below.
     """
 
@@ -150,7 +150,7 @@ class VolumeDucker(SmartDuckMonitorMixin):
         # post-fade decrement must not clear duck2's marker).
         # ``restore()`` reads it to tell "smart-duck skip, nothing
         # fading" (logical clear) from "a fade is lowering the volume
-        # right now" (fade back — see restore()'s in-flight branch).
+        # right now" (fade back: see restore()'s in-flight branch).
         self._duck_fades_in_flight: int = 0
         # Smart duck: when True (default), duck() first calls
         # backend.is_speaker_active() and skips the volume change if no
@@ -180,7 +180,7 @@ class VolumeDucker(SmartDuckMonitorMixin):
         ``pactl``, macOS ``osascript``) from burning 10–20 % CPU per
         core when smart-duck polls faster than the backend can service.
         Originally the floor lived only inside ``initialize()``, which
-        no-ops after the first successful call — so the 2nd and later
+        no-ops after the first successful call, so the 2nd and later
         dictations (whose ``VolumeController._duck_volume`` path calls
         ``set_smart_duck_poll_interval`` BEFORE the now-no-op
         ``initialize``) silently bypassed the floor.  Centralising the
@@ -188,7 +188,7 @@ class VolumeDucker(SmartDuckMonitorMixin):
 
         When no backend is bound yet (the production ducker is created
         with ``backend=None`` and auto-detects inside ``initialize``),
-        the helper is a pass-through — the floor is applied later by
+        the helper is a pass-through, the floor is applied later by
         ``initialize``.  This preserves the first-dictation behaviour
         the production code path relies on.
 
@@ -225,7 +225,7 @@ class VolumeDucker(SmartDuckMonitorMixin):
             self._backend = get_volume_backend()
 
         if self._backend is None:
-            log.info("[VOLUME] No volume backend available — ducking disabled")
+            log.info("[VOLUME] No volume backend available, ducking disabled")
             self._initialized = True
             self._ready = False
             return False
@@ -240,7 +240,7 @@ class VolumeDucker(SmartDuckMonitorMixin):
         self._ready = True
 
         # apply the backend's recommended poll interval as a
-        # *floor* on polling speed — the monitor never polls *slower*
+        # *floor* on polling speed, the monitor never polls *slower*
         # than the backend recommends, but the user can always go
         # faster via ``config.volume_duck_smart_poll_interval_ms``.
         # This lets the macOS CoreAudio path (in-process, <1ms) cut
@@ -249,13 +249,13 @@ class VolumeDucker(SmartDuckMonitorMixin):
         #
         # ``getattr`` is used (rather than direct attribute access) so
         # duck-typed test fakes that don't extend ``VolumeBackend`` —
-        # and therefore don't inherit the property — fall back to the
+        # and therefore don't inherit the property, fall back to the
         # conservative 500ms default rather than raising
         # ``AttributeError``.
         recommended = getattr(self._backend, "recommended_poll_interval_ms", 500)
         if recommended < self._smart_duck_poll_ms:
             log.info(
-                "[VOLUME] Backend %s recommends %dms poll interval (was %dms) — adopting",
+                "[VOLUME] Backend %s recommends %dms poll interval (was %dms), adopting",
                 self._backend.name,
                 recommended,
                 self._smart_duck_poll_ms,
@@ -275,14 +275,14 @@ class VolumeDucker(SmartDuckMonitorMixin):
         # ``_clamp_poll_interval`` helper so that
         # ``set_smart_duck_poll_interval`` (called on every dictation
         # start by ``VolumeController._duck_volume``) re-applies the
-        # same floor — preventing the 2nd-and-later-dictation bypass
+        # same floor, preventing the 2nd-and-later-dictation bypass
         # that previously reset the cadence to the unclamped user
         # value (500 ms) on Linux and burned 10–20 % CPU per core.
         clamped = self._clamp_poll_interval(self._smart_duck_poll_ms)
         if clamped > self._smart_duck_poll_ms:
             log.info(
                 "[VOLUME] Backend %s requires %dms minimum poll interval "
-                "(was %dms) — adopting to avoid subprocess CPU waste",
+                "(was %dms), adopting to avoid subprocess CPU waste",
                 self._backend.name,
                 clamped,
                 self._smart_duck_poll_ms,
@@ -300,7 +300,7 @@ class VolumeDucker(SmartDuckMonitorMixin):
         # subprocess (200–500 ms latency per call) when pyobjc-
         # framework-CoreAudio isn't installed. With smart-duck enabled,
         # the background monitor polls ``is_speaker_active()`` every
-        # 500 ms — each poll spawns osascript → 40–100% CPU on one
+        # 500 ms, each poll spawns osascript → 40–100% CPU on one
         # core just for smart-duck, plus repeated AppleScript
         # permission prompts on macOS 13+.
         #
@@ -337,7 +337,7 @@ class VolumeDucker(SmartDuckMonitorMixin):
             stale = self._crash_recovery.load_stale()
             if stale is not None:
                 log.warning(
-                    "[VOLUME] Previous session crashed while ducked — restoring volume to %.0f%% (muted=%s)",
+                    "[VOLUME] Previous session crashed while ducked, restoring volume to %.0f%% (muted=%s)",
                     stale.linear * 100,
                     stale.muted,
                 )
@@ -405,7 +405,7 @@ class VolumeDucker(SmartDuckMonitorMixin):
                 # First duck -- save current state.
                 state = self._backend.get_state()
                 if state is None:
-                    log.warning("[VOLUME] get_state failed — not ducking")
+                    log.warning("[VOLUME] get_state failed, not ducking")
                     return False
                 self._saved_state = state
                 self._ducked_level = level
@@ -428,7 +428,7 @@ class VolumeDucker(SmartDuckMonitorMixin):
                 #  (fix): null-check _backend before calling
                 if self._smart_duck_enabled and self._backend is not None and not self._backend.is_speaker_active():
                     self._actually_ducked = False
-                    log.info("[VOLUME] No audio output — duck skipped (smart duck, monitor started)")
+                    log.info("[VOLUME] No audio output, duck skipped (smart duck, monitor started)")
                     self._start_smart_duck_monitor(level, fade_ms, per_session)
                     return True
 
@@ -451,7 +451,7 @@ class VolumeDucker(SmartDuckMonitorMixin):
                 # fade can block for up to 150 ms; if the process
                 # crashes mid-fade the volume is partially ducked but,
                 # without this write, no recovery file would exist for
-                # the next launch — leaving the speakers stuck at the
+                # the next launch, leaving the speakers stuck at the
                 # ducked level.  Saving before the fade guarantees the
                 # file exists for the entire duration of the fade.
                 # If the fade subsequently fails, ``restore()`` will
@@ -482,7 +482,7 @@ class VolumeDucker(SmartDuckMonitorMixin):
                 self._ducked_level = level
                 if not self._actually_ducked:
                     log.info(
-                        "[VOLUME] Duck level updated -> %.0f%% (smart-duck still skipping — no fade)",
+                        "[VOLUME] Duck level updated -> %.0f%% (smart-duck still skipping, no fade)",
                         level * 100,
                     )
                     return True
@@ -535,12 +535,12 @@ class VolumeDucker(SmartDuckMonitorMixin):
                     # where ``is_ducked`` is False but ``_actually_ducked``
                     # is True).  ``restore()`` also cleared the
                     # crash-recovery file (it was saved pre-fade),
-                    # so there's nothing to recover from — the volume was
+                    # so there's nothing to recover from, the volume was
                     # already restored.
                     if self._saved_state is None:
-                        log.info("[VOLUME] restore() ran during duck fade — skipping state update")
+                        log.info("[VOLUME] restore() ran during duck fade, skipping state update")
                         # Our fade may have completed AFTER the restore's
-                        # fade-back (last-writer-wins) — repair so the
+                        # fade-back (last-writer-wins), repair so the
                         # volume cannot be left stuck at the duck level.
                         self._repair_volume_after_interrupted_fade(
                             backend_ref, saved_state, restore_sessions=use_per_session
@@ -566,14 +566,14 @@ class VolumeDucker(SmartDuckMonitorMixin):
                 # the fade -- if so, repair the volume like the
                 # first-duck path above.
                 if self._saved_state is None:
-                    log.info("[VOLUME] restore() ran during level-update fade — skipping state update")
+                    log.info("[VOLUME] restore() ran during level-update fade, skipping state update")
                     self._repair_volume_after_interrupted_fade(backend_ref, saved_state)
                     return ok
                 log.info("[VOLUME] Duck level updated -> %.0f%%", target_level * 100)
                 return ok
         except Exception:
             # The backend call raised mid-fade: nothing owns the ducked
-            # state anymore — clean it up, best-effort return the volume
+            # state anymore, clean it up, best-effort return the volume
             # to the pre-duck level, then re-raise (the exception is
             # real; the caller logs it).
             with self._lock:
@@ -611,7 +611,7 @@ class VolumeDucker(SmartDuckMonitorMixin):
                 backend.restore_other_sessions()
             backend.set_linear(saved_state.linear, muted=saved_state.muted)
             log.info(
-                "[VOLUME] Interrupted duck fade repaired — volume reset to %.0f%% (muted=%s)",
+                "[VOLUME] Interrupted duck fade repaired, volume reset to %.0f%% (muted=%s)",
                 saved_state.linear * 100,
                 saved_state.muted,
             )
@@ -651,12 +651,12 @@ class VolumeDucker(SmartDuckMonitorMixin):
         #   2. Thread A sets ``_monitor_stop``.
         #   3. Thread B (concurrent duck) acquires the lock, calls
         #      ``_start_smart_duck_monitor()``.  It reads
-        #      ``_monitor_thread`` — if Thread A hasn't nulled it yet,
+        #      ``_monitor_thread``: if Thread A hasn't nulled it yet,
         #      it sees T1 (alive) and returns WITHOUT starting a fresh
         #      monitor (``_start_smart_duck_monitor``'s early-exit when
         #      a monitor is already running).  Thread A then nulls
         #      ``_monitor_thread``; T1 exits on its next poll.  The new
-        #      dictation has NO monitor running — no retroactive-duck
+        #      dictation has NO monitor running, no retroactive-duck
         #      protection.
         #
         # Calling ``_stop_smart_duck_monitor()`` from inside the lock
@@ -664,7 +664,7 @@ class VolumeDucker(SmartDuckMonitorMixin):
         # to ``duck()``'s start.  ``_stop_smart_duck_monitor()`` is
         # non-blocking (: signals the Event, clears
         # ``_monitor_thread``, returns without joining), so holding the
-        # lock for the call does not introduce a deadlock — the monitor
+        # lock for the call does not introduce a deadlock, the monitor
         # thread either sees the Event via ``wait()`` and exits without
         # the lock, or acquires the lock after ``restore()`` releases
         # it and exits via the ``_saved_state is None`` re-check.
@@ -672,7 +672,7 @@ class VolumeDucker(SmartDuckMonitorMixin):
             self._stop_smart_duck_monitor()
 
             if self._saved_state is None:
-                return True  # not ducked — no-op success
+                return True  # not ducked, no-op success
 
             if not self._actually_ducked:
                 if self._duck_fades_in_flight > 0:
@@ -717,18 +717,18 @@ class VolumeDucker(SmartDuckMonitorMixin):
 
             current = self._backend.get_state()
             if current is None:
-                log.warning("[VOLUME] get_state failed on restore — using saved value")
+                log.warning("[VOLUME] get_state failed on restore, using saved value")
                 target = self._saved_state
             elif self._duck_fades_in_flight > 0:
                 # A duck()'s level-update fade is still in flight: the
                 # current reading is transient (our own fade, not a user
-                # manual change) — trust the saved state.
-                log.info("[VOLUME] Duck fade in flight on restore — using saved value (current reading is mid-fade)")
+                # manual change), trust the saved state.
+                log.info("[VOLUME] Duck fade in flight on restore, using saved value (current reading is mid-fade)")
                 target = self._saved_state
             elif not force and abs(current.linear - self._ducked_level) > _MANUAL_OVERRIDE_THRESHOLD:
                 log.info(
                     "[VOLUME] Manual volume change detected during duck "
-                    "(current=%.0f%%, ducked=%.0f%%) — restoring to current "
+                    "(current=%.0f%%, ducked=%.0f%%), restoring to current "
                     "instead of saved (%.0f%%)",
                     current.linear * 100,
                     self._ducked_level * 100,
@@ -755,7 +755,7 @@ class VolumeDucker(SmartDuckMonitorMixin):
 
     @property
     def is_ducked(self) -> bool:
-        """``True`` if volume is currently ducked (logically — may be a smart-duck skip)."""
+        """``True`` if volume is currently ducked (logically, may be a smart-duck skip)."""
         with self._lock:
             return self._saved_state is not None
 
@@ -763,7 +763,7 @@ class VolumeDucker(SmartDuckMonitorMixin):
     def actually_ducked(self) -> bool:
         """``True`` if the volume was actually changed (not a smart-duck skip).
 
-        Useful for diagnostics and for tests — :attr:`is_ducked` returns
+        Useful for diagnostics and for tests, :attr:`is_ducked` returns
         ``True`` during a smart-duck skip (so the UI shows duck state
         consistently), but this property distinguishes "we skipped the
         fade" from "we actually lowered the volume".
@@ -781,17 +781,17 @@ class VolumeDucker(SmartDuckMonitorMixin):
 
         Wired from ``config.volume_duck_smart`` by :class:`VoiceTyperApp`
         on startup and whenever the config changes.  Takes effect on the
-        next ``duck()`` call — does not affect an in-progress duck.
+        next ``duck()`` call, does not affect an in-progress duck.
 
         v2.3: if smart-duck is disabled mid-dictation while the monitor
         is running, the monitor is stopped.  The current smart-duck
-        skip state is left as-is (we don't retroactively duck — the
+        skip state is left as-is (we don't retroactively duck, the
         user explicitly disabled the feature).  The next ``duck()``
         call will use the new setting.
         """
         self._smart_duck_enabled = bool(enabled)
         if not enabled:
-            # Stop the monitor — the user disabled smart-duck, so we
+            # Stop the monitor, the user disabled smart-duck, so we
             # shouldn't retroactively duck anymore.  We leave
             # _actually_ducked=False (if it was) so restore() is still
             # a no-op.  The volume is unchanged either way.
@@ -802,7 +802,7 @@ class VolumeDucker(SmartDuckMonitorMixin):
 
         Wired from ``config.volume_duck_smart_poll_interval_ms`` by
         :class:`VoiceTyperApp`.  Takes effect on the next monitor poll.
-        Clamped to [50, 5000] — below 50ms risks starving the audio
+        Clamped to [50, 5000], below 50ms risks starving the audio
         callback on slow backends (macOS osascript); above 5000ms is
         too slow to catch short audio bursts.
 
@@ -811,7 +811,7 @@ class VolumeDucker(SmartDuckMonitorMixin):
         This is the core  fix: previously the floor was applied
         only inside :meth:`initialize` (which no-ops after the first
         dictation), so the 2nd-and-later dictations silently bypassed
-        the floor — causing 10–20 % CPU waste on Linux ``pactl`` /
+        the floor, causing 10–20 % CPU waste on Linux ``pactl`` /
         macOS ``osascript`` for the duration of every subsequent
         dictation.
         """

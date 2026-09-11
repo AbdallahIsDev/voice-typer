@@ -1,16 +1,16 @@
-"""macOS autostart — LaunchAgent plist.
+"""macOS autostart. LaunchAgent plist.
 
-Phase 4.5 /  — extracted from the original
+Phase 4.5 / , extracted from the original
 ``voice_typer/server/server_platform.py`` god-module.  Implements the
 three macOS autostart primitives:
 
-  - :func:`_enable_autostart_macos` — write ``~/Library/LaunchAgents/com.voicetyper.plist``
-+ ``launchctl load`` (with a 5 s timeout — ).
-  - :func:`_disable_autostart_macos` — ``launchctl bootout`` (modern,
+  - :func:`_enable_autostart_macos`: write ``~/Library/LaunchAgents/com.voicetyper.plist``
++ ``launchctl load`` (with a 5 s timeout, ).
+  - :func:`_disable_autostart_macos`: ``launchctl bootout`` (modern,
     macOS 10.10+) + ``launchctl remove`` (legacy fallback) + delete the
     plist file.
-  - :func:`_is_autostart_macos` — file-existence probe on the plist.
-  - :func:`_os_uid` — current user's numeric uid (for the
+  - :func:`_is_autostart_macos`: file-existence probe on the plist.
+  - :func:`_os_uid`: current user's numeric uid (for the
     ``launchctl bootout gui/<uid>/<label>`` target).
 
 Patch-path compatibility
@@ -26,7 +26,7 @@ time; ``_os_uid`` resolves as a plain module-global lookup at call time.
 ``Path.home()`` and ``subprocess.run`` are patched globally (via
 ``monkeypatch.setattr(Path, "home", ...)`` and
 ``monkeypatch.setattr(subprocess, "run", fake_run)`` in the mig16
-``darwin_platform`` fixture) — both resolve to the same stdlib module
+``darwin_platform`` fixture), both resolve to the same stdlib module
 objects that this file imports, so the global patches propagate without
 any extra indirection.
 
@@ -70,11 +70,11 @@ def _enable_autostart_macos() -> bool:
 
     # previously the plist's ``WorkingDirectory`` was
     # set to the literal string ``~``.  launchd does NOT expand ``~``
-    # in plist values — the WorkingDirectory must be an absolute path.
+    # in plist values, the WorkingDirectory must be an absolute path.
     # The literal ``~`` caused launchd to fail to chdir into anything
     # (silently on some macOS versions, noisily on others), so the
     # autostarted Python process inherited launchd's ``/`` working
-    # directory — which in turn made relative file operations in
+    # directory: which in turn made relative file operations in
     # autostart_launcher.py resolve to the wrong place.
     working_dir = str(Path.home())
 
@@ -82,7 +82,7 @@ def _enable_autostart_macos() -> bool:
     # probe whether a system Python (if we're in a venv) can import
     # ``voice_typer.server.autostart_launcher`` before swapping. macOS
     # users typically run from a Homebrew Python or a system Python —
-    # not a venv — so the swap is usually skipped. But dev-mode users
+    # not a venv, so the swap is usually skipped. But dev-mode users
     # who ``uv venv && source .venv/bin/activate`` would otherwise
     # have their LaunchAgent point at the venv Python, which breaks
     # if the venv is deleted. The probe is the same as Linux/Windows
@@ -107,7 +107,7 @@ def _enable_autostart_macos() -> bool:
                 "[AUTOSTART] Running inside venv (%s) but system Python "
                 "cannot import voice_typer.server.autostart_launcher "
                 "(probe failed). Keeping venv Python for the macOS "
-                "LaunchAgent — autostart will break if the venv is "
+                "LaunchAgent, autostart will break if the venv is "
                 "deleted, but works for the current user.",
                 python_exe,
             )
@@ -138,7 +138,7 @@ def _enable_autostart_macos() -> bool:
     # Atomic write (temp + os.replace) so a crash mid-write cannot
     # leave a half-truncated plist that launchd refuses to load on next
     # boot. durability=False matches the existing prewarm/autostart
-    # pattern — these plist files do not need fsync.
+    # pattern, these plist files do not need fsync.
     from voice_typer.server.secure_file_io import _secure_atomic_write
 
     _secure_atomic_write(plist_path, plist_content, durability=False)
@@ -168,14 +168,14 @@ def _enable_autostart_macos() -> bool:
         #
         # inspect the CompletedProcess returncode AND stderr.
         # Pre-fix, this function unconditionally ``return True`` after
-        # the subprocess.run call — so a launchctl load failure (e.g.
+        # the subprocess.run call, so a launchctl load failure (e.g.
         # "Loader.Error" or "exited with" in stderr, or a non-zero
         # return code) was swallowed and the renderer showed "Autostart
         # enabled" even though the LaunchAgent was NOT loaded. The user
         # rebooted and Voice Typer didn't start, with no diagnostic.
         #
         # prefer the modern ``launchctl bootstrap`` (macOS 10.10+,
-        # 2014) — the documented replacement for the deprecated
+        # 2014), the documented replacement for the deprecated
         # ``launchctl load`` verb. ``bootstrap`` accepts the same plist
         # path but takes a ``gui/<uid>`` domain target, mirroring the
         # disable path's ``launchctl bootout gui/<uid>/<label>`` call
@@ -193,7 +193,7 @@ def _enable_autostart_macos() -> bool:
             timeout=5.0,
         )
     except subprocess.TimeoutExpired:
-        log.warning("[CONFIG] launchctl bootstrap timed out after 5s — launchd may be unresponsive")
+        log.warning("[CONFIG] launchctl bootstrap timed out after 5s, launchd may be unresponsive")
         # surface the timeout to the caller so the renderer can
         # show "Autostart failed: launchctl bootstrap timed out" instead
         # of the misleading success toast.
@@ -208,7 +208,7 @@ def _enable_autostart_macos() -> bool:
     # success and non-zero on failure. The stderr text contains hints
     # like "Loader.Error: ... exited with" for plist-syntax / path /
     # permission errors. We treat BOTH a non-zero returncode AND the
-    # known error-substring patterns as failure (defensive — some
+    # known error-substring patterns as failure (defensive, some
     # launchctl bugs return 0 but still write to stderr).
     stderr_text = ""
     try:
@@ -234,10 +234,10 @@ def _enable_autostart_macos() -> bool:
         # safe fallback that mirrors the disable path's dual-call
         # pattern (bootout + remove). We log the bootstrap failure at
         # INFO (not WARNING) because the load fallback is the expected
-        # path on pre-10.10 systems — only the final load result
+        # path on pre-10.10 systems, only the final load result
         # determines success / failure.
         log.info(
-            "[CONFIG] launchctl bootstrap rc=%s stderr=%r — falling back to legacy launchctl load",
+            "[CONFIG] launchctl bootstrap rc=%s stderr=%r, falling back to legacy launchctl load",
             completed.returncode,
             stderr_text.strip(),
         )
@@ -249,7 +249,7 @@ def _enable_autostart_macos() -> bool:
                 timeout=5.0,
             )
         except subprocess.TimeoutExpired:
-            log.warning("[CONFIG] launchctl load timed out after 5s — launchd may be unresponsive")
+            log.warning("[CONFIG] launchctl load timed out after 5s, launchd may be unresponsive")
             log.exception("[CONFIG] Autostart enable FAILED: launchctl load timed out")
             return False
         except Exception as e:
@@ -274,7 +274,7 @@ def _enable_autostart_macos() -> bool:
         err_msg = f"launchctl load exit {completed.returncode}: {stderr_text.strip() or '(no stderr)'}"
         log.warning("[CONFIG] Autostart enable FAILED: %s", err_msg)
         return False
-    # Defensive substring check — handles the launchctl bug where
+    # Defensive substring check, handles the launchctl bug where
     # returncode is 0 but stderr still reports a Loader.Error.
     if "loader.error" in stderr_lower or "exited with" in stderr_lower:
         err_msg = f"launchctl load reported error (rc=0): {stderr_text.strip()}"
@@ -291,7 +291,7 @@ def _disable_autostart_macos() -> bool:
     # job keeps running until next logout even though it's "disabled".
     # Prefer the modern `launchctl bootout` (macOS 10.10+) and fall back
     # to the legacy `launchctl remove` for older systems.  Both are
-    # best-effort — failure here just means the job lingers until logout.
+    # best-effort, failure here just means the job lingers until logout.
     label = "com.voicetyper"
     for args in (
         ["launchctl", "bootout", f"gui/{_os_uid()}/{label}"],
@@ -317,7 +317,7 @@ def _os_uid() -> int:
         try:
             return int(_getuid())
         except OSError:
-            log.debug("[PLATFORM] os.getuid failed — falling back to 501", exc_info=True)
+            log.debug("[PLATFORM] os.getuid failed, falling back to 501", exc_info=True)
     return 501  # default first user on macOS
 
 
@@ -344,8 +344,8 @@ def _plist_program_arguments_exist(plist_path: Path) -> bool:
         with plist_path.open("rb") as fh:
             data = plistlib.load(fh)
     except Exception:
-        # Malformed plist — conservatively report valid (can't parse).
-        log.debug("[AUTOSTART] macOS plist unparseable — treating as valid: %s", plist_path)
+        # Malformed plist, conservatively report valid (can't parse).
+        log.debug("[AUTOSTART] macOS plist unparseable, treating as valid: %s", plist_path)
         return True
     program_args = data.get("ProgramArguments") if isinstance(data, dict) else None
     if not isinstance(program_args, list) or not program_args:
@@ -353,14 +353,14 @@ def _plist_program_arguments_exist(plist_path: Path) -> bool:
         program = data.get("Program") if isinstance(data, dict) else None
         if isinstance(program, str) and program:
             return Path(program).exists()
-        log.debug("[AUTOSTART] macOS plist has no parseable program args — treating as valid: %s", plist_path)
+        log.debug("[AUTOSTART] macOS plist has no parseable program args, treating as valid: %s", plist_path)
         return True
     # Check the python interpreter (first arg) and launcher (second
     # arg, when present). Conservatively skip non-string entries.
     for entry in program_args[:2]:
         if isinstance(entry, str) and entry and not Path(entry).exists():
             log.warning(
-                "[AUTOSTART] macOS plist references missing program path: %s — treating autostart as disabled",
+                "[AUTOSTART] macOS plist references missing program path: %s, treating autostart as disabled",
                 entry,
             )
             return False
@@ -372,7 +372,7 @@ def _is_autostart_macos() -> bool:
     exist on disk.
 
     AUTOSTART-CMD-VALIDATE: mirrors the validation in the Windows
-    ``_is_app_autostart_startup_registered`` — the plist's existence
+    ``_is_app_autostart_startup_registered``: the plist's existence
     alone is not enough; we also verify the python / launcher paths it
     points at exist. A stale plist (venv deleted or install moved)
     reports disabled so Settings shows the true state instead of a

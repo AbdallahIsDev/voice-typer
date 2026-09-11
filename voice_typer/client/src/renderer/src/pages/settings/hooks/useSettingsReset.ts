@@ -1,8 +1,8 @@
 // Settings reset-to-defaults hook.
 //
 // Extracted from `pages/Settings.tsx` (page-root slimming): the
-// reset-to-defaults event flow — confirm-dialog state + the async
-// `get_defaults` → filter → `update_config` → toast sequence — was the
+// reset-to-defaults event flow, confirm-dialog state + the async
+// `get_defaults` → filter → `update_config` → toast sequence, was the
 // page's largest remaining inline event handler. It lives here so the
 // page root stays layout + wiring, and the flow is testable in
 // isolation.

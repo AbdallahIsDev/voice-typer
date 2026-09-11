@@ -5,7 +5,7 @@
  * The component now renders ONLY the single test timer readout
  * ("Recording MM:SS / MM:SS") while recording, and nothing otherwise.
  * The removed "Waiting for voice…" / "✓ Voice detected" / quality-tier
- * messages must NOT reappear — they duplicated what the level bar
+ * messages must NOT reappear, they duplicated what the level bar
  * already shows.
  */
 import { cleanup, render, screen } from "@testing-library/react";
@@ -38,7 +38,7 @@ const baseProps = {
 	totalSeconds: 10,
 };
 
-describe("LiveQualityFeedback — single timer readout", () => {
+describe("LiveQualityFeedback, single timer readout", () => {
 	afterEach(() => {
 		cleanup();
 		useSentinel = false;

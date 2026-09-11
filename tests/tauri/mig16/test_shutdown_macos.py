@@ -1,8 +1,8 @@
-"""MIG-1.6 Phase 0-M Gate Check 7 — cooperative shutdown validation (macOS).
+"""MIG-1.6 Phase 0-M Gate Check 7: cooperative shutdown validation (macOS).
 
 This module validates the **macOS cooperative shutdown path** described in
 ADR-0020 §10 and the macOS Validation Runbook §6.5 (Cooperative shutdown
-gate point 6, BOTH arches — Apple Silicon + Intel):
+gate point 6, BOTH arches, Apple Silicon + Intel):
 
     Rust host (shutdown_sidecar Tauri command)  [cross-platform code]
         │  1. sets state.shutting_down = true (atomic flag)
@@ -17,12 +17,12 @@ gate point 6, BOTH arches — Apple Silicon + Intel):
         │     log "[SHUTDOWN] sidecar kill completed (graceful=false)"
         ▼
     Python sidecar (_make_dispatch → dispatch closure in sidecar_ws.py)
-        │  1. logs "[SIDECAR-WS] shutdown received — releasing mic and exiting"
+        │  1. logs "[SIDECAR-WS] shutdown received, releasing mic and exiting"
         │  2. schedules server.app.quit() on a daemon thread (so the
-        │     ack is sent BEFORE quit runs — host's hard timeout is 2.0s)
+        │     ack is sent BEFORE quit runs, host's hard timeout is 2.0s)
         │  3. returns {"type":"result","data":{"ack":True}} immediately
         ▼
-    supervisor (respawn) — crash backstop  [cross-platform code]
+    supervisor (respawn), crash backstop  [cross-platform code]
         │  • backoff schedule: [500, 1000, 2000, 4000, 8000] ms
         │    (ADR-0020 §10: doubling, 5 steps)
         │  • cap: SUPERVISOR_MAX_RETRIES = 5 → after 5 failed respawns,
@@ -36,7 +36,7 @@ gate point 6, BOTH arches — Apple Silicon + Intel):
 
 macOS signal behavior (the only platform-specific aspect of this gate):
 ---------------------------------------------------------------------
-The shutdown_sidecar Rust code is **cross-platform** — the same source
+The shutdown_sidecar Rust code is **cross-platform**, the same source
 compiles for macOS, Linux, and Windows. The only platform-specific
 behavior is in the child-kill backstop:
 
@@ -59,9 +59,9 @@ So on macOS:
 - The cooperative `{"type":"shutdown"}` WS frame is the FIRST graceful
   signal (process-level, no OS signal).
 - If the sidecar acks + exits within 2s (the normal path on macOS),
-  no OS signal is ever sent — the child is already gone when
+  no OS signal is ever sent, the child is already gone when
   `child.kill()` runs (no-op on a dead pid).
-- If the sidecar is hung (rare — usually a CTranslate2 native call
+- If the sidecar is hung (rare, usually a CTranslate2 native call
   blocking the WS reader), the backstop `child.kill()` fires:
   - Release build → SIGTERM (graceful, gives Python a chance to clean
     up mic/sounddevice handles).
@@ -108,7 +108,7 @@ References:
 - src-tauri/src/sidecar/supervisor.rs (supervisor)
 - src-tauri/src/util.rs (SUPERVISOR_BACKOFF_MS, SUPERVISOR_MAX_RETRIES,
   SHUTDOWN_ACK_TIMEOUT_MS, SHUTDOWN_POLL_INTERVAL_MS, PRE_RESTART_DELAY_MS)
-- src-tauri/src/state.rs (SidecarState + SidecarHandle enum — the
+- src-tauri/src/state.rs (SidecarState + SidecarHandle enum, the
   ShellPlugin vs DevMode variant is what determines SIGTERM vs SIGKILL
   on macOS)
 - voice_typer/server/sidecar_ws.py (_make_dispatch shutdown branch)
@@ -126,7 +126,7 @@ from unittest.mock import MagicMock
 # __file__ = <repo>/tests/tauri/mig16/test_shutdown_macos.py
 # parents[0]=mig16, [1]=tauri, [2]=tests, [3]=voice-typer (repo root)
 _REPO_ROOT = Path(__file__).resolve().parents[3]
-# Don't assert the literal repo-dir name — the repo may be cloned under any
+# Don't assert the literal repo-dir name, the repo may be cloned under any
 # name (e.g. "voice-typer", "persistent-voice-typing", a fork name). Instead
 # verify _REPO_ROOT actually points at the project root by checking for a
 # known file. This makes the test portable across CI runners + forks.
@@ -186,7 +186,7 @@ def _shutdown_sidecar_body() -> str:
     updating).
 
     The command was split into a thin wrapper + `shutdown_sidecar_inner`
-    (the same convention as `dispatch_inner` — the command body is
+    (the same convention as `dispatch_inner`, the command body is
     callable/testable outside a Tauri command invocation), so the
     cooperative-shutdown control flow now lives in the inner function.
     Both the wrapper AND the inner function are returned so the
@@ -219,7 +219,7 @@ class TestShutdownSidecarSource:
     drops a step of the shutdown dance.
 
     On macOS, this is the SAME source that compiles for Linux and
-    Windows — the only platform-specific aspect is the signal sent by
+    Windows, the only platform-specific aspect is the signal sent by
     `child.kill()` (see TestMacOSSignalBehavior).
     """
 
@@ -264,13 +264,13 @@ class TestShutdownSidecarSource:
     def test_sends_shutdown_ws_frame(self):
         """Step 2: sends `{"type":"shutdown"}` via the WS writer channel.
 
-        ADR-0020 §10: the frame is a bare `{"type":"shutdown"}` — no
+        ADR-0020 §10: the frame is a bare `{"type":"shutdown"}`, no
         `data`, no `id` (it's fire-and-forget; the sidecar acks with
         `{"type":"result","data":{"ack":true}}` but the host doesn't
         correlate via id, it just waits for process exit).
 
         On macOS this frame is sent over the same tokio_tungstenite WS
-        channel as on Linux/Windows — cross-platform code.
+        channel as on Linux/Windows, cross-platform code.
         """
         body = _shutdown_sidecar_body()
         # The frame literal.
@@ -328,12 +328,12 @@ class TestShutdownSidecarSource:
             "shutdown_sidecar must take() the child handle (single-use after kill)"
         )
         # Calls kill_tree().await on the child (the recursive process-tree
-        # backstop — reaps grandchildren the sidecar didn't clean up).
+        # backstop, reaps grandchildren the sidecar didn't clean up).
         assert "child.kill_tree().await" in body, (
             "shutdown_sidecar must call child.kill_tree().await as the force-kill "
             "backstop (no-op if already exited, guarantees no zombie)"
         )
-        # The kill is reached on BOTH paths (graceful + timeout) — verify
+        # The kill is reached on BOTH paths (graceful + timeout), verify
         # the kill call is NOT inside an `if`/`else` that only fires on
         # one branch. We check it appears after the wait block closes.
         # `rx_guard.take()` marks the end of the exit-receiver wait block.
@@ -378,7 +378,7 @@ class TestShutdownSidecarSource:
         ADR-0020 §1: the DevMode variant is used when
         `VOICE_TYPER_SIDECAR_DEV=1` runs `python -m ...ipc_server`
         directly (no externalBin). The shutdown path must still work
-        for dev mode — it just can't poll Terminated, so it sleeps once
+        for dev mode, it just can't poll Terminated, so it sleeps once
         for the full `SHUTDOWN_ACK_TIMEOUT_MS` deadline before falling
         through to the force-kill backstop. (The old per-poll
         `SHUTDOWN_POLL_INTERVAL_MS` constant was removed as dead code —
@@ -404,7 +404,7 @@ class TestShutdownSidecarSource:
 class TestMacOSSignalBehavior:
     """macOS-specific signal verification via source inspection.
 
-    The `shutdown_sidecar` Rust code is cross-platform — the same source
+    The `shutdown_sidecar` Rust code is cross-platform, the same source
     compiles for macOS, Linux, and Windows. The ONLY platform-specific
     aspect is what OS signal `child.kill()` sends:
 
@@ -482,12 +482,12 @@ class TestMacOSSignalBehavior:
         )
         assert "SidecarHandle::DevMode(c)" in src, "kill() must match SidecarHandle::DevMode(c) and call c.kill().await"
         # ShellPlugin arm `take()`s the inner Option then calls
-        # `child.kill()` (sync — CommandChild::kill is sync).
+        # `child.kill()` (sync. CommandChild::kill is sync).
         assert "c.take()" in src, "ShellPlugin arm must take() the inner Option<CommandChild> before kill"
         assert "child.kill()" in src, (
             "ShellPlugin arm must call child.kill() (CommandChild::kill is sync, sends SIGTERM on macOS)"
         )
-        # DevMode arm calls c.kill().await (async — tokio Child::kill is async).
+        # DevMode arm calls c.kill().await (async, tokio Child::kill is async).
         m_dev = re.search(
             r"SidecarHandle::DevMode\(c\)\s*=>\s*c\.kill\(\)\.await",
             src,
@@ -516,7 +516,7 @@ class TestMacOSSignalBehavior:
         major = int(m.group(1))
         assert major == 2, (
             f"tauri-plugin-shell major version must be 2 (Tauri 2.x plugin "
-            f"series — CommandChild::kill sends SIGTERM on Unix); got {major}"
+            f"series, CommandChild::kill sends SIGTERM on Unix); got {major}"
         )
 
     def test_tauri_plugin_shell_declared_in_cargo_toml(self):
@@ -546,7 +546,7 @@ class TestMacOSSignalBehavior:
 
     def test_shutdown_sidecar_uses_sidecar_handle_kill(self):
         """shutdown_sidecar calls `child.kill_tree().await` which routes
-        through `SidecarHandle::kill_tree` → `kill(self)` — the method
+        through `SidecarHandle::kill_tree` → `kill(self)`, the method
         that matches on ShellPlugin vs DevMode and sends SIGTERM vs
         SIGKILL on macOS.
 
@@ -573,7 +573,7 @@ class TestShutdownConstants:
     Pinning these as tests catches a regression where someone tweaks a
     constant without updating the runbook (or vice versa).
 
-    These constants are cross-platform — same values on macOS, Linux,
+    These constants are cross-platform, same values on macOS, Linux,
     and Windows.
     """
 
@@ -598,7 +598,7 @@ class TestShutdownConstants:
         """`SHUTDOWN_POLL_INTERVAL_MS` was removed as dead code.
 
         The dev-mode shutdown fallback no longer polls in fixed
-        increments — it sleeps once for the full `SHUTDOWN_ACK_TIMEOUT_MS`
+        increments, it sleeps once for the full `SHUTDOWN_ACK_TIMEOUT_MS`
         deadline (see `commands/sidecar_cmds/shutdown.rs`) before the
         force-kill backstop. The constant that used to drive the poll
         loop must therefore NOT exist in util.rs (mirrors the dead
@@ -607,7 +607,7 @@ class TestShutdownConstants:
         src = _read(_UTIL_RS)
         m = re.search(r"SHUTDOWN_POLL_INTERVAL_MS", src)
         assert not m, (
-            "SHUTDOWN_POLL_INTERVAL_MS must not exist in util.rs — the dev-mode "
+            "SHUTDOWN_POLL_INTERVAL_MS must not exist in util.rs, the dev-mode "
             "fallback is now a single bounded sleep, not a poll loop (dead code removed)"
         )
 
@@ -658,7 +658,7 @@ class TestShutdownConstants:
         )
 
     def test_pre_restart_delay_is_500ms(self):
-        """PRE_RESTART_DELAY_MS = 500 — delay between `supervisor_relaunching`
+        """PRE_RESTART_DELAY_MS = 500, delay between `supervisor_relaunching`
         event and `app.restart()` so the webview can render the banner.
         """
         src = _read(_UTIL_RS)
@@ -672,12 +672,12 @@ class TestShutdownConstants:
         )
 
     def test_backoff_schedule_length_matches_retry_cap(self):
-        """The backoff schedule has 5 steps — the retry cap the supervisor
+        """The backoff schedule has 5 steps, the retry cap the supervisor
         loop iterates before falling back to app.restart().
 
         (The standalone `SUPERVISOR_MAX_RETRIES` constant was
         production-dead and has been removed; the cap IS the schedule
-        length — `respawn_inner` iterates it once per attempt.)
+        length: `respawn_inner` iterates it once per attempt.)
         """
         src = _read(_UTIL_RS)
         sched_m = re.search(
@@ -706,7 +706,7 @@ class TestSupervisorSource:
     respawn with backoff, caps at 5 retries, then falls back to a
     full-app relaunch (`app.restart()`).
 
-    Cross-platform — same source on macOS, Linux, Windows.
+    Cross-platform, same source on macOS, Linux, Windows.
     """
 
     def test_source_file_exists(self):
@@ -764,7 +764,7 @@ class TestSupervisorSource:
         # Calls app.restart() (the whole-app relaunch).
         assert "app.restart()" in src, (
             "supervisor must call app.restart() (full-app relaunch) after "
-            "exhausting the restart-attempt budget — NOT just another sidecar respawn"
+            "exhausting the restart-attempt budget, NOT just another sidecar respawn"
         )
         # The relaunch path includes the banner-render delay.
         assert "PRE_RESTART_DELAY_MS" in src, (
@@ -783,14 +783,14 @@ class TestSupervisorSource:
 
     def test_returns_ok_on_successful_respawn(self):
         """On a successful `reconnect_ws`, the supervisor returns
-        `Ok(())` immediately — the loop does NOT continue to the next
+        `Ok(())` immediately, the loop does NOT continue to the next
         backoff step.
 
         This is the "reset on success" behavior: each `respawn`
         call starts a fresh backoff schedule (the `attempt` counter is
         local to the call). A successful respawn on attempt 1 means
         the next crash (which invokes `respawn` anew) starts at
-        500ms again — the previous crashes don't accumulate.
+        500ms again, the previous crashes don't accumulate.
         """
         src = _read(_SUPERVISOR_RS)
         # The success branch returns Ok(()).
@@ -811,7 +811,7 @@ class TestSupervisorSource:
         assert idx_return - idx_log < 2000, (
             f"`return Ok(())` after 'respawn succeeded' log must be in the "
             f"same match arm (within 400 chars); gap was "
-            f"{idx_return - idx_log} chars — the supervisor must return "
+            f"{idx_return - idx_log} chars, the supervisor must return "
             f"immediately on successful reconnect_ws (reset-on-success: the "
             f"loop exits early, the next crash starts a fresh backoff schedule)"
         )
@@ -846,7 +846,7 @@ class TestSupervisorSource:
 
     def test_has_exhaustion_relaunch_after_loop(self):
         """Defensive: if the loop exits without returning (SUPERVISOR_BACKOFF_MS
-        shorter than SUPERVISOR_MAX_RETRIES — currently impossible because they
+        shorter than SUPERVISOR_MAX_RETRIES, currently impossible because they
         are pinned equal, but the guard exists), fall back to
         `app.restart()` with a `backoff_exhausted` reason."""
         src = _read(_SUPERVISOR_RS)
@@ -912,22 +912,22 @@ class TestPythonShutdownHandler:
     """Mock-heavy tests for the Python sidecar's shutdown frame handler.
 
     The handler lives in ``voice_typer/server/ipc/dispatcher.py``
-    ``_handle_shutdown`` — the ``shutdown`` command is registered in
+    ``_handle_shutdown``, the ``shutdown`` command is registered in
     ``IPCServer._COMMAND_REGISTRY`` and routed through the shared dispatch
     table on every transport (TCP / stdin / WS). The old
     ``sidecar_ws._make_dispatch`` special-case (which called
     ``server.app.quit()`` directly, bypassing the service layer) was
     removed. The handler now:
 
-    1. Logs `[SIDECAR-WS] shutdown received — releasing mic and exiting`.
+    1. Logs `[SIDECAR-WS] shutdown received, releasing mic and exiting`.
     2. Returns `{"type":"result","data":{"ack":True}}` immediately.
     3. Schedules `self.service.quit()` on a daemon thread (so the ack is
-       sent BEFORE quit runs — host's hard timeout is 2.0s).
+       sent BEFORE quit runs, host's hard timeout is 2.0s).
 
-    On macOS, this is the SAME Python code as on Linux/Windows — the
+    On macOS, this is the SAME Python code as on Linux/Windows, the
     sidecar doesn't know what platform it's running on. The only
     platform difference is what OS signal arrives if the host has to
-    force-kill (SIGTERM on release, SIGKILL on dev — see
+    force-kill (SIGTERM on release, SIGKILL on dev: see
     TestMacOSSignalBehavior).
     """
 
@@ -953,7 +953,7 @@ class TestPythonShutdownHandler:
         result = server._handle_shutdown(data=None, resp={"id": 1})
         assert result["type"] == "result", 'shutdown handler must return a {"type":"result",...} ack'
         assert result["data"] == {"ack": True}, (
-            'shutdown handler must return {"data":{"ack":True}} — the host '
+            'shutdown handler must return {"data":{"ack":True}}, the host '
             "correlates this ack with the shutdown frame it just sent"
         )
         service.quit.assert_called_once_with()
@@ -975,12 +975,12 @@ class TestPythonShutdownHandler:
         second = server._handle_shutdown(data=None, resp={"id": 2})
         assert first["data"] == {"ack": True}
         assert second["data"] == {"ack": True}
-        # Only one cleanup thread owns service.quit() — the second
+        # Only one cleanup thread owns service.quit(), the second
         # invocation is a no-op that returns the ack immediately.
         service.quit.assert_called_once_with()
 
     def test_shutdown_logs_release_mic_message(self, caplog):
-        """The handler logs `[SIDECAR-WS] shutdown received — releasing
+        """The handler logs `[SIDECAR-WS] shutdown received, releasing
         mic and exiting` so the runbook §6.5/§6.6 grep matches."""
         import logging
 
@@ -988,8 +988,8 @@ class TestPythonShutdownHandler:
         with caplog.at_level(logging.INFO, logger="voice_typer.server.ipc_server"):
             server._handle_shutdown(data=None, resp={"id": 1})
         joined = "\n".join(rec.getMessage() for rec in caplog.records)
-        assert "shutdown received — releasing mic and exiting" in joined, (
-            "shutdown handler must log '[SIDECAR-WS] shutdown received — "
+        assert "shutdown received: releasing mic and exiting" in joined, (
+            "shutdown handler must log '[SIDECAR-WS] shutdown received, "
             "releasing mic and exiting' (runbook sidecar.log verification)"
         )
 
@@ -1010,10 +1010,10 @@ class TestPythonShutdownHandler:
 class TestShutdownAckTimeoutConstant:
     """ADR-0020 §10: the cooperative-shutdown hard timeout is defined
     in the Rust host as ``SHUTDOWN_ACK_TIMEOUT_MS = 2000``
-    (``src-tauri/src/util.rs``) — the single source of truth.
+    (``src-tauri/src/util.rs``), the single source of truth.
 
     DT-54: the previous Python-side ``_SHUTDOWN_ACK_TIMEOUT_SECONDS = 2.0``
-    constant in ``sidecar_ws.py`` was dead code — Python never enforced
+    constant in ``sidecar_ws.py`` was dead code, Python never enforced
     the timeout (it just acked ``{"type":"shutdown"}`` and exited; the
     Rust host's kill-children backstop is what enforces the 2s window).
     The constant was deleted to avoid misleading readers into thinking
@@ -1032,13 +1032,13 @@ class TestShutdownAckTimeoutConstant:
         assert const_re.search(src), (
             "src-tauri/src/util.rs must define "
             "SHUTDOWN_ACK_TIMEOUT_MS: u64 = 2000 (ADR-0020 §10: 2s "
-            "cooperative-shutdown hard timeout — the Rust host's "
+            "cooperative-shutdown hard timeout, the Rust host's "
             "kill-children backstop fires after this window)."
         )
 
     def test_python_sidecar_does_not_define_dead_timeout_constant(self):
         """DT-54: ``sidecar_ws.py`` must NOT define the dead
-        ``_SHUTDOWN_ACK_TIMEOUT_SECONDS`` constant — Python never
+        ``_SHUTDOWN_ACK_TIMEOUT_SECONDS`` constant, Python never
         enforced the timeout; the Rust host's
         ``SHUTDOWN_ACK_TIMEOUT_MS`` is the single source of truth.
         """
@@ -1049,7 +1049,7 @@ class TestShutdownAckTimeoutConstant:
         )
         assert not const_re.search(src), (
             "DT-54: sidecar_ws.py must NOT define the dead "
-            "_SHUTDOWN_ACK_TIMEOUT_SECONDS constant — Python never "
+            "_SHUTDOWN_ACK_TIMEOUT_SECONDS constant, Python never "
             "enforced the cooperative-shutdown timeout (the Rust host's "
             "SHUTDOWN_ACK_TIMEOUT_MS in src-tauri/src/util.rs is the "
             "single source of truth)."
@@ -1099,7 +1099,7 @@ class TestRunbookCoverage:
         The runbook's literal `[SHUTDOWN] sidecar exited cleanly` is a
         documentation simplification; the actual log is
         `[SHUTDOWN] sidecar exited gracefully (code=..., signal=...)`
-        and `[SHUTDOWN] sidecar kill completed (graceful=...)` — both
+        and `[SHUTDOWN] sidecar kill completed (graceful=...)`, both
         match the `SHUTDOWN` grep and are MORE informative.
         """
         src = _read_sidecar_cmds_module()
@@ -1114,13 +1114,13 @@ class TestRunbookCoverage:
         releasing mic and exiting`.
 
         The log line lives in ``voice_typer/server/ipc/dispatcher.py``
-        (the registry-based ``_handle_shutdown`` handler) — it moved out
+        (the registry-based ``_handle_shutdown`` handler), it moved out
         of ``sidecar_ws.py`` when the WS-path special-case was removed in
         favour of the shared command registry.
         """
         dispatcher = _REPO_ROOT / "voice_typer" / "server" / "ipc" / "dispatcher.py"
         src = _read(dispatcher)
-        assert "[SIDECAR-WS] shutdown received — releasing mic and exiting" in src, (
+        assert "[SIDECAR-WS] shutdown received: releasing mic and exiting" in src, (
             "Python shutdown handler must log the exact runbook §6.5 line: "
-            "'[SIDECAR-WS] shutdown received — releasing mic and exiting'"
+            "'[SIDECAR-WS] shutdown received, releasing mic and exiting'"
         )

@@ -1,4 +1,4 @@
-"""MicrophoneRegistry — owns the cached list of available microphones.
+"""MicrophoneRegistry, owns the cached list of available microphones.
 
 Pre-refactor: ``VoiceTyperApp.__init__`` declared::
 
@@ -7,7 +7,7 @@ Pre-refactor: ``VoiceTyperApp.__init__`` declared::
 and three external modules reached into it directly via
 ``getattr(app, "_microphones")`` or ``app._microphones = mics``:
 ``service/microphone_test.py`` (3 call sites) and
-``startup_tasks.py`` (2 call sites) — plus a number of test
+``startup_tasks.py`` (2 call sites), plus a number of test
 modules. The private attribute was a backdoor API surface that
 blocked safe rename / move and forced every consumer to know
 the cache was a plain ``list``.
@@ -35,7 +35,7 @@ from collections.abc import Iterable, Iterator
 class MicrophoneRegistry:
     """Owns the cached list of available microphones.
 
-    The registry is a thin wrapper around a ``list[dict]`` — each
+    The registry is a thin wrapper around a ``list[dict]``, each
     entry is a microphone descriptor dict (``{"index": int, "name":
     str, ...}``) returned by ``list_microphones()`` from
     :mod:`voice_typer.server.server_platform`. The cache is
@@ -45,7 +45,7 @@ class MicrophoneRegistry:
 
     Thread safety: the underlying list operations (``append``,
     ``clear``, iteration) are individually atomic under CPython's
-    GIL — same guarantee the legacy bare ``list`` had. Callers that
+    GIL, same guarantee the legacy bare ``list`` had. Callers that
     need a consistent snapshot should use :meth:`list` (which
     returns a shallow copy) rather than iterating the registry
     directly while another thread may be mutating it.
@@ -60,7 +60,7 @@ class MicrophoneRegistry:
         """Return a shallow copy of the cached microphone list.
 
         Returns a COPY (not the internal list) so callers can iterate
-        or mutate the result without affecting the cache — matches
+        or mutate the result without affecting the cache, matches
         the safety contract that the legacy ``app._microphones``
         callers implicitly relied on (they always treated the value
         as a snapshot, never mutated in place).
@@ -85,7 +85,7 @@ class MicrophoneRegistry:
         """Atomically replace the entire cache with ``mics``.
 
         Used by ``load_microphones`` and ``refresh_microphones`` to
-        refresh the cache in one shot — the legacy code did
+        refresh the cache in one shot, the legacy code did
         ``app._microphones = mics`` (a fresh list rebinding), which
         is racy if another thread is mid-iteration on the OLD list.
         This method clears + extends under a single rebind so the
@@ -100,7 +100,7 @@ class MicrophoneRegistry:
     # ── Convenience dunder access ──────────────────────────────────
 
     def __iter__(self) -> Iterator[dict[str, object]]:
-        """Iterate the cached microphones (live view — see :meth:`list` for a snapshot)."""
+        """Iterate the cached microphones (live view: see :meth:`list` for a snapshot)."""
         return iter(self._items)
 
     def __len__(self) -> int:

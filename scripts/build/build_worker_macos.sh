@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Voice Typer — Nuitka worker build (macOS x86_64 + aarch64)
+# Voice Typer. Nuitka worker build (macOS x86_64 + aarch64)
 #
-# Plan-runtime-pack-split §4.4 / §11.5 — builds the runtime-pack worker exe
+# Plan-runtime-pack-split §4.4 / §11.5, builds the runtime-pack worker exe
 # (voice-typer-worker-<triple>), the heavy-ML process that owns
 # onnxruntime (VAD + Parakeet) + ctranslate2/faster_whisper (Whisper
 # fallback) + numpy/scipy/av/pyrnnoise + the bundled silero_vad.onnx.
@@ -16,11 +16,11 @@
 # Mirrors build_sidecar_macos.sh + build_prewarm_macos.sh: same Nuitka
 # toolchain, same python-build-standalone interpreter, same
 # VOICE_TYPER_PYBS_DIR env var contract. The worker is a SEPARATE process
-# — it has its own --onefile-tempdir-spec so its self-extraction doesn't
+#, it has its own --onefile-tempdir-spec so its self-extraction doesn't
 # collide with the sidecar's or the prewarm's.
 #
 # Codesign (S5-CR-56): Nuitka's `--macos-signed-app-name` only sets the
-# bundle's signed name during bundle creation — it does NOT actually
+# bundle's signed name during bundle creation, it does NOT actually
 # invoke codesign on the output binary. This script explicitly signs the
 # output binary:
 #   - If $MAC_SIGNING_IDENTITY is set (CI release builds), passes
@@ -42,7 +42,7 @@
 # The CI step is gated on hashFiles('scripts/build/build_worker_macos.sh')
 # so it stays inert until this script lands (C-CI-2: do not edit the workflow).
 #
-# CI gate contract (binding — C-CI-6/8/9/13): see build_worker_windows.sh
+# CI gate contract (binding. C-CI-6/8/9/13): see build_worker_windows.sh
 # header for the full rationale. Same flags apply here, with the macOS
 # platform differences: no --windows-console-mode=disable, onefile tempdir
 # spec uses ~/Library/Application Support, output has no .exe suffix,
@@ -145,14 +145,14 @@ if [[ "$NUITKA_VER" != *"2.8.10"* ]]; then
 fi
 echo "[build_worker_macos] nuitka=$NUITKA_VER"
 
-# ctranslate2/lib + libs — optional on the worker (the Whisper fallback
+# ctranslate2/lib + libs, optional on the worker (the Whisper fallback
 # may not be wired in for Phase 2a; the worker still builds without it).
 CT2_LIB_DIR="$SITE/ctranslate2/lib"
 CT2_LIBS_DIR="$SITE/ctranslate2/libs"
 if [[ -d "$CT2_LIB_DIR" ]]; then
     echo "[build_worker_macos] CT2_LIB_DIR=$CT2_LIB_DIR"
 else
-    echo "[build_worker_macos] NOTE: $CT2_LIB_DIR not found — ctranslate2 not installed (Whisper fallback unavailable in this build)."
+    echo "[build_worker_macos] NOTE: $CT2_LIB_DIR not found, ctranslate2 not installed (Whisper fallback unavailable in this build)."
 fi
 
 # ─── Prepare output dir ──────────────────────────────────────────────────────
@@ -230,7 +230,7 @@ echo "[build_worker_macos] OK: $OUTPUT_PATH (${SIZE_MB} MB)"
 # S5-CR-56: ad-hoc codesign fallback when no Developer ID identity is set.
 # Mirrors `build_native_listener_macos.sh` + `build_sidecar_macos.sh`. When
 # MAC_SIGNING_IDENTITY is set, Nuitka already signed the binary at build
-# time via --macos-sign-identity (see above) — skip the ad-hoc fallback.
+# time via --macos-sign-identity (see above), skip the ad-hoc fallback.
 if [[ -z "${MAC_SIGNING_IDENTITY:-}" ]] && command -v codesign >/dev/null; then
     echo "[build_worker_macos] Ad-hoc codesign (parent .app will re-sign --deep)..."
     codesign --force --sign - "$OUTPUT_PATH" || true

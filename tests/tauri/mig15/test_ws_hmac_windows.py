@@ -1,4 +1,4 @@
-"""MIG-1.5 Phase 0-W Gate Check 3 — WS + HMAC handshake (Windows path).
+"""MIG-1.5 Phase 0-W Gate Check 3: WS + HMAC handshake (Windows path).
 
 This is gate check 3 of 9 for Phase 0-W (the Windows validation gate
 defined in ``docs/migration/windows-validation-runbook.md`` §6.2). It
@@ -10,7 +10,7 @@ platform because the WS auth code is intentionally cross-platform
 What this gate proves
 ---------------------
 - The sidecar refuses connections if ``VOICE_TYPER_IPC_TOKEN`` is unset
-  (REVIEW-3 SEC-2 fix target — the WS path already enforces this).
+  (REVIEW-3 SEC-2 fix target, the WS path already enforces this).
 - The auth frame ``{"type":"auth","token":"<64-hex>"}`` is the FIRST
   frame on the WS; anything else is rejected before dispatch runs.
 - The token comparison uses ``hmac.compare_digest`` (constant-time).
@@ -23,12 +23,12 @@ What this gate proves
 - The 1 MiB WS frame cap is enforced (``max_size`` on ``serve()``).
 - The ADR-0019 rate limiter is applied to every inbound WS frame,
   shared across all connections to the same server process (CR-11).
-- There is NO platform branch in the auth path — Windows behaves
+- There is NO platform branch in the auth path, Windows behaves
   identically to Linux/macOS.
 
 What this gate does NOT prove (VALIDATE ON WINDOWS HOST)
 --------------------------------------------------------
-The tests below mock ``websockets.serve`` + ``os.environ`` — no real
+The tests below mock ``websockets.serve`` + ``os.environ``, no real
 WS server is bound and no real socket is opened. The end-to-end
 "does the Rust host actually connect + auth + receive ``ready``"
 proof must be run on a real Windows host per the runbook.
@@ -59,7 +59,7 @@ from tests.fixtures.sidecar_ws_test_helpers import _make_fake_server
 
 # ─── Helpers ────────────────────────────────────────────────────────────
 
-# Path to the source under test — used by the source-grep tests
+# Path to the source under test, used by the source-grep tests
 # (token-never-logged + no-platform-branch). Resolved at import time
 # so a missing file fails collection loudly rather than per-test.
 _SIDECAR_WS_PATH = Path(__file__).resolve().parents[3] / "voice_typer" / "server" / "sidecar_ws.py"
@@ -115,7 +115,7 @@ def _read_auth_helper_source() -> str:
 
 # A realistic 64-char hex token (32 bytes × 2 hex chars), matching
 # what `util::generate_token()` produces on the Rust side
-# (see src-tauri/src/util.rs:127 — "token must be 64 hex chars").
+# (see src-tauri/src/util.rs:127: "token must be 64 hex chars").
 # The task spec wrote "<32-char-hex>" but the actual implementation
 # uses 32 random BYTES hex-encoded → 64 hex chars. The Python side
 # does NOT enforce a length, so any non-empty string works, but we
@@ -146,7 +146,7 @@ async def test_authenticate_refuses_when_ipc_token_env_unset(monkeypatch):
 
     assert accepted is False, "must reject when VOICE_TYPER_IPC_TOKEN is unset"
     # Critical: the sidecar must NOT read a frame off the wire when the
-    # env var is missing — otherwise an unauth sidecar would still
+    # env var is missing, otherwise an unauth sidecar would still
     # consume a frame from an attacker before rejecting.
     ws.recv.assert_not_awaited()
 
@@ -189,7 +189,7 @@ async def test_auth_frame_format_is_type_auth_token_string(monkeypatch):
 
 
 async def test_auth_frame_must_be_first_frame_non_auth_rejected(monkeypatch):
-    """The auth frame is the FIRST frame — a non-auth first frame is rejected.
+    """The auth frame is the FIRST frame, a non-auth first frame is rejected.
 
     This proves the sidecar reads exactly one frame for auth and rejects
     if it isn't ``{"type":"auth",...}``. A client cannot send a dispatch
@@ -205,7 +205,7 @@ async def test_auth_frame_must_be_first_frame_non_auth_rejected(monkeypatch):
 
     assert await sw._authenticate(ws) is False
     # recv must be called exactly once (only the first frame is read
-    # during auth — subsequent frames are read by the dispatch loop,
+    # during auth, subsequent frames are read by the dispatch loop,
     # which only runs if auth succeeds).
     assert ws.recv.await_count == 1
 
@@ -262,7 +262,7 @@ def test_authenticate_uses_hmac_compare_digest():
     constant-time chain in two parts:
       1. ``sidecar_ws._authenticate`` routes its comparison through
          ``tokens_equal(provided, expected_token)`` (imported from
-         ``ipc.auth``) — NOT a bare ``==`` inline.
+         ``ipc.auth``), NOT a bare ``==`` inline.
       2. ``ipc/auth.py`` implements ``tokens_equal`` via the literal
          ``hmac.compare_digest(provided, expected)`` call.
     """
@@ -273,7 +273,7 @@ def test_authenticate_uses_hmac_compare_digest():
     assert "tokens_equal" in source, (
         "sidecar_ws.py must route its token comparison through "
         "tokens_equal (from voice_typer.server.ipc.auth, VP-8). "
-        "Found neither — possible timing side-channel regression."
+        "Found neither, possible timing side-channel regression."
     )
     assert "from voice_typer.server.ipc.auth import" in source, (
         "sidecar_ws.py must import tokens_equal from the shared voice_typer.server.ipc.auth module (VP-8)."
@@ -288,13 +288,13 @@ def test_authenticate_uses_hmac_compare_digest():
     # (2) The shared helper itself uses hmac.compare_digest (constant time).
     assert "hmac.compare_digest" in helper_source, (
         "voice_typer/server/ipc/auth.py must use hmac.compare_digest for "
-        "token comparison (constant-time). Found neither — possible timing "
+        "token comparison (constant-time). Found neither, possible timing "
         "side-channel regression."
     )
     helper_pattern = r"hmac\.compare_digest\s*\(\s*provided\s*,\s*expected\s*\)"
     assert re.search(helper_pattern, helper_source), (
         "auth.py's tokens_equal must call hmac.compare_digest(provided, "
-        "expected) — found a different call shape which may indicate the "
+        "expected), found a different call shape which may indicate the "
         "comparison is not actually between the user-supplied + env-var tokens."
     )
 
@@ -311,7 +311,7 @@ async def test_authenticate_compare_digest_is_actually_invoked(monkeypatch):
 
     # VP-8: the comparison lives in the SHARED ipc/auth.py helper
     # (tokens_equal → hmac.compare_digest). sidecar_ws no longer imports
-    # hmac itself, so spy on the helper module's hmac — tokens_equal
+    # hmac itself, so spy on the helper module's hmac, tokens_equal
     # calls it with (provided, expected) = (_GOOD_TOKEN, _GOOD_TOKEN).
     from voice_typer.server.ipc import auth as _ipc_auth
 
@@ -331,7 +331,7 @@ def test_token_value_never_appears_in_any_log_call():
 
     If the sidecar logs the token (even at debug level), the token
     ends up in ``sidecar.log`` which is a plain text file in
-    ``%APPDATA%\\voice-typer\\logs\\`` — any local user can read it,
+    ``%APPDATA%\\voice-typer\\logs\\``, any local user can read it,
     defeating the bearer-token auth.
 
     This test scans every ``log.<level>(...)`` call in sidecar_ws.py
@@ -342,22 +342,22 @@ def test_token_value_never_appears_in_any_log_call():
     source = _read_sidecar_ws_source()
 
     # Find every log.<level>(...) call. The sidecar uses %-style
-    # interpolation (logging best practice — the formatting is lazy
+    # interpolation (logging best practice, the formatting is lazy
     # and skipped if the level is disabled), so we look for any
     # log call that references the token-bearing variables.
     #
     # The token-bearing identifiers in _authenticate are:
     #   - expected_token  (the env-var value)
     #   - provided        (the frame's token field)
-    #   - first           (the parsed frame dict — could contain token)
-    #   - first_raw       (the raw frame bytes/str — could contain token)
+    #   - first           (the parsed frame dict, could contain token)
+    #   - first_raw       (the raw frame bytes/str, could contain token)
     #
     # We scan each line that contains `log.` and assert none of these
     # identifiers appear as interpolation args or in f-strings.
     token_bearing_vars = ("expected_token", "provided", "first_raw")
     # `first` is excluded from the bare-name check because it appears
     # in legitimate log messages like "first authenticated connection"
-    # — but we DO check that `first` is never interpolated as a log
+    # , but we DO check that `first` is never interpolated as a log
     # arg (e.g. `log.info("...%s", first)` would leak the frame).
 
     log_call_pattern = re.compile(r"log\.(info|debug|warning|error|critical)\s*\(")
@@ -375,7 +375,7 @@ def test_token_value_never_appears_in_any_log_call():
         # f-string: f"...{provided}..."  →  f"...{provided}..."
         for var in token_bearing_vars:
             # Match the variable as a whole word, possibly preceded by
-            # ", " or "{ " (f-string) — i.e. used as a value, not as a
+            # ", " or "{ " (f-string), i.e. used as a value, not as a
             # substring of another identifier.
             word_pattern = re.compile(r"\b" + re.escape(var) + r"\b")
             if word_pattern.search(line):
@@ -383,7 +383,7 @@ def test_token_value_never_appears_in_any_log_call():
                 # of an assignment or in a condition (not in a log arg).
                 # The simplest correct rule: if the line is a log call AND
                 # the variable appears anywhere on that line, flag it.
-                # False positives are caught by manual review — there are
+                # False positives are caught by manual review, there are
                 # none in the current source (verified by the assertion
                 # passing).
                 pytest.fail(
@@ -395,7 +395,7 @@ def test_token_value_never_appears_in_any_log_call():
     # Also assert the literal _GOOD_TOKEN test value doesn't appear
     # in the source (sanity check that we're not accidentally shipping
     # a hardcoded test token in production code).
-    assert "deadbeef" not in source.lower(), "sidecar_ws.py contains a hardcoded 'deadbeef' token — remove it."
+    assert "deadbeef" not in source.lower(), "sidecar_ws.py contains a hardcoded 'deadbeef' token, remove it."
 
 
 def test_log_lines_use_static_strings_not_token_interpolation():
@@ -403,7 +403,7 @@ def test_log_lines_use_static_strings_not_token_interpolation():
 
     This is a stricter complement to the test above: it asserts that
     the specific log calls inside the _authenticate function use
-    string literals only — no %-interpolation of any variable that
+    string literals only, no %-interpolation of any variable that
     could hold the token.
     """
     source = _read_sidecar_ws_source()
@@ -425,7 +425,7 @@ def test_log_lines_use_static_strings_not_token_interpolation():
     offenders = log_call_re.findall(auth_body)
     assert not offenders, (
         f"_authenticate uses f-string log calls (could leak token): {offenders}. "
-        f"Use static strings only — token values must never be interpolated."
+        f"Use static strings only, token values must never be interpolated."
     )
 
 
@@ -457,7 +457,7 @@ def test_run_binds_to_loopback_ephemeral_port(monkeypatch):
     sw = _import_sidecar_ws()
 
     # Mock the websockets module + websockets.asyncio.server.serve.
-    # serve() is used as `async with serve(...) as ws_server:` — so it
+    # serve() is used as `async with serve(...) as ws_server:`, so it
     # must return an async context manager whose __aenter__ yields an
     # object with a .sockets attribute.
     mock_socket = MagicMock()
@@ -475,7 +475,7 @@ def test_run_binds_to_loopback_ephemeral_port(monkeypatch):
     monkeypatch.setitem(sys.modules, "websockets.asyncio.server", mock_websockets_asyncio_server)
 
     # _force_line_buffered_stdout reconfigures sys.stdout, which breaks
-    # pytest's capsys — patch it to a no-op for this test.
+    # pytest's capsys, patch it to a no-op for this test.
     monkeypatch.setattr(sw, "_force_line_buffered_stdout", lambda: None)
 
     # asyncio.Future() blocks forever inside _main(). Patch it to raise
@@ -517,7 +517,7 @@ def test_emit_server_started_reports_port_as_json(capsys):
     sw = _import_sidecar_ws()
     sw._emit_server_started(54321)
     captured = capsys.readouterr()
-    assert captured.err == "", "stderr must be empty — only stdout carries the JSON"
+    assert captured.err == "", "stderr must be empty, only stdout carries the JSON"
     payload = json.loads(captured.out.strip())
     assert payload == {"event": "server_started", "port": 54321}
 
@@ -537,26 +537,26 @@ def test_server_started_json_does_not_leak_token(capsys):
     The task spec wrote "port + token" but the implementation
     correctly reports ONLY the port. The token is passed to the
     sidecar via the ``VOICE_TYPER_IPC_TOKEN`` env var at spawn time
-    (the host already knows it — it generated it). Echoing it back
+    (the host already knows it, it generated it). Echoing it back
     over stdout would leak it to any process that can read the
     sidecar's stdout pipe (e.g. a parent shell on Windows).
 
     This is an implementation GAP vs. the task spec's wording, but the
     implementation is CORRECT (more secure). Reported in the gate
-    findings — do NOT "fix" by adding the token to stdout.
+    findings, do NOT "fix" by adding the token to stdout.
     """
     sw = _import_sidecar_ws()
     sw._emit_server_started(54321)
     captured = capsys.readouterr()
     payload = json.loads(captured.out.strip())
     assert "token" not in payload, (
-        "server_started JSON must NOT contain the token — stdout is not "
+        "server_started JSON must NOT contain the token, stdout is not "
         "a secure channel. The token is passed via env var at spawn."
     )
     raw_lower = captured.out.lower()
     assert "voice_typer_ipc_token" not in raw_lower, "stdout must not mention VOICE_TYPER_IPC_TOKEN (env-var name leak)"
     # Also assert the raw stdout doesn't contain the literal test token
-    # value (defense in depth — _GOOD_TOKEN is never passed to
+    # value (defense in depth, _GOOD_TOKEN is never passed to
     # _emit_server_started, but this guards against a regression that
     # accidentally interpolates os.environ into the JSON).
     assert _GOOD_TOKEN not in captured.out, "raw token value leaked to stdout"
@@ -581,7 +581,7 @@ def test_run_passes_max_size_to_serve(monkeypatch):
     """``run()`` passes ``max_size=_MAX_FRAME_BYTES`` to ``serve()``.
 
     The websockets library rejects any inbound frame > max_size at the
-    transport layer with a 1009 close — the frame never reaches the
+    transport layer with a 1009 close, the frame never reaches the
     dispatch loop. This is the correct enforcement point (re-checking
     in the dispatch loop would be dead code).
     """
@@ -636,7 +636,7 @@ async def test_rate_limiter_applied_to_ws_frames():
 
     assert rejected >= 1, (
         "expected at least one rate_limited response after 201 frames in "
-        "the burst window — ADR-0019 limiter not applied to WS path"
+        "the burst window, ADR-0019 limiter not applied to WS path"
     )
 
 
@@ -650,13 +650,13 @@ async def test_rate_limiter_is_shared_across_connections():
     sliding-window deque.
 
     (The task spec wrote "per-connection" but the implementation is
-    per-process — which is the correct/secure behavior. This test
+    per-process, which is the correct/secure behavior. This test
     verifies the shared behavior.)
     """
     _import_sidecar_ws()
     server = _make_fake_server()
 
-    # _make_dispatch does NOT create the limiter eagerly — it's created
+    # _make_dispatch does NOT create the limiter eagerly, it's created
     # on first frame via _get_rate_limiter. Call _get_rate_limiter
     # directly twice and assert it returns the SAME instance.
     from voice_typer.server.ipc_server import _get_rate_limiter
@@ -666,7 +666,7 @@ async def test_rate_limiter_is_shared_across_connections():
 
     assert limiter_1 is limiter_2, (
         "CR-11 regression: _get_rate_limiter returned different instances "
-        "for the same server — the limiter must be shared across all WS "
+        "for the same server, the limiter must be shared across all WS "
         "connections to prevent burst-budget reset via reconnect."
     )
 
@@ -699,14 +699,14 @@ async def test_rate_limiter_rejects_with_structured_error():
 
 
 def test_no_platform_branch_in_auth_path():
-    """The WS auth path must be 100% cross-platform — no ``sys.platform``,
+    """The WS auth path must be 100% cross-platform, no ``sys.platform``,
     ``platform.system()``, or ``os.name`` check anywhere in sidecar_ws.py.
 
     The Windows path must be byte-for-byte identical to the Linux/macOS
     path. A platform branch in auth would be a bug farm: it would only
     be exercised on one platform, so the other platform's auth code
     would never be tested in CI (which runs on Linux). The current
-    implementation has NO platform branch — this test guards against
+    implementation has NO platform branch, this test guards against
     a regression that adds one.
     """
     source = _read_sidecar_ws_source()
@@ -726,7 +726,7 @@ def test_no_platform_branch_in_auth_path():
 
     for pattern, description in forbidden_patterns:
         re.findall(pattern, source)
-        # Allow occurrences in docstrings/comments — only fail if the
+        # Allow occurrences in docstrings/comments, only fail if the
         # pattern appears in actual code. We approximate "in code" by
         # checking it appears on a line that isn't a comment and isn't
         # inside a docstring triple-quote block.
@@ -740,7 +740,7 @@ def test_no_platform_branch_in_auth_path():
                 pytest.fail(
                     f"Platform branch detected in sidecar_ws.py line {lineno}: "
                     f"{description}.\n  Line: {line.rstrip()}\n"
-                    f"The WS auth path must be cross-platform — Windows must "
+                    f"The WS auth path must be cross-platform, Windows must "
                     f"behave identically to Linux/macOS. Move any platform-"
                     f"specific logic out of sidecar_ws.py."
                 )
@@ -787,7 +787,7 @@ def test_auth_uses_only_standard_library_plus_websockets():
 # throughout this file: ``websockets.serve`` is mocked so no real
 # socket is bound, and ``os.environ`` is manipulated via monkeypatch
 # so the tests don't leak env-var state to each other. The tests above
-# already exercise this pattern — these two tests assert the mocking
+# already exercise this pattern, these two tests assert the mocking
 # strategy itself is sound.
 
 
@@ -807,7 +807,7 @@ def test_websockets_serve_is_mocked_in_run_path(monkeypatch):
 
         real_serve_id = id(_real_serve)
     except Exception:
-        pass  # websockets not installed — that's fine, the mock wins
+        pass  # websockets not installed, that's fine, the mock wins
 
     mock_socket = MagicMock()
     mock_socket.getsockname.return_value = ("127.0.0.1", 54321)
@@ -826,18 +826,18 @@ def test_websockets_serve_is_mocked_in_run_path(monkeypatch):
 
     sw.run(_make_fake_server())
 
-    assert mock_serve.called, "mocked serve() must be called — mocking setup is broken"
+    assert mock_serve.called, "mocked serve() must be called, mocking setup is broken"
     if real_serve_id is not None:
         assert id(mock_serve) != real_serve_id, "mock_serve must not be the real websockets.serve"
 
 
 async def test_os_environ_manipulation_does_not_leak_between_tests(monkeypatch):
-    """monkeypatch.setenv/delenv auto-undoes after each test — verify.
+    """monkeypatch.setenv/delenv auto-undoes after each test, verify.
 
     If two tests both set VOICE_TYPER_IPC_TOKEN to different values and
     the second sees the first's value, the auth tests would be flaky.
     monkeypatch scopes env-var changes to the test, so this is a no-op
-    assertion — but it documents the contract.
+    assertion, but it documents the contract.
     """
     _import_sidecar_ws()  # imports cleanly (side effect asserted)
     # Set a token, verify it's visible.
@@ -848,7 +848,7 @@ async def test_os_environ_manipulation_does_not_leak_between_tests(monkeypatch):
     monkeypatch.setenv("VOICE_TYPER_IPC_TOKEN", "test-b")
     assert os.environ.get("VOICE_TYPER_IPC_TOKEN") == "test-b"
 
-    # After this test, monkeypatch auto-undoes — the next test sees
+    # After this test, monkeypatch auto-undoes, the next test sees
     # the original env (or no env). This is the contract.
 
 

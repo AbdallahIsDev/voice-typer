@@ -7,7 +7,7 @@ import {
 } from "@/hooks/usePointerFocusModality";
 
 function Textarea({ className, ...props }: React.ComponentProps<"textarea">) {
-	// Pointer vs keyboard focus modality — the shared C-FOCUS-3 contract
+	// Pointer vs keyboard focus modality, the shared C-FOCUS-3 contract
 	// (see `hooks/usePointerFocusModality.ts` for the full rationale):
 	// text fields always match `:focus-visible` on click, so the
 	// full-opacity ring would paint on every mouse click. The modality

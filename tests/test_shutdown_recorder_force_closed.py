@@ -14,7 +14,7 @@ the XV-7 parallel batch. It bounds its wait on
 worst case is ~18s (5s stop + 5s discard + 5s mic watcher + 3s
 transcription join). Pre-fix, ``_recorder_force_closed`` was ONLY
 assigned at the end of ``_teardown_recorder`` (after the 3s transcription
-join) — so if the helper took >9.5s, ``_teardown_sounddevice`` would
+join), so if the helper took >9.5s, ``_teardown_sounddevice`` would
 proceed to ``sd.stop()`` while the leaked recorder worker was still
 accessing the PortAudio stream (the DE-54 deadlock).
 
@@ -118,7 +118,7 @@ class TestForceClosedPublishedEarly:
         fake_app.recorder.recording = True
 
         # Use a fast _run_with_timeout so recorder.stop() times out in
-        # 0.1s (not the production 5s) — keeps the test under 1s.
+        # 0.1s (not the production 5s), keeps the test under 1s.
         _sc = voice_typer.server.shutdown_controller
         original_run_with_timeout = _sc._run_with_timeout
 
@@ -139,7 +139,7 @@ class TestForceClosedPublishedEarly:
 
         # Capture controller._recorder_force_closed at the moment the
         # transcription-thread join runs. The join is the step BEFORE
-        # the end-of-function assignment — so if the flag is True here,
+        # the end-of-function assignment, so if the flag is True here,
         # the early publish worked.
         flag_at_transcription_join: list = []
 
@@ -284,7 +284,7 @@ class TestForceClosedPublishedEarly:
 
         controller._teardown_recorder()
 
-        # recorder.stop() is a MagicMock — completes immediately, no
+        # recorder.stop() is a MagicMock, completes immediately, no
         # timeout. Flag must be False at the join.
         assert flag_at_transcription_join == [False], (
             "SI-20: controller._recorder_force_closed must remain False "

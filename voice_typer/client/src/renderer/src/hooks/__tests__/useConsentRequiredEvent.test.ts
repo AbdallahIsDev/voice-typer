@@ -2,7 +2,7 @@
  * Tests for useConsentRequiredEvent (extracted from App.tsx).
  *
  * Contract: subscribe to the backend ``consent_required`` push event
- * and open the unified point-of-use consent gate — with a dictation
+ * and open the unified point-of-use consent gate, with a dictation
  * retry (Allow → ``toggle_dictation``) for the registry-derived
  * dictation-retry field set, and no retry for gates that have nothing
  * to re-run. Unknown fields and the HuggingFace provider/model shape
@@ -94,7 +94,7 @@ describe("useConsentRequiredEvent", () => {
 
 		const req = useConsentGateStore.getState().request;
 		expect(req?.consentField).toBe(field);
-		// No re-runnable action from here — granting is enough.
+		// No re-runnable action from here, granting is enough.
 		expect(req?.onAllow).toBeUndefined();
 	});
 
@@ -132,7 +132,7 @@ describe("DICTATION_RETRY_CONSENT_FIELDS (registry-derived single source)", () =
 		]);
 	});
 
-	it("is derived from CONSENT_FIELD_NAMES — every entry is a known consent field", () => {
+	it("is derived from CONSENT_FIELD_NAMES, every entry is a known consent field", () => {
 		for (const field of DICTATION_RETRY_CONSENT_FIELDS) {
 			expect((CONSENT_FIELD_NAMES as readonly string[]).includes(field)).toBe(
 				true,

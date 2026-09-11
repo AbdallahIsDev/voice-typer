@@ -69,7 +69,7 @@ def test_accept_tcp_sets_defensive_timeout_before_submit() -> None:
 def test_handle_tcp_connection_sets_idle_read_timeout_after_auth() -> None:
     """Static check: ``_handle_tcp_connection`` configures an idle-read
     timeout (sized from the heartbeat constants) on the dispatch-loop
-    socket after auth succeeds — instead of clearing the timeout
+    socket after auth succeeds, instead of clearing the timeout
     entirely (``settimeout(None)``), which left the server vulnerable to
     an authenticated-idle DoS.
     """
@@ -108,7 +108,7 @@ def test_handle_tcp_connection_sets_idle_read_timeout_after_auth() -> None:
     code_only = "\n".join(code_only_lines)
     assert "settimeout(None)" not in code_only, (
         "_handle_tcp_connection must NOT clear the socket timeout with "
-        "settimeout(None) — that re-introduces the authenticated-idle DoS. "
+        "settimeout(None), that re-introduces the authenticated-idle DoS. "
         "Use the idle-read timeout instead."
     )
 
@@ -194,7 +194,7 @@ def test_idle_read_timeout_fires_for_authenticated_silent_client(
 
         assert closed, (
             "authenticated-but-silent client was not disconnected within "
-            "5s — the idle-read timeout did not fire (authenticated-idle "
+            "5s, the idle-read timeout did not fire (authenticated-idle "
             "DoS regression)."
         )
     finally:
@@ -224,7 +224,7 @@ def test_idle_read_timeout_does_not_fire_for_healthy_heartbeat_client(
     server._running = True
 
     # Patch the heartbeat constants so the idle-read timeout is ~1.0s
-    # but the heartbeat interval is ~0.3s — a healthy client sending a
+    # but the heartbeat interval is ~0.3s, a healthy client sending a
     # heartbeat every 0.3s must NOT trip the 1.0s idle timeout.
     import voice_typer.server.ipc.transport_tcp as transport_tcp_mod
 
@@ -281,7 +281,7 @@ def test_idle_read_timeout_does_not_fire_for_healthy_heartbeat_client(
             time.sleep(0.3)
 
         assert not spurious_close, (
-            "healthy heartbeat client was spuriously disconnected — the "
+            "healthy heartbeat client was spuriously disconnected, the "
             "idle-read timeout fired despite regular heartbeats (regression)."
         )
     finally:

@@ -1,4 +1,4 @@
-"""MIG-1.8 Phase 1 — Build-script glue validation.
+"""MIG-1.8 Phase 1: Build-script glue validation.
 
 This test file validates that the **build orchestration** ties together
 all per-platform builds + the icon stub generator + the final
@@ -26,17 +26,17 @@ Scope (the 8 glue assertions this file enforces):
      ``build_native_listener_*`` wrappers).
   5. The orchestrator runs ``gen_tauri_icons_stub.py`` OR documents
      that icons must be generated first (GAP-1: the orchestrator does
-     NEITHER — see
+     NEITHER: see
      ``test_known_gap_orchestrator_neither_runs_nor_documents_icon_generation``).
   6. The orchestrator runs ``cargo tauri build`` as the final step
      (Phase 1c in the script).
   7. ``compile_native.sh`` builds all 3 native listeners (Windows +
      macOS + Linux) via per-platform ``case`` branches. (Each branch
-     only fires on the matching host — cross-compilation is NOT
-     supported — but the script MUST contain all 3 branches so a build
+     only fires on the matching host, cross-compilation is NOT
+     supported, but the script MUST contain all 3 branches so a build
      on any host produces the matching listener.)
   8. ``gen_tauri_icons_stub.py`` generates stub sidecar/native/prewarm
-     binaries (the icons are committed real files — see the ICONS-ARE-
+     binaries (the icons are committed real files: see the ICONS-ARE-
      NOT-STUBS note below).
 
 VALIDATE ON HOST:
@@ -56,24 +56,24 @@ VALIDATE ON HOST:
 References:
   - ADR-0020 §4 (Nuitka freeze) + §5 (prewarm) + §6.4 (native listener)
     + §7 (Tauri config) + §13 (signing) + §15 (no auto-update).
-  - ``docs/migration/tauri-build-runbook.md`` — build runbook + the
+  - ``docs/migration/tauri-build-runbook.md``, build runbook + the
     "Phase 1 Packaging Status" section (the authoritative status table
     for "is the pipeline scaffolded?").
-  - ``docs/migration/cutover-playbook.md`` — per-platform cutover
+  - ``docs/migration/cutover-playbook.md``, per-platform cutover
     criteria (do NOT flip the default shipping app from Electron to
     Tauri until a platform's Phase 5 cutover gate passes).
 
-Gaps documented (report, do NOT fix — out of scope for this glue test):
+Gaps documented (report, do NOT fix, out of scope for this glue test):
 
   - GAP-1 (RESOLVED): the ORIGINAL gap was that ``build_tauri_all.sh``
     neither invoked ``gen_tauri_icons_stub.py`` nor documented that the
-    operator must run it first — a clean checkout had no
+    operator must run it first, a clean checkout had no
     ``src-tauri/bin/python-sidecar-*`` + no
     ``src-tauri/resources/native/*`` + no
     ``src-tauri/resources/prewarm-*``, so ``cargo tauri build`` failed
     with "resource path 'bin/python-sidecar-<triple>' doesn't exist".
     BUILD-4 fixed the binary-stub half (the orchestrator now runs
-    ``gen_tauri_icons_stub.py --check`` in Phase 0 — asserted by
+    ``gen_tauri_icons_stub.py --check`` in Phase 0, asserted by
     ``test_orchestrator_invokes_gen_tauri_icons_stub``), and the ICONS
     are now committed real files (``src-tauri/icons/*`` generated once
     with ``tauri icon`` from ``voice_typer/client/scripts/logo.svg``),
@@ -106,7 +106,7 @@ Gaps documented (report, do NOT fix — out of scope for this glue test):
     ``cargo tauri build``. If ``SKIP_SIDECAR=1`` is set (or a prior
     sidecar build silently failed), the ``cargo tauri build`` step
     will fail with "resource path 'bin/python-sidecar-<triple>' doesn't
-    exist" — a clear error, but the orchestrator does not pre-flight
+    exist", a clear error, but the orchestrator does not pre-flight
     the artifact set. See
     ``test_known_gap_orchestrator_does_not_preflight_artifacts``.
 """
@@ -142,7 +142,7 @@ ICON_STUB_GENERATOR = SCRIPTS_DIR / "gen_tauri_icons_stub.py"
 # ``test_icon_stub_generator_run_produces_all_expected_files`` runs the
 # generator against the SAME on-disk ``src-tauri/`` stub tree that
 # ``tests/tauri/test_gen_tauri_icons_stub.py`` mutates. Under ``pytest -n
-# auto`` the two modules race in different xdist workers — one worker's
+# auto`` the two modules race in different xdist workers, one worker's
 # ``--clean`` deletes a stub the other worker is mid-verify, surfacing as
 # intermittent failures (observed: 10 failed in a combined -n auto run).
 # The sibling module serializes its tests with a cross-process file lock;
@@ -228,11 +228,11 @@ def test_orchestrator_exists():
 def test_orchestrator_is_bash_syntax_valid():
     """``bash -n`` must parse the orchestrator without syntax errors.
 
-    ``-n`` only parses — it does NOT execute the script — so no
+    ``-n`` only parses (it does NOT execute the script) so no
     sidecar/Nuitka/cargo is spawned. Safe to run on any host.
     """
     if not bash_usable():
-        pytest.skip("bash not available or not usable on this host — cannot run `bash -n`.")
+        pytest.skip("bash not available or not usable on this host, cannot run `bash -n`.")
     result = subprocess.run(
         ["bash", "-n", str(ORCHESTRATOR)],
         capture_output=True,
@@ -281,7 +281,7 @@ def test_orchestrator_runs_per_platform_sidecar_builds(orchestrator_text: str, p
     ), (
         f"build_tauri_all.sh must invoke {script_name} via "
         f'`bash "$SCRIPT_DIR/{script_name}"`. (Comment-only references '
-        "are not enough — the script must be dispatched.)"
+        "are not enough, the script must be dispatched.)"
     )
     # Sanity: the referenced script must actually exist.
     assert SIDECAR_SCRIPTS[platform].is_file(), (
@@ -316,7 +316,7 @@ def test_orchestrator_runs_native_listener_builds(orchestrator_text: str, platfo
     """The orchestrator must invoke ``build_native_listener_<platform>.sh``.
 
     ADR-0020 §6.4: native key-listener binaries (Windows / macOS / Linux).
-    The orchestrator does NOT call ``compile_native.sh`` directly — it
+    The orchestrator does NOT call ``compile_native.sh`` directly, it
     calls the per-platform wrapper which itself invokes
     ``compile_native.sh`` (macOS + Linux) or ``compile_native.ps1``
     (Windows). The wrapper is also responsible for copying the compiled
@@ -343,7 +343,7 @@ def test_orchestrator_indirectly_invokes_compile_native_via_wrappers(
     or ``compile_native.ps1`` (Windows).
 
     GAP-2 (reported, not fixed): ``build_tauri_all.sh`` does NOT call
-    ``compile_native.sh`` directly — it relies on the per-platform
+    ``compile_native.sh`` directly, it relies on the per-platform
     wrapper. This is the correct layering (the wrapper also copies the
     binary into ``src-tauri/resources/native/``), but the glue is
     indirect. This test asserts the wrapper chain is intact.
@@ -357,13 +357,13 @@ def test_orchestrator_indirectly_invokes_compile_native_via_wrappers(
     assert "compile_native.sh" in linux_wrapper, (
         "build_native_listener_linux.sh must invoke compile_native.sh (which detects Linux + runs gcc)."
     )
-    # The Windows wrapper invokes compile_native.ps1 (PowerShell) — NOT
+    # The Windows wrapper invokes compile_native.ps1 (PowerShell), NOT
     # compile_native.sh. This is correct: Nuitka on Windows works best
     # from PowerShell, and cl.exe needs the Developer Command Prompt env.
     windows_wrapper = NATIVE_LISTENER_SCRIPTS["windows"].read_text(encoding="utf-8")
     assert "compile_native.ps1" in windows_wrapper, (
         "build_native_listener_windows.sh must invoke compile_native.ps1 "
-        "(PowerShell — cl.exe needs the Developer Command Prompt env)."
+        "(PowerShell, cl.exe needs the Developer Command Prompt env)."
     )
 
 
@@ -376,7 +376,7 @@ def test_orchestrator_references_compile_native_script(
     The orchestrator's header comment enumerates the dispatched scripts;
     ``compile_native.sh`` should appear (either directly OR via the
     ``build_native_listener_*`` wrappers it lists). This is a soft
-    structural check — the hard check is in
+    structural check, the hard check is in
     ``test_orchestrator_indirectly_invokes_compile_native_via_wrappers``.
     """
     # Either the orchestrator names compile_native.sh directly OR it
@@ -386,7 +386,7 @@ def test_orchestrator_references_compile_native_script(
     assert direct or indirect, (
         "build_tauri_all.sh must reference compile_native.sh (directly) "
         "OR build_native_listener_<platform>.sh for all 3 platforms "
-        "(indirect — the wrappers invoke compile_native.sh)."
+        "(indirect, the wrappers invoke compile_native.sh)."
     )
 
 
@@ -499,7 +499,7 @@ def test_compile_native_script_exists():
 def test_compile_native_is_bash_syntax_valid():
     """``bash -n`` must parse compile_native.sh without syntax errors."""
     if not bash_usable():
-        pytest.skip("bash not available or not usable on this host — cannot run `bash -n`.")
+        pytest.skip("bash not available or not usable on this host, cannot run `bash -n`.")
     result = subprocess.run(
         ["bash", "-n", str(COMPILE_NATIVE)],
         capture_output=True,
@@ -539,7 +539,7 @@ def test_compile_native_builds_all_three_listeners(
       - Linux:   voice_typer/server/native/linux-key-listener.c       (C)
 
     The script only builds the binary for the CURRENT platform
-    (cross-compilation is NOT supported — see script header), but it
+    (cross-compilation is NOT supported: see script header), but it
     MUST contain all 3 branches so a build on any host produces the
     matching listener.
     """
@@ -583,18 +583,18 @@ def test_icon_stub_generator_exists():
 def test_icon_stub_generator_documents_icons_are_committed(icon_stub_text: str):
     """The icon set is committed real files; the generator only makes binary stubs.
 
-    The icons referenced by ``src-tauri/tauri.conf.json`` ``bundle.icon``
-    (``32x32.png``, ``128x128.png``, ``128x128@2x.png``, ``icon.png``,
-    ``icon.ico``, ``icon.icns``) are REAL git-committed artifacts,
-    generated once with ``tauri icon`` from
-    ``voice_typer/client/scripts/logo.svg`` (the app's logo source of
-    truth). ``gen_tauri_icons_stub.py`` must NOT generate or delete them
-    — its only icon duty is ``--check-icons`` validation of the committed
-    ``icons/icon.ico`` (``tauri-build`` hard-fails without it on
-    Windows: "required for generating a Windows Resource file during
-    tauri-build").
+      The icons referenced by ``src-tauri/tauri.conf.json`` ``bundle.icon``
+      (``32x32.png``, ``128x128.png``, ``128x128@2x.png``, ``icon.png``,
+      ``icon.ico``, ``icon.icns``) are REAL git-committed artifacts,
+      generated once with ``tauri icon`` from
+      ``voice_typer/client/scripts/logo.svg`` (the app's logo source of
+      truth). ``gen_tauri_icons_stub.py`` must NOT generate or delete them
+    , its only icon duty is ``--check-icons`` validation of the committed
+      ``icons/icon.ico`` (``tauri-build`` hard-fails without it on
+      Windows: "required for generating a Windows Resource file during
+      tauri-build").
     """
-    # Every bundle.icon file must exist on disk (i.e. be committed — a
+    # Every bundle.icon file must exist on disk (i.e. be committed, a
     # fresh checkout has it). A missing icon breaks cargo tauri build.
     src_tauri = PROJECT_ROOT / "src-tauri"
     missing = [
@@ -603,7 +603,7 @@ def test_icon_stub_generator_documents_icons_are_committed(icon_stub_text: str):
         if not (src_tauri / "icons" / rel).is_file()
     ]
     assert not missing, (
-        f"missing committed icons: {missing} — the icon set must be committed "
+        f"missing committed icons: {missing}, the icon set must be committed "
         "(generate once with `tauri icon` from voice_typer/client/scripts/logo.svg)."
     )
     # The generator must document that icons are committed (not generated).
@@ -618,7 +618,7 @@ def test_icon_stub_generator_generates_stub_sidecar_binaries(icon_stub_text: str
 
     These stubs let ``cargo tauri build`` succeed on a clean checkout
     without a real Nuitka freeze. The stubs print "STUB: not a real
-    sidecar" to stderr + exit 1 if executed — the safety feature that
+    sidecar" to stderr + exit 1 if executed, the safety feature that
     prevents accidentally shipping stubs.
     """
     # The 6 target triples.
@@ -668,7 +668,7 @@ def test_icon_stub_generator_supports_check_mode(icon_stub_text: str):
 def test_icon_stub_generator_supports_clean_mode(icon_stub_text: str):
     """``gen_tauri_icons_stub.py --clean`` must remove stubs (preserving real artifacts).
 
-    Uses a heuristic (STUB_MARKER string in the first 8 KB — icons are
+    Uses a heuristic (STUB_MARKER string in the first 8 KB, icons are
     committed real files and are NOT in the stub path registry) so a
     developer who built a real Nuitka sidecar at one of the stub paths
     doesn't lose it.
@@ -682,7 +682,7 @@ def test_icon_stub_generator_run_produces_all_expected_files(_serialize_icon_stu
     """End-to-end smoke: generator produces binary stubs, preserves committed icons.
 
     This test actually invokes the generator (it's pure-Python + stdlib
-    only — no Nuitka / gcc / swiftc needed) and verifies:
+    only, no Nuitka / gcc / swiftc needed) and verifies:
       - the committed icon set still exists afterwards (generate() must
         never delete/overwrite the real committed icons),
       - every expected stub binary is created,
@@ -700,7 +700,7 @@ def test_icon_stub_generator_run_produces_all_expected_files(_serialize_icon_stu
         f"gen_tauri_icons_stub.py failed:\n--- stdout ---\n{result.stdout}\n--- stderr ---\n{result.stderr}"
     )
     # The committed icons (4 PNGs + the Windows .ico + the macOS .icns)
-    # must exist BEFORE + AFTER generate() — the generator must never
+    # must exist BEFORE + AFTER generate(), the generator must never
     # touch them.
     src_tauri = PROJECT_ROOT / "src-tauri"
     expected_icons = [
@@ -783,7 +783,7 @@ def test_known_gap_orchestrator_only_builds_host_platform(orchestrator_text: str
 
     This test ASSERTS the gap is present (the orchestrator selects the
     host platform via a ``case "$(uname -s)"`` branch + dispatches only
-    to the matching per-platform script). DO NOT fix this — it's a
+    to the matching per-platform script). DO NOT fix this, it's a
     fundamental limitation of Nuitka, not a bug.
     """
     # The orchestrator must dispatch on the host platform.
@@ -801,19 +801,19 @@ def test_known_gap_orchestrator_does_not_preflight_artifacts(orchestrator_text: 
 
     If ``SKIP_SIDECAR=1`` is set (or a prior sidecar build silently
     failed), the ``cargo tauri build`` step fails with a clear error
-    ("resource path 'bin/python-sidecar-<triple>' doesn't exist") — but
+    ("resource path 'bin/python-sidecar-<triple>' doesn't exist"), but
     only AFTER the (slow) Rust compile. A pre-flight check would catch
     this in <1 s.
 
     This test ASSERTS the gap is present (the orchestrator does NOT
     contain a "verify all expected artifacts exist" check before
-    Phase 1c). DO NOT fix this — it's a polish item, not a correctness
+    Phase 1c). DO NOT fix this, it's a polish item, not a correctness
     bug; the error message from Tauri is clear.
     """
     # The orchestrator must NOT have a pre-flight check that verifies
     # the sidecar binaries exist. (If it did, the orchestrator would
     # contain a `for triple in ...` loop checking `bin/python-sidecar-$triple`
-    # existence — which it does NOT.)
+    # existence, which it does NOT.)
     has_preflight = "python-sidecar-" in orchestrator_text and "test -f" in orchestrator_text
     assert not has_preflight, (
         "GAP-4 appears to be CLOSED: build_tauri_all.sh now pre-flights "

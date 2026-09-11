@@ -1,4 +1,4 @@
-"""god-class decomposition: SettingsController — extracted from VoiceTyperApp.
+"""god-class decomposition: SettingsController, extracted from VoiceTyperApp.
 
 Owns the platform-level configuration side effects triggered by the tray
 menu and IPC:
@@ -9,7 +9,7 @@ menu and IPC:
 
 The actual logic lived on ``VoiceTyperApp`` as four private methods
 (``_toggle_autostart``, ``_set_autostart``, ``_set_notifications``,
-``_select_microphone``). The behaviour is preserved verbatim — only the
+``_select_microphone``). The behaviour is preserved verbatim, only the
 class boundary moved. ``VoiceTyperApp`` keeps thin delegate methods so
 the tray menu callbacks (and tests that call ``app._select_microphone``
 directly) keep working unchanged.
@@ -57,7 +57,7 @@ class SettingsController:
         - Call ``app.tray.set_autostart_enabled`` / ``set_notifications_enabled``
           / ``notify`` to update the tray UI
         - Recreate ``app.recorder`` (a ``Recorder`` instance) when the mic
-          changes mid-session — see ``select_microphone`` for the
+          changes mid-session: see ``select_microphone`` for the
           during-recording deferral.
     """
 
@@ -134,7 +134,7 @@ class SettingsController:
         """Handle microphone selection from tray menu.
 
                 Persists the change to disk. If a recording is in progress, the
-                ``Recorder`` is NOT recreated immediately — the new mic takes
+                ``Recorder`` is NOT recreated immediately, the new mic takes
                 effect on the next recording (recreating mid-stream would
                 truncate the in-flight audio). Otherwise the ``Recorder`` is
                 recreated with the new ``config.microphone`` so PortAudio opens

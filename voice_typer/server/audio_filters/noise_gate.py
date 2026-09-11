@@ -157,7 +157,7 @@ class NoiseGate(AudioFilter):
         Each buffer is checked independently and grown to ``max(n, 1024)``
         on the first call or when a larger chunk arrives. ``_i_arr_buf``
         caches ``np.arange(cap)`` because ``np.arange`` has no ``out=``
-        kwarg — it is regenerated only when the capacity grows, then sliced
+        kwarg, it is regenerated only when the capacity grows, then sliced
         to ``[:n]`` on every call (values ``[0, 1, ..., n-1]`` are correct
         for any ``n <= cap``).
         """
@@ -165,7 +165,7 @@ class NoiseGate(AudioFilter):
         if self._abs_buf is None or self._abs_buf.shape[0] < n:
             self._abs_buf = np.empty(cap, dtype=np.float64)
         if self._i_arr_buf is None or self._i_arr_buf.shape[0] < n:
-            # np.arange has no out= kwarg — regenerate when capacity grows.
+            # np.arange has no out= kwarg, regenerate when capacity grows.
             self._i_arr_buf = np.arange(cap, dtype=np.float64)
         if self._y_buf is None or self._y_buf.shape[0] < n + 1:
             self._y_buf = np.empty(cap + 1, dtype=np.float64)
@@ -265,7 +265,7 @@ class NoiseGate(AudioFilter):
         # arrays per chunk. ``_i_arr_buf`` caches ``np.arange(cap)`` and
         # is sliced to ``[:n]`` (values are correct for any ``n <= cap``).
         # ``_level_arr_buf`` is dual-used: first as the ``i_arr * decay``
-        # temp, then overwritten with the final ``level_arr`` — safe because
+        # temp, then overwritten with the final ``level_arr``, safe because
         # the temp value is fully consumed before the overwrite.
         self._ensure_buffers(n)
         # ``_ensure_buffers`` guarantees the lazily-allocated buffers exist
@@ -538,7 +538,7 @@ class NoiseGate(AudioFilter):
     ) -> tuple[float, float]:
         """Fill one maximal same-state run ``att[s:e]`` of the state machine.
 
-        Returns ``(exit_att, exit_held)`` — the loop-equivalent running
+        Returns ``(exit_att, exit_held)``: the loop-equivalent running
         attenuation after the run's last sample, and the held-time value
         after the run's last sample (meaningful only for closed runs; the
         loop leaves ``held_time`` untouched across open samples).
@@ -546,12 +546,12 @@ class NoiseGate(AudioFilter):
         Exactness notes (see :meth:`_state_machine_vector`):
 
         * OPEN run: ``att`` is the monotone increasing cumsum of
-          ``d_attack`` seeded with ``entry_att`` — the same left-to-right
+          ``d_attack`` seeded with ``entry_att``: the same left-to-right
           float additions as the loop's ``attenuation += attack_rate*dt``
-          — clamped element-wise at 1.0 (== the loop's per-step clamp).
+         , clamped element-wise at 1.0 (== the loop's per-step clamp).
         * CLOSED run: the held-time timeline is a cumsum of ``dt`` seeded
           with ``held_entry`` (``0.0`` when the run starts at a close
-          event — the loop resets the timer there — or the carried value
+          event, the loop resets the timer there, or the carried value
           when the gate was already closed at chunk start). Samples with
           ``held <= hold_time`` hold ``att`` at ``entry_att``; the rest
           release via a monotone decreasing cumsum of ``-d_release``
@@ -625,7 +625,7 @@ class NoiseGate(AudioFilter):
         ):
             if buf is not None:
                 buf.fill(0)
-        # _i_arr_buf holds [0, 1, 2, ...] (not audio-derived) — no PII,
+        # _i_arr_buf holds [0, 1, 2, ...] (not audio-derived), no PII,
         # but zero for consistency and so a stale arange doesn't leak
         # the previous chunk size.
         if self._i_arr_buf is not None:

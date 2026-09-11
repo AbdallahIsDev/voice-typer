@@ -5,7 +5,7 @@ The snapshot is a tuple of zero-argument "resolvers"
 maintained atomically by ``_SubscriberSet._rebuild_snapshot()`` on
 every subscribe / unsubscribe / clear / update under ``_lock``.
 ``publish()`` reads the tuple WITHOUT acquiring the lock (tuple read
-is GIL-atomic) and iterates it directly — eliminating the per-publish
+is GIL-atomic) and iterates it directly, eliminating the per-publish
 lock acquisition AND the per-publish ``list(_subscribers)``
 allocation on the 60Hz ``bubble_level`` hot path.
 
@@ -24,7 +24,7 @@ These tests pin:
      (verified by monkey-patching ``_lock`` to raise on acquire and
      confirming ``publish()`` still succeeds).
   4. Dead weak-ref subscribers (GC'd between snapshot and delivery)
-     are silently skipped — no ``ReferenceError``, no log spam.
+     are silently skipped, no ``ReferenceError``, no log spam.
   5. The snapshot holds no strong references to a bound-method
      subscriber's ``__self__`` (PVT-031 leak-prevention preserved).
 """
@@ -64,7 +64,7 @@ class TestSnapshotType:
     def test_snapshot_is_a_tuple(self):
         """The snapshot MUST be a tuple (immutable, GIL-atomic read).
 
-        A list would not be safe to read without the lock — a
+        A list would not be safe to read without the lock, a
         concurrent subscribe could mutate it mid-iteration. A tuple is
         immutable; replacing the module-level reference is GIL-atomic.
         """
@@ -111,7 +111,7 @@ class TestSnapshotRebuild:
 
     def test_clear_resets_snapshot_to_empty_tuple(self):
         """clear() must set the snapshot to () directly (not just
-        rebuild — the buckets are empty so rebuild would also produce
+        rebuild, the buckets are empty so rebuild would also produce
         (), but setting () explicitly is faster and clearer)."""
         received: list[dict] = []
         event_bus.subscribe(received.append)
@@ -138,7 +138,7 @@ class TestLockFreePublish:
         This is the core optimization: the 60Hz ``bubble_level`` hot
         path no longer contends on ``_lock`` with subscribe /
         unsubscribe. Verified by replacing ``_lock.acquire`` with a
-        function that raises — if publish() acquires the lock, the
+        function that raises, if publish() acquires the lock, the
         test fails.
         """
         received: list[dict] = []
@@ -240,7 +240,7 @@ class TestWeakRefSnapshot:
         del sub
         gc.collect()
 
-        # The owner MUST be collected — the snapshot holds only a
+        # The owner MUST be collected, the snapshot holds only a
         # WeakMethod (weak ref), not a strong ref to the bound method.
         assert weak_owner() is None, (
             "snapshot must not hold a strong ref to the bound-method owner (PVT-031 leak-prevention invariant)"
@@ -249,7 +249,7 @@ class TestWeakRefSnapshot:
     def test_dead_resolver_is_silently_skipped(self):
         """If a subscriber is GC'd between snapshot creation and
         publish() delivery, the dead resolver returns None and is
-        silently skipped — no ReferenceError, no log spam."""
+        silently skipped, no ReferenceError, no log spam."""
         sub = _Subscriber()
         event_bus.subscribe(sub.on_event)
         assert len(event_bus._subscribers._snapshot) == 1

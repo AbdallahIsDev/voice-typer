@@ -44,7 +44,7 @@ class TestCfg8DeprecatedFieldsRemoved:
     client mutate dead Config fields.  The renderer's Settings UI
     never sends them via ``set_config`` (they were superseded by the
     new ADR 0007 §5.1 filter-chain fields), so removing them from the
-    allowlist is safe — they're silently dropped, just like any other
+    allowlist is safe, they're silently dropped, just like any other
     unknown key.
 
     The Config dataclass still carries the deprecated fields for
@@ -58,7 +58,7 @@ class TestCfg8DeprecatedFieldsRemoved:
         "noise_filter_post_capture",
         "volume_duck_per_session",
         "volume_duck_smart",
-        # also removed from IPC_CONFIG_ALLOWLIST — these were
+        # also removed from IPC_CONFIG_ALLOWLIST, these were
         # declared, validated, and persisted but never read at runtime
         # (ADR 0007 §4.3 / §5.2). The Config dataclass fields themselves
         # were also removed; existing config.json values are silently
@@ -68,7 +68,7 @@ class TestCfg8DeprecatedFieldsRemoved:
         "normalize_audio",
         "normalize_target_peak",
         # fully removed from the Config dataclass AND the IPC allowlist
-        # (2026-08-24) — PTT uses the main ``hotkey`` field. Existing
+        # (2026-08-24). PTT uses the main ``hotkey`` field. Existing
         # config.json values are silently scrubbed by the v5 schema
         # migration.
         "push_to_talk_hotkey",
@@ -114,7 +114,7 @@ class TestCfg8DeprecatedFieldsRemoved:
 
     def test_deprecated_fields_silently_dropped_by_validate_config_update(self):
         """Setting a deprecated field via ``set_config`` is silently
-        dropped (no error, no apply) — same contract as any other
+        dropped (no error, no apply), same contract as any other
         unknown key.  This preserves the existing
         ``test_ignores_unknown_fields_without_crashing`` contract."""
         from voice_typer.server.config import validate_config_update
@@ -123,7 +123,7 @@ class TestCfg8DeprecatedFieldsRemoved:
         # Use float for the threshold field (the others are bool).
         payload["noise_filter_gate_threshold"] = 0.05
         validated, errors = validate_config_update(payload)
-        # No errors — deprecated fields are silently dropped, not rejected.
+        # No errors, deprecated fields are silently dropped, not rejected.
         assert errors == [], f"Deprecated fields should be silently dropped, not raise errors; got: {errors}"
         # None of the deprecated fields appear in validated.
         for field in self.DEPRECATED_REMOVED:

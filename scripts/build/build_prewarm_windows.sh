@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Voice Typer — Nuitka prewarm build (Windows x86_64 + aarch64)
-# ADR-0020 §5 — Prewarm is frozen the SAME Nuitka way as the sidecar, into
+# Voice Typer. Nuitka prewarm build (Windows x86_64 + aarch64)
+# ADR-0020 §5. Prewarm is frozen the SAME Nuitka way as the sidecar, into
 # prewarm-<triple>.exe. Prewarm is a BUNDLE RESOURCE (not externalBin):
 # launched by the Windows Task Scheduler (LogonTrigger) via
 # resolve_prewarm_exe(), NOT by Tauri as a managed child.
@@ -34,7 +34,7 @@ if [[ "$ARCH" == "--check" ]]; then
     # the exact same Nuitka toolchain as the sidecar, so a successful
     # sidecar --check implies a successful prewarm build.
     # WR-18: previously this was a stub that just echoed "OK if that
-    # passes" and exited 0 without invoking the sibling — masking
+    # passes" and exited 0 without invoking the sibling, masking
     # real toolchain breakage.
     # Delegate to the sibling sidecar build script which performs the
     # real toolchain probe (python-build-standalone interpreter,
@@ -76,7 +76,7 @@ if [[ "$ARCH" == "--check" ]]; then
         done
     fi
     if [[ "$FOUND_PREWARM" -eq 0 ]]; then
-        echo "NOTICE: no prewarm binary found in $PREWARM_DIR — run without --check to build." >&2
+        echo "NOTICE: no prewarm binary found in $PREWARM_DIR. Run without --check to build." >&2
     else
         echo "[build_prewarm_windows.sh] OK: existing prewarm binary verified."
     fi
@@ -126,7 +126,7 @@ fi
 echo "[build_prewarm_windows] PY=$PY"
 
 # S4-CR-25 / nu-opt-2: prewarm never imports torch/transformers/
-# faster_whisper/ctranslate2 at runtime — only calls
+# faster_whisper/ctranslate2 at runtime, only calls
 # importlib.util.find_spec(). The sanity-check below just confirms
 # voice_typer.server.prewarm itself imports cleanly.
 "$PY" -c 'import voice_typer.server.prewarm; print("ok")' \
@@ -136,19 +136,19 @@ echo "[build_prewarm_windows] PY=$PY"
 mkdir -p "$RESOURCES_DIR"
 
 # ─── Run Nuitka (ADR-0020 §5) ────────────────────────────────────────────────
-# NOTE: prewarm is a SEPARATE process — it has its own --onefile-tempdir-spec
+# NOTE: prewarm is a SEPARATE process, it has its own --onefile-tempdir-spec
 # so its self-extraction doesn't collide with the sidecar's. Different temp
 # dir, different binary, different process.
 #
 # S4-CR-25 / nu-opt-2: prewarm never imports torch/transformers/
-# faster_whisper/ctranslate2 at runtime — it only calls
+# faster_whisper/ctranslate2 at runtime, it only calls
 # importlib.util.find_spec() to locate their installed files for
 # OS-cache warming, then reads file bytes directly. These heavy
 # packages are still BUNDLED as bytecode (so find_spec works)
 # but NOT compiled to C, saving ~90 min of compile time.
 # Also removed deprecated --enable-plugin=numpy, removed
 # --include-package=faster_whisper,ctranslate2 (not needed for
-# find_spec — they're pulled in transitively via voice_typer),
+# find_spec, they're pulled in transitively via voice_typer),
 # and added psutil platform-module exclusions.
 # Parallel C compilation: Nuitka invokes gcc/clang per Python module;
 # --jobs=N fans those out (the default was sequential). Override with

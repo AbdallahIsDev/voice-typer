@@ -11,7 +11,7 @@
  * Covered here:
  *   1. Local is the default; Download is disabled until HF consent.
  *   2. Clicking Download (with consent) fires download_model + persists
- *      huggingface_consent — and nothing is downloaded on a normal pass.
+ *      huggingface_consent, and nothing is downloaded on a normal pass.
  *   3. download_progress push events drive the in-wizard progress bar.
  *   4. Cloud branch renders provider/API-key/consent; Continue persists
  *      them via set_config + onboarding_set_backend("cloud").
@@ -55,7 +55,7 @@ vi.mock("@hugeicons/react", () => hugeiconsReactMock());
 vi.mock("@hugeicons/core-free-icons", () => hugeiconsCoreMock());
 
 //mock the Radix Select wrapper so options render inline (same as the
-// sibling Onboarding tests — these tests don't drive pointer-capture
+// sibling Onboarding tests, these tests don't drive pointer-capture
 // machinery, they assert on wiring).
 vi.mock("@/components/ui/select", () => ({
 	Select: ({ children }: { children: React.ReactNode }) => (
@@ -98,7 +98,7 @@ vi.mock("@/components/ui/select", () => ({
 }));
 
 //mock the Radix Checkbox wrapper so the HuggingFace + cloud consent
-// checkboxes render as a real <input type="checkbox"> in jsdom — the
+// checkboxes render as a real <input type="checkbox"> in jsdom, the
 // Radix primitive is a <button role="checkbox"> whose pointer + keyboard
 // events jsdom does not simulate uniformly, and these tests drive it via
 // fireEvent.click + assert on `.checked`. Same shape as the Onboarding
@@ -208,7 +208,7 @@ function mockStartAtStep(stepIndex: number, cfg: Record<string, unknown> = {}) {
 	});
 }
 
-describe("Onboarding Model step — explicit backend choice, no auto-download", () => {
+describe("Onboarding Model step, explicit backend choice, no auto-download", () => {
 	beforeEach(() => {
 		mockCall.mockReset();
 		mockShowSnack.mockReset();
@@ -347,25 +347,25 @@ describe("Onboarding Model step — explicit backend choice, no auto-download", 
 		});
 		const strip = screen.getByTestId("onboarding-family-strip");
 
-		// Vitest inlines the SVGs as data URIs — assert on each file's
+		// Vitest inlines the SVGs as data URIs, assert on each file's
 		// unique content (same convention as the FamilyLogo tests).
 		const srcs = Array.from(strip.querySelectorAll("img")).map(
 			(i) => i.getAttribute("src") ?? "",
 		);
 		expect(srcs.some((s) => s.includes("OpenAI%20icon"))).toBe(true);
 		expect(srcs.some((s) => s.includes("Nvidia%20icon"))).toBe(true);
-		// No Qwen logo — qwen is not offered in the onboarding catalog.
+		// No Qwen logo, qwen is not offered in the onboarding catalog.
 		expect(srcs.some((s) => s.includes("Qwen%20icon"))).toBe(false);
 
 		// Brand names + the localized strip label render next to the
 		// logos (the label resolves to "Powered by" in en). The whisper
-		// family shows the COMPANY name (OpenAI) — UI/UX overhaul
+		// family shows the COMPANY name (OpenAI), UI/UX overhaul
 		// point 5a, matching the Models page group headers.
 		expect(within(strip).getByText("OpenAI")).toBeTruthy();
 		expect(within(strip).getByText("Nvidia")).toBeTruthy();
 		expect(within(strip).getByText("Powered by")).toBeTruthy();
 
-		// The strip is a local-model affordance — switching to Cloud
+		// The strip is a local-model affordance, switching to Cloud
 		// removes it.
 		fireEvent.click(screen.getByTestId("onboarding-backend-cloud"));
 		await waitFor(() => {
@@ -439,7 +439,7 @@ describe("Onboarding Model step — explicit backend choice, no auto-download", 
 		mockStartAtStep(5);
 		render(<OnboardingPage onComplete={() => {}} />);
 
-		// The heading appears twice (sr-only h1 + visible h2 — the
+		// The heading appears twice (sr-only h1 + visible h2, the
 		// standard wizard pattern), so use getAllByText.
 		await waitFor(() => {
 			expect(screen.getAllByText("You're All Set!").length).toBeGreaterThan(0);

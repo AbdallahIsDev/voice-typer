@@ -27,17 +27,17 @@ export const Silent: Story = {
 
 export const Low: Story = {
 	args: { level: 0.15, playing: false },
-	name: "Low level (0.15) — accent color",
+	name: "Low level (0.15), accent color",
 };
 
 export const Medium: Story = {
 	args: { level: 0.45, playing: false },
-	name: "Medium level (0.45) — primary color",
+	name: "Medium level (0.45), primary color",
 };
 
 export const Loud: Story = {
 	args: { level: 0.85, playing: false },
-	name: "Loud level (0.85) — destructive color",
+	name: "Loud level (0.85), destructive color",
 };
 
 export const Playing: Story = {
@@ -61,7 +61,7 @@ export const DarkBackground: Story = {
 		docs: {
 			description: {
 				story:
-					"Rendered inside a dark-themed scoped wrapper (`dark` class on a container div, mirroring `useTheme`'s contract on `document.documentElement`) — the fill uses the same solid `bg-primary` token; the track (`bg-border`) and clipping ⚠ affordance must read against the dark palette.",
+					"Rendered inside a dark-themed scoped wrapper (`dark` class on a container div, mirroring `useTheme`'s contract on `document.documentElement`), the fill uses the same solid `bg-primary` token; the track (`bg-border`) and clipping ⚠ affordance must read against the dark palette.",
 			},
 		},
 	},
@@ -75,7 +75,7 @@ export const RtlLayout: Story = {
 		docs: {
 			description: {
 				story:
-					'Rendered inside a `dir="rtl"` wrapper — the `scaleX` fill must mirror with the document direction (transform-origin flips with logical direction).',
+					'Rendered inside a `dir="rtl"` wrapper, the `scaleX` fill must mirror with the document direction (transform-origin flips with logical direction).',
 			},
 		},
 	},

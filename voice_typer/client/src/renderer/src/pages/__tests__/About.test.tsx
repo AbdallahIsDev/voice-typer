@@ -3,14 +3,14 @@
  * data-handling disclosure) plus the moved-out surfaces it used to
  * host:
  *
- *   - formatBytes() / formatRelativeTime() — now exported from the
+ *   - formatBytes() / formatRelativeTime(), now exported from the
  *     DiagnosticsSettingsSection component (they moved there with the
  *     diagnostics table in the IA split).
  *   - The diagnostics table itself (config dir, Loaded Via, Copy
- *     diagnostics, model-truth rows) — now lives in Settings →
+ *     diagnostics, model-truth rows), now lives in Settings →
  *     Privacy (support area), covered by mounting
  *     DiagnosticsSettingsSection directly.
- *   - The privacy disclosure — lives on the SAME page now (the About
+ *   - The privacy disclosure, lives on the SAME page now (the About
  *     and Privacy pages were merged into AboutAndPrivacy); covered by
  *     the a11y-rewrite/About-privacy.test.tsx suite.
  *   - Product-identity smoke tests + the negative tests that Help /
@@ -156,9 +156,9 @@ describe("formatRelativeTime", () => {
 	});
 });
 
-// ─── About & Privacy page — product identity (merged) ────────────────
+// ─── About & Privacy page, product identity (merged) ────────────────
 
-describe("About & Privacy page — product identity (merged)", () => {
+describe("About & Privacy page, product identity (merged)", () => {
 	beforeEach(() => {
 		mockCall.mockReset();
 		mockCall.mockImplementation(() => Promise.resolve({}));
@@ -172,7 +172,7 @@ describe("About & Privacy page — product identity (merged)", () => {
 		const { default: AboutPage } = await import("@/pages/AboutAndPrivacy");
 		render(<AboutPage />);
 
-		// Page heading — the About title (i18n key about.title).
+		// Page heading, the About title (i18n key about.title).
 		await waitFor(() => {
 			expect(
 				screen.getByRole("heading", { name: "About & Privacy" }),
@@ -181,7 +181,7 @@ describe("About & Privacy page — product identity (merged)", () => {
 
 		// Identity row: product tagline under the app name.
 		expect(screen.getByText("Desktop voice-to-text")).toBeTruthy();
-		// Capability split — Local & Offline vs Cloud blocks.
+		// Capability split, Local & Offline vs Cloud blocks.
 		expect(screen.getByText("Local & Offline")).toBeTruthy();
 		expect(screen.getByText("Cloud (optional)")).toBeTruthy();
 	});
@@ -206,7 +206,7 @@ describe("About & Privacy page — product identity (merged)", () => {
 		});
 		expect(checkButton).toBeTruthy();
 		expect(checkButton.getAttribute("data-size")).toBe("xs");
-		// The Platforms row was removed — version + button only.
+		// The Platforms row was removed, version + button only.
 		expect(screen.queryByText("Platforms")).toBeNull();
 		expect(screen.queryByText("Windows, macOS, and Linux")).toBeNull();
 	});
@@ -224,7 +224,7 @@ describe("About & Privacy page — product identity (merged)", () => {
 		// The diagnostics table moved to Settings → Privacy (support
 		// area) and the resources grid to Settings → Privacy. The
 		// privacy disclosure lives on this page (merged), but as plain
-		// topic rows — no separate "Privacy" section heading exists.
+		// topic rows, no separate "Privacy" section heading exists.
 		expect(screen.queryByRole("heading", { name: "Diagnostics" })).toBeNull();
 		expect(screen.queryByRole("heading", { name: "Privacy" })).toBeNull();
 		expect(
@@ -232,7 +232,7 @@ describe("About & Privacy page — product identity (merged)", () => {
 		).toBeNull();
 	});
 
-	it("does NOT render the Help section (removed — duplicates `?` overlay)", async () => {
+	it("does NOT render the Help section (removed, duplicates `?` overlay)", async () => {
 		const { default: AboutPage } = await import("@/pages/AboutAndPrivacy");
 		render(<AboutPage />);
 
@@ -250,7 +250,7 @@ describe("About & Privacy page — product identity (merged)", () => {
 		expect(screen.queryByText("Help")).toBeNull();
 	});
 
-	it("does NOT render the Cache Status section (removed — belongs on a diagnostics surface)", async () => {
+	it("does NOT render the Cache Status section (removed, belongs on a diagnostics surface)", async () => {
 		const { default: AboutPage } = await import("@/pages/AboutAndPrivacy");
 		render(<AboutPage />);
 
@@ -261,13 +261,13 @@ describe("About & Privacy page — product identity (merged)", () => {
 		});
 
 		// The Cache Status card previously had a "Run Prewarm Now"
-		// button and a "Refresh" button — both removed.
+		// button and a "Refresh" button, both removed.
 		expect(screen.queryByText("Cache Status")).toBeNull();
 		expect(screen.queryByText("Run Prewarm Now")).toBeNull();
 		expect(screen.queryByText("View prewarm log")).toBeNull();
 	});
 
-	it("keeps ONLY the version meta row — no Platforms / Offline engine pack status rows", async () => {
+	it("keeps ONLY the version meta row, no Platforms / Offline engine pack status rows", async () => {
 		const { default: AboutPage } = await import("@/pages/AboutAndPrivacy");
 		render(<AboutPage />);
 
@@ -312,7 +312,7 @@ describe("Diagnostics section (IA split: Settings → Privacy)", () => {
 					microphone: null,
 				});
 			}
-			// The configured model's weights ARE on disk — the
+			// The configured model's weights ARE on disk, the
 			// Diagnostics rows surface the real selection.
 			if (type === "get_model_status") {
 				return Promise.resolve({
@@ -339,7 +339,7 @@ describe("Diagnostics section (IA split: Settings → Privacy)", () => {
 		await waitFor(() => {
 			expect(screen.getByText("/tmp/voice-typer")).toBeTruthy();
 		});
-		// The row resolves — no "Loading…" placeholder remains.
+		// The row resolves, no "Loading…" placeholder remains.
 		expect(screen.queryByText("Loading…")).toBeNull();
 	});
 
@@ -388,14 +388,14 @@ describe("Diagnostics section (IA split: Settings → Privacy)", () => {
 		expect(toastSuccess).toHaveBeenCalledWith("Copied!", expect.anything());
 	});
 
-	it("does NOT render the sticky section nav (removed — page is short enough to scroll)", async () => {
+	it("does NOT render the sticky section nav (removed, page is short enough to scroll)", async () => {
 		renderDiag();
 
 		await waitFor(() => {
 			expect(screen.getByRole("heading", { name: "Diagnostics" })).toBeTruthy();
 		});
 
-		// The in-page section nav was removed entirely — no
+		// The in-page section nav was removed entirely, no
 		// navigation landmark remains.
 		expect(
 			screen.queryByRole("navigation", { name: "About page sections" }),
@@ -406,10 +406,10 @@ describe("Diagnostics section (IA split: Settings → Privacy)", () => {
 // ─── Diagnostics model-truth (point 10) ────────────────────────────────
 // The Diagnostics table's Speech recognizer / Device rows must derive
 // from the SAME source of truth as the Analytics page's Current Setup
-// cards (lib/utils/models.ts resolveActiveModel) — never a per-page
+// cards (lib/utils/models.ts resolveActiveModel), never a per-page
 // duplicate check. With no model installed both pages show
 // "Not selected"; with one installed both show the real values.
-describe("Diagnostics section — model rows share one source of truth with Analytics", () => {
+describe("Diagnostics section, model rows share one source of truth with Analytics", () => {
 	beforeEach(() => {
 		mockCall.mockReset();
 		mockCall.mockImplementation((type: string) => {
@@ -442,7 +442,7 @@ describe("Diagnostics section — model rows share one source of truth with Anal
 		render(<DiagnosticsSettingsSection isVisible={() => true} />);
 
 	it("shows 'Not selected' for Speech recognizer and Device when no model is installed", async () => {
-		// get_model_status returns {} — the configured "tiny" is NOT on
+		// get_model_status returns {}, the configured "tiny" is NOT on
 		// disk, so the config defaults must NOT leak into the table.
 		mockCall.mockImplementation((type: string) => {
 			if (type === "get_status") {
@@ -469,7 +469,7 @@ describe("Diagnostics section — model rows share one source of truth with Anal
 		await waitFor(() => {
 			expect(screen.getByRole("heading", { name: "Diagnostics" })).toBeTruthy();
 		});
-		// Both model rows report the unselected state — the stale
+		// Both model rows report the unselected state, the stale
 		// "whisper (tiny)" / "GPU" values from the config defaults
 		// never render (the pre-fix bug this round was reported for).
 		expect(screen.getAllByText("Not selected")).toHaveLength(2);
@@ -513,7 +513,7 @@ describe("Diagnostics section — model rows share one source of truth with Anal
 
 	it("Diagnostics and the Analytics data hook both import resolveActiveModel from lib/utils/models (one shared check)", () => {
 		// If either page ever re-implements its own "is it installed"
-		// check inline, the two pages can drift again — the whole point
+		// check inline, the two pages can drift again, the whole point
 		// of this round's fix. Both must route through the shared
 		// helper in lib/utils/models.ts.
 		expect(DIAG_SRC).toMatch(

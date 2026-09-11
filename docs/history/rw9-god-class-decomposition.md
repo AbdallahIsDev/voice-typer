@@ -1,10 +1,10 @@
 > **Historical document**
 
-# RW-9 — VoiceTyperApp God-Class Decomposition
+# RW-9: VoiceTyperApp God-Class Decomposition
 
 **Task**: RW-9 god-class controller extract
 **Sub-agent**: `rw-9-god-class-controller-extract`
-**Round**: Phase 6 (this round) — adds SettingsController + regression-test scaffolding
+**Round**: Phase 6 (this round), adds SettingsController + regression-test scaffolding
 **Status**: COMPLETE for this round; follow-ups listed below
 
 ---
@@ -17,7 +17,7 @@ liability in the codebase. The pre-RW-9 baseline (per the task directive):
 | Metric                | Pre-RW-9 (directive) | Round-6 start (actual) | Round-6 end (this round) | Current (post-round-6 follow-ups) |
 | --------------------- | -------------------- | ---------------------- | ------------------------ | --------------------------------- |
 | `app.py` line count   | 2352                 | 2321                   | 2314                     | **1676** (`wc -l voice_typer/server/app.py`, as of 2026-08-05) |
-| `VoiceTyperApp` methods | 61                 | 35                     | 35                       | 35 (unchanged — follow-ups moved whole controllers out, not methods) |
+| `VoiceTyperApp` methods | 61                 | 35                     | 35                       | 35 (unchanged: follow-ups moved whole controllers out, not methods) |
 | `self.models` / `self.recording` / `self.hotkeys` / `self.tray` calls | ~82 | (not recounted) | (not recounted) | (not recounted) |
 
 > **Post-round-6 update (S1-CR-131 reconciliation):** the 2314-line
@@ -30,7 +30,7 @@ liability in the codebase. The pre-RW-9 baseline (per the task directive):
 > onboarding, privacy, system, level_monitor sub-services). Each
 > extraction moved real method bodies out of `VoiceTyperApp` into a
 > dedicated module. The line-count figure above is captured as of
-> **2026-08-05** so future drift is detectable — re-run
+> **2026-08-05** so future drift is detectable, re-run
 > `wc -l voice_typer/server/app.py` and update this row (and the
 > surrounding prose) when comparing future RW-9 follow-ups. The
 > ASCII-art snapshot in §8 below still shows the Round-6-end shape and
@@ -46,7 +46,7 @@ prior RW-9 rounds (Phases 1–5) which already extracted:
 | 1     | `voice_typer/server/model_manager.py`           | `ModelManager` (ASR backend lifecycle, fallback, change)  |
 | 1     | `voice_typer/server/hotkey_dispatcher.py`       | `HotkeyDispatcher` (3 hotkey backends + register/restart) |
 | 2     | `voice_typer/server/startup_tasks.py`           | `sync_autostart`, `sync_prewarm_task`, `load_microphones`, `ensure_desktop_shortcut`, `start_accessibility_pulse` (5 standalone functions; `VoiceTyperApp` delegate methods removed) |
-| 5     | `voice_typer/server/startup_sequence.py`        | `StartupSequence.run()` — the entire `_do_startup` body (~340 lines, 8-phase boot sequence with RACE-020 shutdown gates) |
+| 5     | `voice_typer/server/startup_sequence.py`        | `StartupSequence.run()` The entire `_do_startup` body (~340 lines, 8-phase boot sequence with RACE-020 shutdown gates) |
 
 This round (Phase 6) adds the SettingsController extraction + regression
 tests + this tracking doc.
@@ -55,7 +55,7 @@ tests + this tracking doc.
 
 ## 2. What Was Extracted This Round
 
-### Phase 6 — SettingsController
+### Phase 6: SettingsController
 
 **New module**: `voice_typer/server/settings_controller.py` (166 lines)
 
@@ -66,7 +66,7 @@ tests + this tracking doc.
 | `_toggle_autostart`                       | `toggle_autostart`          | Reads `is_autostart_enabled()` dynamically from `voice_typer.server.app` so existing monkeypatch patterns keep working |
 | `_set_autostart(enabled)`                 | `set_autostart(enabled)`    | Calls `enable_autostart()` / `disable_autostart()`, persists config, updates tray UI, notifies user on failure |
 | `_set_notifications(enabled)`             | `set_notifications(enabled)`| Persists `show_notifications`, updates tray's `set_notifications_enabled` |
-| `_select_microphone(mic_name)`            | `select_microphone(mic_name)`| Updates config, recreates `Recorder` (unless recording is active — defers to next recording) |
+| `_select_microphone(mic_name)`            | `select_microphone(mic_name)`| Updates config, recreates `Recorder` (unless recording is active: defers to next recording) |
 
 **NOT extracted this round** (left for follow-up):
 
@@ -86,7 +86,7 @@ after `self.tray = TrayIcon(...)` (so the tray is available when
 
 **Back-reference pattern**: `SettingsController._app` holds a reference
 to the `VoiceTyperApp` instance. Same attribute surface as the original
-`self.*` references — only the class boundary moved. Mirrors the pattern
+`self.*` references: only the class boundary moved. Mirrors the pattern
 established by `RecordingController` and `StartupSequence`.
 
 **Circular-import handling**:
@@ -100,11 +100,11 @@ established by `RecordingController` and `StartupSequence`.
 - `TYPE_CHECKING` import of `VoiceTyperApp` is type-only (no runtime
   cost, no cycle).
 
-### Test-infrastructure fix — `tests/conftest.py`
+### Test-infrastructure fix, `tests/conftest.py`
 
 Added a `ctypes.WINFUNCTYPE` shim (lines 47–61) so the test suite can
 import `voice_typer.server.app` on Linux/macOS. The shim is a pure
-test-infrastructure change — production behaviour on Windows is
+test-infrastructure change: production behaviour on Windows is
 unchanged. Without this shim, every test that touches `app.py` fails
 at collection time with
 `AttributeError: module 'ctypes' has no attribute 'WINFUNCTYPE'`
@@ -120,16 +120,16 @@ Pins the `StartupSequence` extraction contract:
 - `TestStartupSequenceDelegate::test_do_startup_invokes_startup_sequence_run`:
   `_do_startup` constructs a `StartupSequence` and calls `.run()`.
 - `TestStartupSequenceRunOrder::test_run_calls_autostart_sync_then_prewarm_mic_then_hotkey_then_model`:
-  pins the boot phase ordering — autostart → prewarm + mic enumeration
+  pins the boot phase ordering: autostart → prewarm + mic enumeration
   in parallel → hotkey registration → model load.
 - `TestStartupSequenceRACE020ShutdownGates::test_run_returns_early_if_shutting_down_at_start`:
-  RACE-020 — if `_shutting_down` is set at start, NO phases run.
+  RACE-020, if `_shutting_down` is set at start, NO phases run.
 - `TestStartupSequenceRACE020ShutdownGates::test_run_aborts_after_autostart_sync_if_shutting_down`:
-  RACE-020 — if `_shutting_down` becomes True after the autostart sync
+  RACE-020, if `_shutting_down` becomes True after the autostart sync
   step, the sequence short-circuits BEFORE hotkey registration and
   model load.
 - `TestStartupSequenceDoesNotCrashOnMissingDeps::test_run_swallows_onboarding_exceptions`:
-  startup resilience — onboarding auto-heal exceptions must not abort
+  startup resilience: onboarding auto-heal exceptions must not abort
   the rest of startup.
 
 **New file**: `tests/test_settings_controller.py` (349 lines, 17 tests)
@@ -164,10 +164,10 @@ Pins the `SettingsController` extraction contract:
 
 | File                                                       | Lines | Purpose                                                              |
 | ---------------------------------------------------------- | ----- | -------------------------------------------------------------------- |
-| `voice_typer/server/settings_controller.py`                | 166   | `SettingsController` class — extracted settings side-effects        |
+| `voice_typer/server/settings_controller.py`                | 166   | `SettingsController` class: extracted settings side-effects        |
 | `tests/test_startup_sequence.py`                          | 332   | Regression tests for the Phase-5 `StartupSequence` extraction       |
 | `tests/test_settings_controller.py`                       | 349   | Regression tests for the Phase-6 `SettingsController` extraction    |
-| `docs/history/rw9-god-class-decomposition.md`                     | (this file) | Tracking doc — what was extracted, what remains                   |
+| `docs/history/rw9-god-class-decomposition.md`                     | (this file) | Tracking doc: what was extracted, what remains                   |
 
 ---
 
@@ -193,14 +193,14 @@ new module in `voice_typer/server/` with a back-reference to
 | `TimerCoordinator` | `voice_typer/server/timer_coordinator.py` | ~50 lines, 2 methods | LOW risk. `_schedule_timer` (with generation guard) + `_cancel_pending_timers` (ARCH-022: list guarded by `_pending_timers_lock`) extracted. Depends only on `self._pending_timers`/`self._pending_timers_lock`/`self._timer_generation`. |
 | `WaveformBubbleWiring` | `voice_typer/server/waveform_bubble_wiring.py` | ~125 lines, 1 method | MEDIUM risk. `_wire_waveform_bubble` (4 callbacks + bubble-level-pusher daemon worker) extracted. Worker's lifecycle (bounded queue + daemon thread + sentinel shutdown) is intertwined with `ShutdownController._do_cleanup`, which now stops the worker via the controller's back-reference. |
 
-### 5.2 Still Remaining — `_open_config_file` (~100 lines, 1 method)
+### 5.2 Still Remaining, `_open_config_file` (~100 lines, 1 method)
 
 Methods:
-- `_open_config_file` — opens the config file in the user's default
+- `_open_config_file` Opens the config file in the user's default
   editor. Holds `_config_mutation_lock` for the entire editor session
   (SEC-audit-011 / B-4 fix).
 
-**Risk**: LOW — but blocked by source-level structure tests in
+**Risk**: LOW, but blocked by source-level structure tests in
 `tests/test_config_editor_lock.py` and
 `tests/test_bugfix_regressions.py:943` that use
 `inspect.getsource(VoiceTyperApp._open_config_file)` to pin
@@ -229,14 +229,14 @@ The full test suite has two unrelated pre-existing issues from parallel
 sub-agents' work:
 
 1. `tests/test_bugfix_regressions.py::TestSpanishTranslationComplete::test_es_json_has_same_keys_as_en`
-   — fails because another sub-agent added new English keys to
+ Fails because another sub-agent added new English keys to
    `en.json` without updating `es.json`. Unrelated to RW-9.
-2. `tests/test_waveform_bubble.py` (2 tests) — fail with
+2. `tests/test_waveform_bubble.py` (2 tests): fail with
    `AttributeError: module 'voice_typer.server.ipc_server' has no
    attribute '_push_event_registry_lock'`. Another sub-agent renamed
    / moved the IPC push-event registry lock. Unrelated to RW-9.
 3. `tests/test_property_based.py` and
-   `tests/test_text_cleanup_hypothesis.py` — fail at collection time
+   `tests/test_text_cleanup_hypothesis.py` Fail at collection time
    with `AttributeError: type object 'HealthCheck' has no attribute
    'function_scoped_fixture'`. A hypothesis-API-version mismatch in
    the test environment. Unrelated to RW-9.
@@ -261,10 +261,10 @@ moved to `SettingsController` (4 methods, 166 lines).
 - `VoiceTyperApp._set_notifications` ✓ (delegate)
 - `VoiceTyperApp._select_microphone` ✓ (delegate)
 - `VoiceTyperApp._open_config_file` ✓ (unchanged)
-- `VoiceTyperApp.change_microphone` ✓ (unchanged — calls
+- `VoiceTyperApp.change_microphone` ✓ (unchanged, calls
   `_select_microphone` which delegates to `SettingsController`)
-- `VoiceTyperApp.change_model` ✓ (unchanged — calls `self.models.change_model`)
-- `VoiceTyperApp.toggle_dictation` ✓ (unchanged — calls
+- `VoiceTyperApp.change_model` ✓ (unchanged, calls `self.models.change_model`)
+- `VoiceTyperApp.toggle_dictation` ✓ (unchanged, calls
   `self.recording.toggle()`)
 - `VoiceTyperApp.quit_app` / `restart_app` / `quit` ✓ (unchanged)
 
@@ -277,9 +277,9 @@ moved to `SettingsController` (4 methods, 166 lines).
 The directive says: "DO NOT change the public API of `VoiceTyperApp`
 (other code depends on it)." The settings methods are called by:
 
-- `voice_typer/server/tray.py` (tray menu callbacks — `_toggle_autostart`,
+- `voice_typer/server/tray.py` (tray menu callbacks, `_toggle_autostart`,
   `_set_notifications`, `_select_microphone`)
-- `voice_typer/server/ipc_server.py` (IPC handlers — through `_dispatch`)
+- `voice_typer/server/ipc_server.py` (IPC handlers: through `_dispatch`)
 - Tests (`tests/test_app.py:1552-1569`, `tests/test_app.py:1986-1995`,
   `tests/test_app.py:2242-2244` REQUIRED_CALLBACK_METHODS)
 
@@ -337,7 +337,7 @@ Left for a follow-up round with explicit test-rewrite scope.
                         ┌──────────────────────────┐
                         │     VoiceTyperApp        │
                         │  (voice_typer/server/    │
-                        │       app.py — 2314 LOC) │
+                        │       app.py: 2314 LOC) │
                         └────────────┬─────────────┘
                                      │ self.<X>
             ┌────────────┬───────────┼────────────┬─────────────┐
@@ -366,19 +366,19 @@ were extracted in prior RW-9 phases (1, 2, 5).
 None this round. The only surprise was the pre-existing
 `ctypes.WINFUNCTYPE` Linux import bug in `crash_handler.py`, which
 blocked ALL tests on Linux until the conftest.py shim was added. The
-shim is a pure test-infrastructure change — production behaviour on
+shim is a pure test-infrastructure change, production behaviour on
 Windows is unchanged (where `WINFUNCTYPE` exists natively).
 
 ---
 
-## 10. Next Round — Recommended Priority
+## 10. Next Round: Recommended Priority
 
 Items 1–4 and 6 below (AudioQualityController, VolumeController,
 TimerCoordinator, WaveformBubbleWiring, ShutdownController) have since
-been **extracted in subsequent RW-9 rounds** — see §5.1 for the
+been **extracted in subsequent RW-9 rounds**, see §5.1 for the
 completed modules. The only remaining follow-up is:
 
-1. **`_open_config_file`** (LOW risk, ~100 lines, 1 method) — requires
+1. **`_open_config_file`** (LOW risk, ~100 lines, 1 method), requires
    rewriting `tests/test_config_editor_lock.py` and
    `tests/test_bugfix_regressions.py:943` to inspect
    `SettingsController._open_config_file` instead of

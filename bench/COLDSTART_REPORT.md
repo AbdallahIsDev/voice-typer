@@ -1,4 +1,4 @@
-# Voice Typer — Cold-Start Optimization Report
+# Voice Typer: Cold-Start Optimization Report
 
 **Task ID:** 9
 **Date:** 2026-07-02
@@ -11,7 +11,7 @@ tray icon being ready to paint).
 ## 1. Executive summary
 
 The tray cold-start import path was dominated by `pystray`, whose Linux xorg
-backend runs `Xlib.display.Display()` **at module import time** — a ~29 ms
+backend runs `Xlib.display.Display()` **at module import time**: a ~29 ms
 side effect that also **crashes headless** (no `DISPLAY`). `pystray` was
 imported eagerly by both `tray.py` and `tray_menu.py` even though it is only
 needed when the icon is actually constructed.
@@ -55,13 +55,13 @@ test mock pattern.
 
 ### 2.1 Benchmark harness
 
-- **`bench/bench_startup.py`** (existing) — measures `import
+- **`bench/bench_startup.py`** (existing): measures `import
   voice_typer.server.tray` in-process, 3 iterations, reports median.
   **Caveat (see §5.1):** it only clears `voice_typer.*` from `sys.modules`
   between runs, so runs 2–3 are warm (third-party C extensions stay cached).
   The median therefore understates true cold start; the *first* run is the
   honest cold number.
-- **`scripts/profile_imports.py`** (new) — runs `python -X importtime -c
+- **`scripts/profile_imports.py`** (new): runs `python -X importtime -c
   "import <target>"` in a **fresh subprocess** for each of N runs (truly
   cold `sys.modules` every time), parses per-module self/cumulative
   microseconds, and writes a report. This is the only honest way to measure
@@ -110,15 +110,15 @@ rank    self_ms     cum_ms  module
 
 **Root causes identified:**
 
-1. **`pystray` (eager, in `tray.py` + `tray_menu.py`)** — `pystray._xorg`
+1. **`pystray` (eager, in `tray.py` + `tray_menu.py`)**, `pystray._xorg`
    runs `Xlib.display.Display()` at module top (~29 ms cum, plus an X11
    round-trip). Imported eagerly even though only `TrayIcon.start()` and
    `build_menu()` actually use it. Also **crashes headless** (no `DISPLAY`).
-2. **`sounddevice` (eager, in `recording.py`)** — loads PortAudio C library
+2. **`sounddevice` (eager, in `recording.py`)**: loads PortAudio C library
    at import time. `voice_typer.server.app` imports `recording` at module
    top, so this tax hits the real app cold-start path and made `app`
    unimportable without `sounddevice` installed.
-3. **`voice_typer/__init__.py` `importlib.metadata.version()`** — 53 ms cum
+3. **`voice_typer/__init__.py` `importlib.metadata.version()`**: 53 ms cum
    for the `__version__` lookup. **Out of scope** (not in `server/*.py`) —
    see §5 recommendations.
 
@@ -160,7 +160,7 @@ def lazy_module(name):
     return _LazyModule(name)
 ```
 
-**Key design property:** the proxy stores **no cached module** — every
+**Key design property:** the proxy stores **no cached module**, every
 attribute access re-resolves from `sys.modules`. This means the per-test
 `monkeypatch.setitem(sys.modules, "pystray", mock)` / `monkeypatch.setitem(
 sys.modules, "sounddevice", mock)` fixtures in `tests/conftest.py` are
@@ -176,7 +176,7 @@ unchanged.
   becomes a string and no longer forces an eager `pystray` import.
 - Replaced module-level `import pystray` with
   `pystray = lazy_module("pystray")` (tagged `PERF-COLDSTART-001`).
-- **No call-site changes** — `start()` still does `pystray.Menu(...)`,
+- **No call-site changes**, `start()` still does `pystray.Menu(...)`,
   `pystray.Icon(...)`; the proxy imports the real module on first access.
 
 ### 4.3 Modified: `voice_typer/server/tray_menu.py`
@@ -184,7 +184,7 @@ unchanged.
 - Replaced module-level `import pystray` with
   `pystray = lazy_module("pystray")` (tagged `PERF-COLDSTART-001`).
 - Already had `from __future__ import annotations`.
-- **No call-site changes** — `build_menu()` still does `pystray.MenuItem(...)`,
+- **No call-site changes**, `build_menu()` still does `pystray.MenuItem(...)`,
   `pystray.Menu.SEPARATOR`, etc.
 
 ### 4.4 Modified: `voice_typer/server/recording/` (package; was `recording.py`)
@@ -194,14 +194,14 @@ unchanged.
 > refactored into the `voice_typer/server/recording/` package
 > (see `recorder.py`, `buffer.py`, `device_manager.py`, `resampling.py`,
 > `exceptions.py`, `_recorder_split.py`). The lazy-`sounddevice` proxy
-> pattern described below still applies — it now lives in the package's
+> pattern described below still applies, it now lives in the package's
 > `__init__.py` (re-exported for backwards compatibility).
 
 - Added `from __future__ import annotations` so the
   `self._stream: Optional[sd.InputStream]` annotation becomes a string.
 - Replaced module-level `import sounddevice as sd` with
   `sd = lazy_module("sounddevice")` (tagged `PERF-COLDSTART-001`).
-- **No call-site changes** — all ~15 `sd.query_devices()`, `sd.InputStream(...)`,
+- **No call-site changes**: all ~15 `sd.query_devices()`, `sd.InputStream(...)`,
   `sd.query_hostapis(...)` call sites work unchanged via the proxy.
 
 ### 4.5 Imports made lazy (summary)
@@ -229,7 +229,7 @@ $ python -c "from voice_typer.server import app"         # OK (previously FAILED
 
 ### 5.2 Tests
 
-All tray / recording / e2e tests pass — **135 passed** across:
+All tray / recording / e2e tests pass, **135 passed** across:
 `test_tray.py`, `test_tray_menu.py`, `test_recording.py`,
 `test_new_perf_005_dpi_cache.py`, `test_new_perf_004_tray_models_cache.py`,
 `test_round8_e2e.py`.
@@ -262,7 +262,7 @@ clean `git stash` of this task's changes.
 
 1. **Lazy `__version__` in `voice_typer/__init__.py` (highest ROI).**
    The `importlib.metadata.version("voice-typer")` call at package import
-   time costs **~53 ms cum** — the single biggest remaining chunk on the
+   time costs **~53 ms cum**: the single biggest remaining chunk on the
    tray path (57% of the post-optimization 67 ms cumulative). Make
    `__version__` a lazy attribute via PEP 562 `__getattr__`:
    ```python
@@ -293,7 +293,7 @@ clean `git stash` of this task's changes.
    resolved once per `start()`/`build_menu()`/recording-session, not per
    audio frame). If future profiling shows hot-path overhead, a
    cached-resolution variant (resolve once, then `__getattr__` returns from
-   the cache) can be swapped in — but it must re-check `sys.modules` when
+   the cache) can be swapped in, but it must re-check `sys.modules` when
    the resolved module differs, to preserve the test-isolation guarantee.
 
 5. **Apply the same pattern to `recording.py`'s sibling modules** if/when
@@ -304,11 +304,11 @@ clean `git stash` of this task's changes.
 
 ## 7. Artifacts
 
-- `bench/COLDSTART_REPORT.md` — this file.
-- `scripts/profile_imports.py` — reusable import profiler (fresh subprocess).
-- `voice_typer/server/_lazy_import.py` — new lazy-module proxy helper.
-- `voice_typer/server/tray.py` — `pystray` made lazy.
-- `voice_typer/server/tray_menu.py` — `pystray` made lazy.
+- `bench/COLDSTART_REPORT.md` This file.
+- `scripts/profile_imports.py` Reusable import profiler (fresh subprocess).
+- `voice_typer/server/_lazy_import.py` New lazy-module proxy helper.
+- `voice_typer/server/tray.py` `pystray` made lazy.
+- `voice_typer/server/tray_menu.py` `pystray` made lazy.
 - `voice_typer/server/recording/` (package; was `recording.py`) —
   `sounddevice` made lazy.
 
@@ -330,7 +330,7 @@ python scripts/profile_imports.py --target voice_typer.server.tray \
     --runs 5 --output scripts/coldstart_BEFORE.txt
 ```
 
-- `scripts/coldstart_BEFORE.txt` — baseline profile (before optimization;
+- `scripts/coldstart_BEFORE.txt` Baseline profile (before optimization;
   runtime-generated, not committed).
-- `scripts/coldstart_AFTER.txt` — post-optimization profile
+- `scripts/coldstart_AFTER.txt` Post-optimization profile
   (runtime-generated, not committed).

@@ -17,7 +17,7 @@ import type { VoiceTyperConfig } from "@/types/config";
  * audio through the same chain the user has configured.
  *
  * When the preset is ``"off"`` (or no config is loaded yet) only the
- * master ``noise_filter_enabled: false`` flag is sent — the backend
+ * master ``noise_filter_enabled: false`` flag is sent, the backend
  * then bypasses the entire filter chain for the test recording.
  */
 export function buildTestFilters(

@@ -21,7 +21,7 @@ from collections.abc import Callable
 from math import gcd
 
 # (PERF-COLDSTART-001): numpy is ~250-335ms cumulative on cold start
-# and is NOT touched during ``VoiceTyperApp.__init__`` or ``start()`` — it
+# and is NOT touched during ``VoiceTyperApp.__init__`` or ``start()``, it
 # is only needed on the first ``process_chunk`` call (>=1s after dictation
 # begins). Defer the real import to first attribute access via the same
 # ``lazy_module`` proxy already used for ``sounddevice`` and ``pystray``.
@@ -45,7 +45,7 @@ np = lazy_module("numpy")
 # call that actually needs to resample will import it. The
 # ``_get_resample_poly`` and ``_get_resample_fir_taps`` helpers (with
 # their import-error caching + retry-on-error logic) live in
-# ``voice_typer.server.recording.resampling`` — importing them here at
+# ``voice_typer.server.recording.resampling``: importing them here at
 # module top would pull numpy + scipy into every test that touches this
 # module, so all three lookups (``_get_resample_poly``, ``upfirdn``,
 # ``_get_resample_fir_taps``) are deferred to first use via the cached
@@ -104,7 +104,7 @@ def _get_resample_fir_taps_fn():
 # Cached lazy lookup of ``_get_resample_poly`` from
 # ``voice_typer.server.recording.resampling``. The resampling module's
 # version centralizes the 5-minute retry-on-error caching and the
-# import-error state — using it here (instead of a duplicate local
+# import-error state, using it here (instead of a duplicate local
 # copy) means a fix to one propagates to both call sites and there's
 # exactly one import-error cache to inspect during cold-start
 # profiling.
@@ -127,7 +127,7 @@ def _get_resample_poly_fn():
     return _resample_poly_fn
 
 
-# Cached lazy lookup of ``_resample_via_cached_taps`` — the shared
+# Cached lazy lookup of ``_resample_via_cached_taps``, the shared
 # cached-FIR-taps fast path (unpack + scipy-equivalent trim). Same
 # lazy-import rationale as the two accessors above: the resampling
 # module pulls numpy at import, so it must not be loaded eagerly here.
@@ -223,8 +223,8 @@ class AudioProcessor:
         # ``quiet`` suppresses the ``[AUDIO-CHAIN] Built chain`` /
         # ``[AUDIO-PROC] chain built`` INFO lines (and the
         # NoiseSuppressor backend-init lines). Used when the processor
-        # is built for a SECONDARY consumer — the level-monitor
-        # processor in ``update_level_processor`` — where the primary
+        # is built for a SECONDARY consumer, the level-monitor
+        # processor in ``update_level_processor``: where the primary
         # dictation processor already logged the same build for the
         # same config. See ``build_chain(..., quiet=...)``.
         self._config = config
@@ -242,7 +242,7 @@ class AudioProcessor:
         self._resample_warned_pairs: set[tuple[int, int]] = set()
         # Latched flag set when the RT-thread resample fallback
         # path is taken (scipy missing OR resample_poly raises). When
-        # set, the chain is being fed audio at the WRONG rate — every
+        # set, the chain is being fed audio at the WRONG rate, every
         # IIR coefficient (high-pass cutoff, notch frequency, EQ
         # crossovers) and every ballistic time constant (compressor
         # attack/release) is mistuned. Previously this was invisible
@@ -250,7 +250,7 @@ class AudioProcessor:
         # True and ``degraded_reasons`` surfaces a clear message so
         # the user knows to call ``set_sample_rate`` or install scipy.
         # Cleared by ``reset`` (new session) and ``set_sample_rate``
-        # (the corrective action — the chain is retuned to the input
+        # (the corrective action, the chain is retuned to the input
         # rate, so the resample path is no longer taken).
         self._resample_degraded: bool = False
         self._resample_degraded_reason: str = ""
@@ -260,18 +260,18 @@ class AudioProcessor:
         # first real audio chunk arrives. Without this, the first
         # RNNoise frame returns ``None`` (buffering until 480 samples
         # at 48 kHz are collected) and ``FilterChain.process``
-        # propagates the ``None`` — ``process_chunk`` then falls back
+        # propagates the ``None``: ``process_chunk`` then falls back
         # to the unfiltered input, so the first 1-3 words of every
         # session bypass the gate / EQ / compressor / limiter
         # downstream of the suppressor. The prewarm feeds exactly one
         # RNNoise frame (480 samples) of silence at the chain's
         # sample rate; at 16 kHz this resamples to 3 RNNoise frames,
-        # at 48 kHz to 1 frame — either way the carry buffer is left
+        # at 48 kHz to 1 frame, either way the carry buffer is left
         # empty (clean state) and the first ``denoise_frame`` call
         # has already happened. The output is discarded. Safe to call
         # multiple times (idempotent). Wrapped in try/except so a
         # prewarm failure (e.g. degraded backend) does not break
-        # construction — the chain still works, just without the
+        # construction, the chain still works, just without the
         # warmup benefit.
         self._prewarm_chain()
         if not quiet:
@@ -289,11 +289,11 @@ class AudioProcessor:
         resamplers) so the first real audio chunk does not pay the
         first-frame warmup cost on the RT thread. See the
         ``__init__`` docstring for the full rationale. The output is
-        discarded — only the side effect (filter state
+        discarded, only the side effect (filter state
         initialization) matters.
 
         Only runs when the chain actually contains a
-        ``NoiseSuppressor`` — that's the only filter that buffers
+        ``NoiseSuppressor``: that's the only filter that buffers
         (returns ``None`` until a full 480-sample frame is
         collected) and benefits from first-frame warmup. Other
         filters (HighPass, Gate, EQ, Compressor, Limiter) process
@@ -311,7 +311,7 @@ class AudioProcessor:
             self._chain.process(silence, self._sample_rate)
         except Exception:
             log.debug(
-                "[AUDIO-PROC] prewarm failed (non-fatal — chain still usable)",
+                "[AUDIO-PROC] prewarm failed (non-fatal, chain still usable)",
                 exc_info=True,
             )
 
@@ -356,7 +356,7 @@ class AudioProcessor:
     def reset(self) -> None:
         """Reset all filter states for a new recording session."""
         self._chain.reset()
-        # Clear the latched resample-degraded flag — a new
+        # Clear the latched resample-degraded flag, a new
         # recording session starts with a clean slate. If the resample
         # path fails again, the flag will be re-set on the next chunk.
         self._resample_degraded = False
@@ -386,7 +386,7 @@ class AudioProcessor:
                 next ``rebuild_from_config`` call.
 
                 Clears the latched resample-degraded flag because the
-                chain is now retuned to the new rate — the corrective action
+                chain is now retuned to the new rate, the corrective action
                 for a resample fallback has been taken.
 
                 Args:
@@ -396,7 +396,7 @@ class AudioProcessor:
         self._sample_rate = new_sr
         self._config_signature = _config_signature(self._config, new_sr)
         new_chain = build_chain(self._config, new_sr)
-        # Sanctioned public accessor — see ``rebuild_from_config``.
+        # Sanctioned public accessor: see ``rebuild_from_config``.
         self._chain.swap(new_chain.filters)
         # The chain is now tuned to ``new_sr``; if the next chunk
         # arrives at ``new_sr``, the resample path is not taken. Clear
@@ -488,7 +488,7 @@ class AudioProcessor:
                 # scipy.signal.resample_poly uses integer up/down ratios.
                 # Compute the greatest common divisor to keep the ratio
                 # in reduced form (smaller FFT sizes, faster). ``gcd``
-                # is hoisted to the module top — per-call ``from math
+                # is hoisted to the module top, per-call ``from math
                 # import gcd`` was ~48 dict lookups/sec on the RT
                 # thread; the top-level import is a single bytecode
                 # LOAD_GLOBAL at call time.
@@ -502,7 +502,7 @@ class AudioProcessor:
                 # Both ``upfirdn`` and ``_get_resample_fir_taps`` are
                 # resolved through cached lazy helpers (``_get_upfirdn``
                 # / ``_get_resample_fir_taps_fn``) so the hot path is a
-                # single variable lookup — no per-call ``from ... import``
+                # single variable lookup, no per-call ``from ... import``
                 # statements on the RT thread.
                 try:
                     taps = _get_resample_fir_taps_fn()(up, down)
@@ -540,12 +540,12 @@ class AudioProcessor:
                 # mistuned (an 80 Hz high-pass built at 16 kHz actually
                 # cuts at 240 Hz when fed 48 kHz audio). Cleared by
                 # ``reset`` (new session) or ``set_sample_rate`` (the
-                # corrective action — retune the chain to the input rate).
+                # corrective action, retune the chain to the input rate).
                 if not self._resample_degraded:
                     self._resample_degraded = True
                     self._resample_degraded_reason = (
                         f"resample failed (input_sr={int(input_sample_rate)}, "
-                        f"chain_sr={self._sample_rate}) — filtering at wrong rate; "
+                        f"chain_sr={self._sample_rate}), filtering at wrong rate; "
                         "call set_sample_rate(input_sr) to retune"
                     )
 
@@ -648,7 +648,7 @@ class AudioProcessor:
         been taken (scipy missing OR resample_poly raised). In that
         state every IIR coefficient and ballistic time constant is
         mistuned because the chain is being fed audio at the wrong
-        rate — the UI must surface a warning so the user knows to
+        rate, the UI must surface a warning so the user knows to
         call ``set_sample_rate`` or install scipy.
         """
         return self._chain.is_degraded or self._resample_degraded

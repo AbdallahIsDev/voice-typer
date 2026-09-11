@@ -84,7 +84,7 @@ class TestDownloadModelPushesProgressEvents:
 
 
 class TestWhisperDownloadWithProgressEvents:
-    """Whisper download path — mocks snapshot_download + TranscriptionEngine."""
+    """Whisper download path, mocks snapshot_download + TranscriptionEngine."""
 
     def test_whisper_already_cached_skips_download(
         self,
@@ -144,7 +144,7 @@ class TestWhisperDownloadWithProgressEvents:
 
         # The production ``_download_with_retry`` (in asr_utils.py) retries
         # failed downloads with exponential backoff (5s, 15s, 45s) before
-        # giving up — that's ~20s of real ``time.sleep`` calls, which would
+        # giving up, that's ~20s of real ``time.sleep`` calls, which would
         # exceed the 15s pytest-timeout. Patch ``time.sleep`` to a no-op so
         # the retry loop still runs (verifying the failure is propagated
         # through ``download_err`` and the outer except handler) without

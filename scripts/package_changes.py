@@ -32,7 +32,7 @@ for line in result.stdout.splitlines():
     # Format: " XY path" where XY is status code
     status = line[:2]
     path = line[3:].strip()
-    # Handle renames (status "R ") — path is "old -> new"
+    # Handle renames (status "R "), path is "old -> new"
     if " -> " in path:
         path = path.split(" -> ")[1]
     # Skip if path is a directory (ends with /)
@@ -91,7 +91,7 @@ for f in metadata_files:
     files_to_zip.add(f)
 
 # Also include new files in directories that are new (e.g. voice_typer/server/config/)
-# git status shows "?? voice_typer/server/config/" for new directories — need to expand
+# git status shows "?? voice_typer/server/config/" for new directories, need to expand
 new_dir_result = subprocess.run(
     ["git", "status", "--porcelain", "--untracked-files=all"],
     cwd=REPO,

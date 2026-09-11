@@ -1,4 +1,4 @@
-// PrivacySettingsSection — Audio & Recovery + Privacy & Consent sections of
+// PrivacySettingsSection, Audio & Recovery + Privacy & Consent sections of
 // the Settings page.
 //
 // Extracted from src/renderer/src/pages/Settings.tsx. Renders two
@@ -33,7 +33,7 @@ import { SettingsSkeleton } from "./SettingsSkeleton";
 import type { SettingsSectionSharedProps } from "./types";
 
 /**
- * Config keys whose value type is `boolean` — the keys a Switch row can
+ * Config keys whose value type is `boolean`, the keys a Switch row can
  * read/write. Derived from `VoiceTyperConfig` so a value-type change on
  * any of these keys surfaces here at compile time. The `-?` modifier
  * strips the interface's optional markers so the indexed access yields
@@ -51,7 +51,7 @@ type BooleanConfigKey = {
  * render spec (the audio-filter row registry is the in-repo precedent):
  * the section-level search-visibility arrays, the per-row visibility
  * gating, the rendered SettingRow+Switch pair, and the Agree-to-All
- * update payload are all derived from this single list — adding consent
+ * update payload are all derived from this single list, adding consent
  * #7 is a one-entry change here, not ~7 coordinated edits across the
  * file.
  */
@@ -65,7 +65,7 @@ export interface ConsentFieldDescriptor {
 	/** i18n key for the SettingRow info tooltip. */
 	infoKey: TranslationKey;
 	/**
-	 * i18n key for the search-visible info — the section-level
+	 * i18n key for the search-visible info, the section-level
 	 * "any row visible?" arrays read this variant. Equals `infoKey`
 	 * for rows that have no dedicated `*InfoSearch` key.
 	 */
@@ -91,7 +91,7 @@ export interface ConsentFieldDescriptor {
 }
 
 /**
- * The consent/privacy switch matrix — order is render order within each
+ * The consent/privacy switch matrix, order is render order within each
  * section. i18n keys are unchanged from the hand-written rows this
  * registry replaces (pure refactor; no locale edits).
  */
@@ -106,14 +106,14 @@ export const CONSENT_FIELDS: readonly ConsentFieldDescriptor[] = [
 		ariaKey: "settings.privacy.crashRecoveryAria",
 		defaultValue: true,
 	},
-	// Privacy & Consent section — the six GDPR consent flags. All
+	// Privacy & Consent section, the six GDPR consent flags. All
 	// four consent flags live in the Python Config and are enforced
 	// by the backend (HuggingFace download refusal, CloudEngine
 	// ConsentRequiredError, etc.).  This section gives the user a
 	// single place to view and revoke any consent they've
 	// previously granted.  Initial grant happens contextually
 	// (HuggingFace banner on Models page, per-provider toggles on
-	// Models page) — this section is primarily for
+	// Models page), this section is primarily for
 	// review/revocation.
 	{
 		section: "privacy",
@@ -137,7 +137,7 @@ export const CONSENT_FIELDS: readonly ConsentFieldDescriptor[] = [
 		consentRow: true,
 		agreeToAll: true,
 	},
-	// Per-provider cloud ASR consents — mirror the Models page toggles.
+	// Per-provider cloud ASR consents, mirror the Models page toggles.
 	{
 		section: "privacy",
 		configKey: "cloud_openai_consent",
@@ -192,7 +192,7 @@ export const CONSENT_FIELDS: readonly ConsentFieldDescriptor[] = [
 		section: "privacy",
 		configKey: "log_transcriptions",
 		labelKey: "settings.privacy.logTranscriptionsLabel",
-		// No dedicated *InfoSearch key — the tooltip text doubles
+		// No dedicated *InfoSearch key, the tooltip text doubles
 		// as the search-visible info, exactly as before.
 		infoKey: "settings.privacy.logTranscriptionsInfo",
 		infoSearchKey: "settings.privacy.logTranscriptionsInfo",
@@ -212,7 +212,7 @@ export const CONSENT_FIELDS: readonly ConsentFieldDescriptor[] = [
 	},
 ];
 
-/** The Agree-to-All subset — the six flags the banner grants at once. */
+/** The Agree-to-All subset, the six flags the banner grants at once. */
 const AGREE_TO_ALL_FIELDS = CONSENT_FIELDS.filter((field) => field.agreeToAll);
 
 /**
@@ -223,7 +223,7 @@ const AGREE_TO_ALL_FIELDS = CONSENT_FIELDS.filter((field) => field.agreeToAll);
  * MUST stay at module scope: an inline component would get a fresh
  * function identity on every section re-render, which React treats as a
  * changed element type → unmount/remount of the whole row subtree on
- * each render — losing focus on a just-clicked Switch and resetting
+ * each render, losing focus on a just-clicked Switch and resetting
  * child-local state.
  */
 function ConsentRow({
@@ -270,7 +270,7 @@ export const PrivacySettingsSection = memo(function PrivacySettingsSection({
 
 	const t = useT();
 
-	//confirmation dialog state for "Agree to All" — granting all
+	//confirmation dialog state for "Agree to All", granting all
 	// 6 consents at once is a significant privacy decision (enables cloud
 	// transcription, LLM polishing, HuggingFace downloads, voice-biometric
 	// processing) so we surface a destructive-variant ConfirmDialog before
@@ -284,7 +284,7 @@ export const PrivacySettingsSection = memo(function PrivacySettingsSection({
 	// `(checked) => updateConfig({ key: checked })` closures.
 	// `configKey` is a non-literal union, so the computed key widens
 	// to a string index signature which `Partial<VoiceTyperConfig>`
-	// (whose keys hold strings/numbers/…) rejects — the cast is the
+	// (whose keys hold strings/numbers/…) rejects, the cast is the
 	// documented registry-path exception (same as the audio-filter
 	// row registry's `set` helper).
 	const makeConsentChangeHandler =
@@ -334,7 +334,7 @@ export const PrivacySettingsSection = memo(function PrivacySettingsSection({
 
 	//section-level visibility check for Privacy & Consent section.
 	//The export row participates in the search (it renders inside
-	// this section) but is not a Switch row — its entry is appended
+	// this section) but is not a Switch row, its entry is appended
 	// to the switch-row descriptors' entries.
 	const privacyTitle = t("settings.privacy.privacyTitle");
 	const privacyItems = [
@@ -347,7 +347,7 @@ export const PrivacySettingsSection = memo(function PrivacySettingsSection({
 		isVisible(item.label, item.info, privacyTitle),
 	);
 
-	// Agree-to-All banner state — derived from the same descriptor
+	// Agree-to-All banner state, derived from the same descriptor
 	// subset as the granted payload (see handleConfirmAgreeToAll).
 	const grantedConsentCount = AGREE_TO_ALL_FIELDS.filter(
 		(field) => config[field.configKey],
@@ -605,7 +605,7 @@ export const PrivacySettingsSection = memo(function PrivacySettingsSection({
                                 + biometric consents at once is a non-reversible-at-runtime
                                 privacy action (revocation requires toggling each one off).
                                 Title and message are localised via t("settings.privacy.agreeConfirm*")
-                                — native translations exist in all 8 locale JSON files. */}
+                               , native translations exist in all 8 locale JSON files. */}
 			<ConfirmDialog
 				open={showAgreeConfirm}
 				title={t("settings.privacy.agreeConfirmTitle")}

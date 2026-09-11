@@ -4,10 +4,10 @@ Extracted from ``voice_typer/server/transcription.py`` (which stays the
 public facade and keeps thin one-line delegator methods on the engine
 class) so the CUDA smoke-test concern can be unit-tested in isolation:
 
-* :func:`probe_cuda_runtime` — force-loads cuBLAS/cuDNN with a 1s sine
+* :func:`probe_cuda_runtime`: force-loads cuBLAS/cuDNN with a 1s sine
   wave so DLL failures surface at startup (with a clean CPU fallback),
   not mid-recording.
-* :func:`warm_up_model` — runs a 0.5s silence inference after load so
+* :func:`warm_up_model`: runs a 0.5s silence inference after load so
   the first real dictation doesn't pay the CUDA kernel-compilation cost.
 
 TEST PATCH COMPATIBILITY
@@ -17,7 +17,7 @@ The CPU-fallback branch dispatches through the ENGINE object
 so tests that monkeypatch those as instance attributes (e.g.
 ``engine._reload_under_lock = MagicMock()``) keep taking effect. The
 RACE-023 deferred release is armed via ``engine._pending_gc_collect =
-True`` — the actual ``release_gpu_memory()`` call runs later, outside
+True``: the actual ``release_gpu_memory()`` call runs later, outside
 the lock, in ``TranscriptionEngine._run_deferred_gc`` (which stays in
 ``transcription.py``).
 """
@@ -41,8 +41,8 @@ def probe_cuda_runtime(engine, progress_callback=None):
     """Probe CUDA with a real transcription to force early cuBLAS/cuDNN loading.
 
     Uses a 1s sine-wave tone and the exact same parameters as
-    ``_transcribe_unlocked`` — including ``vad_filter=True`` and
-    ``without_timestamps=True`` — then **iterates every segment** so
+    ``_transcribe_unlocked``: including ``vad_filter=True`` and
+    ``without_timestamps=True``, then **iterates every segment** so
     the underlying cuBLAS kernels are actually resolved.  If the DLLs
     can't be loaded, catches the error at startup and falls back to
     CPU immediately instead of failing mid-recording.
@@ -51,11 +51,11 @@ def probe_cuda_runtime(engine, progress_callback=None):
     # in __init__ and only assigned a real model instance inside the
     # load path. The sole caller only invokes us after a successful
     # load, but pyrefly cannot prove that contract across method
-    # boundaries — so guard explicitly. Returning early here also
+    # boundaries, so guard explicitly. Returning early here also
     # makes the function safe to call from tests / future callers
     # that haven't loaded a model yet.
     if engine._model is None:
-        log.warning("[CUDA-PROBE] Skipping — no model loaded")
+        log.warning("[CUDA-PROBE] Skipping, no model loaded")
         return
     import numpy as np
 
@@ -67,7 +67,7 @@ def probe_cuda_runtime(engine, progress_callback=None):
         progress_callback("Running CUDA runtime probe...")
     try:
         # Must exercise the same cuBLAS kernels as real dictation.
-        # NOTE: vad_filter=False is deliberate — VAD would reject a
+        # NOTE: vad_filter=False is deliberate. VAD would reject a
         # sine wave as non-speech, causing Whisper to be skipped.
         # ``best_of`` is deliberately NOT passed: faster-whisper only
         # honors it when sampling with non-zero temperature, so under
@@ -81,12 +81,12 @@ def probe_cuda_runtime(engine, progress_callback=None):
             condition_on_previous_text=engine.condition_on_previous_text,
             without_timestamps=True,
         )
-        # Force iteration through ALL segments — model.transcribe()
+        # Force iteration through ALL segments, model.transcribe()
         # returns lazily; the real GPU work (and DLL loading) happens
         # here.
         for _seg in segments:
             pass
-        log.info("[CUDA-PROBE] CUDA runtime OK — cuBLAS/cuDNN loaded successfully")
+        log.info("[CUDA-PROBE] CUDA runtime OK, cuBLAS/cuDNN loaded successfully")
     except Exception as exc:
         error_str = str(exc)
         log.warning(
@@ -106,7 +106,7 @@ def probe_cuda_runtime(engine, progress_callback=None):
             ]
         ):
             log.warning(
-                "[CUDA-PROBE] cuBLAS/cuDNN runtime error detected — falling back to CPU immediately",
+                "[CUDA-PROBE] cuBLAS/cuDNN runtime error detected, falling back to CPU immediately",
             )
             # wrap the null-and-reload sequence in
             # ``with engine._lock:`` so a concurrent ``transcribe()`` from
@@ -127,7 +127,7 @@ def probe_cuda_runtime(engine, progress_callback=None):
                     # tensors' CUDA blocks, but the caching allocator
                     # keeps them until ``release_gpu_memory()`` runs.
                     # That call is deferred OUTSIDE this lock via the
-                    # ``_pending_gc_collect`` flag — it is set EXPLICITLY
+                    # ``_pending_gc_collect`` flag, it is set EXPLICITLY
                     # in this branch, because ``_reload_under_lock()``
                     # does NOT set it (only ``_with_gpu_fallback`` does,
                     # and this CUDA-probe path is separate). Calling
@@ -141,12 +141,12 @@ def probe_cuda_runtime(engine, progress_callback=None):
                 engine._model = None
                 engine._device = "cpu"
                 engine._compute_type = "int8"
-                # CPU decode is the slow path — drop back to the
+                # CPU decode is the slow path, drop back to the
                 # snappy greedy beam when the width was on auto.
                 engine._apply_auto_beam_size()
                 # Arm the deferred GPU release BEFORE the reload so a
                 # reload failure (model missing / ctranslate2 error)
-                # can't leak the already-freed CUDA blocks — the next
+                # can't leak the already-freed CUDA blocks, the next
                 # caller outside the lock (transcribe / unload) runs
                 # gc.collect() + release_gpu_memory() regardless (OOMs
                 # on RTX 3060/4060 after repeated CUDA-probe-failure
@@ -195,11 +195,11 @@ def warm_up_model(engine) -> None:
         for _ in segments:
             pass
         # C-LOG-2: ``format_duration`` returns the suffix WITH its
-        # leading space — splice with a bare %s, no extra separator.
+        # leading space, splice with a bare %s, no extra separator.
         log.info(
-            "[PERF] Warm-up inference completed — CUDA kernels primed%s",
+            "[PERF] Warm-up inference completed. CUDA kernels primed%s",
             format_duration(time.perf_counter() - _t0),
         )
     except Exception as exc:
-        # Warm-up failure is non-critical — log and continue
+        # Warm-up failure is non-critical, log and continue
         log.debug("[PERF] Warm-up inference skipped: %s", exc)

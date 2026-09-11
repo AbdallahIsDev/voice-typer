@@ -1,12 +1,12 @@
 /**
- * Tests for the Settings page — batched config writes (PERF-002).
+ * Tests for the Settings page, batched config writes (PERF-002).
  *
  * The Settings page owns the `updateConfig` / `updateConfigDebounced`
  * callbacks which persist config changes to the Python backend via the
  * `set_config` IPC.  PERF-002 batches writes so multiple rapid changes
  * within a debounce window collapse into a single `set_config` call,
  * avoiding redundant IPC traffic (the backend's `set_config` accepts a
- * partial dict — see IPC_CONFIG_ALLOWLIST — so a single call can carry
+ * partial dict, see IPC_CONFIG_ALLOWLIST, so a single call can carry
  * any number of changed keys).
  *
  * We mock the Python bridge, the hugeicons renderer, sonner, and
@@ -60,7 +60,7 @@ import type { VoiceTyperConfig } from "@/types/config";
  * Settings-page render helper. The page's render graph uses Radix
  * `Tooltip` (via SettingRow and other ui primitives); the real App shell
  * wraps the page in a `TooltipProvider` (App.tsx), so tests mounting
- * `<SettingsPage />` directly must provide one too — otherwise every
+ * `<SettingsPage />` directly must provide one too, otherwise every
  * Tooltip render throws "Tooltip must be used within TooltipProvider"
  * and the page mounts empty.
  */
@@ -117,7 +117,7 @@ function lastSetConfigPayload(): Record<string, unknown> | null {
 	return setConfigCalls[setConfigCalls.length - 1]?.[1] ?? null;
 }
 
-describe("Settings page — PERF-002 batched config writes", () => {
+describe("Settings page, PERF-002 batched config writes", () => {
 	beforeEach(() => {
 		// Reset the shared singletons (mockCall, the consent channel, …)
 		// and restore the consent-field defaults.
@@ -144,7 +144,7 @@ describe("Settings page — PERF-002 batched config writes", () => {
 
 		// The page heading renders once config loads. The 4-tab
 		// SegmentedControl at the top of Settings has been removed
-		// (ADR-0021 — the tabs now live in the sidebar as a nested
+		// (ADR-0021, the tabs now live in the sidebar as a nested
 		// Settings submenu), so the marker that the page has mounted
 		// is now the PageHeading title ("Settings") rather than the
 		// old SegmentedControl's "Appearance" option label.
@@ -152,7 +152,7 @@ describe("Settings page — PERF-002 batched config writes", () => {
 			expect(screen.getByText("Settings")).toBeTruthy();
 		});
 
-		// Loading the config must NOT trigger a save — the
+		// Loading the config must NOT trigger a save, the
 		// lastSavedConfigRef baseline is seeded in loadConfig so the
 		// initial snapshot isn't re-persisted as a "change".
 		expect(setConfigCallCount()).toBe(0);
@@ -166,13 +166,13 @@ describe("Settings page — PERF-002 batched config writes", () => {
 		});
 
 		const { default: SettingsPage } = await import("@/pages/Settings");
-		// Mount directly on the Appearance sub-page — the
+		// Mount directly on the Appearance sub-page, the
 		// SegmentedControl tab UI has been removed (ADR-0021), so
 		// the test can't click the "Appearance" tab label anymore.
 		renderWithProviders(<SettingsPage page="settingsAppearance" />);
 
 		// Wait for the page heading to render (the page is now mounted
-		// directly on Appearance — no tab click needed).
+		// directly on Appearance, no tab click needed).
 		await waitFor(() => {
 			expect(screen.getByText("Settings")).toBeTruthy();
 		});
@@ -191,7 +191,7 @@ describe("Settings page — PERF-002 batched config writes", () => {
 			throw new Error("expected at least 3 color inputs");
 		}
 
-		// Change 3 colors in rapid succession — each change schedules a
+		// Change 3 colors in rapid succession, each change schedules a
 		// 300ms per-key debounce via updateConfigDebounced("custom_theme", …).
 		// All three use the same key ("custom_theme") so the per-key
 		// debounce cancels and reschedules a single timer; when that
@@ -225,7 +225,7 @@ describe("Settings page — PERF-002 batched config writes", () => {
 		});
 
 		const { default: SettingsPage } = await import("@/pages/Settings");
-		// Mount directly on the Appearance sub-page (ADR-0021 — the
+		// Mount directly on the Appearance sub-page (ADR-0021, the
 		// SegmentedControl tab UI has been removed; tests can't click
 		// the "Appearance" tab label anymore).
 		renderWithProviders(<SettingsPage page="settingsAppearance" />);
@@ -269,7 +269,7 @@ describe("Settings page — PERF-002 batched config writes", () => {
 			expect(setConfigCallCount()).toBe(1);
 		});
 
-		// Change back to the original color — the baseline now has
+		// Change back to the original color, the baseline now has
 		// #abcdef, so this is a non-empty diff and a second set_config
 		// fires carrying the reverted custom_theme.
 		fireEvent.input(firstColorInput, { target: { value: originalValue } });
@@ -286,12 +286,12 @@ describe("Settings page — PERF-002 batched config writes", () => {
 	// Troubleshooting section calls `updateConfig({ onboarding_completed:
 	// false })` then `onNavigate("onboarding")`.  Previously
 	// `updateConfig` only updated Settings.tsx's LOCAL `config` state and
-	// queued a backend `set_config` IPC — it did NOT touch the Zustand
+	// queued a backend `set_config` IPC, it did NOT touch the Zustand
 	// `appStore.config` snapshot that App.tsx's route guard reads.  The
 	// appStore only learned about the change later (via the
 	// `config_changed` push event), so the route guard fired on the very
 	// next render, saw the stale `true` value, and bounced the user back
-	// to home — the onboarding wizard was never shown.
+	// to home, the onboarding wizard was never shown.
 	//
 	// The fix mirrors `mergeConfig(updates)` into the appStore
 	// synchronously inside `updateConfig`.  These tests verify that sync:
@@ -301,7 +301,7 @@ describe("Settings page — PERF-002 batched config writes", () => {
 	//   2. The `onNavigate` callback fires with `"onboarding"` (the
 	//      wizard button's navigation call).
 	//   3. The backend `set_config` IPC is still queued (the sync mirror
-	//      does NOT replace the persisted write — it only updates the
+	//      does NOT replace the persisted write, it only updates the
 	//      in-memory snapshot).
 	it("Re-run setup wizard synchronously mirrors onboarding_completed=false into the appStore", async () => {
 		mockCall.mockImplementation((type: string) => {
@@ -366,7 +366,7 @@ describe("Settings page — PERF-002 batched config writes", () => {
 		// would bounce the user back to home on the next render.
 		expect(useAppStore.getState().config?.onboarding_completed).toBe(false);
 
-		// The sync mirror must NOT replace the backend write — the
+		// The sync mirror must NOT replace the backend write, the
 		// `set_config` IPC is still queued (via the microtask flush)
 		// so the change is persisted to disk for the next launch.
 		await waitFor(() => {
@@ -389,7 +389,7 @@ describe("Settings page — PERF-002 batched config writes", () => {
 		//
 		// After ADR-0021, the consent deep-link lands on the
 		// Privacy sub-page (the nav store sends `settingsPrivacy`
-		// when a consent_field is present — see App.tsx navigate
+		// when a consent_field is present, see App.tsx navigate
 		// event handler). The test must mount the page with
 		// `page="settingsPrivacy"` to mirror the runtime routing;
 		// otherwise the consent rows (rendered by
@@ -419,12 +419,12 @@ describe("Settings page — PERF-002 batched config writes", () => {
 	// MUST render with a distinct trash/delete icon (Delete02Icon), NOT the
 	// same icon as the non-destructive "Re-run setup wizard" button
 	// (ArrowTurnBackwardIcon). The original bug was that both buttons shared
-	// a RefreshIcon — visually identical despite semantically opposite
-	// actions — so users could not tell at a glance which button was
+	// a RefreshIcon, visually identical despite semantically opposite
+	// actions, so users could not tell at a glance which button was
 	// destructive.
 	//
 	// The fix lives in TroubleshootingSettingsSection.tsx (extracted from
-	//the old 1125-line Settings.tsx monolith — see ). It is verified
+	//the old 1125-line Settings.tsx monolith, see ). It is verified
 	// here end-to-end via the Settings page render graph (the Advanced
 	// section page mounts TroubleshootingSettingsSection) so a future
 	// refactor that accidentally re-unifies the icons would fail this test.
@@ -441,7 +441,7 @@ describe("Settings page — PERF-002 batched config writes", () => {
 
 		const { default: SettingsPage } = await import("@/pages/Settings");
 		// The Troubleshooting section lives on the Advanced section page.
-		// Mount directly on Advanced — TroubleshootingSettingsSection is
+		// Mount directly on Advanced, TroubleshootingSettingsSection is
 		// rendered only there.
 		renderWithProviders(<SettingsPage page="settingsAdvanced" />);
 
@@ -573,7 +573,7 @@ describe("Settings page — PERF-002 batched config writes", () => {
 			});
 
 			const { default: SettingsPage } = await import("@/pages/Settings");
-			// Mount directly on the Advanced section page — the
+			// Mount directly on the Advanced section page, the
 			// Troubleshooting card (with the macOS reset button) renders
 			// only there.
 			renderWithProviders(<SettingsPage page="settingsAdvanced" />);
@@ -700,7 +700,7 @@ describe("Settings search auto-switch navigation", () => {
 		});
 
 		// Set the query via the global store (the per-page
-		// SearchField was removed — the title-bar search owns the input).
+		// SearchField was removed, the title-bar search owns the input).
 		const { useGlobalSearch } = await import("@/hooks/useGlobalSearch");
 		useGlobalSearch.getState().setQuery("appearance");
 
@@ -734,20 +734,20 @@ describe("Settings search auto-switch navigation", () => {
 		});
 
 		// Set the query via the global store. "Prewarm Status" is a
-		// PrewarmAndUpdates row label (Advanced page) — the General
+		// PrewarmAndUpdates row label (Advanced page), the General
 		// section has no match for it.
 		const { useGlobalSearch } = await import("@/hooks/useGlobalSearch");
 		useGlobalSearch.getState().setQuery("Prewarm Status");
 
 		// The cross-section results card renders on the current section
-		// page, grouped by the OTHER section's title ("Advanced" — the
+		// page, grouped by the OTHER section's title ("Advanced", the
 		// hub's advancedTitle key that SECTION_TITLE_BY_PAGE exposes).
 		const section = await waitFor(() =>
 			screen.getByTestId("settings-other-tabs-results"),
 		);
 		expect(section.textContent).toContain("Advanced");
 
-		// Click the matched label chip — it navigates to the Advanced
+		// Click the matched label chip, it navigates to the Advanced
 		// section page with the matched label as a rowHint (the exact
 		// contract in Settings.tsx's otherSectionGroups rendering).
 		fireEvent.click(
@@ -792,7 +792,7 @@ describe("Settings search auto-switch navigation", () => {
 	// The empty-banner sentinel and the auto-switch MUST share one match
 	// semantic. Pre-unification the auto-switch also counted superstring
 	// matches (query contains a short label) while the banner only counted
-	// label-includes-query — so one query could navigate to a section AND
+	// label-includes-query, so one query could navigate to a section AND
 	// claim nothing matched. This pins both directions of the agreement:
 	// a superstring-only query neither navigates NOR shows the banner-less
 	// contradiction (it shows the banner), and a real substring match both
@@ -813,7 +813,7 @@ describe("Settings search auto-switch navigation", () => {
 
 		const { useGlobalSearch } = await import("@/hooks/useGlobalSearch");
 
-		// Direction 1 — superstring-only query: contains the whole
+		// Direction 1, superstring-only query: contains the whole
 		// "LLM Polishing" label but is not contained by any label. The old
 		// split semantics navigated here (q.includes(label)); the unified
 		// strict semantic must NOT navigate and MUST show the banner.
@@ -825,7 +825,7 @@ describe("Settings search auto-switch navigation", () => {
 		});
 		expect(mockNavigate).not.toHaveBeenCalled();
 
-		// Direction 2 — a genuine substring match: the banner stays hidden
+		// Direction 2, a genuine substring match: the banner stays hidden
 		// and the auto-switch navigates to the best-matching section page.
 		useGlobalSearch.getState().setQuery("llm polishing");
 		await waitFor(() => {

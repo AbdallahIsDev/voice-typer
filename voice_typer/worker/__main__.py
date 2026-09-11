@@ -1,9 +1,9 @@
-"""Worker exe entry point — runtime-pack WebSocket server (master plan §4.4, §6.2, §7).
+"""Worker exe entry point: runtime-pack WebSocket server (master plan §4.4, §6.2, §7).
 
 This is the entry point Nuitka compiles into the ``voice-typer-worker-<triple>``
 onefile. It is launched by the Tauri host AFTER the runtime-pack download
 completes + verifies (master plan §7.3), and stays running for the app's
-lifetime (long-lived worker model — §7.3).
+lifetime (long-lived worker model, §7.3).
 
 Lifecycle (master plan §7.3): acquire single-instance lock → run prewarm
 phase ONCE → bind ``127.0.0.1:0`` (loopback-only, ADR-0020 §1) → emit
@@ -33,23 +33,23 @@ Shutdown (master plan §7.2):
   left in place (stale-PID recovery on next launch mirrors
   ``_ensure_single_instance_posix``'s stale-PID path).
 
-Module layout (E3 — wiring-only entry file, ≤ ~300 lines):
+Module layout (E3, wiring-only entry file, ≤ ~300 lines):
 
 This module is wiring-only: parse args, set up logging, acquire the
 single-instance lock, run the prewarm phase, delegate the WS server
 lifecycle to :func:`run_worker_server`, release the lock in ``finally``.
 Focused concerns live in:
 
-- :mod:`voice_typer.worker._auth` — bearer-token handshake.
-- :mod:`voice_typer.worker._single_instance` — POSIX flock + Windows
+- :mod:`voice_typer.worker._auth`: bearer-token handshake.
+- :mod:`voice_typer.worker._single_instance`: POSIX flock + Windows
   best-effort + stale-PID recovery.
-- :mod:`voice_typer.worker._ws_server` — WS server setup, connection
+- :mod:`voice_typer.worker._ws_server`: WS server setup, connection
   handler, SIGTERM handler, prewarm phase, shutdown timer.
 
 The heavy lifting (dispatch, heartbeat, encoding) is owned by the
 slim-core sidecar. The worker only authenticates the sidecar's WS
 connection, acknowledges ``heartbeat`` frames, and forwards
-``transcribe_offline`` requests to the engine layer (Phase 2b — the
+``transcribe_offline`` requests to the engine layer (Phase 2b, the
 worker's WS dispatch table is wired up then).
 """
 
@@ -60,24 +60,24 @@ import logging
 import os
 import sys
 
-# Shared constants — same as the slim-core sidecar (ADR-0020 §1, §3, §10).
+# Shared constants: same as the slim-core sidecar (ADR-0020 §1, §3, §10).
 from voice_typer.server._paths import IPC_TOKEN_ENV_VAR
 from voice_typer.server.duration import format_duration
 
-# Focused modules (E3 split — wiring-only entry file re-exports the
+# Focused modules (E3 split, wiring-only entry file re-exports the
 # public names so legacy imports like
 # ``from voice_typer.worker import __main__ as worker_main`` still
 # resolve, per E1 create-first wiring verification).
-from voice_typer.worker._auth import (  # noqa: F401 — re-exported for back-compat
+from voice_typer.worker._auth import (  # noqa: F401, re-exported for back-compat
     _authenticate,
     _send_auth_failed_and_close,
 )
-from voice_typer.worker._single_instance import (  # noqa: F401 — re-exported for back-compat
+from voice_typer.worker._single_instance import (  # noqa: F401, re-exported for back-compat
     _ensure_worker_single_instance,
     _worker_lock_path,
     _WorkerSingleInstanceHandle,
 )
-from voice_typer.worker._ws_server import (  # noqa: F401 — re-exported for back-compat
+from voice_typer.worker._ws_server import (  # noqa: F401, re-exported for back-compat
     PROTOCOL_VERSION,
     _emit_worker_started,
     _force_line_buffered_stdout,
@@ -117,7 +117,7 @@ def run() -> int:
     # installed (a dev environment running only the slim-core sidecar
     # does not need the worker's WS dependency installed).
     try:
-        import websockets  # noqa: F401 — imported for availability probe
+        import websockets  # noqa: F401, imported for availability probe
     except ImportError as exc:
         log.exception(
             "[WORKER] the `websockets` package is required for the worker. "
@@ -127,11 +127,11 @@ def run() -> int:
         return EXIT_CRASH
 
     # Parse args (currently only --version + --debug; the host does not
-    # pass --port — the OS assigns an ephemeral port).
+    # pass --port: the OS assigns an ephemeral port).
     args = _parse_args()
     if args.debug:
         # ``VOICE_TYPER_DEBUG`` is read by many modules (e.g.
-        # ``event_bus.py``, ``security/redaction.py``) — set it BEFORE
+        # ``event_bus.py``, ``security/redaction.py``), set it BEFORE
         # ``setup_logging`` so the per-module-level application picks up
         # the debug level for every ``voice_typer.*`` logger.
         os.environ["VOICE_TYPER_DEBUG"] = "1"
@@ -141,13 +141,13 @@ def run() -> int:
     # so every ``log.*`` call follows ``YYYY-MM-DD  HH:MM:SS  LEVEL  msg``
     # (file) / ``HH:MM:SS  LEVEL  msg`` (terminal). The worker is a
     # standalone Nuitka-frozen onefile and must configure its own
-    # logging — it cannot inherit the slim-core sidecar's setup. We call
+    # logging: it cannot inherit the slim-core sidecar's setup. We call
     # the lower-level ``setup_logging`` (not ``logging_setup._setup_logging``)
     # because the wrapper also runs env-validation, HF_HOME setup, and
-    # crash-handler install — none of which the worker needs (the
+    # crash-handler install, none of which the worker needs (the
     # slim-core sidecar owns those concerns; the worker is a child).
     # ``process_name="worker"`` routes the worker to its OWN file (``worker.log``)
-    # via :func:`voice_typer.server.log.get_log_file_path` — avoids the rotation race with ``voice-typer.log``.
+    # via :func:`voice_typer.server.log.get_log_file_path`: avoids the rotation race with ``voice-typer.log``.
     from voice_typer.server.config import _config_dir as _resolve_config_dir
     from voice_typer.server.log import (
         get_log_file_path as _get_log_file_path,
@@ -161,7 +161,7 @@ def run() -> int:
         process_name="worker",
     )
     # C-LOG-1: the [STARTUP] logging initialized banner is the ONLY
-    # sanctioned per-line occurrence of the session id — emitted once
+    # sanctioned per-line occurrence of the session id, emitted once
     # per process so the session is greppable (``session=xxxxxxxx``)
     # without polluting every subsequent line. Mirrors
     # ``voice_typer/server/logging_setup.py``'s banner shape.
@@ -179,7 +179,7 @@ def run() -> int:
     # Single-instance lock (defense-in-depth; Tauri host owns authoritative).
     lock_handle = _ensure_worker_single_instance()
     if lock_handle is None:
-        # Duplicate launch detected + logged — exit cleanly so the host's
+        # Duplicate launch detected + logged, exit cleanly so the host's
         # respawn scheduler does not treat this as a crash.
         return EXIT_DUPLICATE_INSTANCE
 
@@ -187,7 +187,7 @@ def run() -> int:
     # before spawning the worker (ADR-0020 §3). Refuse to start without it.
     if not os.environ.get(IPC_TOKEN_ENV_VAR):
         log.error(
-            "[WORKER] %s not set — the host must set this env var before "
+            "[WORKER] %s not set: the host must set this env var before "
             "spawning the worker (bearer-token auth requires it).",
             IPC_TOKEN_ENV_VAR,
         )
@@ -218,10 +218,10 @@ def run() -> int:
             return EXIT_CRASH
         return EXIT_OK
     except KeyboardInterrupt:
-        # Ctrl+C in a dev shell — treat as graceful shutdown so the
+        # Ctrl+C in a dev shell, treat as graceful shutdown so the
         # finally block's lock release runs (matches SIGTERM path).
         shutdown_timer.start()
-        log.info("[WORKER] interrupted — shutting down")
+        log.info("[WORKER] interrupted: shutting down")
         return EXIT_OK
     except Exception:
         log.exception("[WORKER] fatal error in run()")
@@ -241,7 +241,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """Parse the worker CLI args.
 
     Only ``--version`` and ``--debug`` are recognized. The host does NOT
-    pass ``--port`` — the OS assigns an ephemeral port (mirrors the
+    pass ``--port``: the OS assigns an ephemeral port (mirrors the
     slim-core sidecar's ``--ws`` mode). Unknown args are ignored (the
     host may add ``--pack-version`` etc. in Phase 2b; this parser stays
     forward-compatible).
@@ -286,7 +286,7 @@ def main() -> int:
 
         faulthandler.enable()
     except Exception:
-        log.warning("[WORKER] faulthandler not available — crash thread-dumps will not be generated", exc_info=True)
+        log.warning("[WORKER] faulthandler not available: crash thread-dumps will not be generated", exc_info=True)
 
     try:
         return run()

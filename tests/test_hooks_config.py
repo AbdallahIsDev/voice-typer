@@ -2,7 +2,7 @@
 
 Covers three review.md entries:
 
-* **XS-34** — Pre-commit + husky conflict: both ``pre-commit install`` and
+* **XS-34**, Pre-commit + husky conflict: both ``pre-commit install`` and
   ``npm install`` (via the ``prepare`` script) previously wrote
   ``.git/hooks/pre-commit`` and whichever ran LAST won. The fix: husky is
   the SOLE installer of git hooks (``core.hooksPath = .husky/_/``);
@@ -10,13 +10,13 @@ Covers three review.md entries:
   the pre-commit framework is invoked via ``pre-commit run`` from inside
   husky's ``.husky/pre-commit`` wrapper.
 
-* **XS-35** — Husky pre-push too slow + mypy installs torch (~2GB). The
+* **XS-35**. Husky pre-push too slow + mypy installs torch (~2GB). The
   remaining fix: convert mypy from a ``mirrors-mypy`` repo entry with
   ``additional_dependencies: [numpy, torch, ...]`` to a LOCAL hook with
   ``language: system`` / ``entry: python -m mypy`` so it reuses the
   project venv and never reinstalls torch.
 
-* **XS-68** — ``typecheck:root`` was a silent no-op (``tsc --noEmit``
+* **XS-68**: ``typecheck:root`` was a silent no-op (``tsc --noEmit``
   against the solution-style ``tsconfig.json`` doesn't type-check the
   referenced projects). Already fixed: ``typecheck:root`` is now
   ``tsc -b --noEmit`` (build mode, type-checks refs without emitting),
@@ -224,7 +224,7 @@ def test_mypy_hook_files_scoped_to_server() -> None:
 def test_husky_pre_push_uses_cached_typecheck() -> None:
     """``.husky/pre-push`` must use ``npm run typecheck`` (cached,
     ~5s incremental) and NOT ``npm run typecheck:ci``
-    (``tsc -b --force``, cache-busting, 30s-2min) — XS-35.
+    (``tsc -b --force``, cache-busting, 30s-2min), XS-35.
 
     The historical ``typecheck:ci`` reference is allowed inside
     backtick-quoted comments (it's part of the rationale); only the
@@ -232,7 +232,7 @@ def test_husky_pre_push_uses_cached_typecheck() -> None:
     """
     text = HUSKY_PRE_PUSH.read_text()
     # Strip comment lines (lines starting with `#` or after a `#` in a
-    # shell line — but the pre-push file's comments are all on their own
+    # shell line, but the pre-push file's comments are all on their own
     # `#`-prefixed lines, so we just drop those). This isolates the
     # actual shell commands from the rationale comments.
     code_lines = [line for line in text.splitlines() if not line.lstrip().startswith("#")]
@@ -246,14 +246,14 @@ def test_husky_pre_push_uses_cached_typecheck() -> None:
     ci_invocation = re.search(r"npm run typecheck:ci\b", code_only)
     assert ci_invocation is None, (
         ".husky/pre-push must NOT invoke `npm run typecheck:ci` as the "
-        "actual pre-push typecheck (XS-35) — it's cache-busting and was "
+        "actual pre-push typecheck (XS-35), it's cache-busting and was "
         "the original slowness root cause. Code-only content:\n" + textwrap.indent(code_only, "    ")
     )
 
 
 def test_husky_pre_push_drops_pytest_keeps_fast_gates() -> None:
     """``.husky/pre-push`` must be LEAN: no pytest invocation at all, only
-    the seconds-cost gates — cached client typecheck + the mypy ratchet at
+    the seconds-cost gates, cached client typecheck + the mypy ratchet at
     the pre-push stage.
 
     The pytest block (even the XS-35 fast subset, ~2-3 min) was removed:
@@ -268,7 +268,7 @@ def test_husky_pre_push_drops_pytest_keeps_fast_gates() -> None:
     code_lines = [line for line in text.splitlines() if not line.lstrip().startswith("#")]
     code_only = "\n".join(code_lines)
     assert "-m pytest" not in code_only, (
-        ".husky/pre-push must NOT invoke pytest — the full suite is "
+        ".husky/pre-push must NOT invoke pytest, the full suite is "
         "already greened at the end of every task; the push gate keeps "
         "only seconds-cost checks. Code-only content:\n" + textwrap.indent(code_only, "    ")
     )
@@ -281,7 +281,7 @@ def test_husky_pre_push_drops_pytest_keeps_fast_gates() -> None:
     )
     assert "pre-commit run --hook-stage pre-push" in code_only, (
         ".husky/pre-push must keep the mypy ratchet (pre-commit, pre-push "
-        "stage) — mypy has no CI gate. Code-only content:\n" + textwrap.indent(code_only, "    ")
+        "stage), mypy has no CI gate. Code-only content:\n" + textwrap.indent(code_only, "    ")
     )
 
 
@@ -294,7 +294,7 @@ def _load_package_json() -> dict:
 
 def test_typecheck_root_uses_build_mode() -> None:
     """``typecheck:root`` must use ``tsc -b --noEmit`` (build mode,
-    type-checks referenced projects without emitting) — NOT the silent
+    type-checks referenced projects without emitting), NOT the silent
     no-op ``tsc --noEmit`` (XS-68).
 
     ``tsconfig.json`` is a solution-style config (``files: []`` +
@@ -324,7 +324,7 @@ def test_typecheck_does_not_start_with_no_op_tsc() -> None:
     # The bare `tsc --noEmit` no-op is what we're guarding against.
     bare_no_op = typecheck.startswith("tsc --noEmit")
     assert not bare_no_op, (
-        "`typecheck` script must NOT start with `tsc --noEmit` — it's "
+        "`typecheck` script must NOT start with `tsc --noEmit`, it's "
         "a silent no-op against the solution-style tsconfig.json (XS-68). "
         "Found: " + repr(typecheck)
     )

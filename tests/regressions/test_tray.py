@@ -2,7 +2,7 @@
 
 This module is part of the ``tests/regressions/`` package.
 The class/method names, assertion logic, and imports below are
-preserved verbatim from the original 4446-line monolith — only file
+preserved verbatim from the original 4446-line monolith, only file
 location has changed.
 
 Common preamble (imports + Linux test-env shim) is identical to the
@@ -33,7 +33,7 @@ class TestTrayIconBaseIcoLookup:
     def test_generate_icons_mjs_emits_tray_ico(self):
         """generate-icons.mjs must call generateIco for tray-mic.ico.
 
-        KEEP — pins PLAT-024 fix in the JS icon-generation script.
+        KEEP, pins PLAT-024 fix in the JS icon-generation script.
         Cannot easily test behaviorally (would need to execute the .mjs
         script and inspect emitted files); source-string check is the
         most direct way to catch removal of the .ico emission.
@@ -58,7 +58,7 @@ class TestTrayRecordingColorIsGreen:
     """
 
     def test_recording_color_is_green(self):
-        # KEEP — pins  (RECORDING color is green RGB
+        # KEEP, pins  (RECORDING color is green RGB
         # (46, 204, 113)). The sibling test_recording_and_error_colors_are_distinct
         # tests visual distinctness, but doesn't pin the exact RGB values.
         # Source-string check catches a regression where the color changes.
@@ -69,7 +69,7 @@ class TestTrayRecordingColorIsGreen:
         assert "(46, 204, 113" in src, "TRAY-006: RECORDING color must be green (46, 204, 113), not red"
 
     def test_error_color_is_red(self):
-        # KEEP — pins  (ERROR color is red RGB (231, 76, 60)).
+        # KEEP, pins  (ERROR color is red RGB (231, 76, 60)).
         # Same rationale as test_recording_color_is_green.
         from voice_typer.server import tray_icon
 
@@ -78,7 +78,7 @@ class TestTrayRecordingColorIsGreen:
         assert "(231, 76, 60" in src, "TRAY-006: ERROR color must be red (231, 76, 60)"
 
     def test_cancelling_color_is_orange(self):
-        # KEEP — pins  (CANCELLING color is orange RGB
+        # KEEP, pins  (CANCELLING color is orange RGB
         # (243, 156, 18)). Same rationale as test_recording_color_is_green.
         from voice_typer.server import tray_icon
 
@@ -104,7 +104,7 @@ class TestTrayIconHasAccessibleName:
     """title serves as accessible name (pystray limitation)."""
 
     def test_tray_icon_has_non_empty_title(self):
-        # KEEP — pins  (TrayIcon.start passes a non-empty
+        # KEEP, pins  (TrayIcon.start passes a non-empty
         # title= for accessible name). A behavioral test would need to
         # start TrayIcon and inspect the system tray icon's accessible
         # name, which is heavy (platform-specific); the source-string
@@ -113,7 +113,7 @@ class TestTrayIconHasAccessibleName:
 
         src = inspect.getsource(TrayIcon.start)
         assert "title=" in src
-        # Assert the rationale PHRASE — the PLAT-010 ticket token is
+        # Assert the rationale PHRASE, the PLAT-010 ticket token is
         # stripped by C-STYLE-1 cleanup, but the "title is both tooltip
         # AND a11y name" comment must never be removed.
         assert "a11y name" in src
@@ -160,7 +160,7 @@ class TestTextSizeConfigWiredToCssScale:
     """text_size config wired to CSS --font-scale variable."""
 
     def test_app_tsx_sets_font_scale(self):
-        # KEEP — pins  (--font-scale / text_size application
+        # KEEP, pins  (--font-scale / text_size application
         # in useTheme.ts). A behavioral test would need to render the app
         # and inspect the computed CSS variable, which is heavy; the
         # file-content check catches removal of the --font-scale setter.
@@ -181,7 +181,7 @@ class TestTextSizeConfigWiredToCssScale:
         assert "text_size" in src
 
     def test_index_css_consumes_font_scale(self):
-        # KEEP — pins  (index.css consumes --font-scale).
+        # KEEP, pins  (index.css consumes --font-scale).
         # Same rationale as test_app_tsx_sets_font_scale.
         css_path = (
             Path(__file__).resolve().parent.parent.parent
@@ -197,7 +197,7 @@ class TestTextSizeConfigWiredToCssScale:
         assert "font-size" in src
 
     def test_settings_has_text_size_slider(self):
-        # KEEP — pins  (Text Size slider in ThemeSettingsSection.tsx).
+        # KEEP, pins  (Text Size slider in ThemeSettingsSection.tsx).
         # Same rationale as test_app_tsx_sets_font_scale.
         # the "Text Size" slider was refactored out of
         # Settings.tsx into the ThemeSettingsSection component.

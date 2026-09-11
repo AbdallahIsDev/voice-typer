@@ -7,7 +7,7 @@ functions here (the engine module stays focused on the
 load/transcribe pipeline). The functions are also unit-testable in
 isolation with stub engines.
 
-* :func:`transcribe_unlocked` — the body of
+* :func:`transcribe_unlocked`: the body of
   :meth:`TranscriptionEngine._transcribe_unlocked`. Drives the
   faster-whisper ``model.transcribe(...)`` call, iterates the segment
   generator (with abort-token check between iterations), collects
@@ -16,18 +16,18 @@ isolation with stub engines.
   rejection gate, and returns the joined text. PII-safety:
   per-segment DEBUG logs are gated by ``config.log_transcriptions``
   AND wrapped in ``redact_pii`` when emitted.
-* :func:`transcribe_words_unlocked` — the body of
+* :func:`transcribe_words_unlocked`: the body of
   :meth:`TranscriptionEngine._transcribe_words_unlocked`. Streaming
   word-timestamp variant of the above (used by the streaming
   pipeline). Returns a list of :class:`streaming.WordTiming` objects.
-* :func:`format_optional_mean` — formats a list of floats as a
+* :func:`format_optional_mean`: formats a list of floats as a
   2-decimal mean, or ``"n/a"`` if empty. Used by the VAD-result log
   line in :func:`transcribe_unlocked`.
-* :func:`build_quality_summary` — the compact per-dictation quality
+* :func:`build_quality_summary`: the compact per-dictation quality
   dict built from the already-collected segment stats; re-exported by
   ``transcription`` for back-compat with callers/tests importing it
   from there.
-* :func:`reject_low_audio_hallucination` — thin delegator to
+* :func:`reject_low_audio_hallucination`: thin delegator to
   :func:`hallucination.should_reject_low_audio_hallucination` so the
   engine method can delegate without importing ``hallucination``.
 
@@ -56,7 +56,7 @@ np = lazy_module("numpy")
 # Silero-VAD tuning passed to BOTH faster-whisper decode loops (batch
 # ``transcribe_unlocked`` + streaming-words ``transcribe_words_unlocked``).
 # faster-whisper consumes the mapping read-only (``VadOptions(**vad_parameters)``
-# — verified against faster-whisper 1.2.1), so ONE shared module-level dict
+# , verified against faster-whisper 1.2.1), so ONE shared module-level dict
 # is safe; it was previously duplicated as an identical ``dict(...)`` literal
 # inside each loop. Keep the values identical across both call sites by
 # construction: never re-assign per call, never mutate the shared dict.
@@ -173,7 +173,7 @@ def transcribe_unlocked(
             rms,
         )
 
-    # NOTE: ``best_of`` is deliberately NOT passed — faster-whisper only
+    # NOTE: ``best_of`` is deliberately NOT passed, faster-whisper only
     # honors it when sampling with non-zero temperature, and the pinned
     # ``temperature=0.0`` (greedy decoding, no fallback-temperature retries)
     # made the forwarded config knob a silent no-op. ``temperature=0.0``
@@ -225,13 +225,13 @@ def transcribe_unlocked(
         # each ``next()`` call driving a ctranslate2 decoding step
         # (typically 0.5-3s per segment). Checking here lets the
         # ESC / watchdog cancel path break out of the loop within
-        # one segment of being signalled — bounded latency instead
+        # one segment of being signalled, bounded latency instead
         # of waiting for the full audio to decode. ``request_abort()``
         # also best-effort calls ``ctranslate2.Translator.interrupt()``
         # so the CURRENT segment's C-level call returns promptly.
         if engine._abort_event.is_set():
             log.info(
-                "[TRANSCRIBE] Abort requested — stopping segment loop early (completed %d segments, %d text parts)",
+                "[TRANSCRIBE] Abort requested, stopping segment loop early (completed %d segments, %d text parts)",
                 segment_count,
                 len(text_parts),
             )
@@ -253,12 +253,12 @@ def transcribe_unlocked(
             # gate the per-segment DEBUG log by
             # ``log_transcriptions`` and apply ``redact_pii`` when
             # enabled. Pre-fix, raw segment text was logged whenever
-            # DEBUG logging was active — leaking any PII the user
+            # DEBUG logging was active, leaking any PII the user
             # dictated even though the operator had not opted into
             # transcription logging.
             #
             # When ``log_transcriptions`` is False (the default), we
-            # emit NO segment DEBUG log at all — not even a char-count
+            # emit NO segment DEBUG log at all, not even a char-count
             # summary. The regression tests pin this
             # contract: any "[TRANSCRIBE] Segment" DEBUG record while
             # the flag is off is treated as a PII leak (the very
@@ -272,18 +272,18 @@ def transcribe_unlocked(
                 try:
                     _safe_seg_text = _redact_pii(_seg_text)
                 except Exception:
-                    # fall back to a redacted marker only — do NOT
+                    # fall back to a redacted marker only, do NOT
                     # log the raw text even truncated. The opt-in ``log_transcriptions`` flag is a
                     # privacy backstop the user explicitly enabled, and
                     # a ``redact_pii`` failure (import failure / regex
                     # bug) means PII cannot be guaranteed masked.
-                    # Truncating to 80 chars does NOT redact — an
+                    # Truncating to 80 chars does NOT redact, an
                     # 80-char window can still contain an email address,
                     # phone number, or SSN fragment. Emit a marker +
                     # the segment boundaries and skip the DEBUG log.
                     log.warning(
                         "[TRANSCRIBE] Segment: [%.1fs - %.1fs] "
-                        "<redaction-engine-failed — segment text NOT "
+                        "<redaction-engine-failed, segment text NOT "
                         "logged to preserve PII guarantee; enable "
                         "voice_typer.server.security.redact_pii and "
                         "retry>",
@@ -312,7 +312,7 @@ def transcribe_unlocked(
 
     # Compact quality summary for the dictation pipeline → renderer
     # (``transcription_final`` payload). Built from the stats already
-    # collected above — a handful of float ops per dictation, never
+    # collected above, a handful of float ops per dictation, never
     # on the paste path. ``None`` when the loop collected no numeric
     # segment stats so downstream consumers omit the field.
     engine.last_quality_summary = build_quality_summary(avg_logprobs, no_speech_probs)
@@ -374,7 +374,7 @@ def transcribe_words_unlocked(
     from voice_typer.server.streaming import WordTiming
 
     # Same duration-aware VAD policy as the batch path (stats are
-    # computed inside the policy — streaming chunks carry none). The
+    # computed inside the policy, streaming chunks carry none). The
     # trim offset is added back below: word timings are relative to the
     # passed audio, so a trimmed lead-in must not shift them.
     audio, use_vad_filter, trim_offset_s = decide_vad_filter(
@@ -411,7 +411,7 @@ def transcribe_words_unlocked(
         # unbounded latency instead of within-one-segment latency.
         if engine._abort_event.is_set():
             log.info(
-                "[TRANSCRIBE] Abort requested — stopping streaming "
+                "[TRANSCRIBE] Abort requested, stopping streaming "
                 "words segment loop early (completed %d segments, "
                 "%d words)",
                 segment_count,
@@ -439,7 +439,7 @@ def build_quality_summary(avg_logprobs: list[float], no_speech_probs: list[float
     """Build the compact per-dictation quality summary for the renderer.
 
     Computed from the ``avg_logprob`` / ``no_speech_prob`` values the
-    segment loop ALREADY collected — no recomputation, one small dict of
+    segment loop ALREADY collected, no recomputation, one small dict of
     floats allocated once per dictation (never on the paste hot path).
 
     Returns ``None`` when no numeric stats were collected (empty audio,

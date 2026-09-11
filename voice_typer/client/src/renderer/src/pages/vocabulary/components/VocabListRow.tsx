@@ -1,13 +1,13 @@
-// One row of the vocabulary list — a clean two-column pairing.
+// One row of the vocabulary list, a clean two-column pairing.
 //
 // Simplified for scannability:
 //   - leading checkbox (bulk selection)
 //   - the wrong→correct pairing as two labeled text spans ("Heard as"
 //     → "Corrected to" per the column headers; the connector arrow was
-//     removed — the columns are clearly labeled and positioned
+//     removed, the columns are clearly labeled and positioned
 //     left/right)
 //   - direct Test + Delete + Edit icon buttons on the right (aria-labels,
-//     text-only hovers) — no overflow menu and NO tooltips (they rendered
+//     text-only hovers), no overflow menu and NO tooltips (they rendered
 //     over the adjacent icons while moving the cursor); Delete is LAST
 //     (destructive actions never lead the group)
 //   - the WHOLE row toggles selection on click (bulk-select pattern) —
@@ -18,12 +18,12 @@
 //
 // The row action buttons use the app-wide compact row-button language
 // (shared with the History/ActivityList and Models rows, and the
-// TemplateListRow): `size="icon-xs"` (24×24 — the WCAG 2.5.8 AA target
+// TemplateListRow): `size="icon-xs"` (24×24, the WCAG 2.5.8 AA target
 // minimum) + text-only `hover:text-*` color shifts, no hover background
 // washes. 24px also leaves the fixed 6.25rem actions column comfortable
 // slack for three buttons (3×24 + 2×2px gaps = 76px).
 //
-// The row is memoized — the parent passes stable useCallback handlers
+// The row is memoized, the parent passes stable useCallback handlers
 // so a search keystroke (which re-renders the page but changes no row
 // props) skips every row's render. ``testResult`` is ``null`` for every
 // row except the one being tested, so an in-flight test re-renders
@@ -66,7 +66,7 @@ interface VocabListRowProps {
 	onEdit: (entry: VocabRow) => void;
 	onDelete: (entry: VocabRow) => void;
 	/**
-	 * "Test this entry" — runs the entry's wrong phrase through the
+	 * "Test this entry", runs the entry's wrong phrase through the
 	 * LIVE server correction engine (``test_vocabulary_correction``
 	 * IPC → ``VocabularyManager.apply_to_text``).
 	 */
@@ -109,14 +109,14 @@ export const VocabListRow = memo(function VocabListRow({
 	// Grid: [checkbox][original][corrected][actions] on sm+; on narrow
 	// widths the corrected half moves to its own line below the
 	// original (col 2). The sm+ ACTIONS column is FIXED at 6.25rem
-	// (100px — the three icon buttons) so it matches the header's fixed
+	// (100px, the three icon buttons) so it matches the header's fixed
 	// actions column: with ``auto`` the header's short "Actions" label
 	// would split the 1fr columns differently than the rows' wider icon
 	// cluster and the header's "Corrected to" label would sit to the
 	// right of the row values (the invariant lives in the shared
 	// CollectionListHeader's header note).
 	//
-	// The row is clickable as a whole (toggle selection) — that's what
+	// The row is clickable as a whole (toggle selection), that's what
 	// the hover background implies. Action buttons and the checkbox
 	// stop propagation so they don't double-toggle.
 	return (
@@ -136,10 +136,10 @@ export const VocabListRow = memo(function VocabListRow({
 				selected && "bg-accent/10 hover:bg-accent/10",
 			)}
 		>
-			{/* Checkbox (col 1) — bulk selection. Its own click already
+			{/* Checkbox (col 1), bulk selection. Its own click already
                             toggles selection; the onClick stops propagation so the
                             row's click-to-toggle handler doesn't double-toggle. (The
-                            design-system Checkbox is a <button> — its click never
+                            design-system Checkbox is a <button>, its click never
                             bubbles past this point.) */}
 			<Checkbox
 				checked={selected}
@@ -148,7 +148,7 @@ export const VocabListRow = memo(function VocabListRow({
 				aria-label={t("vocabulary.selectEntry", { name: entry.original })}
 				className="self-start pt-0.5 sm:self-center sm:pt-0"
 			/>
-			{/* Original (col 2) — what the recognizer mishears, styled
+			{/* Original (col 2), what the recognizer mishears, styled
                             red to signal "incorrect". Below it, the server-tracked
                             usage line ("Used N× · last used …") when the correction
                             has actually fired during dictation. */}
@@ -172,7 +172,7 @@ export const VocabListRow = memo(function VocabListRow({
 					</span>
 				)}
 			</div>
-			{/* Corrected (col 3 on sm+; row 2 on mobile) — bold/primary
+			{/* Corrected (col 3 on sm+; row 2 on mobile), bold/primary
                             to signal "correct". */}
 			<span className="col-start-2 flex min-w-0 items-center sm:col-start-auto">
 				<span
@@ -183,10 +183,10 @@ export const VocabListRow = memo(function VocabListRow({
 				</span>
 			</span>
 			{/* Actions (col 4 on sm+; col 3 on mobile, same row as the
-                            checkbox): Test + Delete + Edit (Edit RIGHTMOST — the
+                            checkbox): Test + Delete + Edit (Edit RIGHTMOST, the
                             app-wide action-icon ordering convention: the edit pencil
                             is always the last icon in the group, on every page that
-                            uses this pattern). Test is a diagnostic — it runs the
+                            uses this pattern). Test is a diagnostic, it runs the
                             wrong phrase through the LIVE server engine and shows the
                             authoritative result inline below the row. */}{" "}
 			<div className="flex items-center justify-self-end gap-0.5">
@@ -206,7 +206,7 @@ export const VocabListRow = memo(function VocabListRow({
 						e.stopPropagation();
 						// This row's result is already displayed (or still in
 						// flight): clicking the icon again must NOT re-run the
-						// engine — that flashes the loading state over a result
+						// engine, that flashes the loading state over a result
 						// that's already known. No-op; the Retry button inside
 						// the error block is the explicit re-run path.
 						if (testResult) return;
@@ -256,7 +256,7 @@ export const VocabListRow = memo(function VocabListRow({
 					/>
 				</Button>
 			</div>
-			{/* Inline live-engine test result — spans the full row width
+			{/* Inline live-engine test result, spans the full row width
                             below the pairing. role="status" announces the transition
                             (running → result/error) to screen readers. */}
 			{testResult && (

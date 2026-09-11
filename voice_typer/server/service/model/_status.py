@@ -47,7 +47,7 @@ class StatusMixin:
         config = self._app.config
         status = {}
 
-        # Whisper models — check ALL models from the registry, using
+        # Whisper models. Check ALL models from the registry, using
         # the same cache directory that download_model writes to.
         from voice_typer.server.model_registry import MODEL_REGISTRY, get_model_metadata
 
@@ -56,30 +56,33 @@ class StatusMixin:
         # loop) instead of re-statting it on every model iteration.
         cache_dir_exists = os.path.isdir(cache_dir)
         # PARTIAL-DOWNLOAD HONESTY: the completeness answer comes from the
-        # loader's own local-only snapshot probe — a bare ``models--<repo>``
+        # loader's own local-only snapshot probe, a bare ``models--<repo>``
         # directory is created at download START, so a paused / cancelled /
         # killed download must NOT report ``downloaded: True`` (the user
         # would see a "Select" button for a model that cannot load).
-        from voice_typer.server.transcription_download import (
-            is_model_snapshot_complete,
-        )
+        # BP-158: the probe runs through the shared model_availability
+        # store, so this poll, the tray submenu, the tooltip, and the
+        # precheck share ONE verdict per repo (mtime-fresh, explicitly
+        # invalidated on mutation) instead of each walking the snapshot.
+        from voice_typer.server import model_availability
 
         for meta in MODEL_REGISTRY.values():
             if meta.backend not in ("whisper", "distil-whisper"):
                 continue
-            downloaded = cache_dir_exists and is_model_snapshot_complete(meta.repo_id)
+            downloaded = cache_dir_exists and model_availability.is_available(meta.repo_id, _config_dir())
             status[meta.name] = {
                 "downloaded": downloaded,
                 "deps_ok": True,  # faster-whisper is always available
             }
 
-        # Qwen model — check both the configured path AND the HF cache dir.
+        # Qwen model, check both the configured path AND the HF cache dir.
         qwen_path = getattr(config, "qwen_model_path", None)
         qwen_meta = get_model_metadata("qwen")
         if qwen_meta is not None:
             # The loader's own local-only snapshot probe (honest answer
-            # for paused / cancelled / killed downloads).
-            qwen_in_cache = cache_dir_exists and is_model_snapshot_complete(qwen_meta.repo_id)
+            # for paused / cancelled / killed downloads), via the
+            # shared store (BP-158).
+            qwen_in_cache = cache_dir_exists and model_availability.is_available(qwen_meta.repo_id, _config_dir())
         else:
             qwen_in_cache = False
         status["qwen"] = {
@@ -95,7 +98,9 @@ class StatusMixin:
         parakeet_path = getattr(config, "parakeet_model_path", None)
         parakeet_meta = get_model_metadata("parakeet")
         if parakeet_meta is not None:
-            parakeet_in_cache = cache_dir_exists and is_model_snapshot_complete(parakeet_meta.repo_id)
+            parakeet_in_cache = cache_dir_exists and model_availability.is_available(
+                parakeet_meta.repo_id, _config_dir()
+            )
         else:
             parakeet_in_cache = False
         status["parakeet"] = {
@@ -115,8 +120,13 @@ class StatusMixin:
         Called whenever on-disk model state may have changed (model
         downloaded or deleted). The next :meth:`get_model_status` call
         recomputes from the filesystem and re-arms the TTL cache. Safe to
-        call when no cache is populated yet.
+        call when no cache is populated yet. Also clears the shared
+        availability store (BP-158) so tray/tooltip/precheck verdicts
+        refresh in the same breath.
         """
+        from voice_typer.server import model_availability
+
+        model_availability.invalidate()
         with self._model_status_cache_lock:
             self._model_status_cache = None
             self._model_status_cache_ts = 0.0

@@ -135,7 +135,7 @@ describe("useNavigation useShallow consolidation (4 selector runs per update)", 
 		// 4 action function references never change identity).
 		// So a `navigate()` call that changes `page` should NOT
 		// change the `navigate`/`replace`/`goBack`/`goForward`
-		// references — the consumer's `useShallow` subscription
+		// references, the consumer's `useShallow` subscription
 		// does not trigger a re-render for the action slice.
 		const captures = {
 			current: null as ReturnType<typeof useNavigation> | null,
@@ -155,7 +155,7 @@ describe("useNavigation useShallow consolidation (4 selector runs per update)", 
 		// hub) is a real destination. From "home" the hub-model path
 		// is: stage any deep-link opts (none here), then exactly ONE
 		// `apply()` (one store `set()` + one localStorage write) that
-		// pushes "settings" onto the history stack — no redirect means
+		// pushes "settings" onto the history stack, no redirect means
 		// no second `replace()` apply call. The test verifies the
 		// navigation happened by checking currentPage === "settings"
 		// (the hub literal itself).
@@ -242,7 +242,7 @@ describe("useNavigation consent deep-link channel (pendingConsentField / consume
 			"voice_biometric_consent",
 		);
 
-		// consume reads AND clears (one-shot — a stale target can't
+		// consume reads AND clears (one-shot, a stale target can't
 		// re-fire on a later Settings visit).
 		let consumed: string | null = "sentinel";
 		act(() => {

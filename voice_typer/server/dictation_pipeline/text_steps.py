@@ -3,16 +3,16 @@
 Holds the four middle-pipeline text-transformation steps that run
 between ``TranscribeStage`` and ``LLMPolishStage``:
 
-  * :meth:`_clean_text` — Step 3: whitespace / self-correction /
+  * :meth:`_clean_text`: Step 3: whitespace / self-correction /
     capitalization cleanup via ``text_cleanup.clean_transcribed_text``.
-  * :meth:`_apply_vocabulary` — Step 4: vocabulary corrections via
+  * :meth:`_apply_vocabulary`: Step 4: vocabulary corrections via
     the lazily-initialized ``VocabularyManager``.
-  * :meth:`_apply_templates` — Step 5: template matching via the
+  * :meth:`_apply_templates`: Step 5: template matching via the
     lazily-initialized ``TemplateManager``. Sets
     ``self._templates_applied`` so the LLM polish step can log a
     privacy NOTICE for template-substituted (e.g. ``{clipboard}``)
     content.
-  * :meth:`_apply_punctuation` — Step 6: auto-punctuation via
+  * :meth:`_apply_punctuation`: Step 6: auto-punctuation via
     ``text_cleanup._add_safe_terminal_punctuation``.
 
 All four methods are wrapped in try/except with the same notify-once
@@ -43,7 +43,7 @@ class _TextStepsMixin:
     # the mixin so mypy / pyrefly resolve every ``self._app.*`` access —
     # the attribute is provided by the composed parent class at runtime
     # (same pattern as ``_StorageStepMixin._app`` and the declarations
-    # on ``_TranscribeStepMixin``). Annotations only — no values — so
+    # on ``_TranscribeStepMixin``). Annotations only, no values, so
     # no runtime attribute is created and the runtime MRO is unaffected.
     _app: Any
 
@@ -53,7 +53,7 @@ class _TextStepsMixin:
         previously the only two middle-pipeline steps NOT
         wrapped in try/except (this method and ``_apply_punctuation``).
         If either threw, the exception propagated to the outer
-        ``run()`` ``except Exception`` block — the tray flipped to
+        ``run()`` ``except Exception`` block, the tray flipped to
         ERROR, the dictation was aborted, and the transcription was
         NEVER saved to crash recovery because ``_store_result()``
         runs AFTER these steps. Wrap in try/except matching the
@@ -79,7 +79,7 @@ class _TextStepsMixin:
         except Exception:
             log.warning("[PIPELINE] Text cleanup failed", exc_info=True)
             # a-review Finding 2: notify-once flag lives on ``self._app``
-            # (session-scoped) — see ``_apply_vocabulary`` for rationale.
+            # (session-scoped): see ``_apply_vocabulary`` for rationale.
             if not getattr(self._app, "_clean_text_fail_notified", False):
                 self._app._clean_text_fail_notified = True
                 with contextlib.suppress(Exception):
@@ -105,7 +105,7 @@ class _TextStepsMixin:
         except Exception:
             log.warning("[PIPELINE] Vocabulary correction failed", exc_info=True)
             # a-review Finding 2: notify-once flag lives on ``self._app``
-            # (session-scoped) — a fresh DictationPipeline is built per
+            # (session-scoped), a fresh DictationPipeline is built per
             # transcription cycle, so flags on ``self`` reset every cycle
             # and the user got a tray notification on EVERY cycle where
             # the failure occurred. /'s "notify once"
@@ -129,11 +129,11 @@ class _TextStepsMixin:
         so the downstream ``_apply_llm_polish`` step can log a privacy
         NOTICE. Templates may substitute ``{clipboard}`` with the
         user's current clipboard content (which can contain passwords,
-        2FA codes, private messages) — if LLM polish is then enabled,
+        2FA codes, private messages), if LLM polish is then enabled,
         that content would flow toward the third-party LLM API. The
          fix in ``llm_polish._call_api`` applies ``redact_pii``
         before the API send; this flag does NOT change that redaction
-        behavior — it only makes the substituted-content flow visible
+        behavior, it only makes the substituted-content flow visible
         in the log so operators can audit when template-substituted
         text is reaching the LLM redaction gate, and triggers a
         fail-closed sanity check in ``_apply_llm_polish``.
@@ -150,7 +150,7 @@ class _TextStepsMixin:
                     # mark that templates modified the text
                     # this cycle. The downstream LLM polish step uses
                     # this flag to log a privacy NOTICE and to gate a
-                    # fail-closed sanity check on ``redact_pii`` — it
+                    # fail-closed sanity check on ``redact_pii``: it
                     # does NOT gate or modify the polish call itself
                     # (the redaction is already applied by  inside
                     # ``llm_polish._call_api``).
@@ -159,7 +159,7 @@ class _TextStepsMixin:
         except Exception:
             log.warning("[PIPELINE] Template matching failed", exc_info=True)
             # a-review Finding 2: notify-once flag lives on ``self._app``
-            # (session-scoped) — see ``_apply_vocabulary`` for rationale.
+            # (session-scoped): see ``_apply_vocabulary`` for rationale.
             if not getattr(self._app, "_template_fail_notified", False):
                 self._app._template_fail_notified = True
                 with contextlib.suppress(Exception):
@@ -172,7 +172,7 @@ class _TextStepsMixin:
     def _apply_punctuation(self, text: str) -> str:
         """Step 6: Apply auto-punctuation.
 
-        previously NOT wrapped in try/except — see
+        previously NOT wrapped in try/except: see
         ``_clean_text`` for the rationale. ``_add_safe_terminal_punctuation``
         is a pure string operation but can still raise on malformed
         input (e.g. a ``text`` containing a surrogate that breaks
@@ -187,7 +187,7 @@ class _TextStepsMixin:
         except Exception:
             log.warning("[PIPELINE] Auto-punctuation failed", exc_info=True)
             # a-review Finding 2: notify-once flag lives on ``self._app``
-            # (session-scoped) — see ``_apply_vocabulary`` for rationale.
+            # (session-scoped): see ``_apply_vocabulary`` for rationale.
             if not getattr(self._app, "_punct_fail_notified", False):
                 self._app._punct_fail_notified = True
                 with contextlib.suppress(Exception):

@@ -1,6 +1,6 @@
 {
 	"dialog.criticalError.body": "Приложение столкнулось с {count} необработанными исключениями и будет закрыто.\nЖурнал сбоев: {logPath}\nПожалуйста, перезапустите {appName}.",
-	"dialog.criticalError.title": "{appName} — Критическая ошибка",
+	"dialog.criticalError.title": "{appName}, Критическая ошибка",
 	"dialog.export.config": "Экспортировать конфигурацию",
 	"dialog.export.history": "Экспортировать историю",
 	"dialog.export.statsImage": "Экспортировать изображение статистики",
@@ -12,7 +12,7 @@
 	"dialog.singleInstance.title": "{appName}",
 	"notify.app.config_load_failed_body": "Ошибка загрузки конфигурации. Настройки сброшены до значений по умолчанию. Подробности см. в журналах.",
 	"state.app.starting": "Запуск...",
-	"dialog.crashLoop.title": "{appName} — Цикл сбоев",
+	"dialog.crashLoop.title": "{appName}, Цикл сбоев",
 	"dialog.crashLoop.mainBody": "Окно главного рендерера неоднократно аварийно завершало работу и не может быть восстановлено.\n\nИспользуйте значок в трее для перезапуска или выхода, затем снова запустите {appName}.",
 	"dialog.crashLoop.bubbleBody": "Окно наложения пузыря неоднократно аварийно завершало работу и не может быть восстановлено.\n\nИспользуйте значок в трее для перезапуска или выхода, затем снова запустите {appName}.",
 	"dialog.pythonBackend.timeoutTitle": "Не удалось запустить серверную часть Python",

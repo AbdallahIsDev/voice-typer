@@ -1,5 +1,5 @@
 /**
- * LlmPolishingSettingsSection — the LLM API URL draft resets when the
+ * LlmPolishingSettingsSection, the LLM API URL draft resets when the
  * committed `llm_api_url` changes EXTERNALLY (reset-to-defaults,
  * config_changed push), while typed-while-focused edits are protected
  * from our own debounced save echo.
@@ -88,7 +88,7 @@ function renderSection(config: VoiceTyperConfig) {
 
 function urlInput(): HTMLInputElement {
 	// The URL input carries aria-label = the translated "API URL" label
-	// (en.json) — located via that accessible name.
+	// (en.json), located via that accessible name.
 	const input = screen
 		.getAllByRole("textbox")
 		.find((el) => el.getAttribute("aria-label") === "API URL");
@@ -100,7 +100,7 @@ afterEach(() => {
 	cleanup();
 });
 
-describe("LlmPolishingSettingsSection — urlDraft resets on external config change", () => {
+describe("LlmPolishingSettingsSection, urlDraft resets on external config change", () => {
 	it("unfocused: an external llm_api_url change drops the stale draft", () => {
 		const { rerender } = renderSection(
 			makeConfig({ llm_api_url: "https://old" }),

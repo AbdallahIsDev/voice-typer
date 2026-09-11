@@ -3,11 +3,11 @@
  *
  * Coverage:
  *   1. Each model family maps to the right brand logo (whisper →
- *      OpenAI, qwen → Qwen, parakeet → NVIDIA) — ONE file per family.
+ *      OpenAI, qwen → Qwen, parakeet → NVIDIA), ONE file per family.
  *   2. Color model: qwen/nvidia bake in their brand colors (#082DFF /
  *      #80bc00) so they render identically in both themes, while the
  *      black OpenAI logo carries `dark:invert` so it flips to white in
- *      dark mode. No `currentColor` — an SVG loaded through <img> is a
+ *      dark mode. No `currentColor`, an SVG loaded through <img> is a
  *      separate document, so `currentColor` resolves to black and
  *      never sees the host page's color (that bug made every logo
  *      render black in both themes).
@@ -46,7 +46,7 @@ function getImg(container: HTMLElement): HTMLImageElement {
 	return img;
 }
 
-describe("FamilyLogo — one logo per family", () => {
+describe("FamilyLogo, one logo per family", () => {
 	it("renders exactly ONE img per family (no dark duplicate)", () => {
 		const { container } = render(<FamilyLogo family="whisper" />);
 		expect(container.querySelectorAll("img")).toHaveLength(1);
@@ -124,7 +124,7 @@ describe("FamilyLogo — one logo per family", () => {
 		const { container } = render(<FamilyLogo family="whisper" />);
 		const img = getImg(container);
 		expect(img.getAttribute("src")).toContain("000000");
-		// One file, no -dark duplicate — the theme flip is a CSS
+		// One file, no -dark duplicate, the theme flip is a CSS
 		// filter on the same <img>.
 		expect(img.className).toContain("dark:invert");
 		// No currentColor anywhere: it silently renders black in an
@@ -138,7 +138,7 @@ describe("FamilyLogo — one logo per family", () => {
 	});
 });
 
-describe("groupModelsByFamily — family branding", () => {
+describe("groupModelsByFamily, family branding", () => {
 	it("brands the parakeet family 'Nvidia'", () => {
 		const families = groupModelsByFamily([
 			makeModel("parakeet"),

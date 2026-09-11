@@ -2,14 +2,14 @@
 
 Covers two root causes:
 
-1. FALSE ``device_lost`` on intentional stream stop/switch — PortAudio's
+1. FALSE ``device_lost`` on intentional stream stop/switch, PortAudio's
    ``PaStreamFinishedCallback`` fires not only when a device vanishes but
    also on every ``stop()``/``close()``, i.e. exactly what selecting a
    different microphone (monitor restart) or leaving the page does.
    The identity-aware guard must suppress the intentional transitions and
    still report a genuine finish of the CURRENT stream.
 
-2. Mic-test WAV transport — completed WAVs (~1 MB each) exceed the 1 MiB
+2. Mic-test WAV transport, completed WAVs (~1 MB each) exceed the 1 MiB
    single-frame IPC cap, so stop persists them to disk under the config
    dir and serves bytes via chunked ``microphone_test_read_audio`` reads:
    keep-only-latest purge on start, containment (path traversal rejected),
@@ -172,7 +172,7 @@ class TestFinishedCallbackIdentityGuard:
         assert _st._monitor_active is True, "new stream must stay active"
 
     def test_stop_monitoring_does_not_emit_device_lost(self, monitor_env):
-        """Page unmount / explicit stop is intentional — no loss event."""
+        """Page unmount / explicit stop is intentional, no loss event."""
         import voice_typer.server.level_monitor as lm
 
         captured = monitor_env["captured"]
@@ -248,7 +248,7 @@ class TestTestRecordingDiskTransport:
         assert result["audio_file"] is not None
         assert result["raw_audio_file"] is not None
         assert "audio_base64" not in result, (
-            "base64 payloads must NOT ride on the stop response — they "
+            "base64 payloads must NOT ride on the stop response, they "
             "exceeded the 1 MiB IPC frame cap and were silently dropped"
         )
         for ref in (result["audio_file"], result["raw_audio_file"]):
@@ -353,7 +353,7 @@ class TestChunkedTransportIntegrity:
        and corrupted every multi-chunk playback ("Could not play the test
        recording"). Non-final slices must be 3-byte aligned.
     2. The per-command rate-limiter COST for ``microphone_test_read_audio``
-       was mistakenly set to 30 — as heavy as model downloads. Eight cheap
+       was mistakenly set to 30, as heavy as model downloads. Eight cheap
        slice reads consumed the entire shared 200/s burst budget, the tail
        chunks were rejected, and auto-stop completion lost its audio.
     """
@@ -382,7 +382,7 @@ class TestChunkedTransportIntegrity:
                 # INVARIANT: non-final fragments must be padding-free so
                 # verbatim base64 joining stays valid.
                 assert len(chunk_bytes) % 3 == 0, (
-                    "interior slice is not 3-byte aligned — joined base64 would be corrupted by mid-stream padding"
+                    "interior slice is not 3-byte aligned, joined base64 would be corrupted by mid-stream padding"
                 )
             interior_sizes.append(len(chunk_bytes))
             seen += chunk_bytes
@@ -409,7 +409,7 @@ class TestHonestMetricsContract:
     def test_no_engine_marks_transcription_unavailable_but_keeps_quality(self, tmp_path, monkeypatch):
         """Without a loaded ASR engine the stop envelope still carries the
         full AUDIO analysis (quality dict) plus the explicit
-        ``transcription_unavailable`` marker — the frontend renders N/A
+        ``transcription_unavailable`` marker, the frontend renders N/A
         instead of a fabricated 0% for the transcription-quality row."""
         from types import SimpleNamespace
 

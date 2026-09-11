@@ -10,7 +10,7 @@ inconsistent state that's never self-healing.
 The fix wraps the entire migration + index creation + version bump in
 an explicit ``BEGIN; … COMMIT;`` transaction. On ANY ``sqlite3.Error``
 mid-migration, the transaction rolls back and the version is NOT
-bumped — the next launch retries.
+bumped, the next launch retries.
 
 These tests pin the new transactional behavior:
 
@@ -21,11 +21,11 @@ These tests pin the new transactional behavior:
    place AND bumped the version, leaving the schema in an inconsistent
    state.
 
-2. ``test_migration_success_commits_version_and_indexes`` — a
+2. ``test_migration_success_commits_version_and_indexes``, a
    successful migration commits the version AND the indexes inside
    the same transaction.
 
-3. ``test_idempotent_migration_on_already_migrated_db`` — calling
+3. ``test_idempotent_migration_on_already_migrated_db``, calling
    ``_init_db_schema`` on an already-migrated DB is a no-op (the
    migration loop range is empty).
 """
@@ -82,14 +82,14 @@ def _make_v1_db(db_path) -> sqlite3.Connection:
 
 
 class TestMigrationTransactionality:
-    """CR-36: migration must be atomic — all or nothing."""
+    """CR-36: migration must be atomic, all or nothing."""
 
     def test_migration_failure_rolls_back_and_does_not_bump_version(self, tmp_path, history_db_module):
         """A mid-migration sqlite3.Error must roll back ALL migration
         changes AND must NOT bump the schema version.
 
         The previous implementation caught the error per-statement and
-        continued, then bumped the version unconditionally — leaving
+        continued, then bumped the version unconditionally, leaving
         the schema in an inconsistent state (some columns added,
         version bumped, no retry on next launch).
         """
@@ -115,7 +115,7 @@ class TestMigrationTransactionality:
             from voice_typer.server.history_db import HistoryDB
 
             db = HistoryDB(db_path=db_path)
-            # HistoryDB.__init__ waits for _writer_ready — by then, the
+            # HistoryDB.__init__ waits for _writer_ready, by then, the
             # writer thread has either succeeded or failed at
             # _init_db_schema. With the patched failing migration, it
             # should have failed.
@@ -123,7 +123,7 @@ class TestMigrationTransactionality:
                 "Expected _init_db_schema to fail with the patched "
                 "failing migration (INSERT into nonexistent table). "
                 "If _init_error is None, the migration did not run or "
-                "did not fail — the test setup is wrong."
+                "did not fail, the test setup is wrong."
             )
             assert isinstance(db._init_error, sqlite3.Error), (
                 f"Expected sqlite3.Error from _init_db_schema, got {type(db._init_error).__name__}: {db._init_error}"
@@ -139,12 +139,12 @@ class TestMigrationTransactionality:
         columns = {row[1] for row in cursor.fetchall()}
         assert "favorite" not in columns, (
             "CR-36 regression: `favorite` column was added despite the "
-            "migration failing — the transaction did NOT roll back. "
+            "migration failing, the transaction did NOT roll back. "
             f"Columns: {columns}"
         )
         assert "language" not in columns, (
             "CR-36 regression: `language` column was added despite the "
-            "migration failing — the transaction did NOT roll back. "
+            "migration failing, the transaction did NOT roll back. "
             f"Columns: {columns}"
         )
 
@@ -156,7 +156,7 @@ class TestMigrationTransactionality:
         version = int(row[0]) if row else 1
         assert version == 1, (
             "CR-36 regression: schema version was bumped to "
-            f"{version} despite the migration failing — the version "
+            f"{version} despite the migration failing, the version "
             "should remain at 1 so the next launch retries."
         )
 
@@ -168,12 +168,12 @@ class TestMigrationTransactionality:
         index_names = {row[0] for row in cursor.fetchall()}
         assert "idx_favorite" not in index_names, (
             "CR-36 regression: idx_favorite was created despite the "
-            "migration failing — indexes must be inside the same "
+            "migration failing, indexes must be inside the same "
             "transaction as the migration."
         )
         assert "idx_timestamp" not in index_names, (
             "CR-36 regression: idx_timestamp was created despite the "
-            "migration failing — indexes must be inside the same "
+            "migration failing, indexes must be inside the same "
             "transaction as the migration."
         )
 
@@ -263,7 +263,7 @@ class TestMigrationTransactionality:
         setup_conn.commit()
         setup_conn.close()
 
-        # Call _init_db_schema — should be a no-op.
+        # Call _init_db_schema, should be a no-op.
         from voice_typer.server.history_db import HistoryDB
 
         db = HistoryDB(db_path=db_path)

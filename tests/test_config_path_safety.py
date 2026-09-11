@@ -115,7 +115,7 @@ class TestIsPathWithinCrossDrive:
         from voice_typer.server import config
 
         # previously ``monkeypatch.setattr(config.sys,
-        # "platform", "win32")`` — but ``config`` does NOT import
+        # "platform", "win32")``, but ``config`` does NOT import
         # ``sys`` at module level, so ``config.sys`` raised
         # ``AttributeError`` and the test always errored out.  Patch
         # the GLOBAL ``sys`` module's ``platform`` attribute instead.
@@ -159,7 +159,7 @@ class TestReExportResolvesToOwningModule:
     ``voice_typer.server.config_internals.paths`` (the owning module).
 
     This pins the no-shim contract: there is no intermediate
-    ``config_path_safety`` module — the package namespace re-exports the
+    ``config_path_safety`` module, the package namespace re-exports the
     owning module's objects directly, so monkeypatching
     ``voice_typer.server.config._validate_path_safety`` re-points a
     namespace attribute while the implementation stays in
@@ -176,7 +176,7 @@ class TestReExportResolvesToOwningModule:
 
     def test_shim_module_is_gone(self):
         """``voice_typer.server.config_path_safety`` must no longer be
-        importable — it was a re-export-only shim, removed once every
+        importable, it was a re-export-only shim, removed once every
         caller imported the owning module (or this package) directly."""
         import importlib
 

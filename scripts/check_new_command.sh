@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/check-new-command.sh — verify all 11 touchpoints for a new IPC command.
+# scripts/check-new-command.sh, verify all 11 touchpoints for a new IPC command.
 #
 # Usage: bash scripts/check-new-command.sh <cmd>
 #
@@ -9,8 +9,8 @@
 # in the source files.
 #
 # Exit codes:
-#   0 — all 11 touchpoints present, doc counts in sync
-#   1 — at least one touchpoint missing OR doc count drift detected
+#   0, all 11 touchpoints present, doc counts in sync
+#   1, at least one touchpoint missing OR doc count drift detected
 #
 # This script is intentionally dependency-free (POSIX bash + grep + sed +
 # awk) so it runs on every contributor's machine without setup.
@@ -68,7 +68,7 @@ check_present "1" \
 
 # ─── Touchpoint 2: Python handler method ───────────────────────────────
 # The handler may live in handlers/<domain>_handlers.py (preferred) or
-# directly on IPCServer in ipc_server.py (rare — only for IPC-server-owned
+# directly on IPCServer in ipc_server.py (rare, only for IPC-server-owned
 # state). Grep both locations.
 {
     FOUND=0
@@ -109,7 +109,7 @@ check_present "1" \
     else
         echo "  [3] WARN  Python service method (${CMD})"
         echo "         no 'def ${CMD}(...)' in voice_typer/server/service/*.py"
-        echo "         (skip if the handler is pure IPC-server state — see guide)"
+        echo "         (skip if the handler is pure IPC-server state, see guide)"
         WARNINGS+=("3")
     fi
 }
@@ -141,7 +141,7 @@ check_present "5" \
     else
         echo "  [6] WARN  TS discriminated union (types/ipc/requests.ts)"
         echo "         command name not found in types/ipc/requests.ts"
-        echo "         (skip if the renderer uses untyped call<T> — see guide)"
+        echo "         (skip if the renderer uses untyped call<T>, see guide)"
         WARNINGS+=("6")
     fi
 }
@@ -158,7 +158,7 @@ check_present "5" \
     else
         echo "  [7] WARN  TS renderer call site (python.call('${CMD}', ...))"
         echo "         no python.call('${CMD}', ...) in voice_typer/client/src/renderer/"
-        echo "         (skip if no renderer caller yet — e.g. host-only command)"
+        echo "         (skip if no renderer caller yet, e.g. host-only command)"
         WARNINGS+=("7")
     fi
 }
@@ -214,7 +214,7 @@ echo ""
 {
     # Match either "only the **59** commands listed in" (markdown bold)
     # or "only the 59 commands listed in" (plain). The asterisks are
-    # literal in the source — escape them in the sed regex.
+    # literal in the source, escape them in the sed regex.
     DOC_COUNT=$(sed -n 's/.*only the \*\*\([0-9][0-9]*\)\*\* commands listed in.*/\1/p' SECURITY.md 2>/dev/null | head -1)
     if [[ -z "${DOC_COUNT}" ]]; then
         DOC_COUNT=$(sed -n 's/.*only the \([0-9][0-9]*\) commands listed in.*/\1/p' SECURITY.md 2>/dev/null | head -1)

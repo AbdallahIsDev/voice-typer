@@ -1,4 +1,4 @@
-# voice_typer/stubs/ — pyrefly type stubs for platform-only deps
+# voice_typer/stubs/: pyrefly type stubs for platform-only deps
 
 ## Purpose
 
@@ -21,7 +21,7 @@ that are **never installed on the CI runner's platform**:
 | `winreg`              | (stdlib, Windows-only)            | Windows   | `server/server_platform/`, `server/task_scheduler.py` |
 
 All stubs use `Any` types because the actual implementations are
-lazy-imported inside `try / except ImportError` blocks — pyrefly only
+lazy-imported inside `try / except ImportError` blocks, pyrefly only
 needs to know the import surface so it can follow the *real* code paths
 underneath, not verify the platform-only call sites.
 
@@ -34,7 +34,7 @@ is required by pyrefly's `search-path` resolver, which looks up
 for packages).
 
 The original task spec used distribution-style names (`pyobjc_core.pyi`,
-`pyobjc_CoreAudio.pyi`, `pyobjc_Cocoa.pyi`) — those are aliases for the
+`pyobjc_CoreAudio.pyi`, `pyobjc_Cocoa.pyi`): those are aliases for the
 correctly-named `objc.pyi`, `CoreAudio.pyi`, `Cocoa.pyi` shipped here.
 
 ## Configuration
@@ -54,5 +54,5 @@ search-path = ["voice_typer/stubs"]
 2. Add a `.pyi` file declaring exactly those names with `Any` types.
 3. Re-run `pyrefly check voice_typer/` to confirm the `missing-import`
    count drops.
-4. Do NOT add `# type: ignore` to the call sites — the stub replaces
+4. Do NOT add `# type: ignore` to the call sites: the stub replaces
    the need for it.

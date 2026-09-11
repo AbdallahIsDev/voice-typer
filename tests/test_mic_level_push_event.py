@@ -13,7 +13,7 @@ Specifically:
 2. ``mic_level`` events are NOT published when monitoring is INACTIVE
    (the early-return in ``_process_level_chunk`` short-circuits before
    the ``_push_mic_level`` call site).
-3. Coalescing to ≤30 Hz works — calling ``_push_mic_level`` 100 times
+3. Coalescing to ≤30 Hz works, calling ``_push_mic_level`` 100 times
    in <33ms publishes AT MOST a handful of events (not 100).
 4. The published payload shape matches the spec
    (``{type, data: {level, peak, active}}``).
@@ -194,7 +194,7 @@ class TestMicLevelPublishedWhenActive:
     def test_payload_values_match_chunk(self, monkeypatch):
         """The published ``level`` / ``peak`` carry the DISPLAY contract
         (EMA-smoothed level scaled by ``_LEVEL_DISPLAY_GAIN``, capped at
-        1.0; EMA-smoothed peak) — the same values a
+        1.0; EMA-smoothed peak), the same values a
         ``microphone_test_get_level`` poll returns for the same state.
         The push replaced that poll on the Microphone page; pushing raw
         instantaneous RMS here collapsed the live meter to ~0% because
@@ -238,7 +238,7 @@ class TestMicLevelPublishedWhenActive:
     def test_push_payload_matches_get_level_poll(self, monkeypatch):
         """PARITY CONTRACT: the ``mic_level`` push payload must be
         interchangeable with the ``microphone_test_get_level`` poll
-        response it replaced — same smoothed state in, same level/peak
+        response it replaced, same smoothed state in, same level/peak
         out. Guards against the push path drifting from the poll path's
         scaling again."""
         import voice_typer.server.level_monitor as lm
@@ -279,7 +279,7 @@ class TestMicLevelPublishedWhenActive:
                     if not _landed:
                         time.sleep(0.002)
                 assert _landed, (
-                    "chunk 1's mic_level push did not land within 5s — the "
+                    "chunk 1's mic_level push did not land within 5s, the "
                     "level worker is not processing chunks (start_monitoring "
                     "or the callback wiring is broken)"
                 )
@@ -295,7 +295,7 @@ class TestMicLevelPublishedWhenActive:
                 time.sleep(0.001)
 
         # Wait until a push lands carrying the FINAL smoothed state
-        # (don't assert an exact event count — the mic-level worker's
+        # (don't assert an exact event count, the mic-level worker's
         # latest-only drain may legally merge back-to-back payloads).
         expected_level = min(1.0, smoothed_b * lm._LEVEL_DISPLAY_GAIN)
         # Peak state: chunk 1 sets it to 0.3; chunk 2 decays it
@@ -344,7 +344,7 @@ class TestMicLevelPublishedWhenActive:
 
 class TestForwardedEventNameAllowlist:
     """The published event name must survive the Tauri host's
-    ``ALLOWED_EVENT_TYPES`` allowlist untranslated — otherwise the host's
+    ``ALLOWED_EVENT_TYPES`` allowlist untranslated, otherwise the host's
     WS reader silently drops every frame ([WS-READER] dropping unknown
     event type) and the meter freezes."""
 
@@ -381,7 +381,7 @@ class TestMicLevelNotPublishedWhenInactive:
 
         _wire_stream_with_callback_capture(monkeypatch)
         captured = _patch_event_bus_publish(monkeypatch)
-        # DO NOT call start_monitoring — _monitor_active stays False.
+        # DO NOT call start_monitoring, _monitor_active stays False.
 
         chunk = np.ones((512, 1), dtype=np.float32) * 0.25
         # Call _process_level_chunk directly (bypass the ring buffer
@@ -443,7 +443,7 @@ class TestCoalescing30Hz:
 
         # At most 1 event should be in the queue (the first call passes
         # the gate; subsequent 99 are suppressed within the 33ms window).
-        # (Could be 0 if the loop somehow took >33ms — unlikely but
+        # (Could be 0 if the loop somehow took >33ms, unlikely but
         # allowed; the test asserts the upper bound.)
         queued = len(lm._mic_level_queue)
         assert queued <= 1, (
@@ -470,7 +470,7 @@ class TestCoalescing30Hz:
         assert len(lm._mic_level_queue) == 1, "TY-18: second call within coalesce window must be suppressed"
 
         # Sleep past the 30 Hz window (33.3ms) + margin. NOTE: a fixed
-        # ``time.sleep`` is NOT reliable here — on Windows the waitable
+        # ``time.sleep`` is NOT reliable here, on Windows the waitable
         # timer can fire up to one tick (~15.6ms) EARLY, so a sleep with
         # a small margin may return before the coalesce window has truly
         # elapsed (32ms < 33.3ms), suppressing the third call. Busy-wait
@@ -571,7 +571,7 @@ class TestWorkerLifecycle:
 
         lm._ensure_mic_level_worker_running()
         assert lm._mic_level_worker_thread is first_thread, (
-            "TY-18: _ensure_mic_level_worker_running must be idempotent — "
+            "TY-18: _ensure_mic_level_worker_running must be idempotent, "
             "calling it twice must NOT spawn a second worker thread"
         )
 

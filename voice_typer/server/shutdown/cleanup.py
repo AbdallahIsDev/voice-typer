@@ -10,11 +10,11 @@ The controller keeps thin delegates on :class:`CleanupMixin`
 callers (``quit()`` / ``restart_app()`` / ``_atexit_cleanup()`` route
 through ``app._do_cleanup()``) and by tests (spies that
 ``monkeypatch.setattr(controller, "_do_cleanup", spy)`` or patch the
-``_teardown_*`` helpers by name) continues to intercept the call — same
+``_teardown_*`` helpers by name) continues to intercept the call, same
 convention as :mod:`voice_typer.server.shutdown.teardowns`.
 
 Patch-path note: ``_run_with_timeout`` / ``TIMEOUT`` are imported at module
-level from :mod:`voice_typer.server._timeout_utils` — the same binding
+level from :mod:`voice_typer.server._timeout_utils`, the same binding
 strategy the body had in ``shutdown_controller/_cleanup.py`` (the
 ``shutdown_controller`` package attribute is a separate binding that the
 plan driver resolves lazily; it is unaffected).
@@ -39,8 +39,8 @@ from voice_typer.server.platform_utils import is_windows
 log = logging.getLogger("voice_typer.server.shutdown_controller")
 
 # ``__all__`` is declared directly after the imports (not at the end of
-# the module) so ``do_fast_cleanup``'s body — which must END with the
-# terminal ``os._exit(0)`` call — is the last executable code in the
+# the module) so ``do_fast_cleanup``'s body, which must END with the
+# terminal ``os._exit(0)`` call, is the last executable code in the
 # file (source-inspection contract in
 # ``tests/test_shutdown_fast.py::TestFastCleanupSource``).
 __all__ = ["do_cleanup", "do_fast_cleanup"]
@@ -52,7 +52,7 @@ def do_cleanup(controller) -> None:
 
     Performs ALL the cleanup that ``quit()`` previously did inline,
     EXCEPT the final ``sys.exit(0)``.  Every operation is guarded by
-    a None-check or try-except so the method is IDEMPOTENT — calling
+    a None-check or try-except so the method is IDEMPOTENT, calling
     it twice (e.g. once from ``quit()`` and once from the atexit
     safety net) is a no-op on the second call.
 
@@ -85,7 +85,7 @@ def do_cleanup(controller) -> None:
     # ``quit()``. ``_atexit_cleanup()`` does not hold the lock when
     # it calls ``_do_cleanup()`` either. The lock is non-reentrant
     # by design; if a future caller invokes ``_do_cleanup()`` while
-    # already holding ``_quit_lock``, that would deadlock — but
+    # already holding ``_quit_lock``, that would deadlock, but
     # the only two callers (``quit()`` and ``_atexit_cleanup()``)
     # both release the lock first.
     with controller._quit_lock:
@@ -93,7 +93,7 @@ def do_cleanup(controller) -> None:
             return
         app._cleanup_done = True
 
-    # C-LOG-2: shutdown is a timed operation — the completion line
+    # C-LOG-2: shutdown is a timed operation, the completion line
     # carries the total cleanup duration.
     _cleanup_t0 = time.perf_counter()
 
@@ -101,7 +101,7 @@ def do_cleanup(controller) -> None:
     # cleared by the FIRST sequenced teardown
     # (``teardown_session_marker``) so a kill mid-teardown (watchdog
     # ``os._exit(0)``, SIGKILL fallback, Windows logoff force-kill)
-    # still counts as a clean shutdown — the user initiated it, so
+    # still counts as a clean shutdown, the user initiated it, so
     # the next launch must not report a crash.
 
     #  reset the shared state between ``_teardown_recorder``
@@ -120,7 +120,7 @@ def do_cleanup(controller) -> None:
     # crash_recovery stay in the sequenced phase (NOT a parallel
     # sub-batch) so the recorder's transcription thread is joined
     # before the DB flush, and the crash-recovery snapshot drains
-    # after — see the sequenced-phase rationale in
+    # after: see the sequenced-phase rationale in
     # ``_build_sequenced_plan``. The 20s deadline is checked before
     # each phase and between each sequenced step; when the
     # remaining budget drops below 5s, non-critical teardowns are
@@ -157,7 +157,7 @@ def do_cleanup(controller) -> None:
     # CONCURRENTLY, in a single ``_run_parallel_with_timeout`` batch
     # batch. They touch disjoint pools (the TCP worker pool and the
     # WS dispatch pool), so parallelisation is safe. Body extracted to
-    # ``_drain_ws_dispatch_pool`` — preserves the exact
+    # ``_drain_ws_dispatch_pool``: preserves the exact
     # WS-pool drain logic including the ``if join_thread.is_alive():``
     # timeout branch.
     controller._drain_ws_dispatch_pool(app)
@@ -178,7 +178,7 @@ def do_cleanup(controller) -> None:
     _timed_out = controller._run_plan(sequenced_plan, frozenset())
 
     # ── Parallel batch: 11 independent teardown helpers ─────────
-    # Each helper is isolated — a failure in one does NOT propagate
+    # Each helper is isolated, a failure in one does NOT propagate
     # (``_run_parallel_with_timeout`` captures per-call exceptions).
     # ``_teardown_asr_models`` is placed FIRST so the (potentially
     # slow) CUDA context teardown starts as early as possible. It
@@ -248,14 +248,14 @@ def do_fast_cleanup(controller) -> None:
     level_monitor, waveform worker, event_bus, devnull) are SKIPPED.
 
     UNCONDITIONAL FLUSHES: the critical cleanup steps below run
-    EVERY invocation — they are NOT gated by ``_cleanup_done``. The
+    EVERY invocation, they are NOT gated by ``_cleanup_done``. The
     writes (``crash_recovery.flush``, ``history_db.flush``) are
     idempotent and bounded by per-step 1s timeouts; running them
     twice is safe. The previous ``if not already_done:`` gate
     created a false positive: if a normal ``quit()`` was in flight
     (had set ``_cleanup_done = True`` at the start of
     ``_do_cleanup``) when Windows logoff fired ``_do_fast_cleanup``,
-    the fast path skipped its own critical flushes — losing pending
+    the fast path skipped its own critical flushes, losing pending
     history DB writes and crash-recovery snapshots. Both cleanup
     paths skipped the critical writes (the slow one was killed by
     ``os._exit(0)`` mid-flight; the fast one short-circuited). The
@@ -263,7 +263,7 @@ def do_fast_cleanup(controller) -> None:
     invocation, then ``os._exit(0)``.
 
     The ``_cleanup_done`` flag is STILL set (under ``_quit_lock``)
-    so a subsequent ``_do_cleanup`` call short-circuits — but it no
+    so a subsequent ``_do_cleanup`` call short-circuits, but it no
     longer gates the fast-cleanup body. The actual
     ctrl_logoff/shutdown routing lives in
     :func:`voice_typer.server.signal_handlers.win32_console_handler`;
@@ -271,13 +271,13 @@ def do_fast_cleanup(controller) -> None:
     instead of ``controller.quit()`` is tracked under separate
     cover.
 
-    This function ends with ``os._exit(0)`` — bypassing atexit
+    This function ends with ``os._exit(0)``: bypassing atexit
     handlers is correct here because (a) the OS is force-killing us
     within ~5s, so orderly atexit cleanup would race the OS deadline
     and lose, and (b) the critical cleanup above has already run
     (and is idempotent, so running it twice under a concurrent
     ``_do_cleanup`` is safe). The ``os._exit(0)`` MUST fire even
-    when ``_cleanup_done`` was already True on entry — the Win32
+    when ``_cleanup_done`` was already True on entry, the Win32
     console-control callback must NOT return ``True`` to the OS
     without exiting, otherwise the OS will re-evaluate us with a
     CTRL_LOGOFF_EVENT / CTRL_SHUTDOWN_EVENT escalation. Tests that
@@ -288,7 +288,7 @@ def do_fast_cleanup(controller) -> None:
     app = controller._app
     # Set ``_cleanup_done`` so a concurrent / subsequent
     # ``_do_cleanup`` call short-circuits. The flag does NOT gate
-    # the critical flushes below — they run unconditionally so a
+    # the critical flushes below, they run unconditionally so a
     # quit-during-logoff doesn't lose the user's last write
     # (the writes are idempotent; running them twice is safe).
     with controller._quit_lock:
@@ -329,7 +329,7 @@ def do_fast_cleanup(controller) -> None:
     except Exception:
         log.debug("[SHUTDOWN] fast-path history_db.flush failed", exc_info=True)
 
-    # 3. recorder.stop() — release the PortAudio stream.
+    # 3. recorder.stop(), release the PortAudio stream.
     try:
         if app.recorder is not None and app.recorder.recording:
             _stop_result = _run_with_timeout(
@@ -374,7 +374,7 @@ def do_fast_cleanup(controller) -> None:
     # ``_run_with_timeout(timeout=5.0)``). The fast path was missing
     # this, so a quit-during-recording on Windows logoff/shutdown
     # left the system volume ducked at 25%. ``_restore_volume`` is
-    # wrapped in ``_run_with_timeout`` (1s — fast-path budget) and
+    # wrapped in ``_run_with_timeout`` (1s, fast-path budget) and
     # BOTH the restore and the crash-recovery ``clear()`` are wrapped
     # in ``contextlib.suppress(Exception)`` so fast-cleanup NEVER
     # raises (the OS is killing us within ~5s; raising would skip
@@ -387,16 +387,16 @@ def do_fast_cleanup(controller) -> None:
             timeout=1.0,
         )
         if _restore_result is TIMEOUT:
-            log.warning("[SHUTDOWN] restore_volume timed out in fast-path — system volume may remain ducked")
+            log.warning("[SHUTDOWN] restore_volume timed out in fast-path, system volume may remain ducked")
     with contextlib.suppress(Exception):
         app._duck_crash_recovery.clear()
 
     log.warning("[SHUTDOWN] fast cleanup path complete")
 
-    # Bypass atexit — the OS is killing us (Windows logoff/shutdown
+    # Bypass atexit, the OS is killing us (Windows logoff/shutdown
     # gives ~5s). Orderly atexit cleanup would race the OS force-kill
     # and lose. Safe because we've already run the critical flushes
-    # above (idempotent — safe even if a concurrent ``_do_cleanup``
+    # above (idempotent, safe even if a concurrent ``_do_cleanup``
     # is also mid-flight). The ``os._exit(0)`` MUST fire on every
     # invocation so the Win32 callback does not return ``True`` to
     # the OS without exiting. ``os._exit`` is async-signal-safe per

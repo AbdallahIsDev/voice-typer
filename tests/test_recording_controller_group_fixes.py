@@ -2,31 +2,31 @@
 
 Each test pins a specific finding from the comprehensive review:
 
-- ``DE-8``  — ``start()`` except block must ``recorder.discard()`` to
+- ``DE-8``: ``start()`` except block must ``recorder.discard()`` to
   avoid a leaked PortAudio input stream and a permanently locked-out
   F2 (recording=True short-circuits subsequent ``start()`` calls).
-- ``DE-9``  — voice_biometric_consent check must fail CLOSED (refuse
+- ``DE-9``, voice_biometric_consent check must fail CLOSED (refuse
   to record) when the config read raises, instead of failing OPEN.
-- ``DE-12`` — ``stop()`` and ``cancel()`` acquire ``_toggle_lock`` so
+- ``DE-12``: ``stop()`` and ``cancel()`` acquire ``_toggle_lock`` so
   two concurrent callers (toggle thread + silence-auto-stop Timer
   thread) can't both pass the ``recorder.recording`` check and both
   call ``recorder.stop()`` / start a transcription thread.
-- ``DE-13`` — ``_force_recover_from_stuck_transcription`` calls
+- ``DE-13``: ``_force_recover_from_stuck_transcription`` calls
   ``gc.collect()`` after recovery as a best-effort release of
   orphaned audio-buffer cycles held by the just-cancelled streaming
   session. The stuck thread's local reference is documented as
   unfixable without restructuring ``DictationPipeline.run`` (which
   is outside this file's ownership).
-- ``DE-51`` — ``start()`` except block publishes a generic user-facing
+- ``DE-51``: ``start()`` except block publishes a generic user-facing
   message to both the renderer (event_bus) and the tray notification,
   NOT the raw exception text (which may contain absolute file paths,
   device names, hostnames, or audio metadata).
-- ``DE-52`` / ``UE-9-F1`` — ``stop()`` uses ``pop_streaming_session()``
+- ``DE-52`` / ``UE-9-F1``: ``stop()`` uses ``pop_streaming_session()``
   (atomic get-and-clear) + public ``session.cancel()`` instead of
   ``get_streaming_session`` + setting the private cancel event (which
   left the session in the slot, leaking worker thread + audio chunk
   references until the next ``start()``).
-- ``DE-55`` — ``_start_watchdog_thread()`` ``join(timeout=0.1)``s the
+- ``DE-55``: ``_start_watchdog_thread()`` ``join(timeout=0.1)``s the
   previous thread before deciding to reuse vs create new, so a dying
   thread (in the window between ``_watchdog_stop_event.set()`` and
   thread exit) doesn't get "reused" and leave transcription B with
@@ -53,7 +53,7 @@ def _make_controller() -> RecordingController:
     from voice_typer.server.recording_controller import RecordingController
 
     app = MagicMock()
-    # ``threading.Event`` for the busy flag — MagicMock's auto-event
+    # ``threading.Event`` for the busy flag, MagicMock's auto-event
     # would not implement is_set/clear/set semantics correctly.
     app.config.hotkey = "<f2>"
     app._busy_event = threading.Event()
@@ -143,7 +143,7 @@ class TestMicLeakOnPartialStartFailure:
 
     def test_discard_failure_does_not_propagate(self):
         """If ``recorder.discard()`` itself raises, the except block
-        must not propagate — the rest of the cleanup (tray state,
+        must not propagate, the rest of the cleanup (tray state,
         notification, IPC event) must still run."""
         ctrl, app = _make_controller()
 
@@ -187,7 +187,7 @@ class TestConsentCheckFailsClosed:
         # recorder.start() MUST NOT have been called.
         assert not app.recorder.start.called, (
             "DE-9: recorder.start() must NOT be called when the consent check "
-            "raises — fail CLOSED to enforce the GDPR Art. 9 consent gate."
+            "raises, fail CLOSED to enforce the GDPR Art. 9 consent gate."
         )
         # tray state MUST be ERROR.
         tray_states = [call.args[0] for call in app.tray.set_state.call_args_list]
@@ -199,7 +199,7 @@ class TestConsentCheckFailsClosed:
 
     def test_consent_false_does_not_start_recording(self):
         """Pre-existing behavior (consent=False refuses to start) must
-        still work after the DE-9 fix — the fix only changes the
+        still work after the DE-9 fix, the fix only changes the
         exception path, not the consent=False path."""
         ctrl, app = _make_controller()
         app.config.voice_biometric_consent = False
@@ -344,7 +344,7 @@ class TestForceRecoveryGcCollect:
         """DE-13 (privacy): ``_force_recover_from_stuck_transcription`` must
         clear ``self._current_audio`` so the raw voice bytes are eligible
         for GC after a user-initiated cancel. The shared clearable slot is
-        the privacy mechanism — the closed-over ``audio`` local in
+        the privacy mechanism, the closed-over ``audio`` local in
         ``transcribe_thread`` (pre-fix) kept the bytes alive for the entire
         lifetime of the stuck ctranslate2 call (5-30 min)."""
         ctrl, app = _make_controller()
@@ -369,7 +369,7 @@ class TestForceRecoveryGcCollect:
 
 class TestGenericErrorMessage:
     """DE-51: ``start()`` except block publishes a generic user-facing
-    message to both event_bus and tray — NOT the raw exception text
+    message to both event_bus and tray, NOT the raw exception text
     (which can contain absolute file paths, device names, hostnames)."""
 
     def test_tray_notify_does_not_contain_exception_text(self):
@@ -385,7 +385,7 @@ class TestGenericErrorMessage:
         # tray.notify must not include the sensitive path.
         notify_call = app.tray.notify.call_args
         assert notify_call is not None, "tray.notify must be called on start() failure"
-        # notify(APP_NAME, message) — args[1] is the message.
+        # notify(APP_NAME, message), args[1] is the message.
         notify_msg = notify_call.args[1]
         assert sensitive_path not in notify_msg, (
             f"DE-51: tray.notify message must NOT contain the raw exception text "
@@ -416,7 +416,7 @@ class TestGenericErrorMessage:
 #
 # NOTE ( /  coordination): popping the session here means
 # ``DictationPipeline._transcribe`` can no longer read it via
-# ``get_streaming_session()`` — it falls back to direct batch
+# ``get_streaming_session()``, it falls back to direct batch
 # transcription. The  sibling fix (``dictation_pipeline.py``)
 # updates the pipeline to use ``pop_streaming_session()`` before
 # ``finalize()``.
@@ -461,7 +461,7 @@ class TestStopDoesNotPreCancelStreamingSession:
             "DictationPipeline.run()'s finally block owns the cancel."
         )
         assert not fake_session._cancel_event.is_set(), "_stop_impl must NOT poke the private _cancel_event either."
-        # The session must still be in the slot — the pipeline will pop it.
+        # The session must still be in the slot, the pipeline will pop it.
         assert ctrl.get_streaming_session() is fake_session, (
             "_stop_impl must NOT pre-pop the streaming session; DictationPipeline.run()'s finally block owns the pop."
         )
@@ -478,7 +478,7 @@ class TestWatchdogThreadReuseRace:
         """If the previous watchdog thread is alive at the is_alive()
         check but exits during the join (the race window between
         ``_watchdog_stop_event.set()`` and thread exit), a NEW thread
-        must be created — not silently reused.
+        must be created, not silently reused.
 
         Uses a MagicMock for the previous thread to deterministically
         simulate the "alive at check, dead after join" state. A real
@@ -508,7 +508,7 @@ class TestWatchdogThreadReuseRace:
         prev_thread.join.assert_called_once_with(timeout=0.1)
         # a NEW thread must have been created (not the mock).
         assert ctrl._watchdog_thread is not prev_thread, (
-            "DE-55: _start_watchdog_thread must NOT reuse a dying thread — a "
+            "DE-55: _start_watchdog_thread must NOT reuse a dying thread, a "
             "new thread must be created after the join completes."
         )
         # The new thread must be alive (running the watchdog loop).
@@ -517,7 +517,7 @@ class TestWatchdogThreadReuseRace:
             "DE-55: the new watchdog thread must be alive (running _watchdog_loop)."
         )
         # Cleanup: stop the new thread. Capture the reference before
-        # stopping — _stop_watchdog_thread nulls the attribute after join.
+        # stopping, _stop_watchdog_thread nulls the attribute after join.
         new_thread = ctrl._watchdog_thread
         ctrl._stop_watchdog_thread()
         if new_thread is not None and new_thread.is_alive():
@@ -525,7 +525,7 @@ class TestWatchdogThreadReuseRace:
 
     def test_actively_running_thread_is_reused(self):
         """If the previous watchdog thread is actively running (join
-        times out without the thread exiting), it's reused — no new
+        times out without the thread exiting), it's reused, no new
         thread is created."""
         ctrl, _ = _make_controller()
 
@@ -535,7 +535,7 @@ class TestWatchdogThreadReuseRace:
         assert first_thread is not None
         assert first_thread.is_alive()
 
-        # Call _start_watchdog_thread again — should reuse the running thread.
+        # Call _start_watchdog_thread again, should reuse the running thread.
         ctrl._start_watchdog_thread()
         assert ctrl._watchdog_thread is first_thread, (
             "DE-55: an actively-running watchdog thread must be reused (the join times out and we return early)."

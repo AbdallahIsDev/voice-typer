@@ -12,7 +12,7 @@
  *     sidecar's 1 MiB outbound ceiling.
  *   - Silently destroyed the socket on overflow. Pending IPC requests
  *     were rejected later by the `close` handler with the generic
- *     "Python socket closed" error — the renderer never learned that
+ *     "Python socket closed" error, the renderer never learned that
  *     the real cause was an oversized Python reply.
  *
  * The fix:
@@ -40,7 +40,7 @@
  * future refactor cannot silently regress to the generic rejection.
  *
  * ON LINUX (sandbox): runtime test via mocked net.Socket.
- * ON WINDOWS / macOS (not run here): same Buffer contract — the
+ * ON WINDOWS / macOS (not run here): same Buffer contract, the
  *   overflow path is platform-agnostic.
  */
 import type { EventEmitter } from "node:events";
@@ -213,7 +213,7 @@ describe("TCP buffer-overflow rejects pending requests with structured error", (
 
 		const socket = createdSockets[0] as EventEmitter;
 		// Emit a single chunk larger than TCP_FRAME_MAX_BYTES with no
-		// newline — this triggers the overflow branch.
+		// newline, this triggers the overflow branch.
 		const oversizeChunk = Buffer.alloc(MOCK_TCP_FRAME_MAX_BYTES + 1, 0x41);
 		socket.emit("data", oversizeChunk);
 
@@ -235,7 +235,7 @@ describe("TCP buffer-overflow rejects pending requests with structured error", (
 
 	it("rejects the overflow with a TYPED PythonIpcError (code command_failed)", async () => {
 		// The overflow is a command-level failure (an unusable reply),
-		// not a disconnect or timeout — the matching PythonCallErrorCode
+		// not a disconnect or timeout, the matching PythonCallErrorCode
 		// is command_failed, carried on a PythonIpcError so the
 		// python-call handler's instanceof classification sees the
 		// typed contract instead of the generic bare-Error fallback.

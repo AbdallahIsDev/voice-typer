@@ -1,4 +1,4 @@
-"""Tests for voice_typer.server.vocabulary_automation — P5 confidence-based suggestions.
+"""Tests for voice_typer.server.vocabulary_automation: P5 confidence-based suggestions.
 
 These tests cover the VocabularyAutomation class and its helpers:
   * CorrectionSuggestion dataclass
@@ -103,7 +103,7 @@ class TestLevenshtein:
     def test_bounded_short_circuit(self):
         from voice_typer.server.vocabulary_automation import _levenshtein
 
-        # Length difference exceeds the bound — can't match.
+        # Length difference exceeds the bound, can't match.
         assert _levenshtein("cat", "abcdefg", max_distance=2) == 3
 
     def test_bounded_within_range(self):
@@ -154,7 +154,7 @@ class TestAnalyzeTranscription:
         # Single low-confidence word in a longer sentence.
         suggestions = automation.analyze_transcription(
             "the qucik brown fox jumps over the lazy dog",
-            segments=[],  # no segment metadata — use overall confidence
+            segments=[],  # no segment metadata, use overall confidence
             confidence=0.5,  # below the 0.7 threshold
         )
         assert len(suggestions) > 0
@@ -184,7 +184,7 @@ class TestAnalyzeTranscription:
         suggestions = automation.analyze_transcription(
             "this is definately the right answer",
             segments=[],
-            confidence=0.95,  # high confidence — low-confidence branch won't fire
+            confidence=0.95,  # high confidence, low-confidence branch won't fire
         )
         # Should have flagged "definately" via the Levenshtein-match
         # branch (since the user has explicitly added this correction
@@ -222,7 +222,7 @@ class TestAnalyzeTranscription:
             segments=[],
             confidence=0.1,  # very low confidence
         )
-        # All words are too short — no suggestions.
+        # All words are too short, no suggestions.
         assert suggestions == []
 
     def test_analyze_transcription_uses_segment_confidence(self, automation):
@@ -389,7 +389,7 @@ class TestAutoApplyHighConfidence:
         low = CorrectionSuggestion(
             original="seperate",
             corrected="separate",
-            confidence=0.5,  # below threshold — not auto-applied
+            confidence=0.5,  # below threshold, not auto-applied
             context="seperate",
             timestamp=0.0,
         )
@@ -410,8 +410,8 @@ class TestAutoApplyHighConfidence:
     def test_auto_apply_skips_no_match_suggestions(self, automation, vm):
         """Suggestions where corrected == original should NOT be auto-applied.
 
-        These represent "low-confidence word with no vocabulary match"
-        — the user needs to supply the correction themselves.
+          These represent "low-confidence word with no vocabulary match"
+        , the user needs to supply the correction themselves.
         """
         from voice_typer.server.vocabulary_automation import CorrectionSuggestion
 

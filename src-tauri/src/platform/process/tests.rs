@@ -1,4 +1,4 @@
-//! Sibling tests for `platform::process` (per C-TEST-5 — sibling test
+//! Sibling tests for `platform::process` (per C-TEST-5, sibling test
 //! file, no inline tests in production source).
 //!
 //! Covers three behaviors of `kill_process_tree` / `signal_pid` /
@@ -36,13 +36,13 @@ use crate::test_support::CHILD_PROCESS_TEST_LOCK;
 /// `signal_pid` must NOT call `libc::kill` when `pid > i32::MAX`.
 /// Without the range guard, `pid as libc::pid_t` would truncate
 /// `u32::MAX` (4294967295) to `-1`, which `kill(2)` interprets as
-/// "signal every process the caller can signal" — a catastrophic
+/// "signal every process the caller can signal", a catastrophic
 /// self-kill. With the guard, the function returns `false` (no
 /// failure) without invoking the syscall.
 ///
 /// We can't directly observe whether `libc::kill` was called, but we
 /// CAN verify the test process survives calling `signal_pid(u32::MAX,
-/// SIGKILL)` — pre-fix this would have killed the test process
+/// SIGKILL)`: pre-fix this would have killed the test process
 /// itself (the kernel interprets `kill(-1, SIGKILL)` as "kill
 /// everyone except init").
 #[cfg(unix)]
@@ -50,19 +50,19 @@ use crate::test_support::CHILD_PROCESS_TEST_LOCK;
 fn test_signal_pid_u32_max_does_not_self_kill() {
     // Pre-fix: signal_pid(u32::MAX, SIGKILL) would call
     // libc::kill(-1, SIGKILL) which kills every process the caller
-    // can signal — including the test process. Post-fix: the range
+    // can signal: including the test process. Post-fix: the range
     // guard returns false without calling kill. If the guard is
     // broken, this test process would die and the test would fail
     // with a process-death error.
     let result = super::posix_impl::signal_pid(u32::MAX, libc::SIGKILL);
-    // The range guard returns `false` (no failure — the pid is
+    // The range guard returns `false` (no failure, the pid is
     // provably nonexistent, so the caller's aggregation stays
     // consistent).
     assert!(
         !result,
         "signal_pid(u32::MAX, SIGKILL) should return false (range guard)"
     );
-    // If we reach here, the guard worked — the test process survived.
+    // If we reach here, the guard worked, the test process survived.
 }
 
 /// `signal_pid` for a pid EXACTLY at `i32::MAX` (the largest valid
@@ -71,7 +71,7 @@ fn test_signal_pid_u32_max_does_not_self_kill() {
 #[cfg(unix)]
 #[test]
 fn test_signal_pid_i32_max_passes_range_guard() {
-    // i32::MAX = 2147483647 — extremely unlikely to be a real pid,
+    // i32::MAX = 2147483647, extremely unlikely to be a real pid,
     // so libc::kill will return -1 with ESRCH (no such process).
     // The test verifies the range guard does NOT reject this value
     // (the guard uses `>`, not `>=`).
@@ -99,7 +99,7 @@ fn test_signal_pid_just_above_i32_max_rejected() {
 }
 
 /// `kill_process_group_if_safe` for `u32::MAX` must NOT call
-/// `getpgid` (which would truncate to `getpgid(-1)` — undefined
+/// `getpgid` (which would truncate to `getpgid(-1)`, undefined
 /// behavior). The range guard returns early.
 #[cfg(unix)]
 #[test]
@@ -120,7 +120,7 @@ fn test_kill_process_group_if_safe_u32_max_is_noop() {
 /// `kill_process_group_if_safe` (early-return path) + the
 /// `signal_pid` guard (per-pid kills) together ensure this.
 ///
-/// This test is the integration guard for the range guard — if EITHER guard
+/// This test is the integration guard for the range guard, if EITHER guard
 /// is broken, the test process would die (from `kill(-1, SIGKILL)`
 /// or `kill(1, SIGKILL)`).
 #[cfg(unix)]
@@ -136,7 +136,7 @@ fn test_kill_process_tree_u32_max_does_not_self_kill() {
 /// warning and return (not panic). We can't easily test this from a
 /// `cfg(unix)` test environment (the `#[cfg(not(any(...)))]` branch
 /// is compiled out on Unix), but we CAN verify the function is
-/// callable from any platform — the test passes if it doesn't panic.
+/// callable from any platform: the test passes if it doesn't panic.
 ///
 /// On Unix/Windows, this test exercises the existing platform
 /// branches; on a hypothetical wasm/redox target, it would exercise
@@ -150,13 +150,13 @@ fn test_kill_process_tree_does_not_panic_on_any_platform() {
     // If we reach here, the function didn't panic.
 }
 
-/// `kill_process_tree` for `pid = 0` must be a **no-op** — it must NOT
+/// `kill_process_tree` for `pid = 0` must be a **no-op**, it must NOT
 /// enumerate children or signal anything. pid 0 is the kernel scheduler
 /// on Linux (never a real killable process); on Windows it's the idle
 /// process. Before the guard, `enumerate_children(0)` fell back to
 /// `pgrep -P 0` on Unix, which matches PID 1 (init) + kernel threads,
-/// and the DFS then descended into the ENTIRE process tree — including
-/// the GitHub Actions runner agent — and the per-pid SIGTERM/SIGKILL
+/// and the DFS then descended into the ENTIRE process tree, including
+/// the GitHub Actions runner agent, and the per-pid SIGTERM/SIGKILL
 /// loop killed it (CI incident: job died with "The runner has received
 /// a shutdown signal" right after this test). The guard makes it a
 /// safe no-op that returns without enumerating or signaling.
@@ -182,7 +182,7 @@ fn test_kill_process_tree_pid_zero_is_noop() {
 // and returns Ok(()) or Err(String) without panicking on the
 // current platform.
 
-/// `kill_process_tree` must be best-effort — calling it with a
+/// `kill_process_tree` must be best-effort: calling it with a
 /// non-existent pid must not panic.
 #[test]
 fn test_kill_process_tree_nonexistent_pid_is_noop() {
@@ -196,7 +196,7 @@ fn test_kill_process_tree_u32_max_is_noop() {
     super::kill_process_tree(u32::MAX);
 }
 
-// Process-group signal helpers — Unix-only. These verify the
+// Process-group signal helpers: Unix-only. These verify the
 // SAFETY GUARD that prevents `signal_process_group` from killing
 // the host when the sidecar shares the host's pgid (the current
 // production state, since `tauri-plugin-shell`'s `externalBin`
@@ -290,7 +290,7 @@ fn test_kill_process_tree_own_pid_does_not_self_kill() {
 // all degrade gracefully without panicking.
 
 /// `signal_pid` must not panic on a nonexistent pid. `libc::kill`
-/// returns -1 with errno=ESRCH for a nonexistent pid — the helper
+/// returns -1 with errno=ESRCH for a nonexistent pid, the helper
 /// logs at `debug!` (not `warn!`) and returns. This pins the
 /// best-effort contract: a SIGTERM-reaped pid that's already gone
 /// must not abort the SIGKILL phase that follows.
@@ -330,7 +330,7 @@ fn test_signal_name_canonical() {
 /// children = empty Vec.
 ///
 /// The lock serializes against the sibling tests that spawn REAL
-/// subprocesses — their `sleep 30` children are children of the test
+/// subprocesses: their `sleep 30` children are children of the test
 /// binary and would appear in this file, failing the empty assertion.
 #[cfg(target_os = "linux")]
 #[test]
@@ -343,7 +343,7 @@ fn test_enumerate_children_procfs_own_pid_no_children() {
         .expect("reading /proc/self/task/self/children must succeed for the test process");
     assert!(
         children.is_empty(),
-        "test process has no children — expected empty Vec, got {:?}",
+        "test process has no children: expected empty Vec, got {:?}",
         children
     );
 }
@@ -351,7 +351,7 @@ fn test_enumerate_children_procfs_own_pid_no_children() {
 /// `enumerate_children_procfs` for a nonexistent pid must return
 /// `Err` (the `/proc/<pid>/task/<pid>/children` file doesn't
 /// exist for a dead pid). The caller (`enumerate_children`)
-/// catches this and falls back to `pgrep` — this test pins the
+/// catches this and falls back to `pgrep`, this test pins the
 /// error path so the fallback stays wired correctly.
 #[cfg(target_os = "linux")]
 #[test]
@@ -375,7 +375,7 @@ fn test_enumerate_children_pgrep_pid_zero_returns_empty() {
     let children = super::posix_impl::enumerate_children_pgrep(0);
     assert!(
         children.is_empty(),
-        "enumerate_children_pgrep(0) must return empty (pgrep -P 0 would match init + kernel threads) — got {:?}",
+        "enumerate_children_pgrep(0) must return empty (pgrep -P 0 would match init + kernel threads): got {:?}",
         children
     );
 }
@@ -392,7 +392,7 @@ fn test_enumerate_children_pid_zero_returns_empty() {
     let children = super::posix_impl::enumerate_children(0);
     assert!(
         children.is_empty(),
-        "enumerate_children(0) must return empty (pid 0 is the kernel scheduler) — got {:?}",
+        "enumerate_children(0) must return empty (pid 0 is the kernel scheduler): got {:?}",
         children
     );
 }
@@ -405,7 +405,7 @@ fn test_enumerate_children_pid_zero_returns_empty() {
 /// on non-Linux it must use the pgrep path.
 ///
 /// The lock serializes against the sibling tests that spawn REAL
-/// subprocesses — their `sleep 30` children are children of the test
+/// subprocesses: their `sleep 30` children are children of the test
 /// binary and would appear in the enumeration, failing the empty
 /// assertion.
 #[cfg(unix)]
@@ -418,7 +418,7 @@ fn test_enumerate_children_own_pid_returns_empty() {
     let children = super::posix_impl::enumerate_children(own_pid);
     assert!(
         children.is_empty(),
-        "test process has no children — expected empty Vec, got {:?}",
+        "test process has no children: expected empty Vec, got {:?}",
         children
     );
 }
@@ -452,10 +452,10 @@ fn test_register_kill_on_parent_exit_returns_result_not_panic() {
     // (`OpenProcess` fails with "invalid parameter" → Err, asserted
     // below) and 999_999 on POSIX (pid 0 would be a self-reaper —
     // `kill -0 0` succeeds and the reaper would loop forever; see
-    // the inline NOTE in the POSIX branch). pid 1 is init — never
+    // the inline NOTE in the POSIX branch). pid 1 is init, never
     // assigned to a Job Object.
     //
-    // We call the function and accept any Result — the test
+    // We call the function and accept any Result, the test
     // passes as long as it doesn't panic.
     //
     // The lock serializes against the own-pid enumeration tests:
@@ -471,7 +471,7 @@ fn test_register_kill_on_parent_exit_returns_result_not_panic() {
         // `kill -0 $target` check). We expect Ok(()).
         //
         // NOTE: use pid 999_999, NOT pid 0. The reaper script's
-        // first check is `kill -0 $target` — and POSIX `kill -0 0`
+        // first check is `kill -0 $target`, and POSIX `kill -0 0`
         // SUCCEEDS (pid 0 signals the calling process's own
         // process group), so a pid-0 target would make the reaper
         // loop FOREVER as a live child of the test process,
@@ -485,7 +485,7 @@ fn test_register_kill_on_parent_exit_returns_result_not_panic() {
             result
         );
         // Reap the (now-exited) reaper so it doesn't linger as a
-        // zombie child of the test binary — a zombie still shows
+        // zombie child of the test binary, a zombie still shows
         // up in /proc/<test_pid>/task/<test_pid>/children and
         // would fail the own-pid empty assertions for the rest of
         // the test run. Best-effort WNOHANG reap loop (the reaper
@@ -526,7 +526,7 @@ fn test_register_kill_on_parent_exit_returns_result_not_panic() {
 
 // ── ER-93: `pid_is_alive` liveness probe ───────────────────────────
 
-/// The test process obviously exists — `pid_is_alive(own pid)` must
+/// The test process obviously exists, `pid_is_alive(own pid)` must
 /// report alive. Pins the rc == 0 path of the `kill(pid, 0)` probe.
 #[cfg(unix)]
 #[test]
@@ -549,7 +549,7 @@ fn test_pid_is_alive_nonexistent_is_false() {
     // with a colossal pid_max AND that pid exists.
     let candidate: u32 = 999_999_999;
     if super::posix_impl::pid_is_alive(candidate) {
-        // Host has pid_max ≥ 1e9 and the pid exists — skip rather
+        // Host has pid_max ≥ 1e9 and the pid exists, skip rather
         // than fail on a pathological kernel config.
         return;
     }

@@ -201,7 +201,7 @@ class TestScaledBlocksize:
         """On a low-rate device (e.g. 8 kHz) the floor keeps blocksize >= 512.
 
         Without the ``max(512, ...)`` floor, an 8 kHz device would get
-        ``int(8000 * 0.032) = 256`` — a pathologically small block that
+        ``int(8000 * 0.032) = 256``, a pathologically small block that
         PortAudio may reject or that would drive an excessive callback
         rate. The floor preserves sane block sizes on low-rate devices.
         """
@@ -306,13 +306,13 @@ class TestUpdateLevelProcessorLocking:
         # The update call must NOT have completed (the lock is held).
         assert not update_done.is_set(), (
             "update_level_processor returned before the lock was "
-            "released — the disabled branch is not acquiring "
+            "released, the disabled branch is not acquiring "
             "_monitor_lock for the _level_processor = None assignment."
         )
 
-        # Release the lock — the update should now complete.
+        # Release the lock, the update should now complete.
         release_lock.set()
-        assert update_done.wait(timeout=2.0), "update_level_processor did not return after lock release — deadlock?"
+        assert update_done.wait(timeout=2.0), "update_level_processor did not return after lock release, deadlock?"
 
         # The processor must have been cleared.
         assert lm._level_processor is None, "update_level_processor(disabled) should clear _level_processor to None"
@@ -342,7 +342,7 @@ class TestUpdateLevelProcessorLocking:
                 # Record how many times the lock has been entered by
                 # the time the constructor runs. The snapshot read in
                 # update_level_processor acquires the lock once, and
-                # the assignment acquires it again — so by the time
+                # the assignment acquires it again, so by the time
                 # the constructor runs (between those two acquisitions),
                 # the count must be >= 1.
                 constructor_entry_count.append(len(enter_calls))
@@ -416,7 +416,7 @@ class TestUpdateLevelProcessorLocking:
             assert len(constructor_entry_count) == 1
             assert constructor_entry_count[0] >= 1, (
                 "The AudioProcessor constructor ran before any lock "
-                "acquisition — update_level_processor is not snapshotting "
+                "acquisition, update_level_processor is not snapshotting "
                 "_monitor_sample_rate under _monitor_lock"
             )
 
@@ -487,7 +487,7 @@ class TestUpdateLevelProcessorLocking:
             time.sleep(0.2)
             assert not update_done.is_set(), (
                 "update_level_processor returned while _monitor_lock was "
-                "held by another thread — the final _level_processor "
+                "held by another thread, the final _level_processor "
                 "assignment is not under the lock."
             )
 
@@ -528,7 +528,7 @@ class TestStopLevelWorkerStuckSlot:
         slot IS cleared (the happy path is unchanged)."""
         import voice_typer.server.level_monitor as lm
 
-        # Start a real worker (no chunks to process — it will idle).
+        # Start a real worker (no chunks to process, it will idle).
         lm._level_worker_stop_event.clear()
         lm._level_worker_wake_event.clear()
         from voice_typer.server.level_monitor.worker import (
@@ -540,7 +540,7 @@ class TestStopLevelWorkerStuckSlot:
         assert thread is not None
         assert thread.is_alive()
 
-        # Stop it — should join cleanly within the 1s timeout.
+        # Stop it, should join cleanly within the 1s timeout.
         lm._stop_level_worker()
 
         # Slot must be cleared on the happy path.
@@ -582,7 +582,7 @@ class TestStopLevelWorkerStuckSlot:
             with caplog.at_level(logging.ERROR, logger="voice_typer.server.level_monitor"):
                 lm._stop_level_worker()
 
-            # The slot must NOT have been cleared — the stuck worker
+            # The slot must NOT have been cleared, the stuck worker
             # is still alive and the slot is preserved to prevent a
             # duplicate-worker spawn.
             assert lm._level_worker_thread is thread, (

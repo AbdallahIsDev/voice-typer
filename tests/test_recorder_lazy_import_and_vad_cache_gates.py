@@ -3,7 +3,7 @@
 These tests pin the following invariants:
 
 1. ``Recorder`` is NOT a module-top attribute of ``voice_typer.server.app``
-   — it is imported lazily inside ``VoiceTyperApp.__init__`` (inside the
+ , it is imported lazily inside ``VoiceTyperApp.__init__`` (inside the
    STARTUP-9 background ``_build_recorder_subsystem`` closure) before the
    construction assignment ``self._recorder_backing = recorder``. This
    matches the deferred-import pattern already used for
@@ -11,7 +11,7 @@ These tests pin the following invariants:
    ``voice_typer.server.recording`` package (which eagerly loads 7+
    numpy-importing submodules) out of the module-import critical path.
    STARTUP-9 moved the eager ``self.recorder = Recorder(...)`` off the
-   main thread entirely — the old assignment must NOT appear in
+   main thread entirely, the old assignment must NOT appear in
    ``__init__``'s source. Verified by ``hasattr`` check and by
    static-source inspection of ``VoiceTyperApp.__init__``.
 
@@ -31,7 +31,7 @@ These tests pin the following invariants:
    initialized to ``False`` in ``Recorder.__init__`` and refreshed before
    the first chunk arrives.
 
-The tests use ``MagicMock`` stubs — no real audio I/O, no real VAD model,
+The tests use ``MagicMock`` stubs, no real audio I/O, no real VAD model,
 no real PortAudio is touched. Designed to run on the Linux sandbox
 without a working scipy installation.
 """
@@ -58,7 +58,7 @@ class TestRecorderLazyImport:
 
     Importing ``Recorder`` at module top triggers
     ``voice_typer/server/recording/__init__.py`` which eagerly loads 7+
-    submodules that each do ``import numpy as np`` at module top — adding
+    submodules that each do ``import numpy as np`` at module top, adding
     ~250–335 ms to every cold start. Deferring the import to
     ``__init__`` keeps the recording package out of the module-import
     critical path.
@@ -66,14 +66,14 @@ class TestRecorderLazyImport:
 
     def test_recorder_not_at_module_top(self) -> None:
         """``Recorder`` is NOT a module-top attribute of
-        ``voice_typer.server.app`` — it's imported inside
+        ``voice_typer.server.app``, it's imported inside
         ``VoiceTyperApp.__init__``.
         """
         from voice_typer.server import app as _app_mod
 
         assert not hasattr(_app_mod, "Recorder"), (
             "Recorder should NOT be a module-top attribute of "
-            "voice_typer.server.app — it should be imported inside "
+            "voice_typer.server.app, it should be imported inside "
             "VoiceTyperApp.__init__ to defer the recording package "
             "(and its eager numpy import chain) to first construction."
         )
@@ -85,7 +85,7 @@ class TestRecorderLazyImport:
         before the construction assignment
         ``self._recorder_backing = recorder``. The eager
         ``self.recorder = Recorder(...)`` assignment must NOT appear
-        anywhere in the builder — it moved to the background
+        anywhere in the builder, it moved to the background
         recorder-init thread. (The body lived inline in
         ``VoiceTyperApp.__init__`` before the ``__init__`` decomposition;
         ``_init_recording`` is its new home.)
@@ -100,10 +100,10 @@ class TestRecorderLazyImport:
             "recording package is not imported at module top."
         )
         # the eager construction was moved to the background
-        # recorder-init thread — the old assignment is gone from the builder.
+        # recorder-init thread, the old assignment is gone from the builder.
         assert "self.recorder = Recorder(" not in init_src, (
             "the eager 'self.recorder = Recorder(...)' was removed "
-            "from the recording-init builder — the recorder is built on "
+            "from the recording-init builder, the recorder is built on "
             "the background recorder-init thread and assigned to "
             "_recorder_backing."
         )
@@ -132,7 +132,7 @@ class TestRecorderLazyImport:
         # recording import does not appear in the module's globals dict.
         assert "Recorder" not in _app_mod.__dict__, (
             "Recorder must not be bound in voice_typer.server.app's "
-            "module __dict__ — the lazy import inside __init__ binds it "
+            "module __dict__, the lazy import inside __init__ binds it "
             "as a local, not as a module global."
         )
 
@@ -148,7 +148,7 @@ def _make_process_chunk_pipeline(
     ``process_audio_chunk`` tests.
 
     Sets ``_cached_vad_enabled`` explicitly so the test does NOT depend
-    on MagicMock's default truthy attribute behavior — the gate reads
+    on MagicMock's default truthy attribute behavior, the gate reads
     this exact scalar.
 
     The pipeline's named helper methods (``detect_device_disconnect`` /
@@ -181,7 +181,7 @@ def _make_process_chunk_pipeline(
     # than the raw indata, so the test can distinguish raw vs filtered.
     pipeline.apply_filter_chain = MagicMock(return_value=np.array([0.5, -0.5, 0.5, -0.5], dtype=np.float32))
     pipeline.append_to_buffer_locked = MagicMock(return_value=(1, 1))
-    # compute_rms_and_peak returns the FILTERED RMS (0.5) — distinct
+    # compute_rms_and_peak returns the FILTERED RMS (0.5), distinct
     # from the raw RMS of the test's indata.
     pipeline.compute_rms_and_peak = MagicMock(return_value=(0.5, 0.9, 0.032))
     pipeline.detect_and_emit_clipping = MagicMock(return_value=None)
@@ -197,7 +197,7 @@ class TestRawRmsGatedOnCachedVadEnabled:
     When VAD is disabled, ``vad_auto_calibrate`` short-circuits with the
     same gate, so the computed raw RMS would be discarded. Skipping the
     computation saves one BLAS ``np.dot`` reduction per chunk (~16 Hz)
-    in raw mode — pure waste otherwise.
+    in raw mode, pure waste otherwise.
     """
 
     def test_raw_rms_skipped_when_vad_disabled(self) -> None:
@@ -215,7 +215,7 @@ class TestRawRmsGatedOnCachedVadEnabled:
         # the raw RMS of indata (which is ~0.255).
         assert pipeline._pending_raw_chunk_rms == 0.0, (
             "When VAD is disabled (_cached_vad_enabled=False), the raw "
-            "RMS computation must be SKIPPED — _pending_raw_chunk_rms "
+            "RMS computation must be SKIPPED, _pending_raw_chunk_rms "
             "should be the cheap default 0.0, not "
             f"{pipeline._pending_raw_chunk_rms}."
         )
@@ -223,7 +223,7 @@ class TestRawRmsGatedOnCachedVadEnabled:
     def test_raw_rms_computed_when_vad_enabled(self) -> None:
         """When ``_cached_vad_enabled`` is True, the raw-RMS ``np.dot``
         IS executed on the raw ``indata`` and stored on the transient
-        attribute — preserves the existing VAD-auto-calibration feed
+        attribute, preserves the existing VAD-auto-calibration feed
         path.
         """
         recorder, pipeline = _make_process_chunk_pipeline(cached_vad_enabled=True)
@@ -244,7 +244,7 @@ class TestRawRmsGatedOnCachedVadEnabled:
     def test_raw_rms_skipped_when_vad_disabled_and_indata_empty(self) -> None:
         """When VAD is disabled AND ``indata`` is empty, the gate
         short-circuits to the else branch (0.0) without computing
-        anything. This is a defensive case — the gate must not raise.
+        anything. This is a defensive case, the gate must not raise.
         """
         recorder, pipeline = _make_process_chunk_pipeline(cached_vad_enabled=False)
         indata = np.zeros((0,), dtype=np.float32)
@@ -255,7 +255,7 @@ class TestRawRmsGatedOnCachedVadEnabled:
 
     def test_raw_rms_gate_uses_cached_scalar_not_property(self) -> None:
         """The gate reads ``recorder._cached_vad_enabled`` (the cached
-        scalar) — NOT the dynamic ``_vad_enabled`` property. Verified
+        scalar), NOT the dynamic ``_vad_enabled`` property. Verified
         by setting the two to mismatched values and checking the
         computation follows the cached scalar.
         """
@@ -264,7 +264,7 @@ class TestRawRmsGatedOnCachedVadEnabled:
         # a MagicMock attribute (truthy). If the gate read this instead
         # of the cached scalar, the raw RMS would be computed (not 0.0).
         # The cached scalar is False → raw RMS must be 0.0.
-        recorder._vad.vad_enabled = True  # mismatched — would force computation
+        recorder._vad.vad_enabled = True  # mismatched, would force computation
         indata = np.array([0.1, -0.2, 0.3, -0.4], dtype=np.float32)
 
         pipeline.process_audio_chunk(indata, 4, None, 0, 12345.0)
@@ -295,14 +295,14 @@ def _make_vad_auto_calibrate_recorder_stub(
     recorder._cached_vad_enabled = cached_vad_enabled
     recorder._vad.vad_enabled = vad_enabled  # mismatched by design
     recorder._recording_start_time = 100.0
-    # ``_vad.auto_calibrate`` is the downstream call — mock counts it.
+    # ``_vad.auto_calibrate`` is the downstream call, mock counts it.
     recorder._vad.auto_calibrate.return_value = None
     return recorder
 
 
 class TestVadAutoCalibrateReadsCachedScalar:
     """``vad_auto_calibrate`` reads ``recorder._cached_vad_enabled`` (the
-    cached scalar set by ``refresh_vad_caches``) — NOT the dynamic
+    cached scalar set by ``refresh_vad_caches``), NOT the dynamic
     ``_vad_enabled`` property (which does a 5 s TTL cache lookup
     involving ``time.perf_counter()``). The cached scalar is always
     initialized to ``False`` in ``Recorder.__init__`` and refreshed
@@ -348,7 +348,7 @@ class TestVadAutoCalibrateReadsCachedScalar:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """When the gate short-circuits (cached scalar False), the
-        function must NOT call ``time.perf_counter()`` — that's the
+        function must NOT call ``time.perf_counter()``, that's the
         whole point of the cached-scalar optimization (the property
         lookup path does a ``perf_counter`` for its 5 s TTL cache).
 
@@ -381,7 +381,7 @@ class TestVadAutoCalibrateReadsCachedScalar:
 
         assert perf_calls == [], (
             "time.perf_counter must NOT be called when the cached "
-            "scalar gate short-circuits — that's the whole point of "
+            "scalar gate short-circuits, that's the whole point of "
             f"the cached-scalar optimization (got {len(perf_calls)} calls)."
         )
 

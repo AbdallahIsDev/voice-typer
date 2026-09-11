@@ -1,4 +1,4 @@
-"""Voice Typer — centralized logging infrastructure.
+"""Voice Typer, centralized logging infrastructure.
 
 This package is the single source of truth for all logging configuration
 across the application.  Every backend module should obtain its logger
@@ -14,15 +14,15 @@ The main entry point (typically ``app.py``) must call :func:`setup_logging`
 Components
 ----------
 
-- :func:`setup_logging` — one-time file + console configuration
-- :func:`close_devnull_files` — shutdown cleanup
-- :func:`reset` — test isolation
-- :class:`_SessionFilter` — injects ``session_id`` into log records
-- :class:`_ColorFormatter` — ANSI-coloured terminal formatter (default)
-- :class:`_FileFormatter` — plain-text file formatter (default)
-- :class:`_JsonFormatter` — structured JSON formatter (opt-in, ``VOICE_TYPER_LOG_JSON=1``)
+- :func:`setup_logging`: one-time file + console configuration
+- :func:`close_devnull_files`: shutdown cleanup
+- :func:`reset`: test isolation
+- :class:`_SessionFilter`: injects ``session_id`` into log records
+- :class:`_ColorFormatter`: ANSI-coloured terminal formatter (default)
+- :class:`_FileFormatter`: plain-text file formatter (default)
+- :class:`_JsonFormatter`: structured JSON formatter (opt-in, ``VOICE_TYPER_LOG_JSON=1``)
 - :func:`set_correlation_id` / :func:`get_correlation_id` / :func:`reset_correlation_id` /
-  :class:`_correlation_id` — correlation-id context propagation
+  :class:`_correlation_id`: correlation-id context propagation
 
 Package layout
 --------------
@@ -30,8 +30,8 @@ Package layout
 This module was originally a single ``log.py`` file. It has been split
 into a package for maintainability:
 
-- :mod:`voice_typer.server.log.correlation` — correlation-id context vars
-- :mod:`voice_typer.server.log.formatters` — the three formatter classes
+- :mod:`voice_typer.server.log.correlation`: correlation-id context vars
+- :mod:`voice_typer.server.log.formatters`: the three formatter classes
   (:class:`_ColorFormatter`, :class:`_FileFormatter`, :class:`_JsonFormatter`)
   plus their supporting helpers (topic tables, ISO-timestamp formatter,
   exception-text appender)
@@ -39,7 +39,7 @@ into a package for maintainability:
 This ``__init__`` module re-exports the formatter classes and the
 correlation-id helpers so ``from voice_typer.server.log import X``
 continues to resolve every public name that the original ``log.py``
-exposed. No behavior change — same public API, same tests pass.
+exposed. No behavior change, same public API, same tests pass.
 """
 
 from __future__ import annotations
@@ -64,7 +64,7 @@ from pathlib import Path
 #
 # Single-file policy: each log is a SINGLE file.  When it exceeds
 # ``LOG_MAX_BYTES`` (the Tier-3 mid-session hard ceiling) it is
-# truncated in place (emptied) and writing continues — numbered backups
+# truncated in place (emptied) and writing continues, numbered backups
 # (``.1``, ``.2``, ...) are NEVER created.  Tiers 1 (age) and 2 (size
 # fallback) run at session start via :func:`_sweep_stale_logs`.
 from voice_typer.server._log_constants import (
@@ -96,7 +96,7 @@ from voice_typer.server.log.formatters import (  # noqa: F401
 log = logging.getLogger(__name__)
 
 # All log files live under a ``logs/`` subdirectory of the config dir
-# (O1 — the same directory the Rust host already uses for its rotating
+# (O1, the same directory the Rust host already uses for its rotating
 # ``voice-typer-rust.log`` and the host's stdout/stderr redirects).
 # ``get_logs_dir`` is the single source of truth so every writer (main
 # process, worker, crash buffer, startup-error diagnostic) agrees on
@@ -123,7 +123,7 @@ _LEGACY_LOG_GLOBS: tuple[str, ...] = (
 def get_logs_dir(config_dir: Path) -> Path:
     """Return the directory that holds all log files.
 
-    ``<config_dir>/logs`` — shared by the Python processes (via
+    ``<config_dir>/logs``: shared by the Python processes (via
     :func:`get_log_file_path`), the Rust host (``voice-typer-rust.log``,
     see ``src-tauri/src/platform/logging.rs``), and the Electron /
     Tauri stdout+stderr redirects. The directory may not exist yet —
@@ -144,9 +144,9 @@ def _maybe_migrate_legacy_logs(config_dir: Path) -> None:
 
     Rules:
     - Only moves when the destination does NOT exist (a fresh log
-      already written at the new location wins — never overwrite).
+      already written at the new location wins, never overwrite).
     - NEVER moves the per-path inter-process rotation lock files
-      (``*.lock``) — they are flock files tied to their exact path.
+      (``*.lock``), they are flock files tied to their exact path.
     - Best-effort per file: a locked/read-only file (e.g. another
       process still writing the old path) is skipped silently and a
       later launch retries.
@@ -167,14 +167,14 @@ def _maybe_migrate_legacy_logs(config_dir: Path) -> None:
                 if not src.is_file() or src.name.endswith(".lock"):
                     continue
                 _maybe_move_legacy_log_file(src_root, dst_root, src.name)
-    except Exception as exc:  # noqa: BLE001 — best-effort migration
+    except Exception as exc:  # noqa: BLE001, best-effort migration
         log.debug("[LOG-SETUP] legacy log migration failed: %s", exc)
 
 
 def _maybe_move_legacy_log_file(src_root: Path, dst_root: Path, name: str) -> None:
     """Move one legacy log file from ``src_root`` to ``dst_root`` if safe.
 
-    Best-effort — any error (locked file on Windows, read-only dir,
+    Best-effort, any error (locked file on Windows, read-only dir,
     cross-device oddity) is swallowed; the file is simply left in
     place and a later launch retries.
     """
@@ -186,47 +186,47 @@ def _maybe_move_legacy_log_file(src_root: Path, dst_root: Path, name: str) -> No
         dst_root.mkdir(parents=True, exist_ok=True)
         os.replace(src, dst)
         log.info("[LOG-SETUP] migrated legacy log file %s -> %s", src, dst)
-    except Exception as exc:  # noqa: BLE001 — best-effort migration
+    except Exception as exc:  # noqa: BLE001, best-effort migration
         log.debug("[LOG-SETUP] legacy log migration skipped %s: %s", name, exc)
 
 
 def _sweep_stale_logs(config_dir: Path) -> None:
     """Delete stale log files at session start (Tiers 1 + 2).
 
-    Three-tier cleanup design — this function implements Tiers 1 and 2
+    Three-tier cleanup design: this function implements Tiers 1 and 2
     (the session-start sweeps); Tier 3 (the mid-session hard ceiling)
     lives in the ``_SecureTruncatingFileHandler`` rollover path:
 
-      * **Tier 1 — age (primary):** any log file in ``logs/`` whose last
+      * **Tier 1, age (primary):** any log file in ``logs/`` whose last
         write is older than ``LOG_AGE_RETENTION_SECONDS`` (7 days) is
         deleted. Bounds storage for low-traffic installs whose logs
         would otherwise sit forever.
 
-      * **Tier 2 — size fallback:** any log file larger than
+      * **Tier 2, size fallback:** any log file larger than
         ``LOG_SIZE_FALLBACK_BYTES`` (25 MB) is deleted even if freshly
-        written — covers a marathon session that pushed a log past the
+        written, covers a marathon session that pushed a log past the
         fallback between startups. Checked ONLY here (session start),
         never mid-session.
 
-    Runs at the TOP of :func:`setup_logging` — BEFORE the rotating file
-    handler opens ``voice-typer.log`` — so the active file itself can be
+    Runs at the TOP of :func:`setup_logging`: BEFORE the rotating file
+     handler opens ``voice-typer.log``, so the active file itself can be
     deleted when stale/oversized and a fresh one is created for the new
     session ("cleans everything up and starts fresh").
 
     Scope: every regular file in ``logs/`` EXCEPT the inter-process
-    truncation lock files (``*.lock``) — they must persist across setups
+    truncation lock files (``*.lock``), they must persist across setups
     so the next process can acquire the flock. This covers Python-owned
     logs (``voice-typer.log``, ``worker.log``, ``prewarm.log``,
     ``startup-error.log``, ``voice-typer-crash-buffer.log``) AND the
     host-owned logs (``electron-main.log``, ``electron-runtime.log``,
     ``voice-typer-rust.log`` + rotations). Files locked by another live
     process (e.g. the Electron host's logs in dev/Tauri mode, where the
-    host started first) fail the unlink — skipped silently; their owner
+    host started first) fail the unlink, skipped silently; their owner
     sweeps them at its own startup (mirrored in
     ``client/src/main/logging/rotation.ts`` and
     ``src-tauri/src/platform/logging.rs``).
 
-    Best-effort — any error is logged at DEBUG and swallowed so a single
+    Best-effort, any error is logged at DEBUG and swallowed so a single
     unreadable file does not abort the sweep or ``setup_logging``.
     Idempotent if called multiple times.
     """
@@ -237,7 +237,7 @@ def _sweep_stale_logs(config_dir: Path) -> None:
         now = time.time()
         for f in root.iterdir():
             # Skip directories and the inter-process truncation lock
-            # files (``*.log.lock``) — see the docstring above.
+            # files (``*.log.lock``): see the docstring above.
             if not f.is_file() or f.name.endswith(".lock"):
                 continue
             try:
@@ -261,13 +261,13 @@ def _sweep_stale_logs(config_dir: Path) -> None:
                 )
             except OSError as exc:
                 # Locked by another live process (host-first launch
-                # order) — its own startup sweep handles it.
+                # order), its own startup sweep handles it.
                 log.debug(
                     "[LOG-SETUP] failed to purge stale log %s: %s",
                     f.name,
                     exc,
                 )
-    except Exception as exc:  # noqa: BLE001 — best-effort sweep
+    except Exception as exc:  # noqa: BLE001, best-effort sweep
         log.debug("[LOG-SETUP] stale-log sweep failed: %s", exc)
 
 
@@ -302,7 +302,7 @@ _module_level_overrides: dict[str, str] = {}
 
 
 def reset() -> None:
-    """Reset all logging state — called by tests to avoid cross-test contamination."""
+    """Reset all logging state, called by tests to avoid cross-test contamination."""
     global _session_id
     _session_id = ""
     for f in _devnull_files:
@@ -344,7 +344,7 @@ class _BubbleLevelExclusionFilter(logging.Filter):
     to ≤30 Hz on the Tauri host per §9) RMS/peak push used only for
     the live waveform bubble. It carries no diagnostic value in the
     rotating file and would dominate the on-disk log. The console/stderr
-    handler is unaffected — only the file handler attaches this filter.
+    handler is unaffected, only the file handler attaches this filter.
 
     The marker string is the exact event-type token used by the
     ``bubble_level`` push and by ``IPCServer._send``'s high-frequency
@@ -358,18 +358,18 @@ class _BubbleLevelExclusionFilter(logging.Filter):
     _MARKER = "bubble_level"
 
     def filter(self, record: logging.LogRecord) -> bool:
-        # cheap path — WARNING+ records are always kept (no
+        # cheap path, WARNING+ records are always kept (no
         # ``getMessage()`` call) so a legitimate
         # ``"bubble_level handler crashed"``-style error is never
         # dropped from the file. The expensive substring match only
         # runs for DEBUG / INFO records, which is the level the
-        # high-frequency bubble push is emitted at — so the
+        # high-frequency bubble push is emitted at, so the
         # noise-suppression behaviour is preserved while protecting
         # diagnostic error lines.
         if record.levelno >= logging.WARNING:
             return True
         # hybrid check. ``record.msg`` is the raw template
-        # string (no %-format substitution) — checking it first avoids
+        # string (no %-format substitution), checking it first avoids
         # the ``getMessage()`` call on every DEBUG/INFO record. Fall
         # back to ``getMessage()`` only when the record carries
         # positional args (i.e. the marker could appear in the
@@ -397,7 +397,7 @@ def _apply_per_module_log_levels() -> None:
     ``WARNING``, ``ERROR``, ``CRITICAL``).  Invalid entries are
     skipped (best-effort) so a typo in one entry does not break
     logging setup, but each skipped entry now logs a WARNING
-    so the operator can see *which* entry was ignored and why — a
+    so the operator can see *which* entry was ignored and why, a
     silent skip was an operator trap (typo in the module path => no
     DEBUG output => operator assumes the subsystem isn't logging when
     in fact the override never applied).  Lets operators crank up
@@ -441,7 +441,7 @@ def _apply_per_module_log_levels() -> None:
         if not isinstance(level, int):
             setup_log.warning(
                 "[LOG-SETUP] skipping invalid VOICE_TYPER_LOG_LEVEL_MODULES "
-                "entry %r (reason: unknown level %r — expected DEBUG/INFO/WARNING/ERROR/CRITICAL)",
+                "entry %r (reason: unknown level %r, expected DEBUG/INFO/WARNING/ERROR/CRITICAL)",
                 entry,
                 level_str,
             )
@@ -465,7 +465,7 @@ def set_module_level(name: str, level: str) -> None:
         Dotted logger name (e.g. ``"voice_typer.server.dictation_pipeline"``).
     level:
         Level name (``"DEBUG"``, ``"INFO"``, ``"WARNING"``, ``"ERROR"``,
-        ``"CRITICAL"``) — case-insensitive.  Invalid names raise
+        ``"CRITICAL"``), case-insensitive.  Invalid names raise
         :class:`ValueError`.
 
     Notes
@@ -570,7 +570,7 @@ _THIRD_PARTY_LOGGER_LEVELS: dict[str, int] = {
 def _apply_third_party_logger_levels() -> None:
     """Pin every logger in :data:`_THIRD_PARTY_LOGGER_LEVELS` to WARNING.
 
-    Runs at the top level of :func:`setup_logging` — NOT nested under
+    Runs at the top level of :func:`setup_logging`. NOT nested under
     the ``if sys.stderr is not None`` stream-handler block where the
     old hardcoded ``transformers`` / ``torch`` / ``huggingface_hub``
     silencing lived. pythonw.exe runs with ``sys.stderr is None``, so
@@ -594,7 +594,7 @@ def setup_logging(
     port_mode: bool = False,
     process_name: str = "main",
 ) -> str:
-    """Configure Voice Typer logging — rotating file + optional coloured console.
+    """Configure Voice Typer logging, rotating file + optional coloured console.
 
     Call this **once** at process startup, before any subsystem logs.
     It is safe to call multiple times (subsequent calls are idempotent).
@@ -648,13 +648,13 @@ def setup_logging(
     try:
         # ── 1. Redirect stdio for pythonw.exe ──────────────────────
         if sys.stderr is None:
-            sys.stderr = open(os.devnull, "w", encoding="utf-8", errors="replace")  # noqa: SIM115 — must outlive setup_logging()
+            sys.stderr = open(os.devnull, "w", encoding="utf-8", errors="replace")  # noqa: SIM115, must outlive setup_logging()
             _devnull_files.append(sys.stderr)
         if sys.stdout is None:
-            sys.stdout = open(os.devnull, "w", encoding="utf-8", errors="replace")  # noqa: SIM115 — must outlive setup_logging()
+            sys.stdout = open(os.devnull, "w", encoding="utf-8", errors="replace")  # noqa: SIM115, must outlive setup_logging()
             _devnull_files.append(sys.stdout)
         if sys.stdin is None:
-            sys.stdin = open(os.devnull, encoding="utf-8")  # noqa: SIM115 — must outlive setup_logging()
+            sys.stdin = open(os.devnull, encoding="utf-8")  # noqa: SIM115, must outlive setup_logging()
             _devnull_files.append(sys.stdin)
 
         # ── 2. Generate session ID ─────────────────────────────────────
@@ -673,14 +673,14 @@ def setup_logging(
         config_dir.mkdir(parents=True, exist_ok=True)
         # lock down the config dir itself so co-located users
         # cannot ``cat`` the log file even if the per-file chmod is missed
-        # (defence in depth — both this and the per-file chmod below are
+        # (defence in depth, both this and the per-file chmod below are
         # best-effort on Windows where POSIX perms do not apply).
         if os.name == "posix":
             with contextlib.suppress(OSError):
                 os.chmod(config_dir, 0o700)
         # ── 3b. Logs subdirectory ────────────────────────────────
         # All log files (main / prewarm / worker / crash buffer /
-        # startup-error) live under ``<config_dir>/logs/`` — the same
+        # startup-error) live under ``<config_dir>/logs/``, the same
         # directory the Rust host already uses. Create it with the same
         # 0o700 hardening as the config dir, then migrate any legacy
         # pre-``logs/`` files from the config-dir root so the history
@@ -693,7 +693,7 @@ def setup_logging(
         _maybe_migrate_legacy_logs(config_dir)
         # ── 3c. Stale-log sweep (Tiers 1 + 2) ─────────────────────
         # MUST run BEFORE the file handler below opens
-        # ``voice-typer.log`` — on Windows an open handle blocks the
+        # ``voice-typer.log``, on Windows an open handle blocks the
         # unlink, so sweeping first lets the active file itself be
         # deleted when stale/oversized and a fresh one created for
         # this session. Best-effort; see ``_sweep_stale_logs``.
@@ -727,7 +727,7 @@ def setup_logging(
             # Single-file policy: ZERO backups.  When the file exceeds
             # the Tier-3 mid-session hard ceiling (``LOG_MAX_BYTES``,
             # 40 MB) it is truncated IN PLACE (emptied) and writing
-            # continues to the same file — numbered backups
+            # continues to the same file, numbered backups
             # (``voice-typer.log.1`` ...) are never created.  The
             # ceiling is deliberately far above the Tier-2 size
             # fallback (25 MB, session-start delete) so normal
@@ -737,7 +737,7 @@ def setup_logging(
             encoding="utf-8",
             errors="backslashreplace",
         )
-        # lock down the log file itself (0o600 — only the
+        # lock down the log file itself (0o600, only the
         # owning user can read dictated-text previews, exception
         # tracebacks, and hotkey registrations).  Best-effort on POSIX;
         # silently no-op on Windows where the umask already enforced
@@ -752,12 +752,12 @@ def setup_logging(
         # gate the file handler on the ``debug`` flag so
         # production runs do not churn through 5 MiB × 5 of DEBUG noise.
         # Root stays at DEBUG so child loggers can still emit DEBUG
-        # records when ``VOICE_TYPER_DEBUG=1`` is set — the handler
+        # records when ``VOICE_TYPER_DEBUG=1`` is set, the handler
         # filter is what actually drops them at INFO level.
         # gate the file handler on ``debug`` AND ``quiet`` so
         # the handler level matches the root logger level set below.
         # Pre-fix ``quiet=True`` raised the root to WARNING but
-        # left the file handler at INFO — the handler still wanted INFO
+        # left the file handler at INFO, the handler still wanted INFO
         # records but the root logger filtered them out before they
         # reached any handler, so the effective file verbosity did not
         # match the ``quiet`` contract. Now ``quiet=True`` lowers the
@@ -766,7 +766,7 @@ def setup_logging(
         # ADR-0020 §11: keep high-frequency ``bubble_level`` events out of
         # the rotating file log. They are ~60 Hz RMS/peak pushes (ADR-0020
         # §9 coalesces to ≤30 Hz on the host) and carry no diagnostic
-        # value in the file — they only exist for the live waveform bubble.
+        # value in the file, they only exist for the live waveform bubble.
         # The console/stderr path is unchanged. The filter drops any record
         # whose message mentions "bubble_level" (the exact marker used by
         # IPCServer._send's high-frequency drop log and the bubble event
@@ -774,7 +774,7 @@ def setup_logging(
         handler.addFilter(_BubbleLevelExclusionFilter())
         handler.setFormatter(_file_formatter)
 
-        # PII / API-key redaction — imported lazily to avoid circular imports
+        # PII / API-key redaction, imported lazily to avoid circular imports
         # and to keep the security module's import order clean.
         # The filter is attached
         # to each HANDLER (file + stderr), NOT to the ``voice_typer`` root
@@ -783,7 +783,7 @@ def setup_logging(
         # logger it was logged to), so attaching at the handler level is
         # sufficient AND avoids a redundant double-scan for records
         # logged directly to ``voice_typer``. The SAME instance is
-        # attached to both sinks below — per-handler double invocation is
+        # attached to both sinks below, per-handler double invocation is
         # neutralised by the idempotence guard at the top of
         # ``PIIRedactionFilter.filter`` (an already-redacted record is
         # accepted without re-running the scan), so no second attachment
@@ -795,7 +795,7 @@ def setup_logging(
         _pii_filter = _PIIRedactionFilter()
         handler.addFilter(_pii_filter)
         # Attach ``_SessionFilter`` to the file handler
-        # too — not just the ``voice_typer`` logger — so the session_id is
+        # too, not just the ``voice_typer`` logger, so the session_id is
         # injected for records logged to *child* loggers (e.g.
         # ``voice_typer.server.app``) which do NOT trigger the parent
         # logger's filters per Python's logging semantics (``callHandlers``
@@ -810,7 +810,7 @@ def setup_logging(
         # dedup on the ``_SecureTruncatingFileHandler`` subclass
         # (not the parent ``RotatingFileHandler``) so a future caller
         # that installs a stock ``RotatingFileHandler`` (e.g. a test
-        # helper) is NOT mistaken for the secure handler — the secure
+        # helper) is NOT mistaken for the secure handler, the secure
         # handler is always re-installed in that case so the perms and
         # inter-process lock guarantees are preserved.
         #
@@ -818,14 +818,14 @@ def setup_logging(
         # handler when one was already installed. A second
         # ``setup_logging(config_dir, debug=False)`` call (after an
         # initial ``debug=True``) constructed a new handler with the
-        # new WARNING level but then threw it away — the existing
+        # new WARNING level but then threw it away, the existing
         # DEBUG-level handler stayed attached, so the operator's
         # toggle had NO effect (despite the function returning a new
         # ``session_id`` suggesting re-init succeeded). Post-fix, the
         # existing handler's level + formatter are UPDATED IN PLACE
         # to match the new configuration before the dedup check
         # decides whether to add the new handler. Filters (PII /
-        # session / bubble) are not re-attached — they're already on
+        # session / bubble) are not re-attached, they're already on
         # the existing handler from the first call.
         _new_file_level = handler.level
         _new_file_formatter = handler.formatter
@@ -857,14 +857,14 @@ def setup_logging(
 
         # Per-module log level overrides (env: VOICE_TYPER_LOG_LEVEL_MODULES).
         # Applied AFTER root level set so they take precedence over the root
-        # default — operators can crank DEBUG on a single subsystem without
+        # default, operators can crank DEBUG on a single subsystem without
         # enabling DEBUG globally.
         _apply_per_module_log_levels()
 
         # Silence noisy third-party loggers (urllib3 / websockets /
         # keyring / torch / huggingface_hub / ...). Runs at the top
         # level so it applies even when ``sys.stderr`` is None
-        # (pythonw.exe frozen-exe path) — the previous placement
+        # (pythonw.exe frozen-exe path), the previous placement
         # nested this under the stream-handler block, silently
         # skipping it on that path.
         _apply_third_party_logger_levels()
@@ -878,7 +878,7 @@ def setup_logging(
         # ── 4. Fix stderr encoding + flushing for Unicode ──────────────
         # ``line_buffering=True`` flushes on every newline, so each log
         # line reaches the OS immediately (no "cut logs / stale lines at
-        # exit").  NOTE: do NOT use ``write_through=True`` here — on a
+        # exit").  NOTE: do NOT use ``write_through=True`` here, on a
         # Windows console handle ``TextIOWrapper.write()`` internally
         # flushes, and that internal flush raises ``ERROR_INVALID_FUNCTION``
         # (WinError 1) even though the data was written.  That raise would
@@ -898,12 +898,12 @@ def setup_logging(
         # in real-time.  The bare logging.StreamHandler only flushes on
         # close (or when its internal buffer hits a high-water mark), so
         # startup logs from a standalone VoiceTyper run could sit in the
-        # buffer for seconds before being flushed — making the app look
+        # buffer for seconds before being flushed, making the app look
         # like it's hanging silently.  _FlushingStreamHandler.emit() calls
         # self.flush() after every record.
         #
         # ALWAYS attach a stderr stream handler (with PII filter,
-        # INFO level) — not only when stderr is a TTY or --port mode is
+        # INFO level), not only when stderr is a TTY or --port mode is
         # active.  Under Tauri sidecar, sys.stderr is a pipe (not a TTY)
         # and --port is not in sys.argv, so the legacy ``do_color`` gate
         # attached NO stream handler.  All INFO/DEBUG records went only
@@ -917,7 +917,7 @@ def setup_logging(
         # reaches *some* sink even when the file write fails.
         # Colors follow the STREAM, not the launch mode. The legacy
         # ``or port_mode`` forced ANSI escapes whenever ``--port`` was in
-        # argv — and the Electron TCP path (``python -m ipc_server
+        # argv, and the Electron TCP path (``python -m ipc_server
         # --port N`` with stderr redirected to electron-stderr.log) IS
         # such a run, so every backend line landed in the log file with
         # raw escape codes. Colors now require a real TTY: redirected
@@ -929,7 +929,7 @@ def setup_logging(
             stream.setLevel(logging.DEBUG if debug else logging.INFO)
             if do_color:
                 # in JSON mode the console also emits structured
-                # records (no ANSI colouring — JSON consumers parse the
+                # records (no ANSI colouring. JSON consumers parse the
                 # line, not the rendering).  The PII filter still runs
                 # below, so console JSON output is redacted too.
                 stream.setFormatter(_JsonFormatter() if json_mode else _ColorFormatter())
@@ -943,7 +943,7 @@ def setup_logging(
             # attach the same PII / API-key redaction filter to the
             # console handler so secrets don't leak to the terminal either.
             stream.addFilter(_pii_filter)
-            # Same reasoning as the file handler — attach
+            # Same reasoning as the file handler, attach
             # ``_SessionFilter`` to the stream handler too so console output
             # also carries the session_id bracket for records from child
             # loggers.
@@ -952,7 +952,7 @@ def setup_logging(
             # Use _FlushingStreamHandler as the dedup key so legacy tests that
             # check for "any StreamHandler" (isinstance check below) still pass.
             #
-            # mirror the file-handler in-place update — if a
+            # mirror the file-handler in-place update, if a
             # ``_FlushingStreamHandler`` is already attached, update its
             # level + formatter to match the new ``debug``/``quiet``/
             # ``json_mode`` configuration instead of silently dropping
@@ -984,7 +984,7 @@ def get_log_file_path(config_dir: Path | None = None, *, process_name: str = "ma
     its OWN file so concurrent writers never share a file descriptor
     on the same file (which would race on the
     :class:`_SecureTruncatingFileHandler`'s in-place truncation
-    rotation — see ``tests/test_log_multiprocess.py`` for
+    rotation: see ``tests/test_log_multiprocess.py`` for
     the failure mode).
 
     Routing table:
@@ -994,7 +994,7 @@ def get_log_file_path(config_dir: Path | None = None, *, process_name: str = "ma
     - ``"worker"`` → ``worker.log`` (the runtime-pack WebSocket worker
       spawned by the Tauri host; without this case it would fall
       through to ``voice-typer.log`` and race the slim-core sidecar's
-      rotation — the same race that motivated the ``prewarm`` case).
+      rotation, the same race that motivated the ``prewarm`` case).
 
     Parameters
     ----------
@@ -1006,7 +1006,7 @@ def get_log_file_path(config_dir: Path | None = None, *, process_name: str = "ma
     process_name:
         ``"main"`` (default), ``"prewarm"``, or ``"worker"``. Controls
         which log file is returned.  An unrecognised value falls back
-        to the main log path (defensive — see
+        to the main log path (defensive: see
         ``test_get_log_file_path_unknown_process_name_falls_back_to_main``).
 
     Returns
@@ -1032,7 +1032,7 @@ def get_log_file_path(config_dir: Path | None = None, *, process_name: str = "ma
         # sidecar (``voice-typer.log``).  Concurrent writes by both
         # processes to ``voice-typer.log`` would race on the
         # ``_SecureTruncatingFileHandler``'s in-place truncation
-        # rotation (maxBytes=5 MiB, backupCount=0) — exactly the race
+        # rotation (maxBytes=5 MiB, backupCount=0), exactly the race
         # the ``prewarm`` case above was added to eliminate.  The
         # worker calls ``setup_logging(config_dir, process_name="worker")``
         # so this branch is exercised on every worker launch.
@@ -1064,7 +1064,7 @@ def _quiet_handler_error(handler: logging.Handler, record: logging.LogRecord) ->
     EVERY failed record. Under a console (PowerShell) that interleaves
     stdout/stderr this renders as a bare ``--- Logging error ---`` line
     with no usable information, and the header is emitted for every
-    subsequent failure — exactly the garbage the user reported. We emit
+    subsequent failure, exactly the garbage the user reported. We emit
     ONE line with the exception class + truncated message instead; the
     traceback stays in the record (JSON mode) and the failure is still
     visible.
@@ -1098,7 +1098,7 @@ class _FlushingStreamHandler(logging.StreamHandler):
 
     On Windows, ``FlushFileBuffers`` on a console handle returns
     ``ERROR_INVALID_FUNCTION`` (WinError 1).  That is EXPECTED console
-    behaviour — the write already reached the OS (the stream is
+    behaviour, the write already reached the OS (the stream is
     configured ``write_through=True``), so a failing flush is not
     degradation.  ``emit`` swallows flush errors silently and only
     surfaces a diagnostic when the WRITE itself fails (a genuinely
@@ -1122,7 +1122,7 @@ class _FlushingStreamHandler(logging.StreamHandler):
             # On Windows, ``write()`` on a console handle with
             # ``write_through=True`` or ``line_buffering=True`` can raise
             # ``ERROR_INVALID_FUNCTION`` (WinError 1, winerror=1) even
-            # when the data WAS written — the raise comes from the
+            # when the data WAS written, the raise comes from the
             # underlying flush, not a lost write.  Treat WinError 1
             # on Windows as benign (silent); any other OSError is a
             # genuinely broken stream.
@@ -1131,7 +1131,7 @@ class _FlushingStreamHandler(logging.StreamHandler):
             self._handle_broken_stream()
             return
         except Exception:
-            # Only reach here when the WRITE itself failed — a genuinely
+            # Only reach here when the WRITE itself failed, a genuinely
             # broken stream (closed fd, EPIPE, etc.).  Emit one
             # diagnostic and keep the handler alive so later writes
             # still reach the buffer.
@@ -1142,7 +1142,7 @@ class _FlushingStreamHandler(logging.StreamHandler):
         with contextlib.suppress(Exception):
             self.flush()
 
-    def handleError(self, record: logging.LogRecord) -> None:  # noqa: N802 — override of logging.Handler.handleError
+    def handleError(self, record: logging.LogRecord) -> None:  # noqa: N802, override of logging.Handler.handleError
         # Safety net: log once, never detach, never spam.
         self._handle_broken_stream()
 
@@ -1159,7 +1159,7 @@ class _FlushingStreamHandler(logging.StreamHandler):
             msg = str(exc)
             if msg:
                 detail = f"{detail}: {msg[:200]}"
-        _stderr_line(f"[LOG] console stream may be degraded — terminal output may be delayed ({detail})")
+        _stderr_line(f"[LOG] console stream may be degraded, terminal output may be delayed ({detail})")
 
 
 class _SecureTruncatingFileHandler(logging.handlers.RotatingFileHandler):
@@ -1168,7 +1168,7 @@ class _SecureTruncatingFileHandler(logging.handlers.RotatingFileHandler):
 
     Combines two concerns:
     1. Single-file policy: ``doRollover`` TRUNCATES the active file in
-       place (empties it) when it exceeds ``maxBytes`` — a numbered
+       place (empties it) when it exceeds ``maxBytes``, a numbered
        backup (``.1``, ``.2``, ...) is NEVER created. The file on disk
        is always exactly one file.
     2. Inter-process truncation safety (``fcntl.flock`` /
@@ -1179,7 +1179,7 @@ class _SecureTruncatingFileHandler(logging.handlers.RotatingFileHandler):
 
     The lock is held only for the brief truncate window, NOT for
     every ``emit()`` call.  After acquiring the lock the handler
-    re-checks whether truncation is still needed — another process may
+    re-checks whether truncation is still needed, another process may
     have truncated while we waited.
     """
 
@@ -1187,7 +1187,7 @@ class _SecureTruncatingFileHandler(logging.handlers.RotatingFileHandler):
         super().__init__(filename, *args, **kwargs)
         self._rotation_lock_path = f"{filename}.lock"
 
-    def handleError(self, record: logging.LogRecord) -> None:  # noqa: N802 — override of logging.Handler.handleError
+    def handleError(self, record: logging.LogRecord) -> None:  # noqa: N802, override of logging.Handler.handleError
         _quiet_handler_error(self, record)
 
     def emit(self, record: logging.LogRecord) -> None:  # noqa: D401
@@ -1205,9 +1205,9 @@ class _SecureTruncatingFileHandler(logging.handlers.RotatingFileHandler):
                 if self.shouldRollover(record):
                     try:
                         self.doRollover()
-                    except Exception as exc:  # noqa: BLE001 — rotation is best-effort
+                    except Exception as exc:  # noqa: BLE001, rotation is best-effort
                         _stderr_line(
-                            f"[LOG-SETUP] log rotation failed ({type(exc).__name__}) — appending without rotating"
+                            f"[LOG-SETUP] log rotation failed ({type(exc).__name__}), appending without rotating"
                         )
             except Exception:
                 # ``shouldRollover`` itself failed (e.g. broken stream) —
@@ -1239,8 +1239,8 @@ class _SecureTruncatingFileHandler(logging.handlers.RotatingFileHandler):
                 # ``PermissionError`` (an ``OSError`` subclass) if it cannot
                 # acquire the byte-range lock. The previous ``contextlib.suppress``
                 # silently swallowed that, returning ``fd`` as if the lock was
-                # held — two processes racing rotation could both pass. We now
-                # retry once with ``LK_NBLCK`` (non-blocking) — if the holder
+                # held, two processes racing rotation could both pass. We now
+                # retry once with ``LK_NBLCK`` (non-blocking), if the holder
                 # released the byte during the ~10s block, we grab it
                 # instantly; if not, we fail CLOSED (close fd, return None)
                 # so the caller's ``_rotation_needed()`` short-circuit kicks
@@ -1251,21 +1251,21 @@ class _SecureTruncatingFileHandler(logging.handlers.RotatingFileHandler):
                 try:
                     msvcrt.locking(fd, msvcrt.LK_LOCK, 1)
                 except OSError:
-                    # LK_LOCK timed out — try a single non-blocking acquire.
+                    # LK_LOCK timed out, try a single non-blocking acquire.
                     # If the holder released in the meantime, we succeed
                     # silently (lock is now held, no warning needed).
                     try:
                         msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
                     except OSError:
                         # Both LK_LOCK (10s blocking) and LK_NBLCK (instant)
-                        # failed — the byte range is contended. Fail CLOSED:
+                        # failed, the byte range is contended. Fail CLOSED:
                         # close the fd so it is not leaked, return None so
                         # ``doRollover`` skips rotation (no rotation without
                         # the inter-process lock). Log at WARNING (not DEBUG)
                         # so the operator can see the persistent contention.
                         log.warning(
                             "[LOG-SETUP] Windows rotation lock acquire failed "
-                            "(LK_LOCK timed out, LK_NBLCK retry also failed) — "
+                            "(LK_LOCK timed out, LK_NBLCK retry also failed), "
                             "fail-closed: rotation skipped to avoid concurrent "
                             "rotation race"
                         )
@@ -1276,7 +1276,7 @@ class _SecureTruncatingFileHandler(logging.handlers.RotatingFileHandler):
         except Exception as exc:
             # log only the exception class name. ``str(exc)``
             # can include the lock file path (which contains the user's
-            # home directory) — leaking it to stderr/debug logs is a
+            # home directory), leaking it to stderr/debug logs is a
             # minor PII/privacy leak. The class name (e.g.
             # ``PermissionError``, ``OSError``) is enough for an
             # operator to diagnose the failure mode without exposing
@@ -1304,7 +1304,7 @@ class _SecureTruncatingFileHandler(logging.handlers.RotatingFileHandler):
                 os.lseek(fd, 0, os.SEEK_SET)
                 with contextlib.suppress(OSError):
                     msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
-        except Exception as exc:  # noqa: BLE001 — release-path: surface at DEBUG, never propagate during finally
+        except Exception as exc:  # noqa: BLE001, release-path: surface at DEBUG, never propagate during finally
             log.debug(
                 "[LOG-SETUP] inter-process rotation lock release failed (%s)",
                 type(exc).__name__,
@@ -1325,7 +1325,7 @@ class _SecureTruncatingFileHandler(logging.handlers.RotatingFileHandler):
         # Single-file policy: when the active log exceeds ``maxBytes``,
         # TRUNCATE it in place (empty the file) and keep writing to the
         # SAME path.  Numbered backups (``voice-typer.log.1`` ...) are
-        # NEVER created — the file on disk is always exactly one file.
+        # NEVER created, the file on disk is always exactly one file.
         #
         # Short-circuit on the file-size pre-check: if the active log
         # file is under the size cap, no truncation is needed.  We do
@@ -1347,7 +1347,7 @@ class _SecureTruncatingFileHandler(logging.handlers.RotatingFileHandler):
             #
             # ``stream`` is ``TextIOWrapper | None`` per typeshed (None
             # when the file failed to open, e.g. disk full / perms). A
-            # None stream cannot be truncated — skip the truncate (the
+            # None stream cannot be truncated, skip the truncate (the
             # base ``FileHandler.emit`` raises ``RuntimeError`` on a
             # None stream, surfaced as ONE concise stderr line by
             # ``handleError``) rather than crashing inside the
@@ -1361,7 +1361,7 @@ class _SecureTruncatingFileHandler(logging.handlers.RotatingFileHandler):
             # before any other process can observe it.
             #
             # Logged (not silently suppressed) so an operator can see
-            # when the chmod fails — e.g. on NFS with root-squash, on a
+            # when the chmod fails: e.g. on NFS with root-squash, on a
             # read-only filesystem, or under a SELinux policy that
             # denies chmod. Log only the exception class name (not
             # ``str(exc)``, which can include the log file path →
@@ -1372,7 +1372,7 @@ class _SecureTruncatingFileHandler(logging.handlers.RotatingFileHandler):
                 except OSError as exc:
                     log.warning(
                         "[LOG-SETUP] post-truncate chmod to 0o600 failed "
-                        "(%s) — log file may be world-readable; investigate "
+                        "(%s), log file may be world-readable; investigate "
                         "filesystem perms (NFS root-squash, read-only mount, "
                         "SELinux policy)",
                         type(exc).__name__,

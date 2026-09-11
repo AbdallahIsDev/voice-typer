@@ -99,7 +99,7 @@ class TestConfigLoadSave:
         )
 
         c = Config.load()
-        # User values must be preserved — no more forced overrides
+        # User values must be preserved, no more forced overrides
         assert c.streaming_transcription is False
         assert c.paste_on_stop is False
         assert c.device == "cpu"
@@ -125,8 +125,8 @@ class TestConfigLoadSave:
         ["large-v4", "mega.en", "nonexistent-model", "small.en", "base.en", "medium.en", "turbo", "distil-large-v3"],
     )
     def test_load_normalizes_legacy_or_unsupported_model_to_default(self, tmp_path, tmp_config_dir, unsupported_model):
-        """Models not in the (pruned) allowlist — stale legacy entries
-        AND the variants removed by the 2026-08-15 catalog prune — are
+        """Models not in the (pruned) allowlist, stale legacy entries
+        AND the variants removed by the 2026-08-15 catalog prune, are
         reset to the canonical ``DEFAULT_MODEL_SIZE``."""
         config_file = tmp_path / "config.json"
         config_file.write_text(json.dumps({"model_size": unsupported_model}))
@@ -627,7 +627,7 @@ class TestDeprecatedFieldsScrubbedOnLoad:
     def test_config_with_deprecated_fields_at_schema_v3_loads(self, tmp_path, tmp_config_dir):
         """A ``config.json`` at schema_version=3 with the deprecated fields
         still present (e.g. written by a buggy migrator that didn't pop
-        them) is handled gracefully by the unknown-key filter — the keys
+        them) is handled gracefully by the unknown-key filter, the keys
         are silently dropped (with a WARNING log) and the remaining
         fields load normally. No fallback to defaults occurs."""
         config_file = tmp_path / "config.json"
@@ -635,7 +635,7 @@ class TestDeprecatedFieldsScrubbedOnLoad:
         config_file.write_text(json.dumps(stale_config))
 
         c = Config.load()
-        # The non-deprecated field survived — no fallback to defaults.
+        # The non-deprecated field survived, no fallback to defaults.
         assert c.hotkey == "<f9>"
         # The deprecated field is NOT on the instance.
         assert not hasattr(c, "silence_rms_threshold")

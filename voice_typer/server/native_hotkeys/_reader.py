@@ -1,4 +1,4 @@
-"""Native hotkey backend — {name}."""
+"""Native hotkey backend, {name}."""
 
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ class _ReaderMixin:
     # Members provided by the composed ``SubprocessHotkeyBackend``
     # (``_core.py`` ``__init__``): cross-mixin attribute access is
     # runtime-valid but pyrefly cannot see it on a standalone mixin.
-    # Annotations only — no values — so no runtime attribute is created
+    # Annotations only, no values, so no runtime attribute is created
     # and the runtime MRO is unaffected (same pattern as
     # dictation_pipeline's mixin declarations and model_manager's
     # ``ChangeMixin``).
@@ -62,11 +62,11 @@ class _ReaderMixin:
         """
         while not self._stop_event.is_set():
             if self._process is None or self._process.poll() is not None:
-                # Process exited — decide whether to restart
+                # Process exited, decide whether to restart
                 if self._stop_event.is_set():
                     return
                 with self._restart_lock:
-                    # Re-check under lock — another reader thread may have
+                    # Re-check under lock, another reader thread may have
                     # already restarted while we were waiting for the lock.
                     if self._process is not None and self._process.poll() is None:
                         # Another thread is handling the restart; exit cleanly
@@ -99,7 +99,7 @@ class _ReaderMixin:
                     MAX_RESTART_ATTEMPTS,
                     delay,
                 )
-                # Don't sleep with the GIL — use Event.wait for early cancel
+                # Don't sleep with the GIL: use Event.wait for early cancel
                 if self._stop_event.wait(timeout=delay):
                     return
                 try:
@@ -135,16 +135,16 @@ class _ReaderMixin:
                 line_bytes = self._process.stdout.readline()
             except Exception:
                 # Read failure (broken pipe / closed stream) is treated as
-                # EOF below, but leave a breadcrumb — a binary that dies
+                # EOF below, but leave a breadcrumb, a binary that dies
                 # mid-handshake looks identical to a clean exit otherwise.
                 log.debug(
-                    "[NATIVE-HOTKEY] readline() failed on %s binary stdout — treating as EOF",
+                    "[NATIVE-HOTKEY] readline() failed on %s binary stdout, treating as EOF",
                     self.platform_name,
                     exc_info=True,
                 )
                 line_bytes = b""
             if not line_bytes:
-                # EOF — process likely exited
+                # EOF, process likely exited
                 continue
 
             line = line_bytes.decode("utf-8", errors="replace").rstrip("\r\n")
@@ -222,7 +222,7 @@ class _ReaderMixin:
         watchdog knows the binary implements the PING/PONG protocol.
         From then on, PONG absence is a reliable hung-binary signal.
 
-        Does NOT update ``_last_event_received_at`` — PONG is a
+        Does NOT update ``_last_event_received_at``: PONG is a
         separate liveness signal so the watchdog can distinguish
         "alive and responding to PING" from "alive but ignoring PING"
         (the latter is a strong signal of a stuck event loop).
@@ -242,7 +242,7 @@ class _ReaderMixin:
         self._ready_event.set()
         self._restart_attempts = 0
         # DEBUG: the dispatcher's "[HOTKEY] Registration OK" INFO line
-        # is emitted right after start() returns — a second INFO here
+        # is emitted right after start() returns, a second INFO here
         # duplicated the same readiness event.
         log.debug("[NATIVE-HOTKEY] %s binary is READY", self.platform_name)
 
@@ -260,7 +260,7 @@ class _ReaderMixin:
         Older binaries that don't emit VERSION leave ``_binary_version``
         as None; the factory's expected-version check is then a no-op
         (no comparison possible). A mismatch is a diagnostic signal
-        only — the binary is still functional for the wire-protocol
+        only, the binary is still functional for the wire-protocol
         events we care about, so we don't fail the backend.
 
         ``payload`` is the version string (e.g. ``"1.0.0"``) with no
@@ -282,7 +282,7 @@ class _ReaderMixin:
         )
         expected = getattr(self, "_expected_version", None)
         if expected is None:
-            # No manifest entry for this binary — skip the comparison.
+            # No manifest entry for this binary, skip the comparison.
             # This is the case for tests that construct backends
             # directly without going through the factory, and for
             # dev-tree binaries whose filename isn't in the manifest.

@@ -26,7 +26,7 @@
 use super::*;
 
 // The supervisor retry cap is `SUPERVISOR_BACKOFF_MS.len()` (the
-// schedule `respawn_inner` iterates) — there is no separate
+// schedule `respawn_inner` iterates): there is no separate
 // `SUPERVISOR_MAX_RETRIES` constant anymore (it was production-dead;
 // the mig* gate tests pin the cap as a schedule-length invariant too).
 // It's imported here via `use super::*;`
@@ -53,7 +53,7 @@ fn test_supervisor_backoff_constants() {
         5,
         "SUPERVISOR_BACKOFF_MS.len() is the supervisor retry cap and must be 5 (then fall back to full-app relaunch)"
     );
-    // Verify the doubling property explicitly — guards against an
+    // Verify the doubling property explicitly, guards against an
     // accidental edit that breaks the geometric progression.
     for i in 1..SUPERVISOR_BACKOFF_MS.len() {
         assert_eq!(
@@ -88,7 +88,7 @@ fn test_shutdown_ack_timeout_constant() {
 /// 30s budget gives the sidecar time to run its full audited
 /// cleanup (history_db.flush, crash_recovery.flush, native
 /// hotkey binary teardown, WAL checkpoint) before the host's
-/// force-kill backstop fires — preventing WAL corruption + native
+/// force-kill backstop fires: preventing WAL corruption + native
 /// binary orphan that the prior 2s budget caused.
 #[test]
 fn test_exit_shutdown_ack_timeout_constant() {
@@ -102,7 +102,7 @@ fn test_exit_shutdown_ack_timeout_constant() {
     // undercuts the sidecar's full cleanup window. Either is a bug.
     assert!(
         EXIT_SHUTDOWN_ACK_TIMEOUT_MS > SHUTDOWN_ACK_TIMEOUT_MS,
-        "EXIT_SHUTDOWN_ACK_TIMEOUT_MS ({}) must be > SHUTDOWN_ACK_TIMEOUT_MS ({}) — the exit path needs a longer budget than the UI-active path",
+        "EXIT_SHUTDOWN_ACK_TIMEOUT_MS ({}) must be > SHUTDOWN_ACK_TIMEOUT_MS ({}): the exit path needs a longer budget than the UI-active path",
         EXIT_SHUTDOWN_ACK_TIMEOUT_MS,
         SHUTDOWN_ACK_TIMEOUT_MS
     );

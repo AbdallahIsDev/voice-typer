@@ -1,9 +1,9 @@
 /**
- * vitest suite — App.tsx `consent_required` push subscription.
+ * vitest suite, App.tsx `consent_required` push subscription.
  *
  * The backend publishes a `consent_required` push event when a
  * consent-gated action is refused: dictation start without
- * ``voice_biometric_consent`` (recording_lifecycle.py — the path for
+ * ``voice_biometric_consent`` (recording_lifecycle.py, the path for
  * entry points the renderer can't gate client-side: F2 hotkey, tray
  * click action, sandboxed bubble window), cloud-provider consents,
  * the LLM-polish consent, the offline-pack consent. App.tsx
@@ -12,13 +12,13 @@
  * of the old toast + Settings navigation.
  *
  * This test mocks:
- *   - `usePythonEvent` — captures the registered `consent_required`
+ *   - `usePythonEvent`, captures the registered `consent_required`
  *     handler so the test can invoke it directly with synthetic
  *     payloads.
- *   - `useConnection` — pins `connectionStatus` to "connected" so App
+ *   - `useConnection`, pins `connectionStatus` to "connected" so App
  *     renders the active page (the handler is app-level, not
  *     page-level, so the page under render doesn't matter).
- *   - All child pages + window chrome — trivial stubs so the App
+ *   - All child pages + window chrome, trivial stubs so the App
  *     render graph stays isolated.
  *
  * Assertions:
@@ -28,7 +28,7 @@
  *      a dictation retry (Allow → toggle_dictation).
  *   2. Same for a cloud-provider consent field (cloud_groq_consent).
  *   3. Invoking the handler with the HuggingFace shape
- *      (`{ provider, model }` — no `consent_field`) does NOT open the
+ *      (`{ provider, model }`, no `consent_field`) does NOT open the
  *      gate: that shape is handled by the model-download flow.
  */
 import { act, cleanup, render, waitFor } from "@testing-library/react";
@@ -43,7 +43,7 @@ const { mockCall, mockPythonEvent, capturedHandlerRef, mockNavigate } =
 		mockCall: vi.fn(),
 		mockPythonEvent: vi.fn(
 			(type: string, handler: (data?: unknown) => unknown) => {
-				// Capture only the consent_required handler — App registers
+				// Capture only the consent_required handler, App registers
 				// several usePythonEvent subscriptions (navigate,
 				// paste_failed, download_progress, consent_required).
 				if (type === "consent_required") {
@@ -172,7 +172,7 @@ import { useAppStore } from "@/stores/appStore";
 import type { VoiceTyperConfig } from "@/types/config";
 import { makeConfig } from "./helpers/fixtures";
 
-describe("App — consent_required push handler (unified point-of-use consent gate)", () => {
+describe("App, consent_required push handler (unified point-of-use consent gate)", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		cleanup();
@@ -263,7 +263,7 @@ describe("App — consent_required push handler (unified point-of-use consent ga
 		expect(capturedHandlerRef.current).not.toBeNull();
 
 		// The HuggingFace consent event (service/model.py) carries
-		// provider/model — the model-download flow handles it, so the
+		// provider/model, the model-download flow handles it, so the
 		// app-level handler must ignore it (no consent_field).
 		capturedHandlerRef.current?.({
 			provider: "huggingface",

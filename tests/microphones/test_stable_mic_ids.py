@@ -2,13 +2,13 @@
 
 Covers two device-handling contracts at the ``server_platform`` layer:
 
-1. **Invalid-name filtering** — Windows WASAPI/PortAudio can expose input
+1. **Invalid-name filtering**, Windows WASAPI/PortAudio can expose input
    endpoints with empty or placeholder friendly names (the user sees a
    literal ``Input ()`` row). :func:`_is_invalid_device_name` drops those
    from :func:`list_microphones` output while keeping legitimate names
    (e.g. ``"Line 1 (Virtual Audio Cable)"``) intact.
 
-2. **Stable ids** — PortAudio indices are NOT stable across reboots /
+2. **Stable ids**, PortAudio indices are NOT stable across reboots /
    replugs, so the persisted microphone id is built from host API +
    display name (with a ``#N`` disambiguator for duplicate names).
    Legacy configs that stored a bare index string keep working via the
@@ -120,13 +120,13 @@ class TestInvalidDeviceNamePredicate:
 
     def test_generic_label_without_empty_parens_stays_valid(self):
         """A bare generic word WITHOUT an empty parenthetical is not our
-        call to filter (cross-platform safety) — only the placeholder
+        call to filter (cross-platform safety), only the placeholder
         signature (generic label + ALL parens empty) is invalid."""
         assert _is_invalid_device_name("Microphone Array") is False
 
     def test_coexists_with_non_mic_predicate(self):
         """The new predicate is orthogonal to the stereo-mix/line-in
-        filter — both run in the enumeration loop."""
+        filter, both run in the enumeration loop."""
         assert _is_non_mic_device("Stereo Mix (Realtek Audio)")
         assert not _is_invalid_device_name("Stereo Mix (Realtek Audio)")
 
@@ -323,7 +323,7 @@ class TestFindMicrophoneByIdLegacyCompat:
 
     def test_legacy_digit_id_resolves_by_live_index(self, monkeypatch):
         """Old persisted id "7" resolves to whatever is enumerated at
-        index 7 — pre-stable-id behavior — and carries the NEW stable
+        index 7 (pre-stable-id behavior) and carries the NEW stable
         id going forward."""
         monkeypatch.setattr(
             "voice_typer.server.server_platform.microphone_list.list_microphones",
@@ -381,7 +381,7 @@ class TestResolveMicIdToDeviceIndex:
         assert resolve_mic_id_to_device_index("7") == 7
 
     def test_legacy_digit_int_input_resolves(self, monkeypatch):
-        """int mic ids (defensive — config schema is str|None) still resolve."""
+        """int mic ids (defensive, config schema is str|None) still resolve."""
         self._patch_mics(monkeypatch)
         assert resolve_mic_id_to_device_index(5) == 5
 
@@ -406,7 +406,7 @@ class TestResolveMicIdToDeviceIndex:
 
     def test_legacy_compound_id_empty_name_skips_substring_match(self, monkeypatch):
         """Corrupt value "5|" must NOT substring-match "" (which would
-        return the FIRST enumerated device) — index fallback only."""
+        return the FIRST enumerated device), index fallback only."""
         mics = [
             {"id": "MME|First Mic", "index": 0, "name": "First Mic", "host_api": "MME"},
             {"id": "MME|Other", "index": 5, "name": "Other", "host_api": "MME"},
@@ -459,7 +459,7 @@ class TestFindMicrophoneByIdCompoundCompat:
 
     def test_stable_id_never_enters_compound_parser(self, monkeypatch):
         """A stable id whose host-API segment is non-numeric must resolve
-        ONLY via exact match — never parsed as "<index>|<name>"."""
+        ONLY via exact match, never parsed as "<index>|<name>"."""
         seen_calls = []
         real = self._mics
 
@@ -504,7 +504,7 @@ class TestDeviceManagerResolveDeviceStableId:
         )
         # Falls through to the legacy compound parser: no numeric leading
         # segment → the name fragment is returned as the device specifier
-        # (pre-existing behavior — PortAudio then reports the device
+        # (pre-existing behavior, PortAudio then reports the device
         # unavailable and the normal hot-swap fallback takes over).
         assert dm._resolve_device() == "Gone"
 
@@ -526,7 +526,7 @@ class TestDeviceManagerResolveDeviceStableId:
             ),
         )
         # Exact match on the compound string would be wrong if it pointed
-        # elsewhere — here it matches, so its index wins.
+        # elsewhere, here it matches, so its index wins.
         assert dm._resolve_device() == 99
 
     def test_legacy_compound_form_prefers_name_lookup(self, monkeypatch):
@@ -689,7 +689,7 @@ class TestDeviceManagerResolveDeviceRebootRoundTrip:
 
     def test_corrupt_compound_empty_name_uses_saved_index(self, monkeypatch):
         """Corrupt value "7|" must NOT name-match "" (which would return
-        the first enumerated device's index) — falls back to index 7."""
+        the first enumerated device's index), falls back to index 7."""
         _install_fake_sounddevice(monkeypatch, [_sd_device(0, "First Mic"), _sd_device(7, "Other")])
         dm = self._make_dm("7|", monkeypatch)
         assert dm._resolve_device() == 7

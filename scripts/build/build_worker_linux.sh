@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Voice Typer — Nuitka worker build (Linux x86_64 + aarch64)
+# Voice Typer. Nuitka worker build (Linux x86_64 + aarch64)
 #
-# Plan-runtime-pack-split §4.4 / §11.5 — builds the runtime-pack worker exe
+# Plan-runtime-pack-split §4.4 / §11.5, builds the runtime-pack worker exe
 # (voice-typer-worker-<triple>), the heavy-ML process that owns
 # onnxruntime (VAD + Parakeet) + ctranslate2/faster_whisper (Whisper
 # fallback) + numpy/scipy/av/pyrnnoise + the bundled silero_vad.onnx.
@@ -32,10 +32,10 @@
 # The CI step is gated on hashFiles('scripts/build/build_worker_linux.sh')
 # so it stays inert until this script lands (C-CI-2: do not edit the workflow).
 #
-# Linux worker is UNSIGNED by design (ADR-0020 §13.3 — no Linux signing
+# Linux worker is UNSIGNED by design (ADR-0020 §13.3, no Linux signing
 # secrets exist; the workflow's sign=true gate fails fast at lines 393-397).
 #
-# CI gate contract (binding — C-CI-6/8/9/13): see build_worker_windows.sh
+# CI gate contract (binding. C-CI-6/8/9/13): see build_worker_windows.sh
 # header for the full rationale. Same flags apply here, with the Linux
 # platform differences: no --windows-console-mode=disable, onefile tempdir
 # spec uses XDG_CACHE_HOME, output has no .exe suffix, binary is chmod +x'd.
@@ -83,7 +83,7 @@ if [[ "$ARCH" == "--check" ]]; then
 fi
 if [[ "$ARCH" != "x86_64" && "$ARCH" != "aarch64" ]]; then
     # Allow no-arg default (auto-detect from uname -m) for symmetry with the
-    # Windows/macOS sibling scripts — but only the CI passes ARCH explicitly.
+    # Windows/macOS sibling scripts, but only the CI passes ARCH explicitly.
     if [[ -z "$ARCH" ]]; then
         case "$(uname -m)" in
             x86_64|amd64)   ARCH="x86_64" ;;
@@ -92,8 +92,8 @@ if [[ "$ARCH" != "x86_64" && "$ARCH" != "aarch64" ]]; then
         esac
     else
         echo "Usage: $0 {x86_64|aarch64}" >&2
-        echo "  x86_64  — native build on x86_64 host" >&2
-        echo "  aarch64 — native build on aarch64 host, OR cross-build on x86_64" >&2
+        echo "  x86_64 , native build on x86_64 host" >&2
+        echo "  aarch64, native build on aarch64 host, OR cross-build on x86_64" >&2
         exit 1
     fi
 fi
@@ -177,18 +177,18 @@ fi
 CT2_LIB_DIR="$SITE/ctranslate2/lib"
 CT2_LIBS_DIR="$SITE/ctranslate2/libs"
 # ctranslate2/lib is mandatory on Linux (libctranslate2.so + libiomp5.so /
-# libgomp.so live here) — IF ctranslate2 is installed. The worker may or may
+# libgomp.so live here). IF ctranslate2 is installed. The worker may or may
 # not need ctranslate2 (Phase 2b wires the Whisper fallback in); guard it so
 # a CPU-only env without ctranslate2 still produces a working worker.
 if [[ -d "$CT2_LIB_DIR" ]]; then
     echo "[build_worker_linux] CT2_LIB_DIR=$CT2_LIB_DIR"
 else
-    echo "[build_worker_linux] NOTE: $CT2_LIB_DIR not found — ctranslate2 not installed (Whisper fallback unavailable in this build)."
+    echo "[build_worker_linux] NOTE: $CT2_LIB_DIR not found, ctranslate2 not installed (Whisper fallback unavailable in this build)."
 fi
 
 # ─── Verify Nuitka is installed in the pybs env ─────────────────────────────
 if ! "$PYBS_PYTHON" -c 'import nuitka' >/dev/null 2>&1; then
-    echo "[build_worker_linux] Nuitka not installed in pybs env — installing..."
+    echo "[build_worker_linux] Nuitka not installed in pybs env, installing..."
     "$PYBS_PYTHON" -m pip install --quiet "nuitka==2.8.10" zstandard
 fi
 # C-CI-6: nuitka must be exactly 2.8.10 (NU-105).
@@ -210,13 +210,13 @@ fi
 
 # ─── Verify voice_typer is importable from the pybs env ─────────────────────
 if ! "$PYBS_PYTHON" -c 'import voice_typer' >/dev/null 2>&1; then
-    echo "[build_worker_linux] voice_typer not installed in pybs env — using PYTHONPATH=$PROJECT_ROOT"
+    echo "[build_worker_linux] voice_typer not installed in pybs env, using PYTHONPATH=$PROJECT_ROOT"
     export PYTHONPATH="$PROJECT_ROOT${PYTHONPATH:+:$PYTHONPATH}"
 fi
 
 # ─── Determine onefile tempdir spec ─────────────────────────────────────────
 # Per-worker extraction dir so stale extracts are cleanable and don't collide
-# with the sidecar's or the prewarm's (C-CI-9 — onefile-tempdir-spec stays).
+# with the sidecar's or the prewarm's (C-CI-9, onefile-tempdir-spec stays).
 ONEFILE_TEMPDIR="${XDG_CACHE_HOME:-$HOME/.cache}/voice-typer/worker-onefile-tmp"
 
 # ─── Build output paths ─────────────────────────────────────────────────────
@@ -282,7 +282,7 @@ NUITKA_ARGS=(
     --output-filename="voice-typer-worker-$TRIPLE"
     voice_typer/worker/__main__.py
 )
-# Optional ctranslate2 DLL/so inclusion — only if the install exists.
+# Optional ctranslate2 DLL/so inclusion, only if the install exists.
 if [[ -d "$CT2_LIB_DIR" ]]; then
     NUITKA_ARGS+=(--include-data-dir="$CT2_LIB_DIR=$CT2_LIB_DIR")
 fi

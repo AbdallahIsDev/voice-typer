@@ -1,4 +1,4 @@
-"""Microphone device-change watcher — shared state, lifecycle, and callback dispatch.
+"""Microphone device-change watcher, shared state, lifecycle, and callback dispatch.
 
 The ``MicrophoneDeviceWatcher`` class inherits from platform-specific mixins
 (:mod:`._linux`, :mod:`._macos`, :mod:`._windows`).  The mixins are defined
@@ -30,47 +30,47 @@ log = logging.getLogger(__name__)
 class MicrophoneDeviceWatcher(_LinuxMixin, _MacOSMixin, _WindowsMixin):
     """Watches for microphone device changes and invalidates the cache.
 
-    The watcher is intentionally best-effort: if the platform is
-    unsupported, the thread fails to start, or the watcher thread
-    crashes, the caller's 30s TTL cache (in ``recording.py``) still
-    refreshes the device list. This class never raises from
-    ``start()``/``stop()`` so a watcher failure cannot take down the
-    recorder.
+     The watcher is intentionally best-effort: if the platform is
+     unsupported, the thread fails to start, or the watcher thread
+     crashes, the caller's 30s TTL cache (in ``recording.py``) still
+     refreshes the device list. This class never raises from
+     ``start()``/``stop()`` so a watcher failure cannot take down the
+     recorder.
 
-    Parameters
-    ----------
-    on_change:
-        Zero-argument callback invoked (from the watcher thread) when
-        a device change is detected. The callback is wrapped in a
-        try/except so an exception in the callback does not kill the
-        watcher thread.
-    poll_interval:
-        Seconds between ``/dev/snd`` directory polls on Linux.
-        Defaults to 5.0s (bumped from 1.0s to cut constant 1 Hz idle
-        wakeups for app lifetime). Exposed as a parameter so tests can
-        pass a smaller value for fast, deterministic verification.
+     Parameters
+     ----------
+     on_change:
+         Zero-argument callback invoked (from the watcher thread) when
+         a device change is detected. The callback is wrapped in a
+         try/except so an exception in the callback does not kill the
+         watcher thread.
+     poll_interval:
+         Seconds between ``/dev/snd`` directory polls on Linux.
+         Defaults to 5.0s (bumped from 1.0s to cut constant 1 Hz idle
+         wakeups for app lifetime). Exposed as a parameter so tests can
+         pass a smaller value for fast, deterministic verification.
 
-    — active-mic-lost detection
-    -----------------------------------
-    The watcher also exposes an OPTIONAL active-mic-lost hook so
-    ``RecordingController`` can be notified when the microphone backing
-    an in-flight recording is unplugged.  Three methods register the
-    hook (all default to no-op if unset, preserving backward
-    compatibility):
+    , active-mic-lost detection
+     -----------------------------------
+     The watcher also exposes an OPTIONAL active-mic-lost hook so
+     ``RecordingController`` can be notified when the microphone backing
+     an in-flight recording is unplugged.  Three methods register the
+     hook (all default to no-op if unset, preserving backward
+     compatibility):
 
-    - :meth:`set_active_mic_id` — set/clear the currently-active mic id
-      (call with the mic id when a recording starts, ``None`` when it
-      stops).
-    - :meth:`set_on_active_mic_lost` — register the zero-arg callback
-      to fire when the active mic disappears from the device list.
-      The controller's implementation should cancel the recording and
-      emit a tray notification.
-    - :meth:`set_device_id_provider` — register a callable returning
-      the current list of available mic ids.  Used by the watcher to
-      detect "active mic gone" after a device-change event.
+     - :meth:`set_active_mic_id`: set/clear the currently-active mic id
+       (call with the mic id when a recording starts, ``None`` when it
+       stops).
+     - :meth:`set_on_active_mic_lost`: register the zero-arg callback
+       to fire when the active mic disappears from the device list.
+       The controller's implementation should cancel the recording and
+       emit a tray notification.
+     - :meth:`set_device_id_provider`: register a callable returning
+       the current list of available mic ids.  Used by the watcher to
+       detect "active mic gone" after a device-change event.
 
-    The check runs inside :meth:`_invoke_callback` AFTER the cache-
-    invalidation callback, so the provider sees a fresh device list.
+     The check runs inside :meth:`_invoke_callback` AFTER the cache-
+     invalidation callback, so the provider sees a fresh device list.
     """
 
     def __init__(
@@ -102,7 +102,7 @@ class MicrophoneDeviceWatcher(_LinuxMixin, _MacOSMixin, _WindowsMixin):
     def set_idle(self, is_idle: bool) -> None:
         self._is_idle = bool(is_idle)
         log.debug(
-            "[MIC-WATCHER] set_idle(%s) — poll cadence now %ss",
+            "[MIC-WATCHER] set_idle(%s), poll cadence now %ss",
             is_idle,
             self._idle_poll_interval_s if is_idle else self._active_poll_interval_s,
         )
@@ -305,7 +305,7 @@ class MicrophoneDeviceWatcher(_LinuxMixin, _MacOSMixin, _WindowsMixin):
         if active_mic_id not in current_ids:
             log.info(
                 "[MIC-WATCHER] Active mic %r no longer in device list "
-                "(%d devices available) — firing on_active_mic_lost",
+                "(%d devices available), firing on_active_mic_lost",
                 active_mic_id,
                 len(current_ids),
             )

@@ -14,7 +14,7 @@ use tokio_tungstenite::tungstenite::Message;
 // `crate::sidecar::{handle, shutdown}`. The re-exports below keep
 // existing `crate::state::SidecarHandle` /
 // `crate::state::shutdown_sidecar_for_exit` imports resolving
-// (create-first split — see AGENTS.md E1).
+// (create-first split: see AGENTS.md E1).
 pub(crate) use crate::sidecar::SidecarHandle;
 // `shutdown_sidecar_for_exit` is consumed only by the sibling
 // `state_tests.rs` (cfg(test)) and `sidecar/ws/heartbeat_tests.rs`;
@@ -39,7 +39,7 @@ pub(crate) use crate::sidecar::lifecycle::{on_host_exit, on_quit_app, on_relaunc
 // lock is downgraded to "the value may be in an inconsistent state,
 // but we can still make progress". For our state fields (child handle,
 // ws_tx, pending) the worst case is that a half-written slot reads as
-// `None` (treated the same as "sidecar not connected") — which is
+// `None` (treated the same as "sidecar not connected"), which is
 // strictly safer than panicking the resilience layer.
 //
 // Usage: replace `state.<field>.lock().unwrap()` → `lock(&state.<field>)`.
@@ -49,12 +49,12 @@ pub(crate) use crate::sidecar::lifecycle::{on_host_exit, on_quit_app, on_relaunc
 // `mutex_lock` alias).
 //originally used the inline `.unwrap_or_else(|e| e.into_inner())`
 // form in `logging.rs`; the merged version routes through this helper
-// for consistency (no circular-dep concern — `state.rs` only uses the
+// for consistency (no circular-dep concern, `state.rs` only uses the
 // `log::warn!` macro, which expands to `log`-crate calls, not to
 // `logging.rs` calls).
 //
 // The `#[allow(dead_code)]` that used to live
-// here was STALE — the helper IS used at 10+ production call sites
+// here was STALE: the helper IS used at 10+ production call sites
 // (`ws.rs`, `main.rs`, `sidecar_cmds.rs`, `supervisor.rs`, `state.rs`,
 // `bubble.rs`). Removed the suppression so the compiler will report any
 // future drift toward "unused" as a real warning.
@@ -70,11 +70,11 @@ pub(crate) fn lock<T>(m: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 ///
 //removed the redundant outer `Arc`. `SidecarState` itself is
 /// always shared via `Arc<SidecarState>`, so the inner `AsyncMutex` is
-/// already shared — wrapping it in another `Arc` doubled the indirection
+/// already shared: wrapping it in another `Arc` doubled the indirection
 /// without any benefit. `AsyncMutex::lock` takes `&self`, so existing
 /// call sites (`state.pending.lock().await`) compile unchanged. The
 /// only cross-file impact is `main.rs`'s struct-literal initializer,
-//which must drop the `Arc::new(...)` wrapper — `main.rs` constructs
+//which must drop the `Arc::new(...)` wrapper, `main.rs` constructs
 //the state via `SidecarState::new()`, so no live call site is affected.
 pub(crate) type PendingMap = AsyncMutex<HashMap<u64, oneshot::Sender<Value>>>;
 
@@ -84,7 +84,7 @@ pub(crate) type PendingMap = AsyncMutex<HashMap<u64, oneshot::Sender<Value>>>;
 ///
 //previously `mpsc::UnboundedSender<Message>`. Switched
 /// to a bounded `mpsc::Sender<Message>` (capacity
-/// `sidecar::ws::WS_WRITER_CHANNEL_CAPACITY`, currently 64 — see
+/// `sidecar::ws::WS_WRITER_CHANNEL_CAPACITY`, currently 64, see
 /// `sidecar::ws::reconnect_ws`) so a runaway renderer (or a stuck WS
 /// writer task) cannot enqueue unbounded frames and OOM the host.
 /// Callers in `commands/bubble.rs` and `commands/sidecar_cmds.rs`
@@ -95,18 +95,18 @@ pub(crate) type WsWriterTx = mpsc::Sender<Message>;
 pub(crate) struct SidecarState {
     /// Child handle for kill_children backstop.
     pub(crate) child: Mutex<Option<SidecarHandle>>,
-    /// WS writer channel — None when the WS is disconnected.
+    /// WS writer channel: None when the WS is disconnected.
     pub(crate) ws_tx: Mutex<Option<WsWriterTx>>,
     /// Pending dispatch requests (id → response sender).
     pub(crate) pending: PendingMap,
     /// Next request id.
     pub(crate) next_id: AtomicU64,
-    /// Shutdown signal — set when the app is quitting so the supervisor doesn't
+    /// Shutdown signal: set when the app is quitting so the supervisor doesn't
     /// respawn the sidecar during shutdown.
     pub(crate) shutting_down: AtomicBool,
     /// Whether the host system tray was successfully created
     /// (`tray::create_tray` in `main.rs`'s setup). The main-window
-    /// close handler only hides-to-tray when this is `true` — on a
+    /// close handler only hides-to-tray when this is `true`, on a
     /// desktop where the tray could not be created (e.g. Linux Wayland
     /// without StatusNotifierItem support), hiding the last window
     /// would strand the user with no tray icon, no Dock entry, and no
@@ -141,7 +141,7 @@ pub(crate) struct SidecarState {
     ///
     //coordination note: `main.rs`'s `SidecarState { ... }`
     /// struct-literal initializer must add `heartbeat_handle:
-    /// AsyncMutex::new(None),` — OR switch to `SidecarState::new()`.
+    /// AsyncMutex::new(None),`, OR switch to `SidecarState::new()`.
     pub(crate) heartbeat_handle: AsyncMutex<Option<tauri::async_runtime::JoinHandle<()>>>,
     /// Monotonic generation counter bumped on every successful
     /// `queue_auth_and_store_ws_tx` (i.e. every time a fresh `ws_tx`
@@ -160,7 +160,7 @@ pub(crate) struct SidecarState {
     /// "sidecar not connected" even though the new sidecar is alive,
     /// forcing another respawn and creating a flap loop.
     ///
-    /// `AtomicU64` (not `AtomicU32`) for headroom — even at 1000
+    /// `AtomicU64` (not `AtomicU32`) for headroom, even at 1000
     /// reconnects/sec the counter wouldn't wrap for ~584 million years.
     /// Initialized to 0; the first `queue_auth_and_store_ws_tx` bumps
     /// it to 1, so a never-connected state (gen=0) is distinguishable
@@ -172,7 +172,7 @@ pub(crate) struct SidecarState {
     /// up sub-ms (vs the prior 100ms polling loop). `Notify` stores a
     /// single permit, so a `notify_one()` fired BEFORE the supervisor
     /// starts awaiting `notified()` is consumed by the very next
-    /// `notified()` call — no race window.
+    /// `notified()` call: no race window.
     pub(crate) shutdown_notify: Notify,
     /// Locale pushed by the main-window renderer via the
     /// `set_host_locale` command (`window.window_.setLocale(locale)`
@@ -181,7 +181,7 @@ pub(crate) struct SidecarState {
     /// dialogs (single-instance error, critical-error dialog,
     /// model-folder picker, export save-as dialogs). The host may
     /// later consume this value to localize its own native surfaces;
-    /// today it is the parity sink — the renderer's locale push
+    /// today it is the parity sink, the renderer's locale push
     /// resolves with the same `{ok: bool}` envelope on both runtimes
     /// instead of being rejected under Tauri. `None` until the first
     /// push arrives.
@@ -191,7 +191,7 @@ pub(crate) struct SidecarState {
 impl SidecarState {
     /// Convenience constructor so `main.rs`'s struct
     /// literal can be replaced with `SidecarState::new()`. `pub(crate)`
-    /// so `main.rs` can switch to it — also
+    /// so `main.rs` can switch to it, also
     /// future-proofs against further field additions.
     pub(crate) fn new() -> Self {
         Self {
@@ -215,10 +215,10 @@ impl SidecarState {
     }
 
     /// Mark the host as shutting down and wake the supervisor's
-    /// backoff wait — the two steps must ALWAYS run back-to-back in
+    /// backoff wait: the two steps must ALWAYS run back-to-back in
     /// this order:
     ///
-    /// 1. `shutting_down.swap(true, SeqCst)` (idempotency guard — the
+    /// 1. `shutting_down.swap(true, SeqCst)` (idempotency guard, the
     ///    first swapper proceeds with teardown, later callers see
     ///    `true` and short-circuit), immediately followed by
     /// 2. `self.shutdown_notify.notify_one()`.
@@ -230,21 +230,21 @@ impl SidecarState {
     /// `shutting_down`; with it, the wakeup latency is sub-ms. The
     /// `Notify` stores a single permit, so a `notify_one()` fired
     /// before the supervisor enters `notified()` is consumed by the
-    /// very next `notified()` call — no lost-wakeup window.
+    /// very next `notified()` call: no lost-wakeup window.
     ///
     /// The production teardown paths call THIS method:
     /// `sidecar/shutdown.rs::shutdown_sidecar_for_exit` (app-exit path),
     /// `sidecar/lifecycle.rs::on_quit_app` (tray Quit) + the
     /// pre-restart cooperative teardown in `sidecar/lifecycle.rs::on_relaunch_app`,
     /// the supervisor-exhaustion relaunch arm in
-    /// `sidecar/supervisor.rs` (sidecar already dead there — flag only),
+    /// `sidecar/supervisor.rs` (sidecar already dead there, flag only),
     /// and `commands/sidecar_cmds/shutdown.rs::shutdown_sidecar_inner`
-    /// (the renderer-invocable `shutdown_sidecar` command body) — it is the
+    /// (the renderer-invocable `shutdown_sidecar` command body), it is the
     /// canonical, unit-tested anchor for the contract (exercised by
     /// `state_tests.rs`, which asserts both the swap semantics and that a
     /// pre-registered `notified()` waiter completes without any sleep).
     /// Keep any future call site on THIS method (or on the same adjacent
-    /// pair) — never re-order the two steps or separate them with I/O.
+    /// pair): never re-order the two steps or separate them with I/O.
     pub(crate) fn begin_shutdown(&self) -> bool {
         use std::sync::atomic::Ordering;
         let already_shutting_down = self.shutting_down.swap(true, Ordering::SeqCst);
@@ -252,7 +252,7 @@ impl SidecarState {
         already_shutting_down
     }
 
-    /// Record that the system tray was successfully created — called
+    /// Record that the system tray was successfully created, called
     /// from `main.rs`'s `.setup` when `tray::create_tray` returns `Ok`.
     /// `on_main_window_close` consults `tray_available` to choose
     /// hide-to-tray vs. letting the close flow through to app exit;
@@ -269,14 +269,14 @@ impl Default for SidecarState {
     }
 }
 
-// ─── WorkerState (Phase 2a — runtime-pack split, §7) ───────────────────
+// ─── WorkerState (Phase 2a: runtime-pack split, §7) ───────────────────
 //
 // The runtime-pack split adds a SECOND spawned child to the host: the
 // ML worker exe (`voice-typer-worker-<triple>[.exe]`). The slim-core
 // sidecar talks to the worker over a SECOND websocket connection as a
 // CLIENT (a new 1-host↔2-processes pattern, NOT "the same bridge" —
 // see plan-runtime-pack-split §7.1). WorkerState is the parallel of
-// SidecarState for the worker child — a separate struct (NOT an
+// SidecarState for the worker child, a separate struct (NOT an
 // extension of SidecarState) so the two children's lifecycles stay
 // independent: the worker's respawn scheduler must NOT trip the
 // sidecar's circuit breaker (§7.2), and the sidecar's WS disconnect
@@ -286,23 +286,23 @@ impl Default for SidecarState {
 // pending, next_id, shutting_down, respawn_in_progress,
 // child_exit_rx, heartbeat_handle, ws_generation, shutdown_notify)
 // plus worker-specific additions:
-//   - `auth_token: OnceLock<String>` — the per-launch bearer token
+//   - `auth_token: OnceLock<String>`, the per-launch bearer token
 //     passed to the worker via the `VOICE_TYPER_WORKER_TOKEN` env var
 //     (parallel to the sidecar's `VOICE_TYPER_IPC_TOKEN`; same
-//     hmac.compare_digest pattern on the Python side — see
+//     hmac.compare_digest pattern on the Python side, see
 //     `voice_typer/server/ipc/auth.py:61-70`). Stored in a `OnceLock`
 //     because the token is generated ONCE per host launch (NOT
-//     regenerated per worker respawn — the worker inherits the
+//     regenerated per worker respawn: the worker inherits the
 //     host's token so the slim-core sidecar can authenticate to a
 //     respawned worker without re-negotiating).
-//   - `lock_file_path: OnceLock<PathBuf>` — single-instance lock
+//   - `lock_file_path: OnceLock<PathBuf>`, single-instance lock
 //     file (parallel to `VoiceTyperSingleInstance`) preventing
 //     parallel worker spawns across host instances.
 //
 // The `tray_available` field from SidecarState is NOT mirrored: the
 // worker has no UI / tray concern.
 
-/// Worker spawn state — parallel to [`SidecarState`] for the ML worker
+/// Worker spawn state: parallel to [`SidecarState`] for the ML worker
 /// exe (Phase 2a, plan-runtime-pack-split §7). See the module-level
 /// comment above for the architectural rationale.
 pub(crate) struct WorkerState {
@@ -311,7 +311,7 @@ pub(crate) struct WorkerState {
     /// `externalBin` mechanism in release builds, or via
     /// `tokio::process::Command` in dev mode).
     pub(crate) child: Mutex<Option<SidecarHandle>>,
-    /// WS writer channel to the worker — `None` when the WS is
+    /// WS writer channel to the worker, `None` when the WS is
     /// disconnected. The slim-core sidecar (NOT the Tauri host) is the
     /// WS client of the worker; this channel is the writer half of
     /// that connection.
@@ -327,12 +327,12 @@ pub(crate) struct WorkerState {
     /// collide on the host's log correlation.
     #[allow(dead_code)] // wired when the worker RPC dispatcher is managed (Phase 2c)
     pub(crate) next_id: AtomicU64,
-    /// Worker shutdown signal — set when the host is quitting so the
+    /// Worker shutdown signal: set when the host is quitting so the
     /// worker respawn scheduler doesn't restart the worker during
     /// host teardown. SEPARATE from `SidecarState::shutting_down` so
     /// the worker's lifecycle is independent (§7.2).
     pub(crate) shutting_down: AtomicBool,
-    /// Worker respawn serialization flag — same contract as
+    /// Worker respawn serialization flag: same contract as
     /// `SidecarState::respawn_in_progress` but for the worker
     /// supervisor. Acquired with `compare_exchange(false → true)` on
     /// entry; cleared on exit (both Ok and restart paths). Currently
@@ -344,7 +344,7 @@ pub(crate) struct WorkerState {
     /// `shutdown_sidecar_for_exit`) to poll for `CommandEvent::Terminated`.
     pub(crate) child_exit_rx: AsyncMutex<Option<mpsc::Receiver<CommandEvent>>>,
     /// Most recently spawned worker heartbeat task's `JoinHandle`.
-    /// Mirrors `SidecarState::heartbeat_handle` — without storing +
+    /// Mirrors `SidecarState::heartbeat_handle`, without storing +
     /// aborting the previous handle, each reconnect LEAKS the prior
     /// task.
     #[allow(dead_code)] // wired when the worker supervisor is managed (Phase 2c)
@@ -359,7 +359,7 @@ pub(crate) struct WorkerState {
     pub(crate) shutdown_notify: Notify,
     /// Per-launch bearer token passed to the worker via the
     /// `VOICE_TYPER_WORKER_TOKEN` env var. Generated ONCE per host
-    /// launch (NOT regenerated per worker respawn — the worker
+    /// launch (NOT regenerated per worker respawn, the worker
     /// inherits the host's token so the slim-core sidecar can
     /// authenticate to a respawned worker without re-negotiating).
     /// Auth pattern: the worker validates incoming WS frames by

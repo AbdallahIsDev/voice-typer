@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Voice Typer — Torch-free bundle assertion (plan-runtime-pack-split §11.3)
+# Voice Typer. Torch-free bundle assertion (plan-runtime-pack-split §11.3)
 #
 # Hard-fails the CI build if the freshly-built Nuitka onefile binary contains
 # any torch import sites or the silero_vad.jit JIT model. This is the
@@ -12,7 +12,7 @@
 #
 # Implementation (per plan §11.3): the Nuitka onefile is a single ~100 MB
 # PE/ELF/Mach-O binary with the payload compressed inline. `strings(1)`
-# extracts printable byte sequences from the binary — enough to catch the
+# extracts printable byte sequences from the binary, enough to catch the
 # module-path strings Nuitka embeds (`torch/__init__.py`, `torch/utils/...`)
 # and the JIT model filename (`silero_vad.jit`). The check is portable:
 # `strings` ships with binutils on Linux/macOS and is in Git Bash / MSYS2
@@ -24,9 +24,9 @@
 #   bash scripts/build/check_bundle_torch_free.sh <path-to-binary>
 #
 # Exit codes:
-#   0  — bundle is torch-free (no `torch.` import sites, no `silero_vad.jit`).
-#   1  — bundle contains a forbidden torch import site or the JIT model.
-#   2  — invocation error (missing binary, missing arg, internal failure).
+#   0 , bundle is torch-free (no `torch.` import sites, no `silero_vad.jit`).
+#   1 , bundle contains a forbidden torch import site or the JIT model.
+#   2 , invocation error (missing binary, missing arg, internal failure).
 #
 # Gate wiring (.github/workflows/tauri-{windows,linux,macos}-build.yml):
 #   - name: Verify sidecar is torch-free (Phase 1c gate, plan §11.3)
@@ -35,7 +35,7 @@
 #       bash scripts/build/check_bundle_torch_free.sh "$BIN"
 # The `hashFiles` guard keeps the step INERT until this script lands; once
 # it exists the step activates and hard-fails on any torch sighting. Do NOT
-# weaken the patterns below to make a torch-bearing bundle pass — the
+# weaken the patterns below to make a torch-bearing bundle pass, the
 # gate's value IS its strictness (C-CI-2: do not edit the workflow file).
 # =============================================================================
 set -euo pipefail
@@ -56,17 +56,17 @@ if [[ ! -f "$BIN" ]]; then
 fi
 
 # ─── Forbidden patterns ──────────────────────────────────────────────────────
-# `torch\.` — catches every Nuitka-embedded module path like
+# `torch\.`: catches every Nuitka-embedded module path like
 #   `torch/__init__.py`, `torch/_utils.py`, `torch/nn/modules/...`. Nuitka
 #   records these as part of the compiled-in module graph; they survive
 #   onefile compression as printable strings.
-# `silero_vad\.jit` — the JIT model file bundled with torch-era VAD. After
+# `silero_vad\.jit`: the JIT model file bundled with torch-era VAD. After
 #   Phase 1a (VAD → ONNX), the bundle must ship `silero_vad.onnx` instead;
 #   sighting the `.jit` file means a stale build env or a reverted vad.py.
 #
 # NB: we case-insensitive-grep for `torch\.` because Nuitka may emit the
 # path with mixed case on Windows (e.g. `Lib\site-packages\Torch\...`).
-# The `silero_vad.jit` pattern is case-sensitive — the file name is
+# The `silero_vad.jit` pattern is case-sensitive, the file name is
 # always lowercase per MANIFEST.in + export_silero_vad_onnx.py.
 PATTERNS=(
     "torch\\."
@@ -77,7 +77,7 @@ PATTERNS=(
 # `strings` is fastest (binutils / Xcode CLT / Git Bash all ship it). We
 # feed it the binary path and grep -E for the alternation of patterns.
 # `set -euo pipefail` + the `|| true` on grep keeps the pipeline from
-# aborting when grep finds no match (exit 1) — the explicit exit-code
+# aborting when grep finds no match (exit 1), the explicit exit-code
 # check below distinguishes "found" from "not found".
 SCAN_RC=0
 SCAN_OUTPUT=""
@@ -105,7 +105,7 @@ else
         PY="python"
     fi
     if ! command -v "$PY" >/dev/null 2>&1; then
-        echo "ERROR: neither 'strings' nor 'python3'/'python' is available — cannot scan." >&2
+        echo "ERROR: neither 'strings' nor 'python3'/'python' is available, cannot scan." >&2
         exit 2
     fi
     SCAN_OUTPUT="$("$PY" - "$BIN" "${PATTERNS[@]}" <<'PYEOF'
@@ -145,7 +145,7 @@ fi
 
 # ─── Verdict ─────────────────────────────────────────────────────────────────
 if [[ "$SCAN_RC" -ne 0 ]]; then
-    echo "ERROR: bundle is NOT torch-free — forbidden patterns found in $BIN:" >&2
+    echo "ERROR: bundle is NOT torch-free, forbidden patterns found in $BIN:" >&2
     echo "$SCAN_OUTPUT" >&2
     echo "" >&2
     echo "Phase 1c gate (plan §11.3): torch must be removed from the bundle before" >&2

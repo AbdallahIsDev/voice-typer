@@ -1,6 +1,6 @@
 //! Sidecar lifecycle modules (ADR-0020 §1 + §10 + §14).
 
-// `bubble_coalesce` extracted from `supervisor.rs` — pure UI-
+// `bubble_coalesce` extracted from `supervisor.rs`: pure UI-
 // rate-limiting predicate with nothing to do with sidecar supervision.
 // The supervisor module now owns ONLY respawn/backoff logic.
 pub(crate) mod bubble_coalesce;
@@ -19,7 +19,7 @@ pub(crate) mod ws;
 // names so existing `crate::state::SidecarHandle` /
 // `crate::state::shutdown_sidecar_for_exit` /
 // `crate::state::send_fire_and_forget_frame` imports keep resolving
-// (create-first split — see AGENTS.md E1).
+// (create-first split: see AGENTS.md E1).
 pub(crate) use handle::SidecarHandle;
 pub(crate) use shutdown::{send_fire_and_forget_frame, shutdown_sidecar_for_exit};
 
@@ -28,7 +28,7 @@ pub(crate) use shutdown::{send_fire_and_forget_frame, shutdown_sidecar_for_exit}
 // test-only submodules of `sidecar`, mirroring the existing pattern at
 // `commands/bubble/mod.rs` and `migrate/mod.rs`.
 //
-// NOTE: `spawn_tests` is NOT declared here — `spawn.rs` wires its own
+// NOTE: `spawn_tests` is NOT declared here, `spawn.rs` wires its own
 // sibling test file via `#[cfg(test)] #[path = "spawn_tests.rs"]` so
 // `use super::*` inside it resolves to `spawn` (its tests reference
 // `spawn`'s internal items). Declaring it here too would compile the

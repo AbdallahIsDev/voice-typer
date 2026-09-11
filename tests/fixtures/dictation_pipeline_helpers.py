@@ -6,7 +6,7 @@ module. Both the notify-once-flag suites
 (``tests/app/test_notify_once_flags.py``) and the transcription
 audio-stats suites (``tests/test_transcription_audio_stats.py``) build
 pipelines against the same minimal non-magic app, so the factories
-live here — ONE place to update when ``DictationPipeline``'s per-cycle
+live here, ONE place to update when ``DictationPipeline``'s per-cycle
 attribute set changes.
 """
 
@@ -37,7 +37,7 @@ class _TestApp:
     """
 
     def __init__(self) -> None:
-        # Attributes the pipeline reads — typed as MagicMock so we
+        # Attributes the pipeline reads, typed as MagicMock so we
         # can assert on call_args_list etc.
         self.tray = MagicMock()
         self.tray.notify = MagicMock()
@@ -55,7 +55,7 @@ class _TestApp:
         self.models = MagicMock()
         self.recording = MagicMock()
         # NOTE: the four notify-once flags are intentionally NOT
-        # pre-declared — production code relies on getattr-default.
+        # pre-declared, production code relies on getattr-default.
 
     # The remaining attributes the pipeline touches in the success
     # path (event_bus publish, etc.) are MagicMock-accessed via
@@ -64,7 +64,7 @@ class _TestApp:
     def __getattr__(self, name: str) -> MagicMock:
         # Only called when the attribute is genuinely absent (i.e.
         # not declared in __init__). We do NOT want this for the
-        # four notify-once flag names — they must default to False
+        # four notify-once flag names, they must default to False
         # via getattr-with-default, which requires AttributeError to
         # be raised when absent. So we re-raise AttributeError for
         # any name matching the flag pattern.
@@ -87,7 +87,7 @@ def make_test_app() -> _TestApp:
     """Build a minimal test app for DictationPipeline.
 
     Unlike a bare ``MagicMock()``, this class does NOT auto-create
-    the four notify-once flag attributes — so
+    the four notify-once flag attributes, so
     ``getattr(app, "_flag", False)`` correctly defaults to ``False``
     when the flag has never been set (mirroring production behavior
     on ``VoiceTyperApp``).

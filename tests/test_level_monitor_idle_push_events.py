@@ -2,12 +2,12 @@
 
 Three behaviours are covered:
 
-1. **Idle-timeout push-event awareness** — ``_idle_timeout_auto_stop``
+1. **Idle-timeout push-event awareness**: ``_idle_timeout_auto_stop``
    considers BOTH ``_last_get_level_poll_ts`` (updated by ``get_level``)
    AND ``_mic_level_last_push_ts`` (updated by ``_push_mic_level``). After
    the push-event migration, the Microphone page and the always-visible
    bubble consume ``mic_level`` push events and may only call
-   ``get_level`` once on mount — so checking only the poll timestamp
+   ``get_level`` once on mount, so checking only the poll timestamp
    would falsely trip the idle timeout while the frontend is actively
    listening via push events.
 
@@ -135,14 +135,14 @@ def _wire_stream_with_callback_capture(monkeypatch):
 
 class TestIdleTimeoutPushEventAwareness:
     """``_idle_timeout_auto_stop`` considers both the ``get_level`` poll
-    timestamp AND the ``mic_level`` push-event timestamp — the more
+    timestamp AND the ``mic_level`` push-event timestamp, the more
     recent of the two governs the idle check.
     """
 
     def test_does_not_fire_when_push_event_is_recent(self):
         """When ``_mic_level_last_push_ts`` is within the idle window
         (even if ``_last_get_level_poll_ts`` is stale / never set),
-        the idle timeout must NOT fire — the frontend is actively
+        the idle timeout must NOT fire, the frontend is actively
         listening via push events."""
         import voice_typer.server.level_monitor as lm
 
@@ -165,7 +165,7 @@ class TestIdleTimeoutPushEventAwareness:
     def test_fires_when_both_timestamps_are_old(self, monkeypatch):
         """When BOTH ``_last_get_level_poll_ts`` AND
         ``_mic_level_last_push_ts`` are older than the idle window,
-        the idle timeout MUST fire — the frontend has truly abandoned
+        the idle timeout MUST fire, the frontend has truly abandoned
         the stream."""
         import voice_typer.server.level_monitor as lm
 
@@ -280,10 +280,10 @@ class TestRingBufferClearedOnWorkerLifecycle:
         lm._ensure_level_worker_running()
 
         # Populate the ring buffer with a couple of chunks. The worker
-        # may or may not drain these before stop completes — the
+        # may or may not drain these before stop completes, the
         # contract under test is that AFTER _stop_level_worker returns,
         # the buffer is empty (cleared by stop, or drained by the
-        # worker's exit iteration — either way, empty).
+        # worker's exit iteration, either way, empty).
         lm._level_ring_buffer.append(
             (np.zeros((512, 1), dtype=np.float32), None),
         )
@@ -314,7 +314,7 @@ class TestRingBufferClearedOnWorkerLifecycle:
         )
         assert len(lm._level_ring_buffer) == 2, "fixture: buffer pre-populated"
 
-        # Start a fresh worker — _ensure_level_worker_running must
+        # Start a fresh worker, _ensure_level_worker_running must
         # clear the buffer BEFORE spawning the thread.
         lm._ensure_level_worker_running()
 

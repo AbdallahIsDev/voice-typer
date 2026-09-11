@@ -22,7 +22,7 @@ But that rule can silently regress:
 
 The existing pytest byte-compare (``test_linux_installer_paths.py``
 asserts bundled == canonical) cannot detect a UNIFORM CRLF drift on
-BOTH sides — the two files would still be byte-identical. This script
+BOTH sides, the two files would still be byte-identical. This script
 closes that gap by asserting two independent invariants:
 
   1. **LF-only**: no file under ``scripts/linux/`` or
@@ -96,7 +96,7 @@ def main(argv: list[str] | None = None) -> int:
             if bundled.read_bytes() != canonical.read_bytes():
                 violations.append(
                     f"bundled {bundled.relative_to(_REPO_ROOT)} differs from "
-                    f"canonical {canonical.relative_to(_REPO_ROOT)} — re-sync via "
+                    f"canonical {canonical.relative_to(_REPO_ROOT)}, re-sync via "
                     "`cp scripts/linux/<file> src-tauri/resources/linux-scripts/`"
                 )
 
@@ -110,7 +110,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
 
-    print("linux-scripts LF check: OK — all Linux scripts are LF and bundled copies match canonical.")
+    print("linux-scripts LF check: OK, all Linux scripts are LF and bundled copies match canonical.")
     return 0
 
 

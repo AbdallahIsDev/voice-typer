@@ -139,7 +139,7 @@ afterEach(() => {
 	vi.clearAllMocks();
 });
 
-describe("useModelDownload — download_progress event subscription", () => {
+describe("useModelDownload, download_progress event subscription", () => {
 	it("updates progress + status when the download_progress event fires", () => {
 		const { result } = renderHook(() => useModelDownload(makeHookArgs()));
 
@@ -194,14 +194,14 @@ describe("useModelDownload — download_progress event subscription", () => {
 		expect(result.current.etaSeconds).toBe(5);
 
 		// A bare partial event (no status/paused/resumed marker) means
-		// "not re-measured" — previous values are PRESERVED, not cleared.
+		// "not re-measured", previous values are PRESERVED, not cleared.
 		act(() => {
 			handler?.({ speed_bytes_per_sec: null, eta_seconds: null });
 		});
 		expect(result.current.speedBps).toBe(100);
 		expect(result.current.etaSeconds).toBe(5);
 
-		// A transition event clears them — the old measurement window
+		// A transition event clears them, the old measurement window
 		// is over. Guards against stale speed/ETA clinging to a
 		// finished download.
 		act(() => {
@@ -212,8 +212,8 @@ describe("useModelDownload — download_progress event subscription", () => {
 	});
 });
 
-describe("useModelDownload — downloadModel success path", () => {
-	it("marks the model as downloaded (NOT active — backend truth is re-fetched), surfaces success snack, clears downloading state", async () => {
+describe("useModelDownload, downloadModel success path", () => {
+	it("marks the model as downloaded (NOT active, backend truth is re-fetched), surfaces success snack, clears downloading state", async () => {
 		callMock.mockResolvedValue({ success: true, message: "ok" });
 		const setModels = vi.fn();
 		const reconcileAfterDownload = vi.fn().mockResolvedValue(undefined);
@@ -230,7 +230,7 @@ describe("useModelDownload — downloadModel success path", () => {
 		});
 
 		// setModels invoked with updater that flags the just-downloaded
-		// model as downloaded:true and isActive:FALSE — the backend does
+		// model as downloaded:true and isActive:FALSE, the backend does
 		// not auto-activate, so an optimistic Active badge here showed a
 		// phantom "Active" state while dictation still used the previous
 		// model. reconcileAfterDownload re-fetches config/status so the
@@ -258,7 +258,7 @@ describe("useModelDownload — downloadModel success path", () => {
 	});
 });
 
-describe("useModelDownload — downloadModel failure path (success:false)", () => {
+describe("useModelDownload, downloadModel failure path (success:false)", () => {
 	it("records failedDownload + fires sonner toast with Retry action, keeps downloadingModel set", async () => {
 		callMock.mockResolvedValue({ success: false, error: "disk full" });
 		const args = makeHookArgs();
@@ -278,7 +278,7 @@ describe("useModelDownload — downloadModel failure path (success:false)", () =
 		});
 
 		// The failure toast now flows through the canonical snackbar
-		// system: showSnack(msg, "error", { action }) — the duration
+		// system: showSnack(msg, "error", { action }), the duration
 		// comes from the error-type default (8000ms).
 		expect(args.showSnack).toHaveBeenCalledWith(
 			"disk full",
@@ -290,7 +290,7 @@ describe("useModelDownload — downloadModel failure path (success:false)", () =
 	});
 });
 
-describe("useModelDownload — downloadModel thrown-error path", () => {
+describe("useModelDownload, downloadModel thrown-error path", () => {
 	it("records failedDownload with formatted error message + fires sonner toast", async () => {
 		callMock.mockRejectedValue(new Error("network down"));
 		const args = makeHookArgs();
@@ -317,7 +317,7 @@ describe("useModelDownload — downloadModel thrown-error path", () => {
 	});
 });
 
-describe("useModelDownload — handleCancelDownload", () => {
+describe("useModelDownload, handleCancelDownload", () => {
 	it("invokes cancel_model_download IPC + clears all local state on success", async () => {
 		callMock.mockResolvedValue({ success: true });
 		const args = makeHookArgs();
@@ -368,7 +368,7 @@ describe("useModelDownload — handleCancelDownload", () => {
 	});
 });
 
-describe("useModelDownload — downloadModel queued path (backend FIFO queue)", () => {
+describe("useModelDownload, downloadModel queued path (backend FIFO queue)", () => {
 	it("queued outcome surfaces an info snack, does NOT mark downloaded, leaves the active bar intact", async () => {
 		// Model A ("tiny") is actively downloading (its IPC promise never
 		// resolves in this test); model B ("base") is clicked while A
@@ -385,7 +385,7 @@ describe("useModelDownload — downloadModel queued path (backend FIFO queue)", 
 						model: "base",
 						queue_position: 1,
 						message:
-							"Queued — it starts automatically when the current download finishes.",
+							"Queued, it starts automatically when the current download finishes.",
 					});
 				}
 				return Promise.resolve({});
@@ -428,11 +428,11 @@ describe("useModelDownload — downloadModel queued path (backend FIFO queue)", 
 		expect(result.current.failedDownload).toBeNull();
 		// The queued message surfaces as an INFO-type snack.
 		expect(args.showSnack).toHaveBeenCalledWith(
-			"Queued — it starts automatically when the current download finishes.",
+			"Queued, it starts automatically when the current download finishes.",
 			"info",
 		);
 		// The ACTIVE download keeps the single progress-bar slot (and its
-		// live progress) — the queued request never claimed it.
+		// live progress), the queued request never claimed it.
 		expect(result.current.downloadingModel).toBe("tiny");
 		expect(result.current.downloadProgress).toBe(50);
 	});
@@ -492,7 +492,7 @@ describe("useModelDownload — downloadModel queued path (backend FIFO queue)", 
 	});
 });
 
-describe("useModelDownload — handleCancelDownload(modelName) (queued-model cancel)", () => {
+describe("useModelDownload, handleCancelDownload(modelName) (queued-model cancel)", () => {
 	it("forwards the model name in the IPC payload and leaves the active state intact on queue removal", async () => {
 		callMock.mockImplementation((cmd: string) => {
 			if (cmd === "download_model") {
@@ -613,7 +613,7 @@ describe("useModelDownload — handleCancelDownload(modelName) (queued-model can
 	});
 });
 
-describe("useModelDownload — retryDownload", () => {
+describe("useModelDownload, retryDownload", () => {
 	it("clears failedDownload then re-invokes downloadModel", async () => {
 		// First call (initial downloadModel) fails; second call (retry)
 		// succeeds so we can observe the failure → success transition.

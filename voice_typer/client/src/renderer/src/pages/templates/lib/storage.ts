@@ -34,7 +34,7 @@ export function loadTemplatesFromLocalStorage(): Template[] {
 		// angle brackets / quotes was destroying user data (e.g. a
 		// saved "<3" re-rendered as "3" on next load, diverging from
 		// what the backend stored). NUL is still stripped because
-		// browsers truncate attribute strings at NUL — if a value
+		// browsers truncate attribute strings at NUL, if a value
 		// ever flows into an attribute (aria-label, title, etc.) an
 		// injected NUL could let the trailing portion execute as a
 		// separate attribute. Plain-text rendering is unaffected.
@@ -68,7 +68,7 @@ export async function loadTemplatesFromBackend(
 		"get_templates",
 	);
 	// The IPC layer may return either { templates: [...] } or a bare
-	// array — accept both for forward/backward compat.
+	// array, accept both for forward/backward compat.
 	const arr = Array.isArray(result) ? result : result?.templates;
 	if (!Array.isArray(arr)) {
 		// Genuine failure: the backend returned a non-array shape (null,
@@ -99,12 +99,12 @@ export async function loadTemplatesFromBackend(
 //now async so callers can `await saveTemplates(...)` before
 // triggering `loadRows()`.  Previously the IPC save was fire-and-forget
 // (`.catch(...)`), which meant `loadRows()` could re-read the backend
-// BEFORE the save landed — racing the just-saved list out of the UI
+// BEFORE the save landed, racing the just-saved list out of the UI
 // and re-rendering the pre-save state.  Awaiting guarantees the load
 // sees the new state.
 //
 //the IPC error path previously swallowed the rejection after
-// logging it — callers had no way to know the save failed, so they
+// logging it, callers had no way to know the save failed, so they
 // showed a success toast even when the backend rejected the write.
 // We now rethrow after logging so the calling hook (e.g.
 // useTemplateDialog.saveTemplate, useTemplates.instantDeleteTemplate,
@@ -132,7 +132,7 @@ export async function saveTemplates(
 			//log the IPC failure for diagnostics, then rethrow so
 			// the caller can show an error toast instead of the success
 			// toast it likely already queued (the success toast is fired
-			// before the await in some callers — see useTemplateDialog).
+			// before the await in some callers, see useTemplateDialog).
 			console.error("[renderer:storage] IPC save_templates failed:", err);
 			throw err;
 		}
@@ -145,7 +145,7 @@ export async function saveTemplates(
  * (Chromium) and in jsdom (Node ≥ 19).  Falls back to a
  * `Math.random`-based pseudo-ID if `crypto.randomUUID` is unavailable
  * (older runtimes / sandboxed tests) so the React key is still unique
- * within the session — UUID quality doesn't matter here because the
+ * within the session, UUID quality doesn't matter here because the
  * ID is never persisted, only used as a React key.
  */
 export function makeRowId(): string {

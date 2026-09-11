@@ -14,7 +14,7 @@ Cross-language parity: this MUST match:
 
 Parity is enforced by ``tests/test_ipc_protocol_cross_language_parity.py``.
 
-DO NOT bump without coordinating across all three languages — a bump is
+DO NOT bump without coordinating across all three languages, a bump is
 a deliberate, multi-file change. The version is monotonic and never
 reused.
 

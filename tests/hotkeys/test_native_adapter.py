@@ -7,21 +7,21 @@ monkeypatched ``subprocess.Popen`` so no real native binary is spawned.
 
 Coverage areas :
 
-1. **Successful spec handshake** — Popen returns stdout with a valid
+1. **Successful spec handshake**, Popen returns stdout with a valid
    ``READY`` line; the adapter parses the spec, registers the hotkey, and
    enters the ``NATIVE`` state.
-2. **Malformed spec response** — Popen returns garbage on stdout; the
+2. **Malformed spec response**, Popen returns garbage on stdout; the
    adapter escalates the error (native backend sets ``_failed`` and the
    adapter swaps to the legacy backend).
-3. **Subprocess early exit triggers restart** — Popen's ``returncode``
+3. **Subprocess early exit triggers restart**, Popen's ``returncode``
    is non-zero immediately; the reader thread detects the exit and the
    restart logic fires (``_restart_attempts`` incremented).
-4. **Broken pipe on write handled** — ``Popen.stdin.write`` raises
+4. **Broken pipe on write handled**: ``Popen.stdin.write`` raises
    ``BrokenPipeError``; the watchdog catches it without crashing.
-5. **Restart after crash recovers** — two consecutive Popen calls:
+5. **Restart after crash recovers**, two consecutive Popen calls:
    the first crashes, the second succeeds; the adapter recovers to
    ``NATIVE``.
-6. **Teardown with live subprocess joins** — Popen process is still
+6. **Teardown with live subprocess joins**, Popen process is still
    running; ``adapter.stop()`` calls ``terminate`` + ``wait`` on the
    process.
 
@@ -83,7 +83,7 @@ def _patch_binary_paths(monkeypatch: pytest.MonkeyPatch, fake_bin: Path) -> None
         "voice_typer.server.native_hotkeys.binary_path.get_native_binary_path",
         lambda: fake_bin,
     )
-    # The SHA-256 verifier is patched to always pass — the fake binary
+    # The SHA-256 verifier is patched to always pass, the fake binary
     # has no manifest entry and would fail closed without this patch.
     monkeypatch.setattr(
         "voice_typer.server.native_hotkeys.binary_path.verify_native_binary_or_skip",
@@ -126,10 +126,10 @@ class _FakePopen:
     killed.
 
     Attributes tracked for assertions:
-    - ``terminated`` — ``terminate()`` was called.
-    - ``killed`` — ``kill()`` was called.
-    - ``wait_calls`` — list of ``timeout`` args passed to ``wait()``.
-    - ``signalled`` — ``send_signal()`` was called.
+    - ``terminated``: ``terminate()`` was called.
+    - ``killed``: ``kill()`` was called.
+    - ``wait_calls``, list of ``timeout`` args passed to ``wait()``.
+    - ``signalled``: ``send_signal()`` was called.
     """
 
     def __init__(
@@ -260,7 +260,7 @@ def _build_adapter(monkeypatch, tmp_path, *, popen_instances=None):
 
 
 class TestSuccessfulSpecHandshake:
-    """#1: Popen returns stdout with a valid ``READY`` line — the
+    """#1: Popen returns stdout with a valid ``READY`` line, the
     adapter parses the spec, registers the hotkey, and enters ``NATIVE``."""
 
     def test_successful_spec_handshake(self, monkeypatch, tmp_path):
@@ -288,12 +288,12 @@ class TestSuccessfulSpecHandshake:
 
 
 class TestMalformedSpecResponseRaises:
-    """#2: Popen returns garbage (no ``READY`` line) — the adapter
+    """#2: Popen returns garbage (no ``READY`` line), the adapter
     escalates the error (native backend marks ``_failed`` and the adapter
     swaps to the legacy backend)."""
 
     def test_malformed_spec_response_escalates(self, monkeypatch, tmp_path):
-        # stdout has garbage — no READY line. The process stays "alive"
+        # stdout has garbage, no READY line. The process stays "alive"
         # (write end of the pipe is open) so the reader blocks after the
         # garbage line. start() times out waiting for READY.
         fake_popen = _FakePopen(cmd=[], stdout_data=b"GARBAGE_LINE\n")
@@ -334,7 +334,7 @@ class TestMalformedSpecResponseRaises:
 
 
 class TestSubprocessEarlyExitTriggersRestart:
-    """#3: Popen ``returncode != 0`` immediately — the reader thread
+    """#3: Popen ``returncode != 0`` immediately, the reader thread
     detects the exit and the restart logic fires (``_restart_attempts``
     incremented)."""
 
@@ -357,7 +357,7 @@ class TestSubprocessEarlyExitTriggersRestart:
             with contextlib.suppress(Exception):
                 adapter.stop()
 
-        # The restart logic should have fired — _restart_attempts > 0.
+        # The restart logic should have fired, _restart_attempts > 0.
         # After MAX_RESTART_ATTEMPTS (patched to 2), the permanent-failure
         # callback is invoked.
         assert native._restart_attempts > 0, (
@@ -367,7 +367,7 @@ class TestSubprocessEarlyExitTriggersRestart:
 
 
 class TestPipeBrokenPipeOnWriteHandled:
-    """#4: ``Popen.stdin.write`` raises ``BrokenPipeError`` — the
+    """#4: ``Popen.stdin.write`` raises ``BrokenPipeError``, the
     watchdog catches it without crashing (error is logged at DEBUG)."""
 
     def test_broken_pipe_on_write_does_not_crash(self, monkeypatch, tmp_path):
@@ -389,13 +389,13 @@ class TestPipeBrokenPipeOnWriteHandled:
                 time.sleep(0.3)
 
                 # The watchdog should have attempted to write PING to stdin.
-                # The BrokenPipeError should have been caught — the adapter
+                # The BrokenPipeError should have been caught, the adapter
                 # must still be alive (no crash propagated to the caller).
                 assert len(fake_popen.stdin.written) == 0, (
                     "stdin.write raised BrokenPipeError so no data should have been "
                     f"buffered; got {fake_popen.stdin.written}"
                 )
-                # The adapter must NOT have crashed — it's still in a valid
+                # The adapter must NOT have crashed, it's still in a valid
                 # state (NATIVE or STOPPED after we call stop() below).
                 assert adapter._state in (adapter._STATE_NATIVE, adapter._STATE_STOPPED), (
                     f"adapter should not crash on BrokenPipeError; state={adapter._state}"
@@ -405,7 +405,7 @@ class TestPipeBrokenPipeOnWriteHandled:
 
 
 class TestRestartAfterCrashRecovers:
-    """#5: two consecutive Popen calls — the first crashes (early
+    """#5: two consecutive Popen calls, the first crashes (early
     exit, no READY), the second succeeds (sends READY). The adapter
     recovers to ``NATIVE`` after the restart."""
 
@@ -445,7 +445,7 @@ class TestRestartAfterCrashRecovers:
                         break
                     time.sleep(0.01)
 
-                # Popen must have been called at least twice — the restart
+                # Popen must have been called at least twice, the restart
                 # logic spawned a second process after the first crashed.
                 assert call_count[0] >= 2, (
                     f"subprocess.Popen should be called at least twice after the "
@@ -468,7 +468,7 @@ class TestRestartAfterCrashRecovers:
 
 
 class TestTeardownWithLiveSubprocessJoins:
-    """#6: Popen process is still running — ``adapter.stop()`` calls
+    """#6: Popen process is still running: ``adapter.stop()`` calls
     ``terminate`` + ``wait`` on the process so the reader thread is joined
     and no orphan process is left."""
 

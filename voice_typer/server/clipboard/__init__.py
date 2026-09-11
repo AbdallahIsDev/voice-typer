@@ -3,12 +3,12 @@
 This package was extracted from the original 1432-LOC ``clipboard.py``
 monolith into four focused modules:
 
-* :mod:`.linux`  — Linux/Wayland clipboard primitives (``wl-copy`` /
+* :mod:`.linux` : Linux/Wayland clipboard primitives (``wl-copy`` /
   ``wl-paste`` / ``wtype``) + pynput lazy-import helpers.
-* :mod:`.windows` — Win32 clipboard abstraction (``Win32Clipboard``)
+* :mod:`.windows`: Win32 clipboard abstraction (``Win32Clipboard``)
   + ``_win32_empty_clipboard`` + ``_send_ctrl_v_win32`` SendInput
   helper.
-* :mod:`.manager` — ``ClipboardManager`` orchestrator + atexit
+* :mod:`.manager`: ``ClipboardManager`` orchestrator + atexit
   handler + ``_pending_restores`` registry.
 
 Design contract preserved from the original monolith:
@@ -40,13 +40,13 @@ contentEditable elements (via UI Automation on Windows) and pasting
 rich text. For now, we log when the paste target appears to be a
 rich editor (e.g. Word, LibreOffice).
 
- (source-string pin — see
+ (source-string pin: see
 tests/regressions/test_security.py::TestClipboardRetryNarrowedException):
 the copy() retry block in :mod:`.manager` MUST catch ``OSError``
 (narrowed from the pre-fix broad ``Exception`` pattern) and check
 ``winerror == 5`` (ERROR_ACCESS_DENIED) before retrying. The exact
 source patterns pinned by the test are reproduced below so
-``inspect.getsource(voice_typer.server.clipboard)`` — which returns
+``inspect.getsource(voice_typer.server.clipboard)``, which returns
 this ``__init__.py``'s source after the  package split —
 continues to satisfy the source-string assertion::
 
@@ -62,8 +62,8 @@ reintroduced into the retry block.
 Module-level state (lives in this package's namespace so tests that
 patch ``voice_typer.server.clipboard.<name>`` keep working):
 
-* ``_Key`` / ``_Controller`` — lazily-populated pynput symbols.
-* ``_pending_restores`` / ``_pending_restores_lock`` — atexit
+* ``_Key`` / ``_Controller``: lazily-populated pynput symbols.
+* ``_pending_restores`` / ``_pending_restores_lock``, atexit
   registry of pending delayed-restores.
 
 All public + private symbols re-exported below so existing
@@ -106,7 +106,7 @@ log = logging.getLogger(__name__)
 # first use.
 #
 #  (retry / partial fix): narrow ``_Controller`` from ``Any`` to
-# ``type | None``. Safe — the only downstream usage is instantiation
+# ``type | None``. Safe, the only downstream usage is instantiation
 # (``_cb._Controller()`` in :mod:`voice_typer.server.clipboard.manager`,
 # line 141), and ``type`` is callable. ``None`` accepts the initial
 # empty binding. No ``# type: ignore[assignment]`` marker is needed
@@ -122,7 +122,7 @@ log = logging.getLogger(__name__)
 # ``_Key: Any`` with a documented rationale. The full narrowing for
 # ``_Key`` requires either a ``voice_typer/stubs/pynput/keyboard.pyi``
 # stub + ``TYPE_CHECKING`` import (so ``_Key: type[Key] | None``
-# resolves) or a ``Protocol`` exposing the enum members — both are
+# resolves) or a ``Protocol`` exposing the enum members, both are
 # larger changes deferred to a future session. The
 # ``# type: ignore[assignment]`` markers  removed stay dropped
 # (``Any | None`` accepts ``None`` without a marker, and ``type | None``
@@ -291,13 +291,13 @@ __all__ = [
 # signals like SIGTERM (default disposition = terminate) or SIGHUP
 # (terminal hangup). Without these handlers, a ``kill <pid>`` issued
 # during the 150 ms restore-delay window would orphan the user's
-# borrowed clipboard content forever — the daemon thread is killed
+# borrowed clipboard content forever, the daemon thread is killed
 # before it can call ``snapshot.restore()``.
 #
 # We install ``_signal_restore_handler`` for SIGTERM and SIGHUP on POSIX.
 # The handler:
 #   1. Calls ``_force_restore_pending_at_exit()`` to synchronously
-#      restore any pending snapshots (best-effort — per-snapshot
+#      restore any pending snapshots (best-effort, per-snapshot
 #      failures are logged but do not abort the loop).
 #   2. Restores the signal's default disposition and re-raises it so
 #      the process exits with the conventional 128+signum status.
@@ -314,7 +314,7 @@ __all__ = [
 #
 # Thread-safety: ``signal.signal`` may only be called from the main
 # thread of the main interpreter. If clipboard.py is first imported
-# from a worker thread (rare — app startup runs in the main thread),
+# from a worker thread (rare, app startup runs in the main thread),
 # the registration is skipped silently; the atexit handler still
 # covers normal-shutdown cases.
 
@@ -329,7 +329,7 @@ def _signal_restore_handler(signum: int, frame: Any) -> None:  # noqa: ARG001
     restores the signal's default disposition and re-raises it so the
     process exits with the conventional ``128 + signum`` status.
 
-    Never raises — signal handlers must not propagate exceptions
+    Never raises, signal handlers must not propagate exceptions
     (the interpreter behavior is implementation-defined). If
     re-raising the signal fails for any reason, force-exit via
     ``os._exit(128 + signum)`` so the process still terminates.
@@ -339,7 +339,7 @@ def _signal_restore_handler(signum: int, frame: Any) -> None:  # noqa: ARG001
     which would leave the process in an inconsistent half-shutdown
     state (clipboard already restored, but the interpreter still
     running). ``os._exit`` bypasses the interpreter's exception
-    machinery and the ``atexit`` table (which is fine here — the
+    machinery and the ``atexit`` table (which is fine here, the
     clipboard restore has already run synchronously above).
     """
     with contextlib.suppress(Exception):
@@ -361,7 +361,7 @@ def _signal_restore_handler(signum: int, frame: Any) -> None:  # noqa: ARG001
         # SystemExit can be caught by try/except SystemExit handlers
         # or frameworks overriding sys.excepthook, leaving the process
         # in a half-shutdown state. The atexit table is intentionally
-        # bypassed — _force_restore_pending_at_exit() has already run
+        # bypassed, _force_restore_pending_at_exit() has already run
         # synchronously above.
         import os as _os_module_fallback
 
@@ -384,10 +384,10 @@ if not _SIGNAL_HANDLERS_REGISTERED:
     except (ValueError, OSError):
         # ValueError: not in the main thread (signal.signal can only
         # be called from the main thread). OSError: platform-specific
-        # failure. Both are non-fatal — the atexit handler still
+        # failure. Both are non-fatal, the atexit handler still
         # covers normal-shutdown cases.
         pass
-    except Exception:  # pragma: no cover — defensive
+    except Exception:  # pragma: no cover, defensive
         log.debug("[CLIPBOARD] signal handler registration failed", exc_info=True)
 
 
@@ -399,7 +399,7 @@ if not _SIGNAL_HANDLERS_REGISTERED:
 # ``*_UNAVAILABLE_WARNED`` flags flip to ``True`` after the first failed
 # pyatspi/pyobjc import). A plain ``from clipboard_target_safety import
 # _UIA_SINGLETON`` would bind the value ONCE at import time and never see
-# subsequent mutations — meaning a test that does
+# subsequent mutations: meaning a test that does
 # ``monkeypatch.setattr(clipboard_target_safety, "_UIA_SINGLETON", mock)``
 # wouldn't affect any caller reading ``voice_typer.server.clipboard._UIA_SINGLETON``.
 #
@@ -408,7 +408,7 @@ if not _SIGNAL_HANDLERS_REGISTERED:
 # longer ``from ... import`` these seven names, accessing
 # ``voice_typer.server.clipboard._UIA_SINGLETON`` falls through to this
 # hook, which delegates to the current value on ``clipboard_target_safety``
-# — so mutations (including test monkeypatches) ARE visible.
+# , so mutations (including test monkeypatches) ARE visible.
 #
 # The names remain in ``__all__`` so static-analysis tools, ``dir()``, and
 # ``from voice_typer.server.clipboard import _PYATSPI_STATE_FOCUSED`` keep
@@ -447,7 +447,7 @@ def __getattr__(name: str):  # noqa: D401
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
-def __dir__():  # pragma: no cover — exercised by ``dir(clip_mod)`` in REPLs
+def __dir__():  # pragma: no cover, exercised by ``dir(clip_mod)`` in REPLs
     """PEP 562: include the dynamically-resolved mutable globals in ``dir()``.
 
     Without this, ``dir(voice_typer.server.clipboard)`` would omit the

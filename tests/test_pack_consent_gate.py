@@ -1,4 +1,4 @@
-"""§8.4 — Consent gate.
+"""§8.4: Consent gate.
 
 Spec (§8.4):
 
@@ -8,8 +8,8 @@ Spec (§8.4):
   the pack downloads silently (no progress bar in the main UI, but a
   "Preparing…" line in the relevant areas).
 
-  CRITICAL: the consent flag is ``offline_pack_consent`` — NOT
-  ``huggingface_consent`` — because the pack download phones home to
+  CRITICAL: the consent flag is ``offline_pack_consent``, NOT
+  ``huggingface_consent``, because the pack download phones home to
   GitHub Releases (revealing user IP to Microsoft).
 
 Tested behaviors:
@@ -40,7 +40,7 @@ def _config(*, offline_pack_consent: bool = False, huggingface_consent: bool = F
 
 
 class TestConsentGate:
-    """§8.4 — pack download requires offline_pack_consent."""
+    """§8.4, pack download requires offline_pack_consent."""
 
     def test_no_config_raises(self):
         with pytest.raises(offline_pack.OfflinePackConsentRequiredError):
@@ -61,7 +61,7 @@ class TestConsentGate:
         assert exc_info.value.consent_field == "offline_pack_consent"
 
     def test_provider_is_github(self):
-        """The download phones home to GitHub Releases — provider is github."""
+        """The download phones home to GitHub Releases, provider is github."""
         with pytest.raises(offline_pack.OfflinePackConsentRequiredError) as exc_info:
             offline_pack.require_offline_pack_consent(_config(), version="v1")
         assert exc_info.value.provider == "github"

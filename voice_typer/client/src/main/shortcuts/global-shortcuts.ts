@@ -4,14 +4,14 @@
  * Registers `CommandOrControl+Shift+D` as a SYSTEM-WIDE accelerator
  * (works even when no app window has focus) that dismisses the
  * dictation bubble. The callback delegates to
- * `ipc/bubble-handlers.ts::dismissAndHideBubble` — the exact same
- * cancel-then-hide body the bubble's own '×' button uses — so the
+ * `ipc/bubble-handlers.ts::dismissAndHideBubble`, the exact same
+ * cancel-then-hide body the bubble's own '×' button uses, so the
  * keyboard path can never drift from the click path (in-flight
  * recordings are cancelled via `toggle_dictation` before hiding).
  *
  * Lifecycle contract:
  *   - `registerGlobalShortcuts()` MUST be called after
- *     `app.whenReady()` resolves — Electron's `globalShortcut` is not
+ *     `app.whenReady()` resolves, Electron's `globalShortcut` is not
  *     usable before the app is ready (same constraint as
  *     `powerMonitor`; see `power.ts`). The production call site in
  *     `index.ts::app.whenReady().then(...)` honors this.
@@ -20,7 +20,7 @@
  *   firing against a half-dead process.
  *
  * Failure policy: registration is best-effort. The OS may refuse the
- * accelerator (taken by another application — Electron returns
+ * accelerator (taken by another application, Electron returns
  * `false` silently by design, since "operating systems don't want
  * applications to fight for global shortcuts"). A failed registration
  * logs a warning and the rest of the app continues to work; losing
@@ -56,7 +56,7 @@ export function _resetGlobalShortcutsForTest(): void {
 }
 
 /**
- * Register the bubble-dismiss global shortcut. Idempotent — see the
+ * Register the bubble-dismiss global shortcut. Idempotent, see the
  * module-level flag above. Non-fatal on failure: an accelerator taken
  * by another app (register returns `false`) or a broken
  * `globalShortcut` module (test mocks, unusual Electron builds) only
@@ -79,7 +79,7 @@ export function registerGlobalShortcuts(): void {
 		);
 		if (!registered) {
 			log.warn(
-				`[shortcuts] global accelerator ${BUBBLE_DISMISS_ACCELERATOR} could not be registered (already taken by another application?) — non-fatal`,
+				`[shortcuts] global accelerator ${BUBBLE_DISMISS_ACCELERATOR} could not be registered (already taken by another application?), non-fatal`,
 			);
 		}
 	} catch (e) {
@@ -89,7 +89,7 @@ export function registerGlobalShortcuts(): void {
 
 /**
  * Unregister the bubble-dismiss global shortcut. Idempotent and
- * best-effort — called from the `will-quit` path, where any error must
+ * best-effort, called from the `will-quit` path, where any error must
  * not block shutdown.
  */
 export function unregisterGlobalShortcuts(): void {

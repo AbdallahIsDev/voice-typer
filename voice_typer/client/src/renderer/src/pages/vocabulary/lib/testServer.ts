@@ -1,9 +1,9 @@
-// Live-engine correction test — single authoritative call site for
+// Live-engine correction test, single authoritative call site for
 // the per-entry "Test this entry" row action. The phrase runs through
 // the SAME server IPC command (``test_vocabulary_correction`` →
-// ``VocabularyManager.apply_to_text``) — the exact engine dictation
-// uses. (The standalone free-text "Test corrections" panel — and its
-// client-side mirror fallback, ``lib/testCorrection.ts`` — were
+// ``VocabularyManager.apply_to_text``), the exact engine dictation
+// uses. (The standalone free-text "Test corrections" panel, and its
+// client-side mirror fallback, ``lib/testCorrection.ts``, were
 // removed; the per-row Test action covers the same need with one
 // click.)
 
@@ -25,7 +25,7 @@ export type EntryTestResult =
 /**
  * Run a phrase through the authoritative server correction engine
  * (``test_vocabulary_correction`` IPC → ``apply_to_text``). Throws on
- * failure — callers decide whether to fall back (panel) or surface an
+ * failure, callers decide whether to fall back (panel) or surface an
  * error (per-entry row action).
  */
 export async function testPhraseOnServer(

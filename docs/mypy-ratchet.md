@@ -1,6 +1,6 @@
 # mypy Ratchet
 
-This document explains the **mypy ratchet** — the mechanism that
+This document explains the **mypy ratchet**, the mechanism that
 prevents new mypy errors from being introduced without failing the
 pre-push hook, while keeping the (large) set of pre-existing typing-debt
 errors non-blocking.
@@ -16,7 +16,7 @@ errors non-blocking.
   (`voice_typer/mypy_stubs/numpy/` via `[tool.mypy] mypy_path`). This
   behaves exactly as mypy effectively did before the shadow existed
   (numpy resolved to `Any` after the parse failure), but without the
-  fatal syntax error — so mypy now type-checks *every* server module.
+  fatal syntax error: so mypy now type-checks *every* server module.
 * That surfaces ~700 **latent typing-debt errors** that were previously
   hidden behind the numpy parse failure. They are **tracked, not
   fixed**, via a count-based ratchet: `mypy-baseline.json` records the
@@ -47,7 +47,7 @@ enforceable), mirroring the established
    voice_typer/server/`, reduces the output to `(total_count,
    by_code)` counts, and compares them against `mypy-baseline.json`.
 2. Exit code 0 if every code count (and the total) is `<=` the
-   baseline. Exit code 1 if any grew — the full mypy output is printed
+   baseline. Exit code 1 if any grew. The full mypy output is printed
    so the new errors are easy to locate.
 3. Regenerate the baseline (only after FIXING errors):
 
@@ -56,23 +56,23 @@ enforceable), mirroring the established
    ```
 
    The script **refuses** to regenerate if the new total is *higher*
-   than the old total — that would be a regression, not a ratchet.
+   than the old total: that would be a regression, not a ratchet.
    Pass `--force` only to bootstrap a missing baseline or for an
    emergency re-baselining after a deliberate scope change.
 
 ## Where it runs
 
-* **Pre-push hook** — `.pre-commit-config.yaml` `mypy` hook (local,
+* **Pre-push hook**, `.pre-commit-config.yaml` `mypy` hook (local,
   `language: system`, `stages: [pre-push]`): runs
   `python scripts/mypy_ratchet_check.py`. Blocks pushes that add new
   mypy errors.
-* **`make typecheck`** — runs the ratchet script in parallel with
+* **`make typecheck`**: runs the ratchet script in parallel with
   TypeScript and ruff.
 
 ## Schema of `mypy-baseline.json`
 
-* `total_count` — total number of mypy errors (non-negative int).
-* `by_code` — map of mypy error code → count (e.g. `attr-defined`,
+* `total_count` Total number of mypy errors (non-negative int).
+* `by_code` Map of mypy error code → count (e.g. `attr-defined`,
   `name-defined`, `arg-type`). Every key/value must be a
   non-negative int.
 * Underscore-prefixed metadata fields (`_schema_version`, `_target`,
@@ -84,14 +84,14 @@ enforceable), mirroring the established
 pyrefly keeps its own search path (`voice_typer/stubs`) and resolves
 the *real* numpy through the active interpreter's site-packages at its
 3.12 language level, so it type-checks the audio pipeline against the
-real numpy stubs. The mypy shadow stub affects mypy only — stubs are
+real numpy stubs. The mypy shadow stub affects mypy only, stubs are
 never imported at runtime.
 
 ## FAQ
 
 **Why not bump `[tool.mypy] python_version` to 3.12?** That lets
 3.11+-only typing constructs slip through mypy and break 3.10 installs
-at runtime — the whole point of the documented 3.10 floor (see the
+at runtime: the whole point of the documented 3.10 floor (see the
 divergence matrix in `pyproject.toml`). The stub shadow keeps the floor
 intact for the project's own code.
 

@@ -50,7 +50,7 @@ class TestHelpersReturnPathsUnderConfigDir:
 
         We patch ``_paths._config_dir`` (the imported reference inside
         ``_paths``) rather than ``config._config_dir`` so we exercise
-        the helpers' actual delegation chain — every helper should call
+        the helpers' actual delegation chain, every helper should call
         ``_config_dir()`` (the imported function) at least once.
         """
         monkeypatch.setattr(_paths, "_config_dir", lambda: tmp_path)
@@ -80,7 +80,7 @@ class TestHelpersReturnPathsUnderConfigDir:
         assert _paths.venv_pythonw() == self.dir / expected_subpath
 
     def test_legacy_hf_cache_dir_not_under_config_dir(self):
-        """``_paths.legacy_hf_cache_dir()`` is the ONE exception — it
+        """``_paths.legacy_hf_cache_dir()`` is the ONE exception, it
         intentionally returns the literal ``Path.home() /
         ".voice-typer" / "huggingface"`` (NOT under ``_config_dir()``)
         because it's the defensive fallback used when
@@ -89,7 +89,7 @@ class TestHelpersReturnPathsUnderConfigDir:
 
         The autouse ``_pin_config_dir`` fixture patches
         ``_paths._config_dir`` to a tmp path, but this helper must NOT
-        consult it — it calls ``Path.home()`` directly so it still
+        consult it, it calls ``Path.home()`` directly so it still
         works when ``_config_dir()`` raises.
         """
         expected = Path.home() / ".voice-typer" / "huggingface"
@@ -109,7 +109,7 @@ class TestHelpersReturnPathsUnderConfigDir:
 #   - ``config/__init__.py``: the package's public surface (re-exports;
 #     kept allowed for the historical probe location).
 #   - ``config/_accessors.py``: the legacy migration probe inside
-#     ``_legacy_voice_typer_dir()`` — this IS the canonical legacy-path
+#     ``_legacy_voice_typer_dir()``, this IS the canonical legacy-path
 #     check that decides whether to migrate an existing
 #     ``~/.voice-typer`` install to the platform-specific location.
 #     (Previously a ``config.py`` module, then the probe lived in the
@@ -134,7 +134,7 @@ def _strip_docstrings(source: str, filename: str) -> list[str]:
     try:
         tree = ast.parse(source, filename=filename)
     except SyntaxError:
-        # If the file doesn't parse, return the raw lines — the test
+        # If the file doesn't parse, return the raw lines, the test
         # will then flag any matches (intentionally conservative).
         return source.splitlines()
 
@@ -197,7 +197,7 @@ class TestNoHardcodedVoiceTyperPaths:
         # The required-list uses basenames that are unique across the
         # server tree. ``prewarm.py`` and ``server_platform.py`` were
         # reorganized into packages (``prewarm/__init__.py`` and
-        # ``server_platform/__init__.py``) — the package layout means
+        # ``server_platform/__init__.py``), the package layout means
         # ``rglob("*.py")`` returns ``__init__.py`` (whose basename
         # collides across packages), so we instead anchor on a
         # representative non-init module inside each package plus the
@@ -213,7 +213,7 @@ class TestNoHardcodedVoiceTyperPaths:
         for required in required_basenames:
             assert required in examined_names, (
                 f"test setup error: {required} not found under "
-                f"{SERVER_DIR} — the test cannot verify the regression "
+                f"{SERVER_DIR}, the test cannot verify the regression "
                 "without examining the refactored modules"
             )
         # ``config`` was refactored from a module (``config.py``) to a
@@ -221,12 +221,12 @@ class TestNoHardcodedVoiceTyperPaths:
         # + ``sanitization.py`` + ``_accessors.py``). The legacy migration
         # probe that the ``test_config_py_still_has_legacy_migration_probe``
         # test verifies now lives in ``config/_accessors.py`` (the
-        # package's private accessors module) — assert that file is
+        # package's private accessors module), assert that file is
         # present so the regression test can examine it.
         for required_config_file in ("config/__init__.py", "config/_accessors.py"):
             assert required_config_file in examined_rel, (
                 f"test setup error: {required_config_file} not found under "
-                f"{SERVER_DIR} — the test cannot verify the legacy migration "
+                f"{SERVER_DIR}, the test cannot verify the legacy migration "
                 "probe without examining the refactored config package"
             )
         # Package-layout sanity: ensure rglob descended into both the
@@ -236,7 +236,7 @@ class TestNoHardcodedVoiceTyperPaths:
         # would silently skip every file inside them).
         #
         # NOTE (Sub-agent 6, master plan §6.2 P-1): the prewarm package
-        # was SLIMMED in Phase 2 — only ``cache_probe.py`` (the
+        # was SLIMMED in Phase 2, only ``cache_probe.py`` (the
         # worker-startup prewarm logic) and ``__init__.py`` remain.
         # The pre-Phase-2 files (``paths.py``, ``logging_setup.py``,
         # ``pipeline.py``, ``process_tracker.py``, ``completion_events.py``,
@@ -251,7 +251,7 @@ class TestNoHardcodedVoiceTyperPaths:
         ):
             assert required_pkg_file in examined_rel, (
                 f"test setup error: {required_pkg_file} not found "
-                f"under {SERVER_DIR} — rglob did not descend into the "
+                f"under {SERVER_DIR}, rglob did not descend into the "
                 "prewarm/ or server_platform/ packages where the legacy "
                 "path-literal refactor lives"
             )
@@ -290,7 +290,7 @@ class TestNoHardcodedVoiceTyperPaths:
     def test_config_py_still_has_legacy_migration_probe(self):
         """``config/_accessors.py`` (the config-package module that now
         owns the former ``config.py`` probe) must retain its ``legacy =
-        Path.home() / ".voice-typer"`` migration probe — it's the
+        Path.home() / ".voice-typer"`` migration probe, it's the
         canonical legacy-path check that decides whether to migrate an
         existing ``~/.voice-typer`` install to the platform-specific
         location. Removing it would break migration for existing users."""
@@ -306,7 +306,7 @@ class TestNoHardcodedVoiceTyperPaths:
                 break
         assert found, (
             "config/_accessors.py must retain its legacy migration "
-            "probe ('legacy = Path.home() / \".voice-typer\"') — "
+            "probe ('legacy = Path.home() / \".voice-typer\"'), "
             "removing it would break migration for existing "
             "~/.voice-typer installs"
         )

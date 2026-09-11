@@ -6,17 +6,17 @@ import type * as React from "react";
 import { cn } from "#utils";
 
 /**
- * Design-system checkbox (shadcn/ui, radix-luma style — Radix Root
+ * Design-system checkbox (shadcn/ui, radix-luma style, Radix Root
  * + hugeicons glyphs). Shared by every list/row that needs bulk
  * selection so header (select-all) and per-row checkboxes look
  * IDENTICAL in every state:
  *   - unchecked: transparent fill + muted border (matches the action
- *     icons' muted tone — no white fill, no bright accent)
+ *     icons' muted tone, no white fill, no bright accent)
  *   - checked: accent fill + white checkmark
  *   - indeterminate (partial selection): accent fill + white dash
  *
  * NOTE: Radix emits `data-state="checked|unchecked|indeterminate"`,
- * NOT `data-checked` — the raw registry output used `data-checked:`
+ * NOT `data-checked`, the raw registry output used `data-checked:`
  * classes that never matched, so this file uses `data-[state=...]:`
  * variants.
  */

@@ -1,12 +1,12 @@
 /**
- * Contract tests for the SHORTCUTS catalog — the single source of
+ * Contract tests for the SHORTCUTS catalog, the single source of
  * truth for the app's keyboard-shortcut strings.
  *
  * TitleBar, Sidebar, the Help overlay, and the About page all render
  * from this catalog. These tests pin the canonical values so a
  * binding change is a deliberate, visible edit, and keep the pynput
  * forms in lockstep with the display strings (formatHotkey(pynput)
- * must equal keys on Windows/Linux — the only platform where the
+ * must equal keys on Windows/Linux, the only platform where the
  * display string is the literal text HotkeyChips renders).
  */
 
@@ -30,7 +30,7 @@ async function importUtils() {
 	)) as typeof import("@/components/hotkey/hotkey-utils");
 }
 
-describe("SHORTCUTS catalog — single source of truth", () => {
+describe("SHORTCUTS catalog, single source of truth", () => {
 	beforeAll(() => {
 		vi.resetModules();
 	});
@@ -59,7 +59,7 @@ describe("SHORTCUTS catalog — single source of truth", () => {
 
 	it("dismissBubble.keys is sourced from the shared cross-process constant", async () => {
 		// The dismiss-bubble binding is defined ONCE in
-		// `src/shared/dismiss-shortcut.ts` — the accelerator form is
+		// `src/shared/dismiss-shortcut.ts`, the accelerator form is
 		// consumed by the Electron main process
 		// (`main/shortcuts/global-shortcuts.ts`), the display form by
 		// this catalog. Pinning the equality here (plus the main-side
@@ -104,8 +104,8 @@ describe("SHORTCUTS catalog — single source of truth", () => {
 	});
 
 	it("renders macOS glyph forms for every catalog string (⌃B not Ctrl+B)", async () => {
-		// On macOS the chips must show the platform-native glyphs — the
-		// same output formatHotkey produces from the pynput forms — so
+		// On macOS the chips must show the platform-native glyphs, the
+		// same output formatHotkey produces from the pynput forms, so
 		// the tooltips match the Sidebar. Pinned per entry so a binding
 		// change (or a glyph-table regression) is a deliberate, visible
 		// edit. For entries with a pynput form, formatHotkeyForPlatform
@@ -174,7 +174,7 @@ describe("SHORTCUTS catalog — single source of truth", () => {
 
 	it("IN_APP_BINDINGS pins the actual KeyboardEvent keys the hook dispatches on", async () => {
 		// The bindings themselves (not just the display strings) now
-		// come from the catalog — `useGlobalKeyboardShortcuts` iterates
+		// come from the catalog, `useGlobalKeyboardShortcuts` iterates
 		// `IN_APP_BINDINGS`. Pin the event descriptors so a binding
 		// change is a deliberate, visible edit here, and so the
 		// dispatch table can never silently drift from the keys the
@@ -207,7 +207,7 @@ describe("SHORTCUTS catalog — single source of truth", () => {
 		// The modifier profile per binding: the five navigation/zoom
 		// bindings use "ctrlCmd" (Ctrl OR Cmd, no Shift) and the
 		// toggleDictation binding uses "ctrlShiftCmd" (Ctrl OR Cmd AND
-		// Shift) — each profile must have a matching guard in the
+		// Shift), each profile must have a matching guard in the
 		// hook's MODIFIER_GUARDS map (type-enforced) or the binding
 		// would never fire.
 		expect(IN_APP_BINDINGS.map((b) => b.modifier)).toEqual([
@@ -235,7 +235,7 @@ describe("SHORTCUTS catalog — single source of truth", () => {
 			if (!def.eventKeys) continue;
 			expect(
 				bindingIds.has(id as InAppShortcutId),
-				`${id} declares eventKeys but is missing from IN_APP_BINDINGS — ` +
+				`${id} declares eventKeys but is missing from IN_APP_BINDINGS, ` +
 					"add it to IN_APP_SHORTCUT_IDS (and a handler in " +
 					"useGlobalKeyboardShortcuts) or drop eventKeys",
 			).toBe(true);
@@ -243,7 +243,7 @@ describe("SHORTCUTS catalog — single source of truth", () => {
 			expect(def.handledBy).toBe("renderer");
 		}
 		// Server-handled (pynput) bindings must NOT claim renderer
-		// dispatch — Esc/Tab/Space/Enter are global keys the backend
+		// dispatch, Esc/Tab/Space/Enter are global keys the backend
 		// owns, and the renderer keydown listener must never intercept
 		// them (e.g. Tab/Enter inside a form would break).
 		for (const [id, def] of Object.entries(SHORTCUTS) as Array<

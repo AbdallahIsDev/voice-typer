@@ -15,8 +15,8 @@ file at ``<XDG_CONFIG_HOME or ~/.config>/autostart/voice-typer.desktop`` with:
   - ``Name={APP_NAME}``  →  ``Voice Typer`` (from ``branding.APP_NAME``)
   - ``Comment=Background voice-to-text utility``
   - ``Exec={_autostart_command()}``  →  the Python/Electron launcher path
-    (CURRENT — the legacy Electron/Python launch path; see GAP-1 below)
-  - ``Icon=audio-input-microphone``  (CURRENT — see GAP-1 below)
+    (CURRENT, the legacy Electron/Python launch path; see GAP-1 below)
+  - ``Icon=audio-input-microphone``  (CURRENT: see GAP-1 below)
   - ``Hidden=false``
   - ``NoDisplay=true``
 
@@ -36,7 +36,7 @@ INSTALLER ARCHITECTURE
     libwebkit2gtk-4.1-0 = Tauri WebView; python3 = sidecar host)
   - ``desktopTemplate``: ``"voice-typer.desktop.template"`` → the menu entry
     at ``/usr/share/applications/voice-typer.desktop`` (NOT the autostart
-    entry — that's written at runtime by ``_enable_autostart_linux``)
+    entry, that's written at runtime by ``_enable_autostart_linux``)
   - ``postInstallScript``: ``"../../scripts/linux/postinst"`` → adds the user
     to the ``input`` group + installs the udev rule + configures Caps Lock
     neutralization (delegates to ``install_permissions.py``)
@@ -51,8 +51,8 @@ delegates to ``/usr/share/voice-typer/scripts/install_permissions.py`` which:
   1. Copies ``99-voice-typer.rules`` to ``/etc/udev/rules.d/`` + reloads udev
      (grants the ``input`` group read access to ``/dev/input/event*`` so the
      native ``linux-key-listener`` binary can read keyboard events).
-  2. ``usermod -aG input <user>`` — adds the installing user to the ``input``
-     group (requires log-out + log-in to take effect — Linux kernel limit).
+  2. ``usermod -aG input <user>``, adds the installing user to the ``input``
+     group (requires log-out + log-in to take effect, Linux kernel limit).
   3. Configures Caps Lock neutralization (X11 / GNOME / KDE / Sway).
   4. Writes a manifest at ``/var/lib/voice-typer/permissions-manifest.json``
      so the prerm can undo (1) and (3) cleanly.
@@ -82,14 +82,14 @@ autostart entry to point at the bundled Tauri host binary
 ``voice-typer.desktop.template`` menu entry).  This mirrors the macOS
 mig16 GAP-1 (plist ``ProgramArguments`` points at Python launcher instead of
 the Tauri host binary).  See ``test_autostart_desktop_file_exec_and_icon_match_template``
-(xfail strict — flips to XPASS-strict-fail when the impl is updated).
+(xfail strict, flips to XPASS-strict-fail when the impl is updated).
 
 GAP-2 (depends missing wl-clipboard + xclip): The runbook §"Linux unsigned
 packaging" recommends
 ``depends: ["libnotify4", "libxtst6", "libwebkit2gtk-4.1-0", "python3",
 "wl-clipboard", "xclip"]`` (wl-clipboard + xclip are needed for the
 Wayland/X11 clipboard fallback in ``clipboard.py``'s ``_linux_copy`` /
-``_linux_paste`` paths — ADR-0020 §6.6).  The current
+``_linux_paste`` paths, ADR-0020 §6.6).  The current
 ``tauri.conf.json`` ``bundle.linux.deb.depends`` is missing ``wl-clipboard``
 and ``xclip``.  See ``test_tauri_conf_has_linux_deb_depends`` (the test
 asserts only the 3 mandatory deps per the task spec; the optional 2 are
@@ -107,7 +107,7 @@ test gate.
 GAP-4 (autostart function naming inconsistency): The actual function name is
 ``_is_autostart_linux()`` (consistent with ``_is_autostart_windows()`` +
 ``_is_autostart_macos()``).  The task spec referenced it as
-``_is_autostart_enabled_linux()`` (with the ``_enabled`` infix) — that name
+``_is_autostart_enabled_linux()`` (with the ``_enabled`` infix), that name
 does NOT exist in ``server_platform.py``.  The test uses the actual name
 ``_is_autostart_linux()``.
 
@@ -129,7 +129,7 @@ TEST-HOST NOTES
 ---------------
 On the Linux test host, ``sys.platform == "linux"`` and the autostart code
 paths are exercised directly.  The fixture also monkeypatches
-``server_platform.SYSTEM`` to ``"linux"`` (defensive — the module-level
+``server_platform.SYSTEM`` to ``"linux"`` (defensive, the module-level
 constant is a snapshot of ``sys.platform`` at import time, so if the test
 host ever changed it would still work) and redirects ``$XDG_CONFIG_HOME`` +
 ``$VOICE_TYPER_CONFIG_DIR`` to a tmp dir so the .desktop file is written
@@ -185,7 +185,7 @@ def linux_platform(monkeypatch, tmp_path):
         .desktop file is written under the tmp dir, NOT the test host's real
         ``~/.config/autostart/``)
       - ``$VOICE_TYPER_CONFIG_DIR`` → ``tmp_path / "vt-config"`` (so
-        ``_paths.config_dir()`` resolves to tmp; defensive — the autostart
+        ``_paths.config_dir()`` resolves to tmp; defensive, the autostart
         .desktop path doesn't depend on this, but ``_autostart_command()``
         may transitively touch it via task_scheduler imports)
 
@@ -228,7 +228,7 @@ def _parse_desktop_entry(text: str) -> dict[str, str]:
 
     Only the ``[Desktop Entry]`` group is read.  Multi-line values, comments
     (``#``), and blank lines are skipped.  Does NOT implement the full spec
-    (locale suffixes ``[en]``, escape sequences, etc.) — sufficient for the
+    (locale suffixes ``[en]``, escape sequences, etc.), sufficient for the
     well-formed entries written by ``_enable_autostart_linux`` + the
     ``voice-typer.desktop.template`` file.
     """
@@ -339,7 +339,7 @@ def test_is_autostart_linux_returns_true_only_if_desktop_exists(linux_platform):
     """``_is_autostart_linux`` returns True iff the .desktop file exists.
 
     NOTE: the actual function name is ``_is_autostart_linux`` (NOT
-    ``_is_autostart_enabled_linux`` as the task spec phrased it — see GAP-4
+    ``_is_autostart_enabled_linux`` as the task spec phrased it: see GAP-4
     in the module docstring).  The public facade ``is_autostart_enabled()``
     dispatches to ``_is_autostart_linux`` on Linux.
     """
@@ -389,7 +389,7 @@ def test_is_autostart_linux_false_when_exec_program_missing(linux_platform):
 def test_is_autostart_linux_true_when_exec_program_exists(linux_platform):
     """A .desktop whose ``Exec=`` points at a real program must report
     autostart enabled (the happy path of the AUTOSTART-CMD-VALIDATE
-    check — a valid registration must not be flagged stale)."""
+    check, a valid registration must not be flagged stale)."""
     sp = linux_platform.server_platform
     desktop_path = linux_platform.autostart_dir / "voice-typer.desktop"
     desktop_path.parent.mkdir(parents=True, exist_ok=True)
@@ -409,13 +409,13 @@ def test_tauri_conf_has_linux_deb_depends():
     """``bundle.linux.deb.depends`` includes libnotify4, libxtst6, python3.
 
     Per ADR-0020 §13.3 + the runbook §"Linux unsigned packaging":
-      - ``libnotify4`` — libnotify toast notifications (Step 9).
-      - ``libxtst6`` — X11 XTest extension for enigo's paste keystroke (X11).
-      - ``python3`` — the sidecar host (Nuitka-bundled exe runs on Python 3).
+      - ``libnotify4``, libnotify toast notifications (Step 9).
+      - ``libxtst6``. X11 XTest extension for enigo's paste keystroke (X11).
+      - ``python3``, the sidecar host (Nuitka-bundled exe runs on Python 3).
 
     NOTE (GAP-2): the runbook ALSO recommends ``wl-clipboard`` + ``xclip``
     for the Wayland/X11 clipboard fallback.  These are NOT currently in the
-    depends list — documented as a gap, not asserted here (per the task spec
+    depends list, documented as a gap, not asserted here (per the task spec
     which only mandates the 3 deps above).
     """
     conf = json.loads(TAURI_CONF.read_text())
@@ -424,14 +424,14 @@ def test_tauri_conf_has_linux_deb_depends():
 
     assert isinstance(depends, list), f"depends must be a list, got {type(depends)}"
     assert "libnotify4" in depends, (
-        f"libnotify4 missing from deb.depends — needed for libnotify toast "
+        f"libnotify4 missing from deb.depends, needed for libnotify toast "
         f"notifications (Step 9).  Current depends: {depends}"
     )
     assert "libxtst6" in depends, (
-        f"libxtst6 missing from deb.depends — needed for X11 XTest paste keystroke (enigo).  Current depends: {depends}"
+        f"libxtst6 missing from deb.depends, needed for X11 XTest paste keystroke (enigo).  Current depends: {depends}"
     )
     assert "python3" in depends, (
-        f"python3 missing from deb.depends — the sidecar host requires it.  Current depends: {depends}"
+        f"python3 missing from deb.depends, the sidecar host requires it.  Current depends: {depends}"
     )
 
 
@@ -439,7 +439,7 @@ def test_tauri_conf_has_linux_deb_postinstall():
     """``bundle.linux.deb.postInstallScript`` points to ``scripts/linux/postinst``.
 
     Per ADR-0020 §13.3, the path is ``"../../scripts/linux/postinst"`` (relative
-    to ``src-tauri/`` — Tauri's bundler resolves it relative to the
+    to ``src-tauri/``, Tauri's bundler resolves it relative to the
     ``src-tauri/`` dir, so the ``../../`` escapes back to the repo root).
     """
     conf = json.loads(TAURI_CONF.read_text())
@@ -450,19 +450,19 @@ def test_tauri_conf_has_linux_deb_postinstall():
     # See https://v2.tauri.app/reference/config/#debconfig
     # Assert the v2 form and reject the v1 form so any regression is caught here.
     assert "postInstallScript" in deb, (
-        "bundle.linux.deb.postInstallScript missing — Tauri v2 requires the 'postInstallScript' key"
+        "bundle.linux.deb.postInstallScript missing, Tauri v2 requires the 'postInstallScript' key"
     )
     assert "postInstall" not in deb, (
-        "stale short-form 'postInstall' key present on bundle.linux.deb — should use Tauri v2 'postInstallScript'"
+        "stale short-form 'postInstall' key present on bundle.linux.deb, should use Tauri v2 'postInstallScript'"
     )
     post_install = deb["postInstallScript"]
 
     assert post_install is not None, "bundle.linux.deb.postInstallScript is missing"
     # The path is relative to src-tauri/ per Tauri v2 docs (ADR-0020 §13.3
-    # confirms: "../../scripts/linux/postinst" — two levels up from
+    # confirms: "../../scripts/linux/postinst", two levels up from
     # src-tauri/ to escape back to <repo_root>/, then into scripts/linux/).
     # NOTE: don't try to pathlib.resolve() the postInstallScript string
-    # ourselves — Tauri's bundler resolves it via its own
+    # ourselves, Tauri's bundler resolves it via its own
     # (workspace-root-aware) logic, and a naive `SRC_TAURI_DIR / post_install`
     # produces a wrong absolute path because pathlib collapses `../../`
     # lexically without knowing about Tauri's workspace-root resolution.
@@ -484,10 +484,10 @@ def test_tauri_conf_has_linux_deb_preremove():
     # Tauri v2 uses the long-form `preRemoveScript` key (NOT the v1
     # short-form `preRemove`). See https://v2.tauri.app/reference/config/#debconfig
     assert "preRemoveScript" in deb, (
-        "bundle.linux.deb.preRemoveScript missing — Tauri v2 requires the 'preRemoveScript' key"
+        "bundle.linux.deb.preRemoveScript missing, Tauri v2 requires the 'preRemoveScript' key"
     )
     assert "preRemove" not in deb, (
-        "stale short-form 'preRemove' key present on bundle.linux.deb — should use Tauri v2 'preRemoveScript'"
+        "stale short-form 'preRemove' key present on bundle.linux.deb, should use Tauri v2 'preRemoveScript'"
     )
     pre_remove = deb["preRemoveScript"]
 
@@ -508,7 +508,7 @@ def test_tauri_conf_has_linux_deb_desktop_template():
 
     This is the ``.desktop`` file Tauri installs at
     ``/usr/share/applications/voice-typer.desktop`` (the application-menu
-    entry — NOT the autostart entry, which is written at runtime by
+    entry, NOT the autostart entry, which is written at runtime by
     ``_enable_autostart_linux``).
     """
     conf = json.loads(TAURI_CONF.read_text())
@@ -534,7 +534,7 @@ def test_desktop_template_exists_and_is_valid():
     """``voice-typer.desktop.template`` exists + is a valid freedesktop entry.
 
     Validates the menu-entry template (NOT the autostart .desktop file, which
-    is written at runtime with different Exec/Icon values — see GAP-1).
+    is written at runtime with different Exec/Icon values: see GAP-1).
 
     Required fields per the VALIDATE ON LINUX HOST step 5:
       - ``Type=Application``
@@ -624,7 +624,7 @@ def test_postinst_invokes_install_permissions_for_input_group_and_udev():
     # 7) The udev rule file itself exists in the source tree (the postinst
     #    copies it to /etc/udev/rules.d/ during install).
     assert UDEV_RULE.is_file(), (
-        f"99-voice-typer.rules missing at {UDEV_RULE} — the postinst must "
+        f"99-voice-typer.rules missing at {UDEV_RULE}, the postinst must "
         f"ship this file so install_permissions.py can copy it."
     )
 
@@ -640,7 +640,7 @@ def test_prerm_invokes_uninstall_permissions_for_cleanup():
       - Restores the backup udev rule if one was created at install time
       - Reloads udev
       - Does NOT remove the user from the ``input`` group (other apps may
-        rely on it — explicitly documented in the prerm header comment).
+        rely on it, explicitly documented in the prerm header comment).
     """
     assert PRERM.is_file(), f"prerm missing at {PRERM}"
     prerm_text = PRERM.read_text()
@@ -677,7 +677,7 @@ def test_prerm_invokes_uninstall_permissions_for_cleanup():
         "logic)."
     )
     # 6) prerm does NOT remove the user from the input group (explicitly
-    #    documented in the header comment — other apps may rely on it).
+    #    documented in the header comment, other apps may rely on it).
     assert "input group" in prerm_text or "input" in prerm_text, (
         "prerm must document that it does NOT remove the user from the input group (other apps may rely on it)."
     )
@@ -704,7 +704,7 @@ def test_single_instance_plugin_wired_in_tauri():
     conf = json.loads(TAURI_CONF.read_text())
     plugins = conf.get("plugins", {})
     assert "single-instance" in plugins, (
-        "tauri.conf.json plugins.single-instance is missing — the plugin "
+        "tauri.conf.json plugins.single-instance is missing, the plugin "
         "must be declared in the config so the bundler knows to bundle it."
     )
 

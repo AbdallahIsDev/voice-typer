@@ -3,7 +3,7 @@
  *
  * Sighted users see only the current value next to the thumb, never
  * the range endpoints. Both ends of the track now render the min/max
- * numbers (numeric only, no unit suffix — the unit is already shown
+ * numbers (numeric only, no unit suffix, the unit is already shown
  * next to the current value) in the shared muted small-text tokens.
  * They are decorative (the slider root exposes aria-valuemin/aria-
  * valuemax) so they carry aria-hidden.
@@ -13,7 +13,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { RangeSlider } from "@/components/common/RangeSlider";
 
-describe("RangeSlider — visible min/max endpoint labels", () => {
+describe("RangeSlider, visible min/max endpoint labels", () => {
 	afterEach(() => {
 		cleanup();
 	});
@@ -34,7 +34,7 @@ describe("RangeSlider — visible min/max endpoint labels", () => {
 		expect(screen.getByText("200")).toBeInTheDocument();
 	});
 
-	it("endpoint labels are decorative (aria-hidden) — the slider root exposes the range", () => {
+	it("endpoint labels are decorative (aria-hidden), the slider root exposes the range", () => {
 		render(
 			<RangeSlider
 				value={50}
@@ -71,7 +71,7 @@ describe("RangeSlider — visible min/max endpoint labels", () => {
 		expect(minLabel.className).toContain("text-xs");
 	});
 
-	it("endpoint labels are numeric only — no unit suffix", () => {
+	it("endpoint labels are numeric only, no unit suffix", () => {
 		render(
 			<RangeSlider
 				value={500}

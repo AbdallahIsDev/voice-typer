@@ -2,7 +2,7 @@
 //!
 //! Moved verbatim from the inline `#[cfg(test)] mod tests` block in
 //! `state.rs` as part of the C-TEST-5 test-isolation migration. No test
-//! logic changed — only the module path adjusted (now a sibling of
+//! logic changed: only the module path adjusted (now a sibling of
 //! `state` rather than a child). All items referenced by the tests were
 //! already `pub(crate)`, so no visibility bumps were needed in
 //! `state.rs`.
@@ -16,7 +16,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{oneshot, Mutex as AsyncMutex};
 // The devmode Drop tests below spawn REAL `sleep 30` subprocesses
-// (children of the test binary) — serialize against the own-pid
+// (children of the test binary), serialize against the own-pid
 // enumeration tests (see test_support.rs CHILD_PROCESS_TEST_LOCK).
 #[cfg(unix)]
 use crate::test_support::CHILD_PROCESS_TEST_LOCK;
@@ -52,13 +52,13 @@ async fn test_pending_map_no_outer_arc_compiles_and_works() {
 /// sets `shutting_down` IMMEDIATELY (before the 30s dev-mode sleep)
 /// so a concurrent second call short-circuits via the idempotency
 /// guard. We verify the contract structurally without waiting the
-/// full 30s sleep — spawn the first call, poll `shutting_down` until
+/// full 30s sleep: spawn the first call, poll `shutting_down` until
 /// it flips true, then verify the second call returns immediately.
 #[tokio::test]
 async fn test_shutdown_sidecar_for_exit_is_idempotent() {
     let state = Arc::new(SidecarState::new());
     let state_clone = state.clone();
-    // Spawn the first call but don't await — it would block for the
+    // Spawn the first call but don't await, it would block for the
     // full EXIT_SHUTDOWN_ACK_TIMEOUT_MS (30s) on the dev-mode None
     // child_exit_rx path.
     let first_handle = tokio::spawn(async move {
@@ -66,7 +66,7 @@ async fn test_shutdown_sidecar_for_exit_is_idempotent() {
     });
     // Poll `shutting_down` until it flips true (set by the first
     // call's idempotency guard, BEFORE the 30s sleep). 1s is
-    // generous — the guard runs in the first few microseconds of
+    // generous: the guard runs in the first few microseconds of
     // the call.
     let mut guard_set = false;
     for _ in 0..100 {
@@ -96,7 +96,7 @@ async fn test_shutdown_sidecar_for_exit_is_idempotent() {
         second.is_ok(),
         "second shutdown_sidecar_for_exit must short-circuit immediately (idempotency)"
     );
-    // Abort the first call to clean up — don't wait for the 30s
+    // Abort the first call to clean up, don't wait for the 30s
     // sleep. The spawned task is still in the dev-mode sleep; abort
     // drops it without panicking.
     first_handle.abort();
@@ -108,7 +108,7 @@ async fn test_shutdown_sidecar_for_exit_is_idempotent() {
 /// call swaps `shutting_down` false→true (returning `false`), the
 /// second sees it already set (returning `true`), and BOTH calls fire
 /// the supervisor wakeup. A `notified()` future registered BEFORE the
-/// notify must complete on its first poll — the stored-permit
+/// notify must complete on its first poll, the stored-permit
 /// semantics that let the production teardown path
 /// (`shutdown_sidecar_for_exit`, which performs the same adjacent
 /// pair inline) wake a supervisor that is only just entering its
@@ -122,7 +122,7 @@ async fn test_begin_shutdown_swaps_flag_and_wakes_notify_waiter() {
         .load(std::sync::atomic::Ordering::SeqCst));
 
     // Register the waiter BEFORE the notify (mirrors a supervisor
-    // task parked in — or about to enter — `notified()`).
+    // task parked in: or about to enter, `notified()`).
     let waiter = state.shutdown_notify.notified();
 
     // First call: performs the swap and fires the wakeup.
@@ -136,14 +136,14 @@ async fn test_begin_shutdown_swaps_flag_and_wakes_notify_waiter() {
             .load(std::sync::atomic::Ordering::SeqCst),
         "begin_shutdown must set shutting_down"
     );
-    // Second call: idempotent swap — reports the flag was already set.
+    // Second call: idempotent swap, reports the flag was already set.
     assert!(
         state.begin_shutdown(),
         "second begin_shutdown must report the flag was already set"
     );
 
     // The pre-registered waiter completes on its first poll via the
-    // stored permit — no sleep, no re-poll. This is the property that
+    // stored permit: no sleep, no re-poll. This is the property that
     // makes the shutdown wakeup Notify-based (sub-ms) rather than
     // poll-based (up to one full backoff step of latency).
     tokio::time::timeout(Duration::from_secs(1), waiter)
@@ -157,7 +157,7 @@ async fn test_begin_shutdown_swaps_flag_and_wakes_notify_waiter() {
 /// droppable without panic. This pins the `Option<CommandChild>`
 /// wrapper added so the Drop impl can `take()` the child out of
 /// `&mut self`. The `None` state is what `kill()` / `kill_tree()`
-/// leave behind after they consume the inner child — Drop on that
+/// leave behind after they consume the inner child, Drop on that
 /// state must be a no-op (no double-kill, no panic).
 #[test]
 fn test_shell_plugin_none_drops_cleanly() {
@@ -167,7 +167,7 @@ fn test_shell_plugin_none_drops_cleanly() {
 }
 
 /// `SidecarHandle::ShellPlugin(None).kill().await` and
-/// `.kill_tree().await` must both return Ok — the kill call on an
+/// `.kill_tree().await` must both return Ok, the kill call on an
 /// already-taken handle is a no-op. This pins the "no double-kill"
 /// contract: when kill_tree() internally calls kill() at the end,
 /// and Drop runs on the consumed value, both see None and are
@@ -202,7 +202,7 @@ async fn test_shell_plugin_none_kill_returns_ok() {
 async fn test_devmode_drop_kills_child_when_kill_on_drop_set() {
     use std::time::Duration;
 
-    // Spawns a REAL child of the test binary — serialize against the
+    // Spawns a REAL child of the test binary, serialize against the
     // own-pid enumeration tests (see test_support.rs). The guard is
     // non-Send and held across `.await`, which only compiles on the
     // default `current_thread` tokio flavor.
@@ -227,7 +227,7 @@ async fn test_devmode_drop_kills_child_when_kill_on_drop_set() {
     let still_alive = unsafe { libc::kill(pid as i32, 0) == 0 };
     assert!(
         !still_alive,
-        "DevMode child must be killed by Drop (kill_on_drop=true) — pid {} is still alive",
+        "DevMode child must be killed by Drop (kill_on_drop=true): pid {} is still alive",
         pid
     );
 }
@@ -243,7 +243,7 @@ async fn test_devmode_drop_kills_child_when_kill_on_drop_set() {
 async fn test_devmode_drop_does_not_kill_when_kill_on_drop_unset() {
     use std::time::Duration;
 
-    // Spawns a REAL child of the test binary — serialize against the
+    // Spawns a REAL child of the test binary, serialize against the
     // own-pid enumeration tests (see test_support.rs). The guard is
     // non-Send and held across `.await`, which only compiles on the
     // default `current_thread` tokio flavor.
@@ -280,7 +280,7 @@ async fn test_devmode_drop_does_not_kill_when_kill_on_drop_unset() {
     tokio::time::sleep(Duration::from_millis(100)).await;
 }
 
-// ── WorkerState (Phase 2a — runtime-pack split, §7) ─────────────────
+// ── WorkerState (Phase 2a: runtime-pack split, §7) ─────────────────
 //
 // Tests for the WorkerState struct (parallel to SidecarState for the
 // ML worker exe). The struct mirrors SidecarState's field set +
@@ -289,7 +289,7 @@ async fn test_devmode_drop_does_not_kill_when_kill_on_drop_unset() {
 // "no worker spawned" state (None / false / 0 / empty OnceLock).
 
 /// `WorkerState::new()` must initialize `child` to `None`. The
-/// `Option<SidecarHandle>` is the worker child slot — `None` means
+/// `Option<SidecarHandle>` is the worker child slot, `None` means
 /// "no worker spawned yet" (the slim-core sidecar hasn't connected,
 /// the worker hasn't been started, OR the worker was killed and is
 /// awaiting respawn).
@@ -317,7 +317,7 @@ fn test_worker_state_new_child_is_none() {
 
 /// `WorkerState::new()` must initialize `ws_tx` to `None`. The WS
 /// writer channel is `None` until the slim-core sidecar connects to
-/// the worker as a WS client (§7.1 — new 1-host↔2-processes pattern).
+/// the worker as a WS client (§7.1, new 1-host↔2-processes pattern).
 #[tokio::test]
 async fn test_worker_state_new_ws_tx_is_none() {
     let state = WorkerState::new();
@@ -359,7 +359,7 @@ fn test_worker_state_new_next_id_is_one() {
 /// `WorkerState::new()` must initialize `shutting_down` to `false`.
 /// The flag flips to `true` only when `shutdown_worker_for_exit` is
 /// called (the host is quitting). SEPARATE from
-/// `SidecarState::shutting_down` per §7.2 — the worker's lifecycle
+/// `SidecarState::shutting_down` per §7.2, the worker's lifecycle
 /// is independent of the sidecar's.
 #[test]
 fn test_worker_state_new_shutting_down_is_false() {
@@ -375,7 +375,7 @@ fn test_worker_state_new_shutting_down_is_false() {
 /// `WorkerState::new()` must initialize `respawn_in_progress` to
 /// `false`. The flag is the worker respawn serialization guard
 /// (parallel to `SidecarState::respawn_in_progress`). SEPARATE from
-/// the sidecar's flag per §7.2 — worker crashes must NOT trip the
+/// the sidecar's flag per §7.2, worker crashes must NOT trip the
 /// sidecar's circuit breaker.
 #[test]
 fn test_worker_state_new_respawn_in_progress_is_false() {
@@ -465,7 +465,7 @@ fn test_worker_state_new_lock_file_path_is_unset() {
 
 /// `WorkerState::auth_token`'s `OnceLock::set` must succeed on the
 /// first call + fail (return Err) on subsequent calls. This pins
-/// the "token is set ONCE per host launch" contract — a future
+/// the "token is set ONCE per host launch" contract, a future
 /// refactor that calls `set()` on every respawn would silently
 /// ignore the second `set()`, preserving the original token (which
 /// is the correct behavior for the §7.2 worker-inherits-token
@@ -481,7 +481,7 @@ fn test_worker_state_auth_token_set_once_is_idempotent() {
     let second = state.auth_token.set("token-v2".to_string());
     assert!(
         second.is_err(),
-        "second auth_token.set must fail (OnceLock already set — preserves the original token)"
+        "second auth_token.set must fail (OnceLock already set: preserves the original token)"
     );
     // The token must remain the first one set.
     assert_eq!(
@@ -543,7 +543,7 @@ fn test_worker_state_lock_file_path_set_once_is_idempotent() {
 
 /// `WorkerState::shutdown_notify` must be a fresh `Notify` (no stored
 /// permit). Calling `notified()` without a prior `notify_one()` must
-/// await indefinitely (we test this with a 10ms timeout — a fresh
+/// await indefinitely (we test this with a 10ms timeout, a fresh
 /// Notify should NOT resolve within 10ms).
 ///
 /// Mirrors `SidecarState::shutdown_notify`'s constructor contract.
@@ -577,7 +577,7 @@ async fn test_worker_state_shutdown_notify_wakes_waiter() {
     let state = Arc::new(WorkerState::new());
     let state_clone = state.clone();
     let join = tokio::spawn(async move {
-        // Wait for the notify_one() — should resolve quickly once
+        // Wait for the notify_one(): should resolve quickly once
         // the parent fires it.
         state_clone.shutdown_notify.notified().await;
         true
@@ -596,7 +596,7 @@ async fn test_worker_state_shutdown_notify_wakes_waiter() {
 }
 
 /// `WorkerState` must be shareable via `Arc<WorkerState>` (the
-/// production shape — `main.rs::setup` will install
+/// production shape: `main.rs::setup` will install
 /// `Arc::new(WorkerState::new())` via `app.manage(...)`). This test
 /// pins that `WorkerState` is `Send + Sync` (required for `Arc`
 /// shared across Tokio tasks). If a future field accidentally breaks

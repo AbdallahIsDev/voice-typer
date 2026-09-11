@@ -13,7 +13,7 @@ These tests exercise the Win32 DACL / SECURITY_ATTRIBUTES builder
 3. For functions that receive ``ctypes.byref(dword)`` output
    parameters (``GetTokenInformation``), install ``side_effect``
    callbacks that mutate ``byref_obj._obj.value`` to fake the kernel
-   writing into the buffer — same pattern as
+   writing into the buffer, same pattern as
    ``_set_byref_value`` in the clipboard coverage tests.
 4. For the SID pointer read out of ``TOKEN_USER``, write a fake
    non-zero pointer into the buffer at offset ``0`` (the location of
@@ -24,19 +24,19 @@ These tests exercise the Win32 DACL / SECURITY_ATTRIBUTES builder
 
 The SUT returns ``None`` on any failure (the caller then falls back to
 a default NULL ``lpMutexAttributes`` for ``CreateMutexW``, which uses
-the per-user default DACL — safe baseline). The success path returns a
+the per-user default DACL, safe baseline). The success path returns a
 ctypes ``SECURITY_ATTRIBUTES`` structure.
 
 SetEntriesInAclW return-code semantics (post-CR-003)
 ----------------------------------------------------
 ``SetEntriesInAclW`` returns a ``DWORD`` Win32 error code (0 =
 ``ERROR_SUCCESS`` = success). The SUT checks
-``if SetEntriesInAclW(...) != 0`` — so a *successful* return (0)
+``if SetEntriesInAclW(...) != 0``, so a *successful* return (0)
 proceeds to call ``SetSecurityDescriptorDacl(sd, True, new_acl,
 False)`` (the success branch that uses ``new_acl``), and a *failed*
 return (non-zero) returns ``None`` *directly* (CR-003 removed the
 NULL-DACL fallback that pre-fix called ``SetSecurityDescriptorDacl``
-with ``dacl=None`` — that fallback was a security bug because a NULL
+with ``dacl=None``, that fallback was a security bug because a NULL
 DACL grants EVERY token ``MUTEX_ALL_ACCESS``). See
 ``TestSetEntriesInAclSemantics`` below for the pinned behaviour.
 """
@@ -112,7 +112,7 @@ def _configure_full_success(advapi32):
     a successful return (0) skips the early-return and proceeds to call
     ``SetSecurityDescriptorDacl(sd, True, new_acl, False)`` (the success
     branch). A failed return (non-zero) returns ``None`` *directly*
-    (CR-003 removed the NULL-DACL fallback — see the module docstring's
+    (CR-003 removed the NULL-DACL fallback: see the module docstring's
     "SetEntriesInAclW return-code semantics" note).
     """
     advapi32.GetTokenInformation.side_effect = _gti_success_side_effect
@@ -138,7 +138,7 @@ def fake_windll():
     mock_windll.advapi32 = mock_advapi32
     mock_windll.kernel32 = mock_kernel32
 
-    # Sane defaults — OpenProcessToken succeeds, GetCurrentProcess
+    # Sane defaults, OpenProcessToken succeeds, GetCurrentProcess
     # returns a pseudo-handle, CloseHandle succeeds.
     mock_kernel32.GetCurrentProcess.return_value = 0xFFFFFFFF
     mock_kernel32.CloseHandle.return_value = 1
@@ -202,7 +202,7 @@ class TestErrorPaths:
         def _gti_null_sid(token, info_class, buf, buf_len, ret_len_ref):
             _set_byref_value(ret_len_ref, 64)
             if buf is not None:
-                # Do NOT write a SID pointer — p_sid reads as 0.
+                # Do NOT write a SID pointer, p_sid reads as 0.
                 return 1
             return 0
 
@@ -324,7 +324,7 @@ class TestSecurityAttributesOutput:
 
         assert sa.nLength == ctypes.sizeof(SECURITY_ATTRIBUTES)
         assert not sa.bInheritHandle  # False / 0
-        # lpSecurityDescriptor is a c_void_p value — non-zero means it
+        # lpSecurityDescriptor is a c_void_p value, non-zero means it
         # points at the allocated SD buffer.
         assert int(sa.lpSecurityDescriptor or 0) != 0
         # Reference-keeping attributes (prevents GC while mutex holds SA)
@@ -357,11 +357,11 @@ class TestSetEntriesInAclSemantics:
     """Document the corrected-check behaviour around ``SetEntriesInAclW``.
 
     ``SetEntriesInAclW`` returns ``DWORD`` (0 = ``ERROR_SUCCESS`` =
-    success). The SUT checks ``if SetEntriesInAclW(...) != 0`` — so a
+    success). The SUT checks ``if SetEntriesInAclW(...) != 0``, so a
     *successful* return (0) skips the early-return and proceeds to call
     ``SetSecurityDescriptorDacl(sd, True, new_acl, False)`` (the success
     branch that uses ``new_acl``). A *failed* return (non-zero) returns
-    ``None`` *directly* — CR-003 removed the NULL-DACL fallback (which
+    ``None`` *directly*, CR-003 removed the NULL-DACL fallback (which
     was a security bug: a NULL DACL grants EVERY token
     ``MUTEX_ALL_ACCESS``). The SUT therefore does NOT call
     ``SetSecurityDescriptorDacl`` on the failure path.

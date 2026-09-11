@@ -65,11 +65,11 @@ class TestTrayClickUsesValidateDictPayload:
         assert "_validate_dict_payload" in src, (
             "_handle_tray_click must delegate validation to "
             "_validate_dict_payload. Found inline isinstance check "
-            "instead — this bypasses the shared error envelope."
+            "instead, this bypasses the shared error envelope."
         )
         # The old inline check must NOT be present.
         assert 'isinstance(data, dict) or "id" not in data' not in src, (
-            "_handle_tray_click must NOT use the inline isinstance check — "
+            "_handle_tray_click must NOT use the inline isinstance check, "
             "it produces only missing_field for all bad inputs and bypasses "
             "the type check."
         )
@@ -90,7 +90,7 @@ class TestTrayClickErrorEnvelopes:
 
     def test_non_dict_data_returns_invalid_payload(self, server):
         """When ``data`` is not a dict (e.g. a string), the response must
-        be ``code: invalid_payload`` — NOT ``missing_field`` (which the
+        be ``code: invalid_payload``, NOT ``missing_field`` (which the
         old inline check returned for every bad input).
         """
         resp = _base_resp()
@@ -114,7 +114,7 @@ class TestTrayClickErrorEnvelopes:
 
     def test_non_str_id_returns_invalid_field(self, server):
         """When ``data["id"]`` is present but not a ``str`` (e.g. an
-        ``int``), the response must be ``code: invalid_field`` — NOT
+        ``int``), the response must be ``code: invalid_field``, NOT
         ``missing_field`` (which the old inline check returned) and NOT
         a silent pass-through to ``tray.dispatch_tray_action`` (which
         the old inline check did, letting the wrong type reach the
@@ -132,14 +132,14 @@ class TestTrayClickErrorEnvelopes:
         server.app.tray.dispatch_tray_action.assert_not_called()
 
     def test_none_id_returns_invalid_field(self, server):
-        """``None`` is not a valid ``id`` — must return ``invalid_field``."""
+        """``None`` is not a valid ``id``, must return ``invalid_field``."""
         resp = _base_resp()
         result = server._handle_tray_click({"id": None}, resp)
         assert result["type"] == "error"
         assert result["data"]["code"] == "client.invalid_field"
 
     def test_list_id_returns_invalid_field(self, server):
-        """A list is not a valid ``id`` — must return ``invalid_field``."""
+        """A list is not a valid ``id``, must return ``invalid_field``."""
         resp = _base_resp()
         result = server._handle_tray_click({"id": ["a", "b"]}, resp)
         assert result["type"] == "error"

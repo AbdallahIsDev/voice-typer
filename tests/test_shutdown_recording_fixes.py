@@ -17,7 +17,7 @@ Pins the four findings assigned to this fix slot:
   ``recording_controller._cancelled_cycle_ids`` must
   be bounded. Pre-fix it was a plain ``set[str]`` whose comment claimed
   "Entries are discarded by the pipeline's finally block" but grep
-  found NO discard calls anywhere — the set grew by one entry per
+  found NO discard calls anywhere, the set grew by one entry per
   cancel event forever. The fix converts it to a bounded
   ``OrderedDict`` (LRU eviction at ``_MAX_CANCELLED_IDS = 1000``) and
   adds a ``_discard_cancelled_cycle_id`` helper called from
@@ -30,7 +30,7 @@ Pins the four findings assigned to this fix slot:
   teardown, racing the recorder's final ``transcribe_words`` call
   against the registry's ``unload()`` of the same backend.
 
-* **IN-20 (Medium)** — ``_toggle_lock`` must be RELEASED for the
+* **IN-20 (Medium)**: ``_toggle_lock`` must be RELEASED for the
   duration of ``ensure_active_engine_loaded()`` (5-30s on idle-unload)
   so the F2 hotkey backend's single dispatch thread is not blocked.
   The lock is re-acquired after the load completes so post-load steps
@@ -167,7 +167,7 @@ class TestIn17WatchdogJoinsLeakedWorkers:
     (``timeout=0.5``). Shared-deadline mode caps the iteration at the
     first 10 workers and uses ``min(0.2, remaining_budget)`` per
     worker, so the worst-case wall time is ``min(2.0, total_budget)``
-    seconds — bounded regardless of how many workers are in the
+    seconds, bounded regardless of how many workers are in the
     registry.
     """
 
@@ -205,7 +205,7 @@ class TestIn17WatchdogJoinsLeakedWorkers:
         # It must be the LAST occurrence of os._exit(0) in the body
         # (the join precedes it; any earlier mention is in a comment).
         join_idx = body.find("join_leaked_workers(")
-        # Find the LAST os._exit(0) in the body — that's the real call.
+        # Find the LAST os._exit(0) in the body, that's the real call.
         exit_idx = body.rfind("os._exit(0)")
         assert exit_idx > -1, "_watchdog body must call os._exit(0)"
         assert join_idx < exit_idx, (
@@ -214,7 +214,7 @@ class TestIn17WatchdogJoinsLeakedWorkers:
 
     def test_watchdog_uses_1_0s_total_budget(self) -> None:
         """the watchdog uses shared-deadline mode
-        (``total_budget=1.0``) — the call site must contain the
+        (``total_budget=1.0``), the call site must contain the
         literal ``total_budget=1.0``. Previously the watchdog used
         per-worker mode (``timeout=0.5``); JB-11 switched to
         shared-deadline mode so the watchdog's effective time is
@@ -233,7 +233,7 @@ class TestIn17WatchdogJoinsLeakedWorkers:
 
     def test_watchdog_never_propagates_join_errors(self) -> None:
         """If ``join_leaked_workers`` raises, the watchdog must still call
-        ``os._exit(0)`` — the join is best-effort and must never block
+        ``os._exit(0)``, the join is best-effort and must never block
         process exit.
 
         extraction: the ``_watchdog`` closure body now
@@ -271,7 +271,7 @@ class TestIn17WatchdogJoinsLeakedWorkers:
         monkeypatch.setattr(sc_mod, "join_leaked_workers", fake_join)
         monkeypatch.setattr(sc_mod.os, "_exit", fake_exit)
 
-        # Bypass __init__ — we only need _arm_shutdown_watchdog.
+        # Bypass __init__, we only need _arm_shutdown_watchdog.
         ctrl = sc_mod.ShutdownController.__new__(sc_mod.ShutdownController)
         ctrl._app = MagicMock()
         ctrl._arm_shutdown_watchdog(0.05)
@@ -309,7 +309,7 @@ class TestIn18CancelledCycleIdsBounded:
         """``__init__`` must initialize ``_cancelled_cycle_ids`` to an
         ``OrderedDict`` (not a plain ``set``)."""
         s = _recording_src()
-        # The init line — type annotation + value
+        # The init line, type annotation + value
         assert "OrderedDict[str, None]" in s, "_cancelled_cycle_ids must be typed as OrderedDict[str, None]"
         assert "OrderedDict()" in s, "_cancelled_cycle_ids must be initialized to OrderedDict()"
         # Import must be present
@@ -333,7 +333,7 @@ class TestIn18CancelledCycleIdsBounded:
 
     def test_no_direct_add_calls_remain(self) -> None:
         """Production code must NOT call ``_cancelled_cycle_ids.add(...)``
-        directly — all mutations must go through ``_mark_cycle_cancelled``."""
+        directly, all mutations must go through ``_mark_cycle_cancelled``."""
         s = _recording_src()
         # ``.add(cycle_id)`` on the production OrderedDict is forbidden;
         # the duck-typed branch in _mark_cycle_cancelled uses ``.add()``
@@ -364,7 +364,7 @@ class TestIn18CancelledCycleIdsBounded:
 
         assert _MAX_CANCELLED_IDS == 1000
 
-        # Bypass __init__ — we only need the two helper methods + the
+        # Bypass __init__, we only need the two helper methods + the
         # registry + the lock + the watchdog helper the delegators
         # forward to.
         ctrl = RecordingController.__new__(RecordingController)
@@ -372,7 +372,7 @@ class TestIn18CancelledCycleIdsBounded:
         ctrl._cancelled_cycle_ids_lock = threading.Lock()
         ctrl._watchdog_helper = TranscriptionWatchdog()
 
-        # Bypass __init__ — we only need the two helper methods + the
+        # Bypass __init__, we only need the two helper methods + the
         # registry + the lock.
         ctrl = RecordingController.__new__(RecordingController)
         ctrl._cancelled_cycle_ids = OrderedDict()
@@ -491,7 +491,7 @@ class TestIn19AsrTeardownSecondWave:
         constructor, so the "list body" region is bounded by that
         constructor call, not by a literal closing ``]`` (the parallel
         ``all_parallel_items`` literal appears LATER in the file and its
-        closing ``]`` is the first ``\\n    ]`` match — using that as
+        closing ``]`` is the first ``\\n    ]`` match, using that as
         the bound would swallow the ASR tuple and false-positive).
 
         The plan-builder bodies live in ``shutdown/plan.py``
@@ -551,7 +551,7 @@ class TestIn19AsrTeardownSecondWave:
 
         The ``_do_cleanup`` body lives in ``shutdown/cleanup.py``
         (``do_cleanup(controller)``), so the calls go through
-        ``controller._run_plan`` — the mixin delegate, preserving the
+        ``controller._run_plan``, the mixin delegate, preserving the
         instance-level monkeypatch seam."""
         s = _cleanup_src()
         sequenced_call = s.find("_timed_out = controller._run_plan(sequenced_plan, frozenset())")
@@ -594,7 +594,7 @@ class TestIn20ToggleLockReleasedDuringModelLoad:
         """
         s = _recording_lifecycle_src()
         # The actual model-load call must live on the worker entry
-        # (not inline in _start_impl — the F2 thread must not run the
+        # (not inline in _start_impl, the F2 thread must not run the
         # 5-30s reload).
         worker_idx = s.find("def _start_dictation_worker_entry(")
         assert worker_idx > -1, "could not find _start_dictation_worker_entry in recording_lifecycle"
@@ -615,15 +615,15 @@ class TestIn20ToggleLockReleasedDuringModelLoad:
         next_def = s.find("\n    def ", start_impl_idx + 1)
         body = s[start_impl_idx:next_def]
         assert "controller._toggle_lock.release()" not in body, (
-            "_start_impl must NOT manually release _toggle_lock — the "
+            "_start_impl must NOT manually release _toggle_lock, the "
             "public entry owns the lock lifecycle and joins outside it"
         )
         assert "controller._toggle_lock.acquire()" not in body, (
-            "_start_impl must NOT manually re-acquire _toggle_lock — the "
+            "_start_impl must NOT manually re-acquire _toggle_lock, the "
             "public entry owns the lock lifecycle and joins outside it"
         )
         # The bounded join lives in _run_public_entry, at method-body
-        # indentation — OUTSIDE the ``with controller._toggle_lock:``
+        # indentation, OUTSIDE the ``with controller._toggle_lock:``
         # block (code inside the with sits at a deeper indent).
         entry_idx = s.find("def _run_public_entry(self, controller, impl_method)")
         assert entry_idx > -1, "could not find _run_public_entry in recording_lifecycle"
@@ -636,7 +636,7 @@ class TestIn20ToggleLockReleasedDuringModelLoad:
         assert join_idx > -1, "_run_public_entry must bounded-join the worker (worker.join(timeout=...))"
         # Positional proof the join is OUTSIDE the locked section: the
         # join must come after the ``with controller._toggle_lock:`` /
-        # ``finally:`` block that brackets the state decision — so the
+        # ``finally:`` block that brackets the state decision, so the
         # lock is already released when the join runs.
         with_lock_idx = entry_body.find("with controller._toggle_lock:")
         finally_idx = entry_body.find("finally:")
@@ -650,18 +650,18 @@ class TestIn20ToggleLockReleasedDuringModelLoad:
 
     def test_manual_release_pattern_stays_gone(self) -> None:
         """The manual ``release()``/``acquire()`` pattern around the
-        worker join must stay gone module-wide — reintroducing it would
+        worker join must stay gone module-wide, reintroducing it would
         re-arm the RLock recursion-count bug on the user-facing
         double-acquisition path (the lock stays owned through the join,
         blocking concurrent stop/cancel for up to 2.0 s)."""
         s = _recording_lifecycle_src()
         assert "controller._toggle_lock.release()" not in s, (
             "manual _toggle_lock.release() must not reappear in "
-            "recording_lifecycle — the public entry joins outside the lock"
+            "recording_lifecycle, the public entry joins outside the lock"
         )
         assert "controller._toggle_lock.acquire()" not in s, (
             "manual _toggle_lock.acquire() must not reappear in "
-            "recording_lifecycle — the public entry joins outside the lock"
+            "recording_lifecycle, the public entry joins outside the lock"
         )
 
     def test_lock_actually_released_during_load_at_runtime(self) -> None:
@@ -670,7 +670,7 @@ class TestIn20ToggleLockReleasedDuringModelLoad:
         (proving the lock was released)."""
         from voice_typer.server.recording_controller import RecordingController
 
-        # Bypass __init__ — we need _toggle_lock + _app.
+        # Bypass __init__, we need _toggle_lock + _app.
         ctrl = RecordingController.__new__(RecordingController)
         ctrl._toggle_lock = threading.RLock()
         app = MagicMock()
@@ -732,7 +732,7 @@ class TestIn20ToggleLockReleasedDuringModelLoad:
             acquired = ctrl._toggle_lock.acquire(blocking=False)
             assert acquired, (
                 "IN-20: _toggle_lock was NOT released during "
-                "ensure_active_engine_loaded() — another thread cannot "
+                "ensure_active_engine_loaded(), another thread cannot "
                 "acquire it (F2 hotkey backend would be blocked for 5-30s)"
             )
             ctrl._toggle_lock.release()

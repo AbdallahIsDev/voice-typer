@@ -5,13 +5,13 @@
  * `onChange` callback to a "commit" event. The implementation attaches
  * exactly two commit handlers (see JSDoc):
  *
- *   - `onPointerUp` — commits after a mouse/touch/pen drag.
- *   - `onBlur`      — commits after the user Tabs away from the slider
+ *   - `onPointerUp`, commits after a mouse/touch/pen drag.
+ *   - `onBlur`     , commits after the user Tabs away from the slider
  *                     (covers keyboard-only arrow-key steps which never
  *                     produce a pointerup).
  *
  * Rather than drive Radix Slider's internal pointer-capture state
- * machine (which jsdom does not fully support — `hasPointerCapture` is
+ * machine (which jsdom does not fully support, `hasPointerCapture` is
  * not implemented), we mock `@/components/ui/slider` with a thin pass-
  * through that exposes the props RangeSlider passes to it. The mock
  * renders a single `<input type="range">` and forwards onValueChange
@@ -58,7 +58,7 @@ function getSlider(): HTMLInputElement {
 	return screen.getByTestId("mock-slider") as HTMLInputElement;
 }
 
-describe("RangeSlider — BG-R11 (deferApply commit contract)", () => {
+describe("RangeSlider, BG-R11 (deferApply commit contract)", () => {
 	afterEach(() => {
 		sliderProps = null;
 		cleanup();
@@ -216,7 +216,7 @@ describe("RangeSlider — BG-R11 (deferApply commit contract)", () => {
 			/>,
 		);
 		const slider = getSlider();
-		// The root no longer carries aria-valuetext — it is generated
+		// The root no longer carries aria-valuetext, it is generated
 		// per-thumb via getThumbAriaValueText so SRs announce it at the
 		// focused thumb (the root-level attribute was dropped).
 		expect(slider).not.toHaveAttribute("aria-valuetext");
@@ -245,7 +245,7 @@ describe("RangeSlider — BG-R11 (deferApply commit contract)", () => {
 		// Initially the slider's value prop matches the committed value.
 		expect((sliderProps?.value as number[])?.[0]).toBe(50);
 		// After a drag, the slider's value prop follows the local
-		// display state — not the committed value (which is still 50).
+		// display state, not the committed value (which is still 50).
 		fireEvent.change(getSlider(), { target: { value: "70" } });
 		expect((sliderProps?.value as number[])?.[0]).toBe(70);
 		// onChange still hasn't fired (deferred to pointerup / blur).

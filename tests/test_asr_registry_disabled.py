@@ -7,7 +7,7 @@ on its primary-backend path (asr_registry.py:690). A backend in
 ``_disabled_backends`` (either because the circuit breaker tripped after
 ``_MAX_CONSECUTIVE_FAILURES`` load failures, or because the user
 explicitly disabled it) would be silently re-attempted by
-``load_active`` — and on success, ``_record_success`` would discard it
+``load_active``, and on success, ``_record_success`` would discard it
 from ``_disabled_backends``, defeating both the circuit breaker and the
 user's explicit disable intent.
 
@@ -28,7 +28,7 @@ These tests pin the contract:
    doesn't break the legitimate load path).
 5. The disabled state survives a ``load_active`` call (the gate doesn't
    accidentally clear it).
-6. ``reset_failures`` is the documented recovery path — after calling
+6. ``reset_failures`` is the documented recovery path, after calling
    it, ``load_active`` proceeds normally (the gate doesn't block
    legitimate circuit-breaker recovery).
 """
@@ -69,7 +69,7 @@ def _make_registry(*, asr_backend: str = "parakeet") -> tuple[AsrBackendRegistry
 
 class TestLoadActiveDisabledGate:
     """``load_active`` must refuse to load a backend that's in
-    ``_disabled_backends`` — mirrors ``load_with_fallback``'s
+    ``_disabled_backends``, mirrors ``load_with_fallback``'s
     primary-backend skip."""
 
     def test_load_active_returns_none_when_active_backend_disabled(self):
@@ -89,7 +89,7 @@ class TestLoadActiveDisabledGate:
 
     def test_load_active_does_not_call_backend_load_when_disabled(self):
         """When disabled, ``load_active`` must NOT call
-        ``backend.load()`` — calling it would risk a partially-loaded
+        ``backend.load()``, calling it would risk a partially-loaded
         backend (the exact failure mode ``_is_disabled`` exists to
         prevent)."""
         registry, backend = _make_registry()
@@ -101,7 +101,7 @@ class TestLoadActiveDisabledGate:
             "OI-15: load_active must NOT call backend.load() when the "
             "active backend is disabled. Pre-fix, it would attempt the "
             "load and on success _record_success would discard the "
-            "backend from _disabled_backends — silently re-enabling a "
+            "backend from _disabled_backends, silently re-enabling a "
             "user-disabled backend."
         )
 
@@ -121,12 +121,12 @@ class TestLoadActiveDisabledGate:
 
         assert not mock_success.called, (
             "OI-15: load_active must NOT call _record_success when the "
-            "active backend is disabled — _record_success discards the "
+            "active backend is disabled, _record_success discards the "
             "backend from _disabled_backends, silently re-enabling it."
         )
         assert not mock_failure.called, (
             "OI-15: load_active must NOT call _record_failure when the "
-            "active backend is disabled — the gate returns before any "
+            "active backend is disabled, the gate returns before any "
             "load attempt, so there's no failure to record."
         )
 
@@ -143,7 +143,7 @@ class TestLoadActiveDisabledGate:
         assert registry._is_disabled("parakeet"), (
             "OI-15: load_active must NOT clear the disabled state. "
             "Pre-fix, a successful load would call _record_success which "
-            "discards the backend from _disabled_backends — silently "
+            "discards the backend from _disabled_backends, silently "
             "re-enabling it."
         )
 
@@ -185,7 +185,7 @@ class TestLoadActiveNotDisabled:
 
     def test_load_active_calls_record_success_when_not_disabled(self):
         """When NOT disabled and load succeeds, ``load_active`` must
-        call ``_record_success`` (resets the failure counter — normal
+        call ``_record_success`` (resets the failure counter, normal
         circuit-breaker bookkeeping)."""
         registry, _ = _make_registry()
         # Pre-seed a non-tripping failure count to verify _record_success
@@ -285,7 +285,7 @@ class TestLoadActiveDisabledGateSource:
         gate_idx = src.find("_is_disabled")
         get_active_idx = src.find("self.get_active()")
         assert gate_idx != -1 and get_active_idx != -1, (
-            "OI-15: load_active must contain both _is_disabled and self.get_active() — one is missing."
+            "OI-15: load_active must contain both _is_disabled and self.get_active(), one is missing."
         )
         assert gate_idx < get_active_idx, (
             "OI-15: the _is_disabled gate must come BEFORE self.get_active() "

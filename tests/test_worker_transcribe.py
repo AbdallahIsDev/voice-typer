@@ -7,20 +7,20 @@ the worker transcribes the file, pushing the result back via the
 
 These tests cover:
 
-1. **Dispatch** — a ``transcribe_offline`` frame through the real
+1. **Dispatch**, a ``transcribe_offline`` frame through the real
    ``_handle_connection`` dispatch loop produces a
    ``transcribe_offline_result`` push event (mocked transcriber, real
    auth + frame loop). Mirrors the mocked-connection pattern from
    ``test_worker_startup.py``.
-2. **Audio loading** — :func:`_load_wav_float32` decodes mono + stereo
+2. **Audio loading**, :func:`_load_wav_float32` decodes mono + stereo
    WAVs into float32 [-1, 1] with the native sample rate.
-3. **Resampling** — :func:`_resample_to_16k` is a no-op at 16 kHz and
+3. **Resampling**, :func:`_resample_to_16k` is a no-op at 16 kHz and
    delegates to the shared resampler otherwise (48 kHz → 16 kHz).
-4. **Error paths** — missing path / missing file / decode failure /
+4. **Error paths**, missing path / missing file / decode failure /
    engine failure each produce a structured result payload (never a
    raised exception, never a dropped result event).
 
-The engine is always mocked (``unittest.mock``) — no real model
+The engine is always mocked (``unittest.mock``), no real model
 download / GPU / audio hardware (E6: external deps mocked).
 """
 
@@ -71,7 +71,7 @@ def _make_fake_websocket(frames: list[dict]) -> MagicMock:
     async def _fake_recv() -> bytes:
         if recv_calls:
             return recv_calls.pop(0)
-        raise AssertionError("recv() called after auth frame — dispatch should use __aiter__")
+        raise AssertionError("recv() called after auth frame, dispatch should use __aiter__")
 
     class _FrameAsyncIter:
         _remaining: list[bytes] = []

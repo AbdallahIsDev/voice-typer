@@ -73,7 +73,7 @@ class TestCalibrationSetsOpenThreshold:
         equals ``db_to_mul(noise_floor_db + 6)``, clamped."""
         # Build 4 chunks of 2000 samples each = 8000 total = target.
         # Varying RMS per chunk: 0.005, 0.010, 0.015, 0.020.
-        # The aggregate RMS is sqrt(mean(all^2)) — with equal-length
+        # The aggregate RMS is sqrt(mean(all^2)), with equal-length
         # chunks that's the quadratic mean of the per-chunk RMS
         # values.
         per_chunk_rms = [0.005, 0.010, 0.015, 0.020]
@@ -94,7 +94,7 @@ class TestCalibrationSetsOpenThreshold:
         # The production code enforces open_db > close_db (else
         # open_db = close_db + 1). With offset 6 vs 0 they're always
         # 6 dB apart, so the clamp won't trigger the +1 fallback
-        # here — but include it for parity with the production math.
+        # here, but include it for parity with the production math.
         if expected_open_db <= expected_close_db:
             expected_open_db = expected_close_db + 1.0
         expected_open_mul = db_to_mul(expected_open_db)
@@ -126,7 +126,7 @@ class TestCalibrationSetsOpenThreshold:
 
         This pins that the calibration accumulates ``sumsq`` (not
         per-chunk RMS), so a single loud chunk in a quiet window
-        dominates the floor (matches the production intent — a loud
+        dominates the floor (matches the production intent, a loud
         transient during calibration raises the floor, preventing
         the gate from opening on noise)."""
         chunk_size = _CAL_TARGET // 2
@@ -149,7 +149,7 @@ class TestCalibrationSetsOpenThreshold:
         self,
     ) -> None:
         """If the calibration audio is at full-scale (0 dBFS), the
-        derived open_threshold would be +6 dB — clamp to 0 dB
+        derived open_threshold would be +6 dB, clamp to 0 dB
         (``_ADAPTIVE_MAX_THRESHOLD_DB``)."""
         # Full-scale constant amplitude (RMS = 1.0 == 0 dBFS).
         chunk = _constant_rms_chunk(_CAL_TARGET, 1.0)
@@ -170,7 +170,7 @@ class TestCalibrationSetsOpenThreshold:
     ) -> None:
         """If the calibration audio is extremely quiet (noise floor
         below -96 dBFS), the derived open_threshold would be below
-        -90 dB — clamp to -90 dB (``_ADAPTIVE_MIN_THRESHOLD_DB``)."""
+        -90 dB, clamp to -90 dB (``_ADAPTIVE_MIN_THRESHOLD_DB``)."""
         # 1e-6 amplitude == -120 dBFS, well below the -90 min.
         chunk = _constant_rms_chunk(_CAL_TARGET, 1e-6)
 
@@ -190,7 +190,7 @@ class TestCalibrationSetsOpenThreshold:
 
 class TestSilentChunksFallbackToInitial:
     """When the calibration audio is entirely silent (sumsq == 0),
-    ``mul_to_db(0)`` would be -inf — the gate must fall back to
+    ``mul_to_db(0)`` would be -inf, the gate must fall back to
     using ``_initial_open_threshold`` as the noise floor (in dB),
     so the derived thresholds are sensible defaults rather than
     ``-inf + 6``."""
@@ -224,13 +224,13 @@ class TestSilentChunksFallbackToInitial:
         assert gate._calibrated is True
         assert gate._calibration_sumsq == 0.0, "silent chunks must keep sumsq at 0"
         # The fallback uses the initial-open-threshold's dB as the
-        # noise floor — NOT -inf from mul_to_db(0).
+        # noise floor. NOT -inf from mul_to_db(0).
         assert gate._open_threshold == pytest.approx(db_to_mul(expected_open_db), rel=1e-5)
         assert gate._close_threshold == pytest.approx(db_to_mul(expected_close_db), rel=1e-5)
 
     def test_silent_chunks_do_not_produce_inf_threshold(self) -> None:
         """Regression: a literal ``mul_to_db(0)`` returns -inf, and
-        ``db_to_mul(-inf + 6)`` returns 0.0 — a gate with
+        ``db_to_mul(-inf + 6)`` returns 0.0, a gate with
         ``_open_threshold == 0`` would NEVER open, silencing all
         audio. The fallback path must avoid this."""
         silent_chunk = np.zeros(_CAL_TARGET, dtype=np.float32)
@@ -238,7 +238,7 @@ class TestSilentChunksFallbackToInitial:
         gate = NoiseGate(adaptive=True, sample_rate=_SR)
         gate._consume_calibration_chunk(silent_chunk)
 
-        # open_threshold must be a positive, finite number — not 0
+        # open_threshold must be a positive, finite number, not 0
         # and not NaN/inf.
         assert math.isfinite(gate._open_threshold)
         assert gate._open_threshold > 0.0, "open_threshold must be > 0 (a 0 threshold would silence all audio)."
@@ -251,7 +251,7 @@ class TestCalibrationCompletesOnceAndIsIdempotent:
     """Once ``_calibration_count >= _calibration_target``, subsequent
     calls to ``_consume_calibration_chunk`` must early-return without
     re-running the threshold-derivation math. The calibration is a
-    one-shot — re-feeding audio after calibration must NOT change the
+    one-shot, re-feeding audio after calibration must NOT change the
     derived thresholds or the calibration counter."""
 
     def test_calibration_completes_once_and_is_idempotent(self) -> None:
@@ -259,9 +259,9 @@ class TestCalibrationCompletesOnceAndIsIdempotent:
         After the first batch completes calibration, the second batch
         must NOT re-run the derivation: counter stays at target,
         ``_calibrated`` stays True, thresholds unchanged."""
-        # First batch — exactly enough to complete calibration.
+        # First batch, exactly enough to complete calibration.
         first_batch = _constant_rms_chunk(_CAL_TARGET, 0.01)
-        # Second batch — would re-derive with a different RMS if the
+        # Second batch, would re-derive with a different RMS if the
         # idempotence guard were broken.
         second_batch = _constant_rms_chunk(_CAL_TARGET, 0.05)
 
@@ -275,18 +275,18 @@ class TestCalibrationCompletesOnceAndIsIdempotent:
         first_close_threshold = gate._close_threshold
         first_sumsq = gate._calibration_sumsq
 
-        # Feed a second batch — the early-return guard
+        # Feed a second batch, the early-return guard
         # (``remaining = target - count <= 0`` → return) must fire.
         gate._consume_calibration_chunk(second_batch)
 
         # Counter unchanged (didn't grow beyond target).
         assert gate._calibration_count == _CAL_TARGET, (
-            "calibration_count must NOT grow past _calibration_target — "
+            "calibration_count must NOT grow past _calibration_target, "
             "the idempotence guard must short-circuit subsequent chunks."
         )
         # sumsq unchanged (didn't accumulate the second batch).
         assert gate._calibration_sumsq == first_sumsq, (
-            "calibration_sumsq must NOT accumulate past calibration — "
+            "calibration_sumsq must NOT accumulate past calibration, "
             "the idempotence guard must short-circuit subsequent chunks."
         )
         # Thresholds unchanged (didn't re-derive with the 0.05 RMS).
@@ -320,13 +320,13 @@ class TestCalibrationCompletesOnceAndIsIdempotent:
         out2 = gate.process(second_chunk, _SR)
 
         assert out2 is not None
-        # Counter + threshold unchanged — calibration did NOT re-run.
+        # Counter + threshold unchanged, calibration did NOT re-run.
         assert gate._calibration_count == count_after_first
         assert gate._open_threshold == threshold_after_first
 
     def test_partial_calibration_does_not_set_calibrated_flag(self) -> None:
         """Feeding FEWER than ``_calibration_target`` samples must
-        leave ``_calibrated`` False — the derivation only runs once
+        leave ``_calibrated`` False, the derivation only runs once
         the target is met (avoids setting thresholds on a
         statistically-insufficient sample)."""
         gate = NoiseGate(adaptive=True, sample_rate=_SR)
@@ -343,7 +343,7 @@ class TestCalibrationCompletesOnceAndIsIdempotent:
 
     def test_zero_length_chunk_does_not_advance_calibration(self) -> None:
         """An empty chunk (``len(samples) == 0``) must NOT advance
-        the calibration counter — the ``take <= 0`` early-return
+        the calibration counter, the ``take <= 0`` early-return
         guards against a degenerate empty-chunk call corrupting the
         accumulation."""
         gate = NoiseGate(adaptive=True, sample_rate=_SR)

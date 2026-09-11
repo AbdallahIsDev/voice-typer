@@ -1,5 +1,5 @@
 /**
- * Sonner Toaster tests — covers  (Toaster position must update on
+ * Sonner Toaster tests, covers  (Toaster position must update on
  * runtime locale change).
  *
  * Strategy: mock the `sonner` module so we can capture the `position`
@@ -43,7 +43,7 @@ beforeEach(() => {
 	});
 });
 
-describe("Sonner Toaster — BG-38 reactive position", () => {
+describe("Sonner Toaster, BG-38 reactive position", () => {
 	it("uses bottom-right position when the locale is LTR (English)", () => {
 		render(<Toaster />);
 		expect(lastToasterProps).not.toBeNull();
@@ -60,11 +60,11 @@ describe("Sonner Toaster — BG-38 reactive position", () => {
 	});
 
 	it("re-renders with the new position when the locale changes at runtime (no full reload)", () => {
-		// Mount while English — initial position is bottom-right.
+		// Mount while English, initial position is bottom-right.
 		const { rerender } = render(<Toaster />);
 		expect(lastToasterProps?.position).toBe("bottom-right");
 
-		// Switch to Arabic at runtime — the component must re-render
+		// Switch to Arabic at runtime, the component must re-render
 		// (via useSyncExternalStore) and pass the new position.
 		act(() => {
 			setLocale("ar" as Locale);
@@ -74,7 +74,7 @@ describe("Sonner Toaster — BG-38 reactive position", () => {
 		rerender(<Toaster />);
 		expect(lastToasterProps?.position).toBe("bottom-left");
 
-		// Switch back to English — position flips back to bottom-right.
+		// Switch back to English, position flips back to bottom-right.
 		act(() => {
 			setLocale("en" as Locale);
 		});
@@ -83,9 +83,9 @@ describe("Sonner Toaster — BG-38 reactive position", () => {
 	});
 });
 
-describe("Sonner Toaster — ZU-33 stacking configuration", () => {
+describe("Sonner Toaster, ZU-33 stacking configuration", () => {
 	it("sets visibleToasts=6 so a flap or burst keeps recent history visible", () => {
-		// sonner's default is visibleToasts=3 — older toasts in the queue
+		// sonner's default is visibleToasts=3, older toasts in the queue
 		// are hidden until newer ones expire. During a backend flap or a
 		// burst of error toasts (save + export + download all failing),
 		// the user only saw the 3 newest and lost the context of what
@@ -98,7 +98,7 @@ describe("Sonner Toaster — ZU-33 stacking configuration", () => {
 
 	it("sets expand=false so the stack stays collapsed by default", () => {
 		// Sonner expands the stack on hover (or when ``expand`` is true)
-		// — collapsed shows only the newest toast prominently with older
+		//, collapsed shows only the newest toast prominently with older
 		// ones peeking. Collapsed-by-default keeps the corner uncluttered;
 		// the user can hover to read the queue.
 		render(<Toaster />);

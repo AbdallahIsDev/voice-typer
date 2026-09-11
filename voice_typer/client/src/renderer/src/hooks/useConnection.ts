@@ -28,7 +28,7 @@ function asRecordingState(value: unknown): RecordingState | null {
 }
 
 /**
- * Apply ONE backend status snapshot — the `{status, message}` tuple —
+ * Apply ONE backend status snapshot, the `{status, message}` tuple —
  * atomically to the store.
  *
  * SOURCE-OF-TRUTH INVARIANT: `recordingState` (drives the Home page's
@@ -43,7 +43,7 @@ function asRecordingState(value: unknown): RecordingState | null {
  * REGRESSION TO AVOID: a sync path that sets `recordingState` without
  * deriving `lastError` from the same payload's message leaves the pill
  * stuck on ERROR while the description still shows the normal
- * "Press <hotkey> or click to dictate" hint — the intermittent mismatch
+ * "Press <hotkey> or click to dictate" hint, the intermittent mismatch
  * this helper exists to prevent. Conversely, non-error transitions clear
  * `lastError` so recovery restores the normal dictate guidance.
  */
@@ -118,8 +118,8 @@ export function useConnection({
 	// selector adds a small per-state-change cost. `useShallow`
 	// collapses the 4 stable action references into a single
 	// subscription (the shallow-equal return object only changes when
-	// one of the actions changes identity — which never happens for
-	// zustand store actions — so this hook does NOT re-render on
+	// one of the actions changes identity, which never happens for
+	// zustand store actions, so this hook does NOT re-render on
 	// unrelated state changes). The 3 value selectors stay as
 	// individual `useAppStore` calls so each one only re-renders when
 	// its specific slice changes (e.g. `recordingState` changing from
@@ -139,14 +139,14 @@ export function useConnection({
 	const lastError = useAppStore((s) => s.lastError);
 
 	//timestamp of the last push event received from the Python
-	// backend (any type — state_changed, status_change, bubble_level,
+	// backend (any type, state_changed, status_change, bubble_level,
 	// etc.). Updated by every `usePythonEvent` subscriber below via the
 	// shared `_markEventReceived` callback. Used by the periodic health
 	// check to skip the redundant `get_status` probe when a push event
 	//has landed recently (the backend's heartbeat + push events
 	// already prove liveness; the 15s poll is belt-and-suspenders for
 	// the case where pushes stop entirely). Stored in a ref (not state)
-	// because it doesn't need to trigger a re-render — only the
+	// because it doesn't need to trigger a re-render, only the
 	// periodic-probe effect reads it.
 	const lastEventReceivedAtRef = useRef<number>(0);
 	const markEventReceived = useCallback(() => {
@@ -155,16 +155,16 @@ export function useConnection({
 
 	// Ref mirror of `call` so the lifecycle effects keep stable deps.
 	// `call` is useCallback-stable in production, but test mocks return
-	// a FRESH call per render — an effect dep on it re-fires the probe
+	// a FRESH call per render, an effect dep on it re-fires the probe
 	// (get_config → setConfig → re-render → new call → loop → worker
 	// OOM). Same pattern as useVocabulary.ts. Event-handler callbacks
-	// (usePythonEvent) are unaffected — their identity churn is already
+	// (usePythonEvent) are unaffected, their identity churn is already
 	// absorbed by the handlerRef indirection.
 	const callRef = useLatestRef(call);
 
 	// ── Connection lifecycle ──────────────────────────────────────
 
-	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract — .current must NOT become a dep
+	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract, .current must NOT become a dep
 	useEffect(() => {
 		let retries = 0;
 		const maxRetries = 5;
@@ -182,11 +182,11 @@ export function useConnection({
 					// without an extra IPC round-trip.
 					setConfig(cfg);
 					// Sync current state from backend (status_change events sent before
-					// the React app mounted are lost — this ensures we catch up).
+					// the React app mounted are lost, this ensures we catch up).
 					// The response carries the same {status, message} tuple as the
 					// pushes, so an app launched while the backend sits in an error
 					// state (e.g. no model installed) hydrates BOTH the ERROR pill
-					// and its reason line atomically — see applyStatusWithReason.
+					// and its reason line atomically, see applyStatusWithReason.
 					callRef
 						.current<{ status?: string; message?: string }>("get_status")
 						.then((s) => {
@@ -230,13 +230,13 @@ export function useConnection({
 						window.bubble?.show?.();
 					}
 
-					// #8: Onboarding wizard — detect first run and route the user
+					// #8: Onboarding wizard, detect first run and route the user
 					// to the wizard. The backend's `onboarding_is_first_run` IPC route
 					// checks config.onboarding_completed (and the marker file).
 					//
 					// F1 (b-review Finding 5): previously this was gated on
 					// `currentPage === "home"`, but useNavigation restores the
-					// persisted page from localStorage on mount — so a user who
+					// persisted page from localStorage on mount, so a user who
 					// closed the app mid-onboarding while on "settings" (or any
 					// non-home page) would land back on that page on next launch
 					// and the wizard would be silently skipped. We now check
@@ -254,7 +254,7 @@ export function useConnection({
 								navigate("onboarding");
 							}
 						} catch (e) {
-							// Older backend without the IPC route — silently ignore.
+							// Older backend without the IPC route, silently ignore.
 							console.warn(
 								"[renderer:useConnection] onboarding_is_first_run probe failed:",
 								e,
@@ -302,7 +302,7 @@ export function useConnection({
 	]);
 
 	// Periodic health check while connected
-	//use ``get_status`` (lightweight — returns only state +
+	//use ``get_status`` (lightweight, returns only state +
 	// xrun counter) instead of ``get_config`` (serializes the entire
 	//config dict). The heartbeat (5s backend→frontend check)
 	// detects Electron crashes; this renderer→backend check detects
@@ -313,13 +313,13 @@ export function useConnection({
 	// ``"disconnected"`` after a SINGLE failed ``get_status`` call.
 	// A transient TCP hiccup (GC pause, OS scheduler delay, brief
 	// socket congestion) would mark the backend dead even though the
-	// process was still alive — the user saw a jarring "Lost
+	// process was still alive, the user saw a jarring "Lost
 	// connection" UI and had to click Retry. We now retry up to
 	// ``HEALTH_CHECK_MAX_RETRIES`` times with a short backoff before
 	// declaring the backend disconnected. A success at any retry
 	// tier resets the failure counter and the cycle continues.
 	//
-	//the previous 60s interval was too coarse — a dead
+	//the previous 60s interval was too coarse, a dead
 	// backend could sit undetected for up to a minute before the
 	//user saw any feedback (the backend→frontend heartbeat
 	// only catches ELECTRON crashes, not Python-side crashes). The
@@ -328,21 +328,21 @@ export function useConnection({
 	// perceive "the app is hung" and start clicking around. The
 	// 2-strike retry (``HEALTH_CHECK_MAX_RETRIES = 2``) still
 	// tolerates transient flaps; the steady-state IPC load is one
-	// ``get_status`` call every 15s (trivial — the response is a
+	// ``get_status`` call every 15s (trivial, the response is a
 	// 30-byte JSON envelope).
 	//
 	//the 15s probe is now redundant with the backend's push
-	// events — `state_changed` is emitted on every client connect and
+	// events, `state_changed` is emitted on every client connect and
 	// `bubble_level` / `mic_level` flow at 10-30 Hz during active use.
 	// We skip the probe entirely if a push event was received within
-	// the last ``HEALTH_CHECK_EVENT_GRACE_MS`` (60s) — the push
+	// the last ``HEALTH_CHECK_EVENT_GRACE_MS`` (60s), the push
 	// already proved liveness. Only when pushes have stopped for a
 	// full minute do we fall back to the active ``get_status`` probe.
 	// This reduces steady-state IPC load to ~0 during active use
 	// while preserving the dead-backend detection guarantee (a dead
 	// backend stops pushing, and 60s later the probe kicks in to
 	// confirm + flip to disconnected).
-	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract — .current must NOT become a dep
+	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract, .current must NOT become a dep
 	useEffect(() => {
 		if (connectionStatus !== "connected") return;
 
@@ -355,7 +355,7 @@ export function useConnection({
 		const HEALTH_CHECK_RETRY_DELAY_MS = 500;
 		//skip the active probe if a push event was received
 		//within this grace window. 60s matches the  "user
-		// perceives hung" threshold — a backend that hasn't pushed
+		// perceives hung" threshold, a backend that hasn't pushed
 		// for 60s is either dead or stuck, and the active probe is
 		// the right tool to disambiguate.
 		const HEALTH_CHECK_EVENT_GRACE_MS = 60_000;
@@ -364,7 +364,7 @@ export function useConnection({
 
 		const probe = async (isRetry: boolean): Promise<void> => {
 			//skip the probe if a push event was received
-			// recently — the push already proved liveness, so the
+			// recently, the push already proved liveness, so the
 			// active `get_status` round-trip is pure waste. Still
 			// reset failureCount so a transient flap that follows a
 			// long quiet period doesn't carry over stale failures.
@@ -408,7 +408,7 @@ export function useConnection({
 	//
 	// While `connectionStatus === "disconnected"`, the user sees the
 	// "Lost connection" screen (ConnectionStatusScreen) and the only
-	// recovery path is the manual Retry button — there's no
+	// recovery path is the manual Retry button, there's no
 	// auto-recovery from a transient backend outage (e.g. backend
 	// restarted while the renderer was idle). This slow background
 	// poll attempts a single `get_config` every 10s while
@@ -428,7 +428,7 @@ export function useConnection({
 	// 12-attempt budget. The cap exists to prevent infinite polling
 	// against a backend that's never coming back; the user can still
 	// hit Retry manually at any time.
-	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract — .current must NOT become a dep
+	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract, .current must NOT become a dep
 	useEffect(() => {
 		if (connectionStatus !== "disconnected") return;
 
@@ -445,7 +445,7 @@ export function useConnection({
 			try {
 				const cfg = await callRef.current<VoiceTyperConfig>("get_config");
 				if (!cancelled) {
-					// Success — flip to "connected". The
+					// Success, flip to "connected". The
 					// connection-lifecycle effect above
 					// doesn't re-run on this transition
 					// (its deps don't include
@@ -462,7 +462,7 @@ export function useConnection({
 					setConnectionStatus("connected");
 					setConfig(cfg);
 					setLastError(null);
-					// Same atomic pair write as the initial probe — the
+					// Same atomic pair write as the initial probe, the
 					// reconnect snapshot must hydrate pill + reason line
 					// together (see applyStatusWithReason).
 					callRef
@@ -491,7 +491,7 @@ export function useConnection({
 				if (!cancelled && attempts < MAX_BACKGROUND_RECONNECTS) {
 					timer = setTimeout(tryReconnect, BACKGROUND_RECONNECT_INTERVAL_MS);
 				}
-				// On the final attempt we just stop — the
+				// On the final attempt we just stop, the
 				// user can click Retry to start another
 				// 12-attempt cycle.
 			}
@@ -537,7 +537,7 @@ export function useConnection({
 					if (validated) {
 						// The backend forwards the `set_state` message (the
 						// tray-tooltip reason) with every status_change.
-						// Atomic pair write — see applyStatusWithReason for
+						// Atomic pair write, see applyStatusWithReason for
 						// why recordingState + lastError must move together
 						// on EVERY sync path, not just this one.
 						applyStatusWithReason(
@@ -605,7 +605,7 @@ export function useConnection({
 			markEventReceived();
 			// GAP-A landed: "reconnecting" is a first-class
 			// ConnectionStatus (see appStore.ts) and renders the shared
-			// recovering UI — no more "restarting" workaround.
+			// recovering UI, no more "restarting" workaround.
 			setConnectionStatus("reconnecting");
 			return undefined;
 		}, [markEventReceived, setConnectionStatus]),
@@ -643,10 +643,10 @@ export function useConnection({
 	// is healthy, so we optimistically flip `connectionStatus` to
 	// "connected". The snapshot carries the same {status, message}
 	// tuple as every other sync path, so it is applied through the
-	// atomic pair write (applyStatusWithReason) — an app launched while
+	// atomic pair write (applyStatusWithReason), an app launched while
 	// the backend already sits in AppState.ERROR (e.g. no model
 	// installed) hydrates BOTH the ERROR pill and its reason line.
-	// Unknown / missing status values are discarded (defensive — the
+	// Unknown / missing status values are discarded (defensive, the
 	// backend may add new states before the renderer ships a matching
 	// type); in that case only a stale lastError is dropped and the
 	// existing recordingState is left untouched so we don't clobber a
@@ -657,7 +657,7 @@ export function useConnection({
 			(data): (() => void) | undefined => {
 				markEventReceived();
 				// A push from the backend means we have a live
-				// connection — surface that immediately.
+				// connection, surface that immediately.
 				setConnectionStatus("connected");
 
 				const rawStatus = data?.status;
@@ -687,7 +687,7 @@ export function useConnection({
 	// Previously this handler was a single `get_config` probe: on
 	// failure it flipped straight back to "disconnected", so a backend
 	// that had actually died (not just a TCP flap) left the user in a
-	// loop of clicking Retry with zero effect — the probe can never
+	// loop of clicking Retry with zero effect, the probe can never
 	// succeed against a dead process, and the renderer had NO way to
 	// recreate the backend.
 	//
@@ -711,7 +711,7 @@ export function useConnection({
 	//
 	// The post-restart recovery path lands through `state_changed`
 	// (pushed by the backend on client connect) or the
-	// `reconnected` synthetic event from the host bridge — both are
+	// `reconnected` synthetic event from the host bridge, both are
 	// already subscribed above, so no extra wiring is needed to exit
 	// the "restarting" state.
 	const handleRetryConnection = useCallback(async () => {
@@ -721,10 +721,10 @@ export function useConnection({
 			setConnectionStatus("connected");
 			return;
 		} catch {
-			// Probe failed — the backend may be dead, not just flapping.
+			// Probe failed, the backend may be dead, not just flapping.
 			// Escalate to a process restart (Phase 2 below).
 		}
-		// Phase 2 — escalate to a backend-process restart.
+		// Phase 2, escalate to a backend-process restart.
 		try {
 			const res = await window.window_?.restartBackend?.();
 			if (res?.ok) {
@@ -737,7 +737,7 @@ export function useConnection({
 			setConnectionStatus("disconnected");
 		} catch (e) {
 			// Bridge channel unavailable (tauri mode, old preload) or
-			// handler threw — no restart capability, fall back to the
+			// handler threw, no restart capability, fall back to the
 			// previous bare-probe behavior.
 			console.warn(
 				"[renderer:useConnection] restartBackend escalation failed:",

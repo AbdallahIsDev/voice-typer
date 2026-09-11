@@ -1,15 +1,15 @@
 """Public autostart API + cross-platform helpers.
 
-Phase 4.5 /  — extracted from the original
+Phase 4.5 / , extracted from the original
 ``voice_typer/server/server_platform.py`` god-module.  Contains:
-  - :func:`_desktop_quote` — freedesktop Desktop Entry Spec Exec-quoting.
-  - :func:`_autostart_command` — builds the OS-agnostic autostart command.
-  - :func:`get_autostart_dir` — platform-specific autostart directory.
+  - :func:`_desktop_quote`: freedesktop Desktop Entry Spec Exec-quoting.
+  - :func:`_autostart_command`: builds the OS-agnostic autostart command.
+  - :func:`get_autostart_dir`: platform-specific autostart directory.
   - :func:`enable_autostart` / :func:`disable_autostart` /
-    :func:`is_autostart_enabled` — public facade that dispatches to the
+    :func:`is_autostart_enabled`: public facade that dispatches to the
     platform-specific implementation in :mod:`.autostart_windows` /
     :mod:`.autostart_macos` / :mod:`.autostart_linux`.
-  - :func:`_install_hash_suffix` — 8-char SHA-256 hash of
+  - :func:`_install_hash_suffix`: 8-char SHA-256 hash of
     ``sys.executable`` (used to namespace the Windows Task Scheduler
     entry + HKCU Run key so multiple installs don't collide).
 
@@ -17,30 +17,30 @@ Patch-path compatibility
 ------------------------
 Tests patch several names that this module's functions call at runtime:
 
-  - ``SYSTEM`` — patched via
+  - ``SYSTEM``: patched via
     ``monkeypatch.setattr(platform_flags, "SYSTEM", "linux")`` etc.
     All dispatch logic reads ``platform_flags.SYSTEM`` at call time.
-  - ``get_autostart_dir`` — patched via
+  - ``get_autostart_dir``: patched via
     ``monkeypatch.setattr(autostart_mod, "get_autostart_dir", lambda: tmp_path)``.
     The platform-specific enable/disable/is_enabled helpers in
     :mod:`.autostart_macos` / :mod:`.autostart_linux` /
     :mod:`.autostart_windows` look it up via ``_autostart.get_autostart_dir()``
     at call time (``_autostart`` is THIS module).
-  - ``_autostart_command`` — patched via
+  - ``_autostart_command``: patched via
     ``monkeypatch.setattr(autostart_mod, "_autostart_command", lambda: ...)``.
     The Linux ``_enable_autostart_linux`` (in :mod:`.autostart_linux`) and
     the Windows Run-key path (``_register_app_autostart_runkey`` in
     :mod:`.autostart_windows`) look it up via ``_autostart._autostart_command()``.
   - ``_enable_autostart_windows`` / ``_enable_autostart_macos`` /
-    ``_enable_autostart_linux`` — patched via
+    ``_enable_autostart_linux``: patched via
     ``monkeypatch.setattr(autostart_macos, "_enable_autostart_macos", lambda: ...)``
     etc. (on the OWNING submodule). ``enable_autostart_ex`` looks them
     up through the submodule module object at call time.
   - ``_disable_autostart_windows`` / ``_disable_autostart_macos`` /
-    ``_disable_autostart_linux`` — same pattern via ``disable_autostart_ex``
+    ``_disable_autostart_linux``: same pattern via ``disable_autostart_ex``
     (resolved through the owning submodule's module object at call time).
   - ``_is_autostart_windows`` / ``_is_autostart_macos`` /
-    ``_is_autostart_linux`` — same pattern via ``is_autostart_enabled``
+    ``_is_autostart_linux``: same pattern via ``is_autostart_enabled``
     (resolved through the owning submodule's module object at call time).
 
 ``inspect.getsource`` compatibility
@@ -95,13 +95,13 @@ def _desktop_quote(arg: str) -> str:
     with a backslash.
 
     previously the code just wrapped paths in double
-    quotes without escaping backslashes or quotes — so a path like
+    quotes without escaping backslashes or quotes, so a path like
     ``C:\\Users\\John "Bob"\\app`` would corrupt the .desktop Exec
     field.  We now do proper spec-compliant quoting.
     """
     # A literal newline / carriage-return inside the
     # quoted string would still TERMINATE the Exec line (the spec only
-    # allows escaping within a single line — there is no line-continuation
+    # allows escaping within a single line, there is no line-continuation
     # escape), letting a malicious path inject a new .desktop field. The
     # spec's reserved-char set includes `\n`, and no amount of quoting
     # can make a newline safe inside a single-line Exec field. Reject
@@ -209,7 +209,7 @@ def _autostart_command() -> str:
     # checking whether the system Python can actually import
     # ``voice_typer.server.autostart_launcher``. If the user installed
     # Voice Typer only inside the venv (the common dev-mode case), the
-    # autostart entry would use the system Python — which would fail
+    # autostart entry would use the system Python, which would fail
     # at login with ``ModuleNotFoundError: No module named
     # 'voice_typer'`` and silently never start the app. We now probe
     # the system Python with ``python3 -c "import
@@ -218,7 +218,7 @@ def _autostart_command() -> str:
     # autostart entry at least works for the current user.
     python_exe = sys.executable
     if sys.prefix != sys.base_prefix:
-        # We're inside a virtualenv — try to find the system Python
+        # We're inside a virtualenv, try to find the system Python
         base_python = "python.exe" if is_windows() else "python3"
         system_python = _probe_system_python(base_python)
         if system_python:
@@ -233,7 +233,7 @@ def _autostart_command() -> str:
             log.warning(
                 "[AUTOSTART] Running inside venv (%s) but system Python "
                 "cannot import voice_typer.server.autostart_launcher "
-                "(probe failed). Keeping venv Python — autostart will "
+                "(probe failed). Keeping venv Python, autostart will "
                 "break if the venv is deleted, but works for the "
                 "current user.",
                 python_exe,
@@ -256,7 +256,7 @@ def _autostart_command() -> str:
     resolved_python = args[0] if args else ""
     if resolved_python and not Path(resolved_python).exists():
         log.warning(
-            "[AUTOSTART] Resolved Python interpreter does not exist on disk: %s — attempting Tauri binary fallback",
+            "[AUTOSTART] Resolved Python interpreter does not exist on disk: %s, attempting Tauri binary fallback",
             resolved_python,
         )
         tauri_bin = _resolve_tauri_binary_for_autostart()
@@ -273,7 +273,7 @@ def _autostart_command() -> str:
             return _desktop_quote(tauri_bin)
         log.error(
             "[AUTOSTART] No Python interpreter AND no Tauri binary "
-            "available — autostart command will be non-functional. "
+            "available, autostart command will be non-functional. "
             "Resolved python: %s",
             resolved_python,
         )
@@ -291,7 +291,7 @@ def _autostart_command() -> str:
     # ``\\`` to ``\``), so the broken entry was never re-registered.
     # On Windows we now build the command line with
     # ``subprocess.list2cmdline`` (the exact quoting Windows itself
-    # uses — backslashes preserved literally, args quoted only when
+    # uses, backslashes preserved literally, args quoted only when
     # needed). On macOS/Linux the freedesktop Exec quoting stays.
     cmd = subprocess.list2cmdline(args) if is_windows() else " ".join(_desktop_quote(arg) for arg in args)
     log.info("[AUTOSTART] Resolved autostart command: %s", cmd)
@@ -306,7 +306,7 @@ def _windows_create_no_window_flags() -> int:
     (:func:`_system_python_can_import_launcher`), the legacy
     autostart-entry sweep, and the uninstall task sweep. The
     ``getattr`` fallback keeps the helper safe under unusual test
-    stubs that monkeypatch ``subprocess`` — the constant exists on
+    stubs that monkeypatch ``subprocess``: the constant exists on
     every Python 3.x Windows build.
     """
     return getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
@@ -342,7 +342,7 @@ def _system_python_can_import_launcher(system_python: str) -> bool:
         "check": False,
     }
     if is_windows():
-        # CREATE_NO_WINDOW — prevents a console flash when probing
+        # CREATE_NO_WINDOW, prevents a console flash when probing
         # python.exe on Windows (shared helper: the flag value is
         # single-sourced with the sweep / uninstall launch sites).
         kwargs["creationflags"] = _windows_create_no_window_flags()
@@ -370,7 +370,7 @@ def _prefer_pythonw(python_bin: str) -> str:
     resolver (initial pick + post-probe re-apply). Returns the
     ``pythonw.exe`` sibling when it exists, else the input unchanged.
     Windows-only by construction (``pythonw.exe`` never exists on
-    POSIX) — callers keep their own ``is_windows()`` gates so output
+    POSIX), callers keep their own ``is_windows()`` gates so output
     shapes stay byte-identical (C-CROSS-1/2).
     """
     pythonw = Path(python_bin).parent / "pythonw.exe"
@@ -383,7 +383,7 @@ def _probe_system_python(which_name: str) -> str | None:
     Returns a swappable system interpreter, or ``None`` when no swap
     should happen (not in a venv, no candidate on PATH, or the
     can-import probe failed). Callers keep their own ``sys.prefix``
-    guard, logging, and fallback shapes — this helper owns ONLY the
+    guard, logging, and fallback shapes: this helper owns ONLY the
     ``which`` + probe decision all three platform registrars shared
     verbatim, so interpreter-handling fixes land once.
     """
@@ -404,7 +404,7 @@ def _install_identifier() -> str:
     Historically the hash was computed from ``sys.executable``. That was
     unstable across launch contexts: the app can start via the console
     shim (``python.exe`` / ``voice-typer.exe``), the dev venv, or the
-    autostart launcher (``pythonw.exe``) — each has a different
+    autostart launcher (``pythonw.exe``), each has a different
     ``sys.executable``, so the Run-key / task / .bat name registered by
     one process was never found by the next, and the app re-registered
     on every launch ("Config says autostart=true but it is disabled --
@@ -464,7 +464,7 @@ def get_autostart_dir() -> Path:
     (per the XDG Base Directory Spec, empty values must be treated as
     "unset"). ``Path("") / "autostart"`` then produces a RELATIVE
     ``PosixPath("autostart")`` and the .desktop file ends up in the
-    process's CWD — autostart never fires. Fixed via an ``if not
+    process's CWD, autostart never fires. Fixed via an ``if not
     xdg:`` guard that treats both ``None`` (unset) and ``""`` (empty)
     as "use the default ``~/.config``".
     """
@@ -490,7 +490,7 @@ def get_autostart_dir() -> Path:
 
 
 def enable_autostart() -> bool:
-    """Public autostart facade — returns True on success.
+    """Public autostart facade, returns True on success.
 
     this function is preserved as a bool-returning shim for
     backwards compatibility (existing tests and call sites assert
@@ -502,7 +502,7 @@ def enable_autostart() -> bool:
 
 
 def disable_autostart() -> bool:
-    """Public autostart facade — returns True on success.
+    """Public autostart facade, returns True on success.
 
     see :func:`enable_autostart` for the bool-vs-dict rationale.
     New callers should use :func:`disable_autostart_ex`.
@@ -552,7 +552,7 @@ def disable_autostart_ex() -> dict:
 
         - ``registered``: True if the OS autostart entry was successfully
           REMOVED. (Note: ``registered=False`` here means "still
-          registered" — i.e. the disable call failed. The key name
+          registered": i.e. the disable call failed. The key name
           matches :func:`enable_autostart_ex` so the renderer can use
           the same field for both.)
         - ``error``: ``None`` on success, or a short string explaining
@@ -567,7 +567,7 @@ def disable_autostart_ex() -> dict:
             removed = _autostart_linux_mod._disable_autostart_linux()
         # ``removed`` is True if the entry was removed (or already
         # absent). ``registered`` (in the result dict) is True if the
-        # disable operation succeeded — i.e. the entry is NO LONGER
+        # disable operation succeeded: i.e. the entry is NO LONGER
         # registered. We invert the semantic: ``registered = removed``
         # means "disable succeeded, so is_autostart_enabled() will now
         # return False". The renderer reads ``registered`` as "is the

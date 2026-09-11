@@ -208,7 +208,7 @@ def test_record_idempotent(manifest_path: Path, tmp_path: Path) -> None:
 def test_check_scoped_to_triple_ignores_other_empty_keys(manifest_path: Path, tmp_path: Path) -> None:
     _write_binary(tmp_path / "target", "x86_64-unknown-linux-gnu", b"payload")
     utm.record_sha256(manifest_path, tmp_path / "target", "x86_64-unknown-linux-gnu")
-    # linux-aarch64 / windows-* / macos still empty — the x86_64 leg's
+    # linux-aarch64 / windows-* / macos still empty, the x86_64 leg's
     # enforce step must PASS anyway (other legs fill their own keys).
     assert utm.check_manifest(manifest_path, triple="x86_64-unknown-linux-gnu") == []
 

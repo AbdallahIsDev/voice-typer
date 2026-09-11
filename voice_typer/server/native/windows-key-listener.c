@@ -1,5 +1,5 @@
 /* =============================================================================
- * Voice Typer — Windows native key listener
+ * Voice Typer. Windows native key listener
  *
  * Emits line-delimited key events on stdout for the Python parent process to
  * match against the registered hotkey. Modeled on Freestyle's
@@ -15,10 +15,10 @@
  *     we don't need a separate hook DLL (and we don't need 32/64-bit variants
  *     of that DLL to match every target process).
  *   - It gives us the ability to *suppress* keystrokes (return non-zero from
- *     the callback) so the foreground app never sees them — e.g. swallow
+ *     the callback) so the foreground app never sees them, e.g. swallow
  *     CapsLock so the OS doesn't toggle caps state.
  *   - It's event-driven, so the binary sits idle (one thread, blocked in
- *     GetMessage) until a key arrives — much lower CPU than 60 Hz polling.
+ *     GetMessage) until a key arrives, much lower CPU than 60 Hz polling.
  *
  * Wire protocol (one event per line, newline-terminated):
  *   READY                  # emitted once after init succeeds
@@ -28,7 +28,7 @@
  *   MOD_UP:<Name>          # modifier released
  *   ERROR:<message>        # fatal error, then exit(1)
  *
- * FN_DOWN / FN_UP are NOT emitted on Windows — the Fn key is firmware-only on
+ * FN_DOWN / FN_UP are NOT emitted on Windows, the Fn key is firmware-only on
  * Windows keyboards and never reaches the OS as a keystroke. The "fn" token in
  * argv[1] is rejected at parse time.
  *
@@ -89,14 +89,14 @@ static volatile LONG g_should_exit = 0;
 static DWORD g_main_thread_id = 0;
 
 /* When we swallow a keyDown, we remember its VK so the matching keyUp is
- * also swallowed — otherwise the foreground app sees an orphan keyUp
+ * also swallowed, otherwise the foreground app sees an orphan keyUp
  * (keydown suppressed, keyup delivered), which can confuse it. */
 static int g_suppressed_vk = 0;
 
 /* ===========================================================================
  * Parsed hotkey spec
  *
- * The binary does NOT do hotkey matching — Python does. We only parse the
+ * The binary does NOT do hotkey matching. Python does. We only parse the
  * spec so we can (a) reject invalid specs early with ERROR, and (b) know
  * which keystrokes to suppress in the hook callback so they don't reach the
  * foreground app.
@@ -118,7 +118,7 @@ typedef struct {
     char spec[256];
 } HotkeySpec;
 
-static HotkeySpec g_spec;  /* parsed argv[1] — only mutated at startup */
+static HotkeySpec g_spec;  /* parsed argv[1], only mutated at startup */
 
 /* ===========================================================================
  * VK -> wire-name tables
@@ -128,7 +128,7 @@ static HotkeySpec g_spec;  /* parsed argv[1] — only mutated at startup */
  *
  * Note: VK_RETURN (0x0D) is shared between the main Enter key and the numpad
  * Enter key. They are disambiguated at event time via the LLKHF_EXTENDED flag
- * in KBDLLHOOKSTRUCT.flags — see name_for_event(). */
+ * in KBDLLHOOKSTRUCT.flags: see name_for_event(). */
 static const struct { int vk; const char* name; } VK_NAMES[] = {
     /* Editing / navigation */
     { 0x08, "Backspace" },
@@ -236,7 +236,7 @@ static const char* name_for_event(int vk, DWORD flags) {
  *
  * stdout on Windows is fully buffered when piped (the parent Python process
  * reads from a pipe). We both disable buffering via setvbuf() in main() AND
- * fflush() after every line — belt and suspenders. All emit() calls happen
+ * fflush() after every line, belt and suspenders. All emit() calls happen
  * on the hook-installing thread (the OS dispatches the LowLevelKeyboardProc
  * callback synchronously during our GetMessage() pump), so no locking is
  * needed.
@@ -288,13 +288,13 @@ static unsigned __stdcall stdin_reader_thread(void* arg) {
     char line[64];
     while (!g_should_exit) {
         if (fgets(line, sizeof(line), stdin) == NULL) {
-            /* stdin EOF — the Python parent is gone (crash, force-kill,
+            /* stdin EOF, the Python parent is gone (crash, force-kill,
              * power loss). Without this branch the process would linger
              * forever holding the low-level keyboard hook after the app
              * died ("keys feel dead" to other apps). Signal the exit flag
              * and wake the main thread's message pump with WM_QUIT so the
              * main-thread cleanup path unhooks and exits. The hook itself
-             * is NOT unhooked here — only the installing thread may run
+             * is NOT unhooked here, only the installing thread may run
              * the cleanup path safely. */
             InterlockedExchange(&g_should_exit, 1);
             PostThreadMessage(g_main_thread_id, WM_QUIT, 0, 0);
@@ -315,10 +315,10 @@ static unsigned __stdcall stdin_reader_thread(void* arg) {
  * Hotkey spec parsing
  *
  * Accepts pynput-style specs such as:
- *   "<caps_lock>"          — single non-modifier key
- *   "<alt>"                — single modifier
- *   "<f2>"                 — single function key
- *   "<ctrl>+<alt>+v"       — modifier combo + main key
+ *   "<caps_lock>"         : single non-modifier key
+ *   "<alt>"               : single modifier
+ *   "<f2>"                : single function key
+ *   "<ctrl>+<alt>+v"      : modifier combo + main key
  *
  * Tokens may be wrapped in <...> or bare; whitespace is trimmed; tokens are
  * matched case-insensitively. The "fn" token is rejected on Windows.
@@ -407,7 +407,7 @@ static int normalize_key_name(const char* tok, char* out, size_t out_size) {
 }
 
 /* Normalize a modifier token. Returns 1 on success, 0 on failure.
- * The "fn" token is NOT handled here — the caller rejects it before calling. */
+ * The "fn" token is NOT handled here, the caller rejects it before calling. */
 static int normalize_modifier(const char* tok, char* out, size_t out_size) {
     if (strcmp(tok, "ctrl") == 0 || strcmp(tok, "control") == 0) {
         strncpy(out, "Ctrl", out_size - 1); out[out_size-1] = '\0'; return 1;
@@ -450,7 +450,7 @@ static int parse_hotkey_spec(const char* raw, HotkeySpec* spec) {
         to_lower(t);
         if (t[0] == '\0') return 0;
 
-        /* Reject "fn" on Windows — the Fn key is firmware-only and never
+        /* Reject "fn" on Windows, the Fn key is firmware-only and never
          * surfaces as a Win32 keystroke. */
         if (strcmp(t, "fn") == 0) return 0;
 
@@ -543,12 +543,12 @@ static int modifier_held(const char* m) {
 
 /* Returns 1 if the keyDown for this VK should be swallowed. */
 static int should_suppress_keydown(int vk, const HotkeySpec* spec) {
-    /* (1) CapsLock alone — swallow so the OS doesn't toggle caps state. */
+    /* (1) CapsLock alone, swallow so the OS doesn't toggle caps state. */
     if (spec->is_caps_lock_only && vk == VK_CAPITAL) {
         return 1;
     }
 
-    /* (2) Modifier-only hotkey — swallow the keyDown of any configured
+    /* (2) Modifier-only hotkey, swallow the keyDown of any configured
      *     modifier (both L and R sides, since mod_name_for_vk() collapses
      *     them). */
     if (spec->is_modifier_only) {
@@ -562,7 +562,7 @@ static int should_suppress_keydown(int vk, const HotkeySpec* spec) {
         return 0;
     }
 
-    /* (3) Combo (modifiers + main key) — swallow the main key only when ALL
+    /* (3) Combo (modifiers + main key), swallow the main key only when ALL
      *     configured modifiers are currently held. A single main-key-alone
      *     hotkey (modifiers empty) falls into "otherwise" and is NOT
      *     suppressed. */
@@ -578,7 +578,7 @@ static int should_suppress_keydown(int vk, const HotkeySpec* spec) {
         return 1;
     }
 
-    /* (4) Otherwise — don't swallow. */
+    /* (4) Otherwise, don't swallow. */
     return 0;
 }
 
@@ -587,7 +587,7 @@ static int should_suppress_keydown(int vk, const HotkeySpec* spec) {
  *
  * SetWindowsHookEx(WH_KEYBOARD_LL) installs a *global* low-level keyboard
  * hook. The callback runs in the context of the thread that called
- * SetWindowsHookEx — i.e. our main thread — and is dispatched synchronously
+ * SetWindowsHookEx: i.e. our main thread, and is dispatched synchronously
  * by the OS during that thread's message pump. Therefore all stdout writes
  * from here are single-threaded; no locking is required.
  *
@@ -626,7 +626,7 @@ static LRESULT CALLBACK LowLevelKeyboardProc(int nCode,
              * seeing the keystroke. */
             if (should_suppress_keydown(vk, &g_spec)) {
                 g_suppressed_vk = vk;
-                return 1;   /* swallow — do not call CallNextHookEx */
+                return 1;   /* swallow, do not call CallNextHookEx */
             }
         } else if (wParam == WM_KEYUP || wParam == WM_SYSKEYUP) {
             /* If we swallowed the matching keyDown, swallow its keyUp too so
@@ -653,7 +653,7 @@ static LRESULT CALLBACK LowLevelKeyboardProc(int nCode,
     }
 
     /* Pass the event down the hook chain so other hooks (and ultimately the
-     * foreground app) still see it — unless we returned early above. */
+     * foreground app) still see it, unless we returned early above. */
     return CallNextHookEx(NULL, nCode, wParam, lParam);
 }
 
@@ -661,7 +661,7 @@ static LRESULT CALLBACK LowLevelKeyboardProc(int nCode,
  * Console control handler (Ctrl-C / Ctrl-Break / shutdown)
  *
  * Windows has no real SIGTERM; the parent Python process either calls
- * TerminateProcess() (unconditional — no chance to clean up) or sends a
+ * TerminateProcess() (unconditional, no chance to clean up) or sends a
  * console control event via GenerateConsoleCtrlEvent() (which is what we
  * handle here). We catch all the close/shutdown/break events, unhook the
  * keyboard hook, and exit cleanly.
@@ -680,7 +680,7 @@ static BOOL WINAPI console_handler(DWORD ctrl) {
                 UnhookWindowsHookEx(g_hook);
                 g_hook = NULL;
             }
-            /* exit() runs atexit handlers, but we have none — straight exit. */
+            /* exit() runs atexit handlers, but we have none, straight exit. */
             exit(0);
             return TRUE;
         default:
@@ -698,7 +698,7 @@ int main(int argc, char** argv) {
     /* (0) stdout must NOT be fully buffered when piped. On Windows, MSVC's
      *     CRT treats _IOLBF (line buffering) the same as _IOFBF (full
      *     buffering) for non-terminal streams, so we use _IONBF (no
-     *     buffering) — every fputs/fputc writes straight to the file handle.
+     *     buffering), every fputs/fputc writes straight to the file handle.
      *     emit() also calls fflush() after each line as belt-and-suspenders. */
     setvbuf(stdout, NULL, _IONBF, 0);
     g_out = stdout;
@@ -709,7 +709,7 @@ int main(int argc, char** argv) {
     InitializeCriticalSection(&g_emit_lock);
     g_emit_lock_inited = 1;
 
-    /* (1) Parse argv[1] — the hotkey spec. We don't match against it (Python
+    /* (1) Parse argv[1], the hotkey spec. We don't match against it (Python
      *     does), but we validate it so we can fail fast with ERROR on bad
      *     input, and we use it to drive suppression decisions in the hook. */
     if (argc < 2) {
@@ -780,7 +780,7 @@ int main(int argc, char** argv) {
     }
     log_diag("READY emitted; version=%s", NATIVE_BINARY_VERSION);
 
-    /* (5) Message pump — runs until WM_QUIT is received or until the console
+    /* (5) Message pump, runs until WM_QUIT is received or until the console
      *     control handler calls exit(0) directly. */
     MSG msg;
     while (GetMessage(&msg, NULL, 0, 0) > 0) {
@@ -788,7 +788,7 @@ int main(int argc, char** argv) {
         DispatchMessage(&msg);
     }
 
-    /* (6) Cleanup — normally we exit() from the console handler before
+    /* (6) Cleanup, normally we exit() from the console handler before
      *     reaching here, but if the message pump returns (WM_QUIT without an
      *     exit()) we still unhook cleanly. */
     InterlockedExchange(&g_should_exit, 1);

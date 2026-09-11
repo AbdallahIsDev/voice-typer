@@ -32,9 +32,9 @@ describe("mixHexColors", () => {
 	});
 });
 
-describe("cssColorToHex — per-input cache", () => {
+describe("cssColorToHex, per-input cache", () => {
 	// The resolution cache is module-level, so every test below uses
-	// DISTINCT color strings — a string already resolved by an earlier
+	// DISTINCT color strings, a string already resolved by an earlier
 	// test would return from the cache and the DOM-probe spy would
 	// never fire.
 	afterEach(() => {
@@ -43,7 +43,7 @@ describe("cssColorToHex — per-input cache", () => {
 
 	it("resolves the same input twice with only one DOM probe", () => {
 		// Spy on the exact DOM surface _cssColorToHexViaDOM uses
-		// (createElement + body.appendChild) — the second call must be
+		// (createElement + body.appendChild), the second call must be
 		// served from the cache without touching the DOM again.
 		const createSpy = vi.spyOn(document, "createElement");
 		const appendSpy = vi.spyOn(document.body, "appendChild");

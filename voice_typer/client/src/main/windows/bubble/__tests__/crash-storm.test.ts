@@ -5,7 +5,7 @@
  * `createCrashStormTracker` takes a 4th `prefix` argument so bubble
  * crash storms log with `[BUBBLE]` instead of the legacy hardcoded
  * `[MAIN]` (which misattributed bubble crash storms to the main
- * window in the logs — the original HU-29 defect).
+ * window in the logs, the original HU-29 defect).
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 

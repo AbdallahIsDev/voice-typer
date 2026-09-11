@@ -1,5 +1,5 @@
 /**
- *  — , ,  regression tests for App.tsx.
+ * , , ,  regression tests for App.tsx.
  *
  * : "Page not found" fallback uses i18n keys + renders a "Go to Home"
  *        recovery button that navigates home on click. The previous version
@@ -169,11 +169,11 @@ vi.mock("@/pages/Settings", () => ({
 
 import { APP_NAME } from "@/branding";
 // Standalone t() via the i18n public facade (NOT a direct
-// @/i18n/translate import — that module has init-order side effects in
+// @/i18n/translate import, that module has init-order side effects in
 // isolation). Same lookup chain App's useT resolves through (defaults
 // to the "en" locale in these tests), so the expected document.title is
 // built from the SAME i18n key + branding constant App.tsx composes
-// (`${t(...)} — ${APP_NAME}`) instead of a hardcoded guess.
+// (`${t(...)}, ${APP_NAME}`) instead of a hardcoded guess.
 import { t } from "@/i18n";
 import { useAppStore } from "@/stores/appStore";
 import type { VoiceTyperConfig } from "@/types/config";
@@ -428,7 +428,7 @@ describe("UX-24: help overlay shows the user's actual configured hotkey", () => 
 		// is captured before vi.resetModules() runs (in the previous
 		// test's afterEach), so it points at a stale store whose state
 		// App never observes. This matters for tests that override
-		// non-default config fields (hotkey="F2") — tests relying on
+		// non-default config fields (hotkey="F2"), tests relying on
 		// the default value happen to pass either way.
 		const { useAppStore: freshStore } = await import("@/stores/appStore");
 		freshStore.setState({
@@ -449,7 +449,7 @@ describe("UX-24: help overlay shows the user's actual configured hotkey", () => 
 		dispatchKey("?");
 		// The overlay renders two elements with the text "Keyboard Shortcuts":
 		// the dialog <h2> title (help.title) AND the inline <h3> section
-		// heading (help.shortcuts.title — both i18n values resolve to the
+		// heading (help.shortcuts.title, both i18n values resolve to the
 		// same English string). getByText throws on multiple matches, so we
 		// locate the open dialog by role+name instead.
 		await waitFor(() => {
@@ -498,7 +498,7 @@ describe("UX-24: help overlay shows the user's actual configured hotkey", () => 
 		//formatHotkeyLabel("<ctrl>+<shift>+v") returns
 		// "Ctrl+Shift+V", rendered as separate design-system Kbd chips
 		// ("Ctrl", "Shift", "V"). "V" appears in no other shortcut, so
-		// its chip proves the configured combo rendered — and the
+		// its chip proves the configured combo rendered, and the
 		// hardcoded "Ctrl+Alt+V" default must be gone (the combo is no
 		// longer one combined text node). Use findByText to tolerate the
 		// Radix Dialog portal's async content commit.
@@ -608,7 +608,7 @@ describe("UX-25: `?` keydown guard skips contentEditable elements", () => {
 		// focus() for contentEditable divs (it only honours focus()
 		// on HTMLElements with a tabindex or form- controls). The
 		// App's keydown guard reads document.activeElement, so we
-		// override the getter to report the editable div — this lets
+		// override the getter to report the editable div, this lets
 		// the guard's `active?.isContentEditable === true` branch
 		// fire without depending on jsdom's incomplete focus model.
 		//
@@ -726,7 +726,7 @@ describe("BG-25: document.title updates on route change", () => {
 
 	it("sets document.title on initial mount based on the active page", async () => {
 		// useNavigation defaults to "home" on a clean localStorage, so
-		// the initial title should be "Home — Voice Typer".
+		// the initial title should be "Home, Voice Typer".
 		const { default: App } = await import("@/App");
 		render(<App />);
 
@@ -734,9 +734,9 @@ describe("BG-25: document.title updates on route change", () => {
 			expect(screen.getByTestId("home-page")).toBeTruthy();
 		});
 
-		//title is `t("nav.<page>") + " — " + APP_NAME`.
+		//title is `t("nav.<page>") + ", " + APP_NAME`.
 		// APP_NAME is "Voice Typer" (src/renderer/src/branding.ts).
-		expect(document.title).toBe("Home — Voice Typer");
+		expect(document.title).toBe("Home, Voice Typer");
 	});
 
 	it("updates document.title when the user navigates to a different page", async () => {
@@ -746,11 +746,11 @@ describe("BG-25: document.title updates on route change", () => {
 		await waitFor(() => {
 			expect(screen.getByTestId("home-page")).toBeTruthy();
 		});
-		expect(document.title).toBe("Home — Voice Typer");
+		expect(document.title).toBe("Home, Voice Typer");
 
 		// Click the mocked Sidebar's "Switch to Settings" button to
 		// trigger a real `navigate("settings")` call (useNavigation
-		// is NOT mocked here — the real hook handles the state
+		// is NOT mocked here, the real hook handles the state
 		// transition so App's document.title effect re-fires).
 		fireEvent.click(screen.getByText("Switch to Settings"));
 
@@ -759,13 +759,13 @@ describe("BG-25: document.title updates on route change", () => {
 		});
 
 		// title updated to the Settings HUB title. Settings is now a
-		// HUB + section pages — `navigate("settings")` keeps the page
+		// HUB + section pages, `navigate("settings")` keeps the page
 		// on the hub literal (the old redirect to `settingsGeneral`
 		// was removed), so App.tsx's title effect resolves
 		// `t("settings.title")` for the `settings` surface. Expected
 		// string built from the same sources App.tsx uses:
-		// t("settings.title") + " — " + APP_NAME.
-		expect(document.title).toBe(`${t("settings.title")} — ${APP_NAME}`);
+		// t("settings.title") + ", " + APP_NAME.
+		expect(document.title).toBe(`${t("settings.title")}, ${APP_NAME}`);
 	});
 });
 
@@ -791,7 +791,7 @@ describe("BG-26: focus moves to <main> on route change (skip link + tabIndex plu
 	});
 
 	it("does NOT steal focus on the initial mount (skipFirstRun guard)", async () => {
-		// On mount, the user hasn't navigated yet — stealing focus from
+		// On mount, the user hasn't navigated yet, stealing focus from
 		// whatever they were doing (URL bar, bookmark, etc.) would be
 		// rude. The skipFirstRun ref suppresses the focus call on the
 		// first run of the effect.
@@ -803,7 +803,7 @@ describe("BG-26: focus moves to <main> on route change (skip link + tabIndex plu
 		});
 
 		// Active element should remain <body> (the default after render)
-		// — NOT the main-content element. This is the skipFirstRun guard.
+		//, NOT the main-content element. This is the skipFirstRun guard.
 		const mainEl = document.getElementById("main-content");
 		expect(mainEl).toBeTruthy();
 		expect(document.activeElement).not.toBe(mainEl);

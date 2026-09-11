@@ -1,11 +1,11 @@
 /**
- * Bubble overlay package — `BubbleStopButton`.
+ * Bubble overlay package, `BubbleStopButton`.
  *
  * The stop '■' / retry '↻' affordance shown at the trailing edge of
  * the pill. In `recording` mode it is always rendered (independent of
  * `always_visible`) and clicking it sends `bubble:toggle-dictation`,
  * which the main process forwards to the Python `toggle_dictation`
- * command — the same channel `BubbleMicButton` uses. When recording,
+ * command, the same channel `BubbleMicButton` uses. When recording,
  * `toggle_dictation` stops the recording and triggers transcription.
  *
  * This is the highest-impact stop affordance: previously the only way

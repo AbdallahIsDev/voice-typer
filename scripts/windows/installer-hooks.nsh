@@ -1,4 +1,4 @@
-; Voice Typer — NSIS installer-time hooks (slim-core / runtime-pack split).
+; Voice Typer. NSIS installer-time hooks (slim-core / runtime-pack split).
 ;
 ; Companion to ``scripts/windows/uninstaller.nsh`` (which defines the
 ; ``customUnInstall`` macro for post-uninstall cleanup). This file defines
@@ -13,7 +13,7 @@
 ;      ``Section`` (one WITHOUT ``SectionIn RO``) renders as a checkbox
 ;      the user can tick/untick. The pack itself is NEVER bundled into
 ;      the slim-core installer (it would bloat the installer from ~35 MB
-;      to ~215 MB — see plan-runtime-pack-split.md §5.3). Instead the
+;      to ~215 MB: see plan-runtime-pack-split.md §5.3). Instead the
 ;      checkbox state is persisted to ``installer-state.json`` and the
 ;      slim-core app reads it on first launch to decide whether to start
 ;      the silent background pack download (plan §4.8 consent gate, §8.4
@@ -54,7 +54,7 @@
 ;   5. Verify the state file was written with the consent value false:
 ;         type "%LOCALAPPDATA%\voice-typer\installer-state.json"
 ;         (Expected: {"include_offline_engine_pack": false, ...})
-;   6. Repeat with the checkbox ticked — confirm the value is true.
+;   6. Repeat with the checkbox ticked, confirm the value is true.
 
 ; ─── Terms of Service page (installer consent) ───────────────────────────
 ; The installer shows a mandatory Terms-of-Service / consent page BEFORE
@@ -62,7 +62,7 @@
 ; page declarations, so a page macro inserted here lands in the natural
 ; wizard order: Welcome → License → Components → Directory → Install →
 ; Finish). ``MUI_LICENSEPAGE_CHECKBOX`` turns the page's "I agree"
-; button into a mandatory checkbox — the installer cannot proceed
+; button into a mandatory checkbox, the installer cannot proceed
 ; without ticking it, making the installer acceptance the single
 ; up-front legal contract for the app's consent-gated features (the
 ; app itself remains privacy-by-default; features only activate when
@@ -78,7 +78,7 @@
 !endif
 
 ; ─── Section variable ─────────────────────────────────────────────────────
-; NSIS ``Var`` declarations are file-scoped — declaring here is safe even
+; NSIS ``Var`` declarations are file-scoped, declaring here is safe even
 ; though ``installer.nsi`` (Tauri-generated) declares its own. The Var is
 ; initialised to "0" so an unticked section body never runs and the value
 ; stays "0" (the ``customInstall`` macro reads it to decide what to write).
@@ -88,9 +88,9 @@ Var IncludeOfflineEnginePack
 ; A ``Section`` WITHOUT ``SectionIn RO`` is OPTIONAL: the NSIS Components
 ; page renders it as a checkbox the user can untick. The section body
 ; runs ONLY when the checkbox is ticked at install time (the standard
-; NSIS contract — see NSIS docs §4.5 "Sections"). Default state is
+; NSIS contract: see NSIS docs §4.5 "Sections"). Default state is
 ; "selected" (checkbox ticked) because the plan §4.8 default is
-; auto-download — the user opts OUT, not IN.
+; auto-download, the user opts OUT, not IN.
 ;
 ; The section is EMPTY of file operations: the pack is downloaded at
 ; first launch, not at install time (plan §4.8). The body's only job is
@@ -99,7 +99,7 @@ Var IncludeOfflineEnginePack
 Section "Include offline engine pack" SecIncludePack
   ; Default-selected: the Components page checkbox starts ticked.
   ; (NSIS sections are selected by default unless ``SectionIn RO`` is
-  ; called inside the section body — we deliberately do NOT call it.)
+  ; called inside the section body, we deliberately do NOT call it.)
   StrCpy $IncludeOfflineEnginePack "1"
   DetailPrint "[voice-typer-installer] User selected: include offline engine pack (download starts on first launch)."
 SectionEnd
@@ -107,20 +107,20 @@ SectionEnd
 ; Human-readable description shown under the Components page list. NSIS
 ; ``LangString`` lets us localize later (plan §9.3 adds 8 locale strings
 ; for the pack UI; this description is one of them). The LangString MUST
-; be declared inside a SectionGroup or at the top level — top-level is
+; be declared inside a SectionGroup or at the top level, top-level is
 ; fine here.
 LangString DESC_SecIncludePack ${LANG_ENGLISH} \
   "Downloads the offline ASR engine pack (~180 MB) on first launch. Cloud transcription works without it."
 
 ; ─── customInstall macro ─────────────────────────────────────────────────
 ; Tauri v2 invokes ``customInstall`` in the ``-post`` Section of the
-; generated ``installer.nsi`` — AFTER the main app files are written,
+; generated ``installer.nsi``: AFTER the main app files are written,
 ; BEFORE the installer exits. We use it to persist the user's checkbox
 ; choice to ``installer-state.json`` so the slim-core Python backend can
 ; read it on first launch (plan §4.8 consent gate).
 ;
 ; The state file lives at ``%LOCALAPPDATA%\voice-typer\installer-state.json``
-; — the SAME per-user data root the Python backend uses for the runtime
+;, the SAME per-user data root the Python backend uses for the runtime
 ; pack (plan §4.7). ``%LOCALAPPDATA%`` expands to ``$LOCALAPPDATA`` in
 ; NSIS. ``CreateDirectory`` is idempotent (no error if the dir exists).
 ;
@@ -130,7 +130,7 @@ LangString DESC_SecIncludePack ${LANG_ENGLISH} \
 !macro customInstall
   ; Belt-and-suspenders: default to "0" if the Section body somehow
   ; didn't run (e.g. the user is running the installer with /S silent
-  ; mode and the Components page was skipped — NSIS selects all
+  ; mode and the Components page was skipped. NSIS selects all
   ; optional sections by default in silent mode, but defensive coding
   ; is cheap here).
   StrCpy $IncludeOfflineEnginePack "0"

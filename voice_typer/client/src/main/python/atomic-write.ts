@@ -11,7 +11,7 @@
  * truncates the destination first, so a crash, power loss, or
  * disk-full mid-write leaves a partial file that parsers reject.
  * The temp-then-rename pattern guarantees the destination is either
- * the prior content or the new content — never a truncated half.
+ * the prior content or the new content, never a truncated half.
  *
  * Mirrors the Rust `atomic_write_bytes` canonical helper: write tmp →
  * fsync → rename. The existing `atomicWriteFileSync` in
@@ -37,7 +37,7 @@ export function atomicWriteFile(
 	const mode = options?.mode ?? 0o600;
 	const encoding = options?.encoding ?? "utf-8";
 	// Sibling temp file (same directory) so `rename(2)` stays within
-	// the same filesystem — cross-device renames fall back to
+	// the same filesystem, cross-device renames fall back to
 	// copy+delete, which is non-atomic.
 	const tmpPath = `${filePath}.tmp`;
 	// Write to the temp file.
@@ -45,14 +45,14 @@ export function atomicWriteFile(
 	// fsync to flush kernel buffers to disk. Without this, a power
 	// loss after `writeFileSync` but before the kernel flushes the
 	// page cache to disk could leave the temp file empty or partial
-	// — and the subsequent `renameSync` would then atomically replace
+	//, and the subsequent `renameSync` would then atomically replace
 	// the destination with that partial content.
 	//
 	// The fsync handle is opened "r+" (O_RDWR), NOT "r" (O_RDONLY):
 	// on Windows, libuv implements `fs.fsyncSync` as Win32
 	// `FlushFileBuffers`, which REQUIRES a handle opened with
 	// GENERIC_WRITE. A read-only "r" handle (GENERIC_READ only) made
-	// `fsyncSync` throw EACCES/EPERM BEFORE the rename — the sole
+	// `fsyncSync` throw EACCES/EPERM BEFORE the rename, the sole
 	// caller's catch-block logged a warning and swallowed it, so
 	// `restart_history.json` (the Electron crash-loop breaker state)
 	// never persisted on Windows and the 3-restarts-in-60s cap

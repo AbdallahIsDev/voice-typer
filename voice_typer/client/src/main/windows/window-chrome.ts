@@ -13,7 +13,7 @@ import { type BrowserWindowConstructorOptions, nativeTheme } from "electron";
  * Build the BrowserWindow constructor options for the dashboard window.
  * `shouldShow` mirrors the START_HIDDEN autostart decision made by the
  * caller (`createMainWindow(forceShow)`); it only controls `skipTaskbar`
- * — the window itself is always created hidden and shown on
+ *, the window itself is always created hidden and shown on
  * `ready-to-show`.
  */
 export function buildMainWindowOptions(
@@ -76,7 +76,7 @@ export function buildMainWindowOptions(
 			// from the OS-level backend, NOT from a renderer gesture).
 			// The default Chromium policy ("document-user-activation-
 			// required") causes the intermittent "sometimes no sound"
-			// bug — the cue plays only if the user happened to click
+			// bug, the cue plays only if the user happened to click
 			// in the Electron window before pressing the hotkey.
 			autoplayPolicy: "no-user-gesture-required",
 			// SEC-014: explicit hardening.  These are Electron defaults

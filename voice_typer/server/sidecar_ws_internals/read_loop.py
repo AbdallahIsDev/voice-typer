@@ -60,38 +60,38 @@ if TYPE_CHECKING:  # pragma: no cover - type-checker-only
 
 # Same logger object as the canonical module (``logging.getLogger`` is
 # idempotent per name). Keeps every log record's ``name`` attribute
-# byte-identical to the pre-split output — several tests pin
+# byte-identical to the pre-split output, several tests pin
 # ``caplog.at_level(..., logger="voice_typer.server.sidecar_ws")``.
 log = logging.getLogger("voice_typer.server.sidecar_ws")
 
 # Heartbeat fast-path rate cap.
 #
 # The Rust host sends one ``heartbeat`` command every 10s (ADR-0018 /
-# ADR-0020 §10) — i.e. the legitimate steady-state rate is 1 per 10s.
+# ADR-0020 §10): i.e. the legitimate steady-state rate is 1 per 10s.
 # The heartbeat fast-path in :func:`_read_loop` deliberately bypasses
 # the dispatch pool (and therefore the ADR-0019 per-frame
 # :class:`_RateLimiter` that lives inside ``_make_dispatch``) so the
 # ack latency stays at the WS round-trip (~1 ms loopback) instead of
-# the dispatch-pool queue depth — a slow ``download_model`` /
+# the dispatch-pool queue depth, a slow ``download_model`` /
 # ``transcribe`` running on the pool must not delay the ack and trip
 # the host's "3 consecutive misses → respawn" liveness probe.
 #
 # But that bypass means a hostile or buggy client could spam
 # ``{"type":"heartbeat"}`` at line rate (tens of thousands per
 # second) and the read loop would ``await websocket.send(ack)`` for
-# every one of them — starving every other connection's reads, since
+# every one of them, starving every other connection's reads, since
 # the read loop is single-threaded per connection and the event loop
 # is shared across all connections.
 #
 # This cap is a CHEAP sliding-window (a ``deque`` of timestamps,
 # popped from the left when older than the window). 100 per 10s is
-# ~10x the legitimate rate — generous enough that a slightly
+# ~10x the legitimate rate, generous enough that a slightly
 # over-eager host retry loop won't trip it, tight enough that a
 # flood is dropped at the read loop instead of fanning out acks.
 #
 # The window is PER-CONNECTION (not shared like the ADR-0019
 # limiter) because a heartbeat flood is a per-connection
-# misbehaviour — sharing the budget would let one flapping client
+# misbehaviour, sharing the budget would let one flapping client
 # starve heartbeats from a well-behaved second connection. Each
 # connection's read loop is single-threaded, so the deque is
 # accessed without a lock from inside that coroutine.
@@ -127,7 +127,7 @@ async def _read_loop(websocket, server: IPCServer, dispatch) -> None:
     # and starve the event loop with ack sends. This deque holds the
     # timestamps of the last ``_HEARTBEAT_RATE_MAX_PER_WINDOW``
     # heartbeats; old entries are popleft when older than the window.
-    # Single-threaded access from this coroutine — no lock needed.
+    # Single-threaded access from this coroutine, no lock needed.
     heartbeat_window: deque[float] = deque()
     # In-flight pipelined dispatch tasks (see the creation site). The
     # set is drained before return so every response is flushed.
@@ -168,7 +168,7 @@ async def _read_loop(websocket, server: IPCServer, dispatch) -> None:
             continue
 
         # The frame may carry an optional "id" for request/response
-        # correlation (ADR-0020 §7 — the host's dispatch() command
+        # correlation (ADR-0020 §7, the host's dispatch() command
         # assigns a per-request id). Echo it back on the response.
         request_id = msg.get("id")
         # DEBUG wire-trace (C-TAURI-3 diagnosis aid): one line per
@@ -186,7 +186,7 @@ async def _read_loop(websocket, server: IPCServer, dispatch) -> None:
         # on the dispatch pool. The Rust host's liveness probe
         # (3 consecutive misses ≥30s → respawn, see ADR-0018 /
         # ADR-0020 §10) would otherwise fire spuriously during a
-        # legitimate long-running command — restarting the sidecar
+        # legitimate long-running command, restarting the sidecar
         # mid-download and forcing the user to retry. Bypassing the
         # dispatch pool keeps the heartbeat-ack latency at the
         # ``websocket.send()`` round-trip (~1 ms loopback) instead
@@ -199,14 +199,14 @@ async def _read_loop(websocket, server: IPCServer, dispatch) -> None:
             # ``_HEARTBEAT_RATE_MAX_PER_WINDOW`` per
             # ``_HEARTBEAT_RATE_WINDOW_SECONDS``; drop the rest WITHOUT
             # acking (a well-behaved host sending 1/10s will never
-            # trip this — even a 10x-over-eager retry loop has room).
+            # trip this, even a 10x-over-eager retry loop has room).
             now = time.monotonic()
             window_edge = now - _HEARTBEAT_RATE_WINDOW_SECONDS
             while heartbeat_window and heartbeat_window[0] < window_edge:
                 heartbeat_window.popleft()
             if len(heartbeat_window) >= _HEARTBEAT_RATE_MAX_PER_WINDOW:
                 log.warning(
-                    "[SIDECAR-WS] heartbeat rate cap exceeded (%d in %.0fs) — dropping (no ack)",
+                    "[SIDECAR-WS] heartbeat rate cap exceeded (%d in %.0fs), dropping (no ack)",
                     _HEARTBEAT_RATE_MAX_PER_WINDOW,
                     _HEARTBEAT_RATE_WINDOW_SECONDS,
                 )
@@ -242,7 +242,7 @@ async def _read_loop(websocket, server: IPCServer, dispatch) -> None:
         # PIPELINED DISPATCH (2026-08-30 tray-Restart postmortem): the
         # read loop previously ``await``ed each dispatch INLINE, so a
         # long-running handler (``restart_app``'s 4.6 s teardown) BLOCKED
-        # frame processing for its whole duration — the host's
+        # frame processing for its whole duration, the host's
         # ``relaunch_ack`` starved behind it and the sidecar timed out.
         # Handlers already run concurrently on the ``ws_dispatch_pool``
         # (4 workers); only the response send was serialized. Dispatch
@@ -277,7 +277,7 @@ async def _dispatch_and_respond(msg: dict, request_id, websocket, dispatch) -> N
     pipelined tasks (see the comment at the task-creation site). The
     response keeps every ``_safe_send`` defense (off-loop encode, 1 MiB
     cap, send timeout); a non-``"sent"`` status closes the websocket —
-    the task-based equivalent of the old inline ``break`` — because a
+    the task-based equivalent of the old inline ``break``, because a
     dropped/failed response means the peer is waiting for an id that
     will never resolve, and a wedged connection must hand control back
     to the host's reconnect path immediately.
@@ -292,7 +292,7 @@ async def _dispatch_and_respond(msg: dict, request_id, websocket, dispatch) -> N
         # ``_MAX_FRAME_BYTES`` 1 MiB cap, and the
         # ``_WS_SEND_TIMEOUT_SECONDS`` send timeout. Pre-fix the
         # dispatch response called ``websocket.send(json.dumps(...))``
-        # directly, bypassing all three — a handler returning a
+        # directly, bypassing all three, a handler returning a
         # multi-MiB response (e.g. ``get_history`` /
         # ``get_vocabulary`` for a user with thousands of entries)
         # would (1) block the asyncio loop thread with synchronous

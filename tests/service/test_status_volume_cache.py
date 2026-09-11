@@ -2,7 +2,7 @@
 ``voice_typer/server/service/status.py``.
 
 Previously :meth:`StatusMixin.get_volume_backend_status` called
-``ducker.initialize()`` on every 2s status poll — wasted work because
+``ducker.initialize()`` on every 2s status poll, wasted work because
 ``initialize()`` is idempotent (it short-circuits on
 ``self._initialized``) and the backend name / availability flags
 don't change after the first successful init (the platform backend
@@ -19,22 +19,22 @@ bypasses the cache immediately.
 
 These tests pin:
 
-1. **Cache population** — the first call invokes ``initialize()``
+1. **Cache population**, the first call invokes ``initialize()``
    once and populates the cache.
-2. **Cache hit** — subsequent calls do NOT invoke ``initialize()``
+2. **Cache hit**, subsequent calls do NOT invoke ``initialize()``
    and return the same dict.
-3. **Force refresh** — ``_force_refresh=True`` re-invokes
+3. **Force refresh**: ``_force_refresh=True`` re-invokes
    ``initialize()`` and refreshes the cache.
-4. **Init-failure retry** — when ``initialize()`` raises on the
+4. **Init-failure retry**, when ``initialize()`` raises on the
    first call, the cache is NOT populated so the next poll retries
    (preserving the "retry until init succeeds" behaviour for users
    who install a missing dependency mid-session).
-5. **Mutation isolation** — the returned dict is a copy, so callers
+5. **Mutation isolation**, the returned dict is a copy, so callers
    (e.g. the IPC handler that adds ``is_windows``) can't corrupt the
    cached state.
-6. **Missing ducker** — when ``_volume_ducker`` is absent, the
+6. **Missing ducker**, when ``_volume_ducker`` is absent, the
    method returns the ``disabled`` sentinel (no cache populated).
-7. **TTL expiry** — past ``_VOLUME_BACKEND_STATUS_TTL_S`` the status
+7. **TTL expiry**, past ``_VOLUME_BACKEND_STATUS_TTL_S`` the status
    is recomputed (the cache no longer lives for the process
    lifetime).
 """
@@ -131,7 +131,7 @@ class TestVolumeBackendStatusCache:
         # to callers, but the cached dict reference is stable).
         assert mixin._volume_backend_status_cache["name"] == "fake (test)"
 
-        # A few more calls — initialize count stays at 1.
+        # A few more calls, initialize count stays at 1.
         for _ in range(5):
             mixin.get_volume_backend_status()
         assert ducker.initialize.call_count == 1
@@ -155,7 +155,7 @@ class TestVolumeBackendStatusCache:
         # CoreAudio dependency, switching from osascript to CoreAudio).
         ducker.backend_name = "CoreAudio (pyobjc)"
 
-        # Force refresh — bypasses the cache, re-invokes initialize,
+        # Force refresh, bypasses the cache, re-invokes initialize,
         # and updates the cache with the new backend_name.
         refreshed = mixin.get_volume_backend_status(_force_refresh=True)
         assert ducker.initialize.call_count == 2, (
@@ -189,14 +189,14 @@ class TestVolumeBackendStatusCache:
         # computed from the ducker's current (default) state.
         first = mixin.get_volume_backend_status()
         assert ducker.initialize.call_count == 1
-        # Status is still returned (best-effort) — the existing
+        # Status is still returned (best-effort), the existing
         # test_handles_initialize_exception dispatch test pins this.
         assert first["name"] == "fake (test)"
         # The cache should NOT be populated (init failed).
         assert mixin._volume_backend_status_cache is None, (
             " regression: cache was populated despite "
             "initialize() raising. The next poll should retry "
-            "initialize() — caching the failed state would prevent "
+            "initialize(), caching the failed state would prevent "
             "auto-recovery when the user installs a missing "
             "dependency mid-session."
         )
@@ -218,7 +218,7 @@ class TestVolumeBackendStatusCache:
         when ``initialize()`` raises.
 
         Rationale: when the user explicitly clicks "Refresh", they're
-        asking for the current state — even if init fails, the
+        asking for the current state, even if init fails, the
         best-effort status (backend_name from the ducker's current
         ``_backend`` attribute) is what they want to see. Caching it
         prevents the next 2s poll from re-invoking the failing init
@@ -235,7 +235,7 @@ class TestVolumeBackendStatusCache:
         assert mixin._volume_backend_status_cache is not None, (
             " regression: _force_refresh=True did not cache the "
             "best-effort status when initialize() raised. The user "
-            "explicitly asked for the current state — caching it "
+            "explicitly asked for the current state, caching it "
             "prevents the next poll from re-invoking the failing init."
         )
 
@@ -250,7 +250,7 @@ class TestVolumeBackendStatusCache:
         The IPC handler (``_handle_get_volume_backend_status``) adds
         ``is_windows`` to the returned dict. Without a copy, that
         mutation would leak into the cache and show up on the next
-        poll — corrupting the cached state with handler-specific
+        poll, corrupting the cached state with handler-specific
         fields.
         """
         mixin, ducker = status_mixin_with_mock_ducker
@@ -298,7 +298,7 @@ class TestVolumeBackendStatusCache:
 
         Two separate ``VoiceTyperService`` instances (e.g. in a
         multi-window scenario) must NOT share the volume-backend
-        cache — each service's ducker is independent.
+        cache, each service's ducker is independent.
         """
         mixin_a, ducker_a = status_mixin_with_mock_ducker
         # Prime mixin_a's cache.
@@ -323,7 +323,7 @@ class TestVolumeBackendStatusCache:
         # mixin_a's cache should be unaffected by mixin_b's existence.
         assert mixin_a._volume_backend_status_cache is not None
 
-        # Prime mixin_b's cache — should reflect mixin_b's ducker,
+        # Prime mixin_b's cache, should reflect mixin_b's ducker,
         # not mixin_a's.
         result_b = mixin_b.get_volume_backend_status()
         assert result_b["name"] == "different-backend"
@@ -337,7 +337,7 @@ class TestVolumeBackendStatusCache:
         preserving the poll-path caching contract.
 
         The IPC ``get_volume_backend_status`` handler calls this
-        method with no arguments — the default ``False`` applies,
+        method with no arguments, the default ``False`` applies,
         so the 2s status poll takes the cache fast path. This test
         pins the default so a future signature change (e.g. flipping
         the default to ``True``) doesn't silently re-introduce the
@@ -379,7 +379,7 @@ class TestVolumeBackendStatusCache:
         monkeypatch.setattr(mixin, "_volume_backend_status_cached_at", 0.0)
         expired = mixin.get_volume_backend_status()
         assert ducker.initialize.call_count == 2, (
-            " regression: the cache lived past its TTL — the status "
+            " regression: the cache lived past its TTL, the status "
             "was never recomputed, freezing the Settings display for "
             "the process lifetime."
         )

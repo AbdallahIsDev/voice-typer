@@ -1,4 +1,4 @@
-"""Native hotkey backend — {name}."""
+"""Native hotkey backend, {name}."""
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ class _WatchdogMixin:
     # Members provided by the composed ``SubprocessHotkeyBackend``
     # (``_core.py`` ``__init__``): cross-mixin attribute access is
     # runtime-valid but pyrefly cannot see it on a standalone mixin.
-    # Annotations only — no values — so no runtime attribute is created
+    # Annotations only, no values, so no runtime attribute is created
     # and the runtime MRO is unaffected (same pattern as
     # dictation_pipeline's mixin declarations and model_manager's
     # ``ChangeMixin``).
@@ -59,7 +59,7 @@ class _WatchdogMixin:
 
         Safety: until the binary has sent at least one PONG
         (``_pong_supported`` is False), the watchdog does NOT respawn
-        on PONG absence — this prevents false-positive respawns for
+        on PONG absence: this prevents false-positive respawns for
         binaries that don't implement the PING/PONG protocol (which
         would otherwise respawn every 60s of idleness).  Once a PONG
         is observed, the binary is known to support the protocol and
@@ -107,7 +107,7 @@ class _WatchdogMixin:
             if self._stop_event.is_set():
                 return
 
-            # respawn check — "no event AND no PONG for 60s".
+            # respawn check, "no event AND no PONG for 60s".
             # Only enforce PONG absence if the binary is known to
             # support the PING/PONG protocol (``_pong_supported``).
             # Otherwise, an idle binary that doesn't implement PONG
@@ -118,7 +118,7 @@ class _WatchdogMixin:
             if not (event_stale and pong_stale):
                 continue
 
-            # Binary is hung — respawn via stop() + start().
+            # Binary is hung, respawn via stop() + start().
             log.warning(
                 "[NATIVE-HOTKEY] %s binary unresponsive (no events for %.1fs, no PONG for %.1fs); respawning",
                 self.platform_name,
@@ -145,7 +145,7 @@ class _WatchdogMixin:
             # after ``start()`` returns to avoid having two watchdogs.
             #
             # ``stop(shutdown=False)`` is used here because this
-            # is a teardown-for-restart, NOT an app shutdown — latching
+            # is a teardown-for-restart, NOT an app shutdown, latching
             # ``_shutdown_requested`` here would prevent the watchdog
             # from ever respawning (its own cleanup would disable it).
             # The subsequent ``_shutdown_requested`` check guards the
@@ -159,7 +159,7 @@ class _WatchdogMixin:
                 cb = self._callback
                 if cb is None:
                     log.error(
-                        "[NATIVE-HOTKEY] %s watchdog: cannot respawn — no callback stashed",
+                        "[NATIVE-HOTKEY] %s watchdog: cannot respawn, no callback stashed",
                         self.platform_name,
                     )
                     return
@@ -167,7 +167,7 @@ class _WatchdogMixin:
                 # if the main thread called ``stop(shutdown=True)``
                 # while we were inside ``stop(shutdown=False)`` above
                 # (or any time before this point), ``_shutdown_requested``
-                # is now latched.  Do NOT resurrect the binary — the app
+                # is now latched.  Do NOT resurrect the binary, the app
                 # is shutting down and an orphaned native binary would
                 # hold the keyboard hook (Windows) or evdev FDs (Linux)
                 # after the parent has exited.  Once True, this flag is
@@ -179,7 +179,7 @@ class _WatchdogMixin:
                         self.platform_name,
                     )
                     return
-                # ``stop()`` set ``_watchdog_stop_event`` — clear it
+                # ``stop()`` set ``_watchdog_stop_event``: clear it
                 # so the new watchdog (spawned by ``start()`` via
                 # ``_spawn_process``) can run.
                 self._watchdog_stop_event.clear()

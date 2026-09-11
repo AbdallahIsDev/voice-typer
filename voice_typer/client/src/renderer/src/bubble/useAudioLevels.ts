@@ -1,5 +1,5 @@
 /**
- * Bubble overlay package — `useAudioLevels` hook (60fps direct-DOM
+ * Bubble overlay package, `useAudioLevels` hook (60fps direct-DOM
  * animation, paused when hidden).
  *
  * rAF scheduling gate: the next-frame `requestAnimationFrame` call
@@ -13,7 +13,7 @@
  *
  * `prefers-reduced-motion`: when the user has reduced motion enabled
  * (vestibular disorders, motion sensitivity, or preference), the rAF
- * loop is short-circuited — bars are rendered ONCE at a fixed
+ * loop is short-circuited, bars are rendered ONCE at a fixed
  * mid-height and no further frames are scheduled. This matches the
  * CSS-side `@media (prefers-reduced-motion: reduce)` block in
  * `index.css` that disables CSS animations: the JS-driven bar
@@ -34,7 +34,7 @@ const REDUCED_MOTION_HEIGHT = (MIN_HEIGHT + MAX_HEIGHT) / 2;
 // ── Transform-based bar animation (compositor-only writes) ─────────
 //
 // The per-frame rAF loop animates each bar by writing
-// ``transform: scaleY(...)`` — NOT ``height``. A per-frame ``height``
+// ``transform: scaleY(...)``, NOT ``height``. A per-frame ``height``
 // write forces a layout pass on the bubble pill every frame; a scale
 // write runs on the compositor. This mirrors the app's LevelBar rAF
 // contract (``components/feedback/LevelBar.tsx``): the loop writes the
@@ -45,7 +45,7 @@ const REDUCED_MOTION_HEIGHT = (MIN_HEIGHT + MAX_HEIGHT) / 2;
 // box height (``MAX_HEIGHT``) with a default (center) transform origin.
 // The visualizer wrapper is a fixed-height flex container that centers
 // its children, so a centered ``scaleY(h / MAX_HEIGHT)`` renders the
-// same centered ``h``-pixel bar the old height write produced — at every
+// same centered ``h``-pixel bar the old height write produced, at every
 // level, with no re-anchoring.
 
 // Half the dot's 3px width (``w-0.75`` in BubbleVisualizer.tsx). Kept as
@@ -71,7 +71,7 @@ function prepareBarElement(el: HTMLElement): boolean {
 	// fixed 1.5px cap on a 3px-wide dot compresses vertically at low
 	// scales (the caps read as squared-off). Dividing the VERTICAL
 	// radius by the current scale keeps the post-transform cap a
-	// 1.5px half-round at every level — the same counter-scale family
+	// 1.5px half-round at every level, the same counter-scale family
 	// the LevelBar uses for its right cap. The horizontal radius
 	// stays a plain 1.5px (scaleY never touches the horizontal axis).
 	el.style.borderRadius = `${BAR_CAP_RADIUS_PX}px / calc(${BAR_CAP_RADIUS_PX}px / max(var(--bar-scale), 0.03))`;
@@ -81,7 +81,7 @@ function prepareBarElement(el: HTMLElement): boolean {
 /**
  * Write a bar's current visual height as a compositor-only transform
  * (plus the cap-radius CSS var that the prepared border-radius calc
- * consumes — a style/paint-level write, geometry stays fixed).
+ * consumes, a style/paint-level write, geometry stays fixed).
  * ``opacity`` is a compositor-only property and rides along.
  */
 function writeBarLevel(el: HTMLElement, height: number, opacity: number): void {
@@ -114,7 +114,7 @@ export function useAudioLevels(
 	const barColorRef = useRef<string | null>(null);
 	// Per-dot easing state: the last visual height (px) written for each
 	// bar. The loop reads/writes this instead of parsing the DOM style
-	// back — the element's inline ``height`` now holds the constant FULL
+	// back, the element's inline ``height`` now holds the constant FULL
 	// box height (see ``prepareBarElement``), not the animated value.
 	// A ref (not effect-local state) so the easing continuity survives
 	// effect re-runs, exactly like the DOM value did before the
@@ -191,7 +191,7 @@ export function useAudioLevels(
 		});
 		return () => {
 			observer.disconnect();
-			// No need to cancel the queued microtask — it's a no-op
+			// No need to cancel the queued microtask, it's a no-op
 			// after unmount because `refreshBarColor`'s `useCallback`
 			// deps are stable, but the ref guard (`colorRefreshFrameRef`)
 			// prevents duplicate scheduling on the next mount.
@@ -267,7 +267,7 @@ export function useAudioLevels(
 		const sync = () => {
 			const isRecording = bridge.getMode() === "recording";
 			recordingRef.current = isRecording;
-			// Dynamic onLevel gating — see comment above.
+			// Dynamic onLevel gating, see comment above.
 			if (isRecording) {
 				subscribeLevel();
 			} else {
@@ -334,7 +334,7 @@ export function useAudioLevels(
 				const el = dots[i];
 				if (!el) continue;
 				// A freshly (re)mounted element re-anchors its easing
-				// state at MIN_HEIGHT — matching the pre-transform
+				// state at MIN_HEIGHT, matching the pre-transform
 				// behavior, which fell back to the element's 5px inline
 				// height when no animated value had been written yet.
 				if (prepareBarElement(el)) {
@@ -346,7 +346,7 @@ export function useAudioLevels(
 				const next = cur + (target - cur) * 0.36;
 				const height = Math.max(MIN_HEIGHT, next);
 				barHeightsRef.current[i] = height;
-				// Compositor-only writes — the per-frame set is
+				// Compositor-only writes, the per-frame set is
 				// transform + the cap-radius var + opacity (no
 				// layout-inducing geometry; see the module-level
 				// transform-contract note).
@@ -359,7 +359,7 @@ export function useAudioLevels(
 			}
 		};
 
-		// `wake` function — idempotent (re)starter. Gated on
+		// `wake` function, idempotent (re)starter. Gated on
 		// `prefers-reduced-motion` so a stale `onShow` callback cannot
 		// re-arm the rAF loop behind the user's back. The reduced-motion
 		// fallback render is re-applied here so the bars stay at the
@@ -399,14 +399,14 @@ export function useAudioLevels(
 
 		const offShow = bridge.on("show", () => {
 			// The bridge's mode ref is already updated for this event
-			// (show → recording, unless transcribing) — just re-sync
+			// (show → recording, unless transcribing), just re-sync
 			// the recording gate + level subscription.
 			sync();
 			wake();
 		});
 		const offSetState = bridge.on("setState", () => {
 			// Mode ref already reflects this setState transition (see
-			// the single-source-of-truth comment above) — re-sync, then re-arm the rAF
+			// the single-source-of-truth comment above), re-sync, then re-arm the rAF
 			// loop when the new mode is recording.
 			sync();
 			if (bridge.getMode() === "recording") wake();
@@ -414,7 +414,7 @@ export function useAudioLevels(
 
 		// Establish the initial subscription state for `onLevel`.
 		// The default `mode` is `"recording"`, so on mount this
-		// subscribes immediately — preserving the pre-refactor
+		// subscribes immediately, preserving the pre-refactor
 		// behavior where `onLevel` was always subscribed while the
 		// bubble was visible.
 		sync();
@@ -438,7 +438,7 @@ export function useAudioLevels(
 		};
 	}, [bridge, dotRefs, refreshBarColor]);
 
-	// Visibility-watching effect — cancel on hide, re-arm on show.
+	// Visibility-watching effect, cancel on hide, re-arm on show.
 	useEffect(() => {
 		if (!isVisible) {
 			if (frameRef.current !== null) {

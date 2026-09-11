@@ -3,7 +3,7 @@
 #
 # `qwen_asr` is an optional pip dependency used by
 # `voice_typer/server/qwen_engine.py`. It is NOT installed on the CI
-# runner (or in most dev environments — only users who want the Qwen3
+# runner (or in most dev environments, only users who want the Qwen3
 # ASR engine install it). The runtime code wraps every `import qwen_asr`
 # in `try/except ImportError`, so this stub only needs to declare the
 # small import surface actually used:

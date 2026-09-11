@@ -3,7 +3,7 @@
 PLAN_ONNX_INTEGRATION.md §4.3 Option C-2: the pre-exported
 ``andrewleech/qwen3-asr-*-onnx`` models run via onnxruntime with no
 torch/transformers. These tests mock the ORT sessions + tokenizer (no
-weights — the model dirs are multi-GB and user-downloaded) and verify:
+weights, the model dirs are multi-GB and user-downloaded) and verify:
 
 - the mel → encoder → prompt → greedy-decode pipeline logic,
 - the ONNX auto-detect branch in ``QwenEngine.load()``,
@@ -447,7 +447,7 @@ class TestTranscribe:
         "system" -> [8948], "user" -> [872], "assistant" -> [77091],
         "\n" -> [198]. The export tool's src/prompt.py hardcodes
         system=[9125]/user=[882], which decode to " Current"/" time" in
-        the real vocab and are WRONG — these pins protect against a
+        the real vocab and are WRONG, these pins protect against a
         regression to the tool's values."""
         assert qom._SYSTEM_TOKEN_IDS == (8948,)
         assert qom._USER_TOKEN_IDS == (872,)
@@ -473,7 +473,7 @@ class TestQwenEngineOnnxIntegration:
             assert engine.load() is True
         assert engine._onnx_model is not None
         assert engine.is_loaded
-        # device pinned to cpu — the CUDA branch / warm-up must not fire
+        # device pinned to cpu, the CUDA branch / warm-up must not fire
         assert engine.device == "cpu"
         assert engine.device_info == "qwen/cpu"
 
@@ -490,12 +490,12 @@ class TestQwenEngineOnnxIntegration:
 
     def test_no_warm_up_model_attribute(self, tmp_path):
         """The torch warm-up pass was removed with the torch engine
-        (2026-08-15) — the ONNX backend has nothing to prime (no CUDA
+        (2026-08-15), the ONNX backend has nothing to prime (no CUDA
         kernels; the ORT sessions are already loaded)."""
         from voice_typer.server.qwen_engine import QwenEngine
 
         assert not hasattr(QwenEngine, "_warm_up_model"), (
-            "QwenEngine must NOT have a _warm_up_model method — the torch "
+            "QwenEngine must NOT have a _warm_up_model method, the torch "
             "engine was removed (2026-08-15); the ONNX backend has no "
             "warmup pass. Re-introducing it would be dead code."
         )
@@ -514,7 +514,7 @@ class TestQwenEngineOnnxIntegration:
         engine, d, sessions = self._make_engine(tmp_path)
         with patch_ort(sessions), patch_tokenizer():
             engine.load()
-        # ONNX model is pinned to cpu — even a "cuda"-looking error must
+        # ONNX model is pinned to cpu, even a "cuda"-looking error must
         # be re-raised, never routed into the torch .to() fallback path.
         with (
             mock.patch.object(engine, "transcribe", side_effect=RuntimeError("cuda error: launch failed")),

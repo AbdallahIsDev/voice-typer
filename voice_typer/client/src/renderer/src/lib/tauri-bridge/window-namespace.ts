@@ -21,7 +21,7 @@
 // The previous version duplicated the ~28-line try/catch + canceled/error
 // mapping 4× (exportHistory / exportVocabulary / exportTemplates /
 // exportConfig). `makeExportCommand(cmd)` collapses each call site to a
-// single factory invocation — the four methods now share a single
+// single factory invocation, the four methods now share a single
 // implementation of the mapping.
 
 import type { WindowBridge } from "@/types/ipc";
@@ -51,7 +51,7 @@ type ExportReturn = Promise<{
  * `exportConfig`.
  *
  * The returned function is structurally assignable to all four
- * `WindowBridge` export slots — for `exportHistory` / `exportVocabulary`
+ * `WindowBridge` export slots, for `exportHistory` / `exportVocabulary`
  * the caller always passes the `format` arg (required by the type), for
  * `exportTemplates` / `exportConfig` the caller omits it (the factory's
  * `format?` parameter accepts both call shapes).
@@ -66,7 +66,7 @@ function makeExportCommand(tauri: TauriGlobal, cmd: string) {
 				format ? { data, format } : { data },
 			);
 			if (result?.canceled) {
-				// User dismissed the save dialog — matches Electron's
+				// User dismissed the save dialog, matches Electron's
 				// `{success: false}` (no error, no path).
 				return { success: false };
 			}
@@ -90,7 +90,7 @@ function makeExportCommand(tauri: TauriGlobal, cmd: string) {
  * Build the `window.window_` namespace using Tauri's global API.
  *
  * `onMaximizedChanged` is implemented via `onResized` + `isMaximized()`
- * because Tauri v2 lacks a direct "maximized-changed" event — any
+ * because Tauri v2 lacks a direct "maximized-changed" event, any
  * resize (including maximize/unmaximize) fires `onResized`, after which
  * we query the current maximized state and forward it to the consumer.
  */
@@ -179,7 +179,7 @@ export function createWindowNamespace(tauri: TauriGlobal): WindowBridge {
 					path: result?.path,
 				};
 			} catch {
-				// Surface errors as a canceled pick with no path — the
+				// Surface errors as a canceled pick with no path, the
 				// renderer treats both shapes the same (no-op on cancel
 				// / error).
 				return { canceled: true };
@@ -209,7 +209,7 @@ export function createWindowNamespace(tauri: TauriGlobal): WindowBridge {
 		},
 
 		//`openElectronLogs` removed from the WindowBridge interface
-		// (dead code — the Rust host's `open_host_logs` command was
+		// (dead code, the Rust host's `open_host_logs` command was
 		// deleted as dead code; the "View Logs" UX uses `open_logs`
 		// which opens the config root).
 
@@ -241,7 +241,7 @@ export function createWindowNamespace(tauri: TauriGlobal): WindowBridge {
 				// surfaced the error to the dev-tools +
 				// main-process console forwarding path, so a
 				// failing Rust command is invisible
-				// to the user (intentional — see comment above).
+				// to the user (intentional, see comment above).
 			}),
 	};
 }

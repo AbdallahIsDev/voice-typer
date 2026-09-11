@@ -3,19 +3,19 @@
 Covers the wiring the field was missing (it existed on the ``Config``
 dataclass and was read by ``build_chain`` but nothing else honored it):
 
-1. Schema — the Python ``Config`` dataclass declares
+1. Schema, the Python ``Config`` dataclass declares
    ``noise_filter_gate_adaptive: bool = False`` (opt-in adaptive
    noise-floor calibration for the NoiseGate).
-2. Rebuild signature — ``_CONFIG_SIGNATURE_FIELDS`` (the tuple
+2. Rebuild signature: ``_CONFIG_SIGNATURE_FIELDS`` (the tuple
    ``rebuild_from_config`` hashes to short-circuit no-op config
    changes) must include the field, so an adaptive-ONLY change flips
    the signature and actually rebuilds the chain instead of being
    silently skipped.
-3. Allowlist — ``IPC_CONFIG_ALLOWLIST["noise_filter_gate_adaptive"]``
+3. Allowlist: ``IPC_CONFIG_ALLOWLIST["noise_filter_gate_adaptive"]``
    accepts bools and rejects non-bools at the IPC ``set_config``
    boundary (SEC-002: settable from the UI without bypassing the
    allowlist).
-4. Round-trip — ``validate_config_update`` validates the field exactly
+4. Round-trip: ``validate_config_update`` validates the field exactly
    like the dispatcher will use it.
 """
 
@@ -44,7 +44,7 @@ class TestAdaptiveGateInConfigSignature:
 
         assert "noise_filter_gate_adaptive" in _CONFIG_SIGNATURE_FIELDS, (
             "noise_filter_gate_adaptive is missing from "
-            "_CONFIG_SIGNATURE_FIELDS — an adaptive-only config change "
+            "_CONFIG_SIGNATURE_FIELDS, an adaptive-only config change "
             "keeps the old signature and the chain is NOT rebuilt."
         )
 
@@ -62,7 +62,7 @@ class TestAdaptiveGateInConfigSignature:
         sig_on = _config_signature(cfg_on, 16000)
 
         assert sig_off != sig_on, (
-            "adaptive-only change produced an identical config signature — rebuild_from_config would skip the rebuild."
+            "adaptive-only change produced an identical config signature, rebuild_from_config would skip the rebuild."
         )
         # Stability: the same config must keep hashing to the same value.
         assert _config_signature(cfg_off, 16000) == sig_off
@@ -88,14 +88,14 @@ class TestAdaptiveGateInConfigSignature:
             # Unchanged config → short-circuit, no additional build.
             proc.rebuild_from_config(cfg_off)
             assert bc.call_count == baseline, (
-                "rebuild_from_config rebuilt for an UNCHANGED config — the short-circuit is broken."
+                "rebuild_from_config rebuilt for an UNCHANGED config, the short-circuit is broken."
             )
 
             # Adaptive-only change → must NOT short-circuit.
             proc.rebuild_from_config(cfg_on)
             assert bc.call_count == baseline + 1, (
                 "rebuild_from_config skipped the rebuild for an "
-                "adaptive-only config change — the field is missing from "
+                "adaptive-only config change, the field is missing from "
                 "the config signature."
             )
 

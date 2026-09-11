@@ -124,7 +124,7 @@ def _equalizer_reference_process(
     """Fresh-allocation reference (mirrors the pre-SU-11 process body).
 
     Uses inline ``[lf]`` / ``[1.0, -(1-lf)]`` Python lists and
-    ``np.array([state])`` zi construction — exactly the code path that
+    ``np.array([state])`` zi construction, exactly the code path that
     allocated fresh arrays per call before SU-11 pre-allocated the b/a
     coefficient arrays and zi buffers in ``__init__``.
     """
@@ -209,7 +209,7 @@ class TestEqualizerByteIdentical:
             # We do this by reading the optimized filter's post-process
             # state and copying it into the reference filter so both
             # start the next chunk from the same state. (The optimized
-            # filter's state IS the reference — if they diverge here,
+            # filter's state IS the reference, if they diverge here,
             # the next chunk's output will differ and the test fails.)
             eq_ref._delay1 = eq_opt._delay1
             eq_ref._delay2 = eq_opt._delay2
@@ -255,7 +255,7 @@ def _noise_gate_reference_process(
     """Fresh-allocation reference (mirrors the pre-SU-31 process body).
 
     Uses ``np.abs(samples).astype(np.float64)``, ``np.arange(n)``,
-    ``np.empty(n + 1)``, and ``np.empty(n)`` — exactly the code path
+    ``np.empty(n + 1)``, and ``np.empty(n)``, exactly the code path
     that allocated 4 fresh arrays per call before SU-31 pre-allocated
     the reusable buffers.
     """
@@ -266,7 +266,7 @@ def _noise_gate_reference_process(
     dt = 1.0 / sample_rate
 
     if not gate._calibrated:
-        # Calibration branch is unchanged by  — replicate it for
+        # Calibration branch is unchanged by, replicate it for
         # completeness so the reference is correct when adaptive=True.
         remaining = gate._calibration_target - gate._calibration_count
         if remaining > 0:
@@ -323,7 +323,7 @@ def _noise_gate_reference_process(
         attenuation_arr[i] = attenuation
 
     output = (samples.astype(np.float64) * attenuation_arr).astype(np.float32)
-    # NOTE: we do NOT mutate gate state here — the caller is responsible
+    # NOTE: we do NOT mutate gate state here, the caller is responsible
     # for syncing state between optimized and reference instances.
     return output.reshape(audio.shape)
 
@@ -395,7 +395,7 @@ class TestNoiseGateByteIdentical:
         np.testing.assert_array_equal(out_opt, out_ref)
 
     def test_buffer_reuse_across_calls_byte_identical(self) -> None:
-        """Same-size chunks reuse the buffer — output still byte-identical."""
+        """Same-size chunks reuse the buffer, output still byte-identical."""
         sr = 16000
         gate_opt = NoiseGate(sample_rate=sr)
         gate_ref = NoiseGate(sample_rate=sr)

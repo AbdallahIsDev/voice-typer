@@ -1,19 +1,19 @@
-"""CR-87 regression guard — verify GDPR right-to-delete.
+"""CR-87 regression guard: verify GDPR right-to-delete.
 
 Finding CR-87 (High): GDPR Art. 17 (right-to-erasure) is incomplete —
 ``service.clear_history()`` only deletes rows in ``history.db``. The
 following personal-data artifacts are NOT deletable today:
 
 - ``recovery.json`` (crash-recovery buffer with last 10
-  unpasted transcriptions — pure PII).
+  unpasted transcriptions, pure PII).
 - ``config.json`` (user config + consent flags).
-- ``voice-typer-corrections.json`` (user customizations — PII).
-- ``vocabulary.json`` (user-added vocabulary — PII).
-- ``templates.json`` (user templates — PII).
-- ``mic-test-*.wav`` (mic-test recordings — voice biometric data).
-- ``voice-typer.log`` (log file — PII redacted but still personal).
+- ``voice-typer-corrections.json`` (user customizations, PII).
+- ``vocabulary.json`` (user-added vocabulary, PII).
+- ``templates.json`` (user templates, PII).
+- ``mic-test-*.wav`` (mic-test recordings, voice biometric data).
+- ``voice-typer.log`` (log file. PII redacted but still personal).
 - ``voice-typer.log.1`` .. ``voice-typer.log.5`` (rotated log backups
-  — PI-4: produced by ``RotatingFileHandler(backupCount=5)`` in
+, PI-4: produced by ``RotatingFileHandler(backupCount=5)`` in
   ``voice_typer/server/log.py:911-915``; may contain user-spoken
   text via ``_crash_excepthook``'s CRITICAL log + per-segment DEBUG
   logs per XZ-PRIV-04).
@@ -29,7 +29,7 @@ following personal-data artifacts are NOT deletable today:
   ``src-tauri/src/platform/logging.rs:30-34``).
 
 Model artifacts (``<config_dir>/models/`` and
-``<config_dir>/huggingface/``) are explicitly OUT OF SCOPE — model
+``<config_dir>/huggingface/``) are explicitly OUT OF SCOPE, model
 weights are not personal data.
 
 Fix-D adds a new ``service.delete_all_personal_data()`` method that
@@ -77,7 +77,7 @@ def _seed_personal_data(tmp_path: Path) -> dict[str, Path]:
     """
     artifacts: dict[str, Path] = {}
 
-    # 1. history.db — sqlite file (use real history_db so clear_all works).
+    # 1. history.db, sqlite file (use real history_db so clear_all works).
     from voice_typer.server.history_db import HistoryDB
 
     hdb = HistoryDB(db_path=tmp_path / "history.db")
@@ -92,7 +92,7 @@ def _seed_personal_data(tmp_path: Path) -> dict[str, Path]:
     rec_path.write_text(json.dumps({"entries": [{"text": "recovered pii"}]}))
     artifacts["recovery.json"] = rec_path
 
-    # 3. config.json — with consent + secrets
+    # 3. config.json, with consent + secrets
     cfg_path = tmp_path / "config.json"
     cfg_path.write_text(
         json.dumps(
@@ -130,7 +130,7 @@ def _seed_personal_data(tmp_path: Path) -> dict[str, Path]:
     log_path.write_text("2024-01-01 12:00:00 INFO [SERVICE] transcript='secret text'\n")
     artifacts["voice-typer.log"] = log_path
 
-    # 8b. : voice-typer.log.{1,2} — rotated backups produced by
+    # 8b. : voice-typer.log.{1,2}, rotated backups produced by
     # RotatingFileHandler(backupCount=5) in voice_typer/server/log.py.
     # Per  /  these backups may contain user-spoken
     # text via _crash_excepthook's CRITICAL log + per-segment DEBUG
@@ -142,12 +142,12 @@ def _seed_personal_data(tmp_path: Path) -> dict[str, Path]:
     log2_path.write_text("2024-01-01 10:00:00 DEBUG transcript='rotated secret 2'\n")
     artifacts["voice-typer.log.2"] = log2_path
 
-    # 9. : real crash files — crash_diagnostics.<PID>.txt
+    # 9. : real crash files, crash_diagnostics.<PID>.txt
     # (Windows VEH handler, crash_handler.py:722) and
     # python_crash.<PID>.txt (_crash_excepthook marker,
     # crash_handler.py:1190).  The previous test created a fictional
     # ``crash-20240101-120000.dmp`` which matched the equally
-    # fictional ``crash-*.dmp`` glob in the service — false-green.
+    # fictional ``crash-*.dmp`` glob in the service, false-green.
     # Use ``os.getpid()`` for the PID so the filenames match what
     # production crash code writes.
     _pid = os.getpid()
@@ -160,7 +160,7 @@ def _seed_personal_data(tmp_path: Path) -> dict[str, Path]:
     artifacts["python_crash.txt"] = py_crash_path
 
     # 10. : prewarm.log + rotated backup (prewarm process
-    # rotating log, prewarm/logging_setup.py:84 — same
+    # rotating log, prewarm/logging_setup.py:84, same
     # RotatingFileHandler config as the main log).
     prewarm_path = tmp_path / "prewarm.log"
     prewarm_path.write_text("2024-01-01 12:00:00 INFO [PREWARM] warming model with secret='pii'\n")
@@ -211,7 +211,7 @@ def test_delete_all_personal_data_method_exists() -> None:
     from voice_typer.server.service import VoiceTyperService
 
     assert hasattr(VoiceTyperService, "delete_all_personal_data"), (
-        "VoiceTyperService must define delete_all_personal_data — see CR-87 / Fix-D."
+        "VoiceTyperService must define delete_all_personal_data: see CR-87 / Fix-D."
     )
 
 
@@ -236,7 +236,7 @@ def test_delete_all_personal_data_erases_history_db(tmp_path) -> None:
                 assert rows == [], f"history.db still has {len(rows)} rows after delete"
             finally:
                 hdb.close()
-        # else: file was deleted — also acceptable.
+        # else: file was deleted, also acceptable.
     finally:
         mp.undo()
 
@@ -250,7 +250,7 @@ def test_delete_all_personal_data_erases_recovery_json(tmp_path) -> None:
         artifacts = _seed_personal_data(tmp_path)
         svc.delete_all_personal_data()
         assert not artifacts["recovery.json"].exists(), (
-            "recovery.json must be deleted — contains unpasted transcript PII (CR-87)."
+            "recovery.json must be deleted, contains unpasted transcript PII (CR-87)."
         )
     finally:
         mp.undo()
@@ -361,11 +361,11 @@ def test_delete_all_personal_data_erases_rotated_log_backups(tmp_path) -> None:
         artifacts = _seed_personal_data(tmp_path)
         svc.delete_all_personal_data()
         assert not artifacts["voice-typer.log.1"].exists(), (
-            "voice-typer.log.1 (rotated backup) must be deleted — may contain "
+            "voice-typer.log.1 (rotated backup) must be deleted, may contain "
             "user-spoken text per XZ-PII-01/XZ-PRIV-04 (PI-4)."
         )
         assert not artifacts["voice-typer.log.2"].exists(), (
-            "voice-typer.log.2 (rotated backup) must be deleted — may contain "
+            "voice-typer.log.2 (rotated backup) must be deleted, may contain "
             "user-spoken text per XZ-PII-01/XZ-PRIV-04 (PI-4)."
         )
         # ALL voice-typer.log.* files should be gone, not just .1 and .2.
@@ -380,14 +380,14 @@ def test_delete_all_personal_data_erases_crash_dumps(tmp_path) -> None:
     be deleted.
 
     These are the REAL crash file names written by production code:
-      * ``crash_diagnostics.<PID>.txt`` — Windows VEH handler
+      * ``crash_diagnostics.<PID>.txt``, Windows VEH handler
         (``crash_handler.py:722``)
-      * ``python_crash.<PID>.txt`` — Python ``_crash_excepthook``
+      * ``python_crash.<PID>.txt``, Python ``_crash_excepthook``
         marker (``crash_handler.py:1190``)
 
     The previous test created a fictional ``crash-20240101-120000.dmp``
     which matched the equally fictional ``crash-*.dmp`` glob in the
-    service — false-green.  This test uses ``os.getpid()`` so the
+    service, false-green.  This test uses ``os.getpid()`` so the
     filenames match what production crash code writes.
     """
     svc, mp = _build_service(tmp_path)
@@ -397,11 +397,11 @@ def test_delete_all_personal_data_erases_crash_dumps(tmp_path) -> None:
         artifacts = _seed_personal_data(tmp_path)
         svc.delete_all_personal_data()
         assert not artifacts["crash_diagnostics.txt"].exists(), (
-            "crash_diagnostics.<PID>.txt must be deleted — Windows VEH crash "
+            "crash_diagnostics.<PID>.txt must be deleted, Windows VEH crash "
             "file written by crash_handler.py:722 (PI-5)."
         )
         assert not artifacts["python_crash.txt"].exists(), (
-            "python_crash.<PID>.txt must be deleted — Python excepthook marker written by crash_handler.py:1190 (PI-5)."
+            "python_crash.<PID>.txt must be deleted, Python excepthook marker written by crash_handler.py:1190 (PI-5)."
         )
         # No crash_diagnostics.*.txt or python_crash.*.txt should remain.
         remaining_diag = list(tmp_path.glob("crash_diagnostics.*.txt"))
@@ -416,7 +416,7 @@ def test_delete_all_personal_data_erases_prewarm_log(tmp_path) -> None:
     """PI-6: prewarm.log + rotated backups must be deleted.
 
     The prewarm process writes ``prewarm.log`` (and rotates it with the
-    same RotatingFileHandler config as the main log — see
+    same RotatingFileHandler config as the main log: see
     ``prewarm/logging_setup.py:84``).  Per XZ-LOG-03 / XZ-PRIV-04 the
     prewarm log may include model paths + config snippets.
     """
@@ -426,9 +426,9 @@ def test_delete_all_personal_data_erases_prewarm_log(tmp_path) -> None:
             pytest.skip("Fix-D not yet landed")
         artifacts = _seed_personal_data(tmp_path)
         svc.delete_all_personal_data()
-        assert not artifacts["prewarm.log"].exists(), "prewarm.log must be deleted — prewarm process log (PI-6)."
+        assert not artifacts["prewarm.log"].exists(), "prewarm.log must be deleted, prewarm process log (PI-6)."
         assert not artifacts["prewarm.log.1"].exists(), (
-            "prewarm.log.1 (rotated backup) must be deleted — prewarm process log rotation (PI-6)."
+            "prewarm.log.1 (rotated backup) must be deleted, prewarm process log rotation (PI-6)."
         )
         remaining = list(tmp_path.glob("prewarm.log*"))
         assert remaining == [], f"prewarm.log* files still present after GDPR delete: {remaining}"
@@ -456,19 +456,19 @@ def test_delete_all_personal_data_erases_rust_logs_subdir(tmp_path) -> None:
         rust_log = artifacts["logs/voice-typer.log"]
         rust_log1 = artifacts["logs/voice-typer.log.1"]
         assert not rust_log.exists(), (
-            "<config_dir>/logs/voice-typer.log must be deleted — Rust host log with no PII redaction (PI-6, XZ-LOG-02)."
+            "<config_dir>/logs/voice-typer.log must be deleted, Rust host log with no PII redaction (PI-6, XZ-LOG-02)."
         )
         assert not rust_log1.exists(), "<config_dir>/logs/voice-typer.log.1 (rotated) must be deleted (PI-6)."
         # The entire logs/ subdirectory should be gone (rmtree).
         assert not (tmp_path / "logs").exists(), (
-            "<config_dir>/logs/ subdirectory still exists after GDPR delete — should have been rmtree'd (PI-6)."
+            "<config_dir>/logs/ subdirectory still exists after GDPR delete, should have been rmtree'd (PI-6)."
         )
     finally:
         mp.undo()
 
 
 def test_delete_all_personal_data_preserves_model_artifacts(tmp_path) -> None:
-    """CR-87 spec: model weights are NOT personal data — must be preserved."""
+    """CR-87 spec: model weights are NOT personal data, must be preserved."""
     svc, mp = _build_service(tmp_path)
     try:
         if not hasattr(svc, "delete_all_personal_data"):
@@ -479,7 +479,7 @@ def test_delete_all_personal_data_preserves_model_artifacts(tmp_path) -> None:
         for name, path in model_artifacts.items():
             assert path.exists(), (
                 f"Model artifact {name} ({path}) must NOT be deleted by "
-                "GDPR delete — model weights are not personal data (CR-87)."
+                "GDPR delete, model weights are not personal data (CR-87)."
             )
     finally:
         mp.undo()
@@ -532,32 +532,32 @@ def _seed_xz_sec_03_artifacts(tmp_path: Path) -> dict[str, Path]:
     """
     artifacts: dict[str, Path] = {}
 
-    # config.json.bak — single-slot backup of config.json.
+    # config.json.bak, single-slot backup of config.json.
     bak_path = tmp_path / "config.json.bak"
     bak_path.write_text(json.dumps({"llm_api_key": "sk-test-123"}))
     artifacts["config.json.bak"] = bak_path
 
-    # config.json.lock — cross-process lock file.
+    # config.json.lock, cross-process lock file.
     lock_path = tmp_path / "config.json.lock"
     lock_path.write_text(f"pid={os.getpid()}\nowner=test-user\n")
     artifacts["config.json.lock"] = lock_path
 
-    # .restart_token — defensive entry.
+    # .restart_token, defensive entry.
     token_path = tmp_path / ".restart_token"
     token_path.write_text("restart-token-secret-pii")
     artifacts[".restart_token"] = token_path
 
-    # history.db.corrupt-<timestamp> — corrupt DB backup.
+    # history.db.corrupt-<timestamp>, corrupt DB backup.
     corrupt_path = tmp_path / "history.db.corrupt-20240101-120000"
     corrupt_path.write_bytes(b"corrupt sqlite plaintext secret='pii'")
     artifacts["history.db.corrupt-*"] = corrupt_path
 
-    # voice-typer-diagnostics-<timestamp>.zip — diagnostic bundle.
+    # voice-typer-diagnostics-<timestamp>.zip, diagnostic bundle.
     diag_path = tmp_path / "voice-typer-diagnostics-20240101-120000.zip"
     diag_path.write_bytes(b"PK\x03\x04 fake zip with pii markers")
     artifacts["voice-typer-diagnostics-*.zip"] = diag_path
 
-    # gdpr-export-<timestamp>.zip — portability export bundle.
+    # gdpr-export-<timestamp>.zip, portability export bundle.
     export_path = tmp_path / "gdpr-export-20240101-120000.zip"
     export_path.write_bytes(b"PK\x03\x04 fake gdpr export with pii")
     artifacts["gdpr-export-*.zip"] = export_path
@@ -574,7 +574,7 @@ def test_delete_all_personal_data_erases_config_json_bak(tmp_path) -> None:
         artifacts = _seed_xz_sec_03_artifacts(tmp_path)
         svc.delete_all_personal_data()
         assert not artifacts["config.json.bak"].exists(), (
-            "config.json.bak must be deleted — retains plaintext API keys (XZ-SEC-03)."
+            "config.json.bak must be deleted, retains plaintext API keys (XZ-SEC-03)."
         )
     finally:
         mp.undo()
@@ -589,7 +589,7 @@ def test_delete_all_personal_data_erases_config_json_lock(tmp_path) -> None:
         artifacts = _seed_xz_sec_03_artifacts(tmp_path)
         svc.delete_all_personal_data()
         assert not artifacts["config.json.lock"].exists(), (
-            "config.json.lock must be deleted — holds stale PID + writer username (XZ-SEC-03)."
+            "config.json.lock must be deleted, holds stale PID + writer username (XZ-SEC-03)."
         )
     finally:
         mp.undo()
@@ -604,7 +604,7 @@ def test_delete_all_personal_data_erases_restart_token(tmp_path) -> None:
         artifacts = _seed_xz_sec_03_artifacts(tmp_path)
         svc.delete_all_personal_data()
         assert not artifacts[".restart_token"].exists(), (
-            ".restart_token must be deleted — historically held restart auth secret (XZ-SEC-03)."
+            ".restart_token must be deleted, historically held restart auth secret (XZ-SEC-03)."
         )
     finally:
         mp.undo()
@@ -619,7 +619,7 @@ def test_delete_all_personal_data_erases_history_db_corrupt(tmp_path) -> None:
         artifacts = _seed_xz_sec_03_artifacts(tmp_path)
         svc.delete_all_personal_data()
         assert not artifacts["history.db.corrupt-*"].exists(), (
-            "history.db.corrupt-* must be deleted — retains dictated plaintext (XZ-SEC-03)."
+            "history.db.corrupt-* must be deleted, retains dictated plaintext (XZ-SEC-03)."
         )
         remaining = list(tmp_path.glob("history.db.corrupt-*"))
         assert remaining == [], f"history.db.corrupt-* files still present after GDPR delete: {remaining}"
@@ -636,7 +636,7 @@ def test_delete_all_personal_data_erases_diagnostics_zip(tmp_path) -> None:
         artifacts = _seed_xz_sec_03_artifacts(tmp_path)
         svc.delete_all_personal_data()
         assert not artifacts["voice-typer-diagnostics-*.zip"].exists(), (
-            "voice-typer-diagnostics-*.zip must be deleted — contains history + log fragments (XZ-SEC-03)."
+            "voice-typer-diagnostics-*.zip must be deleted, contains history + log fragments (XZ-SEC-03)."
         )
         remaining = list(tmp_path.glob("voice-typer-diagnostics-*.zip"))
         assert remaining == [], f"voice-typer-diagnostics-*.zip files still present after GDPR delete: {remaining}"
@@ -653,7 +653,7 @@ def test_delete_all_personal_data_erases_gdpr_export_zip(tmp_path) -> None:
         artifacts = _seed_xz_sec_03_artifacts(tmp_path)
         svc.delete_all_personal_data()
         assert not artifacts["gdpr-export-*.zip"].exists(), (
-            "gdpr-export-*.zip must be deleted — contains user's full personal data (XZ-SEC-03)."
+            "gdpr-export-*.zip must be deleted, contains user's full personal data (XZ-SEC-03)."
         )
         remaining = list(tmp_path.glob("gdpr-export-*.zip"))
         assert remaining == [], f"gdpr-export-*.zip files still present after GDPR delete: {remaining}"
@@ -671,7 +671,7 @@ def test_delete_all_personal_data_erases_all_xz_sec_03_artifacts(tmp_path) -> No
         result = svc.delete_all_personal_data()
         assert result["success"] is True
         for name, path in artifacts.items():
-            assert not path.exists(), f"{name} survived GDPR delete — XZ-SEC-03 regression."
+            assert not path.exists(), f"{name} survived GDPR delete, XZ-SEC-03 regression."
     finally:
         mp.undo()
 
@@ -715,7 +715,7 @@ def test_delete_all_personal_data_erases_config_backup_classes_xe_10_4(tmp_path)
 
         for p in backup_paths:
             assert not p.exists(), (
-                f"XE-10-4 regression: {p.name} survived GDPR delete — "
+                f"XE-10-4 regression: {p.name} survived GDPR delete, "
                 f"plaintext API keys remain on disk (GDPR Art. 17 "
                 f"violation)."
             )
@@ -728,7 +728,7 @@ def test_delete_all_personal_data_erases_history_pre_migration_bak_xe_6_3(tmp_pa
     Art. 17 delete.
 
     Pre-XE-6-3, ``_GDPR_PERSONAL_GLOBS`` listed ``history.db.corrupt-*``
-    (XZ-SEC-03) but missed ``history.db.pre-migration-v*.bak`` — a
+    (XZ-SEC-03) but missed ``history.db.pre-migration-v*.bak``, a
     byte-for-byte copy of the full history DB made by
     ``HistoryDB._backup_before_migration`` before schema migration,
     containing all dictated text in plaintext. Surviving GDPR delete is
@@ -745,7 +745,7 @@ def test_delete_all_personal_data_erases_history_pre_migration_bak_xe_6_3(tmp_pa
         svc.delete_all_personal_data()
 
         assert not backup_path.exists(), (
-            f"XE-6-3 regression: {backup_path.name} survived GDPR delete — "
+            f"XE-6-3 regression: {backup_path.name} survived GDPR delete, "
             f"plaintext dictated text remains on disk (GDPR Art. 17 "
             f"violation)."
         )

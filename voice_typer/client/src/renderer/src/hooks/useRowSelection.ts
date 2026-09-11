@@ -5,12 +5,12 @@
 //
 // Owns:
 //   - `selectedIds` (Set of row ids) + toggle / select-many / clear
-//   - `bulkDeleteSelected` — instant removal + 6s Undo toast that
+//   - `bulkDeleteSelected`, instant removal + 6s Undo toast that
 //     restores every deleted row at its original position
 //
 // Kept generic over the row type (`getRowId` accessor) so each page
 // keeps its own data shape (Vocabulary uses `_id`, Templates uses `id`)
-// and its own message keys — the LOGIC is single-sourced here.
+// and its own message keys, the LOGIC is single-sourced here.
 //
 // Kept in a dedicated hook (rather than inside the page data hooks) so
 // the selection Set churn doesn't re-render unrelated consumers.
@@ -31,7 +31,7 @@ interface UseRowSelectionArgs<Row> {
 	) => void;
 	/** Extract the stable row id (Vocabulary `_id`, Templates `id`). */
 	getRowId: (row: Row) => string;
-	/** i18n message keys — the pages' copy differs per feature. */
+	/** i18n message keys, the pages' copy differs per feature. */
 	messages: {
 		bulkDeleteToast: string;
 		rowRestored: string;
@@ -45,7 +45,7 @@ interface UseRowSelectionResult<Row> {
 	selectedCount: number;
 	selectedRows: Row[];
 	toggleSelect: (id: string) => void;
-	/** Select (or clear) a specific set of ids — used by select-all. */
+	/** Select (or clear) a specific set of ids, used by select-all. */
 	setSelectMany: (ids: string[], selected: boolean) => void;
 	clearSelection: () => void;
 	bulkDeleteSelected: () => Promise<void>;
@@ -116,7 +116,7 @@ export function useRowSelection<Row>({
 				(e) => !selectedIds.has(getRowId(e)),
 			);
 			setRows(updated);
-			// Keep the selection consistent — the deleted ids are gone.
+			// Keep the selection consistent, the deleted ids are gone.
 			clearSelection();
 			await persist(updated);
 			showUndoableToast(
@@ -145,7 +145,7 @@ export function useRowSelection<Row>({
 			);
 		} catch {
 			// Restore the pre-delete list on failure (rowsRef still holds
-			// the original list — persist threw first).
+			// the original list, persist threw first).
 			setRows(rowsRef.current);
 			showSnack(t(messages.deleteFailed), "error");
 		}

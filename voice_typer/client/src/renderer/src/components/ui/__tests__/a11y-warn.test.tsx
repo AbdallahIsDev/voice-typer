@@ -2,7 +2,7 @@
  * Dev-mode a11y warning regression tests.
  *
  * The interactive primitives fire a dev-mode ``console.warn`` when an
- * accessible name is missing — the goal is to surface the gap during
+ * accessible name is missing, the goal is to surface the gap during
  * development without failing the production bundle. Each warn is
  * gated behind ``process.env.NODE_ENV !== "production"`` so the
  * production bundle is unaffected.
@@ -40,7 +40,7 @@ beforeEach(() => {
 	vi.resetModules();
 });
 
-describe("Button — dev-mode a11y warn", () => {
+describe("Button, dev-mode a11y warn", () => {
 	it("warns when there are no children and no aria-label (icon-only without name)", () => {
 		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 		render(<Button />);
@@ -73,7 +73,7 @@ describe("Button — dev-mode a11y warn", () => {
 	});
 });
 
-describe("Switch — dev-mode a11y warn", () => {
+describe("Switch, dev-mode a11y warn", () => {
 	it("warns when no aria-label / aria-labelledby is provided", () => {
 		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 		render(<Switch />);
@@ -99,7 +99,7 @@ describe("Switch — dev-mode a11y warn", () => {
 	});
 });
 
-describe("Slider — dev-mode a11y warn", () => {
+describe("Slider, dev-mode a11y warn", () => {
 	it("warns when no aria-label / aria-labelledby / thumbLabels is provided", () => {
 		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 		render(<Slider defaultValue={[50]} />);
@@ -181,7 +181,7 @@ describe("Slider — dev-mode a11y warn", () => {
 	});
 });
 
-describe("SelectTrigger — dev-mode a11y warn", () => {
+describe("SelectTrigger, dev-mode a11y warn", () => {
 	it("warns when no children / aria-label / aria-labelledby is provided", () => {
 		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 		render(
@@ -208,7 +208,7 @@ describe("SelectTrigger — dev-mode a11y warn", () => {
 	});
 });
 
-describe("SegmentedControl — dev-mode a11y warn", () => {
+describe("SegmentedControl, dev-mode a11y warn", () => {
 	it("warns when ariaLabel is missing", () => {
 		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 		render(
@@ -313,7 +313,7 @@ describe("SegmentedControl — dev-mode a11y warn", () => {
 		const names = new Set(Array.from(radios).map((r) => r.name));
 		// All radios in the same control share one name (so they toggle
 		// as a group), and that name is NOT the legacy collision-prone
-		// "segmented-control" literal — it's prefixed with "segmented-control-"
+		// "segmented-control" literal, it's prefixed with "segmented-control-"
 		// followed by the useId-derived base id.
 		expect(names.size).toBe(1);
 		const theName = names.values().next().value as string;

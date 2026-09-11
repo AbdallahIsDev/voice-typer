@@ -13,11 +13,11 @@ from __future__ import annotations
 
 from voice_typer.server.asr_utils import (
     NON_LATIN_RATIO_LIMIT,
-    compute_overlap_skip as _compute_overlap_skip_impl,  # noqa: F401 — re-exported alias (see note below)
-    is_cuda_error as _is_cuda_error_impl,  # noqa: F401 — re-exported alias (see note below)
-    is_latin_char as _is_latin_char,  # noqa: F401 — re-exported alias (see note below)
+    compute_overlap_skip as _compute_overlap_skip_impl,  # noqa: F401, re-exported alias (see note below)
+    is_cuda_error as _is_cuda_error_impl,  # noqa: F401, re-exported alias (see note below)
+    is_latin_char as _is_latin_char,  # noqa: F401, re-exported alias (see note below)
     is_likely_english as _is_likely_english_impl,
-    merge_chunks as _merge_chunks_impl,  # noqa: F401 — re-exported alias (see note below)
+    merge_chunks as _merge_chunks_impl,  # noqa: F401, re-exported alias (see note below)
 )
 
 # The asr_utils import above is unconditional, so the helpers are always
@@ -25,7 +25,7 @@ from voice_typer.server.asr_utils import (
 # aliases are unused WITHIN this module on purpose: sibling leaves
 # (``parakeet_engine/_transcribe.py``, the package facade
 # ``parakeet_engine/__init__.py``) and the test suite import them from
-# here — deleting them would break those import sites. The flag below is
+# here, deleting them would break those import sites. The flag below is
 # kept as a module constant because the package facade re-exports it; it
 # is ``True`` by construction now that the parallel-refactor fallback
 # machinery is gone.
@@ -63,13 +63,13 @@ _ASR_UTILS_HELPERS_AVAILABLE = True
 # whitespace short-circuit and its hallucination-rejection logging
 # verbatim.
 
-# U+0000–U+001F plus DEL (U+007F) — the only ASCII code points whose
+# U+0000–U+001F plus DEL (U+007F), the only ASCII code points whose
 # ``unicodedata`` classification is not Latin/punct/symbol/separator.
 _ASCII_NON_LATIN_TRANSLATION: dict[int, None] = {cp: None for cp in range(0x20)}
 _ASCII_NON_LATIN_TRANSLATION[0x7F] = None
 
 # The threshold the canonical implementation compares against
-# (``asr_utils.NON_LATIN_RATIO_LIMIT`` — imported above so the fast path
+# (``asr_utils.NON_LATIN_RATIO_LIMIT``: imported above so the fast path
 # always reads the same object the canonical check uses, even if the
 # constant's value ever changes).
 _LIKELY_ENGLISH_RATIO_LIMIT = NON_LATIN_RATIO_LIMIT
@@ -82,7 +82,7 @@ def _is_likely_english(text: str) -> bool:
     :func:`asr_utils.is_likely_english` (see the ASCII fast-path block
     above): pure-ASCII text below the non-Latin ratio limit returns
     ``True`` without the per-character ``unicodedata`` loop; everything
-    else — including every REJECT decision — goes through the canonical
+    else: including every REJECT decision, goes through the canonical
     implementation unchanged so its threshold boundary and PII-safe
     rejection logging are preserved exactly.
     """

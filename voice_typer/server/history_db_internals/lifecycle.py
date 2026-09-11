@@ -4,15 +4,15 @@ Extracted from the once-monolithic ``history_db.py`` so the public class
 stays a thin wiring surface. This module owns the stateful lifecycle
 stages that operate on the instance's own attributes:
 
-- :func:`initialize_state` — attribute setup performed by ``__init__``
+- :func:`initialize_state`: attribute setup performed by ``__init__``
   before the writer thread starts.
-- :func:`wait_for_writer_ready` — post-start handshake with the writer
+- :func:`wait_for_writer_ready`: post-start handshake with the writer
   thread (ready wait, init-error surfacing, live-instance registration,
   read-conn prune daemon start).
-- :func:`close_db` — full teardown orchestration used by ``close()``.
-- :func:`close_read_connections` — read-connection teardown shared by
+- :func:`close_db`: full teardown orchestration used by ``close()``.
+- :func:`close_read_connections`: read-connection teardown shared by
   the close paths.
-- :func:`health_check` — writer-thread health snapshot for diagnostics.
+- :func:`health_check`: writer-thread health snapshot for diagnostics.
 
 Module constants (``_WRITER_READY_TIMEOUT``) and the module-level
 ``_LIVE_INSTANCES`` WeakSet are read through the ``history_db`` facade
@@ -53,7 +53,7 @@ def initialize_state(db: HistoryDB) -> None:
     db._read_local = threading.local()
     # Track ALL read connections across threads so close() + __del__
     # can clean them up, preventing ResourceWarning on GC. Each
-    # entry is a ``(thread_ident, connection)`` tuple — the
+    # entry is a ``(thread_ident, connection)`` tuple, the
     # thread_ident lets ``_prune_dead_read_connections_locked``
     # detect when the owning thread has exited and close its
     # connection (releasing the ~20 MB SQLite page cache) instead
@@ -120,7 +120,7 @@ def initialize_state(db: HistoryDB) -> None:
     # per-instance counter of FTS5 'rebuild' failures after
     # ``apply_retention`` / ``clear_all`` bulk deletes. Incremented
     # each time the FTS5 ``'rebuild'`` command raises a
-    # ``sqlite3.Error`` — those failures leave deleted dictated
+    # ``sqlite3.Error``: those failures leave deleted dictated
     # text recoverable from ``transcriptions_fts_data`` (GDPR
     # Art. 17 violation), so the counter is surfaced in
     # diagnostics and paired with an ``event_bus`` event so the
@@ -129,7 +129,7 @@ def initialize_state(db: HistoryDB) -> None:
     # True when this session's startup FTS5 'rebuild' actually ran
     # (schema_meta flag NULL or '1'). A rebuild re-tokenizes from the
     # content table, so rows that were already encrypted at rest end
-    # up with CIPHERTEXT tokens in the index — ``_init_encryption``
+    # up with CIPHERTEXT tokens in the index, ``_init_encryption``
     # responds by queueing a decrypt-aware re-index (see
     # ``_reindex_encrypted_fts_step``) to restore the invariant
     # (FTS shadow tables stay plaintext-tokenized).
@@ -138,7 +138,7 @@ def initialize_state(db: HistoryDB) -> None:
     # lets the decrypt-aware FTS re-index resume across its bounded
     # batches without re-processing rows or holding their ids.
     db._fts_reindex_watermark = 0
-    # At-rest-encryption status — one of "active" / "disabled" /
+    # At-rest-encryption status, one of "active" / "disabled" /
     # "key-unavailable" (see :meth:`encryption_status`). Set by
     # ``_init_encryption`` on the writer thread after schema init;
     # "disabled" is the pre-resolution default so a HistoryDB whose
@@ -147,7 +147,7 @@ def initialize_state(db: HistoryDB) -> None:
     db._encryption_status = "disabled"
     # periodic prune daemon for ``_all_read_connections``.
     # Pre-fix, ``_prune_dead_read_connections_locked`` was REACTIVE
-    # — only fired when a NEW connection was created on a thread
+    # , only fired when a NEW connection was created on a thread
     # that didn't already have one. If N threads each created a
     # read connection, then died, and NO new thread created a
     # connection afterward, the N dead-thread connections (each
@@ -247,7 +247,7 @@ def close_db(db: HistoryDB) -> None:
 
     Body of :meth:`HistoryDB.close`. IMPL-A: sends the shutdown
     sentinel, waits (with timeout) for the writer to drain remaining
-    items and exit, then closes all read connections. Idempotent — safe
+    items and exit, then closes all read connections. Idempotent, safe
     to call multiple times. Also signals + joins the periodic retention
     thread (if scheduled) and the periodic read-conn prune daemon so
     close() fully quiesces the HistoryDB's daemon threads.
@@ -258,14 +258,14 @@ def close_db(db: HistoryDB) -> None:
     # would no-op on a shutdown DB but would still log noise).
     db._stop_periodic_retention()
     # Stop the periodic read-conn prune daemon before tearing down
-    # connections — otherwise the worker could walk _all_read_connections
+    # connections, otherwise the worker could walk _all_read_connections
     # mid-tear-down and trip over a half-closed connection. Also
     # clears the thread / event attributes so callers observing
     # ``_read_conn_prune_thread is None`` after ``close()`` see the
     # quiesced state.
     db._stop_read_conn_prune_thread()
     if db._shutdown.is_set():
-        # Already closed — just make sure read conns are gone.
+        # Already closed, just make sure read conns are gone.
         close_read_connections(db)
         return
     db._shutdown.set()
@@ -294,7 +294,7 @@ def health_check(db: HistoryDB) -> dict:
 
     The ``_writer_ready`` check is critical: ``__init__`` returns after
     at most ``_WRITER_READY_TIMEOUT`` even if the writer thread hasn't
-    finished schema init — surfacing "still initializing" lets callers
+    finished schema init, surfacing "still initializing" lets callers
     back off or show a "warming up" message instead of treating the DB
     as healthy.
     """

@@ -35,7 +35,7 @@ def windows_env(monkeypatch):
     function reads via ``os.environ.get("SYSTEMROOT", "")``.  On
     Windows env var names are case-insensitive (``SystemRoot`` and
     ``SYSTEMROOT`` are the same), but on the Linux CI runner they're
-    distinct — we must use the all-caps form to actually exercise the
+    distinct, we must use the all-caps form to actually exercise the
     validation code path.
     """
     from voice_typer.server import config
@@ -68,7 +68,7 @@ class TestSystemRootPathTraversalFailClosed:
         assert exc_info.value.code == 1
 
     def test_traversal_does_not_reset_env_var(self, windows_env):
-        """On fail-closed exit, SystemRoot is NOT silently reset — the
+        """On fail-closed exit, SystemRoot is NOT silently reset, the
         user must see the startup abort and investigate.  (Silently
         resetting would hide the attack.)"""
         from voice_typer.server.config import _validate_systemroot
@@ -166,7 +166,7 @@ class TestSystemRootMissingDirResetToDefault:
         )
         monkeypatch.setattr(config, "Path", fake_path)
 
-        # Should NOT raise SystemExit — the function returns normally
+        # Should NOT raise SystemExit, the function returns normally
         # after resetting SystemRoot to C:\Windows.
         config._validate_systemroot()
 
@@ -175,7 +175,7 @@ class TestSystemRootMissingDirResetToDefault:
 
     def test_missing_dir_does_not_exit(self, windows_env, monkeypatch):
         """Even if both the user-supplied path AND C:\\Windows are
-        missing, the function must NOT sys.exit — it just leaves
+        missing, the function must NOT sys.exit, it just leaves
         SystemRoot as-is and lets downstream Win32 APIs fail with
         their own diagnostics (usability fallback)."""
         from voice_typer.server import config
@@ -204,7 +204,7 @@ class TestSystemRootMissingNotepadContinues:
 
     def test_missing_notepad_does_not_exit(self, windows_env, monkeypatch):
         """If SystemRoot exists but notepad.exe is missing, the
-        function must NOT exit — just log a warning.  The caller is
+        function must NOT exit, just log a warning.  The caller is
         expected to use a hardcoded notepad fallback path."""
         from voice_typer.server import config
 
@@ -229,7 +229,7 @@ class TestSystemRootMissingNotepadContinues:
 class TestSystemRootNoopOnPosix:
     """``_validate_systemroot`` is a no-op on non-Windows platforms.
 
-    (Sanity check — the CR-19 fix preserves this behavior.)
+    (Sanity check, the CR-19 fix preserves this behavior.)
     """
 
     def test_noop_on_posix(self, monkeypatch):
@@ -279,7 +279,7 @@ class TestCfg10PathTraversalComponentCheck:
     The fix uses ``any(part == ".." for part in PureWindowsPath(systemroot).parts)``
     so only an actual ``..`` path component triggers the fail-closed
     exit.  ``PureWindowsPath`` (not ``Path``) is used so the parsing is
-    correct on the Linux CI runner — ``PosixPath`` would treat
+    correct on the Linux CI runner: ``PosixPath`` would treat
     backslashes as ordinary characters and never split a Windows path
     into components, masking the bug.
 
@@ -324,7 +324,7 @@ class TestCfg10PathTraversalComponentCheck:
 
     def test_substring_in_dir_name_does_not_exit(self, windows_env, monkeypatch):
         """``C:\\Win..dows`` contains ``..`` as a SUBSTRING but not as a
-        path component — must NOT trigger fail-closed.
+        path component, must NOT trigger fail-closed.
 
         Before CFG-10, this would have exited (false positive).  The
         fix uses ``PureWindowsPath(systemroot).parts`` and checks for
@@ -347,7 +347,7 @@ class TestCfg10PathTraversalComponentCheck:
         )
         monkeypatch.setattr(config, "Path", fake_path)
 
-        # Must NOT raise SystemExit — the path is unusual but legitimate.
+        # Must NOT raise SystemExit, the path is unusual but legitimate.
         config._validate_systemroot()
 
         # SystemRoot was NOT reset (the directory "exists", so the
@@ -355,7 +355,7 @@ class TestCfg10PathTraversalComponentCheck:
         assert os.environ.get("SYSTEMROOT") == user_root
 
     def test_substring_in_nested_dir_name_does_not_exit(self, windows_env, monkeypatch):
-        """``C:\\my..app\\System32`` — ``..`` appears in a directory
+        """``C:\\my..app\\System32``: ``..`` appears in a directory
         name but not as a path component.  Must NOT trigger fail-closed."""
         from voice_typer.server import config
 
@@ -374,7 +374,7 @@ class TestCfg10PathTraversalComponentCheck:
         assert os.environ.get("SYSTEMROOT") == user_root
 
     def test_substring_with_extension_does_not_exit(self, windows_env, monkeypatch):
-        """``C:\\Windows\\file..exe`` — ``..`` in a filename (not a path
+        """``C:\\Windows\\file..exe``: ``..`` in a filename (not a path
         component).  Must NOT trigger fail-closed."""
         from voice_typer.server import config
 
@@ -394,7 +394,7 @@ class TestCfg10PathTraversalComponentCheck:
 
     def test_unix_style_traversal_still_exits(self, windows_env):
         """A SystemRoot that uses Unix-style ``..`` segments (e.g.
-        ``/etc/../attacker``) — ``PureWindowsPath`` is lenient and
+        ``/etc/../attacker``): ``PureWindowsPath`` is lenient and
         treats ``/`` as a separator too, so this still triggers
         fail-closed.  (On Windows, ``\\`` is the canonical separator,
         but ``/`` is also accepted by NTFS and most Win32 APIs.)"""
@@ -416,11 +416,11 @@ class TestCfg10PathTraversalComponentCheck:
         """
         from pathlib import PureWindowsPath
 
-        # Real traversal — ``..`` is a path component.
+        # Real traversal: ``..`` is a path component.
         parts = PureWindowsPath(r"C:\Windows\..\attacker").parts
         assert ".." in parts, f"PureWindowsPath should split on backslash; got parts={parts!r}"
 
-        # False positive — ``..`` is inside a directory name, NOT a
+        # False positive: ``..`` is inside a directory name, NOT a
         # path component.
         parts = PureWindowsPath(r"C:\Win..dows").parts
         assert ".." not in parts, (

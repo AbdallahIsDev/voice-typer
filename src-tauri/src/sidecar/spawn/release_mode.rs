@@ -1,5 +1,5 @@
 //! Release-build sidecar spawn via Tauri's `externalBin` (ADR-0020
-//! §1 + §4.1) — extracted from the former single-file
+//! §1 + §4.1): extracted from the former single-file
 //! `sidecar/spawn.rs`.
 
 use crate::state::SidecarHandle;
@@ -31,20 +31,20 @@ use super::handshake_loop::{
 ///     into its own session with `setsid()`) that polls the host pid
 ///     once per second with `kill -0` and sends `kill -9` to the
 ///     sidecar pid once the host is gone (see
-///     `platform/process/posix.rs` — NOT `prctl(PR_SET_PDEATHSIG)`,
+///     `platform/process/posix.rs`: NOT `prctl(PR_SET_PDEATHSIG)`,
 ///     which can only be set inside the child after fork, and
 ///     Tauri's `externalBin` API exposes no pre-exec hook).
 ///   - Windows: assign the sidecar to a Job Object with
 ///     `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`.
 ///
 /// Best-effort: errors are logged but do NOT abort the spawn (the
-/// sidecar is already running — killing the host's spawn path wouldn't
+/// sidecar is already running: killing the host's spawn path wouldn't
 /// help). The dev-mode path is already covered by `kill_on_drop(true)`
 /// (see `spawn_sidecar_dev_mode`).
 ///
 /// The stdout-handshake read loop (shutting-down short-circuit,
 /// CommandEvent arms, kill/drain ordering, deadline) lives in
-/// `super::handshake_loop::read_handshake_from_command_events` — shared
+/// `super::handshake_loop::read_handshake_from_command_events`: shared
 /// with the worker release path. The labels below pin this path's exact
 /// log/error wording.
 pub(crate) async fn spawn_sidecar_release(
@@ -66,7 +66,7 @@ pub(crate) async fn spawn_sidecar_release(
     // skip the Python-side single-instance mutex + heartbeat watchdog.
     //
     // Prewarm binary removal (Phase 2a, plan-runtime-pack-split §6.2):
-    // the `prewarm exe env var is no longer set — the
+    // the `prewarm exe env var is no longer set, the
     // prewarm binary is deleted (Sub-agent 6) and the prewarm phase
     // moved INTO the worker exe (Option P-1). The Rust-side
     // `prewarm_resource_path` helper that resolved the prewarm exe
@@ -81,7 +81,7 @@ pub(crate) async fn spawn_sidecar_release(
     // Clear inherited host env BEFORE adding the
     // voice-typer-specific vars. Without this, the sidecar inherits
     // arbitrary host env vars (e.g. `HF_TOKEN`, `OPENAI_API_KEY`,
-    // `http_proxy`) — a leak surface for credentials + a configuration
+    // `http_proxy`): a leak surface for credentials + a configuration
     // surprise surface (the sidecar would see unrelated host exports).
     // The `passthrough_env_allowlist()` re-adds only the OS-required
     // vars the sidecar needs to function (PATH, HOME, locale, etc.).
@@ -115,7 +115,7 @@ pub(crate) async fn spawn_sidecar_release(
         )
         // Launch-timeline markers for the sidecar's startup log
         // (startup_timeline.py): host boot epoch (recorded once at
-        // host start) + THIS spawn's epoch — read at call time,
+        // host start) + THIS spawn's epoch, read at call time,
         // immediately before the spawn below, so the measured
         // "backend init" phase stays honest. Fresh on every respawn.
         .envs(crate::startup_timeline::sidecar_timeline_envs());
@@ -132,12 +132,12 @@ pub(crate) async fn spawn_sidecar_release(
     // Register a kill-on-parent-exit guarantee so the OS reaps the
     // orphan sidecar when the host dies. Best-effort: errors are
     // logged but do NOT abort the spawn (the sidecar is already
-    // running — killing the host's spawn path wouldn't help). The
+    // running: killing the host's spawn path wouldn't help). The
     // dev-mode path is already covered by `kill_on_drop(true)` (see
     // `spawn_sidecar_dev_mode`).
     //
     // NOTE: `child.pid()` returns `u32` directly (NOT `Option<u32>`)
-    // for the shell-plugin child — it always has a pid once spawned.
+    // for the shell-plugin child: it always has a pid once spawned.
     register_kill_on_parent_exit_best_effort(
         "[SIDECAR]",
         "sidecar will run but may be orphaned on host crash",
@@ -168,5 +168,18 @@ pub(crate) async fn spawn_sidecar_release(
     // `Option<CommandChild>` so the `Drop` impl in `state.rs` can
     // `take()` the child out of `&mut self` for a best-effort kill on
     // drop; at construction time the Option is always `Some(...)`.
+    //
+    // Before returning it, install the permanent child-event drain:
+    // the receiver handed to callers is the FORWARDED view (yields the
+    // Terminated exit event), while the drain task owns the real
+    // receiver and keeps it drained for the child's whole lifetime.
+    // Without this, the bounded backpressured event channel sits
+    // undrained between the handshake and the app-exit wait —
+    // post-handshake stderr beyond the OS pipe buffer blocks the
+    // child's writer threads (engine device dumps on model load are
+    // the classic producer), and the first event the exit wait sees is
+    // a stale Stderr line that force-kills instead of waiting for the
+    // cooperative exit.
+    let rx = super::event_drain::spawn_child_event_drain("[SIDECAR]", rx);
     Ok((port, SidecarHandle::ShellPlugin(Some(child)), rx))
 }

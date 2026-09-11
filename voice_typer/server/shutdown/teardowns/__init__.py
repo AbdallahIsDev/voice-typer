@@ -1,6 +1,6 @@
 """Per-subsystem teardown helpers extracted out of :class:`ShutdownController`.
 
-Phase 4.5 (OI-36) — each ``_teardown_*`` body on :class:`ShutdownController`
+Phase 4.5 (OI-36), each ``_teardown_*`` body on :class:`ShutdownController`
 was a self-contained block that accessed ``self._app`` (and, in two cases,
 shared synchronization state on the controller instance). Each body now
 lives in its own subsystem-named module as a free function taking the

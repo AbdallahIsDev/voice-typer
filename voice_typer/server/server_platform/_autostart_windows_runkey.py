@@ -6,15 +6,15 @@ Task Scheduler, Startup-folder .bat, HKCU Run key). This module owns the
 register / unregister / is-registered trio for the HKCU Run-key
 mechanism, mirroring the layout of :mod:`._autostart_windows_startup_bat`.
 
-AUTOSTART-ORDER-FIX: the Run key is the LAST resort — its value is a
+AUTOSTART-ORDER-FIX: the Run key is the LAST resort, its value is a
 raw command line that the Windows 11 StartupApp launcher can reject at
 logon (observed: Shell-Core 9707/9708 with PID 0 on every logon for a
-malformed value — see ``autostart_windows._validate_runkey_command``).
+malformed value: see ``autostart_windows._validate_runkey_command``).
 The enable order (Task Scheduler → Startup .bat → HKCU Run key) is owned
 by the facade orchestrators and is FIXED.
 
 The command written to the Run key comes from
-``autostart._autostart_command()`` — platform-gated quoting
+``autostart._autostart_command()``: platform-gated quoting
 (Windows → ``subprocess.list2cmdline``), NOT the freedesktop
 ``_desktop_quote`` path (that bug baked doubled backslashes into the
 value and broke logon autostart for a month).
@@ -25,9 +25,9 @@ module propagate:
 
   - ``_run_key_name`` / ``_validate_runkey_command`` /
     ``_cleanup_stale_runkey_entry`` are owned by the facade module
-    (``autostart_windows``) — read lazily (inside the function,
+    (``autostart_windows``), read lazily (inside the function,
     avoiding a circular import) as ``_aw.X``.
-  - ``_autostart_command`` is owned by :mod:`.autostart` — bound once at
+  - ``_autostart_command`` is owned by :mod:`.autostart`, bound once at
     module import time as ``_autostart_mod`` and read through its
     attribute at call time.
   - Names defined IN THIS MODULE are re-imported by the facade at module
@@ -78,7 +78,7 @@ def _register_app_autostart_runkey() -> bool:
         # Per-entry validity routes through the canonical
         # ``_aw._validate_runkey_command`` (same CONSERVATIVE-DELETE
         # policy as this loop, PLUS the C-CROSS-4 doubled-backslash
-        # raw-string check — BP-128: a freedesktop-quoting-mangled
+        # raw-string check. BP-128: a freedesktop-quoting-mangled
         # value passes ``Path.exists()`` (it collapses ``\\``) and
         # would otherwise survive the sweep forever).
         try:
@@ -147,7 +147,7 @@ def _is_app_autostart_runkey_registered() -> bool:
     AUTOSTART-CMD-VALIDATE: previously this function returned True if
     the registry value existed (existence-only check). If the venv was
     deleted after registration, the Run-key value would still exist
-    but its command would point at a nonexistent pythonw.exe — the
+    but its command would point at a nonexistent pythonw.exe, the
     Run key would fire at login, fail silently, and the Settings toggle
     would show "autostart enabled" while the app never started. We now
     parse the stored command line, extract the exe path, and verify it
@@ -175,11 +175,11 @@ def _is_app_autostart_runkey_registered() -> bool:
                 return False
             # AUTOSTART-CMD-VALIDATE: verify the command's exe path
             # exists on disk. If the path is dead (venv deleted), the
-            # Run-key entry is stale — clean it up and return False.
+            # Run-key entry is stale, clean it up and return False.
             if not _aw._validate_runkey_command(val):
                 log.warning(
                     "[AUTOSTART] Run-key entry %s exists but its command "
-                    "path is stale (target file does not exist): %s — "
+                    "path is stale (target file does not exist): %s, "
                     "cleaning up stale entry",
                     reg_key_name,
                     val,

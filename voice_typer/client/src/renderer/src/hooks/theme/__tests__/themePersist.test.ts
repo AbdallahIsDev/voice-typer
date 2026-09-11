@@ -1,5 +1,5 @@
 /**
- * Tests for hooks/theme/themePersist — the persistence concern
+ * Tests for hooks/theme/themePersist, the persistence concern
  * extracted from useTheme.ts (the debounced backend write path, the
  * quit-time flush, and the localStorage cache sync).
  *
@@ -37,7 +37,7 @@ afterEach(() => {
 	vi.useRealTimers();
 });
 
-describe("themePersist — scheduleThemeSave (debounced write path)", () => {
+describe("themePersist, scheduleThemeSave (debounced write path)", () => {
 	it("does NOT call set_config before the 300ms debounce elapses", async () => {
 		setActiveBridge(callMock, vi.fn());
 		scheduleThemeSave({ theme_mode: "dark" });
@@ -65,7 +65,7 @@ describe("themePersist — scheduleThemeSave (debounced write path)", () => {
 	it("reads the bridge at FIRE time, not schedule time", async () => {
 		// Schedule BEFORE any bridge is registered…
 		scheduleThemeSave({ theme_mode: "dark" });
-		// …then register the bridge — the pending save must still fire.
+		// …then register the bridge, the pending save must still fire.
 		setActiveBridge(callMock, vi.fn());
 		await vi.advanceTimersByTimeAsync(300);
 		expect(callMock).toHaveBeenCalledWith("set_config", {
@@ -97,7 +97,7 @@ describe("themePersist — scheduleThemeSave (debounced write path)", () => {
 	});
 });
 
-describe("themePersist — flushPendingThemeSave", () => {
+describe("themePersist, flushPendingThemeSave", () => {
 	it("fires the pending save synchronously and cancels the debounce", async () => {
 		setActiveBridge(callMock, vi.fn());
 		scheduleThemeSave({ theme_mode: "dark" });
@@ -111,7 +111,7 @@ describe("themePersist — flushPendingThemeSave", () => {
 			text_size: 16,
 		});
 
-		// The debounce timer was cancelled — advancing time must
+		// The debounce timer was cancelled, advancing time must
 		// NOT produce a second write.
 		await vi.advanceTimersByTimeAsync(500);
 		expect(callMock).toHaveBeenCalledOnce();
@@ -153,7 +153,7 @@ describe("themePersist — flushPendingThemeSave", () => {
 	});
 });
 
-describe("themePersist — resetThemePersistState", () => {
+describe("themePersist, resetThemePersistState", () => {
 	it("drops the pending payload so flush after reset is a no-op", () => {
 		setActiveBridge(callMock, vi.fn());
 		scheduleThemeSave({ theme_mode: "dark" });
@@ -163,7 +163,7 @@ describe("themePersist — resetThemePersistState", () => {
 	});
 });
 
-describe("themePersist — syncThemeCacheToLocalStorage", () => {
+describe("themePersist, syncThemeCacheToLocalStorage", () => {
 	it("writes all four cache keys", () => {
 		syncThemeCacheToLocalStorage(
 			"dark",
@@ -186,7 +186,7 @@ describe("themePersist — syncThemeCacheToLocalStorage", () => {
 
 	it("warns (and keeps going) when localStorage is unavailable", () => {
 		const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-		// Swap the localStorage global for a throwing stub — the
+		// Swap the localStorage global for a throwing stub, the
 		// test-setup fallback storage is a plain object, so spying
 		// on Storage.prototype would not intercept it.
 		const lsDesc = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
@@ -220,7 +220,7 @@ describe("themePersist — syncThemeCacheToLocalStorage", () => {
 	});
 });
 
-describe("themePersist — beforeunload flush listener", () => {
+describe("themePersist, beforeunload flush listener", () => {
 	it("install/remove add and remove the same listener", () => {
 		const addSpy = vi.spyOn(window, "addEventListener");
 		const removeSpy = vi.spyOn(window, "removeEventListener");

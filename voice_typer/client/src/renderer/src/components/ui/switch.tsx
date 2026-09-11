@@ -25,7 +25,7 @@ function Switch({
 			data-slot="switch"
 			data-size={size}
 			// PERF: enumerated `transition` property list instead of
-			// `transition-all` — the Switch root only transitions colors
+			// `transition-all`, the Switch root only transitions colors
 			// (checked/unchecked border + background), box-shadow (focus /
 			// invalid ring), and opacity (disabled). The thumb owns the
 			// transform animation via its own `transition-transform`.

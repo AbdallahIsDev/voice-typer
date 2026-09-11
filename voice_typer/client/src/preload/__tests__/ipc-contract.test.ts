@@ -13,7 +13,7 @@
  * as `*Channels` const objects (WindowChannels, PythonChannels,
  * ExportChannels, I18nChannels, ModelChannels, RendererChannels,
  * BubbleChannels). The preload imports these constants and references
- * them by name — so a bare string-literal regex no longer finds them.
+ * them by name, so a bare string-literal regex no longer finds them.
  *
  * This file pins the contract in two directions:
  *   1. Every channel constant in `channels.ts` is referenced by at
@@ -43,7 +43,7 @@ import {
 } from "../../main/ipc/channels";
 
 /**
- * Canonical channel-name table — built from the imported `*Channels`
+ * Canonical channel-name table, built from the imported `*Channels`
  * const objects so it can never drift from `channels.ts`. A new channel
  * MUST be added to the appropriate `*Channels` object in
  * `src/main/ipc/channels.ts`; it is then automatically picked up here.
@@ -68,7 +68,7 @@ const CANONICAL_CHANNELS: ReadonlySet<string> = new Set<string>([
 function extractChannels(src: string): string[] {
 	const channels = new Set<string>();
 
-	// Pattern 1 (canonical): `*Channels.<field>` — e.g.
+	// Pattern 1 (canonical): `*Channels.<field>`, e.g.
 	//   `ipcRenderer.invoke(PythonChannels.call, msg)` → "python-call"
 	//   `ipc.send(BubbleChannels.level, ...)`          → "bubble:level"
 	const constRe = /\b([A-Z][A-Za-z0-9_]*)Channels\.([a-zA-Z_][a-zA-Z0-9_]*)\b/g;
@@ -157,7 +157,7 @@ describe("XS-78: preload ↔ main IPC channel-name contract", () => {
 		const channels = extractChannels(bubbleSrc);
 		expect(channels).toContain(BubbleChannels.localeChanged);
 		// The listener must be part of the RESTRICTED (bubble-window)
-		// API surface, not the main-renderer subset — the main window
+		// API surface, not the main-renderer subset, the main window
 		// never receives the push.
 		expect(bubbleSrc).toContain("onLocaleChanged");
 		const indexSrc = fs.readFileSync(preloadIndexPath, "utf-8");

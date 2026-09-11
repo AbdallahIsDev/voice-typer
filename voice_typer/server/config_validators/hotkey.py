@@ -5,11 +5,11 @@ split).  Provides:
 
 * the canonical reserved-shortcut table (loaded once from
   ``voice_typer/server/hotkey_reserved.json``),
-* :func:`_platform_key` — current-platform key for the table lookup,
-* :func:`_parse_hotkey_parts` — delegates to
+* :func:`_platform_key`: current-platform key for the table lookup,
+* :func:`_parse_hotkey_parts`: delegates to
   :mod:`voice_typer.server.hotkey_spec` for canonical parsing,
 * the 9 ``_check_*`` stage helpers that make up :func:`_validate_hotkey`,
-* :func:`_validate_hotkey` — the per-field validator used by
+* :func:`_validate_hotkey`: the per-field validator used by
   ``IPC_CONFIG_ALLOWLIST``.
 
 The 9 stage helpers are extracted into small functions so the
@@ -131,7 +131,7 @@ def _parse_hotkey_parts(hotkey: str) -> list[str]:
 
         These changes are safe for the validator's consumers, which only
         use ``len(parts)``, ``parts[0]``, ``any(p in ... for p in parts)``,
-        and ``[p for p in parts if p (not) in _HOTKEY_MODIFIERS]`` — all
+        and ``[p for p in parts if p (not) in _HOTKEY_MODIFIERS]``, all
         of which are insensitive to ordering, dedup, and alias resolution
         (every canonical modifier name is in ``_HOTKEY_MODIFIERS``).
     """
@@ -162,7 +162,7 @@ def _check_universal_reserved(normalized: str) -> str | None:
     with typing, form submission, and messaging shortcuts.
     """
     if normalized in _UNIVERSAL_RESERVED_HOTKEYS:
-        return "reserved — conflicts with operating system or common app shortcuts"
+        return "reserved, conflicts with operating system or common app shortcuts"
     return None
 
 
@@ -176,7 +176,7 @@ def _check_platform_reserved(normalized: str, platform: str) -> str | None:
     against the Linux reserved list (which uses ``<super>+<key>``)
     silently lets ``<win>+<l>`` through even though ``<super>+<l>`` is
     reserved (lock screen). Normalize ``<win>`` to ``<super>`` on Linux
-    ONLY — Windows keeps its blanket Win+block (stage 5) and macOS
+    ONLY, Windows keeps its blanket Win+block (stage 5) and macOS
     doesn't use either name (its system modifier is ``cmd``).
     """
     reserved = _RESERVED_HOTKEYS.get(platform, set())
@@ -195,13 +195,13 @@ def _check_single_alphanumeric(parts: list[str]) -> str | None:
     """Stage 4: reject a standalone single letter/digit (HOTKEY-VALIDATION-002).
 
     A standalone <a> would trigger dictation every time the user types
-    'a'. Multi-key combos (Alt+Q, Ctrl+V) are NOT affected — they have
+    'a'. Multi-key combos (Alt+Q, Ctrl+V) are NOT affected, they have
     2+ parts and are checked by the later stages.
     """
     if len(parts) == 1:
         sole = parts[0]
         if len(sole) == 1 and sole.isalnum():
-            return f"single letters and digits can't be used as hotkeys — '{sole}' would interfere with typing"
+            return f"single letters and digits can't be used as hotkeys, '{sole}' would interfere with typing"
     return None
 
 
@@ -225,7 +225,7 @@ def _check_multi_non_modifier(parts: list[str]) -> str | None:
     on modifier RELEASE via ``_run_modifier_only_polling_loop`` (see
     ``voice_typer/server/hotkeys/windows_native.py`` and
     ``hotkeys/factory.py``), and the frontend ``validateHotkey``
-    (``hotkey-validation.ts`` rule 5) accepts them — "pure-modifier
+    (``hotkey-validation.ts`` rule 5) accepts them, "pure-modifier
     combos ... are valid modifier-only release triggers in the native
     backends". Rejecting them here (as this stage did pre-fix) made the
     backend the odd one out: the renderer committed a modifier-only
@@ -286,7 +286,7 @@ def _check_alt_shift(parts: list[str], platform: str) -> str | None:
 def _check_ctrl_letter(parts: list[str]) -> str | None:
     """Stage 8: Ctrl+<common-letter> block (Copy/Paste/Undo/Save/etc.).
 
-    Only applies to PURE Ctrl+<letter> — if another modifier is present
+    Only applies to PURE Ctrl+<letter>, if another modifier is present
     (e.g. Ctrl+Alt+U), the combo is allowed because it doesn't conflict
     with the common app shortcuts.
     """
@@ -304,7 +304,7 @@ def _check_ctrl_letter(parts: list[str]) -> str | None:
 def _check_shift_letter(parts: list[str]) -> str | None:
     """Stage 9: Shift+<letter> block (interferes with capitalization).
 
-    Only applies to PURE Shift+<letter> — if another modifier is present,
+    Only applies to PURE Shift+<letter>, if another modifier is present,
     the combo is allowed (e.g. Ctrl+Shift+Z = redo in many apps).
     """
     has_shift = any(p.startswith("shift") for p in parts)
@@ -337,7 +337,7 @@ def _validate_hotkey(value: object) -> str | None:
     if (err := _check_basic_shape(value)) is not None:
         return err
     # `_check_basic_shape` already rejected non-strings above, but pyrefly
-    # can't see through the helper's borrow — narrow explicitly so the
+    # can't see through the helper's borrow, narrow explicitly so the
     # `_parse_hotkey_parts(value)` / `value.strip()` calls below type-check.
     if not isinstance(value, str):
         return f"must be a string, got {type(value).__name__}"

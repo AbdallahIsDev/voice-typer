@@ -5,7 +5,7 @@ worker-lifecycle guard helpers (``reap_stale_worker_refs`` /
 ``wait_for_workers_stopped``) to detect live worker threads by name.
 
 The fixture deliberately keeps it as a literal (see its module
-docstring — importing the server constants there would drag in the
+docstring, importing the server constants there would drag in the
 heavy recording package for every test that only needs the guard).
 This parity test pins the literal against the REAL source of truth in
 ``voice_typer.server.recording.recorder`` so a rename in the server
@@ -14,7 +14,7 @@ code can never silently drift the guard.
 The two spawn-site names (``stream-finished-handler`` in
 ``disconnect_handler.py``, ``device-disconnect-handler`` in
 ``audio_pipeline.py``) are plain string literals at their spawn sites
-— they have no constants to import — so they are pinned here
+— they have no constants to import, so they are pinned here
 alongside the two constant-backed names.
 """
 

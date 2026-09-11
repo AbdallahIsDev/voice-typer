@@ -144,18 +144,18 @@ class TestAudioWindowEqualityUsesLayeredFastPaths:
         """
 
         a = self._make_window()
-        # Compare to an unrelated type — Python falls back to identity.
+        # Compare to an unrelated type, Python falls back to identity.
         result = a.__eq__("not a window")
         assert result is NotImplemented
 
-        # Compare to None — Python uses identity (False).
+        # Compare to None, Python uses identity (False).
         assert (a == None) is False  # noqa: E711
 
     def test_hash_is_on_scalar_fields_only(self):
         """``__hash__`` must be computed from scalar fields only —
         the audio array is unhashable and must not be part of the hash.
         Verified by hashing two windows with the same scalars but
-        different audio buffers — they must produce the same hash.
+        different audio buffers, they must produce the same hash.
         """
         from voice_typer.server.streaming import AudioWindow
 

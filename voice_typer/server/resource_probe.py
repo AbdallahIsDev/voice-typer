@@ -2,7 +2,7 @@
 
 Extracted from ``voice_typer/server/dictation_pipeline.py:_check_resources``
 (the 185-LOC self-contained probe that the original docstring flagged as a
-DEFERRED refactor — the monolith-split phase has now done the extraction).
+DEFERRED refactor, the monolith-split phase has now done the extraction).
 
 This module is a SIBLING HELPER, NOT a pipeline stage: the probe runs
 BEFORE the stage pipeline starts (it is a pre-flight diagnostic that
@@ -10,18 +10,18 @@ provides context if a heap-corruption crash occurs during model
 inference). It belongs in this dedicated module rather than in
 ``dictation_stages.py`` because it is not a stage.
 
-It has NO dependencies on ``DictationPipeline`` instance state — only
+It has NO dependencies on ``DictationPipeline`` instance state, only
 stdlib imports (``os``, ``pathlib``, ``shutil``, ``ctypes``), optional
 third-party probes (``psutil``, ``onnxruntime``, ``pynvml``), and the
 module-level ``log`` logger. The ``DictationPipeline._check_resources`` method is
 preserved as a 1-line delegator for test compatibility (tests call
-``pipeline._check_resources()`` directly) — see
+``pipeline._check_resources()`` directly), see
 ``dictation_pipeline.py``.
 
 AGENTS.md C-DATA-1: this module performs NO network calls. It only
 reads local system state via ``psutil.virtual_memory`` /
 ``shutil.disk_usage`` / ``os.statvfs`` / ``ctypes.windll.kernel32.GlobalMemoryStatusEx``
-/ ``onnxruntime.get_device()`` / ``nvidia-smi`` subprocess / ``pynvml`` — all
+/ ``onnxruntime.get_device()`` / ``nvidia-smi`` subprocess / ``pynvml``, all
 in-process local probes (no sockets, no HTTP, no DNS).
 
 Exit code 0xC0000374 (STATUS_HEAP_CORRUPTION) during transcription is
@@ -44,7 +44,7 @@ import pathlib
 import subprocess
 import time
 
-# default throttle interval — once per 60s. The values change slowly
+# default throttle interval, once per 60s. The values change slowly
 # and are only needed for post-crash triage, not per-utterance decisions.
 # Previously the probe ran every utterance (~2-5ms of system/driver calls).
 DEFAULT_CHECK_INTERVAL: float = 60.0
@@ -80,7 +80,7 @@ def _probe_gpu_memory_via_pynvml() -> tuple[float | None, float | None]:
     Returns ``(total_mb, free_mb)``. Returns ``(None, None)`` when
     ``pynvml`` is not installed, no NVIDIA driver is present, or any
     error occurs (the caller falls through to the ``nvidia-smi``
-    subprocess path). All errors are caught — this helper is a
+    subprocess path). All errors are caught: this helper is a
     best-effort probe, not a hard dependency.
     """
     try:
@@ -107,7 +107,7 @@ def _probe_gpu_memory_via_nvidia_smi() -> tuple[float | None, float | None]:
     Tries ``pynvml`` first (in-process, more efficient). Falls back to
     spawning ``nvidia-smi`` subprocess (no Python deps, but ~10-30ms
     overhead per call). Returns ``(None, None)`` when neither path
-    succeeds — the caller (``check_resources``) then queries ORT's
+    succeeds, the caller (``check_resources``) then queries ORT's
     device string so the log line at least records whether ORT sees a
     CUDA device.
 
@@ -155,23 +155,23 @@ def _probe_gpu_memory_via_nvidia_smi() -> tuple[float | None, float | None]:
 def check_resources(*, logger: logging.Logger | None = None) -> None:
     """Pre-flight RAM / disk / GPU resource probe.
 
-    Checks available RAM, disk space, and GPU memory (if CUDA) and logs
-    warnings when resources are critically low.  The check is best-effort
-    — failures are logged at DEBUG level and do NOT abort the pipeline
-    (the user may still succeed even with low resources).
+     Checks available RAM, disk space, and GPU memory (if CUDA) and logs
+     warnings when resources are critically low.  The check is best-effort
+    , failures are logged at DEBUG level and do NOT abort the pipeline
+     (the user may still succeed even with low resources).
 
-    Exit code 0xC0000374 (STATUS_HEAP_CORRUPTION) during transcription is
-    often caused by low memory (RAM) or insufficient disk space (affecting
-    pagefile/swap).  These logs help diagnose the root cause when paired
-    with a crash.
+     Exit code 0xC0000374 (STATUS_HEAP_CORRUPTION) during transcription is
+     often caused by low memory (RAM) or insufficient disk space (affecting
+     pagefile/swap).  These logs help diagnose the root cause when paired
+     with a crash.
 
-    Args:
-        logger: optional logger to emit records under. Defaults to this
-            module's logger (``voice_typer.server.resource_probe``). The
-            ``DictationPipeline._check_resources`` delegator passes its
-            own logger (``voice_typer.server.dictation_pipeline``) so log
-            records continue to appear under the historical logger name
-            (preserving the behavior pinned by existing tests).
+     Args:
+         logger: optional logger to emit records under. Defaults to this
+             module's logger (``voice_typer.server.resource_probe``). The
+             ``DictationPipeline._check_resources`` delegator passes its
+             own logger (``voice_typer.server.dictation_pipeline``) so log
+             records continue to appear under the historical logger name
+             (preserving the behavior pinned by existing tests).
     """
     _log = logger if logger is not None else log
 
@@ -206,7 +206,7 @@ def check_resources(*, logger: logging.Logger | None = None) -> None:
                 free_mb = stat.ullAvailPhys / (1024 * 1024)
         except Exception:
             #  previously a bare ``except
-            # Exception: pass`` — the docstring at the top of
+            # Exception: pass``: the docstring at the top of
             # ``check_resources`` promises "failures are logged at
             # DEBUG level", but this branch silently swallowed the
             # ctypes fallback failure (e.g. ``GlobalMemoryStatusEx``
@@ -226,7 +226,7 @@ def check_resources(*, logger: logging.Logger | None = None) -> None:
         )
         if free_mb < 1024:
             _log.warning(
-                "[RESOURCE] Low RAM (%.0f MB < 1024 MB) — "
+                "[RESOURCE] Low RAM (%.0f MB < 1024 MB), "
                 "heap corruption (0xC0000374) is possible during "
                 "model inference.  Close other apps or try a "
                 "smaller transcription model.",
@@ -234,7 +234,7 @@ def check_resources(*, logger: logging.Logger | None = None) -> None:
             )
         elif free_mb < 2048:
             _log.info(
-                "[RESOURCE] RAM is moderate (%.0f MB) — large models may struggle.",
+                "[RESOURCE] RAM is moderate (%.0f MB), large models may struggle.",
                 free_mb,
             )
     else:
@@ -284,7 +284,7 @@ def check_resources(*, logger: logging.Logger | None = None) -> None:
                 if free_gb < 1.0:
                     _log.warning(
                         "[RESOURCE] Critically low disk space on %s "
-                        "(%.1f GB < 1 GB) — heap corruption is possible "
+                        "(%.1f GB < 1 GB), heap corruption is possible "
                         "if the system pagefile cannot grow.  Free up "
                         "disk space or move the model cache to a "
                         "drive with more free space.",
@@ -302,7 +302,7 @@ def check_resources(*, logger: logging.Logger | None = None) -> None:
             )
             if free_gb < 1.0:
                 _log.warning(
-                    "[RESOURCE] Critically low disk space (%.1f GB) — heap corruption risk for pagefile.",
+                    "[RESOURCE] Critically low disk space (%.1f GB), heap corruption risk for pagefile.",
                     free_gb,
                 )
 
@@ -310,7 +310,7 @@ def check_resources(*, logger: logging.Logger | None = None) -> None:
     # Phase 1c (PLAN_ONNX_INTEGRATION.md §6.4): replaced the 13-line
     # ``torch.cuda.memory_*`` block with ``onnxruntime.get_device()``
     # (CUDA-availability check) + ``nvidia-smi`` subprocess (memory
-    # query). ``pynvml`` is used if available — it is more efficient
+    # query). ``pynvml`` is used if available, it is more efficient
     # than spawning ``nvidia-smi`` per check, but the wheel is not in
     # the project's hard deps so the subprocess is the safe fallback.
     # The block is wrapped in the same ``try/except Exception`` pattern
@@ -327,7 +327,7 @@ def check_resources(*, logger: logging.Logger | None = None) -> None:
             )
             if gpu_free_mb < 512:
                 _log.warning(
-                    "[RESOURCE] Low GPU memory (%.0f MB free) — CUDA out-of-memory errors are likely.",
+                    "[RESOURCE] Low GPU memory (%.0f MB free). CUDA out-of-memory errors are likely.",
                     gpu_free_mb,
                 )
         else:
@@ -366,7 +366,7 @@ def check_resources_throttled(
     triage, not per-utterance decisions.
 
     The throttle state (last-check timestamp) is NOT held as module-level
-    mutable state — instead it is passed in by the caller and the new
+    mutable state, instead it is passed in by the caller and the new
     timestamp is returned. This keeps the function pure with respect to
     its throttle inputs and lets the caller (``DictationPipeline``)
     persist the state on its instance (preserving the existing

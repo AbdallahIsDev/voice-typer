@@ -2,14 +2,14 @@
 
 Drives the real ``_handle_tcp_connection`` method with mock sockets so
 the auth handshake, error envelopes, and dispatch loop are exercised
-behaviorally — not via structural source inspection or stubbed
+behaviorally, not via structural source inspection or stubbed
 ``_dispatch`` calls. Previously the "correct token" and "wrong token"
 tests were ghosts that never invoked the real auth code path; this
 rewrite sends real auth frames through the real handler and asserts on
 the wire-format responses the server writes back to the conn.
 
 Classes:
-- TestTcpIpcAuthHandshake — per-launch session token auth for the TCP IPC server
+- TestTcpIpcAuthHandshake, per-launch session token auth for the TCP IPC server
 
 Split out from the original monolithic tests/test_server.py (DT-37, Phase 4.5).
 """
@@ -41,7 +41,7 @@ class _FakeSocket:
     dispatch lines exactly as it would from a real socket. Captures
     every ``sendall()`` call so the test can inspect the error
     envelopes / dispatch responses the server writes back. No-ops
-    ``settimeout`` / ``setsockopt`` / ``shutdown`` — the production
+    ``settimeout`` / ``setsockopt`` / ``shutdown``, the production
     handler wraps each in ``contextlib.suppress(OSError,
     AttributeError)`` so a real socket isn't required for the auth
     code paths.
@@ -94,7 +94,7 @@ class _TimeoutFakeSocket(_FakeSocket):
     """Variant whose ``makefile()`` reader raises ``socket.timeout``.
 
     Simulates the auth-read timeout firing without actually sleeping
-    5 seconds — the handler's ``except Exception:`` clause catches
+    5 seconds, the handler's ``except Exception:`` clause catches
     the ``socket.timeout`` (subclass of ``OSError`` → ``Exception``)
     and tears down the connection.
     """
@@ -170,7 +170,7 @@ class TestTcpIpcAuthHandshake:
         server._handle_tcp_connection(conn, addr, expected_token="")
         # Connection was closed without any auth or dispatch.
         conn.close.assert_called_once()
-        # No read/write activity — the conn was closed before any
+        # No read/write activity, the conn was closed before any
         # auth readline could happen.
         conn.recv.assert_not_called()
 
@@ -182,7 +182,7 @@ class TestTcpIpcAuthHandshake:
         processed, and the response is written back to the conn.
 
         Also verifies ``hmac.compare_digest`` is used by sending the
-        token with extra whitespace — a byte-exact comparison (which
+        token with extra whitespace, a byte-exact comparison (which
         ``compare_digest`` is) MUST reject the whitespace-padded value,
         proving the comparison is not a substring / ``in`` match.
         """
@@ -228,7 +228,7 @@ class TestTcpIpcAuthHandshake:
         )
 
         # (c) ``hmac.compare_digest`` is byte-exact and
-        # order-independent — verify behaviorally by sending the token
+        # order-independent, verify behaviorally by sending the token
         # with extra whitespace, which MUST NOT match. A naive
         # ``token in expected_token`` or substring match would have
         # spuriously accepted the padded value; ``compare_digest``
@@ -274,7 +274,7 @@ class TestTcpIpcAuthHandshake:
         assert data["code"] == "auth_failed", f"expected code='auth_failed', got {data.get('code')!r}"
         assert "message" in data and data["message"], "auth_failed envelope must include a human-readable message"
         # The wrong token value must NOT be echoed back in the envelope
-        # (defense in depth — the envelope uses a static message).
+        # (defense in depth, the envelope uses a static message).
         assert wrong not in sent, f"wrong token value leaked into the auth_failed envelope: {sent!r}"
         assert expected not in sent, f"expected token value leaked into the auth_failed envelope: {sent!r}"
 
@@ -282,7 +282,7 @@ class TestTcpIpcAuthHandshake:
         # written. The post_auth line was never read because the
         # handler returned after the auth-failure teardown.
         assert '"id":99' not in sent.replace(" ", ""), (
-            f"dispatch must not run after auth failure — found id=99 in: {sent!r}"
+            f"dispatch must not run after auth failure, found id=99 in: {sent!r}"
         )
 
     def test_protocol_version_mismatch_returns_error(self, server):
@@ -291,7 +291,7 @@ class TestTcpIpcAuthHandshake:
         ``server.protocol_version_mismatch`` error envelope carrying
         both the client and server version numbers.
 
-        Note: the token in this frame is CORRECT — the test verifies
+        Note: the token in this frame is CORRECT, the test verifies
         the version check runs FIRST and rejects before the token
         check would have accepted.
         """
@@ -352,7 +352,7 @@ class TestTcpIpcAuthHandshake:
         # Connection was closed (the timeout exception was caught and
         # the handler ran its teardown).
         assert fake.closed, "timeout should drop the connection (handler must close the conn)"
-        # No auth_failed envelope was written — timeout is NOT an auth
+        # No auth_failed envelope was written, timeout is NOT an auth
         # rejection, so the server should not emit one (a client that
         # sees auth_failed might conclude the token was wrong and
         # retry with a different one, which is the wrong behavior for
@@ -364,13 +364,13 @@ class TestTcpIpcAuthHandshake:
     def test_non_dict_msg_does_not_crash_dispatcher(self, server):
         """A non-dict JSON value (e.g. ``[1, 2, 3]``) dispatched AFTER
         auth must NOT crash the dispatcher with an unhandled
-        ``AttributeError`` — ``_tcp_dispatch_and_respond`` catches it
+        ``AttributeError``: ``_tcp_dispatch_and_respond`` catches it
         and surfaces a structured error envelope so the client can
         distinguish a malformed payload from a transport-level drop.
         """
         token = "non-dict-test-token"
         auth_line = json.dumps({"type": "auth", "token": token}) + "\n"
-        # A JSON array is not a dict — ``_dispatch``'s ``msg.get("type")``
+        # A JSON array is not a dict: ``_dispatch``'s ``msg.get("type")``
         # raises ``AttributeError``, which ``_tcp_dispatch_and_respond``
         # catches and surfaces as a structured ``server.internal_error``
         # envelope.
@@ -404,7 +404,7 @@ class TestTcpIpcAuthHandshake:
 
     def test_auth_failure_log_does_not_contain_token(self, server, caplog):
         """SEC-018: when auth fails, the rejected token value MUST NOT
-        appear in any log record — the warning log line uses a static
+        appear in any log record, the warning log line uses a static
         message ("invalid token") rather than echoing the supplied
         value, so a misconfigured client's logs (or a malicious
         observer of stderr) cannot harvest the secret by reading the
@@ -426,7 +426,7 @@ class TestTcpIpcAuthHandshake:
         assert json.loads(sent.strip().splitlines()[-1])["data"]["code"] == "auth_failed"
 
         # The rejected token value MUST NOT appear in any log record.
-        # Also check the expected (server-side) token — neither side
+        # Also check the expected (server-side) token, neither side
         # of the comparison should leak into logs.
         for record in caplog.records:
             msg = record.getMessage()

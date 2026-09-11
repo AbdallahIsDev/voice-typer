@@ -13,11 +13,11 @@ VACUUM, and drops readers to -2000 (2 MB). Reads are indexed lookups
 
 These tests pin the new behavior:
 
-- ``test_reader_connection_uses_2mb_cache`` — read conn has cache_size
+- ``test_reader_connection_uses_2mb_cache``, read conn has cache_size
   in the [-3000, -1000] range (i.e. ~2 MB; SQLite stores the *negative*
   value as a kibibyte budget).
-- ``test_writer_connection_uses_20mb_cache`` — write conn keeps -20000.
-- ``test_reader_cache_size_lower_than_writer`` — sanity: reader < writer.
+- ``test_writer_connection_uses_20mb_cache``, write conn keeps -20000.
+- ``test_reader_cache_size_lower_than_writer``, sanity: reader < writer.
 """
 
 from __future__ import annotations
@@ -50,7 +50,7 @@ class TestAb27ReaderCacheSize:
         """``_get_read_conn`` must set ``cache_size=-2000`` (2 MB).
 
         SQLite returns the negative value back from ``PRAGMA cache_size``
-        as the kibibyte budget — so we expect -2000 ± a small tolerance
+        as the kibibyte budget, so we expect -2000 ± a small tolerance
         (SQLite may round internally).
         """
         conn = db._get_read_conn()
@@ -127,20 +127,20 @@ class TestAb27ReaderCacheSize:
             db.add_transcription(f"dictation number {i}")
         db.flush()
 
-        # Indexed SELECT — uses idx_timestamp under the hood.
+        # Indexed SELECT, uses idx_timestamp under the hood.
         recent = db.get_recent(limit=10)
         assert len(recent) == 10, f"AB-27: get_recent should return 10 rows. Got {len(recent)}."
 
-        # Aggregating scan — get_today_stats runs SUM(char_count) etc.
+        # Aggregating scan, get_today_stats runs SUM(char_count) etc.
         stats = db.get_today_stats()
         assert stats["count"] == 50, f"AB-27: get_today_stats count should be 50. Got {stats['count']}."
         assert stats["chars"] > 0, "AB-27: get_today_stats chars should be > 0."
         assert stats["word_count"] > 0, "AB-27: get_today_stats word_count should be > 0."
 
-        # FTS5 search — uses the transcriptions_fts virtual table.
+        # FTS5 search, uses the transcriptions_fts virtual table.
         results = db.search("dictation", limit=50)
         assert len(results) == 50, f"AB-27: search should return 50 rows. Got {len(results)}."
 
-        # get_history_count — COUNT(*).
+        # get_history_count, COUNT(*).
         count = db.get_history_count()
         assert count == 50, f"AB-27: get_history_count should be 50. Got {count}."

@@ -1,22 +1,22 @@
 /**
- * SoundManager — centralized audio cue system for VoiceTyper.
+ * SoundManager, centralized audio cue system for VoiceTyper.
  *
  * The previous implementation in Home.tsx had four bugs:
  *
  *  1. ``_audioContextInitAttempted = true`` was set BEFORE the constructor
  *     ran, so if the AudioContext construction threw (e.g. on a locked-down
- *     browser/Electron config), the manager NEVER retried — every
+ *     browser/Electron config), the manager NEVER retried, every
  *     subsequent ``playSoundCue`` was a silent no-op.
  *
  *  2. AudioContext starts in "suspended" state until a user gesture
  *     resumes it (autoplay policy). ``initAudioContext`` called
  *     ``resume()`` on mount, but if no user gesture had happened yet
  *     the resume() promise rejected silently, and ``playSoundCue``
- *     swallowed the rejection — the cue never played.
+ *     swallowed the rejection, the cue never played.
  *
  *  3. ``playSoundCue`` checked ``ctx.state === "suspended"`` and called
  *     ``resume().then(doPlay).catch(() => {})``. If resume() rejected,
- *     ``doPlay`` was never called — the cue was lost. There was no
+ *     ``doPlay`` was never called, the cue was lost. There was no
  *     fallback path.
  *
  *  4. The localStorage ``vt_sound_feedback_enabled`` flag was ONLY
@@ -44,7 +44,7 @@
  *    toggle AND the initial config load (App.tsx), so the localStorage
  *    flag is always in sync with the actual config value.
  *
- * The module is a singleton — there's only one AudioContext per page
+ * The module is a singleton, there's only one AudioContext per page
  * (browsers throttle extra contexts). The Home component's
  * ``initAudioContext`` re-exports are kept for backward compat with
  * existing tests but delegate to this manager.
@@ -60,7 +60,7 @@ let _sharedAudioContext: AudioContext | null = null;
 let _initAttempted = false; // True ONLY after successful construction
 let _initSucceeded = false;
 let _enabled: boolean = true; // Mirror of config.sound_feedback_enabled
-// Mirror of config.sound_volume — a multiplier applied on top of each
+// Mirror of config.sound_volume, a multiplier applied on top of each
 // cue's baked-in gain (1.0 = unchanged, 0.0 = silent). Kept in memory
 // only (like _enabled's in-process default); Settings syncs it on every
 // change and on config load, so a stale module default never persists
@@ -70,7 +70,7 @@ let _gestureListenerInstalled = false;
 //store the gesture-resume handler so _resetSoundManagerForTests
 // can detach it (previously the handler was a closure-local variable
 // inside installGestureListener and the test reset only flipped the
-// boolean flag — leaving the actual DOM listeners attached across
+// boolean flag, leaving the actual DOM listeners attached across
 // tests, which leaked into subsequent test cases and produced
 // cross-test flakiness when a subsequent test's synthetic click
 // triggered the leaked handler).
@@ -134,7 +134,7 @@ export function getSoundVolume(): number {
  * Used by playSoundCue to avoid an IPC round-trip on every cue.
  *
  * Also exported publicly so ``useSoundFeedback`` can gate
- * ``initAudioContext()`` on the enabled flag — previously the hook
+ * ``initAudioContext()`` on the enabled flag, previously the hook
  * unconditionally constructed the AudioContext on App mount, which
  * left an alive AudioContext in "running" state even when the user
  * had ``sound_feedback_enabled=false`` in config.
@@ -161,7 +161,7 @@ function isEnabled(): boolean {
 }
 
 // The visual-feedback flag (deaf-accessibility mirror) lives in
-// ./accessibility-manager.ts — a settings concern, not a sound one.
+// ./accessibility-manager.ts, a settings concern, not a sound one.
 
 // ──────────────────────────────────────────────────────────────────────────
 // AudioContext lifecycle
@@ -170,7 +170,7 @@ function isEnabled(): boolean {
 /**
  * Eagerly construct the shared AudioContext and attempt to resume it.
  *
- * Safe to call multiple times — subsequent calls are no-ops after a
+ * Safe to call multiple times, subsequent calls are no-ops after a
  * successful init. A failed construction is retried on the next call
  * (fixes bug #1).
  *
@@ -202,7 +202,7 @@ export function initAudioContext(): boolean {
 		}
 		_initAttempted = true;
 		_initSucceeded = true;
-		// If suspended (autoplay policy), optimistically resume — the
+		// If suspended (autoplay policy), optimistically resume, the
 		// gesture listener below will retry on the first user interaction.
 		if (_sharedAudioContext.state === "suspended") {
 			_sharedAudioContext.resume().catch((err: unknown) => {
@@ -218,7 +218,7 @@ export function initAudioContext(): boolean {
 		installGestureListener();
 		return true;
 	} catch (err) {
-		// Construction threw — do NOT set _initSucceeded so the next
+		// Construction threw, do NOT set _initSucceeded so the next
 		// call retries. Set _initAttempted to throttle logs.
 		//log the construction failure so silent audio
 		// failures are visible at debug level.
@@ -256,7 +256,7 @@ function installGestureListener(): void {
 			ctx.resume().catch((err: unknown) => {
 				//log the gesture-resume rejection at debug
 				// so the operator can see why the AudioContext stayed suspended.
-				// Still suspended — leave the listener installed for a
+				// Still suspended, leave the listener installed for a
 				// subsequent gesture to retry.
 				console.debug(
 					"[renderer:sound-manager] gesture-listener resume() rejected:",
@@ -265,7 +265,7 @@ function installGestureListener(): void {
 			});
 		}
 		if (ctx.state === "running") {
-			// Success — remove the listeners to avoid ongoing overhead.
+			// Success, remove the listeners to avoid ongoing overhead.
 			_detachGestureListeners();
 		}
 	};
@@ -408,7 +408,7 @@ const CUE_SPECS: Record<SoundCueKind, CueSpec> = {
 			},
 		],
 	},
-	// "error": low 200Hz square buzz, 250ms — a fast attack and a quick
+	// "error": low 200Hz square buzz, 250ms, a fast attack and a quick
 	// decay so it reads as an "alert" rather than a sustained tone. The
 	// square waveform gives the harsh "buzz" character that distinguishes
 	// an error cue from the normal start/stop tones.
@@ -432,7 +432,7 @@ const CUE_SPECS: Record<SoundCueKind, CueSpec> = {
 			},
 		],
 	},
-	// "complete": two-note rising chime (A5 → D6, 880Hz → 1175Hz) — a
+	// "complete": two-note rising chime (A5 → D6, 880Hz → 1175Hz), a
 	// major-third interval that reads as a positive "done!" cadence
 	// (transcription finalized and ready to paste). Triangle wave for a
 	// softer, less mechanical timbre than the square-wave error buzz.
@@ -494,7 +494,7 @@ function playViaAudioContext(kind: SoundCueKind): boolean {
 		const now = ctx.currentTime;
 		const osc = ctx.createOscillator();
 		const gain = ctx.createGain();
-		// Master volume multiplier node — sits between the cue's own
+		// Master volume multiplier node, sits between the cue's own
 		// gain and the destination so the configured sound_volume scales
 		// the baked-in cue level without rewriting the automation table
 		// (the table's decay targets must stay >0 for exponentialRamp).
@@ -502,7 +502,7 @@ function playViaAudioContext(kind: SoundCueKind): boolean {
 		master.gain.value = _volume;
 
 		osc.type = spec.oscillatorType;
-		// Apply the cue's automation schedule in table order — the steps
+		// Apply the cue's automation schedule in table order, the steps
 		// preserve the exact call sequence (values and absolute times) of
 		// the pre-table implementation, so the scheduled audio is identical.
 		for (const step of spec.steps) {
@@ -533,7 +533,7 @@ function playViaAudioContext(kind: SoundCueKind): boolean {
 		return true;
 	}
 	if (ctx.state === "suspended") {
-		// Try to resume — if it succeeds, play. If it rejects, fall
+		// Try to resume, if it succeeds, play. If it rejects, fall
 		// through to the HTMLAudioElement fallback in playSoundCue.
 		ctx
 			.resume()
@@ -541,14 +541,14 @@ function playViaAudioContext(kind: SoundCueKind): boolean {
 				try {
 					doPlay();
 				} catch (e) {
-					// Synthesis failed — no fallback here; the caller's
+					// Synthesis failed, no fallback here; the caller's
 					// catch will handle it.
 					console.warn("[renderer:sound-manager] synthesis doPlay failed:", e);
 				}
 			})
 			.catch((err: unknown) => {
 				//log the resume rejection at debug so silent
-				// audio failures are visible. Resume rejected — caller's
+				// audio failures are visible. Resume rejected, caller's
 				// playSoundCue will fall back to HTMLAudioElement. (We
 				// can't call the fallback here because playSoundCue checks
 				// enabled first; we'd risk playing when disabled.)
@@ -573,7 +573,7 @@ function playViaAudioContext(kind: SoundCueKind): boolean {
  * element), .play() will succeed. This is a more reliable fallback
  * than AudioContext when the context is suspended.
  *
- * The cues are short WAVs (encoded as data URLs) — distinct rising and
+ * The cues are short WAVs (encoded as data URLs), distinct rising and
  * falling sine sweeps so the user can audibly tell "started" from
  * "stopped" even when the Web Audio API path fails.
  *
@@ -617,23 +617,23 @@ function playViaHtmlAudio(kind: SoundCueKind): boolean {
 	try {
 		//"error" kind reuses STOP_BEEP_WAV (the falling
 		// pitch reads as an "alert" cadence) rather than minting a
-		// third base64 WAV asset — the AudioContext square-wave path
+		// third base64 WAV asset, the AudioContext square-wave path
 		// above is the primary error cue; this is only the fallback
 		// for environments where Web Audio is unavailable.
 		//"complete" kind reuses START_BEEP_WAV (rising
-		// pitch) as a positive-sounding fallback — the AudioContext
+		// pitch) as a positive-sounding fallback, the AudioContext
 		// two-note chime above is the primary complete cue.
 		if (kind === "start" || kind === "complete") {
 			audio.src = START_BEEP_WAV;
 		} else {
 			audio.src = STOP_BEEP_WAV;
 		}
-		// The fallback beeps are rendered at 0.15 peak amplitude — scale
+		// The fallback beeps are rendered at 0.15 peak amplitude, scale
 		// that baked-in level by the configured volume multiplier.
 		audio.volume = Math.min(1, Math.max(0, 0.15 * _volume));
 		audio.currentTime = 0;
 		// .play() returns a Promise; if it rejects (autoplay blocked),
-		// there's nothing more we can do — return false so the caller
+		// there's nothing more we can do, return false so the caller
 		// knows the cue didn't play.
 		const p = audio.play();
 		if (p && typeof p.then === "function") {
@@ -671,7 +671,7 @@ function playViaHtmlAudio(kind: SoundCueKind): boolean {
  * back to HTMLAudioElement if the AudioContext is unavailable,
  * suspended, or rejects.
  *
- * Safe to call from any context (renderer, tests, SSR) — silently
+ * Safe to call from any context (renderer, tests, SSR), silently
  * no-ops if audio is unavailable or disabled.
  */
 export function playSoundCue(kind: SoundCueKind): void {
@@ -679,7 +679,7 @@ export function playSoundCue(kind: SoundCueKind): void {
 
 	// Ensure the AudioContext is initialized so the gesture listener
 	// is installed (this is what fixes the "no sound on first record"
-	// bug — the gesture listener will resume the context on the next
+	// bug, the gesture listener will resume the context on the next
 	// click/keydown, which is often the hotkey press itself).
 	initAudioContext();
 
@@ -700,7 +700,7 @@ export function playSoundCue(kind: SoundCueKind): void {
  *
  * Also detaches the gesture-resume listeners (previously
  * ``closeAudioContext`` only closed the AudioContext but left the
- * gesture listeners attached — they would re-resume a future context
+ * gesture listeners attached, they would re-resume a future context
  * if ``initAudioContext`` was called again, which is undesired when
  * the user explicitly disabled sound feedback).
  */
@@ -717,7 +717,7 @@ export function closeAudioContext(): void {
 }
 
 /**
- * Reset all state — used by tests to ensure isolation between cases.
+ * Reset all state, used by tests to ensure isolation between cases.
  *
  * Now also detaches gesture listeners explicitly (previously
  * only the boolean flag was reset, leaving the actual DOM listeners

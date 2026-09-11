@@ -7,19 +7,19 @@ return ~2.4GB of VRAM to the OS, but it did NOT call
 :py:func:`voice_typer.server.vad.unload`. The Silero VAD model (~2MB)
 plus the transitive ``torch`` module reference (~150-300MB of native
 memory + CUDA caching allocator blocks) stayed pinned for the
-lifetime of the process — defeating the point of the idle-unload.
+lifetime of the process, defeating the point of the idle-unload.
 
 Fix: extend ``_do_idle_unload`` to also call ``vad.unload()`` after
 the ``release_gpu_memory()`` block. The existing lazy-load fallback
 in :py:func:`voice_typer.server.vad.compute_vad_prob` (which calls
 ``_load_model`` on every chunk) handles re-loading on the next
-dictation — no new config field needed (reuses
+dictation, no new config field needed (reuses
 ``model_idle_unload_minutes``).
 
 These tests mock the heavy torch / silero dependencies (mirroring
 ``tests/test_model_idle_unload.py``) so they run headless on the
 Linux sandbox. The actual native-memory release can ONLY be verified
-on a real host with ``torch`` + the Silero model loaded — see
+on a real host with ``torch`` + the Silero model loaded: see
 VALIDATE ON HOST in the fix report.
 
 Required test coverage (per the SU-FIX-7 task description):
@@ -28,7 +28,7 @@ Required test coverage (per the SU-FIX-7 task description):
      ``release_gpu_memory()``.
   2. ``vad.unload()`` is called when ``_do_idle_unload`` fires.
   3. ``vad.unload()`` failure (mock raises) does NOT crash
-     ``_do_idle_unload`` (non-fatal — logged at DEBUG).
+     ``_do_idle_unload`` (non-fatal, logged at DEBUG).
   4. ``vad.preload()`` is called again on the next ``toggle_dictation``
      (lazy re-load via the first-chunk VAD path).
 """
@@ -107,7 +107,7 @@ class TestIdleUnloadReleasesVad:
         drops the Silero model + its torch reference).
 
         We assert the order by recording call timestamps via a side
-        effect that appends to a shared list — the resulting list
+        effect that appends to a shared list, the resulting list
         preserves the call order."""
         mm, app, engine, _ = _make_mm_with_mock_backend()
 
@@ -176,7 +176,7 @@ class TestIdleUnloadReleasesVad:
 
     def test_vad_unload_skipped_when_engine_already_unloaded(self):
         """If ``is_loaded`` is already False when the timer fires, the
-        unload must be skipped entirely (no double-unload) — including
+        unload must be skipped entirely (no double-unload), including
         ``vad.unload()``."""
         mm, app, engine, _ = _make_mm_with_mock_backend(is_loaded=False)
         with patch("voice_typer.server.vad.unload") as mock_vad_unload:
@@ -197,7 +197,7 @@ class TestIdleUnloadReleasesVad:
 class TestVadUnloadFailureNonFatal:
     """SU-13: if ``vad.unload()`` raises, ``_do_idle_unload`` must NOT
     crash. The failure is logged at DEBUG and the subsequent tray
-    state transition (AppState.IDLE "Idle — model unloaded") must
+    state transition (AppState.IDLE "Idle, model unloaded") must
     still run."""
 
     def test_vad_unload_raising_does_not_crash_idle_unload(self):
@@ -215,7 +215,7 @@ class TestVadUnloadFailureNonFatal:
             # Must NOT raise.
             mm._do_idle_unload()
 
-        # The tray state transition must still have run — proving
+        # The tray state transition must still have run, proving
         # _do_idle_unload didn't crash before reaching it.
         from voice_typer.server.tray_types import AppState
 
@@ -228,7 +228,7 @@ class TestVadUnloadFailureNonFatal:
 
     def test_vad_unload_raising_still_logs_at_debug(self, caplog):
         """If ``vad.unload()`` raises, the failure must be logged at
-        DEBUG level (not WARNING/ERROR — VAD unload is best-effort
+        DEBUG level (not WARNING/ERROR, VAD unload is best-effort
         cleanup, not a user-facing issue)."""
         import logging as _logging
 
@@ -252,7 +252,7 @@ class TestVadUnloadFailureNonFatal:
 
     def test_vad_unload_raising_does_not_skip_tray_transition(self):
         """Even if ``vad.unload()`` raises, the tray state message
-        must include the 'Idle — model unloaded' text (the user sees
+        must include the 'Idle, model unloaded' text (the user sees
         the transition regardless of VAD unload outcome)."""
         mm, app, engine, _ = _make_mm_with_mock_backend()
         with (
@@ -267,9 +267,9 @@ class TestVadUnloadFailureNonFatal:
         msgs = [
             (c.args[1] if len(c.args) > 1 else c.kwargs.get("message", "")) for c in app.tray.set_state.call_args_list
         ]
-        assert any("Idle — model unloaded" in (m or "") for m in msgs), (
+        assert any("Idle, model unloaded" in (m or "") for m in msgs), (
             "SU-13: tray.set_state must still be called with the "
-            "'Idle — model unloaded' message even if vad.unload() "
+            "'Idle, model unloaded' message even if vad.unload() "
             f"raised. Got msgs: {msgs}"
         )
 
@@ -286,7 +286,7 @@ class TestVadPreloadOnNextDictation:
     reaching :py:func:`voice_typer.server.vad.compute_vad_prob`,
     which calls :py:func:`voice_typer.server.vad._load_model` on
     every call. The explicit :py:func:`voice_typer.server.vad.preload`
-    API is the eager-load equivalent — these tests use ``preload`` as
+    API is the eager-load equivalent, these tests use ``preload`` as
     the observable entry point so the assertion is independent of the
     recorder's audio-thread internals (which would require a full
     audio-capture fixture to exercise)."""
@@ -297,7 +297,7 @@ class TestVadPreloadOnNextDictation:
         calling ``vad.preload()`` (the eager-load API that
         ``app.py:814`` calls at startup and that the first-chunk VAD
         path's lazy-load is equivalent to). The mock records the
-        call — proving the unload/reload cycle is symmetric."""
+        call, proving the unload/reload cycle is symmetric."""
         mm, app, engine, _ = _make_mm_with_mock_backend()
 
         with (
@@ -308,7 +308,7 @@ class TestVadPreloadOnNextDictation:
             # Idle-unload fires (e.g. after model_idle_unload_minutes).
             mm._do_idle_unload()
             mock_vad_unload.assert_called_once()
-            # Preload has not yet been called — the model is unloaded.
+            # Preload has not yet been called, the model is unloaded.
             mock_vad_preload.assert_not_called()
 
             # Next toggle_dictation: the user presses the hotkey →
@@ -316,7 +316,7 @@ class TestVadPreloadOnNextDictation:
             # ASR backend, and the recorder's first-chunk VAD path
             # (via ``compute_vad_prob → _load_model``) re-loads VAD.
             # ``vad.preload`` is the eager equivalent of that lazy
-            # load — calling it here simulates the next-dictation
+            # load, calling it here simulates the next-dictation
             # re-load. (In production, ``app.py:814`` calls this in a
             # background thread at startup; the lazy-load fallback in
             # ``compute_vad_prob`` is the per-chunk equivalent.)
@@ -366,7 +366,7 @@ class TestVadPreloadOnNextDictation:
             )
 
     def test_idle_unload_does_not_call_vad_preload(self):
-        """``_do_idle_unload`` must ONLY call ``vad.unload()`` — it
+        """``_do_idle_unload`` must ONLY call ``vad.unload()``, it
         must NOT eagerly call ``vad.preload()`` (that would defeat
         the point of the idle-unload: the model would be unloaded
         and immediately re-loaded). The preload is deferred to the
@@ -382,7 +382,7 @@ class TestVadPreloadOnNextDictation:
                 mock_vad_preload.assert_not_called(),
                 (
                     "SU-13: _do_idle_unload must NOT call vad.preload() "
-                    "(the preload is deferred to the next dictation — "
+                    "(the preload is deferred to the next dictation, "
                     "calling it here would defeat the idle-unload)."
                 ),
             )
@@ -390,7 +390,7 @@ class TestVadPreloadOnNextDictation:
     def test_ensure_active_engine_loaded_after_idle_unload_does_not_crash(self):
         """After ``_do_idle_unload`` has run (VAD is unloaded), the
         ``toggle_dictation`` path (``ensure_active_engine_loaded``)
-        must still succeed — it reloads the ASR backend, and the
+        must still succeed, it reloads the ASR backend, and the
         recorder's first-chunk VAD path re-loads VAD lazily. This
         test guards against the idle-unload leaving the ModelManager
         in a state where the next toggle_dictation crashes."""
@@ -406,7 +406,7 @@ class TestVadPreloadOnNextDictation:
         ):
             # Idle-unload runs.
             mm._do_idle_unload()
-            # Next toggle_dictation — must not raise.
+            # Next toggle_dictation, must not raise.
             mm.ensure_active_engine_loaded()
 
         # The ASR backend reload was attempted.

@@ -9,8 +9,8 @@ Verifies that ``voice_typer.server.level_monitor``:
    ``_monitor_active=False`` and publishes a ``device_lost`` IPC event
    via ``event_bus.publish``.
 3. The level worker's zero-fill detector (N consecutive zero-filled
-   chunks) publishes the same ``device_lost`` event — independent of
-   the finished_callback path — when the recorder-style threshold is
+   chunks) publishes the same ``device_lost`` event, independent of
+   the finished_callback path, when the recorder-style threshold is
    reached.
 4. Both paths are idempotent within a single disconnect episode
    (``_device_lost_emitted`` flag).
@@ -152,7 +152,7 @@ class TestFinishedCallbackWiring:
 
     Without this parameter, PortAudio's device-lost signal is silently
     swallowed and ``_monitor_active`` stays True forever after a USB/BT
-    unplug — the level bar freezes at the last reported value.
+    unplug, the level bar freezes at the last reported value.
     """
 
     def test_input_stream_receives_finished_callback(self, monkeypatch):
@@ -215,7 +215,7 @@ class TestDeviceLostEventEmitted:
         holder["finished_callback"]()
 
         # event_bus.publish is called synchronously from
-        # _level_stream_finished — captured should contain the event
+        # _level_stream_finished, captured should contain the event
         # by the time the callback returns.
         device_lost_events = [e for e in captured if e.get("type") == "device_lost"]
         assert len(device_lost_events) == 1, (
@@ -330,7 +330,7 @@ class TestIdempotency:
 
         device_lost_events = [e for e in captured if e.get("type") == "device_lost"]
         assert len(device_lost_events) == 1, (
-            f"TY-4: finished_callback must be idempotent — _device_lost_emitted "
+            f"TY-4: finished_callback must be idempotent, _device_lost_emitted "
             f"guards re-entry; got {len(device_lost_events)} events"
         )
 

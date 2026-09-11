@@ -1,16 +1,16 @@
-// useTrayFallbackToast — surfaces the ``tray_fallback_notification``
+// useTrayFallbackToast, surfaces the ``tray_fallback_notification``
 // push event (the tray-unavailable degraded-mode banner).
 //
 // When the native system-tray icon cannot be created (headless build,
 // Linux without a systray compositor, VOICE_TYPER_NO_TRAY, …) the
 // backend queues tray notifications and periodically drains the queue
-// with this event — the in-app banner is the ONLY remaining user-visible
+// with this event, the in-app banner is the ONLY remaining user-visible
 // signal that tray features are degraded and that queued notifications
 // went to the log instead of the screen. Before this hook the frames
 // passed the host's event gate but landed on NO subscriber.
 //
 // PAYLOAD: the emitter nests ``title``/``message`` under ``data`` (the
-// canonical envelope — root-level fields are stripped by the
+// canonical envelope, root-level fields are stripped by the
 // event-protocol layer, which is why an earlier Electron-era root-level
 // shape delivered an empty payload). Both fields stay optional so the
 // banner still renders the generic degraded-mode copy if a future
@@ -22,12 +22,10 @@
 // module) so Vite HMR of this hook file does not reset it mid-session.
 
 import { usePythonEvent } from "@/hooks/usePython";
+import type { TranslateFn } from "@/i18n/translate-types";
 import { useDegradationToastStore } from "@/stores/degradationToastStore";
 import { capToastDescription } from "./capToastDescription";
 import { SNACKBAR_DEFAULT_DURATION_MS, useSnackbar } from "./useSnackbar";
-
-/** Minimal `t` function type matching i18n.t's signature. */
-type TFn = (key: string, params?: Record<string, string>) => string;
 
 /** Sonner id (single replaceable surface). */
 const TRAY_FALLBACK_TOAST_ID = "tray-fallback-notification";
@@ -43,7 +41,7 @@ const TRAY_FALLBACK_TOAST_COOLDOWN_MS = 60_000;
  *
  * @param t i18n translate function (from useT).
  */
-export function useTrayFallbackToast(t: TFn): void {
+export function useTrayFallbackToast(t: TranslateFn): void {
 	const { showSnack } = useSnackbar();
 
 	usePythonEvent("tray_fallback_notification", (data) => {

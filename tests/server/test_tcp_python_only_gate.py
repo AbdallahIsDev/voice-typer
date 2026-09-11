@@ -4,14 +4,14 @@
 The command registry marks these commands as Python/host-only
 (``voice_typer/server/ipc/registry.py``): they are intentionally absent
 from the TS ``ALLOWED_COMMANDS`` allowlist, but the dispatcher registry
-still maps them — so a COMPROMISED renderer that bypasses its own
+still maps them, so a COMPROMISED renderer that bypasses its own
 allowlist could send ``shutdown`` (backend DoS) or ``tray_click``
 (spoofed tray actions) over TCP and they would be executed.
 
 The fix enforces the boundary at the transport:
 ``_handle_tcp_connection`` rejects both commands with a structured
 ``server.unknown_command`` envelope and never reaches ``_dispatch``.
-The WS (Tauri host) path is deliberately NOT gated — the Rust host
+The WS (Tauri host) path is deliberately NOT gated, the Rust host
 legitimately sends both (ADR-0020 §6.5 / §16 / §10).
 
 These tests drive the real ``_handle_tcp_connection`` with mock sockets
@@ -57,7 +57,7 @@ class _FakeSocket:
         self.timeouts.append(t)
 
     def setsockopt(self, *args, **kwargs):
-        # No-op for IPPROTO_TCP / TCP_NODELAY — the handler wraps the
+        # No-op for IPPROTO_TCP / TCP_NODELAY, the handler wraps the
         # call in suppress(OSError, AttributeError) anyway.
         pass
 
@@ -92,7 +92,7 @@ def pyonly_server(server, monkeypatch):
 
     The recording wrapper delegates to the real dispatcher (so
     ``get_status`` still works against the fixture's mock app) while
-    recording every message that reaches it — proving a rejected
+    recording every message that reaches it, proving a rejected
     python-only command never reaches ``_dispatch``.
     """
     server._tcp_dispatch_pool = _make_dispatch_pool()
@@ -129,7 +129,7 @@ class TestTcpPythonOnlyGate:
         # The connection survived the rejection (only EOF closed it).
         assert fake.closed, "handler should close the conn on EOF"
 
-        # A structured error envelope was written back — NOT a result.
+        # A structured error envelope was written back. NOT a result.
         errors = [e for e in _envelopes(fake) if e.get("type") == "error"]
         assert errors, f"{cmd} must be rejected with an error envelope; got {fake.sent_text()!r}"
         assert errors[-1]["data"]["code"] == ErrorCodes.UNKNOWN_COMMAND, (

@@ -99,7 +99,7 @@ if ($hookFired) {
 } else {
     # CI-06: require the hook to fire. CI desktop sessions normally DO
     # forward synthetic input via SendInput, so a missing KEY_DOWN means
-    # the WH_KEYBOARD_LL callback is broken — a real regression we must
+    # the WH_KEYBOARD_LL callback is broken, a real regression we must
     # not let pass. If a specific runner genuinely cannot forward synthetic
     # input, set VOICE_TYPER_ALLOW_SKIP_HOOK_FIRE=1 to downgrade to a
     # warning (READY alone still proves the hook installed).

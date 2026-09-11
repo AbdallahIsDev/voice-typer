@@ -1,12 +1,12 @@
 """IPC dispatch tests for lifecycle / control commands.
 
 Classes:
-- TestDispatchToggleDictation       — toggle_dictation dispatcher
-- TestDispatchRestartApp            — restart_app dispatcher
-- TestDispatchQuitApp               — quit_app dispatcher
-- TestDispatchUnknownCommand        — unknown command handling
-- TestDispatchNoId                  — commands without an id field
-- TestDispatchNonDictDataRobustness — TEST-039 non-dict data handling
+- TestDispatchToggleDictation     , toggle_dictation dispatcher
+- TestDispatchRestartApp          , restart_app dispatcher
+- TestDispatchQuitApp             , quit_app dispatcher
+- TestDispatchUnknownCommand      , unknown command handling
+- TestDispatchNoId                , commands without an id field
+- TestDispatchNonDictDataRobustness, TEST-039 non-dict data handling
 
 Split out from the original monolithic tests/test_server.py (DT-37, Phase 4.5).
 """

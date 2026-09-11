@@ -1,4 +1,4 @@
-// useMicPermissionRevokedToast — surfaces the mid-recording
+// useMicPermissionRevokedToast, surfaces the mid-recording
 // ``microphone_permission_revoked`` push event.
 //
 // The OS can revoke microphone permission WHILE a dictation is running
@@ -11,7 +11,7 @@
 // the stream).
 //
 // The label reuses the already-localized bubble-mode key
-// ``bubble.permissionRevokedLabel`` ("Mic permission revoked" — present
+// ``bubble.permissionRevokedLabel`` ("Mic permission revoked", present
 // in every locale): the bubble's permission-revoked mode and this toast
 // describe the SAME backend state, so a second copy of the string would
 // drift (E7). The native OS toast (via the backend's tray
@@ -24,11 +24,9 @@
 // this hook file does not reset it mid-session.
 
 import { usePythonEvent } from "@/hooks/usePython";
+import type { TranslateFn } from "@/i18n/translate-types";
 import { useDegradationToastStore } from "@/stores/degradationToastStore";
 import { SNACKBAR_DEFAULT_DURATION_MS, useSnackbar } from "./useSnackbar";
-
-/** Minimal `t` function type matching i18n.t's signature. */
-type TFn = (key: string, params?: Record<string, string>) => string;
 
 /** Sonner id (single replaceable surface). */
 const MIC_PERMISSION_REVOKED_TOAST_ID = "mic-permission-revoked";
@@ -43,7 +41,7 @@ const MIC_PERMISSION_REVOKED_TOAST_COOLDOWN_MS = 10_000;
  *
  * @param t i18n translate function (from useT).
  */
-export function useMicPermissionRevokedToast(t: TFn): void {
+export function useMicPermissionRevokedToast(t: TranslateFn): void {
 	const { showSnack } = useSnackbar();
 
 	usePythonEvent("microphone_permission_revoked", () => {

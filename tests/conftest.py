@@ -3,7 +3,7 @@
 Modules mocked: sounddevice, faster_whisper, pynput, pystray, PIL,
 pyperclip.
 
-the autouse mock is now conditional — tests that need real
+the autouse mock is now conditional, tests that need real
 pynput (e.g. to test the actual keyboard listener) can use the
 ``@pytest.mark.real_pynput`` marker to opt out of the pynput mock.
 
@@ -12,7 +12,7 @@ that previously lived at module-load time has been moved into the
 ``winfunctype_alias`` autouse fixture below so the global ``ctypes``
 module is no longer mutated at collection time. Tests that exercise
 Windows hotkey code paths on Linux (``tests/test_hotkeys_win32.py`` etc.)
-still see the alias because the fixture is autouse — it just installs
+still see the alias because the fixture is autouse, it just installs
 the alias per-test via ``monkeypatch.setattr`` (auto-undone after each
 test) instead of mutating ``ctypes`` permanently for the whole session.
 
@@ -43,7 +43,7 @@ consistent and maintainable:
    same test, refactor the patch into the fixture.
 
 4. **``monkeypatch`` vs ``patch``**: Prefer ``monkeypatch`` (pytest's
-   built-in) for attribute/item replacement — it's automatically
+   built-in) for attribute/item replacement, it's automatically
    undone after the test. Use ``unittest.mock.patch`` only when you
    need the mock object itself (e.g. to assert call counts).
 
@@ -70,7 +70,7 @@ from tests.fixtures.cache_resets import clear_caches
 # ``pynput`` / ``pyperclip`` needs the mock already present in
 # ``sys.modules`` during collection. Historically each affected file
 # carried its own inline ``sys.modules.setdefault`` block (38 files at
-# peak — TK-47); centralizing here means no test file needs its own
+# peak, TK-47); centralizing here means no test file needs its own
 # block, because ``tests/conftest.py`` is imported by pytest before any
 # test module is collected.
 #
@@ -78,17 +78,17 @@ from tests.fixtures.cache_resets import clear_caches
 # attributes because ``tray.py`` / ``tray_menu.py`` touch them at
 # import time (the xorg backend would otherwise try to connect to an X
 # display on headless Linux CI). ``pynput`` / ``pynput.keyboard`` /
-# ``pyperclip`` are plain mocks — ``voice_typer.server.clipboard``
+# ``pyperclip`` are plain mocks: ``voice_typer.server.clipboard``
 # imports ``pyperclip`` eagerly and ``pynput`` lazily, and the hotkey
 # paths import ``pynput.keyboard``.
 #
 # Escape hatches (preserved):
 #   - ``real_pynput`` / ``real_pil`` markers: the per-test
 #     ``mock_heavy_imports`` fixture EVICTS these collection-time
-#     mocks (by ``__spec__`` detection) for marked tests — see the
+#     mocks (by ``__spec__`` detection) for marked tests: see the
 #     ``real_pynput`` branch in that fixture.
 #   - Phase 1c (PLAN_ONNX_INTEGRATION.md §5.1, §2.4): the
-#     ``real_torch`` marker was REMOVED — no test used it, and the
+#     ``real_torch`` marker was REMOVED, no test used it, and the
 #     only consumer (``tests/test_vad_dtype_optimization.py``) was
 #     deleted per §2.4.
 #   - ``tests/test_pystray_icon_handle_regression.py::_load_real_pystray``
@@ -106,14 +106,14 @@ sys.modules.setdefault("pynput", MagicMock(name="collection_pynput"))
 sys.modules.setdefault("pynput.keyboard", MagicMock(name="collection_pynput_keyboard"))
 sys.modules.setdefault("pyperclip", MagicMock(name="collection_pyperclip"))
 
-# The module-level ``wait_until`` helper was DELETED — it had zero
+# The module-level ``wait_until`` helper was DELETED, it had zero
 # importers (the review entry flagged it as unused alongside
 # ``tests/fixtures/wait_for.py``). The canonical polling helper is
 # ``tests.fixtures.wait_for.wait_for`` (returns ``bool``, uses
 # ``time.monotonic()``, and is already imported by the migrated
 # ``time.sleep`` call sites in tests/test_microphone_watcher.py,
 # tests/test_hotkeys_win32.py and tests/hotkeys/test_polling_strategy.py).
-# Note: ``time`` is still imported module-wide — the faulthandler
+# Note: ``time`` is still imported module-wide, the faulthandler
 # snapshot-loop fixture below uses ``time.monotonic()`` at runtime.
 
 
@@ -225,7 +225,7 @@ def pytest_configure(config):
     # because the ``data_ptr()`` no-clone invariant is unsatisfiable
     # through ORT's allocator). The session-scoped
     # ``_FakeOutOfMemoryError`` / ``_FakeTensor`` / ``_build_mock_torch``
-    # plumbing was also stripped — see the comment block above
+    # plumbing was also stripped: see the comment block above
     # ``mock_heavy_imports_session`` for the full rationale.
     config.addinivalue_line(
         "markers",
@@ -239,14 +239,14 @@ def pytest_configure(config):
     try:
         from hypothesis import HealthCheck, settings
     except ImportError:
-        # hypothesis is optional — skip profile registration. The
+        # hypothesis is optional, skip profile registration. The
         # hypothesis test files skip themselves via their own
         # ``pytestmark = pytest.mark.skipif(not HAS_HYPOTHESIS, ...)``.
         return
 
     # ``suppress_health_check=[HealthCheck.too_slow]`` mirrors the
     # per-test ``@settings(suppress_health_check=[HealthCheck.too_slow])``
-    # decorators already present in the hypothesis test files — setting
+    # decorators already present in the hypothesis test files, setting
     # it at the profile level makes the suppression project-wide so a
     # future ``@given`` test that forgets the decorator is still safe.
     # ``print_blob=True`` makes hypothesis include a reproducible
@@ -271,7 +271,7 @@ def pytest_addoption(parser):
 
     Slow tests (marked with ``@pytest.mark.slow``) are skipped by
     default to keep the regular pytest suite fast. Pass ``--slow`` to
-    run them — typically in a separate, best-effort CI job.
+    run them, typically in a separate, best-effort CI job.
     """
     parser.addoption(
         "--slow",
@@ -299,7 +299,7 @@ def pytest_collection_modifyitems(config, items):
 # WAV fixture file ``tests/fixtures/test_440hz_1s_16k.wav``
 # (1-second 440Hz sine wave at 16kHz mono, 16-bit PCM) is retained on
 # disk for ad-hoc use, but the ``wav_fixture_path`` pytest fixture that
-# identified as dead code has been removed — no test imported it.
+# identified as dead code has been removed, no test imported it.
 # Tests that need the WAV file should construct the path inline:
 #   ``Path(__file__).parent / "fixtures" / "test_440hz_1s_16k.wav"``
 
@@ -317,7 +317,7 @@ def winfunctype_alias(monkeypatch):
     ``AttributeError: module 'ctypes' has no attribute 'WINFUNCTYPE'``.
 
     Aliasing ``WINFUNCTYPE = CFUNCTYPE`` on non-Windows lets those
-    tests run. This is a test-only shim — production behaviour on
+    tests run. This is a test-only shim, production behaviour on
     Windows is unchanged (real ``WINFUNCTYPE`` is used; on Windows the
     alias is a no-op because ``hasattr(ctypes, "WINFUNCTYPE")`` is
     True).
@@ -350,7 +350,7 @@ def winfunctype_alias(monkeypatch):
 # unconditional mocks (sounddevice, faster_whisper, pystray, pyperclip,
 # torch, transformers) each time. The mocks are identical across every
 # test, so the per-test ``sys.modules.setitem`` calls (~6) + MagicMock
-# constructions (~4) were pure overhead — ~120k redundant operations
+# constructions (~4) were pure overhead, ~120k redundant operations
 # per session.
 #
 # The split below moves the unconditional mocks into a session-scoped
@@ -381,7 +381,7 @@ def winfunctype_alias(monkeypatch):
 #   - tests/test_recording_audio_processor.py (custom sounddevice mock
 #     with a ``FakeInputStream`` that captures the callback for direct
 #     chunk-push invocation from the test)
-#   - tests/test_tray.py (custom pystray/PIL mocks — installs a
+#   - tests/test_tray.py (custom pystray/PIL mocks, installs a
 #     ``_FakeIcon`` / ``_FakeMenu`` / ``_FakeMenuItem`` so the tray
 #     menu builder runs headless without invoking real GTK/Cocoa/Win32)
 #   - tests/test_volume_lifecycle.py (full hardware/GUI mock set +
@@ -390,15 +390,15 @@ def winfunctype_alias(monkeypatch):
 #     near-complete replacement of the conftest fixture, not just the
 #     hotkey patch)
 #   - tests/test_shutdown_parallel.py (no-op override to avoid
-#     importing ``voice_typer.server.app`` — uses a ``_FakeApp`` and
+#     importing ``voice_typer.server.app``, uses a ``_FakeApp`` and
 #     injects mock modules into ``sys.modules`` directly)
-#   - tests/test_shutdown_deadline.py (no-op override — same rationale
+#   - tests/test_shutdown_deadline.py (no-op override, same rationale
 #     as test_shutdown_parallel.py; uses a ``_FakeApp``)
-#   - tests/test_shutdown_race_fixes.py (no-op override — same rationale;
+#   - tests/test_shutdown_race_fixes.py (no-op override, same rationale;
 #     exercises ``_do_fast_cleanup`` against a ``_FakeApp``)
-#   - tests/test_shutdown_plan.py (no-op override — same rationale;
+#   - tests/test_shutdown_plan.py (no-op override, same rationale;
 #     exercises the ZR-17 shutdown plan against a ``_FakeApp``)
-#   - tests/test_shutdown_deadline_skip.py (no-op override — same
+#   - tests/test_shutdown_deadline_skip.py (no-op override, same
 #     rationale as test_shutdown_deadline.py; uses a ``_FakeApp``)
 #   - tests/test_recording_lifecycle_threaded.py (no-op override —
 #     builds a ``_make_app_with_mock_recorder`` MagicMock app and must
@@ -407,7 +407,7 @@ def winfunctype_alias(monkeypatch):
 # Renaming the conftest fixture would silently break those overrides:
 # the local ``mock_heavy_imports`` would no longer shadow the conftest
 # autouse fixture, and the conftest version would run alongside the
-# local one — for the four ``test_shutdown_*`` files this would
+# local one, for the four ``test_shutdown_*`` files this would
 # re-introduce the ``voice_typer.server.app`` import that the override
 # deliberately avoids (the real app module can be in a parallel agent's
 # WIP state during incremental development). Keeping the original name
@@ -417,7 +417,7 @@ def winfunctype_alias(monkeypatch):
 
 
 class _FakeOutOfMemoryError(Exception):
-    """DEPRECATED — kept only for backward-compat with tests that import it.
+    """DEPRECATED, kept only for backward-compat with tests that import it.
 
     Phase 1c (PLAN_ONNX_INTEGRATION.md §5.1, §2.4): the
     ``_FakeOutOfMemoryError`` / ``_FakeTensor`` / ``_build_mock_torch``
@@ -434,11 +434,11 @@ class _FakeOutOfMemoryError(Exception):
 
 
 class _FakeTensor:
-    """DEPRECATED — kept only for backward-compat with tests that import it.
+    """DEPRECATED, kept only for backward-compat with tests that import it.
 
     See :class:`_FakeOutOfMemoryError` for the Phase 1c rationale. The
     session fixture no longer installs this class at
-    ``mock_torch.Tensor`` — ``isinstance(x, mock_torch.Tensor)`` now
+    ``mock_torch.Tensor``: ``isinstance(x, mock_torch.Tensor)`` now
     raises ``TypeError`` (MagicMock attributes are not types), which is
     the correct semantics for a mock torch (nothing is ever a real
     torch tensor under this fixture).
@@ -446,14 +446,14 @@ class _FakeTensor:
 
 
 def _build_mock_torch() -> MagicMock:
-    """DEPRECATED — returns a plain ``MagicMock``, retained for backward-compat.
+    """DEPRECATED, returns a plain ``MagicMock``, retained for backward-compat.
 
     Phase 1c (PLAN_ONNX_INTEGRATION.md §5.1, §2.4): this helper previously
     installed real ``_FakeOutOfMemoryError`` / ``_FakeTensor`` classes
     at ``mock_torch.cuda.OutOfMemoryError`` / ``mock_torch.Tensor`` so
     ``isinstance`` checks would not raise ``TypeError``. The OOM class
     was only consumed by the old ``isinstance(exc,
-    torch.cuda.OutOfMemoryError)`` check in ``transcription.py`` — that
+    torch.cuda.OutOfMemoryError)`` check in ``transcription.py``, that
     check is now :func:`voice_typer.server.asr_utils.is_oom_error`,
     which inspects the exception message. The ``_FakeTensor`` class
     was only needed by scipy's ``array_api_compat`` ``isinstance(x,
@@ -481,7 +481,7 @@ def mock_heavy_imports_session():
     ``monkeypatch`` fixture, which is function-scoped and cannot be
     requested from a session-scoped fixture). Cleanup happens in the
     ``finally`` block via ``mp.undo()`` so the session teardown
-    restores ``sys.modules`` to its pre-session state — important when
+    restores ``sys.modules`` to its pre-session state, important when
     running multiple pytest invocations in the same interpreter (e.g.
     via ``pytest.main()`` in a notebook).
 
@@ -491,12 +491,12 @@ def mock_heavy_imports_session():
     real ``torch``; Phase 1c of PLAN_ONNX_INTEGRATION.md (§5.1, §2.4)
     removed the branch, the marker registration, and its only consumer
     (``tests/test_vad_dtype_optimization.py``, deleted). No test uses
-    the marker anymore — see the comment inside
+    the marker anymore: see the comment inside
     ``mock_heavy_imports`` below for the full rationale.
 
     Per-test local overrides of ``mock_heavy_imports`` (in
     ``tests/test_shutdown_plan.py``, ``tests/test_volume_lifecycle.py``,
-    etc.) do NOT shadow this session fixture — they shadow only the
+    etc.) do NOT shadow this session fixture, they shadow only the
     function-scoped ``mock_heavy_imports`` of the same name. So every
     test (including those with local overrides) gets the session mocks
     installed; the local override only replaces the per-test portion.
@@ -517,7 +517,7 @@ def mock_heavy_imports_session():
         mp.setitem(sys.modules, "pyperclip", MagicMock())
 
         # ``torch.backends``, ``torch.backends.mps`` etc. are
-        # auto-created child mocks — no explicit per-submodule setitem
+        # auto-created child mocks, no explicit per-submodule setitem
         # is needed. ``transformers`` is also mocked because the
         # parakeet_engine + noise_suppressor paths lazily import it.
         #
@@ -525,7 +525,7 @@ def mock_heavy_imports_session():
         # ``_build_mock_torch()`` helper (which installed real
         # ``_FakeOutOfMemoryError`` / ``_FakeTensor`` classes at
         # ``mock_torch.cuda.OutOfMemoryError`` / ``mock_torch.Tensor``)
-        # is now a no-op — it returns a plain ``MagicMock``. The OOM
+        # is now a no-op, it returns a plain ``MagicMock``. The OOM
         # class was only consumed by the old ``isinstance(exc,
         # torch.cuda.OutOfMemoryError)`` check in ``transcription.py``
         # (now :func:`voice_typer.server.asr_utils.is_oom_error`,
@@ -534,7 +534,7 @@ def mock_heavy_imports_session():
         # ``mock_torch.Tensor`` MUST stay a REAL class (not a MagicMock
         # attribute): scipy.signal imports ``array_api_compat``, whose
         # ``_issubclass_fast`` calls ``issubclass(cls, torch.Tensor)``
-        # at import time — a MagicMock attribute is not a class and
+        # at import time, a MagicMock attribute is not a class and
         # raises ``TypeError``, breaking ``import scipy.signal`` under
         # the suite (regression seen 2026-08-14 in
         # tests/test_audio_pipeline_regressions.py after the Phase 1c
@@ -546,7 +546,7 @@ def mock_heavy_imports_session():
 
         # BLOCK THE REAL ``winreg`` MODULE. Setting ``sys.modules["winreg"]``
         # to ``None`` makes any later ``import winreg`` raise ImportError
-        # ("import of winreg halted; None in sys.modules") — exactly the
+        # ("import of winreg halted; None in sys.modules"), exactly the
         # behaviour on non-Windows CI, where production code degrades
         # gracefully (``try: import winreg / except ImportError: return
         # False``). Without this guard, running the suite on a Windows dev
@@ -571,9 +571,9 @@ def mock_heavy_imports_session():
         # CoreAudio / pactl and never restore it (tests don't run the
         # full cleanup path). Tests that need a volume backend inject
         # their own (``VolumeDucker(backend=...)`` or a monkeypatched
-        # ``get_volume_backend``) — those bypass this factory, and
+        # ``get_volume_backend``), those bypass this factory, and
         # ``VolumeDucker.duck()``/``restore()`` already short-circuit
-        # on a ``None`` backend — so this only neutralizes ACCIDENTAL
+        # on a ``None`` backend, so this only neutralizes ACCIDENTAL
         # real backends.
         # Patch the OWNING submodule: ``VolumeDucker.initialize`` lazily
         # imports ``get_volume_backend`` from
@@ -600,7 +600,7 @@ def mock_heavy_imports(monkeypatch, request):
       - ``atexit.register`` patch (prevents production atexit handlers
         from polluting test output).
       - ``force_pynput_hotkey_backend`` patch (uniform PynputHotkey
-        backend across platforms — without it, hotkey tests only pass
+        backend across platforms, without it, hotkey tests only pass
         on Linux/X11 by accident).
       - ``keyboard_ownership`` singleton reset (prevents stale owner
         state from a prior test leaking into the next).
@@ -621,10 +621,10 @@ def mock_heavy_imports(monkeypatch, request):
     else:
         # ``real_pynput`` escape hatch: the collection-time pynput mock
         # installed by this conftest's module-level ``setdefault`` (see
-        # the block above — WR-9 / TK-47 centralization) would otherwise
+        # the block above, WR-9 / TK-47 centralization) would otherwise
         # shadow the REAL package for this test. Evict any mock entries
-        # (identified by a missing ``__spec__`` — real modules always
-        # have one, MagicMocks do not — mirroring the ``real_pil``
+        # (identified by a missing ``__spec__``, real modules always
+        # have one, MagicMocks do not, mirroring the ``real_pil``
         # eviction branch below) so the real import loads from disk.
         for _key in ("pynput", "pynput.keyboard"):
             _existing = sys.modules.get(_key)
@@ -651,7 +651,7 @@ def mock_heavy_imports(monkeypatch, request):
         #
         # Fix: detect and evict any mock entries for PIL/PIL.Image/
         # PIL.ImageDraw from sys.modules before importing the real
-        # package. We identify mocks by checking ``__spec__`` — real
+        # package. We identify mocks by checking ``__spec__``, real
         # modules have a non-None ``__spec__``; MagicMocks do not.
         #
         # Note: the session-scoped ``mock_heavy_imports_session`` does
@@ -661,7 +661,7 @@ def mock_heavy_imports(monkeypatch, request):
         for _key in ("PIL", "PIL.Image", "PIL.ImageDraw"):
             _existing = sys.modules.get(_key)
             if _existing is not None and getattr(_existing, "__spec__", None) is None:
-                # Looks like a mock (or a non-module object) — evict it
+                # Looks like a mock (or a non-module object), evict it
                 # so the real import below actually loads the package.
                 del sys.modules[_key]
         try:
@@ -674,7 +674,7 @@ def mock_heavy_imports(monkeypatch, request):
             monkeypatch.setitem(sys.modules, "PIL.Image", _real_pil_image)
             monkeypatch.setitem(sys.modules, "PIL.ImageDraw", _real_pil_imagedraw)
         except ImportError:
-            pass  # PIL not available — tests will skip
+            pass  # PIL not available, tests will skip
 
     # Phase 1c (PLAN_ONNX_INTEGRATION.md §5.1, §2.4): the per-test
     # ``real_torch`` marker branch was REMOVED. The marker is no
@@ -682,7 +682,7 @@ def mock_heavy_imports(monkeypatch, request):
     # uses it, and the only consumer (``tests/test_vad_dtype_optimization.py``)
     # was deleted per §2.4. The session-scoped torch mock is now a
     # plain ``MagicMock`` (no ``_FakeOutOfMemoryError`` /
-    # ``_FakeTensor`` classes) — sufficient for the remaining torch
+    # ``_FakeTensor`` classes), sufficient for the remaining torch
     # consumers (Qwen engine, parakeet_engine until Phase 1c rewrite).
     # Tests that need to assert OOM behaviour now construct their own
     # ``RuntimeError("CUDA out of memory")`` and rely on
@@ -724,7 +724,7 @@ def mock_heavy_imports(monkeypatch, request):
     # macOS/Windows where the default hotkey backend is NOT PynputHotkey.
     # Pre-fix, the tests passed only because on Linux/X11 the unpatched
     # ``create_hotkey_backend`` falls through to PynputHotkey by default
-    # — same accidental pass condition documented in the (now-deleted)
+    # , same accidental pass condition documented in the (now-deleted)
     # ``tests/test_app.py:73-75``. With the hoist, the patch is applied
     # uniformly across platforms.
     #
@@ -744,7 +744,7 @@ def mock_heavy_imports(monkeypatch, request):
 
         # ``create_hotkey_backend`` now accepts a ``role`` kwarg (used to
         # give Wayland backends a per-role socket path). The mock must
-        # tolerate it — ``PynputHotkey`` does not take ``role``, so it is
+        # tolerate it: ``PynputHotkey`` does not take ``role``, so it is
         # accepted and dropped here.
         def _force_pynput(hotkey_str, role=None, **kwargs):
             return PynputHotkey(hotkey_str)
@@ -800,7 +800,7 @@ def _reset_log_rate_limit():
     Without this reset, a test that exercises a rate-limited log path
     (e.g. ``test_ipc_no_client_log_redaction``) leaves counters behind
     that cause the *next* test's first call to be suppressed at DEBUG
-    instead of emitted at INFO — so ``caplog.at_level(INFO)`` captures
+    instead of emitted at INFO, so ``caplog.at_level(INFO)`` captures
     nothing and the test fails when run after its siblings.
 
     The reset is autouse so the same leak can't bite future tests that
@@ -825,7 +825,7 @@ def _restore_vt_logging_state():
     Because ``logging`` passes the SAME record object through every
     handler in ``Logger.callHandlers``, a leaked ``PIIRedactionFilter``
     handler mutates ``record.msg`` BEFORE caplog's own handler captures
-    it — so later tests see redacted messages (e.g. ``[MIC-WATCHER] ***
+    it, so later tests see redacted messages (e.g. ``[MIC-WATCHER] ***
     callback raised``, ``expected ***, got ***``) and their caplog
     assertions fail order- and worker-dependently under xdist.
 
@@ -904,7 +904,7 @@ def _drain_crash_recovery_workers():
     registers the instance in ``_LIVE_INSTANCES``. Tests that construct
     an instance without calling ``shutdown()`` (or whose worker is
     still draining when the test ends) leak a thread that can fire an
-    asynchronous ``_save_sync()`` DURING a LATER test — polluting
+    asynchronous ``_save_sync()`` DURING a LATER test, polluting
     module-level ``mock.patch`` assertions (``assert_called_once``
     seeing a 2nd call from a stale path) and writing stale files into
     the wrong test's tmp dir. Observed order-dependently under xdist
@@ -934,7 +934,7 @@ def _drain_watchdog_threads():
     thread; ~90s later it fires a ``[STUCK-RECOVERY]`` log storm on a
     closed logging stream, which can hard-crash the xdist worker
     (``[gwN] node down: Not properly terminated``) and hang the
-    controller — the suite then appears to "run forever".
+    controller, the suite then appears to "run forever".
 
     Mirrors the ``_LIVE_INSTANCES`` drain in
     ``_drain_crash_recovery_workers``; the WeakSet is empty for the
@@ -961,7 +961,7 @@ def _drain_ptt_safety_timers():
     (``hotkey_dispatcher.py`` L451). Tests that register a PTT backend
     without exercising the release path leak that timer; ~60s later it
     fires ``[HOTKEY] PTT release event missed`` on a closed logging
-    stream — the same worker-crash/hang signature as the leaked
+    stream, the same worker-crash/hang signature as the leaked
     transcription watchdog (see ``_drain_watchdog_threads``).
 
     Mirrors that fixture's WeakSet-registry pattern.
@@ -988,12 +988,12 @@ def _drain_shutdown_watchdogs():
     resort. Tests that exercise the non-main-thread path (e.g.
     ``tests/test_app_restart.py`` runs ``restart_app()`` on a worker
     thread, and its ``_stub_restart_environment`` only patches
-    ``os._exit`` — the module-level ``os``
+    ``os._exit``, the module-level ``os``
     in ``shutdown/lifecycle.py``) arm that watchdog and never let the
     process exit. ~2s later the watchdog fires the REAL ``os._exit(0)``
     and kills the whole xdist worker with no traceback
     (``[gwN] node down: Not properly terminated``), hanging the
-    controller — the suite then appears to "run forever".
+    controller, the suite then appears to "run forever".
 
     The watchdog is cancellable (``cancel_event.wait(timeout_s)``);
     setting the event wakes it immediately so it returns before calling
@@ -1019,7 +1019,7 @@ def _drain_test_thread_registry_workers():
     workers (``never_exit=True`` or ``stop_event=None``) that loop
     ``time.sleep(0.01)`` forever to exercise the registry's stuck-thread
     paths. Under xdist a worker process lives for the WHOLE suite, so
-    those daemon threads would otherwise spin for the entire run — the
+    those daemon threads would otherwise spin for the entire run, the
     crash dump of a rare native heap corruption (``0xc0000374``) showed
     ``tests/test_thread_registry.py``'s ``_run`` thread still alive at
     crash time, alongside real-torch VAD inference and history_db file
@@ -1050,11 +1050,11 @@ def _drain_thread_registries():
     preload threads accumulate; if one wakes during a
     ``@pytest.mark.real_torch`` test window (which evicts the session
     torch mock), it loads REAL torch + the real Silero model and runs
-    inference concurrently with history_db file copies — the rare native
+    inference concurrently with history_db file copies, the rare native
     heap corruption (``0xc0000374``) seen in crash dumps.
 
     This fixture is the catch-all: it drains every live registry (and
-    therefore every registered thread — vad-preload, bubble-level
+    therefore every registered thread, vad-preload, bubble-level
     pusher, etc.) regardless of which fixture constructed the app.
     Mirrors the WeakSet-registry pattern of the other drain fixtures.
     """
@@ -1078,7 +1078,7 @@ def _vt_capture_worker_os_exit():
 
     The full suite occasionally loses a worker to a SILENT abnormal
     exit (``[gwN] node down: Not properly terminated``) near the end of
-    the run — no native-crash banner, no faulthandler dump — the
+    the run (no native-crash banner, no faulthandler dump) the
     signature of an ``os._exit()`` fired by a leaked daemon thread
     (shutdown watchdog, heartbeat force-exit, ...). ``os._exit`` skips
     all interpreter cleanup, so nothing is ever logged.
@@ -1088,7 +1088,7 @@ def _vt_capture_worker_os_exit():
     appends a faulthandler dump (ALL thread stacks) to
     ``<dir>/os-exit-<pid>.log``, and a per-process session start/finish
     marker is appended to ``<dir>/session-<pid>.log``. When
-    ``VT_OSEXIT_LOG`` is unset this fixture is a no-op — normal runs
+    ``VT_OSEXIT_LOG`` is unset this fixture is a no-op, normal runs
     are completely unaffected.
 
     The wrapper is intentionally NOT restored at teardown: it must stay
@@ -1244,7 +1244,7 @@ def isolated_integrity_cache(tmp_path, monkeypatch):
     ``_integrity_cache_path()`` (which honors the
     ``_integrity_cache_path_override`` module hook). Tests that exercise
     the real verifier would otherwise write real user state under the
-    developer's config directory — which can be read-only or
+    developer's config directory, which can be read-only or
     ACL-restricted (causing ``tempfile.mkstemp`` inside
     ``_secure_atomic_write`` to hang) and pollute real cache data
     across runs. Request this fixture from any test class that calls
@@ -1291,13 +1291,13 @@ def clear_binary_path_cache():
 
     Tests that monkeypatch ``factory.get_native_binary_path`` directly
     (``tests/test_native_binary_checksum.py``) bypass the real function
-    entirely, so they do not need this fixture — but the ``cache_clear``
+    entirely, so they do not need this fixture, but the ``cache_clear``
     call is cheap (one dict pop) and runs unconditionally to keep the
     fixture simple and avoid per-test opt-in drift.
 
     See ``tests/test_binary_path_caching.py`` for the pinning tests that
     assert the cache actually memoises (and that ``cache_clear`` resets
-    it) — those tests use ``monkeypatch.setattr`` to swap the function
+    it), those tests use ``monkeypatch.setattr`` to swap the function
     out, so they are unaffected by this fixture.
 
     The four caches cleared here (and the per-cache rationale for each)
@@ -1306,13 +1306,13 @@ def clear_binary_path_cache():
     Moving the loop out of this fixture (and out of ``conftest.py``)
     means adding a fifth cached callable is now a one-line table edit
     instead of another copy-pasted ``try/except ImportError`` block
-    here — which was the latent-bug vector that bit us once already
+    here, which was the latent-bug vector that bit us once already
     (the original early ``return`` on ``ImportError`` for
     ``native_hotkeys.binary_path`` silently skipped all subsequent
     clears; converting to per-entry ``try/except`` + a table makes the
     same drift mechanically impossible).
 
-    Each entry's clear is independent — a missing optional dependency
+    Each entry's clear is independent, a missing optional dependency
     (e.g. ``clipboard.linux`` on Windows-only test runs) raises
     ``ImportError`` for THAT entry only; the loop moves on. Same
     semantics as the original copy-pasted blocks, just table-driven.

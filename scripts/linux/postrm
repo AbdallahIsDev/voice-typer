@@ -1,5 +1,5 @@
 #!/bin/bash
-# Voice Typer — Debian postrm script
+# Voice Typer. Debian postrm script
 #
 # Runs as root during `apt remove` (with `remove` arg, AFTER prerm) and
 # during `apt purge` (with `purge` arg, AFTER prerm). Debian convention:
@@ -9,12 +9,12 @@
 # (`~/.local/share/voice-typer/` by default; may also be at
 # `~/.config/voice-typer/` or `~/.voice-typer/` on older installs). This
 # directory contains config.json, history.db, logs/, huggingface/hub/
-# (model cache — potentially GB-sized), backend.pid, etc.
+# (model cache, potentially GB-sized), backend.pid, etc.
 #
 # Important: this script does NOT remove the user from the `input` group
 # (other apps may rely on it). It also does NOT remove system artifacts
 # installed by the postinst (udev rule, XKB conf, manifest at
-# /var/lib/voice-typer/) — those are removed by prerm via
+# /var/lib/voice-typer/), those are removed by prerm via
 # uninstall_permissions.py. This script ONLY removes per-user data on
 # `purge`.
 #
@@ -28,7 +28,7 @@
 # be post-processed (e.g. via a `dpkg-deb --extract` + re-pack step in
 # CI) to copy this file into the package's maintainer-scripts directory
 # (`DEBIAN/postrm`). Until that CI step is added, `apt purge voice-typer`
-# will leave user data in place — same behavior as `apt remove`.
+# will leave user data in place, same behavior as `apt remove`.
 # Tracked as a known gap; see worklog Fix-R.
 
 set -e
@@ -75,7 +75,7 @@ case "$1" in
         remove_user_data_for_home /root
     ;;
     remove|upgrade|failed-upgrade|disappear|abort-install|abort-upgrade)
-        # On `remove` (and others), leave user data in place — Debian
+        # On `remove` (and others), leave user data in place, Debian
         # convention. The prerm has already removed system artifacts
         # (udev rule, XKB conf, manifest) and per-user autostart entries.
     ;;

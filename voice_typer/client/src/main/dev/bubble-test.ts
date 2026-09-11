@@ -10,7 +10,7 @@
  * invoking `cleanup()` from the `before-quit` handler so the timers
  * don't outlive a normal app shutdown.
  *
- * Uses `console.warn` (NOT the structured `log`) intentionally — this
+ * Uses `console.warn` (NOT the structured `log`) intentionally, this
  * is a dev-only diagnostic, the structured logger's `electron-runtime.log`
  * file tee is overkill for a flag that's never set in production.
  */
@@ -28,9 +28,9 @@ import { showBubbleWindow } from "../windows";
  *      sin-wave RMS so the bubble's level meter exercises.
  *   3. After 10s, stop the interval (clearInterval).
  *
- * @param state shared mutable state — used to access `state.bubbleWindow`
+ * @param state shared mutable state, used to access `state.bubbleWindow`
  *        for the synthetic level emit.
- * @returns `{ cleanup }` — `cleanup` clears the `setTimeout` (if still
+ * @returns `{ cleanup }`, `cleanup` clears the `setTimeout` (if still
  *          pending) and the `setInterval` (if still running). Safe to
  *          call multiple times.
  */

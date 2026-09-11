@@ -5,7 +5,7 @@ Pre-fix, the IPC validator (``config_validators.py``) rejected
 ``custom_theme: None`` with ``"must be dict, got NoneType"`` because
 the expected_type was the bare ``dict``. The renderer's ``useTheme.ts``
 sends ``custom_theme: null`` when the user clicks "Clear custom theme /
-revert to preset" — so the user's clear action silently failed (server
+revert to preset", so the user's clear action silently failed (server
 returned ``code: "invalid_field"`` while the local React state still
 held the cleared theme). On next restart the stale custom_theme dict
 reappeared.
@@ -15,7 +15,7 @@ the IPC allowlist's expected_type is widened to ``(dict, type(None))``
 so the pre-validator type check passes for ``None``. Config.load()
 already handled None (line ~1416: ``if "custom_theme" in data and
 data["custom_theme"] is not None:``), and Config.save() serializes
-None as JSON ``null`` — so the round-trip just works.
+None as JSON ``null``, so the round-trip just works.
 
 Platform note: validated ON LINUX (sandbox). The validator is pure
 Python (no platform-specific code); Windows/macOS validation is
@@ -59,7 +59,7 @@ class TestValidatorAcceptsNone:
 
     def test_validator_returns_none_for_none(self) -> None:
         """The validator must return ``None`` (success) for input
-        ``None`` — not an error string."""
+        ``None``, not an error string."""
         validator = _make_custom_theme_validator()
         result = validator(None)
         assert result is None, (
@@ -78,14 +78,14 @@ class TestValidatorAcceptsNone:
             result = validator(bad_value)
             assert result is not None, (
                 f"FR-3: validator accepted non-dict non-None value "
-                f"{bad_value!r} — only dict and None should be accepted."
+                f"{bad_value!r}, only dict and None should be accepted."
             )
             assert "must be a dict" in result, (
                 f"FR-3: error message for {bad_value!r} should mention 'must be a dict', got {result!r}"
             )
 
     def test_validator_still_accepts_valid_dict(self) -> None:
-        """A valid custom_theme dict must still pass — FR-3 only widens
+        """A valid custom_theme dict must still pass, FR-3 only widens
         the accepted set, it doesn't loosen the dict-shape rules."""
         validator = _make_custom_theme_validator()
         result = validator(VALID_CUSTOM_THEME)
@@ -181,7 +181,7 @@ class TestConfigRoundTripWithNone:
             f"have 'custom_theme: null'; got {on_disk.get('custom_theme')!r}"
         )
 
-        # Reload — Config.custom_theme must be None.
+        # Reload. Config.custom_theme must be None.
         cfg3 = Config.load()
         assert cfg3.custom_theme is None
 

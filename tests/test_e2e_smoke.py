@@ -1,4 +1,4 @@
-"""E2E verification — exercises the 10 fixes together.
+"""E2E verification: exercises the 10 fixes together.
 
 This is a sanity check that the fixes don't interfere with each other
 and the core flows still work end-to-end.
@@ -42,7 +42,7 @@ class TestEndToEndSmoke:
         )
 
     # (Wave 3, 2026-08-14): STARTUP-1 (``_build_task_xml``) and
-    # STARTUP-2 (``_LOGON_DELAY``) tests were deleted — prewarm became
+    # STARTUP-2 (``_LOGON_DELAY``) tests were deleted, prewarm became
     # a worker startup phase (master plan §6.2 P-1), so the OS-level
     # scheduled-task XML builder (Windows Task Scheduler LogonTrigger)
     # and the logon-delay constant were removed from ``task_scheduler.py``
@@ -106,27 +106,27 @@ class TestEndToEndSmoke:
     def test_recorder_rms_forwards_to_waveform(self):
         """RecordingController.on_recorder_rms forwards (rms, peak) to update_level.
 
-        The RMS callback was moved from VoiceTyperApp._on_recorder_rms to
-        RecordingController.on_recorder_rms as part of the RecordingController
-        extraction (commit 9e53ffe). The callback is 2-arg
-        (``rms_callback(chunk_rms, chunk_peak)`` — see the invariant comment
-        in ``recording/audio_pipeline.py``); the historical
-        ``audio_chunk=`` backward-compat kwarg was removed from both
-        ``on_recorder_rms`` and ``WaveformBubble.update_level`` after its
-        only consumer (the deps-era VAD gate) was deleted — the live
-        recorder callback never populated it and the visualizer is
-        RMS-only (BUBBLE-FIX-4.1: the Silero gate fed native-rate audio
-        to the 16 kHz model and biased the bars low).
+          The RMS callback was moved from VoiceTyperApp._on_recorder_rms to
+          RecordingController.on_recorder_rms as part of the RecordingController
+          extraction (commit 9e53ffe). The callback is 2-arg
+          (``rms_callback(chunk_rms, chunk_peak)``: see the invariant comment
+          in ``recording/audio_pipeline.py``); the historical
+          ``audio_chunk=`` backward-compat kwarg was removed from both
+          ``on_recorder_rms`` and ``WaveformBubble.update_level`` after its
+          only consumer (the deps-era VAD gate) was deleted, the live
+          recorder callback never populated it and the visualizer is
+          RMS-only (BUBBLE-FIX-4.1: the Silero gate fed native-rate audio
+          to the 16 kHz model and biased the bars low).
 
-        The earlier revision of this test asserted
-        ``"rms_callback(chunk_rms, chunk_peak, filtered)" in inspect.getsource(recording)``
-        — but production code uses the 2-arg call ``rms_callback(chunk_rms, chunk_peak)``
-        (per the invariant comment at the call site); the 3-arg form appeared
-        only in a stale echo comment in the package ``__init__.py`` (since
-        deleted), giving false coverage. Replaced with a behavioral test that
-        constructs a RecordingController, invokes ``on_recorder_rms``, and
-        asserts the bubble's ``update_level`` received the values by
-        identity/position.
+          The earlier revision of this test asserted
+          ``"rms_callback(chunk_rms, chunk_peak, filtered)" in inspect.getsource(recording)``
+        , but production code uses the 2-arg call ``rms_callback(chunk_rms, chunk_peak)``
+          (per the invariant comment at the call site); the 3-arg form appeared
+          only in a stale echo comment in the package ``__init__.py`` (since
+          deleted), giving false coverage. Replaced with a behavioral test that
+          constructs a RecordingController, invokes ``on_recorder_rms``, and
+          asserts the bubble's ``update_level`` received the values by
+          identity/position.
         """
         import inspect
         from unittest.mock import MagicMock
@@ -134,7 +134,7 @@ class TestEndToEndSmoke:
         from voice_typer.server.recording_controller import RecordingController
         from voice_typer.server.waveform import WaveformBubble
 
-        # Check signatures — these are stable shape assertions, not source text.
+        # Check signatures, these are stable shape assertions, not source text.
         app_sig = inspect.signature(RecordingController.on_recorder_rms)
         assert "audio_chunk" not in app_sig.parameters
         bubble_sig = inspect.signature(WaveformBubble.update_level)
@@ -195,7 +195,7 @@ class TestBrandingConstants:
     """Smoke tests for ``voice_typer/server/branding.py``.
 
     branding.py is a tiny constants-only module (BRAND-001: single source
-    of truth for the app name) — its coverage value is low on its own, so
+    of truth for the app name), its coverage value is low on its own, so
     we fold the assertions into the existing e2e smoke file rather than
     maintaining a dedicated test module.
     """
@@ -241,13 +241,13 @@ class TestBrandingConstants:
         module's startup banner / tray notifications.
 
         S2-CR-64: the previous test asserted the import line appeared
-        verbatim in ``inspect.getsource(app)`` — brittle to cosmetic
+        verbatim in ``inspect.getsource(app)``, brittle to cosmetic
         refactor (e.g. switching to ``from voice_typer.server import
         branding`` + ``branding.APP_NAME`` would break the test even
         though the invariant holds). Replaced with a behavioral check
         that mutates ``branding.APP_NAME`` to a sentinel value and
         verifies the app module observes the mutation when it
-        re-resolves the attribute — proving app.APP_NAME is bound to
+        re-resolves the attribute, proving app.APP_NAME is bound to
         branding's namespace, not a local literal.
         """
         from voice_typer.server import app, branding
@@ -256,7 +256,7 @@ class TestBrandingConstants:
         # the branding constant (i.e. it was imported, not redefined).
         assert hasattr(app, "APP_NAME"), "app module does not expose APP_NAME"
         assert app.APP_NAME is branding.APP_NAME, (
-            "app.APP_NAME is not the branding.APP_NAME object — app module "
+            "app.APP_NAME is not the branding.APP_NAME object, app module "
             "appears to have redefined the constant instead of importing it."
         )
 
@@ -278,11 +278,11 @@ class TestBrandingConstants:
             # line, so app.APP_NAME should now point at the *new*
             # branding.APP_NAME sentinel. If the app module instead
             # redefined APP_NAME as a local literal, the reload would
-            # re-bind it to the same literal — not the sentinel.
+            # re-bind it to the same literal, not the sentinel.
             importlib.reload(app)
             assert app.APP_NAME is sentinel or sentinel == app.APP_NAME, (
                 "After reloading app with branding.APP_NAME mutated, "
-                "app.APP_NAME did not pick up the sentinel value — the app "
+                "app.APP_NAME did not pick up the sentinel value, the app "
                 "module appears to redefine APP_NAME locally instead of "
                 "importing from branding (BRAND-001 invariant broken)."
             )

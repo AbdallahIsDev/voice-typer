@@ -1,5 +1,5 @@
 /**
- *  vitest rewrite — behavioral tests for feature-hardening invariants.
+ *  vitest rewrite, behavioral tests for feature-hardening invariants.
  *
  * Replaces the following string-pattern Python tests from
  * `tests/test_feature_hardening_regressions.py`:
@@ -37,7 +37,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
  * Page-level render helper. Pages like Settings mount Radix Tooltip
  * (via SettingRow / ui primitives); the real App shell wraps everything
  * in a TooltipProvider (App.tsx), so tests mounting pages directly must
- * provide one too — otherwise every Tooltip render throws "Tooltip must
+ * provide one too, otherwise every Tooltip render throws "Tooltip must
  * be used within TooltipProvider" and the page mounts empty.
  */
 const renderWithProviders = (ui: React.ReactElement) =>
@@ -106,7 +106,7 @@ vi.mock("next-themes", () => ({
 
 // Stub the Toaster component App.tsx mounts (we mock sonner's Toaster
 // above, but App imports from `@/components/ui/sonner` which re-exports
-// a wrapped Toaster — stub it to null so no portal DOM is created).
+// a wrapped Toaster, stub it to null so no portal DOM is created).
 vi.mock("@/components/ui/sonner", () => ({
 	Toaster: () => null,
 }));
@@ -172,7 +172,7 @@ vi.mock("@/pages/Onboarding", () => ({
 }));
 
 // Real hook imports (we deliberately do NOT mock @/hooks/usePython or
-// @/hooks/useSnackbar — the hook return-type tests below call the real
+// @/hooks/useSnackbar, the hook return-type tests below call the real
 // hooks so they observe the real runtime API contract).
 import { _resetNavigationForTest } from "@/hooks/useNavigation";
 import { usePython } from "@/hooks/usePython";
@@ -363,11 +363,11 @@ function removePythonBridgeMock() {
 }
 
 // ────────────────────────────────────────────────────────────────────
-// 1. usePython hook — does not return isReady
+// 1. usePython hook, does not return isReady
 //    Python: TestUsePythonOmitsMisleadingIsReadyFlag::test_use_python_does_not_return_is_ready
 // ────────────────────────────────────────────────────────────────────
 
-describe("usePython — rewrite of test_use_python_does_not_return_is_ready", () => {
+describe("usePython, rewrite of test_use_python_does_not_return_is_ready", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		mockCall.mockReset();
@@ -379,14 +379,14 @@ describe("usePython — rewrite of test_use_python_does_not_return_is_ready", ()
 		cleanup();
 	});
 
-	it("returns { call } only — no isReady flag (NEW-TS-015)", () => {
+	it("returns { call } only, no isReady flag (NEW-TS-015)", () => {
 		// Compile-time: _noIsReady is `true` only when "isReady" is NOT
 		// a key of the hook's return type.  If a future refactor re-adds
 		// isReady, this const fails to compile (caught by tsc --noEmit).
 		expect(_noIsReady).toBe(true);
 
 		// Runtime: render the real hook and verify the returned object's
-		// keys are exactly ['call'] — no isReady, no other stale fields.
+		// keys are exactly ['call'], no isReady, no other stale fields.
 		const { result } = renderHook(() => usePython());
 		expect(Object.keys(result.current).sort()).toEqual(["call"]);
 		expect("isReady" in result.current).toBe(false);
@@ -397,12 +397,12 @@ describe("usePython — rewrite of test_use_python_does_not_return_is_ready", ()
 });
 
 // ────────────────────────────────────────────────────────────────────
-// 2. useSnackbar hook — returns { showSnack, clearSnack } (no Snackbar component)
+// 2. useSnackbar hook, returns { showSnack, clearSnack } (no Snackbar component)
 //    Python: implicit in TestPagesUseSharedSnackbarHook (asserts
 //    "<Snackbar" not in src and "const { showSnack } = useSnackbar()" in src).
 // ────────────────────────────────────────────────────────────────────
 
-describe("useSnackbar — rewrite (DX-013: no Snackbar component returned)", () => {
+describe("useSnackbar, rewrite (DX-013: no Snackbar component returned)", () => {
 	afterEach(() => {
 		cleanup();
 		toastMock.success.mockClear();
@@ -418,7 +418,7 @@ describe("useSnackbar — rewrite (DX-013: no Snackbar component returned)", () 
 		expect(_noSnackbarComponent).toBe(true);
 
 		// Runtime: render the real hook and verify the returned object's
-		// keys are exactly ['clearSnack', 'showSnack'] — no Snackbar
+		// keys are exactly ['clearSnack', 'showSnack'], no Snackbar
 		// component (which was removed in the rewrite).
 		const { result } = renderHook(() => useSnackbar());
 		expect(Object.keys(result.current).sort()).toEqual([
@@ -447,11 +447,11 @@ describe("useSnackbar — rewrite (DX-013: no Snackbar component returned)", () 
 });
 
 // ────────────────────────────────────────────────────────────────────
-// 3. Settings page — uses the shared useSnackbar hook (not inline state)
+// 3. Settings page, uses the shared useSnackbar hook (not inline state)
 //    Python: TestPagesUseSharedSnackbarHook::test_settings_uses_shared_hook
 // ────────────────────────────────────────────────────────────────────
 
-describe("Settings — rewrite of test_settings_uses_shared_hook", () => {
+describe("Settings, rewrite of test_settings_uses_shared_hook", () => {
 	let originalWindow_: unknown;
 
 	beforeEach(() => {
@@ -495,7 +495,7 @@ describe("Settings — rewrite of test_settings_uses_shared_hook", () => {
 
 	it("calls showSnack via the shared useSnackbar hook when 'Open Log Folder' succeeds (delegates to sonner.toast.success, not inline state)", async () => {
 		const { default: SettingsPage } = await import("@/pages/Settings");
-		// Mount the Advanced section page directly (hub IA — the
+		// Mount the Advanced section page directly (hub IA, the
 		// Troubleshooting section that contains the "Open Log Folder"
 		// button lives on settingsAdvanced). The button's accessible
 		// name is its aria-label
@@ -510,7 +510,7 @@ describe("Settings — rewrite of test_settings_uses_shared_hook", () => {
 		fireEvent.click(openLogBtn);
 
 		// TroubleshootingSettingsSection's handleOpenLogs awaits
-		// window.window_.openLogs(), then — on success — calls
+		// window.window_.openLogs(), then, on success, calls
 		// showSnack(t("settings.logFolderOpened"), "success"). Because
 		// useSnackbar delegates to sonner, this surfaces as a
 		// toast.success call. If the section had inline snackbar state
@@ -523,11 +523,11 @@ describe("Settings — rewrite of test_settings_uses_shared_hook", () => {
 });
 
 // ────────────────────────────────────────────────────────────────────
-// 4. Microphone page — uses the shared useSnackbar hook (not inline JSX)
+// 4. Microphone page, uses the shared useSnackbar hook (not inline JSX)
 //    Python: TestPagesUseSharedSnackbarHook::test_microphone_uses_shared_snackbar_hook
 // ────────────────────────────────────────────────────────────────────
 
-describe("Microphone — rewrite of test_microphone_uses_shared_snackbar_hook", () => {
+describe("Microphone, rewrite of test_microphone_uses_shared_snackbar_hook", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		mockCall.mockReset();
@@ -554,7 +554,7 @@ describe("Microphone — rewrite of test_microphone_uses_shared_snackbar_hook", 
 			if (type === "get_config")
 				// Grant voice-biometric consent so the page's point-of-use
 				// consent gate (Microphone.tsx startTest) does NOT intercept
-				// the click — otherwise the dialog opens instead of the
+				// the click, otherwise the dialog opens instead of the
 				// mic-test IPC, and the failure snack never fires.
 				return Promise.resolve({
 					...baseConfig,
@@ -585,18 +585,18 @@ describe("Microphone — rewrite of test_microphone_uses_shared_snackbar_hook", 
 
 	it("calls showSnack via the shared useSnackbar hook when the mic test fails (delegates to sonner.toast.error, not inline JSX)", async () => {
 		const { default: MicrophonePage } = await import("@/pages/Microphone");
-		// The mic-test card renders InfoTooltips (quality selector) — the
+		// The mic-test card renders InfoTooltips (quality selector), the
 		// page must mount inside the provider, exactly as App.tsx wraps it.
 		renderWithProviders(<MicrophonePage />);
 
-		// Wait for the page to load — the "Start Test" button renders
+		// Wait for the page to load, the "Start Test" button renders
 		// once get_config + get_microphones resolve and the loading
 		// spinner is replaced by the active-mic card.
 		const startTestBtn = await waitFor(() =>
 			screen.getByRole("button", { name: "Start Test" }),
 		);
 
-		// Click "Start Test" — the handler calls microphone_test_start,
+		// Click "Start Test", the handler calls microphone_test_start,
 		// which our mock resolves with { success: false, message: ... },
 		// triggering showSnack(message, "error").
 		fireEvent.click(startTestBtn);
@@ -611,11 +611,11 @@ describe("Microphone — rewrite of test_microphone_uses_shared_snackbar_hook", 
 });
 
 // ────────────────────────────────────────────────────────────────────
-// 5. App — does not destructure isReady from usePython()
+// 5. App, does not destructure isReady from usePython()
 //    Python: TestUsePythonOmitsMisleadingIsReadyFlag::test_app_does_not_use_is_ready
 // ────────────────────────────────────────────────────────────────────
 
-describe("App — rewrite of test_app_does_not_use_is_ready", () => {
+describe("App, rewrite of test_app_does_not_use_is_ready", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		mockCall.mockReset();
@@ -638,7 +638,7 @@ describe("App — rewrite of test_app_does_not_use_is_ready", () => {
 		// If App destructured `isReady` from usePython() and gated
 		//rendering on it (the pre- pattern), the gate would
 		// see `isReady === undefined` (since the hook no longer returns
-		// it) and bail out — no child page would render.  By verifying
+		// it) and bail out, no child page would render.  By verifying
 		// the home-page stub renders, we prove App doesn't gate on
 		// isReady.
 		const { default: App } = await import("@/App");
@@ -651,12 +651,12 @@ describe("App — rewrite of test_app_does_not_use_is_ready", () => {
 });
 
 // ────────────────────────────────────────────────────────────────────
-// 6. App — handles all 6 RecordingState values without crashing (no unvalidated cast)
+// 6. App, handles all 6 RecordingState values without crashing (no unvalidated cast)
 //    Python: TestAppValidatesRecordingStateBeforeCast::test_no_unvalidated_as_recording_state_cast
 //            TestAppValidatesRecordingStateBeforeCast::test_runtime_validator_exists
 // ────────────────────────────────────────────────────────────────────
 
-describe("App recording state — rewrite of test_no_unvalidated_as_recording_state_cast + test_runtime_validator_exists", () => {
+describe("App recording state, rewrite of test_no_unvalidated_as_recording_state_cast + test_runtime_validator_exists", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		mockCall.mockReset();
@@ -680,7 +680,7 @@ describe("App recording state — rewrite of test_no_unvalidated_as_recording_st
 	// in useConnection.ts (module-private), where it filters unknown
 	// status_change payloads before they reach the store.  App consumes
 	// the already-typed RecordingState value from the store and renders
-	// the matching a11y announcement — no cast needed.
+	// the matching a11y announcement, no cast needed.
 	//
 	// The behavioral test below verifies App handles every backend-emitted
 	// state without crashing AND renders the correct announcement.  If a

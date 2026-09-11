@@ -109,11 +109,11 @@ def should_reject_low_audio_hallucination(
     # emitted by the decoder within the first ~1s of audio (Whisper's
     # attention window produces a single spurious token cluster that
     # resolves quickly), but on medium-length silences (1-10s) the
-    # decoder still produces the same spurious tokens — Whisper has no
+    # decoder still produces the same spurious tokens. Whisper has no
     # "time-aware" mechanism that would suppress them just because more
     # silence elapsed. A deliberate quiet utterance like "thank you"
     # or "bye" is usually ≥0.5s and recorded with rms > 0.005 (well
-    # above the 0.01 threshold) — so even at 6-10s of medium silence,
+    # above the 0.01 threshold), so even at 6-10s of medium silence,
     # the rms < 0.01 gate is the authoritative signal: a real quiet
     # utterance at that duration cannot have rms < 0.01 (it would be
     # essentially inaudible, ~-40 dBFS, well below any microphone's
@@ -124,7 +124,7 @@ def should_reject_low_audio_hallucination(
     # the 1-10s portion of that gap. The 10-30s range remains Tier 2's
     # jurisdiction (Tier 2 adds segment-span and silence_pct corroboration
     # for the longer window). When ``duration`` is None (QwenEngine
-    # simple path — no segment timing), keep the existing behavior; the
+    # simple path, no segment timing), keep the existing behavior; the
     # silence_pct corroboration (>= 95%) remains the backstop.
     if rms < 0.01 and (silence_pct is None or silence_pct >= 95.0) and (duration is None or duration < 10.0):
         return True

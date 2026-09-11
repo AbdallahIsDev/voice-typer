@@ -1,5 +1,5 @@
 """DJ-37: ``ElapsedTimer`` uses a single worker thread per recording
-session (was a self-rescheduling ``threading.Timer`` chain — one Timer
+session (was a self-rescheduling ``threading.Timer`` chain, one Timer
 per second of recording).
 
 Context: pre-DJ-37, ``ElapsedTimer.start()`` scheduled a
@@ -8,19 +8,19 @@ Context: pre-DJ-37, ``ElapsedTimer.start()`` scheduled a
 objects created + cancelled, each going through
 ``threading.Thread.__init__`` + ``_start_new_thread`` + the C-level
 timer heap. DJ-37 replaces the chain with ONE daemon worker thread
-that loops on ``Event.wait(1.0)`` for the entire session — one futex
+that loops on ``Event.wait(1.0)`` for the entire session, one futex
 syscall per tick, no per-tick thread allocation.
 
 These tests pin the contract:
 
 1. A single recording session uses exactly ONE worker thread (the
    ``set_timer_ref`` callback is called once with the worker + once
-   with None on cancel — NOT once per tick).
+   with None on cancel. NOT once per tick).
 2. The worker's name is ``tray-elapsed-timer`` (so it's identifiable
    in thread dumps / py-spy).
 3. ``cancel()`` joins the worker so it's no longer alive afterwards.
 4. ``start()`` called twice (rapid RECORDING → RECORDING transition)
-   cancels the prior worker — no leak.
+   cancels the prior worker, no leak.
 5. No ``threading.Timer`` is constructed during the session (the
    implementation must not regress to the self-rescheduling chain).
 """
@@ -57,7 +57,7 @@ class TestElapsedTimerSingleThread:
             while len(ticks) < 3 and time.monotonic() < deadline:
                 time.sleep(0.05)
             assert len(ticks) >= 3, (
-                f"Expected at least 3 ticks in 5s, got {len(ticks)} — worker thread may not be ticking"
+                f"Expected at least 3 ticks in 5s, got {len(ticks)}, worker thread may not be ticking"
             )
 
             # During the session, set_timer_ref is called exactly ONCE
@@ -82,7 +82,7 @@ class TestElapsedTimerSingleThread:
 
     def test_cancel_joins_worker(self):
         """``cancel()`` joins the worker thread so it's no longer alive
-        afterwards — the next ``start()`` can't race with a dying worker."""
+        afterwards, the next ``start()`` can't race with a dying worker."""
         active = threading.Event()
         active.set()
         timer = ElapsedTimer(
@@ -101,7 +101,7 @@ class TestElapsedTimerSingleThread:
         assert timer._worker is None, "Internal _worker reference should be cleared after cancel()"
 
     def test_restart_cancels_prior_worker(self):
-        """``start()`` called twice cancels the prior worker — no leak
+        """``start()`` called twice cancels the prior worker, no leak
         (rapid RECORDING → RECORDING transitions don't accumulate threads)."""
         active = threading.Event()
         active.set()
@@ -119,14 +119,14 @@ class TestElapsedTimerSingleThread:
         assert second_worker is not None
         assert second_worker is not first_worker, "Restart should create a NEW worker thread, not reuse the prior one"
         # The first worker should be dead (cancel()-joined by start()).
-        assert not first_worker.is_alive(), "Prior worker should be joined (dead) after restart — no leak"
+        assert not first_worker.is_alive(), "Prior worker should be joined (dead) after restart, no leak"
 
         timer.cancel()
         assert not second_worker.is_alive()
 
     def test_no_threading_timer_constructed(self, monkeypatch):
         """No ``threading.Timer`` instances are created during the
-        session — the implementation must not regress to the
+        session, the implementation must not regress to the
         self-rescheduling Timer chain (DJ-37)."""
         # Wrap threading.Timer to track construction.
         real_timer = threading.Timer
@@ -163,7 +163,7 @@ class TestElapsedTimerSingleThread:
 
     def test_is_active_false_exits_worker(self):
         """When ``is_active()`` returns False mid-session (e.g. state
-        changed away from RECORDING), the worker exits cleanly — no
+        changed away from RECORDING), the worker exits cleanly, no
         need for an explicit ``cancel()``."""
         active = threading.Event()
         active.set()
@@ -176,7 +176,7 @@ class TestElapsedTimerSingleThread:
         worker = timer._worker
         assert worker is not None and worker.is_alive()
 
-        # Flip is_active to False — the worker's next-tick check exits.
+        # Flip is_active to False, the worker's next-tick check exits.
         active.clear()
         # Wait up to 2s for the worker to notice + exit on its own.
         deadline = time.monotonic() + 2.0

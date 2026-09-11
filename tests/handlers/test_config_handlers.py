@@ -3,9 +3,9 @@
 Covers the 3 config IPC handlers defined in
 ``voice_typer/server/handlers/config_handlers.py``:
 
-- ``_handle_get_config`` — returns ``{type: config, data: <sanitized>}``.
-- ``_handle_get_defaults`` — returns ``{type: defaults, data: <defaults>}``.
-- ``_handle_set_config`` — validates, applies, returns ``{type: ack}``
+- ``_handle_get_config``, returns ``{type: config, data: <sanitized>}``.
+- ``_handle_get_defaults``, returns ``{type: defaults, data: <defaults>}``.
+- ``_handle_set_config``, validates, applies, returns ``{type: ack}``
   with optional ``data: {accepted, rejected}`` for unknown keys.
 
 The set_config handler is the most complex: it rejects non-dict
@@ -21,13 +21,13 @@ import logging
 
 
 class TestGetConfig:
-    """``_handle_get_config`` — returns sanitized config view."""
+    """``_handle_get_config``, returns sanitized config view."""
 
     def test_happy_path_returns_config_type(self, ipc_server, fake_service):
         """Valid call → ``{type: config, data: <service.get_config() output>}``.
 
         SEC-003: the service layer is responsible for redacting secret
-        fields (api keys etc.) — the handler just passes the sanitized
+        fields (api keys etc.), the handler just passes the sanitized
         dict through.  We assert the handler doesn't add or strip any
         keys.
         """
@@ -49,7 +49,7 @@ class TestGetConfig:
 
 
 class TestGetDefaults:
-    """``_handle_get_defaults`` — returns the default Config() values."""
+    """``_handle_get_defaults``, returns the default Config() values."""
 
     def test_happy_path_returns_defaults_type(self, ipc_server, fake_service):
         fake_service.get_defaults.return_value = {"hotkey": "<f2>", "model_size": "tiny"}
@@ -70,13 +70,13 @@ class TestGetDefaults:
 
 
 class TestSetConfig:
-    """``_handle_set_config`` — validate, apply, return ack."""
+    """``_handle_set_config``, validate, apply, return ack."""
 
     def test_non_dict_payload_returns_error(self, ipc_server):
         """NEW-IPC-005: non-dict ``data`` → explicit error (not silent no-op).
 
         Pre-fix, a list/string/None payload silently skipped the
-        setattr block but still returned ``{type: ack}`` — the worst
+        setattr block but still returned ``{type: ack}``, the worst
         IPC failure mode (silent success on bad input).
         """
         resp = ipc_server._handle_set_config(["not", "a", "dict"], {})
@@ -143,7 +143,7 @@ class TestSetConfig:
 
     def test_change_model_failure_does_not_abort_set_config(self, ipc_server, fake_app, fake_service):
         """If ``service.change_model()`` raises, the handler logs and
-        continues — set_config must still apply the rest of the payload
+        continues, set_config must still apply the rest of the payload
         and return ack.
 
         A failure to swap the active engine shouldn't lose the user's
@@ -153,7 +153,7 @@ class TestSetConfig:
         fake_app.config.model_size = "tiny"
         fake_service.change_model.side_effect = RuntimeError("engine busy")
         resp = ipc_server._handle_set_config({"model_size": "large-v3-turbo"}, {})
-        # Still ack — the model swap failure is non-fatal.
+        # Still ack, the model swap failure is non-fatal.
         assert resp["type"] == "ack"
         # The rest of the payload was still applied.
         fake_service.apply_config.assert_called_once()
@@ -173,7 +173,7 @@ class TestFailedModelConfigNotPersisted:
 
     def test_change_model_failure_drops_model_size_from_apply_config(self, ipc_server, fake_app, fake_service):
         """When ``change_model`` raises, ``apply_config`` must NOT
-        receive ``model_size`` — otherwise the failed value is written
+        receive ``model_size``, otherwise the failed value is written
         to config.json, leaving on-disk state pointing at a model the
         running engine refused to load."""
         fake_app.config.model_size = "tiny"
@@ -192,7 +192,7 @@ class TestFailedModelConfigNotPersisted:
 
     def test_change_model_failure_drops_model_size_from_applied_list(self, ipc_server, fake_app, fake_service):
         """The ``applied`` list echoed in the partial-success envelope
-        must NOT contain a key whose swap failed — otherwise the
+        must NOT contain a key whose swap failed, otherwise the
         envelope contradicts itself (``model_errors`` says it failed,
         ``applied`` says it succeeded)."""
         fake_app.config.model_size = "tiny"
@@ -244,7 +244,7 @@ class TestFailedModelConfigNotPersisted:
 
     def test_config_changed_event_excludes_failed_keys(self, ipc_server, fake_app, fake_service, monkeypatch):
         """DE-6: the ``config_changed`` event published to the
-        renderer must NOT carry the failed model value — otherwise the
+        renderer must NOT carry the failed model value, otherwise the
         renderer mirrors the stale value into its local config state
         (UI shows "model: medium" while the running engine is still
         on "small")."""
@@ -280,7 +280,7 @@ class TestMissingConfigLockWarning:
     def test_missing_lock_emits_warning(self, ipc_server, fake_app, caplog):
         """First call with no lock → WARNING in the log."""
         # Ensure the fake app has no ``_config_mutation_lock`` attribute
-        # (MagicMock auto-vivifies — explicitly delete it).
+        # (MagicMock auto-vivifies, explicitly delete it).
         if hasattr(fake_app, "_config_mutation_lock"):
             del fake_app._config_mutation_lock
         # Reset the module-level "warned once" flag so this test is

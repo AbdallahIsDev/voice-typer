@@ -7,11 +7,11 @@ raises ``PermissionError`` (a subclass of ``OSError``) after ~10s
 timeout when the lock cannot be acquired. The suppress silently
 swallowed this and returned the fd as if the lock had been acquired.
 Two app instances could both pass and clobber each other's
-``config.json`` write — with no trace in logs.
+``config.json`` write, with no trace in logs.
 
 Fix: replace the ``contextlib.suppress`` with an explicit
 ``try: msvcrt.locking(...); except OSError: log.warning(...)``.
-The fd is still returned (fail-open stance preserved — the caller
+The fd is still returned (fail-open stance preserved, the caller
 ``migrate_secrets_to_keyring`` already handles the
 ``lock_fd is None`` case separately), but the failure is now
 VISIBLE in logs so a subsequent race condition is diagnosable.
@@ -22,7 +22,7 @@ Platform note
 These tests run on Linux by mocking ``msvcrt`` in ``sys.modules``
 and forcing ``_is_windows()`` to return ``True`` so the Windows
 code path is exercised. The POSIX branch (``fcntl.flock``) is
-unchanged — it blocks indefinitely and never raises, so the
+unchanged, it blocks indefinitely and never raises, so the
 ``contextlib.suppress`` is harmless there and is not tested here.
 """
 
@@ -80,7 +80,7 @@ class TestWindowsMigrationLockTimeout:
 
         Previously the timeout was swallowed by
         ``contextlib.suppress(OSError)`` and the fd was returned
-        silently — two app instances could both pass and clobber each
+        silently, two app instances could both pass and clobber each
         other's ``config.json`` write with no trace in logs.
         """
         # Force the Windows branch.
@@ -98,7 +98,7 @@ class TestWindowsMigrationLockTimeout:
         # Fail-open: fd is returned (NOT None, NOT raised).
         assert returned is not None, (
             "Regression: _acquire_migration_lock returned None on "
-            "Windows lock timeout — the fail-open contract is to "
+            "Windows lock timeout, the fail-open contract is to "
             "return the fd so the caller's finally: lock_fd.close() "
             "works; the caller (migrate_secrets_to_keyring) only "
             "checks for exceptions, not for lock validity."
@@ -107,14 +107,14 @@ class TestWindowsMigrationLockTimeout:
         warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
         assert warnings, (
             "Regression: _acquire_migration_lock swallowed the Windows "
-            "msvcrt.locking timeout silently — no WARNING was logged. "
+            "msvcrt.locking timeout silently, no WARNING was logged. "
             "Two app instances could both pass and clobber each other's "
             "config.json write with no trace in logs."
         )
         joined = " ".join(r.getMessage() for r in warnings)
         assert "Windows migration lock acquire timed out" in joined, (
             "Regression: warning was logged but did not mention the "
-            "timeout — expected 'Windows migration lock acquire timed "
+            "timeout, expected 'Windows migration lock acquire timed "
             f"out' in message. Got: {joined!r}"
         )
         with contextlib.suppress(OSError):
@@ -202,7 +202,7 @@ class TestWindowsMigrationLockTimeout:
 
     def test_timeout_warning_visible_through_migrate(self, tmp_path, monkeypatch, caplog):
         """End-to-end: ``migrate_secrets_to_keyring`` must still
-        complete (fail-open) when the Windows lock times out — the
+        complete (fail-open) when the Windows lock times out, the
         warning is the only observable effect at this layer.
 
         This guards against a future refactor that catches the warning
@@ -224,10 +224,10 @@ class TestWindowsMigrationLockTimeout:
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.credential_store"):
             count = credential_store.migrate_secrets_to_keyring()
 
-        # Migration completes (fail-open) — no exception, count is 0
+        # Migration completes (fail-open), no exception, count is 0
         # because secrets_migrated was already True.
         assert count == 0, (
-            f"migrate_secrets_to_keyring returned {count} — expected 0 "
+            f"migrate_secrets_to_keyring returned {count}, expected 0 "
             "since secrets_migrated was already True. The function must "
             "still complete when the Windows lock times out."
         )
@@ -240,14 +240,14 @@ class TestWindowsMigrationLockTimeout:
 
 class TestPosixBranchUnchanged:
     """Sanity-check that the POSIX branch (``fcntl.flock``) is
-    unchanged — it must NOT emit a warning when the lock is acquired
+    unchanged, it must NOT emit a warning when the lock is acquired
     successfully. This guards against the fix accidentally applying
     to both branches."""
 
     def test_posix_success_no_warning(self, tmp_path, monkeypatch, caplog):
         """On POSIX (the test host), ``fcntl.flock`` succeeds without
-        raising — no warning should be logged."""
-        # _is_windows() returns False on Linux by default — no patch.
+        raising, no warning should be logged."""
+        # _is_windows() returns False on Linux by default, no patch.
         lock_file = tmp_path / "config.json.lock"
 
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.credential_store"):
@@ -269,7 +269,7 @@ class TestLockAbortDefersRetry:
     """BP-131: a lock-acquire failure must DEFER migration, not mark it done.
 
     Pre-fix, the abort branch wrote ``secrets_migrated=True`` while
-    logging "the next launch will retry" — the retry gate then skipped
+    logging "the next launch will retry", the retry gate then skipped
     migration forever and plaintext keys persisted with zero
     diagnostic. Post-fix the abort records the
     ``secrets_migrated_keyring_was_unavailable`` deferral diagnostic

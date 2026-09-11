@@ -1,5 +1,5 @@
 /**
- * History page — date-grouped list integration.
+ * History page, date-grouped list integration.
  *
  * Pins the page-level contract of the grouped list revamp:
  *   - chronological sorts (newest/oldest) render grouped sections;
@@ -132,7 +132,7 @@ describe("History date-grouped list", () => {
 		expect(screen.getByText("entry 3")).toBeTruthy();
 	});
 
-	it("does NOT group for the alphabetical sorts (az) — flat list", async () => {
+	it("does NOT group for the alphabetical sorts (az), flat list", async () => {
 		const user = userEvent.setup();
 		mockCall.mockImplementation((type: string) => {
 			if (type === "get_history")
@@ -222,7 +222,7 @@ describe("History date-grouped list", () => {
 			expect(screen.getByText("entry 1")).toBeTruthy();
 		});
 
-		// Label left, freshness right — one row, no orphaned
+		// Label left, freshness right, one row, no orphaned
 		// full-width indicator row.
 		const label = screen.getByText(t("home.recentActivity"));
 		const indicator = screen.getByTestId("last-updated-indicator");
@@ -230,7 +230,7 @@ describe("History date-grouped list", () => {
 		expect(label.parentElement?.className).toContain("justify-between");
 
 		// The label row is grouped WITH the list card in a tight-gap
-		// section wrapper — not a loose sibling under the page's
+		// section wrapper, not a loose sibling under the page's
 		// wide gap-6 rhythm (that stacking doubled the space above
 		// the card).
 		const section = label.parentElement?.parentElement;

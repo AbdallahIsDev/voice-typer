@@ -64,7 +64,7 @@ def _patch_select_not_writable() -> tuple[patch, MagicMock]:
 
 def test_send_calls_select_before_sendall() -> None:
     """``_send`` must call ``select.select([], [conn], [], timeout)``
-    BEFORE ``sendall`` — the select establishes write-readiness so the
+    BEFORE ``sendall``, the select establishes write-readiness so the
     subsequent ``sendall`` won't block indefinitely on a stalled
     renderer (NEW-CONC-003)."""
     server = _make_server()
@@ -115,7 +115,7 @@ def test_send_calls_select_before_sendall() -> None:
 
 def test_send_does_not_call_gettimeout_or_settimeout() -> None:
     """``_send`` must NOT call ``gettimeout`` or ``settimeout`` on the
-    socket — the select-based approach never mutates the socket's timeout
+    socket, the select-based approach never mutates the socket's timeout
     attribute, eliminating the 4-5 syscall per-write dance."""
     server = _make_server()
     tcp_client = make_buffered_mock_tcp_client()
@@ -171,10 +171,10 @@ def test_send_handles_timeout_when_select_returns_empty() -> None:
     patch_obj, _mock_mod = _patch_select_not_writable()
     with patch_obj:
         # _send catches the socket.timeout internally and marks the client
-        # dead — it does NOT re-raise to the caller.
+        # dead, it does NOT re-raise to the caller.
         server._send({"type": "test_event", "id": 1})
 
-    # sendall must NOT have been called — select said not writable, so
+    # sendall must NOT have been called, select said not writable, so
     # the write path was never reached.
     tcp_client.conn.sendall.assert_not_called()
 

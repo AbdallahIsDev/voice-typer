@@ -2,16 +2,16 @@
 
 Three fixes live here (each mirrors one observation from the incident):
 
-1. ``relaunch_ack`` INLINE fast-path in ``_read_loop`` — the host's ack
+1. ``relaunch_ack`` INLINE fast-path in ``_read_loop``, the host's ack
    used to be routed through the dispatch closure (rate limiter +
    ``ws_dispatch_pool`` executor round-trip) and raced the sidecar's
    0.5 s ``wait_for_relaunch_ack`` timeout, producing a double-restart.
-2. ``run()`` clean stop — ``ws_graceful_shutdown`` stops the asyncio
+2. ``run()`` clean stop: ``ws_graceful_shutdown`` stops the asyncio
    loop via ``loop.stop()`` while ``_main``'s ``await asyncio.Future()``
    is pending; asyncio.run raises "Event loop stopped before Future
    completed". That is the DESIGNED stop path and must log INFO +
    return 0, not an ERROR traceback + exit 1.
-3. ``_ws_graceful_stop_requested`` flag — set by
+3. ``_ws_graceful_stop_requested`` flag, set by
    ``ws_graceful_shutdown`` before scheduling ``loop.stop``, read by
    ``_is_graceful_loop_stop``.
 """
@@ -55,14 +55,14 @@ class _FrameIterableWebsocket:
 
 @pytest.mark.asyncio
 async def test_relaunch_ack_sets_event_inline_without_dispatch() -> None:
-    """``relaunch_ack`` must set ``_relaunch_ack_event`` INLINE — never
+    """``relaunch_ack`` must set ``_relaunch_ack_event`` INLINE, never
     reach the dispatch closure (that pool round-trip is what raced the
     0.5 s timeout in the postmortem)."""
     event = threading.Event()
     server = SimpleNamespace(_relaunch_ack_event=event)
     dispatch_calls: list[dict] = []
 
-    async def dispatch(msg, websocket):  # pragma: no cover — must NOT run
+    async def dispatch(msg, websocket):  # pragma: no cover, must NOT run
         dispatch_calls.append(msg)
         return None
 
@@ -76,7 +76,7 @@ async def test_relaunch_ack_sets_event_inline_without_dispatch() -> None:
         "(executor round-trip raced the 0.5s ack timeout in the tray-"
         "Restart postmortem)"
     )
-    assert ws.sent == [], "relaunch_ack is fire-and-forget — no response frame"
+    assert ws.sent == [], "relaunch_ack is fire-and-forget, no response frame"
 
 
 @pytest.mark.asyncio
@@ -103,7 +103,7 @@ async def test_other_frames_still_go_through_dispatch() -> None:
 
 def test_is_graceful_loop_stop_classification() -> None:
     """``_is_graceful_loop_stop`` requires BOTH the shutdown flag AND
-    the canonical asyncio message — any other RuntimeError (or an
+    the canonical asyncio message, any other RuntimeError (or an
     unrequested loop stop) stays fatal."""
     exc = RuntimeError("Event loop stopped before Future completed.")
 
@@ -120,7 +120,7 @@ def test_is_graceful_loop_stop_classification() -> None:
 
 def test_ws_graceful_shutdown_sets_stop_requested_flag() -> None:
     """``ws_graceful_shutdown`` must set ``_ws_graceful_stop_requested``
-    BEFORE scheduling ``loop.stop()`` — ``run()`` keys its clean-exit
+    BEFORE scheduling ``loop.stop()``: ``run()`` keys its clean-exit
     classification on this flag. (``_ws_loop=None`` exercises the
     no-loop branch; the flag is set unconditionally before the loop
     checks, which is exactly the contract ``run()`` relies on when the

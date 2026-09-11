@@ -30,7 +30,7 @@ import { PythonIpcError } from "./errors";
  * Outbound replay queue for transient TCP disconnects.
  *
  * When ``state.tcpSocket`` is null AND the app has connected before
- * (``state._hadConnectedBefore === true`` — i.e. a transient blip, not
+ * (``state._hadConnectedBefore === true``, i.e. a transient blip, not
  * initial startup), idempotent commands are pushed here instead of
  * being rejected outright. On reconnect, ``flushPendingOutbound``
  * drains the queue in FIFO order, re-invoking ``sendToPython`` for
@@ -38,7 +38,7 @@ import { PythonIpcError } from "./errors";
  * original caller's ``resolve`` / ``reject``.
  *
  * Non-idempotent commands (e.g. ``toggle_dictation``) are still
- * rejected immediately when the socket is null — replaying them after
+ * rejected immediately when the socket is null, replaying them after
  * a disconnect risks double-execution (the Python side may have
  * already processed the original write before the socket dropped, so
  * replaying would start/stop a second recording).
@@ -46,7 +46,7 @@ import { PythonIpcError } from "./errors";
  * The queue is bounded to ``_MAX_PENDING_OUTBOUND`` entries. When the
  * bound is hit, the NEW idempotent request is rejected with the same
  * "Python backend is not connected" error rather than dropping a
- * queued entry — the oldest queued entries are the most likely to
+ * queued entry, the oldest queued entries are the most likely to
  * still be relevant (they were queued first and have been waiting
  * longest), so we preserve them and shed load at the new edge.
  *
@@ -75,7 +75,7 @@ interface PendingOutboundEntry {
 	//       (a renderer that flooded idempotent commands during a
 	//       disconnect cannot bypass its budget on flush), and
 	//   (b) the renderer-vs-internal allowlist split keeps its
-	//       renderer context — a queued `heartbeat` (idempotent AND
+	//       renderer context, a queued `heartbeat` (idempotent AND
 	//       internal-only) is rejected on replay for a renderer
 	//       sender, exactly as it would have been rejected if the
 	//       socket had been live. Main-process callers (senderId
@@ -114,7 +114,7 @@ const _pendingOutbound: PendingOutboundEntry[] = [];
  *
  * If a re-sent entry is rejected (e.g. allowlist drift, rate limit,
  * MAX_PENDING_REQUESTS cap), the original caller's ``reject`` is
- * invoked with the same error — the queue does not swallow failures.
+ * invoked with the same error, the queue does not swallow failures.
  */
 export function flushPendingOutbound(): void {
 	if (_pendingOutbound.length === 0) {
@@ -130,7 +130,7 @@ export function flushPendingOutbound(): void {
 		// Use .then(fulfill, reject) so the original resolve/reject
 		// is invoked exactly once. The entry's captured `senderId`
 		// is passed through so replayed commands keep their original
-		// sender identity — the per-renderer rate limit and the
+		// sender identity, the per-renderer rate limit and the
 		// renderer-vs-internal allowlist split both apply to the
 		// replay, matching how the command would have been treated
 		// if the socket had never dropped.
@@ -141,7 +141,7 @@ export function flushPendingOutbound(): void {
 /**
  * Reject every queued entry with the given reason. Called from
  * ``tcp/close-handler.ts``'s close handler when ``state._relaunching``
- * is true (the process is about to exit — queued calls would never be
+ * is true (the process is about to exit, queued calls would never be
  * flushed) and from tests for isolation.
  *
  * The rejection is a typed ``PythonIpcError("command_failed", reason)``:
@@ -165,7 +165,7 @@ export function resetPendingOutbound(reason: string): void {
 
 /**
  * Test-only accessor for the queue length. Underscore-prefixed to
- * signal "internal/test-only" — mirrors the existing
+ * signal "internal/test-only", mirrors the existing
  * ``_LONG_RUNNING_COMMANDS_FOR_TEST`` convention.
  */
 export const _pendingOutboundLengthForTest = (): number =>
@@ -177,7 +177,7 @@ export const _pendingOutboundLengthForTest = (): number =>
  * budget. A renderer that fires `python-call` faster than
  * `RATE_LIMIT_MAX_CALLS` per `RATE_LIMIT_WINDOW_MS` is rejected
  * with a structured error before the message ever reaches the TCP
- * socket — preventing both unbounded `pendingRequests` growth and
+ * socket, preventing both unbounded `pendingRequests` growth and
  * backend-side overload.
  *
  * `null` key (used by main-process-internal callers that don't have
@@ -206,11 +206,11 @@ function _rendererRateLimited(senderId: number | null): boolean {
 
 /**
  * Reset the per-renderer rate-limit state. Called from `stopPython()`
- * and `relaunchApp()` (production callers — ) to give a freshly-
+ * and `relaunchApp()` (production callers, ) to give a freshly-
  * booted backend a clean slate, and from tests to isolate cases.
  *
  * : previously named `_resetIpcBackpressureForTests` (the `ForTests`
- * suffix was misleading — the docstring claimed production callers but
+ * suffix was misleading, the docstring claimed production callers but
  * grep showed none). The Map was never cleared, so each destroyed
  * BrowserWindow leaked its `webContents.id` entry forever. Renaming to
  * `_resetIpcBackpressure` (still `_`-prefixed to signal "internal") and
@@ -228,10 +228,10 @@ export function _resetIpcBackpressure(): void {
  * `_rendererCallTimestamps` Map doesn't leak one entry per destroyed
  * BrowserWindow.
  *
- * Safe to call with an id that has no entry (no-op — `Map.delete` on
+ * Safe to call with an id that has no entry (no-op, `Map.delete` on
  * a missing key returns `false` and doesn't throw).
  *
- * Underscore-prefixed to signal "internal" — matches the existing
+ * Underscore-prefixed to signal "internal", matches the existing
  * `_resetIpcBackpressure` convention. Exported because the call site
  * lives in `windows/main-window.ts`.
  */
@@ -258,7 +258,7 @@ export function _removeRendererFromBackpressure(webContentsId: number): void {
  *     (the ASR engine is invoked synchronously inside the
  *     `recording_controller` pipeline, not as a separate IPC command).
  *
- * The 3 stale entries were dead — `_isLongRunningCommand(cmd)` always
+ * The 3 stale entries were dead, `_isLongRunningCommand(cmd)` always
  * returned `false` for them because the `ALLOWED_COMMANDS` gate at the
  * top of `sendToPython` rejected them BEFORE the timeout lookup ran
  * (`cmd` would never match a Set entry that doesn't exist in the
@@ -288,7 +288,7 @@ const _LONG_RUNNING_COMMANDS: ReadonlySet<string> = new Set([
  * Test-only export of the long-running command set so the parity
  * test (`src/main/__tests__/long-running-commands-parity.test.ts`)
  * can assert every entry is also in `ALLOWED_COMMANDS`. Underscore-
- * prefixed to signal "internal/test-only" — matching the existing
+ * prefixed to signal "internal/test-only", matching the existing
  * `_resetIpcBackpressure` convention.
  */
 export const _LONG_RUNNING_COMMANDS_FOR_TEST: ReadonlySet<string> =
@@ -302,7 +302,7 @@ function _isLongRunningCommand(cmd: string): boolean {
  * : per-command timeout overrides for commands that should
  * time out FASTER than the default 15s short timeout. These are
  * lifecycle / heartbeat commands whose handlers are documented to
- * return in well under 1s — a 15s wait for a ``heartbeat`` reply
+ * return in well under 1s, a 15s wait for a ``heartbeat`` reply
  * means the backend has been unresponsive for ~15s before the
  * renderer learns about it, which is far too long for the
  * connection-health signal that heartbeat provides.
@@ -312,14 +312,14 @@ function _isLongRunningCommand(cmd: string): boolean {
  * timeout for the specific commands listed.
  *
  * ``relaunch_ack`` is included because it's a fire-and-forget ack
- * whose reply (if any) is expected within milliseconds — the
+ * whose reply (if any) is expected within milliseconds, the
  * backend sends the ack BEFORE calling ``sys.exit(0)``, so a 5s
  * timeout is generous (PERF-005).
  */
 const _SHORT_TIMEOUT_COMMANDS: ReadonlyMap<string, number> = new Map([
-	["heartbeat", 10_000], // 10s — backend heartbeat handler is <1s
-	["quit_app", 5_000], // 5s — backend quit handler is <1s
-	["relaunch_ack", 5_000], // 5s — fire-and-forget ack
+	["heartbeat", 10_000], // 10s, backend heartbeat handler is <1s
+	["quit_app", 5_000], // 5s, backend quit handler is <1s
+	["relaunch_ack", 5_000], // 5s, fire-and-forget ack
 ]);
 
 function _commandTimeoutMs(cmd: string): number {
@@ -333,16 +333,16 @@ function _commandTimeoutMs(cmd: string): number {
 }
 
 /**
- * Internal-only IPC commands — invoked by the Electron main process
+ * Internal-only IPC commands, invoked by the Electron main process
  * itself (never reachable from the renderer's `python-call` bridge).
  *
- *   - `quit_app`         — sent by `stop-python.ts` during shutdown.
- *   - `restart_app`      — sent by `relaunch-app.ts` to trigger a
+ *   - `quit_app`        , sent by `stop-python.ts` during shutdown.
+ *   - `restart_app`     , sent by `relaunch-app.ts` to trigger a
  *                          backend restart (the main process then
  *                          relaunches itself).
- *   - `heartbeat`        — sent by `tcp-connect.ts` on the watchdog
+ *   - `heartbeat`       , sent by `tcp-connect.ts` on the watchdog
  *                          tick to prove Electron is still alive.
- *   - `relaunch_ack`     — sent by `handle-message.ts` to ack a
+ *   - `relaunch_ack`    , sent by `handle-message.ts` to ack a
  *                          `relaunch_app` request from the backend.
  *
  * All four are present in `ALLOWED_COMMANDS` because main-process
@@ -354,7 +354,7 @@ function _commandTimeoutMs(cmd: string): number {
  * command" error used by the allowlist gate. A compromised renderer
  * that constructs `{type: "quit_app"}` and invokes `python-call` would
  * otherwise be able to kill the backend or starve the heartbeat
- * watchdog — both unacceptable.
+ * watchdog, both unacceptable.
  *
  * The Set is intentionally a private literal here (not imported from
  * `allowed-commands.ts`) so that the existing vitest mocks that stub
@@ -376,7 +376,7 @@ const _INTERNAL_ONLY_COMMANDS: ReadonlySet<string> = new Set<string>([
  * Test-only export of the internal-only command set so the parity
  * test (`src/main/__tests__/renderer-internal-allowlist-split.test.ts`)
  * can assert every entry is also in `ALLOWED_COMMANDS`. Underscore-
- * prefixed to signal "internal/test-only" — matching the existing
+ * prefixed to signal "internal/test-only", matching the existing
  * `_LONG_RUNNING_COMMANDS_FOR_TEST` convention.
  */
 export const _INTERNAL_ONLY_COMMANDS_FOR_TEST: ReadonlySet<string> =
@@ -403,7 +403,7 @@ export function sendToPython(
 			// "Connecting..." indicator).
 			//
 			// Non-idempotent commands (toggle_dictation, undo_last,
-			// history mutations, etc.) are NEVER queued — the Python
+			// history mutations, etc.) are NEVER queued, the Python
 			// side may have already processed the original write before
 			// the socket dropped, so replaying would double-execute
 			// (start/stop a second recording, undo twice, etc.).
@@ -443,7 +443,7 @@ export function sendToPython(
 		// which broke tray Quit/Restart (stopPython sends `quit_app`).
 		//(fix): removed 6 dead/mismatched entries (`quit`,
 		// `restart`, `save_config`, `save_vocabulary_with_diff`,
-		// `repaste_last`, `complete_onboarding`) — none exist as server
+		// `repaste_last`, `complete_onboarding`), none exist as server
 		// IPC commands. The list now matches the server's actual command
 		// names exactly (cross-checked against ipc_server.py _dispatch).
 		//
@@ -475,7 +475,7 @@ export function sendToPython(
 		// The error message intentionally matches the allowlist
 		// gate's "Disallowed IPC command" wording so a
 		// compromised renderer cannot distinguish "not in
-		// allowlist" from "internal-only" — both look the same
+		// allowlist" from "internal-only", both look the same
 		// to the attacker, so no information about the internal
 		// command set leaks via the error string.
 		//
@@ -494,7 +494,7 @@ export function sendToPython(
 		}
 		// If a full app relaunch is in flight, reject immediately so
 		// pending IPC calls don't sit in pendingRequests until the
-		// 5s timeout — the process is about to exit anyway.
+		// 5s timeout, the process is about to exit anyway.
 		if (state._relaunching) {
 			reject(new PythonIpcError("command_failed", "Application is restarting"));
 			return;
@@ -535,7 +535,7 @@ export function sendToPython(
 		// commands (model download, model import, transcription)
 		// keep the 120s timeout because they're documented as
 		// blocking. The Python-side heartbeat watchdog is at 120s
-		// (ipc_server.py) for the same reason — both timeouts must
+		// (ipc_server.py) for the same reason, both timeouts must
 		// stay in sync for long-running commands.
 		//use the per-command timeout map so heartbeat /
 		// quit_app / relaunch_ack time out faster than the default
@@ -546,7 +546,7 @@ export function sendToPython(
 		// success and reject paths so the timer doesn't leak after
 		// a prompt reply. Previously the timer held a strong reference
 		// to `reject` (and the captured `msg`) for the full duration
-		// even after the reply arrived — handle-message.ts deletes the
+		// even after the reply arrived, handle-message.ts deletes the
 		// pendingRequests entry but never cleared the timer, so the
 		// closure stayed in the Node.js timer wheel until it fired and
 		// no-op'd the `has(id)` check. Wrapping resolve/reject here lets

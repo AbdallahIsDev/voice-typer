@@ -79,7 +79,7 @@ class TestSecretFieldsRedacted:
         If a contributor adds a new provider to
         ``PROVIDER_TO_CONFIG_FIELD`` (e.g. ``"mistral":
         "mistral_api_key"``) but forgets to wire it into
-        ``SECRET_CONFIG_FIELDS``, this test fails — preventing a
+        ``SECRET_CONFIG_FIELDS``, this test fails, preventing a
         SEC-003 regression where the new API key would be echoed in
         plaintext over the loopback IPC socket. The structural
         derivation in ``config_sanitizer`` makes the invariant
@@ -91,11 +91,11 @@ class TestSecretFieldsRedacted:
         """FR-19: every secret field must be a declared ``Config``
         dataclass field.
 
-        Defense in depth — if a typo in
+        Defense in depth, if a typo in
         ``PROVIDER_TO_CONFIG_FIELD`` (e.g. ``"openai_key"`` instead of
         ``"openai_api_key"``) produced a field name that doesn't exist
         on ``Config``, the sanitizer's ``if k in out`` guard would
-        silently skip it (no redaction would happen — but also no leak,
+        silently skip it (no redaction would happen, but also no leak,
         since the field isn't actually on the dataclass). This test
         surfaces the drift loudly so a typo doesn't slip past review.
         """
@@ -154,14 +154,14 @@ class TestMissingFieldsHandledGracefully:
         # field is present in the output. ``_FakeConfig`` declares all
         # the secret fields with defaults, so they're always present
         # after ``asdict``. The sanitizer must NOT add a phantom
-        # ``<redacted>`` entry for a key that wasn't set — it leaves
+        # ``<redacted>`` entry for a key that wasn't set, it leaves
         # the falsy default (``""`` / ``None``) in place so the
         # renderer can distinguish "no key set" from "key set but
         # hidden".
         cfg = _FakeConfig(hotkey="<f2>")  # cloud_api_key stays at ""
         result = sanitize_config_for_ipc(cfg)
         assert result["hotkey"] == "<f2>"
-        # cloud_api_key is "" (the default) — preserved as falsy, not
+        # cloud_api_key is "" (the default), preserved as falsy, not
         # synthesized as <redacted>.
         assert result["cloud_api_key"] == ""
 
@@ -174,7 +174,7 @@ class TestMissingFieldsHandledGracefully:
         # field OR the deliberate ``last_load_warnings`` exception
         # (see :func:`sanitize_config_for_ipc` docstring). The test
         # uses ``_FakeConfig`` which is a minimal stand-in without
-        # the ``last_load_warnings`` attribute — so the sanitizer's
+        # the ``last_load_warnings`` attribute, so the sanitizer's
         # ``getattr(config, "last_load_warnings", None) or []``
         # fallback fires and the key is present with value ``[]``.
         expected_keys = set(_FakeConfig.__dataclass_fields__.keys()) | {"last_load_warnings"}
@@ -189,7 +189,7 @@ class TestNoTransientAttributesLeaked:
     including private/transient ones (``_last_saved_bytes``,
     ``last_load_warnings``) that are NOT declared dataclass fields.
     Those attributes can carry filesystem paths, prior config values,
-    or schema-version details — leaking them across the IPC boundary
+    or schema-version details, leaking them across the IPC boundary
     to any local process that calls ``get_config`` is a privacy /
     security regression.
     """
@@ -258,7 +258,7 @@ class TestNoTransientAttributesLeaked:
 
     def test_does_not_leak_mutation_lock(self):
         """The ``_mutation_lock`` ClassVar (an ``RLock`` instance)
-        must NOT appear in the sanitized output — it's not JSON-
+        must NOT appear in the sanitized output, it's not JSON-
         serializable and is an internal concurrency primitive."""
         cfg = Config()
         import threading
@@ -270,7 +270,7 @@ class TestNoTransientAttributesLeaked:
     def test_output_keys_exactly_match_config_dataclass_fields(self):
         """FR-20: the output key set is EXACTLY the set of declared
         ``Config`` dataclass fields (excluding ``ClassVar`` fields,
-        which ``dataclasses.asdict`` correctly skips) — no more, no
+        which ``dataclasses.asdict`` correctly skips), no more, no
         less. This is the denylist-by-default security property: only
         fields the schema explicitly declares are allowed to leave the
         process via IPC.
@@ -295,7 +295,7 @@ class TestNoTransientAttributesLeaked:
         }
         # Belt-and-suspenders: also exclude the known ClassVar fields on
         # Config (``_mutation_lock`` and ``_SECRET_FIELD_NAMES_FALLBACK``)
-        # — both are ``ClassVar[...]`` and ``dataclasses.asdict``
+        # , both are ``ClassVar[...]`` and ``dataclasses.asdict``
         # correctly excludes them.
         expected_keys.discard("_mutation_lock")
         expected_keys.discard("_SECRET_FIELD_NAMES_FALLBACK")
@@ -465,7 +465,7 @@ class TestHistoryEnabledField:
 
     def test_set_config_history_enabled_rejects_non_bool(self):
         """FR-28: the validator must reject non-bool values (e.g.
-        int, string) — defense in depth against a renderer bug that
+        int, string), defense in depth against a renderer bug that
         sends ``history_enabled: 1`` or ``history_enabled: "true"``."""
         from tests.fixtures.ipc_test_helpers import make_ipc_server_with_fakes
 
@@ -491,7 +491,7 @@ class TestDeadBranchesRemoved:
 
     These were dead because:
       - ``volume_duck_smart`` was removed from the Config dataclass
-        (UX-2/GT-58) and from ``IPC_CONFIG_ALLOWLIST`` — the condition
+        (UX-2/GT-58) and from ``IPC_CONFIG_ALLOWLIST``, the condition
         could never be True via the IPC path.
       - ``push_to_talk_hotkey`` was never readable on the wire (it was
         deliberately removed from the IPC allowlist per GT-F2-8, then
@@ -526,7 +526,7 @@ class TestDeadBranchesRemoved:
     ):
         """The ``or "push_to_talk_hotkey" in updates`` disjunct must
         NOT appear in the hotkey-restart branch's ``if`` condition
-        (it was dead code — push_to_talk_hotkey is not on the wire)."""
+        (it was dead code, push_to_talk_hotkey is not on the wire)."""
         import inspect
 
         from voice_typer.server import config_applier

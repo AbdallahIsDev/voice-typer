@@ -2,7 +2,7 @@
 
 A single daemon worker thread per recording session
 that loops on ``Event.wait(1.0)`` and invokes ``tick_callback`` on each
-tick — replacing the prior self-rescheduling ``threading.Timer`` chain
+tick, replacing the prior self-rescheduling ``threading.Timer`` chain
 (one Timer per second of recording, ~1 800 Timer allocations over a
 30-minute dictation). The worker exits cleanly on cancel() or when
 ``is_active()`` returns False, and a rapid ``start()`` cancels and
@@ -11,7 +11,7 @@ transitions).
 
 The owner (``TrayIcon``) keeps ``_elapsed_timer`` in sync via the
 ``set_timer_ref`` callback. Existing tests that read
-``tray._elapsed_timer is None`` continue to work — the callback is
+``tray._elapsed_timer is None`` continue to work, the callback is
 invoked with the worker thread on start and with ``None`` on cancel,
 mirroring the prior ``threading.Timer`` reference contract (the value
 is now a ``threading.Thread`` instead of a ``threading.Timer``, but
@@ -43,8 +43,8 @@ class ElapsedTimer:
     False OR when ``cancel()`` sets the stop event.
 
     The owner's ``_elapsed_timer`` attribute is synced via the
-    ``set_timer_ref`` callback — called with the worker thread on
-    ``start()`` and with ``None`` on ``cancel()`` — so existing tests
+    ``set_timer_ref`` callback, called with the worker thread on
+    ``start()`` and with ``None`` on ``cancel()``, so existing tests
     that check ``tray._elapsed_timer is None`` continue to work.
 
     Args:
@@ -79,7 +79,7 @@ class ElapsedTimer:
         self._stop_event = threading.Event()
         # Generation counter: each ``start()`` increments it. The
         # worker's loop captures the value at entry and checks it
-        # on every tick — if a new ``start()`` has bumped the
+        # on every tick, if a new ``start()`` has bumped the
         # counter, the old worker exits. Belt-and-suspenders
         # alongside the stop event (the event catches explicit
         # ``cancel()``; the generation catches a rapid
@@ -130,7 +130,7 @@ class ElapsedTimer:
         my_gen = self._generation
         # Fresh stop event for the new worker. ``cancel()`` above
         # set the prior event but the prior worker is now joined
-        # (or was never started) — a new event is cheap and avoids
+        # (or was never started), a new event is cheap and avoids
         # any "stale-set-event" surprise if a future refactor makes
         # ``cancel()`` non-blocking.
         self._stop_event = threading.Event()
@@ -158,7 +158,7 @@ class ElapsedTimer:
                 if not self._is_active():
                     return
                 # Generation guard: a newer start() bumped the
-                # counter — this worker is stale, exit without
+                # counter: this worker is stale, exit without
                 # invoking the callback.
                 if self._generation != my_gen:
                     return
@@ -168,7 +168,7 @@ class ElapsedTimer:
                     # A failing tick callback must NOT kill the
                     # worker (otherwise all subsequent ticks are
                     # lost until the next start()). Log at debug
-                    # and continue — the next iteration will try
+                    # and continue, the next iteration will try
                     # again.
                     log.debug(
                         "[TRAY] elapsed-timer tick failed to refresh tooltip",
@@ -187,10 +187,10 @@ class ElapsedTimer:
     def cancel(self) -> None:
         """Cancel the elapsed-recording worker if running.
 
-        Idempotent — safe to call when no worker exists (e.g. before
+        Idempotent, safe to call when no worker exists (e.g. before
         the first RECORDING transition). Sets the stop event so the
         worker exits its loop on the next ``Event.wait(1.0)`` return,
-        then joins the worker (with a 1.5s timeout — the worker
+        then joins the worker (with a 1.5s timeout, the worker
         should exit within at most one 1s tick + a few µs; the
         timeout is defensive against a worker stuck in a slow
         ``tick_callback``).
@@ -213,12 +213,12 @@ class ElapsedTimer:
         self._worker = None
         self._set_timer_ref(None)
         if w is not None:
-            # ``join(1.5)`` — the worker should exit within at most
+            # ``join(1.5)``: the worker should exit within at most
             # one 1s tick + a few µs. The 1.5s upper bound is
             # defensive against a worker stuck in a slow
             # ``tick_callback`` (which we can't interrupt from
             # another thread without a Cancel-like primitive). We
-            # deliberately do NOT raise on join timeout — the
+            # deliberately do NOT raise on join timeout, the
             # worker's daemon=True ensures it won't block process
             # exit, and the next start() cancels it again anyway.
             try:

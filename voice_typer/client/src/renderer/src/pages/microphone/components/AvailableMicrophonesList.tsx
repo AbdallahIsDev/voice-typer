@@ -1,11 +1,11 @@
 // Available-microphones list.
 //
 // ONE unified RadioGroup: the first row is "System Default" (value
-// maps to ``null``), followed by every reported device — INCLUDING the
+// maps to ``null``), followed by every reported device, INCLUDING the
 // currently-active one, rendered checked. Radix radio groups need the
 // active item present and checked so arrow-key navigation and the
 // checked visual work for the whole set; there are no per-row "Use"
-// buttons anymore — selection IS the radio.
+// buttons anymore, selection IS the radio.
 //
 // While a test is running the items carry a real ``disabled`` attribute
 // (keyboard + AT safe; CSS-only pointer blocking was a keyboard hole)
@@ -27,7 +27,7 @@ import { t } from "@/i18n/i18n";
 import type { MicrophoneDevice } from "@/types/config";
 
 /**
- * Sentinel RadioGroup value for the OS-default device — Radix radio
+ * Sentinel RadioGroup value for the OS-default device, Radix radio
  * values are strings, but the backend's "system default" state is
  * ``config.microphone === null``, so the sentinel maps to ``null`` in
  * the selection handler.
@@ -41,7 +41,7 @@ export interface AvailableMicrophonesListProps {
 	activeMicId: string | null;
 	/** Disables list interaction while a test recording is in flight. */
 	testRunning: boolean;
-	/** Selection handler — receives ``null`` for "use system default". */
+	/** Selection handler, receives ``null`` for "use system default". */
 	onSelectMicrophone: (micId: string | null) => void;
 }
 
@@ -84,7 +84,7 @@ export function AvailableMicrophonesList({
 				className="rounded-lg border border-border/5 bg-(--bg-subtle)"
 				data-testid="microphone-radio-list"
 			>
-				{/* native <ul>/<li> list semantics around the radio rows — the
+				{/* native <ul>/<li> list semantics around the radio rows, the
 				    implicit list/listitem ARIA roles come from the elements
 				    themselves (biome's noRedundantRoles + ARIA-in-HTML agree). */}
 				<ul className="divide-y divide-border/5">
@@ -92,7 +92,7 @@ export function AvailableMicrophonesList({
 						{/* The a11y pair (nested RadioGroupItem is the accessible
 						    control; row click is pointer-only convenience) + the
 						    skip-nested-radio click gating live in the shared
-						    SelectableRow wrapper — same contract as the device rows
+						    SelectableRow wrapper, same contract as the device rows
 						    in MicrophoneListItem. */}
 						<SelectableRow
 							className={
@@ -130,7 +130,7 @@ export function AvailableMicrophonesList({
 					</li>
 					{sorted.map((mic) => (
 						// Dim device rows during a test to match the
-						// system-default row — the whole list reads as one
+						// system-default row, the whole list reads as one
 						// disabled surface, not half-disabled.
 						<li
 							key={mic.id ?? String(mic.index)}

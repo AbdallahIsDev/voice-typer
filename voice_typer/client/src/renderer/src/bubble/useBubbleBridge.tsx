@@ -1,5 +1,5 @@
 /**
- * Bubble overlay package — `useBubbleBridge` hook.
+ * Bubble overlay package, `useBubbleBridge` hook.
  *
  * Centralises the bubble renderer's IPC subscriptions so each
  * `window.bubble` event (`onShow` / `onHide` / `onSetState` /
@@ -34,7 +34,7 @@
  * mode (the visualizer doesn't render those peaks). The bridge
  * exposes `setLevelActive(boolean)` so `useAudioLevels` can
  * dynamically toggle the underlying `api.onLevel` subscription on
- * entry to / exit from recording mode — preserving the dynamic-gate
+ * entry to / exit from recording mode, preserving the dynamic-gate
  * optimisation from the pre-refactor implementation.
  */
 
@@ -78,7 +78,7 @@ export type BubbleBridgeOff = () => void;
  */ export interface BubbleBridge {
 	/**
 	 * Register a handler for a bubble event. Returns an unsubscribe
-	 * function — call it on cleanup to remove the handler.
+	 * function, call it on cleanup to remove the handler.
 	 *
 	 * Handlers are stored in a `Set` and invoked in insertion order
 	 * on emit. Exceptions in one handler do NOT block subsequent
@@ -93,7 +93,7 @@ export type BubbleBridgeOff = () => void;
 	 * Read the CURRENT authoritative bubble mode (single source of truth).
 	 *
 	 * The bridge owns the single source-of-truth mode ref, updated by
-	 * `nextBubbleMode` BEFORE handlers fan out — so a handler invoked
+	 * `nextBubbleMode` BEFORE handlers fan out, so a handler invoked
 	 * by an event observes that event's resulting mode synchronously,
 	 * regardless of handler registration order. Consumers that need to
 	 * gate behaviour on the mode (e.g. `useAudioLevels`'s rAF loop +
@@ -136,7 +136,7 @@ class BubbleBridgeImpl implements BubbleBridge {
 	private levelOff: BubbleBridgeOff | null = null;
 	private levelActive = false;
 	// Authoritative bubble mode (single source of truth).
-	// Defaults to `recording` — the bubble's initial mode — and tracks
+	// Defaults to `recording`, the bubble's initial mode, and tracks
 	// the show / hide / setState event stream via `nextBubbleMode`,
 	// updated in `emit()` BEFORE handlers fan out. Persists across
 	// attach/detach cycles (mirroring `useBubbleStateMachine`'s React
@@ -176,7 +176,7 @@ class BubbleBridgeImpl implements BubbleBridge {
 	): void {
 		// Keep the authoritative mode ref in lockstep with the
 		// event stream BEFORE any handler runs, so a consumer handler
-		// always observes the current event's resulting mode — no
+		// always observes the current event's resulting mode, no
 		// registration-order dependence. The reducer is the same
 		// function `useBubbleStateMachine` uses for its React state, so
 		// the two cannot drift. Unknown / non-normalizable setState
@@ -211,7 +211,7 @@ class BubbleBridgeImpl implements BubbleBridge {
 	 * Install the single per-event IPC subscriptions on the given
 	 * `window.bubble` API. Returns the unsubscribe functions so the
 	 * caller can tear them down on unmount. The `onLevel`
-	 * subscription is NOT installed here — it's gated by
+	 * subscription is NOT installed here, it's gated by
 	 * `setLevelActive()`.
 	 *
 	 * Safe to call multiple times (e.g. if `window.bubble` changes
@@ -225,7 +225,7 @@ class BubbleBridgeImpl implements BubbleBridge {
 		this.detach();
 		this.api = api;
 		const offs: BubbleBridgeOff[] = [];
-		// Defensive `?.` on every method — the bubble preload
+		// Defensive `?.` on every method, the bubble preload
 		// guarantees these, but the cast through `unknown` + a
 		// missing preload in some test contexts means the
 		// optional chaining is the cheaper guard.
@@ -270,7 +270,7 @@ class BubbleBridgeImpl implements BubbleBridge {
 				off();
 			} catch {
 				// The preload's unsubscribe is defensive
-				// but warn-only — swallow late-dispatch
+				// but warn-only, swallow late-dispatch
 				// races so a stale call during cleanup
 				// doesn't crash the bridge.
 			}
@@ -298,7 +298,7 @@ class BubbleBridgeImpl implements BubbleBridge {
 	}
 
 	/**
-	 * Full teardown — detach + drop the dynamic onLevel subscription.
+	 * Full teardown, detach + drop the dynamic onLevel subscription.
 	 * Called by `BubbleBridgeProvider`'s cleanup effect.
 	 */
 	dispose(): void {
@@ -331,7 +331,7 @@ const BubbleBridgeContext = createContext<BubbleBridge | null>(null);
  * bridge via `useBubbleBridge()`.
  *
  * The bridge subscribes to `window.bubble` events in a `useEffect`
- * (after mount) — child effects register handlers via `bridge.on(...)`
+ * (after mount), child effects register handlers via `bridge.on(...)`
  * BEFORE the parent effect attaches to the API (React runs child
  * effects first), so no events are missed at startup.
  */

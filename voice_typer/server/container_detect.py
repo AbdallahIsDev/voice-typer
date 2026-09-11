@@ -22,7 +22,7 @@ _log = __import__("logging").getLogger(__name__)
 # Used for the legacy cgroup v1 detection path. On cgroup v2 (the
 # default on modern Linux kernels 5.15+) the per-process cgroup path
 # is typically just ``0::/`` for host processes and ``0::/`` for
-# container processes too — so these substring matches no longer fire
+# container processes too, so these substring matches no longer fire
 # reliably on v2. The cgroup v2-aware checks below (``/proc/self/mountinfo``
 # overlayfs-at-root + ``/proc/1/environ`` ``container=``) close the
 # misdetection gap for rootless Podman and other modern runtimes.
@@ -32,7 +32,7 @@ _LEGACY_CGROUP_SIGNATURES = ("docker", "lxc", "kubepods", "containerd")
 # cgroup signature → human-readable container type. Shared by the single
 # probe so ``is_in_container`` and ``get_container_type`` can never
 # disagree (the old duplicated chains reported a cgroup-detected Docker
-# container as ``True``/``unknown`` — a deliberate-looking but unintended
+# container as ``True``/``unknown``: a deliberate-looking but unintended
 # mismatch; both accessors now agree on the mapped name).
 _CGROUP_TYPE_NAMES = {
     "docker": "docker",
@@ -151,7 +151,7 @@ def is_in_container() -> bool:
         running under pytest so tests that monkeypatch ``sys.platform`` /
         ``Path.exists`` between scenarios keep working without needing a
         cache-clear fixture (which would otherwise have to live in
-        ``tests/conftest.py`` — owned by another agent).
+        ``tests/conftest.py``: owned by another agent).
     """
     if _is_in_container_cached.cache_info().currsize > 0 and _should_bypass_cache():
         _is_in_container_cached.cache_clear()
@@ -161,7 +161,7 @@ def is_in_container() -> bool:
 def _should_bypass_cache() -> bool:
     """Return True when running under pytest (test-isolation bypass).
 
-    Production callers never hit this — pytest sets the
+    Production callers never hit this, pytest sets the
     ``PYTEST_CURRENT_TEST`` env var at the start of every test item's
     execution and clears it between items, so the cache is bypassed
     only while a test is actively running. The check is on the env var
@@ -208,14 +208,14 @@ def _probe_container() -> str | None:
         return f"systemd-nspawn ({env_container})"
 
     # 4. Check /proc/1/cgroup for container runtime signatures (cgroup v1
-    #    path-based detection — still relevant for legacy hosts).
+    #    path-based detection, still relevant for legacy hosts).
     cgroup = _read_proc_file("/proc/1/cgroup")
     if cgroup:
         for sig in _LEGACY_CGROUP_SIGNATURES:
             if sig in cgroup:
                 return _CGROUP_TYPE_NAMES.get(sig, sig)
 
-    # 5. cgroup v2-aware — ``container=`` on PID 1's environ carries the
+    # 5. cgroup v2-aware, ``container=`` on PID 1's environ carries the
     #    runtime name (``container=oci``, ``container=podman``, ...).
     environ_text = _read_proc_file("/proc/1/environ")
     if environ_text:
@@ -226,7 +226,7 @@ def _probe_container() -> str | None:
             if key == "container" and value:
                 return value
 
-    # 6. cgroup v2-aware — overlayfs rooted at ``/`` catches rootless
+    # 6. cgroup v2-aware, overlayfs rooted at ``/`` catches rootless
     #    Podman and other OCI runtimes that write no cgroup signature.
     if _detect_via_mountinfo_overlay():
         return "container (overlayfs root)"
@@ -237,7 +237,7 @@ def _probe_container() -> str | None:
 def _reset_container_cache() -> None:
     """Test-only: clear the memoized container-detection results.
 
-    production callers should NEVER need this — container
+    production callers should NEVER need this, container
         membership doesn't change during a process lifetime. Tests that
         patch ``sys.platform`` or filesystem state need it so the next
         :func:`is_in_container` / :func:`get_container_type` call re-probes.
@@ -266,7 +266,7 @@ def get_container_type() -> str | None:
 def _is_in_container_cached() -> bool:
     """Memoized boolean body of :func:`is_in_container`.
 
-    Wraps the single canonical probe (``_probe_container``) — both
+    Wraps the single canonical probe (``_probe_container``), both
     accessors share one memoized result so the boolean and the
     human-readable type can never disagree.
     """
@@ -278,7 +278,7 @@ def _get_container_type_cached() -> str | None:
     """Memoized type body of :func:`get_container_type`.
 
     Wraps the single canonical probe (``_probe_container``). Assumes
-    :func:`is_in_container` has already returned True — callers gate on
+    :func:`is_in_container` has already returned True, callers gate on
     that before invoking this helper.
     """
     probe = _probe_container()

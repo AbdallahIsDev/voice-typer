@@ -1,4 +1,4 @@
-"""CR-51 regression guard — verify ``ShutdownController.quit()`` is
+"""CR-51 regression guard: verify ``ShutdownController.quit()`` is
 serialized against concurrent calls.
 
 Finding CR-51 (High): ``ShutdownController.quit()`` does a
@@ -36,7 +36,7 @@ def _make_app_with_quit_lock():
     event = threading.Event()
     app._shutting_down_event = event
 
-    # Spy on shutdown_all — track call count.
+    # Spy on shutdown_all, track call count.
     shutdown_all_calls: list = []
 
     def _shutdown_all():
@@ -71,7 +71,7 @@ def _patch_quit_to_skip_sysexit(controller):
     # We can't easily patch sys.exit inside the method body, but the
     # method checks ``is_main = threading.current_thread() is
     # threading.main_thread()``. The non-main test threads won't
-    # call sys.exit() — only the main thread does. So we don't need
+    # call sys.exit(), only the main thread does. So we don't need
     # to patch.
 
     return original_exit
@@ -120,7 +120,7 @@ def test_concurrent_quit_calls_dont_both_enter_shutdown_all(monkeypatch) -> None
         f"Expected shutdown_all() to be called at most once, but got "
         f"{len(shutdown_calls)} calls from threads: {shutdown_calls}. "
         "This indicates the _shutting_down check-then-set is not "
-        "atomic — see CR-51 / Fix-J."
+        "atomic, see CR-51 / Fix-J."
     )
 
 
@@ -178,7 +178,7 @@ def test_quit_lock_is_an_actual_lock_or_event() -> None:
     found = [name for name in candidates if hasattr(controller, name) or hasattr(app, name)]
     assert found, (
         "Expected ShutdownController or app to expose a dedicated lock "
-        "or event attribute (e.g. _quit_lock, _quit_event) — see CR-51 / "
+        "or event attribute (e.g. _quit_lock, _quit_event): see CR-51 / "
         "Fix-J. None of the conventional names was found."
     )
 

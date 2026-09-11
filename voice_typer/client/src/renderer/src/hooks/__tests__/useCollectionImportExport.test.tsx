@@ -1,4 +1,4 @@
-// Hook-level tests for useCollectionImportExport — the shared
+// Hook-level tests for useCollectionImportExport, the shared
 // import/export round-trip skeleton the Vocabulary and Templates pages
 // will migrate onto (Wave 5).
 //
@@ -140,7 +140,7 @@ afterEach(() => {
 	vi.restoreAllMocks();
 });
 
-describe("useCollectionImportExport — import round trip", () => {
+describe("useCollectionImportExport, import round trip", () => {
 	it("merges new items (deduped by rowKey), persists the merged list, and shows the plural success toast", async () => {
 		const { result, persistMerged } = setup({
 			existing: [{ label: "keep" }],
@@ -251,7 +251,7 @@ describe("useCollectionImportExport — import round trip", () => {
 	});
 });
 
-describe("useCollectionImportExport — export round trip", () => {
+describe("useCollectionImportExport, export round trip", () => {
 	it("saved outcome: derives the filename from the path and shows the exportSaved toast", async () => {
 		const { result, exportFile } = setup({
 			exportResult: { success: true, path: "/tmp/exports/list.json" },

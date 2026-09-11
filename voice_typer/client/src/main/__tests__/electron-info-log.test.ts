@@ -7,7 +7,7 @@
  * ----------
  * `logging.ts`'s `logger.info` and `log.info` historically skipped file
  * writes in production (only `console.info` was called, which is a no-op
- * in packaged Electron builds — no terminal attached). The result was
+ * in packaged Electron builds, no terminal attached). The result was
  * that lifecycle events (TCP connect, Python sidecar spawned, bubble
  * shown, window created) left ZERO durable trace in packaged builds,
  * making support triage impossible.
@@ -33,7 +33,7 @@
  * of the call.
  *
  * IMPORTANT: this test imports `logging.ts` TWICE in two separate
- * `describe` blocks — once with the env var set BEFORE import (so the
+ * `describe` blocks, once with the env var set BEFORE import (so the
  * module-level `PERSIST_INFO` constant resolves to `true`), and once
  * with the env var unset. Because vitest caches modules per test file,
  * we use `vi.resetModules()` + dynamic `import()` in `beforeEach` so
@@ -43,7 +43,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// Mock `electron` — `app.isPackaged` is `false` so the dev-mode
+// Mock `electron`, `app.isPackaged` is `false` so the dev-mode
 // `electron-main.log` write fires (this lets the "env unset" test
 // verify that ONLY the lifecycle log is skipped, not the entire
 // file-write path).
@@ -146,7 +146,7 @@ describe("YJ-3: VOICE_TYPER_ELECTRON_INFO_LOG=1 routes logger.info to electron-l
 		);
 		expect(lifecycleCalls.length).toBeGreaterThanOrEqual(1);
 		// Sanity: the path ends with `electron-lifecycle.log` (NOT
-		// `electron-main.log` — the two streams are kept separate so
+		// `electron-main.log`, the two streams are kept separate so
 		// the higher-volume INFO log doesn't push WARN/ERROR context
 		// out of the 5 MiB rotation window on the main log).
 		expect(LIFECYCLE_LOG_PATH.endsWith("electron-lifecycle.log")).toBe(true);
@@ -164,7 +164,7 @@ describe("YJ-3: VOICE_TYPER_ELECTRON_INFO_LOG=1 routes logger.info to electron-l
 		expect(line).toContain("  INFO  ");
 		expect(line).not.toContain("[INFO]");
 		// printf-style logger coerces args via String() and joins with
-		// spaces — verify the tag + coordinates are present.
+		// spaces, verify the tag + coordinates are present.
 		expect(line).toContain("[BUBBLE] creating window at");
 		expect(line).toContain("100");
 		expect(line).toContain("200");
@@ -199,7 +199,7 @@ describe("YJ-3: when VOICE_TYPER_ELECTRON_INFO_LOG is UNSET, logger.info does NO
 		const lifecycleCalls = appendFileSyncSpy.mock.calls.filter(
 			(args: unknown[]) => args[0] === LIFECYCLE_LOG_PATH,
 		);
-		// Zero lifecycle-log writes — the opt-in is OFF, so the
+		// Zero lifecycle-log writes, the opt-in is OFF, so the
 		//behavior is unchanged from pre-
 		expect(lifecycleCalls).toHaveLength(0);
 	});

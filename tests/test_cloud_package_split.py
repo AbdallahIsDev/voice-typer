@@ -5,24 +5,24 @@ orchestration (engine class, shared retry loop, connection probe) and
 re-exports the stateless plumbing that now lives in
 ``voice_typer/server/cloud/``:
 
-- ``_transport``  — pooled opener, response-body cap, WAV encoding,
+- ``_transport``, pooled opener, response-body cap, WAV encoding,
   streaming multipart body.
-- ``_retry``      — Retry-After parsing, HTTP-status → typed-error
+- ``_retry``    , Retry-After parsing, HTTP-status → typed-error
   mapping.
-- ``_defaults``   — per-provider endpoint/model defaults.
-- ``_providers.openai``   — OpenAI-compatible multipart shaping.
-- ``_providers.deepgram`` — listen-URL building + token validation.
+- ``_defaults`` , per-provider endpoint/model defaults.
+- ``_providers.openai`` . OpenAI-compatible multipart shaping.
+- ``_providers.deepgram``, listen-URL building + token validation.
 
 These tests pin BOTH sides of the split:
 
 1. the leaf modules behave correctly in isolation (pure functions, no
    network), and
-2. the facade contract still holds — every legacy name resolves from
+2. the facade contract still holds, every legacy name resolves from
    ``voice_typer.server.cloud_engines``, the facade's ``_opener``
    attribute is the SAME object the transport owns (so instance-level
    ``patch("...cloud_engines._opener.open")`` keeps working), and
    REBINDING facade attributes (``_opener``, ``assert_url_allowed``)
-   still steers the engine — the resolution path the abort/allowlist
+   still steers the engine, the resolution path the abort/allowlist
    regression suites rely on.
 
 All network I/O is mocked; no test here contacts a provider.
@@ -221,7 +221,7 @@ class TestFacadeReExports:
         from voice_typer.server.cloud import _engine
 
         assert _engine.CloudEngine.__module__ == "voice_typer.server.cloud._engine"
-        # The facade re-export must be the SAME object — legacy
+        # The facade re-export must be the SAME object, legacy
         # ``from voice_typer.server.cloud_engines import CloudEngine``
         # keeps resolving to the owner class.
         assert facade.CloudEngine is _engine.CloudEngine
@@ -247,7 +247,7 @@ def _fake_response(body: bytes) -> MagicMock:
 
 
 class TestFacadeNamespaceStillSteersEngine:
-    """Rebinding facade attributes must reach the engine — the contract
+    """Rebinding facade attributes must reach the engine, the contract
     the abort / allowlist / asr-setup regression suites depend on."""
 
     def test_facade_opener_rebinding_drives_transcribe(self, monkeypatch):

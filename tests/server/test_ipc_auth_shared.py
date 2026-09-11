@@ -3,13 +3,13 @@
 The audit found the TCP and sidecar-WS auth handshakes duplicated the
 same contract (~120 LOC) with evidence of drift (TCP rejects a
 ``protocol_version`` mismatch, WS only warns). The shared piece —
-frame-shape validation + constant-time token comparison — was
+frame-shape validation + constant-time token comparison, was
 extracted into ``voice_typer/server/ipc/auth.py``:
 
-- :func:`extract_auth_token` — validates the
+- :func:`extract_auth_token`, validates the
   ``{"type": "auth", "token": ...}`` first-frame contract and returns
   the token (or ``None``).
-- :func:`tokens_equal` — constant-time ``hmac.compare_digest`` wrapper.
+- :func:`tokens_equal`, constant-time ``hmac.compare_digest`` wrapper.
 
 These tests cover the helper contract directly and pin that BOTH
 transports route their token handling through the shared module (so a

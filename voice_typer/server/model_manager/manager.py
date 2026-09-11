@@ -30,7 +30,7 @@ class ModelManager(
     - Schedule the pending-dictation callback via ``app._schedule_timer``
     - Read ``app._shutting_down`` flag and ``self._pending_dictation``
       (: ``_pending_dictation`` now lives on ModelManager
-      directly — accessed via ``app.models._pending_dictation``.)
+      directly, accessed via ``app.models._pending_dictation``.)
 
     PERF-015: includes an LRU cache for loaded models. When loading a
     new model, if more than 2 models are loaded, the least recently

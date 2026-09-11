@@ -103,7 +103,7 @@ vi.mock("./send-to-python", () => ({
 	resetPendingOutbound: vi.fn(),
 }));
 
-// 60s — mirrors TCP_STARTUP_TIMEOUT_MS in tcp-connect.ts (kept in sync by
+// 60s, mirrors TCP_STARTUP_TIMEOUT_MS in tcp-connect.ts (kept in sync by
 // the test below asserting the dialog text contains "60s").
 const TCP_STARTUP_TIMEOUT_MS = 60_000;
 
@@ -212,7 +212,7 @@ describe("tcp-connect.ts: 60s TCP startup timeout (TC-41)", () => {
 
 	it("safety short-circuit: an explicit stopPython suppresses the dialog + quit", () => {
 		// The ONLY legitimate reason a null pythonProcess coexists
-		// with a retrying TCP loop is an in-flight teardown — the
+		// with a retrying TCP loop is an in-flight teardown, the
 		// stop flag (set by stopPython) suppresses the dialog so the
 		// app can exit quietly without a spurious error box.
 		mocks.state.pythonProcess = null;

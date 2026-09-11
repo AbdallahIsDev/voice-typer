@@ -1,8 +1,8 @@
 /**
  * Tests for useLastTranscriptionPreview (extracted from Home.tsx).
  *
- * Contract: own the ephemeral last-transcription preview state — text +
- * confidence summary + auto-clear timer — plus the preview card's
+ * Contract: own the ephemeral last-transcription preview state, text +
+ * confidence summary + auto-clear timer, plus the preview card's
  * undo/repaste/discard actions and the `recording_started` reset.
  * Behaviour must match the original inline Home.tsx handlers
  * statement-for-statement.
@@ -223,7 +223,7 @@ describe("useLastTranscriptionPreview", () => {
 			result.current.applyTranscriptionFinal({ text: "outlives mount" });
 		});
 		unmount();
-		// No state updates fire after unmount — advancing past the timer
+		// No state updates fire after unmount, advancing past the timer
 		// must not warn about updates on unmounted components.
 		expect(() => {
 			vi.advanceTimersByTime(LAST_TEXT_AUTO_CLEAR_MS * 2);

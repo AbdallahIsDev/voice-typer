@@ -4,14 +4,14 @@
  *
  * The "Estimated Transcription Quality" row renders an explicit
  * not-applicable value when `transcriptionUnavailable` is set (no speech
- * model loaded — the fresh-install state). A historical key-path typo
+ * model loaded, the fresh-install state). A historical key-path typo
  * (one missing `qualityFeedback.` path segment) made `t()` fall through
  * its lookup chain to the raw-key fallback, so every locale rendered the
  * literal string "microphoneTest.qualityNotApplicable" in bold text.
  *
  * These tests mount the real component with the REAL `t()` (no i18n mock)
- * so the actual lookup chain — locale map → primary subtag → English →
- * raw key — runs exactly as in production. If the call-site key drifts
+ * so the actual lookup chain, locale map → primary subtag → English →
+ * raw key, runs exactly as in production. If the call-site key drifts
  * from the en.json catalog again, the rendered text is the raw key and
  * the assertions fail.
  */
@@ -109,7 +109,7 @@ describe("TestReviewPanel no-model state renders translated text (never a raw ke
 
 		// The not-applicable value must be the en.json VALUE for the
 		// microphoneTest.qualityFeedback.qualityNotApplicable key
-		// ("N/A — transcription unavailable") — translated, not the key.
+		// ("N/A: transcription unavailable"), translated, not the key.
 		expect(
 			screen.getByText(
 				enText("microphoneTest.qualityFeedback.qualityNotApplicable"),

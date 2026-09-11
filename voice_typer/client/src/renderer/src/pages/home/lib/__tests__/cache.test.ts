@@ -5,7 +5,7 @@
  * Focus: the per-entry validation added to `loadCachedRecent`. A
  * corrupted / hand-edited / older-schema `vt_home_recent_cache` payload
  * previously flowed straight into the render tree as `HistoryRecord[]`
- * — `ActivityList` reads `item.text.length`, `item.timestamp`, and
+ *, `ActivityList` reads `item.text.length`, `item.timestamp`, and
  * `item.id` unguarded, so a single malformed entry crashed Home's
  * mount. The guard mirrors `loadCachedStats`' shape sanity-check, but
  * applied per-entry (the payload is a list): invalid entries are

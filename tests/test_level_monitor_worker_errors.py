@@ -3,7 +3,7 @@
 ``level_monitor/worker._level_worker_loop`` previously caught every
 ``Exception`` from ``_process_level_chunk`` at DEBUG. A sustained
 failure mode (corrupted RNNoise model, numpy mismatch, filter
-misconfiguration) was therefore silent at default log levels — the
+misconfiguration) was therefore silent at default log levels, the
 level bar would freeze with no operator-visible breadcrumb and no
 increment to ``_dropped_level_chunks`` (chunks are popped before the
 error).
@@ -102,7 +102,7 @@ class TestWorkerErrorThrottledWarning:
         # Set the error counter to a non-zero value.
         worker._level_worker_errors = 7
         # Set the window-start so the rate calculation is well-defined
-        # (10s ago — rate = 7/10 = 0.7/sec, well under the 10/sec
+        # (10s ago, rate = 7/10 = 0.7/sec, well under the 10/sec
         # escalation threshold, so we expect WARNING not ERROR).
         worker._level_worker_error_window_start = time.monotonic() - 10.0
         # Set the last-log timestamp to 10s ago (past the 5s throttle).
@@ -194,7 +194,7 @@ class TestWorkerErrorThrottledWarning:
 
         Note: we pre-set ``_level_worker_error_window_start`` to 10s
         ago so the rate (3 errors / 10s = 0.3/sec) stays well below the
-        10/sec escalation threshold — otherwise the three errors would
+        10/sec escalation threshold, otherwise the three errors would
         all land in the same millisecond (rate ~3000/sec) and escalate
         to ERROR. The ``if == 0.0:`` guard in the drain loop respects
         the pre-set value, so the rate computes against the 10s window.
@@ -216,7 +216,7 @@ class TestWorkerErrorThrottledWarning:
         # Set the throttle anchor far in the past so the WARNING fires
         # on this iteration.
         worker._last_worker_error_log_time = time.monotonic() - 10.0
-        # Pre-set window_start to 10s ago — the ``if == 0.0:`` guard in
+        # Pre-set window_start to 10s ago, the ``if == 0.0:`` guard in
         # the drain loop respects this so the rate computes as
         # 3 errors / 10s = 0.3/sec (WARNING, not ERROR).
         worker._level_worker_error_window_start = time.monotonic() - 10.0
@@ -234,7 +234,7 @@ class TestWorkerErrorThrottledWarning:
         )
 
         # 3 per-chunk DEBUG logs should have been emitted (one
-        # per chunk) — the per-chunk traceback breadcrumb is retained.
+        # per chunk), the per-chunk traceback breadcrumb is retained.
         debug_chunks = [
             r
             for r in caplog.records
@@ -276,7 +276,7 @@ class TestWorkerErrorEscalationToError:
         """UE-24: 100 errors in 1s (100/sec >> 10/sec threshold) → ERROR."""
         from voice_typer.server.level_monitor import worker
 
-        # 100 errors accumulated in a 1-second window — 100/sec, well
+        # 100 errors accumulated in a 1-second window, 100/sec, well
         # above the 10/sec threshold.
         worker._level_worker_errors = 100
         worker._level_worker_error_window_start = time.monotonic() - 1.0
@@ -305,7 +305,7 @@ class TestWorkerErrorEscalationToError:
         """UE-24: rate just BELOW the threshold (9/sec) → WARNING (not ERROR)."""
         from voice_typer.server.level_monitor import worker
 
-        # 9 errors in 1 second — 9/sec, just below the 10/sec threshold.
+        # 9 errors in 1 second, 9/sec, just below the 10/sec threshold.
         worker._level_worker_errors = 9
         worker._level_worker_error_window_start = time.monotonic() - 1.0
         worker._last_worker_error_log_time = time.monotonic() - 10.0
@@ -329,7 +329,7 @@ class TestWorkerErrorEscalationToError:
         """UE-24: rate just ABOVE the threshold (11/sec) → ERROR."""
         from voice_typer.server.level_monitor import worker
 
-        # 11 errors in 1 second — 11/sec, just above the 10/sec threshold.
+        # 11 errors in 1 second, 11/sec, just above the 10/sec threshold.
         worker._level_worker_errors = 11
         worker._level_worker_error_window_start = time.monotonic() - 1.0
         worker._last_worker_error_log_time = time.monotonic() - 10.0
@@ -356,11 +356,11 @@ class TestWorkerErrorEscalationToError:
         """
         from voice_typer.server.level_monitor import worker
 
-        # 5 errors in 1s — 5/sec, normally below the 10/sec threshold.
+        # 5 errors in 1s, 5/sec, normally below the 10/sec threshold.
         worker._level_worker_errors = 5
         worker._level_worker_error_window_start = time.monotonic() - 1.0
         worker._last_worker_error_log_time = time.monotonic() - 10.0
-        # Lower the threshold to 3/sec — 5/sec now exceeds it.
+        # Lower the threshold to 3/sec, 5/sec now exceeds it.
         monkeypatch.setattr(worker, "_LEVEL_WORKER_ERROR_RATE_THRESHOLD", 3.0)
 
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.level_monitor"):
@@ -408,7 +408,7 @@ class TestWorkerErrorStateReset:
 
     def test_state_is_zero_at_test_start(self):
         """The autouse fixture has already reset state before the test
-        body runs — so a fresh test sees zero counters."""
+        body runs, so a fresh test sees zero counters."""
         from voice_typer.server.level_monitor import worker
 
         assert worker._level_worker_errors == 0
@@ -473,7 +473,7 @@ class TestRetainsPerChunkDebugLog:
 
         lm._level_ring_buffer.append((np.ones((512, 1), dtype=np.float32), None))
         # Set the throttle anchor to 0.0 so the WARNING fires and
-        # resets the counter — we don't want the WARNING to dominate
+        # resets the counter, we don't want the WARNING to dominate
         # the assertion below.
         worker._last_worker_error_log_time = time.monotonic() - 10.0
 
@@ -517,7 +517,7 @@ class TestDoesNotBreakDroppedChunksPath:
 
     def test_dropped_chunks_still_logged(self, caplog):
         """``_dropped_level_chunks`` is still logged when >0 and throttle
-        has elapsed — UE-24 didn't accidentally swallow it."""
+        has elapsed. UE-24 didn't accidentally swallow it."""
         import voice_typer.server.level_monitor as lm
         from voice_typer.server.level_monitor import worker
 
@@ -538,7 +538,7 @@ class TestDoesNotBreakDroppedChunksPath:
         assert worker._level_worker_errors == 0
 
 
-# Suppress unused-import warnings for ``MagicMock`` / ``np`` — they're
+# Suppress unused-import warnings for ``MagicMock`` / ``np``, they're
 # used by future test additions and provide a convenient reference for
 # the test author (mirrors the import block in test_level_monitor.py).
 _ = (MagicMock, np)

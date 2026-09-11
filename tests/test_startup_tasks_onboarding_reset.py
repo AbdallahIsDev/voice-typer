@@ -1,18 +1,18 @@
-"""Regression tests for XZ-R12-15 — `reset_onboarding_complete` resets the
+"""Regression tests for XZ-R12-15: `reset_onboarding_complete` resets the
 whole onboarding status document.
 
 ``voice_typer/server/startup_tasks.py::reset_onboarding_complete`` is the
 backend primitive for the "Re-run setup wizard" affordance in Settings →
 Advanced. Onboarding state lives in ONE JSON document,
 ``.onboarding_status.json`` (the ``started`` / ``completed`` flags plus
-the auto-heal fail counter) — the legacy ``.onboarding_complete`` /
+the auto-heal fail counter), the legacy ``.onboarding_complete`` /
 ``.onboarding_started`` / ``.onboarding_fail_count`` markers were merged
 into it.
 
 Deleting the whole document (rather than clearing one flag) keeps the
 flags consistent: if a stale ``started`` flag survived, the XA-11-2
 auto-heal in ``startup_sequence.py`` would treat the next launch as a
-mid-wizard crash and SKIP the auto-heal — so the wizard would NOT
+mid-wizard crash and SKIP the auto-heal, so the wizard would NOT
 re-appear on the next launch even though the user explicitly requested
 a re-run via the IPC handler.
 
@@ -67,7 +67,7 @@ class TestResetOnboardingStatusDocument:
     def test_idempotent_when_status_already_absent(self, tmp_path, monkeypatch):
         """Calling reset when no status document exists must succeed and
         not raise (the affordance is a user-triggered "re-run setup
-        wizard" button — it must be safe to click multiple times)."""
+        wizard" button, it must be safe to click multiple times)."""
         _patch_config_dir(tmp_path, monkeypatch)
         assert not (tmp_path / onboarding_status.ONBOARDING_STATUS_FILENAME).exists()
 

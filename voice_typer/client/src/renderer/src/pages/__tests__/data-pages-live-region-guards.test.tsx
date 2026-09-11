@@ -1,37 +1,37 @@
 /**
  * Live-region inventory guards for the data pages (Models / History /
- * Dashboard) — the same contract Home's guard enforces
+ * Dashboard), the same contract Home's guard enforces
  * (`pages/__tests__/Home-recording-flow-fixes.test.tsx`: exactly ONE
  * live region, the designed announcer) applied to the data pages'
  * status surfaces.
  *
  * The count selector counts BOTH explicit `aria-live` attributes and
- * implicit live-region roles (`role="status"` / `role="alert"` — the
+ * implicit live-region roles (`role="status"` / `role="alert"`, the
  * EmptyState announcer and the Models no-model banner use role, not
  * an aria-live attribute). Non-live surfaces are deliberately
  * excluded: `role="img"` spinners (S5-CR-100), `role="timer"`,
  * `role="progressbar"`, `role="tabpanel"`.
  *
  * Per page the guard pins:
- *   - Models  — a SETTLED page (model selected, no download) carries
+ *   - Models , a SETTLED page (model selected, no download) carries
  *               ZERO live regions: the former active-model summary
  *               banner (the designed announcer) was removed per user
- *               decision — the selected card's button state already
+ *               decision, the selected card's button state already
  *               indicates the active model, so a page-level announcer
  *               was redundant duplication. The per-card status /
  *               disk-space badges remain visual spans (they were
- *               `<output aria-live="polite">` — the Home-pill class
+ *               `<output aria-live="polite">`, the Home-pill class
  *               of accidental live region; with N cards that was up
  *               to 2N live regions). The only sanctioned live region
  *               on this page is the no-model banner (`role="status"`,
  *               no-model state only) and the download state's
  *               DownloadProgressBar status line.
- *   - History — the ONLY sanctioned page-level live region is the
+ *   - History, the ONLY sanctioned page-level live region is the
  *               LastUpdatedIndicator's polite timestamp region
  *               (XA-8-L5); beyond it, a loaded list adds ZERO, and the
- *               empty / load-error states add EXACTLY ONE — the
+ *               empty / load-error states add EXACTLY ONE, the
  *               EmptyState (`role="status"` / `role="alert"`).
- *   - Dashboard — the skeleton is ZERO live regions; the loaded
+ *   - Dashboard, the skeleton is ZERO live regions; the loaded
  *               analytics view (with keyboard permission granted)
  *               carries ONLY the LastUpdatedIndicator's polite region.
  *
@@ -45,7 +45,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Shared stable-mocks preamble (see helpers/stableMocks.tsx): the
 // assertable singletons + one vi.mock line per module. This import MUST
-// sit above the DownloadProgressBar import — that component pulls in the
+// sit above the DownloadProgressBar import, that component pulls in the
 // mocked @hugeicons modules, so the factories' bindings must be
 // initialized before it evaluates.
 import {
@@ -86,7 +86,7 @@ function renderWithProviders(ui: React.ReactElement) {
 	return render(<TooltipProvider delayDuration={200}>{ui}</TooltipProvider>);
 }
 
-describe("Models page — live-region guard", () => {
+describe("Models page, live-region guard", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		localStorage.clear();
@@ -147,7 +147,7 @@ describe("Models page — live-region guard", () => {
 	});
 });
 
-describe("History page — live-region guard", () => {
+describe("History page, live-region guard", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		localStorage.clear();
@@ -209,13 +209,13 @@ describe("History page — live-region guard", () => {
 			{ timeout: 3000 },
 		);
 		// The ONLY live region is the LastUpdatedIndicator's polite
-		// timestamp region (XA-8-L5) — the list itself adds none.
+		// timestamp region (XA-8-L5), the list itself adds none.
 		const live = liveRegions();
 		expect(live).toHaveLength(1);
 		expect(live[0]?.getAttribute("aria-live")).toBe("polite");
 	});
 
-	it("empty state has EXACTLY ONE live region — the EmptyState (role=status)", async () => {
+	it("empty state has EXACTLY ONE live region, the EmptyState (role=status)", async () => {
 		mockCall.mockImplementation((cmd: string) => {
 			if (cmd === "get_history") return Promise.resolve([]);
 			if (cmd === "get_today_stats") {
@@ -241,14 +241,14 @@ describe("History page — live-region guard", () => {
 		const live = liveRegions();
 		expect(live).toHaveLength(2);
 		// The EmptyState announcer (role=status) + the LastUpdated
-		// indicator's polite timestamp region (XA-8-L5) — nothing else.
+		// indicator's polite timestamp region (XA-8-L5), nothing else.
 		expect(live.some((el) => el.getAttribute("role") === "status")).toBe(true);
 		expect(live.some((el) => el.getAttribute("aria-live") === "polite")).toBe(
 			true,
 		);
 	});
 
-	it("load-error state has EXACTLY ONE live region — the EmptyState (role=alert)", async () => {
+	it("load-error state has EXACTLY ONE live region, the EmptyState (role=alert)", async () => {
 		mockCall.mockImplementation((cmd: string) => {
 			if (cmd === "get_history")
 				return Promise.reject(new Error("backend unreachable"));
@@ -275,7 +275,7 @@ describe("History page — live-region guard", () => {
 		const live = liveRegions();
 		expect(live).toHaveLength(2);
 		// The EmptyState announcer (role=alert) + the LastUpdated
-		// indicator's polite timestamp region (XA-8-L5) — nothing else.
+		// indicator's polite timestamp region (XA-8-L5), nothing else.
 		expect(live.some((el) => el.getAttribute("role") === "alert")).toBe(true);
 		expect(live.some((el) => el.getAttribute("aria-live") === "polite")).toBe(
 			true,
@@ -283,7 +283,7 @@ describe("History page — live-region guard", () => {
 	});
 });
 
-describe("Dashboard page — live-region guard", () => {
+describe("Dashboard page, live-region guard", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		localStorage.clear();
@@ -311,7 +311,7 @@ describe("Dashboard page — live-region guard", () => {
 			if (cmd === "get_correction_usage") {
 				return Promise.resolve({ version: 1, entries: {} });
 			}
-			// KeyboardPermissionBanner probe — granted, so the banner
+			// KeyboardPermissionBanner probe, granted, so the banner
 			// (role=alert) stays out of the tree.
 			if (cmd === "onboarding_check_permissions") {
 				return Promise.resolve({
@@ -334,7 +334,7 @@ describe("Dashboard page — live-region guard", () => {
 		renderWithProviders(<DashboardPage />);
 
 		// First paint is the skeleton (data is null until the refresh
-		// promise resolves) — assert synchronously.
+		// promise resolves), assert synchronously.
 		expect(liveRegions()).toHaveLength(0);
 
 		// Then let the data land and re-assert the settled view below.

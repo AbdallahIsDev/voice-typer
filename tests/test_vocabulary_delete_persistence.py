@@ -2,7 +2,7 @@
 
 Regression tests for the reported bug: deleting an entry (single
 delete, bulk delete, or Clear All) removed it from the React list but
-the change was NOT written to the user vocabulary file — navigating
+the change was NOT written to the user vocabulary file, navigating
 away and back (or exporting) showed the "deleted" entries again.
 
 The renderer always sends the FULL merged category-bucketed payload on
@@ -10,8 +10,8 @@ every save (`save_vocabulary` -> `save_vocabulary_with_diff`), so the
 write path must turn "merged minus deleted entries" into a persisted
 user file that, after a FRESH load from disk, no longer contains the
 deleted entries. These tests load a brand-new ``VocabularyManager``
-over the same config dir after every save — a real disk read, NOT the
-live in-memory manager — so a divergence between in-memory state and
+over the same config dir after every save, a real disk read, NOT the
+live in-memory manager, so a divergence between in-memory state and
 persisted state fails loudly.
 
 Covered:
@@ -112,7 +112,7 @@ def _empty_payload():
 
 
 def _fresh_reload(vocab_dir, bundled):
-    """A brand-new VocabularyManager — reads the ACTUAL on-disk user
+    """A brand-new VocabularyManager, reads the ACTUAL on-disk user
     file, never the live in-memory state."""
     return VocabularyManager(config_dir=vocab_dir, bundled_path=bundled)
 
@@ -136,7 +136,7 @@ class TestDeletePersists:
         fresh = _fresh_reload(vocab_dir, bundled)
         miss = fresh.get_all()["misspellings"]
         assert "zzz" not in miss, (
-            "deleted user entry 'zzz' resurrected after a fresh disk reload — "
+            "deleted user entry 'zzz' resurrected after a fresh disk reload, "
             "the delete did not persist to the user vocabulary file"
         )
         # the untouched bundled entries must remain
@@ -144,7 +144,7 @@ class TestDeletePersists:
         assert miss.get("recieve") == "receive"
 
     def test_single_delete_of_bundled_entry_persists(self, vocab_mixin, live_vm, vocab_dir, bundled):
-        """Deleting a BUNDLED default entry must persist too — the
+        """Deleting a BUNDLED default entry must persist too, the
         diff-style user file alone can't express \"remove a bundled
         entry\"; it needs the deletion tombstone."""
         payload = _payload_for(live_vm)
@@ -154,14 +154,14 @@ class TestDeletePersists:
         fresh = _fresh_reload(vocab_dir, bundled)
         miss = fresh.get_all()["misspellings"]
         assert "teh" not in miss, (
-            "deleted BUNDLED entry 'teh' resurrected after a fresh disk reload — "
+            "deleted BUNDLED entry 'teh' resurrected after a fresh disk reload, "
             "the deletion tombstone was not written/applied"
         )
         assert "recieve" in miss
 
     def test_delete_reflected_in_live_manager(self, vocab_mixin, live_vm, vocab_dir, bundled):
-        """The LIVE manager — what ``get_vocabulary`` returns after the
-        user navigates away and back — must reflect the deletion too,
+        """The LIVE manager, what ``get_vocabulary`` returns after the
+        user navigates away and back, must reflect the deletion too,
         not just the disk."""
         payload = _payload_for(live_vm)
         payload["misspellings"]["zzz"] = "zz"
@@ -172,7 +172,7 @@ class TestDeletePersists:
         vocab_mixin.save_vocabulary_with_diff(delete_payload)
 
         assert "zzz" not in live_vm.get_all()["misspellings"], (
-            "live VocabularyManager still serves the deleted entry after the save — "
+            "live VocabularyManager still serves the deleted entry after the save, "
             "get_vocabulary would show a stale list on navigation back"
         )
 

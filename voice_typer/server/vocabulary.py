@@ -1,12 +1,12 @@
 """Custom vocabulary manager: 6 categories, merge bundled+user, CRUD, import/export.
 
 Categories:
-    misspellings        — word → corrected word
-    phrase_corrections  — phrase → corrected phrase
-    extra_word_patterns — extra word pattern → removal/replacement
-    technical_terms     — common misrecognition → correct technical term
-    names               — misrecognized name → correct name
-    products            — misrecognized product → correct product name
+    misspellings       , word → corrected word
+    phrase_corrections , phrase → corrected phrase
+    extra_word_patterns, extra word pattern → removal/replacement
+    technical_terms    , common misrecognition → correct technical term
+    names              , misrecognized name → correct name
+    products           , misrecognized product → correct product name
 
 Merges bundled corrections.json with user voice-typer-corrections.json.
 User entries extend (not replace) the bundled defaults.
@@ -42,14 +42,14 @@ BUNDLED_CORRECTIONS_PATH = Path(__file__).parent / "corrections.json"
 #     ``corrections.json`` (BUNDLED_CORRECTIONS_PATH) plus the reserved
 #     ``_deleted`` tombstone map (entries the user removed from the
 #     BUNDLED set). Bundled entries are intentionally NOT duplicated
-#     into this file — the merged vocabulary the UI/dictation sees is
+#     into this file, the merged vocabulary the UI/dictation sees is
 #     ``bundled + user - _deleted`` computed at load time.
 #   - The 6 category buckets (``CATEGORIES``) are the PERSISTED DATA
 #     LAYER: the renderer hides them (flat original→corrected list,
 #     auto-assigned via ``detectCategory``), but the backend applies
 #     per-category (order, regex semantics), the usage tracker keys by
 #     category, and the diff-save + tombstones are per-category. They
-#     are NOT obsolete — do not remove them without migrating
+#     are NOT obsolete, do not remove them without migrating
 #     ``apply_to_text`` / ``CorrectionUsageTracker`` /
 #     ``save_vocabulary_with_diff``.
 #   - Usage/analytics data (``correction-usage.json``) is a SEPARATE
@@ -85,7 +85,7 @@ class VocabularyManager:
         usage_tracker: CorrectionUsageTracker | None = None,
     ):
         """
-        ``usage_tracker`` — optional shared
+        ``usage_tracker``: optional shared
         :class:`~voice_typer.server.correction_usage.CorrectionUsageTracker`
         injected by the app so dictation records hits into ONE
         app-wide counter. When None (standalone / tests / cold-start
@@ -133,7 +133,7 @@ class VocabularyManager:
         self._data: dict[str, Any] = {}
         # Deletion tombstones: {category: [key | [wrong, correct], ...]}.
         # Persisted under a reserved ``_deleted`` key in the user file so
-        # removing a BUNDLED default correction actually sticks — the
+        # removing a BUNDLED default correction actually sticks, the
         # diff-style user file alone can't express "remove a bundled
         # entry" and the entry would resurrect on the next merge. Loaded
         # in ``_load_and_merge``, applied to the merged ``_data``, kept in
@@ -145,7 +145,7 @@ class VocabularyManager:
         self._lock = threading.Lock()
         # Raw bundled defaults (as loaded by ``_load_bundled``, before any
         # user merge). Stored so ``save_vocabulary_with_diff`` can diff
-        # incoming payloads against the TRUE defaults — comparing against
+        # incoming payloads against the TRUE defaults, comparing against
         # the merged ``_data`` drops unchanged user entries on every
         # subsequent save (the wholesale user-file replace would lose them).
         self._bundled_raw: dict[str, Any] = {}
@@ -182,14 +182,14 @@ class VocabularyManager:
         Returns ``(pattern, lookup)`` where ``pattern`` is a single
         ``(?:alt1|alt2|...)`` regex over ALL of the category's escaped
         originals (longer-first so overlapping entries prefer the longer
-        match — the SRE trie resolves alternation order) and ``lookup``
+        match, the SRE trie resolves alternation order) and ``lookup``
         maps ``original.lower()`` → ``(good, original)`` for the sub
         callback (replacement + usage-tracker key). Returns ``None`` for
         empty/non-list categories so ``apply_to_text`` skips the pass
         entirely.
 
         Performance contract: one full-text scan per category per
-        dictation, regardless of entry count — replaces the prior
+        dictation, regardless of entry count, replaces the prior
         per-entry ``pattern.subn`` loop that re-scanned the full text
         once per entry (M entries = M scans).
         Cache is invalidated on any mutation via
@@ -219,7 +219,7 @@ class VocabularyManager:
             for entry in sorted_entries:
                 key = entry[0].lower()
                 if key in lookup:
-                    # Duplicate original (case-insensitive) — first
+                    # Duplicate original (case-insensitive), first
                     # (longest) wins; keep the alternation deduped too.
                     continue
                 lookup[key] = (entry[1], entry[0])
@@ -237,13 +237,13 @@ class VocabularyManager:
         bundled = self._load_bundled()
         # Keep the RAW defaults around so the diff-style save path can
         # distinguish "user customization" from "unchanged bundled" (see
-        # ``service/vocabulary.py`` — diffing against the merged state
+        # ``service/vocabulary.py``: diffing against the merged state
         # drops unchanged user entries on the next save).
         self._bundled_raw = bundled
         user = self._load_user()
 
         # Deletion tombstones (reserved ``_deleted`` key in the user file)
-        # — entries the user removed from the BUNDLED defaults. Kept out
+        # , entries the user removed from the BUNDLED defaults. Kept out
         # of ``self._data`` and applied to the merged result below so
         # ``get_all`` / dictation never see the pseudo-category.
         self._deleted = {}
@@ -318,15 +318,15 @@ class VocabularyManager:
     def _load_user(self) -> dict:
         """Load the user vocabulary file.
 
-        Persistence is routed through :class:`PersistedJSON`
-        (``self._user_store``). On parse failure (corrupt JSON, OSError,
-        symlink-TOCTOU raise), the helper quarantines the corrupt file
-        to ``<path>.corrupt-<ts>`` for forensic recovery and returns
-        the configured default (``{}``). The previous implementation
-        silently fell back to defaults with a single WARNING log line
-        — no quarantine — so the next ``_save_user`` would atomically
-        overwrite the corrupt file with defaults, destroying any chance
-        of forensic recovery. Mirrors ``config.py:1744-1763``.
+         Persistence is routed through :class:`PersistedJSON`
+         (``self._user_store``). On parse failure (corrupt JSON, OSError,
+         symlink-TOCTOU raise), the helper quarantines the corrupt file
+         to ``<path>.corrupt-<ts>`` for forensic recovery and returns
+         the configured default (``{}``). The previous implementation
+         silently fell back to defaults with a single WARNING log line
+        , no quarantine, so the next ``_save_user`` would atomically
+         overwrite the corrupt file with defaults, destroying any chance
+         of forensic recovery. Mirrors ``config.py:1744-1763``.
         """
         data = self._user_store.load()
         if not isinstance(data, dict):
@@ -359,7 +359,7 @@ class VocabularyManager:
             else:
                 result[cat] = val
         # Carry the reserved ``_deleted`` tombstone key through
-        # normalization (it is not a vocabulary category — merge applies
+        # normalization (it is not a vocabulary category, merge applies
         # it, CRUD keeps it in sync, and it is never exposed via
         # ``get_all``).
         if isinstance(data.get("_deleted"), dict):
@@ -382,13 +382,13 @@ class VocabularyManager:
         loop is preserved: ``Path.replace`` is not atomic on Windows
         when the destination is open by another process (e.g. an
         editor or a cloud-sync client watching the file). The shared
-        ``_secure_atomic_write`` itself is already atomic — the retries
+        ``_secure_atomic_write`` itself is already atomic, the retries
         here are purely for the ``PermissionError`` race on Windows
         where the destination is locked by an editor / cloud-sync
         client.
 
         previously this method logged failures and returned
-        silently — a contract described in the docstring as
+        silently, a contract described in the docstring as
         "best-effort". That left CRUD callers (``add_entry`` /
         ``add_phrase`` / ``remove_entry`` / ``remove_phrase`` /
         ``import_json``) unable to detect failure, so they returned
@@ -409,7 +409,7 @@ class VocabularyManager:
             try:
                 # PersistedJSON.save handles atomic write + .bak
                 # + 0o600 perms + parent-dir creation in one call.
-                # durability=False — the atomic os.replace still
+                # durability=False, the atomic os.replace still
                 # guarantees consistency (no half-written files); only
                 # the per-save fsync is dropped. User-vocabulary edits
                 # are frequent (typing in the settings panel) and a
@@ -462,7 +462,7 @@ class VocabularyManager:
         and returned the live internal ``self._data[category]``
         dict/list. Callers like
         ``vocabulary_automation._collect_vocabulary_words`` iterate
-        the returned container — and a concurrent ``add_entry`` /
+        the returned container, and a concurrent ``add_entry`` /
         ``remove_entry`` / ``import_json`` mutation (which acquires
         ``self._lock``) could mutate the dict mid-iteration, raising
         ``RuntimeError: dictionary changed size during iteration``
@@ -473,7 +473,7 @@ class VocabularyManager:
         The snapshot pattern mirrors ``apply_to_text`` (line ~664)
         and ``get_all`` (line ~300), both of which already copy
         under the lock. The individual values inside dict categories
-        are NOT deep-copied (shallow copy) — callers that need to
+        are NOT deep-copied (shallow copy), callers that need to
         mutate a value should use ``add_entry`` so the change
         persists to disk.
         """
@@ -715,7 +715,7 @@ class VocabularyManager:
         restores it on save failure so the in-memory state stays
         consistent with the on-disk state. The snapshot is a shallow
         copy of the top-level dict plus shallow copies of each
-        category container (dict.copy() / list.copy()) — sufficient
+        category container (dict.copy() / list.copy()), sufficient
         because we only either ``update`` dicts in place, ``extend``
         lists in place, or replace the container reference outright.
         """
@@ -898,7 +898,7 @@ class VocabularyManager:
         a phrase never inflates real usage numbers.
         """
         # Pre-compiled regex + the memoized token-key normalizer, shared
-        # with text_cleanup — avoids the 200 re-cache lookups per
+        # with text_cleanup, avoids the 200 re-cache lookups per
         # dictation (50 words × 4 categories) that the inline
         # ``re.sub``/``re.match`` calls previously incurred, and reuses
         # text_cleanup's LRU-cached ``_token_key`` instead of re-running
@@ -912,7 +912,7 @@ class VocabularyManager:
         # (category, original, count) hits for the usage tracker.
         hits: list[tuple[str, str, int]] = []
 
-        # Phrase-level corrections — ONE combined-alternation pass per
+        # Phrase-level corrections. ONE combined-alternation pass per
         # category (the same design proven in text_cleanup/_engine.py).
         # Previously each entry ran its own ``pattern.subn`` over the FULL
         # text: M entries = M full-text scans per dictation, so a large
@@ -951,14 +951,14 @@ class VocabularyManager:
             for key, count in counts.items():
                 hits.append((cat, lookup[key][1], count))
 
-        # Word-level corrections — single tokenization pass shared
+        # Word-level corrections, single tokenization pass shared
         # across all 4 dict-based categories (previously the loop
         # re-tokenized + re-joined 4 times per dictation). Categories
         # are applied in order so a misspelling corrected to a term
         # that's then in technical_terms is further corrected (matches
         # the original sequential semantics).
         #
-        # Snapshot only the dict REFERENCES under the lock — not the
+        # Snapshot only the dict REFERENCES under the lock, not the
         # dict contents. Per-token lookups (``dict.get(key)``) are
         # GIL-atomic and safe to call on the live ``self._data`` dicts
         # without copying each entry. Pre-fix the snapshot allocated
@@ -970,7 +970,7 @@ class VocabularyManager:
 
         tokens = text.split(" ")
         for cat, entries in word_cats:
-            # Skip non-dicts and empty categories — avoids the per-token
+            # Skip non-dicts and empty categories, avoids the per-token
             # ``key in entries`` lookup cost when the category has no
             # entries (common for the bundled defaults where names and
             # products are typically empty until the user adds entries).

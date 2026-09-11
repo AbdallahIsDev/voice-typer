@@ -57,7 +57,7 @@ def _restore_logging_state():
     true_root.handlers = saved_true_handlers
     _log_module._session_id = saved_session_id
     # Close any devnull FDs opened if sys.stderr was None during the test
-    # (defensive — pytest normally provides a real stderr).
+    # (defensive, pytest normally provides a real stderr).
     close_devnull_files()
 
 
@@ -243,7 +243,7 @@ def test_log_message_reaches_file(config_dir, clean_env, stub_side_effects):
 
 def test_no_session_id_bracket_in_file(config_dir, clean_env, stub_side_effects):
     """The 8-char per-process session_id bracket must NOT appear in file
-    log output — it added noise to every line without helping the user
+    log output, it added noise to every line without helping the user
     read the log (correlation stays available in JSON mode)."""
     logging_setup._setup_logging()
     lg = logging.getLogger("voice_typer.server.fake_module")
@@ -335,7 +335,7 @@ def test_raises_when_config_dir_uncreatable(tmp_path: Path, monkeypatch, clean_e
     ``setup_logging`` calls ``config_dir.mkdir(parents=True, exist_ok=True)``
     and then opens a RotatingFileHandler inside it.  If the parent path is
     a file (not a directory), mkdir raises ``NotADirectoryError`` (subclass
-    of ``OSError``) — the error must propagate rather than being silently
+    of ``OSError``), the error must propagate rather than being silently
     swallowed.
     """
     blocker = tmp_path / "i_am_a_file"
@@ -355,7 +355,7 @@ def test_log_file_mode_is_0o600_on_posix(config_dir, clean_env, stub_side_effect
     """G4-H-07: ``voice-typer.log`` is created with mode 0o600 on POSIX.
 
     The rotating log file contains dictated-text previews, exception
-    tracebacks, and hotkey registrations — it must be world-unreadable so
+    tracebacks, and hotkey registrations, it must be world-unreadable so
     a co-located user can not ``cat`` it.  ``setup_logging`` sets the
     process umask to 0o077 and explicitly ``os.chmod``s the file to
     0o600 after construction (defence in depth).
@@ -376,7 +376,7 @@ def test_log_file_mode_is_0o600_on_posix(config_dir, clean_env, stub_side_effect
 def test_log_file_handler_level_gated_by_debug_default_info(config_dir, clean_env, stub_side_effects):
     """G4-H-35: the RotatingFileHandler level is INFO by default.
 
-    Root stays at DEBUG so child loggers can emit DEBUG records — the
+    Root stays at DEBUG so child loggers can emit DEBUG records, the
     handler-level filter is what drops them at INFO in production.
     """
     logging_setup._setup_logging()
@@ -414,7 +414,7 @@ def test_per_module_log_levels_applied_from_env(config_dir, clean_env, stub_side
     """Per-module log level overrides via VOICE_TYPER_LOG_LEVEL_MODULES env var.
 
     Operators can crank up DEBUG on a single subsystem without enabling
-    DEBUG globally — the env var is parsed in ``setup_logging`` and
+    DEBUG globally, the env var is parsed in ``setup_logging`` and
     applied to each named logger after the root level is set.
     """
     monkeypatch.setenv(
@@ -457,7 +457,7 @@ class TestStartupBanner:  # noqa: N801
         )
 
     The session id is included exactly ONCE, as the trailing
-    ``session=`` field of the banner — the first line of the session —
+    ``session=`` field of the banner, the first line of the session —
     so every subsequent line implicitly belongs to this session
     without the id being repeated per-line (C-LOG-1 keeps per-line
     output clean; the banner is the single mention).
@@ -503,8 +503,8 @@ class TestStartupBanner:  # noqa: N801
 
     def test_banner_includes_level_name(self, config_dir, clean_env, stub_side_effects):
         """The banner reports the FILE HANDLER level NAME (``INFO``,
-        ``DEBUG``, ``WARNING``, etc.) — the level that actually gates what
-        lands in the log file — not the numeric value, so it's
+        ``DEBUG``, ``WARNING``, etc.), the level that actually gates what
+        lands in the log file, not the numeric value, so it's
         human-readable. Under the default config (debug=False) the file
         handler sits at INFO, so the banner shows ``level=INFO``
         (consistent with ``debug=False``; the ``voice_typer`` logger
@@ -570,7 +570,7 @@ class TestStartupBanner:  # noqa: N801
             f"GT-B1-15: first log line must carry session=<id>; got: {lines[0]!r}"
         )
         # ...and nowhere else in the entire file (one mention per
-        # session — no per-line ids, no duplication in later banners).
+        # session, no per-line ids, no duplication in later banners).
         assert content.count("session=") == 1, f"GT-B1-15: session= must appear exactly once; got:\n{content}"
 
     def test_session_id_prefers_host_env_var(self, config_dir, clean_env, stub_side_effects, monkeypatch):

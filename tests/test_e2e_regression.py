@@ -1,4 +1,4 @@
-"""E2E tests — verify the #2 extractions and STARTUP-3/7 fixes.
+"""E2E tests: verify the #2 extractions and STARTUP-3/7 fixes.
 
 Covers:
 - #2: ModelManager / RecordingController / HotkeyDispatcher extracted from app.py
@@ -6,7 +6,7 @@ Covers:
 - STARTUP-7: Windows autostart uses Task Scheduler logon trigger (with Run-key fallback)
 
 (Wave 3, 2026-08-14): STARTUP-5 (POSIX prewarm scheduler) section
-was deleted — prewarm became a worker startup phase (master plan
+was deleted, prewarm became a worker startup phase (master plan
 §6.2 P-1), so the macOS LaunchAgent + Linux systemd user-timer
 scheduler (``prewarm_scheduler_posix.py``) and the POSIX True-return
 branch of ``task_scheduler.is_supported()`` were removed. The 7
@@ -178,7 +178,7 @@ class TestPrewarmFiltersImportsByActiveBackend:
     (Wave 3, 2026-08-14): the original tests pinned backend-specific
     filtering (whisper skipped torch/transformers; parakeet warmed
     them). Prewarm became a worker startup phase and the worker is
-    TORCH-FREE (VAD is ONNX, Parakeet is onnx-asr) — the warm list is
+    TORCH-FREE (VAD is ONNX, Parakeet is onnx-asr), the warm list is
     now the fixed ``_WORKER_WARM_PACKAGES`` tuple (``onnxruntime`` +
     ``ctranslate2`` + ``numpy`` + ``scipy`` + ``faster_whisper``)
     regardless of ``asr_backend``. ``torch`` and ``transformers`` are
@@ -194,7 +194,7 @@ class TestPrewarmFiltersImportsByActiveBackend:
 
     def test_warm_imports_never_imports_torch_or_transformers(self, temp_config, monkeypatch):
         """``_warm_imports`` must NOT call ``__import__("torch")`` or
-        ``__import__("transformers")`` — the worker exe is torch-free
+        ``__import__("transformers")``, the worker exe is torch-free
         (master plan §6.2 P-1 + Phase 1c ONNX migration).
 
         Pre-Phase-2 production did ``import torch`` (which executes
@@ -204,7 +204,7 @@ class TestPrewarmFiltersImportsByActiveBackend:
         ``_warm_package_files`` (which uses ``importlib.util.find_spec``
         to locate files and reads them into the OS page cache without
         executing the package's code). This test enforces the no-import
-        invariant across both backends — a future regression that
+        invariant across both backends, a future regression that
         reintroduces ``import torch`` would break the torch-free worker
         bundle (the build's ``--nofollow-import-to=torch`` flag would
         silently drop it, but the runtime import would still execute).
@@ -215,7 +215,7 @@ class TestPrewarmFiltersImportsByActiveBackend:
         from voice_typer.server import prewarm
         from voice_typer.server.prewarm import cache_probe
 
-        # Capture the real ``__import__`` ONCE before the loop — the
+        # Capture the real ``__import__`` ONCE before the loop, the
         # ``tracking_import`` closure inside the loop references this
         # binding, so re-capturing it inside the loop would capture the
         # previous iteration's ``tracking_import`` (recursion).
@@ -227,7 +227,7 @@ class TestPrewarmFiltersImportsByActiveBackend:
 
             # Bind ``imported`` as a default arg so the closure captures
             # the CURRENT iteration's list (B023: function definitions
-            # inside loops don't bind loop variables by name — they
+            # inside loops don't bind loop variables by name, they
             # capture the variable itself, which would all refer to the
             # last iteration's list at call time without this binding).
             def tracking_import(name, *args, _imported=imported, **kwargs):
@@ -251,11 +251,11 @@ class TestPrewarmFiltersImportsByActiveBackend:
             # worker exe is torch-free).
             assert "torch" not in imported, (
                 f"STARTUP-3 regression: torch was imported for {backend!r} backend "
-                "(the worker exe is torch-free — master plan §6.2 P-1)."
+                "(the worker exe is torch-free, master plan §6.2 P-1)."
             )
             assert "transformers" not in imported, (
                 f"STARTUP-3 regression: transformers was imported for {backend!r} backend "
-                "(the worker exe is torch-free — master plan §6.2 P-1)."
+                "(the worker exe is torch-free, master plan §6.2 P-1)."
             )
 
     def test_warm_imports_warms_canonical_worker_packages(self, temp_config, monkeypatch):
@@ -274,7 +274,7 @@ class TestPrewarmFiltersImportsByActiveBackend:
         drops a package or re-introduces backend variation would break
         this test).
         """
-        # The warm list is backend-independent post-§6.2 P-1 — pin the
+        # The warm list is backend-independent post-§6.2 P-1, pin the
         # parakeet path (which previously warmed torch+transformers;
         # the new path warms the same fixed list as whisper).
         (temp_config / "config.json").write_text(json.dumps({"asr_backend": "parakeet"}))
@@ -288,7 +288,7 @@ class TestPrewarmFiltersImportsByActiveBackend:
             # the import path.
             if name in ("torch", "transformers", "faster_whisper"):
                 raise AssertionError(
-                    f"_warm_imports should NOT call __import__({name!r}) — "
+                    f"_warm_imports should NOT call __import__({name!r}), "
                     f"it should use _warm_package_files instead (XV-19)."
                 )
             return real_import(name, *args, **kwargs)
@@ -331,8 +331,8 @@ class TestPrewarmFiltersImportsByActiveBackend:
 
 
 # (Wave 3, 2026-08-14): ``TestPrewarmPosixSchedulerSupportsLaunchagentAndSystemd``
-# (7 tests) was DELETED — the entire ``prewarm_scheduler_posix`` module
-# was removed (prewarm became a worker startup phase — master plan §6.2
+# (7 tests) was DELETED, the entire ``prewarm_scheduler_posix`` module
+# was removed (prewarm became a worker startup phase, master plan §6.2
 # P-1). The deleted tests pinned:
 #   - ``prewarm_scheduler_posix.is_supported`` / ``is_prewarm_registered`` /
 #     ``register_prewarm_task`` / ``unregister_prewarm_task`` (module
@@ -340,7 +340,7 @@ class TestPrewarmFiltersImportsByActiveBackend:
 #   - ``_build_macos_plist`` / ``_build_linux_service`` / ``_build_linux_timer``
 #     (POSIX scheduler unit builders)
 #   - ``task_scheduler.is_supported()`` returns True on POSIX (the OLD
-#     behavior — ``is_supported`` is now Windows-only since the POSIX
+#     behavior: ``is_supported`` is now Windows-only since the POSIX
 #     prewarm scheduling path was deleted; the autostart code paths on
 #     POSIX use LaunchAgent / systemd directly via
 #     ``server_platform/autostart_macos.py`` / ``autostart_linux.py``)

@@ -1,4 +1,4 @@
-"""Cursor (keyset) pagination wiring tests — service + handler layers.
+"""Cursor (keyset) pagination wiring tests: service + handler layers.
 
 Verifies ``before_timestamp`` / ``before_id`` cursor pagination params
 are forwarded end-to-end from the IPC handler → service mixin →
@@ -10,16 +10,16 @@ to the OFFSET path when the cursor is absent (backward-compat).
 
 Test layout:
 
-* :class:`TestServiceForwardsCursor` — service-level forwarding
+* :class:`TestServiceForwardsCursor`, service-level forwarding
   (mocks ``history_db``, verifies ``before_timestamp`` / ``before_id``
   are passed through to ``get_recent`` / ``search`` / ``get_favorites``).
-* :class:`TestHandlerExtractsCursor` — handler-level extraction
+* :class:`TestHandlerExtractsCursor`, handler-level extraction
   (mocks the service, verifies the handler parses the ``data`` payload
   and passes the cursor kwargs to the service call).
-* :class:`TestHandlerOffsetFallback` — handler with no cursor params
+* :class:`TestHandlerOffsetFallback`, handler with no cursor params
   falls back to OFFSET (verifies ``before_timestamp=None`` is effectively
-  forwarded via the service defaults — no cursor kwargs splatted).
-* :class:`TestHandlerCursorValidation` — ``before_id < 0`` and
+  forwarded via the service defaults, no cursor kwargs splatted).
+* :class:`TestHandlerCursorValidation`: ``before_id < 0`` and
   ``before_id`` as a bool are rejected with ``client.invalid_field``.
 """
 
@@ -112,7 +112,7 @@ class TestServiceForwardsCursor:
 
         mixin.get_history(limit=50, offset=0)
 
-        # The service forwards None for both cursor params — the DB layer
+        # The service forwards None for both cursor params, the DB layer
         # then takes the OFFSET branch (backward-compat with pre-cursor
         # callers).
         mock_app.history_db.get_recent.assert_called_once_with(
@@ -260,7 +260,7 @@ class TestHandlerOffsetFallback:
     """Handler falls back to OFFSET when cursor params are absent.
 
     The handler MUST NOT splat cursor kwargs into the service call when
-    either cursor value is ``None`` — this preserves the exact pre-cursor
+    either cursor value is ``None``, this preserves the exact pre-cursor
     call shape (``service.get_history(limit, offset)``) so the service
     defaults forward ``None`` to ``history_db``, which takes the OFFSET
     branch (backward-compat). See :func:`_build_cursor_kwargs` in
@@ -273,12 +273,12 @@ class TestHandlerOffsetFallback:
         fake_service,
     ) -> None:
         """Empty payload → service called with positional ``(limit, offset)``
-        only — no cursor kwargs splatted, so ``before_timestamp=None`` is
+        only, no cursor kwargs splatted, so ``before_timestamp=None`` is
         effectively forwarded via the service defaults (OFFSET path)."""
         fake_service.get_history.return_value = []
         ipc_server._handle_get_history({}, {})
 
-        # No cursor kwargs splatted — the service defaults take over and
+        # No cursor kwargs splatted, the service defaults take over and
         # forward ``before_timestamp=None`` to ``history_db.get_recent``,
         # which takes the OFFSET branch.
         fake_service.get_history.assert_called_once_with(50, 0)
@@ -382,7 +382,7 @@ class TestHandlerCursorValidation:
         ipc_server,
         fake_service,
     ) -> None:
-        """``before_timestamp`` must be a string — an int is rejected."""
+        """``before_timestamp`` must be a string, an int is rejected."""
         payload = {"before_timestamp": 12345, "before_id": 42}
         resp = ipc_server._handle_get_history(payload, {})
 
@@ -397,7 +397,7 @@ class TestHandlerCursorValidation:
         fake_service,
     ) -> None:
         """``before_id=0`` is a valid cursor (id 0 doesn't exist, so
-        the keyset returns the first page in DESC order — equivalent to
+        the keyset returns the first page in DESC order, equivalent to
         OFFSET 0 but using the index)."""
         fake_service.get_history.return_value = []
         payload = {

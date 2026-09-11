@@ -1,19 +1,19 @@
 // =============================================================================
-// Voice Typer — macOS native key listener
+// Voice Typer, macOS native key listener
 //
 // Emits line-delimited key events on stdout for the Python parent process to
 // match against the registered hotkey. Modeled on Freestyle's
 // macos-key-listener.swift (trimmed). Uses THREE event sources:
 //
-//   (a) NSEvent global monitor for .flagsChanged — FN + modifier transitions
-//   (b) NSEvent global monitor for .keyDown — non-modifier key-down events
-//   (c) CGEventTap on .keyDown/.keyUp — for reliable key-up delivery (NSEvent
+//   (a) NSEvent global monitor for .flagsChanged. FN + modifier transitions
+//   (b) NSEvent global monitor for .keyDown, non-modifier key-down events
+//   (c) CGEventTap on .keyDown/.keyUp, for reliable key-up delivery (NSEvent
 //       global monitors miss keyUp) AND for suppressing the matched hotkey's
 //       keystroke so it doesn't reach the foreground app
 //
 // Wire protocol (one event per line, newline-terminated):
 //   READY                          # emitted once after init succeeds
-//   FN_DOWN / FN_UP                # macOS only — Fn/Globe edge-detected
+//   FN_DOWN / FN_UP                # macOS only: Fn/Globe edge-detected
 //   KEY_DOWN:<Name>                # non-modifier key pressed
 //   KEY_UP:<Name>                  # non-modifier key released
 //   MOD_DOWN:<Name>                # modifier pressed (Ctrl, Shift, Alt, Cmd)
@@ -82,7 +82,7 @@ func emit(_ line: String) {
 // MARK: - Hotkey spec parsing
 
 /// Parsed representation of the hotkey spec supplied via argv[1]. The binary
-/// does NOT do hotkey matching — Python does. We only parse so we can (a)
+/// does NOT do hotkey matching. Python does. We only parse so we can (a)
 /// reject invalid specs early with ERROR, and (b) know which keystrokes to
 /// suppress in the CGEventTap so they don't reach the foreground app.
 struct HotkeySpec {
@@ -134,7 +134,7 @@ func parseHotkeySpec(_ raw: String) -> HotkeySpec? {
         default:
             // Must be a main key (letter, digit, function key, special key).
             guard let norm = normalizeKeyName(t) else { return nil }
-            if mainKey != nil { return nil } // more than one main key — invalid
+            if mainKey != nil { return nil } // more than one main key, invalid
             mainKey = norm
         }
     }
@@ -212,7 +212,7 @@ private let specialKeyCodes: [UInt16: String] = [
     123: "Left", 124: "Right", 125: "Down", 126: "Up",
 ]
 
-/// Modifier keyCodes — these produce `.flagsChanged` events on macOS, not
+/// Modifier keyCodes, these produce `.flagsChanged` events on macOS, not
 /// `.keyDown`. We skip them in the keyDown handler so we don't double-emit.
 /// (Caps Lock 57 and Fn 63 are also here; both are handled via flagsChanged.)
 private let modifierKeyCodes: Set<UInt16> = [
@@ -229,7 +229,7 @@ private let modifierKeyCodes: Set<UInt16> = [
 func nameForNSEvent(_ event: NSEvent) -> String? {
     if let name = specialKeyCodes[event.keyCode] { return name }
     if modifierKeyCodes.contains(event.keyCode) { return nil }
-    // Printable letter/digit — respect keyboard layout via charactersIgnoringModifiers
+    // Printable letter/digit, respect keyboard layout via charactersIgnoringModifiers
     if let chars = event.charactersIgnoringModifiers,
        let first = chars.uppercased().first,
        first.isASCII, (first.isLetter || first.isNumber) {
@@ -264,7 +264,7 @@ final class TapContext {
     var machPort: CFMachPort?
     let hotkey: HotkeySpec
 
-    // Previous modifier flag state — used for edge detection so we only emit
+    // Previous modifier flag state, used for edge detection so we only emit
     // on false→true / true→false transitions, not on every flagsChanged event.
     var ctrl = false
     var shift = false
@@ -273,7 +273,7 @@ final class TapContext {
     var fn = false
 
     // Suppression: when we swallow a keyDown, remember its keyCode so the
-    // matching keyUp is also swallowed — otherwise the foreground app sees an
+    // matching keyUp is also swallowed, otherwise the foreground app sees an
     // orphan keyUp (keydown suppressed, keyup delivered), which can confuse it.
     var suppressedKeyCode: UInt16? = nil
 
@@ -288,7 +288,7 @@ final class TapContext {
 /// appropriate MOD_DOWN/MOD_UP, FN_DOWN/FN_UP, or KEY_DOWN:CapsLock line.
 ///
 /// Critical: detect FN via `event.modifierFlags.contains(.function)` (bit 23)
-/// — NOT `keyCode == 63`. The `.function` flag is the semantic "Fn is held"
+///, NOT `keyCode == 63`. The `.function` flag is the semantic "Fn is held"
 /// bit. Edge-detecting it via `var fn = false` prevents spurious FN_DOWN /
 /// FN_UP fires when unrelated modifiers (Caps Lock, Shift) change state.
 func handleFlagsChanged(_ event: NSEvent, context: TapContext) {
@@ -298,7 +298,7 @@ func handleFlagsChanged(_ event: NSEvent, context: TapContext) {
     let newShift = flags.contains(.shift)
     let newAlt   = flags.contains(.option)
     let newCmd   = flags.contains(.command)
-    let newFn    = flags.contains(.function)   // bit 23 — the "Fn held" flag
+    let newFn    = flags.contains(.function)   // bit 23, the "Fn held" flag
 
     if newCtrl  != context.ctrl  { emit(newCtrl  ? "MOD_DOWN:Ctrl"  : "MOD_UP:Ctrl")  ; context.ctrl  = newCtrl  }
     if newShift != context.shift { emit(newShift ? "MOD_DOWN:Shift" : "MOD_UP:Shift") ; context.shift = newShift }
@@ -313,7 +313,7 @@ func handleFlagsChanged(_ event: NSEvent, context: TapContext) {
     }
 
     // FN: edge-detect via the .function flag. The CGEventTap suppression logic
-    // relies on these transitions being edge-detected — otherwise pressing
+    // relies on these transitions being edge-detected, otherwise pressing
     // Shift while Fn is held would spuriously re-fire FN_DOWN.
     if newFn != context.fn {
         emit(newFn ? "FN_DOWN" : "FN_UP")
@@ -353,13 +353,13 @@ private let keyCodeToModifier: [UInt16: String] = [
 func shouldSuppressKeyDown(event: CGEvent, context: TapContext) -> Bool {
     let keyCode = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
 
-    // (1) Fn alone — never produces a keystroke; nothing to swallow.
+    // (1) Fn alone, never produces a keystroke; nothing to swallow.
     if context.hotkey.isFnOnly { return false }
 
-    // (2) Caps Lock alone — swallow so the OS doesn't toggle caps state.
+    // (2) Caps Lock alone, swallow so the OS doesn't toggle caps state.
     if context.hotkey.isCapsLockOnly && keyCode == 57 { return true }
 
-    // (3) Modifier-only hotkey (e.g. <alt>, <ctrl>+<shift>) — swallow the
+    // (3) Modifier-only hotkey (e.g. <alt>, <ctrl>+<shift>), swallow the
     //     keyDown of any of the configured modifiers (both left & right sides).
     if context.hotkey.isModifierOnly {
         if let modName = keyCodeToModifier[keyCode],
@@ -369,10 +369,10 @@ func shouldSuppressKeyDown(event: CGEvent, context: TapContext) -> Bool {
         return false
     }
 
-    // (4) Combo (modifiers + main key) — swallow the main key only when ALL
+    // (4) Combo (modifiers + main key), swallow the main key only when ALL
     //     configured modifiers are currently held. A single main-key-alone
     //     hotkey (e.g. <f2>, modifiers empty) falls into "otherwise" and is
-    //     NOT suppressed per spec — let it pass through.
+    //     NOT suppressed per spec, let it pass through.
     if let mainKey = context.hotkey.mainKey, !context.hotkey.modifiers.isEmpty {
         guard let name = nameForCGEvent(event), name == mainKey else { return false }
         let flags = event.flags
@@ -384,13 +384,13 @@ func shouldSuppressKeyDown(event: CGEvent, context: TapContext) -> Bool {
         return true
     }
 
-    // (5) Otherwise — don't swallow.
+    // (5) Otherwise, don't swallow.
     return false
 }
 
 // MARK: - CGEventTap callback
 
-/// The CGEventTap callback. Must be `@convention(c)` — it cannot capture any
+/// The CGEventTap callback. Must be `@convention(c)`, it cannot capture any
 /// state, so all context flows through the `userInfo` pointer we pass to
 /// `CGEvent.tapCreate`. Top-level Swift functions (`emit`, `nameForCGEvent`,
 /// `shouldSuppressKeyDown`) are callable from a @convention(c) closure
@@ -414,12 +414,12 @@ let eventTapCallback: CGEventTapCallBack = { _, type, cgEvent, userInfo in
 
     switch type {
     case .keyDown:
-        // DO NOT emit here — the NSEvent .keyDown monitor handles emission to
+        // DO NOT emit here, the NSEvent .keyDown monitor handles emission to
         // avoid duplicates. We only check whether to suppress the matched
         // hotkey's keystroke so it doesn't reach the foreground app.
         if shouldSuppressKeyDown(event: cgEvent, context: ctx) {
             ctx.suppressedKeyCode = keyCode
-            return nil  // swallow — event won't be delivered downstream
+            return nil  // swallow, event won't be delivered downstream
         }
 
     case .keyUp:
@@ -444,7 +444,7 @@ let eventTapCallback: CGEventTapCallBack = { _, type, cgEvent, userInfo in
 
 // MARK: - Main entry
 
-// (0) Parse argv[1] — the hotkey spec. We don't match against it (Python
+// (0) Parse argv[1], the hotkey spec. We don't match against it (Python
 // does), but we validate it so we can fail fast with ERROR on bad input.
 guard CommandLine.arguments.count >= 2 else {
     emit("ERROR:Missing hotkey spec argument")
@@ -490,14 +490,14 @@ guard let parsedHotkey = parseHotkeySpec(specArg) else {
 logDiag("hotkey spec validated")
 
 // (1) Set up the application. .accessory policy = no Dock icon, no menu bar
-// takeover — we run as a faceless background helper.
+// takeover, we run as a faceless background helper.
 let app = NSApplication.shared
 app.setActivationPolicy(.accessory)
 
 // Shared state for all three event sources.
 let context = TapContext(hotkey: parsedHotkey)
 
-// (2a) NSEvent global monitor for .flagsChanged — FN + modifier transitions.
+// (2a) NSEvent global monitor for .flagsChanged. FN + modifier transitions.
 let flagsMonitor = NSEvent.addGlobalMonitorForEvents(matching: .flagsChanged) { event in
     handleFlagsChanged(event, context: context)
 }
@@ -506,7 +506,7 @@ guard flagsMonitor != nil else {
     exit(1)
 }
 
-// (2b) NSEvent global monitor for .keyDown — non-modifier key-down events.
+// (2b) NSEvent global monitor for .keyDown, non-modifier key-down events.
 let keyDownMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { event in
     handleKeyDown(event, context: context)
 }
@@ -515,10 +515,10 @@ guard keyDownMonitor != nil else {
     exit(1)
 }
 
-// (2c) CGEventTap — reliable key-up delivery + matched-hotkey suppression.
+// (2c) CGEventTap, reliable key-up delivery + matched-hotkey suppression.
 //     `.defaultTap` (vs `.listenOnly`) is what gives us suppression power,
 //     but it requires Accessibility permission. `tapCreate` returns nil if
-//     the permission isn't granted — detect and emit ERROR.
+//     the permission isn't granted, detect and emit ERROR.
 //
 //     When VOICE_TYPER_SKIP_ACCESSIBILITY_CHECK=1 (CI smoke test mode),
 //     skip the CGEventTap entirely. The tap requires Accessibility, and CI
@@ -529,7 +529,7 @@ let skipAccessibilityCheck = ProcessInfo.processInfo.environment["VOICE_TYPER_SK
 
 if skipAccessibilityCheck {
     // Warn about disabled key-up delivery and hotkey suppression
-    emit("WARN:SKIP_ACCESSIBILITY: VOICE_TYPER_SKIP_ACCESSIBILITY_CHECK=1 — CGEventTap disabled, key-up delivery and hotkey suppression inactive")
+    emit("WARN:SKIP_ACCESSIBILITY: VOICE_TYPER_SKIP_ACCESSIBILITY_CHECK=1. CGEventTap disabled, key-up delivery and hotkey suppression inactive")
 }
 
 if !skipAccessibilityCheck {
@@ -562,7 +562,7 @@ if !skipAccessibilityCheck {
     CGEvent.tapEnable(tap: machPort, enable: true)
 }
 
-// (3) SIGTERM handler — the Python parent sends SIGTERM to shut us down.
+// (3) SIGTERM handler, the Python parent sends SIGTERM to shut us down.
 //     We install SIG_IGN first so the default "terminate" action doesn't fire,
 //     then a DispatchSource receives the signal on the main queue and gives us
 //     a chance to clean up before exit(0).
@@ -578,7 +578,7 @@ sigtermSource.setEventHandler {
 }
 sigtermSource.resume()
 
-// (4) All set — announce readiness and enter the run loop. The run loop
+// (4) All set, announce readiness and enter the run loop. The run loop
 //     services the NSEvent monitors and the CGEventTap source.
 emit("READY")
 // immediately announce our wire-protocol version so the Python
@@ -596,11 +596,11 @@ DispatchQueue.global(qos: .utility).async {
     while true {
         let chunk = stdin.availableData
         if chunk.isEmpty {
-            // EOF — parent closed stdin (crash / force-kill / power loss).
+            // EOF, parent closed stdin (crash / force-kill / power loss).
             // Do not linger as an orphan holding the event tap: exit the
             // process so the kernel closes the devices for us. (Validate
             // on a real macOS host; logDiag is thread-safe.)
-            logDiag("stdin EOF — parent gone, exiting")
+            logDiag("stdin EOF, parent gone, exiting")
             exit(0)
         }
         buffer.append(chunk)

@@ -3,13 +3,13 @@
 
 When ``self._app.config.history_enabled`` is ``False``, the
 ``add_transcription`` call must be skipped entirely (incognito mode).
-The clipboard paste still happens — only persistence is disabled.
+The clipboard paste still happens, only persistence is disabled.
 ``history_enabled`` defaults to ``True`` (preserving the pre-FR-28
 behavior); ``getattr(..., True)`` is used so dictation still works on
 an older Config instance that hasn't yet picked up the new field
 (added by P4-A2).
 
-``_store_result`` must NEVER call ``history_db.flush()`` — the
+``_store_result`` must NEVER call ``history_db.flush()``, the
 blocking flush was removed from the pre-paste path (a paste must not
 stall on DB durability). The ADR-0010 §6.2 read-after-write guarantee
 now lives at the repaste boundary (``app_undo.repaste_last`` flushes
@@ -63,7 +63,7 @@ class TestHistoryEnabledGate:
             model="tiny.en",
             device="cpu",
         )
-        # The row is enqueued fire-and-forget — NO blocking
+        # The row is enqueued fire-and-forget, NO blocking
         # flush on the paste path (the guarantee lives at repaste).
         app.history_db.flush.assert_not_called()
 
@@ -80,7 +80,7 @@ class TestHistoryEnabledGate:
     def test_defaults_to_enabled_when_field_missing(self):
         """When the Config instance doesn't have ``history_enabled``
         (older Config pre-P4-A2), ``getattr(..., True)`` falls back to
-        ``True`` — dictation is persisted as before."""
+        ``True``, dictation is persisted as before."""
         pipeline, app = _make_pipeline(history_enabled=None)
         pipeline._store_result("legacy config")
         app.history_db.add_transcription.assert_called_once()
@@ -158,7 +158,7 @@ class TestHistoryEnabledGateWithCrashRecovery:
 class TestNoBlockingFlushOnPastePath:
     """``_store_result`` never calls ``history_db.flush()``.
 
-    The blocking flush was removed from the pre-paste path — a paste
+    The blocking flush was removed from the pre-paste path, a paste
     must not stall on DB durability (the multi-hundred-ms / worst-case
     seconds stall). The ADR-0010 §6.2 read-after-write guarantee moved
     to the repaste boundary (``app_undo.repaste_last`` flushes before

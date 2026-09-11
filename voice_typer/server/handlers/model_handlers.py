@@ -5,7 +5,7 @@ extracted verbatim from ``voice_typer/server/ipc_server.py``.
 The methods are mixed into :class:`IPCServer` via multiple inheritance and
 access ``self.app`` / ``self.service`` as before.
 
-(2026-07-30): ``_handle_test_llm_connection`` was REMOVED — the
+(2026-07-30): ``_handle_test_llm_connection`` was REMOVED, the
 renderer's Settings page now uses ``service.test_llm_connection``
 directly (not over IPC). The TS allowlist also dropped the entry.
 The service-layer method ``service.test_llm_connection`` still exists
@@ -41,18 +41,18 @@ class ModelHandlersMixin(HandlerBase):
     """
 
     # The ``service`` / ``app`` / ``_send`` annotations are
-    # inherited from :class:`HandlerMixinBase` — no per-mixin
+    # inherited from :class:`HandlerMixinBase`: no per-mixin
     # re-declaration needed (the duplicate block removed here was one
     # of four that the  centralization refactor missed).
 
     def _handle_download_model(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``download_model`` IPC command.
 
-        Migrated to :meth:`HandlerBase._wrap` with ``pre_coerce=False``
-        — the helper handles the surrounding ``try/except`` →
-        ``_respond_with_error`` catch-all while passing non-dict
-        ``data`` through unchanged so the schema still rejects it with
-        ``invalid_payload``.
+         Migrated to :meth:`HandlerBase._wrap` with ``pre_coerce=False``
+        , the helper handles the surrounding ``try/except`` →
+         ``_respond_with_error`` catch-all while passing non-dict
+         ``data`` through unchanged so the schema still rejects it with
+         ``invalid_payload``.
         """
 
         def body(d: dict) -> dict:
@@ -89,7 +89,7 @@ class ModelHandlersMixin(HandlerBase):
         cancel an in-progress HuggingFace download, or remove a QUEUED
         request from the pending download queue.
 
-        ``data`` may carry ``{"model": "<name>"}`` — the name of the
+        ``data`` may carry ``{"model": "<name>"}``: the name of the
         model to cancel. With a valid string name the service's
         cancel-anywhere path runs: a model waiting in the pending
         download queue is removed without touching the active transfer;
@@ -156,7 +156,7 @@ class ModelHandlersMixin(HandlerBase):
 
         Return the pending download FIFO queue (model names, front
         first) so the renderer can hydrate its queue chips on mount.
-        Read-only snapshot — no arguments, no state change.
+        Read-only snapshot, no arguments, no state change.
         """
         try:
             log.debug("[IPC] get_download_queue called")
@@ -212,12 +212,12 @@ class ModelHandlersMixin(HandlerBase):
                 ``dir_path`` is validated to be within an allowed root
                 (home directory, OS temp dir, or HF cache) before being passed
                 to ``import_model``.  Without this check, an IPC payload could
-                request scanning — and copying into the app's HF cache — any
+                request scanning, and copying into the app's HF cache, any
                 directory on the filesystem, including ones the user did not
                 pick via the file chooser.
 
         Migrated to :meth:`HandlerBase._wrap` with ``pre_coerce=False``
-                — the helper handles the surrounding ``try/except`` →
+               , the helper handles the surrounding ``try/except`` →
                 ``_respond_with_error`` catch-all while passing non-dict
                 ``data`` through unchanged so the schema still rejects
                 it with ``invalid_payload``.
@@ -226,7 +226,7 @@ class ModelHandlersMixin(HandlerBase):
         def body(d: dict) -> dict:
             # ``d`` is the schema-validated dict: ``dir_path`` is a str
             # (default ``""`` when absent). Narrow ``dir_path`` from
-            # ``object`` to ``str`` for pyrefly — the ``isinstance``
+            # ``object`` to ``str`` for pyrefly, the ``isinstance``
             # check is always True at runtime (the schema guaranteed
             # the type) but narrows the static type so the downstream
             # ``_validate_import_path(dir_path: str)`` call type-checks.
@@ -293,14 +293,14 @@ class ModelHandlersMixin(HandlerBase):
     def _handle_delete_model(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``delete_model`` IPC command.
 
-        Actually delete the model files from disk,
-        not just remove from the UI list.
+         Actually delete the model files from disk,
+         not just remove from the UI list.
 
-        Migrated to :meth:`HandlerBase._wrap` with ``pre_coerce=False``
-        — the helper handles the surrounding ``try/except`` →
-        ``_respond_with_error`` catch-all while passing non-dict
-        ``data`` through unchanged so the schema still rejects it with
-        ``invalid_payload``.
+         Migrated to :meth:`HandlerBase._wrap` with ``pre_coerce=False``
+        , the helper handles the surrounding ``try/except`` →
+         ``_respond_with_error`` catch-all while passing non-dict
+         ``data`` through unchanged so the schema still rejects it with
+         ``invalid_payload``.
         """
 
         def body(d: dict) -> dict:

@@ -1,11 +1,11 @@
 /**
  * Theme/wiring regression tests for the Add/Edit Template dialog.
  *
- * Pins the 2026-09-02 theme pass — the dialog must render with the
+ * Pins the 2026-09-02 theme pass, the dialog must render with the
  * app's native primitives instead of the removed custom field shell:
  *
  *   (1) The panel is the roomier size="lg" + w-130 composition (520px
- *       desktop panel) — the old w-105 cramped the form.
+ *       desktop panel), the old w-105 cramped the form.
  *   (2) The output textarea is the shared ``ui/textarea`` primitive
  *       (pill surface, ``rounded-3xl``, same focus contract as Input),
  *       not a bespoke styled raw <textarea>.

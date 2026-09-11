@@ -25,7 +25,7 @@ export const IPC_PORT = process.env.VT_PYTHON_PORT
 // (32 bytes = 256 bits of entropy, hex-encoded for transport).
 //
 // P1-1.2: when a Python backend spawned us (VT_IPC_TOKEN env var set),
-// we reuse its token instead of generating a new one — otherwise the
+// we reuse its token instead of generating a new one, otherwise the
 // backend's auth check would reject our connection.
 export const IPC_TOKEN =
 	process.env.VT_IPC_TOKEN || randomBytes(32).toString("hex");
@@ -40,7 +40,7 @@ export const START_HIDDEN = process.env.VT_START_HIDDEN === "1";
 // the actual pill height (h-6 wrapper 24px + py-2.5 20px + border 2px = 46px).
 // The previous 27px caused the pill to be clipped for the entire 180ms
 // enter animation, then the renderer's useLayoutEffect resize caused a
-// sudden snap to full size — the "cut-off then flash" artifact. With the
+// sudden snap to full size, the "cut-off then flash" artifact. With the
 // correct initial height, the first frame is already full-size and the
 // subsequent resize is a no-op (or sub-pixel adjustment).
 export const BUBBLE_WIDTH = 74;
@@ -54,7 +54,7 @@ export const BUBBLE_HEIGHT = 46;
 // hotkeys registered, volume ducked, and the single-instance mutex held.
 //bumped from 5s to 15s to reduce idle CPU wakeups on laptops on
 // battery. Same detection window (45s = 3 misses) as the prior 5s+45s
-// (9 misses) config — a crashed peer is still detected within 45s.
+// (9 misses) config, a crashed peer is still detected within 45s.
 export const HEARTBEAT_INTERVAL_MS = 15000;
 
 //named magic numbers previously inlined across `main/`.

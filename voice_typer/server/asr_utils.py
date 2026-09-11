@@ -3,7 +3,7 @@
 extracted from ``transcription.py`` to eliminate the DRY
 violations catalogued in  finding #3 (``release_gpu_memory``
 ``_download_with_retry`` lived in ``transcription.py`` but were
-imported by ``parakeet_engine`` and ``asr_setup`` — wrong module) and
+imported by ``parakeet_engine`` and ``asr_setup``, wrong module) and
 finding #2 (``_cleanup_failed_cache`` was duplicated 3x across
 ``transcription.py``, ``asr_setup.py``, ``parakeet_engine.py``).
 
@@ -48,23 +48,23 @@ log = logging.getLogger(__name__)
 # Approximate model sizes (MB) for disk-space pre-check.
 # These are the uncompressed sizes of the faster-whisper models.
 # Matches MODEL_REGISTRY (Whisper family: tiny / large-v3 /
-# large-v3-turbo) — see ``voice_typer/server/model_registry.py`` for
+# large-v3-turbo): see ``voice_typer/server/model_registry.py`` for
 # the canonical catalog. ``large-v3`` was restored 2026-08-15 at the
 # user's request.
 _MODEL_SIZE_MB = {
     "tiny": 75,
-    # ``large-v3`` — highest-accuracy multilingual Whisper (~3 GB).
+    # ``large-v3``: highest-accuracy multilingual Whisper (~3 GB).
     "large-v3": 3000,
     # ``large-v3-turbo`` is the fast multilingual model released by
-    # OpenAI in 2024 — near-large-v3 accuracy at ~8x speed.
+    # OpenAI in 2024, near-large-v3 accuracy at ~8x speed.
     "large-v3-turbo": 809,
-    # Parakeet TDT 0.6b v3 — ONNX fp16 export (grikdotnet repo, 2026-08-20)
+    # Parakeet TDT 0.6b v3. ONNX fp16 export (grikdotnet repo, 2026-08-20)
     # is ~1.28 GB uncompressed (the engine is ONNX-only post-migration;
     # the old torch/safetensors 2.5 GB estimate is obsolete). Pre-fix the
     # ``"parakeet"`` key was missing and ``_MODEL_SIZE_MB.get("parakeet", 500)``
     # fell through to the 500 MB default, so the disk-space pre-check
     # required only ~1000 MB (500 + 500 margin) and false-passed with
-    # ~1 GB free — causing the download to fail partway with a less-clear
+    # ~1 GB free, causing the download to fail partway with a less-clear
     # ``download_retry_exhausted`` reason instead of a clear
     # ``disk_space_insufficient`` reason. Value matches
     # ``model_registry.ModelMetadata.download_size_mb`` for "parakeet"
@@ -76,7 +76,7 @@ _DISK_SPACE_MARGIN_MB = 500
 
 
 def release_gpu_memory() -> None:
-    """No-op for ONNX Runtime — kept for API compatibility.
+    """No-op for ONNX Runtime, kept for API compatibility.
 
     Historically this helper called ``torch.cuda.empty_cache()`` to
     release PyTorch's CUDA caching-allocator blocks after an engine
@@ -92,7 +92,7 @@ def release_gpu_memory() -> None:
     ``QwenEngine.unload()``, and the deferred-GC path
     (``TranscriptionEngine._run_deferred_gc``) continue to compile and
     call it without modification. Tests that ``patch(...)`` the
-    function still see the call — the patched mock replaces the no-op.
+    function still see the call, the patched mock replaces the no-op.
 
     After total torch removal (Phase 1d), this function can be deleted
     and callers updated to drop the call entirely.
@@ -112,11 +112,11 @@ def is_cuda_error(exc: Exception) -> bool:
     A 4-layer classifier preserved from the original
     ``TranscriptionEngine._is_gpu_runtime_error`` body (pre-torch-removal).
     The plan (PLAN_ONNX_INTEGRATION.md §5.1) explicitly forbids collapsing
-    this to a 4-keyword frozenset — the layered structure is what
+    this to a 4-keyword frozenset, the layered structure is what
     distinguishes a true CUDA OOM from a CPU RAM exhaustion, a ROCm
     driver mismatch, or a Windows DLL-load failure.
 
-    Layers (in evaluation order — first match wins):
+    Layers (in evaluation order, first match wins):
 
     1. **ORT CUDA exceptions** (replaces the old
        ``isinstance(exc, torch.cuda.OutOfMemoryError)`` check that died
@@ -126,11 +126,11 @@ def is_cuda_error(exc: Exception) -> bool:
        (``ctranslate2``, newer ``torch`` if installed) attach a
        structured ``.cuda_error`` attribute to a generic
        ``RuntimeError`` rather than raising a typed subclass.
-    3. **Keyword match on the exception message** — 3 keywords
+    3. **Keyword match on the exception message**, 3 keywords
        (``"cuda"``, ``"cublas"``, ``"cudnn"``). OOM is handled
        separately by :func:`is_oom_error` so a CPU RAM exhaustion
        (``"out of memory"``) does not false-positive as a CUDA error.
-    4. **DLL-load failures** (Windows) — 4 keywords
+    4. **DLL-load failures** (Windows), 4 keywords
        (``"dll"``, ``"not found"``, ``"cannot be loaded"``,
        ``"load library"``). Critical for detecting missing CUDA
        Toolkit / cuDNN DLLs on Windows where ``onnxruntime-gpu`` is
@@ -153,7 +153,7 @@ def is_cuda_error(exc: Exception) -> bool:
         import onnxruntime as ort
 
         # ``onnxruntime.RuntimeException`` no longer exists on the public
-        # API (1.28+ only re-exports ``import_capi_exception``) — the
+        # API (1.28+ only re-exports ``import_capi_exception``), the
         # pybind11 exception classes live under
         # ``onnxruntime.capi.onnxruntime_pybind11_state``. Accept either
         # location (type-guarded so a mock that auto-magics the public
@@ -167,7 +167,7 @@ def is_cuda_error(exc: Exception) -> bool:
                 return True
     except (ImportError, AttributeError, TypeError):
         # ORT missing, its internal exception module unavailable on this
-        # build, or a mock exposing no real exception class — fall
+        # build, or a mock exposing no real exception class, fall
         # through to the attribute/keyword layers below.
         pass
 
@@ -175,7 +175,7 @@ def is_cuda_error(exc: Exception) -> bool:
     if isinstance(exc, RuntimeError) and (getattr(exc, "cuda_error", None) or getattr(exc, "is_cuda_error", False)):
         return True
 
-    # Layer 3: keyword match on the message (3 keywords — no "out of memory").
+    # Layer 3: keyword match on the message (3 keywords, no "out of memory").
     err_str = str(exc).lower()
     if any(kw in err_str for kw in ("cuda", "cublas", "cudnn")):
         return True
@@ -188,7 +188,7 @@ def is_oom_error(exc: Exception) -> bool:
     """Return ``True`` if *exc* is an out-of-memory error.
 
     Separate from :func:`is_cuda_error` (PLAN_ONNX_INTEGRATION.md §5.1)
-    because ``"out of memory"`` alone is too broad — it matches CPU RAM
+    because ``"out of memory"`` alone is too broad, it matches CPU RAM
     exhaustion (e.g. ``MemoryError`` from a huge numpy allocation) which
     is NOT a CUDA error and should NOT trigger the GPU→CPU fallback
     path. The Parakeet engine's separate OOM check
@@ -282,7 +282,7 @@ def cleanup_hf_cache_dir(repo_id: str, log_prefix: str = "") -> None:
         ``transcription.py::_cleanup_failed_whisper_cache``.  The local
         cleanup helpers in ``asr_setup._cleanup_failed_cache`` and
         ``parakeet_engine._cleanup_hf_cache_dir`` now delegate to this
-        function (single source of truth — previously the same logic was
+        function (single source of truth, previously the same logic was
         duplicated 3x across the three modules).
 
         Called from each ASR engine's pre-download / verify path when
@@ -407,7 +407,7 @@ def _disk_space_error(
     Single source for the two disk-space gates (the HF model-download
     check above and the offline-pack download gate in
     ``service/offline_pack.py``) so the wording and the "Available /
-    Required — free up disk space" structure cannot drift between
+    Required, free up disk space" structure cannot drift between
     them. ``detail`` optionally appends gate-specific context (e.g. the
     pack's compressed/unpacked budget breakdown) between the Required
     figure and the recovery hint.
@@ -436,7 +436,7 @@ def _require_huggingface_consent(
     ``parakeet_engine.load``, ``service/model._require_huggingface_consent``).
     Each site had its own copy of the ``cfg = self.config; consent = False
     if cfg is None else getattr(cfg, 'huggingface_consent', False)`` block
-    plus its own log-format string and progress-callback wording — making
+    plus its own log-format string and progress-callback wording, making
     it easy for the consent gate to silently diverge (e.g. one site logs
     at WARNING, another at INFO; one surfaces a progress message, another
     doesn't). Centralizing the gate here ensures every download path
@@ -451,7 +451,7 @@ def _require_huggingface_consent(
     ----------
     config : object or None
         The engine's config reference. ``None`` is treated as
-        "consent not given" — safe default per GDPR Art. 6/13. This
+        "consent not given": safe default per GDPR Art. 6/13. This
         covers the degenerate / test-stub / benchmark paths where the
         engine is constructed without a Config.
     model_identifier : str
@@ -479,7 +479,7 @@ def _require_huggingface_consent(
         ``config.huggingface_consent`` is not truthy. A subclass of
         :class:`ConsentRequiredError`, so every existing
         ``except ConsentRequiredError`` / ``isinstance`` check keeps
-        working — but it carries ``provider="huggingface"`` /
+        working, but it carries ``provider="huggingface"`` /
         ``scope="download"`` for the consent envelope.
     """
     cfg = config
@@ -487,7 +487,7 @@ def _require_huggingface_consent(
     if consent:
         return
     log.warning(
-        "%s HuggingFace consent not given — refusing to download %s. The renderer should show a consent dialog.",
+        "%s HuggingFace consent not given, refusing to download %s. The renderer should show a consent dialog.",
         log_prefix,
         model_identifier,
     )
@@ -504,7 +504,7 @@ def _require_huggingface_consent(
             )
     from voice_typer.server.asr_errors import HuggingFaceConsentRequiredError
 
-    raise HuggingFaceConsentRequiredError(f"HuggingFace consent not given — refusing to download {model_identifier}.")
+    raise HuggingFaceConsentRequiredError(f"HuggingFace consent not given, refusing to download {model_identifier}.")
 
 
 # ─── Audio chunking ────────────────────────────────────────────────────────
@@ -531,7 +531,7 @@ def split_audio(
     Parameters
     ----------
     audio : np.ndarray
-        1-D audio samples (any dtype that supports slicing — the body
+        1-D audio samples (any dtype that supports slicing, the body
         only uses ``len()`` and ``audio[start:end]``).
     chunk_duration : float
         Target chunk length in seconds.
@@ -542,7 +542,7 @@ def split_audio(
         ``step = chunk_len - overlap_len``.
     sample_rate : int
         Sample rate in Hz. Defaults to :data:`WHISPER_SAMPLE_RATE`
-        (16000) — the rate every ASR engine in this project resamples to
+        (16000), the rate every ASR engine in this project resamples to
         before inference, so callers can usually omit it.
 
     Returns
@@ -559,7 +559,7 @@ def split_audio(
     -----
     The loop terminates as soon as a chunk reaches the end of the audio
     (``end == len(audio)``), so the last chunk always contains the final
-    sample of ``audio`` — no tail is silently dropped. This invariant is
+    sample of ``audio``: no tail is silently dropped. This invariant is
     pinned by ``tests/test_word_drop_regression.py::test_qwen_split_audio_covers_full_array``.
     """
     chunk_len = int(chunk_duration * sample_rate)
@@ -585,7 +585,7 @@ def split_audio(
 # ``parakeet_engine.py:47-78`` (language filter) and
 # ``parakeet_engine.py:1023-1133`` (chunk merge) are kept as thin
 # delegators for backward compatibility with tests that import them from
-# ``parakeet_engine`` — see ``tests/test_parakeet_engine.py``.
+# ``parakeet_engine``: see ``tests/test_parakeet_engine.py``.
 
 # Maximum allowed ratio of non-Latin-script characters before we reject
 # a transcription segment as a language-hallucination.
@@ -709,7 +709,7 @@ def compute_overlap_skip(prev_words: list[str], new_words: list[str]) -> int:
     ----------
     prev_words : list[str]
         The accumulated word list from the previous chunks. ``[]`` is
-        valid (returns 0 — first chunk has no overlap).
+        valid (returns 0, first chunk has no overlap).
     new_words : list[str]
         The word list of the new chunk to merge. ``[]`` is valid
         (returns 0).

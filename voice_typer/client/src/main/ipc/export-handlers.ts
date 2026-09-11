@@ -19,7 +19,7 @@ import { ExportChannels } from "./channels";
  * Validated format set for `history:export` and
  * `vocabulary:export`. The renderer's `ExportFormat` type (in
  * `src/shared/export-format.ts`) narrows to `"json" | "csv"` but
- * the IPC boundary is untyped at runtime — a compromised renderer (or
+ * the IPC boundary is untyped at runtime, a compromised renderer (or
  * a hand-crafted `ipcRenderer.invoke` call from devtools) could pass
  * any string. Validating here prevents the format string from being
  * interpolated into the file extension (`voice-typer-history.${format}`)
@@ -29,7 +29,7 @@ const VALID_FORMATS = new Set(["json", "csv"]);
 
 /**
  * Hard cap on the number of rows exported via `history:export`.
- * 100k rows is ~50 MB of JSON / ~20 MB of CSV — well within the
+ * 100k rows is ~50 MB of JSON / ~20 MB of CSV, well within the
  * fs.writeFileSync budget but far enough above any realistic history
  * size that legitimate users never hit it. The cap defends against a
  * compromised renderer passing a fabricated 10M-row array (which would
@@ -70,7 +70,7 @@ const MAX_CONFIG_EXPORT_BYTES = 1 * 1024 * 1024;
  * embedded double-quotes.
  *
  * Mirrors the Rust host's `csv_escape` in
- * `src-tauri/src/commands/export.rs` — the two implementations
+ * `src-tauri/src/commands/export.rs`, the two implementations
  * produce identical bytes for the same input. Parity is enforced
  * by `src/main/__tests__/export-handlers-csv-escape.test.ts`.
  *
@@ -148,7 +148,7 @@ export function csvEscape(v: unknown): string {
  * previous deterministic `<filePath>.tmp` meant the second invocation
  * overwrote the first invocation's staging bytes mid-write, then the
  * first invocation's rename succeeded with the second invocation's
- * content — a silent data swap).
+ * content, a silent data swap).
  *
  * On success the staging file is gone (renamed into place). On error
  * (any failure that is NOT a recoverable EEXIST/EPERM rename), the
@@ -168,7 +168,7 @@ export function csvEscape(v: unknown): string {
  * unlink+rename fallback runs ONLY on EEXIST/EPERM (legacy
  * pre-Node-10 behavior or rare Windows lock that defeats
  * MOVEFILE_REPLACE_EXISTING), and the fallback's unlink-failure path
- * does NOT delete the tmp file — keeping it lets the user manually
+ * does NOT delete the tmp file, keeping it lets the user manually
  * rename the staging file to `<filePath>` for recovery.
  *
  * Exported so unit tests can exercise it directly without going
@@ -187,7 +187,7 @@ export async function atomicWriteFile(
 	// Unique staging path (PID + UUID) so concurrent invocations
 	// don't collide on the same `<filePath>.tmp` staging file.
 	// The staging file is a sibling (same directory) so the
-	// rename(2) syscall stays within the same filesystem — cross-
+	// rename(2) syscall stays within the same filesystem, cross-
 	// device renames fall back to copy+delete, which is non-atomic
 	// but still strictly better than truncate-in-place.
 	const tmpPath = `${filePath}.${process.pid}.${crypto.randomUUID()}.tmp`;
@@ -215,7 +215,7 @@ export async function atomicWriteFile(
 		// MOVEFILE_REPLACE_EXISTING). Fall through to the
 		// unlink+rename fallback. Any other error (ENOSPC,
 		// ENOENT on the tmp, EACCES on the parent dir) is
-		// unrecoverable — clean up the staging file and re-throw
+		// unrecoverable, clean up the staging file and re-throw
 		// (the user has no way to recover it).
 		if (code !== "EEXIST" && code !== "EPERM") {
 			try {
@@ -230,7 +230,7 @@ export async function atomicWriteFile(
 	// Fallback: unlink the destination first, then retry the rename.
 	// The unlink-then-rename window is racy on Windows if another
 	// process holds the file open, but at this point the atomic
-	// rename already failed — this is the best-effort fallback.
+	// rename already failed, this is the best-effort fallback.
 	try {
 		await fs.promises.unlink(filePath);
 	} catch (e) {
@@ -238,7 +238,7 @@ export async function atomicWriteFile(
 		if (code !== "ENOENT") {
 			// Do NOT unlink `tmpPath` here. The destination
 			// unlink failed (EPERM/EACCES), so the destination
-			// may still exist — but the NEW content's staging
+			// may still exist, but the NEW content's staging
 			// file is the user's lifeline. Throwing without
 			// deleting tmp lets the user manually rename the
 			// staging file → `<filePath>` for recovery,
@@ -246,11 +246,11 @@ export async function atomicWriteFile(
 			// atomic swap failed.
 			throw e;
 		}
-		// ENOENT on destination unlink is fine — the destination
+		// ENOENT on destination unlink is fine, the destination
 		// didn't exist, so the retry rename below will succeed
 		// atomically.
 	}
-	// Again, do NOT unlink `tmpPath` here — keep it so the user
+	// Again, do NOT unlink `tmpPath` here, keep it so the user
 	// can manually rename it for recovery. The destination may
 	// have already been unlinked by the fallback above, so losing
 	// the staging file too would be unrecoverable.
@@ -261,7 +261,7 @@ export async function atomicWriteFile(
  * Synchronous atomic-write helper retained for backwards compatibility
  * with existing unit tests (`export-handlers-atomic-write.test.ts`).
  *
- * @deprecated Use the async `atomicWriteFile` instead — the sync
+ * @deprecated Use the async `atomicWriteFile` instead, the sync
  * variant blocks the Electron main thread for 100-500 ms on a 20 MB
  * export. The export IPC handlers have been migrated to `atomicWriteFile`;
  * this sync variant is kept ONLY so the existing regression tests for
@@ -320,7 +320,7 @@ export function atomicWriteFileSync(
  *
  * NOTE: the async `atomicWriteFile` helper uses a per-invocation
  * unique staging path (`<filePath>.<pid>.<uuid>.tmp`) and does NOT
- * expose a temp-path helper — the UUID is generated inside the helper
+ * expose a temp-path helper, the UUID is generated inside the helper
  * and is not predictable from the destination path alone.
  */
 export function _atomicWriteTempPath(filePath: string): string {
@@ -376,7 +376,7 @@ export function registerExportHandlers(): void {
 					// missing a key still gets a column (with empty value).
 					// The previous `Object.keys(rows[0] ?? {})` header
 					// silently dropped columns that only appeared in later
-					// rows — and `Object.values(r)` produced a different
+					// rows, and `Object.values(r)` produced a different
 					// column count per row, misaligning values under the
 					// wrong headers.
 					const keys = [...new Set(rows.flatMap((r) => Object.keys(r)))];
@@ -554,7 +554,7 @@ export function registerExportHandlers(): void {
 			// measure, then refuse the write if the blob exceeds
 			// the cap (unlike row-based caps, slicing a config
 			// object would silently drop keys and produce a
-			// misleading partial export — better to fail loud).
+			// misleading partial export, better to fail loud).
 			let serialized: string;
 			try {
 				serialized = JSON.stringify(data, null, 2);

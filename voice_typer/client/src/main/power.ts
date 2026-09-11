@@ -4,7 +4,7 @@
  * Previously the main process had NO `powerMonitor`
  * listeners anywhere. On a laptop suspend (lid close, low-battery
  * hibernate, manual `systemctl suspend`) the OS freezes the Electron
- * process AND the Python sidecar together — but the TCP socket between
+ * process AND the Python sidecar together, but the TCP socket between
  * them silently goes stale, the heartbeat watchdog keeps ticking
  * against a frozen socket, and on resume the first thing the user
  * sees is a "Python backend not connected" toast because the socket
@@ -14,7 +14,7 @@
  *
  * This module registers three listeners on Electron's `powerMonitor`:
  *
- *   • `suspend`  — stop the Python backend so its socket / audio
+ *   • `suspend` , stop the Python backend so its socket / audio
  *     streams / model GPU memory are released cleanly BEFORE the OS
  *     freezes the process. `stopPython()` is graceful (sends
  *     `quit_app`, force-kills after 3s) so the backend's
@@ -22,43 +22,43 @@
  *     single-instance mutex release runs first (C-NEVER-DOWNGRADE /
  *     rule 4: powerMonitor suspend must not lose user data).
  *
- *   • `resume`   — re-spawn the backend via `startPython()`. The
+ *   • `resume`  , re-spawn the backend via `startPython()`. The
  *     Python backend re-arms its heartbeat interval on boot and
  *     re-enumerates the mic list (the OS may have changed audio
- *     devices during sleep — USB mics unplugged, Bluetooth headset
+ *     devices during sleep, USB mics unplugged, Bluetooth headset
  *     re-paired, etc.). We do NOT need to manually refresh the mic
  *     list here; `startPython()` → backend boot →
  *     `microphone_watcher` re-runs its device enumeration.
  *
- *   • `on-battery` — best-effort tightening. The Python backend
+ *   • `on-battery`, best-effort tightening. The Python backend
  *     already backs off prewarm on battery; here we just log the
  *     transition so the operator can see it in `electron-runtime.log`.
  *     A future iteration could send a `set_config` IPC to tighten the
  *     heartbeat, but that requires a config schema change owned by
- *     another lane — out of scope here (rule 9: stay in your
+ *     another lane, out of scope here (rule 9: stay in your
  *     lane).
  *
- * All three handlers are wrapped in try/catch — `powerMonitor` events
+ * All three handlers are wrapped in try/catch, `powerMonitor` events
  * can fire during app teardown when `state.pythonProcess` is already
  * null. `stopPython()` and `startPython()` are both idempotent (see
  * `stop-python.ts`'s `isStopping`/`isStopped` guard and
- * `start-python.ts`'s live-process early-exit — it returns without
+ * `start-python.ts`'s live-process early-exit, it returns without
  * spawning while `state.pythonProcess` is set and its
  * `exitCode`/`signalCode` are both still `null`), so calling them when
  * the backend is already stopped / already running is a safe no-op.
  *
- * C-DATA-1: powerMonitor is a local OS event (no network) — the
+ * C-DATA-1: powerMonitor is a local OS event (no network), the
  * `suspend` / `resume` / `on-battery` events come from the OS power
  * subsystem, not from any remote endpoint. This module makes ZERO
  * network calls.
  *
- * Idempotency: `registerPowerMonitorHandlers()` is idempotent — a
+ * Idempotency: `registerPowerMonitorHandlers()` is idempotent, a
  * module-level flag prevents stacking duplicate listeners across
  * repeated calls (e.g. in tests via `vi.resetModules()`, or in dev
  * HMR). The production call site (`index.ts::app.whenReady()`)
  * invokes it exactly once.
  */
-import { powerMonitor } from "electron";
+import { powerMonitor, powerSaveBlocker } from "electron";
 import { log } from "./logging";
 import { startPython, stopPython } from "./python";
 
@@ -75,7 +75,7 @@ let _powerMonitorHandlersRegistered = false;
  * Test-only: reset the idempotency guard so a fresh test case can
  * re-invoke `registerPowerMonitorHandlers()` and assert the listeners
  * were registered. Underscore-prefixed to signal "internal/test-only"
- * — mirrors the existing `_resetNativeThemeListenerForTest`
+ *, mirrors the existing `_resetNativeThemeListenerForTest`
  * convention in `windows/main-window.ts`.
  *
  * Does NOT remove the already-registered listeners from
@@ -97,12 +97,75 @@ export function _powerMonitorHandlersRegisteredForTest(): boolean {
 }
 
 /**
+ * Module-level id of the `prevent-app-suspension` blocker started by
+ * {@link startAppSuspensionBlocker} (`null` until started). Kept so the
+ * starter stays idempotent across repeated calls (tests, HMR,
+ * defensive double-call from a future refactor).
+ */
+let _appSuspensionBlockerId: number | null = null;
+
+/**
+ * Test-only: reset the suspension-blocker state so a fresh test case
+ * can re-invoke `startAppSuspensionBlocker()`. Mirrors
+ * `_resetPowerMonitorHandlersForTest`.
+ */
+export function _resetAppSuspensionBlockerForTest(): void {
+	_appSuspensionBlockerId = null;
+}
+
+/**
+ * Test-only accessor: returns the active blocker id (or `null` when
+ * no blocker was started). Used by `power.test.ts`.
+ */
+export function _appSuspensionBlockerIdForTest(): number | null {
+	return _appSuspensionBlockerId;
+}
+
+/**
+ * Keep the app process responsive while it sits hidden in the
+ * background (BP-160).
+ *
+ * After 1-2h idle, a tray-click restore took ~15s despite the process
+ * being alive: the known external mechanism (Chromium/Windows power
+ * throttling aggressively suspends hidden background pages/processes;
+ * cf. Electron #9567, "slow after inactivity" reports) stalls the
+ * main-process event loop / renderer re-paint until the OS schedules
+ * the process again. `prevent-app-suspension` asks the OS not to
+ * suspend the app, it does NOT keep the display on
+ * (`prevent-display-sleep` would; deliberately not used) and makes no
+ * network calls (C-DATA-1: local OS API only).
+ *
+ * Idempotent, the second call is a no-op returning the existing id.
+ * Never stopped: the app must stay hotkey-responsive for its whole
+ * lifetime (a dictation app that naps misses the global hotkey the
+ * same way it missed the tray click). Must be called AFTER
+ * `app.whenReady()` (powerSaveBlocker is not usable before the app is
+ * ready). Failures are swallowed with a warning, throttling
+ * protection is a graceful degradation, not a hard failure.
+ */
+export function startAppSuspensionBlocker(): number | null {
+	if (_appSuspensionBlockerId !== null) return _appSuspensionBlockerId;
+	try {
+		const id = powerSaveBlocker.start("prevent-app-suspension");
+		_appSuspensionBlockerId = id;
+		log.info(`[power] app-suspension blocker started (id=${id})`);
+		return id;
+	} catch (e) {
+		log.warn(
+			"[power] startAppSuspensionBlocker failed (non-fatal, OS may throttle the app while idle):",
+			e,
+		);
+		return null;
+	}
+}
+
+/**
  * Register the `suspend` / `resume` / `on-battery` listeners on
- * Electron's `powerMonitor`. Idempotent — see
+ * Electron's `powerMonitor`. Idempotent, see
  * `_powerMonitorHandlersRegistered` above.
  *
  * Must be called AFTER `app.whenReady()` resolves (Electron's
- * `powerMonitor` is not usable before the app is ready — its
+ * `powerMonitor` is not usable before the app is ready, its
  * internal `PowerObserver` is initialized during
  * `ElectronMain::OnPreReady`). The production call site in
  * `index.ts::app.whenReady().then(...)` honors this.
@@ -110,7 +173,7 @@ export function _powerMonitorHandlersRegisteredForTest(): boolean {
  * Wrap each listener body in try/catch so a throw inside the handler
  * (e.g. `startPython` fails because the Python binary is missing
  * after an OS update during sleep) doesn't take down the whole
- * process — the user can still close the lid and try again.
+ * process, the user can still close the lid and try again.
  */
 export function registerPowerMonitorHandlers(): void {
 	if (_powerMonitorHandlersRegistered) return;
@@ -123,7 +186,7 @@ export function registerPowerMonitorHandlers(): void {
 	// variants like Electron-Forge test runners) doesn't crash the
 	// main process. The idempotency flag is already set above so a
 	// failure here doesn't retry on every `bootstrapRuntime()` call
-	// — the user gets one warning per process lifetime and the rest
+	//, the user gets one warning per process lifetime and the rest
 	// of the app continues to work (just without suspend/resume
 	// handling, which is a graceful degradation, not a hard
 	// failure).
@@ -131,14 +194,14 @@ export function registerPowerMonitorHandlers(): void {
 		registerPowerMonitorHandlersInner();
 	} catch (e) {
 		log.warn(
-			"[power] registerPowerMonitorHandlers failed (non-fatal — suspend/resume handling disabled):",
+			"[power] registerPowerMonitorHandlers failed (non-fatal, suspend/resume handling disabled):",
 			e,
 		);
 	}
 }
 
 /**
- * Inner registration — separated so the outer try/catch can catch the
+ * Inner registration, separated so the outer try/catch can catch the
  * `powerMonitor` property-access errors thrown by vitest's mock Proxy
  * (and any other module-load-time access errors). Each `.on(...)`
  * call is also individually guarded so a throw on one event doesn't
@@ -155,11 +218,11 @@ function registerPowerMonitorHandlersInner(): void {
 	//
 	// C-NEVER-DOWNGRADE / rule 4: stopPython() sends `quit_app`
 	// over TCP and waits up to 3s for graceful exit before
-	// SIGKILL — this gives the backend's history_db flush +
+	// SIGKILL, this gives the backend's history_db flush +
 	// audio stream close time to complete, so user data is not
 	// lost on suspend.
 	powerMonitor.on("suspend", () => {
-		log.info("[power] suspend — stopping Python backend gracefully");
+		log.info("[power] suspend, stopping Python backend gracefully");
 		try {
 			stopPython();
 		} catch (e) {
@@ -169,14 +232,14 @@ function registerPowerMonitorHandlersInner(): void {
 
 	// resume: OS unfroze the process. Re-spawn the backend so the
 	// user can immediately dictate again. `startPython()` is
-	// idempotent — if the backend somehow survived the suspend
+	// idempotent, if the backend somehow survived the suspend
 	// (rare: desktop on AC power with `systemctl suspend`
 	// inhibited by another app), its live-process early-exit guard
 	// (a non-null `state.pythonProcess` whose `exitCode` and
 	// `signalCode` are both still `null`) makes this a no-op
 	// instead of double-spawning into the single-instance mutex.
 	powerMonitor.on("resume", () => {
-		log.info("[power] resume — re-arming Python backend + heartbeats");
+		log.info("[power] resume, re-arming Python backend + heartbeats");
 		try {
 			startPython();
 		} catch (e) {
@@ -193,7 +256,7 @@ function registerPowerMonitorHandlersInner(): void {
 	// another lane (rule 9: stay in your lane).
 	powerMonitor.on("on-battery", () => {
 		log.info(
-			"[power] on-battery — backend prewarm should back off; consider tightening heartbeat",
+			"[power] on-battery, backend prewarm should back off; consider tightening heartbeat",
 		);
 	});
 }

@@ -1,5 +1,5 @@
 /**
- * Tests for hotkey-utils — preset safety invariants.
+ * Tests for hotkey-utils, preset safety invariants.
  *
  * The most important invariant: `<win>+<space>` must NEVER appear in
  * the combo presets on Windows. Win+Space is reserved by the OS for the
@@ -38,7 +38,7 @@ function setUserAgent(ua: string) {
 	vi.stubGlobal("navigator", { userAgent: ua });
 }
 
-describe("getComboPresets() — Win+Space safety", () => {
+describe("getComboPresets(), Win+Space safety", () => {
 	afterEach(() => {
 		vi.unstubAllGlobals();
 		vi.resetModules();
@@ -94,14 +94,14 @@ describe("getComboPresets() — Win+Space safety", () => {
 	});
 });
 
-describe("HotkeyPicker — reusable for both recording and paste shortcuts", () => {
+describe("HotkeyPicker, reusable for both recording and paste shortcuts", () => {
 	// This is a structural import test: it verifies the HotkeyPicker
 	// component is the single, shared entry point used by the settings
 	// section. A full render test already lives in Settings.test.tsx;
 	// here we just guard against regressions where the paste shortcut
 	// might be silently switched to a bespoke picker.
 	//
-	// Note: no afterEach with vi.resetModules() here — the platform-
+	// Note: no afterEach with vi.resetModules() here, the platform-
 	// detection tests in the describe block above need module isolation
 	// (they stub navigator.userAgent), but this test does not. Keeping
 	// the module cache intact avoids re-evaluating the ~dozen+ component

@@ -4,7 +4,7 @@ loop) AND survive multiple signal deliveries.
 Previously ``signal_watcher_loop`` polled ``Event.wait(timeout=1.0)``
 in a ``while`` loop, causing 60 kernel wakeups/minute for the entire
 app lifetime and preventing deep C-states on battery. After AB-32 it
-calls ``Event.wait()`` with no timeout — ``Event.set()`` from the
+calls ``Event.wait()`` with no timeout: ``Event.set()`` from the
 signal handler wakes it immediately. UE-1-F4 then wrapped the body in
 ``while True:`` so the watcher SURVIVES multiple signal deliveries
 (a user double-tapping Ctrl+C because the first one was slow to take
@@ -14,10 +14,10 @@ immediate termination with no cleanup).
 This test asserts that the watcher responds promptly (well under 1s)
 when the shutdown event is set, which would NOT be the case if the
 old poll loop were still in place (it would block for the remainder
-of whatever 1s window it was in — up to ~1s — and could exceed the
+of whatever 1s window it was in (up to ~1s) and could exceed the
 0.2s threshold). Because the watcher now loops forever (UE-1-F4), the
 thread is a daemon and will be torn down at interpreter exit; the
-test does NOT assert the thread exits — only that it dispatches
+test does NOT assert the thread exits, only that it dispatches
 ``quit()`` promptly on each ``Event.set()``.
 """
 
@@ -56,7 +56,7 @@ def test_signal_watcher_exits_quickly_on_set():
     t.start()
 
     # Give the watcher a moment to reach event.wait(). A tiny sleep
-    # here is only for test determinism — the watcher itself does no
+    # here is only for test determinism, the watcher itself does no
     # polling once it reaches the wait().
     time.sleep(0.05)
 
@@ -73,13 +73,13 @@ def test_signal_watcher_exits_quickly_on_set():
     elapsed = time.perf_counter() - start
 
     assert elapsed < 0.2, (
-        f"Watcher took {elapsed:.3f}s to dispatch quit() after event.set() — "
+        f"Watcher took {elapsed:.3f}s to dispatch quit() after event.set(), "
         "should be < 0.2s (AB-32: indefinite wait, not 1s poll)"
     )
     # the watcher thread is still alive, waiting for the
     # next signal. It is a daemon so it will not block process exit.
     assert t.is_alive(), (
-        "Watcher thread exited after a single signal — UE-1-F4 requires it to survive multiple signal deliveries."
+        "Watcher thread exited after a single signal. UE-1-F4 requires it to survive multiple signal deliveries."
     )
 
 

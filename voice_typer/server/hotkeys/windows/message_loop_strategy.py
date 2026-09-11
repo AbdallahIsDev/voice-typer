@@ -21,7 +21,7 @@ def run_message_loop(self, callback, low_level_hook=False):
 
     Two modes, selected by *low_level_hook*:
 
-    * ``low_level_hook=True`` — a WH_KEYBOARD_LL hook is already installed
+    * ``low_level_hook=True``: a WH_KEYBOARD_LL hook is already installed
       (see ``_install_low_level_hook``). The hook procedure fires
       *callback* directly on the matching key-down (it sees EVERY
       keystroke system-wide, including ESC as WM_SYSKEYDOWN, before any
@@ -30,7 +30,7 @@ def run_message_loop(self, callback, low_level_hook=False):
       CallNextHookEx chain and the OS can deliver events; it does NOT
       need to inspect messages itself.
 
-    * ``low_level_hook=False`` — RegisterHotKey succeeded, so WM_HOTKEY
+    * ``low_level_hook=False``: RegisterHotKey succeeded, so WM_HOTKEY
       messages are posted to this thread. We detect them here.
 
     ESC-CANCEL-DELIVERY (regression fix): this is the reliable path for
@@ -42,9 +42,9 @@ def run_message_loop(self, callback, low_level_hook=False):
     failure), which is the exact real-world ESC failure we fix.
     """
     if not self._user32:
-        # No win32 — should never happen on this path, but fall back to
+        # No win32, should never happen on this path, but fall back to
         # polling defensively.
-        log.warning("[HOTKEY] No user32 on message-loop path — falling back to polling")
+        log.warning("[HOTKEY] No user32 on message-loop path, falling back to polling")
         self._using_polling = True
         self._run_polling_loop(callback)
         return
@@ -63,7 +63,7 @@ def run_message_loop(self, callback, low_level_hook=False):
         self._user32.DispatchMessageW.argtypes = [ctypes.POINTER(ctypes.wintypes.MSG)]
         self._user32.DispatchMessageW.restype = ctypes.c_long
     except Exception:
-        log.exception("[HOTKEY] Failed to set message-pump argtypes — falling back to polling")
+        log.exception("[HOTKEY] Failed to set message-pump argtypes, falling back to polling")
         self._using_polling = True
         self._run_polling_loop(callback)
         return
@@ -86,10 +86,10 @@ def run_message_loop(self, callback, low_level_hook=False):
         # PM_REMOVE = 0x0001: remove the message from the queue.
         ret = self._user32.GetMessageW(ctypes.byref(msg), 0, 0, 0)
         if ret == 0:  # WM_QUIT
-            log.info("[HOTKEY] WM_QUIT received — exiting message loop")
+            log.info("[HOTKEY] WM_QUIT received, exiting message loop")
             break
         if ret == -1:  # error
-            log.warning("[HOTKEY] GetMessageW returned -1 (error) — exiting message loop")
+            log.warning("[HOTKEY] GetMessageW returned -1 (error), exiting message loop")
             break
         if not low_level_hook and msg.message == _WM_HOTKEY and msg.wParam == self._hotkey_id:
             log.info("[HOTKEY FIRED] WM_HOTKEY received for %s", self.hotkey_str)
@@ -100,7 +100,7 @@ def run_message_loop(self, callback, low_level_hook=False):
                 # doesn't kill the message loop (mirrors polling loop).
                 log.exception("[HOTKEY] Callback raised in WM_HOTKEY loop; hotkey still armed for next press")
         # Always translate/dispatch so any other messages (timers, etc.)
-        # are processed normally — required for the hook to function.
+        # are processed normally, required for the hook to function.
         try:
             self._user32.TranslateMessage(ctypes.byref(msg))
             self._user32.DispatchMessageW(ctypes.byref(msg))

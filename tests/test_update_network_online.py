@@ -1,14 +1,14 @@
-"""§10.1 — structural / drift tests for ``useNetworkOnline.ts``.
+"""§10.1: structural / drift tests for ``useNetworkOnline.ts``.
 
 The test command for this slice is ``pytest tests/test_update*.py -x``,
 so this is a PYTHON test that reads the TypeScript file as text and
 asserts on key patterns. This mirrors the pattern used by
 ``tests/test_branding_scan_coverage.py`` and
-``tests/test_api_doc_accuracy.py`` — structural drift tests that pin
+``tests/test_api_doc_accuracy.py``, structural drift tests that pin
 the contract of cross-language files.
 
 The actual runtime behavior of the hook is tested by the renderer's
-vitest suite (``hooks/__tests__/useNetworkOnline.test.tsx`` — to be
+vitest suite (``hooks/__tests__/useNetworkOnline.test.tsx``, to be
 added by Sub-agent 9 or a future renderer test pass). This Python
 test ensures the FILE exists at the expected path + the PUBLIC API
 contract is intact, so a refactor that breaks the auto-update wiring
@@ -20,19 +20,19 @@ What this test pins:
   2. The hook is exported as ``useNetworkOnline``.
   3. The result interface ``UseNetworkOnlineResult`` is exported.
   4. The hook subscribes to ``window.addEventListener("online", ...)``
-     AND ``window.addEventListener("offline", ...)`` (§10.1 — the
+     AND ``window.addEventListener("offline", ...)`` (§10.1, the
      network-is-back trigger).
   5. The hook calls ``removeEventListener`` in cleanup (no listener
-     leak — important for React StrictMode double-mount in dev).
+     leak, important for React StrictMode double-mount in dev).
   6. The hook calls the Python IPC command ``check_offline_pack_update`` (the
      command exposed by
      ``voice_typer/server/service/update_check.py``).
   7. The hook imports ``usePython`` from ``@/hooks/usePython`` (the
-     transport-agnostic IPC bridge — same pattern as
+     transport-agnostic IPC bridge, same pattern as
      ``useOfflinePackDownload``).
   8. The hook catches IPC errors gracefully (forward-compat: the
      ``check_offline_pack_update`` command may not be registered yet in
-     ``ipc/registry.py`` — the hook must not crash).
+     ``ipc/registry.py``, the hook must not crash).
   9. The hook only triggers a re-check on the false → true
      ``navigator.onLine`` transition (not on every ``online`` event —
      browsers fire duplicate events during connection flapping).
@@ -78,7 +78,7 @@ class TestFileExists:
     """The hook file exists at the expected path."""
 
     def test_file_exists(self):
-        """The file must exist — skipping is acceptable (Python-only CI),
+        """The file must exist, skipping is acceptable (Python-only CI),
         but if the file is PRESENT and malformed, the downstream tests
         must catch it."""
         if not _HOOK_PATH.exists():
@@ -138,13 +138,13 @@ class TestBrowserEventSubscription:
         listeners (each mount adds a new listener; the cleanup is the
         only thing that prevents accumulation).
         """
-        # Count addEventListener vs removeEventListener calls — they
+        # Count addEventListener vs removeEventListener calls, they
         # should be balanced (at least 2 removes for 2 adds).
         adds = len(re.findall(r'addEventListener\(\s*["\'](?:online|offline)["\']', hook_source))
         removes = len(re.findall(r'removeEventListener\(\s*["\'](?:online|offline)["\']', hook_source))
         assert adds >= 2, f"expected ≥2 addEventListener calls, got {adds}"
         assert removes >= 2, (
-            f"expected ≥2 removeEventListener calls in cleanup, got {removes} — "
+            f"expected ≥2 removeEventListener calls in cleanup, got {removes}, "
             "listener leak risk under React StrictMode double-mount"
         )
 
@@ -169,7 +169,7 @@ class TestIpcIntegration:
     def test_imports_use_python(self, hook_source: str):
         """The hook imports ``usePython`` from ``@/hooks/usePython``.
 
-        This is the transport-agnostic IPC bridge — same pattern as
+        This is the transport-agnostic IPC bridge, same pattern as
         ``useOfflinePackDownload``. The hook must NOT touch Tauri or Electron
         APIs directly (see the contract at the top of ``usePython.ts``).
         """
@@ -179,7 +179,7 @@ class TestIpcIntegration:
         ), "hook must import usePython from @/hooks/usePython"
 
     def test_catches_ipc_errors_gracefully(self, hook_source: str):
-        """The IPC call is wrapped in try/catch — a missing registration
+        """The IPC call is wrapped in try/catch, a missing registration
         (forward-compat: ``check_offline_pack_update`` may not be in
         ``ipc/registry.py`` yet) must NOT crash the hook."""
         # Look for a try/catch around the call.
@@ -187,7 +187,7 @@ class TestIpcIntegration:
         # ``check_offline_pack_update`` reference must be inside a try block
         # OR the call must use ``.catch`` / ``void`` + try.
         assert "try" in hook_source and "catch" in hook_source, (
-            "hook must wrap the check_offline_pack_update IPC call in try/catch — "
+            "hook must wrap the check_offline_pack_update IPC call in try/catch, "
             "the command may not be registered in ipc/registry.py yet "
             "(forward-compat: the call fails gracefully until the wiring lands)"
         )
@@ -213,7 +213,7 @@ class TestTransitionDedup:
         # but the pattern is ``useRef<boolean>`` + an assignment in the
         # effect / render body.
         assert "useRef" in hook_source, (
-            "hook must use useRef to track the previous isOnline state — "
+            "hook must use useRef to track the previous isOnline state, "
             "browsers fire duplicate 'online' events during connection flapping"
         )
 
@@ -228,7 +228,7 @@ class TestTransitionDedup:
             hook_source,
         )
         assert online_handler_match, (
-            "could not find handleOnline handler — the online event listener "
+            "could not find handleOnline handler, the online event listener "
             "must use a named handler so the transition dedup is visible"
         )
         handler_body = online_handler_match.group(1)
@@ -237,7 +237,7 @@ class TestTransitionDedup:
         # identifier containing "online" or "was".
         assert re.search(r"!\s*\w*(?:[Oo]nline|was|prev)\w*", handler_body), (
             "the online handler must check the previous isOnline state before "
-            "triggering a re-check — avoids IPC spam during connection flapping. "
+            "triggering a re-check, avoids IPC spam during connection flapping. "
             f"Handler body:\n{handler_body}"
         )
 
@@ -283,7 +283,7 @@ class TestNoDirectNetwork:
     """The hook does NOT make direct HTTP requests.
 
     All network requests (fetch / XMLHttpRequest / axios) are FORBIDDEN
-    in the renderer — the SSRF defense lives in the Python side
+    in the renderer, the SSRF defense lives in the Python side
     (``assert_offline_pack_url_allowed``), and the renderer must go through the
     IPC bridge so the same SSRF check runs for every request. A direct
     ``fetch("https://...")`` in the renderer would bypass the allowlist
@@ -301,7 +301,7 @@ class TestNoDirectNetwork:
             if not line.strip().startswith("//") and not line.strip().startswith("*")
         )
         assert "fetch(" not in code_only, (
-            "hook must NOT call fetch() directly — all network requests must "
+            "hook must NOT call fetch() directly, all network requests must "
             "go through the Python IPC bridge so the SSRF defense "
             "(assert_offline_pack_url_allowed) runs for every request"
         )
@@ -309,11 +309,11 @@ class TestNoDirectNetwork:
     def test_no_xmlhttprequest(self, hook_source: str):
         """No ``XMLHttpRequest`` in the hook."""
         assert "XMLHttpRequest" not in hook_source, (
-            "hook must NOT use XMLHttpRequest — all network requests must go through the Python IPC bridge"
+            "hook must NOT use XMLHttpRequest, all network requests must go through the Python IPC bridge"
         )
 
     def test_no_axios(self, hook_source: str):
         """No ``axios`` import in the hook."""
         assert "axios" not in hook_source, (
-            "hook must NOT import axios — all network requests must go through the Python IPC bridge"
+            "hook must NOT import axios, all network requests must go through the Python IPC bridge"
         )

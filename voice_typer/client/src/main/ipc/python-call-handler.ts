@@ -14,7 +14,7 @@
  * readable `_code` field so the renderer can branch on the failure class
  * (timeout vs. not-connected vs. backend-exited) without parsing the
  * message text. Failures are also logged via `logger.warn` so they land
- * in `electron-main.log` for post-mortem diagnosis — previously they
+ * in `electron-main.log` for post-mortem diagnosis, previously they
  * vanished silently into the renderer's `.catch(() => {})` swallows.
  *
  * Type-safety pass: Electron's `ipcMain.handle` listener signature types
@@ -47,7 +47,7 @@ import { PythonChannels } from "./channels";
 export type { PythonCallErrorCode };
 
 // Collapse consecutive identical `python-call rejected` warnings into a
-// single line with an (xN) repeat count — the renderer retries IPC calls
+// single line with an (xN) repeat count, the renderer retries IPC calls
 // in bursts while the backend is disconnected, and the raw repetition
 // flooded electron-main.log / stderr (e.g. 15 identical lines per probe
 // cycle). First occurrence logs as-is; repeats are suppressed; when the
@@ -80,7 +80,7 @@ function truncateLogError(errMsg: string): string {
  * Runtime membership set for the canonical PythonCallErrorCode union.
  * `handle-message.ts` casts BACKEND-emitted error codes (rate_limited,
  * unknown_command, internal_error, …) to `PythonCallErrorCode` even
- * though those strings live OUTSIDE the union — at runtime a
+ * though those strings live OUTSIDE the union, at runtime a
  * `PythonIpcError.code` can therefore carry a non-union string. The
  * catch-block classification checks membership against this set before
  * forwarding a code to the renderer, so out-of-union codes collapse to
@@ -117,7 +117,7 @@ export function registerPythonCallHandler(): void {
 			// future preload refactor could still ship a
 			// `{}` / `{ type: 42 }` / `null` payload. Previously
 			// the handler coerced any value to `"<unknown>"` and
-			// forwarded it to the Python backend — which then
+			// forwarded it to the Python backend, which then
 			// returned `unknown_command` after a full TCP
 			// round-trip. Rejecting early with a structured
 			// error envelope (`_code: "command_failed"`) gives
@@ -166,7 +166,7 @@ export function registerPythonCallHandler(): void {
 			} catch (err) {
 				const errMsg = (err as Error).message ?? String(err);
 				//classify via the typed `PythonIpcError.code`
-				// field set by `sendToPython` — and by every
+				// field set by `sendToPython`, and by every
 				// socket-lifecycle reject site (close handler,
 				// backend crash/early-exit, relaunch teardown) —
 				// instead of regex-matching
@@ -190,7 +190,7 @@ export function registerPythonCallHandler(): void {
 				// `handle-message.ts`: backend-emitted codes
 				// (`rate_limited`, `unknown_command`, …) are typed as
 				// `PythonCallErrorCode` at compile time but can be ANY
-				// string at runtime — those still collapse to
+				// string at runtime, those still collapse to
 				// `command_failed`.
 				const typedCode =
 					err instanceof PythonIpcError && KNOWN_ERROR_CODES.has(err.code)
@@ -207,7 +207,7 @@ export function registerPythonCallHandler(): void {
 					//for command_failed, return the generic localized
 					// message (NOT the raw Python traceback with filesystem
 					// paths).  A bounded (first-line, ≤200-char) version of
-					// errMsg is logged via logger.warn above — the full
+					// errMsg is logged via logger.warn above, the full
 					// detail lives backend-side in voice-typer.log.  For
 					// timeout the errMsg is safe (it's just "Request
 					// Timeout") so append it for clarity.  Backend-lifecycle

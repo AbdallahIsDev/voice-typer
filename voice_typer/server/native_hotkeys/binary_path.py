@@ -7,17 +7,17 @@ adds Windows arch-suffixed binary names
 
 This module owns:
 
-- :data:`_BINARY_NAMES` — per-``(platform, machine)`` binary filename
+- :data:`_BINARY_NAMES`: per-``(platform, machine)`` binary filename
   map (: per-arch native binaries). Implemented as
   class:`_ArchAwareBinaryNameMap` so pre- callers that index by
   bare platform string (``_BINARY_NAMES.get("linux")``) keep working
   via the legacy shim.
-- data:`_LEGACY_BINARY_NAMES` — pre- non-arch-suffixed names,
+- data:`_LEGACY_BINARY_NAMES`: pre- non-arch-suffixed names,
   used both as a fallback for existing Tauri bundles (during the
   ``tauri.conf.json`` resource-list transition owned by IMPL-4) and
   as the backing store for the string-key shim on
   :class:`_ArchAwareBinaryNameMap`.
-- :func:`get_native_binary_path` — find the native key-listener
+- :func:`get_native_binary_path`: find the native key-listener
   binary for the current platform (env var → dev mode → PyInstaller
   bundle).
 
@@ -28,7 +28,7 @@ Per-arch naming convention ()
 - Windows: ``windows-key-listener-x86_64.exe`` /
   ``windows-key-listener-aarch64.exe``
 - macOS:   ``macos-key-listener`` (single universal binary produced
-  via ``lipo`` of arm64 + x86_64 — no arch suffix).
+  via ``lipo`` of arm64 + x86_64, no arch suffix).
 
 The :func:`_normalize_machine` helper maps the various
 ``platform.machine()`` return values (``x86_64``/``amd64`` on x86_64,
@@ -71,7 +71,7 @@ _LEGACY_BINARY_NAMES: dict[str, str] = {
 # non-arch-suffixed names (``linux-key-listener``,
 # ``windows-key-listener.exe``) are the pre- names that were
 # ALWAYS the x86_64 build (aarch64 builds did not exist pre-), so
-# the legacy name maps to the x86_64 arch-suffixed name ONLY — never
+# the legacy name maps to the x86_64 arch-suffixed name ONLY, never
 # to the aarch64 name. macOS uses the same universal name for both
 # forms (``macos-key-listener``), so it has no entry here. The build
 # script (``scripts/build/compile_native.sh``) still emits the legacy
@@ -120,7 +120,7 @@ def _windows_arch_suffix() -> str:
 
     ``platform.machine()`` returns:
 
-      - ``'AMD64'`` on x86_64 Windows (Windows convention — the CPU
+      - ``'AMD64'`` on x86_64 Windows (Windows convention, the CPU
         vendor string, not the architecture string).
       - ``'ARM64'`` on aarch64 Windows.
       - ``'x86_64'`` / ``'aarch64'`` on Linux/macOS hosts (POSIX
@@ -136,7 +136,7 @@ def _windows_arch_suffix() -> str:
     machine = platform.machine().upper()
     if machine in ("ARM64", "AARCH64"):
         return "aarch64"
-    # Default: AMD64, x86_64, x64, EM64T, etc. — all map to x86_64 suffix.
+    # Default: AMD64, x86_64, x64, EM64T, etc., all map to x86_64 suffix.
     return "x86_64"
 
 
@@ -149,9 +149,9 @@ class _ArchAwareBinaryNameMap(dict):
     interface alive for backward compatibility:
 
     - ``_BINARY_NAMES[("linux", "x86_64")]`` → ``"linux-key-listener-x86_64"``
-      (new arch-aware lookup — ).
+      (new arch-aware lookup, ).
     - ``_BINARY_NAMES.get("linux")`` → ``"linux-key-listener"``
-      (legacy string-key lookup — delegates to
+      (legacy string-key lookup, delegates to
       :data:`_LEGACY_BINARY_NAMES`).
 
     The string-key shim is implemented only on ``__getitem__``,
@@ -235,7 +235,7 @@ def _normalize_machine(machine: str | None) -> str:
         return "aarch64"
     if m in ("i386", "i686", "x86"):
         return "i686"
-    return m  # unknown — caller will see no _BINARY_NAMES entry
+    return m  # unknown, caller will see no _BINARY_NAMES entry
 
 
 def _candidate_binary_names() -> list[str]:
@@ -271,13 +271,13 @@ def get_native_binary_path() -> Path | None:
     :func:`functools.lru_cache(maxsize=1)` so the 6-step lookup chain
     (env var → dev mode → PyInstaller onedir → ``_MEIPASS``) runs at
     most ONCE per process. Pre-fix, the function was called up to
-    three times at startup (once per backend factory probe — see
+    three times at startup (once per backend factory probe, see
     :func:`voice_typer.server.native_hotkeys.factory.create_native_backend`
     and
     :func:`voice_typer.server.native_hotkeys.factory.is_native_backend_available`,
     plus once from :class:`SubprocessHotkeyBackend.__init__` in
     ``base.py``), each call performing up to 6 ``Path.is_file()`` /
-    ``os.stat`` probes — i.e. ~18 stats at boot for a result that
+    ``os.stat`` probes: i.e. ~18 stats at boot for a result that
     cannot change within a single process.
 
     The function is PURE with respect to a single process: the
@@ -292,26 +292,26 @@ def get_native_binary_path() -> Path | None:
     that need to simulate different env / platform / filesystem state
     MUST call :meth:`get_native_binary_path.cache_clear` (or use the
     ``clear_binary_path_cache`` autouse fixture in ``tests/conftest.py``)
-    between scenarios — see ``tests/test_binary_path_caching.py`` for
+    between scenarios: see ``tests/test_binary_path_caching.py`` for
     the pinning tests.
 
     Search order:
-    1. ``VOICE_TYPER_NATIVE_BINARY`` env var (explicit override — single binary)
-    2. ``VOICE_TYPER_NATIVE_DIR`` env var (ADR-0020 §7 — Tauri resource dir containing all native binaries)
-    3. ``voice_typer/server/native/<binary-name>`` (dev mode — source tree)
+    1. ``VOICE_TYPER_NATIVE_BINARY`` env var (explicit override, single binary)
+    2. ``VOICE_TYPER_NATIVE_DIR`` env var (ADR-0020 §7. Tauri resource dir containing all native binaries)
+    3. ``voice_typer/server/native/<binary-name>`` (dev mode, source tree)
     4. ``voice_typer/server/native/<binary-name>.exe`` (Windows dev mode)
     5. Next to the Python executable (PyInstaller onedir mode)
     6. Inside ``_MEIPASS`` (PyInstaller onefile mode)
 
     At each step (2–6) the arch-suffixed name () is tried first;
     if no file is found, the legacy non-arch-suffixed name is tried as
-    a fallback ( transition — see :data:`_LEGACY_BINARY_NAMES`).
+    a fallback ( transition: see :data:`_LEGACY_BINARY_NAMES`).
 
     Returns ``None`` if no binary is found.
 
     on Windows, the binary name is arch-suffixed
     (``windows-key-listener-x86_64.exe`` or
-    ``windows-key-listener-aarch64.exe``) — see
+    ``windows-key-listener-aarch64.exe``): see
     :func:`_windows_arch_suffix`. The legacy non-suffixed
     ``windows-key-listener.exe`` name in :data:`_BINARY_NAMES` is no
     longer looked up here; existing installs should rebuild via
@@ -326,7 +326,7 @@ def get_native_binary_path() -> Path | None:
     if not binary_names:
         return None
 
-    # 1. Explicit override (single binary path) — name-agnostic.
+    # 1. Explicit override (single binary path), name-agnostic.
     env_path = os.environ.get("VOICE_TYPER_NATIVE_BINARY")
     if env_path:
         p = Path(env_path)
@@ -339,7 +339,7 @@ def get_native_binary_path() -> Path | None:
             if candidate.is_file():
                 return candidate
 
-    # 3/4. Dev mode — alongside this package's source tree.  Use
+    # 3/4. Dev mode, alongside this package's source tree.  Use
     # ``__file__`` of *this* module (``native_hotkeys/binary_path.py``)
     # resolved up two parents (``native_hotkeys/`` → ``server/``) and
     # then into ``server/native/``.  This mirrors the original layout
@@ -404,7 +404,7 @@ def _equivalent_manifest_names(binary_name: str) -> list[str]:
     manifest (``binaries.json``) now carries BOTH forms as aliases (with
     the same sha256 where the binary exists), so the direct lookup
     usually succeeds. This helper returns the direct name first, then
-    any equivalents (legacy <-> arch-suffixed x86_64 ONLY — aarch64 has
+    any equivalents (legacy <-> arch-suffixed x86_64 ONLY, aarch64 has
     no legacy equivalent because aarch64 builds are new in ), so
     :func:`get_expected_sha256` can still find the right entry if a
     future manifest drops one form.
@@ -488,7 +488,7 @@ def verify_native_binary(path: Path, expected_sha256: str) -> bool:
     expected = expected_sha256.strip().lower()
     if actual != expected:
         log.error(
-            "[NATIVE-BINARY] CHECKSUM MISMATCH for %s — expected %s, got %s. "
+            "[NATIVE-BINARY] CHECKSUM MISMATCH for %s, expected %s, got %s. "
             "Refusing to use this binary; falling back to legacy backend.",
             path,
             expected,
@@ -511,7 +511,7 @@ def _is_trusted_path_override() -> bool:
       2. The user has set ``VOICE_TYPER_NATIVE_BINARY`` OR
          ``VOICE_TYPER_NATIVE_DIR`` (the actual override path/dir).
 
-    The bypass is logged at WARNING ( — previously DEBUG which
+    The bypass is logged at WARNING (, previously DEBUG which
     was invisible at default log levels, making the silent checksum
     bypass unauditable in production).
     """
@@ -575,7 +575,7 @@ def _path_matches_env_override(path: Path) -> bool:
             if resolved.is_relative_to(env_resolved):
                 return True
         except AttributeError:
-            # Python <3.9 fallback — not expected on 3.12, but defensive.
+            # Python <3.9 fallback, not expected on 3.12, but defensive.
             try:
                 resolved.relative_to(env_resolved)
                 return True
@@ -594,10 +594,10 @@ def verify_native_binary_or_skip(path: Path) -> bool:
     if _is_trusted_path_override() and _path_matches_env_override(path):
         # elevated from DEBUG to WARNING so the bypass is
         # auditable at default log levels. The bypass is a security-
-        # relevant event — operators SHOULD see it in the log without
+        # relevant event, operators SHOULD see it in the log without
         # having to enable DEBUG logging.
         log.warning(
-            "[NATIVE-BINARY] Skipping checksum for %s — trusted-path "
+            "[NATIVE-BINARY] Skipping checksum for %s, trusted-path "
             "override active (VOICE_TYPER_NATIVE_TRUST=1 + path matches "
             "env-specified location).",
             path,
@@ -611,8 +611,8 @@ def verify_native_binary_or_skip(path: Path) -> bool:
         # the entire SHA-256 gate a no-op in any environment where the
         # manifest wasn't perfectly populated (e.g. dev trees without
         # cross-compiled Windows/macOS binaries, CI builds that hadn't
-        # yet run scripts/build/update_native_manifests.py, or — as the
-        #  reviewer found — pre- manifests keyed by the
+        # yet run scripts/build/update_native_manifests.py, or, as the
+        #  reviewer found, pre- manifests keyed by the
         # legacy non-suffixed names while the build emitted
         # arch-suffixed names). A tampered binary could bypass
         # verification simply by being named something the manifest
@@ -622,7 +622,7 @@ def verify_native_binary_or_skip(path: Path) -> bool:
         # scripts/build/update_native_manifests.py (run by CI after
         # compile_native.sh).
         log.error(
-            "[NATIVE-BINARY] FAIL CLOSED for %s — no usable manifest entry "
+            "[NATIVE-BINARY] FAIL CLOSED for %s, no usable manifest entry "
             "(manifest missing, entry missing, or sha256 empty). "
             "Refusing to use this binary; falling back to legacy backend. "
             "Run scripts/build/update_native_manifests.py to populate the manifest.",

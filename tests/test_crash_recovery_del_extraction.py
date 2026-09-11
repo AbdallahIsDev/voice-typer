@@ -4,15 +4,15 @@ The original ``__del__`` was a 101-line method (lines 1137-1237 in
 ``crash_recovery.py``) that performed I/O during GC. It has been
 refactored into a thin delegate that calls two named helpers:
 
-- ``_cleanup_signal_stop`` — sets ``self._stopped = True`` so the
+- ``_cleanup_signal_stop``, sets ``self._stopped = True`` so the
   background worker knows to exit. Own try/except so a failure here
   does not skip the final save.
-- ``_cleanup_flush_pending`` — checks ``_entries`` under ``_lock`` and
+- ``_cleanup_flush_pending``, checks ``_entries`` under ``_lock`` and
   calls ``_save_sync(durability=True)`` if non-empty. Own try/except
   so a ``_save_sync`` failure (e.g. disk full during interpreter
   shutdown) does not propagate out of GC.
 
-``__del__`` itself is now 18 LOC (down from 101) — 5 lines of body
+``__del__`` itself is now 18 LOC (down from 101), 5 lines of body
 (``try / two helper calls / except BaseException / pass``) plus
 docstring + comment. The defense-in-depth outer ``try/except`` in
 ``__del__`` preserves the original "never raise from GC" contract
@@ -21,14 +21,14 @@ even if a helper is replaced with a broken stub.
 These tests verify the contract holds:
 
 1. ``__del__`` calls both helpers in the original order (signal-stop
-   THEN flush-pending — reversing would risk the worker draining
+   THEN flush-pending, reversing would risk the worker draining
    mid-flush).
 2. Each helper's own try/except swallows internal failures (so one
    failure does not skip the other).
 3. ``__del__``'s outer try/except catches a fully-broken helper stub
    (defense-in-depth).
 4. The original ``__del__`` save contract (post-shutdown direct
-   ``_entries.append`` still persists on GC) still holds — this is
+   ``_entries.append`` still persists on GC) still holds, this is
    the regression-guarded behavior from
    ``test_del_saves_unpersisted_post_shutdown_mutations`` in
    ``tests/test_crash_recovery.py``.
@@ -47,17 +47,17 @@ All tests in this module follow a consistent pattern to avoid the
 1. Construct the CrashRecovery instance.
 2. Call ``shutdown()`` FIRST (kill the worker thread + join it).
 3. Patch internals via ``monkeypatch`` (auto-undone by pytest AFTER
-   the test function returns — but BEFORE the autouse
+   the test function returns, but BEFORE the autouse
    ``_drain_crash_recovery_workers`` fixture's post-test cleanup runs
    the second ``shutdown()`` on leaked instances).
 4. Directly mutate ``_entries`` via ``cr._lock`` (bypassing ``add()``
    so the patched ``_save_sync`` is not invoked indirectly).
 5. Call the helper / ``__del__`` under test.
-6. No explicit ``finally: cr.shutdown()`` — the autouse fixture handles it.
+6. No explicit ``finally: cr.shutdown()``, the autouse fixture handles it.
 
 The conftest's ``_drain_crash_recovery_workers`` wraps its post-test
 ``shutdown()`` in ``contextlib.suppress(Exception)``, so even a
-patched-method call during cleanup would not crash the suite — but
+patched-method call during cleanup would not crash the suite, but
 following the pattern above means the cleanup never sees the patched
 method in the first place.
 """
@@ -93,8 +93,8 @@ def _make_cr(recovery_dir: Path):
     """Construct a CrashRecovery bound to ``recovery_dir``.
 
     Imported lazily so the test module loads even if heavy-import
-    mocks haven't been installed yet (they have — conftest.py runs
-    autouse — but the lazy import is still cleaner).
+    mocks haven't been installed yet (they have, conftest.py runs
+    autouse, but the lazy import is still cleaner).
     """
     from voice_typer.server.crash_recovery import CrashRecovery
 
@@ -112,7 +112,7 @@ def _direct_append_entry(cr, text: str = "entry-to-flush") -> None:
     """Append an entry to ``_entries`` directly (bypassing ``add()``).
 
     Used so the patched ``_save_sync`` is NOT invoked indirectly via
-    ``_enqueue_save()`` (which ``add()`` calls — and which after
+    ``_enqueue_save()`` (which ``add()`` calls, and which after
     ``shutdown()`` falls back to a direct ``_save_sync()``).
     """
     with cr._lock:
@@ -130,7 +130,7 @@ def _direct_append_entry(cr, text: str = "entry-to-flush") -> None:
 
 class TestDelDelegatesToHelpers:
     """``__del__`` must call ``_cleanup_signal_stop`` then
-    ``_cleanup_flush_pending`` — order matters because reversing
+    ``_cleanup_flush_pending``, order matters because reversing
     would risk the worker draining mid-flush."""
 
     def test_del_calls_both_helpers_in_order(self, recovery_dir, monkeypatch):
@@ -154,7 +154,7 @@ class TestDelDelegatesToHelpers:
         monkeypatch.setattr(type(cr), "_cleanup_signal_stop", spy_signal)
         monkeypatch.setattr(type(cr), "_cleanup_flush_pending", spy_flush)
 
-        # Direct call — no GC indeterminacy.
+        # Direct call, no GC indeterminacy.
         cr.__del__()
 
         assert call_order == ["signal", "flush"], (
@@ -184,7 +184,7 @@ class TestCleanupSignalStop:
     def test_sets_stopped_flag(self, recovery_dir):
         cr = _make_cr(recovery_dir)
         _shutdown_and_join(cr)
-        # ``_stopped`` is already True after shutdown — reset to verify
+        # ``_stopped`` is already True after shutdown, reset to verify
         # the helper actually sets it (not just inherited from shutdown).
         cr._stopped = False
         assert cr._stopped is False, "test setup: _stopped reset to False"
@@ -194,7 +194,7 @@ class TestCleanupSignalStop:
 
     def test_is_idempotent(self, recovery_dir):
         """Calling twice must not raise (``shutdown()`` also sets this
-        — both paths must coexist)."""
+        , both paths must coexist)."""
         cr = _make_cr(recovery_dir)
         _shutdown_and_join(cr)
         cr._stopped = False
@@ -226,7 +226,7 @@ class TestCleanupSignalStop:
 
         monkeypatch.setattr(type(cr), "__setattr__", failing_setattr)
 
-        # The helper must NOT raise — its own try/except catches.
+        # The helper must NOT raise, its own try/except catches.
         cr._cleanup_signal_stop()
 
 
@@ -234,7 +234,7 @@ class TestCleanupSignalStop:
 
 
 class TestCleanupFlushPendingResilience:
-    """``_cleanup_flush_pending`` must never raise — its own
+    """``_cleanup_flush_pending`` must never raise, its own
     ``try/except BaseException`` catches everything, including
     ``BaseException`` subclasses like ``KeyboardInterrupt`` that
     ``except Exception`` would miss."""
@@ -249,14 +249,14 @@ class TestCleanupFlushPendingResilience:
 
         monkeypatch.setattr(cr, "_save_sync", boom)
 
-        # Must NOT raise — helper's own try/except catches.
+        # Must NOT raise, helper's own try/except catches.
         cr._cleanup_flush_pending()
 
     def test_swallows_keyboard_interrupt_from_save_sync(self, recovery_dir, monkeypatch):
         """``KeyboardInterrupt`` is a ``BaseException`` subclass —
         the helper's ``except BaseException`` (NOT ``except Exception``)
         catches it. This is the documented "never raise from GC"
-        contract — a ``KeyboardInterrupt`` during interpreter shutdown
+        contract, a ``KeyboardInterrupt`` during interpreter shutdown
         must not propagate out of ``__del__``."""
         cr = _make_cr(recovery_dir)
         _shutdown_and_join(cr)
@@ -272,7 +272,7 @@ class TestCleanupFlushPendingResilience:
     def test_swallows_oserror_from_lock_acquisition(self, recovery_dir, monkeypatch):
         """If ``self._lock`` acquisition raises (e.g. a corrupt lock
         object during interpreter shutdown), the helper must swallow
-        it — no save, but also no raise."""
+        it, no save, but also no raise."""
         cr = _make_cr(recovery_dir)
         _shutdown_and_join(cr)
         _direct_append_entry(cr)
@@ -284,7 +284,7 @@ class TestCleanupFlushPendingResilience:
             def __exit__(self, *args):
                 return False
 
-        # Replace the instance's _lock — the helper reads
+        # Replace the instance's _lock, the helper reads
         # ``self._lock`` at call time.
         monkeypatch.setattr(cr, "_lock", BrokenLock())
 
@@ -292,7 +292,7 @@ class TestCleanupFlushPendingResilience:
 
     def test_no_save_when_entries_empty(self, recovery_dir, monkeypatch):
         """When ``_entries`` is empty, ``_save_sync`` must NOT be
-        called — matches the original ``__del__`` behavior (saves
+        called, matches the original ``__del__`` behavior (saves
         are only triggered by state changes, not by GC)."""
         cr = _make_cr(recovery_dir)
         _shutdown_and_join(cr)
@@ -312,7 +312,7 @@ class TestCleanupFlushPendingResilience:
 
     def test_saves_when_entries_non_empty(self, recovery_dir, monkeypatch):
         """When ``_entries`` is non-empty, ``_save_sync(durability=True)``
-        must be called — this is the post-shutdown safety-net save."""
+        must be called, this is the post-shutdown safety-net save."""
         cr = _make_cr(recovery_dir)
         _shutdown_and_join(cr)
         _direct_append_entry(cr)
@@ -388,7 +388,7 @@ class TestDelFailureIsolation:
         def stub_signal(self):
             signal_called.append(True)
             # Mimic the helper's own try/except catching an
-            # internal failure — this is the contract being tested.
+            # internal failure, this is the contract being tested.
             try:
                 raise RuntimeError("simulated _cleanup_signal_stop failure")
             except BaseException:
@@ -409,7 +409,7 @@ class TestDelFailureIsolation:
         assert signal_called, "_cleanup_signal_stop must have been called by __del__"
         assert flush_called, (
             "_cleanup_flush_pending must run AFTER _cleanup_signal_stop's "
-            "caught failure — failure isolation contract violated"
+            "caught failure, failure isolation contract violated"
         )
 
     def test_outer_try_except_catches_fully_broken_helper(self, recovery_dir, monkeypatch):
@@ -421,18 +421,18 @@ class TestDelFailureIsolation:
         _shutdown_and_join(cr)
 
         def broken_signal(self):
-            raise RuntimeError("helper lost its try/except — broken stub")
+            raise RuntimeError("helper lost its try/except, broken stub")
 
         def broken_flush(self):
-            raise RuntimeError("helper lost its try/except — broken stub")
+            raise RuntimeError("helper lost its try/except, broken stub")
 
         monkeypatch.setattr(type(cr), "_cleanup_signal_stop", broken_signal)
         monkeypatch.setattr(type(cr), "_cleanup_flush_pending", broken_flush)
 
-        # __del__ must NOT raise — outer try/except catches.
+        # __del__ must NOT raise, outer try/except catches.
         try:
             cr.__del__()
-        except BaseException as exc:  # pragma: no cover — defensive
+        except BaseException as exc:  # pragma: no cover, defensive
             pytest.fail(f"__del__ must not propagate: {exc!r}")
 
     def test_keyboard_interrupt_during_save_does_not_propagate(self, recovery_dir, monkeypatch):
@@ -452,7 +452,7 @@ class TestDelFailureIsolation:
         # __del__ must not propagate the KeyboardInterrupt.
         try:
             cr.__del__()
-        except BaseException as exc:  # pragma: no cover — defensive
+        except BaseException as exc:  # pragma: no cover, defensive
             pytest.fail(f"__del__ must catch KeyboardInterrupt (BaseException subclass) during _save_sync; got {exc!r}")
 
 
@@ -463,7 +463,7 @@ class TestDelPreservesOriginalContract:
     """E14 (regression prevention): the extraction must NOT regress
     the original ``__del__`` save contract. The key regression guard
     is ``test_del_saves_unpersisted_post_shutdown_mutations`` in
-    ``tests/test_crash_recovery.py`` — we re-verify the contract here
+    ``tests/test_crash_recovery.py``, we re-verify the contract here
     using the new helper boundaries to ensure the extraction is
     behaviorally equivalent."""
 
@@ -472,11 +472,11 @@ class TestDelPreservesOriginalContract:
         ``add()`` / ``_enqueue_save()``). ``__del__`` (via
         ``_cleanup_flush_pending``) must persist the mutation.
 
-        This is the Finding A3 regression guard — the original ``__del__``
+        This is the Finding A3 regression guard, the original ``__del__``
         had an ``is_alive()`` check that skipped the save after
         ``shutdown()`` killed the worker. The current code saves whenever
         ``_entries`` is non-empty regardless of worker state. The
-        extraction preserves this — ``_cleanup_flush_pending`` reads
+        extraction preserves this: ``_cleanup_flush_pending`` reads
         ``_entries`` under ``_lock`` and saves if non-empty.
         """
         import json
@@ -504,7 +504,7 @@ class TestDelPreservesOriginalContract:
                 "test setup error: entry should not be on disk before __del__"
             )
 
-        # Force GC of the instance — worker is dead, so __del__ fires.
+        # Force GC of the instance, worker is dead, so __del__ fires.
         # We call __del__ explicitly to avoid GC timing indeterminacy.
         cr.__del__()
 
@@ -522,7 +522,7 @@ class TestDelPreservesOriginalContract:
 
     def test_del_is_noop_when_entries_empty_post_clear(self, recovery_dir, monkeypatch):
         """After ``clear()`` removes all entries, ``__del__`` must
-        NOT call ``_save_sync`` (no data to lose — matches the original
+        NOT call ``_save_sync`` (no data to lose, matches the original
         ``if self._entries:`` short-circuit)."""
         cr = _make_cr(recovery_dir)
         # Use add() + clear() BEFORE shutdown so the worker drains them.

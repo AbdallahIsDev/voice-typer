@@ -6,14 +6,14 @@ Covers:
   stdin listener is never spawned alongside the token-authenticated
   TCP / WS server. The standalone path (no ``--port`` / ``--ws``)
   previously fell through with ``_tcp_mode = False``, spawning BOTH
-  the stdin listener AND the auto-picked TCP server — the stdin
+  the stdin listener AND the auto-picked TCP server, the stdin
   listener accepted unauthenticated JSON on the user's terminal.
 - ZR-76: ``_send_stdin_error_envelope`` consolidates the three
   inline error-envelope construction sites in ``_run`` (invalid
   payload / invalid JSON / internal_error) so the envelope shape is
   defined in one place. Backward-compat pins:
     * ``invalid JSON`` site MUST keep the bare ``{"message": ...}``
-      shape (no ``code``) — pinned by ``tests/server/test_run_loop.py
+      shape (no ``code``), pinned by ``tests/server/test_run_loop.py
       ::test_handles_invalid_json``.
     * ``invalid payload`` site MUST keep both ``code`` and
       ``legacy_code`` fields.
@@ -42,7 +42,7 @@ class TestStandaloneStdinSuppression:
     ``server._tcp_mode = True`` and sets the flag unconditionally. We
     verify behaviorally by running ``main()`` with mocked components and
     confirming ``_tcp_mode`` is ``True`` at the moment ``server.start()``
-    is called — regardless of the launch mode (standalone / --port / --ws).
+    is called, regardless of the launch mode (standalone / --port / --ws).
     """
 
     def test_main_sets_tcp_mode_unconditionally(self, monkeypatch) -> None:
@@ -54,7 +54,7 @@ class TestStandaloneStdinSuppression:
 
         Pre-fix, the standalone path (no ``--port`` / ``--ws``) fell
         through with ``_tcp_mode = False``, spawning BOTH the stdin
-        listener AND the auto-picked TCP server — the stdin listener
+        listener AND the auto-picked TCP server, the stdin listener
         accepted unauthenticated JSON on the user's terminal."""
         from unittest.mock import MagicMock
 
@@ -83,7 +83,7 @@ class TestStandaloneStdinSuppression:
         mock_server.start.side_effect = capture_start
 
         # Patch the components main() imports at call time (canonical
-        # modules — the app-module re-exports were removed).
+        # modules, the app-module re-exports were removed).
         monkeypatch.setattr(app_mod, "VoiceTyperApp", lambda: mock_app)
         monkeypatch.setattr("voice_typer.server.single_instance._ensure_single_instance", lambda **kw: None)
         monkeypatch.setattr("voice_typer.server.logging_setup._setup_logging", lambda: None)
@@ -97,7 +97,7 @@ class TestStandaloneStdinSuppression:
             "XZ-IPC-001: main() must set server._tcp_mode = True BEFORE "
             f"server.start() is called (got {captured.get('tcp_mode')}). "
             "The flag must be set unconditionally so start() skips "
-            "spawning the unauthenticated stdin listener thread — the "
+            "spawning the unauthenticated stdin listener thread, the "
             "old `if port is not None or ws_mode:` guard around the "
             "assignment must be gone (standalone mode must also set it)."
         )
@@ -115,7 +115,7 @@ class TestStandaloneStdinSuppression:
         app = MagicMock()
         # Real IPCServer.start() does a lot of wiring (heartbeat thread,
         # event_bus subscribe, tray hook). We only care about the
-        # ``_tcp_mode`` branch — so call start() with _tcp_mode=True and
+        # ``_tcp_mode`` branch, so call start() with _tcp_mode=True and
         # verify _stdin_thread is None.
         srv = IPCServer(app)
         srv._tcp_mode = True
@@ -128,7 +128,7 @@ class TestStandaloneStdinSuppression:
             srv.stop()
         assert srv._stdin_thread is None, (
             "XZ-IPC-001: with _tcp_mode=True, start() must NOT spawn the "
-            "stdin listener thread — it's an unauthenticated command "
+            "stdin listener thread, it's an unauthenticated command "
             "channel alongside the token-authenticated TCP server."
         )
 
@@ -203,7 +203,7 @@ class TestSendStdinErrorEnvelope:
 
     def test_helper_omits_code_when_none(self) -> None:
         """The bare ``{"message": "invalid JSON"}`` shape (no code)
-        is preserved — pinned by ``tests/server/test_run_loop.py
+        is preserved, pinned by ``tests/server/test_run_loop.py
         ::test_handles_invalid_json``."""
         from unittest.mock import MagicMock
 
@@ -214,7 +214,7 @@ class TestSendStdinErrorEnvelope:
         sent_msg = srv._send.call_args.args[0]
         assert "code" not in sent_msg["data"], (
             "ZR-76: when code=None, the helper must NOT include a 'code' "
-            "field — the invalid-JSON envelope is intentionally bare for "
+            "field, the invalid-JSON envelope is intentionally bare for "
             "IPC-5 backward compat."
         )
         assert "legacy_code" not in sent_msg["data"]
@@ -263,7 +263,7 @@ class TestSendStdinErrorEnvelope:
     def test_run_calls_helper_not_inline_send(self, server, monkeypatch) -> None:
         """Behavioral: ``_run`` must route all three error sites (invalid
         payload / invalid JSON / internal_error) through
-        ``_send_stdin_error_envelope`` — not inline
+        ``_send_stdin_error_envelope``, not inline
         ``self._send({"type": "error", ...})``. Verified by spying on
         ``_send_stdin_error_envelope`` and triggering all three paths in
         one ``_run`` call; the helper must be called for each path."""
@@ -272,7 +272,7 @@ class TestSendStdinErrorEnvelope:
 
         def spy_helper(*args, **kwargs):
             helper_calls.append(kwargs)
-            # Don't call the original — we only want to count/inspect calls.
+            # Don't call the original, we only want to count/inspect calls.
 
         monkeypatch.setattr(server, "_send_stdin_error_envelope", spy_helper)
 
@@ -313,7 +313,7 @@ class TestStaleLineRefs:
 
     Behavioral equivalents: the original source-string tests checked that
     stale line-number comments were gone. The behavioral tests verify the
-    actual behavior the comments described — the ``_send`` shutdown-suppress
+    actual behavior the comments described, the ``_send`` shutdown-suppress
     gate (``_cached_shutting_down`` read) lives in ``ipc/sender.py``
     (``OutputMixin._send``) and ``_dispatch`` consults the cached snapshot
     rather than reading ``app._shutting_down`` directly.
@@ -333,7 +333,7 @@ class TestStaleLineRefs:
         # OutputMixin must be defined in sender.py (not ipc_server.py).
         assert OutputMixin.__module__ == "voice_typer.server.ipc.sender", (
             "XZ-IPC-009: OutputMixin (which owns the _send shutdown-"
-            f"suppress gate) must live in voice_typer.server.ipc.sender — "
+            f"suppress gate) must live in voice_typer.server.ipc.sender, "
             f"got {OutputMixin.__module__}. The stale 'line ~2166' "
             "reference pointed at the gate's old location in "
             "ipc_server.py; the gate has since moved to sender.py."
@@ -356,7 +356,7 @@ class TestStaleLineRefs:
 
         Verified by setting ``_cached_shutting_down=True`` (cached:
         shutting down) and ``app._shutting_down=False`` (live: NOT
-        shutting down) — ``_dispatch`` must reject the request (return
+        shutting down): ``_dispatch`` must reject the request (return
         ``server.shutting_down`` error) based on the cached snapshot,
         not the live app attribute."""
         # Cached snapshot says we're shutting down; live app attribute says
@@ -368,7 +368,7 @@ class TestStaleLineRefs:
 
         assert result is not None, (
             "XZ-IPC-009: _dispatch returned None when _cached_shutting_down "
-            "was True — it must return a shutting_down error envelope."
+            "was True, it must return a shutting_down error envelope."
         )
         assert result.get("type") == "error", (
             "XZ-IPC-009: _dispatch did not return an error when "
@@ -379,6 +379,6 @@ class TestStaleLineRefs:
             "XZ-IPC-009: _dispatch must return a server.shutting_down "
             f"error when _cached_shutting_down=True (got: {result}). The "
             "shutdown-suppress gate (the _cached_shutting_down read) "
-            "lives in OutputMixin._send in ipc/sender.py — _dispatch "
+            "lives in OutputMixin._send in ipc/sender.py, _dispatch "
             "must consult the cached snapshot, not app._shutting_down."
         )

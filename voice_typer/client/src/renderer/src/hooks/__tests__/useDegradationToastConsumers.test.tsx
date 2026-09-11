@@ -7,7 +7,7 @@
  *
  * These events were wired through all 4 protocol layers (allowlist +
  * EVENT_TYPES + TS union + KNOWN_EVENT_TYPES) but had NO renderer
- * subscriber — the documented consumers were dead end-to-end. Each
+ * subscriber, the documented consumers were dead end-to-end. Each
  * test pins the LIVE contract: the hook subscribes to the event name,
  * surfaces the right localized toast shape, and rate-limits repeat
  * emissions via `degradationToastStore`.
@@ -90,7 +90,7 @@ describe("useCloudFallbackToast", () => {
 				description: "degradation.cloudFallbackUsedHint[provider=openai]",
 			}),
 		);
-		// The raw reason stays in the log — the hint is the user-facing copy.
+		// The raw reason stays in the log, the hint is the user-facing copy.
 		const call = (toast.warning as ReturnType<typeof vi.fn>).mock.calls[0];
 		expect(JSON.stringify(call)).not.toContain("HTTP 503");
 	});

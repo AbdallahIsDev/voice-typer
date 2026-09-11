@@ -1,5 +1,5 @@
 /**
- * Tests for useConnection —  (background reconnect poll).
+ * Tests for useConnection,  (background reconnect poll).
  *
  * Scenario under test: when the Python backend is unreachable on
  * initial mount, the connection-lifecycle effect retries `get_config`
@@ -7,7 +7,7 @@
  * sets `connectionStatus = "disconnected"` and the user sees the
  * "Lost connection" screen.
  *
- * Before , that was the end of the story — the ONLY way to
+ * Before , that was the end of the story, the ONLY way to
  * reconnect was for the user to manually click Retry, or for the host
  * bridge to push a `reconnecting`/`reconnected` synthetic event.
  * There was no background re-attempt loop, so a transient outage
@@ -126,7 +126,7 @@ function dispatchEvent(eventType: string, data: unknown): void {
 	);
 }
 
-describe("useConnection — background reconnect poll", () => {
+describe("useConnection, background reconnect poll", () => {
 	beforeEach(() => {
 		resetStableMocks();
 		localStorage.clear();
@@ -171,7 +171,7 @@ describe("useConnection — background reconnect poll", () => {
 		});
 		expect(readStatus()).toBe("disconnected");
 
-		// Phase 2: backend recovers — make get_config resolve.
+		// Phase 2: backend recovers, make get_config resolve.
 		mockCall.mockImplementation((type: string) => {
 			if (type === "get_config")
 				return Promise.resolve({ onboarding_completed: true });
@@ -194,7 +194,7 @@ describe("useConnection — background reconnect poll", () => {
 	it("stops polling after MAX_BACKGROUND_RECONNECTS attempts (no infinite loop)", async () => {
 		vi.useFakeTimers();
 
-		// get_config always rejects — the backend is truly dead.
+		// get_config always rejects, the backend is truly dead.
 		mockCall.mockImplementation((type: string) => {
 			if (type === "get_config") return Promise.reject(new Error("down"));
 			if (type === "get_status") return Promise.resolve({ status: "idle" });
@@ -225,9 +225,9 @@ describe("useConnection — background reconnect poll", () => {
 		).length;
 
 		// Advance ANOTHER 120s of fake time. If the cap is working,
-		// NO additional get_config calls should land — the background
+		// NO additional get_config calls should land, the background
 		//poll has already stopped. (Before 's cap, the poll
-		// would keep firing every 10s indefinitely — 12 more calls
+		// would keep firing every 10s indefinitely, 12 more calls
 		// in 120s.)
 		await act(async () => {
 			await vi.advanceTimersByTimeAsync(120_000);

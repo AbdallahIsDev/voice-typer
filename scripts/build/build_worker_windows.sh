@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Voice Typer — Nuitka worker build (Windows x86_64 + aarch64)
+# Voice Typer. Nuitka worker build (Windows x86_64 + aarch64)
 #
-# Plan-runtime-pack-split §4.4 / §11.5 — builds the runtime-pack worker exe
+# Plan-runtime-pack-split §4.4 / §11.5, builds the runtime-pack worker exe
 # (voice-typer-worker-<triple>.exe), the heavy-ML process that owns
 # onnxruntime (VAD + Parakeet) + ctranslate2/faster_whisper (Whisper
 # fallback) + numpy/scipy/av/pyrnnoise + the bundled silero_vad.onnx.
@@ -16,7 +16,7 @@
 # This script mirrors build_prewarm_windows.sh + build_sidecar_windows.sh
 # (same Nuitka toolchain, same python-build-standalone interpreter, same
 # VOICE_TYPER_PYBS_DIR env var contract). The worker is a SEPARATE process
-# — it has its own --onefile-tempdir-spec so its self-extraction doesn't
+#, it has its own --onefile-tempdir-spec so its self-extraction doesn't
 # collide with the sidecar's or the prewarm's.
 #
 # Usage (Git Bash on Windows):
@@ -30,10 +30,10 @@
 # The CI step is gated on hashFiles('scripts/build/build_worker_windows.sh')
 # so it stays inert until this script lands (C-CI-2: do not edit the workflow).
 #
-# CI gate contract (binding — C-CI-6/8/9/13):
-#   - nuitka==2.8.10 (C-CI-6, NU-105) — Nuitka <2.8.0 crashes on numpy 2.5
+# CI gate contract (binding, C-CI-6/8/9/13):
+#   - nuitka==2.8.10 (C-CI-6, NU-105). Nuitka <2.8.0 crashes on numpy 2.5
 #     PEP 695 type-generic aliases. We verify the installed version below.
-#   - --module-parameter=torch-disable-jit=no (C-CI-8, NU-106) — kept even
+#   - --module-parameter=torch-disable-jit=no (C-CI-8, NU-106), kept even
 #     though the worker does not import torch directly; the worker bundles
 #     torch as bytecode (via transitive voice_typer imports) for the prewarm
 #     cache_probe's find_spec() probe, and the torch plugin's default
@@ -44,20 +44,20 @@
 #     torch.utils.benchmark, transformers, scipy.*, psutil._ps*, sympy,
 #     mpmath, pytest, PIL.* non-UI). Do NOT add --nofollow-import-to for
 #     torch.utils.data.distributed / torch.export / torch._functorch /
-#     torch.testing / torch.package — they are imported unconditionally by
+#     torch.testing / torch.package, they are imported unconditionally by
 #     `import torch` (torch 2.13), and excluding them makes `import torch`
 #     raise ModuleNotFoundError inside the frozen exe (NU-106).
-#   - --include-package-data=voice_typer.server (C-CI-9, IPD-1) — the
+#   - --include-package-data=voice_typer.server (C-CI-9, IPD-1), the
 #     frozen worker reads package data at import time (hotkey_reserved.json,
 #     corrections.json, model_hashes.json, native/binaries.json,
 #     silero_vad.onnx). Without this flag the onefile payload is missing
-#     them and the exe crashes on launch with FileNotFoundError — even
+#     them and the exe crashes on launch with FileNotFoundError, even
 #     though it BUILDS fine.
-#   - --windows-console-mode=disable (C-CI-9) — newer Nuitka form of the
+#   - --windows-console-mode=disable (C-CI-9), newer Nuitka form of the
 #     deprecated --windows-disable-console flag. Makes the worker a
 #     GUI-subsystem PE so it doesn't pop a console window at startup;
 #     the CI smoke-test step depends on this behavior (C-CI-14).
-#   - --onefile-tempdir-spec (C-CI-9) — pinned per-worker extraction dir
+#   - --onefile-tempdir-spec (C-CI-9), pinned per-worker extraction dir
 #     so stale extracts are cleanable and don't collide with the sidecar's.
 #   - Output binary name: voice-typer-worker-<triple>.exe (C-CI-13) —
 #     do NOT rename; tests/tauri/mig18 test_externalbin_wiring.py greps
@@ -108,7 +108,7 @@ if [[ "$ARCH" == "--check" ]]; then
     exit 0
 fi
 
-# Auto-detect arch (mirrors build_prewarm_windows.sh — WR-18 fix): default
+# Auto-detect arch (mirrors build_prewarm_windows.sh. WR-18 fix): default
 # to uname -m so Windows-on-ARM hosts get an aarch64 binary by default.
 # $1 overrides (explicit x86_64/aarch64).
 if [[ -z "$ARCH" ]]; then
@@ -136,7 +136,7 @@ echo "[build_worker_windows] OUTPUT=$OUTPUT_PATH"
 # Priority:
 #   1. $VOICE_TYPER_PYBS_DIR/python/python.exe (set by CI workflow)
 #   2. $PYBS env var (explicit path to python.exe)
-#   3. `python` from PATH (dev fallback — must already be a pybs install)
+#   3. `python` from PATH (dev fallback, must already be a pybs install)
 PYBS_DIR="${VOICE_TYPER_PYBS_DIR:-}"
 if [[ -n "$PYBS_DIR" && -f "$PYBS_DIR/python/python.exe" ]]; then
     PY="$PYBS_DIR/python/python.exe"
@@ -173,7 +173,7 @@ echo "[build_worker_windows] nuitka=$NUITKA_VER"
 mkdir -p "$WORKER_DIR"
 
 # ─── Run Nuitka (plan-runtime-pack-split §4.4 / §11.5) ───────────────────────
-# NOTE: the worker is a SEPARATE process — it has its own --onefile-tempdir-spec
+# NOTE: the worker is a SEPARATE process, it has its own --onefile-tempdir-spec
 # so its self-extraction doesn't collide with the sidecar's or the prewarm's.
 # Different temp dir, different binary, different process.
 #
@@ -183,13 +183,13 @@ mkdir -p "$WORKER_DIR"
 # imports pull it in; prewarm cache_probe uses find_spec on it). Nuitka's
 # torch plugin disables torch.jit by default in standalone mode; if any
 # transitive import path lands in torch.jit, the bundle crashes with
-# "module 'torch' has no attribute 'jit'" — keep JIT enabled.
+# "module 'torch' has no attribute 'jit'": keep JIT enabled.
 #
 # C-CI-8 / NU-106: --nofollow-import-to ONLY for the lazily-imported safe
 # torch.* submodules (torch._dynamo, torch._inductor, torch.onnx,
 # torch.utils.benchmark). Do NOT add --nofollow-import-to for
 # torch.utils.data.distributed / torch.export / torch._functorch /
-# torch.testing / torch.package — they are imported UNCONDITIONALLY by
+# torch.testing / torch.package, they are imported UNCONDITIONALLY by
 # plain `import torch` (torch 2.13), and excluding them makes `import torch`
 # raise ModuleNotFoundError inside the frozen exe.
 NUITKA_ARGS=(

@@ -1,5 +1,5 @@
 /**
- * SelectableRow — the shared "whole row is clickable" wrapper the
+ * SelectableRow, the shared "whole row is clickable" wrapper the
  * collection pages' ListRows render through. Previously untested in
  * isolation (only exercised via the page suites); these tests pin the
  * a11y + skip-nested-control contract the collection-page family
@@ -41,7 +41,7 @@ function RowContent() {
 	);
 }
 
-describe("SelectableRow — row-click selection", () => {
+describe("SelectableRow, row-click selection", () => {
 	it("invokes onRowSelect when the row body is clicked", () => {
 		const onRowSelect = vi.fn();
 		render(
@@ -72,7 +72,7 @@ describe("SelectableRow — row-click selection", () => {
 	});
 });
 
-describe("SelectableRow — skip-nested-control gating", () => {
+describe("SelectableRow, skip-nested-control gating", () => {
 	it("leaves clicks on ignored nested controls to those controls (no selection fired)", () => {
 		const onRowSelect = vi.fn();
 		render(

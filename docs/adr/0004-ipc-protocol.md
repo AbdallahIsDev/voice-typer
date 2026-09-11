@@ -12,12 +12,12 @@ Accepted
 
 The Electron frontend and Python backend need a communication channel. Options considered:
 
-1. **stdin/stdout pipes** — simple but blocking; hard to handle bidirectional async messages.
-2. **HTTP REST API** — request/response only; server cannot push events (recording state
+1. **stdin/stdout pipes**: simple but blocking; hard to handle bidirectional async messages.
+2. **HTTP REST API**: request/response only; server cannot push events (recording state
    changes, transcription progress) to the client.
-3. **WebSocket** — bidirectional, but adds a dependency and complexity for what is
+3. **WebSocket**: bidirectional, but adds a dependency and complexity for what is
    essentially local-only communication.
-4. **Local TCP socket with JSON protocol** — bidirectional, low latency, no external
+4. **Local TCP socket with JSON protocol**, bidirectional, low latency, no external
    dependencies, and works with Python's `socket` module.
 
 ## Decision
@@ -29,7 +29,7 @@ client reads the port and connects. Messages are newline-delimited JSON with a
 (channel 1) and omitted on the push-event channel (channel 2). See
 `docs/architecture/error-envelope-contract.md` and ADR-0020 §3 for the canonical
 contract. (YJ-37: this paragraph previously claimed the envelope was a two-field shape
-with a `payload` key — that was wrong. The field name "payload" is never used on the
+with a `payload` key: that was wrong. The field name "payload" is never used on the
 wire; every actual IPC frame uses `data` for the payload. The `id` field was added to
 support async request/response correlation and is documented in the error-envelope
 contract.)

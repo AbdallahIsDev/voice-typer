@@ -1,4 +1,4 @@
-//! Dev-mode sidecar spawn (ADR-0020 §14) — extracted from the former
+//! Dev-mode sidecar spawn (ADR-0020 §14), extracted from the former
 //! single-file `sidecar/spawn.rs`.
 
 use crate::state::SidecarHandle;
@@ -11,8 +11,8 @@ use super::handshake_loop::{read_handshake_from_stdout_lines, HandshakeLabels};
 /// ADR-0020 §14: returns true when the sidecar should run from SOURCE
 /// (`python -m voice_typer.server.ipc_server --ws`) instead of the
 /// frozen `externalBin`. Two ways to be in dev mode:
-///   1. `VOICE_TYPER_SIDECAR_DEV=1` — explicit (the original contract),
-///   2. UNSET + a DEBUG build (`cfg!(debug_assertions)`) — a debug
+///   1. `VOICE_TYPER_SIDECAR_DEV=1`: explicit (the original contract),
+///   2. UNSET + a DEBUG build (`cfg!(debug_assertions)`), a debug
 ///      host binary is a developer artifact, so defaulting it to the
 ///      source sidecar makes `npm run tauri:dev` work with zero env
 ///      setup (2026-08-30 one-command dev environment). An explicit
@@ -34,7 +34,7 @@ pub(crate) fn is_dev_mode_for(value: Option<&str>) -> bool {
     value == Some("1")
 }
 
-/// ADR-0020 §14: dev-mode spawn — runs the Python sidecar as a plain
+/// ADR-0020 §14: dev-mode spawn, runs the Python sidecar as a plain
 /// `python -m voice_typer.server.ipc_server --ws` process (no Nuitka
 /// freeze, no `externalBin`). The developer must have `voice_typer`
 /// importable in their Python environment.
@@ -46,7 +46,7 @@ pub(crate) fn is_dev_mode_for(value: Option<&str>) -> bool {
 ///
 /// The stdout-handshake read loop (shutting-down short-circuit,
 /// read_line arms, kill/drain ordering, deadline) lives in
-/// `super::handshake_loop::read_handshake_from_stdout_lines` — shared
+/// `super::handshake_loop::read_handshake_from_stdout_lines`: shared
 /// with the worker dev path. The labels below pin this path's exact
 /// log/error wording.
 pub(crate) async fn spawn_sidecar_dev_mode(
@@ -119,7 +119,7 @@ pub(crate) async fn spawn_sidecar_dev_mode(
         // verbose debug logging (its `log.py` checks this env var).
         // Previously this set only `RUST_LOG=debug`, which is
         // meaningless for a Python child (Python doesn't read
-        // `RUST_LOG`) — it only affected native Rust binaries the
+        // `RUST_LOG`): it only affected native Rust binaries the
         // sidecar might spawn. Keep `RUST_LOG=debug` too so those
         // native children stay verbose in dev mode.
         //
@@ -134,7 +134,7 @@ pub(crate) async fn spawn_sidecar_dev_mode(
         .env("VOICE_TYPER_DEBUG", "1")
         // Launch-timeline markers for the sidecar's startup log
         // (startup_timeline.py): host boot epoch (recorded once at
-        // host start) + THIS spawn's epoch — read at call time,
+        // host start) + THIS spawn's epoch, read at call time,
         // immediately before the spawn below, so the measured
         // "backend init" phase stays honest. Mirrors the release
         // path's marker set.
@@ -163,7 +163,7 @@ pub(crate) async fn spawn_sidecar_dev_mode(
 
     // The dev-mode sidecar is typically faster to emit `server_started`
     // (no Nuitka unpack), but a cold Python import on the first run can
-    // take 5-10s — the loop's shutting-down short-circuit covers the
+    // take 5-10s: the loop's shutting-down short-circuit covers the
     // quit-during-handshake race (see `handshake_loop`).
     let port = read_handshake_from_stdout_lines(
         &HandshakeLabels {

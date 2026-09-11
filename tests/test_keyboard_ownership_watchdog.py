@@ -9,14 +9,14 @@ client doesn't strand the backend in a stuck-capture state.
 
 These tests exercise:
 
-  1. The direct ``_on_ipc_client_disconnect`` helper — the unit path.
+  1. The direct ``_on_ipc_client_disconnect`` helper, the unit path.
   2. The full ``_handle_tcp_connection`` finally block via a real
-     ``socket.socketpair`` — the integration path that proves the
+     ``socket.socketpair``, the integration path that proves the
      wiring actually fires on a TCP disconnect.
-  3. The shutdown-skip behavior — the reset must NOT fire when the
+  3. The shutdown-skip behavior, the reset must NOT fire when the
      server is shutting down (``self._running == False``), so an
      active recording isn't interrupted by the teardown sequence.
-  4. Idempotency — calling the helper multiple times is safe.
+  4. Idempotency, calling the helper multiple times is safe.
 """
 
 from __future__ import annotations
@@ -32,13 +32,13 @@ from voice_typer.server.keyboard_ownership import keyboard_ownership
 from tests.fixtures.ipc_test_helpers import make_ipc_server_with_fakes
 
 # Hint for xdist schedulers that respect ``xdist_group`` (loadgroup /
-# loadscope): pin every test in this module — and its sibling
-# ``test_keyboard_ownership.py`` — onto a single worker. Both modules
+# loadscope): pin every test in this module, and its sibling
+# ``test_keyboard_ownership.py``, onto a single worker. Both modules
 # reset the ``KeyboardOwnership`` class-attribute singleton via autouse
 # fixtures, and the singleton is process-wide state; the marker is
 # defense-in-depth so the two modules that mutate it group onto one
 # worker. xdist's default ``load`` scheduler does NOT strictly honor
-# this marker — it is a hint, not a correctness guarantee. No-op when
+# this marker, it is a hint, not a correctness guarantee. No-op when
 # xdist isn't active. (C-TEST-5.)
 pytestmark = pytest.mark.xdist_group("keyboard_ownership")
 
@@ -84,7 +84,7 @@ def test_disconnect_resets_hotkey_capture_to_normal() -> None:
 def test_disconnect_resets_recording_to_normal() -> None:
     """A client disconnect during a recording also resets to normal.
 
-    The frontend crashed mid-recording — the recording subsystem
+    The frontend crashed mid-recording, the recording subsystem
     will be torn down by other cleanup paths, but keyboard
     ownership must not stay in ``"recording"`` state.
     """
@@ -104,7 +104,7 @@ def test_disconnect_does_not_reset_during_shutdown() -> None:
     If the backend is shutting down (``self._running == False``),
     a recording might be in progress and the teardown sequence
     will handle its own cleanup. Resetting ownership here would
-    be premature — we only want to fire on an *unexpected* client
+    be premature, we only want to fire on an *unexpected* client
     disconnect.
     """
     kb = keyboard_ownership()
@@ -115,7 +115,7 @@ def test_disconnect_does_not_reset_during_shutdown() -> None:
     server._running = False  # simulate stop() having been called
     server._on_ipc_client_disconnect("IPC client disconnected")
 
-    # Ownership must NOT have been reset — recording state preserved.
+    # Ownership must NOT have been reset, recording state preserved.
     assert kb.current_owner() == "recording"
     assert kb.is_recording_active() is True
 
@@ -134,7 +134,7 @@ def test_disconnect_handler_is_idempotent() -> None:
     server._on_ipc_client_disconnect("first disconnect")
     assert kb.current_owner() == "normal"
 
-    # Second call — must not raise, must keep owner at "normal".
+    # Second call, must not raise, must keep owner at "normal".
     server._on_ipc_client_disconnect("second disconnect (spurious)")
     assert kb.current_owner() == "normal"
 
@@ -157,7 +157,7 @@ def test_tcp_disconnect_finally_block_resets_ownership(monkeypatch) -> None:
     """End-to-end: closing the TCP client triggers the reset.
 
     This exercises the actual ``_handle_tcp_connection`` finally
-    block — the wiring that production relies on. We use a real
+    block, the wiring that production relies on. We use a real
     ``socket.socketpair`` so the server's read loop sees a genuine
     EOF when the client side is closed.
 
@@ -196,11 +196,11 @@ def test_tcp_disconnect_finally_block_resets_ownership(monkeypatch) -> None:
     # Poll for the server-side auth completion signal
     # (``server._tcp_client`` is assigned to ``auth_client`` inside
     # ``self._lock`` AFTER the auth token check succeeds and BEFORE
-    # the dispatch loop starts — see ``_handle_tcp_connection`` in
+    # the dispatch loop starts: see ``_handle_tcp_connection`` in
     # ``voice_typer/server/ipc/transport_tcp.py``). When this attribute
     # is non-None, the handler has finished the auth handshake and is
     # about to enter (or has just entered) the dispatch ``for line in
-    # client`` loop — exactly the precondition the original
+    # client`` loop, exactly the precondition the original
     # ``time.sleep(0.15)`` was trying to wait for. Replacing the fixed
     # sleep with a bounded poll (1.5s deadline, 5ms granularity) makes
     # the test exit early on fast machines and tolerant of slow CI.
@@ -210,7 +210,7 @@ def test_tcp_disconnect_finally_block_resets_ownership(monkeypatch) -> None:
             break
         time.sleep(0.005)
 
-    # Close the client side — server's readline() returns "" (EOF),
+    # Close the client side, server's readline() returns "" (EOF),
     # the for-loop exits, the finally block fires _on_ipc_client_disconnect.
     client_sock.close()
 
@@ -228,7 +228,7 @@ def test_tcp_disconnect_during_shutdown_preserves_recording() -> None:
     """The watchdog must skip the reset when the server is shutting down.
 
     Mirrors ``test_disconnect_does_not_reset_during_shutdown`` but
-    through the real ``_handle_tcp_connection`` path — proving the
+    through the real ``_handle_tcp_connection`` path, proving the
     ``self._running`` guard fires in the finally block, not just in
     the helper.
     """
@@ -252,7 +252,7 @@ def test_tcp_disconnect_during_shutdown_preserves_recording() -> None:
     handler_thread.join(timeout=5.0)
     assert not handler_thread.is_alive()
 
-    # Ownership must be preserved — the watchdog correctly skipped.
+    # Ownership must be preserved, the watchdog correctly skipped.
     assert kb.current_owner() == "recording", "Watchdog must not reset ownership during server shutdown"
 
 
@@ -263,7 +263,7 @@ def test_stdin_eof_resets_ownership() -> None:
     """The stdin (legacy) IPC path also triggers the watchdog on EOF.
 
     Uses an empty ``io.StringIO`` so ``iter()`` returns immediately
-    with EOF — exercising the post-loop disconnect call without
+    with EOF, exercising the post-loop disconnect call without
     spinning up real stdin or a socket pair.
     """
     import io
@@ -274,7 +274,7 @@ def test_stdin_eof_resets_ownership() -> None:
 
     server = _make_server()
 
-    # Empty stdin — iter() returns immediately, the for-loop body
+    # Empty stdin, iter() returns immediately, the for-loop body
     # never runs, and we fall through to the disconnect call.
     stdin_fake = io.StringIO("")
     stdout_fake = io.StringIO()
@@ -288,7 +288,7 @@ def test_stdin_eof_does_not_reset_during_shutdown() -> None:
     """The stdin watchdog path also respects the shutdown guard.
 
     If ``self._running == False`` when stdin hits EOF, we must not
-    reset ownership — same constraint as the TCP path.
+    reset ownership, same constraint as the TCP path.
     """
     import io
 

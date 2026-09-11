@@ -1,18 +1,18 @@
-"""Bubble drag-position persistence — server-side contract tests.
+"""Bubble drag-position persistence: server-side contract tests.
 
 Covers the three Python-side pieces of the durable bubble-position
 feature:
 
-1. **Allowlist bounds** — ``bubble_x`` / ``bubble_y`` must accept the
+1. **Allowlist bounds**: ``bubble_x`` / ``bubble_y`` must accept the
    negative coordinates produced by multi-monitor layouts (displays left
    of / above the primary have negative origins) while still rejecting
    absurd values.
-2. **``bubble_config`` transport** — ``_push_bubble_config`` must forward
+2. **``bubble_config`` transport**: ``_push_bubble_config`` must forward
    the persisted pair VERBATIM to hosts. A coordinate of ``0`` is valid,
    so the truthiness fallback used for the enum/bool keys would be a
    silent-corruption bug here; these tests pin the plain-``getattr``
    semantics.
-3. **Edge-toggle reset** — ``set_config({bubble_position: ...})`` clears
+3. **Edge-toggle reset**: ``set_config({bubble_position: ...})`` clears
    the durable pair (both coordinates back to ``None``) and triggers the
    ``bubble_config`` repush so BOTH runtimes drop their cached position
    in-session. An explicit pair in the SAME payload wins.
@@ -64,7 +64,7 @@ class TestPushBubbleConfigCarriesPosition:
 
     @pytest.fixture
     def wiring(self):
-        # Reuse the existing capture harness (P2 — import the source,
+        # Reuse the existing capture harness (P2, import the source,
         # don't copy it).
         from tests.test_tray import _CapturingWiring
 
@@ -94,7 +94,7 @@ class TestPushBubbleConfigCarriesPosition:
         assert event["data"]["bubble_y"] == 1040
 
     def test_zero_coordinate_is_not_discarded_by_truthiness_fallback(self, wiring):
-        """``0`` is falsy — an ``or default`` fallback would corrupt it."""
+        """``0`` is falsy, an ``or default`` fallback would corrupt it."""
         event = wiring.push_config(self._cfg(0, 0))
         assert event is not None
         assert event["data"]["bubble_x"] == 0

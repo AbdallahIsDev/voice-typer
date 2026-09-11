@@ -1,4 +1,4 @@
-"""Platform utilities — centralized platform detection.
+"""Platform utilities, centralized platform detection.
 
 Replaces scattered sys.platform checks with centralized functions.
 Import these instead of writing `if sys.platform == "win32":` directly.
@@ -42,7 +42,7 @@ def is_wayland_session() -> bool:
         Returns ``False`` on Windows AND macOS (neither runs Wayland;
         macOS uses Quartz/Aqua, Windows uses the Desktop Window Manager).
         previously this also accepted ``darwin`` as a Wayland-capable
-        platform — that was a copy-paste artefact from the broader
+        platform, that was a copy-paste artefact from the broader
         ``is_linux() or is_macos()`` Unix-flavoured branch. Wayland is a
         Linux display-server protocol; macOS does not run it.
     """
@@ -74,7 +74,7 @@ def _set_windows_process_metadata(app_name: str) -> None:
     BRAND-METADATA: On Windows the Python backend appears as a generic
     ``pythonw.exe`` / ``python.exe`` in Task Manager because that IS
     the process image name.  The Task Manager icon is also Python's
-    icon (embedded in pythonw.exe) — we can't change either without a
+    icon (embedded in pythonw.exe), we can't change either without a
     compiled helper executable.  However we CAN improve the process
     identity metadata:
 
@@ -111,7 +111,7 @@ def _set_windows_process_metadata(app_name: str) -> None:
             kernel32.SetConsoleTitleW.restype = wintypes.BOOL
             kernel32.SetConsoleTitleW(app_name)
         except Exception:
-            pass  # Best-effort — may fail under pythonw.exe (no console)
+            pass  # Best-effort, may fail under pythonw.exe (no console)
 
         # 2. Set the AppUserModelID so Windows identifies this process
         #    as belonging to Voice Typer.  Must match the Electron side
@@ -128,16 +128,16 @@ def _set_windows_process_metadata(app_name: str) -> None:
             # ``app.setAppUserModelId("VoiceTyper")`` in index.ts.
             shell32.SetCurrentProcessExplicitAppUserModelID(app_name.replace(" ", ""))
         except Exception:
-            pass  # Best-effort — requires Windows 7+ with shell32
+            pass  # Best-effort, requires Windows 7+ with shell32
 
     except Exception:
-        pass  # Best-effort — ctypes or kernel32/shell32 may not be available
+        pass  # Best-effort, ctypes or kernel32/shell32 may not be available
 
 
 # Environment variable validation lives in ``app.py::_validate_env_vars``.
 # A previous schema-driven implementation (``validate_env_vars`` +
 # ``_init_env_var_schema`` + ``_ENV_VAR_SCHEMA``) lived here but was
-# never called from any production code path — it was dead code that
+# never called from any production code path, it was dead code that
 # duplicated the inline implementation in ``app.py``. The dead code was
 # removed to eliminate the parallel-systems maintenance hazard (Q5:
 # parallel systems; Q10: not clean). The inline ``_validate_env_vars``

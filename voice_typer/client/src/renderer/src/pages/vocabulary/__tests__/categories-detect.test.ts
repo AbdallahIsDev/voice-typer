@@ -3,7 +3,7 @@
  * ``vocabulary/lib/categories.ts``.
  *
  * The function auto-detects a backend category for a trigger string
- * using these heuristics (evaluated in order — first match wins):
+ * using these heuristics (evaluated in order, first match wins):
  *
  *  1. Multi-word phrases → ``phrase_corrections``
  *  1b. Script-detection fallback for non-Latin scripts:
@@ -16,7 +16,7 @@
  *  5. Lowercase single tokens in the tech-word list → ``technical_terms``
  *  6. Default → ``misspellings``
  *
- * The heuristics are deliberately conservative — when in doubt, they
+ * The heuristics are deliberately conservative, when in doubt, they
  * fall through to ``misspellings`` (the previous default) so existing
  * entries don't silently shift category.
  */
@@ -77,7 +77,7 @@ describe("detectCategory heuristics", () => {
 	});
 
 	it("non-letter characters are ignored for case detection", () => {
-		// "123" has no letters — falls through to misspellings.
+		// "123" has no letters, falls through to misspellings.
 		expect(detectCategory("123")).toBe("misspellings");
 		// "iPad 3" is multi-word → phrase_corrections.
 		expect(detectCategory("iPad 3")).toBe("phrase_corrections");
@@ -87,7 +87,7 @@ describe("detectCategory heuristics", () => {
 		// CJK Unified Ideographs (U+4E00–U+9FFF) don't have case, so
 		// the Latin case-based rules would otherwise bucket every CJK
 		// trigger as misspellings (the empty-letters default). The
-		// script fallback routes them to phrase_corrections — the
+		// script fallback routes them to phrase_corrections, the
 		// most common user intent for a CJK trigger is a phrase-
 		// level replacement (e.g. typo → correct form). Covers
 		// Chinese Hanzi and Japanese Kanji (both in the U+4E00–U+9FFF
@@ -100,7 +100,7 @@ describe("detectCategory heuristics", () => {
 
 	it("Arabic single tokens → names (script fallback)", () => {
 		// Arabic is proper-noun heavy in user vocabularies (names of
-		// people, places, brands) — route to names by default.
+		// people, places, brands), route to names by default.
 		expect(detectCategory("محمد")).toBe("names");
 		expect(detectCategory("مرحبا")).toBe("names");
 	});
@@ -110,7 +110,7 @@ describe("detectCategory heuristics", () => {
 		// logic for Cyrillic (it has upper/lower case). The current
 		// implementation strips non-A-Z-a-z, so a pure Cyrillic
 		// token yields empty ``letters`` and falls through to
-		// misspellings — the conservative default.
+		// misspellings, the conservative default.
 		expect(detectCategory("Привет")).toBe("misspellings");
 		expect(detectCategory("Москва")).toBe("misspellings");
 	});
@@ -118,14 +118,14 @@ describe("detectCategory heuristics", () => {
 	it("Latin rules still apply when a Latin token is mixed with CJK", () => {
 		// The script fallback checks the WHOLE trimmed trigger. A
 		// mixed Latin+CJK token (rare) routes to phrase_corrections
-		// because CJK is present. This is intentional — multi-
+		// because CJK is present. This is intentional, multi-
 		// script triggers are almost always phrase-level.
 		expect(detectCategory("hello你好")).toBe("phrase_corrections");
 	});
 
 	it("multi-word CJK phrases still take the multi-word rule (rule 1)", () => {
 		// A space-separated CJK phrase hits rule 1 before the
-		// script fallback — both paths yield phrase_corrections,
+		// script fallback, both paths yield phrase_corrections,
 		// so this is a sanity check that the order doesn't matter.
 		expect(detectCategory("你好 世界")).toBe("phrase_corrections");
 	});

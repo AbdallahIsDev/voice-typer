@@ -1,9 +1,9 @@
 """Continuous microphone level monitoring + ad-hoc test recording.
 
 Opens a single sounddevice InputStream that serves TWO purposes:
-  1. Continuous level monitoring — computes RMS/peak on every chunk so
+  1. Continuous level monitoring, computes RMS/peak on every chunk so
      the frontend can show a live level bar at all times.
-  2. Microphone test recording — when a test is active, the same callback
+  2. Microphone test recording: when a test is active, the same callback
      also appends chunks to a test buffer.  When the test ends, the
      accumulated audio is encoded as WAV and returned.
 
@@ -22,12 +22,12 @@ stored as a list of numpy arrays in memory (max ~30 s of float32 mono).
 (c-review PERF-03): the PortAudio callback previously ran
 the FULL filter chain (may include RNNoise, 5–50 ms per chunk on CPU),
 allocated squared + abs arrays for RMS/peak, and appended
-``indata.copy()`` to two test lists — all under ``_monitor_lock``.
+``indata.copy()`` to two test lists, all under ``_monitor_lock``.
 That violated the ~32 ms PortAudio deadline whenever the level monitor
 was active. The callback now does ONLY ``deque.append((indata.copy(),
 status))`` + ``Event.set()`` (~10 µs). All heavy work runs on a
 dedicated worker thread (``_level_worker_loop``) that drains the ring
-buffer under ``_monitor_lock`` — the same pattern used by
+buffer under ``_monitor_lock``: the same pattern used by
 ``recording.py``'s audio callback since
 
 =====================================================================
@@ -38,11 +38,11 @@ This file was previously a 1586-line god-module
 package with one module per concern:
 
 - Shared mutable state (singleton ``_state`` instance holding the 27
-  module-level globals from the pre-refactor module) — :mod:`._state`
+  module-level globals from the pre-refactor module), :mod:`._state`
 - Continuous level-monitoring public API (``start_monitoring``,
   ``stop_monitoring``, ``is_monitoring``, ``get_level``,
   ``get_level_diagnostics``, ``update_level_processor``) plus the
-  ``device_lost`` / ``mic_level`` push-event helpers — :mod:`.monitoring`
+  ``device_lost`` / ``mic_level`` push-event helpers, :mod:`.monitoring`
 - Ad-hoc microphone test recording public API
   (``start_test_recording``, ``stop_test_recording``,
   ``cancel_test_recording``, ``is_test_active``,
@@ -62,7 +62,7 @@ Test-patch compatibility (custom module class)
 ---------------------------------------------------------------------
 The test suite accesses ~27 module-level globals directly via
 ``lm._test_mode``, ``lm._test_chunks``, ``lm._monitor_active``,
-``lm._level_processor``, ``lm._monitor_lock``, etc. — and EXPECTS
+``lm._level_processor``, ``lm._monitor_lock``, etc., and EXPECTS
 writes (``lm._test_mode = False``) to propagate to the production code
 that reads them (the level worker thread, the monitoring public API,
 etc.).
@@ -70,7 +70,7 @@ etc.).
 Without indirection, those reads/writes would land on the package's
 own ``__dict__`` (a stale snapshot of the state captured at import
 time), and the submodules that actually own + read the state (via
-``_state._X``) would never see the test's write — the test would
+``_state._X``) would never see the test's write, the test would
 silently no-op.
 
 The fix mirrors :mod:`voice_typer.server.recording`'s pattern: install
@@ -92,21 +92,21 @@ This preserves every test access pattern documented in
 from __future__ import annotations
 
 # ─── Top-of-module imports ──────────────────────────────────────────────
-# Re-exported for backward compatibility — the original module bound these
+# Re-exported for backward compatibility, the original module bound these
 # names at module top, and tests / production code that does
 # ``from voice_typer.server import level_monitor; level_monitor.np``
 # expects them to keep working.
-import base64  # noqa: F401 — re-exported
-import collections  # noqa: F401 — re-exported
-import contextlib  # noqa: F401 — re-exported
-import io  # noqa: F401 — re-exported
+import base64  # noqa: F401, re-exported
+import collections  # noqa: F401, re-exported
+import contextlib  # noqa: F401, re-exported
+import io  # noqa: F401, re-exported
 import logging
-import threading  # noqa: F401 — re-exported
-import time  # noqa: F401 — re-exported
-import types  # noqa: F401 — re-exported
-from typing import Any  # noqa: F401 — re-exported
+import threading  # noqa: F401, re-exported
+import time  # noqa: F401, re-exported
+import types  # noqa: F401, re-exported
+from typing import Any  # noqa: F401, re-exported
 
-import numpy as np  # noqa: F401 — re-exported
+import numpy as np  # noqa: F401, re-exported
 
 log = logging.getLogger(__name__)
 
@@ -202,11 +202,11 @@ def _reset_state_for_tests() -> None:
 # ─── Custom module class for mutable-state routing ──────────────────────
 # TECH-DEBT (mirrors the pattern in recording/__init__.py).
 # Tests access state via ``lm._test_mode`` (read) / ``lm._test_mode = False``
-# (write) — i.e. via the package namespace, NOT via ``_state`` directly.
+# (write): i.e. via the package namespace, NOT via ``_state`` directly.
 # Without this routing, those reads/writes would land on the package's
 # own ``__dict__`` (a stale snapshot taken at import time), and the
 # submodules that actually own + read the state (via ``_state._X``)
-# would never see the test's write — the test would silently no-op.
+# would never see the test's write, the test would silently no-op.
 #
 # The custom ``_LevelMonitorModule`` class below installs ``__getattr__``
 # and ``__setattr__`` overrides that route ``_``-prefixed attribute
@@ -233,7 +233,7 @@ class _LevelMonitorModule(sys.modules[__name__].__class__):
 
     def __getattr__(self, name: str) -> object:
         # ``__getattr__`` is only called when normal attribute lookup
-        # (via ``__dict__``) fails — so this is a fallback for names
+        # (via ``__dict__``) fails, so this is a fallback for names
         # NOT bound at import time.  All ``_``-prefixed mutable state
         # lives on ``_state`` and is deliberately NOT imported into the
         # package's ``__dict__`` (see above), so reads route through

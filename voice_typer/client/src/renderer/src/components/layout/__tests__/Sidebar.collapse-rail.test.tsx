@@ -1,22 +1,22 @@
 /**
- * Sidebar collapse/expand rail audit suite — pins the premium rail
+ * Sidebar collapse/expand rail audit suite, pins the premium rail
  * contract for BOTH sidebar states:
  *
  *  - Icon anchoring: every top-level nav button (leaves AND the
  *    Settings parent) starts its icon at the same x-position in both
  *    states (single `px-2` icon column, never `justify-center`) and
  *    the aside rail width (w-12, 48px) keeps that column centered when
- *    collapsed — icons never jump horizontally on toggle.
+ *    collapsed, icons never jump horizontally on toggle.
  *  - Text transition: label spans use the shared animated visibility
  *    transition (max-width + opacity + translate + filter with
- *    explicit `blur-[0px]`/`blur-[4px]` endpoints — never
+ *    explicit `blur-[0px]`/`blur-[4px]` endpoints, never
  *    `filter-none`, which cannot interpolate) and hide with
  *    `pointer-events-none` when collapsed.
  *  - Vertical rhythm: items breathe with `gap-1` inside a group; the
  *    nav uses `gap-5` expanded / `gap-2` collapsed; group headings
  *    collapse via max-height on their container while the heading
  *    TEXT exits through the shared label-motion model (translate +
- *    fade + blur on a faster inner-span track) — no instant unmount,
+ *    fade + blur on a faster inner-span track), no instant unmount,
  *    no layout jump.
  *  - Collapsed usability: every rail icon keeps a non-empty accessible
  *    name (including the Settings flyout trigger) and the Settings
@@ -53,7 +53,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 
 // Sidebar renders real Radix Tooltips (via HotkeyTooltip on the nav
 // items) + a real Radix Popover (collapsed Settings flyout), both of
-// which REQUIRE a TooltipProvider ancestor — the app shell provides
+// which REQUIRE a TooltipProvider ancestor, the app shell provides
 // one (App.tsx). Same props as App.tsx so tooltip timing mirrors
 // production.
 function renderWithProviders(ui: React.ReactElement) {
@@ -82,7 +82,7 @@ const NAV_LABELS = [
 	"About & Privacy",
 ];
 
-describe("Sidebar — collapse rail geometry & transition model", () => {
+describe("Sidebar, collapse rail geometry & transition model", () => {
 	afterEach(() => {
 		cleanup();
 	});
@@ -124,7 +124,7 @@ describe("Sidebar — collapse rail geometry & transition model", () => {
 				// the aside edge).
 				expect(btn.className).toContain("px-2");
 				// The old collapsed Settings trigger centered its icon
-				// (justify-center) — the one button whose icon jumped on
+				// (justify-center), the one button whose icon jumped on
 				// toggle. Forbidden: content must flow from the anchored
 				// column in both states.
 				expect(btn.className).not.toContain("justify-center");
@@ -150,13 +150,13 @@ describe("Sidebar — collapse rail geometry & transition model", () => {
 			).filter((s) =>
 				s.className.includes("transition-[max-width,opacity,translate,filter]"),
 			);
-		// 9 nav items — every leaf + the Settings parent.
+		// 9 nav items, every leaf + the Settings parent.
 		expect(labelSpans().length).toBe(9);
 		for (const span of labelSpans()) {
 			expect(span.className).toContain("opacity-100");
 			expect(span.className).toContain("blur-[0px]");
 			expect(span.className).toContain("max-w-40");
-			// `filter-none` cannot interpolate against blur() — it snaps
+			// `filter-none` cannot interpolate against blur(), it snaps
 			// discretely (the old abrupt disappearance).
 			expect(span.className).not.toContain("filter-none");
 			// STRICTLY horizontal motion: the transition property list and
@@ -181,7 +181,7 @@ describe("Sidebar — collapse rail geometry & transition model", () => {
 			expect(span.className).toContain("rtl:translate-x-3");
 			// Invisible labels never intercept pointer events.
 			expect(span.className).toContain("pointer-events-none");
-			// X-axis only — no vertical/diagonal travel.
+			// X-axis only, no vertical/diagonal travel.
 			expect(span.className).not.toContain("translate-y");
 		}
 	});
@@ -218,7 +218,7 @@ describe("Sidebar — collapse rail geometry & transition model", () => {
 				d.className.includes("transition-[max-height]"),
 			);
 		const headingLabel = (heading: Element) => heading.querySelector("span");
-		// System only — the top group is header-less (single visible heading).
+		// System only, the top group is header-less (single visible heading).
 		expect(headings().length).toBe(1);
 		for (const heading of headings()) {
 			// Outer container: vertical SPACE collapse only (max-height,

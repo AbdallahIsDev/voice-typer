@@ -3,10 +3,10 @@
 Covers the 3 dictation IPC handlers defined in
 ``voice_typer/server/handlers/dictation_handlers.py``:
 
-- ``_handle_toggle_dictation`` — start/stop the recording loop.
-- ``_handle_undo_last`` — undo the last transcription via backspace keystrokes.
-- ``_handle_force_cancel_transcription`` — force-reset a stuck
-  transcription (PR-2 Finding #3 — manual escape hatch when the
+- ``_handle_toggle_dictation``, start/stop the recording loop.
+- ``_handle_undo_last``, undo the last transcription via backspace keystrokes.
+- ``_handle_force_cancel_transcription``, force-reset a stuck
+  transcription (PR-2 Finding #3, manual escape hatch when the
   3×90s watchdog timeout is too slow).
 
 All three handlers delegate to the service layer and return either
@@ -20,7 +20,7 @@ from __future__ import annotations
 
 
 class TestToggleDictation:
-    """``_handle_toggle_dictation`` — start/stop the recording loop."""
+    """``_handle_toggle_dictation``, start/stop the recording loop."""
 
     def test_happy_path_returns_ack(self, ipc_server, fake_service):
         resp = ipc_server._handle_toggle_dictation({}, {})
@@ -37,7 +37,7 @@ class TestToggleDictation:
 
 
 class TestUndoLast:
-    """``_handle_undo_last`` — undo the last transcription."""
+    """``_handle_undo_last``, undo the last transcription."""
 
     def test_happy_path_returns_ack(self, ipc_server, fake_service):
         resp = ipc_server._handle_undo_last({}, {})
@@ -54,7 +54,7 @@ class TestUndoLast:
 
 
 class TestForceCancelTranscription:
-    """``_handle_force_cancel_transcription`` — manual escape hatch (PR-2 #3)."""
+    """``_handle_force_cancel_transcription``, manual escape hatch (PR-2 #3)."""
 
     def test_happy_path_returns_force_cancel_result(self, ipc_server, fake_service):
         fake_service.force_cancel_transcription.return_value = {
@@ -79,7 +79,7 @@ class TestForceCancelTranscription:
 
     def test_failure_result_is_passed_through_not_converted_to_error(self, ipc_server, fake_service):
         """A ``{success: False}`` return value is NOT converted to an error
-        response — the renderer distinguishes "cancel succeeded" from
+        response, the renderer distinguishes "cancel succeeded" from
         "cancel failed but the IPC call worked" using ``data.success``.
         """
         fake_service.force_cancel_transcription.return_value = {
@@ -107,14 +107,14 @@ class TestCloudErrorMapping:
     ``server.cloud_config_error`` / ``server.cloud_engine_error``).
 
     The fallback for a non-cloud ``RuntimeError`` (e.g. "mic in use")
-    stays as ``server.internal_error`` — that's the existing CR-20
+    stays as ``server.internal_error``, that's the existing CR-20
     behavior and remains correct for non-cloud errors.
     """
 
     def test_cloud_auth_error_maps_to_specific_code(self, ipc_server, fake_service):
         """A ``CloudAuthError`` from the service produces
         ``{code: "server.cloud_auth_failed", message: "cloud API key
-        invalid or revoked"}`` — NOT the generic
+        invalid or revoked"}``, NOT the generic
         ``server.internal_error`` envelope.
         """
         from voice_typer.server.asr_errors import CloudAuthError
@@ -159,7 +159,7 @@ class TestCloudErrorMapping:
 
     def test_cloud_engine_error_base_maps_to_specific_code(self, ipc_server, fake_service):
         """The typed base ``CloudEngineError`` (raised when the HTTP
-        status doesn't fit one of the specific subclasses — e.g. 4xx
+        status doesn't fit one of the specific subclasses, e.g. 4xx
         other than 401/403/429) maps to ``server.cloud_engine_error``,
         NOT the generic ``server.internal_error``.
         """

@@ -7,7 +7,7 @@
 //
 // Dropdown option labels are translated at render time so they follow
 // the user's chosen UI language. No `description` field is set on any
-// entry — earlier versions shipped inconsistent per-language
+// entry, earlier versions shipped inconsistent per-language
 // descriptions (only English and Auto-detect had them), which made the
 // dropdown look broken in other languages. Descriptions were removed
 // entirely for consistency.

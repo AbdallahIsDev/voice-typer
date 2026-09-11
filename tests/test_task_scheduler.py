@@ -61,7 +61,7 @@ class TestIsSupported:
         """The real ``is_supported`` implementation must still gate on schtasks.exe.
 
         Reads the module source (not the patched ``is_supported``
-        attribute — the autouse fixture stubs it) so the assertion
+        attribute, the autouse fixture stubs it) so the assertion
         inspects the real implementation that ships in production.
         """
         src = inspect.getsource(task_scheduler)
@@ -78,7 +78,7 @@ class TestIsSupported:
 
         def _real_is_supported() -> bool:
             # Use task_scheduler.is_windows (module attribute, patched
-            # below) — NOT the test-module-level ``is_windows`` import,
+            # below), NOT the test-module-level ``is_windows`` import,
             # which is never patched and stays True on a Windows host.
             if not task_scheduler.is_windows():
                 return False

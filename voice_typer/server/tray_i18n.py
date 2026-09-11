@@ -68,7 +68,7 @@ _TRAY_LABELS_ES: dict[str, str] = {
 # messages are localized even before the renderer pushes its full label
 # dict via the set_tray_locale IPC. The renderer's push (which includes
 # the 50+ notify.* and state.* keys from i18n.py) still takes precedence
-# via register_tray_labels() merging — these dicts are the floor, not
+# via register_tray_labels() merging, these dicts are the floor, not
 # the ceiling.
 _TRAY_LABELS_AR: dict[str, str] = {
     "app_name": APP_NAME,
@@ -255,9 +255,9 @@ def register_tray_labels(locale: str, labels: dict[str, str]) -> None:
 
     Called on every ``set_tray_locale`` IPC from the renderer. To avoid
     rebuilding the merged dict (and growing the per-locale allocation)
-    on every call — even when the renderer pushes the SAME labels
+    on every call, even when the renderer pushes the SAME labels
     repeatedly (e.g. on each locale switch back to an already-populated
-    locale) — the merge is short-circuited when the new ``labels`` are
+    locale), the merge is short-circuited when the new ``labels`` are
     a no-op: every key in ``labels`` is already present in the existing
     locale dict with an identical value. In that case the existing
     dict is reused as-is (no new dict allocated, no reference swap).
@@ -268,7 +268,7 @@ def register_tray_labels(locale: str, labels: dict[str, str]) -> None:
     """
     existing = _TRAY_LABELS_LOCALES.get(locale, {})
     # Short-circuit: if every key in `labels` is already in `existing`
-    # with the same value, the merge would be a no-op — skip the dict
+    # with the same value, the merge would be a no-op, skip the dict
     # allocation + reference swap. This caps the per-call cost at
     # O(len(labels)) comparisons instead of O(len(existing) + len(labels))
     # for the merge, and avoids churning the locale dict reference

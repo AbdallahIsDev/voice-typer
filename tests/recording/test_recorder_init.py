@@ -8,7 +8,7 @@ god-method (Phase 4.5 / DT-21 split). It contains
   1. Initializes the disconnect-handler bouncer state
      (``_stop_generation``, ``_user_stop_pending``) and constructs the
      collaborators (each owning its own state: the single-flight guard
-     now lives on ``DisconnectHandler`` — see
+     now lives on ``DisconnectHandler``: see
      ``tests/test_recorder_init.py::TestDisconnectHandlerStateInit``).
   2. Constructs the six collaborators (``DeviceManager``,
      ``DisconnectHandler``, ``AudioPipeline``,
@@ -18,7 +18,7 @@ god-method (Phase 4.5 / DT-21 split). It contains
      daemon thread that populates the device-list cache.
 
 The acceptance criteria (TC-INVEST-05) requires exercising this mixin
-in ISOLATION with a mock host class — the existing
+in ISOLATION with a mock host class, the existing
 ``tests/test_recording.py`` drives it via the composed ``Recorder``
 class, so a regression in the mixin alone would be masked by
 ``Recorder``'s own behavior. This file builds a small
@@ -37,7 +37,7 @@ import pytest
 from voice_typer.server.recording.recorder_init import RecorderInitMixin
 
 # ---------------------------------------------------------------------------
-# Mock host — wires ``RecorderInitMixin`` and provides the
+# Mock host, wires ``RecorderInitMixin`` and provides the
 # ``_prewarm_device_cache`` method the mixin calls at the tail.
 # ---------------------------------------------------------------------------
 
@@ -49,7 +49,7 @@ class _MockRecorderHost(RecorderInitMixin):
     Recorder state (``config``, ``_recording_event``, ``_stream``,
     ``_lock``, ``_thread_registry``, ``_effective_sr``, ``_buffer_sr``,
     VAD caches, preroll buffer, ring buffer, worker thread state,
-    ``_actual_channels``, ``_mono_scratch_local``) — the contract is
+    ``_actual_channels``, ``_mono_scratch_local``), the contract is
     documented on :meth:`_setup_device_state_and_collaborators`. The
     collaborators' ``__init__`` methods store a back-reference to
     ``self`` and do NOT touch recorder state at construction time, so
@@ -70,11 +70,11 @@ class _MockRecorderHost(RecorderInitMixin):
         # don't touch recorder state at construction, but the mock
         # collaborators created by ``patch`` are MagicMocks and don't
         # care; the real collaborators may read ``recorder.config`` /
-        # ``recorder._recording_event`` lazily later — not at __init__).
+        # ``recorder._recording_event`` lazily later, not at __init__).
         # STATE-OWNERSHIP: ``AudioPipeline.__init__`` reads
         # ``recorder.config.sample_rate`` (the pipeline owns the
         # recording buffer, whose nominal sample rate comes from the
-        # config) — a MagicMock config auto-provides it.
+        # config), a MagicMock config auto-provides it.
         self.config = MagicMock(sample_rate=16000)
         # The pipeline's recording buffer registers the host's
         # extra-eviction hook (a real Recorder method) at construction.
@@ -129,7 +129,7 @@ class TestDisconnectHandlerStateInit:
         STATE-OWNERSHIP: the lock + running flag were moved from
         ``Recorder._disconnect_handler_lock`` / ``_disconnect_handler_running``
         onto the owning collaborator (``DisconnectHandler``); the pinned
-        BEHAVIOR is unchanged — the guard is a real, acquirable
+        BEHAVIOR is unchanged, the guard is a real, acquirable
         ``threading.Lock`` initialized at construction time (C-ARCH-2:
         the test now reads the OWNING submodule's attribute).
         """
@@ -137,7 +137,7 @@ class TestDisconnectHandlerStateInit:
 
         handler = DisconnectHandler(recorder=MagicMock(name="recorder"))
         # ``threading.Lock`` returns a ``_thread.lock`` object, not a
-        # ``Lock`` class instance — check via the context-manager
+        # ``Lock`` class instance, check via the context-manager
         # protocol (``__enter__`` / ``__exit__``).
         assert hasattr(handler._single_flight_lock, "__enter__")
         assert hasattr(handler._single_flight_lock, "__exit__")
@@ -158,7 +158,7 @@ class TestDisconnectHandlerStateInit:
 
 
 # ---------------------------------------------------------------------------
-# Collaborator construction — device enumeration, stream config, etc.
+# Collaborator construction, device enumeration, stream config, etc.
 # ---------------------------------------------------------------------------
 
 
@@ -244,7 +244,7 @@ class TestCollaboratorConstruction:
 
 
 # ---------------------------------------------------------------------------
-# Error path — collaborator construction failure propagates
+# Error path, collaborator construction failure propagates
 # ---------------------------------------------------------------------------
 
 
@@ -252,7 +252,7 @@ class TestCollaboratorConstructionErrorPath:
     """If a collaborator's ``__init__`` raises (e.g. ``DeviceManager``
     fails because PortAudio is unavailable / no audio device on a
     headless CI host), the error must propagate to the caller
-    (``Recorder.__init__``) so it can be caught and surfaced — the
+    (``Recorder.__init__``) so it can be caught and surfaced, the
     mixin must NOT swallow the exception and leave the host in a
     half-constructed state."""
 
@@ -287,7 +287,7 @@ class TestCollaboratorConstructionErrorPath:
         and verify the error propagates. DeviceManager /
         DisconnectHandler / AudioPipeline / Capture are constructed
         before StreamLifecycle, so they're left assigned on the host
-        (the host is in a half-constructed state — the caller must
+        (the host is in a half-constructed state, the caller must
         handle this)."""
         with (
             patch("voice_typer.server.recording.device_manager.DeviceManager"),
@@ -306,7 +306,7 @@ class TestCollaboratorConstructionErrorPath:
 
 
 # ---------------------------------------------------------------------------
-# Construction order — devices first, prewarm last
+# Construction order, devices first, prewarm last
 # ---------------------------------------------------------------------------
 
 
@@ -385,7 +385,7 @@ class TestConstructionOrder:
 
 
 # ---------------------------------------------------------------------------
-# Real (un-patched) construction — verifies the mixin actually wires
+# Real (un-patched) construction, verifies the mixin actually wires
 # the real collaborator classes without raising. This is a smoke test
 # that the local imports inside the mixin still resolve.
 # ---------------------------------------------------------------------------
@@ -402,7 +402,7 @@ class TestRealCollaboratorConstruction:
     def test_real_construction_does_not_raise(self):
         host = _MockRecorderHost()
         # The real DeviceManager / DisconnectHandler / etc. should
-        # construct fine — their __init__ only stores the back-reference
+        # construct fine, their __init__ only stores the back-reference
         # and initializes their own state (see device_manager.py:104).
         host._setup_device_state_and_collaborators()
         # Verify the real instances are typed correctly.

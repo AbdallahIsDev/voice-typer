@@ -1,4 +1,4 @@
-"""AppAdmin — mic/model/restart/settings management mixin extracted from
+"""AppAdmin, mic/model/restart/settings management mixin extracted from
 VoiceTyperApp.
 
 Owns the management-side surface of ``VoiceTyperApp``:
@@ -21,7 +21,7 @@ Owns the management-side surface of ``VoiceTyperApp``:
       keeps holding.
 
 Previously all of this lived on ``VoiceTyperApp`` in ``app.py``. The
-behaviour is preserved verbatim — only the class boundary moved.
+behaviour is preserved verbatim, only the class boundary moved.
 ``VoiceTyperApp(AppAdmin)`` inherits every method, so instance-level
 monkeypatching and direct calls keep working unchanged, and
 ``inspect.getsource(VoiceTyperApp.restart_app)`` / ``quit_app`` keep
@@ -37,7 +37,7 @@ from __future__ import annotations
 
 import logging
 
-# Tests capture restart_app / quit_app logs at this logger name — see
+# Tests capture restart_app / quit_app logs at this logger name, see
 # module docstring.
 log = logging.getLogger("voice_typer.server.app")
 
@@ -45,7 +45,7 @@ log = logging.getLogger("voice_typer.server.app")
 class AppAdmin:
     """Mic/model/restart/settings management mixin for ``VoiceTyperApp``.
 
-    Declares NO ``__init__`` — construction order and the backing
+    Declares NO ``__init__``: construction order and the backing
     attributes stay entirely in ``app.py``; only the accessors live
     here.
     """
@@ -61,7 +61,7 @@ class AppAdmin:
 
         body extracted to
         :meth:`voice_typer.server.settings_controller.SettingsController.set_autostart`.
-        Behaviour preserved verbatim — only the class boundary moved.
+        Behaviour preserved verbatim, only the class boundary moved.
         """
         self.settings.set_autostart(enabled)
 
@@ -86,19 +86,19 @@ class AppAdmin:
 
         body extracted to
         :class:`voice_typer.server.controllers.config_editor_launcher.ConfigEditorLauncher`.
-        Behaviour preserved verbatim — only the class boundary moved.
+        Behaviour preserved verbatim, only the class boundary moved.
 
         (security fix, restored): hold
-        ``_config_mutation_lock`` for the FULL editor session — not just
-        the save/reload phases — so a concurrent IPC ``set_config``
+        ``_config_mutation_lock`` for the FULL editor session, not just
+        the save/reload phases, so a concurrent IPC ``set_config``
         cannot atomically clobber ``config.json`` mid-edit (TOCTOU
         race). The launcher's internal ``with self.app._config_mutation_lock:``
-        blocks re-acquire the same RLock (reentrant — no-op while the
+        blocks re-acquire the same RLock (reentrant, no-op while the
         outer hold is active), so the lock is held continuously from
         the pre-editor save through the editor wait through the
         post-editor reload. A concurrent ``set_config`` (which goes
         through ``ConfigApplier.apply_config`` → ``_config_mutation_lock``)
-        blocks until the editor exits and the reload completes — exactly
+        blocks until the editor exits and the reload completes, exactly
         the invariant the regression test
         (``tests/regressions/test_concurrency.py::TestConfigEditHoldsMutationLock``)
         pins.
@@ -127,13 +127,13 @@ class AppAdmin:
 
     @property
     def active_microphone_id(self) -> str | None:
-        """TrayController protocol — return the currently selected
+        """TrayController protocol. Return the currently selected
         microphone ID from ``config.microphone`` (None = system default)."""
         mic = getattr(self.config, "microphone", None)
         return str(mic) if mic else None
 
     def refresh_microphones(self) -> None:
-        """TrayController protocol — re-enumerate microphones
+        """TrayController protocol, re-enumerate microphones
         and refresh the tray menu by delegating to startup_tasks."""
         from voice_typer.server import startup_tasks
         from voice_typer.server.server_platform import invalidate_microphone_list_cache
@@ -179,11 +179,11 @@ class AppAdmin:
 
         body extracted to
         :meth:`voice_typer.server.app_lifecycle.LifecycleController.quit_app`.
-        Behaviour preserved verbatim — only the class boundary moved.
+        Behaviour preserved verbatim, only the class boundary moved.
 
         Preserved invariants (now in the controller):
         - cleanup runs via ``self.quit()`` (the audited
-          ``SystemExit`` path) — never ``os._exit(0)``.
+          ``SystemExit`` path), never ``os._exit(0)``.
         - ``event_bus.publish({"type": "quit_app"})``
           runs BEFORE the ``if self._shutting_down:`` re-entry guard
           so a double-quit still pushes the event. (Historically the
@@ -204,10 +204,10 @@ class AppAdmin:
         - ``log.info("[RESTART] Restarting %s...", APP_NAME)``.
         - ``try:`` wraps ``self.config.save()`` so an unexpected
           raise (e.g. RecursionError from a cyclic dataclass) does not
-          abort the restart — the ``except Exception:`` block logs
+          abort the restart, the ``except Exception:`` block logs
           ``log.warning("config.save() raised", exc_info=True)``.
         - the redundant ``_restore_volume(fade_ms=0)`` call
-          was removed — ``_do_cleanup`` (now reached via
+          was removed, ``_do_cleanup`` (now reached via
           ``self.lifecycle.restart_app`` -> ``self._do_cleanup``) handles
           the restore via the shared ShutdownController body.
         - ``self._thread_registry.shutdown_all()``
@@ -215,7 +215,7 @@ class AppAdmin:
           non-main-thread watchdog fallback).
         """
         #  re-entry guard (must be the first executable
-        # statement — see
+        # statement: see
         # tests/test_app_cleanup.py::test_restart_app_guard_is_first_statement_in_method).
         # The rest of the body lives in LifecycleController.restart_app;
         # the controller mirrors this guard (idempotent) so it is safe
@@ -230,6 +230,6 @@ class AppAdmin:
 
         Body extracted to
         :meth:`voice_typer.server.app_lifecycle.LifecycleController._wait_for_relaunch_ack`.
-        Behaviour preserved verbatim — only the class boundary moved.
+        Behaviour preserved verbatim, only the class boundary moved.
         """
         return self.lifecycle._wait_for_relaunch_ack(timeout)

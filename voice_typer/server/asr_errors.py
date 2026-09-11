@@ -21,7 +21,7 @@ class ConsentRequiredError(RuntimeError):
     that provider.
 
     Subclass of ``RuntimeError`` so existing ``except RuntimeError``
-    catch clauses still work — but the IPC layer can
+    catch clauses still work, but the IPC layer can
     ``isinstance``-check for this type to surface a consent dialog
     instead of an error toast.
 
@@ -115,14 +115,14 @@ class CloudConsentRequiredError(ConsentRequiredError):
     """Typed subclass for cloud-provider *transcribe* consent
     denial.
 
-    ``scope`` is a class attribute (always ``"transcribe"`` — every
+    ``scope`` is a class attribute (always ``"transcribe"``, every
     cloud consent denial is a transcribe-scope denial). ``provider``
     is also a class attribute (inherited from
     :class:`ConsentRequiredError`, defaults to ``""``) so any
     ``getattr(exc, "provider", "")`` read on a bare instance returns
     a string without ``isinstance`` branching. Subclasses (or
     instances) should override ``provider`` to surface the specific
-    cloud vendor — the ``__init__`` ``provider`` kwarg sets the
+    cloud vendor, the ``__init__`` ``provider`` kwarg sets the
     instance attribute, shadowing the empty-string class default so
     each cloud engine (openai / groq / deepgram) can carry its own
     provider value without a separate subclass per provider.
@@ -130,7 +130,7 @@ class CloudConsentRequiredError(ConsentRequiredError):
     ``__init__`` now accepts the parent's structured fields
     (``engine_name`` / ``consent_field`` / ``model_id``) as explicit
     keyword arguments instead of a generic ``**kwargs: object`` +
-    ``# type: ignore[arg-type]`` — type-checkers can verify the
+    ``# type: ignore[arg-type]``: type-checkers can verify the
     forwarding and the ignore comment is no longer needed.
     """
 
@@ -164,7 +164,7 @@ class CloudConsentRequiredError(ConsentRequiredError):
 # provider, 429 rate limit, 5xx server error, network timeout, missing
 # API key) collapsed to a generic ``RuntimeError``. The IPC handler
 # catch-all then mapped that generic ``RuntimeError`` to the generic
-# ``server.internal_error`` envelope — so the renderer could not
+# ``server.internal_error`` envelope, so the renderer could not
 # distinguish "API key invalid" (user must re-enter) from "transient
 # network" (auto-retry) from "rate limited" (backoff) from "missing
 # config" (open Settings).
@@ -173,7 +173,7 @@ class CloudConsentRequiredError(ConsentRequiredError):
 # exception and emit a distinct IPC error code (registered in
 # ``ERROR_CODES`` at ``voice_typer/server/ipc/validation.py``). The
 # hierarchy subclasses ``RuntimeError`` so existing ``except
-# RuntimeError`` clauses still catch them — but the new typed
+# RuntimeError`` clauses still catch them, but the new typed
 # branches in ``HandlerBase._respond_with_error`` (see
 # ``voice_typer/server/handlers/_base.py``) take precedence for the
 # cloud/LLM codes.
@@ -204,23 +204,23 @@ class CloudEngineError(RuntimeError):
 
 
 class CloudAuthError(CloudEngineError):
-    """401, 403 — API key invalid or revoked.
+    """401, 403: API key invalid or revoked.
 
-    The renderer surfaces "Cloud API key invalid — open Settings to
+    The renderer surfaces "Cloud API key invalid. Open Settings to
     re-enter" instead of a generic "internal error" toast.
     """
 
 
 class CloudRateLimitError(CloudEngineError):
-    """429 — rate limited (after retry budget exhausted).
+    """429: rate limited (after retry budget exhausted).
 
-    The renderer surfaces "Cloud provider rate limited — please retry
+    The renderer surfaces "Cloud provider rate limited, please retry
     shortly" and may schedule an automatic backoff retry.
     """
 
 
 class CloudServerError(CloudEngineError):
-    """5xx — cloud server error.
+    """5xx: cloud server error.
 
     The renderer surfaces "Cloud provider server error" and may retry
     with exponential backoff.
@@ -228,7 +228,7 @@ class CloudServerError(CloudEngineError):
 
 
 class CloudNetworkError(CloudEngineError):
-    """URLError — timeout, DNS failure, connection reset.
+    """URLError: timeout, DNS failure, connection reset.
 
     The renderer surfaces "Network error contacting cloud provider"
     and may retry (the cloud engine itself already retries 3× with
@@ -238,9 +238,9 @@ class CloudNetworkError(CloudEngineError):
 
 
 class CloudConfigError(CloudEngineError):
-    """Missing API key or URL — configuration incomplete.
+    """Missing API key or URL, configuration incomplete.
 
-    The renderer surfaces "Cloud provider not configured — open
+    The renderer surfaces "Cloud provider not configured, open
     Settings to enter API key". The cross-field validator at
     ``config_validators._check_cross_field_cloud_config`` catches the
     common case at save time; this runtime check stays as
@@ -253,7 +253,7 @@ class CloudEmptyResponseError(CloudEngineError):
     """HTTP 200 with an empty/blank body or no transcript.
 
     A provider returning 200 with an empty body (or ``{}`` / a missing
-    transcript field) is an anomaly — the pipeline must not ship an
+    transcript field) is an anomaly, the pipeline must not ship an
     empty transcript as if it were valid. The renderer surfaces a
     cloud-provider error instead of a silent empty transcription.
     """
@@ -264,7 +264,7 @@ class MicrophonePermissionDeniedError(RuntimeError):
     declined the consent prompt).
 
     Subclass of ``RuntimeError`` so existing ``except RuntimeError``
-    catch clauses still work — but the IPC layer can
+    catch clauses still work, but the IPC layer can
     ``isinstance``-check for this type to surface the permission
     onboarding UI instead of a generic error toast.
 
@@ -294,7 +294,7 @@ class ModelNotDownloadedError(RuntimeError):
     """Raised when a local ASR engine is asked to load a model that has
     not been downloaded yet.
 
-    The app NEVER downloads models automatically — the user must
+    The app NEVER downloads models automatically, the user must
     explicitly download a model (via the Models page Download button or
     the onboarding wizard) before it can be loaded. This error is raised
     by the engine ``load()`` paths when the selected model is absent
@@ -327,7 +327,7 @@ class ModelIntegrityError(RuntimeError):
     the engine ``load()`` path.
 
     The tampered cache directory is intentionally NOT deleted
-    automatically — deleting a user's model files is an explicit user
+    automatically, deleting a user's model files is an explicit user
     action (the Models page Delete button). Instead the load is refused
     and the user is told to delete + re-download the model (via the
     Models page) to recover. Only the explicit, user-initiated download

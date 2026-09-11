@@ -14,7 +14,7 @@ export default defineConfig({
 	resolve: {
 		alias: {
 			"@": resolve(__dirname, "src/renderer/src"),
-			// @server removed — resolved outside renderer root and
+			// @server removed, resolved outside renderer root and
 			// crashed Vite HMR on locale switch. The JSON copy is
 			// imported with a project-relative path.
 			//removed non-existent barrel file aliases

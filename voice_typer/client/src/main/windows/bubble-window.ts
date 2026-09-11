@@ -10,14 +10,14 @@
  * `./bubble-window` unchanged.
  *
  * Original module overview (now spread across `./bubble/`):
- *   - `centerOnPrimaryDisplay()` — top/bottom centered position for the bubble.
- *   - `centerOnActiveDisplay()` — : multi-monitor aware positioning
+ *   - `centerOnPrimaryDisplay()`, top/bottom centered position for the bubble.
+ *   - `centerOnActiveDisplay()`, : multi-monitor aware positioning
  *     using `screen.getCursorScreenPoint()` to find the display the user
  *     is currently on (rather than always the primary display).
- *   - `isForegroundFullscreen()` — best-effort exclusive-fullscreen detection
+ *   - `isForegroundFullscreen()`, best-effort exclusive-fullscreen detection
  *     (SEC-025) so we don't paint over fullscreen apps.
- *   - `createBubbleWindow()` — lazy-creates the always-on-top transparent pill.
- *   - `showBubbleWindow()` / `hideBubbleWindow()` — animated show/hide with
+ *   - `createBubbleWindow()`, lazy-creates the always-on-top transparent pill.
+ *   - `showBubbleWindow()` / `hideBubbleWindow()`, animated show/hide with
  *     rapid-toggle guard + renderer-driven exit animation.
  *
  * : bubble position is now remembered across show/hide cycles.

@@ -3,18 +3,18 @@
 //previously this logic lived inline in `AudioFilterChain.tsx`
 // as a `useMemo` factory with 80+ `t()` calls and 48 string keys
 // hard-coded. Extracted here as a pure function so the i18n key list
-// is owned by the registry (`audioFilterRowDescriptors`) — adding a
+// is owned by the registry (`audioFilterRowDescriptors`), adding a
 // new filter row only requires adding one descriptor, and the labels
 // dictionary is auto-built from the registry.
 //
-// The function is pure (no React, no module state) — the caller
+// The function is pure (no React, no module state), the caller
 // wraps it in `useMemo` keyed on locale to avoid re-resolving labels
 // on every render.
 
 import { audioFilterRowDescriptors } from "./audioFilterRowDescriptors";
 
 /**
- * Type signature of the i18n `t` function — kept local so this file
+ * Type signature of the i18n `t` function, kept local so this file
  * has no React/i18n module dependency and is unit-testable in
  * isolation.
  */
@@ -24,7 +24,7 @@ export type TFunction = (
 ) => string;
 
 /**
- * Labels dictionary — a flat `Record<i18nKey, resolvedString>`.
+ * Labels dictionary, a flat `Record<i18nKey, resolvedString>`.
  * Each descriptor contributes its `labelKey`, `infoSearchKey`, and
  * `sectionTitleKey`; the section title key is shared across all
  * descriptors but resolved only once (deduplicated).
@@ -43,7 +43,7 @@ export type AudioFilterLabels = Record<string, string>;
  * Calls `t()` exactly once per unique key (the section title key is
  * shared across all descriptors but resolved only once). Total call
  * count: 24 (labelKey) + 24 (infoSearchKey) + 1 (sectionTitleKey) =
- * 49 — identical to the pre- inline `useMemo` factory, so the
+ * 49, identical to the pre- inline `useMemo` factory, so the
  * `` memoisation regression test's `firstRenderCount > 20`
  * sanity check continues to hold.
  */

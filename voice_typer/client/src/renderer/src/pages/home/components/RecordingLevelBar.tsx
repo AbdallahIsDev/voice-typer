@@ -1,7 +1,7 @@
-// RecordingLevelBar — compact live audio-level indicator for Home while
+// RecordingLevelBar, compact live audio-level indicator for Home while
 // recording. Feeds off the `recording_level` push event (≤8 Hz,
 // latest-wins main-window mirror of the recorder's level, published by
-// the bubble-level worker on the generic event path — the typed
+// the bubble-level worker on the generic event path, the typed
 // `bubble_level` channel is consumed by the bubble window only on BOTH
 // runtimes, so the main renderer cannot ride it). The subscription is
 // read-only push consumption (no backend `level_monitor_start`
@@ -11,7 +11,7 @@
 // docstring). The server applies an 8x display gain to its own level
 // push (`level_monitor._LEVEL_DISPLAY_GAIN`) for exactly the same
 // readability reason; mirror that constant client-side so a normal
-// voice fills a readable share of the bar. Display-only — the fill
+// voice fills a readable share of the bar. Display-only, the fill
 // stays the shared LevelBar's solid `bg-primary` (C-MIC-12: no color
 // ladder, no per-tier recoloring).
 //
@@ -26,7 +26,7 @@ import { usePythonEvent } from "@/hooks/usePython";
 /** Client-side display gain mirroring the server's
  *  `level_monitor._LEVEL_DISPLAY_GAIN` (raw speech RMS ≈ [0, 0.3]). */
 const LEVEL_DISPLAY_GAIN = 8;
-/** React-state sync interval — matches the server's ≤8 Hz mirror rate. */
+/** React-state sync interval, matches the server's ≤8 Hz mirror rate. */
 const LEVEL_SYNC_INTERVAL_MS = 120;
 
 export function RecordingLevelBar() {

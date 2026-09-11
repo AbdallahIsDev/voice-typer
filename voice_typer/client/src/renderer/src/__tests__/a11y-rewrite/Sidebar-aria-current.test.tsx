@@ -1,5 +1,5 @@
 /**
- *  vitest rewrite — behavioral test for `Sidebar.tsx` aria-current.
+ *  vitest rewrite, behavioral test for `Sidebar.tsx` aria-current.
  *
  * Replaces the following string-pattern Python test from
  * `tests/test_ux_components.py`:
@@ -37,7 +37,7 @@ import { Sidebar } from "@/components/layout/Sidebar";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
 // Sidebar mounts real Radix Tooltips (HotkeyTooltip on the nav items),
-// which REQUIRE a TooltipProvider ancestor — the app shell provides
+// which REQUIRE a TooltipProvider ancestor, the app shell provides
 // one (App.tsx:475). Same props as App.tsx so tooltip timing in tests
 // mirrors production.
 function wrap(ui: React.ReactElement) {
@@ -50,7 +50,7 @@ function wrap(ui: React.ReactElement) {
 
 import type { Page } from "@/types/ipc";
 
-describe("Sidebar aria-current — RW-0 rewrite of test_sidebar_has_aria_current", () => {
+describe("Sidebar aria-current, RW-0 rewrite of test_sidebar_has_aria_current", () => {
 	beforeEach(() => {
 		cleanup();
 	});
@@ -77,7 +77,7 @@ describe("Sidebar aria-current — RW-0 rewrite of test_sidebar_has_aria_current
 		render(wrap(<Sidebar currentPage="home" onNavigate={() => {}} />));
 
 		// Exactly one button (the active one) should carry
-		// aria-current="page" — every other nav item must
+		// aria-current="page", every other nav item must
 		// omit the attribute entirely (not set it to "false").
 		const activeButtons = document.querySelectorAll(
 			'button[aria-current="page"]',
@@ -115,7 +115,7 @@ describe("Sidebar aria-current — RW-0 rewrite of test_sidebar_has_aria_current
 		// "aria-current" in Sidebar.tsx source.  As a bonus
 		// invariant, we verify at compile time that the
 		// currentPage prop accepts a member of the Page union
-		// ("home" | "history" | ...) — this catches
+		// ("home" | "history" | ...), this catches
 		// regressions where someone narrows the prop type.
 		const currentPage: Page = "home";
 		render(wrap(<Sidebar currentPage={currentPage} onNavigate={() => {}} />));
@@ -136,7 +136,7 @@ describe("Sidebar aria-current — RW-0 rewrite of test_sidebar_has_aria_current
 // widget pattern: only the active item (or the first item as a
 // fallback) holds tabIndex=0; all other items hold tabIndex=-1.
 // This means Tab from outside the nav focuses the active item, and
-// the next Tab leaves the nav — ArrowUp/Down/Home/End move focus
+// the next Tab leaves the nav, ArrowUp/Down/Home/End move focus
 // WITHIN the nav.  This is the correct pattern for a vertical menu;
 // it lets keyboard users skip past the nav with one Tab press
 // instead of having to Tab through every item.
@@ -154,7 +154,7 @@ describe("Sidebar aria-current — RW-0 rewrite of test_sidebar_has_aria_current
 describe("BG-R19 #11: Sidebar keyboard navigation (roving tabindex) + aria-keyshortcuts", () => {
 	// The expected aria-keyshortcuts values for items that have a
 	// keyboard shortcut.  This mirrors `NAV_KEYSHORTCUTS` in
-	// Sidebar.tsx:97-100 — duplicated here because the constant is
+	// Sidebar.tsx:97-100, duplicated here because the constant is
 	// not exported (it's an internal implementation detail of the
 	// Sidebar component).  If the production shortcuts change,
 	// update BOTH Sidebar.tsx AND this map.
@@ -218,7 +218,7 @@ describe("BG-R19 #11: Sidebar keyboard navigation (roving tabindex) + aria-keysh
 		// Tab from outside the nav.  Since the nav is the first
 		// focusable element in this render (no skip-link / logo
 		// button before it when not collapsed), Tab focuses the
-		// single tabIndex=0 button — which must be "history" (the
+		// single tabIndex=0 button, which must be "history" (the
 		// active page).
 		const activeButton = buttons.find((b) => b.tabIndex === 0);
 		expect(activeButton).toBeTruthy();
@@ -236,7 +236,7 @@ describe("BG-R19 #11: Sidebar keyboard navigation (roving tabindex) + aria-keysh
 		const buttons = getNavButtons();
 		expect(buttons.length).toBe(EXPECTED_NAV_ORDER.length);
 
-		// Start with focus on the first item (home — the active
+		// Start with focus on the first item (home, the active
 		// page, so it has tabIndex=0).  ``getNavButtons()`` returns
 		// ``Element[]`` whose items are ``Element | undefined`` under
 		// ``noUncheckedIndexedAccess``; explicit locals narrow each

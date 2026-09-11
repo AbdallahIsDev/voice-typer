@@ -1,14 +1,14 @@
 <svg width="256" height="256" viewBox="0 0 256 256" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <!-- App logo — single source of truth for the brand mark.
+  <!-- App logo, single source of truth for the brand mark.
        The rounded-rect is the LOGO BACKGROUND (kept for every surface
        EXCEPT the tray, which renders the glyph alone). The chip is the
        ALWAYS-ON dark neutral #1a1b1e (user decision 2026-09: the same
-       dark chip in light AND dark OS themes — the generators keep
+       dark chip in light AND dark OS themes, the generators keep
        separate light/dark chip constants so the two can diverge later
        without re-adding a mode). The glyph is white, the indicator dot
        is brand red. Icon variants for every surface (window/taskbar/
        Alt-Tab/bundle icons, favicons, shortcuts) are derived from this
-       file by the icon generators — this file itself stays static so
+       file by the icon generators, this file itself stays static so
        `tauri icon` can rasterize it deterministically. -->
   <title>App logo</title>
   <rect width="256" height="256" rx="48" fill="#1a1b1e"/>

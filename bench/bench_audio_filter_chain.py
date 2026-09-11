@@ -14,8 +14,8 @@ typical device-native rate), with and without a noise-suppressor in
 the chain (the most expensive filter when RNNoise is installed).
 
 The benchmark is designed to detect regressions in the audio hot path
-between releases. It is NOT a real-time-ness proof — that requires
-running against a live PortAudio stream — but a sustained regression
+between releases. It is NOT a real-time-ness proof, that requires
+running against a live PortAudio stream, but a sustained regression
 in ``process_chunk`` throughput directly causes dropouts at smaller
 buffer sizes.
 
@@ -25,7 +25,7 @@ Usage:
     python bench/bench_audio_filter_chain.py --json
 
 Requires: numpy. Does NOT require scipy, RNNoise, or any optional dep
-(the chain degrades gracefully when those are missing — the benchmark
+(the chain degrades gracefully when those are missing, the benchmark
 measures the filters that ARE available, and reports the degraded
 state so a regression in the degraded path is also visible).
 """
@@ -80,7 +80,7 @@ def _make_config(noise_suppression: str = "none") -> object:
 
     Rationale: previously this function imported a parallel ``_DEFAULTS``
     dict from ``audio_chain_builder`` and used a ``_DictConfig`` shim
-    that fell back to ``_DEFAULTS`` for any unspecified field — a DRY
+    that fell back to ``_DEFAULTS`` for any unspecified field, a DRY
     violation (Rule P2) that duplicated every ``Config`` default. The
     dict was deleted; this function now constructs a real
     ``Config()`` instance and applies overrides via ``setattr`` so
@@ -97,7 +97,7 @@ def _make_config(noise_suppression: str = "none") -> object:
 
     # Construct a real Config() so every default comes from the single
     # source of truth (Config dataclass). Overrides are applied via
-    # setattr — same pattern build_chain_from_dict uses.
+    # setattr: same pattern build_chain_from_dict uses.
     cfg = Config()
     cfg.noise_suppression_method = noise_suppression
     if not scipy_available:
@@ -136,7 +136,7 @@ def _peak_rss_mb() -> int | None:
 
     Peak RSS is captured at the end of the bench loop so the CI
     ratchet can detect memory regressions in the audio filter chain.
-    On Linux, ``psutil`` does not expose ``peak_rss`` directly — we
+    On Linux, ``psutil`` does not expose ``peak_rss`` directly, we
     parse ``VmHWM`` from ``/proc/<pid>/status``. On Windows / macOS,
     ``memory_info().peak_rss`` is used directly.
     """
@@ -149,7 +149,7 @@ def _peak_rss_mb() -> int | None:
         mi = proc.memory_info()
         if hasattr(mi, "peak_rss"):
             return int(mi.peak_rss / (1024 * 1024))
-    except Exception:  # noqa: BLE001 — best-effort
+    except Exception:  # noqa: BLE001, best-effort
         pass
     # Linux fallback: parse VmHWM from /proc/<pid>/status.
     try:
@@ -158,12 +158,12 @@ def _peak_rss_mb() -> int | None:
             for line in status_path.read_text(encoding="utf-8").splitlines():
                 if line.startswith("VmHWM:"):
                     return int(line.split()[1]) // 1024
-    except Exception:  # noqa: BLE001 — best-effort
+    except Exception:  # noqa: BLE001, best-effort
         pass
     # Last-resort: instantaneous RSS.
     try:
         return int(proc.memory_info().rss / (1024 * 1024))
-    except Exception:  # noqa: BLE001 — best-effort
+    except Exception:  # noqa: BLE001, best-effort
         return None
 
 
@@ -176,7 +176,7 @@ def bench_filter_chain(
     """Benchmark FilterChain.process over many chunks.
 
     Returns a dict with timing stats + chain metadata. The key metric
-    is ``p99_per_chunk_us`` — the 99th percentile per-chunk processing
+    is ``p99_per_chunk_us``: the 99th percentile per-chunk processing
     time. If this exceeds ``chunk_duration_us = chunk_samples /
     sample_rate * 1e6`` by any margin, dropouts are inevitable at this
     chunk size.
@@ -189,7 +189,7 @@ def bench_filter_chain(
     total_samples = int(duration_seconds * sample_rate)
     audio = generate_test_audio(total_samples)
 
-    # Pre-allocate the chunk buffer once — the production path also
+    # Pre-allocate the chunk buffer once, the production path also
     # reuses a single buffer (allocating per chunk on a RT thread is a
     # known cause of xruns).
     chunk = np.zeros(chunk_samples, dtype=np.float32)
@@ -218,7 +218,7 @@ def bench_filter_chain(
     # output.
     if last_output is not None and not np.isfinite(last_output).all():
         raise SystemExit(
-            "FAIL: filter chain produced non-finite (NaN/Inf) output — audio corruption in the chain under benchmark."
+            "FAIL: filter chain produced non-finite (NaN/Inf) output, audio corruption in the chain under benchmark."
         )
 
     per_chunk_us.sort()
@@ -268,13 +268,13 @@ def main() -> int:
         "--chunk-samples",
         type=int,
         default=DEFAULT_CHUNK_SAMPLES,
-        help="Chunk size in samples (default: 512 — matches PortAudio path)",
+        help="Chunk size in samples (default: 512, matches PortAudio path)",
     )
     parser.add_argument(
         "--noise-suppression",
         default="none",
         choices=("none", "rnnoise", "gtcrn"),
-        help="Noise suppressor method (default: none — exercises only always-on filters)",
+        help="Noise suppressor method (default: none, exercises only always-on filters)",
     )
     parser.add_argument("--json", action="store_true", help="Emit JSON instead of human-readable")
     args = parser.parse_args()
@@ -282,7 +282,7 @@ def main() -> int:
     rates = [args.rate] if args.rate is not None else [16000, 48000]
     # Tracked noise-suppression variant: the default run exercises the
     # ``none`` chain (always available) AND the ``rnnoise`` chain when
-    # the rnnoise package is importable (skip-if-unavailable — RNNoise
+    # the rnnoise package is importable (skip-if-unavailable, RNNoise
     # is a declared dependency so CI runners have it; minimal sandboxes
     # may not). Rows are APPENDED after the base scenarios so the perf
     # ratchet's positional indices (``…0`` / ``…1``) stay stable, and
@@ -305,7 +305,7 @@ def main() -> int:
         return 0
 
     print("=" * 72)
-    print("Voice Typer — Audio Filter Chain Benchmark")
+    print("Voice Typer: Audio Filter Chain Benchmark")
     print("=" * 72)
     for r in results:
         print()
@@ -331,7 +331,7 @@ def main() -> int:
         if not budget_ok:
             exit_code = 1
     # Hard gate: a negative realtime margin means per-chunk processing
-    # exceeds the chunk duration — dropouts are INEVITABLE at this
+    # exceeds the chunk duration: dropouts are INEVITABLE at this
     # chunk size regardless of what the baseline ratchet tolerates.
     # This assertion is independent of bench-baseline.json so a ratchet
     # raised past the budget can never mask an un-runnable chain.
@@ -339,7 +339,7 @@ def main() -> int:
         if r["realtime_margin_pct"] <= 0:
             print(
                 f"\nGATE FAIL: {r['sample_rate']} Hz realtime margin "
-                f"{r['realtime_margin_pct']}% <= 0 — per-chunk processing exceeds "
+                f"{r['realtime_margin_pct']}% <= 0: per-chunk processing exceeds "
                 "the chunk duration (dropouts inevitable). Exiting non-zero."
             )
             exit_code = 1

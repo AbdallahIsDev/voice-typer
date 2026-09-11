@@ -12,7 +12,7 @@ Validates that the TCP auth handshake in
    structured ``server.protocol_version_mismatch`` error envelope.
 
 These tests use mock socket/line-IO objects (the Linux sandbox doesn't
-support ``socket.socketpair(AF_INET, SOCK_STREAM)`` — see the
+support ``socket.socketpair(AF_INET, SOCK_STREAM)``: see the
 ``socket.timeout`` / ``OSError`` handling notes inline).
 """
 
@@ -61,7 +61,7 @@ class _FakeLineIO:
 class _MinimalTcpHandler(TCPTransportMixin):
     """Minimal host class for ``TCPTransportMixin`` testing.
 
-    Mirrors ``tests/test_tcp_nodelay.py::_MinimalTcpHandler`` — bare
+    Mirrors ``tests/test_tcp_nodelay.py::_MinimalTcpHandler``, bare
     subclass with no instance state, sufficient for the early-auth code
     paths (the protocol-version mismatch and empty-token refuse paths
     return BEFORE any instance attribute is accessed).
@@ -98,7 +98,7 @@ def test_ipc_protocol_version_constant_is_int_and_positive() -> None:
 
     A future bump that accidentally sets it to ``0`` or a non-int would
     silently accept all auth frames (``0 == 0``) or raise a TypeError
-    during the comparison — this test pins the contract.
+    during the comparison, this test pins the contract.
     """
     assert isinstance(IPC_PROTOCOL_VERSION, int)
     assert IPC_PROTOCOL_VERSION > 0
@@ -147,7 +147,7 @@ def test_source_contains_protocol_version_check_before_token_check() -> None:
 def test_auth_accepts_frame_without_protocol_version() -> None:
     """DR-21: a legacy auth frame without ``protocol_version`` is
     accepted on the version-check path and proceeds to the token check.
-    With a wrong token, the token check rejects — but NOT with the
+    With a wrong token, the token check rejects, but NOT with the
     version-mismatch code.
     """
     fake_io, _ = _run_auth({"type": "auth", "token": "wrong-token"})
@@ -168,7 +168,7 @@ def test_auth_accepts_frame_without_protocol_version() -> None:
 def test_auth_accepts_frame_with_matching_protocol_version() -> None:
     """DR-21: an auth frame with ``protocol_version: <current>`` is
     accepted on the version-check path and proceeds to the token check.
-    With a wrong token, the token check rejects — but NOT with the
+    With a wrong token, the token check rejects, but NOT with the
     version-mismatch code.
     """
     fake_io, _ = _run_auth(
@@ -197,7 +197,7 @@ def test_auth_rejects_frame_with_mismatched_protocol_version() -> None:
     The envelope carries the client and server version numbers for
     debugging.
 
-    Note: the token in this frame is CORRECT — the test verifies the
+    Note: the token in this frame is CORRECT, the test verifies the
     version check runs first and rejects before the token check would
     have accepted.
     """
@@ -205,7 +205,7 @@ def test_auth_rejects_frame_with_mismatched_protocol_version() -> None:
     fake_io, _ = _run_auth(
         {
             "type": "auth",
-            "token": "expected-token",  # correct — version check runs FIRST
+            "token": "expected-token",  # correct, version check runs FIRST
             "protocol_version": bogus_version,
         }
     )
@@ -216,7 +216,7 @@ def test_auth_rejects_frame_with_mismatched_protocol_version() -> None:
     written = "".join(fake_io.written).strip()
     assert written, (
         "DR-21 regression: a mismatched-protocol_version auth frame did "
-        "NOT produce an error envelope — the server should have emitted "
+        "NOT produce an error envelope, the server should have emitted "
         "a structured protocol_version_mismatch error before closing."
     )
     decoded = json.loads(written)

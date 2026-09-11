@@ -1,7 +1,7 @@
 // Shared microphone-quality audio preset options.
 //
 // Single source of truth for the five `audio_preset` values the backend
-// accepts (defined in `voice_typer/server/audio_presets.py` — the
+// accepts (defined in `voice_typer/server/audio_presets.py`, the
 // preset → filter-chain mapping lives server-side per ADR 0007) and
 // their i18n label/description keys. Used by BOTH live preset
 // presentations:
@@ -19,7 +19,7 @@
 // surface had it before the consolidation.
 //
 // The label/description keys live under `settings.audioEnhancement.preset*`
-// in the locale catalogues — ONE key family shared by every surface.
+// in the locale catalogues, ONE key family shared by every surface.
 import type { TranslationKey } from "@/i18n";
 
 /** Microphone-quality preset value stored in `config.audio_preset`. */
@@ -36,7 +36,7 @@ export interface AudioPresetOption {
  * The five microphone-quality presets in canonical display order.
  *
  * Each preset carries a *real* description (distinct from the label) so
- * the user gets an explanation of what the preset actually does — the
+ * the user gets an explanation of what the preset actually does, the
  * Microphone page surfaces it behind a per-row InfoTooltip, the Settings
  * surface shows it beside the Select. Descriptions resolve from the
  * `settings.audioEnhancement.preset*Description` keys.

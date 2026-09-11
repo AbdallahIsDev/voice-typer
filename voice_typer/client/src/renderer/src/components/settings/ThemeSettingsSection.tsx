@@ -1,4 +1,4 @@
-// ThemeSettingsSection — Appearance section of the Settings page.
+// ThemeSettingsSection, Appearance section of the Settings page.
 //
 // Extracted from src/renderer/src/pages/Settings.tsx to keep the page
 // file under ~500 lines.  Renders the "Appearance" SettingsSection
@@ -60,7 +60,7 @@ import {
 } from "./useThemeSettings";
 
 // IMPL-C: option value → icon + aria-label for the icon-only theme toggle.
-// The visible label is empty — only the icon is shown, matching the
+// The visible label is empty, only the icon is shown, matching the
 // ThemeSwitch in the sidebar.  The aria-label on the radiogroup and the
 // title on each option provide screen-reader context.
 const _THEME_OPTION_KEYS = [
@@ -76,13 +76,13 @@ const _THEME_OPTION_KEYS = [
 interface ThemeSettingsSectionProps extends SettingsSectionSharedProps {
 	/** Theme mode provided by the App-level useTheme hook (overrides config while a save is in-flight). */
 	themeModeProp?: VoiceTyperConfig["theme_mode"];
-	/** App-level theme-change handler — persists the mode via the debounced save in useTheme. */
+	/** App-level theme-change handler, persists the mode via the debounced save in useTheme. */
 	onThemeChange?: (mode: VoiceTyperConfig["theme_mode"]) => void;
 	/**
 	 * Theme preset provided by the App-level useTheme hook (overrides
 	 * ``config.theme_preset`` while a save is in-flight).  Without
 	 * this prop, the preset dropdown showed a stale
-	 * value during the 300 ms debounced save window — the user
+	 * value during the 300 ms debounced save window, the user
 	 * clicked a preset, the dropdown reverted to the old value, then
 	 * snapped to the new value when the backend confirmed.  Passing
 	 * the optimistic value from ``useTheme.themePreset`` lets the
@@ -95,7 +95,7 @@ interface ThemeSettingsSectionProps extends SettingsSectionSharedProps {
 // ── Preset-dropdown sub-components ────────────────────────────────────
 //
 // Extracted from inline IIFEs that defeated ``React.memo`` on the
-// SelectTrigger / SelectContent subtrees — each IIFE produced a fresh
+// SelectTrigger / SelectContent subtrees, each IIFE produced a fresh
 // closure on every parent render, forcing reconciliation even when
 // neither ``effectivePreset`` nor ``customDraft`` had changed.
 //
@@ -284,7 +284,7 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 	const textSizeInfoSearch = t("settings.appearance.textSizeInfo");
 	const themeOptions = _THEME_OPTION_KEYS.map((opt) => ({
 		value: opt.value,
-		// Icon-only toggle — no visible text, matching the sidebar ThemeSwitch.
+		// Icon-only toggle, no visible text, matching the sidebar ThemeSwitch.
 		label: "",
 		icon: opt.icon,
 		title: t(opt.labelKey),
@@ -298,7 +298,7 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 	// this section even if the row's own label/info don't contain it).
 	const sectionTitle = t("settings.appearance.title");
 
-	//section-level visibility check — if no row matches the
+	//section-level visibility check, if no row matches the
 	// search filter, hide the entire section.
 	const sectionItems = [
 		{ label: colorSchemeLabel, info: colorSchemeInfoSearch },
@@ -365,7 +365,7 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
                                                                         dropdown's trigger showed a blank value when the preset
                                                                         was 'custom' (the SelectItem list filtered 'custom' out),
                                                                         making it look like the dropdown was broken.  The disabled
-                                                                        item is non-selectable — users toggle the custom theme via
+                                                                        item is non-selectable, users toggle the custom theme via
                                                                         the switch below the dropdown.  Always rendered so the
                                                                         trigger's selected value always has a matching SelectItem
                                                                         (Radix Select otherwise warns about a missing value). */}
@@ -374,7 +374,7 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 								customDraft={customDraft}
 								t={t}
 							/>
-							{/* Built-in presets (excluding 'custom' — handled by the
+							{/* Built-in presets (excluding 'custom', handled by the
                                                                         disabled item above). */}
 							{THEMES.filter((th) => th.id !== "custom").map((theme) => {
 								const { bg, fg } = getThemePreviewColors(
@@ -453,7 +453,7 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 						</button>
 					</div>
 
-					{/* Color swatch grid — 6 core colors */}
+					{/* Color swatch grid, 6 core colors */}
 					<div className="grid grid-cols-2 gap-2.5">
 						{CUSTOM_COLOR_KEYS.map(({ var: varName, label, description }) => {
 							const currentHex =
@@ -503,7 +503,7 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 											{description}
 										</p>
 									</div>
-									{/* contrast warning icon — shown when the row's
+									{/* contrast warning icon, shown when the row's
                                                                                         relevant colour pair falls below the WCAG AA 4.5:1
                                                                                         threshold.  Tooltip shows the actual ratio and the AA
                                                                                         requirement. */}
@@ -599,7 +599,7 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 					{/* Reset to defaults.
                                                         Part C5: the previously-broken "#888" 3-digit hex in
                                                         DEFAULT_CUSTOM_DARK["--text-muted"] is now "#888888" (6-digit)
-                                                        so the validator accepts the payload — no more "Failed to
+                                                        so the validator accepts the payload, no more "Failed to
                                                         save settings" toast.
                                                         Part C6: button is disabled while the draft already matches
                                                         the defaults (re-enables the moment the user edits a color). */}

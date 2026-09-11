@@ -71,7 +71,7 @@ function withProvider(node: React.ReactNode) {
 	return <TooltipProvider delayDuration={200}>{node}</TooltipProvider>;
 }
 
-describe("KeyringStatusBadge — BG-R11 (branching + cursor-default)", () => {
+describe("KeyringStatusBadge, BG-R11 (branching + cursor-default)", () => {
 	afterEach(() => {
 		cleanup();
 	});
@@ -127,7 +127,7 @@ describe("KeyringStatusBadge — BG-R11 (branching + cursor-default)", () => {
 		// KeyringStatusBadge is called without `status` for legacy
 		// responses that don't carry the keyring_status field.
 		// We must never claim keyring is available when we don't
-		// know — the badge should render the fallback UI.
+		// know, the badge should render the fallback UI.
 		render(withProvider(<KeyringStatusBadge />));
 		expect(screen.getByText("Plaintext")).toBeInTheDocument();
 		expect(screen.getByTestId("hugeicon")).toHaveAttribute(
@@ -178,7 +178,7 @@ describe("KeyringStatusBadge — BG-R11 (branching + cursor-default)", () => {
 		expect(btn.className).toContain("cursor-default");
 
 		// Re-render with compact + fallback variant and check the
-		// same invariant — cursor-help removal applies to ALL branches.
+		// same invariant, cursor-help removal applies to ALL branches.
 		rerender(
 			withProvider(<KeyringStatusBadge status={fallbackStatus} compact />),
 		);

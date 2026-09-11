@@ -67,7 +67,7 @@ class Compressor(AudioFilter):
         # arrays are constant after __init__; the zi buffer is
         # overwritten with the current envelope before each lfilter
         # call (lfilter accepts zi as the initial state and does not
-        # mutate the caller's array — it returns the final state as a
+        # mutate the caller's array, it returns the final state as a
         # new array via the second tuple element, which we discard).
         self._attack_b = np.array([1.0 - self._attack_coeff], dtype=np.float64)
         self._attack_a = np.array([1.0, -self._attack_coeff], dtype=np.float64)
@@ -127,7 +127,7 @@ class Compressor(AudioFilter):
         #   - release_env decays slow (large coeff) -> holds falling signals
         # max(attack_env, release_env) reproduces the asymmetric behavior.
         #
-        # reuse the pre-allocated zi buffer — set the initial
+        # reuse the pre-allocated zi buffer. Set the initial
         # state to the current envelope, then pass the buffer to
         # lfilter. lfilter reads but does not mutate the caller's zi
         # array (it returns the final state as a new array).
@@ -151,12 +151,12 @@ class Compressor(AudioFilter):
         # else -inf. gain_db = slope * (threshold_db - env_db), clamped <= 0.
         above_floor = env > 1e-10
         # reuse a pre-allocated buffer for the safe_env / env_db
-        # gain_db pipeline — 3 ops collapsed into a single buffer.
+        # gain_db pipeline, 3 ops collapsed into a single buffer.
         if self._env_db_buf is None or self._env_db_buf.shape[0] < n:
             cap = max(n, 1024)
             self._env_db_buf = np.empty(cap, dtype=np.float64)
         env_db = self._env_db_buf[:n]
-        # safe_env = where(above_floor, env, 1.0) — np.where has no out=
+        # safe_env = where(above_floor, env, 1.0), np.where has no out=
         # kwarg, so use np.copyto with a where= mask + a scalar fill on
         # the below-floor slots. Avoids one fresh allocation per chunk.
         np.copyto(env_db, env, where=above_floor)
@@ -180,7 +180,7 @@ class Compressor(AudioFilter):
         np.divide(gain_db, 20.0, out=gain)
         np.power(10.0, gain, out=gain)
         gain *= self._output_gain
-        # np.where(above_floor, gain, output_gain) — np.where has no out=
+        # np.where(above_floor, gain, output_gain), np.where has no out=
         # kwarg and allocates a fresh array. ``np.copyto`` with a ``where=``
         # mask overwrites the below-floor slots in-place, producing the
         # same result without the allocation. Above-floor slots retain the

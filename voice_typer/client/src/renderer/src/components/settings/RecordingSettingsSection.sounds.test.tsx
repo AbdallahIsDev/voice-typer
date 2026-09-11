@@ -87,7 +87,7 @@ import {
 const alwaysVisible = () => true;
 const noopUpdate = () => {};
 
-describe("RecordingSettingsSection — sound volume slider + Test Sound", () => {
+describe("RecordingSettingsSection, sound volume slider + Test Sound", () => {
 	beforeEach(() => {
 		sliderInstances.length = 0;
 		vi.clearAllMocks();
@@ -215,7 +215,7 @@ describe("RecordingSettingsSection — sound volume slider + Test Sound", () => 
 	});
 });
 
-describe("RecordingSettingsSection — paste-safety rows", () => {
+describe("RecordingSettingsSection, paste-safety rows", () => {
 	beforeEach(() => {
 		sliderInstances.length = 0;
 	});
@@ -238,7 +238,7 @@ describe("RecordingSettingsSection — paste-safety rows", () => {
 			/>,
 		);
 		// New-row labels are PENDING i18n keys (translations not editable
-		// this wave) — assert via stable testids.
+		// this wave), assert via stable testids.
 		expect(screen.getByTestId("unsafe-paste-switch")).toBeTruthy();
 		expect(screen.getByTestId("warn-elevated-paste-switch")).toBeTruthy();
 		expect(screen.getByTestId("warn-password-paste-switch")).toBeTruthy();
@@ -277,7 +277,7 @@ describe("RecordingSettingsSection — paste-safety rows", () => {
 	});
 });
 
-describe("PrivacySettingsSection — hidden config rows", () => {
+describe("PrivacySettingsSection, hidden config rows", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 	});

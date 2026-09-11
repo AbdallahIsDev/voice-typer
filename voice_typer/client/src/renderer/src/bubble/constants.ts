@@ -1,5 +1,5 @@
 /**
- * Bubble overlay package — shared constants.
+ * Bubble overlay package, shared constants.
  *
  * All visualisation tuning knobs and the shared button `className`
  * live here so the three button components (`BubbleMicButton`,
@@ -32,13 +32,13 @@ export const MIN_HEIGHT = 5;
 // vertical headroom.
 export const MAX_HEIGHT = 22;
 
-/** Per-bar response weights — gentle bell so the spectrum looks organic. */
+/** Per-bar response weights, gentle bell so the spectrum looks organic. */
 export const DOT_WEIGHTS = [0.5, 0.75, 1.0, 0.95, 1.0, 0.75, 0.5];
 
 /**
  * Pre-computed `[0, 1, … DOT_COUNT-1]` index array. Previously
  * `BubbleVisualizer` allocated a fresh `Array.from({ length: DOT_COUNT },
- * (_, i) => i)` on every render — small but unnecessary garbage. Hoisted
+ * (_, i) => i)` on every render, small but unnecessary garbage. Hoisted
  * to module scope so the JSX `.map` uses a stable reference.
  */
 export const DOT_INDICES: readonly number[] = Array.from(
@@ -66,14 +66,14 @@ export const FADEOUT_DURATION_MS = 150;
  * `text-foreground`, `ring-ring`) so the buttons inherit the active
  * theme preset's palette instead of hardcoded `zinc-*` colors. The
  * `dark:hover:bg-muted/50` variant softens the hover surface in dark
- * mode (where `--muted` is already a dark surface) — full-strength
+ * mode (where `--muted` is already a dark surface), full-strength
  * `bg-muted` on hover would feel too aggressive in dark themes.
  *
  * `focus-visible:ring-2 focus-visible:ring-ring` ensures the buttons
  * have a visible focus indicator for keyboard / AT users navigating
  * via screen-reader cursor. Note: the bubble BrowserWindow is created
  * with `focusable: false` (see `main/windows/bubble-window.ts`), so
- * this ring never actually renders in the shipped app — but it's
+ * this ring never actually renders in the shipped app, but it's
  * correct a11y hygiene and would matter immediately if the
  * `focusable` flag is ever flipped (see the keyboard-accessibility
  * trade-off notes in `Bubble.tsx`).
@@ -88,7 +88,7 @@ export const BUBBLE_BUTTON_CLASS =
 // ── Mode transition (single source of truth) ───────────────────
 
 /**
- * Pure bubble-mode reducer — the SINGLE implementation of every mode
+ * Pure bubble-mode reducer, the SINGLE implementation of every mode
  * transition in the bubble package (single source of truth).
  *
  * Pre-refactor, the bubble's `mode` was tracked TWICE: in
@@ -96,15 +96,15 @@ export const BUBBLE_BUTTON_CLASS =
  * rendered pill) and in a local closure inside `useAudioLevels` (gating
  * the rAF visualizer loop + the dynamic `onLevel` IPC subscription).
  * The two trackers could drift because they were independent
- * implementations of the same transition table — a change to one (e.g.
+ * implementations of the same transition table, a change to one (e.g.
  * adding `blocked` / `cancelling` / `permission_revoked` /
  * `paste_failed`) silently left the other stale.
  *
  * This reducer is the single transition table. It is consumed by:
- *   - `useBubbleBridge` — to keep the bridge's authoritative mode ref
+ *   - `useBubbleBridge`, to keep the bridge's authoritative mode ref
  *     in lockstep with the event stream, updated BEFORE fan-out so
  *     every consumer handler reads the current mode synchronously.
- *   - `useBubbleStateMachine` — for its React `mode` state (via
+ *   - `useBubbleStateMachine`, for its React `mode` state (via
  *     functional `setMode`), preserving the queued-update semantics of
  *     the original inline logic (e.g. hide → setState in the same
  *     batch).

@@ -1,4 +1,4 @@
-"""Forced-recovery engine ejection — regression tests.
+"""Forced-recovery engine ejection: regression tests.
 
 When dictation hangs, the transcription watchdog force-recovers: it
 marks the cycle cancelled, resets tray/busy state, and (since the
@@ -13,7 +13,7 @@ Contract pinned here:
    orphaned reference; destroying CUDA tensors / ctranslate2 handles
    under a live C call would use-after-free).
 2. The next dictation is served by a NEW engine instance (identity
-   assert) — never the ejected one.
+   assert), never the ejected one.
 3. A forced recovery that races past an already-exited worker leaves a
    healthy warm model registered (no needless cold reload).
 4. Non-forced watchdog firings (worker still alive, under the firing
@@ -208,7 +208,7 @@ class TestForcedRecoveryEjectsEngine:
 
         # Worker thread enters the (hung) transcribe call via the real
         # registry wrapper → busy flag set, thread parked inside the
-        # engine — exactly the pre-recovery production state.
+        # engine, exactly the pre-recovery production state.
         hung = _HungTranscribe()
         finish_worker, worker = _start_hung_worker(registry, hung, stuck_engine)
         try:
@@ -222,7 +222,7 @@ class TestForcedRecoveryEjectsEngine:
 
             watchdog.force_recover(controller, force=True)
 
-            # The slot was dropped — the next load cannot reuse the
+            # The slot was dropped, the next load cannot reuse the
             # instance the orphaned worker still occupies.
             assert registry.get("whisper") is None, (
                 "forced recovery must eject the stuck backend from the "
@@ -239,7 +239,7 @@ class TestForcedRecoveryEjectsEngine:
             assert app._busy_event.is_set() is True  # app no longer busy
 
             # The NEXT dictation constructs and receives a FRESH engine
-            # instance — identity assert against the stuck one.
+            # instance, identity assert against the stuck one.
             fresh_engine = _FakeEngine("fresh")
             mm._ensure_engine = _fake_ensure_engine_factory(registry, fresh_engine)
             result = mm.ensure_active_engine_loaded()
@@ -311,7 +311,7 @@ class TestForcedRecoveryGating:
 
             assert registry.get("whisper") is stuck_engine
             assert registry.is_busy("whisper") is True
-            assert app._busy_event.is_set() is False  # still busy — no reset
+            assert app._busy_event.is_set() is False  # still busy, no reset
             assert stuck_engine.unload_calls == 0
         finally:
             finish_worker()

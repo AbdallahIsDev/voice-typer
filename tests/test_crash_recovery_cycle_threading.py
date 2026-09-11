@@ -3,7 +3,7 @@ CancellationGuard privacy gate.
 
 ``CrashRecovery.add()`` accepts a ``cycle_id`` and the
 ``.dictation-in-flight`` sentinel persists one, but NONE of the four
-production call sites passed it — so ``_detect_and_notify_lost_dictation``
+production call sites passed it, so ``_detect_and_notify_lost_dictation``
 could never match a saved entry and ``recoverable`` was always ``False``
 in production (the detection-side tests masked this by passing
 ``cycle_id=`` manually). These tests go through the PRODUCTION callers
@@ -35,7 +35,7 @@ class TestCycleIdThreading:
         """The stage-10 store path (StorageStep) writes with ``cycle_id``.
 
         Regression: previously ``add(text, pasted=False)`` with no cycle
-        id — the entry was anonymous and could never match a crash
+        id, the entry was anonymous and could never match a crash
         sentinel, so ``recoverable`` was always False in production.
         """
         app = make_test_app()
@@ -52,7 +52,7 @@ class TestCycleIdThreading:
         """The CancellationGuard's cancelled-cycle write carries the cycle id.
 
         Regression: the guard wrote ``add(text, pasted=False)`` with no
-        correlation — same anonymous-entry problem as the other sites.
+        correlation, same anonymous-entry problem as the other sites.
         """
         app = make_test_app()
         app.config.crash_recovery_enabled = True
@@ -72,7 +72,7 @@ class TestCancellationGuardPrivacyGate:
     """The guard's recovery write must respect crash_recovery_enabled."""
 
     def test_disabled_does_not_write(self):
-        """Opt-out holds on the guard path — no entry persisted when OFF."""
+        """Opt-out holds on the guard path, no entry persisted when OFF."""
         app = make_test_app()
         app.config.crash_recovery_enabled = False
         app.recording._cancelled_cycle_ids = {"test-cycle"}

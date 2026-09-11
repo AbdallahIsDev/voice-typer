@@ -14,22 +14,22 @@ Voice Typer pastes transcribed text into the user's active application by simula
 keyboard input (Ctrl+V). This requires reading and writing the system clipboard, which
 has security implications:
 
-1. **Clipboard history** — pasting stores the transcription in the clipboard history,
+1. **Clipboard history**: pasting stores the transcription in the clipboard history,
    which may be accessible to other applications.
-2. **Elevated processes** — if the focused window is an elevated (UAC) process, the
+2. **Elevated processes**: if the focused window is an elevated (UAC) process, the
    clipboard paste will silently fail, and the user may not understand why.
-3. **Sensitive content** — transcriptions may contain passwords, API keys, or personal
+3. **Sensitive content**: transcriptions may contain passwords, API keys, or personal
    information that should not persist in the clipboard.
-4. **Race conditions** — another application may modify the clipboard between our write
+4. **Race conditions**: another application may modify the clipboard between our write
    and the simulated Ctrl+V, causing the wrong text to be pasted.
 
 Options considered:
 
-1. **No clipboard, use typing emulation** — type each character individually; very slow
+1. **No clipboard, use typing emulation**, type each character individually; very slow
    for long texts, breaks with IME, and triggers keyboard shortcuts.
-2. **Clipboard with immediate restore** — save the current clipboard content, paste the
+2. **Clipboard with immediate restore**: save the current clipboard content, paste the
    transcription, then restore the original content after a short delay.
-3. **Clipboard without restore** — paste and leave the transcription in the clipboard;
+3. **Clipboard without restore**: paste and leave the transcription in the clipboard;
    simplest but leaks content.
 
 ## Decision
@@ -41,9 +41,9 @@ which the transcription is visible in the clipboard.
 We also added:
 - **Clipboard sequence number tracking** (Windows) to detect if another app modified the
   clipboard during our paste window.
-- **Elevated process detection** — skip paste when the foreground window is an elevated
+- **Elevated process detection**: skip paste when the foreground window is an elevated
   (UAC/Winlogon) process and notify the user instead.
-- **Secure file permissions** — config files containing API keys are created with 0o600
+- **Secure file permissions**: config files containing API keys are created with 0o600
   permissions on POSIX systems.
 
 ## Consequences

@@ -10,7 +10,7 @@
  * `__tests__/behavior-rewrite/hotkeys-behavior.test.tsx`, etc.). When a
  * test needed `rerender`, it had to re-wrap the node manually or the
  * TooltipProvider would be missing on the second render (triggering
- * "Tooltip must be used within TooltipProvider" errors — the same
+ * "Tooltip must be used within TooltipProvider" errors, the same
  * symptom that motivated C-TEST-1 / `isolate: true` in
  * `vitest.config.ts`).
  *
@@ -20,7 +20,7 @@
  * `rerender` calls so the tooltip context never disappears mid-test.
  *
  * The `delayDuration={200}` value matches the production default the
- * existing 19 copies already use — keep it in sync with
+ * existing 19 copies already use, keep it in sync with
  * `@/components/ui/tooltip` if the production default ever changes.
  *
  * This file is intended to be imported directly by tests. It has NO
@@ -57,7 +57,7 @@ export const TOOLTIP_DELAY_DURATION = 200;
  *
  * `ui` is typed as `ReactNode` (not the narrower `ReactElement`) to match
  * the underlying `render` / `rerender` signatures from
- * `@testing-library/react` — that way a test passing a string, number,
+ * `@testing-library/react`, that way a test passing a string, number,
  * or `null` doesn't need a cast.
  */
 export function renderWithProviders(

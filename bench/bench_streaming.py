@@ -42,7 +42,7 @@ def _make_words(n: int, start_offset_s: float = 0.0):
     timestamps (so the dedup path doesn't short-circuit them all)."""
     from voice_typer.server.streaming import WordTiming
 
-    # 200ms per word — matches a moderate speaking rate.
+    # 200ms per word: matches a moderate speaking rate.
     per_word_s = 0.2
     return [
         WordTiming(
@@ -74,7 +74,7 @@ def bench_streaming_assembler(total_words: int, chunk_size: int) -> dict:
         t0 = time.perf_counter_ns()
         asm.add_words(chunk, commit_horizon_seconds=horizon_s)
         per_chunk_us.append((time.perf_counter_ns() - t0) / 1000.0)
-        # Read committed_text every chunk — matches the streaming
+        # Read committed_text every chunk: matches the streaming
         # callback that surfaces partial transcripts to the UI.
         t0 = time.perf_counter_ns()
         _ = asm.committed_text
@@ -119,7 +119,7 @@ def main() -> int:
         return 0
 
     print("=" * 72)
-    print("Voice Typer — Streaming Text Assembler Benchmark")
+    print("Voice Typer: Streaming Text Assembler Benchmark")
     print("=" * 72)
     print()
     print(f"  Total words       : {result['total_words']}")

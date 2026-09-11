@@ -477,7 +477,7 @@ class TestBackendPidFile:
     def test_pid_file_written_on_startup(self, tmp_config_dir):
         """``_write_backend_pid_file`` writes our PID to ``backend.pid``."""
         # _secure_atomic_write is the production write path.
-        # Just call our helper — it should produce the file with our PID.
+        # Just call our helper, it should produce the file with our PID.
         app_module._write_backend_pid_file()
         pid_file = tmp_config_dir / "run" / "backend.pid"
         assert pid_file.exists()
@@ -522,12 +522,12 @@ class TestBackendPidFile:
 
     def test_alive_pid_file_not_considered_stale(self, tmp_config_dir):
         """When the PID is still alive, ``_read_stale_backend_pid`` returns None."""
-        # Write our own PID — we're definitely alive.
+        # Write our own PID, we're definitely alive.
         pid_file = tmp_config_dir / "run" / "backend.pid"
         pid_file.parent.mkdir(parents=True, exist_ok=True)
         pid_file.write_text(f"{os.getpid()}\n")
         # _is_pid_alive should return True for our own PID.
-        # (On Windows this calls OpenProcess on ourselves — should succeed.)
+        # (On Windows this calls OpenProcess on ourselves, should succeed.)
         assert app_module._is_pid_alive(os.getpid()) is True
         assert app_module._read_stale_backend_pid() is None
 
@@ -601,7 +601,7 @@ class TestPickAvailablePort:
             # Result should be a valid port >= the start port.
             assert isinstance(port, int)
             assert port >= some_port
-            # the returned socket is already bound — verify by
+            # the returned socket is already bound, verify by
             # checking its getsockname() matches the returned port.
             bound_port = sock.getsockname()[1]
             assert bound_port == port

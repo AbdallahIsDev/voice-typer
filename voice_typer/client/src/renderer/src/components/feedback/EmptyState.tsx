@@ -15,7 +15,7 @@ interface EmptyStateProps {
 	actionLabel?: string;
 	/** Optional action button click handler */
 	onAction?: () => void;
-	/** Optional — overrides the default Add01Icon for the action button */
+	/** Optional, overrides the default Add01Icon for the action button */
 	actionIcon?: IconSvgElement;
 	/**
 	 * Optional ref forwarded to the action `<Button>`. Callers can use
@@ -33,7 +33,7 @@ interface EmptyStateProps {
 	 * placeholder used for "no items yet" states. ``"error"`` switches
 	 * the icon to ``--destructive`` and wraps the card in a destructive
 	 * tinted ring so failure states (e.g. "failed to load vocabulary")
-	 * are visually distinct from genuine empty states — without this,
+	 * are visually distinct from genuine empty states, without this,
 	 * a load failure looks identical to "you haven't added anything
 	 * yet", which sends the user down the wrong recovery path.
 	 */
@@ -54,7 +54,7 @@ export function EmptyState({
 	const displayIcon = actionIcon ?? Add01Icon;
 	const isError = variant === "error";
 	// For the action button: when the empty state represents a failure,
-	// the CTA is typically "Retry" / "Refresh" — surface that with the
+	// the CTA is typically "Retry" / "Refresh", surface that with the
 	// Alert02Icon instead of the default Add01Icon so the affordance
 	// matches the context.
 	const actionGlyph = isError ? Alert02Icon : displayIcon;
@@ -94,7 +94,7 @@ export function EmptyState({
 			    level (h3) is chosen to sit below the typical page <h1>/<h2>
 			    hierarchy used across the app. */}
 			<h3 className="text-sm text-(--text-muted)">{title}</h3>
-			{/* Dropped opacity-70 — text-(--text-muted) is already a
+			{/* Dropped opacity-70, text-(--text-muted) is already a
 			    low-contrast token, and stacking opacity on top pushed the
 			    effective contrast below WCAG AA for body text. */}
 			{description && (

@@ -3,7 +3,7 @@ and null the watchdog thread, mirroring ``_stop_mic_level_worker``
 (level_monitor.py:376-384).
 
 Pre-fix, ``_stop_watchdog_thread`` only signaled the thread via the
-stop event — no ``join()``, no ``self._watchdog_thread = None``. The
+stop event, no ``join()``, no ``self._watchdog_thread = None``. The
 dead ``Thread`` object stayed referenced on ``self._watchdog_thread``
 until the next ``_start_watchdog_thread`` overwrote it (which can be
 hours apart in a long-running tray app). The asymmetry with
@@ -48,7 +48,7 @@ def test_stop_watchdog_thread_joins_and_nulls():
     """DJ-23: ``_stop_watchdog_thread`` joins the thread (best-effort)
     and sets ``_watchdog_thread = None``.
 
-    Pre-fix, the thread reference persisted after stop() — this test
+    Pre-fix, the thread reference persisted after stop(), this test
     pins the post-fix contract that the reference is cleared.
     """
     ctrl = _make_controller_for_watchdog()
@@ -100,7 +100,7 @@ def test_stop_watchdog_thread_skips_self_join():
 
     The watchdog thread calls ``_stop_watchdog_thread`` via
     ``_force_recover_from_stuck_transcription`` from inside its own
-    loop — joining ourselves would block forever.
+    loop, joining ourselves would block forever.
     """
     ctrl = _make_controller_for_watchdog()
 
@@ -111,7 +111,7 @@ def test_stop_watchdog_thread_skips_self_join():
 
     t = threading.Thread(target=_self_stop_loop, name="SelfStopWatchdog", daemon=True)
     t.start()
-    # Wait for the thread to finish — if the self-join deadlocked,
+    # Wait for the thread to finish, if the self-join deadlocked,
     # this join would time out and the assertion below would fail.
     t.join(timeout=2.0)
     assert not t.is_alive(), (
@@ -135,7 +135,7 @@ def test_stop_watchdog_thread_join_is_bounded():
     stop_flag = threading.Event()
 
     def _hung_loop():
-        # Never checks _watchdog_stop_event — simulates a hung thread.
+        # Never checks _watchdog_stop_event, simulates a hung thread.
         stop_flag.wait(timeout=5.0)
 
     t = threading.Thread(target=_hung_loop, name="HungWatchdog", daemon=True)
@@ -153,13 +153,13 @@ def test_stop_watchdog_thread_join_is_bounded():
         f"indefinitely without the timeout)."
     )
     # The reference must NOT be nulled when the thread is still alive
-    # (zombie thread leak mitigation — keep the reference so
+    # (zombie thread leak mitigation, keep the reference so
     # _start_watchdog_thread's is_alive() guard reuses this thread
     # instead of spawning a duplicate). The stop event is left SET so
     # the zombie exits on its next iteration boundary.
     assert ctrl._watchdog_thread is t, (
         "_stop_watchdog_thread must NOT null the thread reference when the "
-        "thread is still alive (zombie leak mitigation — keep the reference "
+        "thread is still alive (zombie leak mitigation, keep the reference "
         "so _start_watchdog_thread's is_alive() guard prevents a duplicate "
         "spawn)."
     )

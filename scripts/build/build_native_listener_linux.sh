@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Voice Typer — Native key-listener build (Linux)
-# ADR-0020 §6.4 — Linux uses compile_native.sh which invokes gcc on
+# Voice Typer. Native key-listener build (Linux)
+# ADR-0020 §6.4. Linux uses compile_native.sh which invokes gcc on
 # voice_typer/server/native/linux-key-listener.c. This wrapper invokes
 # compile_native.sh (detecting Linux) and copies the compiled binary into
 # src-tauri/resources/native/.

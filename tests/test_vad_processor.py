@@ -1,7 +1,7 @@
 """Unit tests for the extracted VadProcessor class.
 
 These tests exercise the state machine, auto-calibration, and VAD-enabled
-cache in isolation — without instantiating a full ``Recorder`` (which
+cache in isolation, without instantiating a full ``Recorder`` (which
 pulls in sounddevice, the audio worker thread, the device-health
 checker, the scipy preloader, etc.).
 
@@ -76,7 +76,7 @@ def _silence_vad_unavailable_warning(monkeypatch: pytest.MonkeyPatch) -> None:
     """Suppress the Silero-unavailable warning in test output.
 
     Tests construct VadProcessor with ``use_silero_vad=False`` so the
-    lazy ``is_available`` import is skipped — but the
+    lazy ``is_available`` import is skipped, but the
     auto-fixture keeps things quiet even when a config has
     ``use_silero_vad=True``.
     """
@@ -265,7 +265,7 @@ class TestGreyZoneDecay:
         vp.consecutive_speech_frames = 5
         vp.consecutive_silence_frames = 5
 
-        # 29 grey-zone chunks: still under the hold limit — no decay.
+        # 29 grey-zone chunks: still under the hold limit, no decay.
         for _ in range(29):
             vp.update_frame(grey_db)
         assert vp.consecutive_speech_frames == 5, "AUDIO-5: first 29 grey-zone chunks must NOT decay speech counter"
@@ -275,7 +275,7 @@ class TestGreyZoneDecay:
 
         # 6 more grey-zone chunks (total 35): the 30th triggers one decay
         # cycle (speech 5→4, silence 5→4, grey reset to 0). Frames 31-35
-        # then re-accumulate grey to 5 — no second decay yet.
+        # then re-accumulate grey to 5, no second decay yet.
         for _ in range(6):
             vp.update_frame(grey_db)
         assert vp.consecutive_speech_frames == 4, (
@@ -307,7 +307,7 @@ class TestGreyZoneDecay:
         assert vp.consecutive_silence_frames == 0
 
     def test_grey_zone_decay_is_periodic(self) -> None:
-        """AUDIO-5: decay repeats every ``hold_limit`` frames — 60 grey
+        """AUDIO-5: decay repeats every ``hold_limit`` frames, 60 grey
         chunks (2 cycles) must decay each counter by 2 from the baseline."""
         vp = VadProcessor(_config_with_vad_enabled())
         grey_db = (vp.silence_threshold_db + vp.speech_threshold_db) / 2.0
@@ -327,7 +327,7 @@ class TestGreyZoneDecay:
         The recorder's silence timer only advances when ``update_frame``
         returns SILENCE (recorder.py:2420). Without this, a soft-spoken
         phrase ending (audio hovering in the grey zone) keeps returning
-        SPEECH, holding the silence timer at 0 — so auto-stop never fires
+        SPEECH, holding the silence timer at 0, so auto-stop never fires
         and the tail is held/cut off. After the grey-hold limit (~1s) the
         state must flip to SILENCE so the timer can advance/trigger.
         """
@@ -350,7 +350,7 @@ class TestGreyZoneDecay:
     def test_grey_zone_soft_tail_resumes_on_loud(self) -> None:
         """AUDIO-5: if the speaker resumes (a loud frame) during/after the
         grey tail, the state must flip back to SPEECH and the silence timer
-        would reset — i.e. we don't permanently wedge in SILENCE.
+        would reset, i.e. we don't permanently wedge in SILENCE.
         """
         vp = VadProcessor(_config_with_vad_enabled())
         loud_db = vp.speech_threshold_db + 5.0
@@ -360,7 +360,7 @@ class TestGreyZoneDecay:
         for _ in range(vp._grey_zone_hold_limit):
             vp.update_frame(grey_db)
         assert vp.state == VadState.SILENCE
-        # Speaker resumes — needs >= speech_frames consecutive loud frames
+        # Speaker resumes, needs >= speech_frames consecutive loud frames
         # to flip back to SPEECH (hysteresis), same as the initial onset.
         for _ in range(vp.speech_frames + 2):
             vp.update_frame(loud_db)
@@ -376,7 +376,7 @@ class TestAutoCalibration:
     def test_calibration_collects_rms_until_duration_elapsed(self) -> None:
         vp = VadProcessor(_config_with_vad_enabled())
         vp.calibration_duration = 1.5
-        # 0.5s elapsed — still collecting
+        # 0.5s elapsed, still collecting
         vp.auto_calibrate(0.01, elapsed_seconds=0.5)
         vp.auto_calibrate(0.011, elapsed_seconds=0.6)
         assert vp.calibrated is False
@@ -407,7 +407,7 @@ class TestAutoCalibration:
         assert vp.calibrated is True
         silence_after_first = vp.silence_threshold_db
         speech_after_first = vp.speech_threshold_db
-        # More samples with very different RMS — should NOT change thresholds
+        # More samples with very different RMS, should NOT change thresholds
         for i in range(50):
             vp.auto_calibrate(0.5, elapsed_seconds=3.0 + 0.05 * i)
         assert vp.silence_threshold_db == silence_after_first
@@ -422,7 +422,7 @@ class TestAutoCalibration:
         assert vp.calibration_rms_values == []
 
     def test_calibration_handles_zero_rms(self) -> None:
-        """Zero RMS would cause log10(0) — must fall back to -90 dB, then CLAMP to the floors.
+        """Zero RMS would cause log10(0), must fall back to -90 dB, then CLAMP to the floors.
 
         The raw math yields silence=-84 / speech=-72, but the
         clamping floors (-65 / -55 dBFS) apply because the
@@ -467,7 +467,7 @@ class TestAutoCalibration:
         vp = VadProcessor(_config_with_vad_enabled())
         vp.calibration_duration = 0.1
         # RMS ≈ 1.78e-4 → noise_db = 20*log10(1.78e-4) ≈ -75 dBFS.
-        # Raw math: silence = -69, speech = -57 — BOTH below their
+        # Raw math: silence = -69, speech = -57, BOTH below their
         # floors → both must clamp.
         quiet_rms = 10 ** (-75.0 / 20.0)
         for i in range(20):
@@ -969,7 +969,7 @@ class TestThreadSafety:
     (``reset``, ``on_config_changed``), and tests. Verify no crashes or
     corruption under concurrent access.
 
-    The VadProcessor does NOT use internal locks — it relies on CPython's
+    The VadProcessor does NOT use internal locks, it relies on CPython's
     GIL for atomic attribute reads/writes. The state-machine counters are
     only mutated from the audio worker thread (single producer), and the
     ``vad_enabled`` cache fields are simple Python attributes whose
@@ -1075,7 +1075,7 @@ class TestVadAvailabilityContract:
 
     The historical ``_check_vad_available`` wrapper called
     ``is_available()`` and then re-checked the same model-path existence
-    predicate ``is_available()`` already covers — a redundant
+    predicate ``is_available()`` already covers, a redundant
     double-check that could drift out of sync with the real predicate.
     It was removed; callers use ``is_available`` directly."""
 

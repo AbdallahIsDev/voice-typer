@@ -3,11 +3,11 @@
 Compatibility facade: the original single-module ``text_cleanup.py`` is
 now a package split by concern:
 
-- :mod:`._corrections_data` — corrections loaders + the Roman-numeral /
+- :mod:`._corrections_data`: corrections loaders + the Roman-numeral /
   pronoun-I cluster (writer + reader share one module because the
   user-extension state is rebound via ``global``).
-- :mod:`._casing`          — sentence capitalization + file-extension repair.
-- :mod:`._engine`          — active-corrections state, entry points,
+- :mod:`._casing`         : sentence capitalization + file-extension repair.
+- :mod:`._engine`         : active-corrections state, entry points,
                              regex constants, and the cleaning rules.
 
 Every public AND private top-level name of the old module is

@@ -1,7 +1,7 @@
 """Availability guards for the schema-V5 trigram CJK index.
 
 On SQLite builds older than 3.34 the FTS5 ``trigram`` tokenizer does not
-exist (distro-linked CPython can carry such a libsqlite3 — e.g. Ubuntu
+exist (distro-linked CPython can carry such a libsqlite3, e.g. Ubuntu
 20.04's 3.31). In that environment:
 
 * the V5 migration must be SKIPPED with the recorded version left
@@ -65,7 +65,7 @@ class TestTrigramHelpers:
 
 class TestMigrationSkippedOnOldSQLite:
     def test_v5_skipped_version_stays_below_5(self, old_sqlite, tmp_path):
-        """A fresh DB on old SQLite must open cleanly at version 4 — the
+        """A fresh DB on old SQLite must open cleanly at version 4, the
         V5 migration is skipped, the trigram table is absent, and the
         unicode61 schema is fully applied."""
         from voice_typer.server.history_db import HistoryDB
@@ -93,7 +93,7 @@ class TestMigrationSkippedOnOldSQLite:
 
     def test_search_degrades_to_like_without_trigram_table(self, old_sqlite, tmp_path):
         """With V5 skipped, CJK queries must still return correct rows via
-        the bounded LIKE fallback — never raise ``no such table``."""
+        the bounded LIKE fallback, never raise ``no such table``."""
         from voice_typer.server.history_db import HistoryDB
 
         db = HistoryDB(db_path=tmp_path / "old-sqlite-search.db")

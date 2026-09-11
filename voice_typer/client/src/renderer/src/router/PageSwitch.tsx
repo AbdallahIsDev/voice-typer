@@ -24,7 +24,7 @@ import { LAZY_PAGES } from "./pageLoaders";
  * A page-shaped Skeleton (the app's single loading primitive) instead
  * of the former centered spinner: it matches the target page's layout
  * so the chunk-load → content transition doesn't jump. In practice it's
- * a one-frame flash — all route chunks are prefetched at idle
+ * a one-frame flash, all route chunks are prefetched at idle
  * (router/prefetch.ts), on sidebar hover via `prefetchPage`, and
  * React.lazy caches resolved modules so revisits render synchronously.
  */
@@ -35,7 +35,7 @@ function RouteSuspenseFallback() {
 interface PageSwitchProps {
 	/** The active route (from useNavigation). */
 	page: Page;
-	/** Navigate action — used only by the page-not-found fallback. */
+	/** Navigate action, used only by the page-not-found fallback. */
 	navigate: (page: Page) => void;
 	/** Onboarding-completion callback passed through to the wizard. */
 	onOnboardingComplete: () => void;
@@ -43,7 +43,7 @@ interface PageSwitchProps {
 
 /**
  * Route table: see router/routes.ts for the single source of page names.
- * This component maps each `Page` literal to its view — legitimate
+ * This component maps each `Page` literal to its view, legitimate
  * routing logic (which component renders for which page), not a
  * duplicate of the page registry. The set of valid page names lives
  * in `ROUTES` (router/routes.ts); this switch only chooses the view.

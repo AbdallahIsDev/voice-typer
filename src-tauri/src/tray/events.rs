@@ -18,7 +18,7 @@ use tauri::tray::{MouseButton, TrayIconEvent};
 /// Returns `true` ONLY for `TrayIconEvent::Click` with
 /// `button == MouseButton::Left`. Right-click, middle-click, double-
 /// click, mouse-enter, mouse-move, and mouse-leave all return `false`
-/// — the OS / Tauri handles those (right-click opens the bound
+///: the OS / Tauri handles those (right-click opens the bound
 /// `.menu(...)`, etc.).
 pub(crate) fn is_focus_main_window_event(event: &TrayIconEvent) -> bool {
     matches!(

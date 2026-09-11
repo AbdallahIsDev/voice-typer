@@ -5,14 +5,14 @@ Covers:
   (not ``time.time()``), so wall-clock jumps (NTP skew, DST transitions)
   cannot corrupt the displayed ``mm:ss``.
 - ER-55 (templates):
-  * ``substitute_variables`` is lazy — it does NOT call
+  * ``substitute_variables`` is lazy, it does NOT call
     ``_get_clipboard_text()`` (which can block on the X11/clipboard
     selection) when the template output has no ``{clipboard}``
     placeholder.
   * ``_WHITESPACE_RE`` is compiled exactly once at import time, not
     re-compiled per template per ``match()`` call.
 - ER-64 (_secrets):
-  * ``_LOOPBACK_HOSTS`` is a module-level frozenset — its ``id()`` is
+  * ``_LOOPBACK_HOSTS`` is a module-level frozenset, its ``id()`` is
     stable across multiple ``assert_url_allowed`` calls (the previous
     per-call literal rebuilt the set every time).
 """
@@ -55,7 +55,7 @@ class TestTrayMonotonicElapsed:
         """``_compute_tooltip`` reads ``time.monotonic()``, NOT
         ``time.time()``. A wall-clock jump (mocked by setting
         ``time.time`` to a huge value) must not affect the elapsed
-        suffix — only ``time.monotonic`` drives the computation.
+        suffix, only ``time.monotonic`` drives the computation.
         """
         from voice_typer.server.tray import AppState, TrayIcon
 
@@ -100,7 +100,7 @@ class TestTrayMonotonicElapsed:
             f"set_state should store time.monotonic() (1000.0), got {tray._recording_started_at!r}"
         )
 
-        # Now compute tooltip — it should call ``time.monotonic()`` again
+        # Now compute tooltip, it should call ``time.monotonic()`` again
         # (1065.0), yielding elapsed = 65s -> "01:05". If it had used
         # ``time.time()``, elapsed would be ~1e9 and the format would
         # blow up or display nonsense.
@@ -269,7 +269,7 @@ class TestTemplatesWhitespaceRegexCompiledOnce:
 
     def test_match_does_not_recompile_regex(self, monkeypatch, tmp_config_dir):
         """Wrapping ``re.compile`` to count invocations, ``match()``
-        must NOT trigger any additional ``re.compile`` calls — the
+        must NOT trigger any additional ``re.compile`` calls, the
         module-level ``_WHITESPACE_RE`` is reused on every iteration.
         """
         from voice_typer.server import templates as tmpl_mod
@@ -293,7 +293,7 @@ class TestTemplatesWhitespaceRegexCompiledOnce:
         tm.add("retro", "Retro items.", match_mode="contains")
 
         baseline = compile_calls["n"]
-        # Run match() many times across multiple templates — none of
+        # Run match() many times across multiple templates, none of
         # these calls should invoke re.compile again.
         for _ in range(50):
             tm.match("code review")
@@ -302,7 +302,7 @@ class TestTemplatesWhitespaceRegexCompiledOnce:
             tm.match("nothing matches this")
 
         assert compile_calls["n"] == baseline, (
-            f"match() must not invoke re.compile — _WHITESPACE_RE should "
+            f"match() must not invoke re.compile, _WHITESPACE_RE should "
             f"be reused. Baseline={baseline}, after match loop="
             f"{compile_calls['n']}"
         )
@@ -322,7 +322,7 @@ class TestTemplatesWhitespaceRegexCompiledOnce:
 
 
 class TestLoopbackHostsModuleLevel:
-    """ER-64: ``_LOOPBACK_HOSTS`` is a module-level frozenset — its
+    """ER-64: ``_LOOPBACK_HOSTS`` is a module-level frozenset, its
     ``id()`` is stable across multiple ``assert_url_allowed`` calls."""
 
     def test_loopback_hosts_is_module_level(self):
@@ -361,7 +361,7 @@ class TestLoopbackHostsModuleLevel:
 
     def test_loopback_hosts_id_stable_across_loopback_variants(self):
         """All three loopback hosts exercise the same module-level
-        object — confirms the host lookup uses _LOOPBACK_HOSTS (not a
+        object, confirms the host lookup uses _LOOPBACK_HOSTS (not a
         locally-built set)."""
         from voice_typer.server import _secrets
 

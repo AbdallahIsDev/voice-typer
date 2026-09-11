@@ -1,4 +1,4 @@
-"""Config side-effect dispatcher — extracted from ``service.py`` ().
+"""Config side-effect dispatcher, extracted from ``service.py`` ().
 
 ``VoiceTyperService.apply_config_side_effects`` (215
 LOC, 8 branching blocks, 12 distinct side-effects) and
@@ -49,18 +49,18 @@ def _notify_side_effect_failure(app: Any, field: str, exc: BaseException) -> Non
     ``settings_controller.py:107-108``.
 
     The config has ALREADY been mutated (via ``setattr`` in
-    ``apply_config``) and WILL be persisted (via ``save_strict``) — so
+    ``apply_config``) and WILL be persisted (via ``save_strict``), so
     on-disk config says X while runtime state says Y. Without this
     notification the user has no signal that the runtime state didn't
     take effect (e.g. they enabled a filter, but the live audio
-    processor wasn't rebuilt — the next dictation will use the OLD
+    processor wasn't rebuilt, the next dictation will use the OLD
     filter chain, and the user will wonder why their setting "didn't
     do anything").
 
     Parameters
     ----------
     app
-        The VoiceTyperApp instance — must expose ``tray.notify(title,
+        The VoiceTyperApp instance, must expose ``tray.notify(title,
         message)`` (the same API used by ``SettingsController`` and
         the dictation-pipeline ERROR path).
     field
@@ -78,7 +78,7 @@ def _notify_side_effect_failure(app: Any, field: str, exc: BaseException) -> Non
     if callable(notify):
         try:
             # Truncate the exception text so the toast stays readable
-            # (some exception strings — e.g. ctranslate2 CUDA errors —
+            # (some exception strings: e.g. ctranslate2 CUDA errors —
             # can run for hundreds of chars and wrap badly in a
             # 250px-wide toast).
             msg = str(exc)
@@ -86,7 +86,7 @@ def _notify_side_effect_failure(app: Any, field: str, exc: BaseException) -> Non
                 msg = msg[:197] + "..."
             notify(APP_NAME, f"Could not apply {field} change: {msg}")
         except Exception:
-            # The notification itself failed — log at DEBUG (not
+            # The notification itself failed, log at DEBUG (not
             # WARNING, to avoid a notification-failure loop) and
             # continue. The original side-effect failure was already
             # logged at WARNING by the caller.
@@ -123,7 +123,7 @@ def _json_dumps_sorted(obj: Any) -> str:
 
 # hoisted from ``apply_config_side_effects``'s method body.
 # Rebuilding a 30-element set literal on every IPC ``set_config`` call
-# was pure waste — the keys never change at runtime. A module-level
+# was pure waste, the keys never change at runtime. A module-level
 # ``frozenset`` is built once at import and the ``&`` operator accepts
 # a ``dict_keys`` view directly, so we can drop the ``set(...)`` wrapper
 # on ``updates.keys()`` too.
@@ -171,7 +171,7 @@ _FILTER_CHAIN_KEYS = frozenset(
 # ``noise_filter_limiter``, ``noise_filter_notch``).  The level
 # monitor / mic test path doesn't actually need those 4 (they only
 # affect the dictation AudioProcessor, not the live level bar), so
-# the canonical dict here mirrors the existing 5-key set — but with
+# the canonical dict here mirrors the existing 5-key set, but with
 # UNIFORM defaults (``noise_filter_rnnoise`` defaults to True per
 # Config dataclass) so the two call sites don't drift.
 
@@ -184,7 +184,7 @@ _FILTER_CHAIN_KEYS = frozenset(
 # preset's value. ``apply_config`` detects this case and auto-switches
 # ``audio_preset`` to ``"custom"`` (with an INFO log) so the user's
 # individual toggle survives a restart. The set mirrors the keys in
-# ``audio_presets.PRESETS`` exactly — kept here as a frozenset (rather
+# ``audio_presets.PRESETS`` exactly, kept here as a frozenset (rather
 # than dynamically derived from ``PRESETS``) so the value is bound at
 # import time and the auto-switch check is O(1).
 _PRESET_OVERRIDE_KEYS: frozenset[str] = frozenset(
@@ -230,7 +230,7 @@ class SideEffectStatus(TypedDict):
     renderer uses the same field names for direct and config-change
     syncs). The inner dict is typed ``dict[str, Any]`` rather than a
     nested TypedDict because the sync functions' own return
-    annotations are bare ``dict`` — tightening them is a follow-up in
+    annotations are bare ``dict``: tightening them is a follow-up in
     ``startup_tasks.py`` (out of scope for this change).
     """
 
@@ -254,7 +254,7 @@ def to_filter_dict(config: Any) -> dict[str, Any]:
     included. The earlier 5-key version omitted ``noise_filter_notch``
     (and the eq/compressor/limiter/gate-* fields), which crashed
     ``AudioProcessor`` construction with ``'SimpleNamespace' object has
-    no attribute 'noise_filter_notch'`` — and the partial dict was also
+    no attribute 'noise_filter_notch'``, and the partial dict was also
     stashed as ``_state._level_processor_config``, breaking every later
     level-processor rebuild after a device hot-swap.
 
@@ -263,7 +263,7 @@ def to_filter_dict(config: Any) -> dict[str, Any]:
     config : Config
         The application config dataclass.  ``getattr`` is used
         throughout so a partial / mock config (missing fields) still
-        returns a complete dict — the defaults match the Config
+        returns a complete dict, the defaults match the Config
         dataclass defaults.
 
     Returns
@@ -294,11 +294,11 @@ def _apply_audio_preset(preset: str) -> dict[str, Any]:
 
     Delegates to :mod:`voice_typer.server.audio_presets` (single source
     of truth). Presets:
-        "auto"        — all filters ON, RNNoise (best for 90% of users)
-        "studio"      — minimal processing (quiet room, good mic)
-        "noisy_room"  — aggressive, GTCRN
-        "off"         — all filters OFF
-        "custom"      — no automatic changes (user controls each toggle)
+        "auto"       : all filters ON, RNNoise (best for 90% of users)
+        "studio"     : minimal processing (quiet room, good mic)
+        "noisy_room" : aggressive, GTCRN
+        "off"        : all filters OFF
+        "custom"     : no automatic changes (user controls each toggle)
 
     Legacy preset names "recommended" and "none" are accepted for
     backward compat (mapped to "auto" and "off" respectively).
@@ -321,7 +321,7 @@ def _apply_audio_preset(preset: str) -> dict[str, Any]:
 # ─── Registered side-effect handlers ─────────────────────────────────
 #
 # The ``ConfigApplier.apply_config_side_effects`` method used to be a
-# 215-line if-chain — one ``if "X" in updates:`` block per config
+# 215-line if-chain, one ``if "X" in updates:`` block per config
 # field that needed a runtime side-effect. Each block followed the
 # same pattern: try → run side-effect → except → log warning +
 # ``_notify_side_effect_failure``. The if-chain has been replaced
@@ -335,7 +335,7 @@ def _apply_audio_preset(preset: str) -> dict[str, Any]:
 # registration order. Order matters: the audio-preset handler
 # mutates Config (sets ``noise_filter_*`` toggles from the preset),
 # and the filter-chain handler reads that mutated Config via
-# ``to_filter_dict(config)`` — so audio_preset MUST run before
+# ``to_filter_dict(config)``, so audio_preset MUST run before
 # filter_chain. The original if-chain had this order implicitly; the
 # registered handler list makes it explicit.
 
@@ -348,7 +348,7 @@ class SideEffectContext:
     ``updates``, ``status``) so the dispatcher can iterate handlers
     with a single context object rather than passing four arguments
     to each ``apply()`` call. Handlers mutate ``status`` in place
-    (only the autostart + prewarm handlers do — they set
+    (only the autostart + prewarm handlers do, they set
     ``status["autostart_status"]`` / ``status["prewarm_status"]`` to
     the result dict returned by ``startup_tasks.sync_*``).
     """
@@ -370,7 +370,7 @@ class ConfigSideEffect(Protocol):
 
     A handler's ``apply`` method is expected to catch its own
     exceptions (preserving the original log-and-continue behaviour of
-    the if-chain this refactor replaced) — the dispatcher wraps each
+    the if-chain this refactor replaced), the dispatcher wraps each
     handler in a defensive try/except as well, so a buggy handler
     cannot bring down the entire dispatch.
     """
@@ -389,7 +389,7 @@ class ConfigSideEffect(Protocol):
         """Apply the side-effect.
 
         Should log + notify via :func:`_notify_side_effect_failure` on
-        failure rather than raising — the dispatcher's outer try/except
+        failure rather than raising, the dispatcher's outer try/except
         is a defensive net, not the primary error path.
         """
         ...
@@ -427,7 +427,7 @@ class _PrewarmSyncHandler:
 
     When the user toggles fast_startup in Settings → General, the
     OS-level scheduled task must be registered (True) or unregistered
-    (False) immediately — otherwise the task fires silently at next
+    (False) immediately, otherwise the task fires silently at next
     logon and exits with EXIT_DISABLED, or fails to fire when the user
     re-enables it.
     """
@@ -484,7 +484,7 @@ class _RepasteHotkeyHandler:
 
     ``repaste_enabled`` is a run-time toggle on the repaste *action*
     (whether the repaste hotkey, when pressed, actually fires the
-    repaste) — it does NOT change the hotkey registration. The
+    repaste), it does NOT change the hotkey registration. The
     disjunct ``or "repaste_enabled" in updates`` that lived in the
     original if-block was dead code: ``register_repaste()`` reads
     ``config.repaste_hotkey`` (the actual hotkey spec) so the call
@@ -514,7 +514,7 @@ class _DictationHotkeyHandler:
 
     Snapshots the previous hotkey so we can restore it if
     ``app.hotkeys.restart()`` raises. ``restart()`` sets
-    ``config.hotkey = <new>`` before calling ``register()`` — if
+    ``config.hotkey = <new>`` before calling ``register()``, if
     ``register()`` then fails (or restart itself raises), the on-disk
     config retains the broken hotkey. We restore the previous value
     and re-save so the next launch reads a working hotkey.
@@ -541,12 +541,12 @@ class _DictationHotkeyHandler:
             # from ``config.py``, currently ``<caps_lock>``) as the
             # fallback instead of the stale literal ``"<f2>"``.
             # ``<f2>`` was the legacy default before the constant was
-            # centralised — leaving it here meant a hypothetical
+            # centralised, leaving it here meant a hypothetical
             # config object without a ``hotkey`` attribute (test
             # stub / legacy Config constructed via ``__new__``) would
             # silently re-register the wrong key. In practice Config
             # always carries ``hotkey``, so the fallback is defensive
-            # — but it must agree with the rest of the codebase when
+            # , but it must agree with the rest of the codebase when
             # it does fire.
             app.hotkeys.restart(getattr(config, "hotkey", DEFAULT_HOTKEY))
             log.info(
@@ -578,7 +578,7 @@ class _DictationHotkeyHandler:
 class _TrayLeftClickHandler:
     """Invalidate tray menu cache when ``tray_left_click_action`` changes.
 
-    BUGFIX: tray_left_click_action was never handled — the tray
+    BUGFIX: tray_left_click_action was never handled, the tray
     hardcoded "Toggle Dictation" as the left-click default, so the
     Settings page choice was completely ignored.
     """
@@ -653,7 +653,7 @@ class _BubbleBehaviorHandler:
                         app._waveform_bubble.show()
                 except Exception:
                     # previously `except Exception: pass`
-                    # — silent failure meant "always visible" toggle
+                    # , silent failure meant "always visible" toggle
                     # did nothing if the bubble was in a bad state.
                     log.debug(
                         "[SERVICE] Failed to show waveform bubble after bubble_behavior change",
@@ -665,7 +665,7 @@ class _BubbleBehaviorHandler:
                     if hasattr(app, "_waveform_bubble") and app._waveform_bubble.visible:
                         app._waveform_bubble.hide()
                 except Exception:
-                    # same as above — log at debug so the
+                    # same as above, log at debug so the
                     # failure is at least visible in -vv mode.
                     log.debug(
                         "[SERVICE] Failed to hide waveform bubble after bubble_behavior change",
@@ -687,7 +687,7 @@ class _VolumeDuckPollHandler:
 
     Note: the legacy ``volume_duck_smart`` side-effect branch (a
     ``volume_duck_smart``-in-updates guard in the pre-refactor source)
-    was DEAD CODE — the ``volume_duck_smart`` field was removed from the
+    was DEAD CODE, the ``volume_duck_smart`` field was removed from the
     Config dataclass and from ``IPC_CONFIG_ALLOWLIST``, so the condition
     could never be True via the IPC path. Smart duck is ALWAYS ON when
     ``volume_duck_enabled`` is True, and the only user-tunable
@@ -695,7 +695,7 @@ class _VolumeDuckPollHandler:
     ``volume_duck_level`` / ``volume_duck_fade_ms`` /
     ``volume_duck_smart_poll_interval_ms``. If ``volume_duck_smart`` is
     ever re-added to the dataclass AND the allowlist, a corresponding
-    handler must be re-added here alongside them — the three changes
+    handler must be re-added here alongside them, the three changes
     go together.
     """
 
@@ -723,7 +723,7 @@ class _AudioPresetHandler:
     Syncs the legacy ``noise_filter_enabled`` flag so downstream checks
     (e.g. ``update_level_processor``) correctly disable the processor
     when preset is "off". The preset's filter toggles are all False,
-    but ``noise_filter_enabled`` was not part of the preset dict — it
+    but ``noise_filter_enabled`` was not part of the preset dict, it
     stays True, causing the level monitor to create an AudioProcessor
     even when no filters are active, which masks low-level sounds.
     """
@@ -747,11 +747,11 @@ class _AudioPresetHandler:
             # checks (e.g. update_level_processor) correctly disable
             # the processor when preset is "off". The preset's filter
             # toggles are all False, but noise_filter_enabled was not
-            # part of the preset dict — it stays True, causing the
+            # part of the preset dict, it stays True, causing the
             # level monitor to create an AudioProcessor even when no
             # filters are active, which masks low-level sounds.
             config.noise_filter_enabled = preset != "off"
-            # Log the preset NAME only — the full ``preset_filters`` dict
+            # Log the preset NAME only, the full ``preset_filters`` dict
             # carries 20+ char key names (``noise_filter_highpass`` etc.)
             # that the PII redactor's generic bare-token pattern matches
             # and mangles into ``'***': True`` (a false positive that made
@@ -797,7 +797,7 @@ class _FilterChainHandler:
             # to the user via a tray notification. This is the
             # most user-visible failure mode: the user changed a
             # noise_filter_* toggle but the live dictation pipeline
-            # is still using the OLD filter chain — the next
+            # is still using the OLD filter chain, the next
             # dictation will sound wrong.
             _notify_side_effect_failure(app, "noise_filter_chain", e)
 
@@ -835,12 +835,12 @@ class ConfigApplier:
         self._service = service
         self._app = service._app
         # Build the handler list at construction time. Each handler is
-        # stateless — it reads its inputs from the
-        # :class:`SideEffectContext` — so a single shared instance per
+        # stateless, it reads its inputs from the
+        # :class:`SideEffectContext`, so a single shared instance per
         # handler is sufficient. Order matters: the audio-preset
         # handler mutates Config (sets ``noise_filter_*`` toggles from
         # the preset), and the filter-chain handler reads that mutated
-        # Config via ``to_filter_dict(config)`` — so audio_preset MUST
+        # Config via ``to_filter_dict(config)``, so audio_preset MUST
         # run before filter_chain. The original if-chain had this order
         # implicitly; the registered handler list makes it explicit.
         # The list is a per-instance attribute (not a class attribute)
@@ -874,7 +874,7 @@ class ConfigApplier:
         was the first step; the branching structure was preserved
         verbatim through that pass. The if-chain has now been replaced
         with a registered :class:`ConfigSideEffect` protocol + handler
-        list — each ``if "X" in updates:`` block from the original
+        list, each ``if "X" in updates:`` block from the original
         monolith is now an ``applies(updates)`` + ``apply(ctx)``
         method pair on a dedicated handler class, registered in
         :attr:`_side_effect_handlers` and iterated in registration
@@ -999,7 +999,7 @@ class ConfigApplier:
         (which indicates an ``OSError`` / ``PermissionError`` was
         caught and logged by ``save()``).  The IPC handler is
         expected to catch this and surface the failure to the
-        renderer — previously a silent disk failure produced a
+        renderer, previously a silent disk failure produced a
         successful-but-empty ``ack``.
 
         Parameters
@@ -1036,11 +1036,11 @@ class ConfigApplier:
         # because some existing internal callers (e.g.
         # ``tests/test_config_acl_and_preset_autoswitch.py``) invoke
         # ``apply_config`` directly with deprecated Config-runtime
-        # fields (``noise_filter_enabled`` — a runtime switch per ADR
+        # fields (``noise_filter_enabled``: a runtime switch per ADR
         # 0009 that was removed from ``IPC_CONFIG_ALLOWLIST`` but is
         # still on the Config dataclass) to exercise the preset
         # auto-switch logic. Raising would break those tests
-        # (NEVER DOWNGRADE — Rule 4). The CRITICAL log surfaces the
+        # (NEVER DOWNGRADE. Rule 4). The CRITICAL log surfaces the
         # violation observably so operators can grep for it; a future
         # cleanup can tighten this to a hard ``raise`` once the
         # deprecated runtime-only fields are removed from the Config
@@ -1052,7 +1052,7 @@ class ConfigApplier:
         if _unknown:
             log.critical(
                 "[SERVICE] SEC-002 violation: apply_config received "
-                "non-allowlisted keys %s — the IPC ``set_config`` handler "
+                "non-allowlisted keys %s, the IPC ``set_config`` handler "
                 "should have dropped these via validate_config_update. "
                 "Continuing (no raise) for backward compat with internal "
                 "callers that pass deprecated runtime-only Config fields "
@@ -1063,7 +1063,7 @@ class ConfigApplier:
         app = self._app
         # (session-3): capture the side-effect status dict for
         # return. The ``with`` block below may raise (e.g. ``save_strict``
-        # raises RuntimeError on disk-write failure) — in that case we
+        # raises RuntimeError on disk-write failure), in that case we
         # still want to return whatever side-effect status was captured
         # before the raise, so the renderer can surface the autostart/
         # prewarm status alongside the save error. Initialize to all-
@@ -1074,9 +1074,9 @@ class ConfigApplier:
         }
         # + : snapshot pre-setattr Config state. Used for
         # both the dirty-check (skip ``save_strict()`` if state is
-        # unchanged — ) and for rollback on ``save_strict()``
+        # unchanged, ) and for rollback on ``save_strict()``
         # failure (restore snapshot + re-run side-effects with original
-        # values so live state matches disk — ).
+        # values so live state matches disk, ).
         with app._config_mutation_lock:
             # If the user submits an individual noise_filter_*
             # toggle (one of the keys ``apply_preset`` overwrites) while
@@ -1090,7 +1090,7 @@ class ConfigApplier:
             # sets it back to ``True``).
             #
             # Skip when the user explicitly set ``audio_preset`` in
-            # this same update — they're picking a preset, so the
+            # this same update, they're picking a preset, so the
             # preset's toggles are the intent. Also skip when the
             # preset is already ``"custom"`` (no-op).
             if "audio_preset" not in updates:
@@ -1100,7 +1100,7 @@ class ConfigApplier:
                     if current_preset != "custom":
                         log.info(
                             "[CONFIG] individual filter toggles %s set via "
-                            "IPC while audio_preset=%r — auto-switching "
+                            "IPC while audio_preset=%r, auto-switching "
                             "audio_preset to 'custom' so the user's toggle "
                             "survives the next Config.load() (which would "
                             "otherwise re-apply the preset and revert it)",
@@ -1139,7 +1139,7 @@ class ConfigApplier:
             # DictationPipeline._apply_llm_polish from these fields; without
             # invalidation it would keep using stale credentials/settings.
             # BP-133: the effective polish key is ``llm_api_key OR
-            # openai_api_key`` — a provider-credential rotation must
+            # openai_api_key``: a provider-credential rotation must
             # invalidate too. The credential set is the canonical
             # PROVIDER_TO_CONFIG_FIELD (BP-95 single-sourcing), imported
             # lazily like the credential_store use below (import-cycle
@@ -1161,7 +1161,7 @@ class ConfigApplier:
             # expected to catch this and return an error envelope
             # instead of ``ack``.
             #
-            # dirty-check — if the post-setattr state equals
+            # dirty-check, if the post-setattr state equals
             # the pre-setattr state (e.g. the user submitted an empty
             # update or all values were already the same), skip the
             # save_strict() call entirely. This avoids an unnecessary
@@ -1173,7 +1173,7 @@ class ConfigApplier:
             # ``dataclasses.asdict`` (deep-copy) and twice via
             # ``json.dumps`` per IPC ``set_config`` call. The
             # targeted check below compares only the ``updates`` keys
-            # via direct equality — O(len(updates)) instead of
+            # via direct equality. O(len(updates)) instead of
             # O(len(Config fields)). It reuses the pre-setattr values
             # already captured in ``set_keys`` ( rollback log)
             # so no extra getattr pass is needed before setattr.
@@ -1186,7 +1186,7 @@ class ConfigApplier:
             pre_values = dict(set_keys)
             state_unchanged = pre_values == post_values
             if state_unchanged:
-                log.debug("[SERVICE] G4-L-20: apply_config detected no state change — skipping save_strict()")
+                log.debug("[SERVICE] G4-L-20: apply_config detected no state change, skipping save_strict()")
             else:
                 try:
                     app.config.save_strict()
@@ -1248,12 +1248,12 @@ class ConfigApplier:
                 # Gate the redundant loop behind
                 # ``app.config._secrets_routed_in_save`` (set True by
                 # ``Config._save_unlocked`` after it runs the routing
-                # block). When the flag is True (or missing — the
+                # block). When the flag is True (or missing, the
                 # ``getattr`` default of True is the safe assumption for
                 # Config instances from before this change), the loop is
                 # SKIPPED because ``Config.save()`` already routed the
                 # secret. The loop only runs when the flag is explicitly
-                # False — i.e. ``Config.save()`` was mocked to skip
+                # False: i.e. ``Config.save()`` was mocked to skip
                 # routing (test scenario) or the routing block raised
                 # an exception (logged at WARNING inside
                 # ``_save_unlocked``). This eliminates the redundant
@@ -1271,7 +1271,7 @@ class ConfigApplier:
                     except Exception as exc:
                         log.warning(
                             "[SERVICE] RW-01: credential_store post-save route "
-                            "failed: %s — secret may not be in keychain (will "
+                            "failed: %s, secret may not be in keychain (will "
                             "fall back to plaintext in config.json on next save)",
                             exc,
                         )
@@ -1281,7 +1281,7 @@ class ConfigApplier:
             # to ``clipboard_save_restore`` / ``clipboard_restore_delay_ms``
             # / ``paste_on_stop`` would not take effect until app restart.
             # The keys are only present in ``updates`` because they passed
-            # validation (see §2.11 — both keys are in
+            # validation (see §2.11, both keys are in
             # ``IPC_CONFIG_ALLOWLIST``). Run inside the lock so
             # ``refresh_config`` reads a consistent, persisted config
             # snapshot, not a torn one from a concurrent IPC update.
@@ -1292,7 +1292,7 @@ class ConfigApplier:
             }
             if clipboard_keys & set(updates.keys()):
                 # (session-5): previously
-                # ``contextlib.suppress(Exception)`` — silent failure
+                # ``contextlib.suppress(Exception)``: silent failure
                 # meant runtime changes to clipboard_save_restore /
                 # clipboard_restore_delay_ms / paste_on_stop silently
                 # did not apply until restart. ADR-0010 §8.3b
@@ -1304,7 +1304,7 @@ class ConfigApplier:
                     app.clipboard.refresh_config(app.config)
                 except Exception as exc:
                     log.warning(
-                        "[SERVICE] clipboard.refresh_config failed: %s — "
+                        "[SERVICE] clipboard.refresh_config failed: %s, "
                         "clipboard config changes will not take effect until restart",
                         exc,
                     )

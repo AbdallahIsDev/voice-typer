@@ -9,7 +9,7 @@ when keyring is available), and stashes the serialized bytes on the
 long-lived Config instance.
 
 ``clear_in_memory_secrets`` only ``setattr``s the dataclass fields to
-``""`` — it doesn't trigger a save, so the byte cache holds the
+``""``, it doesn't trigger a save, so the byte cache holds the
 PRE-clear plaintext JSON until the next successful save (which may be
 never if the user doesn't change settings again before closing the
 app).
@@ -27,7 +27,7 @@ This test file asserts:
      ``clear_in_memory_secrets()`` (was non-None before).
   2. The clear works on a frozen dataclass (where regular ``setattr``
      would raise).
-  3. The clear is best-effort — a config object whose
+  3. The clear is best-effort, a config object whose
      ``object.__setattr__`` raises (exotic ``__setattr__`` override
      that calls ``object.__setattr__`` for unrelated attrs but raises
      for ``_last_saved_bytes``) doesn't break the rest of
@@ -64,7 +64,7 @@ def _isolated_config_dir(tmp_config_dir):
 def mock_keyring_unavailable(monkeypatch):
     """Mock keyring as unavailable (fail backend / D-Bus missing).
 
-    specifically affects the plaintext-fallback path — when
+    specifically affects the plaintext-fallback path, when
     keyring is available, plaintext API keys never reach
     ``Config._last_saved_bytes`` in the first place.
     """
@@ -151,7 +151,7 @@ class TestClearInMemorySecretsClearsLastSavedBytes:
         )
 
     def test_last_saved_bytes_cleared_even_if_already_none(self):
-        """the clear is idempotent — setting None to None is a no-op."""
+        """the clear is idempotent, setting None to None is a no-op."""
         config = _make_config_with_last_saved_bytes(plaintext_bytes=None)
         assert object.__getattribute__(config, "_last_saved_bytes") is None
 
@@ -184,7 +184,7 @@ class TestClearInMemorySecretsClearsLastSavedBytes:
         config = _FrozenConfig()
         assert object.__getattribute__(config, "_last_saved_bytes") is not None
 
-        # Act — clear_in_memory_secrets wraps each setattr in try/except
+        # Act, clear_in_memory_secrets wraps each setattr in try/except
         # so the frozen-dataclass setattr failures on the api_key fields
         # don't abort the loop. The _last_saved_bytes clear uses
         # ``object.__setattr__`` so it succeeds even on a frozen dataclass.
@@ -196,7 +196,7 @@ class TestClearInMemorySecretsClearsLastSavedBytes:
             "even on a frozen dataclass (uses object.__setattr__)"
         )
         # The api_key fields are still set to their original values
-        # because the frozen dataclass raised on setattr — that's the
+        # because the frozen dataclass raised on setattr, that's the
         # documented best-effort behavior. The cleared count is 0
         # because every setattr raised.
         assert cleared == 0
@@ -207,11 +207,11 @@ class TestClearInMemorySecretsClearsLastSavedBytes:
         ``__slots__`` that doesn't declare ``_last_saved_bytes``), the
         failure is logged at debug and swallowed so the rest of
         clear_in_memory_secrets still completes. We verify by using a
-        class with ``__slots__`` — ``object.__setattr__`` raises
+        class with ``__slots__``: ``object.__setattr__`` raises
         ``AttributeError`` because the slot doesn't exist."""
 
         class _SlotsConfig:
-            # ``__slots__`` WITHOUT ``_last_saved_bytes`` — so
+            # ``__slots__`` WITHOUT ``_last_saved_bytes``, so
             # ``object.__setattr__(config, '_last_saved_bytes', None)``
             # raises ``AttributeError`` (no slot to hold the value).
             __slots__ = list(credential_store.PROVIDER_TO_CONFIG_FIELD.values())
@@ -228,12 +228,12 @@ class TestClearInMemorySecretsClearsLastSavedBytes:
         with pytest.raises(AttributeError, match="_last_saved_bytes"):
             object.__setattr__(config, "_last_saved_bytes", None)
 
-        # Act — must NOT raise (the clear is best-effort; the
+        # Act, must NOT raise (the clear is best-effort; the
         # AttributeError is caught + logged at debug).
         cleared = credential_store.clear_in_memory_secrets(config)
 
         # Assert: all 5 api_key fields were cleared (the loop completed
-        # — the _last_saved_bytes failure didn't abort the rest).
+        # , the _last_saved_bytes failure didn't abort the rest).
         assert cleared == 5
         for field_name in credential_store.PROVIDER_TO_CONFIG_FIELD.values():
             assert getattr(config, field_name) == ""

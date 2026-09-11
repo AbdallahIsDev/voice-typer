@@ -3,13 +3,13 @@
 Historical baseline (the original fix): the main buffer was sized
 against a stale 1024-sample/16kHz assumption (``chunk_seconds =
 0.064``) while the actual blocksize was 512 and the effective sample
-rate could be 44.1/48kHz — a 30-min dictation silently lost its first
+rate could be 44.1/48kHz, a 30-min dictation silently lost its first
 ~25 min via deque maxlen eviction, and the pre-roll deque sized from
 ``config.sample_rate`` (16kHz) only captured ~0.33s of a 1.0s pre-roll
 at 48 kHz.
 
 Current contract (rate-scaled blocks): the stream delivers ~32 ms
-chunks at EVERY native rate (``scaled_audio_blocksize`` — 512 @ 16 kHz,
+chunks at EVERY native rate (``scaled_audio_blocksize``, 512 @ 16 kHz,
 1536 @ 48 kHz, 1411 @ 44.1 kHz), so the buffer math is DURATION-based:
 ``chunk_seconds = scaled_audio_blocksize(sr) / sr`` and every deque
 maxlen is computed from that. Pinning DURATION (not chunk count) is the
@@ -83,10 +83,10 @@ def _make_recorder(max_rec: int = 1800, preroll_seconds: float = 1.0):
     buffer-math tests.
 
     ``sample_rate=16000`` is the Whisper target rate (NOT the device
-    native rate — that's the whole point of XV-20). ``microphone=None``
+    native rate, that's the whole point of XV-20). ``microphone=None``
     selects the system default device, so the candidate loop calls
     ``_resolve_effective_sample_rate(None)`` which queries
-    ``sd.query_devices(kind="input")`` — the device our mock patches.
+    ``sd.query_devices(kind="input")``, the device our mock patches.
     Construction is delegated to the shared canonical factory (XS-42
     helper dedup) with the buffer-math-relevant fields overridden.
     """
@@ -152,7 +152,7 @@ class TestMainBufferSizing:
     def test_buffer_chunk_count_is_rate_invariant_with_scaled_blocks(self, monkeypatch):
         """Core rate-scaling invariant: with ~32 ms chunks at every
         native rate, the buffer's CHUNK count for a fixed duration is
-        rate-invariant — 48 kHz and 16 kHz devices get the same number
+        rate-invariant, 48 kHz and 16 kHz devices get the same number
         of (3×-larger) chunks.
 
         Pre-scaling regression: a fixed-512 chunk computation sized the
@@ -186,7 +186,7 @@ class TestMainBufferSizing:
 
     def test_default_16khz_preserves_existing_behavior(self, monkeypatch):
         """At 16kHz with the default ``max_recording_time_seconds=900``,
-        the buffer must NOT be resized — ``DEFAULT_MAX_BUFFER_CHUNKS=30000``
+        the buffer must NOT be resized: ``DEFAULT_MAX_BUFFER_CHUNKS=30000``
         is sufficient (900s / (512/16000) = 28125 chunks < 30000).
 
         This pins the 'preserves default 16kHz/512-sample behavior'
@@ -226,7 +226,7 @@ class TestPrerollSizing:
     )
     def test_preroll_capacity_holds_configured_duration(self, monkeypatch, native_rate):
         """At both 16kHz and 48kHz, the pre-roll deque must hold the
-        CONFIGURED 1.0s of pre-speech audio as a DURATION — pinned
+        CONFIGURED 1.0s of pre-speech audio as a DURATION, pinned
         via ``maxlen × scaled_blocksize / rate``, not via a chunk
         count.
 
@@ -235,7 +235,7 @@ class TestPrerollSizing:
         ~0.33s at 48kHz. Rate-scaling regression this test pins: with
         the stream delivering scaled ~32 ms chunks, a fixed-512 chunk
         computation (``1.0 × rate / 512`` chunks) makes the deque hold
-        ~3.04s at 48kHz — ~3× over-capture.
+        ~3.04s at 48kHz, ~3× over-capture.
         """
         import voice_typer.server.recording as recording_mod
 
@@ -253,7 +253,7 @@ class TestPrerollSizing:
             assert 0.95 <= duration_s <= 1.15, (
                 f"At {native_rate}Hz with 1.0s pre-roll, deque holds "
                 f"{actual_maxlen} chunks × {blocksize} samples = "
-                f"{duration_s:.3f}s — must be ≈ 1.0s. A fixed-512 chunk "
+                f"{duration_s:.3f}s, must be ≈ 1.0s. A fixed-512 chunk "
                 f"computation would capture {int(1.0 * native_rate / 512) * blocksize / native_rate:.2f}s "
                 f"(over-capture) once the stream scales its blocks."
             )
@@ -295,7 +295,7 @@ class TestPrerollSizing:
 
     def test_preroll_disabled_has_zero_maxlen(self, monkeypatch):
         """When ``pre_roll_buffer_seconds=0``, the pre-roll deque maxlen
-        must be 0 (disabled) — preserves existing behavior."""
+        must be 0 (disabled), preserves existing behavior."""
         import voice_typer.server.recording as recording_mod
 
         _patch_sd(monkeypatch, recording_mod, native_rate=48000)
@@ -311,7 +311,7 @@ class TestPrerollSizing:
 
     def test_16khz_preroll_maxlen_unchanged_by_start(self, monkeypatch):
         """At 16kHz (matching config.sample_rate), ``start()`` must NOT
-        resize the pre-roll deque — the ``__init__`` placeholder sizing
+        resize the pre-roll deque, the ``__init__`` placeholder sizing
         is already correct for the 16kHz case.
 
         This pins the 'preserves default 16kHz/512-sample behavior'

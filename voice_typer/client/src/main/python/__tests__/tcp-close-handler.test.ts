@@ -7,7 +7,7 @@
  * rejected with a typed `PythonIpcError` carrying a `PythonCallErrorCode`:
  *
  *   - mid-flight disconnect (normal close, `_relaunching` false) →
- *     `backend_not_connected` — the SAME code the `python-call` handler's
+ *     `backend_not_connected`, the SAME code the `python-call` handler's
  *     pre-flight check returns when `state.tcpSocket` is null, so a
  *     disconnect mid-command shows the renderer's curated
  *     "lost connection" message instead of the generic
@@ -66,7 +66,7 @@ vi.mock("../send-to-python", () => ({
 	resetPendingOutbound: mocks.resetPendingOutbound,
 }));
 // close-handler.ts lives in ../tcp/, so its "./retry-scheduler" import
-// resolves to src/main/python/tcp/retry-scheduler — mock THAT path.
+// resolves to src/main/python/tcp/retry-scheduler, mock THAT path.
 vi.mock("../tcp/retry-scheduler", () => ({
 	scheduleTcpRetryAfterClose: mocks.scheduleTcpRetryAfterClose,
 }));
@@ -157,7 +157,7 @@ describe("installTcpCloseHandler: typed pending-request rejections", () => {
 		expect((err as PythonIpcError).code).toBe("command_failed");
 		expect((err as PythonIpcError).message).toBe("Application is restarting");
 		// The outbound replay queue is also rejected (process is
-		// about to exit — queued commands would never flush).
+		// about to exit, queued commands would never flush).
 		expect(mocks.resetPendingOutbound).toHaveBeenCalledWith(
 			"Application is restarting",
 		);

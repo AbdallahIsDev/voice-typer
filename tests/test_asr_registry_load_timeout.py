@@ -12,7 +12,7 @@ These tests pin the contract:
    the fallback is still attempted, a WARNING is logged, and the
    circuit breaker is NOT tripped (a timeout is a transient stall, not
    a permanent failure).
-2. A fast load is returned normally — no behavior change.
+2. A fast load is returned normally, no behavior change.
 3. The constant is sane (> the documented 5-50s load window).
 4. The whisper fallback path has the same timeout behaviour.
 """
@@ -86,7 +86,7 @@ class TestLoadWithTimeout:
         # Best-effort unload of the abandoned primary.
         primary.unload.assert_called_once()
         assert registry.failure_count("parakeet") == 0, (
-            "A timeout must NOT trip the circuit breaker — it is a "
+            "A timeout must NOT trip the circuit breaker, it is a "
             "transient stall, not a permanent failure (a retry may "
             "succeed)."
         )
@@ -110,7 +110,7 @@ class TestLoadWithTimeout:
 
     def test_primary_load_raises_trips_breaker_and_falls_to_whisper(self, monkeypatch):
         """A genuine (non-timeout) primary load exception must STILL trip
-        the circuit breaker and fall to whisper — the timeout wrapper
+        the circuit breaker and fall to whisper, the timeout wrapper
         must not mask the existing failure semantics."""
         registry, primary, whisper = _make_registry_with_primary_and_whisper()
         monkeypatch.setattr("voice_typer.server.asr.registry.MODEL_LOAD_TIMEOUT_SECONDS", 60)
@@ -131,7 +131,7 @@ class TestWhisperFallbackTimeout:
     def test_slow_whisper_fallback_load_returns_none_with_warning(self, monkeypatch, caplog):
         """When the primary fails genuinely and the whisper fallback load
         never completes, ``load_with_fallback`` returns None and logs a
-        WARNING naming the timeout — it must not hang."""
+        WARNING naming the timeout, it must not hang."""
         registry, primary, whisper = _make_registry_with_primary_and_whisper()
         monkeypatch.setattr("voice_typer.server.asr.registry.MODEL_LOAD_TIMEOUT_SECONDS", 0.05)
         primary.load.side_effect = RuntimeError("CUDA OOM")
@@ -149,7 +149,7 @@ class TestWhisperFallbackTimeout:
         ), "A WARNING naming the whisper fallback timeout must be logged."
 
     def test_fast_whisper_fallback_load_returns_whisper(self, monkeypatch):
-        """A fast whisper fallback load returns whisper — no behavior
+        """A fast whisper fallback load returns whisper, no behavior
         change on the fallback success path."""
         registry, primary, whisper = _make_registry_with_primary_and_whisper()
         monkeypatch.setattr("voice_typer.server.asr.registry.MODEL_LOAD_TIMEOUT_SECONDS", 60)

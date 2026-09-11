@@ -53,7 +53,7 @@ class TestInferenceCounterReleasesLockDuringInference:
     """The model lock MUST NOT be held during the ctranslate2
     ``model.transcribe()`` call. ``unload()`` must be able to acquire
     the cond (which acquires the underlying lock) while a transcription
-    is in flight — it then waits on ``_inference_cond`` for
+    is in flight, it then waits on ``_inference_cond`` for
     ``_active_inference == 0``."""
 
     def test_init_creates_active_inference_counter(self):
@@ -166,7 +166,7 @@ class TestInferenceCounterReleasesLockDuringInference:
 
     def test_lock_not_held_during_model_transcribe(self):
         """The lock MUST NOT be held during ``model.transcribe()``.
-        This is the core fix — previously the entire
+        This is the core fix, previously the entire
         ``_transcribe_unlocked`` call (10-30s for a long dictation) ran
         under ``self._lock``, blocking ``unload()`` / ``is_loaded`` /
         parallel transcribes."""
@@ -179,7 +179,7 @@ class TestInferenceCounterReleasesLockDuringInference:
         lock_held_during_call = []
 
         def transcribe_side_effect(*args, **kwargs):
-            # Try to acquire the lock non-blocking — if it succeeds, the
+            # Try to acquire the lock non-blocking, if it succeeds, the
             # lock was NOT held (which is what we want now).
             acquired = engine._lock.acquire(blocking=False)
             lock_held_during_call.append(not acquired)
@@ -216,7 +216,7 @@ class TestUnloadWaitsForInference:
         with engine._inference_cond:
             engine._active_inference += 1
 
-        # Spawn unload() in a thread — it should block on the cond wait.
+        # Spawn unload() in a thread, it should block on the cond wait.
         unload_done = threading.Event()
 
         def unload_thread():
@@ -235,7 +235,7 @@ class TestUnloadWaitsForInference:
         # The model is still loaded.
         assert engine._model is not None
 
-        # Now drain the counter — notify the cond. unload() should
+        # Now drain the counter, notify the cond. unload() should
         # complete promptly.
         with engine._inference_cond:
             engine._active_inference -= 1
@@ -311,30 +311,30 @@ class TestParakeetBatchSizeReadAtConstruction:
 
     def test_instance_attribute_defaults_to_two_when_env_unset(self, monkeypatch):
         """The post-ONNX ``ParakeetEngine`` has NO class-level
-        ``_INFERENCE_BATCH_SIZE`` — the attribute is set in ``__init__``
+        ``_INFERENCE_BATCH_SIZE``, the attribute is set in ``__init__``
         from ``os.environ.get("PARAKEET_BATCH_SIZE", "2")`` at
         construction time. The default of 2 (not 1) matches the
         ONNX-rewritten ``parakeet_engine.py`` (the ONNX backend does
-        not actually batch — ``onnx_asr.recognize`` processes one audio
-        at a time — but the attribute is kept so existing test
+        not actually batch: ``onnx_asr.recognize`` processes one audio
+        at a time, but the attribute is kept so existing test
         read-sites don't ``AttributeError``).
 
         Verifies two invariants:
         1. The class does NOT define ``_INFERENCE_BATCH_SIZE`` (the
            import-time freeze bug is gone because the attribute does
-           not exist at class level — a revert that re-introduces a
+           not exist at class level, a revert that re-introduces a
            class-level env-var read would fail this).
         2. The instance attribute defaults to 2 when the env var is
            unset (the production code's documented default).
         """
         from voice_typer.server.parakeet_engine import ParakeetEngine
 
-        # (1) No class-level attribute — the import-time freeze path
+        # (1) No class-level attribute, the import-time freeze path
         # is gone entirely post-ONNX. ``__dict__`` lookup avoids
         # walking the MRO (an inherited attribute would still fail).
         assert "_INFERENCE_BATCH_SIZE" not in ParakeetEngine.__dict__, (
             "IN-5: ParakeetEngine must NOT define _INFERENCE_BATCH_SIZE "
-            "as a class attribute — the value is read at construction "
+            "as a class attribute, the value is read at construction "
             "time as an instance attribute (a class-level form would "
             "re-introduce the import-time freeze bug)."
         )
@@ -357,7 +357,7 @@ class TestParakeetBatchSizeReadAtConstruction:
         so changes between constructions take effect."""
         from voice_typer.server.parakeet_engine import ParakeetEngine
 
-        # Construct with PARAKEET_BATCH_SIZE=3 — exercises the real
+        # Construct with PARAKEET_BATCH_SIZE=3, exercises the real
         # ``__init__`` (NOT a __new__ + manual-replicate bypass), so
         # a regression that re-introduces the class-attribute form
         # would freeze the value at import time and fail the second
@@ -368,7 +368,7 @@ class TestParakeetBatchSizeReadAtConstruction:
             "IN-5: when PARAKEET_BATCH_SIZE=3 is set, the engine must read 3 at construction time."
         )
 
-        # Change the env var and construct again — the new engine must
+        # Change the env var and construct again, the new engine must
         # see the new value (the pre-fix class-attribute form would have
         # frozen the value at import time, ignoring this change).
         monkeypatch.setenv("PARAKEET_BATCH_SIZE", "4")
@@ -405,7 +405,7 @@ class TestParakeetBatchSizeReadAtConstruction:
         """
         from voice_typer.server.parakeet_engine import ParakeetEngine
 
-        # The class dict must NOT contain _INFERENCE_BATCH_SIZE — the
+        # The class dict must NOT contain _INFERENCE_BATCH_SIZE, the
         # attribute exists only on instances (set in __init__).
         assert "_INFERENCE_BATCH_SIZE" not in ParakeetEngine.__dict__, (
             "IN-5: ParakeetEngine must NOT define _INFERENCE_BATCH_SIZE "
@@ -417,7 +417,7 @@ class TestParakeetBatchSizeReadAtConstruction:
         # ``_INFERENCE_BATCH_SIZE``. We approximate by checking the
         # class-body source snippet for the banned assignment.
         src = inspect.getsource(ParakeetEngine)
-        # Find the class body — between the ``class`` line and the
+        # Find the class body, between the ``class`` line and the
         # first decorator/def at the same indent level. The banned
         # pattern is a class-body assignment (no leading ``self.``).
         # ``self._INFERENCE_BATCH_SIZE = ...`` (in __init__) is fine;
@@ -431,7 +431,7 @@ class TestParakeetBatchSizeReadAtConstruction:
                 continue
             # Match a bare class-level assignment to _INFERENCE_BATCH_SIZE
             # (no leading ``self.``). The ONNX-rewritten code assigns
-            # ``self._INFERENCE_BATCH_SIZE = ...`` in __init__ — that's
+            # ``self._INFERENCE_BATCH_SIZE = ...`` in __init__, that's
             # an instance attribute, not a class attribute.
             if stripped.startswith("_INFERENCE_BATCH_SIZE") and "=" in stripped:
                 pytest.fail(
@@ -522,7 +522,7 @@ class TestSetActiveBackendBlockingRechecksBusy:
 
         mm._set_active_backend_blocking("qwen")
 
-        # The request was deferred — _pending_backend_change is set.
+        # The request was deferred, _pending_backend_change is set.
         assert mm._pending_backend_change == "qwen", (
             "IN-7: _set_active_backend_blocking must re-check "
             "recorder.recording INSIDE the locks and defer (set "
@@ -531,7 +531,7 @@ class TestSetActiveBackendBlockingRechecksBusy:
         # Config was persisted.
         assert app.config.asr_backend == "qwen"
         # The OLD backend was NOT unloaded (the whole point of the
-        # re-check deferral) — the unload phase never ran, so the
+        # re-check deferral), the unload phase never ran, so the
         # registry was never told to unload it.
         mm._registry.unload.assert_not_called()
         # No load was attempted.
@@ -569,7 +569,7 @@ class TestSetActiveBackendBlockingRechecksBusy:
         # NOT deferred.
         assert mm._pending_backend_change is None, (
             "IN-7: _set_active_backend_blocking must NOT defer when "
-            "not recording and not busy — the full unload/load cycle "
+            "not recording and not busy, the full unload/load cycle "
             "should run."
         )
         # Config was set.
@@ -611,7 +611,7 @@ class TestSetActiveBackendBlockingRechecksBusy:
         """The comment in ``set_active_backend`` must NOT claim the
         background thread re-checks under the lock when it actually
         doesn't. Post-IN-7, the re-check IS implemented, so the comment
-        is now accurate — but we verify the comment mentions the
+        is now accurate, but we verify the comment mentions the
         re-check."""
         from voice_typer.server.model_manager import ModelManager
 

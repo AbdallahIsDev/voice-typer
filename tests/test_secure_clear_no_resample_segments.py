@@ -9,14 +9,14 @@ Pre-fix: ``secure_clear_caches`` (called from ``stop()`` /
 ``discard()``) and ``_secure_clear_session_caches`` (called from
 ``start()``) zeroed ``_cached_resampled``, ``_cached_no_resample_arr``,
 and each entry in ``_cached_resampled_segments``, but left
-``_cached_no_resample_segments`` untouched — the list reference was
+``_cached_no_resample_segments`` untouched, the list reference was
 reassigned to ``[]`` *without* zeroing the underlying numpy buffers.
 The no-resample path is the COMMON path in production (AudioProcessor
 resamples to 16 kHz before appending, so ``_buffer_sr == target_sr``),
 so this list is the primary storage for the dictated prefix in a
 typical session. Up to ~115 MB of float32 audio (30 min @ 16 kHz)
 survived ``stop()``/``discard()``/``start()`` in process memory until
-the numpy allocator reused the blocks — defeating SEC-audit-008's
+the numpy allocator reused the blocks, defeating SEC-audit-008's
 intent for the no-resample-path segment cache.
 
 These tests pin the fix:
@@ -74,7 +74,7 @@ def test_secure_clear_caches_zeros_no_resample_segments_in_source():
     regression (mirrors ``tests/test_secure_clear_array.py:266-267``
     pattern). A future edit that drops the loop would otherwise go
     unnoticed by behavioral tests unless they happened to populate
-    ``_cached_no_resample_segments`` with non-zero data — the
+    ``_cached_no_resample_segments`` with non-zero data, the
     source-string check is the durable guardrail.
     """
     from voice_typer.server.recording.session_state import SessionState

@@ -2,7 +2,7 @@
 # runtime-pack-split session as part of master plan §6.2 P-1, but P-1
 # only covers the prewarm MACHINERY (separate binary, OS schedulers,
 # resolver). The user-facing status/control surface is a product
-# feature and was restored — see the addendum at plan §6.3 and the
+# feature and was restored: see the addendum at plan §6.3 and the
 # worklog "prewarm restoration" section.
 #
 # Provenance: ``get_prewarm_status``, ``_probe_cache_status`` and the
@@ -34,7 +34,7 @@ Data sources
   ``_probe_cache_status`` (30 s TTL keyed on directory mtime) so
   frequent IPC polls don't re-walk the HF cache each call.
 - ``last_run`` / ``elapsed_s`` are written by the worker after its
-  startup warm phase (:func:`write_prewarm_status_file`) — this
+  startup warm phase (:func:`write_prewarm_status_file`), this
   replaces the deleted sentinel file, which historically carried the
   same fields. If the worker never ran, both are ``None``.
 
@@ -64,7 +64,7 @@ log = logging.getLogger("voice_typer.server.prewarm")
 # did it take", now owned by the worker exe (which does the warming).
 #
 # O4: the prewarm state was consolidated into a single JSON
-# (``prewarm-status.json``) — the legacy 3-line sentinel
+# (``prewarm-status.json``), the legacy 3-line sentinel
 # (``.prewarm-sentinel``) was deleted with the standalone-prewarm
 # machinery (P-1), and the pre-migration ``prewarm_status.json`` name
 # (underscore) is migrated to the hyphenated canonical name on first
@@ -143,10 +143,10 @@ def run_prewarm_now() -> bool:
     spawned a detached ``pythonw -m voice_typer.server.prewarm
     --force`` subprocess, and that machinery is gone by design (P-1).
     The warm phase now lives in :func:`warm_imports_for_worker` (a
-    pure file-paging pass over the runtime-pack libraries — safe to
+    pure file-paging pass over the runtime-pack libraries, safe to
     call from any process), so this runs it on a daemon thread and
-    refreshes the status file. Same observable effect — warm the OS
-    standby cache on demand — with none of the deleted subprocess
+    refreshes the status file. Same observable effect, warm the OS
+    standby cache on demand: with none of the deleted subprocess
     machinery.
 
     Returns ``True`` immediately (the run happens in the background);
@@ -163,7 +163,7 @@ def run_prewarm_now() -> bool:
 
             warm_imports_for_worker()
         except Exception:
-            # Best-effort — a failed manual warm run only costs the
+            # Best-effort, a failed manual warm run only costs the
             # cold-start benefit, never correctness (mirrors the
             # worker's own ``_run_prewarm_phase`` handling).
             log.debug("[PREWARM] manual run_prewarm warm phase failed", exc_info=True)
@@ -183,7 +183,7 @@ def _config_fast_startup() -> bool | None:
     Falls back to a fresh ``Config.load()`` (the pattern the prewarm
     cache probe has always used) when the caller does not pass the
     live app config. Returns ``None`` if the config cannot be read so
-    the caller can decide the default — production code treats
+    the caller can decide the default, production code treats
     ``None`` as enabled (the historical default).
     """
     try:
@@ -191,7 +191,7 @@ def _config_fast_startup() -> bool | None:
 
         return bool(getattr(Config.load(), "fast_startup", True))
     except Exception:
-        log.debug("[PREWARM] fast_startup config read failed — defaulting through", exc_info=True)
+        log.debug("[PREWARM] fast_startup config read failed, defaulting through", exc_info=True)
         return None
 
 
@@ -203,7 +203,7 @@ _CACHE_PROBE_TTL_S: float = 30.0
 
 # Hard cap on ``_cache_probe_cache`` entries. The 30 s TTL at
 # the read site governs whether a cached *result* is reused, but the
-# dict entry itself is never evicted by the TTL — a process that swaps
+# dict entry itself is never evicted by the TTL, a process that swaps
 # models thousands of times would otherwise leak one fingerprint entry
 # per swap. Mirrors the ``streaming.py:385`` pattern
 # (``_seen_timestamps`` 50 k cap).
@@ -246,8 +246,8 @@ def _probe_cache_status(active_dirs: list[Path]) -> tuple[float, int, int]:
     total_bytes = 0
     # Probe the ACTIVE payload files via the shared weight-file finder
     # (Whisper ``model.bin``, Parakeet ONNX shards, legacy safetensors).
-    # Previously this hardcoded ``snapshot / "model.safetensors"`` — a
-    # file the current ONNX engine never downloads — so the card always
+    # Previously this hardcoded ``snapshot / "model.safetensors"``, a
+    # file the current ONNX engine never downloads, so the card always
     # reported "cold / 0 bytes" even right after a successful warm run.
     for weights in _model_weight_files(active_dirs):
         try:
@@ -278,12 +278,12 @@ def _prune_stale_cache_probe_entries() -> None:
 
     When ``len(_cache_probe_cache) > _CACHE_PROBE_MAX_ENTRIES``, clear
     the dict wholesale (mirrors the ``streaming.py:385`` pattern).
-    Idempotent — no-op when at or below the cap, so no warning fires
+    Idempotent, no-op when at or below the cap, so no warning fires
     on the common path.
     """
     if len(_cache_probe_cache) > _CACHE_PROBE_MAX_ENTRIES:
         log.warning(
-            "[PREWARM] _cache_probe_cache exceeded cap (%d entries) — clearing",
+            "[PREWARM] _cache_probe_cache exceeded cap (%d entries), clearing",
             _CACHE_PROBE_MAX_ENTRIES,
         )
         _cache_probe_cache.clear()
@@ -293,7 +293,7 @@ def _invalidate_cache_probe_cache() -> None:
     """Clear the ``_probe_cache_status`` TTL cache (restored from 5a319872).
 
     Tests call this between assertions to force a re-probe. Production
-    code (``get_prewarm_status``) does NOT need to call this — the TTL
+    code (``get_prewarm_status``) does NOT need to call this, the TTL
     + mtime fingerprint handles invalidation automatically.
     """
     _cache_probe_cache.clear()
@@ -306,7 +306,7 @@ def get_prewarm_status(enabled: bool | None = None) -> dict:
     to populate the "Cache Status" card in the About page.
 
     ``enabled`` is read from the app config (Settings → General →
-    Fast Startup) — pass the live value from the IPC handler, or leave
+    Fast Startup). Pass the live value from the IPC handler, or leave
     ``None`` to fall back to a fresh on-disk config read.
 
     the cache-ratio probe is memoized via
@@ -329,7 +329,7 @@ def get_prewarm_status(enabled: bool | None = None) -> dict:
     Best-effort: a missing model cache, an unreadable status file, or
     a config load failure degrades the fields to ``None`` / ``0.0`` /
     ``"unknown"`` rather than raising. Safe to call from the IPC
-    handler thread (small random 4K reads, ~1 ms total — see
+    handler thread (small random 4K reads, ~1 ms total, see
     :func:`cache_probe._cache_ratio`).
     """
     if enabled is None:

@@ -3,13 +3,13 @@
 Covers the three seams of the compact quality summary that reaches the
 renderer's last-text preview via the ``transcription_final`` push event:
 
-1. :func:`voice_typer.server.transcription.build_quality_summary` — the
+1. :func:`voice_typer.server.transcription.build_quality_summary`, the
    pure helper that folds the per-segment ``avg_logprob`` /
    ``no_speech_prob`` stats into a small float dict.
-2. :meth:`TranscriptionEngine._transcribe_unlocked` — populates
+2. :meth:`TranscriptionEngine._transcribe_unlocked`, populates
    ``last_quality_summary`` from the stats it already collects and
    resets it per run so a stale summary can't leak.
-3. The dictation pipeline — captures the summary off the active engine
+3. The dictation pipeline, captures the summary off the active engine
    after the transcribe call and attaches it to the
    ``transcription_final`` event payload (omitting it when absent).
 
@@ -203,7 +203,7 @@ class TestPipelineQualityPayload:
 
     def test_store_result_omits_quality_when_absent(self, monkeypatch):
         """Engines without confidence stats (or streaming cycles) leave
-        the payload unchanged — no empty-object sentinel in the wire
+        the payload unchanged, no empty-object sentinel in the wire
         format."""
         app = MagicMock()
         app.config.history_enabled = False

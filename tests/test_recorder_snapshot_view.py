@@ -7,7 +7,7 @@ Finding XV-22 (audit): the snapshot function was alleged to do an
 Verification-gate outcome (2026-07-24):
   ``voice_typer/server/recording/_recorder_split.py::take_snapshot``
   already returns a VIEW into the cached prefix array on every code
-  path — it uses ``cached[:]`` (a NumPy basic slice, which is a view
+  path, it uses ``cached[:]`` (a NumPy basic slice, which is a view
   sharing the underlying buffer) and NOT ``cached.copy()`` or
   ``np.array(cached)``. This was the NEW-PERF-003 optimisation: it
   eliminated ~7,200 × 1.9 MB ≈ 14 GB of garbage allocation per
@@ -18,7 +18,7 @@ These tests pin that property so a future refactor cannot silently
 reintroduce the ``.copy()`` (or ``np.array(...)``, or
 ``np.concatenate(...)``-of-the-return) regression. Each test asserts
 both:
-  1. ``np.shares_memory(snapshot, recorder._cached_resampled)`` — the
+  1. ``np.shares_memory(snapshot, recorder._cached_resampled)``, the
      returned array is a view, not an owning copy.
   2. The snapshot VALUES are correct (so the view isn't pointing at
      stale / wrong data).
@@ -122,7 +122,7 @@ class TestSnapshotResamplePathReturnsView:
     def test_with_new_chunks_returns_view_of_cached_prefix(self, monkeypatch):
         """When new chunks HAVE arrived, snapshot() resamples the new
         chunks and concatenates them onto the cached prefix. The RETURN
-        value must still be a VIEW of the (newly rebuilt) cache — not a
+        value must still be a VIEW of the (newly rebuilt) cache, not a
         copy of it."""
         calls: list[int] = []
 
@@ -206,7 +206,7 @@ class TestSnapshotNoResamplePathReturnsView:
     def test_no_new_chunks_returns_view_of_cached_array(self):
         """When no new chunks have arrived since the last snapshot, the
         return must be a view of the contiguous recording buffer's
-        storage (``recorder._audio_pipeline._buffer.storage`` — the single pre-allocated
+        storage (``recorder._audio_pipeline._buffer.storage``, the single pre-allocated
         growable array that replaced ``_cached_no_resample_arr``)."""
         r = _make_recorder(sample_rate=16000, effective_sr=16000)
         r._audio_pipeline._buffer = [np.array([[1.0], [2.0], [3.0]], dtype=np.float32)]
@@ -254,7 +254,7 @@ class TestSnapshotNoResamplePathReturnsView:
 class TestSnapshotEmptyBufferReturnsFreshEmptyArray:
     """XZ-8: the empty-buffer fast path returns a fresh empty array.
     This is O(1) and does not involve the cached prefix at all, so the
-    view-vs-copy question is moot — but pin the behaviour so the fast
+    view-vs-copy question is moot, but pin the behaviour so the fast
     path doesn't accidentally start returning the cached array."""
 
     def test_empty_buffer_returns_empty_float32(self):

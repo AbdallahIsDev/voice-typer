@@ -1,6 +1,6 @@
 /**
  * Drift guard: no test file may register BOTH a hoisted `vi.mock("X")`
- * AND a `vi.doMock("X")` for the same module path — and no module path
+ * AND a `vi.doMock("X")` for the same module path, and no module path
  * may be registered with `vi.mock("X")` more than once (the second
  * registration is a runtime re-registration, i.e. `vi.mock` called
  * inside `it()`/`beforeEach`, which is equivalent to `vi.doMock` and
@@ -10,7 +10,7 @@
  * because the loading-screen test overrode `useConnection` via
  * `vi.doMock` + `vi.resetModules()` + dynamic import while the SAME file
  * had a hoisted `vi.mock("@/hooks/useConnection", ...)` returning a
- * DIFFERENT default — the per-test override was intermittently dropped
+ * DIFFERENT default, the per-test override was intermittently dropped
  * and App rendered with the hoisted default instead of the loading
  * screen. Re-mocking a hoisted module inside `it()`/`beforeEach` is
  * order-dependent under the threads pool: the dynamic import can resolve
@@ -18,17 +18,17 @@
  * documented in src/main/__tests__/bootstrap-app-user-model-id.test.ts).
  *
  * The fix for any file hitting this: convert the per-test override to a
- * hoisted mutable mock — a `vi.hoisted(() => ({ mockX: vi.fn() }))` fn,
+ * hoisted mutable mock, a `vi.hoisted(() => ({ mockX: vi.fn() }))` fn,
  * a `vi.mock("X", () => ({ useX: mockX }))` factory that delegates to
  * it, a beforeEach that restores the default, and per-test
  * `mockX.mockReturnValue(...)` / `mockX.mockImplementation(...)`. (For
  * modules that need the REAL implementation in some tests, load them
- * with `vi.importActual` inside those tests — vitest memoizes a mock
+ * with `vi.importActual` inside those tests, vitest memoizes a mock
  * factory's result at first import, so a per-test flag read inside an
  * async `importOriginal` factory never re-evaluates.)
  *
  * This guard scans BOTH the renderer (`src/renderer/src`) and the
- * Electron main-process (`src/main`) test trees — the overlap existed
+ * Electron main-process (`src/main`) test trees, the overlap existed
  * in both (e.g. src/main/__tests__/main-process-reliability-fixes.test.ts
  * overrode its hoisted electron/state/i18n/python/single_instance mocks
  * with per-describe vi.doMock factories). Scoped doMock use that does
@@ -96,7 +96,7 @@ function mockPaths(src: string, re: RegExp): Set<string> {
 }
 
 /** Count registrations per path (a path registered >1× is a runtime
- *  re-registration — the same flake class as a vi.doMock override). */
+ *  re-registration, the same flake class as a vi.doMock override). */
 function countMockPaths(src: string, re: RegExp): Map<string, number> {
 	const counts = new Map<string, number>();
 	for (const match of src.matchAll(re)) {
@@ -112,7 +112,7 @@ describe("vi.doMock drift guard (hoisted vi.mock + doMock same-path overlap)", (
 		// drifts (file moved / vitest changes its module-dir shim),
 		// fail loudly with the resolved paths instead of silently
 		// scanning the wrong tree (a too-narrow scan turns this guard
-		// into a no-op — an off-by-one here previously produced
+		// into a no-op, an off-by-one here previously produced
 		// .../client/src/src/main).
 		expect(
 			existsSync(join(RENDERER_SRC, "App.tsx")),
@@ -152,8 +152,8 @@ describe("vi.doMock drift guard (hoisted vi.mock + doMock same-path overlap)", (
 		// an unreachable console.error.
 		expect(
 			offenders,
-			`[guard] hoisted vi.mock + per-test vi.doMock overlap — or a ` +
-				`module path registered with vi.mock(X) more than once — ` +
+			`[guard] hoisted vi.mock + per-test vi.doMock overlap, or a ` +
+				`module path registered with vi.mock(X) more than once, ` +
 				`found. Both are order-dependent re-registrations that can ` +
 				`be dropped under full-suite load (dynamic import resolving ` +
 				`before the late factory applies). Convert the per-test ` +

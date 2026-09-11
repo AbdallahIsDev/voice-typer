@@ -2,7 +2,7 @@
  * Per-row search filtering for the Settings sections that previously
  * rendered their ENTIRE card when a query matched any single row.
  *
- * Contract (mirrors the gated exemplars — General/Audio): a search
+ * Contract (mirrors the gated exemplars, General/Audio): a search
  * query that matches one row must hide the OTHER rows of the same
  * section while the section header stays; clearing the query restores
  * every row. The predicate is the page-level `isVisible` prop
@@ -39,7 +39,7 @@ vi.mock("sonner", () => sonnerMock());
 vi.mock("next-themes", () => nextThemesMock());
 
 // HotkeyPicker's capture internals (keyboard listeners, platform
-// presets) are irrelevant to row filtering — render a stub and assert
+// presets) are irrelevant to row filtering, render a stub and assert
 // on the row labels instead.
 vi.mock("@/components/hotkey/HotkeyPicker", () => ({
 	HotkeyPicker: () => <div data-testid="hotkey-picker" />,
@@ -85,9 +85,9 @@ afterEach(() => {
 });
 
 // ─────────────────────────────────────────────────────────────────────
-// Recording (the largest section — 14 rows)
+// Recording (the largest section, 14 rows)
 // ─────────────────────────────────────────────────────────────────────
-describe("RecordingSettingsSection — in-section search filtering", () => {
+describe("RecordingSettingsSection, in-section search filtering", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		cleanup();
@@ -170,7 +170,7 @@ describe("RecordingSettingsSection — in-section search filtering", () => {
 // ─────────────────────────────────────────────────────────────────────
 // Overlay
 // ─────────────────────────────────────────────────────────────────────
-describe("OverlaySettingsSection — in-section search filtering", () => {
+describe("OverlaySettingsSection, in-section search filtering", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		cleanup();
@@ -238,7 +238,7 @@ describe("OverlaySettingsSection — in-section search filtering", () => {
 // ─────────────────────────────────────────────────────────────────────
 // LLM Polishing
 // ─────────────────────────────────────────────────────────────────────
-describe("LlmPolishingSettingsSection — in-section search filtering", () => {
+describe("LlmPolishingSettingsSection, in-section search filtering", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		cleanup();
@@ -306,7 +306,7 @@ describe("LlmPolishingSettingsSection — in-section search filtering", () => {
 // ─────────────────────────────────────────────────────────────────────
 // AI Enhancement + Vocabulary Automation
 // ─────────────────────────────────────────────────────────────────────
-describe("AiEnhancementSettingsSection — in-section search filtering", () => {
+describe("AiEnhancementSettingsSection, in-section search filtering", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		cleanup();
@@ -327,7 +327,7 @@ describe("AiEnhancementSettingsSection — in-section search filtering", () => {
 		expect(screen.queryByText("Enable AI Enhancement")).toBeNull();
 		expect(screen.queryByText("Auto-Punctuate")).toBeNull();
 		expect(screen.queryByText("Auto-Capitalize")).toBeNull();
-		// No Vocabulary Automation row matches either — the whole
+		// No Vocabulary Automation row matches either, the whole
 		// section is hidden (section-level check still applies).
 		expect(screen.queryByText("Enable Vocabulary Automation")).toBeNull();
 	});
@@ -381,7 +381,7 @@ describe("AiEnhancementSettingsSection — in-section search filtering", () => {
 // ─────────────────────────────────────────────────────────────────────
 // Diagnostics
 // ─────────────────────────────────────────────────────────────────────
-describe("DiagnosticsSettingsSection — in-section search filtering", () => {
+describe("DiagnosticsSettingsSection, in-section search filtering", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		cleanup();
@@ -433,7 +433,7 @@ describe("DiagnosticsSettingsSection — in-section search filtering", () => {
 // ─────────────────────────────────────────────────────────────────────
 // Resources & Feedback
 // ─────────────────────────────────────────────────────────────────────
-describe("ResourcesSettingsSection — in-section search filtering", () => {
+describe("ResourcesSettingsSection, in-section search filtering", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		cleanup();
@@ -485,7 +485,7 @@ describe("ResourcesSettingsSection — in-section search filtering", () => {
 // ─────────────────────────────────────────────────────────────────────
 // Troubleshooting
 // ─────────────────────────────────────────────────────────────────────
-describe("TroubleshootingSettingsSection — in-section search filtering", () => {
+describe("TroubleshootingSettingsSection, in-section search filtering", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		cleanup();
@@ -613,7 +613,7 @@ describe("settingsRowGating helpers", () => {
 	});
 
 	it("GatedSettingRow matches against searchInfo (not the rendered tooltip) when both are provided", () => {
-		// The predicate only matches the searchable description — the row
+		// The predicate only matches the searchable description, the row
 		// must still render (with the DIFFERENT tooltip string).
 		const matchesSearchInfoOnly: SettingsSectionSharedProps["isVisible"] = (
 			label,
@@ -636,7 +636,7 @@ describe("settingsRowGating helpers", () => {
 
 	it("GatedSettingRow hides the row when only the tooltip (not searchInfo) would match", () => {
 		// The predicate matches the TOOLTIP text but the searchable
-		// description differs — the row hides (searchInfo wins).
+		// description differs, the row hides (searchInfo wins).
 		const matchesTooltipOnly: SettingsSectionSharedProps["isVisible"] = (
 			_label,
 			info,

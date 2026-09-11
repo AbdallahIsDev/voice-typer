@@ -9,7 +9,7 @@ Test coverage
 - GT-29:  ``IPCServer.__init__`` validates the ``_COMMAND_REGISTRY`` at
           construction time via a loop that asserts every entry
           resolves to a callable bound method (DT-5: the previous
-          ``_command_handlers`` instance cache was dead code — ``_dispatch``
+          ``_command_handlers`` instance cache was dead code: ``_dispatch``
           resolves the handler via ``getattr(self, handler_name, None)``
           at dispatch time, so the cache was never read. The cache was
           deleted; the typo-validation goal is now achieved by the
@@ -17,7 +17,7 @@ Test coverage
 - GT-30:  ``_rate_limiter_instance`` is declared on ``IPCServer.__init__``
           (no more ``# type: ignore[attr-defined]``).
 - GT-45:  TOCTOU re-check of ``app._shutting_down`` inside the dispatch
-          lock — a flag flip between the unlocked gate and the locked
+          lock, a flag flip between the unlocked gate and the locked
           handler invocation is observed.
 - GT-48:  pending-event re-merge preserves FIFO order
           (``pending + self._pending_tcp + [line]``).
@@ -109,7 +109,7 @@ class TestDispatchTableTyped:
 
     The previous ``_command_handlers: dict[str, CommandHandler]``
     instance cache (built in ``__init__`` and stored on ``self``) was
-    dead code — ``_dispatch`` resolves the handler the same way at
+    dead code: ``_dispatch`` resolves the handler the same way at
     dispatch time via ``getattr(self, handler_name, None)``, so the
     cache was never read. DT-5 (Phase 4) deleted the cache; the
     typo-validation goal is preserved by the ``__init__``-time
@@ -123,7 +123,7 @@ class TestDispatchTableTyped:
         dead ``_command_handlers`` cache).
 
         We introspect the source of ``__init__`` and verify the
-        validation loop is present — the cache is gone, but the
+        validation loop is present, the cache is gone, but the
         typo-detection contract survives.
         """
         src = inspect.getsource(IPCServer.__init__)
@@ -142,7 +142,7 @@ class TestDispatchTableTyped:
         # The dead ``_command_handlers`` cache must NOT be built.
         assert "self._command_handlers" not in src, (
             "DT-5: __init__ must NOT build the dead _command_handlers "
-            "instance cache — _dispatch resolves handlers at dispatch "
+            "instance cache, _dispatch resolves handlers at dispatch "
             "time via getattr(self, handler_name, None), so the cache "
             "was never read. Only the typo-validation loop survives."
         )
@@ -151,14 +151,14 @@ class TestDispatchTableTyped:
         """DT-5: the ``_command_handlers`` instance attribute is NOT
         set by ``__init__`` (the dead cache was deleted). Tests that
         previously monkey-patched the cache entry must now patch the
-        handler method directly on the instance — ``_dispatch``
+        handler method directly on the instance: ``_dispatch``
         resolves via ``getattr(self, handler_name, None)`` at dispatch
         time so the patch is observed.
         """
         server = _make_server()
         assert not hasattr(server, "_command_handlers"), (
             "DT-5: the _command_handlers instance cache was deleted as "
-            "dead code — _dispatch resolves handlers at dispatch time. "
+            "dead code, _dispatch resolves handlers at dispatch time. "
             "__init__ must NOT set this attribute."
         )
 
@@ -185,7 +185,7 @@ class TestDispatchTableTyped:
         type alias is exported from the module."""
         # ``dict[str, object]`` evaluates to a ``types.GenericAlias``
         # (NOT ``dict`` itself), so verify the alias resolves to a
-        # subscripted generic dict origin — i.e. it's the documented
+        # subscripted generic dict origin, i.e. it's the documented
         # ``dict[str, object]`` shape, not some other type.
 
         assert ResponseEnvelope is not None
@@ -228,12 +228,12 @@ class TestRateLimiterInstanceDeclared:
         src = inspect.getsource(ipc_server._get_rate_limiter)
         assert "type: ignore[attr-defined]" not in src, (
             "GT-30: _get_rate_limiter must NOT silence the "
-            "_rate_limiter_instance assignment with type: ignore — the "
+            "_rate_limiter_instance assignment with type: ignore, the "
             "attribute is now declared on IPCServer.__init__."
         )
 
     def test_rate_limiter_instance_assignable_without_ignore(self) -> None:
-        """The attribute can be assigned without runtime error — the
+        """The attribute can be assigned without runtime error, the
         declaration on __init__ makes it a real instance attribute."""
         from voice_typer.server.ipc.rate_limiter import _RateLimiter
 
@@ -327,13 +327,13 @@ class TestDispatchLockAndTOCTOU:
         assert call_count["n"] == 2, f"GT-25: expected 2 dispatches, got {call_count['n']}."
         assert not overlap_detected.is_set(), (
             "GT-25: two concurrent state-mutating dispatches ran their "
-            "handler bodies simultaneously — _dispatch_lock failed to "
+            "handler bodies simultaneously, _dispatch_lock failed to "
             "serialize them."
         )
 
     def test_readonly_dispatches_bypass_lock(self) -> None:
         """GT-25: read-only dispatches (``get_status`` etc.) do NOT
-        acquire ``_dispatch_lock`` — a long-running state-mutating
+        acquire ``_dispatch_lock``, a long-running state-mutating
         handler cannot block a quick status poll.
 
         Strategy: acquire ``_dispatch_lock`` on the test thread, then
@@ -353,7 +353,7 @@ class TestDispatchLockAndTOCTOU:
 
         # Hold the dispatch lock on the test thread.
         with server._dispatch_lock:
-            # Dispatch get_status on a worker thread — must NOT block.
+            # Dispatch get_status on a worker thread, must NOT block.
             done = threading.Event()
             box: list[object] = []
 
@@ -363,11 +363,11 @@ class TestDispatchLockAndTOCTOU:
 
             t = threading.Thread(target=dispatch)
             t.start()
-            # Wait at most 0.5s — if the read-only dispatch honored the
+            # Wait at most 0.5s, if the read-only dispatch honored the
             # lock, it would deadlock (we're holding it).
             assert done.wait(timeout=0.5), (
                 "GT-25: read-only dispatch (get_status) blocked waiting "
-                "for _dispatch_lock — read-only handlers MUST bypass the "
+                "for _dispatch_lock, read-only handlers MUST bypass the "
                 "lock so a state-mutating handler can't stall status polls."
             )
             t.join(timeout=1.0)
@@ -411,14 +411,14 @@ class TestDispatchLockAndTOCTOU:
         then verify the dispatch returns the shutting_down error
         (proving the re-check fired).
 
-        Wait — that's the same as test_shutdown_toctou_recheck_blocks_handler.
+        Wait, that's the same as test_shutdown_toctou_recheck_blocks_handler.
         The actual TOCTOU window is between the unlocked gate (top of
         _dispatch) and the lock acquisition. To exercise it, we'd need
         to flip the flag in that window on a concurrent thread, which
         is racy and unreliable.
 
         Instead, this test verifies the SOURCE contains the re-check
-        inside the lock block — pinning the contract for static review.
+        inside the lock block, pinning the contract for static review.
         """
         src = inspect.getsource(IPCServer._dispatch)
         # The re-check must appear AFTER `with self._dispatch_lock:`.
@@ -443,7 +443,7 @@ class TestReMerge:
     between the snapshot+clear and the re-acquire.
 
     Under the XV-82 snapshot gate (``if tcp_client is not None:``),
-    ``pending`` is always None in the tcp_mode branch — so the re-merge
+    ``pending`` is always None in the tcp_mode branch, so the re-merge
     is dead code. The FIFO order is still pinned defensively in case a
     future change re-introduces an unconditional snapshot.
     """
@@ -454,8 +454,8 @@ class TestReMerge:
         Python statement).
 
         The check is line-oriented (ignores comment-only lines) so the
-        explanatory comment in the source — which mentions the OLD
-        buggy ``extend`` form to document what was fixed — doesn't trip
+        explanatory comment in the source, which mentions the OLD
+        buggy ``extend`` form to document what was fixed, doesn't trip
         the assertion.
         """
         import re
@@ -475,12 +475,12 @@ class TestReMerge:
             "OLD snapshot events AFTER concurrent-thread NEW events."
         )
         # The buggy extend-based re-merge must be GONE from code lines.
-        # (Allow it in comments — the  explanation mentions the
+        # (Allow it in comments, the  explanation mentions the
         # old form to document the fix.)
         buggy_pattern = re.compile(r"^\s*self\._pending_tcp\.extend\(pending\)\s*$", re.MULTILINE)
         assert not buggy_pattern.search(code_only), (
             "GT-48 / XV-82: _send must NOT execute "
-            "self._pending_tcp.extend(pending) as a Python statement — "
+            "self._pending_tcp.extend(pending) as a Python statement, "
             "use the FIFO-correct "
             "pending + self._pending_tcp + [line] expression instead."
         )
@@ -513,7 +513,7 @@ class TestReMerge:
         server._pending_tcp = ['{"old":1}', '{"old":2}']
         server._tcp_client = None
 
-        # Push a new event — must append at the END.
+        # Push a new event, must append at the END.
         server._send({"type": "test", "seq": 3})
 
         assert len(server._pending_tcp) == 3, (
@@ -524,7 +524,7 @@ class TestReMerge:
         assert '"old":2' in server._pending_tcp[1]
         # The new entry must be the LAST one and contain "seq" (the JSON
         # serializer may emit ``"seq": 3`` or ``"seq":3`` depending on
-        # default separators — accept either).
+        # default separators, accept either).
         assert '"seq"' in server._pending_tcp[2], (
             f"GT-48: new event must be at the END (FIFO); got {server._pending_tcp[-1]!r}."
         )
@@ -556,7 +556,7 @@ class TestAckBeforeCleanup:
         assert elapsed < 0.5, (
             f"GT-5: ack must be returned in <0.5s (with a 1.0s cleanup); "
             f"took {elapsed:.3f}s. The ack is blocked by synchronous "
-            f"service.quit() — host will force-kill the sidecar mid-cleanup."
+            f"service.quit(), host will force-kill the sidecar mid-cleanup."
         )
         assert result is not None
         assert result["type"] == "result"
@@ -578,17 +578,17 @@ class TestAckBeforeCleanup:
         server._handle_shutdown(data=None, resp={"id": 1})
 
         # Wait for the background thread to land its call.
-        # Use time.monotonic() — wall-clock (time.time()) can jump
+        # Use time.monotonic(), wall-clock (time.time()) can jump
         # forward under NTP/manual adjustments, causing the loop to
         # exit early as if the deadline had expired.
         deadline = time.monotonic() + 2.0
         while time.monotonic() < deadline and "thread" not in captured:
             time.sleep(0.005)
         assert "thread" in captured, (
-            "GT-5: service.quit() was not called within 2s — the background cleanup thread never started."
+            "GT-5: service.quit() was not called within 2s, the background cleanup thread never started."
         )
         assert captured["thread"] is not caller_thread, (
-            "GT-5: service.quit() ran on the dispatch pool thread — the "
+            "GT-5: service.quit() ran on the dispatch pool thread, the "
             "cleanup must run on a background daemon thread so the ack "
             "frame reaches the host before the ~95s _do_cleanup blocks."
         )
@@ -612,7 +612,7 @@ class TestBaseExceptionCatch:
         server = _make_server()
         server.service.quit.side_effect = SystemExit("deep cleanup exit")
 
-        # Must NOT raise — the ack is returned before the thread starts,
+        # Must NOT raise, the ack is returned before the thread starts,
         # and the thread catches SystemExit via BaseException.
         result = server._handle_shutdown(data=None, resp={"id": 1})
         assert result is not None
@@ -620,7 +620,7 @@ class TestBaseExceptionCatch:
 
         # Wait for the thread to call service.quit (and trigger the
         # SystemExit). The thread must NOT propagate.
-        # Use time.monotonic() — wall-clock (time.time()) can jump
+        # Use time.monotonic(), wall-clock (time.time()) can jump
         # forward under NTP/manual adjustments, causing the loop to
         # exit early as if the deadline had expired.
         deadline = time.monotonic() + 2.0
@@ -728,7 +728,7 @@ class TestDispatchCastNotSuppression:
 
     def _dispatch_source(self) -> str:
         """Return the source of ``IPCServer._dispatch`` (the bound
-        method, not the unbound function — easier in tests)."""
+        method, not the unbound function, easier in tests)."""
         import inspect
 
         return inspect.getsource(IPCServer._dispatch)
@@ -773,7 +773,7 @@ class TestDispatchCastNotSuppression:
         server = _make_server()
         result = server._dispatch({"type": "heartbeat", "id": 42})
         # heartbeat returns a ResponseEnvelope (dict) or None for fire-
-        # and-forget. Either is acceptable — the contract is "the cast
+        # and-forget. Either is acceptable, the contract is "the cast
         # doesn't crash or replace the handler with garbage."
         assert result is None or isinstance(result, dict), (
             f"YJ-27 sanity failure: dispatch returned {type(result)!r}, "
@@ -791,29 +791,29 @@ class TestDispatchCastNotSuppression:
 #
 # Each test class covers ONE finding from the comprehensive review
 # (``review.md`` lines 695–775). The file is self-contained
-# — it does NOT depend on the conftest fixtures from ``tests/handlers/``
+# , it does NOT depend on the conftest fixtures from ``tests/handlers/``
 # so it can run in isolation and so the contract tests can import the
 # canonical ``_COMMAND_REGISTRY`` without triggering the handler-mixin
 # import cycle.
 #
 # Findings covered:
 #
-# * **the fix** — ``ipc/history_bounds._sanitize_config_for_ipc``: pattern-
+# * **the fix**: ``ipc/history_bounds._sanitize_config_for_ipc``: pattern-
 # based secret-field denylist + non-None-value redaction. The static
 # ``_SECRET_CONFIG_FIELDS`` frozenset is retained for backward compat
 # with ``crash_recovery.py``, but the sanitizer now ALSO consults
 # :data:`_SECRET_FIELD_PATTERNS` so a future secret field (e.g.
 # ``azure_api_key``, ``oauth_token``, ``client_secret``) is masked
 # even if no one remembers to add it to the frozenset.
-# * **the fix** — ``ipc/rate_limiter.COMMAND_COSTS``: the map now lists
+# * **the fix**: ``ipc/rate_limiter.COMMAND_COSTS``: the map now lists
 # every command in the dispatcher's ``_COMMAND_REGISTRY`` so the
 # contract test can fail-loud if a future command is registered
 # without a cost entry.
-# * **the fix** — ``ipc/history_bounds._bound_history_offset``: offset is
+# * **the fix**: ``ipc/history_bounds._bound_history_offset``: offset is
 # now capped at :data:`_HISTORY_OFFSET_MAX` (10_000_000) in addition
 # to the ``max(0, v)`` floor. Previously Python big-ints could pass
 # the clamp and reach SQLite.
-# * **the fix** — ``ipc/validation._validate_dict_payload``: migrated to
+# * **the fix**: ``ipc/validation._validate_dict_payload``: migrated to
 # emit namespaced codes (``client.invalid_payload`` /
 # ``client.invalid_field`` / ``client.missing_field``) as the primary
 # ``code`` field; the legacy bare form is preserved in a sibling
@@ -882,7 +882,7 @@ class TestIsSecretFieldName:
             "llm_api_url",
             "llm_model",
             "vocabulary_enabled",
-            # Boolean flag with "password" substring — does NOT match
+            # Boolean flag with "password" substring, does NOT match
             # because it ends in "_paste", not "_password".
             "warn_password_paste",
             # Field with "credential" substring but not as suffix.
@@ -893,7 +893,7 @@ class TestIsSecretFieldName:
     )
     def test_does_not_match_benign_fields(self, name):
         assert _is_secret_field_name(name) is False, (
-            f"Field {name!r} should NOT be classified as secret — the "
+            f"Field {name!r} should NOT be classified as secret, the "
             f"pattern is name-based (suffix or exact match), so "
             f"substring matches like 'warn_password_paste' are NOT "
             f"redacted (it ends in '_paste', not '_password')."
@@ -968,7 +968,7 @@ class TestSanitizePatternDenylist:
 
     def test_warn_password_paste_not_redacted(self):
         """The boolean flag ``warn_password_paste`` (a real Config
-        field) must NOT be redacted — the pattern is name-based, and
+        field) must NOT be redacted, the pattern is name-based, and
         the field ends in ``_paste``, not ``_password``. The renderer
         needs the real boolean value to render the toggle UI."""
         cfg = _ConfigLike(warn_password_paste=True)
@@ -979,7 +979,7 @@ class TestSanitizePatternDenylist:
         )
 
     def test_cloud_api_url_not_redacted(self):
-        """``cloud_api_url`` ends in ``_url``, not ``_api_key`` — must
+        """``cloud_api_url`` ends in ``_url``, not ``_api_key``, must
         not be redacted. The renderer needs the URL to display it."""
         cfg = _ConfigLike(cloud_api_url="https://api.example.com/v1")
         out = _sanitize_config_for_ipc(cfg)
@@ -989,15 +989,15 @@ class TestSanitizePatternDenylist:
 class TestSanitizeFalsyValues:
     """redaction now masks any non-None value, regardless of truthiness.
 
-    Previously the redaction logic was ``out[k] = _REDACTED_SENTINEL if v else v``
-    — a secret stored as ``0``, ``False``, or ``""`` would NOT be
-    redacted (falsy values were preserved verbatim). This was fine for
-    the empty-string "no key set" case but unsafe for ``0`` / ``False``
-    secrets and inconsistent with the documented "key is set" semantic.
+      Previously the redaction logic was ``out[k] = _REDACTED_SENTINEL if v else v``
+    , a secret stored as ``0``, ``False``, or ``""`` would NOT be
+      redacted (falsy values were preserved verbatim). This was fine for
+      the empty-string "no key set" case but unsafe for ``0`` / ``False``
+      secrets and inconsistent with the documented "key is set" semantic.
     """
 
     def test_falsy_zero_is_redacted(self):
-        """A secret stored as ``0`` (integer) is redacted — previously
+        """A secret stored as ``0`` (integer) is redacted, previously
         the truthy-only check preserved it verbatim, leaking the value."""
         cfg = _ConfigLike(azure_api_key=0)
         out = _sanitize_config_for_ipc(cfg)
@@ -1012,7 +1012,7 @@ class TestSanitizeFalsyValues:
     def test_falsy_empty_string_is_redacted(self):
         """A secret stored as ``""`` is redacted. Previously the empty
         string was preserved so the renderer could distinguish "no key
-        set" from "key set but hidden" — but ``None`` is the canonical
+        set" from "key set but hidden", but ``None`` is the canonical
         sentinel for "not configured" in the Config dataclass (most
         secret fields default to ``""``, not ``None``, so the empty-
         string "not configured" semantic was already ambiguous). This
@@ -1025,7 +1025,7 @@ class TestSanitizeFalsyValues:
     def test_none_value_is_preserved(self):
         """``None`` is preserved so the renderer can distinguish "not
         configured" from "configured but hidden". This is the one case
-        where the original value is kept — any other value is masked."""
+        where the original value is kept, any other value is masked."""
         cfg = _ConfigLike(cloud_api_key=None)
         out = _sanitize_config_for_ipc(cfg)
         assert out["cloud_api_key"] is None
@@ -1043,8 +1043,8 @@ class TestSanitizeFalsyValues:
         real_value = "sk-unique-marker-12345"
         cfg = _ConfigLike(
             cloud_api_key=real_value,
-            azure_api_key=0,  # falsy — would have leaked pre-
-            oauth_token=False,  # falsy — would have leaked pre-
+            azure_api_key=0,  # falsy, would have leaked pre-
+            oauth_token=False,  # falsy, would have leaked pre-
         )
         out = _sanitize_config_for_ipc(cfg)
         serialized = str(out)
@@ -1076,7 +1076,7 @@ class TestSanitizePreservesNonSecretFields:
 
 class TestSanitizeBackwardCompatWithExistingFields:
     """the 5 fields in ``_SECRET_CONFIG_FIELDS`` are still
-    redacted (backward compat — ``crash_recovery.py`` imports the
+    redacted (backward compat: ``crash_recovery.py`` imports the
     frozenset for its own redaction path)."""
 
     @pytest.mark.parametrize("field_name", sorted(_SECRET_CONFIG_FIELDS))
@@ -1087,7 +1087,7 @@ class TestSanitizeBackwardCompatWithExistingFields:
 
 
 class TestSanitizeContractWithRealConfig:
-    """(d): contract test — every field on the real ``Config``
+    """(d): contract test, every field on the real ``Config``
     dataclass that matches a secret-name pattern is in
     ``_SECRET_CONFIG_FIELDS`` (i.e. the explicit allowlist covers
     every secret the maintainers have added so far).
@@ -1095,9 +1095,9 @@ class TestSanitizeContractWithRealConfig:
     This is the "fail-loud when a new secret field is added without
     being listed" guard. If a future maintainer adds e.g.
     ``anthropic_api_key`` to ``Config`` WITHOUT also adding it to
-    ``_SECRET_CONFIG_FIELDS``, this test will fail — alerting them
+    ``_SECRET_CONFIG_FIELDS``, this test will fail, alerting them
     that the field needs to be added (OR, equivalently, that they
-    should rely on the pattern denylist — in which case the test
+    should rely on the pattern denylist, in which case the test
     asserts that the field IS still redacted by the sanitizer).
 
     Implementation note: the contract is "any field matching a secret
@@ -1105,7 +1105,7 @@ class TestSanitizeContractWithRealConfig:
     pattern denylist is the authoritative guard, so the test asserts
     the BEHAVIORAL contract (the field is redacted) rather than the
     STRUCTURAL contract (the field is in the frozenset). The latter
-    would be too strict — the whole point of the denylist is that
+    would be too strict, the whole point of the denylist is that
     unlisted pattern-matching fields are still redacted.
     """
 
@@ -1113,7 +1113,7 @@ class TestSanitizeContractWithRealConfig:
         """Return the set of dataclass field names on the real Config."""
         from voice_typer.server.config import Config
 
-        # ``Config`` is a dataclass — ``dataclasses.fields`` returns
+        # ``Config`` is a dataclass: ``dataclasses.fields`` returns
         # the declared fields (not the runtime-only ``last_load_warnings``
         # attribute, which is intentionally excluded from ``asdict``).
         return {f.name for f in dataclasses.fields(Config())}
@@ -1151,10 +1151,10 @@ class TestSanitizeContractWithRealConfig:
 
         cfg = Config()
         out = _sanitize_config_for_ipc(cfg)
-        # ``hotkey`` is a plain config field — must not be redacted.
+        # ``hotkey`` is a plain config field, must not be redacted.
         assert "hotkey" in out, "hotkey field missing from sanitized output"
         assert out["hotkey"] != _REDACTED_SENTINEL, (
-            "hotkey was redacted — the pattern denylist is too broad and is matching non-secret fields."
+            "hotkey was redacted, the pattern denylist is too broad and is matching non-secret fields."
         )
 
 
@@ -1187,7 +1187,7 @@ class TestCommandCostsContract:
         assert not missing, (
             f"Commands registered in _COMMAND_REGISTRY but missing "
             f"from COMMAND_COSTS: {sorted(missing)}. Each registered "
-            f"command MUST have an explicit cost entry — add them to "
+            f"command MUST have an explicit cost entry, add them to "
             f"COMMAND_COSTS in voice_typer/server/ipc/rate_limiter.py. "
             f"Cost tiers: 1=cheap read, 2=small write, 3=compute, "
             f"5=starts long-lived resource, 10=heavy I/O, 20=very "
@@ -1196,7 +1196,7 @@ class TestCommandCostsContract:
 
     def test_command_costs_does_not_list_unknown_commands(self):
         """Sanity check: ``COMMAND_COSTS`` should not contain commands
-        that aren't in ``_COMMAND_REGISTRY`` — that would indicate a
+        that aren't in ``_COMMAND_REGISTRY``, that would indicate a
         typo or a stale entry pointing at a removed command.
 
         (2026-07-25): some commands were moved from the Python
@@ -1204,10 +1204,10 @@ class TestCommandCostsContract:
         ``export_diagnostics``, ``export_gdpr_bundle``, ``test_llm_connection``,
         ``get_vocabulary_suggestions``). Their entries are kept in
         ``COMMAND_COSTS`` for back-compat with older Electron builds
-        that still bridge these calls — those entries are explicitly
+        that still bridge these calls, those entries are explicitly
         whitelisted here.
         """
-        # Commands moved to Tauri Rust host — kept in COMMAND_COSTS
+        # Commands moved to Tauri Rust host, kept in COMMAND_COSTS
         # for back-compat with older Electron builds.
         zr_45_moved_to_rust = {
             "delete_all_personal_data",
@@ -1223,7 +1223,7 @@ class TestCommandCostsContract:
             f"COMMAND_COSTS contains entries for commands NOT in "
             f"_COMMAND_REGISTRY (and not in the moved-to-Rust "
             f"whitelist): {sorted(stale)}. These are stale entries "
-            f"pointing at removed/renamed commands — remove them from "
+            f"pointing at removed/renamed commands, remove them from "
             f"COMMAND_COSTS."
         )
 
@@ -1234,7 +1234,7 @@ class TestCommandCostsContract:
         for cmd, cost in COMMAND_COSTS.items():
             assert isinstance(cost, int), f"COMMAND_COSTS[{cmd!r}] = {cost!r} is not an int."
             assert cost >= 1, (
-                f"COMMAND_COSTS[{cmd!r}] = {cost} < 1 — costs must be "
+                f"COMMAND_COSTS[{cmd!r}] = {cost} < 1, costs must be "
                 f"positive integers (the limiter clamps <1 to 1, but "
                 f"the map should not encode that)."
             )
@@ -1265,7 +1265,7 @@ class TestCommandCostsNewlyListed:
     that previously fell through to ``DEFAULT_COST = 1``.
 
     The exact cost values are heuristic (calibrated against the 200/s
-    burst budget) — these tests pin the values so a future careless
+    burst budget), these tests pin the values so a future careless
     refactor doesn't silently revert them to 1.
     """
 
@@ -1310,7 +1310,7 @@ class TestCommandCostsNewlyListed:
 
 class TestRateLimiterUsesElevatedCost:
     """behavioural guard: the limiter actually applies the
-    elevated cost — a cost-10 command consumes 10 of the 200/s burst
+    elevated cost, a cost-10 command consumes 10 of the 200/s burst
     budget, not 1."""
 
     def test_cost_10_command_rejected_after_20_calls_in_burst_window(self):
@@ -1319,21 +1319,21 @@ class TestRateLimiterUsesElevatedCost:
         (20 * 10 = 200 = burst cap). The 21st call is rejected.
 
         Previously ``clear_history`` had cost=1 (DEFAULT_COST fallthrough),
-        so the limiter accepted 200 calls/s — exactly the bug this fix addresses.
+        so the limiter accepted 200 calls/s, exactly the bug this fix addresses.
 
         ``delete_model`` was bumped from cost 10 to 50, so this
         test now uses ``clear_history`` (still cost 10) to verify the
         cost-10 behavioural guard.
         """
         # ``sustained_per_sec`` is the TOTAL budget over the 10s window
-        # (the parameter name is misleading — it's a count, not a rate).
+        # (the parameter name is misleading, it's a count, not a rate).
         # Set it high so only the burst check trips in this test.
         assert COMMAND_COSTS["clear_history"] == 10, (
-            "clear_history cost changed — pick another cost-10 command for this test"
+            "clear_history cost changed, pick another cost-10 command for this test"
         )
         limiter = _RateLimiter(burst=200, sustained_per_sec=10_000, window=10.0)
         accepted = 0
-        # 25 calls at t=0 — should accept 20 (20*10=200=burst), reject 5.
+        # 25 calls at t=0, should accept 20 (20*10=200=burst), reject 5.
         for _ in range(25):
             if limiter.allow(command="clear_history", now=0.0):
                 accepted += 1
@@ -1354,7 +1354,7 @@ class TestRateLimiterUsesElevatedCost:
         accept all calls, not just 200). Use ``get_status`` (also
         cost 1) for the cost-1 behavioural guard instead.
         """
-        assert COMMAND_COSTS["get_status"] == 1, "get_status cost changed — pick another cost-1 command for this test"
+        assert COMMAND_COSTS["get_status"] == 1, "get_status cost changed, pick another cost-1 command for this test"
         limiter = _RateLimiter(burst=200, sustained_per_sec=10_000, window=10.0)
         accepted = 0
         for _ in range(205):
@@ -1437,7 +1437,7 @@ class TestBoundHistoryOffsetUpperBound:
         assert _bound_history_offset(999_999_999_999) == _HISTORY_OFFSET_MAX
 
     def test_python_bigint_clamped_to_max(self):
-        """Python big-ints are unbounded — without the cap, a 5000-digit
+        """Python big-ints are unbounded, without the cap, a 5000-digit
         int would pass the ``max(0, v)`` clamp and reach SQLite's OFFSET
         clause, forcing a wasteful row-skip scan. caps it.
 
@@ -1528,7 +1528,7 @@ class TestNamespacedInvalidPayload:
         schema = {
             "x": {"type": str, "required": False, "max_payload_bytes": 10},
         }
-        # ``data`` serializes to ~30 bytes — well above the 10-byte cap.
+        # ``data`` serializes to ~30 bytes, well above the 10-byte cap.
         _, error = _validate_dict_payload({"x": "this-is-way-too-long"}, schema)
         assert error["data"]["code"] == "client.invalid_payload"
         assert "legacy_code" not in error["data"]
@@ -1551,7 +1551,7 @@ class TestNamespacedInvalidField:
 
     def test_wrong_type_with_tuple_type_annotation(self):
         """When the schema's ``type`` is a tuple (e.g. ``(str, type(None))``),
-        the error message lists all allowed types — the code is still
+        the error message lists all allowed types, the code is still
         the namespaced ``client.invalid_field``."""
         validated, error = _validate_dict_payload(
             {"mic_id": 123},
@@ -1660,7 +1660,7 @@ class TestCheckPackUpdateDispatch:
     ``voice_typer/server/ipc/lifecycle.py``, which delegates to
     ``update_check.handle_check_offline_pack_update_ipc``. The manifest fetch
     fails (no network / no release) but must produce a structured
-    ``ack`` result — never a raised exception or a dropped envelope.
+    ``ack`` result, never a raised exception or a dropped envelope.
     """
 
     def test_command_registered_and_rate_limited(self):
@@ -1716,22 +1716,22 @@ class TestCheckPackUpdateDispatch:
 # These tests pin the behavioral and source-level contracts of the
 # GROUP-2 IPC-layer fixes:
 #
-# * XV-81 — ``_RateLimiter`` maintains running totals
+# * XV-81: ``_RateLimiter`` maintains running totals
 # (``self._burst_total`` / ``self._sustained_total``) instead of
 # recomputing ``sum(c for _, c in deque)`` on every ``allow()`` call.
-# * XV-82 — ``IPCServer._send`` only snapshots+clears ``_pending_tcp``
+# * XV-82: ``IPCServer._send`` only snapshots+clears ``_pending_tcp``
 # when there is a live TCP client to drain it to (the ``tcp_mode``
 # branch only appends+trims).
-# * XV-83 — ``IPCServer._send`` uses compact JSON serialization
+# * XV-83: ``IPCServer._send`` uses compact JSON serialization
 # (``ensure_ascii=False, separators=(",", ":")``) matching the WS path.
-# * XV-84 — ``sidecar_ws._writer`` encodes the outbound event to bytes
+# * XV-84: ``sidecar_ws._writer`` encodes the outbound event to bytes
 # once (``json.dumps(...).encode("utf-8")``) and shares the buffer
 # between the size check and the send.
-# * XV-85 — ``validation._validate_dict_payload`` hoists ``import json``
+# * XV-85: ``validation._validate_dict_payload`` hoists ``import json``
 # to module top and caches the per-schema ``max_payload_bytes`` lookup.
-# * XV-86 — ``_TCPLineIO`` uses ``io.DEFAULT_BUFFER_SIZE`` (not ``1``)
+# * XV-86: ``_TCPLineIO`` uses ``io.DEFAULT_BUFFER_SIZE`` (not ``1``)
 # for the read-side ``socket.makefile`` buffering argument.
-# * XV-87 — ``sidecar_ws._make_dispatch`` resolves the rate limiter
+# * XV-87: ``sidecar_ws._make_dispatch`` resolves the rate limiter
 # ONCE up-front (alongside ``ws_dispatch_pool``) and captures it in
 # the closure; ``dispatch()`` no longer calls ``_get_rate_limiter``
 # per frame.
@@ -1763,11 +1763,11 @@ class TestRateLimiterRunningTotals:
         # The old O(n) recompute must NOT appear in the allow() body.
         assert "sum(c for _, c in self._burst_timestamps)" not in src, (
             "XV-81: allow() must NOT recompute sum(c for _, c in "
-            "_burst_timestamps) on every call — use the running total."
+            "_burst_timestamps) on every call, use the running total."
         )
         assert "sum(c for _, c in self._sustained_timestamps)" not in src, (
             "XV-81: allow() must NOT recompute sum(c for _, c in "
-            "_sustained_timestamps) on every call — use the running total."
+            "_sustained_timestamps) on every call, use the running total."
         )
         # The new fast-path reads must appear.
         assert "self._burst_total" in src, "XV-81: allow() must reference self._burst_total (the running total)."
@@ -1778,7 +1778,7 @@ class TestRateLimiterRunningTotals:
     def test_running_total_matches_sum_after_appends(self):
         """After a sequence of ``allow()`` calls, the running total must
         equal the value ``sum(c for _, c in deque)`` would have
-        produced — the cache invariant."""
+        produced, the cache invariant."""
         from voice_typer.server.ipc.rate_limiter import _RateLimiter
 
         rl = _RateLimiter(burst=200, sustained_per_sec=600, window=10.0, burst_window=1.0)
@@ -1790,7 +1790,7 @@ class TestRateLimiterRunningTotals:
         expected_sustained = sum(c for _, c in rl._sustained_timestamps)
         assert rl._burst_total == expected_burst, (
             f"XV-81: _burst_total={rl._burst_total} != sum={expected_burst} "
-            "after appends — the running total must stay in sync with the deque."
+            "after appends, the running total must stay in sync with the deque."
         )
         assert rl._sustained_total == expected_sustained, (
             f"XV-81: _sustained_total={rl._sustained_total} != sum={expected_sustained} after appends."
@@ -1832,7 +1832,7 @@ class TestRateLimiterRunningTotals:
         rl._sustained_total = -5
         # Trigger an eviction that should clamp the totals back to 0.
         # We do this by calling allow() with a timestamp past both
-        # windows — the eviction loop runs, but the deque is already
+        # windows, the eviction loop runs, but the deque is already
         # empty, so the clamp branch is exercised via the manual
         # negative value. (We then re-set to 0 implicitly via the
         # next allow's append path.)
@@ -1849,7 +1849,7 @@ class TestRateLimiterRunningTotals:
 class TestPendingSnapshotGatedOnTcpClient:
     """XV-82: ``IPCServer._send`` only snapshots+clears ``_pending_tcp``
     when ``tcp_client is not None``. The disconnected-mode (``tcp_mode``
-    branch) only appends+trims — O(1) amortized."""
+    branch) only appends+trims. O(1) amortized."""
 
     def test_send_source_gates_snapshot_on_tcp_client(self):
         from voice_typer.server.ipc_server import IPCServer
@@ -1864,7 +1864,7 @@ class TestPendingSnapshotGatedOnTcpClient:
         )
         # The re-merge in the tcp_mode branch must be GONE.
         assert "self._pending_tcp.extend(pending)" not in src, (
-            "XV-82: _send must NOT re-merge pending into _pending_tcp — "
+            "XV-82: _send must NOT re-merge pending into _pending_tcp, "
             "the snapshot is gated on tcp_client, so the tcp_mode branch "
             "never has a pending snapshot to re-merge."
         )
@@ -1873,13 +1873,13 @@ class TestPendingSnapshotGatedOnTcpClient:
         """When ``tcp_client is None`` and ``tcp_mode`` is True, _send
         must NOT clear ``_pending_tcp`` (the snapshot path is skipped)."""
         server = make_bare_ipc_server(send_path=True)
-        # Pre-populate _pending_tcp with some entries — they must
+        # Pre-populate _pending_tcp with some entries, they must
         # survive the _send call (the snapshot is gated off when
         # tcp_client is None).
         server._pending_tcp = ['{"existing":1}', '{"existing":2}']
         server._tcp_client = None  # no client connected
 
-        # Issue a push event — should append + trim, NOT clear.
+        # Issue a push event, should append + trim, NOT clear.
         server._send({"type": "test", "id": 1})
 
         # The two pre-existing entries must still be there (
@@ -1903,7 +1903,7 @@ class TestPendingSnapshotGatedOnTcpClient:
         try:
             tcp_client = _TCPLineIO(srv)
             server._tcp_client = tcp_client
-            # Pre-populate _pending_tcp — must be cleared by _send.
+            # Pre-populate _pending_tcp, must be cleared by _send.
             server._pending_tcp = ['{"existing":1}']
 
             # Reader thread so sendall doesn't block.
@@ -1986,7 +1986,7 @@ class TestCompactJsonSerialization:
             t = threading.Thread(target=reader, daemon=True)
             t.start()
 
-            # Send a message with CJK text — ensure_ascii=False keeps
+            # Send a message with CJK text, ensure_ascii=False keeps
             # the multi-byte UTF-8 as-is.
             server._send({"type": "transcription_final", "text": "你好世界"})
 
@@ -2057,11 +2057,11 @@ class TestWriterEncodesOnce:
         )
         # The old re-encode pattern must be GONE.
         assert 'len(raw.encode("utf-8"))' not in src, (
-            "XV-84: _writer must NOT re-encode via len(raw.encode('utf-8')) — encode once and reuse the buffer."
+            "XV-84: _writer must NOT re-encode via len(raw.encode('utf-8')), encode once and reuse the buffer."
         )
         # The send must hand ``websocket.send`` the encoded frame as a
         # TEXT payload (the C-WS-2 wire contract: the Rust host parses
-        # ``Message::Text`` only — raw bytes would leave as a BINARY
+        # ``Message::Text`` only, raw bytes would leave as a BINARY
         # frame and be silently dropped), and be capped by
         # asyncio.wait_for so a wedged peer cannot block the writer
         # task (and the asyncio loop thread) forever. The encode-once
@@ -2101,7 +2101,7 @@ class TestValidationHoistsJsonAndCaches:
         src = inspect.getsource(_validate_dict_payload)
         # The per-call import must be GONE.
         assert "import json as _json_mod" not in src, (
-            "XV-85: _validate_dict_payload must NOT do 'import json as _json_mod' per call — hoist to module top."
+            "XV-85: _validate_dict_payload must NOT do 'import json as _json_mod' per call, hoist to module top."
         )
 
     def test_cache_constants_exist(self):
@@ -2117,7 +2117,7 @@ class TestValidationHoistsJsonAndCaches:
             "XV-85: validation module must expose _MAX_PAYLOAD_BYTES_CACHE_MAX."
         )
         assert validation._MAX_PAYLOAD_BYTES_CACHE_MAX > 0
-        # The cache must be bounded — verify the cap is reasonable.
+        # The cache must be bounded, verify the cap is reasonable.
         assert validation._MAX_PAYLOAD_BYTES_CACHE_MAX <= 4096, (
             "XV-85: _MAX_PAYLOAD_BYTES_CACHE_MAX must be bounded to prevent unbounded growth from per-call schemas."
         )
@@ -2149,7 +2149,7 @@ class TestValidationHoistsJsonAndCaches:
             "XV-85: first call must populate the cache (cache or seen set)."
         )
 
-        # Second call with the same schema — must not re-scan (the
+        # Second call with the same schema, must not re-scan (the
         # entry is already cached).
         _validate_dict_payload({"hotkey": "ctrl+b"}, schema)
         # The cache size must not have grown (no new entry added).
@@ -2161,7 +2161,7 @@ class TestValidationHoistsJsonAndCaches:
 
     def test_cache_bounded_under_per_call_schemas(self):
         """Calling _validate_dict_payload with a FRESH schema each call
-        (each gets a new id) must not grow the cache unboundedly — the
+        (each gets a new id) must not grow the cache unboundedly, the
         FIFO eviction cap kicks in."""
         from voice_typer.server.ipc.validation import (
             _MAX_PAYLOAD_BYTES_CACHE,
@@ -2182,13 +2182,13 @@ class TestValidationHoistsJsonAndCaches:
         # The cache must NOT have grown past the cap.
         assert len(_MAX_PAYLOAD_BYTES_CACHE) <= _MAX_PAYLOAD_BYTES_CACHE_MAX, (
             f"XV-85: cache grew to {len(_MAX_PAYLOAD_BYTES_CACHE)} > cap "
-            f"{_MAX_PAYLOAD_BYTES_CACHE_MAX} — FIFO eviction must bound it."
+            f"{_MAX_PAYLOAD_BYTES_CACHE_MAX}, FIFO eviction must bound it."
         )
         assert len(_MAX_PAYLOAD_BYTES_CACHE_SEEN) <= _MAX_PAYLOAD_BYTES_CACHE_MAX
 
     def test_max_payload_bytes_still_enforced(self):
         """Sanity: the max_payload_bytes rule still fires after the
-        XV-85 cache refactor — no behavioral regression."""
+        XV-85 cache refactor, no behavioral regression."""
         from voice_typer.server.ipc.validation import _validate_dict_payload
 
         schema = {"hotkey": {"type": str, "required": True, "max_payload_bytes": 50}}
@@ -2222,8 +2222,7 @@ class TestTransportBuffering:
         )
         # The old buffering=1 must be GONE.
         assert "buffering=1" not in src, (
-            "XV-86: _TCPLineIO must NOT use buffering=1 (line buffering) "
-            "for the read side — use io.DEFAULT_BUFFER_SIZE."
+            "XV-86: _TCPLineIO must NOT use buffering=1 (line buffering) for the read side, use io.DEFAULT_BUFFER_SIZE."
         )
 
     def test_module_imports_io(self):
@@ -2266,7 +2265,7 @@ class TestRateLimiterResolvedOnce:
         from voice_typer.server import sidecar_ws
 
         # _make_dispatch's body (NOT the inner dispatch()) must contain
-        # the rate_limiter assignment — that's the closure capture.
+        # the rate_limiter assignment, that's the closure capture.
         src = inspect.getsource(sidecar_ws._make_dispatch)
         # The rate_limiter assignment must appear BEFORE the inner
         # ``async def dispatch`` definition.
@@ -2281,7 +2280,7 @@ class TestRateLimiterResolvedOnce:
 
     def test_dispatch_does_not_call_get_rate_limiter(self):
         """The inner ``dispatch()`` closure must NOT call
-        ``_get_rate_limiter`` — it must reference the closure-captured
+        ``_get_rate_limiter``, it must reference the closure-captured
         ``rate_limiter``."""
         from voice_typer.server import sidecar_ws
 
@@ -2292,7 +2291,7 @@ class TestRateLimiterResolvedOnce:
         dispatch_body = src[dispatch_idx:]
         assert "_get_rate_limiter(server)" not in dispatch_body, (
             "XV-87: dispatch() must NOT call _get_rate_limiter(server) "
-            "per frame — the limiter is resolved ONCE in the closure."
+            "per frame, the limiter is resolved ONCE in the closure."
         )
         # The closure-captured rate_limiter must be referenced.
         assert "rate_limiter.allow" in dispatch_body, (
@@ -2301,7 +2300,7 @@ class TestRateLimiterResolvedOnce:
 
     def test_dispatch_uses_same_limiter_across_calls(self):
         """Two dispatch() calls on the same _make_dispatch-derived
-        closure must use the SAME rate_limiter instance — verifying
+        closure must use the SAME rate_limiter instance, verifying
         the closure capture (not a per-call lookup)."""
         # Build a fake server with a real _RateLimiter instance so we
         # can verify identity across calls. Using a MagicMock server
@@ -2317,10 +2316,10 @@ class TestRateLimiterResolvedOnce:
 
         server = FakeServer()
         server._ws_dispatch_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="test-xv87")
-        # Resolve the limiter the same way _make_dispatch does — once.
+        # Resolve the limiter the same way _make_dispatch does, once.
         limiter_before = _get_rate_limiter(server)
         sidecar_ws._make_dispatch(server)
-        # Resolve again — must be the same instance (already cached on
+        # Resolve again, must be the same instance (already cached on
         # the server by _make_dispatch).
         limiter_after = _get_rate_limiter(server)
         assert limiter_before is limiter_after, (
@@ -2346,7 +2345,7 @@ class TestRateLimiterResolvedOnce:
 # ``VOICE_TYPER_ALLOW_STDIN_IPC`` env var is not set
 # to ``"1"``. A WARNING is logged and ``_stdin_thread``
 # is set to ``None``. The ``--allow-stdin`` CLI flag in
-# ``parse_ipc_args()`` is the alternative gate — it
+# ``parse_ipc_args()`` is the alternative gate, it
 # sets the env var.
 # - (Medium):       ``_handle_shutdown`` checks ``_shutdown_started``
 # (a per-instance ``threading.Event``) at the top and
@@ -2373,7 +2372,7 @@ class TestStdinGate:
     gated behind ``VOICE_TYPER_ALLOW_STDIN_IPC=1``.
 
     ``IPCServer.start()`` would spawn the stdin listener
-    thread whenever ``_tcp_mode`` was False — exposing an
+    thread whenever ``_tcp_mode`` was False, exposing an
     unauthenticated command channel on the user's terminal (Linux
     TIOCSTI injection is possible; an accidental JSON paste triggers
     unintended IPC commands on every platform).
@@ -2422,7 +2421,7 @@ class TestStdinGate:
         )
 
     def test_stdin_thread_none_when_gate_refuses(self, monkeypatch) -> None:
-        """end-to-end behavior — ``start()`` with ``_tcp_mode``
+        """end-to-end behavior: ``start()`` with ``_tcp_mode``
         False AND env var unset must leave ``_stdin_thread`` as None.
 
         We exercise the full ``start()`` path (minus the heavy
@@ -2433,7 +2432,7 @@ class TestStdinGate:
 
         monkeypatch.delenv("VOICE_TYPER_ALLOW_STDIN_IPC", raising=False)
         # Also clear TAURI_SIDECAR so the heartbeat thread is created
-        # (so we exercise the full start() body — but the heartbeat
+        # (so we exercise the full start() body, but the heartbeat
         # thread is a daemon so it doesn't block test teardown).
         monkeypatch.delenv("TAURI_SIDECAR", raising=False)
 
@@ -2445,7 +2444,7 @@ class TestStdinGate:
         monkeypatch.setattr(event_bus, "subscribe", lambda fn: subscribed.append(fn))
         # Stub out threading.Thread so we don't actually start a
         # heartbeat thread (the gate must prevent the stdin thread from
-        # being created at all — the FakeThread captures the names of
+        # being created at all, the FakeThread captures the names of
         # threads that WOULD be created).
         created_threads: list[str] = []
 
@@ -2473,7 +2472,7 @@ class TestStdinGate:
             # created_threads list (only ``heartbeat-watchdog`` is).
             assert "ipc-server" not in created_threads, (
                 "stdin listener 'ipc-server' thread was spawned "
-                "even though VOICE_TYPER_ALLOW_STDIN_IPC is unset — the "
+                "even though VOICE_TYPER_ALLOW_STDIN_IPC is unset, the "
                 "gate failed to refuse the unauthenticated stdin path."
             )
             assert server._stdin_thread is None, (
@@ -2518,7 +2517,7 @@ class TestStdinGate:
         try:
             assert "ipc-server" in created_threads, (
                 "stdin listener 'ipc-server' thread was NOT "
-                "spawned even though VOICE_TYPER_ALLOW_STDIN_IPC=1 — "
+                "spawned even though VOICE_TYPER_ALLOW_STDIN_IPC=1, "
                 "the gate must allow explicit opt-in for dev/testing."
             )
             # ``_stdin_thread`` is a FakeThread instance (not a real
@@ -2579,7 +2578,7 @@ class TestShutdownGate:
 
     a double-``shutdown`` (e.g. the Tauri host's WS
     transport retrying after a slow ack) spawned a SECOND untracked
-    ``ipc-shutdown-cleanup`` daemon thread — both threads would race
+    ``ipc-shutdown-cleanup`` daemon thread, both threads would race
     into ``service.quit()`` / ``_do_cleanup()`` and double-free the
     mic stream, hotkey listeners, single-instance mutex, etc.
 
@@ -2627,7 +2626,7 @@ class TestShutdownGate:
         deadline = time.monotonic() + 2.0
         while time.monotonic() < deadline and server.service.quit.call_count < 1:
             time.sleep(0.005)
-        # service.quit is called EXACTLY ONCE — the second
+        # service.quit is called EXACTLY ONCE, the second
         # invocation's no-op path doesn't spawn a second cleanup thread.
         assert server.service.quit.call_count == 1, (
             f"service.quit was called "
@@ -2653,7 +2652,7 @@ class TestShutdownGate:
         ``shutdown_all()`` can join it during ``VoiceTyperApp.quit()``."""
         server = _make_server()
         # ``_make_server`` returns an IPCServer whose ``app`` is a
-        # MagicMock — ``app._thread_registry`` is also a MagicMock by
+        # MagicMock: ``app._thread_registry`` is also a MagicMock by
         # default. The cleanup-thread registration must call
         # ``app._thread_registry.register(name="ipc-shutdown-cleanup", ...)``.
         server.service.quit = MagicMock()
@@ -2685,13 +2684,13 @@ class TestShutdownGate:
         server = _make_server()
         server.app._thread_registry = None
         server.service.quit = MagicMock()
-        # Must NOT raise — the registration path is guarded by
+        # Must NOT raise, the registration path is guarded by
         # ``if _registry is not None:``.
         result = server._handle_shutdown(data=None, resp={"id": 1})
         assert result is not None and result["data"] == {"ack": True}
 
     def test_handle_shutdown_source_contains_shutdown_started_gate(self) -> None:
-        """source-level pin — ``_handle_shutdown`` must check
+        """source-level pin: ``_handle_shutdown`` must check
         ``_shutdown_started`` at the top before any side effect."""
         from voice_typer.server.ipc_server import IPCServer
 
@@ -2724,7 +2723,7 @@ class TestRegistryExtraction:
     ``ipc._helpers.py``; the split made the three-layers-must-agree
     parity contract harder to reason about.
 
-    The extraction is behavior-preserving — same dict, same keys, same
+    The extraction is behavior-preserving, same dict, same keys, same
     values. :class:`IPCServer` re-aliases ``_COMMAND_REGISTRY`` and
     ``_PYTHON_ONLY_COMMANDS`` as class attributes so every existing
     ``IPCServer._COMMAND_REGISTRY`` / ``IPCServer._PYTHON_ONLY_COMMANDS``
@@ -2737,7 +2736,7 @@ class TestRegistryExtraction:
         from voice_typer.server.ipc import registry
 
         assert hasattr(registry, "_COMMAND_REGISTRY"), (
-            "ipc.registry must expose _COMMAND_REGISTRY (module-level dict — the canonical source of truth)."
+            "ipc.registry must expose _COMMAND_REGISTRY (module-level dict, the canonical source of truth)."
         )
         assert hasattr(registry, "_READONLY_COMMANDS"), "ipc.registry must expose _READONLY_COMMANDS."
         assert hasattr(registry, "_PYTHON_ONLY_COMMANDS"), "ipc.registry must expose _PYTHON_ONLY_COMMANDS."
@@ -2769,7 +2768,7 @@ class TestRegistryExtraction:
         # as the registry module's constant (single source of truth).
         assert ipc_server_mod._COMMAND_REGISTRY is registry._COMMAND_REGISTRY, (
             "ipc_server._COMMAND_REGISTRY must be the SAME object "
-            "as registry._COMMAND_REGISTRY (single source of truth — "
+            "as registry._COMMAND_REGISTRY (single source of truth, "
             "not a parallel copy)."
         )
         assert ipc_server_mod._READONLY_COMMANDS is registry._READONLY_COMMANDS, (
@@ -2800,7 +2799,7 @@ class TestRegistryExtraction:
         )
 
     def test_registry_dict_same_keys_and_values_as_before(self) -> None:
-        """behavior-preserving extraction — same dict, same keys,
+        """behavior-preserving extraction, same dict, same keys,
         same values. Spot-check the critical entries (shutdown,
         tray_click, heartbeat) plus the overall key count."""
         from voice_typer.server.ipc import registry
@@ -2817,28 +2816,28 @@ class TestRegistryExtraction:
         # choice) brought it to 66; reset_macos_accessibility (finding
         # #127 part b) brought it to 67; reset_linux_permissions
         # (finding #127 part b Linux sibling) brought it to 68;
-        # check_accessibility re-added (finding #919 part b — Settings
+        # check_accessibility re-added (finding #919 part b, Settings
         # → Troubleshooting surfaces the stale-grant reset) brought it
         # to 69.
-        # transcribe_offline (Phase 2b pack downloader — plan-runtime-
+        # transcribe_offline (Phase 2b pack downloader, plan-runtime-
         # pack-split.md §7.4) brought it to 70.
-        # prewarm retirement (plan §6.2 P-1 — get_prewarm_status,
+        # prewarm retirement (plan §6.2 P-1, get_prewarm_status,
         # run_prewarm, open_prewarm_log removed across all 4 allowlists
         # in lockstep) brought it to 67.
         # prewarm status RESTORATION (plan §6.3 addendum 2026-08-14 —
         # Settings → About Cache Status card restored verbatim from
         # 5a319872; run_prewarm stays retired) brought it back to 69.
         # check_offline_pack_update (auto-update feature, docs/auto-update-feature.md
-        # — 2026-08-14) brought it to 70.
+        # , 2026-08-14) brought it to 70.
         # run_prewarm (plan §6.3 addendum 2nd half, 2026-08-14 —
         # re-implemented to re-run the warm phase in-process instead of
         # spawning the deleted standalone-prewarm subprocess) brought it
         # to 71.
         # The registry holds ALL commands: the 73 forwarded ones (the
-        # allowlist in allowed-commands.ts — pinned in SECURITY.md) plus
+        # allowlist in allowed-commands.ts, pinned in SECURITY.md) plus
         # the 2 python-only commands (shutdown, tray_click) that never
         # cross the Electron bridge. The count is deliberately pinned
-        # here and in SECURITY.md — update all sources of truth
+        # here and in SECURITY.md, update all sources of truth
         # together. Adding a command to the registry WITHOUT the TS
         # allowlist fails the parity test
         # (test_electron_ipc_and_build.py::test_allowlist_matches_server_commands).
@@ -2896,7 +2895,7 @@ class TestRegistryExtraction:
 
     def test_ipc_server_no_longer_defines_inline_dict_literal(self) -> None:
         """``ipc_server.py`` must NOT contain the inline
-        ``_COMMAND_REGISTRY: dict[str, str] = {`` dict literal — the
+        ``_COMMAND_REGISTRY: dict[str, str] = {`` dict literal, the
         dict was extracted to ``ipc.registry`` and ``ipc_server.py``
         only re-aliases it as a class attribute.
 
@@ -2914,7 +2913,7 @@ class TestRegistryExtraction:
         # dict body. We must NOT find the literal form.
         assert "_COMMAND_REGISTRY: dict[str, str] = {" not in src, (
             "ipc_server.py must NOT define the inline "
-            "_COMMAND_REGISTRY dict literal — it has been extracted to "
+            "_COMMAND_REGISTRY dict literal, it has been extracted to "
             "ipc.registry. The class-level alias "
             "(``_COMMAND_REGISTRY: dict[str, str] = _COMMAND_REGISTRY``) "
             "is the only allowed form."
@@ -2925,7 +2924,7 @@ class TestTranscribeOfflineDegradation:
     """Phase 2d degradation matrix (§8.10).
 
     ``_handle_transcribe_offline`` must NOT queue silently when the
-    offline pack is missing — the request can never complete, so the
+    offline pack is missing, the request can never complete, so the
     ack carries ``queued: False`` + ``degraded: True`` +
     ``reason: "offline_pack_missing"`` for the renderer to surface.
     """

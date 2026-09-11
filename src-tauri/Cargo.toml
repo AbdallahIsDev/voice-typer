@@ -1,7 +1,7 @@
 [package]
 name = "voice-typer-tauri"
 version = "1.0.0"
-description = "Tauri v2 host for Voice Typer — Rust shell + Python sidecar (ADR-0020)"
+description = "Tauri v2 host for Voice Typer: Rust shell + Python sidecar (ADR-0020)"
 authors = ["Abdallah IsDev <noreply@github.com>"]
 license = "MIT"
 repository = "https://github.com/AbdallahIsDev/voice-typer"
@@ -19,7 +19,7 @@ path = "src/main.rs"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-# Tauri v2 core — tray support is built into the core crate in v2
+# Tauri v2 core: tray support is built into the core crate in v2
 # (NOT a separate tauri-plugin-tray crate). The "tray-icon" feature
 # enables the tray API.
 #
@@ -37,7 +37,7 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = ["tray-icon", "image-png"] }
 tauri-plugin-shell = "2"
 tauri-plugin-notification = "2"
-# XE-4-4: tauri-plugin-clipboard-manager removed — the renderer uses
+# XE-4-4: tauri-plugin-clipboard-manager removed: the renderer uses
 # the web-API navigator.clipboard.writeText() for all writes (paste
 # path was removed in FZ-19/PVT-051), and the capability grant
 # `clipboard-manager:allow-read-text` was a clipboard-exfiltration
@@ -52,7 +52,7 @@ tauri-plugin-dialog = "2"
 
 # ADR-0020 §6.2: enigo was previously used for cross-platform keystroke
 # injection (paste_text event handler). The paste_text command was deleted
-# as dead production code — the Python sidecar owns the paste path end-to-end.
+# as dead production code: the Python sidecar owns the paste path end-to-end.
 # The enigo dep was removed; grep -r 'use enigo' src/ returns 0 matches.
 
 # ADR-0020 §1 + §10: WebSocket client + tokio runtime
@@ -81,8 +81,8 @@ env_logger = "0.11"
 # - `libc::setsid()` in the POSIX reaper's `pre_exec` closure so the
 #   reaper detaches into its own session/process group. Without this,
 #   a terminal Ctrl-C (SIGINT to the host's process group) would kill
-#   the reaper at the same time as the host — before the reaper could
-#   kill the sidecar — defeating the kill-on-parent-exit guarantee
+#   the reaper at the same time as the host, before the reaper could
+#   kill the sidecar: defeating the kill-on-parent-exit guarantee
 #   for terminal-initiated shutdowns.
 libc = "0.2"
 
@@ -91,15 +91,15 @@ libc = "0.2"
 # builds (keeps the dependency graph clean for the non-Windows MIG-1.6
 # / MIG-1.7 spikes).
 # Features: `Win32_UI_WindowsAndMessaging` (foreground/window APIs),
-# `Win32_Foundation` (`HWND` — wraps `*mut c_void`, NOT isize),
+# `Win32_Foundation` (`HWND`: wraps `*mut c_void`, NOT isize),
 # `Win32_System_Threading` (`AttachThreadInput`, `GetCurrentThreadId`).
 # NOTE: `BOOL` is NOT re-exported from `Win32_Foundation` in windows-rs
-# 0.61+ — it moved to `windows_core::BOOL`. However `AttachThreadInput`
+# 0.61+: it moved to `windows_core::BOOL`. However `AttachThreadInput`
 # actually takes a plain Rust `bool` in 0.61.3+, so pass `true`/`false`
 # directly, never `BOOL::from(...)`.
 # NOTE: if the version selected here conflicts with whatever Tauri v2's
 # transitive `windows` requirement resolves to, `cargo check` on the
-# Windows host will surface the resolution failure — bump the major.minor
+# Windows host will surface the resolution failure, bump the major.minor
 # to match Tauri's resolved version in that case.
 [target.'cfg(windows)'.dependencies]
 # AUMID registration for toasts (see src/notify_aumid.rs): without a
@@ -127,7 +127,7 @@ lto = true
 codegen-units = 1
 # VP-2: `panic = "abort"` previously defeated every production
 # `catch_unwind` (main.rs initialize_sidecar, sidecar/ws.rs, supervisor.rs,
-# heartbeat.rs) — with abort, a panic in the sidecar spawn / WS loop /
+# heartbeat.rs): with abort, a panic in the sidecar spawn / WS loop /
 # respawn path ABORTED the whole Tauri host instead of being recovered.
 # `unwind` keeps the panic-safety layer live in shipped builds (binary is
 # marginally larger; the catch_unwind recovery is worth it).
@@ -135,7 +135,7 @@ panic = "unwind"
 strip = true
 
 # MED-RR / RUST-9: optional dev feature that enables the Tauri devtools
-# API.  NOT enabled by default — release builds must not expose devtools
+# API.  NOT enabled by default, release builds must not expose devtools
 # to end users.  Devs run ``cargo tauri dev --features dev`` to get
 # devtools during development.
 [features]

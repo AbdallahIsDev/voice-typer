@@ -13,8 +13,8 @@ The strategy:
    becomes a mock call whose return value we control.
 3. For functions that use ``ctypes.byref(dword)`` to receive an output
    value (e.g. ``GetWindowThreadProcessId``), we install ``side_effect``
-   callbacks that mutate ``byref_obj._obj.value`` — the underlying
-   ``c_ulong`` instance — to fake the kernel writing into the buffer.
+   callbacks that mutate ``byref_obj._obj.value``, the underlying
+   ``c_ulong`` instance, to fake the kernel writing into the buffer.
 4. For ``_send_ctrl_v_win32``, we provide *real* ``ctypes.Structure``
    subclasses (``INPUT``, ``KEYBDINPUT``, ``INPUT_union``) so the
    ``(INPUT * 4)(...)`` array-construction syntax and
@@ -37,7 +37,7 @@ import pytest
 
 # ---------------------------------------------------------------------------
 # pynput / pynput.keyboard / pyperclip are mocked at collection time by
-# tests/clipboard/conftest.py (single source of truth —  dedup).
+# tests/clipboard/conftest.py (single source of truth, dedup).
 # ---------------------------------------------------------------------------
 # UIA singleton moved to clipboard_target_safety; reset it there.
 from voice_typer.server import (
@@ -66,7 +66,7 @@ class _KEYBDINPUT(ctypes.Structure):
         ("wScan", wintypes.WORD),
         ("dwFlags", wintypes.DWORD),
         ("time", wintypes.DWORD),
-        # ULONG_PTR — accepts int 0
+        # ULONG_PTR, accepts int 0
         ("dwExtraInfo", wintypes.WPARAM),
     )
     KEYUP = 0x0002
@@ -142,7 +142,7 @@ def fake_win32():
         patch("ctypes.windll", mock_windll, create=True),
         patch("ctypes.create_unicode_buffer") as mock_buf,
     ):
-        # Default buffer returns "Edit" — a benign window class.
+        # Default buffer returns "Edit", a benign window class.
         buf_instance = MagicMock()
         buf_instance.value = "Edit"
         mock_buf.return_value = buf_instance
@@ -184,7 +184,7 @@ class TestIsElevatedTargetWindows:
 
     def test_returns_false_when_pid_is_zero(self, fake_win32):
         """GetWindowThreadProcessId leaving pid=0 → False."""
-        # Don't set side_effect — pid.value stays at default 0.
+        # Don't set side_effect, pid.value stays at default 0.
         assert _is_elevated_target() is False
 
     def test_returns_false_when_open_process_fails(self, fake_win32):
@@ -276,7 +276,7 @@ class TestIsElevatedTargetWindows:
         EC-15 / CLIP-3: when OUR elevation cannot be determined
         (OpenProcessToken fails), ``_get_we_elevated`` caches
         ``we_elevated=False``. If the target IS elevated, we cannot
-        safely allow paste — UIPI may silently drop the SendInput.
+        safely allow paste. UIPI may silently drop the SendInput.
         Block paste (return True) rather than risk pasting into an
         elevated target we couldn't verify ourselves against.
         """
@@ -397,7 +397,7 @@ class TestIsPasswordFieldWindows:
         _UIA_SINGLETON_INIT_ATTEMPTED). Without this reset, the first
         test that triggers _get_uia_singleton() caches its fake_uia mock
         in the singleton, and every subsequent test receives the stale
-        mock — causing false positives/negatives depending on test order.
+        mock, causing false positives/negatives depending on test order.
         """
         safety_mod._UIA_SINGLETON = None
         safety_mod._UIA_MODULE = None
@@ -501,7 +501,7 @@ class TestIsPasswordFieldWindows:
     def test_returns_false_on_comtypes_import_error(self, fake_win32):
         """comtypes ImportError → fallback to window-class heuristic."""
         # Setting sys.modules entries to None makes Python raise
-        # ImportError on ``import comtypes.client`` — no need to patch
+        # ImportError on ``import comtypes.client``, no need to patch
         # builtins.__import__ (which would break the outer ``import ctypes``
         # and cause the function to bail out before reaching the heuristic).
         with (

@@ -22,8 +22,8 @@ interface InfoTooltipProps {
 	 * Optional label describing the field this tooltip belongs to
 	 * (e.g. "VAD aggressiveness", "Noise gate threshold"). When
 	 * provided, the trigger button's accessible name is composed as
-	 * `t("a11y.moreInfoAbout", { label: contextLabel })` — e.g.
-	 * "More info about VAD aggressiveness" — so screen-reader users
+	 * `t("a11y.moreInfoAbout", { label: contextLabel })`, e.g.
+	 * "More info about VAD aggressiveness", so screen-reader users
 	 * hear the field name when tabbing through multiple InfoTooltips
 	 * on the same page. When omitted, falls back to the generic
 	 * `t("a11y.moreInfo")` ("More info") used historically.
@@ -43,7 +43,7 @@ interface InfoTooltipProps {
 	 * `<button>` is invalid DOM (React validateDOMNesting) and its
 	 * activation would toggle the ancestor. The inline span carries the
 	 * same aria-label, opens the tooltip on focus (Radix Tooltip opens
-	 * on focus regardless of element type — radix-ui blesses exactly
+	 * on focus regardless of element type, radix-ui blesses exactly
 	 * this span-inside-accordion-trigger composition), deliberately
 	 * claims NO role (a role=button inside a button would announce
 	 * nested interactive semantics), and stops click/keydown
@@ -62,7 +62,7 @@ export function InfoTooltip({
 	// language switch (no page reload), and memoize the resolved
 	// string keyed on the locale so a plain re-render (e.g. a Settings
 	// section re-rendering with identical props) performs ZERO t()
-	// calls — the memoisation contract.
+	// calls, the memoisation contract.
 	useT();
 	const locale = getLocale();
 	// When contextLabel is provided, compose
@@ -70,7 +70,7 @@ export function InfoTooltip({
 	// page are distinguishable for screen-reader users. Fall back to
 	// the generic "More info" label when contextLabel is absent.
 	// Resolve the label with the locale as an EXPLICIT argument so the
-	// memo dependency is genuine — the label is a function of
+	// memo dependency is genuine, the label is a function of
 	// (contextLabel, locale), and keying on the locale value is what
 	// makes the memo recompute on language switch.
 	const ariaLabel = useMemo(() => {
@@ -87,13 +87,13 @@ export function InfoTooltip({
 	// Default (`triggerAs="button"`): a real <button> so keyboard +
 	// screen-reader users can focus the tooltip trigger via Tab. Radix
 	// Tooltip opens on focus by default, so no custom keydown handler is
-	// needed — Enter/Space on a native button is a no-op here (the
+	// needed, Enter/Space on a native button is a no-op here (the
 	// tooltip is already open from focus). Visual styling is overridden
 	// so the button looks identical to a plain <span> (no native button
 	// border/background).
 	//
 	// `triggerAs="inline"`: a focusable <span> for the one layout a
-	// button cannot serve — inside another button (accordion trigger).
+	// button cannot serve, inside another button (accordion trigger).
 	// Same classes/aria-label/svg; NO role (nested interactive semantics
 	// would confuse SRs); click + keydown propagation is stopped so
 	// activating the span never toggles the ancestor control.
@@ -114,7 +114,7 @@ export function InfoTooltip({
 					},
 				}
 			: {};
-	// The app's standard icon language is hugeicons — the help glyph is
+	// The app's standard icon language is hugeicons, the help glyph is
 	// CircleQuestionMarkIcon (strokeWidth 2, 12px = h-3 w-3, decorative:
 	// aria-hidden; the trigger's aria-label is the accessible name).
 	// Replaces the former hand-rolled 12×12 `?` SVG so every info glyph
@@ -135,7 +135,7 @@ export function InfoTooltip({
 		<Tooltip>
 			<TooltipTrigger asChild>
 				{triggerAs === "inline" ? (
-					// biome-ignore lint/a11y/useAriaPropsSupportedByRole: the aria-label IS the accessible name — the span deliberately claims no role inside the ancestor button (nested interactive semantics would confuse SRs).
+					// biome-ignore lint/a11y/useAriaPropsSupportedByRole: the aria-label IS the accessible name, the span deliberately claims no role inside the ancestor button (nested interactive semantics would confuse SRs).
 					<span
 						{...triggerProps}
 						className={triggerClassName}

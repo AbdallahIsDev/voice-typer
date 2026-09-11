@@ -1,7 +1,7 @@
 /**
  * Purity pins for the `useThemeSettings` state updaters.
  *
- * React requires setState updater functions to be PURE — StrictMode
+ * React requires setState updater functions to be PURE, StrictMode
  * double-invokes them in development, and an interrupted/replayed
  * render can re-invoke one with a different base state in production.
  * The custom-colour edit handler used to tuck all of its side effects
@@ -19,7 +19,7 @@
  *
  * They also pin the behavioural contract the refactor must preserve:
  *   - two edits in the same tick COMPOSE (both colours land in the
- *     draft — the ref mirror keeps the second edit from clobbering the
+ *     draft, the ref mirror keeps the second edit from clobbering the
  *     first the way the old functional-updater form composed them);
  *   - a colour edit before the draft exists (null config / pre-init)
  *     is a no-op (no side effects, no state change).
@@ -40,7 +40,7 @@ vi.mock("@/lib/theme-draft-storage", () => ({
 }));
 
 // Partial-mock @/themes: keep the real data helpers (deriveCustomVars,
-// DEFAULT_CUSTOM_* maps) but spy on applyThemeVars — the document-write
+// DEFAULT_CUSTOM_* maps) but spy on applyThemeVars, the document-write
 // side effect that used to run inside the state updater.
 vi.mock("@/themes", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("@/themes")>();
@@ -118,7 +118,7 @@ function editColor(
 	});
 }
 
-describe("useThemeSettings — one side-effect batch per colour edit (StrictMode purity)", () => {
+describe("useThemeSettings, one side-effect batch per colour edit (StrictMode purity)", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		_themeColorCache.clear();
@@ -180,7 +180,7 @@ describe("useThemeSettings — one side-effect batch per colour edit (StrictMode
 		);
 	});
 
-	it("two same-tick edits COMPOSE — both colours land in the draft", async () => {
+	it("two same-tick edits COMPOSE, both colours land in the draft", async () => {
 		const { result } = renderThemeHook(makeConfig());
 		await waitFor(() => {
 			expect(result.current.customDraft).not.toBeNull();

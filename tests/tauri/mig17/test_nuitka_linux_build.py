@@ -1,13 +1,13 @@
-"""MIG-1.7 Phase 0-L Gate Check 1 — Nuitka Linux build validation (x86_64 + aarch64).
+"""MIG-1.7 Phase 0-L Gate Check 1: Nuitka Linux build validation (x86_64 + aarch64).
 
 This test file is the **first of 9 gate checks** in the Phase 0-L
 Linux host validation gate (ADR-0020). It validates the *structure*
 of:
 
-  - ``scripts/build/build_sidecar_linux.sh`` — freezes
+  - ``scripts/build/build_sidecar_linux.sh``, freezes
     ``voice_typer/server/ipc_server.py`` into
     ``python-sidecar-<arch>-unknown-linux-gnu`` via Nuitka, AND
-  - ``scripts/build/build_prewarm_linux.sh`` — freezes
+  - ``scripts/build/build_prewarm_linux.sh``, freezes
     ``voice_typer/server/prewarm.py`` into
     ``prewarm-<arch>-unknown-linux-gnu`` via Nuitka.
 
@@ -25,7 +25,7 @@ cpython-3.12.x+<arch>-unknown-linux-gnu). These tests therefore:
     ``--include-package=ctranslate2``),
   - validate the sidecar script HAS the XPLAT-3 ``ctranslate2/libs``
     (plural) existence guard (recently re-applied to the Linux script
-    in XPLAT-3-ctranslate2-guard — the Linux script is the canonical
+    in XPLAT-3-ctranslate2-guard, the Linux script is the canonical
     reference source for this pattern),
   - validate the sidecar script produces the
     ``python-sidecar-x86_64-unknown-linux-gnu`` +
@@ -52,7 +52,7 @@ VALIDATE ON LINUX HOST (x86_64):
     6. ARCH=x86_64 bash scripts/build/build_sidecar_linux.sh
     Expected: python-sidecar-x86_64-unknown-linux-gnu (~150 MB) in src-tauri/bin/
 
-VALIDATE ON LINUX HOST (aarch64 — ARM64):
+VALIDATE ON LINUX HOST (aarch64, ARM64):
     1. Same prerequisites (on an aarch64 host like Raspberry Pi 4 or Ampere VM)
     2. rustup default stable-aarch64-unknown-linux-gnu
     3. Download cpython-3.12.x+aarch64-unknown-linux-gnu to /tmp/pybs/python
@@ -60,19 +60,19 @@ VALIDATE ON LINUX HOST (aarch64 — ARM64):
     Expected: python-sidecar-aarch64-unknown-linux-gnu (~150 MB) in src-tauri/bin/
 
 References:
-  - ADR-0020 §4.4 — Nuitka Linux freeze spec (authoritative for both arches).
-  - ADR-0020 §4.5 — Common Nuitka caveats (per-triple verify).
-  - docs/migration/linux-validation-runbook.md §0 + §1 — exact host commands.
-  - scripts/build/build_sidecar_macos.sh — sibling (XPLAT-3 guard mirror).
-  - scripts/build/build_sidecar_windows.sh — sibling (XPLAT-3 guard mirror).
+  - ADR-0020 §4.4, Nuitka Linux freeze spec (authoritative for both arches).
+  - ADR-0020 §4.5. Common Nuitka caveats (per-triple verify).
+  - docs/migration/linux-validation-runbook.md §0 + §1, exact host commands.
+  - scripts/build/build_sidecar_macos.sh, sibling (XPLAT-3 guard mirror).
+  - scripts/build/build_sidecar_windows.sh, sibling (XPLAT-3 guard mirror).
 
-Gaps documented (report, do NOT fix — out of scope for this gate check):
+Gaps documented (report, do NOT fix, out of scope for this gate check):
   - GAP-1: ``build_sidecar_linux.sh`` does NOT support a ``--check``
     mode. Both the macOS sibling (``build_sidecar_macos.sh --check``)
     and the Windows sibling (``build_sidecar_windows.sh --check``) accept
     a ``--check`` arg that imports ``nuitka`` + ``faster_whisper`` +
     ``ctranslate2`` and verifies the host toolchain in <2 s. The Linux
-    script does NOT — its first positional arg is parsed as ARCH and
+    script does NOT, its first positional arg is parsed as ARCH and
     anything else (including ``--check``) hits the ``Usage`` error path
     with ``exit 1``. CI cannot pre-flight the toolchain without invoking
     a full Nuitka build (~10-15 min). See
@@ -87,7 +87,7 @@ Gaps documented (report, do NOT fix — out of scope for this gate check):
     ``"$PY" -c 'import faster_whisper, ctranslate2, websockets;
     print("ctranslate2", ctranslate2.__version__)'`` (line ~101). See
     ``test_known_gap_no_python_import_sanity_check``.
-  - GAP-3: ``build_prewarm_linux.sh`` ``--check`` is a stub — it
+  - GAP-3: ``build_prewarm_linux.sh`` ``--check`` is a stub, it
     immediately exits 0 with a one-line message delegating to the
     sidecar check (same pattern as macOS GAP-3). See
     ``test_known_gap_prewarm_check_is_stub``.
@@ -169,7 +169,7 @@ def test_sidecar_script_is_bash_syntax_valid():
     spawned. Safe to run on any host.
     """
     if not bash_usable():
-        pytest.skip("bash not available or not usable on this host — cannot run `bash -n`.")
+        pytest.skip("bash not available or not usable on this host, cannot run `bash -n`.")
     result = subprocess.run(
         ["bash", "-n", str(SIDECAR_SCRIPT)],
         capture_output=True,
@@ -184,7 +184,7 @@ def test_sidecar_script_is_bash_syntax_valid():
 def test_prewarm_script_is_bash_syntax_valid():
     """``bash -n`` must parse the prewarm script without syntax errors."""
     if not bash_usable():
-        pytest.skip("bash not available or not usable on this host — cannot run `bash -n`.")
+        pytest.skip("bash not available or not usable on this host, cannot run `bash -n`.")
     result = subprocess.run(
         ["bash", "-n", str(PREWARM_SCRIPT)],
         capture_output=True,
@@ -320,7 +320,7 @@ def test_sidecar_script_onefile_tempdir_pinned_to_cache(sidecar_text: str):
     assert "voice-typer/onefile-tmp" in sidecar_text
 
 
-# 4. ctranslate2/libs guard (plural —  pattern, source on Linux) ──
+# 4. ctranslate2/libs guard (plural, pattern, source on Linux) ──
 def test_sidecar_script_has_xplat3_ctranslate2_libs_guard(sidecar_text: str):
     """The sidecar script must have the XPLAT-3 ``ctranslate2/libs`` guard.
 
@@ -353,7 +353,7 @@ def test_sidecar_script_uses_nuitka_args_array(sidecar_text: str):
     """The script uses the ``NUITKA_ARGS`` bash array pattern.
 
     This is the cleanest way to conditionally append the XPLAT-3
-    ``--include-data-dir=$SITE/ctranslate2/libs`` flag — bash arrays
+    ``--include-data-dir=$SITE/ctranslate2/libs`` flag, bash arrays
     handle the quoting + the conditional ``+=`` append. The XPLAT-3 fix
     (re-applied in MIG-1.7 Phase 0-L gate check 1 prep) refactored the
     inline Nuitka command to use this array pattern.
@@ -553,7 +553,7 @@ def test_sidecar_script_documents_glibc_2_35_baseline(sidecar_text: str):
     baseline) would break older distributions.
     """
     assert "glibc 2.35" in sidecar_text or "GLIBC_2.35" in sidecar_text, (
-        "build_sidecar_linux.sh must document the glibc 2.35 baseline (ADR-0020 §4.4 — Ubuntu 22.04 floor)."
+        "build_sidecar_linux.sh must document the glibc 2.35 baseline (ADR-0020 §4.4. Ubuntu 22.04 floor)."
     )
     assert "Ubuntu 22.04" in sidecar_text, (
         "build_sidecar_linux.sh must reference Ubuntu 22.04 as the baseline distro for the glibc 2.35 pin."
@@ -712,7 +712,7 @@ def test_prewarm_script_outputs_to_resources_dir(prewarm_text: str):
     """The prewarm output dir must be ``src-tauri/resources`` (bundle.resource)."""
     assert "src-tauri/resources" in prewarm_text, (
         "build_prewarm_linux.sh must output to src-tauri/resources/ (Tauri "
-        "bundle.resource location — NOT src-tauri/bin, since prewarm is "
+        "bundle.resource location, NOT src-tauri/bin, since prewarm is "
         "launched by the systemd user timer, not as a Tauri externalBin)."
     )
 
@@ -743,7 +743,7 @@ def test_prewarm_script_entry_point_is_prewarm_py(prewarm_text: str):
     Originally the entry point was ``voice_typer/server/prewarm.py`` (a single
     module). After the SPLIT-4 refactor (god-file split into a focused package),
     the entry point is ``voice_typer/server/prewarm/__main__.py`` (the package's
-    ``__main__`` runner — equivalent to ``python -m voice_typer.server.prewarm``).
+    ``__main__`` runner, equivalent to ``python -m voice_typer.server.prewarm``).
     """
     assert "voice_typer/server/prewarm/__main__.py" in prewarm_text, (
         "build_prewarm_linux.sh entry point must be voice_typer/server/prewarm/__main__.py (ADR-0011 + ADR-0020 §5)."
@@ -761,12 +761,12 @@ def test_prewarm_script_has_xplat3_ctranslate2_libs_guard(prewarm_text: str):
 def test_macos_sibling_has_xplat3_ctranslate2_libs_guard():
     """Sanity check: the macOS sibling MUST have the XPLAT-3 guard.
 
-    This is a reference-pattern check — if the macOS sibling loses the
+    This is a reference-pattern check, if the macOS sibling loses the
     guard, the XPLAT-3 pattern drifts and the Linux script (canonical
     source) becomes the lone reference.
     """
     if not MACOS_SIDECAR_SCRIPT.is_file():
-        pytest.skip(f"build_sidecar_macos.sh missing ({MACOS_SIDECAR_SCRIPT}) — cannot verify macOS sibling parity.")
+        pytest.skip(f"build_sidecar_macos.sh missing ({MACOS_SIDECAR_SCRIPT}), cannot verify macOS sibling parity.")
     macos_text = MACOS_SIDECAR_SCRIPT.read_text(encoding="utf-8")
     assert "CT2_LIBS_DIR" in macos_text
     assert '--include-data-dir="$CT2_LIBS_DIR=$CT2_LIBS_DIR"' in macos_text
@@ -776,7 +776,7 @@ def test_macos_sibling_has_xplat3_ctranslate2_libs_guard():
 def test_windows_sibling_known_gap_no_xplat3_ctranslate2_libs_guard():
     """BUILD-2 fix: the Windows sibling now HAS the XPLAT-3 guard.
 
-    Previously a KNOWN GAP (MIG-1.5 GAP-1) — the Windows sibling
+    Previously a KNOWN GAP (MIG-1.5 GAP-1), the Windows sibling
     ``build_sidecar_windows.sh`` only included the singular ``lib/``
     with no guard for the optional ``libs/`` dir. BUILD-2 back-filled
     the guard (mirroring the Linux + macOS XPLAT-3 pattern). This test
@@ -784,16 +784,16 @@ def test_windows_sibling_known_gap_no_xplat3_ctranslate2_libs_guard():
     """
     if not WINDOWS_SIDECAR_SCRIPT.is_file():
         pytest.skip(
-            f"build_sidecar_windows.sh missing ({WINDOWS_SIDECAR_SCRIPT}) — cannot verify Windows sibling parity."
+            f"build_sidecar_windows.sh missing ({WINDOWS_SIDECAR_SCRIPT}), cannot verify Windows sibling parity."
         )
     windows_text = WINDOWS_SIDECAR_SCRIPT.read_text(encoding="utf-8")
     # The Windows sibling has both CT2_LIB_DIR (singular, required) and
-    # CT2_LIBS_DIR (plural, optional — BUILD-2 guard).
+    # CT2_LIBS_DIR (plural, optional. BUILD-2 guard).
     assert "CT2_LIB_DIR=" in windows_text, (
-        "build_sidecar_windows.sh must define CT2_LIB_DIR (singular — the required ctranslate2/lib dir)."
+        "build_sidecar_windows.sh must define CT2_LIB_DIR (singular, the required ctranslate2/lib dir)."
     )
     assert "CT2_LIBS_DIR" in windows_text, (
-        "build_sidecar_windows.sh should define CT2_LIBS_DIR (plural — BUILD-2 guard)."
+        "build_sidecar_windows.sh should define CT2_LIBS_DIR (plural. BUILD-2 guard)."
     )
     assert 'if [[ -d "$CT2_LIBS_DIR" ]]' in windows_text, (
         "build_sidecar_windows.sh should guard the libs include with if [[ -d (BUILD-2 fix)."
@@ -830,7 +830,7 @@ def test_known_gap_no_python_import_sanity_check(sidecar_text: str):
     ("ctranslate2", ctranslate2.__version__)'``.
 
     This test ASSERTS the gap is present. DO NOT fix this gap as part
-    of MIG-1.7 gate check 1 — report it to the primary agent.
+    of MIG-1.7 gate check 1, report it to the primary agent.
     """
     assert "import faster_whisper, ctranslate2, websockets" not in sidecar_text, (
         "build_sidecar_linux.sh now does a Python-level import sanity check "
@@ -838,10 +838,10 @@ def test_known_gap_no_python_import_sanity_check(sidecar_text: str):
         "remove GAP-2 from the module docstring."
     )
     # The script DOES check directory existence (so a fully-missing
-    # wheel is still caught) — that's the partial mitigation.
+    # wheel is still caught), that's the partial mitigation.
     assert '! -d "$SITE/faster_whisper"' in sidecar_text, (
         "build_sidecar_linux.sh must still check the faster_whisper dir "
-        "exists (partial mitigation for GAP-2 — directory check, not "
+        "exists (partial mitigation for GAP-2, directory check, not "
         "Python import)."
     )
 
@@ -856,7 +856,7 @@ def test_known_gap_prewarm_check_is_stub(prewarm_text: str):
     prewarm build env without first running the sidecar check.
 
     This test ASSERTS the gap is present. DO NOT fix this gap as part
-    of MIG-1.7 gate check 1 — report it to the primary agent.
+    of MIG-1.7 gate check 1, report it to the primary agent.
     """
     # fixed the stub: --check now delegates to build_sidecar_linux.sh --check
     # instead of just echoing "OK if that passes" and exiting 0.
@@ -892,7 +892,7 @@ def test_known_gap_sudo_binfmt_in_cross_path(sidecar_text: str):
     manually), rather than silently attempting the registration.
 
     This test ASSERTS the gap is present. DO NOT fix this gap as part
-    of MIG-1.7 gate check 1 — report it to the primary agent.
+    of MIG-1.7 gate check 1, report it to the primary agent.
     """
     assert "sudo update-binfmts --enable qemu-aarch64" in sidecar_text, (
         "build_sidecar_linux.sh cross-build path still invokes "

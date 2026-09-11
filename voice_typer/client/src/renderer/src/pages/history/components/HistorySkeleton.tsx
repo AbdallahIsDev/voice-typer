@@ -6,7 +6,7 @@
 // branch). It mirrors `components/dashboard/ActivityList.tsx` exactly:
 // per-day `rounded-lg border border-border/5 bg-(--bg-subtle)` section
 // cards with a `px-4 pt-3 pb-1` day header, then `divide-y` rows of
-// `flex items-center gap-3 px-4 py-2` — each row a clamped text block
+// `flex items-center gap-3 px-4 py-2`: each row a clamped text block
 // (text-sm lines → h-5, meta line text-xs → h-4) and a trailing
 // 3-button ghost action column (size-6).
 

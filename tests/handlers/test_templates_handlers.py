@@ -3,8 +3,8 @@
 Covers the 2 templates IPC handlers defined in
 ``voice_typer/server/handlers/templates_handlers.py``:
 
-- ``_handle_get_templates`` — returns ``{type: templates, data: {templates: [...]}}``.
-- ``_handle_save_templates`` — validates ``templates`` is a list, then
+- ``_handle_get_templates``, returns ``{type: templates, data: {templates: [...]}}``.
+- ``_handle_save_templates``, validates ``templates`` is a list, then
   delegates to ``service.save_templates``.
 """
 
@@ -12,7 +12,7 @@ from __future__ import annotations
 
 
 class TestGetTemplates:
-    """``_handle_get_templates`` — returns the saved templates list."""
+    """``_handle_get_templates``, returns the saved templates list."""
 
     def test_happy_path_returns_templates_type(self, ipc_server, fake_service):
         fake_service.get_templates.return_value = [
@@ -33,7 +33,7 @@ class TestGetTemplates:
 
 
 class TestSaveTemplates:
-    """``_handle_save_templates`` — validates ``templates`` list, saves."""
+    """``_handle_save_templates``, validates ``templates`` list, saves."""
 
     def test_happy_path_returns_ack_with_count(self, ipc_server, fake_service):
         templates = [
@@ -53,7 +53,7 @@ class TestSaveTemplates:
         fake_service.save_templates.assert_not_called()
 
     def test_non_list_templates_returns_invalid_field_error(self, ipc_server, fake_service):
-        """``templates`` must be a list — dict/string/int are rejected."""
+        """``templates`` must be a list, dict/string/int are rejected."""
         resp = ipc_server._handle_save_templates({"templates": {"not": "a list"}}, {})
         assert resp["type"] == "error"
         assert resp["data"]["code"] == "client.invalid_field"

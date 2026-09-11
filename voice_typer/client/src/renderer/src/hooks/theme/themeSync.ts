@@ -1,18 +1,18 @@
 /**
- * themeSync.ts — the backend→store sync concern of the theme subsystem,
+ * themeSync.ts, the backend→store sync concern of the theme subsystem,
  * split out of ``hooks/useTheme.ts``. Owns:
  *
- * 1. ``reloadThemeFromConfig`` — the initial (and on-demand) config
+ * 1. ``reloadThemeFromConfig``, the initial (and on-demand) config
  *    read that seeds the store + localStorage from the backend.
- * 2. ``handleConfigChanged`` — the stable ``config_changed`` push
+ * 2. ``handleConfigChanged``, the stable ``config_changed`` push
  *    handler shared by every ``useTheme`` consumer.
- * 3. ``ensureThemeSideEffects`` — the initOnce guard that runs the
+ * 3. ``ensureThemeSideEffects``, the initOnce guard that runs the
  *    side-effecting setup (initial reload + ``beforeunload`` flush
  *    listener) EXACTLY ONCE per app load, no matter how many
  *    ``useTheme`` callers mount.
  *
  * All state updates go through the shared store in ``themeStore.ts``
- * (the internal state-only setters — the change came FROM the backend,
+ * (the internal state-only setters, the change came FROM the backend,
  * so round-tripping it would be a feedback loop).
  */
 import { setSoundFeedbackEnabled } from "@/lib/sound-manager";
@@ -71,7 +71,7 @@ export function reloadThemeFromConfig(): Promise<void> {
 					);
 					useThemeStore.getState().setCustomThemeState(cfg.custom_theme);
 				} else if (cfg?.theme_preset && cfg.theme_preset !== "custom") {
-					// Backend confirmed a non-custom preset — clear
+					// Backend confirmed a non-custom preset, clear
 					// any stale custom-theme cache so the bootstrap
 					// doesn't try to derive custom vars from it.
 					localStorage.removeItem(LS_CUSTOM_THEME);
@@ -81,7 +81,7 @@ export function reloadThemeFromConfig(): Promise<void> {
 					useThemeStore.getState().setTextSizeState(cfg.text_size);
 				}
 			} catch (e) {
-				// localStorage may be unavailable — non-fatal.
+				// localStorage may be unavailable, non-fatal.
 				// State setters below still fire so the UI
 				// reflects the backend values for this session.
 				console.warn("[renderer:useTheme] localStorage cache write failed:", e);
@@ -132,7 +132,7 @@ export function reloadThemeFromConfig(): Promise<void> {
 // entry in the dispatcher's ``typeSubscribers`` Map, but the
 // dispatcher holds a SINGLE ``api.onEvent`` subscription (it
 // deduplicates the underlying IPC listener). Both entries' handlers
-// are invoked per event — but the handler here updates the SHARED
+// are invoked per event, but the handler here updates the SHARED
 // Zustand store, and Zustand's ``set`` skips notification when the
 // new value is ``Object.is``-equal to the old. So the second
 // invocation is a no-op (cheap state-entry lookup, no subscriber
@@ -145,7 +145,7 @@ export function handleConfigChanged(
 	const activeMergeConfig = getActiveMergeConfig();
 	if (activeMergeConfig) {
 		// The backend's ``config_changed`` payload is a partial config
-		// object — cast to ``Partial<VoiceTyperConfig>`` for the
+		// object, cast to ``Partial<VoiceTyperConfig>`` for the
 		// ``mergeConfig`` call (the cast is safe because the backend
 		// only sends config-typed fields; unknown fields are silently
 		// ignored by ``mergeConfig``'s merge implementation).
@@ -169,7 +169,7 @@ export function handleConfigChanged(
 	// SOUND-FIX-REWRITE: keep localStorage in sync
 	// when the sound_feedback_enabled flag changes
 	// via ANY path (Settings toggle, config import,
-	// CLI tool, etc.) — not just the Settings UI.
+	// CLI tool, etc.), not just the Settings UI.
 	if (typeof data.sound_feedback_enabled === "boolean") {
 		setSoundFeedbackEnabled(data.sound_feedback_enabled);
 	}
@@ -183,7 +183,7 @@ export function handleConfigChanged(
 // side-effecting setup (initial ``reloadThemeFromConfig``,
 // ``beforeunload`` listener). Subsequent calls are no-ops (the flag
 // short-circuits), but they STILL refresh the ``activeCall`` /
-// ``activeMergeConfig`` references — in practice these are stable
+// ``activeMergeConfig`` references, in practice these are stable
 // across the app's lifetime, but refreshing is cheap and protects
 // against the (theoretical) case where a caller passes a different
 // ``call`` function (e.g. in tests with a mocked bridge).
@@ -191,7 +191,7 @@ export function ensureThemeSideEffects(
 	call: ThemeCallFn,
 	mergeConfig: (updates: Partial<VoiceTyperConfig>) => void,
 ): void {
-	// Always refresh the singleton references — they're stable in
+	// Always refresh the singleton references, they're stable in
 	// practice (from ``usePython`` / ``useAppStore``), but refreshing
 	// is cheap and makes the singleton robust to test-environment
 	// bridge swaps.
@@ -206,12 +206,12 @@ export function ensureThemeSideEffects(
 	void reloadThemeFromConfig();
 
 	// 2. ``beforeunload`` flush listener (single listener app-wide,
-	//    was previously 2 — the second was an idempotent no-op but
+	//    was previously 2, the second was an idempotent no-op but
 	//    still consumed an event-listener slot).
 	installBeforeUnloadFlush();
 }
 
-/** Reset the initOnce flag — used by the ``_resetThemeStoreForTest``
+/** Reset the initOnce flag, used by the ``_resetThemeStoreForTest``
  * seam so a test can mount a fresh ``useTheme`` consumer. */
 export function resetThemeSyncSingletons(): void {
 	themeInitStarted = false;

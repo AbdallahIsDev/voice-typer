@@ -1,4 +1,4 @@
-//! Main-window close-requested branch body (C-ARCH-1) — extracted from
+//! Main-window close-requested branch body (C-ARCH-1), extracted from
 //! the former single-file `commands/sidecar_cmds.rs`.
 
 use crate::state::SidecarState;
@@ -10,14 +10,14 @@ use super::shutdown::shutdown_sidecar;
 
 /// Close-to-tray predicate: the main window hides instead of closing
 /// when the app is NOT shutting down AND a tray actually exists
-/// (mirrors Electron `main-window.ts` — `if (!app.isQuitting &&
+/// (mirrors Electron `main-window.ts`: `if (!app.isQuitting &&
 /// !isLinuxWaylandWithoutSni()) { event.preventDefault();
 /// window.hide(); }`):
 ///
-/// - `shutting_down` set (deliberate quit — tray Quit → `quit_app`
+/// - `shutting_down` set (deliberate quit, tray Quit → `quit_app`
 ///   event → `state::on_quit_app`): the close is allowed through so the
 ///   last-window-close → `RunEvent::Exit` teardown can complete.
-/// - `tray_available` false (the host's `create_tray` failed — e.g.
+/// - `tray_available` false (the host's `create_tray` failed, e.g.
 ///   Linux Wayland without StatusNotifierItem): hiding the last window
 ///   would strand the user (no tray icon, no Dock entry, no
 ///   second-instance path to bring it back), so the close flows
@@ -43,13 +43,13 @@ fn should_hide_to_tray(label: &str, shutting_down: bool, tray_available: bool) -
 /// quit only happens via the tray "Quit" menu item → `quit_app` event
 /// → `state::on_quit_app` → host exit.
 ///
-/// When a deliberate shutdown IS in flight (`shutting_down` set — e.g.
+/// When a deliberate shutdown IS in flight (`shutting_down` set, e.g.
 /// the tray-Quit teardown is already running), the close is allowed
 /// through so the last-window-close → `RunEvent::Exit` → `on_host_exit`
 /// teardown can complete.
 ///
 /// on macOS the app stays alive when the last window
-/// closes (standard macOS app lifecycle — the tray / Dock keeps the
+/// closes (standard macOS app lifecycle, the tray / Dock keeps the
 /// process running). The sidecar is not killed by the window-close path
 /// on macOS: the host-exit teardown (`RunEvent::Exit` →
 /// `on_host_exit` → `shutdown_sidecar_for_exit`) is what reaps it when
@@ -72,11 +72,11 @@ pub(crate) fn on_main_window_close(
                 state.tray_available.load(Ordering::SeqCst),
             ) {
                 // Close-to-tray (Electron parity): prevent the close and
-                // hide the window. The sidecar keeps running — nothing is
+                // hide the window. The sidecar keeps running, nothing is
                 // torn down, and the hidden window can be re-shown via the
                 // tray left-click / Dock / second-instance handlers.
                 log::info!(
-                    "[WINDOW] main window close requested — hiding to tray (sidecar stays running)"
+                    "[WINDOW] main window close requested: hiding to tray (sidecar stays running)"
                 );
                 api.prevent_close();
                 if let Err(e) = window.hide() {
@@ -84,10 +84,10 @@ pub(crate) fn on_main_window_close(
                 }
                 return;
             }
-            // Deliberate shutdown in progress — allow the close through.
+            // Deliberate shutdown in progress: allow the close through.
             if cfg!(target_os = "macos") {
                 // macOS keeps the app alive when the last window closes
-                // (standard macOS app lifecycle — the tray / Dock keeps
+                // (standard macOS app lifecycle: the tray / Dock keeps
                 // the process running). The sidecar teardown runs via the
                 // host-exit path (`RunEvent::Exit` → `on_host_exit`) when
                 // the user actually quits.
@@ -107,14 +107,14 @@ pub(crate) fn on_main_window_close(
             });
         }
         "bubble" => {
-            // Bubble window close — no sidecar shutdown, just log.
+            // Bubble window close: no sidecar shutdown, just log.
             log::info!("[WINDOW] bubble window closed by user");
         }
         _ => {}
     }
 }
 
-// Sibling test module — tests live in `window_close_tests.rs` (per
+// Sibling test module: tests live in `window_close_tests.rs` (per
 // C-TEST-5: no inline `#[cfg(test)] mod tests` blocks in production
 // source).
 #[cfg(test)]

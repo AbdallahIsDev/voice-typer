@@ -38,7 +38,7 @@ vi.mock("@/i18n/i18n", () => {
 			"templates.exactMatch": "Exact match",
 			"templates.contains": "Contains",
 			"templates.unknownVariableWarning":
-				"Unknown variable {vars} — supported: {today}, {now}, {clipboard}, {username}",
+				"Unknown variable {vars}, supported: {today}, {now}, {clipboard}, {username}",
 			"dialog.discardChangesTitle": "Discard changes?",
 			"dialog.discardChangesMessage":
 				"Closing now will discard your unsaved edits.",
@@ -142,7 +142,7 @@ function renderDialog(overrides: Record<string, unknown> = {}) {
 	return { onClose, onSave };
 }
 
-describe("TemplateDialog — unsaved-edits close gate", () => {
+describe("TemplateDialog, unsaved-edits close gate", () => {
 	afterEach(() => {
 		cleanup();
 	});

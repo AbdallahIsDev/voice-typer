@@ -17,27 +17,27 @@ back-reference to the owning ``Recorder`` instance
 access *shared* state that lives on ``Recorder`` and is NOT moved here:
 
 - ``self._buffer`` / ``_lock`` / ``_chunk_count`` / ``_buffer_sr`` /
-  ``_total_buffered_samples`` — buffer state OWNED by this pipeline
+  ``_total_buffered_samples``: buffer state OWNED by this pipeline
   (STATE-OWNERSHIP; consumers route through
   ``recorder._audio_pipeline.<attr>``)
-- ``self._recorder._effective_sr`` — sample-rate tracking
-- ``self._recorder._audio_processor`` — filter chain
-- ``self._recorder.on_xrun_threshold`` — the app-wired xrun notification
+- ``self._recorder._effective_sr``: sample-rate tracking
+- ``self._recorder._audio_processor``: filter chain
+- ``self._recorder.on_xrun_threshold``: the app-wired xrun notification
   slot (STAYS on Recorder; the xrun counters themselves are owned by
-  THIS pipeline — see the STATE-OWNERSHIP note in ``__init__``)
+  THIS pipeline: see the STATE-OWNERSHIP note in ``__init__``)
 - ``self._recorder._devices._device_disconnected`` (DeviceManager) /
   ``_disconnect_handler_running`` / ``_stop_generation`` /
-  ``_recording_event`` — disconnect detection state
+  ``_recording_event``: disconnect detection state
 - ``self._recorder._spawn_device_thread`` / ``_handle_device_disconnect`` —
   disconnect-handler scheduling
-- ``recorder._vad`` (VadProcessor) — VAD state machine; the module-level
+- ``recorder._vad`` (VadProcessor). VAD state machine; the module-level
   ``vad_auto_calibrate`` / ``vad_update`` / ``refresh_vad_caches`` helpers
   in :mod:`.vad_helpers` route through it
 - ``self._recorder._silence_timer`` / ``_silence_start_time`` /
-  ``_silence_warning_count`` / cached silence thresholds — silence auto-stop
+  ``_silence_warning_count`` / cached silence thresholds, silence auto-stop
 - ``self._recorder._recording_start_time`` / ``on_rms_level`` /
   ``on_silence_warning`` / ``on_silence_auto_stop`` /
-  ``on_max_duration_auto_stop`` — recording session + callbacks
+  ``on_max_duration_auto_stop``: recording session + callbacks
 
 Patch-path compatibility
 ------------------------
@@ -76,7 +76,7 @@ log = logging.getLogger("voice_typer.server.recording")
 
 # ``scipy.signal`` is bound lazily (see :func:`_ensure_sp_signal`) so
 # the ~1-2s scipy import does not sit on the app's startup critical
-# path when VAD — the only scipy consumer — is disabled (raw recording
+# path when VAD, the only scipy consumer, is disabled (raw recording
 # mode). ``_sp_signal`` may be ``None`` when scipy is unavailable; the
 # VAD resample path below falls back to ``resample_poly`` in that case.
 _sp_signal: Any | None = None
@@ -142,27 +142,27 @@ class AudioPipeline:
     moved body of the corresponding ``Recorder._<helper>`` method, with
     ``self.X`` references rewritten to ``self._recorder.X`` for shared
     state. The historical ``Recorder`` delegators on each helper name
-    were removed — call sites invoke these methods directly on
+    were removed: call sites invoke these methods directly on
     ``AudioPipeline`` (``process_audio_chunk`` calls ``self.<helper>``).
     """
 
     def __init__(self, recorder: Any) -> None:
         # Collaborator back-reference. Typed ``Any`` to avoid a circular
         # import (``recorder`` imports ``audio_pipeline`` at module top to
-        # construct this class in ``RecorderInitMixin._init_*``) — same
+        # construct this class in ``RecorderInitMixin._init_*``), same
         # convention as the other extracted collaborators
         # (``stream_lifecycle.py``, ``session_state.py``).
         self._recorder = recorder
         # STATE-OWNERSHIP: the contiguous recording buffer, the
         # buffer lock, and the buffer bookkeeping scalars live HERE
-        # (the owning collaborator — the module whose
+        # (the owning collaborator, the module whose
         # ``append_to_buffer_locked`` is the 16 Hz writer and whose
         # ``apply_filter_chain`` maintains ``_buffer_sr``), not on
         # ``Recorder``. Consumers (``SessionState.reset_session_state`` /
         # ``resize_buffers_for_sample_rate``, ``_recorder_split``
         # snapshot/stop/discard, ``DisconnectHandler`` hot-swap restart,
         # ``StreamLifecycle``, ``vad_helpers``) access them via
-        # ``recorder._audio_pipeline.<attr>`` — the same friend-access
+        # ``recorder._audio_pipeline.<attr>``: the same friend-access
         # convention the other moved clusters use. The
         # ``GrowableRecordingBuffer`` construction parameters are
         # identical to the historical ``_init_core_session_state``
@@ -178,7 +178,7 @@ class AudioPipeline:
         )
         # Guards every mutation of ``_buffer`` + its bookkeeping
         # counters (the historical ``Recorder._lock``; same Lock
-        # object semantics — one owner, all acquirers routed through
+        # object semantics, one owner, all acquirers routed through
         # this collaborator).
         self._lock = threading.Lock()
         # Sample rate of the audio currently held in ``_buffer``
@@ -238,18 +238,18 @@ class AudioPipeline:
         recorder = self._recorder
         if not ((indata.size == 0 or not np.any(indata)) and self._chunk_count > 10):
             return False
-        # re-entrancy guard — if a previous chunk already detected
+        # re-entrancy guard, if a previous chunk already detected
         # the disconnect and scheduled a handler thread, don't spawn
         # another. Pre-fix, every subsequent zero-filled chunk would
         # re-enter this block, set the flag again (no-op), and spawn
-        # ANOTHER device-disconnect-handler thread — a thread-spawn
+        # ANOTHER device-disconnect-handler thread, a thread-spawn
         # storm on truly silent (or disconnected) input. With 100
         # zero-filled callbacks after the warmup window, this would
         # spawn ~89 threads.
         #
         # The flag is cleared by _handle_device_disconnect on successful
         # stream restart and by start(), so this guard only suppresses
-        # the storm during the retry window — it does NOT suppress a
+        # the storm during the retry window, it does NOT suppress a
         # legitimate re-detection after a successful restart.
         if recorder._devices._device_disconnected:
             return True
@@ -261,15 +261,15 @@ class AudioPipeline:
         if not recorder._recording_event.is_set():
             return True  # deliberate stop, not a disconnect
         recorder._devices._device_disconnected = True
-        # New disconnect cycle — clear the single-flight guard so a
+        # New disconnect cycle, clear the single-flight guard so a
         # fresh handler can spawn even if a prior handler hasn't fully
         # exited yet (e.g. test simulating restart by clearing
         # _device_disconnected, then sending another zero chunk).
         # STATE-OWNERSHIP: the guard flag lives on ``DisconnectHandler``
-        # (the owning collaborator) — the historical
+        # (the owning collaborator), the historical
         # ``Recorder._disconnect_handler_running`` was moved there.
         recorder._disconnect_handler._single_flight_running = False
-        log.warning("[RECORDING] Zero-filled indata detected — possible device disconnect")
+        log.warning("[RECORDING] Zero-filled indata detected, possible device disconnect")
         # Schedule disconnect handling off the worker thread.
         # HOTKEY-CRASH: capture the current stop_generation so the
         # handler can bail if a stop/start cycle happened in between.
@@ -289,7 +289,7 @@ class AudioPipeline:
         """Inspect the PortAudio ``status`` for an input-overflow XRUN.
 
                 Returns ``True`` if an XRUN was detected and the chunk should be
-                dropped (the in-flight chunk is partially stale — appending it
+                dropped (the in-flight chunk is partially stale, appending it
                 to ``_buffer`` would corrupt the transcriber's input with a
                 discontinuity). Returns ``False`` for clean status so the
                 processing pipeline continues.
@@ -299,7 +299,7 @@ class AudioPipeline:
                 alerting on sustained issues.
                 Low: ``if status:`` is True for ANY set flag, including
                 ``priming_output`` which fires on the first callback after every
-                stream start (PortAudio is priming buffers — NOT an xrun).
+                stream start (PortAudio is priming buffers. NOT an xrun).
                 Pre-fix, this over-counted ``_xruns`` by 1 on every ``start()``.
                 Narrow to ``status.input_overflow`` which is the real xrun flag
                 for input streams.
@@ -328,7 +328,7 @@ class AudioPipeline:
         self._xruns += 1
         now = time.monotonic()
         self._xrun_timestamps.append(now)
-        # check rolling window — only log if threshold
+        # check rolling window, only log if threshold
         # exceeded within the alert period
         window_start = now - _XRUN_ALERT_PERIOD
         recent_count = sum(1 for t in self._xrun_timestamps if t >= window_start)
@@ -343,15 +343,15 @@ class AudioPipeline:
         # Item 1: fire threshold callback for tray notification.
         # Low: use ``%`` instead of ``==`` so the callback fires every N
         # xruns (not just once at exactly N). Pre-fix, ``==`` fired
-        # EXACTLY ONCE per session — when ``_xruns`` incremented from 9
-        # to 10 — and never again. A user with 100+ xruns saw 1
+        # EXACTLY ONCE per session: when ``_xruns`` incremented from 9
+        # to 10, and never again. A user with 100+ xruns saw 1
         # notification then nothing.
         if self._xruns % self._xrun_threshold == 0 and recorder.on_xrun_threshold:
             with contextlib.suppress(Exception):
                 recorder.on_xrun_threshold(self._xruns)
         # R18-F13: drop the partial chunk on xrun status. PortAudio
         # reports ``input_overflow`` when the callback couldn't keep up
-        # — the in-flight chunk is partially stale (the backend overwrote
+        # , the in-flight chunk is partially stale (the backend overwrote
         # a portion of the buffer before the callback copied it out).
         # Appending it to ``_buffer`` would corrupt the transcriber's
         # input with a discontinuity. Return here so the chunk is
@@ -370,7 +370,7 @@ class AudioPipeline:
         append so (a) `filtered` is defined when we use it inside the
         lock, and (b) the stored audio, silence detection, and waveform
         bubble all see the cleaned signal that the transcriber will
-        receive.  This runs OUTSIDE the lock — process_chunk() is
+        receive.  This runs OUTSIDE the lock, process_chunk() is
         non-blocking and operates only on the local `indata` copy.  See
         recording.py callback ordering in the auto-volume-duck
         architecture doc §6.4.
@@ -394,11 +394,11 @@ class AudioPipeline:
             # the previous ``indata_mono.copy()`` was a redundant
             # allocation on the worker hot path. ``indata`` is already
             # an owned copy (the audio callback did ``indata.copy()``
-            # before enqueuing to the ring buffer — PortAudio reuses
+            # before enqueuing to the ring buffer, PortAudio reuses
             # the input buffer). ``_ensure_mono`` returns either the
             # same reference (mono input) or a fresh ``np.mean`` result
             # (stereo downmix). ``process_chunk`` does NOT mutate its
-            # input — it returns a new array (resample_poly / lfilter /
+            # input, it returns a new array (resample_poly / lfilter /
             # etc. all allocate). The defensive copy was duplicating
             # the callback's already-owned copy for the common mono
             # case (~2KB per chunk at 60-94 Hz).
@@ -406,7 +406,7 @@ class AudioPipeline:
             # Critical: the AudioProcessor resamples each chunk to its
             # chain's construction rate (typically 16 kHz) before
             # filtering, so the audio appended to ``_buffer`` is at the
-            # processor's rate — NOT the device's native rate. Track
+            # processor's rate. NOT the device's native rate. Track
             # this so ``stop()`` / ``snapshot()`` use the correct source
             # rate when deciding whether to resample again.
             proc_sr = getattr(recorder._audio_processor, "_sample_rate", None)
@@ -422,21 +422,21 @@ class AudioPipeline:
     def append_to_buffer_locked(self, filtered: np.ndarray) -> tuple[int, int]:
         """Append ``filtered`` to ``_buffer`` under the lock; return ``(chunk_count, buffer_len)``.
 
-                RACE-001: minimize lock scope — only buffer append and counter
+                RACE-001: minimize lock scope, only buffer append and counter
                 need atomicity. Callback refs and silence state are read outside
-                the lock — these are set once at start() and cleared at stop(),
+                the lock, these are set once at start() and cleared at stop(),
                 so a torn read just means we miss one callback or fire one
                 extra, which is acceptable. The alternative (holding the lock
                 while calling user code) risks deadlocks.
 
-        Backpressure detection — if the deque dropped chunks
+        Backpressure detection, if the deque dropped chunks
                 (maxlen exceeded), increment a counter and warn the user.
         """
         recorder = self._recorder
         with self._lock:
             # Store FILTERED audio so the transcriber receives the
             # cleaned signal. PERF-12: ``filtered`` is already an owned
-            # array — in the processor branch, ``process_chunk`` is
+            # array, in the processor branch, ``process_chunk`` is
             # called with ``indata_mono.copy()`` and either returns that
             # same owned copy (passthrough) or a fresh array from the
             # filter chain. In the no-processor branch, ``indata_mono``
@@ -459,7 +459,7 @@ class AudioPipeline:
             # total stays in sync with the deque's actual contents.
             # Without this compensation the counter would monotonically
             # grow (never shrink) and ``current_duration_seconds``
-            # would over-report once the buffer fills — a regression
+            # would over-report once the buffer fills, a regression
             # vs. the previous ``sum(int(c.shape[0]) for c in buffer)``
             # which naturally accounted for eviction by re-iterating
             # the deque on every call.
@@ -469,7 +469,7 @@ class AudioPipeline:
                 try:
                     _evicted = _buf[0]
                 except IndexError:
-                    # Empty-buffer race (rare) — nothing was evicted.
+                    # Empty-buffer race (rare), nothing was evicted.
                     _evicted = None
                 if _evicted is not None:
                     try:
@@ -497,14 +497,14 @@ class AudioPipeline:
             chunk_count = self._chunk_count
             buffer_len = len(_buf)
 
-        # Backpressure detection — if the deque dropped
+        # Backpressure detection, if the deque dropped
         # chunks (maxlen exceeded), increment a counter and warn the
         # user
         if self._buffer.maxlen is not None and buffer_len >= self._buffer.maxlen - 1:
             recorder._dropped_chunks = recorder._dropped_chunks + 1
             if recorder._dropped_chunks == 1 or recorder._dropped_chunks % 100 == 0:
                 log.warning(
-                    "[RECORDING] Buffer full — oldest audio dropped (total=%d). ASR is slower than real-time.",
+                    "[RECORDING] Buffer full, oldest audio dropped (total=%d). ASR is slower than real-time.",
                     recorder._dropped_chunks,
                 )
         return chunk_count, buffer_len
@@ -520,13 +520,13 @@ class AudioPipeline:
         """
         recorder = self._recorder
         if filtered.size:
-            # AUDIO-NP: single-pass RMS using np.dot — avoids creating
+            # AUDIO-NP: single-pass RMS using np.dot, avoids creating
             # the intermediate abs_filtered**2 array.
             flat = filtered.reshape(-1)
             chunk_rms = float(np.sqrt(np.dot(flat, flat) / flat.size))
-            # PERF-: allocation-free peak — reuse the existing
+            # PERF-: allocation-free peak, reuse the existing
             # ``flat`` view instead of materializing np.abs(filtered).
-            # max(|x|) == max(max(x), -min(x)) — two reductions on the
+            # max(|x|) == max(max(x), -min(x)), two reductions on the
             # same contiguous view, no intermediate array allocated.
             chunk_peak = max(float(flat.max()), -float(flat.min()))
         else:
@@ -557,7 +557,7 @@ class AudioPipeline:
 
                 The callback refs (``silence_warning_cb`` etc.) are passed in
                 explicitly because they were already snapshotted outside the
-                lock by the caller — re-reading them from ``self`` here would
+                lock by the caller, re-reading them from ``self`` here would
                 be a second torn read with no consistency guarantee. The RMS
                 callback (``on_rms_level``) is fired separately by the caller
                 after this method returns.
@@ -599,7 +599,7 @@ class AudioPipeline:
                 # set above) instead of ``_effective_sr`` (the device's
                 # native rate). When a processor is active,
                 # ``_buffer_sr == proc._sample_rate`` (typically 16000)
-                # and the VAD branch is skipped entirely — no
+                # and the VAD branch is skipped entirely, no
                 # double-resample. Pre-fix used
                 # ``_effective_sr`` (e.g. 48000) which caused
                 # ``resample_poly(filtered, 1, 3)`` to decimate the
@@ -628,7 +628,7 @@ class AudioPipeline:
                         # ``resample_audio``) instead of calling
                         # ``resample_poly`` directly. ``resample_poly``
                         # re-designs its FIR filter (``firwin``) on
-                        # every call — at the ~16 Hz VAD cadence that is
+                        # every call, at the ~16 Hz VAD cadence that is
                         # ~16 redundant filter designs/sec on the worker
                         # thread. ``upfirdn`` with the cached taps costs
                         # a dict lookup + C call and produces the same
@@ -649,7 +649,7 @@ class AudioPipeline:
                             # (``raw[n_pre_remove : n_pre_remove + n_out]``),
                             # and returns float32 (a no-op cast when the
                             # cached float32 taps already produced
-                            # float32 output — avoiding the per-chunk
+                            # float32 output, avoiding the per-chunk
                             # ``.astype(np.float32)`` allocation).
                             vad_audio = _resampling_mod._resample_via_cached_taps(
                                 taps,
@@ -662,7 +662,7 @@ class AudioPipeline:
                             # Fall back to ``resample_poly`` if
                             # ``upfirdn`` / the cached-taps path fails
                             # (e.g. scipy version without ``upfirdn``,
-                            # or an edge-case shape mismatch) — same
+                            # or an edge-case shape mismatch), same
                             # fallback as ``resample_audio``.
                             resample_poly = _resampling_mod._get_resample_poly()
                             vad_audio = np.asarray(
@@ -675,12 +675,12 @@ class AudioPipeline:
                             )
                         vad_sr = WHISPER_SAMPLE_RATE
                     except Exception:
-                        # scipy unavailable or resample failed — fall
+                        # scipy unavailable or resample failed, fall
                         # back to RMS rather than crashing the worker.
                         vad_audio = filtered
                         vad_sr = _vad_sr
                 else:
-                    # ``_buffer_sr`` is already 8000 or 16000 — no
+                    # ``_buffer_sr`` is already 8000 or 16000, no
                     # resample needed, feed ``filtered`` directly.
                     vad_audio = filtered
                     vad_sr = _vad_sr if _vad_sr in SILERO_VAD_SAMPLE_RATES else WHISPER_SAMPLE_RATE
@@ -759,7 +759,7 @@ class AudioPipeline:
         """AUDIO-CLIP: track clipping + push a real-time IPC event.
 
         The historical ``Recorder._detect_and_emit_clipping`` pure
-        delegator was removed — this ``AudioPipeline`` method is invoked
+        delegator was removed: this ``AudioPipeline`` method is invoked
         directly by ``process_audio_chunk``. Extracted from
         ``process_audio_chunk`` for testability and readability. The
         ``audio_clip`` event is throttled to 1 Hz (same as the log) so
@@ -808,9 +808,9 @@ class AudioPipeline:
         status: Any,
         perf_ts: float,
     ) -> None:
-        """Body of :meth:`Recorder._process_audio_chunk` — runs on the worker thread.
+        """Body of :meth:`Recorder._process_audio_chunk`, runs on the worker thread.
 
-        Phase 4.5 — extracted from :mod:`.recorder`. See the module
+        Phase 4.5, extracted from :mod:`.recorder`. See the module
                 docstring of :mod:`.recorder` for the collaborator-pattern
                 rationale. The per-step call sites below route through
                 ``self.<method>`` (this class's own helpers:
@@ -837,7 +837,7 @@ class AudioPipeline:
         Silero VAD probability (with resample to 16kHz)
         VAD state machine + silence timer
                 - H12: silence warning / auto-stop / max-duration callbacks
-                - on_rms_level callback (2-arg: chunk_rms, chunk_peak — the
+                - on_rms_level callback (2-arg: chunk_rms, chunk_peak, the
                   filtered chunk is NOT forwarded; see the invariant
                   comment at the call site below)
                 - Telemetry logs
@@ -853,7 +853,7 @@ class AudioPipeline:
             return
 
         # the per-N-chunks blocking ``sd.query_devices()``
-        # probe on the audio worker thread was removed — it is fully
+        # probe on the audio worker thread was removed, it is fully
         # redundant with ``_device_health_checker_loop`` (a dedicated
         # daemon thread that wakes every ``_device_check_interval_s``
         # and runs the same ``sd.query_devices(current_device)`` probe
@@ -867,7 +867,7 @@ class AudioPipeline:
         # Redundant with stop_on_silence_seconds (auto-stop already resets on
         # speech). The _update_dead_air_simple() method was also removed along
         # with _dead_air_timeout / _dead_air_speech_detected / _dead_air_silence_start.
-        # Do NOT re-add — it added no unique behavior.
+        # Do NOT re-add, it added no unique behavior.
 
         # XRUN status flag handling (early return path on overflow).
         if self.handle_xrun_status(status):
@@ -897,7 +897,7 @@ class AudioPipeline:
         # ``recorder._cached_vad_enabled`` so it is skipped entirely in
         # raw mode (VAD off). ``vad_auto_calibrate`` short-circuits with
         # ``if not recorder._cached_vad_enabled: return`` so the
-        # computed value would be discarded anyway — skipping the
+        # computed value would be discarded anyway, skipping the
         # computation saves one BLAS ``sdot`` per chunk (~16 Hz) in raw
         # mode. The cached scalar (set by ``refresh_vad_caches`` at
         # ``Recorder.start()`` / ``on_config_changed()``) is always
@@ -915,7 +915,7 @@ class AudioPipeline:
         # Buffer append + chunk count + backpressure detection.
         chunk_count, buffer_len = self.append_to_buffer_locked(filtered)
 
-        # Read callback refs outside the lock — these are set once
+        # Read callback refs outside the lock, these are set once
         # at start() and cleared at stop(), so a torn read just
         # means we miss one callback or fire one extra, which is
         # acceptable. The alternative (holding the lock while
@@ -926,7 +926,7 @@ class AudioPipeline:
         max_duration_cb = recorder.on_max_duration_auto_stop
         # the dead ``recent_rms = recent_rms_snapshot`` alias
         # was removed (its only writer, the snapshot inside the lock
-        # above, was also dead — see the RACE-003 note above).
+        # above, was also dead: see the RACE-003 note above).
         recording_start = recorder._recording_start_time
 
         # ── Everything below runs OUTSIDE the lock ──
@@ -952,7 +952,7 @@ class AudioPipeline:
         self.detect_and_emit_clipping(recorder, chunk_peak)
 
         # PERF-11: append to the live deque (atomic under
-        # GIL — ``deque.append`` is a single C-level op with no torn
+        # GIL, ``deque.append`` is a single C-level op with no torn
         # state). The live rolling-RMS consumer is this
         # ``self._recent_rms_values.append(chunk_rms)`` call, which
         # future code (e.g. waveform bubble, VAD auto-calibration) can
@@ -981,7 +981,7 @@ class AudioPipeline:
         # ``rms_callback(chunk_rms, chunk_peak, filtered)`` forwarded
         # the filtered audio chunk so downstream consumers
         # (WaveformBubble via ``RecordingController.on_recorder_rms``)
-        # COULD run Silero VAD on it — but BUBBLE- removed the
+        # COULD run Silero VAD on it, but BUBBLE- removed the
         # VAD gate entirely (the device's native sample-rate audio was
         # being fed to a model that assumes 16 kHz, biasing
         # probabilities low and collapsing the bars).  No current

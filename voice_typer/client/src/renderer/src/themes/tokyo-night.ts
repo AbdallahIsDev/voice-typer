@@ -1,5 +1,5 @@
 /**
- * "Tokyo Night" theme preset — deep blue-black with vibrant highlights.
+ * "Tokyo Night" theme preset, deep blue-black with vibrant highlights.
  *
  * See ``themes.ts`` for the ``ThemePreset`` interface and how presets
  * are consumed.

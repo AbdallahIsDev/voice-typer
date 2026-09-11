@@ -1,5 +1,5 @@
 /**
- * LastUpdatedIndicator — refresh micro-interaction contract.
+ * LastUpdatedIndicator, refresh micro-interaction contract.
  *
  * Pins the fix for the refresh click glitch: while a refresh is in
  * flight the SAME icon spins in place (``animate-spin`` on the
@@ -55,7 +55,7 @@ describe("LastUpdatedIndicator refresh visual", () => {
 		expect(icon.className).not.toContain("animate-spin");
 	});
 
-	it("refreshing: the SAME icon spins in place — no element swap, no size change, accessible name intact", () => {
+	it("refreshing: the SAME icon spins in place, no element swap, no size change, accessible name intact", () => {
 		render(
 			<LastUpdatedIndicator
 				agoLabel="5s ago"

@@ -41,12 +41,12 @@ class TestTCPLineIOBuffering:
     single ``sendall`` (not one per write)."""
 
     def test_write_does_not_call_sendall(self):
-        """``_TCPLineIO.write()`` must NOT call ``sendall`` — it must
+        """``_TCPLineIO.write()`` must NOT call ``sendall``, it must
         append to an internal buffer."""
         srv = MagicMock()
         io_obj = _TCPLineIO.__new__(_TCPLineIO)
         # Initialize only the fields write/flush touch (skip the real
-        # ``makefile`` reader — we don't exercise reads here).
+        # ``makefile`` reader, we don't exercise reads here).
         io_obj.conn = srv
         io_obj._write_buffer = []
         io_obj._reader = MagicMock()
@@ -181,7 +181,7 @@ class TestSendDrainBatching:
         simulate the real ``_TCPLineIO`` buffer-then-flush behavior, so
         we can count ``sendall`` calls without a real socketpair.
 
-        ``write`` accepts both ``str`` and ``bytes`` — production
+        ``write`` accepts both ``str`` and ``bytes``, production
         passes already-encoded bytes (the encode-once refactor
         upstream); legacy / str callers pass a ``str`` that we encode
         here for compatibility.
@@ -193,7 +193,7 @@ class TestSendDrainBatching:
 
         def mock_write(text):
             # ``text`` may be ``str`` (legacy) or ``bytes`` (the
-            # encode-once refactor — pre-encoding the line so the
+            # encode-once refactor, pre-encoding the line so the
             # flush+sendall path doesn't re-encode).
             if isinstance(text, str):
                 text = text.encode("utf-8")
@@ -228,7 +228,7 @@ class TestSendDrainBatching:
             f"AB-37: expected 2 sendall calls (1 for current line + 1 for "
             f"the whole 100-entry drain batch), got {tcp_client.conn.sendall.call_count}."
         )
-        # All 100 entries drained — none re-merged.
+        # All 100 entries drained, none re-merged.
         assert len(server._pending_tcp) == 0, (
             f"AB-37: expected 0 re-merged entries after successful drain, "
             f"got {len(server._pending_tcp)}: {server._pending_tcp!r}"
@@ -252,7 +252,7 @@ class TestSendDrainBatching:
 
     def test_drain_loop_issues_two_sendall_for_over_cap(self):
         """When ``_pending_tcp`` has MORE than the drain cap (e.g. 105),
-        ``_send`` still issues exactly 2 ``sendall`` syscalls — the 5
+        ``_send`` still issues exactly 2 ``sendall`` syscalls, the 5
         overflow entries are re-merged without any sendall."""
         older = [f'{{"old": {i}}}' for i in range(5)]
         recent = [f'{{"recent": {i}}}' for i in range(100)]

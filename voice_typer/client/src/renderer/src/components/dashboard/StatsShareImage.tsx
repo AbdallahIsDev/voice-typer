@@ -14,7 +14,7 @@ interface StatsShareImageProps {
 	/**
 	 * Resolved hex palette for the CURRENTLY ACTIVE theme (see
 	 * `lib/theme-palette.ts`). Optional so tests / standalone renders
-	 * can omit it — the component falls back to the stock dark palette
+	 * can omit it, the component falls back to the stock dark palette
 	 * (a stable module constant, so React.memo's shallow compare is
 	 * unaffected).
 	 */
@@ -22,7 +22,7 @@ interface StatsShareImageProps {
 }
 
 /**
- * StatsShareImage — the shareable stats card.
+ * StatsShareImage, the shareable stats card.
  *
  * Rendered off-screen and captured as a PNG by html-to-image when the
  * user picks a Share Stats menu action. The design reuses the app's
@@ -30,7 +30,7 @@ interface StatsShareImageProps {
  *
  *   - Every colour comes from the LIVE theme tokens (via the `palette`
  *     prop, resolved from the CSS custom properties the app renders
- *     with) — no hardcoded palette, so Default / Monokai / Dracula /
+ *     with), no hardcoded palette, so Default / Monokai / Dracula /
  *     GitHub / Tokyo Night / custom themes all export correctly.
  *   - Accent-coloured values fall back to the legible foreground when
  *     the theme's accent is too close to the card surface
@@ -40,10 +40,10 @@ interface StatsShareImageProps {
  *     recording time) plus mode + model/device, with branding demoted
  *     to a small footer watermark.
  *   - Zero-data state mirrors the page: no "0 WPM" / "0% faster than
- *     avg" claims — the WPM value shows "—" when the user has no
+ *     avg" claims, the WPM value shows "—" when the user has no
  *     dictation today.
  *
- * Sized at 1200×630 (the standard social share-card ratio — Twitter /
+ * Sized at 1200×630 (the standard social share-card ratio, Twitter /
  * Facebook OG image / most chat apps).
  */
 function StatsShareImageInner({
@@ -90,7 +90,7 @@ function StatsShareImageInner({
 				}}
 			>
 				<div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-					{/* Small on-brand mic glyph (inline SVG — no external
+					{/* Small on-brand mic glyph (inline SVG, no external
 						assets so html-to-image captures it cleanly). */}
 					<svg
 						width="28"
@@ -234,7 +234,7 @@ function StatsShareImageInner({
 			>
 				<div style={{ fontSize: "14px", color: palette.mutedForeground }}>
 					{/* model/device arrive pre-formatted ("Tiny", "GPU") or
-						empty when no model is installed — render as-is. */}
+						empty when no model is installed, render as-is. */}
 					{stats.model || stats.device
 						? [stats.model, stats.device].filter(Boolean).join(" · ")
 						: ""}
@@ -253,7 +253,7 @@ function StatsShareImageInner({
 	);
 }
 
-/** One card in the stats grid. `detail` is optional — cards without a
+/** One card in the stats grid. `detail` is optional, cards without a
  * detail line keep a stable height via a reserved slot. */
 function StatCard({
 	value,
@@ -333,6 +333,6 @@ function StatCard({
 // doesn't re-render on every parent re-render. Both props are
 // memoised at the call sites: `stats` via useMemo keyed on the
 // underlying data, `palette` via useThemePalette (stable until the
-// theme changes) — the default shallow-equal comparator skips
+// theme changes), the default shallow-equal comparator skips
 // re-renders until one of them actually changes.
 export const StatsShareImage = memo(StatsShareImageInner);

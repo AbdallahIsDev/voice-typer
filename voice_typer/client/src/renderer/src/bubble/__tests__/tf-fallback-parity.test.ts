@@ -19,7 +19,7 @@ const componentSource = readFileSync(
 	"utf8",
 );
 
-// Matches tf("some.key", "Fallback literal") — single-line form only,
+// Matches tf("some.key", "Fallback literal"), single-line form only,
 // which is the pattern used in this component.
 const TF_CALL_RE = /tf\(\s*"([a-zA-Z0-9_.]+)"\s*,\s*"((?:[^"\\]|\\.)*)"\s*\)/g;
 

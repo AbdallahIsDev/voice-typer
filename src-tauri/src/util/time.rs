@@ -10,13 +10,13 @@
 //! The output format is pinned by `time_tests.rs`
 //! (`test_now_timestamp_format` / `test_now_time_only_format` /
 //! `test_now_timestamps_pair_consistent`) and by the Python log-format
-//! tests — DO NOT change the rendered shape, only (if ever) its
+//! tests: DO NOT change the rendered shape, only (if ever) its
 //! location.
 
 /// Format the current time as a clean space-separated timestamp
-/// (UTC): `YYYY-MM-DD  HH:MM:SS` — TWO spaces between the date and
+/// (UTC): `YYYY-MM-DD  HH:MM:SS`, TWO spaces between the date and
 /// the time, seconds-only precision (no millisecond fraction), no
-/// `T` separator, no timezone offset — matching the Python side's
+/// `T` separator, no timezone offset, matching the Python side's
 /// `_iso_timestamp` in `voice_typer/server/log/formatters.py` so the
 /// sidecar lines and Python lines in the log folder use the same
 /// timestamp column width (the level column uses `{:5}` padding, so
@@ -25,7 +25,7 @@
 /// Uses Howard Hinnant's `civil_from_days` algorithm to convert days-
 /// since-Unix-epoch to a (y, m, d) triple without pulling in `chrono`
 /// or `time` (keeping the dep tree minimal per ADR-0020 §11's "prefer
-/// minimal deps" guidance). UTC is fine for log timestamps — the
+/// minimal deps" guidance). UTC is fine for log timestamps, the
 /// Python side also logs in UTC (`log.py` uses `gmtime()`).
 ///
 /// `#[cfg(test)]`: production logging now calls [`now_timestamps`]
@@ -43,7 +43,7 @@ pub(crate) fn now_timestamp() -> String {
     )
 }
 
-/// Format the current time as TIME ONLY (UTC): `HH:MM:SS` — no date.
+/// Format the current time as TIME ONLY (UTC): `HH:MM:SS`, no date.
 ///
 /// Used by the stderr/terminal sinks: the date lives only in the log
 /// file (``now_timestamp``), and console output shows just the clock
@@ -106,7 +106,7 @@ fn now_civil_parts() -> (i64, u64, u64, u64, u64, u64) {
     (y, m, d, hour, min, sec)
 }
 
-// Sibling test module — tests live in `time_tests.rs` (per C-TEST-5:
+// Sibling test module: tests live in `time_tests.rs` (per C-TEST-5:
 // no inline `#[cfg(test)] mod tests` blocks in production source).
 #[cfg(test)]
 #[path = "time_tests.rs"]

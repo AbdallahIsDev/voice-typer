@@ -1,4 +1,4 @@
-"""god-class decomposition: WaveformBubbleWiring — extracted from VoiceTyperApp.
+"""god-class decomposition: WaveformBubbleWiring, extracted from VoiceTyperApp.
 
 Owns the wiring between the ``WaveformBubble`` coordinator
 (``voice_typer.server.waveform``) and the IPC server's push-event
@@ -10,7 +10,7 @@ broke the bubble on first run).
 
 Methods (preserved verbatim from ``VoiceTyperApp._wire_waveform_bubble``):
 
-    - ``_wire_waveform_bubble`` — forwards the bubble's 4 callbacks
+    - ``_wire_waveform_bubble``: forwards the bubble's 4 callbacks
       (``on_show``, ``on_hide``, ``on_level``, ``on_set_state``) to the
       IPC server. Includes the bubble-level-pusher background worker.
 
@@ -33,7 +33,7 @@ lived in ``VoiceTyperApp._do_cleanup`` (app.py:1469-1480). The primary
 agent should replace that block with a call to
 ``self.waveform_wiring.stop()`` when wiring the delegate.
 
-Risk (per docs/history/rw9-god-class-decomposition.md §5.5): MEDIUM — the bubble
+Risk (per docs/history/rw9-god-class-decomposition.md §5.5): MEDIUM, the bubble
 level worker has threading concerns (bounded queue + daemon thread +
 sentinel shutdown). Extraction is conceptually clean but the worker's
 lifecycle was intertwined with ``_do_cleanup`` (which stopped the
@@ -52,7 +52,7 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     # Imported only under TYPE_CHECKING to avoid a circular import at
-    # runtime — ``voice_typer.server.app`` imports
+    # runtime, ``voice_typer.server.app`` imports
     # ``voice_typer.server.waveform_bubble_wiring`` (this module) when
     # the primary agent wires the delegate.
     from voice_typer.server.app import VoiceTyperApp
@@ -74,7 +74,7 @@ class WaveformBubbleWiring:
     Threading contract (PERF- / BUBBLE-):
 
         The ``on_level`` callback fires from the PortAudio thread at the
-        recorder's chunk rate — ~31 Hz at every native sample rate now
+        recorder's chunk rate, ~31 Hz at every native sample rate now
         that the stream blocksize is rate-scaled (≈32 ms of audio per
         chunk, 512-sample floor; a fixed 512 block used to make 48 kHz
         devices fire at ~94 Hz). Calling ``_push_event_now`` directly held the IPC
@@ -95,7 +95,7 @@ class WaveformBubbleWiring:
         # pushes. Bounded so a stuck Electron client can't cause
         # unbounded memory growth on the Python side. Created lazily in
         # ``_wire_waveform_bubble`` (the original code created them
-        # idempotently on first call via ``hasattr`` guards — we
+        # idempotently on first call via ``hasattr`` guards, we
         # pre-declare them here as ``None`` so the wiring code's
         # ``is None`` check still triggers creation on first call, and
         # ``stop()`` can detect "not yet wired" without ``hasattr``).
@@ -133,7 +133,7 @@ class WaveformBubbleWiring:
 
         def _push_bubble_level(rms: float, peak: float) -> None:
             # PERF-: this callback fires from the
-            # PortAudio thread at the recorder's chunk rate — ~31 Hz at
+            # PortAudio thread at the recorder's chunk rate, ~31 Hz at
             # every native sample rate now that the stream blocksize is
             # rate-scaled (≈32 ms of audio per chunk, 512-sample floor;
             # a fixed 512 block used to make 48 kHz devices fire at
@@ -165,7 +165,7 @@ class WaveformBubbleWiring:
             if q is None:
                 return  # wiring not complete yet
             with contextlib.suppress(queue.Full):
-                # Queue is full — the worker thread fell behind.  Drop
+                # Queue is full, the worker thread fell behind.  Drop
                 # this sample; the next one will pick up the latest
                 # smoothed level from update_level's low-pass filter.
                 q.put_nowait(
@@ -178,13 +178,13 @@ class WaveformBubbleWiring:
         # PERF-: dedicated queue + worker thread for bubble
         # level pushes.  Bounded so a stuck Electron client can't
         # cause unbounded memory growth on the Python side.  Created
-        # idempotently — if _wire_waveform_bubble is called twice
+        # idempotently, if _wire_waveform_bubble is called twice
         # (e.g. in tests after a stop/start cycle), the existing
         # queue and worker are reused.
         #
         # __init__ pre-declares these attributes (as None), so
         # the ``hasattr`` guards below are dead branches. Use direct
-        # ``is None`` checks instead — clearer intent, fewer ops.
+        # ``is None`` checks instead, clearer intent, fewer ops.
         if self._bubble_level_queue is None:
             self._bubble_level_queue: queue.Queue[dict | None] = queue.Queue(maxsize=64)
         if self._bubble_level_worker_stop is None:
@@ -193,7 +193,7 @@ class WaveformBubbleWiring:
         def _bubble_level_worker() -> None:
             """Drain the bubble_level queue and push events to the IPC server.
 
-            PERF-3: coalesce stale levels — after dequeuing an item, drain
+            PERF-3: coalesce stale levels, after dequeuing an item, drain
             any newer items that piled up (non-blocking) and keep only the
             latest. Older frames are dropped silently (they've been
             superseded by the newer level). This converts a slow-renderer
@@ -261,7 +261,7 @@ class WaveformBubbleWiring:
 
         # __init__ pre-declares _bubble_level_worker (as None),
         # so the ``hasattr`` guard is a dead branch. Direct ``is None``
-        # check is sufficient — and re-creating the worker when the
+        # check is sufficient, and re-creating the worker when the
         # previous one has exited (e.g. after stop()) is still handled
         # by the ``not is_alive()`` clause.
         if self._bubble_level_worker is None or not self._bubble_level_worker.is_alive():
@@ -278,7 +278,7 @@ class WaveformBubbleWiring:
             # THREAD-REGISTRY: register the bubble-level-pusher so
             # ``shutdown_all()`` can signal and join it during
             # ``quit()``. This closes the "leaked daemon" gap noted at
-            # app.py:1377 — the worker is now tracked centrally and
+            # app.py:1377, the worker is now tracked centrally and
             # joined on shutdown (with a 1.0s timeout matching the
             # existing _do_cleanup() join). The existing
             # _do_cleanup() path still sets the stop event + enqueues
@@ -310,14 +310,14 @@ class WaveformBubbleWiring:
                         as the main app instead of always falling through to the OS
                         ``prefers-color-scheme`` default. Fires once at startup and
                         again on every ``set_config`` that touches any of these keys
-                        (see ``config_handlers`` push path — the trigger list there
+                        (see ``config_handlers`` push path, the trigger list there
                         must include the theme keys for the bubble to actually receive
             theme updates; see  handoff note in the worklog).
 
             Fix: ``getattr(cfg, name, default)`` returned the attribute
             value even when it was explicitly ``None`` (e.g. a Config
             loaded from a partial / corrupt file where these fields
-            were missing or nulled) — so the bubble renderer would
+            were missing or nulled), so the bubble renderer would
             receive ``None`` instead of the documented default and
             fall through to OS prefs. Use
             ``getattr(cfg, name, None) or default`` so a missing /
@@ -339,7 +339,7 @@ class WaveformBubbleWiring:
                         "theme_mode": getattr(cfg, "theme_mode", None) or "system",
                         "theme_preset": getattr(cfg, "theme_preset", None) or "default",
                         # None is a valid value for custom_theme (means "no
-                        # custom theme configured") — keep getattr without
+                        # custom theme configured"). Keep getattr without
                         # the ``or default`` fallback so we don't paper over
                         # a legitimately-cleared custom_theme.
                         "custom_theme": getattr(cfg, "custom_theme", None),
@@ -355,7 +355,7 @@ class WaveformBubbleWiring:
                         # ``or`` fallback) so hosts can restore the user's
                         # last dragged position after a restart. Both fields
                         # are optional-int config keys (``None`` = "never
-                        # dragged — use default centering"); a coordinate of
+                        # dragged: use default centering"); a coordinate of
                         # ``0`` is legitimate, so the truthiness-based
                         # fallback used for the enum/bool keys above would
                         # silently discard it. Hosts validate the pair

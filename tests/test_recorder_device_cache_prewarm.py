@@ -79,7 +79,7 @@ class TestPrewarmDeviceCache:
                 break
             time.sleep(0.005)
         # If the thread already exited (mock is fast), we can't observe it
-        # directly — but the cache should be populated, which is the real
+        # directly, but the cache should be populated, which is the real
         # contract. Verify the cache is populated as a fallback assertion.
         if found is None:
             assert r._devices._device_list_cache is not None, (
@@ -146,7 +146,7 @@ class TestPrewarmDeviceCache:
             if r._devices._device_list_cache is not None:
                 break
             time.sleep(0.005)
-        # Cache stays None (or empty) — no crash.
+        # Cache stays None (or empty), no crash.
         assert r._devices._device_list_cache is None or r._devices._device_list_cache == []
 
 
@@ -168,7 +168,7 @@ def _wait_for_prewarm_threads_to_exit(timeout: float = 5.0) -> None:
 
 
 class TestPrewarmHiddenStartGate:
-    """Opening an InputStream lights the OS mic indicator — while the
+    """Opening an InputStream lights the OS mic indicator, while the
     app started hidden (autostart, ``VT_START_HIDDEN=1``) that must not
     happen. The stream-open phase of the prewarm is gated on the
     hidden-start env; the device-list cache warm (a query-only
@@ -188,7 +188,7 @@ class TestPrewarmHiddenStartGate:
 
         r = _make_recorder()
         # Re-invoke for determinism (the __init__ prewarm may have
-        # finished before the env was observable — it wasn't: env is set
+        # finished before the env was observable, it wasn't: env is set
         # before construction, but re-invoking costs nothing).
         r._prewarm_device_cache()
         _wait_for_prewarm_threads_to_exit()
@@ -196,7 +196,7 @@ class TestPrewarmHiddenStartGate:
         (
             spy.assert_not_called(),
             (
-                "the prewarm opened an InputStream on a hidden start — the OS "
+                "the prewarm opened an InputStream on a hidden start, the OS "
                 "mic indicator lights while the user has not shown the app "
                 "(C-BG-1 privacy contract)."
             ),
@@ -214,7 +214,7 @@ class TestPrewarmHiddenStartGate:
 
     def test_visible_start_runs_stream_prewarm(self, monkeypatch):
         """No ``VT_START_HIDDEN`` → the prewarm still opens the stream
-        (prewarm's purpose — warm PortAudio before first dictation — is
+        (prewarm's purpose (warm PortAudio before first dictation) is
         preserved for the normal visible-launch path)."""
         from voice_typer.server.recording import Recorder
 
@@ -229,7 +229,7 @@ class TestPrewarmHiddenStartGate:
                 break
             time.sleep(0.005)
         assert spy.call_count > 0, (
-            "the stream prewarm did not run on a visible start — the hidden-start gate is too broad."
+            "the stream prewarm did not run on a visible start, the hidden-start gate is too broad."
         )
 
 
@@ -242,7 +242,7 @@ class TestPrewarmStreamStartFailureCloses:
 
     Pre-fix, ``start()`` sat OUTSIDE the try/finally that stops+closes;
     a start() failure leaked the opened stream handle (the OS mic
-    indicator stays lit — the exact C-BG-1 concern, on the visible-launch
+    indicator stays lit, the exact C-BG-1 concern, on the visible-launch
     prewarm path).
     """
 
@@ -307,7 +307,7 @@ class TestCachedMaxInputChannels:
             {"index": 0, "name": "Mic A", "max_input_channels": 2},
         ]
         r._devices._device_list_cache_time = time.monotonic()
-        # Device 99 isn't in the cache — safe fallback is 1 (mono).
+        # Device 99 isn't in the cache, safe fallback is 1 (mono).
         assert r._cached_max_input_channels(99) == 1
 
     def test_returns_one_when_cache_empty(self):
@@ -352,18 +352,18 @@ class TestCachedMaxInputChannels:
         assert r._cached_max_input_channels(None) == 2
         assert (None, "input") in calls, "must resolve the OS default input device"
         # Repeated calls within the same device-list generation are served
-        # from the cache — no additional PortAudio queries.
+        # from the cache, no additional PortAudio queries.
         count_before = len(calls)
         assert r._cached_max_input_channels(None) == 2
         assert len(calls) == count_before, (
             "default-device lookup re-queried PortAudio for an unchanged "
-            "device-list cache — the cached count should be reused."
+            "device-list cache, the cached count should be reused."
         )
 
     def test_default_device_cache_miss_uses_resolved_query_info(self, monkeypatch):
         """If the OS-default device is NOT yet in the cached list (cold
         cache / hot-plug race), fall back to the resolved device dict's
-        own ``max_input_channels`` — no downgrade vs the pre-fix
+        own ``max_input_channels``, no downgrade vs the pre-fix
         authoritative single-device query."""
         import voice_typer.server.recording as recording_mod
 
@@ -427,7 +427,7 @@ class TestCachedMaxInputChannels:
         assert r._cached_max_input_channels(None) == 2
 
         # Generation 2: OS default switched to device 5 (1 channel) and
-        # the cached list was refreshed — the stamp change must force a
+        # the cached list was refreshed, the stamp change must force a
         # re-resolve, not serve the memoized 2.
         state["index"] = 5
         state["max_input_channels"] = 1
@@ -438,7 +438,7 @@ class TestCachedMaxInputChannels:
         r._devices._device_list_cache_time = time.monotonic()
         assert r._cached_max_input_channels(None) == 1, (
             "stale memoized channel count served across a device-list "
-            "refresh — the default device changed but the lookup did not "
+            "refresh, the default device changed but the lookup did not "
             "re-resolve."
         )
 
@@ -519,14 +519,14 @@ class TestStartUsesCachedLookup:
 
         r.start()
         try:
-            # Filter out prewarm calls (callback=None) — only keep real
+            # Filter out prewarm calls (callback=None), only keep real
             # start() calls (which pass a real callback closure).
             real_opens = [kw for kw in opened if kw.get("callback") is not None]
             assert real_opens, "start() should have opened an InputStream with a callback"
             channels_used = real_opens[0].get("channels")
             assert channels_used == 2, (
                 f"channels should be capped at 2 (from cache); got {channels_used!r}. "
-                "If this is 1, the cached lookup fallback fired — the cache "
+                "If this is 1, the cached lookup fallback fired, the cache "
                 "may not have been consulted."
             )
         finally:

@@ -1,6 +1,6 @@
 """Tests for ``voice_typer.server.recording.device_manager.DeviceManager``.
 
-Covers the DJ (Group 2 — Performance & Resources) Phase 4 fixes owned by
+Covers the DJ (Group 2, Performance & Resources) Phase 4 fixes owned by
 fix-agent F2:
 
 - **DJ-68**: ``_invalidate_device_cache`` also fires the registered
@@ -39,7 +39,7 @@ def _make_device_manager(recorder=None, config=None):
     """Construct a ``DeviceManager`` with a mocked ``recorder`` back-reference.
 
     ``DeviceManager.__init__`` tries to start a real
-    ``MicrophoneDeviceWatcher`` — we patch that out so no thread is
+    ``MicrophoneDeviceWatcher``, we patch that out so no thread is
     spawned. The watcher startup is exercised elsewhere (in
     ``tests/test_microphone_watcher.py``); here we only test the
     DeviceManager-specific methods.
@@ -163,7 +163,7 @@ class TestHotplugDisconnectRecovery:
 
     def test_hotplug_no_recovery_when_not_disconnected(self):
         """When ``_device_disconnected=False`` (normal operation), a
-        hot-plug event ONLY invalidates the cache — no recovery spawn
+        hot-plug event ONLY invalidates the cache, no recovery spawn
         is needed."""
         dm = _make_device_manager()
         dm._device_disconnected = False
@@ -319,7 +319,7 @@ class TestNameBasedDeviceResolution:
     )
     def test_compound_form_no_warn_when_query_raises_any_exception(self, monkeypatch, caplog, exc):
         """The DJ-69 diagnostic probe's ``except`` clause must catch any
-        Exception raised by ``sd.query_devices(saved_index)`` — not just
+        Exception raised by ``sd.query_devices(saved_index)``, not just
         ``(KeyError, TypeError, AttributeError)``.
 
         ``sounddevice.query_devices(invalid_index)`` raises
@@ -329,7 +329,7 @@ class TestNameBasedDeviceResolution:
         ``PortAudioError`` / ``RuntimeError`` / ``OSError`` propagate
         and crash the device-resolution path on a hot-swapped-out
         saved index. The fix broadens the clause to ``Exception``
-        because the warning is purely diagnostic — no caller of
+        because the warning is purely diagnostic, no caller of
         ``_resolve_device`` is prepared to handle a raised exception
         from this probe.
         """
@@ -350,7 +350,7 @@ class TestNameBasedDeviceResolution:
             logging.WARNING,
             logger="voice_typer.server.recording",
         ):
-            # Must NOT raise — the diagnostic probe's except clause
+            # Must NOT raise, the diagnostic probe's except clause
             # swallows the exception and falls through to the
             # ``return saved_index`` fallback.
             result = dm._resolve_device()

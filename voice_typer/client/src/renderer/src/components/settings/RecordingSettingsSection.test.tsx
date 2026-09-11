@@ -216,7 +216,7 @@ function makeConfig(
 
 const alwaysVisible = () => true;
 
-describe("RecordingSettingsSection — dictation-key mode and repaste-key presets memoization", () => {
+describe("RecordingSettingsSection, dictation-key mode and repaste-key presets memoization", () => {
 	beforeEach(() => {
 		hotkeyPickerInstances.length = 0;
 		cleanup();
@@ -242,7 +242,7 @@ describe("RecordingSettingsSection — dictation-key mode and repaste-key preset
 			(p) => p.value === "<caps_lock>",
 		);
 		expect(dictationPicker).toBeTruthy();
-		// Pre-fix this was "combo" — the capture validator
+		// Pre-fix this was "combo", the capture validator
 		// silently accepted multi-key combos, breaking the
 		// single-key-only dropdown's promise.
 		expect(dictationPicker?.mode).toBe("single");
@@ -311,7 +311,7 @@ describe("RecordingSettingsSection — dictation-key mode and repaste-key preset
 		);
 		expect(secondRepastePicker?.presets).toBeTruthy();
 		// The presets array reference MUST be the same across
-		// re-renders — this is the memoization guarantee.
+		// re-renders, this is the memoization guarantee.
 		expect(secondRepastePicker?.presets).toBe(firstPresets);
 	});
 

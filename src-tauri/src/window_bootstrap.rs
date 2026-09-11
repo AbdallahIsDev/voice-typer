@@ -18,22 +18,22 @@
 ///
 /// Custom-title-bar parity with Electron's main window (see
 /// `main-window.ts` for the Electron side). The window is NOT
-/// auto-created — `tauri.conf.json` declares it with `"create": false`
+/// auto-created: `tauri.conf.json` declares it with `"create": false`
 /// and it is built here from that config so the FRAME can be
 /// platform-conditional:
 ///   - macOS: keep native decorations + the traffic lights
 ///     (`titleBarStyle: Overlay` + `trafficLightPosition` from
-///     config) — Electron's `hiddenInset` equivalent. The renderer
+///     config): Electron's `hiddenInset` equivalent. The renderer
 ///     omits its custom window buttons on macOS and reserves the
 ///     traffic-light gutter.
-///   - Windows/Linux: fully frameless (`decorations: false`) — the
+///   - Windows/Linux: fully frameless (`decorations: false`), the
 ///     renderer draws the custom title bar + window controls,
 ///     mirroring Electron's `frame: false`.
 ///
 /// Panics (via `expect`, mirroring the pre-extraction `main.rs`
 /// invariants) only on config-level defects: a missing `main` window
 /// entry in `tauri.conf.json` or an invalid window config. Those are
-/// build-time constants — they cannot vary at runtime.
+/// build-time constants: they cannot vary at runtime.
 pub(crate) fn bootstrap_main_window(app: &tauri::App) {
     let main_window_config = app
         .config()
@@ -66,6 +66,6 @@ pub(crate) fn bootstrap_main_window(app: &tauri::App) {
         if let Err(e) = main_window.set_skip_taskbar(true) {
             log::warn!("[SETUP] set_skip_taskbar for VT_START_HIDDEN failed: {}", e);
         }
-        log::info!("[SETUP] started hidden (VT_START_HIDDEN=1) — window hidden, skip_taskbar=true");
+        log::info!("[SETUP] started hidden (VT_START_HIDDEN=1), window hidden, skip_taskbar=true");
     }
 }

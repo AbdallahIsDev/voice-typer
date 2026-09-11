@@ -1,4 +1,4 @@
-// Templates import / export — domain adapter over the shared
+// Templates import / export, domain adapter over the shared
 // :func:`useCollectionImportExport` round-trip skeleton.
 //
 // The skeleton owns the import/export FLOW (hidden-input ref → file.text()
@@ -7,14 +7,14 @@
 // toast mapping). THIS hook supplies only the Templates domain specifics:
 //
 //   - ``parseImportedTemplates`` (bare-array JSON or the ``{templates:
-//     [...]}`` export shape — see lib/transform.ts)
+//     [...]}`` export shape, see lib/transform.ts)
 //   - the ``trigger|output|match_mode`` de-duplication key (re-importing
 //     the same file must not create duplicate rows)
 //   - persistence via ``saveTemplates`` + ``loadRows`` (the page decides
 //     how the UI state is rebuilt after the save)
 //   - the ``window_.exportTemplates`` IPC bridge invocation
 //   - the templates i18n message keys
-//   - ``notifyOnExportRejected`` — a rejected export (IPC returned
+//   - ``notifyOnExportRejected``, a rejected export (IPC returned
 //     ``success: false``) toasts the failure so the button is never a
 //     silent dead control
 //
@@ -88,8 +88,8 @@ export function useTemplateImportExport({
 	);
 
 	// The GDPR export IPC bridge. Returns null when the bridge (or its
-	// exportTemplates member) is unavailable — e.g. running outside
-	// Electron — so the skeleton shows the not-available toast instead
+	// exportTemplates member) is unavailable, e.g. running outside
+	// Electron, so the skeleton shows the not-available toast instead
 	// of a silent dead control. The cast mirrors the local alias above
 	// (the declared type doesn't carry the format arg yet).
 	const exportFile = useCallback((items: Template[], format: ExportFormat) => {

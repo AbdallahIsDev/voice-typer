@@ -17,9 +17,9 @@
     The fix adds ``_enforce_windows_owner_only_acl`` in ``config.py``
     which runs ``icacls /inheritance:r /grant:r "%USERNAME%:F"`` on the
     config dir, ``config.json``, and ``config.json.bak`` after each
-    write. Best-effort — logs a warning on failure but does NOT raise.
+    write. Best-effort, logs a warning on failure but does NOT raise.
 
-These tests are intentionally focused — they verify the specific
+These tests are intentionally focused, they verify the specific
 behavior change introduced by each fix, not the full surface area
 (which is already covered by the existing test suite).
 """
@@ -64,7 +64,7 @@ def _make_service_and_app(tmp_config_dir, monkeypatch):
     service = VoiceTyperService(app)
 
     # credential_store pre-route: no api_key fields in these tests,
-    # but the import path is exercised — stub the mapping to empty so
+    # but the import path is exercised, stub the mapping to empty so
     # nothing is routed.
     import voice_typer.server.credential_store as cs
 
@@ -90,7 +90,7 @@ class TestApplyPresetAutoSwitchToCustom:
         assert app.config.audio_preset == "custom", (
             "setting an individual noise_filter_* toggle while "
             "audio_preset is a named preset (e.g. 'auto') must auto-switch "
-            "audio_preset to 'custom' — otherwise Config.load() will call "
+            "audio_preset to 'custom', otherwise Config.load() will call "
             "apply_preset('auto', instance) on next restart and silently "
             "revert the user's toggle to the preset's value."
         )
@@ -99,7 +99,7 @@ class TestApplyPresetAutoSwitchToCustom:
     def test_individual_toggle_no_switch_when_already_custom(self, tmp_config_dir, monkeypatch):
         """When ``audio_preset`` is already ``"custom"``, setting an
         individual toggle should NOT add ``audio_preset`` to updates
-        (no-op — already custom)."""
+        (no-op, already custom)."""
         service, app = _make_service_and_app(tmp_config_dir, monkeypatch)
         app.config.audio_preset = "custom"
 
@@ -115,12 +115,12 @@ class TestApplyPresetAutoSwitchToCustom:
 
     def test_individual_toggle_no_switch_when_preset_explicitly_set(self, tmp_config_dir, monkeypatch):
         """When the user explicitly sets ``audio_preset`` in the same
-        update, the preset's toggles are the intent — do NOT auto-switch."""
+        update, the preset's toggles are the intent, do NOT auto-switch."""
         service, app = _make_service_and_app(tmp_config_dir, monkeypatch)
         app.config.audio_preset = "auto"
 
         # User picks "studio" preset AND sets an individual toggle in
-        # the same IPC call. The preset choice wins — the toggle is
+        # the same IPC call. The preset choice wins, the toggle is
         # part of the same "I want this preset" intent.
         service.apply_config(
             {
@@ -130,7 +130,7 @@ class TestApplyPresetAutoSwitchToCustom:
         )
 
         assert app.config.audio_preset == "studio", (
-            "when audio_preset is explicitly in updates, the user is picking a preset — the auto-switch must NOT fire."
+            "when audio_preset is explicitly in updates, the user is picking a preset, the auto-switch must NOT fire."
         )
 
     def test_non_preset_key_does_not_trigger_switch(self, tmp_config_dir, monkeypatch):
@@ -140,7 +140,7 @@ class TestApplyPresetAutoSwitchToCustom:
         service, app = _make_service_and_app(tmp_config_dir, monkeypatch)
         app.config.audio_preset = "auto"
 
-        # noise_filter_enabled is NOT in _PRESET_OVERRIDE_KEYS — it's
+        # noise_filter_enabled is NOT in _PRESET_OVERRIDE_KEYS, it's
         # not overwritten by apply_preset (it's only set when audio_preset
         # changes via apply_config_side_effects, not by Config.load()).
         service.apply_config({"noise_filter_enabled": False})
@@ -201,7 +201,7 @@ class TestEnforceWindowsOwnerOnlyAcl:
         config_mod._enforce_windows_owner_only_acl(tmp_path / "test.txt")
         assert call_count["n"] == 0, (
             "on non-Windows, _enforce_windows_owner_only_acl must be a "
-            "no-op — POSIX uses os.chmod(path, 0o600) elsewhere."
+            "no-op, POSIX uses os.chmod(path, 0o600) elsewhere."
         )
 
     def test_calls_icacls_with_correct_args_on_windows(self, monkeypatch, tmp_path):
@@ -243,7 +243,7 @@ class TestEnforceWindowsOwnerOnlyAcl:
         # Use list form (not shell=True) so cmd.exe metacharacter
         # injection is impossible even if USERNAME contains shell specials.
         assert kwargs.get("shell") is not True, (
-            "must NOT use shell=True — passing a list to subprocess.run without shell=True sidesteps cmd.exe injection."
+            "must NOT use shell=True, passing a list to subprocess.run without shell=True sidesteps cmd.exe injection."
         )
 
     def test_skips_when_username_env_var_empty(self, monkeypatch, tmp_path):
@@ -268,14 +268,12 @@ class TestEnforceWindowsOwnerOnlyAcl:
 
         # Must NOT raise.
         config_mod._enforce_windows_owner_only_acl(tmp_path / "test.txt")
-        assert call_count["n"] == 0, (
-            "when USERNAME is empty, icacls must not be invoked — there is no user to grant to."
-        )
+        assert call_count["n"] == 0, "when USERNAME is empty, icacls must not be invoked, there is no user to grant to."
 
     def test_does_not_raise_on_icacls_failure(self, monkeypatch, tmp_path):
         """When ``icacls`` returns non-zero exit code (e.g. permission
         denied, file locked), the helper must log a warning but NOT
-        raise — so save() is not broken in a restricted environment."""
+        raise, so save() is not broken in a restricted environment."""
         from voice_typer.server import config as config_mod
 
         monkeypatch.setattr(config_mod, "is_windows", lambda: True)
@@ -317,9 +315,9 @@ class TestEnforceWindowsOwnerOnlyAcl:
         """integration: ``Config._save_unlocked`` (the body of
         ``save()`` after the cross-process lock is acquired) must call
         ``_enforce_windows_owner_only_acl`` on the config file and (if
-        a backup is written) the .bak file — but ONLY on Windows, and
+        a backup is written) the .bak file, but ONLY on Windows, and
         NEVER on the config directory (the dir ACL is tightened by
-        ``save()`` BEFORE the lock is acquired — see
+        ``save()`` BEFORE the lock is acquired: see
         ``test_save_tightens_config_dir_before_lock``). We call
         ``_save_unlocked`` directly to skip the cross-process lock
         (which tries to import ``msvcrt`` on Windows). We simulate
@@ -331,7 +329,7 @@ class TestEnforceWindowsOwnerOnlyAcl:
 
         # Simulate Windows so the ``if is_windows():`` / ``else:``
         # branches in ``_save_unlocked`` that call the ACL helper fire.
-        # NOTE: only patches ``config.is_windows`` — ``secure_file_io``
+        # NOTE: only patches ``config.is_windows``: ``secure_file_io``
         # has its own import and stays non-Windows, so the actual file
         # write proceeds via the POSIX path (which works on the Linux
         # test platform too).
@@ -355,7 +353,7 @@ class TestEnforceWindowsOwnerOnlyAcl:
 
         cfg = Config()
         # Call ``_save_unlocked`` directly to bypass the cross-process
-        # file lock (which uses ``msvcrt`` on Windows — unavailable on
+        # file lock (which uses ``msvcrt`` on Windows, unavailable on
         # the Linux test platform).
         result = cfg._save_unlocked()
         assert result is True, "_save_unlocked should report success"
@@ -400,7 +398,7 @@ class TestEnforceWindowsOwnerOnlyAcl:
 
         The lock is replaced with a no-op spy context manager so the
         assertion runs on any platform (the real lock branches on
-        ``config.is_windows`` — the same function object — which this
+        ``config.is_windows`` (the same function object) which this
         test patches to True). The dir ACL must run exactly ONCE (only
         when ``save()`` creates the directory): re-running the
         dir-wide icacls on a dir that already exists is both pointless
@@ -440,8 +438,8 @@ class TestEnforceWindowsOwnerOnlyAcl:
         assert cfg.save() is True
 
         assert order, "save() must invoke _enforce_windows_owner_only_acl on Windows"
-        # The config dir must be tightened FIRST — before the lock is
-        # acquired and before any file write — so the tmp file created
+        # The config dir must be tightened FIRST, before the lock is
+        # acquired and before any file write, so the tmp file created
         # by _secure_atomic_write inherits the owner-only dir DACL.
         assert order[0] == f"acl:{tmp_config_dir}", (
             "Config.save() must tighten the config DIR before acquiring the "

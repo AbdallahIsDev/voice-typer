@@ -4,7 +4,7 @@
 Measures:
 1. Full transcription latency: time from audio input to complete text
 2. Model load time: cold-start time for each model size
-3. Words-per-second (WPS) throughput — the user-facing "how fast does my
+3. Words-per-second (WPS) throughput. The user-facing "how fast does my
    speech become text" metric.
 
 Methodology fixes:
@@ -13,7 +13,7 @@ Methodology fixes:
   deterministic.  Two runs of ``bench_transcription.py`` on the same
   machine now produce byte-identical latency distributions.
 * Default ``--iterations 10`` so p90 is no longer ``max`` (the previous
-  ``n=5`` made ``int(5 * 0.9) = 4`` index into ``sorted[4]`` — the max).
+  ``n=5`` made ``int(5 * 0.9) = 4`` index into ``sorted[4]``, the max).
 * ``--fixture`` option loads a real 16 kHz speech WAV from
   ``tests/fixtures/`` when available (falls back to the synthetic
   signal if the fixture is missing or a different file is requested).
@@ -44,7 +44,7 @@ import numpy as np
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-# Deterministic RNG seed — matches bench_audio_filter_chain.py:117 so
+# Deterministic RNG seed: matches bench_audio_filter_chain.py:117 so
 # the synthetic-audio path is byte-reproducible across runs.
 RNG_SEED = 0xA4A4
 
@@ -73,13 +73,13 @@ def _peak_rss_mb(proc: object | None) -> int | None:
     ``psutil.Process().memory_info().peak_rss`` is platform-specific:
 
     * Windows / macOS: exposed directly via ``memory_info().peak_rss``.
-    * Linux: NOT exposed by psutil — the high-water mark RSS lives in
+    * Linux: NOT exposed by psutil, the high-water mark RSS lives in
       ``/proc/<pid>/status`` (field ``VmHWM:`` in kB). We parse it
       directly so the bench captures the true peak rather than the
       instantaneous RSS (which is what ``memory_info().rss`` returns).
 
     Falls back to ``memory_info().rss`` (current RSS) on platforms
-    where neither path is available — still useful, just a different
+    where neither path is available: still useful, just a different
     metric.
     """
     if proc is None:
@@ -88,7 +88,7 @@ def _peak_rss_mb(proc: object | None) -> int | None:
         mi = proc.memory_info()  # type: ignore[attr-defined]
         if hasattr(mi, "peak_rss"):
             return int(mi.peak_rss / (1024 * 1024))
-    except Exception:  # noqa: BLE001 — best-effort, never fatal
+    except Exception:  # noqa: BLE001, best-effort, never fatal
         pass
     # Linux fallback: parse VmHWM from /proc/<pid>/status.
     try:
@@ -100,12 +100,12 @@ def _peak_rss_mb(proc: object | None) -> int | None:
                     # "VmHWM:    12345 kB"
                     kb = int(line.split()[1])
                     return kb // 1024
-    except Exception:  # noqa: BLE001 — best-effort, never fatal
+    except Exception:  # noqa: BLE001, best-effort, never fatal
         pass
     # Last-resort fallback: instantaneous RSS (not peak, but still useful).
     try:
         return int(proc.memory_info().rss / (1024 * 1024))  # type: ignore[attr-defined]
-    except Exception:  # noqa: BLE001 — best-effort, never fatal
+    except Exception:  # noqa: BLE001, best-effort, never fatal
         return None
 
 
@@ -117,7 +117,7 @@ def generate_test_audio(
 ) -> np.ndarray:
     """Generate a deterministic synthetic test audio signal.
 
-    440 Hz sine + Gaussian noise — identical bytes on every run because
+    440 Hz sine + Gaussian noise, identical bytes on every run because
     the RNG is seeded (the previous implementation used
     ``np.random.randn`` which drew from the global RNG state, making the
     benchmark non-deterministic).
@@ -132,7 +132,7 @@ def load_fixture_audio(path: Path, *, target_sample_rate: int = DEFAULT_SAMPLE_R
     """Load a 16 kHz mono WAV file as a float32 numpy array.
 
     The fixture is a real recording (or, in the case of
-    ``test_440hz_1s_16k.wav``, a deterministic synthetic tone) — either
+    ``test_440hz_1s_16k.wav``, a deterministic synthetic tone): either
     way it is a *stable* signal that does not depend on the global RNG
     state, so the benchmark is reproducible across runs.
     """
@@ -145,7 +145,7 @@ def load_fixture_audio(path: Path, *, target_sample_rate: int = DEFAULT_SAMPLE_R
 
     if sample_rate != target_sample_rate:
         # The fixture is 16 kHz; the engine expects 16 kHz. We do NOT
-        # resample here — if a non-16 kHz fixture is requested, the
+        # resample here: if a non-16 kHz fixture is requested, the
         # engine will receive it as-is (matching the production path,
         # which trusts the input sample rate).
         pass
@@ -181,7 +181,7 @@ def _resolve_fixture(fixture_arg: str | None) -> tuple[np.ndarray, str]:
         )
     try:
         audio = load_fixture_audio(fixture_path)
-    except Exception as exc:  # noqa: BLE001 — fallback path
+    except Exception as exc:  # noqa: BLE001, fallback path
         return (
             generate_test_audio(),
             f"synthetic(fallback: failed to load {fixture_arg}: {exc})",
@@ -198,15 +198,15 @@ def bench_model_load(model_size: str, device: str) -> dict:
     t0 = time.perf_counter()
     _engine = TranscriptionEngine(model_size=model_size, device=device)
     # The load-deferral refactor made ``__init__`` hollow (model weights
-    # load lazily on first transcribe) — time the explicit ``load()``
+    # load lazily on first transcribe), time the explicit ``load()``
     # too, otherwise this bench measures a no-op constructor and reports
     # a load cost that never happens in production. A load failure (no
     # model downloaded) soft-skips with a ``load_error`` note instead of
-    # crashing the bench — mirrors the transcription path's behavior.
+    # crashing the bench: mirrors the transcription path's behavior.
     load_error: str | None = None
     try:
         _engine.load()
-    except Exception as exc:  # noqa: BLE001 — model-load failure is a soft skip
+    except Exception as exc:  # noqa: BLE001, model-load failure is a soft skip
         load_error = f"{type(exc).__name__}: {exc}"
     elapsed = time.perf_counter() - t0
     rss_after = _peak_rss_mb(proc)
@@ -267,11 +267,11 @@ def bench_transcription(
         # Production callers go through ``transcribe_with_fallback`` which
         # raises RuntimeError("Model not loaded. Call load() first.") if
         # the model has not been loaded.  The original bench
-        # skipped this and crashed on the first iteration — the bench
+        # skipped this and crashed on the first iteration, the bench
         # only ran successfully in environments where ``__init__``
         # happened to autoload (it does not).
         engine.load()
-    except Exception as exc:  # noqa: BLE001 — model-load failure is a soft skip
+    except Exception as exc:  # noqa: BLE001, model-load failure is a soft skip
         return {
             "model": model_size,
             "device": device,
@@ -342,7 +342,7 @@ def main() -> int:
         "--iterations",
         type=int,
         default=DEFAULT_ITERATIONS,
-        help=f"Number of iterations (default: {DEFAULT_ITERATIONS} — p90 requires >= 10)",
+        help=f"Number of iterations (default: {DEFAULT_ITERATIONS}, p90 requires >= 10)",
     )
     parser.add_argument(
         "--load-only",

@@ -10,20 +10,20 @@
 //! splits 2×2 by process machinery, so it lives here as TWO helpers, not
 //! one:
 //!
-//! - [`read_handshake_from_command_events`] — the RELEASE pair (Tauri
+//! - [`read_handshake_from_command_events`]: the RELEASE pair (Tauri
 //!   shell-plugin `externalBin` children): output arrives as a
 //!   `Receiver<CommandEvent>` (Stdout/Stderr/Terminated/Error), kill is the
 //!   consuming `CommandChild::kill()`, and the post-kill drain polls
 //!   `rx.recv()` for the exit watcher's `Terminated` event.
-//! - [`read_handshake_from_stdout_lines`] — the DEV pair
+//! - [`read_handshake_from_stdout_lines`]: the DEV pair
 //!   (`tokio::process::Command` children): lines arrive via
 //!   `BufReader::read_line`, kill is the async `child.kill().await`
 //!   (plus the `kill_on_drop(true)` set at construction), and the
 //!   post-kill drain polls `child.wait()`.
 //!
-//! The per-path differences are pure strings — log tag, the noun used in
+//! The per-path differences are pure strings, log tag, the noun used in
 //! returned error strings, the handshake event name, and the two nouns in
-//! the kill log lines — carried by [`HandshakeLabels`] so every log line
+//! the kill log lines: carried by [`HandshakeLabels`] so every log line
 //! and every returned error string stays byte-identical to the
 //! pre-extraction per-loop wording.
 //!
@@ -87,7 +87,7 @@ pub(super) struct HandshakeLabels<'a> {
 /// pattern in `sidecar/handle.rs`).
 ///
 /// Call this BEFORE the direct child kill so the root is still alive when
-/// the walk runs — on Unix, killing the root first would reparent the
+/// the walk runs: on Unix, killing the root first would reparent the
 /// grandchildren to init and break the descendant walk (the native hotkey
 /// binary / model subprocesses would be orphaned with the mic + IPC port
 /// still held).
@@ -105,9 +105,9 @@ pub(super) async fn kill_process_tree_off_thread(pid: u32) {
 /// crash (segfault, OOM kill, `kill -9`) would orphan the child. The
 /// platform helper implements the OS machinery (POSIX `/bin/sh` reaper
 /// subprocess with `setsid()`, Windows Job Object with
-/// `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` — see
+/// `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`, see
 /// `platform::process::register_kill_on_parent_exit`). Errors are logged
-/// but do NOT abort the spawn — the child is already running.
+/// but do NOT abort the spawn, the child is already running.
 ///
 /// `warn_detail` is the per-path parenthetical in the warn line (the
 /// sidecar and worker paths worded it differently pre-extraction; the
@@ -116,7 +116,7 @@ pub(super) fn register_kill_on_parent_exit_best_effort(log_tag: &str, warn_detai
     if let Err(e) = crate::platform::process::register_kill_on_parent_exit(pid) {
         log::warn!(
             "{} failed to register kill-on-parent-exit for pid {} \
-             (best-effort — {}): {}",
+             (best-effort: {}): {}",
             log_tag,
             pid,
             warn_detail,
@@ -131,38 +131,38 @@ pub(super) fn register_kill_on_parent_exit_best_effort(log_tag: &str, warn_detai
 /// Shared by `spawn_sidecar_release` (slim-core sidecar,
 /// `server_started`) and `spawn_worker_release` (ML worker,
 /// `worker_started`). On success the child and the event receiver are
-/// handed back to the caller — the receiver so `shutdown_sidecar` can
+/// handed back to the caller, the receiver so `shutdown_sidecar` can
 /// poll for `Terminated` instead of sleeping the full
 /// `SHUTDOWN_ACK_TIMEOUT_MS`, the child so it can be wrapped in
 /// `SidecarHandle::ShellPlugin`.
 ///
 /// Loop semantics (identical for both callers pre-extraction):
 ///
-/// - **shutting-down short-circuit** — checked every iteration. A respawn
+/// - **shutting-down short-circuit**: checked every iteration. A respawn
 ///   initiated seconds before the user quits would otherwise block up to
 ///   `SERVER_STARTED_TIMEOUT_MS` (30s) waiting for a handshake line that
 ///   will never arrive. `is_shutting_down` uses SeqCst to pair with the
 ///   `shutting_down.swap(true, SeqCst)` in `shutdown_sidecar_for_exit`
 ///   (state.rs) so the flag flip is never missed to memory-ordering skid.
 ///   On detection: reap the tree, kill the child, drain the receiver
-///   500ms, return `Err("shutdown")` — the supervisor's `respawn_inner`
+///   500ms, return `Err("shutdown")`. The supervisor's `respawn_inner`
 ///   matches that exact string and treats it as a graceful exit (clears
 ///   `respawn_in_progress`, returns Ok) instead of retrying.
-/// - **`CommandEvent::Terminated` / `CommandEvent::Error`** — reap the
+/// - **`CommandEvent::Terminated` / `CommandEvent::Error`**, reap the
 ///   tree, kill the child (the shell-plugin handle does not kill on
 ///   Drop; without this a child that errored at startup but is still
 ///   running would survive past the Err return), then return the
 ///   spawn-failure error. Kill errors are logged, never replace the
 ///   original error.
-/// - **`CommandEvent::Stderr`** — logged at `debug!` (the child's stderr
-///   can be extremely chatty — Python warning frames, native-binary
-///   debug prints, ctranslate2 device dumps — and the child's own log
+/// - **`CommandEvent::Stderr`**, logged at `debug!` (the child's stderr
+///   can be extremely chatty: Python warning frames, native-binary
+///   debug prints, ctranslate2 device dumps, and the child's own log
 ///   file already carries its warnings/errors) and skipped: never parsed
 ///   as the handshake line.
-/// - **channel closed (`Ok(None)`)** — error return WITHOUT a kill (see
+/// - **channel closed (`Ok(None)`)**: error return WITHOUT a kill (see
 ///   the module-level preserved-quirk note).
-/// - **per-iteration timeout** — loop and retry until the deadline.
-/// - **deadline exceeded** — reap the tree, kill the child, drain the
+/// - **per-iteration timeout**: loop and retry until the deadline.
+/// - **deadline exceeded**: reap the tree, kill the child, drain the
 ///   receiver 500ms, return the timeout error with the stdout seen so
 ///   far.
 pub(super) async fn read_handshake_from_command_events(
@@ -178,7 +178,7 @@ pub(super) async fn read_handshake_from_command_events(
     while Instant::now() < deadline {
         if is_shutting_down(shutting_down) {
             log::info!(
-                "{} shutting_down set during stdout-read loop — killing freshly-spawned {}",
+                "{} shutting_down set during stdout-read loop: killing freshly-spawned {}",
                 labels.log_tag,
                 labels.fresh_target
             );
@@ -208,7 +208,7 @@ pub(super) async fn read_handshake_from_command_events(
                     match event {
                         CommandEvent::Stdout(bytes) => {
                             // `.into_owned()` reuses the inner String when the
-                            // Cow is Owned (invalid UTF-8 case — the child's
+                            // Cow is Owned (invalid UTF-8 case, the child's
                             // stderr can carry non-UTF-8 bytes from a C
                             // extension traceback) instead of always
                             // allocating.
@@ -253,7 +253,7 @@ pub(super) async fn read_handshake_from_command_events(
                     log::info!("{} {} port={}", labels.log_tag, labels.event_name, port);
                     return Ok((port, child, rx));
                 }
-                // Not the handshake line — could be a stray log (shouldn't
+                // Not the handshake line: could be a stray log (shouldn't
                 // happen per ADR-0020 §1, the sidecar sends all
                 // non-handshake logs to stderr).
                 log::warn!(
@@ -270,14 +270,14 @@ pub(super) async fn read_handshake_from_command_events(
                 ));
             }
             Err(_) => {
-                // Timeout on this iteration — loop and retry until deadline.
+                // Timeout on this iteration: loop and retry until deadline.
                 continue;
             }
         }
     }
     let pid = child.pid();
     kill_process_tree_off_thread(pid).await;
-    // Kill errors are logged for visibility — a stuck child that won't
+    // Kill errors are logged for visibility, a stuck child that won't
     // die would otherwise be invisible in the log.
     if let Err(e) = child.kill() {
         log::warn!(
@@ -288,7 +288,7 @@ pub(super) async fn read_handshake_from_command_events(
         );
     }
     // Reap the zombie: `child.kill()` sends the kill signal but does NOT
-    // itself waitpid — the shell plugin's internal exit watcher delivers a
+    // itself waitpid: the shell plugin's internal exit watcher delivers a
     // `CommandEvent::Terminated` to `rx` once the OS reports the process
     // has died. Without draining `rx` here, the `Terminated` event sits
     // unread in the channel buffer until `rx` is dropped on function
@@ -311,20 +311,20 @@ pub(super) async fn read_handshake_from_command_events(
 ///
 /// Loop semantics (identical for both callers pre-extraction):
 ///
-/// - **shutting-down short-circuit** — checked every iteration; a cold
+/// - **shutting-down short-circuit**: checked every iteration; a cold
 ///   Python import on the first dev run can take 5-10s, long enough for
 ///   a user-initiated quit to race the handshake. The dev child was
 ///   constructed with `kill_on_drop(true)`, so dropping it would
-///   eventually kill the process — but we kill explicitly here (and
+///   eventually kill the process: but we kill explicitly here (and
 ///   wait via `child.wait()`) so there is no zombie window between this
 ///   return and the eventual Drop. Returns `Err("shutdown")` (the
-///   supervisor's graceful-exit marker — see the release-pair helper).
-/// - **`read_line` returns `Ok(0)` (EOF)** — error return WITHOUT an
+///   supervisor's graceful-exit marker: see the release-pair helper).
+/// - **`read_line` returns `Ok(0)` (EOF)**, error return WITHOUT an
 ///   explicit kill (kill_on_drop reaps on return; see the module-level
 ///   preserved-quirk note).
-/// - **`read_line` returns `Err`** — the io error is returned verbatim.
-/// - **per-iteration timeout** — loop and retry until the deadline.
-/// - **deadline exceeded** — reap the tree (pid via `child.id()`, `None`
+/// - **`read_line` returns `Err`**. The io error is returned verbatim.
+/// - **per-iteration timeout**: loop and retry until the deadline.
+/// - **deadline exceeded**: reap the tree (pid via `child.id()`, `None`
 ///   if the child was already reaped), kill the child (errors logged),
 ///   wait 500ms for the zombie reap, return the timeout error with the
 ///   stdout seen so far.
@@ -340,7 +340,7 @@ pub(super) async fn read_handshake_from_stdout_lines(
     while Instant::now() < deadline {
         if is_shutting_down(shutting_down) {
             log::info!(
-                "{} shutting_down set during stdout-read loop — killing freshly-spawned {}",
+                "{} shutting_down set during stdout-read loop: killing freshly-spawned {}",
                 labels.log_tag,
                 labels.fresh_target
             );
@@ -390,7 +390,7 @@ pub(super) async fn read_handshake_from_stdout_lines(
             Ok(Err(e)) => {
                 return Err(format!("{} stdout read error: {}", labels.err_noun, e));
             }
-            Err(_) => continue, // per-iteration timeout — retry until deadline
+            Err(_) => continue, // per-iteration timeout: retry until deadline
         }
     }
     let pid_opt = child.id();
@@ -408,7 +408,7 @@ pub(super) async fn read_handshake_from_stdout_lines(
         );
     }
     // Reap the zombie: `tokio::process::Child::kill` sends SIGKILL but
-    // does NOT call waitpid — the killed child stays in the OS process
+    // does NOT call waitpid: the killed child stays in the OS process
     // table until `wait()`. `kill_on_drop(true)` ensures Drop eventually
     // reaps, but Drop fires on function return; wait explicitly here to
     // bound the spawn path.

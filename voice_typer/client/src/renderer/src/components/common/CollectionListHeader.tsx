@@ -1,4 +1,4 @@
-// CollectionListHeader — the shared column-header row for collection
+// CollectionListHeader, the shared column-header row for collection
 // lists (select-all checkbox + primary/secondary/actions columns).
 //
 // Extracted from the 1:1 mirror pair VocabListHeader (Vocabulary) /
@@ -11,7 +11,7 @@
 // Sticky on scroll (sticks to the top of the page scroll container),
 // with a solid background so rows scroll underneath it. Aligned to the
 // SAME grid as the page's row renderer (checkbox | primary | secondary
-// | actions) so headers line up with cells — NO leading padding on the
+// | actions) so headers line up with cells, NO leading padding on the
 // labels so header text and cell text share the exact same horizontal
 // alignment. On narrow widths the secondary label stacks below the
 // primary (col-start-2) exactly like the row's secondary VALUE stacks
@@ -20,19 +20,19 @@
 //
 // sm+ alignment invariant: the ACTIONS column is a FIXED 6.25rem in
 // BOTH the header and the rows (each row is its own grid container, so
-// an `auto` actions column would size to that row's content — the
+// an `auto` actions column would size to that row's content, the
 // header's short "Actions" label vs the rows' icon buttons would split
 // the two `1fr` columns differently). A fixed column makes every row
 // (and the header) split the leftover identically, so the secondary
 // column starts at the same x everywhere. NOTE for the row renderers
 // (which stay per-domain): the row's action-button CLUSTER must fit
-// the fixed 100px — Vocabulary's three `icon-sm` buttons and
+// the fixed 100px, Vocabulary's three `icon-sm` buttons and
 // Templates' two `icon-xs` buttons both do, but any Wave-5 unification
 // of the row button size drift (icon-xs vs icon-sm) must re-check this
 // budget.
 //
 // The leading cell hosts a select-all checkbox (indeterminate when
-// only some of the visible rows are selected) — the SAME Checkbox
+// only some of the visible rows are selected), the SAME Checkbox
 // component the rows use, so the header and per-row checkboxes look
 // identical in every state (unchecked, checked, indeterminate dash).
 //
@@ -53,7 +53,7 @@ export interface CollectionListHeaderProps {
 	 *  THESE, not from the full data set. */
 	visibleIds: string[];
 	selectedIds: ReadonlySet<string>;
-	/** Select (or clear) a specific set of ids — wired to the selection
+	/** Select (or clear) a specific set of ids, wired to the selection
 	 *  hook's setSelectMany. */
 	onSelectAll: (ids: string[], selected: boolean) => void;
 	/** i18n key for the select-all checkbox's accessible name. */

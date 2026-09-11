@@ -11,7 +11,7 @@ covering:
   - F-keys (f1..f12) as single keys and inside combos
   - special keys (caps_lock, space, enter, tab, esc, delete, home,
     end, page_up, page_down)
-  - arrow keys (up, down, left, right — rendered as Unicode arrows)
+  - arrow keys (up, down, left, right, rendered as Unicode arrows)
   - single characters (a → A, 1 → 1)
   - the Fn / Globe macOS-only keys (🌐)
   - the empty-string case (→ "None", matching the TS early-return)
@@ -20,7 +20,7 @@ covering:
 
 If you change either implementation, regenerate the expected outputs
 by running the TS version against the same corpus and pasting the
-results here — the two columns must stay in lock-step.
+results here, the two columns must stay in lock-step.
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ from voice_typer.server.tray_hotkey import format_hotkey_label
 
 # Each tuple is (input_hotkey, expected_label). The expected labels
 # were derived from the canonical TS implementation in
-# hotkey-utils.ts::formatHotkeyLabel — this is the parity contract.
+# hotkey-utils.ts::formatHotkeyLabel, this is the parity contract.
 TEST_CASES: list[tuple[str, str]] = [
     ("<ctrl>+<alt>+v", "Ctrl+Alt+V"),
     ("<ctrl>+<shift>+v", "Ctrl+Shift+V"),
@@ -61,7 +61,7 @@ TEST_CASES: list[tuple[str, str]] = [
     ("<ctrl>+<alt>+<f2>", "Ctrl+Alt+F2"),
     ("<shift>+<tab>", "Shift+Tab"),
     ("", "None"),  # Empty → "None" (matches TS behavior)
-    # Mixed combo, last token is a modifier — formatter doesn't
+    # Mixed combo, last token is a modifier, formatter doesn't
     # validate, it only formats. The combo-validity is enforced
     # elsewhere by config_validators._validate_hotkey.
     ("<caps_lock>+<ctrl>", "Caps Lock+Ctrl"),
@@ -72,7 +72,7 @@ TEST_CASES: list[tuple[str, str]] = [
 def test_format_hotkey_label_parity(hotkey: str, expected: str) -> None:
     """Python ``format_hotkey_label`` must match the TS canonical output.
 
-    TASK-9: this is the parity contract — every entry in ``TEST_CASES``
+    TASK-9: this is the parity contract, every entry in ``TEST_CASES``
     must produce the exact same string the TS implementation would
     produce for the same input. If this test fails, either:
       (a) the Python port drifted from the TS canonical version, or
@@ -126,7 +126,7 @@ class TestFormatHotkeyLabelBranches:
     def test_default_fallback_capitalizes_first_letter(self) -> None:
         """Unknown multi-char tokens get the first letter capitalized.
 
-        This is the catch-all branch — it mirrors the TS
+        This is the catch-all branch, it mirrors the TS
         `key.charAt(0).toUpperCase() + key.slice(1)` fallback.
         """
         # "media_play_pause" isn't in the displayMap, so it falls

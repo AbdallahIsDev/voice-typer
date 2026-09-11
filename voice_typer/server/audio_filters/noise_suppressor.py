@@ -52,7 +52,7 @@ def _resampler_group_delay_ms(up: int, down: int, input_rate: int) -> float:
 
     The FIR is a symmetric (linear-phase) filter, so its group delay is
     exactly ``(num_taps - 1) / 2`` samples at the INTERMEDIATE rate the
-    filter actually runs at — ``input_rate * up`` (``process()`` zero-stuffs
+    filter actually runs at, ``input_rate * up`` (``process()`` zero-stuffs
     the input by ``up`` before the FIR and decimates by ``down`` after). The
     tap count comes from the same formula the constructor designs the filter
     with, so this tracks the real filter exactly (verified by test against
@@ -70,7 +70,7 @@ class _StreamingResampler:
     construction via ``scipy.signal.firwin`` and reused across every
     ``process()`` call (). Internal filter state (``_zi``) is persisted
     between calls so that chunked processing produces output identical to
-    one-shot processing () — there are no edge artifacts at chunk
+    one-shot processing (), there are no edge artifacts at chunk
     boundaries.
 
     Output length invariant: after consuming ``N`` input samples, the
@@ -97,7 +97,7 @@ class _StreamingResampler:
         # lower Nyquist of input / output (1.0 == Nyquist in firwin's fs=2.0
         # convention). Filter length comes from the shared
         # ``_resampler_fir_num_taps`` helper (odd, so the polyphase
-        # decomposition is symmetric) — the latency computation derives the
+        # decomposition is symmetric), the latency computation derives the
         # group delay from the SAME helper, so the reported delay always
         # matches the filter actually designed here.
         from scipy.signal import firwin
@@ -188,12 +188,12 @@ class NoiseSuppressor(AudioFilter):
     """Neural noise suppression with multiple backends.
 
     Backends (runtime-switchable):
-    - ``"rnnoise"`` — ``pyrnnoise`` package, 480-sample frames at 48kHz.
+    - ``"rnnoise"``: ``pyrnnoise`` package, 480-sample frames at 48kHz.
       BSD-licensed, ~1ms per frame. Default.
-    - ``"gtcrn"`` — bundled GTCRN ONNX streaming model (16 kHz,
+    - ``"gtcrn"``: bundled GTCRN ONNX streaming model (16 kHz,
       256-sample hops, ~2 ms per hop on CPU). Higher quality than
       RNNoise; selected by the ``noisy_room`` preset.
-    - ``"none"`` — passthrough (no suppression).
+    - ``"none"``: passthrough (no suppression).
 
     If the selected backend is unavailable (missing library / model),
     falls back to ``rnnoise`` (or ``none``) and sets ``is_degraded=True``
@@ -201,7 +201,7 @@ class NoiseSuppressor(AudioFilter):
 
     Frame buffering: uses input/output deques (like OBS) to handle
     arbitrary chunk sizes. Returns ``None`` when the output buffer is
-    underfilled — callers should propagate ``None``.
+    underfilled, callers should propagate ``None``.
     """
 
     def __init__(
@@ -217,10 +217,10 @@ class NoiseSuppressor(AudioFilter):
         self._degraded: bool = False
         self._degraded_reason: str = ""
         # ``quiet`` suppresses the backend-init INFO/WARNING lines
-        # ("RNNoise backend ready", "GTCRN init failed — falling back
+        # ("RNNoise backend ready", "GTCRN init failed, falling back
         # to rnnoise", ...). Used when a chain is built for a
         # SECONDARY consumer (the level-monitor processor in
-        # ``update_level_processor``) — the primary dictation chain
+        # ``update_level_processor``), the primary dictation chain
         # already logged the backend-init outcome, so a second build
         # for the same config would otherwise repeat every line.
         self._quiet = quiet
@@ -230,7 +230,7 @@ class NoiseSuppressor(AudioFilter):
 
         # pre-allocated per-frame conversion buffers for the RNNoise
         # loop. Reused across every 480-sample frame to avoid ~5 small
-        # allocations (clip, mul, astype, astype, div) per frame — at
+        # allocations (clip, mul, astype, astype, div) per frame, at
         # 48 RNNoise frames/sec that's ~240 allocations/sec saved.
         self._frame_f32_buf: np.ndarray = np.zeros(_RNNOISE_FRAME_SIZE, dtype=np.float32)
         self._frame_i16_buf: np.ndarray = np.zeros(_RNNOISE_FRAME_SIZE, dtype=np.int16)
@@ -261,13 +261,13 @@ class NoiseSuppressor(AudioFilter):
         self._resampler_rate: int | None = None
 
         # GTCRN is native 16 kHz (not 48 kHz like RNNoise), so it gets
-        # its OWN lazily-created resampler pair — created by
+        # its OWN lazily-created resampler pair, created by
         # ``_ensure_gtcrn_resamplers``. At 16 kHz both stay ``None``.
         self._gtcrn_upsampler: _StreamingResampler | None = None
         self._gtcrn_downsampler: _StreamingResampler | None = None
         self._gtcrn_resampler_rate: int | None = None
         # pre-allocated float32 output buffer for the concatenated GTCRN
-        # hop outputs — the same lazy-resize pattern as
+        # hop outputs, the same lazy-resize pattern as
         # ``_result_48k_buf`` on the RNNoise path (each hop's enhanced
         # output is written directly into its 256-sample slice, no
         # per-hop list + final ``np.concatenate``).
@@ -296,12 +296,12 @@ class NoiseSuppressor(AudioFilter):
             # old name so it degrades to the live backend instead of
             # silently passthroughing.
             if not self._quiet:
-                log.info("[NOISE-SUPPRESS] legacy method 'deepfilternet' — using gtcrn")
+                log.info("[NOISE-SUPPRESS] legacy method 'deepfilternet', using gtcrn")
             self._method = "gtcrn"
             self._init_gtcrn()
         else:
             if not self._quiet:
-                log.warning("[NOISE-SUPPRESS] unknown method %r — using none", method)
+                log.warning("[NOISE-SUPPRESS] unknown method %r, using none", method)
             self._method = "none"
             self._backend = None
 
@@ -315,7 +315,7 @@ class NoiseSuppressor(AudioFilter):
         except ImportError:
             if not self._quiet:
                 log.warning(
-                    "[NOISE-SUPPRESS] pyrnnoise not installed — falling back to none. "
+                    "[NOISE-SUPPRESS] pyrnnoise not installed, falling back to none. "
                     "Install with: pip install pyrnnoise"
                 )
             self._degraded = True
@@ -323,7 +323,7 @@ class NoiseSuppressor(AudioFilter):
             self._method = "none"
         except Exception as exc:
             if not self._quiet:
-                log.warning("[NOISE-SUPPRESS] RNNoise init failed: %s — falling back to none", exc)
+                log.warning("[NOISE-SUPPRESS] RNNoise init failed: %s, falling back to none", exc)
             self._degraded = True
             self._degraded_reason = f"rnnoise init failed: {exc}"
             self._method = "none"
@@ -331,14 +331,14 @@ class NoiseSuppressor(AudioFilter):
     def _init_gtcrn(self) -> None:
         """Initialize the GTCRN backend (bundled ONNX streaming model).
 
-        On ANY failure — ``onnxruntime`` missing, the bundled
+        On ANY failure, ``onnxruntime`` missing, the bundled
         ``gtcrn_simple.onnx`` missing / corrupt, or the session failing
-        its warmup — degrade to ``rnnoise`` at INIT time (the same
+        its warmup, degrade to ``rnnoise`` at INIT time (the same
         contract the retired DeepFilterNet placeholder had, except the
         GTCRN path actually processes audio when it loads):
 
           1. The UI sees ``is_degraded == True`` immediately on
-             construction — before the first audio chunk — and can
+             construction, before the first audio chunk, and can
              surface a warning to the user.
           2. The user still gets neural noise suppression via RNNoise
              (when RNNoise is available).
@@ -350,7 +350,7 @@ class NoiseSuppressor(AudioFilter):
         further degrade to ``"none"``. In that case the GTCRN context
         is preserved in ``_degraded_reason`` (so the user knows BOTH
         that the GTCRN model couldn't load AND that the RNNoise
-        fallback also failed) — the rnnoise install hint is the more
+        fallback also failed), the rnnoise install hint is the more
         actionable part, but the GTCRN context explains why the
         ``noisy_room`` preset didn't hold its first choice.
         """
@@ -360,14 +360,14 @@ class NoiseSuppressor(AudioFilter):
             self._backend = GtcrnBackend()
         except Exception as exc:
             if not self._quiet:
-                log.warning("[NOISE-SUPPRESS] GTCRN init failed: %s — falling back to rnnoise", exc)
+                log.warning("[NOISE-SUPPRESS] GTCRN init failed: %s, falling back to rnnoise", exc)
             # Mark degraded BEFORE calling _init_rnnoise so the flag is
             # set even if _init_rnnoise succeeds (which would otherwise
             # leave _degraded == False, hiding the GTCRN failure from
             # the UI). Save the reason so we can preserve context if
             # _init_rnnoise further degrades to "none".
             self._degraded = True
-            gtcrn_reason = f"gtcrn init failed: {exc} — falling back to rnnoise"
+            gtcrn_reason = f"gtcrn init failed: {exc}, falling back to rnnoise"
             self._degraded_reason = gtcrn_reason
 
             # Switch to rnnoise at init time so process() uses the
@@ -384,7 +384,7 @@ class NoiseSuppressor(AudioFilter):
                 rnnoise_reason = self._degraded_reason
                 self._degraded_reason = f"{gtcrn_reason}; rnnoise fallback also unavailable: {rnnoise_reason}"
             else:
-                # _init_rnnoise succeeded — restore gtcrn_reason as the
+                # _init_rnnoise succeeded, restore gtcrn_reason as the
                 # degraded_reason (don't let _init_rnnoise's success
                 # path accidentally clear _degraded).
                 self._degraded = True
@@ -409,15 +409,15 @@ class NoiseSuppressor(AudioFilter):
         # ``"gtcrn"`` / ``"none"`` at construction time (see
         # ``_init_gtcrn`` for the gtcrn → rnnoise fallback). Reaching this
         # branch means a future backend was added without an init-time
-        # fallback — instead of silently passthroughing (the original
+        # fallback, instead of silently passthroughing (the original
         # Critical bug), we fall back to rnnoise here and surface
         # ``is_degraded`` so the UI can warn the user. This branch is
         # not reachable for any currently-supported method
-        # (``rnnoise`` / ``gtcrn`` / ``none``) — it exists
+        # (``rnnoise`` / ``gtcrn`` / ``none``), it exists
         # purely to prevent a regression of silent passthrough.
         if not self._degraded:
             self._degraded = True
-            self._degraded_reason = f"{self._method} backend not yet implemented — falling back to rnnoise"
+            self._degraded_reason = f"{self._method} backend not yet implemented, falling back to rnnoise"
             log.warning(
                 "[AUDIO] NoiseSuppressor: %s backend not yet wired; "
                 "falling back to rnnoise for neural noise suppression",
@@ -475,7 +475,7 @@ class NoiseSuppressor(AudioFilter):
         # subsequent ``self._backend.<attr>`` accesses can drop their
         # ``# type: ignore[union-attr]`` suppressions. The process()
         # entry point already guards on ``self._backend is None``, so
-        # this assertion is documentation-as-code — pyrefly/mypy infer
+        # this assertion is documentation-as-code, pyrefly/mypy infer
         # the narrowed type for the rest of the method body.
         assert self._backend is not None
 
@@ -492,7 +492,7 @@ class NoiseSuppressor(AudioFilter):
         remainder = len(combined) - n_full * _RNNOISE_FRAME_SIZE
 
         if n_full == 0:
-            # Not enough for a full frame — buffer it
+            # Not enough for a full frame, buffer it
             self._carry = combined
             return None  # signal caller to skip this chunk
 
@@ -501,7 +501,7 @@ class NoiseSuppressor(AudioFilter):
 
         # pre-allocate the float64 output buffer for the concatenated
         # RNNoise output. Each frame's cleaned output is written directly
-        # into the appropriate 480-sample slice — eliminates the
+        # into the appropriate 480-sample slice, eliminates the
         # ``output_frames`` list + final ``np.concatenate`` (which allocated
         # a fresh float64 array per call) AND the per-frame
         # ``cleaned_i16[0].astype(np.float32) / _FLOAT_TO_INT16_MAX``
@@ -520,7 +520,7 @@ class NoiseSuppressor(AudioFilter):
                 # so out-of-range floats (e.g. from upstream gain stages) do not
                 # wrap around the int16 range. ``_INT16_SCALE`` is the float ->
                 # int16 multiplier (= 32767.0). pyrnnoise uses int16 internally.
-                # reuse pre-allocated conversion buffers — np.clip +
+                # reuse pre-allocated conversion buffers, np.clip +
                 # np.multiply + astype each into the same float32 buffer, then
                 # copy into the int16 buffer. Saves 3-5 allocations per frame.
                 frame_f32 = self._frame_f32_buf
@@ -576,7 +576,7 @@ class NoiseSuppressor(AudioFilter):
         """Lazily create (or recreate) the GTCRN streaming resamplers.
 
         GTCRN is native 16 kHz (unlike RNNoise's 48 kHz), so it needs
-        its OWN resampler pair — separate state from the RNNoise pair
+        its OWN resampler pair, separate state from the RNNoise pair
         so the RNNoise processing path stays untouched. At 16 kHz both
         resamplers stay ``None`` (no resampling needed); at any other
         source rate an up/down pair round-trips the audio through
@@ -612,7 +612,7 @@ class NoiseSuppressor(AudioFilter):
         calls; ``None`` is returned while too little audio is buffered.
 
         Each hop's enhanced block trails the input by ONE hop (the
-        512-point analysis window spans two hops — see
+        512-point analysis window spans two hops: see
         ``gtcrn_backend``), so the emitted stream is the denoised
         input delayed by 16 ms; ``latency_ms`` reports that.
         """
@@ -629,13 +629,13 @@ class NoiseSuppressor(AudioFilter):
         remainder = len(combined) - n_full * _GTCRN_HOP_SIZE
 
         if n_full == 0:
-            # Not enough for a full hop — buffer it.
+            # Not enough for a full hop, buffer it.
             self._carry = combined
             return None  # signal caller to skip this chunk
 
         # pre-allocated float32 output buffer: each hop's enhanced
         # output is written directly into its 256-sample slice (no
-        # per-hop list + final concatenate — the same pattern as the
+        # per-hop list + final concatenate, the same pattern as the
         # RNNoise ``_result_48k_buf``).
         total_out = n_full * _GTCRN_HOP_SIZE
         if self._result_16k_buf is None or self._result_16k_buf.shape[0] < total_out:
@@ -667,7 +667,7 @@ class NoiseSuppressor(AudioFilter):
 
         # The resampling may produce slightly different length than
         # input. Match the input length by padding/truncating (same
-        # contract as the RNNoise path — the shared ``_padded_buf`` is
+        # contract as the RNNoise path, the shared ``_padded_buf`` is
         # safe because only one backend is ever active per instance).
         target_len = len(samples)
         if len(result) >= target_len:
@@ -721,7 +721,7 @@ class NoiseSuppressor(AudioFilter):
         # GTCRN state: the model's recurrent caches + overlap-add tail
         # (a stale tail from the previous session would bleed into the
         # next one), the 16 kHz resampler pair's filter state, and the
-        # concatenated-output buffer (privacy — same rationale as
+        # concatenated-output buffer (privacy, same rationale as
         # ``_result_48k_buf`` above). Gated on the METHOD so the
         # RNNoise reset path stays byte-identical (a degraded-to-
         # rnnoise instance holds an RNNoise backend, not a GTCRN one).
@@ -744,7 +744,7 @@ class NoiseSuppressor(AudioFilter):
         delays. The up/down ratios mirror what ``_ensure_resamplers`` /
         ``_ensure_gtcrn_resamplers`` derive from the actual rates, and the
         per-stage delay comes from the same tap-count formula the resampler
-        constructor designs its filter with — nothing hardcoded. Zero when
+        constructor designs its filter with, nothing hardcoded. Zero when
         the source already runs at the model's native rate (both resamplers
         stay ``None``).
         """
@@ -761,7 +761,7 @@ class NoiseSuppressor(AudioFilter):
     @property
     def latency_ms(self) -> float:
         # ~10ms (one RNNoise frame) / ~16ms (one 256-sample GTCRN hop at
-        # 16 kHz — the streaming STFT's overlap-add algorithmic delay; see
+        # 16 kHz, the streaming STFT's overlap-add algorithmic delay; see
         # gtcrn_backend.py), PLUS the round-trip group delay of the streaming
         # resampler pair when the source rate differs from the model's
         # native rate (the FIR anti-imaging/anti-aliasing stages delay the

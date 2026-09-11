@@ -4,7 +4,7 @@
 // active surface changes (hub ↔ section page ↔ another section page),
 // the surface's previously-saved scroll offset is restored on the
 // shared scroll container. The per-surface offset memory
-// (`scrollPositionsRef`) is OWNED BY THE PAGE and passed in here — the
+// (`scrollPositionsRef`) is OWNED BY THE PAGE and passed in here, the
 // consent deep-link consumption (see `useSettingsDeepLinks`) writes a
 // zeroed Privacy offset into the same ref BEFORE this hook's effect
 // reads it, so the page must call `useSettingsDeepLinks` first.

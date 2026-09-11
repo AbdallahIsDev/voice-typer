@@ -13,13 +13,13 @@ vi.mock("@/i18n/i18n", () => ({
 		opts && typeof opts.label === "string" ? `${key}(${opts.label})` : key,
 }));
 
-// Hugeicons are irrelevant to the aria contract under test — render a
+// Hugeicons are irrelevant to the aria contract under test, render a
 // plain span so the test doesn't need the icon runtime.
 vi.mock("@hugeicons/react", () => ({
 	HugeiconsIcon: () => <span data-testid="hugeicon" />,
 }));
 
-describe("HotkeyPicker — fallback capture-button aria-label", () => {
+describe("HotkeyPicker, fallback capture-button aria-label", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 	});

@@ -33,7 +33,7 @@ describe("useBridgeReady + usePythonEvent lazy subscription", () => {
 
 	beforeEach(() => {
 		original = (window as unknown as { python?: PythonBridgeMock }).python;
-		// Start each test with the bridge NOT installed — simulates
+		// Start each test with the bridge NOT installed, simulates
 		// the renderer mounting before the preload / Tauri installer
 		// has had a chance to set window.python.
 		delete (window as unknown as { python?: PythonBridgeMock }).python;
@@ -49,7 +49,7 @@ describe("useBridgeReady + usePythonEvent lazy subscription", () => {
 		cleanup();
 		vi.restoreAllMocks();
 		// Restore real timers in case a test activated fake timers and
-		// threw before its own cleanup ran (defensive — prevents timer
+		// threw before its own cleanup ran (defensive, prevents timer
 		// leakage between tests).
 		vi.useRealTimers();
 	});
@@ -73,7 +73,7 @@ describe("useBridgeReady + usePythonEvent lazy subscription", () => {
 		//`usePythonEvent` is now generic over
 		// `PythonPushEvent["type"]`. Use the real `"state_changed"`
 		// variant (was previously the non-existent `"status_changed"`
-		// string — a typo the old `type: string` signature silently
+		// string, a typo the old `type: string` signature silently
 		// accepted, causing the subscription to never fire in
 		// production). The handler takes no args; `state_changed`'s
 		// data is `Record<string, unknown>` (ignored here).
@@ -89,11 +89,11 @@ describe("useBridgeReady + usePythonEvent lazy subscription", () => {
 		const unsubscribe = vi.fn();
 		onEvent.mockReturnValue(unsubscribe);
 
-		// Mount with window.python undefined — effect early-returns,
+		// Mount with window.python undefined, effect early-returns,
 		// useBridgeReady starts polling.
 		renderHook(() => usePythonEvent("state_changed", () => {}));
 
-		// No subscription yet — bridge not installed.
+		// No subscription yet, bridge not installed.
 		expect(onEvent).not.toHaveBeenCalled();
 
 		// Simulate the bridge becoming available after ~50ms (e.g. the
@@ -131,7 +131,7 @@ describe("useBridgeReady + usePythonEvent lazy subscription", () => {
 		// times (3x the 100ms interval).
 		await new Promise((r) => setTimeout(r, 350));
 
-		// Still no subscription — bridge never came up.
+		// Still no subscription, bridge never came up.
 		expect(onEvent).not.toHaveBeenCalled();
 	});
 

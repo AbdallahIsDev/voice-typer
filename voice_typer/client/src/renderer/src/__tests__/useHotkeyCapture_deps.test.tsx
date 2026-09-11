@@ -10,7 +10,7 @@
  * `[onCaptureStart, onCaptureEnd, handleKeyDown, handleKeyUp,
  * cancelRecording]`. The `handle*` callbacks are `useCallback`'d, so
  * the effect only re-runs when one of those references actually changes
- * — NOT on every render.
+ *, NOT on every render.
  *
  * This test asserts:
  *   1. On initial mount, the ref-syncing effect runs once.
@@ -46,7 +46,7 @@ vi.mock("@hugeicons/core-free-icons", async () => {
 // always-attached listener are stable. We do this by spying on
 // `window.addEventListener` (called once with the stable `onKeyDown` /
 // `onKeyUp` wrappers) and asserting the wrappers themselves are stable
-// across re-renders — which they are because the always-attached
+// across re-renders, which they are because the always-attached
 // listener effect has `[]` deps. The ref-sync effect's job is to keep
 // the refs in sync with the latest props; if it runs unnecessarily,
 // that's wasted work but doesn't change behavior. So we measure it
@@ -123,7 +123,7 @@ describe("DJ-92: useHotkeyCapture ref-sync effect has a deps array", () => {
 		// The always-attached listener should NOT have been re-added
 		//(the `[]` deps effect doesn't re-run). Pre- the ref-sync
 		// effect ran on every commit, but that didn't add new listeners
-		// — it just re-assigned refs. So this assertion alone is
+		//, it just re-assigned refs. So this assertion alone is
 		// necessary but not sufficient.
 		expect(keydownAdded).toBe(0);
 
@@ -131,7 +131,7 @@ describe("DJ-92: useHotkeyCapture ref-sync effect has a deps array", () => {
 		// across both renders. We can't directly spy on React's
 		// useEffect (it's a runtime hook), but we CAN verify the
 		// ref-sync effect's deps array by checking that the handler
-		// refs are STABLE — i.e. the handler functions called by the
+		// refs are STABLE, i.e. the handler functions called by the
 		// always-attached listener are the SAME instances across
 		// re-renders. This is verified by dispatching a keydown and
 		// confirming `onChange` is called with the same arguments

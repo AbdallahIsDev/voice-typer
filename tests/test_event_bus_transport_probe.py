@@ -1,7 +1,7 @@
 """Tests for the event_bus transport-liveness probe registry.
 
 ``event_bus.publish`` returns True when ANY in-process subscriber
-accepted the event — which is NOT proof the event reached the host UI:
+accepted the event, which is NOT proof the event reached the host UI:
 the IPC transport's push() swallows write failures (it buffers to
 ``_pending_tcp`` and marks the client dead instead of raising), the
 no-client path buffers silently, and unrelated subscribers (e.g. the
@@ -13,7 +13,7 @@ such as ``tray_window.open_electron_window`` a truthful delivery
 signal: ``has_live_transport()`` is True only when a registered probe
 reports a live host client. The TCP transport (``IPCServer.start_tcp``)
 registers one reporting ``self._tcp_client is not None`` and
-``IPCServer.stop`` unregisters it — verified in
+``IPCServer.stop`` unregisters it, verified in
 ``TestTcpServerProbeWiring`` below.
 """
 
@@ -84,7 +84,7 @@ class TestProbeRegistry:
             unregister_transport_probe(p2)
 
     def test_probe_reflects_live_state_dynamically(self):
-        """The probe is a callable evaluated at query time — mutating the
+        """The probe is a callable evaluated at query time, mutating the
         transport state flips the answer without re-registering."""
         state = {"connected": False}
 

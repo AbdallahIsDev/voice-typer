@@ -8,7 +8,7 @@
  *
  * `frame-ancestors` is deliberately EXCLUDED from the meta CSP (and from
  * every policy below): the CSP spec only honors `frame-ancestors` when
- * delivered as an HTTP header — a `<meta>` occurrence is ignored AND
+ * delivered as an HTTP header, a `<meta>` occurrence is ignored AND
  * triggers a console warning. The Electron main process enforces it via
  * the HTTP-header CSP in `bootstrap.ts::_buildCsp` (onHeadersReceived),
  * which keeps the frame protection while the meta tag stays warning-free.
@@ -24,7 +24,7 @@
  * C-DATA-1 (offline guarantee): `connect-src` is `'self'` ONLY in both
  * dev and prod. The previous `https://api.github.com` grant (originally
  * added so the Settings page's "Check for Updates" button could fetch
- * the GitHub releases API) was a C-DATA-1 violation — even an explicit
+ * the GitHub releases API) was a C-DATA-1 violation, even an explicit
  * user click is a network call in the production code path, which the
  * offline guarantee forbids. The "Check for Updates" feature was
  * removed from `PrewarmAndUpdates.tsx` and replaced with a static
@@ -47,7 +47,7 @@ import type { Plugin } from "vite";
 
 /**
  * Production CSP for the MAIN window (index.html). Strict `'self'`-only
- * `connect-src` — C-DATA-1 forbids any network call from the renderer,
+ * `connect-src`, C-DATA-1 forbids any network call from the renderer,
  * including the previous "Check for Updates" fetch to api.github.com
  * (the feature was removed; see `PrewarmAndUpdates.tsx`).
  *
@@ -83,13 +83,13 @@ export const CSP_PROD_MAIN = [
 
 /**
  * Production CSP for the BUBBLE window (bubble.html). Identical
- * `connect-src 'self'` policy — the bubble has no update-check surface
+ * `connect-src 'self'` policy, the bubble has no update-check surface
  * (and the main window's update-check surface has been removed too, so
  * both windows now share the same strict offline-only policy). A
  * compromised bubble renderer must not be able to phone home or
  * exfiltrate data via a CSP-permitted `connect-src`.
  *
- * `object-src 'none'` mirrors CSP_PROD_MAIN — the bubble has no
+ * `object-src 'none'` mirrors CSP_PROD_MAIN, the bubble has no
  * legitimate use for <object>/<embed>/<applet> elements either.
  */
 export const CSP_PROD_BUBBLE = [
@@ -117,7 +117,7 @@ export const CSP_PROD = CSP_PROD_MAIN;
  * Dev CSP. Allows `unsafe-eval` and `unsafe-inline` for script-src (Vite HMR
  * + React Refresh + eval sourcemaps). Adds ws://localhost:* and
  * http://localhost:* to connect-src for the HMR websocket + dev server
- * fetches. `connect-src` is otherwise `'self'` only — C-DATA-1 forbids
+ * fetches. `connect-src` is otherwise `'self'` only, C-DATA-1 forbids
  * api.github.com (the previous "Check for Updates" fetch was removed
  * from the renderer; dev mode no longer needs the grant either).
  */
@@ -164,10 +164,10 @@ export function pickProdCsp(filePath: string): string {
  * WHY: index.html and bubble.html each ship an inline `<script>` that
  * reads `localStorage["voice-typer-ui-locale"]` and sets
  * `document.documentElement.lang` (and, for bubble.html, `.dir`) BEFORE
- * React mounts — so screen readers announce first-paint content in the
+ * React mounts, so screen readers announce first-paint content in the
  * correct language. The strict production CSP (`script-src 'self'`)
  * forbids inline scripts, so the inline block would either need
- * 'unsafe-inline' (a downgrade we refuse — Hard Rule 4) or a per-block
+ * 'unsafe-inline' (a downgrade we refuse, Hard Rule 4) or a per-block
  * SHA-256 hash in the CSP (which would make the built CSP diverge from
  * `CSP_PROD`, breaking the equality assertion in `test_built_*_html_csp_matches_csp_prod`).
  *
@@ -177,17 +177,17 @@ export function pickProdCsp(filePath: string): string {
  * in `extractedLocaleCode`, and Vite's `resolveId` + `load` hooks serve
  * the stashed code as a virtual module. The built HTML ends up with a
  * hashed `<script type="module" src="./assets/locale-bootstrap-*.js">`
- * reference and zero inline scripts — the strict CSP is satisfied
+ * reference and zero inline scripts, the strict CSP is satisfied
  * without any downgrade.
  *
  * Two virtual IDs (one per window) are used because bubble.html's
  * bootstrap additionally sets `document.documentElement.dir` for RTL
- * locales. The HTML is the single source of truth — the plugin extracts
+ * locales. The HTML is the single source of truth, the plugin extracts
  * the verbatim inline-script body and serves it back via `load`, so a
  * future edit to the inline script (e.g. adding a 9th locale) is picked
  * up automatically with no plugin change.
  *
- * In dev, the inline script is left in place — `CSP_DEV` allows
+ * In dev, the inline script is left in place, `CSP_DEV` allows
  * `'unsafe-inline'` for script-src so it runs as-is.
  */
 const LOCALE_VIRTUAL_ID_MAIN = "virtual:voice-typer-locale-bootstrap-main";
@@ -199,7 +199,7 @@ const LOCALE_RESOLVED_BUBBLE = `\0${LOCALE_VIRTUAL_ID_BUBBLE}`;
  * Match the inline locale-detection `<script>` block in index.html /
  * bubble.html. The block is identified by the `voice-typer-ui-locale`
  * localStorage key (which is unique to this script in the HTML) inside
- * a bare `<script>` tag (no `src`, no `type` — so we don't accidentally
+ * a bare `<script>` tag (no `src`, no `type`, so we don't accidentally
  * match the `<script type="module">` blocks that Vite processes
  * separately). Non-greedy capture so we stop at the first `</script>`.
  */
@@ -235,7 +235,7 @@ export function cspEmissionPlugin(): Plugin {
 			// Intercept the virtual locale-bootstrap module specifiers
 			// emitted into the HTML by `transformIndexHtml`. Returning
 			// a `\0`-prefixed ID tells Vite this is a virtual module
-			// (not a file on disk) — Vite then calls our `load` hook
+			// (not a file on disk), Vite then calls our `load` hook
 			// for the source.
 			if (id === LOCALE_VIRTUAL_ID_MAIN) return LOCALE_RESOLVED_MAIN;
 			if (id === LOCALE_VIRTUAL_ID_BUBBLE) return LOCALE_RESOLVED_BUBBLE;
@@ -244,7 +244,7 @@ export function cspEmissionPlugin(): Plugin {
 		load(id) {
 			// Serve the stashed inline-script body as the virtual
 			// module's source. The body is the original IIFE from the
-			// HTML — a valid ESM module (an expression statement that
+			// HTML, a valid ESM module (an expression statement that
 			// runs once on first import). Vite bundles it as a hashed
 			// asset and rewrites the `<script src="...">` URL to point
 			// at the hashed file.
@@ -279,7 +279,7 @@ export function cspEmissionPlugin(): Plugin {
 				// In production, externalize the inline locale-detection
 				// `<script>` block as a virtual module so the strict CSP
 				// (`script-src 'self'`) is satisfied without 'unsafe-inline'.
-				// In dev, leave the inline script in place — CSP_DEV allows
+				// In dev, leave the inline script in place, CSP_DEV allows
 				// 'unsafe-inline' for script-src (Vite HMR + React Refresh
 				// preamble already need it).
 				if (isProduction) {

@@ -8,7 +8,7 @@
  * synchronous. Previously `index.ts` called `isLinuxWaylandWithoutSni()`
  * directly inside the `app.whenReady().then(...)` callback, which ran
  * the probe on the same event-loop tick as `startPython()` and the
- * dashboard's `loadURL`/`loadFile` kickoff — blocking the boot path
+ * dashboard's `loadURL`/`loadFile` kickoff, blocking the boot path
  * on Linux Wayland for up to ~1ms (warm) or up to 500ms (worst-case
  * timeout per probe × 2 probes).
  *
@@ -20,7 +20,7 @@
  * Importing `index.ts` directly would fire Electron APIs at module-eval
  * time (single-instance lock, security-warning suppression, etc.) and
  * is not testable in vitest without mocking the entire Electron
- * runtime — the project's convention (see `main-process-fixes.test.ts`,
+ * runtime, the project's convention (see `main-process-fixes.test.ts`,
  * `window-open-logs.test.ts`) for `index.ts` structural assertions is
  * source-text inspection via `fs.readFileSync`.
  */
@@ -33,7 +33,7 @@ function readIndexSrc(): string {
 }
 
 /**
- * Extract the pre-warm block — the source-text region between the
+ * Extract the pre-warm block, the source-text region between the
  * `// pre-warm the Wayland-without-SNI cache` comment and the closing
  * `});` of the `app.whenReady().then(...)` callback that follows it.
  *
@@ -80,7 +80,7 @@ describe("tray_available pre-warm: deferred via setImmediate (not synchronous)",
 		const block = readPrewarmBlock();
 
 		// The setImmediate call must wrap the
-		// isLinuxWaylandWithoutSni() invocation — assert
+		// isLinuxWaylandWithoutSni() invocation, assert
 		// there is a setImmediate whose body contains the
 		// call.
 		const setImmediateIdx = block.indexOf("setImmediate(() => {");
@@ -97,7 +97,7 @@ describe("tray_available pre-warm: deferred via setImmediate (not synchronous)",
 
 	it("the deferred pre-warm is wrapped in try/catch (uncaught exceptions on the next tick would crash)", () => {
 		// A throw inside a setImmediate callback surfaces as
-		// an uncaught exception — not a rejected Promise.
+		// an uncaught exception, not a rejected Promise.
 		// The production code MUST swallow + log probe
 		// failures so a transient D-Bus hiccup on the boot
 		// path does not crash Electron. (The probe itself

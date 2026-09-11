@@ -15,7 +15,7 @@ Design (mirrors the contract documented in
   ``self`` and ``cumulative`` microseconds to stderr; we parse the
   indented tree into flat rows.
 * A fresh subprocess is the only honest way to measure import latency
-  — in-process re-imports are contaminated by cached C extensions
+ , in-process re-imports are contaminated by cached C extensions
   (``numpy``, ``sounddevice``, etc. stay in ``sys.modules`` even after
   ``del`` / ``importlib.reload``).
 * Aggregates across N runs: reports **median** self/cumulative per
@@ -112,7 +112,7 @@ def _parse_importtime(stderr_text: str) -> list[ImportRow]:
             self_us = int(parts[0])
             cum_us = int(parts[1])
         except ValueError:
-            # Header line ("self [us] | cumulative | imported package") — skip.
+            # Header line ("self [us] | cumulative | imported package"), skip.
             continue
         module_field = parts[2]
         # Count leading spaces to determine indent depth.
@@ -127,7 +127,7 @@ def _run_one(target: str, *, python: str) -> tuple[list[ImportRow], float]:
 
     Returns ``(rows, wall_clock_seconds)``. Raises
     :class:`subprocess.CalledProcessError` if the import fails (non-zero
-    exit) — the caller decides whether to retry or propagate.
+    exit), the caller decides whether to retry or propagate.
     """
     start = time.perf_counter()
     proc = subprocess.run(
@@ -155,7 +155,7 @@ def _aggregate(rows_per_run: Sequence[list[ImportRow]]) -> dict[str, dict[str, f
     "cum_median": float, "runs": int}}``. Median is used because the
     OS page cache warms up after run 1, so the mean is biased low;
     the median is more representative of the steady-state cold start
-    (the *first* run is the true cold start — callers should also
+    (the *first* run is the true cold start, callers should also
     look at ``--runs 1`` output for the worst case).
     """
     by_module: dict[str, list[ImportRow]] = {}
@@ -187,10 +187,10 @@ def _format_report(
 
     The report has three sections:
 
-    1. **Summary** — N runs, wall-clock min/median/max (seconds).
-    2. **Top-N by self time** — the slowest modules by median
+    1. **Summary**. N runs, wall-clock min/median/max (seconds).
+    2. **Top-N by self time**, the slowest modules by median
        ``self_us`` across runs.
-    3. **Raw importtime tree** — the indented tree from run 1 (the
+    3. **Raw importtime tree**, the indented tree from run 1 (the
        true cold run) verbatim, so callers can diff BEFORE/AFTER.
     """
     stream.write(f"# Cold-start import profile: {target}\n\n")
@@ -302,7 +302,7 @@ def profile_target(
         )
         if worst > max_self_us:
             sys.stderr.write(
-                f"[profile_imports] {target}: THRESHOLD VIOLATION — max self_us={worst} > limit={max_self_us}\n"
+                f"[profile_imports] {target}: THRESHOLD VIOLATION, max self_us={worst} > limit={max_self_us}\n"
             )
             return 2
 

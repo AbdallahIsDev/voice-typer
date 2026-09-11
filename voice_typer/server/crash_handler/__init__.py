@@ -1,8 +1,8 @@
-"""Windows Vectored Exception Handler — captures silent process crashes.
+"""Windows Vectored Exception Handler, captures silent process crashes.
 
 STATUS_HEAP_CORRUPTION (0xC0000374), STATUS_ACCESS_VIOLATION, and other
-SEH exceptions kill the process silently — no Python traceback, no log
-message — because the OS terminates the process before Python's exception
+SEH exceptions kill the process silently, no Python traceback, no log
+message: because the OS terminates the process before Python's exception
 machinery can run.
 
 This package installs a Vectored Exception Handler (AddVectoredExceptionHandler)
@@ -16,7 +16,7 @@ allocate memory (f-strings, .encode(), .decode(), etc.). This handler
 attempts to minimise allocations by pre-computing static message parts
 at init time and using only pre-allocated buffers + raw kernel32.WriteFile
 calls. However, there is NO GUARANTEE the handler will succeed for heap
-corruption crashes — the corruption may already have damaged the memory
+corruption crashes, the corruption may already have damaged the memory
 used by our buffer. For access violations and stack overruns, the handler
 is reliable.
 
@@ -39,21 +39,21 @@ _ch.<name>``). This preserves the pre-split behavior where tests could
 reset module-level globals directly.
 
 Submodules:
-- ``_constants`` — pure constants (status codes, ``_CRASH_CODES``,
+- ``_constants``: pure constants (status codes, ``_CRASH_CODES``,
   Win32 file-I/O constants, archive/retention constants, VEH buffer
   layout, pre-encoded static byte parts, ``_HEX_CHARS``).
-- ``_win32_structs`` — ``_ExceptionRecord`` / ``_ExceptionPointers`` /
+- ``_win32_structs``: ``_ExceptionRecord`` / ``_ExceptionPointers`` /
   ``_SYSTEMTIME`` ctypes structures (per-platform guard).
-- ``_veh_kernel32`` — ``_ensure_kernel32`` (kernel32 function-pointer
+- ``_veh_kernel32``: ``_ensure_kernel32`` (kernel32 function-pointer
   resolver).
-- ``_veh_callback`` — ``_write_u32_hex`` / ``_write_u64_hex`` /
+- ``_veh_callback``: ``_write_u32_hex`` / ``_write_u64_hex`` /
   ``_write_timestamp`` / ``_vectored_handler_impl`` / ``_write_to_file``
   + module-load-time ``_vectored_handler`` wrapping on Windows.
-- ``_diagnostics_archive`` — ``_compute_crash_header`` /
+- ``_diagnostics_archive``: ``_compute_crash_header`` /
   ``set_crash_handler_config_dir`` / ``_archive_crash_file`` /
   ``_enforce_archive_retention`` / ``_sweep_stale_diagnostics`` /
   ``report_pending_crash``.
-- ``_python_excepthook`` — ``_format_redacted_traceback`` /
+- ``_python_excepthook``: ``_format_redacted_traceback`` /
   ``_get_active_asr_backend`` / ``_crash_excepthook`` /
   ``install_python_excepthook`` / ``install_crash_handler`` /
   ``remove_crash_handler``.
@@ -117,7 +117,7 @@ _crash_msg_buf: bytearray = bytearray(0)
 # early rather than blocking the OS exception dispatcher.
 # Residual gap: the VEH callback is NOT async-signal-safe in Python
 # (allocates ctypes wrappers, calls kernel32). During
-# STATUS_HEAP_CORRUPTION the lock may fail — acceptable because the
+# STATUS_HEAP_CORRUPTION the lock may fail, acceptable because the
 # alternative (no lock) is worse (duplicate records, possible file
 # corruption from concurrent writes). See ``_veh_callback`` for usage.
 _crash_write_lock: threading.Lock = threading.Lock()
@@ -160,7 +160,7 @@ _original_excepthook = sys.excepthook
 _original_threading_excepthook: Any = None
 
 # ``_vectored_handler`` is the WINFUNCTYPE-wrapped VEH callback
-# (Windows-only). None on Linux/macOS — ``install_crash_handler``
+# (Windows-only). None on Linux/macOS, ``install_crash_handler``
 # short-circuits on ``sys.platform != "win32"`` and never dereferences
 # it. Set at module-load time by ``_veh_callback`` (on Windows).
 _vectored_handler: Any = None
@@ -187,7 +187,7 @@ _cached_active_backend: str | None = None
 # accessible as ``crash_handler.<name>`` (tests read these directly).
 # Function references are imported here so they're callable as
 # ``crash_handler.<name>(...)``. The function bodies access mutable
-# state via ``_ch.<name>`` (above), NOT via ``global`` — so test
+# state via ``_ch.<name>`` (above), NOT via ``global``, so test
 # mutations on the facade propagate.
 
 from voice_typer.server.crash_handler._constants import (  # noqa: F401,E402

@@ -9,7 +9,7 @@ Feature × OS matrix for Voice Typer.  Last updated: 2026-06-30.
 | Push-to-talk (on_release)  | ✅ Native or polling fallback | ✅ Native or `pynput` fallback | ✅ Native or `pynput` fallback | ✅ Native |
 | Default hotkey             | `Caps Lock` | `Fn` (Globe key) | `Caps Lock` | `Caps Lock` |
 | Required permission / setup | OS-level Caps Lock remap (PowerToys / registry Scancode Map) recommended | **Accessibility** permission (System Settings → Privacy & Security → Accessibility) | `input` group (`sudo usermod -aG input $USER`) + `setxkbmap -option caps:none` | `input` group + compositor-level Caps Lock remap (`keyd`/`kmonad`) |
-| Key suppression (so the hotkey doesn't reach the foreground app) | ✅ `WH_KEYBOARD_LL` returns non-zero | ✅ `CGEvent` tap returns NULL | ❌ evdev is read-only — neutralize via `setxkbmap` | ❌ Same as X11 |
+| Key suppression (so the hotkey doesn't reach the foreground app) | ✅ `WH_KEYBOARD_LL` returns non-zero | ✅ `CGEvent` tap returns NULL | ❌ evdev is read-only: neutralize via `setxkbmap` | ❌ Same as X11 |
 | Modifier-only hotkeys (Alt / Ctrl / Shift / Win / Fn) | ✅ | ✅ | ✅ | ✅ |
 | Fn / Globe key             | ❌ Firmware-only | ✅ Native binary only | ❌ Firmware-only | ❌ Firmware-only |
 | System tray icon           | ✅ pystray Win32 | ✅ pystray AppKit | ✅ pystray GTK | ✅ pystray GTK |
@@ -25,15 +25,15 @@ Feature × OS matrix for Voice Typer.  Last updated: 2026-06-30.
 | IPC TCP (loopback)         | ✅ | ✅ | ✅ | ✅ |
 | IPC session token auth     | ✅ | ✅ | ✅ | ✅ |
 | Config file permissions    | ⚠️ NTFS ACLs (default) | ✅ 0o600/0o700 | ✅ 0o600/0o700 | ✅ 0o600/0o700 |
-| Model download (CLI)       | ⚠️ No dedicated `voice-typer setup` CLI — model download is handled in-app via Settings → Models (`VoiceTyperService.download_model` IPC handler wrapping HuggingFace `snapshot_download`) or implicitly on first dictation. There is no headless CLI flag for triggering a model download. | ⚠️ Same — no dedicated CLI | ⚠️ Same — no dedicated CLI | ⚠️ Same — no dedicated CLI |
+| Model download (CLI)       | ⚠️ No dedicated `voice-typer setup` CLI: model download is handled in-app via Settings → Models (`VoiceTyperService.download_model` IPC handler wrapping HuggingFace `snapshot_download`) or implicitly on first dictation. There is no headless CLI flag for triggering a model download. | ⚠️ Same: no dedicated CLI | ⚠️ Same: no dedicated CLI | ⚠️ Same: no dedicated CLI |
 | Model download (UI)        | ✅ Implemented (Settings → Models) | ✅ Implemented (Settings → Models) | ✅ Implemented (Settings → Models) | ✅ Implemented (Settings → Models) |
 | Native binary build command | `scripts/build/compile_native.sh` (or `.ps1`) | `bash scripts/build/compile_native.sh` | `bash scripts/build/compile_native.sh` | `bash scripts/build/compile_native.sh` |
 
 ## Legend
 
-- ✅ — Fully supported and tested
-- ⚠️ — Partially supported or has known limitations
-- ❌ — Not supported
+- ✅: Fully supported and tested
+- ⚠️: Partially supported or has known limitations
+- ❌: Not supported
 
 ## Per-platform default hotkey
 
@@ -64,12 +64,12 @@ with `<f2>` in their config keep it untouched.
   notification and deep-links to System Settings → Privacy & Security →
   Accessibility via the `x-apple.systempreferences:` scheme. A 60s retry timer
   polls for the grant and auto-restarts the native backend the moment the user
-  toggles Voice Typer on in the Accessibility list — no app restart required.
+  toggles Voice Typer on in the Accessibility list, no app restart required.
 
 ### Windows
 - **No special permission** for the `WH_KEYBOARD_LL` hook (it is an
   out-of-process hook that does not require admin rights or a DLL injection).
-  Zero-command out of the box — no onboarding prompt needed.
+  Zero-command out of the box: no onboarding prompt needed.
 - Recommended but optional: OS-level Caps Lock remap (PowerToys Keyboard Manager
   or a registry Scancode Map) so Caps Lock stays neutralized even when Voice
   Typer isn't running.
@@ -91,7 +91,7 @@ with `<f2>` in their config keep it untouched.
   sudo password once; Voice Typer itself never prompts for or stores a
   password.
 - After installing a `.deb`/`.rpm`, log out and log back in once so the new
-  `input` group membership takes effect — there is no other manual step.
+  `input` group membership takes effect: there is no other manual step.
 - The compiled binary is the native `linux-key-listener` (evdev), which works
   on both X11 and Wayland because evdev sits below the display server.
 
@@ -99,7 +99,7 @@ with `<f2>` in their config keep it untouched.
 
 These are the oldest OS versions on which Voice Typer is tested and expected to
 work. The CI pipeline pins to these versions so release binaries are always
-built on the minimum — never a newer SDK/glibc that could introduce ABI
+built on the minimum: never a newer SDK/glibc that could introduce ABI
 incompatibility.
 
 | Platform | Minimum version | Rationale |
@@ -140,7 +140,7 @@ CI runner pinning (CI-10):
   `setxkbmap -option caps:none` (or `keyd`/`kmonad` for compositor-agnostic
   remapping). Tracked as **NATIVE-002**.
 - **Wayland hotkey support is now real**: the previous "Not supported (needs
-  portal API)" entry is obsolete — the evdev backend works on both X11 and
+  portal API)" entry is obsolete: the evdev backend works on both X11 and
   Wayland because evdev sits below the display server. Tracked as
   **XPLAT-004**, resolved by **NATIVE-001**.
 - **Clipboard**: `pyperclip` may not work on Wayland without `wl-copy`
@@ -207,7 +207,7 @@ Python side of the wire protocol without spawning the real compiled binary
 4. Wire the binary lookup into
    `voice_typer/server/native_hotkeys.get_native_binary_path()` and a backend
    subclass of `SubprocessHotkeyBackend` in `voice_typer/server/hotkeys/base.py`
-   (the `hotkeys/` package — see `hotkeys/factory.py` for the backend
+   (the `hotkeys/` package, see `hotkeys/factory.py` for the backend
    selection logic).
 5. Add `@pytest.mark.platform_specific` tests in `tests/`.
 6. Update this file with the feature×OS status.

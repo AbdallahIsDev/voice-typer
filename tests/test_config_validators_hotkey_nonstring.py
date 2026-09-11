@@ -70,7 +70,7 @@ class TestNonStringHotkeyCoercion:
         # the non-string ``123`` was coerced to ``None`` (NOT
         # stored as-is). The pre- behaviour would have left
         # ``hotkey=123`` in the dict.
-        assert "field_values" in captured, "_check_cross_field_hotkey_conflicts was not invoked — patch failed"
+        assert "field_values" in captured, "_check_cross_field_hotkey_conflicts was not invoked, patch failed"
         fv = captured["field_values"]
         assert fv["hotkey"] is None, f"expected hotkey coerced to None, got {fv['hotkey']!r}"
         # The legitimate string hotkey passes through unchanged.
@@ -154,7 +154,7 @@ class TestNonStringHotkeyCoercion:
         }, f"expected all-None hotkey_values, got {fv!r}"
 
     def test_string_hotkey_not_coerced(self) -> None:
-        """Sanity check: a valid string hotkey is NOT coerced — the
+        """Sanity check: a valid string hotkey is NOT coerced, the
         coercion only applies to non-string values. This guards against
         a future regression that over-eagerly coerces everything to
         ``None``.
@@ -212,7 +212,7 @@ class TestNonStringHotkeyCoercion:
             hotkey=123,  # type: ignore[assignment]
             repaste_hotkey=456,  # type: ignore[assignment]
         )
-        # No patch — exercise the real cross-field check too. The
+        # No patch, exercise the real cross-field check too. The
         # non-string values are coerced to None, so the real
         # ``_check_cross_field_hotkey_conflicts`` will skip them
         # (``isinstance(None, str)`` is False) and return [].

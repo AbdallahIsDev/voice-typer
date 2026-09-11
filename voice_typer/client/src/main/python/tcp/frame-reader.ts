@@ -28,7 +28,7 @@ export function handleTcpData(client: Socket, chunk: Buffer): void {
 		// error to the renderer BEFORE destroying the socket.
 		// Without this, the close handler would reject
 		// pending requests with the generic "Python socket
-		// closed" message — the renderer would log a
+		// closed" message, the renderer would log a
 		// confusing socket-closed error and the user would
 		// never learn the real cause (a too-large Python
 		// reply, e.g. get_history / export_diagnostics on a
@@ -40,7 +40,7 @@ export function handleTcpData(client: Socket, chunk: Buffer): void {
 		// Typed `PythonIpcError("command_failed", ...)`: an
 		// oversized reply is a command-level failure (the command
 		// ran but produced an unusable reply), not a disconnect or
-		// timeout — `command_failed` is the matching
+		// timeout, `command_failed` is the matching
 		// PythonCallErrorCode, and the typed class lets the
 		// `python-call` bridge classify via `err.code` instead of
 		// the bare-Error fallback.
@@ -57,7 +57,7 @@ export function handleTcpData(client: Socket, chunk: Buffer): void {
 		return;
 	}
 	let newlineIdx: number;
-	// biome-ignore lint/suspicious/noAssignInExpressions: classic buffer-scan idiom — assign + test in one expression
+	// biome-ignore lint/suspicious/noAssignInExpressions: classic buffer-scan idiom, assign + test in one expression
 	while ((newlineIdx = state.tcpBuffer.indexOf(0x0a)) !== -1) {
 		const lineBuf = state.tcpBuffer.subarray(0, newlineIdx);
 		state.tcpBuffer = state.tcpBuffer.subarray(newlineIdx + 1);
@@ -81,7 +81,7 @@ export function handleTcpData(client: Socket, chunk: Buffer): void {
 			handleMessage(msg as Record<string, unknown>);
 		} catch {
 			//never log the raw
-			// TCP line — invalid-JSON lines
+			// TCP line, invalid-JSON lines
 			// may contain transcription_final
 			// events with user speech (PII).
 			// Log only the length and, when
@@ -95,7 +95,7 @@ export function handleTcpData(client: Socket, chunk: Buffer): void {
 				line.length,
 			);
 			if (process.env.VOICE_TYPER_DEBUG === "1") {
-				// biome-ignore lint/suspicious/noControlCharactersInRegex: intentional — strip control chars for safe console preview
+				// biome-ignore lint/suspicious/noControlCharactersInRegex: intentional, strip control chars for safe console preview
 				const preview = line.slice(0, 80).replace(/[\x00-\x1f\x7f]/g, "?");
 				log.error("[TCP] invalid JSON preview: %s", preview);
 			}

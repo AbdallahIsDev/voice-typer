@@ -1,14 +1,14 @@
 """Platform-specific adapters: autostart, microphone listing, volume backend.
 
-Phase 4.5 /  — this file was previously a 1,264-line god-module
+Phase 4.5 / : this file was previously a 1,264-line god-module
 (``voice_typer/server/server_platform.py``); it has been split into a
 package with one module per concern:
 
-- :func:`is_remote_session` (PLAT-RDP) — :mod:`.remote_session`
-- :func:`_is_non_mic_device` (microphone filter) — :mod:`.remote_session`
+- :func:`is_remote_session` (PLAT-RDP), :mod:`.remote_session`
+- :func:`_is_non_mic_device` (microphone filter), :mod:`.remote_session`
 - :func:`_sd_dev_as_dict` / :func:`list_microphones` /
   :func:`find_microphone_by_name` / :func:`find_microphone_by_id`
-  (microphone listing) — :mod:`.microphone_list`
+  (microphone listing), :mod:`.microphone_list`
 - :func:`get_volume_backend` (platform volume backend factory) —
   :mod:`.volume_factory`
 - :func:`_desktop_quote` / :func:`_autostart_command` /
@@ -25,7 +25,7 @@ package with one module per concern:
   :func:`_register_app_autostart_runkey` /
   :func:`_unregister_app_autostart_runkey` /
   :func:`_is_app_autostart_runkey_registered` (Windows Task Scheduler
-  + HKCU Run key) — :mod:`.autostart_windows`
+  + HKCU Run key), :mod:`.autostart_windows`
 - :func:`_enable_autostart_macos` / :func:`_disable_autostart_macos` /
   :func:`_os_uid` / :func:`_is_autostart_macos` (macOS LaunchAgent) —
   :mod:`.autostart_macos`
@@ -52,13 +52,13 @@ Tests patch the OWNING submodule's attribute; production code resolves
 names through module-object attribute reads (or plain module-global
 lookups for names defined in the calling module itself) at call time:
 
-- A submodule calls names defined IN ITSELF directly (``X()``) — a
+- A submodule calls names defined IN ITSELF directly (``X()``), a
   module-global lookup, patchable via
   ``monkeypatch.setattr(<submodule>, "X", ...)``.
 - For names owned by a SIBLING submodule, the caller binds that module
   once at import time (e.g. ``from . import autostart as _autostart_mod``
   in :mod:`.autostart_windows`) and reads ``_autostart_mod.X()`` at call
-  time — so patches on the owning submodule propagate.
+  time, so patches on the owning submodule propagate.
 - This package re-exports every public name so existing imports of the
   form ``from voice_typer.server.server_platform import X`` keep working
   without modification.

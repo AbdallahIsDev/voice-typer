@@ -1,6 +1,6 @@
 """Tests for ``_recorder_split.start_recording``.
 
-Phase 4.5 — pin the extraction contract for the body of
+Phase 4.5, pin the extraction contract for the body of
 ``Recorder.start`` that was moved (verbatim, with ``self.X`` rewritten
 to ``recorder.X``) into a free function in
 ``voice_typer/server/recording/_recorder_split.py``. The
@@ -23,7 +23,7 @@ The tests pin four contracts:
      → VAD cache refresh → audio worker → event worker → device
      health checker) is invoked in source order.
 
-  2. **Device-enumeration at function scope** (the ``CRITICAL — DO
+  2. **Device-enumeration at function scope** (the ``CRITICAL, DO
      NOT RESTRUCTURE`` warning): the ``last_error`` /
      ``selected_device`` / ``effective_sr`` / ``used_fallback`` locals
      are local variables of ``start_recording`` (in ``co_varnames``),
@@ -111,7 +111,7 @@ def _build_mock_recorder(
     # generous sample rate (max of config.sample_rate and 48 kHz)
     # BEFORE the stream opens. The check reads
     # ``recorder._preroll_active`` (bool) and
-    # ``recorder._preroll_seconds`` (float) — both must be real Python
+    # ``recorder._preroll_seconds`` (float), both must be real Python
     # scalars (MagicMock would raise ``TypeError`` on the
     # ``> 0`` / ``int(...)`` ops). Default to "preroll inactive" so
     # the size block is a no-op (matches the behavior
@@ -133,7 +133,7 @@ def _source_without_docstring(func) -> str:
 
     Python 3.13 dedents function docstrings at compile time (gh-103180), so
     ``src.replace(func.__doc__ or "", "")`` only strips the docstring on
-    <=3.12 — on 3.13 the dedented ``__doc__`` is no longer a substring of the
+    <=3.12, on 3.13 the dedented ``__doc__`` is no longer a substring of the
     raw source and the replace silently no-ops, leaking the docstring (which
     legitimately mentions ``self._start_lock``) into the inspected body.
     Excising the docstring statement via the AST is robust on every version.
@@ -188,7 +188,7 @@ class TestStartRecordingHappyPath:
         recorder._stream_lifecycle.open_stream_fallback.assert_not_called()
         recorder._session_state.resize_buffers_for_sample_rate.assert_called_once()
         assert recorder._recording_event.is_set()
-        # preroll prepend was MOVED off the start thread — it
+        # preroll prepend was MOVED off the start thread, it
         # now runs as a "phase 0" inside the audio worker thread's
         # ``audio_worker_loop`` (capture.py). The start() path no
         # longer calls ``prepend_preroll_to_buffer`` synchronously.
@@ -205,7 +205,7 @@ class TestStartRecordingHappyPath:
                audio worker → event worker → device health checker.
 
         : the preroll prepend step was REMOVED from this ordering
-               — it now runs as a "phase 0" inside the audio worker thread's
+             , it now runs as a "phase 0" inside the audio worker thread's
                ``audio_worker_loop`` (capture.py), so start() no longer
                synchronously invokes ``prepend_preroll_to_buffer`` between
                ``event.set`` and ``refresh_vad``.
@@ -238,7 +238,7 @@ class TestStartRecordingHappyPath:
         recorder._devices._resolve_device.side_effect = log_call("resolve_device", ret=5)
         recorder._devices._same_physical_microphone_candidates.side_effect = log_call("candidates", ret=[5])
         recorder._stream_lifecycle.build_audio_callback.side_effect = log_call("build_callback", ret=object())
-        # ``open_stream_for_candidates`` returns a 3-tuple — the
+        # ``open_stream_for_candidates`` returns a 3-tuple, the
         # function unpacks it, so the side_effect must return one.
         recorder._stream_lifecycle.open_stream_for_candidates.side_effect = log_call(
             "open_stream", ret=(5, 16000, None)
@@ -302,7 +302,7 @@ class TestStartRecordingHappyPath:
 
 
 class TestDeviceEnumerationAtFunctionScope:
-    """Pin the ``CRITICAL — DO NOT RESTRUCTURE`` contract: the
+    """Pin the ``CRITICAL, DO NOT RESTRUCTURE`` contract: the
     device-enumeration block (``last_error``, ``selected_device``,
     ``effective_sr``, ``_open_stream_for_candidates``,
     ``_open_stream_fallback``, and the ``if recorder._stream_lifecycle._stream is
@@ -336,7 +336,7 @@ class TestDeviceEnumerationAtFunctionScope:
     def test_locals_not_in_co_cellvars(self):
         """The device-enumeration locals are NOT captured by any
         nested closure. They appear in ``co_cellvars`` only if some
-        nested ``def`` references them — they shouldn't.
+        nested ``def`` references them, they shouldn't.
         """
         code = start_recording.__code__
         for name in ("last_error", "selected_device", "effective_sr"):
@@ -361,7 +361,7 @@ class TestDeviceEnumerationAtFunctionScope:
             assert name not in code.co_freevars
             assert all(name not in str(c) for c in code.co_consts), (
                 f"CRITICAL contract: `{name}` must not appear anywhere in "
-                "start_recording — the microphone-fallback persistence "
+                "start_recording, the microphone-fallback persistence "
                 "block was removed because auto-writing config.microphone "
                 "silently replaced the user's saved selection."
             )
@@ -390,7 +390,7 @@ class TestStartRecordingFallbackPath:
         recorder = _build_mock_recorder(open_success=False)
         # First attempt fails (``_stream`` is None);
         # ``open_stream_fallback`` is the StreamLifecycle method that
-        # opens the stream — it sets ``recorder._stream_lifecycle._stream`` itself on
+        # opens the stream, it sets ``recorder._stream_lifecycle._stream`` itself on
         # success. We simulate that by using a ``side_effect`` that
         # assigns ``recorder._stream_lifecycle._stream`` to a non-None MagicMock before
         # returning the 4-tuple.
@@ -421,7 +421,7 @@ class TestStartRecordingFallbackPath:
         """When both the candidate path AND the fallback path fail
         to open a stream, ``start_recording`` must re-raise the
         last error captured during enumeration (NOT a generic
-        ``RuntimeError``) — so callers see the underlying
+        ``RuntimeError``), so callers see the underlying
         OS/PortAudio failure (e.g. ``OSError: [Errno -9998]
         Invalid number of channels``).
         """
@@ -487,7 +487,7 @@ class TestMicrophoneFallbackSessionLocal:
 
         assert recorder.config.microphone == "Windows WASAPI|USB Mic", (
             "config.microphone must NOT be auto-rewritten when a "
-            "fallback device is used — the saved selection belongs to "
+            "fallback device is used, the saved selection belongs to "
             "the user."
         )
         recorder.config.save.assert_not_called()
@@ -600,7 +600,7 @@ class TestResamplerWarmUp:
         )
         from voice_typer.server.recording import resampling as rec_pkg
 
-        # Pretend scipy is already loaded — skip the synchronous warm-up.
+        # Pretend scipy is already loaded, skip the synchronous warm-up.
         monkeypatch.setattr(rec_pkg, "_resample_poly", object(), raising=False)
         monkeypatch.setattr(rec_pkg, "_resample_poly_error", None, raising=False)
 
@@ -610,7 +610,7 @@ class TestResamplerWarmUp:
 
     def test_warm_up_skipped_when_poly_failed_before(self, monkeypatch):
         """If a previous warm-up attempt failed
-        (``_resample_poly_error`` is set), don't retry — the
+        (``_resample_poly_error`` is set), don't retry, the
         per-chunk resample fallback will run on the RT thread.
         """
         recorder = _build_mock_recorder(
@@ -662,7 +662,7 @@ class TestAudioProcessorRetune:
 
         start_recording(recorder)
 
-        # retune IS now called — the chain is rebuilt at 48 kHz
+        # retune IS now called, the chain is rebuilt at 48 kHz
         # so ``process_chunk`` doesn't need to resample 48 kHz → 16 kHz
         # per chunk on the worker thread.
         audio_processor.set_sample_rate.assert_called_once_with(48000)
@@ -677,7 +677,7 @@ class TestAudioProcessorRetune:
             audio_processor=audio_processor,
             open_success=True,
         )
-        # No ``set_sample_rate`` attribute on the mock — the retune
+        # No ``set_sample_rate`` attribute on the mock, the retune
         # helper falls through to ``rebuild_from_config`` (the spec-
         # limited fallback path).
         del audio_processor.set_sample_rate
@@ -711,7 +711,7 @@ class TestAudioProcessorRetune:
             open_success=True,
         )
 
-        # Must not raise — with no audio processor, no retune is needed
+        # Must not raise, with no audio processor, no retune is needed
         # (no filter chain to tune). The 48 kHz audio is stored raw and
         # resampled by stop()/snapshot() on the way out.
         start_recording(recorder)
@@ -720,7 +720,7 @@ class TestAudioProcessorRetune:
         """: a buggy ``AudioProcessor.set_sample_rate`` is invoked
         from ``start_recording`` but the ``try/except`` around the
         retune call catches the failure and logs a WARNING. ``start()``
-        still completes successfully — the per-chunk resample in
+        still completes successfully, the per-chunk resample in
         ``process_chunk`` runs as the robust fallback on the worker
         thread (and any failure there is caught by the audio worker's
         per-chunk try/except).
@@ -735,7 +735,7 @@ class TestAudioProcessorRetune:
             open_success=True,
         )
 
-        # Must not raise — the try/except logs a WARNING and continues.
+        # Must not raise, the try/except logs a WARNING and continues.
         with caplog.at_level("WARNING", logger="voice_typer.server.recording"):
             start_recording(recorder)
         audio_processor.set_sample_rate.assert_called_once_with(48000)
@@ -757,7 +757,7 @@ class TestAudioProcessorRetune:
             open_success=True,
         )
 
-        # Must not raise — the try/except logs a WARNING and continues.
+        # Must not raise, the try/except logs a WARNING and continues.
         with caplog.at_level("WARNING", logger="voice_typer.server.recording"):
             start_recording(recorder)
         audio_processor.rebuild_from_config.assert_called_once_with(recorder.config)
@@ -772,7 +772,7 @@ class TestAudioProcessorRetune:
         (e.g. an AudioProcessor test double that didn't set the
         attribute), the retune helper's ``int(None)`` check would
         raise. The helper itself guards against this (``_proc_sr is
-        None`` short-circuits) — but if a future regression removes
+        None`` short-circuits), but if a future regression removes
         that guard, the ``try/except`` around the retune call in
         ``start_recording`` catches the ``TypeError`` and continues
         with the per-chunk resample fallback.
@@ -786,7 +786,7 @@ class TestAudioProcessorRetune:
             open_success=True,
         )
 
-        # Must not raise — retune helper short-circuits on
+        # Must not raise, retune helper short-circuits on
         # ``_proc_sr is None`` (no set_sample_rate call); even if it
         # didn't, the try/except would catch the failure.
         start_recording(recorder)
@@ -801,7 +801,7 @@ class TestAudioProcessorRetune:
 class TestRecordingEventContract:
     """``_recording_event.set()`` must be called BEFORE the audio
     worker / event worker / device health checker threads are
-    spawned — so the callback will actually push to the ring buffer
+    spawned, so the callback will actually push to the ring buffer
     once the workers start draining it (the fix).
     """
 
@@ -847,23 +847,23 @@ class TestNoRealExternalDeps:
 
     def test_permissions_module_not_imported_in_function_body(self):
         """``start_recording``'s source must not import the
-        permissions module — that's the responsibility of
+        permissions module, that's the responsibility of
         ``Recorder.start``'s lock block (which stays on
         ``Recorder.start``).
         """
         body = _source_without_docstring(start_recording)
         assert "verify_microphone_accessible" not in body, (
-            "start_recording must NOT call the permissions module — that's "
+            "start_recording must NOT call the permissions module, that's "
             "the responsibility of Recorder.start's _start_lock block."
         )
         assert "import permissions" not in body, (
-            "start_recording must not import the permissions module — the "
+            "start_recording must not import the permissions module, the "
             "lock-gate permission check stays on Recorder.start."
         )
 
     def test_no_sd_or_sounddevice_references_in_function_body(self):
         """The function body must not reference ``sd`` or
-        ``sounddevice`` directly — all PortAudio interaction happens
+        ``sounddevice`` directly, all PortAudio interaction happens
         inside the recorder's delegate methods (which tests stub via
         MagicMock).
         """
@@ -874,7 +874,7 @@ class TestNoRealExternalDeps:
         assert not sounddevice_pattern.search(body), "start_recording must not reference `sounddevice` directly."
 
     def test_no_direct_subprocess_or_os_calls(self):
-        """No ``os.system`` / ``subprocess.*`` calls — those would be
+        """No ``os.system`` / ``subprocess.*`` calls, those would be
         a major layering violation.
         """
         body = _source_without_docstring(start_recording)
@@ -915,14 +915,14 @@ class TestSourceRewritingContract:
 
     def test_audio_processor_access_via_recorder(self):
         """: ``_audio_processor`` IS accessed from
-        ``start_recording`` again — the retune call that was previously
-        removed has been re-added (wrapped in a try/except that
-        logs-but-continues on failure). The access MUST be via
-        ``recorder._audio_processor`` (not ``self._audio_processor``)
-        — the second assertion pins that.
+          ``start_recording`` again, the retune call that was previously
+          removed has been re-added (wrapped in a try/except that
+          logs-but-continues on failure). The access MUST be via
+          ``recorder._audio_processor`` (not ``self._audio_processor``)
+        , the second assertion pins that.
         """
         body = _source_without_docstring(start_recording)
-        # retune call re-added — recorder._audio_processor is
+        # retune call re-added, recorder._audio_processor is
         # accessed (passed to retune_audio_processor).
         assert "recorder._audio_processor" in body, (
             ": start_recording must access recorder._audio_processor "
@@ -949,7 +949,7 @@ class TestSourceRewritingContract:
                 f"start_recording must call `{method}` via {owner}.{method}, not via self.{method}."
             )
             assert f"self.{method}" not in body, (
-                f"start_recording must NOT call `self.{method}` — the body was rewritten to use {owner}.{method}."
+                f"start_recording must NOT call `self.{method}`, the body was rewritten to use {owner}.{method}."
             )
 
 
@@ -974,13 +974,13 @@ class TestLazyPackageImport:
 
     def test_lazy_import_in_function_body(self):
         """The function body contains a call-time import of the mutable
-        resampling namespace — pin this so a future refactor doesn't move
+        resampling namespace, pin this so a future refactor doesn't move
         it to module top (which would create a circular import).
         """
         body = _source_without_docstring(start_recording)
         assert "from voice_typer.server.recording import resampling as _recording_resampling" in body, (
             "start_recording must do the lazy resampling import inside its "
-            "body — moving it to module top would re-introduce the "
+            "body, moving it to module top would re-introduce the "
             "circular import that recorder.py's top-level import of this "
             "module creates."
         )

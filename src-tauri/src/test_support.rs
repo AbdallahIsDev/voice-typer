@@ -13,7 +13,7 @@
 //! process-global `PANIC_HOOK_REENTRY` AtomicBool (`swap(true)` on
 //! entry, `store(false)` at the end of the body). If two such tests
 //! run at the same time, one test's `swap(true)` can land between the
-//! other test's `store(false)` and its terminal `load()` — a spurious
+//! other test's `store(false)` and its terminal `load()`, a spurious
 //! "guard must be reset" failure that is purely a test-isolation bug,
 //! not a production defect.
 //!
@@ -22,7 +22,7 @@
 //! `PANIC_HOOK_REENTRY`), regardless of which module the test lives
 //! in, so the global flag is only ever touched by one test at a time.
 //!
-//! Current lock holders (KEEP THIS LIST IN SYNC — any NEW test that
+//! Current lock holders (KEEP THIS LIST IN SYNC, any NEW test that
 //! fires a real panic through the global hook, or that reads/writes
 //! `PANIC_HOOK_REENTRY`, MUST acquire `PANIC_HOOK_TEST_LOCK` and be
 //! added here, otherwise it can reintroduce the "guard must be reset"
@@ -39,7 +39,7 @@ use std::sync::Mutex;
 /// panic hook or directly mutate `PANIC_HOOK_REENTRY`.
 ///
 /// Poison-recovery (`.unwrap_or_else(|e| e.into_inner())`) mirrors the
-/// pattern in `platform::logging`'s `RotatingFileWriter` — a panic
+/// pattern in `platform::logging`'s `RotatingFileWriter`: a panic
 /// while the guard is held marks the mutex poisoned, but the panicking
 /// test always catches its own panic (`catch_unwind`), so the next
 /// lock() must recover the guard rather than re-panic.
@@ -55,8 +55,8 @@ pub(crate) static PANIC_HOOK_TEST_LOCK: Mutex<()> = Mutex::new(());
 /// threads. A test that spawns a subprocess (e.g. `sleep 30` for a
 /// dev-mode sidecar, or a POSIX reaper) makes that subprocess a child
 /// of the TEST BINARY. Tests that snapshot the test binary's own
-/// children — `enumerate_children(own_pid)` /
-/// `kill_process_tree(own_pid)` — then see the sibling's live child:
+/// children: `enumerate_children(own_pid)` /
+/// `kill_process_tree(own_pid)`: then see the sibling's live child:
 /// - `test_enumerate_children_*_own_pid_*` asserts the list is EMPTY
 ///   → fails with the sibling's child in the list.
 /// - `test_kill_process_tree_own_pid_does_not_self_kill`'s DFS would
@@ -67,12 +67,12 @@ pub(crate) static PANIC_HOOK_TEST_LOCK: Mutex<()> = Mutex::new(());
 /// process (for the whole test body) AND by every test that
 /// enumerates/signals the test process's own children, so the two
 /// families never overlap. (The tokio spawns in the locked tests use
-/// `std::sync::Mutex` guards held across `.await` — this only compiles
+/// `std::sync::Mutex` guards held across `.await`, this only compiles
 /// because `#[tokio::test]` defaults to the `current_thread` flavor;
 /// do not flip those to `multi_thread` without switching this to a
 /// `tokio::sync::Mutex`.)
 ///
-/// Current lock holders (KEEP THIS LIST IN SYNC — any NEW test that
+/// Current lock holders (KEEP THIS LIST IN SYNC, any NEW test that
 /// spawns a real OS child process, or that enumerates/signals the
 /// test process's OWN pid's children, MUST acquire
 /// `CHILD_PROCESS_TEST_LOCK` and be added here, otherwise it can
@@ -83,7 +83,7 @@ pub(crate) static PANIC_HOOK_TEST_LOCK: Mutex<()> = Mutex::new(());
 /// - `platform::process_tests::test_enumerate_children_procfs_own_pid_no_children`
 /// - `platform::process_tests::test_enumerate_children_own_pid_returns_empty`
 /// - `platform::process_tests::test_register_kill_on_parent_exit_returns_result_not_panic`
-///   (POSIX branch — spawns a reaper subprocess)
+///   (POSIX branch: spawns a reaper subprocess)
 /// - `platform::open_path_tests::test_open_path_reaper_thread_does_not_panic`
 ///   (spawns `true` / `cmd /c ver`)
 /// - `state_tests::test_devmode_drop_kills_child_when_kill_on_drop_set`
@@ -98,6 +98,6 @@ pub(crate) static PANIC_HOOK_TEST_LOCK: Mutex<()> = Mutex::new(());
 ///   (spawns `sleep 30`)
 ///
 /// Poison-recovery (`.unwrap_or_else(|e| e.into_inner())`) mirrors
-/// `PANIC_HOOK_TEST_LOCK` — a panicking test would poison the mutex,
+/// `PANIC_HOOK_TEST_LOCK`: a panicking test would poison the mutex,
 /// and the next lock() must recover rather than re-panic.
 pub(crate) static CHILD_PROCESS_TEST_LOCK: Mutex<()> = Mutex::new(());

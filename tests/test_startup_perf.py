@@ -2,16 +2,16 @@
 
 Pins the DJ-2 / DJ-3 / DJ-4 / DJ-57 fixes:
 
-* **DJ-2** — ``VoiceTyperApp.__init__`` must NOT eagerly construct
+* **DJ-2**: ``VoiceTyperApp.__init__`` must NOT eagerly construct
   ``TemplateManager`` / ``VocabularyManager`` (which read JSON from
   disk). The managers must be lazy-constructed on first access via the
   existing fallbacks in ``service/template.py`` /
   ``service/vocabulary.py`` / ``dictation_pipeline.py``.
-* **DJ-57** — ``vad.preload()`` must be called during startup (on a
+* **DJ-57**: ``vad.preload()`` must be called during startup (on a
   fire-and-forget daemon thread) so the Silero VAD model is hot by
   the time the user first presses F2.
 
-These tests run on the Linux sandbox — they don't require sounddevice,
+These tests run on the Linux sandbox, they don't require sounddevice,
 torch, or a display server. ``mock_heavy_imports`` (autouse, in
 ``conftest.py``) stubs the hardware-touching modules.
 """
@@ -143,7 +143,7 @@ class TestNoEagerManagerConstruction:
         """VocabularyManager() must not be called from ``VoiceTyperApp.__init__``.
 
         Mirrors the TemplateManager test. VocabularyManager reads
-        vocabulary.json from disk at construction time — moving it off
+        vocabulary.json from disk at construction time, moving it off
         the main-thread critical path saves hundreds of ms on a cold
         disk.
         """
@@ -185,7 +185,7 @@ class TestNoEagerManagerConstruction:
 
     def test_lazy_fallback_still_constructs_managers(self, tmp_config_dir, monkeypatch):
         """The lazy fallback in ``service/template.py`` must still construct
-        the manager on first access — DJ-2 only removes the EAGER init,
+        the manager on first access, DJ-2 only removes the EAGER init,
         not the manager itself."""
         _patch_app_platform_helpers(monkeypatch)
 
@@ -258,7 +258,7 @@ class TestVadPreloadCalled:
 
     def test_vad_preload_failure_does_not_break_startup(self, app_for_startup_perf, monkeypatch):
         """If ``vad.preload()`` raises (e.g. torch not installed), startup
-        must NOT abort — the audio worker's RMS fallback handles the
+        must NOT abort, the audio worker's RMS fallback handles the
         no-VAD case. This pins the best-effort contract documented in
         ``_spawn_vad_preload``."""
         from voice_typer.server import startup_sequence, vad as vad_mod
@@ -285,7 +285,7 @@ class TestVadPreloadCalled:
         app_for_startup_perf.config.bubble_show_on_startup = False
         monkeypatch.delenv("VOICE_TYPER_RESTART", raising=False)
 
-        # Must NOT raise — the daemon thread swallows the exception.
+        # Must NOT raise, the daemon thread swallows the exception.
         startup_sequence.StartupSequence(app_for_startup_perf).run()
 
         # Sanity: hotkey + model load DID run (startup was not aborted
@@ -338,5 +338,5 @@ class TestNoEagerQwenEnsureEngine:
             "DJ-3: VoiceTyperApp.__init__ must NOT eagerly call "
             f"_ensure_engine (got calls: {ensure_engine_calls}). The "
             "background load thread constructs the engine on the daemon "
-            "thread — see ModelManager.start_background_load."
+            "thread, see ModelManager.start_background_load."
         )

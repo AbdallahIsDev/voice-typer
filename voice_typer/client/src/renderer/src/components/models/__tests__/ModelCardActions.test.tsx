@@ -1,12 +1,12 @@
 /**
- * ModelCardActions unit tests —  /
+ * ModelCardActions unit tests,  /
  *
  * Coverage:
  *   1. All visual states render the correct button label + icon:
  *      - Branch 1a: Active + available (disabled "Active" tick + Delete —
  *        ACTIVE-DELETE: the backend removes the files and reassigns the
  *        selection, so deleting the active model is allowed).
- *      - Branch 2: Not downloaded ("Download" button, NO Delete — a
+ *      - Branch 2: Not downloaded ("Download" button, NO Delete, a
  *        not-installed model has nothing to remove, even when it is the
  *        active default like small.en before first download).
  *      - Branch 3: Downloaded ("Select" button + Delete).
@@ -14,7 +14,7 @@
  *      while its async action is in-flight,
  *      aria-label to the "Downloading…" string so SR users hear the
  *      in-progress state (not the stale per-model label).
- *   3.  #8: the oneAtATimeTitle() English fallback is GONE — the
+ *   3.  #8: the oneAtATimeTitle() English fallback is GONE, the
  *      disabled-button title is sourced directly from
  *      `t("models.download.oneAtATime")` (which IS in the catalog).
  *   4.  #9: the Select button uses Tick02Icon (not PlayIcon) —
@@ -66,7 +66,7 @@ const baseModel: ModelInfo = {
 
 const noop = vi.fn();
 
-describe("ModelCardActions — visual states (3 branches)", () => {
+describe("ModelCardActions, visual states (3 branches)", () => {
 	afterEach(() => {
 		cleanup();
 	});
@@ -88,7 +88,7 @@ describe("ModelCardActions — visual states (3 branches)", () => {
 			name: /Active: tiny/i,
 		});
 		expect(activeBtn).toBeDisabled();
-		// Uses the Tick02Icon (not PlayIcon — Select/Active are tick affordances).
+		// Uses the Tick02Icon (not PlayIcon, Select/Active are tick affordances).
 		// Delete icon renders FIRST, so the Active tick's icon is the second one.
 		expect(screen.getAllByTestId("hugeicon")[1]).toHaveAttribute(
 			"data-name",
@@ -106,7 +106,7 @@ describe("ModelCardActions — visual states (3 branches)", () => {
 		expect(onDelete).toHaveBeenCalledTimes(1);
 	});
 
-	it("Branch 2 (Active + missing from disk): renders ONLY Download — no Delete for a not-installed model", () => {
+	it("Branch 2 (Active + missing from disk): renders ONLY Download, no Delete for a not-installed model", () => {
 		render(
 			<ModelCardActions
 				model={{ ...baseModel, isActive: true, downloaded: false }}
@@ -119,7 +119,7 @@ describe("ModelCardActions — visual states (3 branches)", () => {
 		);
 		// The active model is missing from disk (e.g. the default
 		// `small.en` before the user downloads anything). Offer Download
-		// (restore it) but NO Delete — a not-installed model has nothing
+		// (restore it) but NO Delete, a not-installed model has nothing
 		// to remove, and a trash icon next to "Download" falsely implies
 		// an installed model.
 		const dlBtn = screen.getByRole("button", {
@@ -195,7 +195,7 @@ describe("ModelCardActions — visual states (3 branches)", () => {
 			name: /Select tiny/i,
 		});
 		expect(selectBtn).toHaveTextContent("Select");
-		//#9: Select uses Tick02Icon (was PlayIcon — semantically wrong).
+		//#9: Select uses Tick02Icon (was PlayIcon, semantically wrong).
 		// Branch 3 renders BOTH a Select button and a Delete button, so we
 		// scope the icon assertion to the Select button itself.
 		expect(selectBtn.querySelector('[data-testid="hugeicon"]')).toHaveAttribute(
@@ -209,7 +209,7 @@ describe("ModelCardActions — visual states (3 branches)", () => {
 	});
 });
 
-describe("ModelCardActions — aria-busy + aria-label swap on async buttons", () => {
+describe("ModelCardActions, aria-busy + aria-label swap on async buttons", () => {
 	afterEach(() => {
 		cleanup();
 	});
@@ -228,8 +228,8 @@ describe("ModelCardActions — aria-busy + aria-label swap on async buttons", ()
 		const dlBtn = screen.getByRole("button", { name: /Downloading…/i });
 		expect(dlBtn).toHaveAttribute("aria-busy", "true");
 		// In-flight presentation (2026-09-03 user request): the icon swaps
-		// to a LOADING spinner (spinning) — the static download icon
-		// spinning around itself read as broken — and the visible text
+		// to a LOADING spinner (spinning), the static download icon
+		// spinning around itself read as broken, and the visible text
 		// swaps to the localized "Downloading…" (the frozen size number
 		// inside a disabled spinner button misread as "downloaded").
 		expect(dlBtn.querySelector('[data-testid="hugeicon"]')).toHaveAttribute(
@@ -238,7 +238,7 @@ describe("ModelCardActions — aria-busy + aria-label swap on async buttons", ()
 		);
 		expect(dlBtn).toHaveTextContent("Downloading…");
 		// The fixed size width is dropped for the in-flight state (fit
-		// content) — no `w-24` on the spinner button.
+		// content), no `w-24` on the spinner button.
 		expect(dlBtn.className).not.toContain("w-24");
 		// The stale per-model aria-label is NOT used while in-flight.
 		expect(dlBtn.getAttribute("aria-label")).not.toMatch(/Download tiny/);
@@ -283,7 +283,7 @@ describe("ModelCardActions — aria-busy + aria-label swap on async buttons", ()
 	});
 });
 
-describe("ModelCardActions — BG-R16 #8 (oneAtATimeTitle fallback removed)", () => {
+describe("ModelCardActions, BG-R16 #8 (oneAtATimeTitle fallback removed)", () => {
 	afterEach(() => {
 		cleanup();
 	});
@@ -301,7 +301,7 @@ describe("ModelCardActions — BG-R16 #8 (oneAtATimeTitle fallback removed)", ()
 		);
 		const dlBtn = screen.getByRole("button", { name: /Download tiny/i });
 		// The queue's primary flow: clicking Download while a transfer runs
-		// QUEUES the request instead of erroring — the button must not be
+		// QUEUES the request instead of erroring, the button must not be
 		// disabled, and the "one at a time" hint must NOT linger as a lie
 		// (no title at all: the request is accepted, it just queues).
 		expect(dlBtn).toBeEnabled();
@@ -309,7 +309,7 @@ describe("ModelCardActions — BG-R16 #8 (oneAtATimeTitle fallback removed)", ()
 	});
 });
 
-describe("ModelCardActions — DeleteButton rendering", () => {
+describe("ModelCardActions, DeleteButton rendering", () => {
 	afterEach(() => {
 		cleanup();
 	});
@@ -361,7 +361,7 @@ describe("ModelCardActions — DeleteButton rendering", () => {
 	});
 });
 
-describe("ModelCardActions — download button size display + fixed width (2026-08-21)", () => {
+describe("ModelCardActions, download button size display + fixed width (2026-08-21)", () => {
 	afterEach(() => {
 		cleanup();
 	});
@@ -378,7 +378,7 @@ describe("ModelCardActions — download button size display + fixed width (2026-
 			/>,
 		);
 		const dlBtn = screen.getByRole("button", { name: /Download tiny/i });
-		// The visible size is the canonical "466 MB" — the `~` is gone
+		// The visible size is the canonical "466 MB", the `~` is gone
 		// and a space separates the number from the unit.
 		expect(dlBtn).toHaveTextContent("466 MB");
 		expect(dlBtn).not.toHaveTextContent("~");
@@ -445,7 +445,7 @@ describe("ModelCardActions — download button size display + fixed width (2026-
 	});
 });
 
-describe("ModelCardActions — download-queue state (queued model card)", () => {
+describe("ModelCardActions, download-queue state (queued model card)", () => {
 	/** Renders Branch 2 (not downloaded) with the given queue position. */
 	const renderQueued = (
 		queuePosition: number | null,
@@ -469,7 +469,7 @@ describe("ModelCardActions — download-queue state (queued model card)", () => 
 		renderQueued(2);
 		const btn = screen.getByRole("button", { name: /Queued/i });
 		expect(btn).toHaveTextContent("Queued");
-		// The model size must NOT render while queued — a size number
+		// The model size must NOT render while queued, a size number
 		// would imply the transfer is running.
 		expect(btn).not.toHaveTextContent("466");
 	});
@@ -477,7 +477,7 @@ describe("ModelCardActions — download-queue state (queued model card)", () => 
 	it("queued button aria-label + title carry the queue position", () => {
 		renderQueued(2);
 		const btn = screen.getByRole("button", { name: /Queued/i });
-		const expected = "Queued — position 2 in the download queue";
+		const expected = "Queued: position 2 in the download queue";
 		expect(btn).toHaveAttribute("aria-label", expected);
 		expect(btn).toHaveAttribute("title", expected);
 	});
@@ -494,7 +494,7 @@ describe("ModelCardActions — download-queue state (queued model card)", () => 
 		const btn = screen.getByRole("button", { name: /Queued/i });
 		expect(btn).not.toHaveAttribute(
 			"title",
-			"Only one download at a time — wait for the current download to finish or cancel it",
+			"Only one download at a time: wait for the current download to finish or cancel it",
 		);
 	});
 

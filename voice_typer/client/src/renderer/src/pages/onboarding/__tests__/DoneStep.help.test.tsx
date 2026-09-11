@@ -37,7 +37,7 @@ const baseProps = {
 	selectedBackend: "local" as const,
 };
 
-describe("DoneStep — cheat-sheet link + ? hint", () => {
+describe("DoneStep, cheat-sheet link + ? hint", () => {
 	afterEach(() => {
 		cleanup();
 	});

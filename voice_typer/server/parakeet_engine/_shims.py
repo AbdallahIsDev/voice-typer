@@ -16,14 +16,14 @@ class TranscriptionBackendError(RuntimeError):
 
 
 class _AbortStoppingCriteria:
-    """Legacy ``transformers.StoppingCriteria`` shim — preserved for
+    """Legacy ``transformers.StoppingCriteria`` shim, preserved for
     backward-compat with tests/importers that reference the name.
 
     The torch/transformers backend used this to wire
     ``model.generate()``'s ``stopping_criteria`` argument so the
     dictation pipeline's cancel path (ESC / watchdog) could stop
     generation between tokens. The ONNX Runtime backend has no
-    per-token stopping hook — ``onnx-asr`` 0.12.0 does not forward
+    per-token stopping hook, ``onnx-asr`` 0.12.0 does not forward
     ``RunOptions`` to ``session.run`` (see the note on
     ``ParakeetEngine._abort_event``), so the working abort path is
     the inter-chunk ``_abort_event`` check only (see

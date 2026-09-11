@@ -5,7 +5,7 @@
  * three+ copies of byte / number / duration formatting (``About.tsx``,
  * ``Dashboard.tsx``, ``StatCards.tsx``, ``lib/utils/models.ts``), each
  * hardcoding English suffixes (``"MB"`` / ``"GB"`` / ``"K+"``) and
- * calling ``toFixed()`` / ``String(n)`` directly — so non-English
+ * calling ``toFixed()`` / ``String(n)`` directly, so non-English
  * locales saw English unit labels and Latin digit grouping regardless
  * of their selected UI language. This module is the single source of
  * truth for those formatters, using the platform ``Intl`` APIs so
@@ -22,7 +22,7 @@
  *     its own ``formatBytes`` / ``formatRelativeTime`` for the
  *     ``About.test.tsx`` unit tests. Those wrappers remain untouched.
  *   - ``DownloadProgressBar.tsx`` previously kept its own local
- *     ``formatBytes`` / ``formatSpeed`` —  consolidated them
+ *     ``formatBytes`` / ``formatSpeed``,  consolidated them
  *     into the shared exports below (``formatBytes`` already existed;
  *     ``formatSpeed`` is new).
  *
@@ -36,7 +36,7 @@
  * Previously this module also exported ``formatCompactNumber``,
  * ``formatDateTime``, and ``formatRelativeTime``. None of those were
  * imported by any production file (verified by grep across
- * ``voice_typer/client/src/renderer``) — every call site
+ * ``voice_typer/client/src/renderer``), every call site
  * (``DiagnosticsSettingsSection.tsx``, ``Dashboard.tsx``,
  * ``StatCards.tsx``, ``DownloadProgressBar.tsx``) keeps its own private
  * local copy that
@@ -48,7 +48,7 @@
  *     (its two callers depend on the ``"K"`` / ``"K+"`` suffix shape
  *     that ``formatCompactNumber`` did NOT produce). The
  *     ``@deprecated`` tag was a leftover from a migration plan that
- *     never landed — and now that ``formatCompactNumber`` is deleted,
+ *     never landed, and now that ``formatCompactNumber`` is deleted,
  *     ``compactNumber`` is the canonical compact-number formatter.
  *
  * ──  /  (this fix) ─────────────────────────────────────
@@ -72,20 +72,20 @@ import { getLocale, type Locale, t } from "@/i18n/i18n";
 // ``new Intl.NumberFormat(loc, opts)`` is ~5-10× slower than
 // ``.format(n)`` because the constructor parses the locale + options
 // and builds an internal formatter. Every exported formatter below
-// previously called the constructor on EVERY invocation — Dashboard
+// previously called the constructor on EVERY invocation, Dashboard
 // calls ``formatBytes`` / ``compactNumber`` / ``toLocaleString`` ~6-10
 // times per render, History.tsx calls them per-row in a list, etc.
 //
 // The fix: each option-shape gets its own module-level ``Map`` keyed
 // by locale. Cache hit is a Map lookup (~50× faster than the
 // constructor). The maps are unbounded but in practice the key set
-// is tiny — the renderer only ever uses one locale at a time (the
+// is tiny, the renderer only ever uses one locale at a time (the
 // user-selected UI locale), plus ``"en"`` for tests. So the maps
 // will hold ≤2 entries in production and ≤8 in dev (one per
 // supported locale).
 //
 // We cache by LOCALE only (not by options) because each formatter
-// hardcodes its own options — the cache is per-call-site, not a
+// hardcodes its own options, the cache is per-call-site, not a
 // generic NumberFormat cache. This keeps the key small (a string)
 // and avoids serialising the options dict for the lookup.
 
@@ -117,14 +117,14 @@ export interface CompactNumberOptions {
 	 * When true, appends ``"+"`` to the ``K`` suffix when the input
 	 * has a non-zero remainder below 1000 (e.g. ``1234 → "1.2K+"``).
 	 * Matches the legacy StatCards ``formatCompactNumber`` behaviour.
-	 * Default: ``false`` (Dashboard's legacy behaviour — always ``"K"``).
+	 * Default: ``false`` (Dashboard's legacy behaviour, always ``"K"``).
 	 */
 	plusSuffix?: boolean;
 	/**
 	 * When true, formats sub-1000 values via
 	 * ``n.toLocaleString(getLocale())`` so the digit grouping respects
 	 * the user's selected UI locale (e.g. ``"١٢٣"`` in Arabic).
-	 * Default: ``false`` (Dashboard's legacy behaviour — ``String(n)``).
+	 * Default: ``false`` (Dashboard's legacy behaviour, ``String(n)``).
 	 */
 	localeAware?: boolean;
 }
@@ -145,7 +145,7 @@ export interface CompactNumberOptions {
  *   - ``compactNumber(2000, { plusSuffix: true })`` → ``"2K"`` (no remainder)
  *
  *  (session-6): the previous ``@deprecated`` tag pointing at
- * ``formatCompactNumber`` has been removed — ``formatCompactNumber``
+ * ``formatCompactNumber`` has been removed, ``formatCompactNumber``
  * was deleted () because no production file imported it, so
  * ``compactNumber`` is now the canonical compact-number formatter.
  * Its ``"K"`` / ``"K+"`` suffix shape is required by the Dashboard +
@@ -173,7 +173,7 @@ export function compactNumber(n: number, opts?: CompactNumberOptions): string {
 /**
  * Resolve a locale string, falling back to the renderer's current
  * UI locale (``getLocale()``) when the caller doesn't supply one.
- * Kept private — every exported formatter takes a ``locale?: Locale``
+ * Kept private, every exported formatter takes a ``locale?: Locale``
  * parameter so call sites stay terse.
  */
 function resolveLocale(locale?: Locale): Locale {
@@ -186,7 +186,7 @@ function resolveLocale(locale?: Locale): Locale {
 // locale-independent date utilities that several features need beyond
 // the dashboard (the History page's date-grouped list buckets rows by
 // the same local calendar day). They live here so every consumer
-// imports them from ONE module (E7 — no duplicate definitions), and
+// imports them from ONE module (E7, no duplicate definitions), and
 // ``streaks.ts`` re-exports them so the existing dashboard imports
 // keep resolving.
 
@@ -197,7 +197,7 @@ function resolveLocale(locale?: Locale): Locale {
  * ``new Date(ts).toISOString().slice(0, 10)`` which formats the date in
  * UTC. For users in negative UTC offsets (the Americas, -05:00 to
  * -10:00), a transcription logged at 8pm local on Tuesday was bucketed
- * into Wednesday's UTC date — so the dashboard's "Today" total stayed
+ * into Wednesday's UTC date, so the dashboard's "Today" total stayed
  * at zero until the next local day, and the 7-day activity chart
  * showed entries on the wrong bars. Switching to local-date keys keeps
  * the bucket aligned with the user's calendar day.
@@ -224,7 +224,7 @@ export function parseUtcTimestamp(ts: string): Date {
 	const s = ts.trim();
 	if (!s) return new Date(NaN);
 	// Already carries a zone marker, or is a bare date (local-midnight
-	// semantics are correct for pure date keys) — parse as-is.
+	// semantics are correct for pure date keys), parse as-is.
 	if (
 		/[zZ]$/.test(s) ||
 		/[+-]\d{2}:?\d{2}$/.test(s) ||
@@ -252,12 +252,12 @@ export function dateKey(ts: string): string {
  * formatting.
  *
  * : previously ``pages/Models.tsx`` had its own inline copy
- * AND ``lib/utils/models.ts`` had a second copy — both hardcoded
+ * AND ``lib/utils/models.ts`` had a second copy, both hardcoded
  * ``"MB"`` / ``"GB"`` suffixes and used ``toFixed(1)`` for the GB
  * path. This single implementation replaces both. The Models module
  * re-exports this function so existing imports
  * (``import { formatVram } from "@/lib/utils/models"``) keep working
- * — see ``lib/utils/models.ts`` for the re-export.
+ *, see ``lib/utils/models.ts`` for the re-export.
  *
  * Examples (``en``):
  *   - ``formatVram(0)`` → ``"0 MB"``
@@ -278,7 +278,7 @@ export function dateKey(ts: string): string {
  * the size is unknown).
  *
  * Negative / non-finite inputs also return ``"—"`` (previously
- * returned ``"0 B"`` — the new behaviour matches the legacy
+ * returned ``"0 B"``, the new behaviour matches the legacy
  * DownloadProgressBar copy and is more honest about the input being
  * invalid).
  *
@@ -346,7 +346,7 @@ export function formatBytes(
  *
  * Behavioural changes vs the previous implementation:
  *   - ``formatDuration(0)`` returns ``"0m"`` (was ``"0s"``).
- *   - ``formatDuration(5)`` returns ``"1m"`` (was ``"5s"``) — sub-
+ *   - ``formatDuration(5)`` returns ``"1m"`` (was ``"5s"``), sub-
  *     minute values round UP to 1m, matching the legacy StatCards
  *     storybook snapshot.
  *   - Seconds are no longer included in the output (was ``"1h 27m 15s"``;
@@ -372,7 +372,7 @@ export function formatDuration(seconds: number): string {
 	}
 	// Sub-minute values round up to 1m (matches legacy StatCards
 	// snapshot; the previous implementation returned "5s" / "45s"
-	// which was a UX bug — the dashboard only ever showed h+m).
+	// which was a UX bug, the dashboard only ever showed h+m).
 	let totalMinutes: number;
 	if (seconds < 60) {
 		totalMinutes = 1;

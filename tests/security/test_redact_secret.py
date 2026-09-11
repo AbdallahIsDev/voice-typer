@@ -4,11 +4,11 @@ Domain: SEC-9 (flag / key=value forms) + G4-L-06 (generic threshold
 lowered from 32 to 20 chars). ``redact_secret`` must redact
 ``--token=abc``, ``--token abc``, ``token=abc``, ``--api_key=...``,
 ``password=...``, ``--secret=...``, ``--access_token=...`` and bare
-20+ char alphanumeric tokens — without mangling unrelated identifiers
+20+ char alphanumeric tokens, without mangling unrelated identifiers
 like ``hotkey=<f2>``.
 
 Class/method names + assertions are preserved verbatim from the
-original monolith — only file location has changed.
+original monolith, only file location has changed.
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ from voice_typer.server.security import redact_pii
 
 class TestRedactSecretFlagForms:
     """SEC-9: ``redact_secret`` must redact ``--token=abc``,
-    ``--token abc``, and ``token=abc`` forms — not just Bearer/Token/
+    ``--token abc``, and ``token=abc`` forms, not just Bearer/Token/
     sk-/32+ char generic alphanumerics.
     """
 
@@ -98,7 +98,7 @@ class TestRedactSecretFlagForms:
     def test_short_input_with_flag_still_redacted(self):
         """flag patterns must fire even on short inputs.
 
-        ``--token=abc`` is only 12 chars — below the 20-char
+        ``--token=abc`` is only 12 chars, below the 20-char
         ``_MIN_REDACT_LEN`` guard. Pre-SEC-9 the function returned
         short strings unchanged. Post-SEC-9 the flag patterns run
         BEFORE the length guard, so a short string with an explicit
@@ -117,11 +117,11 @@ class TestRedactSecretFlagForms:
         This is the false-positive guard: ``\\b`` ensures the keyword
         is a standalone word, not a suffix of a longer identifier.
         Without ``\\b``, ``hotkey=<f2>`` would be mangled to
-        ``hot***`` — losing real config data.
+        ``hot***``, losing real config data.
         """
         s = "hotkey=<f2>"
         # The string is short (< 20 chars) AND has no flag-prefixed
-        # secret keyword — it must pass through unchanged.
+        # secret keyword, it must pass through unchanged.
         assert redact_secret(s) == s
 
         # Same check on a longer string with the same hotkey= token.
@@ -138,7 +138,7 @@ class TestRedactSecretFlagForms:
         redacted = redact_secret(s)
         # The hostname must be preserved.
         assert "api.example.com" in redacted
-        # The password is a 32+ char run elsewhere — it'd be caught
+        # The password is a 32+ char run elsewhere, it'd be caught
         # by the generic pattern if present, but the keyword `key`
         # must not match `api.` (no `=` after `api`).
 
@@ -220,7 +220,7 @@ class TestRedactSecretThreshold20:
     Pre-fix, a 20-31 char bare token (e.g. a 24-char GitLab PAT, a
     20-char GitHub PAT, a 24-char Slack legacy token) fell through
     the generic pattern AND was already past the 20-char
-    ``_MIN_REDACT_LEN`` early-exit guard — so it was returned
+    ``_MIN_REDACT_LEN`` early-exit guard, so it was returned
     UNREDACTED. Aligning the regex threshold with the length guard
     closes the gap.
     """
@@ -254,7 +254,7 @@ class TestRedactSecretThreshold20:
 
         XS-98: the literal ``'0123456789abcdefghij123456789abc'`` is
         32 chars long (10 digits + 10 letters + 9 digits + 3 letters),
-        but the previous assertion checked for 31 — a typo. Fixed here.
+        but the previous assertion checked for 31, a typo. Fixed here.
         """
         token = "0123456789abcdefghij123456789abc"  # 32 chars
         assert len(token) == 32
@@ -276,7 +276,7 @@ class TestRedactSecretThreshold20:
         assert redact_secret(token) == token
 
     def test_32_char_bare_token_still_redacted(self):
-        """G4-L-06: regression — the existing 32+ char behavior still
+        """G4-L-06: regression, the existing 32+ char behavior still
         works after lowering the threshold."""
         token = "0123456789abcdef0123456789abcdef"  # 32 chars
         assert len(token) == 32
@@ -327,7 +327,7 @@ class TestRedactUrl:
     through ``redact_secret(aggressive=True)`` so query-string secrets
     (``?key=sk-...``, ``?access_token=...``) are masked too.
 
-    Pre-fix, only the userinfo component was stripped — a URL with the
+    Pre-fix, only the userinfo component was stripped, a URL with the
     credential in the query string survived redaction verbatim and any
     caller that logged the URL (e.g. the redirect handler) would leak
     the query-string secret.

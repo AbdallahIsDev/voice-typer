@@ -22,7 +22,7 @@ export interface ResolvedLinuxWindowButtons {
 	followsSystem: boolean;
 }
 
-/** Server-side defaults — MUST mirror the `linux_window_buttons`
+/** Server-side defaults, MUST mirror the `linux_window_buttons`
  *  dataclass default in `voice_typer/server/config/_schema.py`. */
 export const DEFAULT_LINUX_WINDOW_BUTTONS: LinuxWindowButtonsConfig = {
 	mode: "system",
@@ -46,7 +46,7 @@ const FALLBACK_LAYOUT = {
  * `mode: "system"` uses the desktop's own button-layout from the
  * sidecar snapshot when available, falling back to the classic trio
  * when it isn't. KDE sessions always get Breeze-style squares (option 3)
- * regardless of layout source — that's a styling concern, not a layout
+ * regardless of layout source, that's a styling concern, not a layout
  * one. Non-Linux callers never invoke this (TitleBar gates on IS_LINUX),
  * but the function is total so tests can call it bare.
  */

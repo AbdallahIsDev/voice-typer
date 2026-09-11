@@ -3,22 +3,22 @@
 Extracted out of :mod:`voice_typer.server.shutdown_controller` so the
 shutdown controller can focus on its core concern (orchestrating the
 cleanup of every subsystem). These two helpers are pure thread-join
-utilities with no shutdown-specific logic — they are useful anywhere a
+utilities with no shutdown-specific logic, they are useful anywhere a
 caller needs to bound a blocking call with a hard timeout and detect
 whether the worker actually finished.
 
-* :data:`TIMEOUT` — sentinel returned by :func:`_run_with_timeout` when
+* :data:`TIMEOUT`: sentinel returned by :func:`_run_with_timeout` when
   the worker thread did not finish within the timeout. Distinct from
   ``None`` so callers can reliably detect a timeout and apply per-
 resource shutdown barriers () or hard-kill fallbacks (
   tray.stop -> ``os._exit(0)``).
-* :func:`_run_with_timeout` — run *func* in a daemon worker thread
+* :func:`_run_with_timeout`: run *func* in a daemon worker thread
   with a hard timeout; return its result, or :data:`TIMEOUT` if it
   did not finish, or re-raise its exception.
-* :func:`_run_parallel_with_timeout` — run several independent
+* :func:`_run_parallel_with_timeout`: run several independent
   teardowns concurrently, capturing per-call failures into result
   tuples so one slow teardown does not mask failures from its peers.
-* :func:`join_leaked_workers` — best-effort drain of the
+* :func:`join_leaked_workers`: best-effort drain of the
   :data:`_LEAKED_WORKERS` registry; the shutdown watchdog calls this
   just before ``os._exit(0)`` so abandoned daemon workers get a
   bounded window to release resources.
@@ -37,7 +37,7 @@ leaked workers (removing those that have exited) so the shutdown
 watchdog can drain them before ``os._exit(0)``.
 
 ``_run_parallel_with_timeout`` raises ``ValueError`` if any
-two items share the same ``desc`` — the previous dict-based reorder
+two items share the same ``desc``: the previous dict-based reorder
 silently dropped duplicate keys. Callers MUST pass unique descriptions.
 
 ``__all__`` exposes the canonical public names only.
@@ -65,7 +65,7 @@ class _TimeoutSentinel:
 
     __slots__ = ()
 
-    def __repr__(self) -> str:  # pragma: no cover — cosmetic
+    def __repr__(self) -> str:  # pragma: no cover, cosmetic
         return "<TIMEOUT>"
 
 
@@ -101,12 +101,12 @@ SHUTDOWN_WATCHDOG_TIMEOUT_S: float = _DE11_GRACE_PERIOD_SECONDS
 # mutate the list without races.
 #
 # Workers are removed from this list by ``join_leaked_workers`` once
-# they have exited (best-effort — if the worker never exits, it stays
+# they have exited (best-effort, if the worker never exits, it stays
 # in the list until the process dies via ``os._exit(0)``).
 #
 # The registry is BOUNDED by ``_MAX_LEAKED_WORKERS``: on append,
-# already-exited workers are pruned opportunistically and — if the cap
-# is still reached — the OLDEST entry is evicted (its daemon thread is
+# already-exited workers are pruned opportunistically and, if the cap
+# is still reached, the OLDEST entry is evicted (its daemon thread is
 # reaped by process exit anyway; the eviction is logged so the
 # diagnostic trail is preserved).
 _MAX_LEAKED_WORKERS = 64
@@ -132,7 +132,7 @@ def join_leaked_workers(
 
         * **Per-worker** (default, ``timeout`` keyword): each leaked
           worker is joined with up to *timeout* seconds. The budget is
-          per-worker, NOT shared — callers that need a global cap should
+          per-worker, NOT shared, callers that need a global cap should
           pass a smaller value or use ``total_budget``. With N leaked
           workers, worst-case wall time = ``N * timeout``.
         * **Shared deadline** (``total_budget`` keyword): when
@@ -150,7 +150,7 @@ def join_leaked_workers(
 
         Threads that have already exited (or exit during the join) are
         removed from the registry. Threads still alive after the join
-        remain in the registry — they are daemon threads, so
+        remain in the registry, they are daemon threads, so
         ``os._exit(0)`` will reap them when the process dies.
 
         Thread-safe: takes :data:`_LEAKED_WORKERS_LOCK` to snapshot and
@@ -196,7 +196,7 @@ def join_leaked_workers(
             continue
         try:
             t.join(timeout=timeout)
-        except Exception:  # noqa: BLE001 — best-effort; never propagate
+        except Exception:  # noqa: BLE001, best-effort; never propagate
             log.debug(
                 "[TIMEOUT-UTILS] join_leaked_workers: join() raised for %r",
                 t.name,
@@ -204,14 +204,14 @@ def join_leaked_workers(
             )
     # Prune dead threads from the registry (best-effort cleanup so
     # the list does not grow without bound if join_leaked_workers is
-    # called repeatedly without os._exit(0) — e.g. in tests).
+    # called repeatedly without os._exit(0): e.g. in tests).
     with _LEAKED_WORKERS_LOCK:
         _LEAKED_WORKERS[:] = [t for t in _LEAKED_WORKERS if t.is_alive()]
         remaining = len(_LEAKED_WORKERS)
     if remaining:
         log.warning(
             "[TIMEOUT-UTILS] join_leaked_workers: %d workers still alive "
-            "after %.2fs per-worker join — they will be reaped by os._exit(0)",
+            "after %.2fs per-worker join, they will be reaped by os._exit(0)",
             remaining,
             timeout,
         )
@@ -254,7 +254,7 @@ def _join_leaked_workers_with_budget(total_budget: float) -> int:
     for t in snapshot:
         remaining = deadline - _time.monotonic()
         if remaining <= 0.0:
-            # Budget exhausted — stop iterating. Remaining workers
+            # Budget exhausted. Stop iterating. Remaining workers
             # (including any beyond the cap) stay in the registry and
             # are reaped by os._exit(0).
             break
@@ -263,7 +263,7 @@ def _join_leaked_workers_with_budget(total_budget: float) -> int:
         per_worker_timeout = min(_PER_WORKER_TIMEOUT_CAP_S, remaining)
         try:
             t.join(timeout=per_worker_timeout)
-        except Exception:  # noqa: BLE001 — best-effort; never propagate
+        except Exception:  # noqa: BLE001, best-effort; never propagate
             log.debug(
                 "[TIMEOUT-UTILS] join_leaked_workers: join() raised for %r",
                 t.name,
@@ -272,7 +272,7 @@ def _join_leaked_workers_with_budget(total_budget: float) -> int:
         per_worker_used.append(per_worker_timeout)
     # Prune dead threads from the registry (best-effort cleanup so
     # the list does not grow without bound if join_leaked_workers is
-    # called repeatedly without os._exit(0) — e.g. in tests).
+    # called repeatedly without os._exit(0): e.g. in tests).
     with _LEAKED_WORKERS_LOCK:
         _LEAKED_WORKERS[:] = [t for t in _LEAKED_WORKERS if t.is_alive()]
         remaining_count = len(_LEAKED_WORKERS)
@@ -281,7 +281,7 @@ def _join_leaked_workers_with_budget(total_budget: float) -> int:
         log.warning(
             "[TIMEOUT-UTILS] join_leaked_workers: %d workers still alive "
             "after shared-deadline join (total_budget=%.2fs, avg_per_worker="
-            "%.3fs, capped_at=%d) — they will be reaped by os._exit(0)",
+            "%.3fs, capped_at=%d), they will be reaped by os._exit(0)",
             remaining_count,
             total_budget,
             avg_per_worker,
@@ -303,7 +303,7 @@ def _run_with_timeout(description: str, func, timeout: float = 5.0):
         ``_run_with_timeout`` calls (e.g. ``app.recorder`` for
         ``recorder.stop`` -> ``recorder.shutdown_mic_watcher``) MUST check the
         return value against :data:`TIMEOUT` and skip the downstream call
-        when the upstream one timed out — otherwise the leaked worker thread
+        when the upstream one timed out, otherwise the leaked worker thread
         races the next call on the same resource (PortAudio is not safe for
         concurrent stream operations from multiple threads).
 
@@ -318,7 +318,7 @@ def _run_with_timeout(description: str, func, timeout: float = 5.0):
     def _worker() -> None:
         try:
             result_holder["value"] = func()
-        except BaseException as exc:  # noqa: BLE001 — re-raised below
+        except BaseException as exc:  # noqa: BLE001, re-raised below
             result_holder["error"] = exc
 
     t = threading.Thread(
@@ -337,24 +337,24 @@ def _run_with_timeout(description: str, func, timeout: float = 5.0):
             # Opportunistic prune: drop workers that already exited so
             # the registry stays small without waiting for the next
             # ``join_leaked_workers`` call (which in production only
-            # runs at shutdown). Cheap — ``is_alive()`` is a flag read.
+            # runs at shutdown). Cheap, ``is_alive()`` is a flag read.
             if len(_LEAKED_WORKERS) >= _MAX_LEAKED_WORKERS:
                 _LEAKED_WORKERS[:] = [w for w in _LEAKED_WORKERS if w.is_alive()]
             # Hard cap: evict the OLDEST entry if the registry is still
-            # full. The evicted thread is a daemon — process exit reaps
-            # it — and the eviction is logged so diagnostics survive.
+            # full. The evicted thread is a daemon, process exit reaps
+            # it, and the eviction is logged so diagnostics survive.
             while len(_LEAKED_WORKERS) >= _MAX_LEAKED_WORKERS:
                 evicted = _LEAKED_WORKERS.pop(0)
                 log.warning(
                     "[TIMEOUT-UTILS] leaked-worker registry at cap "
-                    "(%d) — evicted oldest entry %r (daemon thread "
+                    "(%d), evicted oldest entry %r (daemon thread "
                     "remains reaped by process exit)",
                     _MAX_LEAKED_WORKERS,
                     evicted.name,
                 )
             _LEAKED_WORKERS.append(t)
         log.warning(
-            "[SHUTDOWN] %s did not finish in %.1fs — continuing "
+            "[SHUTDOWN] %s did not finish in %.1fs, continuing "
             "(worker thread leaked as daemon, registered for "
             "best-effort join via join_leaked_workers)",
             description,
@@ -376,19 +376,19 @@ def _run_parallel_with_timeout(
         is either the function's return value, :data:`TIMEOUT`, or the
         exception instance the function raised (caller decides whether to
         re-raise / log / ignore). Exceptions are NEVER raised out of this
-        helper — every per-call failure is captured into the result tuple so
+        helper, every per-call failure is captured into the result tuple so
         one slow teardown does not mask failures from its peers.
 
         Used by ``_do_cleanup`` to parallelize teardowns that touch disjoint
         resources (e.g. the three hotkey backends). The teardowns MUST be
-        genuinely independent — concurrent access to a shared resource
+        genuinely independent, concurrent access to a shared resource
         (PortAudio, SQLite connection, pystray loop) is unsafe.
 
     *items* MUST have unique ``desc`` values. The result is
         re-ordered by ``desc`` to match input order, so duplicate
         descriptions would silently drop one of the results (the dict
         reorder would overwrite). This function raises ``ValueError`` if any
-        two items share a description — callers MUST ensure uniqueness
+        two items share a description, callers MUST ensure uniqueness
         (e.g. by prefixing with a subsystem name).
     """
     import concurrent.futures
@@ -398,7 +398,7 @@ def _run_parallel_with_timeout(
     # enforce uniqueness. The dict-based reorder below would
     # silently drop duplicate keys; raise here so the caller knows.
     # (We use a real raise rather than ``assert`` so the check survives
-    # ``python -O`` — this is a public-API contract, not a debug aid.)
+    # ``python -O``: this is a public-API contract, not a debug aid.)
     descs = [desc for (desc, _func, _timeout) in items]
     if len(set(descs)) != len(items):
         seen: set[str] = set()
@@ -447,7 +447,7 @@ def _run_parallel_with_timeout(
             desc, _func, _timeout = future_map[fut]
             try:
                 value = fut.result()
-            except BaseException as exc:  # noqa: BLE001 — captured per-call
+            except BaseException as exc:  # noqa: BLE001, captured per-call
                 value = exc
             results.append((desc, value))
     # Re-order to match input order so callers can index by position.
@@ -468,6 +468,6 @@ __all__ = [
     # NOTE: ``_TIMEOUT`` and ``_DE11_GRACE_PERIOD_SECONDS`` are
     # module-level aliases kept for back-compat with tests that import
     # them directly, but they are intentionally NOT in ``__all__``
-    # () — new callers should use ``TIMEOUT``
+    # (), new callers should use ``TIMEOUT``
     # ``SHUTDOWN_WATCHDOG_TIMEOUT_S``.
 ]

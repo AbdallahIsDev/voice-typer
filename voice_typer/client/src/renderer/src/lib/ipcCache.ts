@@ -1,5 +1,5 @@
 // Stale-while-revalidate cache for IPC read responses (module-level,
-// session lifetime — vercel-react-best-practices: client-swr-dedup /
+// session lifetime, vercel-react-best-practices: client-swr-dedup /
 // js-cache-function-results pattern).
 //
 // Problem: every data page (History / Templates / Vocabulary /
@@ -12,7 +12,7 @@
 // Fix: hooks seed their React state from `peekIpcCache` on mount (so a
 // revisit renders CACHED content on the first paint) and write through
 // `writeIpcCache` after each successful fetch (so the next visit sees
-// fresh data). The mount fetch still runs — it just revalidates in the
+// fresh data). The mount fetch still runs, it just revalidates in the
 // background instead of gating the UI behind a loading state.
 //
 // Scope: cache keys are per-feature strings owned by the hooks that
@@ -27,7 +27,7 @@ export function peekIpcCache<T>(key: string): T | undefined {
 	return store.get(key) as T | undefined;
 }
 
-/** Write-through helper — hooks call this after a successful fetch. */
+/** Write-through helper, hooks call this after a successful fetch. */
 export function writeIpcCache(key: string, value: unknown): void {
 	store.set(key, value);
 }
@@ -36,7 +36,7 @@ export function writeIpcCache(key: string, value: unknown): void {
  * Test seam (same pattern as `_resetNavigationForTest`): vitest's
  * global `afterEach` (test-setup.ts) clears the cache between tests so
  * every test starts from the cold-start state a real user gets on app
- * launch — without this, a test's successful fetch would leak into the
+ * launch, without this, a test's successful fetch would leak into the
  * next test's "first load" assertions.
  */
 export function __resetIpcCacheForTests(): void {

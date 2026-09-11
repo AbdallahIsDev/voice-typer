@@ -27,8 +27,8 @@ class TranscribeMixin:
 
         The pre-migration code required both ``_model`` AND ``_processor``
         to be non-None (transformers' AutoProcessor + AutoModelForTDT).
-        The ONNX backend has no separate processor — the onnx-asr
-        adapter bundles the tokenizer + ONNX session — so we check
+        The ONNX backend has no separate processor, the onnx-asr
+        adapter bundles the tokenizer + ONNX session, so we check
         ``_model``
         only. The ``_processor`` attribute is kept as ``None`` in
         production for backward-compat with tests that set it.
@@ -42,13 +42,13 @@ class TranscribeMixin:
         Sets ``_abort_event`` (checked between chunks in
         ``_transcribe_chunks``). The current chunk's
         ``model.recognize()`` call runs to completion (onnx-asr 0.12.0
-        does not forward ``RunOptions`` to ``session.run`` — see the
+        does not forward ``RunOptions`` to ``session.run``, see the
         class-level note on ``_abort_event``); the loop then breaks
         before the next chunk is decoded. Bounded latency = one chunk's
         decode time (≤ ``_CHUNK_SECONDS`` seconds) instead of the full
-        audio — frees compute for the next dictation cycle.
+        audio, frees compute for the next dictation cycle.
 
-        Replaces the torch/transformers ``StoppingCriteria`` shim — see
+        Replaces the torch/transformers ``StoppingCriteria`` shim, see
         :class:`_AbortStoppingCriteria` (kept as a no-op shim for
         backward-compat with tests/importers that reference the name).
         """
@@ -130,7 +130,7 @@ class TranscribeMixin:
         (caller enforces this via chunking). Applies the English-only
         filter and the low-audio-hallucination filter to the result.
 
-        NOTE: this call runs to completion — onnx-asr 0.12.0 does not
+        NOTE: this call runs to completion, onnx-asr 0.12.0 does not
         forward ``RunOptions`` to ``session.run`` (verified by wheel
         source inspection), so ``request_abort()`` cannot terminate a
         single-segment decode mid-flight. Abort is only effective
@@ -168,7 +168,7 @@ class TranscribeMixin:
         into 13 chunks stops after the current chunk rather than
         decoding all remaining ones. The current chunk's
         ``model.recognize()`` call runs to completion (onnx-asr 0.12.0
-        does not forward ``RunOptions`` to ``session.run`` — see the
+        does not forward ``RunOptions`` to ``session.run``, see the
         class-level note on ``_abort_event``).
         """
         if not chunks:
@@ -177,7 +177,7 @@ class TranscribeMixin:
         for i, chunk in enumerate(chunks):
             if self._abort_event.is_set():
                 log.info(
-                    "[PARAKEET] Abort requested — stopping chunk loop early (completed %d/%d chunks)",
+                    "[PARAKEET] Abort requested, stopping chunk loop early (completed %d/%d chunks)",
                     i,
                     len(chunks),
                 )
@@ -215,7 +215,7 @@ class TranscribeMixin:
         """Concatenate chunk transcriptions, skipping overlap text.
 
         Delegates to :func:`voice_typer.server.asr_utils.merge_chunks`
-        (PLAN_ONNX_INTEGRATION.md §5.4 — the canonical home for this
+        (PLAN_ONNX_INTEGRATION.md §5.4, the canonical home for this
         algorithm post-migration). The instance-method signature is
         preserved for backward compat with existing call sites and tests
         (``engine._merge_chunks([...])``).
@@ -246,7 +246,7 @@ class TranscribeMixin:
         (unlike torch's ``.to("cpu")``). The fallback recreates the
         session with ``CPUExecutionProvider`` only
         (PLAN_ONNX_INTEGRATION.md §3.4). This is multi-second latency
-        (session recreation + weight reload) — NOT a free swap.
+        (session recreation + weight reload). NOT a free swap.
 
         Emits the ``parakeet_cpu_fallback`` event (one-time per loaded
         session) so the tray can show "(CPU fallback)" status. The
@@ -267,7 +267,7 @@ class TranscribeMixin:
             return self.transcribe(audio, audio_stats=audio_stats)
         except Exception as exc:
             # Use the shared CUDA-error classifier (PLAN_ONNX_INTEGRATION.md
-            # §5.1) — 5-layer check, NOT the lossy 4-keyword frozenset.
+            # §5.1), 5-layer check, NOT the lossy 4-keyword frozenset.
             if self.device == "cuda" and _is_cuda_error_impl(exc):
                 log.warning(
                     "[PARAKEET] CUDA error, recreating session on CPU: %s",
@@ -276,7 +276,7 @@ class TranscribeMixin:
                 )
                 try:
                     # Unload the GPU session, then reload with CPU providers.
-                    # This is the only correct ORT fallback — see §3.4.
+                    # This is the only correct ORT fallback: see §3.4.
                     self._unload_impl()
                     self.device = "cpu"
                     if not self._load_impl(providers=["CPUExecutionProvider"]):
@@ -297,7 +297,7 @@ class TranscribeMixin:
                                 self._inference_cond.notify_all()
 
                     # Record the fallback start so any future retry logic
-                    # has a reference point (currently a no-op stub — ORT
+                    # has a reference point (currently a no-op stub, ORT
                     # session recreation is the only fallback path).
                     self._cpu_fallback_since = time.monotonic()
                     self._cpu_transcribe_count = 0
@@ -321,7 +321,7 @@ class TranscribeMixin:
                                     "data": {
                                         "title": APP_NAME,
                                         "message": (
-                                            "GPU transcription failed — switched to CPU. "
+                                            "GPU transcription failed, switched to CPU. "
                                             "Transcription will be slower until restart."
                                         ),
                                         "duration_ms": 10000,
@@ -353,7 +353,7 @@ class TranscribeMixin:
     def unload(self) -> None:
         """Free model memory.
 
-        ONNX Runtime has no ``empty_cache()`` API — the CUDA arena is
+        ONNX Runtime has no ``empty_cache()`` API, the CUDA arena is
         freed when the session is destroyed (PLAN_ONNX_INTEGRATION.md
         §5.2). The ``release_gpu_memory()`` helper in ``asr_utils`` is a
         no-op for ORT (kept for API compatibility with the existing
@@ -379,7 +379,7 @@ class TranscribeMixin:
             self._processor = None
         # gc.collect() OUTSIDE the lock.
         gc.collect()
-        # No-op for ORT — kept for API compat (see PLAN_ONNX_INTEGRATION.md §5.2).
+        # No-op for ORT, kept for API compat (see PLAN_ONNX_INTEGRATION.md §5.2).
         release_gpu_memory()
         log.info("[PARAKEET] Model unloaded")
 

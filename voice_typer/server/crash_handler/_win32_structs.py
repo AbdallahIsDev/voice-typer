@@ -4,7 +4,7 @@ Per-platform guard: ``ctypes.wintypes`` is only imported on Windows.
 On Linux/macOS, the struct classes are still defined (using
 ``ctypes.c_void_p`` / ``ctypes.c_ulonglong`` stand-ins where needed)
 so that ``from voice_typer.server.crash_handler import _SYSTEMTIME``
-works without an ``AttributeError`` — but the VEH callback that
+works without an ``AttributeError``, but the VEH callback that
 dereferences these structs is never invoked on non-Windows (see
 ``_veh_callback._vectored_handler_impl``, which short-circuits when
 ``_ch._vectored_handler is None``).

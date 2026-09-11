@@ -1,12 +1,12 @@
 //! Unit tests for `system_cmds::dialogs` (C-TEST-5 sibling file).
 //!
 //! Pins the `open_logs` target-directory contract: the command must
-//! open `<config_dir>/logs/` — the exact directory
+//! open `<config_dir>/logs/`: the exact directory
 //! `platform::logging::init::init_file_logger` creates and rotates
-//! `voice-typer-rust.log` in — NOT the config-dir root. The command
+//! `voice-typer-rust.log` in: NOT the config-dir root. The command
 //! wrapper itself needs a live `tauri::Window` (which cannot be
 //! constructed in unit tests) and an OS file-manager spawn, so the
-//! assertable seam is the pure [`logs_dir_path`] helper — the same
+//! assertable seam is the pure [`logs_dir_path`] helper, the same
 //! pure-seam approach `platform::open_path` tests use with
 //! `preflight_path_exists`.
 
@@ -18,7 +18,7 @@ fn test_logs_dir_path_appends_logs_leaf_to_config_dir() {
     // The three platform-canonical config-dir shapes from
     // `platform::paths::config_dir_from_env` (Windows / macOS / Linux)
     // plus the legacy `~/.voice-typer` and the
-    // VOICE_TYPER_CONFIG_DIR override — the helper must append the
+    // VOICE_TYPER_CONFIG_DIR override: the helper must append the
     // `logs` leaf to whatever root it is given, unconditionally.
     let roots: [PathBuf; 5] = [
         // Windows: %APPDATA%/voice-typer
@@ -45,7 +45,7 @@ fn test_logs_dir_path_appends_logs_leaf_to_config_dir() {
 #[test]
 fn test_logs_dir_path_ends_with_logs_directory() {
     // The path handed to the OS file-manager opener must END with the
-    // logs directory — this is the regression pin for the bug where
+    // logs directory: this is the regression pin for the bug where
     // the command opened the config-dir ROOT instead of the logs
     // subdir (while the logger itself wrote into <config_dir>/logs,
     // so the user landed in a folder whose log files were one level

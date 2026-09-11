@@ -62,7 +62,7 @@ class TestPublicAPIPreserved:
         # Returns a dict with the three documented keys (``stored_in``,
         # ``reason``, ``provider``). The exact ``stored_in`` value
         # depends on whether a prior ``store_secret`` call ran on this
-        # thread — other test files in the credential suite call
+        # thread, other test files in the credential suite call
         # ``store_secret`` and the thread-local persists across tests,
         # so we only assert the shape here.
         outcome = cs.last_store_outcome()
@@ -159,7 +159,7 @@ class TestMonkeyPatchPropagates:
 
     def test_keyring_timeout_seconds_propagates_to_run_keyring_call(self, monkeypatch):
         """``_run_keyring_call`` reads ``_KEYRING_TIMEOUT_SECONDS`` via
-        the package module — patching the package attribute must shorten
+        the package module, patching the package attribute must shorten
         the timeout (a 1ms timeout aborts a 500ms call)."""
         import time
 
@@ -174,7 +174,7 @@ class TestMonkeyPatchPropagates:
 
     def test_is_keyring_available_propagates_to_store_secret(self, monkeypatch):
         """``store_secret`` reads ``is_keyring_available`` via the
-        package module — patching the package attribute must make
+        package module, patching the package attribute must make
         ``store_secret`` see the patched value."""
         calls = []
         monkeypatch.setattr(cs, "is_keyring_available", lambda: (calls.append(1), True)[1])
@@ -189,7 +189,7 @@ class TestMonkeyPatchPropagates:
 
     def test_known_providers_history_propagates_to_delete_secret(self, monkeypatch):
         """``delete_secret`` iterates ``_KNOWN_PROVIDERS_HISTORY`` via
-        the package module — patching the package attribute must change
+        the package module, patching the package attribute must change
         what the loop sees."""
         fake = frozenset({"ghost_provider"})
         monkeypatch.setattr(cs, "_KNOWN_PROVIDERS_HISTORY", fake)
@@ -197,7 +197,7 @@ class TestMonkeyPatchPropagates:
 
     def test_plaintext_config_cache_propagates_to_clear_helper(self, monkeypatch):
         """``_clear_plaintext_config_cache`` clears the dict via the
-        package module — patching the package attribute with a new
+        package module, patching the package attribute with a new
         dict and then calling the clear helper must leave the patched
         dict empty (not the original)."""
         sentinel = {"k": "v"}

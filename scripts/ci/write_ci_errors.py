@@ -13,20 +13,20 @@ passed without needing GitHub CLI access.
 Robustness notes (each learned from a real silent-miss):
 
 * Illegal XML 1.0 characters (raw control bytes a test may print
-  into captured output) are stripped BEFORE parsing — otherwise one
+  into captured output) are stripped BEFORE parsing, otherwise one
   bad byte in one leg's file fails the whole parse and hides every
   failure in that file.
 * Truncated files (a leg killed mid-write still uploads via
   ``if: always()``) fall back to regex extraction of the
   ``<testcase>`` blocks that ARE complete, so partial data still
   surfaces instead of a single "unparseable" pseudo-entry.
-* Every input file is parsed independently — one corrupt file can
+* Every input file is parsed independently, one corrupt file can
   never hide another leg's failures.
 
 Usage:
     python scripts/ci/write_ci_errors.py [junit_xml...]
 
-Exit code is always 0 — the script is documentation, not a gate. The
+Exit code is always 0, the script is documentation, not a gate. The
 workflow step that calls it runs `if: always()` so the report is
 written even when the tests themselves fail.
 """
@@ -57,7 +57,7 @@ _FRAME_RE = re.compile(r'^\s*(?:E\s+)?File "([^"]+)", line (\d+)', re.MULTILINE)
 _SHORT_FRAME_RE = re.compile(r"^([\w\-.\\/]+\.py):(\d+):", re.MULTILINE)
 
 # pytest's internal-error pseudo-test (xdist collection crash, ...).
-# It has no repo location — surface the underlying error instead.
+# It has no repo location, surface the underlying error instead.
 _INTERNAL_TEST = ("pytest", "internal")
 
 # Cap per-entry body so one giant traceback can't bloat the doc.
@@ -139,7 +139,7 @@ def _from_element_tree(root: ET.Element, leg: str) -> list[tuple[str, str, str, 
             if not body:
                 body = "(no message)"
             if (classname, test_name) == _INTERNAL_TEST:
-                location = "(pytest internal error — no test location)"
+                location = "(pytest internal error, no test location)"
                 error_line = message or error_line
             out.append((classname, test_name, leg, location, f"{error_line}\n\n{body}"))
     return out
@@ -194,8 +194,7 @@ def _extract_failures(xml_path: Path) -> tuple[list[tuple[str, str, str, str, st
     except ET.ParseError:
         recovered = _from_regex_fallback(text, leg)
         note = (
-            f"{xml_path.name} ({leg}): XML would not parse — "
-            f"recovered {len(recovered)} complete testcase(s) by fallback"
+            f"{xml_path.name} ({leg}): XML would not parse, recovered {len(recovered)} complete testcase(s) by fallback"
         )
         return recovered, note
     return _from_element_tree(root, leg), ""
@@ -241,14 +240,14 @@ def main(argv: list[str]) -> int:
             "# CI Errors",
             "",
             "> Auto-generated from the latest GitHub Actions run via "
-            "`scripts/ci/write_ci_errors.py`. Do not edit by hand — it is "
+            "`scripts/ci/write_ci_errors.py`. Do not edit by hand, it is "
             "overwritten on every CI run.",
             "",
             f"No test failures in the latest CI run. ✅ ({files_checked} JUnit file(s) checked)",
             "",
         ]
         if notes:
-            lines += ["Degraded inputs (no failures lost — files were empty):", ""]
+            lines += ["Degraded inputs (no failures lost, files were empty):", ""]
             lines += [f"- {note}" for note in notes] + [""]
         OUTPUT.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
         print(f"CI-errors.md: no failures ({files_checked} junit file(s) checked)")
@@ -261,20 +260,20 @@ def main(argv: list[str]) -> int:
         "# CI Errors",
         "",
         "> Auto-generated from the latest GitHub Actions run via "
-        "`scripts/ci/write_ci_errors.py`. Do not edit by hand — it is "
+        "`scripts/ci/write_ci_errors.py`. Do not edit by hand, it is "
         "overwritten on every CI run.",
         "",
         f"**{len(order)} failing/errored test(s)** across {len(total_legs)} matrix leg(s).",
         "",
     ]
     if notes:
-        lines += ["Degraded inputs (recovered by fallback — see notes):", ""]
+        lines += ["Degraded inputs (recovered by fallback. See notes):", ""]
         lines += [f"- {note}" for note in notes] + [""]
     for i, key in enumerate(order, 1):
         entry = grouped[key]
         classname, test_name = key
         # Collection errors carry an empty classname and the module
-        # path as the test name — render without a leading dot.
+        # path as the test name, render without a leading dot.
         title = f"{classname}.{test_name}" if classname.strip() else test_name
         legs = ", ".join(sorted(entry["legs"]))
         lines += [

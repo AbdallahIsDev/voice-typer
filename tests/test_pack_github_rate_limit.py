@@ -1,4 +1,4 @@
-"""§8.7 — GitHub rate limit: exponential backoff + ``X-RateLimit-Reset``.
+"""§8.7: GitHub rate limit: exponential backoff + ``X-RateLimit-Reset``.
 
 Spec (§8.7):
 
@@ -13,7 +13,7 @@ Tested behaviors:
   3. A 403 response raises ``_RateLimitedError`` (the internal sentinel).
   4. The download retries up to 3 times on 403, then raises
      ``PackRateLimitError``.
-  5. ``X-RateLimit-Reset`` header is respected — the sleep time is
+  5. ``X-RateLimit-Reset`` header is respected, the sleep time is
      at least ``reset_at - now``.
   6. A 200 response on the second attempt succeeds (one retry needed).
 """
@@ -57,7 +57,7 @@ def _make_rate_limited_transport(
 
 
 class TestRateLimitConstants:
-    """§8.7 — backoff schedule + max attempts."""
+    """§8.7, backoff schedule + max attempts."""
 
     def test_backoff_schedule(self):
         assert offline_pack.OFFLINE_PACK_RATE_LIMIT_BACKOFF_S == (1.0, 2.0, 4.0)
@@ -67,7 +67,7 @@ class TestRateLimitConstants:
 
 
 class TestRateLimitRetry:
-    """§8.7 — exponential backoff + ``X-RateLimit-Reset``."""
+    """§8.7, exponential backoff + ``X-RateLimit-Reset``."""
 
     def test_three_failures_raise_pack_rate_limit_error(self, tmp_path: Path, monkeypatch):
         """3 consecutive 403s → PackRateLimitError."""
@@ -149,7 +149,7 @@ class TestRateLimitRetry:
                 version="v1",
                 http_get=fake,
             )
-        # max(1.0, negative) = 1.0 — default backoff used.
+        # max(1.0, negative) = 1.0, default backoff used.
         assert sleeps[0] == 1.0
 
 

@@ -7,12 +7,12 @@
  *
  *   - Calling `flashCopied` twice in quick succession left the FIRST timer
  *     running. When it fired it would set `copied: false` even though the
- *     user had just copied again — the "Copied!" feedback vanished
+ *     user had just copied again, the "Copied!" feedback vanished
  *     instantly instead of staying visible for 2s after the latest copy.
  *
  *   - If the boundary unmounted while the timer was pending (e.g. the
  *     error was recovered via "Try Again"), the timer would fire
- *     `setState` on an unmounted component — a React 19 warning + a latent
+ *     `setState` on an unmounted component, a React 19 warning + a latent
  *     leak if the boundary was re-mounted shortly after.
  *
  * The fix mirrors the `copyTimeoutRef` pattern in `ActivityList.tsx`
@@ -22,7 +22,7 @@
  *
  * These tests drive `flashCopied` directly via a ref to the class
  * instance (avoids the async clipboard path that `handleCopyError`
- * traverses — the clipboard mock is fragile under jsdom + fake timers,
+ * traverses, the clipboard mock is fragile under jsdom + fake timers,
  * and the unit under test here is the timer bookkeeping, not the
  * clipboard integration). `window.setTimeout` / `globalThis.clearTimeout`
  * are replaced with `vi.fn()` mocks so we can assert on the call args
@@ -38,7 +38,7 @@ import { ErrorBoundary } from "@/components/feedback/ErrorBoundary";
 // enforces the privacy at compile time, but the field is a regular property
 // at runtime. This helper casts the instance to a shape that exposes the
 // field so the tests can assert on its value (timer id bookkeeping is the
-// unit under test — without reading the field we can only assert on the
+// unit under test, without reading the field we can only assert on the
 // `clearTimeout` / `setTimeout` spy calls, not on the slot itself).
 type ErrorBoundaryInternals = {
 	copiedTimer: ReturnType<typeof setTimeout> | null;
@@ -47,7 +47,7 @@ function internals(b: ErrorBoundary): ErrorBoundaryInternals {
 	return b as unknown as ErrorBoundaryInternals;
 }
 
-// A trivial child component — we render the boundary in the NON-error
+// A trivial child component, we render the boundary in the NON-error
 // state. The boundary's `flashCopied` is callable regardless of whether
 // it's currently showing the fallback UI (it just sets `copied: true`
 // which only affects the fallback render, but the timer bookkeeping is
@@ -121,7 +121,7 @@ describe("ErrorBoundary: flashCopied timer cleanup", () => {
 		);
 		expect(ref.current).not.toBeNull();
 
-		// First call — arms timer #1.
+		// First call, arms timer #1.
 		(ref.current as ErrorBoundary).flashCopied();
 		expect(setTimeoutMock).toHaveBeenCalledTimes(1);
 		const firstId = setTimeoutMock.mock.results[0]?.value;
@@ -129,7 +129,7 @@ describe("ErrorBoundary: flashCopied timer cleanup", () => {
 		// No clearTimeout yet (first call has nothing to clear).
 		expect(clearTimeoutMock).not.toHaveBeenCalled();
 
-		// Second call — must clear timer #1 before arming timer #2.
+		// Second call, must clear timer #1 before arming timer #2.
 		(ref.current as ErrorBoundary).flashCopied();
 		expect(clearTimeoutMock).toHaveBeenCalledTimes(1);
 		// The clearTimeout call must use the FIRST timer's id (the
@@ -162,7 +162,7 @@ describe("ErrorBoundary: flashCopied timer cleanup", () => {
 		// No clearTimeout yet.
 		expect(clearTimeoutMock).not.toHaveBeenCalled();
 
-		// Unmount — componentWillUnmount must call clearTimeout
+		// Unmount, componentWillUnmount must call clearTimeout
 		// with the tracked id.
 		cleanup();
 
@@ -184,7 +184,7 @@ describe("ErrorBoundary: flashCopied timer cleanup", () => {
 		);
 		expect(ref.current).not.toBeNull();
 
-		// Don't call flashCopied — no timer is tracked.
+		// Don't call flashCopied, no timer is tracked.
 		expect(internals(ref.current as ErrorBoundary).copiedTimer).toBeNull();
 
 		cleanup();
@@ -197,7 +197,7 @@ describe("ErrorBoundary: flashCopied timer cleanup", () => {
 
 	it("the setTimeout callback clears the tracked slot after firing", () => {
 		// This test verifies the callback's `this.copiedTimer = null`
-		// line — without it, the slot would hold a stale id and the
+		// line, without it, the slot would hold a stale id and the
 		// NEXT flashCopied call would call clearTimeout with an
 		// already-fired id (harmless but wasteful, and a sign the
 		// bookkeeping is broken).

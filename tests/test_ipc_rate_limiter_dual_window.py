@@ -9,10 +9,10 @@ for both the burst and sustained checks (both keyed off the same
 
 The IPC-4 fix splits the limiter into TWO independent deques:
 
-* ``_burst_timestamps`` — 1-second window (configurable via the new
+* ``_burst_timestamps``, 1-second window (configurable via the new
   ``burst_window`` parameter, default ``_RATE_LIMIT_BURST_WINDOW_SECONDS
   = 1.0``).
-* ``_sustained_timestamps`` — ``window``-second window (default 10s).
+* ``_sustained_timestamps``: ``window``-second window (default 10s).
 
 The two checks are now genuinely independent. A client can trip burst
 (201 msgs in 1s) without tripping sustained (601 msgs in 10s), and
@@ -42,7 +42,7 @@ class TestRateLimiterDualWindow:
         """A client that sends 100 msgs/s for 7s (700 msgs in 10s
         window) trips sustained (600 cap) but NOT burst (200/s cap).
 
-        Pre-IPC-4: this client was NOT throttled — the single-deque
+        Pre-IPC-4: this client was NOT throttled, the single-deque
         impl never reached 200 in the 10s window until t=2s (200
         msgs), at which point burst fired first and the client was
         throttled on the 201st msg. The sustained check (600) was
@@ -61,7 +61,7 @@ class TestRateLimiterDualWindow:
         )
         # Send 100 msgs/s for 7 seconds = 700 msgs total.
         # At each second boundary, the burst deque (1s window) only
-        # contains the 100 msgs from the current second — well under
+        # contains the 100 msgs from the current second, well under
         # the 200 burst cap.
         accepted = 0
         rejected = 0
@@ -113,7 +113,7 @@ class TestRateLimiterDualWindow:
         the production config (burst=200, sustained=600, window=10s,
         burst_window=1s).
 
-        Pre-IPC-4, this test would have FAILED — the sustained check
+        Pre-IPC-4, this test would have FAILED, the sustained check
         was dead code (burst always fired first). Post-IPC-4, the
         sustained check fires on the 601st msg in a 10s window even
         when no 1s window exceeds 200.
@@ -125,7 +125,7 @@ class TestRateLimiterDualWindow:
                 assert rl.allow(now=float(second)) is True, (
                     f"msg at t={second} should be accepted (under both burst and sustained caps)"
                 )
-        # 601st msg at t=10.0 — sustained deque has 600 entries (all
+        # 601st msg at t=10.0, sustained deque has 600 entries (all
         # within the 10s window: t=0.0 through t=9.0, all > 10.0 - 10.0
         # = 0.0; the t=0.0 timestamps are not < 0.0 so they stay).
         # Burst deque (1s window) only has the 60 from t=9.0
@@ -150,9 +150,9 @@ class TestRateLimiterDualWindow:
         # Send 10 msgs at t=0 (fills burst deque to 10).
         for _ in range(10):
             assert rl.allow(now=0.0) is True
-        # 11th at t=0.5 — burst deque still has 10 (within 1s window).
+        # 11th at t=0.5, burst deque still has 10 (within 1s window).
         assert rl.allow(now=0.5) is False, "burst should reject (10 in 1s window)"
-        # Wait 1.5s — burst deque slides past t=0 (cutoff = 1.5 - 1.0 = 0.5;
+        # Wait 1.5s, burst deque slides past t=0 (cutoff = 1.5 - 1.0 = 0.5;
         # t=0.0 < 0.5, evicted). Sustained deque (cutoff = 1.5 - 10 = -8.5)
         # still has all 10.
         assert rl.allow(now=1.5) is True, (
@@ -175,15 +175,15 @@ class TestRateLimiterDualWindow:
         # 2 accepted at t=0 (burst fills).
         assert rl.allow(now=0.0) is True
         assert rl.allow(now=0.0) is True
-        # 3rd at t=0 — burst rejects (2 >= 2).
+        # 3rd at t=0, burst rejects (2 >= 2).
         assert rl.allow(now=0.0) is False
-        # 4th at t=0 — burst rejects again.
+        # 4th at t=0, burst rejects again.
         assert rl.allow(now=0.0) is False
         assert rl.rejected_count == 2
         # At t=2.0 (burst deque slides past t=0), 3rd accepted
         # (sustained deque now has 3 entries: 2 from t=0 + 1 from t=2.0).
         assert rl.allow(now=2.0) is True
-        # 4th at t=2.0 — sustained rejects (3 >= 3).
+        # 4th at t=2.0, sustained rejects (3 >= 3).
         assert rl.allow(now=2.0) is False
         # Total rejections: 2 (burst) + 1 (sustained) = 3.
         assert rl.rejected_count == 3
@@ -193,11 +193,11 @@ class TestRateLimiterDualWindow:
         burst window (e.g. 0.5s) without changing the sustained window.
         """
         rl = _RateLimiter(burst=5, sustained_per_sec=100, window=10.0, burst_window=0.5)
-        # 5 msgs at t=0 — burst fills (5 in 0.5s window).
+        # 5 msgs at t=0, burst fills (5 in 0.5s window).
         for _ in range(5):
             assert rl.allow(now=0.0) is True
-        # 6th at t=0.4 — burst rejects (still in 0.5s window).
+        # 6th at t=0.4, burst rejects (still in 0.5s window).
         assert rl.allow(now=0.4) is False
-        # 7th at t=0.6 — burst deque slides (cutoff = 0.6 - 0.5 = 0.1;
+        # 7th at t=0.6, burst deque slides (cutoff = 0.6 - 0.5 = 0.1;
         # t=0.0 < 0.1, evicted). Allowed.
         assert rl.allow(now=0.6) is True

@@ -17,7 +17,7 @@ import { _removeRendererFromBackpressure } from "../python/send-to-python";
 import { state } from "../state";
 // `isLinuxWaylandWithoutSni` is consulted in the main window's
 // `close` handler so that on Linux Wayland WITHOUT StatusNotifierItem
-// (Sway/Hyprland/dwl/river — no tray icon to dismiss the app to),
+// (Sway/Hyprland/dwl/river, no tray icon to dismiss the app to),
 // closing the dashboard window flows through to `window-all-closed` →
 // `app.quit()` instead of hiding to a tray that doesn't exist.
 import { isLinuxWaylandWithoutSni } from "../tray_available";
@@ -52,7 +52,7 @@ export function registerWindowLifecycleEvents(
 	// on Linux Wayland WITHOUT StatusNotifierItem (Sway/Hyprland/
 	// dwl/river) the Python tray backend sets `_tray_unavailable = True`
 	// and creates NO tray icon.  Hiding the last window here would strand
-	// the user — there's no tray icon to re-open the dashboard or quit
+	// the user, there's no tray icon to re-open the dashboard or quit
 	// the app.  Consulting `isLinuxWaylandWithoutSni()` lets the close
 	// flow through to `closed` → `window-all-closed` → `app.quit()` so
 	// the process exits cleanly instead of becoming an invisible zombie.
@@ -83,12 +83,12 @@ export function registerWindowLifecycleEvents(
 	// space on macOS instead of emitting maximize/unmaximize. Mirror it
 	// onto the same maximized-changed channel so the renderer drops
 	// rounded corners / updates chrome state in fullscreen. These events
-	// only fire on macOS — no-ops on Windows/Linux.
+	// only fire on macOS, no-ops on Windows/Linux.
 	win.on("enter-full-screen", () => broadcastMaximized(true));
 	// Query the real state on leave: macOS fullscreen can return to a
 	// PRE-maximized window (Option+click green = zoom, then green again =
 	// fullscreen). Hardcoding `false` would leave the renderer's
-	// `is-maximized` class stale — rounded corners would reappear on a
+	// `is-maximized` class stale, rounded corners would reappear on a
 	// still-maximized window.
 	win.on("leave-full-screen", () => {
 		broadcastMaximized(state.mainWindow?.isMaximized() ?? false);

@@ -1,20 +1,20 @@
 /**
- * Bubble overlay React component — the always-on-top floating pill that
+ * Bubble overlay React component, the always-on-top floating pill that
  * visualises microphone levels while recording and surfaces
  * transcribing/idle/error state.
  *
  * Previously a 671-line monolith. Extracted subcomponents and hooks
  * live in `./bubble-components.tsx`:
- *   - `useBubbleLifecycle` — theme sync, audio-level rAF loop (paused
+ *   - `useBubbleLifecycle`, theme sync, audio-level rAF loop (paused
  *     when hidden), and visibility tracking.
- *   - `useBubbleStateMachine` — `mode` / `animState` / `exitTick` /
+ *   - `useBubbleStateMachine`, `mode` / `animState` / `exitTick` /
  *     `errorMessage`.
- *   - `BubbleVisualizer` — recording-mode bars + REC indicator.
- *   - `BubbleMicButton` — always-visible mic toggle.
- *   - `BubbleDismissButton` — dismiss '×' affordance.
- *   - `BubbleModeContent` — 8-way mode-branch pill body (extracted
+ *   - `BubbleVisualizer`, recording-mode bars + REC indicator.
+ *   - `BubbleMicButton`, always-visible mic toggle.
+ *   - `BubbleDismissButton`, dismiss '×' affordance.
+ *   - `BubbleModeContent`, 8-way mode-branch pill body (extracted
  *     from the inline ternary chain that used to live here).
- *   - `getBubbleAriaLabel` — pure helper that returns the
+ *   - `getBubbleAriaLabel`, pure helper that returns the
  *     state-aware aria-label for the `<output aria-live>` wrapper.
  *
  * This file owns only the auto-resize `useLayoutEffect`, the
@@ -22,7 +22,7 @@
  * auto-hide timer, and the render tree.
  *
  * The dead keyboard-move handler that previously lived here has been
- * removed — see the comment below for why and how to re-implement
+ * removed, see the comment below for why and how to re-implement
  * keyboard-move correctly.
  */
 import {
@@ -51,13 +51,13 @@ import {
 // Auto-hide delay (ms) for error mode when the bubble is in
 // `show_on_record` behavior. The bubble stays sticky in
 // `always_visible` mode (the user can manually dismiss it). 7s is the
-// middle of the 5-10s range — long enough for the user to notice the
+// middle of the 5-10s range, long enough for the user to notice the
 // error and click retry, short enough that the pill doesn't linger
 // over their text field after they've moved on.
 const ERROR_AUTO_HIDE_MS = 7000;
 
 // Previously every effect/callback in this file re-cast `window.bubble`
-// to `BubbleWindowBubble | undefined` inline — the same
+// to `BubbleWindowBubble | undefined` inline, the same
 // `as import("@/types/ipc").BubbleWindowBubble | undefined` expression
 // appeared 5+ times. Centralising the cast in one typed accessor makes
 // the intent explicit (a single, named unsafe boundary at the preload
@@ -79,7 +79,7 @@ function getBubbleApi(): BubbleWindowBubble | undefined {
 // events never fire in the shipped app. The handler only fired under
 // jsdom synthetic events (the old `Bubble-keyboard-move.test.tsx`).
 //
-// DECISION (option b — document as mouse-drag-only): rather than add a
+// DECISION (option b, document as mouse-drag-only): rather than add a
 // MAIN-PROCESS global hotkey (option a), the bubble is documented in
 // user-facing help as mouse-drag-only. This is a deliberate product
 // decision: the bubble is a tiny always-on-top pill that the user
@@ -92,7 +92,7 @@ function getBubbleApi(): BubbleWindowBubble | undefined {
 //
 // If a future product decision flips `focusable: false` to `true`
 // (which would also affect the mic-button accessibility trade-off),
-// re-introducing a renderer keydown handler becomes safe — see the
+// re-introducing a renderer keydown handler becomes safe, see the
 // dead-code guard test in `Bubble-keyboard-move.test.tsx` which fails
 // LOUDLY if `focusable: false` is removed without also re-adding the
 // handler.
@@ -125,12 +125,12 @@ function BubbleInner() {
 	const [micButton, setMicButton] = useState(false);
 	// Whether to show the dismiss '×' button. Shown whenever the bubble
 	// is in `always_visible` mode (the only mode where the user needs
-	// to manually dismiss the bubble — `show_on_record` auto-hides when
+	// to manually dismiss the bubble, `show_on_record` auto-hides when
 	// recording stops). Driven by `bubble:config`.
 	const [dismissable, setDismissable] = useState(false);
 	// Tracks the current `bubble_behavior` so the error-mode auto-hide
 	// effect can decide whether to auto-dismiss (show_on_record) or
-	// stay sticky (always_visible — the user dismisses manually via
+	// stay sticky (always_visible, the user dismisses manually via
 	// the '×' button). Defaults to `show_on_record` (the documented
 	// default in the Settings page) until the first `bubble:config`
 	// push arrives.
@@ -159,7 +159,7 @@ function BubbleInner() {
 	// (onShow / onHide / onSetState / onConfig / onDraggable / onLevel)
 	// into one listener per channel; consumers register handlers via
 	// `bridge.on(event, handler)`. Pre-refactor each hook + this
-	// component called `api.onX(...)` individually — 11 separate IPC
+	// component called `api.onX(...)` individually, 11 separate IPC
 	// listeners across the bubble package.
 	const bridge = useBubbleBridge();
 
@@ -192,7 +192,7 @@ function BubbleInner() {
 			setMicButton(enabled);
 			// Dismiss button shown whenever the bubble is in
 			// always_visible mode (regardless of the mic-button toggles
-			// — the user needs a way to manually dismiss an
+			//, the user needs a way to manually dismiss an
 			// always-visible bubble even when the mic button is
 			// disabled).
 			setDismissable(behavior === "always_visible");
@@ -213,7 +213,7 @@ function BubbleInner() {
 	}, []);
 
 	// Stop / retry button click → toggle dictation. Same channel as the
-	// mic button — when recording, `toggle_dictation` stops the
+	// mic button, when recording, `toggle_dictation` stops the
 	// recording and triggers transcription; when in error mode, it
 	// re-arms the dictation pipeline (effectively a retry). The visual
 	// affordance is differentiated in `BubbleStopButton` based on the
@@ -252,7 +252,7 @@ function BubbleInner() {
 		// absorbs the rounding without leaving a perceptible dead
 		// zone (the pill has no visible border at the pixel level).
 		getBubbleApi()?.resizeTo?.(w + 1, h + 1);
-		void mode; // semantic dep — pill content size changes between modes
+		void mode; // semantic dep, pill content size changes between modes
 	}, [animState, mode]);
 
 	// Fading → exit transition. When the transcribing content fade-out
@@ -297,7 +297,7 @@ function BubbleInner() {
 		return () => clearTimeout(timer);
 	}, [mode, bubbleBehavior, setAnimState]);
 
-	// Animation-end callback — when exit CSS transition completes, tell
+	// Animation-end callback, when exit CSS transition completes, tell
 	// the main process it's safe to `hide()` the BrowserWindow. After
 	// the enter animation completes, re-sync the window size to the
 	// pill content (handles edge cases where the initial

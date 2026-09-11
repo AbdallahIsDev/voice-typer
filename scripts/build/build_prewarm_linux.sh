@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Voice Typer — Nuitka prewarm build (Linux x86_64 + aarch64)
-# ADR-0020 §5 — Prewarm is frozen the SAME Nuitka way as the sidecar, into
+# Voice Typer. Nuitka prewarm build (Linux x86_64 + aarch64)
+# ADR-0020 §5. Prewarm is frozen the SAME Nuitka way as the sidecar, into
 # prewarm-<triple>. Prewarm is a BUNDLE RESOURCE (not externalBin):
 # launched by the systemd user timer (~/.config/systemd/user/voice-typer-prewarm.timer)
 # via resolve_prewarm_exe(), NOT by Tauri as a managed child.
@@ -31,7 +31,7 @@ if [[ "$ARCH" == "--check" ]]; then
     # the exact same Nuitka toolchain as the sidecar, so a successful
     # sidecar --check implies a successful prewarm build.
     # WR-18: previously this was a stub that just echoed "OK if that
-    # passes" and exited 0 without invoking the sibling — masking
+    # passes" and exited 0 without invoking the sibling, masking
     # real toolchain breakage.
     # Delegate to the sibling sidecar build script which performs the
     # real toolchain probe (python-build-standalone interpreter,
@@ -73,7 +73,7 @@ if [[ "$ARCH" == "--check" ]]; then
         done
     fi
     if [[ "$FOUND_PREWARM" -eq 0 ]]; then
-        echo "NOTICE: no prewarm binary found in $PREWARM_DIR — run without --check to build." >&2
+        echo "NOTICE: no prewarm binary found in $PREWARM_DIR. Run without --check to build." >&2
     else
         echo "[build_prewarm_linux.sh] OK: existing prewarm binary verified."
     fi
@@ -137,7 +137,7 @@ mkdir -p "$RESOURCES_DIR"
 # Parallel C compilation: Nuitka invokes gcc/clang per Python module.
 # --jobs=N lets Nuitka fan those out (default: 1 = sequential).
 # Cap at the host CPU count via nproc(1); override with NUITKA_JOBS.
-# Note: each job forks a C compiler (~300-500 MB RSS) — on a 16 GB
+# Note: each job forks a C compiler (~300-500 MB RSS), on a 16 GB
 # machine, --jobs=4 is comfortable, --jobs=8 is borderline. Pair this
 # with build_tauri_all.sh --parallel cautiously: 3 Nuitka builds x
 # N jobs each can OOM-kill the box.

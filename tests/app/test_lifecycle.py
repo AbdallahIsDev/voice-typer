@@ -1,7 +1,7 @@
 """split from tests/test_app.py.
 
 All heavy dependencies are mocked via the project-wide ``mock_heavy_imports``
-autouse fixture (in ``tests/conftest.py``) — CR-60 hoisted the
+autouse fixture (in ``tests/conftest.py``), CR-60 hoisted the
 ``force_pynput_hotkey_backend`` patch from the old local fixture into
 that project-wide fixture, so test modules no longer need a local
 override.
@@ -30,7 +30,7 @@ def _wait_for_busy_clear(app, timeout=10.0):
     The generous default deadline absorbs slow shared CI runners: a full
     stop → transcription-thread → busy-reset cycle spawns real threads,
     and on a loaded macos-14 xdist worker it can exceed 2s wall-clock.
-    The wait is still event-driven — it returns the moment the event is
+    The wait is still event-driven, it returns the moment the event is
     set, so the larger ceiling costs nothing on fast machines.
     """
     deadline = time.monotonic() + timeout
@@ -42,7 +42,7 @@ def _wait_for_busy_clear(app, timeout=10.0):
 
 class TestAppStateTransitions:
     def test_initial_state_is_idle(self, app):
-        # (fix): removed redundant `assert not not` — the
+        # (fix): removed redundant `assert not not`, the
         # following assert is a strict superset.
         assert app._busy_event.is_set()  # event is SET when not busy
         assert app.recorder.recording is False
@@ -219,7 +219,7 @@ class TestAppStateTransitions:
         assert app._busy_event.is_set()
         # verify the ERROR tray state was actually entered (the
         # dictation pipeline's except handler must call
-        # tray.set_state(AppState.ERROR, ...) — previously this test
+        # tray.set_state(AppState.ERROR, ...), previously this test
         # never checked that the ERROR state was reached). The tooltip
         # must carry the mapped reason (generic exceptions fall back to
         # "Transcription failed (…)…"), not the bare state label.
@@ -235,7 +235,7 @@ class TestAppStateTransitions:
         and _busy is still cleared.
 
         WR-2: previously this test used ``return_value="fallback worked"``
-        which always succeeded on the first call — the CUDA-fallback path
+        which always succeeded on the first call, the CUDA-fallback path
         (catch RuntimeError, retry on CPU) was never exercised. Now we use
         ``side_effect=[RuntimeError("CUDA error"), "fallback worked"]``
         so the first call simulates a CUDA failure and the second call
@@ -271,7 +271,7 @@ class TestAppStateTransitions:
         assert app._busy_event.is_set()
         # The mock must have been called (at least once) by _transcribe().
         # With side_effect=[RuntimeError, success], production's
-        # _transcribe would catch the RuntimeError and retry — the mock
+        # _transcribe would catch the RuntimeError and retry, the mock
         # is called twice in that path.
         assert app.models.transcriber.transcribe_with_fallback.called, (
             "WR-2: transcribe_with_fallback must be invoked by _transcribe"
@@ -315,7 +315,7 @@ class TestAppStateTransitions:
         app._waveform_bubble.set_state.assert_called_once_with("transcribing")
         # Must NOT hide the bubble synchronously during stop (it stays visible
         # during transcription). The pipeline's async completion will call hide()
-        # once transcription finishes — that is tested separately.
+        # once transcription finishes: that is tested separately.
         _wait_for_busy_clear(app)
 
     def test_stop_dictation_calls_set_state_transcribing(self, app):
@@ -393,7 +393,7 @@ class TestAppStateTransitions:
         app.recorder.recording = True
         app.recorder.stop = MagicMock(return_value=np.ones(16000, dtype=np.float32))
 
-        # First stop — transcription fails
+        # First stop, transcription fails
         app._stop_dictation()
         _wait_for_busy_clear(app)
 
@@ -435,7 +435,7 @@ class TestAppStateTransitions:
         # through ``clean_transcribed_text`` / vocabulary / auto-punct.
         # The conftest ``app`` fixture leaves ``transcriber`` as a bare
         # ``MagicMock()`` whose ``transcribe_with_fallback`` returns a
-        # child MagicMock — the cleanup chain then raises
+        # child MagicMock, the cleanup chain then raises
         # ``TypeError: expected string or bytes-like object, got
         # 'MagicMock'`` inside the transcription thread. Stub the
         # transcriber to return a real string so the pipeline completes
@@ -490,7 +490,7 @@ class TestAppStartupIntegration:
         # delegate removed); patch the standalone function directly.
         monkeypatch.setattr("voice_typer.server.startup_tasks.sync_prewarm_task", MagicMock())
         app._do_startup()
-        # Model load runs in a background thread now — wait for it so the
+        # Model load runs in a background thread now, wait for it so the
         # test doesn't tear down while the loader is mid-flight.
         load_thread = app.models._model_load_thread
         if load_thread is not None:
@@ -528,7 +528,7 @@ class TestAppStartupIntegration:
         # Reset before our call
         _FakeIcon.last_kwargs = {}
 
-        # Call tray.start directly — should create the icon without blocking
+        # Call tray.start directly, should create the icon without blocking
         app.tray.start(bg_work=None)
 
         # The tray should now have an icon
@@ -537,7 +537,7 @@ class TestAppStartupIntegration:
         # The icon should have menu= set to a _FakeMenu (regression check)
         menu = _FakeIcon.last_kwargs.get("menu")
         assert isinstance(menu, _FakeMenu), f"menu= must be a pystray.Menu, got {type(menu).__name__}: {menu!r}"
-        # _FakeMenu IS callable (mirrors real pystray.Menu) — verify it wraps a callable
+        # _FakeMenu IS callable (mirrors real pystray.Menu), verify it wraps a callable
         assert hasattr(menu, "args") and len(menu.args) >= 1 and callable(menu.args[0]), (
             "menu= should wrap a callable inside pystray.Menu, not be a bare function"
         )
@@ -584,7 +584,7 @@ class TestStartupResilience:
         app.tray = MagicMock()
 
         app._do_startup()
-        # Model load now runs in a background thread — wait for it so
+        # Model load now runs in a background thread, wait for it so
         # the "model" step has actually executed before asserting order.
         load_thread = app.models._model_load_thread
         if load_thread is not None:
@@ -601,7 +601,7 @@ class TestStartupResilience:
         monkeypatch.setattr("voice_typer.server.startup_tasks.sync_prewarm_task", MagicMock())
         monkeypatch.setattr("voice_typer.server.startup_tasks.load_microphones", MagicMock())
         # Phase 2: production callers invoke ``app.hotkeys.register()``
-        # directly — monkeypatch the real call site (not the delegate).
+        # directly, monkeypatch the real call site (not the delegate).
         app.hotkeys.register = MagicMock()
         # _try_load_model runs inside the background loader thread; make it
         # raise to simulate a model-load failure.  The loader catches it.
@@ -610,7 +610,7 @@ class TestStartupResilience:
         app.models.try_load = MagicMock(side_effect=RuntimeError("OOM"))
         app.tray = MagicMock()
 
-        # Should not raise — the exception is caught inside the loader thread.
+        # Should not raise, the exception is caught inside the loader thread.
         app._do_startup()
         # Wait for the background loader so the assertion below sees the
         # post-load state (hotkey registered, app still alive).
@@ -653,7 +653,7 @@ class TestStartupResilience:
         app.recorder = MagicMock()
         app.recorder.recording = False
         # The real Recorder flips ``recording`` to True inside
-        # ``start()``; the MagicMock does not, so simulate it — the
+        # ``start()``; the MagicMock does not, so simulate it, the
         # start path re-checks ``app.recorder.recording`` after the
         # model load and aborts post-load steps (including the
         # model-fail discard) when it is False.
@@ -738,7 +738,7 @@ class TestAppInitManagerFailureWarning:
     production logs (default level is INFO). The fix bumps to
     ``log.warning`` with ``exc_info=True``.
 
-    AB-30: construction is now LAZY — moved out of ``__init__`` into
+    AB-30: construction is now LAZY, moved out of ``__init__`` into
     the dictation-pipeline steps (``text_steps._apply_templates`` /
     ``_apply_vocabulary``), which construct on first access and log
     ``[PIPELINE] ... failed`` at WARNING with ``exc_info=True`` when
@@ -940,7 +940,7 @@ class TestAppExcepthookInstallGuard:
         """Source-level invariant: the threading/crash-init builder must
         wrap the ``install_python_excepthook()`` call in a try/except
         block. (The call lives in ``_init_threading_and_crash`` since
-        the ``__init__`` decomposition — the builder is the new home of
+        the ``__init__`` decomposition, the builder is the new home of
         the former inline ``__init__`` body.)"""
         import inspect
 
@@ -973,23 +973,23 @@ class TestAppExcepthookInstallGuard:
 #
 # Each test class exercises one finding:
 #
-# * ``DE-47`` — ``restart_app`` must not abort the restart sequence if
+# * ``DE-47``: ``restart_app`` must not abort the restart sequence if
 # ``self.config.save()`` raises an unexpected exception (e.g.
 # ``RecursionError`` from ``asdict`` on a cyclic dataclass, or
 # ``MemoryError`` during a huge credential_store migration).
 # * ``VoiceTyperApp.__init__`` must not crash the entire
 # backend if ``Config.load()`` propagates an unexpected exception
-# (``KeyError`` / ``AttributeError`` / ``MemoryError`` — the
+# (``KeyError`` / ``AttributeError`` / ``MemoryError``, the
 # deliberate "do not silently swallow" propagation in
 # ``Config.load``).  We catch, log at ERROR with ``exc_info=True``,
 # fall back to ``Config()`` defaults, and surface a tray
 # notification once ``self.tray`` is built.
-# * ``DE-49`` — the re-entry guards in ``quit_app`` and
+# * ``DE-49``, the re-entry guards in ``quit_app`` and
 # ``restart_app`` must check ``self._shutting_down_event.is_set()``
 # (the ``threading.Event`` version, which provides cross-thread
 # memory-ordering) instead of the plain ``self._shutting_down``
 # boolean.
-# * ``DE-50`` — ``app.main()`` must wrap the ``ipc_main()`` call in a
+# * ``DE-50``: ``app.main()`` must wrap the ``ipc_main()`` call in a
 # top-level ``try/except Exception`` so a crash logs at ERROR with
 # the full traceback and exits with code 1 (rather than propagating
 # to the console-script wrapper with no structured log entry).
@@ -1060,7 +1060,7 @@ class TestConfigSaveRaisesInRestartApp:
             app.restart_app()
 
         # The relaunch_app event MUST still be pushed despite the save
-        # failure — otherwise the user's "Restart" tray click is a
+        # failure, otherwise the user's "Restart" tray click is a
         # silent no-op.
         assert any(msg.get("type") == "relaunch_app" for msg in publish_calls), (
             "DE-47: restart_app must still publish the relaunch_app event "
@@ -1148,7 +1148,7 @@ class TestConfigLoadRaisesInInit:
 
     def test_init_falls_back_to_defaults_when_config_load_raises(self, tmp_config_dir, monkeypatch):
         """When ``Config.load()`` raises (e.g. ``KeyError`` from a
-        ``data[...]`` access without a default — the deliberate
+        ``data[...]`` access without a default, the deliberate
         propagation in Config.load), ``__init__`` must catch it and
         construct with ``Config()`` defaults so the rest of init can
         proceed."""
@@ -1265,7 +1265,7 @@ class TestConfigLoadRaisesInInit:
             # Resolve the i18n keys at the test's active locale (default
             # ``en``) so the assertion stays valid regardless of which
             # string the locale registry maps ``error.config_load_failed.*``
-            # to — the contract under test is that __init__ routed the
+            # to, the contract under test is that __init__ routed the
             # notification through ``i18n.t(...)`` for these keys.
             titles_msgs = " ".join(f"{t} {m}" for t, m in notify_calls)
             expected_title = i18n.t("error.config_load_failed.title")
@@ -1337,7 +1337,7 @@ class TestConfigLoadRaisesInInit:
 
     def test_init_tray_notify_failure_is_swallowed(self, tmp_config_dir, monkeypatch):
         """If ``tray.notify`` itself raises (e.g. tray backend not
-        fully initialized), ``__init__`` must NOT re-raise — the
+        fully initialized), ``__init__`` must NOT re-raise, the
         user already has the ERROR log line + traceback for triage."""
         from voice_typer.server import app as app_module
         from voice_typer.server.config import Config
@@ -1375,7 +1375,7 @@ class TestConfigLoadRaisesInInit:
         """Source-level invariant: ``Config.load()`` in the config-init
         builder must be wrapped in ``try:/except Exception:`` with an
         ``ERROR``-level log and a ``Config()`` fallback. (The call lives
-        in ``_init_config`` since the ``__init__`` decomposition — the
+        in ``_init_config`` since the ``__init__`` decomposition, the
         builder is the new home of the former inline ``__init__`` body.)"""
         from voice_typer.server.app import VoiceTyperApp
 
@@ -1462,7 +1462,7 @@ class TestReentryGuardUsesEventIsSet:
 
     def test_quit_app_skips_quit_when_event_set(self, app, monkeypatch):
         """Behavioral: when ``_shutting_down_event`` is set (and the
-        boolean is also True — quit() sets both), ``quit_app`` must
+        boolean is also True, quit() sets both), ``quit_app`` must
         skip the duplicate ``self.quit()`` call.  The push must still
         happen (APP-10 invariant)."""
         pushed = []
@@ -1477,7 +1477,7 @@ class TestReentryGuardUsesEventIsSet:
         # set the Event, not (only) the boolean.
         app._shutting_down_event.set()
         # Also set the boolean to mirror what quit() does in production
-        # — both are set together so a test that sets only the Event
+        # , both are set together so a test that sets only the Event
         # is sufficient, but mirroring production is cleaner.
         app._shutting_down = True
 
@@ -1544,7 +1544,7 @@ class TestReentryGuardUsesEventIsSet:
     def test_quit_app_guard_does_not_fire_on_boolean_only(self, app, monkeypatch):
         """DE-49 regression guard: setting ONLY the plain boolean
         ``_shutting_down = True`` (without setting the Event) must
-        NOT short-circuit ``quit_app``'s guard — because the guard
+        NOT short-circuit ``quit_app``'s guard, because the guard
         now reads the Event, not the boolean.
 
         This test pins the new behavior: a refactor that sets only
@@ -1565,7 +1565,7 @@ class TestReentryGuardUsesEventIsSet:
         monkeypatch.setattr(app, "quit", lambda: quit_calls.append(True))
         monkeypatch.setattr("os._exit", lambda code: None)
 
-        # Set ONLY the boolean — NOT the Event.  Pre- this would
+        # Set ONLY the boolean. NOT the Event.  Pre- this would
         # have short-circuited the guard; post- it must NOT.
         app._shutting_down = True
         app._shutting_down_event.clear()
@@ -1577,7 +1577,7 @@ class TestReentryGuardUsesEventIsSet:
             "DE-49: setting only the boolean _shutting_down=True (without "
             "setting the Event) must NOT short-circuit quit_app's guard. "
             "The guard reads _shutting_down_event.is_set(), which is False "
-            "here — so self.quit() must still be called."
+            "here, so self.quit() must still be called."
         )
 
 
@@ -1632,7 +1632,7 @@ class TestMainWrapsIpcMain:
 
     def test_main_does_not_swallow_system_exit(self, monkeypatch):
         """``SystemExit`` (raised by ``sys.exit(0)`` inside ``quit()``
-        / ``restart_app()``) must propagate unchanged — it's the
+        / ``restart_app()``) must propagate unchanged, it's the
         normal shutdown signal and must NOT be caught by the
         ``except Exception:`` (since ``SystemExit`` inherits from
         ``BaseException``, not ``Exception``)."""
@@ -1666,7 +1666,7 @@ class TestMainWrapsIpcMain:
             "SystemExit (the normal shutdown path); got exit calls: " + repr(exit_calls)
         )
 
-    # faulthandler fallback path — ``main()`` enables
+    # faulthandler fallback path: ``main()`` enables
     # ``faulthandler`` for crash thread-dumps and logs a WARNING (with
     # exc_info) when ``faulthandler.enable()`` raises or the module is
     # unavailable, WITHOUT aborting the backend startup.
@@ -1678,7 +1678,7 @@ class TestMainWrapsIpcMain:
         dump capability is degraded, not fatal)."""
         from voice_typer.server import app as app_module
 
-        # faulthandler.enable() raises — simulates a stripped interpreter.
+        # faulthandler.enable() raises, simulates a stripped interpreter.
         class _BoomFaulthandler:
             @staticmethod
             def enable():
@@ -1714,7 +1714,7 @@ class TestMainWrapsIpcMain:
 
         # sys.modules["faulthandler"] = None makes `import faulthandler`
         # raise ImportError ("import of faulthandler halted; None in
-        # sys.modules") — exactly the degraded-build scenario.
+        # sys.modules"), exactly the degraded-build scenario.
         monkeypatch.setitem(sys.modules, "faulthandler", None)
 
         called = []

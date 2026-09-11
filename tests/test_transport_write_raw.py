@@ -1,18 +1,18 @@
-"""Tests for ``_TCPLineIO.write_raw`` — the direct-to-socket batched write.
+"""Tests for ``_TCPLineIO.write_raw``: the direct-to-socket batched write.
 
 ``write_raw`` complements the ``write`` + ``flush`` buffer-then-send
 pattern with a single-call API for callers that have ALREADY
 concatenated a batch of lines into one string. It issues exactly one
-``sendall`` syscall (the common case — buffer empty) so a caller
+``sendall`` syscall (the common case, buffer empty) so a caller
 building a 100-entry drain batch as a single string gets one kernel
 transition instead of 100 ``write`` appends + 1 ``flush``.
 
 These tests pin the three behavioural contracts:
 
-1. **Empty buffer → single sendall** — the documented fast path.
-2. **Non-empty buffer → flush-then-send** — preserves publish order
+1. **Empty buffer → single sendall**, the documented fast path.
+2. **Non-empty buffer → flush-then-send**, preserves publish order
    when a caller mixes ``write`` and ``write_raw`` in the same cycle.
-3. **sendall failure propagates** — the raw text is NOT buffered for
+3. **sendall failure propagates**, the raw text is NOT buffered for
    retry (callers must treat the connection as dead).
 """
 
@@ -45,7 +45,7 @@ class TestWriteRawEmptyBuffer:
 
     def test_empty_string_is_still_one_sendall(self):
         # An empty string is a degenerate case but the contract is
-        # "exactly one sendall" — we do NOT short-circuit because the
+        # "exactly one sendall", we do NOT short-circuit because the
         # caller explicitly asked for a raw write (contrast with
         # ``flush`` which no-ops on an empty buffer).
         io_obj = _make_io()
@@ -62,7 +62,7 @@ class TestWriteRawEmptyBuffer:
     def test_buffer_stays_empty_after_write_raw(self):
         io_obj = _make_io()
         io_obj.write_raw("line1\n")
-        assert io_obj._write_buffer == [], "write_raw must NOT append to _write_buffer — it writes directly."
+        assert io_obj._write_buffer == [], "write_raw must NOT append to _write_buffer, it writes directly."
 
 
 class TestWriteRawNonEmptyBuffer:
@@ -103,7 +103,7 @@ class TestWriteRawFailure:
         with pytest.raises(OSError):
             io_obj.write_raw("raw\n")
         assert io_obj._write_buffer == [], (
-            "write_raw must NOT buffer the raw text on failure — the "
+            "write_raw must NOT buffer the raw text on failure, the "
             "caller is responsible for treating the connection as dead."
         )
 

@@ -38,7 +38,7 @@ def is_linux_wayland_without_sni() -> bool:
     Detection of (3) is best-effort: we try to call the
     ``org.kde.StatusNotifierWatcher`` service via D-Bus.  If the
     call fails (service unknown, bus unavailable, dbus module
-    missing), we assume SNI is not available — which matches the
+    missing), we assume SNI is not available: which matches the
     user's complaint that "the tray silently fails" on Sway/Hyprland.
 
     We DON'T try to detect specific compositors by name (Sway,
@@ -54,7 +54,7 @@ def is_linux_wayland_without_sni() -> bool:
     try:
         import dbus  # type: ignore[import-untyped]
     except ImportError:
-        # No dbus module — we can't detect SNI programmatically.
+        # No dbus module, we can't detect SNI programmatically.
         # Conservative: assume SNI is NOT available (matches the
         # user's complaint of "silent failure" on minimal Wayland
         # setups that typically don't have python-dbus installed).
@@ -87,7 +87,7 @@ def is_linux_wayland_without_sni() -> bool:
         return False
     except Exception as exc:
         log.debug(
-            "[TRAY] D-Bus check for StatusNotifierItem failed: %s — assuming SNI is unavailable.",
+            "[TRAY] D-Bus check for StatusNotifierItem failed: %s, assuming SNI is unavailable.",
             exc,
         )
         return True

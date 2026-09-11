@@ -1,12 +1,12 @@
 """Tauri ↔ Electron identity parity guard (identifier, productName, version).
 
-The SAME app ships through two runtimes — the Electron shell
-(``voice_typer/client/``) and the Tauri host (``src-tauri/``) — so the
+The SAME app ships through two runtimes, the Electron shell
+(``voice_typer/client/``) and the Tauri host (``src-tauri/``), so the
 three identity fields must stay in lockstep across the configs that
 feed them:
 
 - ``identifier`` (tauri.conf.json) == ``appId`` (electron-builder.yml)
-  — both become the macOS ``CFBundleIdentifier`` (plus the Windows
+, both become the macOS ``CFBundleIdentifier`` (plus the Windows
   MSI/NSIS product identity, Android package-name root, etc.). The
   documented invariant (``docs/migration/signing-guide.md`` +
   ``docs/adr/0020``) is that the Tauri ``identifier`` "matches today's
@@ -14,7 +14,7 @@ feed them:
   different app identity than the other (broken upgrades, orphaned
   TCC/permission entries, duplicate dock/tray presence).
 - ``productName`` (tauri.conf.json) == ``productName``
-  (electron-builder.yml) — the display name shown in the menu bar,
+  (electron-builder.yml), the display name shown in the menu bar,
   dock, Start menu, ``.app`` bundle name, etc. Note this is NOT
   compared to ``package.json`` ``name``: npm names are conventionally
   lowercase-hyphenated (``voice-typer-desktop``) and are not display
@@ -85,7 +85,7 @@ def package_json() -> dict:
 def _fail_on_dot_app(value: str, label: str, file: Path) -> None:
     """Assert ``value`` does not end in ``.app`` (case-insensitive)."""
     assert not value.lower().endswith(".app"), (
-        f"{label} '{value}' in {file} ends with '.app' — the Tauri CLI "
+        f"{label} '{value}' in {file} ends with '.app', the Tauri CLI "
         "warns on this ('conflicts with the application bundle extension "
         "on macOS') and electron-builder's macOS CFBundleIdentifier has "
         "the same hazard. Rename it (e.g. 'com.voicetyper.desktop')."
@@ -147,7 +147,7 @@ class TestIdentifierAppIdParity:
         for cfg_path in PER_ARCH_CONFIGS:
             parsed = json.loads(cfg_path.read_text(encoding="utf-8"))
             assert "identifier" not in parsed, (
-                f"{cfg_path.name} overrides 'identifier' — per-arch configs must "
+                f"{cfg_path.name} overrides 'identifier', per-arch configs must "
                 "NOT set it, or the base tauri.conf.json parity guard "
                 "(identifier == electron-builder.yml appId) is bypassed on that "
                 "platform's CI build."
@@ -159,7 +159,7 @@ class TestProductNameVersionParity:
 
     ``productName`` must match electron-builder.yml (the display name),
     and ``version`` must match package.json (electron-builder derives
-    its version from there — it has no top-level ``version`` field).
+    its version from there, it has no top-level ``version`` field).
     Drift in either makes the Tauri and Electron builds present
     different product names or version numbers for the same app.
     """
@@ -167,7 +167,7 @@ class TestProductNameVersionParity:
     def test_tauri_product_name_matches_electron_product_name(self, tauri_conf: dict, electron_builder: dict):
         """tauri.conf.json ``productName`` == electron-builder.yml ``productName``.
 
-        Both are the display name — menu bar / dock / Start menu /
+        Both are the display name, menu bar / dock / Start menu /
         ``.app`` bundle name. Deliberately NOT compared to
         ``package.json`` ``name`` (``voice-typer-desktop``): npm names
         are lowercase-hyphenated and are not display names.
@@ -207,7 +207,7 @@ class TestProductNameVersionParity:
             f"Tauri version '{tauri_version}' (src-tauri/tauri.conf.json) != "
             f"package.json version '{package_version}' (voice_typer/client/package.json). "
             "electron-builder derives its version from package.json, so the two "
-            "runtimes would report different versions — bump them together."
+            "runtimes would report different versions, bump them together."
         )
 
     def test_identity_fields_are_consistent_across_all_three_configs(
@@ -238,7 +238,7 @@ class TestProductNameVersionParity:
             parsed = json.loads(cfg_path.read_text(encoding="utf-8"))
             overrides = [k for k in ("identifier", "productName", "version") if k in parsed]
             assert not overrides, (
-                f"{cfg_path.name} overrides {overrides} — per-arch configs must "
+                f"{cfg_path.name} overrides {overrides}, per-arch configs must "
                 "NOT set identity fields, or the base tauri.conf.json parity "
                 "guards (identifier == appId, productName == productName, "
                 "version == package.json version) are bypassed on that "
@@ -255,8 +255,8 @@ def _built_macos_bundle_root(tauri_conf: dict) -> Path | None:
     Tauri bundler appends), and the target dir follows the build
     layout ``cargo tauri build --target universal-apple-darwin``
     produces (``tauri-macos-build.yml``). Returns ``None`` when no
-    built bundle is present — e.g. a dev box with no ``cargo tauri
-    build`` output — so callers skip gracefully instead of failing.
+    built bundle is present, e.g. a dev box with no ``cargo tauri
+    build`` output, so callers skip gracefully instead of failing.
     """
     product_name = tauri_conf.get("productName")
     assert isinstance(product_name, str) and product_name, (
@@ -297,7 +297,7 @@ class TestBuiltBundleIdentifierRoundTrip:
 
     All tests skip gracefully when no built ``.app`` exists (dev box,
     workflow legs before ``cargo tauri build``); they assert on the
-    artifact when it is present — which is exactly what the post-build
+    artifact when it is present, which is exactly what the post-build
     step added to ``tauri-macos-build.yml`` relies on.
     """
 
@@ -305,7 +305,7 @@ class TestBuiltBundleIdentifierRoundTrip:
         """The expected bundle root is DERIVED (never hardcoded): the path
         must resolve from ``tauri.conf.json`` ``productName`` + the build
         layout, and its basename must be ``<productName>.app`` (Tauri
-        bundler convention) — whether or not the artifact exists yet."""
+        bundler convention), whether or not the artifact exists yet."""
         root = _built_macos_bundle_root(tauri_conf)
         product_name = tauri_conf.get("productName")
         assert isinstance(product_name, str) and product_name, (
@@ -337,7 +337,7 @@ class TestBuiltBundleIdentifierRoundTrip:
         actual = mbid.read_bundle_identifier(root)
         assert actual == identifier, (
             f"built .app at {root} reports CFBundleIdentifier {actual!r} but "
-            f"tauri.conf.json declares identifier {identifier!r} — the bundled "
+            f"tauri.conf.json declares identifier {identifier!r}, the bundled "
             "artifact drifted from the config the parity guards pin."
         )
 
@@ -391,7 +391,7 @@ class TestBuiltAppRealPsWalk:
             pytest.skip("no built .app found under src-tauri/target (run cargo tauri build first)")
         # A synthetic child executable INSIDE the built bundle: a copy
         # of /bin/sleep (a shebang script would report the interpreter
-        # path in ps comm, not the bundle path — same premise as the
+        # path in ps comm, not the bundle path, same premise as the
         # backend-spawned sidecars the resolver actually sees).
         macos_dir = root / "Contents" / "MacOS"
         probe = macos_dir / "__ci_probe_sleep"

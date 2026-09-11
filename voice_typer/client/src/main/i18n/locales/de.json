@@ -1,6 +1,6 @@
 {
 	"dialog.criticalError.body": "Die App ist auf {count} nicht abgefangene Ausnahmen gestoßen und wird beendet.\nAbsturzprotokoll: {logPath}\nBitte starten Sie {appName} neu.",
-	"dialog.criticalError.title": "{appName} — Kritischer Fehler",
+	"dialog.criticalError.title": "{appName}, Kritischer Fehler",
 	"dialog.export.config": "Konfiguration exportieren",
 	"dialog.export.history": "Verlauf exportieren",
 	"dialog.export.statsImage": "Statistikbild exportieren",
@@ -12,7 +12,7 @@
 	"dialog.singleInstance.title": "{appName}",
 	"notify.app.config_load_failed_body": "Laden der Konfiguration fehlgeschlagen. Einstellungen wurden auf Standardwerte zurückgesetzt. Siehe Protokolle für Details.",
 	"state.app.starting": "Wird gestartet...",
-	"dialog.crashLoop.title": "{appName} — Absturzschleife",
+	"dialog.crashLoop.title": "{appName}, Absturzschleife",
 	"dialog.crashLoop.mainBody": "Das Hauptfenster-Renderer ist wiederholt abgestürzt und kann nicht wiederhergestellt werden.\n\nBitte verwenden Sie das Tray-Symbol zum Neustarten oder Beenden und starten Sie {appName} dann erneut.",
 	"dialog.crashLoop.bubbleBody": "Das Bubble-Overlay-Renderer ist wiederholt abgestürzt und kann nicht wiederhergestellt werden.\n\nBitte verwenden Sie das Tray-Symbol zum Neustarten oder Beenden und starten Sie {appName} dann erneut.",
 	"dialog.pythonBackend.timeoutTitle": "Python-Backend konnte nicht gestartet werden",

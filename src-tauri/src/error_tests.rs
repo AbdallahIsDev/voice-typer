@@ -3,12 +3,12 @@
 //!
 //! Two properties are golden-pinned for every variant:
 //!
-//! 1. **`Display`** — the log-facing string must be byte-identical to
+//! 1. **`Display`**: the log-facing string must be byte-identical to
 //!    what the former `Result<_, String>` sites produced (the tray
 //!    menu handler, the WS heartbeat task, and the bubble position
-//!    persister `{}`-format the error into `log::warn!` lines — any
+//!    persister `{}`-format the error into `log::warn!` lines, any
 //!    drift changes the rotating-log format those consumers parse).
-//! 2. **`Serialize`** — the renderer-facing wire payload must be a
+//! 2. **`Serialize`**: the renderer-facing wire payload must be a
 //!    JSON STRING (`serde_json::to_value` → `Value::String`), because
 //!    the renderer's `usePython.ts` normalizes ONLY
 //!    `typeof err === "string"` rejections; an object payload would
@@ -83,7 +83,7 @@ fn test_channel_closed_display_and_wire_string() {
 
 #[test]
 fn test_send_failed_display_and_wire_string() {
-    // `message` is the `TrySendError`'s Display — the former inline
+    // `message` is the `TrySendError`'s Display, the former inline
     // `format!("WS send failed: {e}")` concatenation.
     let err = VoiceTyperError::SendFailed {
         message: "channel is full".to_string(),
@@ -102,7 +102,7 @@ fn test_host_variant_passes_string_through_verbatim() {
 #[test]
 fn test_from_string_wraps_into_host_variant() {
     // Command fns rely on `?` + `From<String>` to convert the legacy
-    // helper errors (`json_to_csv`, `resolve_cursor_monitor`, …) — the
+    // helper errors (`json_to_csv`, `resolve_cursor_monitor`, …), the
     // renderer-visible string must survive the wrap byte-identically.
     let err: VoiceTyperError = "CSV export requires an array of objects".to_string().into();
     assert_eq!(wire_string(&err), "CSV export requires an array of objects");
@@ -135,7 +135,7 @@ fn test_pending_full_envelope_golden() {
     assert_eq!(err.to_string(), expected);
     assert_eq!(wire_string(&err), expected);
     // The renderer's reject path JSON-parses this string and branches
-    // on `code === "pending_full"` — verify the parsed shape too.
+    // on `code === "pending_full"`: verify the parsed shape too.
     let parsed: Value =
         serde_json::from_str(&wire_string(&err)).expect("envelope must be valid JSON");
     assert_eq!(parsed["type"], "error");
@@ -244,7 +244,7 @@ fn test_server_variant_display_is_flat_log_string() {
 
 #[test]
 fn test_server_variant_wire_is_envelope_passthrough() {
-    // The wire payload re-wraps the sidecar's `data` VERBATIM — the
+    // The wire payload re-wraps the sidecar's `data` VERBATIM, the
     // `code` + `message` survive AND any sibling fields ride along.
     let err = VoiceTyperError::server_from_data(json!({
         "code": "client.invalid_field",
@@ -279,7 +279,7 @@ fn test_server_variant_preserves_consent_fields_verbatim() {
         serde_json::from_str(&wire_string(&err)).expect("passthrough must be valid JSON");
     assert_eq!(parsed["data"]["consent_field"], "voice_biometric_consent");
     assert_eq!(parsed["data"]["engine_name"], "whisper");
-    // `model_id: null` rides along as JSON null — the renderer maps
+    // `model_id: null` rides along as JSON null, the renderer maps
     // null → undefined (same normalization as the Electron path).
     assert_eq!(parsed["data"]["model_id"], Value::Null);
     // Display is still the flat log string.
@@ -302,7 +302,7 @@ fn test_server_variant_defaults_code_and_message_when_missing() {
 fn test_server_from_data_non_object_falls_back_to_legacy_flat_string() {
     // Contract-violation edge: the sidecar answered `type:"error"`
     // with a missing / non-object `data`. The pre-enum code produced
-    // the flat `"server error [unknown]: server error"` string — the
+    // the flat `"server error [unknown]: server error"` string, the
     // fallback keeps that byte-identical instead of emitting a
     // `{"type":"error","data":null}` envelope the renderer would
     // surface as raw JSON text.
@@ -318,7 +318,7 @@ fn test_server_from_data_non_object_falls_back_to_legacy_flat_string() {
         wire_string(&VoiceTyperError::server_from_data(json!("boom"))),
         "server error [unknown]: server error"
     );
-    // Non-string code / message values don't panic — the extraction
+    // Non-string code / message values don't panic, the extraction
     // falls back to the defaults.
     assert_eq!(
         VoiceTyperError::server_from_data(json!({"code": 42, "message": true})).to_string(),
@@ -330,7 +330,7 @@ fn test_server_from_data_non_object_falls_back_to_legacy_flat_string() {
 fn test_server_variant_wire_matches_direct_envelope_construction() {
     // Byte-identity guard: the passthrough wire string must equal
     // `json!({"type":"error","data":<data>}).to_string()` for the same
-    // `data` — i.e. the re-wrap adds nothing, reorders nothing, and
+    // `data`: i.e. the re-wrap adds nothing, reorders nothing, and
     // drops nothing (the whole point of the fix).
     let data = json!({
         "code": "server.handler_error",

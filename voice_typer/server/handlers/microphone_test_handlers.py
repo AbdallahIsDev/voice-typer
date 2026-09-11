@@ -26,7 +26,7 @@ class MicrophoneTestHandlersMixin(HandlerBase):
     ``_handle_microphone_test_start`` enforces
         ``voice_biometric_consent`` BEFORE capturing any test audio. The mic
         test records up to 60s of audio and returns base64-encoded WAV over
-        IPC — the same privacy contract as dictation
+        IPC, the same privacy contract as dictation
         (``recording_controller.py:248-263``). Without this gate, a
         renderer-side bug or compromised renderer could trigger a test
         recording and exfiltrate up to 60s of biometric voice data without
@@ -45,10 +45,10 @@ class MicrophoneTestHandlersMixin(HandlerBase):
         ``"7.5"`` from a form input) pass through and are clamped
         after the ``float()`` coercion in the body. Note: ``0`` is
         treated as a real value and clamped to ``1.0`` (not "use
-        default") — the pre-schema ``float(d.get("duration") or 10.0)``
+        default"), the pre-schema ``float(d.get("duration") or 10.0)``
         treated ``0`` as falsy.
 
-        Migrated to :meth:`HandlerBase._wrap` — the helper handles the
+        Migrated to :meth:`HandlerBase._wrap`: the helper handles the
         surrounding ``try/except`` → ``_respond_with_error`` catch-all
         and the non-dict ``data`` pre-coercion (``None`` / list → ``{}``)
         identically to the inline ``if not isinstance(data, dict):
@@ -58,7 +58,7 @@ class MicrophoneTestHandlersMixin(HandlerBase):
         def body(d: dict) -> dict:
             # enforce voice_biometric_consent BEFORE
             # capturing any test audio. The mic test returns up to 60s
-            # of base64-encoded WAV over IPC — same privacy contract
+            # of base64-encoded WAV over IPC, same privacy contract
             # as dictation (recording_controller.py:248-263). We raise
             # ConsentRequiredError rather than building the envelope
             # inline so the existing _respond_with_error path maps it
@@ -80,7 +80,7 @@ class MicrophoneTestHandlersMixin(HandlerBase):
             except ConsentRequiredError:
                 raise
             except Exception:
-                log.exception("[IPC] microphone_test_start: failed to read voice_biometric_consent — failing open")
+                log.exception("[IPC] microphone_test_start: failed to read voice_biometric_consent, failing open")
 
             # validate ``mic_id`` and ``filters`` types via the
             # shared ``_validate_dict_payload`` helper. Non-dict
@@ -99,7 +99,7 @@ class MicrophoneTestHandlersMixin(HandlerBase):
                     # ADR 0007 filter-config contract: ``filters`` is
                     # a DICT of noise_filter_* keys (the renderer's
                     # ``buildTestFilters`` builds it from config), not
-                    # a list — downstream consumers treat it as a
+                    # a list, downstream consumers treat it as a
                     # mapping, so reject non-dict values here.
                     "filters": {
                         "type": (dict, type(None)),

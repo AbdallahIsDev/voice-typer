@@ -18,7 +18,7 @@ untracked = [ln[3:] for ln in porcelain.splitlines() if ln.startswith("??")]
 expanded_untracked = []
 for p in untracked:
     if p.endswith("/"):
-        # directory — expand to its tracked-as-untracked files
+        # directory, expand to its tracked-as-untracked files
         result = subprocess.run(
             ["git", "status", "--porcelain", "--untracked-files=all"], capture_output=True, text=True
         ).stdout
@@ -32,13 +32,13 @@ for p in untracked:
 # Combine + dedupe
 files = list(dict.fromkeys(tracked + expanded_untracked))
 
-# 3. REQUIRED files (even if "unchanged" — they ARE changed this session, but ensure present)
+# 3. REQUIRED files (even if "unchanged", they ARE changed this session, but ensure present)
 REQUIRED = ["SUMMARY.md", "worklog.md", "review.md"]
 for r in REQUIRED:
     if r not in files:
         files.append(r)
 
-# 4. Exclude list — must NOT contain these even if they appear
+# 4. Exclude list, must NOT contain these even if they appear
 EXCLUDE_PATTERNS = [
     "node_modules/",
     ".venv/",
@@ -73,7 +73,7 @@ def excluded(p):
 
 final_files = [f for f in files if not excluded(f)]
 
-# 5. Validate every file exists (for deleted files, we skip — they are recorded
+# 5. Validate every file exists (for deleted files, we skip, they are recorded
 # in archive/deleted_files.txt but not in the zip)
 missing = [f for f in final_files if not (REPO / f).exists() and not (REPO / f).is_symlink()]
 # Deleted files will appear in git diff --name-only HEAD as deleted; exclude them

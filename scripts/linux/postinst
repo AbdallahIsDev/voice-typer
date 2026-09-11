@@ -1,5 +1,5 @@
 #!/bin/bash
-# Voice Typer — Debian postinst script
+# Voice Typer. Debian postinst script
 #
 # Runs as root during `apt install voice-typer`. Performs the zero-command
 # Linux keyboard permission setup:
@@ -45,7 +45,7 @@ case "$1" in
             fi
         done
         if [ -z "$INSTALL_SCRIPT" ]; then
-            echo "[voice-typer] WARNING: install_permissions.py not found — skipping keyboard permission setup"
+            echo "[voice-typer] WARNING: install_permissions.py not found, skipping keyboard permission setup"
             echo "[voice-typer] The hotkey may not work. Install the package via apt to get the setup script."
             exit 0
         fi
@@ -59,7 +59,7 @@ case "$1" in
         # Install the polkit-stable symlink so the polkit policy resolves
         # to the actually-installed script. Skip if INSTALL_SCRIPT already
         # equals POLKIT_STABLE_PATH (avoids clobbering an existing regular
-        # file at the polkit-stable path — e.g. legacy Electron installs
+        # file at the polkit-stable path: e.g. legacy Electron installs
         # that physically place the script there).
         if [ "$INSTALL_SCRIPT" != "$POLKIT_STABLE_PATH" ]; then
             mkdir -p "$(dirname "$POLKIT_STABLE_PATH")"
@@ -77,7 +77,7 @@ case "$1" in
         # entry + hicolor icon appear in application menus immediately
         # after install (otherwise the .desktop file ships but isn't
         # indexed until the next manual refresh or reboot). These calls
-        # are non-fatal — if the helpers are missing (minimal container
+        # are non-fatal, if the helpers are missing (minimal container
         # installs), the script still exits 0.
         if [ -x /usr/bin/update-desktop-database ]; then
             update-desktop-database -q /usr/share/applications 2>/dev/null || true

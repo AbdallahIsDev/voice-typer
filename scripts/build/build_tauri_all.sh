@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Voice Typer — Tauri all-platforms build orchestrator (ADR-0020 Phase 1)
+# Voice Typer. Tauri all-platforms build orchestrator (ADR-0020 Phase 1)
 #
 # This is the local-developer equivalent of `.github/workflows/tauri-build.yml`.
 # It dispatches to the per-platform build scripts in this directory:
 #
-#   build_sidecar_<platform>.sh         — Nuitka freeze of voice_typer.server.ipc_server
-#   build_prewarm_<platform>.sh         — Nuitka freeze of voice_typer.server.prewarm
-#   build_native_listener_<platform>.sh — compiles the native hotkey binary
+#   build_sidecar_<platform>.sh. Nuitka freeze of voice_typer.server.ipc_server
+#   build_prewarm_<platform>.sh. Nuitka freeze of voice_typer.server.prewarm
+#   build_native_listener_<platform>.sh, compiles the native hotkey binary
 #
 # Then runs `cargo tauri build` against the host triple (or the triple passed
 # via --target).
@@ -16,7 +16,7 @@
 # (Tauri config) + §13 (signing) + §15 (no auto-update) are the authoritative
 # spec.
 #
-# This script DOES NOT cross-compile — Nuitka cannot cross-compile. To build
+# This script DOES NOT cross-compile. Nuitka cannot cross-compile. To build
 # for a different platform, run this script on that platform's host. The CI
 # matrix in `.github/workflows/tauri-{windows,macos,linux}-build.yml` covers
 # the cross-platform case via separate runners.
@@ -31,8 +31,10 @@
 # Exit codes:
 #   0  success
 #   1  misuse / missing toolchain
-#   2  per-platform build script failed
-#   3  cargo tauri build failed
+#   2  build script failed (Phase 1a per-platform build, or Phase 1b
+#      renderer build)
+#   3  cargo tauri build failed (Phase 1c)
+#   4  bundle verification failed (Phase 1d)
 # =============================================================================
 set -euo pipefail
 
@@ -46,7 +48,7 @@ DO_SIGN=0
 SKIP_SIDECAR=0
 CHECK_ONLY=0
 DO_PARALLEL=0  # parallel Phase 1a (sidecar+prewarm+native).
-                # Default OFF — Nuitka is RAM-heavy; 3 parallel Nuitka
+                # Default OFF. Nuitka is RAM-heavy; 3 parallel Nuitka
                 # builds × NUITKA_JOBS each can OOM-kill the box. See
                 # --parallel docs below + the RAM note in Phase 1a.
 TARGET_TRIPLE=""
@@ -56,7 +58,7 @@ print_usage() {
 Usage: $0 [--sign] [--skip-sidecar] [--check] [--target TRIPLE] [--parallel]
 
   --sign                Code-sign + notarize the bundle (requires platform
-                        secrets — see docs/migration/signing-guide.md).
+                        secrets: see docs/migration/signing-guide.md).
   --skip-sidecar        Skip the Nuitka sidecar + prewarm + native builds;
                         only run cargo tauri build (use after the binaries are
                         already in place from a prior run).
@@ -65,7 +67,7 @@ Usage: $0 [--sign] [--skip-sidecar] [--check] [--target TRIPLE] [--parallel]
                         Defaults to the host triple.
   --parallel            Run the 3 Phase 1a builds (sidecar + prewarm +
                         native listener) in parallel via backgrounded
-                        shell jobs + \`wait -n\`. Default OFF — Nuitka is
+                        shell jobs + \`wait -n\`. Default OFF, Nuitka is
                         RAM-heavy: each build forks NUITKA_JOBS (default
                         \`nproc\`) gcc processes at ~300-500 MB each. 3
                         builds × 8 jobs ≈ 7-12 GB just for compilers.
@@ -110,7 +112,7 @@ if [[ -z "$TARGET_TRIPLE" ]]; then
     esac
 fi
 
-echo "::group::build_tauri_all — plan"
+echo "::group::build_tauri_all, plan"
 echo "  HOST_PLATFORM : $HOST_PLATFORM"
 echo "  HOST_ARCH     : $HOST_ARCH"
 echo "  TARGET_TRIPLE : $TARGET_TRIPLE"
@@ -141,24 +143,24 @@ fi
 # + 3 native + 6 prewarm resources. On a clean checkout NONE of these exist, so
 # `cargo tauri build` (Phase 1c) fails immediately with
 # "resource path ... doesn't exist". (The icons under src-tauri/icons/ are
-# committed real files — no icon generation needed.)
+# committed real files, no icon generation needed.)
 # gen_tauri_icons_stub.py --check verifies all binary stubs are present (exit 0)
 # or reports which are missing (exit 1). If --check fails, generate the stubs
 # automatically so a developer doesn't have to run the generator manually first
 # (see docs/migration/tauri-build-runbook.md "Common failures"). Stubs are NOT
-# real binaries — they print "STUB: not a real sidecar" + exit 1 if executed;
+# real binaries, they print "STUB: not a real sidecar" + exit 1 if executed;
 # Phase 1a below overwrites them with real Nuitka/compiled artifacts.
-echo "::group::Phase 0 — ensure Tauri binary stubs"
+echo "::group::Phase 0. Ensure Tauri binary stubs"
 ICON_STUB="$PROJECT_ROOT/scripts/gen_tauri_icons_stub.py"
 if ! python3 "$ICON_STUB" --check; then
-    echo "[build_tauri_all] some stubs missing — generating..."
+    echo "[build_tauri_all] some stubs missing, generating..."
     python3 "$ICON_STUB" || { echo "ERROR: gen_tauri_icons_stub.py failed" >&2; exit 1; }
 fi
 echo "::endgroup::"
 
 # ─── Phase 1a: build the Nuitka sidecar + prewarm + native listener ──────────
 #
-# Phase 1a runs 3 per-platform builds — sidecar (Nuitka), prewarm
+# Phase 1a runs 3 per-platform builds, sidecar (Nuitka), prewarm
 # (Nuitka), native listener (gcc/clang on a single .c file, fast). In
 # sequential mode (default) they run back-to-back (~30-45 min total on a
 # warm cache). In --parallel mode they run as backgrounded shell jobs and
@@ -169,7 +171,7 @@ echo "::endgroup::"
 # RECOMMENDED: ≥ 16 GB RAM for --parallel; on < 32 GB also export
 # NUITKA_JOBS=2 to cap per-build parallelism.
 if [[ "$SKIP_SIDECAR" -eq 0 ]]; then
-    echo "::group::Phase 1a — per-platform sidecar + prewarm + native"
+    echo "::group::Phase 1a, per-platform sidecar + prewarm + native"
 
     # Define per-platform invocations as functions so the parallel /
     # sequential dispatch below is platform-agnostic.
@@ -201,7 +203,7 @@ if [[ "$SKIP_SIDECAR" -eq 0 ]]; then
         # (already gitignored as part of the cargo target dir). On
         # failure the failing logs are tailed to stderr.
         #
-        # We do NOT kill siblings on first failure — killing Nuitka
+        # We do NOT kill siblings on first failure, killing Nuitka
         # mid-build can leave a corrupt .bin artifact in src-tauri/bin/
         # that the next run would pick up. Let all 3 drain, then report.
         LOG_DIR_BASE="$SRC_TAURI/target/build-logs"
@@ -225,7 +227,7 @@ if [[ "$SKIP_SIDECAR" -eq 0 ]]; then
             wait -n || ANY_FAIL=1
         done
 
-        # Drain complete — collect each PID's cached exit code for
+        # Drain complete, collect each PID's cached exit code for
         # diagnostics. wait $PID on an already-finished child is a
         # no-op that surfaces the cached code.
         SIDECAR_RC=0; PREWARM_RC=0; NATIVE_RC=0
@@ -259,7 +261,12 @@ if [[ "$SKIP_SIDECAR" -eq 0 ]]; then
 fi
 
 # ─── Phase 1b: build the React renderer (shared between Electron + Tauri) ───
-echo "::group::Phase 1b — React renderer"
+# The subshell is wrapped in `|| { ...; exit 2; }` (Phase 1a's sequential
+# pattern): under `set -e` a bare failing subshell aborts the script with
+# npm's raw exit code BEFORE any diagnostic or documented exit code is
+# emitted. The wrapper keeps the failure observable (echo to stderr) and
+# maps it to the documented build-failure exit code 2.
+echo "::group::Phase 1b, React renderer"
 (
     cd "$PROJECT_ROOT/voice_typer/client"
     if [[ ! -d node_modules ]]; then
@@ -268,11 +275,11 @@ echo "::group::Phase 1b — React renderer"
     fi
     echo "[build_tauri_all] Building renderer (npm run build:renderer)..."
     npm run build:renderer
-)
+) || { RENDERER_RC=$?; echo "ERROR: renderer build failed (exit $RENDERER_RC)" >&2; exit 2; }
 echo "::endgroup::"
 
 # ─── Phase 1c: cargo tauri build ─────────────────────────────────────────────
-echo "::group::Phase 1c — cargo tauri build --target $TARGET_TRIPLE"
+echo "::group::Phase 1c, cargo tauri build --target $TARGET_TRIPLE"
 (
     cd "$SRC_TAURI"
     # macOS universal binary requires both arches' sidecar binaries present.
@@ -286,7 +293,7 @@ echo "::group::Phase 1c — cargo tauri build --target $TARGET_TRIPLE"
     # On any host only the CURRENT arch's prewarm + native key-listener
     # exist, so we override `resources` per-arch with a --config file whose
     # array REPLACES the base (Tauri overwrites conflicting values, including
-    # arrays — verified against tauri-cli 2.11.4). Without this override
+    # arrays, verified against tauri-cli 2.11.4). Without this override
     # `cargo tauri build` hard-fails at resource-copy because the base list
     # references cross-platform binaries that don't exist on the host (e.g.
     # `prewarm-x86_64-apple-darwin` on a Windows runner). The CI workflows
@@ -299,7 +306,7 @@ echo "::group::Phase 1c — cargo tauri build --target $TARGET_TRIPLE"
     # macOS: `tauri.macos.conf.json` lists BOTH arches' prewarm binaries
     # because the CI workflow builds universal (`universal-apple-darwin`).
     # This script only builds host-arch sidecar, so a single-arch local
-    # build would still fail with the universal config — local macOS dev
+    # build would still fail with the universal config, local macOS dev
     # should use `cargo tauri dev` or run the CI workflow. We DO NOT add
     # the macOS --config here for that reason (silently breaking local
     # single-arch builds is worse than failing loud with the base config).
@@ -312,7 +319,7 @@ echo "::group::Phase 1c — cargo tauri build --target $TARGET_TRIPLE"
         # hardcoding x86_64. A Windows-on-ARM (aarch64) host now applies
         # `tauri.windows-aarch64.conf.json` (which lists the aarch64
         # prewarm binary) instead of silently breaking on the x86_64
-        # resource path. XS-28: Windows host — apply the Windows-only
+        # resource path. XS-28: Windows host, apply the Windows-only
         # resource override so `cargo tauri build` doesn't try to copy
         # macOS/Linux prewarm binaries that don't exist on a Windows
         # runner. (CI's `tauri-windows-build.yml` stays on the x86_64
@@ -322,14 +329,8 @@ echo "::group::Phase 1c — cargo tauri build --target $TARGET_TRIPLE"
         echo "[build_tauri_all] Windows: applying resource override tauri.windows-${HOST_ARCH}.conf.json"
     fi
     cargo tauri build "${TAURI_BUILD_ARGS[@]}"
-)
-BUILD_RC=$?
+) || { BUILD_RC=$?; echo "ERROR: cargo tauri build failed (exit $BUILD_RC)" >&2; exit 3; }
 echo "::endgroup::"
-
-if [[ $BUILD_RC -ne 0 ]]; then
-    echo "ERROR: cargo tauri build failed (exit $BUILD_RC)" >&2
-    exit 3
-fi
 
 # ─── Phase 1d: verify build artifacts ─────────────────────────────────────────
 # BUILD-5: cargo tauri build can silently produce an empty / missing bundle on
@@ -338,10 +339,10 @@ fi
 # doesn't slip through to signing / release. Checks:
 #   (a) at least one bundle file exists in target/$TARGET_TRIPLE/release/bundle/,
 #   (b) each bundle file is non-empty and > 1 MB (catches truncated/corrupt
-#       bundles — a real installer is tens of MB),
+#       bundles, a real installer is tens of MB),
 #   (c) the sidecar binary was placed in src-tauri/bin/ (Tauri externalBin
-#       target — if missing, the installed app fails to launch the backend).
-echo "::group::Phase 1d — verify build artifacts"
+#       target, if missing, the installed app fails to launch the backend).
+echo "::group::Phase 1d, verify build artifacts"
 # WR-18 FINDING C-1: Windows binaries carry an .exe suffix; macOS/Linux do not.
 # Previously SIDECAR_BIN was constructed without the .exe suffix, so the
 # existence check below always failed on Windows (the actual artifact is
@@ -387,14 +388,14 @@ echo "::endgroup::"
 # GP-65: `--sign` must NOT silently do nothing. The Phase 1e block only echoes
 # platform-specific guidance (ADR-0020 §13); it runs no signing commands. A
 # caller that requested signing must not walk away believing the binaries were
-# signed — fail hard instead of exiting 0 (the pre-fix behavior).
+# signed, fail hard instead of exiting 0 (the pre-fix behavior).
 if [[ "$DO_SIGN" -eq 1 ]]; then
-    echo "::group::Phase 1e — code-sign + notarize (ADR-0020 §13)"
+    echo "::group::Phase 1e, code-sign + notarize (ADR-0020 §13)"
     echo "[build_tauri_all] ERROR: --sign is not automated by this script." >&2
-    echo "[build_tauri_all] Signing is platform-specific — see docs/migration/signing-guide.md" >&2
+    echo "[build_tauri_all] Signing is platform-specific. See docs/migration/signing-guide.md" >&2
     case "$HOST_PLATFORM" in
         windows)
-            echo "[build_tauri_all]   Windows Authenticode: WIN_CSC_LINK + WIN_CSC_KEY_PASSWORD env vars — see signing-guide.md §'Windows — Authenticode'." >&2
+            echo "[build_tauri_all]   Windows Authenticode: WIN_CSC_LINK + WIN_CSC_KEY_PASSWORD env vars. See signing-guide.md §'Windows, Authenticode'." >&2
             ;;
         macos)
             echo "[build_tauri_all]   macOS: codesign + notarytool + stapler (MAC_SIGNING_IDENTITY + APPLE_ID + APPLE_APP_SPECIFIC_PASSWORD + APPLE_TEAM_ID)." >&2
@@ -409,7 +410,7 @@ if [[ "$DO_SIGN" -eq 1 ]]; then
 fi
 
 # ─── Done ────────────────────────────────────────────────────────────────────
-echo "::group::build_tauri_all — artifacts"
+echo "::group::build_tauri_all, artifacts"
 case "$HOST_PLATFORM" in
     windows)
         find "$SRC_TAURI/target/$TARGET_TRIPLE/release/bundle" -maxdepth 3 -type f 2>/dev/null | sort || true

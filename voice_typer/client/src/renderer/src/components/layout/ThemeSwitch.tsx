@@ -14,14 +14,14 @@ const THEME_CYCLE: {
 }[] = [
 	{ mode: "light", icon: Sun03Icon, labelKey: "theme.light" },
 	{ mode: "dark", icon: Moon02Icon, labelKey: "theme.dark" },
-	// System = "follow the OS default" — a sun/moon combo icon (not the
+	// System = "follow the OS default", a sun/moon combo icon (not the
 	// old TV glyph) so the mode reads as "auto light/dark" at a glance.
 	{ mode: "system", icon: SunMoonIcon, labelKey: "theme.system" },
 ];
 
 // Sentinel fallback used when both `THEME_CYCLE.find(...)` and
 // `THEME_CYCLE[0]` are `undefined` (theoretically impossible —
-// `THEME_CYCLE` is a module-level literal with 3 entries — but TS
+// `THEME_CYCLE` is a module-level literal with 3 entries, but TS
 // still widens both reads under `noUncheckedIndexedAccess`). Typed
 // as a non-optional element so the lookup expressions above can
 // chain `?? THEME_CYCLE_FALLBACK` without a non-null assertion.
@@ -38,7 +38,7 @@ function nextMode(
 	const idx = THEME_CYCLE.findIndex((item) => item.mode === current);
 	const next = THEME_CYCLE[(idx + 1) % THEME_CYCLE.length];
 	// noUncheckedIndexedAccess: `next` is `T | undefined`; THEME_CYCLE
-	// is non-empty, so the modulo index is always in bounds — guard
+	// is non-empty, so the modulo index is always in bounds, guard
 	// keeps the typed return happy without a non-null assertion.
 	return next?.mode ?? THEME_CYCLE[0]?.mode ?? current;
 }
@@ -68,7 +68,7 @@ export function ThemeSwitch({
 	// Include the NEXT mode in the aria-label so screen-reader users
 	// know what clicking will do, not just what the current state is.
 	// Previously the aria-label was ``"Current theme: Dark. Click to
-	// switch."`` — ambiguous about the result of the click.  Now:
+	// switch."``, ambiguous about the result of the click.  Now:
 	// ``"Current theme: Dark. Click to switch to System."`` etc.
 	const nextLabel = t(
 		(

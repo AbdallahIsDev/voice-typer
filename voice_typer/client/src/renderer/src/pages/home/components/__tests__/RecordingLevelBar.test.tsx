@@ -1,5 +1,5 @@
 /**
- * RecordingLevelBar — compact live audio-level indicator fed by the
+ * RecordingLevelBar, compact live audio-level indicator fed by the
  * `recording_level` push event while recording. Pins:
  *  - The raw RMS payload is display-gained and clamped to 0..1 before
  *    reaching the shared LevelBar (aria-valuenow = percentage).

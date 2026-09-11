@@ -5,7 +5,7 @@ at the monolith.
 
 The forward-migration orchestrator (``_run_migrations``) and the
 forward-backup helper (``_backup_before_migration``) already live in
-``voice_typer.server.config_internals.migrations`` — the
+``voice_typer.server.config_internals.migrations``, the
 ``Config._run_migrations`` / ``Config._backup_before_migration``
 classmethods are one-line delegators to those impl functions.
 
@@ -30,7 +30,7 @@ import os
 import time
 from typing import TYPE_CHECKING, Any
 
-if TYPE_CHECKING:  # pragma: no cover — typing-only, never imported at runtime
+if TYPE_CHECKING:  # pragma: no cover, typing-only, never imported at runtime
     from voice_typer.server.config import Config
 
 log = logging.getLogger("voice_typer.server.config")
@@ -52,10 +52,10 @@ def _backup_before_downgrade_impl(
     :meth:`_filter_unknown_keys`; without a backup, the next
     :meth:`save` would atomically overwrite the on-disk file with a
     config that has the higher version number but is missing the
-    higher-version fields — silently destroying the user's data.
+    higher-version fields, silently destroying the user's data.
 
     This method copies the on-disk ``config.json`` (NOT the in-memory
-    ``data`` — the on-disk bytes still have all the higher-version
+    ``data``: the on-disk bytes still have all the higher-version
     fields) to a timestamped ``config.json.v{loaded_version}-{ts}-{pid}-{ns}.bak``
     so two backup events never collide.
 
@@ -69,20 +69,20 @@ def _backup_before_downgrade_impl(
     restart, ``load()`` sees ``loaded_version=N > current``, calls
     ``_backup_before_downgrade`` AGAIN, reads the DEGRADED on-disk
     file, and overwrites ``config.json.v{N}.bak`` with degraded
-    content — destroying the original v{N} fields. The fix mirrors
+    content, destroying the original v{N} fields. The fix mirrors
     ``_backup_before_migration``: embed timestamp + PID +
     sub-second nanoseconds in the filename and prune to keep=3 so
     the original high-version backup survives subsequent degraded
     loads.
 
     Also appends a non-blocking warning to ``data["_load_warnings"]``
-    so the renderer can surface it via ``last_load_warnings`` — the
+    so the renderer can surface it via ``last_load_warnings``, the
     user gets an honest signal that they ran an older build against
     a newer config and that a backup was created at a specific path.
 
     Best-effort: if the copy fails (read-only filesystem, out of
     disk, etc.) the warning is logged at WARNING level so the
-    operator can investigate. The load itself is NOT aborted — the
+    operator can investigate. The load itself is NOT aborted, the
     user can still use the app with the older build's known fields.
     """
     import voice_typer.server.config as _cfg
@@ -92,7 +92,7 @@ def _backup_before_downgrade_impl(
     # embed schema version + epoch seconds + PID +
     # sub-second nanoseconds in the filename so two backup events
     # never collide (even within the same second from different
-    # processes — e.g. two app instances launched in parallel
+    # processes: e.g. two app instances launched in parallel
     # against the same user account during a downgrade). Mirrors
     # ``_backup_before_migration`` at line 1879.
     ts_sec = int(time.time())
@@ -101,7 +101,7 @@ def _backup_before_downgrade_impl(
     versioned_bak = config_file.parent / f"config.json.v{loaded_version}-{ts_sec}-{pid}-{ts_ns}.bak"
     # use the secure read/write helpers (O_NOFOLLOW + atomic
     # os.replace + fsync + 0o600) instead of ``shutil.copy2``.
-    # ``shutil.copy2`` is (a) non-atomic (file-by-file copy — an
+    # ``shutil.copy2`` is (a) non-atomic (file-by-file copy, an
     # interrupted copy leaves a partial .bak that gives a false
     # sense of recoverability), (b) follows symlinks on both SOURCE
     # and DEST (a local attacker who replaces config.json with a
@@ -124,14 +124,14 @@ def _backup_before_downgrade_impl(
             f"Config file schema_version={loaded_version} is newer than this build "
             f"supports ({_cfg._CURRENT_SCHEMA_VERSION}). Unknown fields were dropped from "
             f"the in-memory config. The original file was backed up to "
-            f"{versioned_bak.name} before any save can overwrite it — restore this "
+            f"{versioned_bak.name} before any save can overwrite it, restore this "
             f"file manually after upgrading to a newer build."
         )
     except (OSError, ValueError) as e:
         # OSError covers filesystem errors (read-only fs, out of
         # disk, permission denied); ValueError covers the
         # SEC-002 inode-changed-during-read guard (symlink TOCTOU
-        # detection). Both are best-effort failures — the load
+        # detection). Both are best-effort failures, the load
         # itself is NOT aborted.
         log.warning(
             "[CONFIG] failed to back up newer-version config to %s before downgrade save: %s",
@@ -141,7 +141,7 @@ def _backup_before_downgrade_impl(
         data.setdefault("_load_warnings", []).append(
             f"Config file schema_version={loaded_version} is newer than this build "
             f"supports ({_cfg._CURRENT_SCHEMA_VERSION}). Unknown fields were dropped. "
-            f"WARNING: backup of the original file failed ({e}) — downgrading and "
+            f"WARNING: backup of the original file failed ({e}), downgrading and "
             f"saving will irrecoverably lose the higher-version fields."
         )
         return

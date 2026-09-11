@@ -5,11 +5,11 @@ This module is the TEST-2 migration entry point (see
 helpers that test code SHOULD import in preference to bare
 ``time.sleep(N)`` synchronization:
 
-- :func:`wait_until` — poll a zero-argument predicate until it returns
+- :func:`wait_until`, poll a zero-argument predicate until it returns
   truthy or the timeout elapses. Returns ``True`` on success, ``False``
   on timeout (caller decides whether to ``assert`` / ``pytest.fail`` /
   treat as expected).
-- :func:`wait_for_event` — bounded wrapper around
+- :func:`wait_for_event`, bounded wrapper around
   :meth:`threading.Event.wait`. Returns ``True`` if the event was set
   before the timeout, ``False`` otherwise.
 
@@ -17,7 +17,7 @@ DRY policy (E7 / P2)
 -------------------
 The canonical polling implementation already exists as
 :func:`tests.fixtures.wait_for.wait_for` (a previous wave extracted it
-from the deleted ``tests.conftest.wait_until`` helper — see the module
+from the deleted ``tests.conftest.wait_until`` helper: see the module
 docstring of ``tests/fixtures/wait_for.py`` for the history).
 ``wait_helpers.wait_until`` is a *thin alias* that re-uses
 ``wait_for.wait_for`` rather than re-implementing the poll loop. This
@@ -55,7 +55,7 @@ def wait_until(
 ) -> bool:
     """Poll ``predicate`` until truthy or ``timeout`` elapses.
 
-    Thin alias for :func:`tests.fixtures.wait_for.wait_for` — see that
+    Thin alias for :func:`tests.fixtures.wait_for.wait_for`: see that
     function's docstring for the full semantics (``time.monotonic``
     deadline, 5 ms default interval, final post-loop check so a
     truthy predicate observed during the last ``time.sleep(interval)``
@@ -67,7 +67,7 @@ def wait_until(
         Zero-argument callable returning a truthy/falsy value.
     timeout:
         Maximum wall-clock seconds to spend polling. Defaults to 5.0 s
-        — generous for CI runner scheduling latency. For sub-100 ms
+      , generous for CI runner scheduling latency. For sub-100 ms
         synchronization prefer :func:`wait_for_event` with a
         ``threading.Event``.
     interval:
@@ -92,7 +92,7 @@ def wait_for_event(event: threading.Event, timeout: float = 5.0) -> bool:
 
     Thin wrapper around :meth:`threading.Event.wait`. Prefer this over
     :func:`wait_until` whenever the synchronization primitive is
-    already a ``threading.Event`` — ``Event.wait`` is non-busy (the OS
+    already a ``threading.Event``: ``Event.wait`` is non-busy (the OS
     parks the calling thread) and deterministic, where ``wait_until``
     polls at a fixed interval.
 
@@ -108,7 +108,7 @@ def wait_for_event(event: threading.Event, timeout: float = 5.0) -> bool:
     bool
         ``True`` if the event was set before the timeout, ``False``
         otherwise. ``threading.Event.wait`` already returns this
-        boolean — the wrapper exists so test code can import a single
+        boolean, the wrapper exists so test code can import a single
         canonical ``wait_for_event`` name alongside ``wait_until``.
     """
     return event.wait(timeout)

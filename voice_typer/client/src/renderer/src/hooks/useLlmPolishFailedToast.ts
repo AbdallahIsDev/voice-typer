@@ -1,11 +1,11 @@
-// useLlmPolishFailedToast — surfaces backend ``llm_polish_failed``
+// useLlmPolishFailedToast, surfaces backend ``llm_polish_failed``
 // push events as one actionable in-app toast.
 //
 // The optional LLM-polish step post-processes a transcription with the
 // configured LLM provider (grammar / punctuation). When that step
 // raises (provider down, bad key, network error, consent revoked
 // mid-flight) the dictation pipeline swallows the exception and still
-// delivers the RAW transcription (`dictation_pipeline.py`) — so without
+// delivers the RAW transcription (`dictation_pipeline.py`), so without
 // this toast the feature fails SILENTLY: the user just sees unpolished
 // text with no hint that AI cleanup was skipped or why.
 //
@@ -15,11 +15,9 @@
 // sonner ``id`` replaces an in-flight toast instead of stacking.
 
 import { usePythonEvent } from "@/hooks/usePython";
+import type { TranslateFn } from "@/i18n/translate-types";
 import { useDegradationToastStore } from "@/stores/degradationToastStore";
 import { SNACKBAR_DEFAULT_DURATION_MS, useSnackbar } from "./useSnackbar";
-
-/** Minimal `t` function type matching i18n.t's signature. */
-type TFn = (key: string, params?: Record<string, string>) => string;
 
 /**
  * Renderer-side cooldown for the polish-failure toast. The failure is
@@ -35,7 +33,7 @@ const LLM_POLISH_TOAST_COOLDOWN_MS = 300_000;
  *
  * @param t i18n translate function (from useT).
  */
-export function useLlmPolishFailedToast(t: TFn): void {
+export function useLlmPolishFailedToast(t: TranslateFn): void {
 	const { showSnack } = useSnackbar();
 	usePythonEvent("llm_polish_failed", (): (() => void) | undefined => {
 		const now = Date.now();

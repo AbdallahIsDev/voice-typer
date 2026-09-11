@@ -5,10 +5,10 @@
 // the caller's contextual message.
 //
 // Why this exists (HP-6): `usePython.call` stamps structured fields onto
-// thrown Errors — `.code` (the server's error-envelope code or the
+// thrown Errors, `.code` (the server's error-envelope code or the
 // Electron main's `_code`: ``command_timeout`` /
 // ``backend_not_connected`` / ...), `.errors` (multi-field validation
-// lists) — but most catch-callers showed a generic "X failed" toast,
+// lists), but most catch-callers showed a generic "X failed" toast,
 // so a timeout, an unreachable backend, and a rejected value were all
 // indistinguishable to the user. This helper converts the failure CLASS
 // into words; callers keep their context-specific fallback so unknown
@@ -21,11 +21,7 @@
 // map to something; everything else gets the caller's (already
 // localized) fallback.
 
-/**
- * Minimal `t` function type matching i18n's canonical translate
- * signature (`i18n/translate.ts`).
- */
-type TFn = (key: string, params?: Record<string, string>) => string;
+import type { TranslateFn } from "@/i18n/translate-types";
 
 /** Codes whose envelope carries a multi-error list (`data.errors`). */
 const VALIDATION_CODES = new Set([
@@ -47,7 +43,7 @@ const BACKEND_NOT_CONNECTED_CODES = new Set([
 	"not_initialized",
 ]);
 
-/** Codes meaning "too many requests — slow down". */
+/** Codes meaning "too many requests, slow down". */
 const RATE_LIMITED_CODES = new Set([
 	"rate_limited",
 	"client.rate_limited",
@@ -88,14 +84,14 @@ function errorListLength(err: unknown): number {
  * @param err the caught rejection (any shape).
  * @param t i18n translate function.
  * @param fallback the caller's contextual localized message, used for
- *   every code WITHOUT a curated mapping. Never undefined — callers
+ *   every code WITHOUT a curated mapping. Never undefined, callers
  *   must supply their own story so context survives ("Failed to start
  *   microphone test", "Failed to reset settings", …).
  * @returns the localized message to show.
  */
 export function userFacingErrorMessage(
 	err: unknown,
-	t: TFn,
+	t: TranslateFn,
 	fallback: string,
 ): string {
 	const code = errorCode(err);

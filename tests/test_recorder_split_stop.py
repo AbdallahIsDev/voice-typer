@@ -1,6 +1,6 @@
 """Tests for ``_recorder_split.stop_recording``.
 
-Phase 4.5 — pin the extraction contract for the body of
+Phase 4.5, pin the extraction contract for the body of
 ``Recorder.stop`` that was moved (verbatim, with ``self.X`` rewritten
 to ``recorder.X``) into a free function in
 ``voice_typer/server/recording/_recorder_split.py``. The
@@ -10,7 +10,7 @@ look for the method on the ``Recorder`` class continue to work.
 
 There is NO source-inspection test contract pinning ``Recorder.stop``
 source (verified via ``rg "inspect.getsource.*Recorder\\.stop\\b"
-tests/`` — the matches on ``IPCServer.stop`` are unrelated), so the
+tests/``, the matches on ``IPCServer.stop`` are unrelated), so the
 simple Option B delegate is sufficient.
 
 These tests use a MagicMock recorder with explicit stubs so they
@@ -41,7 +41,7 @@ The tests pin five contracts:
   4. **Stats + buffer_sr capture**: RMS / peak / silence_pct are
      computed from the concatenated audio, stored in
      ``_last_audio_stats``, AND ``_prepare_audio`` is called with the
-     captured ``_buffer_sr`` (NOT ``_effective_sr``) — XV-31 / chipmunk
+     captured ``_buffer_sr`` (NOT ``_effective_sr``), XV-31 / chipmunk
      regression guard.
 
   5. **Self → recorder rewriting + lazy import**: the body contains
@@ -64,7 +64,7 @@ from voice_typer.server.recording._recorder_split import stop_recording
 
 # ── Module-level ``prepare_audio`` interception ───────────────────
 # ``stop_recording`` invokes the free function ``prepare_audio``
-# (imported at :mod:`._recorder_split` module level) — the historical
+# (imported at :mod:`._recorder_split` module level), the historical
 # ``Recorder._prepare_audio`` delegator was removed. Every test in this
 # module patches the module binding via the autouse fixture below and
 # reaches the mock through :func:`_prep`.
@@ -122,7 +122,7 @@ def _build_mock_recorder(
     # idle recorder. The not-recording fast path only fires when the
     # event is cleared AND both worker refs are None (GT-23R: a
     # start()/discard() race can leave a live worker with the event
-    # cleared — stop() must still stop it), so the mock must be None
+    # cleared, stop() must still stop it), so the mock must be None
     # here or MagicMock's auto-children (not None) would defeat the
     # fast path.
     recorder._worker_thread = None
@@ -157,10 +157,10 @@ def _build_mock_recorder(
     # need a custom return configure the mock via ``_prep()``).
 
     # ``_teardown_stream``, ``_stop_audio_worker``,
-    # ``_stop_device_health_checker`` are MagicMock callables — the
+    # ``_stop_device_health_checker`` are MagicMock callables, the
     # function calls them once each (in the happy path); the call
     # order is asserted in ``TestStopRecordingOrdering``.
-    # No extra stubbing needed — MagicMock auto-creates them.
+    # No extra stubbing needed. MagicMock auto-creates them.
 
     return recorder
 
@@ -171,7 +171,7 @@ def _build_mock_recorder(
 class TestNotRecordingFastPath:
     """When ``_recording_event.is_set()`` is False and no worker refs
     exist, the function must return an empty ``float32`` array and
-    MUST NOT mutate any other state — no stop_generation bump, no
+    MUST NOT mutate any other state, no stop_generation bump, no
     teardown, no worker joins, no buffer swap. A worker ref present
     while the event is cleared (GT-23R start()/discard() race
     end-state) must still be stopped."""
@@ -216,7 +216,7 @@ class TestNotRecordingFastPath:
     def test_cleared_event_with_live_worker_still_stops_workers(self):
         """GT-23R: when ``_recording_event`` is cleared but a worker ref
         exists (the start()/discard() race end-state), the fast-path
-        must NOT fire — ``stop_recording`` must still stop the worker
+        must NOT fire: ``stop_recording`` must still stop the worker
         (otherwise the daemon leaks until process exit)."""
         recorder = _build_mock_recorder(recording=False)
         recorder._worker_thread = threading.Thread(target=lambda: None)
@@ -384,7 +384,7 @@ class TestStopRecordingOrdering:
 
     def test_recording_event_cleared(self):
         """``_recording_event.clear()`` is the gate the audio callback
-        and streaming thread poll — must be cleared early in stop()."""
+        and streaming thread poll, must be cleared early in stop()."""
         recorder = _build_mock_recorder(buffer_chunks=[np.ones(50, dtype=np.float32)])
         assert recorder._recording_event.is_set()
         stop_recording(recorder)
@@ -446,7 +446,7 @@ class TestEmptyBufferPath:
 
     def test_teardown_and_worker_stops_still_called_before_empty_return(self):
         """The empty-buffer early-return fires AFTER teardown + worker
-        stops — those happen unconditionally in the function body."""
+        stops, those happen unconditionally in the function body."""
         recorder = _build_mock_recorder(buffer_chunks=[])
         stop_recording(recorder)
         recorder._teardown_stream.assert_called_once()
@@ -550,10 +550,10 @@ class TestBufferSnapshotUnderLock:
 
 class TestStatsAndBufferSrCapture:
     """RMS / peak / silence_pct are computed from the concatenated
-    audio and stored in ``_last_audio_stats`` (NEW-PERF-010: so the
-    transcription engine can reuse them). ``_prepare_audio`` is
-    called with the captured ``_buffer_sr`` (NOT ``_effective_sr``)
-    — XV-31 / chipmunk regression guard."""
+      audio and stored in ``_last_audio_stats`` (NEW-PERF-010: so the
+      transcription engine can reuse them). ``_prepare_audio`` is
+      called with the captured ``_buffer_sr`` (NOT ``_effective_sr``)
+    , XV-31 / chipmunk regression guard."""
 
     def test_last_audio_stats_stored_on_non_empty_audio(self):
         """NEW-PERF-010: store the full-recording stats so the
@@ -580,7 +580,7 @@ class TestStatsAndBufferSrCapture:
         """When the buffer is non-empty but the concatenated array
         is empty (size=0), stats are (0.0, 0.0, 0.0) and a warning
         is logged."""
-        # An empty chunk in the buffer — len > 0 passes, but size == 0
+        # An empty chunk in the buffer, len > 0 passes, but size == 0
         # in the inner branch.
         empty_chunk = np.array([], dtype=np.float32)
         recorder = _build_mock_recorder(buffer_chunks=[empty_chunk])
@@ -614,14 +614,14 @@ class TestStatsAndBufferSrCapture:
         was appended at), NOT ``_effective_sr`` (the device's native
         rate). Pre-fix, ``stop()`` read ``_effective_sr`` (e.g.
         48000) and the subsequent ``_prepare_audio`` call did
-        ``resample_poly(audio, 1, 3)`` — decimating the already-16
+        ``resample_poly(audio, 1, 3)``, decimating the already-16
         kHz audio 3:1 → chipmunk voice.
         """
         chunk = np.ones(100, dtype=np.float32)
         recorder = _build_mock_recorder(
             buffer_chunks=[chunk],
-            buffer_sr=16000,  # captured local — authoritative
-            effective_sr=48000,  # device native rate — must NOT be used
+            buffer_sr=16000,  # captured local, authoritative
+            effective_sr=48000,  # device native rate, must NOT be used
         )
 
         stop_recording(recorder)
@@ -642,7 +642,7 @@ class TestStatsAndBufferSrCapture:
     def test_prepare_audio_falls_back_to_effective_sr_when_buffer_sr_none(self):
         """When ``_buffer_sr is None`` (e.g. a unit-test mock that
         bypassed ``start()``), the function falls back to
-        ``_effective_sr`` — the ``or recorder._effective_sr`` idiom."""
+        ``_effective_sr``, the ``or recorder._effective_sr`` idiom."""
         chunk = np.ones(100, dtype=np.float32)
         recorder = _build_mock_recorder(
             buffer_chunks=[chunk],
@@ -690,7 +690,7 @@ class TestStatsAndBufferSrCapture:
     def test_no_audio_warning_emitted_when_concat_is_empty(self, caplog):
         """When the buffer is non-empty but the concatenated array is
         empty (e.g. all chunks are empty ndarrays), the function logs
-        'No audio data captured!' — this is the post-concat
+        'No audio data captured!', this is the post-concat
         ``else`` branch (NOT the empty-buffer fast path inside the
         lock, which short-circuits with an early-return).
         """
@@ -770,7 +770,7 @@ class TestSourceStringContracts:
 
         Instead we find the first ``\"\"\"`` and the next ``\"\"\"``
         after it (the docstring is a single triple-quoted block —
-        no nested ``\"\"\"`` — so the first match of the closing
+        no nested ``\"\"\"``, so the first match of the closing
         triple-quote is correct). Then we return everything after the
         closing triple-quote. This is robust to any character content
         inside the docstring.
@@ -782,7 +782,7 @@ class TestSourceStringContracts:
         return src[second + 3 :]
 
     def test_no_self_references_in_body(self):
-        """The function body must NOT reference ``self.X`` — the body
+        """The function body must NOT reference ``self.X``, the body
         was rewritten to use ``recorder.X``. A future merge that
         re-introduces ``self.`` in the body would raise
         ``NameError: self`` at call time."""
@@ -792,24 +792,24 @@ class TestSourceStringContracts:
         body = self._body_after_docstring(src)
         self_refs = re.findall(r"\bself\.", body)
         assert not self_refs, (
-            f"stop_recording must NOT reference `self.X` in its body — "
+            f"stop_recording must NOT reference `self.X` in its body, "
             f"the body was rewritten to use `recorder.X`. Found "
             f"{len(self_refs)} `self.` references: {self_refs[:5]}"
         )
 
     def test_lazy_import_in_function_body(self):
         """The function body contains the lazy ``from … recorder import``
-        — pin this so a future refactor doesn't move it to module top
-        (which would re-introduce the circular import created by
-        recorder.py's top-level import of this module). The historical
-        package-namespace lazy import was removed by the owning-module
-        migration; the constants import below is the lazy seam that
-        remains and must stay function-local."""
+        , pin this so a future refactor doesn't move it to module top
+          (which would re-introduce the circular import created by
+          recorder.py's top-level import of this module). The historical
+          package-namespace lazy import was removed by the owning-module
+          migration; the constants import below is the lazy seam that
+          remains and must stay function-local."""
         src = inspect.getsource(stop_recording)
         body = self._body_after_docstring(src)
         assert "from voice_typer.server.recording.recorder import (" in body, (
             "stop_recording must do the lazy constants import inside its "
-            "body — moving it to module top would re-introduce the "
+            "body, moving it to module top would re-introduce the "
             "circular import that recorder.py's top-level import of this "
             "module creates."
         )
@@ -832,7 +832,7 @@ class TestSourceStringContracts:
         ``self`` → ``recorder`` rewrite contract)."""
         sig = inspect.signature(stop_recording)
         params = list(sig.parameters)
-        assert params == ["recorder"], f"stop_recording signature must be (recorder) — got {params}."
+        assert params == ["recorder"], f"stop_recording signature must be (recorder), got {params}."
         assert sig.return_annotation is not None
 
 
@@ -849,7 +849,7 @@ class TestWorkerStopContracts:
       drain=True`` (drains the IPC event queue; full 2.0s timeout so
       a slow TCP subscriber has time).
     * ``_stop_device_health_checker``: ``timeout=0.0`` (fire-and-
-      forget — the daemon exits on its next 30s wait() return).
+      forget, the daemon exits on its next 30s wait() return).
     """
 
     def test_stop_device_health_checker_timeout_zero(self):

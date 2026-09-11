@@ -1,5 +1,5 @@
 /**
- *  vitest rewrite — behavioral test for `Home.tsx` listener count.
+ *  vitest rewrite, behavioral test for `Home.tsx` listener count.
  *
  * Replaces the following string-pattern Python test from
  * `tests/test_feature_hardening_regressions.py`:
@@ -57,7 +57,7 @@ vi.mock("sonner", () => ({
 	Toaster: () => null,
 }));
 
-describe("Home transcription_final listener — RW-0 rewrite of test_only_one_transcription_final_listener", () => {
+describe("Home transcription_final listener, RW-0 rewrite of test_only_one_transcription_final_listener", () => {
 	beforeEach(() => {
 		mockCall.mockReset();
 		mockPythonEvent.mockReset();
@@ -88,7 +88,7 @@ describe("Home transcription_final listener — RW-0 rewrite of test_only_one_tr
 	});
 
 	it("registers the listener on every mount (no duplicate-after-remount regression)", async () => {
-		// Mount, unmount, re-mount — each mount must
+		// Mount, unmount, re-mount, each mount must
 		// register the listener exactly once.  This catches
 		// a regression where StrictMode or a manual remount
 		// accidentally double-subscribes.
@@ -135,15 +135,15 @@ describe("Home transcription_final listener — RW-0 rewrite of test_only_one_tr
 
 //regression guard: ``handleToggle`` in Home.tsx previously
 // swallowed IPC failures from ``toggle_dictation`` with only a
-// ``console.error`` — leaving the user staring at a spinner that
+// ``console.error``, leaving the user staring at a spinner that
 // disappeared with no explanation. The fix surfaces a localized
 // ``toast.error(t("home.toggleFailed"))`` in the catch block (mirroring
 // the sibling handlers). This describe block mounts Home, simulates an
 // IPC rejection on the toggle channel, and asserts the error toast
-// fires — so a future refactor that drops the toast (or changes the
+// fires, so a future refactor that drops the toast (or changes the
 // catch to ``catch {}``) fails this test loudly instead of regressing
 // silently.
-describe("Home handleToggle error toast — XA-12-3 regression guard", () => {
+describe("Home handleToggle error toast, XA-12-3 regression guard", () => {
 	beforeEach(() => {
 		mockCall.mockReset();
 		mockPythonEvent.mockReset();
@@ -189,7 +189,7 @@ describe("Home handleToggle error toast — XA-12-3 regression guard", () => {
 			expect(toast.error).toHaveBeenCalledTimes(1);
 		});
 		// The argument must be the localized ``home.toggleFailed``
-		// message — NOT a raw exception string, NOT a generic
+		// message, NOT a raw exception string, NOT a generic
 		// "Error" label. This guards against a regression where
 		// the toast is dropped or replaced with a non-localized
 		// fallback.

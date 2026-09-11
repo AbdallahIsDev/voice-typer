@@ -25,7 +25,7 @@ cross-platform file does not exercise:
   detect WSL2; that's documented in the module docstring as a known
   limitation). This file documents the gap with an explicit test.
 
-These tests are platform-agnostic in execution — they patch
+These tests are platform-agnostic in execution, they patch
 ``sys.platform`` to ``"win32"`` so they run on any CI runner. They
 exist as a separate file so a Windows-host CI job can run them as a
 focused suite without the Linux-specific cgroup tests.
@@ -185,12 +185,12 @@ class TestWin32PlatformGate:
 
         def _read_text_must_not_be_called(self: Path, *args, **kwargs):
             raise AssertionError(
-                "SUT must not read /proc on win32 — platform gate should short-circuit before any filesystem access."
+                "SUT must not read /proc on win32, platform gate should short-circuit before any filesystem access."
             )
 
         monkeypatch.setattr(Path, "read_text", _read_text_must_not_be_called)
         _clear_container_env(monkeypatch)
-        # Must not raise — proves the SUT short-circuits before reading.
+        # Must not raise, proves the SUT short-circuits before reading.
         assert container_detect.is_in_container() is False
         assert container_detect.get_container_type() is None
 
@@ -200,7 +200,7 @@ class TestWin32PlatformGate:
 
 class TestWin32WSL2GapDocumented:
     """The SUT does NOT detect WSL2 containers on win32. This is a
-    documented gap — WSL2 detection would require reading the Windows
+    documented gap, WSL2 detection would require reading the Windows
     registry or calling ``wsl.exe --status``, which is out of scope
     for the current ``container_detect`` module (its job is to warn
     about missing tray/audio/GPU/hotkey features, all of which work

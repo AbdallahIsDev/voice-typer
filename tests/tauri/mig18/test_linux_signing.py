@@ -1,16 +1,16 @@
-"""MIG-1.8 Phase 1 + §13.3 — Linux unsigned packaging + postinst/prerm validation.
+"""MIG-1.8 Phase 1 + §13.3: Linux unsigned packaging + postinst/prerm validation.
 
 Validates the Tauri ``bundle.linux`` block in
-``src-tauri/tauri.conf.json`` against ADR-0020 §13.3 — Linux packages
+``src-tauri/tauri.conf.json`` against ADR-0020 §13.3, Linux packages
 are **unsigned by default** (GPG signing is optional + out of scope for
 v1). The ``deb`` + ``rpm`` bundle configs wire the existing
 ``scripts/linux/postinst``, ``prerm``, ``postinst.rpm``, ``prerm.rpm``
-scripts verbatim — these install the udev rule granting the ``input``
+scripts verbatim, these install the udev rule granting the ``input``
 group read access to ``/dev/input/event*``, add the installing user to
 ``input``, configure Caps Lock neutralization, and write a manifest at
 ``/var/lib/voice-typer/permissions-manifest.json`` for clean uninstall.
 
-These tests run on any platform (Linux sandbox included) — they only
+These tests run on any platform (Linux sandbox included), they only
 read static files (``tauri.conf.json``, the shell scripts, the desktop
 template, the build orchestrator). The actual ``dpkg -i`` / ``dnf
 install`` install path + udev rule activation + input-group take-effect
@@ -30,11 +30,11 @@ VALIDATE ON LINUX HOST:
 References:
 - ADR-0020 §13.3 "Linux (no signing by default)" —
   docs/adr/0020-desktop-runtime-migration-analysis.md
-- ADR-0020 §7 (Tauri config) — ``bundle.linux.deb`` / ``bundle.linux.rpm``
-- ``scripts/linux/install_permissions.py`` — single source of truth for
+- ADR-0020 §7 (Tauri config): ``bundle.linux.deb`` / ``bundle.linux.rpm``
+- ``scripts/linux/install_permissions.py``, single source of truth for
   Linux system modifications (udev rule + input group + Caps Lock + manifest)
 - ``scripts/linux/postinst`` / ``prerm`` (Debian) + ``postinst.rpm`` /
-  ``prerm.rpm`` (RPM) — thin wrappers around ``install_permissions.py`` /
+  ``prerm.rpm`` (RPM), thin wrappers around ``install_permissions.py`` /
   ``uninstall_permissions.py``
 """
 
@@ -100,14 +100,14 @@ def test_deb_post_install_script_wired(tauri_conf: dict) -> None:
     """
     deb = tauri_conf["bundle"]["linux"]["deb"]
     assert "postInstallScript" in deb, (
-        "bundle.linux.deb.postInstallScript missing — Tauri v2 requires the 'postInstallScript' key"
+        "bundle.linux.deb.postInstallScript missing, Tauri v2 requires the 'postInstallScript' key"
     )
     assert "postInstall" not in deb, (
-        "stale short-form 'postInstall' key present on bundle.linux.deb — should use Tauri v2 'postInstallScript'"
+        "stale short-form 'postInstall' key present on bundle.linux.deb, should use Tauri v2 'postInstallScript'"
     )
     post_install = deb["postInstallScript"]
     assert post_install is not None, "bundle.linux.deb.postInstallScript must be set"
-    # Tauri resolves postInstallScript relative to src-tauri/ — the config uses
+    # Tauri resolves postInstallScript relative to src-tauri/, the config uses
     # "../../scripts/linux/postinst". We assert the tail to be robust to
     # the relative-path prefix.
     assert post_install.endswith("scripts/linux/postinst"), (
@@ -123,10 +123,10 @@ def test_deb_pre_remove_script_wired(tauri_conf: dict) -> None:
     """
     deb = tauri_conf["bundle"]["linux"]["deb"]
     assert "preRemoveScript" in deb, (
-        "bundle.linux.deb.preRemoveScript missing — Tauri v2 requires the 'preRemoveScript' key"
+        "bundle.linux.deb.preRemoveScript missing, Tauri v2 requires the 'preRemoveScript' key"
     )
     assert "preRemove" not in deb, (
-        "stale short-form 'preRemove' key present on bundle.linux.deb — should use Tauri v2 'preRemoveScript'"
+        "stale short-form 'preRemove' key present on bundle.linux.deb, should use Tauri v2 'preRemoveScript'"
     )
     pre_remove = deb["preRemoveScript"]
     assert pre_remove is not None, "bundle.linux.deb.preRemoveScript must be set"
@@ -157,7 +157,7 @@ def test_desktop_template_exists_and_is_valid() -> None:
     assert DESKTOP_TEMPLATE.is_file(), f"desktop template missing: {DESKTOP_TEMPLATE}"
     text = DESKTOP_TEMPLATE.read_text()
     # The template legitimately has comment lines (lines starting with
-    # `#`) before the `[Desktop Entry]` header — per the freedesktop.org
+    # `#`) before the `[Desktop Entry]` header, per the freedesktop.org
     # Desktop Entry Spec, comments are allowed anywhere in the file.
     # Require the header to be present (anywhere), not necessarily
     # first.
@@ -249,10 +249,10 @@ def test_rpm_postinst_prerm_exist_and_wired(tauri_conf: dict) -> None:
     # (NOT the v1 short forms `postInstall` / `preRemove`).
     # See https://v2.tauri.app/reference/config/#debconfig
     assert "postInstallScript" in rpm, (
-        "bundle.linux.rpm.postInstallScript missing — Tauri v2 requires the 'postInstallScript' key"
+        "bundle.linux.rpm.postInstallScript missing, Tauri v2 requires the 'postInstallScript' key"
     )
     assert "postInstall" not in rpm, (
-        "stale short-form 'postInstall' key present on bundle.linux.rpm — should use Tauri v2 'postInstallScript'"
+        "stale short-form 'postInstall' key present on bundle.linux.rpm, should use Tauri v2 'postInstallScript'"
     )
     rpm_post_install = rpm["postInstallScript"]
     assert rpm_post_install is not None, "bundle.linux.rpm.postInstallScript must be set"
@@ -261,10 +261,10 @@ def test_rpm_postinst_prerm_exist_and_wired(tauri_conf: dict) -> None:
     )
 
     assert "preRemoveScript" in rpm, (
-        "bundle.linux.rpm.preRemoveScript missing — Tauri v2 requires the 'preRemoveScript' key"
+        "bundle.linux.rpm.preRemoveScript missing, Tauri v2 requires the 'preRemoveScript' key"
     )
     assert "preRemove" not in rpm, (
-        "stale short-form 'preRemove' key present on bundle.linux.rpm — should use Tauri v2 'preRemoveScript'"
+        "stale short-form 'preRemove' key present on bundle.linux.rpm, should use Tauri v2 'preRemoveScript'"
     )
     rpm_pre_remove = rpm["preRemoveScript"]
     assert rpm_pre_remove is not None, "bundle.linux.rpm.preRemoveScript must be set"
@@ -312,7 +312,7 @@ def test_no_gpg_signing_in_linux_scripts() -> None:
 
     ADR-0020 §13.3 lists GPG-signing as an *optional* improvement that is
     out of scope for v1. The ``scripts/linux/`` directory must not contain
-    any automated GPG-signing commands — signing (if done at all) is a
+    any automated GPG-signing commands, signing (if done at all) is a
     manual post-build step documented in the ADR.
     """
     assert SCRIPTS_LINUX.is_dir(), f"scripts/linux missing: {SCRIPTS_LINUX}"

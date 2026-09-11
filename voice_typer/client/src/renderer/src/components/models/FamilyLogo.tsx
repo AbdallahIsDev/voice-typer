@@ -4,7 +4,7 @@ import openai from "@/assets/models/openai.svg";
 import qwen from "@/assets/models/qwen.svg";
 
 /**
- * FamilyLogo — brand logo for a model family or cloud provider, shown
+ * FamilyLogo, brand logo for a model family or cloud provider, shown
  * in the Models page family header (accordion trigger), the onboarding
  * family strip, and the cloud provider cards (Models page Cloud tab).
  *
@@ -15,13 +15,13 @@ import qwen from "@/assets/models/qwen.svg";
  * has no logo asset and renders nothing.
  *
  * Color model (per the user's rule: only black/white logos adapt to
- * the theme — colored ones keep their brand color in both themes):
+ * the theme, colored ones keep their brand color in both themes):
  *   - qwen.svg and nvidia.svg bake in their brand colors (#082DFF
  *     Qwen blue, #80bc00 NVIDIA green), so they render identically in
  *     light and dark mode.
  *   - openai.svg and deepgram.svg are pure black (light theme); in
  *     dark mode the `dark:invert` class flips them to white. This is
- *     a plain CSS filter on the <img> — deliberately NOT
+ *     a plain CSS filter on the <img>, deliberately NOT
  *     `currentColor`, which cannot work here: an SVG loaded through
  *     <img> is a separate document, so `currentColor` resolves to the
  *     SVG's own default (black) and never sees the host page's `color`

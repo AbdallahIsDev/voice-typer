@@ -1,4 +1,4 @@
-// LlmPolishingSettingsSection — the LLM Polishing section of the
+// LlmPolishingSettingsSection, the LLM Polishing section of the
 // Settings surface.
 //
 // Extracted from the former ModelSettingsSection (which stacked the
@@ -39,7 +39,7 @@ const LLM_PRESET_OPTIONS = [
 
 // URL-format validation for the LLM API URL (mirrors the server's
 // `_make_url_validator`): must parse as an absolute http/https URL.
-// An empty value is VALID here — the input falls back to the default
+// An empty value is VALID here, the input falls back to the default
 // endpoint server-side and the placeholder shows it.
 function isValidLlmApiUrl(value: string): boolean {
 	if (value.trim() === "") return true;
@@ -61,7 +61,7 @@ export const LlmPolishingSettingsSection = memo(
 		// LLM API key visibility toggle (show/hide the password-style input).
 		const [llmKeyVisible, setLlmKeyVisible] = useState(false);
 		// URL-format validation state. Typing is NEVER blocked (the debounced
-		// save fires as before — the server allowlist re-validates); the
+		// save fires as before, the server allowlist re-validates); the
 		// inline error appears on blur (and stays while the value is
 		// invalid) so the user learns the format contract without being
 		// mid-keystroke interrupted. The draft mirrors the live input value
@@ -81,7 +81,7 @@ export const LlmPolishingSettingsSection = memo(
 		// keep showing the pre-reset text, so when the committed value
 		// changes while the input is NOT focused, drop the draft (the
 		// input then renders the new committed value). While focused the
-		// draft is protected — our own debounced echo landing mid-typing
+		// draft is protected, our own debounced echo landing mid-typing
 		// must not snap the input back and lose keystrokes; the next blur
 		// reconciles against the committed value.
 		const lastCommittedUrlRef = useRef(config?.llm_api_url ?? "");
@@ -127,7 +127,7 @@ export const LlmPolishingSettingsSection = memo(
 		// flow that would silently refuse (or nag) on every transcription:
 		//   • Allow → persists `llm_polish_consent=true`, then enables the
 		//     feature (the dialog's retry below);
-		//   • Cancel → the toggle stays off — no consent, no enablement;
+		//   • Cancel → the toggle stays off, no consent, no enablement;
 		//   • already granted (or switching OFF) → behave as before.
 		const handleLlmPolishChange = (checked: boolean) => {
 			if (!checked || config.llm_polish_consent) {

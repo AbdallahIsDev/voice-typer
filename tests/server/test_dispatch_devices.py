@@ -1,8 +1,8 @@
 """IPC dispatch tests for device-polling commands.
 
 Classes:
-- TestDispatchGetMicrophones         — get_microphones dispatcher
-- TestDispatchGetVolumeBackendStatus — get_volume_backend_status dispatcher
+- TestDispatchGetMicrophones       , get_microphones dispatcher
+- TestDispatchGetVolumeBackendStatus, get_volume_backend_status dispatcher
 
 Split out from the original monolithic tests/test_server.py (DT-37, Phase 4.5).
 """
@@ -67,7 +67,7 @@ class TestDispatchGetVolumeBackendStatus:
         should still return a valid response using is_available=False."""
         mock_app._volume_ducker.initialize.side_effect = RuntimeError("init failed")
         result = server._dispatch({"id": 1, "type": "get_volume_backend_status"})
-        # Should NOT be an error response — best-effort status.
+        # Should NOT be an error response, best-effort status.
         assert result["type"] == "volume_backend_status"
         data = result["data"]
         # Backend name still comes through.

@@ -6,7 +6,7 @@ Covers four review.md entries:
   module load was replaced with a top-of-module ``import threading`` +
   ``threading.Lock()``. The 6 module-level mutable globals are
   intentionally retained (the deeper ``TextCleanupService`` instance
-  refactor is explicitly deferred per the in-code comment) — only the
+  refactor is explicitly deferred per the in-code comment), only the
   ``__import__`` antipattern is fixed here.
 
 * - ``_correct_whisper_phrases`` and ``_remove_extra_words``
@@ -23,10 +23,10 @@ Covers four review.md entries:
   (:func:`_load_bundled_corrections`, :func:`_load_user_corrections`),
   leaving the orchestrator as ~50 lines of phase composition.
 
-* — the O(N²) per-match substring slicing in
+*, the O(N²) per-match substring slicing in
   ``_capitalize_pronoun_i`` was already replaced with bounded scans.
   The culturally-biased hardcoded proper-noun set (``"henry"``,
-  ``"louis"``, ``"richard"`` — no ``"george"``, ``"edward"``,
+  ``"louis"``, ``"richard"``, no ``"george"``, ``"edward"``,
   ``"charles"``, ``"napoleon"``, ``"alexander"``) is now extensible
   via the user corrections file (``roman_numeral_context_words`` /
   ``roman_numeral_following_words`` keys, additive to the bundled
@@ -80,7 +80,7 @@ class TestAc80ThreadingImportAntipattern:
     """``_active_state_lock`` is now ``threading.Lock()``,
     not ``__import__("threading").Lock()``. The lock object itself is
     functionally identical (both produce a ``threading.Lock`` instance);
-    the difference is purely stylistic — a top-of-module ``import
+    the difference is purely stylistic, a top-of-module ``import
     threading`` is the idiomatic form, and ``__import__`` is reserved
     for cases where the module name is dynamic.
     """
@@ -203,7 +203,7 @@ class TestAc81UnifiedPhraseSubstitutionsHelper:
 
     def test_no_inline_pattern_sub_in_either_function(self):
         """Neither function inlines the ``pattern.sub`` plumbing
-        anymore — both delegate to the helper. Verify by inspecting the
+        anymore, both delegate to the helper. Verify by inspecting the
         function body (excluding the docstring, which still mentions
         ``pattern.sub`` for historical context).
         """
@@ -218,7 +218,7 @@ class TestAc81UnifiedPhraseSubstitutionsHelper:
                 f"{fn.__name__} does not delegate to _apply_phrase_substitutions"
             )
             # Parse the function source and check the BODY (excluding
-            # docstring) for any ``pattern.sub`` call — the body should
+            # docstring) for any ``pattern.sub`` call, the body should
             # only be the delegate return.
             tree = ast.parse(source)
             func_def = tree.body[0]
@@ -341,7 +341,7 @@ class TestAc82LoadExternalCorrectionsHelpers:
     def test_load_external_corrections_signature_unchanged(self, tmp_path, monkeypatch):
         """The orchestrator still returns the 3-tuple
         ``(misspellings, phrase_corrections, extra_word_patterns)``
-        (or ``None``) — the refactor preserved the public
+        (or ``None``), the refactor preserved the public
         signature so existing callers / tests aren't broken."""
         monkeypatch.setattr(text_cleanup, "_BUNDLED_CORRECTIONS_PATH", tmp_path / "nonexistent.json")
         result = _load_external_corrections(config_dir=tmp_path)
@@ -393,7 +393,7 @@ class TestAc84RomanNumeralWordSetExtensibility:
 
     def test_user_extensions_make_i_lowercase(self, tmp_path):
         """A user-provided extension word makes a following standalone
-        ``'i'`` stay lowercase — even when the word is NOT in the
+        ``'i'`` stay lowercase, even when the word is NOT in the
         bundled defaults (the cultural-bias gap from
         ``"george"``, ``"edward"``, ``"charles"`` were missing)."""
         user_file = tmp_path / "voice-typer-corrections.json"
@@ -410,7 +410,7 @@ class TestAc84RomanNumeralWordSetExtensibility:
         assert _capitalize_pronoun_i("king george i") == "king george i"
         # "king edward i" → "edward" is now an extension context word.
         assert _capitalize_pronoun_i("king edward i") == "king edward i"
-        # The extensions are ADDITIVE — the bundled "henry" still works.
+        # The extensions are ADDITIVE, the bundled "henry" still works.
         assert _capitalize_pronoun_i("king henry i") == "king henry i"
 
     def test_user_following_extensions_make_i_lowercase(self, tmp_path):
@@ -479,7 +479,7 @@ class TestAc84RomanNumeralWordSetExtensibility:
         user_file.write_text(
             json.dumps(
                 {
-                    # Wrong type — should be skipped, not raise.
+                    # Wrong type, should be skipped, not raise.
                     "roman_numeral_context_words": "george",
                     "roman_numeral_following_words": 42,
                 }

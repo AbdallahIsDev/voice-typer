@@ -1,6 +1,6 @@
 """Device enumeration, hot-swap, and health-checker for :class:`Recorder`.
 
-Phase 4.5 — extracted from :mod:`.recorder` to shrink the
+Phase 4.5, extracted from :mod:`.recorder` to shrink the
 3019-LOC ``recorder.py`` partial monolith (see  in
 ``review.md``). Owns all device-list caching,
 microphone-watcher lifecycle, sample-rate negotiation, and the periodic
@@ -13,12 +13,12 @@ back-reference to the owning ``Recorder`` instance
 (``DeviceManager(recorder)``). The collaborator reference is used to
 access *shared* state that lives on ``Recorder`` and is NOT moved here:
 
-- ``self.recorder.config`` — for ``microphone`` / ``sample_rate``
-- ``self.recorder._recording_event`` — read by the health-checker loop
-- ``self.recorder._stop_generation`` — captured when spawning the
+- ``self.recorder.config``: for ``microphone`` / ``sample_rate``
+- ``self.recorder._recording_event``: read by the health-checker loop
+- ``self.recorder._stop_generation``: captured when spawning the
   disconnect handler so the handler can bail out on a deliberate
   stop/start cycle (HOTKEY-CRASH)
-- ``self.recorder._handle_device_disconnect`` — KEEP on ``Recorder``
+- ``self.recorder._handle_device_disconnect``: KEEP on ``Recorder``
   because it manipulates stream state directly (opens a new
   ``sd.InputStream``, reassigns ``self._stream`` / ``self._effective_sr``
   / ``self._actual_channels``). ``DeviceManager`` only schedules the
@@ -28,19 +28,19 @@ Device-owned state (the 12 attributes moved from ``Recorder.__init__``)
 lives on ``DeviceManager`` directly:
 
 - ``_device_list_cache`` / ``_device_list_cache_time`` /
-  ``_device_list_cache_ttl`` — AUDIO-MIC TTL cache
-- ``_mic_watcher`` — PERF-MIC-001 OS-event-driven cache invalidation
+  ``_device_list_cache_ttl``: AUDIO-MIC TTL cache
+- ``_mic_watcher``: PERF-MIC-001 OS-event-driven cache invalidation
 - ``_device_disconnected`` / ``_device_disconnect_retries`` /
-  ``_max_disconnect_retries`` — AUDIO-HOT hot-plug disconnect state
-- ``_device_check_interval`` / ``_device_check_counter`` — legacy
+  ``_max_disconnect_retries``: AUDIO-HOT hot-plug disconnect state
+- ``_device_check_interval`` / ``_device_check_counter``, legacy
   per-chunk check counter (the per-chunk probe was removed; the counter
   is reset in ``start()`` for diagnostic cleanliness)
 - ``_device_health_checker_thread`` / ``_device_health_stop_event`` /
-  ``_device_check_interval_s`` — CPU-03 dedicated health-checker thread
+  ``_device_check_interval_s``: CPU-03 dedicated health-checker thread
 
 The historical ``Recorder``-level read/write property shims for this
 state (``r._device_disconnected = False`` / ``r._mic_watcher is None``)
-were REMOVED — all consumers (``Recorder`` KEEP-methods, tests) access
+were REMOVED, all consumers (``Recorder`` KEEP-methods, tests) access
 the state through ``recorder._devices.<attr>``.
 
 Patch-path compatibility
@@ -49,7 +49,7 @@ Tests use ``monkeypatch.setattr(recording.sd, "InputStream", fake)``
 and similar to inject fake sounddevice behavior. The ``sd`` lazy-module
 proxy in this module re-resolves ``sys.modules`` on every attribute
 access (see ``voice_typer/server/_lazy_import.py``), so the patch on the
-package-level ``recording.sd`` propagates here automatically — no
+package-level ``recording.sd`` propagates here automatically, no
 ``_recording_pkg.sd`` indirection needed.
 """
 
@@ -63,7 +63,7 @@ from typing import Any
 
 from voice_typer.server._lazy_import import lazy_module
 
-# PERF-COLDSTART-001: lazy import — sounddevice loads the PortAudio C
+# PERF-COLDSTART-001: lazy import, sounddevice loads the PortAudio C
 # library at import time. The lazy proxy re-resolves ``sys.modules`` on
 # every attribute access, so test patches of the form
 # ``monkeypatch.setattr(recording.sd, "InputStream", fake)`` (which
@@ -80,7 +80,7 @@ log = logging.getLogger("voice_typer.server.recording")
 # /dev/snd inotify fails), fall back to a SHORTER device-list TTL for
 # a window after the failure so device hot-plug events are detected
 # sooner than the default 30s. Without this, a user who plugs in a
-# USB mic immediately after launch (a common pattern — start app,
+# USB mic immediately after launch (a common pattern, start app,
 # realize mic is missing, plug it in) waits up to 30s for the device
 # list to refresh. The fast TTL is only active for
 # ``_DEVICE_LIST_FAST_TTL_WINDOW`` seconds after the watcher-start
@@ -96,7 +96,7 @@ _DEVICE_LIST_FAST_TTL_WINDOW: float = 60.0
 class DeviceManager:
     """Device enumeration, hot-swap, and health-checker for ``Recorder``.
 
-    Phase 4.5 — extracted from :mod:`.recorder`. See the module
+    Phase 4.5, extracted from :mod:`.recorder`. See the module
         docstring for the collaborator-pattern rationale and the list of
         device-owned vs. recorder-owned state.
     """
@@ -111,9 +111,9 @@ class DeviceManager:
         self._device_disconnected: bool = False
         self._device_disconnect_retries: int = 0
         self._max_disconnect_retries: int = 3
-        # AUDIO-HOT: periodic device availability check — every N chunks,
+        # AUDIO-HOT: periodic device availability check, every N chunks,
         # verify the current device is still present in sd.query_devices().
-        # NOTE: the per-chunk probe was removed (CPU-03 — moved to a
+        # NOTE: the per-chunk probe was removed (CPU-03, moved to a
         # dedicated daemon thread, see ``_device_health_checker_loop``).
         # The counter is kept for diagnostic cleanliness and is reset by
         # ``Recorder.start()`` (via ``SessionState.reset_session_state``).
@@ -197,7 +197,7 @@ class DeviceManager:
             watcher.start()
             self._mic_watcher = watcher
         except Exception:
-            # Watcher is best-effort — the 30s TTL cache covers the
+            # Watcher is best-effort, the 30s TTL cache covers the
             # case where the watcher fails to start.
             log.warning(
                 "[RECORDING] mic device watcher failed to start, falling back to 30s TTL polling",
@@ -268,7 +268,7 @@ class DeviceManager:
                         # (or 5s after a watcher-start failure), so a
                         # BT HFP mode-switch (which changes
                         # ``default_samplerate`` from 48k → 8k/16k) is
-                        # reflected on the next cache refresh — the
+                        # reflected on the next cache refresh, the
                         # live-query fallback in ``_cached_device_info``
                         # covers the rare case where a fresher read is
                         # needed mid-TTL.
@@ -291,7 +291,7 @@ class DeviceManager:
         service layer registers its cache-invalidation hook here so a
         hot-plug immediately propagates to the UI's mic dropdown.
 
-        Pass ``None`` to unregister. Safe to call multiple times — the
+        Pass ``None`` to unregister. Safe to call multiple times, the
         most recent callback wins.
         """
         self._service_cache_invalidator = callback
@@ -435,11 +435,11 @@ class DeviceManager:
         """Signal the device health checker thread to stop and join it.
 
         Promoted from ``Recorder._stop_device_health_checker`` (Phase 4.5
-        completion) — the body is unchanged. ``recorder._stop_device_health_checker``
+        completion), the body is unchanged. ``recorder._stop_device_health_checker``
         (the documented 1-line delegator) routes here.
 
         When ``timeout`` is explicitly ``0.0``, the call is
-        fire-and-forget — the stop event is signalled but the method
+        fire-and-forget, the stop event is signalled but the method
         returns immediately without joining the daemon thread. This is
         used by ``stop()`` to avoid blocking up to 1.0s on a thread that
         almost always times out anyway (the checker sleeps 30s between
@@ -487,7 +487,7 @@ class DeviceManager:
                 profile switch mid-session is picked up promptly.
 
         when ``current_device is None`` (``config.microphone is
-                None`` — PortAudio opened the OS default), the loop
+                None``: PortAudio opened the OS default), the loop
                 also queries ``sd.query_devices(kind="input")["index"]``
                 and compares to ``_stream_open_default_input_index``
                 (captured at stream-open time or lazily on the first
@@ -513,7 +513,7 @@ class DeviceManager:
             if self._device_disconnected:
                 continue
             # periodic OS-level microphone-permission re-probe.
-            # ``check_microphone_permission`` is best-effort — on
+            # ``check_microphone_permission`` is best-effort, on
             # Windows/Linux it historically returns GRANTED (the
             # fix tightens this), but on macOS it does a real
             # AVCaptureDevice probe. Gate the call behind the counter so
@@ -525,7 +525,7 @@ class DeviceManager:
                     # Permission was revoked mid-recording. The
                     # ``_check_microphone_permission_revoked`` helper
                     # already set ``_device_disconnected=True`` and
-                    # spawned the handler — continue the loop so we
+                    # spawned the handler, continue the loop so we
                     # don't also try the device query below.
                     continue
             try:
@@ -536,7 +536,7 @@ class DeviceManager:
                     except Exception:
                         # HOTKEY-CRASH: double-check recording is still active.
                         # The collaborator's ``_recording_event`` is the
-                        # source of truth — accessing it via the back-reference
+                        # source of truth, accessing it via the back-reference
                         # avoids duplicating the Event on DeviceManager.
                         if not self.recorder._recording_event.is_set():
                             return
@@ -566,14 +566,14 @@ class DeviceManager:
                         # the recorder's ``_effective_sr`` (the rate the
                         # open InputStream is actually running at). A
                         # drift happens when the OS reconfigures the
-                        # device's native rate behind our back — most
+                        # device's native rate behind our back, most
                         # commonly a Bluetooth HFP headset that drops
                         # from 48 kHz wideband to 16 kHz narrowband when
                         # the phone-call profile takes over, or a USB
                         # device that gets re-enumerated at a different
                         # default after a driver update. The open stream
                         # keeps running at the old ``_effective_sr``, but
-                        # PortAudio silently resamples — which on macOS
+                        # PortAudio silently resamples: which on macOS
                         # CoreAudio produces audible artifacts and on
                         # Windows MME produces zero-filled chunks.
                         # Detecting the drift here and routing through
@@ -600,7 +600,7 @@ class DeviceManager:
                     # ``current_device is None`` → ``config.microphone
                     # is None`` → PortAudio opened the OS default at
                     # stream-open time. The OS-event watchers only
-                    # listen for device-LIST changes — none subscribe
+                    # listen for device-LIST changes, none subscribe
                     # to default-input-device-change notifications on
                     # every platform. The health-checker fills the
                     # gap by periodically re-querying the OS default
@@ -609,7 +609,7 @@ class DeviceManager:
                     # On mismatch, route through
                     # ``_handle_device_disconnect`` so the stream is
                     # torn down + re-opened against the new OS
-                    # default. Best-effort — any query failure is
+                    # default. Best-effort, any query failure is
                     # logged and skipped (the next iteration retries).
                     self._check_default_input_device_changed()
             except Exception:
@@ -618,22 +618,22 @@ class DeviceManager:
     def _effective_device_check_interval_s(self) -> float:
         """Return the effective health-checker interval for the current device.
 
-        BT devices (Bluetooth HFP/HSP headsets, hands-free devices, or
-        any device whose native sample rate is 8/16 kHz — the HFP/HSP
-        narrowband signature) get ``_device_check_interval_s_bt``
-        (default 5 s). Everything else gets ``_device_check_interval_s``
-        (default 30 s). The BT classification is done via
-        ``_get_max_retries_for_device`` (which checks the BT keywords +
-        8/16 kHz signature) on ``_build_device_info_for_retry_policy``
-        — a fresh ``sd.query_devices`` query per call.
+         BT devices (Bluetooth HFP/HSP headsets, hands-free devices, or
+         any device whose native sample rate is 8/16 kHz, the HFP/HSP
+         narrowband signature) get ``_device_check_interval_s_bt``
+         (default 5 s). Everything else gets ``_device_check_interval_s``
+         (default 30 s). The BT classification is done via
+         ``_get_max_retries_for_device`` (which checks the BT keywords +
+         8/16 kHz signature) on ``_build_device_info_for_retry_policy``
+        , a fresh ``sd.query_devices`` query per call.
 
-        The cost is one ``sd.query_devices`` per loop iteration. With
-        the default 30 s interval this is negligible; with the 5 s BT
-        interval it's 1 call per 5 s — acceptable.
+         The cost is one ``sd.query_devices`` per loop iteration. With
+         the default 30 s interval this is negligible; with the 5 s BT
+         interval it's 1 call per 5 s, acceptable.
 
-        Best-effort: if the query fails or the device info is None,
-        returns the default 30 s interval (can't tell if the device
-        is BT).
+         Best-effort: if the query fails or the device info is None,
+         returns the default 30 s interval (can't tell if the device
+         is BT).
         """
         try:
             dev_info = self._build_device_info_for_retry_policy()
@@ -703,7 +703,7 @@ class DeviceManager:
         stream_open_index = self._stream_open_default_input_index
         # Lazily capture the baseline on the first successful query
         # (older callers may not have called
-        # ``record_stream_open_default_input_index`` — the first
+        # ``record_stream_open_default_input_index``: the first
         # iteration establishes the baseline so a mid-session OS
         # default change is detected on subsequent iterations).
         if stream_open_index is None:
@@ -718,7 +718,7 @@ class DeviceManager:
             current_index,
         )
         # HOTKEY-CRASH: double-check recording is still active before
-        # scheduling the handler — if the user already stopped the
+        # scheduling the handler, if the user already stopped the
         # recording, there's nothing to recover.
         try:
             if not self.recorder._recording_event.is_set():
@@ -795,7 +795,7 @@ class DeviceManager:
             return
         log.warning(
             "[RECORDING] Post-restart sample-rate drift detected on device %r "
-            "(candidate_sr=%r, device default_samplerate=%r) — scheduling immediate drift re-check",
+            "(candidate_sr=%r, device default_samplerate=%r), scheduling immediate drift re-check",
             restart_device,
             candidate_sr,
             post_sr,
@@ -882,7 +882,7 @@ class DeviceManager:
             state = _permissions_mod.check_microphone_permission()
         except Exception:
             log.debug(
-                "[RECORDING] Microphone permission probe raised — ignoring",
+                "[RECORDING] Microphone permission probe raised, ignoring",
                 exc_info=True,
             )
             return False
@@ -890,7 +890,7 @@ class DeviceManager:
         # ``MicrophonePermissionState.DENIED`` is the only state we act
         # on. ``PROMPT`` means the OS will re-prompt on next access
         # (not a revocation). ``UNKNOWN`` means we can't tell (probe
-        # failure, unsupported platform) — defer to the runtime
+        # failure, unsupported platform), defer to the runtime
         # PortAudio-open re-classification path in the recorder.
         try:
             denied = state == _permissions_mod.MicrophonePermissionState.DENIED
@@ -901,7 +901,7 @@ class DeviceManager:
             return False
 
         # HOTKEY-CRASH: double-check recording is still active before
-        # scheduling the handler — if the user already stopped the
+        # scheduling the handler, if the user already stopped the
         # recording, there's nothing to revoke.
         try:
             if not self.recorder._recording_event.is_set():
@@ -933,7 +933,7 @@ class DeviceManager:
                     # recording_controller, or tests that bypass
                     # _start_impl), fall back to ``on_device_lost`` then
                     # ``on_silence_auto_stop`` so the recording at least
-                    # stops — mirrors the recorder's
+                    # stops, mirrors the recorder's
                     # ``_handle_device_disconnect`` fallback chain.
                     device_lost_cb = getattr(self.recorder, "on_device_lost", None)
                     if callable(device_lost_cb):
@@ -964,7 +964,7 @@ class DeviceManager:
 
                 ``config.microphone`` is one of:
 
-                - ``None`` — system default → return ``None``.
+                - ``None``: system default → return ``None``.
                 - ``"<index>"`` (legacy bare index string) → return ``int(index)``.
         ``"<index>|<name>|<host_api>"`` ( compound form) → prefer
                   name-based resolution via ``find_microphone_by_name`` so a
@@ -981,7 +981,7 @@ class DeviceManager:
         (an exact match against a live device's generated id is correct
         regardless of which format produced the stored string), then the
         legacy bare-index / compound parsing below. Purely-numeric strings
-        skip the enumeration entirely — they can never equal a generated
+        skip the enumeration entirely, they can never equal a generated
         id, and the legacy fast path must stay RPC-free.
 
         (Medium): PortAudio device indices are NOT stable across
@@ -998,7 +998,7 @@ class DeviceManager:
             return None
         # Stable-id form (and any non-legacy string): try an exact match
         # against the live enumeration before falling back to the legacy
-        # parsers. Skipped for bare digits — the legacy index path below
+        # parsers. Skipped for bare digits, the legacy index path below
         # handles those without a PortAudio round-trip.
         if isinstance(mic, str) and not mic.isdigit():
             try:
@@ -1035,7 +1035,7 @@ class DeviceManager:
         # Prefer name-based resolution: this is the stable identifier
         # that survives PortAudio hot-swap renumbering on Windows MME.
         # An empty/whitespace name fragment (corrupt value like "5|")
-        # must skip the lookup — substring-matching "" would return the
+        # must skip the lookup, substring-matching "" would return the
         # first enumerated device.
         match = None
         if saved_name.strip():
@@ -1051,7 +1051,7 @@ class DeviceManager:
             except (ValueError, TypeError, KeyError):
                 pass
 
-        # Name lookup failed — fall back to the saved index.
+        # Name lookup failed, fall back to the saved index.
         if saved_index is None:
             return saved_name
 
@@ -1063,7 +1063,7 @@ class DeviceManager:
                 if current_name and current_name != saved_name.strip().lower():
                     log.warning(
                         "[RECORDING] saved microphone index %d now points to "
-                        "'%s' (was '%s') — device may have been renumbered by hot-swap; "
+                        "'%s' (was '%s'), device may have been renumbered by hot-swap; "
                         "re-select the microphone in Settings to update the saved reference",
                         saved_index,
                         current_info.get("name", ""),
@@ -1071,7 +1071,7 @@ class DeviceManager:
                     )
                     self._device_name_mismatch_warned = True
             except Exception:
-                # The mismatch warning is purely diagnostic — if we can't
+                # The mismatch warning is purely diagnostic, if we can't
                 # query the saved index's current info (PortAudio raises
                 # ``PortAudioError`` on a hot-swapped-out index; tests
                 # raise ``RuntimeError``; either way the device is simply
@@ -1082,11 +1082,11 @@ class DeviceManager:
                 # crash the resolution path. Broadened to ``Exception``
                 # because no caller of ``_resolve_device`` is prepared to
                 # handle a raised exception from this diagnostic probe.
-                # No bare ``pass`` — log with exc_info so the
+                # No bare ``pass``: log with exc_info so the
                 # diagnostic failure is visible in the log file.)
                 log.debug(
                     "[RECORDING] could not query saved device index %r "
-                    "(name mismatch warning skipped) — device likely gone",
+                    "(name mismatch warning skipped), device likely gone",
                     saved_index,
                     exc_info=True,
                 )
@@ -1113,7 +1113,7 @@ class DeviceManager:
         """return the max retry count for the given device.
 
         Bluetooth HFP/HSP devices (identified by name keyword OR by an
-        8/16 kHz native sample rate — the HFP/HSP narrowband signature)
+        8/16 kHz native sample rate, the HFP/HSP narrowband signature)
         get 6 retries. Non-BT devices get 3 retries.
         """
         if device_info is None:
@@ -1165,12 +1165,12 @@ class DeviceManager:
         """Look up the cached device info dict for ``device``.
 
         Returns the cached entry from ``_device_list_cache`` when the
-        index is present (fast path — no PortAudio RPC). Falls back to
+        index is present (fast path, no PortAudio RPC). Falls back to
         a live ``sd.query_devices(device)`` query on cache miss (e.g.
         the cache is stale, the device was just hot-plugged, or the
         TTL expired between the ``_refresh_device_list`` call and this
         lookup). Returns ``None`` if both the cache lookup and the
-        live query fail — callers must handle ``None`` gracefully
+        live query fail, callers must handle ``None`` gracefully
         (same as the pre-fix ``sd.query_devices`` exception path).
 
         For ``device=None`` (system default input), the cache cannot
@@ -1191,7 +1191,7 @@ class DeviceManager:
                         return entry
                 except (TypeError, ValueError):
                     continue
-        # Cache miss — fall back to a live query. This preserves
+        # Cache miss, fall back to a live query. This preserves
         # correctness when the cache is stale (the device was just
         # hot-plugged and the TTL hasn't expired yet) or when the
         # cache was never populated.
@@ -1264,14 +1264,14 @@ class DeviceManager:
           - DirectSound = 3 (legacy, higher latency)
 
         macOS:
-          - CoreAudio = 0 (the only native host API — always rank 0)
+          - CoreAudio = 0 (the only native host API, always rank 0)
 
         Linux:
           - ALSA = 0 (native, lowest latency)
           - PulseAudio = 1 (userspace daemon, ubiquitous on desktop)
           - JACK = 2 (pro audio, low latency but rare on consumer systems)
 
-        Unknown hosts return 5 (lowest priority but not last — leaves
+        Unknown hosts return 5 (lowest priority but not last, leaves
         room for future additions without renumbering).
         """
         lower = host_name.lower()
@@ -1294,7 +1294,7 @@ class DeviceManager:
             return 1
         if lower == "jack":
             return 2
-        # Unknown host — lowest priority but not last (leaves room for
+        # Unknown host, lowest priority but not last (leaves room for
         # future additions).
         return 5
 
@@ -1316,7 +1316,7 @@ class DeviceManager:
         target_sr = self.recorder.config.sample_rate  # 16000 for Whisper
         dev_info_extra = None
         try:
-            # Use the cached device info (fast path — no PortAudio RPC)
+            # Use the cached device info (fast path, no PortAudio RPC)
             # with a live-query fallback on cache miss. The cache is
             # populated by ``_refresh_device_list`` (TTL 30s, or 5s
             # after a watcher-start failure) and now includes
@@ -1332,7 +1332,7 @@ class DeviceManager:
             # that was 100-1200ms of avoidable latency on Windows MME.
             dev_info = self._cached_device_info(device)
             if dev_info is None:
-                # Both cache and live query failed — raise to trigger
+                # Both cache and live query failed. Raise to trigger
                 # the outer except branch (logs a warning, returns the
                 # target rate so PortAudio does internal resampling).
                 raise RuntimeError(f"Could not query device info for device {device} (cache miss + live query failed)")
@@ -1375,11 +1375,11 @@ class DeviceManager:
             # log at WARNING (not DEBUG) so the user knows
             # the native-rate detection failed and PortAudio will do
             # internal resampling (which may introduce artifacts).
-            # The exception text is deliberately NOT spliced in — it
+            # The exception text is deliberately NOT spliced in, it
             # repeats "Could not query device info for device ..." and
             # doubled the line length without adding information.
             log.warning(
-                "[RECORDING] Device %s info unavailable — falling back to %d Hz (PortAudio resamples)",
+                "[RECORDING] Device %s info unavailable, falling back to %d Hz (PortAudio resamples)",
                 device,
                 target_sr,
             )

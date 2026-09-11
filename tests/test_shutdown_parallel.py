@@ -3,18 +3,18 @@
 These tests pin the GROUP-2 fixes applied to
 ``voice_typer/server/shutdown_controller.py``:
 
-* **XV-7 (High)** — ``_do_cleanup`` groups the independent middle
+* **XV-7 (High)**: ``_do_cleanup`` groups the independent middle
   teardowns (cancel-timers, recorder, level_monitor, restore_volume,
   hotkeys, crash_recovery, history_db, waveform_wiring, sounddevice,
   electron, pid_file, mutex_handle, devnull_files, event_bus) into a
   ``concurrent.futures.ThreadPoolExecutor`` with a shared 10 s deadline.
   ``ipc_server.stop`` and ``tray.stop`` remain as sequential bookends.
 
-* **XV-8 (Medium)** — Electron termination is wrapped in
+* **XV-8 (Medium)**, Electron termination is wrapped in
   ``_run_with_timeout(timeout=5.0)``; the legacy tray_window fallback
   path now does SIGTERM → 2 s wait → SIGKILL on POSIX.
 
-* **XV-10 (Medium)** — If ``tray.stop()`` times out AND we're on a
+* **XV-10 (Medium)**, If ``tray.stop()`` times out AND we're on a
   non-main thread, the cleanup thread calls ``os._exit(0)`` to unblock
   the main thread (which is parked in pystray's ``run()`` loop).
 
@@ -37,7 +37,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-# Direct import — does NOT pull in voice_typer.server.app, so the
+# Direct import, does NOT pull in voice_typer.server.app, so the
 # clipboard_target_safety circular-import breakage in a parallel
 # agent's WIP doesn't block these tests.
 from voice_typer.server.shutdown_controller import ShutdownController
@@ -54,7 +54,7 @@ from voice_typer.server.shutdown_controller import ShutdownController
 # ``clipboard_target_safety.py``.
 #
 # These  /  /  tests don't need ``voice_typer.server.app``
-# at all — they use a ``_FakeApp`` duck-typed stand-in. We override the
+# at all, they use a ``_FakeApp`` duck-typed stand-in. We override the
 # autouse fixture with a no-op so the broken import doesn't break our
 # test setup. The override is scoped to this module only.
 
@@ -63,7 +63,7 @@ from voice_typer.server.shutdown_controller import ShutdownController
 def mock_heavy_imports():
     """No-op override of the conftest autouse fixture.
 
-    These tests don't need heavy-import mocking — they use a
+    These tests don't need heavy-import mocking, they use a
     ``_FakeApp`` and inject mock modules into ``sys.modules`` directly.
     Overriding here avoids the broken ``voice_typer.server.app`` import
     in the shared conftest.
@@ -127,7 +127,7 @@ def fake_app(monkeypatch):
     monkeypatch.setitem(sys.modules, "voice_typer.server.app", fake_app_module)
 
     # The PID-file teardown resolves ``_clear_backend_pid_file`` through
-    # the owning module at call time — stub it so no real PID file is
+    # the owning module at call time, stub it so no real PID file is
     # touched and the (already-imported) real module is not required.
     fake_backend_pid = MagicMock()
     fake_backend_pid._clear_backend_pid_file = MagicMock()
@@ -144,7 +144,7 @@ def fake_app(monkeypatch):
     # ``mock_heavy_imports`` fixture imports ``voice_typer.server.app``,
     # whose import chain pulls in ``event_bus``), the package caches the
     # REAL module as ``voice_typer.server.event_bus`` and the
-    # ``sys.modules`` injection above is silently ignored — the teardown
+    # ``sys.modules`` injection above is silently ignored, the teardown
     # would call the real ``shutdown()`` and this module's ordering
     # assertions would never observe the fake. Patch the package
     # attribute too (``raising=False``: the attribute may not exist yet
@@ -185,7 +185,7 @@ class TestParallelTeardownBatch:
 
     def test_do_cleanup_invokes_all_teardown_helpers(self, controller, fake_app):
         """Every XV-7 teardown helper must be wired into the parallel
-        batch — calling ``_do_cleanup`` should exercise each one. We
+        batch, calling ``_do_cleanup`` should exercise each one. We
         assert that each helper exists on the controller and that
         ``_do_cleanup`` completes without raising (which it would if a
         helper was referenced but not defined)."""
@@ -214,35 +214,35 @@ class TestParallelTeardownBatch:
         # raising. If any helper was missing, the ThreadPoolExecutor
         # submit would raise AttributeError, surfacing as a Future
         # exception (which _do_cleanup logs at DEBUG but doesn't
-        # propagate — so this assertion is a smoke test, not a
+        # propagate, so this assertion is a smoke test, not a
         # completeness guarantee).
         controller._do_cleanup()
 
-        # tray.stop is the late bookend — must have been called exactly
+        # tray.stop is the late bookend, must have been called exactly
         # once (the parallel batch doesn't touch it).
         fake_app.tray.stop.assert_called_once_with()
 
     def test_subsystem_teardowns_run_concurrently(self, controller, fake_app):
         """XV-7: independent teardowns must run CONCURRENTLY, not
-        sequentially. We instrument two slow teardowns that remain in
-        the parallel batch (the dependent teardowns —
-        ``_teardown_recorder``, ``_teardown_history_db``,
-        ``_teardown_crash_recovery``, ``_teardown_timers_and_recording``
-        — were moved to a sequenced critical phase BEFORE the parallel
-        batch so the transcription thread join completes BEFORE the DB
-        close + ASR model unload; ``_teardown_hotkeys`` and
-        ``_teardown_electron`` remain in the parallel batch and are
-        independent — no Event dependencies). We make each helper
-        sleep 0.3 s by patching the controller's bound methods
-        directly and RECORD EACH HELPER'S EXECUTION WINDOW.
+          sequentially. We instrument two slow teardowns that remain in
+          the parallel batch (the dependent teardowns —
+          ``_teardown_recorder``, ``_teardown_history_db``,
+          ``_teardown_crash_recovery``, ``_teardown_timers_and_recording``
+        , were moved to a sequenced critical phase BEFORE the parallel
+          batch so the transcription thread join completes BEFORE the DB
+          close + ASR model unload; ``_teardown_hotkeys`` and
+          ``_teardown_electron`` remain in the parallel batch and are
+          independent, no Event dependencies). We make each helper
+          sleep 0.3 s by patching the controller's bound methods
+          directly and RECORD EACH HELPER'S EXECUTION WINDOW.
 
-        Concurrency is proven by OVERLAP of the two windows — the
-        machine-independent property — instead of a wall-clock
-        threshold: sequential helpers can never overlap, while truly
-        concurrent ones overlap by ~the full sleep length no matter
-        how slow the runner is (a fixed elapsed-time bound flaked on a
-        loaded macos-14 CI runner: 0.67s vs a <0.5s threshold, even
-        though the batch WAS concurrent).
+          Concurrency is proven by OVERLAP of the two windows, the
+          machine-independent property, instead of a wall-clock
+          threshold: sequential helpers can never overlap, while truly
+          concurrent ones overlap by ~the full sleep length no matter
+          how slow the runner is (a fixed elapsed-time bound flaked on a
+          loaded macos-14 CI runner: 0.67s vs a <0.5s threshold, even
+          though the batch WAS concurrent).
         """
         import time as _time
 
@@ -281,7 +281,7 @@ class TestParallelTeardownBatch:
         e0, e1 = windows["electron"]
         overlap = min(h1, e1) - max(h0, e0)
         assert overlap > 0.15, (
-            f"XV-7: teardown helpers did not run concurrently — window "
+            f"XV-7: teardown helpers did not run concurrently, window "
             f"overlap {overlap:.3f}s (hotkeys={windows['hotkeys']}, "
             f"electron={windows['electron']}). Two 0.3s helpers that "
             f"overlap prove the ThreadPoolExecutor batch is concurrent; "
@@ -290,10 +290,10 @@ class TestParallelTeardownBatch:
 
     def test_teardown_failure_does_not_propagate(self, controller, fake_app):
         """XV-7: a single helper raising must NOT propagate out of
-        ``_do_cleanup`` — the thread pool isolates each helper, and
+        ``_do_cleanup``, the thread pool isolates each helper, and
         the orchestrator logs the exception at DEBUG level. Other
         helpers + the tray.stop bookend must still run."""
-        # Make history_db.flush raise — this propagates out of
+        # Make history_db.flush raise, this propagates out of
         # _teardown_history_db (no try/except around the inner
         # _run_with_timeout call... actually there IS one, but the
         # _run_with_timeout itself can raise if the worker raises).
@@ -301,7 +301,7 @@ class TestParallelTeardownBatch:
         # patching it to raise directly.
         controller._teardown_history_db = MagicMock(side_effect=RuntimeError("boom"))
 
-        # _do_cleanup must not raise — the Future.exception() is logged
+        # _do_cleanup must not raise, the Future.exception() is logged
         # at DEBUG but not re-raised.
         controller._do_cleanup()
 
@@ -309,7 +309,7 @@ class TestParallelTeardownBatch:
         fake_app.tray.stop.assert_called_once_with()
 
     def test_tray_stop_runs_after_parallel_batch(self, controller, fake_app, monkeypatch):
-        """XV-7 / PVT-G5-003: ``tray.stop()`` is the late bookend — it
+        """XV-7 / PVT-G5-003: ``tray.stop()`` is the late bookend, it
         must run AFTER the parallel batch completes (specifically,
         after ``event_bus.shutdown`` which is in the batch). This pins
         the call ordering guarantee that
@@ -317,7 +317,7 @@ class TestParallelTeardownBatch:
         ``test_shutdown_controller.py`` also covers."""
         call_order: list[str] = []
 
-        # Spy on event_bus.shutdown — patch the already-injected
+        # Spy on event_bus.shutdown, patch the already-injected
         # MagicMock module's shutdown attribute.
         fake_event_bus = sys.modules["voice_typer.server.event_bus"]
 
@@ -361,7 +361,7 @@ class TestElectronTerminationTimeout:
         hang the whole shutdown). We verify the wrapping by making
         ``terminate_electron`` block forever and asserting the helper
         returns within ~6 s (5 s timeout + scheduling slack)."""
-        # Skip on Windows — the test relies on POSIX-only behavior.
+        # Skip on Windows, the test relies on POSIX-only behavior.
         if os.name != "posix":
             pytest.skip("XV-8 POSIX-only test")
 
@@ -387,7 +387,7 @@ class TestElectronTerminationTimeout:
 
         # Must return within ~6 s (5 s timeout + scheduling slack).
         assert elapsed < 6.0, (
-            f"XV-8: _teardown_electron took {elapsed:.2f}s — expected "
+            f"XV-8: _teardown_electron took {elapsed:.2f}s, expected "
             f"<6.0s (5s _run_with_timeout + slack). The helper is not "
             f"wrapping terminate_electron in _run_with_timeout."
         )
@@ -410,7 +410,7 @@ class TestElectronTerminationTimeout:
         tray_window path sends SIGTERM, waits 2 s, then SIGKILL on
         POSIX. We mock ``os.kill`` and ``os.waitpid`` to verify both
         signals are sent."""
-        # Skip on Windows — SIGKILL doesn't exist there.
+        # Skip on Windows. SIGKILL doesn't exist there.
         if os.name != "posix":
             pytest.skip("XV-8 POSIX-only test")
 
@@ -428,7 +428,7 @@ class TestElectronTerminationTimeout:
 
         def _mock_kill(pid, sig):
             signals_sent.append(sig)
-            # Don't actually kill anything — just record.
+            # Don't actually kill anything, just record.
 
         # ``os.waitpid(electron_pid, 0)`` is the BLOCKING variant, so
         # "process still running" means the syscall never returns.
@@ -509,7 +509,7 @@ class TestTrayStopTimeoutFallback:
             return original_run_with_timeout(description, func, timeout=timeout)
 
         # The tray-stop bookend body lives on SequencingMixin in the
-        # ``_plans`` leaf — patch the name where that body resolves it.
+        # ``_plans`` leaf, patch the name where that body resolves it.
         monkeypatch.setattr(_sc_plans, "_run_with_timeout", _fast_run_with_timeout)
 
         blocked = threading.Event()
@@ -536,7 +536,7 @@ class TestTrayStopTimeoutFallback:
         t = threading.Thread(target=_run_cleanup, name="test-cleanup-thread")
         t.start()
         # Wait for the thread to finish (or for os._exit to be called,
-        # which would prevent done.set() — but we mocked os._exit so
+        # which would prevent done.set(), but we mocked os._exit so
         # it returns normally).
         done.wait(timeout=5.0)
         # Unblock the tray.stop worker thread so it doesn't linger.
@@ -566,7 +566,7 @@ class TestTrayStopTimeoutFallback:
 
     def test_no_os_exit_when_tray_stop_times_out_on_main_thread(self, controller, fake_app, monkeypatch):
         """XV-10: when ``tray.stop()`` times out BUT we're on the main
-        thread, ``_do_cleanup`` must NOT call ``os._exit`` — the main
+        thread, ``_do_cleanup`` must NOT call ``os._exit``, the main
         thread's ``quit()`` will call ``sys.exit(0)`` afterwards. We
         just log a warning and continue."""
         exit_calls: list[int] = []
@@ -585,7 +585,7 @@ class TestTrayStopTimeoutFallback:
             return original_run_with_timeout(description, func, timeout=timeout)
 
         # The tray-stop bookend body lives on SequencingMixin in the
-        # ``_plans`` leaf — patch the name where that body resolves it.
+        # ``_plans`` leaf, patch the name where that body resolves it.
         monkeypatch.setattr(_sc_plans, "_run_with_timeout", _fast_run_with_timeout)
 
         blocked = threading.Event()

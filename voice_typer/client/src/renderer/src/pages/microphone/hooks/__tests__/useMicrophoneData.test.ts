@@ -147,7 +147,7 @@ afterEach(() => {
 	vi.clearAllMocks();
 });
 
-describe("useMicrophoneData — loadData (parallel fetch + buffering)", () => {
+describe("useMicrophoneData, loadData (parallel fetch + buffering)", () => {
 	it("fires get_microphones + get_config in parallel via Promise.all + populates state", async () => {
 		const mics = [makeMic("mic-1", "USB Mic"), makeMic("mic-2", "Built-in")];
 		const cfg = makeConfig({ microphone: "mic-1" });
@@ -203,7 +203,7 @@ describe("useMicrophoneData — loadData (parallel fetch + buffering)", () => {
 	});
 });
 
-describe("useMicrophoneData — cleanup on unmount (cancelled flag)", () => {
+describe("useMicrophoneData, cleanup on unmount (cancelled flag)", () => {
 	it("does NOT call setState after unmount when an in-flight loadData resolves late", async () => {
 		// Make the IPC slow so the loadData Promise resolves AFTER unmount.
 		let resolveGetMics: (v: MicrophoneDevice[]) => void = () => {};
@@ -231,7 +231,7 @@ describe("useMicrophoneData — cleanup on unmount (cancelled flag)", () => {
 		// unmounted component" warning so we can detect it below.
 		const spy = vi.spyOn(console, "error").mockImplementation(() => {});
 
-		// Now resolve the IPC — the cancelled flag should prevent
+		// Now resolve the IPC, the cancelled flag should prevent
 		// setMicrophones / setConfig / setLoading from being called.
 		act(() => {
 			resolveGetMics([makeMic("late-mic")]);
@@ -251,7 +251,7 @@ describe("useMicrophoneData — cleanup on unmount (cancelled flag)", () => {
 	});
 });
 
-describe("useMicrophoneData — microphones_changed + config_changed event subscriptions", () => {
+describe("useMicrophoneData, microphones_changed + config_changed event subscriptions", () => {
 	it("microphones_changed event triggers a loadData refresh", async () => {
 		const mics = [makeMic("mic-1")];
 		callMock.mockImplementation((cmd: string) => {
@@ -273,7 +273,7 @@ describe("useMicrophoneData — microphones_changed + config_changed event subsc
 		const handler = getEventHandler("microphones_changed");
 		expect(handler).toBeDefined();
 
-		// Fire the event — should trigger loadData (which re-issues
+		// Fire the event, should trigger loadData (which re-issues
 		// get_microphones + get_config).
 		await act(async () => {
 			handler?.();
@@ -320,7 +320,7 @@ describe("useMicrophoneData — microphones_changed + config_changed event subsc
 	});
 });
 
-describe("useMicrophoneData — config_changed hot/cold split", () => {
+describe("useMicrophoneData, config_changed hot/cold split", () => {
 	it("does NOT re-enumerate devices when the cache is populated", async () => {
 		const mics = [makeMic("mic-1", "USB Mic"), makeMic("mic-2", "Built-in")];
 		let currentMic: string | null = "mic-1";
@@ -434,7 +434,7 @@ describe("useMicrophoneData — config_changed hot/cold split", () => {
 	});
 });
 
-describe("useMicrophoneData — hot-swap fallback (active mic no longer present)", () => {
+describe("useMicrophoneData, hot-swap fallback (active mic no longer present)", () => {
 	it("invokes selectMicrophoneRef(null) when the active mic is no longer in the refreshed list", async () => {
 		// Track which loadData cycle we're in so we can return different
 		// microphone lists for the initial load vs the event-triggered
@@ -477,7 +477,7 @@ describe("useMicrophoneData — hot-swap fallback (active mic no longer present)
 			expect(result.current.microphones.length).toBe(1);
 		});
 
-		// Fire microphones_changed — the handler should refresh the
+		// Fire microphones_changed, the handler should refresh the
 		// list (now empty) + detect that mic-1 is gone + auto-fallback.
 		const handler = getEventHandler("microphones_changed");
 		expect(handler).toBeDefined();
@@ -490,7 +490,7 @@ describe("useMicrophoneData — hot-swap fallback (active mic no longer present)
 			await new Promise((r) => setTimeout(r, 50));
 		});
 
-		// selectMicrophoneRef.current(null) invoked — auto-fallback to
+		// selectMicrophoneRef.current(null) invoked, auto-fallback to
 		// the system default.
 		expect(selectMicrophoneRef.current).toHaveBeenCalledWith(null);
 		// Warning snack surfaced to explain what happened.
@@ -528,12 +528,12 @@ describe("useMicrophoneData — hot-swap fallback (active mic no longer present)
 			await new Promise((r) => setTimeout(r, 0));
 		});
 
-		// mic-1 is still present — no fallback.
+		// mic-1 is still present, no fallback.
 		expect(selectMicrophoneRef.current).not.toHaveBeenCalled();
 	});
 });
 
-describe("useMicrophoneData — startup fallback for a stale persisted selection", () => {
+describe("useMicrophoneData, startup fallback for a stale persisted selection", () => {
 	it("falls back to System Default when the persisted id matches no enumerated device on mount", async () => {
 		// Root cause of the silent "Unknown" active-mic card: a persisted
 		// config.microphone id that no longer exists in the enumerated
@@ -684,7 +684,7 @@ describe("useMicrophoneData — startup fallback for a stale persisted selection
 	});
 });
 
-describe("useMicrophoneData — updateConfig (optimistic write-through)", () => {
+describe("useMicrophoneData, updateConfig (optimistic write-through)", () => {
 	it("writes through to set_config IPC + updates the local config snapshot", async () => {
 		callMock.mockImplementation((cmd: string) => {
 			if (cmd === "get_microphones") return Promise.resolve([]);
@@ -719,10 +719,10 @@ describe("useMicrophoneData — updateConfig (optimistic write-through)", () => 
 	});
 });
 
-describe("useMicrophoneData — empty-list boot-race retry", () => {
+describe("useMicrophoneData, empty-list boot-race retry", () => {
 	// Boot-race recovery: on a cold start with the Microphone page
 	// restored, the page can fetch ``get_microphones`` BEFORE the
-	// backend's startup enumeration populated its registry — the fetch
+	// backend's startup enumeration populated its registry, the fetch
 	// legitimately resolves to ``[]`` and (pre-fix) nothing re-notified
 	// the page, leaving "No microphones found" + a disabled Start Test
 	// until a manual page change. The hook now retries the load on a
@@ -751,7 +751,7 @@ describe("useMicrophoneData — empty-list boot-race retry", () => {
 				useMicrophoneData({ selectMicrophoneRef }),
 			);
 
-			// Flush the initial load — empty list (boot race).
+			// Flush the initial load, empty list (boot race).
 			await act(async () => {
 				await vi.advanceTimersByTimeAsync(0);
 			});
@@ -803,7 +803,7 @@ describe("useMicrophoneData — empty-list boot-race retry", () => {
 				await vi.advanceTimersByTimeAsync(0);
 			});
 			// 1 initial + 4 retries (1s + 2s + 4s + 8s backoff) = 5 total
-			// get_microphones calls, then the budget is spent — no
+			// get_microphones calls, then the budget is spent, no
 			// infinite retry loop against a genuinely mic-less machine.
 			await act(async () => {
 				await vi.advanceTimersByTimeAsync(60_000);

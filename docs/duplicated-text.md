@@ -1,4 +1,4 @@
-# Duplicated Text — Known Causes and Workarounds
+# Duplicated Text: Known Causes and Workarounds
 
 ## Status
 
@@ -22,9 +22,9 @@ If you just want to **stop the bug now**, jump to [Workarounds](#workarounds).
 | 2 | Window overlap dedup gaps | `streaming.py` → `AudioWindowPlanner.next_window()` | MED-HIGH | The same audio is transcribed twice; dedup misses drifted timestamps when the boundary search fails to find a silence boundary. |
 | 3 | VAD segment boundary split | `transcription.py` → `_transcribe_words_unlocked()` | MED | Whisper's internal VAD splits audio into segments; the last word of segment N may be repeated as the first word of segment N+1 (known faster-whisper behavior with `vad_filter=True` + `speech_pad_ms=200`). |
 | 4 | Text cleanup limited to 4-token phrases | `text_cleanup.py` → `_remove_adjacent_duplicate_phrases()` | MED | Phrase duplicates longer than 4 tokens (e.g. "I want to do this **I want to do this**") are NOT caught. |
-| 5 | Streaming fallback to batch transcribe | `streaming.py` → `_finalize_impl()` exception handler | LOW | If the tail merge raises and the code falls back to `transcribe_with_fallback(full_audio)`, the entire audio is transcribed from scratch as a batch — partial streaming commits may then duplicate the batch result. |
+| 5 | Streaming fallback to batch transcribe | `streaming.py` → `_finalize_impl()` exception handler | LOW | If the tail merge raises and the code falls back to `transcribe_with_fallback(full_audio)`, the entire audio is transcribed from scratch as a batch, partial streaming commits may then duplicate the batch result. |
 
-### Detail — cause #1 (tail merge timestamp drift)
+### Detail: cause #1 (tail merge timestamp drift)
 
 The critical flow when streaming transcription is enabled:
 
@@ -57,7 +57,7 @@ Concrete example of the duplication:
 The 0.25 s threshold is too tight for Whisper's timestamp variability,
 especially on small models.
 
-### Detail — cause #2 (window planner boundary mismatch)
+### Detail: cause #2 (window planner boundary mismatch)
 
 The planner uses `_choose_boundary()` to find a silent boundary for the
 window end. But:
@@ -65,7 +65,7 @@ window end. But:
 1. `_choose_boundary()` only searches 1 second
    (`search_seconds = min(1.0, ...)`) for a silence boundary.
 2. If no quiet boundary is found, it returns `requested_end_seconds`
-   exactly — meaning the windows overlap by exactly
+   exactly: meaning the windows overlap by exactly
    `left_overlap_seconds` (3 s).
 3. Same audio content gets transcribed twice, and the dedup relies
    entirely on Whisper producing identical timestamps.
@@ -73,11 +73,11 @@ window end. But:
 Window 1 transcribes `audio[0:12 s]` → text for `t=0–12 s`.
 Window 2 transcribes `audio[9:17 s]` → text for `t=9–17 s`.
 The overlap region `[9 s:12 s]` is transcribed both times. If Whisper
-shifts timestamps by more than 0.25 s between runs — which it
-frequently does — the same words from the overlap region get added
+shifts timestamps by more than 0.25 s between runs, which it
+frequently does: the same words from the overlap region get added
 twice.
 
-### Detail — cause #3 (VAD segment boundary split)
+### Detail: cause #3 (VAD segment boundary split)
 
 When `word_timestamps=True` (used by streaming), Whisper's internal VAD
 splits audio into segments. At segment boundaries:
@@ -92,16 +92,16 @@ splits audio into segments. At segment boundaries:
 
 The streaming path uses `word_timestamps=True, without_timestamps=False`.
 The final path uses `without_timestamps=True`. These are different
-transcribe modes — Whisper can produce different text for the same
+transcribe modes: Whisper can produce different text for the same
 audio depending on whether word timestamps are enabled.
 
-### Detail — cause #4 (text-cleanup gaps)
+### Detail: cause #4 (text-cleanup gaps)
 
 | Function | What it catches | What it misses |
 |----------|-----------------|----------------|
 | `_remove_adjacent_duplicate_phrases` | Exact phrase repeats up to 4 tokens | Repeats > 4 words; repeats with punctuation variation; non-adjacent repeats |
 | `_remove_near_duplicate_words` | One word is substring of adjacent (both ≥ 4 chars, length diff ≤ 2) | Substring matches where words are 1–3 chars; diff > 2 chars |
-| `_clean_self_corrections` | Prefix/suffix overlap (e.g. "talk talking") | Doesn't catch exact word duplicates like "the the" — only handles prefix/suffix variants |
+| `_clean_self_corrections` | Prefix/suffix overlap (e.g. "talk talking") | Doesn't catch exact word duplicates like "the the", only handles prefix/suffix variants |
 
 Critical gap: `_remove_adjacent_duplicate_phrases` is capped at 4
 tokens. If a 5-token phrase gets duplicated (e.g. "I want to do this
@@ -119,15 +119,15 @@ tokens. If a 5-token phrase gets duplicated (e.g. "I want to do this
   - Trade-off: you lose the streaming UX win (no partial-transcription
     feedback during recording) and the first-word latency goes up
     slightly (no warm window). For most users this is acceptable.
-- **Switch to a larger model** (e.g. `medium.en` or `large-v3`) — the
+- **Switch to a larger model** (e.g. `medium.en` or `large-v3`), the
   timestamp drift is most pronounced on `tiny`/`base`/`small` models.
   Larger models produce more stable timestamps, which narrows the
   drift band below the 0.25 s near-duplicate threshold.
-- **Reduce background noise** — Whisper's VAD splits more aggressively
+- **Reduce background noise**: Whisper's VAD splits more aggressively
   on noisy audio, which widens the segment-boundary split window
   (cause #3). A quieter input signal reduces VAD-induced segment
   splits.
-- **Avoid rapid stop/start cycles** — the streaming tail-merge
+- **Avoid rapid stop/start cycles**: the streaming tail-merge
   exception handler (cause #5) only fires when the tail merge raises,
   which is rare but slightly more likely under rapid stop/start
   pressure. A 1-second pause between recordings eliminates this path.
@@ -141,12 +141,12 @@ the recommended starting points are:
    `streaming.py`'s `_has_near_duplicate_unlocked()`. This widens the
    dedup window enough to absorb typical Whisper drift without letting
    through genuine adjacent repeats.
-2. **Add text-level dedup in `_finalize_impl()`** — after `add_words`,
+2. **Add text-level dedup in `_finalize_impl()`**, after `add_words`,
    compare the new tail words against `snapshot_committed_text` and
    discard any new words that form a duplicate of the last N committed
    words. This is a backstop that catches cause #1 even when the
    timestamp-level check misses.
-3. **Investigate VAD segment-boundary dedup** for cause #3 — the
+3. **Investigate VAD segment-boundary dedup** for cause #3, the
    segment-boundary repeat is a known faster-whisper behavior; a
    text-level dedup pass that drops the first word of segment N+1 if
    it exactly matches the last word of segment N would close the gap.

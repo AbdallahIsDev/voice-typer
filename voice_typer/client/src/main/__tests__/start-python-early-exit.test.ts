@@ -45,7 +45,7 @@ vi.mock("../constants", () => ({
 // Mock i18n so mainT returns a string.
 vi.mock("../i18n", () => ({ mainT: (key: string) => key }));
 
-// Mock state — we install a fresh `state` object per test so the
+// Mock state, we install a fresh `state` object per test so the
 // early-exit branch sees `state.mainWindow` set.
 function makeMockState(overrides: Partial<MainState> = {}): MainState {
 	return {
@@ -168,7 +168,7 @@ describe("CR-34: start-python early-exit uses destroy() not close()", () => {
 		mockState.pythonReady = false;
 
 		startPython();
-		// Should not throw — just no-ops the window-destroy block.
+		// Should not throw, just no-ops the window-destroy block.
 		expect(() => mockProc.emit("exit", 1)).not.toThrow();
 	});
 });

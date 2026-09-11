@@ -6,12 +6,12 @@ Covers GROUP-2 fixes that the comprehensive review labelled XV-1 .. XV-6:
   ``importlib.util.find_spec`` instead of ``importlib.import_module`` so
   probing for a heavy dependency (``torch`` / ``qwen_asr``) doesn't
   actually execute the package's top-level code (which for ``torch``
-  allocates GPU memory and inits CUDA — measurable in seconds).
+  allocates GPU memory and inits CUDA, measurable in seconds).
 * XV-2: ``service.download_model``'s progress-polling loop walks ONLY
   the in-progress repo's HF cache subdir, not the entire HF cache tree.
   (Source-level guard already exists in
   ``tests/test_history_and_models.py::TestDownloadPollScopedToModelDir``
-  — we add a complementary spec-resolution test here.)
+, we add a complementary spec-resolution test here.)
 * XV-5: ``service._microphones_cache`` is initialised to ``None`` (not
   ``[]``) so a legitimately-empty device list is served from cache
   instead of re-querying PortAudio on every call.
@@ -31,7 +31,7 @@ from unittest.mock import MagicMock
 import pytest
 
 # XV-1 deps-probe tests removed 2026-08-15: ``_check_qwen_deps`` /
-# ``_check_parakeet_deps`` were deleted with the torch engine — both
+# ``_check_parakeet_deps`` were deleted with the torch engine, both
 # backends are ONNX now (onnxruntime + onnx-asr are base deps), so the
 # Models-page ``deps_ok`` is a constant True with no module probe.
 
@@ -57,7 +57,7 @@ class TestDownloadPollScopedToModelDir:
         from voice_typer.server.service import VoiceTyperService
 
         src = inspect.getsource(VoiceTyperService.download_model)
-        # The exact construction line — keep in sync with the source.
+        # The exact construction line, keep in sync with the source.
         assert 'model_dir = cache_dir / f"models--{repo_id.replace' in src, (
             "XV-2: download_model must construct the per-repo subdir "
             "via cache_dir / f\"models--{repo_id.replace('/', '--')}\" "
@@ -136,7 +136,7 @@ class TestMicrophonesCacheEmptyList:
 
     def test_non_empty_list_still_served_from_cache(self, tmp_config_dir, monkeypatch):
         """Sanity: a non-empty cache continues to be served (regression
-        guard — the XV-5 fix must not break the non-empty path)."""
+        guard, the XV-5 fix must not break the non-empty path)."""
         from voice_typer.server import service as svc_mod
 
         class FakeApp:
@@ -174,7 +174,7 @@ class TestMicrophonesCacheEmptyList:
         code_only = "\n".join(code_lines)
         assert "if self._microphones_cache and " not in code_only, (
             "XV-5 regression: refresh_microphones still uses bare-truthiness "
-            "cache check — this skips the cache when PortAudio returns 0 mics."
+            "cache check, this skips the cache when PortAudio returns 0 mics."
         )
 
 
@@ -196,7 +196,7 @@ class TestWaitForIpcReady:
 
     def test_returns_true_immediately_when_port_open(self, monkeypatch):
         """When the IPC port is already accepting connections, the poll
-        returns ``True`` on the first iteration — no sleep needed."""
+        returns ``True`` on the first iteration, no sleep needed."""
         from voice_typer.server import autostart_launcher as al
 
         monkeypatch.setattr(al, "_is_port_open", lambda h, p: True)
@@ -292,7 +292,7 @@ class TestWaitForIpcReady:
 
 class TestNoFixedSleepTwoInLaunch:
     """XV-6: the ``launch()`` function must NOT contain any
-    ``time.sleep(2)`` calls — they have all been replaced by
+    ``time.sleep(2)`` calls, they have all been replaced by
     ``_wait_for_ipc_ready()``."""
 
     def test_launch_source_has_no_fixed_sleep_two(self):
@@ -313,7 +313,7 @@ class TestNoFixedSleepTwoInLaunch:
             code_lines.append(line)
         code_only = "\n".join(code_lines)
         assert "time.sleep(2)" not in code_only, (
-            "XV-6 regression: launch() still contains a fixed time.sleep(2) — must use _wait_for_ipc_ready() instead."
+            "XV-6 regression: launch() still contains a fixed time.sleep(2), must use _wait_for_ipc_ready() instead."
         )
         # And the new helper must be called at least once.
         assert "_wait_for_ipc_ready()" in code_only, (
@@ -348,7 +348,7 @@ class TestNumpyDeadImportRemoved:
         server.clipboard`` → ``clipboard_target_safety``) which is owned
         by a different disjoint scope. If a parallel agent is mid-edit on
         those modules, the import may transiently fail for reasons
-        unrelated to XV-4. In that case we skip — the source-level guard
+        unrelated to XV-4. In that case we skip, the source-level guard
         above is the authoritative check for XV-4.
         """
         try:
@@ -363,6 +363,6 @@ class TestNumpyDeadImportRemoved:
                     f"XV-4: app.py failed to import after numpy removal (likely a missed ``np`` reference): {exc}"
                 )
             pytest.skip(
-                f"XV-4 sanity check skipped — downstream import error "
+                f"XV-4 sanity check skipped, downstream import error "
                 f"outside app.py scope (parallel agent edit in progress?): {exc}"
             )

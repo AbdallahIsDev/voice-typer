@@ -1,4 +1,4 @@
-// TroubleshootingSettingsSection — the "Troubleshooting" block of the
+// TroubleshootingSettingsSection, the "Troubleshooting" block of the
 // Settings → Privacy tab.
 //
 //extracted from src/renderer/src/pages/Settings.tsx (which was
@@ -38,7 +38,7 @@ import { anyRowVisible } from "./settingsRowGating";
 import type { IsVisibleFn } from "./types";
 
 interface TroubleshootingSettingsSectionProps {
-	/** Search-filter predicate — same shape as the page-level helper. */
+	/** Search-filter predicate, same shape as the page-level helper. */
 	isVisible: IsVisibleFn;
 	/** Used by the "Re-run setup wizard" button to flip
 	 *  `onboarding_completed` to false before navigating. */
@@ -50,7 +50,7 @@ interface TroubleshootingSettingsSectionProps {
 	onResetClick: () => void;
 	/** Opens the parent-owned HelpOverlay (keyboard-shortcut +
 	 *  punctuation-cheat-sheet reference). The overlay instance itself
-	 *  lives in Settings.tsx — the section only requests it. */
+	 *  lives in Settings.tsx, the section only requests it. */
 	onOpenHelp: () => void;
 }
 
@@ -66,7 +66,7 @@ export const TroubleshootingSettingsSection = memo(
 		const { showSnack } = useSnackbar();
 
 		// Ref mirror of `call` so the mount probe effect depends only on
-		// `isMac`. Test mocks may return a fresh `call` per render — an
+		// `isMac`. Test mocks may return a fresh `call` per render, an
 		// effect dep on it would re-fire the probe (check_accessibility →
 		// setStaleResetCommand → re-render → new call → loop). Same
 		// pattern as useVocabulary.ts.
@@ -81,7 +81,7 @@ export const TroubleshootingSettingsSection = memo(
 		const reportBugLabel = t("settings.troubleshooting.reportBug");
 		const reRunWizardLabel = t("settings.troubleshooting.reRunWizard");
 		const resetToDefaultsLabel = t("settings.troubleshooting.resetToDefaults");
-		// Keyboard Shortcuts button — opens the shared HelpOverlay
+		// Keyboard Shortcuts button, opens the shared HelpOverlay
 		// (same overlay the title-bar `?` opens). Label reuses the
 		// existing `help.title` key ("Keyboard Shortcuts").
 		const keyboardShortcutsLabel = t("help.title");
@@ -104,13 +104,13 @@ export const TroubleshootingSettingsSection = memo(
 		// the runtime ``tccutil`` reset command so the section can
 		// surface it next to the Reset button. Mount-only probe —
 		// ``suggest_reset`` / ``reset_command`` are both optional in the
-		// response, so missing fields (or an IPC failure — e.g. the
+		// response, so missing fields (or an IPC failure, e.g. the
 		// command still being decommissioned on an older backend) must
 		// silently mean "no suggestion".
 		const [staleResetCommand, setStaleResetCommand] = useState<string | null>(
 			null,
 		);
-		// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract — .current must NOT become a dep
+		// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract, .current must NOT become a dep
 		useEffect(() => {
 			if (!isMac) return;
 			let cancelled = false;

@@ -1,5 +1,5 @@
 /**
- *  vitest suite — Sidebar React.memo re-render gating.
+ *  vitest suite, Sidebar React.memo re-render gating.
  *
  * Sidebar receives only primitive props + stable `useCallback` refs
  * from App.tsx (`navigate`). Wrapping it in `React.memo` (matching the
@@ -64,7 +64,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import type { Page } from "@/types/ipc";
 
 // Sidebar mounts real Radix Tooltips (HotkeyTooltip on the nav items),
-// which REQUIRE a TooltipProvider ancestor — the app shell provides
+// which REQUIRE a TooltipProvider ancestor, the app shell provides
 // one (App.tsx:475). Same props as App.tsx so tooltip timing in tests
 // mirrors production. The provider sits OUTSIDE the memoized Sidebar,
 // so the re-render gating under test is unaffected.
@@ -103,7 +103,7 @@ function makeProps(overrides: Partial<SidebarProps> = {}): SidebarProps {
 	};
 }
 
-describe("Sidebar — React.memo re-render gating", () => {
+describe("Sidebar, React.memo re-render gating", () => {
 	beforeEach(() => {
 		cleanup();
 		buttonRenderCount = 0;

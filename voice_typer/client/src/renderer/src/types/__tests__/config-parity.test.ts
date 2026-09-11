@@ -10,7 +10,7 @@
 //   • TS `audio_preset` union must mirror the Python IPC validator's
 //     `_make_enum_validator({"auto", "studio", "noisy_room", "off",
 //     "custom"})` (NOT the dataclass Literal[...] which includes
-//     legacy "none"/"recommended" for backward-compat — those are
+//     legacy "none"/"recommended" for backward-compat, those are
 //     rewritten by the Config.load v1->v2 migration BEFORE the IPC
 //     validator sees them, so the IPC boundary never accepts either).
 //   • TS `noise_suppression_method` union must mirror Python
@@ -30,7 +30,7 @@
 //     are OPTIONAL on the TS side for backward compat with older
 //     config.json files / older sidecars that predate the fields.
 //
-// This file is a TS-only static guard — it doesn't shell out to
+// This file is a TS-only static guard, it doesn't shell out to
 // Python (which would require a Python interpreter in the vitest
 // runner). The Python-side parity is enforced by a separate CI job
 // that runs `python scripts/check_config_parity.py` (added by
@@ -58,7 +58,7 @@ describe("XZ-CFG-06: TS ModelSize union mirrors Python ALLOWED_USER_MODELS", () 
 		// and `large-v3` was restored at the user's request the same
 		// day; the `.en`-suffixed, small/medium, and other large
 		// sizes were removed. The `""` member is the genuine "no
-		// model selected" state — the backend's `NO_MODEL_SIZE`
+		// model selected" state, the backend's `NO_MODEL_SIZE`
 		// sentinel, accepted by `ALLOWED_USER_MODELS`-derived
 		// validation. Python `ALLOWED_USER_MODELS` in
 		// `voice_typer/server/config_validators.py` now allows exactly
@@ -153,7 +153,7 @@ describe("XZ-CFG-06: TS audio_preset / noise_suppression_method / llm_preset mat
 		expect(values).toHaveLength(5);
 	});
 
-	it("noise_suppression_method does NOT include 'speex' (removed — never implemented, rejected by IPC validator)", () => {
+	it("noise_suppression_method does NOT include 'speex' (removed, never implemented, rejected by IPC validator)", () => {
 		//'speex' was never implemented (no speex backend in
 		// `audio_filters/noise_suppressor.py`) and was rejected at
 		// the IPC boundary. Removed from the TS union to eliminate
@@ -182,14 +182,14 @@ describe("XZ-CFG-06: TS audio_preset / noise_suppression_method / llm_preset mat
 	});
 });
 
-describe("FR-67: volume_duck_per_session / volume_duck_smart / noise_filter_gate_threshold — REMOVED from wire post-v3", () => {
+describe("FR-67: volume_duck_per_session / volume_duck_smart / noise_filter_gate_threshold, REMOVED from wire post-v3", () => {
 	it("all three fields are OPTIONAL (omittable from a literal)", () => {
 		//these fields were REMOVED from the Python Config
 		// dataclass (`voice_typer/server/config.py:775-781, 784-786,
-		// 837-840`) — existing `config.json` files that still carry
+		// 837-840`), existing `config.json` files that still carry
 		// them are silently scrubbed by the v3 schema migration, so
 		// they're NOT on the wire post-v3. The TS interface marks
-		// them as OPTIONAL (`?:`) with `@deprecated` tags — kept in
+		// them as OPTIONAL (`?:`) with `@deprecated` tags, kept in
 		// the type for config-file back-compat only.
 		//
 		// Compile-time guards: each of the three fields must be
@@ -230,14 +230,14 @@ describe("FR-67: volume_duck_per_session / volume_duck_smart / noise_filter_gate
 	});
 });
 
-describe("FR-67: noise_filter_rnnoise / noise_filter_post_capture — RUNTIME switches per ADR 0009 (NOT deprecated)", () => {
+describe("FR-67: noise_filter_rnnoise / noise_filter_post_capture, RUNTIME switches per ADR 0009 (NOT deprecated)", () => {
 	it("both fields are still REQUIRED on VoiceTyperConfig (compile-time presence guard)", () => {
 		//per ADR 0009, these two fields are RUNTIME switches
 		// (server-controlled, NOT IPC-settable). The Python Config
 		// dataclass at `voice_typer/server/config.py:842-843` declares
 		// them as `bool = True` and they're actively read by
 		// `level_monitor.py` / synced by `config_applier.py`. The
-		// previous `// DEPRECATED` TS comments were incorrect — these
+		// previous `// DEPRECATED` TS comments were incorrect, these
 		// are live runtime switches, not deprecated fields. They're
 		// NOT in the IPC allowlist (renderer `set_config(...)` calls
 		// are rejected by the validator), but they ARE echoed on
@@ -245,21 +245,21 @@ describe("FR-67: noise_filter_rnnoise / noise_filter_post_capture — RUNTIME sw
 		//
 		// Compile-time guard: accessing the fields on a value of type
 		// `VoiceTyperConfig` must type-check (NOT `boolean | undefined`
-		// — they're required). If a future contributor removes either
+		//, they're required). If a future contributor removes either
 		// field from the interface or makes them optional, the
 		// `boolean` (non-undefined) annotation fails to compile.
 		const cfg = {} as VoiceTyperConfig;
 		const _rnnoise: boolean = cfg.noise_filter_rnnoise;
 		const _postCapture: boolean = cfg.noise_filter_post_capture;
 		// Runtime sanity: `{} as VoiceTyperConfig` is an unsafe cast so
-		// the fields are actually `undefined` at runtime — but the
+		// the fields are actually `undefined` at runtime, but the
 		// *static* type is `boolean` (required, non-optional).
 		expect(_rnnoise).toBeUndefined();
 		expect(_postCapture).toBeUndefined();
 	});
 });
 
-describe("XZ-CFG-03: bubble_x / bubble_y / bubble_scale / test_duration_seconds — optionality", () => {
+describe("XZ-CFG-03: bubble_x / bubble_y / bubble_scale / test_duration_seconds, optionality", () => {
 	it("bubble_scale and test_duration_seconds are optional (undefined is assignable)", () => {
 		// Compile-time guard: a minimal `VoiceTyperConfig` literal
 		// WITHOUT bubble_scale / test_duration_seconds must type-check.
@@ -411,7 +411,7 @@ describe("XZ-CFG-03: bubble_x / bubble_y / bubble_scale / test_duration_seconds 
 	});
 });
 
-describe("GT-37: warn_elevated_paste / warn_password_paste — optional paste-safety toggles", () => {
+describe("GT-37: warn_elevated_paste / warn_password_paste, optional paste-safety toggles", () => {
 	it("both fields are declared on VoiceTyperConfig (compile-time presence guard)", () => {
 		// Compile-time guard: accessing the fields on a value of
 		// type `VoiceTyperConfig` must type-check. If a future
@@ -428,7 +428,7 @@ describe("GT-37: warn_elevated_paste / warn_password_paste — optional paste-sa
 	});
 });
 
-describe("GT-F2-3: onboarding_failed / recording_channels / pre_roll_buffer_seconds — optional server-controlled fields", () => {
+describe("GT-F2-3: onboarding_failed / recording_channels / pre_roll_buffer_seconds, optional server-controlled fields", () => {
 	it("all three fields are OPTIONAL (omittable from a literal) and readable", () => {
 		// Compile-time guard: a literal that omits all three must
 		// type-check (proving they're optional). Reading them back

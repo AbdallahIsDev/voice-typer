@@ -1,12 +1,12 @@
 /**
- * "Amoled" theme preset — true-black backgrounds for OLED displays.
+ * "Amoled" theme preset, true-black backgrounds for OLED displays.
  *
  * See ``themes.ts`` for the ``ThemePreset`` interface and how presets
  * are consumed.
  *
  * light and dark now define the SAME superset of CSS vars.
  * Previously the light map covered only 16 vars while the dark map
- * covered 31 — components reading e.g. ``--sidebar-ring`` in light
+ * covered 31, components reading e.g. ``--sidebar-ring`` in light
  * mode fell through to the stylesheet default, producing an
  * inconsistent accent colour when toggling schemes. The light map
  * now mirrors the dark map's var coverage so the visual contract
@@ -52,7 +52,7 @@ export const amoledTheme: Omit<ThemePreset, "nameKey"> = {
 		   3:1 contrast against the white background. */
 		"--border": "oklch(0 0 0)",
 		"--input": "oklch(0.62 0 0)",
-		/* drop the `/0.5` alpha — when combined with tailwind's
+		/* drop the `/0.5` alpha, when combined with tailwind's
 		   focus-visible:ring-ring/30 the effective opacity fell to 15%, rendering
 		   the focus indicator invisible on white. Use the opaque primary blue
 		   (matches 's default light --ring value) which already clears

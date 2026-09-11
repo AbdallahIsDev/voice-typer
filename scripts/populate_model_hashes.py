@@ -46,7 +46,7 @@ Exit codes:
     2  --dry-run AND changes detected (useful for CI gates)
 
 The script is idempotent: re-running with no upstream changes is a no-op.
-It NEVER modifies the ``revision`` field of any entry — only the ``files``
+It NEVER modifies the ``revision`` field of any entry, only the ``files``
 dict.  It preserves the ``_comment`` metadata key verbatim.
 """
 
@@ -108,7 +108,7 @@ def _http_get(url: str) -> bytes:
                 return resp.read()
         except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError) as exc:
             last_exc = exc
-            # 404 is terminal — retrying won't help.
+            # 404 is terminal, retrying won't help.
             if isinstance(exc, urllib.error.HTTPError) and exc.code == 404:
                 raise
             if attempt < HTTP_RETRIES - 1:
@@ -127,7 +127,7 @@ def _list_repo_files(repo: str, revision: str) -> list[dict[str, Any]]:
         raise RuntimeError(f"Tree API for {repo}@{revision} returned non-JSON: {raw[:200]!r}") from exc
     if not isinstance(data, list):
         raise RuntimeError(f"Tree API for {repo}@{revision} returned {type(data).__name__}, expected list")
-    # The tree API includes directory entries (``type == "directory"``) — skip
+    # The tree API includes directory entries (``type == "directory"``), skip
     # them; we only hash files.
     return [entry for entry in data if entry.get("type") == "file"]
 
@@ -142,7 +142,7 @@ def _fetch_file_sha256(repo: str, revision: str, path: str) -> str:
     blob = _http_get(url)
 
     if blob.startswith(LFS_POINTER_MAGIC):
-        # LFS pointer file — parse the ``oid sha256:<hex>`` line.
+        # LFS pointer file, parse the ``oid sha256:<hex>`` line.
         for line in blob.decode("utf-8", errors="replace").splitlines():
             line = line.strip()
             if line.startswith("oid sha256:"):
@@ -152,7 +152,7 @@ def _fetch_file_sha256(repo: str, revision: str, path: str) -> str:
                 raise RuntimeError(f"LFS pointer for {repo}/{path} has malformed oid: {oid!r}")
         raise RuntimeError(f"LFS pointer for {repo}/{path} is missing the oid sha256 line: {blob!r}")
 
-    # Regular file — hash the raw bytes.
+    # Regular file, hash the raw bytes.
     return hashlib.sha256(blob).hexdigest()
 
 
@@ -180,7 +180,7 @@ def _ordered_files(files: dict[str, str]) -> dict[str, str]:
 # exactly (required by test_model_hashes_fallback_matches_json).  We anchor
 # the rewrite on the comment that introduces the fallback to make it robust
 # to indentation changes.
-_FALLBACK_ANCHOR = "# Hardcoded fallback — mirrors model_hashes.json so that even if the JSON\n"
+_FALLBACK_ANCHOR = "# Hardcoded fallback, mirrors model_hashes.json so that even if the JSON\n"
 
 
 def _format_fallback_literal(manifest: dict[str, Any]) -> str:
@@ -189,7 +189,7 @@ def _format_fallback_literal(manifest: dict[str, Any]) -> str:
     Excludes ``_comment`` and the ``qwen`` local-model entry, mirroring the
     pre-existing convention.  Lines that would exceed ruff's 120-char limit
     get a trailing ``# noqa: E501`` so the generated source stays lint-clean
-    (some pinned paths — e.g. ``.eval_results/open_asr_leaderboard.yaml`` —
+    (some pinned paths: e.g. ``.eval_results/open_asr_leaderboard.yaml`` —
     plus their 64-char hash cannot fit on one line at any indentation).
     """
     ruff_line_length = 120
@@ -227,14 +227,14 @@ def _sync_security_fallback(manifest: dict[str, Any]) -> bool:
     anchor_idx = src.find(_FALLBACK_ANCHOR)
     if anchor_idx == -1:
         raise RuntimeError(
-            "Could not find fallback anchor comment in security.py — "
+            "Could not find fallback anchor comment in security.py, "
             "has the file been refactored? The script needs the marker:\n" + _FALLBACK_ANCHOR
         )
     return_idx = src.find("    return {\n", anchor_idx)
     if return_idx == -1:
         raise RuntimeError("Could not find multi-line 'return {' after fallback anchor in security.py")
     # The fallback dict's closing brace is the first ``\n    }\n`` after the
-    # return — inner per-repo and per-files braces either have more leading
+    # return, inner per-repo and per-files braces either have more leading
     # whitespace (8 or 12 spaces) or are followed by a comma, so they never
     # match this pattern.
     close_idx = src.find("\n    }\n", return_idx)

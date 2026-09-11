@@ -3,20 +3,20 @@
  * Regression test: stop-python.ts SIGKILL escalation actually fires
  * on POSIX when the Python backend ignores SIGTERM.
  *
- * Pre-fix bug (POSIX-only — Linux + macOS): the escalateTimer callback at
+ * Pre-fix bug (POSIX-only, Linux + macOS): the escalateTimer callback at
  * ``stop-python.ts`` checked ``if (!proc.killed)`` to decide whether to send
  * SIGKILL. But Node.js docs confirm ``subprocess.killed`` is set to ``true``
  * immediately after ``subprocess.kill()`` is used to successfully SEND a
- * signal — it does NOT reset when the proc actually dies. So at t=3s when
+ * signal, it does NOT reset when the proc actually dies. So at t=3s when
  * escalateTimer fires, ``proc.killed`` was already ``true`` (set at the
  * SIGTERM step by ``proc.kill("SIGTERM")``), and ``!proc.killed`` returned
  * ``false``, so ``proc.kill("SIGKILL")`` was NEVER REACHED on POSIX. This
  * orphaned the Python process when it was stuck in a C extension holding the
- * GIL (e.g. torch model load, sounddevice buffer hold) — the orphan kept
+ * GIL (e.g. torch model load, sounddevice buffer hold), the orphan kept
  * holding the ``VoiceTyperSingleInstance`` mutex, blocking the next launch.
  *
  * Fix: replace ``!proc.killed`` with
- * ``proc.exitCode === null && proc.signalCode === null`` — matching the
+ * ``proc.exitCode === null && proc.signalCode === null``, matching the
  * already-shipped fix in ``kill-python.ts::killPythonProcessWithSigkillFallback``
  * (see ``kill-python.ts:84``). The new check fires SIGKILL whenever the proc
  * has NOT actually exited, regardless of whether a previous signal was sent.
@@ -26,7 +26,7 @@
  * a real spawned child would not actually receive signals within the test
  * window). Instead we use a mock ChildProcess whose ``kill()`` records the
  * signal name and whose ``exitCode`` / ``signalCode`` mirror Node's real
- * semantics — ``null`` while alive, set when the proc actually exits. The
+ * semantics, ``null`` while alive, set when the proc actually exits. The
  * ``autoExitOnKill: false`` variant simulates a proc that ignores SIGTERM
  * (the C-extension-stuck case): ``kill("SIGTERM")`` is called but the proc
  * never emits ``"exit"``, so ``exitCode`` / ``signalCode`` stay ``null``.
@@ -130,7 +130,7 @@ function makeMockProc(opts: { autoExitOnKill?: boolean } = {}) {
 		kill: vi.fn((sig?: string) => {
 			// Node sets `killed = true` synchronously inside kill(),
 			// regardless of whether the proc actually exits. This is the
-			// root cause of the pre-fix bug — `proc.killed` was true even
+			// root cause of the pre-fix bug, `proc.killed` was true even
 			// though the proc was still alive.
 			proc.killed = true;
 			if (autoExitOnKill) {
@@ -144,7 +144,7 @@ function makeMockProc(opts: { autoExitOnKill?: boolean } = {}) {
 					});
 				});
 			}
-			// When autoExitOnKill === false, do nothing — the signal is
+			// When autoExitOnKill === false, do nothing, the signal is
 			// "queued but never delivered" (stuck in C extension), so
 			// exitCode/signalCode remain null and `killed` is true.
 			return true;
@@ -210,15 +210,15 @@ describe("stop-python SIGKILL escalation", () => {
 
 			stopPython();
 
-			// Advance past the KILL_TIMER_MS grace period — SIGTERM fires.
+			// Advance past the KILL_TIMER_MS grace period, SIGTERM fires.
 			await vi.advanceTimersByTimeAsync(KILL_TIMER_MS);
 			expect(proc.kill).toHaveBeenCalledWith("SIGTERM");
-			// The proc ignored SIGTERM — exitCode/signalCode are still null,
+			// The proc ignored SIGTERM, exitCode/signalCode are still null,
 			// so the escalateTimer MUST fire SIGKILL next. Only one kill
 			// call so far (the SIGTERM).
 			expect(proc.kill).toHaveBeenCalledTimes(1);
 
-			// Advance past ESCALATE_TIMER_MS — SIGKILL escalation fires.
+			// Advance past ESCALATE_TIMER_MS, SIGKILL escalation fires.
 			await vi.advanceTimersByTimeAsync(ESCALATE_TIMER_MS);
 			expect(proc.kill).toHaveBeenCalledWith("SIGKILL");
 			// Total calls: 1 SIGTERM + 1 SIGKILL.
@@ -241,7 +241,7 @@ describe("stop-python SIGKILL escalation", () => {
 
 			stopPython();
 
-			// Advance past KILL_TIMER_MS — SIGTERM fires and the proc
+			// Advance past KILL_TIMER_MS, SIGTERM fires and the proc
 			// schedules an async "exit" emit via queueMicrotask.
 			await vi.advanceTimersByTimeAsync(KILL_TIMER_MS);
 			expect(proc.kill).toHaveBeenCalledWith("SIGTERM");
@@ -250,11 +250,11 @@ describe("stop-python SIGKILL escalation", () => {
 			await Promise.resolve();
 			await Promise.resolve();
 
-			// Advance past ESCALATE_TIMER_MS — escalateTimer should NOT have
+			// Advance past ESCALATE_TIMER_MS, escalateTimer should NOT have
 			// fired (it was cleared by the exit handler). Even if it had
 			// fired, the liveness check would be false (signalCode !== null).
 			await vi.advanceTimersByTimeAsync(ESCALATE_TIMER_MS);
-			// Only the SIGTERM call — no SIGKILL escalation.
+			// Only the SIGTERM call, no SIGKILL escalation.
 			expect(proc.kill).toHaveBeenCalledTimes(1);
 			expect(proc.kill).not.toHaveBeenCalledWith("SIGKILL");
 		},
@@ -278,7 +278,7 @@ describe("stop-python SIGKILL escalation", () => {
 			expect(proc.kill).toHaveBeenCalledWith("SIGTERM");
 			expect(proc.kill).not.toHaveBeenCalledWith("SIGKILL");
 
-			// Cross the escalation threshold — SIGKILL fires.
+			// Cross the escalation threshold, SIGKILL fires.
 			await vi.advanceTimersByTimeAsync(1);
 			expect(proc.kill).toHaveBeenCalledWith("SIGKILL");
 		},

@@ -7,7 +7,7 @@ steps, permission checks, device opens, hook installation) to that file.
 ``_compute_native_log_path`` (memoised, ``~/.voice-typer/logs/
 native-<backend>-<pid>.log``) and appends ``["--log-file", path]`` to the
 spawn command. The wiring is error-tolerant: when the path cannot be
-resolved (no home, read-only home) — or its computation raises — the
+resolved (no home, read-only home) (or its computation raises) the
 binary is spawned WITHOUT the flag rather than failing the spawn.
 
 These tests pin:

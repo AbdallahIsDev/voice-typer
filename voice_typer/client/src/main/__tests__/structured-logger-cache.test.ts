@@ -10,12 +10,12 @@
  * The previous implementation inlined a `fs.statSync(p)` + conditional
  * `fs.truncateSync(p, 0)` + `fs.appendFileSync(p, line, ...)`
  * block inside `appendLifecycleLine`. The comment explicitly stated
- * "avoid the  file-size cache — the INFO stream is lower priority
+ * "avoid the  file-size cache, the INFO stream is lower priority
  * than WARN/ERROR and the extra stat on each write is acceptable for
  * an opt-in diagnostic path." But the ONLY caller path that reaches
  * this function is `logger.info` / `log.info` when `PERSIST_INFO=1` is
  * set, and when `PERSIST_INFO=1` is set the entire purpose is
- * high-volume lifecycle logging — so the "lower priority" stream is BY
+ * high-volume lifecycle logging, so the "lower priority" stream is BY
  * DEFINITION the high-volume one. Each INFO log = 1 stat + 1 open + 1
  * write + 1 close = 4 syscalls.
  *
@@ -25,7 +25,7 @@
  *
  * These tests verify:
  *   (a) `logger.info("...")` (with `PERSIST_INFO=1`) calls `appendLogLine`
- *       (spied via the rotation module export) — NOT an inline
+ *       (spied via the rotation module export), NOT an inline
  *       `statSync` + `renameSync` + `appendFileSync`.
  *   (b) The line passed to `appendLogLine` contains the bare `INFO`
  *       level label and the message text.
@@ -141,7 +141,7 @@ describe("DJ-50: appendLifecycleLine routes through appendLogLine (not inline st
 		const lifecycleCall = appendLogLineMock.mock.calls[1] as unknown[];
 		const line = String(lifecycleCall[1]);
 		// Canonical C-LOG-1 format: two-space separators around a bare
-		// level label — no bracketed `[INFO]`.
+		// level label, no bracketed `[INFO]`.
 		expect(line).toContain("  INFO  ");
 		expect(line).not.toContain("[INFO]");
 		expect(line).toContain("DJ-50 message body");
@@ -185,7 +185,7 @@ describe("DJ-50: appendLifecycleLine routes through appendLogLine (not inline st
 		log.info("[BUBBLE] DJ-50 printf path", 100, 200);
 
 		// printfLogger's log.info also calls appendLifecycleLine when
-		// PERSIST_INFO=1 — assert the call landed on appendLogLine.
+		// PERSIST_INFO=1, assert the call landed on appendLogLine.
 		expect(appendLogLineMock).toHaveBeenCalledTimes(1);
 		const callArgs = appendLogLineMock.mock.calls[0] as unknown[];
 		expect(callArgs[0]).toBe(LIFECYCLE_LOG_PATH);

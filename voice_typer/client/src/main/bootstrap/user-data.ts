@@ -15,7 +15,7 @@ import { computeConfigDir } from "../single_instance";
  * Dedupes the ``[MAIN] userData set to: ...`` lifecycle line across
  * `setupUserData()`'s two intentional call sites (`index.ts` module-load
  * + `bootstrapRuntime()` inside `app.whenReady()`). Both calls re-set the
- * SAME path, so the line must appear only once per process — otherwise
+ * SAME path, so the line must appear only once per process, otherwise
  * `electron-stdout.log` shows a duplicate pair on every boot. Module-level
  * state is safe here: tests use `vi.resetModules()` so each test gets a
  * fresh module instance.
@@ -59,7 +59,7 @@ export function setupUserData(): void {
 			// `app.setPath("userData", ...)` failure with no
 			// upstream context. Logging here gives operators a
 			// breadcrumb pointing at the real cause. The mkdir
-			// is still best-effort — Electron falls back to its
+			// is still best-effort, Electron falls back to its
 			// default userData if `app.setPath` is never called.
 			log.warn("[MAIN] mkdirSync for userData failed:", e);
 		}
@@ -67,7 +67,7 @@ export function setupUserData(): void {
 		//route through the structured `log` logger so
 		// the lifecycle message persists to `electron-runtime.log` instead
 		// of being lost in packaged builds where `console.warn` has no
-		// terminal attached. Log once per process — the second call
+		// terminal attached. Log once per process, the second call
 		// (idempotent re-set of the same path from `bootstrapRuntime()`)
 		// must not duplicate the line.
 		if (_loggedUserDataPath !== electronProfileDir) {
@@ -76,6 +76,6 @@ export function setupUserData(): void {
 		}
 	} catch (e) {
 		log.warn("[MAIN] Failed to override userData path:", e);
-		// Non-fatal — Electron falls back to its default userData location.
+		// Non-fatal, Electron falls back to its default userData location.
 	}
 }

@@ -1,5 +1,5 @@
 /**
- * "Solarized" theme preset — balanced palette with warm yellows and cool teals.
+ * "Solarized" theme preset, balanced palette with warm yellows and cool teals.
  *
  * See ``themes.ts`` for the ``ThemePreset`` interface and how presets
  * are consumed.

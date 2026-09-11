@@ -1,21 +1,21 @@
 """regression tests for macOS/Linux installers embedding the Python backend.
 
 Confirmed gap (d-review): CI built the Electron UI for macOS/Linux but NOT the
-Python backend. The macOS/Linux installers contained only Electron — ship-blocker
+Python backend. The macOS/Linux installers contained only Electron, ship-blocker
 for macOS/Linux users (the dev venv doesn't exist on a fresh install).
 
 This module verifies the three wiring points that close the gap:
 
-1. ``voice_typer/client/electron-builder.yml`` — both the ``mac:`` and ``linux:``
+1. ``voice_typer/client/electron-builder.yml``, both the ``mac:`` and ``linux:``
    sections declare an ``extraResources`` entry that pulls the PyInstaller-built
    backend into the packaged app.
 
-2. ``.github/workflows/build.yml`` — both the ``build-macos`` and ``build-linux``
+2. ``.github/workflows/build.yml``, both the ``build-macos`` and ``build-linux``
    jobs run a PyInstaller step (using ``scripts/build/voice-typer.spec``) AND an
    ``electron-builder --mac``/``--linux`` step, so the backend is actually built
    and packaged into the installer.
 
-3. ``voice_typer/client/src/main/python/python-args.ts`` — ``pythonArgs()``
+3. ``voice_typer/client/src/main/python/python-args.ts``: ``pythonArgs()``
    (extracted from ``index.ts``) looks up the embedded backend
    under ``process.resourcesPath`` for macOS and Linux before falling back
    to the dev-mode venv.
@@ -68,7 +68,7 @@ def _steps_blob(steps: list[dict]) -> str:
 
 
 # ---------------------------------------------------------------------------
-# electron-builder.yml — mac: + linux: extraResources
+# electron-builder.yml, mac: + linux: extraResources
 # ---------------------------------------------------------------------------
 
 
@@ -96,7 +96,7 @@ class TestElectronBuilderHasMacExtraResources:
         assert found, f"mac: extraResources must reference voice-typer-backend; got: {mac['extraResources']}"
 
     def test_mac_extra_resources_references_app_bundle(self):
-        """macOS PyInstaller output is a .app bundle — extraResources must
+        """macOS PyInstaller output is a .app bundle, extraResources must
         reference the .app directory, not a bare executable."""
         cfg = _load_yml(ELECTRON_BUILDER_YML)
         mac = cfg["mac"]
@@ -134,7 +134,7 @@ class TestElectronBuilderWindowsSectionUntouched:
     """Sanity: macOS/Linux extraResources entries must NOT leak into
     the win: section. The Windows installer is owned by sub-agent
     windows-installer (which may add its own win: extraResources with
-    a different `from` path — that's their territory).
+    a different `from` path, that's their territory).
 
     We can't assert "win: has no extraResources" because may add one.
     Instead we verify the path tokens (voice-typer-backend.app
@@ -146,7 +146,7 @@ class TestElectronBuilderWindowsSectionUntouched:
         win = cfg.get("win", {}) or {}
         win_blob = str(win)
         assert "voice-typer-backend.app" not in win_blob, (
-            "win: section must NOT contain the macOS .app path — that's mac:-only entry. windows-installer owns win:."
+            "win: section must NOT contain the macOS .app path, that's mac:-only entry. windows-installer owns win:."
         )
 
     def test_win_section_does_not_have_linux_backend_path(self):
@@ -162,13 +162,13 @@ class TestElectronBuilderWindowsSectionUntouched:
             # rejected above). Windows path will look different.
             assert from_val != "../dist/voice-typer-backend", (
                 "win: extraResources must NOT use the Linux path "
-                "'../dist/voice-typer-backend' — that's linux:-only "
+                "'../dist/voice-typer-backend', that's linux:-only "
                 "entry."
             )
 
 
 # ---------------------------------------------------------------------------
-# .github/workflows/build.yml — build-macos + build-linux jobs
+# .github/workflows/build.yml, build-macos + build-linux jobs
 # ---------------------------------------------------------------------------
 
 
@@ -283,7 +283,7 @@ class TestBuildYmlLinuxJobEmbedsBackend:
 
 
 # ---------------------------------------------------------------------------
-# index.ts — pythonArgs() macOS + Linux embedded-backend branches
+# index.ts, pythonArgs() macOS + Linux embedded-backend branches
 # ---------------------------------------------------------------------------
 
 
@@ -354,7 +354,7 @@ class TestPythonArgsLooksUpEmbeddedBackend:
     def test_python_args_passes_port_to_embedded_backend(self):
         """The embedded backend (PyInstaller bundle) must receive --port so
         Electron can connect to it over TCP. The spec's entry point is
-        voice_typer/server/ipc_server.py (Wave 3 fix — previously
+        voice_typer/server/ipc_server.py (Wave 3 fix, previously
         voice_typer/__main__.py, which used strict parse_args() and would
         REJECT --port). ipc_server.main() uses parse_known_args() so
         --port is honored and any unknown args are silently dropped."""
@@ -368,7 +368,7 @@ class TestPythonArgsLooksUpEmbeddedBackend:
 
 
 # ---------------------------------------------------------------------------
-# YAML validity — make sure we didn't break the file structure
+# YAML validity, make sure we didn't break the file structure
 # ---------------------------------------------------------------------------
 
 
@@ -390,7 +390,7 @@ class TestYamlStillParses:
 
 
 # ---------------------------------------------------------------------------
-# Wave 3 — cross-platform path consistency
+# Wave 3, cross-platform path consistency
 # ---------------------------------------------------------------------------
 
 
@@ -427,7 +427,7 @@ class TestWave3PathConsistency:
         """electron-builder.yml: win/mac/linux extraResources `from:` must all
         use `../dist` (relative to voice_typer/client/, resolving to
         <repo>/voice_typer/dist/). Pre-Wave-3 Windows used `../../dist`
-        (resolving to <repo>/dist/) — divergent from macOS/Linux."""
+        (resolving to <repo>/dist/), divergent from macOS/Linux."""
         cfg = _load_yml(ELECTRON_BUILDER_YML)
         for section in ("win", "mac", "linux"):
             assert section in cfg, f"{section}: section missing"
@@ -437,7 +437,7 @@ class TestWave3PathConsistency:
                 from_val = str(entry.get("from", ""))
                 # All `from:` paths must start with `../dist` (resolves to
                 # <repo>/voice_typer/dist/ from voice_typer/client/).
-                # Reject `../../dist` (resolves to <repo>/dist/ — divergent).
+                # Reject `../../dist` (resolves to <repo>/dist/, divergent).
                 assert from_val.startswith("../dist"), (
                     f"{section}: extraResources `from: {from_val}` must start "
                     f"with `../dist` (Wave 3 path-consistency). Got: {from_val}"
@@ -450,14 +450,14 @@ class TestWave3PathConsistency:
 
 
 # ---------------------------------------------------------------------------
-# Wave 3 — PyInstaller spec entry point must accept --port
+# Wave 3, PyInstaller spec entry point must accept --port
 # ---------------------------------------------------------------------------
 
 
 class TestWave3SpecEntryPointAcceptsPort:
     """Wave 3 installer review: the PyInstaller spec entry point must use
-    ipc_server.py (parse_known_args — accepts --port), NOT __main__.py
-    (parse_args — rejects --port with exit code 2).
+    ipc_server.py (parse_known_args, accepts --port), NOT __main__.py
+    (parse_args, rejects --port with exit code 2).
 
     Pre-Wave-3 bug: spec used voice_typer/__main__.py as the entry. The
     frozen exe would crash on launch with
@@ -485,7 +485,7 @@ class TestWave3SpecEntryPointAcceptsPort:
         assert "ipc_server.py" in first_arg, f"Analysis() first arg must reference ipc_server.py. Got: {first_arg}"
         assert "__main__.py" not in first_arg, (
             f"Analysis() first arg must NOT reference __main__.py (it uses "
-            f"strict parse_args and rejects --port — Wave 3 ship-blocker). "
+            f"strict parse_args and rejects --port, Wave 3 ship-blocker). "
             f"Got: {first_arg}"
         )
 
@@ -505,7 +505,7 @@ class TestWave3SpecEntryPointAcceptsPort:
 
 
 # ---------------------------------------------------------------------------
-# Wave 3 — Windows code-signing env vars passed through in CI
+# Wave 3, Windows code-signing env vars passed through in CI
 # ---------------------------------------------------------------------------
 
 
@@ -515,7 +515,7 @@ class TestWave3WindowsCodeSigningEnvVars:
     from GitHub Actions secrets so release builds can be code-signed.
 
     When the secrets are empty (PR builds, forks), electron-builder skips
-    signing — the installer is still produced, just unsigned.
+    signing, the installer is still produced, just unsigned.
     """
 
     def test_build_windows_passes_win_csc_link_env(self):

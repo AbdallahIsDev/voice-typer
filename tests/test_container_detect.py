@@ -45,7 +45,7 @@ _LOGGER_NAME = "voice_typer.server.container_detect"
 # (``/.dockerenv``) via ``Path.as_posix()``, so the membership test
 # succeeds regardless of runner platform. ``Path.as_posix()`` is the
 # documented cross-platform way to get a forward-slash string from any
-# ``Path`` (concrete or pure) — it returns the path with ``/`` separators
+# ``Path`` (concrete or pure), it returns the path with ``/`` separators
 # on every platform, which makes it a safe key for ``PurePosixPath``.
 
 
@@ -96,7 +96,7 @@ def _set_cgroup(monkeypatch, content: str | None) -> None:
 
     If ``content`` is ``None``, reading ``/proc/1/cgroup`` raises
     ``OSError`` (simulating a missing/unreadable file). Reads of any
-    other path raise ``FileNotFoundError`` — the module under test only
+    other path raise ``FileNotFoundError``, the module under test only
     reads ``/proc/1/cgroup`` so this never triggers in practice.
     """
     cgroup_posix = _normalize(Path("/proc/1/cgroup"))
@@ -397,7 +397,7 @@ class TestCgroupV2Detection:
     containers do NOT create ``/run/.containerenv`` and may not write a
     recognizable signature into ``/proc/1/cgroup`` (the path is often
     just ``0::/``). Pre-fix, these containers were misdetected as
-    "not in container" — causing the app to attempt unavailable
+    "not in container", causing the app to attempt unavailable
     features (system tray, audio capture, GPU) inside the container,
     producing confusing errors instead of the graceful degradation
     that ``warn_if_in_container`` is meant to provide.
@@ -428,7 +428,7 @@ class TestCgroupV2Detection:
 
     def test_proc1_environ_podman_value_detected(self, monkeypatch):
         """DE-66: ``container=podman`` on PID 1's environ triggers
-        detection — rootless Podman commonly sets this."""
+        detection, rootless Podman commonly sets this."""
         _force_linux(monkeypatch)
         _set_existing_paths(monkeypatch, set())
         _set_proc_files(
@@ -488,7 +488,7 @@ class TestCgroupV2Detection:
     def test_mountinfo_overlay_not_at_root_not_detected(self, monkeypatch):
         """DE-66: an ``overlay`` filesystem mounted at a NON-root
         location (e.g. ``/var/lib/docker/overlay2``) must NOT trigger
-        container detection — only overlay-at-root is a reliable
+        container detection, only overlay-at-root is a reliable
         container indicator (host systems may use overlayfs for
         /var/lib/docker or /home)."""
         _force_linux(monkeypatch)
@@ -508,7 +508,7 @@ class TestCgroupV2Detection:
 
     def test_mountinfo_non_overlay_at_root_not_detected(self, monkeypatch):
         """DE-66: a NON-overlay filesystem (ext4, btrfs) at ``/`` must
-        NOT trigger detection — only overlay-at-root is the indicator."""
+        NOT trigger detection, only overlay-at-root is the indicator."""
         _force_linux(monkeypatch)
         _set_existing_paths(monkeypatch, set())
         mountinfo = "1 0 8:1 / / rw,relatime - ext4 /dev/sda1 rw\n"
@@ -524,8 +524,8 @@ class TestCgroupV2Detection:
         assert container_detect.is_in_container() is False
 
     def test_rootless_podman_no_containerenv_detected_via_environ(self, monkeypatch):
-        """DE-66: simulated rootless Podman — no ``/run/.containerenv``,
-        no cgroup signature, but ``container=podman`` on PID 1 — must
+        """DE-66: simulated rootless Podman, no ``/run/.containerenv``,
+        no cgroup signature, but ``container=podman`` on PID 1, must
         be detected. This is the exact scenario the fix targets."""
         _force_linux(monkeypatch)
         # No /.dockerenv, no /run/.containerenv
@@ -561,7 +561,7 @@ class TestCgroupV2Detection:
     def test_get_container_type_returns_runtime_value_from_environ(self, monkeypatch):
         """DE-66: ``get_container_type`` must return the ``container=``
         value (e.g. ``oci``, ``podman``, ``lxc``) when the env-var path
-        fires — instead of generic ``unknown``."""
+        fires, instead of generic ``unknown``."""
         _force_linux(monkeypatch)
         _set_existing_paths(monkeypatch, set())
         _set_proc_files(
@@ -598,7 +598,7 @@ class TestCgroupV2Detection:
 
     def test_proc1_environ_unreadable_does_not_break_detection(self, monkeypatch):
         """DE-66: if ``/proc/1/environ`` is unreadable (OSError /
-        PermissionError — common in hardened containers where PID 1
+        PermissionError, common in hardened containers where PID 1
         is owned by another user), detection must fall through to
         the next indicator (overlayfs) rather than raising."""
         _force_linux(monkeypatch)

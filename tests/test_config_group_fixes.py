@@ -3,12 +3,12 @@
 Each test class pins one finding so a regression is localised to a
 single failure with a clear traceback:
 
-* ``TestMigratorFailureDoesNotBumpSchemaVersion`` — DE-3
-* ``TestLockCreationFailureIsFailClosed`` — DE-25
-* ``TestLoadAcquiresConfigLock`` — DE-26
-* ``TestPreMigrationBackupFailureLoggedAtWarning`` — DE-27
-* ``TestCredentialStoreExceptionsAreSanitised`` — DE-28
-* ``TestCustomThemeValidatedOnLoad`` — DE-29
+* ``TestMigratorFailureDoesNotBumpSchemaVersion``, DE-3
+* ``TestLockCreationFailureIsFailClosed``, DE-25
+* ``TestLoadAcquiresConfigLock``, DE-26
+* ``TestPreMigrationBackupFailureLoggedAtWarning``, DE-27
+* ``TestCredentialStoreExceptionsAreSanitised``, DE-28
+* ``TestCustomThemeValidatedOnLoad``, DE-29
 """
 
 from __future__ import annotations
@@ -79,13 +79,13 @@ class TestMigratorFailureDoesNotBumpSchemaVersion:
         # loaded_version (0).  schema_version must NOT be 3.
         assert loaded.schema_version == 0, (
             f"DE-3 regression: schema_version was bumped to {loaded.schema_version} "
-            f"even though the v2 migrator raised — the config is now bricked in a "
+            f"even though the v2 migrator raised, the config is now bricked in a "
             f"half-migrated state and the next launch will skip the failed migrator."
         )
         # v3 must NOT have run (the fix breaks on first failure).
         assert call_count["v2"] == 1, "v2 migrator should have run exactly once"
         assert call_count["v3"] == 0, (
-            "v3 migrator must NOT run after v2 raised — later migrators expect "
+            "v3 migrator must NOT run after v2 raised, later migrators expect "
             "v2-format data and would compound the corruption."
         )
 
@@ -139,7 +139,7 @@ class TestLockCreationFailureIsFailClosed:
     must return ``False`` (fail-closed).  Previously it fail-OPENed
     (yield + return), which was inconsistent with the TimeoutError
     path (fail-closed) and silently disabled mutual exclusion on
-    transient FS issues — two processes could then clobber each
+    transient FS issues, two processes could then clobber each
     other's writes.
     """
 
@@ -152,15 +152,15 @@ class TestLockCreationFailureIsFailClosed:
         # file creation failure).  save() catches OSError → returns False.
         @contextmanager
         def _failing_lock(timeout=None):
-            raise OSError(13, "Permission denied — cannot create lock file")
-            yield  # pragma: no cover — unreachable
+            raise OSError(13, "Permission denied, cannot create lock file")
+            yield  # pragma: no cover, unreachable
 
         monkeypatch.setattr(config_mod, "_acquire_config_lock", _failing_lock)
 
         result = c.save()
         assert result is False, (
             "DE-25 regression: save() returned True when the lock file could not be "
-            "created — the fail-open path silently disabled mutual exclusion, allowing "
+            "created, the fail-open path silently disabled mutual exclusion, allowing "
             "two processes to clobber each other's writes."
         )
 
@@ -222,7 +222,7 @@ class TestLoadAcquiresConfigLock:
         loaded = Config.load()
         assert loaded.hotkey == "<f5>"
         assert called["count"] >= 1, (
-            "DE-26 regression: Config.load() did not call _acquire_config_lock — "
+            "DE-26 regression: Config.load() did not call _acquire_config_lock, "
             "without the lock, a concurrent save() in another process can write "
             "mid-read, causing a torn read of a half-written config.json."
         )
@@ -271,7 +271,7 @@ class TestPreMigrationBackupFailureLoggedAtWarning:
         ``_secure_read_text`` and the WRITE through
         ``_secure_atomic_write``. We mock ``_secure_atomic_write`` to
         raise OSError ONLY when the target path is a pre-migration
-        ``.bak`` file — this leaves the load's other
+        ``.bak`` file, this leaves the load's other
         ``_secure_atomic_write`` calls (none during load, but
         defensive) and the initial ``_secure_read_text`` for
         ``_read_raw_json`` untouched so the load progresses past the
@@ -305,12 +305,12 @@ class TestPreMigrationBackupFailureLoggedAtWarning:
             r for r in caplog.records if "back up config.json" in r.message and "before migration" in r.message
         ]
         assert len(backup_warnings) >= 1, (
-            "DE-27 regression: pre-migration backup failure was not logged at WARNING — "
+            "DE-27 regression: pre-migration backup failure was not logged at WARNING, "
             f"records: {[r.message for r in caplog.records]}"
         )
         assert backup_warnings[0].levelno >= logging.WARNING, (
             f"DE-27: backup failure logged at level {backup_warnings[0].levelno} "
-            f"({backup_warnings[0].levelname}) — expected WARNING or higher."
+            f"({backup_warnings[0].levelname}), expected WARNING or higher."
         )
 
 
@@ -343,7 +343,7 @@ class TestCredentialStoreExceptionsAreSanitised:
 
         fake_cs.is_keyring_available = _raise_with_secret
 
-        # Inject the fake module — _save_locked does
+        # Inject the fake module, _save_locked does
         # ``from voice_typer.server import credential_store``.
         import voice_typer.server as server_pkg
 
@@ -356,9 +356,9 @@ class TestCredentialStoreExceptionsAreSanitised:
             result = c.save()
 
         # save() should still succeed (the credential_store failure is
-        # non-fatal — the config is written with current api_key values).
+        # non-fatal, the config is written with current api_key values).
         assert result is True, (
-            "DE-28: credential_store failure should NOT abort save() — the config "
+            "DE-28: credential_store failure should NOT abort save(), the config "
             "must still be written with the current api_key values."
         )
 
@@ -440,7 +440,7 @@ class TestCustomThemeValidatedOnLoad:
 
         c = Config.load()
         assert c.custom_theme is None, (
-            f"DE-29 regression: malformed custom_theme was NOT reset to None on load — got: {c.custom_theme!r}"
+            f"DE-29 regression: malformed custom_theme was NOT reset to None on load, got: {c.custom_theme!r}"
         )
 
     def test_non_dict_custom_theme_resets_to_none(self, tmp_path, monkeypatch):

@@ -23,7 +23,7 @@ Design rules
    single ``pytest --slow tests/test_manual_slow.py`` command for the
    end-to-end paths.
 3. **Preserve script execution**: every script under ``tests/manual/``
-   is still runnable as ``python tests/manual/<name>.py`` — we only
+   is still runnable as ``python tests/manual/<name>.py``, we only
    import their ``run()``/``main()`` callables here, we never rewrite
    the script bodies.
 
@@ -57,7 +57,7 @@ def _load_script_module(script_path: Path, module_name: str) -> ModuleType:
     """Load a script file as an importable module.
 
     ``tests/manual/`` is intentionally NOT a Python package (no
-    ``__init__.py``) — these are scripts, not a library. ``spec_from_file_location``
+    ``__init__.py``), these are scripts, not a library. ``spec_from_file_location``
     lets us load a single script as a module without adding the
     package marker.
     """
@@ -71,7 +71,7 @@ def _load_script_module(script_path: Path, module_name: str) -> ModuleType:
 # ─── Deprecated-script contract ────────────────────────────────────────
 # ``diagnose_f2.py`` and ``cublas_fallback.py`` were written against the
 # deleted ``voice_typer.app`` (Electron) module and now exit with a
-# deprecation message. The slow test verifies that contract — if a
+# deprecation message. The slow test verifies that contract, if a
 # future refactor accidentally removes the deprecation notice, this
 # test fails immediately.
 
@@ -112,7 +112,7 @@ def test_cublas_fallback_deprecated_contract(capsys: pytest.CaptureFixture[str])
 # ``runtime_proof.py`` exercises the real ``TranscriptionEngine`` with
 # synthetic audio. It needs numpy (top-level import) and faster_whisper
 # (lazy import inside ``TranscriptionEngine.load()``). We run it as a
-# subprocess so it gets a clean Python interpreter — without the
+# subprocess so it gets a clean Python interpreter, without the
 # autouse ``mock_heavy_imports`` fixture that would otherwise mock
 # ``faster_whisper`` and make the test trivially pass.
 
@@ -145,20 +145,20 @@ def test_runtime_proof_smoke() -> None:
       - 2: unexpected crash (this is the only failing exit code)
 
     The script needs ``numpy`` (top-level) and ``faster_whisper``
-    (lazy). We skip if either is missing — running this in a CI
+    (lazy). We skip if either is missing, running this in a CI
     matrix without a real Whisper model would be noise, not a signal.
     """
     pytest.importorskip("numpy", reason="runtime_proof.py imports numpy at top level")
     if not _real_module_available("faster_whisper"):
-        pytest.skip("faster_whisper not installed — runtime_proof needs a real model")
+        pytest.skip("faster_whisper not installed, runtime_proof needs a real model")
     if not _real_module_available("voice_typer"):
-        pytest.skip("voice_typer not installed — run `pip install -e .` first")
+        pytest.skip("voice_typer not installed, run `pip install -e .` first")
 
     script = MANUAL_DIR / "runtime_proof.py"
     assert script.exists(), f"runtime_proof.py not found at {script}"
 
     # The script's own watchdog times out at 60s and waits up to 90s
-    # for the transcription thread to join — give a generous margin.
+    # for the transcription thread to join, give a generous margin.
     result = subprocess.run(
         [sys.executable, str(script)],
         capture_output=True,
@@ -173,7 +173,7 @@ def test_runtime_proof_smoke() -> None:
     # The script should always log its outcome line.
     combined = result.stdout + result.stderr
     assert "RUNTIME PROOF RESULTS" in combined, (
-        "runtime_proof.py did not reach its results summary — "
+        "runtime_proof.py did not reach its results summary, "
         "unexpected early exit.\n"
         f"--- stdout ---\n{result.stdout}\n--- stderr ---\n{result.stderr}"
     )
@@ -193,7 +193,7 @@ def test_runtime_test_runner_parses() -> None:
     This is the cheapest invariant we can check on non-Windows hosts
     (where the script's top-level ``import ctypes.wintypes`` would
     raise ImportError). On Windows we additionally verify it imports
-    cleanly — but we never invoke ``main()`` because that would
+    cleanly, but we never invoke ``main()`` because that would
     launch the real app and send simulated F2 keypresses.
     """
     script = MANUAL_DIR / "runtime_test_runner.py"
@@ -216,7 +216,7 @@ def test_runtime_test_runner_imports_on_windows() -> None:
 
     The script imports ``ctypes.wintypes`` at module top level, which
     raises ``ImportError`` on POSIX. We deliberately do NOT call
-    ``main()`` here — it spawns the real app and simulates F2
+    ``main()`` here, it spawns the real app and simulates F2
     keypresses, which is incompatible with headless CI.
     """
     script = MANUAL_DIR / "runtime_test_runner.py"

@@ -44,7 +44,7 @@ def _check_linux_input_access() -> _p.PermissionState:
             if input_group.gr_gid not in groups:
                 return _p.PermissionState.DENIED
     except (KeyError, OSError):
-        # 'input' group doesn't exist on this system — definitely denied
+        # 'input' group doesn't exist on this system, definitely denied
         return _p.PermissionState.DENIED
 
     # Check that at least one event device is readable
@@ -53,7 +53,7 @@ def _check_linux_input_access() -> _p.PermissionState:
 
         devices = glob.glob("/dev/input/event*")
         if not devices:
-            # No devices at all — can't tell (headless? container?)
+            # No devices at all, can't tell (headless? container?)
             return _p.PermissionState.UNKNOWN
         for dev in devices:
             if os.access(dev, os.R_OK):
@@ -78,7 +78,7 @@ def _open_linux_pkexec_prompt() -> None:
     install_script = _p._find_linux_install_script()
     if install_script is None:
         log.error(
-            "[PERMISSION] install_permissions.py not found — "
+            "[PERMISSION] install_permissions.py not found, "
             "cannot auto-grant Linux keyboard permission. "
             "Run scripts/linux/install_permissions.py manually as root."
         )
@@ -89,7 +89,7 @@ def _open_linux_pkexec_prompt() -> None:
     # pkexec (NOT ``pkexec <python> <script>``). The polkit policy
     # annotation (installed by ``scripts/linux/install_permissions.py``
     # via the .policy file) annotates the *script itself* as the
-    # authorized action — passing the python interpreter as the first
+    # authorized action, passing the python interpreter as the first
     # arg breaks the annotation match (polkit sees ``<python>`` as
     # the action, not the script) and the user gets a generic
     # "Authentication is required" prompt with no app name. Direct
@@ -110,7 +110,7 @@ def _open_linux_pkexec_prompt() -> None:
             log.info("[PERMISSION] Launched pkexec to install Linux permissions")
             return
         except OSError as exc:
-            log.warning("[PERMISSION] pkexec failed: %s — trying fallbacks", exc)
+            log.warning("[PERMISSION] pkexec failed: %s, trying fallbacks", exc)
 
     # Fallback: gksu (deprecated but still present on some systems)
     if shutil.which("gksu"):

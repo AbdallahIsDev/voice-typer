@@ -1,4 +1,4 @@
-"""Phase 4.5 — focused unit tests for the four worker-
+"""Phase 4.5: focused unit tests for the four worker-
 lifecycle body methods on
 ``voice_typer.server.recording.capture.AudioCallbackDispatcher``.
 
@@ -6,7 +6,7 @@ These tests exercise ``start_audio_worker_body`` /
 ``stop_audio_worker_body`` / ``start_event_worker_body`` /
 ``stop_event_worker_body`` with a mocked ``recorder`` instance (a
 small ``_FakeRecorder`` helper class). No real audio hardware is
-touched — no PortAudio, no subprocess. Each test sets up the fake's
+touched, no PortAudio, no subprocess. Each test sets up the fake's
 state, calls one of the four body methods, and asserts on the
 observable side-effects (thread started/joined, registry
 register/unregister calls, ring-buffer / queue contents, event
@@ -101,13 +101,13 @@ class _FakeRecorder:
         self._thread_registry = thread_registry
 
     def _audio_worker_loop(self, stop_event=None, wake_event=None) -> None:
-        """Fake audio worker loop — wait for work or stop, drain ring
+        """Fake audio worker loop, wait for work or stop, drain ring
         buffer (no real processing), exit on stop."""
         while True:
             if not self._worker_stop_event.is_set():
                 self._worker_wake_event.wait(timeout=0.05)
             self._worker_wake_event.clear()
-            # Drain ring buffer (no real processing — just pop).
+            # Drain ring buffer (no real processing, just pop).
             while True:
                 try:
                     self._ring_buffer.popleft()
@@ -117,7 +117,7 @@ class _FakeRecorder:
                 return
 
     def _event_worker_loop(self) -> None:
-        """Fake event worker loop — mimic the real loop's queue.get +
+        """Fake event worker loop, mimic the real loop's queue.get +
         sentinel-exit pattern (without actually publishing)."""
         while True:
             if not self._event_stop_event.is_set():
@@ -132,7 +132,7 @@ class _FakeRecorder:
                     return
             if event is _EVENT_WORKER_STOP_SENTINEL:
                 return
-            # (don't actually publish — just consume)
+            # (don't actually publish, just consume)
 
     def _process_audio_chunk(self, *args) -> None:
         """No-op processor: the dispatcher's real ``audio_worker_loop``
@@ -145,7 +145,7 @@ class _FakeRecorder:
 
 
 class TestStartAudioWorkerBody:
-    """``AudioCallbackDispatcher.start_audio_worker_body`` — starts the
+    """``AudioCallbackDispatcher.start_audio_worker_body``, starts the
     audio worker thread, registers with the registry, clears stale
     state. Idempotent: if the worker is already running, returns
     early."""
@@ -187,7 +187,7 @@ class TestStartAudioWorkerBody:
             first_thread = fake._worker_thread
             assert first_thread is not None
             assert first_thread.is_alive()
-            # Call start again — should be a no-op (the worker is alive).
+            # Call start again, should be a no-op (the worker is alive).
             dispatcher.start_audio_worker_body(fake)
             assert fake._worker_thread is first_thread, "must not replace an alive worker"
         finally:
@@ -228,7 +228,7 @@ class TestStartAudioWorkerBody:
 
 
 class TestStopAudioWorkerBody:
-    """``AudioCallbackDispatcher.stop_audio_worker_body`` — signals stop,
+    """``AudioCallbackDispatcher.stop_audio_worker_body``, signals stop,
     wakes the worker, joins, unregisters, clears state."""
 
     def test_no_op_when_worker_thread_is_none(self):
@@ -264,7 +264,7 @@ class TestStopAudioWorkerBody:
         # Enqueue some chunks.
         for i in range(3):
             fake._ring_buffer.append((f"chunk-{i}", 4, "t", "s", 0.0))
-        # Stop with drain=False — ring buffer should be cleared first.
+        # Stop with drain=False, ring buffer should be cleared first.
         dispatcher.stop_audio_worker_body(fake, timeout=1.0, drain=False)
         # Ring buffer was cleared by the stop path.
         assert len(fake._ring_buffer) == 0
@@ -310,7 +310,7 @@ class TestStopAudioWorkerBody:
         thread_ref = fake._worker_thread
         assert thread_ref is not None
 
-        # Stop with a tiny timeout — the worker won't exit in time.
+        # Stop with a tiny timeout, the worker won't exit in time.
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.recording"):
             dispatcher.stop_audio_worker_body(fake, timeout=0.02)
 
@@ -324,13 +324,13 @@ class TestStopAudioWorkerBody:
             f"got: {[(r.name, r.levelname, r.getMessage()) for r in caplog.records]}"
         )
         # The thread reference is NOT cleared when the worker is still
-        # alive (zombie thread leak mitigation — the start path's
+        # alive (zombie thread leak mitigation, the start path's
         # is_alive() guard will reuse this thread instead of spawning a
         # duplicate). The stop event is left SET so the zombie exits on
         # its next iteration boundary.
         assert fake._worker_thread is thread_ref, (
             "stop_audio_worker_body must NOT null the thread reference when "
-            "the worker is still alive (zombie leak mitigation — keep the "
+            "the worker is still alive (zombie leak mitigation, keep the "
             "reference so the start path's is_alive() guard prevents a "
             "duplicate spawn)."
         )
@@ -348,7 +348,7 @@ class TestStopAudioWorkerBody:
 
 
 class TestStartEventWorkerBody:
-    """``AudioCallbackDispatcher.start_event_worker_body`` — starts the
+    """``AudioCallbackDispatcher.start_event_worker_body``, starts the
     event worker thread, drains stale events, registers."""
 
     def test_starts_new_daemon_thread_with_correct_name(self):
@@ -432,7 +432,7 @@ class TestStartEventWorkerBody:
 
 
 class TestStopEventWorkerBody:
-    """``AudioCallbackDispatcher.stop_event_worker_body`` — signals stop,
+    """``AudioCallbackDispatcher.stop_event_worker_body``, signals stop,
     pushes sentinel, joins, unregisters."""
 
     def test_no_op_when_worker_thread_is_none(self):
@@ -462,7 +462,7 @@ class TestStopEventWorkerBody:
         for i in range(3):
             fake._event_queue.put_nowait({"event": i})
         assert fake._event_queue.qsize() == 3
-        # Stop with drain=False — queue should be cleared first by the
+        # Stop with drain=False, queue should be cleared first by the
         # stop path, then the worker exits on the pushed sentinel.
         dispatcher.stop_event_worker_body(fake, timeout=1.0, drain=False)
         # Queue should be empty after the discard path (cleared by the
@@ -473,7 +473,7 @@ class TestStopEventWorkerBody:
 
     def test_drain_true_drains_remaining_events_before_exit(self):
         """With drain=True, the worker should drain all queued events
-        before exiting (the stop path does NOT clear the queue — the
+        before exiting (the stop path does NOT clear the queue, the
         worker drains it itself). The fake loop just consumes (doesn't
         publish), so we assert the queue is empty after stop."""
         fake = _FakeRecorder()
@@ -482,7 +482,7 @@ class TestStopEventWorkerBody:
         # Enqueue events.
         for i in range(3):
             fake._event_queue.put_nowait({"event": i})
-        # Stop with drain=True — the worker should drain all 3 events
+        # Stop with drain=True, the worker should drain all 3 events
         # before exiting on the sentinel pushed by the stop path.
         dispatcher.stop_event_worker_body(fake, timeout=1.0)
         # All events were consumed (drained) by the worker before exit.
@@ -528,18 +528,18 @@ def _strip_docstring(src: str) -> str:
 
 class TestWorkerLifecycleBodySourceContracts:
     """GT-23: the four body methods must NOT contain the lock-acquire
-    literals — those stay on the Recorder methods (Option C).
+    literals, those stay on the Recorder methods (Option C).
 
     The Recorder-side source-inspection contracts (in
     ``tests/test_recorder_worker_lifecycle.py``) check
-    ``inspect.getsource(Recorder._start_audio_worker)`` etc. — those
+    ``inspect.getsource(Recorder._start_audio_worker)`` etc., those
     see the Recorder's delegator source, NOT this helper's source. But
     if the helper's body contained ``with self._worker_lifecycle_lock:``
     or ``with self._lock:`` as actual ``with`` statements, the literal
     would propagate to the Recorder source via the delegator (the
     primary agent's delegate would just call the helper, but the test
     uses ``inspect.getsource`` which returns the Recorder's source
-    only — so this is a defensive guard against accidental
+    only, so this is a defensive guard against accidental
     re-introduction in the helper).
     """
 
@@ -565,14 +565,14 @@ class TestWorkerLifecycleBodySourceContracts:
 
     def test_stop_audio_worker_body_no_self_lock_literal(self):
         """GT-23 negative contract: ``stop_audio_worker_body`` must NOT
-        acquire ``self._lock`` — would propagate the literal to the
+        acquire ``self._lock``, would propagate the literal to the
         Recorder source via the delegator and break the
         ``test_stop_audio_worker_does_not_hold_self_lock_across_join``
         contract."""
         src = _strip_docstring(inspect.getsource(AudioCallbackDispatcher.stop_audio_worker_body))
         assert "with self._lock:" not in src, (
             "GT-23 negative contract: stop_audio_worker_body must NOT "
-            "contain `with self._lock:` — would propagate to Recorder source"
+            "contain `with self._lock:`, would propagate to Recorder source"
         )
         assert "with recorder._lock:" not in src
 
@@ -580,7 +580,7 @@ class TestWorkerLifecycleBodySourceContracts:
         src = _strip_docstring(inspect.getsource(AudioCallbackDispatcher.stop_event_worker_body))
         assert "with self._lock:" not in src, (
             "GT-23 negative contract: stop_event_worker_body must NOT "
-            "contain `with self._lock:` — would propagate to Recorder source"
+            "contain `with self._lock:`, would propagate to Recorder source"
         )
         assert "with recorder._lock:" not in src
 
@@ -599,7 +599,7 @@ class TestCaptureModuleSourceContracts:
     def test_no_worker_lifecycle_lock_with_block_in_module(self):
         """The literal ``with self._worker_lifecycle_lock:`` (or
         ``with recorder._worker_lifecycle_lock:``) must NOT appear
-        anywhere in ``capture.py`` — the lock stays on Recorder."""
+        anywhere in ``capture.py``, the lock stays on Recorder."""
         from voice_typer.server.recording import capture
 
         src = inspect.getsource(capture)
@@ -611,7 +611,7 @@ class TestCaptureModuleSourceContracts:
 
     def test_no_self_lock_with_block_in_module(self):
         """The literal ``with self._lock:`` (or ``with recorder._lock:``)
-        must NOT appear anywhere in ``capture.py`` — would propagate to
+        must NOT appear anywhere in ``capture.py``, would propagate to
         the Recorder source via the delegator (GT-23 negative contract).
         """
         from voice_typer.server.recording import capture
@@ -619,7 +619,7 @@ class TestCaptureModuleSourceContracts:
         src = inspect.getsource(capture)
         assert "with self._lock:" not in src, (
             "GT-23 negative contract: capture.py must NOT contain "
-            "`with self._lock:` — would propagate to Recorder source"
+            "`with self._lock:`, would propagate to Recorder source"
         )
         assert "with recorder._lock:" not in src
 

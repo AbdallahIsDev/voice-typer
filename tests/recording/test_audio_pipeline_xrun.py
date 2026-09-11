@@ -4,7 +4,7 @@ The XRUN detector inspects the PortAudio ``status`` flag passed to
 the audio callback and:
 
 1. **Narrows** to ``status.input_overflow`` (the real input-XRUN
-   flag) instead of ``if status:`` — pre-fix the latter over-counted
+   flag) instead of ``if status:``, pre-fix the latter over-counted
    by 1 on every ``start()`` because ``priming_output`` fires on the
    first callback after a stream start.
 2. **Increments** ``_xruns`` and appends a timestamp to
@@ -14,9 +14,9 @@ the audio callback and:
    once on the first xrun. Without throttling, a sustained XRUN
    storm would flood the log at 16 Hz.
 4. **Fires** the ``on_xrun_threshold`` callback every ``_xrun_threshold``
-   xruns (every N, not just at exactly N — pre-fix ``==`` fired once).
+   xruns (every N, not just at exactly N, pre-fix ``==`` fired once).
 5. **Drops** the partial chunk on XRUN (returns True so the caller
-   skips the buffer append — appending the stale PortAudio buffer
+   skips the buffer append, appending the stale PortAudio buffer
    would corrupt the transcriber's input with a discontinuity).
 
 The tests exercise :class:`AudioPipeline` directly with a
@@ -48,7 +48,7 @@ def _make_xrun_pipeline(
 
     STATE-OWNERSHIP: the XRUN-tracking counters
     (``_xruns`` / ``_xrun_timestamps`` / ``_xrun_threshold``) live on
-    the ``AudioPipeline`` (the owning collaborator) — the test pins
+    the ``AudioPipeline`` (the owning collaborator), the test pins
     them on the OWNING object (C-ARCH-2). The ``_xrun_timestamps``
     deque is a real ``collections.deque`` (constructed by the
     pipeline's ``__init__``) so the rolling-window ``append`` +
@@ -57,7 +57,7 @@ def _make_xrun_pipeline(
     ``.append`` and break the windowed count iteration).
 
     What stays on the recorder stub:
-    - ``on_xrun_threshold`` — MagicMock so the test can assert call
+    - ``on_xrun_threshold``, MagicMock so the test can assert call
       count + the count value passed (app-wired slot, stays on
       ``Recorder``).
     """
@@ -74,7 +74,7 @@ class _StatusFlags:
     The production code reads ``status.input_overflow`` (bool) when
     the status object has the attribute. ``sounddevice.CallbackFlags``
     is a subclass of ``int`` so it also satisfies the
-    ``isinstance(status, int)`` fallback path — this stub doesn't
+    ``isinstance(status, int)`` fallback path, this stub doesn't
     subclass int, so it exercises ONLY the attribute path. A separate
     test uses the raw-int path (status=2) to cover the int fallback.
     """
@@ -144,14 +144,14 @@ class TestInputOverflowIncrementsXrunCounter:
         treated as input overflow."""
         recorder, pipeline = _make_xrun_pipeline()
 
-        # bit 0 set (value 1) — NOT paInputOverflow (which is bit 1, value 2)
+        # bit 0 set (value 1), NOT paInputOverflow (which is bit 1, value 2)
         ret = pipeline.handle_xrun_status(1)
 
         assert ret is False
         assert pipeline._xruns == 0
 
     def test_falsy_status_does_not_increment(self) -> None:
-        """``status=0`` (no flags set — clean callback) must be a
+        """``status=0`` (no flags set, clean callback) must be a
         no-op."""
         recorder, pipeline = _make_xrun_pipeline()
 
@@ -192,21 +192,21 @@ class TestXrunRollingWindowLogThrottling:
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """Feed 4 XRUNs in a short window (< 10 s). The log must fire
-        EXACTLY ONCE (on the 1st XRUN via the ``_xruns == 1`` clause)
-        — XRUNs 2-4 are below the rolling-window threshold of 5 and
-        must NOT log.
+          EXACTLY ONCE (on the 1st XRUN via the ``_xruns == 1`` clause)
+        , XRUNs 2-4 are below the rolling-window threshold of 5 and
+          must NOT log.
 
-        A 5th XRUN in the same window crosses the threshold and the
-        log fires again, proving the throttle releases at the
-        threshold rather than permanently suppressing."""
+          A 5th XRUN in the same window crosses the threshold and the
+          log fires again, proving the throttle releases at the
+          threshold rather than permanently suppressing."""
         recorder, pipeline = _make_xrun_pipeline()
 
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.recording"):
-            # 4 XRUNs in the same window — only the 1st should log.
+            # 4 XRUNs in the same window, only the 1st should log.
             for _ in range(4):
                 pipeline.handle_xrun_status(2)
 
-        # XRUNs 2-4 throttled — log fired only on the 1st.
+        # XRUNs 2-4 throttled, log fired only on the 1st.
         first_batch_logs = [r for r in caplog.records if "PortAudio status flag" in r.getMessage()]
         assert len(first_batch_logs) == 1, (
             f"Expected exactly 1 log on the first 4 XRUNs (only the 1st via "
@@ -218,7 +218,7 @@ class TestXrunRollingWindowLogThrottling:
         records_before_5th = len(caplog.records)
 
         # 5th XRUN crosses the rolling-window threshold (recent_count
-        # == 5 >= _XRUN_ALERT_THRESHOLD) — log fires again.
+        # == 5 >= _XRUN_ALERT_THRESHOLD), log fires again.
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.recording"):
             pipeline.handle_xrun_status(2)
 
@@ -242,9 +242,9 @@ class TestXrunRollingWindowLogThrottling:
         recorder, pipeline = _make_xrun_pipeline()
 
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.recording"):
-            # 1st — logs (via _xruns == 1 clause)
+            # 1st, logs (via _xruns == 1 clause)
             pipeline.handle_xrun_status(2)
-            # 2nd-4th — throttled (recent_count < 5, _xruns != 1)
+            # 2nd-4th, throttled (recent_count < 5, _xruns != 1)
             pipeline.handle_xrun_status(2)
             pipeline.handle_xrun_status(2)
             pipeline.handle_xrun_status(2)
@@ -273,7 +273,7 @@ class TestOnXrunThresholdCallbackFiresEveryN:
 
     def test_callback_fires_every_n_xruns(self) -> None:
         """With threshold=5, the callback fires on the 5th, 10th, 15th
-        XRUN — three times for 15 XRUNs total."""
+        XRUN, three times for 15 XRUNs total."""
         recorder, pipeline = _make_xrun_pipeline(xrun_threshold=5)
 
         for _ in range(15):
@@ -301,7 +301,7 @@ class TestOnXrunThresholdCallbackFiresEveryN:
         recorder, pipeline = _make_xrun_pipeline(xrun_threshold=1)
         recorder.on_xrun_threshold.side_effect = RuntimeError("buggy callback")
 
-        # Must NOT raise — the suppress swallows the RuntimeError.
+        # Must NOT raise, the suppress swallows the RuntimeError.
         ret = pipeline.handle_xrun_status(2)
 
         assert ret is True

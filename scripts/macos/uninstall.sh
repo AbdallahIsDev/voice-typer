@@ -1,5 +1,5 @@
 #!/bin/bash
-#Voice Typer — macOS uninstall cleanup script ( + ).
+#Voice Typer, macOS uninstall cleanup script ( + ).
 #
 # Removes per-user autostart + data artifacts that survive `app deletion`
 # from /Applications. macOS apps don't have a system uninstaller (the user
@@ -14,7 +14,7 @@
 #removes ~/Library/LaunchAgents/com.voicetyper.plist (the
 # LaunchAgent written by autostart_macos._enable_autostart_macos when the
 # user enables autostart in Settings). Without this, launchd would keep
-# trying to launch the (now-deleted) binary at every login — spamming
+# trying to launch the (now-deleted) binary at every login, spamming
 # the system log with "command not found" errors. Also unloads the
 # running agent first (best-effort) so it dies immediately rather than
 # lingering until next logout.
@@ -27,7 +27,7 @@
 # ~/.cache/huggingface on macOS (HuggingFace's library follows XDG
 # conventions even on macOS). It stores downloaded ASR model weights
 # (faster-whisper, WhisperCPP, etc.) and can grow to multiple GB. We do
-# NOT remove it by default — the user may want to reuse it for OTHER
+# NOT remove it by default, the user may want to reuse it for OTHER
 # HF-based apps (transformers, datasets, other voice tools). Pass
 # --purge to remove it.
 #
@@ -113,7 +113,7 @@ fi
 # with label `com.voicetyper.prewarm` (RunAtLoad=true). This is distinct from
 # the main-app autostart plist above. Without this cleanup block, the prewarm
 # agent survives uninstall and launchd keeps trying to launch the (now-deleted)
-# frozen prewarm binary at every login — spamming the system log with "command
+# frozen prewarm binary at every login, spamming the system log with "command
 # not found" errors. Same bootout/unload/rm pattern as the main-app cleanup
 # above.
 PREWARM_PLIST="$HOME/Library/LaunchAgents/com.voicetyper.prewarm.plist"

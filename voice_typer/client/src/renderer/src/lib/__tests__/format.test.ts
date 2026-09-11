@@ -3,7 +3,7 @@
  *
  * ``format.ts`` previously had ZERO unit tests. The module
  * is consumed by ``Dashboard.tsx``, ``StatCards.tsx``,
- * ``DownloadProgressBar.tsx``, and ``pages/Models.tsx`` — every
+ * ``DownloadProgressBar.tsx``, and ``pages/Models.tsx``, every
  * stat-card label, every download-progress readout, and every VRAM
  * figure flows through these helpers. A silent regression in any of
  * them (e.g. a locale lookup breaking, a unit threshold off-by-one)
@@ -11,19 +11,19 @@
  * failing test to point at the cause.
  *
  * Coverage:
- *   - ``formatBytes`` — null/undefined/(-1) → ``"—"``; ``0`` → reasonable
+ *   - ``formatBytes``, null/undefined/(-1) → ``"—"``; ``0`` → reasonable
  *     value (the ``en`` locale produces ``"0 B"``); kilobyte / megabyte
  *     thresholds.
- *   - ``formatDuration`` — ``0`` → ``"0m"`` (sub-minute rounds up to 1m
+ *   - ``formatDuration``, ``0`` → ``"0m"`` (sub-minute rounds up to 1m
  *     per the legacy StatCards snapshot contract; 0 is a special-case
  *     that returns ``"0m"`` not ``"1m"``).
- *   - ``compactNumber`` — ``999`` → ``"999"``; ``1500`` → locale-dependent
+ *   - ``compactNumber``, ``999`` → ``"999"``; ``1500`` → locale-dependent
  *     compact output (``"1.5K"`` for ``en``).
- *   - ``formatSpeed`` — ``0`` → ``"0 B/s"`` for ``en``.
- *   - ``formatVram`` — ``0`` → ``"0 MB"`` for ``en``.
+ *   - ``formatSpeed``, ``0`` → ``"0 B/s"`` for ``en``.
+ *   - ``formatVram``, ``0`` → ``"0 MB"`` for ``en``.
  *
  * Mocking strategy: the i18n module is mocked so ``getLocale()``
- * returns ``"en"`` (deterministic — Intl output for compact/byte
+ * returns ``"en"`` (deterministic, Intl output for compact/byte
  * units is stable across Node versions for the ``en`` locale) and
  * ``t()`` returns the raw key string (matching the "missing key"
  * fallback behavior). This decouples the tests from the locale JSON contents.
@@ -32,7 +32,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // Mock the i18n module so the formatters resolve against a deterministic
 // ``en`` locale. The real ``getLocale()`` reads from a module-scoped
-// mutable variable (see ``i18n/store.ts:50``) — its default is ``"en"``
+// mutable variable (see ``i18n/store.ts:50``), its default is ``"en"``
 // but tests that mount <App /> can flip it via ``setLocale()``. By
 // pinning the mock here we guarantee the Intl output is stable across
 // the suite regardless of test execution order.
@@ -42,12 +42,12 @@ vi.mock("@/i18n/i18n", () => ({
 	// key string verbatim. ``formatDuration`` uses this to detect when
 	// a key is absent (``key === returned``) and falls back to the
 	// ``format.duration.hourShort`` / ``minuteShort`` glyphs (which
-	// also resolve to raw keys here — but the fallback path still
+	// also resolve to raw keys here, but the fallback path still
 	// produces a non-key string because it builds ```${m}${glyph}``
 	// where ``m`` is a number, so the result is e.g. ``"0hourShort"``
-	// — wait, that's not right).
+	//, wait, that's not right).
 	//
-	// Actually — to keep ``formatDuration`` readable in tests, we
+	// Actually, to keep ``formatDuration`` readable in tests, we
 	// provide minimal stubs for the glyphs it falls back to. This
 	// avoids the raw-key leak while still exercising the fallback path.
 	t: vi.fn((key: string) => {
@@ -74,7 +74,7 @@ describe("formatBytes", () => {
 	});
 
 	it("returns '—' for null", () => {
-		// The DownloadProgressBar's "size unknown" state — null comes
+		// The DownloadProgressBar's "size unknown" state, null comes
 		// from the IPC envelope when the backend hasn't reported a
 		// Content-Length yet.
 		expect(formatBytes(null)).toBe("—");
@@ -112,7 +112,7 @@ describe("formatBytes", () => {
 
 	it("formats kilobyte range correctly (en narrow-unit: '1 kB')", () => {
 		// Intl.NumberFormat(en, { style: 'unit', unit: 'kilobyte' })
-		// produces "1 kB" (lowercase "kB" — SI convention).
+		// produces "1 kB" (lowercase "kB", SI convention).
 		// maximumFractionDigits for the >1 threshold is 1, so
 		// 1536 → "1.5 kB".
 		expect(formatBytes(1024)).toBe("1 kB");
@@ -127,7 +127,7 @@ describe("formatBytes", () => {
 
 describe("formatDuration", () => {
 	it("returns '0m' for 0 seconds (en fallback)", () => {
-		// 0 is a special case — the function returns "0m" via the
+		// 0 is a special case, the function returns "0m" via the
 		// ``analytics.durationZero`` key (missing → fallback to
 		// ``"0" + minuteGlyph``). With the mocked ``t()``,
 		// ``minuteGlyph`` is "m", so the result is "0m".
@@ -143,7 +143,7 @@ describe("formatDuration", () => {
 	});
 
 	it("rounds up sub-minute values to '1m'", () => {
-		// 5 seconds → "1m" (not "5s") — matches the legacy
+		// 5 seconds → "1m" (not "5s"), matches the legacy
 		// StatCards snapshot contract.
 		expect(formatDuration(5)).toBe("1m");
 		expect(formatDuration(59)).toBe("1m");
@@ -171,7 +171,7 @@ describe("compactNumber", () => {
 	});
 
 	it("returns '999' for sub-1000 values (default opts)", () => {
-		// Default opts: sub-1000 values use ``String(n)`` — no
+		// Default opts: sub-1000 values use ``String(n)``, no
 		// locale-aware digit grouping. This matches the legacy
 		// Dashboard contract.
 		expect(compactNumber(999)).toBe("999");
@@ -180,7 +180,7 @@ describe("compactNumber", () => {
 
 	it("returns '1K' for exactly 1000 (en)", () => {
 		// Intl.NumberFormat(en, { notation: "compact" }).format(1000)
-		// === "1K" — matches the previous hardcoded shape exactly.
+		// === "1K", matches the previous hardcoded shape exactly.
 		expect(compactNumber(1000)).toBe("1K");
 	});
 
@@ -224,7 +224,7 @@ describe("formatSpeed", () => {
 
 	it("returns '0B/s' for 0 (en narrow-byte)", () => {
 		// The fallback byte-unit path with ``unitDisplay: "narrow"``
-		// produces "0B" (no space — Intl narrow-unit convention)
+		// produces "0B" (no space, Intl narrow-unit convention)
 		// and the "/s" suffix is appended.
 		const result = formatSpeed(0);
 		expect(result).toBe("0B/s");
@@ -247,7 +247,7 @@ describe("formatVram", () => {
 	});
 
 	it("returns '0 MB' for 0 (en)", () => {
-		// 0 falls into the ``mb <= 0`` branch — formats 0 with
+		// 0 falls into the ``mb <= 0`` branch, formats 0 with
 		// the megabyte unit.
 		expect(formatVram(0)).toBe("0 MB");
 	});

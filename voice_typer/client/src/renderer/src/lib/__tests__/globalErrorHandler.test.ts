@@ -1,5 +1,5 @@
 /**
- *  — unit tests for `installGlobalErrorHandlers()`.
+ * , unit tests for `installGlobalErrorHandlers()`.
  *
  * Asserts that the renderer's global safety net is actually installed:
  * after calling `installGlobalErrorHandlers()` (the function
@@ -7,14 +7,14 @@
  * body, before React mounts), `window` MUST have both an `error` and
  * an `unhandledrejection` listener registered. Without this guarantee,
  * every unhandled promise rejection (the 13+ `.catch(() => {})`
- * swallows identified in ) silently vanishes — no toast, no
+ * swallows identified in ) silently vanishes, no toast, no
  * console trace, no main-process log line.
  *
  * The test spies on `window.addEventListener` so it can verify the
  * exact event types registered without depending on internal listener
  * identity. It also exercises the idempotency contract (second call
  * is a no-op) and the DOM-availability guard (skips cleanly when
- * `window.addEventListener` is missing — defensive, should never
+ * `window.addEventListener` is missing, defensive, should never
  * happen in a real Electron renderer).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -38,13 +38,13 @@ describe("G4-CR-10: installGlobalErrorHandlers registers both listeners", () => 
 	//track listeners actually registered on ``window`` so
 	// ``afterEach`` can remove them. Pre-fix,
 	// ``_resetGlobalErrorHandlerStateForTests()`` only reset the
-	// module-level ``_installed`` flag — the REAL
+	// module-level ``_installed`` flag, the REAL
 	// ``window.addEventListener`` calls still went through (the spy
 	// delegated to the real method) and accumulated 2 listeners per
 	// test (one ``error`` + one ``unhandledrejection``).
 	// ``vi.spyOn(...).mockRestore()`` un-spies the method but does NOT
 	// remove the listeners the spy already forwarded. After N tests,
-	// ``window`` had ``2*N`` listeners — a real listener leak that
+	// ``window`` had ``2*N`` listeners, a real listener leak that
 	// could mask regressions in subsequent test files sharing the
 	// jsdom ``window``.
 	let installedListeners: Array<{
@@ -59,7 +59,7 @@ describe("G4-CR-10: installGlobalErrorHandlers registers both listeners", () => 
 		// no-op install).
 		_resetGlobalErrorHandlerStateForTests();
 		installedListeners = [];
-		// Capture the REAL addEventListener BEFORE spying — the mock
+		// Capture the REAL addEventListener BEFORE spying, the mock
 		// implementation must forward to it, not to `window.
 		// addEventListener` (which is the spy itself after spyOn →
 		// infinite recursion / RangeError: Maximum call stack size).
@@ -127,7 +127,7 @@ describe("G4-CR-10: installGlobalErrorHandlers registers both listeners", () => 
 		expect(rejectionCount).toBe(1);
 	});
 
-	it("is idempotent — calling twice registers each listener exactly once", () => {
+	it("is idempotent, calling twice registers each listener exactly once", () => {
 		installGlobalErrorHandlers();
 		installGlobalErrorHandlers();
 		installGlobalErrorHandlers();
@@ -163,13 +163,13 @@ describe("G4-CR-10: installed listener logs to console.error", () => {
 	beforeEach(() => {
 		_resetGlobalErrorHandlerStateForTests();
 		installedListeners = [];
-		// Capture the REAL addEventListener BEFORE spying — the mock
+		// Capture the REAL addEventListener BEFORE spying, the mock
 		// implementation must forward to it, not to `window.
 		// addEventListener` (which is the spy itself after spyOn →
 		// infinite recursion / RangeError: Maximum call stack size).
 		const originalAddEventListener = window.addEventListener.bind(window);
 		// Spy on ``window.addEventListener`` ONLY to record the
-		// listeners for cleanup — forward to the real method so the
+		// listeners for cleanup, forward to the real method so the
 		// dispatched ``ErrorEvent`` / ``PromiseRejectionEvent`` below
 		// actually fire the installed handlers.
 		addEventListenerSpy = vi

@@ -60,19 +60,19 @@ export function StatCard({
 	trend,
 }: StatCardProps) {
 	return (
-		// Informational display card — NOT interactive: no hover
+		// Informational display card, NOT interactive: no hover
 		// lift/border change. Layout: a single top row of icon +
-		// label (horizontal, left-aligned — not stacked), then the
+		// label (horizontal, left-aligned, not stacked), then the
 		// main number on its own line below. The value is semibold
 		// (one step up from the old medium) so it stays airy rather
 		// than heavy. The value's `mt-auto` pushes it (and any
 		// trailing sublabel/trend) to the bottom of the stretched
-		// card — the icon+label row stays pinned at the top with
+		// card, the icon+label row stays pinned at the top with
 		// breathing room between it and the number. `min-h-24`
 		// guarantees that breathing room even when the row's tallest
 		// card is otherwise only as tall as its content.
 		<div className="flex min-h-24 flex-col gap-2 rounded-xl border border-border/5 bg-(--bg-subtle) p-3">
-			{/* Label row — icon on the far left, immediately followed
+			{/* Label row, icon on the far left, immediately followed
 			    by the card's title. Truncated to a single line so a
 			    long label can never wrap and break the card's
 			    vertical rhythm. */}

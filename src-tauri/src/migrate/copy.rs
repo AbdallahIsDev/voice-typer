@@ -2,7 +2,7 @@
 //! Tauri migration.
 //!
 //! Extracted from the original `migrate.rs` monolith as part of the
-//! Phase 4.5 split. Pure file move — no behavior change. See
+//! Phase 4.5 split. Pure file move, no behavior change. See
 //! `mod.rs` for the gating caller (`migrate_inner`).
 
 use std::path::{Path, PathBuf};
@@ -38,13 +38,13 @@ pub(crate) fn sidecar_path(db: &Path, suffix: &str) -> PathBuf {
 /// Result of a `copy_missing_files` walk: how many files were copied
 /// and how many individual file-copy attempts FAILED.
 ///
-/// Failed copies are non-fatal — the walk continues to the next
-/// file — but they are counted (not just logged) so the migration
+/// Failed copies are non-fatal: the walk continues to the next
+/// file: but they are counted (not just logged) so the migration
 /// summary and the sentinel gate account for them: a failed copy
 /// leaves the target file ABSENT, which means the next launch's
 /// re-walk (the migration is idempotent and only copies files still
 /// missing) re-attempts exactly those files. Pre-fix, a failed model
-/// copy was invisible to every accounting surface — the sentinel was
+/// copy was invisible to every accounting surface, the sentinel was
 /// written success-shaped and the failed model was silently never
 /// migrated.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -78,7 +78,7 @@ fn copy_missing_recursive(src: &Path, dst: &Path, stats: &mut CopyStats) {
         // outside the config dir (e.g. `~/.ssh/id_rsa` or `/etc/shadow`)
         // and we'd happily copy its target into the new config dir,
         // silently exfiltrating sensitive files. The prior `path.is_dir()`
-        // / `path.is_file()` calls followed symlinks — they returned the
+        // / `path.is_file()` calls followed symlinks, they returned the
         // TARGET's file type, not the link's. `symlink_metadata` returns
         // metadata about the link itself, so `file_type().is_symlink()`
         // is reliable.
@@ -89,7 +89,7 @@ fn copy_missing_recursive(src: &Path, dst: &Path, stats: &mut CopyStats) {
                 continue;
             }
         };
-        // Skip symlinks entirely — we never copy a symlink OR its
+        // Skip symlinks entirely: we never copy a symlink OR its
         // target during migration. Only regular files and dirs.
         if file_type.is_symlink() {
             log::warn!(
@@ -99,7 +99,7 @@ fn copy_missing_recursive(src: &Path, dst: &Path, stats: &mut CopyStats) {
             continue;
         }
         //`entry.file_name().into_string()` consumes the OsString
-        // and returns `Result<String, OsString>` — for valid-UTF-8 file
+        // and returns `Result<String, OsString>`: for valid-UTF-8 file
         // names (the overwhelmingly common case on all platforms Voice
         // Typer targets) this is a zero-allocation move out of the
         // OsString's inner buffer. The prior `to_str()` + `.to_string()`
@@ -107,7 +107,7 @@ fn copy_missing_recursive(src: &Path, dst: &Path, stats: &mut CopyStats) {
         // String from the borrow, doubling the heap traffic per entry.
         // On non-UTF-8 file names (rare; can occur on Linux ext4 with
         // legacy byte-string filenames), `into_string()` returns Err and
-        // we `continue` — same behavior as the prior `None => continue`.
+        // we `continue`: same behavior as the prior `None => continue`.
         let name = match entry.file_name().into_string() {
             Ok(n) => n,
             Err(_) => continue,
@@ -126,25 +126,25 @@ fn copy_missing_recursive(src: &Path, dst: &Path, stats: &mut CopyStats) {
             //use atomic copy (temp + rename in same dir)
             // so an interrupted migration never leaves a partial model
             // file at the destination. Pre-fix, `std::fs::copy` truncated
-            // then wrote — combined with the `if dst_path.exists() { continue; }`
+            // then wrote: combined with the `if dst_path.exists() { continue; }`
             // guard above, a partial file from a killed migration looked
             // "existing" on next launch and was skipped, leaving a
             // corrupt model file in the target. The atomic copy writes
             // to a sibling temp file then renames, so the destination
-            // is either fully-present or fully-absent — never partial.
+            // is either fully-present or fully-absent, never partial.
             // The in-flight temp is a DOTTED name (`.NAME.tmp.copy.*`,
             // convention owned by `util::atomic_copy_file`), so a hard
             // kill mid-copy leaves the orphan temp HIDDEN from normal
             // directory listings instead of a visible junk file next
             // to the user's models.
             if let Err(e) = util::atomic_copy_file(&path, &dst_path) {
-                // One WARN per failed copy — follows the module's
+                // One WARN per failed copy, follows the module's
                 // `[MIGRATE] what: path: err` warn convention (see the
                 // history.db sidecar copy failure in mod.rs). WARN, not
                 // ERROR: the failure is non-critical for THIS launch
                 // (the walk continues), but the copy is counted in
                 // `stats.failed` so the migration summary surfaces it
-                // and the sentinel gate defers — the target stays
+                // and the sentinel gate defers, the target stays
                 // absent and the next launch retries it.
                 log::warn!(
                     "[MIGRATE] model file copy failed {}: {}",

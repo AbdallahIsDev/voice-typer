@@ -4,9 +4,9 @@ Extracted from ``ipc_server.py``. This module owns the three
 module-level functions that turn a CLI invocation into a running
 :class:`IPCServer`:
 
-  - :func:`_set_process_metadata` — Windows console title / AppUserModelID,
-  - :func:`parse_ipc_args` — argparse + env-var side-effects,
-  - :func:`main` — the actual subprocess entry point.
+  - :func:`_set_process_metadata`: Windows console title / AppUserModelID,
+  - :func:`parse_ipc_args`: argparse + env-var side-effects,
+  - :func:`main`: the actual subprocess entry point.
 
 These were the last ~430 lines of the pre-split ``ipc_server.py``.
 Extracting them lets ``ipc_server.py`` shrink to thin wiring (factory,
@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from voice_typer.server.app import VoiceTyperApp
+    from voice_typer.server.ipc_server import IPCServer
 
 # Re-exported by ``ipc_server.py`` so existing
 # ``from voice_typer.server.ipc_server import main`` /
@@ -38,12 +39,12 @@ def _ws_startup_thread_main(app: VoiceTyperApp) -> None:
     The ws (Tauri sidecar) branch of :func:`main` launches the full
     startup sequence (microphone enumeration, hotkey registration,
     background model load, autostart sync, tray alert subscriptions) on
-    this daemon thread instead of the main thread — the main thread must
+    this daemon thread instead of the main thread, the main thread must
     stay free to block in :func:`sidecar_ws.run`.
 
     Failure semantics (crash-isolation design): if ``app.start()``
     raises, the process must NOT keep running as a half-dead sidecar
-    (WS alive, no microphones/hotkeys/model — the Tauri UI would stay
+    (WS alive, no microphones/hotkeys/model, the Tauri UI would stay
     up forever in a broken state). It must exit with the canonical
     crash exit code so the Tauri supervisor sees the sidecar die
     (WS drop) and respawns it: the WS reader/writer/heartbeat paths
@@ -77,12 +78,12 @@ def _ws_startup_thread_main(app: VoiceTyperApp) -> None:
     except BaseException:
         # BaseException (not Exception) is intentional: a SystemExit /
         # KeyboardInterrupt escaping app.start() on this daemon thread is
-        # also a process-death signal — a daemon thread must never swallow
+        # also a process-death signal, a daemon thread must never swallow
         # it and keep the sidecar running degraded. E13: no suppression.
         from voice_typer.__main__ import EXIT_CRASH
         from voice_typer.server.ipc_diagnostics import write_startup_diagnostic
 
-        log.exception("[FATAL] ws-mode app.start() raised — exiting so the Tauri supervisor respawns the sidecar")
+        log.exception("[FATAL] ws-mode app.start() raised, exiting so the Tauri supervisor respawns the sidecar")
         try:
             write_startup_diagnostic("ws app.start()")
         except Exception:
@@ -114,24 +115,24 @@ def _detach_process_group() -> bool:
     The Tauri host spawns the frozen release sidecar as an ``externalBin``
     WITHOUT a pre-exec ``setsid``/``setpgid`` hook (pre_exec is not
     applied to spawned externalBin children in release mode), so the
-    sidecar lands in the HOST's process group — a group-wide signal to
+    sidecar lands in the HOST's process group, a group-wide signal to
     the host (terminal Ctrl-C, group kill) would take the sidecar down
     before the cooperative shutdown handshake runs. The sidecar
     therefore detaches ITSELF: ``os.setpgid(0, 0)`` makes the process
     the leader of a fresh process group, isolating it (and the native
-    listeners / prewarm / worker children it later spawns — they
+    listeners / prewarm / worker children it later spawns, they
     inherit the new group) from the host's group-wide signals. The
     host's lifecycle control is unaffected: the supervisor kills the
     sidecar BY PID (kill-tree), not by process group.
 
-    POSIX only — a no-op on Windows (process groups are a POSIX
+    POSIX only, a no-op on Windows (process groups are a POSIX
     concept; the Windows host uses Taskkill-style tree kills). The
     early-return guard also keeps the frozen dev-mode exe safe: the
     call is inert everywhere it is not applicable.
 
     Best-effort by design: any failure is logged at DEBUG and swallowed
-    (a ``setpgid`` refusal — e.g. EACCES/EPERM in a sandboxed frozen
-    environment — must never block sidecar startup; the sidecar then
+    (a ``setpgid`` refusal: e.g. EACCES/EPERM in a sandboxed frozen
+    environment, must never block sidecar startup; the sidecar then
     simply stays in the host's group, which is the pre-fix behavior).
     """
     if os.name != "posix":
@@ -145,7 +146,7 @@ def _detach_process_group() -> bool:
         setpgid(0, 0)
     except OSError as exc:
         log.debug(
-            "[IPC] process-group self-detach unavailable (%s) — staying in the parent's group",
+            "[IPC] process-group self-detach unavailable (%s), staying in the parent's group",
             exc,
         )
         return False
@@ -153,6 +154,48 @@ def _detach_process_group() -> bool:
     pgid = getpgrp() if getpgrp is not None else -1
     log.debug("[IPC] sidecar detached into its own process group (pgid=%d)", pgid)
     return True
+
+
+def _version_requested(argv: list[str]) -> bool:
+    """Return True when an argv token selects the ``--version`` action.
+
+    Matches the exact ``--version`` flag AND unambiguous argparse prefix
+    abbreviations (``--vers``: argparse's ``allow_abbrev`` default
+    resolves them to the same action). Used to resolve the installed
+    package version lazily: only a ``--version`` invocation pays the
+    ``importlib.metadata`` dist-metadata scan.
+
+    The prefix match requires a NON-EMPTY prefix: a bare ``--`` token
+    (argparse's end-of-options marker, legitimately present when a
+    host or launcher appends it) yields ``arg[2:] == ""``, and every
+    string satisfies ``startswith("")``: without the guard the bare
+    marker was misclassified as a version request and every such boot
+    paid the metadata scan for nothing.
+    """
+    return any(arg == "--version" or (len(arg) > 2 and "version".startswith(arg[2:])) for arg in argv)
+
+
+# Environment variable selecting the early server-started launch order
+# (bind the WS listener + emit ``server_started`` BEFORE the heavy
+# VoiceTyperApp construction; the construction proceeds on the
+# ws-startup daemon thread behind a live listener). One-release
+# migration escape hatch shared by NO other surface, deliberately NOT
+# a config.json setting: unset (the default) keeps the exact
+# build-then-serve order; opt-in values are ``1`` / ``true``
+# (case-insensitive); anything else (including ``0``) keeps the default
+# order.
+_EARLY_SERVER_STARTED_ENV_VAR = "VT_EARLY_SERVER_STARTED"
+
+
+def _early_server_started_enabled() -> bool:
+    """True when the early server-started launch order is selected.
+
+    Read once per boot in :func:`main` (before the launch-order branch)
+    so the flag has exactly one selection point; the ws transport
+    learns the mode from the server marker attribute
+    (``server._early_ws_bind``) rather than re-reading the environment.
+    """
+    return os.environ.get(_EARLY_SERVER_STARTED_ENV_VAR, "").strip().lower() in {"1", "true"}
 
 
 def parse_ipc_args() -> tuple[int | None, bool]:
@@ -180,15 +223,23 @@ def parse_ipc_args() -> tuple[int | None, bool]:
     (mirrors ``voice_typer.__main__``).
     """
     import argparse
-    import importlib.metadata
     import os
 
     from voice_typer.__main__ import EXIT_BAD_ARGS
 
-    try:
-        _pkg_version = importlib.metadata.version("voice-typer")
-    except Exception:
-        _pkg_version = "1.0.0"
+    # The installed-package version feeds ONLY the ``--version`` argparse
+    # action (which prints and exits before the server starts). Resolving
+    # it eagerly cost a dist-metadata scan on EVERY boot; a normal boot
+    # now keeps the cheap ``"1.0.0"`` placeholder and the real version is
+    # resolved only when ``--version`` is actually present in argv.
+    _pkg_version = "1.0.0"
+    if _version_requested(sys.argv[1:]):
+        import importlib.metadata
+
+        try:
+            _pkg_version = importlib.metadata.version("voice-typer")
+        except Exception:
+            _pkg_version = "1.0.0"
 
     parser = argparse.ArgumentParser(
         prog="voice_typer.server.ipc_server",
@@ -290,9 +341,9 @@ def main() -> None:
     via TCP, and the terminal sees normal log output.
     """
     #  (privacy): tighten the process umask to ``0o077`` (owner-only)
-    # at process startup so ALL files created by the sidecar — including
+    # at process startup so ALL files created by the sidecar, including
     # the history DB ``-wal`` / ``-shm`` sidecar files that SQLite creates
-    # lazily on the first WAL-mode write — are owner-only by default.
+    # lazily on the first WAL-mode write, are owner-only by default.
     # Previously the chmod loop in ``history_db_internals/schema.py``
     # ran BEFORE the sidecar files existed, so they inherited the parent
     # shell's umask (typically ``0o022`` → files created ``0o644`` =
@@ -303,7 +354,7 @@ def main() -> None:
     # sidecar recreations (e.g. after a ``wal_checkpoint(TRUNCATE)``
     # drops the sidecars and they get recreated on the next write).
     # Done BEFORE any other subsystem init so every file the sidecar
-    # creates benefits. Best-effort — ``os.umask`` always succeeds on
+    # creates benefits. Best-effort, ``os.umask`` always succeeds on
     # POSIX and is a no-op on Windows (which uses ACLs instead).
     if os.name == "posix":
         os.umask(0o077)
@@ -315,7 +366,7 @@ def main() -> None:
     # POSIX process-group self-detach: the release-mode Tauri host
     # cannot apply pre_exec(setpgid) to externalBin children, so the
     # sidecar leaves the host's process group ITSELF (before any
-    # subsystem init or child spawn — the new group is inherited by
+    # subsystem init or child spawn, the new group is inherited by
     # everything the sidecar launches). No-op on Windows. Best-effort.
     _detach_process_group()
 
@@ -347,7 +398,7 @@ def main() -> None:
             # Passing it directly would crash with TypeError the first
             # time the signal fires (missing ``timeout`` positional).
             # Wrap it in a closure that calls ``dump_traceback_later``
-            # with a 1-second delay — the documented use case for
+            # with a 1-second delay, the documented use case for
             # on-demand thread dumps from SIGUSR1.
             def _on_sigusr1(_signum: int, _frame: FrameType | None) -> None:
                 faulthandler.dump_traceback_later(timeout=1.0)
@@ -357,7 +408,7 @@ def main() -> None:
         # Not available on all platforms (Windows lacks SIGUSR1;
         # ValueError/OSError if the signal can't be registered; RuntimeError
         # if faulthandler is already enabled). Previously a broad
-        # ``except Exception: pass`` — narrowed so an unexpected import-time
+        # ``except Exception: pass``: narrowed so an unexpected import-time
         # bug surfaces instead of being silently swallowed.
         pass
 
@@ -371,11 +422,15 @@ def main() -> None:
     # Import from the canonical homes (not via the app-module re-exports)
     # so tests patch ``voice_typer.server.logging_setup._setup_logging`` /
     # ``voice_typer.server.single_instance._ensure_single_instance``.
-    from voice_typer.server.app import VoiceTyperApp
     from voice_typer.server.logging_setup import _setup_logging
     from voice_typer.server.single_instance import _ensure_single_instance
 
     port, ws_mode = parse_ipc_args()
+
+    # Early server-started selection: read the env var ONCE here (the
+    # single selection point), only the ws sidecar path reorders its
+    # launch sequence; TCP / standalone ignore the flag entirely.
+    _ws_early_bind = _early_server_started_enabled() and ws_mode
 
     # ADR-0020 §12: under the Tauri sidecar path (TAURI_SIDECAR=1), the
     # Tauri host's `tauri-plugin-single-instance` plugin already enforces
@@ -385,7 +440,7 @@ def main() -> None:
     # would double-lock on Windows and block the second-instance focus
     # path, so we skip it under Tauri.
     # Canonical guard (tray_types.is_tauri_sidecar): reads
-    # ``TAURI_SIDECAR == "1"`` at call time — the authoritative form
+    # ``TAURI_SIDECAR == "1"`` at call time, the authoritative form
     # shared by every Tauri-sidecar gate in the server.
     _tauri_sidecar = is_tauri_sidecar()
 
@@ -393,7 +448,7 @@ def main() -> None:
     # In standalone/terminal mode (``voice-typer`` from a terminal without
     # ``--port`` or ``--ws``), the user expects Restart to keep THIS
     # process alive and re-initialize the app in the same terminal/console
-    # — NOT to exit and let a hidden backend be respawned by Electron.
+    # , NOT to exit and let a hidden backend be respawned by Electron.
     # The loop below runs once for a normal start/quit and re-runs for
     # each in-place restart.  For non-standalone modes (``--port`` /
     # ``--ws``) the loop body executes once and then exits via
@@ -412,72 +467,100 @@ def main() -> None:
         # (dedups the file handler via ``isinstance`` check).
         _setup_logging()
         if _tauri_sidecar:
-            log.info("[IPC] TAURI_SIDECAR=1 — skipping Python-side single-instance mutex (Tauri host owns it)")
+            log.info("[IPC] TAURI_SIDECAR=1, skipping Python-side single-instance mutex (Tauri host owns it)")
 
         # the os._exit monkey-patch that printed a stack trace
         # on every shutdown has been removed.
 
-        try:
-            app = VoiceTyperApp()
-        except Exception:
-            # Under pythonw.exe, _setup_logging() redirects stdout/stderr to
-            # devnull, so ANY exception here is invisible to the user — they
-            # only see "Python process exited: 1" + the misleading "Only one
-            # instance" dialog from Electron.  Log the full traceback to both
-            # the app's log file and a dedicated diagnostic file so debugging
-            # is possible.
-            log.exception("[FATAL] VoiceTyperApp() construction failed")
-            #  the io.StringIO → traceback → _redact_text →
-            # _secure_atomic_write → /tmp-fallback pattern is encapsulated
-            # in ``ipc_diagnostics.write_startup_diagnostic`` so the
-            # construction-failure and app.start()-failure paths share a
-            # single source of truth (the two inline blocks had already
-            # drifted once — 's overwrite-vs-append fix was applied to
-            # only one). The helper preserves the historical
-            # "Voice Typer startup failed at <time>" header so
-            # ``tests/test_ipc_server_main_diagnostics.py``'s substring
-            # assertions keep passing.
-            from voice_typer.server.ipc_diagnostics import write_startup_diagnostic
+        if _ws_early_bind:
+            # ── Early server-started launch order (flag-gated) ─────────
+            # Bind-before-build: the WS listener binds and
+            # ``server_started`` is emitted BEFORE the heavy
+            # ``VoiceTyperApp()`` construction; the construction, the
+            # late bind, ``server.start()`` and ``app.start()`` all run
+            # on the ws-sidecar startup daemon thread
+            # (``_ws_startup_thread_main_early``) while the host's WS
+            # client can already authenticate (the token handshake is
+            # app-free) and dispatch, pre-app frames are buffered by
+            # the transport (``sidecar_ws`` installs a bounded buffer
+            # when it sees the ``_early_ws_bind`` marker below).
+            from typing import cast
 
-            write_startup_diagnostic("construction")
-            # use the standardized exit code instead of raw 1.
-            sys.exit(EXIT_CRASH)
+            from voice_typer.server.providers import AppProtocol, build_ipc_server
 
-        # PLAT-HLEAK: store the mutex handle on the app instance so
-        # quit() can CloseHandle it on shutdown
-        app._mutex_handle = _single_instance_mutex
+            log.info(
+                "[IPC] early server-started mode (%s=1), binding the WS listener "
+                "before app construction; construction proceeds on the startup thread",
+                _EARLY_SERVER_STARTED_ENV_VAR,
+            )
+            # ``cast`` (not a suppression): the app is DELIBERATELY
+            # deferred, ``server.app`` is ``None`` until the ws-startup
+            # thread constructs ``VoiceTyperApp`` and late-binds it
+            # (``_ws_startup_thread_main_early`` swaps in both
+            # ``server.app`` and a service rebuilt over the real app).
+            # No handler can observe the placeholder: the transport's
+            # early-bind buffer gates every pre-bind dispatch, and the
+            # only pre-bind app reads on the dispatch path are
+            # getattr-with-default shutdown gates (``None`` → not
+            # shutting down). The factory's soft AppProtocol check logs
+            # its informational warning here, expected and accurate in
+            # this mode (the app really does not exist yet).
+            server = build_ipc_server(cast(AppProtocol, None))
+            # ``server.start()`` is DEFERRED to the startup thread: it
+            # sets ``app._ipc_server`` and hooks ``app.tray.set_state``
+            # , both need the real app object.
+            server._tcp_mode = True
+            # Marker read by ``sidecar_ws.run`` to install the bounded
+            # pre-app dispatch buffer on this server.
+            server._early_ws_bind = True
+        else:
+            try:
+                # Single construction site (shared with the early-bind
+                # thread): the helper logs the traceback and writes the
+                # ``construction`` startup diagnostic before re-raising —
+                # under pythonw.exe stdout/stderr are devnull, so the
+                # diagnostic FILE is the only debuggable trace of a
+                # construction crash.
+                app = _construct_app_with_diagnostics()
+            except Exception:
+                # use the standardized exit code instead of raw 1.
+                sys.exit(EXIT_CRASH)
 
-        # use the providers.build_ipc_server composition
-        # root instead of constructing IPCServer directly.  Behavior is
-        # identical today (build_ipc_server just calls IPCServer(app));
-        # the factory exists so future wiring (logging, metrics, feature
-        # flags, an alternate service implementation) lives in one place
-        # rather than being threaded through this entry point.
-        from voice_typer.server.providers import build_ipc_server
+            # PLAT-HLEAK: store the mutex handle on the app instance so
+            # quit() can CloseHandle it on shutdown
+            app._mutex_handle = _single_instance_mutex
 
-        server = build_ipc_server(app)
-        #  ``main()`` NEVER uses the
-        # unauthenticated stdin/stdout IPC path. The three launch modes are:
-        #   1. ``--port N``        — explicit TCP, Electron connects over the
-        #                            network with a session token.
-        #   2. ``--ws``            — Tauri sidecar WebSocket (also
-        #                            token-authenticated via env var).
-        #   3. standalone (neither flag) — auto-pick a port, set a session
-        #                            token, start TCP, and launch the
-        #                            Electron frontend to connect back. The
-        #                            Python process is the parent; stdin is
-        #                            the user's terminal (or /dev/null when
-        #                            launched by a desktop launcher).
-        # In ALL three modes the stdin listener would be an unauthenticated
-        # command channel: on Linux TIOCSTI injection is possible, and on
-        # every platform an accidental paste of JSON into the terminal
-        # triggers unintended IPC commands. We therefore set
-        # ``_tcp_mode = True`` UNCONDITIONALLY before ``server.start()`` so
-        # ``start()`` skips spawning the stdin listener thread. The standalone
-        # path below still calls ``start_tcp()`` (the bound-socket overload)
-        # after ``start()`` to begin accepting connections.
-        server._tcp_mode = True
-        server.start()
+            # use the providers.build_ipc_server composition
+            # root instead of constructing IPCServer directly.  Behavior is
+            # identical today (build_ipc_server just calls IPCServer(app));
+            # the factory exists so future wiring (logging, metrics, feature
+            # flags, an alternate service implementation) lives in one place
+            # rather than being threaded through this entry point.
+            from voice_typer.server.providers import build_ipc_server
+
+            server = build_ipc_server(app)
+            #  ``main()`` NEVER uses the
+            # unauthenticated stdin/stdout IPC path. The three launch modes are:
+            #   1. ``--port N``       : explicit TCP, Electron connects over the
+            #                            network with a session token.
+            #   2. ``--ws``           : Tauri sidecar WebSocket (also
+            #                            token-authenticated via env var).
+            #   3. standalone (neither flag), auto-pick a port, set a session
+            #                            token, start TCP, and launch the
+            #                            Electron frontend to connect back. The
+            #                            Python process is the parent; stdin is
+            #                            the user's terminal (or /dev/null when
+            #                            launched by a desktop launcher).
+            # In ALL three modes the stdin listener would be an unauthenticated
+            # command channel: on Linux TIOCSTI injection is possible, and on
+            # every platform an accidental paste of JSON into the terminal
+            # triggers unintended IPC commands. We therefore set
+            # ``_tcp_mode = True`` UNCONDITIONALLY before ``server.start()`` so
+            # ``start()`` skips spawning the stdin listener thread. The standalone
+            # path below still calls ``start_tcp()`` (the bound-socket overload)
+            # after ``start()`` to begin accepting connections.
+            server._tcp_mode = True
+            server.start()
         # ADR-0020 §2: --ws mode starts the WebSocket sidecar server instead
         # of the TCP server. The WS server binds 127.0.0.1:0, prints the
         # `server_started` JSON to stdout, and accepts authenticated WS
@@ -489,14 +572,14 @@ def main() -> None:
             from voice_typer.server import sidecar_ws
 
             # This branch exits via sys.exit() below and never reaches
-            # app.start() at the bottom of main() — but app.start() is
+            # app.start() at the bottom of main(), but app.start() is
             # the ONLY launcher of the StartupSequence (microphone
             # enumeration, hotkey registration, background model load,
             # autostart sync) and of the tray's event-bus alert
             # subscriptions (parakeet/GPU CPU-fallback). Without it the
             # ws-mode sidecar serves an empty microphone list forever
             # (renderer Microphone page blank, tray Microphone submenu
-            # omitted — the dict-path consumers gate on a non-empty
+            # omitted, the dict-path consumers gate on a non-empty
             # list) and never registers dictation hotkeys. Run the full
             # app.start() on a daemon thread so the sidecar behaves
             # like the Electron backend: tray.start() takes the
@@ -510,16 +593,29 @@ def main() -> None:
             # crash there writes the startup diagnostic and terminates
             # the PROCESS (os._exit) so the Tauri supervisor respawns a
             # fresh sidecar instead of a WS-alive-but-empty backend.
-            _ws_startup_thread = threading.Thread(
-                target=_ws_startup_thread_main,
-                args=(app,),
-                name="ws-sidecar-startup",
-                daemon=True,
-            )
+            # In the early server-started order the SAME daemon thread
+            # additionally owns the VoiceTyperApp() construction +
+            # late bind + server.start() BEFORE app.start() (see
+            # ``_ws_startup_thread_main_early``), the thread target is
+            # the only thing the two orders differ on here.
+            if _ws_early_bind:
+                _ws_startup_thread = threading.Thread(
+                    target=_ws_startup_thread_main_early,
+                    args=(server, _single_instance_mutex),
+                    name="ws-sidecar-startup",
+                    daemon=True,
+                )
+            else:
+                _ws_startup_thread = threading.Thread(
+                    target=_ws_startup_thread_main,
+                    args=(app,),
+                    name="ws-sidecar-startup",
+                    daemon=True,
+                )
             _ws_startup_thread.start()
             log.info("[IPC] starting Tauri sidecar WebSocket server (sidecar_ws.run)")
             # ADR-0020 round-2 fix: do NOT call server.push({"type": "ready"})
-            # here — in WS mode, server.push writes to the TCP _tcp_client
+            # here, in WS mode, server.push writes to the TCP _tcp_client
             # which is None (no TCP server started). The `ready` event is
             # emitted by sidecar_ws._handle_connection() via event_bus.publish
             # AFTER the first WS client authenticates, so the Tauri host
@@ -567,7 +663,7 @@ def main() -> None:
             # local process can claim the port between probe and listen.
             server.start_tcp((standalone_port, standalone_sock))
             log.info(
-                "[IPC] standalone TCP mode on port %d — Electron will connect here",
+                "[IPC] standalone TCP mode on port %d. Electron will connect here",
                 standalone_port,
             )
             # BP-130: publish the bound port (see --port branch above).
@@ -597,17 +693,17 @@ def main() -> None:
                 except Exception:
                     log.debug("[IPC] could not register Electron PID with tray_window", exc_info=True)
                 log.info(
-                    "[STARTUP] Standalone mode — launched Electron (PID=%s) on port %d",
+                    "[STARTUP] Standalone mode, launched Electron (PID=%s) on port %d",
                     electron_pid,
                     standalone_port,
                 )
             else:
                 log.error(
-                    "[STARTUP] Standalone mode — failed to launch Electron; backend is running on port %d with no UI",
+                    "[STARTUP] Standalone mode, failed to launch Electron; backend is running on port %d with no UI",
                     standalone_port,
                 )
 
-        # Tell the frontend we're ready — Electron defers window creation until this.
+        # Tell the frontend we're ready. Electron defers window creation until this.
         server.push({"type": "ready"})
         # DEBUG: the tray's own "[TRAY] Tray icon created; event loop
         # running" INFO line covers this hand-off.
@@ -629,7 +725,7 @@ def main() -> None:
             #  (fix): was `except BaseException` which also caught
             # KeyboardInterrupt and GeneratorExit. Now catches only Exception
             # so Ctrl+C and SystemExit propagate normally to the finally block.
-            log.exception("[FATAL] app.start() raised — shutting down")
+            log.exception("[FATAL] app.start() raised, shutting down")
             #  route through the shared diagnostic helper
             # (same as the construction-failure path above). The helper
             # preserves the historical
@@ -650,30 +746,143 @@ def main() -> None:
         # ``tray.stop()`` (called inside ``_do_cleanup()``, which the
         # tray callback ran for quit OR restart).  Two cases:
         #
-        #   1. IN-PLACE restart (standalone/terminal mode) — the app
+        #   1. IN-PLACE restart (standalone/terminal mode), the app
         #      instance set ``_in_place_restart = True`` before cleanup,
         #      and the process MUST stay alive.  Loop back and
         #      re-initialize (fresh mutex, fresh logging session, fresh
         #      VoiceTyperApp, fresh IPC server, re-launch Electron) in
         #      the SAME process so the terminal window stays attached.
-        #   2. Normal quit / ``--port`` / ``--ws`` modes — break the
+        #   2. Normal quit / ``--port`` / ``--ws`` modes, break the
         #      loop and let the process exit (``--ws`` already exits via
         #      ``sys.exit`` above; ``--port`` and standalone-quit fall
         #      through here with ``_in_place_restart`` False).
         #
         # NOTE: read via ``vars(app)`` (instance dict), NOT ``getattr``
-        # — a ``MagicMock`` test app auto-creates truthy attributes on
+        # , a ``MagicMock`` test app auto-creates truthy attributes on
         # any ``getattr``, which would make the loop think an in-place
         # restart was requested and spin forever (the exact trap
         # documented in ``shutdown/teardowns/electron.py``).
         if not vars(app).get("_in_place_restart", False):
             break
-        log.info("[RESTART] In-place restart — re-initializing app in the same process")
+        log.info("[RESTART] In-place restart, re-initializing app in the same process")
         # Loop back: the next iteration re-acquires the single-instance
         # mutex, re-stages logging, constructs a fresh VoiceTyperApp,
         # starts a fresh IPC server, and re-launches Electron.
     # Keep mutex alive by referencing it until exit
     _ = _single_instance_mutex
+
+
+def _construct_app_with_diagnostics() -> VoiceTyperApp:
+    """The SINGLE ``VoiceTyperApp()`` construction site.
+
+    Called from exactly two launch-order branches (``main``'s default
+    build-then-serve path and the early server-started ws-startup
+    thread), the AST-level single-call-site invariant that
+    ``tests/app/test_quit_restart.py`` pins is preserved here, and the
+    single-instance mutex is always acquired (in ``main``) before
+    either branch reaches this helper, so a duplicate process exits
+    before any heavy import.
+
+    Failure semantics (identical for both callers): log the full
+    ``[FATAL] VoiceTyperApp() construction failed`` traceback, write
+    the ``construction`` startup diagnostic (the io.StringIO →
+    traceback → _redact_text → _secure_atomic_write → /tmp-fallback
+    pattern encapsulated in ``ipc_diagnostics`` so the
+    construction-failure and app.start()-failure paths share one
+    source of truth), then RE-RAISE, each caller applies its own exit
+    semantics (``sys.exit`` on the main path, ``os._exit`` on the
+    daemon thread).
+    """
+    from voice_typer.server.app import VoiceTyperApp
+
+    try:
+        return VoiceTyperApp()
+    except BaseException:
+        log.exception("[FATAL] VoiceTyperApp() construction failed")
+        try:
+            from voice_typer.server.ipc_diagnostics import write_startup_diagnostic
+
+            write_startup_diagnostic("construction")
+        except Exception:
+            # The diagnostic helper is internally failure-proof, but do
+            # not let ANY diagnostic failure mask the construction
+            # failure itself (E13: log, never silently swallow).
+            log.critical(
+                "[FATAL] write_startup_diagnostic failed during construction crash handling",
+                exc_info=True,
+            )
+        raise
+
+
+def _ws_startup_thread_main_early(server: IPCServer, mutex_handle) -> None:
+    """Early server-started variant of the ws-startup thread body.
+
+    Runs where :func:`_ws_startup_thread_main` runs (the ws-sidecar
+    startup daemon thread) but OWNS the ``VoiceTyperApp()`` construction
+    as well: in the early launch order ``main`` binds the WS listener
+    (and emits ``server_started``) first, so the heavy construction —
+    all builders, migration, and per-boot sweeps, proceeds here,
+    behind the already-live listener, while the host's WS client can
+    already authenticate and dispatch (pre-app frames are buffered by
+    the transport, see ``sidecar_ws._wrap_dispatch_for_early_bind``).
+
+    Sequence (order matters):
+
+    1. Construct ``VoiceTyperApp()`` (the deferred heavy work).
+    2. Late-bind the real app into the pre-bound server: swap in the
+       app, rebuild the service over it (the service constructed over
+       the deferred placeholder was never used, every pre-bind
+       dispatch was buffered), and run ``server.start()`` (deferred
+       from ``main`` because it touches ``self.app._ipc_server`` and
+       hooks ``app.tray.set_state``: both need the real app).
+    3. Raise ``server._early_bind_app_ready`` and flush the bounded
+       pre-app dispatch buffer so the buffered frames execute against
+       the fully-wired server.
+    4. Delegate to :func:`_ws_startup_thread_main` (the existing
+       fail-fast wrapper) for ``app.start()``.
+
+    Failure semantics mirror the main-path construction handler: a
+    crash logs the SAME ``[FATAL] VoiceTyperApp() construction failed``
+    line, routes through ``write_startup_diagnostic("construction")``
+    (identical phase label), and terminates the process with
+    ``EXIT_CRASH``: via ``os._exit`` (this is a daemon thread;
+    ``sys.exit`` would only end the thread and strand a WS-alive-but-
+    empty backend) so the Tauri supervisor respawns the sidecar.
+    ``BaseException`` (not ``Exception``) is caught for the same reason
+    as :func:`_ws_startup_thread_main`.
+    """
+    from voice_typer.__main__ import EXIT_CRASH
+
+    try:
+        app = _construct_app_with_diagnostics()
+    except BaseException:
+        # The shared construction helper already logged the traceback and
+        # wrote the startup diagnostic before re-raising; the thread adds
+        # only its own exit semantics (os._exit, a daemon thread must not
+        # strand a WS-alive-but-empty backend; the supervisor respawns).
+        log.critical("[FATAL] early-bind sidecar exiting with crash code %d", EXIT_CRASH)
+        os._exit(EXIT_CRASH)
+        # Defensive return: ``os._exit`` never returns in production, but
+        # a patched/stubbed exit (tests) must not fall through into the
+        # late-bind sequence with no constructed app.
+        return
+
+    # Late-bind the constructed app into the pre-bound server.
+    app._mutex_handle = mutex_handle
+    server.app = app
+    from voice_typer.server.service import VoiceTyperService
+
+    server.service = VoiceTyperService(app)
+    server.start()
+    server._early_bind_app_ready = True
+    from voice_typer.server import sidecar_ws
+
+    sidecar_ws.flush_early_dispatch_buffer(server)
+    log.info(
+        "[IPC] early server-started mode: app constructed + IPC server bound, "
+        "buffered frames dispatched, startup sequence starting"
+    )
+    _ws_startup_thread_main(app)
 
 
 if __name__ == "__main__":

@@ -5,7 +5,7 @@ methods (26 call sites).  This service layer provides a clean
 boundary so a second transport (CLI, gRPC, REST) can be added
 without duplicating app glue.
 
-The service is a thin facade — it delegates to the app but provides
+The service is a thin facade, it delegates to the app but provides
 a stable interface that doesn't leak VoiceTyperApp's internal API.
 
 The original 2,116-line god class has been split
@@ -18,13 +18,13 @@ vocabulary) is composed via multiple inheritance from the domain
 mixins in this package, so ``VoiceTyperService`` exposes the same
 public surface it always has. Every public method name and signature
 is preserved verbatim, and resolves via MRO to the mixin copy (which
-is the single source of truth — no method or constant is duplicated
+is the single source of truth, no method or constant is duplicated
 on this class).
 
 the model-download daemon thread (in
 :meth:`ModelMixin.download_model`, ``voice_typer/server/service/model.py``)
 spawns a daemon thread whose only side-effect is writing to the HF
-cache dir — no critical cleanup. On force-kill the partial download is
+cache dir, no critical cleanup. On force-kill the partial download is
 resumed on next start via HF's ``resume_download=True``. (Rationale
 kept here so the regression guard in
 ``tests/regressions/test_platform_misc.py::TestDaemonThreadRationaleDocumented``
@@ -87,7 +87,7 @@ class StatusResponse(TypedDict):
 # the four ``DownloadXxx`` TypedDicts + ``DownloadResult`` union
 # were removed because ``download_model`` returns plain ``dict`` literals
 # (service/model.py:1073,1079,1081 + the consent_required return) that
-# happen to have the right keys — not TypedDict instances. Pyrefly
+# happen to have the right keys, not TypedDict instances. Pyrefly
 # correctly flagged the mismatch (3 ``bad-return`` errors baselined in
 # ``pyrefly-baseline.json``); the union gave no real protection (a typo
 # like ``{"succes": True}`` would still compile, pass tests, and ship).
@@ -128,7 +128,7 @@ class VoiceTyperService(
     ``MicrophoneTestMixin``, ``VocabularyMixin``, ``TemplateMixin``,
     ``StatusMixin``, ``DictationMixin``, ``PrivacyMixin``,
     ``ConfigMutationMixin``). This class owns
-    ONLY ``__init__``, ``restart``, and ``quit`` — config-mutation,
+    ONLY ``__init__``, ``restart``, and ``quit``: config-mutation,
     GDPR, and every other domain surface resolve via
     MRO to the mixin copies, which are the single source of truth
     (no method or constant is duplicated on this class).
@@ -146,26 +146,26 @@ class VoiceTyperService(
         self._config_applier = ConfigApplier(self)
         # delegate state initialisation to the owning mixins
         # (instead of having the base class own state for 3 separate
-        # concerns — ModelMixin's download-cancel + model-status-cache
+        # concerns, ModelMixin's download-cancel + model-status-cache
         # state, MicrophoneTestMixin's microphones-cache state). Each
         # mixin's ``__init__`` initialises ONLY its own state, so the
         # base class is no longer a fat owner of mixin-specific fields.
         # The mixin ``__init__`` methods are called explicitly (rather
         # than via cooperative ``super().__init__()`` chaining) because
         # ``ServiceMixinBase`` in ``_base.py`` doesn't define an
-        # ``__init__`` that accepts the ``app`` argument — cooperative
+        # ``__init__`` that accepts the ``app`` argument, cooperative
         # MI would require modifying ``_base.py``. Functionally
         # equivalent: the state ends up on the same instance via the
         # same MRO.
         # The state-ownership fix was previously applied
-        # INCONSISTENTLY — only ``MicrophoneTestMixin`` got its own
+        # INCONSISTENTLY, only ``MicrophoneTestMixin`` got its own
         # ``__init__`` extraction. ``ModelMixin``'s six state fields
         # (``_download_cancel_events``, ``_download_cancel_lock``,
         # ``_active_download_id``, ``_model_status_cache``,
         # ``_model_status_cache_ts``, ``_model_status_cache_lock``)
         # were still being initialised inline here. They are now owned
         # by ``ModelMixin.__init__`` so each mixin is the single source
-        # of truth for its own state — mirroring the
+        # of truth for its own state, mirroring the
         # ``MicrophoneTestMixin`` pattern.
         ModelMixin.__init__(self)
         # ``_onboarding`` holds the live :class:`OnboardingController`

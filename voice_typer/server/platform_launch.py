@@ -24,7 +24,7 @@ _log = logging.getLogger(__name__)
 #
 # Pre-fix, the function called ``WaitForSingleObject(handle, 0xFFFFFFFF)``
 # (``INFINITE``). If the launched editor (e.g. Notepad opened for the
-# config file) hangs — or the user walks away with the editor open —
+# config file) hangs, or the user walks away with the editor open —
 # the calling thread blocked forever. The caller (``_open_config_file``
 # in ``app.py``) holds the server's IPC thread, so a hung editor wedges
 # the entire server: no further IPC requests are processed, the tray
@@ -54,7 +54,7 @@ def _windows_open_with_default_app(path: str):
     return a Win32 process HANDLE, or ``None`` if no association.
 
     Uses ``ShellExecuteEx`` with ``SEE_MASK_NOCLOSEPROCESS`` so we get a
-    handle to wait on — unlike ``os.startfile`` which returns immediately
+    handle to wait on, unlike ``os.startfile`` which returns immediately
     with no handle (the cause of the old reload/lock regression). The
     caller must close the returned handle via
     :func:`_windows_close_process_handle`. Returns ``None`` on any failure
@@ -117,8 +117,8 @@ def _windows_wait_for_process_exit(handle) -> None:
 
     pre-fix this function called ``WaitForSingleObject(handle,
         0xFFFFFFFF)`` (``INFINITE``). If the launched editor (e.g. Notepad
-        opened for the config file) hangs — or the user walks away with
-        the editor open — the calling thread blocked forever. The caller
+        opened for the config file) hangs, or the user walks away with
+        the editor open, the calling thread blocked forever. The caller
         (``_open_config_file`` in ``app.py``) holds the server's IPC
         thread, so a hung editor wedged the entire server.
 
@@ -135,20 +135,20 @@ def _windows_wait_for_process_exit(handle) -> None:
         kernel32 = ctypes.windll.kernel32
         kernel32.WaitForSingleObject.argtypes = [HANDLE, DWORD]
         kernel32.WaitForSingleObject.restype = DWORD
-        # finite timeout — see ``_WAIT_FOR_PROCESS_EXIT_TIMEOUT_MS``
+        # finite timeout: see ``_WAIT_FOR_PROCESS_EXIT_TIMEOUT_MS``
         # comment for the rationale.
         result = kernel32.WaitForSingleObject(handle, _WAIT_FOR_PROCESS_EXIT_TIMEOUT_MS)
         if result == _WAIT_TIMEOUT:
             _log.warning(
                 "[WIN32] WaitForSingleObject timed out after %d ms while "
                 "waiting for launched editor to exit; returning control to "
-                "caller (the editor process is still running — the user may "
+                "caller (the editor process is still running, the user may "
                 "need to close it manually).",
                 _WAIT_FOR_PROCESS_EXIT_TIMEOUT_MS,
             )
         elif result == _WAIT_FAILED:
             # WaitForSingleObject itself failed (e.g. invalid handle).
-            # Don't raise — the caller's contract is "never raise" — but
+            # Don't raise, the caller's contract is "never raise", but
             # log a warning so the failure is diagnosable.
             _log.warning(
                 "[WIN32] WaitForSingleObject returned WAIT_FAILED; the "
@@ -162,7 +162,7 @@ def _windows_wait_for_process_exit(handle) -> None:
     except Exception:
         # Preserve the pre-fix contract: never raise (the broad
         # ``except Exception`` is intentional so the editor flow
-        # doesn't crash on edge cases — Win32 process-handle ops can
+        # doesn't crash on edge cases. Win32 process-handle ops can
         # raise ``OSError``, ``AttributeError`` (ctypes config drift),
         # or Windows-specific exception types). Log at debug so the
         # failure is diagnosable without surfacing to the user.
@@ -180,7 +180,7 @@ def _windows_close_process_handle(handle) -> None:
         kernel32.CloseHandle.restype = BOOL
         kernel32.CloseHandle(handle)
     except Exception:
-        # Never raise — the caller is best-effort cleaning up a
+        # Never raise, the caller is best-effort cleaning up a
         # process handle. Win32 ``CloseHandle`` can raise ``OSError``
         # on an invalid handle or ``AttributeError`` on ctypes config
         # drift. Log at debug so the failure is diagnosable.
@@ -203,18 +203,18 @@ def _systemroot_notepad_path():
         process) setting ``SYSTEMROOT=C:\\Users\\attacker`` could trick this
         helper into returning ``C:\\Users\\attacker\\System32\\notepad.exe``
         (an attacker-controlled binary) AS LONG AS that file existed on
-        disk — which is trivial for an attacker who already controls
+        disk: which is trivial for an attacker who already controls
         ``SYSTEMROOT``. The hardcoded ``C:\\Windows\\System32\\notepad.exe``
         is the OS-installed Notepad (shipped with every Windows install
         since Windows NT); preferring it FIRST closes the trust gap. The
         ``%SYSTEMROOT%`` candidate is kept as a fallback for non-standard
         Windows installs where the system root is on a different drive
-        (e.g. ``D:\\Windows``) — in that scenario, the attacker would
+        (e.g. ``D:\\Windows``), in that scenario, the attacker would
         ALSO need write access to the SYSTEMROOT path, which is a strictly
         higher privilege bar than setting an env var.
     """
     candidates = [
-        # hardcoded OS path FIRST — never trust env-controlled
+        # hardcoded OS path FIRST, never trust env-controlled
         # SYSTEMROOT ahead of the canonical install location.
         Path(r"C:\Windows") / "System32" / "notepad.exe",
         Path(os.environ.get("SYSTEMROOT", r"C:\Windows")) / "System32" / "notepad.exe",

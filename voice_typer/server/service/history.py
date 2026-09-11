@@ -37,7 +37,7 @@ class HistoryMixin(ServiceMixinBase):
                 to the renderer.
 
         keyset pagination: ``before_timestamp`` + ``before_id``
-        together form the keyset cursor — the WHERE clause restricts
+        together form the keyset cursor, the WHERE clause restricts
         to rows strictly older than ``(before_timestamp, before_id)``
         in (timestamp DESC, id DESC) order, which is O(log N) via
         ``idx_timestamp`` (vs OFFSET which is O(offset)). Both cursor
@@ -66,8 +66,8 @@ class HistoryMixin(ServiceMixinBase):
     ) -> list[dict]:
         """Search transcriptions by text.
 
-        raise_on_error=True — see ``get_history``. Cursor
-        pagination matches ``get_history`` — see that docstring for
+        raise_on_error=True: see ``get_history``. Cursor
+        pagination matches ``get_history``: see that docstring for
         the O(log N) vs O(offset) tradeoff.
         """
         return self._app.history_db.search(
@@ -82,14 +82,14 @@ class HistoryMixin(ServiceMixinBase):
     def get_today_stats(self) -> dict[str, object]:
         """Return today's transcription statistics.
 
-        raise_on_error=True — see ``get_history``.
+        raise_on_error=True: see ``get_history``.
         """
         return self._app.history_db.get_today_stats(raise_on_error=True)
 
     def delete_history(self, rec_id: int) -> bool:
         """Delete a history record by ID.
 
-        raise_on_error=True — see ``get_history``.
+        raise_on_error=True: see ``get_history``.
         """
         return self._app.history_db.delete(rec_id, raise_on_error=True)
 
@@ -97,12 +97,12 @@ class HistoryMixin(ServiceMixinBase):
         """Re-insert a previously-deleted history record.
 
         supports the Undo-delete toast in the renderer.
-                Returns the new row id (or -1 on failure — the renderer
+                Returns the new row id (or -1 on failure, the renderer
                 surfaces a "Failed to restore" toast in that case).
         """
         if not isinstance(record, dict):
             raise ValueError("record must be a dict")
-        # Require at least a non-empty text field — restoring an empty
+        # Require at least a non-empty text field, restoring an empty
         # record would silently succeed with a meaningless row.
         if not str(record.get("text", "")).strip():
             raise ValueError("record.text must be a non-empty string")
@@ -111,14 +111,14 @@ class HistoryMixin(ServiceMixinBase):
     def clear_history(self) -> bool:
         """Clear all history records.
 
-        raise_on_error=True — see ``get_history``.
+        raise_on_error=True: see ``get_history``.
         """
         return self._app.history_db.clear_all(raise_on_error=True)
 
     def toggle_favorite(self, rec_id: int) -> bool:
         """Toggle favorite status of a history record.
 
-        raise_on_error=True — see ``get_history``.
+        raise_on_error=True: see ``get_history``.
         """
         return self._app.history_db.toggle_favorite(rec_id, raise_on_error=True)
 
@@ -132,8 +132,8 @@ class HistoryMixin(ServiceMixinBase):
     ) -> list[dict]:
         """Return favorited transcriptions.
 
-        raise_on_error=True — see ``get_history``. Cursor
-        pagination matches ``get_history`` — see that docstring for
+        raise_on_error=True: see ``get_history``. Cursor
+        pagination matches ``get_history``: see that docstring for
         the O(log N) vs O(offset) tradeoff.
         """
         return self._app.history_db.get_favorites(
@@ -161,8 +161,8 @@ class HistoryMixin(ServiceMixinBase):
 
                 Wraps :meth:`HistoryDB.get_transcription_text`. Companion to
                 the 500-char ``text`` preview returned by ``get_history`` /
-                ``get_favorites`` / ``search_history`` — the renderer fetches
+                ``get_favorites`` / ``search_history``: the renderer fetches
                 the full text on demand when the user expands a History row.
-        raise_on_error=True — see ``get_history``.
+        raise_on_error=True: see ``get_history``.
         """
         return self._app.history_db.get_transcription_text(transcription_id, raise_on_error=True)

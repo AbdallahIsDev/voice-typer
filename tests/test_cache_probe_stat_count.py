@@ -4,7 +4,7 @@ The previous ``root.rglob('*')`` + ``path.is_file()`` pattern issued a
 fresh ``stat()`` syscall per file (~40 k stats for torch alone) even
 though ``readdir`` already returned the d_type for each entry. DJ-46
 replaces this with ``os.scandir`` + ``DirEntry.is_file()`` which uses
-the cached d_type — no per-file ``stat()`` on filesystems that
+the cached d_type, no per-file ``stat()`` on filesystems that
 populate d_type (ext4/tmpfs on Linux, APFS on macOS, NTFS on Windows).
 
 These tests pin the fix so a future revert fails loudly.
@@ -69,7 +69,7 @@ class TestCacheProbeStatCount:
 
         # Count os.stat calls during the walk. We patch the GLOBAL os.stat
         # (cache_probe imports os as a module, so cache_probe.os.stat IS
-        # os.stat — same module object).
+        # os.stat, same module object).
         real_os_stat = os.stat
         stat_calls = {"n": 0}
 
@@ -79,13 +79,13 @@ class TestCacheProbeStatCount:
 
         # Patch via the cache_probe module's os binding so the patch
         # propagates to pathlib.Path.is_file() (which calls os.stat
-        # indirectly via the pathlib module's os binding — same object).
+        # indirectly via the pathlib module's os binding, same object).
         with patch("voice_typer.server.prewarm.cache_probe.os.stat", counting_stat):
             files = list(cache_probe._iter_warmable_files(tmp_path))
 
         # Sanity: 50 .pyc files should be discovered.
         assert len(files) == warmable_count, (
-            f"expected {warmable_count} warmable files, got {len(files)} — "
+            f"expected {warmable_count} warmable files, got {len(files)}, "
             f"the walk is missing files (a perf bug that could leave cold "
             f"pages unwarmed)."
         )
@@ -97,7 +97,7 @@ class TestCacheProbeStatCount:
         # DT_UNKNOWN fallbacks).
         assert stat_calls["n"] <= 10, (
             f"DJ-46: _iter_warmable_files issued {stat_calls['n']} stat() "
-            f"calls for 100 files in 6 dirs — expected <=10 (no per-file "
+            f"calls for 100 files in 6 dirs, expected <=10 (no per-file "
             f"stat). The old root.rglob('*') + path.is_file() pattern would "
             f"have issued ~100 stats (one per file). If this number is "
             f"close to 100, the fix was reverted."
@@ -106,7 +106,7 @@ class TestCacheProbeStatCount:
     def test_walk_filters_non_warmable_suffixes_without_stat(self, tmp_path):
         """Files whose suffix is NOT in ``_WARM_PACKAGE_SUFFIXES`` must be
         filtered out by a free string comparison BEFORE any ``is_file()``
-        call — so a non-warmable file never triggers a ``stat()`` even on
+        call, so a non-warmable file never triggers a ``stat()`` even on
         filesystems with DT_UNKNOWN.
         """
         # Build a tree with ONLY non-warmable files.
@@ -131,7 +131,7 @@ class TestCacheProbeStatCount:
         # stat() calls at all for non-warmable entries.
         assert stat_calls["n"] <= 1, (
             f"DJ-46: non-warmable files triggered {stat_calls['n']} stat() "
-            f"calls — the suffix filter should run BEFORE is_file() so "
+            f"calls, the suffix filter should run BEFORE is_file() so "
             f"non-matching entries never trigger a stat."
         )
 
@@ -165,13 +165,13 @@ class TestCacheProbeStatCount:
         for f in files:
             assert f.suffix in cache_probe._WARM_PACKAGE_SUFFIXES, (
                 f"DJ-46: _iter_warmable_files yielded {f} with suffix "
-                f"{f.suffix!r} not in _WARM_PACKAGE_SUFFIXES — the suffix "
+                f"{f.suffix!r} not in _WARM_PACKAGE_SUFFIXES, the suffix "
                 f"filter is broken."
             )
 
     def test_walk_handles_nested_directories(self, tmp_path):
         """The walk must descend into nested subdirectories (iterative
-        stack-based, not recursive — so deep trees don't hit the recursion
+        stack-based, not recursive, so deep trees don't hit the recursion
         limit)."""
         # Build a 10-level deep tree.
         current = tmp_path
@@ -182,7 +182,7 @@ class TestCacheProbeStatCount:
 
         files = list(cache_probe._iter_warmable_files(tmp_path))
         assert len(files) == 10, (
-            f"expected 10 .pyc files across 10 nested dirs, got {len(files)} — "
+            f"expected 10 .pyc files across 10 nested dirs, got {len(files)}, "
             f"the walk did not descend into all subdirectories."
         )
 
@@ -191,7 +191,7 @@ class TestCacheProbeStatCount:
 #
 # Canonical C-LOG-2 grep anchor (AGENTS.md): every lifecycle-completion
 # log line ends with a space-separated `<duration>` suffix produced by
-# `voice_typer.server.duration.format_duration()` — ` 2.3s` for
+# `voice_typer.server.duration.format_duration()`: ` 2.3s` for
 # sub-minute durations, ` 1m 2.3s` for anything longer (the return
 # value carries a single leading space, spliced via a bare ``%s``). The
 # two ``log.info`` calls in ``cache_probe`` that previously used ad-hoc
@@ -200,12 +200,12 @@ class TestCacheProbeStatCount:
 # These tests pin the canonical suffix shape so a future revert to
 # ad-hoc formatting fails loudly.
 #
-# We anchor the regex to END-of-message with ``$`` — both lifecycle
+# We anchor the regex to END-of-message with ``$``, both lifecycle
 # lines (``[PREWARM] file-warmed ...`` and ``[PREWARM] worker
 # warm-imports complete ...``) place the ``%s`` duration argument as
 # the FINAL format arg, so ``format_duration(elapsed)`` always lands at
 # the very end of the rendered message. A revert to ``"... in %.1fs"``
-# would render as ``... in 0.0s`` — no space separator before the
+# would render as ``... in 0.0s``, no space separator before the
 # duration, and the canonical pattern no longer matches at line END.
 _CLOG2_DURATION_RE = re.compile(r" \d+(m \d+)?\.\ds$")
 
@@ -213,7 +213,7 @@ _CLOG2_DURATION_RE = re.compile(r" \d+(m \d+)?\.\ds$")
 class TestCacheProbeLogLinesUseFormatDuration:
     """C-LOG-2 regression: lifecycle-completion ``log.info`` calls in
     ``cache_probe`` MUST end with the canonical space-separated
-    ``<duration>`` suffix produced by ``format_duration()`` — not an
+    ``<duration>`` suffix produced by ``format_duration()``, not an
     ad-hoc ``%.1fs`` / ``%.2fs`` string. A revert to ad-hoc formatting
     breaks the project-wide grep-summed perf-marker convention
     (AGENTS.md C-LOG-2).
@@ -229,8 +229,8 @@ class TestCacheProbeLogLinesUseFormatDuration:
         matches at line END.
         """
         # Build a fake package directory with one warmable file. The
-        # file is never actually read — cache_probe._warm_file is stubbed
-        # below — but it must exist on disk so the rglob walk in
+        # file is never actually read, cache_probe._warm_file is stubbed
+        # below, but it must exist on disk so the rglob walk in
         # _warm_package_files yields it (the suffix filter + skip-dir
         # filter must accept it).
         pkg_dir = tmp_path / "fakepkg"
@@ -256,7 +256,7 @@ class TestCacheProbeLogLinesUseFormatDuration:
         # Stub _warm_file on the cache_probe submodule (where
         # _warm_package_files looks it up) so the test doesn't actually
         # page-cache bytes (keeps the test fast + platform-independent).
-        # Returns 1 MiB so the "%.0f MB" rendering is "1 MB" — the
+        # Returns 1 MiB so the "%.0f MB" rendering is "1 MB", the
         # assertion below pins the rendered shape so a future revert can't
         # slip in a different unit (KiB, GiB) either.
         monkeypatch.setattr(cache_probe, "_warm_file", lambda path: 1024 * 1024)
@@ -266,7 +266,7 @@ class TestCacheProbeLogLinesUseFormatDuration:
 
         # Sanity: the stubbed _warm_file was called exactly once.
         assert total == 1024 * 1024, (
-            f"expected 1 MiB total from stubbed _warm_file, got {total} — the stub may not have been called."
+            f"expected 1 MiB total from stubbed _warm_file, got {total}, the stub may not have been called."
         )
 
         # Find the lifecycle-completion log line.
@@ -290,7 +290,7 @@ class TestCacheProbeLogLinesUseFormatDuration:
     def test_warm_imports_log_line_carries_duration_suffix(self, caplog, monkeypatch):
         """``_warm_imports`` emits ``[PREWARM] worker warm-imports
         complete: <N> packages (<list>) <duration>`` on completion.
-        Same C-LOG-2 contract as above — the space-separated
+        Same C-LOG-2 contract as above, the space-separated
         ``<duration>`` suffix MUST come from ``format_duration()``.
         """
         # Patch _WORKER_WARM_PACKAGES to a single fake package so the
@@ -301,7 +301,7 @@ class TestCacheProbeLogLinesUseFormatDuration:
         # Stub _warm_package_files to return >0 bytes so the package
         # appears in the `warmed` list (otherwise the log line still
         # fires, but with "0 packages (none)" which is a less
-        # interesting contract to pin — a revert that drops the
+        # interesting contract to pin, a revert that drops the
         # duration suffix entirely would still fail this test, but
         # pinning the populated-list shape makes the assertion message
         # clearer).

@@ -24,9 +24,9 @@ Usage::
     python scripts/build/sync_versions.py --check     # CI mode: exit 1 if drift
 
 Exit codes:
-  0 — versions are in sync (or successfully synced with --apply)
-  1 — versions drifted and --check was passed (CI mode)
-  2 — I/O error reading or writing a file
+  0: versions are in sync (or successfully synced with --apply)
+  1: versions drifted and --check was passed (CI mode)
+  2: I/O error reading or writing a file
 """
 
 from __future__ import annotations
@@ -39,10 +39,10 @@ from pathlib import Path
 
 if sys.version_info >= (3, 11):
     import tomllib  # type: ignore[import-not-found]
-else:  # pragma: no cover — Python 3.10 fallback
+else:  # pragma: no cover, Python 3.10 fallback
     try:
         import tomli as tomllib  # type: ignore[import-not-found, no-redef]
-    except ImportError:  # pragma: no cover — tomli is a fallback dep
+    except ImportError:  # pragma: no cover, tomli is a fallback dep
         tomllib = None  # type: ignore[assignment]
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -50,7 +50,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 # Files that contain a version string we want to keep in sync.
 # NOTE: ``voice_typer/__init__.py`` is intentionally NOT synced here.
 # ``__init__.py`` resolves ``__version__`` lazily via PEP 562
-# ``__getattr__`` (see ``bench/COLDSTART_REPORT.md`` — 57% of the
+# ``__getattr__`` (see ``bench/COLDSTART_REPORT.md``, 57% of the
 # post-optimization tray-import cumulative time is metadata I/O).
 # A regex like ``r'__version__\s*=\s*"([^"]+)"'`` would NOT match
 # the lazy resolver body (which assigns to a local ``v = "<version>"``),
@@ -99,19 +99,43 @@ def read_package_json_version() -> str | None:
 
 
 def write_package_json_version(version: str) -> None:
-    data = json.loads(PACKAGE_JSON.read_text(encoding="utf-8"))
-    data["version"] = version
-    PACKAGE_JSON.write_text(
-        json.dumps(data, indent=2) + "\n",
-        encoding="utf-8",
+    """Update the top-level ``version`` field in ``package.json``.
+
+    Targeted regex write (the ``write_cargo_toml_version`` /
+    ``write_tauri_binaries_version`` approach): rewrites ONLY the value
+    on the top-level ``"version"`` key line, preserving the file's exact
+    byte layout, indentation, key order, and line endings. The client
+    tree's ``package.json`` is TAB-indented (biome format); a full
+    ``json.dumps(..., indent=2)`` round-trip would re-serialize the
+    whole file and flip every tab to 2-space indentation on every
+    version bump (format ping-pong with the client formatter).
+    Top-level keys share the first key line's indentation; a nested
+    ``"version"`` key (deeper indent) is never matched.
+    """
+    # newline="" disables newline translation both directions so CRLF
+    # files round-trip byte-identically outside the replaced value.
+    with PACKAGE_JSON.open("r", encoding="utf-8", newline="") as f:
+        text = f.read()
+    first_key = re.search(r'^([\t ]*)"[^"]+"\s*:', text, re.MULTILINE)
+    indent = first_key.group(1) if first_key else "\t"
+    new_text, n = re.subn(
+        rf'^({indent}"version"\s*:\s*)"[^"]+"',
+        lambda m: f'{m.group(1)}"{version}"',
+        text,
+        count=1,
+        flags=re.MULTILINE,
     )
+    if n == 0:
+        return  # no top-level version field, don't inject
+    with PACKAGE_JSON.open("w", encoding="utf-8", newline="") as f:
+        f.write(new_text)
 
 
 def read_electron_builder_version() -> str | None:
     """Read the explicit version from electron-builder.yml.
 
     Returns None if the file doesn't exist OR if it has no ``version:``
-    field (which is valid — electron-builder inherits from package.json
+    field (which is valid, electron-builder inherits from package.json
     when no explicit version is set).
     """
     if not ELECTRON_BUILDER.exists():
@@ -125,7 +149,7 @@ def write_electron_builder_version(version: str) -> None:
     """Only write if a version field already exists.
 
     If the file has no explicit ``version:`` field, electron-builder
-    inherits from package.json — which is already synced separately.
+    inherits from package.json: which is already synced separately.
     Don't inject a redundant field.
     """
     text = ELECTRON_BUILDER.read_text(encoding="utf-8")
@@ -158,7 +182,7 @@ def write_tauri_conf_version(version: str) -> None:
 
     Preserves JSON formatting (2-space indent + trailing newline) to
     match the existing file style. Only writes if a ``version`` key is
-    already present — never injects a new key.
+    already present, never injects a new key.
     """
     text = TAURI_CONF_JSON.read_text(encoding="utf-8")
     data = json.loads(text)
@@ -175,7 +199,7 @@ def read_cargo_toml_version() -> str | None:
     WR-20: Cargo stores the crate version under ``[package] version =
     "..."``. Uses stdlib ``tomllib`` (Python 3.11+) or the ``tomli``
     backport (3.10). Falls back to a regex if neither is importable
-    (rare — packaging depends on tomli).
+    (rare, packaging depends on tomli).
     """
     if not CARGO_TOML.exists():
         return None
@@ -186,7 +210,7 @@ def read_cargo_toml_version() -> str | None:
             return data.get("package", {}).get("version")
         except Exception:
             pass  # fall through to regex
-    # Regex fallback — handles the common ``[package]\n...\nversion = "..."`` case.
+    # Regex fallback, handles the common ``[package]\n...\nversion = "..."`` case.
     m = re.search(r'^version\s*=\s*"([^"]+)"', text, re.MULTILINE)
     return m.group(1) if m else None
 
@@ -210,16 +234,16 @@ def write_cargo_toml_version(version: str) -> None:
         flags=re.MULTILINE,
     )
     if n == 0:
-        return  # no version field — don't inject
+        return  # no version field, don't inject
     CARGO_TOML.write_text(new_text, encoding="utf-8")
 
 
 def _version_sort_key(version: str) -> tuple[int, ...]:
     """Split ``X.Y.Z`` into a numeric tuple for correct ordering.
 
-    Plain ``min()`` on strings is lexicographic — ``"10.0.0" < "9.9.9"``
-    — which would mis-report the drift direction. Comparing on the
-    numeric parts fixes that.
+     Plain ``min()`` on strings is lexicographic, ``"10.0.0" < "9.9.9"``
+    , which would mis-report the drift direction. Comparing on the
+     numeric parts fixes that.
     """
     return tuple(int(part) for part in version.split("."))
 
@@ -229,7 +253,7 @@ def read_tauri_binaries_version() -> str | None:
 
     TC-34: the manifest stores a ``version`` string on every entry of
     ``data["binaries"]``. Returns None if the file is absent or has no
-    binary entries (both are valid — the manifest is only created by
+    binary entries (both are valid, the manifest is only created by
     the Tauri build pipeline).
     """
     if not TAURI_BINARIES_JSON.exists():
@@ -244,7 +268,7 @@ def read_tauri_binaries_version() -> str | None:
         return None
     if len(versions) == 1:
         return next(iter(versions))
-    # Entries drifted from each other (shouldn't happen — ``--apply``
+    # Entries drifted from each other (shouldn't happen, ``--apply``
     # keeps them identical by construction). Surface the numerically
     # smallest so ``--check`` flags the drift against pyproject.toml
     # regardless of which entry moved.
@@ -255,7 +279,7 @@ def write_tauri_binaries_version(version: str) -> None:
     """Update every binary-entry ``version`` field in ``tauri-binaries.json``.
 
     Uses a targeted regex replace (like ``write_cargo_toml_version``) so
-    the file's exact formatting is preserved — no re-serialization churn
+    the file's exact formatting is preserved, no re-serialization churn
     on the compact ``_platforms`` arrays or the large ``_comment``
     prose. Matches only ``"version": "..."`` string fields (the three
     binary entries); the top-level ``"version": 1`` schema int is a
@@ -268,7 +292,7 @@ def write_tauri_binaries_version(version: str) -> None:
         text,
     )
     if n == 0:
-        return  # no binary version fields — don't inject
+        return  # no binary version fields, don't inject
     TAURI_BINARIES_JSON.write_text(new_text, encoding="utf-8")
 
 

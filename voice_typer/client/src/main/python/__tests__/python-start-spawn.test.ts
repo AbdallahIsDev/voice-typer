@@ -154,7 +154,7 @@ describe("ER-1: startPython() calls createWindows() before tcpConnect()", () => 
 	});
 
 	it("calls clearTcpStartupTimeout() at the top of startPython() (ER-29 fresh 60s window)", async () => {
-		// TC-41: un-skipped — startPython() clears the 60s window before
+		// TC-41: un-skipped, startPython() clears the 60s window before
 		// spawning so a stale timer from the previous lifecycle can't fire
 		// mid-restart and trip a premature "backend failed to start" dialog.
 		vi.resetModules();
@@ -170,7 +170,7 @@ describe("ER-1: startPython() calls createWindows() before tcpConnect()", () => 
 		expect(mocks.resetStopPythonFlags).toHaveBeenCalledTimes(1);
 	});
 
-	it("createWindows() failure is caught — startPython continues (defensive)", async () => {
+	it("createWindows() failure is caught, startPython continues (defensive)", async () => {
 		vi.resetModules();
 		mocks.createWindows.mockImplementationOnce(() => {
 			throw new Error("BrowserWindow is not a constructor");
@@ -213,7 +213,7 @@ describe("ER-1: startPython() calls createWindows() before tcpConnect()", () => 
 // must no-op when the previously-spawned backend is still alive. A second
 // spawn cannot acquire the Python-side single-instance mutex, exits early,
 // and the early-exit handler quits the whole app with a misleading
-// "only one instance" dialog — the app killing itself over its own
+// "only one instance" dialog, the app killing itself over its own
 // double-spawn.
 
 describe("startPython() idempotence guard (live backend → no-op)", () => {
@@ -348,7 +348,7 @@ describe("startPython() exit handler: typed pending-request rejections", () => {
 		vi.resetModules();
 		const { startPython } = await import("../start-python");
 		const { PythonIpcError } = await import("../errors");
-		// pythonReady stays false — the backend died during startup.
+		// pythonReady stays false, the backend died during startup.
 		startPython();
 		const proc = mocks.spawn.mock.results[0]?.value as {
 			emit: (ev: string, code: number) => boolean;
@@ -377,7 +377,7 @@ describe("startPython() exit handler: typed pending-request rejections", () => {
 		const { startPython } = await import("../start-python");
 		const { PythonIpcError } = await import("../errors");
 		startPython();
-		// The backend had connected and was ready — a crash now is a
+		// The backend had connected and was ready, a crash now is a
 		// mid-flight disconnect, not an early exit.
 		mocks.state.pythonReady = true;
 		const proc = mocks.spawn.mock.results[0]?.value as {

@@ -7,14 +7,14 @@ mocked dependencies, plus three integration guarantees:
 
 1. **Ordering**: ``_register_pending_restore`` is called BEFORE
    ``_dispatch_keystroke`` (the restore is scheduled FIRST so a
-   dispatch failure never orphans the borrow — ADR-0010).
+   dispatch failure never orphans the borrow, ADR-0010).
 2. **Short-circuit**: a ``_check_target_safety`` failure short-circuits
    ``_dispatch_keystroke`` (no keystroke sent into an unsafe target).
 3. **Windows TOCTOU**: ``_recheck_toctou`` aborts the dispatch when
    the foreground window handle changed between capture and send
    (mocked ``ctypes.windll`` so the Win32 path runs on Linux CI).
 
-These tests do NOT re-assert the full ``paste()`` behavior — that is
+These tests do NOT re-assert the full ``paste()`` behavior: that is
 the job of the 21 pre-existing ``tests/test_clipboard*.py`` files
 (397 tests, all green before and after the refactor). They assert the
 HELPER CONTRACT: each helper's signature, return shape, log line, and
@@ -28,14 +28,14 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 # pynput / pynput.keyboard / pyperclip are mocked at collection time by
-# tests/clipboard/conftest.py (single source of truth — dedup).
+# tests/clipboard/conftest.py (single source of truth, dedup).
 from voice_typer.server import clipboard as clip_mod  # noqa: E402
 from voice_typer.server.clipboard import (
     ClipboardManager,  # noqa: E402
 )
 
 # _MAX_PENDING_RESTORES lives in clipboard.restore and is re-exported by
-# clipboard.manager (NOT by the package __init__ — it raises AttributeError
+# clipboard.manager (NOT by the package __init__, it raises AttributeError
 # there). Import via the manager submodule.
 from voice_typer.server.clipboard.restore import (  # noqa: E402
     _MAX_PENDING_RESTORES,
@@ -126,7 +126,7 @@ class TestRegisterPendingRestore:
             assert entry in clip_mod._pending_restores
 
     def test_cap_hit_logs_warning_on_force_restore_failure(self, caplog):
-        """E13: errors are NEVER suppressed — force-restore failure is logged."""
+        """E13: errors are NEVER suppressed, force-restore failure is logged."""
         cm = make_clipboard_manager()
         broken_snap = make_clipboard_snapshot()
         broken_snap.restore = MagicMock(side_effect=RuntimeError("clipboard locked"))
@@ -163,7 +163,7 @@ class TestSpawnRestoreDaemon:
             mock_thread_cls.return_value.start.assert_called_once()
 
     def test_rolls_back_orphan_entry_on_thread_start_failure(self):
-        """E13: no silent failure — OSError / RuntimeError on Thread.start
+        """E13: no silent failure, OSError / RuntimeError on Thread.start
         removes the orphaned entry from _pending_restores so the snapshot
         doesn't leak for the process lifetime."""
         cm = make_clipboard_manager()
@@ -226,7 +226,7 @@ class TestCheckPynputAvailable:
             patch.object(clip_mod, "log") as mock_log,
         ):
             assert cm._check_pynput_available() is False
-            mock_log.warning.assert_called_once_with("[CLIPBOARD] pynput unavailable — cannot paste")
+            mock_log.warning.assert_called_once_with("[CLIPBOARD] pynput unavailable, cannot paste")
 
 
 # ===========================================================================
@@ -410,7 +410,7 @@ class TestCheckTargetSafety:
             is_safe, hwnd = cm._check_target_safety()
         assert is_safe is False
         assert hwnd is None
-        mock_log.info.assert_called_once_with("[CLIPBOARD] Paste blocked — security-sensitive window in foreground")
+        mock_log.info.assert_called_once_with("[CLIPBOARD] Paste blocked: security-sensitive window in foreground")
 
 
 # ===========================================================================
@@ -464,7 +464,7 @@ class TestCheckImeComposition:
         assert result is False
         # E13: log line preserved verbatim.
         info_calls = [c for c in mock_log.info.call_args_list]
-        assert any("Paste deferred — IME composition in progress" in str(c) for c in info_calls)
+        assert any("Paste deferred. IME composition in progress" in str(c) for c in info_calls)
         mock_event_bus.publish.assert_called_once()
         pub_args, _ = mock_event_bus.publish.call_args
         assert pub_args[0]["type"] == "paste_deferred"
@@ -519,7 +519,7 @@ class TestPostDelayRecheck:
             assert cm._post_delay_recheck(0.1) is False
         mock_time.sleep.assert_called_once_with(0.1)
         mock_log.info.assert_called_once_with(
-            "[CLIPBOARD] Paste blocked — foreground target became unsafe during paste delay"
+            "[CLIPBOARD] Paste blocked: foreground target became unsafe during paste delay"
         )
 
 
@@ -816,7 +816,7 @@ class TestDispatchKeystroke:
             result = cm._dispatch_keystroke(False, 0x12345, None, "text")
         assert result is False
         mock_log.warning.assert_called_once_with(
-            "[CLIPBOARD] Auto-paste failed (SendInput partial success — UIPI may have blocked)"
+            "[CLIPBOARD] Auto-paste failed (SendInput partial success, UIPI may have blocked)"
         )
 
     def test_terminal_windows_aborts_on_toctou_failure(self):
@@ -1018,11 +1018,11 @@ class TestPasteOrchestratorStructure:
         code_loc = sum(1 for line in body.split("\n") if line.strip() and not line.strip().startswith("#"))
         # Target: ≤30 code LOC. Allow up to 50 total (incl. comments + blanks).
         assert code_loc <= 35, (
-            f"paste() body has {code_loc} code-only LOC — target is ≤30 (total {total_loc} LOC incl. comments/blanks)"
+            f"paste() body has {code_loc} code-only LOC, target is ≤30 (total {total_loc} LOC incl. comments/blanks)"
         )
 
     def test_all_8_spec_helpers_exist(self):
-        """Spec §3: 'Extract each into a focused helper' — 8 named helpers must exist."""
+        """Spec §3: 'Extract each into a focused helper', 8 named helpers must exist."""
         for name in (
             "_register_pending_restore",
             "_spawn_restore_daemon",

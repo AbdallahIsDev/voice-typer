@@ -4,11 +4,11 @@ Extracted from ``voice_typer/server/transcription.py`` (which stays the
 public facade and keeps thin one-line delegator methods on the engine
 class) so the fallback policy can be unit-tested in isolation:
 
-* :func:`with_gpu_fallback` — the GPU→CPU teardown/reload/retry
+* :func:`with_gpu_fallback`: the GPU→CPU teardown/reload/retry
   orchestration shared by the batch and streaming transcribe paths.
-* :func:`is_gpu_runtime_error` — the layered GPU/CUDA runtime-error
+* :func:`is_gpu_runtime_error`: the layered GPU/CUDA runtime-error
   classifier (class hierarchy → MRO → attributes → substring).
-* :func:`transcribe_with_fallback` — the public transcribe wrapper that
+* :func:`transcribe_with_fallback`: the public transcribe wrapper that
   pairs the inference-counter lock pattern with the fallback chain and
   the deferred-gc cleanup.
 
@@ -21,7 +21,7 @@ All engine-coupled state is dispatched through the ENGINE object
 ``engine._reload_under_lock()``) so instance- and class-level
 monkeypatches keep taking effect. The lock/GC choreography helpers
 themselves (``_run_deferred_gc``, ``_with_lock_and_deferred_gc``) stay
-in ``transcription.py`` — they are lock-coupled to the engine.
+in ``transcription.py``: they are lock-coupled to the engine.
 """
 
 from __future__ import annotations
@@ -57,7 +57,7 @@ def with_gpu_fallback(engine, inner, audio, *args, **kwargs):
     Non-GPU errors are re-raised unchanged. On a CPU device the
     GPU-error classifier short-circuits at the top of
     ``is_gpu_runtime_error`` (returns False), so the fallback never
-    fires — the original exception propagates.
+    fires, the original exception propagates.
     """
     try:
         return inner(audio, *args, **kwargs)
@@ -89,7 +89,7 @@ def with_gpu_fallback(engine, inner, audio, *args, **kwargs):
         # the lock via ``engine._pending_gc_collect`` (the caller's
         # ``_with_lock_and_deferred_gc`` or ``_run_deferred_gc`` call
         # fires them after the lock is released). Calling
-        # ``release_gpu_memory()`` here would be a no-op — the
+        # ``release_gpu_memory()`` here would be a no-op, the
         # ctranslate2 model still holds the CUDA context until
         # ``del engine._model`` runs below.
         with contextlib.suppress(Exception):
@@ -97,7 +97,7 @@ def with_gpu_fallback(engine, inner, audio, *args, **kwargs):
         engine._model = None
         engine._device = "cpu"
         engine._compute_type = "int8"
-        # CPU decode is the slow path — drop back to the snappy
+        # CPU decode is the slow path, drop back to the snappy
         # greedy beam when the width was on auto.
         engine._apply_auto_beam_size()
         engine._reload_under_lock()
@@ -117,14 +117,14 @@ def is_gpu_runtime_error(engine, exc: Exception) -> bool:
     module no longer imports ``torch``. The OOM classifier is kept
     separate from the CUDA classifier
     (:func:`voice_typer.server.asr_utils.is_cuda_error`) because
-    ``"out of memory"`` alone is too broad — it matches CPU RAM
+    ``"out of memory"`` alone is too broad, it matches CPU RAM
     exhaustion which should NOT trigger the GPU→CPU fallback.
     """
     if engine._device == "cpu":
         return False
     # 1. OOM check (replaces torch.cuda.OutOfMemoryError isinstance).
     #    ``is_oom_error`` is the shared classifier in
-    #    ``voice_typer.server.asr_utils`` — kept separate from the
+    #    ``voice_typer.server.asr_utils``: kept separate from the
     #    CUDA classifier so CPU RAM exhaustion does not false-positive.
     if is_oom_error(exc):
         return True
@@ -144,7 +144,7 @@ def is_gpu_runtime_error(engine, exc: Exception) -> bool:
         # ValueError: ctranslate2's import chain (transformers → PIL vision check)
         #   can raise ValueError("PIL.__spec__ is not set") in environments where
         #   PIL was imported via a non-standard path. This is environment noise,
-        #   not a real GPU error — fall through to the substring/MRO check below.
+        #   not a real GPU error, fall through to the substring/MRO check below.
         pass
     # 2. MRO-based class-name check (catches wrapped exceptions
     #    whose original class still appears in the MRO).
@@ -207,7 +207,7 @@ def transcribe_with_fallback(engine, audio, audio_stats: tuple[float, float, flo
     # perform deferred gc.collect() OUTSIDE the lock.
     # ``transcribe_with_fallback`` uses the inference-counter pattern
     # (lock released during transcription) so it can't use
-    # ``_with_lock_and_deferred_gc`` directly — call the shared
+    # ``_with_lock_and_deferred_gc`` directly: call the shared
     # helper instead.
     engine._run_deferred_gc()
     return result

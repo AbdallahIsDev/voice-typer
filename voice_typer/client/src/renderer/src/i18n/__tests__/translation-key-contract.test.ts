@@ -9,7 +9,7 @@
  * `npm run typecheck` with an error naming the bad key.
  *
  * The `// @ts-expect-error` directives below are TYPE-LEVEL assertions:
- * tsc MUST report an error on those lines — if the strict typing ever
+ * tsc MUST report an error on those lines, if the strict typing ever
  * regresses back to plain `string` (the original defect: any key
  * accepted, typos ship raw keys to production UI), the directives lose
  * their matching error and `tsc` FAILS the file ("Unused '@ts-expect-error'
@@ -20,7 +20,7 @@ import { describe, expect, it, vi } from "vitest";
 
 // Import t through the package barrel (not "@/i18n/translate" directly):
 // the barrel loads ./store before ./translate, which the module-level
-// `_invalidateResolvedCache("en")` call in store.ts requires — a direct
+// `_invalidateResolvedCache("en")` call in store.ts requires, a direct
 // translate-first import order deadlocks the ESM cycle (TDZ on
 // `_resolvedCache`). This mirrors how production code imports t().
 import { t } from "@/i18n/i18n";
@@ -46,28 +46,28 @@ const validChoiceBase: TranslationChoiceKey = "analytics.dayCountTooltip";
 /** A bare catalog key must also be a valid tChoice key (single-form fallback). */
 const validBareChoiceKey: TranslationChoiceKey = "common.lastUpdated";
 
-// @ts-expect-error — the typo'd flat path is absent from the catalog.
+// @ts-expect-error, the typo'd flat path is absent from the catalog.
 const invalidKey: TranslationKey = "microphoneTest.qualityNotApplicable";
 
-// @ts-expect-error — an unknown plural base is absent from the catalog.
+// @ts-expect-error, an unknown plural base is absent from the catalog.
 const invalidChoiceKey: TranslationChoiceKey = "not.a.plural.base";
 
 describe("t() compile-time catalog contract (type-level assertions)", () => {
 	it("accepts a real catalog key and rejects a typo'd path at compile time", () => {
 		// Valid: the full nested path exists in en.json (all 8 locales).
 		expect(t("microphoneTest.qualityFeedback.qualityNotApplicable")).toBe(
-			"N/A — transcription unavailable",
+			"N/A: transcription unavailable",
 		);
 
 		// The typo'd key (missing `qualityFeedback.` segment) resolves to
-		// the raw key at RUNTIME — the exact production bug the compile
+		// the raw key at RUNTIME, the exact production bug the compile
 		// guard exists to prevent. Kept as a dynamic (string-typed) key so
 		// this test can document the fallback behavior:
 		const typoKey: string = "microphoneTest.qualityNotApplicable";
 		expect(t(typoKey)).toBe("microphoneTest.qualityNotApplicable");
 
 		// The type-assertion constants above resolve to exactly the
-		// literals they declare — pinning both halves of the contract.
+		// literals they declare, pinning both halves of the contract.
 		expect(validKey).toBe(
 			"microphoneTest.qualityFeedback.qualityNotApplicable",
 		);

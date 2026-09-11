@@ -10,7 +10,7 @@
 //!
 //! Visibility contract:
 //! - `trigger_respawn_off_thread` + `cleanup_and_trigger_respawn`
-//!   are `pub(super)` — visible to the parent `ws` module (call
+//!   are `pub(super)`: visible to the parent `ws` module (call
 //!   sites in `spawn_writer_task`, `spawn_reader_task`,
 //!   `wait_for_auth_ok`) AND to the sibling `heartbeat` submodule
 //!   (call site in `spawn_heartbeat_task`).
@@ -48,12 +48,12 @@ type RespawnRequest = (tauri::AppHandle, Arc<SidecarState>, Option<u64>);
 
 // the supervisor queue is now a bounded `sync_channel(8)`
 // instead of an unbounded `channel()`. An unbounded channel has no
-// backpressure — a stalled supervisor (stuck in a long `respawn`
+// backpressure: a stalled supervisor (stuck in a long `respawn`
 // backoff) combined with a flapping sidecar (reader exits every 1-2s
 // triggering another respawn request) could enqueue an unbounded
 // number of `(AppHandle, Arc<SidecarState>)` tuples, each holding
 // strong references to the AppHandle and the full SidecarState (child
-// handle, ws_tx, pending map). Bounded to 8 — generous enough for
+// handle, ws_tx, pending map). Bounded to 8, generous enough for
 // normal operation (a healthy supervisor drains the queue in
 // milliseconds) but small enough to fail-fast on a stuck supervisor.
 // On full, the request is DROPPED (logged): the in-flight respawn
@@ -67,7 +67,7 @@ type RespawnRequest = (tauri::AppHandle, Arc<SidecarState>, Option<u64>);
 // thread spawned successfully; `None` means it failed (low memory,
 // RLIMIT_NPROC, sandbox restrictions, etc.) and callers should fall
 // back to a per-trigger `std::thread::spawn`. Critically, the failure
-// is stored ONCE inside `get_or_init` — the `OnceLock` is NOT
+// is stored ONCE inside `get_or_init`, the `OnceLock` is NOT
 // poisoned by a thread-spawn failure (which would happen with the old
 // `.expect()` form). All subsequent callers read the cached `None` and
 // use the fallback path without re-attempting the spawn (and without
@@ -77,7 +77,7 @@ type RespawnRequest = (tauri::AppHandle, Arc<SidecarState>, Option<u64>);
 // thread-spawn failure (RLIMIT_NPROC, sandbox, low memory), so a
 // single startup-time failure degraded the resilience layer to
 // per-trigger one-shot ``std::thread::spawn`` fallbacks for the
-// ENTIRE process lifetime — even after the resource pressure cleared.
+// ENTIRE process lifetime: even after the resource pressure cleared.
 // Switching to ``OnceLock<Mutex<Option<SyncSender>>>`` lets each
 // subsequent ``respawn_supervisor_sender()`` call re-attempt the
 // spawn when the cached sender is ``None``, mirroring a bounded-retry
@@ -109,7 +109,7 @@ static RESPAWN_SUPERVISOR_TX: OnceLock<
 //
 // This helper takes ownership (`app: AppHandle`, `state: Arc<SidecarState>`)
 // so callers pass `.clone()`d handles in and the helper moves them
-// into the spawned thread. Returns nothing — the supervisor is best-effort.
+// into the spawned thread. Returns nothing, the supervisor is best-effort.
 //
 // `pub(super)` so it's visible to the parent `ws` module (call sites
 // in `spawn_writer_task` + `spawn_reader_task` cleanup blocks) AND
@@ -121,7 +121,7 @@ pub(super) fn trigger_respawn_off_thread(
     // WS generation of the connection that observed the failure
     // (`None` for liveness/heartbeat triggers, which are
     // generation-agnostic). The supervisor re-checks this at DEQUEUE
-    // time — a request enqueued by a STALE generation (its socket died
+    // time: a request enqueued by a STALE generation (its socket died
     // while a newer reconnect was already being established) must NOT
     // kill the newer, healthy connection. Without this re-check the
     // late landing of a pre-success decision ping-pongs respawns
@@ -135,40 +135,40 @@ pub(super) fn trigger_respawn_off_thread(
     //
     // two failure modes are handled explicitly here so
     // the resilience layer is never permanently dead:
-    // 1. `respawn_supervisor_sender()` returns `None` — the long-lived
+    // 1. `respawn_supervisor_sender()` returns `None`: the long-lived
     // supervisor thread could not be spawned (low memory, RLIMIT_NPROC,
     // sandbox restrictions, etc.). Fall back to a one-shot
     //`std::thread::spawn` per trigger.
-    // 2. `tx.send(...)` returns `SendError` — the supervisor thread has
+    // 2. `tx.send(...)` returns `SendError`: the supervisor thread has
     // panicked (its receiver was dropped). Fall back to a one-shot
     //`std::thread::spawn` per trigger. Subsequent calls will
-    // also fall back here — the `OnceLock` holds a dead-but-not-cleared
+    // also fall back here: the `OnceLock` holds a dead-but-not-cleared
     // sender, so we keep using the per-trigger fallback. Best-effort.
     match respawn_supervisor_sender() {
         Some(tx) => match tx.try_send((app, state, expected_generation)) {
             Ok(()) => {}
             Err(std::sync::mpsc::TrySendError::Full((_app, _state, _gen))) => {
-                // supervisor queue is full (capacity=8) — the
+                // supervisor queue is full (capacity=8), the
                 // long-lived supervisor thread is already processing a
                 // respawn (or has stalled mid-respawn). DROP the request:
                 // the in-flight respawn will observe the same sidecar-down
                 // condition when it completes its reconnect cycle, so
                 // re-queuing is redundant. The dropped `(app, state)`
                 // tuple is logged at warn (not error) because this is the
-                // expected behavior under a flapping sidecar — the
+                // expected behavior under a flapping sidecar, the
                 // supervisor's `respawn_in_progress` compare_exchange
                 // already serializes concurrent respawns, so the dropped
                 // request would have no-op'd anyway when the supervisor
                 // got to it.
                 log::warn!(
-                    "[SUPERVISOR] respawn request queue full (capacity=8) — \
-                     dropping request — supervisor already processing)"
+                    "[SUPERVISOR] respawn request queue full (capacity=8): \
+                     dropping request: supervisor already processing)"
                 );
             }
             Err(std::sync::mpsc::TrySendError::Disconnected((app, state, _gen))) => {
                 log::error!(
                     "[SUPERVISOR] failed to enqueue respawn request to supervisor \
-                     thread (it may have panicked): disconnected — falling back to \
+                     thread (it may have panicked): disconnected, falling back to \
                      one-shot std::thread::spawn (fallback after supervisor disconnect)"
                 );
                 // Clear the cached sender so the next
@@ -179,7 +179,7 @@ pub(super) fn trigger_respawn_off_thread(
                 // supervisor thread panicked), so every subsequent
                 // respawn trigger pays the cost of cloning the dead
                 // sender + a failed `try_send` + a fresh
-                // `std::thread::spawn` fallback — instead of recovering
+                // `std::thread::spawn` fallback, instead of recovering
                 // to the steady-state long-lived-thread path.
                 if let Some(mutex) = RESPAWN_SUPERVISOR_TX.get() {
                     if let Ok(mut guard) = mutex.lock() {
@@ -197,7 +197,7 @@ pub(super) fn trigger_respawn_off_thread(
             // long-lived supervisor thread is unavailable. Fall
             // back to a per-trigger one-shot spawn.
             log::warn!(
-                "[SUPERVISOR] long-lived supervisor thread unavailable — using \
+                "[SUPERVISOR] long-lived supervisor thread unavailable: using \
                  one-shot std::thread::spawn fallback (long-lived thread unavailable)"
             );
             spawn_oneshot_respawn_thread(app, state, expected_generation);
@@ -215,7 +215,7 @@ pub(super) fn trigger_respawn_off_thread(
 /// `!Send` across an await). `tokio::spawn` requires `Send` futures,
 /// so we drive the `!Send` future on a dedicated std thread with its
 /// own `block_on` runtime. Each fallback call creates a new OS thread
-/// (~50µs) — acceptable given how rare the fallback is expected to be.
+/// (~50µs): acceptable given how rare the fallback is expected to be.
 ///
 /// If even this fallback spawn fails (extreme resource exhaustion),
 /// log loudly and give up; the resilience layer is degraded until the
@@ -230,13 +230,13 @@ fn spawn_oneshot_respawn_thread(
         .spawn(move || {
             tauri::async_runtime::block_on(async move {
                 // same stale-request guard as the long-lived supervisor
-                // loop below — the fallback path must not bypass it.
+                // loop below: the fallback path must not bypass it.
                 if let Some(gen) = expected_generation {
                     let current = state.ws_generation.load(Ordering::SeqCst);
                     if current != gen {
                         log::info!(
                             "[SUPERVISOR] dropping STALE one-shot respawn request \
-                             (request gen={}, current gen={}) — a newer WS connection \
+                             (request gen={}, current gen={}): a newer WS connection \
                              owns the link; killing it would ping-pong respawns",
                             gen,
                             current
@@ -246,7 +246,7 @@ fn spawn_oneshot_respawn_thread(
                 }
                 if let Err(e) = respawn(&app, &state).await {
                     log::error!(
-                        "[WS] supervisor respawn failed: {} — app may be in a degraded state",
+                        "[WS] supervisor respawn failed: {}, app may be in a degraded state",
                         e
                     );
                 }
@@ -254,7 +254,7 @@ fn spawn_oneshot_respawn_thread(
         })
     {
         log::error!(
-            "[SUPERVISOR] fallback std::thread::spawn failed: {} — respawn \
+            "[SUPERVISOR] fallback std::thread::spawn failed: {}, respawn \
              request dropped; resilience layer is degraded until manual relaunch",
             e
         );
@@ -278,15 +278,15 @@ fn respawn_supervisor_sender() -> Option<std::sync::mpsc::SyncSender<RespawnRequ
     let mut guard = match mutex.lock() {
         Ok(g) => g,
         Err(poisoned) => {
-            // recover from a poisoned mutex — the inner
+            // recover from a poisoned mutex, the inner
             // data may be stale but we can still attempt a fresh
             // spawn.
-            log::warn!("[SUPERVISOR] respawn-supervisor mutex poisoned — recovering");
+            log::warn!("[SUPERVISOR] respawn-supervisor mutex poisoned, recovering");
             poisoned.into_inner()
         }
     };
     if let Some(ref tx) = *guard {
-        // Cached sender is alive — clone (cheap; ``SyncSender`` is
+        // Cached sender is alive: clone (cheap; ``SyncSender`` is
         // designed for multi-producer cloning) and return.
         return Some(tx.clone());
     }
@@ -301,18 +301,18 @@ fn respawn_supervisor_sender() -> Option<std::sync::mpsc::SyncSender<RespawnRequ
                 // STALE-REQUEST GUARD: re-check the requesting
                 // connection's generation at DEQUEUE time. A request
                 // enqueued by generation G is obsolete once ANY newer
-                // reconnect (gen > G) has stored its own `ws_tx` — the
+                // reconnect (gen > G) has stored its own `ws_tx`, the
                 // newer connection proved liveness end-to-end, and
                 // killing the sidecar under it would murder a healthy
                 // link and start an infinite kill/restart ping-pong.
-                // (`None` requests — heartbeat liveness + auth-failure
-                // paths — are never skipped.)
+                // (`None` requests: heartbeat liveness + auth-failure
+                // paths: are never skipped.)
                 if let Some(gen) = expected_gen {
                     let current = state.ws_generation.load(Ordering::SeqCst);
                     if current != gen {
                         log::info!(
                             "[SUPERVISOR] dropping STALE respawn request \
-                             (request gen={}, current gen={}) — a newer WS \
+                             (request gen={}, current gen={}): a newer WS \
                              connection owns the link",
                             gen,
                             current
@@ -323,7 +323,7 @@ fn respawn_supervisor_sender() -> Option<std::sync::mpsc::SyncSender<RespawnRequ
                 tauri::async_runtime::block_on(async move {
                     if let Err(e) = respawn(&app, &state).await {
                         log::error!(
-                            "[WS] supervisor respawn failed: {} — app may be in a degraded state",
+                            "[WS] supervisor respawn failed: {}, app may be in a degraded state",
                             e
                         );
                     }
@@ -342,7 +342,7 @@ fn respawn_supervisor_sender() -> Option<std::sync::mpsc::SyncSender<RespawnRequ
             drop(guard);
             log::error!(
                 "[SUPERVISOR] failed to spawn long-lived respawn-supervisor \
-                 thread: {} — will retry on next call; using per-trigger \
+                 thread: {}, will retry on next call; using per-trigger \
                  std::thread::spawn fallback this call (long-lived thread spawn failed)",
                 e
             );
@@ -359,11 +359,11 @@ fn respawn_supervisor_sender() -> Option<std::sync::mpsc::SyncSender<RespawnRequ
 // pattern as the reader task's cleanup at the bottom of `reconnect_ws`).
 //
 // the prior comment claimed "at auth time no dispatch requests
-// have been queued yet" — this assumption is FALSE. `queue_auth_and_
+// have been queued yet": this assumption is FALSE. `queue_auth_and_
 // store_ws_tx` stores `ws_tx` BEFORE `wait_for_auth_ok` runs. Any
 // `dispatch` Tauri command invoked in that window (up to 3s auth
 // timeout) will clone `ws_tx` (Some), insert into `pending`,
-// `try_send` (succeeds — writer task is running), and await a
+// `try_send` (succeeds: writer task is running), and await a
 // response that will never come (server hasn't authed, frame is
 // dropped server-side). Drain pending here, mirroring the reader
 // task's cleanup block, so each orphaned oneshot gets a
@@ -408,7 +408,7 @@ pub(super) async fn cleanup_and_trigger_respawn(app: &tauri::AppHandle, state: &
         json!({"reason": "auth_failed_or_timeout"}),
     );
     // `None` generation: the auth-failure path has no connection
-    // generation to compare against — the sidecar must respawn
+    // generation to compare against: the sidecar must respawn
     // regardless of which reconnect (if any) is in flight.
     trigger_respawn_off_thread(app.clone(), state.clone(), None);
 }

@@ -4,16 +4,16 @@ The TCP transport's outbound send path (``ipc/sender.py:OutputMixin._send``)
 caps each frame at ``_TCP_MAX_OUTBOUND_BYTES`` (1 MiB). A frame that
 exceeds the cap is:
 
-1. **Dropped** — never written to ``tcp_client.write`` / ``sendall``.
-2. **Logged at ERROR** — ``"[IPC] outbound TCP frame exceeds %d bytes — dropping"``.
-3. **Pending snapshot re-merged** — the snapshot taken at the top of
+1. **Dropped**, never written to ``tcp_client.write`` / ``sendall``.
+2. **Logged at ERROR** (``"[IPC] outbound TCP frame exceeds %d bytes) dropping"``.
+3. **Pending snapshot re-merged**, the snapshot taken at the top of
    ``_send`` is re-merged into ``_pending_tcp`` so the dropped frame's
    would-be-drained entries survive for the next reconnect.
 
 These tests pin the cap boundary: frames strictly larger than the cap
 are rejected; frames exactly at the cap are accepted.
 
-Platform: runs on Linux (and all other platforms — the send path is
+Platform: runs on Linux (and all other platforms, the send path is
 platform-agnostic).
 """
 
@@ -82,7 +82,7 @@ class TestOversizedFrameRejected:
         with caplog.at_level(logging.ERROR, logger="voice_typer.server.handlers._log"):
             server._send(msg)
 
-        # The oversized frame must NOT have been sent — ``sendall`` must
+        # The oversized frame must NOT have been sent: ``sendall`` must
         # have ZERO calls (the frame was dropped before the write path).
         tcp_client.conn.sendall.assert_not_called()
 
@@ -96,7 +96,7 @@ class TestOversizedFrameRejected:
             f"and 'exceeds'; got {[(r.levelname, r.getMessage()) for r in error_records]!r}"
         )
 
-        # The pending snapshot must be re-merged — the 2 pre-existing
+        # The pending snapshot must be re-merged, the 2 pre-existing
         # entries must survive in ``_pending_tcp``.
         assert len(server._pending_tcp) == 2, (
             f"pending snapshot must be re-merged after the oversized drop; "
@@ -105,7 +105,7 @@ class TestOversizedFrameRejected:
         assert '{"pending": "old1"}' in server._pending_tcp
         assert '{"pending": "old2"}' in server._pending_tcp
 
-        # The oversized frame itself must NOT be in _pending_tcp — it
+        # The oversized frame itself must NOT be in _pending_tcp, it
         # would just be dropped again on the next attempt.
         oversized_line = json.dumps(msg, ensure_ascii=False, separators=(",", ":"))
         assert oversized_line not in server._pending_tcp, (
@@ -121,7 +121,7 @@ class TestFrameAtLimitAccepted:
 
     def test_frame_at_limit_is_sent(self):
         """A frame whose encoded byte count == ``_TCP_MAX_OUTBOUND_BYTES``
-        is accepted — ``sendall`` is called and the frame reaches the
+        is accepted: ``sendall`` is called and the frame reaches the
         wire."""
         server = _make_server()
         tcp_client = make_buffered_mock_tcp_client()
@@ -160,14 +160,14 @@ class TestFrameAtLimitAccepted:
 
         server._send(msg)
 
-        # The frame must have been sent — ``sendall`` must have been called
+        # The frame must have been sent: ``sendall`` must have been called
         # at least once (the frame itself; no pending entries to drain).
         tcp_client.conn.sendall.assert_called()
 
         # The client must still be alive (no error occurred).
         assert server._tcp_client is tcp_client, "client must stay alive when the frame is at the limit (not over)"
 
-        # _pending_tcp must be empty (no re-merge needed — the frame was
+        # _pending_tcp must be empty (no re-merge needed, the frame was
         # sent successfully and there were no pending entries).
         assert len(server._pending_tcp) == 0, (
             f"_pending_tcp must be empty after a successful at-limit send; got {len(server._pending_tcp)} entries"

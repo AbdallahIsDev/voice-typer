@@ -70,7 +70,7 @@ class TestVerifyTauriBinaryOrSkip:
         # Point the repo-root lookup at a dir with no manifest by
         # overriding the module constant path resolution via env.
         # Without VT_TAURI_MANIFEST the real repo-root manifest may
-        # exist — force a guaranteed-missing location instead.
+        # exist, force a guaranteed-missing location instead.
         monkeypatch.setenv("VT_TAURI_MANIFEST", str(tmp_path / "nope.json"))
         assert verify_tauri_binary_or_skip(binary) is False
 
@@ -138,7 +138,7 @@ class TestVerifyTauriBinaryOrSkip:
     def test_binary_read_failure_fails_closed(self, tmp_path, monkeypatch):
         """Binary unreadable at hash time → refuse to spawn (False)."""
         binary = tmp_path / "voice-typer-tauri"
-        # Do NOT create the file — read_bytes() raises FileNotFoundError.
+        # Do NOT create the file, read_bytes() raises FileNotFoundError.
         monkeypatch.setenv(
             "VT_TAURI_MANIFEST",
             _write_manifest(tmp_path, "voice-typer-tauri", _tauri_manifest_key(), "c" * 64),

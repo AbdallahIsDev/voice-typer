@@ -2,12 +2,12 @@
 
 Covers the three sides of the field's contract:
 
-1. Schema — the Python ``Config`` dataclass declares
+1. Schema, the Python ``Config`` dataclass declares
    ``sound_volume: float = 1.0`` (the pre-feature cue level).
-2. Allowlist — ``IPC_CONFIG_ALLOWLIST["sound_volume"]`` accepts floats
+2. Allowlist: ``IPC_CONFIG_ALLOWLIST["sound_volume"]`` accepts floats
    in [0.0, 1.0] and rejects out-of-range / wrong-type values at the
    IPC ``set_config`` boundary.
-3. Round-trip — ``validate_config_update`` validates the field exactly
+3. Round-trip: ``validate_config_update`` validates the field exactly
    like the dispatcher will use it.
 """
 

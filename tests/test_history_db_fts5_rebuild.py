@@ -8,7 +8,7 @@ data in ``transcriptions_fts_data``. ``VACUUM`` rebuilds the main DB
 file but does NOT rebuild FTS5 shadow tables. After ``clear_all`` (or
 after a large ``apply_retention`` sweep), dictated text remained
 recoverable from ``transcriptions_fts_data`` via sqlite3 CLI or
-forensic tools — defeating G4-M-05 / GDPR Art. 17 right-to-erasure.
+forensic tools, defeating G4-M-05 / GDPR Art. 17 right-to-erasure.
 
 The fix issues
 ``INSERT INTO transcriptions_fts(transcriptions_fts) VALUES('rebuild')``

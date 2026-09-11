@@ -1,4 +1,4 @@
-"""``Recorder`` — session-based microphone recording (Phase 4.5 split host).
+"""``Recorder``: session-based microphone recording (Phase 4.5 split host).
 
 Cross-submodule helpers and the mutable ``_resample_poly`` /
 ``_resample_poly_error`` / ``_scipy_preloader_thread`` globals route
@@ -31,7 +31,7 @@ from voice_typer.server.config import Config
 # re-exported for tests / back-compat; construction use lives on ``RecorderInitMixin`` now.
 from voice_typer.server.vad_processor import VadProcessor, VadState  # noqa: F401
 
-# lazy proxies — this module must NOT import numpy / sounddevice at import time.
+# lazy proxies: this module must NOT import numpy / sounddevice at import time.
 sd = lazy_module("sounddevice")
 np = lazy_module("numpy")
 
@@ -50,24 +50,24 @@ from . import _recorder_split  # noqa: E402
 # Collaborators owning the Phase 4.5 split bodies (pipeline helpers, audio
 # callback dispatch, device enumeration/prewarm, disconnect restart, format
 # helpers, init mixin, resampling, session state, stream lifecycle, VAD helpers).
-from .audio_pipeline import AudioPipeline  # noqa: F401, E402 — re-exported for tests
-from .capture import AudioCallbackDispatcher  # noqa: F401, E402 — re-exported for tests
-from .device_manager import DeviceManager  # noqa: F401, E402 — re-exported for tests
-from .device_prewarm import DevicePrewarm  # noqa: F401, E402 — re-exported for tests
-from .disconnect_handler import DisconnectHandler  # noqa: F401, E402 — re-exported for tests
-from .exceptions import (  # noqa: F401, E402 — re-exported for tests
+from .audio_pipeline import AudioPipeline  # noqa: F401, E402, re-exported for tests
+from .capture import AudioCallbackDispatcher  # noqa: F401, E402, re-exported for tests
+from .device_manager import DeviceManager  # noqa: F401, E402, re-exported for tests
+from .device_prewarm import DevicePrewarm  # noqa: F401, E402, re-exported for tests
+from .disconnect_handler import DisconnectHandler  # noqa: F401, E402, re-exported for tests
+from .exceptions import (  # noqa: F401, E402, re-exported for tests
     ResampleError,
     ResampleUnavailable,
     ResampleUnavailableError,
 )
-from .format import ensure_mono, prepare_audio, resample_chunk  # noqa: F401, E402 — re-exported for tests
+from .format import ensure_mono, prepare_audio, resample_chunk  # noqa: F401, E402, re-exported for tests
 from .recorder_init import RecorderInitMixin  # noqa: F401, E402
-from .resampling import (  # noqa: E402 — re-exported for tests (post-comment import)
-    _SCIPY_PRELOADER_JOIN_TIMEOUT_S,  # noqa: F401 — re-exported for tests
-    warm_up_resampler,  # noqa: F401 — re-exported for tests / delegation
+from .resampling import (  # noqa: E402, re-exported for tests (post-comment import)
+    _SCIPY_PRELOADER_JOIN_TIMEOUT_S,  # noqa: F401, re-exported for tests
+    warm_up_resampler,  # noqa: F401, re-exported for tests / delegation
 )
-from .session_state import SessionState  # noqa: F401, E402 — re-exported for tests
-from .stream_lifecycle import StreamLifecycle  # noqa: F401, E402 — re-exported for tests
+from .session_state import SessionState  # noqa: F401, E402, re-exported for tests
+from .stream_lifecycle import StreamLifecycle  # noqa: F401, E402, re-exported for tests
 from .vad_helpers import (  # noqa: F401, E402
     refresh_vad_caches as _refresh_vad_caches_fn,  # noqa: F401, E402
 )
@@ -77,7 +77,7 @@ from .vad_helpers import (  # noqa: F401, E402
 # + ``_worker_wake_event``) STAY on ``Recorder._audio_callback_dispatch``. Removed
 # dead code: ADR 0007 §3.5 AGC constants (Compressor filter), dead
 # ``_PREROLL_SECONDS`` (config ``preroll_seconds`` is authoritative), the dead-air
-# timeout (redundant with stop_on_silence_seconds — do NOT re-add), and the stale
+# timeout (redundant with stop_on_silence_seconds, do NOT re-add), and the stale
 # ``_DEFAULT_VAD_*`` mirrors / ``_vad_*`` property shims. XRUN ``_XRUN_*`` are
 # owned by :mod:`.audio_pipeline` (their only consumer).
 
@@ -90,7 +90,7 @@ DEFAULT_MAX_BUFFER_CHUNKS = 30000
 # Buffer-telemetry thresholds are OWNED by :mod:`.audio_pipeline` (their
 # only consumer); re-exported here so ``recording/__init__.py`` and any
 # ``recorder.X`` back-compat reads keep resolving (E7/P2 single source).
-from .audio_pipeline import (  # noqa: E402, F401 — re-exported for back-compat
+from .audio_pipeline import (  # noqa: E402, F401, re-exported for back-compat
     BUFFER_WARNING_THRESHOLD,
     TELEMETRY_LOG_INTERVAL,
 )
@@ -118,7 +118,7 @@ _AUDIO_WORKER_THREAD_NAME = "audio-worker"
 _AUDIO_WORKER_JOIN_TIMEOUT_S = 2.0
 _AUDIO_WORKER_DISCARD_JOIN_TIMEOUT_S = 1.0
 
-# IPC event worker — drains ``_event_queue`` off the audio worker thread;
+# IPC event worker, drains ``_event_queue`` off the audio worker thread;
 # started by ``start()``, stopped by ``stop()`` / ``discard()``.
 _EVENT_WORKER_THREAD_NAME = "event-worker"
 
@@ -178,7 +178,7 @@ class Recorder(RecorderInitMixin):
         thread_registry: Any | None = None,
     ):
         """Construct the Recorder via the focused ``_init_*`` helpers on
-        ``RecorderInitMixin`` — same attribute set and construction order as
+        ``RecorderInitMixin``: same attribute set and construction order as
         the historical monolithic constructor (zero behavior change)."""
         self._init_core_session_state(config, audio_processor, thread_registry)
         self._init_locks_and_flags()
@@ -192,7 +192,7 @@ class Recorder(RecorderInitMixin):
         self._init_event_queue()
         self._init_stream_format_state()
         # Device / disconnect-handler state declarations + collaborator
-        # constructions (collaborators only store a back-reference — safe here).
+        # constructions (collaborators only store a back-reference, safe here).
         self._setup_device_state_and_collaborators()
         self._init_silence_detection()
         self._register_scipy_preloader()
@@ -220,7 +220,7 @@ class Recorder(RecorderInitMixin):
 
     def shutdown_mic_watcher(self) -> None:
         """Stop the mic device-change watcher (delegator to ``DeviceManager``);
-        short-circuits when ``self._force_closed`` is set — a leaked worker may
+        short-circuits when ``self._force_closed`` is set, a leaked worker may
         still touch PortAudio, which is not safe for concurrent stream ops."""
         if self._force_closed:
             return
@@ -228,7 +228,7 @@ class Recorder(RecorderInitMixin):
 
     def __del__(self) -> None:
         """Best-effort cleanup; must never raise. Each attribute access happens
-        INSIDE its ``contextlib.suppress`` lambda — lookups evaluated while
+        INSIDE its ``contextlib.suppress`` lambda, lookups evaluated while
         building the step list would raise ``AttributeError`` on a partially
         constructed instance (``Recorder.__new__(Recorder)``)."""
         for step in (
@@ -269,14 +269,14 @@ class Recorder(RecorderInitMixin):
         # HOTKEY-CRASH: a stop/start cycle since scheduling replaced the stream.
         if _captured_generation != self._stop_generation:
             log.debug(
-                "[RECORDING] Disconnect handler skipped — stop_generation changed (%d != %d)",
+                "[RECORDING] Disconnect handler skipped, stop_generation changed (%d != %d)",
                 _captured_generation,
                 self._stop_generation,
             )
             return
-        # HOTKEY-CRASH: recording was deliberately stopped — don't restart.
+        # HOTKEY-CRASH: recording was deliberately stopped, don't restart.
         if not self._recording_event.is_set():
-            log.debug("[RECORDING] Disconnect handler skipped — recording was deliberately stopped")
+            log.debug("[RECORDING] Disconnect handler skipped, recording was deliberately stopped")
             return
 
         self._devices._device_disconnect_retries += 1
@@ -320,7 +320,7 @@ class Recorder(RecorderInitMixin):
             time.sleep(_retry_sleep)
 
         # ``_teardown_stream`` polls ``self._is_in_audio_callback`` for up to
-        # 300ms before ``close()`` (prevents PortAudio use-after-free — the
+        # 300ms before ``close()`` (prevents PortAudio use-after-free, the
         # handler is spawned FROM the audio callback/worker thread). ``force=True``
         # uses ``stream.abort()``: the device is KNOWN gone, ``stop()`` would
         # block on buffers that never drain; the CLEAN hotkey path keeps drain.
@@ -332,13 +332,13 @@ class Recorder(RecorderInitMixin):
         with self._stream_lifecycle_lock:
             if _captured_generation != self._stop_generation:
                 log.debug(
-                    "[RECORDING] Disconnect restart skipped — stop_generation changed (%d != %d)",
+                    "[RECORDING] Disconnect restart skipped, stop_generation changed (%d != %d)",
                     _captured_generation,
                     self._stop_generation,
                 )
                 return
             if not self._recording_event.is_set():
-                log.debug("[RECORDING] Disconnect restart skipped — recording was deliberately stopped")
+                log.debug("[RECORDING] Disconnect restart skipped, recording was deliberately stopped")
                 return
 
             # Restart tail; the handler re-checks the generation a third time
@@ -351,7 +351,7 @@ class Recorder(RecorderInitMixin):
         self._devices.stop_device_health_checker(timeout)
 
     # PERF-02 (c-review): max age (s) before cached ``_vad_enabled`` is
-    # re-evaluated. SAFETY NET only — the primary refresh path is
+    # re-evaluated. SAFETY NET only, the primary refresh path is
     # ``on_config_changed()`` (called by ``app._rebuild_audio_processor`` on
     # noise_filter_* / audio_preset / noise_suppression_method changes); the TTL
     # bounds staleness at 5s if a notification is ever missed.
@@ -373,7 +373,7 @@ class Recorder(RecorderInitMixin):
         warm_up_resampler(self)
 
     # Device-resolution / stream-open / SessionState / StreamLifecycle pure
-    # delegators REMOVED — call sites route through the owning collaborator.
+    # delegators REMOVED: call sites route through the owning collaborator.
 
     def _prewarm_device_cache(self) -> None:
         """Spawn a best-effort daemon thread to prewarm the device cache
@@ -398,12 +398,12 @@ class Recorder(RecorderInitMixin):
     def _secure_clear_session_caches(self) -> None:
         """zero cached audio arrays before they are dropped.
 
-        Pre-fix the bare-name call raised a ``NameError`` silently swallowed by
-        the broad ``except`` — secure-zeroing never ran. Import bound at module
-        top (``AttributeError`` if removed); call sites route through
-        the ``(OSError, ValueError)``
-        clause is narrow so NameError-class bugs surface. STAYS ON ``Recorder``
-        — pinned by ``tests/test_secure_clear_array.py``.
+         Pre-fix the bare-name call raised a ``NameError`` silently swallowed by
+         the broad ``except``: secure-zeroing never ran. Import bound at module
+         top (``AttributeError`` if removed); call sites route through
+         the ``(OSError, ValueError)``
+         clause is narrow so NameError-class bugs surface. STAYS ON ``Recorder``
+        , pinned by ``tests/test_secure_clear_array.py``.
         """
         try:
             if self._cached_resampled is not None and self._cached_resampled.size > 0:
@@ -524,7 +524,7 @@ class Recorder(RecorderInitMixin):
     # intentionally REMAINED (hybrid wrappers, real stale-worker restore logic).
 
     def _audio_callback_dispatch(self, indata: np.ndarray, frames: int, time_info: Any, status: Any) -> None:
-        """Real-time audio callback entry point — RT-safe path.
+        """Real-time audio callback entry point. RT-safe path.
 
         Body lives on ``AudioCallbackDispatcher.dispatch_callback_body``. The
         RT-safe literals ``_ring_buffer.append`` and ``_worker_wake_event`` STAY
@@ -539,7 +539,7 @@ class Recorder(RecorderInitMixin):
 
     # deleted pure delegators to ``AudioPipeline`` (disconnect detection, xrun
     # status, filter chain, locked buffer append, RMS/peak, VAD state machine,
-    # clipping emit) — ``AudioPipeline.process_audio_chunk`` calls its own
+    # clipping emit), ``AudioPipeline.process_audio_chunk`` calls its own
     # methods directly.
 
     def _process_audio_chunk(
@@ -550,7 +550,7 @@ class Recorder(RecorderInitMixin):
         status: Any,
         perf_ts: float,
     ) -> None:
-        """Process a single audio chunk — runs on the worker thread.
+        """Process a single audio chunk, runs on the worker thread.
 
         Body lives on :meth:`AudioPipeline.process_audio_chunk`; thin hybrid
         wrapper keeps call sites and getsource working. Also surfaces ring-buffer
@@ -572,7 +572,7 @@ class Recorder(RecorderInitMixin):
         # STATE-OWNERSHIP: the counter lives on the owning ``AudioPipeline``.
         self._audio_pipeline._total_buffered_samples -= int(samples)
 
-    # deleted pure delegator ``_secure_clear_caches`` — the bulk secure-clear
+    # deleted pure delegator ``_secure_clear_caches``, the bulk secure-clear
     # body lives on ``SessionState.secure_clear_caches(recorder)``; the smaller
     # ``_secure_clear_session_caches`` STAYS (source-inspection contract).
 
@@ -597,7 +597,7 @@ class Recorder(RecorderInitMixin):
     def current_duration_seconds(self) -> float:
         """Approximate duration (in seconds) of audio currently in the buffer.
 
-        Cheap O(1) scalar read, NO array copy — streaming-thread early-exit
+        Cheap O(1) scalar read, NO array copy, streaming-thread early-exit
         guard BEFORE :meth:`snapshot` (the 4 Hz poll skips the allocation when
         nothing new accumulated). Returns 0.0 when nothing recorded. Rate:
         ``_buffer_sr`` with ``_effective_sr`` fallback (mirrors take_snapshot).
@@ -609,14 +609,14 @@ class Recorder(RecorderInitMixin):
         sr = self._audio_pipeline._buffer_sr or self._effective_sr
         if not sr:
             return 0.0
-        # O(1) scalar read — maintained under the pipeline's ``_lock`` by
+        # O(1) scalar read, maintained under the pipeline's ``_lock`` by
         # ``append_to_buffer_locked``, reset by all reset paths. The
         # empty-buffer guard is the O(1) fast path (deque ``__bool__``); it
         # guards against a stale counter if a reset path ever forgets to zero.
         return self._audio_pipeline._total_buffered_samples / sr
 
     # deleted pure delegators ``_resample_chunk`` / ``_prepare_audio`` /
-    # ``_resample_audio_impl`` — bodies live in :mod:`.format` /
+    # ``_resample_audio_impl``: bodies live in :mod:`.format` /
     # :mod:`.resampling`; call sites invoke those functions directly.
 
     def discard(self) -> None:

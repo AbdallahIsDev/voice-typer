@@ -1,18 +1,18 @@
 """Hotkey spec parsing and key-name normalisation.
 
 Split out from the original ``native_hotkeys.py`` god-file in Phase 4.5
-() — see ``native_hotkeys/__init__.py`` for the package-level
+(): see ``native_hotkeys/__init__.py`` for the package-level
 re-export surface that preserves the legacy
 ``voice_typer.server.native_hotkeys`` import path.
 
 This module owns:
 
-- :func:`parse_hotkey_spec` — parse a pynput-style hotkey spec (e.g.
+- :func:`parse_hotkey_spec`: parse a pynput-style hotkey spec (e.g.
   ``<ctrl>+<alt>+v``) into the dict consumed by the wire-protocol
   matcher in :mod:`.base`.
-- :func:`_normalize_key_name` — convert a pynput-style key token
+- :func:`_normalize_key_name`: convert a pynput-style key token
   (e.g. ``page_up``) to the wire-protocol name (e.g. ``PageUp``).
-- :data:`log` — the package-level logger (``voice_typer.server.native_hotkeys``).
+- :data:`log`: the package-level logger (``voice_typer.server.native_hotkeys``).
   Defined here (rather than in :mod:`.base`) because :mod:`.base`
   imports from this module at top level; defining ``log`` here keeps
   the dependency graph acyclic.
@@ -49,7 +49,7 @@ def parse_hotkey_spec(spec: str) -> dict[str, Any] | None:
         tokenisation and alias resolution, then converts the resulting
         :class:`HotkeySpec` to the dict format consumers expect.
 
-        Platform-specific modifier collapsing — preserved for backward
+        Platform-specific modifier collapsing, preserved for backward
         compatibility with the wire-protocol matching logic in this
         module (``_on_modifier_event`` maps wire ``Cmd``/``Win``/``Super``
         events to ``"cmd"``, and ``<cmd>`` is expected to match
@@ -116,13 +116,13 @@ def _normalize_key_name(token: str) -> str:
     Key-name maps: this function is the canonical
     name-to-name transformer for the THREE independent key-name tables:
 
-      Frontend: KEY_CODE_TO_PYNPUT (hotkey-utils.ts) — e.code → pynput
-      Backend:  _VK_MAP (hotkeys.py) — pynput name → Win32 VK code
-      Native:   _normalize_key_name (here) — pynput name → wire name
+      Frontend: KEY_CODE_TO_PYNPUT (hotkey-utils.ts), e.code → pynput
+      Backend:  _VK_MAP (hotkeys.py), pynput name → Win32 VK code
+      Native:   _normalize_key_name (here), pynput name → wire name
 
     All three must agree on the set of names ("f1", "space",
     "caps_lock", "page_up", etc.). This function is the one to update
-    when adding a new key name — then update the other two tables in
+    when adding a new key name, then update the other two tables in
     parallel so they stay in sync.
     """
     t = token.lower().strip()
@@ -208,5 +208,5 @@ def _normalize_key_name(token: str) -> str:
     }
     if t in numpad_map:
         return numpad_map[t]
-    # Unknown — return as-is (will likely never match)
+    # Unknown, return as-is (will likely never match)
     return token

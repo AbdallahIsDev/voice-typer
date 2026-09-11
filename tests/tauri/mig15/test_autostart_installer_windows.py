@@ -13,14 +13,14 @@ The app autostart (``server_platform._enable_autostart_windows``) tries Task
 Scheduler FIRST (``_register_app_autostart_task`` which builds a
 LogonTrigger XML and calls ``task_scheduler._schtasks /Create``), then the
 Startup-folder .bat (admin-free, always processed by Explorer at logon),
-then the HKCU Run key last (AUTOSTART-ORDER-FIX — the Run key's raw command
+then the HKCU Run key last (AUTOSTART-ORDER-FIX, the Run key's raw command
 line can be rejected by the Windows 11 StartupApp launcher at logon; it
 was previously first and produced the broken PID-0-at-logon entries). (The
 former prewarm scheduled task was deleted with the prewarm binary it
-launched — master plan §6.2 P-1.)
+launched, master plan §6.2 P-1.)
 
 All paths:
-  - Use ``LogonTrigger`` (fires at user logon, not boot — interactive session
+  - Use ``LogonTrigger`` (fires at user logon, not boot, interactive session
     required for ``InteractiveToken`` + ``pythonw.exe``).
   - Run as the current user with ``LeastPrivilege`` (NO admin elevation).
   - Omit ``<UserId>`` so the task defaults to the registering (HKCU) user.
@@ -35,7 +35,7 @@ VALIDATE ON WINDOWS HOST:
 5. Run: schtasks /query /tn "com.voicetyper.autostart*" /v /fo LIST
    Expected: Trigger=At logon; Action=voice-typer-tauri.exe
    (Note: the task name includes an 8-char install-path hash suffix,
-   e.g. com.voicetyper.autostart_a1b2c3d4 — use the wildcard form above.)
+   e.g. com.voicetyper.autostart_a1b2c3d4, use the wildcard form above.)
 6. Sign out + sign back in → verify Voice Typer auto-launches
 7. Launch a second instance → verify it focuses the first (single-instance plugin)
 8. Uninstall via "Add or remove programs" → verify schtasks entry + Start Menu
@@ -94,7 +94,7 @@ def fake_winreg(monkeypatch):
     fake.KEY_READ = 0x20019
     fake.KEY_ALL_ACCESS = 0xF003F
     fake.REG_SZ = 1
-    # Methods — MagicMock so tests can assert call counts / configure returns.
+    # Methods. MagicMock so tests can assert call counts / configure returns.
     fake.OpenKey = MagicMock(return_value=MagicMock())
     fake.SetValueEx = MagicMock()
     fake.QueryValueEx = MagicMock(return_value=("cmd", 1))
@@ -134,7 +134,7 @@ def test_task_scheduler_xml_uses_logon_trigger_no_elevation():
     Scheduler entry with a LogonTrigger for the current user,
     InteractiveToken + LeastPrivilege (no admin elevation). (The former
     prewarm task XML builder was deleted with the prewarm binary it
-    launched — master plan §6.2 P-1 — leaving the app autostart task as
+    launched (master plan §6.2 P-1) leaving the app autostart task as
     the only Task Scheduler consumer.)
     """
     from voice_typer.server import server_platform
@@ -142,12 +142,12 @@ def test_task_scheduler_xml_uses_logon_trigger_no_elevation():
     xml_str = server_platform._build_app_autostart_task_xml()
     root = ET.fromstring(xml_str)
 
-    # LogonTrigger (fires at user logon — NOT Boot/Event/Calendar triggers).
+    # LogonTrigger (fires at user logon. NOT Boot/Event/Calendar triggers).
     triggers = root.find("ms:Triggers", _TASK_NS)
     assert triggers is not None, "XML must have <Triggers>"
     logon = triggers.find("ms:LogonTrigger", _TASK_NS)
     assert logon is not None, (
-        "must use <LogonTrigger> (not BootTrigger/EventTrigger) — interactive "
+        "must use <LogonTrigger> (not BootTrigger/EventTrigger), interactive "
         "session required for InteractiveToken + pythonw.exe"
     )
     assert logon.find("ms:Enabled", _TASK_NS).text == "true"
@@ -184,7 +184,7 @@ def test_enable_autostart_on_windows_uses_windows_path_not_plist_or_desktop(monk
     LaunchAgent plist or a Linux .desktop file.
 
     NOTE: the actual implementation prefers Task Scheduler FIRST, then the
-    Startup-folder .bat, then the HKCU Run key last — see
+    Startup-folder .bat, then the HKCU Run key last: see
     ``AUTOSTART-ORDER-FIX`` in ``server_platform._enable_autostart_windows``.
     All three mechanisms launch ``autostart_launcher.py`` (not a plist or
     .desktop).
@@ -229,7 +229,7 @@ def test_enable_autostart_on_windows_uses_windows_path_not_plist_or_desktop(monk
 
     assert result is True
     assert len(task_calls) == 1, "must call _register_app_autostart_task first (AUTOSTART-ORDER-FIX)"
-    assert len(runkey_calls) == 0, "HKCU Run key is LAST resort — not called when Task succeeds"
+    assert len(runkey_calls) == 0, "HKCU Run key is LAST resort, not called when Task succeeds"
     assert len(startup_calls) == 0, "Startup .bat must NOT be registered when Task Scheduler succeeds"
     assert len(macos_calls) == 0, "must NOT call _enable_autostart_macos (LaunchAgent plist) on Windows"
     assert len(linux_calls) == 0, "must NOT call _enable_autostart_linux (.desktop file) on Windows"
@@ -417,7 +417,7 @@ def test_installer_includes_sidecar_and_native_resources():
     resources_blob = "\n".join(resources)
     assert "native/windows-key-listener.exe" in resources_blob, (
         "resources must include native/windows-key-listener.exe "
-        "(ADR-0020 §6.4 — compiled WH_KEYBOARD_LL hook for dictation toggle)"
+        "(ADR-0020 §6.4, compiled WH_KEYBOARD_LL hook for dictation toggle)"
     )
 
 
@@ -431,7 +431,7 @@ def test_installer_creates_start_menu_and_desktop_shortcuts():
     explicit ``bundle.windows.nsis`` override that disables them, so the
     defaults apply. Additionally, ``server_platform.create_launcher_shortcut()``
     creates runtime .lnk shortcuts (Desktop + Start Menu) pointing at the
-    universal launcher (``autostart_launcher.py``) — these are separate
+    universal launcher (``autostart_launcher.py``), these are separate
     from the installer shortcuts and exist so the legacy Electron path
     also has Start Menu discoverability.
     """
@@ -446,7 +446,7 @@ def test_installer_creates_start_menu_and_desktop_shortcuts():
     # matches the runbook §5 "no admin required" expectation).
     if "installMode" in nsis_cfg:
         assert nsis_cfg["installMode"] == "currentUser", (
-            "NSIS installMode must be currentUser (per-user, no admin — matches voice-typer.manifest asInvoker)"
+            "NSIS installMode must be currentUser (per-user, no admin, matches voice-typer.manifest asInvoker)"
         )
     # No explicit shortcut suppression (Tauri v2 has no such key, but guard
     # against future configs that might add one).
@@ -518,7 +518,7 @@ def test_single_instance_plugin_enforced():
     if setup_idx != -1:
         assert single_instance_idx < setup_idx, (
             "single-instance plugin must be registered BEFORE the .setup() "
-            "hook (where the sidecar is spawned) — ADR-0020 §12 ordering"
+            "hook (where the sidecar is spawned), ADR-0020 §12 ordering"
         )
 
     # 4. The callback focuses the existing main window.

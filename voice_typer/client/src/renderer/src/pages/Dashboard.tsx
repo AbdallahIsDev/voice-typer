@@ -4,15 +4,15 @@
 // `./dashboard/components/`. LOC history: 732 (pre-split) → <150 (post-split).
 //
 // Analytics layout:
-//   1. Range selector (Today / 7 Days / 30 Days / All Time) — drives
+//   1. Range selector (Today / 7 Days / 30 Days / All Time), drives
 //      the stat cards AND the chart together (single source: one
-//      history sample, UTC-correct day bucketing — see the hook).
+//      history sample, UTC-correct day bucketing, see the hook).
 //   2. Four range-aware stat cards with trend indicators vs the
 //      previous period of the same length.
 //   3. The activity chart (hourly for Today, daily otherwise) with a
 //      y-axis, gridlines, and zero-vs-no-data distinction.
 //   4. Derived-metric highlights (avg chars, longest session, peak
-//      weekday) — only metrics the data actually supports.
+//      weekday), only metrics the data actually supports.
 //   5. A visually demoted "Current Setup" section (Model / Device /
 //      Language) so system/config info doesn't compete with usage
 //      metrics for attention.
@@ -67,7 +67,7 @@ import { useDashboardData } from "./dashboard/hooks/useDashboardData";
 // Hidden share-image capture target container style.
 //
 // Hoisted to a module-level constant so the object identity is stable
-// across renders — a fresh inline `style={{...}}` literal on every
+// across renders, a fresh inline `style={{...}}` literal on every
 // render breaks `React.memo` on the share-image subtree (each render
 // produces a new object reference, forcing a re-render even when the
 // underlying stats haven't changed). The container is position:absolute
@@ -125,7 +125,7 @@ export default function DashboardPage() {
 		copyImageToClipboard,
 		revealInFolder,
 	} = useStatsShare();
-	// Live theme palette for the share image — re-reads when the theme
+	// Live theme palette for the share image, re-reads when the theme
 	// changes so the exported PNG always matches the active preset.
 	const themePalette = useThemePalette();
 
@@ -218,7 +218,7 @@ export default function DashboardPage() {
 					)}
 			</PageHeading>
 
-			{/* amber keyboard-permission banner — placed
+			{/* amber keyboard-permission banner, placed
 				immediately under PageHeading so the user sees the "click to
 				fix" prompt before scrolling into the analytics cards. Renders
 				null when permission is granted / not needed, so the layout is
@@ -248,7 +248,7 @@ export default function DashboardPage() {
 			) : (
 				<div className="flex flex-col gap-6">
 					<div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-						{/* Single dictations card — DATA-CONSISTENCY fix: the
+						{/* Single dictations card, DATA-CONSISTENCY fix: the
 						    old "Dictations" card (window count from the
 						    500-row history sample) and the range-blind
 						    "Total Dictations" card (true all-time row count
@@ -262,7 +262,7 @@ export default function DashboardPage() {
 						    Time the true count is used so the card is never
 						    sample-capped. */}
 						<StatCard
-							// Plain label (no range suffix) — the TimeRangeSelector
+							// Plain label (no range suffix), the TimeRangeSelector
 							// + the chart's subtitle already state the active
 							// window; the suffix made this the only truncating
 							// label in the row ("Total Dictations (7 D…").
@@ -291,7 +291,7 @@ export default function DashboardPage() {
 									: undefined
 							}
 						/>
-						{/* Characters — reuses the Home page Characters card's
+						{/* Characters, reuses the Home page Characters card's
 						    formatter (formatCompactNumber from StatCards) so
 						    the K-abbreviation + rounding config carries over
 						    unchanged; wired to the same range-filtered char
@@ -310,7 +310,7 @@ export default function DashboardPage() {
 
 					<ActivityChart range={range} activity={activity} />
 
-					{/* Derived metrics — card-styled row directly below the
+					{/* Derived metrics, card-styled row directly below the
 						chart (Avg chars / Longest session / Corrections). */}
 					<div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
 						<QuickInfoCard
@@ -319,7 +319,7 @@ export default function DashboardPage() {
 							value={period.avgCharsPerDictation.toLocaleString(getLocale())}
 						/>
 						<QuickInfoCard
-							// Stopwatch (not a clock) — the top-row Recording
+							// Stopwatch (not a clock), the top-row Recording
 							// Time card already uses Time02Icon; a stopwatch
 							// reads as "longest single session" at a glance.
 							icon={StopWatchIcon}
@@ -341,7 +341,7 @@ export default function DashboardPage() {
 						/>
 					</div>
 
-					{/* Current Setup — system/config info, demoted below the
+					{/* Current Setup, system/config info, demoted below the
 						usage analytics so it doesn't compete for attention. */}
 					<section
 						className="flex flex-col gap-2.5"
@@ -361,7 +361,7 @@ export default function DashboardPage() {
 							/>
 							<QuickInfoCard
 								muted
-								// Chip/processor icon — reads as "compute device".
+								// Chip/processor icon, reads as "compute device".
 								icon={CpuIcon}
 								label={t("analytics.device")}
 								value={
@@ -370,7 +370,7 @@ export default function DashboardPage() {
 							/>
 							<QuickInfoCard
 								muted
-								// Classic globe (meridian + latitude lines) — the
+								// Classic globe (meridian + latitude lines), the
 								// previous circle-with-contours icon read as an
 								// indistinct blob at 20px.
 								icon={Globe02Icon}
@@ -388,7 +388,7 @@ export default function DashboardPage() {
 				</div>
 			)}
 
-			{/* Hidden share-image capture target (no clipPath — EXPORT-FIX). */}
+			{/* Hidden share-image capture target (no clipPath, EXPORT-FIX). */}
 			<div ref={imageRef} aria-hidden style={SHARE_IMAGE_CAPTURE_STYLE}>
 				{shareStats && (
 					<StatsShareImage stats={shareStats} palette={themePalette} />

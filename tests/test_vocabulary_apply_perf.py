@@ -45,7 +45,7 @@ def _apply_to_text_source() -> str:
 
 class TestSingleTokenizationPass:
     """``str.split`` + ``" ".join`` run at most once per
-    ``apply_to_text`` call (not 4 times — once per word-level
+    ``apply_to_text`` call (not 4 times, once per word-level
     category).
 
     Built-in ``str.split`` / ``str.join`` cannot be monkeypatched
@@ -73,10 +73,10 @@ class TestSingleTokenizationPass:
 
     def test_no_inline_re_sub_or_re_match(self, tmp_path) -> None:
         """The word-level path must NOT call ``re.sub`` or
-        ``re.match`` directly — it must use the precompiled
+        ``re.match`` directly, it must use the precompiled
         ``_RE_MISSPELL_WRAP`` pattern imported from text_cleanup and the
         MEMOIZED ``_token_key`` normalizer (text_cleanup's lru_cache'd
-        wrapper over the precompiled ``_RE_TOKEN_KEY`` regex — the
+        wrapper over the precompiled ``_RE_TOKEN_KEY`` regex, the
         single authoritative definition, shared with streaming).
         Inline ``re.sub``/``re.match`` incur a per-call re-cache lookup
         (200 lookups/dictation for 50 words × 4 categories); the
@@ -86,12 +86,12 @@ class TestSingleTokenizationPass:
         src = _apply_to_text_source()
         assert "_token_key(" in src, "apply_to_text must use text_cleanup's memoized _token_key normalizer"
         assert "_RE_MISSPELL_WRAP" in src, "apply_to_text must import _RE_MISSPELL_WRAP"
-        # No bare re.sub / re.match calls in the source — the
+        # No bare re.sub / re.match calls in the source, the
         # precompiled patterns' .sub() / .match() methods are used
         # instead (no re-cache lookup).
         assert "re.sub(" not in src, (
             "apply_to_text must use the precompiled/memoized text_cleanup helpers, "
-            "not re.sub() — re.sub incurs a per-call re-cache lookup"
+            "not re.sub(), re.sub incurs a per-call re-cache lookup"
         )
         assert "re.match(" not in src, "apply_to_text must use _RE_MISSPELL_WRAP.match(), not re.match()"
 
@@ -151,7 +151,7 @@ class TestNoSnapshotOverAllocation:
 
     def test_empty_category_skipped(self, tmp_path) -> None:
         """Empty categories must be skipped via
-        ``if not entries: continue`` — no per-token lookup overhead
+        ``if not entries: continue``, no per-token lookup overhead
         for categories with no entries (common for the bundled
         defaults where ``names`` and ``products`` are typically empty)."""
         vm = _make_vocab(tmp_path)
@@ -171,7 +171,7 @@ class TestNoSnapshotOverAllocation:
 
 class TestSequentialSemanticsPreserved:
     """Regression guard: the single-tokenization-pass rewrite
-    must preserve the original sequential semantics — a misspelling
+    must preserve the original sequential semantics, a misspelling
     corrected to a term that's then in technical_terms is further
     corrected by the technical_terms pass."""
 
@@ -211,7 +211,7 @@ class TestCombinedAlternationPhrasePass:
     Pinned contracts:
     * one ``subn`` call site in ``apply_to_text`` (no per-entry loop);
     * no intra-category cascade (a replacement that introduces a
-      sibling entry's original is NOT re-substituted — single pass
+      sibling entry's original is NOT re-substituted, single pass
       scans the original text);
     * cross-category order preserved (phrase_corrections before
       extra_word_patterns, then the word-level dict pass);

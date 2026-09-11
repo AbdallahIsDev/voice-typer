@@ -4,7 +4,7 @@ This module exists to break the ``sys.modules`` registration hack that
 ``ipc_server.py`` historically used to survive being loaded as
 ``__main__`` (``python -m voice_typer.server.ipc_server``).  When the
 file is loaded as ``__main__``, Python registers it under the name
-``"__main__"`` only — NOT under its canonical dotted name.  Lazy
+``"__main__"`` only. NOT under its canonical dotted name.  Lazy
 imports elsewhere (``providers.py``, ``sidecar_ws.py``, ``app.py``,
 ``__main__.py``) that do ``from voice_typer.server.ipc_server import X``
 would, without the hack, trigger a FRESH import of ``ipc_server.py``
@@ -23,14 +23,14 @@ working unchanged.
 
 What lives here (and why):
 
-- ``log`` — the IPC server's logger.  ``logging.getLogger`` returns a
+- ``log``: the IPC server's logger.  ``logging.getLogger`` returns a
   process-wide singleton by name, so importing the same object from
   ``_helpers`` vs. defining it inline in ``ipc_server.py`` is
   observably identical.  Moving it here means a duplicate-load of
   ``ipc_server.py`` (one as ``__main__``, one as canonical) does NOT
-  create two logger objects — both modules bind the same singleton.
+  create two logger objects, both modules bind the same singleton.
 
-- ``_READONLY_COMMANDS`` — re-exported from
+- ``_READONLY_COMMANDS``: re-exported from
   :mod:`voice_typer.server.ipc.registry` (the canonical source).
   Previously defined inline here as a legacy duplicate; the duplicate
   was deleted by the registry unification so the two locations cannot silently
@@ -39,7 +39,7 @@ What lives here (and why):
   callers keep working unchanged; both ``ipc_server.py`` and
   ``ipc._helpers`` reference the SAME frozenset object.
 
-- ``_push_event_now`` — thin shim over :func:`event_bus.publish`.
+- ``_push_event_now``: thin shim over :func:`event_bus.publish`.
   Domain modules and tests historically import this from
   ``ipc_server``; moving the definition here preserves the public
   import path while ensuring both load modes share the same function
@@ -47,22 +47,22 @@ What lives here (and why):
 
 What stays in ``ipc_server.py`` (and why):
 
-- ``IPCServer`` class — the 1700-line mixin composition.  Moving it
+- ``IPCServer`` class, the 1700-line mixin composition.  Moving it
   here would be a much larger refactor and would break the
   :mod:`tests.test_dead_code_stays_removed` invariant that
   ``IPCServer`` is NOT re-exported from the ``ipc`` package.  The
   duplicate-load concern is mitigated by the fact that the canonical
   ``IPCServer`` (instantiated via :func:`providers.build_ipc_server`)
-  is the only one ever instantiated — the ``__main__``-mode copy is
+  is the only one ever instantiated, the ``__main__``-mode copy is
   dead code whose class object is never used.
 
-- ``main`` / ``parse_ipc_args`` / ``_set_process_metadata`` — the
+- ``main`` / ``parse_ipc_args`` / ``_set_process_metadata``, the
   process entry-point shims.  Same rationale: only one is ever
   invoked (the ``__main__``-mode ``main`` is the entry point; the
   canonical ``main`` is the import-target for ``app.main`` /
   ``__main__.py``).
 
-- ``_get_rate_limiter`` — MUST stay in ``ipc_server.py`` because
+- ``_get_rate_limiter``: MUST stay in ``ipc_server.py`` because
   :mod:`tests/server/test_ipc_rate_limiter_chokepoints.py` monkey-patches
   ``ipc_server._RateLimiter`` and relies on the function looking up
   ``_RateLimiter`` from ``ipc_server``'s module globals at call time.
@@ -107,7 +107,7 @@ _STDIN_IPC_ENV_VAR: str = "VOICE_TYPER_ALLOW_STDIN_IPC"
 # a singleton by name, so importing this object from ``_helpers`` yields
 # the same logger that ``ipc_server.py``'s inline definition produced.
 # Tests that do ``patch.object(ipc_server.log, "error")`` are patching
-# the METHOD on the logger OBJECT — both ``ipc_server.log`` and
+# the METHOD on the logger OBJECT, both ``ipc_server.log`` and
 # ``_helpers.log`` reference the same object, so the patch is observed
 # regardless of which alias the caller used.
 log = logging.getLogger("voice_typer.server.ipc_server")
@@ -128,7 +128,7 @@ def _push_event_now(msg: dict) -> bool:
     previously pushed to a single global callable.  When
         two IPCServer instances existed in the same process (tests +
         production), the second start() would stomp the first's push fn,
-        and the first's stop() would clear the global entirely — leaving
+        and the first's stop() would clear the global entirely, leaving
         the second server unable to push.  We now fan out to ALL servers
         in the registry so both receive the event.
     """

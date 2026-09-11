@@ -6,13 +6,13 @@
  * covers the `command_failed` envelope) to exercise ALL 4 structured
  * error codes declared in the `PythonCallErrorCode` union:
  *
- *   - `backend_not_connected` — when `state.tcpSocket === null` and
+ *   - `backend_not_connected`, when `state.tcpSocket === null` and
  *     `pythonExitedEarly === false`.
- *   - `backend_exited_early` — when `state.tcpSocket === null` and
+ *   - `backend_exited_early`, when `state.tcpSocket === null` and
  *     `pythonExitedEarly === true`.
- *   - `command_timeout` — when `sendToPython` rejects with an error
+ *   - `command_timeout`, when `sendToPython` rejects with an error
  *     matching `/timeout/i`.
- *   - `command_failed` — when `sendToPython` rejects with any other
+ *   - `command_failed`, when `sendToPython` rejects with any other
  *     error.
  *
  * Also verifies the renderer-visible `_error` / `_code` envelope
@@ -56,7 +56,7 @@ vi.mock("../python", () => ({
 	sendToPython: mocks.sendToPython,
 }));
 
-// Default mock state — overridden per-test via `_setMockState`.
+// Default mock state, overridden per-test via `_setMockState`.
 const _mockState = {
 	tcpSocket: {} as unknown,
 	pythonExitedEarly: false,
@@ -65,7 +65,7 @@ vi.mock("../state", () => ({
 	state: _mockState,
 }));
 
-describe("XS-78: python-call-handler.ts — structured {_error, _code} envelope", () => {
+describe("XS-78: python-call-handler.ts, structured {_error, _code} envelope", () => {
 	let handler: (
 		event: unknown,
 		msg: Record<string, unknown>,
@@ -187,7 +187,7 @@ describe("XS-78: python-call-handler.ts — structured {_error, _code} envelope"
 		// PythonIpcError("backend_not_connected"). The catch-block
 		// classification must pass the code through so the renderer
 		// sees the SAME curated "lost connection" message the
-		// pre-flight checks produce — not the generic
+		// pre-flight checks produce, not the generic
 		// "command failed" fallback.
 		const { PythonIpcError } = await import("../python/errors");
 		mocks.sendToPython.mockRejectedValueOnce(
@@ -201,7 +201,7 @@ describe("XS-78: python-call-handler.ts — structured {_error, _code} envelope"
 
 		expect(result._code).toBe("backend_not_connected");
 		// Per-code English fallback (HU-26: the raw message is NOT
-		// forwarded — the curated per-code message replaces it).
+		// forwarded, the curated per-code message replaces it).
 		expect(result._error).toBe("Python backend is not connected.");
 		expect(result._error).not.toContain("socket closed");
 	});
@@ -243,7 +243,7 @@ describe("XS-78: python-call-handler.ts — structured {_error, _code} envelope"
 		// handle-message.ts casts BACKEND-emitted error codes
 		// (rate_limited, unknown_command, internal_error, ...) to
 		// PythonCallErrorCode even though they live outside the
-		// union — at runtime `err.code` can therefore be a
+		// union, at runtime `err.code` can therefore be a
 		// non-union string. An unguarded pass-through would leak
 		// that code into `_code` and break the ERROR_MESSAGES
 		// lookup (undefined _error). The membership check against
@@ -279,7 +279,7 @@ describe("XS-78: python-call-handler.ts — structured {_error, _code} envelope"
 
 		expect(result._code).toBe("command_failed");
 		//the raw Python traceback MUST NOT be forwarded to
-		// the renderer — the generic message replaces it.
+		// the renderer, the generic message replaces it.
 		expect(result._error).toBe("Python command failed.");
 		expect(result._error).not.toContain("/home/user/.voice-typer");
 		expect(result._error).not.toContain("user_utterance");
@@ -317,7 +317,7 @@ describe("XS-78: python-call-handler.ts — structured {_error, _code} envelope"
 		const result = await handler({}, { type: "get_config" });
 
 		// Success path: the result is forwarded as-is (NO {_error, _code}
-		// envelope — that's only for the failure paths).
+		// envelope, that's only for the failure paths).
 		expect(result).toBe(pythonResult);
 		expect(mocks.loggerWarn).not.toHaveBeenCalled();
 	});

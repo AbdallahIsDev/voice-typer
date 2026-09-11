@@ -7,7 +7,7 @@ invalidation works correctly on Linux (``/dev/snd`` polling), macOS
 
 The Windows ``WM_DEVICECHANGE`` path is exercised on Linux CI by
 mocking ``ctypes.windll`` and ``ctypes.WINFUNCTYPE`` (which don't
-exist on non-Windows) — following the same pattern as
+exist on non-Windows), following the same pattern as
 ``tests/clipboard/win32/test_win32_copy_paste.py``. The macOS path is
 exercised by mocking ``sounddevice`` in ``sys.modules``.
 """
@@ -73,14 +73,14 @@ class TestMicrophoneDeviceWatcher:
         ):
             watcher.start()
             try:
-                # Let the watcher read the initial state — wait until at
+                # Let the watcher read the initial state, wait until at
                 # least one listdir call has occurred (confirms the
                 # baseline was captured). The watcher's on_change sets
                 # callback_event on the first device change.
                 # The first poll captures the baseline (one entry) and
                 # sets callback_event once the change is detected.
                 wait_for(lambda: callback_event.is_set(), timeout=2.0)
-                # Simulate a device plug — entries change.
+                # Simulate a device plug, entries change.
                 state["entries"] = ["controlC0", "pcmC0D0c"]
                 # The next poll (within 50ms) should fire the callback.
                 assert callback_event.wait(timeout=2.0), "Callback was not invoked within 2s of /dev/snd change"
@@ -130,7 +130,7 @@ class TestMicrophoneDeviceWatcher:
     def test_watcher_skips_unsupported_platform(self):
         """On an unsupported platform, ``start()`` does not spawn a thread."""
         watcher = MicrophoneDeviceWatcher(on_change=lambda: None)
-        # "freebsd" is not in (windows, linux, macos) — exercises the
+        # "freebsd" is not in (windows, linux, macos), exercises the
         # unsupported-platform skip path. (macOS is now supported via
         # _run_macos, so it can no longer be used here.)
         watcher._platform = "freebsd"
@@ -154,7 +154,7 @@ class TestMicrophoneDeviceWatcher:
         ):
             watcher.start()
             first_thread = watcher._thread
-            watcher.start()  # second call — should be a no-op
+            watcher.start()  # second call, should be a no-op
             assert watcher._thread is first_thread
             watcher.stop()
 
@@ -165,14 +165,14 @@ class TestMicrophoneDeviceWatcher:
         # adaptively for the watcher's *initial* state read before
         # triggering a change. The original test used fixed
         # ``time.sleep(0.15)`` + ``time.sleep(0.3)`` wall-clock
-        # waits — flaky on slow CI. We replace both with adaptive
+        # waits, flaky on slow CI. We replace both with adaptive
         # polls: (1) wait for the first listdir call (initial state
         # captured), then (2) wait for the warning to appear in
         # caplog.records after we trigger the change.
         listdir_calls = {"count": 0}
 
         def raising_callback() -> None:
-            # Raise on every call — the watcher should log and continue.
+            # Raise on every call, the watcher should log and continue.
             raise RuntimeError("boom from callback")
 
         real_make_listdir_mock = _make_listdir_mock
@@ -221,7 +221,7 @@ class TestMicrophoneDeviceWatcher:
                 state["entries"] = ["controlC0", "pcmC0D0c"]
 
                 # Step 3: adaptively poll for the warning to appear
-                # in caplog — returns as soon as the watcher fires
+                # in caplog, returns as soon as the watcher fires
                 # the callback, logs the warning, and continues. No
                 # fixed wall-clock budget.
                 wait_for(_warning_seen, timeout=2.0)
@@ -229,7 +229,7 @@ class TestMicrophoneDeviceWatcher:
                 watcher.stop()
 
         # The callback exception should have been caught and logged
-        # as a WARNING — NOT propagated out of the thread.
+        # as a WARNING. NOT propagated out of the thread.
         warning_messages = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
         assert any("Invalidation callback raised" in m for m in warning_messages), (
             f"Expected 'Invalidation callback raised' warning in logs, got: {warning_messages}"
@@ -240,7 +240,7 @@ class TestMicrophoneDeviceWatcher:
         watcher = MicrophoneDeviceWatcher(on_change=lambda: None, poll_interval=0.05)
         watcher._platform = "linux"
 
-        # Patch _run_linux to raise — _run should catch it and log.
+        # Patch _run_linux to raise, _run should catch it and log.
         with (
             patch.object(watcher, "_run_linux", side_effect=RuntimeError("simulated crash")),
             caplog.at_level(
@@ -330,7 +330,7 @@ class TestRecorderWatcherIntegration:
             mock_instance.stop.assert_called_once()
             assert r._devices._mic_watcher is None
 
-            # Idempotent — second call is a no-op.
+            # Idempotent, second call is a no-op.
             r.shutdown_mic_watcher()
 
     def test_recorder_survives_watcher_import_failure(self):
@@ -350,7 +350,7 @@ class TestRecorderWatcherIntegration:
             config = MagicMock(sample_rate=16000, microphone=None)
             r = Recorder(config)
 
-            # Watcher is None — TTL polling covers this case.
+            # Watcher is None. TTL polling covers this case.
             assert r._devices._mic_watcher is None
             # shutdown_mic_watcher is a safe no-op.
             r.shutdown_mic_watcher()
@@ -394,7 +394,7 @@ class TestMicrophoneDeviceWatcherMacOS:
 
         On a macOS host with pyobjc installed, ``start()`` prefers the
         event-driven ``CoreAudioMicrophoneWatcher`` and never spawns the
-        polling thread — the mocked ``sounddevice`` module would never be
+        polling thread, the mocked ``sounddevice`` module would never be
         consulted and the "polls" assertion would time out. Returning
         ``None`` here simulates the documented no-pyobjc fallback and
         makes the polling path deterministic on every host.
@@ -425,7 +425,7 @@ class TestMicrophoneDeviceWatcherMacOS:
                 # Let the watcher capture the baseline (2 devices). Wait
                 # until at least one query_devices call has occurred.
                 wait_for(lambda: mock_sd.query_devices.called, timeout=2.0)
-                # Simulate a device plug — count changes to 3.
+                # Simulate a device plug, count changes to 3.
                 mock_sd.query_devices.return_value = [
                     {"name": "dev1"},
                     {"name": "dev2"},
@@ -454,11 +454,11 @@ class TestMicrophoneDeviceWatcherMacOS:
             # Let several poll cycles pass with a STABLE device count.
             # Wait for ~3 poll intervals (150ms) and verify the callback
             # does NOT fire (count never changed). wait() returns False
-            # on timeout — that's the expected outcome here.
+            # on timeout, that's the expected outcome here.
             callback_event.wait(timeout=0.6)
             watcher.stop()
 
-        # No callback should have fired — count never changed.
+        # No callback should have fired, count never changed.
         assert not callback_event.is_set(), "Callback fired during baseline/stable polling"
         assert watcher._thread is None
 
@@ -482,7 +482,7 @@ class TestMicrophoneDeviceWatcherMacOS:
             )
             watcher.stop()
 
-        # No callback should have fired — the watcher exited early.
+        # No callback should have fired, the watcher exited early.
         assert not callback_event.is_set()
         assert watcher._thread is None
 
@@ -508,7 +508,7 @@ class TestMicrophoneDeviceWatcherMacOS:
 
         with patch.dict(sys.modules, {"sounddevice": mock_sd}):
             watcher.start()
-            # Let several poll cycles pass — the watcher should
+            # Let several poll cycles pass, the watcher should
             # recover from the transient errors and NOT crash. Wait
             # until call_count > 2 (past the flaky calls) and the
             # thread is still alive (returns as soon as the watcher
@@ -526,13 +526,13 @@ class TestMicrophoneDeviceWatcherMacOS:
 # ── Windows WM_DEVICECHANGE mock tests ──────────────────────────────
 
 
-# WM_DEVICECHANGE = 0x0219 — broadcast when a device is added/removed.
+# WM_DEVICECHANGE = 0x0219, broadcast when a device is added/removed.
 _WM_DEVICECHANGE = 0x0219
-# WM_QUIT = 0x0012 — posted by stop() to wake the message pump.
+# WM_QUIT = 0x0012, posted by stop() to wake the message pump.
 _WM_QUIT = 0x0012
-# PM_REMOVE = 1 — PeekMessage flag: remove message from the queue.
+# PM_REMOVE = 1. PeekMessage flag: remove message from the queue.
 _PM_REMOVE = 1
-# WS_EX_TOOLWINDOW = 0x00000080 — creates a tool window (no taskbar button).
+# WS_EX_TOOLWINDOW = 0x00000080, creates a tool window (no taskbar button).
 _WS_EX_TOOLWINDOW = 0x00000080
 
 
@@ -544,7 +544,7 @@ def fake_windows_windll():
     ``ctypes.windll`` and ``ctypes.WINFUNCTYPE`` only exist on Windows.
     We patch them with ``create=True`` so the Windows code path runs
     on any platform. ``WINFUNCTYPE`` is replaced with ``CFUNCTYPE``
-    (same signature, different calling convention — irrelevant for
+    (same signature, different calling convention, irrelevant for
     mocked API calls).
 
     Yields a dict with ``user32`` and ``kernel32`` MagicMock objects
@@ -633,7 +633,7 @@ class TestMicrophoneDeviceWatcherWindows:
 
         fake_windows_windll["user32"].RegisterClassExW.side_effect = capture_register
         # Make CreateWindowExW fail so the function returns early
-        # right after registration — we only care about the register
+        # right after registration, we only care about the register
         # call here.
         fake_windows_windll["user32"].CreateWindowExW.return_value = 0
 
@@ -646,7 +646,7 @@ class TestMicrophoneDeviceWatcherWindows:
         assert captured.get("class_name") == "VoiceTyperMicWatcherWnd", (
             f"Expected class name 'VoiceTyperMicWatcherWnd', got {captured.get('class_name')!r}"
         )
-        # cbSize should be sizeof(WNDCLASSEXW) — a positive value
+        # cbSize should be sizeof(WNDCLASSEXW), a positive value
         # (the exact size depends on pointer width; we just check it
         # was set to a sane non-zero value).
         assert captured.get("cbSize", 0) > 0, f"Expected cbSize > 0, got {captured.get('cbSize')!r}"
@@ -654,7 +654,7 @@ class TestMicrophoneDeviceWatcherWindows:
     def test_windows_run_creates_message_window(self, fake_windows_windll):
         """``CreateWindowExW`` is called with ``WS_EX_TOOLWINDOW`` ex-style."""
         # Make CreateWindowExW fail (return 0) so the function returns
-        # early — we only need to inspect the call args.
+        # early, we only need to inspect the call args.
         fake_windows_windll["user32"].CreateWindowExW.return_value = 0
 
         watcher = MicrophoneDeviceWatcher(on_change=lambda: None, poll_interval=0.05)
@@ -682,13 +682,13 @@ class TestMicrophoneDeviceWatcherWindows:
 
         def capture_register(wc_byref):
             # Grab the WNDPROC-wrapped _wnd_proc closure so we can
-            # invoke it from the mocked DispatchMessageW — this
+            # invoke it from the mocked DispatchMessageW, this
             # exercises the REAL _wnd_proc code path.
             captured["wnd_proc"] = wc_byref._obj.lpfnWndProc
             return 1
 
         def fake_get(msg_byref, hwnd_filter, msg_min, msg_max):
-            # GetMessageW signature: (LPMSG, HWND, UINT, UINT) — 4 args
+            # GetMessageW signature: (LPMSG, HWND, UINT, UINT), 4 args
             # (no ``remove`` flag, unlike PeekMessageW). Returns:
             #   0 → WM_QUIT (pump exits)
             #  -1 → error (pump exits)
@@ -704,7 +704,7 @@ class TestMicrophoneDeviceWatcherWindows:
         def fake_dispatch(msg_byref):
             msg = msg_byref._obj
             if captured["wnd_proc"] is not None:
-                # Invoke the real _wnd_proc — it calls _invoke_callback
+                # Invoke the real _wnd_proc, it calls _invoke_callback
                 # when msg == WM_DEVICECHANGE.
                 captured["wnd_proc"](msg.hWnd, msg.message, msg.wParam, msg.lParam)
             return 0
@@ -845,7 +845,7 @@ class TestMicrophoneWatcherActiveMicLost:
           an in-flight recording on that mic.
         - ``set_device_id_provider`` returns a list that does NOT
           contain ``"the-active-mic"`` (simulating that the mic was
-          unplugged — even though /dev/snd still changed, the active
+          unplugged, even though /dev/snd still changed, the active
           mic is gone from the queried list).
         - ``set_on_active_mic_lost`` registers a ``threading.Event``.
         - The test triggers a /dev/snd change and asserts the
@@ -861,7 +861,7 @@ class TestMicrophoneWatcherActiveMicLost:
         # Register the active-mic-lost hooks.
         watcher.set_active_mic_id("the-active-mic")
         watcher.set_on_active_mic_lost(lost_event.set)
-        # Provider returns a list WITHOUT "the-active-mic" — simulating
+        # Provider returns a list WITHOUT "the-active-mic", simulating
         # that the mic was unplugged (sounddevice would no longer
         # return it).
         watcher.set_device_id_provider(lambda: ["other-mic-1", "other-mic-2"])
@@ -876,7 +876,7 @@ class TestMicrophoneWatcherActiveMicLost:
                 # the baseline is captured (the on_change event will
                 # fire on the first device change after this wait).
                 wait_for(lambda: change_event.is_set(), timeout=2.0)
-                # Simulate a device change — entries change.  This
+                # Simulate a device change, entries change.  This
                 # triggers _invoke_callback, which (after on_change)
                 # calls _check_active_mic_lost.  The provider still
                 # returns the "no the-active-mic" list, so
@@ -924,7 +924,7 @@ class TestMicrophoneWatcherActiveMicLost:
                 state["entries"] = ["controlC0", "pcmC0D0c"]
                 assert change_event.wait(timeout=2.0), "on_change should still fire on device change"
                 # Give the watcher up to 1s to (not) fire the lost cb.
-                # wait() returns False on timeout — that's the expected
+                # wait() returns False on timeout, that's the expected
                 # outcome here (the lost callback must NOT fire when
                 # the active mic is still in the device list).
                 lost_event.wait(timeout=1.0)
@@ -976,7 +976,7 @@ class TestMicrophoneWatcherActiveMicLost:
         watcher.set_on_active_mic_lost(lost_event.set)
         watcher.set_device_id_provider(lambda: ["other-mic"])
 
-        # Now clear the active mic — simulating recording stop.
+        # Now clear the active mic, simulating recording stop.
         watcher.set_active_mic_id(None)
 
         with (
@@ -990,9 +990,9 @@ class TestMicrophoneWatcherActiveMicLost:
                 state["entries"] = ["controlC0", "pcmC0D0c"]
                 assert change_event.wait(timeout=2.0)
                 # Wait up to 1s for the lost_event (should NOT fire).
-                # wait() returns False on timeout — that's the expected
+                # wait() returns False on timeout, that's the expected
                 # outcome here (the lost callback must NOT fire after
-                # set_active_mic_id(None) — recording stopped).
+                # set_active_mic_id(None), recording stopped).
                 lost_event.wait(timeout=1.0)
                 assert not lost_event.is_set(), (
                     "on_active_mic_lost must NOT fire after set_active_mic_id(None) (recording stopped)"
@@ -1083,7 +1083,7 @@ class TestDefaultPollIntervalBumped:
 class TestDefaultDeviceChangeDetection:
     """DJ-66: when the OS default input device changes, the watcher fires
     ``_on_default_device_changed`` so the caller can trigger a stream
-    restart (when ``config.microphone is None`` — PortAudio resolves the
+    restart (when ``config.microphone is None``, PortAudio resolves the
     default ONCE at stream-open time and never re-resolves)."""
 
     def test_default_change_callback_fires_on_index_change(self):
@@ -1103,7 +1103,7 @@ class TestDefaultDeviceChangeDetection:
             watcher._check_default_device_changed()
         assert watcher._last_default_input_index == 0
         assert not fired_event.is_set(), "first capture must NOT fire the callback"
-        # Change the default index — the next check should fire.
+        # Change the default index, the next check should fire.
         with patch.object(watcher, "_query_default_input_device", return_value=MagicMock(index=3)):
             watcher._check_default_device_changed()
         assert fired_event.is_set(), "DJ-66: on_default_device_changed must fire on index change"
@@ -1196,7 +1196,7 @@ class TestMicrophoneWatcherLifecycleLock:
             for t in threads:
                 t.join()
 
-            # Only one thread should have won the race — _thread is
+            # Only one thread should have won the race, _thread is
             # set exactly once and is a single Thread object.
             assert watcher._thread is not None, "start() should have spawned a thread"
             first_thread = watcher._thread
@@ -1284,7 +1284,7 @@ class TestMicrophoneWatcherHooksLock:
         attribute by the time the ``not in`` check runs, so the check
         sees ``"mic-2" not in ["mic-2"]`` -> False -> does NOT fire.
 
-        The test asserts the lost callback FIRES — proving the
+        The test asserts the lost callback FIRES, proving the
         snapshot was used.
         """
         watcher = MicrophoneDeviceWatcher(on_change=lambda: None, poll_interval=0.05)
@@ -1303,7 +1303,7 @@ class TestMicrophoneWatcherHooksLock:
 
         watcher.set_device_id_provider(provider)
 
-        # Direct invocation — no watcher thread needed.
+        # Direct invocation, no watcher thread needed.
         watcher._check_active_mic_lost()
 
         assert lost_event.is_set(), (
@@ -1321,7 +1321,7 @@ class TestMicrophoneWatcherHooksLock:
         taken when ``active_mic_id = "mic-1"`` (a real recording), so
         the loss is reported. A concurrent recording-stop (which
         clears ``active_mic_id`` to ``None``) must not race in between
-        the guard and the check — the snapshot guarantees we still
+        the guard and the check, the snapshot guarantees we still
         report the loss for the recording that WAS active when the
         check started.
         """
@@ -1355,7 +1355,7 @@ class TestMicrophoneWatcherHooksLock:
         """Concurrent ``set_*`` calls don't corrupt the attributes.
 
         Fires many concurrent registrations of all three hooks. With
-        the lock, each assignment is atomic — the attributes end up
+        the lock, each assignment is atomic, the attributes end up
         holding one of the registered values (not a torn reference).
         Without the lock, CPython's GIL still makes simple assignments
         atomic, so this test is mostly a regression guard that the
@@ -1389,7 +1389,7 @@ class TestMicrophoneWatcherHooksLock:
             t.join()
 
         # All setters completed without deadlock. The final values
-        # are whichever assignment landed last — we just verify they
+        # are whichever assignment landed last, we just verify they
         # are not corrupted (still callable / str / None).
         assert watcher._active_mic_id is None or isinstance(watcher._active_mic_id, str)
         assert callable(watcher._on_active_mic_lost)

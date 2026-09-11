@@ -3,7 +3,7 @@
  *
  * `HotkeyPicker.tsx` previously called `getModifierCodeMap(IS_MAC)`
  * inside `handleKeyDown` and `handleKeyUp` on every keystroke. Each
- * call allocated a fresh 8-key object literal — at 60–120 keystrokes
+ * call allocated a fresh 8-key object literal, at 60–120 keystrokes
  * per second during typing bursts, that was non-trivial GC pressure
  * for no benefit (the map depends only on `IS_MAC`, which is fixed
  * at module load).
@@ -47,7 +47,7 @@ const { getModifierCodeMap } = await import("@/components/hotkey/hotkey-utils");
 const { HotkeyPicker } = await import("@/components/hotkey/HotkeyPicker");
 
 // vitest.config.ts sets `clearMocks: true`, which wipes `mock.calls` /
-// `mock.results` in a `beforeEach` hook — BEFORE the first test runs.
+// `mock.results` in a `beforeEach` hook, BEFORE the first test runs.
 // The module-load call above happened during module evaluation, so by
 // test time its history would already be cleared (the spy would read 0
 // calls). Snapshot the module-load call count + first return value NOW,
@@ -125,13 +125,13 @@ describe("TY-30: MODIFIER_CODE_MAP hoisted to module scope", () => {
 			.length;
 
 		// Dispatch a modifier keydown + keyup (these used to call
-		// getModifierCodeMap twice per pair — once in handleKeyDown,
+		// getModifierCodeMap twice per pair, once in handleKeyDown,
 		// once in handleKeyUp).
 		dispatchKey({ code: "AltLeft", key: "Alt", type: "keydown" });
 		dispatchKey({ code: "AltLeft", key: "Alt", type: "keyup" });
 
 		// Dispatch a non-modifier keydown + keyup (these used to call
-		// getModifierCodeMap once per event — handleKeyDown checks
+		// getModifierCodeMap once per event, handleKeyDown checks
 		// MODIFIER_CODE_MAP to detect modifiers, handleKeyUp does too).
 		dispatchKey({ code: "KeyA", key: "a", type: "keydown" });
 		dispatchKey({ code: "KeyA", key: "a", type: "keyup" });
@@ -160,7 +160,7 @@ describe("TY-30: MODIFIER_CODE_MAP hoisted to module scope", () => {
 		const baseline = (getModifierCodeMap as ReturnType<typeof vi.fn>).mock.calls
 			.length;
 
-		// Dispatch a multi-modifier combo (Ctrl+Shift) — both modifiers
+		// Dispatch a multi-modifier combo (Ctrl+Shift), both modifiers
 		// generate keydown + keyup events.
 		dispatchKey({
 			code: "ControlLeft",
@@ -187,7 +187,7 @@ describe("TY-30: MODIFIER_CODE_MAP hoisted to module scope", () => {
 			type: "keyup",
 		});
 
-		// No per-keystroke allocations — the count must equal the
+		// No per-keystroke allocations, the count must equal the
 		// baseline from above. The module-load call is asserted via
 		// `moduleLoadCallCount`.
 		expect(getModifierCodeMap).toHaveBeenCalledTimes(baseline);
@@ -196,7 +196,7 @@ describe("TY-30: MODIFIER_CODE_MAP hoisted to module scope", () => {
 	it("snapshot: MODIFIER_CODE_MAP value is stable (matches the first call's return)", () => {
 		// The first call (at module load) returned the map that became
 		// MODIFIER_CODE_MAP. Subsequent renders must NOT produce a
-		// different value — the module-level constant is shared. The
+		// different value, the module-level constant is shared. The
 		// first result is captured at module scope (see above) because
 		// `clearMocks: true` wipes `mock.results` before each test.
 		expect(moduleLoadResult).toBeDefined();
@@ -215,7 +215,7 @@ describe("TY-30: MODIFIER_CODE_MAP hoisted to module scope", () => {
 
 		// The map IS the platform-correct one (this snapshot was
 		// captured on Linux, so Meta* → "win". On macOS the snapshot
-		// would have Meta* → "cmd" — that test runs in the same sandbox
+		// would have Meta* → "cmd", that test runs in the same sandbox
 		// so IS_MAC is stable, and the snapshot reflects the current
 		// platform).
 	});

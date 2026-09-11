@@ -10,7 +10,7 @@ These tests target the concurrency bugs identified in finding S1-
      ``_delayed_restore`` daemon thread, on the other hand, claims its
      entry under the lock BEFORE calling ``snapshot.restore()`` (the
      DE-63 fix). The contract is: at most ONE of {atexit, daemon} may
-     call ``snapshot.restore()`` for a given entry — never both.
+     call ``snapshot.restore()`` for a given entry, never both.
 
   2. **Concurrent ``ClipboardSnapshot.restore()`` calls on DIFFERENT
      snapshots racing on platform clipboard APIs.**
@@ -18,7 +18,7 @@ These tests target the concurrency bugs identified in finding S1-
      cycle). ``_force_restore_pending_at_exit`` runs on the main thread
      during interpreter shutdown. Without serialization, daemon A's
      ``snapshot_A.restore()`` can run concurrently with atexit's
-     ``snapshot_B.restore()`` — racing on Win32 ``OpenClipboard`` /
+     ``snapshot_B.restore()``, racing on Win32 ``OpenClipboard`` /
      ``EmptyClipboard`` / ``SetClipboardData``, macOS
      ``NSPasteboard.clearContents`` / ``writeObjects_``, or Linux
      ``xclip`` / ``wl-copy`` subprocess invocations. The SA-4 fix adds
@@ -27,7 +27,7 @@ These tests target the concurrency bugs identified in finding S1-
      threads.
 
 The tests use ``threading.Event`` for deterministic synchronization
-rather than ``time.sleep`` — per the sub-agent contract, concurrency
+rather than ``time.sleep``, per the sub-agent contract, concurrency
 fixes must use proper locks/events, not sleeps.
 
 These tests run on any platform: they mock
@@ -46,7 +46,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 # pynput / pynput.keyboard / pyperclip are mocked at collection time by
-# tests/clipboard/conftest.py (single source of truth —  dedup).
+# tests/clipboard/conftest.py (single source of truth, dedup).
 from voice_typer.server import clipboard as clip_mod  # noqa: E402
 from voice_typer.server.clipboard.manager import (  # noqa: E402
     _force_restore_pending_at_exit,
@@ -61,7 +61,7 @@ from voice_typer.server.clipboard_snapshot import (  # noqa: E402
 from tests.fixtures.clipboard_helpers import make_clipboard_manager, make_clipboard_snapshot  # noqa: E402
 
 # ---------------------------------------------------------------------------
-# Display-env isolation  — mirrors test_clipboard_borrow_restore.py
+# Display-env isolation, mirrors test_clipboard_borrow_restore.py
 # ---------------------------------------------------------------------------
 
 
@@ -108,13 +108,13 @@ class TestAtexitVsDaemonSameSnapshot:
       * (A) atexit claims first → daemon short-circuits → atexit restores.
       * (B) daemon claims first → atexit's snapshot misses the entry →
         daemon restores.
-      * (C) atexit and daemon contend on the lock — exactly one wins.
+      * (C) atexit and daemon contend on the lock, exactly one wins.
     """
 
     def test_atexit_claims_first_then_daemon_short_circuits(self):
         """Race ordering (A): atexit snapshots+clears the list BEFORE the
         daemon claims its entry. The daemon must short-circuit (ValueError
-        on remove) and NOT call ``snapshot.restore()`` — atexit will
+        on remove) and NOT call ``snapshot.restore()``, atexit will
         restore synchronously.
         """
         cm = make_clipboard_manager()
@@ -131,7 +131,7 @@ class TestAtexitVsDaemonSameSnapshot:
             restore_calls.append(threading.current_thread().name)
             return True
 
-        # atexit fires FIRST — snapshots+clears the list.
+        # atexit fires FIRST, snapshots+clears the list.
         with (
             patch.object(clip_mod, "_paste_from_clipboard", return_value="the dictation"),
             patch.object(snap, "restore", side_effect=_track_restore) as mock_restore,
@@ -163,7 +163,7 @@ class TestAtexitVsDaemonSameSnapshot:
         "daemon claims first, atexit fires after, daemon restores", we
         call ``_delayed_restore`` to completion (claim + restore), THEN
         call atexit (which sees an empty list). This is the "daemon
-        finishes before atexit fires" ordering — the end-state contract
+        finishes before atexit fires" ordering, the end-state contract
         is the same: 1 restore from daemon, 0 from atexit.
         """
         cm = make_clipboard_manager()
@@ -211,7 +211,7 @@ class TestAtexitVsDaemonSameSnapshot:
 
         This test uses ``threading.Event`` to synchronize the two
         threads so they BOTH reach the claim step "simultaneously"
-        before either proceeds — the worst-case race window.
+        before either proceeds, the worst-case race window.
         """
         cm = make_clipboard_manager()
         snap = make_clipboard_snapshot()
@@ -221,7 +221,7 @@ class TestAtexitVsDaemonSameSnapshot:
         with _pending_restores_lock:
             _pending_restores.append(entry)
 
-        # Synchronization events — ensure both threads start the
+        # Synchronization events, ensure both threads start the
         # contention window at the same time.
         atexit_ready = threading.Event()
         daemon_ready = threading.Event()
@@ -234,7 +234,7 @@ class TestAtexitVsDaemonSameSnapshot:
                 restore_calls.append(threading.current_thread().name)
             return True
 
-        # atexit "thread" — runs in the calling thread but synchronized
+        # atexit "thread", runs in the calling thread but synchronized
         # against the daemon thread via the events.
         def atexit_fn():
             atexit_ready.set()
@@ -243,7 +243,7 @@ class TestAtexitVsDaemonSameSnapshot:
             both_ready.set()
             _force_restore_pending_at_exit()
 
-        # Daemon thread — claims the entry under the lock, then calls
+        # Daemon thread, claims the entry under the lock, then calls
         # restore(). Synchronized against the atexit "thread".
         def daemon_fn():
             daemon_ready.set()
@@ -257,7 +257,7 @@ class TestAtexitVsDaemonSameSnapshot:
             patch.object(clip_mod, "log"),
             patch.object(clip_mod, "time") as mock_time,
         ):
-            # Skip the daemon's sleep — we want it to reach the claim
+            # Skip the daemon's sleep, we want it to reach the claim
             # step immediately.
             mock_time.sleep = MagicMock()
 
@@ -267,12 +267,12 @@ class TestAtexitVsDaemonSameSnapshot:
             atexit_fn()
             daemon_thread.join(timeout=2.0)
 
-        # Exactly ONE restore() call — either from atexit or from the daemon,
+        # Exactly ONE restore() call, either from atexit or from the daemon,
         # never both. The  claim-step guarantees this.
         assert len(restore_calls) == 1, (
             f"Expected exactly 1 restore() call (either atexit OR daemon); "
             f"got {len(restore_calls)}: {restore_calls}. "
-            "This indicates a double-restore race — the DE-63 claim-step "
+            "This indicates a double-restore race, the DE-63 claim-step "
             "short-circuit is broken."
         )
 
@@ -294,7 +294,7 @@ class TestConcurrentRestoreSerialization:
 
     def test_two_concurrent_restores_do_not_overlap(self):
         """Spawn two threads that both call ``snapshot.restore()`` at the
-        same time. The ``_restore_lock`` must serialize them — the
+        same time. The ``_restore_lock`` must serialize them, the
         second thread's restore must not start until the first thread's
         restore has finished.
 
@@ -320,7 +320,7 @@ class TestConcurrentRestoreSerialization:
         # while this test's class-level patch is active, and counting
         # them breaks the exact-count assertion (observed on CI:
         # ``Expected 2 restore() calls; got 6`` with 4 stray owners).
-        # Overlap detection stays GLOBAL — the lock must serialize every
+        # Overlap detection stays GLOBAL, the lock must serialize every
         # restorer, ours or not.
         own_threads = {"restore-A", "restore-B"}
         in_critical = threading.Event()
@@ -328,7 +328,7 @@ class TestConcurrentRestoreSerialization:
         in_critical_lock = threading.Lock()
         overlap_detected = threading.Event()
 
-        # Start gate — both threads wait here until both are ready.
+        # Start gate, both threads wait here until both are ready.
         start_gate_a = threading.Event()
         start_gate_b = threading.Event()
         both_ready = threading.Event()
@@ -341,7 +341,7 @@ class TestConcurrentRestoreSerialization:
             with in_critical_lock:
                 if in_critical.is_set():
                     # Another thread is already inside the critical
-                    # section — overlap detected.
+                    # section, overlap detected.
                     overlap_detected.set()
                 in_critical.set()
                 if tid in own_threads:
@@ -384,7 +384,7 @@ class TestConcurrentRestoreSerialization:
         assert not t_a.is_alive(), "Thread A did not finish"
         assert not t_b.is_alive(), "Thread B did not finish"
         assert not overlap_detected.is_set(), (
-            "Concurrent restore() calls overlapped — _restore_lock failed to "
+            "Concurrent restore() calls overlapped, _restore_lock failed to "
             "serialize them. Two threads were inside the platform clipboard "
             "critical section at the same time, which races on Win32 "
             "OpenClipboard / macOS NSPasteboard / Linux xclip selection."
@@ -453,7 +453,7 @@ class TestConcurrentRestoreSerialization:
 
         assert all(not t.is_alive() for t in threads), "A thread did not finish"
         assert not overlap_detected.is_set(), (
-            "Concurrent restore() calls overlapped — _restore_lock failed to serialize 3 concurrent restores."
+            "Concurrent restore() calls overlapped, _restore_lock failed to serialize 3 concurrent restores."
         )
         assert len(completed) == 3
 
@@ -470,28 +470,28 @@ class TestConcurrentRestoreSerialization:
         snap_a = ClipboardSnapshot(platform="linux-x11", items=[], captured_at=0.0)
         snap_b = ClipboardSnapshot(platform="linux-x11", items=[], captured_at=0.0)
 
-        # The _restore_lock is module-level — both snapshots are
+        # The _restore_lock is module-level, both snapshots are
         # serialized by the same lock object. We verify this by checking
         # that the lock object is the module-level one (imported above).
         from voice_typer.server import clipboard_snapshot as snap_mod
 
         assert snap_mod._restore_lock is _restore_lock, (
-            "_restore_lock must be the module-level lock object — a "
+            "_restore_lock must be the module-level lock object, a "
             "per-instance lock would not serialize restores across "
             "different snapshots."
         )
         # The lock must be a Lock (or RLock), not None or some other type.
         assert hasattr(snap_mod._restore_lock, "acquire"), (
-            "_restore_lock must be a threading.Lock or RLock — missing acquire method"
+            "_restore_lock must be a threading.Lock or RLock, missing acquire method"
         )
         # Smoke-test the lock: acquire and release.
         acquired = snap_mod._restore_lock.acquire(blocking=False)
         assert acquired, "_restore_lock should be acquirable when uncontended"
         try:
-            # Second acquire (non-blocking) must fail — the lock is held.
+            # Second acquire (non-blocking) must fail, the lock is held.
             second = snap_mod._restore_lock.acquire(blocking=False)
             assert not second, (
-                "_restore_lock must be a non-reentrant Lock (or RLock) — "
+                "_restore_lock must be a non-reentrant Lock (or RLock), "
                 "second non-blocking acquire should fail while held"
             )
         finally:
@@ -499,11 +499,11 @@ class TestConcurrentRestoreSerialization:
 
         # Sanity: snap_a and snap_b don't carry their own locks.
         assert not hasattr(snap_a, "_restore_lock"), (
-            "ClipboardSnapshot should NOT have a per-instance _restore_lock — "
+            "ClipboardSnapshot should NOT have a per-instance _restore_lock, "
             "the lock must be module-level to serialize across instances."
         )
         assert not hasattr(snap_b, "_restore_lock"), (
-            "ClipboardSnapshot should NOT have a per-instance _restore_lock — "
+            "ClipboardSnapshot should NOT have a per-instance _restore_lock, "
             "the lock must be module-level to serialize across instances."
         )
 
@@ -533,7 +533,7 @@ class TestAtexitIteratesAllPending:
         Note: the atexit handler's defensive check skips restore when
         ``current != pasted_text``. To force ALL entries to restore
         regardless of which pasted_text they carry, we mock
-        ``_paste_from_clipboard`` to return ``None`` — atexit treats
+        ``_paste_from_clipboard`` to return ``None``, atexit treats
         ``None`` as "couldn't read the clipboard, restore anyway" (see
         the ``if current is None or current == pasted_text`` branch).
         """
@@ -586,7 +586,7 @@ class TestAtexitIteratesAllPending:
         exception is logged but the loop continues. The list is cleared
         BEFORE the loop, so a mid-loop exception doesn't leave stale
         entries (which would be restored again on a subsequent atexit
-        fire — but atexit only fires once, so this is defense-in-depth).
+        fire, but atexit only fires once, so this is defense-in-depth).
         """
         cm = make_clipboard_manager()
         snap_a = make_clipboard_snapshot()
@@ -613,7 +613,7 @@ class TestAtexitIteratesAllPending:
             patch.object(snap_b, "restore", side_effect=_track_restore_b),
             patch.object(clip_mod, "log"),
         ):
-            # Must NOT raise — atexit swallows per-entry exceptions.
+            # Must NOT raise, atexit swallows per-entry exceptions.
             _force_restore_pending_at_exit()
 
         # snap_b was restored even though snap_a raised.
@@ -656,7 +656,7 @@ class TestAtexitAndDaemonDifferentEntries:
         so they don't race on the platform clipboard APIs.
 
         Uses ``threading.Event`` to force both threads into the
-        critical section simultaneously — without the lock, they would
+        critical section simultaneously, without the lock, they would
         overlap; with the lock, they serialize.
         """
         cm = make_clipboard_manager()
@@ -723,7 +723,7 @@ class TestAtexitAndDaemonDifferentEntries:
 
         assert not daemon_thread.is_alive(), "Daemon thread did not finish"
         assert not overlap_detected.is_set(), (
-            "Atexit's restore(snap_b) and the daemon's restore(snap_a) overlapped — "
+            "Atexit's restore(snap_b) and the daemon's restore(snap_a) overlapped, "
             "_restore_lock failed to serialize two DIFFERENT snapshots' restores. "
             "This is the SA-4 / S1- race: atexit on main thread + daemon on "
             "worker thread both inside the platform clipboard critical section."
@@ -752,7 +752,7 @@ class TestRestoreLockNoDeadlock:
         So ``_restore_lock`` is acquired AFTER
         ``_pending_restores_lock`` is released.
 
-    The two locks are NEVER held simultaneously — no deadlock possible.
+    The two locks are NEVER held simultaneously, no deadlock possible.
     These tests verify that contract holds under concurrent stress.
     """
 
@@ -760,7 +760,7 @@ class TestRestoreLockNoDeadlock:
         """``_delayed_restore`` releases ``_pending_restores_lock`` BEFORE
         calling ``snapshot.restore()``. Verify by acquiring
         ``_pending_restores_lock`` from another thread while the daemon
-        is inside ``snapshot.restore()`` — it must succeed (no deadlock).
+        is inside ``snapshot.restore()``, it must succeed (no deadlock).
         """
         cm = make_clipboard_manager()
         snap = make_clipboard_snapshot()
@@ -781,7 +781,7 @@ class TestRestoreLockNoDeadlock:
         def try_acquire_pending_lock():
             # Wait until the daemon is inside snapshot.restore().
             inside_restore.wait(timeout=2.0)
-            # Try to acquire _pending_restores_lock — should succeed
+            # Try to acquire _pending_restores_lock, should succeed
             # immediately because the daemon released it before
             # calling restore().
             acquired = _pending_restores_lock.acquire(blocking=False)
@@ -808,7 +808,7 @@ class TestRestoreLockNoDeadlock:
 
         assert pending_lock_acquired_during_restore.is_set(), (
             "_pending_restores_lock was held by _delayed_restore WHILE "
-            "snapshot.restore() was running — this means the daemon holds "
+            "snapshot.restore() was running, this means the daemon holds "
             "_pending_restores_lock during the restore call, which would "
             "deadlock with _restore_lock if a future change acquires "
             "_restore_lock while holding _pending_restores_lock."
@@ -858,6 +858,6 @@ class TestRestoreLockNoDeadlock:
 
         assert pending_lock_acquired_during_restore.is_set(), (
             "_pending_restores_lock was held by _force_restore_pending_at_exit "
-            "WHILE snapshot.restore() was running — this would deadlock with "
+            "WHILE snapshot.restore() was running, this would deadlock with "
             "_restore_lock under any future lock-ordering change."
         )

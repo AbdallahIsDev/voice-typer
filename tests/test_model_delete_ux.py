@@ -9,7 +9,7 @@ must remain in ``Models.tsx`` above ``confirmDeleteModel``, and the
 decision writeup must remain at ``docs/ux/model-delete-rationale.md``.
 
 If a future contributor reverts to a confirm-only flow without the rationale
-comment, OR removes the doc, this test fails — forcing them to either
+comment, OR removes the doc, this test fails, forcing them to either
 re-affirm the decision (re-add the comment/doc) or implement proper undo
 (and update the test accordingly).
 """
@@ -39,7 +39,7 @@ class TestModelDeleteRationale:
 
         The marker ``(rationale): model delete is intentionally
         confirm-only`` is the unique anchor the test greps for. If a future
-        refactor removes or rewords it, the test fails — forcing the author
+        refactor removes or rewords it, the test fails, forcing the author
         to either re-affirm the decision or implement undo and update this
         test.
 
@@ -52,7 +52,7 @@ class TestModelDeleteRationale:
         """
         src = MODELS_TSX.read_text(encoding="utf-8")
 
-        # Anchor marker — must be present verbatim.
+        # Anchor marker, must be present verbatim.
         assert "(rationale): model delete is intentionally confirm-only" in src, (
             "Models.tsx is missing the rationale comment above "
             "the ConfirmDialog for model delete. If you removed it on "
@@ -90,7 +90,7 @@ class TestModelDeleteRationale:
         catch active wiring, not a documentation reference.
 
         (If a future contributor implements undo, they MUST update this
-        test — that's the point.)
+        test, that's the point.)
         """
         import re
 
@@ -104,19 +104,19 @@ class TestModelDeleteRationale:
             re.MULTILINE,
         )
         assert not import_pattern.search(src), (
-            "Models.tsx imports showUndoableToast — undo has been wired for "
+            "Models.tsx imports showUndoableToast, undo has been wired for "
             "model delete. Update the rationale comment and "
             "tests/test_model_delete_ux.py to reflect the new (undoable) "
             "behavior."
         )
 
-        # A call would look like ``showUndoableToast(`` — identifier directly
+        # A call would look like ``showUndoableToast(``, identifier directly
         # followed by an open paren. The rationale comment uses the word in
         # prose ("... use showUndoableToast for a 6-second ...") which does
         # NOT match this pattern (no open paren after the identifier).
         call_pattern = re.compile(r"\bshowUndoableToast\s*\(", re.MULTILINE)
         assert not call_pattern.search(src), (
-            "Models.tsx calls showUndoableToast(...) — undo has been wired "
+            "Models.tsx calls showUndoableToast(...), undo has been wired "
             "for model delete. Update the rationale comment and "
             "tests/test_model_delete_ux.py to reflect the new (undoable) "
             "behavior."
@@ -133,7 +133,7 @@ class TestModelDeleteRationale:
         text = RATIONALE_DOC.read_text(encoding="utf-8")
         # Must reference the confirm-only decision.
         assert "confirm-only" in text.lower(), "Rationale doc must state the confirm-only decision."
-        # Must explain WHY undo is bad — both bad options.
+        # Must explain WHY undo is bad, both bad options.
         assert "soft-delete" in text.lower() or "soft delete" in text.lower(), (
             "Rationale doc must explain why soft-delete undo is rejected."
         )
@@ -170,7 +170,7 @@ class TestModelDeleteRationale:
             "delete_model must use shutil.rmtree (hard delete). If you "
             "changed it to a soft-delete / trash-dir move, update "
             "docs/ux/model-delete-rationale.md and "
-            "tests/test_model_delete_ux.py — undo may now be cheap."
+            "tests/test_model_delete_ux.py, undo may now be cheap."
         )
 
 

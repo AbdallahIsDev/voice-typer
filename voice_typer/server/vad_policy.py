@@ -1,7 +1,7 @@
 """Duration-aware voice-activity filtering policy for transcription.
 
 WHY THIS EXISTS: every dictation paid for TWO full voice-activity scans
-of the same audio — the capture-side Silero monitor (live level meter,
+of the same audio, the capture-side Silero monitor (live level meter,
 silence auto-stop, streaming boundaries) and then faster-whisper's own
 bundled Silero pass (``vad_filter=True``) re-scanning the complete
 utterance after stop, including a full-audio concat plus one decode per
@@ -22,13 +22,13 @@ Policy (all thresholds are module constants, tuned conservatively):
   The engine needs its filter for >30 s segmentation and bounded
   per-call memory; bypassing it would be a downgrade.
 - MEDIUM audio with low silence + healthy level: numpy edge-trim (a
-  view slice — zero-copy) + ``vad_filter=False``. This is the win:
+  view slice, zero-copy) + ``vad_filter=False``. This is the win:
   one cheap trim replaces the full second Silero scan and the
   multi-chunk decodes.
 - Everything uncertain (no stats, high silence, near-silence level,
   trim would cut too much): today's behavior (no trim, filter ON).
 
-The trim touches ONLY leading/trailing sub-threshold frames — interior
+The trim touches ONLY leading/trailing sub-threshold frames, interior
 pauses are never dropped, so timestamp joining is unaffected. Segment
 timestamps from a trimmed decode shift by the trimmed lead-in; the
 hallucination gate consumes post-trim duration (call sites recompute
@@ -47,7 +47,7 @@ log = logging.getLogger(__name__)
 # ── Policy thresholds ─────────────────────────────────────────────
 
 #: Below this duration: never trim (1-2 word safety). The engine's own
-#: filter stays ON — identical to historical behavior.
+#: filter stays ON, identical to historical behavior.
 SHORT_MAX_S = 2.0
 #: Above this duration: never trim, engine filter stays ON (the engine
 #: needs its filter for >30 s segmentation and bounded memory).
@@ -69,7 +69,7 @@ _SILENCE_AMP_FLOOR = 0.001
 
 
 def _compute_stats(audio: np.ndarray) -> tuple[float, float, float]:
-    """Single-pass (rms, peak, silence_pct) — same formulas as the
+    """Single-pass (rms, peak, silence_pct), same formulas as the
     transcription invade path, so policy inputs match logged stats."""
     abs_audio = np.abs(audio)
     rms = float(np.sqrt(np.mean(np.square(audio), dtype=np.float64)))
@@ -91,8 +91,8 @@ def trim_edge_silence(
 
     Never copies (basic slice of a 1-D array) and never drops interior
     audio. ``leading_cut`` is the number of removed leading samples so
-    timestamped consumers can compensate. Returns ``(audio, 0)`` — the
-    input unchanged — when: the array is empty, the peak is
+    timestamped consumers can compensate. Returns ``(audio, 0)``, the
+    input unchanged: when: the array is empty, the peak is
     non-finite/non-positive, nothing is below threshold, or any safety
     guard trips (fraction cap, minimum remaining).
     """
@@ -105,7 +105,7 @@ def trim_edge_silence(
     threshold = peak * (10.0 ** (-top_db / 20.0))
     above = np.abs(audio) >= threshold
     if not bool(np.any(above)):
-        return audio, 0  # all silence — the hallucination gate owns this
+        return audio, 0  # all silence, the hallucination gate owns this
     first = int(np.argmax(above))
     last = int(n - 1 - np.argmax(above[::-1]))
     max_trim = int(n * max_fraction)
@@ -127,7 +127,7 @@ def decide_vad_filter(
     """Decide ``(audio_to_decode, use_engine_vad_filter, trim_offset_s)``.
 
     ``audio_stats`` is the ``(rms, peak, silence_pct)`` tuple the
-    recorder already computed (or ``None`` — computed here in one
+    recorder already computed (or ``None``: computed here in one
     pass). ``vad_enabled`` is the ``vad_filter_enabled`` config switch
     (missing config → behave as enabled = historical behavior).
 
@@ -158,7 +158,7 @@ def decide_vad_filter(
         return audio, True, 0.0
     trimmed, leading_cut = trim_edge_silence(audio, sample_rate)
     if leading_cut == 0 and trimmed.shape == audio.shape:
-        # Already clean edges — nothing for either trimmer to do, so
+        # Already clean edges, nothing for either trimmer to do, so
         # skip the engine scan too.
         return audio, False, 0.0
     return np.ascontiguousarray(trimmed), False, leading_cut / float(sample_rate)

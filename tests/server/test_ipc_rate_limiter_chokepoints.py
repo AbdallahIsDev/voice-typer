@@ -8,12 +8,12 @@ Pre-fix, the per-process ``_RateLimiter.allow()`` was called from BOTH:
 
   1. The transport chokepoint (TCP read loop in
      ``transport_tcp.py``; WS dispatch closure in
-     ``sidecar_ws._make_dispatch``) — BEFORE ``server._dispatch(msg)``.
-  2. ``DispatcherMixin._dispatch`` itself — at the top of the method
+     ``sidecar_ws._make_dispatch``), BEFORE ``server._dispatch(msg)``.
+  2. ``DispatcherMixin._dispatch`` itself, at the top of the method
      body, before handler resolution.
 
 So every TCP/WS dispatch charged the command cost against the
-burst/sustained budget TWICE — once at the transport gate and again
+burst/sustained budget TWICE, once at the transport gate and again
 inside ``_dispatch``. With ``burst=200``, a client sending 101
 ``download_model`` (cost 50 each) commands in 1 second would consume
 ``101 * 50 * 2 = 10100`` burst units against the 200 budget and be
@@ -26,13 +26,13 @@ Fix
 The limiter call was REMOVED from ``DispatcherMixin._dispatch``. The
 three transports now each own their own gate:
 
-  * TCP — ``transport_tcp.py``'s ``_handle_tcp_connection`` read loop
+  * TCP: ``transport_tcp.py``'s ``_handle_tcp_connection`` read loop
     (the ``rate_limiter.allow(command=msg_type)`` gate, fires before
     ``self._tcp_dispatch_pool.submit(...)``).
-  * WS — ``sidecar_ws._make_dispatch``'s closure body (the
+  * WS: ``sidecar_ws._make_dispatch``'s closure body (the
     ``rate_limiter.allow(command=msg_type)`` gate, fires before
     ``loop.run_in_executor(ws_dispatch_pool, server._dispatch, msg)``).
-  * Stdin — ``stdin_runner._run`` (the new
+  * Stdin: ``stdin_runner._run`` (the new
     ``_get_rate_limiter(self).allow(command=msg_type)`` gate, fires
     before ``self._dispatch(msg)``).
 
@@ -41,7 +41,7 @@ ADDS the gate to stdin while REMOVING the double-call from TCP/WS.
 
 These tests pin the three properties:
 
-  (a) The stdin path now gates with the rate limiter — a rejected
+  (a) The stdin path now gates with the rate limiter, a rejected
       command emits the ``client.rate_limited`` envelope and does
       NOT reach ``_dispatch``.
   (b) ``DispatcherMixin._dispatch`` source no longer references the
@@ -80,7 +80,7 @@ class TestStdinRateLimiterGate:
     """the stdin path (``stdin_runner._run``) now applies the
     per-process ``_RateLimiter`` BEFORE calling ``self._dispatch(msg)``.
 
-    Pre-fix, the stdin path had NO rate limiter — a buggy/loopy stdin
+    Pre-fix, the stdin path had NO rate limiter, a buggy/loopy stdin
     client could dispatch unbounded ``download_model`` /
     ``set_config`` / ``shutdown`` commands without ever being
     throttled. The TCP and WS paths already gated; stdin did not.
@@ -96,7 +96,7 @@ class TestStdinRateLimiterGate:
         # can patch its ``allow`` method.
         limiter = _get_rate_limiter(server)
         # Replace ``_dispatch`` with a sentinel that asserts it was
-        # NOT called — the rate-limiter gate must short-circuit before
+        # NOT called, the rate-limiter gate must short-circuit before
         # dispatch.
         dispatch_called = []
         original_dispatch = server._dispatch
@@ -118,7 +118,7 @@ class TestStdinRateLimiterGate:
         # The dispatch handler was NOT called (the gate short-circuited).
         assert dispatch_called == [], (
             "stdin path must NOT call _dispatch when the rate "
-            "limiter rejects — the transport chokepoint must short-"
+            "limiter rejects, the transport chokepoint must short-"
             "circuit before dispatch."
         )
         # The limiter was consulted exactly once (the stdin path's gate).
@@ -171,7 +171,7 @@ class TestStdinRateLimiterGate:
         assert msg["type"] == "error"
         assert msg["data"]["code"] == "client.rate_limited"
         assert msg["data"]["message"] == "rate limit exceeded; backing off"
-        # The command cost was applied (download_model=50) — verify the
+        # The command cost was applied (download_model=50), verify the
         # limiter saw the actual command name.
         limiter.allow.assert_called_once_with(command="download_model")
 
@@ -180,7 +180,7 @@ class TestStdinRateLimiterGate:
         (``_RateLimiter.allow`` short-circuits to ``True`` for
         ``command == "heartbeat"``) so the heartbeat keep-alive is
         unaffected by the gate. This is the limiter's own behavior
-        (not a stdin-path special-case) — pin it so a future change
+        (not a stdin-path special-case), pin it so a future change
         to the bypass doesn't silently break the stdin heartbeat path."""
         from voice_typer.server.ipc.rate_limiter import _get_rate_limiter
 
@@ -213,7 +213,7 @@ class TestDispatchDoesNotCallRateLimiter:
     chokepoints (TCP / WS / stdin), NOT inside ``_dispatch``.
 
     Pre-fix, ``_dispatch`` called ``_get_rate_limiter(self).allow(...)``
-    at the top of the method body — causing every TCP/WS dispatch to
+    at the top of the method body, causing every TCP/WS dispatch to
     charge the command cost against the burst/sustained budget TWICE
     (once at the transport gate, once inside ``_dispatch``).
     """
@@ -221,7 +221,7 @@ class TestDispatchDoesNotCallRateLimiter:
     def test_dispatch_source_does_not_reference_rate_limiter(self) -> None:
         """The source of ``IPCServer._dispatch`` must not contain any
         CODE reference to ``_get_rate_limiter`` or ``rate_limiter.allow``
-        (comments documenting the removal are allowed — only executable
+        (comments documenting the removal are allowed, only executable
         Python statements must not call the limiter)."""
         src = inspect.getsource(IPCServer._dispatch)
         # Strip comment-only lines (a line whose first non-whitespace
@@ -231,62 +231,62 @@ class TestDispatchDoesNotCallRateLimiter:
         code_lines = [line for line in src.splitlines() if line.strip() and not line.strip().startswith("#")]
         code_only = "\n".join(code_lines)
         assert "_get_rate_limiter" not in code_only, (
-            "_dispatch must NOT call _get_rate_limiter — the "
+            "_dispatch must NOT call _get_rate_limiter, the "
             "rate limiter is enforced at the transport chokepoints "
             "(TCP / WS / stdin), not inside _dispatch. The double-call "
             "halves the effective burst budget and trips the sustained "
             "cap in half the expected time."
         )
         assert "rate_limiter.allow" not in code_only, (
-            "_dispatch must NOT call rate_limiter.allow — the limiter is enforced at the transport chokepoints."
+            "_dispatch must NOT call rate_limiter.allow, the limiter is enforced at the transport chokepoints."
         )
         assert "RATE_LIMITED" not in code_only, (
             "_dispatch must NOT reference the RATE_LIMITED error "
-            "code — the rate-limit error envelope is constructed at the "
+            "code, the rate-limit error envelope is constructed at the "
             "transport chokepoints, not inside _dispatch."
         )
 
     def test_dispatcher_module_does_not_import_get_rate_limiter(self) -> None:
         """The ``dispatcher`` module must not import ``_get_rate_limiter``
-        — the import was needed only for the now-removed limiter call
-        inside ``_dispatch``. A dangling import would be dead code and
-        a footgun for a future contributor re-introducing the double-call."""
+        , the import was needed only for the now-removed limiter call
+          inside ``_dispatch``. A dangling import would be dead code and
+          a footgun for a future contributor re-introducing the double-call."""
         from voice_typer.server.ipc import dispatcher
 
         # The module-level ``_get_rate_limiter`` symbol must not be
         # present (it was an explicit import removed by ).
         assert not hasattr(dispatcher, "_get_rate_limiter"), (
-            "dispatcher module must NOT import _get_rate_limiter — "
+            "dispatcher module must NOT import _get_rate_limiter, "
             "the import is dead code after removing the limiter call "
             "from _dispatch."
         )
 
     def test_stdin_runner_module_imports_get_rate_limiter(self) -> None:
         """The ``stdin_runner`` module must import ``_get_rate_limiter``
-        — the stdin path now owns the rate-limiter gate (previously it
-        had no gate at all)."""
+        , the stdin path now owns the rate-limiter gate (previously it
+          had no gate at all)."""
         from voice_typer.server.ipc import stdin_runner
 
         assert hasattr(stdin_runner, "_get_rate_limiter"), (
-            "stdin_runner module must import _get_rate_limiter — "
+            "stdin_runner module must import _get_rate_limiter, "
             "the stdin path now owns the rate-limiter gate (previously "
             "it had no gate)."
         )
 
     def test_stdin_run_source_contains_rate_limiter_gate(self) -> None:
         """The source of ``IPCServer._run`` (the stdin runner) must
-        contain the rate-limiter gate — the gate was ADDED by  to
+        contain the rate-limiter gate, the gate was ADDED by  to
         close the "stdin path has no limiter" gap."""
         src = inspect.getsource(IPCServer._run)
         assert "_get_rate_limiter(self).allow" in src, (
             "stdin runner (_run) must call "
             "_get_rate_limiter(self).allow(command=...) before "
-            "self._dispatch(msg) — the stdin path now owns the "
+            "self._dispatch(msg), the stdin path now owns the "
             "rate-limiter gate."
         )
         assert "client.rate_limited" in src, (
             "stdin runner must emit the client.rate_limited "
-            "error envelope when the limiter rejects — matching the "
+            "error envelope when the limiter rejects, matching the "
             "TCP / WS path envelope shape."
         )
 
@@ -298,7 +298,7 @@ class TestDispatchDoesNotCallRateLimiter:
 
 class TestWsPathSingleRateLimiterCall:
     """the WS path (``sidecar_ws._make_dispatch``) calls the
-    rate limiter exactly ONCE per dispatched command — at the transport
+    rate limiter exactly ONCE per dispatched command, at the transport
     chokepoint. Pre-fix, the WS path called the limiter at the
     chokepoint AND ``_dispatch`` called it again (double-call).
     """
@@ -321,7 +321,7 @@ class TestWsPathSingleRateLimiterCall:
         dispatch = sw._make_dispatch(ws_server)
         asyncio.run(dispatch({"type": "get_status", "data": {}, "id": 1}, MagicMock()))
 
-        # The limiter was called exactly ONCE — the WS chokepoint gate.
+        # The limiter was called exactly ONCE, the WS chokepoint gate.
         # Pre-fix it would have been called twice (chokepoint + _dispatch).
         assert limiter.allow.call_count == 1, (
             "WS path must call rate_limiter.allow exactly once "
@@ -333,7 +333,7 @@ class TestWsPathSingleRateLimiterCall:
 
     def test_ws_dispatch_does_not_double_charge_on_reject(self) -> None:
         """When the WS chokepoint rejects, ``_dispatch`` is NOT called
-        at all — so the limiter's ``allow`` is consulted exactly once
+        at all, so the limiter's ``allow`` is consulted exactly once
         (the chokepoint gate) and the command cost is charged exactly
         once (not twice)."""
         import asyncio
@@ -526,7 +526,7 @@ def authenticated_client(live_server):
 
 class TestTcpPathSingleRateLimiterCall:
     """the TCP path (``transport_tcp._handle_tcp_connection``)
-    calls the rate limiter exactly ONCE per dispatched command — at the
+    calls the rate limiter exactly ONCE per dispatched command, at the
     transport chokepoint. Pre-fix, the TCP path called the limiter at
     the chokepoint AND ``_dispatch`` called it again (double-call).
     """
@@ -549,7 +549,7 @@ class TestTcpPathSingleRateLimiterCall:
         # The dispatch succeeded (the limiter accepted).
         assert resp["id"] == 42
         assert resp["type"] == "status"
-        # The limiter was called exactly ONCE — the TCP chokepoint gate.
+        # The limiter was called exactly ONCE, the TCP chokepoint gate.
         # Pre-fix it would have been called twice (chokepoint + _dispatch).
         assert limiter.allow.call_count == 1, (
             "TCP path must call rate_limiter.allow exactly once "
@@ -561,8 +561,8 @@ class TestTcpPathSingleRateLimiterCall:
 
     def test_tcp_dispatch_reject_calls_limiter_once(self, authenticated_client, monkeypatch) -> None:
         """When the TCP chokepoint rejects, ``_dispatch`` is NOT called
-        — the limiter is consulted exactly once (the chokepoint gate)
-        and the command cost is charged exactly once."""
+        , the limiter is consulted exactly once (the chokepoint gate)
+          and the command cost is charged exactly once."""
         from voice_typer.server.ipc_server import _get_rate_limiter
 
         client, srv = authenticated_client

@@ -1,5 +1,5 @@
 /**
- * AlertDialog + Accordion text-start tests — covers  (physical
+ * AlertDialog + Accordion text-start tests, covers  (physical
  * `text-left` was replaced with logical `text-start` so dialog header
  * and accordion trigger text aligns to the inline-start edge in both
  * LTR and RTL locales).
@@ -23,7 +23,7 @@ afterEach(() => {
 	cleanup();
 });
 
-describe("Accordion — BG-69 text-start (logical)", () => {
+describe("Accordion, BG-69 text-start (logical)", () => {
 	it("uses text-start on the trigger (was text-left)", () => {
 		render(
 			<Accordion type="single">
@@ -46,7 +46,7 @@ describe("Accordion — BG-69 text-start (logical)", () => {
 	});
 });
 
-describe("AlertDialog — BG-69 text-start (logical)", () => {
+describe("AlertDialog, BG-69 text-start (logical)", () => {
 	it("uses text-start on the header (was text-left)", () => {
 		render(<AlertDialogHeader data-testid="header" />);
 

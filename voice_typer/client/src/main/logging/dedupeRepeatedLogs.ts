@@ -3,8 +3,8 @@
  * `(xN)` repeat count.
  *
  * Motivation: the Electron main process can emit a burst of identical
- * `logger.warn` lines — e.g. `python-call rejected {cmd, code}` while
- * the renderer retries IPC calls against a disconnected backend — and
+ * `logger.warn` lines, e.g. `python-call rejected {cmd, code}` while
+ * the renderer retries IPC calls against a disconnected backend, and
  * the raw repetition floods `electron-main.log` / stderr with N copies
  * of the same fact. This wrapper keeps the FIRST occurrence as-is (so
  * the line appears immediately, with no added latency), suppresses
@@ -18,7 +18,7 @@
  *   - 2nd..Nth identical call: suppressed; the repeat counter grows.
  *   - Streak break (a different message/args arrive): if the streak had
  *     >= 2 occurrences, one summary `emit(msg, ...args, "(xN)")` is
- *     emitted — `N` is the TOTAL number of occurrences in the streak —
+ *     emitted, `N` is the TOTAL number of occurrences in the streak —
  *     BEFORE the new message's first line.
  *   - Growth-gated heartbeat: while a streak of >= 2 is STILL GROWING,
  *     a summary `(xN)` (cumulative count) is re-emitted every
@@ -28,7 +28,7 @@
  *     count stops growing the timer stops (no phantom summaries for an
  *     ended burst), and it re-arms on the next repeat.
  *
- * The summary appends `(xN)` as a trailing STRING argument — both the
+ * The summary appends `(xN)` as a trailing STRING argument, both the
  * structuredLogger (`electron-main.log`) and the console formatter
  * render it as a bare suffix on the same line:
  *
@@ -40,7 +40,7 @@
  *
  * Note: this is a consecutive-run deduper. Two bursts of the same
  * message separated by a different message are collapsed separately
- * (each burst gets its own `(xN)`). That is intentional — it matches
+ * (each burst gets its own `(xN)`). That is intentional, it matches
  * the bursty failure patterns these logs actually exhibit.
  */
 export interface DedupeRepeatedLogsOptions {
@@ -87,7 +87,7 @@ export function dedupeRepeatedLogs(
 	// Total occurrences reflected by the most recent `(xN)` summary for
 	// the CURRENT streak. The heartbeat only re-emits when the count has
 	// grown past this, and the streak-break summary only emits when there
-	// is something newer to report — so an ended burst is summarized at
+	// is something newer to report, so an ended burst is summarized at
 	// most once instead of once per minute forever.
 	let lastSummaryCount = 0;
 	let timer: ReturnType<typeof setTimeout> | null = null;

@@ -1,7 +1,7 @@
 //! Process-wide decoded-tray-icon cache + the whitelisted icon loader.
 //!
 //! Split out of the former monolithic `tray.rs` (highest-value piece of
-//! that decomposition — this is the only part with its own STATE + I/O).
+//! that decomposition: this is the only part with its own STATE + I/O).
 //! Re-exported from `crate::tray` so existing
 //! `crate::tray::{load_tray_icon, is_allowed_icon_name}` paths keep
 //! resolving.
@@ -18,21 +18,21 @@ use tauri::{AppHandle, Manager};
 // disk (`resource_dir/icons/tray/<name>.png`) AND re-decoded it via
 // `Image::from_path` (which allocates an RGBA buffer + runs the PNG
 // decoder). For a typical session the icon flips between `idle` ↔
-// `recording` ↔ `transcribing` dozens of times — each flip paid the
+// `recording` ↔ `transcribing` dozens of times, each flip paid the
 // disk-read + decode cost. The cache holds the decoded `Image<'static>`
 // (an `Arc`-backed `Cow<[u8]>` internally, so `.clone()` is a single
 // atomic increment) and serves subsequent lookups from memory.
 //
 // `OnceLock<Mutex<HashMap<...>>>` is used instead of a plain
 // `OnceLock<HashMap<...>>` because `OnceLock::get_or_init` returns an
-// immutable `&T` — we need interior mutability to insert cache-miss
+// immutable `&T`: we need interior mutability to insert cache-miss
 // entries after init. `Mutex` (not `RwLock`) is fine here because the
 // cache is read+written under a single short critical section (no I/O
-// under the lock — disk read + decode happen BEFORE the lock is taken
+// under the lock: disk read + decode happen BEFORE the lock is taken
 // on a cache miss, and the lock is only held for the `HashMap::get` /
 // `HashMap::insert`). Tray-state events are low-frequency (a handful
 // per session), so even if two threads raced a cache miss on the same
-// icon name, both would decode + one `insert` would win — the loser's
+// icon name, both would decode + one `insert` would win, the loser's
 // decoded `Image` is dropped (cheap, just an `Arc` decrement).
 static TRAY_ICON_CACHE: OnceLock<Mutex<HashMap<String, Image<'static>>>> = OnceLock::new();
 
@@ -45,7 +45,7 @@ static TRAY_ICON_CACHE: OnceLock<Mutex<HashMap<String, Image<'static>>>> = OnceL
 ///
 /// Extracted from `load_tray_icon` so the whitelist is unit-testable in
 /// isolation (calling `load_tray_icon` directly would require a live
-/// `AppHandle` + the bundled resource dir — both unavailable in `cargo
+/// `AppHandle` + the bundled resource dir, both unavailable in `cargo
 /// test`). The test module asserts `is_allowed_icon_name` agrees with
 /// the `ALLOWED_ICON_NAMES` test constant below.
 ///
@@ -53,7 +53,7 @@ static TRAY_ICON_CACHE: OnceLock<Mutex<HashMap<String, Image<'static>>>> = OnceL
 /// emitted by `voice_typer/client/scripts/generate-icons.mjs` under
 /// `src-tauri/icons/tray/` (the icon-generation script writes
 /// `{idle,recording,transcribing,error}.png`). A mismatch surfaces as a
-/// "tray_state icon not available" warning at runtime — non-fatal but
+/// "tray_state icon not available" warning at runtime, non-fatal but
 /// the tray icon stops updating.
 pub(crate) fn is_allowed_icon_name(name: &str) -> bool {
     matches!(name, "idle" | "recording" | "transcribing" | "error")
@@ -62,10 +62,10 @@ pub(crate) fn is_allowed_icon_name(name: &str) -> bool {
 /// Map a logical icon name (`"idle"`, `"recording"`,
 /// `"transcribing"`, `"error"`) emitted by the Python sidecar to a
 /// bundled Tauri image resource. Returns `None` if the name is unknown
-/// (caller logs and skips the icon update — non-fatal).
+/// (caller logs and skips the icon update, non-fatal).
 ///
 /// The icon files live under `src-tauri/icons/tray/` and are declared
-/// in `bundle.resources` (string entry `"icons/tray/"` — Tauri
+/// in `bundle.resources` (string entry `"icons/tray/"`, Tauri
 /// preserves the relative path, so the files land at
 /// `$RESOURCE/icons/tray/<name>.png`, mirroring the source tree) of
 /// the base + per-arch Tauri configs so they're shipped with the
@@ -79,9 +79,9 @@ pub(crate) fn is_allowed_icon_name(name: &str) -> bool {
 /// On a cache miss, the PNG is read + decoded OUTSIDE the cache lock
 /// (so a slow disk read doesn't block other threads' cache hits), then
 /// inserted under a brief lock. On a cache hit, the cached
-/// `Image<'static>` is cloned (cheap — `Arc`-backed `Cow<[u8]>`).
+/// `Image<'static>` is cloned (cheap: `Arc`-backed `Cow<[u8]>`).
 pub(crate) fn load_tray_icon(app: &AppHandle, name: &str) -> Option<Image<'static>> {
-    // Whitelist the logical names — never load an arbitrary path from
+    // Whitelist the logical names: never load an arbitrary path from
     // the sidecar (defense against a compromised sidecar trying to read
     // an arbitrary file via the tray icon path).
     if !is_allowed_icon_name(name) {
@@ -100,11 +100,11 @@ pub(crate) fn load_tray_icon(app: &AppHandle, name: &str) -> Option<Image<'stati
             return Some(img.clone());
         }
     } else {
-        // Poisoned lock — fall through to the disk-read path so the
+        // Poisoned lock: fall through to the disk-read path so the
         // tray still updates. The cache is best-effort, not a correctness
         // requirement.
         log::warn!(
-            "[TRAY] icon cache lock poisoned — bypassing cache for {:?}",
+            "[TRAY] icon cache lock poisoned: bypassing cache for {:?}",
             allowed
         );
     }

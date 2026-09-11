@@ -12,15 +12,15 @@ slim-core sidecar's ``sidecar_ws._authenticate`` (ADR-0020 §3 /
 ADR-0014) so the host's respawn scheduler can branch on
 ``code == "auth_failed"`` uniformly across both transports.
 
-Auth model (master plan §7.2 — same as the slim-core sidecar):
+Auth model (master plan §7.2, same as the slim-core sidecar):
 
 This is a **one-shot bearer-token** check, NOT an HMAC scheme.
 ``hmac.compare_digest`` is used purely as a constant-time *comparison*
 helper (no key derivation, no signing, no per-message MAC, no nonce /
-replay protection — same as the slim-core sidecar, see
+replay protection: same as the slim-core sidecar, see
 :mod:`voice_typer.server.ipc.auth`). Compensating controls:
 
-- **Loopback-only bind**: ``127.0.0.1:0`` — never exposed to the network.
+- **Loopback-only bind**: ``127.0.0.1:0``: never exposed to the network.
 - **Ephemeral port**: chosen by the OS at worker startup and reported to
   the host over stdout; not predictable ahead of time.
 - **Per-launch token rotation**: the host generates a fresh token via
@@ -40,7 +40,7 @@ from voice_typer.server.ipc.auth import AUTH_READ_TIMEOUT_SECONDS
 log = logging.getLogger("voice_typer.worker")
 
 # Auth frame timeout (seconds). A client that connects but never sends
-# the auth frame must not hold the connection indefinitely — the
+# the auth frame must not hold the connection indefinitely, the
 # budget is single-sourced as ``AUTH_READ_TIMEOUT_SECONDS`` in
 # :mod:`voice_typer.server.ipc.auth` and imported by ALL THREE
 # handshake implementations (the TCP path in
@@ -49,7 +49,7 @@ log = logging.getLogger("voice_typer.worker")
 # the transports agree on the auth-deadline budget without any manual
 # sync. The local alias below preserves the historical
 # ``_AUTH_TIMEOUT_SECONDS`` name this module's ``_authenticate``
-# reads (no test patches it — kept purely as the established name).
+# reads (no test patches it, kept purely as the established name).
 _AUTH_TIMEOUT_SECONDS = AUTH_READ_TIMEOUT_SECONDS
 
 
@@ -78,7 +78,7 @@ async def _authenticate(websocket) -> bool:  # noqa: ANN001 - websockets type is
     expected_token = os.environ.get(IPC_TOKEN_ENV_VAR, "")
     if not expected_token:
         log.error(
-            "[WORKER] %s not set — refusing to accept connections (the host must always set this env var).",
+            "[WORKER] %s not set: refusing to accept connections (the host must always set this env var).",
             IPC_TOKEN_ENV_VAR,
         )
         return False
@@ -86,7 +86,7 @@ async def _authenticate(websocket) -> bool:  # noqa: ANN001 - websockets type is
     try:
         first_raw = await asyncio.wait_for(websocket.recv(), timeout=_AUTH_TIMEOUT_SECONDS)
     except asyncio.TimeoutError:
-        log.warning("[WORKER] auth frame timeout — closing connection")
+        log.warning("[WORKER] auth frame timeout: closing connection")
         return False
     except Exception:
         log.warning("[WORKER] auth frame read failed", exc_info=True)
@@ -106,7 +106,7 @@ async def _authenticate(websocket) -> bool:  # noqa: ANN001 - websockets type is
         return False
 
     if not tokens_equal(provided, expected_token):
-        log.warning("[WORKER] auth frame token mismatch — rejecting")
+        log.warning("[WORKER] auth frame token mismatch: rejecting")
         return False
 
     return True

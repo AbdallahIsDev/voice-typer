@@ -1,5 +1,5 @@
 /**
- * Focused tests for `useSettingsSearch` — the extracted Settings search
+ * Focused tests for `useSettingsSearch`, the extracted Settings search
  * derivations + label-based auto-switch hook.
  *
  * Pins the ONE-match-predicate contract: a label matches when the LABEL
@@ -10,7 +10,7 @@
  * queries like "prewarm" route to the page where that component lives.
  *
  * The hook takes `query` / `activeSection` / `navigate` as plain params,
- * so these tests drive it directly via rerender — no store or routing
+ * so these tests drive it directly via rerender, no store or routing
  * mocks required.
  */
 import { act, renderHook } from "@testing-library/react";
@@ -49,7 +49,7 @@ describe("searchLabelMatches (the ONE shared match predicate)", () => {
 	});
 });
 
-describe("useSettingsSearch — memoized label universe", () => {
+describe("useSettingsSearch, memoized label universe", () => {
 	it("folds the PrewarmAndUpdates labels into the Advanced page's set", () => {
 		const { result } = renderHook(() =>
 			useSettingsSearch({
@@ -67,7 +67,7 @@ describe("useSettingsSearch — memoized label universe", () => {
 	});
 });
 
-describe("useSettingsSearch — auto-switch navigation", () => {
+describe("useSettingsSearch, auto-switch navigation", () => {
 	it("navigates to the best-matching section page on a post-mount query change", () => {
 		const { rerender } = renderHook(
 			(props: { query: string; activeSection: "settingsGeneral" | null }) =>
@@ -84,7 +84,7 @@ describe("useSettingsSearch — auto-switch navigation", () => {
 		expect(nav).not.toHaveBeenCalled();
 
 		// The first POST-MOUNT query change navigates. "Appearance"
-		// is the Appearance section's own label — longer than any
+		// is the Appearance section's own label, longer than any
 		// other match, so it wins.
 		rerender({ query: "appearance", activeSection: "settingsGeneral" });
 		expect(nav).toHaveBeenCalledTimes(1);
@@ -98,7 +98,7 @@ describe("useSettingsSearch — auto-switch navigation", () => {
 	it("skips the mount effect run so a stale query cannot yank the user on mount", () => {
 		// The stale-query-guard scenario: the global search store
 		// still holds a query from a previous visit when the page
-		// mounts. The mount effect run is skipped — no navigation
+		// mounts. The mount effect run is skipped, no navigation
 		// until the user actually CHANGES the query.
 		const { rerender } = renderHook(
 			(props: { query: string; activeSection: "settingsGeneral" | null }) =>
@@ -116,7 +116,7 @@ describe("useSettingsSearch — auto-switch navigation", () => {
 		);
 		expect(nav).not.toHaveBeenCalled();
 
-		// An identical re-render changes no effect deps — still no
+		// An identical re-render changes no effect deps, still no
 		// navigation.
 		rerender({ query: "appearance", activeSection: "settingsGeneral" });
 		expect(nav).not.toHaveBeenCalled();
@@ -159,7 +159,7 @@ describe("useSettingsSearch — auto-switch navigation", () => {
 	});
 });
 
-describe("useSettingsSearch — empty-banner sentinel + cross-section groups", () => {
+describe("useSettingsSearch, empty-banner sentinel + cross-section groups", () => {
 	it("reports no visible row when NO label matches the query anywhere", () => {
 		const { result } = renderHook(() =>
 			useSettingsSearch({
@@ -185,7 +185,7 @@ describe("useSettingsSearch — empty-banner sentinel + cross-section groups", (
 			true,
 		);
 		// The active page's own group is filtered out inline by the
-		// sections — it must not appear here either.
+		// sections, it must not appear here either.
 		expect(groups.some((g) => g.sectionPage === "settingsGeneral")).toBe(false);
 	});
 

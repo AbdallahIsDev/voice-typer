@@ -130,7 +130,7 @@ describe("positioning.ts: fullscreen detection", () => {
 			{ workArea: { x: 0, y: 0, width: 100, height: 100 } },
 		]);
 		expect(isForegroundFullscreen()).toBe(false);
-		// The dead per-display loop is gone — non-darwin detection is
+		// The dead per-display loop is gone, non-darwin detection is
 		// a pure no-op and must not issue any native screen/window
 		// calls (this runs on every bubble show).
 		expect(screenSpies.getAllDisplays).not.toHaveBeenCalled();
@@ -154,7 +154,7 @@ describe("positioning.ts: fullscreen detection", () => {
 			isFullScreen: () => false,
 		});
 		expect(isForegroundFullscreen()).toBe(false);
-		// Exactly ONE getFocusedWindow call — the removed loop used
+		// Exactly ONE getFocusedWindow call, the removed loop used
 		// to issue one native call per connected display.
 		expect(focusedWindowSpy.getFocusedWindow).toHaveBeenCalledTimes(1);
 	});
@@ -163,7 +163,7 @@ describe("positioning.ts: fullscreen detection", () => {
 		const platformSpy = vi.spyOn(process, "platform", "get");
 		platformSpy.mockReturnValue("darwin");
 		// Detection is darwin-gated on BrowserWindow.getFocusedWindow()
-		// — that is the call that can throw (headless / GPU process
+		//, that is the call that can throw (headless / GPU process
 		// gone). A throw must degrade to `false`, never propagate.
 		focusedWindowSpy.getFocusedWindow.mockImplementation(() => {
 			throw new Error("gpu process gone");

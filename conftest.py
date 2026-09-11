@@ -1,12 +1,12 @@
-"""Root conftest.py — makes the optional pytest plugins (pytest-cov,
+"""Root conftest.py, makes the optional pytest plugins (pytest-cov,
 pytest-timeout, pytest-asyncio) non-fatal when they are not installed.
 
 The repo's ``[tool.pytest.ini_options].addopts`` in ``pyproject.toml``
 carries plugin-owned flags (``--timeout=60 --timeout-method=thread
 --cov=voice_typer``). Those flags are only understood when the owning
-plugin is installed. CI jobs that install ONLY ``pytest`` — e.g. the
+plugin is installed. CI jobs that install ONLY ``pytest``, e.g. the
 product-namespace drift guard in ``build.yml``, which deliberately
-avoids the project's [test] extras to keep the job ~1 min — would
+avoids the project's [test] extras to keep the job ~1 min, would
 otherwise abort with ``unrecognized arguments`` before any test
 collects (pytest merges ini ``addopts`` into the argv it parses, and an
 unregistered option is a hard error).
@@ -24,7 +24,7 @@ ineffective: ``pytest`` captures ``sys.argv`` up front in
 ``addopts`` afterwards, so the shim could neither see the CLI flags it
 tried to strip nor reach the ini-sourced ones (the CI error listed
 ``--cov=voice_typer`` even with the shim present). Option registration
-via ``pytest_addoption`` is the correct hook — it runs before the
+via ``pytest_addoption`` is the correct hook, it runs before the
 ini-addopts argv is parsed, so both CLI-passed and ini-sourced flags
 are accepted.
 
@@ -143,6 +143,6 @@ def pytest_addoption(parser: object) -> None:
     # the only job that passes xdist flags (build.yml full suite, `-n auto
     # --dist=loadgroup`) installs the [test] extras, which include
     # pytest-xdist. Every bare-pytest job passes only the options covered
-    # above — keep this boundary explicit so a future job that moves an
+    # above, keep this boundary explicit so a future job that moves an
     # xdist invocation to a bare install fails loudly instead of silently
     # being accepted here and erroring later.

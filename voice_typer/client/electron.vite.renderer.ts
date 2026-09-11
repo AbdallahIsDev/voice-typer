@@ -43,7 +43,7 @@ export default defineConfig(({ command }) => ({
 						// Isolate the Tauri <-> React bridge
 						// (src/renderer/src/lib/tauri-bridge/) and its
 						// @tauri-apps/api dep graph (~1.4 MB) into a dedicated
-						// chunk. MUST mirror electron.vite.config.ts — see the
+						// chunk. MUST mirror electron.vite.config.ts, see the
 						// rationale there.
 						if (moduleId.includes("src/renderer/src/lib/tauri-bridge/")) {
 							return "tauri-bridge";

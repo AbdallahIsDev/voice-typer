@@ -36,12 +36,12 @@ import pytest
 
 if sys.version_info >= (3, 11):
     import tomllib  # type: ignore[import-not-found]
-else:  # pragma: no cover — Python 3.10 fallback
+else:  # pragma: no cover, Python 3.10 fallback
     try:
         import tomli as tomllib  # type: ignore[import-not-found, no-redef]
-    except ImportError:  # pragma: no cover — tomli not in the lock
+    except ImportError:  # pragma: no cover, tomli not in the lock
         pytest.skip(
-            "tomli backport not installed on Python 3.10 — skipping lock-completeness check",
+            "tomli backport not installed on Python 3.10, skipping lock-completeness check",
             allow_module_level=True,
         )
 
@@ -79,13 +79,13 @@ def _marker_applies_current_platform(marker_str: str) -> bool:
         from packaging.markers import Marker  # type: ignore[import-not-found]
 
         return Marker(marker_str).evaluate()
-    except ImportError:  # pragma: no cover — packaging is a pip dep
+    except ImportError:  # pragma: no cover, packaging is a pip dep
         # Naive fallback: handle the common ``sys_platform == 'X'`` case.
         m = re.search(r"sys_platform\s*==\s*['\"]([^'\"]+)['\"]", marker_str)
         if m:
             return sys.platform == m.group(1)
         # For more complex markers (e.g. ``platform_machine != 'arm64' or
-        # sys_platform != 'darwin'``), assume the dep applies — this is
+        # sys_platform != 'darwin'``), assume the dep applies, this is
         # conservative (might flag a real miss, but won't false-pass).
         return True
 
@@ -93,7 +93,7 @@ def _marker_applies_current_platform(marker_str: str) -> bool:
 def _direct_deps() -> set[str]:
     """Return the set of canonical names declared in pyproject.toml [project.dependencies].
 
-    Includes platform-conditional deps regardless of marker — callers
+    Includes platform-conditional deps regardless of marker, callers
     that need to skip non-matching platform deps should use
     :func:`_direct_deps_for_current_platform` instead.
     """
@@ -158,7 +158,7 @@ def test_every_direct_dep_is_pinned_in_lockfile() -> None:
     ``sys_platform == 'darwin'``) are skipped when the lockfile is
     generated on a non-matching platform. ``requirements-lock.txt``
     is generated on Linux via ``uv pip compile``, so pycaw, comtypes,
-    and the pyobjc-* deps are correctly absent on Linux — flagging
+    and the pyobjc-* deps are correctly absent on Linux, flagging
     them as missing would be a false positive. They ARE checked on
     their respective target platforms (Windows / macOS CI runners).
     """
@@ -182,7 +182,7 @@ def test_known_critical_deps_are_pinned() -> None:
     """Targeted sentinel test for the two deps that were missing in H-20.
 
     These have lazy imports (``try/except ImportError``) so a missing
-    pin wouldn't surface at install time — only at first use. Keep this
+    pin wouldn't surface at install time, only at first use. Keep this
     test even if the generic test above passes, so a future regression
     on these specific deps is caught loudly.
     """
@@ -203,7 +203,7 @@ def _pyproject_dep_specifiers() -> dict[str, str]:
 
     Each entry's value is the version specifier clause (e.g.
     ``">=5.9,<8.0"``) stripped of environment markers. Deps with no
-    version specifier are omitted — there is nothing to check against.
+    version specifier are omitted, there is nothing to check against.
     """
     with PYPROJECT.open("rb") as fh:
         data = tomllib.load(fh)
@@ -251,7 +251,7 @@ def test_lockfile_pinned_versions_satisfy_pyproject_constraints() -> None:
     uses ``pip install --require-hashes -r requirements-lock.txt``
     (installs the exact pinned versions). If a dep is bumped in
     pyproject.toml but the lockfile is NOT regenerated, the two paths
-    silently diverge — CI runs the new version, the reproducible-build
+    silently diverge, CI runs the new version, the reproducible-build
     path runs the old (potentially constraint-violating) version.
 
     This test catches that drift: for every direct dep that has BOTH a
@@ -261,8 +261,8 @@ def test_lockfile_pinned_versions_satisfy_pyproject_constraints() -> None:
     try:
         from packaging.specifiers import SpecifierSet
         from packaging.version import Version
-    except ImportError:  # pragma: no cover — packaging is a pip dep
-        pytest.skip("packaging library not available — cannot check version constraints")
+    except ImportError:  # pragma: no cover, packaging is a pip dep
+        pytest.skip("packaging library not available, cannot check version constraints")
     specs = _pyproject_dep_specifiers()
     pins = _lockfile_pinned_versions()
     violations: list[str] = []
@@ -274,13 +274,13 @@ def test_lockfile_pinned_versions_satisfy_pyproject_constraints() -> None:
         try:
             spec = SpecifierSet(spec_str)
             ver = Version(pin)
-        except Exception as exc:  # pragma: no cover — defensive parse
+        except Exception as exc:  # pragma: no cover, defensive parse
             violations.append(f"  {name}: failed to parse spec={spec_str!r} or pin={pin!r} ({exc})")
             continue
         if ver not in spec:
             violations.append(f"  {name}: lockfile pins {pin} but pyproject.toml requires {spec_str}")
     assert not violations, (
-        "Lockfile drift detected — the lockfile pin violates the version "
+        "Lockfile drift detected, the lockfile pin violates the version "
         "specifier declared in pyproject.toml. CI (which resolves from "
         "pyproject.toml) and the documented `pip install --require-hashes "
         "-r requirements-lock.txt` path now install DIFFERENT versions. "
@@ -295,7 +295,7 @@ def test_lockfile_psutil_pin_matches_pyproject_constraint() -> None:
 
     Specifically guards against the regression: lockfile pinned
     psutil==6.1.1 while pyproject allowed >=5.9,<8.0 (so 6.1.1 was
-    technically valid) BUT the live venv had 7.2.2 — the lockfile and
+    technically valid) BUT the live venv had 7.2.2, the lockfile and
     the venv silently diverged because CI resolved from pyproject.toml
     (picking 7.2.2) while the documented reproducible-build path used
     the lockfile (picking 6.1.1). The lockfile has since been
@@ -305,13 +305,13 @@ def test_lockfile_psutil_pin_matches_pyproject_constraint() -> None:
     """
     try:
         import psutil
-    except ImportError:  # pragma: no cover — psutil is a hard dep
+    except ImportError:  # pragma: no cover, psutil is a hard dep
         pytest.skip("psutil not installed in this environment")
     installed = psutil.__version__
     pins = _lockfile_pinned_versions()
     pinned = pins.get("psutil")
     assert pinned is not None, (
-        "psutil is missing from requirements-lock.txt — the reproducible-build "
+        "psutil is missing from requirements-lock.txt, the reproducible-build "
         "path would crash with ModuleNotFoundError on the first "
         "`_another_voice_typer_alive` call."
     )

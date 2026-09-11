@@ -32,7 +32,7 @@
  *
  * The matching useConnection-side branch is exercised by the integration
  * test in `__tests__/usePython-error-envelope.test.ts` (already present
- * upstream) — these tests focus purely on the bridge synthesis so a
+ * upstream), these tests focus purely on the bridge synthesis so a
  * future regression that drops or renames the `supervisor_failed`
  * listener fails loudly here.
  */
@@ -55,7 +55,7 @@ function makeTauriStubWithCapture(subscriptions: {
 	return {
 		core: {
 			// TauriGlobal.core.invoke is `<T>(cmd, args?) => Promise<T>`
-			// — `vi.fn()` infers `Mock<() => unknown>` which isn't
+			//, `vi.fn()` infers `Mock<() => unknown>` which isn't
 			// assignable to that generic signature. Build the function
 			// inline and cast at the boundary so the recorded-mock
 			// surface (calls/results) is preserved while the callable
@@ -123,7 +123,7 @@ describe("python-namespace: supervisor_failed listener (XZ-R16-02)", () => {
 		await Promise.resolve();
 
 		// Dispatch the supervisor_failed event as the Rust host would:
-		// see src-tauri/src/sidecar/supervisor.rs:633 — payload is a
+		// see src-tauri/src/sidecar/supervisor.rs:633, payload is a
 		// JSON object with at least `reason`, `message`, and
 		// `restart_count`.
 		subscriptions.supervisor_failed?.({
@@ -205,7 +205,7 @@ describe("python-namespace: supervisor_failed listener (XZ-R16-02)", () => {
 
 		// A transient relaunch (NOT exhaustion) must synthesize a
 		// `reconnecting` event so useConnection shows the
-		// "Restarting…" banner — NOT a terminal `error` event.
+		// "Restarting…" banner, NOT a terminal `error` event.
 		subscriptions.supervisor_relaunching?.({
 			payload: { reason: "tcp_disconnected" },
 		});
@@ -232,7 +232,7 @@ describe("python-namespace: supervisor_failed listener (XZ-R16-02)", () => {
 		await Promise.resolve();
 
 		// supervisor.rs:495 emits supervisor_relaunching with
-		// reason="backoff_exhausted" right before app.restart() — the
+		// reason="backoff_exhausted" right before app.restart(), the
 		// bridge must convert this into a terminal `error` event
 		// (same shape as supervisor_failed) so the renderer doesn't
 		// stay stuck on "Restarting…".

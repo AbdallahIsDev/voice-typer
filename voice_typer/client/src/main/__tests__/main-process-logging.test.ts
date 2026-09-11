@@ -2,7 +2,7 @@
 /**
  * tray-logging / loadurl-logging / single-instance-logging regression tests for main-process logging fixes.
  *
- * Covers three disjoint root causes — each previously swallowed a
+ * Covers three disjoint root causes, each previously swallowed a
  * failure silently, leaving operators with no diagnostic signal in
  * the runtime log:
  *
@@ -10,7 +10,7 @@
  *     the structured logger (no `[WARN]` prefix, no `electron-runtime.log`
  *     tee). Replaced with `log.warn`.
  *   - loadurl-logging: main-window.ts `loadURL` / `loadFile` Promises were
- *     dropped with no `.catch` — a load failure fed the SEC-021
+ *     dropped with no `.catch`, a load failure fed the SEC-021
  *     unhandled-rejection breaker. Now `void promise.catch(log.warn)`.
  *   - single-instance-logging: single_instance.ts had three silent `catch {}` blocks
  *     (isPidVoiceTyper, readStaleElectronPid inner, readStaleElectronPid
@@ -48,13 +48,13 @@ vi.mock("../logging", () => ({
 		warn: hoisted.logWarnSpy,
 		error: vi.fn(),
 		// tray_available.ts also logs at debug level for the dbus-send
-		// fallback probe — the mock must expose it or the catch block
+		// fallback probe, the mock must expose it or the catch block
 		// throws `log.debug is not a function`.
 		debug: vi.fn(),
 	},
 	// renderer-telemetry.ts (reached via main-window's registration)
 	// imports these alongside `log` after the console-forwarder
-	// consolidation — the partial mock must expose them or
+	// consolidation, the partial mock must expose them or
 	// registerRendererTelemetry throws on the undefined binding.
 	RENDERER_CLR: "",
 	fileTimestamp: () => "",
@@ -79,7 +79,7 @@ describe("tray-logging: tray_available.ts uses structured log.warn for gdbus pro
 
 	beforeEach(() => {
 		vi.clearAllMocks();
-		// First call (gdbus) throws — the catch must log.warn.
+		// First call (gdbus) throws, the catch must log.warn.
 		// Second call (dbus-send) also throws so the function falls
 		// through to the conservative "no SNI" fallback.
 		hoisted.execFileSyncMock.mockImplementation(() => {
@@ -109,7 +109,7 @@ describe("tray-logging: tray_available.ts uses structured log.warn for gdbus pro
 		});
 		process.env.XDG_SESSION_TYPE = "wayland";
 
-		// Spy on console.warn to assert it was NOT called — this is
+		// Spy on console.warn to assert it was NOT called, this is
 		// the regression: the old code bypassed the structured logger.
 		const consoleWarnSpy = vi
 			.spyOn(console, "warn")
@@ -126,7 +126,7 @@ describe("tray-logging: tray_available.ts uses structured log.warn for gdbus pro
 		expect(warnArgs).toBeDefined();
 		expect(String(warnArgs?.[0])).toMatch(/gdbus probe failed/);
 
-		// The bypass console.warn must NOT have fired — that was
+		// The bypass console.warn must NOT have fired, that was
 		// the tray-logging root cause.
 		expect(consoleWarnSpy).not.toHaveBeenCalled();
 	});
@@ -171,7 +171,7 @@ describe("loadurl-logging: main-window.ts loadURL Promise rejection is caught + 
 	function installMainWindowMocks(fakeWindow: Record<string, unknown>): void {
 		vi.doMock("electron", () => ({
 			app: { isQuitting: false, isPackaged: false },
-			// BrowserWindow must be a constructor — `new` on an arrow
+			// BrowserWindow must be a constructor, `new` on an arrow
 			// function throws "not a constructor", and biome's
 			// useArrowFunction rule rewrites `function () {}` into
 			// `() => {}`. The class below copies the fakeWindow
@@ -250,7 +250,7 @@ describe("loadurl-logging: main-window.ts loadURL Promise rejection is caught + 
 
 		// The loadURL call returns a rejected Promise synchronously
 		// (the mock rejects on invocation). The .catch handler is
-		// scheduled as a microtask — flush it before asserting.
+		// scheduled as a microtask, flush it before asserting.
 		await new Promise<void>((resolve) => {
 			// Two microtask ticks: the first settles the rejection,
 			// the second runs the .catch handler.

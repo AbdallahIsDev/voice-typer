@@ -59,7 +59,7 @@ class OnboardingMixin(ServiceMixinBase):
                 ctrl = OnboardingController()
                 self._onboarding = ctrl
             return ctrl.check_permissions()
-        except Exception as exc:  # defensive — never block the wizard
+        except Exception as exc:  # defensive, never block the wizard
             log.exception("[SERVICE] onboarding_check_permissions failed: %s", exc)
             return {"platform": "unknown", "state": "unknown", "needed": False, "instructions": None}
 
@@ -126,7 +126,7 @@ class OnboardingMixin(ServiceMixinBase):
         """Set the local-vs-cloud backend choice in the onboarding wizard.
 
         ``"local"`` runs a local AI model (downloaded explicitly by the
-        user — the app never auto-downloads); ``"cloud"`` connects a
+        user, the app never auto-downloads); ``"cloud"`` connects a
         cloud transcription API (API key + consent persisted via the
         allowlisted ``set_config`` fields).
         """
@@ -151,7 +151,7 @@ class OnboardingMixin(ServiceMixinBase):
         """Apply onboarding settings and mark complete.
 
         17-H-: previously this only called ``ctrl.apply_settings``
-                (which does ``config.save()``) — it never invoked
+                (which does ``config.save()``), it never invoked
                 ``apply_config_side_effects``, so the user's hotkey and model
                 choices made in the first-run wizard didn't take effect until
                 app restart. We now mirror the canonical ``set_config`` flow
@@ -238,7 +238,7 @@ class OnboardingMixin(ServiceMixinBase):
             # the IPC ``set_config`` handler's pattern and lets the
             # service layer intercept / observe the change.
             # ``app.change_model`` internally handles the case where
-            # the background loader hasn't finished yet — it queues
+            # the background loader hasn't finished yet, it queues
             # the change via _pending_model_change (model_manager.py:456)
             # and applies it on the next _start_dictation. If the
             # loader HAS finished, the full unload/load cycle runs

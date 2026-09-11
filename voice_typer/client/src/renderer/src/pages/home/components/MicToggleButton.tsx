@@ -15,7 +15,7 @@ import { cn } from "@/lib/utils";
  *
  * When `error` is true (the last recording attempt failed), the idle
  * treatment swaps from the solid destructive glow to a hollow
- * destructive surface with an alert glyph — a distinct state that
+ * destructive surface with an alert glyph, a distinct state that
  * reads as "the last attempt errored", announced politely to screen
  * readers.
  *
@@ -63,7 +63,7 @@ export function MicToggleButton({
 	const effectiveLabel = disabled && disabledReason ? disabledReason : label;
 
 	// LO-22: use `aria-disabled` + a click guard instead of the native
-	// `disabled` attribute so the button stays hoverable/focusable — the
+	// `disabled` attribute so the button stays hoverable/focusable, the
 	// `title` tooltip (carrying `disabledReason`) must remain readable on
 	// a disabled mic, which a native `disabled` attribute suppresses.
 	// Screen readers still announce the disabled state via aria-disabled.
@@ -96,7 +96,7 @@ export function MicToggleButton({
 					isRecording
 						? "bg-foreground/15 hover:bg-foreground/25"
 						: showError
-							? // Error state: hollow destructive — a distinct
+							? // Error state: hollow destructive, a distinct
 								// "last attempt failed" treatment next to the
 								// solid glow of the healthy idle button.
 								"bg-destructive/15 ring-2 ring-inset ring-destructive hover:bg-destructive/25"
@@ -110,7 +110,7 @@ export function MicToggleButton({
 					strokeWidth={1.625}
 					// The mic lives on the red (destructive) button in the
 					// idle state, so its glyph uses the destructive
-					// foreground token — near-white in BOTH light and dark
+					// foreground token, near-white in BOTH light and dark
 					// (index.css defines --destructive-foreground as
 					// oklch(0.97 0 0) in :root AND .dark, and every theme
 					// preset + the custom-theme generator backfill it).

@@ -3,12 +3,12 @@ import type * as React from "react";
 import { cn } from "#utils";
 
 /**
- * Skeleton — the app's single loading primitive (shadcn/ui).
+ * Skeleton, the app's single loading primitive (shadcn/ui).
  *
  * Every "content is loading" state in the app renders Skeletons shaped
  * like the content they replace (see `components/feedback/skeletons.tsx`
  * for the page-level compositions). Inline action-progress indicators
- * (e.g. a download button's glyph) keep using `Spinner` — a Skeleton is
+ * (e.g. a download button's glyph) keep using `Spinner`, a Skeleton is
  * for content placeholders, not button feedback.
  *
  * Theme: `--bg-subtle` tracks the active theme exactly like the

@@ -4,7 +4,7 @@ This module is the slim class shell. The strategy implementations
 live in the :mod:`voice_typer.server.hotkeys.windows` subpackage
 (split out during the package split). Each strategy function takes ``self`` as its
 first parameter so it can be assigned as a method on
-:class:`WindowsNativeHotkey` — Python's descriptor protocol then
+:class:`WindowsNativeHotkey`: Python's descriptor protocol then
 passes the instance as ``self``, and ``inspect.getsource`` follows
 the function's ``__code__.co_filename`` back to the strategy module
 (so source-inspection regression tests still pin the polling-loop
@@ -92,7 +92,7 @@ class WindowsNativeHotkey(HotkeyBackend):
     TODOinstall a ``SetWinEventHook(EVENT_SYSTEM_DESKTOPSWITCH)``
     listener on a dedicated thread and, when the user returns to the
     interactive desktop, emit a tray notification: "Hotkey paused during
-    UAC elevation". For now, this is a documented limitation — the user
+    UAC elevation". For now, this is a documented limitation, the user
     simply re-presses the hotkey after the UAC prompt closes. See
     ``docs/native-hotkey-architecture-plan.md`` for the full plan.
     """
@@ -104,7 +104,7 @@ class WindowsNativeHotkey(HotkeyBackend):
         self._ready_event = threading.Event()  # signalled when registration completes
         self._hotkey_id = 1  # arbitrary ID for RegisterHotKey
         self._registered = False
-        # typed as Any — these are populated inside _register()
+        # typed as Any, these are populated inside _register()
         # via ctypes.windll (Windows-only). They remain None on non-Windows
         # platforms, but the methods that touch them (the message-pump
         # loop, _unregister) are only invoked from Windows-only code paths.
@@ -123,7 +123,7 @@ class WindowsNativeHotkey(HotkeyBackend):
         self._hook_proc: Any = None
         # True when the hotkey is a modifier only
         # spec (e.g. ``<alt>``). The polling loop uses a different code
-        # path for these — see ``_run_modifier_only_polling_loop``.
+        # path for these: see ``_run_modifier_only_polling_loop``.
         self._is_modifier_only: bool = False
         # brief flag set while we're sending a
         # synthetic Caps Lock keypress to undo the OS-level toggle.
@@ -137,13 +137,13 @@ class WindowsNativeHotkey(HotkeyBackend):
         # loop's 8ms cadence (~125 Hz, see PERF-01/CPU-01) that's ~625
         # syscalls/sec even when no key is pressed. The throttled wrapper
         # ``_is_ime_composing_throttled()`` re-queries at most every
-        # 50ms (20 Hz) — IME state changes at human typing speed so
+        # 50ms (20 Hz). IME state changes at human typing speed so
         # 50ms latency is invisible to the user.
         self._last_ime_check_time: float = 0.0
         self._last_ime_composing: bool = False
         # PERF- throttled non-modifier key scan.
         # ``_any_non_modifier_key_pressed()`` calls GetAsyncKeyState for
-        # each VK in 0x08-0xFF (248 codes) — O(248) per iteration. The
+        # each VK in 0x08-0xFF (248 codes). O(248) per iteration. The
         # throttled wrapper re-scans at most every 50ms, reducing the
         # idle-state syscall rate from ~248k/sec to ~5k/sec.
         self._last_nonmod_check_time: float = 0.0
@@ -155,7 +155,7 @@ class WindowsNativeHotkey(HotkeyBackend):
         # wide LL hook (reduces per-keystroke system-wide CPU from 3× to
         # 1×). If RegisterHotKey fails for the ESC/repaste key (some keys
         # are reserved by the OS or already claimed), the backend falls
-        # back to the LL hook for that single backend — 2 hooks instead
+        # back to the LL hook for that single backend, 2 hooks instead
         # of 3, still an improvement. The main dictation hotkey leaves
         # this False (default) so it keeps the robust LL-hook-first path.
         self._prefer_message_loop_first: bool = False
@@ -172,7 +172,7 @@ class WindowsNativeHotkey(HotkeyBackend):
         # ``_registration_degraded`` property so ``_NativeBackendAdapter``
         # (and other callers) can surface a tray notification without
         # reaching into private attrs. The hook keeps the hotkey working,
-        # but the OS-level exclusive claim failed — usually because another
+        # but the OS-level exclusive claim failed, usually because another
         # app (Snipping Tool, GeForce Overlay, etc.) already claimed it.
         # The adapter owns the tray surface; this class only records the
         # state so it can be polled later (Fix-9 owns this file;
@@ -248,13 +248,13 @@ class WindowsNativeHotkey(HotkeyBackend):
                 # skip RegisterHotKey for
                 # modifier-only hotkeys (``<alt>``, ``<ctrl>``, etc.).
                 # RegisterHotKey requires a main VK code and won't
-                # accept a bare modifier — calling it with vk=0 fails
+                # accept a bare modifier, calling it with vk=0 fails
                 # with ERROR_INVALID_PARAMETER (87). The polling loop's
                 # modifier-only detection path handles these specs
                 # directly via GetAsyncKeyState on the modifier VK.
                 if self._is_modifier_only:
                     log.info(
-                        "[HOTKEY] Modifier-only hotkey (mods=0x%X) — skipping "
+                        "[HOTKEY] Modifier-only hotkey (mods=0x%X), skipping "
                         "RegisterHotKey, using polling-only detection",
                         self._modifiers,
                     )
@@ -276,7 +276,7 @@ class WindowsNativeHotkey(HotkeyBackend):
                         # in Settings.
                         if err == 1409:
                             log.warning(
-                                "[HOTKEY] RegisterHotKey FAILED for VK=0x%X — "
+                                "[HOTKEY] RegisterHotKey FAILED for VK=0x%X, "
                                 "ERROR_HOTKEY_ALREADY_REGISTERED (1409). Another "
                                 "app has claimed this hotkey. Check for: Snipping "
                                 "Tool (Win+Shift+S), GeForce Overlay, AutoHotkey, "
@@ -286,7 +286,7 @@ class WindowsNativeHotkey(HotkeyBackend):
                             )
                         else:
                             log.warning(
-                                "RegisterHotKey failed for VK=0x%X, GetLastError=%d (0x%X) — "
+                                "RegisterHotKey failed for VK=0x%X, GetLastError=%d (0x%X), "
                                 "polling fallback still works",
                                 self._vk,
                                 err,
@@ -323,9 +323,9 @@ class WindowsNativeHotkey(HotkeyBackend):
                 # and/or already claimed by another process via RegisterHotKey
                 # (ERROR_HOTKEY_ALREADY_REGISTERED / 1409). In both cases the
                 # GetAsyncKeyState async-key state is NEVER set for ESC, so a
-                # polling-only listener silently misses every press — exactly
-                # the reported "Escape does nothing" symptom (and F2 — a plain
-                # function key — keeps working, because nothing steals it).
+                # polling-only listener silently misses every press, exactly
+                # the reported "Escape does nothing" symptom (and F2, a plain
+                # function key, keeps working, because nothing steals it).
                 #
                 # The robust, focus-independent fix is a WH_KEYBOARD_LL
                 # low-level keyboard hook: Windows calls our hook procedure for
@@ -369,7 +369,7 @@ class WindowsNativeHotkey(HotkeyBackend):
                 # non-PTT hotkeys also prefer the hook for robust delivery.
                 # Drop the ``not self._is_modifier_only`` guard so
                 # modifier-only specs (e.g. ``<alt>``) ALSO use the LL hook
-                # when available — they were previously forced onto the
+                # when available, they were previously forced onto the
                 # 125Hz polling loop, burning CPU even when idle.
                 simple_key = self._on_release_callback is None
                 # Populate the per-instance modifier VK list so the
@@ -382,14 +382,14 @@ class WindowsNativeHotkey(HotkeyBackend):
                 # (one per backend) to typically 1 (main dictation only).
                 # We still fall back to the LL hook if RegisterHotKey failed
                 # (some keys are reserved / already claimed), so the worst
-                # case is 2 hooks instead of 3 — still an improvement.
+                # case is 2 hooks instead of 3, still an improvement.
                 prefer_message_loop = self._prefer_message_loop_first and self._registered and not is_caps_lock_hotkey
                 if prefer_message_loop:
-                    # WM_HOTKEY message loop — event-driven, ~0% CPU
+                    # WM_HOTKEY message loop, event-driven, ~0% CPU
                     # while idle (no per-keystroke hook proc).
                     log.info(
                         "[HOTKEY] Starting hotkey detection via WM_HOTKEY message loop "
-                        "(prefer_message_loop=True, vk=0x%X, id=%d) — skips LL hook",
+                        "(prefer_message_loop=True, vk=0x%X, id=%d), skips LL hook",
                         self._vk,
                         self._hotkey_id,
                     )
@@ -398,7 +398,7 @@ class WindowsNativeHotkey(HotkeyBackend):
                 elif simple_key and self._install_low_level_hook(callback):
                     log.info(
                         "[HOTKEY] Starting hotkey detection via WH_KEYBOARD_LL "
-                        "low-level hook (vk=0x%X) — robust ESC/system-key delivery",
+                        "low-level hook (vk=0x%X), robust ESC/system-key delivery",
                         self._vk,
                     )
                     self._using_polling = False
@@ -408,7 +408,7 @@ class WindowsNativeHotkey(HotkeyBackend):
                     # RegisterHotKey failed. Also flip
                     # ``_degraded_registration`` when RegisterHotKey failed
                     # but the LL hook stepped in to keep the hotkey working
-                    # — the adapter reads this via the property below and
+                    # , the adapter reads this via the property below and
                     # surfaces a tray notification.
                     self._success = True
                     if not self._registered:
@@ -438,13 +438,13 @@ class WindowsNativeHotkey(HotkeyBackend):
                     # polling loop in _run_polling_loop() uses Sleep(8) with
                     # timeBeginPeriod(8) (~125 Hz effective check rate), which gives
                     # up to ~8 ms hotkey-detection latency while still yielding the
-                    # CPU between checks — the thread spends >99.9% of its time
+                    # CPU between checks, the thread spends >99.9% of its time
                     # sleeping in the kernel.  See _run_polling_loop() for the
                     # rationale and the regression test that pins this invariant.
                     log.info("[HOTKEY] Starting hotkey detection via GetAsyncKeyState polling")
                     self._using_polling = True
                     # polling is also a valid delivery path, so
-                    # ``_success`` is True here too — but flag degraded
+                    # ``_success`` is True here too, but flag degraded
                     # mode if RegisterHotKey failed AND the LL hook also
                     # couldn't be installed (worst-case fallback).
                     self._success = True
@@ -452,7 +452,7 @@ class WindowsNativeHotkey(HotkeyBackend):
                         self._degraded_registration = True
                         log.warning(
                             "[HOTKEY] Operating in degraded mode: RegisterHotKey "
-                            "failed and WH_KEYBOARD_LL hook unavailable — relying on "
+                            "failed and WH_KEYBOARD_LL hook unavailable, relying on "
                             "GetAsyncKeyState polling (vk=0x%X).",
                             self._vk if self._vk is not None else -1,
                         )
@@ -471,7 +471,7 @@ class WindowsNativeHotkey(HotkeyBackend):
         # thread only calls the user callback (no critical cleanup);
         # (2) stop() sets _stop_event and joins with timeout, so the
         # thread exits cooperatively on normal shutdown; (3) on
-        # force-kill, the OS reclaims the thread automatically — no
+        # force-kill, the OS reclaims the thread automatically, no
         # resource leak (the Win32 hotkey registration is
         # UnregisterHotKey'd in the finally block).
         self._thread = threading.Thread(target=run, daemon=True, name="WinHotkey")
@@ -507,12 +507,12 @@ class WindowsNativeHotkey(HotkeyBackend):
         via PostThreadMessageW, but the thread uses GetAsyncKeyState
         polling (not a message loop) so it never reads WM_QUIT.  The
         join(timeout=3.0) waited 3 seconds for nothing.  Now we just
-        set the stop event and join with a shorter timeout — the
+        set the stop event and join with a shorter timeout, the
         polling loop checks _stop_event every 100ms.
 
         ESC-CANCEL-DELIVERY: when the backend is on the WM_HOTKEY
         message-loop path (RegisterHotKey succeeded), ``GetMessageW``
-        BLOCKS until a message arrives — so the ``_stop_event`` check
+        BLOCKS until a message arrives, so the ``_stop_event`` check
         alone would never wake it and ``stop()`` would hang for the full
         join timeout. We therefore post ``WM_QUIT`` to the hotkey thread
         via ``PostThreadMessageW`` on that path, which unblocks
@@ -525,7 +525,7 @@ class WindowsNativeHotkey(HotkeyBackend):
         both call stop().
         """
         if self._stop_event.is_set():
-            return  # Already stopped — idempotent
+            return  # Already stopped, idempotent
         log.debug("[HOTKEY] Stopping %s listener", self.hotkey_str)
         self._stop_event.set()
         # ESC-CANCEL-DELIVERY: unblock a blocked GetMessageW on the
@@ -556,7 +556,7 @@ class WindowsNativeHotkey(HotkeyBackend):
             self._hook_handle = None
             self._hook_proc = None
         # PERF- skip the useless PostThreadMessageW call on the
-        # polling path — the polling loop checks _stop_event.is_set()
+        # polling path, the polling loop checks _stop_event.is_set()
         # every 100ms.
         if self._thread is not None:
             self._thread.join(timeout=0.5)  # was 3.0; 100ms poll = 500ms is plenty

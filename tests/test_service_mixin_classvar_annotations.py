@@ -11,13 +11,13 @@ mixins declares its runtime-provided attributes with concrete types
 * ``missing-attribute`` errors on every mixin module that touched
   ``self._app`` / ``self._download_cancel_lock`` / etc. (many
   baselined errors across ``service/dictation.py``,
-  ``service/history.py``, ``service/model.py``, etc.) — pyrefly did
+  ``service/history.py``, ``service/model.py``, etc.), pyrefly did
   not see the inherited ``Any`` declaration as a real attribute.
 
 The concrete types also enforce that
 :meth:`VoiceTyperService.__init__` actually INITIALISES each
 attribute (a missing init would manifest as ``AttributeError`` at
-runtime the first time a mixin reads it — see the regression test
+runtime the first time a mixin reads it: see the regression test
 ``test_active_download_id_initialised_to_none`` for the concrete
 case of ``_active_download_id`` previously being unset).
 
@@ -66,7 +66,7 @@ def test_servicemixinbase_declares_all_runtime_attributes() -> None:
 
 
 def test_annotations_are_concrete_types_not_any() -> None:
-    """Each declared attribute is annotated with a concrete type — NOT
+    """Each declared attribute is annotated with a concrete type, NOT
     ``Any``. ``Any`` was the previous scaffold that silenced
     shape-mismatch errors between the mixin base and the concrete
     :class:`VoiceTyperService` subclass.
@@ -104,7 +104,7 @@ def test_annotations_are_concrete_types_not_any() -> None:
         hint = hints[attr_name]
         # Annotation must NOT be Any (the previous scaffold).
         assert hint is not Any, (
-            f"{attr_name} is annotated as ``Any`` — this is the pre-fix "
+            f"{attr_name} is annotated as ``Any``, this is the pre-fix "
             "scaffold that silenced shape-mismatch errors. Use a concrete "
             "type (threading.Lock, dict[str, threading.Event], str | None, "
             "etc.) instead."
@@ -142,7 +142,7 @@ def test_concrete_types_match_runtime_bindings() -> None:
     # `types.UnionType` vs `typing.Union` Python-version differences.
     assert "dict" in str(model_status_cache_hint) and "None" in str(model_status_cache_hint), (
         "_model_status_cache must be annotated as dict[str, object] | None "
-        f"to match the runtime binding — got {model_status_cache_hint!r}."
+        f"to match the runtime binding, got {model_status_cache_hint!r}."
     )
 
     active_download_id_hint = hints["_active_download_id"]

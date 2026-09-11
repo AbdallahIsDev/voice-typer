@@ -37,27 +37,27 @@ import pytest
 
 
 def _old_rms(flat: np.ndarray) -> float:
-    """OLD level_monitor RMS — previously pattern (allocates x**2)."""
+    """OLD level_monitor RMS, previously pattern (allocates x**2)."""
     return float(np.sqrt(np.mean(flat**2)))
 
 
 def _old_peak(flat: np.ndarray) -> float:
-    """OLD level_monitor peak — previously pattern (allocates np.abs(x))."""
+    """OLD level_monitor peak, previously pattern (allocates np.abs(x))."""
     return float(np.abs(flat).max())
 
 
 def _old_raw_rms(flat: np.ndarray) -> float:
-    """OLD raw-quality RMS — previously pattern (allocates astype + square)."""
+    """OLD raw-quality RMS, previously pattern (allocates astype + square)."""
     return float(np.sqrt(np.mean(np.square(flat.astype(np.float32)))))
 
 
 def _new_rms(flat: np.ndarray) -> float:
-    """NEW (AUDIO-NP) RMS — uses np.dot (no squared array)."""
+    """NEW (AUDIO-NP) RMS, uses np.dot (no squared array)."""
     return float(np.sqrt(np.dot(flat, flat) / flat.size))
 
 
 def _new_peak(flat: np.ndarray) -> float:
-    """NEW (PERF-the fix) peak — uses max(max, -min) (no abs array)."""
+    """NEW (PERF-the fix) peak, uses max(max, -min) (no abs array)."""
     return max(float(flat.max()), -float(flat.min()))
 
 
@@ -92,7 +92,7 @@ class TestNumericalEquivalence:
         flat = rng.standard_normal(size).astype(np.float32)
         old = _old_peak(flat)
         new = _new_peak(flat)
-        # max/min are exact reductions — match to bit-level (use ==).
+        # max/min are exact reductions, match to bit-level (use ==).
         assert old == new, f"NEW peak {new} != OLD peak {old} (size={size}, seed={seed})"
 
     def test_peak_handles_mixed_signs(self):
@@ -156,7 +156,7 @@ class TestAllocationCount:
     each per chunk.
 
     We can't directly monkeypatch ``np.ndarray.__new__`` (it's an
-    immutable C type — ``TypeError: cannot set '__new__' attribute of
+    immutable C type: ``TypeError: cannot set '__new__' attribute of
     immutable type 'numpy.ndarray'``), so we spy on the high-level
     numpy functions that allocate intermediate arrays. The OLD peak
     path calls ``np.abs(flat)`` (allocates a new ndarray); the NEW
@@ -167,7 +167,7 @@ class TestAllocationCount:
     """
 
     def test_new_rms_does_not_call_np_mean(self, monkeypatch):
-        """``_new_rms`` uses ``np.dot`` — ``np.mean`` is NOT called."""
+        """``_new_rms`` uses ``np.dot``: ``np.mean`` is NOT called."""
         mean_calls = 0
         original_mean = np.mean
 
@@ -192,7 +192,7 @@ class TestAllocationCount:
         assert new_mean_calls == 0, f"NEW RMS path must NOT call np.mean (uses np.dot); got {new_mean_calls} calls"
 
     def test_new_peak_does_not_call_np_abs(self, monkeypatch):
-        """``_new_peak`` uses ``max(max, -min)`` — ``np.abs`` is NOT called."""
+        """``_new_peak`` uses ``max(max, -min)``: ``np.abs`` is NOT called."""
         abs_calls = 0
         original_abs = np.abs
 
@@ -247,7 +247,7 @@ class TestAllocationCount:
             f"OLD combined RMS+peak must call >= 2 allocating functions (np.abs + np.mean); got {old_combined}"
         )
 
-        # NEW combined: np.dot + max + min — none of the spied funcs.
+        # NEW combined: np.dot + max + min, none of the spied funcs.
         alloc_calls = 0
         _new_rms(flat)
         _new_peak(flat)
@@ -272,7 +272,7 @@ class TestProcessLevelChunkEndToEnd:
 
     def test_process_chunk_uses_optimized_path(self, monkeypatch):
         """After processing a chunk, ``_monitor_level`` reflects the NEW
-        RMS (np.dot-based) — verify by comparing against a manual
+        RMS (np.dot-based), verify by comparing against a manual
         computation using the OLD pattern (which must match within
         tolerance)."""
         import voice_typer.server.level_monitor as lm
@@ -346,7 +346,7 @@ class TestProcessLevelChunkEndToEnd:
         is SKIPPED for the cosmetic bar (``_test_mode == False``) unless
         ``_level_bar_filtered`` is True. This test sets
         ``_level_bar_filtered = True`` so the processor branch is
-        exercised — without that opt-in, the worker would compute RMS
+        exercised, without that opt-in, the worker would compute RMS
         on raw audio (which gives the same numerical result for a
         passthrough processor, but doesn't actually invoke the
         processor)."""
@@ -377,7 +377,7 @@ class TestProcessLevelChunkEndToEnd:
             "hostapi": 0,
         }
 
-        # Passthrough processor — returns the input chunk unchanged so
+        # Passthrough processor, returns the input chunk unchanged so
         # flat_filtered == flat and we can compute the expected RMS/peak
         # from the raw input.
         processor = MagicMock()

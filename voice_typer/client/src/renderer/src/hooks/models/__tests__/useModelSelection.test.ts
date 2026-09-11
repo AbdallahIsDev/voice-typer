@@ -6,7 +6,7 @@
  *     optimistically flips isActive in the local list, calls refreshModelStatus,
  *     surfaces "usingModel" snack
  *   - selectModel model-switch ordering: depsOk guard fires first (deps required),
- *     downloaded guard fires second (not downloaded) — active model state unchanged
+ *     downloaded guard fires second (not downloaded), active model state unchanged
  *   - selectModel error: re-thrown from updateConfig surfaces "selectFailed" snack;
  *     setModels is NOT invoked
  *   - requestDeleteModel: refuses active model while it's on disk; ALLOWS
@@ -102,7 +102,7 @@ afterEach(() => {
 	vi.clearAllMocks();
 });
 
-describe("useModelSelection — selectModel success path", () => {
+describe("useModelSelection, selectModel success path", () => {
 	it("persists asr_backend + model_size, flips isActive in local list, refreshes status, surfaces success snack", async () => {
 		const args = makeHookArgs();
 		const { result } = renderHook(() => useModelSelection(args));
@@ -162,7 +162,7 @@ describe("useModelSelection — selectModel success path", () => {
 	});
 });
 
-describe("useModelSelection — model-switch ordering (guards)", () => {
+describe("useModelSelection, model-switch ordering (guards)", () => {
 	it("refuses to select a deps-required model when depsOk is false (deps guard fires first)", async () => {
 		const args = makeHookArgs();
 		const { result } = renderHook(() => useModelSelection(args));
@@ -171,7 +171,7 @@ describe("useModelSelection — model-switch ordering (guards)", () => {
 			name: "parakeet",
 			backend: "parakeet",
 			downloaded: true, // downloaded so the downloaded guard would pass
-			depsOk: false, // deps NOT installed — deps guard must fire
+			depsOk: false, // deps NOT installed, deps guard must fire
 			depsInstallable: true,
 		});
 
@@ -179,9 +179,9 @@ describe("useModelSelection — model-switch ordering (guards)", () => {
 			await result.current.selectModel(model);
 		});
 
-		// updateConfig MUST NOT be called — the deps guard bails before it.
+		// updateConfig MUST NOT be called, the deps guard bails before it.
 		expect(args.updateConfig).not.toHaveBeenCalled();
-		// setModels MUST NOT be called — no optimistic update.
+		// setModels MUST NOT be called, no optimistic update.
 		expect(args.setModels).not.toHaveBeenCalled();
 		// Deps-required warning surfaced (generic {name} key).
 		expect(args.showSnack).toHaveBeenCalledWith(
@@ -197,14 +197,14 @@ describe("useModelSelection — model-switch ordering (guards)", () => {
 		const { result } = renderHook(() => useModelSelection(args));
 
 		// Qwen weights ARE on disk (downloaded: true) but the optional
-		// qwen_asr pip package is NOT importable (depsOk: false) — the
+		// qwen_asr pip package is NOT importable (depsOk: false), the
 		// deps guard must fire. The `depsInstallable` flag now gates
 		// Qwen exactly like Parakeet.
 		const model = makeModel({
 			name: "qwen",
 			backend: "qwen",
 			downloaded: true, // downloaded so the downloaded guard would pass
-			depsOk: false, // qwen_asr missing — deps guard must fire
+			depsOk: false, // qwen_asr missing, deps guard must fire
 			depsInstallable: true,
 		});
 
@@ -244,7 +244,7 @@ describe("useModelSelection — model-switch ordering (guards)", () => {
 		);
 	});
 
-	it("refuses to select an undownloaded Qwen (no always-available bypass — Qwen is local-only, not auto-fetched)", async () => {
+	it("refuses to select an undownloaded Qwen (no always-available bypass, Qwen is local-only, not auto-fetched)", async () => {
 		const args = makeHookArgs();
 		const { result } = renderHook(() => useModelSelection(args));
 
@@ -259,11 +259,11 @@ describe("useModelSelection — model-switch ordering (guards)", () => {
 			await result.current.selectModel(model);
 		});
 
-		// updateConfig MUST NOT be called — the not-downloaded guard fires.
+		// updateConfig MUST NOT be called, the not-downloaded guard fires.
 		expect(args.updateConfig).not.toHaveBeenCalled();
 		expect(args.setModels).not.toHaveBeenCalled();
 		// Warning snack surfaces (matches the backend's "model is not
-		// downloaded yet" notification — the in-app UI must not claim
+		// downloaded yet" notification, the in-app UI must not claim
 		// "Qwen model selected" for a model that isn't installed).
 		expect(args.showSnack).toHaveBeenCalledWith(
 			expect.stringContaining("models.snack.notDownloaded"),
@@ -272,7 +272,7 @@ describe("useModelSelection — model-switch ordering (guards)", () => {
 	});
 });
 
-describe("useModelSelection — selectModel error path", () => {
+describe("useModelSelection, selectModel error path", () => {
 	it("surfaces selectFailed snack + does NOT update local models when updateConfig throws", async () => {
 		const updateConfig = vi
 			.fn()
@@ -288,10 +288,10 @@ describe("useModelSelection — selectModel error path", () => {
 
 		// updateConfig was attempted.
 		expect(updateConfig).toHaveBeenCalledTimes(1);
-		// setModels NEVER invoked — model state stays in sync with the
+		// setModels NEVER invoked, model state stays in sync with the
 		// persisted backend config.
 		expect(args.setModels).not.toHaveBeenCalled();
-		// refreshModelStatus NEVER invoked either — we never reached it.
+		// refreshModelStatus NEVER invoked either, we never reached it.
 		expect(args.refreshModelStatus).not.toHaveBeenCalled();
 		// Error snack surfaces the formatted error.
 		expect(args.showSnack).toHaveBeenCalledWith(
@@ -303,8 +303,8 @@ describe("useModelSelection — selectModel error path", () => {
 	});
 });
 
-describe("useModelSelection — requestDeleteModel + confirmDelete", () => {
-	it("requestDeleteModel ALLOWS the active model (ACTIVE-DELETE — backend reassigns the selection)", () => {
+describe("useModelSelection, requestDeleteModel + confirmDelete", () => {
+	it("requestDeleteModel ALLOWS the active model (ACTIVE-DELETE, backend reassigns the selection)", () => {
 		const args = makeHookArgs();
 		const { result } = renderHook(() => useModelSelection(args));
 
@@ -319,7 +319,7 @@ describe("useModelSelection — requestDeleteModel + confirmDelete", () => {
 		});
 
 		// No frontend refusal: the confirm dialog opens for the active
-		// model too — the backend removes the files and reassigns the
+		// model too, the backend removes the files and reassigns the
 		// selection (first other downloaded model, or the "no model
 		// selected" state when none exists).
 		expect(result.current.deleteModelTarget).toEqual(active);

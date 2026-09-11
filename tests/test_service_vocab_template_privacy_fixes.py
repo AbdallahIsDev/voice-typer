@@ -4,7 +4,7 @@
   ``VocabularyManager`` per IPC call (a double file read on every
   Vocabulary page load) and returns a SHALLOW copy whose nested
   dicts / lists are the SAME objects the live manager iterates in
-  ``apply_to_text`` — so a renderer that mutated a returned category
+  ``apply_to_text``, so a renderer that mutated a returned category
   would corrupt the live vocabulary mid-dictation. Fix: reuse
   ``getattr(self._app, "_vocabulary_manager", None)`` (already
   initialized on the app via the lazy ``_vocabulary_manager``
@@ -24,7 +24,7 @@
   the on-disk ``vocabulary.json`` /
   ``templates.json`` files but does NOT invalidate the
   live in-memory ``app._vocabulary_manager`` /
-  ``app._template_manager`` instances — so the next dictation
+  ``app._template_manager`` instances, so the next dictation
   would still apply the deleted vocabulary / templates (GDPR Art.
   17 right-to-erasure violation). Fix: add a
   ``_gdpr_invalidate_managers(app)`` helper that re-reads the
@@ -76,7 +76,7 @@ def _make_service(tmp_path: Path):
     Patches ``_config_dir`` to ``tmp_path`` so the lazy
     ``_vocabulary_manager`` / ``_template_manager`` properties on
     ``VoiceTyperApp`` would construct their managers against the tmp
-    dir if invoked. We DON'T rely on the lazy properties — we attach
+    dir if invoked. We DON'T rely on the lazy properties, we attach
     REAL manager instances to the stub app so the tests pin the
     actual lock + index + persistence contract.
     """
@@ -123,7 +123,7 @@ class TestGetVocabularyReusesLiveManager:
 
     def test_get_vocabulary_uses_live_vocabulary_manager(self, tmp_path):
         """The returned data must reflect mutations made to the LIVE
-        ``app._vocabulary_manager`` — proving the service mixin did
+        ``app._vocabulary_manager``, proving the service mixin did
         NOT construct a throwaway VocabularyManager (which would
         read the pre-mutation state from disk)."""
         svc, app, vm, tm, mp = _make_service(tmp_path)
@@ -133,7 +133,7 @@ class TestGetVocabularyReusesLiveManager:
             data = svc.get_vocabulary()
             tech = data.get("technical_terms", {})
             assert tech.get("liveonly") == "livevalue", (
-                "get_vocabulary did not observe the live VocabularyManager mutation — "
+                "get_vocabulary did not observe the live VocabularyManager mutation, "
                 "it likely constructed a throwaway instance that read the pre-mutation "
                 "state from disk (IN-31 regression)."
             )
@@ -153,11 +153,11 @@ class TestGetVocabularyReusesLiveManager:
             live = vm.get_all()
             assert live["misspellings"]["teh"] == "the", (
                 "Renderer mutation of the returned misspellings dict leaked into the "
-                "live VocabularyManager._data — get_vocabulary must return a DEEP copy "
+                "live VocabularyManager._data, get_vocabulary must return a DEEP copy "
                 "(IN-31 regression)."
             )
             assert "renderer_only" not in live["misspellings"], (
-                "Renderer-added key leaked into the live VocabularyManager._data — "
+                "Renderer-added key leaked into the live VocabularyManager._data, "
                 "get_vocabulary must return a DEEP copy (IN-31 regression)."
             )
         finally:
@@ -182,13 +182,13 @@ class TestGetVocabularyReusesLiveManager:
             live_phrases = live["phrase_corrections"]
             assert len(live_phrases) == original_len, (
                 "Renderer append to the returned phrase_corrections list leaked into "
-                "the live VocabularyManager._data — get_vocabulary must return a DEEP "
+                "the live VocabularyManager._data, get_vocabulary must return a DEEP "
                 "copy (IN-31 regression)."
             )
             # The bundled "voice to 2 text" entry must be intact.
             assert any(p[0] == "voice to 2 text" for p in live_phrases if isinstance(p, list) and len(p) >= 2), (
                 "Renderer mutation of the returned phrase_corrections list corrupted "
-                "the live VocabularyManager._data — get_vocabulary must return a DEEP "
+                "the live VocabularyManager._data, get_vocabulary must return a DEEP "
                 "copy (IN-31 regression)."
             )
         finally:
@@ -222,7 +222,7 @@ class TestGetVocabularyReusesLiveManager:
                 config = type("C", (), {"config_dir": tmp_path})()
                 tray = MagicMock()
                 history_db = None
-                # NOTE: no _vocabulary_manager attribute — the
+                # NOTE: no _vocabulary_manager attribute, the
                 # getattr(..., None) fallback must kick in.
                 _template_manager = None
                 _llm_polisher = None
@@ -235,10 +235,10 @@ class TestGetVocabularyReusesLiveManager:
             # NOT a fixture). We assert a known bundled entry.
             assert "misspellings" in data
             # ``recieve -> receive`` is one of the long-standing
-            # bundled misspellings — if it disappears the bundled
+            # bundled misspellings, if it disappears the bundled
             # file changed and this assertion should be updated.
             assert data["misspellings"].get("recieve") == "receive", (
-                f"Fallback VocabularyManager did not load bundled defaults — "
+                f"Fallback VocabularyManager did not load bundled defaults, "
                 f"misspellings.recieve missing from {data['misspellings']!r}"
             )
             assert "_user_file" in data
@@ -252,7 +252,7 @@ class TestGetVocabularyReusesLiveManager:
 class TestTemplateManagerReplaceAll:
     """IN-32: ``TemplateManager.replace_all`` must atomically swap the
     templates list under the lock, rebuild match indexes, and persist
-    to disk — with rollback on save failure."""
+    to disk, with rollback on save failure."""
 
     def test_replace_all_swaps_templates_and_persists(self, tmp_path):
         """replace_all must replace the entire list AND persist to disk
@@ -276,7 +276,7 @@ class TestTemplateManagerReplaceAll:
             # In-memory list reflects the new templates.
             assert len(tm.templates) == 2
             triggers = {t["trigger"] for t in tm.templates}
-            assert triggers == {"new1", "new2"}, f"replace_all did not swap the templates list — got {triggers}"
+            assert triggers == {"new1", "new2"}, f"replace_all did not swap the templates list, got {triggers}"
 
             # On-disk file reflects the new templates.
             tm2 = TemplateManager(config_dir=tmp_path)
@@ -308,7 +308,7 @@ class TestTemplateManagerReplaceAll:
 
             # The OLD trigger must no longer match (indexes were rebuilt).
             assert tm.match("old-trigger") is None, (
-                "replace_all did not rebuild the match indexes — the old trigger still "
+                "replace_all did not rebuild the match indexes, the old trigger still "
                 "matches, which means _exact_index still points at the pre-replace list "
                 "(IN-32 regression)."
             )
@@ -316,7 +316,7 @@ class TestTemplateManagerReplaceAll:
             result = tm.match("fresh-trigger")
             assert result is not None
             assert "fresh-output" in result, (
-                "replace_all did not rebuild the match indexes — the new trigger is not "
+                "replace_all did not rebuild the match indexes, the new trigger is not "
                 "matchable until a process restart (IN-32 regression)."
             )
         finally:
@@ -352,9 +352,9 @@ class TestTemplateManagerReplaceAll:
 
             # _save was called exactly once.
             assert call_count["n"] == 1
-            # In-memory list was rolled back — the survivor is still there.
+            # In-memory list was rolled back, the survivor is still there.
             assert len(tm.templates) == 1, (
-                "replace_all did not roll back the in-memory list on save failure — "
+                "replace_all did not roll back the in-memory list on save failure, "
                 "the in-memory state is now out of sync with the on-disk state (IN-32 regression)."
             )
             assert tm.templates[0]["trigger"] == "survivor"
@@ -393,7 +393,7 @@ class TestTemplateManagerReplaceAll:
 
     def test_replace_all_acquires_lock(self, tmp_path):
         """replace_all must hold ``self._lock`` for the duration of
-        the swap + rebuild + save — verified by running match() in a
+        the swap + rebuild + save, verified by running match() in a
         worker thread that must never see a half-swapped list."""
         from voice_typer.server.templates import TemplateManager
 
@@ -412,7 +412,7 @@ class TestTemplateManagerReplaceAll:
                 while not stop.is_set():
                     try:
                         # match() iterates _exact_index / _contains_list
-                        # under the lock — a half-swapped state would
+                        # under the lock, a half-swapped state would
                         # raise (or return a stale result, but never
                         # raise because _rebuild_indexes rebuilds
                         # atomically).
@@ -435,7 +435,7 @@ class TestTemplateManagerReplaceAll:
                 t.join(timeout=2.0)
 
             assert errors == [], (
-                "match raised during concurrent replace_all — the lock was not held "
+                "match raised during concurrent replace_all, the lock was not held "
                 "for the full swap+rebuild+save sequence (IN-32 regression): {errors}"
             )
         finally:
@@ -449,7 +449,7 @@ class TestServiceSaveTemplatesUsesReplaceAll:
 
     def test_save_templates_makes_new_trigger_matchable(self, tmp_path):
         """After ``save_templates`` returns, the just-saved templates
-        must be matchable IMMEDIATELY via ``tm.match()`` — proving
+        must be matchable IMMEDIATELY via ``tm.match()``, proving
         that ``_rebuild_indexes`` was called (the pre-fix direct
         ``tm._templates = ...`` + ``tm._save()`` sequence skipped
         ``_rebuild_indexes``)."""
@@ -467,7 +467,7 @@ class TestServiceSaveTemplatesUsesReplaceAll:
             result = tm.match("fresh-from-save")
             assert result is not None
             assert "fresh-out" in result, (
-                "save_templates did not rebuild the match indexes — the new template "
+                "save_templates did not rebuild the match indexes, the new template "
                 "is not matchable until a process restart (IN-32 regression)."
             )
             # The OLD trigger must no longer match (full-replace semantics).
@@ -495,7 +495,7 @@ class TestServiceSaveTemplatesUsesReplaceAll:
             tm2 = TemplateManager(config_dir=tmp_path)
             triggers = {t["trigger"] for t in tm2.templates}
             assert triggers == {"persisted-1", "persisted-2"}, (
-                f"save_templates did not persist to disk — fresh instance saw {triggers}"
+                f"save_templates did not persist to disk, fresh instance saw {triggers}"
             )
         finally:
             mp.undo()
@@ -503,7 +503,7 @@ class TestServiceSaveTemplatesUsesReplaceAll:
     def test_save_templates_filters_invalid_entries(self, tmp_path):
         """save_templates must continue to filter invalid entries
         (missing trigger / output, invalid match_mode) before calling
-        replace_all — parity with the pre-fix normalization."""
+        replace_all, parity with the pre-fix normalization."""
         svc, app, vm, tm, mp = _make_service(tmp_path)
         try:
             ok = svc.save_templates(
@@ -518,7 +518,7 @@ class TestServiceSaveTemplatesUsesReplaceAll:
             assert ok is True
             triggers = {t["trigger"] for t in tm.templates}
             assert triggers == {"valid", "bad-mode"}, (
-                f"save_templates did not filter invalid entries correctly — got {triggers}"
+                f"save_templates did not filter invalid entries correctly, got {triggers}"
             )
             # bad-mode's match_mode was coerced to "exact".
             bad_mode_tmpl = next(t for t in tm.templates if t["trigger"] == "bad-mode")
@@ -537,7 +537,7 @@ class TestGdprInvalidatesManagers:
 
     def test_gdpr_delete_clears_live_vocabulary_manager(self, tmp_path):
         """After GDPR delete, ``app._vocabulary_manager.get_all()``
-        must NOT contain user-added vocabulary entries — only the
+        must NOT contain user-added vocabulary entries, only the
         bundled defaults (which are not personal data) should
         remain.
 
@@ -567,7 +567,7 @@ class TestGdprInvalidatesManagers:
             assert live["names"].get("secret-name") == "Real Name"
 
             # The on-disk user vocab file should NOT exist (we never
-            # wrote one — the live state was in-memory only).
+            # wrote one, the live state was in-memory only).
             vocab_path = tmp_path / "vocabulary.json"
             assert not vocab_path.exists(), (
                 "test setup invariant: vocabulary.json should not exist on disk (PII was injected in-memory only)"
@@ -580,17 +580,17 @@ class TestGdprInvalidatesManagers:
             # The live in-memory manager must NOT still hold the PII.
             live_after = vm.get_all()
             assert "my-secret-pii" not in live_after["technical_terms"], (
-                "GDPR delete did not invalidate the live VocabularyManager — the deleted "
+                "GDPR delete did not invalidate the live VocabularyManager, the deleted "
                 "PII 'my-secret-pii' is still in _data and would be applied to the next "
                 "dictation (IN-33 regression, Art. 17 violation)."
             )
             assert "secret-name" not in live_after["names"], (
-                "GDPR delete did not invalidate the live VocabularyManager — the deleted "
+                "GDPR delete did not invalidate the live VocabularyManager, the deleted "
                 "PII 'secret-name' is still in _data (IN-33 regression, Art. 17 violation)."
             )
-            # Bundled defaults are NOT personal data — they must survive.
+            # Bundled defaults are NOT personal data, they must survive.
             assert live_after["misspellings"].get("teh") == "the", (
-                "GDPR delete invalidated the bundled defaults — only the user PII should "
+                "GDPR delete invalidated the bundled defaults, only the user PII should "
                 "have been cleared (bundled corrections.json is not personal data)."
             )
         finally:
@@ -598,7 +598,7 @@ class TestGdprInvalidatesManagers:
 
     def test_gdpr_delete_clears_live_template_manager(self, tmp_path):
         """After GDPR delete, ``app._template_manager.templates`` must
-        NOT contain the deleted user templates — the live list must
+        NOT contain the deleted user templates, the live list must
         be empty (templates have no bundled defaults).
 
         Note: we inject the PII directly into the live manager's
@@ -630,7 +630,7 @@ class TestGdprInvalidatesManagers:
             assert tm.match("secret-pii-trigger") is not None
 
             # The on-disk templates file should NOT exist (we never
-            # wrote one — the live state was in-memory only).
+            # wrote one, the live state was in-memory only).
             tmpl_path = tmp_path / "templates.json"
             assert not tmpl_path.exists(), (
                 "test setup invariant: templates.json should not exist on disk (PII was injected in-memory only)"
@@ -642,13 +642,13 @@ class TestGdprInvalidatesManagers:
 
             # The live in-memory manager must NOT still hold the PII.
             assert len(tm.templates) == 0, (
-                f"GDPR delete did not invalidate the live TemplateManager — the live "
+                f"GDPR delete did not invalidate the live TemplateManager, the live "
                 f"list still has {len(tm.templates)} deleted templates that would be "
                 f"matched on the next dictation (IN-33 regression, Art. 17 violation)."
             )
             # The match indexes must also be cleared (no stale matches).
             assert tm.match("secret-pii-trigger") is None, (
-                "GDPR delete did not invalidate the live TemplateManager match indexes — "
+                "GDPR delete did not invalidate the live TemplateManager match indexes, "
                 "the deleted PII template is still matchable (IN-33 regression)."
             )
         finally:
@@ -673,7 +673,7 @@ class TestGdprInvalidatesManagers:
     def test_gdpr_invalidate_managers_handles_none_managers(self, tmp_path):
         """When ``app._vocabulary_manager`` / ``app._template_manager``
         are None (cold-start path), the helper must be a no-op
-        (not raise) — the next access will construct a fresh
+        (not raise), the next access will construct a fresh
         instance that reads the (now-empty) file."""
         from voice_typer.server.service.privacy import PrivacyMixin
 
@@ -698,11 +698,11 @@ class TestGdprInvalidatesManagers:
 
     def test_gdpr_invalidate_managers_handles_locking_errors(self, tmp_path):
         """If the manager's _load_and_merge / _load raises, the helper
-        must suppress the exception (log at WARNING) so a failure to
-        invalidate the in-memory cache doesn't abort the GDPR delete
-        — the on-disk files are already gone, so the user's right to
-        erasure is satisfied; only the in-memory cache invalidation
-        failed."""
+          must suppress the exception (log at WARNING) so a failure to
+          invalidate the in-memory cache doesn't abort the GDPR delete
+        , the on-disk files are already gone, so the user's right to
+          erasure is satisfied; only the in-memory cache invalidation
+          failed."""
         from voice_typer.server.service.privacy import PrivacyMixin
 
         class _BrokenVM:
@@ -721,7 +721,7 @@ class TestGdprInvalidatesManagers:
             _vocabulary_manager = _BrokenVM()
             _template_manager = _BrokenTM()
 
-        # Must not raise — the helper suppresses per-manager exceptions.
+        # Must not raise, the helper suppresses per-manager exceptions.
         PrivacyMixin._gdpr_invalidate_managers(_StubApp())
 
 
@@ -731,14 +731,14 @@ class TestGdprInvalidatesManagers:
 class TestServiceSaveTemplatesNoDirectMutation:
     """IN-32 (source-level guard): ``TemplateMixin.save_templates``
     must NOT directly assign to ``tm._templates`` or call
-    ``tm._save()`` — it must call ``tm.replace_all(...)``."""
+    ``tm._save()``, it must call ``tm.replace_all(...)``."""
 
     def test_save_templates_source_calls_replace_all(self):
         """Source guard: ``save_templates`` must reference
         ``tm.replace_all`` and must NOT directly assign to
         ``tm._templates`` or call ``tm._save()`` as actual code
         statements (comments / docstrings mentioning the old pattern
-        are OK — they document what NOT to do)."""
+        are OK, they document what NOT to do)."""
         import ast
         import inspect
         import textwrap
@@ -757,16 +757,16 @@ class TestServiceSaveTemplatesNoDirectMutation:
         # ``ast.unparse`` strips comments + docstrings, so the
         # remaining text contains only actual code statements.
         assert "tm.replace_all(" in code_text, (
-            f"save_templates must call tm.replace_all() (IN-32) — code does not reference it. code_text={code_text!r}"
+            f"save_templates must call tm.replace_all() (IN-32), code does not reference it. code_text={code_text!r}"
         )
         assert "tm._templates =" not in code_text, (
             "save_templates must NOT directly assign to tm._templates as a code statement "
-            "(IN-32 regression) — bypasses the lock and skips _rebuild_indexes. "
+            "(IN-32 regression), bypasses the lock and skips _rebuild_indexes. "
             f"code_text={code_text!r}"
         )
         assert "tm._save()" not in code_text, (
             "save_templates must NOT call tm._save() directly as a code statement "
-            "(IN-32 regression) — replace_all handles persistence under the lock. "
+            "(IN-32 regression), replace_all handles persistence under the lock. "
             f"code_text={code_text!r}"
         )
 
@@ -790,11 +790,11 @@ class TestServiceGetVocabularyNoThrowaway:
 
         src = inspect.getsource(VocabularyMixin.get_vocabulary)
         assert "_vocabulary_manager" in src, (
-            "get_vocabulary must reference _vocabulary_manager (IN-31) — source does not."
+            "get_vocabulary must reference _vocabulary_manager (IN-31), source does not."
         )
         assert "getattr(self._app" in src, (
-            "get_vocabulary must use getattr(self._app, '_vocabulary_manager', None) (IN-31) — source does not."
+            "get_vocabulary must use getattr(self._app, '_vocabulary_manager', None) (IN-31), source does not."
         )
         assert "copy.deepcopy" in src, (
-            "get_vocabulary must deep-copy the returned data (IN-31) — source does not reference copy.deepcopy."
+            "get_vocabulary must deep-copy the returned data (IN-31), source does not reference copy.deepcopy."
         )

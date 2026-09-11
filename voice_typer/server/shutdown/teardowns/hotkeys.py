@@ -1,6 +1,6 @@
 """Teardown helper for the three hotkey backends.
 
-Phase 4.5 (OI-36) — extracted verbatim from
+Phase 4.5 (OI-36), extracted verbatim from
 :meth:`ShutdownController._teardown_hotkeys`. The body is unchanged;
 only the class boundary moved.
 """
@@ -39,7 +39,7 @@ def teardown_hotkeys(controller) -> None:
     up to 15s (3x5s) worst case; parallel stop() finishes in ≤5s.
     """
     app = controller._app
-    # C-LOG-2: the parallel stop is a timed operation — report its
+    # C-LOG-2: the parallel stop is a timed operation, report its
     # duration on the completion line.
     _t0 = time.perf_counter()
     try:
@@ -82,7 +82,7 @@ def teardown_hotkeys(controller) -> None:
                 _degraded_hotkeys.append(f"{_desc} (failed: {_result})")
             elif _result is TIMEOUT:
                 log.warning(
-                    "[SHUTDOWN] %s timed out — worker thread leaked as daemon",
+                    "[SHUTDOWN] %s timed out, worker thread leaked as daemon",
                     _desc,
                 )
                 _degraded_hotkeys.append(f"{_desc} (timeout)")

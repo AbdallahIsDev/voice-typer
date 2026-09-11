@@ -4,7 +4,7 @@
  *
  * Each fix gets at least one assertion. Where a fix is purely
  * about source-text structure (e.g. "index.ts stores timer handles"),
- * we assert on the source text — importing index.ts would fire
+ * we assert on the source text, importing index.ts would fire
  * Electron APIs at module-eval time and is not testable in vitest
  * without mocking the entire Electron runtime.
  *
@@ -103,7 +103,7 @@ describe("XV-152: showBubbleWindow clears hide-callback slot unconditionally", (
 		const src = readSrc("../windows/bubble/show-hide.ts");
 		const showIdx = src.indexOf("export function showBubbleWindow");
 		expect(showIdx).toBeGreaterThan(-1);
-		// Slice from showBubbleWindow to hideBubbleWindow — that's
+		// Slice from showBubbleWindow to hideBubbleWindow, that's
 		// the entire show function body.
 		const hideIdx = src.indexOf("export function hideBubbleWindow");
 		const showBody = src.slice(showIdx, hideIdx);
@@ -206,13 +206,13 @@ describe("XV-154: logging.ts file-size cache", () => {
 
 	// AB-40 defers rotateIfNeeded via setImmediate, so rotation
 	// effects (truncate, cache clear, stat) land on the next event-loop
-	// tick — tests must flush pending immediates before asserting.
+	// tick, tests must flush pending immediates before asserting.
 	const flushRotation = () =>
 		new Promise<void>((resolve) => setImmediate(resolve));
 
 	beforeEach(() => {
 		tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "xv154-test-"));
-		// Stat the real fs (no mock) — we want to count how many
+		// Stat the real fs (no mock), we want to count how many
 		// times statSync is called on the log file path.
 		statSpy = vi.spyOn(fs, "statSync");
 	});
@@ -231,7 +231,7 @@ describe("XV-154: logging.ts file-size cache", () => {
 		const logPath = path.join(tmpDir, "test.log");
 
 		// Pre-seed the file so the first stat succeeds (the cache is
-		// only populated on a successful stat — a first-call ENOENT
+		// only populated on a successful stat, a first-call ENOENT
 		// leaves the cache empty, so the second call would stat again).
 		fs.writeFileSync(logPath, "");
 
@@ -251,7 +251,7 @@ describe("XV-154: logging.ts file-size cache", () => {
 		const callsAfterSecond = statSpy.mock.calls.filter(
 			(c: unknown[]) => c[0] === logPath,
 		).length;
-		// Same count as after the first append — no new stat.
+		// Same count as after the first append, no new stat.
 		expect(callsAfterSecond).toBe(callsAfterFirst);
 	});
 
@@ -272,7 +272,7 @@ describe("XV-154: logging.ts file-size cache", () => {
 		// The line that triggered the truncation lands in the file
 		// BEFORE the deferred rotate runs (append first, truncate on
 		// the next tick), so it is truncated away with the old
-		// content — the file is emptied and keeps its identity.
+		// content, the file is emptied and keeps its identity.
 		appendLogLine(logPath, "trigger rotation\n", 1024);
 
 		// Flush the deferred rotateIfNeeded so the truncate lands.
@@ -287,7 +287,7 @@ describe("XV-154: logging.ts file-size cache", () => {
 		// After rotation, the cache was cleared. The appendLogLine
 		// call above tried to bump the cache but prevSize was null
 		// (cleared by rotation), so no cache entry exists. Re-seed
-		// the cache by calling appendLogLine once more — its
+		// the cache by calling appendLogLine once more, its
 		// deferred rotate stats the fresh file and populates the
 		// cache for the next call.
 		appendLogLine(logPath, "seed cache\n", 1024);
@@ -544,7 +544,7 @@ describe("XV-157: stopPython idempotency guard", () => {
 		// truth for idempotency; the state mirror is purely
 		// observational. We therefore assert only that the
 		// re-imported stopPython() actually fires a second
-		// `quit_app` write — proving the module-level guard reset.
+		// `quit_app` write, proving the module-level guard reset.
 
 		// Mock the start-python dependencies so it doesn't actually
 		// spawn a process.
@@ -573,13 +573,13 @@ describe("XV-157: stopPython idempotency guard", () => {
 		expect(mockState._stopPythonCalled).toBe(true);
 		expect(sendToPythonMock).toHaveBeenCalledTimes(1);
 
-		// Reset the module registry — this is what restores the
+		// Reset the module registry, this is what restores the
 		// guard's `isStopping`/`isStopped` flags to false so a
 		// subsequent stopPython() call can actually do work.
 		vi.resetModules();
 
 		// Re-import start-python to spawn a fresh MockChildProcess
-		// (which restores mockState.pythonProcess — the previous
+		// (which restores mockState.pythonProcess, the previous
 		// stopPython() left it alone because the killTimer hasn't
 		// fired yet under fake timers).
 		const startPythonMod = await import("../python/start-python");
@@ -590,7 +590,7 @@ describe("XV-157: stopPython idempotency guard", () => {
 		const stopMod = await import("../python/stop-python");
 		stopMod.stopPython();
 		// The re-imported stopPython() should fire a second
-		// quit_app write — the module-level guard has been reset.
+		// quit_app write, the module-level guard has been reset.
 		expect(sendToPythonMock).toHaveBeenCalledTimes(2);
 	});
 
@@ -605,7 +605,7 @@ describe("XV-157: stopPython idempotency guard", () => {
 	// `quit_app` write AND arm a fresh killTimer. The guard ensures
 	// only the first call performs any work.
 	it("XZ-14: 4-call breaker-trip cascade sends quit_app exactly once", () => {
-		// Simulate the 4-call cascade — these are 4 synchronous
+		// Simulate the 4-call cascade, these are 4 synchronous
 		// calls (the breaker-trip path doesn't await between them).
 		stopPython(); // #1: onUncaught inline
 		stopPython(); // #2: _productionExit
@@ -629,7 +629,7 @@ describe("XV-157: stopPython idempotency guard", () => {
 		stopPython();
 		expect(sendToPythonMock).toHaveBeenCalledTimes(1);
 		// Stub the platform so the POSIX branch (proc.kill) runs
-		// on any host — the win32 branch uses taskkill (covered in
+		// on any host, the win32 branch uses taskkill (covered in
 		// shutdown-hooks.test.ts) and would otherwise neither call
 		// mockProc.kill nor be assertable here.
 		Object.defineProperty(process, "platform", {
@@ -674,7 +674,7 @@ describe("XV-157: stopPython idempotency guard", () => {
 describe("XV-149: StringDecoder prevents U+FFFD on chunk-split UTF-8", () => {
 	it("StringDecoder reassembles a multi-byte char split across two writes", () => {
 		// '\u{1F600}' (😀) is UTF-8: F0 9F 98 80 (4 bytes).
-		// Split it after the first byte — without StringDecoder,
+		// Split it after the first byte, without StringDecoder,
 		// the first chunk would decode to U+FFFD.
 		const decoder = new StringDecoder("utf8");
 		const buf1 = Buffer.from([0xf0]); // first byte of 😀
@@ -692,7 +692,7 @@ describe("XV-149: StringDecoder prevents U+FFFD on chunk-split UTF-8", () => {
 	});
 
 	it("chunk.toString() (the OLD approach) produces U+FFFD on a split", () => {
-		// This is the bug the fix addresses — document it here.
+		// This is the bug the fix addresses, document it here.
 		const buf1 = Buffer.from([0xf0]);
 		const buf2 = Buffer.from([0x9f, 0x98, 0x80]);
 		const oldApproach = buf1.toString() + buf2.toString();
@@ -710,7 +710,7 @@ describe("XV-149: StringDecoder prevents U+FFFD on chunk-split UTF-8", () => {
 		// chunk.toString(), surfacing U+FFFD on UTF-8 char splits.
 		// The merged fix keeps tcpBuffer as a Buffer (Buffer.concat),
 		// scans for the newline byte, and decodes each complete line
-		// once via subarray + toString("utf8") — pin both halves here
+		// once via subarray + toString("utf8"), pin both halves here
 		// so a future refactor cannot silently regress.
 		expect(src).not.toMatch(/state\.tcpBuffer\s*\+=\s*chunk\.toString\(\)/);
 		expect(src).toMatch(/Buffer\.concat\(\[state\.tcpBuffer/);

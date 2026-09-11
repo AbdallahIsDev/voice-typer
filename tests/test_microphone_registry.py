@@ -156,7 +156,7 @@ class TestMicrophoneRegistryIteration:
         """``__iter__`` yields the internal items (live view).
 
         Callers that need a consistent snapshot should use ``list()``
-        (which returns a copy) — direct iteration may see concurrent
+        (which returns a copy), direct iteration may see concurrent
         mutation if another thread is modifying the registry.
         """
         mr = MicrophoneRegistry()

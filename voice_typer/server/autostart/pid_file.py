@@ -11,7 +11,7 @@ from pathlib import Path
 
 from voice_typer.server import _paths
 
-# C-CROSS-3: explicit dotted logger name — see log_files.py for why
+# C-CROSS-3: explicit dotted logger name: see log_files.py for why
 # ``__name__`` cannot be used here.
 log = logging.getLogger("voice_typer.server.autostart_launcher")
 
@@ -20,7 +20,7 @@ def _read_ipc_port_from_pid_file() -> int | None:
     """MED-Y: read the backend's IPC port from the backend PID file.
 
     The backend PID file is the canonical source of truth for "is a
-    Voice Typer backend running on this machine?" — it is written by
+    Voice Typer backend running on this machine?", it is written by
     :func:`voice_typer.server.single_instance._write_backend_pid_file`
     after the single-instance mutex is acquired, and extended with a
     ``port=<n>`` line by
@@ -33,7 +33,7 @@ def _read_ipc_port_from_pid_file() -> int | None:
     Returns the port as an int if found, otherwise ``None`` (the caller
     falls back to :data:`IPC_PORT`).
 
-    The function never raises — a missing/unreadable/malformed PID file
+    The function never raises, a missing/unreadable/malformed PID file
     simply yields ``None`` and the caller falls back to the default.
     """
     try:
@@ -54,7 +54,7 @@ def _read_ipc_port_from_pid_file() -> int | None:
     except Exception:
         # Defensive: the PID file is shared state and a partial write
         # could surface as any error. Never let a port-read failure
-        # propagate to launch() — fall back to IPC_PORT instead.
+        # propagate to launch(), fall back to IPC_PORT instead.
         return None
 
     for line in text.splitlines():
@@ -83,7 +83,7 @@ def _config_dir() -> Path:
     """Return the voice-typer data directory.
 
     thin wrapper around :func:`voice_typer.server._paths.config_dir`
-        kept for backwards compatibility — tests monkeypatch this name to
+        kept for backwards compatibility, tests monkeypatch this name to
         redirect PID-file writes to a tmp dir.
     """
     return _paths.config_dir()
@@ -111,7 +111,7 @@ def _write_pid_file(launcher_pid: int, child_pid: int | None) -> None:
 
     The child PID is captured at the call sites via
     ``getattr(child, "pid", None)``; a non-int value (a test-double
-    return, an exotic spawn result) must NEVER be persisted — it would
+    return, an exotic spawn result) must NEVER be persisted, it would
     poison the file with a garbage ``child=`` value that no reader can
     parse. Non-int child PIDs are normalized to ``None``.
     """

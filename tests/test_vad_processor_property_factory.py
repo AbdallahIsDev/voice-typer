@@ -6,13 +6,13 @@ These tests pin the behavior of the module-level factory that replaced
 * The factory produces a read/write ``property`` that delegates to the
   ``self._<attr>`` backing attribute (the same convention the original
   hand-written pairs used).
-* Representative properties across the three categories — state enum
+* Representative properties across the three categories, state enum
   (``state``), int counter (``consecutive_speech_frames``), bool flag
-  (``calibrated``) — round-trip correctly.
+  (``calibrated``), round-trip correctly.
 * The two clamping properties (``speech_threshold_db`` /
   ``silence_threshold_db``) keep their hand-written R18-F14 floor logic
   and were NOT silently converted to plain pass-throughs.
-* The public attribute surface is unchanged — the same property names
+* The public attribute surface is unchanged, the same property names
   exist on ``VadProcessor`` as before the refactor.
 
 Follows the sibling-test-file convention already used elsewhere under
@@ -103,7 +103,7 @@ def test_state_factory_property_round_trip(vp: VadProcessor) -> None:
 
 def test_state_is_property_not_plain_attr(vp: VadProcessor) -> None:
     """``state`` must remain a descriptor (property), not a plain class
-    attribute — the Recorder delegation shims rely on the property
+    attribute, the Recorder delegation shims rely on the property
     protocol."""
     assert isinstance(type(vp).state, property)
     assert isinstance(VadProcessor.state, property)
@@ -163,7 +163,7 @@ FACTORY_PROPERTY_NAMES = (
 @pytest.mark.parametrize("name", FACTORY_PROPERTY_NAMES)
 def test_factory_property_exists_and_is_readwrite(vp: VadProcessor, name: str) -> None:
     """Every name converted to the factory must still be a read/write
-    property on the public surface — behavior preservation."""
+    property on the public surface, behavior preservation."""
     cls_attr = getattr(type(vp), name)
     assert isinstance(cls_attr, property), f"{name} is not a property"
     assert cls_attr.fget is not None, f"{name} has no getter"
@@ -174,7 +174,7 @@ def test_factory_property_exists_and_is_readwrite(vp: VadProcessor, name: str) -
 
 
 def test_speech_threshold_db_still_clamps(vp: VadProcessor) -> None:
-    """``speech_threshold_db`` must keep its R18-F14 clamp — NOT converted
+    """``speech_threshold_db`` must keep its R18-F14 clamp, NOT converted
     to a plain factory pass-through."""
     # Value below the floor is clamped UP to the floor.
     vp.speech_threshold_db = -100.0

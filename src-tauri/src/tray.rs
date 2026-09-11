@@ -17,7 +17,7 @@
 //! On item click we dispatch `{"cmd":"tray_click","data":{"id": <id>}}`
 //! back to the sidecar via the trusted `dispatch_inner` path
 //! (previously the click was forwarded by emitting a Tauri event named
-//! `"dispatch"` that had no listener — dead code, so the click was
+//! `"dispatch"` that had no listener, dead code, so the click was
 //! silently dropped). Left-click (no item) focuses the main window.
 //!
 //! # Module layout
@@ -29,11 +29,11 @@
 //! pattern, and are re-exported from here so every existing
 //! `crate::tray::X` path keeps resolving:
 //!
-//! - [`icon_cache`] — the process-wide decoded-icon cache + whitelisted
+//! - [`icon_cache`]: the process-wide decoded-icon cache + whitelisted
 //!   icon loader (state + I/O).
-//! - [`menu`] — serde payload types (`MenuItemData`, `TrayMenuPayload`,
+//! - [`menu`]: serde payload types (`MenuItemData`, `TrayMenuPayload`,
 //!   `TrayStatePayload`) + native menu construction.
-//! - [`events`] — tray-icon event predicates (left-click → show+focus).
+//! - [`events`]: tray-icon event predicates (left-click → show+focus).
 
 // Tray tooltip + placeholder label use the cross-language
 // `APP_NAME` constant from `branding.rs` (mirrors
@@ -47,7 +47,7 @@ mod events;
 mod icon_cache;
 mod menu;
 
-// Re-exports — keep every pre-split `crate::tray::<name>` path (and the
+// Re-exports: keep every pre-split `crate::tray::<name>` path (and the
 // sibling `tray_tests.rs` glob) resolving unchanged. `is_allowed_icon_name`
 // is re-exported TEST-ONLY: its production caller lives inside
 // `icon_cache` (`load_tray_icon`'s whitelist gate), so a non-test
@@ -59,12 +59,12 @@ pub(crate) use icon_cache::load_tray_icon;
 pub(crate) use menu::{build_menu, empty_menu, MenuItemData, TrayMenuPayload, TrayStatePayload};
 
 // Event-construction types for the sibling test module (which builds
-// synthetic `TrayIconEvent::Click` variants via `use super::*;`) — the
+// synthetic `TrayIconEvent::Click` variants via `use super::*;`), the
 // parent imports stay the single resolution path for those names.
 #[cfg(test)]
 use tauri::tray::{MouseButton, TrayIconEvent};
 
-// Use `dispatch_inner` (no allowlist gate — `tray_click` is a
+// Use `dispatch_inner` (no allowlist gate, `tray_click` is a
 // Rust-only command not in the renderer `ALLOWED_COMMANDS` set),
 // which internally delegates to the shared `dispatch_frame` helper.
 // Two coordinated changes fixed the dropped-tray-click bug: the typed
@@ -82,7 +82,7 @@ use tauri::{AppHandle, Listener, Manager};
 /// icon, and wire menu-click + left-click handlers. Also subscribes to
 /// the `tray_menu` event to rebuild the menu on demand.
 ///
-/// Visibility: `pub(crate)` — the only caller is `main.rs` at app
+/// Visibility: `pub(crate)`, the only caller is `main.rs` at app
 /// startup. Demoted from `pub` (which would expose the symbol on the
 /// crate's public surface) because no external crate links against
 /// `voice-typer` (it's a binary crate, not a library), and a tighter
@@ -93,7 +93,7 @@ pub(crate) fn create_tray(app: &AppHandle) -> tauri::Result<()> {
     // tray starts in the same visual state the Python sidecar starts
     // in (AppState.IDLE). Falls back to the default window icon when
     // the tray resources aren't available (e.g. a checkout that
-    // predates the tray PNGs) — never a bare `None`, so the tray
+    // predates the tray PNGs): never a bare `None`, so the tray
     // always shows a real icon from the first frame. On macOS
     // `icon_as_template(true)` (set below) renders either as the
     // menubar-colored glyph shape.
@@ -106,7 +106,7 @@ pub(crate) fn create_tray(app: &AppHandle) -> tauri::Result<()> {
     // to open the context menu and reserve LEFT-click for our
     // show+focus-main-window handler (see `on_tray_icon_event` below).
     // `cfg!(target_os = ...)` returns a `const bool` so the branch is
-    // resolved at compile time — no runtime cost on either platform.
+    // resolved at compile time: no runtime cost on either platform.
     let show_menu_on_left_click = cfg!(target_os = "macos");
 
     let mut builder = TrayIconBuilder::with_id(TRAY_ID)
@@ -115,13 +115,13 @@ pub(crate) fn create_tray(app: &AppHandle) -> tauri::Result<()> {
         .show_menu_on_left_click(show_menu_on_left_click)
         .on_menu_event(|app, event| {
             // Invoke the `tray_click` command on the Python
-            // sidecar DIRECTLY via `dispatch_inner` — the previous
+            // sidecar DIRECTLY via `dispatch_inner`: the previous
             // implementation emitted a Tauri event named `dispatch`
             // that nobody listened to (events ≠ commands in Tauri).
             // The click silently dropped.
             //
-            // `tray_click` is a Rust-only command — the renderer never
-            // invokes it — so it is NOT in the renderer-side
+            // `tray_click` is a Rust-only command, the renderer never
+            // invokes it: so it is NOT in the renderer-side
             // `ALLOWED_COMMANDS` allowlist. The public `dispatch`
             // Tauri command enforces the allowlist and would
             // reject `tray_click`. We therefore call `dispatch_inner`
@@ -134,7 +134,7 @@ pub(crate) fn create_tray(app: &AppHandle) -> tauri::Result<()> {
             // spawned task. This keeps the per-click heap footprint
             // down to the payload itself: previously the id was first
             // copied into a standalone `String` and THEN serialized a
-            // second time by `json!`'s `to_value` — two allocations
+            // second time by `json!`'s `to_value`, two allocations
             // for the same text. Borrowing `event.id().as_ref()`
             // directly into the JSON value allocates it exactly once.
             let args = DispatchArgs {
@@ -158,16 +158,16 @@ pub(crate) fn create_tray(app: &AppHandle) -> tauri::Result<()> {
             // ALSO showed+focused the main window here, the window would
             // steal focus from the just-opened menu (the menu would flash
             // and disappear). We therefore skip the show+focus path
-            // entirely on macOS — macOS users open the menu by clicking
+            // entirely on macOS: macOS users open the menu by clicking
             // the tray icon and focus the main window via the dock or
             // cmd+tab (the conventional macOS flow). On Windows/Linux,
             // `show_menu_on_left_click(false)` means left-click does NOT
-            // open the menu, so we own the left-click behavior — the
+            // open the menu, so we own the left-click behavior, the
             // existing show+focus path runs as before.
             //
             // `cfg!(target_os = "macos")` is a `const bool`, so the
             // branch is compile-time-resolved and the dead arm is elided
-            // by the optimizer — zero runtime cost on either platform.
+            // by the optimizer: zero runtime cost on either platform.
             if cfg!(target_os = "macos") {
                 return;
             }
@@ -176,7 +176,7 @@ pub(crate) fn create_tray(app: &AppHandle) -> tauri::Result<()> {
             // matched left, right, AND middle click without filtering,
             // so right-clicking the tray icon (which the OS uses to open
             // the context menu on Windows/Linux) would race with menu
-            // display — the main window stole focus from the menu, and
+            // display: the main window stole focus from the menu, and
             // on some WMs the menu flashed and disappeared. Middle
             // click is intentionally ignored too (no binding for it).
             //
@@ -207,15 +207,15 @@ pub(crate) fn create_tray(app: &AppHandle) -> tauri::Result<()> {
 
     // On macOS, mark the tray icon as a [template
     // image](https://developer.apple.com/documentation/appkit/nsimage/1520017-template)
-    // so the OS renders it as a single-color alpha mask — black on the
+    // so the OS renders it as a single-color alpha mask, black on the
     // light menubar, white on the dark menubar. This is the conventional
     // macOS behavior for menubar icons: full-color icons look out of
     // place next to the system's monochrome SF Symbol-style icons. The
     // per-state colors (idle=gray, recording=green, transcribing=blue,
     // error=red) emitted by `generate-icons.mjs` are only visible on
     // Windows/Linux; on macOS the state is communicated via the tooltip
-    // ("Voice Typer — Recording") and the glyph SHAPE (which is
-    // identical across states — only the alpha mask matters).
+    // ("Voice Typer: Recording") and the glyph SHAPE (which is
+    // identical across states: only the alpha mask matters).
     //
     // `TrayIconBuilder::icon_as_template` is a no-op on Windows/Linux
     // (the underlying `set_icon_as_template` call is `#[cfg(target_os =
@@ -244,7 +244,7 @@ pub(crate) fn create_tray(app: &AppHandle) -> tauri::Result<()> {
         // points), so wrapping it in `tauri::async_runtime::spawn(async
         // move { ... })` paid Tokio task-scheduler overhead for no async
         // benefit. The previous `std::thread::spawn` paid a per-event
-        // OS-thread-creation cost (~50µs) — fine at low frequency, but
+        // OS-thread-creation cost (~50µs): fine at low frequency, but
         // it allocated a fresh thread for every `tray_menu` publish.
         // `tauri::async_runtime::spawn_blocking` is the cached
         // equivalent: it dispatches the closure onto the Tokio blocking
@@ -252,7 +252,7 @@ pub(crate) fn create_tray(app: &AppHandle) -> tauri::Result<()> {
         // The listener closure (which runs on the Tauri event-loop
         // thread) returns immediately; the blocking pool absorbs the
         // work without per-event thread allocation. The returned
-        // `JoinHandle` is intentionally dropped (fire-and-forget) — the
+        // `JoinHandle` is intentionally dropped (fire-and-forget), the
         // body logs its own errors and returns `()`.
         #[allow(clippy::let_underscore_future)] // intentional fire-and-forget (comment above)
         let _ = tauri::async_runtime::spawn_blocking(move || {
@@ -272,7 +272,7 @@ pub(crate) fn create_tray(app: &AppHandle) -> tauri::Result<()> {
     // `sidecar/ws/event_protocol.rs::ALLOWED_EVENT_TYPES`) as a Tauri
     // `tray_state` event, and the listener below consumes it to move
     // the icon + tooltip. A parse failure or a missing tray is logged
-    // and skipped — the tray keeps its previous icon/tooltip.
+    // and skipped: the tray keeps its previous icon/tooltip.
     let app_clone_state = app.clone();
     app.listen("tray_state", move |event| {
         let payload: TrayStatePayload = match serde_json::from_str(event.payload()) {
@@ -289,7 +289,7 @@ pub(crate) fn create_tray(app: &AppHandle) -> tauri::Result<()> {
         // `std::thread::spawn` allocated a fresh OS thread per event
         // (~50µs per allocation). With the `TRAY_ICON_CACHE` in place,
         // the icon-load path is a HashMap lookup + `Arc` clone on a
-        // cache hit — the body is now ~µs-scale CPU work, but the OS
+        // cache hit: the body is now ~µs-scale CPU work, but the OS
         // tray APIs (`set_icon` / `set_tooltip`) can still block on
         // sync IPC to the OS tray subsystem on some platforms, so we
         // keep the work OFF the event-loop thread.
@@ -298,7 +298,7 @@ pub(crate) fn create_tray(app: &AppHandle) -> tauri::Result<()> {
         // reused across calls), avoiding the per-event thread-creation
         // cost while still keeping the event-loop thread free. The
         // returned `JoinHandle` is intentionally dropped
-        // (fire-and-forget) — the body logs its own errors and
+        // (fire-and-forget): the body logs its own errors and
         // returns `()`.
         #[allow(clippy::let_underscore_future)] // intentional fire-and-forget (comment above)
         let _ = tauri::async_runtime::spawn_blocking(move || {
@@ -310,7 +310,7 @@ pub(crate) fn create_tray(app: &AppHandle) -> tauri::Result<()> {
                         }
                     } else {
                         log::warn!(
-                            "[TRAY] tray_state icon {:?} not available — leaving icon unchanged",
+                            "[TRAY] tray_state icon {:?} not available, leaving icon unchanged",
                             icon_name
                         );
                     }
@@ -322,7 +322,7 @@ pub(crate) fn create_tray(app: &AppHandle) -> tauri::Result<()> {
                 }
             } else {
                 log::warn!(
-                    "[TRAY] tray_by_id({}) returned None — tray not yet built?",
+                    "[TRAY] tray_by_id({}) returned None: tray not yet built?",
                     TRAY_ID
                 );
             }
@@ -334,13 +334,13 @@ pub(crate) fn create_tray(app: &AppHandle) -> tauri::Result<()> {
 
 /// Create the tray and record its availability in `SidecarState`.
 ///
-/// The single wiring call from `main.rs`'s `.setup` (C-ARCH-1 — the
+/// The single wiring call from `main.rs`'s `.setup` (C-ARCH-1, the
 /// error log + `tray_available` marking moved out of the entry file as
 /// tray-init detail, not builder wiring). Tray failure is non-fatal:
 /// the app still runs without a tray, and the then-unmarked
 /// `tray_available` makes the main-window close handler let the close
 /// flow through to app exit instead of hide-to-tray (no stranded hidden
-/// window — see `state.rs`'s `tray_available` field docs for the full
+/// window: see `state.rs`'s `tray_available` field docs for the full
 /// rationale).
 pub(crate) fn create_tray_and_mark_state(app: &AppHandle) {
     if let Err(e) = create_tray(app) {
@@ -357,7 +357,7 @@ fn rebuild_tray_menu(app: &AppHandle, items: &[MenuItemData]) -> tauri::Result<(
     if let Some(tray) = app.tray_by_id(TRAY_ID) {
         tray.set_menu(Some(menu))?;
         // DEBUG observability for the "menu missing after respawn" class
-        // of report: pairs with the Python-side "host ready — tray menu +
+        // of report: pairs with the Python-side "host ready, tray menu +
         // state re-published" line so a placeholder menu can be bisected
         // (no event vs. event-but-no-rebuild).
         log::debug!(
@@ -369,7 +369,7 @@ fn rebuild_tray_menu(app: &AppHandle, items: &[MenuItemData]) -> tauri::Result<(
     Ok(())
 }
 
-// Sibling test module — tests live in `tray_tests.rs` (per C-TEST-5:
+// Sibling test module: tests live in `tray_tests.rs` (per C-TEST-5:
 // no inline `#[cfg(test)] mod tests` blocks in production source).
 #[cfg(test)]
 #[path = "tray_tests.rs"]

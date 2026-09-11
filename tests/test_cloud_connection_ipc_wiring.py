@@ -9,7 +9,7 @@ the renderer ``ALLOWED_COMMANDS`` (62 entries) and the Rust host's
 (``CloudTestHandlersMixin._handle_test_cloud_connection``) existed in
 ``voice_typer/server/handlers/cloud_test_handlers.py`` but the mixin
 was neither imported by ``ipc_server.py`` nor mixed into the
-``IPCServer`` class — so a renderer ``dispatch({cmd:
+``IPCServer`` class, so a renderer ``dispatch({cmd:
 'test_cloud_connection', ...})`` call would have been rejected by the
 Python dispatcher with ``unknown_command``.
 
@@ -110,7 +110,7 @@ def test_handler_method_signature() -> None:
     params = list(sig.parameters.values())
     # First param is ``self`` (bound method), then ``data``, then ``resp``.
     assert len(params) >= 3, (
-        f"_handle_test_cloud_connection must accept (self, data, resp) — "
+        f"_handle_test_cloud_connection must accept (self, data, resp), "
         f"found {len(params)} params: {[p.name for p in params]}."
     )
     # Skip self (params[0]); verify the dispatch-contract param names.

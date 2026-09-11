@@ -5,7 +5,7 @@
  *
  * Two modes:
  *   - If `VT_PYTHON_PORT` + `VT_IPC_TOKEN` are set, a Python backend
- *     spawned us — skip spawning and connect directly to the existing
+ *     spawned us, skip spawning and connect directly to the existing
  *     backend (we must not kill our parent).
  *   - Otherwise, spawn a fresh backend via `pythonArgs()` and connect.
  *
@@ -50,23 +50,23 @@ import { clearTcpStartupTimeout, tcpConnect } from "./tcp-connect";
  *
  * If Electron starts and a Python backend is already running (e.g.
  * from autostart), `tcpConnect()` will successfully connect to it and
- * adopt it — no killing needed.  If no Python is listening, Electron
+ * adopt it, no killing needed.  If no Python is listening, Electron
  * spawns a new one via `startPython()`.
  */
 export function startPython() {
 	// Idempotence guard: if the previously-spawned backend is still
 	// running, do NOT start a second one. Node's ChildProcess reports
 	// `exitCode: null` while the process is running and `signalCode:
-	// null` until it is terminated by a signal — both null means
+	// null` until it is terminated by a signal, both null means
 	// alive (the same liveness check used by kill-python.ts and
 	// stop-python.ts). Without this guard, a spurious or fast
 	// suspend/resume cycle (powerMonitor `resume` while the old
-	// backend is still alive — e.g. suspend inhibited on AC power, or
+	// backend is still alive, e.g. suspend inhibited on AC power, or
 	// resume firing while stopPython's force-kill grace period is
 	// still in flight) would spawn a SECOND backend. The second
 	// backend cannot acquire the Python-side `VoiceTyperSingleInstance`
 	// mutex, exits early, and the early-exit handler tears the whole
-	// app down with a misleading "only one instance" dialog — the app
+	// app down with a misleading "only one instance" dialog, the app
 	// quitting ITSELF over its own double-spawn. All other spawn
 	// paths are unaffected: `state.pythonProcess` is null on the
 	// initial boot, the dev-mode relaunch awaits the old process's
@@ -78,7 +78,7 @@ export function startPython() {
 		state.pythonProcess.signalCode === null
 	) {
 		log.info(
-			"[STARTUP] startPython() called while the backend is still running — no-op",
+			"[STARTUP] startPython() called while the backend is still running, no-op",
 		);
 		return;
 	}
@@ -101,7 +101,7 @@ export function startPython() {
 	// this, any prior `stopPython()` call (e.g. from a circuit-
 	// breaker trip during the previous backend lifecycle) would
 	// leave `isStopping`/`isStopped` latched, making all future
-	// `stopPython()` calls permanent no-ops — the backend could
+	// `stopPython()` calls permanent no-ops, the backend could
 	// not be stopped again after a relaunch. Also clears any
 	// armed `killTimer` left over from the prior stop cycle.
 	_resetStopPythonFlagsForRestart();
@@ -110,14 +110,14 @@ export function startPython() {
 	// `tcpConnect()`'s `if (_tcpStartupTimeoutTimer === null)`
 	// guard sees the timer from the PREVIOUS connect attempt
 	// (which may have been ~50s into its 60s window) and skips
-	// arming a fresh one — so a dev-mode restart that takes >10s
+	// arming a fresh one, so a dev-mode restart that takes >10s
 	// to spawn + import torch would trip the stale timer's
 	// "Python backend failed to start" dialog + `app.quit()`
 	//prematurely. This is the exact race  documents.
 	clearTcpStartupTimeout();
 
 	// P1-1.2: if VT_PYTHON_PORT is set, a Python backend spawned us
-	// (standalone mode — user ran `VoiceTyper` from a terminal).
+	// (standalone mode, user ran `VoiceTyper` from a terminal).
 	// The backend is already listening on VT_PYTHON_PORT with the
 	// session token from VT_IPC_TOKEN.  Skip spawning a fresh
 	// backend and connect directly.  pythonProcess stays null so
@@ -125,7 +125,7 @@ export function startPython() {
 	// backend (which is our parent).
 	if (process.env.VT_PYTHON_PORT && process.env.VT_IPC_TOKEN) {
 		log.info(
-			`[STARTUP] VT_PYTHON_PORT=${process.env.VT_PYTHON_PORT} set — ` +
+			`[STARTUP] VT_PYTHON_PORT=${process.env.VT_PYTHON_PORT} set, ` +
 				"connecting to existing backend (no spawn)",
 		);
 		// tcpConnect will use IPC_PORT (which reads VT_PYTHON_PORT at
@@ -136,7 +136,7 @@ export function startPython() {
 	}
 
 	const [exe, args] = pythonArgs();
-	// Spawn with inherit stdio — stdout/stderr go to the Electron
+	// Spawn with inherit stdio, stdout/stderr go to the Electron
 	// console (terminal), NOT to pipes.  This eliminates the
 	// unbuffered-pipe-write slowdown during torch import.
 	// IPC happens via TCP instead of pipe parsing.
@@ -163,7 +163,7 @@ export function startPython() {
 			// exists, but a STALE packaged build (PyInstaller backend
 			// built before the legacy-first resolution, or running with a
 			// different default) can fall through to `%APPDATA%/voice-typer`
-			// — giving the installed app a DIFFERENT config.json than the
+			//, giving the installed app a DIFFERENT config.json than the
 			// dev app.  The user then sees settings "come back" (each app
 			// reads/writes its own config).  Explicitly setting
 			// `VOICE_TYPER_CONFIG_DIR` here makes the spawned backend use
@@ -206,7 +206,7 @@ export function startPython() {
 			for (const [id, entry] of state.pendingRequests) {
 				state.pendingRequests.delete(id);
 				// Typed rejection: the early-exit branch uses
-				// `backend_exited_early` — the SAME code the
+				// `backend_exited_early`, the SAME code the
 				// python-call handler's pre-flight check
 				// returns when `state.pythonExitedEarly` is
 				// true, so a mid-flight early exit shows the
@@ -242,7 +242,7 @@ export function startPython() {
 			// missing-model / port-collision / token-mismatch /
 			// syntax-error / OOM crashes. The prior dialog
 			// showed the same "Only one instance can run"
-			// message for ALL early exits — misleading for
+			// message for ALL early exits, misleading for
 			// every non-single-instance failure mode. The
 			// localized single-instance message stays as the
 			// first line (preserving the existing translation
@@ -262,7 +262,7 @@ export function startPython() {
 			//surface a user-visible error dialog before quitting so
 			// the user has an actionable message instead of a silent app
 			// exit. Distinguish `code === null` (POSIX signal-based exit,
-			//e.g. SIGSEGV/SIGABRT — `null !== 0` evaluates true, so
+			//e.g. SIGSEGV/SIGABRT, `null !== 0` evaluates true, so
 			// signal-based crashes used to silently fall through this
 			// branch with no distinguishing message) from `code !== 0`
 			// (numeric exit) with separate message bodies so signal
@@ -284,7 +284,7 @@ export function startPython() {
 				// dialog may not be available in headless mode
 				// (CI, `DISPLAY` unset, or pre-app-ready). Log at debug so
 				// the failure is observable in the diagnostic log without
-				// spamming the default level — mirrors the debug-log pattern
+				// spamming the default level, mirrors the debug-log pattern
 				// used in `relaunch-app.ts:351`.
 				log.debug("[PYTHON] crash dialog.showErrorBox failed (non-fatal):", e);
 			}
@@ -335,7 +335,7 @@ export function startPython() {
 			// closed before Electron processed the data).
 			state.pythonProcess = null;
 			// P1-2c (Round 0 forward-port): also guard against
-			// `app.isQuitting` — the tray "Quit" path sends
+			// `app.isQuitting`, the tray "Quit" path sends
 			// `quit_app` to Python, which then exits with code 0.
 			// Without this check, the clean-exit branch would
 			// treat the tray Quit as a lost "relaunch_app"
@@ -347,14 +347,14 @@ export function startPython() {
 			// handler calls `app.quit()`.
 			if (!state._relaunching && !app.isQuitting) {
 				log.info(
-					"[RESTART] Python exited cleanly (code 0) — triggering full app relaunch",
+					"[RESTART] Python exited cleanly (code 0), triggering full app relaunch",
 				);
 				relaunchApp();
 			}
 		}
 	});
 
-	//handle spawn failures (ENOENT — Python not on PATH,
+	//handle spawn failures (ENOENT, Python not on PATH,
 	// bundled exe missing, EACCES, etc.). Without this listener, Node
 	// emits the 'error' event with no listener → uncaughtException →
 	// the crash circuit breaker in bootstrap.ts trips after 5 errors.
@@ -377,7 +377,7 @@ export function startPython() {
 			// dialog may not be available in headless mode
 			// (CI, `DISPLAY` unset, or pre-app-ready). Log at debug so
 			// the failure is observable in the diagnostic log without
-			// spamming the default level — mirrors the debug-log pattern
+			// spamming the default level, mirrors the debug-log pattern
 			// used in `relaunch-app.ts:351`.
 			log.debug(
 				"[PYTHON] spawn-failure dialog.showErrorBox failed (non-fatal):",

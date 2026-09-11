@@ -1,9 +1,9 @@
-"""CR-88 regression guard — verify GDPR right-to-export.
+"""CR-88 regression guard: verify GDPR right-to-export.
 
 Finding CR-88 (High): GDPR Art. 20 (right to data portability) is
 not implemented at all. The existing
 ``service.export_diagnostics()`` produces a *redacted* diagnostic
-bundle (for support tickets) — it is NOT a GDPR Art. 20 export
+bundle (for support tickets), it is NOT a GDPR Art. 20 export
 because it strips transcript text and excludes
 ``voice-typer-corrections.json``, ``templates.json``, and mic-test
 recordings.
@@ -83,8 +83,8 @@ def _seed_personal_data(tmp_path: Path) -> None:
     (tmp_path / "voice-typer.log.1").write_text("2024-01-01 11:00:00 DEBUG transcript='rotated secret 1'\n")
     (tmp_path / "voice-typer.log.2").write_text("2024-01-01 10:00:00 DEBUG transcript='rotated secret 2'\n")
     # real crash files (not the fictional ``crash-*.dmp``).
-    #   * ``crash_diagnostics.<PID>.txt`` — Windows VEH handler (crash_handler.py:722)
-    #   * ``python_crash.<PID>.txt``     — Python excepthook marker (crash_handler.py:1190)
+    #   * ``crash_diagnostics.<PID>.txt``, Windows VEH handler (crash_handler.py:722)
+    #   * ``python_crash.<PID>.txt``   , Python excepthook marker (crash_handler.py:1190)
     _pid = os.getpid()
     (tmp_path / f"crash_diagnostics.{_pid}.txt").write_text(
         f"VEH crash dump for PID {_pid}\nstack trace with secret='pii'\n"
@@ -109,7 +109,7 @@ def test_export_gdpr_bundle_method_exists() -> None:
     from voice_typer.server.service import VoiceTyperService
 
     assert hasattr(VoiceTyperService, "export_gdpr_bundle"), (
-        "VoiceTyperService must define export_gdpr_bundle — see CR-88 / Fix-D."
+        "VoiceTyperService must define export_gdpr_bundle: see CR-88 / Fix-D."
     )
 
 
@@ -170,7 +170,7 @@ def test_export_gdpr_bundle_includes_history_db(tmp_path) -> None:
 
 
 def test_export_gdpr_bundle_includes_config_json(tmp_path) -> None:
-    """The zip must contain config.json (with secrets — this is GDPR
+    """The zip must contain config.json (with secrets, this is GDPR
     export, not redacted diagnostics)."""
     svc, mp = _build_service(tmp_path)
     try:
@@ -186,7 +186,7 @@ def test_export_gdpr_bundle_includes_config_json(tmp_path) -> None:
                 if "config.json" in n:
                     data = json.loads(zf.read(n))
                     assert data.get("llm_api_key") == "sk-test-123", (
-                        "GDPR export must NOT redact secrets — they are the user's personal data (CR-88)."
+                        "GDPR export must NOT redact secrets, they are the user's personal data (CR-88)."
                     )
                     break
     finally:
@@ -263,7 +263,7 @@ def test_export_gdpr_bundle_includes_templates(tmp_path) -> None:
 
 def test_export_gdpr_bundle_includes_mic_test_recordings(tmp_path) -> None:
     """The zip must include any mic-test-*.wav files (voice biometric
-    data — explicitly personal)."""
+    data, explicitly personal)."""
     svc, mp = _build_service(tmp_path)
     try:
         if not hasattr(svc, "export_gdpr_bundle"):
@@ -367,7 +367,7 @@ def test_export_gdpr_bundle_is_atomic_no_partial_tmp(tmp_path) -> None:
 
 
 def test_export_gdpr_bundle_excludes_model_artifacts(tmp_path) -> None:
-    """Model weights are NOT personal data — must not be in the export."""
+    """Model weights are NOT personal data, must not be in the export."""
     svc, mp = _build_service(tmp_path)
     try:
         if not hasattr(svc, "export_gdpr_bundle"):
@@ -390,7 +390,7 @@ def test_export_gdpr_bundle_excludes_model_artifacts(tmp_path) -> None:
 
 def test_export_gdpr_bundle_succeeds_when_config_dir_empty(tmp_path) -> None:
     """A fresh-install config dir (no artifacts) should still produce
-    a (mostly empty) zip — not raise."""
+    a (mostly empty) zip, not raise."""
     svc, mp = _build_service(tmp_path)
     try:
         if not hasattr(svc, "export_gdpr_bundle"):
@@ -478,7 +478,7 @@ def test_export_gdpr_bundle_includes_subdir_nested_files(tmp_path) -> None:
     and preserve the relative path as the zip arcname.
 
     A nested file at ``<config_dir>/logs/sub/deep.log`` must appear in
-    the zip as ``logs/sub/deep.log`` — the on-disk structure is
+    the zip as ``logs/sub/deep.log``, the on-disk structure is
     preserved inside the zip so the user can navigate the export.
     """
     svc, mp = _build_service(tmp_path)
@@ -500,7 +500,7 @@ def test_export_gdpr_bundle_includes_subdir_nested_files(tmp_path) -> None:
 
 def test_export_gdpr_bundle_no_partial_subdir_walk_when_missing(tmp_path) -> None:
     """A fresh-install config dir (no ``logs/`` / ``crash_diagnostics/``
-    subdirs) must not raise — the recursive subdir walk is a silent no-op
+    subdirs) must not raise, the recursive subdir walk is a silent no-op
     for missing subdirs."""
     svc, mp = _build_service(tmp_path)
     try:
@@ -513,7 +513,7 @@ def test_export_gdpr_bundle_no_partial_subdir_walk_when_missing(tmp_path) -> Non
         with zipfile.ZipFile(result["path"]) as zf:
             names = zf.namelist()
             # No subdir-prefixed entries should exist when the subdirs
-            # are absent — the walk is a no-op.
+            # are absent, the walk is a no-op.
             assert not any(n.startswith("logs/") for n in names), (
                 f"logs/ entries leaked into export with no logs/ dir on disk: {names}"
             )

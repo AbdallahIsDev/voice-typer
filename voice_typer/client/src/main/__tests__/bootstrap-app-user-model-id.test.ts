@@ -15,8 +15,8 @@
  *
  * This test mocks `electron`'s `app.setAppUserModelId` and verifies
  * `bootstrapRuntime()` invokes it with the exact literal
- * `"VoiceTyper"`. The literal is an AppUserModelID — a programmatic
- * registry identifier, NOT a user-facing brand string — so it is
+ * `"VoiceTyper"`. The literal is an AppUserModelID, a programmatic
+ * registry identifier, NOT a user-facing brand string, so it is
  * exempt from C-BRAND-1 (the `{appName}` placeholder rule applies to
  * user-visible strings only).
  *
@@ -43,7 +43,7 @@ describe("bootstrapRuntime calls app.setAppUserModelId('VoiceTyper')", () => {
 		setAppUserModelIdMock = vi.fn();
 		setPathMock = vi.fn();
 
-		// Mock `electron` — the full shape bootstrap.ts touches:
+		// Mock `electron`, the full shape bootstrap.ts touches:
 		// app.{getPath, setPath, isPackaged, on, setAppUserModelId},
 		// dialog.showErrorBox, session.defaultSession.webRequest,
 		// crashReporter.start.
@@ -66,7 +66,7 @@ describe("bootstrapRuntime calls app.setAppUserModelId('VoiceTyper')", () => {
 			},
 		}));
 
-		// Mock `./single_instance` — its real implementation
+		// Mock `./single_instance`, its real implementation
 		// transitively imports `./windows` (heavy BrowserWindow
 		// machinery). bootstrap.ts imports `computeConfigDir` +
 		// `clearElectronPidFile` from it.
@@ -75,20 +75,20 @@ describe("bootstrapRuntime calls app.setAppUserModelId('VoiceTyper')", () => {
 			clearElectronPidFile: vi.fn(),
 		}));
 
-		// Mock `./python` — bootstrap.ts imports `stopPython`
+		// Mock `./python`, bootstrap.ts imports `stopPython`
 		// for the production exit hook.
 		vi.doMock("../python", () => ({ stopPython: vi.fn() }));
 
-		// Mock `./state` — bootstrap.ts reads/writes
+		// Mock `./state`, bootstrap.ts reads/writes
 		// `state.sessionNonce`.
 		vi.doMock("../state", () => ({ state: { sessionNonce: "" } }));
 
-		// Mock `./i18n` — bootstrap.ts uses `mainT(...)` inside
+		// Mock `./i18n`, bootstrap.ts uses `mainT(...)` inside
 		// the breaker dialog. The test never trips the breaker,
 		// but the import + symbol binding must resolve.
 		vi.doMock("../i18n", () => ({ mainT: (k: string) => k }));
 
-		// Mock `./logging` — bootstrap.ts calls log.info / log.warn
+		// Mock `./logging`, bootstrap.ts calls log.info / log.warn
 		// in several setup steps.
 		vi.doMock("../logging", () => ({
 			DEFAULT_CRASH_LOG_MAX_BYTES: 1_048_576,
@@ -132,7 +132,7 @@ describe("bootstrapRuntime calls app.setAppUserModelId('VoiceTyper')", () => {
 		// and returns normally.
 		expect(() => bootstrapRuntime()).not.toThrow();
 		// The mock was still invoked (the call happened, it just
-		// threw — the catch logs a warning and moves on).
+		// threw, the catch logs a warning and moves on).
 		expect(setAppUserModelIdMock).toHaveBeenCalledTimes(1);
 	});
 
@@ -143,7 +143,7 @@ describe("bootstrapRuntime calls app.setAppUserModelId('VoiceTyper')", () => {
 		// setAppUserModelId was called AFTER setPath.
 		// NOTE: `setPathMock` is the shared spy established in
 		// `beforeEach` (the same mock object `bootstrap` resolves
-		// when it dynamic-imports `electron`) — NOT a re-mock inside
+		// when it dynamic-imports `electron`), NOT a re-mock inside
 		// `it()`. Re-mocking `electron` via `vi.doMock` inside `it()`
 		// is order-dependent / flaky under the full-suite run (the
 		// dynamic `import` can resolve the module before the late
@@ -178,7 +178,7 @@ describe("bootstrapRuntime calls app.setAppUserModelId('VoiceTyper')", () => {
 	});
 
 	it("logs the 'userData set to' line once across the double setupUserData invocation", async () => {
-		// Production calls `setupUserData()` twice per boot — at
+		// Production calls `setupUserData()` twice per boot, at
 		// index.ts module-load (so early Chromium utility processes
 		// inherit the unified data root) and again inside
 		// `bootstrapRuntime()` (app.whenReady). Both re-set the SAME

@@ -30,7 +30,7 @@ if (!isBubble) {
 		// `PythonBridge` contract in `types/ipc/bridge.ts`:
 		//   `call: (msg: { type: string; data?: Record<string, unknown> }) => Promise<unknown>`
 		// The previous `Record<string, unknown>` annotation was
-		// wider than the bridge contract — it accepted any
+		// wider than the bridge contract, it accepted any
 		// object (including ones with no `type` field), so a
 		// renderer bug that called `python.call({})` or
 		// `python.call({ foo: "bar" })` would slip through TS

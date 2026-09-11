@@ -1,5 +1,5 @@
 /**
- * CloudProvidersPanel unit tests —  /
+ * CloudProvidersPanel unit tests,  /
  *
  * (UI/UX overhaul 2026-08-20): the panel was rebuilt to match the
  * Local Models tab's collapsible-group pattern:
@@ -133,7 +133,7 @@ function openApiKeyForm(providerLabel = "OpenAI Whisper API") {
 	);
 }
 
-describe("CloudProvidersPanel — provider brand logos + collapsible groups", () => {
+describe("CloudProvidersPanel, provider brand logos + collapsible groups", () => {
 	afterEach(() => cleanup());
 
 	it("renders the brand logo for openai and deepgram; groq keeps the shield fallback", () => {
@@ -178,7 +178,7 @@ describe("CloudProvidersPanel — provider brand logos + collapsible groups", ()
 		).toBeInTheDocument();
 
 		// The API-key form is NOT visible until Configure is clicked
-		// (point 11 — no permanently-visible API-key card).
+		// (point 11, no permanently-visible API-key card).
 		expect(screen.queryByTestId("api-key-input")).toBeNull();
 		expect(
 			screen.queryByRole("button", {
@@ -209,12 +209,12 @@ describe("CloudProvidersPanel — provider brand logos + collapsible groups", ()
 	});
 });
 
-describe("CloudProvidersPanel — test-result span is a live region", () => {
+describe("CloudProvidersPanel, test-result span is a live region", () => {
 	afterEach(() => cleanup());
 
 	it("test-result span exposes role=status + aria-live=polite (so SR users hear the outcome)", () => {
 		const testResult: ApiTestResult = {
-			message: "Connection successful — API key is valid.",
+			message: "Connection successful: API key is valid.",
 			status: "success",
 		};
 		render(
@@ -225,7 +225,7 @@ describe("CloudProvidersPanel — test-result span is a live region", () => {
 		);
 		openApiKeyForm();
 		const resultSpan = screen.getByText(
-			"Connection successful — API key is valid.",
+			"Connection successful: API key is valid.",
 		);
 		// The result renders as an <output> element, whose IMPLICIT ARIA
 		// role is status (so SR users hear the outcome). Assert the
@@ -242,7 +242,7 @@ describe("CloudProvidersPanel — test-result span is a live region", () => {
 	});
 });
 
-describe("CloudProvidersPanel — three test-result color branches", () => {
+describe("CloudProvidersPanel, three test-result color branches", () => {
 	afterEach(() => cleanup());
 
 	it("success branch uses text-primary", () => {
@@ -292,14 +292,14 @@ describe("CloudProvidersPanel — three test-result color branches", () => {
 		openApiKeyForm();
 		const span = screen.getByText("testing…");
 		//`text-[(--text-muted)]` is invalid Tailwind v4 syntax.
-		// The canonical form is `text-(--text-muted)` — matches every other
+		// The canonical form is `text-(--text-muted)`, matches every other
 		// call site in the codebase.
 		expect(span.className).toContain("text-(--text-muted)");
 		expect(span.className).not.toContain("text-[(--text-muted)]");
 	});
 });
 
-describe("CloudProvidersPanel — consent progressive disclosure", () => {
+describe("CloudProvidersPanel, consent progressive disclosure", () => {
 	afterEach(() => cleanup());
 
 	it("hides the consent card when no API key is set AND consent is not granted", () => {
@@ -364,11 +364,11 @@ describe("CloudProvidersPanel — consent progressive disclosure", () => {
 	});
 });
 
-describe("CloudProvidersPanel — Save / Test buttons", () => {
+describe("CloudProvidersPanel, Save / Test buttons", () => {
 	afterEach(() => cleanup());
 
 	it("Save Key button invokes onSaveApiKey with the provider key", () => {
-		// Provider label for "openai" is "OpenAI Whisper API" — so the aria-label
+		// Provider label for "openai" is "OpenAI Whisper API", so the aria-label
 		// resolves to "Save OpenAI Whisper API API key".
 		//the Save Key button is disabled when the input is empty,
 		// so the test must pass a non-empty key to click it.
@@ -409,7 +409,7 @@ describe("CloudProvidersPanel — Save / Test buttons", () => {
 // that `safeApiKey` substitutes for the `<redacted>` sentinel on
 // every config fetch).
 // ─────────────────────────────────────────────────────────────────────
-describe("CloudProvidersPanel — Save Key button disabled guard", () => {
+describe("CloudProvidersPanel, Save Key button disabled guard", () => {
 	afterEach(() => cleanup());
 
 	it("disables the Save Key button when the API key input is empty", () => {
@@ -451,7 +451,7 @@ describe("CloudProvidersPanel — Save Key button disabled guard", () => {
 // Stale results are cleared via `onClearTestResult` whenever the
 // API-key Input changes.
 // ─────────────────────────────────────────────────────────────────────
-describe("CloudProvidersPanel — Test Connection pending state + clear-on-key-change", () => {
+describe("CloudProvidersPanel, Test Connection pending state + clear-on-key-change", () => {
 	afterEach(() => cleanup());
 
 	it("disables the Test Connection button + sets aria-busy when testResult.status is 'pending'", () => {
@@ -513,7 +513,7 @@ describe("CloudProvidersPanel — Test Connection pending state + clear-on-key-c
 				apiKeys={{ openai: "sk-test" }}
 				testResults={{
 					openai: {
-						message: "Connection successful — API key is valid.",
+						message: "Connection successful: API key is valid.",
 						status: "success",
 					},
 				}}

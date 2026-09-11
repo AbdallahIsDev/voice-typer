@@ -8,13 +8,13 @@ interface LiveQualityFeedbackProps {
 
 /**
  * Single test-timer readout: `Recording MM:SS / MM:SS` progressing
- * 00:00 → 00:10. This is THE one time display during a test — the
+ * 00:00 → 00:10. This is THE one time display during a test, the
  * redundant voice-quality status line ("Waiting for voice…"/"Voice
  * Detected"/"Low volume") that used to sit under it was removed: the
  * live LevelBar already communicates input level continuously, so a
  * second textual indicator duplicated it and flickered noisily.
  *
- * The timer is rendered OUTSIDE any aria-live region on purpose — rapid
+ * The timer is rendered OUTSIDE any aria-live region on purpose, rapid
  * per-second updates would spam screen-reader broadcast channels.
  */
 export function LiveQualityFeedback({
@@ -32,7 +32,7 @@ export function LiveQualityFeedback({
 
 	return (
 		<div className="mt-2 text-center">
-			{/* Timer — visual-only; rapid updates would spam SR if live */}
+			{/* Timer, visual-only; rapid updates would spam SR if live */}
 			<span className="text-xs font-mono tabular-nums text-(--text-muted)">
 				{t("microphoneTest.qualityFeedback.recording")}{" "}
 				{formatTime(elapsedSeconds)} / {formatTime(totalSeconds)}

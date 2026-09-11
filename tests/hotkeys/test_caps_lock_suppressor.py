@@ -5,14 +5,14 @@ the original ``windows_native.py`` god-class). They are module-level
 functions that receive the host instance as ``self`` and rely on two
 attributes:
 
-* ``self._user32`` — a ctypes ``windll.user32``-like object exposing
+* ``self._user32``, a ctypes ``windll.user32``-like object exposing
   ``GetKeyState(vk)`` (returns a short whose bit 0 is the toggle state)
   and ``SendInput(count, events_ptr, sizeof_input)`` (returns the
-  number of events successfully inserted — modern replacement for the
+  number of events successfully inserted, modern replacement for the
   deprecated ``keybd_event``).
-* ``self._kernel32`` — a ``windll.kernel32``-like object exposing
+* ``self._kernel32``, a ``windll.kernel32``-like object exposing
   ``Sleep(ms)``.
-* ``self._caps_lock_suppressing`` — a bool flag set while the synthetic
+* ``self._caps_lock_suppressing``, a bool flag set while the synthetic
   keypress is in flight.
 
 All tests run headless against fake host objects (no real Win32 calls).
@@ -55,7 +55,7 @@ def _make_user32(toggle_state: int = 0) -> MagicMock:
     """
     user32 = MagicMock(name="user32")
     user32.GetKeyState.return_value = toggle_state
-    # SendInput returns UINT — 1 means the single keyboard event was
+    # SendInput returns UINT, 1 means the single keyboard event was
     # successfully inserted into the input queue.
     user32.SendInput.return_value = 1
     return user32
@@ -77,14 +77,14 @@ def _capture_sendinput_events(user32: MagicMock) -> list[INPUT]:
         typed = ctypes.cast(events_ptr, ctypes.POINTER(INPUT))
         for i in range(n_inputs):
             captured.append(typed[i])
-        return 1  # success — mirrors the production happy path
+        return 1  # success, mirrors the production happy path
 
     user32.SendInput.side_effect = _capture
     return captured
 
 
 class TestSuppressCapsLockToggle:
-    """``suppress_caps_lock_toggle`` — reactive undo of the OS toggle."""
+    """``suppress_caps_lock_toggle``, reactive undo of the OS toggle."""
 
     def test_noop_when_user32_or_kernel32_missing(self):
         """With ``_user32`` or ``_kernel32`` falsy, the helper must
@@ -118,7 +118,7 @@ class TestSuppressCapsLockToggle:
         # Caps Lock), dwFlags = 0 for keydown / KEYEVENTF_KEYUP for keyup.
         # The nested ``ki.ki`` access is because the INPUT struct's
         # ``ki`` field is the ``InputUnion`` (a ctypes Union wrapping
-        # the KEYBDINPUT payload) — same layout as the Win32 SDK and
+        # the KEYBDINPUT payload), same layout as the Win32 SDK and
         # as ``clipboard/windows.py``.
         assert keydown.type == INPUT.KEYBOARD
         assert keydown.ki.ki.wVk == _VK_CAPITAL
@@ -134,7 +134,7 @@ class TestSuppressCapsLockToggle:
 
     def test_no_synthetic_press_when_toggle_off(self):
         """When ``GetKeyState`` reports the toggle OFF, no synthetic
-        keypress is sent — but the flag is still cleared and the sleep
+        keypress is sent, but the flag is still cleared and the sleep
         still happens (cheap idle path)."""
         user32 = _make_user32(toggle_state=0)
         kernel32 = MagicMock(name="kernel32")
@@ -166,7 +166,7 @@ class TestSuppressCapsLockToggle:
 
 
 class TestEnsureCapsLockOff:
-    """``ensure_caps_lock_off`` — proactive defense-in-depth toggle-off."""
+    """``ensure_caps_lock_off``, proactive defense-in-depth toggle-off."""
 
     def test_noop_without_user32(self):
         """With ``_user32`` falsy the helper must return immediately."""
@@ -250,7 +250,7 @@ class TestSendKeyboardEventHelper:
 
     def test_send_keyboard_event_returns_zero_on_failure(self):
         """When ``SendInput`` returns 0 (no events inserted), the helper
-        must propagate that count to the caller — matching the Win32
+        must propagate that count to the caller, matching the Win32
         ``SendInput`` return-value contract (UINT count of events
         successfully inserted)."""
         user32 = MagicMock(name="user32")

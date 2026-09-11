@@ -7,7 +7,7 @@
 // the same 2600ms highlight-lifetime timer, and the same cleanup. They
 // previously existed as two ~85%-identical inline effects (in
 // `pages/Settings.tsx` at the time of the review) that had already
-// begun drifting in ring mechanism — this helper owns the shared
+// begun drifting in ring mechanism, this helper owns the shared
 // machinery ONCE; each caller supplies only its row matcher and how
 // the highlight ring is applied / cleared (consent: React state ring
 // consumed by PrivacySettingsSection; search: imperative ring classes
@@ -17,8 +17,8 @@
 export interface ScrollRowHighlightShared {
 	/**
 	 * Identity of the deep-link target that was last scrolled to
-	 * (one-shot guard: re-renders of the same target — e.g. a config
-	 * identity change — must not re-trigger a smooth re-center).
+	 * (one-shot guard: re-renders of the same target, e.g. a config
+	 * identity change, must not re-trigger a smooth re-center).
 	 * Reset when the highlight lifetime elapses.
 	 */
 	scrolledTarget: { current: string | null };
@@ -47,7 +47,7 @@ export interface ScrollToRowWithHighlightOptions {
 	 */
 	onFound?: (el: HTMLElement) => void;
 	/**
-	 * Called when the highlight lifetime elapses — clears the ring
+	 * Called when the highlight lifetime elapses, clears the ring
 	 * and (via the caller's state reset) disarms the deep-link.
 	 */
 	onExpire: (el: HTMLElement) => void;
@@ -60,7 +60,7 @@ export interface ScrollToRowWithHighlightOptions {
 /** Bounded-retry budget: attempts × delay ≈ 3s (stale targets can't spin forever). */
 const MAX_ATTEMPTS = 60;
 const RETRY_DELAY_MS = 50;
-/** Default ring lifetime — matches the historical behavior of both twins. */
+/** Default ring lifetime, matches the historical behavior of both twins. */
 const DEFAULT_HIGHLIGHT_LIFETIME_MS = 2600;
 
 /**
@@ -110,7 +110,7 @@ export function scrollToRowWithHighlight({
 			}, highlightLifetimeMs);
 			return;
 		}
-		// Bounded retry (~3s) — a stale target can't spin forever.
+		// Bounded retry (~3s), a stale target can't spin forever.
 		if (attempts < MAX_ATTEMPTS) {
 			attempts += 1;
 			setTimeout(tryScroll, RETRY_DELAY_MS);

@@ -3,7 +3,7 @@ Python-process restarts.
 
 Before the fix, ``OnboardingController`` stored ``_current_step``,
 ``selected_microphone``, ``selected_hotkey``, and ``selected_model`` as
-INSTANCE variables only — never written to disk. ``onboarding_start()``
+INSTANCE variables only, never written to disk. ``onboarding_start()``
 always created a NEW ``OnboardingController()``. When the Python process
 restarted (app close/reopen), ``self._onboarding`` was lost. Only
 ``apply_settings`` (called from the Done step via ``onboarding_apply``)
@@ -60,7 +60,7 @@ def test_next_step_writes_progress_marker(config_dir: Path) -> None:
     data = json.loads(progress_file.read_text(encoding="utf-8"))
     assert data["current_step"] == 1
     # Defaults are persisted alongside the step. The model default is
-    # the canonical ``DEFAULT_MODEL_SIZE`` sentinel — since the
+    # the canonical ``DEFAULT_MODEL_SIZE`` sentinel, since the
     # 2026-08-28 no-default-model change there is NO concrete default
     # model (the old "tiny" default preselected a model the user never
     # chose and whose weights were never installed).
@@ -167,12 +167,12 @@ def test_reset_clears_progress_marker(config_dir: Path) -> None:
     assert ctrl.current_step == 0
     assert ctrl.selected_microphone is None
     assert ctrl.selected_hotkey == "<caps_lock>"
-    # Canonical default — no concrete default model (2026-08-28).
+    # Canonical default, no concrete default model (2026-08-28).
     assert ctrl.selected_model == DEFAULT_MODEL_SIZE
 
 
 def test_corrupt_progress_marker_is_ignored(config_dir: Path) -> None:
-    """A corrupt progress marker file does NOT crash ``__init__`` — the
+    """A corrupt progress marker file does NOT crash ``__init__``, the
     controller falls back to defaults and lets the next mutation
     overwrite the file."""
     progress_file = config_dir / ".onboarding_progress"
@@ -184,13 +184,13 @@ def test_corrupt_progress_marker_is_ignored(config_dir: Path) -> None:
     assert ctrl.current_step == 0
     assert ctrl.selected_microphone is None
     assert ctrl.selected_hotkey == "<caps_lock>"
-    # Canonical default — no concrete default model (2026-08-28).
+    # Canonical default, no concrete default model (2026-08-28).
     assert ctrl.selected_model == DEFAULT_MODEL_SIZE
 
 
 def test_v1_progress_marker_is_ignored_after_step_insertion(config_dir: Path) -> None:
     """A v1 (6-step) progress marker is IGNORED after the Consent step
-    insertion — restoring its ``current_step`` under the 7-step layout
+    insertion, restoring its ``current_step`` under the 7-step layout
     would resume the user at the wrong step (old step 4 "Model" → new
     step 4 "Consent"). The wizard starts fresh at Welcome instead."""
     progress_file = config_dir / ".onboarding_progress"
@@ -240,7 +240,7 @@ def test_v2_progress_marker_restores_consent_step(config_dir: Path) -> None:
 
 def test_progress_marker_uses_secure_atomic_write(config_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """The progress marker is written via ``_secure_atomic_write`` (0o600
-    on POSIX, O_NOFOLLOW symlink protection) — matches the security
+    on POSIX, O_NOFOLLOW symlink protection), matches the security
     posture of ``mark_complete``. We assert the helper is invoked."""
     from voice_typer.server import config as cfg_mod
 

@@ -5,7 +5,7 @@ Extracted from ``voice_typer/server/server_platform/autostart_windows.py``
 Task Scheduler, Startup-folder .bat, HKCU Run key). This module owns the
 PURE task-XML parsers: they take a Task Scheduler XML string and return
 the ``<Command>`` / ``<Arguments>`` element text. No registry, subprocess,
-or platform side effects — safe on every platform.
+or platform side effects, safe on every platform.
 
 Patch contract: tests reach these functions through the facade module
 (``voice_typer.server.server_platform.autostart_windows``), which
@@ -60,7 +60,7 @@ def _extract_command_from_task_xml(xml_str: str) -> str | None:
 def _extract_arguments_from_task_xml(xml_str: str) -> str | None:
     """Extract the ``<Arguments>`` element's text from a Task Scheduler XML.
 
-    Companion to :func:`_extract_command_from_task_xml` — used by the
+    Companion to :func:`_extract_command_from_task_xml`, used by the
     legacy-entry sweep (:func:`autostart_windows._sweep_legacy_tasks`,
     in :mod:`._autostart_windows_sweep`) to inspect the task's
     command-line arguments (which embed the per-install

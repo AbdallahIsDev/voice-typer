@@ -1,13 +1,13 @@
-# TEST-2 — `time.sleep` → condition-wait migration
+# TEST-2, `time.sleep` → condition-wait migration
 
-Status: 🟡 In progress (Wave 1, Agent W1-A11 — chip-away per review.md E16).
+Status: 🟡 In progress (Wave 1, Agent W1-A11, chip-away per review.md E16).
 Last updated: 2026-08-22 (Wave 1).
 
 ## Context
 
 `review.md` entry **TEST-2** flags the project's test suite for relying on
 fixed `time.sleep(N)` calls as synchronization barriers. Fixed sleeps are
-flaky on loaded CI runners — they guess at "how long until the system
+flaky on loaded CI runners: they guess at "how long until the system
 reaches state X" and either under-wait (false failure) or over-wait
 (slow tests). The fix is to replace each fixed sleep with a condition
 wait that returns as soon as the system reaches the target state.
@@ -22,13 +22,13 @@ work on the remaining sites.
 Adopt **two canonical helpers** as the project-wide replacement for
 fixed `time.sleep` synchronization:
 
-1. **`wait_until(predicate, timeout, interval)`** — poll a zero-argument
+1. **`wait_until(predicate, timeout, interval)`**: poll a zero-argument
    predicate until it returns truthy or the timeout elapses. Returns
    `True` on success, `False` on timeout (caller decides whether to
    `assert` / `pytest.fail` / treat as expected).
-2. **`wait_for_event(event, timeout)`** — bounded wrapper around
+2. **`wait_for_event(event, timeout)`**: bounded wrapper around
    `threading.Event.wait`. Prefer this over `wait_until` whenever the
-   synchronization primitive is already a `threading.Event` — `Event.wait`
+   synchronization primitive is already a `threading.Event` `Event.wait`
    is non-busy (OS-parked) and deterministic.
 
 ### Where the helpers live
@@ -42,7 +42,7 @@ migrations can adopt a single, descriptive import name without forcing
 churn on the existing `wait_for` importers (`tests/test_microphone_watcher.py`,
 `tests/test_hotkeys_win32.py`, `tests/hotkeys/test_polling_strategy.py`).
 
-`wait_for_event` is a new wrapper — there was no canonical "wait for an
+`wait_for_event` is a new wrapper: there was no canonical "wait for an
 event with a timeout and return a bool" helper before. The wrapper
 exists so test code can import a single canonical name alongside
 `wait_until`.
@@ -60,20 +60,20 @@ to the in-repo minimal poller. The existing `wait_for` implementation is
 When migrating a `time.sleep(N)` call site:
 
 1. **Identify the target condition** the sleep is waiting for (read the
-   surrounding code — what state should the system be in after the
+   surrounding code: what state should the system be in after the
    sleep?).
 2. **Replace with a condition wait**:
    - If the wait is for a `threading.Event`: `assert wait_for_event(event, timeout=N*10)`.
    - If the wait is for an observable state: `assert wait_until(lambda: <state>, timeout=N*10)`.
    - If the wait is to verify "X does NOT happen": `assert not wait_until(lambda: <X happens>, timeout=N*10)`.
-3. **Use 10x timeout headroom** over the original sleep duration — CI
+3. **Use 10x timeout headroom** over the original sleep duration, CI
    runners can be 10x slower than dev machines. The headroom costs
    nothing on a fast machine (the predicate returns early) and prevents
    false failures on a slow one.
 4. **Add a TEST-2 migration comment** above the new call so future
    readers know this is a deliberate migration (not a fresh condition
    wait) and can find the original sleep in git history.
-5. **Keep `time.sleep` for real-time delays** — sleeps that simulate
+5. **Keep `time.sleep` for real-time delays**: sleeps that simulate
    external latency (slow D-Bus probes, slow disk I/O, slow teardowns,
    sub-millisecond thread-interleave yields, mtime-granularity spacing)
    are NOT synchronization barriers and should be left in place. The
@@ -103,38 +103,38 @@ migration (no regressions, E14).
 
 ### Sleeps deliberately KEPT (real-time delays, not sync barriers)
 
-These sleeps were analyzed and intentionally NOT migrated — they
+These sleeps were analyzed and intentionally NOT migrated, they
 simulate external latency or sub-millisecond thread interleaving, not
 synchronization barriers:
 
 - `tests/test_shutdown_sounddevice_wait.py` (3 calls, `time.sleep(10)`)
-  — simulates a blocking `sd.wait()` / `sd.stop()` call (PortAudio
+ Simulates a blocking `sd.wait()` / `sd.stop()` call (PortAudio
   deadlock). The sleep IS the simulated blocking operation.
 - `tests/test_shutdown_deadline.py` (3 calls, `time.sleep(0.3)` / `0.05`)
-  — simulates slow teardown functions (`_slow_history_db`,
+ Simulates slow teardown functions (`_slow_history_db`,
   `_slow_crash_recovery`, `_spy_recorder`). The sleep IS the slow work.
 - `tests/test_config_migration_schema_version.py` (1 call, `time.sleep(1.1)`)
-  — forces a 1s-granularity timestamp difference for unique backup
+ Forces a 1s-granularity timestamp difference for unique backup
   filenames. The sleep IS the time separation.
 - `tests/test_config_backup_secure.py` (1 call, `_time.sleep(0.01)`)
-  — spaces out file mtime for retention pruning test. Real-time delay.
+ Spaces out file mtime for retention pruning test. Real-time delay.
 - `tests/test_integrity_cache.py` (1 call, `time.sleep(0.01)`)
-  — forces mtime granularity difference. Real-time delay.
+ Forces mtime granularity difference. Real-time delay.
 - `tests/test_credential_store_keyring_reprobe.py` (1 call, `time.sleep(0.05)`)
-  — simulates a slow D-Bus probe round-trip. The sleep IS the slow I/O.
+ Simulates a slow D-Bus probe round-trip. The sleep IS the slow I/O.
 - `tests/test_pack_download_queue.py` (1 call, `time.sleep(0.1)`)
-  — simulates a user download that lasts 0.1s before being released.
+ Simulates a user download that lasts 0.1s before being released.
 - `tests/test_pack_dual_instance.py` (1 call, `time.sleep(0.1)`)
-  — simulates work being done under a held lock. Real-time delay.
+ Simulates work being done under a held lock. Real-time delay.
 - `tests/test_dictation_pipeline_orchestrator_decomposition.py` (1 call, `_time.sleep(0.005)`)
-  — inside a `_timed_stage` context, the sleep IS the operation being timed.
+ Inside a `_timed_stage` context, the sleep IS the operation being timed.
 - `tests/test_dictation_pipeline_review_fixes.py` (1 call, `time.sleep(0.005)`)
-  — same: sleep IS the operation being timed.
+ Same: sleep IS the operation being timed.
 - `tests/test_model_idle_unload.py` (1 call, `time.sleep(0.05)`)
-  — "wait to verify nothing happened" (assertion of absence). The sleep
+ "Wait to verify nothing happened" (assertion of absence). The sleep
   IS the absence window.
 - `tests/test_tray_pending_drain.py` (2 calls, `time.sleep(0.001)` / `0.002`)
-  — sub-millisecond yields inside concurrent appender / drain loops to
+ Sub-millisecond yields inside concurrent appender / drain loops to
   simulate thread interleaving. Real-time yields.
 
 ## Remaining sites
@@ -142,22 +142,22 @@ synchronization barriers:
 Re-measured at end of W1-A11:
 
 - **Total `time.sleep(` matches via `rg 'time\.sleep\(' tests/`**: 404
-  (down from 417 at start of wave — net -13. The 16 actual call sites
+  (down from 417 at start of wave, net -13. The 16 actual call sites
   migrated are partially offset by docstring mentions of `time.sleep(...)`
   in the new `tests/fixtures/wait_helpers.py` module + migration comments
   that quote the original sleep durations; the actual call-site delta is
   -16.)
-- **Files containing `time.sleep(`**: 146 (down from 155 — net -9, which
+- **Files containing `time.sleep(`**: 146 (down from 155, net -9, which
   matches the 12 migrated files minus 3 files that still have a kept
   sleep after migration: `test_tray_pending_drain.py` keeps 2 sub-ms
   yields, `test_buffer_clear_worker.py` and `test_event_bus_snapshot.py`
-  have no remaining calls — the rg matches in those are docstring
+  have no remaining calls: the rg matches in those are docstring
   references only).
 
 ### Top remaining sites (by call count, for next wave's targeting)
 
 (Re-run `rg 'time\.sleep\(' tests/ -c | sort -t: -k2 -nr | head -30` for
-a fresh list at the start of the next wave — the rankings shift as
+a fresh list at the start of the next wave, the rankings shift as
 migrations land.)
 
 The highest-density files (16, 12, 11, 10, 8, 8, 7, 7, 7, 7 calls) are
@@ -170,17 +170,17 @@ The migration is complete when ALL of the following hold:
 
 1. **<50 `time.sleep(` call sites remain** in `tests/` (measured via
    `rg 'time\.sleep\(' tests/ --no-filename | wc -l` minus docstring
-   matches — a clean grep without comment matches). Current: ~400 call
+   matches: a clean grep without comment matches). Current: ~400 call
    sites (estimated, after subtracting ~5 docstring mentions).
 2. **All remaining sleeps are real-time-delay contexts** (slow I/O
    simulation, mtime spacing, sub-millisecond yields, absence-window
-   assertions) — verified by a full audit of the remaining sites.
+   assertions): verified by a full audit of the remaining sites.
 3. **No file has >3 `time.sleep(` calls** for synchronization (high-density
    files refactored first).
 4. **`tests/fixtures/wait_helpers.wait_until` is the canonical poller**
-   for new test code — enforced via a `ruff` / `flake8` lint rule
+   for new test code: enforced via a `ruff` / `flake8` lint rule
    (deferred to a future wave; the rule would flag new `time.sleep(`
-   calls in `tests/` and require an inline `# noqa: TEST-2 — real-time
+   calls in `tests/` and require an inline `# noqa: TEST-2, real-time
    delay` exemption comment for kept sites).
 
 Estimated remaining waves: 4-6 more waves of 15-25 calls each (per
@@ -189,11 +189,11 @@ review.md's "~2-4 day effort" estimate, distributed across waves).
 ## Validation
 
 - `python -m pytest <12 migrated files> -q --no-cov` → **170 passed in 63.95s** on LINUX (sandbox).
-- `python -m pytest tests/ --collect-only -q` → 14382 tests collected (collection succeeds — E1 wiring check).
+- `python -m pytest tests/ --collect-only -q` → 14382 tests collected (collection succeeds, E1 wiring check).
 
 ## Cross-references
 
 - `review.md` entry TEST-2 (lines 196-204).
-- `tests/fixtures/wait_for.py` — canonical `wait_for` poller implementation.
-- `tests/fixtures/wait_helpers.py` — NEW canonical entry point for TEST-2 migrations.
-- `AGENTS.md` — E7 (DRY), E14 (regression prevention), E16 (chip-away), P2 (no copy/paste).
+- `tests/fixtures/wait_for.py` Canonical `wait_for` poller implementation.
+- `tests/fixtures/wait_helpers.py` NEW canonical entry point for TEST-2 migrations.
+- `AGENTS.md` E7 (DRY), E14 (regression prevention), E16 (chip-away), P2 (no copy/paste).

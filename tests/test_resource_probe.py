@@ -1,7 +1,7 @@
 """Unit tests for ``voice_typer.server.resource_probe``.
 
 This file is the dedicated test suite for the extracted pre-flight
-RAM/disk/GPU probe (WN-20 — Phase 4.5 spaghetti split). The original
+RAM/disk/GPU probe (WN-20. Phase 4.5 spaghetti split). The original
 ``DictationPipeline._check_resources`` tests in
 ``tests/test_dictation_pipeline_check_resources.py`` still pass via the
 1-line delegator (they exercise the method on the class); these tests
@@ -9,13 +9,13 @@ exercise the free function directly so the probe can be unit-tested in
 isolation, without instantiating a ``DictationPipeline``.
 
 All externals are mocked:
-- ``psutil.virtual_memory`` — RAM probe
-- ``shutil.disk_usage`` — Windows disk probe (when ``os.statvfs`` is absent)
-- ``os.statvfs`` — POSIX disk probe (Linux / macOS)
-- ``torch.cuda.*`` — GPU memory probe
-- ``ctypes.windll`` — Windows RAM fallback (when ``psutil`` is unavailable)
+- ``psutil.virtual_memory``, RAM probe
+- ``shutil.disk_usage``, Windows disk probe (when ``os.statvfs`` is absent)
+- ``os.statvfs``, POSIX disk probe (Linux / macOS)
+- ``torch.cuda.*``, GPU memory probe
+- ``ctypes.windll``, Windows RAM fallback (when ``psutil`` is unavailable)
 
-AGENTS.md C-DATA-1: the probe performs NO network calls — all
+AGENTS.md C-DATA-1: the probe performs NO network calls, all
 mocks here are for in-process local-system probes.
 """
 
@@ -129,7 +129,7 @@ class TestCheckResourcesRAM:
 
     def test_infos_moderate_ram_between_1024_and_2048_mb(self, caplog, monkeypatch):
         """When available RAM is 1024-2048 MB, an INFO line about
-        moderate RAM is logged (not an error — the user can still
+        moderate RAM is logged (not an error, the user can still
         transcribe with smaller models)."""
         monkeypatch.setattr(
             "psutil.virtual_memory",
@@ -275,7 +275,7 @@ class TestCheckResourcesGPU:
         allocated = 2 * 1024**3  # 2 GB allocated → 6144 MB free > 512 MB
 
         # Phase 1c (PLAN_ONNX_INTEGRATION.md §6.4): the GPU probe no
-        # longer uses torch.cuda — it queries ``pynvml`` / ``nvidia-smi``
+        # longer uses torch.cuda, it queries ``pynvml`` / ``nvidia-smi``
         # via ``_probe_gpu_memory_via_nvidia_smi`` (MB). Patch that so
         # the test is deterministic on GPU-less CI hosts.
         monkeypatch.setattr(
@@ -307,7 +307,7 @@ class TestCheckResourcesGPU:
         allocated = 900 * 1024**2  # 900 MB allocated → 124 MB free < 512 MB
 
         # Phase 1c (PLAN_ONNX_INTEGRATION.md §6.4): the GPU probe no
-        # longer uses torch.cuda — it queries ``pynvml`` / ``nvidia-smi``
+        # longer uses torch.cuda, it queries ``pynvml`` / ``nvidia-smi``
         # via ``_probe_gpu_memory_via_nvidia_smi`` (MB). Patch that so
         # the test is deterministic on GPU-less CI hosts.
         monkeypatch.setattr(
@@ -376,7 +376,7 @@ class TestCheckResourcesLogger:
 
 
 class TestCheckResourcesGracefulDegradation:
-    """check_resources must never raise — every sub-check is wrapped in
+    """check_resources must never raise, every sub-check is wrapped in
     try/except. Even when all dependencies fail, the function completes
     and logs a final ``complete`` line."""
 
@@ -422,7 +422,7 @@ class TestCheckResourcesGracefulDegradation:
         _patch_psutil_unavailable(monkeypatch)
 
         # Bypass the ``if os.name == "nt":`` guard by patching ``os.name``
-        # to "nt" — the probe reads ``os.name`` at call time.
+        # to "nt", the probe reads ``os.name`` at call time.
         monkeypatch.setattr("os.name", "nt")
 
         # Patch ``ctypes.windll`` to raise AttributeError when accessed.
@@ -441,7 +441,7 @@ class TestCheckResourcesGracefulDegradation:
         # Avoid pathlib INTERNALERROR on non-Windows hosts when
         # ``os.name`` is patched to "nt" (pathlib picks WindowsPath
         # lazily). The probe uses ``pathlib.Path.home()`` in the disk
-        # branch — stub it to a no-op class for the duration of this test.
+        # branch, stub it to a no-op class for the duration of this test.
         import pathlib as _pathlib_mod
 
         class _StubPath:
@@ -510,7 +510,7 @@ class TestCheckResourcesGracefulDegradation:
     def test_no_silent_except_pass_in_check_resources_source(self):
         """Static check: ``check_resources`` source must not contain a
         bare ``except Exception: pass`` (the XZ-EH-008 pattern). This
-        pins the fix against regression — the original docstring promised
+        pins the fix against regression, the original docstring promised
         DEBUG-level failure logging but the code did ``pass``; we must
         not regress to that state."""
         src = inspect.getsource(check_resources)
@@ -518,7 +518,7 @@ class TestCheckResourcesGracefulDegradation:
         for i, line in enumerate(lines):
             stripped = line.strip()
             if stripped == "except Exception:":
-                # Find the next non-blank line — it must NOT be ``pass``.
+                # Find the next non-blank line, it must NOT be ``pass``.
                 for j in range(i + 1, min(i + 4, len(lines))):
                     body = lines[j].strip()
                     if not body or body.startswith("#"):
@@ -536,7 +536,7 @@ class TestCheckResourcesGracefulDegradation:
 
     def test_docstring_promises_debug_logging(self):
         """The docstring must still promise DEBUG-level failure logging
-        (pins the docstring against drift — the prior drift was the
+        (pins the docstring against drift, the prior drift was the
         docstring claiming DEBUG while the code did ``pass``)."""
         doc = check_resources.__doc__ or ""
         assert "DEBUG" in doc, "Regression: check_resources docstring must mention 'DEBUG' level for failure logging."
@@ -622,7 +622,7 @@ class TestCheckResourcesThrottled:
         default. Existing tests and DictationPipeline rely on this
         value for the "throttle to once per 60s" contract."""
         assert DEFAULT_CHECK_INTERVAL == 60.0, (
-            "DEFAULT_CHECK_INTERVAL must be 60.0 — DictationPipeline.__init__ "
+            "DEFAULT_CHECK_INTERVAL must be 60.0, DictationPipeline.__init__ "
             "uses this as the default for self._resources_check_interval."
         )
 

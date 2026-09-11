@@ -2,7 +2,7 @@
 
 Covers the Linux window-button system snapshot used by the renderer's
 "follow system" title-bar mode: DE classification, button-layout parsing,
-the gsettings probe contract (mocked — no subprocess in tests), the
+the gsettings probe contract (mocked, no subprocess in tests), the
 per-process cache, and non-Linux degradation.
 """
 
@@ -48,7 +48,7 @@ class TestDetectDesktopEnvironment:
 
     def test_defaults_to_os_environ(self):
         # No env argument → reads the real process env. On CI/dev machines
-        # this is "unknown" or a real DE — either way it must not raise.
+        # this is "unknown" or a real DE, either way it must not raise.
         assert isinstance(wb.detect_desktop_environment(), str)
 
 

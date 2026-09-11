@@ -27,7 +27,7 @@ instead of letting the DestroyIcon workaround silently degrade.
 Tests in this module
 --------------------
 
-* ``test_pystray_icon_class_exposes_icon_handle`` — the primary
+* ``test_pystray_icon_class_exposes_icon_handle``, the primary
   regression test. Loads the *real* ``pystray`` package (bypassing
   the autouse ``MagicMock`` installed by ``tests/conftest.py``) and
   asserts ``hasattr(pystray.Icon, "_icon_handle")``. Windows-only
@@ -36,7 +36,7 @@ Tests in this module
   installed in the test environment (e.g. minimal Linux sandbox
   without GUI deps).
 
-* ``test_apply_state_warns_when_icon_handle_missing`` — verifies
+* ``test_apply_state_warns_when_icon_handle_missing``, verifies
   the graceful fallback in ``tray.py:_apply_state``: when
   ``_icon_handle`` is missing AND ``self._icon.icon = ...`` raises
   ``OSError``, ``_apply_state`` logs a WARNING and returns normally
@@ -77,7 +77,7 @@ def _load_real_pystray():
          load from disk.
       3. ``importlib.import_module("pystray")`` returns the real
          module (or raises ``ImportError`` if pystray isn't
-         installed — e.g. minimal Linux sandbox without GUI deps).
+         installed, e.g. minimal Linux sandbox without GUI deps).
       4. The ``finally`` block restores the mock so the rest of
          the test session still sees the autouse-mocked pystray
          (other tests in this process rely on the mock).
@@ -85,7 +85,7 @@ def _load_real_pystray():
     Returns the real pystray module, or ``None`` if it is not
     installed (in which case the caller should ``pytest.skip``).
 
-    NOTE: this catches ``Exception``, NOT just ``ImportError`` — on a
+    NOTE: this catches ``Exception``, NOT just ``ImportError``, on a
     headless Linux box without a ``$DISPLAY``, importing ``pystray``
     eagerly calls ``Xlib.display.Display()`` which raises
     ``Xlib.error.DisplayNameError`` (NOT an ``ImportError`` subclass).
@@ -101,16 +101,16 @@ def _load_real_pystray():
     try:
         return importlib.import_module("pystray")
     except Exception:
-        # ImportError — pystray not installed.
-        # Xlib.error.DisplayNameError — pystray installed but headless
+        # ImportError, pystray not installed.
+        # Xlib.error.DisplayNameError, pystray installed but headless
         #   Linux box has no $DISPLAY (Xlib backend eagerly opens it).
-        # Xlib.error.XlibError — other Xlib failure during backend probe.
-        # Any other Exception — defensive: treat as "no usable pystray".
+        # Xlib.error.XlibError, other Xlib failure during backend probe.
+        # Any other Exception, defensive: treat as "no usable pystray".
         return None
     finally:
         # Restore the autouse-mock so subsequent tests in this
         # pytest session still see the mocked pystray. If
-        # ``saved`` was None (no mock installed — unlikely given
+        # ``saved`` was None (no mock installed, unlikely given
         # the autouse fixture, but defensive), leave the real
         # module in place; the fixture's teardown will restore the
         # pre-fixture state for the next test.
@@ -147,24 +147,24 @@ def test_pystray_icon_class_exposes_icon_handle():
     pystray = _load_real_pystray()
     if pystray is None:
         # Real pystray isn't installed in this sandbox (e.g. Linux
-        # CI without GUI deps). Nothing to introspect — skip
+        # CI without GUI deps). Nothing to introspect, skip
         # cleanly.
-        pytest.skip("real pystray not installed in this environment — cannot introspect pystray.Icon._icon_handle")
+        pytest.skip("real pystray not installed in this environment, cannot introspect pystray.Icon._icon_handle")
 
     # The DestroyIcon workaround in ``tray.py:_apply_state`` writes
-    # to ``self._icon._icon_handle = None`` on OSError — i.e. it
+    # to ``self._icon._icon_handle = None`` on OSError, i.e. it
     # touches the INSTANCE attribute. pystray's platform backends set
     # ``_icon_handle`` in ``Icon.__init__`` (it is NOT a class
     # attribute), so a ``hasattr(pystray.Icon, ...)`` class-level check
     # is always False on current pystray. Construct a probe instance
     # and verify the attribute exists at runtime instead. On a headless
     # host where construction raises (Xlib backends open a display at
-    # construction time), skip cleanly — same philosophy as the
+    # construction time), skip cleanly, same philosophy as the
     # import-failure skip above.
     try:
         probe_icon = pystray.Icon("probe")
     except Exception:
-        pytest.skip("cannot construct pystray.Icon in this environment — cannot verify _icon_handle")
+        pytest.skip("cannot construct pystray.Icon in this environment, cannot verify _icon_handle")
     assert hasattr(probe_icon, "_icon_handle"), (
         "pystray.Icon instances no longer expose the private `_icon_handle` "
         "attribute. The DestroyIcon workaround in "
@@ -193,7 +193,7 @@ class _FakeIcon:
         ``hasattr(icon, "_icon_handle")`` returns False (mirrors
         a future pystray release that removed the attribute).
       * ``title`` is a plain attribute (the production code only
-        sets it after the OSError branch — we don't need to
+        sets it after the OSError branch, we don't need to
         exercise it).
     """
 
@@ -206,7 +206,7 @@ class _FakeIcon:
     # --- icon property ------------------------------------------------
     # Both getter and setter raise OSError so ``self._icon.icon =
     # _make_icon(state)`` enters the workaround branch. (Getter
-    # raising is only defensive — the production code only sets.)
+    # raising is only defensive, the production code only sets.)
     @property
     def icon(self) -> object:
         raise OSError("simulated WinError 1402 (icon getter)")
@@ -217,7 +217,7 @@ class _FakeIcon:
 
     # --- _icon_handle property ---------------------------------------
     # When ``has_icon_handle=False`` the getter raises
-    # AttributeError — this is what makes ``hasattr(icon,
+    # AttributeError, this is what makes ``hasattr(icon,
     # "_icon_handle")`` return False in the production guard.
     @property
     def _icon_handle(self) -> object:
@@ -238,19 +238,19 @@ def _make_minimal_tray_with_icon(icon: object) -> TrayIcon:
     We construct via ``__new__`` + manual attribute setup (mirroring
     the pattern in ``tests/test_tray_pending_drain.py`` and
     ``tests/tauri/test_tray_menu.py::_FakeTray``) so we don't invoke
-    ``__init__`` — which would try to create a real ``pystray.Icon``
+    ``__init__``, which would try to create a real ``pystray.Icon``
     and require an X display. Only the attributes referenced by
     ``_apply_state`` (directly + transitively via
     ``_compute_tooltip``) are set:
 
-      * ``_icon``              — the fake icon (set by caller)
-      * ``_state``             — current state
-      * ``_recording_started_at`` — None (no active recording timer)
-      * ``_cpu_fallback_active``   — False (SK-b flag in tooltip)
-      * ``_config``            — None (TRAY-022 model-name source)
-      * ``_hotkey``            — None (falls through to "<f2>" default)
-      * ``_icon_lock``         — RLock (FR-23: _apply_state holds it)
-      * ``_last_applied_state`` — None (AB-16/DJ-36 cache-skip read)
+      * ``_icon``            , the fake icon (set by caller)
+      * ``_state``           , current state
+      * ``_recording_started_at``, None (no active recording timer)
+      * ``_cpu_fallback_active`` , False (SK-b flag in tooltip)
+      * ``_config``          , None (TRAY-022 model-name source)
+      * ``_hotkey``          , None (falls through to "<f2>" default)
+      * ``_icon_lock``       , RLock (FR-23: _apply_state holds it)
+      * ``_last_applied_state``, None (AB-16/DJ-36 cache-skip read)
     """
     import threading
 
@@ -289,7 +289,7 @@ def test_apply_state_warns_when_icon_handle_missing(caplog):
     """
     icon = _FakeIcon(has_icon_handle=False)
     # Sanity check: the fake icon should report no ``_icon_handle``
-    # via ``hasattr`` — this is what the production guard checks
+    # via ``hasattr``, this is what the production guard checks
     # before attempting to clear it. If this sanity check fails the
     # test fixture is wrong, not the production code.
     assert hasattr(icon, "_icon_handle") is False, (
@@ -298,7 +298,7 @@ def test_apply_state_warns_when_icon_handle_missing(caplog):
 
     tray = _make_minimal_tray_with_icon(icon)
 
-    # Must not raise — the OSError is caught and the missing
+    # Must not raise, the OSError is caught and the missing
     # ``_icon_handle`` is handled by the graceful fallback
     # (log.warning + return).
     tray._apply_state(AppState.RECORDING, "recording")
@@ -319,7 +319,7 @@ def test_apply_state_clears_icon_handle_when_present(caplog):
     ``_icon_handle`` IS present, the workaround sets it to ``None``
     so pystray re-creates the icon handle on the next call. No
     warning should be logged in this case (the workaround is
-    functioning normally — the warning is reserved for the
+    functioning normally, the warning is reserved for the
     missing-attribute fallback path).
     """
     icon = _FakeIcon(has_icon_handle=True)
@@ -338,7 +338,7 @@ def test_apply_state_clears_icon_handle_when_present(caplog):
         "( / GT-E1-8 workaround), but it is: " + repr(icon._icon_handle)
     )
     # And NO warning should have been logged (the workaround
-    # functioned normally — the warning is reserved for the
+    # functioned normally, the warning is reserved for the
     # missing-attribute fallback case).
     warning_records = [r for r in caplog.records if r.levelname == "WARNING"]
     assert not any("_icon_handle" in r.getMessage() for r in warning_records), (

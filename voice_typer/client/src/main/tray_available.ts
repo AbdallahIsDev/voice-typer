@@ -6,7 +6,7 @@
  * a tray icon will be available.
  *
  * When `_tray_unavailable` is true on the Python side (Sway/Hyprland/dwl/
- * river — no SNI watcher on the D-Bus session bus), there is NO tray icon
+ * river, no SNI watcher on the D-Bus session bus), there is NO tray icon
  * to dismiss the app to. Closing the last window would leave the user
  * with no UI affordance to quit. `index.ts::app.on("window-all-closed")`
  * uses this helper to call `app.quit()` instead of the default no-op on
@@ -17,7 +17,7 @@
  *   2. `XDG_SESSION_TYPE=wayland`.
  *   3. The `org.kde.StatusNotifierWatcher` D-Bus name has no owner on the
  *      session bus (probed via `dbus-send` / `gdbus`; if neither tool is
- *      installed, conservatively assume SNI is unavailable — matches the
+ *      installed, conservatively assume SNI is unavailable, matches the
  *      Python `dbus` module ImportError fallback).
  *
  * The check is synchronous and cached on first call.
@@ -38,7 +38,7 @@
  * quit hot-path (cache pre-warmed by `index.ts` after `startPython()`).
  * A 2s timeout on a missing `gdbus` /
  * `dbus-send` binary (or a hung D-Bus session) would block the quit
- * sequence for 2s per check — visible "the app takes forever to close"
+ * sequence for 2s per check, visible "the app takes forever to close"
  * UX bug. 500ms is still 50× the typical warm-cache latency (~1ms) but
  * short enough that a worst-case hang is barely noticeable.
  */
@@ -73,7 +73,7 @@ function dbusNameHasOwner(name: string): boolean | null {
 		// gdbus prints `(true,)` or `(false,)` for a boolean return.
 		return out.includes("true");
 	} catch (e) {
-		// gdbus missing / non-zero exit / timeout — fall through to
+		// gdbus missing / non-zero exit / timeout, fall through to
 		// the dbus-send fallback. Logging at warn level (not debug)
 		// so a real gdbus install that suddenly starts failing is
 		// diagnosable from the runtime log instead of silently
@@ -123,7 +123,7 @@ function dbusNameHasOwner(name: string): boolean | null {
 		// Same stderr-capture treatment as the gdbus
 		// branch. dbus-send is the final fallback before the
 		// conservative "assume SNI unavailable" path, so a debug
-		// log (rather than warn) is sufficient — falling through
+		// log (rather than warn) is sufficient, falling through
 		// is the expected behavior on systems where dbus-send is
 		// not installed (the conservative fallback correctly
 		// handles that case).
@@ -155,7 +155,7 @@ export function isLinuxWaylandWithoutSni(): boolean {
 	}
 	const hasOwner = dbusNameHasOwner("org.kde.StatusNotifierWatcher");
 	if (hasOwner === null) {
-		// Neither gdbus nor dbus-send available — conservative: assume
+		// Neither gdbus nor dbus-send available, conservative: assume
 		// SNI is NOT available (matches the Python `dbus` ImportError
 		// fallback in tray.py:_is_linux_wayland_without_sni).
 		_cached = true;

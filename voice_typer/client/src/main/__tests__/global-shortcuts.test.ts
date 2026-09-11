@@ -5,7 +5,7 @@
  *
  * The main process registers `CommandOrControl+Shift+D` as a
  * system-wide accelerator whose callback delegates to
- * `ipc/bubble-handlers.ts::dismissAndHideBubble` — the exact body the
+ * `ipc/bubble-handlers.ts::dismissAndHideBubble`, the exact body the
  * bubble's own '×' button uses. These tests pin:
  *
  *   1. The accelerator constant value (single source of truth).
@@ -126,7 +126,7 @@ describe("global-shortcuts: bubble-dismiss accelerator", () => {
 
 	it("the accelerator is sourced from the shared cross-process constant (src/shared/dismiss-shortcut.ts)", async () => {
 		// The dismiss-bubble binding is defined ONCE in the shared
-		// module — the accelerator form here, the display form
+		// module, the accelerator form here, the display form
 		// ("Ctrl+Shift+D") in the renderer's hotkey catalog. This pin
 		// (plus the renderer-side pin in
 		// `components/hotkey/__tests__/shortcuts.test.ts`) keeps the

@@ -3,24 +3,24 @@
 This conftest.py centralizes the Mock* helper classes that were previously
 inlined at the top of the (now-deleted) monolithic ``tests/test_server.py``.
 
-Exports (as plain Python classes — tests can instantiate them directly):
+Exports (as plain Python classes, tests can instantiate them directly):
 
-- :class:`MockConfig`     — minimal Config mock with __dict__ + save()
-- :class:`MockHistoryDB`  — minimal history-db mock
-- :class:`MockTray`       — minimal tray mock tracking set_state calls
-- :class:`MockApp`        — minimal VoiceTyperApp mock for IPC server tests
+- :class:`MockConfig`   , minimal Config mock with __dict__ + save()
+- :class:`MockHistoryDB`, minimal history-db mock
+- :class:`MockTray`     , minimal tray mock tracking set_state calls
+- :class:`MockApp`      , minimal VoiceTyperApp mock for IPC server tests
 
 Pytest fixtures provided:
 
-- :func:`mock_app`                  — fresh MockApp()
-- :func:`server`                    — IPCServer(mock_app)
-- :func:`server_with_mock_app`      — IPCServer backed by a MagicMock app
-- :func:`server_with_mock_app_for_push_events` — same, scoped for push-event / ack-shape tests
-- :func:`server_with_mock_app_for_tcp_io`     — same, scoped for TCP send-lock-split / write-timeout tests
-- :func:`clean_registry`            — snapshot/clear/restore the push-event
+- :func:`mock_app`                , fresh MockApp()
+- :func:`server`                  , IPCServer(mock_app)
+- :func:`server_with_mock_app`    , IPCServer backed by a MagicMock app
+- :func:`server_with_mock_app_for_push_events`, same, scoped for push-event / ack-shape tests
+- :func:`server_with_mock_app_for_tcp_io`   , same, scoped for TCP send-lock-split / write-timeout tests
+- :func:`clean_registry`          , snapshot/clear/restore the push-event
                                        registry around a test
 
-Note: ``tmp_config_dir`` is intentionally NOT defined here — the
+Note: ``tmp_config_dir`` is intentionally NOT defined here, the
 canonical fixture in ``tests/conftest.py`` (which patches BOTH
 ``voice_typer.server.config._config_dir`` AND
 ``voice_typer.server.app._config_dir``) is picked up automatically.
@@ -40,7 +40,7 @@ import pytest
 # lived here (a defensive ``sys.modules.setdefault`` bridging pytest's
 # collection window before the session-scoped
 # ``mock_heavy_imports_session`` fixture fires) is now centralized in
-# the PARENT ``tests/conftest.py`` — pytest imports parent conftests
+# the PARENT ``tests/conftest.py``, pytest imports parent conftests
 # before child conftests, so the parent's module-level ``setdefault``
 # already covers this module's collection-time imports. The
 # ``from voice_typer.server import event_bus, ipc_server`` re-export
@@ -70,7 +70,7 @@ class MockConfig:
 
     A real ``@dataclass`` (not a plain class) because the IPC
     ``get_config`` path sanitizes via ``dataclasses.asdict()``
-    (config_sanitizer.sanitize_config_for_ipc) — a plain-class double
+    (config_sanitizer.sanitize_config_for_ipc), a plain-class double
     raises ``TypeError: asdict() should be called on dataclass
     instances``. Extra attributes the production Config has (API keys,
     paths, ...) resolve to None via ``__getattr__``.
@@ -80,7 +80,7 @@ class MockConfig:
     model_size: str = "tiny"
     device: str = "cuda"
     language: str = "en"
-    # Secret/credential + path fields the sanitizer redacts — declared
+    # Secret/credential + path fields the sanitizer redacts, declared
     # as real fields so ``dataclasses.asdict`` includes them (the
     # redaction tests assert the redacted sentinel appears in the
     # get_config payload).
@@ -152,7 +152,7 @@ class MockApp:
         self.toggle_called = False
         self.restart_called = False
         self.quit_called = False
-        # Volume ducker mock — the get_volume_backend_status IPC
+        # Volume ducker mock, the get_volume_backend_status IPC
         # handler reads `app._volume_ducker` to populate the response.
         # Fields: is_available, backend_name, supports_per_session, initialize().
         self._volume_ducker = MagicMock()
@@ -188,7 +188,7 @@ class MockApp:
     # set_config payload containing model_size or asr_backend raised
     # AttributeError, the handler caught it, dropped the key, and the
     # test assertion ``mock_app.config.model_size == "medium.en"``
-    # failed. Add minimal stubs that just update self.config — the
+    # failed. Add minimal stubs that just update self.config, the
     # dispatch tests don't exercise the real engine-swap path.
     def change_model(self, model_size: str) -> None:
         self.config.model_size = model_size
@@ -222,11 +222,11 @@ def server_with_mock_app():
 
 @pytest.fixture
 def server_with_mock_app_for_push_events():
-    """IPCServer with a mocked app — scoped to push-event / ack-shape tests.
+    """IPCServer with a mocked app, scoped to push-event / ack-shape tests.
 
     Renamed from the previous task-ID-suffixed form to comply with
     C-STYLE-1 (no ticket numbers in source identifiers). Same
-    implementation as :func:`server_with_mock_app` — the domain-suffix
+    implementation as :func:`server_with_mock_app`, the domain-suffix
     is purely for test-suite readability.
     """
     app = MagicMock()
@@ -235,12 +235,12 @@ def server_with_mock_app_for_push_events():
 
 @pytest.fixture
 def server_with_mock_app_for_tcp_io():
-    """IPCServer with a mocked app — scoped to TCP send-lock-split /
+    """IPCServer with a mocked app, scoped to TCP send-lock-split /
     write-timeout tests.
 
     Renamed from the previous task-ID-suffixed form to comply with
     C-STYLE-1 (no ticket numbers in source identifiers). Same
-    implementation as :func:`server_with_mock_app` — the domain-suffix
+    implementation as :func:`server_with_mock_app`, the domain-suffix
     is purely for test-suite readability.
     """
     app = MagicMock()

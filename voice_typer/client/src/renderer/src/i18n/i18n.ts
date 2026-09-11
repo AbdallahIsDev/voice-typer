@@ -8,18 +8,18 @@
 // `./i18n/index.ts`).
 //
 // Module split:
-//   - locale.ts    — SUPPORTED_LOCALES, Locale type, LOCALE_LABELS,
+//   - locale.ts   , SUPPORTED_LOCALES, Locale type, LOCALE_LABELS,
 //                     getLocaleLabel, detectBrowserLocale
-//   - rtl.ts       — RTL_LOCALES, isRtlLocale
-//   - store.ts     — translation state, flatten, registerTranslations,
+//   - rtl.ts      , RTL_LOCALES, isRtlLocale
+//   - store.ts    , translation state, flatten, registerTranslations,
 //                     ensureLocaleLoaded, getLocale, setLocale
-//   - translate.ts — t, tChoice, interpRegex cache, PluralRules cache
+//   - translate.ts, t, tChoice, interpRegex cache, PluralRules cache
 // (dead PluralRules stub removed)
-//   - hooks.ts     — useT, useTChoice, subscriber set,
+//   - hooks.ts    , useT, useTChoice, subscriber set,
 //                     getLocaleSnapshot, subscribeLocale
-//   - push.ts      — trayLabelsForLocale, pushLocaleToMainProcess,
+//   - push.ts     , trayLabelsForLocale, pushLocaleToMainProcess,
 //                     pushLocaleToPythonBackend
-//index.ts     — public-surface re-exports + initI18n() (
+//index.ts    , public-surface re-exports + initI18n() (
 //                     explicit init replaces module-load
 //                     side effects; auto-called on first import for
 //                     backwards compat)
@@ -31,7 +31,7 @@
 // Adding a new language requires:
 //   1. Create a new JSON file in translations/ (e.g., translations/ar.json)
 //   2. Add the locale to SUPPORTED_LOCALES (see locale.ts)
-//   3. Register it via registerTranslations() (see store.ts) — non-English
+//   3. Register it via registerTranslations() (see store.ts), non-English
 //locales are dynamically imported via ensureLocaleLoaded() ().
 //
 // The t() function returns the translated string for a dot-separated key.

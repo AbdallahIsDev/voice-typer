@@ -4,7 +4,7 @@ audio worker thread.
 ``Recorder._audio_callback_dispatch`` (the RT PortAudio callback)
 increments ``_dropped_ring_chunks`` when the SPSC ring buffer is full
 (worker thread cannot keep up). Pre-fix, that increment was silent
-during the recording — the counter was only surfaced AFTER ``stop()``
+during the recording, the counter was only surfaced AFTER ``stop()``
 by ``RecordingController._stop_impl`` (too late for the user to react
 by closing background apps or switching to a lighter filter chain).
 
@@ -31,7 +31,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 def recorder():
     """Construct a real ``Recorder`` instance via the shared factory.
 
-    The recorder is never ``start()``-ed — the tests exercise
+    The recorder is never ``start()``-ed, the tests exercise
     ``_surface_ring_overflow_warning`` (and ``_process_audio_chunk``'s
     delegation) directly. Delegates to the canonical
     ``make_fake_recorder`` (XS-42 helper dedup) so the MagicMock-config
@@ -98,7 +98,7 @@ class TestSourceInspection:
         src = _strip_docstring(inspect.getsource(AudioCallbackDispatcher.surface_ring_overflow_warning))
         assert "event_bus.publish" not in src, (
             "_surface_ring_overflow_warning must not call event_bus.publish "
-            "directly (contract — route IPC events through _event_queue.put)."
+            "directly (contract, route IPC events through _event_queue.put)."
         )
 
     def test_init_declares_warning_bookkeeping_attrs(self):
@@ -186,7 +186,7 @@ class TestRingOverflowWarning:
         # The second WARNING reports only the delta since the first
         # WARNING's last_seen update (12 - 10 = 2), NOT 12.
         assert "2 chunks dropped" in warnings[1].message, (
-            "delta must NOT accumulate across rate-limit windows — "
+            "delta must NOT accumulate across rate-limit windows, "
             "the second WARNING should report only chunks dropped since the "
             "previous WARNING (delta=2), not the session total delta (12)."
         )

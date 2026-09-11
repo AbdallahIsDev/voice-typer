@@ -2,15 +2,15 @@
 //!
 //! Module split: the original 2534-line
 //! monolith was split into focused submodules under `ws/`:
-//! - `ws/respawn_scheduler.rs` — long-lived supervisor thread,
+//! - `ws/respawn_scheduler.rs`: long-lived supervisor thread,
 //!   oneshot-fallback path, `cleanup_and_trigger_respawn`.
-//! - `ws/event_protocol.rs` — server-initiated event allowlist +
+//! - `ws/event_protocol.rs`: server-initiated event allowlist +
 //!   snake→kebab bubble-lifecycle translation.
-//! - `ws/heartbeat.rs` — `spawn_heartbeat_task` + shared
+//! - `ws/heartbeat.rs`: `spawn_heartbeat_task` + shared
 //!   `abort_heartbeat` helper (called by both shutdown paths).
-//! - `ws/reader.rs` — `spawn_reader_task` (frame parsing, dispatch
+//! - `ws/reader.rs`: `spawn_reader_task` (frame parsing, dispatch
 //!   fulfillment, event fan-out + cleanup block).
-//! - `ws/writer.rs` — `spawn_writer_task` (writer-channel drain +
+//! - `ws/writer.rs`: `spawn_writer_task` (writer-channel drain +
 //!   symmetric cleanup block).
 //!
 //! This file holds the WS connect/auth pipeline (`ws_connect`,
@@ -28,7 +28,7 @@
 // `dispatch_frame` is private to the sidecar_cmds module; only
 // `dispatch_inner` is `pub(crate)`. The heartbeat task therefore
 // calls `dispatch_inner` (the public entry), which delegates to
-// `dispatch_frame` internally — same WS-send path, same response
+// `dispatch_frame` internally: same WS-send path, same response
 // semantics.
 
 // Submodule declarations (module split).
@@ -99,7 +99,7 @@ const WS_CONNECT_TIMEOUT_SECS: u64 = 5;
 
 // Bounded capacity for the WS writer channel
 // (`queue_auth_and_store_ws_tx`).
-// previously 256 — the worst-case queued memory was 256 ×
+// previously 256: the worst-case queued memory was 256 ×
 // MAX_FRAME_BYTES (1 MiB) = 256 MiB, a non-trivial OOM surface if a
 // runaway renderer (or a stuck WS writer task) fills the channel before
 // the writer task drains it. Reduced to 64: caps worst-case queued
@@ -116,7 +116,7 @@ pub(crate) const WS_WRITER_CHANNEL_CAPACITY: usize = 64;
 // (see `voice_typer/server/sidecar_ws.py:PROTOCOL_VERSION`). We also
 // send it in our auth frame so the sidecar can detect skew at handshake
 // time even when stdout parsing is bypassed (dev mode, manual restart).
-// Bump in lockstep with the Python constant. History: v1 — the initial
+// Bump in lockstep with the Python constant. History: v1, the initial
 // protocol-version negotiation.
 const EXPECTED_PROTOCOL_VERSION: u64 = 1;
 
@@ -128,7 +128,7 @@ const WS_AUTH_OK_TIMEOUT_SECS: u64 = 3;
 
 // Cap the amount of WS frame text logged at the flood-prone
 // reader warn sites (HU-31). Inbound frames can carry
-// `transcription_partial` / `transcription_final` event data — the
+// `transcription_partial` / `transcription_final` event data, the
 // user's dictated speech (PII). A malformed/truncated frame would
 // still contain partial transcription text; logging it verbatim
 // persists it to the host's rotating log file (which may be shared
@@ -139,8 +139,8 @@ const WS_AUTH_OK_TIMEOUT_SECS: u64 = 3;
 const MAX_LOGGED_FRAME_TEXT_BYTES: usize = 256;
 
 /// Truncate WS frame text for logging (HU-31): keep at most
-/// [`MAX_LOGGED_FRAME_TEXT_BYTES`] bytes — never splitting a UTF-8
-/// char — and append `...[truncated]` when the input was cut. Short
+/// [`MAX_LOGGED_FRAME_TEXT_BYTES`] bytes: never splitting a UTF-8
+/// char: and append `...[truncated]` when the input was cut. Short
 /// frames pass through unchanged.
 ///
 /// `pub(super)` so the sibling `sidecar/ws_tests.rs` test module can
@@ -170,7 +170,7 @@ pub(super) fn truncate_frame_text(text: &str) -> String {
 /// Collect all entries out of the lock FIRST, then send outside
 /// the lock. `oneshot::Sender::send` is non-blocking (it returns Err
 /// immediately if the receiver was already dropped), but holding the
-/// AsyncMutex across N sends is still an anti-pattern — a concurrent
+/// AsyncMutex across N sends is still an anti-pattern, a concurrent
 /// dispatch path's `pending.insert(...)` would be stalled behind the
 /// drain loop. The collect-then-send pattern bounds the lock hold time
 /// to O(N) HashMap iteration (no I/O, no allocations beyond the Vec).
@@ -206,7 +206,7 @@ pub(super) async fn drain_pending_with_disconnect_error(state: &Arc<SidecarState
 // (wait for `auth_ok` / `ready`), (4) reader task spawn with
 // catch_unwind cleanup, (5) heartbeat task spawn. Each phase is now
 // a focused helper; `reconnect_ws` is a thin orchestrator that calls
-// them in order. Behavior is preserved EXACTLY — same error strings,
+// them in order. Behavior is preserved EXACTLY, same error strings,
 // same retry/backoff semantics, same logging, same panic-safety
 // wrappers, same supervisor trigger pattern.
 
@@ -255,7 +255,7 @@ async fn ws_connect(
 /// task to drain.
 ///
 /// Previously `mpsc::unbounded_channel::<Message>()`.
-/// An unbounded channel provides NO backpressure — a runaway
+/// An unbounded channel provides NO backpressure, a runaway
 /// renderer (or a stuck WS writer task) could enqueue unbounded
 /// frames, each holding a `Message::Text(Utf8Bytes)` of up to
 /// MAX_FRAME_BYTES (1 MiB), eventually OOM-killing the host.
@@ -279,7 +279,7 @@ pub(super) async fn queue_auth_and_store_ws_tx(
     // Send the auth frame via the channel so the writer task sends it.
     // Include `protocol_version` so the sidecar can detect
     // host/sidecar version skew at handshake time. The field is
-    // additive — older Python sidecars that don't yet parse it continue
+    // additive: older Python sidecars that don't yet parse it continue
     // to function (the sidecar's `_authenticate` ignores unknown fields).
     let auth = json!({
         "type": "auth",
@@ -288,10 +288,10 @@ pub(super) async fn queue_auth_and_store_ws_tx(
     });
     // Use `try_send` (bounded channel) instead of `send`
     // (which would await on a full channel). The auth frame is the
-    // very first frame queued — the channel is empty so `try_send`
+    // very first frame queued: the channel is empty so `try_send`
     // cannot return `Full`. `Closed` is possible only if the writer
     // task died between channel creation and this send (a few
-    // microseconds — essentially impossible), but we handle it
+    // microseconds: essentially impossible), but we handle it
     // defensively and map to the same error as before.
     ws_tx
         .try_send(Message::Text(auth.to_string().into()))
@@ -318,7 +318,7 @@ pub(super) async fn queue_auth_and_store_ws_tx(
     // stored its own `ws_tx` and the cleanup must NOT clobber it.
     //
     // The fetch_add uses `Ordering::SeqCst` to pair with the cleanup
-    // block's `SeqCst` load — we want a total order between the
+    // block's `SeqCst` load: we want a total order between the
     // "store ws_tx + bump gen" pair on the producer side and the
     // "load gen + clear ws_tx" pair on the consumer side. The
     // `state.ws_tx` Mutex already serializes the actual store/clear,
@@ -341,7 +341,7 @@ pub(super) async fn queue_auth_and_store_ws_tx(
 /// the dispatch loop.
 ///
 /// NOTE: the current Python sidecar does NOT send an explicit
-/// `auth_ok` frame — it emits `ready` on success and closes the
+/// `auth_ok` frame: it emits `ready` on success and closes the
 /// connection on auth failure. We accept EITHER `auth_ok` (future
 /// contract) OR `ready` (current contract) as the auth-success
 /// signal. On `auth_failed`, stream close, or timeout, we clear
@@ -377,7 +377,7 @@ async fn wait_for_auth_ok(
         match auth_result {
             Err(_) => {
                 log::error!(
-                    "[WS-AUTH] auth_ok/ready timeout ({}s) — closing WS and \
+                    "[WS-AUTH] auth_ok/ready timeout ({}s): closing WS and \
                  triggering supervisor",
                     WS_AUTH_OK_TIMEOUT_SECS
                 );
@@ -407,7 +407,7 @@ async fn wait_for_auth_ok(
                     // (which produces a `String` from `String::from_utf8`).
                     Message::Text(t) => t.to_string(),
                     Message::Binary(b) => {
-                        // Some clients send binary frames — try to decode
+                        // Some clients send binary frames, try to decode
                         // as UTF-8 for the auth_ok check.
                         match String::from_utf8(b.to_vec()) {
                             Ok(s) => s,
@@ -445,32 +445,32 @@ async fn wait_for_auth_ok(
                 }
                 // Tighten the auth-success contract. Accept ONLY
                 // `auth_ok` (future contract) or `ready` (current Python
-                // sidecar contract — see sidecar_ws.py:503) as the
+                // sidecar contract: see sidecar_ws.py:503) as the
                 // auth-success signal. Any other frame type at auth time is
-                // a protocol violation — reject it, clean up, and trigger
+                // a protocol violation: reject it, clean up, and trigger
                 // supervisor respawn. The previous "proceed anyway (best-
                 // effort)" else branch accepted ANY non-`auth_failed` frame
                 // as proof of auth, which let a buggy or compromised sidecar
                 // skip the auth handshake by sending e.g. `{"type":
                 // "bubble_level"}` first.
                 if t == "auth_ok" {
-                    log::info!("[WS-AUTH] auth_ok received — proceeding to reader task");
+                    log::info!("[WS-AUTH] auth_ok received, proceeding to reader task");
                 } else if t == "ready" {
                     // The current Python sidecar emits `{"type":"ready"}`
                     // as the first post-auth frame. We consume it here as
                     // the auth-success signal, but we MUST re-emit it as a
                     // Tauri event so the renderer's `usePythonEvent("ready")`
                     // listeners (and the generic `python-event` catch-all)
-                    // still see it — without this, the reader task never
+                    // still see it: without this, the reader task never
                     // sees the frame and the event is silently lost.
                     log::info!(
-                        "[WS-AUTH] ready frame received (auth confirmed) — \
+                        "[WS-AUTH] ready frame received (auth confirmed): \
                      re-emitting as Tauri event"
                     );
                     let payload = v.get("data").cloned().unwrap_or(json!({}));
                     // Surface emit failures instead of silently
                     // dropping them. A failed `app.emit` here means the
-                    // renderer won't see the `ready` event — log it so the
+                    // renderer won't see the `ready` event, log it so the
                     // miss is observable in diagnostics.
                     if let Err(e) = app.emit("ready", payload.clone()) {
                         log::warn!("[WS-AUTH] failed to re-emit ready event: {}", e);
@@ -484,10 +484,10 @@ async fn wait_for_auth_ok(
                         );
                     }
                 } else {
-                    // Protocol violation — reject, clean up, and
+                    // Protocol violation: reject, clean up, and
                     // trigger supervisor respawn. Do NOT proceed.
                     log::warn!(
-                        "[WS-AUTH] expected auth_ok or ready, got: {} — \
+                        "[WS-AUTH] expected auth_ok or ready, got: {}, \
                      treating as protocol violation, cleaning up and triggering respawn",
                         t
                     );
@@ -504,7 +504,7 @@ async fn wait_for_auth_ok(
         Ok(inner) => inner,
         Err(_panic_payload) => {
             log::error!(
-                "[WS-AUTH] auth-read path panicked — running cleanup and \
+                "[WS-AUTH] auth-read path panicked: running cleanup and \
                  triggering supervisor respawn"
             );
             cleanup_and_trigger_respawn(app, state).await;
@@ -516,7 +516,7 @@ async fn wait_for_auth_ok(
 // Thin orchestrator extracted from the original 585-line
 // `reconnect_ws` god function. The five phases —
 // WS connect, writer channel + auth frame + writer task spawn,
-// auth handshake, reader task spawn, heartbeat task spawn — are now
+// auth handshake, reader task spawn, heartbeat task spawn, are now
 // focused helpers above. This function calls them in sequence,
 // propagating errors via `?`. Behavior is preserved EXACTLY: same
 // error strings, same retry/backoff semantics (which live in the
@@ -536,7 +536,7 @@ pub(crate) async fn reconnect_ws(
     let (ws_rx, my_generation) = queue_auth_and_store_ws_tx(state, token).await?;
     // Pass `app` + `state` so `spawn_writer_task` can
     // run the symmetric cleanup block (clear ws_tx, drain pending,
-    // trigger respawn) on write-half failure — previously the writer
+    // trigger respawn) on write-half failure, previously the writer
     // task had no cleanup block, leaving dead writes blocking
     // dispatch callers for up to 30s.
     // Pass `my_generation` so the writer cleanup block can
@@ -547,7 +547,7 @@ pub(crate) async fn reconnect_ws(
     let app_handle = app.clone();
     let read = wait_for_auth_ok(&app_handle, &state_clone, read).await?;
     spawn_reader_task(app_handle.clone(), state_clone.clone(), read, my_generation);
-    // `spawn_heartbeat_task` is now `async fn` — `.await` it
+    // `spawn_heartbeat_task` is now `async fn`, `.await` it
     // instead of fire-and-forget. The function only holds the
     // `AsyncMutex` guard for the brief synchronous take/store sections
     // (no `.await` inside the critical section), so this doesn't add

@@ -22,7 +22,7 @@ Design notes
   field. The real value only leaves the keychain in the Python process
   that needs it (``cloud_engines.py`` / ``llm_polish.py``).
 
-- ``store_secret`` never raises — it logs a warning and falls back to
+- ``store_secret`` never raises, it logs a warning and falls back to
   plaintext on any keyring failure. This means a broken D-Bus or a
   locked Keychain never prevents the user from saving their API key.
 
@@ -56,13 +56,13 @@ Package layout
 This package was split (from a single ~2132-line module) into seven
 submodules organized by concern:
 
-- :mod:`._schema`    — constants & provider map.
-- :mod:`._redact`    — defense-in-depth redaction patterns.
-- :mod:`._outcome`   — thread-local outcome recording.
-- :mod:`._backend`   — keyring availability probing + global caches.
-- :mod:`._plaintext` — plaintext fallback read/write.
-- :mod:`._crud`      — secret CRUD operations.
-- :mod:`._migration` — cross-process lock + migration logic.
+- :mod:`._schema`   : constants & provider map.
+- :mod:`._redact`   : defense-in-depth redaction patterns.
+- :mod:`._outcome`  : thread-local outcome recording.
+- :mod:`._backend`  : keyring availability probing + global caches.
+- :mod:`._plaintext`: plaintext fallback read/write.
+- :mod:`._crud`     : secret CRUD operations.
+- :mod:`._migration`: cross-process lock + migration logic.
 
 The public API surface is preserved 1:1 via re-exports below. Tests
 that monkey-patch module-level symbols (e.g.
@@ -79,7 +79,7 @@ runtime (e.g. ``_orphaned_thread_count`` is incremented when a keyring
 I/O worker is orphaned; ``_keyring_available_cache`` flips from
 ``None`` to ``True`` / ``False`` after the first probe). A static
 ``from ._backend import _orphaned_thread_count`` would snapshot the
-initial value (``0``) and stay stale — readers accessing
+initial value (``0``) and stay stale, readers accessing
 ``credential_store._orphaned_thread_count`` would always see ``0``
 regardless of how many orphans accumulated.
 
@@ -101,14 +101,14 @@ import sys
 from types import ModuleType
 
 # ── Backend: timeout isolation + caches + probe ──────────────────────────
-# Bare re-exports — functions / constants / locks / in-place-mutated
+# Bare re-exports, functions / constants / locks / in-place-mutated
 # containers only. Re-bound scalars (``_orphaned_thread_count``,
 # ``_consecutive_timeouts``, ``_wedged_until``, ``_keyring_available_cache``,
 # ``_keyring_backend_name_cache``, ``_keyring_last_probe_ts``,
 # ``_keyring_reason_cache``) are deliberately OMITTED here so the
 # ``__getattr__`` hook below is invoked for them (static imports would
 # snapshot the initial value and stay stale when the submodule rebinds
-# the name — see the module docstring's "Mutable-scalar propagation"
+# the name: see the module docstring's "Mutable-scalar propagation"
 # section). Tests that monkeypatch these names still work because
 # ``monkeypatch.setattr`` writes to this package's ``__dict__`` directly,
 # shadowing the ``__getattr__`` fallback.
@@ -186,12 +186,12 @@ __all__ = [
     "migrate_secrets_to_keyring",
     "store_secret",
     # ── Re-exported internals (tests monkeypatch / inspect these via the
-    # package module — see ``_backend._cs = sys.modules[...]`` pattern).
+    # package module: see ``_backend._cs = sys.modules[...]`` pattern).
     # Listed here so ruff treats the static imports above as intentional
     # re-exports (F401) and so ``from voice_typer.server.credential_store
     # import *`` surfaces every name a test or sibling module might reach
     # for. Mutable scalars (``_orphaned_thread_count`` etc.) are surfaced
-    # via ``__getattr__`` below — they are still listed here so
+    # via ``__getattr__`` below, they are still listed here so
     # ``hasattr(credential_store, name)`` and ``dir(credential_store)``
     # both report them.
     "_KNOWN_PROVIDERS_HISTORY",
@@ -243,7 +243,7 @@ def __getattr__(name: str):
     is orphaned; ``_keyring_available_cache`` is set to ``True`` /
     ``False`` after the first probe). Static imports
     (``from ._backend import _orphaned_thread_count``) snapshot the
-    initial value and stay stale — ``credential_store._orphaned_thread_count``
+    initial value and stay stale, ``credential_store._orphaned_thread_count``
     would always read ``0`` regardless of how many orphans accumulated.
 
     This PEP 562 hook delegates each lookup to the owning submodule so
@@ -267,7 +267,7 @@ class _PackageFacade(ModuleType):
     The pre-split monolith let tests assign module globals directly
     (``credential_store._keyring_last_probe_ts = time.time() - 301.0``)
     and the implementation read the very same global. After the split,
-    those scalars live in :mod:`._backend` — a plain ``setattr`` on the
+    those scalars live in :mod:`._backend`: a plain ``setattr`` on the
     package would only shadow the facade while
     :func:`._backend.is_keyring_available` kept reading its own global.
 

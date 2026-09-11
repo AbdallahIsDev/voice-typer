@@ -1,4 +1,4 @@
-"""#13: Tray menu construction — extracted from tray.py.
+"""#13: Tray menu construction, extracted from tray.py.
 
 Concern mixing in tray.py: pystray icon lifecycle (start/run/stop/
 set_state/notify) was tangled with menu building (_build_menu /
@@ -25,13 +25,13 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 
-# PERF-COLDSTART-001: lazy import — pystray's xorg backend calls
+# PERF-COLDSTART-001: lazy import, pystray's xorg backend calls
 # Xlib.display.Display() at module import time, costing ~48 ms and
 # failing without an X display (headless CI). pystray is only needed
 # when build_menu_for_tray() actually constructs menu items, so defer it. The
 # proxy re-reads sys.modules on every access, so tests that inject a
-# mock via monkeypatch.setitem(sys.modules, "pystray", ...) — or that
-# assign tray_menu.pystray directly — keep working unchanged.
+# mock via monkeypatch.setitem(sys.modules, "pystray", ...), or that
+# assign tray_menu.pystray directly. Keep working unchanged.
 from voice_typer.server._lazy_import import lazy_module
 from voice_typer.server.tray_hotkey import format_hotkey_label
 
@@ -39,12 +39,12 @@ from voice_typer.server.tray_hotkey import format_hotkey_label
 # build_microphones_submenu, build_models_submenu, invalidate_menu_cache,
 # maybe_publish_tray_menu) need the i18n ``_`` function to localize
 # labels. Imported here (not inlined) so the same locale state is
-# shared with tray.py's re-export — ``set_tray_locale`` mutates the
+# shared with tray.py's re-export, ``set_tray_locale`` mutates the
 # module-level locale in tray_i18n and both modules see the update.
 from voice_typer.server.tray_i18n import _
 
 # Shared Models-submenu label helpers (tray_models has no heavy imports
-# — json/logging/time/pathlib only — so a module-level import is safe and
+# , json/logging/time/pathlib only, so a module-level import is safe and
 # keeps the Tauri dict path free of any pystray dependency).
 from voice_typer.server.tray_models import _menu_label, more_models_label
 
@@ -87,7 +87,7 @@ def wrap_callback(fn: Callable[[], None]) -> Callable:
     when calling message handler"), which is noisy and confusing.
     Since ``quit()`` and ``restart_app`` both call ``self.tray.stop()``
     before raising ``SystemExit``, the pystray event loop is already
-    broken — we don't need to re-raise. Just suppress the ``SystemExit``
+    broken, we don't need to re-raise. Just suppress the ``SystemExit``
     and return normally; pystray sees a clean return and its loop
     exits because ``stop()`` was called.
     """
@@ -97,7 +97,7 @@ def wrap_callback(fn: Callable[[], None]) -> Callable:
             fn()
         except SystemExit as _se:
             # QUIT-CLEAN-001: this is the expected exit path for
-            # ``quit_app`` and ``restart_app`` — ``tray.stop()`` was
+            # ``quit_app`` and ``restart_app``: ``tray.stop()`` was
             # already called inside the callback, so the pystray loop
             # is winding down.  Log at DEBUG so the user only sees
             # ``[QUIT] Quitting Voice Typer...`` and ``[SHUTDOWN]
@@ -105,7 +105,7 @@ def wrap_callback(fn: Callable[[], None]) -> Callable:
             # ``SystemExit(...) suppressing`` line is internal
             # bookkeeping that previously polluted INFO-level output.
             log.debug("[TRAY] Quit handler completed, pystray loop will exit")
-            # Do NOT re-raise — tray.stop() inside quit()/restart_app()
+            # Do NOT re-raise, tray.stop() inside quit()/restart_app()
             # already broke the pystray event loop. Re-raising causes
             # pystray to print a confusing "error" traceback.
 
@@ -140,7 +140,7 @@ def build_tray_menu_model(
     restart_app: Callable[[], None],
     quit_app: Callable[[], None],
     # Models submenu DATA provider: returns a list of
-    # (name, downloaded, is_active, change_fn) tuples — the shared
+    # (name, downloaded, is_active, change_fn) tuples, the shared
     # ``tray_models.build_models_submenu_data`` output. The dict path
     # consumes the DATA layer directly (never pystray MenuItems) so
     # every row keeps its callback + checked state and no separator
@@ -164,7 +164,7 @@ def build_tray_menu_model(
     and ``id_map`` maps every actionable item id to its callback.
 
     Mirrors the structure of :func:`build_menu_for_tray` (the pystray
-    builder) so both runtimes render the same item set — single source
+    builder) so both runtimes render the same item set, single source
     of truth for the menu structure. Per C-TRAY-1 in AGENTS.md,
     no "re-paste last transcription" item is emitted on either
     runtime; the controller's re-paste method remains available to
@@ -174,7 +174,7 @@ def build_tray_menu_model(
     ``is_transcribing()`` is true. Per the microphones render as a
     submenu with ``mic:<id>`` ids (the active one carries
     ``checked=True``) plus a ``refresh_mics`` entry and a
-    ``more_microphones`` deep-link — and the Microphones parent is
+    ``more_microphones`` deep-link, and the Microphones parent is
     ALWAYS rendered (even when the device list is momentarily empty,
     the refresh + deep-link rows keep the item useful). The Models
     submenu consumes the shared DATA layer
@@ -222,7 +222,7 @@ def build_tray_menu_model(
     # Open App (default/bold action depends on left_click_action).
     items.append(_item("open_app", localize("open_app"), callback=open_app))
 
-    # Toggle/Stop Dictation — the label switches to "Stop Dictation"
+    # Toggle/Stop Dictation, the label switches to "Stop Dictation"
     # while the app is actively recording so the user can see at a
     # glance that the next click will stop, not start. The item id
     # stays ``toggle_dictation`` so the host's click dispatcher is
@@ -252,11 +252,11 @@ def build_tray_menu_model(
 
     items.append(_sep())
 
-    # Models submenu — built from the DATA layer
+    # Models submenu, built from the DATA layer
     # (``tray_models.build_models_submenu_data`` tuples) so the Tauri
     # path NEVER round-trips pystray MenuItems. The old conversion
     # flattened pystray's ``Menu.SEPARATOR`` (text ``'- - - -'``) into
-    # a normal label row — the mystery dash item — and dropped every
+    # a normal label row, the mystery dash item, and dropped every
     # callback + checked state, so model rows and "More models..."
     # were dead on arrival (clicks returned
     # ``server.unknown_tray_item``).
@@ -277,7 +277,7 @@ def build_tray_menu_model(
             )
         )
     # Separator ONLY between real model rows and the trailing
-    # deep-link — never leading (the zero-models case must render a
+    # deep-link, never leading (the zero-models case must render a
     # single "More models..." row, not a dash) and never trailing.
     if models_sub:
         models_sub.append(_sep())
@@ -285,7 +285,7 @@ def build_tray_menu_model(
         models_sub.append(_item("more_models", more_models_label(localize), callback=on_open_models))
     items.append(_item("models", localize("models"), submenu=models_sub))
 
-    # Microphones submenu — the parent is ALWAYS rendered:
+    # Microphones submenu, the parent is ALWAYS rendered:
     # when the device list is momentarily empty the refresh +
     # deep-link rows keep the item useful instead of the whole entry
     # vanishing from the tray (the old ``if microphones:`` gate).
@@ -305,7 +305,7 @@ def build_tray_menu_model(
                 checked=(active_mic_id is not None and mic_id == str(active_mic_id)),
             )
         )
-    # Separator between device rows and the trailing actions — never
+    # Separator between device rows and the trailing actions, never
     # leading (no dash row when the list is empty).
     if mic_sub:
         mic_sub.append(_sep())
@@ -319,7 +319,7 @@ def build_tray_menu_model(
     items.append(_sep())
 
     # Settings / History / Help quick shortcuts. Each opens the
-    # Electron window on the corresponding route — mirrors the
+    # Electron window on the corresponding route, mirrors the
     # pystray-side builder so both runtimes expose the same shortcuts.
     if on_open_settings is not None:
         items.append(_item("settings", localize("settings"), callback=on_open_settings))
@@ -366,7 +366,7 @@ def publish_tray_state(
 
     ADR-0020 §6.5: the icon name + tooltip are only pushed to the event
     bus when running under the Tauri sidecar (``TAURI_SIDECAR=1``). On
-    the Electron/pystray runtime this is a no-op — the pystray ``Icon``
+    the Electron/pystray runtime this is a no-op, the pystray ``Icon``
     object is updated directly by ``TrayIcon._apply_state`` so emitting
     a parallel event would double-publish.
 
@@ -386,7 +386,7 @@ def publish_tray_state(
             the tooltip".
 
     Returns ``True`` if the event was published, ``False`` otherwise
-    (including when both fields are ``None`` — there's nothing to
+    (including when both fields are ``None``: there's nothing to
     update).
     """
     from voice_typer.server import event_bus
@@ -421,7 +421,7 @@ def publish_tray_state(
 #     still work (the symbol remains on the class).
 #   - source-grep tests that scan ``tray.py`` for the method signatures
 #     (e.g. ``tests/tauri/mig19/test_tray_menu.py::test_tray_py_build_models_submenu_method_present``)
-#     still pass — the delegate keeps the exact signature.
+#     still pass, the delegate keeps the exact signature.
 #
 # The lambdas captured by :func:`build_menu_for_tray` consult
 # ``tray._open_page`` / ``tray.open_electron_window`` / etc. via
@@ -435,7 +435,7 @@ def build_menu_for_tray(tray) -> tuple:
     """Build the tray menu with Models + Microphones submenus and quick shortcuts.
 
      extracted from ``TrayIcon._build_menu`` (which
-    was a 117-line method). The body is unchanged — only the receiver
+    was a 117-line method). The body is unchanged, only the receiver
     changed from ``self`` to the ``tray`` parameter.
 
     Menu structure (///):
@@ -466,8 +466,8 @@ def build_menu_for_tray(tray) -> tuple:
     # serialize the check-then-build-then-cache sequence against
     # concurrent invalidate_menu_cache() calls (which set the flag False
     # and call tray._icon._update_menu()). Without the lock, a concurrent
-    # invalidate can fire _update_menu() — DestroyMenu / CreatePopupMenu
-    # on Windows — while this build is mid-flight, racing the HMENU
+    # invalidate can fire _update_menu(). DestroyMenu / CreatePopupMenu
+    # on Windows, while this build is mid-flight, racing the HMENU
     # teardown against the tuple that _update_menu's caller is about to
     # walk. The lock also prevents two concurrent builds from both
     # writing tray._cached_menu.
@@ -491,7 +491,7 @@ def build_menu_for_tray(tray) -> tuple:
                 default=open_app_default,
             )
         )
-        # Toggle/Stop Dictation — the label switches to "Stop Dictation"
+        # Toggle/Stop Dictation, the label switches to "Stop Dictation"
         # while the app is actively recording so the user can see at a
         # glance that the next click will stop, not start. The action
         # (controller.toggle_dictation) is unchanged; only the label
@@ -510,7 +510,7 @@ def build_menu_for_tray(tray) -> tuple:
                 default=dictation_default,
             )
         )
-        # Force Cancel Stuck Transcription — only rendered while
+        # Force Cancel Stuck Transcription, only rendered while
         # transcribing so the menu isn't cluttered when nothing is stuck.
         # The lambda is created (closure over tray._controller.recording)
         # but NOT invoked during menu building, so a mock controller
@@ -535,11 +535,11 @@ def build_menu_for_tray(tray) -> tuple:
 
         items.append(pystray.Menu.SEPARATOR)
 
-        # Models submenu — built by tray_models.build_models_menu_items
+        # Models submenu, built by tray_models.build_models_menu_items
         # (invoked via tray._build_models_submenu delegate).
         models_sub = tray._build_models_submenu()
         items.append(pystray.MenuItem(_("models"), pystray.Menu(*models_sub)))
-        # Microphones submenu — mirrors the Models submenu.
+        # Microphones submenu, mirrors the Models submenu.
         mic_sub = tray._build_microphones_submenu()
         items.append(pystray.MenuItem(_("microphones"), pystray.Menu(*mic_sub)))
 
@@ -586,7 +586,7 @@ def build_microphones_submenu(tray) -> list:
     list).
 
     Returns an empty list only if ``tray._microphones`` is empty AND
-    the ``More microphones...`` shortcut is somehow suppressed — in
+    the ``More microphones...`` shortcut is somehow suppressed, in
     practice the shortcut is always appended so the submenu is never
     empty (the user can always reach the Settings page).
     """
@@ -601,7 +601,7 @@ def build_microphones_submenu(tray) -> list:
         # semantics, and misaligned with the Models submenu (which
         # also uses ``checked=``). pystray's MenuItem ``checked``
         # parameter renders the platform-standard checkmark, but it
-        # MUST be a callable — pystray wraps it via
+        # MUST be a callable, pystray wraps it via
         # ``_assert_callable(checked, lambda _: None)`` and invokes it
         # as ``checked(item)`` at render time; a raw bool raises
         # ``ValueError`` at MenuItem construction (crashes the tray
@@ -630,7 +630,7 @@ def build_microphones_submenu(tray) -> list:
 
 
 def build_models_submenu(tray) -> list:
-    """Build a list of model MenuItems — only cached models + More models link.
+    """Build a list of model MenuItems, only cached models + More models link.
 
      extracted from ``TrayIcon._build_models_submenu``.
     Delegates to :func:`tray_models.build_models_menu_items` for the
@@ -662,7 +662,7 @@ def invalidate_menu_cache(tray) -> None:
      extracted from ``TrayIcon.invalidate_menu_cache``.
 
     on Windows, pystray's ``_on_notify`` displays the menu via
-    ``TrackPopupMenuEx`` with the STORED ``HMENU`` handle — it does NOT
+    ``TrackPopupMenuEx`` with the STORED ``HMENU`` handle, it does NOT
     re-call the ``_build_menu`` callback on subsequent right-clicks because
     ``_update_menu()`` is only called during icon creation.  We must force
     pystray to rebuild its Win32 menu handle by calling
@@ -670,7 +670,7 @@ def invalidate_menu_cache(tray) -> None:
     callback and reads the latest config values.
 
     Thread safety: ``_update_menu()`` calls ``DestroyMenu`` /
-    ``CreatePopupMenu`` / ``InsertMenuItem`` — Win32 API calls that are
+    ``CreatePopupMenu`` / ``InsertMenuItem``: Win32 API calls that are
     NOT guaranteed thread-safe when invoked concurrently with a
     ``build_menu_for_tray`` rebuild on another thread.  We hold
     ``tray._menu_lock`` across the ``_menu_cache_valid = False`` +
@@ -678,7 +678,7 @@ def invalidate_menu_cache(tray) -> None:
     concurrent ``build_menu_for_tray`` (which acquires the same lock
     around its check-then-build-then-cache sequence).  A concurrent
     right-click during the brief rebuild window simply shows the
-    previous menu or nothing — the user can right-click again.
+    previous menu or nothing, the user can right-click again.
     ``maybe_publish_tray_menu`` is called OUTSIDE the lock because it
     builds an independent Tauri-side model (no shared mutable state
     with the cache) and should not block the menu lock on IPC I/O.
@@ -702,7 +702,7 @@ def _models_submenu_data(tray, controller) -> list:
     """Return the Models-submenu DATA rows for the Tauri dict path.
 
     Thin adapter over :func:`tray_models.build_models_submenu_data` —
-    the SAME data layer the pystray builder consumes — so both runtimes
+    the SAME data layer the pystray builder consumes, so both runtimes
     show the same downloaded-model set with the same active-model
     detection. Imports at call time (mirroring the pystray-side
     :func:`build_models_submenu` adapter) so the module stays cheap to
@@ -713,7 +713,7 @@ def _models_submenu_data(tray, controller) -> list:
     from voice_typer.server.tray_models import build_models_submenu_data
 
     # Prefer the in-memory Config (falls back to a disk read when the
-    # tray has no Config yet) — identical semantics to the pystray-side
+    # tray has no Config yet), identical semantics to the pystray-side
     # ``build_models_submenu`` adapter.
     config_provider = getattr(tray, "_config", None)
     return build_models_submenu_data(
@@ -732,17 +732,17 @@ def maybe_publish_tray_menu(tray) -> bool:
     Builds the model via :func:`build_tray_menu_model` (using the same
     controller callbacks as :func:`build_menu_for_tray`) and emits it
     through :func:`publish_tray_menu`, which guards on ``TAURI_SIDECAR``.
-    Returns ``True`` if published.  Safe to call headless — never
+    Returns ``True`` if published.  Safe to call headless, never
     touches pystray.
 
     Note: under the Tauri runtime the pystray ``Icon`` is never created
     (the native tray is owned by the Rust host), so ``tray._icon`` is
     ``None``. The earlier ``if tray._icon is None: return False`` guard
-    therefore short-circuited EVERY publish under Tauri — the
+    therefore short-circuited EVERY publish under Tauri, the
     ``tray_menu`` event never reached the Rust host and the tray menu
     stayed frozen at the empty placeholder. The guard is now removed;
     ``publish_tray_menu`` itself guards on ``TAURI_SIDECAR=1`` so the
-    Electron runtime (where ``_icon`` IS set) is unaffected — the
+    Electron runtime (where ``_icon`` IS set) is unaffected, the
     publish is a no-op there anyway.
     """
     controller = tray._controller
@@ -755,7 +755,7 @@ def maybe_publish_tray_menu(tray) -> bool:
     # detect attribute drift on the TrayController Protocol.
     # VoiceTyperApp._microphones is initialised to an empty list at
     # construction (app.py:338), so a None return from getattr here
-    # means the attribute was renamed/removed — previously the
+    # means the attribute was renamed/removed, previously the
     # Microphones submenu would silently disappear with no log line.
     # The TrayController Protocol (tray_types.py) declares the typed
     # ``microphones`` attribute; until VoiceTyperApp exposes a public
@@ -765,7 +765,7 @@ def maybe_publish_tray_menu(tray) -> bool:
     controller_mics = getattr(controller, "_microphones", None)
     if controller_mics is None:
         log.warning(
-            "controller has no _microphones attribute — microphones submenu "
+            "controller has no _microphones attribute, microphones submenu "
             "disabled (class=%s). Update TrayController Protocol or %s to "
             "restore the submenu.",
             type(controller).__name__,
@@ -791,13 +791,13 @@ def maybe_publish_tray_menu(tray) -> bool:
         ),
         restart_app=controller.restart_app,
         quit_app=tray._confirm_quit_while_recording,
-        # Models submenu: consume the shared DATA layer directly — the
+        # Models submenu: consume the shared DATA layer directly, the
         # previous ``tray._build_models_submenu`` round-trip returned
         # pystray MenuItems, which the dict builder could only flatten
         # to text (losing callbacks + checked state and rendering the
         # pystray SEPARATOR as a literal dash row). Same inputs as the
         # pystray builder: live Config (falls back to disk) + the
-        # controller's change_model — a single source of truth for
+        # controller's change_model, a single source of truth for
         # both runtimes.
         build_models_submenu_data=lambda: _models_submenu_data(tray, controller),
         # "More models..." opens the app window AND navigates to the
@@ -814,7 +814,7 @@ def maybe_publish_tray_menu(tray) -> bool:
         # update (those test files are owned by a different agent batch
         # and cannot be updated here). In production, ``controller`` is
         # the live ``VoiceTyperApp`` instance and pyrefly verifies the
-        # attribute via the ``TrayController`` Protocol — so the getattr
+        # attribute via the ``TrayController`` Protocol, so the getattr
         # is a no-op on the production path and only falls back to None
         # on the legacy-mock test path.
         active_mic_id=getattr(controller, "active_microphone_id", None),
@@ -825,7 +825,7 @@ def maybe_publish_tray_menu(tray) -> bool:
         # the tray Microphone entry stays useful even while the device
         # list is momentarily empty.
         on_open_microphones=tray._open_microphones_page,
-        # Settings/History/Help shortcuts — mirror the pystray-side
+        # Settings/History/Help shortcuts, mirror the pystray-side
         # build_menu_for_tray wiring so both runtimes expose the same
         # quick shortcuts (previously MISSING on Tauri, leaving these
         # routes unreachable from the tray).
@@ -858,14 +858,14 @@ def dispatch_tray_action(tray, item_id: str) -> bool:
     False return into a ``server.unknown_tray_item`` error envelope).
     Before the first menu publish, ``tray._tray_id_map`` is ``{}``
     (initialised in ``TrayIcon.__init__``, which also documents why
-    the default is empty) so every click returns False — the Tauri
+    the default is empty) so every click returns False, the Tauri
     host should publish the initial menu via ``_wrap_bg_work`` before
     any click can land.
 
     Callback exceptions are caught and logged so a single broken
     callback (e.g. a controller method that raises) doesn't take
     down the IPC server thread. The return value is still True on a
-    known id — the click was *dispatched*, the callback's success is
+    known id, the click was *dispatched*, the callback's success is
     a separate concern (the renderer surfaces errors via toasts).
     """
     callback = tray._tray_id_map.get(item_id)

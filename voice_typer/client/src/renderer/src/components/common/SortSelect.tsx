@@ -1,4 +1,4 @@
-// Shared SortSelect — single source of truth for the "Sort by" dropdown
+// Shared SortSelect, single source of truth for the "Sort by" dropdown
 // used on History, Vocabulary, and Templates pages.
 //
 // Previously Vocabulary and Templates each had an identical inline
@@ -7,7 +7,7 @@
 // no muted tint, no popper alignment, default bg-popover). This component
 // consolidates dimensions, border, typography, icon, spacing,
 // hover/focus, and interaction so the three pages stay visually identical.
-// Any future sort UI must reuse this component — do not create a
+// Any future sort UI must reuse this component, do not create a
 // page-specific Select duplicate.
 //
 // Design tokens (mirrors the app's outline Button / search input):
@@ -24,7 +24,7 @@
 //
 // The SortOrder union matches the three pages' existing
 // VocabSortOrder / TemplateSortOrder / HistorySortOrder types
-// (all "newest" | "oldest" | "az" | "za") — keep the per-page aliases
+// (all "newest" | "oldest" | "az" | "za"), keep the per-page aliases
 // for backwards compat, but this is the canonical type.
 
 import { Sorting01Icon } from "@hugeicons/core-free-icons";
@@ -49,7 +49,7 @@ interface SortSelectProps {
 export function SortSelect({ value, onValueChange }: SortSelectProps) {
 	return (
 		<Select value={value} onValueChange={(v) => onValueChange(v as SortOrder)}>
-			{/* hideChevron: the trigger already carries the sort glyph — a
+			{/* hideChevron: the trigger already carries the sort glyph, a
 			    second chevron on the right is visually overloaded (Vocab/
 			    Templates established this; History previously missed it). */}
 			<SelectTrigger

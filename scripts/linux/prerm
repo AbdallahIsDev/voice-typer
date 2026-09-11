@@ -1,9 +1,9 @@
 #!/bin/bash
-# Voice Typer — Debian prerm script
+# Voice Typer. Debian prerm script
 #
 # Runs as root during `apt remove voice-typer`. Removes the udev rule and
 # XKB config installed by postinst. Does NOT remove the user from the
-# input group (other apps may rely on it — see uninstall_permissions.py).
+# input group (other apps may rely on it: see uninstall_permissions.py).
 #
 # Also removes the per-user autostart .desktop entry
 # (~/.config/autostart/voice-typer.desktop) so the launcher does not
@@ -32,7 +32,7 @@ case "$1" in
             echo "[voice-typer] Removing keyboard permissions (using $UNINSTALL_SCRIPT)..."
             python3 "$UNINSTALL_SCRIPT" || true
         else
-            echo "[voice-typer] uninstall_permissions.py not found — skipping keyboard-permission cleanup"
+            echo "[voice-typer] uninstall_permissions.py not found, skipping keyboard-permission cleanup"
         fi
 
         # Terminate any running voice-typer processes BEFORE removing the
@@ -42,16 +42,16 @@ case "$1" in
         # which would leave a stale launcher pointing at the now-deleted
         # binary on next login. We:
         #   1. Read each user's backend PID lockfile
-        #      (~/.local/share/voice-typer/backend.pid — written by
+        #      (~/.local/share/voice-typer/backend.pid, written by
         #      single_instance.py) and send a targeted SIGTERM so the
         #      app can run its shutdown teardown (flush history DB,
         #      release the audio device, clear the PID file).
-        #   2. pkill -TERM -x voice-typer-tauri — catches the Tauri
+        #   2. pkill -TERM -x voice-typer-tauri, catches the Tauri
         #      host binary even if the backend PID file is missing
         #      (e.g. crashed hard and never wrote it).
-        #   3. pkill -TERM -f 'python-sidecar' — catches the frozen
+        #   3. pkill -TERM -f 'python-sidecar': catches the frozen
         #      Python sidecar binary by command-line substring match.
-        #   4. sleep 1 — gives the SIGTERM'd processes time to actually
+        #   4. sleep 1, gives the SIGTERM'd processes time to actually
         #      exit and release file handles before we rm their unit
         #      files. 1s is enough on every desktop we've tested; the
         #      teardown is well under 200ms (see shutdown_controller.py).

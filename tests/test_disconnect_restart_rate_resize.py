@@ -2,7 +2,7 @@
 
 The disconnect-restart path (:meth:`DisconnectHandler.restart_stream`)
 updates ``recorder._effective_sr`` to the new device's native rate but
-previously never re-ran the dynamic buffer sizing — so after a
+previously never re-ran the dynamic buffer sizing, so after a
 mid-session device switch (e.g. a Bluetooth headset at 16 kHz ↔ a
 built-in mic at 48 kHz) the ring buffer / pre-roll deque / main-buffer
 caps kept the OLD rate's sizing for the rest of the session.
@@ -16,7 +16,7 @@ These tests pin the fixed contract:
    blocksize math (observable with an 8 kHz → 48 kHz switch, where the
    512-sample floor makes the chunk counts differ).
 3. A restart on the SAME rate (the common BT-flap case) does NOT
-   re-invoke the resize (idempotent — no redundant deque churn / log
+   re-invoke the resize (idempotent, no redundant deque churn / log
    noise on every flap recovery).
 
 The test scaffolding mirrors ``tests/test_hot_swap_secure_clear.py``
@@ -69,7 +69,7 @@ def _spy_resize(r: Recorder, monkeypatch) -> MagicMock:
     The production restart path resolves the method through
     ``recorder._session_state.resize_buffers_for_sample_rate`` at call
     time, so patching the instance attribute is the correct injection
-    point (no package-level indirection — C-ARCH-2).
+    point (no package-level indirection, C-ARCH-2).
     """
     spy = MagicMock(wraps=r._session_state.resize_buffers_for_sample_rate)
     monkeypatch.setattr(r._session_state, "resize_buffers_for_sample_rate", spy)
@@ -97,7 +97,7 @@ class TestRestartStreamRateChangeResize:
 
         assert spy.called, (
             "restart_stream must re-run SessionState.resize_buffers_for_sample_rate "
-            "when the restart lands on a different native rate — otherwise the ring "
+            "when the restart lands on a different native rate, otherwise the ring "
             "buffer / pre-roll / main-buffer caps keep the old rate's sizing for the "
             "rest of the session"
         )
@@ -137,7 +137,7 @@ class TestRestartStreamRateChangeResize:
 
     def test_same_rate_restart_skips_resize(self, monkeypatch):
         """A restart on the SAME native rate (the common BT-flap recovery)
-        must NOT re-invoke the resize — the buffers are already correctly
+        must NOT re-invoke the resize, the buffers are already correctly
         sized and a redundant resize would churn the deques + log noise on
         every flap cycle."""
         r = _make_recorder()
@@ -150,7 +150,7 @@ class TestRestartStreamRateChangeResize:
 
         assert not spy.called, (
             "restart_stream must skip the resize when the effective rate is "
-            "unchanged (idempotent restart — same-rate BT flaps are the "
+            "unchanged (idempotent restart, same-rate BT flaps are the "
             "common case)"
         )
 
@@ -162,7 +162,7 @@ class TestRestartStreamRateChangeResize:
         r = _make_recorder()
         _setup_recorder_for_restart(monkeypatch, r, candidate_sr=48000)
         r._effective_sr = 16000
-        # Not yet cached (restart before any start() — defensive path).
+        # Not yet cached (restart before any start(), defensive path).
         monkeypatch.delattr(r, "_cached_max_recording_time", raising=False)
 
         spy = _spy_resize(r, monkeypatch)

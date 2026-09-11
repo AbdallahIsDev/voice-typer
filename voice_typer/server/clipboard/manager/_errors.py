@@ -1,4 +1,4 @@
-"""ClipboardCopyError — distinguishes "copy failed" from "save/restore disabled"."""
+"""ClipboardCopyError: distinguishes "copy failed" from "save/restore disabled"."""
 
 from __future__ import annotations
 

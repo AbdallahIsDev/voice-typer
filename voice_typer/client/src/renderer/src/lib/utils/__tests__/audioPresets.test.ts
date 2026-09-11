@@ -1,6 +1,6 @@
 /**
  * Unit tests for the shared audio-preset data registry
- * (`lib/utils/audioPresets.ts`) — the single source of truth for the
+ * (`lib/utils/audioPresets.ts`), the single source of truth for the
  * microphone-quality preset VALUES and their i18n label/description
  * keys, consumed by both live preset presentations (the Settings →
  * Audio Select and the Microphone page's accordion selector).
@@ -52,7 +52,7 @@ function hasKey(obj: unknown, dottedKey: string): boolean {
 	return typeof cur === "string";
 }
 
-describe("AUDIO_PRESET_OPTIONS — canonical preset values", () => {
+describe("AUDIO_PRESET_OPTIONS, canonical preset values", () => {
 	it("contains exactly the five canonical presets in display order", () => {
 		expect(AUDIO_PRESET_OPTIONS.map((o) => o.value)).toEqual([
 			"auto",
@@ -86,7 +86,7 @@ describe("AUDIO_PRESET_OPTIONS — canonical preset values", () => {
 	});
 });
 
-describe("AUDIO_PRESET_OPTIONS — i18n key integrity", () => {
+describe("AUDIO_PRESET_OPTIONS, i18n key integrity", () => {
 	it("every label key exists in ALL 8 locale catalogues", () => {
 		for (const option of AUDIO_PRESET_OPTIONS) {
 			const missing: string[] = [];

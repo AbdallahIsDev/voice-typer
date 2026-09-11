@@ -4,12 +4,12 @@ NOT use ``shutil.copy2`` to back up the current config.
 The previous implementation called ``shutil.copy2(config_file, backup_path)``
 which is:
 
-  * non-atomic (file-by-file copy — an interrupted copy leaves a partial
+  * non-atomic (file-by-file copy, an interrupted copy leaves a partial
     ``config.json.bak`` that gives a false sense of recovery),
   * symlink-following on BOTH source and destination (a local attacker
     who replaces ``config.json`` with a symlink to ``~/.bashrc`` between
     the user's "Reset to defaults" click and the ``copy2`` call gets
-    ``~/.bashrc`` content copied into the .bak — info disclosure via
+    ``~/.bashrc`` content copied into the .bak, info disclosure via
     the .bak file), and
   * has no ``fsync`` (the .bak may not be durable across power loss).
 
@@ -42,7 +42,7 @@ def _build_service(tmp_path: Path):
     # MagicMock would silently accept any setattr, hiding regressions).
     cfg = Config()
     app.config = cfg
-    # Real lock — MagicMock would silently accept the `with` statement
+    # Real lock, MagicMock would silently accept the `with` statement
     # but not actually serialize, hiding concurrency bugs.
     app._config_mutation_lock = threading.Lock()
     app.tray.notify = MagicMock()
@@ -72,7 +72,7 @@ def test_reset_config_to_defaults_does_not_use_shutil_copy2(tmp_path: Path) -> N
         }
         (tmp_path / "config.json").write_text(json.dumps(original_config))
 
-        # Spy on shutil.copy2 — record calls but still call through so
+        # Spy on shutil.copy2, record calls but still call through so
         # a regressing implementation doesn't fail for the wrong reason.
         import shutil
 
@@ -87,9 +87,9 @@ def test_reset_config_to_defaults_does_not_use_shutil_copy2(tmp_path: Path) -> N
 
         result = svc.reset_config_to_defaults()
 
-        assert result["success"] is True, f"reset_config_to_defaults must succeed — got: {result}"
+        assert result["success"] is True, f"reset_config_to_defaults must succeed, got: {result}"
         assert copy2_calls == [], (
-            "reset_config_to_defaults must NOT call shutil.copy2 — "
+            "reset_config_to_defaults must NOT call shutil.copy2, "
             "it is non-atomic, symlink-following, and lacks fsync. "
             "Use _secure_read_text + _secure_atomic_write instead. "
             f"Got {len(copy2_calls)} call(s): {copy2_calls}"
@@ -132,7 +132,7 @@ def test_reset_config_to_defaults_backup_matches_original_bytes(tmp_path: Path) 
             f"config.json (forensic recovery contract). Got {len(backup_bytes)} "
             f"bytes, expected {len(original_bytes)} bytes."
         )
-        # Round-trip parse check — backup must be valid JSON.
+        # Round-trip parse check, backup must be valid JSON.
         parsed = json.loads(backup_bytes)
         assert parsed["hotkey"] == "<f5>"
         assert parsed["model_size"] == "medium.en"
@@ -149,7 +149,7 @@ def test_reset_config_to_defaults_uses_secure_helpers(tmp_path: Path) -> None:
     Asserts that ``_secure_read_text`` and ``_secure_atomic_write``
     (from ``voice_typer.server.secure_file_io``) are both invoked at
     least once during ``reset_config_to_defaults``.  This pins the
-    architectural choice — future refactors that swap in a different
+    architectural choice, future refactors that swap in a different
     helper will trip this guard and force the author to re-evaluate
     the security properties.
     """
@@ -157,7 +157,7 @@ def test_reset_config_to_defaults_uses_secure_helpers(tmp_path: Path) -> None:
     try:
         (tmp_path / "config.json").write_text(json.dumps({"hotkey": "<f5>", "language": "fr"}))
 
-        # Spy on both secure helpers — count calls but call through.
+        # Spy on both secure helpers, count calls but call through.
         import voice_typer.server.secure_file_io as sio_mod
 
         read_calls: list[tuple] = []
@@ -191,7 +191,7 @@ def test_reset_config_to_defaults_uses_secure_helpers(tmp_path: Path) -> None:
         first_write_args = write_calls[0][0]
         backup_path_arg = str(first_write_args[0])
         assert backup_path_arg.endswith("config.json.bak"), (
-            f"_secure_atomic_write must target config.json.bak — got: {backup_path_arg}"
+            f"_secure_atomic_write must target config.json.bak, got: {backup_path_arg}"
         )
     finally:
         mp.undo()
@@ -241,7 +241,7 @@ def test_reset_config_to_defaults_backup_survives_symlink_config(tmp_path: Path)
                 backup_text = backup_path.read_text()
                 assert secret_content not in backup_text, (
                     "config.json.bak must NOT contain content from the "
-                    "symlink target — _secure_read_text must refuse to "
+                    "symlink target, _secure_read_text must refuse to "
                     "follow symlinks (POSIX O_NOFOLLOW)."
                 )
         else:

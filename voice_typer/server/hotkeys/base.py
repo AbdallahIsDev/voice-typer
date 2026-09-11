@@ -2,7 +2,7 @@
 
 Provides the abstract :class:`HotkeyBackend` interface that every backend
 implements.  Split out from the original ``hotkeys.py`` god-file in
-Phase 4.5 () — see ``hotkeys/__init__.py`` for the package-level
+Phase 4.5 (): see ``hotkeys/__init__.py`` for the package-level
 re-export surface that preserves the legacy ``voice_typer.server.hotkeys``
 import path.
 """
@@ -23,7 +23,7 @@ class HotkeyBackend(ABC):
 
     # Declared cross-cutting hook attributes. The ``HotkeyDispatcher``
     # (and the ``_NativeBackendAdapter``) set these on ANY backend object
-    # they manage — previously the assignments were raw ``setattr`` sites
+    # they manage, previously the assignments were raw ``setattr`` sites
     # guarded by ``contextlib.suppress(AttributeError)`` +
     # ``# type: ignore[attr-defined]`` because the base class did not
     # declare them. Declaring them here (with safe defaults) means the
@@ -70,7 +70,7 @@ class HotkeyBackend(ABC):
     def set_tray(self, tray: object | None) -> None:  # noqa: B027 - intentional optional override
         """Store a reference to the system-tray object for notifications.
 
-        Default no-op — backends that don't emit tray notifications
+        Default no-op, backends that don't emit tray notifications
         (e.g. :class:`PynputHotkey`, :class:`WaylandHotkey`) silently
         ignore the call. Backends that do (e.g.
         :class:`WindowsNativeHotkey`, mediated on the dispatcher side by

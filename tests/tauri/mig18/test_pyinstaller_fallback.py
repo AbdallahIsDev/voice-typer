@@ -1,11 +1,11 @@
-"""MIG-1.8 Phase 1 + ADR-0020 §4.5 — PyInstaller fallback spec validation.
+"""MIG-1.8 Phase 1 + ADR-0020 §4.5: PyInstaller fallback spec validation.
 
 This test file is the **check-9 PyInstaller fallback gate** in the MIG-1.8
 Tauri sidecar migration series. ADR-0020 §4.5 mandates that the existing
 PyInstaller spec (``scripts/build/voice-typer.spec``) is **retained as the
 fallback path** for platforms where Nuitka proves impractical (e.g. macOS
 Apple Silicon ABI issues, Linux aarch64 missing wheels). Nuitka remains the
-primary build path — it produces a smaller binary (~80-120 MB) with faster
+primary build path, it produces a smaller binary (~80-120 MB) with faster
 cold-start than PyInstaller's bootloader (~150-200 MB, slower init).
 PyInstaller is the **safety net** so a Nuitka packaging failure on a given
 target triple does NOT block a release.
@@ -15,18 +15,18 @@ so the fallback remains usable on every target triple. It checks:
 
   - the spec file exists at the canonical path,
   - the spec freezes ``voice_typer/server/ipc_server.py`` as the entry point
-    (identical to the Nuitka path — ADR-0020 §4.5: "The sidecar entrypoint
+    (identical to the Nuitka path, ADR-0020 §4.5: "The sidecar entrypoint
     is identical; only the freeze tool changes."),
   - the spec lists ``faster_whisper`` + ``ctranslate2`` as hidden imports
     (CTR2 native libs are then bundled automatically by PyInstaller's
     ``hook-ctranslate2.py``),
-  - the spec uses onefile mode (no ``COLLECT(`` — the ``EXE(...)`` wraps
+  - the spec uses onefile mode (no ``COLLECT(``, the ``EXE(...)`` wraps
     ``a.binaries`` + ``a.datas`` directly, which is PyInstaller's onefile
     signature; this matches Nuitka's ``--onefile`` output convention so
     Tauri's ``externalBin`` can target a single executable per triple),
   - the spec reads the ``VOICE_TYPER_TAURI_SIDECAR=1`` env var and switches
     to the Tauri sidecar mode (console on, triple-suffixed name, no icon,
-    no windowed UI — the Rust host reads ``server_started`` JSON from the
+    no windowed UI, the Rust host reads ``server_started`` JSON from the
     sidecar's stdout pipe, which is the WS-mode handshake),
   - the spec produces per-triple output filenames
     (``python-sidecar-<arch>-<vendor>-<os>-<libc>``) matching the Nuitka
@@ -43,22 +43,22 @@ VALIDATE ON HOST (fallback when Nuitka fails):
     Note: PyInstaller is a FALLBACK when Nuitka fails. Nuitka is the primary path (smaller binary, faster startup).
 
 References:
-  - ADR-0020 §4.5 — Common Nuitka caveats: "Existing PyInstaller spec
+  - ADR-0020 §4.5, Common Nuitka caveats: "Existing PyInstaller spec
     (``scripts/build/voice-typer.spec``) is the fallback."
-  - ADR-0020 Decision — "The existing ``scripts/build/voice-typer.spec``
+  - ADR-0020 Decision: "The existing ``scripts/build/voice-typer.spec``
     (PyInstaller, Windows-focused) is retained as the fallback path."
-  - scripts/build/voice-typer.spec — the spec under test (375 lines).
-  - src-tauri/src/sidecar/spawn.rs::target_triple_for — the Rust triple
+  - scripts/build/voice-typer.spec, the spec under test (375 lines).
+  - src-tauri/src/sidecar/spawn.rs::target_triple_for, the Rust triple
     computation the spec mirrors in Python (lines 70-82 of the spec).
 
-Gaps documented (report, do NOT fix — out of scope for this gate check):
+Gaps documented (report, do NOT fix, out of scope for this gate check):
   - GAP-1: ``faster_whisper`` is NOT in the spec's ``_hiddenimports`` list.
     The spec lists ``ctranslate2``, ``transformers``, ``accelerate``,
     ``tokenizers``, ``huggingface_hub`` but omits ``faster_whisper``. In
     practice PyInstaller's bytecode analysis usually discovers
     ``faster_whisper`` via static imports in ``ipc_server.py``, but ADR-0020
     §4.5 Phase 0 gate explicitly names ``faster_whisper`` as a required
-    verify-load target — listing it as a hidden import is the safe
+    verify-load target, listing it as a hidden import is the safe
     defensive choice (the Nuitka sibling scripts all use
     ``--include-package=faster_whisper`` explicitly). See
     ``test_known_gap_faster_whisper_not_in_hiddenimports``.
@@ -66,7 +66,7 @@ Gaps documented (report, do NOT fix — out of scope for this gate check):
     spec already bundles..." but the spec itself uses **onefile** mode (no
     ``COLLECT(``; ``EXE(...)`` wraps ``a.binaries`` + ``a.datas`` directly).
     The spec docstring (lines 84-89) explicitly says "onefile mode" for the
-    Tauri sidecar path. The ADR's ``--onedir`` description is stale — the
+    Tauri sidecar path. The ADR's ``--onedir`` description is stale, the
     spec was updated to onefile to match Nuitka's ``--onefile`` output and
     Tauri's ``externalBin`` (which requires a single executable per triple,
     not a folder). See ``test_spec_uses_onefile_mode_not_onedir``.
@@ -90,7 +90,7 @@ Gaps documented (report, do NOT fix — out of scope for this gate check):
     (likely Tauri passing ``VOICE_TYPER_IPC_TOKEN`` / port env vars, with
     the WS transport being the default when the sidecar is launched by
     Rust). The spec's role is limited to producing a console-enabled,
-    triple-suffixed binary — it does not itself disable heartbeat. See
+    triple-suffixed binary, it does not itself disable heartbeat. See
     ``test_known_gap_env_var_not_read_at_runtime``.
 """
 
@@ -133,7 +133,7 @@ def test_spec_file_exists():
     target triple. Removing it would leave no fallback build path.
     """
     assert SPEC_PATH.is_file(), f"missing: {SPEC_PATH}"
-    # A stub / empty regression guard — the real spec is >300 lines.
+    # A stub / empty regression guard, the real spec is >300 lines.
     assert SPEC_PATH.stat().st_size > 1000, (
         f"voice-typer.spec is suspiciously small ({SPEC_PATH.stat().st_size} bytes); "
         "expected a full PyInstaller spec (375+ lines)."
@@ -161,10 +161,10 @@ def test_spec_docstring_documents_fallback_role(spec_text: str):
 def test_spec_targets_ipc_server_entry_point(spec_text: str):
     """ADR-0020 §4.5: "The sidecar entrypoint is identical; only the freeze tool changes."
 
-    The PyInstaller spec must freeze ``voice_typer/server/ipc_server.py``
-    — the SAME entry point the Nuitka scripts target. A divergence here
-    would mean the fallback produces a binary with different behavior
-    than the primary Nuitka build (a silent correctness regression).
+      The PyInstaller spec must freeze ``voice_typer/server/ipc_server.py``
+    , the SAME entry point the Nuitka scripts target. A divergence here
+      would mean the fallback produces a binary with different behavior
+      than the primary Nuitka build (a silent correctness regression).
     """
     # The Analysis() call's first positional arg is the entry script.
     # Check both the literal relative path and the constructed absolute path.
@@ -222,7 +222,7 @@ def test_spec_uses_onefile_mode_not_onedir(spec_text: str):
     (the EXE(...) wraps a.binaries + a.datas directly; no COLLECT()).
     This is correct: Tauri's ``externalBin`` requires a SINGLE executable
     per target triple, not a folder. onedir would require a wrapper
-    launcher (ADR-0020 §4.5 mentions this as a workaround) — onefile
+    launcher (ADR-0020 §4.5 mentions this as a workaround), onefile
     avoids that complexity. The spec docstring (lines 84-89) explicitly
     says "onefile mode" for the Tauri sidecar path.
 
@@ -235,7 +235,7 @@ def test_spec_uses_onefile_mode_not_onedir(spec_text: str):
     """
     # onedir signature: a COLLECT() call. onefile has none.
     assert "COLLECT(" not in spec_text, (
-        "voice-typer.spec must NOT use COLLECT() — that's onedir mode. "
+        "voice-typer.spec must NOT use COLLECT(), that's onedir mode. "
         "Tauri externalBin requires a single executable per triple "
         "(onefile). See GAP-2."
     )
@@ -260,7 +260,7 @@ def test_spec_reads_tauri_sidecar_env_var(spec_text: str):
 
     The "disables heartbeat, enables WS mode" behavior described in the
     task brief is the RUNTIME effect (the Rust host reads server_started
-    JSON from the sidecar's stdout pipe — the WS handshake). The spec's
+    JSON from the sidecar's stdout pipe, the WS handshake). The spec's
     role is to produce a console-enabled binary; the actual heartbeat/WS
     switching happens in ipc_server.py at runtime. See GAP-4.
     """
@@ -278,7 +278,7 @@ def test_spec_tauri_mode_enables_console_for_ws_handshake(spec_text: str):
 
     The Tauri sidecar path uses ``console=True`` because the Rust host
     reads the ``server_started`` JSON from the sidecar's stdout pipe
-    (this is the WS-mode bootstrap — the sidecar self-selects a port
+    (this is the WS-mode bootstrap, the sidecar self-selects a port
     and reports it via stdout; the Rust host then opens the WS channel).
     With ``console=False`` (the legacy Electron path) stdout is detached
     and the Tauri host would never receive the port. See spec docstring
@@ -364,11 +364,11 @@ def test_spec_bundles_ct2_native_libs_via_hidden_import(spec_text: str):
         "PyInstaller's hook-ctranslate2.py bundles the native libs "
         "(libctranslate2.{so,dylib,dll} + OpenMP/DNNL)."
     )
-    # CT2 must NOT be in the excludes= list (defensive — a future edit
+    # CT2 must NOT be in the excludes= list (defensive, a future edit
     # could accidentally add it).
     excludes_block = _extract_excludes_block(spec_text)
     assert "ctranslate2" not in excludes_block, (
-        "voice-typer.spec must NOT list 'ctranslate2' in excludes= — "
+        "voice-typer.spec must NOT list 'ctranslate2' in excludes=, "
         "that would strip the CT2 native libs from the bundle."
     )
 
@@ -382,8 +382,7 @@ def test_spec_does_not_exclude_faster_whisper(spec_text: str):
     """
     excludes_block = _extract_excludes_block(spec_text)
     assert "faster_whisper" not in excludes_block, (
-        "voice-typer.spec must NOT list 'faster_whisper' in excludes= — "
-        "that would strip the ASR engine from the bundle."
+        "voice-typer.spec must NOT list 'faster_whisper' in excludes=, that would strip the ASR engine from the bundle."
     )
 
 
@@ -400,7 +399,7 @@ def test_known_gap_ct2_native_libs_not_explicitly_listed(spec_text: str):
 
     This test ASSERTS the gap so it shows up red until fixed. When
     someone adds explicit CT2 native lib entries to ``binaries=``,
-    this test will START FAILING — that is the signal to delete this
+    this test will START FAILING: that is the signal to delete this
     test (gap closed).
     """
     # Extract the binaries= list (the _native_binaries variable + the
@@ -414,7 +413,7 @@ def test_known_gap_ct2_native_libs_not_explicitly_listed(spec_text: str):
             "GAP-3 RESOLVED: CT2 native libs are now explicitly listed in "
             "binaries=. Delete this test (the gap is closed)."
         )
-    # Gap still present — record it explicitly.
+    # Gap still present, record it explicitly.
     assert not has_explicit_ct2, (
         "Invariant: if CT2 native libs are explicitly listed, the gap-test above should have failed already."
     )
@@ -434,7 +433,7 @@ def test_known_gap_env_var_not_read_at_runtime():
     This test ASSERTS the gap so it shows up red until either (a) the
     Python runtime starts reading the env var, or (b) the spec/ADR is
     updated to clarify the runtime mechanism. When the gap is closed,
-    this test will START FAILING — delete it.
+    this test will START FAILING, delete it.
     """
     # Search the voice_typer/server/ Python runtime for the env var.
     server_dir = PROJECT_ROOT / "voice_typer" / "server"
@@ -455,7 +454,7 @@ def test_known_gap_env_var_not_read_at_runtime():
             f"runtime in: {found_in_runtime}. Delete this test "
             "(the gap is closed)."
         )
-    # Gap still present — record it explicitly.
+    # Gap still present, record it explicitly.
     assert not found_in_runtime, (
         "Invariant: if the env var is read at runtime, the gap-test above should have failed already."
     )
@@ -486,7 +485,7 @@ def _extract_binaries_block(spec_text: str) -> str:
     # _native_binaries = [...] block.
     nm_match = re.search(r"_native_binaries\s*=\s*\[(.*?)\]", spec_text, re.DOTALL)
     nm_block = nm_match.group(1) if nm_match else ""
-    # Analysis(..., binaries=..., ...) — capture the argument value.
+    # Analysis(..., binaries=..., ...), capture the argument value.
     bin_match = re.search(r"binaries\s*=\s*([^\n,]+)", spec_text)
     bin_block = bin_match.group(1) if bin_match else ""
     return nm_block + "\n" + bin_block

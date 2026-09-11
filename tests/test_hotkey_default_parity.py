@@ -6,7 +6,7 @@ via ``Config().hotkey`` (which calls ``_default_hotkey_for_platform``).
 The renderer's onboarding wizard has a TS-side copy at
 ``voice_typer/client/src/renderer/src/components/hotkey/hotkey-format.ts::HOTKEY_DEFAULT``.
 
-The two are independent — the TS file ships in the client bundle and
+The two are independent, the TS file ships in the client bundle and
 cannot import the Python constant at runtime. Drift between the two
 would silently make the onboarding wizard pre-select a different
 hotkey than the backend will register, so a user who accepts the
@@ -29,7 +29,7 @@ from voice_typer.server.config import Config
 # Path to the renderer's canonical hotkey-default constant.
 # ``HOTKEY_DEFAULT`` was consolidated into ``hotkey-format.ts`` (the
 # onboarding ``constants.ts`` now re-exports it via ``export *``, which
-# the regex below cannot follow) — point the resolver directly at the
+# the regex below cannot follow), point the resolver directly at the
 # canonical declaration so the parity check stays exact.
 CONSTANTS_TS_PATH = (
     Path(__file__).resolve().parent.parent
@@ -92,7 +92,7 @@ def test_constants_ts_hotkey_default_matches_config_default() -> None:
     ``_default_hotkey_for_platform``. The renderer copy MUST match.
     """
     assert CONSTANTS_TS_PATH.exists(), (
-        f"constants.ts not found at {CONSTANTS_TS_PATH} — has the renderer's onboarding directory moved?"
+        f"constants.ts not found at {CONSTANTS_TS_PATH}, has the renderer's onboarding directory moved?"
     )
     ts_source = CONSTANTS_TS_PATH.read_text(encoding="utf-8")
     ts_value = _extract_hotkey_default(ts_source)
@@ -101,7 +101,7 @@ def test_constants_ts_hotkey_default_matches_config_default() -> None:
     # (src/renderer/src), not the re-exporting file's directory.
     if ts_value.startswith("@/"):
         # Path accepts forward slashes on every OS (including Windows),
-        # so no separator rewriting — a literal backslash here breaks
+        # so no separator rewriting, a literal backslash here breaks
         # the lookup on POSIX (backslash is a valid filename char).
         rel = ts_value[2:]
         renderer_src = CONSTANTS_TS_PATH.parents[3]  # …/src/renderer/src

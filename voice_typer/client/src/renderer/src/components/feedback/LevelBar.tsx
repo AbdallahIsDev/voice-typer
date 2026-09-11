@@ -26,14 +26,14 @@ interface LevelBarProps {
 //                 now surfaced only via the ⚠ clipping icon + tier
 //                 word in aria-valuetext, not the fill colour).
 //   - "good"    ⇒ healthy signal.  Triggered when peak > 0.05 (matches
-//                 LiveQualityFeedback.hasVoice) — once voice is detected
+//                 LiveQualityFeedback.hasVoice), once voice is detected
 //                 we treat the level as healthy unless clipping.
 //   - "silent"  ⇒ effectively no input.  level ≤ 0.005 (matches
 //                 LiveQualityFeedback.volumeVeryLow when no voice).
-//   - "low"     ⇒ faint signal — user should speak up.
+//   - "low"     ⇒ faint signal, user should speak up.
 //
 // The FILL colour tracks a three-way band (normal / warning /
-// clipping — see ``getFillColorTier`` below) with a smooth
+// clipping, see ``getFillColorTier`` below) with a smooth
 // background-color crossfade, so the bar reads as a full-width meter
 // with no reserved icon slot stealing track width.
 
@@ -41,13 +41,13 @@ export type VolumeTier = "silent" | "low" | "good" | "loud";
 
 // ── Fill colour tiers ─────────────────────────────────────────────────
 //
-// The fill's BACKGROUND colour is binary — normal (primary blue) below
-// the clipping onset, destructive red at/above it — so the bar reads
+// The fill's BACKGROUND colour is binary, normal (primary blue) below
+// the clipping onset, destructive red at/above it, so the bar reads
 // as a true full-width meter with no reserved icon slot stealing track
 // width. This is deliberately a SEPARATE concept from the qualitative
 // ``VolumeTier`` above (silent/low/good/loud), which continues to
 // drive the aria-valuetext announcement unchanged (so e.g. level 0.75
-// still announces "loud" while painting blue — the announcement bands
+// still announces "loud" while painting blue, the announcement bands
 // and the paint bands intentionally differ).
 
 /** RMS level above which the fill turns destructive red. */
@@ -61,7 +61,7 @@ export function getFillColorTier(level: number): FillColorTier {
 	return "normal";
 }
 
-/** Token-backed fill classes — ``bg-destructive`` resolves via the
+/** Token-backed fill classes, ``bg-destructive`` resolves via the
  *  shared ``--destructive`` theme token. No hardcoded colour values
  *  anywhere. */
 const FILL_COLOR_CLASS: Record<FillColorTier, string> = {
@@ -70,16 +70,16 @@ const FILL_COLOR_CLASS: Record<FillColorTier, string> = {
 };
 
 export function getVolumeTier(level: number, peak: number): VolumeTier {
-	// Clipping — peak above 0.9 OR RMS above 0.7.  Either is a strong
+	// Clipping, peak above 0.9 OR RMS above 0.7.  Either is a strong
 	// signal that the input is saturating.
 	if (peak > 0.9 || level > 0.7) return "loud";
-	// Voice detected — treat as "good" regardless of RMS.  Matches
+	// Voice detected, treat as "good" regardless of RMS.  Matches
 	// the original LiveQualityFeedback "excellent" branch which
 	// fired on ``hasVoice && !tooLoud``.
 	if (peak > 0.05) return "good";
 	// Below the silence floor.
 	if (level <= 0.005) return "silent";
-	// Faint signal — encourage the user to speak up.
+	// Faint signal, encourage the user to speak up.
 	return "low";
 }
 
@@ -101,7 +101,7 @@ export function LevelBar({ level, playing }: LevelBarProps) {
 	return (
 		<div
 			className={cn(
-				// Neutral track: no border — the fill is flush with the
+				// Neutral track: no border, the fill is flush with the
 				// track (same height, rounded ends), so an outline around
 				// the bar read as a diluting extra layer. ``bg-input/30``
 				// / ``bg-(--text-muted)/10`` (frozen) keep the empty track
@@ -136,7 +136,7 @@ export function LevelBar({ level, playing }: LevelBarProps) {
 					// frozen ("playing") state fades the fill too. The fill
 					// colour tracks ``colorTier`` (primary blue below 90%,
 					// destructive red above); background-color crossfades on
-					// its own quicker duration (120ms — fast enough to feel
+					// its own quicker duration (120ms, fast enough to feel
 					// snappy, slow enough to read as a fade rather than a
 					// snap) than the transform/opacity smoothing (75ms) —
 					// the arbitrary-property list maps 1:1 onto the
@@ -149,7 +149,7 @@ export function LevelBar({ level, playing }: LevelBarProps) {
 				style={
 					{
 						// ``Math.max(1, …)`` previously pinned an empty bar to 1%
-						// even when the user was totally silent — visually lying
+						// even when the user was totally silent, visually lying
 						// that there's "some" signal. Use ``Math.max(0, …)`` on the
 						// scale factor so a silent input renders a truly empty
 						// track (``scaleX(0)`` collapses the fill completely).
@@ -158,7 +158,7 @@ export function LevelBar({ level, playing }: LevelBarProps) {
 						// geometry, so a fixed radius compresses
 						// horizontally (caps look squared at small levels).
 						// Only the RIGHT (leading/moving) edge needs that
-						// compensation — its horizontal radius is DIVIDED by
+						// compensation, its horizontal radius is DIVIDED by
 						// the scale so the POST-transform cap stays an exact
 						// 3px semicircle at every value. The LEFT edge is
 						// anchored (origin-left, never moves), so it takes a
@@ -167,14 +167,14 @@ export function LevelBar({ level, playing }: LevelBarProps) {
 						// a sliver of track background bleeding through the
 						// anchored corners. The vertical radius stays a plain
 						// 3px on all four corners (note the space-separated
-						// horizontal/vertical form on the right — a single
+						// horizontal/vertical form on the right, a single
 						// value would wrongly scale the vertical axis too).
 						// CSS's radius-overlap rule gracefully clamps the
 						// huge computed radius to a capsule on tiny slivers,
 						// and ``scaleX(0)`` hides the fill anyway (the 0.03
 						// floor only guards the divide). ``--level`` comes
 						// from the ~8 Hz throttled state sync (NOT the 60 Hz
-						// rAF path — the rAF loop still writes ONLY the
+						// rAF path, the rAF loop still writes ONLY the
 						// transform), so this is a paint-only update on one
 						// 6px strip, imperceptible next to the transform
 						// motion.

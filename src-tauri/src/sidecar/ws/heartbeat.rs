@@ -1,10 +1,10 @@
 //! Heartbeat task spawn + abort helpers (ADR-0020 §10).
 //!
 //! Extracted from the original 2534-line `ws.rs` monolith. Holds:
-//! - `spawn_heartbeat_task` — drives a 10s-interval `heartbeat`
+//! - `spawn_heartbeat_task`: drives a 10s-interval `heartbeat`
 //!   dispatch loop on the Tauri async runtime, aborting the
 //!   previous handle (if any) before storing the new one.
-//! - `abort_heartbeat` — shared idempotent abort helper used by
+//! - `abort_heartbeat`: shared idempotent abort helper used by
 //!   BOTH shutdown paths (`sidecar/shutdown.rs::shutdown_sidecar_for_exit`
 //!   and `commands/sidecar_cmds/shutdown.rs::shutdown_sidecar`) so an
 //!   in-flight heartbeat task is aborted whether the app exits
@@ -12,7 +12,7 @@
 //!   command.
 //!
 //! Visibility contract:
-//! - `spawn_heartbeat_task` is `pub(super)` — visible to the
+//! - `spawn_heartbeat_task` is `pub(super)`: visible to the
 //!   parent `ws` module (single call site in `reconnect_ws`).
 //! - `abort_heartbeat` is `pub(crate)` (and re-exported from
 //!   `ws.rs`) so external callers in `sidecar/shutdown.rs` /
@@ -31,7 +31,7 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
 
-/// Shared heartbeat-abort helper. Idempotent — a no-op if
+/// Shared heartbeat-abort helper. Idempotent: a no-op if
 /// `heartbeat_handle` is already `None`.
 ///
 /// Used by BOTH shutdown paths so the in-flight heartbeat task is
@@ -53,7 +53,7 @@ use std::time::Duration;
 ///     frame.
 ///   - `sidecar/shutdown.rs` (`shutdown_sidecar_for_exit`, the
 ///     app-exit path) aborts the same handle inline
-///     (`hb_guard.take()` + `handle.abort()`) — functionally
+///     (`hb_guard.take()` + `handle.abort()`): functionally
 ///     equivalent to this helper.
 pub(crate) async fn abort_heartbeat(state: &Arc<SidecarState>) {
     let prev = {
@@ -74,19 +74,19 @@ pub(crate) async fn abort_heartbeat(state: &Arc<SidecarState>) {
 /// respond to dispatches. Without this, the supervisor only
 /// triggers on WS-close/process exit, so a hung sidecar leaves the
 /// UI frozen for the full per-command dispatch timeout (15s short /
-/// 120s model-lifecycle / 1h download — see `dispatch_timeout_for`
+/// 120s model-lifecycle / 1h download, see `dispatch_timeout_for`
 /// in `commands/sidecar_cmds/dispatch.rs`) on EVERY
 /// `invoke('dispatch', ...)` call.
 ///
 /// Every 10s we send a `heartbeat` dispatch (the Python sidecar's
 /// `_handle_heartbeat` is already registered in `_COMMAND_REGISTRY`
-/// — see `voice_typer/server/ipc_server.py:2013`). We wrap the call
+///: see `voice_typer/server/ipc_server.py:2013`). We wrap the call
 /// in a 15s timeout (`HEARTBEAT_RESPONSE_TIMEOUT_SECS`) to bound the
 /// liveness probe. On 3 consecutive misses (≥30s of
 /// unresponsiveness) we trigger supervisor respawn via the same
 /// `std::thread::spawn` + `block_on` bridge used by the WS reader
 /// above (the supervisor's `reconnect_ws` future is `!Send` —
-/// tokio-tungstenite holds a `!Send` across an await — so it can't
+/// tokio-tungstenite holds a `!Send` across an await, so it can't
 /// be awaited from a `tokio::spawn` directly).
 ///
 /// The 15s outer timeout cancels `dispatch_inner` by dropping its
@@ -99,13 +99,13 @@ pub(crate) async fn abort_heartbeat(state: &Arc<SidecarState>) {
 ///
 /// This function is `async fn` (was `fn` calling
 /// `blocking_lock()`). The caller `reconnect_ws` is already `async`,
-/// so the change is local — we can hold the `AsyncMutex` guard across
+/// so the change is local, we can hold the `AsyncMutex` guard across
 /// the (very short) synchronous section without blocking a Tokio
 /// worker thread. The previous `blocking_lock()` form would panic if
 /// called from within an async runtime worker thread in certain
 /// configurations (Tokio's `blocking_lock` panics if the current
 /// thread is a runtime worker that has run out of blocking-thread
-/// budget — see tokio-rs/tokio#3716). The `async fn` + `lock().await`
+/// budget: see tokio-rs/tokio#3716). The `async fn` + `lock().await`
 /// form is the canonical Tokio pattern and avoids the panic risk.
 ///
 /// `pub(super)` so the parent `ws` module's `reconnect_ws` can call
@@ -118,7 +118,7 @@ pub(super) async fn spawn_heartbeat_task(
     // Abort any previous heartbeat task before spawning
     // the new one. `reconnect_ws` is called on every successful
     // supervisor respawn (and on initial cold start), so without this abort the
-    // PRIOR heartbeat task would leak — it loops forever on a 10s
+    // PRIOR heartbeat task would leak, it loops forever on a 10s
     // `interval.tick()`. After N reconnects you'd have N concurrent
     // heartbeat tasks all dispatching `heartbeat` frames at 10s
     // intervals, multiplying sidecar load N×.
@@ -127,12 +127,12 @@ pub(super) async fn spawn_heartbeat_task(
     // `dispatch_inner` (in `dispatch_frame`,
     // `commands/sidecar_cmds/dispatch.rs`), so the heartbeat task
     // here does NOT know the id and can't manually remove the
-    // pending entry from `state.pending` on the 15s timeout — and it
+    // pending entry from `state.pending` on the 15s timeout, and it
     // doesn't need to: `dispatch_frame` constructs a pending-entry
     // Drop guard (`PendingEntryGuard`) immediately after inserting
     // the entry, and the guard's Drop removes it when the 15s outer
     // timeout cancels `dispatch_inner` mid-await (the removal is
-    // submitted to the Tauri async runtime from Drop — see the
+    // submitted to the Tauri async runtime from Drop, see the
     // C-TOKIO-1 note on the guard in dispatch.rs). The reader's
     // response-side removal (on ANY id-bearing response) and the
     // miss-#3 respawn's exit drain remain as belt-and-braces, not as
@@ -144,7 +144,7 @@ pub(super) async fn spawn_heartbeat_task(
     let heartbeat_state_for_task = heartbeat_state.clone();
     // Hold the `heartbeat_handle` lock across the take + spawn +
     // store sequence. The prior code released the lock between `take()`
-    // and `*hb_guard = Some(handle)` — the window spanned the entire
+    // and `*hb_guard = Some(handle)`: the window spanned the entire
     // `tauri::async_runtime::spawn(...)` call. `reconnect_ws` is called
     // from TWO unsynchronized paths: `main.rs` cold-start (NOT under
     // `respawn_in_progress`) and `supervisor.rs` respawn (under the
@@ -154,17 +154,17 @@ pub(super) async fn spawn_heartbeat_task(
     // cold-start: takes None → (releases lock)
     // respawn:    takes None → (releases lock)
     // cold-start: stores H1
-    // respawn:    stores H2 (overwrites H1 — H1 is NEVER aborted, leaks)
+    // respawn:    stores H2 (overwrites H1, H1 is NEVER aborted, leaks)
     // After N reconnects up to N leaked heartbeat tasks run indefinitely,
     // each dispatching `heartbeat` frames every 10s to a dead WS.
     //
     // The fix: hold the lock across `take()` + `spawn(...)` + `store`.
     // `tauri::async_runtime::spawn` is synchronous (submits the future
-    // to the runtime, returns a `JoinHandle` immediately — does NOT
+    // to the runtime, returns a `JoinHandle` immediately, does NOT
     // await), so the lock is held only for a brief synchronous section.
     // The previous handle is aborted AFTER releasing the lock so a
     // (potentially slow) `abort()` doesn't block other callers from
-    // acquiring the lock — `abort()` just posts a cancellation signal
+    // acquiring the lock: `abort()` just posts a cancellation signal
     // to the task's waker; it does not synchronously join the task.
     let prev_handle_opt: Option<tauri::async_runtime::JoinHandle<()>> = {
         let mut hb_guard = heartbeat_state.heartbeat_handle.lock().await;
@@ -225,7 +225,7 @@ pub(super) async fn spawn_heartbeat_task(
                             );
                             if missed >= HEARTBEAT_MAX_MISSES {
                                 log::warn!(
-                                "[HEARTBEAT] {} consecutive misses — triggering supervisor respawn",
+                                "[HEARTBEAT] {} consecutive misses: triggering supervisor respawn",
                                 HEARTBEAT_MAX_MISSES
                             );
                                 super::respawn_scheduler::trigger_respawn_off_thread(
@@ -246,7 +246,7 @@ pub(super) async fn spawn_heartbeat_task(
                             );
                             if missed >= HEARTBEAT_MAX_MISSES {
                                 log::warn!(
-                                "[HEARTBEAT] {} consecutive misses — triggering supervisor respawn",
+                                "[HEARTBEAT] {} consecutive misses: triggering supervisor respawn",
                                 HEARTBEAT_MAX_MISSES
                             );
                                 super::respawn_scheduler::trigger_respawn_off_thread(
@@ -262,19 +262,19 @@ pub(super) async fn spawn_heartbeat_task(
                         // the heartbeat task stays alive (mirrors the
                         // existing timeout / dispatch-error arms). After
                         // HEARTBEAT_MAX_MISSES consecutive panic-misses the
-                        // supervisor respawn is triggered — same threshold
+                        // supervisor respawn is triggered: same threshold
                         // as the other arms.
                         Err(_) => {
                             missed += 1;
                             log::error!(
-                                "[HEARTBEAT] dispatch_inner panicked (miss #{}/{}) — \
+                                "[HEARTBEAT] dispatch_inner panicked (miss #{}/{}): \
                              task staying alive",
                                 missed,
                                 HEARTBEAT_MAX_MISSES
                             );
                             if missed >= HEARTBEAT_MAX_MISSES {
                                 log::warn!(
-                                "[HEARTBEAT] {} consecutive panic-misses — triggering supervisor respawn",
+                                "[HEARTBEAT] {} consecutive panic-misses: triggering supervisor respawn",
                                 HEARTBEAT_MAX_MISSES
                             );
                                 super::respawn_scheduler::trigger_respawn_off_thread(
@@ -305,7 +305,7 @@ pub(super) async fn spawn_heartbeat_task(
     }
 }
 
-// Sibling test module — tests live in `heartbeat_tests.rs` (per
+// Sibling test module: tests live in `heartbeat_tests.rs` (per
 // C-TEST-5: no inline `#[cfg(test)] mod tests` blocks in production
 // source).
 #[cfg(test)]

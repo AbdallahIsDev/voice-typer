@@ -1,17 +1,17 @@
 /**
  * Backward-compat re-export shim. Canonical locations:
- *  - hotkey-keymap.ts       — key codes, modifier list, platform
+ *  - hotkey-keymap.ts      , key codes, modifier list, platform
  *                            detection (IS_MAC/IS_WIN/IS_LINUX),
  *                            preset lists, and re-exports of the
  *                            shared validation primitives
  *                            (detectPlatform/isReserved/normalizeHotkey/
  *                             RESERVED_SHORTCUTS).
- *  - hotkey-format.ts       — display formatting (formatHotkey /
+ *  - hotkey-format.ts      , display formatting (formatHotkey /
  *                            formatHotkeyLabel / formatHotkeyForPlatform)
  *                            + config-default constants
  *                            (HOTKEY_DEFAULT/REPASTE_HOTKEY_DEFAULT) +
  *                            the config→label helper configHotkeyLabels.
- *  - hotkey-capture-state.ts — UI-mode-aware validateHotkey wrapper +
+ *  - hotkey-capture-state.ts, UI-mode-aware validateHotkey wrapper +
  *                            the capture-session state machine
  *                            (hotkeyCaptureReducer + types + tryCommitHotkey).
  *

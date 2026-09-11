@@ -1,5 +1,5 @@
 /**
- * useOnboardingComplete — handles the wizard-finished transition.
+ * useOnboardingComplete, handles the wizard-finished transition.
  *
  * Extracted from App.tsx (App.tsx slimming split) to keep
  * App.tsx a pure layout shell. Behaviour is byte-identical to the
@@ -28,7 +28,7 @@ type ReloadThemeFn = () => Promise<void>;
 interface UseOnboardingCompleteArgs {
 	/** Navigate to a page (used to land on home after the wizard). */
 	navigate: (page: Page) => void;
-	/** The ``call`` from usePython() — used to re-fetch config. */
+	/** The ``call`` from usePython(), used to re-fetch config. */
 	call: PythonCall;
 	/** Re-apply the saved theme from config (from useTheme()). */
 	reloadThemeFromConfig: ReloadThemeFn;
@@ -53,7 +53,7 @@ export function useOnboardingComplete({
 				await reloadThemeFromConfig();
 			}
 		} catch (e) {
-			// non-fatal — the user already finished onboarding;
+			// non-fatal, the user already finished onboarding;
 			// theme will be re-applied on the next config_changed
 			// event or the next app launch.
 			console.warn(

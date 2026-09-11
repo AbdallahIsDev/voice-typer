@@ -1,11 +1,11 @@
 """TCP I/O tests: pending-buffer cap, lock-split send, write timeout, ack shape.
 
 Classes:
-- TestPendingTcpBufferCappedAtThousand  — _pending_tcp cap
-- TestAckShapeConsistency               — ack shape (data field)
-- TestSendDoesNotHoldLockDuringWrite    — send() lock split
-- TestWriteTimeoutConstant              — timeout constant
-- TestSendStillDeliversMessages         — regression: lock-split doesn't break delivery
+- TestPendingTcpBufferCappedAtThousand, _pending_tcp cap
+- TestAckShapeConsistency             , ack shape (data field)
+- TestSendDoesNotHoldLockDuringWrite  , send() lock split
+- TestWriteTimeoutConstant            , timeout constant
+- TestSendStillDeliversMessages       , regression: lock-split doesn't break delivery
 
 Split out from the original monolithic tests/test_server.py (the fix, Phase 4.5).
 """
@@ -101,8 +101,8 @@ class TestAckShapeConsistency:
 
     def test_ack_with_payload_keeps_data(self, server_with_mock_app_for_push_events):
         """toggle_favorite returns ``{type: "ack", data: {favorite: bool}}``
-        — the existing data must NOT be overwritten by the empty-default
-        fallback."""
+        , the existing data must NOT be overwritten by the empty-default
+          fallback."""
         srv = server_with_mock_app_for_push_events
         srv.service.toggle_favorite = lambda rec_id: True
 
@@ -130,7 +130,7 @@ class TestAckShapeConsistency:
 other IPC dispatcher while a slow Electron renderer drained its TCP
 receive buffer.
 
-same root cause — bubble push from the audio callback
+same root cause, bubble push from the audio callback
 worker held the same lock as ``_dispatch``, so user-visible commands
 like ``get_microphones`` lagged during recording.
 
@@ -158,7 +158,7 @@ class TestSendDoesNotHoldLockDuringWrite:
         srv = server_with_mock_app_for_tcp_io
 
         # Build a fake TCP client whose write() blocks for 500ms.
-        # We don't need a real socket — just an object whose write()
+        # We don't need a real socket, just an object whose write()
         # takes a long time.
         class SlowClient:
             def __init__(self):
@@ -207,14 +207,14 @@ class TestSendDoesNotHoldLockDuringWrite:
         assert lock_acquired_at, "lock grabber never acquired the lock"
         lock_grab_latency = lock_acquired_at[0] - start
         assert lock_grab_latency < 0.3, (
-            f"Lock took {lock_grab_latency:.3f}s to acquire — _send is still holding the lock during the slow write"
+            f"Lock took {lock_grab_latency:.3f}s to acquire, _send is still holding the lock during the slow write"
         )
 
     def test_select_gate_used_not_settimeout(self, server_with_mock_app_for_tcp_io):
         """The per-write ``settimeout`` dance has been replaced with a
         ``select.select``-based write-readiness gate
         (``_await_socket_writable``). ``_send`` must NOT call
-        ``settimeout`` or ``gettimeout`` on the socket — the socket's
+        ``settimeout`` or ``gettimeout`` on the socket, the socket's
         timeout attribute is never mutated, so the auth-read deadline
         set on the connection survives the write trivially (the
         original deadlock root cause was ``settimeout(None)``
@@ -245,7 +245,7 @@ class TestSendDoesNotHoldLockDuringWrite:
         srv._send({"type": "test"})
 
         # The select-based approach must NOT call settimeout or gettimeout
-        # on the socket — the timeout attribute is never read or written.
+        # on the socket, the timeout attribute is never read or written.
         fake_conn.settimeout.assert_not_called()
         fake_conn.gettimeout.assert_not_called()
 
@@ -275,7 +275,7 @@ class TestSendDoesNotHoldLockDuringWrite:
         srv._tcp_client = failing
         srv._tcp_mode = True
 
-        # _send must not raise — it should swallow the OSError and drop
+        # _send must not raise, it should swallow the OSError and drop
         # the client.
         srv._send({"type": "test"})
 

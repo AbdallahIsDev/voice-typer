@@ -20,7 +20,7 @@ class LastResortNotifyMixin:
         The app NEVER downloads models automatically, so a
         ``ModelNotDownloadedError`` (or ``ModelIntegrityError``) at load
         time is a UX signal: tell the user the model isn't on disk and
-        point them at the Models page — instead of the generic "model
+        point them at the Models page, instead of the generic "model
         load failed" message that implies a transient, retryable error.
 
         Returns a short human-readable ``failure_reason`` string for
@@ -30,13 +30,13 @@ class LastResortNotifyMixin:
         # Distinguish the two load-refusal flavors so the tray surfaces
         # the message that matches the actual state (and the renderer's
         # Home status pill):
-        #  1. ``NO_MODEL_SIZE`` (``model_size == ""``) — genuine "no
+        #  1. ``NO_MODEL_SIZE`` (``model_size == ""``), genuine "no
         #     model selected": nothing is configured, so tell the user
         #     to pick a model. Uses ``state.model_manager
         #     .no_model_selected``, whose text matches the renderer's
         #     ``home.noModelSelectedHint`` (pushed via ``set_tray_locale``)
         #     so the tray tooltip and the Home hint agree verbatim.
-        #  2. A concrete model that is missing from disk — "model not
+        #  2. A concrete model that is missing from disk, "model not
         #     downloaded": tell the user to download it.
         no_model_selected = isinstance(exc, ModelNotDownloadedError) and exc.model_size == NO_MODEL_SIZE
         if isinstance(exc, ModelIntegrityError):
@@ -75,7 +75,7 @@ class LastResortNotifyMixin:
         """Fast filesystem probe: is the active backend's model on disk?
 
         Returns True (proceed with load) when the config is not a real
-        ``Config`` (test doubles — the probe must never read the real
+        ``Config`` (test doubles, the probe must never read the real
         user's HF cache from a unit test), the backend is cloud/unknown
         (no local model to gate), or the model size is unknown. Only
         definitively-absent LOCAL models are refused. The probe itself
@@ -92,7 +92,7 @@ class LastResortNotifyMixin:
         Lazily creates ``_deliberately_unloaded`` so ``__new__``-
         constructed test fixtures (which bypass ``__init__``) that call
         ``_evict_lru_model`` / ``_do_idle_unload`` etc. don't raise
-        ``AttributeError`` — mirrors the defensive ``getattr`` pattern
+        ``AttributeError``: mirrors the defensive ``getattr`` pattern
         in ``cancel_idle_unload_timer``.
         """
         if not backend_name:
@@ -121,7 +121,7 @@ class LastResortNotifyMixin:
 
         During these windows the backend is REGISTERED but not yet
         loaded (``is_loaded=False``), so a ``get_active`` last-resort
-        fall-through is a false positive — the model is about to be
+        fall-through is a false positive, the model is about to be
         ready, not broken. The last-resort tray notification must be
         suppressed until the load settles.
         """
@@ -144,7 +144,7 @@ class LastResortNotifyMixin:
         ``_should_suppress_backend_disabled_notification`` so BOTH
         event surfaces (the ``asr_last_resort_unloaded`` tray/toast and
         the ``asr_backend_disabled`` event) suppress during the same
-        windows — a backend that is mid-switch or deliberately released
+        windows, a backend that is mid-switch or deliberately released
         is not "broken", so neither surface should alert.
         """
         if getattr(self._app, "_shutting_down", False):
@@ -160,7 +160,7 @@ class LastResortNotifyMixin:
         Wired as the breaker's backend-disabled event gate in
         ``__init__`` so the ``asr_backend_disabled`` event_bus publish
         (consumed by the renderer) matches the last-resort suppression
-        windows — during a deliberate unload (idle-unload / force-unload /
+        windows, during a deliberate unload (idle-unload / force-unload /
         LRU eviction / model change) or while a load is in progress, a
         transient load failure can trip the breaker and would otherwise
         publish a spurious "backend disabled" event telling the user the
@@ -171,7 +171,7 @@ class LastResortNotifyMixin:
         breaker trip (``_record_failure`` skips already-disabled
         backends), so there is nothing to spam. The state mutation
         (disabling the backend in the breaker) is intentionally NOT
-        gated — only the notification surface.
+        gated, only the notification surface.
         """
         if self._in_deliberate_unload_window(backend_name):
             log.debug(
@@ -189,13 +189,13 @@ class LastResortNotifyMixin:
         (``_on_last_resort_unloaded``) and the event_bus suppression
         gate (wired in ``__init__``) so the renderer toast that consumes
         the ``asr_last_resort_unloaded`` event matches the tray
-        notification's suppressions exactly — the toast cannot see these
+         notification's suppressions exactly: the toast cannot see these
         ModelManager-side checks otherwise.
 
         Suppressed when:
         * the app is shutting down (tray may be torn down);
         * a load / model-change / backend-change thread is alive (or a
-          synchronous load is running) — the backend is registered but
+          synchronous load is running), the backend is registered but
           about to load, not actually broken;
         * the backend was deliberately unloaded this session
           (idle-unload / force-unload / LRU eviction / model change) —
@@ -210,7 +210,7 @@ class LastResortNotifyMixin:
         backend-disabled gate so both surfaces suppress during the same
         windows); the cooldown is last-resort-only.
 
-        NOTE: the cooldown read here is read-only — the timestamp is
+        NOTE: the cooldown read here is read-only, the timestamp is
         recorded by the tray subscriber after a non-suppressed
         transition (``_on_last_resort_unloaded``), so the two callers
         can't double-record.
@@ -218,7 +218,7 @@ class LastResortNotifyMixin:
         if self._in_deliberate_unload_window(backend_name):
             if self._was_deliberately_unloaded(backend_name):
                 log.debug(
-                    "[MODEL] last-resort unloaded %s suppressed (deliberate unload — model on disk)",
+                    "[MODEL] last-resort unloaded %s suppressed (deliberate unload, model on disk)",
                     backend_name,
                 )
             return True
@@ -246,7 +246,7 @@ class LastResortNotifyMixin:
         the documented tray notification was dead code). Without this,
         an unloaded backend (e.g. the model failed to load / is not
         downloaded) silently returns empty transcriptions with no
-        visible feedback — exactly the ``transcription may return empty
+        visible feedback, exactly the ``transcription may return empty
         silently`` WARN the user sees every 15s.
 
         Always points the user at the Models page with the download
@@ -270,7 +270,7 @@ class LastResortNotifyMixin:
         # the two callers can't double-record.
         self._last_resort_notified_at[backend_name] = time.monotonic()
         # Respect the user's notifications toggle (mirrors
-        # ``tray_notifications.notify`` — the event-bus path below must
+        # ``tray_notifications.notify``: the event-bus path below must
         # not bypass it).
         if not getattr(self._app.tray, "_notifications_enabled", True):
             return
@@ -297,7 +297,7 @@ class LastResortNotifyMixin:
         if live:
             try:
                 # NOTE: ``event_bus.publish`` returning True only means an
-                # in-process subscriber accepted the event — it does NOT
+                # in-process subscriber accepted the event, it does NOT
                 # prove the host received it (the TCP transport buffers
                 # to ``_pending_tcp`` and marks the client dead on write
                 # failure instead of raising). If the host dies between
@@ -324,7 +324,7 @@ class LastResortNotifyMixin:
                 return
             except Exception:
                 log.debug(
-                    "[MODEL] last-resort notification event publish failed — falling back to tray balloon",
+                    "[MODEL] last-resort notification event publish failed, falling back to tray balloon",
                     exc_info=True,
                 )
         try:

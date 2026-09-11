@@ -21,13 +21,13 @@ The current noise filtering system has **7 mechanisms** across 4 files, with 3 c
 3. **Two filter layers silently no-op.** `pyrnnoise` and `noisereduce` are optional deps not in the default install. Config flags default ON but libraries are missing → filters do nothing, no warning.
 4. **Duplicate AGCs.** Layer B4 (`AudioProcessor._apply_normalization`, per-chunk peak, 4× cap) and Layer C1 (`Recorder._agc_update`, slow RMS, ~1s) run in series, uncoordinated. B4 is undocumented, not in UI, can pump on transients.
 5. **Inconsistent defaults.** Three different values for the noise-gate threshold (`0.003` in config, `0.015` in UI tooltip, `0.015` in `level_monitor` fallback). Two different values for gate hold (`300ms` in dataclass, `150ms` in config).
-6. **Dead config fields.** `silence_rms_threshold`, `silence_peak_threshold` — declared, validated, never read.
+6. **Dead config fields.** `silence_rms_threshold`, `silence_peak_threshold` Declared, validated, never read.
 7. **Stale module docstring.** `audio_processor.py` documents 4 layers; code has 5 (B4 added later, doc never updated).
 8. **Streaming path misses post-capture denoise.** `noisereduce` runs only in `stop()`; the incremental streaming ASR path gets un-denoised audio.
 
 ---
 
-## 2. Decision — Filter Chain Architecture
+## 2. Decision: Filter Chain Architecture
 
 Adopt the **filter chain pattern** (like OBS Studio). Each filter is an independent class implementing a common interface. Filters are composed into an ordered chain. The chain is rebuilt on every config change so live edits take effect immediately.
 
@@ -40,12 +40,12 @@ Mic → HighPass → NoiseSuppressor → NoiseGate → Equalizer → Compressor 
 ```
 
 **Order rationale** (matches OBS best practice):
-1. **HighPass** first — removes low-frequency rumble before it hits the neural denoiser (improves denoiser accuracy).
-2. **NoiseSuppressor** second — removes stationary/non-stationary noise while the signal is still raw.
-3. **NoiseGate** third — closes the mic during silence so downstream filters don't process noise.
-4. **Equalizer** fourth — shape the tone after noise is gone.
-5. **Compressor** fifth — even out dynamics after tone shaping.
-6. **Limiter** last — brick-wall safety net before ASR.
+1. **HighPass** first: removes low-frequency rumble before it hits the neural denoiser (improves denoiser accuracy).
+2. **NoiseSuppressor** second: removes stationary/non-stationary noise while the signal is still raw.
+3. **NoiseGate** third: closes the mic during silence so downstream filters don't process noise.
+4. **Equalizer** fourth: shape the tone after noise is gone.
+5. **Compressor** fifth: even out dynamics after tone shaping.
+6. **Limiter** last: brick-wall safety net before ASR.
 
 ### 2.2 Filter interface
 
@@ -98,13 +98,13 @@ class FilterChain:
 
 ---
 
-## 3. Filters — Specification
+## 3. Filters: Specification
 
 All filters operate on `float32` numpy arrays, mono, sample-rate-agnostic (passed as argument). State is per-instance. All dynamics filters use the **OBS one-pole envelope smoother**: `coefficient = exp(-1 / (sample_rate * time_seconds))`.
 
 ### 3.1 HighPassFilter
 
-- **Algorithm**: scipy `butter(order=4, cutoff, btype="high")` via `lfilter` with `zi` state. Order 4 (was 2 — steeper rolloff, 24dB/oct).
+- **Algorithm**: scipy `butter(order=4, cutoff, btype="high")` via `lfilter` with `zi` state. Order 4 (was 2: steeper rolloff, 24dB/oct).
 - **Anti-denormal**: add `1.0 / 4294967295.0` to the first `zi` state on init.
 - **Config**: `noise_filter_highpass` (bool, default True), `noise_filter_highpass_cutoff_hz` (float, default 80.0, range 20–500).
 - **Latency**: 0ms (IIR).
@@ -112,12 +112,12 @@ All filters operate on `float32` numpy arrays, mono, sample-rate-agnostic (passe
 ### 3.2 NoiseSuppressor (multi-backend)
 
 - **Backends** (runtime-switchable via `noise_suppression_method`):
-  - `"rnnoise"` — `pyrnnoise` package, 480-sample frames, default model. **Default dependency** (not optional).
-  - `"deepfilternet"` — `deepfilternet` package (pulls `torch` as its own backend dependency when the `[deepfilternet]` extra is installed; torch is NOT a project dep post-2026-08-13 ONNX migration — see ADR-0005). Higher quality, 2-3× CPU. Offered as premium option.
-  - `"speex"` — `speexdsp` preprocessor. Lightest CPU. Fallback for low-end devices.
-  - `"none"` — passthrough.
+  - `"rnnoise"` `pyrnnoise` package, 480-sample frames, default model. **Default dependency** (not optional).
+  - `"deepfilternet"` `deepfilternet` package (pulls `torch` as its own backend dependency when the `[deepfilternet]` extra is installed; torch is NOT a project dep post-2026-08-13 ONNX migration, see ADR-0005). Higher quality, 2-3× CPU. Offered as premium option.
+  - `"speex"` `speexdsp` preprocessor. Lightest CPU. Fallback for low-end devices.
+  - `"none"` Passthrough.
 - **Resampling**: RNNoise requires 48kHz; DeepFilterNet requires 48kHz; Speex is rate-agnostic. If source rate ≠ 48kHz, round-trip resample via `scipy.signal.resample_poly`.
-- **Frame buffering**: maintain input/output deques (like OBS). Return `None` from `process()` when buffer is underfilled — `FilterChain.process()` propagates `None` to signal the recorder callback to skip this chunk.
+- **Frame buffering**: maintain input/output deques (like OBS). Return `None` from `process()` when buffer is underfilled, `FilterChain.process()` propagates `None` to signal the recorder callback to skip this chunk.
 - **Config**: `noise_filter_rnnoise` (bool, default True), `noise_suppression_method` (str, default `"rnnoise"`).
 - **Latency**: ~10ms (one frame).
 - **Graceful degradation**: if the selected backend's library is missing, log a WARNING once, fall back to `"none"`, and set a `degraded` flag the UI can read via `get_audio_status` IPC.
@@ -125,7 +125,7 @@ All filters operate on `float32` numpy arrays, mono, sample-rate-agnostic (passe
 ### 3.3 NoiseGate (downward expander)
 
 - **Algorithm**: OBS-style peak-hold level estimator + state machine + linear attack/release ramp.
-- **Detection**: peak (not RMS) — `level = max(level, |sample|) - decay_rate`, where `decay_rate = (open_threshold - close_threshold) / (sample_rate / 75)`.
+- **Detection**: peak (not RMS), `level = max(level, |sample|) - decay_rate`, where `decay_rate = (open_threshold - close_threshold) / (sample_rate / 75)`.
 - **State machine**:
   - `level > open_threshold` → `is_open = True`
   - `level < close_threshold` → `is_open = False`, `held_time = 0`
@@ -159,30 +159,30 @@ All filters operate on `float32` numpy arrays, mono, sample-rate-agnostic (passe
 - **Config**: `noise_filter_limiter` (bool, default True), `noise_filter_limiter_ceiling_db` (float, default -6.0, range -60..0), `noise_filter_limiter_release_ms` (float, default 60.0).
 - **Latency**: 0ms.
 
-### 3.7 NotchFilter (50/60Hz hum) — optional, default OFF
+### 3.7 NotchFilter (50/60Hz hum): optional, default OFF
 
 - **Algorithm**: scipy `iirnotch(f0, Q=30)` via `lfilter` with `zi` state.
-- **Config**: `noise_filter_notch` (bool, default False), `noise_filter_notch_frequency_hz` (float, default 0.0 — 0 means auto-detect from locale: 50 for EU/Asia, 60 for Americas).
+- **Config**: `noise_filter_notch` (bool, default False), `noise_filter_notch_frequency_hz` (float, default 0.0: 0 means auto-detect from locale: 50 for EU/Asia, 60 for Americas).
 - **Latency**: 0ms.
 
-### 3.8 Post-capture denoise — REMOVED
+### 3.8 Post-capture denoise: REMOVED
 
 - **Decision**: Delete the post-capture *denoise filter* (Layer B3 in the
   original `AudioProcessor`) entirely.
 - **Rationale**: Real-time NoiseSuppressor makes it redundant. The streaming path never used it. The "first 0.5s is silence" assumption was fragile. `noisereduce` is removed from dependencies.
 - **Note (GT-58)**: the `noise_filter_post_capture` *Config field* is
   retained as a runtime gate (read by `level_monitor.py` and
-  `microphone_test.py`). See §5.4 below — it is NOT deprecated.
+  `microphone_test.py`). See §5.4 below: it is NOT deprecated.
 
 ---
 
-## 4. VAD (Voice Activity Detection) — Changes
+## 4. VAD (Voice Activity Detection), Changes
 
 VAD is NOT part of the filter chain (it's decision-only, doesn't modify audio). But it has related changes:
 
 ### 4.1 Enable Silero VAD by default
 
-- **Current (post-2026-08-13 ONNX migration)**: `use_silero_vad=True`. Silero model is the bundled `silero_vad.onnx` loaded via `onnxruntime.InferenceSession` (CPUExecutionProvider-pinned) — see ADR-0005. The pre-migration `torch.hub.load('snakers4/silero-vad', 'silero_vad')` path is retired; no network fetch is ever attempted (C-DATA-1).
+- **Current (post-2026-08-13 ONNX migration)**: `use_silero_vad=True`. Silero model is the bundled `silero_vad.onnx` loaded via `onnxruntime.InferenceSession` (CPUExecutionProvider-pinned): see ADR-0005. The pre-migration `torch.hub.load('snakers4/silero-vad', 'silero_vad')` path is retired; no network fetch is ever attempted (C-DATA-1).
 - **Graceful degradation**: if `onnxruntime` import fails or the bundled `.onnx` file is missing, fall back to RMS-dB VAD with a WARNING log.
 
 ### 4.2 Feed recording VAD timestamps to Whisper
@@ -192,8 +192,8 @@ VAD is NOT part of the filter chain (it's decision-only, doesn't modify audio). 
 
 ### 4.3 Delete dead config fields
 
-- `silence_rms_threshold` — removed (never read).
-- `silence_peak_threshold` — removed (never read).
+- `silence_rms_threshold` Removed (never read).
+- `silence_peak_threshold` Removed (never read).
 
 ---
 
@@ -243,45 +243,45 @@ noise_filter_notch_frequency_hz: float = 0.0  # 0 = auto-detect
 > **GT-58 (2026-07 update)**: the fields listed below were *previously*
 > kept on the `Config` dataclass with `# DEPRECATED` comments "for
 > backward compat". They have now been **removed from the dataclass
-> entirely** — they were declared, validated, and persisted but never
+> entirely**: they were declared, validated, and persisted but never
 > read at runtime. Existing `config.json` files written by older app
 > versions that still carry these keys load without raising because the
 > v3 schema migration (`_migrate_to_v3`) silently scrubs them before
 > construction. Do NOT re-add these fields.
 
-- `normalize_audio` — removed (replaced by Compressor).
-- `normalize_target_peak` — removed (replaced by Compressor).
-- `silence_rms_threshold` — removed (dead code).
-- `silence_peak_threshold` — removed (dead code).
-- `noise_filter_gate_threshold` — removed (replaced by open/close thresholds).
-- `volume_duck_per_session` — removed (ducking now always applies to master volume cross-platform).
-- `volume_duck_smart` — removed (smart duck is always ON when `volume_duck_enabled` is True).
+- `normalize_audio` Removed (replaced by Compressor).
+- `normalize_target_peak` Removed (replaced by Compressor).
+- `silence_rms_threshold` Removed (dead code).
+- `silence_peak_threshold` Removed (dead code).
+- `noise_filter_gate_threshold` Removed (replaced by open/close thresholds).
+- `volume_duck_per_session` Removed (ducking now always applies to master volume cross-platform).
+- `volume_duck_smart` Removed (smart duck is always ON when `volume_duck_enabled` is True).
 
 ### 5.3 Modified defaults
 
 - `use_silero_vad`: `False` → `True` (post-2026-08-13 ONNX migration: VAD runs on `onnxruntime` against the bundled `silero_vad.onnx`; torch is no longer required).
 - `noise_filter_rnnoise`: `False` → `True` (RNNoise is now a default dep).
 - `noise_filter_highpass_cutoff_hz`: stays `80.0` (but filter order goes from 2 to 4).
-- `noise_filter_gate_hold_ms`: stays `200.0` (was inconsistent — dataclass said 300, config said 150; now unified to 200 to match OBS).
+- `noise_filter_gate_hold_ms`: stays `200.0` (was inconsistent: dataclass said 300, config said 150; now unified to 200 to match OBS).
 
 ### 5.4 Runtime switches (NOT deprecated)
 
 > **GT-58 (2026-07 update)**: previous revisions of this ADR labelled
 > these fields "deprecated" and listed `noise_filter_post_capture` under
-> §5.2 "Removed fields". That was incorrect — they are actively read at
+> §5.2 "Removed fields". That was incorrect, they are actively read at
 > runtime by `level_monitor.py` and synced by `config_applier.py`. The
 > misleading `# DEPRECATED` comments on the dataclass fields have been
 > removed. These fields remain first-class `Config` dataclass members
 > and are NOT scrubbed by the v3 schema migration.
 
-- `noise_filter_enabled` — runtime switch read by `level_monitor.py`
+- `noise_filter_enabled` Runtime switch read by `level_monitor.py`
   (`if not config_dict.get("noise_filter_enabled", True)`). Synced from
   `audio_preset` by `config_applier.py` (`config.noise_filter_enabled =
   preset != "off"`), so its on-disk value is a derived cache. Old
   configs with `noise_filter_enabled=False` are migrated to
   `audio_preset="off"` by the v1→v2 schema migration, after which
   `apply_preset` re-derives the runtime value on every load.
-- `noise_filter_post_capture` — runtime switch read by
+- `noise_filter_post_capture` Runtime switch read by
   `level_monitor.py` and `microphone_test.py`. The post-capture
   *filter* (Layer B3 in the original `AudioProcessor`) was removed, but
   the flag itself is still consulted as a runtime gate, so the
@@ -289,7 +289,7 @@ noise_filter_notch_frequency_hz: float = 0.0  # 0 = auto-detect
 
 ### 5.5 Preset definitions (single source of truth)
 
-**File**: `voice_typer/server/audio_presets.py` (NEW — eliminates the 3-way duplication).
+**File**: `voice_typer/server/audio_presets.py` (NEW: eliminates the 3-way duplication).
 
 ```python
 PRESETS = {
@@ -333,7 +333,7 @@ PRESETS = {
 }
 ```
 
-**Applied at**: (a) startup in `Config.load()` via `apply_preset_if_set()`, (b) on explicit `set_config` with `audio_preset` key. NOT just on explicit click — this fixes the "preset never applied at startup" bug.
+**Applied at**: (a) startup in `Config.load()` via `apply_preset_if_set()`, (b) on explicit `set_config` with `audio_preset` key. NOT just on explicit click. This fixes the "preset never applied at startup" bug.
 
 ---
 
@@ -341,7 +341,7 @@ PRESETS = {
 
 ### 6.1 Live config rebuild
 
-**File**: `voice_typer/server/service.py` — `apply_config_side_effects()`
+**File**: `voice_typer/server/service.py` `apply_config_side_effects()`
 
 When any `noise_filter_*` or `audio_preset` or `noise_suppression_method` key is in the update:
 1. Call `app._rebuild_audio_processor()` (new method).
@@ -360,7 +360,7 @@ The `audio_preset="auto"` preset (the new default) exactly matches the new confi
 
 Move `pyrnnoise` from the `[noise-filter]` optional extra to the main `[dependencies]` list. Remove the `[noise-filter]` extra entirely (noisereduce is deleted, RNNoise is now required).
 
-Add `deepfilternet` to a new `[deepfilternet]` optional extra (deepfilternet itself pulls `torch` as its own backend dep when installed — torch is NOT a project dep post-2026-08-13 ONNX migration):
+Add `deepfilternet` to a new `[deepfilternet]` optional extra (deepfilternet itself pulls `torch` as its own backend dep when installed, torch is NOT a project dep post-2026-08-13 ONNX migration):
 ```toml
 [project.optional-dependencies]
 deepfilternet = ["deepfilternet>=0.5"]
@@ -471,14 +471,14 @@ Notch Filter (hum):       [OFF] ▼
 | File | Changes |
 |---|---|
 | `voice_typer/server/audio_processor.py` | Gut the monolithic processor. Keep `AudioProcessor` as a thin wrapper around `FilterChain`. Delete `_apply_normalization` (B4), `_apply_noise_gate` (moved to chain), `_apply_rnnoise` (moved to chain), `_apply_highpass` (moved to chain), `process_full_audio` (post-capture deleted). Keep `process_chunk` as `chain.process()`. Update docstring. |
-| `voice_typer/server/recording/` | Delete `_agc_update` (C1 — replaced by Compressor in chain). Delete `_apply_normalization` call. Keep VAD. |
+| `voice_typer/server/recording/` | Delete `_agc_update` (C1: replaced by Compressor in chain). Delete `_apply_normalization` call. Keep VAD. |
 | `voice_typer/server/config.py` | Add new fields (§5.1), remove deleted fields (§5.2), change defaults (§5.3). Add migration logic in `load()`: if `noise_filter_enabled=False` → `audio_preset="off"`. |
 | `voice_typer/server/service.py` | Fix `apply_config_side_effects` to call `app._rebuild_audio_processor()` on noise_filter_* changes (§6.1). Move preset mapping to `audio_presets.py`. |
 | `voice_typer/server/app.py` | Add `_rebuild_audio_processor()` method. Delete `_audio_processor` construction in `__init__` (deferred to `_rebuild_audio_processor` called from `__init__`). |
 | `voice_typer/server/ipc_server.py` | Add `get_audio_status` IPC handler. |
-| `voice_typer/server/vad.py` | Change `use_silero_vad` default to True. Add graceful fallback if `onnxruntime`/bundled `silero_vad.onnx` unavailable (post-2026-08-13 ONNX migration — see ADR-0005). |
+| `voice_typer/server/vad.py` | Change `use_silero_vad` default to True. Add graceful fallback if `onnxruntime`/bundled `silero_vad.onnx` unavailable (post-2026-08-13 ONNX migration: see ADR-0005). |
 | `voice_typer/server/transcription.py` | Pass recording VAD timestamps to Whisper to skip duplicate VAD pass (§4.2). |
-| `voice_typer/server/level_monitor.py` | Unify gate threshold fallback to `-26dB` (was `0.015` linear — different from recorder). |
+| `voice_typer/server/level_monitor.py` | Unify gate threshold fallback to `-26dB` (was `0.015` linear: different from recorder). |
 | `voice_typer/client/src/renderer/src/pages/Settings.tsx` | Replace 7 noise filter controls with preset dropdown + progressive-disclosure Custom panel (§7). |
 | `voice_typer/client/src/renderer/src/components/AudioPresetSelector.tsx` | Update preset list to 5 (Auto/Studio/Noisy Room/Off/Custom). Fetch preset definitions from backend (single source of truth). |
 | `voice_typer/client/src/renderer/src/types/config.ts` | Add new fields, remove deleted fields. |
@@ -492,8 +492,8 @@ Notch Filter (hum):       [OFF] ▼
 - `AudioProcessor._apply_noise_gate` (moved to `audio_filters/noise_gate.py`)
 - `AudioProcessor._apply_rnnoise` (moved to `audio_filters/noise_suppressor.py`)
 - `AudioProcessor._apply_highpass` (moved to `audio_filters/highpass.py`)
-- `AudioProcessor.process_full_audio` (post-capture noisereduce — deleted)
-- `Recorder._agc_update` (C1 — replaced by Compressor)
+- `AudioProcessor.process_full_audio` (post-capture noisereduce: deleted)
+- `Recorder._agc_update` (C1: replaced by Compressor)
 - `service._apply_audio_preset` (moved to `audio_presets.py`)
 - `Microphone.tsx::PRESET_TO_FILTERS` (moved to backend `audio_presets.py`)
 
@@ -522,14 +522,14 @@ Notch Filter (hum):       [OFF] ▼
 
 ### 9.3 Backend availability
 
-- **RNNoise missing** (shouldn't happen — it's a default dep now, but defensive): `NoiseSuppressor` falls back to `"none"`, sets `degraded=True`, `degraded_reasons=["rnnoise library not found"]`. UI shows warning banner.
+- **RNNoise missing** (shouldn't happen: it's a default dep now, but defensive): `NoiseSuppressor` falls back to `"none"`, sets `degraded=True`, `degraded_reasons=["rnnoise library not found"]`. UI shows warning banner.
 - **DeepFilterNet missing** (user didn't install the extra): if `noise_suppression_method="deepfilternet"` and library missing, fall back to `"rnnoise"` with a WARNING log. `degraded=True`, `degraded_reasons=["deepfilternet not installed, using rnnoise"]`.
-- **Speex missing**: same pattern — fall back to `"rnnoise"`, then `"none"`.
-- **Silero VAD model fails to load** (bundled `silero_vad.onnx` missing or `onnxruntime` ImportError): fall back to RMS-dB VAD. Log WARNING. `degraded=True`, `degraded_reasons=["silero vad model unavailable, using rms"]`. (Post-2026-08-13 ONNX migration — no network fetch is ever attempted; the model is bundled locally per ADR-0005.) DeepFilterNet, which still depends on `torch` for its own backend, is tracked separately (it remains an optional extra and is unaffected by the VAD ONNX migration).
+- **Speex missing**: same pattern, fall back to `"rnnoise"`, then `"none"`.
+- **Silero VAD model fails to load** (bundled `silero_vad.onnx` missing or `onnxruntime` ImportError): fall back to RMS-dB VAD. Log WARNING. `degraded=True`, `degraded_reasons=["silero vad model unavailable, using rms"]`. (Post-2026-08-13 ONNX migration: no network fetch is ever attempted; the model is bundled locally per ADR-0005.) DeepFilterNet, which still depends on `torch` for its own backend, is tracked separately (it remains an optional extra and is unaffected by the VAD ONNX migration).
 
 ### 9.4 Live config rebuild
 
-- **Rebuild during active recording**: the swap is atomic (`app._audio_processor._chain = new_chain` under a lock). The next `process_chunk` uses the new chain. The old chain's `reset()` is called after the swap. No audio gap — the new chain starts processing the next chunk immediately. State (gate openness, compressor envelope) starts fresh, which may cause a brief level change but no click/artifact.
+- **Rebuild during active recording**: the swap is atomic (`app._audio_processor._chain = new_chain` under a lock). The next `process_chunk` uses the new chain. The old chain's `reset()` is called after the swap. No audio gap. The new chain starts processing the next chunk immediately. State (gate openness, compressor envelope) starts fresh, which may cause a brief level change but no click/artifact.
 - **Rapid config changes** (user dragging a slider): debounce 300ms in the UI before sending `set_config`. Backend rebuild is idempotent and cheap (<5ms). No throttling needed beyond the UI debounce.
 - **Rebuild fails** (e.g. invalid config): log ERROR, keep the old chain. Don't crash. The UI shows the error via `get_audio_status`.
 
@@ -537,21 +537,21 @@ Notch Filter (hum):       [OFF] ▼
 
 - **Preset applied at startup**: `Config.load()` calls `apply_preset_if_set()` after loading. If `audio_preset` is a named preset (not "custom"), it overrides the individual `noise_filter_*` fields. This ensures the preset always matches the actual filter state.
 - **User in Custom mode changes a filter**: `audio_preset` stays "custom". No automatic preset change.
-- **User switches from Custom to a named preset**: preset overrides all individual fields. User's custom tweaks are lost (expected — switching presets is a deliberate action).
-- **Preset defines a field the config doesn't have**: ignore it (forward-compat — newer preset references a field added in a future version).
+- **User switches from Custom to a named preset**: preset overrides all individual fields. User's custom tweaks are lost (expected, switching presets is a deliberate action).
+- **Preset defines a field the config doesn't have**: ignore it (forward-compat, newer preset references a field added in a future version).
 
 ### 9.6 UI
 
 - **Custom panel expand/collapse animation**: 200ms CSS transition. No layout shift for elements below (use `max-height` transition).
 - **Slider value formatting**: dB values show with sign (`+3dB`, `-3dB`). Hz values show as integers. ms values show as integers. Ratio shows as `N:1`.
-- **Degraded warning banner**: if `get_audio_status` returns `degraded=true`, show a yellow banner above the preset dropdown: "Some filters are running in degraded mode — click for details."
+- **Degraded warning banner**: if `get_audio_status` returns `degraded=true`, show a yellow banner above the preset dropdown: "Some filters are running in degraded mode, click for details."
 - **Preset dropdown disabled while loading**: if `get_audio_status` is in-flight, disable the dropdown for 100ms. Prevents race conditions.
 
 ### 9.7 Cross-platform
 
 - **All filters are pure Python + numpy/scipy**: no platform-specific code. Same behavior on Windows, macOS, Linux.
-- **RNNoise**: `pyrnnoise` ships pre-built wheels for Windows/macOS/Linux x64. On Linux ARM64 (Raspberry Pi), may need compilation — documented in README. If unavailable, falls back to `"none"`.
-- **DeepFilterNet**: pulls `torch` as its own backend dep (only when the `[deepfilternet]` extra is installed; torch is NOT a project dep post-2026-08-13 ONNX migration). Works on all platforms torch supports. On ARM64, may be slow — documented.
+- **RNNoise**: `pyrnnoise` ships pre-built wheels for Windows/macOS/Linux x64. On Linux ARM64 (Raspberry Pi), may need compilation, documented in README. If unavailable, falls back to `"none"`.
+- **DeepFilterNet**: pulls `torch` as its own backend dep (only when the `[deepfilternet]` extra is installed; torch is NOT a project dep post-2026-08-13 ONNX migration). Works on all platforms torch supports. On ARM64, may be slow, documented.
 - **Speex**: `speexdsp` Python package ships wheels for major platforms. If unavailable, falls back.
 - **No native C code**: all filters are Python. No compilation step needed. No platform-specific binaries.
 
@@ -560,25 +560,25 @@ Notch Filter (hum):       [OFF] ▼
 - **Target latency**: total chain < 15ms (HighPass 0 + NoiseSuppressor 10 + Gate 0 + EQ 0.06 + Compressor 0 + Limiter 0).
 - **Target CPU**: < 5% on a modern CPU for real-time 16kHz mono. RNNoise is the bottleneck (~1ms per 480-sample frame). DeepFilterNet is 2-3× heavier.
 - **If CPU overloaded**: the recorder callback's `time.monotonic()` check detects overrun and logs a WARNING. If sustained, the UI shows a "audio processing overload" warning. User can switch to `"speex"` or `"none"` to reduce load.
-- **Streaming path**: the chain runs on every chunk for both the live buffer and the streaming ASR path. No separate processing — one chain, one pass.
+- **Streaming path**: the chain runs on every chunk for both the live buffer and the streaming ASR path. No separate processing, one chain, one pass.
 
 ---
 
 ## 10. Implementation Order
 
-1. **Create `audio_filters/` package** — base classes + all 8 filters. Unit-test each in isolation.
-2. **Create `audio_presets.py`** — single source of truth for preset → filter mapping.
-3. **Create `audio_chain_builder.py`** — factory that builds a `FilterChain` from config.
-4. **Refactor `AudioProcessor`** — gut the monolith, replace with `FilterChain` wrapper. Delete B4, post-capture.
-5. **Refactor `Recorder`** — delete C1 (AGC). Keep VAD.
-6. **Update `Config`** — add/remove fields, change defaults, add migration.
-7. **Fix `service.apply_config_side_effects`** — rebuild dictation processor on config change.
-8. **Update VAD** — enable Silero by default, add fallback, pass timestamps to Whisper.
-9. **Update `pyproject.toml`** — RNNoise as default dep, DeepFilterNet as extra, remove noisereduce.
-10. **Add `get_audio_status` IPC** — for UI degraded-mode reporting.
-11. **Update Settings UI** — preset dropdown + progressive-disclosure Custom panel.
-12. **Update tests** — new unit tests for filters, integration tests for chain + presets + live rebuild.
-13. **Update docs** — README, PLATFORM_STATUS, this ADR's status → "Implemented".
+1. **Create `audio_filters/` package**: base classes + all 8 filters. Unit-test each in isolation.
+2. **Create `audio_presets.py`**: single source of truth for preset → filter mapping.
+3. **Create `audio_chain_builder.py`**: factory that builds a `FilterChain` from config.
+4. **Refactor `AudioProcessor`**: gut the monolith, replace with `FilterChain` wrapper. Delete B4, post-capture.
+5. **Refactor `Recorder`**: delete C1 (AGC). Keep VAD.
+6. **Update `Config`**: add/remove fields, change defaults, add migration.
+7. **Fix `service.apply_config_side_effects`**: rebuild dictation processor on config change.
+8. **Update VAD**: enable Silero by default, add fallback, pass timestamps to Whisper.
+9. **Update `pyproject.toml`**: RNNoise as default dep, DeepFilterNet as extra, remove noisereduce.
+10. **Add `get_audio_status` IPC**: for UI degraded-mode reporting.
+11. **Update Settings UI**: preset dropdown + progressive-disclosure Custom panel.
+12. **Update tests**: new unit tests for filters, integration tests for chain + presets + live rebuild.
+13. **Update docs**: README, PLATFORM_STATUS, this ADR's status → "Implemented".
 
 ---
 
@@ -597,11 +597,11 @@ Notch Filter (hum):       [OFF] ▼
 
 ## 12. Alternatives Considered
 
-1. **Keep monolithic AudioProcessor, just add filters as methods** — rejected. Makes the code harder to maintain, test, and extend. The filter chain pattern is strictly better.
-2. **Use pedalboard (Spotify's audio library)** — rejected. Adds a heavy dependency, doesn't include RNNoise or DeepFilterNet, and the filters it has (compressor, EQ) are similar quality to our OBS-style implementations.
-3. **Use webrtc-audio-processing (Google's full APM)** — rejected. Includes AEC/NS/AGC, but the Python bindings are unmaintained, and AEC is not needed (volume ducking + OS AEC suffice).
-4. **Make DeepFilterNet the default** — rejected for now. Higher CPU than RNNoise; some users on older hardware will prefer the lighter option. Offer as a choice, default to RNNoise.
-5. **Keep post-capture noisereduce as an option** — rejected. Real-time NoiseSuppressor makes it redundant. The streaming path never used it. Removes complexity and a fragile "first 0.5s is silence" assumption.
+1. **Keep monolithic AudioProcessor, just add filters as methods**, rejected. Makes the code harder to maintain, test, and extend. The filter chain pattern is strictly better.
+2. **Use pedalboard (Spotify's audio library)**, rejected. Adds a heavy dependency, doesn't include RNNoise or DeepFilterNet, and the filters it has (compressor, EQ) are similar quality to our OBS-style implementations.
+3. **Use webrtc-audio-processing (Google's full APM)**, rejected. Includes AEC/NS/AGC, but the Python bindings are unmaintained, and AEC is not needed (volume ducking + OS AEC suffice).
+4. **Make DeepFilterNet the default**: rejected for now. Higher CPU than RNNoise; some users on older hardware will prefer the lighter option. Offer as a choice, default to RNNoise.
+5. **Keep post-capture noisereduce as an option**, rejected. Real-time NoiseSuppressor makes it redundant. The streaming path never used it. Removes complexity and a fragile "first 0.5s is silence" assumption.
 
 ---
 

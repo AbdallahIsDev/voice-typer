@@ -3,7 +3,7 @@
 ``ALLOWED_USER_MODELS`` is derived from
 ``model_registry.MODEL_REGISTRY`` (the canonical catalog). The catalog
 was pruned 2026-08-15 to the three Whisper variants the user wants —
-``tiny`` (the default), ``large-v3``, and ``large-v3-turbo`` — plus
+``tiny`` (the default), ``large-v3``, and ``large-v3-turbo``, plus
 ``parakeet`` and ``qwen``. Every other legacy name (``tiny.en``,
 ``base``, ``small``, ``medium.en``, ``turbo``, distil-*) is now
 invalid and gets reset to ``DEFAULT_MODEL_SIZE`` by ``Config.load()``.
@@ -30,13 +30,13 @@ class TestAllowedUserModels:
         from voice_typer.server.config_validators import ALLOWED_USER_MODELS
 
         assert "tiny" in ALLOWED_USER_MODELS, (
-            "'tiny' (the default model) is not in ALLOWED_USER_MODELS — the default itself would be reset on load."
+            "'tiny' (the default model) is not in ALLOWED_USER_MODELS, the default itself would be reset on load."
         )
         assert "large-v3" in ALLOWED_USER_MODELS, (
-            "'large-v3' is not in ALLOWED_USER_MODELS — users who pick it would be silently reset."
+            "'large-v3' is not in ALLOWED_USER_MODELS, users who pick it would be silently reset."
         )
         assert "large-v3-turbo" in ALLOWED_USER_MODELS, (
-            "'large-v3-turbo' is not in ALLOWED_USER_MODELS — users who pick it would be silently reset."
+            "'large-v3-turbo' is not in ALLOWED_USER_MODELS, users who pick it would be silently reset."
         )
 
     def test_removed_models_not_in_allowed_set(self):
@@ -51,7 +51,7 @@ class TestAllowedUserModels:
 
     def test_every_onboarding_model_option_is_allowed(self):
         """Every name in OnboardingController.MODEL_OPTIONS must be in
-        ALLOWED_USER_MODELS — otherwise Config.load() silently resets
+        ALLOWED_USER_MODELS, otherwise Config.load() silently resets
         the user's choice on the next launch."""
         from voice_typer.server.config_validators import ALLOWED_USER_MODELS
         from voice_typer.server.onboarding import OnboardingController
@@ -66,7 +66,7 @@ class TestAllowedUserModels:
 
     @pytest.mark.parametrize("model_size", ["tiny", "large-v3", "large-v3-turbo", "parakeet", "qwen"])
     def test_load_preserves_valid_model_choice(self, tmp_config_dir, model_size):
-        """Config.load() must preserve a valid model choice — it must
+        """Config.load() must preserve a valid model choice, it must
         NOT silently reset it."""
         from voice_typer.server.config import Config
 
@@ -75,7 +75,7 @@ class TestAllowedUserModels:
 
         c = Config.load()
         assert c.model_size == model_size, (
-            f"Config.load() reset model_size from '{model_size}' to '{c.model_size}' — valid choices must be preserved."
+            f"Config.load() reset model_size from '{model_size}' to '{c.model_size}', valid choices must be preserved."
         )
 
     def test_load_still_normalizes_truly_unsupported_models(self, tmp_config_dir):

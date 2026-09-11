@@ -2,10 +2,10 @@
 
 Covers the three findings owned by ER-FIX-C1:
 
-* ER-69 — ``_word_key_index`` uses bounded deques (maxlen=8).
-* ER-96 — ``_prune_old_entries`` mutates the timestamp set in place
+* ER-69: ``_word_key_index`` uses bounded deques (maxlen=8).
+* ER-96: ``_prune_old_entries`` mutates the timestamp set in place
   (no full rebuild) and is gated by a size threshold.
-* ER-67 — ``committed_text`` cache reads are incremental: appends the
+* ER-67: ``committed_text`` cache reads are incremental: appends the
   new tail instead of re-sorting+re-joining the entire deque every
   read, while preserving the sort invariant on out-of-order arrivals.
 
@@ -25,7 +25,7 @@ class TestBoundedWordKeyIndex:
     def test_word_key_index_buckets_are_bounded_deques(self):
         """Each bucket is a ``collections.deque`` with ``maxlen == 8``."""
         assembler = StreamingTextAssembler()
-        # Add one word — bucket should be created as a bounded deque.
+        # Add one word, bucket should be created as a bounded deque.
         assembler.add_words(
             [WordTiming("hello", start_seconds=0.0, end_seconds=0.5)],
             commit_horizon_seconds=2.0,
@@ -58,7 +58,7 @@ class TestBoundedWordKeyIndex:
         # After 12 insertions, only the last 8 are retained.
         assert len(bucket) == 8
         # The first retained index corresponds to the 5th insertion
-        # (absolute index 4 — 0-based). Earlier ones were auto-evicted.
+        # (absolute index 4, 0-based). Earlier ones were auto-evicted.
         assert min(bucket) == 4
         # The most recent is the 12th insertion (absolute index 11).
         assert max(bucket) == 11

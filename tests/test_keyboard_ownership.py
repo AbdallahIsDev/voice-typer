@@ -16,15 +16,15 @@ from voice_typer.server.keyboard_ownership import (
 )
 
 # Hint for xdist schedulers that respect ``xdist_group`` (loadgroup /
-# loadscope): pin every test in this module — and its sibling
-# ``test_keyboard_ownership_watchdog.py`` — onto a single worker. Both
+# loadscope): pin every test in this module, and its sibling
+# ``test_keyboard_ownership_watchdog.py``, onto a single worker. Both
 # modules reset the ``KeyboardOwnership`` class-attribute singleton via
 # autouse fixtures, and the singleton is process-wide state, so letting
 # the two modules run on different workers of the same process pool
 # (or interleaving them with other modules that touch the singleton)
 # is exactly what the resets exist to defend against; the marker is
 # defense-in-depth for same-worker grouping. xdist's default ``load``
-# scheduler does NOT strictly honor this marker — it is a hint, not a
+# scheduler does NOT strictly honor this marker, it is a hint, not a
 # correctness guarantee. No-op when xdist isn't active. (C-TEST-5.)
 pytestmark = pytest.mark.xdist_group("keyboard_ownership")
 
@@ -38,7 +38,7 @@ def _reset_ownership():
 
 
 def test_singleton_returns_same_instance() -> None:
-    """KeyboardOwnership is a singleton — all calls return the same instance."""
+    """KeyboardOwnership is a singleton, all calls return the same instance."""
     a = keyboard_ownership()
     b = keyboard_ownership()
     c = KeyboardOwnership()
@@ -92,7 +92,7 @@ def test_reset_clears_ownership() -> None:
 def test_thread_safety_concurrent_set_owner() -> None:
     """Concurrent set_owner calls from multiple threads don't corrupt state.
 
-    The singleton uses a threading.Lock — this test runs 100 threads
+    The singleton uses a threading.Lock, this test runs 100 threads
     each setting ownership 100 times and verifies the final state is
     one of the valid owners (not corrupted).
     """

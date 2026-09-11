@@ -1,18 +1,18 @@
 /**
- * History page — display-cap footer count wiring.
+ * History page: display-cap footer count wiring.
  *
  * The cap footer (rendered once the visible window reaches BOTH the
  * 200-row display cap and the end of the loaded cache while the backend
  * still reports more) used to interpolate the literal placeholder
  * `total: "N+"` (and a hardcoded `shown: "200"`) into the
- * `history.showingCap` template — every locale rendered "Showing 200 of
+ * `history.showingCap` template: every locale rendered "Showing 200 of
  * N+". The fix wires the TRUE all-time row count via the existing
  * `get_history_count` IPC (the same consumption the Analytics page's
  * useDashboardData uses) and derives `shown` from HISTORY_DISPLAY_CAP:
- * "Showing 200 of 1482 — use search to find older".
+ * "Showing 200 of 1482: use search to find older".
  *
  * While the count is still loading (or if its fetch fails) the footer
- * degrades to an ellipsis placeholder — it must NEVER render "N+".
+ * degrades to an ellipsis placeholder, it must NEVER render "N+".
  *
  * Mock strategy mirrors History.test.tsx (stableMocks preamble +
  * per-test dynamic page import + module-cache reset). The rows fixture
@@ -86,7 +86,7 @@ const zeroStats: TodayStats = {
 	duration: 0,
 };
 
-/** Serve get_history as 50-row pages (ignores the cursor — same rows by
+/** Serve get_history as 50-row pages (ignores the cursor, same rows by
  *  offset, like the backend's OFFSET fallback). */
 function pageRows(
 	payload: Record<string, unknown> | undefined,
@@ -164,7 +164,7 @@ describe("History display-cap footer count", () => {
 			(type: string, payload?: Record<string, unknown>) => {
 				if (type === "get_history") return Promise.resolve(pageRows(payload));
 				if (type === "get_today_stats") return Promise.resolve(zeroStats);
-				// Never resolves — the footer must degrade gracefully.
+				// Never resolves, the footer must degrade gracefully.
 				if (type === "get_history_count") return new Promise(() => {});
 				return Promise.resolve({});
 			},

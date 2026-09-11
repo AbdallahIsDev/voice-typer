@@ -4,7 +4,7 @@ previously the literal ``16000`` was duplicated across 30+ sites
 in the server (transcription engines, VAD, recorder, audio filters,
 level monitor, microphone test recorder, status payloads). Each site
 that referenced 16 kHz also embedded its own implicit assertion that
-"this is Whisper's required input rate" — without a named constant, an
+"this is Whisper's required input rate": without a named constant, an
 intent-level change (e.g. moving to 24 kHz models) would require
 hand-editing every site and would silently miss any literal grep can't
 disambiguate from "noise" hits in comments / log strings.
@@ -12,10 +12,10 @@ disambiguate from "noise" hits in comments / log strings.
 This module exposes the four named sample-rate constants used by the
 audio pipeline:
 
-- :data:`WHISPER_SAMPLE_RATE` — Whisper models require 16 kHz input.
-- :data:`SILERO_VAD_SAMPLE_RATES` — Silero VAD accepts {8000, 16000}.
-- :data:`RNNOISE_SAMPLE_RATE` — RNNoise requires 48 kHz.
-- :data:`NATIVE_MIC_RATES` — native mic rates include
+- :data:`WHISPER_SAMPLE_RATE`: Whisper models require 16 kHz input.
+- :data:`SILERO_VAD_SAMPLE_RATES`: Silero VAD accepts {8000, 16000}.
+- :data:`RNNOISE_SAMPLE_RATE`: RNNoise requires 48 kHz.
+- :data:`NATIVE_MIC_RATES`: native mic rates include
   {8000, 16000, 44100, 48000}.
 
 All values are :class:`int` / :class:`frozenset` so they are hashable
@@ -47,14 +47,14 @@ RNNOISE_SAMPLE_RATE: int = 48000
 # level monitor's "what rate should I open the stream at?" heuristic.
 NATIVE_MIC_RATES: frozenset[int] = frozenset({8000, 16000, 44100, 48000})
 
-# PortAudio ``blocksize`` literal. VAD-001 /  — Silero
+# PortAudio ``blocksize`` literal. VAD-001 / , Silero
 # VAD requires 512-sample blocks per its model contract; ``vad.py`` pads /
 # truncates driver deviations. The literal is load-bearing across
 # ``recorder.py`` (StreamLifecycle.open_stream_for_candidates /
 # open_stream_fallback, DisconnectHandler.restart_stream,
 # SessionState.resize_buffers_for_sample_rate, Recorder._preroll_blocksize
 # init). Tag here as a single source of truth so a future change (e.g.
-# 1024 for lower callback frequency on slow ARM devices — see )
+# 1024 for lower callback frequency on slow ARM devices, see )
 # lands in one place.
 _AUDIO_BLOCKSIZE: int = 512
 
@@ -70,14 +70,14 @@ def scaled_audio_blocksize(native_rate: int) -> int:
 
     Why rate-scaling matters: a fixed 512 block at a 48 kHz native rate
     is a 10.7 ms chunk → ~93.75 callbacks/sec, ~3× the designed 16-31 Hz
-    worker/VAD cadence — every VAD hysteresis frame count and chunk-based
+    worker/VAD cadence, every VAD hysteresis frame count and chunk-based
     time constant then runs ~3× faster than designed, and Silero computes
     ~3× the intended inferences per second on reflect-padded 170→512
     windows. With the scaled block (1536 @ 48 kHz, 1411 @ 44.1 kHz,
     3072 @ 96 kHz), each chunk resamples onto the 512-sample Silero
     window at 16 kHz, restoring the designed cadence at every native
     rate. Precision note: 48/96 kHz are exact integer ratios (512
-    post-resample samples precisely); 44.1 kHz is not — 1411 samples
+    post-resample samples precisely); 44.1 kHz is not, 1411 samples
     is ~31.995 ms ≈ 511.93 samples' worth at 16 kHz, so the
     512-sample window there is exact by LENGTH only (the resampler
     rounds the output up to 512; ``vad.py`` additionally pads /
@@ -98,7 +98,7 @@ def scaled_audio_blocksize(native_rate: int) -> int:
 
 # ``_teardown_stream`` busy-poll budget + interval. The
 # ``_is_in_audio_callback`` flag is SET while the PortAudio callback is
-# RUNNING and CLEARED on exit — the inverse of the typical
+# RUNNING and CLEARED on exit, the inverse of the typical
 # wait-for-event-set pattern. ``teardown_stream_body`` polls for the flag
 # to become *clear* before closing the stream (closing while the callback
 # is mid-flight can deadlock PortAudio on some drivers). On a healthy

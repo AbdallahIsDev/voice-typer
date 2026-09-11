@@ -73,7 +73,7 @@ def vocab_mixin(live_vm):
     """A bare ``VocabularyMixin`` instance whose ``self._app`` is a
     MagicMock exposing ``_vocabulary_manager`` set to the live vm.
 
-    ``VocabularyMixin`` is a ``ServiceMixinBase`` subclass — it has no
+    ``VocabularyMixin`` is a ``ServiceMixinBase`` subclass, it has no
     ``__init__`` of its own, so we can construct it via ``__new__`` and
     bind ``self._app`` manually. This mirrors how
     ``tests/app/test_notify_once_flags.py`` builds minimal
@@ -136,14 +136,14 @@ class TestSaveVocabularyWithDiffReloadsLiveManager:
 
         miss = live_vm.get_category("misspellings")
         assert miss.get("teh") == "TEH (custom override)", (
-            "live VocabularyManager._data is stale — the user "
+            "live VocabularyManager._data is stale, the user "
             "override was written to disk but the in-memory _data was not "
             "reloaded."
         )
 
     def test_no_live_vm_uses_fallback_path(self, vocab_dir):
         """When ``self._app._vocabulary_manager`` is None (cold start /
-        test fixtures), the function must NOT crash — it should fall
+        test fixtures), the function must NOT crash, it should fall
         back to constructing a throwaway VocabularyManager for the
         bundled-defaults diff computation.
         """
@@ -163,7 +163,7 @@ class TestSaveVocabularyWithDiffReloadsLiveManager:
     def test_reload_failure_does_not_break_save(self, vocab_mixin, live_vm, vocab_dir):
         """If ``_load_and_merge`` raises (e.g. user file got nuked
         mid-write by an external process), the function must still
-        return a normal result — the save itself has already
+        return a normal result, the save itself has already
         succeeded; the reload is best-effort.
         """
 
@@ -172,7 +172,7 @@ class TestSaveVocabularyWithDiffReloadsLiveManager:
 
         live_vm._load_and_merge = _boom
 
-        # Should NOT raise — reload failures are caught and logged.
+        # Should NOT raise, reload failures are caught and logged.
         result = vocab_mixin.save_vocabulary_with_diff({"misspellings": {"teh": "TEH (reload-failure)"}})
         assert "imported_categories" in result
 
@@ -184,7 +184,7 @@ class TestSaveVocabularyWithDiffReloadsLiveManager:
 
 class TestAudioChainBuilderNoDefaultsDrift:
     """``build_chain_from_dict`` must source its defaults from
-    a real ``Config()`` instance — NOT from a parallel ``_DEFAULTS``
+    a real ``Config()`` instance, NOT from a parallel ``_DEFAULTS``
     dict that can silently drift when ``Config`` defaults change.
 
     The old ``_DEFAULTS`` dict was removed; this test pins the absence
@@ -200,13 +200,13 @@ class TestAudioChainBuilderNoDefaultsDrift:
 
         assert not hasattr(mod, "_DEFAULTS"), (
             "audio_chain_builder re-introduced a parallel "
-            "_DEFAULTS dict. This drifts from Config defaults — use "
+            "_DEFAULTS dict. This drifts from Config defaults, use "
             "Config() + setattr instead."
         )
 
     def test_build_chain_from_dict_uses_config_defaults(self):
         """``build_chain_from_dict({})`` must build a chain whose
-        filters reflect the CURRENT ``Config()`` defaults — proving
+        filters reflect the CURRENT ``Config()`` defaults, proving
         the dict path sources from ``Config`` rather than a frozen
         snapshot.
         """
@@ -233,20 +233,20 @@ class TestAudioChainBuilderNoDefaultsDrift:
 
         assert chain_from_dict.filter_names == chain_from_config.filter_names, (
             "build_chain_from_dict({}) produced a different "
-            "chain than build_chain(Config()) — defaults are not being "
+            "chain than build_chain(Config()), defaults are not being "
             "sourced from Config."
         )
 
     def test_build_chain_from_dict_applies_overrides(self):
         """``build_chain_from_dict`` must apply user overrides on top
-        of ``Config()`` defaults — e.g. enabling a filter that's off
+        of ``Config()`` defaults, e.g. enabling a filter that's off
         by default must produce a chain with that filter present.
         """
         from voice_typer.server.audio_chain_builder import build_chain_from_dict
         from voice_typer.server.config import Config
 
         # Whatever Config() says about noise_filter_notch, the override
-        # MUST win — that's the whole point of the dict path. Filter
+        # MUST win, that's the whole point of the dict path. Filter
         # names are formatted as "Notch(<freq>Hz)" etc., so we match
         # on the leading class-name prefix.
         cfg = Config()
@@ -267,12 +267,12 @@ class TestAudioChainBuilderNoDefaultsDrift:
         has_notch = any(n.startswith("Notch(") for n in names)
         if opposite:
             assert has_notch, (
-                "Override noise_filter_notch=True was not applied — the "
+                "Override noise_filter_notch=True was not applied, the "
                 f"Notch filter is missing from the built chain: {names}"
             )
         else:
             assert not has_notch, (
-                "Override noise_filter_notch=False was not applied — the "
+                "Override noise_filter_notch=False was not applied, the "
                 f"Notch filter is still in the built chain: {names}"
             )
 
@@ -281,7 +281,7 @@ class TestBuildChainFilterOrder:
     """Pins the ACTUAL construction order of ``build_chain``.
 
     The module docstring historically claimed the notch filter runs
-    AFTER the high-pass while the code appends it FIRST — a doc/code
+    AFTER the high-pass while the code appends it FIRST, a doc/code
     drift that made future tuning sessions trust the wrong chain.
     These tests pin the code order the (corrected) docstring describes:
     Notch → HighPass → NoiseSuppressor → NoiseGate → Equalizer →
@@ -358,12 +358,12 @@ class TestBuildChainFilterOrder:
             None,
         )
         assert order_line is not None, (
-            "build_chain docstring has no chain-order line naming Notch — "
+            "build_chain docstring has no chain-order line naming Notch, "
             "it must document where the optional notch filter sits."
         )
         assert order_line.index("Notch") < order_line.index("HighPass"), (
             "build_chain docstring must list Notch BEFORE HighPass (the code appends the notch filter first)."
         )
         assert "after HighPass" not in doc, (
-            "build_chain docstring still claims the notch is added after the high-pass — the code appends it first."
+            "build_chain docstring still claims the notch is added after the high-pass, the code appends it first."
         )

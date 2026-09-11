@@ -1,5 +1,5 @@
 /**
- * Bubble overlay package — `BubbleMicButton`.
+ * Bubble overlay package, `BubbleMicButton`.
  *
  * The always-visible mic toggle button. Shown only when the bubble is
  * in always_visible mode AND both `bubble_mic_button` and
@@ -8,9 +8,9 @@
  * toggles dictation via the sandboxed `bubble:toggle-dictation`
  * channel.
  *
- * A11Y TRADE-OFF (focusable:false — keyboard inaccessible):
+ * A11Y TRADE-OFF (focusable:false, keyboard inaccessible):
  * The bubble `BrowserWindow` is created with `focusable: false` in
- * `main/windows/bubble-window.ts` (intentional — prevents the bubble
+ * `main/windows/bubble-window.ts` (intentional, prevents the bubble
  * from stealing keyboard focus from the user's active text field).
  * Because the window is non-focusable, this real `<button>` element
  * is UNREACHABLE via Tab and cannot be activated via Enter/Space in

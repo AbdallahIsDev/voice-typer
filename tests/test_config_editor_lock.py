@@ -2,8 +2,8 @@
 
 ``VoiceTyperApp._open_config_file`` (now delegated to
 :class:`voice_typer.server.config_editor.ConfigEditorLauncher`) acquires
-``_config_mutation_lock`` for the FULL editor session — not just the
-save/reload phases — so a concurrent IPC ``set_config`` call cannot
+``_config_mutation_lock`` for the FULL editor session, not just the
+save/reload phases, so a concurrent IPC ``set_config`` call cannot
 atomically overwrite ``config.json`` while the user's editor is
 mid-edit (SEC-audit-011 TOCTOU race).
 
@@ -24,11 +24,11 @@ These tests pin the fix BEHAVIORALLY (no ``inspect.getsource``):
    ``subprocess.run`` / ``subprocess.Popen`` is called) AND a
    concurrent ``set_config`` call (mimicked by a second thread
    acquiring the same lock) BLOCKS until the editor closes, then
-   proceeds — mirrors
+   proceeds, mirrors
    ``tests/regressions/test_concurrency.py::test_open_config_file_holds_config_mutation_lock``.
 
 2. ``config.save()`` happens INSIDE ``_config_mutation_lock`` (the lock
-   is held when save is called) — pins CR-015.
+   is held when save is called), pins CR-015.
 
 3. The macOS branch uses ``open -W`` (not vanilla ``open``) and the
    macOS/Linux branches do NOT use non-blocking ``subprocess.Popen``.
@@ -48,7 +48,7 @@ import pytest
 
 from tests.fixtures.app_helpers import make_voice_typer_app
 
-# Captured at import time — BEFORE any test monkeypatches subprocess — so
+# Captured at import time (BEFORE any test monkeypatches subprocess) so
 # pass-through helpers can invoke the REAL subprocess.run even after a test
 # replaces ``subprocess.run`` on the module. (A local
 # ``import subprocess as _subprocess`` inside a function makes
@@ -64,7 +64,7 @@ class TestSaveInsideLock:
 
     Verifies ``config.save()`` is called WHILE ``_config_mutation_lock``
     is held (not before the lock is acquired) and exactly once per
-    launch — for every platform branch.
+    launch, for every platform branch.
     """
 
     @pytest.mark.parametrize("platform", ["windows", "macos", "linux"])
@@ -288,9 +288,9 @@ class _FakeEditor:
 
     1. Sets ``opened`` so the test knows the editor has launched
        (and therefore the lock should be held).
-    2. Waits on ``close_event`` so the call blocks — mimicking the
+    2. Waits on ``close_event`` so the call blocks, mimicking the
        editor being open.
-    3. Returns after ``close_event`` is set — mimicking the editor
+    3. Returns after ``close_event`` is set, mimicking the editor
        closing.
     """
 
@@ -309,7 +309,7 @@ class _FakeEditor:
         return MagicMock(returncode=0)
 
     def popen_wait(self, args, **kwargs):
-        """Mimics Popen(args).wait() — same blocking semantics as run()."""
+        """Mimics Popen(args).wait(), same blocking semantics as run()."""
         self.call_count += 1
         self.call_args = args
         self.opened.set()
@@ -359,7 +359,7 @@ def _is_editor_launch(args) -> bool:
     module's ``save()`` ALSO fires ``subprocess.run`` for the ``icacls``
     ACL enforcement (its ``is_windows()`` reads the real platform, not
     the test-forced one). Those non-editor calls must pass through to the
-    real subprocess — otherwise each one consumes the fake editor's 10s
+    real subprocess, otherwise each one consumes the fake editor's 10s
     wait and blows the test's timeout budget.
     """
     return bool(args) and str(args[0]).lower() in ("open", "xdg-open")
@@ -376,7 +376,7 @@ def _run_open_config_in_thread(app):
     def _target():
         try:
             app._open_config_file()
-        except Exception as exc:  # pragma: no cover — re-raised below
+        except Exception as exc:  # pragma: no cover, re-raised below
             errors.append(exc)
 
     thread = threading.Thread(target=_target, daemon=True)
@@ -390,7 +390,7 @@ def _assert_concurrent_set_config_blocks_then_proceeds(app, editor):
     Spawns a thread that tries to acquire ``app._config_mutation_lock``
     (exactly what ``service.apply_config`` does on the IPC set_config
     path). Verifies the thread CANNOT acquire the lock while the editor
-    is open — the lock is held for the FULL editor session — and then
+    is open (the lock is held for the FULL editor session) and then
     DOES acquire it shortly after the editor closes.
 
     Mirrors the assertion style of
@@ -414,7 +414,7 @@ def _assert_concurrent_set_config_blocks_then_proceeds(app, editor):
     assert not acquired.is_set(), (
         "SEC-audit-011: a concurrent set_config call (acquiring "
         "_config_mutation_lock) must BLOCK while the config editor is "
-        "open — but the lock was acquired within 0.15s, which means "
+        "open, but the lock was acquired within 0.15s, which means "
         "_open_config_file is NOT holding the lock for the full editor "
         "session (the pre-SEC-audit-011 'split-lock' relaxation)."
     )
@@ -435,9 +435,9 @@ def _assert_concurrent_set_config_blocks_then_proceeds(app, editor):
 class TestMacosRuntime:
     """Runtime test for the macOS ``open -W`` branch (SEC-audit-011).
 
-    The lock IS held for the full editor session — from the pre-editor
+    The lock IS held for the full editor session, from the pre-editor
     save through the ``subprocess.run(['open', '-W', ...])`` wait through
-    the post-editor reload — so a concurrent IPC ``set_config`` call
+    the post-editor reload, so a concurrent IPC ``set_config`` call
     (which goes through ``service.apply_config`` →
     ``_config_mutation_lock``) blocks until the editor exits. This
     closes the TOCTOU window where a set_config could silently
@@ -460,7 +460,7 @@ class TestMacosRuntime:
             assert _lock_owned(app), (
                 "SEC-audit-011: _config_mutation_lock must be HELD by "
                 "the current thread when subprocess.run is called on "
-                "macOS — the lock is acquired before the pre-editor "
+                "macOS, the lock is acquired before the pre-editor "
                 "save and held continuously through the editor wait and "
                 "post-editor reload. Releasing it during the editor "
                 "wait (the XV-3 'split-lock' relaxation) re-opens the "
@@ -492,7 +492,7 @@ class TestMacosRuntime:
 class TestLinuxRuntime:
     """Runtime test for the Linux ``xdg-open`` branch (SEC-audit-011).
 
-    The lock IS held for the full editor session — see
+    The lock IS held for the full editor session: see
     ``TestMacosRuntime`` for the full rationale.
     """
 
@@ -512,7 +512,7 @@ class TestLinuxRuntime:
             assert _lock_owned(app), (
                 "SEC-audit-011: _config_mutation_lock must be HELD by "
                 "the current thread when subprocess.run is called on "
-                "Linux — the lock is acquired before the pre-editor "
+                "Linux, the lock is acquired before the pre-editor "
                 "save and held continuously through the editor wait and "
                 "post-editor reload."
             )
@@ -539,7 +539,7 @@ class TestLinuxRuntime:
 class TestWindowsRuntime:
     """Runtime test for the Windows notepad branch (SEC-audit-011).
 
-    The lock IS held for the full editor session — see
+    The lock IS held for the full editor session: see
     ``TestMacosRuntime`` for the full rationale. The Windows branch
     had a brief "split-lock" relaxation that released the lock during
     the editor wait; SEC-audit-011 restores the full-session hold so
@@ -573,7 +573,7 @@ class TestWindowsRuntime:
             assert _lock_owned(app), (
                 "SEC-audit-011: _config_mutation_lock must be HELD by "
                 "the current thread when subprocess.Popen is called on "
-                "Windows — the lock is acquired before the pre-editor "
+                "Windows, the lock is acquired before the pre-editor "
                 "save and held continuously through the editor wait and "
                 "post-editor reload."
             )
@@ -875,7 +875,7 @@ class TestEditorTimeouts:
         monkeypatch.setattr(config_editor, "_current_platform", lambda: "macos")
 
         launcher = config_editor.ConfigEditorLauncher(_FakeApp())
-        # Must NOT raise —  contract: non-timeout errors swallowed.
+        # Must NOT raise, contract: non-timeout errors swallowed.
         launcher.launch("/tmp/config.json")
 
         # Tray must NOT be notified for a non-timeout launch error
@@ -914,7 +914,7 @@ class TestEditorTimeouts:
         monkeypatch.setattr(config_editor, "_current_platform", lambda: "linux")
 
         launcher = config_editor.ConfigEditorLauncher(_FakeApp())
-        # Must NOT raise — the outer except catches TimeoutError and
+        # Must NOT raise, the outer except catches TimeoutError and
         # converts it to a tray notification.
         launcher.launch("/tmp/config.json")
 

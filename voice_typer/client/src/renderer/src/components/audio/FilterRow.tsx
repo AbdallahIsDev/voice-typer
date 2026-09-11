@@ -1,23 +1,23 @@
-// FilterRow — presentational per-row renderer for `<AudioFilterChain>`.
+// FilterRow, presentational per-row renderer for `<AudioFilterChain>`.
 //
 //previously `AudioFilterChain.tsx` had ~520 LOC of JSX with
 // the same `SettingRow + (Switch | RangeSlider | Select)` pattern
 // repeated 24 times (16 sliders + 7 toggles + 1 select). This
-// component renders ONE descriptor — the parent does a `.map` over
+// component renders ONE descriptor, the parent does a `.map` over
 // the registry.
 //
 //Behaviour preservation (vs the pre- inline JSX):
-//   - `<SettingRow label={...} info={...}>` — label is the resolved
+//   - `<SettingRow label={...} info={...}>`, label is the resolved
 //     i18n string from the labels dictionary; info is resolved via
 //`t(descriptor.infoKey)` at render time (the pre- inline
-//     `t("...Info")` call happened at render time too — kept here so
+//     `t("...Info")` call happened at render time too, kept here so
 //the  memo test's per-render `t()` call pattern is
 //     unchanged).
-//   - Slider `value={config[k] ?? defaultValue}` — identical fallback.
-//   - Slider `min/max/step/suffix/deferApply` — identical.
-//   - Toggle `checked={config[k] ?? defaultValue}` — identical.
-//   - Select `value={config[k] ?? defaultValue}` + options — identical.
-//   - `parentToggle` — when set, the row returns null if the parent
+//   - Slider `value={config[k] ?? defaultValue}`, identical fallback.
+//   - Slider `min/max/step/suffix/deferApply`, identical.
+//   - Toggle `checked={config[k] ?? defaultValue}`, identical.
+//   - Select `value={config[k] ?? defaultValue}` + options, identical.
+//   - `parentToggle`, when set, the row returns null if the parent
 //     toggle is off (after applying the parent's own defaultValue
 //     fallback). Matches the original
 //     `(config.noise_filter_X ?? parentDefault) && (<row>...)` wrap.
@@ -42,7 +42,7 @@ import {
 /**
  * Type of the `set` helper passed down from `<AudioFilterChain>`.
  * Generic so call sites that know their `configKey` literal get full
- * type safety (e.g. `set("noise_filter_highpass", v)` — `v` is
+ * type safety (e.g. `set("noise_filter_highpass", v)`, `v` is
  * inferred as `boolean`).
  */
 export type AudioFilterSet = <K extends keyof VoiceTyperConfig>(
@@ -60,7 +60,7 @@ export interface FilterRowProps {
 /**
  * Returns `config[k] ?? defaultValue` for the row's own configKey.
  * Cast through `number | boolean | string` because the registry's
- * `configKey` is `keyof VoiceTyperConfig` (widened) — the descriptor's
+ * `configKey` is `keyof VoiceTyperConfig` (widened), the descriptor's
  * `defaultValue` carries the right scalar type at runtime.
  */
 function readRowValue(
@@ -93,7 +93,7 @@ function parentToggleActive(
 /**
  * Renders a single filter row. Returns `null` when the parent toggle
  * is off (so the surrounding `.map`'s `isVisible && <FilterRow/>`
- * short-circuit still works — `null` is falsy-ish in JSX).
+ * short-circuit still works, `null` is falsy-ish in JSX).
  */
 export function FilterRow({
 	descriptor,
@@ -106,7 +106,7 @@ export function FilterRow({
 	const label = labels[descriptor.labelKey] ?? descriptor.labelKey;
 	// Resolve info/aria strings from the memoized labels bundle
 	// (built once per locale by buildAudioFilterLabels) instead of
-	// calling t() at render time — zero t() calls on re-render.
+	// calling t() at render time, zero t() calls on re-render.
 	const info = labels[descriptor.infoKey] ?? descriptor.infoKey;
 	const aria = labels[descriptor.ariaKey] ?? descriptor.ariaKey;
 	const value = readRowValue(config, descriptor);

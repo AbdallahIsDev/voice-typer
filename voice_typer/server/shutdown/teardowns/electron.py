@@ -1,6 +1,6 @@
 """Teardown helper for the Electron subprocess.
 
-Phase 4.5 (OI-36) — extracted verbatim from
+Phase 4.5 (OI-36), extracted verbatim from
 :meth:`ShutdownController._teardown_electron`. The body is unchanged;
 only the class boundary moved.
 
@@ -56,14 +56,14 @@ def teardown_electron(controller) -> None:
     app = controller._app
     # ── RESTART guard ─────────────────────────────────────────────────
     # On a RESTART in standalone mode, Python spawned Electron as a
-    # child and has already pushed ``relaunch_app`` to it — Electron
+    # child and has already pushed ``relaunch_app`` to it, Electron
     # will respawn the Python backend.  Killing the Electron child here
     # would leave nothing to relaunch (the app would quit instead of
-    # restarting — the user-visible "Restart quits" bug).  On quit
+    # restarting, the user-visible "Restart quits" bug).  On quit
     # (``_is_restarting`` False) and in dev mode (no tracked
     # ``_electron_pid``) the normal teardown runs.
     #
-    # EXCEPTION — IN-PLACE RESTART: when ``_in_place_restart`` is also
+    # EXCEPTION, IN-PLACE RESTART: when ``_in_place_restart`` is also
     # set (standalone Restart), the Electron child must be TERMINATED,
     # not left alive: the entrypoint loop re-initializes the app and
     # re-launches Electron itself.  Leaving the old Electron alive would
@@ -78,7 +78,7 @@ def teardown_electron(controller) -> None:
             launched_pid = getattr(app, "_electron_pid", None)
             if launched_pid:
                 log.info(
-                    "[SHUTDOWN] Restart in progress — leaving Electron subprocess "
+                    "[SHUTDOWN] Restart in progress, leaving Electron subprocess "
                     "(PID=%s) alive so it can relaunch the backend",
                     launched_pid,
                 )
@@ -101,7 +101,7 @@ def teardown_electron(controller) -> None:
                     timeout=5.0,
                 )
                 if _term_result is TIMEOUT:
-                    # Escalate on timeout — POSIX gets
+                    # Escalate on timeout, POSIX gets
                     # SIGKILL; Windows gets a ctypes
                     # TerminateProcess fallback. Pre-fix the POSIX
                     # branch had SIGKILL escalation but the Windows
@@ -154,7 +154,7 @@ def teardown_electron(controller) -> None:
                 if electron_pid is not None:
                     # Dedupe: this fallback branch previously
                     # re-implemented the SIGTERM → grace-wait → SIGKILL
-                    # escalation inline — a third parallel copy of the
+                    # escalation inline, a third parallel copy of the
                     # same logic that already lives in
                     # ``electron_launcher.terminate_electron`` (used by
                     # the tracked-PID branch above) and in the TS

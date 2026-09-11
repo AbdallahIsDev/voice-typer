@@ -20,7 +20,7 @@ These tests pin the contract:
   false-positives) because a false-positive routes a non-GPU error
   into the GPU→CPU fallback path (5-15s stall on session recreation).
 
-The tests do NOT import torch — the classifiers are torch-free by
+The tests do NOT import torch, the classifiers are torch-free by
 design (Phase 1c). A fake ORT exception class is used to exercise
 layer 1 without requiring ``onnxruntime`` to be installed.
 """
@@ -50,7 +50,7 @@ class TestIsCudaError:
 
         mock_ort = MagicMock(name="mock_onnxruntime")
         # onnxruntime 1.28+ does not export the exception from the
-        # public namespace — it lives under the pybind11 state module.
+        # public namespace, it lives under the pybind11 state module.
         mock_ort.capi.onnxruntime_pybind11_state.RuntimeException = _FakeOrtRuntimeError
         # Also stub get_device so import-side-effect doesn't fail.
         mock_ort.get_device = lambda: "cpu"
@@ -70,7 +70,7 @@ class TestIsCudaError:
 
         mock_ort = MagicMock(name="mock_onnxruntime")
         # onnxruntime 1.28+ does not export the exception from the
-        # public namespace — it lives under the pybind11 state module.
+        # public namespace, it lives under the pybind11 state module.
         mock_ort.capi.onnxruntime_pybind11_state.RuntimeException = _FakeOrtRuntimeError
         mock_ort.get_device = lambda: "cpu"
         monkeypatch.setitem(sys.modules, "onnxruntime", mock_ort)
@@ -91,12 +91,12 @@ class TestIsCudaError:
 
         mock_ort = MagicMock(name="mock_onnxruntime")
         # onnxruntime 1.28+ does not export the exception from the
-        # public namespace — it lives under the pybind11 state module.
+        # public namespace, it lives under the pybind11 state module.
         mock_ort.capi.onnxruntime_pybind11_state.RuntimeException = _FakeOrtRuntimeError
         mock_ort.get_device = lambda: "cpu"
         monkeypatch.setitem(sys.modules, "onnxruntime", mock_ort)
 
-        # Plain message — no cuda/gpu/cublas/cudnn/dll keywords.
+        # Plain message, no cuda/gpu/cublas/cudnn/dll keywords.
         exc = _FakeOrtRuntimeError("input shape mismatch")
         assert is_cuda_error(exc) is False
 
@@ -129,7 +129,7 @@ class TestIsCudaError:
 
     def test_non_runtime_error_with_cuda_error_attr_returns_false(self):
         """The attribute check (layer 2) only fires for
-        ``RuntimeError`` subclasses — a ``ValueError`` with
+        ``RuntimeError`` subclasses, a ``ValueError`` with
         ``.cuda_error`` set must NOT match via layer 2 (it may still
         match via the keyword layers if the message has the right
         substrings)."""
@@ -152,8 +152,8 @@ class TestIsCudaError:
 
     def test_out_of_memory_alone_does_not_match(self):
         """``"out of memory"`` alone must NOT match ``is_cuda_error``
-        — it matches CPU RAM exhaustion too. OOM is handled separately
-        by :func:`is_oom_error`."""
+        , it matches CPU RAM exhaustion too. OOM is handled separately
+          by :func:`is_oom_error`."""
         assert is_cuda_error(RuntimeError("out of memory")) is False
 
     def test_oom_alone_does_not_match(self):
@@ -178,7 +178,7 @@ class TestIsCudaError:
 
     def test_plain_runtime_error_returns_false(self):
         """A plain ``RuntimeError("model not loaded")`` must return
-        False — it's not a CUDA error and routing it into the GPU→CPU
+        False, it's not a CUDA error and routing it into the GPU→CPU
         fallback path would mask the real cause."""
         assert is_cuda_error(RuntimeError("model not loaded")) is False
 
@@ -221,7 +221,7 @@ class TestIsOomError:
         assert is_oom_error(RuntimeError("model not loaded")) is False
 
     def test_cublas_error_returns_false(self):
-        """A cuBLAS load failure is NOT an OOM error — it's a DLL-load
+        """A cuBLAS load failure is NOT an OOM error, it's a DLL-load
         failure (handled by :func:`is_cuda_error` layer 4)."""
         assert is_oom_error(RuntimeError("cublas load library failed")) is False
 
@@ -237,7 +237,7 @@ class TestCudaOomCombination:
 
     ``"out of memory"`` alone matches ``is_oom_error`` but NOT
     ``is_cuda_error`` (CPU RAM exhaustion is not a CUDA error).
-    ``"cuda out of memory"`` matches BOTH — a true CUDA OOM.
+    ``"cuda out of memory"`` matches BOTH, a true CUDA OOM.
     ``"cublas load failed"`` matches ``is_cuda_error`` but NOT
     ``is_oom_error`` (DLL load failure, not OOM).
     """

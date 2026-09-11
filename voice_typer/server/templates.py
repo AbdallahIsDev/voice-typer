@@ -7,10 +7,10 @@ the transcribed text with the stored output.
 Pipeline order: transcribe → text cleanup → vocabulary → template match → auto-punctuate → paste
 
 Variables supported in output text:
-    {today}     — current date (e.g., "2026-06-03")
-    {now}       — current time (e.g., "14:30")
-    {clipboard} — current clipboard content
-    {username}  — system username
+    {today}    , current date (e.g., "2026-06-03")
+    {now}      , current time (e.g., "14:30")
+    {clipboard}, current clipboard content
+    {username} , system username
 """
 
 import getpass
@@ -23,7 +23,7 @@ from pathlib import Path
 
 log = logging.getLogger(__name__)
 
-# precompiled regexes — was `re.sub(r"\s+", ...)` recompiled per call
+# precompiled regexes, was `re.sub(r"\s+", ...)` recompiled per call
 # (Python's re module has an internal cache, but with MAX_TEMPLATES=1000 the
 # inner loop re-looks-up the cached pattern 1000 times per dictation).
 _WHITESPACE_RE = re.compile(r"\s+")
@@ -40,7 +40,7 @@ _LEGACY_TEMPLATES_FILENAME = "voice-typer-templates.json"
 MAX_TEMPLATES = 1000
 MAX_TRIGGER_LENGTH = 200
 # Template OUTPUT is free-form text (a whole paragraph / document the
-# trigger expands to), so the cap is generous — 128 KiB, well under the
+# trigger expands to), so the cap is generous, 128 KiB, well under the
 # 256 KiB whole-payload IPC cap (the real ceiling for one save).
 MAX_OUTPUT_LENGTH = 128 * 1024
 
@@ -62,10 +62,10 @@ def substitute_variables(text: str) -> str:
     """Replace template variables with their current values.
 
     Supported variables:
-        {today}     — date in YYYY-MM-DD
-        {now}       — time in HH:MM
-        {clipboard} — current clipboard content
-        {username}  — OS username
+        {today}    , date in YYYY-MM-DD
+        {now}      , time in HH:MM
+        {clipboard}, current clipboard content
+        {username} , OS username
 
     single regex pass with lazy variable resolution. The old code
     eagerly computed all 4 values (including a potentially-blocking
@@ -156,7 +156,7 @@ class TemplateManager:
         # ``delete`` / ``import_json``) mutate ``_templates`` and
         # rebuild the indexes via ``_rebuild_indexes``.  Without a
         # lock, a CRUD mutation interleaved with a ``match`` iteration
-        # could observe a half-rebuilt index — the same race
+        # could observe a half-rebuilt index, the same race
         # fixed for ``VocabularyManager``.  ``RLock`` because ``_save``
         # is called from inside already-locked CRUD methods and
         # ``add``'s rollback path re-mutates ``_templates``.
@@ -191,7 +191,7 @@ class TemplateManager:
           matching the pre-fix linear scan's strict ``<`` comparison.
         - Contains mode: the list is sorted by trigger length ascending.
           Python's ``sort`` is stable, so templates at the same length
-          preserve their original order — matching the pre-fix behavior
+          preserve their original order, matching the pre-fix behavior
           where the first template at the shortest matching length wins.
         - Cross-mode: the docstring contract "shortest trigger wins when
           multiple templates match" is preserved by checking the exact
@@ -208,7 +208,7 @@ class TemplateManager:
             # ``"output" in t`` guard) or via direct IPC mutation can
             # still reach here with a missing/None output. Pre-fix,
             # such a template would be indexed and then cause
-            # ``KeyError: 'output'`` inside ``match`` — breaking the
+            # ``KeyError: 'output'`` inside ``match``: breaking the
             # template-matching pipeline mid-dictation. Skipping it
             # here means ``match`` can safely use ``.get("output", "")``
             # and never KeyError.
@@ -239,7 +239,7 @@ class TemplateManager:
 
         the previous public ``templates`` attribute was renamed
         to ``_templates`` (private) without a property shim, breaking
-        every caller — tests, IPC handlers, the tray menu builder, and
+        every caller, tests, IPC handlers, the tray menu builder, and
         the on-disk persistence round-trip in
         ``tests/test_history_and_models.py::TestTemplatesPersistToDisk``.
 
@@ -250,7 +250,7 @@ class TemplateManager:
         returned object must not affect the manager).
 
         The individual template dicts inside the list are NOT copied
-        (shallow copy) — callers that need to mutate a template should
+        (shallow copy), callers that need to mutate a template should
         use :meth:`update` so the change persists to disk.
 
         copies under the lock so a concurrent CRUD mutation
@@ -270,8 +270,8 @@ class TemplateManager:
         symlink-TOCTOU raise), the helper quarantines the corrupt file
         to ``<path>.corrupt-<ts>`` for forensic recovery and returns
         the configured default. The previous implementation silently
-        fell back to an empty list with a single WARNING log line — no
-        quarantine — so the next ``_save`` would atomically overwrite
+        fell back to an empty list with a single WARNING log line, no
+        quarantine, so the next ``_save`` would atomically overwrite
         the corrupt file with defaults, destroying any chance of
         forensic recovery. Mirrors ``config.py:1744-1763`` and
         ``crash_recovery.py:186-219``.
@@ -285,7 +285,7 @@ class TemplateManager:
 
         ``_load`` is called only from ``__init__`` (before
         the instance is published to other threads), so it does NOT
-        acquire ``self._lock`` — the lock guards public-method
+        acquire ``self._lock``: the lock guards public-method
         interleaving, not single-threaded construction.
 
         validate each item's structure (must be a dict with both
@@ -296,7 +296,7 @@ class TemplateManager:
         ``isinstance(data, list)`` / ``"templates" in data`` checks but
         then crashed ``_rebuild_indexes`` with
         ``AttributeError: 'int' object has no attribute 'get'`` (or
-        ``match`` with ``KeyError: 'output'``) — and since ``_load`` is
+        ``match`` with ``KeyError: 'output'``), and since ``_load`` is
         called from ``__init__`` with no try/except, the constructor
         raised, crashing app startup with an opaque traceback and no
         recovery path (the file is NOT quarantined because the JSON
@@ -315,7 +315,7 @@ class TemplateManager:
         # isn't a dict or that lacks a "trigger" or "output" key, and
         # log a single warning summarising the dropped count so the
         # user can see their file was partially-corrupt (the file is
-        # NOT quarantined — the JSON itself is valid; only the
+        # NOT quarantined, the JSON itself is valid; only the
         # per-item structure is wrong, so we keep the file and just
         # skip the bad entries). Mirrors the import_json validation.
         if not isinstance(raw_list, list):
@@ -353,7 +353,7 @@ class TemplateManager:
         silently logged them, returning ``None`` to callers. That
         meant a disk failure left the in-memory ``_templates`` list
         (already mutated by ``add``/``update``/``delete``) out of
-        sync with what was actually on disk — the user's edit
+        sync with what was actually on disk, the user's edit
         appeared to succeed (no error surfaced) but the next process
         restart would load the stale on-disk state and the edit
         would be lost. Now we log the error AND re-raise so callers
@@ -361,12 +361,12 @@ class TemplateManager:
         surface the failure to the renderer.
 
         caller is expected to hold ``self._lock`` (all
-        current callers — the public CRUD methods — already do).
+        current callers, the public CRUD methods, already do).
         """
         try:
             # PersistedJSON.save handles atomic write + .bak
             # + 0o600 perms + parent-dir creation in one call.
-            # durability=False — the atomic os.replace still
+            # durability=False, the atomic os.replace still
             # guarantees consistency (no half-written files); only the
             # per-save fsync is dropped. Template edits are frequent
             # (CRUD ops from the settings UI) and a power-loss window
@@ -521,13 +521,13 @@ class TemplateManager:
         directly assigned to the internal list and called the internal
         save method themselves, which:
 
-        1. Bypassed ``self._lock`` — a concurrent ``match`` could
+        1. Bypassed ``self._lock``: a concurrent ``match`` could
            observe a half-swapped list (the swap + ``_rebuild_indexes``
            + ``_save`` sequence was not atomic, so ``match`` could
            read the new ``_templates`` list but the OLD
            ``_exact_index`` / ``_contains_list`` indexes, causing a
            stale-match / missed-match window).
-        2. Skipped ``_rebuild_indexes`` — the match indexes still
+        2. Skipped ``_rebuild_indexes``: the match indexes still
            pointed at the OLD templates until the next ``add`` /
            ``update`` / ``delete`` / ``import_json`` / ``_load`` call
            rebuilt them, so the just-saved templates would not be
@@ -674,7 +674,7 @@ class TemplateManager:
         current best length). The docstring's "shortest trigger wins"
         contract is preserved: the exact match (if any) sets the upper
         bound, and contains templates strictly shorter than that bound
-        can still win — matching the pre-fix behavior where a short
+        can still win, matching the pre-fix behavior where a short
         contains trigger beats a long exact trigger.
 
         the match indexes are read under ``self._lock`` so a
@@ -725,7 +725,7 @@ class TemplateManager:
             # use ``.get("output", "")`` instead of a direct
             # subscript. ``_rebuild_indexes`` now skips templates
             # without an ``output`` field, so ``best_match`` should
-            # always have one — but a defensive ``.get`` keeps
+            # always have one, but a defensive ``.get`` keeps
             # ``match`` from raising ``KeyError`` if a future code
             # path adds a template to the index without going through
             # ``_rebuild_indexes``'s validation. An empty-output

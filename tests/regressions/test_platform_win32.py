@@ -2,7 +2,7 @@
 
 This module is part of the ``tests/regressions/`` package.
 The class/method names, assertion logic, and imports below are
-preserved verbatim from the original 4446-line monolith — only file
+preserved verbatim from the original 4446-line monolith, only file
 location has changed.
 
 Common preamble (imports + Linux test-env shim) is identical to the
@@ -39,7 +39,7 @@ class TestManifestInExists:
         assert manifest.exists(), "PLAT-036: MANIFEST.in must exist at the repo root."
 
     def test_manifest_in_includes_key_files(self):
-        # KEEP — pins  (MANIFEST.in includes critical data
+        # KEEP, pins  (MANIFEST.in includes critical data
         # files). A behavioral test would need to run `python setup.py
         # sdist` and inspect the archive, which is heavy; the file-content
         # check catches removal of the include directives directly.
@@ -61,7 +61,7 @@ class TestWindowsManifestAsInvoker:
 
     def test_manifest_source_is_embedded_in_spec(self):
         # the standalone scripts/build/voice-typer.manifest file
-        # was REMOVED — its XML drifted from the .spec's copy. The .spec
+        # was REMOVED, its XML drifted from the .spec's copy. The .spec
         # now inlines the manifest XML as the single source of truth and
         # writes it to a temp file for PyInstaller. Verify the inlined
         # source is present in the .spec (the build-time manifest source).
@@ -72,7 +72,7 @@ class TestWindowsManifestAsInvoker:
         )
 
     def test_manifest_declares_as_invoker(self):
-        # KEEP — pins the asInvoker declaration.
+        # KEEP, pins the asInvoker declaration.
         # A behavioral test would need to inspect the embedded manifest
         # in a built .exe (heavy Windows-only); the content check
         # catches removal of the asInvoker declaration directly.
@@ -84,7 +84,7 @@ class TestWindowsManifestAsInvoker:
         )
 
     def test_spec_file_embeds_manifest(self):
-        # KEEP — pins  (.spec file references the manifest).
+        # KEEP, pins  (.spec file references the manifest).
         # A behavioral test would need to run PyInstaller and inspect the
         # built .exe resources (heavy); the file-content check catches
         # removal of the manifest reference in the .spec directly.
@@ -96,13 +96,13 @@ class TestWindowsManifestAsInvoker:
 
 class TestPlatRunAutostartTaskHashed:
     """The finding: autostart task name was a fixed string
-    "VoiceTyperAutostart" — two installs would conflict. Fix: append
+    "VoiceTyperAutostart", two installs would conflict. Fix: append
     the install-path hash suffix (now in the canonical
     ``com.voicetyper.*`` reverse-DNS namespace).
     """
 
     def test_autostart_task_name_includes_hash_suffix(self):
-        # KEEP — pins PLAT-RUN (autostart task name includes
+        # KEEP, pins PLAT-RUN (autostart task name includes
         # install-path hash suffix). The sibling test_install_hash_suffix_returns_underscore_prefix
         # and test_two_different_executables_get_different_hashes test the
         # hash function behavior, but don't catch a regression where the
@@ -134,7 +134,7 @@ class TestPlatRunAutostartTaskHashed:
         from voice_typer.server.server_platform import _install_hash_suffix
 
         # The hash is derived from the STABLE install identifier (the
-        # autostart launcher path), NOT sys.executable — sys.executable
+        # autostart launcher path), NOT sys.executable, sys.executable
         # differs between python.exe / pythonw.exe / the venv for the
         # SAME install, which caused the perpetual "autostart enabled but
         # disabled" re-registration loop. Different install DIRECTORIES
@@ -159,7 +159,7 @@ class TestPlatWaylandSocketPermissions:
     """
 
     def test_socket_chmod_is_owner_only(self):
-        # KEEP — pins PLAT-WAYLAND (socket restricted to 0o600).
+        # KEEP, pins PLAT-WAYLAND (socket restricted to 0o600).
         # A behavioral test would need to start the socket server and
         # inspect the socket file's permissions, which requires a running
         # WaylandHotkey instance (heavy). Source-string check catches
@@ -181,7 +181,7 @@ class TestPlatHleakDeadCodeRemoved:
     """The finding: ``_close_mutex_handle`` was defined but never called
     (dead code). Fix: deleted the function.
 
-    ``_instance_hash`` was ALSO dead code — it
+    ``_instance_hash`` was ALSO dead code, it
     was kept initially under the claim that it was "used for PLAT-RUN",
     but verification showed it had zero call sites and used a different
     input (``os.path.dirname(os.path.abspath(__file__))``) than the
@@ -202,7 +202,7 @@ class TestPlatHleakDeadCodeRemoved:
         from voice_typer.server import app
 
         assert not hasattr(app, "_instance_hash"), (
-            "_instance_hash must be removed — it was dead code "
+            "_instance_hash must be removed, it was dead code "
             "(zero call sites) and used a different input than the actual "
             "mutex hash (os.path.dirname(__file__) vs sys.executable)."
         )
@@ -210,7 +210,7 @@ class TestPlatHleakDeadCodeRemoved:
     def test_mutex_name_is_fixed_string(self):
         """Mutex name is fixed (not sys.executable hash).
 
-        KEEP — pins PLAT-HLEAK (mutex name is a fixed string,
+        KEEP, pins PLAT-HLEAK (mutex name is a fixed string,
         not derived from sys.executable hash). A behavioral test would
         need to spawn two processes with different sys.executable and
         observe the mutex collision, which is heavy; the source-string
@@ -236,7 +236,7 @@ class TestPlatPumpImportHoisted:
     """
 
     def test_import_hoisted_out_of_loop(self):
-        # KEEP — pins PLAT-PUMP (win32gui import hoisted out of
+        # KEEP, pins PLAT-PUMP (win32gui import hoisted out of
         # the 1ms polling loop). A behavioral test would need to measure
         # import time per loop iteration, which is flaky; the source-string
         # check catches reintroduction of the in-loop import directly.
@@ -253,9 +253,9 @@ class TestPlatPumpImportHoisted:
     def test_pump_messages_stored_in_local(self):
         """The PumpWaitingMessages function must be stored in a local
         variable (``_pump_messages``) and called via that variable
-        inside the loop — not re-imported each iteration.
+        inside the loop, not re-imported each iteration.
 
-        KEEP — pins PLAT-PUMP (PumpWaitingMessages cached in a
+        KEEP, pins PLAT-PUMP (PumpWaitingMessages cached in a
         # local). Same rationale as test_import_hoisted_out_of_loop.
         """
         from voice_typer.server.hotkeys import WindowsNativeHotkey
@@ -358,7 +358,7 @@ class TestWindowsPathMigrationCoverage:
         assert len(calls) == 1
         assert Path(calls[0][0]).name == self._staging_name(target)
         assert Path(calls[0][1]) == target
-        # target was never created (atomicity — no partial migration)
+        # target was never created (atomicity, no partial migration)
         assert not target.exists()
         # the staging dir was cleaned up in the finally block
         assert not (target.parent / self._staging_name(target)).exists()
@@ -388,7 +388,7 @@ class TestWindowsPathMigrationCoverage:
             raise OSError("destination already exists")
 
         monkeypatch.setattr(paths_mod.os, "replace", _race_replace)
-        # must not raise — the concurrent target is kept
+        # must not raise, the concurrent target is kept
         cfg_mod._migrate_from_legacy()
 
         assert len(calls) == 1
@@ -436,7 +436,7 @@ class TestWindowsPathMigrationCoverage:
         """_config_dir must check VOICE_TYPER_CONFIG_DIR env var first,
         then fall back to platform-specific paths.
 
-        KEEP — pins PLAT-005 (env var override). A behavioral
+        KEEP, pins PLAT-005 (env var override). A behavioral
         # test would set VOICE_TYPER_CONFIG_DIR and verify the function
         # returns the env-var path, but the source-string check is
         # simpler and catches removal of the env var check directly.
@@ -472,7 +472,7 @@ class TestWslDetectionLogic:
         """The polling loop must not crash if win32gui is unavailable
         (e.g., on WSL where pywin32 isn't installed).
 
-        KEEP — pins PLAT-020 (win32gui import guarded by
+        KEEP, pins PLAT-020 (win32gui import guarded by
         try/except ImportError, _pump_messages defaults to None).
         A behavioral test would need to run on WSL (heavy, platform-
         specific); the source-string check catches removal of the guard.

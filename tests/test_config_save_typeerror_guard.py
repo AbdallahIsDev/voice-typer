@@ -16,7 +16,7 @@ can raise:
 * ``ValueError`` for circular references (rare but possible if a
   custom ``__repr__`` / ``__str__`` triggers it during dumps).
 
-The pre-fix tuple did NOT include these — the exception propagated to
+The pre-fix tuple did NOT include these, the exception propagated to
 the caller, violating the ``save()`` docstring's "never raises"
 contract (which the IPC ``set_config`` path relies on: a ``TypeError``
 would crash the IPC handler thread instead of returning a ``False``
@@ -56,7 +56,7 @@ class TestSaveCatchesJsonDumpsTypeError:
     ) -> None:
         """A non-JSON-serializable value in a Config field (e.g. a
         ``set`` smuggled in via ``setattr``) must cause ``save()`` to
-        return ``False`` — NOT raise ``TypeError``. The error must be
+        return ``False``. NOT raise ``TypeError``. The error must be
         logged at ERROR so the operator can diagnose the bad field.
         """
         # Write an initial config so the backup branch has something
@@ -70,7 +70,7 @@ class TestSaveCatchesJsonDumpsTypeError:
         # Inject a non-serializable value via setattr. ``asdict(self)``
         # picks this up because the field IS in the dataclass
         # ``__dict__`` (even though it's not a declared dataclass
-        # field — ``asdict`` returns the declared fields only; we need
+        # field: ``asdict`` returns the declared fields only; we need
         # to override a declared field's value with a non-serializable
         # one).
         #
@@ -78,9 +78,9 @@ class TestSaveCatchesJsonDumpsTypeError:
         # its value with a ``set`` (non-JSON-serializable —
         # ``json.dumps`` raises ``TypeError: Object of type set is not
         # JSON serializable``).
-        cfg.disabled_backends = {"whisper", "qwen"}  # type: ignore[assignment]  # noqa: E501 — intentional bad type for the test
+        cfg.disabled_backends = {"whisper", "qwen"}  # type: ignore[assignment]  # noqa: E501, intentional bad type for the test
 
-        # The save must NOT raise —  widens save()'s except
+        # The save must NOT raise, widens save()'s except
         # tuple to catch TypeError.
         with caplog.at_level(logging.ERROR, logger="voice_typer.server.config"):
             result = cfg.save()
@@ -109,7 +109,7 @@ class TestSaveCatchesJsonDumpsTypeError:
         _isolated_config_dir: Path,
     ) -> None:
         """contract: ``save()`` must NEVER raise ``TypeError``
-        to the caller — it must catch it and return ``False``. The
+        to the caller, it must catch it and return ``False``. The
         IPC ``set_config`` path relies on this "never raises"
         contract: a propagated ``TypeError`` would crash the IPC
         handler thread instead of returning a ``False`` ack the
@@ -127,7 +127,7 @@ class TestSaveCatchesJsonDumpsTypeError:
 
         cfg.disabled_backends = [_NotJsonSerializable()]  # type: ignore[list-item]
 
-        # Must not raise — TypeError is caught by save()'s widened
+        # Must not raise, TypeError is caught by save()'s widened
         # except tuple.
         try:
             result = cfg.save()

@@ -2,7 +2,7 @@
 
 The 1 MiB IPC frame cap (``_TCP_MAX_OUTBOUND_BYTES`` in
 ``ipc/sender.py`` / ``_MAX_FRAME_BYTES`` in ``sidecar_ws.py``) silently
-DROPS an oversized outbound frame — the client sees no response and
+DROPS an oversized outbound frame, the client sees no response and
 eventually times out. Bulk-data handlers must therefore fail fast with
 a clear structured error instead of producing a frame that gets
 dropped.
@@ -55,7 +55,7 @@ class TestGetVocabularyCap:
 
     def test_oversized_vocabulary_returns_clear_error(self) -> None:
         server, _app, service = make_ipc_server_with_fakes()
-        # ~1.5 MB merged vocabulary — well over the 1 MiB frame cap.
+        # ~1.5 MB merged vocabulary, well over the 1 MiB frame cap.
         service.get_vocabulary.return_value = {
             "misspellings": {f"bad{i:04d}": "x" * 500 for i in range(3000)},
         }
@@ -78,7 +78,7 @@ class TestGetTemplatesCap:
 
     def test_oversized_templates_returns_clear_error(self) -> None:
         server, _app, service = make_ipc_server_with_fakes()
-        # ~1.5 MB template store — well over the 1 MiB frame cap.
+        # ~1.5 MB template store, well over the 1 MiB frame cap.
         service.get_templates.return_value = [{"trigger": f"t{i:04d}", "output": "x" * 500} for i in range(3000)]
         resp = server._handle_get_templates({}, {})
         assert resp["type"] == "error"
@@ -99,7 +99,7 @@ class TestHistoryFrameCapFallback:
     def test_residual_oversize_returns_error_envelope(self) -> None:
         server, _app, _service = make_ipc_server_with_fakes()
         # Rows whose text is already at the 50-char floor but whose
-        # non-text columns are huge — text truncation can't shrink them
+        # non-text columns are huge, text truncation can't shrink them
         # below the frame cap. ~1.5 MB serialized.
         rows = [
             {
@@ -118,7 +118,7 @@ class TestHistoryFrameCapFallback:
 
     def test_truncatable_rows_still_trimmed_not_dropped(self) -> None:
         server, _app, _service = make_ipc_server_with_fakes()
-        # 500 rows with ~10 KB text each — ~5 MB serialized, so the
+        # 500 rows with ~10 KB text each, ~5 MB serialized, so the
         # truncation loop halves the text previews until it fits.
         rows = [{"id": i, "text": "x" * 10000} for i in range(500)]
         result = server._enforce_history_frame_cap(rows, command="get_history")

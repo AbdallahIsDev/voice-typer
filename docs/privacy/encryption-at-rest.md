@@ -1,4 +1,4 @@
-# Encryption-at-Rest Threat Model — Dictated Text
+# Encryption-at-Rest Threat Model: Dictated Text
 
 ## Status
 
@@ -22,10 +22,10 @@ analysis each pass.
 
 | Actor | Capability | Mitigated by |
 |---|---|---|
-| **Same-user process** (another app running as the same OS user) | Read `history.db` directly (SQLite, no key needed) | POSIX file perms 0o600 on `history.db` + sidecars (`-wal`, `-shm`); dir 0o700. **NOT mitigated on Windows** — `chmod 0o600` is a no-op for non-admin processes; any same-user process can `open()` the file. |
+| **Same-user process** (another app running as the same OS user) | Read `history.db` directly (SQLite, no key needed) | POSIX file perms 0o600 on `history.db` + sidecars (`-wal`, `-shm`); dir 0o700. **NOT mitigated on Windows**, `chmod 0o600` is a no-op for non-admin processes; any same-user process can `open()` the file. |
 | **Root / admin** | Read the file regardless of perms | None at the application layer. Filesystem-level encryption (FileVault, BitLocker, LUKS) is the user's responsibility. |
-| **Forensic disk recovery after GDPR delete** | Recover deleted plaintext from free pages / WAL / journal | `PRAGMA secure_delete=ON` (overwrites free pages with zeros before unlink). GDPR delete path runs `PRAGMA wal_checkpoint(TRUNCATE)` + `os.unlink` after close. **Caveat:** on CoW filesystems (APFS, btrfs, ZFS), overwritten blocks may persist in snapshots — see `gdpr-delete.md` "Secure-delete consideration". |
-| **Cold-boot / memory dump** | Read the plaintext key from RAM | Out of scope — assumes physical access to a running machine. |
+| **Forensic disk recovery after GDPR delete** | Recover deleted plaintext from free pages / WAL / journal | `PRAGMA secure_delete=ON` (overwrites free pages with zeros before unlink). GDPR delete path runs `PRAGMA wal_checkpoint(TRUNCATE)` + `os.unlink` after close. **Caveat:** on CoW filesystems (APFS, btrfs, ZFS), overwritten blocks may persist in snapshots, see `gdpr-delete.md` "Secure-delete consideration". |
+| **Cold-boot / memory dump** | Read the plaintext key from RAM | Out of scope: assumes physical access to a running machine. |
 | **Malware with same-user privileges** | Read `history.db` while the app is running | POSIX file perms (mitigated on Linux/macOS). On Windows, antivirus / EDR is the only mitigation. |
 
 ## Current mitigations (defense-in-depth)
@@ -47,7 +47,7 @@ of plaintext-at-rest:
    pages by an attacker with filesystem access.
 3. **WAL checkpoint + truncate on close** (`history_db.close`): runs
    `PRAGMA wal_checkpoint(TRUNCATE)` so the WAL file is emptied before
-   the connection closes — dictated text does not linger in the WAL
+   the connection closes: dictated text does not linger in the WAL
    after a clean shutdown.
 4. **GDPR Art. 17 delete** (`service.delete_all_personal_data`): unlinks
    `history.db`, `history.db-wal`, `history.db-shm`, AND the corrupt-DB
@@ -57,7 +57,7 @@ of plaintext-at-rest:
    consistent; the WAL/SHM sidecars are chmod'd 0o600 and unlinked on
    close.
 6. **Corrupt-DB recovery renames to `history.db.corrupt-<ts>`** rather
-   than overwriting — the user can audit/shred the corrupt file. The
+   than overwriting: the user can audit/shred the corrupt file. The
    GDPR delete glob now includes `history.db.corrupt-*`.
 
 ## Residual risks (post-mitigation)
@@ -76,7 +76,7 @@ of plaintext-at-rest:
    (SIGKILL, OOM, power loss) before `close()` runs the WAL checkpoint,
    dictated text remains in `history.db-wal`. The next launch's
    `open_write_conn` will checkpoint it into the main DB on first
-   write — but between the crash and the next launch, the WAL file is
+   write: but between the crash and the next launch, the WAL file is
    on disk with perms 0o600 (POSIX) or default ACL (Windows).
 5. **Backup tools**: Time Machine, Windows File History, etc. will
    happily back up `history.db` with dictated text in plaintext. The
@@ -95,7 +95,7 @@ Linux Secret Service / kwallet).
 **Pros**: encrypts the entire DB (rows, WAL, SHM, free pages, journal).
 Strongest mitigation against same-user / forensic threats.
 **Cons**: new native dependency (`pysqlcipher3` requires SQLCipher
-C library). Key management adds complexity — if the user loses the
+C library). Key management adds complexity, if the user loses the
 key (e.g. OS keystore corruption), dictated history is unrecoverable.
 Performance: ~5-15% overhead on writes (SQLCipher AES-256-CBC per
 page). FTS5 index is also encrypted (verified) but search is slower.
@@ -105,10 +105,10 @@ page). FTS5 index is also encrypted (verified) but search is slower.
 Encrypt the `transcriptions.text` column at the Python layer using
 `cryptography.fernet` (AES-128-CBC + HMAC-SHA256) with a key from the
 OS keystore. Other columns (timestamp, model, device, etc.) stay
-plaintext — they are not personal data.
+plaintext: they are not personal data.
 
 **Pros**: no native deps (`cryptography` is pure-Python with OpenSSL
-wheels). Smaller blast radius — only the dictated-text column is
+wheels). Smaller blast radius: only the dictated-text column is
 encrypted.
 **Cons**: FTS5 index would also need encryption (the FTS virtual table
 stores the indexed text in plaintext). Search would need to decrypt
@@ -122,7 +122,7 @@ fall back to `LIKE %query%` on the decrypted text (slow).
 Accept the residual risks documented above. The existing mitigations
 (POSIX perms, `secure_delete=ON`, GDPR delete, WAL checkpoint on close)
 are defense-in-depth; the residual risk is "same-user / root on the
-user's machine can read dictated text" — the same threat model as every
+user's machine can read dictated text", the same threat model as every
 other local-first app on the user's machine (browser history, chat
 clients, note-taking apps).
 
@@ -140,26 +140,26 @@ SQLCipher proves too heavy a dependency.
 
 ## Related findings
 
-- **XZ-R11-02** — `history.db.corrupt-<ts>` survives GDPR delete (fixed
+- **XZ-R11-02**, `history.db.corrupt-<ts>` survives GDPR delete (fixed
   by SA-03 in commit `a41e8cd`; corrupt snapshots are now glob-deleted).
-- **XZ-R11-08** — WAL/SHM files not chmod'd after lazy creation (fixed
+- **XZ-R11-08**: WAL/SHM files not chmod'd after lazy creation (fixed
   in `schema.check_wal_mode` via re-chmod after `PRAGMA journal_mode=WAL`).
-- **XZ-R11-11** — Missing `PRAGMA foreign_keys=ON` (fixed by SA-17 in
+- **XZ-R11-11**: Missing `PRAGMA foreign_keys=ON` (fixed by SA-17 in
   this batch; per-connection opt-in for future FK constraints).
-- **XZ-PII-07** — Log retention: no time-based purge (open; SA-17
+- **XZ-PII-07**: Log retention: no time-based purge (open; SA-17
   owns `log.py`).
-- **XZ-LOG-10** — `RotatingFileHandler` not inter-process safe (open;
+- **XZ-LOG-10**, `RotatingFileHandler` not inter-process safe (open;
   SA-17 owns `log.py`).
 
 ## Related files
 
-- `voice_typer/server/history_db.py` — writer connection helper
+- `voice_typer/server/history_db.py` Writer connection helper
   (`_open_write_conn`) now sets `PRAGMA foreign_keys=ON`.
-- `voice_typer/server/history_db_internals/schema.py` — `open_write_conn`
+- `voice_typer/server/history_db_internals/schema.py` `open_write_conn`
   + `check_wal_mode` (perms, `secure_delete=ON`, WAL mode, re-chmod).
-- `voice_typer/server/service/privacy.py` — GDPR delete + export;
+- `voice_typer/server/service/privacy.py` GDPR delete + export;
   `_GDPR_PERSONAL_FILES` includes `history.db.corrupt-*` glob.
-- `docs/privacy/gdpr-delete.md` — operational reference for the
+- `docs/privacy/gdpr-delete.md` Operational reference for the
   right-to-delete operation.
-- `docs/privacy/gdpr-export.md` — operational reference for the
+- `docs/privacy/gdpr-export.md` Operational reference for the
   right-to-export operation.

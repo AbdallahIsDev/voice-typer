@@ -60,7 +60,7 @@ class TestAbortLifecycle:
 
 
 class TestGateBlocking:
-    """The gate must BLOCK while paused — this is what stops the actual
+    """The gate must BLOCK while paused, this is what stops the actual
     transfer bytes (the pre-fix bug: only the reporting froze)."""
 
     def test_gate_check_blocks_while_paused_then_returns_on_resume(self, gate):
@@ -93,7 +93,7 @@ class TestGateBlocking:
 
     def test_gate_check_raises_abort_while_paused(self, gate):
         """Cancel during a pause must wake the blocked transfer and
-        unwind it — a paused-then-cancelled download must not linger."""
+        unwind it, a paused-then-cancelled download must not linger."""
         set_download_paused(True)
         request_download_abort()
         with pytest.raises(ModelDownloadAborted):
@@ -108,7 +108,7 @@ class TestGateBlocking:
 class TestRetryWrapperDoesNotRetryAbort:
     def test_download_with_retry_propagates_abort_without_retry(self):
         """ModelDownloadAborted is a BaseException precisely so the
-        retry wrapper's ``except Exception`` cannot swallow it — a
+        retry wrapper's ``except Exception`` cannot swallow it, a
         cancelled download must never resume downloading via retry."""
         from voice_typer.server.asr_utils import _download_with_retry
 
@@ -120,7 +120,7 @@ class TestRetryWrapperDoesNotRetryAbort:
 
         with pytest.raises(ModelDownloadAborted):
             _download_with_retry(fake_download, max_attempts=3, delays=(0.0, 0.0))
-        assert len(attempts) == 1, "abort was retried — a cancel must not resume downloading"
+        assert len(attempts) == 1, "abort was retried, a cancel must not resume downloading"
 
     def test_download_with_retry_still_retries_plain_errors(self):
         from voice_typer.server.asr_utils import _download_with_retry
@@ -226,10 +226,10 @@ def _make_service(tmp_config_dir):
 
 class TestSingleFlightGuard:
     """A second download_model IPC while one is active (possibly paused)
-    must NOT start a second transfer — the shared pause/abort events
+    must NOT start a second transfer, the shared pause/abort events
     are module-level, and recycling them under a live download would
     wake the parked gate and run two concurrent transfers. The second
-    request is QUEUED (serialized, not refused) — the single-flight
+    request is QUEUED (serialized, not refused), the single-flight
     serialization is unchanged."""
 
     def test_whisper_branch_queues_second_download(self, tmp_config_dir, monkeypatch):
@@ -280,7 +280,7 @@ class TestSingleFlightGuard:
 
     def test_retry_allowed_after_download_ends(self, tmp_config_dir, monkeypatch):
         """Once the active download exits (events cleared), a new download
-        must be accepted — the guard is a single-flight latch, not a
+        must be accepted, the guard is a single-flight latch, not a
         permanent lock."""
 
         import voice_typer.server.asr_setup as asr
@@ -349,7 +349,7 @@ class TestParakeetGateLifecycle:
 class TestCancelAbortsGateWithoutRegistryEvent:
     def test_cancel_during_pause_aborts_transfer(self, tmp_config_dir):
         """Cancel must work from a PAUSED state even when no per-download
-        cancel Event is registered (the Parakeet path) — the parked gate
+        cancel Event is registered (the Parakeet path), the parked gate
         wakes and unwinds."""
         import pytest as _pytest
         import voice_typer.server.asr_setup as asr
@@ -366,7 +366,7 @@ class TestCancelAbortsGateWithoutRegistryEvent:
 
 
 class TestSnapshotCompletenessProbe:
-    """``is_model_snapshot_complete`` — the honest 'downloaded' answer.
+    """``is_model_snapshot_complete``, the honest 'downloaded' answer.
 
     The old checks treated a bare ``models--<repo>`` directory (created
     at download START) as downloaded, so a paused / killed download
@@ -385,7 +385,7 @@ class TestSnapshotCompletenessProbe:
         import voice_typer.server.transcription_download as td
         from voice_typer.server.config import _config_dir
 
-        # The probe short-circuits when the repo dir is absent — create
+        # The probe short-circuits when the repo dir is absent, create
         # the on-disk marker a real download START would leave behind.
         repo_dir = _config_dir() / "huggingface" / "hub" / "models--Systran--faster-whisper-tiny"
         repo_dir.mkdir(parents=True)

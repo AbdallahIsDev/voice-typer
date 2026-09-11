@@ -7,13 +7,13 @@ right-to-erasure / data-portability path
 / :meth:`export_gdpr_bundle`) cannot drift from the actual on-disk
 filenames again.
 
-* ``_USER_DATA_FILES`` — bare on-disk filenames (and dot-prefixed
+* ``_USER_DATA_FILES``: bare on-disk filenames (and dot-prefixed
   marker files) that ``purge_user_data`` unlinks on uninstall. Every
   entry is the actual on-disk filename (no abstract / "logical"
   names), so the purge walk always matches a real file when one
   exists.
 
-* ``_GDPR_PERSONAL_FILES`` — on-disk filenames that contain personal
+* ``_GDPR_PERSONAL_FILES``: on-disk filenames that contain personal
   data and must be erased by GDPR Art. 17 (``delete_all_personal_data``)
   and included in GDPR Art. 20 export bundles. Overlaps with
   ``_USER_DATA_FILES`` (both remove ``config.json`` etc.) but is a
@@ -24,7 +24,7 @@ filenames again.
 The tuples are populated using the canonical ``*_FILENAME`` constants
 exported by the modules that own each artifact (``crash_recovery``,
 ``vocabulary``, ``templates``). A future rename in the owning module
-propagates automatically — closing the drift bug where the purge list
+propagates automatically, closing the drift bug where the purge list
 had bare names while the actual on-disk filename was the prefixed
 ``voice-typer-recovery.json`` (so the purge walk silently no-op'd on
 a real file).
@@ -79,7 +79,7 @@ _LEGACY_VOCAB_FILENAME: str = "voice-typer-vocabulary.json"
 _TEMPLATES_FILENAME: str = "templates.json"
 _LEGACY_TEMPLATES_FILENAME: str = "voice-typer-templates.json"
 
-# Corrections filename — ``text_cleanup.py`` uses the literal
+# Corrections filename, ``text_cleanup.py`` uses the literal
 # ``"voice-typer-corrections.json"`` in two places (the external-loader
 # fallback and the persisted-user-corrections path) without exposing a
 # module-level constant. Hard-coded here as the actual on-disk name so
@@ -96,7 +96,7 @@ _CORRECTIONS_FILENAME: str = "voice-typer-corrections.json"
 # ``.onboarding_fail_count`` markers were merged into it and are
 # deleted by the one-time migration). ``onboarding.py`` persists
 # ``.onboarding_progress`` (JSON blob with the in-progress wizard
-# state, kept separate — it is transient per-step state). Listed
+# state, kept separate, it is transient per-step state). Listed
 # individually because the purge walk iterates a flat name list (not a
 # glob); the legacy marker names are retained in the inventory so an
 # upgrade that has not yet run the migration still purges them.
@@ -124,11 +124,11 @@ _RUST_LOG: str = "voice-typer-rust.log"
 _PREWARM_STATUS_FILE: str = "prewarm-status.json"
 _LEGACY_PREWARM_STATUS_FILE: str = "prewarm_status.json"
 
-# Backend PID file — written by ``single_instance.py`` (see
+# Backend PID file, written by ``single_instance.py`` (see
 # ``_backend_pid_path`` / ``backend_pid_path``).
 _BACKEND_PID_FILE: str = "backend.pid"
 
-# Restart token — defensive entry, written by the restart helper to
+# Restart token, defensive entry, written by the restart helper to
 # signal a pending relaunch across the sidecar process boundary.
 _RESTART_TOKEN: str = ".restart_token"
 
@@ -170,7 +170,7 @@ _USER_DATA_FILES: tuple[str, ...] = (
 # included in GDPR Art. 20 export bundles. Overlaps with
 # ``_USER_DATA_FILES`` but is intentionally a separate list because
 # the GDPR path also removes files that the purge path handles via
-# directory ``rmtree`` (``logs/`` etc.) — keeping the explicit list
+# directory ``rmtree`` (``logs/`` etc.), keeping the explicit list
 # here means the GDPR walk is resilient to a future change to the
 # directory layout.
 _GDPR_PERSONAL_FILES: tuple[str, ...] = (
@@ -238,7 +238,7 @@ _USER_DATA_GLOBS: tuple[str, ...] = (
     "history.db.pre-migration-v*.bak-shm",
 )
 
-# GDPR personal-data globs — same set as ``_USER_DATA_GLOBS`` but
+# GDPR personal-data globs, same set as ``_USER_DATA_GLOBS`` but
 # consulted by ``PrivacyMixin._gdpr_unlink_personal_globs`` /
 # ``PrivacyMixin._gdpr_build_zip`` for the Art. 17 / Art. 20 paths.
 # Kept as a distinct tuple from ``_USER_DATA_GLOBS`` so a future
@@ -295,7 +295,7 @@ try:
         f"in _user_data_files.py to match templates.TEMPLATES_FILENAME."
     )
 
-    # Onboarding markers are owned by ``onboarding_status.py`` — the
+    # Onboarding markers are owned by ``onboarding_status.py``, the
     # purge inventory mirrors its canonical constants (the legacy names
     # are retained so a pre-migration uninstall still purges them).
     from voice_typer.server import onboarding_status
@@ -321,7 +321,7 @@ try:
         f"in _user_data_files.py to match onboarding_status._LEGACY_FAIL_COUNT_MARKER."
     )
 except ImportError:
-    # Circular import — happens when this module is imported directly
+    # Circular import, happens when this module is imported directly
     # without going through ``config.py`` (or
     # ``voice_typer.server.service``) first. The literals above are
     # still authoritative; the sanity check simply doesn't run.

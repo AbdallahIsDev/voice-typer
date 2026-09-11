@@ -6,7 +6,7 @@
  * and that NEITHER policy grants `connect-src https://api.github.com`.
  *
  * C-DATA-1 (offline guarantee): the previous main-window grant for
- * `https://api.github.com` was a latent violation — it allowed the
+ * `https://api.github.com` was a latent violation, it allowed the
  * Settings page's "Check for Updates" button to fire a renderer
  * `fetch()` against the GitHub releases API. That feature was removed
  * (see `PrewarmAndUpdates.tsx`); both windows now ship a strict
@@ -32,14 +32,14 @@ describe("CR-11 / R6-F5: per-window CSP split", () => {
 
 		it("does NOT allow unsafe-eval or unsafe-inline in script-src (production hardening)", () => {
 			// Match `script-src 'self'` exactly (no unsafe-* additions).
-			// `style-src 'self' 'unsafe-inline'` IS allowed — Tailwind 4
+			// `style-src 'self' 'unsafe-inline'` IS allowed, Tailwind 4
 			// needs it. So we assert the script-src directive is strict,
 			// not the entire CSP string.
 			expect(CSP_PROD_MAIN).toMatch(/script-src 'self'(?:;|$)/);
 		});
 
 		it("keeps form-action 'none' and EXCLUDES frame-ancestors from the meta CSP (header-only directive)", () => {
-			// `frame-ancestors` is only honored via an HTTP header — a
+			// `frame-ancestors` is only honored via an HTTP header, a
 			// <meta> occurrence is ignored by the browser AND logs a
 			// console warning. It belongs in the Electron-main header CSP
 			// (bootstrap.ts::_buildCsp), never here.

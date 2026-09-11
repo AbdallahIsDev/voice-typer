@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Voice Typer — Linux keyboard permission installer.
+"""Voice Typer. Linux keyboard permission installer.
 
 This is the single source of truth for "what system modifications does
 Voice Typer make on Linux." Called by:
@@ -31,7 +31,7 @@ Usage:
   python3 install_permissions.py --setup-system-paths
 
 The ``--setup-system-paths`` flag performs ONLY the polkit-stable path
-setup (step 1) and exits — it does not install udev rules, add the user
+setup (step 1) and exits, it does not install udev rules, add the user
 to the input group, or write a manifest. Used by the AppImage first-run
 helper to register the polkit action before the user clicks "Grant
 permission" in the onboarding flow.
@@ -39,7 +39,7 @@ permission" in the onboarding flow.
 Exit codes:
   0 = success
   1 = not running as root
-  2 = (reserved — historical "no target user" code, now unified with 5)
+  2 = (reserved, historical "no target user" code, now unified with 5)
   3 = udev rule installation failed
   4 = usermod failed
   5 = no target user detected (run via sudo -E / pkexec) OR XKB / session config failed
@@ -47,7 +47,7 @@ Exit codes:
 Note: when this script is invoked via pkexec, polkit caches the
 authentication for ~5 minutes (``auth_admin_keep`` default in
 ``voice-typer.polkit``). Re-running within that window will not re-prompt
-for a password — this is expected polkit behavior, not a bug.
+for a password: this is expected polkit behavior, not a bug.
 """
 
 from __future__ import annotations
@@ -122,7 +122,7 @@ POLKIT_STABLE_PATH = POLKIT_STABLE_DIR / "install_permissions.py"
 # directory so ``pkexec com.voicetyper.install-permissions`` resolves
 # to the custom authentication prompt (instead of the generic pkexec
 # prompt). The filename matches the action ID's ``com.voicetyper.*``
-# RDNN root (see voice-typer.polkit header — review finding #54). The
+# RDNN root (see voice-typer.polkit header, review finding #54). The
 # Debian / RPM postinst installs this via the package manager; AppImage
 # installs require this script to install it.
 POLKIT_POLICY_SOURCE = Path(__file__).resolve().parent / "voice-typer.polkit"
@@ -135,12 +135,12 @@ POLKIT_POLICY_DEST = Path("/usr/share/polkit-1/actions/com.voicetyper.policy")
 # ``_install_polkit_policy`` removes it on every install/upgrade run (so
 # the upgrade itself converges the system) and the uninstaller removes
 # it (alongside the current policy) so an uninstalled system fully
-# converges on the ``com.voicetyper.*`` namespace — see
+# converges on the ``com.voicetyper.*`` namespace, see
 # ``_remove_polkit_policies``.
 LEGACY_POLKIT_POLICY_DEST = Path("/usr/share/polkit-1/actions/org.voice-typer.policy")
 
 # AppImage squashfs mounts under ``/tmp/.mount_<name><rand>/``. The
-# mount is ephemeral — it disappears when the AppImage process exits.
+# mount is ephemeral, it disappears when the AppImage process exits.
 # A symlink to a path inside the mount would dangle after exit, so for
 # AppImage runs we COPY the script to the polkit-stable path instead
 # of symlinking. The copy is stable across AppImage launches.
@@ -169,7 +169,7 @@ def get_target_user() -> str | None:
 
     Order:
     1. ``SUDO_USER`` (set by sudo / apt / dnf)
-    2. ``PKEXEC_UID`` (set by pkexec) — translate UID to username
+    2. ``PKEXEC_UID`` (set by pkexec), translate UID to username
     3. None (caller should handle)
     """
     sudo_user = os.environ.get("SUDO_USER", "").strip()
@@ -215,7 +215,7 @@ def _is_running_from_appimage() -> bool:
         resolved = Path(__file__).resolve()
     except OSError:
         return False
-    # as_posix() so the prefix match is path-separator agnostic — on
+    # as_posix() so the prefix match is path-separator agnostic, on
     # Windows (tests / cross-dev) Path('/tmp/.mount_...') stringifies
     # with backslashes and would never match the POSIX prefix.
     return resolved.as_posix().startswith(_APPIMAGE_MOUNT_PREFIX)
@@ -232,14 +232,14 @@ def _install_polkit_policy() -> None:
     Also removes the legacy ``org.voice-typer.policy`` (see
     ``LEGACY_POLKIT_POLICY_DEST``) so an UPGRADE from a pre-Tauri
     Electron install converges on the ``com.voicetyper.*`` namespace at
-    install time — the legacy file is inert (pkexec matches by
+    install time, the legacy file is inert (pkexec matches by
     ``exec.path``, not action ID) but must not linger. The removal runs
     BEFORE the idempotent-match early return so a no-op install still
     performs the cleanup, and is tolerant of an absent / unremovable
     file (non-fatal).
     """
     if not POLKIT_POLICY_SOURCE.is_file():
-        log(f"WARNING: polkit policy source not found at {POLKIT_POLICY_SOURCE} — skipping polkit policy install")
+        log(f"WARNING: polkit policy source not found at {POLKIT_POLICY_SOURCE}, skipping polkit policy install")
         return
 
     # Converge upgraded systems on the com.voicetyper.* namespace: a
@@ -252,7 +252,7 @@ def _install_polkit_policy() -> None:
     if POLKIT_POLICY_DEST.is_file():
         try:
             if POLKIT_POLICY_DEST.read_bytes() == POLKIT_POLICY_SOURCE.read_bytes():
-                return  # Already up to date — no-op.
+                return  # Already up to date, no-op.
         except OSError:
             pass  # Fall through to overwrite.
 
@@ -269,7 +269,7 @@ def _remove_polkit_policy_file(policy: Path) -> None:
     """Remove one polkit policy file.
 
     Tolerant of absent files (silent no-op) and ``OSError`` (logged as
-    a non-fatal warning — a failure here must not abort the caller).
+    a non-fatal warning, a failure here must not abort the caller).
     """
     try:
         # ``is_symlink()`` covers dangling symlinks that ``exists()``
@@ -293,7 +293,7 @@ def _remove_polkit_policies() -> None:
     namespace after uninstall.
 
     Tolerant of absent files (silent no-op) and ``OSError`` (logged as
-    a non-fatal warning — a failure here must not abort the rest of the
+    a non-fatal warning, a failure here must not abort the rest of the
     uninstall).
     """
     for policy in (POLKIT_POLICY_DEST, LEGACY_POLKIT_POLICY_DEST):
@@ -309,14 +309,14 @@ def _remove_polkit_stable_path() -> None:
     policies are gone (``_remove_polkit_policies``), the stable path has
     no consumer: the file at it is now inert, and on uninstall the
     symlink would dangle (its target is being deleted). Removal happens
-    at uninstall only — during normal operation the path must keep
+    at uninstall only, during normal operation the path must keep
     resolving for ``pkexec com.voicetyper.install-permissions``.
 
     The dir is removed only if it becomes empty (``rmdir`` semantics —
     never delete foreign files that may share the directory).
 
     Tolerant of absent paths and ``OSError`` (logged as a non-fatal
-    warning — a failure here must not abort the rest of the uninstall).
+    warning, a failure here must not abort the rest of the uninstall).
     """
     try:
         # ``is_symlink()`` covers dangling symlinks that ``exists()``
@@ -328,7 +328,7 @@ def _remove_polkit_stable_path() -> None:
         log(f"WARNING: failed to remove polkit-stable script {POLKIT_STABLE_PATH} (non-fatal): {exc}")
     try:
         if POLKIT_STABLE_DIR.exists() and not POLKIT_STABLE_DIR.is_symlink():
-            POLKIT_STABLE_DIR.rmdir()  # only removes if empty — safe
+            POLKIT_STABLE_DIR.rmdir()  # only removes if empty, safe
             log(f"Removed polkit-stable dir {POLKIT_STABLE_DIR}")
     except OSError as exc:
         log(f"WARNING: failed to remove polkit-stable dir {POLKIT_STABLE_DIR} (non-fatal): {exc}")
@@ -340,7 +340,7 @@ def setup_polkit_stable_path() -> None:
     The polkit policy (``voice-typer.polkit``) hard-codes
     ``/usr/share/voice-typer/scripts/install_permissions.py`` as the
     ``org.freedesktop.policykit.exec.path`` annotation. Polkit requires
-    an absolute, stable path — it does not follow symlinks at invoke
+    an absolute, stable path, it does not follow symlinks at invoke
     time, but the path must EXIST when ``pkexec
     com.voicetyper.install-permissions`` is invoked.
 
@@ -349,12 +349,12 @@ def setup_polkit_stable_path() -> None:
     script (under ``/usr/lib/voice-typer/resources/linux-scripts/``).
     This function is a defensive fallback for:
 
-    1. **AppImage installs** — no ``postinst`` runs, so the polkit-stable
+    1. **AppImage installs**, no ``postinst`` runs, so the polkit-stable
        path is never created. We COPY this script to the polkit-stable
        path (a symlink would dangle after the AppImage is unmounted).
-    2. **Repair scenarios** — the symlink was deleted manually, or a
+    2. **Repair scenarios**, the symlink was deleted manually, or a
        previous ``postinst`` failed before the symlink step.
-    3. **Dev / manual runs** — running the script directly from the
+    3. **Dev / manual runs**, running the script directly from the
        source tree (e.g. ``sudo python3 scripts/linux/install_permissions.py``).
 
     The function is idempotent: re-running it does not clobber an
@@ -364,10 +364,10 @@ def setup_polkit_stable_path() -> None:
 
     Must be called as root (the polkit-stable path is under
     ``/usr/share/``). Non-root callers should be screened out before
-    invocation — this function logs a warning and returns if not root.
+    invocation: this function logs a warning and returns if not root.
     """
     if not is_root():
-        log("WARNING: setup_polkit_stable_path() called as non-root — skipping")
+        log("WARNING: setup_polkit_stable_path() called as non-root, skipping")
         return
 
     this_script = Path(__file__).resolve()
@@ -379,12 +379,12 @@ def setup_polkit_stable_path() -> None:
             _install_polkit_policy()
             return
     except FileNotFoundError:
-        pass  # polkit-stable path doesn't exist yet — fall through.
+        pass  # polkit-stable path doesn't exist yet, fall through.
 
     POLKIT_STABLE_DIR.mkdir(parents=True, exist_ok=True)
 
     if _is_running_from_appimage():
-        # AppImage mount is ephemeral — copy the script so the
+        # AppImage mount is ephemeral, copy the script so the
         # polkit-stable path keeps resolving after the AppImage exits.
         try:
             # Don't clobber a newer copy (e.g. a re-run after upgrade).
@@ -402,16 +402,16 @@ def setup_polkit_stable_path() -> None:
         except OSError as exc:
             log(f"WARNING: failed to install polkit-stable copy (non-fatal): {exc}")
     else:
-        # Stable install path — symlink (matches postinst behavior).
+        # Stable install path, symlink (matches postinst behavior).
         # Use ``ln -sfn`` semantics: force, symbolic, no-deref so
         # re-runs and upgrades don't leave dangling links.
         try:
             # If the polkit-stable path is a regular file (e.g. legacy
             # Electron install physically placed the script there),
-            # don't clobber it — leave the existing regular file in
+            # don't clobber it, leave the existing regular file in
             # place. This matches the postinst's guard.
             if POLKIT_STABLE_PATH.is_file() and not POLKIT_STABLE_PATH.is_symlink():
-                log(f"Polkit-stable path {POLKIT_STABLE_PATH} is a regular file — not clobbering")
+                log(f"Polkit-stable path {POLKIT_STABLE_PATH} is a regular file, not clobbering")
             else:
                 # Create or update the symlink.
                 if POLKIT_STABLE_PATH.is_symlink():
@@ -456,7 +456,7 @@ def _parse_gsettings_array(raw: str) -> list[str]:
     if not raw or raw.startswith("@as"):
         return []
     # GVariant array literals are syntactically compatible with Python
-    # list literals — use ast.literal_eval for safe parsing.
+    # list literals: use ast.literal_eval for safe parsing.
     try:
         parsed = ast.literal_eval(raw)
         if isinstance(parsed, (list, tuple)):
@@ -538,7 +538,7 @@ def install_udev_rule() -> None:
         run(["udevadm", "trigger", "--subsystem-match=input"], check=False)
         log("Reloaded udev rules")
     except FileNotFoundError:
-        log("WARNING: udevadm not found — rules will apply on next boot")
+        log("WARNING: udevadm not found, rules will apply on next boot")
     except subprocess.CalledProcessError as exc:
         log(f"WARNING: udevadm reload failed (non-fatal): {exc}")
 
@@ -560,7 +560,7 @@ def add_user_to_input_group(username: str) -> None:
         pass
 
     try:
-        # Equivalent shell form: `usermod -aG input <username>` — append
+        # Equivalent shell form: `usermod -aG input <username>`, append
         # the user to the `input` group so they have read access to the
         # /dev/input/event* devices (per the 99-voice-typer.rules udev
         # rule, owned by root:input mode 0660). The list form is used so
@@ -569,7 +569,7 @@ def add_user_to_input_group(username: str) -> None:
         run(["usermod", "-aG", INPUT_GROUP, username])
         log(f"Added user '{username}' to '{INPUT_GROUP}' group")
     except FileNotFoundError:
-        fail(4, "usermod not found — cannot add user to input group")
+        fail(4, "usermod not found, cannot add user to input group")
     except subprocess.CalledProcessError as exc:
         fail(4, f"usermod failed: {exc}")
 
@@ -635,7 +635,7 @@ def configure_caps_lock_neutralization(session_type: str, username: str) -> dict
     }
 
     if session_type == "headless":
-        log("No display server detected — skipping Caps Lock neutralization")
+        log("No display server detected, skipping Caps Lock neutralization")
         return result
 
     # X11: always install the XKB conf file (works for all X11 desktops)
@@ -733,7 +733,7 @@ def configure_caps_lock_neutralization(session_type: str, username: str) -> dict
                 parser.add_section("Layout")
             parser.set("Layout", "Options", merged_options_str)
             # Write back merged INI (``space_around_delimiters=False`` matches
-            # KDE's ``Options=caps:none`` convention — no spaces around ``=``).
+            # KDE's ``Options=caps:none`` convention, no spaces around ``=``).
             with kxkbrc.open("w") as f:
                 parser.write(f, space_around_delimiters=False)
             shutil.chown(kxkbrc, user_pw.pw_uid, user_pw.pw_gid)
@@ -756,7 +756,7 @@ def configure_caps_lock_neutralization(session_type: str, username: str) -> dict
             existing = sway_config.read_text() if sway_config.exists() else ""
             lines = existing.splitlines(keepends=True)
             match_indices = _find_sway_xkb_options_lines(lines)
-            marker = "# Voice Typer — Caps Lock neutralization"
+            marker = "# Voice Typer. Caps Lock neutralization"
             restore_marker = "# Voice Typer (original, preserved for restore):"
             if match_indices:
                 # Merge caps:none into the FIRST matched line's options.
@@ -782,7 +782,7 @@ def configure_caps_lock_neutralization(session_type: str, username: str) -> dict
                 result["sway_config_modified"] = True
                 result["sway_xkb_options_original"] = original_line
             elif marker not in existing:
-                # No existing xkb_options line — append Voice Typer's marker block.
+                # No existing xkb_options line, append Voice Typer's marker block.
                 with sway_config.open("a") as f:
                     if existing and not existing.endswith("\n"):
                         f.write("\n")
@@ -800,7 +800,7 @@ def configure_caps_lock_neutralization(session_type: str, username: str) -> dict
 
     if session_type == "wayland-other":
         log(
-            "WARNING: unsupported Wayland compositor — Caps Lock neutralization skipped. "
+            "WARNING: unsupported Wayland compositor. Caps Lock neutralization skipped. "
             "Use a non-Caps-Lock hotkey (e.g. Alt) or configure your compositor manually."
         )
 
@@ -833,7 +833,7 @@ def write_manifest(
         "sway_config_modified": session_info.get("sway_config_modified", False),
         # Caps Lock XKB-option originals. The uninstaller
         # restores these via ``gsettings set`` / kxkbrc rewrite / sway
-        # config rewrite — instead of ``gsettings reset`` (which would lose
+        # config rewrite, instead of ``gsettings reset`` (which would lose
         # the user's other XKB options) or "remove the line manually" (which
         # leaves the user to clean up). Empty string = no prior value (the
         # uninstaller removes Voice Typer's added line / key entirely).
@@ -856,7 +856,7 @@ def install() -> None:
     # a defensive fallback for AppImage installs (no postinst runs to
     # create the symlink) and for repair scenarios (symlink deleted
     # manually). For Debian / RPM installs, the postinst already
-    # created the symlink — this is an idempotent no-op.
+    # created the symlink: this is an idempotent no-op.
     setup_polkit_stable_path()
 
     username = get_target_user()
@@ -867,10 +867,10 @@ def install() -> None:
         # invocation. Exit code 5 per the platform exit-code table.
         fail(
             5,
-            "no target user detected — run as: sudo -E env PKEXEC_UID=$(id -u) "
+            "no target user detected. Run as: sudo -E env PKEXEC_UID=$(id -u) "
             "pkexec /usr/share/voice-typer/scripts/install_permissions.py",
         )
-        return  # unreachable — fail() exits; explicit return for type narrowing
+        return  # unreachable, fail() exits; explicit return for type narrowing
 
     # Explain the polkit auth_admin_keep caching window so users
     # aren't surprised when subsequent pkexec invocations don't re-prompt.
@@ -886,7 +886,7 @@ def install() -> None:
     install_udev_rule()
 
     # 2. Add user to input group.
-    #    The no-user branch fails fast — username is
+    #    The no-user branch fails fast, username is
     #    guaranteed to be a real user here (never "root").
     add_user_to_input_group(username)
 
@@ -911,7 +911,7 @@ def _unlink_autostart_desktop_at(home_dir: Path) -> None:
 
     Looks for ``<home_dir>/.config/autostart/voice-typer.desktop`` and
     unlinks it if present. Silent no-op if absent. Logs a non-fatal
-    warning on ``OSError`` (e.g. permission denied — common when the
+    warning on ``OSError`` (e.g. permission denied, common when the
     uninstaller runs as root but a home dir is owned by a service
     account whose ``.config`` is mode 0700).
 
@@ -955,7 +955,7 @@ def _remove_autostart_desktop(target_user: str) -> None:
       whose ``is_dir()`` raises ``PermissionError`` / ``OSError``
       (e.g. a service-account home dir we can't read).
 
-    All errors are non-fatal — the uninstaller must not abort the
+    All errors are non-fatal, the uninstaller must not abort the
     rest of the cleanup just because one user's ``.desktop`` file
     couldn't be removed.
     """
@@ -963,7 +963,7 @@ def _remove_autostart_desktop(target_user: str) -> None:
         try:
             pw = pwd.getpwnam(target_user)
         except KeyError:
-            log(f"WARNING: cannot resolve home dir for user '{target_user}' — relying on /home scan")
+            log(f"WARNING: cannot resolve home dir for user '{target_user}', relying on /home scan")
         else:
             _unlink_autostart_desktop_at(Path(pw.pw_dir))
 
@@ -1056,11 +1056,11 @@ def _restore_kde_kxkbrc_options(manifest: dict) -> None:
     try:
         user_pw = pwd.getpwnam(username)
     except KeyError:
-        log(f"WARNING: cannot resolve home dir for user '{username}' — skipping KDE kxkbrc restore")
+        log(f"WARNING: cannot resolve home dir for user '{username}', skipping KDE kxkbrc restore")
         return
     kxkbrc = Path(user_pw.pw_dir) / ".config" / "kxkbrc"
     if not kxkbrc.exists():
-        log(f"NOTE: {kxkbrc} no longer exists — skipping KDE kxkbrc restore")
+        log(f"NOTE: {kxkbrc} no longer exists, skipping KDE kxkbrc restore")
         return
     try:
         existing_text = kxkbrc.read_text()
@@ -1096,7 +1096,7 @@ def _restore_sway_config_options(manifest: dict) -> None:
     1. **Replaced** an existing ``input * xkb_options`` line (saving the
        original to the manifest) and wrote a restore-marker comment above
        the new merged line, OR
-    2. **Appended** a new ``# Voice Typer — Caps Lock neutralization``
+    2. **Appended** a new ``# Voice Typer. Caps Lock neutralization``
        marker block + ``input * xkb_options caps:none`` line (no prior
        line existed).
 
@@ -1113,16 +1113,16 @@ def _restore_sway_config_options(manifest: dict) -> None:
     try:
         user_pw = pwd.getpwnam(username)
     except KeyError:
-        log(f"WARNING: cannot resolve home dir for user '{username}' — skipping sway config restore")
+        log(f"WARNING: cannot resolve home dir for user '{username}', skipping sway config restore")
         return
     sway_config = Path(user_pw.pw_dir) / ".config" / "sway" / "config"
     if not sway_config.exists():
-        log(f"NOTE: {sway_config} no longer exists — skipping sway config restore")
+        log(f"NOTE: {sway_config} no longer exists, skipping sway config restore")
         return
     try:
         existing = sway_config.read_text()
         lines = existing.splitlines(keepends=True)
-        marker = "# Voice Typer — Caps Lock neutralization"
+        marker = "# Voice Typer. Caps Lock neutralization"
         restore_marker = "# Voice Typer (original, preserved for restore):"
         new_lines: list[str] = []
         i = 0
@@ -1147,7 +1147,7 @@ def _restore_sway_config_options(manifest: dict) -> None:
                     restored = True
                 continue
             # Replace Voice Typer's rewritten ``input * xkb_options`` line
-            # with the saved original (replace-mode case — no marker, just
+            # with the saved original (replace-mode case, no marker, just
             # the merged line we wrote below the restore-marker comment).
             if (
                 not restored
@@ -1187,14 +1187,14 @@ def uninstall() -> None:
         try:
             manifest = json.loads(MANIFEST_PATH.read_text())
         except json.JSONDecodeError:
-            log("WARNING: manifest is corrupt — removing known paths unconditionally")
+            log("WARNING: manifest is corrupt, removing known paths unconditionally")
 
     # remove the per-user autostart .desktop entry so the DE
     # doesn't keep trying to launch the (now-deleted) binary on every
     # login. Runs after the manifest is read (so we know the
     # ``target_user``) and before backups are restored (so a failure
     # here doesn't skip the rest of the cleanup). Passes ``""`` when
-    # the manifest is missing/corrupt — ``_remove_autostart_desktop``
+    # the manifest is missing/corrupt, ``_remove_autostart_desktop``
     # then falls back to scanning ``HOME_ROOT_SCAN/*``.
     autostart_target_user = manifest.get("target_user", "") if manifest else ""
     _remove_autostart_desktop(autostart_target_user)
@@ -1218,7 +1218,7 @@ def uninstall() -> None:
 
     # Remove the polkit policy files (current + legacy). The legacy
     # ``org.voice-typer.policy`` may linger from pre-Tauri Electron
-    # installs — removing it converges the polkit actions directory on
+    # installs, removing it converges the polkit actions directory on
     # the ``com.voicetyper.*`` namespace. Runs before the backup
     # restoration so a failure here can't skip the rest of the cleanup
     # (the helper is non-fatal anyway).
@@ -1226,7 +1226,7 @@ def uninstall() -> None:
 
     # Remove the polkit-stable script path (symlink or copy) + its
     # (now-empty) dir. With both polkit policies gone, the stable path
-    # has no consumer — the script at it is inert and a symlink would
+    # has no consumer, the script at it is inert and a symlink would
     # dangle against the deleted install. Runs after the policy removal
     # (same non-fatal semantics).
     _remove_polkit_stable_path()
@@ -1265,7 +1265,7 @@ def uninstall() -> None:
         # disruptive than leaving it. The user can manually run
         # 'sudo gpasswd -d <user> input' if desired.
         log(
-            "NOTE: user was added to the 'input' group — not removing "
+            "NOTE: user was added to the 'input' group, not removing "
             "(other apps may rely on it). Run 'sudo gpasswd -d <user> input' "
             "to remove manually if desired."
         )
@@ -1285,7 +1285,7 @@ def main() -> None:
     if "--uninstall" in sys.argv:
         uninstall()
     elif "--setup-system-paths" in sys.argv:
-        # Standalone polkit-stable path setup — used by the AppImage
+        # Standalone polkit-stable path setup, used by the AppImage
         # first-run helper to register the polkit action without
         # running the full udev / usermod / Caps Lock install.
         if not is_root():

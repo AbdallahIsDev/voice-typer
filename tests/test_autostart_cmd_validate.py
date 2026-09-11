@@ -1,11 +1,11 @@
-"""AUTOSTART-CMD-VALIDATE backport — macOS/Linux autostart path validation.
+"""AUTOSTART-CMD-VALIDATE backport: macOS/Linux autostart path validation.
 
 The Windows autostart checks (``_validate_runkey_command`` /
 ``_is_app_autostart_startup_registered``) verify the registered command's
 exe path still exists on disk; a stale entry (deleted venv / moved
 install) reports autostart DISABLED. The macOS plist probe
 (``_is_autostart_macos``) and Linux .desktop probe
-(``_is_autostart_linux``) previously only checked file existence — a
+(``_is_autostart_linux``) previously only checked file existence, a
 plist/.desktop pointing at a deleted interpreter silently reported
 "enabled" while the login launch failed.
 
@@ -64,7 +64,7 @@ def test_plist_existing_program_paths_valid(tmp_path: Path) -> None:
 
 
 def test_plist_no_program_arguments_conservative_valid(tmp_path: Path) -> None:
-    """A plist with no ProgramArguments is unparseable-ambiguous — the
+    """A plist with no ProgramArguments is unparseable-ambiguous, the
     conservative policy reports valid (never flag stale on ambiguity)."""
     plist = tmp_path / "com.voicetyper.plist"
     _write_plist(plist, None)
@@ -80,7 +80,7 @@ def test_plist_malformed_conservative_valid(tmp_path: Path) -> None:
 
 
 def test_plist_missing_file_conservative_valid(tmp_path: Path) -> None:
-    """A nonexistent plist path is unreadable — conservatively valid
+    """A nonexistent plist path is unreadable, conservatively valid
     (the caller checks existence before invoking this helper)."""
     assert _plist_program_arguments_exist(tmp_path / "nope.plist") is True
 
@@ -113,7 +113,7 @@ def test_desktop_existing_exec_program_valid(tmp_path: Path) -> None:
 
 
 def test_desktop_no_exec_line_conservative_valid(tmp_path: Path) -> None:
-    """A .desktop without an Exec= line is ambiguous — conservatively
+    """A .desktop without an Exec= line is ambiguous, conservatively
     valid (never flag stale on ambiguity)."""
     desktop = tmp_path / "voice-typer.desktop"
     _write_desktop(desktop, None)
@@ -129,7 +129,7 @@ def test_desktop_malformed_exec_conservative_valid(tmp_path: Path) -> None:
 
 
 def test_desktop_missing_file_conservative_valid(tmp_path: Path) -> None:
-    """A nonexistent .desktop path is unreadable — conservatively valid
+    """A nonexistent .desktop path is unreadable, conservatively valid
     (the caller checks existence before invoking this helper)."""
     assert _desktop_exec_path_exists(tmp_path / "nope.desktop") is True
 

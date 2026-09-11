@@ -19,7 +19,7 @@
  *
  * Strategy: renderHook with mocked `call` + captured `usePythonEvent`
  * subscriber. The hook receives its deps as plain args (no React context
- * needed) — the composition hook normally passes them in.
+ * needed), the composition hook normally passes them in.
  */
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -189,7 +189,7 @@ afterEach(() => {
 	useConsentGateStore.setState({ request: null });
 });
 
-describe("useMicrophoneTestSession — initial state", () => {
+describe("useMicrophoneTestSession, initial state", () => {
 	it("exposes testRunning=false, testAudioBase64=null, testQuality=null on mount", () => {
 		const { result } = renderHook(() =>
 			useMicrophoneTestSession(makeHookArgs()),
@@ -204,7 +204,7 @@ describe("useMicrophoneTestSession — initial state", () => {
 	});
 });
 
-describe("useMicrophoneTestSession — startTest lifecycle", () => {
+describe("useMicrophoneTestSession, startTest lifecycle", () => {
 	it("invokes microphone_test_start IPC with mic_id + duration + filters", async () => {
 		callMock.mockImplementation((cmd: string) => {
 			if (cmd === "microphone_test_start")
@@ -258,7 +258,7 @@ describe("useMicrophoneTestSession — startTest lifecycle", () => {
 			await result.current.startTest();
 		});
 
-		// testRunning stays false — start failed.
+		// testRunning stays false, start failed.
 		expect(result.current.testRunning).toBe(false);
 		// Error snack surfaced with the backend's message.
 		expect(args.showSnack).toHaveBeenCalledWith("device busy", "error");
@@ -307,7 +307,7 @@ describe("useMicrophoneTestSession — startTest lifecycle", () => {
 		});
 		expect(result.current.testAudioBase64).toBe("clip-1");
 
-		// Start a SECOND test — should clear the first test's audio.
+		// Start a SECOND test, should clear the first test's audio.
 		await act(async () => {
 			await result.current.startTest();
 		});
@@ -318,12 +318,12 @@ describe("useMicrophoneTestSession — startTest lifecycle", () => {
 		expect(result.current.testQuality).toBeNull();
 	});
 });
-describe("useMicrophoneTestSession — biometric consent required (GDPR Art. 9)", () => {
+describe("useMicrophoneTestSession, biometric consent required (GDPR Art. 9)", () => {
 	it("opens the consent gate with a retry when the backend resolves success=false with 'consent required'", async () => {
 		// The backend's ``client.consent_required`` envelope (from
 		// ``_respond_with_error``'s ConsentRequiredError mapping) resolves
 		// as a ``success:false`` result whose message contains
-		// "consent required" — the renderer must open the unified
+		// "consent required", the renderer must open the unified
 		// point-of-use consent dialog (Allow → persist → retry the full
 		// test start) instead of a generic failure toast.
 		let startCalls = 0;
@@ -338,7 +338,7 @@ describe("useMicrophoneTestSession — biometric consent required (GDPR Art. 9)"
 						duration: 0,
 						sample_rate: 0,
 						// Structured field the level-monitor / mic-test
-						// handlers attach — names the EXACT Settings toggle.
+						// handlers attach, names the EXACT Settings toggle.
 						code: "client.consent_required",
 						consent_field: "voice_biometric_consent",
 					});
@@ -360,7 +360,7 @@ describe("useMicrophoneTestSession — biometric consent required (GDPR Art. 9)"
 			await result.current.startTest();
 		});
 
-		// testRunning stays false — the test did not start.
+		// testRunning stays false, the test did not start.
 		expect(result.current.testRunning).toBe(false);
 		// The unified consent gate opened with the exact field + a
 		// retry closure.
@@ -372,7 +372,7 @@ describe("useMicrophoneTestSession — biometric consent required (GDPR Art. 9)"
 				onAllow: expect.any(Function),
 			}),
 		);
-		// The retry re-runs the FULL start — the test actually starts.
+		// The retry re-runs the FULL start, the test actually starts.
 		await act(async () => {
 			await req?.onAllow?.();
 		});
@@ -382,7 +382,7 @@ describe("useMicrophoneTestSession — biometric consent required (GDPR Art. 9)"
 	it("defaults the consent field to voice_biometric_consent when the resolved envelope omits it", async () => {
 		// Older backends / WS-path envelopes may resolve a plain
 		// ``success:false`` + message without the structured
-		// ``consent_field`` — the gate must still name the
+		// ``consent_field``, the gate must still name the
 		// voice-biometric toggle (the only field these gates enforce).
 		callMock.mockImplementation((cmd: string) => {
 			if (cmd === "microphone_test_start")
@@ -443,7 +443,7 @@ describe("useMicrophoneTestSession — biometric consent required (GDPR Art. 9)"
 	});
 
 	it("forwards the consent_field from a thrown client.consent_required Error to the consent gate", async () => {
-		// Same as above — the structured ``consent_field`` (preserved
+		// Same as above, the structured ``consent_field`` (preserved
 		// by usePython.call) must reach the gate so the dialog + the
 		// Settings deep-link target the exact toggle.
 		callMock.mockImplementation((cmd: string) => {
@@ -495,7 +495,7 @@ describe("useMicrophoneTestSession — biometric consent required (GDPR Art. 9)"
 	});
 });
 
-describe("useMicrophoneTestSession — stopTest lifecycle", () => {
+describe("useMicrophoneTestSession, stopTest lifecycle", () => {
 	it("invokes microphone_test_stop IPC + surfaces recorded snack on success", async () => {
 		callMock.mockImplementation((cmd: string) => {
 			if (cmd === "microphone_test_start")
@@ -674,7 +674,7 @@ describe("useMicrophoneTestSession — stopTest lifecycle", () => {
 	});
 });
 
-describe("useMicrophoneTestSession — device-swap handling (selectMicrophone)", () => {
+describe("useMicrophoneTestSession, device-swap handling (selectMicrophone)", () => {
 	it("cancels the in-flight test + sends set_config with the new micId", async () => {
 		callMock.mockImplementation((cmd: string) => {
 			if (cmd === "microphone_test_start")
@@ -770,7 +770,7 @@ describe("useMicrophoneTestSession — device-swap handling (selectMicrophone)",
 	});
 });
 
-describe("useMicrophoneTestSession — microphone_test_complete event", () => {
+describe("useMicrophoneTestSession, microphone_test_complete event", () => {
 	it("drives stopTest when the event fires while a test is running", async () => {
 		callMock.mockImplementation((cmd: string) => {
 			if (cmd === "microphone_test_start")
@@ -835,7 +835,7 @@ describe("useMicrophoneTestSession — microphone_test_complete event", () => {
 		const args = makeHookArgs();
 		renderHook(() => useMicrophoneTestSession(args));
 
-		// No test is running. Fire the event — should be a no-op.
+		// No test is running. Fire the event, should be a no-op.
 		const handler = getMicrophoneTestCompleteHandler();
 		expect(handler).toBeDefined();
 
@@ -852,7 +852,7 @@ describe("useMicrophoneTestSession — microphone_test_complete event", () => {
 	});
 });
 
-describe("useMicrophoneTestSession — selectMicrophoneRef assignment", () => {
+describe("useMicrophoneTestSession, selectMicrophoneRef assignment", () => {
 	it("assigns the latest selectMicrophone closure to selectMicrophoneRef.current", async () => {
 		const args = makeHookArgs();
 		const { result } = renderHook(() => useMicrophoneTestSession(args));
@@ -864,7 +864,7 @@ describe("useMicrophoneTestSession — selectMicrophoneRef assignment", () => {
 
 		// selectMicrophoneRef.current should now be a function (the
 		// hook's stable selectMicrophone closure). It was initialized
-		// as a vi.fn() — verify it's been REPLACED with the hook's closure.
+		// as a vi.fn(), verify it's been REPLACED with the hook's closure.
 		expect(typeof args.selectMicrophoneRef.current).toBe("function");
 		// The new closure is the hook's selectMicrophone (not the
 		// initial vi.fn() mock). We verify by invoking it and checking
@@ -885,7 +885,7 @@ describe("useMicrophoneTestSession — selectMicrophoneRef assignment", () => {
 	});
 });
 
-describe("useMicrophoneTestSession — unmount cleanup", () => {
+describe("useMicrophoneTestSession, unmount cleanup", () => {
 	it("cancels the in-flight test on unmount + clears timers", async () => {
 		callMock.mockImplementation((cmd: string) => {
 			if (cmd === "microphone_test_start")
@@ -908,7 +908,7 @@ describe("useMicrophoneTestSession — unmount cleanup", () => {
 		});
 		expect(result.current.testRunning).toBe(true);
 
-		// Unmount — the cleanup should send microphone_test_cancel.
+		// Unmount, the cleanup should send microphone_test_cancel.
 		unmount();
 
 		// Flush the microtask queue so the cancel Promise resolves.
@@ -927,7 +927,7 @@ describe("useMicrophoneTestSession — unmount cleanup", () => {
 			useMicrophoneTestSession(makeHookArgs()),
 		);
 
-		// No test started — unmount should NOT send microphone_test_cancel.
+		// No test started, unmount should NOT send microphone_test_cancel.
 		unmount();
 
 		const cancelCalls = callMock.mock.calls.filter(
@@ -939,7 +939,7 @@ describe("useMicrophoneTestSession — unmount cleanup", () => {
 
 // ── Timer lifecycle + result-pipeline regressions ────────────────────
 
-describe("useMicrophoneTestSession — timer lifecycle", () => {
+describe("useMicrophoneTestSession, timer lifecycle", () => {
 	beforeEach(() => {
 		callMock.mockReset();
 		_resetMicrophoneTestCache();
@@ -1064,7 +1064,7 @@ describe("useMicrophoneTestSession — timer lifecycle", () => {
 		expect(result.current.testAudioBase64).toBe("YWJj");
 
 		// Stale trigger (lost-push safety retry / double event): must be a
-		// silent no-op — no extra audio reads, no error toast.
+		// silent no-op, no extra audio reads, no error toast.
 		const showSnackErr = vi
 			.mocked(args.showSnack)
 			.mock.calls.filter(([, type]) => type === "error");

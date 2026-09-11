@@ -10,13 +10,13 @@ schtasks unavailable, UAC declined), we write a ``.bat`` file to the
 Windows Startup folder as a tertiary mechanism. The Startup folder
 (``%APPDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\Startup``) is
 always honored by Windows Explorer at login and requires no special
-permissions — it's the most reliable fallback.
+permissions, it's the most reliable fallback.
 
 The .bat sets ``VT_START_HIDDEN=1`` (so the Tauri app / Electron
 launcher starts hidden) and spawns the autostart command via
 ``start "" /B`` (no console window flash). The file is named
 ``com.voicetyper.autostart_<hash>.bat`` to match the Run-key naming
-convention (PLAT-RUN — multi-install support via the install-path hash,
+convention (PLAT-RUN, multi-install support via the install-path hash,
 canonical ``com.voicetyper.*`` reverse-DNS namespace).
 
 Patch contract: cross-module names are resolved through sibling
@@ -24,9 +24,9 @@ MODULE-OBJECT attribute reads at call time, so patches on the owning
 module propagate:
 
   - ``is_windows`` / ``_startup_bat_path`` / ``_validate_runkey_command``
-    are owned by the facade module (``autostart_windows``) — read lazily
+    are owned by the facade module (``autostart_windows``), read lazily
     (inside the function, avoiding a circular import) as ``_aw.X``.
-  - ``_autostart_command`` is owned by :mod:`.autostart` — bound once at
+  - ``_autostart_command`` is owned by :mod:`.autostart`, bound once at
     module import time as ``_autostart_mod`` and read through its
     attribute at call time.
   - Names defined IN THIS MODULE are plain module-global lookups,
@@ -88,7 +88,7 @@ def _unregister_app_autostart_startup() -> bool:
     """Remove the Windows Startup-folder .bat file.
 
     Returns ``True`` on success (including when the file was already
-    absent — idempotent). Returns ``False`` only if the file exists
+    absent, idempotent). Returns ``False`` only if the file exists
     but couldn't be deleted (e.g. permission denied).
     """
     from voice_typer.server.server_platform import autostart_windows as _aw
@@ -98,7 +98,7 @@ def _unregister_app_autostart_startup() -> bool:
     except Exception:
         return False
     if not bat_path.exists():
-        return True  # already absent — idempotent success
+        return True  # already absent, idempotent success
     try:
         bat_path.unlink()
         log.info("[CONFIG] Removed Windows Startup-folder .bat: %s", bat_path)
@@ -113,7 +113,7 @@ def _is_app_autostart_startup_registered() -> bool:
     command is valid (points at an existing file).
 
     AUTOSTART-CMD-VALIDATE: mirrors the validation in
-    :func:`autostart_windows._is_app_autostart_runkey_registered` — the
+    :func:`autostart_windows._is_app_autostart_runkey_registered`, the
     .bat file's existence alone is not enough; we also verify the
     spawned command's exe path exists on disk. If the .bat is stale
     (target deleted), we clean it up and return False.
@@ -146,7 +146,7 @@ def _is_app_autostart_startup_registered() -> bool:
             target_cmd = after_start
             break
     if not target_cmd:
-        # Malformed .bat — can't validate. Conservatively report True
+        # Malformed .bat, can't validate. Conservatively report True
         # (the file exists; we just can't parse it).
         log.debug(
             "[AUTOSTART] Startup .bat exists but could not parse command: %s",
@@ -156,7 +156,7 @@ def _is_app_autostart_startup_registered() -> bool:
     # Validate the target command's exe path exists.
     if not _aw._validate_runkey_command(target_cmd):
         log.warning(
-            "[AUTOSTART] Startup .bat exists but its target command is stale: %s — cleaning up stale .bat",
+            "[AUTOSTART] Startup .bat exists but its target command is stale: %s, cleaning up stale .bat",
             target_cmd,
         )
         with contextlib.suppress(OSError):

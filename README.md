@@ -1,12 +1,12 @@
 # Voice Typer
 
-Premium offline background voice-to-text utility. Runs in your system tray. Press the hotkey, talk, press it again — final text is copied to your clipboard and pasted safely when a text field is focused.
+Premium offline background voice-to-text utility. Runs in your system tray. Press the hotkey, talk, press it again, final text is copied to your clipboard and pasted safely when a text field is focused.
 
 ## How It Works
 
 1. App starts in the system tray (tray icon appears quickly, model loads in the background)
 2. Press the hotkey anywhere to start recording (configurable in Settings)
-3. Talk freely — switch apps, browse, do whatever
+3. Talk freely: switch apps, browse, do whatever
 4. Press the hotkey again to stop (or let silence/max duration stop it automatically)
 5. Audio is transcribed locally (faster-whisper or optional Qwen3-ASR, your GPU if available)
 6. Text is cleaned (dedup, misspellings, self-corrections, capitalization)
@@ -17,7 +17,7 @@ No cloud. No API keys. No rate limits. Fully offline after first model download.
 
 ## Screenshots
 
-<!-- PLACEHOLDER SECTION — no screenshot assets exist yet (docs/images/ is
+<!-- PLACEHOLDER SECTION: no screenshot assets exist yet (docs/images/ is
      not present in the repo). Capture real screenshots on a running install
      and place them under docs/images/ with the exact filenames below, then
      replace the placeholder rows with embedded images
@@ -27,7 +27,7 @@ No cloud. No API keys. No rate limits. Fully offline after first model download.
 |---|---|
 | Home page with the mic button | `docs/images/home.png` |
 | Tray icon + tray menu | `docs/images/tray-menu.png` |
-| Settings — General/Recording | `docs/images/settings.png` |
+| Settings: General/Recording | `docs/images/settings.png` |
 | Models page (download/select) | `docs/images/models.png` |
 | Help overlay (`?`) with shortcut cheat sheet | `docs/images/help-overlay.png` |
 | Microphone page with live level meter | `docs/images/microphone.png` |
@@ -36,7 +36,7 @@ No cloud. No API keys. No rate limits. Fully offline after first model download.
 
 ### Does my voice or text ever leave my machine?
 
-No. Transcription runs locally (faster-whisper, optional Qwen3-ASR/Parakeet) on your own hardware — the only network activity is the one-time model download from HuggingFace when you first install a model. No cloud, no API keys, no telemetry. If you explicitly opt into the experimental cloud backends (`cloud_engines.py`), those requests go only to the provider you configured.
+No. Transcription runs locally (faster-whisper, optional Qwen3-ASR/Parakeet) on your own hardware. The only network activity is the one-time model download from HuggingFace when you first install a model. No cloud, no API keys, no telemetry. If you explicitly opt into the experimental cloud backends (`cloud_engines.py`), those requests go only to the provider you configured.
 
 ### Where are my recordings, history, and settings stored?
 
@@ -44,7 +44,7 @@ Everything lives under your local data directory: `%APPDATA%\voice-typer\` on Wi
 
 ### What is the default hotkey and how do I change it?
 
-`Caps Lock` on all platforms — toggles dictation on/off. Change it in the app: tray menu → **Open App** → Settings → Hotkey → **Capture**, then press any key or combination (including a bare modifier like `Alt`). See [Hotkey Architecture](#hotkey-architecture) for how the native listener works per OS.
+`Caps Lock` on all platforms: toggles dictation on/off. Change it in the app: tray menu → **Open App** → Settings → Hotkey → **Capture**, then press any key or combination (including a bare modifier like `Alt`). See [Hotkey Architecture](#hotkey-architecture) for how the native listener works per OS.
 
 ### Which model should I pick?
 
@@ -52,7 +52,7 @@ Everything lives under your local data directory: `%APPDATA%\voice-typer\` on Wi
 
 ### Does it work offline?
 
-Yes — after the first model download completes, dictation works with no internet connection. The only remaining online features are opt-in: the experimental cloud transcription backends and the "Check for Updates" check.
+Yes: after the first model download completes, dictation works with no internet connection. The only remaining online features are opt-in: the experimental cloud transcription backends and the "Check for Updates" check.
 
 ### Does the app start with Windows?
 
@@ -60,31 +60,31 @@ Yes, autostart is enabled by default. Disable it in **Settings → General → L
 
 ### The hotkey stopped firing. Where do I start?
 
-1. Check the log file for `[HOTKEY]` lines — it names which backend was selected (native binary vs. fallback).
+1. Check the log file for `[HOTKEY]` lines: it names which backend was selected (native binary vs. fallback).
 2. On Windows, the native key listener is a compiled binary; if it's missing, rebuild it (`scripts/build/compile_native.ps1`) or rely on the automatic fallback.
 3. On macOS, re-grant **Accessibility** after OS updates (System Settings → Privacy & Security → Accessibility). On Linux, confirm the `input` group (`groups` should list it).
 4. Full troubleshooting: [Troubleshooting](#troubleshooting).
 
 ### Where is the log file for reporting a bug?
 
-One log per process, under the data directory: `%APPDATA%\voice-typer\voice-typer.log` (Python backend) on Windows new installs, `%APPDATA%\voice-typer\logs\voice-typer.log` (Tauri host), with per-OS paths in the [Log File](#log-file) table. Each log is capped at 5 MiB and truncated in place — attach the relevant tail when filing an issue.
+One log per process, under the data directory: `%APPDATA%\voice-typer\voice-typer.log` (Python backend) on Windows new installs, `%APPDATA%\voice-typer\logs\voice-typer.log` (Tauri host), with per-OS paths in the [Log File](#log-file) table. Each log is capped at 5 MiB and truncated in place, attach the relevant tail when filing an issue.
 
 ## Runtime Architecture
 
 Voice Typer runs on **two parallel runtime stacks** during the migration from Electron to Tauri v2:
 
-1. **Electron (current default shipping app)** — `voice_typer/client/src/main/index.ts` (Electron main process) spawns the Python backend as a child process and bridges IPC over a local TCP socket on `127.0.0.1:9876`. This is the app users install today from the [Releases page](https://github.com/AbdallahIsDev/voice-typer/releases).
+1. **Electron (current default shipping app)**, `voice_typer/client/src/main/index.ts` (Electron main process) spawns the Python backend as a child process and bridges IPC over a local TCP socket on `127.0.0.1:9876`. This is the app users install today from the [Releases page](https://github.com/AbdallahIsDev/voice-typer/releases).
 
-2. **Tauri v2 + Python sidecar (in migration, not yet the default)** — `src-tauri/src/main.rs` is a Rust host that spawns the Python backend as a Nuitka-frozen sidecar via Tauri's `externalBin` mechanism and bridges IPC over a localhost WebSocket (the sidecar binds an ephemeral loopback port and announces it on stdout; the host connects and authenticates with a bearer token). The Rust host also spawns the runtime-pack worker exe (`voice-typer-worker-<triple>`), a second Nuitka-frozen process that owns the heavy offline-ASR stack; the sidecar talks to it over a dedicated second WebSocket hop to serve the `transcribe_offline` command. This stack is being developed per [ADR-0020](docs/adr/0020-desktop-runtime-migration-analysis.md).
+2. **Tauri v2 + Python sidecar (in migration, not yet the default)**, `src-tauri/src/main.rs` is a Rust host that spawns the Python backend as a Nuitka-frozen sidecar via Tauri's `externalBin` mechanism and bridges IPC over a localhost WebSocket (the sidecar binds an ephemeral loopback port and announces it on stdout; the host connects and authenticates with a bearer token). The Rust host also spawns the runtime-pack worker exe (`voice-typer-worker-<triple>`), a second Nuitka-frozen process that owns the heavy offline-ASR stack; the sidecar talks to it over a dedicated second WebSocket hop to serve the `transcribe_offline` command. This stack is being developed per [ADR-0020](docs/adr/0020-desktop-runtime-migration-analysis.md).
 
-The Electron stack remains fully shippable as a **reversible fallback** until each platform's Tauri build is proven and cut over (Windows first → macOS → Linux, per [docs/migration/cutover-playbook.md](docs/migration/cutover-playbook.md)). The Tauri stack is **additive** — the Electron code is untouched and remains buildable, runnable, and shippable at every phase. The React renderer (`voice_typer/client/src/renderer/`) is **shared between both stacks** — the same bundle runs under Electron (via the preload `contextBridge`) and under Tauri (via `voice_typer/client/src/renderer/src/lib/tauri-bridge.ts`, which auto-detects the host at startup and installs the `window.python` / `window.bubble` / `window.window_` namespaces using Tauri's global `__TAURI__` API).
+The Electron stack remains fully shippable as a **reversible fallback** until each platform's Tauri build is proven and cut over (Windows first → macOS → Linux, per [docs/migration/cutover-playbook.md](docs/migration/cutover-playbook.md)). The Tauri stack is **additive**. The Electron code is untouched and remains buildable, runnable, and shippable at every phase. The React renderer (`voice_typer/client/src/renderer/`) is **shared between both stacks**. The same bundle runs under Electron (via the preload `contextBridge`) and under Tauri (via `voice_typer/client/src/renderer/src/lib/tauri-bridge.ts`, which auto-detects the host at startup and installs the `window.python` / `window.bubble` / `window.window_` namespaces using Tauri's global `__TAURI__` API).
 
 ### Developer environment variables
 
 | Variable | Purpose | When to set it |
 |---|---|---|
-| `TAURI_SIDECAR=1` | Tells the Python backend it is running under the Tauri host. Disables the Python-side heartbeat watchdog (ADR-0018) and the Win32 single-instance mutex — the Tauri host provides both. | Set automatically when the sidecar is launched with `--ws` (i.e. `python -m voice_typer.server.ipc_server --ws`). Set manually only when running the WS server standalone for debugging. |
-| `VOICE_TYPER_SIDECAR_DEV=1` | Tells the Tauri Rust host to spawn `python -m voice_typer.server.ipc_server --ws` as a subprocess instead of the Nuitka-frozen `externalBin` binary. Lets you iterate on UI/transport changes in seconds — no ~10-minute Nuitka rebuild required. | Set when running `cargo tauri dev` (see [CONTRIBUTING.md § Tauri Development](CONTRIBUTING.md#tauri-development-migration-in-progress)). Do NOT set for `cargo tauri build` (production builds must use the frozen sidecar). |
+| `TAURI_SIDECAR=1` | Tells the Python backend it is running under the Tauri host. Disables the Python-side heartbeat watchdog (ADR-0018) and the Win32 single-instance mutex, the Tauri host provides both. | Set automatically when the sidecar is launched with `--ws` (i.e. `python -m voice_typer.server.ipc_server --ws`). Set manually only when running the WS server standalone for debugging. |
+| `VOICE_TYPER_SIDECAR_DEV=1` | Tells the Tauri Rust host to spawn `python -m voice_typer.server.ipc_server --ws` as a subprocess instead of the Nuitka-frozen `externalBin` binary. Lets you iterate on UI/transport changes in seconds, no ~10-minute Nuitka rebuild required. | Set when running `cargo tauri dev` (see [CONTRIBUTING.md § Tauri Development](CONTRIBUTING.md#tauri-development-migration-in-progress)). Do NOT set for `cargo tauri build` (production builds must use the frozen sidecar). |
 
 ### Dev mode
 
@@ -93,19 +93,19 @@ cd src-tauri
 VOICE_TYPER_SIDECAR_DEV=1 cargo tauri dev
 ```
 
-This runs the Rust host against a `python -m voice_typer.server.ipc_server --ws` subprocess for fast iteration — no Nuitka rebuild needed. See [`docs/migration/`](docs/migration/) for the full set of validation runbooks (Windows / macOS / Linux) and the cutover playbook.
+This runs the Rust host against a `python -m voice_typer.server.ipc_server --ws` subprocess for fast iteration: no Nuitka rebuild needed. See [`docs/migration/`](docs/migration/) for the full set of validation runbooks (Windows / macOS / Linux) and the cutover playbook.
 
-## Quick Install (Windows — Easiest)
+## Quick Install (Windows: Easiest)
 
 1. Go to **[Releases](https://github.com/AbdallahIsDev/voice-typer/releases)**
 2. Download the latest `VoiceTyper-Setup-*.exe`
 3. Double-click the installer
 4. Click Next → Install → Finish
-5. Voice Typer starts automatically — look for the microphone icon in your system tray
+5. Voice Typer starts automatically: look for the microphone icon in your system tray
 
 No Python, no terminal, no commands needed.
 
-> **Note:** The installer does not bundle a `LicenseFile` — Inno Setup
+> **Note:** The installer does not bundle a `LicenseFile` Inno Setup
 > defaults to showing a standard license wizard page only if one is
 > configured.  **Autostart is enabled by default** (the installer
 > creates a Windows Scheduled Task).  To disable autostart after
@@ -115,7 +115,7 @@ No Python, no terminal, no commands needed.
 
 ## Requirements
 
-- **Windows 10/11**, **macOS 13+** (Ventura or newer), or **Linux** (X11 or Wayland) — Voice Typer is cross-platform. See [docs/PLATFORM_STATUS.md](docs/PLATFORM_STATUS.md) for the full per-OS support matrix and minimum-version rationale.
+- **Windows 10/11**, **macOS 13+** (Ventura or newer), or **Linux** (X11 or Wayland), Voice Typer is cross-platform. See [docs/PLATFORM_STATUS.md](docs/PLATFORM_STATUS.md) for the full per-OS support matrix and minimum-version rationale.
 - A microphone
 - Internet on first run (downloads the Whisper model for the selected model size)
 - **macOS only**: Accessibility permission for the native key listener (see [Troubleshooting](#troubleshooting))
@@ -146,7 +146,7 @@ uv venv
 # `test` extras = pytest, pytest-cov, hypothesis, pytest-benchmark, ...
 uv pip install -e ".[dev,test]"
 
-# Activate the venv (optional — uv run uses .venv automatically)
+# Activate the venv (optional: uv run uses .venv automatically)
 source .venv/bin/activate          # macOS / Linux
 # or: .venv\Scripts\activate       # Windows
 
@@ -161,7 +161,7 @@ uv run --no-sync pytest
 > `>=0.1` release (only `0.0.6` exists on PyPI today, so the optional
 > `[qwen]` extra fails resolution and `uv sync`'s comprehensive lockfile
 > can't be generated). Until then, `uv pip install -e ".[dev,test]"`
-> uses uv's pip-compatible mode — same speed, same global cache, but
+> uses uv's pip-compatible mode: same speed, same global cache, but
 > skips the all-extras lockfile step that triggers the qwen-asr failure.
 > You still get all of uv's speed benefits; you just don't get a
 > checked-in `uv.lock` file. See `pyproject.toml`'s `[tool.uv]` block
@@ -212,7 +212,7 @@ enforces sha256 verification of every wheel and sdist. Its completeness
 against `pyproject.toml` is verified by
 `tests/test_requirements_lock_completeness.py`. (the legacy
 `requirements.txt` mirror file was removed because it drifted out of
-sync with `pyproject.toml` — `pyproject.toml` is now the single source
+sync with `pyproject.toml` `pyproject.toml` is now the single source
 of truth for Python dependencies.)
 
 ### Optional: Qwen ASR backend
@@ -230,7 +230,7 @@ in the config file.
 
 ### ASR Auto-Setup
 
-On startup, Voice Typer runs an automatic ASR dependency check (`asr_setup.py`) that detects available GPU hardware, verifies required packages are installed, and downloads model weights if needed. This runs transparently in the background — no manual setup required.
+On startup, Voice Typer runs an automatic ASR dependency check (`asr_setup.py`) that detects available GPU hardware, verifies required packages are installed, and downloads model weights if needed. This runs transparently in the background, no manual setup required.
 
 ## Run
 
@@ -248,7 +248,7 @@ Or:
 python -m voice_typer
 ```
 
-The app runs in the system tray — look for the microphone icon. No terminal window stays open.
+The app runs in the system tray, look for the microphone icon. No terminal window stays open.
 
 ### Single Instance
 
@@ -256,11 +256,11 @@ Only one Voice Typer process can run at a time. If you launch a second instance,
 
 ### Desktop Shortcut
 
-A desktop shortcut with a microphone icon is automatically created on first startup. The shortcut uses `pythonw.exe` so no console window appears. (There is no manual shortcut action in the tray menu — the shortcut is auto-created on first run.)
+A desktop shortcut with a microphone icon is automatically created on first startup. The shortcut uses `pythonw.exe` so no console window appears. (There is no manual shortcut action in the tray menu. The shortcut is auto-created on first run.)
 
 ## Fast Startup
 
-The tray icon appears quickly on startup (cold import is measured in tens of milliseconds — ~84 ms observed on Windows — and varies with hardware and OS; the CI-tracked worker-startup metric runs ~0.9 s first-run / ~0.3 s median on CI runners against the ≤600 ms first-run (cold) target; run `python bench/bench_startup.py` to measure on yours). The transcription engine is created in a background thread while the UI becomes immediately responsive. The hotkey is usable once the model finishes loading — cold-start load time varies by model size and disk speed (run `python bench/bench_transcription.py` for measurements). If the model hasn't loaded yet when you press it, you'll see a "Starting up — please wait" message. See `bench/` for benchmark tooling.
+The tray icon appears quickly on startup (cold import is measured in tens of milliseconds, ~84 ms observed on Windows, and varies with hardware and OS; the CI-tracked worker-startup metric runs ~0.9 s first-run / ~0.3 s median on CI runners against the ≤600 ms first-run (cold) target; run `python bench/bench_startup.py` to measure on yours). The transcription engine is created in a background thread while the UI becomes immediately responsive. The hotkey is usable once the model finishes loading, cold-start load time varies by model size and disk speed (run `python bench/bench_transcription.py` for measurements). If the model hasn't loaded yet when you press it, you'll see a "Starting up, please wait" message. See `bench/` for benchmark tooling.
 
 ## Settings
 
@@ -280,7 +280,7 @@ See `docs/home-directory.md` for the full per-platform layout.
 Use Settings for normal changes. Use the advanced settings button to open the raw config file only when troubleshooting.
 
 All configurable fields, their defaults, and descriptions are defined in
-`voice_typer/server/config/__init__.py` — that file is the canonical source of truth
+`voice_typer/server/config/__init__.py` That file is the canonical source of truth
 for every setting. Key categories:
 
 | Category | Settings |
@@ -295,7 +295,7 @@ for every setting. Key categories:
 
 ### Tray Menu Structure
 
-The tray menu is intentionally minimal — most configuration lives in the
+The tray menu is intentionally minimal, most configuration lives in the
 Electron app. The actual menu (`build_menu_for_tray` in
 `voice_typer/server/tray_menu.py`) is:
 
@@ -316,14 +316,14 @@ Quit
 ```
 
 The dictation item's label switches to "Stop Dictation" while recording.
-There is no Hotkey submenu — hotkey selection lives in the Electron app's
+There is no Hotkey submenu: hotkey selection lives in the Electron app's
 Settings page.
 
 ### Hotkey
 
 The dictation hotkey defaults to `Caps Lock` on **ALL platforms** (Windows, macOS, Linux). This is universally present, rarely used in shortcuts, and easy to remap. The `Fn`/Globe key remains available as an alternative on macOS via the Settings dropdown.
 
-You can pick any key or combination via the Settings capture dialog (the **Hotkey** field's **Capture** button). The dialog accepts modifier-only releases as single-key hotkeys — press `Alt` alone and release, and the hotkey becomes `<alt>`.
+You can pick any key or combination via the Settings capture dialog (the **Hotkey** field's **Capture** button). The dialog accepts modifier-only releases as single-key hotkeys, press `Alt` alone and release, and the hotkey becomes `<alt>`.
 
 The `Fn` key is only supported on macOS. On Windows and Linux it is firmware-only (intercepted by the keyboard's own controller before the OS sees it), so the Settings UI hides it on those platforms.
 
@@ -378,7 +378,7 @@ Available models (subject to Whisper upstream naming and sizes):
 | `small.en` | Default, best balance of speed and accuracy |
 | `medium.en` | Higher accuracy for difficult audio |
 | `qwen` | Qwen3-ASR, requires separate installation (`pip install qwen-asr torch`) |
-| `parakeet` | NVIDIA Parakeet TDT v3 — English-only, optimized for GPU. Weights are auto-downloaded from HuggingFace on first use. Set `asr_backend = "parakeet"` in config or pick "Parakeet" from the Models submenu. |
+| `parakeet` | NVIDIA Parakeet TDT v3: English-only, optimized for GPU. Weights are auto-downloaded from HuggingFace on first use. Set `asr_backend = "parakeet"` in config or pick "Parakeet" from the Models submenu. |
 
 ## Silence Detection and Auto-Stop
 
@@ -396,14 +396,14 @@ Recording automatically stops after a configurable silence period (default 2 min
 
 Recording automatically stops after reaching a maximum time limit. Configure from **Settings → Recording → Max Recording** (Electron app → Settings).
 
-All three features fire **safety notifications** that bypass the notification toggle — you will always be alerted when recording stops due to silence or max duration.
+All three features fire **safety notifications** that bypass the notification toggle. You will always be alerted when recording stops due to silence or max duration.
 
 ## Notification System
 
 Notifications are split into two categories:
 
-- **Safety alerts** (silence warnings, auto-stop, max duration) — always fire regardless of notification settings. You will never miss a safety-critical event.
-- **Dictation notifications** (transcription complete, errors, clipboard status) — controlled by the **Dictation Notifications** toggle under **Settings → General** (Electron app → Settings).
+- **Safety alerts** (silence warnings, auto-stop, max duration), always fire regardless of notification settings. You will never miss a safety-critical event.
+- **Dictation notifications** (transcription complete, errors, clipboard status), controlled by the **Dictation Notifications** toggle under **Settings → General** (Electron app → Settings).
 
 ## Microphone Selection
 
@@ -473,9 +473,9 @@ Hidden streaming transcription processes audio in overlapping chunks during reco
 
 Voice Typer detects global hotkeys via an **out-of-process native binary** spawned by the Python backend. The binary speaks a line-delimited stdout wire protocol (`READY`, `KEY_DOWN:<Name>`, `MOD_DOWN:<Name>`, `FN_DOWN` (macOS only), …) that the Python side parses and matches against the registered hotkey. The same binary is reused in record mode for the Settings capture dialog.
 
-- **macOS** — `voice_typer/server/native/macos-key-listener` (Swift) — uses `NSEvent.modifierFlags.function` + a `CGEvent` tap to support the Fn/Globe key.
-- **Windows** — `voice_typer/server/native/windows-key-listener.exe` (C) — uses a `WH_KEYBOARD_LL` low-level hook (event-driven, supports key suppression, lower CPU than polling).
-- **Linux** — `voice_typer/server/native/linux-key-listener` (C) — reads `/dev/input/event*` (evdev), which works on both X11 and Wayland.
+- **macOS**, `voice_typer/server/native/macos-key-listener` (Swift), uses `NSEvent.modifierFlags.function` + a `CGEvent` tap to support the Fn/Globe key.
+- **Windows**, `voice_typer/server/native/windows-key-listener.exe` (C): uses a `WH_KEYBOARD_LL` low-level hook (event-driven, supports key suppression, lower CPU than polling).
+- **Linux**, `voice_typer/server/native/linux-key-listener` (C), reads `/dev/input/event*` (evdev), which works on both X11 and Wayland.
 
 This design gives us crash isolation (a hotkey listener crash can't take down the Python backend), per-platform key suppression (so `Caps Lock` doesn't actually toggle caps state on Windows), and access to platform-specific keys (Fn on macOS) that aren't reachable from Python alone.
 
@@ -485,9 +485,9 @@ See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) and [`docs/adr/0007-native-ho
 
 ## Platform Notes
 
-Voice Typer is **cross-platform** — Windows, macOS, and Linux (X11 and Wayland) are all supported. The hotkey backend, autostart adapter, and clipboard/focus backends are selected per-OS at runtime.
+Voice Typer is **cross-platform**: Windows, macOS, and Linux (X11 and Wayland) are all supported. The hotkey backend, autostart adapter, and clipboard/focus backends are selected per-OS at runtime.
 
-- **Windows 10/11**: tested by the maintainer. There is no CI matrix for Win10 vs Win11 yet — contributors on either version are welcome to report issues. Several Win10-specific code paths (notably `taskkill /T /F` and the legacy `wmic` calls) have been removed; the app now uses `psutil` for process introspection on all platforms.
+- **Windows 10/11**: tested by the maintainer. There is no CI matrix for Win10 vs Win11 yet, contributors on either version are welcome to report issues. Several Win10-specific code paths (notably `taskkill /T /F` and the legacy `wmic` calls) have been removed; the app now uses `psutil` for process introspection on all platforms.
 - **macOS 13+** (Ventura): native Swift key listener supports the Fn/Globe key. Requires Accessibility permission (see [Troubleshooting](#troubleshooting)). Autostart uses a `LaunchAgents` plist. macOS 12 may work but is not tested; CI runners pin to `macos-13` (Intel) and `macos-14` (Apple Silicon).
 - **Linux (X11 and Wayland)**: native C key listener reads `/dev/input/event*` (evdev), which works on both X11 and Wayland. Requires the user to be in the `input` group (see [Troubleshooting](#troubleshooting)). Autostart uses a `.desktop` file in `~/.config/autostart/`.
 - Autostart uses `pythonw.exe` for background execution on Windows (no console window).
@@ -504,10 +504,10 @@ voice_typer/
 ├── __init__.py         # Package init, __version__
 ├── __main__.py         # Entry point (python -m voice_typer)
 ├── server/             # Python backend (was voice_typer/*.py before refactor)
-│   ├── app.py          # VoiceTyperApp orchestrator — startup, state machine, thread safety
+│   ├── app.py          # VoiceTyperApp orchestrator, startup, state machine, thread safety
 │   ├── asr_setup.py    # ASR auto-setup: GPU detection, dependency checking, weight downloading
 │   ├── asr_registry.py # Registry of ASR backends (whisper/qwen/parakeet)
-│   ├── config/        # Configuration package (platform-aware paths, validation, schema versioning) — see config/__init__.py
+│   ├── config/        # Configuration package (platform-aware paths, validation, schema versioning), see config/__init__.py
 │   ├── recording/     # Session-based audio recording (package: recorder, buffer, resampling, exceptions)
 │   ├── transcription.py  # faster-whisper engine with GPU→CPU fallback chain
 │   ├── qwen_engine.py  # Optional Qwen3-ASR-0.6B backend
@@ -539,8 +539,8 @@ voice_typer/
 │   ├── platform_utils.py  # Platform detection helpers (is_windows / is_macos / is_linux)
 │   └── corrections.json  # Bundled misspellings, phrase corrections (canonical path: voice_typer/server/corrections.json)
 ├── client/             # Electron frontend (TypeScript/React/Vite)
-│   ├── src/main/       # Electron main process — window lifecycle, IPC bridge
-│   ├── src/renderer/   # React renderer — pages (Home, Settings, Models, History, ...)
+│   ├── src/main/       # Electron main process, window lifecycle, IPC bridge
+│   ├── src/renderer/   # React renderer, pages (Home, Settings, Models, History, ...)
 │   ├── src/preload/    # Context bridge (IPC channel whitelists)
 │   ├── electron.vite.config.ts  # electron-vite build config
 │   ├── electron-builder.yml     # Distribution config (NSIS / DMG / AppImage)
@@ -577,7 +577,7 @@ Key design decisions:
 Voice Typer writes **two** log files (one per process). The Python
 backend log lives directly under the data directory; the Tauri Rust
 host log lives under a `logs/` subdir. **Single-file policy:** each log
-is exactly ONE file — when it exceeds 5 MiB it is truncated IN PLACE
+is exactly ONE file: when it exceeds 5 MiB it is truncated IN PLACE
 (emptied) and writing continues to the same file; numbered backups
 (`.1`, `.2`, ...) are NEVER created
 (`_SecureTruncatingFileHandler(maxBytes=5_242_880, backupCount=0)` in
@@ -596,7 +596,7 @@ lives under `<DATA_DIR>/logs/`). See `docs/home-directory.md` §"Log
 File Paths" for the canonical per-platform reference and the source-of-
 truth constants.
 
-Uses `_SecureTruncatingFileHandler` (5 MiB cap, truncates in place — single-file policy) with structured logging (session ID, component name).
+Uses `_SecureTruncatingFileHandler` (5 MiB cap, truncates in place, single-file policy) with structured logging (session ID, component name).
 
 ## Troubleshooting
 
@@ -609,7 +609,7 @@ Uses `_SecureTruncatingFileHandler` (5 MiB cap, truncates in place — single-fi
   powershell -ExecutionPolicy Bypass -File scripts/build/compile_native.ps1
   ```
   The script auto-detects your platform and only builds the binary that matches it. The compiled binary lives in `voice_typer/server/native/`.
-- If the binary is missing, Voice Typer falls back to the legacy in-process backends (`PynputHotkey` / `WindowsNativeHotkey` / `WaylandHotkey`) — this is enough to keep the app usable, but you lose Fn-key support on macOS and Wayland support on Linux.
+- If the binary is missing, Voice Typer falls back to the legacy in-process backends (`PynputHotkey` / `WindowsNativeHotkey` / `WaylandHotkey`): this is enough to keep the app usable, but you lose Fn-key support on macOS and Wayland support on Linux.
 - Check the log file for `[HOTKEY]` messages indicating which backend was selected.
 
 ### Hotkey doesn't work on macOS
@@ -651,11 +651,11 @@ The native key listener reads `/dev/input/event*`, which on most distros is owne
 sudo usermod -aG input $USER
 ```
 
-If you can't log out, you can run the binary as root for testing — but the proper fix is the group add above.
+If you can't log out, you can run the binary as root for testing, but the proper fix is the group add above.
 
 ### Linux: Caps Lock remap
 
-The Linux evdev backend is read-only — it can observe keystrokes but can't suppress them. If you use `Caps Lock` as the hotkey (the default on Linux), pressing Caps Lock will **also** toggle the OS caps-lock state. To neutralize that, add the following to `~/.xprofile` (X11) or your compositor's startup script (Wayland):
+The Linux evdev backend is read-only. It can observe keystrokes but can't suppress them. If you use `Caps Lock` as the hotkey (the default on Linux), pressing Caps Lock will **also** toggle the OS caps-lock state. To neutralize that, add the following to `~/.xprofile` (X11) or your compositor's startup script (Wayland):
 
 ```bash
 setxkbmap -option caps:none
@@ -665,7 +665,7 @@ For more permanent behavior across Wayland compositors, consider `keyd` or `kmon
 
 ### Windows: Caps Lock remap
 
-The Windows native binary **does** suppress the Caps Lock keydown event so the OS doesn't toggle caps state — but only when Voice Typer is running. If you want Caps Lock to be neutralized even when Voice Typer isn't running (or you want it remapped to a different key entirely), use one of these:
+The Windows native binary **does** suppress the Caps Lock keydown event so the OS doesn't toggle caps state, but only when Voice Typer is running. If you want Caps Lock to be neutralized even when Voice Typer isn't running (or you want it remapped to a different key entirely), use one of these:
 
 - **PowerToys Keyboard Manager** (recommended): install PowerToys → Keyboard Manager → Remap a key → remap `Caps Lock` to `Disable`.
 - **Registry Scancode Map**: add a `Scancode Map` binary value under `HKLM\SYSTEM\CurrentControlSet\Control\Keyboard Layout` to globally remap Caps Lock. (Standard caveat: edits to `HKLM` require admin rights and a reboot.)
@@ -754,7 +754,7 @@ The Windows native binary **does** suppress the Caps Lock keydown event so the O
 
 ## Project Status
 
-Actively maintained. Uses proper type checking via Pyrefly. Cross-platform — standalone Windows installer available for each release, with macOS and Linux running from source.
+Actively maintained. Uses proper type checking via Pyrefly. Cross-platform, standalone Windows installer available for each release, with macOS and Linux running from source.
 
 ## License
 

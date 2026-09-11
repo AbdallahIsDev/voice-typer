@@ -5,14 +5,14 @@
 //
 // This module owns the three concerns shared by every namespace installer
 // (python / bubble / window_):
-//   1. `TauriGlobal` / `TauriEvent` — minimal structural types for the
+//   1. `TauriGlobal` / `TauriEvent`, minimal structural types for the
 //      shape injected by `tauri::Builder` when `app.withGlobalTauri = true`
 //      (see tauri.conf.json). We deliberately avoid pulling in
 //      `@tauri-apps/api` as a dep to keep the renderer bundle lean.
-//   2. `isTauri()` — single source of truth for "are we inside a Tauri
+//   2. `isTauri()`, single source of truth for "are we inside a Tauri
 //      WebView?". Returns false under Electron (where the preload script
 //      already installed the three namespaces via `contextBridge`).
-//   3. `makeListener()` — race-safe subscribe/unlisten factory that
+//   3. `makeListener()`, race-safe subscribe/unlisten factory that
 //      eliminates the 8× listener boilerplate previously duplicated across
 //      `bubble.onLevel` / `onShow` / `onHide` / `onDraggable` / `onConfig` /
 //      `onSetState` / `python.onEvent` / `window_.onMaximizedChanged`.
@@ -63,7 +63,7 @@ export interface TauriGlobal {
  * Electron preload has already installed the bridge namespaces.
  *
  * Defensive against partial / future Tauri globals that lack the invoke
- * method — those are treated as Electron (no-op), not crashed on. This
+ * method, those are treated as Electron (no-op), not crashed on. This
  * is the contract asserted by `tauri-bridge-detection.test.ts:196`.
  */
 export function isTauri(): boolean {
@@ -72,14 +72,14 @@ export function isTauri(): boolean {
 
 /**
  * Return the Tauri global. Caller must have already verified `isTauri()`
- * — this helper throws if `__TAURI__` is missing so a misuse surfaces
+ *, this helper throws if `__TAURI__` is missing so a misuse surfaces
  * loudly instead of silently no-op-ing.
  */
 export function getTauri(): TauriGlobal {
 	const tauri = window.__TAURI__;
 	if (!tauri?.core?.invoke) {
 		throw new Error(
-			"getTauri() called outside Tauri runtime — guard with isTauri() first",
+			"getTauri() called outside Tauri runtime, guard with isTauri() first",
 		);
 	}
 	return tauri;
@@ -108,10 +108,10 @@ export function getTauri(): TauriGlobal {
  *   underlying event source (e.g. `tauri.event.listen("bubble_level",
  *   (e) => handler(e.payload))`). Returns the unlisten promise.
  * @param handler   Called with the payload each time the event fires.
- *   This is the consumer's callback — for `onLevel(cb)` it's `cb`, for
+ *   This is the consumer's callback, for `onLevel(cb)` it's `cb`, for
  *   `onMaximizedChanged(cb)` it's also `cb` (after the subscribe wrapper
  *   queries `isMaximized()` and forwards the boolean).
- * @returns         A synchronous cleanup function. Idempotent — safe to
+ * @returns         A synchronous cleanup function. Idempotent, safe to
  *   call multiple times.
  */
 export function makeListener<T>(
@@ -133,7 +133,7 @@ export function makeListener<T>(
 	// surfaces a clear diagnostic. The cancellation logic in the
 	// ``.then`` block is unaffected: a rejected subscribe never
 	// resolves, so ``unlisten`` stays ``null`` and the cleanup
-	// function is a no-op (which is correct — there's nothing to
+	// function is a no-op (which is correct, there's nothing to
 	// unlisten).
 	subscribe(handler)
 		.then((un) => {

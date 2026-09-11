@@ -1,4 +1,4 @@
-// capToastDescription — bounds backend-provided strings that flow
+// capToastDescription, bounds backend-provided strings that flow
 // into sonner toast descriptions.
 //
 // Backend payloads (``failure_reason``, tray ``title``/``message``,

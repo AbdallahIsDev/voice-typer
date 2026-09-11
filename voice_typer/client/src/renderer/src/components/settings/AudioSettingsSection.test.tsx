@@ -3,7 +3,7 @@
  * the Microphone page.
  *
  * Background: the `audio_preset` config field is mutated from two
- * unrelated UI surfaces — (1) this Settings section's "Microphone
+ * unrelated UI surfaces, (1) this Settings section's "Microphone
  * Quality" Select + custom filter chain, and (2) the Microphone page's
  * `PresetAccordionSelector` (with its own test-record A/B workflow). The
  * two surfaces use different presentation patterns (a Select here vs
@@ -175,7 +175,7 @@ function makeConfig(
 
 const alwaysVisible = () => true;
 
-describe("AudioSettingsSection — cross-link banner to Microphone page", () => {
+describe("AudioSettingsSection, cross-link banner to Microphone page", () => {
 	beforeEach(() => {
 		resetStableMocks();
 		vi.clearAllMocks();
@@ -253,7 +253,7 @@ describe("AudioSettingsSection — cross-link banner to Microphone page", () => 
 		);
 
 		// Sanity check: the navigate function must NOT fire just by
-		// rendering the section — only an explicit click should
+		// rendering the section, only an explicit click should
 		// navigate. Pre-fix this would have caught an accidental
 		// useEffect(() => navigate(...), []) regression.
 		expect(mockNavigate).not.toHaveBeenCalled();
@@ -261,7 +261,7 @@ describe("AudioSettingsSection — cross-link banner to Microphone page", () => 
 
 	it("renders the banner BEFORE the SettingsSection card (banner is a sibling, not a row)", () => {
 		// The banner must NOT be inside the bordered card that
-		// contains the SettingRow rows — it should be a sibling
+		// contains the SettingRow rows, it should be a sibling
 		// above the card so it reads as a section-level notice
 		// rather than a settings row. We assert the banner's
 		// parent is NOT the same div that contains the SettingRow
@@ -284,7 +284,7 @@ describe("AudioSettingsSection — cross-link banner to Microphone page", () => 
 	});
 });
 
-describe("AudioSettingsSection — voice activity filtering toggle", () => {
+describe("AudioSettingsSection, voice activity filtering toggle", () => {
 	beforeEach(() => {
 		resetStableMocks();
 		vi.clearAllMocks();
@@ -330,7 +330,7 @@ describe("AudioSettingsSection — voice activity filtering toggle", () => {
 
 	it("is searchable via the section search (label registered for filtering)", () => {
 		// The row registers its label/info in sectionItems so settings
-		// search can find it — assert the label renders (the row would
+		// search can find it, assert the label renders (the row would
 		// be absent if it were dropped from the visible surface).
 		renderSection();
 		expect(screen.getByText("Voice activity filtering")).toBeTruthy();

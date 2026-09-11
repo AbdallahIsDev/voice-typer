@@ -2,10 +2,10 @@
 
 ## Status
 
-Accepted — implemented in `voice_typer/server/ipc_server.py:_heartbeat_loop`, `_check_heartbeat_timeout`, `_handle_heartbeat`, and `client/src/main/index.ts` heartbeat interval.
+Accepted: implemented in `voice_typer/server/ipc_server.py:_heartbeat_loop`, `_check_heartbeat_timeout`, `_handle_heartbeat`, and `client/src/main/index.ts` heartbeat interval.
 
 > **Note (ADR-0020):** under the Tauri build path (`TAURI_SIDECAR=1`), the
-> `_heartbeat_loop` thread is **NOT** started — the Rust supervisor
+> `_heartbeat_loop` thread is **NOT** started: the Rust supervisor
 > replaces this watchdog via WS-close / process-exit detection. This ADR
 > remains in force only for the Electron fallback path.
 
@@ -18,13 +18,13 @@ Accepted — implemented in `voice_typer/server/ipc_server.py:_heartbeat_loop`, 
 Voice Typer's architecture is a **two-process** design: the Electron frontend spawns the Python backend as a subprocess and communicates over a local TCP socket. The two processes have separate lifecycles:
 
 - Electron can crash or be force-killed by the user (Task Manager "End task" on Windows, `kill -9` on Linux/macOS).
-- The Python backend runs independently once spawned — it has its own thread for audio capture, its own hotkey registration, its own volume ducking, and its own Win32 named mutex for single-instance enforcement.
+- The Python backend runs independently once spawned. It has its own thread for audio capture, its own hotkey registration, its own volume ducking, and its own Win32 named mutex for single-instance enforcement.
 
 **The problem:** If Electron crashes or is force-killed, the Python backend keeps running:
 - The microphone stream stays open (recording audio).
 - Hotkeys stay registered (consuming OS input).
 - System volume stays ducked (platform-level side effect).
-- The single-instance mutex is held (preventing the next launch — the user sees "Only one instance can run").
+- The single-instance mutex is held (preventing the next launch. The user sees "Only one instance can run").
 
 Without a heartbeat mechanism, the only way to recover is for the user to manually find and kill the `python.exe` process in Task Manager. This is a poor user experience that occurs in practice (Electron can be killed by a crash, a hung renderer, or an aggressive memory-reduction tool).
 
@@ -44,7 +44,7 @@ Implement an **application-level heartbeat watchdog** over the existing TCP IPC 
 
 1. **Heartbeat sender (Electron):** The Electron main process sends a `{"type": "heartbeat"}` IPC command every 5 seconds once the TCP connection is established. The heartbeat is sent by a `setInterval` in `client/src/main/index.ts`, started in the TCP connect callback.
 
-2. **Heartbeat receiver (Python):** The `_handle_heartbeat` handler updates `self._last_heartbeat_at = time.monotonic()` on every received heartbeat. The handler returns a `{"type": "heartbeat_ack"}` response (fire-and-forget — Electron does not wait for the response).
+2. **Heartbeat receiver (Python):** The `_handle_heartbeat` handler updates `self._last_heartbeat_at = time.monotonic()` on every received heartbeat. The handler returns a `{"type": "heartbeat_ack"}` response (fire-and-forget: Electron does not wait for the response).
 
 3. **Watchdog thread (Python):** A daemon thread (`_heartbeat_loop`) wakes every 5 seconds and calls `_check_heartbeat_timeout()`. If the elapsed time since the last heartbeat exceeds `_HEARTBEAT_TIMEOUT_SECONDS` (120 seconds), the thread calls `self.app.quit()`.
 
@@ -59,7 +59,7 @@ The timeout was increased from 15 seconds (3 missed heartbeats) to 120 seconds (
 
 ### First-Heartbeat Guard
 
-The watchdog only fires **after** the first heartbeat has been received. While `_last_heartbeat_at` is `None`, the watchdog is silent. This prevents a false-positive exit during a slow Electron cold start (10+ seconds for the heavy ML import chain and window creation). (Historical note: pre-2026-08-13 the heavy import was `torch`; post-ONNX-migration the heavy import is `onnxruntime` + `ctranslate2` — the cold-start budget rationale is unchanged.)
+The watchdog only fires **after** the first heartbeat has been received. While `_last_heartbeat_at` is `None`, the watchdog is silent. This prevents a false-positive exit during a slow Electron cold start (10+ seconds for the heavy ML import chain and window creation). (Historical note: pre-2026-08-13 the heavy import was `torch`; post-ONNX-migration the heavy import is `onnxruntime` + `ctranslate2` The cold-start budget rationale is unchanged.)
 
 ### Cleanup Path
 
@@ -85,15 +85,15 @@ When `app.quit()` is called from the watchdog:
 - **Testability:** The 120-second timeout makes direct testing impractical. `_check_heartbeat_timeout()` is extracted as a public method so tests can invoke it directly without waiting 120 seconds.
 
 ### Risks
-- **Timeout too long:** 120 seconds means the backend runs for up to 2 minutes without a healthy frontend. During this time, the user may start a new dictation session, which would proceed normally (the backend is fully functional without the frontend). Only after the timeout does the backend quit, losing any unsaved transcription. Acceptable trade-off — the timeout is generous enough to avoid false positives while still ensuring eventual cleanup.
-- **Race on planned shutdown:** During a planned `stop()`, the heartbeat stop event is set but the watchdog thread may fire one last `_check_heartbeat_timeout()` check before it exits. The check calls `app.quit()` which calls `_do_cleanup()` again — `_do_cleanup()` is idempotent and gated by a flag, so the double call is handled safely.
+- **Timeout too long:** 120 seconds means the backend runs for up to 2 minutes without a healthy frontend. During this time, the user may start a new dictation session, which would proceed normally (the backend is fully functional without the frontend). Only after the timeout does the backend quit, losing any unsaved transcription. Acceptable trade-off. The timeout is generous enough to avoid false positives while still ensuring eventual cleanup.
+- **Race on planned shutdown:** During a planned `stop()`, the heartbeat stop event is set but the watchdog thread may fire one last `_check_heartbeat_timeout()` check before it exits. The check calls `app.quit()` which calls `_do_cleanup()` again, `_do_cleanup()` is idempotent and gated by a flag, so the double call is handled safely.
 
 ## References
 
-- `voice_typer/server/ipc_server.py` — `_HEARTBEAT_INTERVAL_SECONDS`, `_HEARTBEAT_TIMEOUT_SECONDS`, `_heartbeat_loop()`, `_check_heartbeat_timeout()`, `_handle_heartbeat()`.
-- `voice_typer/client/src/main/index.ts` — heartbeat `setInterval` in TCP connect callback.
-- `tests/test_heartbeat.py` — heartbeat watchdog regression suite. The 10 tests in `_HeartbeatWatchdogTests` (e.g. `test_fires_after_timeout`) plus the function-level `test_heartbeat_over_real_tcp_socket_updates_timestamp` exercise the watchdog logic directly via the extracted `_check_heartbeat_timeout()` method (no 120-second real-time wait). The prior draft of this ADR pointed at `tests/test_ipc_server.py::test_heartbeat_timeout_calls_quit()` — that function name never existed; the real heartbeat tests have always lived in `tests/test_heartbeat.py`.
-- `tests/test_heartbeat_force_exit.py` — 8 force-exit backstop tests (`test_force_exit_*`) covering the `app.quit()` cleanup path the watchdog invokes once the 120-second timeout elapses. The prior draft pointed at `tests/test_feature_hardening_regressions.py::test_e2e_heartbeat_timeout()` — that file never existed; the force-exit backstop is the correct E2E-equivalent coverage.
-- SECURITY.md — RW-10 documentation.
+- `voice_typer/server/ipc_server.py` `_HEARTBEAT_INTERVAL_SECONDS`, `_HEARTBEAT_TIMEOUT_SECONDS`, `_heartbeat_loop()`, `_check_heartbeat_timeout()`, `_handle_heartbeat()`.
+- `voice_typer/client/src/main/index.ts` Heartbeat `setInterval` in TCP connect callback.
+- `tests/test_heartbeat.py` Heartbeat watchdog regression suite. The 10 tests in `_HeartbeatWatchdogTests` (e.g. `test_fires_after_timeout`) plus the function-level `test_heartbeat_over_real_tcp_socket_updates_timestamp` exercise the watchdog logic directly via the extracted `_check_heartbeat_timeout()` method (no 120-second real-time wait). The prior draft of this ADR pointed at `tests/test_ipc_server.py::test_heartbeat_timeout_calls_quit()` That function name never existed; the real heartbeat tests have always lived in `tests/test_heartbeat.py`.
+- `tests/test_heartbeat_force_exit.py` 8 Force-exit backstop tests (`test_force_exit_*`) covering the `app.quit()` cleanup path the watchdog invokes once the 120-second timeout elapses. The prior draft pointed at `tests/test_feature_hardening_regressions.py::test_e2e_heartbeat_timeout()` That file never existed; the force-exit backstop is the correct E2E-equivalent coverage.
+- SECURITY.md: RW-10 documentation.
 
 *End of document.*

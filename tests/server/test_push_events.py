@@ -1,11 +1,11 @@
 """Push-event tests: registry, multi-instance fan-out, visibility, lifecycle.
 
 Classes:
-- TestPushEvents                     — basic push + tray set_state hook
-- TestPushEventNow                   — _push_event_now dispatch
-- TestPushEventRegistryMultiInstance — multi-server registry
-- TestConsoleModePushVisibility      — INFO-level visibility
-- TestGetInstancePushFnTracking      — per-instance push_fn
+- TestPushEvents                   , basic push + tray set_state hook
+- TestPushEventNow                 , _push_event_now dispatch
+- TestPushEventRegistryMultiInstance, multi-server registry
+- TestConsoleModePushVisibility    , INFO-level visibility
+- TestGetInstancePushFnTracking    , per-instance push_fn
 
 Split out from the original monolithic tests/test_server.py (the fix, Phase 4.5).
 """
@@ -52,7 +52,7 @@ class TestPushEvents:
         assert mock_app.tray.set_state_calls[0][0] == AppState.RECORDING
 
         # And a status_change event should have been published on the
-        # event bus (the transport both runtimes deliver through — the
+        # event bus (the transport both runtimes deliver through, the
         # TCP ``_push_fn`` bridge forwards it to ``_send`` in TCP mode;
         # the WS writer task delivers it in ws-mode). The ``message``
         # argument is forwarded in the payload so the renderer can
@@ -75,7 +75,7 @@ class TestPushEvents:
         monkeypatch.setattr(bus, "publish", lambda msg: published.append(msg))
         server._hook_tray_set_state()
 
-        # No explicit message — relies on the ``message=""`` default.
+        # No explicit message, relies on the ``message=""`` default.
         mock_app.tray.set_state(AppState.IDLE)
 
         assert len(published) == 1
@@ -185,7 +185,7 @@ class TestPushEventNow:
 Two IPCServer instances in the same process used to stomp
 each other via the module-level ``_push_event`` global.  The second
 start() would overwrite the first server's push callable, and the
-first server's stop() would clear the global entirely — leaving the
+first server's stop() would clear the global entirely, leaving the
 second server unable to push events.  Fix: replace the global with a
 thread-safe registry (set) of push callables; ``_push_event_now`` fans
 out to ALL registered servers.
@@ -233,7 +233,7 @@ class TestPushEventRegistryMultiInstance:
         event_bus.subscribe(calls_a.append)
         event_bus.subscribe(calls_b.append)
 
-        # Server A stops — unregister just its callable.
+        # Server A stops, unregister just its callable.
         event_bus.unsubscribe(calls_a.append)
 
         # Server B must still be registered.
@@ -266,7 +266,7 @@ class TestPushEventRegistryMultiInstance:
     def test_clear_push_event_idempotent(self, clean_registry):
         """Clearing an unregistered callable must be a no-op (no error)."""
         fn = lambda msg: None  # noqa: E731
-        # Not yet registered — clear must not raise.
+        # Not yet registered, clear must not raise.
         event_bus.unsubscribe(fn)
         # Register and clear.
         event_bus.subscribe(fn)

@@ -8,11 +8,11 @@ Pins two contracts:
    count first, affinity / logical fallbacks second, floor of 1).
 2. ``TranscriptionEngine`` passes that budget (plus the explicit
    ``num_workers=1`` single-decoder contract) to every
-   ``WhisperModel(...)`` construction — CTranslate2 silently defaults
+   ``WhisperModel(...)`` construction, CTranslate2 silently defaults
    to 4 intra-op threads when the option is omitted, which under-uses
    multi-core machines on the CPU path.
 
-All external dependencies (faster_whisper, psutil) are mocked — no
+All external dependencies (faster_whisper, psutil) are mocked, no
 real model, no real core-count probing.
 """
 
@@ -131,7 +131,7 @@ class TestWhisperModelConstructorKwargs:
         """The ctor kwargs pin: budget from the helper + num_workers=1.
 
         ``num_workers`` is faster-whisper's knob for CTranslate2's
-        ``inter_threads`` — pinned to 1 so the inter-op contract is
+        ``inter_threads``, pinned to 1 so the inter-op contract is
         explicit. ``cpu_threads`` is the intra-op budget CTranslate2
         would otherwise default to 4.
         """

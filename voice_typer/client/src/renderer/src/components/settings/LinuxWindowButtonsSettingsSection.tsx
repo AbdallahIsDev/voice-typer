@@ -1,4 +1,4 @@
-// LinuxWindowButtonsSettingsSection — Settings → Appearance section
+// LinuxWindowButtonsSettingsSection, Settings → Appearance section
 // (LINUX ONLY; returns null elsewhere). Lets the user control the
 // frameless title bar's window buttons:
 //   - mode "system": follow the desktop's own button-layout
@@ -8,7 +8,7 @@
 //   - mode "custom": pick the side (left/right) and which of the three
 //     buttons are shown.
 // The whole `linux_window_buttons` object is always sent as ONE complete
-// update — the server validator requires every key (SEC-002 shape
+// update, the server validator requires every key (SEC-002 shape
 // contract in _make_linux_window_buttons_validator).
 
 import { memo } from "react";
@@ -54,7 +54,7 @@ export const LinuxWindowButtonsSettingsSection = memo(
 		const t = useT();
 		if (!IS_LINUX) return null;
 
-		// Labels resolved INSIDE the body (B-REVIEW-3 pattern — t() reads
+		// Labels resolved INSIDE the body (B-REVIEW-3 pattern, t() reads
 		// a module-level locale variable; import-time evaluation would
 		// freeze the strings to the first locale).
 		const title = t("settings.linuxWindowButtons.title");
@@ -72,7 +72,7 @@ export const LinuxWindowButtonsSettingsSection = memo(
 		);
 
 		// Merge over the defaults: older sidecars may omit the field or
-		// carry a partial object — the UI always edits a COMPLETE object.
+		// carry a partial object, the UI always edits a COMPLETE object.
 		const current: LinuxWindowButtonsConfig = {
 			...DEFAULT_LINUX_WINDOW_BUTTONS,
 			...(config?.linux_window_buttons ?? {}),

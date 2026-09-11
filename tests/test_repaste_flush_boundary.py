@@ -1,7 +1,7 @@
 """The ADR-0010 6.2 read-after-write guarantee at the repaste boundary.
 
 ``_store_result`` enqueues the history row without a blocking flush
-(the paste path carries zero DB-durability latency — the writer
+(the paste path carries zero DB-durability latency, the writer
 commits in the background). The guarantee that ``repaste_last`` reads
 the COMMITTED row therefore lives in ``app_undo.repaste_last``: it
 must call ``history_db.flush()`` BEFORE ``get_latest_text()``. A
@@ -42,7 +42,7 @@ class TestRepasteFlushBoundary:
         app = _make_app()
         app.history_db.flush.side_effect = RuntimeError("db broken")
         UndoRepasteController(app).repaste_last()
-        # A broken flush degrades to the in-memory copy — repaste never
+        # A broken flush degrades to the in-memory copy, repaste never
         # crashes and never stalls on the durability wait.
         app.clipboard.copy.assert_called_once_with("memory fallback")
 

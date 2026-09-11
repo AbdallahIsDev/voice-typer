@@ -2,7 +2,7 @@
 
 The previous ``_acquire_migration_lock`` implementation used a blocking
 ``fcntl.flock(LOCK_EX)`` call on POSIX and ``msvcrt.locking(LK_LOCK)``
-on Windows — both with NO timeout.  ``migrate_secrets_to_keyring`` runs
+on Windows, both with NO timeout.  ``migrate_secrets_to_keyring`` runs
 at startup; if another process held ``config.json.lock`` (e.g. a wedged
 ``Config.save()`` or a crashed process that never released the flock),
 the blocking call hung the startup migration indefinitely.
@@ -15,20 +15,20 @@ on expiry.  This mirrors the sibling ``_acquire_config_lock`` in
 the wait exceeds ``_MIGRATION_LOCK_SLOW_WAIT_WARN_SECONDS`` (default 2s)
 so operators can diagnose a wedged holder.
 
-Tests (POSIX-only — the Windows ``msvcrt.locking`` polling path is the
+Tests (POSIX-only, the Windows ``msvcrt.locking`` polling path is the
 same code shape as the POSIX branch and is exercised by the config-lock
 sibling suite in ``test_config_save_lock.py``; the sandbox here is
 Linux so we can't run the Windows branch):
 
-1. ``test_migration_lock_times_out_when_held`` — when the lock is held
+1. ``test_migration_lock_times_out_when_held``, when the lock is held
    by another open file description, ``_acquire_migration_lock`` raises
    ``TimeoutError`` within the configured timeout (NOT indefinitely).
-2. ``test_migration_lock_acquires_when_free`` — sanity check: with no
+2. ``test_migration_lock_acquires_when_free``, sanity check: with no
    contention the lock is acquired immediately and a second open in the
    same process can't grab it (per-open-file-description semantics).
-3. ``test_migration_lock_warns_on_slow_wait`` — when the wait exceeds
+3. ``test_migration_lock_warns_on_slow_wait``, when the wait exceeds
    the slow-warn threshold, a single ``log.warning`` is emitted.
-4. ``test_migration_lock_releases_fd_on_timeout`` — on timeout the
+4. ``test_migration_lock_releases_fd_on_timeout``, on timeout the
    partially-opened fd is closed (no fd leak) so the caller's fail-open
    path doesn't accumulate stale file descriptors across launches.
 """
@@ -63,7 +63,7 @@ def _hold_flock(lock_file):
     ``fcntl.flock`` is associated with the open file description (the
     kernel ``struct file``), NOT with the process or the inode.  Two
     separate ``open()`` calls in the SAME process therefore conflict
-    on ``LOCK_EX`` — this faithfully simulates a second process holding
+    on ``LOCK_EX``, this faithfully simulates a second process holding
     the lock without needing a subprocess.
     """
     fd = open(lock_file, "w+b")  # noqa: SIM115 -- explicit close in finally
@@ -108,13 +108,13 @@ class TestMigrationLockTimeout:
             # well under the 30s pytest-timeout.
             assert elapsed >= 0.4, (
                 f"FR-27 regression: _acquire_migration_lock gave up "
-                f"after only {elapsed:.2f}s — expected to poll for at "
+                f"after only {elapsed:.2f}s, expected to poll for at "
                 f"least the 0.5s timeout before raising TimeoutError "
                 f"(the LOCK_EX | LOCK_NB retry loop may be missing)."
             )
             assert elapsed < 5.0, (
                 f"FR-27 regression: _acquire_migration_lock took "
-                f"{elapsed:.2f}s — expected to time out within ~0.5s. "
+                f"{elapsed:.2f}s, expected to time out within ~0.5s. "
                 f"The blocking flock(LOCK_EX) (no LOCK_NB) may still "
                 f"be in place, defeating the timeout."
             )
@@ -127,7 +127,7 @@ class TestMigrationLockTimeout:
         lock_fd = credential_store._acquire_migration_lock(lock_file)
         try:
             # A second open in the same process must NOT be able to
-            # grab the lock — fcntl.flock is per-open-file-description,
+            # grab the lock, fcntl.flock is per-open-file-description,
             # so the two opens conflict on LOCK_EX | LOCK_NB.
             probe = open(lock_file, "r+b")  # noqa: SIM115
             try:
@@ -147,7 +147,7 @@ class TestMigrationLockTimeout:
         ``log.warning`` must be emitted so operators can diagnose a
         wedged holder before the ``TimeoutError`` fires."""
         # Use a short slow-warn threshold (0.2s) and a slightly longer
-        # timeout (0.6s) so the warning fires before the timeout — this
+        # timeout (0.6s) so the warning fires before the timeout, this
         # keeps the test fast (default 2s/5s would make the suite slow).
         monkeypatch.setattr(credential_store, "_MIGRATION_LOCK_SLOW_WAIT_WARN_SECONDS", 0.2)
         monkeypatch.setattr(credential_store, "_MIGRATION_LOCK_TIMEOUT_SECONDS", 0.6)
@@ -158,7 +158,7 @@ class TestMigrationLockTimeout:
             credential_store._acquire_migration_lock(lock_file)
 
             # Exactly one WARNING record mentioning the slow wait must
-            # be present (not one per poll iteration — that would spam
+            # be present (not one per poll iteration, that would spam
             # the log).
             warnings = [
                 r for r in caplog.records if r.levelno == logging.WARNING and "migration lock wait" in r.getMessage()
@@ -171,7 +171,7 @@ class TestMigrationLockTimeout:
             )
             assert len(warnings) == 1, (
                 "FR-27 regression: expected exactly ONE log.warning "
-                f"during the wait (got {len(warnings)}) — the warning "
+                f"during the wait (got {len(warnings)}), the warning "
                 "must be emitted once, not once per poll iteration."
             )
 
@@ -188,12 +188,12 @@ class TestMigrationLockTimeout:
         # on the lock_file's path as a proxy (counting /proc/self/fd
         # would be Linux-specific and noisy; instead we rely on the
         # fact that a leaked fd keeps the file's link count stable and
-        # blocks re-acquire — verified functionally below).
+        # blocks re-acquire, verified functionally below).
         with _hold_flock(lock_file), pytest.raises(TimeoutError):
             credential_store._acquire_migration_lock(lock_file)
 
         # After the timeout + holder release, a fresh acquire must
-        # succeed immediately — if the timed-out call had leaked its
+        # succeed immediately, if the timed-out call had leaked its
         # fd (and that fd still held the flock), this would block /
         # time out again.  Immediate success proves the timed-out fd
         # was closed (and its would-be flock released).
@@ -203,7 +203,7 @@ class TestMigrationLockTimeout:
         try:
             assert elapsed < 0.5, (
                 "FR-27 regression: after a timed-out acquire, a fresh "
-                f"acquire took {elapsed:.2f}s — the timed-out call may "
+                f"acquire took {elapsed:.2f}s, the timed-out call may "
                 "have leaked its fd (and its flock), blocking the "
                 "retry."
             )

@@ -3,7 +3,7 @@
 #
 # `onnx_asr` is an optional pip dependency used by
 # `voice_typer/server/parakeet_engine.py`. It is NOT installed on the
-# CI runner (or in most dev environments — only users who want the
+# CI runner (or in most dev environments, only users who want the
 # ONNX Parakeet backend install it). The runtime code wraps every
 # `import onnx_asr` in a lazy `_ensure_imports()` call guarded by
 # `try/except ImportError`, so this stub only needs to declare the
@@ -16,7 +16,7 @@
 # NOTE (verified against the onnx-asr 0.12.0 wheel AND the `main`
 # branch on 2026-08-15): onnx-asr exports ONLY `load_model` and
 # `load_vad` (`__init__.py: __all__ = ["load_model", "load_vad"]`).
-# There is NO `onnx_asr.Model` class in any release — earlier drafts
+# There is NO `onnx_asr.Model` class in any release. Earlier drafts
 # of this stub (and parakeet_engine.py) referenced a class-based
 # `Model(...)` API that does not exist; calling it raises
 # AttributeError at runtime. `load_model` is the canonical entry

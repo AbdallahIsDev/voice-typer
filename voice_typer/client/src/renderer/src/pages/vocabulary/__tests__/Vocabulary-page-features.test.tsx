@@ -34,7 +34,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // Shared stable-mocks preamble (see helpers/stableMocks.tsx): the
 // assertable singletons + one vi.mock line per module. Variants here:
 // the snackbar routes through the toast singletons by type
-// (snackbarMock({ routeToSonner: true }) — the real useSnackbar
+// (snackbarMock({ routeToSonner: true }), the real useSnackbar
 // delegates to sonner), so tests assert on toastSuccess / toastError.
 import {
 	hugeiconsCoreMock,
@@ -108,14 +108,14 @@ function seedWith(data: VocabularyData) {
 	});
 }
 
-describe("Vocabulary page — flat two-column list", () => {
+describe("Vocabulary page, flat two-column list", () => {
 	beforeEach(() => {
 		mockCall.mockReset();
 		showSnack.mockReset();
 		toastSuccess.mockClear();
 		toastError.mockClear();
 		// The page persists search/sort filters in sessionStorage via
-		// useFilterState — clear it before every test so a query typed
+		// useFilterState, clear it before every test so a query typed
 		// by an earlier test never filters out the seeded rows a later
 		// test expects.
 		sessionStorage.clear();
@@ -136,7 +136,7 @@ describe("Vocabulary page — flat two-column list", () => {
 			expect(screen.getByText("recieve")).toBeTruthy();
 		});
 
-		// Column header row: Heard as | Corrected to | Actions — no
+		// Column header row: Heard as | Corrected to | Actions, no
 		// "Category" column.
 		const header = screen.getByTestId("vocab-list-header");
 		expect(within(header).getByText("Heard as")).toBeTruthy();
@@ -177,7 +177,7 @@ describe("Vocabulary page — flat two-column list", () => {
 		expect(within(row).queryByLabelText("Entry actions")).toBeNull();
 
 		// Clicking Edit swaps the row for the inline edit form (the SAME
-		// inline treatment as Add — no modal), pre-filled with the entry.
+		// inline treatment as Add, no modal), pre-filled with the entry.
 		fireEvent.click(within(row).getByLabelText("Edit: recieve"));
 		await waitFor(() => {
 			expect(screen.getByTestId("vocab-edit-row")).toBeTruthy();
@@ -205,21 +205,21 @@ describe("Vocabulary page — flat two-column list", () => {
 					b.getAttribute("aria-label") ?? "",
 				),
 			);
-		// Edit is RIGHTMOST (the app-wide convention — the pencil sits
+		// Edit is RIGHTMOST (the app-wide convention, the pencil sits
 		// at the far edge of every action group). Left to right:
 		// Test → Delete → Edit.
 		expect(
 			actions.map((b) => b.getAttribute("aria-label")?.split(":")[0]),
 		).toEqual(["Test this entry", "Delete", "Edit"]);
 		// No native tooltips on any action icon (hover tooltips were
-		// removed — the shapes + aria-labels carry the meaning).
+		// removed, the shapes + aria-labels carry the meaning).
 		for (const b of actions) {
 			expect(b.getAttribute("title")).toBeNull();
 		}
 	});
 });
 
-describe("Vocabulary page — empty state", () => {
+describe("Vocabulary page, empty state", () => {
 	beforeEach(() => {
 		mockCall.mockReset();
 		showSnack.mockReset();
@@ -259,7 +259,7 @@ describe("Vocabulary page — empty state", () => {
 	});
 });
 
-describe("Vocabulary page — per-entry usage", () => {
+describe("Vocabulary page, per-entry usage", () => {
 	beforeEach(() => {
 		mockCall.mockReset();
 		showSnack.mockReset();
@@ -331,7 +331,7 @@ describe("Vocabulary page — per-entry usage", () => {
 	});
 });
 
-describe("Vocabulary page — bulk selection", () => {
+describe("Vocabulary page, bulk selection", () => {
 	beforeEach(() => {
 		mockCall.mockReset();
 		showSnack.mockReset();
@@ -454,7 +454,7 @@ describe("Vocabulary page — bulk selection", () => {
 	});
 });
 
-describe("Vocabulary page — inline quick add", () => {
+describe("Vocabulary page, inline quick add", () => {
 	beforeEach(() => {
 		mockCall.mockReset();
 		showSnack.mockReset();
@@ -478,7 +478,7 @@ describe("Vocabulary page — inline quick add", () => {
 			expect(screen.getByText("recieve")).toBeTruthy();
 		});
 
-		// "Add Word" opens the inline quick-add row — the list stays visible.
+		// "Add Word" opens the inline quick-add row, the list stays visible.
 		fireEvent.click(screen.getByText("Add Word"));
 		const quickAdd = screen.getByTestId("vocab-quick-add");
 		expect(quickAdd).toBeTruthy();
@@ -529,7 +529,7 @@ describe("Vocabulary page — inline quick add", () => {
 		fireEvent.click(within(quickAdd).getByText("Save"));
 
 		// The pre-check (case-insensitive wrong phrase, mirroring the
-		// backend rule) refuses the add with an INLINE message — the
+		// backend rule) refuses the add with an INLINE message, the
 		// quick-add row stays open and shows the error.
 		await waitFor(() => {
 			expect(screen.getByTestId("vocab-quick-add-error").textContent).toBe(
@@ -548,9 +548,9 @@ describe("Vocabulary page — inline quick add", () => {
 
 // NOTE: the standalone free-text "Test corrections" panel was removed
 // (the per-entry Test action covers the same need with one click, no
-// typing) — the panel tests that used to live here are gone.
+// typing), the panel tests that used to live here are gone.
 
-describe("Vocabulary page — test this entry", () => {
+describe("Vocabulary page, test this entry", () => {
 	beforeEach(() => {
 		mockCall.mockReset();
 		showSnack.mockReset();
@@ -626,7 +626,7 @@ describe("Vocabulary page — test this entry", () => {
 		expect(within(result).getByText("receive")).toBeTruthy();
 
 		// Second click on the SAME row while its result is open:
-		// no-op — no loading flash, no re-fetch, the completed result
+		// no-op, no loading flash, no re-fetch, the completed result
 		// stays exactly as it is.
 		fireEvent.click(testButton);
 
@@ -675,7 +675,7 @@ describe("Vocabulary page — test this entry", () => {
 		// must NOT be painted (fast responses never flash).
 		expect(screen.queryByText("Testing with the live engine…")).toBeNull();
 
-		// Resolve promptly — well under the 300ms pending threshold.
+		// Resolve promptly, well under the 300ms pending threshold.
 		resolveEngine({
 			input: "recieve",
 			output: "receive",
@@ -759,7 +759,7 @@ describe("Vocabulary page — test this entry", () => {
 		await screen.findByTestId("vocab-entry-test-result");
 
 		// A different row's icon is NOT guarded by the already-open
-		// result — it closes the previous result and tests the new row.
+		// result, it closes the previous result and tests the new row.
 		fireEvent.click(within(rowTeh).getByLabelText("Test this entry: teh"));
 
 		const result = await screen.findByTestId("vocab-entry-test-result");
@@ -793,9 +793,7 @@ describe("Vocabulary page — test this entry", () => {
 		fireEvent.click(within(row).getByLabelText("Test this entry: to 2"));
 
 		expect(
-			await screen.findByText(
-				"No change — the engine didn't match this phrase",
-			),
+			await screen.findByText("No change: the engine didn't match this phrase"),
 		).toBeTruthy();
 	});
 
@@ -839,7 +837,7 @@ describe("Vocabulary page — test this entry", () => {
 		// First attempt fails → error + Retry (no silent mirror).
 		expect(
 			await screen.findByText(
-				"Couldn't reach the engine — check the connection and try again",
+				"Couldn't reach the engine: check the connection and try again",
 			),
 		).toBeTruthy();
 
@@ -853,10 +851,10 @@ describe("Vocabulary page — test this entry", () => {
 	});
 
 	// The standalone free-text panel (and its client-mirror fallback
-	// notice) was removed — the per-entry Test action surfaces engine
+	// notice) was removed, the per-entry Test action surfaces engine
 	// errors via the inline error + Retry path above.
 });
-describe("Vocabulary page — search + sort interactions", () => {
+describe("Vocabulary page, search + sort interactions", () => {
 	beforeEach(() => {
 		mockCall.mockReset();
 		showSnack.mockReset();
@@ -880,14 +878,14 @@ describe("Vocabulary page — search + sort interactions", () => {
 			expect(screen.getByText("recieve")).toBeTruthy();
 		});
 
-		// The per-page SearchField was removed — the query now flows
+		// The per-page SearchField was removed, the query now flows
 		// through the global title-bar search store. Drive it directly
 		// (the title bar's GlobalSearchBar is not rendered in this
 		// page-level test).
 		const { useGlobalSearch } = await import("@/hooks/useGlobalSearch");
 		useGlobalSearch.getState().setQuery("teh");
 
-		// Only the matching row remains — the other two are filtered
+		// Only the matching row remains, the other two are filtered
 		// out client-side (no reload, no save).
 		await waitFor(() => {
 			expect(screen.queryByText("recieve")).toBeNull();
@@ -913,7 +911,7 @@ describe("Vocabulary page — search + sort interactions", () => {
 
 		// Open the sort select via keyboard (Radix Select opens on
 		// ArrowDown when the trigger is focused; pointer events are
-		// unreliable in jsdom — hasPointerCapture isn't implemented).
+		// unreliable in jsdom, hasPointerCapture isn't implemented).
 		const sortTrigger = screen.getByLabelText("Sort order");
 		sortTrigger.focus();
 		fireEvent.keyDown(sortTrigger, { key: "ArrowDown" });
@@ -926,7 +924,7 @@ describe("Vocabulary page — search + sort interactions", () => {
 			expect(order).toEqual(["i am going to", "recieve", "teh"]);
 		});
 
-		// Flip to Z → A — the order reverses.
+		// Flip to Z → A, the order reverses.
 		const sortTrigger2 = screen.getByLabelText("Sort order");
 		sortTrigger2.focus();
 		fireEvent.keyDown(sortTrigger2, { key: "ArrowDown" });
@@ -939,7 +937,7 @@ describe("Vocabulary page — search + sort interactions", () => {
 	});
 });
 
-describe("Vocabulary page — load-time dedupe", () => {
+describe("Vocabulary page, load-time dedupe", () => {
 	beforeEach(() => {
 		mockCall.mockReset();
 		showSnack.mockReset();
@@ -955,7 +953,7 @@ describe("Vocabulary page — load-time dedupe", () => {
 	});
 
 	it("merges exact duplicates on load and surfaces a toast", async () => {
-		// phrase_corrections is an array — it CAN contain exact repeats
+		// phrase_corrections is an array, it CAN contain exact repeats
 		// (unlike the dict categories), simulating a legacy/hand-edited file.
 		seedWith({
 			phrase_corrections: [

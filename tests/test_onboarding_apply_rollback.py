@@ -1,4 +1,4 @@
-"""HU-23 regression — ``OnboardingMixin.onboarding_apply`` rollback.
+"""HU-23 regression: ``OnboardingMixin.onboarding_apply`` rollback.
 
 Finding HU-23 (review.md): ``onboarding_apply`` called
 ``ctrl.apply_settings(app.config)`` which mutates the in-memory
@@ -6,7 +6,7 @@ Config dataclass in place (sets hotkey / model_size / microphone /
 onboarding_completed). If ``apply_config_side_effects`` (e.g. hotkey
 backend re-registration) or ``config.save()`` raised, the exception
 propagated and the in-memory config kept the new values while the
-on-disk config kept the pre-onboarding values — the user's choices
+on-disk config kept the pre-onboarding values, the user's choices
 appeared applied but vanished on restart.
 
 The fix snapshots the four mutated fields before the apply and
@@ -100,7 +100,7 @@ def test_onboarding_apply_rolls_back_config_on_side_effect_failure(monkeypatch) 
 
 def test_onboarding_apply_rolls_back_config_on_save_failure(monkeypatch) -> None:
     """HU-23: when ``config.save()`` raises (disk full / permissions),
-    the mutated fields must be restored too — the except handler is
+    the mutated fields must be restored too, the except handler is
     shared with the side-effect failure path."""
     from voice_typer.server import event_bus
 

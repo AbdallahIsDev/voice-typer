@@ -5,7 +5,7 @@ Split out from the original ``native_hotkeys.py`` god-file in Phase 4.5
 
 This module owns:
 
-- :class:`NativeHotkeyRecorder` — spawns the native binary in
+- :class:`NativeHotkeyRecorder`: spawns the native binary in
   "stream" mode (with a dummy hotkey spec) and collects events into a
   queue so the caller can build a hotkey spec from a single key press.
 """
@@ -25,9 +25,9 @@ from .modifiers import _key_name_to_token, _modifier_to_token
 class NativeHotkeyRecorder:
     """Hotkey recorder that uses the native binary in "stream" mode.
 
-    The native binary doesn't have a separate record mode — it always
+    The native binary doesn't have a separate record mode, it always
     emits all key events. This class spawns it with a dummy hotkey spec
-    (``<f2>`` — never matches anything the user might press for capture)
+    (``<f2>``: never matches anything the user might press for capture)
     and collects events into a queue for the caller to consume.
 
     Usage::

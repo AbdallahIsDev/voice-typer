@@ -1,4 +1,4 @@
-// CollectionToolbar — the shared toolbar shell (Import / Export / Clear
+// CollectionToolbar, the shared toolbar shell (Import / Export / Clear
 // All / Sort + the primary Add action) for collection pages.
 //
 // Extracted from the 1:1 mirror pair VocabToolbar (Vocabulary) /
@@ -10,14 +10,14 @@
 // right via `justify-between`, C-UI-9 Clear All hover treatment,
 // C-FILTER-1 SortSelect primitive, C-UI-10 gap-* spacing on parents).
 // The domain (page) owns every label: i18n keys are passed as props and
-// resolved here through `t()` — the same injection pattern the shared
+// resolved here through `t()`, the same injection pattern the shared
 // `useRowSelection` hook established for the collection-page family.
 //
 // SINGLE-ROW TOOLBAR: the sort control joins the secondary cluster (it
 // is a list-view control, same weight as the other non-primary tools);
 // the primary Add action is pushed to the far right by the parent row's
 // `justify-between` (with an explicit `w-full` so the row always spans
-// the full column width). No divider pipes between buttons — spacing +
+// the full column width). No divider pipes between buttons, spacing +
 // the primary/secondary split carry the grouping.
 //
 // Full-width note: `justify-between` only distributes space when the
@@ -26,7 +26,7 @@
 // child of the page column, NOT inside PageHeading's content-sized,
 // shrink-0 action wrapper).
 //
-// Hidden import input: rendered once and re-used — its `value` is reset
+// Hidden import input: rendered once and re-used, its `value` is reset
 // after each onChange by the import handler (see
 // useCollectionImportExport) so re-selecting the same file fires the
 // event again.
@@ -36,22 +36,22 @@
 // BOTH forms possible via optional props, with defaults chosen as
 // documented. Wave 5 unifies per page as a deliberate decision:
 //
-//   1. Add-button aria-label — Vocabulary has none (the visible text
+//   1. Add-button aria-label, Vocabulary has none (the visible text
 //      label is the accessible name); Templates adds
-//      `templates.addNewAria`. Prop `addAriaLabelKey?` — DEFAULT none
+//      `templates.addNewAria`. Prop `addAriaLabelKey?`, DEFAULT none
 //      (Vocabulary form: a visible text label is the correct accessible
 //      name; an aria-label that merely repeats it adds nothing).
-//   2. Add-button disabled — Vocabulary disables while saving;
-//      Templates never disables. Prop `addDisabled?` — DEFAULT false
+//   2. Add-button disabled, Vocabulary disables while saving;
+//      Templates never disables. Prop `addDisabled?`, DEFAULT false
 //      (additive: absent prop = never disabled, both pages expressible).
-//   3. Import file `accept` — Vocabulary accepts JSON+CSV, Templates
+//   3. Import file `accept`, Vocabulary accepts JSON+CSV, Templates
 //      JSON only. REQUIRED prop `importAccept` (no default: the two
-//      pages' import parsers genuinely differ in capability — a union
+//      pages' import parsers genuinely differ in capability, a union
 //      default would let Templates users pick CSV files the page cannot
 //      parse).
 //
 // The ROW action-button drift (icon-xs vs icon-sm, title tooltips) is a
-// row-renderer decision — rows stay per-domain by design; see
+// row-renderer decision, rows stay per-domain by design; see
 // CollectionListHeader's header note for the column-width invariant
 // that constrains that decision.
 
@@ -75,7 +75,7 @@ export interface CollectionToolbarProps {
 	 *  import/export hook; the input element itself renders HERE once). */
 	importInputRef: RefObject<HTMLInputElement | null>;
 	/** OS file-picker filter, e.g. `"application/json,.json"` or
-	 *  `"application/json,.json,.csv,text/csv"` — the domain's import
+	 *  `"application/json,.json,.csv,text/csv"`, the domain's import
 	 *  parser decides which formats are acceptable. See drift note 3. */
 	importAccept: string;
 	onImportClick: () => void;
@@ -87,9 +87,9 @@ export interface CollectionToolbarProps {
 	 *  `common.import`). */
 	importLabelKey: string;
 	/** i18n key for the Import button's hover `title` (the expected
-	 *  file-format hint — page-specific key). */
+	 *  file-format hint, page-specific key). */
 	importTitleKey: string;
-	/** Export callback. The format (`ExportFormat` — `"json" | "csv"`)
+	/** Export callback. The format (`ExportFormat`, `"json" | "csv"`)
 	 *  is chosen by the shared ExportFormatMenu and forwarded here so
 	 *  the page can pass it through to the IPC bridge. */
 	onExport: (format: ExportFormat) => void | Promise<void>;
@@ -111,12 +111,12 @@ export interface CollectionToolbarProps {
 	/** i18n key for the primary Add button's visible label. */
 	addLabelKey: string;
 	/** Disables the primary Add button (e.g. while a save is in
-	 *  flight). OPTIONAL — drift decision point 2: absent = never
+	 *  flight). OPTIONAL, drift decision point 2: absent = never
 	 *  disabled (Templates form); pass `saving` to reproduce the
 	 *  Vocabulary form. */
 	addDisabled?: boolean;
 	onAdd: () => void;
-	/** Sort control — part of the toolbar's secondary cluster. Rendered
+	/** Sort control, part of the toolbar's secondary cluster. Rendered
 	 *  only when there ARE entries (sorting an empty list is
 	 *  meaningless). The shared SortSelect primitive (C-FILTER-1) is
 	 *  the single source of truth for the sort dropdown's visuals. */
@@ -150,7 +150,7 @@ export function CollectionToolbar({
 	return (
 		<div className="flex w-full flex-wrap items-center justify-between gap-2">
 			{/* Secondary-action group (Import / Export / Clear All + sort
-				Select) — one flex container so they stay clustered on the
+				Select), one flex container so they stay clustered on the
 				left while the primary Add action is pushed to the far
 				right by the parent's justify-between. */}
 			<div className="flex flex-wrap items-center gap-2">
@@ -197,7 +197,7 @@ export function CollectionToolbar({
 					// Import/Export; on hover the background becomes the
 					// solid destructive red used by ConfirmDialog's Clear
 					// All (bg-destructive + text-destructive-foreground /
-					// white icon) — the same interaction on every Clear
+					// white icon), the same interaction on every Clear
 					// All control (Vocabulary, Templates, History) so
 					// hover always reads as solid red + white, not a
 					// tinted wash. The dark:hover restatement is REQUIRED:
@@ -221,7 +221,7 @@ export function CollectionToolbar({
 					<SortSelect value={sortOrder} onValueChange={onSortOrderChange} />
 				)}
 			</div>
-			{/* Primary action — filled accent button, pushed to the far end
+			{/* Primary action, filled accent button, pushed to the far end
 				of the row (justify-between) so it reads as THE action on
 				this page, distinct from the Import/Export/Clear All
 				cluster on the left. The parent row is `justify-between`,

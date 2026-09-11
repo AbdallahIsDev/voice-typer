@@ -23,7 +23,7 @@ are verified:
 Both flavours expose a setter so existing tests that inject mocks
 via ``app.<attr> = MagicMock()`` keep working transparently.
 
-These tests run on the Linux sandbox — they don't require
+These tests run on the Linux sandbox, they don't require
 sounddevice, torch, or a display server. The autouse
 ``mock_heavy_imports`` fixture in ``tests/conftest.py`` stubs the
 hardware-touching modules.
@@ -65,7 +65,7 @@ class TestPassiveManagerProperties:
 
     def test_template_manager_is_none_after_init(self, tmp_config_dir, monkeypatch):
         """Accessing ``app._template_manager`` immediately after
-        ``__init__`` must return ``None`` — the property is passive
+        ``__init__`` must return ``None``, the property is passive
         and does NOT auto-construct on access.
         """
         _patch_app_platform_helpers(monkeypatch)
@@ -79,7 +79,7 @@ class TestPassiveManagerProperties:
 
     def test_vocabulary_manager_is_none_after_init(self, tmp_config_dir, monkeypatch):
         """Accessing ``app._vocabulary_manager`` immediately after
-        ``__init__`` must return ``None`` — the property is passive.
+        ``__init__`` must return ``None``, the property is passive.
         """
         _patch_app_platform_helpers(monkeypatch)
         from voice_typer.server.app import VoiceTyperApp
@@ -124,7 +124,7 @@ class TestPassiveManagerProperties:
 
 class TestAutoConstructingControllerProperties:
     """``undo`` / ``audio_quality`` / ``_duck_crash_recovery`` /
-    ``_volume_ducker`` are AUTO-CONSTRUCTING — the getter constructs
+    ``_volume_ducker`` are AUTO-CONSTRUCTING, the getter constructs
     on first access if the backing is ``None`` and caches the instance.
 
     The backings must start as ``None`` (no eager construction in
@@ -160,7 +160,7 @@ class TestAutoConstructingControllerProperties:
 
     def test_duck_crash_recovery_backing_is_none_after_init(self, tmp_config_dir, monkeypatch):
         """``_duck_crash_recovery_backing`` must be ``None`` after
-        ``__init__`` — DuckCrashRecovery is NOT eagerly constructed.
+        ``__init__``, DuckCrashRecovery is NOT eagerly constructed.
         """
         _patch_app_platform_helpers(monkeypatch)
         from voice_typer.server.app import VoiceTyperApp

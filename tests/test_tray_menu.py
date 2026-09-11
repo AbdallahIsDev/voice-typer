@@ -118,7 +118,7 @@ class TestWrapCallback:
             raise SystemExit(0)
 
         wrapped = wrap_callback(cb)
-        # Should NOT raise — SystemExit is caught and suppressed.
+        # Should NOT raise. SystemExit is caught and suppressed.
         wrapped("icon", "item")
 
     def test_exceptions_other_than_system_exit_propagate(self):
@@ -201,38 +201,44 @@ class TestBuildMenuForTray:
 Previously, every tray right-click triggered:
 - ``ensure_hf_env()`` (filesystem checks)
 - ``import qwen_asr`` (50–150 ms heavy ML import)
-- 5+ filesystem ``exists()`` calls (one per candidate model)
+- 5+ filesystem ``exists()`` calls (one per candidate model).
 
 This caused noticeable menu-open lag.  The fix caches:
 - The qwen_asr import availability (session-lifetime).
-- The HuggingFace hub snapshot-completeness probe (5-second TTL).
+- The HuggingFace hub snapshot-completeness probe (shared
+  ``model_availability`` store: mtime freshness + explicit
+  invalidation, BP-158 replaced the earlier 5-second TTL dict).
 
 The cache is invalidated explicitly when a model download completes
 (via ``invalidate_model_availability_cache()``).
 """
 
-import time as _time  # noqa: E402
-from contextlib import nullcontext  # noqa: E402
 from pathlib import Path  # noqa: E402
 from unittest.mock import patch  # noqa: E402
 
-from voice_typer.server import tray_models  # noqa: E402
+from voice_typer.server import (  # noqa: E402
+    model_availability as _shared_store,
+    tray_models,
+)
 from voice_typer.server.tray_models import (  # noqa: E402
-    _HF_DOWNLOAD_CACHE_TTL_SECONDS,
     _check_hf_model_downloaded,
     invalidate_model_availability_cache,
 )
 
 
-def _hf_download_cache_lock_for_test():
-    """Return a no-op context manager — the cache dict is not locked
-    at the module level (it's only accessed from the tray thread).
-    For test purposes we treat it as unlocked."""
-    return nullcontext()
+def _shared_store_size() -> int:
+    return len(_shared_store._store_snapshot_for_test())
 
 
 class TestHfDownloadCache:
-    """The HuggingFace download check must be TTL-cached."""
+    """The HuggingFace download check must consult the shared store.
+
+    BP-158 replaced the tray-side 5 s TTL dict with the shared
+    ``model_availability`` store (mtime freshness + explicit
+    invalidation). These tests pin the replacement contract:
+    repeated checks with an unchanged layout probe once; a layout
+    change re-probes; invalidation forces a re-probe.
+    """
 
     @pytest.fixture(autouse=True)
     def _clean_cache(self):
@@ -241,9 +247,9 @@ class TestHfDownloadCache:
         yield
         invalidate_model_availability_cache()
 
-    def test_exists_called_once_within_ttl(self, tmp_path):
-        """Within the TTL window, the filesystem ``is_dir()`` check
-        must run at most once — subsequent calls hit the cache.
+    def test_exists_called_once_with_unchanged_layout(self, tmp_path):
+        """With an unchanged layout, the filesystem probe runs once —
+        subsequent calls are served from the shared store.
         """
         repo_id = "test/repo"
         config_dir = tmp_path
@@ -264,28 +270,25 @@ class TestHfDownloadCache:
 
         # Only the first call should have hit the filesystem.
         assert call_count[0] == 1, (
-            f"is_dir() called {call_count[0]} times; expected 1 (TTL cache should serve subsequent calls)"
+            f"is_dir() called {call_count[0]} times; expected 1 (shared store should serve subsequent calls)"
         )
         # All three results must agree.
         assert result1 == result2 == result3
 
-    def test_cache_expires_after_ttl(self, tmp_path):
-        """After the TTL window, the next call must re-check the filesystem."""
+    def test_layout_change_forces_reprobe(self, tmp_path):
+        """A layout change (new mtime) busts the fingerprint, the next
+        call must re-check the filesystem even with no invalidation."""
         repo_id = "test/repo"
         config_dir = tmp_path
 
-        # First call populates the cache.
+        # First call populates the shared store.
         result1 = _check_hf_model_downloaded(repo_id, config_dir)
 
-        # Manually backdate the cache entry so it's past the TTL.
-        with _hf_download_cache_lock_for_test():
-            key = (repo_id, str(config_dir))
-            if key in tray_models._hf_download_cache:
-                downloaded, _ = tray_models._hf_download_cache[key]
-                tray_models._hf_download_cache[key] = (
-                    downloaded,
-                    _time.monotonic() - _HF_DOWNLOAD_CACHE_TTL_SECONDS - 1,
-                )
+        # Simulate a layout change by backdating... no, by BUMPING the
+        # stored fingerprint's mtime basis: create the snapshot dir so
+        # its mtime differs from the stored (missing-dir) fingerprint.
+        snap = config_dir / "huggingface" / "hub" / "models--test--repo"
+        snap.mkdir(parents=True)
 
         # Patch is_dir to verify it's called again.
         original_is_dir = Path.is_dir
@@ -298,23 +301,23 @@ class TestHfDownloadCache:
         with patch.object(Path, "is_dir", counting_is_dir):
             result2 = _check_hf_model_downloaded(repo_id, config_dir)
 
-        assert call_count[0] == 1, "is_dir() should be called once after TTL expired"
+        assert call_count[0] >= 1, "is_dir() should run again after a layout change"
         assert result2 == result1
 
     def test_different_repos_cached_separately(self, tmp_path):
-        """Each repo_id gets its own cache entry."""
+        """Each repo_id gets its own store entry."""
         config_dir = tmp_path
         _check_hf_model_downloaded("org/repo1", config_dir)
         _check_hf_model_downloaded("org/repo2", config_dir)
 
-        # Both should be False (neither exists in tmp_path) but cached
+        # Both should be False (neither exists in tmp_path) but stored
         # separately.
-        cache = tray_models._hf_download_cache
-        assert ("org/repo1", str(config_dir)) in cache
-        assert ("org/repo2", str(config_dir)) in cache
+        store = _shared_store._store_snapshot_for_test()
+        assert any(k[0] == "org/repo1" and k[1] == str(config_dir) for k in store)
+        assert any(k[0] == "org/repo2" and k[1] == str(config_dir) for k in store)
 
     def test_different_config_dirs_cached_separately(self, tmp_path):
-        """Each config_dir gets its own cache namespace."""
+        """Each config_dir gets its own store namespace."""
         dir1 = tmp_path / "dir1"
         dir1.mkdir()
         dir2 = tmp_path / "dir2"
@@ -323,13 +326,13 @@ class TestHfDownloadCache:
         _check_hf_model_downloaded("org/repo", dir1)
         _check_hf_model_downloaded("org/repo", dir2)
 
-        cache = tray_models._hf_download_cache
-        assert ("org/repo", str(dir1)) in cache
-        assert ("org/repo", str(dir2)) in cache
+        store = _shared_store._store_snapshot_for_test()
+        assert any(k[0] == "org/repo" and k[1] == str(dir1) for k in store)
+        assert any(k[0] == "org/repo" and k[1] == str(dir2) for k in store)
 
 
 class TestInvalidateCache:
-    """``invalidate_model_availability_cache`` must clear both caches."""
+    """``invalidate_model_availability_cache`` must clear the shared store."""
 
     @pytest.fixture(autouse=True)
     def _clean_cache(self):
@@ -340,11 +343,11 @@ class TestInvalidateCache:
 
     def test_invalidate_clears_hf_cache(self, tmp_path):
         _check_hf_model_downloaded("org/repo", tmp_path)
-        assert len(tray_models._hf_download_cache) > 0
+        assert len(_shared_store._store_snapshot_for_test()) > 0
 
         invalidate_model_availability_cache()
 
-        assert len(tray_models._hf_download_cache) == 0
+        assert len(_shared_store._store_snapshot_for_test()) == 0
 
 
 class TestBuildModelsSubmenuUsesCache:
@@ -360,9 +363,9 @@ class TestBuildModelsSubmenuUsesCache:
     def test_two_consecutive_builds_return_five_candidates(self, tmp_path):
         """Two consecutive ``build_models_submenu_data`` calls must both
         return the 5 candidates (tiny / large-v3 / large-v3-turbo /
-        parakeet / qwen — the catalog; ``large-v3`` was restored
+        parakeet / qwen, the catalog; ``large-v3`` was restored
         2026-08-15 at the user's request). No qwen_asr pip gate exists
-        anymore — Qwen is a built-in ONNX backend (2026-08-15)."""
+        anymore, Qwen is a built-in ONNX backend (2026-08-15)."""
         # Provide a Config-like object so we skip the disk read.
         config_provider = MagicMock()
         config_provider.model_size = "tiny"
@@ -441,7 +444,7 @@ class TestQwenTrayAvailabilityAlignsWithModelsPage:
         """HF cache holding the Qwen ONNX repo dir → Qwen listed
         (matches ``_compute_model_status``'s ``qwen_in_cache``). The
         availability check delegates completeness to
-        ``is_model_snapshot_complete`` — stub it True here (the
+        ``is_model_snapshot_complete``, stub it True here (the
         cache-layout mechanics are pinned in
         tests/model_download/test_download_abort_gate.py)."""
         repo_dir = tmp_path / "huggingface" / "hub" / "models--andrewleech--qwen3-asr-1.7b-onnx"

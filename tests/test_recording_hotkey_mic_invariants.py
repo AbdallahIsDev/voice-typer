@@ -3,7 +3,7 @@
 Each test class targets one finding from ``review.md`` and verifies that
 the fix pattern is still present in the cited source file.  These are
 *static-source* inspections (``Path.read_text()`` + substring checks)
-rather than runtime tests — the runtime behaviour is already covered by
+rather than runtime tests, the runtime behaviour is already covered by
 the dedicated test modules below.  The point of this file is to fail
 *fast and loudly* if a future refactor reverts a fix without also
 updating the dedicated tests:
@@ -14,16 +14,16 @@ updating the dedicated tests:
   ``session.cancel()``) and must NOT poke the private
   ``session._cancel_event.set()``.  Runtime behaviour is pinned in
   ``tests/test_recording_controller_lifecycle_fixes.py``.
-- ``useHotkeyCapture`` effect without a deps array — every
+- ``useHotkeyCapture`` effect without a deps array, every
   ``useEffect(...)`` call in ``useHotkeyCapture.ts`` must close with a
   dependency array (``}, [...]);``), never a bare ``});``.  Runtime
   behaviour is pinned in
   ``voice_typer/client/src/renderer/src/__tests__/useHotkeyCapture_deps.test.tsx``.
-- service-layer mic cache invalidation — ``DeviceManager`` must expose
+- service-layer mic cache invalidation: ``DeviceManager`` must expose
   ``_service_cache_invalidator`` + ``set_service_cache_invalidator`` and
   ``_invalidate_device_cache`` must invoke the registered callback.
   Runtime behaviour is pinned in ``tests/test_device_manager.py``.
-- name-based device resolution — ``DeviceManager._resolve_device`` must
+- name-based device resolution: ``DeviceManager._resolve_device`` must
   parse the compound ``"<index>|<name>|<host_api>"`` form, prefer
   ``find_microphone_by_name``, fall back to the saved index, and emit a
   one-time name-mismatch warning.  Runtime behaviour is pinned in
@@ -84,7 +84,7 @@ class TestStopImplUsesAtomicStreamingCancel:
 
     def test_stop_impl_does_not_poke_private_cancel_event(self):
         """No production code path in recording_controller may call
-        ``session._cancel_event.set()`` — the attribute is private to
+        ``session._cancel_event.set()``, the attribute is private to
         ``StreamingTranscriptionSession`` and was the pre-fix contract
         that the TOCTOU window depended on.
 
@@ -151,7 +151,7 @@ class TestUseHotkeyCaptureEffectsHaveDepsArrays:
         #
         # Strategy: split on ``useEffect(()`` and inspect each chunk's
         # closing sequence. Each effect body ends with ``\t},`` followed
-        # by either ``[`` (deps array) or ``)`` (no deps — bug).
+        # by either ``[`` (deps array) or ``)`` (no deps, bug).
         effect_starts = [m.start() for m in re.finditer(r"useEffect\(\(\)", src)]
         assert effect_starts, "expected at least one useEffect(() => ...) call"
         offenders: list[str] = []
@@ -166,7 +166,7 @@ class TestUseHotkeyCaptureEffectsHaveDepsArrays:
             deps_close = re.search(r"\n\s*\},\s*\[", chunk)
             bare_close = re.search(r"\n\s*\}\s*\);", chunk)
             if bare_close and (not deps_close or bare_close.start() < deps_close.start()):
-                # Found a bare ``});`` before any ``}, [`` — possible
+                # Found a bare ``});`` before any ``}, [``, possible
                 # no-deps effect.  Capture a short snippet for the error
                 # message.
                 snippet = chunk[max(0, bare_close.start() - 80) : bare_close.end() + 20]

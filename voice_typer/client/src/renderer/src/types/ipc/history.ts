@@ -6,7 +6,7 @@
 // `get_transcription_text`).
 //
 // Split out from the original monolithic `types/ipc.ts`.
-// No behaviour change vs. the original file — pure structural refactor.
+// No behaviour change vs. the original file, pure structural refactor.
 
 // ── History data shapes (from Python history_db) ───────────────────
 
@@ -26,7 +26,7 @@ export interface HistoryRecord {
 	// ``text_truncated`` is ``true`` when the full text exceeded
 	// the 500-char preview; ``text_full_length`` is the total
 	// char count of the untruncated text. Both are OPTIONAL for
-	// backward compatibility — older callers that don't read
+	// backward compatibility, older callers that don't read
 	// these fields continue to work, and the renderer fetches the
 	// full text via ``get_transcription_text`` when the user
 	// expands a row.

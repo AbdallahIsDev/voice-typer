@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Voice Typer — Unified Nuitka sidecar freeze wrapper (ADR-0020 §4 + Phase 1)
+# Voice Typer. Unified Nuitka sidecar freeze wrapper (ADR-0020 §4 + Phase 1)
 #
 # This is the platform-agnostic entry point for freezing the Python sidecar
 # (`voice_typer.server.ipc_server`) into a Nuitka `--onefile` binary at:
@@ -22,7 +22,7 @@
 #   - `--onefile-tempdir-spec` pinned to a per-app cache dir so stale
 #     extractions are cleanable.
 #
-# This script DOES NOT cross-compile — Nuitka cannot cross-compile. It
+# This script DOES NOT cross-compile. Nuitka cannot cross-compile. It
 # dispatches to the per-platform build script which itself only builds for
 # the host arch (with one exception: Linux aarch64 can be cross-built on
 # an x86_64 host via qemu-user-static, handled by build_sidecar_linux.sh).
@@ -31,9 +31,9 @@
 #
 # The per-platform scripts (which this wrapper dispatches to) own the
 # actual Nuitka invocation:
-#   scripts/build/build_sidecar_windows.sh   — Windows x86_64 + aarch64
-#   scripts/build/build_sidecar_macos.sh     — macOS x86_64 + aarch64
-#   scripts/build/build_sidecar_linux.sh     — Linux x86_64 + aarch64 (qemu cross)
+#   scripts/build/build_sidecar_windows.sh: Windows x86_64 + aarch64
+#   scripts/build/build_sidecar_macos.sh: macOS x86_64 + aarch64
+#   scripts/build/build_sidecar_linux.sh: Linux x86_64 + aarch64 (qemu cross)
 #
 # Usage:
 #   bash scripts/build/nuitka_freeze.sh                    # host arch (auto-detect)
@@ -151,7 +151,7 @@ OUTPUT_BIN="$PROJECT_ROOT/src-tauri/bin/python-sidecar-${TRIPLE}${EXE_SUFFIX}"
 DISPATCH_SCRIPT="$SCRIPT_DIR/build_sidecar_${HOST_PLATFORM}.sh"
 
 # ─── Print build plan ────────────────────────────────────────────────────────
-echo "::group::nuitka_freeze — plan"
+echo "::group::nuitka_freeze, plan"
 echo "  HOST_PLATFORM  : $HOST_PLATFORM"
 echo "  HOST_ARCH      : $HOST_ARCH"
 echo "  TARGET_ARCH    : $TARGET_ARCH"
@@ -196,7 +196,7 @@ mkdir -p "$PROJECT_ROOT/src-tauri/bin"
 #   5. Verifies the output binary exists + smoke-tests --help.
 #   6. (Linux only) verifies the glibc baseline is ≤ 2.35 for Ubuntu 22.04 compat.
 #
-# The per-platform scripts are the authoritative Nuitka invocation — this
+# The per-platform scripts are the authoritative Nuitka invocation, this
 # wrapper does NOT duplicate the Nuitka command line. To change the Nuitka
 # flags, edit build_sidecar_<platform>.sh, not this file.
 echo "[nuitka_freeze] Dispatching to: bash $DISPATCH_SCRIPT $TARGET_ARCH"
@@ -221,7 +221,7 @@ if [[ ! -f "$OUTPUT_BIN" ]]; then
 fi
 
 # ─── Summary ─────────────────────────────────────────────────────────────────
-echo "::group::nuitka_freeze — result"
+echo "::group::nuitka_freeze, result"
 echo "  Output: $OUTPUT_BIN"
 ls -lh "$OUTPUT_BIN" 2>/dev/null || true
 if command -v file >/dev/null 2>&1; then

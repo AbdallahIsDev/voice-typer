@@ -10,7 +10,7 @@
 //! # Module layout
 //!
 //! Decomposed into per-concern submodules (the split this file's old
-//! header used to propose; executed with zero behavior change — bodies
+//! header used to propose; executed with zero behavior change, bodies
 //! moved verbatim, only visibility qualifiers + imports adjusted):
 //!
 //! ```text
@@ -34,9 +34,9 @@
 //! re-exported below.
 //!
 //! Submodules stay private; all external access goes through the
-//! re-exports. `init_file_logger` has NO production re-export — its
+//! re-exports. `init_file_logger` has NO production re-export, its
 //! only caller is `init_file_logger_or_stderr_fallback` inside
-//! `init.rs` — but it IS re-exported test-gated (below) so the
+//! `init.rs`: but it IS re-exported test-gated (below) so the
 //! sibling `logging_tests.rs` can exercise the startup-banner
 //! contract directly.
 
@@ -47,14 +47,14 @@ mod panic_hook;
 mod redact;
 mod rotating;
 
-// Production API — consumed by `main.rs` (logger bootstrap order:
+// Production API: consumed by `main.rs` (logger bootstrap order:
 // install_early_logger → install_panic_hook →
 // init_file_logger_or_stderr_fallback).
 pub(crate) use early::install_early_logger;
 pub(crate) use init::init_file_logger_or_stderr_fallback;
 pub(crate) use panic_hook::install_panic_hook;
 
-// Test-only re-exports — the sibling `logging_tests.rs` resolves these
+// Test-only re-exports: the sibling `logging_tests.rs` resolves these
 // via `use super::logging::*;` / `super::logging::<name>`; production
 // callers reach the submodules directly (same pattern as
 // `sidecar/spawn.rs`). Gated so non-test builds carry no dead

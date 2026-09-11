@@ -18,7 +18,7 @@ This test enforces the post-YJ-46 invariant: NO file under
 from ``voice_typer.server.handlers._log``.
 
 The test is purely static (regex over source files) so it does not
-require importing the handler modules — which means it catches a
+require importing the handler modules: which means it catches a
 regression even if the offending module is broken at import time.
 """
 
@@ -70,7 +70,7 @@ def test_handlers_dir_exists_and_has_files() -> None:
 def test_no_inline_get_logger(module_name: str, path: Path) -> None:
     """No handler module (except ``_log.py``) may call ``logging.getLogger(``."""
     if module_name == "_log.py":
-        pytest.skip("_log.py is the single-source module — getLogger lives here")
+        pytest.skip("_log.py is the single-source module, getLogger lives here")
 
     source = path.read_text(encoding="utf-8")
     matches = _GETLOGGER_RE.findall(source)
@@ -96,7 +96,7 @@ def test_no_handler_module_uses_import_logging_only_for_logger() -> None:
         source = path.read_text(encoding="utf-8")
         if not re.search(r"^\s*import\s+logging\b", source, re.MULTILINE):
             continue
-        # ``logging`` is imported — make sure at least one non-getLogger
+        # ``logging`` is imported, make sure at least one non-getLogger
         # usage exists (e.g. ``logging.ERROR``, ``logging.getLogger`` is
         # already banned by the test above, so this catches only the
         # "imported but only getLogger was used" case where the import

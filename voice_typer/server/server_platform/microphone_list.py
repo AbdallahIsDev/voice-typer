@@ -1,11 +1,11 @@
 """Microphone enumeration helpers.
 
-Phase 4.5 /  — extracted from the original
+Phase 4.5 / , extracted from the original
 ``voice_typer/server/server_platform.py`` god-module.  Contains:
-  - :func:`_sd_dev_as_dict` — coerce a sounddevice device entry to ``dict``.
-  - :func:`list_microphones` — enumerate available input devices.
-  - :func:`find_microphone_by_name` — case-insensitive partial-name lookup.
-  - :func:`find_microphone_by_id` — exact ID lookup.
+  - :func:`_sd_dev_as_dict`: coerce a sounddevice device entry to ``dict``.
+  - :func:`list_microphones`: enumerate available input devices.
+  - :func:`find_microphone_by_name`: case-insensitive partial-name lookup.
+  - :func:`find_microphone_by_id`: exact ID lookup.
 
 Patch-path compatibility
 ------------------------
@@ -13,14 +13,14 @@ Tests patch ``list_microphones`` via
 ``monkeypatch.setattr("voice_typer.server.server_platform.microphone_list.list_microphones", ...)``
 and then call ``find_microphone_by_name`` / ``find_microphone_by_id``.
 Those two helpers reference ``list_microphones`` as a plain module-global
-name, resolved through THIS module's ``__dict__`` at call time — so a
+name, resolved through THIS module's ``__dict__`` at call time, so a
 patch on ``microphone_list.list_microphones`` takes effect without any
 package-namespace indirection.
 
 ``_is_non_mic_device`` (used by ``list_microphones``) lives in
 :mod:`.remote_session`; it is NOT patched by any test, so a direct import
 is safe (and avoids the import-time circular dependency that routing the
-lookup through the package namespace would create — :mod:`.remote_session`
+lookup through the package namespace would create, :mod:`.remote_session`
 is loaded before this module).
 
 ``inspect.getsource`` compatibility
@@ -48,7 +48,7 @@ log = logging.getLogger(__name__)
 # ─── module-level TTL cache for list_microphones() ─────────────────────
 # ``list_microphones()`` invokes three PortAudio round-trips
 # (``sd.query_devices(kind="input")``, ``sd.query_hostapis()``,
-# ``sd.query_devices()``) — 50-200 ms latency per call on Windows/macOS.
+# ``sd.query_devices()``), 50-200 ms latency per call on Windows/macOS.
 # The production caller ``find_microphone_by_name`` /
 # ``find_microphone_by_id`` (called by ``device_manager`` during
 # device-restart-after-disconnect) re-enumerate all devices on every
@@ -60,7 +60,7 @@ log = logging.getLogger(__name__)
 #
 # The cache tuple is ``(timestamp, mics_list, sd_module_identity)``. The
 # ``sd_module_identity`` field is used to detect tests that swap
-# ``sys.modules["sounddevice"]`` for a MagicMock — when the identity
+# ``sys.modules["sounddevice"]`` for a MagicMock, when the identity
 # changes, the cache is treated as stale so a test that patches
 # sounddevice to raise sees a fresh call (not cached data from a prior
 # test that used the real sounddevice).
@@ -107,7 +107,7 @@ def _sd_dev_as_dict(dev: Any) -> dict[str, Any] | None:
 # different device (or none), and the UI fell back to "Unknown".
 #
 # The id is instead built from the STABLE attributes PortAudio reports —
-# host API name + device display name — with a ``#N`` disambiguator when
+# host API name + device display name: with a ``#N`` disambiguator when
 # two live input devices share both. Legacy configs that persisted a bare
 # index string keep working via the index fallback in
 # :func:`find_microphone_by_id` and ``DeviceManager._resolve_device``.
@@ -139,7 +139,7 @@ def _stable_device_id(host_api: str, name: str, seen: set[str]) -> str:
 def _resolve_legacy_compound_id(wanted: str) -> dict | None:
     """Resolve the pre-stable-id compound form ``"<index>|<name>[|<host api>]"``.
 
-    The leading segment must be purely numeric — that discriminator keeps
+    The leading segment must be purely numeric, that discriminator keeps
     new-style stable ids (``"<host api>|<name>"``, whose host-API segment is
     never numeric) out of this parser. A live name match wins over the stale
     index (mirrors ``DeviceManager._resolve_device``); an empty name fragment
@@ -185,7 +185,7 @@ def _match_canonical_mic_by_name(mic_id: str) -> dict | None:
         return None
     base = mic_id.split("#", 1)[0]
     # Split ONCE: the display name is everything after the first "|".
-    # Device names may themselves contain "|" — taking parts[1] of a
+    # Device names may themselves contain "|", taking parts[1] of a
     # full split would resolve "WASAPI|A|B" against an unrelated device
     # literally named "A".
     name = base.split("|", 1)[1].strip()
@@ -199,7 +199,7 @@ def resolve_mic_id_to_device_index(mic_id: str | int | None) -> int | None:
     """Resolve a persisted/IPC microphone id to a live PortAudio index.
 
     Accepts every historical id shape so callers (level monitor,
-    microphone test) need no per-caller migration logic — all matching
+    microphone test) need no per-caller migration logic, all matching
     lives in :func:`find_microphone_by_id`, the single source of truth:
 
     - ``None`` → ``None`` (system default);
@@ -238,7 +238,7 @@ def resolve_mic_id_to_device_index(mic_id: str | int | None) -> int | None:
 # names at 31 chars and WDM-KS additionally exposes disabled endpoints.
 # PortAudio's own multi-host-API proposal says clients should display
 # devices from ONE host API at a time, and python-sounddevice has no
-# cross-API unique id — so picking a canonical host API per platform is
+# cross-API unique id, so picking a canonical host API per platform is
 # the strongest identity strategy available.
 
 
@@ -329,7 +329,7 @@ def _list_microphones_uncached() -> list[dict]:
             if _is_non_mic_device(name):
                 continue
             # Placeholder endpoints ("Input ()", empty/whitespace names)
-            # have no real device behind them — never offer them.
+            # have no real device behind them, never offer them.
             if _is_invalid_device_name(name):
                 continue
             host_api = host_api_names.get(dev.get("hostapi", 0), "")
@@ -387,7 +387,7 @@ def _canonicalize_host_apis(
     When the preferred host API owns at least one enumerated input device,
     only its records are returned and the ``default`` flag is recomputed
     from that host API's own ``default_input_device`` (the PortAudio global
-    default can live on a non-canonical host API — e.g. an MME record — so
+    default can live on a non-canonical host API, e.g. an MME record, so
     comparing against it would leave the canonical list without any
     default). Two same-name records within the canonical API stay distinct
     via their ``#N`` ids; exactly one of them can carry the default index.
@@ -395,7 +395,7 @@ def _canonicalize_host_apis(
     keeping the existing global-default flags untouched. Edge: if the
     preferred API is active but reports no default input device
     (``default_input_device == -1``), the recomputation is skipped and the
-    canonical list may carry NO default flag — the UI degrades to no
+    canonical list may carry NO default flag, the UI degrades to no
     "Default" badge rather than flagging a wrong device.
     """
     global _LAST_CANON_SUMMARY
@@ -446,7 +446,7 @@ def list_microphones() -> list[dict]:
     ``MicrophoneDeviceWatcher._invoke_callback`` on OS device-change
     events) so hot-plug propagation latency is unaffected.
 
-    Returns a fresh shallow-copied list on every call — callers may
+    Returns a fresh shallow-copied list on every call, callers may
     mutate the outer list without corrupting the cache. Inner dicts
     are shared with the cache (callers must not mutate them in place;
     the production callers only read).
@@ -460,7 +460,7 @@ def list_microphones() -> list[dict]:
             cache_ts, cache_mics, cache_sd = cache
             # Identity check on the sounddevice module detects test
             # patches that swap ``sys.modules["sounddevice"]`` for a
-            # MagicMock — when the identity differs, the cache is
+            # MagicMock: when the identity differs, the cache is
             # treated as stale so the patched module is actually used.
             if (now - cache_ts) < _LIST_MICS_CACHE_TTL_S and cache_sd is sd_mod:
                 return list(cache_mics)  # defensive shallow copy
@@ -488,19 +488,19 @@ def find_microphone_by_name(partial_name: str) -> dict | None:
 def find_microphone_by_id(mic_id: str) -> dict | None:
     """Find a microphone by its stable ID (``"<host api>|<name>[#N]"``).
 
-    Backward compatibility — configs persisted before stable ids existed
+    Backward compatibility, configs persisted before stable ids existed
     store two older shapes, both resolved here (see
     :func:`_resolve_legacy_compound_id` for the compound parser):
 
     - bare PortAudio index string (``"5"``) → whatever device is
-      enumerated at that index today — identical to the pre-stable-id
+      enumerated at that index today, identical to the pre-stable-id
       behavior;
     - compound string (``"<index>|<name>[|<host api>]"``) → name-based
       match first, then the saved index;
     - disambiguated stable id whose twin set changed
       (``"MME|USB Mic#2"``, exact match gone because one identical unit
       was unplugged) → the device carrying the base id ``"MME|USB Mic"``
-      — best-effort recovery instead of silently dropping to default;
+     , best-effort recovery instead of silently dropping to default;
     - stable id whose host API is no longer enumerated (``"MME|Mic"`` or
       ``"Windows WDM-KS|Mic"`` after host-API canonicalization) →
       unambiguous exact-name match via

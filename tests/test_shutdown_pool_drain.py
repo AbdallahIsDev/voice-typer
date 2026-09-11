@@ -2,7 +2,7 @@
 bounded-joined after ``shutdown(wait=False, cancel_futures=True)``.
 
 Pre-fix, ``shutdown(wait=False, cancel_futures=True)`` only cancels QUEUED
-(not-yet-started) dispatch tasks — RUNNING handlers continue. Without a
+(not-yet-started) dispatch tasks. RUNNING handlers continue. Without a
 bounded join, teardown of the recorder / history_db / crash_recovery
 subsystems races any in-flight WS handler that touches them, risking a
 half-flushed history DB or a partial crash-recovery snapshot.
@@ -11,7 +11,7 @@ The first four tests in this module mirror the production pattern (from
 ``shutdown_controller._do_cleanup``) by constructing a real
 ``ThreadPoolExecutor``, submitting a sleepy task (simulating an in-flight
 handler), triggering the same shutdown pattern, and asserting the join
-completes within the deadline. They are correct but insufficient — a
+completes within the deadline. They are correct but insufficient, a
 mutation that removes the daemon-thread+join block from
 ``shutdown_controller._do_cleanup`` leaves them passing (they don't
 exercise the production code path).
@@ -54,7 +54,7 @@ class TestWsDispatchPoolDrain:
         The 2s sleep is shorter than the 5s join deadline, so the join
         must complete within 6s (5s deadline + 1s slack). The future is
         RUNNING (not QUEUED), so ``cancel_futures=True`` does NOT
-        short-circuit it — the wait=True join is what actually blocks
+        short-circuit it, the wait=True join is what actually blocks
         until the handler finishes.
         """
         pool = ThreadPoolExecutor(max_workers=1)
@@ -63,11 +63,11 @@ class TestWsDispatchPoolDrain:
             time.sleep(2.0)
             return "done"
 
-        # Submit the handler — it starts running immediately (max_workers=1).
+        # Submit the handler, it starts running immediately (max_workers=1).
 
         future = pool.submit(sleepy_handler)
 
-        # Wait until the worker has actually STARTED the task — otherwise
+        # Wait until the worker has actually STARTED the task, otherwise
         # it might still be QUEUED and cancel_futures=True would cancel
         # it, defeating the test's premise.
         assert wait_until(future.running, timeout=2.0), "handler never started running"
@@ -84,9 +84,9 @@ class TestWsDispatchPoolDrain:
 
         # The 2s handler should drain well within the 5s deadline.
         assert not join_thread.is_alive(), (
-            f"YJ-20: ws_dispatch_pool drain did not complete in 5s (elapsed={elapsed:.2f}s) — join_thread still alive"
+            f"YJ-20: ws_dispatch_pool drain did not complete in 5s (elapsed={elapsed:.2f}s), join_thread still alive"
         )
-        assert elapsed < 6.0, f"YJ-20: pool drain took {elapsed:.2f}s — must be < 6s (5s deadline + 1s slack)"
+        assert elapsed < 6.0, f"YJ-20: pool drain took {elapsed:.2f}s, must be < 6s (5s deadline + 1s slack)"
 
         # The handler's result is still delivered (the in-flight task
         # was allowed to finish, not killed mid-execution).
@@ -119,16 +119,16 @@ class TestWsDispatchPoolDrain:
 
         elapsed = time.monotonic() - start
 
-        # The join thread is still alive — the 10s handler hasn't finished.
+        # The join thread is still alive, the 10s handler hasn't finished.
         assert join_thread.is_alive(), (
-            f"YJ-20: join_thread should still be alive after 1s deadline (elapsed={elapsed:.2f}s) — handler sleeps 10s"
+            f"YJ-20: join_thread should still be alive after 1s deadline (elapsed={elapsed:.2f}s), handler sleeps 10s"
         )
 
         # Mirror the production warning emission.
         with caplog.at_level(logging.WARNING):
             if join_thread.is_alive():
                 logging.getLogger("voice_typer.server.shutdown_controller").warning(
-                    "[SHUTDOWN] ws_dispatch_pool did not drain in 5s — proceeding anyway"
+                    "[SHUTDOWN] ws_dispatch_pool did not drain in 5s, proceeding anyway"
                 )
 
         assert any("ws_dispatch_pool did not drain" in r.message for r in caplog.records), (
@@ -136,16 +136,16 @@ class TestWsDispatchPoolDrain:
         )
 
         # NOTE: we deliberately leak the very_sleepy_handler's worker
-        # thread — it's a daemon, so it won't block process exit. We
+        # thread, it's a daemon, so it won't block process exit. We
         # can't cancel it (``shutdown(wait=False, cancel_futures=True)``
-        # only cancels QUEUED tasks, not RUNNING ones — that's the
+        # only cancels QUEUED tasks, not RUNNING ones, that's the
         # entire point of ).
 
     def test_pool_drain_no_in_flight_tasks_completes_immediately(self):
         """When there are no in-flight tasks, the drain completes
         immediately (the join thread doesn't block)."""
         pool = ThreadPoolExecutor(max_workers=1)
-        # No tasks submitted — pool is idle.
+        # No tasks submitted, pool is idle.
 
         start = time.monotonic()
 
@@ -162,7 +162,7 @@ class TestWsDispatchPoolDrain:
     def test_pool_drain_cancels_queued_futures(self):
         """``cancel_futures=True`` cancels QUEUED (not-yet-started) tasks.
         With max_workers=1 and one in-flight task, a second submitted task
-        is QUEUED — ``cancel_futures=True`` cancels it immediately."""
+        is QUEUED: ``cancel_futures=True`` cancels it immediately."""
         from concurrent.futures import CancelledError
 
         pool = ThreadPoolExecutor(max_workers=1)
@@ -187,7 +187,7 @@ class TestWsDispatchPoolDrain:
         with pytest.raises(CancelledError):
             second.result(timeout=0.1)
 
-        # The RUNNING first task is NOT cancelled — it completes.
+        # The RUNNING first task is NOT cancelled, it completes.
         assert first.result(timeout=3.0) == "first"
 
 
@@ -233,7 +233,7 @@ class _FakeAppForDoCleanup:
         self._thread_registry = MagicMock()
         self.waveform_wiring = MagicMock()
 
-        # IPC server — left as None here; the test wires a MagicMock with
+        # IPC server, left as None here; the test wires a MagicMock with
         # a REAL ``_ws_dispatch_pool`` (ThreadPoolExecutor) to exercise
         # the production pool-drain code path.
         self._ipc_server = None
@@ -243,7 +243,7 @@ class _FakeAppForDoCleanup:
         self._cancel_pending_timers = MagicMock()
         self._restore_volume = MagicMock()
 
-        # ``_do_cleanup`` delegate on VoiceTyperApp — not used by the
+        # ``_do_cleanup`` delegate on VoiceTyperApp, not used by the
         # test (it calls ``controller._do_cleanup()`` directly).
         self._do_cleanup = MagicMock()
 
@@ -257,7 +257,7 @@ def _stub_shutdown_environment(tmp_config_dir, monkeypatch):
     """
     # Some of these helpers (``_close_devnull_files`` /
     # ``_register_devnull_file`` / ``is_windows``) no longer exist on
-    # ``app.py`` — the devnull-stream helpers now live behind the
+    # ``app.py``, the devnull-stream helpers now live behind the
     # ``shutdown.teardowns`` module, which looks them up dynamically and
     # swallows absence. ``raising=False`` mirrors
     # ``tests/test_shutdown_posix_release.py`` so the stubs don't error
@@ -287,13 +287,13 @@ class TestDoCleanupDrainsWsPoolViaProductionPath:
         (a) Build a real ``ThreadPoolExecutor`` with an in-flight 6s-
             sleeping task (longer than the 5s drain deadline) and wire
             it as ``fake_app._ipc_server._ws_dispatch_pool``.
-        (b) Invoke ``controller._do_cleanup()`` — the production cleanup
+        (b) Invoke ``controller._do_cleanup()``, the production cleanup
             body that contains the pool-drain block.
         (c) Assert:
             1. Total cleanup time ≤ 7s (5s drain + 2s slack for the
                mocked subsystem teardown).
             2. The production WARNING log record IS emitted via caplog
-               (NOT re-emitted by the test) — filter ``caplog.records``
+               (NOT re-emitted by the test), filter ``caplog.records``
                for the ``ws_dispatch_pool did not drain`` message on
                the ``voice_typer.server.shutdown_controller`` logger.
             3. Subsequent teardown steps (``recorder.stop``,
@@ -303,7 +303,7 @@ class TestDoCleanupDrainsWsPoolViaProductionPath:
 
         Mutation sanity check: temporarily commenting out the daemon-
         thread+join block (``shutdown_controller.py`` lines 402-410)
-        makes assertions (c)(2) and (c)(3) FAIL — no WARNING is
+        makes assertions (c)(2) and (c)(3) FAIL, no WARNING is
         emitted and subsequent steps fire at ~0s instead of ~5s. The
         mutation check was performed manually during YJ-FIX-C1-rework
         and documented in the return summary.
@@ -319,7 +319,7 @@ class TestDoCleanupDrainsWsPoolViaProductionPath:
         sleepy_future = ws_pool.submit(sleepy_handler)
         # Wait until the worker actually starts the task (otherwise it'd be
         # QUEUED and cancel_futures=True would cancel it, defeating the
-        # test's premise — the production WARNING only fires when a
+        # test's premise, the production WARNING only fires when a
         # RUNNING handler exceeds the deadline).
         assert wait_until(sleepy_future.running, timeout=2.0), "handler never started running"
 
@@ -343,7 +343,7 @@ class TestDoCleanupDrainsWsPoolViaProductionPath:
             return tracker
 
         # Replace the MagicMock methods with trackers. Returning None is
-        # safe — ``_run_with_timeout`` propagates the return value, but
+        # safe: ``_run_with_timeout`` propagates the return value, but
         # the callers in ``_do_cleanup`` don't check it (they only check
         # ``is TIMEOUT``).
         fake_app.recorder.stop = make_tracker("recorder.stop")
@@ -363,7 +363,7 @@ class TestDoCleanupDrainsWsPoolViaProductionPath:
         # (c)(1) Total cleanup time bounded (5s drain + 2s slack for the
         # mocked subsystem teardown which is effectively instant).
         assert do_cleanup_elapsed < 7.0, (
-            f"YJ-20: _do_cleanup took {do_cleanup_elapsed:.2f}s — must be "
+            f"YJ-20: _do_cleanup took {do_cleanup_elapsed:.2f}s, must be "
             f"≤ 7s (5s drain deadline + 2s slack for mocked subsystem "
             f"teardown). Note: this assertion alone does NOT catch the "
             f"mutation (a mutated _do_cleanup is even faster); the "
@@ -386,7 +386,7 @@ class TestDoCleanupDrainsWsPoolViaProductionPath:
             f"voice_typer.server.shutdown_controller for the pool drain "
             f"timeout; got {len(warning_records)}. This assertion catches "
             f"mutations that remove the daemon-thread+join block "
-            f"(shutdown_controller.py lines 402-410) — without that block, "
+            f"(shutdown_controller.py lines 402-410), without that block, "
             f"no WARNING is emitted. "
             f"All WARNING records seen: "
             f"{[(r.name, r.message) for r in caplog.records if r.levelno == logging.WARNING]}"
@@ -396,20 +396,20 @@ class TestDoCleanupDrainsWsPoolViaProductionPath:
         # Pool drain completes at ~do_cleanup_start + 5s (the join
         # deadline). Allow 0.5s slack for the mocked subsystem steps
         # between pool drain and recorder.stop (cancel timers, stop
-        # watchdog, cancel streaming — all instant with mocks).
+        # watchdog, cancel streaming, all instant with mocks).
         pool_drain_end_approx = do_cleanup_start + 5.0
         for step in ("recorder.stop", "crash_recovery.flush", "history_db.flush"):
             assert step in call_times, (
-                f"YJ-20: subsequent teardown step {step} was NOT called — "
+                f"YJ-20: subsequent teardown step {step} was NOT called, "
                 f"_do_cleanup must continue past the pool drain and invoke "
                 f"every downstream subsystem cleanup."
             )
             elapsed_from_start = call_times[step] - do_cleanup_start
             assert call_times[step] >= pool_drain_end_approx - 0.5, (
                 f"YJ-20: {step} fired at {elapsed_from_start:.2f}s after "
-                f"_do_cleanup start — must be AFTER the pool drain "
+                f"_do_cleanup start, must be AFTER the pool drain "
                 f"(~5s after start). This assertion catches mutations "
-                f"that remove the daemon-thread+join block — without "
+                f"that remove the daemon-thread+join block, without "
                 f"it, {step} fires at ~0s (before the 5s drain deadline)."
             )
 
@@ -425,5 +425,5 @@ class TestDoCleanupDrainsWsPoolViaProductionPath:
         # threads are non-daemon, so the ``concurrent.futures.thread``
         # atexit handler will join it at interpreter shutdown (adding
         # ~1s to the test process exit time). This is the behavior
-        # documented in the  comment note (Issue 4) — the 5s bound
+        # documented in the  comment note (Issue 4), the 5s bound
         # only unblocks _do_cleanup, not the atexit join.

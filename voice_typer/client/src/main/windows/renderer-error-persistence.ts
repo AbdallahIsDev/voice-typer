@@ -6,7 +6,7 @@
  * staff can grep renderer crashes without fishing through DevTools or
  * the noisy `electron-main.log`.
  *
- * Best-effort: any I/O error is swallowed — logging must never break
+ * Best-effort: any I/O error is swallowed, logging must never break
  * the renderer console forwarding path.
  */
 import { appendLogLine, rendererErrorsLogPath } from "../logging";

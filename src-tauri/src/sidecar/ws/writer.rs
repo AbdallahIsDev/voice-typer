@@ -1,14 +1,14 @@
 //! WS writer task (ADR-0020 §1 + §9 + §10).
 //!
 //! Extracted from the parent `ws.rs` module-split pipeline. Holds:
-//! - `spawn_writer_task` — drains the bounded WS writer channel into
+//! - `spawn_writer_task`: drains the bounded WS writer channel into
 //!   the tungstenite write half, wrapped in
 //!   `AssertUnwindSafe(...).catch_unwind()` with the symmetric
 //!   cleanup block (clear ws_tx + drain pending + emit
 //!   `supervisor_relaunching` + trigger supervisor respawn).
 //!
 //! Visibility contract:
-//! - `spawn_writer_task` is `pub(super)` — visible to the parent
+//! - `spawn_writer_task` is `pub(super)`: visible to the parent
 //!   `ws` module (single call site in `reconnect_ws`), mirroring
 //!   `heartbeat::spawn_heartbeat_task`.
 //! - Shared helpers stay in `ws.rs` (`WsStream` alias,
@@ -49,14 +49,14 @@ pub(super) fn spawn_writer_task(
     mut ws_rx: mpsc::Receiver<Message>,
     // generation captured at reconnect time so the cleanup block
     // can skip clearing `ws_tx` if a newer reconnect has already stored
-    // its own sender (race — see `SidecarState::ws_generation`).
+    // its own sender (race: see `SidecarState::ws_generation`).
     my_generation: u64,
 ) {
     // clone handles for the cleanup block, mirroring
     // ``spawn_reader_task``'s pattern. The originals are moved into
     // the ``AssertUnwindSafe`` body; the cleanup clones are used
     // AFTER ``catch_unwind`` so the cleanup runs even if the body
-    // panics. Pre-fix, the writer task had NO cleanup block — when
+    // panics. Pre-fix, the writer task had NO cleanup block, when
     // ``write.send()`` returned ``Err`` (write half broken), the
     // task just ``break``ed, leaving ``state.ws_tx`` pointing at the
     // dead sender and ``state.pending`` un-drained. Subsequent
@@ -64,7 +64,7 @@ pub(super) fn spawn_writer_task(
     // to 30s for the heartbeat to detect the failure and trigger
     // respawn. With this cleanup block, the writer now clears
     // ``ws_tx`` + drains pending + emits ``supervisor_relaunching`` +
-    // triggers respawn — symmetric with the reader's cleanup.
+    // triggers respawn: symmetric with the reader's cleanup.
     let app_for_cleanup = app.clone();
     let state_for_cleanup = state.clone();
     tokio::spawn(async move {
@@ -80,11 +80,11 @@ pub(super) fn spawn_writer_task(
         .await;
         if let Err(_panic_payload) = &result {
             log::error!(
-                "[WS-WRITER] writer task panicked during body — task exiting \
+                "[WS-WRITER] writer task panicked during body: task exiting \
                  (write half dropped, WS connection will close)"
             );
         }
-        // symmetric cleanup block — clear ws_tx + drain
+        // symmetric cleanup block: clear ws_tx + drain
         // pending + trigger supervisor respawn (gated on
         // ``!shutting_down`` so a graceful shutdown doesn't fire a
         // spurious respawn). Mirrors ``spawn_reader_task``'s
@@ -93,7 +93,7 @@ pub(super) fn spawn_writer_task(
         // only clear `ws_tx` if the current
         // generation matches `my_generation`. If a newer reconnect has
         // bumped the generation (i.e. `state.ws_generation` > my_generation),
-        // the stored `ws_tx` belongs to the NEW connection — clearing it
+        // the stored `ws_tx` belongs to the NEW connection, clearing it
         // would clobber the new sender and force a flap loop. The drain
         // and respawn trigger still run unconditionally: draining our
         // pending entries is safe (they're keyed by id, not by ws_tx),
@@ -107,7 +107,7 @@ pub(super) fn spawn_writer_task(
                 *ws_tx_guard = None;
             } else {
                 log::info!(
-                    "[WS-WRITER] cleanup skipping ws_tx clear — generation mismatch \
+                    "[WS-WRITER] cleanup skipping ws_tx clear: generation mismatch \
                      (mine={}, current={}); a newer reconnect owns ws_tx ()",
                     my_generation,
                     current_generation
@@ -116,7 +116,7 @@ pub(super) fn spawn_writer_task(
         }
         // Gate the drain and respawn trigger on the same generation
         // check as the ws_tx clear above. The writer cleanup previously
-        // did an UNCONDITIONAL drain + respawn trigger — if a newer
+        // did an UNCONDITIONAL drain + respawn trigger, if a newer
         // reconnect had bumped the generation and added new in-flight
         // dispatches, the old writer's unconditional drain would reject
         // the NEW connection's dispatches with sidecar_disconnected
@@ -135,7 +135,7 @@ pub(super) fn spawn_writer_task(
                 }
             } else {
                 log::info!(
-                    "[WS-WRITER] cleanup skipping drain — generation mismatch \
+                    "[WS-WRITER] cleanup skipping drain: generation mismatch \
                      (mine={}, current={})",
                     my_generation,
                     current_generation
@@ -151,7 +151,7 @@ pub(super) fn spawn_writer_task(
                 ) {
                     log::warn!("[WS-WRITER] failed to emit supervisor_relaunching: {}", e);
                 }
-                log::warn!("[WS-WRITER] write half closed — triggering supervisor respawn");
+                log::warn!("[WS-WRITER] write half closed, triggering supervisor respawn");
                 // pass `Some(my_generation)`: this decision is made
                 // synchronously but EXECUTED asynchronously (the
                 // supervisor dequeues later). If a newer reconnect went
@@ -165,7 +165,7 @@ pub(super) fn spawn_writer_task(
                 );
             } else {
                 log::info!(
-                    "[WS-WRITER] cleanup skipping respawn trigger — generation mismatch \
+                    "[WS-WRITER] cleanup skipping respawn trigger: generation mismatch \
                      (mine={}, current={})",
                     my_generation,
                     current_generation

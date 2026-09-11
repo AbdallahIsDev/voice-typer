@@ -12,13 +12,13 @@ These tests pin three coupled fixes:
    to their defaults (not just warn about them). Pre-fix
    ``validate_config(instance)`` flagged the bad value and appended a
    warning to ``last_load_warnings``, but the field itself survived
-   verbatim — propagating to runtime code where it either crashed a
+   verbatim, propagating to runtime code where it either crashed a
    dispatch dict (``KeyError``) or silently took the wrong branch.
 
 3. ``ConfigEditorLauncher.launch`` must call ``tray.notify`` after
    reload when ``last_load_warnings`` is non-empty. Pre-fix the user
    editing ``config.json`` by hand got no toast, no IPC error, and no
-   UI banner — the editor exited and the app silently ran with the
+   UI banner, the editor exited and the app silently ran with the
    (possibly-corrected) config.
 
 The three fixes close the loop:
@@ -111,7 +111,7 @@ class TestSanitizeSurfacesLastLoadWarnings:
         Note: ``redact_pii`` runs AFTER truncation and may further
         shrink the output (e.g. redacting a long bare token to
         ``***``). To verify the truncation in isolation, the warning
-        text here is a sentence with spaces — ``redact_secret``'s
+        text here is a sentence with spaces: ``redact_secret``'s
         20+ char bare-token pattern only matches contiguous
         alphanumeric runs, so a space-separated sentence survives
         redaction verbatim.
@@ -346,7 +346,7 @@ class TestLoadResetsInvalidEnumFields:
 
     def test_valid_enum_values_are_not_reset(self, isolated_config_dir: Path) -> None:
         """A valid enum value must NOT be reset and must NOT produce
-        a reset warning. (Idempotency check — the reset helper must
+        a reset warning. (Idempotency check, the reset helper must
         not spuriously fire on valid values.)
         """
         config_file = isolated_config_dir / "config.json"
@@ -478,7 +478,7 @@ def _set_valid_optional_numeric_fields(cfg: Config) -> Config:
     The config sanitization layer (``voice_typer/server/config/sanitization.py``)
     runs per-field type validation on every ``Config.load()`` call. The
     validator unwraps ``int | None`` / ``float | None`` annotations to
-    ``int`` / ``float`` BEFORE checking — so a default-constructed
+    ``int`` / ``float`` BEFORE checking, so a default-constructed
     ``Config()`` (where ``bubble_x=None`` etc.) produces four spurious
     "had non-int value None, resetting to default None" warnings on every
     reload. Those warnings pollute ``last_load_warnings`` and (via the
@@ -546,7 +546,7 @@ class TestEditorReloadFeedback:
         )
 
         # Stub the platform launcher so we don't actually open an
-        # editor — the test only cares about the reload + notify path.
+        # editor, the test only cares about the reload + notify path.
         from voice_typer.server import config_editor
 
         def _noop_launcher(_path: Any) -> None:
@@ -561,7 +561,7 @@ class TestEditorReloadFeedback:
         # Set the four Optional[int]/Optional[float] fields (bubble_x,
         # bubble_y, bubble_scale, test_duration_seconds) to valid
         # non-None values so the reload doesn't produce spurious
-        # None-coercion warnings — see ``_set_valid_optional_numeric_fields``.
+        # None-coercion warnings: see ``_set_valid_optional_numeric_fields``.
         _set_valid_optional_numeric_fields(cfg)
         cfg.save()
         tray = _FakeTray()
@@ -583,7 +583,7 @@ class TestEditorReloadFeedback:
         The launcher calls ``self.app.config.save()`` BEFORE opening
         the editor (so the user's in-memory edits are persisted first).
         To exercise the warning-surfacing path, the in-memory Config
-        must hold an invalid enum value at launch time — that value
+        must hold an invalid enum value at launch time, that value
         gets saved to disk, the (stubbed) editor exits, the launcher
         reloads from disk, ``validate_config`` + ``_reset_invalid_enum_fields``
         fire, and ``last_load_warnings`` becomes non-empty.
@@ -662,7 +662,7 @@ class TestEditorReloadFeedback:
         # Set the four Optional[int]/Optional[float] fields to valid
         # non-None values so the first reload warning is the long
         # asr_backend validate_config warning (which embeds the
-        # 300-char value) — this lets the test actually exercise the
+        # 300-char value), this lets the test actually exercise the
         # >160-char truncation path. Without this fix the first
         # warning would be the short bubble_x None-coercion warning
         # and the assertion below would pass without ever exercising

@@ -27,7 +27,7 @@ from voice_typer.server.autostart._spawn import _spawn_login_child
 from voice_typer.server.branding import APP_NAME
 from voice_typer.server.platform_utils import is_macos, is_windows
 
-# C-CROSS-3: explicit dotted logger name — see log_files.py for why
+# C-CROSS-3: explicit dotted logger name: see log_files.py for why
 # ``__name__`` cannot be used here.
 log = logging.getLogger("voice_typer.server.autostart_launcher")
 
@@ -44,13 +44,13 @@ def _client_dir_exists() -> bool:
 # - ``{HOME}`` → Path.home()
 # - ``%LOCALAPPDATA%`` / ``%PROGRAMFILES%`` → resolved from the environment
 #   at call time (a missing LOCALAPPDATA makes that candidate skipped;
-#   PROGRAMFILES falls back to ``C:\\Program Files`` — both mirror the
+#   PROGRAMFILES falls back to ``C:\\Program Files``, both mirror the
 #   pre-refactor behavior).
 # This table is the launcher side of the autostart↔manifest drift pair
 # pinned by
 # ``tests/tauri/test_config_script_drift.py::TestLauncherInstallPathsMatchManifest``
 # against ``tauri-binaries.json`` → ``binaries.*._install_paths`` (order
-# matters — LOCALAPPDATA is first on Windows because the NSIS installer
+# matters, LOCALAPPDATA is first on Windows because the NSIS installer
 # defaults to ``installMode=currentUser``). Any change here MUST be
 # mirrored in the manifest, and vice versa.
 _TAURI_LAUNCHER_INSTALL_PATHS: dict[str, tuple[str, ...]] = {
@@ -73,7 +73,7 @@ _TAURI_LAUNCHER_INSTALL_PATHS: dict[str, tuple[str, ...]] = {
 def _expand_tauri_install_template(template: str) -> Path | None:
     """Expand one :data:`_TAURI_LAUNCHER_INSTALL_PATHS` template into a Path.
 
-    Returns ``None`` when a required env var is unavailable — that
+    Returns ``None`` when a required env var is unavailable, that
     candidate is then skipped (mirrors the pre-refactor behavior where
     a missing ``LOCALAPPDATA`` simply didn't contribute a candidate).
     """
@@ -96,23 +96,23 @@ def _tauri_binary() -> str | None:
     The Tauri cutover ships a native binary (built from
     ``src-tauri/Cargo.toml`` → ``voice-typer-tauri``) instead of the
     Electron ``node_modules/`` tree. This helper locates that binary
-    so the autostart launcher can spawn it directly at login — without
+    so the autostart launcher can spawn it directly at login, without
     it, the launcher would try ``electron .`` against a missing
     ``node_modules/`` and autostart-at-login would silently break.
 
     Lookup order:
 
-    1. ``VT_TAURI_BINARY`` env var — explicit override used by
+    1. ``VT_TAURI_BINARY`` env var, explicit override used by
        installers / users that place the binary at a non-standard path.
     2. Well-known install paths per OS, in the order listed in
        :data:`_TAURI_LAUNCHER_INSTALL_PATHS` (which is pinned to the
        ``_install_paths`` of ``tauri-binaries.json`` by the drift test
-       ``tests/tauri/test_config_script_drift.py`` — the manifest is
+       ``tests/tauri/test_config_script_drift.py``: the manifest is
        the single source of truth for both the path set and the
        discovery priority).
 
     On POSIX the candidate must additionally be executable
-    (``os.access(..., X_OK)``) — a stale non-executable file at one of
+    (``os.access(..., X_OK)``), a stale non-executable file at one of
     these paths shouldn't fool us into thinking Tauri is installed.
 
     Returns ``None`` in dev checkouts and CI environments where the
@@ -200,7 +200,7 @@ def _tauri_manifest_path() -> Path | None:
     1. An explicit ``VT_TAURI_MANIFEST`` env override (used by
        installers that place the manifest at a non-standard path, and
        by tests).
-    2. ``<repo-root>/tauri-binaries.json`` — the canonical committed
+    2. ``<repo-root>/tauri-binaries.json``: the canonical committed
        location (mirrors ``tests/test_tauri_binaries_manifest.py``
        which resolves the same relative path from the repo root).
 
@@ -216,7 +216,7 @@ def _tauri_manifest_path() -> Path | None:
     # Repo root = four parents up from
     # voice_typer/server/autostart/tauri_spawn.py (the pre-split single
     # file used three parents from voice_typer/server/autostart_launcher.py
-    # — same directory, one package level deeper now).
+    # , same directory, one package level deeper now).
     repo_root = Path(__file__).resolve().parents[3]
     candidate = repo_root / "tauri-binaries.json"
     if candidate.is_file():
@@ -312,7 +312,7 @@ def verify_tauri_binary_or_skip(path: str | Path) -> bool:
         )
         return False
     try:
-        # Chunked read (8 MiB): the host binary is tens of MB — a
+        # Chunked read (8 MiB): the host binary is tens of MB, a
         # single read_bytes() spikes peak RAM at login (BP-130).
         digest = hashlib.sha256()
         with open(binary, "rb") as handle:
@@ -325,7 +325,7 @@ def verify_tauri_binary_or_skip(path: str | Path) -> bool:
     if not hmac.compare_digest(actual, expected):
         log.error(
             "[AUTOSTART] FAIL CLOSED: SHA-256 mismatch for %s (expected %s, "
-            "got %s) — binary tampered or stale; refusing to spawn.",
+            "got %s), binary tampered or stale; refusing to spawn.",
             binary,
             expected,
             actual,
@@ -344,10 +344,10 @@ def _spawn_tauri_host(binary: str, hidden: bool = False) -> subprocess.Popen | N
         first instance to be focused and the second to exit. So unlike the
         Electron path (which spawns a LEAN electron with ``VT_FOCUS_ONLY=1``
         to trigger ``requestSingleInstanceLock``), here we always spawn the
-        full Tauri binary — the single-instance plugin does the rest.
+        full Tauri binary, the single-instance plugin does the rest.
 
         Returns the child process on success, or ``None`` on failure (the
-    caller logs and exits 1 — no silent Electron fallback per ).
+    caller logs and exits 1, no silent Electron fallback per ).
     """
     from voice_typer.server import autostart_launcher as _pkg
 
@@ -357,7 +357,7 @@ def _spawn_tauri_host(binary: str, hidden: bool = False) -> subprocess.Popen | N
     # env override, which is NOT a bypass) would launch unchecked.
     if not _pkg.verify_tauri_binary_or_skip(binary):
         log.error(
-            "[AUTOSTART] refusing to spawn Tauri binary %s — integrity verification failed (fail-closed).",
+            "[AUTOSTART] refusing to spawn Tauri binary %s, integrity verification failed (fail-closed).",
             binary,
         )
         return None
@@ -366,7 +366,7 @@ def _spawn_tauri_host(binary: str, hidden: bool = False) -> subprocess.Popen | N
     env = _launcher_child_env()
     if hidden:
         env["VT_START_HIDDEN"] = "1"
-    # same-app restart — full env intentionally inherited
+    # same-app restart, full env intentionally inherited
     # (see _launch_electron_built for rationale). Only sensitive KEY
     # NAMES are logged for audit; values are never printed.
     _log_sensitive_env_keys(env, context="autostart")
@@ -381,6 +381,6 @@ def _spawn_tauri_host(binary: str, hidden: bool = False) -> subprocess.Popen | N
     )
 
 
-# Backward-compat alias — older test imports use the previous name.
+# Backward-compat alias, older test imports use the previous name.
 # Both names refer to the same function object.
 _launch_tauri_app = _spawn_tauri_host

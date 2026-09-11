@@ -7,7 +7,7 @@
  *   - renders the "Preparing offline engine…" copy from
  *     `t("pack.preparingOfflineEngine")` when visible
  *   - exposes `role="status"` + `aria-live="polite"` so screen readers
- *     announce the message once when it appears (NOT assertive — the
+ *     announce the message once when it appears (NOT assertive, the
  *     message is informational, not an error)
  *   - exposes `data-pack-status` so integration tests can assert on
  *     the underlying OfflinePackStatus without parsing visible text
@@ -27,7 +27,7 @@ import type { OfflinePackStatus } from "@/hooks/useOfflinePackDownload";
 // Mock i18n so we don't load the real locale chunks in unit tests.
 // The mock returns the key as the translated string (with `: key=value`
 // suffixes for placeholder substitutions that don't match a `{placeholder}`
-// in the key — so we can assert on both the bare key and the param
+// in the key, so we can assert on both the bare key and the param
 // propagation).
 vi.mock("@/i18n/i18n", () => ({
 	t: (key: string, params?: Record<string, string>) => {
@@ -53,7 +53,7 @@ afterEach(() => {
 	cleanup();
 });
 
-describe("OfflinePackPreparingBanner — visibility", () => {
+describe("OfflinePackPreparingBanner, visibility", () => {
 	it("renders nothing when visible is false", () => {
 		const { container } = render(
 			<OfflinePackPreparingBanner visible={false} status="downloading" />,
@@ -67,14 +67,14 @@ describe("OfflinePackPreparingBanner — visibility", () => {
 	});
 });
 
-describe("OfflinePackPreparingBanner — a11y", () => {
+describe("OfflinePackPreparingBanner, a11y", () => {
 	it("uses role=status so screen readers treat it as a live region", () => {
 		render(<OfflinePackPreparingBanner visible={true} status="downloading" />);
 		const region = screen.getByRole("status");
 		expect(region).toBeInTheDocument();
 	});
 
-	it("carries aria-live=polite (NOT assertive — informational, not an error)", () => {
+	it("carries aria-live=polite (NOT assertive, informational, not an error)", () => {
 		render(<OfflinePackPreparingBanner visible={true} status="verifying" />);
 		const region = screen.getByRole("status");
 		expect(region.getAttribute("aria-live")).toBe("polite");
@@ -92,7 +92,7 @@ describe("OfflinePackPreparingBanner — a11y", () => {
 	});
 });
 
-describe("OfflinePackPreparingBanner — data-pack-status", () => {
+describe("OfflinePackPreparingBanner, data-pack-status", () => {
 	const statuses: OfflinePackStatus[] = [
 		"idle",
 		"downloading",
@@ -120,13 +120,13 @@ describe("OfflinePackPreparingBanner — data-pack-status", () => {
 	});
 });
 
-describe("OfflinePackPreparingBanner — className merge", () => {
+describe("OfflinePackPreparingBanner, className merge", () => {
 	it("merges consumer className with the base classes (tailwind-merge)", () => {
 		render(
 			<OfflinePackPreparingBanner
 				visible={true}
 				status="downloading"
-				// `mt-2` is additive (no conflict with base) — preserved.
+				// `mt-2` is additive (no conflict with base), preserved.
 				// `text-amber-600` conflicts with base `text-(--text-muted)` —
 				// tailwind-merge drops the base colour so the consumer
 				// override wins (this is the same pattern `Spinner` uses

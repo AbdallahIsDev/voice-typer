@@ -18,7 +18,7 @@ with::
 
 The user's original clipboard content was NEVER restored by the daemon
 thread, and the entry appended to ``_pending_restores`` was NEVER
-removed — accumulating one ``ClipboardSnapshot`` per paste for the
+removed, accumulating one ``ClipboardSnapshot`` per paste for the
 entire session (memory leak + atexit double-restore).
 
 These tests drive the production ``paste()`` path end-to-end (NOT
@@ -27,13 +27,13 @@ keystroke + clipboard-read primitives so they run on a headless Linux
 box. They assert:
 
 * (a) the pending entry is removed from ``_pending_restores`` after
-  the daemon thread completes — proving the signature mismatch is gone
+  the daemon thread completes, proving the signature mismatch is gone
   AND the cleanup runs.
 * (b) the original clipboard content is restored via
   ``snapshot.restore()`` when the clipboard still holds the pasted
   text.
 * (c) the entry is removed even when the defensive check skips the
-  restore (clipboard changed) — proving the ``finally`` block fires on
+  restore (clipboard changed), proving the ``finally`` block fires on
   the "skip" path, not just the "restore" path.
 * (d) the entry is removed even when ``snapshot.restore()`` raises —
   proving the ``finally`` block fires on the exception path.
@@ -47,7 +47,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 # pynput / pynput.keyboard / pyperclip are mocked at collection time by
-# tests/clipboard/conftest.py (single source of truth —  dedup).
+# tests/clipboard/conftest.py (single source of truth, dedup).
 from voice_typer.server import clipboard as clip_mod  # noqa: E402
 from voice_typer.server.clipboard import ClipboardManager  # noqa: E402
 
@@ -138,7 +138,7 @@ def _isolate_pending_restores():
 
 
 # ===========================================================================
-# regression tests — drives the production paste() path end-to-end
+# regression tests, drives the production paste() path end-to-end
 # ===========================================================================
 
 
@@ -345,7 +345,7 @@ class TestPasteRestoresAndUnregisters:
 
 # ===========================================================================
 # Direct unit test proving the signature accepts the 4-arg call
-# (defense-in-depth — the end-to-end tests above already cover this)
+# (defense-in-depth, the end-to-end tests above already cover this)
 # ===========================================================================
 
 
@@ -393,7 +393,7 @@ class TestDelayedRestoreSignature:
             mock_time.sleep = MagicMock()
             with clip_mod._pending_restores_lock:
                 clip_mod._pending_restores.append(entry)
-            # Positional — exactly what paste() does.
+            # Positional, exactly what paste() does.
             cm._delayed_restore(snap, "x", 0.0, entry)
         with clip_mod._pending_restores_lock:
             assert entry not in clip_mod._pending_restores
@@ -413,6 +413,6 @@ class TestDelayedRestoreSignature:
             patch.object(clip_mod, "log"),
         ):
             mock_time.sleep = MagicMock()
-            # 3-arg legacy call — must NOT raise.
+            # 3-arg legacy call, must NOT raise.
             cm._delayed_restore(snap, "x", 0.0)
         mock_restore.assert_called_once()

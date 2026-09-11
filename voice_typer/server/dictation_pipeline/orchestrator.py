@@ -3,14 +3,14 @@
 
 The orchestrator owns:
 
-  * ``__init__`` — wires the pipeline to the ``VoiceTyperApp`` and
+  * ``__init__``: wires the pipeline to the ``VoiceTyperApp`` and
     builds the default stage list (``dictation_stages.build_default_stages``).
-  * ``request_abort`` — public entry point for external callers
+  * ``request_abort``: public entry point for external callers
     (recording controller's ESC cancel path, watchdog's force-recover
     path) to signal the active ASR backend to abort in-flight
     inference. Best-effort: catches every exception so a broken
     engine never propagates a failure to the caller.
-  * ``run`` — the entry point called from
+  * ``run``: the entry point called from
     ``VoiceTyperApp._stop_dictation``. Runs on the transcription
     thread. Writes the in-flight sentinel, publishes the cycle_id as
     the correlation id, runs the 11 stages via
@@ -58,7 +58,7 @@ class _OrchestratorMixin:
     """Mixin: ``__init__``, ``request_abort``, and ``run`` orchestration.
 
     Class attributes:
-      * ``_LLM_POLISH_PIPELINE_TIMEOUT_S`` — pipeline-side cap on how
+      * ``_LLM_POLISH_PIPELINE_TIMEOUT_S``: pipeline-side cap on how
         long the dictation thread will wait for the LLM polish
         round-trip. Exposed as a class attribute so tests can
         monkeypatch it to a small value (e.g. 0.1s) to exercise the
@@ -82,7 +82,7 @@ class _OrchestratorMixin:
     # Lazily-built 11-stage template shared across all pipeline
     # instances. None until the first __init__ populates it. Stage
     # objects are stateless (each run reads from ctx, not self), so
-    # sharing the OBJECTS is safe — but every instance gets its OWN
+    # sharing the OBJECTS is safe, but every instance gets its OWN
     # list copy below, because ``build_default_stages`` promises a
     # fresh mutable list and a shared list would let one pipeline's
     # insert/remove corrupt every other pipeline.
@@ -119,8 +119,8 @@ class _OrchestratorMixin:
         self._audio_stats: tuple[float, float, float] | None = None
         # Compact quality summary captured from the active ASR engine
         # right after this cycle's transcribe call (``None`` for engines
-        # that don't expose per-segment confidence stats — e.g. Parakeet,
-        # Qwen, cloud providers — and for streaming-session cycles).
+        # that don't expose per-segment confidence stats, e.g. Parakeet,
+        # Qwen, cloud providers, and for streaming-session cycles).
         # Attached to the ``transcription_final`` push event by the
         # storage step so the renderer can flag low-confidence results.
         self._quality_summary: dict[str, float] | None = None
@@ -130,7 +130,7 @@ class _OrchestratorMixin:
         # (``{clipboard}`` → ``pyperclip.paste()``), which is a
         # privacy-sensitive surface when LLM polish is enabled. The
         #  fix in ``llm_polish._call_api`` applies
-        # ``redact_pii`` before the API send — this flag lets
+        # ``redact_pii`` before the API send: this flag lets
         # ``_apply_llm_polish`` log a privacy NOTICE so operators can
         # audit when substituted content is flowing toward the LLM
         # redaction gate, and fail-closed if ``redact_pii`` itself is
@@ -138,7 +138,7 @@ class _OrchestratorMixin:
         self._templates_applied: bool = False
         # the 11-stage dictation pipeline. Each stage is a thin
         # delegator that calls the corresponding ``_<step>`` method on
-        # this pipeline — see ``dictation_stages.build_default_stages``
+        # this pipeline: see ``dictation_stages.build_default_stages``
         # for the full ordering and per-stage documentation. The run
         # loop iterates over this list (see ``run`` below) instead of
         # inlining each stage call, so adding an 12th stage is a
@@ -146,14 +146,14 @@ class _OrchestratorMixin:
         # 3-line ``with _timed_stage`` pattern plus a hand-edited
         # consolidated-log format string.
         #
-        # Built lazily on first access if missing — tests that bypass
+        # Built lazily on first access if missing, tests that bypass
         # ``__init__`` via ``__new__`` (see
         # ``test_dictation_pipeline_h17_and_s3_cr10_fixes.py``) don't
         # set this attribute, and ``run`` rebuilds the default list
         # when that happens so the finally-block teardown still
         # exercises the production code paths.
         # Stage objects are stateless (each run reads from ctx, not
-        # self), so the template list is built once — but each
+        # self), so the template list is built once, but each
         # instance takes its OWN list copy so a caller mutating
         # ``pipeline._stages`` (insert/remove, as the factory
         # docstring allows) cannot affect other pipelines.
@@ -172,23 +172,23 @@ class _OrchestratorMixin:
         engine's ``request_abort()`` which sets an ``_abort_event``
         consumed by:
 
-          * ``TranscriptionEngine._transcribe_unlocked`` — breaks the
+          * ``TranscriptionEngine._transcribe_unlocked``, breaks the
             segment loop and best-effort calls
             ``ctranslate2.Translator.interrupt()``.
-          * ``ParakeetEngine`` — ``request_abort`` sets the engine's
+          * ``ParakeetEngine``: ``request_abort`` sets the engine's
             ``_abort_event``; ``_transcribe_chunks`` checks it between
             chunks and breaks out of the loop after the current chunk
             completes (the ONNX backend has no per-token stop hook —
             the ``_AbortStoppingCriteria`` name survives only as an
             inert compatibility shim in ``parakeet_engine._shims``).
           * ``CloudEngine._send_openai_compatible`` /
-            ``_send_deepgram`` — the retry loop checks the event at
+            ``_send_deepgram``: the retry loop checks the event at
             the top of each iteration and bails out.
 
         The internal ``_AbortWatcher`` (started in ``_transcribe``)
         already calls this method when ``recording._cancelled_cycle_ids``
         contains the current cycle, so external callers that already
-        add to that set do NOT need to also call this method — the
+        add to that set do NOT need to also call this method, the
         watcher will pick it up within 100ms. This method is the
         direct, lower-latency path for callers that want to skip the
         polling delay (e.g. the watchdog's force-recover path, which
@@ -196,7 +196,7 @@ class _OrchestratorMixin:
 
         Best-effort: catches every exception so a broken engine never
         propagates a failure to the caller. The abort token is a
-        ``threading.Event`` — even if ``request_abort()`` raises, the
+        ``threading.Event``: even if ``request_abort()`` raises, the
         engine's existing inference loop will continue (just without
         the early-exit signal). The caller's recovery path (e.g. the
         watchdog's ``_busy_event.set()``) is independent.
@@ -231,7 +231,7 @@ class _OrchestratorMixin:
         id via :func:`voice_typer.server.log.set_correlation_id` so every
         log emitted across the pipeline stages (transcribe, clean, LLM
         polish, clipboard, tray) carries ``correlation_id=<cycle_id>`` in
-        JSON mode — tying the whole cycle together for triage.  It is
+        JSON mode, tying the whole cycle together for triage.  It is
         reset at the end of the method (the ``finally`` block below) so a
         finished cycle can't leak its id into a later, unrelated log line.
         """
@@ -243,7 +243,7 @@ class _OrchestratorMixin:
         # Write an in-flight sentinel so crash_recovery can detect
         # interrupted dictations on the next startup and emit a
         # dictation_lost event. The sentinel is cleared in the finally
-        # block below — only a hard process crash leaves it behind.
+        # block below, only a hard process crash leaves it behind.
         # Atomic write (temp + os.replace) so a crash mid-write cannot
         # leave a half-truncated sentinel that crash_recovery would
         # misparse as a (truncated) cycle id.
@@ -264,7 +264,7 @@ class _OrchestratorMixin:
         self._audio_stats = getattr(self._app.recorder, "_last_audio_stats", None)
         # Reset the per-cycle quality summary BEFORE transcription so a
         # stale summary from a previous dictation (or a cycle that never
-        # reaches the batch transcribe path — e.g. streaming) can't leak
+        # reaches the batch transcribe path: e.g. streaming) can't leak
         # into this cycle's ``transcription_final`` payload.
         self._quality_summary = None
         _t0 = time.perf_counter()
@@ -273,7 +273,7 @@ class _OrchestratorMixin:
         # ``except Exception`` block below can reference it (to save
         # the partial transcription to crash recovery). Pre-fix,
         # ``text`` was assigned inside the try (just before the for
-        # loop) — if a stage between ``_transcribe`` and
+        # loop), if a stage between ``_transcribe`` and
         # ``_store_result`` raised, the partial text was already
         # assigned by the previous iteration but the except block
         # couldn't see it (the local was technically in scope but
@@ -286,7 +286,7 @@ class _OrchestratorMixin:
         try:
             log.info("[TRANSCRIBE] Starting transcription... (cycle=%s)", self._cycle_id)
 
-            # PRE-FLIGHT: resource health check — provides diagnostic
+            # PRE-FLIGHT: resource health check, provides diagnostic
             # context (RAM, disk, GPU) if a heap corruption crash occurs.
             # Throttle to once every 60s. The values change slowly
             # and are only needed for post-crash triage, not per-utterance
@@ -335,7 +335,7 @@ class _OrchestratorMixin:
             # ``text = ""`` was hoisted to before the try block
             # so the ``except Exception`` block can reference it for
             # the partial-text crash-recovery save. Do NOT re-initialize
-            # here — the hoisted assignment is the single source of truth
+            # here, the hoisted assignment is the single source of truth
             # for the partial-text contract.
             for stage in stages:
                 if getattr(stage, "timed", True):
@@ -408,7 +408,7 @@ class _OrchestratorMixin:
             # to abort the pipeline cleanly. Fall through to the finally
             # block (sentinel clear, audio zero, watchdog reset,
             # transcription_thread clear, gc.collect, correlation reset)
-            # — same as the original ``return`` after
+            # , same as the original ``return`` after
             # ``_handle_empty_transcription``.
             pass
         except _PipelineAbortCancelled:
@@ -416,7 +416,7 @@ class _OrchestratorMixin:
             # ``PasteStage``) already wrote the late transcription to
             # crash-recovery and tore down the bubble, then raised this
             # sentinel to skip the paste. Fall through to the finally
-            # block — same as the original ``return`` after the
+            # block, same as the original ``return`` after the
             # cancelled-cycle branch.
             pass
         except Exception as e:
@@ -446,7 +446,7 @@ class _OrchestratorMixin:
             except Exception:
                 log.debug("[PIPELINE] bubble set_state('error') on failure failed", exc_info=True)
             # The tooltip shows the same user-friendly reason as the
-            # notification (NOT raw exception text — ctranslate2 / torch
+            # notification (NOT raw exception text, ctranslate2 / torch
             # errors often contain file paths, CUDA version strings, and
             # internal stack details). The bare "Transcription failed"
             # label told the user nothing; the mapped message says what
@@ -460,7 +460,7 @@ class _OrchestratorMixin:
             # Save the partial transcription to crash recovery
             # before discarding it. Pre-fix, a stage between
             # ``_transcribe`` and ``_store_result`` raising would lose
-            # the transcription silently — the user saw "Transcription
+            # the transcription silently, the user saw "Transcription
             # failed" but the partial text was gone (no clipboard copy,
             # no crash-recovery entry). With this save, the user can
             # recover the partial text from the crash-recovery buffer.
@@ -481,7 +481,7 @@ class _OrchestratorMixin:
             # owns its own try/except with log.debug (NOT contextlib.suppress)
             # so a stuck-busy state is diagnosable from the log. The
             # original exception from the try block above is preserved
-            # — the finally block must NOT raise (log.debug, not
+            # , the finally block must NOT raise (log.debug, not
             # log.error, to avoid log noise on the normal cleanup path).
             # Per-step rationale (RACE-013, SEC-audit-008, ...) lives
             # on the helpers below.
@@ -563,10 +563,10 @@ class _OrchestratorMixin:
         prevent exceptions during shutdown.
         """
         try:
-            #  Phase 2: fixed typo — was `_recording_controller`
+            #  Phase 2: fixed typo, was `_recording_controller`
             # (doesn't exist on VoiceTyperApp). The attribute is `recording`
             # (a RecordingController). Previously the watchdog reset never
-            # fired from this finally block — see worklog.md bug note.
+            # fired from this finally block: see worklog.md bug note.
             recording = getattr(self._app, "recording", None)
             if recording is not None:
                 recording._reset_watchdog()
@@ -596,14 +596,14 @@ class _OrchestratorMixin:
         ``set_streaming_session(None)`` (lock #2), a concurrent
         ``_start_streaming_session_if_enabled`` could install a NEW
         session that the subsequent ``set_streaming_session(None)``
-        would clobber — silently killing an active streaming worker
+        would clobber, silently killing an active streaming worker
         thread. After rapid stop→start (user double-tap hotkey, or
         auto-stop Timer immediately followed by hotkey), the new
         recording's streaming session was killed silently and streaming
         transcriptions stopped appearing until the next restart.
 
         ``pop_streaming_session()`` owns the session AND clears the
-        slot under a SINGLE lock acquisition — we never write back to
+        slot under a SINGLE lock acquisition, we never write back to
         the slot. If a new session is installed concurrently, it lands
         AFTER our pop and is preserved. Mirrors the  path in
         ``shutdown_controller._do_cleanup`` and the  path in
@@ -611,11 +611,11 @@ class _OrchestratorMixin:
 
         If we popped a non-None session AND the recorder is no longer
         recording (i.e. this session belongs to a dictation cycle that
-        has now ended — not to a fresh recording that started during
+        has now ended, not to a fresh recording that started during
         the run), signal its cancel event so the background streaming
         worker thread exits cleanly instead of leaking until the next
         process shutdown. ``session.cancel()`` is non-blocking by
-        default — it sets the cancel event and returns immediately,
+        default, it sets the cancel event and returns immediately,
         matching the finally-block's bounded-latency contract.
         """
         try:
@@ -650,29 +650,29 @@ class _OrchestratorMixin:
     def _cleanup_transcription_thread_clear(self) -> None:
         """Finally-block step 6: clear ``_transcription_thread``.
 
-         Clear ``_transcription_thread`` under
-        ``RecordingController._watchdog_lock`` — the SAME lock that
-        guards the field's write (``RecordingController._stop_impl``
-        assigns ``self._transcription_thread = threading.Thread(...)``
-        under ``_watchdog_lock``) and read
-        (``_force_recover_from_stuck_transcription`` snapshots
-        ``self._transcription_thread`` under ``_watchdog_lock``).
+          Clear ``_transcription_thread`` under
+         ``RecordingController._watchdog_lock``: the SAME lock that
+         guards the field's write (``RecordingController._stop_impl``
+         assigns ``self._transcription_thread = threading.Thread(...)``
+         under ``_watchdog_lock``) and read
+         (``_force_recover_from_stuck_transcription`` snapshots
+         ``self._transcription_thread`` under ``_watchdog_lock``).
 
-        Previously this clear used ``self._app._lock`` — a DIFFERENT lock
-        — which provided ZERO mutual exclusion against the write/read
-        in recording_controller.py. The torn-read hazard was real: a
-        concurrent ``_stop_impl`` could be mid-assignment of
-        ``self._transcription_thread`` (Thread object → None or vice
-        versa) when this clear ran, and the watchdog could observe a
-        stale or partially-constructed reference.
+         Previously this clear used ``self._app._lock``, a DIFFERENT lock
+        , which provided ZERO mutual exclusion against the write/read
+         in recording_controller.py. The torn-read hazard was real: a
+         concurrent ``_stop_impl`` could be mid-assignment of
+         ``self._transcription_thread`` (Thread object → None or vice
+         versa) when this clear ran, and the watchdog could observe a
+         stale or partially-constructed reference.
 
-         write directly to RecordingController (was a
-        @property delegate previously).
+          write directly to RecordingController (was a
+         @property delegate previously).
 
-        Defensive fallback: if the lock is unavailable (e.g. the
-        recording controller was torn down or a stub app lacks
-        ``_watchdog_lock``), we still want to clear the field — but
-        log the race so the torn-read hazard is observable.
+         Defensive fallback: if the lock is unavailable (e.g. the
+         recording controller was torn down or a stub app lacks
+         ``_watchdog_lock``), we still want to clear the field, but
+         log the race so the torn-read hazard is observable.
         """
         _recording = getattr(self._app, "recording", None)
         _watchdog_lock = getattr(_recording, "_watchdog_lock", None) if _recording is not None else None
@@ -682,12 +682,12 @@ class _OrchestratorMixin:
                     _recording._transcription_thread = None
             else:
                 # Defensive: very old or stub app without
-                # ``recording._watchdog_lock`` — clear without the
+                # ``recording._watchdog_lock``: clear without the
                 # lock and log so the gap is visible.
                 raise AttributeError("recording._watchdog_lock not present")
         except Exception:
             # Defensive: if the lock is unavailable we still want
-            # to clear the field — but log the race.
+            # to clear the field, but log the race.
             log.debug(
                 "[TRANSCRIBE] could not acquire recording._watchdog_lock "
                 "to clear _transcription_thread; assigning without lock",
@@ -706,7 +706,7 @@ class _OrchestratorMixin:
         """Finally-block step 7: generation-0 GC pass.
 
         Downgrade from full gc.collect() to gc.collect(0). Full GC scans
-        the entire Python heap (gen 0+1+2) — with a loaded Whisper model
+        the entire Python heap (gen 0+1+2): with a loaded Whisper model
         (500MB-3GB of tensors → millions of wrapper objects), a full pass
         takes 50-500ms, paid on every single transcription cycle.
         Generation-0 only (~1-5ms) catches the per-cycle allocations

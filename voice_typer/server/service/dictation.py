@@ -60,7 +60,7 @@ class DictationMixin(ServiceMixinBase):
 
         This method calls the PUBLIC
                 ``RecordingController.force_recover`` wrapper (the
-                sanctioned surface per ADR-0008 §3.1 layering — the
+                sanctioned surface per ADR-0008 §3.1 layering, the
                 service layer never reaches into controller-private
                 methods). The wrapper delegates to the watchdog's
                 force-recover exactly as the private delegator does.

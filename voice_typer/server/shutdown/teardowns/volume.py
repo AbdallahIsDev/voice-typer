@@ -1,6 +1,6 @@
 """Teardown helper for OS volume restore.
 
-Phase 4.5 (OI-36) — extracted verbatim from
+Phase 4.5 (OI-36), extracted verbatim from
 :meth:`ShutdownController._teardown_restore_volume`. The body is unchanged;
 only the class boundary moved.
 """
@@ -28,7 +28,7 @@ def teardown_restore_volume(controller) -> None:
     """restore OS volume if it was ducked when the app quit.
 
     Without this, a quit-during-recording leaves volume stuck low.
-    Uses ``fade_ms=0`` for instant restore — the app is exiting.
+    Uses ``fade_ms=0`` for instant restore, the app is exiting.
     """
     app = controller._app
     try:

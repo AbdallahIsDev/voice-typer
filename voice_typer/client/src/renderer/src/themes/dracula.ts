@@ -1,5 +1,5 @@
 /**
- * "Dracula" theme preset — rich purples and deep magentas.
+ * "Dracula" theme preset, rich purples and deep magentas.
  *
  * See ``themes.ts`` for the ``ThemePreset`` interface and how presets
  * are consumed.

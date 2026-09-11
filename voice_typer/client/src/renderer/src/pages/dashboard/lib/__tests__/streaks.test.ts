@@ -5,7 +5,7 @@
  *   - UTC timestamp parsing: SQLite stores `timestamp` as UTC
  *     ("YYYY-MM-DD HH:MM:SS", no zone marker). JS parses unmarked
  *     date-times as LOCAL, which shifted calendar-day bucketing by the
- *     UTC offset — that's why the 7-day chart's today-bar and the
+ *     UTC offset, that's why the 7-day chart's today-bar and the
  *     streak anchor disagreed with the server's (correct) today stats.
  *   - computePeriodStats: one sample, one bucketing → range-aware
  *     cards + trends that can never contradict the chart.
@@ -33,7 +33,7 @@ import {
 
 /**
  * Narrowed bar accessor. Tests assert `bars.length` first, so an
- * out-of-range index is a test bug — throw rather than risk a silent
+ * out-of-range index is a test bug, throw rather than risk a silent
  * `undefined` propagation (avoids non-null assertions per repo lint).
  */
 function bar(bars: ActivityBar[], i: number): ActivityBar {
@@ -42,7 +42,7 @@ function bar(bars: ActivityBar[], i: number): ActivityBar {
 	return b;
 }
 
-// Fixed "now" in LOCAL time — window math anchors on this machine's
+// Fixed "now" in LOCAL time, window math anchors on this machine's
 // calendar day, and records are built relative to it.
 const NOW = new Date(2026, 7, 16, 15, 0, 0); // Aug 16 2026, 3pm local
 
@@ -75,7 +75,7 @@ describe("UTC timestamp parsing (data-consistency fix)", () => {
 		// The naive `new Date(ts)` parse interprets the string as LOCAL
 		// (machine-dependent); the fixed parse is UTC. The two instants
 		// must therefore differ by EXACTLY the host's UTC offset at that
-		// wall time — zero on a UTC+0 runner, ±minutes elsewhere.
+		// wall time, zero on a UTC+0 runner, ±minutes elsewhere.
 		// Asserting the precise relationship (rather than inequality)
 		// keeps the test deterministic on every machine/CI timezone.
 		// (naive − fixed = offset, so no unary minus on the offset —
@@ -88,7 +88,7 @@ describe("UTC timestamp parsing (data-consistency fix)", () => {
 
 	it("buckets an evening-UTC record into the correct LOCAL calendar day", () => {
 		// 22:00 UTC on the 16th. Depending on the machine's offset this
-		// is the 16th or 17th LOCAL — either way it must equal the
+		// is the 16th or 17th LOCAL, either way it must equal the
 		// UTC-correct local day, not the naive-local parse's day.
 		const ts = "2026-08-16 22:00:00";
 		const expected = localDateKey(parseUtcTimestamp(ts));
@@ -113,7 +113,7 @@ describe("UTC timestamp parsing (data-consistency fix)", () => {
 		// every offset: on UTC+ machines the UTC date happens to equal
 		// the local date (vacuous), on UTC- machines it exercises the bug.
 		// computeStreaks anchors on the REAL current day internally, so pin
-		// the system clock to the fixed NOW — otherwise this test silently
+		// the system clock to the fixed NOW, otherwise this test silently
 		// flips after local midnight (records built against Aug 16 land on
 		// "yesterday" and the current streak reads 0).
 		vi.useFakeTimers();
@@ -207,13 +207,13 @@ describe("buildActivityBars", () => {
 		expect(bar(bars, 6).count).toBe(1); // today
 		expect(bar(bars, 6).isMissing).toBe(false);
 		expect(bar(bars, 5).count).toBe(1); // yesterday
-		expect(bar(bars, 4).count).toBe(0); // 2 days ago — zero, not missing
+		expect(bar(bars, 4).count).toBe(0); // 2 days ago, zero, not missing
 		expect(bar(bars, 4).isMissing).toBe(false);
 		expect(bar(bars, 3).count).toBe(1); // 3 days ago
 		expect(bar(bars, 3).isMissing).toBe(false);
-		expect(bar(bars, 0).isMissing).toBe(true); // 6 days ago — not covered
-		expect(bar(bars, 1).isMissing).toBe(true); // 5 days ago — not covered
-		expect(bar(bars, 2).isMissing).toBe(true); // 4 days ago — not covered
+		expect(bar(bars, 0).isMissing).toBe(true); // 6 days ago, not covered
+		expect(bar(bars, 1).isMissing).toBe(true); // 5 days ago, not covered
+		expect(bar(bars, 2).isMissing).toBe(true); // 4 days ago, not covered
 		// Oldest record in the sample is 3 days ago → coverage starts there.
 		const threeDaysAgo = new Date(NOW);
 		threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
@@ -259,7 +259,7 @@ describe("rangeDaySpan", () => {
 
 describe("computeCorrectionStats", () => {
 	// Fixed NOW (Aug 16 2026 local): 7d window = Aug 10..16, prev 7d
-	// window = Aug 3..9. Keys are LOCAL calendar days — the same
+	// window = Aug 3..9. Keys are LOCAL calendar days, the same
 	// bucketing `localDateKey` produces for the period stats.
 	const NOW = new Date(2026, 7, 16, 15, 0, 0);
 

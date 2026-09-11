@@ -1,4 +1,4 @@
-"""Regression tests for XZ-CC-13 — Stale TODO migrate-tests cluster.
+"""Regression tests for XZ-CC-13: Stale TODO migrate-tests cluster.
 
 The three god-class decomposition packages (``prewarm``, ``recording``,
 ``server_platform``) each carry a TECH-DEBT TODO block in their
@@ -20,7 +20,7 @@ link).  This test file pins the post-fix contract:
    (C-STYLE-1: no task IDs / session prefixes in source code).
 
 **Update 2026-08-13 (Phase 2 / master plan §6.2):** the prewarm
-package is being re-architected — the standalone binary + OS schedulers
+package is being re-architected, the standalone binary + OS schedulers
 are being deleted and prewarm becomes a worker-startup phase. When
 Sub-agent 6's slice completes, the TECH-DEBT TODO block in
 ``voice_typer/server/prewarm/__init__.py`` will disappear (the
@@ -52,7 +52,7 @@ RECORDING_INIT = REPO_ROOT / "voice_typer" / "server" / "recording" / "__init__.
 TRACKING_DOC = "docs/history/rw9-god-class-decomposition.md"
 # The session that addressed the staleness (worklog session start).
 MIN_TODO_DATE = "2026-08-01"
-# Matches "TODO (YYYY-MM-DD, TECH-DEBT" — the post-fix format.
+# Matches "TODO (YYYY-MM-DD, TECH-DEBT", the post-fix format.
 # Accepts an optional ``/`` separator before TECH-DEBT but rejects
 # the bare double-space artifact that signalled a stripped CR-XX prefix.
 TODO_DATE_RE = re.compile(r"TODO\s*\(\s*(\d{4}-\d{2}-\d{2})\s*,\s*TECH-DEBT")
@@ -104,7 +104,7 @@ def _todo_blocks(source: str) -> list[str]:
 
 
 class TestPrewarmInitTODO:
-    """XZ-CC-13 — prewarm/__init__.py TODO block freshness.
+    """XZ-CC-13, prewarm/__init__.py TODO block freshness.
 
     **Phase 2 / master plan §6.2 transition:** Sub-agent 6 is deleting
     the standalone prewarm binary + OS schedulers and absorbing the
@@ -115,8 +115,8 @@ class TestPrewarmInitTODO:
     longer needed).
 
     This test gracefully handles BOTH the pre-deletion state (TODO
-    block present — must satisfy the freshness contract) and the
-    post-deletion state (no TODO block — the test passes vacuously
+    block present, must satisfy the freshness contract) and the
+    post-deletion state (no TODO block, the test passes vacuously
     with a soft-skip marker so the parallel sub-agent coordination
     doesn't deadlock).
     """
@@ -129,13 +129,13 @@ class TestPrewarmInitTODO:
         blocks = _todo_blocks(source)
         if not blocks:
             # Post-deletion state (Sub-agent 6 has finished). Nothing
-            # to assert — the TODO freshness contract no longer applies.
+            # to assert, the TODO freshness contract no longer applies.
             pytest.skip(
                 "prewarm/__init__.py no longer carries a TECH-DEBT TODO "
-                "block — the package was re-architected as a worker-startup "
+                "block, the package was re-architected as a worker-startup "
                 "phase (master plan §6.2). Skipping freshness assertions."
             )
-        # Pre-deletion state — the TODO block must satisfy the freshness contract.
+        # Pre-deletion state, the TODO block must satisfy the freshness contract.
         assert TRACKING_DOC in source, f"prewarm/__init__.py TODO must reference {TRACKING_DOC}"
         matches = TODO_DATE_RE.findall(source)
         assert matches, "prewarm/__init__.py TODO must have a 'TODO (YYYY-MM-DD, TECH-DEBT' header"
@@ -155,7 +155,7 @@ class TestRecordingInitTODO:
     """recording/__init__.py patch-compat boilerplate state.
 
     The custom ``_RecordingModule`` module class (and its TECH-DEBT
-    TODO blocks) has been REMOVED — every test now patches the owning
+    TODO blocks) has been REMOVED, every test now patches the owning
     submodule directly and production code reads the mutable globals
     from :mod:`.resampling` / :mod:`.buffer` at call time. These tests
     pin the clean state so the indirection is not silently
@@ -204,7 +204,7 @@ class TestRecordingInitTODO:
 
 
 class TestTrackingDocExists:
-    """Sanity check — the referenced tracking doc must actually exist."""
+    """Sanity check, the referenced tracking doc must actually exist."""
 
     def test_tracking_doc_exists(self) -> None:
         doc_path = REPO_ROOT / TRACKING_DOC

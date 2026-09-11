@@ -4,7 +4,7 @@
  * app launch.
  *
  * Pre-fix: `_loadLocaleJson` read `i18n/locales/<locale>.json` via
- * `readFileSync` with no try/catch — a single corrupted locale file
+ * `readFileSync` with no try/catch, a single corrupted locale file
  * threw an uncaught exception at module load and killed the app before
  * the UI could mount.
  *
@@ -16,7 +16,7 @@
  *
  * This test mocks `fs.readFileSync` to THROW (simulating a corrupted
  * locale file on disk) and asserts the i18n module still imports and
- * resolves dialog keys — pinning the "no runtime fs read" contract so
+ * resolves dialog keys, pinning the "no runtime fs read" contract so
  * a future revert to `readFileSync` is caught immediately.
  */
 import { describe, expect, it, vi } from "vitest";
@@ -54,7 +54,7 @@ describe("HU-30: corrupted locale file cannot kill app launch", () => {
 			for (const locale of LOCALES) {
 				setMainLocale(locale);
 				const title = mainT("dialog.criticalError.title");
-				// Resolves to a real string — never the raw key, never a
+				// Resolves to a real string, never the raw key, never a
 				// throw.
 				expect(title.length).toBeGreaterThan(0);
 				expect(title).not.toBe("dialog.criticalError.title");

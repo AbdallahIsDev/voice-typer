@@ -6,17 +6,17 @@
  * Verifies that:
  *   - The handler is registered under the `i18n:set-locale` channel.
  *   - It calls `setMainLocale(locale)` with the locale string from the
- *     payload. The handler accepts a BARE STRING only — the `{locale:
+ *     payload. The handler accepts a BARE STRING only, the `{locale:
  *     string}` object form is rejected (the preload always invokes
  *     `ipcRenderer.invoke("i18n:set-locale", locale)` with a bare
  *     string, matching the renderer-side `string` type union).
  *   - It resolves with `{ ok: true }` on success.
  *   - It resolves with `{ ok: false, error }` (rather than throwing)
  *     when the payload is missing or empty, so the renderer's
- *     `.catch(() => {})` swallow on the IPC call doesn't fire — the
+ *     `.catch(() => {})` swallow on the IPC call doesn't fire, the
  *     push is best-effort.
  *   - It logs and returns `{ ok: false, error }` if `setMainLocale`
- *     throws synchronously (defensive — `setMainLocale` currently
+ *     throws synchronously (defensive, `setMainLocale` currently
  *     never throws, but the handler must not crash the main process
  *     if a future refactor introduces a throw path).
  */
@@ -50,7 +50,7 @@ vi.mock("../single_instance", () => ({
 }));
 
 vi.mock("../i18n", () => ({
-	// `mainT` is used by `model:import-dialog` handler — keep it as a
+	// `mainT` is used by `model:import-dialog` handler, keep it as a
 	// passthrough so any test that triggers that handler doesn't crash.
 	mainT: (key: string) => key,
 	//`setMainLocale` is the function under test for  The mock
@@ -98,7 +98,7 @@ describe("NH-3: i18n:set-locale IPC handler", () => {
 	it("rejects a {locale} object payload (bare-string-only contract)", async () => {
 		// Rule 26/P4: the renderer-side IPC type union is `string`, NOT
 		// `string | { locale: string }`. The handler accepts a BARE
-		// STRING only — the preload always invokes
+		// STRING only, the preload always invokes
 		// `ipcRenderer.invoke("i18n:set-locale", locale)` with a bare
 		// string. An object payload is therefore rejected (not treated
 		// as a locale) so a compromised renderer can't probe the
@@ -109,7 +109,7 @@ describe("NH-3: i18n:set-locale IPC handler", () => {
 	});
 
 	it("passes the locale string through unchanged (no normalisation)", async () => {
-		// The handler does NOT validate / normalise the locale — that's
+		// The handler does NOT validate / normalise the locale, that's
 		// `setMainLocale`'s job (it falls back to "en" with a warning on
 		// unknown locales). Asserting here that the handler forwards the
 		// raw string so the validation behaviour stays in one place.

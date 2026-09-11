@@ -3,7 +3,7 @@
 These tests pin two critical race fixes applied to
 ``voice_typer/server/shutdown_controller.py``:
 
-* **F1 (OI-4 — Critical)** — The transcription thread (spawned by
+* **F1 (OI-4 (Critical)**) The transcription thread (spawned by
   ``recorder.stop()``) runs ASR inference and writes its result to
   ``history_db`` via fire-and-forget ``add_transcription()``. Pre-fix,
   ``_do_cleanup`` ran ``_teardown_recorder``, ``_teardown_history_db``,
@@ -17,21 +17,21 @@ These tests pin two critical race fixes applied to
 
     1. ``_teardown_timers_and_recording`` (cancel timers, pop streaming session)
     2. ``_teardown_recorder`` (recorder.stop + join transcription thread)
-    3. ``_teardown_history_db`` (flush + close — drains the thread's pending write)
+    3. ``_teardown_history_db`` (flush + close, drains the thread's pending write)
     4. ``_teardown_crash_recovery`` (flush + shutdown)
 
-  ``_teardown_asr_models`` stays in the parallel batch — the sequenced
+  ``_teardown_asr_models`` stays in the parallel batch, the sequenced
   phase completes BEFORE the parallel batch starts, so the
   transcription thread is already joined by the time the ASR model is
   unloaded.
 
-* **F2 (OI-5 — Critical)** — ``_do_cleanup`` sets ``_cleanup_done =
+* **F2 (OI-5 (Critical)**) ``_do_cleanup`` sets ``_cleanup_done =
   True`` at the very START (before any actual cleanup). Pre-fix,
   ``_do_fast_cleanup`` (Windows logoff/shutdown fast path) checked this
   flag and SKIPPED its own critical flushes when it was True. If a
   normal ``quit()`` was in flight (had set the flag but not yet reached
   the parallel batch) when Windows logoff fired ``_do_fast_cleanup``,
-  BOTH paths skipped the critical writes — the slow one was killed by
+  BOTH paths skipped the critical writes, the slow one was killed by
   ``os._exit(0)`` mid-flight, the fast one short-circuited. The fix
   removes the ``if not already_done:`` gate so the flushes run
   UNCONDITIONALLY on every invocation (the writes are idempotent;
@@ -53,7 +53,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-# Direct import — does NOT pull in voice_typer.server.app, so the
+# Direct import, does NOT pull in voice_typer.server.app, so the
 # clipboard_target_safety circular-import breakage in a parallel
 # agent's WIP doesn't block these tests (same pattern as
 # tests/test_shutdown_parallel.py).
@@ -66,7 +66,7 @@ from voice_typer.server.shutdown_controller import ShutdownController
 # atexit.register", ...)``. That ``setattr`` call triggers an import
 # of ``voice_typer.server.app``, which (during a parallel agent's WIP)
 # may raise ``ImportError``. These tests don't need
-# ``voice_typer.server.app`` at all — they use a ``_FakeApp`` duck-typed
+# ``voice_typer.server.app`` at all, they use a ``_FakeApp`` duck-typed
 # stand-in. We override the autouse fixture with a no-op so the broken
 # import doesn't break our test setup. The override is scoped to this
 # module only (same pattern as tests/test_shutdown_parallel.py).
@@ -76,7 +76,7 @@ from voice_typer.server.shutdown_controller import ShutdownController
 def mock_heavy_imports():
     """No-op override of the conftest autouse fixture.
 
-    These tests don't need heavy-import mocking — they use a
+    These tests don't need heavy-import mocking, they use a
     ``_FakeApp`` and inject mock modules into ``sys.modules`` directly.
     Overriding here avoids the broken ``voice_typer.server.app`` import
     in the shared conftest.
@@ -128,7 +128,7 @@ class _FakeApp:
         self.tray = MagicMock()
         self._thread_registry = MagicMock()
         self.waveform_wiring = MagicMock()
-        # ``_do_fast_cleanup`` touches these — give them MagicMock defaults
+        # ``_do_fast_cleanup`` touches these, give them MagicMock defaults
         # so attribute access doesn't raise.
         self._restore_volume = MagicMock()
         self._duck_crash_recovery = MagicMock()
@@ -165,7 +165,7 @@ def fake_app(monkeypatch):
     monkeypatch.setitem(sys.modules, "voice_typer.server.app", fake_app_module)
 
     # The PID-file teardown resolves ``_clear_backend_pid_file`` through
-    # the owning module at call time — stub it so no real PID file is
+    # the owning module at call time, stub it so no real PID file is
     # touched and the (already-imported) real module is not required.
     fake_backend_pid = MagicMock()
     fake_backend_pid._clear_backend_pid_file = MagicMock()
@@ -223,26 +223,26 @@ class TestTranscriptionThreadJoinBeforeDbClose:
         ``history_db.close`` to record a "close called" timestamp.
 
         With the sequenced-phase fix, ``_teardown_recorder`` runs
-        FIRST (joins the thread — waits for the 100ms inference +
+        FIRST (joins the thread, waits for the 100ms inference +
         write), THEN ``_teardown_history_db`` runs (calls close()).
         The "write complete" timestamp must be <= "close called"
         timestamp (the join returning within the same
         ``time.monotonic()`` tick as the thread's write makes the two
-        values equal on coarse-resolution clocks — equality still
+        values equal on coarse-resolution clocks, equality still
         proves the write did not complete after close()).
 
         Pre-fix (parallel batch), both helpers started simultaneously.
         ``_teardown_history_db`` would call ``close()`` within ~1ms of
         start, while the thread was still sleeping for 100ms. The
         "close called" timestamp would be ~99ms EARLIER than "write
-        complete" — the race we're fixing."""
+        complete", the race we're fixing."""
         # Spawn a real transcription thread that simulates ASR inference.
         write_complete_event = threading.Event()
         timestamps: dict[str, float] = {}
         write_started_event = threading.Event()
 
         def _simulate_transcription():
-            # Simulate ASR inference (100ms — typical Whisper inference
+            # Simulate ASR inference (100ms, typical Whisper inference
             # is 1-5s; 100ms keeps the test fast while still being
             # observable).
             write_started_event.set()
@@ -282,7 +282,7 @@ class TestTranscriptionThreadJoinBeforeDbClose:
             "Test setup failure: simulated transcription thread did not start its inference sleep within 1s"
         )
 
-        # Run _do_cleanup — the sequenced phase should join the
+        # Run _do_cleanup, the sequenced phase should join the
         # transcription thread BEFORE calling history_db.close().
         controller._do_cleanup()
 
@@ -290,7 +290,7 @@ class TestTranscriptionThreadJoinBeforeDbClose:
         # _teardown_recorder waited for it).
         assert write_complete_event.is_set(), (
             "F1 (OI-4): the transcription thread's write must have "
-            "completed before _do_cleanup returned — the join in "
+            "completed before _do_cleanup returned, the join in "
             "_teardown_recorder should have waited for it"
         )
         # history_db.close must have been called (it's in the sequenced
@@ -315,13 +315,13 @@ class TestTranscriptionThreadJoinBeforeDbClose:
             f"_teardown_history_db calls close(). Pre-fix (parallel "
             f"batch), close() would fire ~99ms before the write."
         )
-        # Clean up the thread (defensive — it should already be done).
+        # Clean up the thread (defensive, it should already be done).
         transcription_thread.join(timeout=1.0)
         assert not transcription_thread.is_alive(), "Test cleanup failure: simulated transcription thread did not exit"
 
     def test_asr_models_unload_runs_after_transcription_thread_join(self, controller, fake_app):
         """The ASR model unload (``_teardown_asr_models``) must run
-        AFTER the transcription thread has finished — unloading the
+        AFTER the transcription thread has finished, unloading the
         model under a mid-inference thread risks a segfault or
         undefined torch state.
 
@@ -344,7 +344,7 @@ class TestTranscriptionThreadJoinBeforeDbClose:
         timestamps: dict[str, float] = {}
 
         def _simulate_transcription():
-            # Sleep 200ms — long enough that the thread is still alive
+            # Sleep 200ms, long enough that the thread is still alive
             # when _teardown_recorder runs (the sequenced phase has
             # some import overhead from the OI-36 delegate refactor),
             # short enough to keep the test fast.
@@ -374,7 +374,7 @@ class TestTranscriptionThreadJoinBeforeDbClose:
         # The transcription thread's write must have completed.
         assert "write_complete" in timestamps, (
             "F1 (OI-4): the transcription thread's write must have "
-            "completed before _do_cleanup returned — the join in "
+            "completed before _do_cleanup returned, the join in "
             "_teardown_recorder should have waited for it (or the "
             "thread finished before the join, in which case the write "
             "still completed before the parallel batch ran)"
@@ -385,11 +385,11 @@ class TestTranscriptionThreadJoinBeforeDbClose:
         )
         # The KEY assertion: "write_complete" <= "unload_called". The
         # thread's write completed no later than the ASR model was
-        # unloaded — no race between the thread's inference and the
+        # unloaded, no race between the thread's inference and the
         # unload. ``<=`` (not ``<``): both events can land on the SAME
         # ``time.monotonic()`` tick on coarse-resolution clocks when
         # the unload fires right after the sequenced phase joins the
-        # thread — equality still proves the write did NOT complete
+        # thread, equality still proves the write did NOT complete
         # AFTER the unload (pre-fix, unload() fired while the thread
         # was still mid-inference, many ticks earlier).
         assert timestamps["write_complete"] <= timestamps["unload_called"], (
@@ -484,7 +484,7 @@ class TestTranscriptionThreadJoinBeforeDbClose:
 
 class TestFastCleanupUnconditionalFlush:
     """F2 (OI-5): ``_do_fast_cleanup`` must call ``crash_recovery.flush``
-    and ``history_db.flush`` UNCONDITIONALLY — even when
+    and ``history_db.flush`` UNCONDITIONALLY, even when
     ``_cleanup_done == True`` on entry.
 
     Pre-fix, the ``if not already_done:`` gate skipped the flushes when
@@ -492,7 +492,7 @@ class TestFastCleanupUnconditionalFlush:
     under quit-during-logoff: the slow ``_do_cleanup`` had set the flag
     at its start but not yet reached the parallel batch when the fast
     path fired; the fast path's flushes were skipped, and
-    ``os._exit(0)`` killed the slow path mid-flight — both paths skipped
+    ``os._exit(0)`` killed the slow path mid-flight, both paths skipped
     the critical writes. The fix removes the gate so the flushes run on
     every invocation (the writes are idempotent; running them twice is
     safe)."""
@@ -502,7 +502,7 @@ class TestFastCleanupUnconditionalFlush:
         must STILL call ``crash_recovery.flush(timeout=1.0)``."""
         fake_app._cleanup_done = True
         fake_app._crash_recovery = MagicMock()
-        # ``_do_fast_cleanup`` ends with os._exit(0) — the autouse
+        # ``_do_fast_cleanup`` ends with os._exit(0), the autouse
         # _stub_os_exit fixture stubs it so the test runner doesn't exit.
         controller._do_fast_cleanup()
         fake_app._crash_recovery.flush.assert_called_once_with(timeout=1.0)
@@ -520,8 +520,8 @@ class TestFastCleanupUnconditionalFlush:
 
     def test_fast_cleanup_calls_both_flushes_when_cleanup_done_true(self, controller, fake_app):
         """When ``_cleanup_done == True`` on entry, ``_do_fast_cleanup``
-        must call BOTH ``crash_recovery.flush`` AND ``history_db.flush``
-        — the gate is removed for ALL critical flushes, not just one."""
+          must call BOTH ``crash_recovery.flush`` AND ``history_db.flush``
+        , the gate is removed for ALL critical flushes, not just one."""
         fake_app._cleanup_done = True
         fake_app._crash_recovery = MagicMock()
         fake_app.history_db = MagicMock()
@@ -558,7 +558,7 @@ class TestFastCleanupUnconditionalFlush:
 
     def test_fast_cleanup_sets_cleanup_done_even_when_already_true(self, controller, fake_app):
         """``_do_fast_cleanup`` must set ``_cleanup_done = True`` (so a
-        subsequent ``_do_cleanup`` call short-circuits) — even when the
+        subsequent ``_do_cleanup`` call short-circuits), even when the
         flag was already True on entry. The flag SET is unconditional;
         only the flush GATE was removed."""
         fake_app._cleanup_done = True
@@ -608,7 +608,7 @@ class TestFastCleanupUnconditionalFlush:
         matches = code_statement_pattern.findall(body)
         assert not matches, (
             "F2 (OI-5): _do_fast_cleanup must NOT use `if not already_done:` "
-            "as a code statement — the critical flushes must run "
+            "as a code statement, the critical flushes must run "
             "unconditionally (running twice is safe; the previous gate "
             "caused quit-during-logoff to skip the flushes when "
             "_do_cleanup had already set _cleanup_done=True mid-flight)"
@@ -624,7 +624,7 @@ class TestWin32ConsoleHandlerInstallIdempotent:
     fresh ``ctypes.CFUNCTYPE`` wrapper and (without the idempotency
     guard) would overwrite the previous wrapper, dropping the only
     Python reference to it. Windows still holds the raw C function
-    pointer in the console-control handler chain — once the wrapper is
+    pointer in the console-control handler chain, once the wrapper is
     garbage-collected, the next console event (Ctrl+C / logoff / close)
     calls into freed Python memory → use-after-free → segfault.
 
@@ -637,7 +637,7 @@ class TestWin32ConsoleHandlerInstallIdempotent:
     Linux (``ctypes.wintypes`` is cross-platform; only ``windll`` is
     Windows-only). The autouse ``mock_heavy_imports`` override in this
     module keeps the shared conftest from touching
-    ``voice_typer.server.app`` — the ``fake_app`` fixture installs a
+    ``voice_typer.server.app``, the ``fake_app`` fixture installs a
     MagicMock for it, and we monkeypatch ``is_windows`` back to True for
     these tests."""
 
@@ -650,7 +650,7 @@ class TestWin32ConsoleHandlerInstallIdempotent:
         wrapper, overwrote ``app._console_handler`` (dropping the only
         Python reference to the first wrapper), and called
         ``SetConsoleCtrlHandler`` again (which ADDS to the chain rather
-        than replacing) — so the first raw function pointer was leaked
+        than replacing), so the first raw function pointer was leaked
         into the chain with no live Python wrapper keeping its
         callable's closure alive. The next console event would call
         into freed memory → segfault."""
@@ -658,7 +658,7 @@ class TestWin32ConsoleHandlerInstallIdempotent:
         # ``from voice_typer.server import app`` (which honors the
         # sys.modules MagicMock installed by the ``fake_app`` fixture)
         # because ``monkeypatch.setattr`` with a dotted string does
-        # ``getattr(voice_typer.server, "app")`` — that fails because
+        # ``getattr(voice_typer.server, "app")``, that fails because
         # the ``fake_app`` fixture installs the MagicMock only in
         # ``sys.modules``, not as an attribute on the parent package.
         monkeypatch.setattr("voice_typer.server.platform_utils.is_windows", lambda: True)
@@ -697,22 +697,22 @@ class TestWin32ConsoleHandlerInstallIdempotent:
         )
 
         # Second call: must be a no-op. ``_console_handler`` MUST NOT
-        # change — overwriting drops the only Python reference to the
+        # change, overwriting drops the only Python reference to the
         # previous ``CFUNCTYPE`` wrapper while Windows still holds the
         # raw function pointer in the console-control chain.
         controller._install_win32_console_handler()
         assert fake_app._console_handler is first_handler, (
             "second call to install_win32_console_handler must NOT "
-            "replace app._console_handler — overwriting drops the only "
+            "replace app._console_handler, overwriting drops the only "
             "Python reference to the previous CFUNCTYPE wrapper while "
             "Windows still holds the raw function pointer in the console-"
             "control chain → use-after-free → segfault on next console event"
         )
         # SetConsoleCtrlHandler MUST NOT have been called a second time
-        # — the Win32 API ADDS to the handler chain (no replace); a
+        # , the Win32 API ADDS to the handler chain (no replace); a
         # second registration would leak the first raw pointer.
         assert fake_kernel32.SetConsoleCtrlHandler.call_count == 1, (
-            f"second call must not invoke SetConsoleCtrlHandler — "
+            f"second call must not invoke SetConsoleCtrlHandler, "
             f"the Win32 API ADDS to the handler chain (no replace); a "
             f"second registration would leak the first raw pointer when "
             f"its wrapper is GC'd. Got call_count="
@@ -746,7 +746,7 @@ class TestWin32ConsoleHandlerInstallIdempotent:
         first_handler = fake_app._console_handler
         assert first_handler is not None
 
-        # Break ctypes.windll AFTER the first install — the second call
+        # Break ctypes.windll AFTER the first install, the second call
         # must still be a no-op because the guard returns before the
         # try block is entered. We swap the windll mock for a custom
         # object whose ``__getattr__`` raises (MagicMock itself rejects
@@ -804,7 +804,7 @@ class TestWin32ConsoleHandlerInstallIdempotent:
             "install_win32_console_handler must contain the idempotency "
             "guard `if getattr(app, '_console_handler', None) is not None: "
             "return` as a code statement before constructing a new "
-            "CFUNCTYPE wrapper — without it, the previous wrapper is GC'd "
+            "CFUNCTYPE wrapper, without it, the previous wrapper is GC'd "
             "while Windows still holds the raw function pointer → "
             "use-after-free → segfault on the next console event"
         )
@@ -814,7 +814,7 @@ class TestWin32ConsoleHandlerInstallIdempotent:
 
 
 def contextlib_suppress(*exceptions):
-    """``contextlib.suppress`` — imported lazily so the module-level
+    """``contextlib.suppress``, imported lazily so the module-level
     imports stay minimal (mirrors the pattern in test_shutdown_parallel.py)."""
     import contextlib
 

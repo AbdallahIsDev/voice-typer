@@ -1,11 +1,11 @@
-// ConsentStep — consolidated first-run consent step (the "everything
+// ConsentStep, consolidated first-run consent step (the "everything
 // on ONE page" grant). Lists every consent-gated feature with its
 // label + plain-language description (reusing the settings.privacy.*
 // strings so the wizard and the Settings Privacy page can't drift),
 // plus an "Agree to All" convenience button. Toggles persist
 // immediately via set_config (the wizard hook owns the persistence);
 // the user can revoke any consent later in Settings → Privacy (GDPR
-// Art. 7(3) — revocation stays as easy as granting).
+// Art. 7(3), revocation stays as easy as granting).
 
 import type { Ref } from "react";
 import { Button } from "@/components/ui/button";
@@ -81,7 +81,7 @@ export default function ConsentStep({
 				{t("onboarding.consentDescription")}
 			</p>
 
-			{/* Agree-to-All banner — grants every consent at once. The
+			{/* Agree-to-All banner, grants every consent at once. The
 			    wizard defaults stay privacy-first (all off); this is a
 			    convenience, not an implicit grant. */}
 			<div className="flex items-center justify-between gap-3 rounded-lg border border-border/5 bg-(--bg-subtle) px-3.5 py-3">

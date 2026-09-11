@@ -10,7 +10,7 @@ These tests verify:
   - ``migrate_secrets_to_keyring`` reads plaintext API keys from
     ``config.json``, stores them in keyring, and replaces them with
     ``keyring://<provider>`` reference tokens in ``config.json``.
-  - Migration is idempotent — running it twice does not double-store
+  - Migration is idempotent, running it twice does not double-store
     or re-migrate already-migrated keys.
   - Secret values are NEVER logged (we log provider name + length only).
   - The ``keyring_status`` probe correctly detects the fail backend
@@ -118,7 +118,7 @@ def mock_keyring_unavailable(monkeypatch):
     This simulates the common headless-Linux-without-gnome-keyring case.
     """
 
-    # The fail backend — _probe_keyring checks isinstance(backend, FailKeyring)
+    # The fail backend, _probe_keyring checks isinstance(backend, FailKeyring)
     class _FailKeyring:
         name = "fail"
 
@@ -215,7 +215,7 @@ class TestStoreLoadDelete:
         """load_secret should call keyring.get_password with
         KEYRING_SERVICE_NAME and the provider name."""
         credential_store.store_secret("groq", "gsk_abc")
-        # load_secret is what triggers get_password — store_secret only
+        # load_secret is what triggers get_password, store_secret only
         # calls set_password.
         result = credential_store.load_secret("groq")
         assert result == "gsk_abc"
@@ -281,7 +281,7 @@ class TestStoreLoadDelete:
     def test_load_secret_returns_none_for_keyring_reference_without_keyring(self, mock_keyring_unavailable, tmp_path):
         """A keyring:// reference token in config.json means the real
         value lives in keychain. If keyring is unavailable, load_secret
-        should return None (the secret is effectively lost — the user
+        should return None (the secret is effectively lost, the user
         wiped their keychain or moved config.json to a machine without
         the keyring backend)."""
         config_file = tmp_path / "config.json"
@@ -290,7 +290,7 @@ class TestStoreLoadDelete:
         assert result is None
 
     def test_store_secret_never_logs_value(self, mock_keyring_raises_on_set, caplog):
-        """Secret values must NEVER appear in log messages — only
+        """Secret values must NEVER appear in log messages, only
         metadata (provider name, length, keyring status). This is a
         privacy-critical guarantee."""
         secret = "sk-super-secret-DO-NOT-LOG-1234567890"
@@ -374,7 +374,7 @@ class TestMigrateSecretsToKeyring:
     def test_migrate_skips_already_migrated_references(self, mock_keyring_available, tmp_path):
         """If config.json already has keyring:// references (e.g. from
         a prior migration that didn't set the flag), migrate should
-        skip them — they're already in keyring form."""
+        skip them, they're already in keyring form."""
         config_file = tmp_path / "config.json"
         config_file.write_text(
             json.dumps(
@@ -396,7 +396,7 @@ class TestMigrateSecretsToKeyring:
 
     def test_migrate_keeps_plaintext_when_keyring_unavailable(self, mock_keyring_unavailable, tmp_path):
         """When keyring is unavailable, migrate should NOT delete the
-        plaintext values — it should leave them in config.json so the
+        plaintext values, it should leave them in config.json so the
         user's keys still work. Per XZ-SEC-04, the ``secrets_migrated``
         flag is NOT set in this case (deferred-migration contract) —
         otherwise the next launch (when keyring may be available) would
@@ -419,7 +419,7 @@ class TestMigrateSecretsToKeyring:
         # can see why migration was deferred.
         assert "secrets_migrated" not in data, (
             "XZ-SEC-04 regression: secrets_migrated must NOT be set when "
-            "keyring was unavailable AND real plaintext was skipped — "
+            "keyring was unavailable AND real plaintext was skipped, "
             "otherwise the next launch would skip migration and the "
             "plaintext would persist forever."
         )
@@ -485,7 +485,7 @@ class TestMigrateSecretsToKeyring:
     def test_migrate_preserves_0600_perms(self, mock_keyring_available, tmp_path):
         """The migrated config.json must retain 0o600 permissions on
         POSIX (the migration writes via _secure_atomic_write, which
-        enforces this — but verify it end-to-end)."""
+        enforces this, but verify it end-to-end)."""
         config_file = tmp_path / "config.json"
         config_file.write_text(json.dumps({"openai_api_key": "sk-test"}))
         # Set 0o600 explicitly to match the production save() path
@@ -566,7 +566,7 @@ class TestProviderMapping:
 
     def test_expected_providers_are_present(self):
         """The five known providers (openai / groq / deepgram / cloud / llm)
-        should all be in the map — these are the fields exposed in the
+        should all be in the map, these are the fields exposed in the
         IPC allowlist and the Config dataclass."""
         expected = {"openai", "groq", "deepgram", "cloud", "llm"}
         assert set(credential_store.PROVIDER_TO_CONFIG_FIELD.keys()) == expected
@@ -628,7 +628,7 @@ class TestRedactSensitive:
 
     def test_redact_strips_long_alphanumeric_run(self):
         """A 32+ char alphanumeric run (bearer-token-like) should be
-        replaced with [redacted] — backstop for custom backends that
+        replaced with [redacted], backstop for custom backends that
         might embed the secret without a recognizable prefix."""
         s = "token: abcdefghijklmnopqrstuvwxyz123456 invalid"
         redacted = credential_store._redact_sensitive(s)
@@ -643,7 +643,7 @@ class TestRedactSensitive:
         Uses a realistic error message with spaces (no 32+ char
         alphanumeric run, so the API-key redaction doesn't fire) to
         isolate the truncation behavior."""
-        # 14 chars * 20 = 280 chars, with spaces — no alphanumeric run
+        # 14 chars * 20 = 280 chars, with spaces, no alphanumeric run
         # longer than ~7 chars ("session", "address"), so the API-key
         # regex doesn't fire.
         long_str = "session bus error " * 20
@@ -680,7 +680,7 @@ class TestGetKeyringStatusConsistency:
 
     def test_status_returns_cached_reason_without_reprobing(self, mock_keyring_unavailable, monkeypatch):
         """When the cache is populated, get_keyring_status should NOT
-        re-probe — it should return the cached reason. This prevents
+        re-probe, it should return the cached reason. This prevents
         inconsistent backend/reason pairs and avoids touching D-Bus /
         Keychain / Credential Manager on every get_config IPC call."""
         # First call populates the cache.
@@ -793,7 +793,7 @@ class TestMigrationMidFailureSafety:
     """Tests that migration preserves all secrets even when keyring
     breaks mid-migration (some providers succeed, some fail).
 
-    Contract: a secret is EITHER in keyring OR in config.json — never
+    Contract: a secret is EITHER in keyring OR in config.json, never
     both deleted. The reference-token assignment is gated on
     keyring.set_password succeeding, so a failed provider's plaintext
     stays in `data` and is written back to config.json by the final
@@ -863,13 +863,13 @@ class TestMigrationMidFailureSafety:
         assert data["openai_api_key"] == "keyring://openai"
         # groq plaintext preserved (not replaced with reference token)
         assert data["groq_api_key"] == "gsk-groq-migrate-fail"
-        # ``secrets_migrated`` must NOT be set — the next launch
+        # ``secrets_migrated`` must NOT be set, the next launch
         # must re-attempt migration so groq's plaintext is moved once
         # the keychain is unlocked. The  diagnostic flag IS
         # set so operators see why migration was deferred.
         assert "secrets_migrated" not in data, (
             "XE-3-2: secrets_migrated must NOT be set when set_password "
-            "raised mid-migration — the next launch must re-attempt so "
+            "raised mid-migration, the next launch must re-attempt so "
             "the failed provider eventually migrates."
         )
         assert data.get("secrets_migrated_keyring_was_unavailable") is True
@@ -904,7 +904,7 @@ class TestMigrationMidFailureSafety:
         # Make _secure_atomic_write fail (simulating disk full / perm
         # error mid-migration). The original config.json is untouched
         # because _secure_atomic_write writes to a tmp file first and
-        # only os.replace's it into place at the end — a failure before
+        # only os.replace's it into place at the end, a failure before
         # os.replace leaves the original file intact.
         from voice_typer.server import config as config_mod
 
@@ -921,7 +921,7 @@ class TestMigrationMidFailureSafety:
         assert store.get((credential_store.KEYRING_SERVICE_NAME, "openai")) == ("sk-migrate-me")
 
         # Original config.json is UNTOUCHED (atomic write failed before
-        # os.replace, so the file still has the plaintext value — no
+        # os.replace, so the file still has the plaintext value, no
         # data loss).
         data = json.loads(config_file.read_text())
         assert data["openai_api_key"] == "sk-migrate-me"
@@ -936,7 +936,7 @@ class TestReferenceTokenUnforgeability:
     (via CONFIG_FIELD_TO_PROVIDER), NOT by parsing the reference token's
     suffix. So `openai_api_key: "keyring://llm"` still calls
     load_secret("openai"), which looks up only the OpenAI entry in
-    keychain — never the LLM entry.
+    keychain, never the LLM entry.
     """
 
     def test_load_secret_uses_provider_arg_not_token_suffix(self, mock_keyring_available):
@@ -966,7 +966,7 @@ class TestReferenceTokenUnforgeability:
         ) in service_provider_pairs
         # A buggy "load openai's secret by reading the llm entry" would
         # show up as a ("voice-typer", "llm") call when we asked for
-        # "openai" — verify that didn't happen on the openai lookup.
+        # "openai", verify that didn't happen on the openai lookup.
         # (We can't tell which call returned which, but we can verify
         # both providers were queried with their OWN names.)
 
@@ -980,7 +980,7 @@ class TestReferenceTokenUnforgeability:
         # No field maps to two providers (no ambiguity).
         fields = list(credential_store.PROVIDER_TO_CONFIG_FIELD.values())
         assert len(fields) == len(set(fields)), (
-            "duplicate field names in PROVIDER_TO_CONFIG_FIELD — "
+            "duplicate field names in PROVIDER_TO_CONFIG_FIELD, "
             "a malicious config could redirect one field to another provider's secret"
         )
 
@@ -988,7 +988,7 @@ class TestReferenceTokenUnforgeability:
 class TestMultiProviderConcurrentAccess:
     """Smoke test for multi-provider concurrent access.
 
-    The credential store has no internal locking — keyring.set_password
+    The credential store has no internal locking, keyring.set_password
     and keyring.get_password are called sequentially from a single
     thread (the IPC handler thread). This test verifies that storing
     and loading multiple providers in rapid succession doesn't race or
@@ -1017,7 +1017,7 @@ class TestMultiProviderConcurrentAccess:
         # Load all and verify
         for provider, expected in secrets.items():
             assert credential_store.load_secret(provider) == expected, (
-                f"load_secret({provider!r}) returned wrong value — "
+                f"load_secret({provider!r}) returned wrong value, "
                 f"expected {expected!r}, got {credential_store.load_secret(provider)!r}"
             )
 
@@ -1050,17 +1050,17 @@ class TestMultiProviderConcurrentAccess:
 # automatically.
 #
 # - **``load_secret`` returned silently on the
-# keyring-success path — a compromised process exfiltrating secrets
+# keyring-success path, a compromised process exfiltrating secrets
 # via repeated ``load_secret`` calls left no trace in logs. Fixed:
 # an INFO audit log is emitted on the keyring-success path matching
-# the store-side format (provider + length only — never the value
+# the store-side format (provider + length only, never the value
 # itself).
 #
 # - **Already-fixed verifications** for
 # (``_write_plaintext_fallback`` acquires the config lock),
 # (``_redact_sensitive`` delegates to
 # ``_secrets.redact_api_keys``), and
-# (``KEYRING_SERVICE_NAME`` is reverse-DNS) — these are smoke-tested
+# (``KEYRING_SERVICE_NAME`` is reverse-DNS), these are smoke-tested
 # here so a future regression to the pre-fix behavior is caught.
 #
 # The fixtures mirror those in ``tests/test_credential_store.py`` so the
@@ -1133,7 +1133,7 @@ def _install_fake_keyring(monkeypatch, *, available: bool):
 
 class TestSecretsMigratedGating:
     """``secrets_migrated`` must NOT be set when keyring was
-    unavailable AND real plaintext secrets were skipped — so the next
+    unavailable AND real plaintext secrets were skipped, so the next
     launch re-attempts migration automatically once keyring becomes
     available.
     """
@@ -1178,7 +1178,7 @@ class TestSecretsMigratedGating:
     def test_migrate_sets_flag_when_no_plaintext_to_skip(self, mock_keyring_unavailable, tmp_path):
         """If keyring is unavailable BUT there are no real plaintext
         secrets to migrate (all empty or already reference tokens),
-        ``secrets_migrated`` IS set — there's nothing to retry, so
+        ``secrets_migrated`` IS set, there's nothing to retry, so
         leaving the gate open would cause pointless re-runs on every
         launch.
         """
@@ -1186,7 +1186,7 @@ class TestSecretsMigratedGating:
         config_file.write_text(
             json.dumps(
                 {
-                    "openai_api_key": "",  # empty — nothing to migrate
+                    "openai_api_key": "",  # empty, nothing to migrate
                     "groq_api_key": "keyring://groq",  # already a reference
                 }
             )
@@ -1233,7 +1233,7 @@ class TestSecretsMigratedGating:
         """If ``secrets_migrated`` is already True (prior successful
         migration), the function must early-return 0 without re-running
         the per-provider loop. This is the idempotency gate used by
-        Config.load — doesn't change this behavior (it only
+        Config.load, doesn't change this behavior (it only
         changes WHEN the flag is set on the unavailable-keyring path).
         """
         config_file = tmp_path / "config.json"
@@ -1263,7 +1263,7 @@ class TestLoadSecretAuditLog:
     process exfiltrating secrets) leave a trace in the log.
 
     The log must match the store-side format: provider name + value
-    length only — NEVER the value itself.
+    length only. NEVER the value itself.
     """
 
     def test_load_secret_emits_info_log_on_keyring_success(self, mock_keyring_available, caplog):
@@ -1287,11 +1287,11 @@ class TestLoadSecretAuditLog:
         msg = audit_records[0].getMessage()
         assert "openai" in msg
         assert "keyring" in msg
-        # Length is logged for diagnostics — verify it's present.
+        # Length is logged for diagnostics, verify it's present.
         assert str(len("sk-audit-log-test-12345")) in msg
 
     def test_load_secret_audit_log_does_not_leak_value(self, mock_keyring_available, caplog):
-        """The INFO audit log must NOT contain the secret value — only
+        """The INFO audit log must NOT contain the secret value, only
         provider name + length. Defense in depth alongside the existing
         store-side redaction."""
         secret = "sk-DO-NOT-LEAK-IN-AUDIT-1234567890"
@@ -1308,7 +1308,7 @@ class TestLoadSecretAuditLog:
         """When keyring is unavailable and load_secret falls back to
         reading from ``config.json``, no INFO audit log is emitted
         (keyring-success-only). The plaintext fallback path is already
-        silent by design — the audit log is specifically for keyring
+        silent by design, the audit log is specifically for keyring
         reads (which are the "secure" path a compromised process would
         target)."""
         config_file = tmp_path / "config.json"
@@ -1351,7 +1351,7 @@ class TestAlreadyFixedVerifications:
         """``_write_plaintext_fallback`` must
         acquire ``_acquire_config_lock()`` for the full read-modify-write.
 
-        We verify by inspecting the function source — the
+        We verify by inspecting the function source, the
         ``_acquire_config_lock`` symbol must appear inside the function
         body. A regression that removes the lock would silently re-open
         the concurrent-``Config.save()``-vs-``store_secret`` race.
@@ -1361,7 +1361,7 @@ class TestAlreadyFixedVerifications:
         src = inspect.getsource(credential_store._write_plaintext_fallback)
         assert "_acquire_config_lock" in src, (
             "regression: _write_plaintext_fallback no longer "
-            "acquires _acquire_config_lock — concurrent Config.save() / "
+            "acquires _acquire_config_lock, concurrent Config.save() / "
             "delete_secret could clobber the field written here."
         )
         assert "with _acquire_config_lock()" in src, (
@@ -1380,12 +1380,12 @@ class TestAlreadyFixedVerifications:
         would NOT redact) MUST be redacted, because the shared
         ``_KEY_PATTERNS`` uses 20+ chars.
         """
-        # 24-char bare token — would slip past the old 32+ char threshold.
+        # 24-char bare token, would slip past the old 32+ char threshold.
         # GitLab PATs / GitHub PATs / Slack legacy tokens are 20-28 chars.
         s = "token: abcd1234efgh5678ijkl9012"
         redacted = credential_store._redact_sensitive(s)
         assert "abcd1234efgh5678ijkl9012" not in redacted, (
-            "regression: 24-char bare token was NOT redacted — "
+            "regression: 24-char bare token was NOT redacted, "
             "_redact_sensitive may have reverted to its old 32+ char threshold "
             "instead of delegating to _secrets.redact_api_keys (20+ char)."
         )
@@ -1399,7 +1399,7 @@ class TestAlreadyFixedVerifications:
         Voice Typer secrets."""
         assert credential_store.KEYRING_SERVICE_NAME == "com.voicetyper.keyring", (
             "regression: KEYRING_SERVICE_NAME no longer uses the canonical "
-            "com.voicetyper.* reverse-DNS root — another app registering "
+            "com.voicetyper.* reverse-DNS root, another app registering "
             "the same service name could read Voice Typer secrets, and "
             "the product-namespace drift guard "
             "(tests/test_product_namespace_consistency.py) would fail."
@@ -1414,10 +1414,10 @@ class TestAlreadyFixedVerifications:
 
 class TestLegacyServiceNameCutover:
     """``_migrate_legacy_service_names_locked`` re-registers keyring
-    entries from EVERY legacy service name (bare + prior reverse-DNS)
-    under the current ``KEYRING_SERVICE_NAME`` and deletes the originals
-    — the keyring half of the product-namespace migration (the polkit
-    half lives in install_permissions.py)."""
+      entries from EVERY legacy service name (bare + prior reverse-DNS)
+      under the current ``KEYRING_SERVICE_NAME`` and deletes the originals
+    , the keyring half of the product-namespace migration (the polkit
+      half lives in install_permissions.py)."""
 
     def test_copies_entries_from_all_legacy_names(self, monkeypatch):
         """Entries stored under each name in
@@ -1465,7 +1465,7 @@ class TestNonStringApiKeySkippedGracefully:
 
     def test_dict_api_key_does_not_crash_migration(self, mock_keyring_available, tmp_path):
         """A ``dict`` value for ``openai_api_key`` (hand-edited config)
-        must not raise — migration must skip it and continue."""
+        must not raise, migration must skip it and continue."""
         config_file = tmp_path / "config.json"
         config_file.write_text(
             json.dumps(
@@ -1492,7 +1492,7 @@ class TestNonStringApiKeySkippedGracefully:
         assert data["openai_api_key"] == {"secret": "sk-leaked"}
         # groq was migrated to a keyring:// reference.
         assert data["groq_api_key"] == "keyring://groq"
-        # secrets_migrated MUST be set — otherwise the crash-loop bug
+        # secrets_migrated MUST be set, otherwise the crash-loop bug
         # (the original  symptom) would persist on every launch
         # because the corrupted field would keep triggering the crash.
         assert data["secrets_migrated"] is True
@@ -1504,7 +1504,7 @@ class TestNonStringApiKeySkippedGracefully:
         config_file.write_text(
             json.dumps(
                 {
-                    "openai_api_key": 12345,  # int — non-string
+                    "openai_api_key": 12345,  # int, non-string
                 }
             )
         )

@@ -6,7 +6,7 @@
 // (tChoice, locale-aware plurals), and a clear visual distinction
 // between:
 //   - a zero-activity slot (solid muted baseline tick), and
-//   - a NO-DATA slot (dashed tick) — a future hour on the "Today" view,
+//   - a NO-DATA slot (dashed tick), a future hour on the "Today" view,
 //     or a day OLDER than the oldest record in the history sample
 //     (the sample simply doesn't reach back that far).
 //
@@ -64,7 +64,7 @@ export function ActivityChart({ range, activity }: ActivityChartProps) {
 					// Stroke tuned for the larger render size: at h-9 w-9
 					// (36px) the stat-card 1.75 would paint ~2.6px lines,
 					// heavier than every other icon on the page. strokeWidth
-					// 1 renders ~1.5px on screen — the same visual weight as
+					// 1 renders ~1.5px on screen, the same visual weight as
 					// the h-5 w-5 stat-card icons (1.75 × 20/24 ≈ 1.46px).
 					strokeWidth={1}
 					// Sized to roughly match the stacked title+subtitle block
@@ -136,7 +136,7 @@ export function ActivityChart({ range, activity }: ActivityChartProps) {
 											title={tooltip}
 											className={cn(
 												// ~4px top corners (this theme's --radius-sm resolves
-												// to 6px — use an explicit value for the requested
+												// to 6px, use an explicit value for the requested
 												// small rounding).
 												"w-full max-w-8 rounded-t-[4px] transition-all duration-300",
 												bar.count > 0 && "bg-accent/90 hover:bg-accent",

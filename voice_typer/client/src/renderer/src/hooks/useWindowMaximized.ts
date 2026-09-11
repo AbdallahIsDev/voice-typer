@@ -1,5 +1,5 @@
 /**
- * useWindowMaximized — tracks the OS window maximized state via the
+ * useWindowMaximized, tracks the OS window maximized state via the
  * native bridge and mirrors it onto ``<html class="is-maximized">``.
  *
  * Extracted from App.tsx (App.tsx slimming split) to keep
@@ -25,7 +25,7 @@ import type { WindowBridge } from "@/types/ipc";
  * Subscribe to the native window's maximized state.
  *
  * @param bridge The ``window.window_`` bridge; may be undefined in
- *   non-native (e.g. pure-browser) environments — the hook then
+ *   non-native (e.g. pure-browser) environments, the hook then
  *   stays ``false`` and does nothing.
  * @returns The current maximized state.
  */

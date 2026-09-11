@@ -1,5 +1,5 @@
 /**
- * HelpOverlay — Modal-based keyboard-shortcut reference overlay.
+ * HelpOverlay, Modal-based keyboard-shortcut reference overlay.
  *
  * Extracted from App.tsx (spaghetti split) to keep App.tsx
  * a pure layout shell. Behaviour is byte-identical to the original inline
@@ -8,23 +8,23 @@
  * hint footer.
  *
  * The overlay is opened by App.tsx in response to the `?` keydown handler
- * (also extracted — kept inline in App.tsx because it's tightly coupled to
+ * (also extracted, kept inline in App.tsx because it's tightly coupled to
  * the `showHelpOverlay` state and the dialog-state querySelector guard).
  *
  * The `dictationLabel` / `repasteLabel` props are pre-formatted hotkey
  * strings (e.g. "F2", "Ctrl+Shift+V") computed by App.tsx from the user's
- * config — the overlay itself doesn't read config so it stays a pure
+ * config, the overlay itself doesn't read config so it stays a pure
  * presentational component.
  *
  * All static key strings (Esc, Tab / Shift+Tab, Space, Enter, ?, the
  * Alt+←/Alt+→ nav pair, and the in-app Ctrl+* shortcuts) come from the
- * `SHORTCUTS` catalog in `components/hotkey/shortcuts.ts` — the single
- * source of truth shared with TitleBar and Sidebar — so the overlay
+ * `SHORTCUTS` catalog in `components/hotkey/shortcuts.ts`, the single
+ * source of truth shared with TitleBar and Sidebar, so the overlay
  * always reflects the bindings the hooks actually handle and can never
  * drift from the tooltips.
  *
  * Scroll structure: the DialogContent is capped at `max-h-[85vh]` and
- * clips (`overflow-hidden`) — an internal scrollbar on a rounded
+ * clips (`overflow-hidden`), an internal scrollbar on a rounded
  * panel escapes the corner radius on Windows classic scrollbars
  * (Chromium "scrollbars escaping border-radius"). The TITLE, the
  * description, and the whole body therefore live inside ONE inner
@@ -69,7 +69,7 @@ function HelpOverlayInner({
 		<Modal
 			open={open}
 			onClose={onClose}
-			// Roomier panel — the old `sm` size was clamped to
+			// Roomier panel, the old `sm` size was clamped to
 			// max-w-xs (320px) at every breakpoint, leaving the
 			// shortcut list + cheat sheet cramped.
 			size="lg"
@@ -87,7 +87,7 @@ function HelpOverlayInner({
 				    (title + description) AND the body so the whole modal
 				    scrolls naturally as one unit. Negative horizontal/bottom
 				    margins cancel the panel padding so the scrollbar sits
-				    flush at the panel edge — where the panel's
+				    flush at the panel edge, where the panel's
 				    overflow-hidden + rounded corners clip it to the corner
 				    curves (no more scrollbar escaping the rounded shape). */}
 			<div
@@ -107,7 +107,7 @@ function HelpOverlayInner({
 				{/* The punctuation cheat sheet lives ONCE in this overlay
 				    (bottom section). The standalone PunctuationCheatSheetButton
 				    (a second `?` that opened its own cheat-sheet popup) is
-				    deliberately NOT mounted here — the only help affordance
+				    deliberately NOT mounted here, the only help affordance
 				    is the title-bar `?` which opens exactly this overlay. */}
 				<ul className="flex flex-col gap-2 text-sm">
 					{[
@@ -127,13 +127,13 @@ function HelpOverlayInner({
 							desc: t(SHORTCUTS.activate.labelKey),
 						},
 						{
-							// Renderer keyboard binding — toggles dictation through
+							// Renderer keyboard binding, toggles dictation through
 							// the same `toggle_dictation` IPC the mic button uses.
 							keys: SHORTCUTS.toggleDictation.keys,
 							desc: t(SHORTCUTS.toggleDictation.labelKey),
 						},
 						{
-							// OS-global bubble-dismiss accelerator — registered in
+							// OS-global bubble-dismiss accelerator, registered in
 							// the Electron main process, rendered from the same
 							// catalog entry so the overlay can't drift from it.
 							keys: SHORTCUTS.dismissBubble.keys,
@@ -144,7 +144,7 @@ function HelpOverlayInner({
 							desc: t(SHORTCUTS.openHelp.labelKey),
 						},
 						{
-							// Combined back/forward row — built from the two
+							// Combined back/forward row, built from the two
 							// catalog entries so it can't drift from the
 							// TitleBar tooltips.
 							keys: `${SHORTCUTS.navBack.keys} / ${SHORTCUTS.navForward.keys}`,
@@ -161,7 +161,7 @@ function HelpOverlayInner({
 					))}
 				</ul>
 
-				{/* In-app keyboard shortcuts — sourced from the
+				{/* In-app keyboard shortcuts, sourced from the
 				`IN_APP_SHORTCUTS` array in `components/hotkey/shortcuts.ts`
 				(the same catalog TitleBar and Sidebar render from).
 				Rendering from the same array keeps the overlay in

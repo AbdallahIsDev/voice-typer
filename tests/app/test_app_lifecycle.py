@@ -1,5 +1,5 @@
 """Direct unit tests for
-``voice_typer/server/app_lifecycle.py`` — the ``LifecycleController``
+``voice_typer/server/app_lifecycle.py``, the ``LifecycleController``
 extracted from ``VoiceTyperApp`` (Phase 4.5 spaghetti split).
 
 Previously this module was tested only indirectly via the
@@ -41,7 +41,7 @@ class _StubApp:
     it does NOT introspect the app at construction time. Every attribute
     access happens lazily inside ``restart_app`` / ``quit_app`` /
     ``_wait_for_relaunch_ack``, so a plain ``MagicMock`` would work
-    too — but a stub class with explicitly-typed attributes makes the
+    too, but a stub class with explicitly-typed attributes makes the
     test's intent legible and produces clearer failure messages than
     ``MagicMock``'s default-attribute-mock pattern.
 
@@ -55,21 +55,21 @@ class _StubApp:
         self._shutting_down_event: threading.Event = threading.Event()
         # IPC server (None = no IPC attached; PERF-005 short-circuit path)
         self._ipc_server: Any = None
-        # config save — returns True on success (matches Config.save contract)
+        # config save, returns True on success (matches Config.save contract)
         self.config = MagicMock()
         self.config.save = MagicMock(return_value=True)
-        # thread registry — shutdown_all() must be called before _do_cleanup
+        # thread registry, shutdown_all() must be called before _do_cleanup
         self._thread_registry = MagicMock()
-        # _do_cleanup delegate — the real VoiceTyperApp delegates to
+        # _do_cleanup delegate, the real VoiceTyperApp delegates to
         # ShutdownController._do_cleanup; tests spy on this attribute.
         self._do_cleanup = MagicMock()
-        # quit delegate — the real VoiceTyperApp.quit() raises SystemExit(0);
+        # quit delegate, the real VoiceTyperApp.quit() raises SystemExit(0);
         # tests override this to observe the call.
         self.quit = MagicMock(side_effect=lambda: (_ for _ in ()).throw(SystemExit(0)))
-        # shutdown watchdog — armed on non-main-thread restart path
+        # shutdown watchdog, armed on non-main-thread restart path
         self.shutdown = MagicMock()
         self._shutdown_watchdog_timeout_s: float = 0.05
-        # recorder — quit_app discards in-progress recordings before push
+        # recorder, quit_app discards in-progress recordings before push
         self.recorder = MagicMock()
         self.recorder.recording = False
 
@@ -108,7 +108,7 @@ def _stub_restart_side_effects(stub_app: _StubApp, monkeypatch) -> None:
 class TestWaitForRelaunchAckNoServer:
     """PERF-005: when no IPC server is attached (``app._ipc_server is
     None``), ``_wait_for_relaunch_ack`` MUST return immediately (0ms)
-    with ``False`` — no one is listening for the ``relaunch_app``
+    with ``False``, no one is listening for the ``relaunch_app``
     event, so waiting accomplishes nothing and blocks the tray
     callback thread for nothing.
 
@@ -155,7 +155,7 @@ class TestWaitForRelaunchAckTimeout:
 
     This pins the bounded-wait contract: a dead host ( Electron
     already gone, WS torn down) does not block the tray callback
-    thread indefinitely — the wait times out and cleanup proceeds.
+    thread indefinitely, the wait times out and cleanup proceeds.
     """
 
     def test_times_out_after_n_seconds_when_ack_never_arrives(
@@ -221,19 +221,19 @@ class TestWaitForRelaunchAckTimeout:
 
 class TestRestartAppNonMainThread:
     """When ``restart_app`` runs on a NON-main thread (the common case
-    — pystray tray menu callback), ``sys.exit(0)`` would raise
-    ``SystemExit`` in that thread only (the process does NOT exit).
-    The controller MUST therefore:
+    , pystray tray menu callback), ``sys.exit(0)`` would raise
+      ``SystemExit`` in that thread only (the process does NOT exit).
+      The controller MUST therefore:
 
-      1. NOT call ``sys.exit(0)`` on the non-main thread.
-      2. Arm the shutdown watchdog via
-         ``app.shutdown._arm_shutdown_watchdog(...)`` so that if
-         ``tray.stop()`` (called inside ``_do_cleanup``) fails to
-         break the pystray loop, the watchdog calls ``os._exit(0)``
-         after ``app._shutdown_watchdog_timeout_s`` seconds.
+        1. NOT call ``sys.exit(0)`` on the non-main thread.
+        2. Arm the shutdown watchdog via
+           ``app.shutdown._arm_shutdown_watchdog(...)`` so that if
+           ``tray.stop()`` (called inside ``_do_cleanup``) fails to
+           break the pystray loop, the watchdog calls ``os._exit(0)``
+           after ``app._shutdown_watchdog_timeout_s`` seconds.
 
-    Mirrors the ``shutdown_controller.quit()`` threading-aware exit
-    pattern.
+      Mirrors the ``shutdown_controller.quit()`` threading-aware exit
+      pattern.
     """
 
     def test_restart_app_on_non_main_thread_skips_sys_exit(
@@ -250,7 +250,7 @@ class TestRestartAppNonMainThread:
         def _run() -> None:
             try:
                 lifecycle.restart_app()
-            except BaseException as exc:  # noqa: BLE001 — capture for assertion
+            except BaseException as exc:  # noqa: BLE001, capture for assertion
                 errors.append(exc)
 
         worker = threading.Thread(target=_run, daemon=True)
@@ -294,7 +294,7 @@ class TestQuitAppPushesEventBeforeDelegate:
     """F-06: ``quit_app`` MUST push the ``quit_app`` event over the TCP
     channel BEFORE calling ``self._app.quit()`` (the audited cleanup
     path). Pre-fix, the re-entry guard sat at the top of the method
-    and a double-quit silently dropped the second push — leaving
+    and a double-quit silently dropped the second push, leaving
     Electron with no shutdown signal if the first push was lost in a
     TCP race.
     """
@@ -328,7 +328,7 @@ class TestQuitAppPushesEventBeforeDelegate:
     ) -> None:
         """F-06: a double-quit (user clicks Quit twice, or SIGTERM
         races with tray quit) MUST still push the quit_app event on
-        the second call — the re-entry guard skips only the
+        the second call, the re-entry guard skips only the
         ``app.quit()`` delegate, NOT the push.
         """
         pushed: list[dict] = []
@@ -367,7 +367,7 @@ class TestQuitAppPushesEventBeforeDelegate:
 #
 # Note on acceptance-criterion interpretation: the literal wording
 # "_do_cleanup raises mid-restart → restart still completes" does not
-# match the production code — ``app._do_cleanup()`` in ``restart_app``
+# match the production code: ``app._do_cleanup()`` in ``restart_app``
 # is NOT wrapped in try/except, so an exception propagates and the
 # final ``sys.exit(0)`` is never reached. The restart "completes" in
 # the sense that matters to the USER: the ``relaunch_app`` event was
@@ -382,13 +382,13 @@ class TestRestartAppCleanupRaises:
     sequence's PRE-cleanup side effects must already have completed:
 
       1. The ``relaunch_app`` event was pushed (Electron will relaunch
-         a fresh process — the user's "Restart" tray click works
+         a fresh process, the user's "Restart" tray click works
          end-to-end even though Python-side cleanup blew up).
       2. ``_shutting_down`` / ``_shutting_down_event`` were set so the
          dispatch gate rejects new IPC requests during the unwind.
 
     The ``_do_cleanup`` exception itself propagates to the caller
-    (the tray menu callback wrapper) — that's the documented
+    (the tray menu callback wrapper), that's the documented
     behaviour, NOT a bug. This test pins the happens-before ordering
     so a future refactor that moves the push/_shutting_down setter
     AFTER ``_do_cleanup`` is caught.
@@ -407,7 +407,7 @@ class TestRestartAppCleanupRaises:
         # _do_cleanup raises mid-restart.
         stub_app._do_cleanup = MagicMock(side_effect=RuntimeError("portaudio teardown blew up"))
 
-        # The exception propagates — the caller (tray _wrap) is
+        # The exception propagates, the caller (tray _wrap) is
         # responsible for logging it.
         with pytest.raises(RuntimeError, match="portaudio teardown blew up"):
             lifecycle.restart_app()
@@ -416,7 +416,7 @@ class TestRestartAppCleanupRaises:
         relaunch_pushes = [m for m in pushed if m.get("type") == "relaunch_app"]
         assert relaunch_pushes, (
             "restart_app must push the relaunch_app event BEFORE calling "
-            "_do_cleanup — the user's Restart click must still trigger "
+            "_do_cleanup, the user's Restart click must still trigger "
             "Electron relaunch even when cleanup blows up."
         )
         assert stub_app._shutting_down is True, (
@@ -431,7 +431,7 @@ class TestRestartAppCleanupRaises:
         self, lifecycle: LifecycleController, stub_app: _StubApp, monkeypatch
     ) -> None:
         """``app._thread_registry.shutdown_all()`` IS wrapped in
-        try/except (unlike ``_do_cleanup``) — a failure there must
+        try/except (unlike ``_do_cleanup``), a failure there must
         log a warning and let the restart continue to
         ``_do_cleanup`` + ``sys.exit(0)``.
         """
@@ -450,5 +450,5 @@ class TestRestartAppCleanupRaises:
         assert do_cleanup_calls == [True], (
             "restart_app must proceed to _do_cleanup even when "
             "thread_registry.shutdown_all() raises (it's wrapped in "
-            "try/except — a failure there is logged, not propagated)."
+            "try/except, a failure there is logged, not propagated)."
         )

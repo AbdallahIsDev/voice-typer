@@ -9,7 +9,7 @@
  *
  * Covered here:
  *   1. Ctrl+Shift+M (and Cmd+Shift+M) fires `call("toggle_dictation")`.
- *   2. A rejection surfaces `toast.error` (no silent swallow — same
+ *   2. A rejection surfaces `toast.error` (no silent swallow, same
  *      contract as the Home mic button path).
  *   3. The binding is NOT suppressed while typing (dictating INTO the
  *      focused field is the point of the shortcut) and NOT
@@ -17,7 +17,7 @@
  *   4. Guard correctness: without Shift (plain Ctrl+M) the binding
  *      must NOT fire (the "ctrlCmd" profile of the other bindings
  *      explicitly excludes Shift, and "M" belongs to this binding's
- *      eventKeys — only the ctrlShiftCmd profile may trigger it).
+ *      eventKeys, only the ctrlShiftCmd profile may trigger it).
  */
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -76,7 +76,7 @@ afterEach(() => {
 	cleanup();
 });
 
-describe("useGlobalKeyboardShortcuts — Ctrl+Shift+M toggle dictation", () => {
+describe("useGlobalKeyboardShortcuts, Ctrl+Shift+M toggle dictation", () => {
 	it("Ctrl+Shift+M calls toggle_dictation (the mic-button IPC path)", () => {
 		renderHook();
 		dispatchKey("M");

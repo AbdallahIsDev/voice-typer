@@ -1,5 +1,5 @@
 /**
- *  vitest rewrite — behavioral tests for `Bubble.tsx` keyboard move.
+ *  vitest rewrite, behavioral tests for `Bubble.tsx` keyboard move.
  *
  * Replaces the following string-pattern Python tests from
  * `tests/test_ux_components.py`:
@@ -26,7 +26,7 @@
  * events never fire in the shipped app.  Agent 12 ( + )
  * removed the handler from `Bubble.tsx` entirely.
  *
- *  DECISION (option b — document as mouse-drag-only): the
+ *  DECISION (option b, document as mouse-drag-only): the
  * keyboard-move feature was DELIBERATELY NOT RE-IMPLEMENTED.  The
  * bubble is now documented in user-facing help as mouse-drag-only.
  * This is a deliberate product decision (see the  comment block
@@ -40,14 +40,14 @@
  * replace them:
  *
  *   1. `: Bubble keyboard-move is dead code in production`
- *      — scans `bubble-window.ts` and asserts `focusable: false` is
+ *     , scans `bubble-window.ts` and asserts `focusable: false` is
  *        still set, prints a loud warning, and verifies `Bubble.tsx`
  *        carries the dead-code comment block.  This guards against a
  *        future refactor that flips `focusable` to `true` without
  *        also re-adding the keyboard-move handler.
  *
  *   2. `Item 7: Bubble renders sr-only 'Transcription complete.'`
- *      — mounts the Bubble in idle mode and asserts the sr-only span
+ *     , mounts the Bubble in idle mode and asserts the sr-only span
  *        containing `t("a11y.transcriptionComplete")` is rendered to
  *        the DOM, so screen-reader users hear the completion
  *        announcement when the bubble transitions from
@@ -154,7 +154,7 @@ function dispatchArrowKey(key: string, opts: { shiftKey?: boolean } = {}) {
 // renderer-side keyboard-move handler is re-introduced (which also
 // requires flipping `focusable: false` to `true` in `bubble-window.ts`
 //see the  trade-off note in `bubble-components.tsx`).
-describe.skip("Bubble keyboard move — RW-0 rewrite of test_bubble_calls_move_by (SKIPPED: BG-30 mouse-drag-only decision)", () => {
+describe.skip("Bubble keyboard move, RW-0 rewrite of test_bubble_calls_move_by (SKIPPED: BG-30 mouse-drag-only decision)", () => {
 	it("calls moveBy with negative deltaX on ArrowLeft", () => {
 		render(<Bubble />);
 		mockBubble.moveBy.mockClear();
@@ -218,7 +218,7 @@ describe.skip("Bubble keyboard move — RW-0 rewrite of test_bubble_calls_move_b
 	});
 });
 
-describe.skip("Bubble draggable gate — RW-0 rewrite of test_bubble_respects_draggable_gate (SKIPPED: BG-30 mouse-drag-only decision)", () => {
+describe.skip("Bubble draggable gate, RW-0 rewrite of test_bubble_respects_draggable_gate (SKIPPED: BG-30 mouse-drag-only decision)", () => {
 	it("does NOT call moveBy when draggable is false", () => {
 		render(<Bubble />);
 		mockBubble.moveBy.mockClear();
@@ -259,13 +259,13 @@ describe.skip("Bubble draggable gate — RW-0 rewrite of test_bubble_respects_dr
 //the keyboard-move handler tested above was DEAD CODE in
 // production (the bubble BrowserWindow is created with `focusable: false`,
 // see `voice_typer/client/src/main/windows/bubble-window.ts`).  The
-//feature was DELIBERATELY NOT RE-IMPLEMENTED ( option b — document
+//feature was DELIBERATELY NOT RE-IMPLEMENTED ( option b, document
 // as mouse-drag-only); see the comment block at the top of `Bubble.tsx`
 // for the rationale.
 //
 // This test scans `bubble-window.ts` and asserts that `focusable: false`
 // is still set.  If a future refactor flips it to `true` (or removes
-// the option), this test will FAIL — at which point a renderer-side
+// the option), this test will FAIL, at which point a renderer-side
 //keyboard-move handler becomes reachable in production and the
 // decision should be revisited.  The test also prints a warning to make
 // the dead-code status loud in test output.
@@ -284,7 +284,7 @@ describe("BG-30: Bubble keyboard-move deliberately not implemented (focusable: f
 		"lifecycle.ts",
 	);
 
-	it("bubble window lifecycle still sets `focusable: false` (keyboard-move deliberately not implemented — BG-30)", () => {
+	it("bubble window lifecycle still sets `focusable: false` (keyboard-move deliberately not implemented, BG-30)", () => {
 		// The bubble BrowserWindow creation moved from
 		// src/main/windows/bubble-window.ts into the split lifecycle
 		// module src/main/windows/bubble/lifecycle.ts (the
@@ -307,7 +307,7 @@ describe("BG-30: Bubble keyboard-move deliberately not implemented (focusable: f
 		if (hasFocusableFalse) {
 			// eslint-disable-next-line no-console
 			console.warn(
-				"[BG-30] Bubble BrowserWindow is created with `focusable: false` — " +
+				"[BG-30] Bubble BrowserWindow is created with `focusable: false`, " +
 					"the renderer-side keyboard arrow-move handler has been REMOVED from " +
 					"Bubble.tsx (PVT-048 + PVT-067 fix by agent 12).  BG-30 DECISION: " +
 					"keyboard-move was DELIBERATELY NOT re-implemented; the bubble is " +
@@ -349,7 +349,7 @@ describe("BG-30: Bubble keyboard-move deliberately not implemented (focusable: f
 // complete." (t("a11y.transcriptionComplete")) so screen-reader
 // users hear the completion announcement.  Without this span, AT
 // users would only know a transcription is happening (the
-// "Transcribing…" label) but never hear when it's done — the
+// "Transcribing…" label) but never hear when it's done, the
 // visible bubble simply fades out, which is invisible to non-sighted
 // users.
 //
@@ -389,7 +389,7 @@ describe("Item 7: Bubble renders sr-only 'Transcription complete.' announcement 
 		// callbacks captured at mount.  The Bubble subscribes to
 		// `window.bubble.onSetState` from BOTH useBubbleLifecycle
 		// (audio-level handling) and useBubbleStateMachine (mode
-		// transitions) — the state-machine subscriber is NOT
+		// transitions), the state-machine subscriber is NOT
 		// necessarily calls[0], so invoke every registered callback
 		// with the idle payload. The lifecycle callback treats an
 		// "idle" state string as a no-op, so calling all of them is

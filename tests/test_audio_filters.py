@@ -180,7 +180,7 @@ class TestHighPassFilter:
         diverge: coefficient rounding moving tightly-clustered poles
         OUTSIDE the unit circle at native rates. The filter must build
         (not degrade) at every rate, and the coefficients it actually
-        stores must have all poles strictly inside z=1 — checked here
+        stores must have all poles strictly inside z=1, checked here
         independently of the production gate so a design change that
         weakens stability is caught even if the gate itself regressed.
         """
@@ -273,7 +273,7 @@ class TestNoiseGate:
         audio = np.random.randn(1024).astype(np.float32) * 0.3
         g.process(audio, 16000)
         g.reset()
-        # Gate must start OPEN — starting closed would silence quiet speech.
+        # Gate must start OPEN, starting closed would silence quiet speech.
         assert g._is_open is True
         assert g._attenuation == 1.0
         assert g._level == 0.0
@@ -347,7 +347,7 @@ class TestCompressor:
             ratio=4.0,
             sample_rate=16000,
         )
-        # Loud audio well above threshold — use 1 second for steady-state
+        # Loud audio well above threshold, use 1 second for steady-state
         loud = np.full(16000, 0.8, dtype=np.float32)
         result = c.process(loud, 16000)
         # Check steady-state (last 25% of signal, after envelope settled)
@@ -714,7 +714,7 @@ class TestAudioFilterBase:
     The ABC declares ``process`` / ``reset`` as abstract, but provides
     concrete default implementations for ``latency_ms``, ``is_degraded``,
     and ``degraded_reason``. These defaults are the contract every
-    concrete filter inherits UNLESS it overrides them — so a future
+    concrete filter inherits UNLESS it overrides them, so a future
     refactor that accidentally changes the defaults (e.g. flipping
     ``is_degraded`` to ``True``) would silently flip every filter's
     degraded state. These tests pin the defaults via a minimal subclass
@@ -724,7 +724,7 @@ class TestAudioFilterBase:
     def test_base_process_returns_input_unchanged(self) -> None:
         """A minimal AudioFilter subclass whose ``process`` returns the
         input array unchanged (passthrough) must return the SAME array
-        object (same identity) — the base class imposes no transformation.
+        object (same identity), the base class imposes no transformation.
 
         This pins the base-class ``process`` contract: the return type
         is ``np.ndarray | None``, and a passthrough implementation must
@@ -737,7 +737,7 @@ class TestAudioFilterBase:
         result = f.process(audio, 16000)
         assert result is audio, (
             "a passthrough AudioFilter.process must return the SAME "
-            "array object (identity), not a copy — downstream filters must "
+            "array object (identity), not a copy, downstream filters must "
             "see the exact bytes the upstream filter produced"
         )
         np.testing.assert_array_equal(result, audio)
@@ -754,7 +754,7 @@ class TestAudioFilterBase:
         f = _MinimalFilter()
         # Must not raise.
         f.reset()
-        # Safe to call repeatedly (idempotent — no state to clear).
+        # Safe to call repeatedly (idempotent, no state to clear).
         f.reset()
         f.reset()
 
@@ -765,12 +765,12 @@ class TestAudioFilterBase:
         missing library) reports ``is_degraded == False`` so the UI
         doesn't show a spurious warning. A future refactor that flips
         the default to ``True`` would mark EVERY filter as degraded
-        (since most don't override the property) — this test pins the
+        (since most don't override the property), this test pins the
         default against that regression.
         """
         f = _MinimalFilter()
         assert f.is_degraded is False, (
-            "AudioFilter.is_degraded must default to False — a "
+            "AudioFilter.is_degraded must default to False, a "
             "filter that has not fallen back to a degraded mode must "
             "report False so the UI doesn't show a spurious warning"
         )
@@ -790,12 +790,12 @@ class TestAudioFilterBase:
         """The base-class ``latency_ms`` property defaults to ``0.0``.
 
         Sample-by-sample filters (HighPass, NoiseGate, Compressor,
-        Limiter) add zero latency — they process each sample as it
+        Limiter) add zero latency, they process each sample as it
         arrives. Only frame-buffered filters (NoiseSuppressor with
         RNNoise) override this to report their frame latency (~10ms
         for one 480-sample RNNoise frame).
         """
         f = _MinimalFilter()
         assert f.latency_ms == 0.0, (
-            "AudioFilter.latency_ms must default to 0.0 — sample-by-sample filters add zero latency"
+            "AudioFilter.latency_ms must default to 0.0, sample-by-sample filters add zero latency"
         )

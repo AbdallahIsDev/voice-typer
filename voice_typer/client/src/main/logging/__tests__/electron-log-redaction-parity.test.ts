@@ -6,7 +6,7 @@
  *    `redactPii` and asserts the output matches the expected redaction.
  *    The expected values are verified to match Python's `redact_secret`
  *    (which is what Python's `redact_pii` delegates to for the API-key /
- *    SEC-9 portion) — see the companion Rust parity test in
+ *    SEC-9 portion), see the companion Rust parity test in
  *    `src-tauri/src/platform/logging.rs::test_xe_20_1_cross_layer_parity_rust`
  *    for the Rust side, and the worklog F17 entry for the manual Python
  *    verification.

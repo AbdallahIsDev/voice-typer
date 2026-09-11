@@ -2,7 +2,7 @@
 //
 // Replaces the disconnected Add-Entry modal (the list stays visible
 // while adding). The row lives at the top of the list: Wrong-phrase +
-// correct-phrase inputs and Save/Cancel — the simplified two-field
+// correct-phrase inputs and Save/Cancel, the simplified two-field
 // flow (no category picker; the backend bucket is auto-detected).
 //
 // Save logic: trim both fields, resolve the category (auto-detect),
@@ -86,7 +86,7 @@ export function useVocabularyQuickAdd({
 		setTrigger(prefill?.original ?? "");
 		setReplacement(prefill?.correction ?? "");
 		setError(null);
-		// Category is hidden from the UI — a blank add auto-detects its
+		// Category is hidden from the UI, a blank add auto-detects its
 		// bucket; a prefill (duplicate) keeps the source entry's bucket.
 		setCategory(prefill?.category ?? "auto");
 		setOpen(true);
@@ -106,7 +106,7 @@ export function useVocabularyQuickAdd({
 		try {
 			// Convenience pre-check (case-insensitive wrong phrase, same
 			// rule as the backend). The AUTHORITATIVE check runs in the
-			// backend write path (save_vocabulary_with_diff) — this only
+			// backend write path (save_vocabulary_with_diff), this only
 			// gives instant feedback before the round-trip.
 			const isDuplicate = findDuplicate(entries, trimmedTrigger);
 			if (isDuplicate) {
@@ -135,7 +135,7 @@ export function useVocabularyQuickAdd({
 			);
 		} catch (err) {
 			// Backend duplicate rejection: the save_vocabulary write was
-			// refused (client.duplicate_entry) — surface the inline
+			// refused (client.duplicate_entry), surface the inline
 			// "already exists" message and DO NOT add the row. This is
 			// the authoritative path (covers races and cross-case
 			// collisions the pre-check can't see).

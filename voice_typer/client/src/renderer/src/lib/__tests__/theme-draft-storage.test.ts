@@ -1,35 +1,37 @@
 /**
- * unit tests for `lib/theme-draft-storage.ts` — localStorage
+ * unit tests for `lib/theme-draft-storage.ts`, localStorage
  * draft-backup helpers for the custom-theme colour picker.
  *
  * The module exposes three pure functions (no React / no module state):
- *   • `saveDraftToLS(data)`   — persists a CustomThemeData draft.
- *   • `loadDraftFromLS()`     — returns the stored draft, or null on
+ *   • `saveDraftToLS(data)`  , persists a CustomThemeData draft.
+ *   • `loadDraftFromLS()`    , returns the stored draft, or null on
  *                               missing-key / corrupt-JSON / schema drift.
- *   • `clearDraftLS()`        — removes the stored draft.
+ *   • `clearDraftLS()`       , removes the stored draft.
  *
  * Behaviour under test:
  *   1. Round-trip save→load returns the same CustomThemeData.
  *   2. clearDraftLS evicts the draft (loadDraftFromLS returns null
- *      afterwards) — the "expired-draft eviction" path.
+ *      afterwards), the "expired-draft eviction" path.
  *   3. loadDraftFromLS returns null when no draft is stored (the
  *      "missing key" guard).
  *   4. loadDraftFromLS returns null on corrupt JSON (the "corrupt-JSON
- *      guard" — JSON.parse throws, the catch swallows it).
- *   5. loadDraftFromLS survives schema-migration drift: a stored draft
- *      with EXTRA fields (forward-compat) or MISSING fields (older
- *      schema) is returned as-is — there is no validation, so callers
- *      must treat the result as untrusted. The test pins this contract
- *      so a future tightening (e.g. zod validation) is an intentional
- *      change, not a silent regression.
- *   6. saveDraftToLS swallows localStorage errors (non-fatal — backend
+ *      guard", JSON.parse throws, the catch swallows it).
+ *   5. loadDraftFromLS validates the parsed structure before casting
+ *      (the same light+dark shape guard as theme-bootstrap.ts /
+ *      hooks/theme/themeStore.ts): a stored draft with EXTRA fields
+ *      (forward-compat) is returned as-is (validation is permissive
+ *      about unknown fields), but a payload MISSING `light` or `dark`
+ *      (older/other schema), a non-object payload (scalar / array),
+ *      or corrupt JSON returns null, the documented "no value"
+ *      contract (E8: null, never a sentinel object).
+ *   6. saveDraftToLS swallows localStorage errors (non-fatal, backend
  *      save still proceeds).
- *   7. clearDraftLS swallows localStorage errors (non-fatal — leftover
+ *   7. clearDraftLS swallows localStorage errors (non-fatal, leftover
  *      draft will be overwritten on the next save or rejected as stale
  *      on the next load).
  *
  * The test-setup.ts file installs an in-memory localStorage fallback on
- * Node 26+, and jsdom provides one on Node 24 — either way, `localStorage`
+ * Node 26+, and jsdom provides one on Node 24, either way, `localStorage`
  * is available in the jsdom environment. We additionally `localStorage.clear()`
  * in `beforeEach` (the test-setup.ts `afterEach` also clears, but we want
  * a clean slate BEFORE each test, not just between them).
@@ -55,7 +57,7 @@ const VALID_DRAFT: CustomThemeData = {
 	},
 };
 
-describe("theme-draft-storage — round-trip save/load", () => {
+describe("theme-draft-storage, round-trip save/load", () => {
 	beforeEach(() => {
 		localStorage.clear();
 	});
@@ -109,8 +111,9 @@ describe("theme-draft-storage — round-trip save/load", () => {
 
 	it("loadDraftFromLS returns the stored object on schema-migration drift (forward-compat: extra fields)", () => {
 		// Simulate a future schema that added a `medium` variant we don't
-		// know about yet. The current loader is permissive — it returns
-		// the parsed object as-is, no validation.
+		// know about yet. The shape guard only requires `light` + `dark`;
+		// it is deliberately permissive about unknown extra fields so a
+		// NEWER draft loaded by an OLDER build still recovers its colors.
 		const futureDraft = {
 			light: { "--bg": "#ffffff" },
 			dark: { "--bg": "#000000" },
@@ -120,30 +123,46 @@ describe("theme-draft-storage — round-trip save/load", () => {
 
 		const loaded = loadDraftFromLS();
 
-		// No validation runs — the extra field is preserved verbatim.
+		// The extra field is preserved verbatim (no stripping).
 		expect(loaded).not.toBeNull();
 		expect(loaded?.light["--bg"]).toBe("#ffffff");
 		expect(loaded?.dark["--bg"]).toBe("#000000");
-		// The extra field is present (proves no validation / stripping).
 		expect((loaded as unknown as Record<string, unknown>).medium).toEqual({
 			"--bg": "#cccccc",
 		});
 	});
 
-	it("loadDraftFromLS returns the stored object on schema-migration drift (back-compat: missing fields)", () => {
-		// Simulate an older draft that only has `light` (no `dark`).
-		// The current loader returns it as-is rather than rejecting.
+	it("loadDraftFromLS returns null when the draft is missing `dark` (older schema)", () => {
+		// Simulate an older draft that only has `light` (no `dark`). The
+		// shape guard rejects it: consumers index `dark` directly, so a
+		// half-shaped draft would crash them. "No value" is null (E8).
 		const legacyDraft = { light: { "--bg": "#ffffff" } };
 		localStorage.setItem("vt_custom_theme_draft", JSON.stringify(legacyDraft));
 
-		const loaded = loadDraftFromLS();
-
-		expect(loaded).not.toBeNull();
-		expect(loaded?.light["--bg"]).toBe("#ffffff");
-		expect(loaded?.dark).toBeUndefined();
+		expect(loadDraftFromLS()).toBeNull();
 	});
 
-	it("saveDraftToLS swallows localStorage errors (non-fatal — backend save proceeds)", () => {
+	it("loadDraftFromLS returns null when the draft is missing `light`", () => {
+		const legacyDraft = { dark: { "--bg": "#000000" } };
+		localStorage.setItem("vt_custom_theme_draft", JSON.stringify(legacyDraft));
+
+		expect(loadDraftFromLS()).toBeNull();
+	});
+
+	it("loadDraftFromLS returns null on a non-object payload (scalar)", () => {
+		localStorage.setItem(
+			"vt_custom_theme_draft",
+			JSON.stringify("just a string"),
+		);
+		expect(loadDraftFromLS()).toBeNull();
+	});
+
+	it("loadDraftFromLS returns null on a non-object payload (array)", () => {
+		localStorage.setItem("vt_custom_theme_draft", JSON.stringify([1, 2, 3]));
+		expect(loadDraftFromLS()).toBeNull();
+	});
+
+	it("saveDraftToLS swallows localStorage errors (non-fatal, backend save proceeds)", () => {
 		const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 		// jsdom's Storage defines setItem on the prototype (non-writable
 		// instance slot), so a direct `localStorage.setItem = vi.fn(...)`
@@ -151,7 +170,7 @@ describe("theme-draft-storage — round-trip save/load", () => {
 		// that survives the prototype lookup. HOWEVER, the in-memory
 		// fallback installed by test-setup.ts on Node 26+ is a plain
 		// object (not a `Storage` instance), so `Storage.prototype`
-		// spying silently misses it — spy on whichever object actually
+		// spying silently misses it, spy on whichever object actually
 		// provides the methods.
 		const storageTarget: Storage =
 			localStorage instanceof Storage ? Storage.prototype : localStorage;
@@ -161,7 +180,7 @@ describe("theme-draft-storage — round-trip save/load", () => {
 				throw new Error("QuotaExceededError");
 			});
 
-		// Must NOT throw — the backend save still proceeds even if the
+		// Must NOT throw, the backend save still proceeds even if the
 		// crash-recovery draft can't be persisted.
 		expect(() => saveDraftToLS(VALID_DRAFT)).not.toThrow();
 		expect(warnSpy).toHaveBeenCalledTimes(1);
@@ -210,7 +229,7 @@ describe("theme-draft-storage — round-trip save/load", () => {
 	});
 });
 
-describe("theme-draft-storage — localStorage key contract", () => {
+describe("theme-draft-storage, localStorage key contract", () => {
 	beforeEach(() => {
 		localStorage.clear();
 	});

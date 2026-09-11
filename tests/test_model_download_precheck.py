@@ -12,7 +12,7 @@ state. When it is missing:
   model/backend name;
 - ``load_background`` must refuse BEFORE the heavy engine import /
   LOADING state (the load path would raise ``ModelNotDownloadedError``
-  anyway — the registry re-raises for a missing primary, no whisper
+  anyway, the registry re-raises for a missing primary, no whisper
   fallback).
 
 The canonical per-backend "downloaded" semantics live in
@@ -98,11 +98,11 @@ def _simulate_complete_snapshot(monkeypatch, config_dir) -> None:
 
 
 class TestIsActiveModelDownloaded:
-    """``tray_models.is_active_model_downloaded`` — the fast probe."""
+    """``tray_models.is_active_model_downloaded``, the fast probe."""
 
     def test_non_config_object_returns_true(self, tmp_config_dir):
         """Test doubles (SimpleNamespace) must NOT probe the real user's
-        HF cache — return True so no pre-check / tooltip gate misfires."""
+        HF cache, return True so no pre-check / tooltip gate misfires."""
         from voice_typer.server.tray_models import is_active_model_downloaded
 
         cfg = SimpleNamespace(asr_backend="whisper", model_size="tiny")
@@ -119,7 +119,7 @@ class TestIsActiveModelDownloaded:
         tooltip/pre-check report the model as available. The probe is
         stubbed here (its cache-layout mechanics are pinned in
         tests/model_download/test_download_abort_gate.py); a bare
-        refs/main marker alone is NO LONGER sufficient — a partial
+        refs/main marker alone is NO LONGER sufficient, a partial
         download must report False."""
         _make_whisper_repo_dir(tmp_config_dir, "tiny")
         monkeypatch.setattr(
@@ -132,7 +132,7 @@ class TestIsActiveModelDownloaded:
         assert is_active_model_downloaded(cfg) is True
 
     def test_cloud_backend_returns_true(self, tmp_config_dir):
-        """Cloud backends have no local model — nothing to gate."""
+        """Cloud backends have no local model, nothing to gate."""
         from voice_typer.server.tray_models import is_active_model_downloaded
 
         assert is_active_model_downloaded(Config(asr_backend="groq", model_size="tiny")) is True
@@ -245,7 +245,7 @@ class TestLoadBackgroundPrecheck:
         msgs = [c.args[1] for c in app.tray.set_state.call_args_list if len(c.args) > 1]
         assert any("Open Models to choose one" in (m or "") for m in msgs), msgs
         assert all("tiny" not in (m or "") for m in msgs), "refusal message must NOT name the missing model"
-        # Windows notification is generic too — no backend name.
+        # Windows notification is generic too, no backend name.
         notified = [c.args[1] for c in app.tray.notify.call_args_list]
         assert any("Open Models to choose one" in (m or "") for m in notified), notified
         assert all("Whisper" not in (m or "") for m in notified), notified
@@ -254,8 +254,8 @@ class TestLoadBackgroundPrecheck:
 
     def test_no_model_selected_refusal_uses_select_message(self, tmp_config_dir):
         """Empty model_size (NO_MODEL_SIZE) → the "No model selected"
-        message — the SAME text the renderer's Home status pill hint
-        shows — NOT the "No speech model is selected" download message (the
+        message, the SAME text the renderer's Home status pill hint
+        shows, NOT the "No speech model is selected" download message (the
         tray tooltip must agree with the Home pill for this state)."""
         mm, app = _make_mm(Config(asr_backend="whisper", model_size=""))
 

@@ -6,13 +6,13 @@ NON-FATAL) was included in ``_CRASH_CODES``. The VEH callback at
 ``:345`` sets ``_ch._crash_written = True`` after the first crash-record
 write (NEVER reset within the process). A single non-fatal
 STATUS_GUARD_PAGE_VIOLATION event permanently silenced the VEH for the
-rest of the process — real crashes during the same session left no
+rest of the process, real crashes during the same session left no
 diagnostic record, breaking the ``report_pending_crash`` -> user
 notification loop on next startup.
 
 Post-FR-13, the code is removed from ``_CRASH_CODES``. The constant
 itself (``STATUS_GUARD_PAGE_VIOLATION``) and the friendly-name lookup
-(``_NAME_GUARD_PAGE``) are RETAINED for back-compat — the VEH callback's
+(``_NAME_GUARD_PAGE``) are RETAINED for back-compat, the VEH callback's
 elif branch remains as a defensive no-op (the ``_CRASH_CODES`` gate at
 callback entry already filters the code out).
 """
@@ -28,7 +28,7 @@ from voice_typer.server.crash_handler import _constants
 class TestGuardPageExcluded:
     """``STATUS_GUARD_PAGE_VIOLATION`` is NOT in ``_CRASH_CODES``.
 
-    This is the core FR-13 invariant — without it, a single non-fatal
+    This is the core FR-13 invariant, without it, a single non-fatal
     guard-page event would set ``_crash_written = True`` and permanently
     silence the VEH for the rest of the process.
     """
@@ -37,7 +37,7 @@ class TestGuardPageExcluded:
         """FR-13: STATUS_GUARD_PAGE_VIOLATION is NOT in ``_CRASH_CODES``."""
         assert crash_handler.STATUS_GUARD_PAGE_VIOLATION not in crash_handler._CRASH_CODES, (
             "FR-13: STATUS_GUARD_PAGE_VIOLATION (0x80000001) must NOT be in "
-            "_CRASH_CODES — it is a warning-level code (stack growth / probe), "
+            "_CRASH_CODES, it is a warning-level code (stack growth / probe), "
             "not a fatal crash. Including it caused the VEH rate-limit flag to "
             "permanently silence the VEH after a single non-fatal event."
         )
@@ -60,7 +60,7 @@ class TestGuardPageExcluded:
         Windows NTSTATUS severity field is bits 30-31; 0x80000001 has
         severity=2 = WARNING per the Microsoft NTSTATUS layout), not
         severity=3 (ERROR) like the other ``0xC...`` codes in
-        ``_CRASH_CODES``. It does NOT terminate the process — the OS
+        ``_CRASH_CODES``. It does NOT terminate the process, the OS
         uses it for stack-growth probe pages and C-extension guard-page
         probes.
         """
@@ -70,14 +70,14 @@ class TestGuardPageExcluded:
         # 0x80000001 -> severity=2 (WARNING). 0xC... codes -> severity=3 (ERROR).
         assert severity != 0x3, (
             f"FR-13: STATUS_GUARD_PAGE_VIOLATION (0x{code:08X}) has severity "
-            f"{severity}, NOT 3 (ERROR) — it is a warning-level code, not a "
+            f"{severity}, NOT 3 (ERROR), it is a warning-level code, not a "
             "fatal crash. The 0xC... codes in _CRASH_CODES all have severity=3."
         )
 
     def test_all_other_codes_still_in_crash_codes(self):
         """FR-13 non-regression: the OTHER 8 YJ-42 extended codes remain
         in ``_CRASH_CODES``. Only STATUS_GUARD_PAGE_VIOLATION was
-        removed — the fix is surgical, not a blanket rollback of YJ-42.
+        removed, the fix is surgical, not a blanket rollback of YJ-42.
         """
         remaining_extended = frozenset(
             {

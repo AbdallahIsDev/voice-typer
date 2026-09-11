@@ -1,6 +1,6 @@
 """Teardown helper for the bubble / waveform worker.
 
-Phase 4.5 (OI-36) — extracted verbatim from
+Phase 4.5 (OI-36), extracted verbatim from
 :meth:`ShutdownController._teardown_waveform_wiring`. The body is unchanged;
 only the class boundary moved.
 """

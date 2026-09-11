@@ -5,11 +5,11 @@
  * `window.python` / `window.bubble` / `window.window_` MUST live in the
  * sibling `install.ts` module, NOT in `index.ts`.
  *
- * Background — the pre-split monolith auto-invoked
+ * Background, the pre-split monolith auto-invoked
  * `installTauriBridge()` at the bottom of `tauri-bridge/index.ts`, so
  * any code that imported `@/lib/tauri-bridge` for its named exports
- * (`isTauri`, `makeListener`, etc.) — including unit tests under
- * `vi.resetModules()` isolation — got the namespace mutation as a
+ * (`isTauri`, `makeListener`, etc.), including unit tests under
+ * `vi.resetModules()` isolation, got the namespace mutation as a
  * surprise side effect. The split prescription moved the auto-install
  * call into a dedicated `install.ts` so:
  *
@@ -26,7 +26,7 @@
  *      setup (installs `window.python`, `window.bubble`,
  *      `window.window_`) when `window.__TAURI__` is present.
  *   2. Importing `@/lib/tauri-bridge` alone does NOT install the
- *      namespaces (negative control — proves the side effect was
+ *      namespaces (negative control, proves the side effect was
  *      actually moved, not duplicated).
  *   3. Importing `@/lib/tauri-bridge/install` is a no-op in Electron
  *      mode (when `window.__TAURI__` is absent) so the Electron
@@ -152,7 +152,7 @@ describe("tauri-bridge install side-effect module (split)", () => {
 		// window without a `label`, so the bridge treats it as the main
 		// renderer. `createBubbleNamespace(tauri, "main")` returns only
 		// the shared mutators (SEC-026: `show` / `signalReady` /
-		// `setPosition` / `setDraggable` / `moveBy`) — the bubble-only
+		// `setPosition` / `setDraggable` / `moveBy`), the bubble-only
 		// event subscriptions (`onLevel` / `onShow` / ...) are gated
 		// behind `label === "bubble"`. Asserting `show` (a shared
 		// mutator) here proves the bubble namespace was installed
@@ -193,7 +193,7 @@ describe("tauri-bridge install side-effect module (split)", () => {
 
 		await import("@/lib/tauri-bridge");
 
-		// No side effect should have fired — `index.ts` only exports
+		// No side effect should have fired, `index.ts` only exports
 		// the named symbols and the installer function; it does NOT
 		// auto-invoke it.
 		expect(w.python).toBeUndefined();
@@ -220,7 +220,7 @@ describe("tauri-bridge install side-effect module (split)", () => {
 		await import("@/lib/tauri-bridge/install");
 
 		// The Electron-installed namespaces must be untouched (same
-		// referential identity — not replaced, not wrapped).
+		// referential identity, not replaced, not wrapped).
 		expect(w.python).toBe(electronPython);
 		expect(w.bubble).toBe(electronBubble);
 		expect(w.window_).toBe(electronWindow);
@@ -231,7 +231,7 @@ describe("tauri-bridge install side-effect module (split)", () => {
 		// `import("./install")` now lives in ONE shared module,
 		// `lib/tauri-bridge/ensure.ts` (`ensureTauriBridgeInstalled()`),
 		// which both `main.tsx` and `bubble-main.tsx` statically import
-		// (it is dependency-light — it only imports `./detect`) and
+		// (it is dependency-light, it only imports `./detect`) and
 		// `await` at top level. This catches a future regression where
 		// someone reverts to a static `import "./lib/tauri-bridge/install"`
 		// (or inlines an ungated import into an entrypoint) and the
@@ -259,7 +259,7 @@ describe("tauri-bridge install side-effect module (split)", () => {
 		);
 		// Positive: the shared gate module owns the gated dynamic
 		// `import("./install")` and stays dependency-light (no static
-		// import of the bridge barrel `./index` — statically importing
+		// import of the bridge barrel `./index`, statically importing
 		// the ensure module from the entrypoints must not drag the
 		// install graph into the eager bundle).
 		expect(ensureSrc).toMatch(/import\(\s*["']\.\/install["']\s*\)/);
@@ -275,7 +275,7 @@ describe("tauri-bridge install side-effect module (split)", () => {
 			// Negative: a STATIC side-effect import
 			// `import "./lib/tauri-bridge/install"` (whitespace between
 			// `import` and the string literal, NOT `import(`) MUST be
-			// absent — that's the previous pattern that pulled the
+			// absent, that's the previous pattern that pulled the
 			// install graph into the Electron bundle. A static NAMED
 			// import from the install module is the same regression via
 			// a different syntax.
@@ -286,14 +286,14 @@ describe("tauri-bridge install side-effect module (split)", () => {
 				/import\s+\{[^}]*\}\s*from\s*["']\.\/lib\/tauri-bridge\/install["']/,
 			);
 			// Negative: the bare `./lib/tauri-bridge` side-effect import
-			// (without `/install`) must also be absent — only
+			// (without `/install`) must also be absent, only
 			// named-import lines referencing `@/lib/tauri-bridge` are
 			// allowed.
 			expect(src).not.toMatch(/import\s+["']\.\/lib\/tauri-bridge["'];?/);
 		}
 	});
 
-	it("SEC-026: bubble window gets ONLY window.bubble — no python / window_ namespaces", async () => {
+	it("SEC-026: bubble window gets ONLY window.bubble, no python / window_ namespaces", async () => {
 		// The bubble renderer is a sandboxed window (SEC-026): Electron's
 		// preload never exposed `window.python` / `window.window_` to it,
 		// and the Rust host's window-guard rejects any `dispatch` from a

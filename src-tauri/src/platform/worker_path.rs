@@ -1,20 +1,20 @@
-//! Per-platform worker-exe path resolution (Phase 2a — runtime-pack split,
+//! Per-platform worker-exe path resolution (Phase 2a, runtime-pack split,
 //! plan-runtime-pack-split §4.4 + §4.7).
 //!
 //! Modeled on [`super::paths`] (`config_dir` + `config_dir_from_env`):
 //!
-//! - [`worker_exe_path`] — process-wide cached worker exe path. Resolves
+//! - [`worker_exe_path`]: process-wide cached worker exe path. Resolves
 //!   the runtime-pack directory (per-platform) + the worker exe name
 //!   (`voice-typer-worker-<triple>[.exe]`), reading the active pack
 //!   version from [`pack_version`].
-//! - [`worker_exe_path_from_env`] — pure form for unit testing (no
+//! - [`worker_exe_path_from_env`]: pure form for unit testing (no
 //!   `std::env` reads; takes all env vars + the pack version as args).
-//! - [`pack_version`] — reads `VOICE_TYPER_PACK_VERSION` env var (set
+//! - [`pack_version`]: reads `VOICE_TYPER_PACK_VERSION` env var (set
 //!   by the slim-core sidecar after the pack is downloaded + verified),
 //!   falling back to [`DEFAULT_PACK_VERSION`] when unset. The version
 //!   is the directory leaf name under the per-platform runtime-pack
 //!   root (`%LOCALAPPDATA%\voice-typer\runtime-pack\<version>\` etc).
-//! - [`pack_dir_from_env`] — per-platform runtime-pack root (without
+//! - [`pack_dir_from_env`]: per-platform runtime-pack root (without
 //!   the version leaf + worker exe name), used by the integrity
 //!   verifier (`verify_pack_or_skip`, future) + the downloader.
 //!
@@ -26,7 +26,7 @@
 //! | Linux   | `$XDG_DATA_HOME/voice-typer/runtime-pack/<version>/voice-typer-worker-<triple>` (default `~/.local/share/voice-typer/runtime-pack/<version>/`) |
 //! | macOS   | `~/Library/Application Support/voice-typer/runtime-pack/<version>/voice-typer-worker-<triple>` |
 //!
-//! Note: Windows uses `%LOCALAPPDATA%` (NOT `%APPDATA%` — the sidecar's
+//! Note: Windows uses `%LOCALAPPDATA%` (NOT `%APPDATA%`, the sidecar's
 //! `config_dir` uses `%APPDATA%` for roaming config, but the runtime
 //! pack is a per-machine cache that should NOT roam with the user
 //! profile). The slim-core sidecar's `config_dir` resolution stays on
@@ -42,7 +42,7 @@
 //! - Versioned leaf (`runtime-pack/<version>/`).
 //! - Different child file (`voice-typer-worker-<triple>[.exe]`, not
 //!   a Tauri-bundled resource).
-//! - No legacy `~/.voice-typer` migration probe — the pack is a
+//! - No legacy `~/.voice-typer` migration probe, the pack is a
 //!   Phase 2a addition with no pre-existing on-disk state to honor.
 //!
 //! Keeping it in a separate module avoids entangling the two concerns
@@ -54,7 +54,7 @@
 //! (the pack is downloaded BEFORE the worker spawns; the version is
 //! fixed once the worker starts). [`worker_exe_path`] caches the
 //! resolved `PathBuf` in a `OnceLock` so the env-var + version reads
-//! happen exactly once per process — mirrors the `config_dir_cached`
+//! happen exactly once per process, mirrors the `config_dir_cached`
 //! pattern in `paths.rs`.
 
 use std::sync::OnceLock;
@@ -68,7 +68,7 @@ use super::paths::APP_SLUG;
 ///
 /// `v1` is the initial pack version (Phase 2a skeleton). Real pack
 /// releases use semver-style versions like `v1.2.0`; the bare `v1`
-/// default is a dev-only sentinel — production code paths set the
+/// default is a dev-only sentinel, production code paths set the
 /// env var explicitly via `spawn_worker_*` after `verify_pack_or_skip`.
 pub(crate) const DEFAULT_PACK_VERSION: &str = "v1";
 
@@ -85,7 +85,7 @@ pub(crate) const WORKER_BIN_BASE_NAME: &str = "voice-typer-worker";
 /// subsequent calls return the cached `Path` via a `OnceLock`. The
 /// env vars + pack version are invariant for the process lifetime
 /// (the pack is downloaded BEFORE the worker spawns), so caching is
-/// safe — a `setenv` mid-process would not be reflected, but that's
+/// safe: a `setenv` mid-process would not be reflected, but that's
 /// never legitimate (the Python side reads env vars once at startup
 /// too; the worker is a long-lived child started once after pack
 /// verification).
@@ -101,7 +101,7 @@ pub(crate) fn worker_exe_path() -> &'static std::path::Path {
 /// per-platform runtime-pack root). Reads `VOICE_TYPER_PACK_VERSION`
 /// once and caches it (the version is fixed once the worker starts).
 ///
-/// Mirrors `config_dir_cached`'s caching pattern — env vars are
+/// Mirrors `config_dir_cached`'s caching pattern: env vars are
 /// invariant for the process lifetime.
 pub(crate) fn pack_version() -> String {
     static CACHED: OnceLock<String> = OnceLock::new();
@@ -115,12 +115,12 @@ pub(crate) fn pack_version() -> String {
         .clone()
 }
 
-/// Pure form of [`worker_exe_path`] for unit testing — accepts all
+/// Pure form of [`worker_exe_path`] for unit testing, accepts all
 /// env vars + the pack version as args so tests can verify the
 /// per-platform resolution without polluting the process environment.
 ///
 /// The `env` tuple is `(home, local_appdata, appdata, xdg_data_home,
-/// voice_typer_config_dir)` — a superset of `config_dir_from_env`'s
+/// voice_typer_config_dir)`: a superset of `config_dir_from_env`'s
 /// args (we accept all of them so the same env-var mocking helper can
 /// drive both). `pack_version` is the version leaf under
 /// `runtime-pack/`.
@@ -142,7 +142,7 @@ pub(crate) fn worker_exe_path_from_env(
 }
 
 /// Per-platform runtime-pack directory (the parent of the versioned
-/// pack leaf — i.e. `…/voice-typer/runtime-pack/`, WITHOUT the
+/// pack leaf: i.e. `…/voice-typer/runtime-pack/`, WITHOUT the
 /// `<version>/voice-typer-worker-<triple>` tail). Used by the
 /// integrity verifier + the downloader to enumerate installed packs.
 ///
@@ -173,10 +173,10 @@ pub(crate) fn pack_dir_from_env(env: WorkerPathEnv) -> std::path::PathBuf {
         // Falls back to `./voice-typer/runtime-pack` (CWD-relative)
         // when LOCALAPPDATA is unset (Windows service accounts,
         // headless CI). Mirrors `config_dir_from_env`'s APPDATA
-        // fallback philosophy — never panic during path resolution.
+        // fallback philosophy: never panic during path resolution.
         let base = local_appdata.unwrap_or_else(|| {
             let warn_msg = format!(
-                "[worker_path] LOCALAPPDATA env var is not set — falling back to \
+                "[worker_path] LOCALAPPDATA env var is not set: falling back to \
                  CWD-relative runtime-pack dir (./{}/{}). This is expected for \
                  Windows service accounts / headless CI but indicates a missing \
                  user profile in normal desktop sessions.",
@@ -197,7 +197,7 @@ pub(crate) fn pack_dir_from_env(env: WorkerPathEnv) -> std::path::PathBuf {
         // macOS: ~/Library/Application Support/voice-typer/runtime-pack/
         let home = home.unwrap_or_else(|| {
             let warn_msg = format!(
-                "[worker_path] HOME env var is not set — falling back to \
+                "[worker_path] HOME env var is not set: falling back to \
                  CWD-relative runtime-pack dir (./{}/{}). This is expected for \
                  system LaunchDaemons but indicates a missing user profile \
                  in normal desktop sessions.",
@@ -225,7 +225,7 @@ pub(crate) fn pack_dir_from_env(env: WorkerPathEnv) -> std::path::PathBuf {
         }
         let Some(home) = home else {
             let warn_msg = format!(
-                "[worker_path] HOME env var is not set — falling back to \
+                "[worker_path] HOME env var is not set: falling back to \
                  CWD-relative runtime-pack dir (./{}/{}). This is expected for \
                  systemd user units without `Environment=HOME=...` but \
                  indicates a missing user profile in normal desktop sessions.",
@@ -256,9 +256,9 @@ pub(crate) fn pack_dir_from_env(env: WorkerPathEnv) -> std::path::PathBuf {
 ///
 /// Field order matches the call shape of `config_dir_from_env` (home,
 /// appdata, xdg_data_home) with two additions: `local_appdata` (Windows
-/// LOCALAPPDATA — the runtime-pack base, distinct from APPDATA used by
+/// LOCALAPPDATA: the runtime-pack base, distinct from APPDATA used by
 /// the config dir) and `voice_typer_config_dir` (the env-var override,
-/// reserved for future use — the runtime-pack dir does NOT honor
+/// reserved for future use: the runtime-pack dir does NOT honor
 /// `VOICE_TYPER_CONFIG_DIR` today because the pack is a cache, not
 /// user-tunable config, but we accept it for forward-compat + so the
 /// same test helper can drive both resolvers).
@@ -285,7 +285,7 @@ fn worker_exe_path_env_args() -> WorkerPathEnv {
 
     // Leak the env-var strings to `'static` so they fit `WorkerPathEnv`'s
     // `&'static str` fields. This is a one-time, process-lifetime
-    // allocation under the `OnceLock` in `worker_exe_path` — the env
+    // allocation under the `OnceLock` in `worker_exe_path`, the env
     // vars are invariant for the process lifetime, so the leak is
     // bounded (5 strings × ~50 bytes each, exactly once per process).
     // The alternative is to make `WorkerPathEnv` own `Option<String>`s
@@ -304,7 +304,7 @@ fn worker_exe_path_env_args() -> WorkerPathEnv {
     }
 }
 
-// Sibling test module — tests live in `worker_path_tests.rs` (per
+// Sibling test module: tests live in `worker_path_tests.rs` (per
 // C-TEST-5: no inline `#[cfg(test)] mod tests` blocks in production
 // source).
 #[cfg(test)]

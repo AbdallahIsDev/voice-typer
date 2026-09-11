@@ -1,10 +1,10 @@
-"""CopyMixin — snapshot-capture + copy + verify + monitor-exclusion.
+"""CopyMixin, snapshot-capture + copy + verify + monitor-exclusion.
 
 Split verbatim out of the pre-split ``clipboard/manager.py`` module.
 
 Design contract preserved from the original monolith: copy() ALWAYS
 puts text on the clipboard. All patchable symbols are looked up via the
-PACKAGE (``_cb.X``) at call time — NOT via this module's globals — so
+PACKAGE (``_cb.X``) at call time. NOT via this module's globals, so
 test patches like
 ``patch.object(clip_mod, "is_windows", return_value=True)`` actually
 take effect on the code paths in this module.
@@ -34,7 +34,7 @@ class CopyMixin:
         Returns a :class:`ClipboardSnapshot` (which may have an empty
         ``items`` list if the clipboard was empty) when snapshot capture
         succeeds. The caller is responsible for restoring the snapshot
-        after the text has been consumed — see :meth:`paste` and
+        after the text has been consumed: see :meth:`paste` and
         :meth:`restore_now`.
 
         Raises :class:`ClipboardCopyError` if the text copy/verify fails
@@ -45,14 +45,14 @@ class CopyMixin:
         if not text:
             return None
 
-        # ① SNAPSHOT (gated by config flag — DP7). The snapshot is a
+        # ① SNAPSHOT (gated by config flag. DP7). The snapshot is a
         # value returned to the caller; it is NOT stored on self. This
         # makes overlapping cycles safe (DP4).
         snapshot: ClipboardSnapshot | None = None
         if self._clipboard_save_restore_enabled:
             snapshot = ClipboardSnapshot.capture()
             # snapshot may be None if capture failed (clipboard locked
-            # or empty). That's OK — we just won't restore. Log for
+            # or empty). That's OK, we just won't restore. Log for
             # debugging.
             if snapshot is None:
                 _cb.log.debug("[CLIPBOARD] Snapshot capture returned None (clipboard locked or empty)")
@@ -89,7 +89,7 @@ class CopyMixin:
                     if actual == text:
                         break
                     _cb.log.warning(
-                        "[CLIPBOARD] Clipboard verification failed (attempt %d/3) — expected %d chars, got %d.",
+                        "[CLIPBOARD] Clipboard verification failed (attempt %d/3), expected %d chars, got %d.",
                         verify_attempt + 1,
                         len(text),
                         len(actual) if actual else 0,
@@ -101,7 +101,7 @@ class CopyMixin:
                     # pyperclip is missing, AttributeError / NotImplemented
                     # if the platform backend lacks paste support, or
                     # OSError on a Win32 / wl-paste failure. All are
-                    # non-fatal — verification is best-effort.
+                    # non-fatal, verification is best-effort.
                     _cb.log.debug(
                         "[CLIPBOARD] verify attempt %d failed",
                         verify_attempt,
@@ -117,7 +117,7 @@ class CopyMixin:
             # history (Win+V), NOT synced via Cloud Clipboard, and NOT
             # indexed by conforming third-party clipboard monitors
             # (Microsoft PowerToys' Clipboard Manager, MDM-managed
-            # clipboard providers). The helper is best-effort — a
+            # clipboard providers). The helper is best-effort, a
             # failure leaves the dictated text in the clipboard history
             # (the pre-fix behavior), which is the safe degraded mode.
             # The tag is set AFTER the verify loop (which may re-copy
@@ -136,7 +136,7 @@ class CopyMixin:
             # When ``snapshot is None`` (clipboard_save_restore disabled
             # OR capture failed), no restore will be scheduled, so
             # caching the dictated text here would leak PII (which can
-            # be passwords, messages, financial data — anything the
+            # be passwords, messages, financial data, anything the
             # user dictated) into process memory for the entire process
             # lifetime. The seq-mismatch re-copy path in ``paste()``
             # threads ``pasted_text`` as a request-scoped value

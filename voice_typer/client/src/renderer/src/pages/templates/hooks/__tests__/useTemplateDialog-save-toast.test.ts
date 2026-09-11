@@ -3,9 +3,9 @@
  *
  * Root cause: `useTemplateDialog.saveTemplate` showed the SUCCESS toast
  * BEFORE awaiting the IPC save. When the backend rejected the write
- * (e.g. `'output' value too long in templates[3] (32913 > 1024)` — the
+ * (e.g. `'output' value too long in templates[3] (32913 > 1024)`, the
  * backend caps template output at 1024 chars), the success toast had
- * already fired, then the catch block queued an error toast too — so
+ * already fired, then the catch block queued an error toast too, so
  * the user saw a green "Template added" AND a red "Failed to save
  * template" simultaneously, and the template never appeared.
  *
@@ -63,7 +63,7 @@ function setup() {
 	);
 }
 
-describe("useTemplateDialog.saveTemplate — toast ordering", () => {
+describe("useTemplateDialog.saveTemplate, toast ordering", () => {
 	beforeEach(() => {
 		showSnack.mockReset();
 		mockCall.mockReset();
@@ -101,7 +101,7 @@ describe("useTemplateDialog.saveTemplate — toast ordering", () => {
 			await result.current.saveTemplate();
 		});
 
-		// Only the ERROR toast fires — never a success toast for a
+		// Only the ERROR toast fires, never a success toast for a
 		// rejected write (the old bug showed both simultaneously).
 		const successCalls = showSnack.mock.calls.filter(
 			(call) => call[1] === "success",

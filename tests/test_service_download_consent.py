@@ -4,7 +4,7 @@ downloads on explicit user consent.
 Previously the IPC handler ``service.download_model`` called
 ``snapshot_download(...)`` (Whisper-family) and
 ``download_parakeet_weights()`` (Parakeet) with NO check of
-``config.huggingface_consent`` — the only consent gate lived in
+``config.huggingface_consent``, the only consent gate lived in
 ``TranscriptionEngine._pre_download_model`` which is only invoked
 from the engine load path, NOT the IPC download path.  Clicking
 "Download" on the Models page therefore phoned home to
@@ -21,7 +21,7 @@ These tests verify the fix is purely additive:
   consent dialog.
 
 - When ``huggingface_consent`` is True, the download IS invoked
-  (existing flow preserved — no behavioural regression).
+  (existing flow preserved, no behavioural regression).
 
 - The Qwen branch (which uses a local file path, not HuggingFace)
   and the unknown-model branch are exempt from the consent gate.
@@ -56,7 +56,7 @@ def _build_service(*, consent: bool) -> VoiceTyperService:
     ``consent`` is set as a REAL ``bool`` on the mock config (not a
     MagicMock auto-attribute) so the consent gate's
     ``bool(getattr(...))`` evaluates truthiness correctly.  This is
-    what production code sees — the field is declared as
+    what production code sees, the field is declared as
     ``huggingface_consent: bool = False`` in ``config.py``.
     """
     app = MagicMock()
@@ -90,7 +90,7 @@ class TestWhisperBranchConsentGate:
         assert result["consent_required"] is True
         assert "consent" in result["error"].lower()
         assert result["model"] == "tiny"
-        # snapshot_download must NOT have been invoked — not even the
+        # snapshot_download must NOT have been invoked, not even the
         # local_files_only cache probe.
         assert sd_calls == [], f"snapshot_download must not be called when consent=False; got: {sd_calls}"
         # A consent_required event must have been published so the
@@ -109,7 +109,7 @@ class TestWhisperBranchConsentGate:
 
         This is the regression guard required by CR-11's proposed fix:
         "the fix is purely additive (a consent gate before the download
-        call)" — it must NOT break the existing download flow when
+        call)", it must NOT break the existing download flow when
         consent IS given.
         """
         sd_calls: list[dict] = []
@@ -154,7 +154,7 @@ class TestParakeetBranchConsentGate:
         # asr_setup.download_parakeet_weights is imported locally
         # inside the parakeet branch (after the consent gate), so
         # patching the attribute on the asr_setup module is sufficient
-        # — the local ``from ... import`` will re-bind to this fake.
+        # , the local ``from ... import`` will re-bind to this fake.
         monkeypatch.setattr(
             "voice_typer.server.asr_setup.download_parakeet_weights",
             fake_download_parakeet_weights,
@@ -211,7 +211,7 @@ class TestConsentGateIsAdditive:
 
     def test_unknown_model_still_returns_error(self, captured_events):
         """An unknown model name still returns success=False without
-        invoking any download function — the gate is only on the
+        invoking any download function, the gate is only on the
         Whisper and Parakeet branches."""
         service = _build_service(consent=False)
         result = service.download_model("nonexistent-model")
@@ -223,7 +223,7 @@ class TestConsentGateIsAdditive:
 
     def test_qwen_branch_does_not_require_consent(self, captured_events, tmp_path):
         """Qwen uses a local file path (no HuggingFace call) so the consent
-        gate does not apply — even with consent=False, a cached Qwen model
+        gate does not apply, even with consent=False, a cached Qwen model
         still returns success=True."""
         service = _build_service(consent=False)
         service._app.config.qwen_model_path = str(tmp_path)
@@ -253,7 +253,7 @@ class TestConsentGateIsAdditive:
 
 class TestConsentGateDefensive:
     """if ``self._app.config`` is None (degenerate path), consent
-    defaults to False — safe default per GDPR Art. 6/13."""
+    defaults to False, safe default per GDPR Art. 6/13."""
 
     def test_missing_config_blocks_whisper_download(self, captured_events, monkeypatch):
         """When config is None, the gate treats consent as False and blocks."""

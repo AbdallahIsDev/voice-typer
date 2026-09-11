@@ -8,7 +8,7 @@ The bug (S2-CR-79 / finding #161)
 to the TCP client. If any of the following happens AFTER the
 snapshot+clear, the snapshotted events are silently lost:
 
-1. **First-write failure** (``TimeoutError`` / ``OSError`` — dead
+1. **First-write failure** (``TimeoutError`` / ``OSError``, dead
    client). The whole snapshot was cleared; the ``except`` block closed
    the client but did NOT re-merge the snapshot.
 2. **Drain-cap overflow**. The drain loop only writes the last 100
@@ -79,7 +79,7 @@ class TestRemergeOnWriteFailure:
         server._tcp_mode = True
         server._cached_shutting_down = False
 
-        # Pre-populate _pending_tcp with three entries — the snapshot
+        # Pre-populate _pending_tcp with three entries, the snapshot
         # will clear them, and the first write will fail (broken
         # socket). The re-merge must put them back.
         pending_snapshot = [
@@ -91,13 +91,13 @@ class TestRemergeOnWriteFailure:
 
         # Use a closed socketpair so the first write raises OSError.
         # ``socket.socketpair()`` (no family arg) uses AF_UNIX on POSIX
-        # and AF_INET on Windows — identical duplex-pipe semantics.
+        # and AF_INET on Windows, identical duplex-pipe semantics.
         srv, cli = socket.socketpair()
         try:
             tcp_client = _TCPLineIO(srv)
             server._tcp_client = tcp_client
             # Close both ends so write fails immediately. NOTE: release the
-            # makefile's io-ref FIRST — ``socket.close()`` is a no-op while
+            # makefile's io-ref FIRST: ``socket.close()`` is a no-op while
             # ``makefile()`` still holds a reference (``_io_refs > 0``), so
             # without this the fd stays open and the write silently succeeds
             # (the socket only becomes an error on the second close).
@@ -105,13 +105,13 @@ class TestRemergeOnWriteFailure:
             srv.close()
             cli.close()
 
-            # Send a push event — first write should fail with OSError.
+            # Send a push event, first write should fail with OSError.
             server._send({"type": "test_event", "id": 99})
 
             # the three pre-existing pending entries must still
             # be in _pending_tcp (re-merged after the write failure).
             # The new event itself is a dispatch response (has ``id``)
-            # and is NOT re-merged — only the pending snapshot is.
+            # and is NOT re-merged, only the pending snapshot is.
             assert len(server._pending_tcp) == 3, (
                 f"CR-79: expected 3 re-merged pending entries after write "
                 f"failure, got {len(server._pending_tcp)}: "
@@ -119,7 +119,7 @@ class TestRemergeOnWriteFailure:
             )
             for original, current in zip(pending_snapshot, server._pending_tcp, strict=False):
                 assert current == original, (
-                    f"CR-79: re-merged pending entry mismatch — expected {original!r}, got {current!r}"
+                    f"CR-79: re-merged pending entry mismatch, expected {original!r}, got {current!r}"
                 )
             # Client must have been marked dead.
             assert server._tcp_client is None, "CR-79: client should be marked dead after write failure"
@@ -164,13 +164,13 @@ class TestRemergeOnDrainCapOverflow:
         server._tcp_mode = True
         server._cached_shutting_down = False
 
-        # Build a snapshot of 105 entries — 5 older + 100 recent.
+        # Build a snapshot of 105 entries, 5 older + 100 recent.
         older_entries = [f'{{"old": {i}}}' for i in range(5)]
         recent_entries = [f'{{"recent": {i}}}' for i in range(100)]
         server._pending_tcp = older_entries + recent_entries
 
         # ``socket.socketpair()`` (no family arg) uses AF_UNIX on POSIX
-        # and AF_INET on Windows — identical duplex-pipe semantics.
+        # and AF_INET on Windows, identical duplex-pipe semantics.
         srv, cli = socket.socketpair()
         try:
             tcp_client = _TCPLineIO(srv)
@@ -193,7 +193,7 @@ class TestRemergeOnDrainCapOverflow:
             reader_thread = threading.Thread(target=reader, daemon=True)
             reader_thread.start()
 
-            # Send a push event — the 100 recent entries should drain,
+            # Send a push event, the 100 recent entries should drain,
             # the 5 older entries should be re-merged.
             server._send({"type": "test_event", "id": 42})
 
@@ -332,7 +332,7 @@ class TestRemergeOnShutdownShortCircuit:
         server._tcp_write_lock = threading.RLock()
         server._tcp_mode = True
         # The shutdown gate uses ``getattr(self, "_cached_shutting_down",
-        # False) is True`` — must be exactly ``True``.
+        # False) is True``, must be exactly ``True``.
         server._cached_shutting_down = True
 
         # Pre-populate _pending_tcp with entries that should survive.
@@ -343,14 +343,14 @@ class TestRemergeOnShutdownShortCircuit:
         server._pending_tcp = list(pending_snapshot)
 
         # ``socket.socketpair()`` (no family arg) uses AF_UNIX on POSIX
-        # and AF_INET on Windows — identical duplex-pipe semantics.
+        # and AF_INET on Windows, identical duplex-pipe semantics.
         srv, cli = socket.socketpair()
         try:
             tcp_client = _TCPLineIO(srv)
             server._tcp_client = tcp_client
 
             # Send a NON-allowlisted push event (no ``id`` field, type
-            # not in _SHUTDOWN_ALLOWLIST) — should hit the shutdown
+            # not in _SHUTDOWN_ALLOWLIST), should hit the shutdown
             # short-circuit branch.
             server._send({"type": "bubble_level", "level": 0.5})
 
@@ -361,7 +361,7 @@ class TestRemergeOnShutdownShortCircuit:
                 f"{len(server._pending_tcp)}: {server._pending_tcp!r}"
             )
             for original, current in zip(pending_snapshot, server._pending_tcp, strict=False):
-                assert current == original, f"CR-79: re-merged entry mismatch — expected {original!r}, got {current!r}"
+                assert current == original, f"CR-79: re-merged entry mismatch, expected {original!r}, got {current!r}"
             # Client must have been closed.
             assert server._tcp_client is None, "CR-79: client should be closed after shutdown short-circuit"
         finally:

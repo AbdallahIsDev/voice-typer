@@ -10,7 +10,7 @@
  * (line 173) swallowed logging failures. In packaged Electron builds,
  * stdout/stderr are closed → these `console.warn` calls are no-ops.
  * When logging silently degraded (disk full, perm regression, userData
- * path moved to read-only mount), there was ZERO durable trace — the
+ * path moved to read-only mount), there was ZERO durable trace, the
  * diagnostics meant to debug crashes were themselves silent.
  *
  * Post-fix: a bounded in-memory ring buffer (last 20 entries) captures
@@ -23,12 +23,12 @@
  *      records an entry to the ring buffer (operation:
  *      "appendLogLine").
  *   2. `appendLogLine` with a mocked `fs.chmodSync` failure records
- *      an entry (operation: "chmod 0o600") — the chmod failure is
+ *      an entry (operation: "chmod 0o600"), the chmod failure is
  *      a separate catch block inside the same try, so the append
  *      itself succeeds but the perms cache is left unset.
  *   3. `rotateIfNeeded` with a mocked `fs.truncateSync` failure records
  *      an entry (operation: "rotateIfNeeded").
- *   4. The ring buffer is bounded at 20 entries — the 21st failure
+ *   4. The ring buffer is bounded at 20 entries, the 21st failure
  *      evicts the oldest.
  *   5. `getLoggingHealth()` returns a shallow copy so callers can't
  *      mutate the internal buffer.
@@ -36,7 +36,7 @@
  *      orchestrator's "logging degraded since <timestamp>" surface
  *      relies on this).
  *   7. `appendLifecycleLine` (structuredLogger.ts) records an entry
- *      when its try block throws — proving the cross-module wiring.
+ *      when its try block throws, proving the cross-module wiring.
  *
  * The tests mock `electron` minimally (the rotation module doesn't
  * import `app` directly, but the structuredLogger module does via
@@ -49,7 +49,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Mock `electron` so `structuredLogger.ts`'s `app.getPath("userData")`
 // returns a deterministic tmp path. The rotation module itself doesn't
-// import `app` — only the structured logger does (via
+// import `app`, only the structured logger does (via
 // `lifecycleLogPath()`).
 vi.mock("electron", () => ({
 	app: {
@@ -115,7 +115,7 @@ describe("logging-health ring buffer: getLoggingHealth() captures failures", () 
 		expect(health[0]?.filePath).toBe(logPath);
 		expect(health[0]?.error).toContain("ENOSPC");
 		expect(health[0]?.error).toContain("no space left on device");
-		// The timestamp must be a valid ISO-8601 string — the
+		// The timestamp must be a valid ISO-8601 string, the
 		// orchestrator's "logging degraded since <timestamp>" surface
 		// parses it with `new Date(entry.timestamp)`.
 		const ts = new Date(health[0]?.timestamp ?? "");
@@ -128,7 +128,7 @@ describe("logging-health ring buffer: getLoggingHealth() captures failures", () 
 		const { appendLogLine, getLoggingHealth } = await import("../rotation");
 		// Mock `fs.chmodSync` to throw an EACCES error. The append itself
 		// succeeds (no mock on `appendFileSync`), but the perms-cache
-		// chmod fails — proving the chmod catch block records its own
+		// chmod fails, proving the chmod catch block records its own
 		// failure separately from the append catch block.
 		const chmodSpy = vi.spyOn(fs, "chmodSync").mockImplementation(() => {
 			const err = new Error(
@@ -156,7 +156,7 @@ describe("logging-health ring buffer: getLoggingHealth() captures failures", () 
 		// `rotateIfNeeded` enters the truncate branch (single-file
 		// policy truncates in place; it never renames).
 		fs.writeFileSync(logPath, "x".repeat(100), { mode: 0o644 });
-		// Mock `fs.truncateSync` to throw an EIO error — the kind of
+		// Mock `fs.truncateSync` to throw an EIO error, the kind of
 		// failure `rotateIfNeeded` catches.
 		const truncateSpy = vi.spyOn(fs, "truncateSync").mockImplementation(() => {
 			const err = new Error("EIO: I/O error") as NodeJS.ErrnoException;
@@ -177,19 +177,19 @@ describe("logging-health ring buffer: getLoggingHealth() captures failures", () 
 
 	it("the ring buffer is bounded at 20 entries (oldest evicted on overflow)", async () => {
 		const { appendLogLine, getLoggingHealth } = await import("../rotation");
-		// Mock `fs.appendFileSync` to always throw — every append
+		// Mock `fs.appendFileSync` to always throw, every append
 		// produces a ring-buffer entry.
 		const appendSpy = vi.spyOn(fs, "appendFileSync").mockImplementation(() => {
 			throw new Error("disk full");
 		});
 
-		// Trigger 25 failures — the buffer is bounded at 20.
+		// Trigger 25 failures, the buffer is bounded at 20.
 		for (let i = 0; i < 25; i++) {
 			appendLogLine(logPath, `line ${i}\n`, 1024 * 1024);
 		}
 
 		const health = getLoggingHealth();
-		// Exactly 20 entries — the 5 oldest were evicted.
+		// Exactly 20 entries, the 5 oldest were evicted.
 		expect(health.length).toBe(20);
 		// The most recent entry is the 25th failure.
 		expect(health[health.length - 1]?.error).toContain("disk full");
@@ -221,10 +221,10 @@ describe("logging-health ring buffer: getLoggingHealth() captures failures", () 
 		snapshot1.pop();
 		snapshot1.pop();
 
-		// The internal buffer is unaffected at the array level — a
+		// The internal buffer is unaffected at the array level, a
 		// fresh snapshot still has exactly 1 entry. (The entry objects
 		// themselves are shared by reference per the docstring:
-		// "entries themselves are NOT frozen — callers should treat
+		// "entries themselves are NOT frozen, callers should treat
 		// them as read-only." This test deliberately does NOT mutate
 		// entry fields.)
 		const snapshot2 = getLoggingHealth();
@@ -238,13 +238,13 @@ describe("logging-health ring buffer: getLoggingHealth() captures failures", () 
 		// Cross-module wiring: `appendLifecycleLine` (structuredLogger)
 		// delegates to `appendLogLine` (rotation), whose failure path
 		// records to the shared health ring via `recordLoggingFailure`
-		// — readable back through `getLoggingHealth` (rotation).
+		//, readable back through `getLoggingHealth` (rotation).
 		//
 		// NOTE: `lifecycleLogPath()` deliberately swallows `app.getPath`
 		// errors and falls back to cwd (logging must keep working), so
 		// `appendLifecycleLine`'s own catch is a pure safety net. The
 		// observable failure contract is the WRITE failure inside
-		// `appendLogLine` — force it by making `fs.appendFileSync`
+		// `appendLogLine`, force it by making `fs.appendFileSync`
 		// throw for the lifecycle-log path.
 		vi.resetModules();
 		const rotationMod = await import("../rotation");
@@ -317,15 +317,15 @@ describe("logging-health ring buffer: getLoggingHealth() captures failures", () 
 	it("recordLoggingFailure tolerates hostile error objects (never throws, best-effort record)", async () => {
 		// The record function is wrapped in try/catch so a hostile
 		// error object can never crash the caller. The contract is
-		// "never throws" — the entry may or may not be added depending
+		// "never throws", the entry may or may not be added depending
 		// on whether the try block reaches the `push` before the
 		// error stringification fails.
 		//
 		// This test verifies the "never throws" half of the contract
 		// with a hostile error object whose getters throw. (A plain
 		// object with throwing getters doesn't actually trigger the
-		// getters — `String(non-Error)` returns `"[object Object]"`
-		// without touching them — so we use a real Error subclass
+		// getters, `String(non-Error)` returns `"[object Object]"`
+		// without touching them, so we use a real Error subclass
 		// with overridden getters to force the `instanceof Error`
 		// branch and trigger the getters.)
 		const { recordLoggingFailure, getLoggingHealth } = await import(
@@ -342,7 +342,7 @@ describe("logging-health ring buffer: getLoggingHealth() captures failures", () 
 		}
 		const hostileError: unknown = new HostileError();
 
-		// The record call must not throw — even though accessing
+		// The record call must not throw, even though accessing
 		// `hostileError.name` / `hostileError.message` (which the
 		// record function does via `${error.name}: ${error.message}`)
 		// throws internally. The try/catch swallows the throw so the

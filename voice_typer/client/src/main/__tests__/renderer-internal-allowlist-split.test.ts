@@ -109,7 +109,7 @@ describe("renderer-internal-allowlist-split: renderer-vs-internal allowlist spli
 				);
 
 				// The new gate runs after the allowlist gate but
-				// before the socket write — so no byte should hit
+				// before the socket write, so no byte should hit
 				// the wire and no pendingRequests entry leak.
 				expect(mocks.socketWrite).not.toHaveBeenCalled();
 				expect(state.pendingRequests.size).toBe(0);
@@ -119,7 +119,7 @@ describe("renderer-internal-allowlist-split: renderer-vs-internal allowlist spli
 		it("uses the SAME 'Disallowed IPC command' error wording as the allowlist gate (no information leak)", async () => {
 			// A compromised renderer must not be able to distinguish
 			// "command not in allowlist" from "command is internal-
-			// only" — both surface as the same generic error.
+			// only", both surface as the same generic error.
 			const allowlistErr = await sendToPython(
 				{ type: "totally_made_up_command" },
 				12345,
@@ -135,7 +135,7 @@ describe("renderer-internal-allowlist-split: renderer-vs-internal allowlist spli
 				"Disallowed IPC command: totally_made_up_command",
 			);
 			expect(internalErr).toBe("Disallowed IPC command: quit_app");
-			// Both share the same prefix — the renderer can't tell
+			// Both share the same prefix, the renderer can't tell
 			// which rejection path fired.
 			expect(allowlistErr?.startsWith("Disallowed IPC command:")).toBe(true);
 			expect(internalErr?.startsWith("Disallowed IPC command:")).toBe(true);
@@ -144,7 +144,7 @@ describe("renderer-internal-allowlist-split: renderer-vs-internal allowlist spli
 
 	describe("renderer callers can still invoke renderer-reachable commands", () => {
 		it("forwards get_config from a renderer to the socket", async () => {
-			// Don't await — the promise won't resolve until a reply
+			// Don't await, the promise won't resolve until a reply
 			// arrives. We just want to assert the side effects.
 			void sendToPython({ type: "get_config" }, 12345);
 

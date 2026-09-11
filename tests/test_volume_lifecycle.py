@@ -6,7 +6,7 @@ the ``VolumeDucker`` correctly at each of the six wiring points
 described in ``docs/architecture/auto-volume-duck.md`` §7.
 
 These tests use a ``FakeBackend`` injected into the app's
-``_volume_ducker`` so they run on any platform — no real audio
+``_volume_ducker`` so they run on any platform, no real audio
 hardware or platform-specific library (pycaw / pyobjc / pactl) is
 required.  The recorder is mocked so we don't need a microphone.
 
@@ -68,7 +68,7 @@ def mock_heavy_imports(monkeypatch):
     monkeypatch.setattr("atexit.register", lambda *a, **kw: None)
 
     # Force PynputHotkey backend so tests can mock pynput.keyboard.GlobalHotKeys.
-    # Patch the dispatcher's own binding — HotkeyDispatcher resolves the
+    # Patch the dispatcher's own binding, HotkeyDispatcher resolves the
     # factory from its module namespace, not through the app module.
     from voice_typer.server.hotkeys import PynputHotkey
 
@@ -82,7 +82,7 @@ def mock_heavy_imports(monkeypatch):
 
 
 class FakeBackend:
-    """In-memory VolumeBackend — tracks every call for assertions.
+    """In-memory VolumeBackend, tracks every call for assertions.
 
     Implements the same surface as
     ``voice_typer.server.volume_backend.VolumeBackend`` but without
@@ -234,7 +234,7 @@ class TestStartDictationDucksVolume:
 
         app._start_dictation()
         # Ducking runs on the DictationStart worker thread (off the
-        # hotkey thread) — wait for the worker to complete before
+        # hotkey thread), wait for the worker to complete before
         # asserting on the backend calls.
         start_event = getattr(app.recording, "_start_complete_event", None)
         assert start_event is not None
@@ -252,7 +252,7 @@ class TestStartDictationDucksVolume:
 
         app._start_dictation()
 
-        # No fade calls — ducking is disabled
+        # No fade calls, ducking is disabled
         assert backend.fade_calls == []
         assert not app._volume_ducker.is_ducked
 
@@ -273,7 +273,7 @@ class TestStartDictationDucksVolume:
                 setattr(app.recorder, "recording", True),
             )
         )
-        # _duck_volume → backend.fade_to — we hook that to record the order
+        # _duck_volume → backend.fade_to, we hook that to record the order
         original_fade = backend.fade_to
 
         def spy_fade(target, duration_ms=200, steps=10):
@@ -283,7 +283,7 @@ class TestStartDictationDucksVolume:
         backend.fade_to = spy_fade
 
         app._start_dictation()
-        # Ducking runs on the DictationStart worker thread — wait for
+        # Ducking runs on the DictationStart worker thread, wait for
         # the worker before asserting the ordering.
         start_event = getattr(app.recording, "_start_complete_event", None)
         assert start_event is not None
@@ -307,7 +307,7 @@ class TestStopDictationRestoresVolume:
         app.recorder.recording = True
         app.recorder.stop = MagicMock(return_value=np.ones(16000, dtype=np.float32))
         # Mock the ACTIVE transcriber (not the deprecated ``transcriber``
-        # attribute) — the production dictation pipeline calls
+        # attribute), the production dictation pipeline calls
         # ``app.models.active_transcriber()`` which returns the
         # registry's active backend. Without an explicit override the
         # fixture's faster_whisper.WhisperModel is a MagicMock and its
@@ -384,7 +384,7 @@ class TestStopDictationRestoresVolume:
         app._stop_dictation()
         _wait_for_busy_clear(app)
 
-        # No fade calls — restore is gated on volume_duck_enabled
+        # No fade calls, restore is gated on volume_duck_enabled
         assert backend.fade_calls == []
 
 
@@ -415,7 +415,7 @@ class TestCancelDictationRestoresVolume:
         app.recorder.recording = True
         app.recorder.discard = MagicMock()
 
-        # Should not raise — _background_audio_monitor is gone
+        # Should not raise, _background_audio_monitor is gone
         app._cancel_dictation()
 
         # discard should have been called (proves we got past the
@@ -437,7 +437,7 @@ class TestCancelDictationRestoresVolume:
 
 
 class TestQuitRestoresVolumeInstantly:
-    """§7.5: quit() must restore volume with fade_ms=0 (no fade — fast exit)."""
+    """§7.5: quit() must restore volume with fade_ms=0 (no fade, fast exit)."""
 
     def test_quit_restores_with_zero_fade(self, app_with_fake_ducker):
         app, backend = app_with_fake_ducker
@@ -476,7 +476,7 @@ class TestRestartRestoresBeforeExiting:
     exiting so the user's audio isn't left ducked while Electron spawns
     the replacement Python process (which can take a few seconds for
     the Python interpreter + torch import).  Previously this asserted
-    that restore happened before ``subprocess.Popen`` — but
+    that restore happened before ``subprocess.Popen``, but
     fix-restart-tcp removed the Popen call entirely (Electron is now
     the sole spawner), so the assertion now checks that restore
     happens before ``sys.exit(0)``."""
@@ -526,7 +526,7 @@ class TestRestartRestoresBeforeExiting:
         assert "restore" in events, "restart_app() should have called restore"
         assert "sys.exit" in events, "restart_app() should have called sys.exit"
         assert events.index("restore") < events.index("sys.exit"), f"restore must precede sys.exit; got {events}"
-        # And restore must use fade_ms=0 (instant — no ping-pong window)
+        # And restore must use fade_ms=0 (instant, no ping-pong window)
         assert (0.5, 0) in backend.fade_calls
 
 
@@ -618,7 +618,7 @@ class TestPerSessionDuckGatedOnSupport:
         app.recorder.start = MagicMock(side_effect=lambda: setattr(app.recorder, "recording", True))
 
         app._start_dictation()
-        # Ducking runs on the DictationStart worker thread — wait for
+        # Ducking runs on the DictationStart worker thread, wait for
         # the worker before asserting on the backend calls.
         start_event = getattr(app.recording, "_start_complete_event", None)
         assert start_event is not None
@@ -631,7 +631,7 @@ class TestPerSessionDuckGatedOnSupport:
     def test_per_session_attempted_when_supported(self, monkeypatch, tmp_config_dir):
         """UX-2: per-session ducking was REMOVED. Even when the backend
         supports it AND the config says True, the app must NOT attempt
-        per-session ducking — it always uses master-volume ducking
+        per-session ducking, it always uses master-volume ducking
         cross-platform."""
         from voice_typer.server.app import VoiceTyperApp
 
@@ -643,11 +643,11 @@ class TestPerSessionDuckGatedOnSupport:
         instance = VoiceTyperApp()
         instance.config.esc_cancel_enabled = False
         # Keep the real streaming pipeline out of this test (mock
-        # recorder — same convention as the app_with_fake_ducker
+        # recorder, same convention as the app_with_fake_ducker
         # fixture and test_recording_lifecycle_threaded.py).
         instance.config.streaming_transcription = False
         # (revised): RecordingController.start() enforces
-        # voice_biometric_consent — tests that exercise the recording
+        # voice_biometric_consent, tests that exercise the recording
         # path must explicitly opt in.
         instance.config.voice_biometric_consent = True
         instance.models.transcriber = MagicMock()
@@ -672,13 +672,13 @@ class TestPerSessionDuckGatedOnSupport:
         # regardless of any legacy on-disk value ().
 
         instance._start_dictation()
-        # Ducking runs on the DictationStart worker thread — wait for
+        # Ducking runs on the DictationStart worker thread, wait for
         # the worker before asserting on the backend calls.
         start_event = getattr(instance.recording, "_start_complete_event", None)
         assert start_event is not None
         assert start_event.wait(timeout=5.0), "start worker must complete so the duck lands"
 
-        # per-session duck should NOT be attempted — master fade instead
+        # per-session duck should NOT be attempted, master fade instead
         assert backend.duck_session_calls == [], "per-session ducking was removed (UX-2); master fade should be used"
         assert len(backend.fade_calls) > 0, "master fade_to should have been called"
 

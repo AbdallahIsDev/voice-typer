@@ -7,13 +7,13 @@
  *
  * Two concerns live here:
  *
- *  1. ``validateHotkey`` — the UI wrapper that adds ``"single"`` /
+ *  1. ``validateHotkey``, the UI wrapper that adds ``"single"`` /
  *     ``"combo"`` mode semantics on top of the shared structural
  *     validator in ``hotkey-validation.ts`` (which handles reserved
  *     shortcuts, structural, normalization). Used by
  *     ``HotkeyPicker.tsx`` and the test suite.
  *
- *  2. The capture-session state machine — a pure ``useReducer``-style
+ *  2. The capture-session state machine, a pure ``useReducer``-style
  *     reducer (no side effects) extracted from ``useHotkeyCapture.ts``
  *     so it can be unit-tested in isolation. The hook dispatches
  *     actions; timers / DOM listeners / IPC live in the hook, NOT here.
@@ -26,13 +26,13 @@
  * IDs, container DOM ref, unsupported-combo label).
  *
  * Depends on:
- *  - ``hotkey-validation`` — shared validation API (detectPlatform,
+ *  - ``hotkey-validation``, shared validation API (detectPlatform,
  *    isReserved, validateHotkey as validateHotkeyShared).
- *  - ``hotkey-keymap`` — IS_MAC and MODIFIER_KEYS (for the mode-aware
+ *  - ``hotkey-keymap``, IS_MAC and MODIFIER_KEYS (for the mode-aware
  *    Fn-on-macOS-only and combo-must-end-with-non-modifier rules).
- *  - ``hotkey-format`` — formatHotkey / formatHotkeyLabel (used to
+ *  - ``hotkey-format``, formatHotkey / formatHotkeyLabel (used to
  *    build error-message labels and the live "Holding:" label).
- *  - ``./checkHotkeyConflict`` — duplicate-across-pickers check used
+ *  - ``./checkHotkeyConflict``, duplicate-across-pickers check used
  *    by ``tryCommitHotkey``.
  */
 
@@ -161,7 +161,7 @@ export const CAPTURE_TIMEOUT_SECONDS = 30;
 /**
  * Canonical modifier order. Modifiers are stored in the session set in
  * insertion order, but the captured hotkey must be identical regardless
- * of press order — so we always emit modifiers in this canonical order
+ * of press order, so we always emit modifiers in this canonical order
  * before committing.
  */
 export const CANONICAL_MOD_ORDER = [
@@ -241,7 +241,7 @@ function buildHeldModifiersLabelFromAction(modifiers: string): string {
  *   - ``KeyDown``/``KeyUp`` are no-ops when not capturing (the hook
  *     also short-circuits via ``capturingRef``, but the reducer guards
  *     defensively in case a stale dispatch slips through).
- *   - ``CommitFailure`` / ``SetError`` only touch ``error`` — they do
+ *   - ``CommitFailure`` / ``SetError`` only touch ``error``, they do
  *     NOT change ``status``. The user stays in capture mode after a
  *     validation error so they can try again without re-clicking
  *     Record.
@@ -272,7 +272,7 @@ export function hotkeyCaptureReducer(
 				heldModifiersLabel: buildHeldModifiersLabelFromAction(action.modifiers),
 			};
 		case "EscPressed":
-			// no visible state change here — the ESC
+			// no visible state change here, the ESC
 			// press is tracked in ``escPressedRef`` (genuine mutable
 			// state) and the cancel happens on ESC release via
 			// ``EscReleased``.
@@ -330,14 +330,14 @@ export function hotkeyCaptureReducer(
  *
  * @param newHotkey       The hotkey string to validate (e.g. ``"<ctrl>+<shift>+v"``).
  * @param opts.mode       ``"single"`` (dictation key) or ``"combo"`` (re-paste etc.).
- * @param opts.value      The picker's current value — re-selecting the same
+ * @param opts.value      The picker's current value, re-selecting the same
  *                        value is allowed (conflict check skips it).
  * @param opts.occupiedHotkeys  Hotkey strings already claimed by sibling pickers.
  * @param opts.t          The i18n ``t`` function.
  * @param opts.resetSession  Hint flag for the caller: ``true`` for capture
  *                        sessions (call ``resetCaptureSession()`` after),
  *                        ``false`` for the preset dropdown (no session to
- *                        reset). Currently unused inside this helper — the
+ *                        reset). Currently unused inside this helper, the
  *                        caller uses it to decide whether to reset.
  */
 export function tryCommitHotkey(

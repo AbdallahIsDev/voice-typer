@@ -5,7 +5,7 @@
 Accepted
 
 **Date**: 2026-07-03
-**Related**: ARCH-REFAC-004 section in `docs/ARCHITECTURE.md`, ADR 0009 (audio filter chain architecture — unrelated domain but shares the "thin seam + protocol" approach)
+**Related**: ARCH-REFAC-004 section in `docs/ARCHITECTURE.md`, ADR 0009 (audio filter chain architecture, unrelated domain but shares the "thin seam + protocol" approach)
 
 ---
 
@@ -17,8 +17,8 @@ inside its own constructor. This produced tight coupling between the
 IPC dispatch layer and the service implementation:
 
 - **IPC tests could not isolate dispatch from service.** Every test
-  that constructed `IPCServer(app)` — and there are **20+ such test
-  files** across `tests/` — ended up with a real `VoiceTyperService`
+  that constructed `IPCServer(app)` And there are **20+ such test
+  files** across `tests/` Ended up with a real `VoiceTyperService`
   wrapping whatever `app` was passed (often a `MagicMock`). Bugs in
   the service layer surfaced as IPC test failures, and IPC dispatch
   behavior could not be exercised in isolation.
@@ -39,7 +39,7 @@ Round 1 of the refactor effort explicitly skipped introducing a DI
 seam here. The reasoning, recorded in the verification findings, was:
 
 - **Severity was low.** The tight coupling is a testability smell,
-  not a correctness bug — production behavior is unaffected.
+  not a correctness bug: production behavior is unaffected.
 - **The fix looked invasive.** A naive constructor-injection-only
   refactor (`IPCServer(app, service)`) would have forced every one of
   the 20+ test files that call `IPCServer(app)` to change in lockstep,
@@ -66,7 +66,7 @@ constructor** and a **canonical factory** for production.
 Two `typing.Protocol` classes are defined in
 `voice_typer/server/providers.py`:
 
-- **`AppProtocol`** — the structural type for the `app` object
+- **`AppProtocol`**: the structural type for the `app` object
   consumed by `IPCServer` and its handler mixins. Members are the
   public domain objects (`config`, `history_db`, `models`,
   `recording`, `hotkeys`, `recorder`, `tray`), the private attributes
@@ -89,7 +89,7 @@ Two `typing.Protocol` classes are defined in
   private-attribute access inside the service layer. Handlers
   reaching back into `_audio_processor` / `_volume_ducker` /
   `_config_mutation_lock` directly is now a smell that this ADR
-  explicitly prohibits — the introspection test in §2.5 fails if any
+  explicitly prohibits: the introspection test in §2.5 fails if any
   such access is reintroduced.
 
   **CR-59 update**: `_vocabulary_automation` and `_waveform_bubble`
@@ -97,7 +97,7 @@ Two `typing.Protocol` classes are defined in
   sites currently read them via `getattr(self.app, "_X", None)`. The
   introspection test in §2.5 was strengthened to catch that
   string-form `getattr` access (see §2.5 below).
-- **`ServiceProtocol`** — the structural type for the `service`
+- **`ServiceProtocol`**: the structural type for the `service`
   object consumed by the IPC handler mixins. This enumerates the full
   `VoiceTyperService` public method surface (status, dictation,
   config, history, microphone, models, vocabulary, templates,
@@ -109,7 +109,7 @@ member types. This is deliberate:
 1. The protocol module does not import every concrete dependency
    (avoiding import cycles and a heavy import surface).
 2. Test doubles (`MagicMock`, custom fakes) trivially satisfy the
-   protocols via structural typing — no inheritance required.
+   protocols via structural typing: no inheritance required.
 3. The protocols capture **shape**, not type identity, which is the
    whole point of structural subtyping.
 
@@ -128,11 +128,11 @@ def __init__(self, app, service: Optional[Any] = None) -> None:
         self.service = VoiceTyperService(app)  # Backward compat
 ```
 
-- **`IPCServer(app)`** — backward-compatible path. Used by all 20+
+- **`IPCServer(app)`**: backward-compatible path. Used by all 20+
   existing test files and the production entry point. Constructs a
   real `VoiceTyperService(app)` exactly as before. No call site needs
   to change.
-- **`IPCServer(app, service=fake_service)`** — DI path. Used by tests
+- **`IPCServer(app, service=fake_service)`**: DI path. Used by tests
   that want to exercise the IPC dispatch layer in isolation. The
   injected `service` is stored verbatim on `self.service`; no
   `VoiceTyperService` is constructed.
@@ -140,7 +140,7 @@ def __init__(self, app, service: Optional[Any] = None) -> None:
 `app` is annotated as `Any` (not `AppProtocol`) on the constructor
 signature so existing `MagicMock`-based test fixtures keep working
 without importing the protocol module. `AppProtocol` is structural —
-a `MagicMock` already satisfies it — but annotating the parameter
+a `MagicMock` already satisfies it: but annotating the parameter
 with `AppProtocol` would force every test file that constructs
 `IPCServer(app)` to add an import, which is unnecessary migration
 burden for no behavioral gain.
@@ -165,7 +165,7 @@ Behavior today is identical to `IPCServer(app)`: a real
 that future wiring changes (logging, metrics, feature flags, an
 alternate service implementation) live in one place rather than being
 threaded through every call site. The factory intentionally does
-**not** accept a `service` parameter — tests that want DI should call
+**not** accept a `service` parameter: tests that want DI should call
 `IPCServer(app, service=fake)` directly, keeping the production path
 and the test path visually distinct.
 
@@ -173,11 +173,11 @@ and the test path visually distinct.
 
 `tests/fixtures/ipc_test_helpers.py` provides ready-made fakes:
 
-- `make_fake_app()` — a `MagicMock` configured with every attribute
+- `make_fake_app()` A `MagicMock` configured with every attribute
   `AppProtocol` requires.
-- `make_fake_service()` — a `MagicMock` satisfying `ServiceProtocol`
+- `make_fake_service()` A `MagicMock` satisfying `ServiceProtocol`
   with sensible default return values for the most-called methods.
-- `make_ipc_server_with_fakes()` — returns
+- `make_ipc_server_with_fakes()` Returns
   `(server, fake_app, fake_service)` for tests exercising `IPCServer`
   in isolation.
 
@@ -189,15 +189,15 @@ collects every `self.app.<name>` and `self.service.<name>` access,
 then asserts each one is declared on the corresponding protocol
 (`test_app_protocol_lists_all_attributes_used_by_handlers`). If a
 future handler reads `self.app.new_field` without `new_field` being
-declared on `AppProtocol`, the introspection test fails — forcing an
+declared on `AppProtocol`, the introspection test fails: forcing an
 explicit decision about whether to widen the protocol (accepted
 surface growth) or refactor the handler to go through the service
-layer (preferred — the protocol surface should stay small).
+layer (preferred: the protocol surface should stay small).
 
 **String-form `getattr` bypass (CR-59)**: the original AST walk only
 inspected `ast.Attribute` nodes (i.e. direct `self.app.X` access).
 A handler could silently bypass the introspection test by writing
-`getattr(self.app, "X", None)` instead — the `ast.Attribute` walk
+`getattr(self.app, "X", None)` instead, the `ast.Attribute` walk
 doesn't see string-form attribute access, so a new private field
 read via `getattr` would not trigger drift detection. Four handler
 sites were doing exactly this (`_vocabulary_automation` ×3,
@@ -238,8 +238,8 @@ layer.
 
 - **Two construction patterns coexist.** `IPCServer(app)` (legacy /
   production) and `IPCServer(app, service=fake)` (DI / test) both
-  work. This is **intentional backward compatibility** — documented
-  here and in the migration table in `ARCHITECTURE.md` — but it means
+  work. This is **intentional backward compatibility**, documented
+  here and in the migration table in `ARCHITECTURE.md` But it means
   a reader of `IPCServer.__init__` must understand both paths. The
   alternative (forcing all callers to pass `service` explicitly) was
   rejected as too invasive; see §4.
@@ -251,8 +251,8 @@ layer.
 - **Protocols use `Any` for member types.** A future contributor
   reading `AppProtocol.config: Any` gets less information than
   `config: Config` would provide. The trade-off is that the protocol
-  module avoids importing every concrete dependency — keeping it
-  lightweight and cycle-free — and the docstrings on each member
+  module avoids importing every concrete dependency, keeping it
+  lightweight and cycle-free: and the docstrings on each member
   point to the concrete class.
 
 ### 3.3 Neutral
@@ -264,7 +264,7 @@ layer.
   call sites.
 - **`ServiceProtocol` enumerates the full service surface.** This is
   a large protocol (~50 methods), but it mirrors the existing
-  `VoiceTyperService` public surface 1:1 — no new surface is being
+  `VoiceTyperService` public surface 1:1, no new surface is being
   invented, just documented.
 
 ---
@@ -282,7 +282,7 @@ layer.
 2. **Constructor injection only (remove backward-compat
    `IPCServer(app)`).** Rejected. Would force every one of the 20+
    test files that currently call `IPCServer(app)` to be edited in
-   lockstep — a large, mechanical, review-heavy diff for a
+   lockstep: a large, mechanical, review-heavy diff for a
    low-severity improvement. The backward-compatible `service=None`
    default keeps the seam purely additive.
 
@@ -312,15 +312,15 @@ layer.
 
 ## 5. References
 
-- `voice_typer/server/providers.py` — defines `AppProtocol`,
+- `voice_typer/server/providers.py` Defines `AppProtocol`,
   `ServiceProtocol`, and `build_ipc_server`.
-- `voice_typer/server/ipc_server.py` — `IPCServer.__init__` with the
+- `voice_typer/server/ipc_server.py` `IPCServer.__init__` with the
   optional `service` parameter; `main()` calls `build_ipc_server`.
-- `tests/test_di_providers.py` — protocol-drift regression test
+- `tests/test_di_providers.py` Protocol-drift regression test
   (`test_app_protocol_lists_all_attributes_used_by_handlers`).
-- `tests/fixtures/ipc_test_helpers.py` — `make_fake_app`,
+- `tests/fixtures/ipc_test_helpers.py` `make_fake_app`,
   `make_fake_service`, `make_ipc_server_with_fakes`.
-- ARCH-REFAC-004 section in `docs/ARCHITECTURE.md` — operational
+- ARCH-REFAC-004 section in `docs/ARCHITECTURE.md` Operational
   documentation including the migration table.
 
 ---

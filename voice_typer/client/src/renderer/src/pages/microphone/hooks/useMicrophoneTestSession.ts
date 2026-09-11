@@ -12,21 +12,21 @@
 //(1-C Finding 8): ``startTest`` / ``stopTest`` /
 // ``selectMicrophone`` are wrapped in ``useCallback`` with their actual
 // deps so the ``microphone_test_complete`` subscription and the
-// countdown timer can capture them directly — the ``stopTestRef``
+// countdown timer can capture them directly, the ``stopTestRef``
 // indirection is no longer needed.
 //
 // Inputs from sibling hooks:
 // - ``setLevel`` / ``setPeak`` / ``setMicMonitoring`` (owned by
-//   ``useMicrophoneLevelMonitor``) — used to reset the meter on test
+//   ``useMicrophoneLevelMonitor``), used to reset the meter on test
 //   start / stop / mic-change.
-// - ``stopPlayback`` (owned by ``useMicrophonePlayback``) — called at
+// - ``stopPlayback`` (owned by ``useMicrophonePlayback``), called at
 //   the start of ``startTest`` to pause any playing test audio (the
 //   prior implementation relied on the unmount-cleanup effect pausing
 //   audio on the ``testRunning`` transition; that effect now lives in
 //   the playback hook and fires only on unmount, so we pause
 //   explicitly here to preserve the behaviour).
 // - ``selectMicrophoneRef`` (owned by the page, shared with
-//   ``useMicrophoneData``) — assigned the latest stable
+//   ``useMicrophoneData``), assigned the latest stable
 //   ``selectMicrophone`` closure so the data hook's
 //   ``microphones_changed`` hot-swap handler can invoke it.
 
@@ -60,7 +60,7 @@ import type {
 
 /**
  * Fixed microphone-test recording duration, in seconds. The test is
- * permanently 10 seconds — there is no user-facing configurability.
+ * permanently 10 seconds, there is no user-facing configurability.
  * Single source of truth for the ``microphone_test_start`` payload and
  * the countdown fallback; the backend independently clamps to
  * [1.0, 60.0].
@@ -68,16 +68,16 @@ import type {
 export const MICROPHONE_TEST_DURATION_SEC = 10;
 
 // Module-level cache for the last-test recording + quality
-// verdict — mirrors the ``_cachedMicrophones`` / ``_cachedConfig``
+// verdict, mirrors the ``_cachedMicrophones`` / ``_cachedConfig``
 // pattern in ``useMicrophoneData``. Persists across page navigations so
 // a user who runs a mic test, navigates to the Models page to download
 // a model, then returns to the Microphone page sees their previous
 // test's recording + verdict WITHOUT having to re-run the test (which
-// would otherwise be lost — the test audio + quality were React-state
+// would otherwise be lost, the test audio + quality were React-state
 // only, cleared on unmount). The cache is invalidated whenever:
 //   • ``startTest`` runs (a new test supersedes the old one), or
 //   • ``selectMicrophone`` picks a different mic (the cached recording
-//     was for a DIFFERENT mic — keeping it would be misleading A/B
+//     was for a DIFFERENT mic, keeping it would be misleading A/B
 //     comparison material).
 let _cachedTestAudioBase64: string | null = null;
 let _cachedRawAudioBase64: string | null = null;
@@ -89,7 +89,7 @@ let _cachedTestTranscriptionUnavailable: boolean = false;
 /**
  * Reset the module-level test cache. Exported for tests + for the
  * session hook's own use when invalidating on a mic switch. The cached
- * recordings are tied to the PREVIOUS mic + filter config — keeping
+ * recordings are tied to the PREVIOUS mic + filter config, keeping
  * them across a mic switch would let the user "play" the wrong
  * recording against the wrong mic (mismatched A/B).
  */
@@ -134,7 +134,7 @@ function fetchTestAudioFileDeduped(
 /**
  * Fetch a persisted mic-test WAV via the chunked file-reference IPC
  * transport and return its full base64 payload (playback keeps using
- * data URIs, so only the TRANSPORT is chunked — the assembled result
+ * data URIs, so only the TRANSPORT is chunked, the assembled result
  * shape is unchanged).
  *
  * The backend persists each completed test's WAVs on disk precisely
@@ -165,7 +165,7 @@ async function fetchTestAudioFile(
 	return parts.join("");
 }
 
-/** Type of the ``t()`` i18n function — accepts a key + optional params. */
+/** Type of the ``t()`` i18n function, accepts a key + optional params. */
 type TFunction = (key: string, params?: Record<string, string>) => string;
 
 /** Type of the ``showSnack`` toast function (matches ``useSnackbar``). */
@@ -176,7 +176,7 @@ type ShowSnack = (
 ) => void;
 
 interface UseMicrophoneTestSessionOptions {
-	/** ``call`` from ``usePython()`` — passed in so the composition hook owns the single bridge subscription. */
+	/** ``call`` from ``usePython()``, passed in so the composition hook owns the single bridge subscription. */
 	call: PythonCall;
 	/** Current voice-typer config. */
 	config: VoiceTyperConfig | null;
@@ -184,7 +184,7 @@ interface UseMicrophoneTestSessionOptions {
 	microphones: MicrophoneDevice[];
 	/** Config setter (used by ``selectMicrophone`` for the optimistic update). */
 	setConfig: Dispatch<SetStateAction<VoiceTyperConfig | null>>;
-	/** Config updater — kept for parity with the prior signature; not used directly here. */
+	/** Config updater, kept for parity with the prior signature; not used directly here. */
 	updateConfig: (updates: Partial<VoiceTyperConfig>) => void;
 	/** Snackbar toaster (passed in so the hook is testable without the React context). */
 	showSnack: ShowSnack;
@@ -196,7 +196,7 @@ interface UseMicrophoneTestSessionOptions {
 	setPeak: Dispatch<SetStateAction<number>>;
 	/** micMonitoring setter from ``useMicrophoneLevelMonitor``. */
 	setMicMonitoring: Dispatch<SetStateAction<boolean>>;
-	/** ``stopPlayback`` from ``useMicrophonePlayback`` — called at startTest to pause any playing audio. */
+	/** ``stopPlayback`` from ``useMicrophonePlayback``, called at startTest to pause any playing audio. */
 	stopPlayback: () => void;
 	/**
 	 * Ref-to-latest-``testRunning`` flag owned by the composition hook
@@ -216,7 +216,7 @@ interface UseMicrophoneTestSessionOptions {
 	selectMicrophoneRef?: RefObject<(micId: string | null) => Promise<void>>;
 	// NOTE: the former ``onOpenPrivacySettings`` prop was REMOVED when
 	// the consent-required snackbar was replaced by the unified
-	// point-of-use consent dialog (ConsentGateDialog) — the dialog's
+	// point-of-use consent dialog (ConsentGateDialog), the dialog's
 	// "Open Settings" action navigates itself via the consentGate
 	// store, so the per-hook callback was dead code. See
 	// consentGate.ts.
@@ -255,13 +255,13 @@ export function useMicrophoneTestSession({
 	selectMicrophoneRef,
 }: UseMicrophoneTestSessionOptions): UseMicrophoneTestSessionResult {
 	// callRef mirror (Home.tsx pattern): the unmount/transition cleanup
-	// effect below must not depend on the `call` identity — a test mock
+	// effect below must not depend on the `call` identity, a test mock
 	// handing out a fresh `call` per render would re-fire it (OOM loop
 	// class). ``callRef.current`` is read at cleanup time instead.
 	const callRef = useLatestRef(call);
 	// ``updateConfig`` is part of the public session-hook signature
 	// for parity with the prior ``useMicrophoneTest`` API but is not
-	// used directly here — preset / config-change handlers live in
+	// used directly here, preset / config-change handlers live in
 	// the composition hook. Reference it to satisfy exhaustive-deps
 	// lint without making it a runtime dep.
 	void updateConfig;
@@ -272,7 +272,7 @@ export function useMicrophoneTestSession({
 	// cache so navigating away from the Microphone page and back
 	// restores the last test's recording + verdict. The cache is
 	// invalidated on startTest (a new test) and on selectMicrophone
-	// (mic switch — the cached recording is for a different mic).
+	// (mic switch, the cached recording is for a different mic).
 	const [testAudioBase64, setTestAudioBase64] = useState<string | null>(
 		_cachedTestAudioBase64,
 	);
@@ -296,11 +296,11 @@ export function useMicrophoneTestSession({
 	// INTERNAL lifecycle flag owned by THIS hook (synchronous). The
 	// ``testRunningRef`` prop stays the cross-hook CONTRACT mirror for the
 	// level monitor, but the unmount cleanup must not depend on a prop-ref's
-	// identity staying stable across renders — read our own flag instead.
+	// identity staying stable across renders, read our own flag instead.
 	const recordingActiveRef = useRef(false);
 	// Latest ``startTest`` closure, so the consent dialog's retry
 	// (shown INSIDE startTest) can re-run the FULL start after the
-	// user grants consent — the closure identity isn't available to
+	// user grants consent, the closure identity isn't available to
 	// itself while it's being defined.
 	const startTestRef = useRef<() => Promise<void>>(async () => {});
 	//``testRunningRef`` is owned by the composition hook so the
@@ -348,7 +348,7 @@ export function useMicrophoneTestSession({
 						fetchErr,
 					);
 				}
-				// The recording itself succeeded — duration/quality verdict
+				// The recording itself succeeded, duration/quality verdict
 				// and transcription are valid even when playback delivery
 				// failed above (only the playable data is missing).
 				setTestDurationMs(result.duration_ms || 0);
@@ -426,7 +426,7 @@ export function useMicrophoneTestSession({
 		setTestTranscription(null);
 		setTestTranscriptionUnavailable(false);
 		// Invalidate the module-level test cache when a
-		// new test starts — the cache holds the PREVIOUS test's
+		// new test starts, the cache holds the PREVIOUS test's
 		// recording, which is now superseded. The setX calls above
 		// update React state immediately; the cache reset keeps the
 		// module-level copy in lockstep so a navigation during the
@@ -460,15 +460,15 @@ export function useMicrophoneTestSession({
 		// via ``startTestRef``; "Open Settings" deep-links to the
 		// exact toggle). The ``consentField`` from the backend
 		// envelope is forwarded so the dialog + Settings target the
-		// right row (defaults to ``voice_biometric_consent`` — the
-		// only field the level-monitor / mic-test gates enforce — for
+		// right row (defaults to ``voice_biometric_consent``, the
+		// only field the level-monitor / mic-test gates enforce, for
 		// older backends whose plain ``success:false`` envelope omits
 		// it).
 		const showConsentSnack = (consentField: string) => {
 			openConsentGate({
 				consentField,
 				bodyKey: consentBodyKey(consentField),
-				// Retry after granting: re-run the FULL test start — the
+				// Retry after granting: re-run the FULL test start, the
 				// first attempt was aborted at the gate before the
 				// session state (countdown / timers / running flag) was
 				// set up, so a raw IPC retry would leave the UI in a
@@ -493,7 +493,7 @@ export function useMicrophoneTestSession({
 				// The backend's ``client.consent_required`` envelope
 				// (from ``_respond_with_error``'s ConsentRequiredError
 				// mapping) carries a structured ``code`` field and a
-				// message containing "consent required" — branch on the
+				// message containing "consent required", branch on the
 				// code first (robust to message rewording), falling back
 				// to the substring for older backend versions that only
 				// resolve a plain ``success:false`` envelope. Surface the
@@ -535,7 +535,7 @@ export function useMicrophoneTestSession({
 			// LIFECYCLE INVARIANT (C-MIC-18): this interval must be created
 			// only AFTER the backend confirmed the recording started
 			// (``result.success`` above) and is cleared ONLY by
-			// ``stopTest`` / ``selectMicrophone`` / unmount — never by a
+			// ``stopTest`` / ``selectMicrophone`` / unmount, never by a
 			// dep-driven effect cleanup on the ``testRunning`` transition,
 			// which previously killed these intervals one commit after
 			// creation and froze the timer at 00:00 while the backend kept
@@ -582,7 +582,7 @@ export function useMicrophoneTestSession({
 			const code = (err as { code?: string } | null)?.code;
 			if (code === CONSENT_REQUIRED_CODE) {
 				// ``usePython.call`` now preserves the structured
-				// consent fields onto the thrown Error — forward the
+				// consent fields onto the thrown Error, forward the
 				// ``consent_field`` so the deep-link scrolls to the
 				// exact Settings toggle.
 				const consentField = (err as { consent_field?: unknown } | null)
@@ -610,7 +610,7 @@ export function useMicrophoneTestSession({
 	// Keep the consent-retry ref pointed at the latest closure.
 	startTestRef.current = startTest;
 
-	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract — .current must NOT become a dep
+	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract, .current must NOT become a dep
 	const selectMicrophone = useCallback(
 		async (micId: string | null) => {
 			// Stop any active test first
@@ -622,7 +622,7 @@ export function useMicrophoneTestSession({
 				try {
 					await callRef.current("microphone_test_cancel");
 				} catch (e) {
-					/* ignore — test may have already finished, or the
+					/* ignore, test may have already finished, or the
                                            backend may be tearing down */
 					console.warn(
 						"[renderer:useMicrophoneTestSession] selectMicrophone cancel failed:",
@@ -647,7 +647,7 @@ export function useMicrophoneTestSession({
 			setTestTranscription(null);
 			setTestTranscriptionUnavailable(false);
 			// Invalidate the test recording cache on a
-			// mic switch — the cached recording was for the PREVIOUS
+			// mic switch, the cached recording was for the PREVIOUS
 			// mic and would be misleading A/B comparison material
 			// against the new mic. Mirrors the startTest invalidation.
 			_cachedTestAudioBase64 = null;
@@ -663,14 +663,14 @@ export function useMicrophoneTestSession({
 				setLevel(0);
 				setPeak(0);
 				setMicMonitoring(false);
-				// NOTE: no explicit ``level_monitor_start`` here — the
+				// NOTE: no explicit ``level_monitor_start`` here, the
 				// level-monitor effect in ``useMicrophoneLevelMonitor``
 				// re-runs ``level_monitor_start`` whenever
 				// ``config.microphone`` changes (its dep array includes
 				// ``config?.microphone``). Calling it again here was a
 				// double-start: the effect's cleanup sends
 				// ``level_monitor_stop`` for the OLD mic, then re-sends
-				// ``level_monitor_start`` for the NEW mic — so the explicit
+				// ``level_monitor_start`` for the NEW mic, so the explicit
 				// call here produced TWO ``level_monitor_start`` IPCs per
 				// mic switch.
 				const label =
@@ -690,7 +690,7 @@ export function useMicrophoneTestSession({
 		},
 		[
 			// `call` deliberately dropped: read via the callRef mirror
-			// above so this callback keeps a STABLE identity — the
+			// above so this callback keeps a STABLE identity, the
 			// selectMicrophoneRef sync effect below (deps
 			// [selectMicrophone]) is the documented-to-be-stable
 			// consumer, and an identity churn under test mocks would
@@ -712,7 +712,7 @@ export function useMicrophoneTestSession({
 	// the result + reset the test-running UI. Now that ``stopTest`` is
 	// ``useCallback``-stable, we capture it directly (no ``stopTestRef``
 	// indirection). The subscription re-binds when ``testRunning`` OR
-	// ``stopTest`` changes — ``stopTest`` changes are bounded by its
+	// ``stopTest`` changes, ``stopTest`` changes are bounded by its
 	// deps (``call`` / ``config`` / ``showSnack`` / ``t``), so this is
 	// cheap and equivalent to the prior ref-to-latest pattern.
 	usePythonEvent(
@@ -736,7 +736,7 @@ export function useMicrophoneTestSession({
 	// which are exactly the intervals ``startTest`` created one commit
 	// earlier (the frozen-00:00 timer bug). Audio-pausing on unmount is
 	// owned by ``useMicrophonePlayback`` (its own cleanup effect).
-	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract — .current must NOT become a dep
+	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract, .current must NOT become a dep
 	useEffect(() => {
 		return () => {
 			if (testTimerRef.current) {
@@ -760,7 +760,7 @@ export function useMicrophoneTestSession({
 	// Keep ``selectMicrophoneRef`` pointed at the latest stable
 	//``selectMicrophone`` closure (). The assignment now happens
 	// via an effect with ``[selectMicrophone]`` deps instead of on
-	// every render — now that ``selectMicrophone`` is
+	// every render, now that ``selectMicrophone`` is
 	// ``useCallback``-stable, the assignment runs only when its deps
 	// change (``call`` / ``microphones`` / ``setConfig`` / ``showSnack``
 	// / ``t`` / level setters), not on every render.

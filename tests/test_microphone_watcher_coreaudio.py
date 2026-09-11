@@ -6,19 +6,19 @@ macOS when ``pyobjc-framework-CoreAudio`` is installed.
 
 Test layout
 -----------
-- ``test_module_imports_cross_platform`` — runs on ALL platforms.
+- ``test_module_imports_cross_platform``, runs on ALL platforms.
   Verifies the module is importable without pyobjc installed
   (cross-platform import safety).
-- ``test_import_error_when_not_macos`` — runs on ALL platforms (the
+- ``test_import_error_when_not_macos``, runs on ALL platforms (the
   platform gate is mocked). Verifies ``_try_import_coreaudio`` raises
   ``ImportError`` on non-macOS.
-- ``test_import_error_when_pyobjc_missing`` — runs on ALL platforms
+- ``test_import_error_when_pyobjc_missing``, runs on ALL platforms
   (platform gate is mocked, pyobjc imports are blocked). Verifies the
   pyobjc-missing fallback.
-- ``test_instantiation_on_macos_with_pyobjc`` — SKIPPED on non-macOS.
+- ``test_instantiation_on_macos_with_pyobjc``. SKIPPED on non-macOS.
   Verifies the watcher instantiates and starts when pyobjc is
   available.
-- ``test_microphone_watcher_falls_back_to_polling`` — runs on ALL
+- ``test_microphone_watcher_falls_back_to_polling``, runs on ALL
   platforms. Verifies ``MicrophoneDeviceWatcher.start()`` falls back
   to the polling thread when the CoreAudio watcher is unavailable
   (the normal path on Linux, and the fallback path on macOS without
@@ -92,7 +92,7 @@ def test_import_error_when_pyobjc_missing() -> None:
     Simulates a macOS system without ``pyobjc-framework-CoreAudio`` by
     marking ``CoreAudio`` and ``CoreFoundation`` as blocked in
     ``sys.modules``. Python raises ``ImportError`` when an import
-    statement encounters a ``None`` entry in ``sys.modules`` — this
+    statement encounters a ``None`` entry in ``sys.modules``, this
     is the canonical way to mock a missing dependency.
 
     The platform gate is bypassed by patching the call-time
@@ -110,7 +110,7 @@ def test_import_error_when_pyobjc_missing() -> None:
 
 @pytest.mark.skipif(
     sys.platform == "darwin",
-    reason="Verifies the non-macOS ImportError path — on macOS pyobjc may succeed",
+    reason="Verifies the non-macOS ImportError path, on macOS pyobjc may succeed",
 )
 def test_coreaudio_watcher_start_raises_on_non_macos() -> None:
     """``CoreAudioMicrophoneWatcher.start`` raises ``ImportError`` off macOS.
@@ -128,7 +128,7 @@ def test_coreaudio_watcher_start_raises_on_non_macos() -> None:
     watcher = CoreAudioMicrophoneWatcher(lambda: None)
     with pytest.raises(ImportError, match="only available on macOS"):
         watcher.start()
-    # start() failed before creating the thread — verify no thread leaked.
+    # start() failed before creating the thread, verify no thread leaked.
     assert watcher._thread is None
 
 
@@ -173,7 +173,7 @@ def test_microphone_watcher_falls_back_to_polling_without_pyobjc() -> None:
 # ── macOS-only tests (skipped on Linux/Windows) ─────────────────────
 
 
-@pytest.mark.skipif(sys.platform != "darwin", reason="macOS only — CoreAudio watcher is darwin-only")
+@pytest.mark.skipif(sys.platform != "darwin", reason="macOS only, CoreAudio watcher is darwin-only")
 def test_instantiation_on_macos_with_pyobjc() -> None:
     """On macOS with pyobjc installed, the watcher instantiates cleanly.
 
@@ -192,7 +192,7 @@ def test_instantiation_on_macos_with_pyobjc() -> None:
         from voice_typer.server.microphone_watcher_coreaudio import (
             CoreAudioMicrophoneWatcher,
         )
-    except ImportError as exc:  # pragma: no cover — defensive
+    except ImportError as exc:  # pragma: no cover, defensive
         pytest.skip(f"pyobjc-framework-CoreAudio not installed: {exc}")
 
     watcher = CoreAudioMicrophoneWatcher(lambda: None)
@@ -207,7 +207,7 @@ def test_instantiation_on_macos_with_pyobjc() -> None:
 # These tests run on EVERY platform by stubbing
 # ``_try_import_coreaudio`` with a fake ``SimpleNamespace`` of pyobjc
 # symbols. The fake ``runloop_run`` blocks on a ``threading.Event``
-# that the fake ``runloop_stop`` sets — this mirrors the real
+# that the fake ``runloop_stop`` sets, this mirrors the real
 # CFRunLoopRun/CFRunLoopStop contract (blocking run + foreign-thread
 # stop) without requiring macOS or pyobjc.
 
@@ -236,7 +236,7 @@ def _make_fake_coreaudio_symbols() -> tuple[SimpleNamespace, threading.Event]:
         # ``if ca.property_default_input is not None:`` before registering
         # the default-input-device listener. The fake must expose the
         # attribute (``None`` skips that listener, exercising only the
-        # device-list listener — which is what these cross-platform
+        # device-list listener, which is what these cross-platform
         # tests need).
         property_default_input=None,
         runloop_get_current=MagicMock(return_value="fake-runloop"),
@@ -261,7 +261,7 @@ def test_coreaudio_start_lock_serializes_concurrent_calls() -> None:
 
     Without the lifecycle lock, two callers can both pass the
     ``self._thread is not None`` idempotency guard and spawn duplicate
-    watcher threads — which register two CoreAudio property listeners
+    watcher threads, which register two CoreAudio property listeners
     on ``kAudioHardwarePropertyDevices`` (double-firing callbacks +
     potential listener-proc UAF). With the lock, only one caller wins
     the race; the others see ``_thread is not None`` and return early.
@@ -288,11 +288,11 @@ def test_coreaudio_start_lock_serializes_concurrent_calls() -> None:
             # Exactly one watcher thread was spawned (the lock
             # serialised the idempotency guard).
             assert watcher._thread is not None, "start() should have spawned a thread"
-            # Exactly one listener registration — a second would mean
+            # Exactly one listener registration, a second would mean
             # two threads entered _run_impl.
             assert fake_ca.add_listener.call_count == 1, (
                 f"Expected exactly 1 add_listener call, got "
-                f"{fake_ca.add_listener.call_count} — the lifecycle lock "
+                f"{fake_ca.add_listener.call_count}, the lifecycle lock "
                 f"failed to serialise concurrent start() calls"
             )
         finally:
@@ -326,7 +326,7 @@ def test_coreaudio_stop_lock_serializes_concurrent_calls() -> None:
         # fake CFRunLoopRun).
         assert _wait_for(lambda: watcher._run_loop is not None), "watcher thread did not publish _run_loop"
 
-        # Fire 8 concurrent stop() calls — only one should call
+        # Fire 8 concurrent stop() calls, only one should call
         # runloop_stop; the rest should no-op.
         threads = [threading.Thread(target=watcher.stop) for _ in range(8)]
         for t in threads:
@@ -384,7 +384,7 @@ def test_coreaudio_listener_calls_on_change_directly() -> None:
                 "watcher thread did not publish _listener_proc"
             )
 
-            # Invoke the listener proc directly — this is what CoreAudio
+            # Invoke the listener proc directly, this is what CoreAudio
             # does on the watcher thread when a device is added/removed.
             result = watcher._listener_proc(None, 0, None, None)
 
@@ -412,7 +412,7 @@ def test_coreaudio_stop_before_run_loop_published_is_safe() -> None:
     Note: in this race ``stop()`` cannot wake the watcher thread's
     ``CFRunLoopRun`` (it doesn't know the run loop yet), so the join
     times out and the daemon thread is left to be reaped at process
-    exit. This is the pre-existing behaviour — the lock does not make
+    exit. This is the pre-existing behaviour, the lock does not make
     it worse. The assertion is that ``stop()`` RETURNS (no deadlock)
     and clears ``_thread``. We manually unblock the fake run loop so
     the watcher thread exits cleanly and doesn't leak across tests.
@@ -437,11 +437,11 @@ def test_coreaudio_stop_before_run_loop_published_is_safe() -> None:
     ):
         watcher = CoreAudioMicrophoneWatcher(lambda: None)
         watcher.start()
-        # Capture the thread object before stop() clears the ref — we
+        # Capture the thread object before stop() clears the ref, we
         # need it to join the (orphaned) watcher thread after unblocking.
         watcher_thread = watcher._thread
         try:
-            # Don't wait — call stop() immediately while the watcher
+            # Don't wait, call stop() immediately while the watcher
             # thread is still inside slow_add_listener (before
             # runloop_get_current / runloop_run).
             watcher.stop()

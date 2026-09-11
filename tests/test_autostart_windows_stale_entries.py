@@ -6,15 +6,15 @@ with::
     exe_path = value.strip('"').split('"')[0] if '"' in value else value.split()[0]
 
 The ``value.split()[0]`` branch misparses UNQUOTED spaced paths (e.g.
-``C:\\Program Files\\VoiceTyper\\app.exe --delay 15``) — it returns
+``C:\\Program Files\\VoiceTyper\\app.exe --delay 15``), it returns
 ``C:\\Program`` (NOT a real path), ``Path('C:\\Program').exists()``
 is False, and the cleanup silently DELETES the other install's Run-key
 entry. This breaks multi-install autostart (a PLAT-RUN supported
 scenario) when any install lives in a spaced path (common:
 ``C:\\Program Files\\...``).
 
-The fix uses ``shlex.split(value, posix=False)`` — the documented
-cross-platform-safe Windows-command-line splitter — to correctly parse
+The fix uses ``shlex.split(value, posix=False)``, the documented
+cross-platform-safe Windows-command-line splitter, to correctly parse
 the command line before extracting the exe path. The first token is
 the exe path (quoted or not), so unquoted spaced paths are no longer
 truncated at the first space.
@@ -116,7 +116,7 @@ def _enum_value_side_effect(entries: list[tuple[str, str, int]]):
 def _make_path_existing(monkeypatch, existing_paths: set[str]) -> None:
     """Make ``Path.exists()`` return True only for paths in ``existing_paths``.
 
-    Comparison is on the raw string (no normalization) — tests construct
+    Comparison is on the raw string (no normalization), tests construct
     paths exactly as the production code would. This is intentional: the
     DE-67 fix is about correctly extracting the exe path from a Run-key
     value, and the production code passes the parsed token directly to
@@ -143,7 +143,7 @@ class TestStaleEntryCleanupParsing:
     def test_quoted_spaced_path_existing_not_deleted(self, monkeypatch, fake_winreg, win32_platform):
         """A QUOTED spaced path whose exe EXISTS must NOT be deleted.
 
-        Pre-fix and post-fix behavior agrees on this case — the test
+        Pre-fix and post-fix behavior agrees on this case, the test
         pins the contract so a future regression to either branch of
         the parsing logic is caught.
         """
@@ -152,7 +152,7 @@ class TestStaleEntryCleanupParsing:
             _run_key_name,
         )
 
-        # The OTHER install's entry — different hash suffix than the
+        # The OTHER install's entry, different hash suffix than the
         # current install, so cleanup examines it.
         other_name = "VoiceTyper_aaaaaaaa"
         other_value = r'"C:\Program Files\VoiceTyper\app.exe" --delay 15'
@@ -161,7 +161,7 @@ class TestStaleEntryCleanupParsing:
 
         fake_winreg.EnumValue.side_effect = _enum_value_side_effect([(other_name, other_value, fake_winreg.REG_SZ)])
 
-        # The current install's own key name — different hash.
+        # The current install's own key name, different hash.
         current_name = _run_key_name()
         assert other_name != current_name  # sanity check
 
@@ -202,7 +202,7 @@ class TestStaleEntryCleanupParsing:
         fake_winreg.DeleteValue.assert_called_once()
         # Verify it was the stale entry, not something else.
         call_args = fake_winreg.DeleteValue.call_args
-        # DeleteValue(run_key, name) — name is the second positional arg.
+        # DeleteValue(run_key, name), name is the second positional arg.
         deleted_name = call_args.args[1]
         assert deleted_name == stale_name
 
@@ -212,7 +212,7 @@ class TestStaleEntryCleanupParsing:
 
         Pre-fix, ``value.split()[0]`` returned ``C:\\Program`` (NOT a
         real path), ``Path('C:\\Program').exists()`` was False, and
-        the cleanup DELETED this entry — silently breaking the other
+        the cleanup DELETED this entry, silently breaking the other
         install's autostart. Post-fix, ``shlex.split(value,
         posix=False)[0]`` returns the full ``C:\\Program
         Files\\VoiceTyper\\app.exe`` which exists, so cleanup leaves
@@ -223,7 +223,7 @@ class TestStaleEntryCleanupParsing:
         )
 
         live_name = "VoiceTyper_aaaaaaaa"
-        # UNQUOTED spaced path — the  regression trigger.
+        # UNQUOTED spaced path, the  regression trigger.
         live_value = r"C:\Program Files\VoiceTyper\app.exe --delay 15"
         # The FULL exe path exists on disk.
         _make_path_existing(monkeypatch, {r"C:\Program Files\VoiceTyper\app.exe"})
@@ -259,7 +259,7 @@ class TestStaleEntryCleanupParsing:
         # Doubled backslashes baked by the old freedesktop quoting bug.
         stale_value = r'"C:\\Users\\11\\.voice-typer\\venv\\Scripts\\pythonw.exe" --hidden --delay 15'
         # The real ``Path.exists()`` collapses the doubled separators,
-        # so Windows reports this path as existing — the old sweep kept
+        # so Windows reports this path as existing, the old sweep kept
         # the entry forever. Simulate that by listing the DOUBLED
         # literal as existing.
         _make_path_existing(monkeypatch, {r"C:\\Users\\11\\.voice-typer\\venv\\Scripts\\pythonw.exe"})
@@ -281,7 +281,7 @@ class TestStaleEntryCleanupParsing:
 
     def test_unquoted_spaced_path_nonexistent_not_deleted(self, monkeypatch, fake_winreg, win32_platform):
         """DE-67: an UNQUOTED spaced path whose exe does NOT exist must
-        NOT be deleted either — the parse is ambiguous (the actual exe
+        NOT be deleted either, the parse is ambiguous (the actual exe
         might be a longer space-separated prefix we can't recover
         without quotes), so the CONSERVATIVE-DELETE policy preserves
         the entry rather than risk deleting a legitimate one.
@@ -324,14 +324,14 @@ class TestStaleEntryCleanupParsing:
 
     def test_unquoted_no_spaces_nonexistent_deleted(self, monkeypatch, fake_winreg, win32_platform):
         """DE-67: an UNQUOTED path with NO spaces (single token) that
-        does NOT exist must be deleted (this is unambiguous — the
+        does NOT exist must be deleted (this is unambiguous, the
         parse is correct, and the file genuinely doesn't exist)."""
         from voice_typer.server.server_platform import (
             _register_app_autostart_runkey,
         )
 
         stale_name = "VoiceTyper_deadbeef"
-        # Single token, no spaces — the parse is unambiguous.
+        # Single token, no spaces, the parse is unambiguous.
         stale_value = r"C:\nonexistent_path\app.exe"
         _make_path_existing(monkeypatch, set())
 
@@ -352,7 +352,7 @@ class TestStaleEntryCleanupParsing:
     def test_unquoted_no_spaces_existing_not_deleted(self, monkeypatch, fake_winreg, win32_platform):
         """DE-67: an UNQUOTED path with NO spaces (single token) that
         DOES exist must not be deleted (the parse is unambiguous and
-        the file exists — the entry is live)."""
+        the file exists, the entry is live)."""
         from voice_typer.server.server_platform import (
             _register_app_autostart_runkey,
         )
@@ -375,7 +375,7 @@ class TestStaleEntryCleanupParsing:
 
     def test_non_voicetyper_entries_not_touched(self, monkeypatch, fake_winreg, win32_platform):
         """Non-VoiceTyper entries (e.g. ``OneDrive``, ``Discord``) must
-        NOT be touched by the cleanup — the loop filters on
+        NOT be touched by the cleanup, the loop filters on
         ``name.startswith("VoiceTyper")``.
         """
         from voice_typer.server.server_platform import (
@@ -412,7 +412,7 @@ class TestStaleEntryCleanupParsing:
         )
 
         current_name = _run_key_name()
-        # Use a value whose parsed exe path does NOT exist — the test
+        # Use a value whose parsed exe path does NOT exist, the test
         # verifies the cleanup skips the current entry regardless of
         # whether the parsed path exists.
         current_value = r"C:\nonexistent\python.exe launcher.py --hidden"
@@ -438,7 +438,7 @@ class TestStaleEntryCleanupParsing:
         ``value.split()[0]`` to raise ``IndexError`` (caught by the
         broad ``except Exception``). Post-fix, ``shlex.split('',
         posix=False)`` returns ``[]``, and the ``if exe_path and ...``
-        guard skips deletion — silently deleting a malformed-but-
+        guard skips deletion, silently deleting a malformed-but-
         maybe-functional entry is worse than leaving it alone.
         """
         from voice_typer.server.server_platform import (
@@ -478,15 +478,15 @@ class TestStaleEntryCleanupParsing:
             _register_app_autostart_runkey,
         )
 
-        # Live dev install — UNQUOTED spaced path, exe EXISTS.
+        # Live dev install. UNQUOTED spaced path, exe EXISTS.
         # (Conservative-delete skips this because the first token
         # doesn't exist, but we can't be sure it's stale.)
         live_dev_name = "VoiceTyper_aaaaaaaa"
         live_dev_value = r"C:\Program Files\VoiceTyperDev\app.exe --delay 15"
-        # Live stable install — QUOTED spaced path, exe EXISTS.
+        # Live stable install. QUOTED spaced path, exe EXISTS.
         live_stable_name = "VoiceTyper_bbbbbbbb"
         live_stable_value = r'"C:\Program Files\VoiceTyper\app.exe" --delay 15'
-        # Stale install — QUOTED spaced path, exe does NOT exist.
+        # Stale install. QUOTED spaced path, exe does NOT exist.
         # (Quoted so the conservative-delete policy can determine
         # staleness with certainty.)
         stale_name = "VoiceTyper_deadbeef"
@@ -529,9 +529,9 @@ class TestStaleEntryCleanupParsing:
 
 class TestShlexParsingLogic:
     """DE-67: unit-test the ``shlex.split(value, posix=False)``
-    parsing decision in isolation. These tests verify the parsing
-    helper directly without spinning up the full Run-key cleanup loop
-    — they're the fastest signal for a parsing regression.
+      parsing decision in isolation. These tests verify the parsing
+      helper directly without spinning up the full Run-key cleanup loop
+    , they're the fastest signal for a parsing regression.
     """
 
     @pytest.mark.parametrize(
@@ -553,7 +553,7 @@ class TestShlexParsingLogic:
             # Network-style path
             (r"\\server\share\app.exe --delay 15", r"\\server\share\app.exe", r"\\server\share\app.exe"),
             # Unquoted spaced path ( regression trigger): the
-            # parse is AMBIGUOUS — shlex.split(posix=False) splits on
+            # parse is AMBIGUOUS, shlex.split(posix=False) splits on
             # the space and returns just 'C:\\Program' as the first
             # token. The production code's CONSERVATIVE-DELETE policy
             # detects this case (was_quoted=False, has_multiple_tokens=True)
@@ -567,11 +567,11 @@ class TestShlexParsingLogic:
     def test_shlex_split_extracts_exe_token(self, value, expected_exe_token, expected_exe_after_strip_quotes):
         """DE-67: ``shlex.split(value, posix=False)[0]`` extracts the
         first command-line token. For QUOTED paths, this is the full
-        quoted path (with quotes preserved — the production code
+        quoted path (with quotes preserved, the production code
         strips them via ``.strip('"')``). For UNQUOTED paths with no
         spaces, this is the path itself. For UNQUOTED paths WITH
         spaces (the DE-67 regression trigger), this is just the first
-        space-separated chunk (e.g. ``C:\\Program``) — which is why
+        space-separated chunk (e.g. ``C:\\Program``), which is why
         the production code's CONSERVATIVE-DELETE policy preserves
         such entries instead of deleting them based on the ambiguous
         parse."""

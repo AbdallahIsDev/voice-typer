@@ -5,7 +5,7 @@ Python loop. It is now vectorized (last-event scan via
 ``np.maximum.accumulate`` + per-run cumulative fills), with the original
 loop kept as the scalar fallback for pathological chunks. Because the gate
 runs on the real-time audio path, the vectorized implementation must be
-NUMERICALLY IDENTICAL to the loop for the same inputs — not approximately.
+NUMERICALLY IDENTICAL to the loop for the same inputs, not approximately.
 
 Equivalence argument (why bitwise equality is achievable at all):
 
@@ -13,12 +13,12 @@ Equivalence argument (why bitwise equality is achievable at all):
   wins" scan: an open event (``level > open_thr``) always sets the state
   open; a close event (``level < close_thr``, only effective while open)
   sets it closed. Therefore ``state_open[i]`` is fully determined by the
-  last event at or before ``i`` — computable with two
+  last event at or before ``i``, computable with two
   ``np.maximum.accumulate`` passes. At a sample where both comparisons
   fire (only possible when ``open_thr < close_thr``), the loop's
   ``if/elif`` gives the open event precedence, so ties resolve open.
 * Within a maximal open run the recurrence is
-  ``att = min(att + attack_rate*dt, 1.0)`` — a monotone increasing
+  ``att = min(att + attack_rate*dt, 1.0)``, a monotone increasing
   sequence, so the per-step clamp at 1.0 is exactly an element-wise
   ``np.minimum`` over the cumulative sum (the clamp can only bind at the
   top, and once bound every later raw value is also >= 1.0). The same
@@ -26,8 +26,8 @@ Equivalence argument (why bitwise equality is achievable at all):
 * The hold timer accumulates ``dt`` by REPEATED float addition in the
   loop. ``np.cumsum`` over a buffer seeded with the carried value
   performs the identical left-to-right float additions, so the held-time
-  values — and therefore the ``held_time > hold_time`` comparisons, even
-  at exact-equality boundaries — are bit-identical.
+  values, and therefore the ``held_time > hold_time`` comparisons, even
+  at exact-equality boundaries, are bit-identical.
 
 The reference loop below is copied verbatim from the pre-vectorization
 implementation. If this test ever fails, the vectorized path has drifted
@@ -48,7 +48,7 @@ from voice_typer.server.audio_filters.base import db_to_mul
 from voice_typer.server.audio_filters.noise_gate import NoiseGate
 
 # ═════════════════════════════════════════════════════════════════════════
-# Reference implementation — the ORIGINAL per-sample loop, verbatim.
+# Reference implementation, the ORIGINAL per-sample loop, verbatim.
 # ═════════════════════════════════════════════════════════════════════════
 
 
@@ -251,7 +251,7 @@ class TestVectorScalarEquivalenceEdges:
         _assert_equivalent(gate, levels)
 
     def test_pathological_alternating_levels(self):
-        """Per-sample threshold oscillation — worst-case run count.
+        """Per-sample threshold oscillation, worst-case run count.
 
         This is the input class the scalar fallback exists for; it must
         still agree bit-for-bit.
@@ -389,7 +389,7 @@ def reference_process(gate: NoiseGate, audio: np.ndarray) -> np.ndarray:
     close_thr = gate._close_threshold
     decay = gate._decay_rate
 
-    # peak-hold estimator — identical math to production (linear-decay trick)
+    # peak-hold estimator, identical math to production (linear-decay trick)
     abs_x = np.abs(samples).astype(np.float64)
     i_arr = np.arange(n, dtype=np.float64)
     y = np.empty(n + 1, dtype=np.float64)
@@ -478,7 +478,7 @@ class TestProcessEndToEndEquivalence:
 class TestVectorPathEngagement:
     def test_typical_chunk_uses_vector_path(self):
         """A typical speech chunk must take the vectorized path, not the
-        scalar fallback — otherwise the optimization is dead code."""
+        scalar fallback, otherwise the optimization is dead code."""
         gate = _make_gate()
         calls: list[int] = []
         original = gate._state_machine_scalar

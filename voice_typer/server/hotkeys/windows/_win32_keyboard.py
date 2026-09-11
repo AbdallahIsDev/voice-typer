@@ -17,7 +17,7 @@ sites consistent.
 The structures mirror the Win32 SDK definitions:
 https://learn.microsoft.com/en-us/windows/win32/api/winuser/ns-winuser-input
 
-Only the keyboard branch of the ``INPUT`` union is populated — the
+Only the keyboard branch of the ``INPUT`` union is populated, the
 mouse/hardware input structs are intentionally omitted to keep the
 surface small (no hotkey code path synthesizes mouse or hardware input).
 """
@@ -37,7 +37,7 @@ _ULONG_PTR = ctypes.c_uint64 if ctypes.sizeof(ctypes.c_void_p) == 8 else ctypes.
 
 
 class KEYBDINPUT(ctypes.Structure):
-    """Win32 ``KEYBDINPUT`` — payload for a keyboard INPUT event.
+    """Win32 ``KEYBDINPUT``: payload for a keyboard INPUT event.
 
     See https://learn.microsoft.com/en-us/windows/win32/api/winuser/ns-winuser-keybdinput
     """
@@ -49,14 +49,14 @@ class KEYBDINPUT(ctypes.Structure):
         ("time", wintypes.DWORD),
         ("dwExtraInfo", _ULONG_PTR),
     )
-    # ``KEYEVENTF_KEYUP`` = 0x0002 — releases a key previously held down
+    # ``KEYEVENTF_KEYUP`` = 0x0002, releases a key previously held down
     # by a synthetic press. Matches the Win32 constant and the legacy
     # ``_KEYEVENTF_KEYUP`` symbol in ``win32_vk``.
     KEYUP = 0x0002
 
 
 class InputUnion(ctypes.Union):
-    """Win32 ``INPUT`` union — only the keyboard branch is populated."""
+    """Win32 ``INPUT`` union, only the keyboard branch is populated."""
 
     _fields_ = (("ki", KEYBDINPUT),)
 
@@ -74,7 +74,7 @@ class INPUT(ctypes.Structure):
         # keyboard-branch convention used by ``clipboard/windows.py``.
         ("ki", InputUnion),
     )
-    # ``INPUT_KEYBOARD`` = 1 — selects the ``ki`` union member.
+    # ``INPUT_KEYBOARD`` = 1, selects the ``ki`` union member.
     KEYBOARD = 1
 
 
@@ -84,7 +84,7 @@ def _build_keyboard_input(vk: int, scan: int, flags: int) -> INPUT:
     Parameters mirror the ``keybd_event`` arguments the codebase used
     before this module existed (``bVk``, ``bScan``, ``dwFlags``) so the
     ``caps_lock_suppressor`` callsites can switch over with no behavior
-    change — the same scan codes and flag values (e.g.
+    change, the same scan codes and flag values (e.g.
     ``KEYEVENTF_KEYUP``) flow through unchanged.
     """
     return INPUT(
@@ -104,7 +104,7 @@ def _send_keyboard_event(user32: Any, vk: int, scan: int, flags: int) -> int:
 
     Returns the number of events successfully inserted into the input
     queue (0 = failure, 1 = success). The caller is responsible for any
-    retry / fallback path — the existing caps-lock-suppression
+    retry / fallback path, the existing caps-lock-suppression
     callsites treat a partial / failed synthetic press as best-effort
     (logged via the surrounding ``log.exception`` handler) and do not
     retry, matching the prior ``keybd_event`` semantics (which had no
@@ -113,7 +113,7 @@ def _send_keyboard_event(user32: Any, vk: int, scan: int, flags: int) -> int:
     inp = _build_keyboard_input(vk, scan, flags)
     events = (INPUT * 1)(inp)
     # ``user32`` is typed ``Any`` (ctypes WinDLL), so ``SendInput``
-    # returns ``Any`` — coerce to the declared ``int`` contract.
+    # returns ``Any``: coerce to the declared ``int`` contract.
     return int(user32.SendInput(1, ctypes.byref(events), ctypes.sizeof(INPUT)))
 
 

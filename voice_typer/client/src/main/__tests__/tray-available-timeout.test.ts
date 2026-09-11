@@ -12,7 +12,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // Capture execFileSync invocations.
-// Signature mirrors execFileSync(file, args?, options?) — typed as a tuple
+// Signature mirrors execFileSync(file, args?, options?), typed as a tuple
 // of [string, string[], { timeout?: number; ... }] so we can index [2]
 // for the options bag in the assertion below.
 const mockExecFileSync = vi.fn(

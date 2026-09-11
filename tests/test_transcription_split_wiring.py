@@ -7,12 +7,12 @@ methods are thin delegates over free functions in ``transcription_device``,
 that silently diverges the facade from the extracted bodies (or drops a
 back-compat re-export) trips loudly:
 
-* delegate-resolution identity — ``transcription.<name>_impl`` IS the
+* delegate-resolution identity: ``transcription.<name>_impl`` IS the
   canonical free function in the sibling module;
-* the late-binding contract — module-global reads inside the extracted
+* the late-binding contract, module-global reads inside the extracted
   bodies resolve through ``voice_typer.server.transcription`` at call
   time, so monkeypatching the facade path changes behavior;
-* the re-export surface — ``AUTO_CUDA_BEAM_SIZE`` / ``_auto_beam_size``
+* the re-export surface: ``AUTO_CUDA_BEAM_SIZE`` / ``_auto_beam_size``
   stay importable from the facade (see ``test_transcription_beam_size``).
 """
 
@@ -73,7 +73,7 @@ class TestDelegateResolutionIdentity:
         """Calling the engine method dispatches into the extracted module.
 
         Patching the facade's ``_impl`` binding is visible through the
-        method call — proving the delegate is live wiring, not a copy.
+        method call, proving the delegate is live wiring, not a copy.
         """
         import voice_typer.server.transcription as facade
         from voice_typer.server.transcription import TranscriptionEngine
@@ -108,7 +108,7 @@ class TestLateBindingThroughFacade:
         assert (device, compute) == ("cpu", "int8")
 
     def test_apply_auto_beam_size_reads_facade_auto_beam(self, monkeypatch):
-        """``_auto_beam_size`` stays canonical in the facade module — the
+        """``_auto_beam_size`` stays canonical in the facade module, the
         extracted ``apply_auto_beam_size`` reads it via late binding."""
         import voice_typer.server.transcription as facade
         from voice_typer.server.transcription import TranscriptionEngine

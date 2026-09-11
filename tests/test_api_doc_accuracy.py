@@ -9,7 +9,7 @@ and asserts each row matches the actual ``Config`` dataclass default
 read from ``voice_typer/server/config.py``.
 
 If you change a default in ``Config``, update the table in
-``docs/API.md`` in the same commit — otherwise this test fails and CI
+``docs/API.md`` in the same commit, otherwise this test fails and CI
 blocks the PR.
 
 H2 (c-review XPLAT-01)
@@ -17,7 +17,7 @@ H2 (c-review XPLAT-01)
 On Windows, ``VoiceTyperApp._open_config_file`` opens the user's
 ``.json`` file association (e.g. VS Code, Notepad++, Sublime) via
 ``ShellExecuteEx`` so it can still block until the editor exits and
-reload the config afterward — unlike ``os.startfile`` which returns
+reload the config afterward, unlike ``os.startfile`` which returns
 immediately with no process handle.  When no ``.json`` handler is
 associated it falls back to the SystemRoot-validated Notepad path
 (never a bare PATH-resolved ``notepad``).  This preserves the
@@ -63,12 +63,12 @@ def _parse_api_config_table(api_md_text: str) -> list[tuple[str, str, str, str]]
     """Parse the "Key Configuration Keys" markdown table from API.md.
 
     Returns a list of ``(key, type_str, default_str, description)``
-    tuples — one per data row.  The header row and the separator row
+    tuples, one per data row.  The header row and the separator row
     (``|-----|------|---------|-------------|``) are skipped.
 
     The parser is intentionally simple (regex + ``split("|")``) so it
     has no third-party deps.  It does NOT try to handle GitHub-flavored
-    markdown extensions — only the pipe-table syntax used in API.md.
+    markdown extensions, only the pipe-table syntax used in API.md.
     """
     # Anchor on the heading + the table header row so we don't
     # accidentally pick up unrelated tables elsewhere in the file.
@@ -83,7 +83,7 @@ def _parse_api_config_table(api_md_text: str) -> list[tuple[str, str, str, str]]
     match = pattern.search(api_md_text)
     assert match is not None, (
         "Could not locate the '### Key Configuration Keys' table in "
-        "docs/API.md — did the heading or table header change?"
+        "docs/API.md, did the heading or table header change?"
     )
 
     rows: list[tuple[str, str, str, str]] = []
@@ -99,7 +99,7 @@ def _parse_api_config_table(api_md_text: str) -> list[tuple[str, str, str, str]]
             continue
         key, type_str, default_str, description = cells
         # Skip the separator row (``-----|------|---------|-------------``)
-        # in case it slipped through — its "key" cell is all dashes.
+        # in case it slipped through, its "key" cell is all dashes.
         if not key or key.startswith("-"):
             continue
 
@@ -108,7 +108,7 @@ def _parse_api_config_table(api_md_text: str) -> list[tuple[str, str, str, str]]
         # ``key`` is ``recording_mode`` (not `` `recording_mode` ``),
         # ``type_str`` is ``str`` (not `` `str` ``), and ``default_str``
         # is ``"toggle"`` (not `` `"toggle"` ``).  Only the outermost
-        # backtick layer is stripped — inline backticks inside the
+        # backtick layer is stripped, inline backticks inside the
         # description (e.g. ``One of: `toggle`, `push_to_talk`.``) are
         # preserved.
         def _strip_outer_backticks(s: str) -> str:
@@ -143,8 +143,8 @@ def _parse_default(default_str: str, type_str: str) -> object:
         return float(default_str)
     if type_str == "str":
         # Strip surrounding double quotes.  We don't allow single-quoted
-        # strings in the table — every str default in API.md uses
-        # double quotes — so a single-quoted value is a doc bug worth
+        # strings in the table, every str default in API.md uses
+        # double quotes, so a single-quoted value is a doc bug worth
         # surfacing as a test failure.
         if len(default_str) >= 2 and default_str[0] == '"' and default_str[-1] == '"':
             return default_str[1:-1]
@@ -227,14 +227,14 @@ class TestApiDocConfigTableAccuracy:
         leaked = documented_keys & removed
         assert not leaked, (
             f"Removed/renamed fields reappeared in API.md config table: {leaked}. "
-            f"These were called out as stale in d-review Finding 3 — do NOT re-add."
+            f"These were called out as stale in d-review Finding 3, do NOT re-add."
         )
 
     def test_recording_mode_enum_matches_validator(self):
         """The recording_mode description must list the real enum values.
 
         The validator in ``config_validators.py`` is
-        ``_make_enum_validator({"toggle", "push_to_talk"})`` — there is
+        ``_make_enum_validator({"toggle", "push_to_talk"})``, there is
         no ``voice_activity`` mode.  The description in API.md must not
         advertise ``voice_activity`` as a valid value.
         """
@@ -243,7 +243,7 @@ class TestApiDocConfigTableAccuracy:
         assert recording_mode_row is not None, "recording_mode row missing from table"
         _key, _type, _default, desc = recording_mode_row
         assert "voice_activity" not in desc, (
-            "API.md still lists 'voice_activity' as a valid recording_mode — "
+            "API.md still lists 'voice_activity' as a valid recording_mode, "
             "this value was never implemented. The enum is {toggle, push_to_talk} only."
         )
         # Both real enum values must be advertised.
@@ -253,7 +253,7 @@ class TestApiDocConfigTableAccuracy:
         )
 
 
-# ─── H2: Windows _open_config_file — default-app open, validated notepad fallback ─
+# ─── H2: Windows _open_config_file, default-app open, validated notepad fallback ─
 
 
 class TestWindowsOpenConfigFile:
@@ -294,7 +294,7 @@ class TestWindowsOpenConfigFile:
             if isinstance(cmd, list | tuple) and cmd and "ldconfig" in str(cmd[0]):
                 return MagicMock()
             # Filter out icacls (config file ACL hardening via
-            # config/__init__.py _restrict_config_file_acl) — it's a
+            # config/__init__.py _restrict_config_file_acl), it's a
             # security step that runs during config save, not an editor
             # invocation. Without this filter the assertion below
             # (popen_calls == []) fails because icacls leaks into the
@@ -302,7 +302,7 @@ class TestWindowsOpenConfigFile:
             if isinstance(cmd, list | tuple) and cmd and "icacls" in str(cmd[0]):
                 return MagicMock()
             # Filter out lscpu (CPU inventory probe run by a library
-            # during config-dir setup / save) — same benign-library
+            # during config-dir setup / save), same benign-library
             # class as ldconfig; test_config_wiring.py filters it the
             # same way. Without this filter the assertion below
             # (popen_calls == []) fails because lscpu leaks into the
@@ -362,7 +362,7 @@ class TestWindowsOpenConfigFile:
             if isinstance(args, list | tuple) and args and "ldconfig" in str(args[0]):
                 return _FakeProc(args)
             # Filter out icacls (config file ACL hardening via
-            # config/__init__.py _restrict_config_file_acl) — it's a
+            # config/__init__.py _restrict_config_file_acl), it's a
             # security step that runs during config save, not an editor
             # invocation. Without this filter the assertion below
             # (len(popen_calls) == 1) fails because icacls leaks into
@@ -370,7 +370,7 @@ class TestWindowsOpenConfigFile:
             if isinstance(args, list | tuple) and args and "icacls" in str(args[0]):
                 return _FakeProc(args)
             # Filter out lscpu (CPU inventory probe run by a library
-            # during config-dir setup / save) — same benign-library
+            # during config-dir setup / save), same benign-library
             # class as ldconfig. See test_config_wiring.py for the
             # equivalent filter. The library invokes it as a BARE
             # STRING (``Popen("lscpu")``), so the guard accepts ``str``.
@@ -388,7 +388,7 @@ class TestWindowsOpenConfigFile:
         # Isolate the launcher-fallback invariant from the config-save
         # path (Phase 1 of ``ConfigEditorLauncher.launch``). The save is
         # environment-dependent (ACL/icacls handling, keyring probing)
-        # and on windows-2022 CI it raised once — the launcher's
+        # and on windows-2022 CI it raised once, the launcher's
         # suppress-non-timeout filter then swallowed the exception and
         # the fallback never ran, failing this test with "Got: []" even
         # though the SUT behaved per contract. This test pins the

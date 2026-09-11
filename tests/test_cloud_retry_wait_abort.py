@@ -5,7 +5,7 @@ places: the 429 ``Retry-After`` branch (capped at 60s by
 ``_parse_retry_after``) and the ``URLError`` exponential-backoff branch.
 Both waits use ``self._abort_event.wait(timeout=...)`` instead of a
 plain ``time.sleep`` so the user's ESC-abort (``request_abort()``) takes
-effect the moment the event is set — not at the top of the NEXT attempt
+effect the moment the event is set, not at the top of the NEXT attempt
 (which, with a hostile ``Retry-After: 60``, could lag up to 60 seconds).
 
 These tests pin:
@@ -146,7 +146,7 @@ class TestBackoffWaitIsInterruptible:
 class TestNoAbortStillWaitsFullBudget:
     def test_unset_abort_does_not_raise_from_wait(self) -> None:
         """Sanity: an unset abort event must let the wait run its course
-        (returning False) and NOT raise — the retry loop keeps its
+        (returning False) and NOT raise, the retry loop keeps its
         normal backoff semantics when the user does not cancel."""
         engine = _make_engine()
         # A zero-second Retry-After means the wait completes instantly

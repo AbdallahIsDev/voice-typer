@@ -203,7 +203,7 @@ class TestSSRFDefenseStillEnforced:
 
     def test_private_ip_added_via_env_still_rejected(self, monkeypatch):
         """Adding a private IP via the env var must NOT bypass the
-        SSRF blocklist — assert_url_allowed must still raise."""
+        SSRF blocklist, assert_url_allowed must still raise."""
         monkeypatch.setenv(ENV_VAR, "10.0.0.5")
         _load_env_allowlist_extensions()
         # The host IS in the textual allowlist now.

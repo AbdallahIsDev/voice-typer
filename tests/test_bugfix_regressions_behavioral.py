@@ -90,7 +90,7 @@ class TestElectronLogFilesBehavioral:
         # It must return a MagicMock with a .pid attribute so the
         # launchers' pid-tracking code works. Resolved through the
         # electron_spawn leaf (the module whose spawn paths call Popen)
-        # since the launcher split — ``.subprocess`` here IS the shared
+        # since the launcher split: ``.subprocess`` here IS the shared
         # stdlib module, so the patch is global and reverted on teardown.
         fake_proc = MagicMock(name="Popen")
         fake_proc.pid = 12345
@@ -109,13 +109,13 @@ class TestElectronLogFilesBehavioral:
         # spawn path runs.
         monkeypatch.setattr(autostart_launcher, "_focus_running_app", lambda: False)
 
-        # Site 1: _launch_electron_built — invoked with a fake exe path.
+        # Site 1: _launch_electron_built, invoked with a fake exe path.
         # The function checks the exe exists; mock Path.exists to True.
         monkeypatch.setattr(Path, "exists", lambda self: True)
         with contextlib.suppress(Exception):
             autostart_launcher._launch_electron_built("/fake/electron.exe")
 
-        # Site 2: _spawn_npm_run_dev — invoked with hidden=False.
+        # Site 2: _spawn_npm_run_dev, invoked with hidden=False.
         # The function checks _client_dir_exists; already mocked True.
         with contextlib.suppress(Exception):
             autostart_launcher._spawn_npm_run_dev(hidden=False)
@@ -200,12 +200,12 @@ class TestAccessibilityIpcBehavioral:
     a dedicated Rust command (``check_accessibility`` in
     ``src-tauri/src/commands/``). The Python-side handler was dead code
     for that period. On 2026-08-10 (finding #919 part b) the command
-    was RE-ADDED — the Settings → Troubleshooting UI invokes it on
-    macOS to surface the stale-grant ``tccutil`` reset command — so
+    was RE-ADDED, the Settings → Troubleshooting UI invokes it on
+    macOS to surface the stale-grant ``tccutil`` reset command, so
     the handler is live again. These tests stay skipped because the
     equivalent behavioral coverage now lives in
     ``tests/handlers/test_system_handlers.py``
-    (``TestCheckAccessibility`` — which additionally covers the
+    (``TestCheckAccessibility``, which additionally covers the
     ``suggest_reset`` / ``reset_command`` extension); kept here for
     historical context.
     """
@@ -222,7 +222,7 @@ class TestAccessibilityIpcBehavioral:
 
         Delegates to the canonical ``make_bare_ipc_server`` factory
         (``IPCServer.__new__`` bypass + ``app._config_mutation_lock`` /
-        ``server._dispatch_lock`` RLocks — the exact shape this local
+        ``server._dispatch_lock`` RLocks, the exact shape this local
         helper used to rebuild inline; the factory's docstring documents
         why the ``_dispatch_lock`` fix exists).
         """
@@ -268,7 +268,7 @@ class TestAccessibilityIpcBehavioral:
         )
         # granted must reflect AXIsProcessTrusted's return value (1 → True).
         assert resp["data"]["granted"] is True, (
-            "PLAT-030: handler must consult AXIsProcessTrusted() — granted "
+            "PLAT-030: handler must consult AXIsProcessTrusted(), granted "
             f"should be True when AXIsProcessTrusted returns 1, got {resp['data']['granted']}"
         )
         # AXIsProcessTrusted must have been called (this is the behavioral
@@ -349,7 +349,7 @@ class TestTcpLineIoOversizedBehavioral:
             assert line is None or len(line) < 1024 * 1024, (
                 "NEW-IPC-012: _TCPLineIO.readline must cap oversized messages "
                 f"at 1MB and return None (EOF). Got a line of length "
-                f"{len(line) if line else 0} — the cap is missing or too large."
+                f"{len(line) if line else 0}, the cap is missing or too large."
             )
         finally:
             srv.close()

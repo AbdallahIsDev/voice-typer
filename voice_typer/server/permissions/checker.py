@@ -5,10 +5,10 @@ timer, the pyobjc availability cache, the error classifier, the
 request dispatchers, and the tray notification helper. Platform-specific
 probes live in the sibling submodules:
 
-- :mod:`voice_typer.server.permissions.mic` — microphone probes.
-- :mod:`voice_typer.server.permissions.accessibility` — macOS
+- :mod:`voice_typer.server.permissions.mic`: microphone probes.
+- :mod:`voice_typer.server.permissions.accessibility`, macOS
   Accessibility probe.
-- :mod:`voice_typer.server.permissions.filesystem` — Linux
+- :mod:`voice_typer.server.permissions.filesystem`, Linux
   ``/dev/input/event*`` probe.
 
 All mutable state (``_retry_timer``, ``_retry_count``, ``_cancelled``,
@@ -44,11 +44,11 @@ class PermissionState(str, Enum):
           permission is needed on this platform (e.g. Windows).
         - ``DENIED``: the OS reports we don't have the permission.
         - ``UNKNOWN``: we can't tell (e.g. macOS without pyobjc, or an
-          unsupported platform). This is the "soft unknown" — the probe ran
+          unsupported platform). This is the "soft unknown", the probe ran
           successfully but the answer is indeterminate.
-    ``ERROR``:  — the probe itself failed unexpectedly (raised
+    ``ERROR``: , the probe itself failed unexpectedly (raised
           an exception). Distinct from ``UNKNOWN`` so the renderer can show
-          "Permission probe failed — click to retry" instead of the
+          "Permission probe failed, click to retry" instead of the
           misleading "No extra permission needed" (which it used to render
           for any state with ``needed=False``).
     """
@@ -109,7 +109,7 @@ def permission_error_is_permission_denied(error_message: str) -> bool:
     - ``No keyboard devices found ... Are you in the 'input' group?`` (Linux)
 
     Returns False for all other errors (binary not found, parse error,
-    etc.) — those are handled by the startup fallback chain, not the
+    etc.), those are handled by the startup fallback chain, not the
     permission onboarding flow.
     """
     if not error_message:
@@ -137,14 +137,14 @@ def request_keyboard_permission(
           adds user to ``input`` group + configures Caps Lock). If pkexec
           isn't available, falls back to ``gksu`` / ``kdesu`` / a
     terminal-based prompt. : this is the zero-command path for
-          AppImage users — the OS shows a polkit GUI prompt, the user types
+          AppImage users, the OS shows a polkit GUI prompt, the user types
           their password once, and the install script runs as root. The
           onboarding instructions should mention that clicking "Grant
           permission" triggers ``pkexec install_permissions.py``.
         - **Windows**: no-op (no permission needed).
 
         The optional ``on_granted`` callback is invoked when the permission
-        is detected as granted (best-effort — see ``schedule_permission_retry``
+        is detected as granted (best-effort: see ``schedule_permission_retry``
         for the retry mechanism).
     """
     if _p.is_macos():
@@ -153,7 +153,7 @@ def request_keyboard_permission(
         # (the only sanctioned programmatic path on macOS 14+). Then
         # fall back to the deep-link for re-prompting after revocation
         # (the TCC dialog won't re-appear if the user previously denied
-        # — the deep-link lands them on the Accessibility list so they
+        # , the deep-link lands them on the Accessibility list so they
         # can re-toggle manually).
         _p._trigger_macos_accessibility_consent_prompt()
         _p._open_macos_accessibility_settings()
@@ -204,7 +204,7 @@ def schedule_permission_retry(
         def _poll() -> None:
             _p._retry_count += 1
             if _p._cancelled:
-                # cancelled between scheduling and this poll firing — skip
+                # cancelled between scheduling and this poll firing, skip
                 return
             state = _p.check_keyboard_permission()
             log.info(
@@ -217,7 +217,7 @@ def schedule_permission_retry(
                 if _p._cancelled:
                     # cancelled between the state check and the callback fire
                     return
-                log.info("[PERMISSION] Permission granted — invoking callback")
+                log.info("[PERMISSION] Permission granted, invoking callback")
                 try:
                     callback()
                 except Exception:
@@ -301,21 +301,21 @@ def check_microphone_permission() -> MicrophonePermissionState:
           to return one of ``GRANTED`` / ``DENIED`` / ``PROMPT`` (the
           ``AVAuthorizationStatusNotDetermined`` case). Returns ``UNKNOWN``
           if pyobjc isn't installed.
-    **Windows**:  — attempts a 1-frame ``sounddevice.InputStream``
+    **Windows**: , attempts a 1-frame ``sounddevice.InputStream``
           open in probe mode. If PortAudio raises an ``OSError`` whose
           message contains "access denied" (the Windows mic-privacy-blocked
           signature), returns ``DENIED``. Otherwise returns ``GRANTED``
           (the probe succeeded) or ``UNKNOWN`` (the probe itself raised an
-          unrelated error — we never want a probe failure to take down the
+          unrelated error, we never want a probe failure to take down the
           caller). Pre-fix, this branch unconditionally returned ``GRANTED``,
           so a globally-disabled Windows mic privacy setting was reported
           as GRANTED and the user got a generic OSError toast instead of a
           clean "Open Windows Settings → Microphone" prompt.
-    **Linux**:  — checks for Flatpak (``/.flatpak-info``) and
+    **Linux**: , checks for Flatpak (``/.flatpak-info``) and
           reads the flatpak per-app microphone permission table. Returns
           ``DENIED`` if the per-app portal permission is revoked. Returns
           ``GRANTED`` otherwise (no standard per-app mic permission system
-          on non-Flatpak Linux — PipeWire/PulseAudio access is controlled
+          on non-Flatpak Linux. PipeWire/PulseAudio access is controlled
           by the session manager but typically granted by default).
         - **Unsupported platform**: returns ``UNKNOWN``.
 
@@ -323,7 +323,7 @@ def check_microphone_permission() -> MicrophonePermissionState:
         itself raises (e.g. sounddevice not importable on a headless CI
         box, or the flatpak permission file moved between versions), we
         fall back to ``GRANTED`` and log a warning so the operator knows
-        the pre-check is limited — the runtime PortAudio-open path in
+        the pre-check is limited, the runtime PortAudio-open path in
         :mod:`voice_typer.server.recording.recorder` will re-classify the
         actual OSError at device-open time.
     """
@@ -342,7 +342,7 @@ def check_microphone_permission() -> MicrophonePermissionState:
 
 def verify_microphone_accessible() -> None:
     """pre-flight check that the OS reports microphone permission
-    as granted (or prompt — the OS will show the consent dialog on first
+    as granted (or prompt, the OS will show the consent dialog on first
     PortAudio open in that case).
 
     Raises :class:`MicrophonePermissionDeniedError` (from
@@ -354,7 +354,7 @@ def verify_microphone_accessible() -> None:
     Does NOT raise on ``GRANTED`` / ``PROMPT`` / ``UNKNOWN``:
     - ``GRANTED``: nothing to do.
     - ``PROMPT``: the OS will show the consent dialog on first
-      PortAudio open — pre-empting would double-prompt.
+      PortAudio open, pre-empting would double-prompt.
     - ``UNKNOWN`` (pyobjc missing on macOS, or unsupported platform):
       defer to the PortAudio-open re-classification path in
       :mod:`voice_typer.server.recording.recorder` which inspects the
@@ -524,7 +524,7 @@ def show_permission_notification(tray, error_message: str) -> None:
         title = i18n.t(_p._PERMISSION_NOTIFY_LINUX_TITLE_KEY, app=_p.APP_NAME)
         body = i18n.t(_p._PERMISSION_NOTIFY_LINUX_BODY_KEY)
     else:
-        # Windows shouldn't reach here — no permission needed. No i18n
+        # Windows shouldn't reach here, no permission needed. No i18n
         # key for this branch (it's an unexpected path); fall back to
         # the raw APP_NAME + error_message so the log is useful.
         title = _p.APP_NAME
@@ -537,5 +537,5 @@ def show_permission_notification(tray, error_message: str) -> None:
             tray.notify(title, body)
         except Exception:
             log.exception("[PERMISSION] tray.notify failed")
-    # If tray is None, the log.warning above is the only signal — the
+    # If tray is None, the log.warning above is the only signal, the
     # caller may also surface this in the UI.

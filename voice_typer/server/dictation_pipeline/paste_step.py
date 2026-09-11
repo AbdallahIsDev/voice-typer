@@ -2,7 +2,7 @@
 
 Holds Step 9 of the dictation pipeline:
 
-  * :meth:`_copy_and_paste` — copy the transcription to the clipboard
+  * :meth:`_copy_and_paste`: copy the transcription to the clipboard
     (snapshot/restore cycle for save/restore mode), attempt paste if
     ``paste_on_stop`` is on, mark the crash-recovery entry as pasted,
     and tear down the bubble + tray status. Includes the
@@ -14,7 +14,7 @@ The snapshot/restore cycle is explicit at the call site (not hidden
 inside ``copy()`` / ``paste()``) so the borrow/restore pairing is
 visible. Optimization (ADR-0010 §9.2): when ``paste_on_stop`` is OFF
 AND ``clipboard_save_restore`` is ON, the clipboard borrow is skipped
-entirely — the transcription is already in the DB and reachable via
+entirely, the transcription is already in the DB and reachable via
 the repaste hotkey.
 
 Originally an inline method on ``DictationPipeline`` in the 2077-LOC
@@ -48,8 +48,8 @@ class _PasteStepMixin:
     # the mixin so mypy / pyrefly resolve every ``self._app.*`` access —
     # the attributes are provided by the composed parent class at
     # runtime (same pattern as ``_StorageStepMixin._app`` and the
-    # declarations on ``_TranscribeStepMixin``). Annotations only — no
-    # values — so no runtime attribute is created and the runtime MRO
+    # declarations on ``_TranscribeStepMixin``). Annotations only, no
+    # values, so no runtime attribute is created and the runtime MRO
     # is unaffected.
     _app: Any
     _cycle_id: str
@@ -57,7 +57,7 @@ class _PasteStepMixin:
     # Bubble teardown helper owned by ``_TranscribeStepMixin`` and
     # reached via the composed ``DictationPipeline`` MRO (called on the
     # clipboard-failure path and after the paste completes). Annotation
-    # only — the real method definition and its precise signature live
+    # only, the real method definition and its precise signature live
     # in ``transcribe_step.py`` (``Callable[..., None]`` so the
     # annotation stays compatible with the method definition across
     # the multiple-inheritance merge).
@@ -66,26 +66,26 @@ class _PasteStepMixin:
     def _copy_and_paste(self, text: str) -> None:
         """Step 9: Copy to clipboard and attempt paste.
 
-        ADR-0010 §6.1 / DP1 / DP2 / DP4.
+         ADR-0010 §6.1 / DP1 / DP2 / DP4.
 
-        The snapshot/restore cycle is explicit here (not hidden inside
-        copy()/paste()) so the borrow/restore pairing is visible at the
-        call site. This is the single place that orchestrates the
-        clipboard borrow lifecycle.
+         The snapshot/restore cycle is explicit here (not hidden inside
+         copy()/paste()) so the borrow/restore pairing is visible at the
+         call site. This is the single place that orchestrates the
+         clipboard borrow lifecycle.
 
-        If clipboard.copy() fails, we previously lost the
-        transcription silently. We now write the text to the crash
-        recovery buffer (which persists to disk) and notify the user
-        with the path so they can recover it manually.
+         If clipboard.copy() fails, we previously lost the
+         transcription silently. We now write the text to the crash
+         recovery buffer (which persists to disk) and notify the user
+         with the path so they can recover it manually.
 
-        Optimization (ADR-0010 §6.1 / §9.2): if ``paste_on_stop`` is OFF
-        and ``clipboard_save_restore`` is ON, we would copy the
-        transcription and instantly restore the user's clipboard — a
-        redundant clipboard lock round-trip (and its error surface) for
-        zero benefit. Skip the clipboard entirely; the transcription is
-        already persisted to the DB by ``_store_result()`` and reachable
-        via the repaste hotkey. We only skip the clipboard borrow here
-        — the UI teardown below (bubble/tray/timer) still runs.
+         Optimization (ADR-0010 §6.1 / §9.2): if ``paste_on_stop`` is OFF
+         and ``clipboard_save_restore`` is ON, we would copy the
+         transcription and instantly restore the user's clipboard, a
+         redundant clipboard lock round-trip (and its error surface) for
+         zero benefit. Skip the clipboard entirely; the transcription is
+         already persisted to the DB by ``_store_result()`` and reachable
+         via the repaste hotkey. We only skip the clipboard borrow here
+        , the UI teardown below (bubble/tray/timer) still runs.
         """
         # ── OPTIMIZATION (§9.2): skip the clipboard borrow entirely when
         #    paste_on_stop is OFF and save/restore is ON. The
@@ -96,7 +96,7 @@ class _PasteStepMixin:
         pasted = False
         snapshot = None
         if not skip_clipboard:
-            # ① COPY — returns snapshot (or None when save/restore is
+            # ① COPY, returns snapshot (or None when save/restore is
             #    disabled). Raises ClipboardCopyError on genuine copy
             #    failure (caller writes to crash recovery).
             try:
@@ -133,7 +133,7 @@ class _PasteStepMixin:
                 self._app.tray.notify(APP_NAME, notice)
                 # surface the paste failure as a renderer
                 # toast in ADDITION to the tray notification (keep both
-                # for redundancy — the tray icon tooltip is visible when
+                # for redundancy, the tray icon tooltip is visible when
                 # the user is on another app; the toast is visible when
                 # the renderer has focus). The renderer subscribes to
                 # the ``paste_failed`` event via usePythonEvent and shows
@@ -172,7 +172,7 @@ class _PasteStepMixin:
                     ),
                 )
                 return
-            # ② PASTE (if enabled) — paste() schedules the restore thread
+            # ② PASTE (if enabled), paste() schedules the restore thread
             #    at its top, before any early return (DP1). pasted_text
             #    is passed as a value so overlapping cycles stay isolated (DP4).
             if self._app.config.paste_on_stop:
@@ -184,12 +184,12 @@ class _PasteStepMixin:
                 # snapshot captured), so there is nothing to restore —
                 # the user's original content was never captured.
                 log.info(
-                    "[CLIPBOARD-AUDIT] paste_on_stop=False + save/restore off — "
+                    "[CLIPBOARD-AUDIT] paste_on_stop=False + save/restore off, "
                     "transcription left on clipboard for manual paste"
                 )
         else:
             log.info(
-                "[CLIPBOARD-AUDIT] paste_on_stop=False + save/restore on — "
+                "[CLIPBOARD-AUDIT] paste_on_stop=False + save/restore on, "
                 "clipboard untouched; transcription persisted to DB"
             )
 
@@ -198,7 +198,7 @@ class _PasteStepMixin:
             with contextlib.suppress(Exception):
                 self._app._crash_recovery.mark_latest_pasted()
 
-        # ④ Status + tray + bubble — localized via the
+        # ④ Status + tray + bubble, localized via the
         #    ``state.dictation_pipeline.done_*`` templates (the renderer
         #    pushes translated text through ``set_tray_locale``; the
         #    server formats ``{count}`` at call time).
@@ -219,7 +219,7 @@ class _PasteStepMixin:
                 count=len(text),
             )
 
-        # Transcription + paste complete — hide the
+        # Transcription + paste complete, hide the
         # bubble (or set it to idle for always_visible mode) so the overlay
         # doesn't persist on screen after the user has their result.
         self._hide_or_idle_bubble("bubble hide/set idle")

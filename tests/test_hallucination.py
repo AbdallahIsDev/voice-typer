@@ -6,8 +6,8 @@ Covers:
     ``PIIRedactionFilter`` dance) and applies identical redaction
     patterns for emails, phone numbers, SSNs, and credit-card-like
     numbers.
-  - SEC-009: ``log_transcriptions=False`` emits metadata only — never
-    the rejected text — and ``log_transcriptions=True`` emits the
+  - SEC-009: ``log_transcriptions=False`` emits metadata only, never
+    the rejected text, and ``log_transcriptions=True`` emits the
     redacted + truncated text.
   - CR-87: truncation to ``_HALLUCINATION_LOG_MAX_CHARS`` (40) still
     happens after redaction, so a PII pattern that straddles the
@@ -15,7 +15,7 @@ Covers:
     PII leak).
   - CR-87 / HU-14: when ``redact_pii`` raises at runtime (defensive
     import + call site), the log falls back to a constant
-    ``<redaction-failed>`` sentinel + the char count — NEVER the raw
+    ``<redaction-failed>`` sentinel + the char count, NEVER the raw
     (even truncated) text, mirroring the transcription.py segment-log
     contract.
   - The hallucination detection helpers
@@ -57,7 +57,7 @@ LOGGER_NAME = "voice_typer.server.hallucination"
 )
 def test_cr87_log_transcriptions_true_applies_same_redaction_as_filter(caplog, text, marker):
     """CR-87: when ``log_transcriptions=True``, the rejected text is
-    redacted using ``security.redact_pii`` — the same patterns as
+    redacted using ``security.redact_pii``, the same patterns as
     ``PIIRedactionFilter``. Each PII category must be replaced with its
     redaction token before the text reaches the log record.
     """
@@ -115,7 +115,7 @@ def test_cr87_truncation_to_40_chars_after_redaction(caplog):
     truncation on no-PII text. Spaces break up the run so the bare-token
     pattern doesn't fire and the text reaches the truncation step intact.
     """
-    # 225 chars (45-char phrase × 5) — no PII, no 20+ char bare-token run.
+    # 225 chars (45-char phrase × 5), no PII, no 20+ char bare-token run.
     long_text = "the quick brown fox jumps over the lazy dog. " * 5
     expected_truncated = long_text[:_HALLUCINATION_LOG_MAX_CHARS]
     # Sanity check the test input itself: redact_pii must be a no-op here
@@ -151,7 +151,7 @@ def test_cr87_truncation_to_40_chars_after_redaction(caplog):
 def test_cr87_pii_at_truncation_boundary_is_fully_redacted(caplog):
     """CR-87 regression guard: if a PII pattern straddles the 40-char
     truncation boundary, redacting FIRST then truncating must replace
-    the entire PII with the redaction token — no partial PII leak.
+    the entire PII with the redaction token, no partial PII leak.
 
     Pre-CR-87 (truncate-then-redact): the email would be split at char
     40, the regex wouldn't match the partial fragment, and the partial
@@ -160,9 +160,9 @@ def test_cr87_pii_at_truncation_boundary_is_fully_redacted(caplog):
     # Position the email so that char 40 falls in the middle of it.
     # 30 chars of padding + "user@example.com" (16 chars) = 46 chars.
     # Under truncate-first: chars 0-39 keep "user@example.com"[:10] =
-    # "user@examp" — leaking the email username. Under redact-first:
+    # "user@examp", leaking the email username. Under redact-first:
     # the full email becomes "[EMAIL]" (7 chars), then truncation
-    # keeps 40 chars total — no leak.
+    # keeps 40 chars total, no leak.
     text = "x" * 30 + "user@example.com"
     with caplog.at_level(logging.WARNING, logger=LOGGER_NAME):
         log_hallucination_rejection("[TEST]", text, reason="hallucination", log_transcriptions=True)
@@ -178,17 +178,17 @@ def test_cr87_pii_at_truncation_boundary_is_fully_redacted(caplog):
 def test_cr87_fallback_to_sentinel_if_redact_pii_raises(caplog):
     """CR-87 / HU-14: if ``security.redact_pii`` raises at runtime
     (e.g. import failure, regex engine error), the helper logs a
-    constant ``<redaction-failed>`` sentinel + the char count — NEVER
+    constant ``<redaction-failed>`` sentinel + the char count, NEVER
     the raw text, even truncated.
 
     HU-14 regression: the pre-fix fallback was truncation-only
     (``text[:_HALLUCINATION_LOG_MAX_CHARS]``). A 40-char window can
     still contain a full email address, phone number, or SSN fragment,
-    so truncation is NOT redaction — the fallback must not leak PII
+    so truncation is NOT redaction, the fallback must not leak PII
     when ``log_transcriptions=True`` and the redaction engine is
     broken.
     """
-    # Patch redact_pii to raise — simulates a broken security module.
+    # Patch redact_pii to raise, simulates a broken security module.
     secret_text = "user@example.com with secret content"
     with (
         patch(
@@ -209,7 +209,7 @@ def test_cr87_fallback_to_sentinel_if_redact_pii_raises(caplog):
     msg = warning_records[-1].getMessage()
     # The sentinel must appear in the log.
     assert "<redaction-failed>" in msg, f"redaction-failure sentinel must be logged; got: {msg!r}"
-    # The raw text must NOT appear — not even a truncated fragment.
+    # The raw text must NOT appear, not even a truncated fragment.
     assert "user@example.com" not in msg, f"raw PII must NOT be logged on redaction failure; got: {msg!r}"
     assert "secret content" not in msg, f"raw text must NOT be logged on redaction failure; got: {msg!r}"
     # The char count is still surfaced for triage.
@@ -221,7 +221,7 @@ def test_cr87_fallback_to_sentinel_if_redact_pii_raises(caplog):
 
 def test_log_transcriptions_false_emits_no_text(caplog):
     """SEC-009: with ``log_transcriptions=False`` (default), only
-    metadata (engine tag, reason, char count) is logged — never the
+    metadata (engine tag, reason, char count) is logged, never the
     rejected text content."""
     secret_text = "this is secret content that must not appear"
     with caplog.at_level(logging.WARNING, logger=LOGGER_NAME):

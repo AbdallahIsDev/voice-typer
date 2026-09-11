@@ -6,10 +6,10 @@ The ``teardown_electron`` helper terminates the Electron subprocess via
 When that call times out (returns the ``TIMEOUT`` sentinel), the helper
 escalates:
 
-  * **Windows** — calls ``ctypes.windll.kernel32.OpenProcess`` with
+  * **Windows**, calls ``ctypes.windll.kernel32.OpenProcess`` with
     ``PROCESS_TERMINATE`` (``0x0001``) access, then ``TerminateProcess``,
     then ``CloseHandle``.
-  * **POSIX** — calls ``os.kill(pid, SIGKILL)`` (after the initial
+  * **POSIX**, calls ``os.kill(pid, SIGKILL)`` (after the initial
     SIGTERM attempt inside ``terminate_electron``).
 
 Pre-fix, the Windows branch was a silent no-op on timeout (the POSIX
@@ -23,7 +23,7 @@ Platform-qualified: the Windows test mocks ``ctypes.windll`` +
 Win32 APIs. The POSIX test mocks ``is_windows()`` to return False and
 mocks ``os.kill`` so no real signal is delivered.
 
-All OS-level calls are mocked — no real signals, no real subprocess,
+All OS-level calls are mocked, no real signals, no real subprocess,
 no real Win32 handles.
 """
 
@@ -39,7 +39,7 @@ import pytest
 # DYNAMICALLY from ``shutdown_controller`` at call time (see the module
 # docstring in ``teardowns/electron.py``). Patching
 # ``shutdown_controller._run_with_timeout`` therefore takes effect on
-# the next ``teardown_electron`` call — mirrors the convention used by
+# the next ``teardown_electron`` call, mirrors the convention used by
 # ``tests/test_shutdown_teardown_fixes.py``.
 from voice_typer.server import shutdown_controller as _sc
 from voice_typer.server.shutdown.teardowns.electron import teardown_electron
@@ -61,7 +61,7 @@ def _make_controller_with_app():
 
     Mirrors the ``_make_controller_with_app`` helper in
     ``tests/test_shutdown_teardown_fixes.py`` (kept here so this test
-    module is self-contained — the sibling helper uses a richer fake-app
+    module is self-contained, the sibling helper uses a richer fake-app
     surface for the broader ``_do_cleanup`` tests).
     """
     app = MagicMock()
@@ -111,7 +111,7 @@ class TestRestartGuardKeepsElectronAlive:
     def test_quit_still_terminates_electron(self, monkeypatch):
         controller, app = _make_controller_with_app()
         app._electron_pid = 12345
-        app._is_restarting = False  # a normal quit — terminate Electron
+        app._is_restarting = False  # a normal quit, terminate Electron
 
         fake_electron_launcher = MagicMock()
         fake_electron_launcher.terminate_electron = MagicMock(return_value=None)
@@ -164,7 +164,7 @@ class TestWindowsTerminateProcessEscalation:
              PID is cleared even on the timeout path so the next launch
              isn't blocked).
 
-        No real Win32 API is touched — ``ctypes`` itself is replaced in
+        No real Win32 API is touched: ``ctypes`` itself is replaced in
         ``sys.modules`` so the ``import ctypes`` inside the helper
         resolves to the fake.
         """
@@ -292,7 +292,7 @@ class TestPosixSigkillEscalation:
     ``terminate_electron`` times out (the helper is stuck), the
     teardown helper directly calls ``os.kill(pid, SIGKILL)``.
 
-    No real signal is delivered — ``os.kill`` is mocked.
+    No real signal is delivered: ``os.kill`` is mocked.
     """
 
     def test_posix_sigterm_then_sigkill_escalation(
@@ -310,7 +310,7 @@ class TestPosixSigkillEscalation:
           3. ``app._electron_pid`` is ``None`` after teardown.
 
         The ``contextlib.suppress(OSError, ProcessLookupError)`` wrapper
-        around ``os.kill`` means a raised OSError is swallowed — the
+        around ``os.kill`` means a raised OSError is swallowed, the
         mock returns None (success) so no exception is raised.
         """
         controller, app = _make_controller_with_app()
@@ -369,7 +369,7 @@ class TestPosixSigkillEscalation:
         )
 
         # 2. At least one call used SIGKILL (the escalation signal).
-        # ``signal.SIGKILL`` is absent on Windows Python — the source
+        # ``signal.SIGKILL`` is absent on Windows Python, the source
         # uses ``getattr(signal, "SIGKILL", 9)`` (the POSIX value);
         # mirror that here so the assertion is portable.
         sigkill = getattr(signal, "SIGKILL", 9)
@@ -413,7 +413,7 @@ class TestElectronPidClearedAfterTeardown:
         controller, app = _make_controller_with_app()
         app._electron_pid = 77777
 
-        # POSIX (the test host is Linux); happy path — no timeout.
+        # POSIX (the test host is Linux); happy path, no timeout.
         monkeypatch.setattr(
             "voice_typer.server.shutdown.teardowns.electron.is_windows",
             lambda: False,

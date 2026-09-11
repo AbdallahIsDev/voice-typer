@@ -1,9 +1,9 @@
 /**
- * LevelBar a11y tests — covers the ``role="progressbar"`` semantics.
+ * LevelBar a11y tests, covers the ``role="progressbar"`` semantics.
  *
  * The bar exposes its level to assistive tech via ``aria-valuenow``
  * (numeric 0–100) and ``aria-valuetext`` (human-readable "<pct> percent,
- * <tier>" — e.g. "70 percent, loud"). The valuetext is essential for SR
+ * <tier>", e.g. "70 percent, loud"). The valuetext is essential for SR
  * users because the raw number alone doesn't convey the qualitative
  * band (silent / low / good / loud) that the visual colour encodes.
  *
@@ -34,7 +34,7 @@ function getProgressbar(): HTMLElement {
 	return el as HTMLElement;
 }
 
-describe("LevelBar — aria-valuetext reflects tier", () => {
+describe("LevelBar, aria-valuetext reflects tier", () => {
 	it("renders '0 percent, silent' when level is 0", () => {
 		render(<LevelBar level={0} playing={false} />);
 		const bar = getProgressbar();
@@ -44,7 +44,7 @@ describe("LevelBar — aria-valuetext reflects tier", () => {
 
 	it("renders '3 percent, low' for a faint signal below the voice threshold", () => {
 		// ``getVolumeTier`` classifies anything with peak ≤ 0.05 (and
-		// level > 0.005) as "low" — i.e. the user is producing signal
+		// level > 0.005) as "low", i.e. the user is producing signal
 		// but it's too faint for voice detection. Use 0.03 to stay
 		// in that band (level=0.15 would cross the 0.05 voice threshold
 		// and classify as "good").
@@ -90,7 +90,7 @@ describe("LevelBar — aria-valuetext reflects tier", () => {
 	});
 });
 
-describe("LevelBar — compositor-friendly scaleX fill", () => {
+describe("LevelBar, compositor-friendly scaleX fill", () => {
 	function getFill(): HTMLElement {
 		const fill = getProgressbar().firstElementChild;
 		if (!fill) throw new Error("fill element not rendered");
@@ -131,7 +131,7 @@ describe("LevelBar — compositor-friendly scaleX fill", () => {
 
 	it("colours the fill primary below clipping, destructive red above 90%", () => {
 		// Below the clipping onset → primary (token, not hardcoded).
-		// Note 0.85 announces "loud" but still paints blue — paint
+		// Note 0.85 announces "loud" but still paints blue, paint
 		// bands intentionally differ from announcement bands.
 		for (const lvl of [0.2, 0.6, 0.85, 0.9]) {
 			render(<LevelBar level={lvl} playing={false} />);
@@ -153,7 +153,7 @@ describe("LevelBar — compositor-friendly scaleX fill", () => {
 	});
 
 	it("counter-scales ONLY the leading-edge cap; anchored corners stay fixed 3px", () => {
-		// scaleX compresses painted geometry — a fixed border-radius would
+		// scaleX compresses painted geometry, a fixed border-radius would
 		// render squared caps at small levels. Only the RIGHT
 		// (leading/moving) edge divides its horizontal radius by the
 		// level (CSS var --level) so the POST-transform cap stays a 3px
@@ -172,7 +172,7 @@ describe("LevelBar — compositor-friendly scaleX fill", () => {
 		);
 		expect(fill.style.borderTopLeftRadius).toBe("3px");
 		expect(fill.style.borderBottomLeftRadius).toBe("3px");
-		// No uniform shorthand — a single borderRadius would reintroduce
+		// No uniform shorthand, a single borderRadius would reintroduce
 		// the compensated formula on the anchored corners.
 		expect(fill.style.borderRadius).toBe("");
 		// Full scale → plain 3px/3px (a perfect capsule end).
@@ -186,11 +186,11 @@ describe("LevelBar — compositor-friendly scaleX fill", () => {
 	});
 });
 
-describe("LevelBar — neutral borderless track", () => {
+describe("LevelBar, neutral borderless track", () => {
 	it("renders the track without any border classes", () => {
 		render(<LevelBar level={0} playing={false} />);
 		const cls = getProgressbar().className;
-		// Token-level check — ``bg-border`` legitimately contains the
+		// Token-level check, ``bg-border`` legitimately contains the
 		// substring "border"; only a ``border``-prefixed utility would
 		// draw an outline.
 		expect(cls.split(/\s+/).some((c) => c.startsWith("border"))).toBe(false);
@@ -205,7 +205,7 @@ describe("LevelBar — neutral borderless track", () => {
 	});
 });
 
-describe("LevelBar — getFillColorTier thresholds", () => {
+describe("LevelBar, getFillColorTier thresholds", () => {
 	it("maps 0.9 and below to normal, above 0.9 to clipping", () => {
 		expect(getFillColorTier(0)).toBe("normal");
 		expect(getFillColorTier(0.6)).toBe("normal");
@@ -216,10 +216,10 @@ describe("LevelBar — getFillColorTier thresholds", () => {
 	});
 });
 
-describe("LevelBar — full-width meter, no clipping icon", () => {
+describe("LevelBar, full-width meter, no clipping icon", () => {
 	it("renders the track as the component root with no reserved icon slot or glyph", () => {
 		const { container } = render(<LevelBar level={0.85} playing={false} />);
-		// Root IS the progressbar — no wrapper div, no sibling slot.
+		// Root IS the progressbar, no wrapper div, no sibling slot.
 		expect(container.firstElementChild?.getAttribute("role")).toBe(
 			"progressbar",
 		);

@@ -5,7 +5,7 @@ Split from the former catch-all test module
 and the built-bundle completeness gate:
 
 * Optional SHA-256 verification of the Electron binary.
-* RACE-011 — ``_main_entry_built`` must require main + renderer +
+* RACE-011: ``_main_entry_built`` must require main + renderer +
   preload bundles (a partial build previously spawned a hidden
   zombie window holding the single-instance lock).
 """
@@ -109,7 +109,7 @@ class TestMainEntryBuiltRequiresAllBundles:
     """RACE-011: ``_main_entry_built`` must require main + renderer + preload.
 
     A pre-built check that only looked at ``out/main/index.js`` let the
-    launchers spawn ``electron .`` with a missing renderer bundle — the
+    launchers spawn ``electron .`` with a missing renderer bundle, the
     window never showed (did-fail-load ERR_FILE_NOT_FOUND) and the
     process lingered as a hidden zombie holding the single-instance
     lock, silently killing every later launch.

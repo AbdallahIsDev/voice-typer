@@ -3,7 +3,7 @@
 ``HistoryDB._get_read_conn`` already calls
 ``_prune_dead_read_connections_locked`` opportunistically on each
 new-connection creation. DJ-19 adds a periodic prune worker (single
-long-lived daemon thread, NOT a ``threading.Timer`` cascade — that's
+long-lived daemon thread, NOT a ``threading.Timer`` cascade, that's
 the DJ-37 anti-pattern) so dead-thread connections are pruned within
 ``_READ_CONN_PRUNE_INTERVAL_S`` seconds even when no new reader
 threads show up.
@@ -14,7 +14,7 @@ These tests verify:
 3. The prune worker actually closes connections whose owning thread
    has exited, within the configured interval.
 4. The prune worker uses ``Event.wait(timeout=...)`` (NOT a
-   ``threading.Timer`` cascade — the DJ-37 anti-pattern).
+   ``threading.Timer`` cascade, the DJ-37 anti-pattern).
 """
 
 from __future__ import annotations
@@ -74,10 +74,10 @@ def test_prune_thread_uses_event_wait_not_timer(tmp_path, monkeypatch):
     db = history_db.HistoryDB(db_path=db_path)
     try:
         # Give the prune thread a moment to potentially schedule a Timer
-        # (it shouldn't — it uses Event.wait instead).
+        # (it shouldn't, it uses Event.wait instead).
         time.sleep(0.05)
         assert len(timer_instances) == 0, (
-            f"prune worker used threading.Timer (created {len(timer_instances)} Timer instances) — DJ-37 anti-pattern"
+            f"prune worker used threading.Timer (created {len(timer_instances)} Timer instances), DJ-37 anti-pattern"
         )
     finally:
         db.close()
@@ -184,7 +184,7 @@ def test_prune_worker_survives_transient_error(db, monkeypatch):
     assert db._read_conn_prune_thread.is_alive(), "prune worker thread should still be alive after a transient error"
 
 
-# the ``tempfile_mkdtemp()`` helper was removed — the
+# the ``tempfile_mkdtemp()`` helper was removed, the
 # ``test_prune_thread_uses_event_wait_not_timer`` test now uses the
 # pytest ``tmp_path`` fixture (auto-cleaned) instead of leaking a
 # temp dir on test failure / SIGTERM. No other test in this module

@@ -5,12 +5,12 @@
  * Covers the  fix: when ``state.tcpSocket`` is null AND the app
  * has connected before (``state._hadConnectedBefore === true``),
  * idempotent commands are queued for flush-on-reconnect instead of
- * being rejected outright — eliminating the "flaky button" feel
+ * being rejected outright, eliminating the "flaky button" feel
  * during brief disconnects (sleep/resume, Wi-Fi flap, GC pause on
  * the Python side triggering the 2s write timeout).
  *
  * Non-idempotent commands (e.g. ``toggle_dictation``) are still
- * rejected immediately when the socket is null — replaying them
+ * rejected immediately when the socket is null, replaying them
  * after a disconnect risks double-execution (the Python side may
  * have already processed the original write before the socket
  * dropped, so replaying would start/stop a second recording).
@@ -105,10 +105,10 @@ describe("Outbound replay queue (DJ-87)", () => {
 			state.tcpSocket = null;
 			state._hadConnectedBefore = true;
 
-			// Don't await — the promise won't resolve until flush.
+			// Don't await, the promise won't resolve until flush.
 			const pending = sendToPython({ type: "get_config" });
 
-			// The promise is pending (not rejected) — the queue captured it.
+			// The promise is pending (not rejected), the queue captured it.
 			expect(_pendingOutboundLengthForTest()).toBe(1);
 			// No socket write happened (socket is null).
 			expect(mocks.socketWrite).not.toHaveBeenCalled();
@@ -116,7 +116,7 @@ describe("Outbound replay queue (DJ-87)", () => {
 			// the in-flight map).
 			expect(state.pendingRequests.size).toBe(0);
 
-			// Restore the socket and flush — the queued call should now
+			// Restore the socket and flush, the queued call should now
 			// be sent.
 			// biome-ignore lint/suspicious/noExplicitAny: mock socket for tests
 			state.tcpSocket = { write: mocks.socketWrite } as any;
@@ -145,7 +145,7 @@ describe("Outbound replay queue (DJ-87)", () => {
 			state.tcpSocket = null;
 			state._hadConnectedBefore = true;
 
-			// Don't await — they'll be pending until flush. Attach a
+			// Don't await, they'll be pending until flush. Attach a
 			// no-op .catch so the next test's resetPendingOutbound
 			// doesn't surface as an unhandled rejection (the queued
 			// promises are rejected by the beforeEach cleanup).
@@ -165,7 +165,7 @@ describe("Outbound replay queue (DJ-87)", () => {
 			expect(state.pendingRequests.size).toBe(0);
 		});
 
-		it("does NOT queue non-idempotent commands (toggle_dictation) — rejects immediately", async () => {
+		it("does NOT queue non-idempotent commands (toggle_dictation), rejects immediately", async () => {
 			state.tcpSocket = null;
 			state._hadConnectedBefore = true;
 
@@ -173,18 +173,18 @@ describe("Outbound replay queue (DJ-87)", () => {
 				/Python backend is not connected/,
 			);
 
-			// Queue is empty — non-idempotent commands are never queued.
+			// Queue is empty, non-idempotent commands are never queued.
 			expect(_pendingOutboundLengthForTest()).toBe(0);
 			expect(mocks.socketWrite).not.toHaveBeenCalled();
 		});
 
-		it("does NOT queue disallowed commands — allowlist check still runs before queueing", async () => {
+		it("does NOT queue disallowed commands, allowlist check still runs before queueing", async () => {
 			state.tcpSocket = null;
 			state._hadConnectedBefore = true;
 
 			// "disallowed_for_tests" is NOT in the mocked ALLOWED_COMMANDS.
 			// The allowlist check is structurally before the queue lookup
-			// in the production code — but the queue branch is INSIDE the
+			// in the production code, but the queue branch is INSIDE the
 			// ``if (!state.tcpSocket)`` early-return, BEFORE the allowlist
 			// check. So this test verifies that the queue only captures
 			// idempotent commands that ARE in the idempotent set; a
@@ -208,7 +208,7 @@ describe("Outbound replay queue (DJ-87)", () => {
 				/Python backend is not connected/,
 			);
 
-			// Queue is bypassed during initial startup — the user sees
+			// Queue is bypassed during initial startup, the user sees
 			// the "Python backend is not connected" error for premature
 			// clicks (the dashboard is already showing "Connecting...").
 			expect(_pendingOutboundLengthForTest()).toBe(0);
@@ -216,7 +216,7 @@ describe("Outbound replay queue (DJ-87)", () => {
 
 		it("rejects idempotent command when _hadConnectedBefore is undefined (mock default)", async () => {
 			state.tcpSocket = null;
-			// @ts-expect-error — intentionally delete to simulate the
+			// @ts-expect-error, intentionally delete to simulate the
 			// existing test fixtures that don't set _hadConnectedBefore.
 			delete state._hadConnectedBefore;
 
@@ -242,7 +242,7 @@ describe("Outbound replay queue (DJ-87)", () => {
 			expect(_pendingOutboundLengthForTest()).toBe(16);
 
 			// The 17th should be rejected with the "not connected" error
-			// (the queue is full — preserve the oldest entries and shed
+			// (the queue is full, preserve the oldest entries and shed
 			// load at the new edge).
 			await expect(sendToPython({ type: "get_config" })).rejects.toThrow(
 				/Python backend is not connected/,
@@ -282,7 +282,7 @@ describe("Outbound replay queue (DJ-87)", () => {
 			});
 			expect(_pendingOutboundLengthForTest()).toBe(3);
 
-			// Restore the socket — flush should send all three in order.
+			// Restore the socket, flush should send all three in order.
 			// biome-ignore lint/suspicious/noExplicitAny: mock socket for tests
 			state.tcpSocket = { write: mocks.socketWrite } as any;
 			flushPendingOutbound();
@@ -430,7 +430,7 @@ describe("Outbound replay queue (DJ-87)", () => {
 
 		it("rejects queued entries with a TYPED PythonIpcError (code command_failed)", async () => {
 			// The queue is drained during a full app relaunch
-			// (state._relaunching true in the close handler) — the
+			// (state._relaunching true in the close handler), the
 			// same class as the pre-flight "Application is
 			// restarting" rejection in sendToPython, so it must
 			// carry the command_failed code on a PythonIpcError
@@ -460,7 +460,7 @@ describe("Outbound replay queue (DJ-87)", () => {
 	describe("flush re-sends with the captured senderId", () => {
 		it("applies the renderer-vs-internal allowlist split to the replay (senderId preserved)", async () => {
 			// A renderer-queued `heartbeat` (idempotent AND
-			// internal-only) must be rejected on flush — replaying
+			// internal-only) must be rejected on flush, replaying
 			// it with a null senderId would smuggle a renderer
 			// command past the internal-only gate. This pins that
 			// flush passes the entry's captured senderId, not null.
@@ -472,7 +472,7 @@ describe("Outbound replay queue (DJ-87)", () => {
 			original.catch(onRejected);
 			expect(_pendingOutboundLengthForTest()).toBe(1);
 
-			// Restore the socket and flush — the replay carries
+			// Restore the socket and flush, the replay carries
 			// senderId 7, so the internal-only gate rejects it.
 			// biome-ignore lint/suspicious/noExplicitAny: mock socket for tests
 			state.tcpSocket = { write: mocks.socketWrite } as any;
@@ -489,7 +489,7 @@ describe("Outbound replay queue (DJ-87)", () => {
 		it("counts the replay against the original sender's rate-limit budget", async () => {
 			// RATE_LIMIT_MAX_CALLS is mocked to 5 in this file.
 			// Exhaust sender 9's budget while connected, then
-			// queue a command while disconnected and flush — the
+			// queue a command while disconnected and flush, the
 			// replay must be rate-limited like a live call would
 			// be (a null-sender replay would bypass the budget).
 			// 5 accepted calls fill the budget (then drain their
@@ -516,7 +516,7 @@ describe("Outbound replay queue (DJ-87)", () => {
 			expect(mocks.socketWrite).toHaveBeenCalledTimes(5);
 
 			// Queue the same command while disconnected, then
-			// flush — the replay re-uses sender 9's identity and
+			// flush, the replay re-uses sender 9's identity and
 			// is rejected by the SAME budget instead of writing.
 			state.tcpSocket = null;
 			state._hadConnectedBefore = true;
@@ -533,7 +533,7 @@ describe("Outbound replay queue (DJ-87)", () => {
 			expect(
 				(onRejected.mock.calls[0]?.[0] as Error | undefined)?.message,
 			).toMatch(/Rate limit exceeded/);
-			// No additional write — the replay never reached the socket.
+			// No additional write, the replay never reached the socket.
 			expect(mocks.socketWrite).toHaveBeenCalledTimes(5);
 		});
 

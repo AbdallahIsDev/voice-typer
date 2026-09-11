@@ -4,13 +4,13 @@ Owns the "secret CRUD" concern of the credential-store package
 (split from the single ~2132-line ``credential_store.py`` module).
 The four public operations re-exported by the package:
 
-- :func:`store_secret` — store a secret in the OS keychain, falling
+- :func:`store_secret`: store a secret in the OS keychain, falling
   back to plaintext in ``config.json`` when keyring is unavailable
   or errors (never raises),
-- :func:`load_secret` — load a secret, trying keyring first,
-- :func:`delete_secret` — best-effort delete from both stores +
+- :func:`load_secret`: load a secret, trying keyring first,
+- :func:`delete_secret`: best-effort delete from both stores +
   orphaned-keychain-entry cleanup,
-- :func:`clear_in_memory_secrets` — zero every API-key attribute on
+- :func:`clear_in_memory_secrets`: zero every API-key attribute on
   the in-memory ``Config`` (GDPR Art. 17 support).
 
 Monkeypatch contract: every helper owned by a SIBLING concern
@@ -21,7 +21,7 @@ Monkeypatch contract: every helper owned by a SIBLING concern
 :mod:`._plaintext`, ``_clear_plaintext_config_cache`` from
 :mod:`._backend`, ``_set_last_store_outcome`` from :mod:`._outcome`)
 is looked up on the PACKAGE module (``_cs.<NAME>``) at CALL time —
-not bound statically here — so tests doing
+not bound statically here, so tests doing
 ``monkeypatch.setattr(credential_store, "<name>", ...)`` keep taking
 effect through these functions (the same convention documented in the
 package docstring and used by ``_plaintext.py``).
@@ -54,13 +54,13 @@ def store_secret(provider: str, value: str, *, _caller_holds_config_lock: bool =
         Provider name (one of the keys in :data:`PROVIDER_TO_CONFIG_FIELD`).
     value : str
         The secret value to store. An empty string is treated as a
-        delete request — the secret is removed from both keyring and
+        delete request, the secret is removed from both keyring and
         the plaintext fallback.
     _caller_holds_config_lock : bool
         When ``True``, indicates the caller (e.g.
         ``Config._save_unlocked``) already holds the cross-process
         ``config.json.lock``. The plaintext-fallback write then SKIPS
-        re-acquiring the lock (which would deadlock — fcntl.flock is
+        re-acquiring the lock (which would deadlock, fcntl.flock is
         per-open-file-description, NOT per-fd, so a second LOCK_EX on
         a fresh fd in the same process blocks forever). Defaults to
         ``False`` for backwards compat with all existing callers.
@@ -91,7 +91,7 @@ def store_secret(provider: str, value: str, *, _caller_holds_config_lock: bool =
     Notes
     -----
     This function NEVER raises. Any keyring error is caught, logged
-    (with provider name + value length only — never the value itself),
+    (with provider name + value length only, never the value itself),
     and the secret is written to config.json as a fallback. This means
     a broken D-Bus or locked Keychain never prevents the user from
     saving their API key.
@@ -112,12 +112,12 @@ def store_secret(provider: str, value: str, *, _caller_holds_config_lock: bool =
     # _KNOWN_PROVIDERS_HISTORY to clean up PRE-EXISTING orphans, but
     # this validation prevents NEW orphans from being created in the
     # first place. The empty-value (delete) path is also rejected here
-    # — callers who want to clear a stale orphaned entry must use
+    # , callers who want to clear a stale orphaned entry must use
     # delete_secret directly (which iterates the history).
     if provider not in PROVIDER_TO_CONFIG_FIELD:
         log.warning(
             "[CREDENTIAL_STORE] rejecting store_secret for unknown provider=%r "
-            "(not in PROVIDER_TO_CONFIG_FIELD) — prevents orphaned OS-keychain entries",
+            "(not in PROVIDER_TO_CONFIG_FIELD), prevents orphaned OS-keychain entries",
             provider,
         )
         _cs._set_last_store_outcome(
@@ -150,21 +150,21 @@ def store_secret(provider: str, value: str, *, _caller_holds_config_lock: bool =
     # the save.
     #
     # Coerce int/float (excluding bool, which is a subclass of int in
-    # Python) to str — backward compat with old configs that stored
+    # Python) to str, backward compat with old configs that stored
     # api_key as an int. Reject other non-string truthy types (dict,
     # list) with a warning + ``plaintext`` outcome (the secret is NOT
-    # written — the caller must fix the config).
+    # written, the caller must fix the config).
     if not isinstance(value, str):
         if isinstance(value, (int, float)) and not isinstance(value, bool):
             log.warning(
-                "[CREDENTIAL_STORE] received non-string value for provider=%s (type=%s) — coercing to str",
+                "[CREDENTIAL_STORE] received non-string value for provider=%s (type=%s), coercing to str",
                 provider,
                 type(value).__name__,
             )
             value = str(value)
         else:
             log.warning(
-                "[CREDENTIAL_STORE] received non-string value for provider=%s (type=%s) — rejecting",
+                "[CREDENTIAL_STORE] received non-string value for provider=%s (type=%s), rejecting",
                 provider,
                 type(value).__name__,
             )
@@ -178,7 +178,7 @@ def store_secret(provider: str, value: str, *, _caller_holds_config_lock: bool =
     try:
         if not _cs.is_keyring_available():
             raise RuntimeError("keyring backend not available")
-        import keyring  # noqa: PLC0415 — optional dependency, imported lazily
+        import keyring  # noqa: PLC0415, optional dependency, imported lazily
 
         # wrap set_password in a finite timeout so a hung
         # D-Bus / Keychain on the IPC set_config thread doesn't stall
@@ -195,31 +195,31 @@ def store_secret(provider: str, value: str, *, _caller_holds_config_lock: bool =
         _cs._set_last_store_outcome("keyring", None, provider=provider)
         return True
     except Exception as e:
-        # NEVER log the value — only metadata. The provider name is
+        # NEVER log the value, only metadata. The provider name is
         # not sensitive (it's "openai" / "groq" / etc.) and the length
         # is useful for debugging without revealing the secret.
         # _redact_sensitive strips paths / API-key-like substrings from
-        # the exception text — defense in depth in case a buggy backend
+        # the exception text, defense in depth in case a buggy backend
         # embeds the value in its error message.
         redacted_reason = _redact_sensitive(str(e))
         log.warning(
-            "[CREDENTIAL_STORE] keyring store failed for provider=%s (len=%d): %s — "
+            "[CREDENTIAL_STORE] keyring store failed for provider=%s (len=%d): %s, "
             "falling back to plaintext in config.json",
             provider,
             len(value),
             redacted_reason,
         )
-        # _write_plaintext_fallback returns bool — check it
+        # _write_plaintext_fallback returns bool, check it
         # so we can surface a distinct "failed" outcome when the
         # plaintext fallback itself failed (e.g. corrupt config.json,
         # disk error). If it returned None and swallowed all errors
         # internally, store_secret could never detect a fallback
-        # failure — the user's API key would be silently dropped
+        # failure, the user's API key would be silently dropped
         # (not in keyring, not in config.json) while the outcome
         # still said "plaintext".
         ok = _cs._write_plaintext_fallback(provider, value, caller_holds_config_lock=_caller_holds_config_lock)
         if not ok:
-            # The plaintext fallback write failed — the secret was NOT
+            # The plaintext fallback write failed, the secret was NOT
             # saved anywhere. Surface a distinct "failed" outcome so
             # the renderer can tell the user their API key was not
             # saved (vs. saved in plaintext). The detailed reason was
@@ -254,12 +254,12 @@ def load_secret(provider: str) -> str | None:
     -----
     Never raises. Any keyring error is caught and the fallback is
     attempted. If the fallback also fails (e.g. config.json missing),
-    returns None — the caller (typically ``Config.load``) treats this
+    returns None, the caller (typically ``Config.load``) treats this
     as "no key configured".
     """
     try:
         if _cs.is_keyring_available():
-            import keyring  # noqa: PLC0415 — optional dependency, imported lazily
+            import keyring  # noqa: PLC0415, optional dependency, imported lazily
 
             # wrap get_password in a finite timeout so a hung
             # D-Bus / Keychain on the Config.load() path doesn't stall
@@ -278,21 +278,21 @@ def load_secret(provider: str) -> str | None:
                     len(value),
                 )
                 return value
-            # keyring returned None — secret not in keychain. Fall
+            # keyring returned None, secret not in keychain. Fall
             # through to plaintext fallback in case the user is
             # mid-migration (key added before keyring was available,
             # not yet migrated).
     except Exception as e:
         # _redact_sensitive strips paths / API-key-like substrings from
-        # the exception text — defense in depth in case a buggy backend
+        # the exception text, defense in depth in case a buggy backend
         # embeds the value in its error message.
         log.warning(
-            "[CREDENTIAL_STORE] keyring load failed for provider=%s: %s — trying plaintext fallback in config.json",
+            "[CREDENTIAL_STORE] keyring load failed for provider=%s: %s, trying plaintext fallback in config.json",
             provider,
             _redact_sensitive(str(e)),
         )
 
-    # Explicit annotation — the ``_cs`` facade lookup is untyped (Any).
+    # Explicit annotation, the ``_cs`` facade lookup is untyped (Any).
     plaintext: str | None = _cs._read_plaintext_fallback(provider)
     return plaintext
 
@@ -301,7 +301,7 @@ def delete_secret(provider: str, config: Any = None) -> None:
     """Delete a secret from both keyring and config.json.
 
     Never raises. Errors are logged at debug level (this is best-effort
-    cleanup — a failure to delete from a broken keyring is not fatal,
+    cleanup, a failure to delete from a broken keyring is not fatal,
     since the keyring is presumably already inaccessible).
 
     ``config`` is an optional in-memory ``Config`` dataclass instance.
@@ -310,7 +310,7 @@ def delete_secret(provider: str, config: Any = None) -> None:
     running process stops seeing the old value. Without this, callers
     like the GDPR Art. 17 ``delete_all_personal_data`` handler would
     erase the on-disk / keychain secret but leave the in-memory
-    ``Config`` attribute holding the plaintext value — meaning cloud
+    ``Config`` attribute holding the plaintext value, meaning cloud
     engines and LLM polishers continue to use the "deleted" key until
     the process restarts. ``config`` is optional so existing callers
     (which only clear the on-disk store) keep working unchanged.
@@ -318,12 +318,12 @@ def delete_secret(provider: str, config: Any = None) -> None:
     # Try keyring first
     try:
         if _cs.is_keyring_available():
-            import keyring  # noqa: PLC0415 — optional dependency, imported lazily
+            import keyring  # noqa: PLC0415, optional dependency, imported lazily
 
             try:
                 # wrap delete_password in a finite timeout.
                 # delete_secret is best-effort cleanup (failure here is
-                # non-fatal — the keyring is presumably already
+                # non-fatal, the keyring is presumably already
                 # inaccessible), so a timeout just logs at debug and
                 # moves on.
                 _cs._run_keyring_call(keyring.delete_password, KEYRING_SERVICE_NAME, provider)
@@ -333,7 +333,7 @@ def delete_secret(provider: str, config: Any = None) -> None:
                 )
             except Exception as e:
                 # PasswordDeleteError is raised when the secret doesn't
-                # exist — that's fine, we're deleting anyway.
+                # exist, that's fine, we're deleting anyway.
                 log.debug(
                     "[CREDENTIAL_STORE] keyring delete for provider=%s raised: %s",
                     provider,
@@ -390,20 +390,20 @@ def delete_secret(provider: str, config: Any = None) -> None:
         _cs._clear_plaintext_config_cache()
     except Exception as e:
         # A failure here means the plaintext
-        # credential is STILL on disk — the opposite of what the user
+        # credential is STILL on disk, the opposite of what the user
         # requested. This MUST be visible at default log levels (not
         # debug) so the user knows to manually clean up config.json.
         # Keyring-delete failures above remain at debug (best-effort
         # cleanup of an already-inaccessible backend is non-fatal).
         log.warning(
-            "[CREDENTIAL_STORE] credential for provider=%s may still be in config.json — manual cleanup required: %s",
+            "[CREDENTIAL_STORE] credential for provider=%s may still be in config.json, manual cleanup required: %s",
             provider,
             _redact_sensitive(str(e)),
         )
 
     # also clear the in-memory Config attribute (when provided)
     # so the running process stops seeing the old value. ``setattr`` on
-    # a dataclass field is safe — the field is a plain ``str``. We wrap
+    # a dataclass field is safe, the field is a plain ``str``. We wrap
     # it in try/except because ``config`` may be a ``MagicMock`` in
     # tests (where setattr silently no-ops on real attrs but we still
     # want the call to be observable for assertions) or a partial
@@ -435,12 +435,12 @@ def clear_in_memory_secrets(config: Any) -> int:
 
     Iterates :data:`PROVIDER_TO_CONFIG_FIELD` and ``setattr``s each
     field to ``""``. Returns the number of fields that were cleared
-    (always ``len(PROVIDER_TO_CONFIG_FIELD)`` on success — the count
+    (always ``len(PROVIDER_TO_CONFIG_FIELD)`` on success, the count
     is returned so callers can log a meaningful "cleared N secrets"
     line and so a future regression that drops a provider from the
     map is visible in tests).
 
-    Never raises — wraps each ``setattr`` in try/except so a single
+    Never raises, wraps each ``setattr`` in try/except so a single
     broken field (e.g. a frozen dataclass, an exotic ``__setattr__``
     override) doesn't abort the rest. Failures are logged at debug
     level (best-effort cleanup).

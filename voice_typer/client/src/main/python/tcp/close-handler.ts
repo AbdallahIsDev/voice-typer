@@ -25,7 +25,7 @@ export function installTcpCloseHandler(opts: {
 		// connection don't bleed into the next one.
 		//
 		//scope the buffer clear to the socket that actually owns
-		// the current state. Previously the clear ran unconditionally — a
+		// the current state. Previously the clear ran unconditionally, a
 		// STALE socket close (e.g. an old retry-generation socket finishing
 		// TCP teardown after a newer socket already connected) would wipe
 		// the live socket's in-flight partial frame.
@@ -43,7 +43,7 @@ export function installTcpCloseHandler(opts: {
 			state.tcpBuffer = Buffer.alloc(0);
 			state.tcpSocket = null;
 			state._tcpAuthed = false;
-			//stop the heartbeat interval — the socket is
+			//stop the heartbeat interval, the socket is
 			// dead, so further sendToPython() calls would just
 			// queue up rejected promises.  A fresh interval is
 			// started in the connect callback when the next
@@ -61,7 +61,7 @@ export function installTcpCloseHandler(opts: {
 			// classifies the rejection via `err.code` instead of the
 			// generic bare-Error fallback:
 			//   - a normal mid-flight disconnect carries
-			//     `backend_not_connected` — the SAME code the
+			//     `backend_not_connected`, the SAME code the
 			//     handler's pre-flight check returns when
 			//     `state.tcpSocket` is null, so a disconnect
 			//     mid-command shows the renderer's curated
@@ -79,7 +79,7 @@ export function installTcpCloseHandler(opts: {
 			}
 			// Transient-disconnect replay queue:
 			// when ``state._relaunching`` is true the
-			// process is about to exit — queued
+			// process is about to exit, queued
 			// idempotent commands would never be
 			// flushed (no reconnect will happen), so
 			// reject them with the same "Application
@@ -88,7 +88,7 @@ export function installTcpCloseHandler(opts: {
 			// is false, the queue is PRESERVED so it
 			// can be flushed on the next successful
 			// reconnect (the whole point of the
-			// queue — see ``send-to-python.ts``'s
+			// queue, see ``send-to-python.ts``'s
 			// ``_pendingOutbound``).
 			if (state._relaunching) {
 				resetPendingOutbound("Application is restarting");

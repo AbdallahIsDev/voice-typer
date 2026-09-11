@@ -6,7 +6,7 @@
  *   - Disallowed commands are rejected BEFORE the socket write
  *     (so a compromised renderer can't invoke arbitrary IPC commands).
  *   - When `state._relaunching === true`, the call rejects immediately
- *     with "Application is restarting" — pending IPC calls don't sit
+ *     with "Application is restarting", pending IPC calls don't sit
  *     in `pendingRequests` until the 5s timeout.
  *   - When `state.tcpSocket === null`, the call rejects immediately
  *     with "Python backend is not connected".
@@ -77,7 +77,7 @@ describe("XS-78: send-to-python.ts", () => {
 				sendToPython({ type: "disallowed_for_tests" }),
 			).rejects.toThrow(/Disallowed IPC command: disallowed_for_tests/);
 
-			// Crucially, the socket must NOT have been written — the
+			// Crucially, the socket must NOT have been written, the
 			// allowlist gate runs before `state.tcpSocket.write`.
 			expect(mocks.socketWrite).not.toHaveBeenCalled();
 			// And no entry must be left in pendingRequests (the gate
@@ -86,7 +86,7 @@ describe("XS-78: send-to-python.ts", () => {
 		});
 
 		it("writes the JSON line + id to the socket for an allowlisted command", async () => {
-			// Don't await — the promise won't resolve until handleMessage
+			// Don't await, the promise won't resolve until handleMessage
 			// routes the reply. We just want to assert the side effects.
 			void sendToPython({ type: "get_config" });
 

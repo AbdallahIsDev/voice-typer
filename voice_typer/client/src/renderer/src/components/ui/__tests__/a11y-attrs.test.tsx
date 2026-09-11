@@ -63,7 +63,7 @@ afterEach(() => {
 	cleanup();
 });
 
-describe("NumberInputStepper — aria-live region", () => {
+describe("NumberInputStepper, aria-live region", () => {
 	it("renders a visually-hidden aria-live=polite sibling next to the input", () => {
 		render(
 			<NumberInputStepper value="5" onChange={() => {}} aria-label="count" />,
@@ -71,7 +71,7 @@ describe("NumberInputStepper — aria-live region", () => {
 		const liveRegion = document.querySelector('[aria-live="polite"]');
 		expect(liveRegion).toBeTruthy();
 		expect(liveRegion?.getAttribute("aria-atomic")).toBe("true");
-		// Visually-hidden — Tailwind .sr-only utility.
+		// Visually-hidden, Tailwind .sr-only utility.
 		expect(liveRegion?.className).toContain("sr-only");
 	});
 
@@ -119,7 +119,7 @@ describe("NumberInputStepper — aria-live region", () => {
 	});
 });
 
-describe("NumberInputStepper — errorId / aria-errormessage forwarding", () => {
+describe("NumberInputStepper, errorId / aria-errormessage forwarding", () => {
 	it("forwards errorId as aria-errormessage on the underlying input", () => {
 		render(
 			<NumberInputStepper
@@ -178,7 +178,7 @@ describe("NumberInputStepper — errorId / aria-errormessage forwarding", () => 
 	});
 });
 
-describe("Dialog — aria-modal={true}", () => {
+describe("Dialog, aria-modal={true}", () => {
 	it("the DialogContent declares aria-modal=true explicitly", () => {
 		render(
 			<Dialog open={true}>
@@ -197,7 +197,7 @@ describe("Dialog — aria-modal={true}", () => {
 	});
 });
 
-describe("AlertDialog — aria-modal={true}", () => {
+describe("AlertDialog, aria-modal={true}", () => {
 	it("the AlertDialogContent declares aria-modal=true explicitly", () => {
 		render(
 			<AlertDialog open={true}>
@@ -216,7 +216,7 @@ describe("AlertDialog — aria-modal={true}", () => {
 	});
 });
 
-describe("Accordion — decorative plus-icon aria-hidden", () => {
+describe("Accordion, decorative plus-icon aria-hidden", () => {
 	it("the persistent plus icon is marked aria-hidden=true", () => {
 		render(
 			<Accordion type="single">
@@ -230,7 +230,7 @@ describe("Accordion — decorative plus-icon aria-hidden", () => {
 			'[data-slot="accordion-trigger-icon"]',
 		);
 		//(2026-08-21): the expand/collapse glyph is a single PlusSignIcon
-		// that stays a `+` in both collapsed AND expanded states — exactly
+		// that stays a `+` in both collapsed AND expanded states, exactly
 		// one decorative icon per trigger, still aria-hidden.
 		expect(icons.length).toBe(1);
 		for (const icon of icons) {

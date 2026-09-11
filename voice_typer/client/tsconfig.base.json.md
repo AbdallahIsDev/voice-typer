@@ -1,4 +1,4 @@
-# tsconfig.base.json — `noUncheckedIndexedAccess` Status
+# tsconfig.base.json, `noUncheckedIndexedAccess` Status
 
 ## Flag State
 
@@ -34,26 +34,26 @@ would unwind the upstream strictness improvement made in `a766c8cc`.
 
 | Rank | Code     | Count | Description                                                                   |
 | ---- | -------- | ----- | ----------------------------------------------------------------------------- |
-| 1    | TS2532   | 59    | `Object is possibly 'undefined'` — direct indexed access on `Record`/array.   |
+| 1    | TS2532   | 59    | `Object is possibly 'undefined'`, direct indexed access on `Record`/array.   |
 | 2    | TS2345   | 50    | `Argument of type 'X \| undefined' is not assignable to parameter of type 'X'`. |
-| 3    | TS18048  | 33    | `'<name>' is possibly 'undefined'` — narrowing required on optional chained.  |
-| 4    | TS2322   | 23    | `Type 'X \| undefined' is not assignable to type 'X'` — assignment / return.  |
-| 5    | TS2488   | 17    | `Type must have a '[Symbol.iterator]()'...` — spreading `Array \| undefined`. |
+| 3    | TS18048  | 33    | `'<name>' is possibly 'undefined'`, narrowing required on optional chained.  |
+| 4    | TS2322   | 23    | `Type 'X \| undefined' is not assignable to type 'X'`, assignment / return.  |
+| 5    | TS2488   | 17    | `Type must have a '[Symbol.iterator]()'...`, spreading `Array \| undefined`. |
 
 (Plus 4 minor: 2× TS2769, 1× TS6133, 1× TS2538.)
 
 ## Most-Affected Files (top 10 by error count)
 
-1. `src/renderer/src/themes.ts` — 42
-2. `src/renderer/src/lib/color-utils.ts` — 17
-3. `src/main/__tests__/shutdown-hooks.test.ts` — 10
-4. `src/renderer/src/hooks/__tests__/useSnackbar.test.tsx` — 9
-5. `src/renderer/src/components/ui/__tests__/segmented-control.test.tsx` — 8
-6. `src/renderer/src/pages/__tests__/Settings.test.tsx` — 6
-7. `src/renderer/src/components/feedback/__tests__/ErrorBoundary.test.tsx` — 6
-8. `src/renderer/src/__tests__/a11y-rewrite/Sidebar-aria-current.test.tsx` — 6
-9. `src/renderer/src/__tests__/a11y-rewrite/App-a11y.test.tsx` — 6
-10. `src/renderer/src/hooks/__tests__/useConnectionToasts.test.tsx` — 5
+1. `src/renderer/src/themes.ts`, 42
+2. `src/renderer/src/lib/color-utils.ts`, 17
+3. `src/main/__tests__/shutdown-hooks.test.ts`, 10
+4. `src/renderer/src/hooks/__tests__/useSnackbar.test.tsx`, 9
+5. `src/renderer/src/components/ui/__tests__/segmented-control.test.tsx`, 8
+6. `src/renderer/src/pages/__tests__/Settings.test.tsx`, 6
+7. `src/renderer/src/components/feedback/__tests__/ErrorBoundary.test.tsx`, 6
+8. `src/renderer/src/__tests__/a11y-rewrite/Sidebar-aria-current.test.tsx`, 6
+9. `src/renderer/src/__tests__/a11y-rewrite/App-a11y.test.tsx`, 6
+10. `src/renderer/src/hooks/__tests__/useConnectionToasts.test.tsx`, 5
 
 ## Recommended Follow-Up (Dedicated TS Strictness Pass)
 

@@ -4,13 +4,13 @@
 These tests pin the contract that ``_teardown_asr_models`` exists on
 ``ShutdownController``, runs FIRST in the parallel batch, calls
 ``registry.unload()`` (via ``app.models.registry`` after the
-ModelManager refactor — the briefing's ``app._asr_registry`` was
+ModelManager refactor, the briefing's ``app._asr_registry`` was
 folded into ``ModelManager.registry``), and defensively guards the
 ``torch.cuda.empty_cache()`` / ``synchronize()`` calls with
 ``hasattr(torch, 'cuda')`` + ``torch.cuda.is_available()``.
 
 Source-inspection based (mirrors the contract tests in
-``shutdown-hooks.test.ts``) — importing ``shutdown_controller`` triggers
+``shutdown-hooks.test.ts``), importing ``shutdown_controller`` triggers
 the full ``VoiceTyperApp`` dependency chain, which is heavy and not
 needed for these static-contract assertions. The one dynamic test
 (``test_teardown_asr_models_calls_unload``) constructs a minimal
@@ -38,7 +38,7 @@ from unittest.mock import MagicMock
 # pinned regions have moved with their bodies: the ``_teardown_*``
 # delegates live in ``shutdown_controller/_teardowns.py``, and the
 # parallel-batch ``parallel_items`` list now lives in the extracted plan
-# builders in ``shutdown/plan.py`` (``build_parallel_plan`` — moved out
+# builders in ``shutdown/plan.py`` (``build_parallel_plan``, moved out
 # of ``shutdown_controller/_plans.py`` during the shutdown-module
 # split; the mixin methods there are thin delegates).
 _CONTROLLER_TEARDOWNS_PATH = os.path.join(
@@ -116,7 +116,7 @@ class TestTeardownAsrModelsContract:
 
     def test_teardown_asr_models_is_first_in_parallel_batch(self) -> None:
         """The helper must be the FIRST entry in the parallel batch
-        (not in critical-only mode — the parallel batch is the normal-
+        (not in critical-only mode, the parallel batch is the normal-
         mode tier). The sequenced phase (timers_and_recording,
         recorder, history_db, crash_recovery) runs BEFORE the parallel
         batch; ``_teardown_asr_models`` is the first PARALLEL item so
@@ -151,7 +151,7 @@ class TestTeardownAsrModelsContract:
         no-arg ``unload()`` call on a registry handle."""
         body = _teardown_asr_models_body()
         assert "registry.unload()" in body or "asr_registry.unload()" in body, (
-            "_teardown_asr_models must call registry.unload() (no-arg form — unloads the active backend)"
+            "_teardown_asr_models must call registry.unload() (no-arg form, unloads the active backend)"
         )
 
     def test_teardown_asr_models_guards_torch_cuda_with_hasattr_and_is_available(
@@ -173,7 +173,7 @@ class TestTeardownAsrModelsContract:
         """
         body = _teardown_asr_models_body()
         # Accept either inline guards OR a call to release_gpu_memory
-        # (which encapsulates the guards — see asr_utils.py).
+        # (which encapsulates the guards: see asr_utils.py).
         if "release_gpu_memory" in body:
             return
         assert 'hasattr(torch, "cuda")' in body or "hasattr(torch, 'cuda')" in body, (
@@ -197,7 +197,7 @@ class TestTeardownAsrModelsContract:
             'hasattr(torch.cuda, "synchronize")' in body and "torch.cuda.synchronize()" in body
         ), (
             "_teardown_asr_models must call torch.cuda.synchronize() "
-            "(guarded with hasattr for older torch versions) — or release_gpu_memory"
+            "(guarded with hasattr for older torch versions), or release_gpu_memory"
         )
 
     def test_teardown_asr_models_torch_import_is_inside_try(self) -> None:
@@ -235,7 +235,7 @@ class _FakeApp:
     """Minimal ``VoiceTyperApp`` look-alike for ``_teardown_asr_models``.
 
     Post ModelManager refactor, the ASR registry lives at
-    ``app.models.registry`` (NOT ``app._asr_registry`` — that attribute
+    ``app.models.registry`` (NOT ``app._asr_registry``, that attribute
     was removed when the registry ownership moved into ModelManager).
     """
 
@@ -255,7 +255,7 @@ class TestTeardownAsrModelsDynamic:
 
         fake_app = _FakeApp()
         # ``ShutdownController.__init__`` reads attributes off ``app``
-        # (e.g. ``app._electron_pid_lock``) — use ``__new__`` to bypass
+        # (e.g. ``app._electron_pid_lock``), use ``__new__`` to bypass
         # ``__init__`` and set just the attributes the helper needs.
         ctrl = ShutdownController.__new__(ShutdownController)
         ctrl._app = fake_app

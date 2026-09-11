@@ -5,7 +5,7 @@
 // `check_microphone_permission`.
 //
 // Split out from the original monolithic `types/ipc.ts`.
-// No behaviour change vs. the original file — pure structural refactor.
+// No behaviour change vs. the original file, pure structural refactor.
 
 /**
  * Response shape for the `onboarding_check_permissions`
@@ -21,7 +21,7 @@
  * `steps` (string[]), and `commands` (string[] | null). It's typed as
  * `object | null` here (rather than a stricter interface) to keep the
  * renderer resilient to future backend additions without a renderer
- * rebuild — the Onboarding page reads `instructions.title` /
+ * rebuild, the Onboarding page reads `instructions.title` /
  * `instructions.steps` / `instructions.commands` defensively.
  */
 export interface PermissionsResult {
@@ -35,7 +35,7 @@ export interface PermissionsResult {
 	 * the same as `"unknown"` for advancement purposes but log it.
 	 *
 	 * `"prompt"` is the 5-state form the backend may emit for OS
-	 * permission prompts (kept per the canonical contract — consolidated the onboarding-local 4-state copy into this type;
+	 * permission prompts (kept per the canonical contract, consolidated the onboarding-local 4-state copy into this type;
 	 * a backend that emits `"prompt"` must not be rejected by a
 	 * renderer whose type doesn't admit it).
 	 */
@@ -51,7 +51,7 @@ export interface PermissionsResult {
 	 * `null` otherwise (and on Windows / unknown platforms, where no
 	 * setup is required).
 	 *
-	 * The backend emits i18n keys (`title_key` / `steps_keys` — see
+	 * The backend emits i18n keys (`title_key` / `steps_keys`, see
 	 * `voice_typer/server/onboarding.py::check_permissions`); the
 	 * optional literal fields (`title` / `steps`) remain for backward
 	 * compat with older backends. `commands` is always present when
@@ -69,7 +69,7 @@ export interface PermissionsResult {
 
 /**
  * : autostart registration status. Returned by the
- * `get_autostart_status` IPC ( — the autostart toggle previously
+ * `get_autostart_status` IPC (, the autostart toggle previously
  * had no failure feedback; this struct lets the Settings page surface
  * "Registered" vs "Registration failed: <reason>" to the user).
  *
@@ -93,13 +93,13 @@ export interface AutostartStatus {
 
 /**
  * : OS-level microphone permission state. Returned by the
- * `check_microphone_permission` IPC ( /  — the Onboarding
+ * `check_microphone_permission` IPC ( / , the Onboarding
  * and Microphone pages previously never probed the OS mic permission,
  * leaving users to discover the silent failure on first recording).
  *
  * Mirrors `voice_typer/server/permissions.py::check_microphone_permission`
  * (the same `PermissionState` enum as keyboard permissions, restricted
- * to the four states the mic-probe can actually emit — mic permission
+ * to the four states the mic-probe can actually emit, mic permission
  * has no `"error"` state because the probe is a single `sounddevice`
  * query that either succeeds, fails outright (`"denied"`), or returns
  * an empty device list (`"unknown"` on platforms where that's

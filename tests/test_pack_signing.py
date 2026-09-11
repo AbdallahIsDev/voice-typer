@@ -1,4 +1,4 @@
-"""§8.18 — SmartScreen / MOTW / Gatekeeper: code signing.
+"""§8.18: SmartScreen / MOTW / Gatekeeper: code signing.
 
 Spec (§8.18):
 
@@ -7,7 +7,7 @@ Spec (§8.18):
 
   Windows/Linux: pack integrity is enforced by the per-file SHA-256
   manifest (the fail-closed gate the install stage runs before the
-  swap) — the Windows Authenticode check existed only as an
+  swap), the Windows Authenticode check existed only as an
   unconditional-None stub with zero production callers and was
   removed.
 
@@ -33,7 +33,7 @@ from voice_typer.server.service import offline_pack
 
 
 class TestMacOSSigning:
-    """§8.18 — macOS notarization + Developer ID."""
+    """§8.18, macOS notarization + Developer ID."""
 
     def test_returns_none_on_non_macos(self, monkeypatch):
         monkeypatch.setattr(platform, "system", lambda: "Linux")

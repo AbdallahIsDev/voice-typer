@@ -3,13 +3,13 @@
 Extracted from the original 1101-LOC ``clipboard_target_safety.py``
 monolith into a package with three focused submodules:
 
-* :mod:`.targets` — target window detection (foreground window class,
+* :mod:`.targets`: target window detection (foreground window class,
   elevated-target check, contentEditable detection, AT-SPI tree walk,
   per-process "are we elevated?" cache).
-* :mod:`.injection` — UIA singleton + focused-element fetching (the COM
+* :mod:`.injection`: UIA singleton + focused-element fetching (the COM
   infrastructure that drives the Windows password-field / contentEditable
   safety checks).
-* :mod:`.validation` — safety validation rules (password-field
+* :mod:`.validation`: safety validation rules (password-field
   detection on Windows / macOS / Linux, paste-safety warning dedup,
   platform-unavailable warning guards, AX-result shape helper).
 
@@ -31,7 +31,7 @@ that do ``safety_mod._WE_ELEVATED = None`` (reset) and
 functions defined in :mod:`.targets`, :mod:`.injection`, and
 :mod:`.validation`. A plain ``global NAME`` inside a submodule would
 write to the SUBMODULE's namespace and be invisible to the test patches
-applied on the package — hence the ``_pkg.NAME`` access pattern.
+applied on the package, hence the ``_pkg.NAME`` access pattern.
 
 The same pattern is used for cross-submodule function calls
 (``_is_elevated_target`` calls ``_pkg._get_we_elevated`` rather than
@@ -101,14 +101,14 @@ def _log():
 # ``targets.py`` / ``injection.py`` / ``validation.py``.
 #
 # A plain ``global NAME`` inside a submodule would write to the
-# SUBMODULE's namespace, NOT the package's — so a test doing
+# SUBMODULE's namespace, NOT the package's, so a test doing
 # ``safety_mod._WE_ELEVATED = None`` would set the package attribute
 # to None while the submodule's ``global _WE_ELEVATED`` writes would
 # land in the submodule's namespace, and the two would drift apart.
 # Routing all reads / writes through ``_pkg.NAME`` keeps a single
 # source of truth (this file's module-level bindings).
 
-# Module-level cache for "are WE elevated?" — this value never changes
+# Module-level cache for "are WE elevated?": this value never changes
 # during the lifetime of the process, so computing it on every paste is
 # wasted work (OpenProcessToken + GetTokenInformation + CloseHandle =
 # 3 kernel calls per paste). Cached on first access.
@@ -130,7 +130,7 @@ _WE_ELEVATED_LOCK = threading.Lock()
 # failure at WARNING would spam the log at paste rate; logging at DEBUG
 # without deduplication would still emit one record per paste. Use
 # module-level "first-occurrence" flags so the operator gets one
-# WARNING-equivalent record per failure mode per session — enough to
+# WARNING-equivalent record per failure mode per session, enough to
 # notice the regression without flooding the log.
 _PASTE_SAFETY_WARNED: set[str] = set()
 
@@ -149,7 +149,7 @@ _UIA_SINGLETON_INIT_ATTEMPTED: bool = False
 # race: two threads can both observe ``False``, both run
 # ``comtypes.client.GetModule`` + ``CoCreateInstance``, and both write
 # to the module-level cache. CoCreateInstance returns a fresh COM proxy
-# each time, so the loser overwrites the winner's proxy — the abandoned
+# each time, so the loser overwrites the winner's proxy, the abandoned
 # proxy leaks until GC, and on failure paths the
 # ``_UIA_SINGLETON_INIT_ATTEMPTED`` flag is set by whichever thread runs
 # last, masking the other thread's in-flight init. Double-checked
@@ -191,7 +191,7 @@ _CRED_DIALOG_CLASSES: set[str] = {
 # Both helpers use LAZY imports (the codebase pattern) so a missing
 # pyobjc/pyatspi on a non-target platform does not break startup. If the
 # platform library is unavailable, the helper logs a WARNING (once, to
-# avoid log spam) and returns False — the caller then falls back to the
+# avoid log spam) and returns False, the caller then falls back to the
 # legacy fail-open behavior of allowing paste. The docstrings document
 # this residual risk.
 #
@@ -203,7 +203,7 @@ _PYOBJC_UNAVAILABLE_WARNED: bool = False
 _PYATSPI_UNAVAILABLE_WARNED: bool = False
 
 # The ``_PYATSPI_STATE_FOCUSED`` module-level global is a BACKWARD-COMPAT
-# SENTINEL — it's still SET by ``_is_password_field_linux`` (in
+# SENTINEL, it's still SET by ``_is_password_field_linux`` (in
 # :mod:`.validation`) when it resolves ``pyatspi.STATE_FOCUSED`` (so
 # external code that inspects / patches the attribute, including the
 # re-export in ``voice_typer/server/clipboard/__init__.py`` and the test
@@ -221,7 +221,7 @@ _PYATSPI_STATE_FOCUSED: Any = None
 
 # (Medium): once-only warning guard for the macOS Secure Input
 # check (``_is_secure_input_enabled`` in :mod:`.validation`). ``False``
-# is the initial state — the first detection of secure-input-enabled
+# is the initial state, the first detection of secure-input-enabled
 # mode emits the WARNING / tray toast; subsequent detections during
 # the same session log at DEBUG so the log is not flooded at paste
 # rate when the user keeps a password dialog open (which holds Secure
@@ -265,7 +265,7 @@ __all__ = [
     "is_macos",
     "_log",
     # Mutable globals (also accessible via PEP 562 __getattr__ in
-    # voice_typer/server/clipboard/__init__.py — listed here so
+    # voice_typer/server/clipboard/__init__.py, listed here so
     # ``from voice_typer.server.clipboard_target_safety import _WE_ELEVATED``
     # keeps working and so static-analysis tools see them in ``dir()``).
     "_WE_ELEVATED",

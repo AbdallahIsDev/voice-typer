@@ -6,7 +6,7 @@ log) + G4-M-56 (``assert_url_allowed`` gains an opt-in
 by default).
 
 Class/method names + assertions are preserved verbatim from the
-original monolith — only file location has changed.
+original monolith, only file location has changed.
 """
 
 from __future__ import annotations
@@ -35,7 +35,7 @@ def _reset_url_allowlist_extensions():
     ``extend_url_allowlist`` mutates the module-global ``_user_extensions``
     set; several tests here call it (the audit-log tests and the SSRF
     tests, e.g. ``extend_url_allowlist(["10.0.0.1"])``). Without a reset,
-    those hosts leak into every later test in the session — benign today
+    those hosts leak into every later test in the session, benign today
     (the SSRF blocklist rejects the private IPs added), but a latent
     state leak for any future test asserting ``get_url_allowlist()``.
     """
@@ -86,7 +86,7 @@ class TestExtendUrlAllowlistAuditLog:
         via ``inspect.stack()`` and included in the WARNING."""
         try:
             with caplog.at_level("WARNING", logger="voice_typer.server.security.url_allowlist"):
-                # Don't pass caller — auto-detection should kick in.
+                # Don't pass caller, auto-detection should kick in.
                 extend_url_allowlist(["auto-caller.example.com"])
             joined = " ".join(r.message for r in caplog.records)
             # The auto-detected caller should include this test function
@@ -101,7 +101,7 @@ class TestExtendUrlAllowlistAuditLog:
 
     def test_info_emitted_for_empty_input(self, caplog):
         """YJ-44: a no-op call (empty hosts iterable) emits an INFO
-        audit record — not a WARNING. WARNING is reserved for the
+        audit record, not a WARNING. WARNING is reserved for the
         security-relevant case (actual hosts being added). The no-op
         case is still audited (so operators can trace every attempt to
         extend the allowlist) but demoted to INFO to avoid WARNING
@@ -166,13 +166,13 @@ class TestAssertUrlAllowedLoopbackOptIn:
         assert_url_allowed("https://localhost:8443/v1")
 
     def test_https_non_loopback_allowed(self):
-        """G4-M-56: regression — HTTPS to a normal allowlisted host
+        """G4-M-56: regression, HTTPS to a normal allowlisted host
         still works without opt-in."""
         assert_url_allowed("https://api.openai.com/v1/chat/completions")
 
     def test_http_non_loopback_rejected_even_with_opt_in(self):
         """G4-M-56: ``allow_loopback_http=True`` does NOT open the
-        door to HTTP for non-loopback hosts — only loopback is exempted."""
+        door to HTTP for non-loopback hosts, only loopback is exempted."""
         with pytest.raises(ValueError, match="HTTPS for non-loopback"):
             assert_url_allowed(
                 "http://api.openai.com/v1/chat/completions",
@@ -188,7 +188,7 @@ class TestAssertUrlAllowedLoopbackOptIn:
 
     def test_default_kwarg_value_is_false(self):
         """G4-M-56: the default value of ``allow_loopback_http`` is
-        ``False`` — callers must explicitly opt in."""
+        ``False``, callers must explicitly opt in."""
         sig = inspect.signature(assert_url_allowed)
         param = sig.parameters["allow_loopback_http"]
         assert param.default is False, f"allow_loopback_http default must be False; got {param.default!r}"
@@ -207,14 +207,14 @@ class TestAssertUrlAllowedSsrfDefense:
          (the IP-literal blocklist STILL runs).
 
     The cloud-metadata endpoint ``169.254.169.254`` is the primary SSRF
-    target — a regression that drops these checks would let a crafted
+    target, a regression that drops these checks would let a crafted
     ``cloud_api_url`` exfiltrate the API key via the Authorization
     header.
     """
 
     def test_rejects_private_ip_literal(self):
         """RFC 1918 private IP literals are rejected even when
-        explicitly allowlisted — the IP-literal blocklist runs AFTER
+        explicitly allowlisted, the IP-literal blocklist runs AFTER
         the hostname allowlist check."""
         extend_url_allowlist(["10.0.0.1"])
         with pytest.raises(ValueError, match="private/reserved IP literal"):
@@ -226,7 +226,7 @@ class TestAssertUrlAllowedSsrfDefense:
 
     def test_rejects_cloud_metadata_endpoint(self):
         """The AWS/cloud metadata endpoint 169.254.169.254 is the
-        primary SSRF target — must be rejected even if allowlisted."""
+        primary SSRF target, must be rejected even if allowlisted."""
         extend_url_allowlist(["169.254.169.254"])
         with pytest.raises(ValueError, match="private/reserved IP literal"):
             assert_url_allowed(
@@ -238,7 +238,7 @@ class TestAssertUrlAllowedSsrfDefense:
     def test_ipv6_private_literal_rejected_by_ssrf(self):
         """HU-35 follow-up: an IPv6 unique-local / link-local literal
         that IS allowlisted is rejected by the SSRF IP-literal blocklist
-        (fc00::/7 is private, fe80::/10 is link-local) — the blocklist
+        (fc00::/7 is private, fe80::/10 is link-local), the blocklist
         runs after the hostname allowlist check, so the private address
         is refused even though the user explicitly allowed it.
         """
@@ -254,10 +254,10 @@ class TestAssertUrlAllowedSsrfDefense:
     def test_public_ipv6_literal_allowlisted_and_allowed(self):
         """HU-35 follow-up: a PUBLIC (non-private) IPv6 literal can now
         be allowlisted (the port-stripping no longer mangles it) and
-        passes ``assert_url_allowed`` — the SSRF blocklist only rejects
+        passes ``assert_url_allowed``, the SSRF blocklist only rejects
         private/reserved ranges.
         """
-        # 2606:4700:4700::1111 is Cloudflare's public DNS IPv6 — not
+        # 2606:4700:4700::1111 is Cloudflare's public DNS IPv6, not
         # private/loopback/link-local/unspecified/reserved.
         extend_url_allowlist(["2606:4700:4700::1111"])
         assert_url_allowed(
@@ -278,7 +278,7 @@ class TestAssertUrlAllowedSsrfDefense:
     def test_unparseable_multi_colon_host_is_dropped(self):
         """HU-35 follow-up: a multi-colon string that is NOT a valid
         IPv6 literal (e.g. ``bad:host:name``) must be DROPPED by
-        ``extend_url_allowlist`` — not silently truncated to its first
+        ``extend_url_allowlist``, not silently truncated to its first
         hextet (the old ``split(":")[0]`` behavior would have added the
         mangled host ``bad``). Mirrors the reject semantics of the
         ``trusted_extra_hosts`` config validator and the
@@ -290,13 +290,13 @@ class TestAssertUrlAllowedSsrfDefense:
 
     def test_bare_ipv6_with_trailing_hextet_is_valid_ipv6(self):
         """``fc00::1:8080`` IS valid IPv6 (8 hextets, the last being
-        ``8080``) — it survives normalization intact and is later
+        ``8080``), it survives normalization intact and is later
         rejected as a private literal by the SSRF blocklist. This
         documents the un-bracketed-port ambiguity: the bracketed form
         ``[fc00::1]:8080`` is the way to express a port."""
         extend_url_allowlist(["fc00::1:8080"], caller="test")
         assert "fc00::1:8080" in get_url_allowlist()
-        # But the URL can never be used — SSRF rejects the private
+        # But the URL can never be used, SSRF rejects the private
         # IPv6 literal.
         with pytest.raises(ValueError, match="private/reserved IP literal"):
             assert_url_allowed(
@@ -308,9 +308,9 @@ class TestAssertUrlAllowedSsrfDefense:
     def test_ipv6_loopback_literal_is_allowed(self):
         """Loopback literals (127.0.0.1, ::1) are explicitly exempted
         from the SSRF blocklist because they are already allowlisted
-        for local development — document the intent so a future
+        for local development, document the intent so a future
         hardening pass doesn't accidentally break localhost flows."""
-        # No raise — loopback returns before the SSRF blocklist.
+        # No raise, loopback returns before the SSRF blocklist.
         assert_url_allowed(
             "https://[::1]/v1",
             field_name="cloud_api_url",
@@ -356,7 +356,7 @@ class TestAssertUrlAllowedSsrfDefense:
 
     def test_dns_resolution_failure_is_nonfatal(self, monkeypatch):
         """A ``socket.gaierror`` (no DNS, offline sandbox) is swallowed
-        and the allowlisted hostname is allowed — the IP-literal
+        and the allowlisted hostname is allowed, the IP-literal
         blocklist still runs for IP hosts."""
         monkeypatch.setattr(
             "voice_typer.server.security.url_allowlist.socket.getaddrinfo",

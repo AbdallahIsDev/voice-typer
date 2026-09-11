@@ -12,7 +12,7 @@
 //! Unit tests for `util::crypto` (token + session-id generation).
 //!
 //! Moved verbatim from `util_tests.rs` when the token/session-id
-//! concern was split into its own submodule — tests move with their
+//! concern was split into its own submodule, tests move with their
 //! code. No test logic changed; `use super::*;` now resolves to the
 //! `util::crypto` module because this file is declared via
 //! `#[cfg(test)] #[path = "crypto_tests.rs"] mod crypto_tests;` inside
@@ -74,7 +74,7 @@ fn test_session_id_is_8_char_lowercase_hex() {
 #[test]
 fn test_session_id_is_stable_per_process() {
     // The session ID is generated ONCE per process (cached in a
-    // `OnceLock`) — every call returns the same value, so a respawned
+    // `OnceLock`): every call returns the same value, so a respawned
     // sidecar + all Rust log lines share the same join key.
     let a = session_id();
     let b = session_id();

@@ -6,18 +6,18 @@ GT-14 / GT-B1-5 regression tests
 --------------------------------
 Two findings from the comprehensive review are pinned here:
 
-* **GT-14 (High)** — the three diagnostic-write log lines previously
-  used ``log.error("[FATAL] ...")`` — i.e. the *message body* claimed
+* **GT-14 (High)**, the three diagnostic-write log lines previously
+  used ``log.error("[FATAL] ...")``, i.e. the *message body* claimed
   ``FATAL`` severity while the actual ``record.levelno`` was ``ERROR``
   (40), not ``CRITICAL`` (50).  Python's logging framework, log
   aggregators, and alerting rules key off ``record.levelno`` /
-  ``record.levelname``, not substring matches in the message body — so
+  ``record.levelname``, not substring matches in the message body, so
   a CRITICAL-level alert rule would not fire on a startup-failure
   diagnostic, the most severe error the system can produce.  The fix
   routes the three sites through ``log.critical(...)`` and drops the
   now-redundant ``[FATAL]`` prefix.
 
-* **GT-B1-5 (High)** — the third-tier ``print(buf.getvalue(),
+* **GT-B1-5 (High)**, the third-tier ``print(buf.getvalue(),
   file=sys.stderr)`` fallback bypassed both the PIIRedactionFilter
   AND the logging framework.  A traceback embedded with a URL like
   ``?key=sk-...`` or an env-var dump from a buggy handler would land
@@ -101,7 +101,7 @@ class TestGt14CriticalLevel:
         self, diag_dir: Path, tmp_path: Path, monkeypatch, caplog: pytest.LogCaptureFixture
     ) -> None:
         """When ``_secure_atomic_write`` fails but the tempfile fallback
-        succeeds, the log line is ``CRITICAL`` (50) — not ``ERROR`` (40).
+        succeeds, the log line is ``CRITICAL`` (50), not ``ERROR`` (40).
         """
         # Redirect tempfile.gettempdir to tmp_path so the fallback file
         # lands inside the test sandbox.
@@ -169,7 +169,7 @@ class TestGt14CriticalLevel:
 
     def test_no_error_level_records_emitted(self, diag_dir: Path, caplog: pytest.LogCaptureFixture) -> None:
         """Defensive: no ERROR-level records should be emitted at all on
-        the success path — the level was bumped to CRITICAL wholesale.
+        the success path, the level was bumped to CRITICAL wholesale.
         """
         with (
             patch(
@@ -215,7 +215,7 @@ class TestStderrRedaction:
         works).
         """
         # Make tempfile.gettempdir point at a non-existent dir so the
-        # second-tier fallback fails too — we want to isolate the
+        # second-tier fallback fails too, we want to isolate the
         # stderr-print path.
         nonexistent = tmp_path / "does-not-exist"
         monkeypatch.setattr(tempfile, "gettempdir", lambda: str(nonexistent))
@@ -294,7 +294,7 @@ class TestStderrRedaction:
 
         captured = capsys.readouterr()
         stderr_text = captured.err
-        # The traceback header survives — proves the print path fired.
+        # The traceback header survives, proves the print path fired.
         assert "Voice Typer startup failed at" in stderr_text
         # The secret must NOT survive.
         assert secret_key not in stderr_text, (
@@ -311,19 +311,19 @@ class TestStderrRedaction:
     ) -> None:
         """If ``redact_for_export`` itself raises on the stderr-fallback
         call, the stderr fallback must print a fixed REDACTED-MARKER
-        string — NEVER the raw ``buf`` payload. The raw traceback may
+        string, NEVER the raw ``buf`` payload. The raw traceback may
         carry API keys / bearer tokens injected via ``{clipboard}``
         dictation-pipeline templates, env-var dumps from buggy
         handlers, or ``?key=sk-...`` URL query-string secrets that the
         redactor was supposed to mask but couldn't. A marker-only
-        stderr line is better than a PII leak — the original
+        stderr line is better than a PII leak, the original
         exception is still logged via the ``_log.critical`` calls in
         the /tmp-fallback path, so the diagnostic content is not lost,
         only the stderr copy of it is suppressed.
 
         This test reverses the pre-fix fail-OPEN behavior (which
         printed the raw ``buf.getvalue()`` to stderr when the redactor
-        raised — exactly the PII leak this fix closes). The test uses
+        raised, exactly the PII leak this fix closes). The test uses
         a side_effect function that lets the first few
         ``redact_for_export`` calls succeed (so the function reaches
         the stderr-fallback path) and then raises on the call inside
@@ -343,7 +343,7 @@ class TestStderrRedaction:
             call_state["n"] += 1
             # The function makes 3 ``redact_for_export`` calls on this
             # path before reaching the stderr-fallback try block:
-            #   1. redacted_argv (one call per sys.argv entry — the
+            #   1. redacted_argv (one call per sys.argv entry, the
             #      test fixture sets sys.argv to a single-element
             #      list).
             #   2. primary-write payload (inside the outer try, before
@@ -374,7 +374,7 @@ class TestStderrRedaction:
         captured = capsys.readouterr()
         stderr_text = captured.err
         # And we must have actually taken the raising branch (i.e. the
-        # side_effect was called at least 3 times — argv + primary
+        # side_effect was called at least 3 times, argv + primary
         # write + stderr fallback).
         assert call_state["n"] >= 3, (
             f"expected redact_for_export to be called >=3 times (argv + "
@@ -383,14 +383,14 @@ class TestStderrRedaction:
         # The PRIMARY regression assertion: the raw ``buf`` content
         # (which carries the diagnostic header that would have been
         # printed pre-fix) MUST NOT be on stderr. This is the PII-leak
-        # gate — if this regresses, an attacker could read API keys /
+        # gate, if this regresses, an attacker could read API keys /
         # bearer tokens off stderr (e.g. via a wrapper script that
         # captures stderr).
         assert "Voice Typer startup failed at" not in stderr_text, (
             f"regression: raw buf content leaked to stderr when redact_for_export raised; stderr was:\n{stderr_text}"
         )
         # The traceback content of the caller-passed exception must
-        # also NOT appear on stderr — that's the actual PII carrier.
+        # also NOT appear on stderr, that's the actual PII carrier.
         assert "RuntimeError" not in stderr_text, (
             "regression: raw traceback content leaked to stderr when "
             "redact_for_export raised; stderr was:\n"
@@ -404,9 +404,9 @@ class TestStderrRedaction:
         # The fixed redacted-marker string MUST appear on stderr (so
         # the operator can see that a diagnostic was attempted but
         # redaction failed). The marker carries the outer write_exc
-        # type name (OSError — the primary write failure that put us
+        # type name (OSError, the primary write failure that put us
         # on this fallback path).
-        assert "[redaction failed — traceback suppressed to avoid PII leak]" in stderr_text, (
+        assert "[redaction failed, traceback suppressed to avoid PII leak]" in stderr_text, (
             f"expected the redaction-failed marker on stderr; got:\n{stderr_text}"
         )
         assert "OSError" in stderr_text, (
@@ -416,7 +416,7 @@ class TestStderrRedaction:
         # The WARNING log MUST be emitted so the operator can see (in
         # the rotating log file, not just stderr) that the redactor
         # raised. The log message names the redactor exception type
-        # (RuntimeError — the inner exception from _partial_redactor).
+        # (RuntimeError, the inner exception from _partial_redactor).
         warning_records = [r for r in caplog.records if r.levelno == logging.WARNING]
         assert warning_records, (
             "expected at least one WARNING record for the redactor-raised "
@@ -438,7 +438,7 @@ class TestStderrRedaction:
         stderr-fallback call, the marker string printed to stderr must
         NOT contain a secret that was present in the original ``buf``
         payload. The marker is a fixed string + the outer write_exc
-        type name — neither of which can carry the buf content — so a
+        type name (neither of which can carry the buf content) so a
         40-char API key embedded in the caller-passed exception's
         ``str()`` (mirroring the ``{clipboard}`` template-substitution
         vector) must NOT survive to stderr.
@@ -484,7 +484,7 @@ class TestStderrRedaction:
 
         captured = capsys.readouterr()
         stderr_text = captured.err
-        # The raw secret MUST NOT appear on stderr — this is the
+        # The raw secret MUST NOT appear on stderr, this is the
         # core PII-leak gate. Pre-fix, the raw buf (containing the
         # secret-bearing traceback) was printed verbatim.
         assert secret_key not in stderr_text, (
@@ -493,7 +493,7 @@ class TestStderrRedaction:
         # The marker MUST appear (proving we took the new fail-closed
         # branch rather than e.g. crashing or silently swallowing the
         # exception).
-        assert "[redaction failed — traceback suppressed to avoid PII leak]" in stderr_text, (
+        assert "[redaction failed, traceback suppressed to avoid PII leak]" in stderr_text, (
             f"expected the redaction-failed marker on stderr; got:\n{stderr_text}"
         )
 
@@ -590,11 +590,11 @@ class TestPi12TmpFallbackOverwrite:
     """PI-12: the /tmp fallback path previously used ``O_EXCL`` (atomic
     create, refuses to clobber an existing file). With ``O_EXCL``, if
     ``/tmp/voice-typer-startup-error.log`` exists from a previous crash,
-    the next startup crash cannot write its diagnostic — ``os.open``
+    the next startup crash cannot write its diagnostic: ``os.open``
     raises ``FileExistsError``, the outer ``except Exception`` runs, and
     the traceback is lost. The docstring at line 146-147 says "OVERWRITE
     (not append) the diagnostic file so repeated relaunch crashes don't
-    grow it without bound" — the /tmp fallback must honor that same
+    grow it without bound", the /tmp fallback must honor that same
     contract.
 
     These tests pin the new ``O_TRUNC`` behavior so a future refactor
@@ -604,15 +604,15 @@ class TestPi12TmpFallbackOverwrite:
 
     def test_second_consecutive_crash_dump_overwrites_first(self, diag_dir: Path, tmp_path: Path, monkeypatch) -> None:
         """PI-12: two consecutive calls to ``write_startup_diagnostic``
-        that both fall through to the /tmp fallback must both succeed
-        — the second call overwrites the first diagnostic file rather
-        than raising ``FileExistsError``.
+          that both fall through to the /tmp fallback must both succeed
+        , the second call overwrites the first diagnostic file rather
+          than raising ``FileExistsError``.
 
-        Pre-PI-12 behavior: the second call would raise
-        ``FileExistsError`` from ``os.open(O_EXCL)`` inside the
-        fallback ``try`` block; the outer ``except Exception`` would
-        log "Could not write diagnostic anywhere" and the second
-        crash's traceback would be lost.
+          Pre-PI-12 behavior: the second call would raise
+          ``FileExistsError`` from ``os.open(O_EXCL)`` inside the
+          fallback ``try`` block; the outer ``except Exception`` would
+          log "Could not write diagnostic anywhere" and the second
+          crash's traceback would be lost.
         """
         # Redirect tempfile.gettempdir to tmp_path so the fallback file
         # lands inside the test sandbox.
@@ -632,7 +632,7 @@ class TestPi12TmpFallbackOverwrite:
         ):
             # First crash dump.
             write_startup_diagnostic("construction", exc=RuntimeError("first crash"))
-            # Second crash dump — must NOT raise. Pre-, this would
+            # Second crash dump, must NOT raise. Pre-, this would
             # raise FileExistsError (caught by the outer except) and the
             # second crash's traceback would be lost.
             write_startup_diagnostic("construction", exc=RuntimeError("second crash"))

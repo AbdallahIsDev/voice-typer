@@ -3,13 +3,13 @@
 The accept loop in ``ipc/transport_tcp.py:TCPTransportMixin._accept_tcp``
 runs in a daemon thread and:
 
-1. **Spawns a worker per connection** — each accepted connection is
+1. **Spawns a worker per connection**, each accepted connection is
    handed off to ``self._tcp_worker_pool.submit(...)`` so a slow/malicious
    client cannot block the accept loop.
-2. **Respects the connection cap** — when the worker pool has been shut
+2. **Respects the connection cap**, when the worker pool has been shut
    down (``pool.submit`` raises ``RuntimeError``), the new connection is
    closed and the accept loop breaks.
-3. **Escalates write timeouts** — when ``select.select`` reports the
+3. **Escalates write timeouts**, when ``select.select`` reports the
    socket as not writable for ``_TCP_WRITE_TIMEOUT_SECONDS``, the
    ``_await_socket_writable`` helper raises ``TimeoutError`` and ``_send``
    marks the client dead (closes the socket, sets ``_tcp_client = None``).
@@ -255,11 +255,11 @@ class TestWriteTimeoutEscalation:
         mock_select_mod.POLLOUT = 4
 
         with patch.object(sender_module, "select", mock_select_mod):
-            # _send catches the TimeoutError internally — it does NOT
+            # _send catches the TimeoutError internally, it does NOT
             # re-raise to the caller.
             server._send({"type": "test_event", "id": 1})
 
-        # sendall must NOT have been called — select said not writable,
+        # sendall must NOT have been called, select said not writable,
         # so the write path was never reached.
         tcp_client.conn.sendall.assert_not_called()
 
@@ -294,19 +294,19 @@ class TestAcceptLoopSourceContract:
 
     def test_accept_tcp_source_contains_pool_submit(self):
         """The source of ``_accept_tcp`` must call ``pool.submit`` with
-        ``_run_tcp_handler_safely`` — this is the architectural pin that
+        ``_run_tcp_handler_safely``, this is the architectural pin that
         prevents a regression to inline handler execution (which would
         let a slow client block the accept loop)."""
         source = inspect.getsource(IPCServer._accept_tcp)
         assert "pool.submit(self._run_tcp_handler_safely" in source, (
             "_accept_tcp must hand each accepted connection to the worker "
-            "pool via pool.submit(self._run_tcp_handler_safely, ...) — "
+            "pool via pool.submit(self._run_tcp_handler_safely, ...), "
             "inline _handle_tcp_connection would block the accept loop."
         )
 
     def test_accept_tcp_source_handles_runtime_error_from_submit(self):
         """The source must catch ``RuntimeError`` from ``pool.submit`` and
-        close the connection — this is the connection-rejection path when
+        close the connection, this is the connection-rejection path when
         the pool is shut down."""
         source = inspect.getsource(IPCServer._accept_tcp)
         assert "except RuntimeError:" in source, (
@@ -323,7 +323,7 @@ class TestAcceptLoopSourceContract:
 
 class TestAcceptTcpWindowsExclusiveBind:
     """P1-1.4 (Windows parity): ``_accept_tcp`` must NOT set
-    ``SO_REUSEADDR`` on Windows (it has INVERSE semantics there — it lets
+    ``SO_REUSEADDR`` on Windows (it has INVERSE semantics there, it lets
     a second socket FORCIBLY bind a port already in use, so a stale
     second backend could hijack port 9876 from the live backend and split
     Electron's TCP connections across two servers), and MUST set it on
@@ -333,7 +333,7 @@ class TestAcceptTcpWindowsExclusiveBind:
 
     def test_accept_tcp_skips_so_reuseaddr_on_windows(self, monkeypatch):
         """On Windows, ``_accept_tcp`` must bind WITHOUT
-        ``SO_REUSEADDR`` — the default exclusive-bind semantics make a
+        ``SO_REUSEADDR``, the default exclusive-bind semantics make a
         second backend fail loudly with EADDRINUSE instead of silently
         stealing the live backend's port."""
         server = _make_server()
@@ -402,7 +402,7 @@ class TestAcceptTcpWindowsExclusiveBind:
 
         assert created, "_accept_tcp must create a socket before binding"
         assert (socket.SOL_SOCKET, socket.SO_REUSEADDR, 1) in created[0].options, (
-            "on POSIX, _accept_tcp must set SO_REUSEADDR (skips TIME_WAIT rebinds) — P1-1.4 only removes it on Windows"
+            "on POSIX, _accept_tcp must set SO_REUSEADDR (skips TIME_WAIT rebinds), P1-1.4 only removes it on Windows"
         )
 
     def test_accept_tcp_source_guards_so_reuseaddr_by_platform(self):
@@ -412,7 +412,7 @@ class TestAcceptTcpWindowsExclusiveBind:
         source = inspect.getsource(IPCServer._accept_tcp)
         assert 'if os.name != "nt":' in source, (
             "_accept_tcp must gate SO_REUSEADDR on os.name != 'nt' (P1-1.4 "
-            "Windows parity — unconditional SO_REUSEADDR lets a second "
+            "Windows parity, unconditional SO_REUSEADDR lets a second "
             "backend hijack the port)"
         )
         assert "server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)" in source, (

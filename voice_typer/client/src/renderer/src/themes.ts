@@ -7,7 +7,7 @@
  * layered on top of the app's default CSS (index.css) and the current
  * ``.dark`` / ``:root`` class.
  *
- * The ``default`` preset is a no-op — it means "use whatever is in the
+ * The ``default`` preset is a no-op, it means "use whatever is in the
  * stylesheet" (no overrides needed).
  *
  * presets split into ./themes/ for lazy loading. Each preset
@@ -63,7 +63,7 @@ export const THEME_VARIABLES: readonly string[] = [
 	"--surface-hover",
 	"--surface-page",
 
-	// Text (--text-muted removed — aliased to --muted-foreground
+	// Text (--text-muted removed, aliased to --muted-foreground
 	// in index.css. Only --muted-foreground is the canonical token now.)
 	"--text-primary",
 	"--text-secondary",
@@ -142,7 +142,7 @@ export const THEME_VARIABLES: readonly string[] = [
  * Event name dispatched on `window` after every `applyThemeVars` run.
  * Subscribers that render from the LIVE CSS variables (e.g. the
  * share-stats image palette in `lib/theme-palette.ts`) listen for this
- * to re-read the tokens exactly when they change — the CSS variables
+ * to re-read the tokens exactly when they change, the CSS variables
  * on `document.documentElement` are the single source of truth, and
  * this event is the change signal.
  */
@@ -159,7 +159,7 @@ export function applyThemeVars(
 	clearThemeVars();
 
 	if (presetId !== "default") {
-		// Custom theme — use the passed-in variable map directly
+		// Custom theme, use the passed-in variable map directly
 		if (presetId === CUSTOM_THEME_ID && customVars) {
 			for (const [key, value] of Object.entries(customVars)) {
 				// Only set variables that are in our known list
@@ -179,7 +179,7 @@ export function applyThemeVars(
 	}
 
 	// Notify palette readers (and any future CSS-var subscriber) that
-	// the applied tokens changed — including the "default" clear path,
+	// the applied tokens changed, including the "default" clear path,
 	// which also changes what the variables resolve to.
 	if (typeof window !== "undefined") {
 		window.dispatchEvent(new CustomEvent(THEME_APPLIED_EVENT));
@@ -221,7 +221,7 @@ export function getThemeById(id: string): ThemePreset {
  * auto-derived from these core values.
  */
 /**
- * each entry now carries ``labelKey`` / ``descriptionKey`` — i18n
+ * each entry now carries ``labelKey`` / ``descriptionKey``, i18n
  * keys resolved via ``t()`` in ``ThemeSettingsSection.tsx``. The legacy
  * ``label`` / ``description`` English strings are kept as fallbacks for
  * the rare caller that reads them outside a React context (e.g. tests).
@@ -315,7 +315,7 @@ export function deriveCustomVars(
 	// function free of null-checks while preserving the original
 	// behaviour (defaults below are guaranteed by the literals above,
 	// so the empty-string fallback only kicks in if a caller passes a
-	// core dict missing one of the canonical keys — which downstream
+	// core dict missing one of the canonical keys, which downstream
 	// darken/lighten/contrast calls already treat as black).
 	const defaults = isDark ? DEFAULT_CUSTOM_DARK : DEFAULT_CUSTOM_LIGHT;
 	const bg = core["--background"] ?? defaults["--background"] ?? "";
@@ -371,7 +371,7 @@ export function deriveCustomVars(
 		/* emit the three status tokens so custom themes don't fall
 		   back to the stylesheet default. The colours are derived from the
 		   user's chosen destructive hue where possible (success/warning/info
-		   stay semantic — green/amber/blue — so status meaning is preserved
+		   stay semantic, green/amber/blue, so status meaning is preserved
 		   even on user-customised palettes). */
 		"--success": isDark ? "#22c55e" : "#16a34a",
 		"--warning": isDark ? "#f59e0b" : "#d97706",

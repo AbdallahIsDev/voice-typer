@@ -68,7 +68,7 @@ describe("SoundManager", () => {
 		if (originalAudioContext !== undefined) {
 			window.AudioContext = originalAudioContext;
 		} else {
-			// @ts-expect-error — restoring from undefined state
+			// @ts-expect-error, restoring from undefined state
 			delete window.AudioContext;
 		}
 		// Restore gesture listeners if installed
@@ -98,7 +98,7 @@ describe("SoundManager", () => {
 		stubGlobalLocalStorage({ setItem: setItemSpy });
 
 		try {
-			// Should not throw — the in-memory flag should still update
+			// Should not throw, the in-memory flag should still update
 			setSoundFeedbackEnabled(false);
 			// Verify localStorage was attempted (and swallowed)
 			expect(setItemSpy).toHaveBeenCalled();
@@ -118,7 +118,7 @@ describe("SoundManager", () => {
 		// Disable sound feedback
 		setSoundFeedbackEnabled(false);
 
-		// Should NOT create an AudioContext — the cue is gated before init
+		// Should NOT create an AudioContext, the cue is gated before init
 		const ctxCountBefore = mockCtor.mock.calls.length;
 		playSoundCue("start");
 		expect(mockCtor.mock.calls.length).toBe(ctxCountBefore);
@@ -136,12 +136,12 @@ describe("SoundManager", () => {
 		});
 		expect(initAudioContext()).toBe(false);
 
-		// Second call: constructor succeeds — should NOT be permanently skipped.
+		// Second call: constructor succeeds, should NOT be permanently skipped.
 		// IMPORTANT: use a regular function (not arrow) so `new Ctor()` works —
 		// arrow functions can't be used as constructors and would throw a
 		// TypeError, which the catch block would swallow as a "failed
 		// construction" (matching the beforeEach mock setup convention).
-		// biome-ignore lint/complexity/useArrowFunction: arrow functions cannot be used as constructors — `new Ctor()` requires a regular function or class
+		// biome-ignore lint/complexity/useArrowFunction: arrow functions cannot be used as constructors, `new Ctor()` requires a regular function or class
 		mockCtor.mockImplementation(function () {
 			return new MockAudioContext();
 		});
@@ -182,10 +182,10 @@ describe("SoundManager", () => {
 		const debugSpy = vi.spyOn(console, "debug").mockImplementation(() => {});
 
 		try {
-			// Should NOT throw — falls back to the in-memory default.
+			// Should NOT throw, falls back to the in-memory default.
 			const result = isSoundFeedbackEnabled();
 			// Default in-memory flag is true on a fresh reset (matches the
-			// production default — sound is enabled unless the user opts
+			// production default, sound is enabled unless the user opts
 			// out via Settings). The catch block falls back to the in-memory
 			// default when localStorage is unavailable.
 			expect(result).toBe(true);
@@ -252,7 +252,7 @@ class RecordingGain {
 	connect(node: unknown) {
 		this.connectCalls.push(node);
 		// Return a chainable stub so multi-hop chains
-		// (osc → gain → master → destination) keep working — the empty
+		// (osc → gain → master → destination) keep working, the empty
 		// object previously broke the third .connect() call.
 		const chainable = {
 			connect: (next: unknown) => {
@@ -290,7 +290,7 @@ class RecordingAudioContext {
 	}
 }
 
-describe("SoundManager — Web Audio synthesis matches the cue table", () => {
+describe("SoundManager, Web Audio synthesis matches the cue table", () => {
 	const T = 7; // RecordingAudioContext.currentTime
 
 	// Parity fixtures: param automation calls with ABSOLUTE times —
@@ -413,8 +413,8 @@ describe("SoundManager — Web Audio synthesis matches the cue table", () => {
 			// Function DECLARATION (not an expression): `new` on a plain
 			// function that returns an object resolves to that object, so the
 			// module's `new AudioContext()` gets our recording ctx. A vi.fn
-			// arrow mock would NOT work — vitest 4's mock construct trap does
-			// not propagate the impl's returned object to `new` — and the
+			// arrow mock would NOT work, vitest 4's mock construct trap does
+			// not propagate the impl's returned object to `new`, and the
 			// function-expression form trips the useArrowFunction lint rule,
 			// whose arrow fix would break `new` (arrows cannot be constructed).
 			function RecordingAudioContextCtor() {
@@ -443,7 +443,7 @@ describe("SoundManager — Web Audio synthesis matches the cue table", () => {
 			expect(osc.type).toBe(spec.type);
 			expect(osc.frequency.calls).toEqual(spec.frequency);
 			expect(gain.gain.calls).toEqual(spec.gain);
-			// The master node carries NO automation — it's a static
+			// The master node carries NO automation, it's a static
 			// multiplier set once at node creation (volume=1 → gain 1).
 			expect(master.gain.calls).toEqual([]);
 

@@ -1,8 +1,8 @@
 /**
- * themeApply.ts — DOM application of the resolved theme. Split out of
+ * themeApply.ts, DOM application of the resolved theme. Split out of
  * ``hooks/useTheme.ts`` (the theme-apply concern): pure, side-effecting
  * helpers that write the resolved theme onto ``document.documentElement``
- * — the ``.dark`` class, the preset/custom CSS variable overrides, and
+ *, the ``.dark`` class, the preset/custom CSS variable overrides, and
  * the ``--font-scale`` text-size property.
  *
  * The per-instance ``useEffect`` wiring (matchMedia subscription, effect

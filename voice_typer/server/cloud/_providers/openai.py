@@ -1,6 +1,6 @@
 """OpenAI-compatible (OpenAI, Groq) multipart request shaping.
 
-Extracted from the ``cloud_engines.py`` monolith. Pure shaping — no
+Extracted from the ``cloud_engines.py`` monolith. Pure shaping, no
 I/O; the caller supplies the audio bytes and receives either the
 ordered byte-chunk list or a streaming file-like body suitable for
 ``urllib.request.Request(data=...)``.
@@ -27,7 +27,7 @@ def build_multipart_body(
     function returns a ``_StreamingMultipartBody`` file-like object
     that yields the parts as ~64 KB chunks on demand, avoiding that
     second full-body copy (the WAV itself stays resident in the parts
-    list — only the joined duplicate is avoided).
+    list, only the joined duplicate is avoided).
     ``Content-Length`` is computed upfront so the server knows the
     total size without chunked transfer encoding.
 

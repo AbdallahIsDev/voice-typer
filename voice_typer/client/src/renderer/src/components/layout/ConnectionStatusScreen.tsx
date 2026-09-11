@@ -1,5 +1,5 @@
 /**
- * ConnectionStatusScreen — full implementation.
+ * ConnectionStatusScreen, full implementation.
  *
  * Previously this component was a `return null` stub. App.tsx rendered
  * it whenever the renderer was not connected to the Python backend, but
@@ -18,7 +18,7 @@
  *     for visual consistency with other load-failure screens.
  *
  * The retry button is auto-focused so keyboard users land on it
- * immediately after a disconnect — WCAG 2.4.3 Focus Order (Level A).
+ * immediately after a disconnect, WCAG 2.4.3 Focus Order (Level A).
  */
 
 import { AlertCircleIcon, RefreshIcon } from "@hugeicons/core-free-icons";
@@ -52,7 +52,7 @@ export function ConnectionStatusScreen({
 	// expected initial state).
 	useEffect(() => {
 		if (status === "disconnected") {
-			// EmptyState renders the action as a <Button> — find it via
+			// EmptyState renders the action as a <Button>, find it via
 			// the data-testid we set on the container.
 			const btn = document.querySelector<HTMLButtonElement>(
 				'[data-testid="connection-status"] button',
@@ -76,7 +76,7 @@ export function ConnectionStatusScreen({
 			: t("app.lostConnection");
 
 	// For disconnected: surface the raw error verbatim when present
-	// (it's the most actionable signal — e.g. "Python process exited
+	// (it's the most actionable signal, e.g. "Python process exited
 	// with code 137"), otherwise fall back to the generic
 	// `lostConnectionHint`. For connecting / restarting: show the
 	// generic "this usually takes a few seconds" hint.
@@ -101,7 +101,7 @@ export function ConnectionStatusScreen({
 				// The primary EmptyState action is scoped to the
 				// disconnected state only. During restarting the backend
 				// is auto-recovering, so the sole manual affordance is the
-				// dedicated "Force Retry" button below — showing both
+				// dedicated "Force Retry" button below, showing both
 				// would render two same-handler retry buttons.
 				actionLabel={isDisconnected ? t("app.retryConnection") : undefined}
 				onAction={isDisconnected ? onRetry : undefined}

@@ -46,7 +46,7 @@ class TestSessionMarkerLifecycle:
         assert "started=" in content
 
     def test_marker_content_has_no_pii(self, tmp_path: Path) -> None:
-        """Marker content is PID + timestamp only — never paths/speech."""
+        """Marker content is PID + timestamp only, never paths/speech."""
         session_state.mark_session_active(tmp_path)
         content = (tmp_path / "run" / session_state.SESSION_MARKER_FILENAME).read_text(encoding="utf-8")
         assert "voice" not in content.lower() or "started=" in content

@@ -2,7 +2,7 @@
 
 Pre-FR-14, ``install_python_excepthook`` only assigned ``sys.excepthook``
 (main-thread-only). Since Python 3.8, unhandled exceptions in non-main
-threads go through ``threading.excepthook`` — Voice Typer spawns many
+threads go through ``threading.excepthook``, Voice Typer spawns many
 daemon threads (A11yPulse, ModelLoad, heartbeat_loop, crash-recovery-saver,
 history-retention-apply, bubble-level-pusher, shutdown-watchdog, prewarm
 completion-event listener) and an unhandled exception in any of them
@@ -19,7 +19,7 @@ Post-FR-14, ``install_threading_excepthook`` installs
 3. Chains to the previously-installed ``threading.excepthook``.
 
 These tests exercise the Linux-runnable surface (the hook is a pure
-Python callable — no Windows VEH machinery).
+Python callable, no Windows VEH machinery).
 """
 
 from __future__ import annotations
@@ -177,7 +177,7 @@ class TestSanitizeThreadName:
         assert crash_handler._sanitize_thread_name_for_filename("") == "thread"
 
     def test_none_safe_name_falls_back(self):
-        # All-unsafe characters — must fall back to "thread" rather
+        # All-unsafe characters, must fall back to "thread" rather
         # than producing an empty string or all-underscores.
         sanitized = crash_handler._sanitize_thread_name_for_filename("///")
         assert sanitized == "thread"
@@ -273,7 +273,7 @@ class TestThreadCrashExcepthook:
         before being persisted to the marker file."""
         crash_handler.set_crash_handler_config_dir(tmp_path)
 
-        # Use an SSN-shaped PII value — redact_pii catches this pattern.
+        # Use an SSN-shaped PII value, redact_pii catches this pattern.
         ssn = "123-45-6789"
         try:
             raise ValueError(ssn)
@@ -293,7 +293,7 @@ class TestThreadCrashExcepthook:
     def test_chains_to_original_threading_excepthook(self, restore_threading_excepthook, tmp_path):
         """FR-14: the hook chains to the previously-installed
         ``threading.excepthook`` so the default stderr path still fires
-        (defense-in-depth — stderr is /dev/null under bundled sidecar,
+        (defense-in-depth, stderr is /dev/null under bundled sidecar,
         so no duplicate user-visible output)."""
         original_called: list[bool] = []
 
@@ -315,12 +315,12 @@ class TestThreadCrashExcepthook:
         )
 
     def test_hook_does_not_raise_on_attr_error(self, restore_threading_excepthook, tmp_path):
-        """FR-14: the hook must NEVER raise — it runs during interpreter
+        """FR-14: the hook must NEVER raise, it runs during interpreter
         teardown where any failure masks the original error. A malformed
         args object (missing attributes) must not propagate."""
         crash_handler.set_crash_handler_config_dir(tmp_path)
         # Pass a bare object with no exc_type/exc_value/exc_traceback
-        # attributes — the hook must bail out silently.
+        # attributes, the hook must bail out silently.
         crash_handler._thread_crash_excepthook(object())  # type: ignore[arg-type]
         # No exception raised == pass.
 

@@ -5,26 +5,26 @@ Context
 -------
 Two related data-integrity findings from the comprehensive review:
 
-CR-38 (Medium) — Config schema downgrade-safety: forward-compat path
+CR-38 (Medium), Config schema downgrade-safety: forward-compat path
 silently drops unknown fields on next save.  When a newer-version
 config.json (with fields the current build doesn't know about) is
 loaded by an older build, ``Config.load()`` filters out the unknown
 keys via ``k in cls.__dataclass_fields__``.  The next ``save()``
-persists the filtered dict — the unknown fields are LOST forever.
+persists the filtered dict, the unknown fields are LOST forever.
 Fix: before overwriting, copy the existing file to ``config.json.bak``
 (single-slot rotation) so the user has a forensic recovery path.
 
-CR-62 (Medium) — ``config.json`` corruption silently overwrites user
+CR-62 (Medium): ``config.json`` corruption silently overwrites user
 settings on next save (no backup).  When ``Config.load()`` encounters
 a corrupt ``config.json`` (JSONDecodeError, TypeError, ValueError,
 OSError), it falls back to defaults.  The next ``save()`` then writes
-the defaults to disk — overwriting the corrupt file and any
+the defaults to disk, overwriting the corrupt file and any
 recoverable data in it.  Fix: in the ``except`` fallback path, move
 the corrupt file aside to ``config.json.corrupt-<timestamp>`` (atomic
 rename) so the user can inspect/recover their settings manually.
 
 Both fixes are best-effort: a backup failure does NOT block the
-save/load — we'd rather have a working (if defaults-only) config than
+save/load, we'd rather have a working (if defaults-only) config than
 no config.  The tests below pin both contracts.
 """
 
@@ -59,7 +59,7 @@ class TestCorruptConfigBackup:
 
         This is the core CR-62 regression test.  Before the fix,
         ``Config.load()`` would catch the JSONDecodeError, log a
-        warning, return defaults — and leave the corrupt file in
+        warning, return defaults, and leave the corrupt file in
         place.  The next ``save()`` would then overwrite the corrupt
         file with the defaults, destroying any chance of forensic
         recovery.  After the fix, the corrupt file is atomically
@@ -70,7 +70,7 @@ class TestCorruptConfigBackup:
         corrupt_content = "{ this is not valid json"
         config_file.write_text(corrupt_content, encoding="utf-8")
 
-        # Load — should return defaults (corrupt JSON) AND move the file.
+        # Load, should return defaults (corrupt JSON) AND move the file.
         cfg = Config.load()
 
         # Defaults returned.
@@ -80,7 +80,7 @@ class TestCorruptConfigBackup:
 
         # The original config.json must NO LONGER EXIST (was moved).
         assert not config_file.exists(), (
-            "Config.load() did not move the corrupt config aside — "
+            "Config.load() did not move the corrupt config aside, "
             "config.json still exists at its original path.  CR-62 regression: "
             "the corrupt file must be atomically renamed to .corrupt-<timestamp>."
         )
@@ -114,7 +114,7 @@ class TestCorruptConfigBackup:
         # generous bound to account for slow CI runners).
         now = int(time.time())
         assert abs(now - ts) < 60, (
-            f"Backup timestamp {ts} is not recent (now={now}) — "
+            f"Backup timestamp {ts} is not recent (now={now}), "
             f"the .corrupt-<timestamp> suffix must use int(time.time())."
         )
         # the PID group must match os.getpid() (the test
@@ -123,19 +123,19 @@ class TestCorruptConfigBackup:
 
         assert int(match.group(2)) == _os.getpid(), (
             f"Backup PID {match.group(2)} does not match current PID "
-            f"{_os.getpid()} — the .corrupt-<timestamp>-<pid> suffix "
+            f"{_os.getpid()}, the .corrupt-<timestamp>-<pid> suffix "
             "must use os.getpid() so same-second loads from different "
             "processes produce unique filenames."
         )
         # The microsecond fraction must be in [0, 1_000_000).
         us = int(match.group(3))
         assert 0 <= us < 1_000_000, (
-            f"Backup microsecond fraction {us} out of range [0, 1_000_000) — "
+            f"Backup microsecond fraction {us} out of range [0, 1_000_000), "
             "the suffix must be time.time_ns() % 1_000_000."
         )
 
     def test_corrupt_config_moved_atomically(self, tmp_config_dir):
-        """The move must be atomic (``Path.replace``) — no partial state.
+        """The move must be atomic (``Path.replace``), no partial state.
 
         We can't easily test atomicity directly, but we CAN test that
         after the load, EITHER the original file exists OR the
@@ -154,18 +154,18 @@ class TestCorruptConfigBackup:
 
         # The original MUST be gone (renamed away).
         assert not original_exists, (
-            "Original config.json still exists after load() — the atomic rename must have moved it (Path.replace)."
+            "Original config.json still exists after load(), the atomic rename must have moved it (Path.replace)."
         )
         # A backup MUST exist (the rename target).
         assert backup_exists, (
-            "No .corrupt-<timestamp> backup exists after load() — the atomic rename must have created one."
+            "No .corrupt-<timestamp> backup exists after load(), the atomic rename must have created one."
         )
 
     def test_corrupt_config_move_logs_warning(self, tmp_config_dir, caplog):
         """A WARNING must be logged when the corrupt file is moved aside.
 
         The user needs to know their config was corrupt AND that a
-        backup was created — otherwise they might not realize they
+        backup was created, otherwise they might not realize they
         can recover their settings from the ``.corrupt-<timestamp>``
         file.  The warning must mention the backup path so the user
         knows where to look.
@@ -186,7 +186,7 @@ class TestCorruptConfigBackup:
     def test_valid_config_not_moved(self, tmp_config_dir):
         """A valid config must NOT be moved aside (only corrupt ones are).
 
-        Sanity check — the CR-62 fix must not aggressively move
+        Sanity check, the CR-62 fix must not aggressively move
         configs that load successfully.  Otherwise every load would
         create a .corrupt-<timestamp> backup, filling the user's
         config dir with stale copies.
@@ -197,7 +197,7 @@ class TestCorruptConfigBackup:
         cfg = Config.load()
 
         # The original config.json must still exist (not moved).
-        assert config_file.exists(), "Valid config.json was moved aside — only corrupt configs should be moved."
+        assert config_file.exists(), "Valid config.json was moved aside, only corrupt configs should be moved."
         # No .corrupt-<timestamp> backup should exist.
         corrupt_backups = list(tmp_config_dir.glob("config.json.corrupt-*"))
         assert corrupt_backups == [], (
@@ -209,11 +209,11 @@ class TestCorruptConfigBackup:
     def test_missing_config_not_moved(self, tmp_config_dir):
         """A missing config (first run) must not create a backup.
 
-        There's nothing to move — the file doesn't exist.  The
+        There's nothing to move, the file doesn't exist.  The
         ``config_file.exists()`` guard in the load() except block
         prevents trying to rename a non-existent file.
         """
-        # No config.json created — first-run scenario.
+        # No config.json created, first-run scenario.
 
         cfg = Config.load()
 
@@ -233,7 +233,7 @@ class TestCorruptConfigBackup:
 
         ``Config.load()`` explicitly checks ``isinstance(parsed, dict)``
         and raises ``TypeError`` if not.  The except block must catch
-        this and move the file aside — same as for JSONDecodeError.
+        this and move the file aside, same as for JSONDecodeError.
         """
         config_file = tmp_config_dir / "config.json"
         config_file.write_text("42", encoding="utf-8")  # valid JSON, not a dict
@@ -252,7 +252,7 @@ class TestCorruptConfigBackup:
         the previous ``.corrupt-<timestamp>`` suffix used
         1-second resolution, so two loads in the same second produced
         the same backup filename and ``Path.replace`` atomically
-        overwrote the first backup with the second — losing the first
+        overwrote the first backup with the second, losing the first
         corrupt content's forensic recovery point. The fix appends a
         PID + microsecond-fraction suffix so back-to-back loads in the
         same process always produce unique filenames.
@@ -279,7 +279,7 @@ class TestCorruptConfigBackup:
         )
         assert corrupt_backups[0].name != corrupt_backups[1].name, (
             "regression: two corrupt loads produced identical "
-            f"backup filenames ({corrupt_backups[0].name!r}) — the PID + "
+            f"backup filenames ({corrupt_backups[0].name!r}), the PID + "
             "microsecond suffix must disambiguate them."
         )
         contents = sorted(p.read_text(encoding="utf-8") for p in corrupt_backups)
@@ -311,7 +311,7 @@ class TestCorruptConfigBackup:
         """If the move-aside fails (e.g. permission denied on the rename),
         load() must still return defaults (not raise).
 
-        The move is best-effort — a failure is logged at DEBUG level
+        The move is best-effort, a failure is logged at DEBUG level
         and the load proceeds.  The user gets a working (defaults-
         only) app even if the backup couldn't be created.
 
@@ -336,7 +336,7 @@ class TestCorruptConfigBackup:
 
         monkeypatch.setattr(pathlib.Path, "replace", failing_replace)
 
-        # Must NOT raise — the failure is caught and logged.
+        # Must NOT raise, the failure is caught and logged.
         cfg = Config.load()
 
         from voice_typer.server.config import _default_hotkey_for_platform
@@ -365,7 +365,7 @@ class TestSaveBackupBeforeOverwrite:
           1. Writing a config with hotkey=<f3> to disk (the "old" config).
           2. Loading it into a Config instance.
           3. Changing hotkey to <f9>.
-          4. Saving — this should create config.json.bak with the
+          4. Saving, this should create config.json.bak with the
              <f3> content (the previous version).
         """
         config_file = tmp_config_dir / "config.json"
@@ -404,7 +404,7 @@ class TestSaveBackupBeforeOverwrite:
         ``.bak`` is created.
 
         Saving the same config twice in a row is a no-op for the
-        ``.bak`` logic — there's nothing to back up (the new content
+        ``.bak`` logic, there's nothing to back up (the new content
         equals the existing content).  This avoids creating stale
         ``.bak`` files on idempotent re-saves.
         """
@@ -425,7 +425,7 @@ class TestSaveBackupBeforeOverwrite:
         )
 
     def test_save_bak_is_single_slot_rotation(self, tmp_config_dir):
-        """The ``.bak`` is a single-slot rotation — no .bak.1, .bak.2.
+        """The ``.bak`` is a single-slot rotation, no .bak.1, .bak.2.
 
         A third save overwrites the previous .bak (single-slot).  This
         keeps the user's config dir clean (one .bak file at most) at
@@ -440,13 +440,13 @@ class TestSaveBackupBeforeOverwrite:
         cfg = Config(hotkey="<f3>")
         cfg.save()
 
-        # Save v2 — .bak should contain v1.
+        # Save v2, .bak should contain v1.
         cfg.hotkey = "<f9>"
         cfg.save()
         assert bak.exists()
         assert json.loads(bak.read_text())["hotkey"] == "<f3>"
 
-        # Save v3 — .bak should now contain v2 (single-slot rotation).
+        # Save v3, .bak should now contain v2 (single-slot rotation).
         cfg.hotkey = "<f12>"
         cfg.save()
         assert bak.exists()
@@ -462,7 +462,7 @@ class TestSaveBackupBeforeOverwrite:
         """If the backup fails (e.g. permission denied on the .bak write),
         ``Config.save()`` must still proceed with the overwrite.
 
-        The backup is best-effort — a failure is logged at DEBUG level
+        The backup is best-effort, a failure is logged at DEBUG level
         and the save proceeds.  The user still gets the new config;
         they just don't get a .bak to recover from.
         """
@@ -490,16 +490,16 @@ class TestSaveBackupBeforeOverwrite:
 
         monkeypatch.setattr(config_mod, "_secure_atomic_write", selective_secure_write)
 
-        # Change hotkey and save — .bak write will fail but save must proceed.
+        # Change hotkey and save, .bak write will fail but save must proceed.
         cfg.hotkey = "<f9>"
 
-        # Must NOT raise — the .bak failure is caught and logged.
+        # Must NOT raise, the .bak failure is caught and logged.
         result = cfg.save()
 
         # The save must succeed (the _secure_atomic_write call for the
-        # actual config.json write worked — only the .bak write raised).
+        # actual config.json write worked, only the .bak write raised).
         assert result is True, (
-            "Config.save() returned False when the .bak write failed — "
+            "Config.save() returned False when the .bak write failed, "
             ".bak failure must not block the save (best-effort backup)."
         )
         # config.json must have the NEW content (<f9>).
@@ -511,7 +511,7 @@ class TestSaveBackupBeforeOverwrite:
     def test_save_no_bak_on_first_save(self, tmp_config_dir):
         """The first save (no existing config.json) must NOT create a .bak.
 
-        There's nothing to back up — the file doesn't exist yet.
+        There's nothing to back up, the file doesn't exist yet.
         The ``config_file.exists()`` guard in save() prevents trying
         to back up a non-existent file.
         """
@@ -531,7 +531,7 @@ class TestSaveBackupBeforeOverwrite:
     def test_save_bak_preserves_byte_for_byte_content(self, tmp_config_dir):
         """The .bak must contain the EXACT bytes of the previous config.json.
 
-        Not a re-serialization, not a normalized form — the raw bytes
+        Not a re-serialization, not a normalized form, the raw bytes
         as they were on disk.  This is important because the user may
         have manually edited config.json with custom formatting
         (e.g. trailing newlines, specific indentation) that we want
@@ -610,13 +610,13 @@ class TestSaveBackupBeforeOverwrite:
         )
         config_file.write_text(newer_content, encoding="utf-8")
 
-        # Step 2: load with the current (older) build — the future_field
+        # Step 2: load with the current (older) build, the future_field
         # is silently dropped (filtered by ``k in cls.__dataclass_fields__``).
         cfg = Config.load()
         # The dropped field is gone.
         assert not hasattr(cfg, "future_field")
 
-        # Step 3: save — overwrites config.json with the older build's
+        # Step 3: save, overwrites config.json with the older build's
         # view of the config (no future_field).  The .bak must contain
         # the ORIGINAL newer_content (with future_field).
         cfg.save()
@@ -626,7 +626,7 @@ class TestSaveBackupBeforeOverwrite:
             "so the user can recover the dropped future_field."
         )
 
-        # Step 4: simulate user recovery — rename .bak → config.json.
+        # Step 4: simulate user recovery, rename .bak → config.json.
         config_file.unlink()
         bak.rename(config_file)
 
@@ -696,7 +696,7 @@ class TestDeprecatedKeysSilentlyScrubbed:
 
     def test_stale_v3_config_with_deprecated_keys_handled_gracefully(self, tmp_config_dir):
         """A schema-v3 config that *still* carries deprecated keys
-        is handled gracefully by the unknown-key filter — the keys are
+        is handled gracefully by the unknown-key filter, the keys are
         silently dropped (with a WARNING log) and the remaining fields
         load normally. No corrupt-config fallback path is triggered."""
         config_file = tmp_config_dir / "config.json"

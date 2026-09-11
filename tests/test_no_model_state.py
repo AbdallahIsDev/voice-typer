@@ -1,7 +1,7 @@
 """Tests for the genuine "no model selected" state.
 
 ``model_size == \"\"`` (the ``NO_MODEL_SIZE`` sentinel in
-``model_registry.py``) means the user has NO active model — the config
+``model_registry.py``) means the user has NO active model, the config
 can hold this value end-to-end (load, IPC, tray, Models page) instead
 of being reset to the default, and the app must not pretend a phantom
 model is selected.
@@ -25,7 +25,7 @@ from voice_typer.server.model_registry import NO_MODEL_SIZE
 
 class TestConfigLoadPreservesNoModelState:
     def test_empty_model_size_is_preserved(self, tmp_config_dir):
-        """model_size=\"\" loads as-is — no reset to DEFAULT_MODEL_SIZE,
+        """model_size=\"\" loads as-is, no reset to DEFAULT_MODEL_SIZE,
         no \"config corrected\" warning (it's a real state, not garbage)."""
         from voice_typer.server.config import Config
 
@@ -40,7 +40,7 @@ class TestConfigLoadPreservesNoModelState:
         )
 
     def test_invalid_model_size_still_resets_to_default(self, tmp_config_dir):
-        """Sanity check: only the real sentinel is preserved — garbage
+        """Sanity check: only the real sentinel is preserved, garbage
         values are still corrected to DEFAULT_MODEL_SIZE."""
         from voice_typer.server.config import Config
         from voice_typer.server.model_registry import DEFAULT_MODEL_SIZE
@@ -71,7 +71,7 @@ class TestIpcValidatorAcceptsNoModelState:
 class TestTrayNoModelState:
     def test_tray_submenu_marks_nothing_active_when_no_model(self, tmp_path):
         """With model_size=\"\", no tray submenu row (whisper, parakeet, or
-        qwen) may render as active — even backend-keyed rows."""
+        qwen) may render as active, even backend-keyed rows."""
         from unittest.mock import MagicMock, patch
 
         from voice_typer.server import tray_models
@@ -110,7 +110,7 @@ class TestTrayNoModelState:
 class TestModelManagerNoModelRefusal:
     def test_load_refusal_message_for_no_model(self):
         """When the config holds the no-model sentinel, the load path
-        refuses with a \"No model selected\" message — not a claim that a
+        refuses with a \"No model selected\" message, not a claim that a
         named model \"is not downloaded\"."""
         from voice_typer.server.asr_errors import ModelNotDownloadedError
         from voice_typer.server.config import Config
@@ -128,7 +128,7 @@ class TestModelManagerNoModelRefusal:
 
         class _Recorder(ModelManager):
             def __init__(self, app):
-                # Skip the real init (registry construction etc.) — the
+                # Skip the real init (registry construction etc.), the
                 # refusal path only needs the app + pending-dictation flag.
                 self._app = app
                 self._pending_dictation = False
@@ -137,7 +137,7 @@ class TestModelManagerNoModelRefusal:
                 return False
 
             def _notify_model_load_refused(self, error, *, backend):
-                # ``ModelNotDownloadedError`` is a ``RuntimeError`` — its
+                # ``ModelNotDownloadedError`` is a ``RuntimeError``, its
                 # message lives in ``args[0]`` (no ``.message`` attr).
                 captured.append(str(error))
                 assert isinstance(error, ModelNotDownloadedError)

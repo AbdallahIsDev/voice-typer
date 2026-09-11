@@ -1,5 +1,5 @@
 /**
- * Focused tests for `scrollToRowWithHighlight` — the shared Settings
+ * Focused tests for `scrollToRowWithHighlight`, the shared Settings
  * deep-link "scroll to a row and ring it" machinery extracted from the
  * two near-twin effects in `useSettingsDeepLinks`.
  *
@@ -80,7 +80,7 @@ describe("scrollToRowWithHighlight", () => {
 			onExpire: () => {},
 		});
 
-		// Row not rendered yet — attempts at 50ms intervals must NOT scroll.
+		// Row not rendered yet, attempts at 50ms intervals must NOT scroll.
 		vi.advanceTimersByTime(150);
 		expect(scrollSpy).not.toHaveBeenCalled();
 
@@ -128,7 +128,7 @@ describe("scrollToRowWithHighlight", () => {
 		// Ring lifetime starts when the row is FOUND.
 		vi.advanceTimersByTime(2600);
 		expect(onExpire).toHaveBeenCalledWith(row);
-		// The guard resets when the ring expires — a later identical
+		// The guard resets when the ring expires, a later identical
 		// deep-link can re-arm.
 		expect(shared.scrolledTarget.current).toBeNull();
 		cleanup();
@@ -156,7 +156,7 @@ describe("scrollToRowWithHighlight", () => {
 		cleanup();
 	});
 
-	it("is one-shot per target (shared guard) — a second call for the same target no-ops", () => {
+	it("is one-shot per target (shared guard), a second call for the same target no-ops", () => {
 		const scrollSpy = vi.fn();
 		(
 			Element.prototype as unknown as { scrollIntoView: unknown }
@@ -195,7 +195,7 @@ describe("scrollToRowWithHighlight", () => {
 		const firstTimer = shared.highlightTimer.current;
 		expect(firstTimer).not.toBeNull();
 
-		// New target before A's lifetime elapses — A's timer is replaced.
+		// New target before A's lifetime elapses, A's timer is replaced.
 		const cleanupB = scrollToRowWithHighlight({
 			shared,
 			target: "b",

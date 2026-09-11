@@ -1,4 +1,4 @@
-"""Microphone watcher — Linux polling implementation.
+"""Microphone watcher. Linux polling implementation.
 
 Provides :class:`_LinuxMixin` (mixed into ``MicrophoneDeviceWatcher``)
 with the ``/dev/snd`` + secondary ``sd.query_devices()`` polling loop,
@@ -21,7 +21,7 @@ class _LinuxMixin:
     # Members provided by the composed ``MicrophoneDeviceWatcher``
     # (``_core.py`` ``__init__``): cross-mixin attribute access is
     # runtime-valid but pyrefly cannot see it on a standalone mixin.
-    # Annotations only — no values — so no runtime attribute is created
+    # Annotations only, no values, so no runtime attribute is created
     # and the runtime MRO is unaffected (same pattern as
     # dictation_pipeline's mixin declarations and model_manager's
     # ``ChangeMixin``).
@@ -45,7 +45,7 @@ class _LinuxMixin:
     # PortAudio round trip on Linux PulseAudio/PipeWire) sees BT
     # headsets and virtual sources that never touch ``/dev/snd``. We
     # throttle the secondary poll to the idle/active cadence
-    # (selected via ``self._is_idle`` — see :meth:`set_idle`) so the
+    # (selected via ``self._is_idle``: see :meth:`set_idle`) so the
     # test-suite's small ``poll_interval`` values (e.g. 0.05 s) don't
     # multiply the PortAudio cost AND so the secondary poll widens to
     # 12 s at idle / tightens to 3 s during a recording (mirroring
@@ -57,12 +57,12 @@ class _LinuxMixin:
         Uses ``os.listdir`` + ``frozenset`` comparison at the
         configured poll interval. This deliberately avoids
         ``pyinotify``/``inotify_simple`` to keep the dependency
-        surface minimal — PortAudio's 30s cache is the ultimate
+        surface minimal. PortAudio's 30s cache is the ultimate
         fallback if this loop misses an event.
 
         On modern desktop Linux the user-facing audio stack is
         PulseAudio or PipeWire, which exposes Bluetooth headsets, USB
-        mics, and virtual sources as userspace sources — NOT as new
+        mics, and virtual sources as userspace sources, NOT as new
         ALSA kernel devices in ``/dev/snd``. A Bluetooth headset
         pairing produces a PulseAudio source
         ``bluez_source.XX_XX_XX_XX_XX_XX`` without touching
@@ -103,7 +103,7 @@ class _LinuxMixin:
         last_sd_sig: set | None = None
         last_sd_query_monotonic: float = time.monotonic()
         try:
-            import sounddevice as _sd  # noqa: F401 — used inside loop
+            import sounddevice as _sd  # noqa: F401, used inside loop
 
             sd_available = True
         except ImportError:
@@ -158,7 +158,7 @@ class _LinuxMixin:
         """Build a hashable signature for a sounddevice device entry.
 
         Comparing only ``len(sd.query_devices())`` misses same-count device
-        swaps — e.g. a USB mic unplugged at the same moment a Bluetooth
+        swaps: e.g. a USB mic unplugged at the same moment a Bluetooth
         headset is plugged in (count stays at 3 → 3). The signature
         includes ``name``, ``hostapi``, and ``default_samplerate`` so any
         such swap is detected even when the count is unchanged.

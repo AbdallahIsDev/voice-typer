@@ -1,22 +1,22 @@
 # SPLIT-4: extracted from the original ``prewarm.py`` god-module.
 """HF cache probing + file-warming primitives.
 
-Phase 4.5 /  — this module holds the helpers that locate the
+Phase 4.5 / : this module holds the helpers that locate the
 HuggingFace cache, probe which model files are resident, and read bytes
 into the OS standby cache without importing the packages they belong to:
 
-- :func:`_resolve_hf_cache_dir` — robust cache-dir resolution (works at
+- :func:`_resolve_hf_cache_dir`: robust cache-dir resolution (works at
   BootTrigger time before the user session is fully initialized).
-- :func:`_find_parakeet_weights` — locate the cached Parakeet
+- :func:`_find_parakeet_weights`: locate the cached Parakeet
   ``model.safetensors``.
-- :func:`_active_model_cache_dirs` — return only the HF cache dirs the
+- :func:`_active_model_cache_dirs`: return only the HF cache dirs the
   active backend would actually use (active model + Whisper fallback).
-- :func:`_cache_ratio` — sample-based probe estimating the fraction of
+- :func:`_cache_ratio`: sample-based probe estimating the fraction of
   a file that's in the OS standby cache.
-- :func:`_warm_file` — sequentially read a file into the standby cache.
-- :func:`_warm_package_files` — read a package's installed files into
+- :func:`_warm_file`: sequentially read a file into the standby cache.
+- :func:`_warm_package_files`: read a package's installed files into
   the standby cache WITHOUT importing it.
-- :func:`_warm_imports` — page torch + transformers files into the OS
+- :func:`_warm_imports`: page torch + transformers files into the OS
   cache (no import).
 
 ``_warm_file`` is defined in this module, and
@@ -56,7 +56,7 @@ _READ_CHUNK_BYTES = 4 * 1024 * 1024  # 4 MB
 # disk I/O.  ``.py`` is excluded on purpose: when a ``.pyc`` is present
 # CPython never reads the ``.py`` at import time, so warming the source
 # file wastes disk bandwidth and standby-cache space.
-# added ``.dylib`` (macOS dynamic libraries — equivalent to
+# added ``.dylib`` (macOS dynamic libraries, equivalent to
 # ``.so`` on Linux and ``.dll`` on Windows; without it, a macOS
 # prewarm run would skip every native extension in a package like
 # ``torch`` / ``numpy`` / ``cv2``). ``.json`` / ``.txt`` are retained
@@ -75,7 +75,7 @@ _WARM_PACKAGE_SUFFIXES: frozenset[str] = frozenset({".pyc", ".so", ".pyd", ".dll
 #   - ``*.dist-info`` / ``*.egg-info``: package metadata directories
 #     (METADATA, RECORD, entry_points.txt) read by ``importlib.metadata``
 #     on demand, not at import time.
-# The skip happens during the ``rglob`` walk — when a directory's name
+# The skip happens during the ``rglob`` walk, when a directory's name
 # matches this set, we ``rglob``'s recursive descent is pruned by
 # checking the parent path of each file. This is cheaper than calling
 # ``rglob`` and filtering after the fact (which would still stat every
@@ -125,11 +125,11 @@ def _iter_warmable_files(root: Path) -> Iterator[Path]:
     the d_type for each entry.
 
     This implementation uses an explicit ``os.scandir`` stack-walk
-    (iterative, not recursive — so deep trees don't hit the recursion
+    (iterative, not recursive, so deep trees don't hit the recursion
     limit) and filters by ``entry.is_file()`` (uses the cached d_type
     on filesystems that populate it: ext4/tmpfs on Linux, APFS on
     macOS, NTFS on Windows). Filesystems with DT_UNKNOWN (e.g. some
-    FUSE mounts) fall back to a stat() — but that's the same
+    FUSE mounts) fall back to a stat(), but that's the same
     worst-case as the old code, so no regression.
 
     Pruning lives HERE (not at the consumer) so directories that can
@@ -199,13 +199,13 @@ def _iter_warmable_files(root: Path) -> Iterator[Path]:
                         continue
                     # File: filter by suffix with the SAME Path.suffix
                     # semantics the old consumer used (pure string
-                    # computation — no stat).
+                    # computation, no stat).
                     if Path(entry.name).suffix not in suffixes:
                         continue
                     yield Path(entry.path)
         except (FileNotFoundError, PermissionError, NotADirectoryError):
             # Root may have been deleted between list + scandir; or we
-            # lack permission. Skip silently — prewarm is best-effort.
+            # lack permission. Skip silently, prewarm is best-effort.
             continue
 
 
@@ -215,26 +215,26 @@ def _warm_package_files(pkg_name: str) -> int:
 
     Replaces the old ``import torch`` / ``import transformers`` warmup.
     ``import`` executes the package's code (~5 s of CPU for torch) and builds
-    live objects we immediately throw away when prewarm exits — the only
+    live objects we immediately throw away when prewarm exits, the only
     thing we actually want is the file *bytes* resident in the OS standby
     cache, so a later ``import torch`` in the real app reads them from RAM.
     Reading the files directly produces the same cache state but skips the
     CPU cost, so prewarm finishes in seconds instead of ~a minute and uses
     far less memory.  The app still has to execute torch's code once, in its
-    own process — that is unavoidable and unchanged.
+    own process: that is unavoidable and unchanged.
 
     Locating the files uses ``importlib.util.find_spec`` (the import *finder*
-    phase), which does NOT execute the package's code — verified by asserting
+    phase), which does NOT execute the package's code, verified by asserting
     the package never lands in ``sys.modules``.
     """
     spec = importlib.util.find_spec(pkg_name)
     if spec is None:
-        log.debug("[PREWARM] %s not installed — skip file warmup", pkg_name)
+        log.debug("[PREWARM] %s not installed, skip file warmup", pkg_name)
         return 0
     if pkg_name in sys.modules:
         # find_spec must never import, but if it ever does we must not claim
         # credit for warming something that was already loaded.
-        log.debug("[PREWARM] %s already imported — skip", pkg_name)
+        log.debug("[PREWARM] %s already imported, skip", pkg_name)
         return 0
 
     roots: list[Path] = []
@@ -244,7 +244,7 @@ def _warm_package_files(pkg_name: str) -> int:
         roots.append(Path(spec.origin))
 
     if not roots:
-        log.debug("[PREWARM] %s has no locatable files — skip", pkg_name)
+        log.debug("[PREWARM] %s has no locatable files, skip", pkg_name)
         return 0
 
     total = 0
@@ -261,7 +261,7 @@ def _warm_package_files(pkg_name: str) -> int:
                 log.debug("[PREWARM] skip %s: %s", path, exc)
     elapsed = time.perf_counter() - t0
     # Defensive: file warmup must never have imported the package.
-    assert pkg_name not in sys.modules, f"{pkg_name} was imported during file warmup — must stay unimported"
+    assert pkg_name not in sys.modules, f"{pkg_name} was imported during file warmup, must stay unimported"
     # C-LOG-2: lifecycle-completion log line carries the canonical
     # space-separated ``<duration>`` suffix from ``format_duration()``
     # (not an ad-hoc ``%.1fs``) so the perf marker is greppable
@@ -285,10 +285,10 @@ def _cached_active_config():
     process's lifetime, so caching is safe. Returns ``None`` on load
     failure so callers fall back to defaults without raising.
 
-    Note: this is a legitimate fresh-snapshot read — the prewarm probe
+    Note: this is a legitimate fresh-snapshot read, the prewarm probe
     runs in a DETACHED subprocess (spawned by ``prewarm_scheduler``
     before the main app bootstraps), so there is no ``app.config`` to
-    reference. A fresh disk read is the only option. Read-only — no
+    reference. A fresh disk read is the only option. Read-only, no
     mutation, no config-mutation lock required.
     """
     try:
@@ -296,7 +296,7 @@ def _cached_active_config():
 
         return Config.load()
     except Exception:
-        log.debug("[PREWARM] Config.load() failed — using default backend", exc_info=True)
+        log.debug("[PREWARM] Config.load() failed, using default backend", exc_info=True)
         return None
 
 
@@ -307,13 +307,13 @@ def _cached_active_config():
 # worker calls :func:`warm_imports_for_worker` once before accepting
 # the first transcription request.
 #
-# The package list is FIXED — it no longer varies by active backend.
+# The package list is FIXED, it no longer varies by active backend.
 # Per the master plan §6.2 P-1: ``onnxruntime + ctranslate2 +
 # numpy/scipy`` (≈200 MB total, far fewer files than the old
-# torch+transformers stack — see plan §3.4). torch + transformers are
+# torch+transformers stack: see plan §3.4). torch + transformers are
 # DROPPED because:
-#   - VAD is now Silero VAD ONNX (no torch) — see PLAN_ONNX_INTEGRATION §2.
-#   - Parakeet is now ``onnx-asr`` (no transformers) — see
+#   - VAD is now Silero VAD ONNX (no torch): see PLAN_ONNX_INTEGRATION §2.
+#   - Parakeet is now ``onnx-asr`` (no transformers), see
 #     PLAN_ONNX_INTEGRATION §3.
 #   - Qwen migration (Phase 1d) is deferred; if/when Qwen ships torch,
 #     it warms in its own process (the worker exe is the runtime pack
@@ -322,7 +322,7 @@ def _cached_active_config():
 # ``faster_whisper`` is kept in the list because it is still the
 # Whisper backend (``ctranslate2`` is its underlying runtime, but
 # ``faster_whisper``'s own ``.py`` / ``.pyc`` files are paged in here
-# too — they are tiny relative to ``ctranslate2`` but skipping them
+# too, they are tiny relative to ``ctranslate2`` but skipping them
 # would regress the Whisper cold-start path).
 _WORKER_WARM_PACKAGES: tuple[str, ...] = (
     "onnxruntime",
@@ -339,14 +339,14 @@ def _warm_imports() -> None:
     Per master plan §6.2 P-1 (worker-startup prewarm phase), the warm
     list is ``onnxruntime + ctranslate2 + numpy/scipy`` (plus
     ``faster_whisper`` for the Whisper backend's own Python files).
-    ``torch`` and ``transformers`` are DROPPED — VAD is now ONNX, Parakeet
+    ``torch`` and ``transformers`` are DROPPED. VAD is now ONNX, Parakeet
     is now ``onnx-asr``, and neither ships in the worker exe.
 
     This function pages the libraries' installed files into the OS
     standby cache **without importing them** (see
     :func:`_warm_package_files`). The worker still has to execute each
-    library's code once, in its own process — that is unavoidable and
-    unchanged — but the cold-disk read is paid once here, in the
+    library's code once, in its own process: that is unavoidable and
+    unchanged, but the cold-disk read is paid once here, in the
     background, before the user clicks "transcribe".
 
     BACKEND-INDEPENDENT: the list is fixed. The pre-Phase-2 code varied
@@ -372,14 +372,14 @@ def _warm_imports() -> None:
     # that dominates post-reboot cold start). Each file is gated by
     # the latency-based ``_cache_ratio`` probe inside
     # :func:`_warm_model_weights`, so an already-hot file is skipped
-    # instead of re-read byte-for-byte. Best-effort — a probe/warm
+    # instead of re-read byte-for-byte. Best-effort, a probe/warm
     # failure only costs the cold-start benefit.
     try:
         weight_bytes = _warm_model_weights(_active_model_cache_dirs())
         if weight_bytes > 0:
             warmed.append("model-weights")
     except Exception:
-        log.debug("[PREWARM] model-weights warm pass failed — continuing", exc_info=True)
+        log.debug("[PREWARM] model-weights warm pass failed, continuing", exc_info=True)
     elapsed = time.perf_counter() - t0
     # C-LOG-2: lifecycle-completion log line carries the canonical
     # space-separated ``<duration>`` suffix from ``format_duration()``
@@ -409,7 +409,7 @@ def warm_imports_for_worker() -> None:
     try:
         _warm_imports()
     except Exception:
-        log.debug("[PREWARM] warm_imports_for_worker failed — continuing with cold cache", exc_info=True)
+        log.debug("[PREWARM] warm_imports_for_worker failed, continuing with cold cache", exc_info=True)
 
 
 @lru_cache(maxsize=1)
@@ -433,7 +433,7 @@ def _resolve_hf_cache_dir() -> Path:
         fired before any user logs in.
 
         Resolution order:
-          1. ``config._config_dir() / "huggingface"`` — the canonical app
+          1. ``config._config_dir() / "huggingface"``: the canonical app
              config path. Used by every other module, respects the
              monkey-patch hook tests rely on, and centralizes the
              ``Path.home() / ".voice-typer"`` convention. ONLY accepted if
@@ -441,13 +441,13 @@ def _resolve_hf_cache_dir() -> Path:
              like ``~/.voice-typer`` from an unexpanded ``~`` indicates env
              vars are missing, so we fall through to the fallbacks).
           2. Environment variable (``USERPROFILE`` on Windows, ``HOME`` on
-             POSIX) — set during normal sessions and LogonTrigger firings.
+             POSIX), set during normal sessions and LogonTrigger firings.
              Used when ``_config_dir()`` itself fails or returns a relative
              path.
-          3. Windows registry ``Volatile Environment\\USERPROFILE`` — set by
+          3. Windows registry ``Volatile Environment\\USERPROFILE``, set by
              Winlogon at session creation; readable from BootTrigger context
              because the registering user's hive is already mounted.
-          4. POSIX ``pwd.getpwuid(os.getuid())`` — reads /etc/passwd; works
+          4. POSIX ``pwd.getpwuid(os.getuid())``: reads /etc/passwd; works
              from LaunchDaemon context where ``$HOME`` is not inherited.
 
         Returns the ``~/.voice-typer/huggingface`` directory. The directory
@@ -463,7 +463,7 @@ def _resolve_hf_cache_dir() -> Path:
         cache = _config_dir() / "huggingface"
         # Review fix C2: only accept absolute paths. A relative path
         # (e.g. "~/.voice-typer" from an unexpanded "~" when env vars
-        # are missing) means _config_dir() couldn't resolve home — fall
+        # are missing) means _config_dir() couldn't resolve home, fall
         # through to the fallbacks instead of returning a bad path.
         if cache.is_absolute():
             if cache.exists():
@@ -492,13 +492,13 @@ def _resolve_hf_cache_dir() -> Path:
                 except OSError:
                     # An inaccessible cache path (e.g. a dangling
                     # junction / broken symlink with restrictive ACLs)
-                    # must NOT abort prewarm resolution — on Windows
+                    # must NOT abort prewarm resolution, on Windows
                     # Path.exists() can raise PermissionError for such
                     # paths instead of returning False. Fall through to
                     # the remaining fallbacks and remember the absolute
                     # candidate for the final best-effort return.
                     log.debug(
-                        "[PREWARM] HF cache path %s inaccessible — skipping fallback",
+                        "[PREWARM] HF cache path %s inaccessible, skipping fallback",
                         cache,
                     )
                 primary_candidate = cache
@@ -562,7 +562,7 @@ def _resolve_hf_cache_dir() -> Path:
     # Final best-effort: prefer the primary candidate (absolute path from
     # _config_dir() or env vars) even if it doesn't exist yet (first-ever
     # run). If we have no absolute candidate at all, fall back to
-    # Path.home() — which may itself be wrong, but it's the best we can do.
+    # Path.home(): which may itself be wrong, but it's the best we can do.
     if primary_candidate is not None:
         return primary_candidate
     # delegate to _paths.legacy_hf_cache_dir() so the literal
@@ -577,7 +577,7 @@ def _model_weight_files(active_dirs: list[Path]) -> list[Path]:
     """Return the model WEIGHT files (any snapshot) for the active model dirs.
 
     Replaces the deleted ``_find_parakeet_weights`` (which hardcoded
-    ``model.safetensors`` — a file the current ONNX Parakeet engine
+    ``model.safetensors``: a file the current ONNX Parakeet engine
     never downloads, so the lookup always returned ``None``). The
     active payload names come from the pinned integrity manifest
     (``security/model_integrity.py``): Whisper ships ``model.bin``,
@@ -617,11 +617,11 @@ def _warm_model_weights(active_dirs: list[Path]) -> int:
     """Page the active model's weight files into the OS standby cache.
 
     (2) of the Fast-Startup fixes: the library warm list above only
-    covers runtime-pack libraries — the multi-GB weight files
+    covers runtime-pack libraries, the multi-GB weight files
     dominate post-reboot cold-start cost, so they are warmed here,
     once per worker start. Each file is first probed with
     :func:`_cache_ratio`: at or above ``_PREWARM_SKIP_HOT_RATIO`` the
-    file is SKIPPED (fix (1) — an already-hot multi-GB file is not
+    file is SKIPPED (fix (1), an already-hot multi-GB file is not
     re-read byte-for-byte; the latency probe costs a few dozen 4K
     reads). Best-effort: OSError per file is logged at DEBUG.
 
@@ -693,7 +693,7 @@ def _active_model_cache_dirs() -> list[Path]:
                 target_repo_ids.add(_PARAKERT_MODEL_ID)
             except Exception:
                 # Previously a bare ``except Exception: pass``. Log at
-                # DEBUG — the import failure is non-fatal (the prewarm
+                # DEBUG, the import failure is non-fatal (the prewarm
                 # cache probe just won't include the Parakeet repo ID
                 # in its target set, so the probe may report "no models
                 # cached" even when Parakeet is cached). DEBUG is
@@ -708,7 +708,7 @@ def _active_model_cache_dirs() -> list[Path]:
         elif active_backend == "qwen":
             # Qwen auto-downloads on first use via qwen_engine.py; no fixed
             # repo ID. The configured qwen_model_path is a local directory,
-            # not an HF repo — we don't prewarm it here.
+            # not an HF repo, we don't prewarm it here.
             pass
         else:
             # Whisper backend: warm the configured model_size
@@ -716,7 +716,7 @@ def _active_model_cache_dirs() -> list[Path]:
                 target_repo_ids.add(f"Systran/faster-whisper-{active_model_size}")
 
         # Always include the declared Whisper fallback (tiny) so the
-        # AsrBackendRegistry's fallback path is warm too — UNLESS the
+        # AsrBackendRegistry's fallback path is warm too, UNLESS the
         # active backend is whisper with model_size=tiny (already covered).
         if not (active_backend == "whisper" and active_model_size == _WHISPER_FALLBACK_MODEL_SIZE):
             target_repo_ids.add(f"Systran/faster-whisper-{_WHISPER_FALLBACK_MODEL_SIZE}")
@@ -776,7 +776,7 @@ def _cache_ratio(path: Path, samples: int = _CACHE_RATIO_SAMPLES) -> float:
       - >50µs → page is on disk (cache miss)
 
     The slight cache-warming side effect (reading a cold page pulls it
-    into cache) is acceptable and actually beneficial — it re-warms
+    into cache) is acceptable and actually beneficial, it re-warms
     evicted pages, which is exactly what the user wants when they click
     "Refresh cache status" in the About page.
 

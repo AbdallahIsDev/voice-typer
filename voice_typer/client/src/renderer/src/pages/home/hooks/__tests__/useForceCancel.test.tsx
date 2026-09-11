@@ -1,7 +1,7 @@
 /**
  * Tests for useForceCancel (extracted from Home.tsx).
  *
- * Contract: the "Force cancel" availability state machine — reveal the
+ * Contract: the "Force cancel" availability state machine, reveal the
  * affordance only after FORCE_CANCEL_DELAY_MS inside "transcribing",
  * reset on every other status, stay in sync with the store's
  * recordingState, and run the `force_cancel_transcription` IPC with

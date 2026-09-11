@@ -17,13 +17,13 @@
  *
  * These tests verify:
  *   1. Source-text: `_tryWinOp` helper exists in show-hide.ts and is
- *      called from inside `showBubbleWindow` (≥ 7 call sites — the 7
+ *      called from inside `showBubbleWindow` (≥ 7 call sites, the 7
  *      inline try/catches targeted).
  *   2. Source-text: the inline `catch (e)` count inside
  *      `showBubbleWindow` drops to zero (all win-op failures route
  *      through `_tryWinOp`).
  *   3. Source-text: the second redundant `setAlwaysOnTop` (DJ-91) is
- *      NOT present on the happy path — only inside the `setImmediate`
+ *      NOT present on the happy path, only inside the `setImmediate`
  *      retry branch (gated on `!win.isVisible()`).
  *   4. Behavioral: a failing win-op is swallowed, logged at the
  *      requested level, and does NOT propagate to the caller (the
@@ -37,7 +37,7 @@ import { describe, expect, it, vi } from "vitest";
 // Hoisted mocks for the behavioral test. Hoisted to the top level so
 // vi.mock factories (which run before any test) close over stable
 // references. The source-text describe blocks do NOT import the
-// module — they just read the source file from disk — so these mocks
+// module, they just read the source file from disk, so these mocks
 // are inert for them.
 const mockState = vi.hoisted(() => ({
 	bubbleWindow: null as unknown,
@@ -164,7 +164,7 @@ describe("showBubbleWindow consolidates try/catches via _tryWinOp helper", () =>
 		// inside showBubbleWindow should be inside the helper
 		// definition itself (which lives above showBubbleWindow,
 		// NOT inside it). So the showBody must contain ZERO
-		// inline `catch` clauses — every win-op failure routes
+		// inline `catch` clauses, every win-op failure routes
 		// through `_tryWinOp`.
 		//
 		// Note: the helper's own `} catch (e) {` is in the
@@ -178,13 +178,13 @@ describe("showBubbleWindow consolidates try/catches via _tryWinOp helper", () =>
 		const helperIdx = src.indexOf("function _tryWinOp(");
 		const helperEnd = src.indexOf("}", src.indexOf("log[level]", helperIdx));
 		const helperBody = src.slice(helperIdx, helperEnd);
-		// Default level is "warn" — so best-effort retries use
+		// Default level is "warn", so best-effort retries use
 		// log.warn (matches the previous inline catch blocks).
 		expect(helperBody).toMatch(
 			/level\s*=\s*options\.level\s*\?\?\s*["']warn["']/,
 		);
 		// Helper must accept an `options.level` override for
-		// call sites that need log.error (e.g. show() — bubble
+		// call sites that need log.error (e.g. show(), bubble
 		// never appears if show() throws).
 		expect(helperBody).toMatch(/options\.level/);
 		// Helper must call log[level] so the override takes
@@ -215,9 +215,9 @@ describe("DJ-91: redundant happy-path setAlwaysOnTop dropped", () => {
 	it("setAlwaysOnTop appears at most twice in showBubbleWindow body (1 happy-path + 1 setImmediate fallback)", () => {
 		// DJ-91 fix: the second redundant happy-path call was
 		// dropped. The remaining calls are:
-		//   1. The first call (before show()) — happy path.
+		//   1. The first call (before show()), happy path.
 		//   2. The setImmediate fallback retry (inside
-		//      `if (!win.isVisible())`) — unhappy path only.
+		//      `if (!win.isVisible())`), unhappy path only.
 		// The previous third call (immediately after moveTop on
 		// the happy path) must NOT be present.
 		const setAlwaysOnTopCount = (showBody.match(/win\.setAlwaysOnTop\(/g) ?? [])
@@ -228,7 +228,7 @@ describe("DJ-91: redundant happy-path setAlwaysOnTop dropped", () => {
 	it("the setImmediate setAlwaysOnTop retry is gated on !win.isVisible() (unhappy-path only)", () => {
 		// DJ-91: the setImmediate retry block must only fire its
 		// win.setAlwaysOnTop when the window is NOT visible
-		// (defensive retry on the unhappy path only — not on
+		// (defensive retry on the unhappy path only, not on
 		// every dictation start).
 		const setImmediateIdx = showBody.indexOf("setImmediate(() =>");
 		expect(setImmediateIdx).toBeGreaterThan(-1);
@@ -267,7 +267,7 @@ describe("behavioral: _tryWinOp swallows + logs failures", () => {
 		// The happy-path failures must be logged:
 		//   - setAlwaysOnTop (warn)
 		//   - setVisibleOnAllWorkspaces (warn)
-		//   - show() (error — bubble never appears)
+		//   - show() (error, bubble never appears)
 		//   - moveTop (warn)
 		expect(logSpies.warn).toHaveBeenCalled();
 		expect(logSpies.error).toHaveBeenCalled();

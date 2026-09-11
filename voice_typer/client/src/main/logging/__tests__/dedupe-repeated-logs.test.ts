@@ -115,7 +115,7 @@ describe("dedupeRepeatedLogs", () => {
 			"python-call rejected",
 			expect.objectContaining({ cmd: "get_status" }),
 		]);
-		// The second get_config burst started fresh (count 1) — it was NOT
+		// The second get_config burst started fresh (count 1), it was NOT
 		// merged into the earlier (x2) summary.
 		expect(emit.mock.calls[3]).toEqual([
 			"python-call rejected",
@@ -161,7 +161,7 @@ describe("dedupeRepeatedLogs", () => {
 
 		// A short burst that then goes quiet (backend recovered, next
 		// calls succeed and log nothing). The heartbeat must emit the
-		// (x3) summary ONCE and then stop — not every 60s forever.
+		// (x3) summary ONCE and then stop, not every 60s forever.
 		log("python-call rejected", args);
 		log("python-call rejected", args);
 		log("python-call rejected", args);
@@ -174,7 +174,7 @@ describe("dedupeRepeatedLogs", () => {
 			"(x3)",
 		]);
 
-		// The streak is idle now — advancing time must NOT emit more.
+		// The streak is idle now, advancing time must NOT emit more.
 		vi.advanceTimersByTime(120_000);
 		expect(emit).toHaveBeenCalledTimes(2);
 	});
@@ -189,7 +189,7 @@ describe("dedupeRepeatedLogs", () => {
 		log("python-call rejected", args);
 		vi.advanceTimersByTime(60_000); // (x3), then idle → timer stops
 
-		// Flood resumes later — next repeat re-arms the heartbeat.
+		// Flood resumes later, next repeat re-arms the heartbeat.
 		log("python-call rejected", args);
 		log("python-call rejected", args);
 		vi.advanceTimersByTime(60_000);
@@ -211,7 +211,7 @@ describe("dedupeRepeatedLogs", () => {
 		log("python-call rejected", args);
 		vi.advanceTimersByTime(60_000); // heartbeat already emitted (x3)
 
-		// The streak breaks with a different message — the break must NOT
+		// The streak breaks with a different message, the break must NOT
 		// re-emit (x3): it was already reported by the heartbeat.
 		log("python-call rejected", {
 			cmd: "get_status",

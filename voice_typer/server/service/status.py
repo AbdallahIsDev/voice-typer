@@ -45,7 +45,7 @@ class StatusMixin(ServiceMixinBase):
     # poll. ``initialize()`` is idempotent (it short-circuits on
     # ``self._initialized``), but each call still acquires the ducker's
     # internal lock and re-reads ``self._backend`` / ``self._ready`` /
-    # ``self.supports_per_session`` — wasted work that adds up across
+    # ``self.supports_per_session``: wasted work that adds up across
     # thousands of polls. We now compute the status dict ONCE (on the
     # first call), cache it here, and return the cached value on
     # subsequent polls within the ``_VOLUME_BACKEND_STATUS_TTL_S``
@@ -58,7 +58,7 @@ class StatusMixin(ServiceMixinBase):
     # value means "cached status from a previous successful poll". The
     # cache is per-instance (each :class:`VoiceTyperService` gets its
     # own) because the underlying ``_volume_ducker`` is also
-    # per-instance. Class-level default of ``None`` is safe — it is
+    # per-instance. Class-level default of ``None`` is safe, it is
     # an immutable singleton, so the class-attribute fallback doesn't
     # leak state across instances (the first ``self.X = {...}``
     # assignment shadows the class attribute with an instance
@@ -71,7 +71,7 @@ class StatusMixin(ServiceMixinBase):
     # so a mid-session dependency install (pyobjc-framework-CoreAudio on
     # macOS) could never surface. A 30s TTL keeps the 2s poll cheap
     # (initialize() runs at most once per TTL window) while making the
-    # display self-heal — mirroring the ``_OFFLINE_PACK_STATUS_TTL_S``
+    # display self-heal, mirroring the ``_OFFLINE_PACK_STATUS_TTL_S``
     # pattern in this class. The explicit ``_force_refresh=True`` path
     # is unchanged (tests + any future Refresh button still bypass).
     _VOLUME_BACKEND_STATUS_TTL_S = 30.0
@@ -82,8 +82,8 @@ class StatusMixin(ServiceMixinBase):
     # Offline-pack state cache for :meth:`_get_offline_pack_status`.
     # The status endpoint is polled ~every 2s; the pack scan (``iterdir``
     # + ``pack-manifest.json`` parse) must not run on every poll. The pack
-    # only appears/disappears via download or AV-deletion — both rare vs.
-    # the poll rate — so a 15s TTL cache is safe (mirrors the
+    # only appears/disappears via download or AV-deletion, both rare vs.
+    # the poll rate, so a 15s TTL cache is safe (mirrors the
     # ``_volume_backend_status_cache`` pattern in this class).
     _OFFLINE_PACK_STATUS_TTL_S = 15.0
     _pack_status_cache: dict[str, object] | None = None
@@ -93,7 +93,7 @@ class StatusMixin(ServiceMixinBase):
         """Cheap, cached offline-pack state for the degradation matrix (§8.10).
 
         Returns ``{"installed_version": <str|None>, "available": bool,
-        "consent_granted": bool}``. Never raises — a broken pack root
+        "consent_granted": bool}``. Never raises, a broken pack root
         yields ``available: False`` (fail-safe: the renderer shows the
         "offline engine unavailable" state rather than a false ready).
 
@@ -147,7 +147,7 @@ class StatusMixin(ServiceMixinBase):
         # letting them diverge (see the invariant comment on
         # applyStatusWithReason in the renderer's useConnection.ts).
         # Defensive coercion: test doubles may expose a non-str
-        # ``_message`` attribute — degrade to "" rather than leaking a
+        # ``_message`` attribute, degrade to "" rather than leaking a
         # repr() into the IPC payload.
         message = ""
         try:
@@ -201,7 +201,7 @@ class StatusMixin(ServiceMixinBase):
         ``initialize()``. ``initialize()`` is idempotent on
         :class:`VolumeDucker` (it short-circuits on
         ``self._initialized``), but the call still acquires the ducker's
-        internal lock and re-reads backend attributes — wasted work
+        internal lock and re-reads backend attributes, wasted work
         across thousands of polls.
 
         Cache invalidation: the cached ``backend_name`` /
@@ -211,7 +211,7 @@ class StatusMixin(ServiceMixinBase):
         for tests and any future explicit "Refresh" button, bypassing
         the cache immediately). The TTL is what lets the documented
         recovery case surface mid-session (the user installs
-        ``pyobjc-framework-CoreAudio`` — the macOS backend switches
+        ``pyobjc-framework-CoreAudio``: the macOS backend switches
         from osascript to CoreAudio within one TTL window) without a
         restart. The default ``_force_refresh=False`` is the 2s status
         poll path.
@@ -219,7 +219,7 @@ class StatusMixin(ServiceMixinBase):
         Note: ``_force_refresh`` is prefixed with an underscore because
         it is NOT wired through the IPC ``get_volume_backend_status``
         handler (the handler calls this method with no arguments, so
-        the default ``False`` applies — the poll path uses the TTL,
+        the default ``False`` applies, the poll path uses the TTL,
         not the force flag). No ``refresh_volume_backend`` IPC command
         exists; the TTL made it unnecessary.
 
@@ -246,7 +246,7 @@ class StatusMixin(ServiceMixinBase):
         # Fast path: serve from cache when available and the caller
         # didn't ask for a refresh. Returning a copy so callers can't
         # mutate our cached dict (the IPC handler adds ``is_windows``
-        # to the returned dict — without a copy that would leak into
+        # to the returned dict: without a copy that would leak into
         # the cache and show up on the next poll).
         cache = self._volume_backend_status_cache
         cache_fresh = (time.monotonic() - self._volume_backend_status_cached_at) < self._VOLUME_BACKEND_STATUS_TTL_S
@@ -269,7 +269,7 @@ class StatusMixin(ServiceMixinBase):
                 StatusMixin._volume_ducker_init_warned = False
                 init_ok = True
             except Exception:
-                # notify-once — log first failure at WARNING,
+                # notify-once, log first failure at WARNING,
                 # subsequent at DEBUG (status endpoint polled ~every 2s).
                 if not StatusMixin._volume_ducker_init_warned:
                     log.warning(
@@ -291,7 +291,7 @@ class StatusMixin(ServiceMixinBase):
             # Cache the status only when initialize() succeeded OR
             # the caller explicitly asked for a refresh. On the default
             # poll path with a failed initialize(), we DON'T cache so
-            # the next poll retries initialize() — this preserves the
+            # the next poll retries initialize(): this preserves the
             # previous "retry every poll until init succeeds" behaviour
             # for users who install a missing dependency mid-session
             # without clicking the Refresh button. When the caller

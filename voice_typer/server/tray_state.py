@@ -1,17 +1,17 @@
-"""Tray state mutations — extracted from ``tray.py``.
+"""Tray state mutations, extracted from ``tray.py``.
 
 Owns the state-machine + cached-field setters that used to live on
 the ``TrayIcon`` class:
 
-  - :func:`set_state` — the tray state machine: no-op short-circuit,
+  - :func:`set_state`: the tray state machine: no-op short-circuit,
     menu-cache invalidation on RECORDING/TRANSCRIBING membership
     flips, elapsed-timer start/stop, pystray apply vs pending-queue,
     Tauri publish, conditional menu push.
   - :func:`set_microphones` / :func:`set_autostart_enabled` /
     :func:`set_notifications_enabled` / :func:`set_hotkey` /
-    :func:`refresh_config` — cached-field setters that invalidate the
+    :func:`refresh_config`: cached-field setters that invalidate the
     menu cache (lazily) and re-publish where needed.
-  - :func:`invalidate_menu_cache_locked` — the LAZY cache invalidation
+  - :func:`invalidate_menu_cache_locked`: the LAZY cache invalidation
     under ``tray._menu_lock``.
   - elapsed-recording glue: :func:`format_elapsed`,
     :func:`on_elapsed_tick`, :func:`set_elapsed_timer_ref`,
@@ -44,7 +44,7 @@ log = logging.getLogger("voice_typer.server.tray")
 def set_state(tray: TrayIcon, state: AppState, message: str = "") -> None:
     """Update tray icon state and tooltip.
 
-    Short-circuit at the top — when ``state`` AND
+    Short-circuit at the top: when ``state`` AND
     ``message`` are both unchanged, every downstream unit of work
     (menu-cache invalidation, elapsed-timer start/stop, icon
     redraw, event emit, menu push) is skipped. Callers that
@@ -99,7 +99,7 @@ def set_microphones(tray: TrayIcon, mics: list[dict] | None) -> None:
     Uses ``invalidate_menu_cache_locked`` (not the eager
     ``invalidate_menu_cache``) so the cache-validity flag is cleared
     under ``_menu_lock`` without forcing a pystray ``_update_menu``
-    call — the Tauri publish path doesn't need the Win32 menu handle
+    call, the Tauri publish path doesn't need the Win32 menu handle
     rebuilt, and on pystray the next right-click rebuilds lazily.
     """
     tray._microphones = list(mics) if mics else []
@@ -143,13 +143,13 @@ def refresh_config(tray: TrayIcon, config) -> None:
 # ``_microphones`` (read+written by ``build_menu_for_tray`` on the
 # pystray thread and by ``invalidate_menu_cache`` from background
 # threads). On Windows, ``pystray.Icon._update_menu()`` calls
-# ``DestroyMenu`` / ``CreatePopupMenu`` — not guaranteed
-# thread-safe — so the lock serializes the rebuild.
+# ``DestroyMenu`` / ``CreatePopupMenu``: not guaranteed
+# thread-safe, so the lock serializes the rebuild.
 #
 # RLock (not Lock): ``invalidate_menu_cache`` acquires this lock
 # and THEN calls ``tray._icon._update_menu()``. pystray's
 # ``_update_menu`` iterates the icon's menu, and the menu was
-# created as ``pystray.Menu(self._build_menu)`` — a single
+# created as ``pystray.Menu(self._build_menu)``, a single
 # callable. pystray's ``Menu.items`` property INVOKES that
 # callable when the menu is iterated, so ``_update_menu()``
 # synchronously re-enters ``build_menu_for_tray`` on the SAME
@@ -172,7 +172,7 @@ def invalidate_menu_cache_locked(tray: TrayIcon) -> None:
     ``set_hotkey``, ``refresh_config``) mutate cached state and need
     to flag the menu cache as stale so the next right-click rebuilds.
     They previously wrote ``self._menu_cache_valid = False`` directly
-    WITHOUT holding ``_menu_lock`` — racing a concurrent
+    WITHOUT holding ``_menu_lock``: racing a concurrent
     ``build_menu_for_tray`` (pystray right-click on the icon's loop
     thread) that had already observed the (stale) True flag and
     returned the cached tuple. The next right-click then rebuilt
@@ -184,7 +184,7 @@ def invalidate_menu_cache_locked(tray: TrayIcon) -> None:
     waits until we release (and then sees False → rebuilds). The
     flag-clear is now happens-before the next cache check.
 
-    This does NOT call ``_icon._update_menu()`` — the eager variant
+    This does NOT call ``_icon._update_menu()``: the eager variant
     is reserved for explicit refresh actions because the Win32
     DestroyMenu/CreatePopupMenu round-trip is unnecessary when the
     Tauri host owns the native tray (``self._icon is None``) and
@@ -215,7 +215,7 @@ def set_elapsed_timer_ref(tray: TrayIcon, timer: threading.Thread | None) -> Non
 
 def start_elapsed_timer(tray: TrayIcon) -> None:
     """Start/restart the 1s elapsed-recording timer (delegates to ElapsedTimer
-    helper; no-op if helper missing — backward compat with _FakeTray)."""
+    helper; no-op if helper missing, backward compat with _FakeTray)."""
     helper = getattr(tray, "_elapsed_timer_helper", None)
     if helper is not None:
         helper.start()

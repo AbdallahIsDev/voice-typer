@@ -4,7 +4,7 @@ crashing thread.
 Pre-AB-33, ``_crash_excepthook`` / ``_thread_crash_excepthook`` called
 ``_get_active_asr_backend()`` → ``Config.load()`` (a JSON disk read) on
 the crashing thread.  During interpreter shutdown or on a failing disk,
-this disk read could hang the crash report itself — defeating the
+this disk read could hang the crash report itself, defeating the
 crash-marker purpose.
 
 Post-AB-33, the backend is cached at install time
@@ -132,7 +132,7 @@ class TestCachePopulatedAtInstallTime:
     def test_set_crash_handler_config_dir_populates_cache(self, tmp_path):
         """``set_crash_handler_config_dir`` also refreshes the cache
         (so the cache is populated even if install_python_excepthook
-        hasn't been called yet — e.g. very early in startup)."""
+        hasn't been called yet, e.g. very early in startup)."""
         assert crash_handler._cached_active_backend is None
         with mock.patch(
             "voice_typer.server.crash_handler._python_excepthook._get_active_asr_backend",
@@ -221,7 +221,7 @@ class TestNoDiskReadOnCrashingThread:
         crash_handler._cached_active_backend = None
         assert crash_handler._cached_active_backend is None
 
-        # Block any disk read — the excepthook must NOT do disk I/O.
+        # Block any disk read, the excepthook must NOT do disk I/O.
         with mock.patch(
             "voice_typer.server.crash_handler._python_excepthook._get_active_asr_backend"
         ) as mock_disk_read:
@@ -272,7 +272,7 @@ class TestDurabilityFalse:
             except ValueError as exc:
                 crash_handler._crash_excepthook(type(exc), exc, exc.__traceback__)
             mock_atomic.assert_called_once()
-            # durability=False — fsync on a terminating process
+            # durability=False, fsync on a terminating process
             # provides no durability benefit and can hang the crashing
             # thread on a stuck disk.
             assert mock_atomic.call_args.kwargs.get("durability") is False
@@ -305,7 +305,7 @@ class TestFlushLoopBudget:
 
     def test_flush_loop_breaks_after_budget(self, restore_excepthook, tmp_path):
         """Multiple stuck handlers do NOT accumulate their full sleep
-        time — the loop breaks as soon as ``time.perf_counter()``
+        time, the loop breaks as soon as ``time.perf_counter()``
         exceeds the budget.
 
         Note: a SINGLE stuck handler can still block (the budget check

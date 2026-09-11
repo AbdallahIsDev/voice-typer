@@ -4,7 +4,7 @@
 // `get_model_status` response shape + `get_disk_info` response shape.
 //
 // Split out from the original monolithic `types/ipc.ts`.
-// No behaviour change vs. the original file — pure structural refactor.
+// No behaviour change vs. the original file, pure structural refactor.
 
 /**
  * Per-model entry in the `get_model_status` IPC response.
@@ -12,7 +12,7 @@
  * The backend's `voice_typer/server/service.py::_compute_model_status`
  * returns `dict[str, { downloaded: bool, deps_ok: bool }]`. Renderers
  * previously inlined that shape at every `call<...>("get_model_status")`
- * call site — see `hooks/useModelLifecycle.ts` for the duplicated
+ * call site, see `hooks/useModelLifecycle.ts` for the duplicated
  * `Record<string, { downloaded: boolean; deps_ok: boolean }>` annotation.
  *
  *  adds the `hash_verified` discriminator so the Models
@@ -29,18 +29,18 @@ export interface ModelStatusEntry {
 	/**
 	 * Hash-verification result for the on-disk model files.
 	 *
-	 * - `"verified"` — the downloaded files' hash matches the
+	 * - `"verified"`, the downloaded files' hash matches the
 	 *   registry's expected hash.
-	 * - `"mismatch"` — the files exist but the hash doesn't match
+	 * - `"mismatch"`, the files exist but the hash doesn't match
 	 *   (corrupt download, third-party import, or a partial file).
 	 *   The Models page should show a "Re-download" affordance.
-	 * - `"unknown"` — the backend hasn't computed a hash yet
+	 * - `"unknown"`, the backend hasn't computed a hash yet
 	 *   (legacy backend that predates the field, or a model that
 	 *   doesn't have a registry hash). The Models page should NOT
 	 *   show a verification badge in this state.
 	 *
 	 * Optional for backwards compatibility with backends that
-	 * predate  — absence is treated as `"unknown"`.
+	 * predate , absence is treated as `"unknown"`.
 	 */
 	hash_verified?: "verified" | "mismatch" | "unknown";
 }
@@ -51,7 +51,7 @@ export interface ModelStatusEntry {
  *
  * The renderer's `hooks/useModelLifecycle.ts` now uses this
  * alias instead of the prior inline `Record<string, { downloaded:
- * boolean; deps_ok: boolean }>` annotation — the inline form was
+ * boolean; deps_ok: boolean }>` annotation, the inline form was
  * replaced by `call<ModelStatusMap>("get_model_status")` at both
  * call sites (the `refreshModelStatus` helper and the parallelized
  * `loadConfig` Promise.allSettled block).
@@ -71,11 +71,11 @@ export type ModelStatusMap = Record<string, ModelStatusEntry>;
  * NOTE: `lib/utils/models.ts` declares a richer `DiskInfo` interface
  * (with an additional `total_bytes: number` field and `models_dir?`
  * optional). That interface is NOT modified
- * here — this file declares the IPC-level contract.
+ * here, this file declares the IPC-level contract.
  * The two shapes are intentionally compatible: the richer object
  * satisfies this interface (the extra `total_bytes` field is allowed by
  * TypeScript's structural typing, and `models_dir` is required here but
- * optional there — callers that consume `lib/utils/models.ts`'s
+ * optional there, callers that consume `lib/utils/models.ts`'s
  * `DiskInfo` should normalise to a non-null `models_dir` before treating
  * the value as this type).
  */

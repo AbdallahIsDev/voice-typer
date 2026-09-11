@@ -102,7 +102,7 @@ def _compute_crash_header() -> bytes:
     # on Windows, ``sys.getwindowsversion()`` returns a tuple
     # namedtuple with (major, minor, build, platform, service_pack,
     # service_pack_major, service_pack_minor, suite_mask, product_type)
-    # — this is the OS-reported build number that ``platform.release()``
+    #: this is the OS-reported build number that ``platform.release()``
     # does not surface. We capture it in a separate try/except so a
     # failure here (e.g. on Wine / ReactOS where the API behaves oddly)
     # does NOT suppress the ``OS:`` / ``OS build:`` lines above.
@@ -133,10 +133,10 @@ def _compute_crash_header() -> bytes:
         # the ``_HEADER_MAX_MODULES`` cap. The cap exists to bound
         # PII / install-fingerprint exposure (); the project's
         # own package name is the same across installs and is the
-        # single most relevant entry for debugging a crash — without
+        # single most relevant entry for debugging a crash, without
         # it, a support engineer reading the header can't even
         # confirm the crash originated from this codebase. Allowed
-        # to overshoot the cap by 1 (101 entries max) — a negligible
+        # to overshoot the cap by 1 (101 entries max), a negligible
         # PII delta vs the 100-cap baseline.
         if "voice_typer" in sys.modules and "voice_typer" not in seen:
             top_level.append("voice_typer")
@@ -175,7 +175,7 @@ def set_crash_handler_config_dir(config_dir: Path) -> None:
     invoked but the cached path is still asserted on by tests).
 
     The dead ``_config_dir_bytes`` / ``_CONFIG_DIR_BYTES`` dual binding
-    was removed — only ``_crash_file_path`` is used downstream.
+    was removed, only ``_crash_file_path`` is used downstream.
 
     Also caches the config dir for ``_crash_excepthook`` so the
     Python-level excepthook can write a ``python_crash.<PID>.txt``
@@ -194,7 +194,7 @@ def set_crash_handler_config_dir(config_dir: Path) -> None:
     read-only config_dir), ``_crash_file_path`` falls back to the
     config_dir root (the same root the Python excepthook writes its
     ``python_crash.<PID>.txt`` marker to) and a WARNING names the
-    failure + the fallback — so a mkdir failure never silently disables
+    failure + the fallback, so a mkdir failure never silently disables
     the SEH/VEH crash diagnostics.
 
     Mutable state (``_crash_file_path``, ``_PID``,
@@ -211,7 +211,7 @@ def set_crash_handler_config_dir(config_dir: Path) -> None:
         # ``<config_dir>/crash_diagnostics_archive/`` subdir instead
         # of the config_dir root. Pre-fix, the file sat in the config_dir
         # root between the crash (T0) and the next startup (T1),
-        # exposing a 500-module fingerprint (now capped to 100 — see
+        # exposing a 500-module fingerprint (now capped to 100, see
         # ``_HEADER_MAX_MODULES``) at the same path the user opens for
         # ``config.toml`` / ``voice-typer.log`` inspection. Writing
         # directly to the archive subdir bounds the exposure window to
@@ -226,14 +226,14 @@ def set_crash_handler_config_dir(config_dir: Path) -> None:
         _migrate_legacy_archive_dir(resolved)
         # Pre-create the archive dir so the VEH callback (which cannot
         # safely mkdir during heap corruption) can write directly to
-        # ``<archive>/crash_diagnostics.<PID>.txt``. Best-effort — a
+        # ``<archive>/crash_diagnostics.<PID>.txt``. Best-effort, a
         # mkdir failure (e.g. read-only config_dir) is NOT silently
         # swallowed: if the archive dir does not actually exist after
         # the attempt, fall back to writing the crash file to the
         # config_dir root (the same root the Python excepthook uses),
         # so VEH diagnostics are never lost to an unwritable archive
         # path. The fallback is logged at WARNING (the VEH callback
-        # itself cannot log — it runs under heap corruption).
+        # itself cannot log, it runs under heap corruption).
         archive_ready = False
         _mkdir_exc: Exception | None = None
         try:
@@ -250,8 +250,7 @@ def set_crash_handler_config_dir(config_dir: Path) -> None:
         else:
             _suffix = f" ({_mkdir_exc})" if _mkdir_exc is not None else ""
             log.warning(
-                "[CRASH] Could not pre-create crash diagnostics archive dir "
-                "%s%s — falling back to the config root (%s)",
+                "[CRASH] Could not pre-create crash diagnostics archive dir %s%s, falling back to the config root (%s)",
                 archive_dir,
                 _suffix,
                 resolved,
@@ -268,7 +267,7 @@ def set_crash_handler_config_dir(config_dir: Path) -> None:
         # in tests) can write a new crash record.
         _ch._crash_written = False
         # Pre-compute the header once at config-dir cache time so the
-        # VEH callback doesn't have to allocate.  Best-effort — a
+        # VEH callback doesn't have to allocate.  Best-effort, a
         # failure here leaves ``_crash_header_bytes`` empty and the VEH
         # callback falls back to writing only the crash body (preserving
         # the pre-fix behavior).
@@ -276,7 +275,7 @@ def set_crash_handler_config_dir(config_dir: Path) -> None:
             _ch._crash_header_bytes = _compute_crash_header()
         # refresh the cached ASR backend at config-dir cache
         # time so the excepthook can read it without disk I/O on the
-        # crashing thread. Best-effort — a refresh failure leaves the
+        # crashing thread. Best-effort, a refresh failure leaves the
         # cache untouched (the excepthook falls back to ``"<unknown>"``).
         with contextlib.suppress(Exception):
             from voice_typer.server.crash_handler._python_excepthook import (
@@ -287,7 +286,7 @@ def set_crash_handler_config_dir(config_dir: Path) -> None:
         # Install the in-memory log ring buffer (MemoryHandler) so the
         # VEH callback can flush the most-recent ~200 log records to
         # ``<config_dir>/logs/voice-typer-crash-buffer.log`` (O1) after
-        # writing the crash-diagnostics body. Best-effort — a failure
+        # writing the crash-diagnostics body. Best-effort, a failure
         # here leaves the buffer uninstalled (the VEH callback's
         # ``flush_memory_handler`` call is a no-op when the buffer is
         # missing).
@@ -359,7 +358,7 @@ def _archive_crash_file(file_path: Path, config_dir: Path) -> Path | None:
     try:
         file_path.rename(target)
     except OSError as exc:
-        # Cross-device rename or permission failure — best-effort.
+        # Cross-device rename or permission failure, best-effort.
         log.debug("[CRASH] Failed to archive %s: %s", file_path.name, exc)
         return None
     log.info("[CRASH] Archived diagnostics file: %s -> %s", file_path.name, target.name)
@@ -372,7 +371,7 @@ def _mark_file_reported(file_path: Path) -> None:
 
     VEH-written crash files land DIRECTLY in the archive subdir
         (no longer in the config_dir root). ``report_pending_crash`` scans
-        the archive subdir to surface them to the user — but without a
+        the archive subdir to surface them to the user, but without a
         marker, the same file would be re-surfaced on every startup.
 
         The marker is an empty file named ``<filename>.reported`` sitting
@@ -380,7 +379,7 @@ def _mark_file_reported(file_path: Path) -> None:
         causes the file to be skipped (already-reported).
 
         Best-effort: a marker-creation failure (e.g. read-only archive
-        dir) is logged at debug and swallowed — the worst case is the
+        dir) is logged at debug and swallowed, the worst case is the
         crash file gets re-reported on the next startup, which is annoying
         but not unsafe.
     """
@@ -403,7 +402,7 @@ def _enforce_archive_retention(archive_dir: Path) -> None:
     Files are sorted by mtime (newest first); older files beyond the
     retention cap are deleted.  All errors are suppressed (best-effort).
 
-    Only ``*.txt`` files are counted toward the cap — ``.reported``
+    Only ``*.txt`` files are counted toward the cap, ``.reported``
     sidecar markers (which have newer mtimes than their corresponding
     .txt files, since the sidecar is created by ``_mark_file_reported``
     AFTER the .txt is written) are NOT counted. Without this exclusion,
@@ -426,7 +425,7 @@ def _enforce_archive_retention(archive_dir: Path) -> None:
             stale.unlink()
         # Also delete the corresponding ``.reported`` sidecar marker
         # (if any) so we don't leave an orphan marker pointing at a
-        # deleted .txt file. Best-effort — a missing sidecar is fine.
+        # deleted .txt file. Best-effort, a missing sidecar is fine.
         sidecar = stale.with_name(stale.name + _REPORTED_SIDECAR_SUFFIX)
         with contextlib.suppress(Exception):
             sidecar.unlink()
@@ -442,7 +441,7 @@ def _sweep_stale_diagnostics(config_dir: Path) -> None:
     version (pre-archiving) or by a failed move.
 
     The sweep ALSO walks the archive subdir (``crash_diagnostics_archive/``)
-    because VEH now writes crash files directly there — a sweep that
+    because VEH now writes crash files directly there, a sweep that
     only walked the root would miss every post-fix crash file and the
     archive would grow unbounded across crashes. The 30-day mtime
     cutoff + keep-last-``_MAX_ACTIVE_FILES`` cap are applied uniformly
@@ -462,7 +461,7 @@ def _sweep_stale_diagnostics(config_dir: Path) -> None:
             return
         files = list(diagnostics_dir.glob("crash_diagnostics.*.txt"))
         files.extend(diagnostics_dir.glob("python_crash.*.txt"))
-        # Also walk the archive subdir — VEH writes crash files DIRECTLY
+        # Also walk the archive subdir. VEH writes crash files DIRECTLY
         # there, so a root-only sweep would miss every post-fix crash
         # file and the archive would grow unbounded across crashes.
         # The guard handles the first-run case where the archive subdir
@@ -552,16 +551,16 @@ def report_pending_crash(config_dir: Path) -> str | None:
         # notification.
         crash_files = sorted(diagnostics_dir.glob("crash_diagnostics.*.txt"))
         python_crash_files = sorted(diagnostics_dir.glob("python_crash.*.txt"))
-        # also scan the archive subdir — VEH now writes directly
+        # also scan the archive subdir. VEH now writes directly
         # there, so legacy root-scanning alone misses all new crashes.
         archive_dir = diagnostics_dir / _CRASH_DIAGNOSTICS_DIR
         _migrate_legacy_archive_dir(diagnostics_dir)
         if archive_dir.is_dir():
             # Sort archive files FIRST (root files have priority for the
-            # archive move — if a root file and an archive file have the
+            # archive move, if a root file and an archive file have the
             # same PID-derived name, the archive move will disambiguate
             # via a millisecond timestamp suffix in ``_archive_crash_file``).
-            # Skip files with a ``.reported`` sidecar marker — they were
+            # Skip files with a ``.reported`` sidecar marker, they were
             # already surfaced on a previous startup.
             archived_crash_files = [
                 f for f in sorted(archive_dir.glob("crash_diagnostics.*.txt")) if not _is_file_reported(f)
@@ -588,7 +587,7 @@ def report_pending_crash(config_dir: Path) -> str | None:
         """Surface one ``crash_diagnostics`` file's content + archive it.
 
         if ``already_archived`` is True (file came from the
-                archive subdir), don't try to archive it again — just create
+                archive subdir), don't try to archive it again, just create
                 a ``.reported`` sidecar so the next scan skips it. If False
                 (file came from the config_dir root), archive it (existing
                 behavior) and create the sidecar next to the moved file.
@@ -596,8 +595,8 @@ def report_pending_crash(config_dir: Path) -> str | None:
         try:
             # HU-9: read through ``_secure_read_text`` (POSIX
             # ``O_NOFOLLOW``, Windows reparse-point check, bounded
-            # read) — same helper the recovery-file load path
-            # (``crash_recovery.py``) uses — so a symlink planted at a
+            # read), same helper the recovery-file load path
+            # (``crash_recovery.py``) uses, so a symlink planted at a
             # crash-file path can never exfiltrate an arbitrary file's
             # content into the log. Imported lazily (function scope) to
             # avoid a module-level circular import.
@@ -608,21 +607,21 @@ def report_pending_crash(config_dir: Path) -> str | None:
             except (OSError, ValueError) as secure_exc:
                 # Secure read refused (symlink / reparse point / inode
                 # changed mid-read / oversized file). Fail closed:
-                # treat as an empty file — unverifiable content must
+                # treat as an empty file, unverifiable content must
                 # never be surfaced, logged, or summarized.
                 log.warning(
-                    "[CRASH] Refusing to read diagnostics file %s (%s) — treating as empty (HU-9 symlink guard)",
+                    "[CRASH] Refusing to read diagnostics file %s (%s), treating as empty (HU-9 symlink guard)",
                     crash_file.name,
                     secure_exc,
                 )
                 return
             if not content:
                 log.debug(
-                    "[CRASH] Found empty diagnostics file %s — cleaning up",
+                    "[CRASH] Found empty diagnostics file %s, cleaning up",
                     crash_file.name,
                 )
                 return
-            # log the crash header at WARNING (1 line — visible
+            # log the crash header at WARNING (1 line, visible
             # in the WARN-filtered production log so operators see that
             # a previous session crashed), then log the full crash
             # content at DEBUG (visible only when VOICE_TYPER_DEBUG=1).
@@ -652,7 +651,7 @@ def report_pending_crash(config_dir: Path) -> str | None:
             # (unchanged).
             #
             # Each message now includes possible causes: low memory
-            # (RAM) and low disk space — the two most common triggers
+            # (RAM) and low disk space, the two most common triggers
             # for silent heap corruption / access violation crashes.
             matched_summary: str | None = None
             for _code, (_name_bytes, _short) in _CODE_TO_INFO.items():
@@ -724,7 +723,7 @@ def report_pending_crash(config_dir: Path) -> str | None:
     def _summarize_python_crash(py_crash_file: Path, *, already_archived: bool) -> None:
         try:
             # HU-9: secure read (O_NOFOLLOW / reparse-point check /
-            # bounded) — a symlink planted at a python_crash path must
+            # bounded), a symlink planted at a python_crash path must
             # not exfiltrate an arbitrary file's content into the log.
             # Fail closed: on refusal, treat as an empty file.
             from voice_typer.server.config import _secure_read_text
@@ -733,14 +732,14 @@ def report_pending_crash(config_dir: Path) -> str | None:
                 content = _secure_read_text(py_crash_file).strip()
             except (OSError, ValueError) as secure_exc:
                 log.warning(
-                    "[CRASH] Refusing to read python_crash file %s (%s) — treating as empty (HU-9 symlink guard)",
+                    "[CRASH] Refusing to read python_crash file %s (%s), treating as empty (HU-9 symlink guard)",
                     py_crash_file.name,
                     secure_exc,
                 )
                 return
             if not content:
                 log.debug(
-                    "[CRASH] Found empty python_crash file %s — cleaning up",
+                    "[CRASH] Found empty python_crash file %s, cleaning up",
                     py_crash_file.name,
                 )
                 return
@@ -817,7 +816,7 @@ def report_pending_crash(config_dir: Path) -> str | None:
     # only creates a ``.reported`` sidecar (it does NOT call
     # ``_archive_crash_file``, which is where the retention cap was
     # previously enforced). Without this call the archive subdir would
-    # grow unbounded — every crash adds a new ``crash_diagnostics.<PID>.txt``
+    # grow unbounded, every crash adds a new ``crash_diagnostics.<PID>.txt``
     # and nothing deletes the old ones. The ``if archive_dir.exists():``
     # guard handles the first-run case where the subdir doesn't exist
     # yet (no crashes recorded).
@@ -833,7 +832,7 @@ def report_pending_crash(config_dir: Path) -> str | None:
     # diagnostics bundle knows how to capture a full diagnostic
     # archive for a bug report. CRASH-NOTIFY: this summary (with the
     # developer CLI hint) is consumed by ``startup_sequence`` for
-    # logging only — it is NEVER embedded in the user-facing
+    # logging only, it is NEVER embedded in the user-facing
     # notification (which carries calm, non-technical copy and points
     # to Settings → Privacy → Diagnostics). Appended to the summary
     # (NOT the per-file ``summary_parts`` list) so the hint appears
@@ -846,10 +845,10 @@ def report_pending_crash(config_dir: Path) -> str | None:
     # reduced (exc_value-less) summary only ships in the bundle when
     # ``VOICE_TYPER_DEBUG=1``. Pre-fix the summary was logged at INFO,
     # which meant even the reduced (exc_type + thread + timestamp only)
-    # summary landed in the default production log — visible to any
+    # summary landed in the default production log, visible to any
     # operator reading voice-typer.log. The summary is returned to
     # the caller for logging only (the user notification carries calm,
-    # non-technical copy — see ``startup_sequence``), so the demotion
+    # non-technical copy: see ``startup_sequence``), so the demotion
     # keeps the operator-visible signal in the rotating log without
     # leaking PII-shaped text into the default log level.
     log.debug("[CRASH] Crash summary (operator log only, not user-facing):\n%s", summary)

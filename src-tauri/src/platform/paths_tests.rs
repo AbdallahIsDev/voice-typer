@@ -8,7 +8,7 @@
     clippy::cast_possible_truncation
 )]
 
-//! Sibling tests for `platform::paths` (per C-TEST-5 — sibling test
+//! Sibling tests for `platform::paths` (per C-TEST-5, sibling test
 //! file, no inline tests in production source).
 //!
 //! Covers three behaviors of `config_dir` / `config_dir_from_env`:
@@ -29,7 +29,7 @@ use super::*;
 // ── validate_path_safety ───────────────────────────────────────────
 
 /// A `custom` path that is a descendant of `home` is accepted.
-/// This is the happy path — the user sets
+/// This is the happy path, the user sets
 /// `VOICE_TYPER_CONFIG_DIR=~/voice-typer-custom` and we accept it.
 #[test]
 fn test_validate_path_safety_accepts_descendant() {
@@ -56,7 +56,7 @@ fn test_validate_path_safety_accepts_descendant() {
 }
 
 /// A `custom` path that EQUALS `home` is accepted (the user wants
-/// their config dir to BE their home — unusual but legitimate).
+/// their config dir to BE their home, unusual but legitimate).
 #[test]
 fn test_validate_path_safety_accepts_equal() {
     use std::fs;
@@ -79,7 +79,7 @@ fn test_validate_path_safety_accepts_equal() {
 }
 
 /// A `custom` path that ESCAPES `home` is rejected. This is the
-/// SEC-005 path-traversal guard — without it, a user could set
+/// SEC-005 path-traversal guard: without it, a user could set
 /// `VOICE_TYPER_CONFIG_DIR=/etc` and the Tauri host would happily
 /// write log/PID files there.
 #[test]
@@ -151,7 +151,7 @@ fn test_validate_path_safety_rejects_prefix_match_bug() {
 }
 
 /// A non-existent `custom` path with an EXISTING parent inside
-/// `home` is accepted — the parent-fallback in `validate_path_safety`
+/// `home` is accepted: the parent-fallback in `validate_path_safety`
 /// canonicalizes the parent and re-appends the leaf name. This
 /// mirrors Python's `Path.resolve(strict=False)` which doesn't require
 /// existence.
@@ -179,7 +179,7 @@ fn test_validate_path_safety_accepts_nonexistent_custom_with_existing_parent() {
 }
 
 /// A non-existent `home` causes `validate_path_safety` to reject
-/// (return false) — `canonicalize(home)` fails. This is the correct
+/// (return false): `canonicalize(home)` fails. This is the correct
 /// behavior: if home doesn't exist, we have a bigger problem and
 /// rejecting is safer than guessing.
 #[test]
@@ -199,7 +199,7 @@ fn test_validate_path_safety_rejects_nonexistent_home() {
 /// missing-HOME → CWD fallback (`./voice-typer`) rather than building
 /// `PathBuf::from("").join(".local").join("share").join("voice-typer")`
 /// which would produce a relative `.local/share/voice-typer` path
-/// (CWD-relative but without the `./` prefix — a subtle inconsistency).
+/// (CWD-relative but without the `./` prefix, a subtle inconsistency).
 #[cfg(target_os = "linux")]
 #[test]
 fn test_config_dir_empty_home_treated_as_unset_linux() {
@@ -278,7 +278,7 @@ fn test_config_dir_voice_typer_config_dir_traversal_rejected() {
         None,
         Some(outside.to_str().unwrap()),
     );
-    // The override should be REJECTED — falls through to the platform
+    // The override should be REJECTED, falls through to the platform
     // default. On Linux that's `home/.local/share/voice-typer`; on
     // macOS `home/Library/Application Support/voice-typer`; on Windows
     // (where home is USERPROFILE but config_dir_from_env's Windows
@@ -311,7 +311,7 @@ fn test_config_dir_voice_typer_config_dir_traversal_rejected() {
 }
 
 /// When `VOICE_TYPER_CONFIG_DIR` is set but `HOME` is None (or
-/// empty), validation can't proceed — the function logs a warning
+/// empty), validation can't proceed: the function logs a warning
 /// and falls through to defaults. This is more graceful than the
 /// Python side's behavior (where `Path.home()` raises RuntimeError
 /// if home is unset, crashing the host).
@@ -408,7 +408,7 @@ fn test_config_dir_windows() {
 #[test]
 fn test_config_dir_linux_missing_home_falls_back_to_cwd() {
     // when HOME is missing AND XDG_DATA_HOME is unset,
-    // the function must NOT panic — it returns `./voice-typer`.
+    // the function must NOT panic, it returns `./voice-typer`.
     let p = config_dir_from_env(None, None, None, None);
     assert_eq!(
         p,
@@ -434,7 +434,7 @@ fn test_config_dir_linux_missing_home_with_empty_xdg_falls_back_to_cwd() {
 #[test]
 fn test_config_dir_macos_missing_home_falls_back_to_cwd() {
     //when HOME is missing on macOS (system LaunchDaemon),
-    // the function must NOT panic — it returns `./Library/Application
+    // the function must NOT panic, it returns `./Library/Application
     // Support/voice-typer` (CWD-relative).
     let p = config_dir_from_env(None, None, None, None);
     assert_eq!(
@@ -448,7 +448,7 @@ fn test_config_dir_macos_missing_home_falls_back_to_cwd() {
 #[test]
 fn test_config_dir_windows_missing_appdata_falls_back_to_cwd() {
     // when APPDATA is missing on Windows (service account),
-    // the function must NOT panic — it returns `./voice-typer`.
+    // the function must NOT panic, it returns `./voice-typer`.
     let p = config_dir_from_env(None, None, None, None);
     assert_eq!(
         p,
@@ -464,7 +464,7 @@ fn test_config_dir_windows_missing_appdata_falls_back_to_cwd() {
 // the host and Python sidecar agree on the config dir for users
 // upgrading from a legacy install. Without the legacy check,
 // Tauri writes log/PID files to the platform default while Python
-// reads config.json from ~/.voice-typer — split-brain state.
+// reads config.json from ~/.voice-typer: split-brain state.
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 #[test]
@@ -494,7 +494,7 @@ fn test_config_dir_legacy_voice_typer_wins_over_platform_default() {
 #[test]
 fn test_config_dir_voice_typer_config_dir_env_override() {
     // VOICE_TYPER_CONFIG_DIR env var wins over legacy and
-    // platform default — but ONLY when the custom path is
+    // platform default: but ONLY when the custom path is
     // safely within the user's home directory (SEC-005 path-
     // traversal guard). We create a real tmpdir as `home` and
     // a real subdir as `custom` so `validate_path_safety`'s
@@ -526,7 +526,7 @@ fn test_config_dir_voice_typer_config_dir_env_override() {
 
 #[test]
 fn test_config_dir_env_override_beats_legacy_check() {
-    // env var wins over legacy ~/.voice-typer check — but ONLY
+    // env var wins over legacy ~/.voice-typer check, but ONLY
     // when the custom path is safely within the user's home
     // directory (SEC-005 path-traversal guard). We create a
     // real tmpdir as `home` (with a `~/.voice-typer` subdir to
@@ -585,7 +585,7 @@ fn test_config_dir_empty_env_override_falls_through() {
     );
     #[cfg(target_os = "windows")]
     {
-        // Windows ignores `home` — the config dir is APPDATA-based
+        // Windows ignores `home`: the config dir is APPDATA-based
         // (or the CWD-relative `./voice-typer` fallback when
         // APPDATA is missing, as here). So the empty override falls
         // through to the documented CWD fallback, NOT

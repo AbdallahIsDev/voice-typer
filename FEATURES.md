@@ -1,4 +1,4 @@
-# Voice Typer — Features
+# Voice Typer: Features
 
 Last updated: 2026-06-22
 
@@ -22,7 +22,7 @@ Last updated: 2026-06-22
 | **Handy** | 23k | Rust + TypeScript | Tauri | Win/Mac/Linux | Whisper (whisper-rs), Parakeet V3 (transcribe-rs) |
 | **Input0** | 268 | Rust + TypeScript | Tauri | macOS | Whisper, SenseVoice, Paraformer, Moonshine, FireRedASR, Zipformer CTC (6 engines, 12 models) |
 | **Freestyle** | 231 | TypeScript + C | Electron | Win/Mac/Linux | OpenAI, Groq, Anthropic, Google, Deepgram, ElevenLabs (cloud APIs) + local Whisper, Parakeet |
-| **Speed of Sound** | 147 | Kotlin | Java-GI/GTK | Linux | Sherpa ONNX — Whisper, Parakeet, Canary + more |
+| **Speed of Sound** | 147 | Kotlin | Java-GI/GTK | Linux | Sherpa ONNX: Whisper, Parakeet, Canary + more |
 | **VOICE2TYPE** | 39 | Rust | Native Win32 | Windows | SiliconFlow/Groq cloud + local Whisper |
 | **thinkur** | 23 | Swift | Native Xcode | macOS | Apple Speech Framework |
 | **MoFA-IME** | 4 | Rust | Native Rust | macOS | Whisper + Qwen GGUF (llama.cpp) |
@@ -30,7 +30,7 @@ Last updated: 2026-06-22
 
 ---
 
-## Architecture — Electron runtime (current default)
+## Architecture: Electron runtime (current default)
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -110,7 +110,7 @@ Last updated: 2026-06-22
 │  · Shared React renderer via tauri-bridge.ts            │
 └──────────────────────┬──────────────────────────────────┘
                        │ WebSocket
-                       │ ws://127.0.0.1:<port> — the sidecar binds an
+                       │ ws://127.0.0.1:<port> The sidecar binds an
                        │ ephemeral loopback port and prints
                        │ {"event":"server_started"}
 ┌──────────────────────▼──────────────────────────────────┐
@@ -158,15 +158,15 @@ the dual-runtime overview and developer environment variables.
 | # | Feature | Status | Notes |
 |---|---|---|---|---|
 | 16 | faster-whisper (tiny.en, small.en, medium.en) | ✅ | ctranslate2 backend, GPU→CPU 4-level automatic fallback |
-| 17 | Qwen3-ASR (0.6B / 1.7B) | ✅ | ONNX Runtime backend only (pre-exported `andrewleech/qwen3-asr-*-onnx` models, local dir — PLAN_ONNX_INTEGRATION §4.3 C-2). The torch `qwen-asr` path was removed 2026-08-15 (Phase 1d) — the project is torch-free. |
+| 17 | Qwen3-ASR (0.6B / 1.7B) | ✅ | ONNX Runtime backend only (pre-exported `andrewleech/qwen3-asr-*-onnx` models, local dir: PLAN_ONNX_INTEGRATION §4.3 C-2). The torch `qwen-asr` path was removed 2026-08-15 (Phase 1d), the project is torch-free. |
 | 18 | NVIDIA Parakeet TDT v3 | ✅ | HuggingFace Transformers, auto-download weights |
-| 19 | Cloud ASR — OpenAI Whisper API | ✅ | `CloudEngine` interface, tested |
-| 20 | Cloud ASR — Groq Whisper API | ✅ | `CloudEngine` interface, tested |
-| 21 | Cloud ASR — Deepgram API (nova-2) | ✅ | `CloudEngine` interface, tested |
+| 19 | Cloud ASR: OpenAI Whisper API | ✅ | `CloudEngine` interface, tested |
+| 20 | Cloud ASR: Groq Whisper API | ✅ | `CloudEngine` interface, tested |
+| 21 | Cloud ASR: Deepgram API (nova-2) | ✅ | `CloudEngine` interface, tested |
 | 22 | GPU→CPU automatic fallback chain | ✅ | 4 levels: CUDA→CUDA (fallback)→CPU (float16)→CPU (float32) |
 | 23 | ASR backend registry (AsrBackendRegistry) | ✅ | Single source of truth for all engine instances |
 | 24 | Model download management | ✅ | Real HuggingFace downloads via `huggingface_hub.snapshot_download` with retry + pause/resume; progress events stream to the UI (asserted by e2e tests, `tests/test_download_progress_events.py`) |
-| 25 | Model benchmark | ❌ | Removed — the Models page has no benchmark UI (the simulated-benchmark button and `BenchmarkSection` were deleted; only unused i18n keys remain) |
+| 25 | Model benchmark | ❌ | Removed: the Models page has no benchmark UI (the simulated-benchmark button and `BenchmarkSection` were deleted; only unused i18n keys remain) |
 
 ### Post-Processing Pipeline
 
@@ -235,7 +235,7 @@ Pipeline order: Transcribe → Text Cleanup → Vocabulary → Templates → LLM
 | # | Feature | Status | Notes |
 |---|---|---|---|---|
 | 61 | Launch at login | ✅ | Windows Registry `HKCU\Run` |
-| 62 | Fast startup (cache prewarming) | ✅ | Worker warm-imports the ONNX runtime stack at boot (no torch/transformers — torch was removed 2026-08-15) |
+| 62 | Fast startup (cache prewarming) | ✅ | Worker warm-imports the ONNX runtime stack at boot (no torch/transformers, torch was removed 2026-08-15) |
 | 63 | Desktop shortcut creation on first run | ✅ | Creates Voice Typer.lnk |
 | 64 | Build-first launch strategy | ✅ | `autostart_launcher.py` builds then launches Electron; port-availability check for idempotency |
 
@@ -301,9 +301,9 @@ Pipeline order: Transcribe → Text Cleanup → Vocabulary → Templates → LLM
 | 76 | Python backend bundled as pip package | ✅ | setuptools, installed via pip |
 | 77 | CI build pipeline (GitHub Actions) | ✅ | `.github/workflows/build.yml` |
 | 78 | Diagnostics scripts | ✅ | F2 hotkey test, CUDA fallback, runtime proof |
-| 79 | Test suite (700+ pytest files, 250+ vitest files; 2800+ Python tests) | ✅ | All major subsystems covered (counts grow over time — see `pytest --collect-only` and `npm run test` for the current totals) |
+| 79 | Test suite (700+ pytest files, 250+ vitest files; 2800+ Python tests) | ✅ | All major subsystems covered (counts grow over time, see `pytest --collect-only` and `npm run test` for the current totals) |
 | 80 | Ruff linting + mypy type checking | ✅ | Configured in pyproject.toml |
-| 81 | IPC command allowlist | ✅ | 73 allowed commands whitelisted in the Electron main process `ALLOWED_COMMANDS` set (`voice_typer/client/src/main/allowed-commands.ts`); the Python `_COMMAND_REGISTRY` registers 75 commands total. Two of those are intentionally absent from the renderer allowlist — `tray_click` (Rust-only, routed via `dispatch_inner` from the tray handler) and `shutdown` (cooperative shutdown is sent via `shutdown_sidecar` directly, not via the generic dispatch path) — so the renderer-callable count is 73 (== the renderer allowlist count). The +2 host-only delta is asserted by `_HOST_ONLY_COMMANDS` in `tests/test_security_doc_command_count.py`. CR-18 reconciliation 2026-07-19; re-verified 2026-07-24 (S4-CR-18 follow-up: 78/59 stale counts across CHANGELOG/FEATURES/SECURITY/CONTRIBUTING reconciled to 64/62/66; +2 again 2026-08-10: `reset_macos_accessibility` + `reset_linux_permissions`, now 66/64/68; +1 2026-08-10: `check_accessibility` re-added for the Settings → Troubleshooting stale-grant reset (finding #919 part b), now 67/65/69; +1 2026-08-13: `transcribe_offline` added by the runtime-pack split (master plan §7.4 — slim core → worker offline-transcription request), now 68/66/70; −3 2026-08-14: `get_prewarm_status` / `run_prewarm` / `open_prewarm_log` retired as prewarm became a worker startup phase (master plan §6.2 P-1), now 65/63/67; +2 2026-08-14: `get_prewarm_status` / `open_prewarm_log` restored for the Settings → About Cache Status card (plan §6.3 addendum 2026-08-14 — restored verbatim from 5a319872; `run_prewarm` stays retired per §6.2 P-1), now 67/65/69; +1 2026-08-14: `check_offline_pack_update` added by the auto-update feature (docs/auto-update-feature.md — runtime-pack manifest check + consent-gated background download), now 68/66/70; +1 2026-08-14: `run_prewarm` restored (plan §6.3 addendum 2nd half — re-implemented to re-run the worker's warm phase in-process via `prewarm.status.run_prewarm_now`, no deleted-subprocess spawn), now 69/67/71; +2 2026-08-16: `get_correction_usage` + `test_vocabulary_correction` added by the vocabulary usage-tracking + live-correction-test feature (ADR-0020 §16 addendum 2026-08-16), now 71/69/73; +1 2026-08: `microphone_test_read_audio` added by the mic-test file-reference transport fix (chunked WAV delivery under the 1 MiB IPC frame cap), now 72/70/74; +1 2026-09-08: `get_download_queue` added for the Models download-queue mount hydration (read-only snapshot), now 73/71/75). Count is enforced by `tests/test_security_doc_command_count.py` + `tests/test_rust_allowlist_parity.py` + `tests/test_electron_ipc_and_build.py`. |
+| 81 | IPC command allowlist | ✅ | 73 allowed commands whitelisted in the Electron main process `ALLOWED_COMMANDS` set (`voice_typer/client/src/main/allowed-commands.ts`); the Python `_COMMAND_REGISTRY` registers 75 commands total. Two of those are intentionally absent from the renderer allowlist, `tray_click` (Rust-only, routed via `dispatch_inner` from the tray handler) and `shutdown` (cooperative shutdown is sent via `shutdown_sidecar` directly, not via the generic dispatch path), so the renderer-callable count is 73 (== the renderer allowlist count). The +2 host-only delta is asserted by `_HOST_ONLY_COMMANDS` in `tests/test_security_doc_command_count.py`. CR-18 reconciliation 2026-07-19; re-verified 2026-07-24 (S4-CR-18 follow-up: 78/59 stale counts across CHANGELOG/FEATURES/SECURITY/CONTRIBUTING reconciled to 64/62/66; +2 again 2026-08-10: `reset_macos_accessibility` + `reset_linux_permissions`, now 66/64/68; +1 2026-08-10: `check_accessibility` re-added for the Settings → Troubleshooting stale-grant reset (finding #919 part b), now 67/65/69; +1 2026-08-13: `transcribe_offline` added by the runtime-pack split (master plan §7.4, slim core → worker offline-transcription request), now 68/66/70; −3 2026-08-14: `get_prewarm_status` / `run_prewarm` / `open_prewarm_log` retired as prewarm became a worker startup phase (master plan §6.2 P-1), now 65/63/67; +2 2026-08-14: `get_prewarm_status` / `open_prewarm_log` restored for the Settings → About Cache Status card (plan §6.3 addendum 2026-08-14, restored verbatim from 5a319872; `run_prewarm` stays retired per §6.2 P-1), now 67/65/69; +1 2026-08-14: `check_offline_pack_update` added by the auto-update feature (docs/auto-update-feature.md, runtime-pack manifest check + consent-gated background download), now 68/66/70; +1 2026-08-14: `run_prewarm` restored (plan §6.3 addendum 2nd half, re-implemented to re-run the worker's warm phase in-process via `prewarm.status.run_prewarm_now`, no deleted-subprocess spawn), now 69/67/71; +2 2026-08-16: `get_correction_usage` + `test_vocabulary_correction` added by the vocabulary usage-tracking + live-correction-test feature (ADR-0020 §16 addendum 2026-08-16), now 71/69/73; +1 2026-08: `microphone_test_read_audio` added by the mic-test file-reference transport fix (chunked WAV delivery under the 1 MiB IPC frame cap), now 72/70/74; +1 2026-09-08: `get_download_queue` added for the Models download-queue mount hydration (read-only snapshot), now 73/71/75). Count is enforced by `tests/test_security_doc_command_count.py` + `tests/test_rust_allowlist_parity.py` + `tests/test_electron_ipc_and_build.py`. |
 | 82 | IPC rate limiter | ✅ | Sliding window: 60 msg/s sustained, 200 burst |
 | 83 | IPC auth token | ✅ | Per-launch random 256-bit token exchanged on TCP connect |
 | 84 | Config secret redaction | ✅ | API keys replaced with `<redacted>` sentinel in IPC responses |
@@ -319,7 +319,7 @@ Pipeline order: Transcribe → Text Cleanup → Vocabulary → Templates → LLM
 
 ---
 
-## Features Status — gaps that remain
+## Features Status: gaps that remain
 
 | Feature | Found In | Our Status |
 |---|---|---|
@@ -333,10 +333,10 @@ Pipeline order: Transcribe → Text Cleanup → Vocabulary → Templates → LLM
 | CLI flags for remote control | Handy | ❌ None |
 | Onboarding wizard UI | — | ✅ Full 6-step React wizard implemented (Welcome → Microphone → Permissions → Hotkey → Model → Done) |
 | Model download (real implementation) | — | ✅ Real HuggingFace download (`snapshot_download` + retry + progress events) |
-| Model benchmark (real implementation) | — | ❌ Removed — no benchmark UI on the Models page |
+| Model benchmark (real implementation) | — | ❌ Removed: no benchmark UI on the Models page |
 | Microphone test (real audio capture) | — | ✅ Real capture via `level_monitor.start_test_recording()` which opens a live `sounddevice.InputStream` and returns recorded audio |
 
-### Distribution — gaps that remain
+### Distribution: gaps that remain
 
 | Method | Projects Using | Our Status |
 |---|---|---|
@@ -353,7 +353,7 @@ Pipeline order: Transcribe → Text Cleanup → Vocabulary → Templates → LLM
 
 | Feature | Notes |
 |---|---|
-| Streaming transcription (chunk-by-chunk during recording) | None of the competitors mention this — they all wait until recording stops |
+| Streaming transcription (chunk-by-chunk during recording) | None of the competitors mention this. They all wait until recording stops |
 | Advanced text cleanup pipeline (9 steps) | Most competitors have basic cleanup or rely on LLM polish |
 | Hallucination rejection | Detects Whisper hallucinations on near-silence audio (`hallucination.py` shared by both engines) |
 | Mic disconnect detection | Variance-based detection of dead mic |

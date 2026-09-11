@@ -5,7 +5,7 @@
 //! toast's AppUserModelId. If that AUMID is not registered with Windows, the
 //! toast is attributed to whatever process identity the shell can resolve —
 //! in dev that is Windows PowerShell (the terminal that launched
-//! `cargo tauri dev`) — and the toast plays no notification sound.
+//! `cargo tauri dev`): and the toast plays no notification sound.
 //!
 //! Registering the AUMID per-user under
 //! `HKCU\Software\Classes\AppUserModelId\<identifier>` with `DisplayName`

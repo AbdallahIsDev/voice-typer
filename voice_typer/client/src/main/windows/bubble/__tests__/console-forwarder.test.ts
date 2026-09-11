@@ -114,7 +114,7 @@ describe("attachConsoleForwarder", () => {
 	});
 });
 
-describe("attachConsoleForwarder — onError hook (ERROR-level sink)", () => {
+describe("attachConsoleForwarder, onError hook (ERROR-level sink)", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 	});

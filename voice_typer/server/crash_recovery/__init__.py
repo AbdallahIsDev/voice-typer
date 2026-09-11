@@ -22,9 +22,9 @@ split by concern, bodies moved verbatim, behavior preserved):
 
 Patch-target contract: this ``__init__`` keeps every name the
 pre-split module bound (imports, constants, helpers) so that
-``voice_typer.server.crash_recovery.X`` — including monkeypatch
+``voice_typer.server.crash_recovery.X``: including monkeypatch
 targets like ``...crash_recovery._secure_atomic_write`` and
-``...crash_recovery.os.chmod`` — keeps resolving exactly as before;
+``...crash_recovery.os.chmod``: keeps resolving exactly as before;
 the leaf modules resolve shared names through this facade (call-time
 attribute read for ``_secure_atomic_write``) so facade rebindings stay
 visible everywhere.
@@ -87,7 +87,7 @@ _SAVE_QUEUE_MAXSIZE = 32
 # with the pre-split namespace (e.g. tests patch
 # ``voice_typer.server.crash_recovery.os.chmod``). The redundant
 # ``import x as x`` aliases above mark every facade-parity binding as
-# an intentional re-export for the linter — no behavior in these names,
+# an intentional re-export for the linter, no behavior in these names,
 # they exist so pre-split monkeypatch targets keep resolving.
 
 atexit.register(_atexit_flush_all)

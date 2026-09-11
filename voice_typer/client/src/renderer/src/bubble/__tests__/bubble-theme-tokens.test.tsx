@@ -20,7 +20,7 @@
  *
  * If a future edit re-introduces a `zinc-` / `bg-white dark:bg-zinc-…`
  * utility anywhere in the bubble package, the test fails LOUDLY at the
- * className-source level (not at the rendered-DOM level — Tailwind purges
+ * className-source level (not at the rendered-DOM level, Tailwind purges
  * unused classes, so a DOM-level scan would silently miss a regression in
  * a code path that isn't exercised by the test renderer).
  */
@@ -29,7 +29,7 @@ import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { Bubble } from "@/Bubble";
 
-// The shared button className constant is the most important guard — it
+// The shared button className constant is the most important guard, it
 // is imported by `BubbleMicButton`, `BubbleStopButton`, and
 // `BubbleDismissButton`, so a single regression here propagates to all
 // three affordances.
@@ -37,7 +37,7 @@ import { BUBBLE_BUTTON_CLASS, type BubbleMode } from "../constants";
 
 // Stub window.bubble so <Bubble /> mounts without crashing. The renderer
 // casts `window.bubble` to `BubbleWindowBubble | undefined` and calls
-// `?.onShow` / `?.onHide` / `?.onSetState` / `?.onConfig` — we only need
+// `?.onShow` / `?.onHide` / `?.onSetState` / `?.onConfig`, we only need
 // the listeners registered so the component mounts; we don't drive them.
 function makeMockBubble() {
 	const unsub = () => {};
@@ -80,7 +80,7 @@ describe("bubble theme-token parity (no raw zinc/white palette)", () => {
 		(window as unknown as Record<string, unknown>).bubble = makeMockBubble();
 		try {
 			render(<Bubble />);
-			// The pill is the inner `<div>` with `rounded-full` — query it
+			// The pill is the inner `<div>` with `rounded-full`, query it
 			// by its border/bg utility classes (which are now semantic).
 			// The border carries the muted /7 opacity modifier, so the
 			// slash must be escaped in the CSS selector.

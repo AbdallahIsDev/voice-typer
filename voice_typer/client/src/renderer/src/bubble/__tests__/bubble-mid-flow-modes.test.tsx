@@ -8,7 +8,7 @@
  * `transcribing/idle/recording/error`. When the user pressed the
  * dictation hotkey while a previous transcription was in flight, the
  * backend silently ignored the press and the bubble stayed in
- * "Transcribing…" mode — the user got zero feedback that their keypress
+ * "Transcribing…" mode, the user got zero feedback that their keypress
  * was registered-then-rejected. ESC cancel was similarly invisible:
  * the bubble kept showing the previous mode during the ~200ms cancel
  * window. Permission revocation and paste failure fell back to the
@@ -21,7 +21,7 @@
  *
  * These tests verify each new mode:
  *   - is reachable via `onSetState` (the sandboxed bubble renderer's
- *     only state-push channel — the backend's `toggle_blocked` /
+ *     only state-push channel, the backend's `toggle_blocked` /
  *     `microphone_permission_revoked` events must be bridged through
  *     `bubble:set-state`, owned by ).
  *   - renders a distinctive label (so the user gets visual feedback).
@@ -117,7 +117,7 @@ describe("bubble mid-flow modes (blocked / cancelling / permission_revoked / pas
 	it("renders the 'Blocked' label when state becomes 'blocked'", () => {
 		render(<Bubble />);
 
-		// Default mode is recording (visualizer bars) — no Blocked label.
+		// Default mode is recording (visualizer bars), no Blocked label.
 		expect(screen.queryByText("Blocked")).toBeNull();
 
 		setBubbleState("blocked");
@@ -193,7 +193,7 @@ describe("bubble mid-flow modes (blocked / cancelling / permission_revoked / pas
 		setBubbleState("blocked");
 		expect(screen.getByText("Blocked")).toBeTruthy();
 
-		// Back to recording — Blocked label should disappear.
+		// Back to recording, Blocked label should disappear.
 		setBubbleState("recording");
 		expect(screen.queryByText("Blocked")).toBeNull();
 	});

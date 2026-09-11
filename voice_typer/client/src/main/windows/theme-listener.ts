@@ -3,17 +3,17 @@
  * window's taskbar icon.
  *
  * Extracted from `main-window.ts` (split). Owns:
- *   - `_nativeThemeHandler` — the single module-level listener closure.
- *   - `registerNativeThemeListener()` — idempotent registration; safe to
+ *   - `_nativeThemeHandler`, the single module-level listener closure.
+ *   - `registerNativeThemeListener()`, idempotent registration; safe to
  *     call from `createMainWindow()` on every window recreation.
  *   - `_resetNativeThemeListenerForTest()` / `_nativeThemeListenerRegistered()`
- *     — test seams used by `__tests__/main-window-native-theme.test.ts`.
+ *    , test seams used by `__tests__/main-window-native-theme.test.ts`.
  *
  * Rationale (preserved from the original main-window.ts docstring):
  * the listener is registered ONCE at module load instead of being
  * re-registered inside `createMainWindow()` on every window recreation.
  * Previously each call to `createMainWindow()` added a NEW listener to
- * `nativeTheme` without ever removing the previous one — so after N
+ * `nativeTheme` without ever removing the previous one, so after N
  * window recreations (dev-mode `relaunchApp()` + tray "Restart"), there
  * were N listeners all firing on every theme change, each holding a
  * stale reference to a destroyed BrowserWindow.
@@ -21,7 +21,7 @@
  * The single module-level handler reads `state.mainWindow` live (so it
  * always operates on the current window) and is removed once via
  * `nativeTheme.off(...)` when the window is destroyed (in case the
- * module is hot-reloaded in dev — in production the listener lives for
+ * module is hot-reloaded in dev, in production the listener lives for
  * the process lifetime, which is correct since `state.mainWindow` is
  * the canonical window reference).
  */
@@ -33,7 +33,7 @@ let _nativeThemeHandler: (() => void) | null = null;
 
 /**
  * Register the global `nativeTheme.on("updated", ...)` listener exactly
- * once. Idempotent — safe to call multiple times. Exported for tests
+ * once. Idempotent, safe to call multiple times. Exported for tests
  * (test seam) so we can assert it's only registered once across multiple
  * `createMainWindow()` calls.
  */

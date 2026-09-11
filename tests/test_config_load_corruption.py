@@ -7,7 +7,7 @@ the new contract:
 * **Caught** (fall back to defaults + WARNING log containing the
   exception class name and the config file path):
   ``OSError``, ``json.JSONDecodeError``, ``TypeError``, ``ValueError``.
-* **Propagated** (NOT caught — indicates a bug in our code or a
+* **Propagated** (NOT caught, indicates a bug in our code or a
   system-level failure): ``KeyError``, ``AttributeError``,
   ``MemoryError``, ``KeyboardInterrupt``, ``SystemExit``.
 
@@ -73,7 +73,7 @@ class TestConfigLoadCaughtFailureModes:
         """No config file at all → defaults, no exception, no warning.
 
         This is the legitimate "first run" case and must NOT log a
-        warning (there's nothing wrong — the user just hasn't saved a
+        warning (there's nothing wrong, the user just hasn't saved a
         config yet).
         """
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.config"):
@@ -133,7 +133,7 @@ class TestConfigLoadCaughtFailureModes:
     def test_field_with_uncoercible_string_returns_defaults_and_logs_warning(self, tmp_path, tmp_config_dir, caplog):
         """A float field set to a non-numeric string → per-field reset + warning.
 
-        ``float("abc")`` raises ``ValueError`` — the
+        ``float("abc")`` raises ``ValueError``, the
         field cannot be coerced.  Previously this reset the ENTIRE config
         to defaults; now only the bad field is reset and a warning is
         logged so the user knows which field was bad.
@@ -331,7 +331,7 @@ class TestConfigLoadPropagatedFailureModes:
             Config.load()
 
     def test_memoryerror_propagates(self, tmp_path, tmp_config_dir, monkeypatch):
-        """``MemoryError`` is system-level — must not be silently swallowed.
+        """``MemoryError`` is system-level, must not be silently swallowed.
 
         the broad ``except Exception`` caught ``MemoryError``
         (it's a subclass of ``Exception``) and silently returned
@@ -351,7 +351,7 @@ class TestConfigLoadPropagatedFailureModes:
 
         ``except Exception`` did NOT catch ``KeyboardInterrupt``
         (it's a ``BaseException``, not ``Exception``), but we add this
-        test to pin that behavior — if someone later widens the catch
+        test to pin that behavior, if someone later widens the catch
         to ``except BaseException`` it would break Ctrl-C handling.
         """
         _write_config(tmp_path, json.dumps({"hotkey": "<f5>"}))
@@ -380,7 +380,7 @@ class TestConfigLoadPropagatedFailureModes:
 
         If a ``RuntimeError`` bubbles up from inside ``load()``, it's
         likely a bug in our migration code or a downstream import
-        failure — we want it surfaced, not silently swallowed.
+        failure, we want it surfaced, not silently swallowed.
         """
         _write_config(tmp_path, json.dumps({"hotkey": "<f5>"}))
 
@@ -446,7 +446,7 @@ class TestConfigLoadWarningMessageQuality:
 
     def test_warning_includes_exception_class_name(self, tmp_path, tmp_config_dir, caplog):
         """The exception class name (e.g. ``JSONDecodeError``) is the
-        failure-mode indicator — it must be in the log message."""
+        failure-mode indicator, it must be in the log message."""
         _write_config(tmp_path, "garbage")
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.config"):
             Config.load()
@@ -482,7 +482,7 @@ class TestConfigLoadWarningMessageQuality:
     def test_warning_level_is_warning_not_error(self, tmp_path, tmp_config_dir, caplog):
         """level is WARNING (recoverable), not ERROR (fatal).
 
-        Recovering to defaults is a normal, recoverable event — using
+        Recovering to defaults is a normal, recoverable event, using
         ERROR would flood monitoring dashboards with false positives.
         """
         _write_config(tmp_path, "garbage")

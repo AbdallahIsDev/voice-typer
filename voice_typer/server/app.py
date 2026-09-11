@@ -5,10 +5,10 @@ from __future__ import annotations
 import atexit
 import logging
 import logging.handlers
-import os  # noqa: F401 (stdlib re-export: voice_typer.server.app.time/os are the documented test-patch seams — see app_lifecycle/app_undo)
+import os  # noqa: F401 (stdlib re-export: voice_typer.server.app.time/os are the documented test-patch seams, see app_lifecycle/app_undo)
 import sys
 import threading
-import time  # noqa: F401 (stdlib re-export — see os above)
+import time  # noqa: F401 (stdlib re-export: see os above)
 from typing import Any
 
 from voice_typer.server import i18n
@@ -16,7 +16,7 @@ from voice_typer.server import i18n
 # Re-exported for monkeypatch seams (voice_typer.server.app.X) and for
 # runtime call-time lookups from startup_tasks / single_instance / shutdown /
 # startup_sequence (numpy was eagerly imported here once; the unused
-# ``np = lazy_module`` binding is gone — ``from __future__ import annotations``
+# ``np = lazy_module`` binding is gone, ``from __future__ import annotations``
 # keeps any future ``np.ndarray`` annotation unevaluated per PEP 563).
 from voice_typer.server._busyness import BusynessCoordinator
 from voice_typer.server._microphone_registry import MicrophoneRegistry
@@ -28,12 +28,12 @@ from voice_typer.server._security_attributes import (  # noqa: F401
     _create_restrictive_security_attributes,
 )
 
-# extraction — the lazy-@property hub (accessors, _busy_event/_lock/
+# extraction, the lazy-@property hub (accessors, _busy_event/_lock/
 # _microphones delegates, lazy-failure sentinels, _LazyAudioProcessorProxy)
 # moved to app_lazy_hub; the re-export binds the SAME sentinel objects so
 # ``backing is _LAZY_FAILED`` identity checks and every
 # ``from voice_typer.server.app import _LAZY_FAILED`` keep working.
-# extraction — mic/model/restart/settings (AppAdmin), dictation control
+# extraction, mic/model/restart/settings (AppAdmin), dictation control
 # (AppDictation), recorder build + VAD preload (AppRecordingInit) and the
 # eager subsystem builders (app_construction.AppConstruction) moved to their
 # owner mixins; inherited through the MRO.
@@ -68,7 +68,7 @@ from voice_typer.server.branding import APP_NAME  # noqa: F401
 # at call time so the documented monkeypatch seam
 # (voice_typer.server.app.HistoryDB) keeps intercepting construction.
 # Recorder is imported inside the recording-init builder (recording/__init__
-# eagerly loads numpy via 7+ submodules) — see
+# eagerly loads numpy via 7+ submodules): see
 # tests/test_recorder_lazy_import_and_vad_cache_gates.py, which pins that
 # "Recorder" is NOT in this module's __dict__.
 from voice_typer.server.config import Config, _config_dir  # noqa: F401
@@ -105,7 +105,7 @@ class VoiceTyperApp(AppLazyHub, AppDictation, AppAdmin, AppRecordingInit, AppCon
 
     ``__init__`` runs the ``_init_*`` builders (one subsystem slice each,
     defined on the AppConstruction / AppRecordingInit mixins) in the exact
-    historical order — construction order is behavior (thread registry before
+    historical order, construction order is behavior (thread registry before
     any spawned thread, ``self.config`` before the tray, the mutation lock
     before it is shared with Config). Lazy accessors live on ``AppLazyHub``,
     dictation control on ``AppDictation``, mic/model/restart/settings on
@@ -120,7 +120,7 @@ class VoiceTyperApp(AppLazyHub, AppDictation, AppAdmin, AppRecordingInit, AppCon
 
     def __init__(self):
         """Run the subsystem builders in the historical order."""
-        # English i18n fallbacks BEFORE any builder — the config-load-failure
+        # English i18n fallbacks BEFORE any builder, the config-load-failure
         # notification in _init_config resolves error.config_load_failed.*.
         _register_startup_i18n_fallbacks()
         self._init_config()
@@ -140,8 +140,10 @@ class VoiceTyperApp(AppLazyHub, AppDictation, AppAdmin, AppRecordingInit, AppCon
     # _init_threading_and_crash / _log_startup_banner / _init_audio /
     # _init_models / _init_tray / _init_controllers /
     # _init_history_crash_volume / _init_misc_backings live in
-    # app_construction.AppConstruction; _init_recording / _preload_vad_model
-    # in app_recording_init.AppRecordingInit. The two builders below stay in
+    # app_construction.AppConstruction; _init_recording in
+    # app_recording_init.AppRecordingInit (the former _preload_vad_model
+    # builder that also lived there was removed, the VAD preload is now
+    # armed solely by StartupSequence phase 1). The two builders below stay in
     # app.py: their lock/event declarations are pinned to THIS module's
     # source (comments stripped) by
     # tests/test_lock_order_contract.py::TestLockInventory.
@@ -179,20 +181,20 @@ class VoiceTyperApp(AppLazyHub, AppDictation, AppAdmin, AppRecordingInit, AppCon
         # recorder._persist_mic, startup_sequence, service.apply_config,
         # onboarding_apply, ...) acquires it via
         # Config._save_with_mutation_lock. Previously only the IPC set_config
-        # path was serialized — a background mic-fallback save could interleave
+        # path was serialized, a background mic-fallback save could interleave
         # with an in-flight apply_config and persist a torn snapshot. MUST run
-        # after both self.config and self._config_mutation_lock exist — the
+        # after both self.config and self._config_mutation_lock exist, the
         # lock has to be created before it is shared.
         self.config.set_mutation_lock(self._config_mutation_lock)
 
     def _init_state_flags(self) -> None:
         """Declare shutdown/electron/restart/esc flags + timer wiring."""
         # _model_load_attempted / _model_load_thread / _pending_dictation live
-        # in ModelManager — callers use self.models.<field> directly.
+        # in ModelManager, callers use self.models.<field> directly.
         self._shutting_down = False  # True once quit() starts
         # Bool gate: the getattr(self.app, "_shutting_down", False) is True
         # idiom in ipc_server/sidecar_ws accommodates test MagicMock
-        # auto-vivification — a truthy int assignment must NOT bypass the
+        # auto-vivification, a truthy int assignment must NOT bypass the
         # shutdown gate; fail loudly at __init__ instead.
         if not isinstance(self._shutting_down, bool):
             raise TypeError(f"VoiceTyperApp._shutting_down must be bool, got {type(self._shutting_down).__name__}")
@@ -269,14 +271,14 @@ class VoiceTyperApp(AppLazyHub, AppDictation, AppAdmin, AppRecordingInit, AppCon
         # finally blocks alone.
         atexit.register(self._atexit_log)
         atexit.register(self._atexit_cleanup)
-        # Enter the pystray event loop — MUST be on the main thread (run()
+        # Enter the pystray event loop. MUST be on the main thread (run()
         # logs the tray-created line itself; no duplicate here).
         self.tray.run()
 
     def _do_startup(self) -> None:
         """Background work: sync autostart, load mics, load model, register hotkey.
 
-        The body was extracted into StartupSequence.run — phase ordering,
+        The body was extracted into StartupSequence.run, phase ordering,
         shutdown gates, parallel executor semantics, and onboarding auto-heal
         preserved (see that docstring). Tests calling app._do_startup()
         directly work; former delegate-method patch sites now patch the
@@ -287,7 +289,7 @@ class VoiceTyperApp(AppLazyHub, AppDictation, AppAdmin, AppRecordingInit, AppCon
 
         StartupSequence(self).run()
 
-    # Removed @property delegates — callers use the owning field directly:
+    # Removed @property delegates, callers use the owning field directly:
     # transcriber/_qwen_engine/_parakeet_engine/_asr_registry/_model_load_* →
     # self.models.<field> (model_manager.py); _transcription_thread /
     # _streaming_session → self.recording.<field>; _hotkey_backend /
@@ -297,7 +299,7 @@ class VoiceTyperApp(AppLazyHub, AppDictation, AppAdmin, AppRecordingInit, AppCon
         """Delegate to ShutdownController (idempotent body lives there).
 
         The indirection keeps monkeypatch.setattr(app, "_do_cleanup", spy)
-        intercepting — pinned by
+        intercepting, pinned by
         tests/test_app_cleanup.py::test_quit_calls_do_cleanup.
         """
         return self.shutdown._do_cleanup()
@@ -351,7 +353,7 @@ def main() -> None:
     """Entry point for the ``voice-typer`` console script.
 
     Not a bare re-export of ipc_server.main: (1) enables faulthandler for
-    crash thread-dumps (SIGSEGV/SIGABRT — logged at WARNING if unavailable
+    crash thread-dumps (SIGSEGV/SIGABRT, logged at WARNING if unavailable
     because the operator must know dumps won't be generated), and (2) wraps
     the canonical entry in try/except so a backend crash logs at ERROR and
     exits 1 instead of dying silently.
@@ -362,7 +364,7 @@ def main() -> None:
         faulthandler.enable()
     except Exception:
         log.warning(
-            "[IPC] faulthandler not available — crash thread-dumps will not be generated",
+            "[IPC] faulthandler not available, crash thread-dumps will not be generated",
             exc_info=True,
         )
 
@@ -378,7 +380,7 @@ def main() -> None:
 # Windows editor-launch helpers re-exported for the app-admin config-editor
 # delegate and the patch sites in test_api_doc_accuracy.py /
 # test_config_editor_lock.py. The bare PATH-resolved "notepad" pattern is
-# intentionally NOT used — _systemroot_notepad_path validates the path via
+# intentionally NOT used, _systemroot_notepad_path validates the path via
 # %SYSTEMROOT%\\System32\\notepad.exe.
 from voice_typer.server.platform_launch import (  # noqa: E402,F401
     _systemroot_notepad_path,

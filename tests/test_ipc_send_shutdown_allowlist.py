@@ -61,7 +61,7 @@ def test_shutdown_allowlist_is_module_level_frozenset() -> None:
     # The constant must be accessible at module level (not just as a
     # local variable inside _send). This is verified implicitly by the
     # ``from voice_typer.server.ipc_server import _SHUTDOWN_ALLOWLIST``
-    # at the top of this file — if it were a local, the import would
+    # at the top of this file, if it were a local, the import would
     # have failed at collection time.
 
 
@@ -122,7 +122,7 @@ def test_cached_shutting_down_refreshed_in_start() -> None:
     """``IPCServer.start()`` must set ``_cached_shutting_down = False``.
 
     ``start()`` is the canonical "we're not shutting down" transition
-    point — it's called at server boot AND after a stop()/restart cycle
+    point, it's called at server boot AND after a stop()/restart cycle
     in tests. Setting the cache to False here ensures a server that was
     previously stopped (cache = True) gets a clean slate when restarted.
     """
@@ -150,7 +150,7 @@ def test_cached_shutting_down_actually_changes_on_lifecycle() -> None:
     """End-to-end: construct → start → stop should flip the cache.
 
     The source-level tests above pin that the assignment statements
-    exist; this test verifies the runtime behavior — the cache actually
+    exist; this test verifies the runtime behavior, the cache actually
     transitions through the expected values as the server goes through
     its lifecycle.
     """
@@ -212,12 +212,12 @@ def test_send_uses_cached_shutting_down_not_getattr_self_app() -> None:
     )
     # The previous per-call cross-object getattr must be GONE from the
     # shutdown-suppress gate. (It may still appear in comments
-    # explaining the change — that's fine, we only care about the
+    # explaining the change, that's fine, we only care about the
     # executable line.)
     # Strip comments and docstrings for a more accurate check: look
     # for the specific pattern as an executable statement.
     # Simple heuristic: the executable pattern is
-    # ``getattr(self.app, "_shutting_down", False) is True`` — search
+    # ``getattr(self.app, "_shutting_down", False) is True``, search
     # for that exact substring OUTSIDE of comment lines.
     executable_lines = [line for line in src.splitlines() if line.strip() and not line.strip().startswith("#")]
     executable_src = "\n".join(executable_lines)
@@ -272,15 +272,15 @@ def test_send_uses_select_not_settimeout() -> None:
         "socket write-readiness (replaces the per-write settimeout dance)."
     )
     assert "_prev_timeout" not in src, (
-        "_send must NOT capture _prev_timeout — the select-based approach "
+        "_send must NOT capture _prev_timeout, the select-based approach "
         "doesn't mutate the socket timeout, so there's nothing to restore."
     )
     assert "finally:" not in src, (
-        "_send must NOT have a finally block — without the settimeout dance there's no timeout state to restore."
+        "_send must NOT have a finally block, without the settimeout dance there's no timeout state to restore."
     )
 
 
-# ── 4. Behavior preservation — suppression still works ────────────────
+# ── 4. Behavior preservation, suppression still works ────────────────
 
 
 def _make_send_test_server():
@@ -303,10 +303,10 @@ def _make_send_test_server():
 
 def test_send_suppresses_non_allowlisted_push_when_shutting_down() -> None:
     """When ``_cached_shutting_down = True``, a push event (no ``id``)
-    whose ``type`` is NOT in ``_SHUTDOWN_ALLOWLIST`` must be suppressed
-    — the TCP client must NOT be written to, and the connection must be
-    closed (the suppression path closes the dead client to unblock the
-    accept loop).
+      whose ``type`` is NOT in ``_SHUTDOWN_ALLOWLIST`` must be suppressed
+    , the TCP client must NOT be written to, and the connection must be
+      closed (the suppression path closes the dead client to unblock the
+      accept loop).
     """
     server = _make_send_test_server()
     # Set up a real socketpair so we can detect whether the write
@@ -339,7 +339,7 @@ def test_send_suppresses_non_allowlisted_push_when_shutting_down() -> None:
 def test_send_delivers_allowlisted_push_when_shutting_down() -> None:
     """When ``_cached_shutting_down = True``, a push event whose
     ``type`` IS in ``_SHUTDOWN_ALLOWLIST`` (e.g. ``relaunch_app``) must
-    STILL be delivered — the TCP write must happen.
+    STILL be delivered, the TCP write must happen.
     """
     server = _make_send_test_server()
     srv, cli = socket.socketpair()
@@ -358,7 +358,7 @@ def test_send_delivers_allowlisted_push_when_shutting_down() -> None:
         )
         reader.start()
 
-        # Allowlisted push event — MUST be delivered.
+        # Allowlisted push event. MUST be delivered.
         server._send({"type": "relaunch_app"})
 
         reader.join(timeout=2.0)
@@ -395,7 +395,7 @@ def test_send_delivers_non_allowlisted_push_when_not_shutting_down() -> None:
         )
         reader.start()
 
-        # Non-allowlisted push event — MUST be delivered because we're
+        # Non-allowlisted push event, MUST be delivered because we're
         # NOT shutting down.
         server._send({"type": "bubble_level", "level": 0.5})
 
@@ -411,13 +411,13 @@ def test_send_delivers_non_allowlisted_push_when_not_shutting_down() -> None:
         cli.close()
 
 
-# ── 5. Test-fixture compatibility — defensive getattr fallback ────────
+# ── 5. Test-fixture compatibility, defensive getattr fallback ────────
 
 
 def test_send_works_when_cached_shutting_down_not_set() -> None:
     """Test fixtures that construct ``IPCServer.__new__(IPCServer)``
     (bypassing ``__init__``) and don't set ``_cached_shutting_down``
-    must still work — the defensive ``getattr(self,
+    must still work, the defensive ``getattr(self,
     "_cached_shutting_down", False)`` returns ``False``, matching the
     previous ``getattr(self.app, "_shutting_down", False)`` behaviour
     for tests that set ``server.app._shutting_down = False``.
@@ -427,7 +427,7 @@ def test_send_works_when_cached_shutting_down_not_set() -> None:
     fallback), this test would raise ``AttributeError``.
     """
     server = _make_send_test_server()
-    # Intentionally do NOT set ``_cached_shutting_down`` — mimics the
+    # Intentionally do NOT set ``_cached_shutting_down``, mimics the
     # test fixtures in tests/test_ipc_layer_fixes.py and
     # tests/test_ipc_server.py that bypass __init__.
     # The defensive getattr must return False (no AttributeError).

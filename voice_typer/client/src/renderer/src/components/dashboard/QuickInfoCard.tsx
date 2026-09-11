@@ -10,7 +10,7 @@ interface QuickInfoCardProps {
 	value: ReactNode;
 	/**
 	 * Optional secondary line under the value (e.g. the corrections
-	 * rate) — rendered with the same muted style as the label.
+	 * rate), rendered with the same muted style as the label.
 	 */
 	sublabel?: ReactNode;
 	/**
@@ -29,11 +29,11 @@ export function QuickInfoCard({
 	muted,
 }: QuickInfoCardProps) {
 	return (
-		// Informational card — no hover interaction. Icon rendered at a
+		// Informational card, no hover interaction. Icon rendered at a
 		// consistent size with the muted icon tone (same family as the
 		// stat-card icons), no inner padding container shrinking it.
 		// The text block stretches to the card height (`items-stretch`)
-		// with the value's `mt-auto` pushing it to the bottom — same
+		// with the value's `mt-auto` pushing it to the bottom, same
 		// top-pinned label / bottom-pushed number rhythm as the top-row
 		// stat cards.
 		<div

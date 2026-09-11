@@ -1,4 +1,4 @@
-// SettingsHub — the Settings landing page.
+// SettingsHub, the Settings landing page.
 //
 // ONE card whose rows are the Settings section pages (see
 // `settingsSections.ts`). Each row shows the section title, a muted
@@ -8,7 +8,7 @@
 //
 // Search integration: when the global title-bar query is non-empty, rows
 // whose section (title, description, or any row label) matches stay
-// visible and the matched row labels render under the description — the
+// visible and the matched row labels render under the description, the
 // user can see WHY a section matched without entering it. Rows for
 // sections with no match are hidden; if nothing matches anywhere the
 // caller-supplied empty state renders instead.
@@ -50,9 +50,9 @@ const THEME_MODE_SUMMARY_KEYS: Record<VoiceTyperConfig["theme_mode"], string> =
 	};
 
 /**
- * The right-edge summary for a hub row — the section's current value,
+ * The right-edge summary for a hub row, the section's current value,
  * iOS-style. Returns null for sections whose state doesn't compress
- * into one short label (Privacy consents, Advanced tooling) — those
+ * into one short label (Privacy consents, Advanced tooling), those
  * rows end at the chevron.
  *
  * Reads the CURRENT locale for locale-dependent summaries (app
@@ -65,7 +65,7 @@ function sectionSummary(
 ): string | null {
 	switch (page) {
 		case "settingsGeneral":
-			// The UI language itself — mirrors the App Language select.
+			// The UI language itself, mirrors the App Language select.
 			return getLocaleLabel(getLocale());
 		case "settingsOverlay":
 			return t(
@@ -101,7 +101,7 @@ function sectionSummary(
 }
 
 export interface SettingsHubProps {
-	/** Loaded config — the hub only renders once Settings has it. */
+	/** Loaded config, the hub only renders once Settings has it. */
 	config: VoiceTyperConfig;
 	/** Navigate to a section page (wired to the nav store by Settings). */
 	onNavigateSection: (page: SettingsSectionPage) => void;
@@ -114,7 +114,7 @@ export function SettingsHub({ config, onNavigateSection }: SettingsHubProps) {
 	const q = query.trim().toLowerCase();
 
 	// One row model per section: title/description/summary plus, when a
-	// query is active, the matched row labels (deduped — two section
+	// query is active, the matched row labels (deduped, two section
 	// titles can translate to the same word). Sections with no match at
 	// all drop out of the list entirely.
 	const rows = useMemo(() => {
@@ -170,7 +170,7 @@ export function SettingsHub({ config, onNavigateSection }: SettingsHubProps) {
 
 	return (
 		<section aria-label={t("settings.title")}>
-			{/* THE single hub card — same surface treatment as every
+			{/* THE single hub card, same surface treatment as every
 			    SettingsSection card in the app (border + subtle bg + row
 			    dividers), rows as full-width buttons. overflow-hidden keeps
 			    the hover highlight inside the rounded corners. */}
@@ -184,7 +184,7 @@ export function SettingsHub({ config, onNavigateSection }: SettingsHubProps) {
 							"flex w-full items-center gap-4 p-4 text-start",
 							"transition-colors duration-150 hover:bg-foreground/5",
 							// Focus contract (C-FOCUS-2/5): full-opacity ring token,
-							// 3px — keyboard focus is always clearly visible.
+							// 3px, keyboard focus is always clearly visible.
 							"focus-visible:ring-3 focus-visible:ring-ring focus-visible:outline-none",
 						)}
 						onClick={() => onNavigateSection(row.def.page)}

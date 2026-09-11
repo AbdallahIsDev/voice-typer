@@ -2,19 +2,19 @@
 
 Covers the six UE-2 sub-findings from the Phase 1 UE-2 agent report:
 
-  - **UE-2-F2** — ``_crash_written`` flag TOCTOU race fixed by a
+  - **UE-2-F2**: ``_crash_written`` flag TOCTOU race fixed by a
     compare-and-set via ``threading.Lock`` (``_crash_write_lock``).
-  - **UE-2-F3** — ``_summarize_crash_file`` 13-clause if/elif refactored
+  - **UE-2-F3**: ``_summarize_crash_file`` 13-clause if/elif refactored
     to use the ``_CODE_TO_INFO`` + ``_CODE_TO_USER_SUMMARY`` tables in
     ``_constants``.
-  - **UE-2-F4** — ``_crash_excepthook`` and ``_thread_crash_excepthook``
+  - **UE-2-F4**: ``_crash_excepthook`` and ``_thread_crash_excepthook``
     ~100 LOC duplication extracted into ``_write_crash_marker``.
-  - **UE-2-F5** — ``_redact`` made a separate concern
+  - **UE-2-F5**: ``_redact`` made a separate concern
     (``_redact_exc_value``) with a guaranteed-safe fallback
     (``_safe_redact_fallback``) when redaction imports fail.
-  - **UE-2-F8** — ``_ensure_kernel32`` inside the VEH callback wrapped
+  - **UE-2-F8**: ``_ensure_kernel32`` inside the VEH callback wrapped
     in try/except so a kernel32 resolution failure does not propagate.
-  - **UE-2-F9** — ``_crash_msg_buf`` mutable state moved from
+  - **UE-2-F9**: ``_crash_msg_buf`` mutable state moved from
     ``_constants`` to the ``crash_handler`` facade (``__init__.py``)
     alongside the other mutable runtime state.
 
@@ -142,7 +142,7 @@ class TestCrashWriteLock:
         assert result == crash_handler.EXCEPTION_CONTINUE_SEARCH
         assert crash_handler._crash_write_lock.acquire(blocking=False), (
             "UE-2-F2: lock must NOT be held after the early-return path "
-            "(exception_pointers=None) — it should never have been acquired"
+            "(exception_pointers=None), it should never have been acquired"
         )
         crash_handler._crash_write_lock.release()
 
@@ -151,7 +151,7 @@ class TestCrashWriteLock:
         acquired (for the check), the early-return fires, and the lock
         is released in the finally block."""
         if sys.platform == "win32":
-            pytest.skip("VEH callback path test — Windows-only semantics mocked on POSIX")
+            pytest.skip("VEH callback path test, Windows-only semantics mocked on POSIX")
 
         # Build a fake EXCEPTION_POINTERS that yields a code IN _CRASH_CODES.
         # On POSIX, ctypes has no real EXCEPTION_RECORD but the impl catches
@@ -184,7 +184,7 @@ class TestCrashWriteLock:
         exception dispatcher.
         """
         lock = threading.Lock()
-        # Acquire once — second acquire(blocking=False) must return False.
+        # Acquire once, second acquire(blocking=False) must return False.
         assert lock.acquire(blocking=False) is True
         try:
             assert lock.acquire(blocking=False) is False, (
@@ -272,7 +272,7 @@ class TestSummarizeCrashFileTableDriven:
 
     def test_table_driven_lookup_no_drift_with_constants(self):
         """UE-2-F3: the report-side summary strings are sourced from
-        ``_constants._CODE_TO_USER_SUMMARY`` — there is no separate
+        ``_constants._CODE_TO_USER_SUMMARY``, there is no separate
         if/elif chain in ``_diagnostics_archive`` that could drift.
 
         Asserts that ``_diagnostics_archive`` imports
@@ -288,7 +288,7 @@ class TestSummarizeCrashFileTableDriven:
         assert "_CODE_TO_INFO" in source, "UE-2-F3: _diagnostics_archive must import _CODE_TO_INFO"
         # The pre-fix 13-clause if/elif chain had at least 4 distinct
         # ``elif "STATUS_*" in content:`` clauses. Post-fix there
-        # should be ZERO — the table lookup replaces them all.
+        # should be ZERO, the table lookup replaces them all.
         import re
 
         elif_chain = re.findall(r'elif "STATUS_\w+" in content:', source)
@@ -359,7 +359,7 @@ class TestWriteCrashMarkerHelper:
     def test_helper_preserves_filename_difference_between_paths(self, tmp_path):
         """UE-2-F4: the marker filename difference between the main
         path (no suffix) and the threading path (thread-name suffix)
-        is preserved — both hooks now delegate to the helper, but
+        is preserved, both hooks now delegate to the helper, but
         callers can still distinguish the two marker types by filename."""
         crash_handler.set_crash_handler_config_dir(tmp_path)
 
@@ -424,16 +424,16 @@ class TestWriteCrashMarkerHelper:
         """UE-2-F4: neither ``_crash_excepthook`` nor
         ``_thread_crash_excepthook`` should still contain the inlined
         ``def _redact(s): return redact_secret(redact_piis, aggressive=True)``
-        closure — that logic now lives in ``_redact_exc_value``.
+        closure, that logic now lives in ``_redact_exc_value``.
 
         Guards against a partial refactor where the helper was added
         but the inline closure was left in place.
         """
         source = Path(_python_excepthook.__file__).read_text(encoding="utf-8")
-        # The inline closure pattern (pre-fix) — must NOT appear.
+        # The inline closure pattern (pre-fix), must NOT appear.
         assert "def _redact(s):" not in source, (
             "UE-2-F4: the inline ``def _redact(s):`` closure must be removed "
-            "from _python_excepthook — the logic now lives in "
+            "from _python_excepthook, the logic now lives in "
             "``_redact_exc_value`` (called from ``_write_crash_marker``)"
         )
         # The shared helper must be defined.
@@ -501,7 +501,7 @@ class TestRedactExcValueFallback:
         assert redacted.endswith(">")
 
     def test_safe_redact_fallback_is_deterministic(self):
-        """The fallback is deterministic — same input → same digest —
+        """The fallback is deterministic, same input → same digest —
         so crash-dedup still works when redaction imports fail."""
         a = crash_handler._safe_redact_fallback("some-exception-value")
         b = crash_handler._safe_redact_fallback("some-exception-value")
@@ -517,7 +517,7 @@ class TestRedactExcValueFallback:
     def test_redact_exc_value_falls_back_when_imports_fail(self, monkeypatch):
         """UE-2-F5: when ``redact_pii`` / ``redact_secret`` imports
         fail (simulated via ``sys.modules`` manipulation), the helper
-        falls back to the safe hash sentinel — the raw PII does NOT
+        falls back to the safe hash sentinel, the raw PII does NOT
         leak."""
         pii = "my name is John Smith"
         # Force the redaction imports to fail by hiding the modules.
@@ -587,7 +587,7 @@ class TestRedactExcValueFallback:
         does NOT disable redaction (the two imports are now decoupled).
 
         Pre-fix: the redaction imports and the atomic-write import
-        were in the same try/except — a failure of EITHER disabled
+        were in the same try/except, a failure of EITHER disabled
         BOTH. Post-fix: they're separate, so the marker is still
         redacted (just written via plain ``Path.write_text``)."""
         crash_handler.set_crash_handler_config_dir(tmp_path)
@@ -602,7 +602,7 @@ class TestRedactExcValueFallback:
                 raise ImportError("simulated config import failure")
             # The ``from voice_typer.server.config import _secure_atomic_write``
             # form triggers ``__import__("voice_typer.server.config", ...)``
-            # — hide the module entirely.
+            # , hide the module entirely.
             if name == "voice_typer.server.config":
                 raise ImportError("simulated config import failure")
             return real_import(name, *args, **kwargs)
@@ -675,7 +675,7 @@ class TestEnsureKernel32WrappedInVehCallback:
         ``_ensure_kernel32`` to raise.
         """
         if sys.platform == "win32":
-            pytest.skip("VEH callback Windows-only path — tested on Windows host")
+            pytest.skip("VEH callback Windows-only path, tested on Windows host")
 
         # We can't easily build a real EXCEPTION_POINTERS on POSIX, so
         # instead we verify the source-level guarantee (tested above)
@@ -703,7 +703,7 @@ class TestCrashMsgBufOnFacade:
 
     Pre-fix: ``_constants`` carried a ``_crash_msg_buf: bytearray =
     bytearray(_CRASH_MSG_BUF_SIZE)`` declaration that was mutated in
-    place by ``_veh_callback`` — a "constants module with mutable
+    place by ``_veh_callback``, a "constants module with mutable
     state" smell. Post-fix: the buffer lives on the facade, accessed
     via ``_ch._crash_msg_buf`` (consistent with how the VEH callback
     accesses ``_ch._crash_file_path``, ``_ch._crash_header_bytes``,
@@ -752,7 +752,7 @@ class TestCrashMsgBufOnFacade:
         assert "_ch._crash_msg_buf" in source, "UE-2-F9: _veh_callback must access the buffer via _ch._crash_msg_buf"
         # The VEH callback must NOT import _crash_msg_buf from _constants.
         # Check the ``from voice_typer.server.crash_handler._constants import (...)``
-        # block — it must not list ``_crash_msg_buf``.
+        # block, it must not list ``_crash_msg_buf``.
         import re
 
         # Extract the import-from-_constants block.
@@ -765,7 +765,7 @@ class TestCrashMsgBufOnFacade:
         imported_names = import_block.group(1)
         assert "_crash_msg_buf" not in imported_names, (
             "UE-2-F9: _veh_callback must NOT import _crash_msg_buf from "
-            "_constants — it accesses the buffer via _ch._crash_msg_buf now. "
+            "_constants, it accesses the buffer via _ch._crash_msg_buf now. "
             f"Import block:\n{imported_names}"
         )
 
@@ -785,7 +785,7 @@ class TestCrashMsgBufOnFacade:
             # time, so the re-bind is observed. Verify the facade
             # attribute is the fresh buffer.
             assert crash_handler._crash_msg_buf is fresh
-            # Mutate in place — the facade attribute reflects the mutation.
+            # Mutate in place, the facade attribute reflects the mutation.
             crash_handler._crash_msg_buf[0] = 0x42
             assert crash_handler._crash_msg_buf[0] == 0x42
         finally:

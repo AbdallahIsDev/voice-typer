@@ -3,19 +3,19 @@
  *
  * Extracted from the original `main/logging.ts` (spaghetti
  * split). `_fileSizeCache` memoizes `fs.statSync` results so
- * `appendLogLine` doesn't call `fs.statSync` on every write — only on
+ * `appendLogLine` doesn't call `fs.statSync` on every write, only on
  * cache miss. The cache is bumped (updated) after every successful
  * append so the next call can skip stat. Rotations reset the cache
  * entry to 0.
  *
- * Leaf module — no imports. Consumed by `rotation.ts` (via
+ * Leaf module, no imports. Consumed by `rotation.ts` (via
  * `_getCachedFileSize` / `_setCachedFileSize` / `_clearCachedFileSize`)
  * and by the test suite (via `_resetFileSizeCacheForTest`).
  */
 
 // ────────────────────────────────────────────────────────────────────
 // _fileSizeCache memoizes statSync results so appendLogLine
-// doesn't call fs.statSync on every write — only on cache miss. The
+// doesn't call fs.statSync on every write, only on cache miss. The
 // cache is bumped (updated) after every successful append so the
 // next call can skip stat. Rotations reset the cache entry to 0.
 // ────────────────────────────────────────────────────────────────────

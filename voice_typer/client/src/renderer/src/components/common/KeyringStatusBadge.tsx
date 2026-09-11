@@ -1,4 +1,4 @@
-// KeyringStatusBadge — shows a small lock icon + tooltip when
+// KeyringStatusBadge, shows a small lock icon + tooltip when
 // secrets are stored in the OS keychain, or a warning badge when only
 // the plaintext fallback (config.json with 0o600 perms) is available.
 //
@@ -10,7 +10,7 @@
 // service layer attaches a `keyring_status` field (see
 // voice_typer/server/service.py:get_config). When the field is absent
 // (legacy responses, or the credential_store probe failed), we treat
-// it as "fallback" — same as a missing keyring backend — so the user
+// it as "fallback", same as a missing keyring backend, so the user
 // always sees a truthful indicator.
 
 import { Alert02Icon, LockKeyIcon } from "@hugeicons/core-free-icons";
@@ -35,7 +35,7 @@ export function KeyringStatusBadge({
 	status,
 	compact = false,
 }: KeyringStatusBadgeProps) {
-	// Treat absent status the same as "fallback" — never claim
+	// Treat absent status the same as "fallback", never claim
 	// keyring is available when we don't know.
 	const available = status?.available === true;
 	const backend = status?.backend ?? null;
@@ -69,7 +69,7 @@ export function KeyringStatusBadge({
 								: `${buttonBaseClass} gap-2 rounded-full bg-success/15 px-2 py-0.5 text-xs font-medium text-success`
 						}
 						// Don't duplicate the tooltip text as aria-label (SR users
-						// would hear it twice — once on the button, once when the tooltip
+						// would hear it twice, once on the button, once when the tooltip
 						// opens on focus). In non-compact mode the visible "Secure" text
 						// provides the accessible name. In compact mode (icon-only) we
 						// expose a short generic label so the button still has an

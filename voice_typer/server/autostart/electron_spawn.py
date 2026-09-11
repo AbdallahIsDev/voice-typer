@@ -19,7 +19,7 @@ from voice_typer.server._electron_build import (
 from voice_typer.server.autostart._spawn import _spawn_login_child
 from voice_typer.server.autostart.log_files import _close_log_files
 
-# C-CROSS-3: explicit dotted logger name — see log_files.py for why
+# C-CROSS-3: explicit dotted logger name: see log_files.py for why
 # ``__name__`` cannot be used here.
 log = logging.getLogger("voice_typer.server.autostart_launcher")
 
@@ -44,7 +44,7 @@ def _launch_electron_built(exe: str, hidden: bool = False) -> subprocess.Popen |
     sk = dict(cwd=str(_pkg.CLIENT_DIR))
     sk.update(_pkg._electron_log_files())
     sk.update(_spawn_flags(hidden=hidden))
-    # intentional — same-app restart needs the same env.
+    # intentional, same-app restart needs the same env.
     # The child here is the Voice Typer Electron frontend itself (not a
     # less-trusted process). It needs the full env for native module
     # loading, PATH resolution, and platform-specific init. Unlike the
@@ -59,10 +59,10 @@ def _launch_electron_built(exe: str, hidden: bool = False) -> subprocess.Popen |
         env["VT_START_HIDDEN"] = "1"
     # surface (without values) any sensitive env keys the
     # child will inherit, so a future leak in a downstream log is
-    # auditable. Only KEY NAMES are logged — values are never printed.
+    # auditable. Only KEY NAMES are logged, values are never printed.
     _log_sensitive_env_keys(env, context="autostart")
     # Unified cleanup shape (BP-130): parent handle close happens in
-    # the helper's finally — including the Popen-raise path, which the
+    # the helper's finally: including the Popen-raise path, which the
     # previous inline copy missed (handle leak).
     return _spawn_login_child(
         [exe, "."],
@@ -77,7 +77,7 @@ def _ensure_built_and_launch(hidden: bool = False) -> bool:
 
     Returns True if the app was launched successfully, False otherwise.
 
-    The app is NEVER built from source here — the packaged install
+    The app is NEVER built from source here, the packaged install
     ships pre-built bundles (``out/main/index.js`` + renderer + preload)
     and the dev path
     uses ``npm run dev`` via :func:`_spawn_npm_run_dev`. When the
@@ -87,7 +87,7 @@ def _ensure_built_and_launch(hidden: bool = False) -> bool:
     Strategy:
       1. Find the dev-mode electron binary (``node_modules/electron/dist/``).
       2. Verify the build output (main + renderer + preload bundles)
-         exists — if any is missing, return False (no auto-build).
+         exists, if any is missing, return False (no auto-build).
       3. Launch ``electron .`` with the compiled bundles.
       4. If any step fails, return False so the caller can decide what
          to do (fall back to dev mode, show error, etc.).
@@ -125,7 +125,7 @@ def _spawn_npm_run_dev(hidden: bool = False) -> subprocess.Popen | None:
     # RACE-009: redirect Electron stdout/stderr to log files.
     spawn_kwargs.update(_pkg._electron_log_files())
     spawn_kwargs.update(_spawn_flags(hidden=hidden))
-    # same-app restart — full env intentionally inherited
+    # same-app restart, full env intentionally inherited
     # (see _spawn_electron above for rationale). Only sensitive KEY
     # NAMES are logged for audit; values are never printed.
     # ``_launcher_child_env`` force-disables ANSI colour + npm notices
@@ -147,7 +147,7 @@ def _spawn_npm_run_dev(hidden: bool = False) -> subprocess.Popen | None:
         _close_log_files(spawn_kwargs)
         return None
     if cmd is None:
-        # S-7: npm truly not resolvable — log and bail (no shell=True).
+        # S-7: npm truly not resolvable, log and bail (no shell=True).
         log.error("[AUTOSTART] npm not found on PATH; cannot launch dev mode. Install Node.js / npm or add it to PATH.")
         _close_log_files(spawn_kwargs)
         return None

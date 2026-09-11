@@ -4,7 +4,7 @@ Server-side i18n module providing ``t(key, **fmt)`` translation with
 locale switching, English fallback, format interpolation failure
 tolerance, and thread-safe registry mutation.
 
-Scope: this file tests ONLY ``voice_typer/server/i18n.py`` — the
+Scope: this file tests ONLY ``voice_typer/server/i18n.py``, the
 server-side notification / state-message translator. The pre-existing
 ``tests/test_i18n_completeness.py`` tests the CLIENT-side i18n JSON
 files at ``voice_typer/client/src/renderer/src/i18n/translations/en.json``
@@ -43,7 +43,7 @@ def _restore_i18n_state():
     ``set_locale`` calls in one test would leak into the next, making
     test order matter. The fixture captures the registry dict-by-ref
     snapshot and the locale string before each test, then restores
-    them after — so each test sees a clean ``en``-only registry.
+    them after, so each test sees a clean ``en``-only registry.
     """
     with i18n._LOCK:
         saved_registry = {loc: dict(labels) for loc, labels in i18n._REGISTRY.items()}
@@ -61,7 +61,7 @@ def _restore_i18n_state():
 
 
 class TestTranslate:
-    """``t(key, **fmt)`` — translate a key with optional format interpolation."""
+    """``t(key, **fmt)``, translate a key with optional format interpolation."""
 
     def test_known_key_without_placeholders_returns_text(self):
         """A key with no ``{placeholder}`` returns its text verbatim."""
@@ -104,7 +104,7 @@ class TestLocaleRegistry:
     """``register_locale`` + ``set_locale`` round-trip.
 
     The active locale is observed through ``i18n._CURRENT_LOCALE`` (the
-    module's own binding — the same one the autouse fixture snapshots)
+    module's own binding, the same one the autouse fixture snapshots)
     and through ``t()`` resolution, so the tests do not depend on a
     separate accessor.
     """
@@ -138,7 +138,7 @@ class TestLocaleRegistry:
 
     def test_register_locale_overwrites_previous_registration(self):
         """Re-registering the same locale replaces its label set
-        (not merge — full replacement, mirroring the IPC semantics where
+        (not merge, full replacement, mirroring the IPC semantics where
         the renderer pushes the full label dict on locale change).
         """
         register_locale("zz", {"state.idle": "first", "state.recording": "first-rec"})
@@ -184,7 +184,7 @@ class TestFallbackChain:
 
     def test_missing_key_in_english_only_returns_raw_key(self):
         """When the active locale is English (default) and the key is
-        absent, the raw key string is returned — loudly visible in the UI.
+        absent, the raw key string is returned, loudly visible in the UI.
         """
         set_locale("en")
         result = t("nonexistent.key")
@@ -208,7 +208,7 @@ class TestFallbackChain:
 
 class TestFormatInterpolationFailure:
     """Format interpolation failures (missing placeholder) return the
-    unformatted text rather than raising — so a bad translation never
+    unformatted text rather than raising, so a bad translation never
     crashes a notification path."""
 
     def test_missing_placeholder_returns_unformatted_text(self):
@@ -224,7 +224,7 @@ class TestFormatInterpolationFailure:
         """Key has ``{name}`` placeholder, no kwargs passed at all →
         ``KeyError`` is caught, unformatted text returned.
 
-        (The ``if fmt:`` guard skips format when ``fmt`` is empty — but
+        (The ``if fmt:`` guard skips format when ``fmt`` is empty, but
         here we pass a dummy kwarg to force the format path.)
         """
         # Force the format path with a dummy kwarg while omitting the
@@ -286,7 +286,7 @@ class TestThreadSafety:
                     _ = t("state.idle")
                     _ = t("notify.app.undo_done", char_count=i)
                     _ = t("totally.missing.key")  # raw-key fallback path
-            except BaseException as exc:  # noqa: BLE001 — collected for assertion
+            except BaseException as exc:  # noqa: BLE001, collected for assertion
                 errors.append(exc)
 
         threads = [threading.Thread(target=worker, args=(tid,)) for tid in range(8)]
@@ -303,7 +303,7 @@ class TestThreadSafety:
 
     def test_concurrent_set_locale_does_not_leave_locale_in_half_set_state(self):
         """4 threads racing ``set_locale`` must converge on a registered
-        locale — the current-locale binding never holds an unregistered
+        locale, the current-locale binding never holds an unregistered
         code.
         """
         register_locale("alpha", {"state.idle": "alpha"})

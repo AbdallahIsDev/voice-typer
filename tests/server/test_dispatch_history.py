@@ -1,8 +1,8 @@
 """IPC dispatch tests for history commands (get_history / favorites / search).
 
 Classes:
-- TestDispatchGetHistory                  — get_history dispatcher
-- TestHistoryLimitBoundingClampsCallerInput — SEC-010 limit clamping
+- TestDispatchGetHistory                , get_history dispatcher
+- TestHistoryLimitBoundingClampsCallerInput, SEC-010 limit clamping
 
 Split out from the original monolithic tests/test_server.py (DT-37, Phase 4.5).
 """

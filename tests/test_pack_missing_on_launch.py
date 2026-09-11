@@ -1,4 +1,4 @@
-"""§8.10 — Pack missing on launch: cheap existence check + background checksum.
+"""§8.10: Pack missing on launch: cheap existence check + background checksum.
 
 Spec (§8.10):
 
@@ -9,11 +9,11 @@ Spec (§8.10):
 Tested behaviors:
 
   1. ``pack_exists`` returns True when manifest + all declared files
-     are present (NO hashing — cheap check).
+     are present (NO hashing, cheap check).
   2. ``pack_exists`` returns False when manifest is missing.
   3. ``pack_exists`` returns False when a declared file is missing.
   4. ``pack_exists`` returns False when manifest is malformed (fail
-     closed — never trust a partial).
+     closed, never trust a partial).
   5. ``BackgroundChecksum`` runs on a daemon thread; ``result`` is
      True (verified) or False (corrupt).
   6. ``BackgroundChecksum`` publishes ``offline_pack_verified`` on success and
@@ -58,7 +58,7 @@ def _write_valid_pack(tmp_path: Path, version: str = "v1") -> Path:
 
 
 class TestPackExists:
-    """§8.10 — cheap existence check (no hashing)."""
+    """§8.10, cheap existence check (no hashing)."""
 
     def test_present_pack_returns_true(self, tmp_path: Path):
         _write_valid_pack(tmp_path, "v1")
@@ -86,7 +86,7 @@ class TestPackExists:
 
 
 class TestBackgroundChecksum:
-    """§8.10 / §8.16 — background checksum on a daemon thread."""
+    """§8.10 / §8.16, background checksum on a daemon thread."""
 
     def test_valid_pack_publishes_pack_verified(self, tmp_path: Path):
         _write_valid_pack(tmp_path, "v1")
@@ -106,7 +106,7 @@ class TestBackgroundChecksum:
 
     def test_corrupt_pack_publishes_pack_corrupt(self, tmp_path: Path):
         _write_valid_pack(tmp_path, "v1")
-        # Tamper with the worker.exe — SHA-256 will mismatch.
+        # Tamper with the worker.exe. SHA-256 will mismatch.
         (tmp_path / "v1" / "worker.exe").write_bytes(b"TAMPERED")
         events: list[dict] = []
 
@@ -147,7 +147,7 @@ class TestBackgroundChecksum:
 
 
 class TestLaunchCheck:
-    """§8.10 / §8.16 — ``startup_tasks.check_offline_pack_on_launch``.
+    """§8.10 / §8.16: ``startup_tasks.check_offline_pack_on_launch``.
 
     The fire-and-forget daemon task wired into ``StartupSequence``:
     cheap existence check on launch; present → background checksum;
@@ -171,7 +171,7 @@ class TestLaunchCheck:
         result = startup_tasks.check_offline_pack_on_launch(SimpleNamespace(config=None))
         assert result == {"checked": True, "installed_version": "v1", "checksum": "background"}
         # BackgroundChecksum spawned with the detected version (event_bus
-        # is the real module — non-None).
+        # is the real module, non-None).
         assert started[0][0] == "v1"
         assert started[0][1] is not None
 
@@ -212,7 +212,7 @@ class TestLaunchCheck:
         monkeypatch.setattr(update_check, "check_offline_pack_update", fake_check)
         result = startup_tasks.check_offline_pack_on_launch(SimpleNamespace(config=None))
         assert published == ["offline_pack_missing"]
-        assert calls == [True]  # still attempted — consent gate refuses inside
+        assert calls == [True]  # still attempted, consent gate refuses inside
         assert result["update_check"]["consent_required"] is True
 
     def test_shutdown_event_short_circuits_before_download(self, monkeypatch):
@@ -249,7 +249,7 @@ class TestLaunchCheck:
         )
         result = startup_tasks.check_offline_pack_on_launch(SimpleNamespace(config=None))
         # The launch check itself succeeded (checked=True); the re-download
-        # check returned a graceful failure — nothing propagated.
+        # check returned a graceful failure, nothing propagated.
         assert result["checked"] is True
         assert result["installed_version"] is None
         assert result["update_check"]["success"] is False

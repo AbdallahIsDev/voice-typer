@@ -5,17 +5,17 @@ to reduce the god-class size. Each phase is gated by
 ``app._shutting_down`` so a ``quit()`` during startup short-circuits
 cleanly.
 
-Phase ordering is FIXED — see the dependency graph in worklog.md.
+Phase ordering is FIXED: see the dependency graph in worklog.md.
 Reordering risks:
 
 (a) Hotkey registration before model load means F2 works even if the
-    model fails to load — without this, a model-load failure leaves the
+    model fails to load: without this, a model-load failure leaves the
     user with no way to interact with the app.
 (b) Mic enumeration before hotkey registration means the tray menu has
     mics available when the hotkey is bound (the menu is built lazily
     on first show, but the mic list is captured at startup).
 (c) Onboarding auto-heal must run before any ``config.save()`` to avoid
-    clobbering user settings — the wizard's ``apply_settings()`` overwrites
+    clobbering user settings, the wizard's ``apply_settings()`` overwrites
     the user's hotkey, model, and microphone selections with onboarding
     defaults (``<caps_lock>``, ``tiny``, ``None``).
 
@@ -26,7 +26,7 @@ import is local to ``_do_startup`` itself, so this module never
 appears in ``app.py``'s import-time graph.
 
 Package layout (behavior-preserving split of the former 1474-LOC
-monolith — bodies moved verbatim, split by concern):
+monolith, bodies moved verbatim, split by concern):
 
 - :mod:`._maintenance`   -- stale backup / ``.tmp`` startup sweeps
 - :mod:`._phases_early`  -- ``StageResult``, onboarding fail-counter
@@ -40,7 +40,7 @@ monolith — bodies moved verbatim, split by concern):
 every re-exported pre-split attribute of
 ``voice_typer.server.startup_sequence`` (including ``monkeypatch``
 seams re-exported below) keeps resolving through this package
-``__init__`` — stdlib and cross-module names that the pre-split module
+``__init__``: stdlib and cross-module names that the pre-split module
 happened to bind (``os``, ``contextlib``, ``APP_NAME``, ...) are NOT
 re-exported and live at their owning modules. Per C-ARCH-2, tests patch seam names at their OWNING
 submodule (e.g. ``...startup_sequence._phases_early.configure_corrections``)
@@ -60,7 +60,7 @@ if TYPE_CHECKING:
     # ``__init__`` (always a ``VoiceTyperApp`` in production, but tests
     # pass mocks that satisfy the same duck-typed surface).
     # NOTE: ``AppProtocol`` (providers) is deliberately NOT imported
-    # here — the pack-check thread imports it at runtime (function
+    # here, the pack-check thread imports it at runtime (function
     # scope) because ``typing.cast`` evaluates its type argument at
     # runtime and a TYPE_CHECKING-only import caused a NameError in the
     # pack-check thread.
@@ -102,7 +102,7 @@ class StartupSequence(EarlyPhases, LatePhases):
     The previous monolithic ``VoiceTyperApp._do_startup`` (~340 lines)
     is now ``StartupSequence(app).run()``.  ``app`` is a back-reference
     so the sequence can read/write the app's state (config, tray, models,
-    hotkeys, etc.) — same attribute surface as before, just renamed
+    hotkeys, etc.), same attribute surface as before, just renamed
     from ``self.X`` to ``self._app.X``.
 
     Phase decomposition: ``run`` is now a <40-line orchestrator
@@ -118,7 +118,7 @@ class StartupSequence(EarlyPhases, LatePhases):
         self._app = app
 
     def run(self) -> None:
-        """Top-level entry — equivalent to the old ``_do_startup`` body.
+        """Top-level entry, equivalent to the old ``_do_startup`` body.
 
         RACE-020: checks ``self._app._shutting_down`` between each major
         step so that a ``quit()`` call during startup doesn't proceed

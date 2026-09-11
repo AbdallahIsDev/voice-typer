@@ -7,12 +7,12 @@ button layout (which buttons exist, on which side) in
 sessions style their chrome differently from GNOME. This module is the
 single source of truth for that system state:
 
-* :func:`detect_desktop_environment` — classify the session
+* :func:`detect_desktop_environment`: classify the session
   (``"kde" | "gnome" | "xfce" | "mate" | "other" | "unknown"``) from the
   standard session env vars (``KDE_FULL_SESSION``, ``XDG_CURRENT_DESKTOP``).
-* :func:`parse_button_layout` — parse a ``button-layout`` value like
+* :func:`parse_button_layout`: parse a ``button-layout`` value like
   ``"appmenu:minimize,maximize,close"`` into ``{"side", "buttons"}``.
-* :func:`system_window_buttons` — the cached snapshot exposed to the
+* :func:`system_window_buttons`: the cached snapshot exposed to the
   renderer through the read-only ``linux_window_buttons_system`` field of
   the ``get_config`` IPC response.
 
@@ -59,7 +59,7 @@ def detect_desktop_environment(
     Checks ``KDE_FULL_SESSION`` first (set by Plasma regardless of
     ``XDG_CURRENT_DESKTOP`` spelling), then the ``XDG_CURRENT_DESKTOP``
     colon-list. Returns one of ``"kde"``, ``"gnome"``, ``"xfce"``,
-    ``"mate"``, ``"other"``, or ``"unknown"`` (no session markers — e.g.
+    ``"mate"``, ``"other"``, or ``"unknown"`` (no session markers, e.g.
     tests or a headless process).
     """
     environ = os.environ if env is None else env
@@ -82,7 +82,7 @@ def detect_desktop_environment(
 def parse_button_layout(value: str | None) -> dict[str, object] | None:
     """Parse a GNOME ``button-layout`` value into ``{"side", "buttons"}``.
 
-    The value format is ``"[<left-items>:]<right-items>"`` — exactly one
+    The value format is ``"[<left-items>:]<right-items>"``, exactly one
     side carries buttons, the other side of the colon holds menu tokens
     (``appmenu`` etc.). A colon-less value is treated as right-side.
     Tokens outside :data:`_KNOWN_BUTTONS` are dropped. Returns ``None``
@@ -109,7 +109,7 @@ def parse_button_layout(value: str | None) -> dict[str, object] | None:
 def _query_gsettings() -> str | None:
     """Read the raw ``button-layout`` value; ``None`` on any failure."""
     try:
-        result = subprocess.run(  # noqa: S603 — fixed argv, no shell
+        result = subprocess.run(  # noqa: S603, fixed argv, no shell
             ["gsettings", "get", _GSETTINGS_SCHEMA, _GSETTINGS_KEY],
             capture_output=True,
             text=True,
@@ -141,7 +141,7 @@ def system_window_buttons(
     is computed once per process (the session layout is fixed at login);
     tests can pass ``force_refresh=True`` or seed ``env``.
     """
-    global _CACHE  # noqa: PLW0603 — single-process snapshot cache
+    global _CACHE  # noqa: PLW0603, single-process snapshot cache
     with _CACHE_LOCK:
         if _CACHE is not None and not force_refresh:
             return _CACHE

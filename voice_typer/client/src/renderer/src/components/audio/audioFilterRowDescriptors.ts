@@ -1,5 +1,5 @@
 // Data-driven registry of every distinct SettingRow rendered by
-// `<AudioFilterChain>` — the single source of truth for both the
+// `<AudioFilterChain>`, the single source of truth for both the
 // row's i18n keys AND its rendering metadata (config key, kind,
 // min/max/step, aria/info keys, default value, optional parent
 // toggle).
@@ -10,7 +10,7 @@
 // default value, parent toggle) was duplicated inline across ~520 LOC
 // of JSX. Adding a new filter row required touching 4 places: the
 // registry, the labels useMemo, the destructure block, and the JSX
-// body. Now the registry IS the render spec — the JSX is a single
+// body. Now the registry IS the render spec, the JSX is a single
 // `.map` over `audioFilterRowDescriptors`.
 //
 // previously `AudioSettingsSection`'s `sectionItems` array
@@ -24,7 +24,7 @@
 //
 // Co-locating the registry here (rather than duplicating the list in
 // `AudioSettingsSection`) keeps it next to the component that
-// actually renders the rows — any future filter row added to the
+// actually renders the rows, any future filter row added to the
 // registry is automatically picked up by the section's search
 // visibility check.
 
@@ -41,7 +41,7 @@ export const AUDIO_SECTION_TITLE_KEY = "settings.audioEnhancement.title";
 /**
  * Option for a `kind: "select"` row. Either `label` (a plain
  * non-i18n string like "RNNoise") or `labelKey` (an i18n key like
- * `"settings.audioEnhancement.noneOption"`) — mutually exclusive.
+ * `"settings.audioEnhancement.noneOption"`), mutually exclusive.
  */
 export interface AudioFilterSelectOption {
 	value: string;
@@ -138,7 +138,7 @@ export const audioFilterRowDescriptors: readonly AudioFilterRowDescriptor[] = [
 		defaultValue: "rnnoise",
 		options: [
 			{ value: "rnnoise", label: "RNNoise" },
-			// GTCRN — the bundled ONNX streaming denoiser
+			// GTCRN, the bundled ONNX streaming denoiser
 			// shipped with the app (no extra install, runs
 			// on-device). The historical "deepfilternet"
 			// option was retired with it, and the dead

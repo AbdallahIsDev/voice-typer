@@ -7,7 +7,7 @@
 // needs a ambient declaration to accept them.
 
 declare module "*.css" {
-	// CSS imports are side-effect only — the module has no exports.
+	// CSS imports are side-effect only, the module has no exports.
 	const content: Record<string, never>;
 	export default content;
 }

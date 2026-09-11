@@ -4,8 +4,8 @@
 Measures the per-dictation text pipeline every dictation runs through
 after ASR returns, in production order:
 
-    1. text cleanup       — ``text_cleanup.clean_transcribed_text``
-    2. vocabulary apply   — ``VocabularyManager.apply_to_text``
+    1. text cleanup      : ``text_cleanup.clean_transcribed_text``
+    2. vocabulary apply  : ``VocabularyManager.apply_to_text``
 
 These two stages run on EVERY dictation regardless of engine; they are
 the always-measurable core of the dictation latency budget. The
@@ -103,7 +103,7 @@ def _build_vocabulary(tmp_dir: Path):
     """A seeded VocabularyManager over an isolated temp store.
 
     The bundled-corrections file is pointed at a non-existent path so
-    the seed set above is the ENTIRE vocabulary — the bench never reads
+    the seed set above is the ENTIRE vocabulary, the bench never reads
     or writes the user's real config dir.
     """
     from voice_typer.server.vocabulary import VocabularyManager
@@ -144,7 +144,7 @@ def bench_text_pipeline(iterations: int) -> dict:
                 t0 = t2
 
         # Untimed warm-up: the first pass pays lazy imports + the initial
-        # regex compile + OS page-cache misses — not steady-state cost.
+        # regex compile + OS page-cache misses, not steady-state cost.
         _one()
         cleanup_us.clear()
         vocab_us.clear()
@@ -165,7 +165,7 @@ def bench_text_pipeline(iterations: int) -> dict:
 def _bench_transcription_stage(model_size: str, device: str) -> dict:
     """Optional: transcription latency on synthetic audio.
 
-    Best-effort — any failure (no model downloaded, no engine backend)
+    Best-effort: any failure (no model downloaded, no engine backend)
     degrades to a ``skipped`` note instead of failing the bench.
     """
     try:
@@ -233,7 +233,7 @@ def main() -> int:
         return 0
 
     print("=" * 72)
-    print("Voice Typer — Dictation End-to-End Text-Path Benchmark")
+    print("Voice Typer: Dictation End-to-End Text-Path Benchmark")
     print("=" * 72)
     tp = results["text_pipeline"]
     print(f"\n## Text Pipeline ({tp['iterations']} iterations × {tp['transcripts_per_iteration']} transcripts)")

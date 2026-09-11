@@ -2,7 +2,7 @@
 
 Pins the contract that ``app.config.microphone`` (the canonical
 ``config.json`` value) is validated against the live device list during
-startup — BEFORE any consumer (tray, recorder, renderer) reads it:
+startup, BEFORE any consumer (tray, recorder, renderer) reads it:
 
 - stale/unavailable id  → silently fall back to System Default,
   persist ``null``, emit one WARNING diagnostic line;
@@ -95,7 +95,7 @@ class TestReconcileConfiguredMicrophone:
 
         assert app.config.microphone is None
         assert saves == [True]
-        # Exactly ONE diagnostic publish — the config_changed envelope.
+        # Exactly ONE diagnostic publish, the config_changed envelope.
         assert mock_publish.call_count == 1
         evt = mock_publish.call_args[0][0]
         assert evt["type"] == "config_changed"
@@ -154,7 +154,7 @@ class TestReconcileConfiguredMicrophone:
             startup_tasks._reconcile_configured_microphone(app, [])
 
         # A failed/empty PortAudio query is NOT evidence the device is
-        # gone — the stale id must survive until a real enumeration.
+        # gone, the stale id must survive until a real enumeration.
         assert app.config.microphone == STALE_ID
         assert saves == []
         assert mock_publish.call_count == 0
@@ -199,7 +199,7 @@ class TestReconcileConfiguredMicrophone:
             ),
             patch("voice_typer.server.event_bus.publish"),
         ):
-            # Enumeration succeeded but resolution crashed — recovery
+            # Enumeration succeeded but resolution crashed, recovery
             # still applies (fail-safe toward System Default).
             startup_tasks._reconcile_configured_microphone(app, [{"id": STABLE_ID}])
 
@@ -210,7 +210,7 @@ class TestReconcileConfiguredMicrophone:
 class TestLoadMicrophonesIntegration:
     def test_reconciliation_runs_inside_load_microphones(self, resolver) -> None:
         """The public startup task must reconcile BEFORE publishing
-        microphones_changed / updating the tray — so no consumer ever
+        microphones_changed / updating the tray, so no consumer ever
         sees the stale persisted value."""
         resolver.result = None
         app, saves = make_app(STALE_ID)
@@ -242,7 +242,7 @@ class TestLoadMicrophonesIntegration:
             ),
             patch.object(startup_tasks, "_reconcile_configured_microphone", boom),
         ):
-            # Must not raise — enumeration/tray update still completes.
+            # Must not raise, enumeration/tray update still completes.
             startup_tasks.load_microphones(app)
 
         assert app._microphones == [{"id": "WASAPI|Other", "name": "Other"}]

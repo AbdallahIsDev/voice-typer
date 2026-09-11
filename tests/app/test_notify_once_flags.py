@@ -6,7 +6,7 @@ Finding 2: the
 notify-once deduplication flags (``_vocab_fail_notified``,
 ``_template_fail_notified``, ``_history_fail_notified``,
 ``_crash_recovery_fail_notified``) were stored on
-``DictationPipeline`` (cycle-scoped — a fresh pipeline is constructed
+``DictationPipeline`` (cycle-scoped, a fresh pipeline is constructed
 per transcription cycle), so the user got a tray notification on EVERY
 cycle where the failure occurred. The fix moves the flags to
 ``self._app`` (session-scoped). These tests verify the notify-once
@@ -47,7 +47,7 @@ class TestNotifyOnceFlagsAreSessionScoped:
         app = _make_app()
         app._vocabulary_manager = MagicMock()
         app._vocabulary_manager.apply_to_text.side_effect = RuntimeError("vocab boom")
-        # Flag is absent on app initially — first pipeline must
+        # Flag is absent on app initially, first pipeline must
         # default to "not yet notified" and fire the tray notify.
 
         pipeline1 = _new_pipeline(app)
@@ -130,7 +130,7 @@ class TestNotifyOnceFlagsDefaultToFalseOnFreshApp:
         app = _make_app()
         app._vocabulary_manager = MagicMock()
         app._vocabulary_manager.apply_to_text.side_effect = RuntimeError("vocab boom")
-        # Deliberately do NOT seed app._vocab_fail_notified — verify
+        # Deliberately do NOT seed app._vocab_fail_notified, verify
         # the production code's getattr-default-to-False semantics
         # work correctly on a non-MagicMock app object.
 
@@ -156,7 +156,7 @@ class TestNotifyOnceFlagsDefaultToFalseOnFreshApp:
 
 class TestNotifyOnceFlagsAreNotOnPipeline:
     """a-review Finding 2 (regression guard): the flags must NOT be
-    read or written on the pipeline instance — that's the bug we
+    read or written on the pipeline instance, that's the bug we
     fixed. The original test inspected the pipeline source code for
     ``self._<flag>`` patterns, which is brittle: cosmetic refactor
     breaks the test on false positives while functional regressions
@@ -168,7 +168,7 @@ class TestNotifyOnceFlagsAreNotOnPipeline:
     (a) the flag is set on the *app* (``hasattr(app, flag) is True``)
     and (b) the flag is absent on the *pipeline* (``hasattr(pipeline,
     flag) is False``). This catches the actual runtime invariant
-    directly — no source-text introspection.
+    directly, no source-text introspection.
     """
 
     @pytest.mark.parametrize(
@@ -194,7 +194,7 @@ class TestNotifyOnceFlagsAreNotOnPipeline:
     )
     def test_flag_lives_on_app_not_pipeline(self, flag: str, trigger):
         """After the failure fires, the flag must be set on ``app``
-        and absent on ``pipeline`` — i.e. the cycle-scoped pipeline
+        and absent on ``pipeline``, i.e. the cycle-scoped pipeline
         does NOT carry the notify-once state. This catches a
         regression that re-introduces ``self._<flag>`` on the
         pipeline directly via the runtime invariant, regardless of
@@ -221,7 +221,7 @@ class TestNotifyOnceFlagsAreNotOnPipeline:
         # the flag (default-False via getattr-with-default in
         # production code).
         assert not hasattr(pipeline, flag), (
-            f"Pipeline should not carry {flag} before failure — the flag "
+            f"Pipeline should not carry {flag} before failure, the flag "
             f"belongs on the session-scoped app, not the cycle-scoped "
             f"pipeline (a-review Finding 2)."
         )
@@ -232,17 +232,17 @@ class TestNotifyOnceFlagsAreNotOnPipeline:
         # (a) The flag must now be set on the *app* (the bug fix
         # stores it there so it survives across pipeline cycles).
         assert hasattr(app, flag) is True, (
-            f"After triggering the failure, app must carry {flag} — "
+            f"After triggering the failure, app must carry {flag}, "
             f"the notify-once flag must live on the session-scoped app "
             f"so it survives across pipeline cycles (a-review Finding 2)."
         )
         assert getattr(app, flag) is True, (
-            f"app.{flag} must be True after the first failure — this is what suppresses subsequent notifications."
+            f"app.{flag} must be True after the first failure, this is what suppresses subsequent notifications."
         )
-        # (b) The flag must NOT be set on the *pipeline* — that was
+        # (b) The flag must NOT be set on the *pipeline*, that was
         # the original bug (cycle-scoped flag reset every cycle).
         assert not hasattr(pipeline, flag), (
-            f"Pipeline must NOT carry {flag} — the notify-once flag "
+            f"Pipeline must NOT carry {flag}, the notify-once flag "
             f"lives on the session-scoped app, not the cycle-scoped "
             f"pipeline. Storing it on the pipeline resets every cycle "
             f"and the user gets a tray notification on every failure "

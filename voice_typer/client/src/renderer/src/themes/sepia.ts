@@ -1,5 +1,5 @@
 /**
- * "Sepia" theme preset — warm amber tones and cream backgrounds.
+ * "Sepia" theme preset, warm amber tones and cream backgrounds.
  *
  * See ``themes.ts`` for the ``ThemePreset`` interface and how presets
  * are consumed.
@@ -7,7 +7,7 @@
  * light and dark now define the SAME superset of CSS vars.
  * Previously the dark map defined ``--destructive``, ``--destructive-foreground``,
  * ``--scrollbar-thumb``, ``--scrollbar-thumb-hover``, ``--surface-page``,
- * and ``--text-primary`` that the light map did not — components
+ * and ``--text-primary`` that the light map did not, components
  * reading those vars in light mode silently fell back to the
  * stylesheet default. Both maps now cover the same key set.
  */

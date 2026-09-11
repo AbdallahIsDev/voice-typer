@@ -27,7 +27,7 @@ log = logging.getLogger(__name__)
 class VolumeState:
     """Immutable snapshot of system volume for save/restore.
 
-    ``linear`` is perceptual-linear (0.0 = silent, 1.0 = max) — the same
+    ``linear`` is perceptual-linear (0.0 = silent, 1.0 = max), the same
     scale used by the duck level.  Backends convert to/from their native
     units.
     """
@@ -68,7 +68,7 @@ class VolumeBackend(ABC):
 
         Returns ``True`` if the backend is ready for use, ``False`` if
         unavailable (no device, missing library, permission denied).
-        Must be idempotent — safe to call multiple times.
+        Must be idempotent, safe to call multiple times.
         """
 
     # ── Volume operations ───────────────────────────────────────────
@@ -108,7 +108,7 @@ class VolumeBackend(ABC):
         native fade support (e.g. Windows ``VolumeStepDown``) may
         override for smoother behaviour.
 
-        The fade is **synchronous** — the caller blocks until complete.
+        The fade is **synchronous**, the caller blocks until complete.
         This is intentional: ``VolumeDucker`` calls this from a
         background thread, and a 150 ms block is acceptable.
 
@@ -164,7 +164,7 @@ class VolumeBackend(ABC):
     # ── Speaker-activity detection ────────────────────────────────
     #
     # Smart ducking: if no application is currently playing audio
-    # through the speakers, we can skip the duck entirely — no need
+    # through the speakers, we can skip the duck entirely, no need
     # to animate the volume icon for nothing.
     #
     # The default implementation assumes audio IS playing (always
@@ -224,7 +224,7 @@ class VolumeBackend(ABC):
         advertise the *slowest* cadence the monitor should adopt.
         ``VolumeDucker`` uses ``max(user_value, min_poll_interval_ms)``
         so the monitor never polls *faster* than the backend can
-        handle — preventing CPU waste (10–20% on Linux pactl at the
+        handle, preventing CPU waste (10–20% on Linux pactl at the
         default 500 ms cadence) and battery drain on laptops.
 
         Default ``0`` means no minimum (the monitor can poll as fast

@@ -1,33 +1,33 @@
-"""§10 — tests for the pack-version checker (``update_check.py``).
+"""§10: tests for the pack-version checker (``update_check.py``).
 
 Covers the auto-update mechanism from plan-runtime-pack-split.md §10.1:
 
-  * SSRF protection — the manifest URL is gated by
+  * SSRF protection, the manifest URL is gated by
     :func:`offline_pack.assert_offline_pack_url_allowed`, which extends the runtime
     allowlist with GitHub hosts + inherits the IP-literal blocklist +
     DNS-rebinding defense from
     :func:`voice_typer.server.security.url_allowlist.assert_url_allowed`
     (the SAME SSRF defense tested by ``tests/test_http_safety_ssrf.py``).
-  * Max-bytes limit — the remote manifest is parsed via
+  * Max-bytes limit, the remote manifest is parsed via
     :func:`_secure_read_text(max_bytes=)`, mirroring the cap pattern
     tested by ``tests/test_secure_file_io_max_bytes.py``.
-  * Proxy support — :func:`offline_pack.proxy_env` returns ``HTTP_PROXY`` /
+  * Proxy support, :func:`offline_pack.proxy_env` returns ``HTTP_PROXY`` /
     ``HTTPS_PROXY`` env vars; the default transport passes them to
     ``urllib.request`` via a ``ProxyHandler``.
-  * Version comparison — :func:`is_newer_version` handles ``v1.2.3``,
+  * Version comparison, :func:`is_newer_version` handles ``v1.2.3``,
     ``1.2.3``, ``1.2.3-rc1``, and shorter tuples (``1.2`` == ``1.2.0``).
-  * Background download trigger — when a newer version is found AND
+  * Background download trigger, when a newer version is found AND
     consent is given, ``check_offline_pack_update`` calls
     ``offline_pack.download_offline_pack_with_resume`` on a daemon thread. The test
     mocks the transport + the download call to verify the trigger.
-  * Consent gate — when ``config.offline_pack_consent`` is False,
+  * Consent gate, when ``config.offline_pack_consent`` is False,
     ``check_offline_pack_update`` returns ``{success: False, consent_required: True}``
     + publishes a ``consent_required`` event (mirrors the model-download
     consent flow in ``ModelMixin._require_huggingface_consent``).
-  * C-DATA-1 — the pack download from GitHub Releases is a
+  * C-DATA-1, the pack download from GitHub Releases is a
     sanctioned category-(4) network call (offline-pack download).
 
-All network calls are mocked — no real HTTP requests are made.
+All network calls are mocked, no real HTTP requests are made.
 """
 
 from __future__ import annotations
@@ -63,7 +63,7 @@ def _hermetic_trigger_disk_gate(monkeypatch):
     when ``root=None``. On a near-full host the thread dies before the
     test's patched ``download_offline_pack_with_resume`` is ever
     called, failing guard/lock/install-wiring tests that assert on the
-    thread's side effects — none of which are about the disk gate
+    thread's side effects, none of which are about the disk gate
     (that gate has its own dedicated suite:
     ``tests/test_pack_disk_space_check.py``). Patch it to a no-op so
     the trigger tests stay hermetic.
@@ -123,7 +123,7 @@ def fake_config_no_consent():
 
 
 class TestIsNewerVersion:
-    """``is_newer_version`` — semver-ish comparison."""
+    """``is_newer_version``, semver-ish comparison."""
 
     @pytest.mark.parametrize(
         "remote,local,expected",
@@ -150,7 +150,7 @@ class TestIsNewerVersion:
     def test_non_numeric_segments_treated_as_zero(self):
         """Non-numeric segments (e.g. ``"1.2.x"``) are treated as 0.
 
-        A malformed version should NOT trigger a spurious update — the
+        A malformed version should NOT trigger a spurious update, the
         safe default is "no update" (equal versions). ``1.2.x`` parses
         to ``(1, 2, 0)``, same as ``1.2.0``.
         """
@@ -162,7 +162,7 @@ class TestIsNewerVersion:
 
 
 class TestFetchRemoteManifest:
-    """``fetch_remote_manifest`` — SSRF + max-bytes + schema validation."""
+    """``fetch_remote_manifest``, SSRF + max-bytes + schema validation."""
 
     def test_fetches_and_parses_valid_manifest(self, fake_manifest_url: str):
         """A valid manifest is fetched + parsed + structurally validated."""
@@ -183,8 +183,8 @@ class TestFetchRemoteManifest:
 
         # ``assert_pack_url_allowed`` extends the allowlist with GitHub
         # hosts but STILL rejects private IP literals. ``http://10.0.0.5``
-        # is not in the allowlist AND is a private IP — double-rejected.
-        # We mock the transport to raise if called — proving the SSRF
+        # is not in the allowlist AND is a private IP, double-rejected.
+        # We mock the transport to raise if called, proving the SSRF
         # check fires BEFORE the HTTP call.
         def fake_http_get(url, *, max_bytes=MAX_MANIFEST_BYTES):
             raise AssertionError("HTTP transport should NOT be called for SSRF-blocked URL")
@@ -234,7 +234,7 @@ class TestFetchRemoteManifest:
         """A manifest body exceeding ``max_bytes`` is rejected.
 
         Mirrors the ``_secure_read_text`` cap test in
-        ``tests/test_secure_file_io_max_bytes.py`` — the cap is on BYTES,
+        ``tests/test_secure_file_io_max_bytes.py``, the cap is on BYTES,
         not characters, and aborts IMMEDIATELY (does not read the whole
         body).
         """
@@ -284,7 +284,7 @@ class TestFetchRemoteManifest:
 
 
 class TestCheckOfflinePackUpdate:
-    """``check_offline_pack_update`` — the main entry point."""
+    """``check_offline_pack_update``, the main entry point."""
 
     def test_no_local_pack_remote_available_triggers_download(
         self,
@@ -535,7 +535,7 @@ class TestCheckOfflinePackUpdate:
             fake_config_with_consent,
             fake_event_bus.bus,  # type: ignore[arg-type]
             http_get=fake_http_get,
-            # NOTE: manifest_url NOT passed — should fall back to env var.
+            # NOTE: manifest_url NOT passed, should fall back to env var.
         )
 
         assert fetched_urls == [custom_url], f"expected fetch from env-var URL {custom_url!r}, got {fetched_urls}"
@@ -543,19 +543,19 @@ class TestCheckOfflinePackUpdate:
     def test_default_manifest_url_is_github_releases_latest(self):
         """The default manifest URL points at GitHub Releases ``/latest/download/``.
 
-        This pins the URL contract documented in
-        ``docs/auto-update-feature.md`` (to be updated by Sub-agent 15)
-        — the renderer / publisher / checker all rely on this URL
-        shape. The repo segment must be sourced from the centralized
-        branding constant (``branding.APP_REPO``), not re-hardcoded —
-        renaming the repo in ``branding.py`` propagates here.
+          This pins the URL contract documented in
+          ``docs/auto-update-feature.md`` (to be updated by Sub-agent 15)
+        , the renderer / publisher / checker all rely on this URL
+          shape. The repo segment must be sourced from the centralized
+          branding constant (``branding.APP_REPO``), not re-hardcoded —
+          renaming the repo in ``branding.py`` propagates here.
         """
         from voice_typer.server.branding import APP_REPO
 
         assert DEFAULT_OFFLINE_PACK_MANIFEST_URL == (
             "https://github.com/AbdallahIsDev/voice-typer/releases/latest/download/pack-manifest.json"
         ), (
-            "DEFAULT_OFFLINE_PACK_MANIFEST_URL changed — update docs/auto-update-feature.md "
+            "DEFAULT_OFFLINE_PACK_MANIFEST_URL changed, update docs/auto-update-feature.md "
             "(Sub-agent 15) and the publisher (publish_pack_release.py) to match."
         )
         assert (
@@ -596,7 +596,7 @@ class TestCheckOfflinePackUpdate:
 
 
 class TestTriggerBackgroundDownload:
-    """``_trigger_background_download`` — spawns the download thread."""
+    """``_trigger_background_download``, spawns the download thread."""
 
     def test_spawns_thread_with_correct_url(
         self,
@@ -637,7 +637,7 @@ class TestTriggerBackgroundDownload:
         )
         assert ok is True
 
-        # The download runs on a daemon thread — give it a moment to
+        # The download runs on a daemon thread, give it a moment to
         # call our fake.
 
         deadline = time.monotonic() + 2.0
@@ -684,7 +684,7 @@ class TestTriggerBackgroundDownload:
         fake_config_with_consent,
         monkeypatch,
     ):
-        """§8.13/§8.16 — two triggers for the same version → ONE download.
+        """§8.13/§8.16, two triggers for the same version → ONE download.
 
         The launch-time check + the renderer's network-is-back hook can
         fire ``check_offline_pack_update(trigger_download=True)`` back to
@@ -784,7 +784,7 @@ class TestTriggerBackgroundDownload:
 
 
 class TestHandleCheckPackUpdateIpc:
-    """``handle_check_offline_pack_update_ipc`` — thin IPC wrapper."""
+    """``handle_check_offline_pack_update_ipc``, thin IPC wrapper."""
 
     def test_returns_plain_dict(self, fake_config_with_consent, fake_event_bus, monkeypatch):
         """The IPC handler returns a plain ``dict`` (not a TypedDict instance)."""
@@ -806,7 +806,7 @@ class TestHandleCheckPackUpdateIpc:
         assert result["success"] is True
 
     def test_app_none_tolerated(self, monkeypatch):
-        """``app=None`` is tolerated — treated as no-config + no-event-bus.
+        """``app=None`` is tolerated, treated as no-config + no-event-bus.
 
         The check still runs; consent will fail + no events published.
         """
@@ -852,7 +852,7 @@ class TestMaxBytesCapInherited:
 
     ``fetch_remote_manifest`` writes the body to a temp file and reads
     it back via ``_secure_read_text(max_bytes=)``. This test verifies
-    the cap is wired up — a body just under the cap succeeds, a body
+    the cap is wired up, a body just under the cap succeeds, a body
     just over fails.
     """
 
@@ -864,7 +864,7 @@ class TestMaxBytesCapInherited:
         """``_secure_read_text`` rejects a file exceeding ``max_bytes``.
 
         This is a re-test of the contract from
-        ``tests/test_secure_file_io_max_bytes.py`` — included here to
+        ``tests/test_secure_file_io_max_bytes.py``, included here to
         document that ``update_check`` inherits the cap.
         """
         from voice_typer.server.secure_file_io import _secure_read_text
@@ -918,7 +918,7 @@ class TestSSRFInherited:
 
     def test_private_ip_literal_rejected_even_if_allowlisted(self):
         """Even if a private IP is added to the allowlist, the SSRF check
-        rejects it (defense-in-depth — mirrors the regression test in
+        rejects it (defense-in-depth, mirrors the regression test in
         ``tests/test_http_safety_ssrf.py``)."""
         from voice_typer.server.security.url_allowlist import (
             _user_extensions,
@@ -944,7 +944,7 @@ class TestSSRFRedirectRevalidation:
     follows 3xx redirects. ``fetch_remote_manifest`` only validates the
     INITIAL URL through ``assert_pack_url_allowed``; if the initial URL
     returns a 3xx redirect to a private/loopback IP or non-allowlisted
-    host, urllib would follow the redirect — exfiltrating the request
+    host, urllib would follow the redirect, exfiltrating the request
     body (User-Agent identifying app + version) to the attacker-
     controlled internal endpoint.
 
@@ -980,7 +980,7 @@ class TestSSRFRedirectRevalidation:
         # request that triggered the redirect.
         req = Request("https://github.com/owner/repo/pack-manifest.json")
 
-        # The redirect target — a private IP literal that
+        # The redirect target, a private IP literal that
         # ``assert_pack_url_allowed`` rejects (HTTP non-loopback +
         # private IP, double-rejected).
         with pytest.raises(RuntimeError, match="SSRF"):
@@ -995,8 +995,8 @@ class TestSSRFRedirectRevalidation:
 
     def test_redirect_handler_rejects_loopback_http_target(self):
         """A ``http://127.0.0.1/evil`` redirect target is rejected (HTTP
-        to loopback requires explicit opt-in via ``allow_loopback_http``
-        — the default pack downloader does NOT opt in)."""
+          to loopback requires explicit opt-in via ``allow_loopback_http``
+        , the default pack downloader does NOT opt in)."""
         from urllib.request import Request
 
         from voice_typer.server.service.update_check import _SSRFAwareRedirectHandler
@@ -1049,7 +1049,7 @@ class TestSSRFRedirectRevalidation:
         assert result.get_full_url() == "https://objects.githubusercontent.com/github-production-release-asset/foo"
 
     def test_manifest_redirect_to_private_ip_is_rejected(self, monkeypatch):
-        """A 3xx redirect to a private/loopback IP is rejected — the
+        """A 3xx redirect to a private/loopback IP is rejected, the
         redirect is NOT followed.
 
         End-to-end test through ``_http_get_manifest``: a fake HTTPS
@@ -1060,7 +1060,7 @@ class TestSSRFRedirectRevalidation:
 
         This test FAILS on revert: without ``_SSRFAwareRedirectHandler``,
         urllib silently follows the redirect. The follow-up request to
-        ``http://10.0.0.5:80`` either succeeds (returns a body — no
+        ``http://10.0.0.5:80`` either succeeds (returns a body, no
         exception) or raises ``URLError`` (connection refused).
         Neither matches the expected ``RuntimeError(SSRF)``.
 
@@ -1074,7 +1074,7 @@ class TestSSRFRedirectRevalidation:
 
         from voice_typer.server.service import update_check
 
-        # The redirect target — a private IP literal that
+        # The redirect target, a private IP literal that
         # ``assert_pack_url_allowed`` rejects.
         redirect_target = "http://10.0.0.5/evil"
 
@@ -1116,8 +1116,8 @@ class TestSSRFRedirectRevalidation:
                 return _FakeRedirectResponse(redirect_target)
 
         # Fake HTTP handler that raises URLError. Installed alongside
-        # the fake HTTPS handler so that — on revert (default redirect
-        # handler follows the redirect to HTTP) — no real network call
+        # the fake HTTPS handler so that, on revert (default redirect
+        # handler follows the redirect to HTTP), no real network call
         # is made (URLError raised instead of a real connection to
         # 10.0.0.5:80).
         class _FakeHTTPHandler(urllib.request.HTTPHandler):
@@ -1140,7 +1140,7 @@ class TestSSRFRedirectRevalidation:
 
         # The initial URL must be allowlisted (HTTPS + GitHub host) so
         # the INITIAL ``assert_pack_url_allowed`` check in
-        # ``fetch_remote_manifest`` passes — we want to test the
+        # ``fetch_remote_manifest`` passes, we want to test the
         # REDIRECT re-validation, not the initial URL check. The
         # initial SSRF gate runs BEFORE ``_http_get_manifest`` is
         # called, so it does not touch the fake HTTPS handler.
@@ -1148,7 +1148,7 @@ class TestSSRFRedirectRevalidation:
 
         # ``_http_get_manifest`` should raise RuntimeError (SSRF block
         # from ``_SSRFAwareRedirectHandler``), NOT URLError (the fake
-        # HTTP handler's raise — which would only fire if the redirect
+        # HTTP handler's raise, which would only fire if the redirect
         # was followed).
         with pytest.raises(RuntimeError, match="SSRF") as exc_info:
             update_check._http_get_manifest(initial_url)
@@ -1159,7 +1159,7 @@ class TestSSRFRedirectRevalidation:
 
     def test_fetch_remote_manifest_returns_none_on_redirect_to_private_ip(self, monkeypatch):
         """``fetch_remote_manifest`` returns ``None`` when the manifest URL
-        returns a 3xx redirect to a private IP (fail-closed — no download
+        returns a 3xx redirect to a private IP (fail-closed, no download
         triggered).
 
         This is the user-facing behavior: the caller sees ``None`` and
@@ -1223,7 +1223,7 @@ class TestSSRFRedirectRevalidation:
         result = update_check.fetch_remote_manifest(initial_url)
         assert result is None, (
             "fetch_remote_manifest should return None (fail-closed) when "
-            "the manifest URL redirects to a private IP — got "
+            "the manifest URL redirects to a private IP, got "
             f"{result!r}"
         )
 
@@ -1232,12 +1232,12 @@ class TestSSRFRedirectRevalidation:
 
 
 class TestTriggerInstallWiring:
-    """``_trigger_background_download`` — the background flow runs the
+    """``_trigger_background_download``, the background flow runs the
     disk gate, holds the cross-process pack lock around the download +
     install, and installs the pack after a successful download.
 
     The runtime-pack worker start step is intentionally not wired here
-    (out of scope per the pack-split wiring decision) — the flow ends
+    (out of scope per the pack-split wiring decision), the flow ends
     with the pack installed, verified, and swapped into place.
     """
 
@@ -1250,7 +1250,7 @@ class TestTriggerInstallWiring:
         tmp_path: Path,
     ):
         """The §8.8 disk-space gate is invoked on the pack dir before the
-        download starts — and a failing gate aborts the download."""
+        download starts, and a failing gate aborts the download."""
         manifest = _make_manifest("1.1.0")
         gate_calls: list[Path] = []
         download_called = threading.Event()
@@ -1652,7 +1652,7 @@ class TestTriggerGuardLeak:
 
 
 class TestLocalPackVersionScan:
-    """``_local_offline_pack_version`` — the launch-time pack scan."""
+    """``_local_offline_pack_version``, the launch-time pack scan."""
 
     @staticmethod
     def _install_min_pack(root: Path, version: str) -> None:
@@ -1677,7 +1677,7 @@ class TestLocalPackVersionScan:
 
     def test_scan_ignores_staging_and_trash_dirs(self, tmp_path: Path):
         """A crashed install can leave ``<version>.new/`` (with a valid
-        manifest — written just before the swap) and a swap can leave
+        manifest, written just before the swap) and a swap can leave
         ``<version>.trash/``. Neither is an installed version: the scan
         must skip them so a leftover staging dir is not mistaken for
         the local pack (which would suppress the re-trigger)."""

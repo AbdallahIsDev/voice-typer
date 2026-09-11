@@ -5,13 +5,13 @@ Where ``llm_polish`` sends the transcription to a cloud LLM for stylistic
 rewriting, ``ai_enhancement`` applies small, deterministic, reversible
 fixes that don't require any network call:
 
-* :func:`auto_capitalize` — sentence-start and proper-noun capitalization.
-* :func:`auto_punctuate` — adds periods at sentence boundaries and
+* :func:`auto_capitalize`: sentence-start and proper-noun capitalization.
+* :func:`auto_punctuate`: adds periods at sentence boundaries and
   commas at natural breath breaks, using word-gap heuristics.
-* :func:`fix_grammar_basics` — fixes common transcription artifacts
+* :func:`fix_grammar_basics`: fixes common transcription artifacts
   such as the bare pronoun ``i``, missing apostrophes in contractions
   (``dont`` → ``don't``), and stray double spaces.
-* :func:`enhance_transcription` — dispatcher that reads the relevant
+* :func:`enhance_transcription`: dispatcher that reads the relevant
   boolean flags off a :class:`~voice_typer.server.config.Config` and
   applies the enabled steps. The dispatcher is *opt-in*: the master
   toggle ``ai_enhancement_enabled`` defaults to ``False`` so the
@@ -20,7 +20,7 @@ fixes that don't require any network call:
 
 The functions here are intentionally conservative.  They MUST NOT
 change the meaning of the transcription.  When in doubt, the function
-leaves the text alone — false negatives are preferred to false
+leaves the text alone, false negatives are preferred to false
 positives.  The heuristic rules are tuned for English; non-English
 text passes through largely untouched (same as the existing
 ``text_cleanup`` module).
@@ -61,7 +61,7 @@ log = logging.getLogger(__name__)
 # text or whitespace-only boundaries.
 _RE_SENTENCE_BOUNDARY = re.compile(r"([.!?]\s+)([a-z])")
 
-# A bare lower-case "i" surrounded by word boundaries — this is the
+# A bare lower-case "i" surrounded by word boundaries, this is the
 # pronoun and should be capitalized.  We use a non-word lookaround
 # rather than ``\b`` because ``\b`` between two non-word characters
 # behaves unexpectedly; the explicit ``(?<![A-Za-z'])`` /
@@ -69,7 +69,7 @@ _RE_SENTENCE_BOUNDARY = re.compile(r"([.!?]\s+)([a-z])")
 # → "don't I") correctly.
 _RE_PRONOUN_I = re.compile(r"(?<![A-Za-z'])i(?![A-Za-z'])")
 
-# Two or more consecutive spaces — collapse to one.  We don't touch
+# Two or more consecutive spaces, collapse to one.  We don't touch
 # leading/trailing whitespace (the caller / ``text_cleanup`` already
 # stripped that).
 _RE_DOUBLE_SPACE = re.compile(r"  +")
@@ -78,7 +78,7 @@ _RE_DOUBLE_SPACE = re.compile(r"  +")
 # patterns; we replace them as whole-word matches only (no
 # substrings) so "wont" → "won't" but "wonton" stays unchanged.
 #
-# This list is intentionally short and conservative — each entry is
+# This list is intentionally short and conservative, each entry is
 # a transcription error that Whisper small models frequently emit.
 # Adding speculative entries (e.g. "well" → "we'll") would create
 # false positives on legitimate words.
@@ -110,7 +110,7 @@ _CONTRACTION_FIXES: dict[str, str] = {
     # "its" -> "it's" and "were" -> "we're" are deliberately ABSENT:
     # both are ubiquitous legitimate words (possessive "its", question
     # "Were you..."), and a whole-word rewrite silently inverts the
-    # sentence's meaning — violating this module's "MUST NOT change
+    # sentence's meaning, violating this module's "MUST NOT change
     # the meaning" contract. The contraction typos they would catch
     # ("its a test", "were going home") are rarer than the false
     # positives, so the safe trade is to not rewrite them at all.
@@ -137,7 +137,7 @@ _CONTRACTION_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
-# Proper-noun heuristics.  These are deliberately tiny — we only
+# Proper-noun heuristics.  These are deliberately tiny, we only
 # capitalize a word as a proper noun when we have high confidence.
 # The list below is the set of weekday / month names plus a handful
 # of uncontroversial single-word proper nouns that Whisper often
@@ -150,13 +150,13 @@ _CONTRACTION_PATTERN = re.compile(
 # common in conversational speech than the possessive / past-tense
 # form.  If a user reports a false positive, the fix is to remove
 # the entry from ``_CONTRACTION_FIXES`` rather than adding a
-# heuristic — the disambiguation is too context-dependent to be
+# heuristic, the disambiguation is too context-dependent to be
 # worth the complexity here.
 # NOTE: ``may``, ``march`` and ``august`` are deliberately ABSENT
 # (BP-132): they double as high-frequency common words (modal "may",
 # verb "march", and the adjective "august" is rare but the month is
 # ambiguous mid-sentence), and the unconditional set capitalized EVERY
-# occurrence — "the plan may work" → "the plan May work". Same
+# occurrence, "the plan may work" → "the plan May work". Same
 # reasoning previously removed "ill" -> "I'll" and "id" -> "I'd".
 # Month names at a sentence start still capitalize via steps 1–2.
 _PROPER_NOUN_SINGLE_WORDS: frozenset[str] = frozenset(
@@ -250,7 +250,7 @@ def auto_capitalize(text: str) -> str:
       context).
     * Lower-case words that are mistakenly upper-cased (the existing
       ``text_cleanup`` module already handles ALL-CAPS shouting).
-    * Touch text inside quotes, code, or URLs — there is no
+    * Touch text inside quotes, code, or URLs, there is no
       reliable way to detect these without a parser, and the
       downstream ``_add_safe_terminal_punctuation`` already skips
       them.
@@ -286,7 +286,7 @@ def auto_capitalize(text: str) -> str:
                 break
             if ch.isspace():
                 continue
-            # Non-alpha, non-space (e.g. '"', '(') — keep scanning.
+            # Non-alpha, non-space (e.g. '"', '('). Keep scanning.
             # This lets us capitalize the first letter AFTER opening
             # punctuation: `"hello` → `"Hello`.
 
@@ -312,7 +312,7 @@ def auto_capitalize(text: str) -> str:
 def auto_punctuate(text: str) -> str:
     """Add periods at sentence boundaries and commas at natural breaks.
 
-    This function is conservative — it only adds punctuation that is
+    This function is conservative, it only adds punctuation that is
     very likely correct.  It does NOT:
 
     * Add punctuation inside quotes or parentheses.
@@ -351,7 +351,7 @@ def auto_punctuate(text: str) -> str:
 
     # ``text_cleanup`` imports here are module-level: the dependency
     # graph is verified acyclic (text_cleanup → vocabulary → config;
-    # nothing in that chain imports ai_enhancement — only
+    # nothing in that chain imports ai_enhancement, only
     # dictation_pipeline.enhancement_steps imports this module), so a
     # late import would add call overhead for no cycle protection.
     result = text.rstrip()
@@ -404,7 +404,7 @@ def fix_grammar_basics(text: str) -> str:
         by non-letter characters (or string boundaries) is the
         English first-person pronoun and should be capitalized.  We
         do NOT touch ``i`` inside another word (``input``) or after
-        an apostrophe (``don't i`` — handled here too, the apostrophe
+        an apostrophe (``don't i``: handled here too, the apostrophe
         is a non-letter so the bare ``i`` matches).
 
     2.  **Missing apostrophes in common contractions.**  Whisper small
@@ -450,7 +450,7 @@ def fix_grammar_basics(text: str) -> str:
     result = _CONTRACTION_PATTERN.sub(_apply_contraction_fix, result)
 
     # 3. Collapse double spaces.  We do NOT strip leading/trailing
-    #    whitespace here — the upstream text_cleanup pass already
+    #    whitespace here, the upstream text_cleanup pass already
     #    did that, and we don't want to second-guess the caller.
     result = _RE_DOUBLE_SPACE.sub(" ", result)
 
@@ -463,12 +463,12 @@ def enhance_transcription(text: str, config: Any) -> str:
     This is the dispatcher used by the dictation pipeline.  It reads
     the following boolean flags off the config:
 
-    * ``ai_enhancement_enabled`` — master toggle.  When ``False``
+    * ``ai_enhancement_enabled``: master toggle.  When ``False``
         (the default), the function returns ``text`` unchanged.
-    * ``fix_grammar_basics`` — when ``True``, run
+    * ``fix_grammar_basics``: when ``True``, run
         :func:`fix_grammar_basics`.
-    * ``auto_punctuate`` — when ``True``, run :func:`auto_punctuate`.
-    * ``auto_capitalize`` — when ``True``, run :func:`auto_capitalize`.
+    * ``auto_punctuate``: when ``True``, run :func:`auto_punctuate`.
+    * ``auto_capitalize``: when ``True``, run :func:`auto_capitalize`.
 
     The order is significant: grammar fixes run first (so the bare
     ``i`` is capitalized before we look for sentence boundaries),
@@ -497,7 +497,7 @@ def enhance_transcription(text: str, config: Any) -> str:
         The enhanced text, or the original text if the master toggle
         is off or if every step is disabled.
     """
-    # Master toggle — default OFF.  We use getattr with a default of
+    # Master toggle, default OFF.  We use getattr with a default of
     # False so the function degrades gracefully if a non-Config object
     # is passed (e.g. a MagicMock in tests).
     if not getattr(config, "ai_enhancement_enabled", False):

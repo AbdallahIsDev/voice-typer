@@ -29,7 +29,7 @@ import pytest
 # directly but uses ``_make_icon`` from ``tray_icon.py``, which in turn
 # uses *lazy* imports of PIL inside its drawing functions. So PIL is
 # never imported at module load time, and mocking it here would
-# permanently pollute ``sys.modules`` — breaking any later test that
+# permanently pollute ``sys.modules``, breaking any later test that
 # needs real PIL (e.g. tests/test_tray_icon.py, which is marked
 # ``@pytest.mark.real_pil``).
 from voice_typer.server.tray import TrayIcon  # noqa: E402
@@ -109,7 +109,7 @@ def mock_heavy_imports(monkeypatch):
 
     # Replace _make_icon with a stub that returns a sentinel object.
     # The original implementation called Image.open() on a real PNG, but
-    # we don't need a real PIL image here — tray tests only verify that
+    # we don't need a real PIL image here, tray tests only verify that
     # _make_icon is invoked, not that the returned icon has pixels.
     # ``__import__("PIL.Image", ...)`` returns whatever is in
     # sys.modules["PIL.Image"] (the MagicMock set on line 112), so
@@ -138,7 +138,7 @@ class _MockController:
 
     # toggle_autostart, set_notifications, set_silence_*,
     # set_max_recording_time_seconds, create_desktop_shortcut removed from
-    # TrayController protocol — no caller existed.
+    # TrayController protocol, no caller existed.
 
     # : undo_last added to TrayController protocol so the
     # tray menu's new "Undo Last" item can call it.
@@ -261,10 +261,10 @@ class TestTrayMenuHasMinimalOptions:
         ``state == AppState.TRANSCRIBING``.
 
         the canonical tray label is now ``"Force cancel transcription"``
-        (lowercase 'c') — the legacy ``force_cancel_stuck_transcription`` key
+        (lowercase 'c'), the legacy ``force_cancel_stuck_transcription`` key
         has been removed. We substring-match on the canonical phrase.
         """
-        # Default state is IDLE — Force cancel should NOT be in menu.
+        # Default state is IDLE. Force cancel should NOT be in menu.
         labels = _menu_labels(tray)
         assert not any("Force cancel transcription" in lb for lb in labels), (
             "UX-3: Force cancel transcription should NOT appear when state==IDLE"
@@ -400,7 +400,7 @@ class TestTrayUnavailableFallback:
     RuntimeError. ``stop()`` MUST release the event so the main thread
     can exit cleanly. Previously ``run()`` raised RuntimeError, which
     propagated to ``ipc_server.main()``'s except handler →
-    ``sys.exit(EXIT_CRASH)`` — the app crashed immediately on
+    ``sys.exit(EXIT_CRASH)``, the app crashed immediately on
     Wayland/no-dbus Linux."""
 
     def test_run_does_not_raise_when_tray_unavailable(self, tray, monkeypatch):
@@ -447,10 +447,10 @@ class TestTrayUnavailableFallback:
         # Give run() time to enter the _run_event.wait() call.
         time.sleep(0.05)
         tray.stop()
-        assert run_returned.wait(timeout=1.0), "run() did not return within 1s after stop() — _run_event was not set"
+        assert run_returned.wait(timeout=1.0), "run() did not return within 1s after stop(), _run_event was not set"
         # Best-effort join so the daemon thread doesn't linger past the
-        # test (run() has already returned — _run_thread only sets
-        # run_returned after run() exits — so the join is near-instant).
+        # test (run() has already returned, _run_thread only sets
+        # run_returned after run() exits, so the join is near-instant).
         t.join(timeout=1.0)
 
     def test_voice_typer_no_tray_env_var_skips_icon_creation(self, tray, monkeypatch):
@@ -462,13 +462,13 @@ class TestTrayUnavailableFallback:
         tray.start(bg_work=lambda: bg_called.append(True))
         assert tray._icon is None
         assert tray._tray_unavailable is True
-        # bg_work was launched on a daemon thread — give it a moment
+        # bg_work was launched on a daemon thread, give it a moment
         # to fire.
         time.sleep(0.1)
         assert bg_called == [True], f"bg_work should have been called once on the daemon thread; got {bg_called}"
 
     def test_voice_typer_no_tray_env_var_other_value_does_not_skip(self, tray, monkeypatch):
-        """Only the literal value ``1`` triggers the skip — ``0``,
+        """Only the literal value ``1`` triggers the skip: ``0``,
         ``false``, ``no``, etc. fall through to normal tray creation."""
         monkeypatch.setenv("VOICE_TYPER_NO_TRAY", "0")
         tray.start(bg_work=None)
@@ -497,18 +497,18 @@ class TestDrainPending:
     ``VOICE_TYPER_NO_TRAY=1``, or pystray.Icon() OSError fallback).
 
     Pre-fix symptom: queued ``notify_safety`` / ``notify`` calls were
-    silently dropped on the tray-unavailable path — a 60s drain
+    silently dropped on the tray-unavailable path, a 60s drain
     cleared the queue without surfacing the notification, so a
     critical notification (crash recovery failure, model load error)
     would never reach the user.
 
     The fixed path:
     1. Logs each notification at WARNING level (Python rotating file
-       logger is always available — separate process from pystray).
+       logger is always available, separate process from pystray).
     2. Publishes a ``tray_fallback_notification`` event via the event
        bus so the Electron renderer can surface it as a toast.
     3. Clears the queue (notification preserved via logs + Tauri
-       channel — cannot be lost).
+       channel, cannot be lost).
     4. Wraps the publish in ``contextlib.suppress(Exception)`` so a
        logging or event-bus failure cannot crash the tray's main loop.
 
@@ -569,7 +569,7 @@ class TestDrainPending:
 
     def test_drain_pending_swallows_event_bus_failure(self, tray, monkeypatch):
         """a failure inside ``event_bus.publish`` (or the log
-        call) must NOT crash the tray's main loop — the publish is
+        call) must NOT crash the tray's main loop, the publish is
         wrapped in ``contextlib.suppress(Exception)`` so the loop
         continues to the next notification.
 
@@ -594,7 +594,7 @@ class TestDrainPending:
             tray._pending_notifications.append(("Second", "msg2"))
             tray._pending_notifications.append(("Third", "msg3"))
 
-        # Must not raise — the suppress swallows every RuntimeError.
+        # Must not raise, the suppress swallows every RuntimeError.
         tray._drain_pending()
         # Every notification was attempted (the loop didn't break
         # after the first failure).
@@ -603,7 +603,7 @@ class TestDrainPending:
             f"even when event_bus.publish raises; only attempted "
             f"{call_count['n']} of 3"
         )
-        # Queue was still cleared (drain is fail-safe — the dropped
+        # Queue was still cleared (drain is fail-safe, the dropped
         # notification has been preserved via the WARNING log).
         assert tray._pending_notifications == []
 
@@ -611,7 +611,7 @@ class TestDrainPending:
         """each notification is logged at WARNING level with
         the full title + message so the user can grep their log file
         for the notification after the fact (the Python rotating file
-        logger is always available — separate process from pystray)."""
+        logger is always available, separate process from pystray)."""
         # Replace event_bus.publish with a noop so the test only
         # exercises the log path.
         monkeypatch.setattr(
@@ -625,7 +625,7 @@ class TestDrainPending:
 
         def _capturing_warning(msg, *args, **kwargs):
             warning_calls.append((msg, args, kwargs))
-            # Don't actually call the real logger — keep the test
+            # Don't actually call the real logger, keep the test
             # output clean.
 
         monkeypatch.setattr(tray_mod.log, "warning", _capturing_warning)
@@ -745,7 +745,11 @@ class TestOpenElectronWindow:
         assert launched
 
     def test_primary_path_skips_win32_and_launch(self, tray, monkeypatch):
-        """When TCP push succeeds, neither Win32 focus nor launch should run."""
+        """When TCP push succeeds, neither Win32 focus nor launch should run.
+
+        Pinned to the off-Windows contract (the BP-160 insurance runs
+        the native focus on Windows even when delivered, covered by
+        the dedicated Windows test below)."""
         monkeypatch.setattr(
             "voice_typer.server.event_bus.publish",
             lambda msg: True,
@@ -753,6 +757,7 @@ class TestOpenElectronWindow:
         win32_called = []
         import voice_typer.server.tray_window as tw_mod
 
+        monkeypatch.setattr(tw_mod, "is_windows", lambda: False)
         monkeypatch.setattr(
             tw_mod,
             "bring_electron_to_front",
@@ -775,14 +780,14 @@ class TestOpenElectronWindow:
         signal. When no probe reports a live host client (the exact
         production state when the Electron TCP connection is down), the
         push must NOT be treated as delivered and the Win32 focus
-        fallback must run — regression: the tray "Open App" silently
+        fallback must run, regression: the tray "Open App" silently
         did nothing while the window stayed hidden/minimized."""
         from voice_typer.server.event_bus import (
             register_transport_probe,
             unregister_transport_probe,
         )
 
-        # publish() reports success (as it always does — the IPC push
+        # publish() reports success (as it always does, the IPC push
         # buffers silently when disconnected).
         monkeypatch.setattr(
             "voice_typer.server.event_bus.publish",
@@ -810,7 +815,10 @@ class TestOpenElectronWindow:
 
     def test_publish_true_with_live_transport_skips_fallbacks(self, tray, monkeypatch):
         """When a transport probe reports a live host client, the push is
-        genuinely delivered and neither fallback runs."""
+        genuinely delivered and neither fallback runs.
+
+        Pinned to the off-Windows contract (see the test above, the
+        BP-160 Windows insurance is covered separately)."""
         from voice_typer.server.event_bus import (
             register_transport_probe,
             unregister_transport_probe,
@@ -829,6 +837,7 @@ class TestOpenElectronWindow:
             win32_called = []
             import voice_typer.server.tray_window as tw_mod
 
+            monkeypatch.setattr(tw_mod, "is_windows", lambda: False)
             monkeypatch.setattr(
                 tw_mod,
                 "bring_electron_to_front",
@@ -845,6 +854,87 @@ class TestOpenElectronWindow:
             assert not launched
         finally:
             unregister_transport_probe(probe)
+
+    def test_windows_runs_native_focus_even_when_tcp_delivered(self, tray, monkeypatch):
+        """BP-160 insurance: on Windows the native focus runs even when
+        the TCP push looks delivered. A half-open socket accepts the
+        kernel write (no error, probe still "live") while Electron never
+        receives the frame, without the insurance the push is silently
+        lost and no fallback runs. Off-Windows behavior is unchanged
+        (subprocess focus helpers stay fallback-only)."""
+        import voice_typer.server.tray_window as tw_mod
+
+        monkeypatch.setattr(
+            "voice_typer.server.event_bus.publish",
+            lambda msg: True,
+        )
+        monkeypatch.setattr(
+            "voice_typer.server.event_bus.has_live_transport",
+            lambda: True,
+        )
+        monkeypatch.setattr(tw_mod, "is_windows", lambda: True)
+        called = []
+        monkeypatch.setattr(
+            tw_mod,
+            "bring_electron_to_front",
+            lambda: called.append(True) or True,
+        )
+        launched = []
+        monkeypatch.setattr(
+            subprocess,
+            "Popen",
+            lambda *a, **kw: launched.append(True) or MagicMock(),
+        )
+        tray.open_electron_window()
+        assert called, "Windows must attempt native focus even when TCP looks live"
+        assert not launched
+
+    def test_off_windows_skips_native_focus_when_tcp_delivered(self, tray, monkeypatch):
+        """The BP-160 insurance is Windows-only: elsewhere the
+        AppleScript/wmctrl helpers spawn subprocesses, so they stay
+        fallback-only when the TCP push looks delivered."""
+        import voice_typer.server.tray_window as tw_mod
+
+        monkeypatch.setattr(
+            "voice_typer.server.event_bus.publish",
+            lambda msg: True,
+        )
+        monkeypatch.setattr(
+            "voice_typer.server.event_bus.has_live_transport",
+            lambda: True,
+        )
+        monkeypatch.setattr(tw_mod, "is_windows", lambda: False)
+        called = []
+        monkeypatch.setattr(
+            tw_mod,
+            "bring_electron_to_front",
+            lambda: called.append(True) or True,
+        )
+        tray.open_electron_window()
+        assert not called
+
+    def test_settled_log_carries_duration_suffix(self, tray, monkeypatch, caplog):
+        """The settled line ends with the C-LOG-2 duration suffix so the
+        next slow restore is measurable from voice-typer.log."""
+        import re
+
+        import voice_typer.server.tray_window as tw_mod
+
+        monkeypatch.setattr(
+            "voice_typer.server.event_bus.publish",
+            lambda msg: True,
+        )
+        monkeypatch.setattr(
+            "voice_typer.server.event_bus.has_live_transport",
+            lambda: True,
+        )
+        monkeypatch.setattr(tw_mod, "is_windows", lambda: False)
+        with caplog.at_level("INFO", logger="voice_typer.server.tray_window"):
+            tray.open_electron_window()
+        assert any(
+            re.search(r"open window request settled live=True focused=False \d+\.\ds$", rec.message)
+            for rec in caplog.records
+        ), f"expected settled line with duration suffix, got: {[r.message for r in caplog.records]}"
 
 
 class TestBringElectronToFront:
@@ -869,7 +959,7 @@ class TestBringElectronToFront:
 class TestElectronDuplicateLaunchGate:
     """EO-16: when the TCP push AND the platform focus helper both fail
     but an Electron process is still alive, open_electron_window() must
-    NOT spawn a second Electron — on macOS/Linux the focus fallback was
+    NOT spawn a second Electron, on macOS/Linux the focus fallback was
     previously a no-op (Win32-only) so a transient TCP blip launched a
     DUPLICATE process.
     """
@@ -912,7 +1002,7 @@ class TestElectronDuplicateLaunchGate:
 
     def test_dead_tracked_pid_allows_launch(self, tray, monkeypatch):
         """A tracked PID that is no longer alive must NOT block the
-        launch — Electron genuinely isn't running, so the last-resort
+        launch, Electron genuinely isn't running, so the last-resort
         launch is correct."""
         import voice_typer.server.tray_window as tw_mod
 
@@ -927,8 +1017,8 @@ class TestElectronDuplicateLaunchGate:
 
     def test_untracked_pid_allows_launch(self, tray, monkeypatch):
         """With no tracked PID (and no pgrep match), the launch proceeds
-        — the pre-EO-16 behavior is preserved for the genuine
-        not-running case."""
+        , the pre-EO-16 behavior is preserved for the genuine
+          not-running case."""
         import voice_typer.server.tray_window as tw_mod
 
         launched = self._setup_dead_end(tray, monkeypatch)
@@ -956,7 +1046,7 @@ class TestWrapSystemExitHandling:
     ERR-QUIT-002 (fix): ``_wrap`` now SUPPRESSES ``SystemExit`` instead
     of re-raising it. Since ``quit()`` and ``restart_app()`` both call
     ``self.tray.stop()`` before raising ``SystemExit``, the pystray
-    event loop is already broken — re-raising caused pystray to print
+    event loop is already broken, re-raising caused pystray to print
     a confusing "error" traceback. Suppressing lets pystray see a clean
     return; its loop exits because ``stop()`` was called.
     """
@@ -969,7 +1059,7 @@ class TestWrapSystemExitHandling:
             raise SystemExit(0)
 
         wrapper = TrayIcon._wrap(cb_that_exits)
-        # Should NOT raise — SystemExit is caught and suppressed.
+        # Should NOT raise. SystemExit is caught and suppressed.
         wrapper(icon=MagicMock(), item=MagicMock())
 
     def test_wrap_suppresses_system_exit_from_quit(self):
@@ -983,7 +1073,7 @@ class TestWrapSystemExitHandling:
 
         ctrl = _ControllerThatExits()
         wrapper = TrayIcon._wrap(ctrl.quit_app)
-        # Should NOT raise — SystemExit is caught and suppressed.
+        # Should NOT raise. SystemExit is caught and suppressed.
         wrapper(icon=MagicMock(), item=MagicMock())
 
     def test_wrap_passes_through_normal_callback(self):
@@ -1097,7 +1187,7 @@ class TestMicrophoneSubmenu:
     def test_mic_submenu_marks_active_with_bullet(self, tray):
         """Active mic (matching config.microphone) is marked via
         ``checked`` (the platform-standard checkmark via pystray's
-        ``checked=`` parameter — Win32 MF_CHECKED / macOS
+        ``checked=`` parameter, Win32 MF_CHECKED / macOS
         NSControlStateValueOn / GTK radio active). Pre- the active
         mic was prefixed with ``• `` in the label string, which
         bypassed the platform checkmark, broke screen-reader
@@ -1374,7 +1464,7 @@ class TestTrayStateMessagesLocalized:
     The renderer pushes ``trayState.*`` translations for ALL ``state.*``
     server keys via ``set_tray_locale`` (``trayLabelsForLocale`` in
     push.ts). ``merge_labels`` + ``set_locale`` (the handler's HU-17
-    bridge) must make ``i18n.t`` resolve those keys — for the
+    bridge) must make ``i18n.t`` resolve those keys, for the
     no-model-selected message AND the rest (recording_failed,
     model_not_downloaded, dictation-pipeline states, AppState labels).
     """
@@ -1419,7 +1509,7 @@ class TestTrayStateMessagesLocalized:
             assert i18n.t("state.model_manager.ready_whisper", device_info="CUDA") == "Bereit \u2013 CUDA"
             assert i18n.t("state.dictation_pipeline.transcription_empty") == ("Transkription leer")
             # untranslated key falls back to English (the F2 reference
-            # was removed 2026-08-16 — the default hotkey is Caps Lock,
+            # was removed 2026-08-16, the default hotkey is Caps Lock,
             # so the message is generic: "your hotkey")
             assert i18n.t("state.model_manager.loading") == ("Loading model -- press your hotkey to queue...")
         finally:
@@ -1428,7 +1518,7 @@ class TestTrayStateMessagesLocalized:
     def test_tooltip_appstate_fallback_follows_locale(self, tray):
         """The AppState fallback suffix (``— <state.value>`` when no
         message is set) localizes via ``state.<value>`` keys pushed from
-        the renderer — not just the per-call messages."""
+        the renderer, not just the per-call messages."""
         from voice_typer.server import i18n
         from voice_typer.server.tray import AppState
 
@@ -1447,7 +1537,7 @@ class TestTrayStateMessagesLocalized:
 
 class TestTrayLocaleFullCoverage:
     """tray i18n now supports all 8 renderer locales
-    (ar, de, en, es, fr, hi, ru, zh) — previously only en+es.
+    (ar, de, en, es, fr, hi, ru, zh), previously only en+es.
     """
 
     def test_register_tray_labels_adds_locale(self):
@@ -1612,8 +1702,8 @@ class TestRunDegradesOnRuntimeFailure:
             "failure must degrade to the _run_event blocking path"
         )
         # Best-effort join so the daemon thread doesn't linger past the
-        # test (run() has already returned — _run_thread only sets
-        # run_returned after run() exits — so the join is near-instant).
+        # test (run() has already returned, _run_thread only sets
+        # run_returned after run() exits, so the join is near-instant).
         t.join(timeout=1.0)
         # The tray must now be marked unavailable so downstream code
         # treats it as headless (hotkey + IPC still active).
@@ -1715,7 +1805,7 @@ class TestNotificationTruncation:
 #
 # 2. **tray_elapsed_timer.ElapsedTimer** must use a generation counter
 # so a rapid ``start()`` (stop/restart race) invalidates any
-# in-flight ``_tick`` from a prior ``start()`` — preventing the
+# in-flight ``_tick`` from a prior ``start()``, preventing the
 # stale tick from rescheduling a NEW Timer that overwrites the
 # ``_timer`` reference set by the new ``start()``. Pre-fix, the
 # stale tick would leak the just-scheduled Timer and break
@@ -1747,7 +1837,7 @@ class TestCpuFallbackPublishesToTauri:
 
     def test_publish_tray_state_called_after_apply_state(self, monkeypatch):
         """The fix calls ``_publish_tray_state`` after ``_apply_state``
-        inside the same try/except — so the Tauri host receives the
+        inside the same try/except, so the Tauri host receives the
         updated tooltip immediately."""
         from voice_typer.server.tray_notifications import on_parakeet_cpu_fallback
 
@@ -1782,7 +1872,7 @@ class TestCpuFallbackPublishesToTauri:
         """If ``_publish_tray_state`` raises, ``_apply_state`` must
         still have been called first (both calls are in the same
         try/except, so a publish failure is caught + logged, not
-        propagated — but the apply already ran)."""
+        propagated, but the apply already ran)."""
         from voice_typer.server.tray_notifications import on_parakeet_cpu_fallback
 
         tray = MagicMock()
@@ -1791,10 +1881,10 @@ class TestCpuFallbackPublishesToTauri:
 
         apply_calls: list[tuple] = []
         monkeypatch.setattr(tray, "_apply_state", lambda s, m: apply_calls.append((s, m)))
-        # _publish_tray_state raises — must be swallowed.
+        # _publish_tray_state raises, must be swallowed.
         monkeypatch.setattr(tray, "_publish_tray_state", lambda: (_ for _ in ()).throw(RuntimeError("publish boom")))
 
-        # Must NOT raise — the try/except in on_parakeet_cpu_fallback
+        # Must NOT raise, the try/except in on_parakeet_cpu_fallback
         # catches the publish failure.
         on_parakeet_cpu_fallback(
             tray,
@@ -1807,7 +1897,7 @@ class TestCpuFallbackPublishesToTauri:
         )
 
     def test_ignores_non_dict_event(self, monkeypatch):
-        """Malformed payloads (non-dict) are ignored — no state change."""
+        """Malformed payloads (non-dict) are ignored, no state change."""
         from voice_typer.server.tray_notifications import on_parakeet_cpu_fallback
 
         tray = MagicMock()
@@ -1842,7 +1932,7 @@ class TestElapsedTimerGenerationCounter:
 
     Pre-fix: a ``_tick`` running concurrently with a rapid ``start()``
     would reschedule a NEW Timer that overwrites the ``_timer``
-    reference set by the new ``start()`` — leaking the just-scheduled
+    reference set by the new ``start()``, leaking the just-scheduled
     Timer and breaking ``cancel()``'s join semantics.
 
     Post-fix: ``start()`` increments ``_generation``; the ``_tick``
@@ -1864,7 +1954,7 @@ class TestElapsedTimerGenerationCounter:
 
     def test_start_increments_generation(self):
         """Each ``start()`` call increments ``_generation`` (cancel +1
-        then the explicit +1, so a single ``start()`` is +2 — the
+        then the explicit +1, so a single ``start()`` is +2, the
         generation is monotonically increasing, which is the only
         property the generation guard relies on)."""
         from voice_typer.server.tray_elapsed_timer import ElapsedTimer
@@ -1911,7 +2001,7 @@ class TestElapsedTimerGenerationCounter:
 
     def test_rapid_restart_does_not_leak_timer_ref(self):
         """Rapid ``start()`` calls don't leave a stale ``_worker``
-        reference — the new ``start()``'s worker is the sole owner.
+        reference, the new ``start()``'s worker is the sole owner.
 
         DJ-37 single-worker design: each ``start()`` cancels + joins
         the prior worker (via ``cancel()``) and increments the
@@ -1939,7 +2029,7 @@ class TestElapsedTimerGenerationCounter:
         assert first_worker is not None
         assert isinstance(first_worker, threading.Thread)
 
-        # Rapid restart — cancels + joins the first worker, then
+        # Rapid restart, cancels + joins the first worker, then
         # increments generation before starting the new worker.
         timer.start()
         second_worker = timer._worker
@@ -1964,7 +2054,7 @@ class TestElapsedTimerGenerationCounter:
 
     def test_stale_tick_does_not_reschedule(self):
         """A ``_tick`` whose generation no longer matches exits without
-        rescheduling — verified by checking the generation counter
+        rescheduling, verified by checking the generation counter
         invalidated the prior tick's closure.
 
         Rather than try to deterministically reproduce the race
@@ -1997,7 +2087,7 @@ class TestElapsedTimerGenerationCounter:
         gen_after_second_start = timer._generation
         assert gen_after_second_start > gen_after_first_start, (
             "second start() must produce a strictly larger generation than "
-            "the first — this is the invariant the generation guard relies on"
+            "the first, this is the invariant the generation guard relies on"
         )
         # The first _tick's my_gen (= gen_after_first_start) is now stale.
         # When it fires, ``self._generation != my_gen`` evaluates True
@@ -2092,7 +2182,7 @@ class TestPushBubbleConfigGetattrDefault:
     fields are explicitly ``None``.
 
     Pre-fix: ``getattr(cfg, name, default)`` returned the attribute
-    value even when it was ``None`` — so a Config with explicit
+    value even when it was ``None``, so a Config with explicit
     ``None`` fields propagated ``None`` to the bubble renderer.
 
     Post-fix: ``getattr(cfg, name, None) or default`` falls back to
@@ -2134,7 +2224,7 @@ class TestPushBubbleConfigGetattrDefault:
             assert data["theme_preset"] == "default", (
                 f"None theme_preset should fall back to 'default', got {data['theme_preset']!r}"
             )
-            # custom_theme: None IS the valid default — no fallback.
+            # custom_theme: None IS the valid default, no fallback.
             assert data["custom_theme"] is None, (
                 f"custom_theme=None should be preserved (None is its valid default), got {data['custom_theme']!r}"
             )
@@ -2190,7 +2280,7 @@ class TestPushBubbleConfigGetattrDefault:
 
     def test_empty_string_theme_preset_falls_back_to_default(self):
         """An empty-string ``theme_preset`` (which is falsy) falls back
-        to ``"default"`` — the ``or default`` pattern treats empty
+        to ``"default"``, the ``or default`` pattern treats empty
         string as a missing value, which is the intended behavior
         (an empty theme preset is not a valid value)."""
         wiring = _CapturingWiring()

@@ -1,4 +1,4 @@
-"""FR-37 — regression tests for the POSIX single-instance lockfile
+"""FR-37: regression tests for the POSIX single-instance lockfile
 hardening in :mod:`voice_typer.server.single_instance`.
 
 Pre-fix symptom: ``_ensure_single_instance_posix`` created the config
@@ -6,7 +6,7 @@ dir with ``mkdir(parents=True, exist_ok=True)`` (no ``mode`` argument)
 → 0o755 on most Linux distros (umask 0o022 masked from 0o777). Other
 non-root users could traverse the dir and stat ``backend.lock`` (PID
 info leak). An attacker who could pre-create the dir with looser perms
-could also plant a symlink at ``backend.lock`` — the subsequent
+could also plant a symlink at ``backend.lock``, the subsequent
 ``os.open(O_CREAT|O_EXCL)`` followed the symlink because
 ``O_NOFOLLOW`` was not set.
 
@@ -24,7 +24,7 @@ import os
 
 import pytest
 
-# Skip on Windows — the POSIX path is not exercised there.
+# Skip on Windows, the POSIX path is not exercised there.
 pytest.importorskip("fcntl")
 
 from voice_typer.server._paths import RUN_SUBDIR  # noqa: E402
@@ -49,7 +49,7 @@ def isolated_config_dir(monkeypatch, tmp_path):
     so tests don't clobber the real config dir.
 
     Uses a SUBDIRECTORY of tmp_path (not tmp_path itself) so the
-    directory doesn't exist yet when the test starts — the production
+    directory doesn't exist yet when the test starts, the production
     code's ``mkdir(parents=True, exist_ok=True, mode=0o700)`` actually
     creates it (and the test can assert the resulting mode). tmp_path
     itself is created by pytest with mode 0o700, so using it directly
@@ -127,7 +127,7 @@ class TestConfigDirChmod:
         isolated_config_dir.mkdir(parents=True, exist_ok=True)
         os.chmod(isolated_config_dir, 0o755)
         # Verify the pre-condition (mode is 0o755, possibly masked by
-        # umask — but mkdir with mode=0o755 should produce 0o755 on
+        # umask, but mkdir with mode=0o755 should produce 0o755 on
         # most systems since umask is typically 0o022 → 0o755 & ~0o022
         # = 0o755).
         pre_mode = isolated_config_dir.stat().st_mode & 0o777
@@ -158,7 +158,7 @@ class TestNoFollowSymlink:
         with ``ELOOP`` instead of following the symlink.
 
         The ``_try_acquire`` helper catches ``OSError`` and exits with
-        a diagnostic message — we verify the function does NOT silently
+        a diagnostic message, we verify the function does NOT silently
         create the symlink target.
 
         NOTE: this test is skipped on sandboxes that disallow symlink
@@ -177,14 +177,14 @@ class TestNoFollowSymlink:
         # Plant a symlink at backend.lock pointing to /etc/passwd
         # (or any file the attacker might want to clobber).
         symlink_target = isolated_config_dir / "attacker_target.txt"
-        symlink_target.write_text("original content — should NOT be clobbered")
+        symlink_target.write_text("original content, should NOT be clobbered")
         symlink_path = _lock_file(isolated_config_dir)
         symlink_created = False
         try:
             os.symlink(symlink_target, symlink_path)
             symlink_created = os.path.islink(symlink_path)
         except BaseException:
-            # Sandbox blocks symlink creation — fall through to the
+            # Sandbox blocks symlink creation, fall through to the
             # source-level invariant check below.
             symlink_created = False
 
@@ -195,7 +195,7 @@ class TestNoFollowSymlink:
             # Some sandboxes create a symlink (os.symlink succeeds,
             # os.path.islink returns True) but intercept the O_NOFOLLOW
             # flag at the syscall level so the kernel doesn't raise
-            # ELOOP — in that case, the function returns normally
+            # ELOOP, in that case, the function returns normally
             # (FileExistsError is caught and the flock-based path
             # runs). We treat that as a sandbox limitation, not a
             # regression: fall through to the source-level
@@ -209,7 +209,7 @@ class TestNoFollowSymlink:
                     "lockfile path is a symlink (O_NOFOLLOW raised ELOOP)"
                 )
                 # The symlink target must NOT have been clobbered.
-                assert symlink_target.read_text() == "original content — should NOT be clobbered", (
+                assert symlink_target.read_text() == "original content, should NOT be clobbered", (
                     "FR-37: O_NOFOLLOW must prevent the symlink target from being created/truncated via O_CREAT|O_EXCL"
                 )
                 behavioral_passed = True

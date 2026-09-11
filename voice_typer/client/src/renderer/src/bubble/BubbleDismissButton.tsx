@@ -1,5 +1,5 @@
 /**
- * Bubble overlay package — `BubbleDismissButton`.
+ * Bubble overlay package, `BubbleDismissButton`.
  *
  * The dismiss '×' button. Shown whenever the bubble is in
  * `always_visible` mode (gated by the parent via the `dismissable`
@@ -8,7 +8,7 @@
  * window until the next show() (typically the next dictation start).
  *
  * A11Y: same focusable:false trade-off as BubbleMicButton (see the
- * comment above that component) — the button is mouse-only in the
+ * comment above that component), the button is mouse-only in the
  * shipped app. The `aria-label` and `title` are populated so AT users
  * navigating via screen-reader cursor can still discover it.
  *

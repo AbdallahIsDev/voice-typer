@@ -1,5 +1,5 @@
 /**
- *  — shared test fixtures for the renderer vitest suite.
+ * , shared test fixtures for the renderer vitest suite.
  *
  * Before this file existed, ~6 test files each declared their own
  * `baseConfig: VoiceTyperConfig = { ... 100+ fields ... }` constant
@@ -16,7 +16,7 @@
  * (see `voice_typer/server/config.py`) so tests don't accidentally
  * depend on a fixture that drifted from production.
  *
- * This file is intended to be imported directly by tests — it has NO
+ * This file is intended to be imported directly by tests, it has NO
  * side effects on import (no `vi.mock`, no `window.*` mutation). Those
  * concerns live in `mocks.ts` and the per-test setup hooks.
  */
@@ -30,7 +30,7 @@ import type { VoiceTyperConfig } from "@/types/config";
  *     dataclass defaults in `voice_typer/server/config.py` /
  *     `voice_typer/server/config_internals/migrations.py`. These two
  *     fields are pinned by `__tests__/helpers/__tests__/fixtures.test.ts`
- *     — a future contributor who lets either drift will see a loud
+ *    , a future contributor who lets either drift will see a loud
  *     vitest failure.
  *   - The remaining fields use TEST-DETERMINISM OVERRIDES (NOT Python
  *     defaults) so tests don't flake on platform-dependent or
@@ -215,7 +215,7 @@ export const DEFAULT_CONFIG: VoiceTyperConfig = {
  *
  *   const cfg = makeConfig({ bubble_position: "bottom", hotkey: "F4" });
  *
- * Overrides are applied via shallow merge — provide the full value for
+ * Overrides are applied via shallow merge, provide the full value for
  * nested fields (e.g. `custom_theme` must be the entire `{light, dark}`
  * object, not a partial). The default `custom_theme` is `null` (matches
  * the Python dataclass default); tests that need a populated custom

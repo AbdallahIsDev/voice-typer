@@ -12,7 +12,7 @@
 //!
 //! Originally inline in `sidecar_cmds.rs` as `#[cfg(test)] mod tests { ... }`;
 //! moved to this sibling file to keep production source files free of test
-//! code (C-TEST-5 — matches the pattern established by
+//! code (C-TEST-5: matches the pattern established by
 //! `commands/bubble/tests.rs`).
 //!
 //! These tests pin the dispatch allowlist (SEC-019 / ADR-0015 defense-in-
@@ -71,7 +71,7 @@ fn test_allowed_commands_contains_download_model() {
 fn test_allowed_commands_does_not_contain_heartbeat_or_relaunch_ack() {
     //`heartbeat` and `relaunch_ack` are Rust-only commands
     // invoked via `dispatch_inner` (which bypasses this allowlist
-    // gate) — `heartbeat` is dispatched by the WS-reader task's
+    // gate): `heartbeat` is dispatched by the WS-reader task's
     // heartbeat subtask (`sidecar/ws.rs::spawn_heartbeat_task`),
     // and `relaunch_ack` is dispatched by the `relaunch_app` Tauri
     // event handler in `main.rs`. Including either in the
@@ -153,38 +153,38 @@ fn test_allowed_commands_count_matches_ts_parity() {
     //the Rust allowlist must contain EXACTLY the same number
     // of commands as the TS allowlist in
     // `voice_typer/client/src/main/allowed-commands.ts` (canonical
-    // declaration since R6-F10 — was previously inline in
+    // declaration since R6-F10: was previously inline in
     // `index.ts:79-191`). The Python test
     // `tests/test_security_doc_command_count.py::test_rust_allowlist_matches_ts_allowlist`
-    // asserts the entries match exactly — this Rust-side test pins
+    // asserts the entries match exactly, this Rust-side test pins
     // the COUNT so a local `cargo test` catches a drift before the
     // Python test even runs.
     //
     // 63 shared commands (TS has 65 = 63 shared + heartbeat +
     // relaunch_ack). `heartbeat` and `relaunch_ack` are
-    // intentionally ABSENT from this Rust literal — see the
+    // intentionally ABSENT from this Rust literal, see the
     // doc comment on the cmds literal below. `check_accessibility`
     // was re-added on 2026-08-10 (finding #919 part b) alongside
     // `reset_macos_accessibility` and `reset_linux_permissions`;
-    // `tray_click` is also intentionally absent — see `dispatch_inner`.
+    // `tray_click` is also intentionally absent, see `dispatch_inner`.
     // `transcribe_offline` was added on 2026-08-13 by the runtime-pack
-    // split (master plan §7.4 — slim core → worker offline-transcription
+    // split (master plan §7.4: slim core → worker offline-transcription
     // request), bumping the count from 65 to 66.
     //
     // (2026-08-14): `get_prewarm_status` / `open_prewarm_log` were
     // RESTORED in lockstep from this Rust literal + the TS
     // `ALLOWED_COMMANDS` Set + the Python `_COMMAND_REGISTRY` +
     // `handlers/status_handlers.py` (the About-page Cache Status card
-    // is a user-facing product feature — plan §6.3 addendum). Count
+    // is a user-facing product feature, plan §6.3 addendum). Count
     // went from 63 to 65. `run_prewarm` was ALSO restored the same
-    // day (§6.3 addendum second half — re-implemented to re-run the
+    // day (§6.3 addendum second half, re-implemented to re-run the
     // worker's warm phase in-process via `prewarm.status.run_prewarm_now`,
     // no deleted-subprocess spawn) → 66. `check_offline_pack_update`
     // (auto-update feature) was added the same day → 67.
     //
     // (2026-08-16): `test_vocabulary_correction` was added to the
     // Rust literal + snapshot (the Vocabulary page "Test corrections"
-    // panel — the count-only tests below were missed in that commit;
+    // panel: the count-only tests below were missed in that commit;
     // they are corrected here) → 68. (2026-08-17): `get_correction_usage`
     // (per-correction usage snapshots powering the Vocabulary page's
     // "used Nx" + the Analytics corrections rate) was added to the
@@ -196,7 +196,7 @@ fn test_allowed_commands_count_matches_ts_parity() {
     // The TS allowlist is the canonical declaration
     // (`voice_typer/client/src/main/allowed-commands.ts`): 73 entries
     // total = 71 shared + `heartbeat` + `relaunch_ack` (both sent by
-    // the host, never routed through this dispatch gate — see the
+    // the host, never routed through this dispatch gate, see the
     // cmds literal doc comment). The Python `_COMMAND_REGISTRY` has 75
     // (73 renderer-reachable + `tray_click` + `shutdown`, both
     // host-supervised and excluded from the TS allowlist).
@@ -215,11 +215,11 @@ fn test_allowed_commands_count_matches_ts_parity() {
 #[test]
 fn test_allowed_commands_set_contains_no_duplicates() {
     let set = allowed_commands();
-    // 71 entries — must match the cmds literal below (single
+    // 71 entries: must match the cmds literal below (single
     // source of truth). A duplicate in the literal would make
     // set.len() < 71.
     // 66 → 67: `run_prewarm` restored 2026-08-14 (§6.3 addendum
-    // second half — re-implemented to re-run the warm phase
+    // second half: re-implemented to re-run the warm phase
     // in-process instead of spawning the deleted subprocess).
     // 67 → 68: `test_vocabulary_correction` (2026-08-16).
     // 68 → 69: `get_correction_usage` (2026-08-17).
@@ -230,7 +230,7 @@ fn test_allowed_commands_set_contains_no_duplicates() {
     assert_eq!(
         set.len(),
         71,
-        "ALLOWED_COMMANDS contains a duplicate entry — set len ({}) < literal len (71). \
+        "ALLOWED_COMMANDS contains a duplicate entry: set len ({}) < literal len (71). \
          Check the constructor log for the duplicate name.",
         set.len()
     );
@@ -256,7 +256,7 @@ fn test_allowed_commands_exact_snapshot() {
     //     `heartbeat` (sent by the Rust WS-reader task) and
     //     `relaunch_ack` (sent by the Rust `relaunch_app` event
     //     handler). Both bypass the `dispatch` allowlist via
-    //     `dispatch_inner` — see the doc comment on the `cmds`
+    //     `dispatch_inner`: see the doc comment on the `cmds`
     //     literal above for the security rationale.
     //
     // MAINTENANCE: when adding/removing a command from the Rust
@@ -268,7 +268,7 @@ fn test_allowed_commands_exact_snapshot() {
     // (2026-08-14): `get_prewarm_status` / `open_prewarm_log`
     // were RESTORED in lockstep from this Rust literal + the TS
     // `ALLOWED_COMMANDS` Set + the Python `_COMMAND_REGISTRY` +
-    // `handlers/status_handlers.py` — see the inline comment at the
+    // `handlers/status_handlers.py`: see the inline comment at the
     // restoration site in the `cmds` literal below. Count went from
     // 63 to 65. `run_prewarm` was restored the same day (second
     // half of the §6.3 addendum) → 66, and `check_offline_pack_update`
@@ -356,7 +356,7 @@ fn test_allowed_commands_exact_snapshot() {
     assert_eq!(
         actual.len(),
         expected.len(),
-        "snapshot length mismatch — actual Rust set has {} entries, snapshot expected {}. \
+        "snapshot length mismatch: actual Rust set has {} entries, snapshot expected {}. \
          If you added/removed a command, update BOTH this snapshot AND the cmds literal AND \
          the TS allowlist in voice_typer/client/src/main/allowed-commands.ts.",
         actual.len(),
@@ -364,7 +364,7 @@ fn test_allowed_commands_exact_snapshot() {
     );
     assert_eq!(
         actual, expected,
-        "ALLOWED_COMMANDS snapshot drift — the Rust literal no longer matches the pinned \
+        "ALLOWED_COMMANDS snapshot drift: the Rust literal no longer matches the pinned \
          71-entry snapshot. Diff the actual vs expected Vec above. If the change is \
          intentional, update this snapshot in lockstep with the cmds literal AND the TS \
          allowlist (see MAINTENANCE note above)."
@@ -401,7 +401,7 @@ fn test_pending_max_constant_is_1024() {
     // be revisited.
     assert_eq!(
         PENDING_MAX, 1024,
-        "PENDING_MAX must be 1024 — see the doc comment for sizing rationale"
+        "PENDING_MAX must be 1024: see the doc comment for sizing rationale"
     );
 }
 
@@ -415,7 +415,7 @@ fn test_pending_full_code_constant_is_pending_full() {
     // retry).
     assert_eq!(
         PENDING_FULL_CODE, "pending_full",
-        "PENDING_FULL_CODE must be the literal 'pending_full' — the renderer's \
+        "PENDING_FULL_CODE must be the literal 'pending_full': the renderer's \
          error-envelope switch branches on this exact string"
     );
 }
@@ -438,7 +438,7 @@ fn test_pending_full_error_envelope_shape() {
     });
     let serialized = err.to_string();
     // Must be a valid JSON envelope with type=error and the
-    // pending_full code — the renderer parses this string out of
+    // pending_full code: the renderer parses this string out of
     // the Tauri rejection reason.
     assert!(
         serialized.contains("\"code\":\"pending_full\""),
@@ -450,7 +450,7 @@ fn test_pending_full_error_envelope_shape() {
     );
     // Round-trip through serde_json to verify it's valid JSON.
     let parsed: Value = serde_json::from_str(&serialized).expect(
-        "pending_full error envelope must be valid JSON — the renderer parses it as a string",
+        "pending_full error envelope must be valid JSON: the renderer parses it as a string",
     );
     assert_eq!(parsed.get("type").and_then(|v| v.as_str()), Some("error"));
     assert_eq!(
@@ -466,8 +466,8 @@ fn test_pending_full_error_envelope_shape() {
 
 /// The renderer-invocable `shutdown_sidecar` command's body
 /// (`shutdown_sidecar_inner`) must route its shutdown-flag flip through
-/// `SidecarState::begin_shutdown` — the canonical swap + `notify_one`
-/// pair, in that order — so a supervisor coroutine mid-backoff
+/// `SidecarState::begin_shutdown`. The canonical swap + `notify_one`
+/// pair, in that order: so a supervisor coroutine mid-backoff
 /// (awaiting `shutdown_notify.notified()` inside `respawn_inner`'s
 /// `tokio::select!`) is woken sub-ms instead of sleeping out its full
 /// backoff step (500ms–8s) before re-checking `shutting_down`.
@@ -484,20 +484,20 @@ async fn test_shutdown_sidecar_inner_wakes_supervisor_waiter_via_begin_shutdown(
 
     let state = Arc::new(SidecarState::new());
     // Pre-register the supervisor's backoff waiter BEFORE the shutdown
-    // entry fires (mirrors a supervisor task parked in — or about to
-    // enter — `notified()`).
+    // entry fires (mirrors a supervisor task parked in, or about to
+    // enter: `notified()`).
     let waiter = state.shutdown_notify.notified();
 
     // Run the command body on a spawned task: after the entry guard it
     // aborts the heartbeat, best-effort-sends the shutdown frame
-    // (`ws_tx` is None here — skipped), then waits up to 2s for the
+    // (`ws_tx` is None here: skipped), then waits up to 2s for the
     // graceful exit (the dev-mode `child_exit_rx = None` path sleeps
     // the deadline). Only the ENTRY contract is asserted here; the
     // task is aborted once the assertions are done.
     let state_clone = state.clone();
     let task = tokio::spawn(async move { shutdown_sidecar_inner(&state_clone).await });
 
-    // The waiter must complete WITHOUT any backoff sleep — the entry
+    // The waiter must complete WITHOUT any backoff sleep, the entry
     // performed swap + notify_one back-to-back.
     tokio::time::timeout(Duration::from_millis(1000), waiter)
         .await
@@ -515,7 +515,7 @@ async fn test_shutdown_sidecar_inner_wakes_supervisor_waiter_via_begin_shutdown(
 /// returns `Ok(())` immediately WITHOUT re-running the teardown (the
 /// duplicate-call path never reaches the heartbeat abort, the shutdown
 /// frame send, or the up-to-2s `child_exit_rx` wait). `begin_shutdown`'s
-/// return value (the previous flag) preserves this semantics — the
+/// return value (the previous flag) preserves this semantics, the
 /// second entry reports "already shutting down" and the body returns
 /// early, so a duplicate `invoke('shutdown_sidecar')` cannot freeze the
 /// UI for the 2s ack window.
@@ -527,7 +527,7 @@ async fn test_shutdown_sidecar_inner_duplicate_call_short_circuits() {
     let state = Arc::new(SidecarState::new());
     // First invocation: spawned (not awaited to completion) because
     // after the entry it would sleep the full 2s dev-mode ack window.
-    // Poll until the entry flips `shutting_down` — the guard runs
+    // Poll until the entry flips `shutting_down`, the guard runs
     // before any of the body's teardown work.
     let state_clone = state.clone();
     let first = tokio::spawn(async move { shutdown_sidecar_inner(&state_clone).await });
@@ -547,7 +547,7 @@ async fn test_shutdown_sidecar_inner_duplicate_call_short_circuits() {
     first.abort();
 
     // Second (duplicate) invocation: must resolve Ok within a bound far
-    // below the 2s ack window — the short-circuit skips teardown.
+    // below the 2s ack window, the short-circuit skips teardown.
     let state_clone2 = state.clone();
     let second = tokio::time::timeout(
         Duration::from_millis(150),

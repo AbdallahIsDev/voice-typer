@@ -1,4 +1,4 @@
-"""§8.3 — Atomic swap (Windows + POSIX variants).
+"""§8.3: Atomic swap (Windows + POSIX variants).
 
 Spec (§8.3):
 
@@ -13,7 +13,7 @@ Spec (§8.3):
 Tested behaviors (POSIX runs natively; Windows paths are simulated via
 ``platform.system()`` monkeypatching):
 
-  1. POSIX: ``os.replace(new, current)`` is atomic — current is replaced.
+  1. POSIX: ``os.replace(new, current)`` is atomic, current is replaced.
   2. Windows: stop_worker is called before the swap, start_worker after.
   3. Windows: on swap failure (rename raises), the trash is restored
      (rollback) and start_worker is still called.
@@ -50,7 +50,7 @@ class TestPosixAtomicSwap:
         trash = offline_pack.atomic_swap_offline_pack(new_dir, cur_dir)
         # POSIX returns the trash path too (best-effort cleanup
         # attempted; if the worker is still running on it, the rmtree
-        # silently fails and the trash remains — but for this test
+        # silently fails and the trash remains, but for this test
         # there's no worker so the trash is gone).
         assert trash is not None
         assert str(trash).endswith("current.trash")
@@ -76,13 +76,13 @@ class TestPosixAtomicSwap:
     def test_posix_second_rename_failure_restores_previous_pack(self, tmp_path: Path, monkeypatch):
         """POSIX rollback: when the SECOND rename (new → current) fails
         after current → trash succeeded, the previous pack is restored
-        from the trash — the mirror of the Windows rollback (without it,
+        from the trash, the mirror of the Windows rollback (without it,
         the installed pack is left MISSING until the next install).
 
         The first ``os.replace`` whose destination is ``cur_dir`` is the
         second rename (the first rename's destination is the trash); the
         SECOND one whose destination is ``cur_dir`` is the rollback's
-        restore — the fake fails only the first, letting the restore
+        restore, the fake fails only the first, letting the restore
         through. The assertions hold on Windows too (that branch rolls
         back identically).
         """

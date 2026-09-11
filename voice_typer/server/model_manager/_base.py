@@ -38,16 +38,16 @@ class ModelManagerCore:
 
         # Track backends that were deliberately unloaded by the app
         # (idle-unload, force-unload, LRU eviction, model-change unload).
-        # These are NOT "missing download" situations — the model is on
+        # These are NOT "missing download" situations, the model is on
         # disk, the app just released it (VRAM / switch). The last-resort
         # tray notification ("open the Models page and download") must be
         # SUPPRESSED for these so the user isn't told to download a model
         # that is already installed.
         self._deliberately_unloaded: set[str] = set()
         # Per-backend monotonic timestamps of the last last-resort tray
-        # notification (rate limiter — see
+        # notification (rate limiter: see
         # ``_LAST_RESORT_NOTIFY_COOLDOWN_SECS``). Guarded by the same
-        # GIL-atomicity reasoning as ``_pending_model_change`` — the
+        # GIL-atomicity reasoning as ``_pending_model_change``, the
         # IPC worker thread and the subscriber path never mutate the
         # same key concurrently.
         self._last_resort_notified_at: dict[str, float] = {}
@@ -56,7 +56,7 @@ class ModelManagerCore:
         # idle-unload / retry branch). Unlike ``_model_load_thread``
         # (background load) / ``_model_change_thread`` /
         # ``_backend_change_thread`` (background changes), a synchronous
-        # load has NO tracked thread — the last-resort subscriber would
+        # load has NO tracked thread, the last-resort subscriber would
         # otherwise fire during the load window and tell the user to
         # download a model that is literally loading.
         self._sync_load_in_progress: bool = False
@@ -66,7 +66,7 @@ class ModelManagerCore:
         # (transcription would silently return empty), show a tray
         # notification pointing the user at the Models page. Pre-fix the
         # ``on_last_resort`` subscriber set existed but NO production
-        # subscriber was ever wired — the documented tray notification
+        # subscriber was ever wired, the documented tray notification
         # was dead code and the user got zero feedback.
         self._registry.add_last_resort_subscriber(self._on_last_resort_unloaded)
 
@@ -79,7 +79,7 @@ class ModelManagerCore:
         # (idle-unload / force-unload / LRU eviction / model change) or
         # is literally loading. The gate is checked by the breaker
         # BEFORE the subscribers fire, so a suppressed window skips the
-        # tray path too (which would self-suppress anyway — no behavior
+        # tray path too (which would self-suppress anyway, no behavior
         # change there).
         self._registry.set_last_resort_event_gate(self._should_suppress_last_resort_notification)
 
@@ -87,17 +87,17 @@ class ModelManagerCore:
         # way: during deliberate-unload windows (idle-unload /
         # force-unload / LRU eviction / model change, or a load in
         # progress) the breaker can trip on a transient failure and
-        # publish a spurious "backend disabled" event — the renderer
+        # publish a spurious "backend disabled" event, the renderer
         # would tell the user the backend is permanently broken when
         # the app is just switching away / loading. The gate shares the
         # window checks with the last-resort gate but NOT the cooldown
-        # (the disabled event fires at most once per trip — the breaker
-        # skips already-disabled backends — so no rate limit is needed).
+        # (the disabled event fires at most once per trip, the breaker
+        # skips already-disabled backends, so no rate limit is needed).
         self._registry.set_backend_disabled_event_gate(self._should_suppress_backend_disabled_notification)
 
         # The three legacy engine attributes (``transcriber`` /
         # ``_qwen_engine`` / ``_parakeet_engine``) are now ``@property``
-        # accessors defined further down — they delegate directly to
+        # accessors defined further down, they delegate directly to
         # ``self._registry.get(...)`` with no mirrored state. Writes go
         # through their ``@property.setter`` methods which delegate to
         # ``self._registry.register(...)`` / ``unregister(...)``.
@@ -112,8 +112,8 @@ class ModelManagerCore:
         # spawn a ``ModelChange`` / ``BackendChange`` daemon thread and
         # return immediately; these attrs track the most recently
         # spawned thread so callers (tests, shutdown) can join it and
-        # know the full cycle — including the ``asr_backend_ready`` /
-        # ``asr_backend_load_failed`` publish — has completed. Concurrent
+        # know the full cycle: including the ``asr_backend_ready`` /
+        # ``asr_backend_load_failed`` publish, has completed. Concurrent
         # change calls serialize on ``_model_change_lock``, so joining
         # the LATEST thread also covers any earlier thread still waiting
         # on the lock. Mirrors ``_model_load_thread``'s tracking role.
@@ -124,7 +124,7 @@ class ModelManagerCore:
         # but previously never actually applied the change. We capture
         # the requested model here and apply it on the next _start_dictation.
         self._pending_model_change: str | None = None
-        # sibling to ``_pending_model_change`` — captures a
+        # sibling to ``_pending_model_change``: captures a
         # backend-only change (``set_active_backend``) that was requested
         # while the user was recording or busy. Mirrors the
         # ``_pending_model_change`` deferral pattern: the request is
@@ -149,7 +149,7 @@ class ModelManagerCore:
         # LAZY-INIT-LOCK-FIX: previously created lazily via
         # ``if not hasattr(self, "_lazy_init_lock"): self._lazy_init_lock =
         # __import__("threading").Lock()`` in ensure_active_engine_loaded.
-        # The ``hasattr`` check is itself a race — two threads could both
+        # The ``hasattr`` check is itself a race, two threads could both
         # see ``not hasattr`` and both create a Lock, then one wins the
         # assignment and the other holds a stale Lock that protects
         # nothing. Moving to ``__init__`` guarantees the lock exists
@@ -162,7 +162,7 @@ class ModelManagerCore:
         # construction + assignment to ``_model_load_thread`` MUST be
         # atomic so two concurrent callers can't both spawn a ModelLoad
         # thread (the second assignment would overwrite the first,
-        # leaking the first thread — still running, untracked, no
+        # leaking the first thread, still running, untracked, no
         # shutdown join). Plain Lock (no re-entrancy needed); created in
         # ``__init__`` so it exists before any thread can call
         # ``start_background_load``.
@@ -179,7 +179,7 @@ class ModelManagerCore:
 
         # idle-unload. When ``model_idle_unload_minutes > 0``, the
         # persistent idle-unload scheduler thread (a single daemon parked
-        # on ``Event.wait`` — see ``_lifecycle.py``) re-arms its deadline
+        # on ``Event.wait``: see ``_lifecycle.py``) re-arms its deadline
         # to N minutes after every ``touch_active_model()`` (called after
         # each successful transcribe). When the deadline expires, the
         # active backend is unloaded + ``release_gpu_memory()`` is called
@@ -187,12 +187,12 @@ class ModelManagerCore:
         # blocks are returned to the OS. The model is reloaded on the
         # next ``toggle_dictation`` via ``ensure_active_engine_loaded``'s
         # reload-after-idle-unload path. ``model_idle_unload_minutes = 0``
-        # (the default) disables the feature — current behaviour is
+        # (the default) disables the feature, current behaviour is
         # preserved exactly.
         #
         # The lock guards the persistent idle-unload scheduler's
         # deadline/stop state (the former ``threading.Timer`` reference
-        # was removed with the create/cancel-per-touch mechanism — the
+        # was removed with the create/cancel-per-touch mechanism, the
         # scheduler is a single daemon thread parked on
         # ``Event.wait``, see ``_lifecycle.py``).
         self._idle_unload_lock = threading.Lock()
@@ -205,7 +205,7 @@ class ModelManagerCore:
         return self._registry
 
     # The three legacy engine attributes are ``@property`` accessors that
-    # delegate directly to ``self._registry.get(...)`` — no mirrored
+    # delegate directly to ``self._registry.get(...)``, no mirrored
     # state, no sync needed. Their setters delegate to
     # ``self._registry.register(...)`` / ``unregister(...)`` so test
     # code that does ``app.models.transcriber = MagicMock()`` continues
@@ -276,7 +276,7 @@ class ModelManagerCore:
         self.config.asr_backend and tested three separate fields.
 
         previously this method called ``_sync_registry_from_fields()``
-        on every read — which re-imported state from the three legacy
+        on every read: which re-imported state from the three legacy
         engine fields into the registry WITHOUT holding
         ``_model_change_lock``.  A concurrent ``change_model`` could
         leave the fields half-mutated, so the registry would be
@@ -294,7 +294,7 @@ class ModelManagerCore:
         which is still valid) or has already finished (so we read the
         new one).  Test code that assigns to ``app.models.transcriber``
         now goes through the ``@property.setter`` which delegates to
-        ``self._registry.register(...)`` directly — no manual sync
+        ``self._registry.register(...)`` directly, no manual sync
         call needed.
         """
         return self._registry.get_active()

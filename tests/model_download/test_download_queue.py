@@ -3,13 +3,13 @@
 User decision (2026-09-08): a second download request arriving while a
 gateable download is active (possibly paused) is QUEUED behind it
 instead of being refused with an error. Transfers stay serialized
-through the existing single-flight gate — the queue is the missing UX
+through the existing single-flight gate, the queue is the missing UX
 layer, not a parallel-transfer mechanism.
 
 Contract pinned here:
 
 1. ``_download_whisper_family`` / ``_download_parakeet`` enqueue (and
-   return a queued outcome) when the transfer gate is armed — they must
+   return a queued outcome) when the transfer gate is armed, they must
    NOT touch HuggingFace while queued.
 2. The queue holds model NAMES only; duplicate enqueues are idempotent
    (same position, single entry).
@@ -18,9 +18,9 @@ Contract pinned here:
 4. Cancel-anywhere: ``cancel_model_download(model_name)`` removes a
    model from the QUEUE without touching the active transfer; the
    no-argument form keeps its legacy semantics (cancel the ACTIVE
-   transfer only — the queue drains on).
+   transfer only, the queue drains on).
 5. When the active transfer exits (success / failure / cancel), the
-   next queued request auto-starts — but ONLY once the gate is free.
+   next queued request auto-starts, but ONLY once the gate is free.
 """
 
 from __future__ import annotations
@@ -81,7 +81,7 @@ def _queued_events_for(published: list[dict], model: str) -> list[dict]:
 
 class TestGuardQueuesInsteadOfRefusing:
     """The single-flight guard ENQUEUES the second request (the old
-    behaviour — refusing with ``download_already_active`` — is replaced
+    behaviour (refusing with ``download_already_active``) is replaced
     by the queue)."""
 
     def test_whisper_branch_queues_second_download(self, tmp_config_dir, monkeypatch):
@@ -169,7 +169,7 @@ class TestQueueMechanics:
 
     def test_reclick_of_active_model_returns_already_active(self, tmp_config_dir, monkeypatch):
         """A download request for the model that is ALREADY downloading
-        must NOT queue behind itself — it resolves as the
+        must NOT queue behind itself, it resolves as the
         ``download_already_active`` outcome (queueing it would drain
         later as a cache-hit no-op transfer)."""
         published = _capture_progress_events(monkeypatch)
@@ -188,7 +188,7 @@ class TestQueueMechanics:
         svc._unregister_download(active_id)
 
     def test_reclick_of_active_model_leaves_other_queues_intact(self, tmp_config_dir, monkeypatch):
-        """The re-click guard only short-circuits the ACTIVE model — a
+        """The re-click guard only short-circuits the ACTIVE model, a
         DIFFERENT model still queues normally."""
         published = _capture_progress_events(monkeypatch)
         svc = _make_service(tmp_config_dir)
@@ -255,7 +255,7 @@ class TestCancelAnywhere:
 
     def test_no_argument_cancel_keeps_legacy_active_only_semantics(self, tmp_config_dir):
         """The argumentless form (today's only IPC shape) cancels the
-        ACTIVE transfer only — queued items stay queued and drain on."""
+        ACTIVE transfer only, queued items stay queued and drain on."""
         svc = _make_service(tmp_config_dir)
         active_id = svc._register_download("active-model")
         active_event = svc._download_cancel_events[active_id]
@@ -266,7 +266,7 @@ class TestCancelAnywhere:
         assert result == {"cancelled": True}
         assert active_event.is_set()
         assert svc._download_queue == ["tiny"], (
-            "the argumentless cancel must NOT clear the pending queue — items drain when the active transfer exits."
+            "the argumentless cancel must NOT clear the pending queue, items drain when the active transfer exits."
         )
 
     def test_cancel_by_name_of_active_model_cancels_it(self, tmp_config_dir):
@@ -285,7 +285,7 @@ class TestCancelAnywhere:
 
 class TestQueueDrain:
     """When the active transfer exits, the next queued request
-    auto-starts — through the SAME single-flight gate, serialized."""
+    auto-starts, through the SAME single-flight gate, serialized."""
 
     def test_drain_starts_next_queued_when_gate_free(self, tmp_config_dir, monkeypatch):
         svc = _make_service(tmp_config_dir)
@@ -309,7 +309,7 @@ class TestQueueDrain:
 
     def test_drain_skips_while_gate_active(self, tmp_config_dir, monkeypatch):
         """While a gateable transfer is still in flight the drain must
-        NOT start anything — the live download's own exit path drains."""
+        NOT start anything, the live download's own exit path drains."""
         svc = _make_service(tmp_config_dir)
         started: list[str] = []
 
@@ -329,7 +329,7 @@ class TestQueueDrain:
 
     def test_download_model_exit_drains_queue(self, tmp_config_dir, monkeypatch):
         """The public dispatcher must drain on EVERY exit (success,
-        failure, cancel) — a queued request auto-starts once the
+        failure, cancel), a queued request auto-starts once the
         current download_model call finishes."""
         svc = _make_service(tmp_config_dir)
         monkeypatch.setattr(svc, "_require_huggingface_consent", lambda name: None)
@@ -360,7 +360,7 @@ class TestQueueDrain:
 
 
 class TestQueueSnapshot:
-    """``get_download_queue`` — read-only snapshot for mount hydration."""
+    """``get_download_queue``, read-only snapshot for mount hydration."""
 
     def test_empty_queue_returns_empty_list(self, tmp_config_dir):
         svc = _make_service(tmp_config_dir)

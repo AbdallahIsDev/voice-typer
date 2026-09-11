@@ -13,15 +13,15 @@ import pytest
 from voice_typer.server import native_hotkeys
 
 # Hint for xdist schedulers that respect ``xdist_group`` (loadgroup /
-# loadscope): pin every test in this module — and its siblings
+# loadscope): pin every test in this module, and its siblings
 # ``test_binary_path_caching.py``,
 # ``test_native_hotkeys_binary_path.py`` and
-# ``test_native_hotkeys_factory_binary_path.py`` — onto a single
+# ``test_native_hotkeys_factory_binary_path.py``, onto a single
 # worker. All four exercise ``get_native_binary_path``'s process-wide
 # ``lru_cache(maxsize=1)`` (cleared between tests by the conftest
 # autouse cache-reset fixture); grouping them on one worker is
 # defense-in-depth for that shared cache. xdist's default ``load``
-# scheduler does NOT strictly honor this marker — it is a hint, not a
+# scheduler does NOT strictly honor this marker, it is a hint, not a
 # correctness guarantee. No-op when xdist isn't active. (C-TEST-5.)
 pytestmark = pytest.mark.xdist_group("native_binary_path")
 
@@ -46,7 +46,7 @@ def test_voice_typer_native_dir_lookup_finds_binary(tmp_path, monkeypatch):
     monkeypatch.setattr(
         Path,
         "resolve",
-        lambda self: self,  # identity — don't actually resolve
+        lambda self: self,  # identity, don't actually resolve
     )
 
     result = native_hotkeys.get_native_binary_path()
@@ -84,7 +84,7 @@ def test_voice_typer_native_dir_falls_through_when_binary_missing(tmp_path, monk
     # dev-mode path and eventually return None (or the dev binary if
     # the source tree has one).
     result = native_hotkeys.get_native_binary_path()
-    # Either None or a real path — the contract is "don't crash on a
+    # Either None or a real path, the contract is "don't crash on a
     # broken env var".
     assert result is None or isinstance(result, Path)
 
@@ -96,6 +96,6 @@ def test_no_env_vars_falls_through_to_dev_mode(monkeypatch):
 
     # In the test environment, the dev-mode binary may or may not
     # exist (depends on whether compile_native.sh ran). Either result
-    # is acceptable — the contract is "no crash".
+    # is acceptable, the contract is "no crash".
     result = native_hotkeys.get_native_binary_path()
     assert result is None or isinstance(result, Path)

@@ -1,7 +1,7 @@
 /**
  *  (session NH) test: ``DialogContent`` renders a visible close (X) button.
  *
- * Before , ``DialogContent`` had NO visible close affordance — only
+ * Before , ``DialogContent`` had NO visible close affordance, only
  * Escape + backdrop click dismissed the dialog. Sighted users without
  * keyboard expertise had no way to close a dialog with the mouse beyond
  * clicking the backdrop (which can be unintuitive for confirm-style

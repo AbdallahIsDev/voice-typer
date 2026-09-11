@@ -2,7 +2,7 @@
 OOM protection) and ``cloud_engines._parse_retry_after`` (RFC 7231
 Retry-After parsing).
 
-Both helpers are pure-Python functions with no class state — they are
+Both helpers are pure-Python functions with no class state, they are
 the security boundary between untrusted server responses and the
 dictation thread's memory budget / sleep budget. After the cloud
 package split they are DEFINED in
@@ -42,7 +42,7 @@ class TestReadCapped:
         be returned verbatim, concatenated from all chunks.
 
         The mock ``resp.read`` returns ``b"abc"`` on the first call and
-        ``b""`` on the second (the EOF signal — ``if not chunk: break``).
+        ``b""`` on the second (the EOF signal: ``if not chunk: break``).
         With ``max_bytes=1024`` the cap is never hit, so the function
         returns ``b"abc"``.
         """
@@ -56,7 +56,7 @@ class TestReadCapped:
         result = _read_capped(resp, max_bytes=1024)
 
         assert result == b"abc", (
-            f"expected b'abc', got {result!r} — _read_capped must concatenate all chunks below the cap."
+            f"expected b'abc', got {result!r}, _read_capped must concatenate all chunks below the cap."
         )
         # Both reads happened (the second one is the EOF probe).
         assert resp.read.call_count == 2
@@ -94,7 +94,7 @@ class TestReadCapped:
             "RuntimeError message must name the cap (100000) so the abort reason is unambiguous in logs."
         )
         assert "OOM" in msg or "exceeded" in msg.lower(), (
-            f"RuntimeError message must mention OOM / exceeded — got {msg!r}."
+            f"RuntimeError message must mention OOM / exceeded, got {msg!r}."
         )
         # Exactly 2 reads happened (the third, EOF-probing read never
         # fired because the cap raised on the second).
@@ -138,7 +138,7 @@ class TestParseRetryAfter:
           * Assert the parser returns ~30.0 (within a small tolerance
             for the float arithmetic).
 
-        Pre-fix the HTTP-date branch was completely untested — meaning
+        Pre-fix the HTTP-date branch was completely untested: meaning
         a refactor that dropped the ``parsedate_to_datetime`` import or
         swapped ``timezone.utc`` for ``None`` (yielding a naive
         datetime that can't be subtracted from a tz-aware one) would
@@ -149,7 +149,7 @@ class TestParseRetryAfter:
         frozen_now = datetime(2025, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
         # The production code calls ``datetime.now(timezone.utc)`` —
         # patch the ``datetime`` CLASS in the helper's OWNING module
-        # (``cloud._retry`` — the leaf that defines
+        # (``cloud._retry``, the leaf that defines
         # ``_parse_retry_after``) so ``.now`` returns our frozen
         # instant. ``timezone`` is also imported from the same module
         # so it stays real. Patching the facade module's attribute
@@ -179,7 +179,7 @@ class TestParseRetryAfter:
 
     def test_parse_retry_after_caps_at_60s(self):
         """#5: a Retry-After value larger than 60s must be capped
-        at 60.0 — never sleep for longer.
+        at 60.0, never sleep for longer.
 
         The cap at line 214 (``max(0.0, min(seconds, 60.0))``) is the
         sole defense against a hostile / misconfigured server that
@@ -192,7 +192,7 @@ class TestParseRetryAfter:
 
         result = _parse_retry_after("120")
         assert result == 60.0, (
-            f"expected 60.0 (cap) for '120', got {result!r} — the 60s "
+            f"expected 60.0 (cap) for '120', got {result!r}, the 60s "
             "cap at line 214 must clamp oversized Retry-After values."
         )
 
@@ -200,7 +200,7 @@ class TestParseRetryAfter:
         """Defense-in-depth: ``None`` (missing header) returns the 2s
         default so the caller still waits briefly before retrying.
 
-        This is the documented contract at line 189-190 — pin it so a
+        This is the documented contract at line 189-190, pin it so a
         refactor that changes the default (e.g. to 0s, which would
         hammer the server) doesn't silently regress.
         """

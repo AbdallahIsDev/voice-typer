@@ -1,5 +1,5 @@
 /**
- * Tests for useTheme — focused on the singleton-store refactor that
+ * Tests for useTheme, focused on the singleton-store refactor that
  * eliminates the dual-instance IPC + listener duplication.
  *
  * Background
@@ -27,15 +27,15 @@
  *     module-level singleton that updates the shared store.
  *
  * These tests verify:
- *   1. Two `useTheme` consumers share state — a setter call on one
+ *   1. Two `useTheme` consumers share state, a setter call on one
  *      re-renders the other with the new value.
  *   2. The `reloadThemeFromConfig` side effect (the `get_config` IPC
  *      call) runs EXACTLY ONCE even when two consumers are mounted
- *      (was previously 2 calls — one per consumer).
+ *      (was previously 2 calls, one per consumer).
  *   3. The `beforeunload` flush listener is installed EXACTLY ONCE
  *      even when two consumers are mounted.
  *   4. The `usePythonEvent("config_changed", ...)` subscription
- *      updates the shared store — both consumers see the new value.
+ *      updates the shared store, both consumers see the new value.
  */
 import { act, cleanup, render } from "@testing-library/react";
 import type { ReactNode } from "react";
@@ -163,7 +163,7 @@ function getConfigChangedHandler(): ConfigChangedHandler | null {
 
 // ── Tests ────────────────────────────────────────────────────────────
 
-describe("useTheme — singleton store: dual-instance shares state", () => {
+describe("useTheme, singleton store: dual-instance shares state", () => {
 	it("a setter call on one consumer updates the other consumer's state", async () => {
 		const captures1: { current: Record<string, unknown> | null } = {
 			current: null,
@@ -175,7 +175,7 @@ describe("useTheme — singleton store: dual-instance shares state", () => {
 		// Mount TWO consumers (mirrors App.tsx + Settings.tsx).
 		await renderProbe(captures1);
 		// The second renderProbe call also resets the store, which is
-		// fine — both consumers share the same module-level store.
+		// fine, both consumers share the same module-level store.
 		const { useTheme } = await import("@/hooks/useTheme");
 
 		function Probe2() {
@@ -188,7 +188,7 @@ describe("useTheme — singleton store: dual-instance shares state", () => {
 		const utils2 = render(<Probe2 />);
 
 		// Initially both consumers see the same themeMode (default
-		// "system" — read from the empty localStorage stub).
+		// "system", read from the empty localStorage stub).
 		expect(captures1.current?.themeMode).toBe("system");
 		expect(captures2.current?.themeMode).toBe("system");
 
@@ -200,7 +200,7 @@ describe("useTheme — singleton store: dual-instance shares state", () => {
 			await handleThemeChange("dark");
 		});
 
-		// Both consumers should now see "dark" — the singleton store
+		// Both consumers should now see "dark", the singleton store
 		// propagated the change to both subscribers.
 		expect(captures1.current?.themeMode).toBe("dark");
 		expect(captures2.current?.themeMode).toBe("dark");
@@ -243,7 +243,7 @@ describe("useTheme — singleton store: dual-instance shares state", () => {
 		).length;
 		expect(getConfigCallsAfterFirst).toBe(1);
 
-		// Mount consumer 2 (does NOT reset the store — would in a real
+		// Mount consumer 2 (does NOT reset the store, would in a real
 		// app, both consumers share the same already-initialized store).
 		const { useTheme } = await import("@/hooks/useTheme");
 		const captures2: { current: Record<string, unknown> | null } = {
@@ -264,7 +264,7 @@ describe("useTheme — singleton store: dual-instance shares state", () => {
 		});
 
 		// The second consumer's mount effect should NOT have triggered
-		// another `get_config` call — the `themeInitStarted` flag
+		// another `get_config` call, the `themeInitStarted` flag
 		// short-circuits `ensureThemeSideEffects`.
 		const getConfigCallsAfterSecond = mocks.callMock.mock.calls.filter(
 			(c) => c[0] === "get_config",
@@ -308,7 +308,7 @@ describe("useTheme — singleton store: dual-instance shares state", () => {
 			await Promise.resolve();
 		});
 
-		// Still only 1 `beforeunload` listener — the `initOnce` guard
+		// Still only 1 `beforeunload` listener, the `initOnce` guard
 		// in `ensureThemeSideEffects` short-circuits the second
 		// consumer's install.
 		const beforeUnloadAfterSecond = addSpy.mock.calls.filter(
@@ -341,7 +341,7 @@ describe("useTheme — singleton store: dual-instance shares state", () => {
 		}
 		const utils2 = render(<Probe2 />);
 
-		// Both consumers see the initial textSize (14 — default).
+		// Both consumers see the initial textSize (14, default).
 		expect(captures1.current?.textSize).toBe(14);
 		expect(captures2.current?.textSize).toBe(14);
 
@@ -353,7 +353,7 @@ describe("useTheme — singleton store: dual-instance shares state", () => {
 			handler?.({ text_size: 18 });
 		});
 
-		// Both consumers should now see textSize = 18 — the singleton
+		// Both consumers should now see textSize = 18, the singleton
 		// handler updated the shared store, both subscribers re-rendered.
 		expect(captures1.current?.textSize).toBe(18);
 		expect(captures2.current?.textSize).toBe(18);
@@ -373,7 +373,7 @@ describe("useTheme — singleton store: dual-instance shares state", () => {
 		// Reset call mock after mount (mount triggers get_config).
 		mocks.callMock.mockClear();
 
-		// Rapidly toggle theme mode 3 times — only the LAST value
+		// Rapidly toggle theme mode 3 times, only the LAST value
 		// should be persisted (debounce coalesces).
 		const handleThemeChange = captures.current?.handleThemeChange as (
 			mode: string,
@@ -384,7 +384,7 @@ describe("useTheme — singleton store: dual-instance shares state", () => {
 			await handleThemeChange("system");
 		});
 
-		// No set_config yet — the debounce timer is still pending.
+		// No set_config yet, the debounce timer is still pending.
 		const setConfigCallsBeforeDebounce = mocks.callMock.mock.calls.filter(
 			(c) => c[0] === "set_config",
 		).length;
@@ -395,7 +395,7 @@ describe("useTheme — singleton store: dual-instance shares state", () => {
 			vi.advanceTimersByTime(300);
 		});
 
-		// Exactly ONE set_config call — the 3 rapid changes coalesced.
+		// Exactly ONE set_config call, the 3 rapid changes coalesced.
 		const setConfigCallsAfterDebounce = mocks.callMock.mock.calls.filter(
 			(c) => c[0] === "set_config",
 		).length;

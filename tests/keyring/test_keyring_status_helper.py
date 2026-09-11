@@ -1,12 +1,12 @@
 """Keyring status helper tests split out of the former ``tests/test_history_and_models.py``.
 
-Domain: credential store / keyring — the ``_keyring_status()``
+Domain: credential store / keyring, the ``_keyring_status()``
 helper on VoiceTyperService centralises the duplicated probe and
 returns a uniform ``{available, backend, fallback, reason}`` dict
 (SVC-6). Both ``get_config`` and ``get_defaults`` route through it.
 
 Class/method names + assertions are preserved verbatim from the
-original monolith — only file location has changed.
+original monolith, only file location has changed.
 """
 
 from __future__ import annotations
@@ -70,7 +70,7 @@ class TestKeyringStatusHelper:
 
     def test_get_config_and_get_defaults_share_helper(self, tmp_config_dir, monkeypatch):
         """Both ``get_config`` and ``get_defaults`` route through
-        ``_keyring_status`` — patching the helper once affects both
+        ``_keyring_status``, patching the helper once affects both
         callers (proves the duplication was actually removed)."""
         from voice_typer.server.service import VoiceTyperService
 

@@ -1,7 +1,7 @@
 """split from tests/test_app.py.
 
 All heavy dependencies are mocked via the project-wide ``mock_heavy_imports``
-autouse fixture (in ``tests/conftest.py``) — CR-60 hoisted the
+autouse fixture (in ``tests/conftest.py``), CR-60 hoisted the
 ``force_pynput_hotkey_backend`` patch from the old local fixture into
 that project-wide fixture, so test modules no longer need a local
 override.
@@ -56,7 +56,7 @@ class TestHotkeyMapping:
 
         ARCH-ESC-001: the ESC callback is now a closure
         (_esc_callback in hotkey_dispatcher.register_esc) that wraps
-        app._cancel_dictation with a keyboard_ownership guard — so the
+        app._cancel_dictation with a keyboard_ownership guard, so the
         test must accept any callable, not the raw bound method.
         """
 
@@ -147,7 +147,7 @@ class TestHotkeyMapping:
         """HOTKEY-FIX-001: the dictation hotkey callback must
         be a no-op when the frontend is in hotkey capture mode (keyboard
         ownership == "hotkey_capture"). This prevents sub-tasks 2.4 and
-        2.5 — pressing a key during hotkey capture immediately triggering
+        2.5, pressing a key during hotkey capture immediately triggering
         recording.
         """
         from voice_typer.server.keyboard_ownership import keyboard_ownership

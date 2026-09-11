@@ -18,7 +18,7 @@
  *      Python default is `"professional"`. An invalid value here would
  *      cause `Config.validate()` to reject the fixture once the parity
  *      test imports the Python default (TODO: parity test that imports
- *      Python Config defaults via a CI script — out of scope for this
+ *      Python Config defaults via a CI script, out of scope for this
  *      agent's file ownership).
  *
  * These tests do NOT attempt to import Python (vitest runs in Node).
@@ -58,7 +58,7 @@ describe("DEFAULT_CONFIG (XZ-CFG-05 drift pin)", () => {
 
 	it("makeConfig overrides schema_version when explicitly provided", () => {
 		// Sanity check that the override mechanism works for the
-		// pinned fields — a test that needs an older schema
+		// pinned fields, a test that needs an older schema
 		// version (e.g. to test the migration path) must still be
 		// able to override via makeConfig({ schema_version: 2 }).
 		const cfg: VoiceTyperConfig = makeConfig({ schema_version: 2 });

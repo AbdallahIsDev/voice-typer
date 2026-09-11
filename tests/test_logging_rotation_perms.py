@@ -1,7 +1,7 @@
 """regression: post-rotation log file mode must be 0o600 on POSIX.
 
 Previously, ``setup_logging`` set ``os.umask(0o077)`` only inside a
-try/finally scope — the ``finally`` restored the parent's umask
+try/finally scope, the ``finally`` restored the parent's umask
 (typically 0o022) BEFORE any rotation could fire. Python's stock
 ``RotatingFileHandler.doRollover`` then created the new active log
 file with mode ``0o666 & ~umask = 0o644`` (world-readable on POSIX).
@@ -11,16 +11,16 @@ multi-user POSIX systems.
 
 After the single-file-policy refactor,
 ``log._SecureTruncatingFileHandler.doRollover`` truncates the active log
-IN PLACE (empties it — numbered backups are never created) and then runs
+IN PLACE (empties it, numbered backups are never created) and then runs
 ``os.chmod(self.baseFilename, 0o600)`` on POSIX, so the 0o600 mode on
 the active log survives the truncation.
 
 This test writes enough log records to exceed a pinned small
 ``maxBytes`` on the installed handler (production's Tier-3 ceiling is
-40 MB — far too large to fill in-test), forcing a truncation, then
+40 MB, far too large to fill in-test), forcing a truncation, then
 asserts the active log file's mode is 0o600. It runs ONLY on POSIX
 (on Windows the file mode is governed by ACLs, not the POSIX mode
-bits — the chmod is a documented best-effort no-op there).
+bits, the chmod is a documented best-effort no-op there).
 
 The active log file lives at ``<config_dir>/logs/voice-typer.log``
 (the O1 layout), resolved via :func:`vt_log.get_log_file_path`.
@@ -38,7 +38,7 @@ from voice_typer.server import log as vt_log
 
 pytestmark = pytest.mark.skipif(
     sys.platform == "win32",
-    reason="is POSIX-only — Windows log file perms are governed by ACLs, not the POSIX mode bits",
+    reason="is POSIX-only, Windows log file perms are governed by ACLs, not the POSIX mode bits",
 )
 
 
@@ -90,7 +90,7 @@ def test_handler_is_secure_truncating_subclass(tmp_path, monkeypatch):
 def test_initial_log_file_mode_is_0o600(tmp_path, monkeypatch):
     """(sanity): the initial active log file is 0o600 on POSIX.
 
-    This is the pre-existing behaviour — the regression test
+    This is the pre-existing behaviour, the regression test
     below (``test_truncate_in_place_keeps_mode_0o600``) asserts the
     SAME mode persists after the single-file truncation fires.
     """
@@ -124,7 +124,7 @@ def test_truncate_in_place_keeps_mode_0o600(tmp_path, monkeypatch):
     assert oct(stat.S_IMODE(os.stat(log_file).st_mode)) == "0o600"
 
     # Pin a small truncation threshold on the installed handler so the
-    # records below (~800 KiB) cross it — filling the real 40 MB
+    # records below (~800 KiB) cross it, filling the real 40 MB
     # Tier-3 ceiling in-test would be needlessly slow.
     file_handlers = [
         h for h in logging.getLogger("voice_typer").handlers if isinstance(h, vt_log._SecureTruncatingFileHandler)
@@ -159,7 +159,7 @@ def test_truncate_in_place_keeps_mode_0o600(tmp_path, monkeypatch):
     # Single-file policy: NO numbered backup may exist.
     backup = vt_log.get_logs_dir(tmp_path) / "voice-typer.log.1"
     assert not backup.exists(), (
-        "single-file policy: voice-typer.log.1 must NOT be created — the log "
+        "single-file policy: voice-typer.log.1 must NOT be created, the log "
         "truncates in place instead of rotating to numbered backups"
     )
     vt_log.reset()
@@ -197,7 +197,7 @@ def test_secure_truncating_file_handler_truncates_and_chmods(tmp_path):
     handler.emit(record)
     handler.doRollover()
 
-    # The active file (single file — truncated in place) must be 0o600.
+    # The active file (single file, truncated in place) must be 0o600.
     mode = stat.S_IMODE(os.stat(log_file).st_mode)
     assert oct(mode) == "0o600", (
         f"_SecureTruncatingFileHandler.doRollover must chmod the active file to 0o600; got {oct(mode)}"
@@ -265,7 +265,7 @@ def test_do_rollover_truncates_in_place_without_super_rollover(tmp_path, monkeyp
     """``doRollover`` (single-file policy) truncates the active file IN
     PLACE and does NOT invoke the stock ``super().doRollover()`` (which
     would rename the file to a numbered ``.1`` backup). The process umask
-    is left untouched — no new file is created, so no umask tightening is
+    is left untouched, no new file is created, so no umask tightening is
     needed (the file keeps its inode and the chmod re-asserts 0o600).
     """
     log_file = tmp_path / "ue17-inplace.log"
@@ -276,7 +276,7 @@ def test_do_rollover_truncates_in_place_without_super_rollover(tmp_path, monkeyp
     with open(log_file, "w", encoding="utf-8") as fh:
         fh.write("x" * 200)
 
-    # Spy on the stock doRollover — it must NOT be invoked.
+    # Spy on the stock doRollover, it must NOT be invoked.
     original = logging.handlers.RotatingFileHandler.doRollover
     calls = []
 
@@ -292,7 +292,7 @@ def test_do_rollover_truncates_in_place_without_super_rollover(tmp_path, monkeyp
         handler.doRollover()
         # The stock rename-based rollover was never invoked.
         assert not calls, "super().doRollover() must NOT be called (single-file policy)"
-        # The active file was truncated IN PLACE — still exists, 0 bytes.
+        # The active file was truncated IN PLACE, still exists, 0 bytes.
         assert os.path.exists(log_file)
         assert os.path.getsize(log_file) == 0
         # No numbered backup was created.
@@ -354,7 +354,7 @@ def test_do_rollover_chmod_failure_emits_warning(tmp_path, monkeypatch, caplog):
     only surface for this failure mode.
 
     Also asserts the warning does NOT leak the log file path (the path
-    contains the user's home directory — PII). Mirrors the the fix-F13
+    contains the user's home directory. PII). Mirrors the the fix-F13
     stance used for the lock-failure log.
     """
     log_file = tmp_path / "xe19_5_chmod_warn.log"
@@ -397,7 +397,7 @@ def test_do_rollover_chmod_failure_emits_warning(tmp_path, monkeypatch, caplog):
     assert str(log_file) not in msg, f"the fix-5: chmod-failure WARNING must not leak the log file path; got: {msg!r}"
     # Must include the exception class name so the operator can diagnose.
     # ``os.chmod`` raises ``PermissionError`` (a subclass of ``OSError``)
-    # on EPERM/EACCES — either name is acceptable as long as SOME
+    # on EPERM/EACCES, either name is acceptable as long as SOME
     # exception class name is logged.
     import re
 

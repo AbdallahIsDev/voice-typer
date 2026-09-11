@@ -1,5 +1,5 @@
 /**
- * Tests for the Templates page —  (load-error variant) and
+ * Tests for the Templates page,  (load-error variant) and
  * (export format forwarding).
  *
  * : the load-error EmptyState in Templates.tsx previously used the
@@ -10,7 +10,7 @@
  *
  * : the ExportFormatMenu picks "json" or "csv" and calls
  * onExport(format). Templates.tsx previously had ``onExport={() =>
- * doExport()}`` — the arrow function dropped the format arg, so CSV
+ * doExport()}``, the arrow function dropped the format arg, so CSV
  * export silently behaved like JSON export.  forwards the format
  * through to ``doExport`` and ultimately to the IPC bridge.
  */
@@ -38,12 +38,12 @@ vi.mock("sonner", () => sonnerMock());
 vi.mock("next-themes", () => nextThemesMock());
 
 /** TemplateListRow renders an InfoTooltip (Radix Tooltip) which throws
- *  without a TooltipProvider ancestor — the real App shell provides
+ *  without a TooltipProvider ancestor, the real App shell provides
  *  one, so tests mounting the page directly must too. */
 const renderWithProviders = (ui: React.ReactElement) =>
 	render(<TooltipProvider delayDuration={200}>{ui}</TooltipProvider>);
 
-describe("Templates page — load-error variant", () => {
+describe("Templates page, load-error variant", () => {
 	beforeEach(() => {
 		mockCall.mockReset();
 		// get_templates throws → loadRows sets loadError AND
@@ -97,7 +97,7 @@ describe("Templates page — load-error variant", () => {
 	});
 });
 
-describe("Templates page — export format forwarding", () => {
+describe("Templates page, export format forwarding", () => {
 	// Captured args from the bridge.exportTemplates mock so the test can
 	// assert that the format arg reaches the IPC layer.
 	const exportTemplatesMock = vi.fn();

@@ -23,7 +23,7 @@ Background (finding SI-24):
     ``__getattr__`` when the name isn't otherwise found).
 
 These tests verify the dynamic-resolution contract on every platform
-(they touch no Win32/pyatspi/pyobjc code paths — only the
+(they touch no Win32/pyatspi/pyobjc code paths, only the
 re-export-binding semantics).
 """
 
@@ -32,7 +32,7 @@ from __future__ import annotations
 import pytest
 
 # pynput / pynput.keyboard / pyperclip are mocked at collection time by
-# tests/clipboard/conftest.py (single source of truth —  dedup).
+# tests/clipboard/conftest.py (single source of truth, dedup).
 from voice_typer.server import (
     clipboard as clip_mod,  # noqa: E402
     clipboard_target_safety as safety_mod,  # noqa: E402
@@ -71,7 +71,7 @@ def test_mutable_global_not_statically_bound(name):
     import.
     """
     assert name not in clip_mod.__dict__, (
-        f"{name!r} is statically bound in clipboard.__dict__ — this "
+        f"{name!r} is statically bound in clipboard.__dict__, this "
         f"breaks the SI-24 PEP 562 fix. Remove it from the "
         f"``from clipboard_target_safety import (...)`` block in "
         f"clipboard/__init__.py and let __getattr__ resolve it "
@@ -82,7 +82,7 @@ def test_mutable_global_not_statically_bound(name):
 # ---------------------------------------------------------------------------
 # 2. The seven names ARE listed in ``__all__`` (so static-analysis
 #    tools, ``dir()``, and ``from voice_typer.server.clipboard import X``
-#    keep working — the import machinery falls back to ``__getattr__``
+#    keep working, the import machinery falls back to ``__getattr__``
 #    when the name isn't a normal module attribute).
 # ---------------------------------------------------------------------------
 
@@ -91,7 +91,7 @@ def test_mutable_global_not_statically_bound(name):
 def test_mutable_global_listed_in_all(name):
     """``name`` must be in ``clipboard.__all__`` for public-surface parity."""
     assert name in clip_mod.__all__, (
-        f"{name!r} is missing from clipboard.__all__ — "
+        f"{name!r} is missing from clipboard.__all__, "
         f"``from voice_typer.server.clipboard import {name}`` would "
         f"fall back to a non-public ``__getattr__`` lookup that "
         f"static analyzers can't see."
@@ -120,7 +120,7 @@ def test_monkeypatch_source_visible_via_reexport(name):
     try:
         assert getattr(clip_mod, name) is sentinel, (
             f"clipboard.{name} did not reflect the mutated value on "
-            f"clipboard_target_safety.{name} — the PEP 562 "
+            f"clipboard_target_safety.{name}, the PEP 562 "
             f"``__getattr__`` is missing or shadowed by a stale "
             f"static import."
         )
@@ -167,7 +167,7 @@ def test_from_import_still_resolves_via_getattr():
     """``from ... import _PYATSPI_STATE_FOCUSED`` resolves via __getattr__.
 
     The import statement captures the value AT IMPORT TIME (standard
-    Python semantics — ``from X import Y`` is not dynamic), so this
+    Python semantics: ``from X import Y`` is not dynamic), so this
     test only verifies the name is resolvable, NOT that subsequent
     mutations are visible through the imported binding. The dynamic
     visibility contract is covered by
@@ -176,7 +176,7 @@ def test_from_import_still_resolves_via_getattr():
     # Use exec so the ``from ... import`` runs at call time (not at
     # module-collection time) and we can observe the resolution.
     namespace: dict = {}
-    exec(  # noqa: S102 — controlled test fixture
+    exec(  # noqa: S102, controlled test fixture
         "from voice_typer.server.clipboard import _PYATSPI_STATE_FOCUSED",
         namespace,
     )
@@ -185,7 +185,7 @@ def test_from_import_still_resolves_via_getattr():
 
 # ---------------------------------------------------------------------------
 # 6. ``__getattr__`` raises ``AttributeError`` for genuinely-unknown
-#    names (preserves the standard module-lookup semantics — important
+#    names (preserves the standard module-lookup semantics, important
 #    for ``hasattr`` checks and friendly error messages).
 # ---------------------------------------------------------------------------
 
@@ -207,7 +207,7 @@ def test_getattr_raises_for_unknown_name():
 def test_dir_includes_dynamic_names(name):
     """``dir(clip_mod)`` lists the dynamically-resolved globals."""
     assert name in dir(clip_mod), (
-        f"{name!r} is missing from dir(clipboard) — the PEP 562 "
+        f"{name!r} is missing from dir(clipboard), the PEP 562 "
         f"``__dir__`` hook should append dynamically-resolved "
         f"mutable globals to the default module dir()."
     )

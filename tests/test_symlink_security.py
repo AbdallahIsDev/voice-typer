@@ -1,7 +1,7 @@
 """Tests for symlink attack prevention on config and corrections files.
 
 TEST-022: Test that creating a symlink at a config file path is handled
-safely — symlinks should not be followed to overwrite files outside
+safely, symlinks should not be followed to overwrite files outside
 the config directory. Only on POSIX (skip on Windows).
 """
 
@@ -38,7 +38,7 @@ class TestSymlinkConfigAttack:
 
         patch_config_dir_refs(monkeypatch, config_dir)
 
-        # Load and save config — the symlink target should NOT be overwritten
+        # Load and save config, the symlink target should NOT be overwritten
         c = Config.load()
 
         # The sensitive file content should either be preserved or the
@@ -83,7 +83,7 @@ class TestSymlinkConfigAttack:
             pytest.skip("Cannot create symlinks on this system")
 
         result = configure_corrections(config_dir=tmp_path)
-        # Dangling symlink — treat as "no file"
+        # Dangling symlink, treat as "no file"
         assert result is None
 
     def test_regular_file_works_alongside_symlinks(self, tmp_path):

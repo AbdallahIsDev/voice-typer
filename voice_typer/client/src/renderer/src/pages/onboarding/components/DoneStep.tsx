@@ -62,7 +62,7 @@ export function DoneStep({
 			</h2>
 			{/* The `completeDescription` key already exists in every
 			    locale; this is the only consumer. It no longer promises a
-			    background model download — the user already chose local
+			    background model download, the user already chose local
 			    (explicit download) or cloud on the Model step. */}
 			<p className="text-sm text-(--text-secondary)">
 				{t("onboarding.completeDescription", {
@@ -95,7 +95,7 @@ export function DoneStep({
 			    the summary block's visual language. The link opens the
 			    shared HelpOverlay (which contains the punctuation cheat
 			    sheet); the tip names the `?` shortcut via HotkeyChips (no
-			    "+" text — C-UI-1). */}
+			    "+" text, C-UI-1). */}
 			<div
 				className="flex flex-wrap items-center gap-x-2 gap-y-2 text-sm text-(--text-secondary)"
 				data-testid="onboarding-done-help"

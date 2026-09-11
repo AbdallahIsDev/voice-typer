@@ -5,14 +5,14 @@ Verifies that:
 - The 60s TTL cache returns the same value within the cache window
   without re-running ``SELECT COUNT(*)``.
 - The cache is invalidated immediately on ``delete`` / ``clear_all``
-  / ``restore`` / ``apply_retention`` — explicit user actions that
+  / ``restore`` / ``apply_retention``, explicit user actions that
   change the row count by more than 1.
 - ``add_transcription`` does NOT invalidate the cache (fire-and-forget
   writes; a 60s-stale-by-N count is fine for a "Total Dictations"
   stat card).
 
 The Dashboard previously used ``get_history({limit: 200})`` for the
-"Total Dictations" stat — once the user had > 200 dictations, the
+"Total Dictations" stat, once the user had > 200 dictations, the
 stat capped at 200 forever. The new ``get_history_count`` IPC runs
 ``SELECT COUNT(*) FROM transcriptions`` (cached for 60s).
 """
@@ -75,7 +75,7 @@ class TestGetHistoryCount:
         rec = rows[0]
         assert db.delete(rec["id"]) is True
         assert db.get_history_count() == 0
-        # Restore takes a record dict — the id is ignored, a new row is inserted.
+        # Restore takes a record dict, the id is ignored, a new row is inserted.
         assert db.restore({"text": "original"}) > 0
         assert db.get_history_count() == 1
 
@@ -105,7 +105,7 @@ class TestHistoryCountCache:
         original_get_read_conn = db._get_read_conn
 
         def _explode(*args, **kwargs):
-            raise RuntimeError("cache miss — COUNT(*) was re-run")
+            raise RuntimeError("cache miss, COUNT(*) was re-run")
 
         with patch.object(db, "_get_read_conn", _explode):
             second = db.get_history_count()
@@ -172,8 +172,8 @@ class TestHistoryCountCache:
         db.flush()
 
         with patch.object(db, "_get_read_conn", _explode):
-            # The cache is still warm — add_transcription didn't invalidate.
-            # The cached value is 1 (stale by 1) — that's the documented
+            # The cache is still warm, add_transcription didn't invalidate.
+            # The cached value is 1 (stale by 1), that's the documented
             # behavior. Within the 60s TTL window, the count may lag the
             # true row count by the number of dictations since the last
             # cache fill.

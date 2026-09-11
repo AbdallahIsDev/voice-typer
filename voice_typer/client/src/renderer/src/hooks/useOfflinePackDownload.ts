@@ -1,44 +1,44 @@
-// useOfflinePackDownload — silent-mode offline-pack readiness hook.
+// useOfflinePackDownload, silent-mode offline-pack readiness hook.
 //
 // Models the offline-pack lifecycle introduced by the installer split
 // (see `upload/plan-offline-pack-split.md` §7.4 + §8.4 + §8.10 + §4.9).
 // The slim-core sidecar downloads + verifies + launches the pack worker
 // in the background after the user grants the existing HuggingFace-style
-// consent (§8.4 — the pack download phones home to GitHub Releases, so
+// consent (§8.4, the pack download phones home to GitHub Releases, so
 // it MUST be consent-gated exactly like model downloads). The renderer
-// never shows a progress bar (§4.8 — "no progress bar in the main UI"),
+// never shows a progress bar (§4.8, "no progress bar in the main UI"),
 // only a small "Preparing offline engine…" line in the mic-test /
 // transcription areas when the user attempts offline transcription
-// before the pack is ready (§4.9 — local whisper / Parakeet degrade
+// before the pack is ready (§4.9, local whisper / Parakeet degrade
 // silently to "silent download starts, 'Preparing…' line, then works").
 //
-// ── Subscribed push events (§7.4 — 11 of the 13 new events) ──────────
+// ── Subscribed push events (§7.4, 11 of the 13 new events) ──────────
 //
 // The hook subscribes to the 11 pack/worker lifecycle push events.
 // The other 2 events in §7.4 (`transcribe_offline` request and
 // `transcribe_offline_result` push) are per-transcription events, not
 // pack-lifecycle events, so they don't belong here.
 //
-//   1.  `offline_pack_download_started`   — download kicked off (after consent)
-//   2.  `offline_pack_download_progress`  — byte counter (silent — no UI surface)
-//   3.  `offline_pack_download_completed` — bytes landed; verify step begins
-//   4.  `offline_pack_download_failed`    — network/disk/proxy failure
-//   5.  `offline_pack_verified`           — checksum verified; worker can start
-//   6.  `offline_pack_missing`            — existence check found nothing (§8.10)
-//   7.  `offline_pack_corrupt`            — checksum mismatch (§8.2)
-//   8.  `offline_pack_ready`              — worker started + prewarmed (terminal)
-//   9.  `worker_started`          — worker process up (not yet prewarmed)
-//   10. `worker_crashed`          — worker exited unexpectedly
-//   11. `worker_unloaded`         — slim-core asked worker to unload (RAM)
+//   1.  `offline_pack_download_started`  , download kicked off (after consent)
+//   2.  `offline_pack_download_progress` , byte counter (silent, no UI surface)
+//   3.  `offline_pack_download_completed`, bytes landed; verify step begins
+//   4.  `offline_pack_download_failed`   , network/disk/proxy failure
+//   5.  `offline_pack_verified`          , checksum verified; worker can start
+//   6.  `offline_pack_missing`           , existence check found nothing (§8.10)
+//   7.  `offline_pack_corrupt`           , checksum mismatch (§8.2)
+//   8.  `offline_pack_ready`             , worker started + prewarmed (terminal)
+//   9.  `worker_started`         , worker process up (not yet prewarmed)
+//   10. `worker_crashed`         , worker exited unexpectedly
+//   11. `worker_unloaded`        , slim-core asked worker to unload (RAM)
 //
 // NOTE on type-safety: the 11 event names ARE in the
 // `PythonPushEvent` union in `types/ipc/push_events.ts` AND in the
 // runtime `KNOWN_EVENT_TYPES` mirror that backs the dev-time typo
 // warning (`lib/python-bridge/known-event-types.ts`, re-exported via
 // `@/hooks/usePython`), so every `usePythonEvent` call below hits the
-// FIRST overload (the typed one — no "unknown event" console.warn).
+// FIRST overload (the typed one, no "unknown event" console.warn).
 // The handlers keep their explicit
-// `(data?: Record<string, unknown>)` params — every per-event `data`
+// `(data?: Record<string, unknown>)` params, every per-event `data`
 // shape in the union is an object literal, and function-param
 // contravariance makes a wider-accepting handler assignable to the
 // narrowed overload. The runtime behaviour is the same either way —
@@ -56,14 +56,14 @@
 // `window.python` presence and re-subscribes when the bridge comes
 // online late (Tauri timing edge), so this hook works identically
 // under both runtimes. We do NOT touch Tauri or Electron APIs
-// directly — see the contract documented at the top of
+// directly, see the contract documented at the top of
 // `hooks/usePython.ts`.
 //
 // ── State machine ────────────────────────────────────────────────────
 //
 // `status` is the lifecycle stage of the pack+worker. `isReady` is
 // `true` ONLY when `status === "ready"` (pack verified + worker
-// started + prewarmed — the `offline_pack_ready` event). Every other state
+// started + prewarmed, the `offline_pack_ready` event). Every other state
 // means offline transcription will either queue, fail, or degrade.
 //
 // Transitions (event → new status):
@@ -96,13 +96,13 @@ import { usePythonEvent } from "@/hooks/usePython";
 // ── Types ─────────────────────────────────────────────────────────────
 
 export type OfflinePackStatus =
-	| "idle" // initial — no events received yet
+	| "idle" // initial, no events received yet
 	| "downloading" // offline_pack_download_started / offline_pack_download_progress
 	| "verifying" // offline_pack_download_completed → about to verify
 	| "ready" // offline_pack_ready (worker started + prewarmed)
 	| "failed" // offline_pack_download_failed
-	| "missing" // offline_pack_missing (deleted by AV/cleaner — §8.10)
-	| "corrupt" // offline_pack_corrupt (checksum mismatch — §8.2)
+	| "missing" // offline_pack_missing (deleted by AV/cleaner, §8.10)
+	| "corrupt" // offline_pack_corrupt (checksum mismatch, §8.2)
 	| "worker-starting" // worker_started but offline_pack_ready hasn't fired
 	| "worker-crashed" // worker_crashed
 	| "worker-unloaded"; // worker_unloaded (slim-core low-RAM unload)
@@ -157,7 +157,7 @@ export function useOfflinePackDownload(): UseOfflinePackDownloadResult {
 
 	// ── offline_pack_download_progress → "downloading" (silent, no UI surface)
 	//
-	// §7.4 calls this event "silent — no UI". We still subscribe so the
+	// §7.4 calls this event "silent, no UI". We still subscribe so the
 	// status machine reflects "actively downloading" even if
 	// `offline_pack_download_started` was missed (e.g. the renderer mounted
 	// after the download already began). The handler is a no-op when
@@ -204,7 +204,7 @@ export function useOfflinePackDownload(): UseOfflinePackDownloadResult {
 		}, []),
 	);
 
-	// ── offline_pack_missing → "missing" (§8.10 — deleted by cleaner/AV) ─────
+	// ── offline_pack_missing → "missing" (§8.10, deleted by cleaner/AV) ─────
 	//
 	// The slim-core launch-time existence check found no pack dir.
 	// A silent re-download is queued; we surface the status so the
@@ -218,7 +218,7 @@ export function useOfflinePackDownload(): UseOfflinePackDownloadResult {
 		}, []),
 	);
 
-	// ── offline_pack_corrupt → "corrupt" (§8.2 — checksum mismatch) ──────────
+	// ── offline_pack_corrupt → "corrupt" (§8.2, checksum mismatch) ──────────
 	usePythonEvent(
 		"offline_pack_corrupt",
 		useCallback((data?: Record<string, unknown>): (() => void) | undefined => {
@@ -229,7 +229,7 @@ export function useOfflinePackDownload(): UseOfflinePackDownloadResult {
 		}, []),
 	);
 
-	// ── offline_pack_ready → "ready" (terminal — clears error) ───────────────
+	// ── offline_pack_ready → "ready" (terminal, clears error) ───────────────
 	usePythonEvent(
 		"offline_pack_ready",
 		useCallback((): (() => void) | undefined => {
@@ -266,7 +266,7 @@ export function useOfflinePackDownload(): UseOfflinePackDownloadResult {
 	// fires when the worker was actually running (i.e. after
 	// `offline_pack_ready`), so we only transition from "ready" →
 	// "worker-unloaded". From any other state the event is unexpected
-	// and we leave the existing status alone (defensive — avoids
+	// and we leave the existing status alone (defensive, avoids
 	// wiping a "failed" / "missing" / "corrupt" status on a stray
 	// late-arriving `worker_unloaded`).
 	usePythonEvent(

@@ -5,23 +5,23 @@ The Linux sibling of the macOS host-bundle resolver
 parent-process chain by reading ``/proc/<pid>/stat`` (parent PID) and
 ``/proc/<pid>/cmdline`` (argv[0]). Linux has no ``*.app`` bundles, so
 host-bundle detection is a documented no-op (the resolver always
-returns ``None`` on Linux) — the WALK is what matters: it must
+returns ``None`` on Linux), the WALK is what matters: it must
 terminate cleanly (never raise, never loop) against both real and
 fixture ``/proc`` trees. CI exercises the real ``/proc`` walk on the
 Linux runner after ``cargo tauri build``.
 
 This module tests:
 
-1. ``_stat_ppid`` — ``/proc/<pid>/stat`` field-4 parsing (including the
+1. ``_stat_ppid``: ``/proc/<pid>/stat`` field-4 parsing (including the
    comm-with-spaces case that makes naive splitting wrong).
-2. ``_cmdline_exe`` — argv[0] extraction from the NUL-separated
+2. ``_cmdline_exe``, argv[0] extraction from the NUL-separated
    ``cmdline`` blob.
-3. ``_read_proc_entry`` — best-effort ``(ppid, exe)`` read (missing
+3. ``_read_proc_entry``, best-effort ``(ppid, exe)`` read (missing
    files are ``(None, ...)``-per-field, never exceptions).
-4. ``_resolve_linux_host_bundle_id`` — the chain walk over REAL
+4. ``_resolve_linux_host_bundle_id``, the chain walk over REAL
    fixture files in ``tmp_path`` (a scripted ``/proc`` tree): chain
    traversal, termination at pid<=1 / unreadable stat / depth bound.
-5. ``resolve_linux_host_bundle_id`` — Linux-only guard (no ``/proc``
+5. ``resolve_linux_host_bundle_id``, Linux-only guard (no ``/proc``
    reads on other platforms).
 """
 
@@ -32,7 +32,7 @@ import sys
 import pytest
 from voice_typer.server.server_platform import linux_proc_walk as lwalk
 
-# /proc/<pid>/stat shape: "pid (comm) state ppid ..." — comm may contain
+# /proc/<pid>/stat shape: "pid (comm) state ppid ...", comm may contain
 # spaces (kernel comm is up to 15 chars and may include spaces). Only
 # the leading fields are parsed; the tail is filler.
 _STAT_TAIL = "0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0"
@@ -141,7 +141,7 @@ class TestResolveLinuxChainWalk:
         assert lwalk._resolve_linux_host_bundle_id(start_pid=300, proc_root=tmp_path) is None
 
     def test_stops_at_pid_one_without_reading_it(self, tmp_path):
-        # pid 1 must terminate the walk BEFORE any read attempt — a
+        # pid 1 must terminate the walk BEFORE any read attempt, a
         # /proc tree without an entry for pid 1 must not matter.
         _make_proc_tree(tmp_path, {300: (_stat_line(300, "sleep", "S", 1), b"/usr/bin/sleep")})
         assert lwalk._resolve_linux_host_bundle_id(start_pid=300, proc_root=tmp_path) is None
@@ -203,7 +203,7 @@ class TestRealProcTreeIntegration:
     """Linux-only integration: the REAL ``/proc`` walk against the live tree.
 
     ``_read_proc_entry`` / ``_resolve_linux_host_bundle_id`` are NOT
-    mocked here — the walker must terminate cleanly (never raise, never
+    mocked here, the walker must terminate cleanly (never raise, never
     loop) against the runner's actual ``/proc`` tree, and the fixture-
     free public resolver must agree with an independent read of the
     current chain. Skipped on Windows/macOS; exercised on the Linux CI
@@ -215,7 +215,7 @@ class TestRealProcTreeIntegration:
     def test_public_resolver_walks_real_proc_chain(self):
         """``resolve_linux_host_bundle_id()`` must run against the live
         ``/proc`` tree without raising and terminate cleanly returning
-        ``None`` (Linux has no bundle detection — see the module
+        ``None`` (Linux has no bundle detection: see the module
         docstring; the walk itself is the contract)."""
         assert lwalk.resolve_linux_host_bundle_id() is None
 

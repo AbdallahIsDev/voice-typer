@@ -38,7 +38,7 @@ class LinuxEvdevHotkey(SubprocessHotkeyBackend):
             return f"LinuxEvdevHotkey requires Linux (current: {sys.platform})"
         if self._parsed and "fn" in self._parsed["modifiers"]:
             return (
-                "FN key is not supported on Linux — it is firmware-only on "
+                "FN key is not supported on Linux, it is firmware-only on "
                 "most laptops. Use Caps Lock, Alt, or a function key instead."
             )
         return None

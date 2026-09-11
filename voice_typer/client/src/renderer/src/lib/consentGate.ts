@@ -3,8 +3,8 @@
 // Unified point-of-use consent gate ("Allow? Yes/No") for EVERY
 // consent-gated feature. Any flow that hits a `client.consent_required`
 // envelope (or a backend `consent_required` push event) opens a single
-// in-app dialog that can grant the consent in place — no Settings
-// archaeology — and optionally retries the action that was blocked.
+// in-app dialog that can grant the consent in place, no Settings
+// archaeology, and optionally retries the action that was blocked.
 //
 // The dialog itself lives in `components/consent/ConsentGateDialog.tsx`;
 // this module owns the store + the consent-field → i18n-key mapping so
@@ -29,7 +29,7 @@ import { create } from "zustand";
  * @param onAllow Called AFTER the consent field has been persisted
  *   successfully. Typically re-invokes the action that was blocked
  *   (start dictation, restart mic test, re-run download). Omit when
- *   there is nothing sensible to retry (e.g. LLM polish — the next
+ *   there is nothing sensible to retry (e.g. LLM polish, the next
  *   transcription benefits automatically).
  */
 export interface ConsentGateRequest {
@@ -63,7 +63,7 @@ export function openConsentGate(request: ConsentGateRequest): void {
  */
 export function consentBodyKey(consentField: string): string {
 	const key = `consentDialog.field.${consentField}`;
-	// No default fallback needed at the type level — the i18n layer
+	// No default fallback needed at the type level, the i18n layer
 	// returns the key itself for an unknown field, which is
 	// acceptable for a never-expected value; every known field has a
 	// pinned entry in all 8 locales (C-I18N-1).
@@ -95,7 +95,7 @@ export type ConsentFieldName = (typeof CONSENT_FIELD_NAMES)[number];
  * Dictation START is the only consent-gated direction, so these are the
  * fields whose refusal leaves an action that can be automatically
  * re-run from the dialog; every other gate has no re-runnable action
- * (granting the consent is enough — the user retries themselves).
+ * (granting the consent is enough, the user retries themselves).
  *
  * DERIVED from {@link CONSENT_FIELD_NAMES} (single source of truth, no
  * parallel hand-maintained list): a newly added cloud provider's

@@ -83,7 +83,7 @@ beforeEach(() => {
 	mockBubble = makeMockBubble();
 	(window as unknown as Record<string, unknown>).bubble = mockBubble;
 
-	// jsdom doesn't implement matchMedia — provide a stub (useThemeSync
+	// jsdom doesn't implement matchMedia, provide a stub (useThemeSync
 	// subscribes to prefers-color-scheme).
 	Object.defineProperty(window, "matchMedia", {
 		value: vi.fn().mockImplementation((query: string) => ({
@@ -155,7 +155,7 @@ describe("TY-3: useAudioLevels rAF loop is gated on mode === recording", () => {
 		// getComputedStyle on the first frame (via refreshBarColor),
 		// then again only on theme changes. The MutationObserver also
 		// calls refreshBarColor once on mount. So the spy IS called
-		// during recording mode — we record the count and assert it
+		// during recording mode, we record the count and assert it
 		// does NOT increase after we switch to idle.
 		await tickFrames(3);
 		const callsDuringRecording = gcsSpy.mock.calls.length;
@@ -169,7 +169,7 @@ describe("TY-3: useAudioLevels rAF loop is gated on mode === recording", () => {
 		// early-return now skips getComputedStyle + style writes.
 		setBubbleState("idle");
 
-		//Tick several frames — under the pre- implementation, each
+		//Tick several frames, under the pre- implementation, each
 		//of these would have called getComputedStyle once. Post-,
 		// zero calls expected.
 		await tickFrames(10);
@@ -212,7 +212,7 @@ describe("TY-3: useAudioLevels rAF loop is gated on mode === recording", () => {
 
 		// recording → idle → recording. After returning to recording,
 		// the rAF loop should resume per-frame work (which includes a
-		// getComputedStyle call ONLY if barColorRef is null — since the
+		// getComputedStyle call ONLY if barColorRef is null, since the
 		// MutationObserver already populated it on mount, the per-frame
 		// path skips getComputedStyle. The point of this test is just
 		// to verify the gating flips back: the loop's early-return no
@@ -261,14 +261,14 @@ describe("TY-3: useAudioLevels rAF loop is gated on mode === recording", () => {
 		await tickFrames(2);
 		gcsSpy.mockClear();
 
-		// Toggle the `.dark` class on documentElement — the
+		// Toggle the `.dark` class on documentElement, the
 		// MutationObserver should fire and call refreshBarColor, which
 		// calls getComputedStyle.
 		act(() => {
 			document.documentElement.classList.add("dark");
 		});
 
-		// MutationObserver fires asynchronously — flush microtasks.
+		// MutationObserver fires asynchronously, flush microtasks.
 		await act(async () => {
 			await new Promise<void>((resolve) => setTimeout(resolve, 0));
 		});

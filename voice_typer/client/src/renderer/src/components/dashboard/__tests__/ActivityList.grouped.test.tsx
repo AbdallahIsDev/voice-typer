@@ -1,5 +1,5 @@
 /**
- * ActivityList — grouped-by-date rendering + click-to-expand rows.
+ * ActivityList, grouped-by-date rendering + click-to-expand rows.
  *
  * Covers the History page's list behaviors (the Home page uses the same
  * component flat, without the new props, and must be unaffected):
@@ -11,13 +11,13 @@
  *      click-to-expand: first expansion fetches the FULL text via
  *      ``onFetchFullText`` (the same row also copies the displayed
  *      text, so an expanded row copies the full transcript). The reveal
- *      affordance is INLINE — a masked "Show more" over the truncated
+ *      affordance is INLINE, a masked "Show more" over the truncated
  *      line end (no separate button row, no hover wash behind text);
  *      expanded rows show an inline "Show less" at the end of the text.
  *   3. The text block is keyboard-operable (Enter / Space) and exposes
  *      the disclosure state via ``aria-expanded``; the inline controls
  *      are real focusable <button>s with aria-labels.
- *   4. Short, non-truncated rows stay INERT — no button role, no hover
+ *   4. Short, non-truncated rows stay INERT, no button role, no hover
  *      affordance (hover states only where a genuine click action
  *      exists).
  */
@@ -102,13 +102,13 @@ describe("ActivityList date grouping", () => {
 		expect(screen.getByText("Today")).toBeTruthy();
 		expect(screen.getByText("Yesterday")).toBeTruthy();
 
-		// Rows show only time-of-day — the FULL "Mon 3 · 12:00 PM" style
+		// Rows show only time-of-day, the FULL "Mon 3 · 12:00 PM" style
 		// date+time line must NOT appear in grouped mode. The legacy
 		// formatter renders `MMM D · h:mm AM/PM`; assert no " · " date
 		// separator survives in any row meta line.
 		const metas = screen.getAllByText(/·/);
 		for (const meta of metas) {
-			// Each meta is "HH:MM AM/PM · 2 words" — at most ONE separator
+			// Each meta is "HH:MM AM/PM · 2 words", at most ONE separator
 			// (before the word count), never a date segment.
 			const segments = meta.textContent?.split("·").length ?? 0;
 			expect(segments).toBe(2);
@@ -126,7 +126,7 @@ describe("ActivityList date grouping", () => {
 		);
 
 		// Two date sections, each its own card surface (background +
-		// border + rounded corners — the flat list's card token).
+		// border + rounded corners, the flat list's card token).
 		const sections = container.querySelectorAll("section");
 		expect(sections).toHaveLength(2);
 		for (const section of sections) {
@@ -166,7 +166,7 @@ describe("ActivityList date grouping", () => {
 		expect(screen.queryByText(t("home.recentActivity"))).toBeNull();
 	});
 
-	it("list root carries NO margin utilities — vertical rhythm comes from the parent gap", () => {
+	it("list root carries NO margin utilities, vertical rhythm comes from the parent gap", () => {
 		// Regression guard for the doubled-spacing bug: the root used
 		// to carry mt-4, which stacked with the page container's gap
 		// and pushed the card far below its section label.
@@ -198,11 +198,11 @@ describe("ActivityList click-to-expand rows", () => {
 				onFetchFullText={vi.fn()}
 			/>,
 		);
-		// No role="button" anywhere — the text block is inert.
+		// No role="button" anywhere, the text block is inert.
 		expect(container.querySelector('[role="button"]')).toBeNull();
 		// No hover/cursor classes on the TEXT container itself (the
 		// app-wide rule: hover affordances only where a genuine click
-		// action exists — the copy Button legitimately keeps its own).
+		// action exists, the copy Button legitimately keeps its own).
 		const textContainer = container.querySelector("p")?.parentElement;
 		expect(textContainer?.className).not.toContain("cursor-pointer");
 		expect(textContainer?.className).not.toContain("hover:");
@@ -299,7 +299,7 @@ describe("ActivityList click-to-expand rows", () => {
 				t("activityList.loadTextFailed"),
 			);
 		});
-		// The row stays collapsed — no phantom expanded state.
+		// The row stays collapsed, no phantom expanded state.
 		expect(
 			screen
 				.getByTestId("activity-row-text-toggle")
@@ -328,7 +328,7 @@ describe("ActivityList click-to-expand rows", () => {
 		).toBe("false");
 	});
 
-	it("copy uses the DISPLAYED text — expanded rows copy the full transcript", async () => {
+	it("copy uses the DISPLAYED text, expanded rows copy the full transcript", async () => {
 		const writeText = vi.fn().mockResolvedValue(undefined);
 		Object.defineProperty(navigator, "clipboard", {
 			value: { writeText },
@@ -351,7 +351,7 @@ describe("ActivityList click-to-expand rows", () => {
 		});
 		expect(writeText.mock.calls[0]?.[0]).not.toContain("FULL COPY TARGET");
 
-		// Expand, then copy — must carry the full transcript.
+		// Expand, then copy, must carry the full transcript.
 		fireEvent.click(screen.getByTestId("activity-row-text-toggle"));
 		await waitFor(() => {
 			expect(
@@ -432,7 +432,7 @@ describe("ActivityList inline masked reveal", () => {
 		expect(moreBtn.tagName).toBe("BUTTON");
 		expect(moreBtn.getAttribute("aria-expanded")).toBe("false");
 		// Sits inside the fade overlay anchored to the truncated line
-		// end — not as a separate row below the text.
+		// end, not as a separate row below the text.
 		const overlay = moreBtn.parentElement;
 		expect(overlay?.className).toContain("absolute");
 		expect(overlay?.className).toContain("bg-gradient-to-r");
@@ -513,7 +513,7 @@ describe("ActivityList inline masked reveal", () => {
 			).toBe("true");
 		});
 		const lessBtn = screen.getByRole("button", { name: t("home.showLess") });
-		// Inline at the end of the expanded paragraph — same muted to
+		// Inline at the end of the expanded paragraph, same muted to
 		// primary hover treatment, no separate row, overlay gone.
 		expect(lessBtn.parentElement?.tagName).toBe("P");
 		expect(lessBtn.className).toContain("hover:text-(--text-primary)");

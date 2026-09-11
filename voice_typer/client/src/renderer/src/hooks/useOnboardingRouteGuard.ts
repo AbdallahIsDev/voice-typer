@@ -1,5 +1,5 @@
 /**
- * useOnboardingRouteGuard — protects the onboarding route from users
+ * useOnboardingRouteGuard, protects the onboarding route from users
  * who already completed the wizard.
  *
  * Extracted from App.tsx (the entry component stays pure wiring) using
@@ -8,7 +8,7 @@
  * when the current page is ``"onboarding"`` but the shared config says
  * ``onboarding_completed === true``, the user is bounced to ``"home"``
  * via ``replace`` (not ``navigate``) so the "onboarding" history entry
- * is swapped for "home" instead of being stacked under it — pressing
+ * is swapped for "home" instead of being stacked under it, pressing
  * Back must NOT return the user to the wizard they just completed.
  *
  * ``onboarding_completed`` is read via a FIELD-level selector (not the
@@ -54,7 +54,7 @@ export function useOnboardingRouteGuard({
 			// "onboarding" entry is swapped for "home" in the history
 			// stack. With `navigate`, the stack would become
 			// [..., "onboarding", "home"] and pressing Back would return
-			// the user to the wizard they just completed — confusing.
+			// the user to the wizard they just completed, confusing.
 			replace("home");
 		}
 	}, [currentPage, onboardingCompleted, replace]);

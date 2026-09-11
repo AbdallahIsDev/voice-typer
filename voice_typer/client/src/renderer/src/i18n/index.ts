@@ -17,7 +17,7 @@
 //     (i18n initializes itself when any consumer first touches the
 //     package) is preserved.
 //
-// The auto-call is idempotent — subsequent calls (from ``main.tsx``
+// The auto-call is idempotent, subsequent calls (from ``main.tsx``
 // or tests) are no-ops.
 
 import { detectBrowserLocale, type Locale, SUPPORTED_LOCALES } from "./locale";
@@ -26,7 +26,7 @@ import { _setCurrentLocale, ensureLocaleLoaded } from "./store";
 
 // ── Public API re-exports ────────────────────────────────────────
 
-// hooks.ts — React hooks + subscriber registry.
+// hooks.ts, React hooks + subscriber registry.
 export {
 	getLocaleSnapshot,
 	subscribeLocale,
@@ -34,35 +34,35 @@ export {
 	useTChoice,
 } from "./hooks";
 export type { Locale } from "./locale";
-// locale.ts — Locale type, SUPPORTED_LOCALES, labels, browser-locale detection.
+// locale.ts, Locale type, SUPPORTED_LOCALES, labels, browser-locale detection.
 export {
 	detectBrowserLocale,
 	getLocaleLabel,
 	SUPPORTED_LOCALES,
 } from "./locale";
-// push.ts — tray-label resolver + IPC push helpers.
+// push.ts, tray-label resolver + IPC push helpers.
 //
 // `pushLocaleToMainProcess` and `pushLocaleToPythonBackend` are
 // exported for testability (the setLocale-propagation test spies on
 // the bridge surfaces these helpers call). They are still considered
-// semi-internal — production code should drive them via `setLocale`.
+// semi-internal, production code should drive them via `setLocale`.
 export {
 	pushLocaleToMainProcess,
 	pushLocaleToPythonBackend,
 	trayLabelsForLocale,
 } from "./push";
-// rtl.ts — RTL helpers (extracted for layout-component reuse).
+// rtl.ts, RTL helpers (extracted for layout-component reuse).
 export { isRtlLocale, RTL_LOCALES } from "./rtl";
-// store.ts — translation state container + locale orchestrator.
+// store.ts, translation state container + locale orchestrator.
 export {
 	ensureLocaleLoaded,
 	getLocale,
 	registerTranslations,
 	setLocale,
 } from "./store";
-// translate.ts — translation + pluralization functions.
+// translate.ts, translation + pluralization functions.
 export { t, tChoice } from "./translate";
-// translation-keys.ts — catalog-derived compile-time key contract
+// translation-keys.ts, catalog-derived compile-time key contract
 // (strict t()/tChoice() key union from en.json). Exported so consumers
 // that build key maps / lookups can annotate them with the same strict
 // key type t() enforces.
@@ -92,7 +92,7 @@ let _initCalled = false;
  *   - Auto-called on first import of this module: preserves the prior
  *     behavior where any consumer touching the i18n package triggers
  *     initialization. Consumers that want explicit control can call
- *     ``initI18n()`` from their entrypoint — the auto-call will then
+ *     ``initI18n()`` from their entrypoint, the auto-call will then
  *     no-op.
  *
  * Side effects (all wrapped in try/catch so a missing DOM / localStorage
@@ -111,7 +111,7 @@ let _initCalled = false;
  *     in-flight by the time the first ``t()`` call happens ().
  *
  * NOTE: this function does NOT call {@link setLocale} because that
- * would persist the locale back to localStorage (redundant — we just
+ * would persist the locale back to localStorage (redundant, we just
  * read it) and push to IPC bridges (which may not be installed yet at
  * module-init / boot time). It writes ``_currentLocale`` directly via
  * the internal ``_setCurrentLocale`` mutator and applies the DOM +
@@ -119,13 +119,13 @@ let _initCalled = false;
  *
  * Initialization timing: the auto-call at the bottom of this module
  * (see "Auto-initialization" below) is INTENTIONAL and stays for
- * backwards compatibility — any consumer that imports the i18n package
+ * backwards compatibility, any consumer that imports the i18n package
  * gets a working ``t()`` immediately, even before ``main.tsx`` runs.
  * ``main.tsx`` SHOULD still call ``initI18n()`` explicitly at the top
  * of its render sequence for deterministic ordering (so the locale is
  * restored + DOM ``dir``/``lang`` are set BEFORE the first React
  * commit, not after). The function is idempotent, so the second call
- * from ``main.tsx`` is a no-op — the auto-call only protects consumers
+ * from ``main.tsx`` is a no-op, the auto-call only protects consumers
  * that import the package outside the React tree (tests, dev tools,
  * early ``window``-bridge shims).
  */
@@ -143,7 +143,7 @@ export function initI18n(): void {
 			if (saved && (SUPPORTED_LOCALES as readonly string[]).includes(saved)) {
 				next = saved as Locale;
 			} else {
-				//no saved preference — auto-detect from the browser.
+				//no saved preference, auto-detect from the browser.
 				next = detectBrowserLocale();
 			}
 		}
@@ -158,7 +158,7 @@ export function initI18n(): void {
 	// module load. ``setLocale()`` (below) sets
 	// ``document.documentElement.dir`` whenever the locale changes at
 	// runtime, but the module-load restore path above only sets
-	// ``_currentLocale`` in memory — it never touched the DOM. So a
+	// ``_currentLocale`` in memory, it never touched the DOM. So a
 	// user with Arabic saved who reloaded the app saw
 	// ``_currentLocale === "ar"`` but
 	// ``document.documentElement.dir === "ltr"`` (the browser
@@ -181,7 +181,7 @@ export function initI18n(): void {
 	// time the first ``t()`` call happens. English (the universal
 	// fallback) is already registered synchronously at store.ts
 	// module init, so ``t()`` returns English strings until the
-	// dynamic chunk resolves — then ``useT`` subscribers are
+	// dynamic chunk resolves, then ``useT`` subscribers are
 	// notified and the UI repaints with the user's selected locale.
 	// The fire-and-forget pattern means init stays synchronous.
 	if (next !== "en") {
@@ -197,7 +197,7 @@ export function initI18n(): void {
 //
 //   - Auto-call ``initI18n()`` here so any consumer that imports the
 //     i18n package (the existing pattern) still gets initialized
-//     i18n for free — no behavior change.
+//     i18n for free, no behavior change.
 //   - Export ``initI18n`` so ``main.tsx`` (and tests) can call it
 //     explicitly. The function is idempotent so the second call is a
 //     no-op.
@@ -208,7 +208,7 @@ export function initI18n(): void {
 // dev tools, early ``window``-bridge shims) and the function's
 // idempotency guard means the redundant call from ``main.tsx`` is a
 // cheap no-op. ``main.tsx`` SHOULD still call ``initI18n()`` at the
-// top of its render sequence for deterministic ordering — the
+// top of its render sequence for deterministic ordering, the
 // auto-call runs at module-eval time (whichever importer wins the
 // race), which is not guaranteed to be before the first React commit.
 initI18n();

@@ -1,6 +1,6 @@
 {
 	"dialog.criticalError.body": "The app encountered {count} uncaught exceptions and will exit.\nCrash log: {logPath}\nPlease restart {appName}.",
-	"dialog.criticalError.title": "{appName} — Critical Error",
+	"dialog.criticalError.title": "{appName}, Critical Error",
 	"dialog.export.config": "Export Configuration",
 	"dialog.export.history": "Export History",
 	"dialog.export.statsImage": "Export Stats Image",
@@ -12,7 +12,7 @@
 	"dialog.singleInstance.title": "{appName}",
 	"notify.app.config_load_failed_body": "Config load failed. Settings were reset to defaults. Check the logs for details.",
 	"state.app.starting": "Starting...",
-	"dialog.crashLoop.title": "{appName} — Crash loop",
+	"dialog.crashLoop.title": "{appName}, Crash loop",
 	"dialog.crashLoop.mainBody": "The main window renderer has crashed repeatedly and cannot recover.\n\nPlease use the tray icon to Restart or Quit, then relaunch {appName}.",
 	"dialog.crashLoop.bubbleBody": "The bubble overlay renderer has crashed repeatedly and cannot recover.\n\nPlease use the tray icon to Restart or Quit, then relaunch {appName}.",
 	"dialog.pythonBackend.timeoutTitle": "Python backend failed to start",

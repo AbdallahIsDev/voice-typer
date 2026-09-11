@@ -1,4 +1,4 @@
-"""TeardownsMixin — thin teardown delegates on ``ShutdownController``.
+"""TeardownsMixin, thin teardown delegates on ``ShutdownController``.
 
 Split verbatim out of the pre-split ``shutdown_controller`` module.
 Each helper is a thin delegate that calls the standalone function in
@@ -133,7 +133,7 @@ class TeardownsMixin:
         teardown_waveform_wiring(self)
 
     def _teardown_sounddevice(self) -> None:
-        """safety-net ``sd.stop()`` — skipped when
+        """safety-net ``sd.stop()``: skipped when
         ``recorder.stop()`` (or ``discard()``) timed out.
 
         Body lives in

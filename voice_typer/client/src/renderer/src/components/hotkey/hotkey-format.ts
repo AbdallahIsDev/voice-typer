@@ -7,7 +7,7 @@
  * display labels (e.g. "Ctrl+Alt+V" on Windows/Linux, "⌃⌥V" on macOS).
  *
  * Also holds the canonical default-hotkey constants
- * (``HOTKEY_DEFAULT`` / ``REPASTE_HOTKEY_DEFAULT``) — they're the
+ * (``HOTKEY_DEFAULT`` / ``REPASTE_HOTKEY_DEFAULT``), they're the
  * fallback values fed into ``configHotkeyLabels``, so keeping them
  * next to the formatter avoids a keymap↔format circular import
  * (``configHotkeyLabels`` reads both).
@@ -28,7 +28,7 @@ import { detectPlatform } from "./hotkey-validation";
  * Hoisted to module scope: this is a pure Unicode-symbol table (⌘ ⇧ ⌥ ⌃)
  * with no locale dependence, so it never changes between renders or
  * locale switches. The previous in-function allocation re-built a
- * ~14-entry object on every ``formatHotkey`` call — at ~6 calls per
+ * ~14-entry object on every ``formatHotkey`` call, at ~6 calls per
  * Settings render (one per preset row) and 1 call per ``HotkeyPicker``
  * mount, this was measurable on slow devices.
  */
@@ -51,7 +51,7 @@ const MAC_MODIFIER_GLYPHS: Readonly<Record<string, string>> = {
 /**
  * Per-locale cache of the ``KEY_LABEL_ALIAS`` map used by
  * ``formatHotkey``. The map contains ~28 entries whose values come
- * from ``t("hotkeyKeys.*")`` — building it requires 28 ``t()``
+ * from ``t("hotkeyKeys.*")``, building it requires 28 ``t()``
  * lookups. Without caching, every ``formatHotkey`` call rebuilt the
  * map (and re-resolved every translation), which dominated the
  * function's runtime in the Settings panel where ``formatHotkey`` is
@@ -124,10 +124,10 @@ function getKeyLabelAlias(): Readonly<Record<string, string>> {
  *
  * on macOS, the four primary modifiers are rendered as
  * platform-native glyphs (⌘ Cmd, ⌃ Ctrl, ⌥ Alt/Option, ⇧ Shift) and
- * joined WITHOUT separators — matching the macOS Human Interface
+ * joined WITHOUT separators, matching the macOS Human Interface
  * Guidelines (e.g. "⌘⇧V" rather than "Cmd+Shift+V"). On Windows and
  * Linux the existing text labels ("Ctrl", "Shift", etc.) joined with
- * "+" are kept — that convention is what users on those platforms
+ * "+" are kept, that convention is what users on those platforms
  * expect, and existing tests + snapshot files assert on it.
  *
  * The ``win`` / ``super`` / ``fn`` / ``globe`` modifiers are NOT
@@ -139,7 +139,7 @@ export function formatHotkey(hotkey: string): string {
 	if (!hotkey) return t("hotkey.none");
 	// macOS glyph table + per-locale KEY_LABEL_ALIAS are now resolved
 	// via module-scope helpers (see ``MAC_MODIFIER_GLYPHS`` and
-	// ``getKeyLabelAlias`` above) — they used to be re-allocated on
+	// ``getKeyLabelAlias`` above), they used to be re-allocated on
 	// every call, which dominated ``formatHotkey``'s runtime.
 	const KEY_LABEL_ALIAS = getKeyLabelAlias();
 	const parts = hotkey
@@ -174,7 +174,7 @@ export const formatHotkeyLabel = formatHotkey;
 
 /**
  * Default dictation hotkey (pynput form). Must match the backend's
- * canonical default — see `OnboardingController.selected_hotkey` and the
+ * canonical default, see `OnboardingController.selected_hotkey` and the
  * comment history in `pages/onboarding/lib/constants.ts` (which
  * re-exports this constant) for the lockstep contract.
  */
@@ -188,7 +188,7 @@ export const HOTKEY_DEFAULT = "<caps_lock>";
 export const REPASTE_HOTKEY_DEFAULT = "<ctrl>+<alt>+v";
 
 /**
- * Config fields consumed by {@link configHotkeyLabels} — the renderer
+ * Config fields consumed by {@link configHotkeyLabels}, the renderer
  * config shape (`VoiceTyperConfig`), narrowed to just the hotkeys.
  */
 export interface ConfigHotkeys {
@@ -219,7 +219,7 @@ export function configHotkeyLabels(config: ConfigHotkeys): {
  *
  * On macOS the modifier labels are mapped to their platform-native
  * glyphs (Ctrl→⌃, Alt→⌥, Shift→⇧, Cmd→⌘) and the combo parts are
- * joined WITHOUT "+" separators — the exact output `formatHotkey`
+ * joined WITHOUT "+" separators, the exact output `formatHotkey`
  * produces from the pynput form (e.g. "⌃B" for "<ctrl>+<b>"), so
  * tooltip chips match the Sidebar's `formatHotkey`-driven rendering.
  * On Windows/Linux the string is returned unchanged (the canonical

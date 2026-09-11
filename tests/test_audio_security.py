@@ -9,7 +9,7 @@ def test_buffer_zeroed_on_stop():
     """Buffer contents are zeroed before being released on stop.
 
     WR-8: the previous test only asserted ``len(recorder._audio_pipeline._buffer) == 0``
-    after ``stop()`` — which passes trivially even if the chunks were
+    after ``stop()``, which passes trivially even if the chunks were
     never zeroed (the buffer is replaced with a fresh empty container
     regardless). We now capture a reference to the recorded audio's
     backing storage BEFORE stop(), then drain the buffer-clear background
@@ -35,7 +35,7 @@ def test_buffer_zeroed_on_stop():
     recorder = Recorder(config)
     # Manually add some data to the buffer, then capture a reference to
     # the SAME storage object the buffer-clear worker will fill(0)
-    # in-place — so we can verify the zeroing actually happened on the
+    # in-place, so we can verify the zeroing actually happened on the
     # audio we appended (not on a fresh copy).
     chunk = np.array([0.5, 0.3, 0.8], dtype=np.float32)
     recorder._audio_pipeline._buffer.append(chunk)

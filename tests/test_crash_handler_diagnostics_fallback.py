@@ -6,7 +6,7 @@ Pre-fix, ``set_crash_handler_config_dir`` wrapped
 ALWAYS set ``_crash_file_path`` to the archive-subdir path regardless
 of whether mkdir succeeded. On a read-only config_dir the mkdir fails
 silently, and the VEH callback's ``_write_to_file`` gets
-``CreateFileW`` -> ``INVALID_HANDLE_VALUE`` -> silent return — so the
+``CreateFileW`` -> ``INVALID_HANDLE_VALUE`` -> silent return, so the
 SEH crash handler was dead even though the Python excepthook (which
 writes to the config_dir root) kept working.
 
@@ -78,7 +78,7 @@ def test_mkdir_failure_falls_back_to_config_root(tmp_path, monkeypatch, caplog) 
     monkeypatch.setattr(Path, "mkdir", _failing_archive_mkdir)
 
     with caplog.at_level(logging.WARNING, logger="voice_typer.server.crash_handler._diagnostics_archive"):
-        # Must NOT raise — the config-dir setter stays non-fatal.
+        # Must NOT raise, the config-dir setter stays non-fatal.
         crash_handler.set_crash_handler_config_dir(tmp_path)
 
     config_root = tmp_path.resolve()
@@ -107,7 +107,7 @@ def test_mkdir_failure_falls_back_to_config_root(tmp_path, monkeypatch, caplog) 
 
 def test_mkdir_success_uses_archive_path(tmp_path) -> None:
     """FR-7: when mkdir succeeds, the archive-subdir path is used (no
-    fallback, no WARNING) — preserving the existing behavior."""
+    fallback, no WARNING), preserving the existing behavior."""
     crash_handler.set_crash_handler_config_dir(tmp_path)
 
     archive_dir = tmp_path / "crash_diagnostics"

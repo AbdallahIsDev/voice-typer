@@ -2,7 +2,7 @@
 #
 # Locking the style here (instead of relying on rustfmt defaults, which can
 # shift between Rust releases) keeps `cargo fmt --check` deterministic for
-# contributors and CI. Bump deliberately, not casually — any change here
+# contributors and CI. Bump deliberately, not casually, any change here
 # reformats the whole crate.
 #
 # NOTE: rustfmt itself is not version-locked (`channel = "stable"` in

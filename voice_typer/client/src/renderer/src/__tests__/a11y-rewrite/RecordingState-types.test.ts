@@ -1,5 +1,5 @@
 /**
- *  vitest rewrite — type-level tests for `RecordingState`.
+ *  vitest rewrite, type-level tests for `RecordingState`.
  *
  * Replaces the following string-pattern Python tests from
  * `tests/test_feature_hardening_regressions.py`:
@@ -36,7 +36,7 @@ import type { RecordingState } from "@/types/ipc";
 // `IsExact<A, B>` is true iff A and B are the same type (no extra or
 // missing members).  The standard trick: two conditional types that
 // only reduce to `1` (vs `2`) when the candidate type is exactly the
-// target — if either side has extra members the trick fails.
+// target, if either side has extra members the trick fails.
 type IsExact<A, B> =
 	(<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2
 		? true
@@ -84,7 +84,7 @@ const _hasLoading: "loading" extends RecordingState ? true : false = true;
 const _hasCancelling: "cancelling" extends RecordingState ? true : false = true;
 const _hasError: "error" extends RecordingState ? true : false = true;
 
-describe("RecordingState union — RW-0 rewrite of test_only_six_states", () => {
+describe("RecordingState union, RW-0 rewrite of test_only_six_states", () => {
 	it("contains exactly the 6 backend-emitted states (idle, recording, transcribing, loading, cancelling, error)", () => {
 		// The compile-time `_isExact` const above guarantees
 		// the union is exactly the 6-state set.  The runtime
@@ -105,7 +105,7 @@ describe("RecordingState union — RW-0 rewrite of test_only_six_states", () => 
 	});
 });
 
-describe("RecordingState union — RW-0 rewrite of test_dead_states_removed", () => {
+describe("RecordingState union, RW-0 rewrite of test_dead_states_removed", () => {
 	it("does NOT contain any of the 7 dead values (listening, processing, warming_up, downloading, paused, setup, not_configured)", () => {
 		// The compile-time `_noDead` const above guarantees
 		// none of the dead-state literals are members of

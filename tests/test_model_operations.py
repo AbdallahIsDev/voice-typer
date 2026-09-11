@@ -9,7 +9,7 @@ service-layer model-management surface:
   ``_download_cancel_events`` / ``_unregister_download`` +
   ``cancel_model_download``)
 * model deletion via the registry (``delete_model`` for whisper/distil/
-  parakeet/qwen — all routed through ``MODEL_REGISTRY``)
+  parakeet/qwen, all routed through ``MODEL_REGISTRY``)
 * ``get_model_status`` 5 s TTL cache (invalidated by ``delete_model`` and
   successful downloads; ``cache_dir`` probed once per compute)
 * download-progress polling scoped to the per-model directory (PERF-21)
@@ -143,9 +143,9 @@ class TestCancelModelDownloadMechanism:
 
 class TestDeleteModelUsesRegistryUnconditionally:
     """SVC-7: ``delete_model`` resolves ``repo_id`` from
-    :data:`MODEL_REGISTRY` for ALL models (whisper/distil/parakeet/qwen)
-    — the inline ``elif model_name == "parakeet"`` / ``elif model_name ==
-    "qwen"`` branches are gone."""
+      :data:`MODEL_REGISTRY` for ALL models (whisper/distil/parakeet/qwen)
+    , the inline ``elif model_name == "parakeet"`` / ``elif model_name ==
+      "qwen"`` branches are gone."""
 
     def _make_service(self):
         from voice_typer.server.service import VoiceTyperService
@@ -181,10 +181,10 @@ class TestDeleteModelUsesRegistryUnconditionally:
 
     def test_qwen_uses_registry_repo_id(self, tmp_config_dir):
         """``delete_model("qwen")`` no longer returns "Unknown model"
-        — it derives ``andrewleech/qwen3-asr-1.7b-onnx`` from the
-        registry (the ONNX export repo, 2026-08-15) and either deletes
-        the matching cache dir or returns "not downloaded" when the
-        dir is absent."""
+        , it derives ``andrewleech/qwen3-asr-1.7b-onnx`` from the
+          registry (the ONNX export repo, 2026-08-15) and either deletes
+          the matching cache dir or returns "not downloaded" when the
+          dir is absent."""
         from voice_typer.server.model_registry import get_model_metadata
 
         service = self._make_service()
@@ -225,7 +225,7 @@ class TestGetModelStatusCache:
 
     def test_two_consecutive_calls_return_same_cached_object(self, tmp_config_dir, monkeypatch):
         """Within the 5 s TTL window, the second call returns the SAME
-        dict object — proving the cache served it (not a fresh compute)."""
+        dict object, proving the cache served it (not a fresh compute)."""
         service = self._make_service()
         monkeypatch.setattr("os.path.isdir", lambda p: False)
         first = service.get_model_status()
@@ -296,7 +296,7 @@ class TestDownloadPollScopedToModelDir:
         ``rglob`` on ``cache_dir / models--<repo_id>``, NOT on
         ``cache_dir`` itself.
 
-        We verify by inspecting the source — running an actual
+        We verify by inspecting the source, running an actual
         download is impractical in unit tests (snapshot_download +
         threading). The source-level guard catches any future revert
         that re-widens the rglob.
@@ -335,7 +335,7 @@ class TestDownloadPollScopedToModelDir:
         code_only = "\n".join(code_only_lines)
         assert 'cache_dir.rglob("*")' not in code_only, (
             "PERF-21 regression: poll_download_progress still calls "
-            "cache_dir.rglob('*') in actual code — this walks the ENTIRE "
+            "cache_dir.rglob('*') in actual code, this walks the ENTIRE "
             "HF cache tree every 1 s and was the bug PERF-21 fixed."
         )
 
@@ -347,7 +347,7 @@ class TestDeleteStaleActiveModel:
     The configured active model can be removed from disk out-of-band
     (deleted folder / moved cache / wiped disk) while ``config.json``
     still points at it. ``delete_model`` must NOT refuse with "Cannot
-    delete the active model" in that case — there is nothing on disk to
+    delete the active model" in that case, there is nothing on disk to
     protect. It clears the stale selection (switching to the first
     downloaded model, if any) via the canonical ``apply_config`` path,
     pushes ``config_changed``, invalidates the status cache, and returns
@@ -386,7 +386,7 @@ class TestDeleteStaleActiveModel:
         # The fallback-pick consumes _compute_model_status, whose
         # ``downloaded`` answer now comes from the snapshot-completeness
         # probe (partial downloads report False). Stub it to mirror
-        # reality — repo dir present → True — so this test pins the
+        # reality (repo dir present → True) so this test pins the
         # STALE-ACTIVE fallback SELECTION, not the probe mechanics
         # (pinned in tests/model_download/).
         monkeypatch.setattr(
@@ -400,7 +400,7 @@ class TestDeleteStaleActiveModel:
         result = service.delete_model("tiny")
         assert result["success"] is True, f"Expected success, got: {result}"
         assert "tiny" in result["message"]
-        # The message reports the switch (truthful — apply_config committed).
+        # The message reports the switch (truthful, apply_config committed).
         assert "switched to" in result["message"], f"stale-clear success must report the switch, got: {result}"
         # The stale selection was cleared: active model switched to the
         # downloaded fallback via apply_config.
@@ -415,7 +415,7 @@ class TestDeleteStaleActiveModel:
     def test_active_missing_apply_config_failure_does_not_claim_switch(self, tmp_config_dir, monkeypatch):
         """If the config-clear (``apply_config``) fails and rolls back, the
         delete still succeeds but the message must NOT claim the active
-        model was switched — the phantom config value is still live."""
+        model was switched, the phantom config value is still live."""
         from unittest.mock import Mock
 
         from voice_typer.server.model_registry import get_model_metadata
@@ -441,7 +441,7 @@ class TestDeleteStaleActiveModel:
 
         result = service.delete_model("tiny")
         assert result["success"] is True, f"delete must still succeed, got: {result}"
-        # The switch did NOT commit (rolled back) — message must not claim it.
+        # The switch did NOT commit (rolled back), message must not claim it.
         assert "switched to" not in result["message"], (
             f"message must not claim a switch that rolled back, got: {result}"
         )
@@ -451,7 +451,7 @@ class TestDeleteStaleActiveModel:
         )
 
     def test_active_missing_no_fallback_enters_no_model_state(self, tmp_config_dir):
-        """No model is downloaded at all — there is no valid replacement.
+        """No model is downloaded at all, there is no valid replacement.
         The delete still succeeds and the config enters the genuine
         "no model selected" state (``model_size == ""``, the
         ``NO_MODEL_SIZE`` sentinel) instead of keeping a phantom model

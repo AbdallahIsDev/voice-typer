@@ -8,11 +8,11 @@
 remaining window-management + quit-confirmation concerns that were
 still inlined on ``TrayIcon``:
 
-  - :func:`open_page` — publish a ``navigate`` event so the renderer
+  - :func:`open_page`: publish a ``navigate`` event so the renderer
     opens the given route (Settings / History / Help / Models).
-  - :func:`open_models_page` — open the Electron window and navigate
+  - :func:`open_models_page`: open the Electron window and navigate
     to ``/models``.
-  - :func:`confirm_quit_while_recording` — quit immediately via the
+  - :func:`confirm_quit_while_recording`: quit immediately via the
     controller (the old confirmation dialog was removed; crash
     recovery + ``quit_app`` handle in-flight transcriptions).
 
@@ -58,7 +58,7 @@ def _electron_process_is_running() -> bool:
 
     Checks in order:
     1. The tracked ``_electron_pid`` (set when *this* backend launched
-       Electron) — via the cross-platform ``_is_pid_alive`` helper.
+       Electron), via the cross-platform ``_is_pid_alive`` helper.
     2. A ``pgrep -f <APP_NAME>`` process-table match (macOS/Linux) —
        catches an Electron launched by another backend instance or a
        manual start.
@@ -90,15 +90,15 @@ def _electron_process_is_running() -> bool:
 def _bring_electron_to_front_macos() -> bool:
     """Bring the Voice Typer window to front on macOS via AppleScript.
 
-    ``tell application "<name>" to activate`` asks the running app to
-    activate (the Electron app registers its bundle name with
-    LaunchServices, so this resolves to the running instance). Returns
-    True if the AppleScript succeeded.
+     ``tell application "<name>" to activate`` asks the running app to
+     activate (the Electron app registers its bundle name with
+     LaunchServices, so this resolves to the running instance). Returns
+     True if the AppleScript succeeded.
 
-    Previously the macOS/Linux paths had NO focus helper at all
-    — ``bring_electron_to_front`` returned False outside Windows, so a
-    transient TCP blip fell straight through to spawning a DUPLICATE
-    Electron process.
+     Previously the macOS/Linux paths had NO focus helper at all
+    , ``bring_electron_to_front`` returned False outside Windows, so a
+     transient TCP blip fell straight through to spawning a DUPLICATE
+     Electron process.
     """
     if is_windows():
         return False
@@ -174,7 +174,7 @@ def bring_electron_to_front() -> bool:
         # window was brought to front.
         fg_hwnd = ctypes.windll.user32.GetForegroundWindow()
         if not fg_hwnd:
-            log.info("[TRAY] No foreground window (secure desktop / Winlogon active) — skipping bring-to-front")
+            log.info("[TRAY] No foreground window (secure desktop / Winlogon active), skipping bring-to-front")
             return False
 
         found_hwnd = None
@@ -247,8 +247,12 @@ def open_electron_window() -> None:
     # 1. Primary: push show_window over TCP.  Cheap, cross-platform,
     #    and works whether the window is hidden (close-to-tray) or
     #    minimized.
-    from voice_typer.server import event_bus
+    import time as _time
 
+    from voice_typer.server import event_bus
+    from voice_typer.server.duration import format_duration
+
+    _open_started = _time.perf_counter()
     try:
         published = event_bus.publish({"type": "show_window"})
     except Exception:
@@ -256,7 +260,7 @@ def open_electron_window() -> None:
         log.debug("[TRAY] show_window push raised, trying Win32 focus")
 
     # ``event_bus.publish`` returns True when ANY in-process subscriber
-    # accepted the event — which does NOT prove Electron received it:
+    # accepted the event: which does NOT prove Electron received it:
     # the IPC transport's push() swallows write failures (it buffers to
     # ``_pending_tcp`` and marks the client dead instead of raising) and
     # the no-client path buffers silently, while unrelated subscribers
@@ -264,21 +268,49 @@ def open_electron_window() -> None:
     # event. Only treat the push as delivered when a transport probe
     # reports a live host client; otherwise fall through to the Win32
     # focus path so the window still appears.
-    if published and event_bus.has_live_transport():
+    #
+    # BP-160: a HALF-OPEN socket defeats even the probe, the kernel
+    # accepts the write (no error, client stays "live") while Electron
+    # never receives the frame, so the push is silently lost and no
+    # fallback runs. On Windows the native focus below is pure ctypes
+    # (EnumWindows + ShowWindow, microseconds, no subprocess), so it
+    # runs as INSURANCE on every Windows open, even when the TCP push
+    # looks delivered. Both target the same window; the calls are
+    # idempotent. Non-Windows keeps the old shape (the AppleScript /
+    # wmctrl helpers spawn subprocesses, so they stay fallback-only).
+    live = event_bus.has_live_transport()
+    delivered = published and live
+    if delivered:
         log.info(
             "[TRAY] Tray icon left-click: show_window request sent to Electron "
-            "over IPC — Electron will show, raise and focus the dashboard window"
+            "over IPC, Electron will show, raise and focus the dashboard window"
         )
-        return
-    log.info("[TRAY] no live Electron transport — trying Win32 focus")
+    else:
+        log.info("[TRAY] no live Electron transport, trying Win32 focus")
 
-    # 2. Fallback: platform focus on an existing window.
-    if bring_electron_to_front():
+    # 2. Native focus: insurance on Windows (see BP-160 note above),
+    #    fallback elsewhere.
+    focused = False
+    if is_windows() or not delivered:
+        try:
+            focused = bring_electron_to_front()
+        except Exception:
+            log.debug("[TRAY] bring_electron_to_front raised", exc_info=True)
+            focused = False
+    log.info(
+        "[TRAY] open window request settled live=%s focused=%s%s",
+        live,
+        focused,
+        format_duration(_time.perf_counter() - _open_started),
+    )
+    if delivered:
+        return
+    if focused:
         return
 
     # 3. Duplicate-launch gate: if the focus helpers above failed
     #    but we KNOW an Electron process is still alive (tracked PID, or
-    #    a pgrep match), do NOT spawn a second Electron — the existing
+    #    a pgrep match), do NOT spawn a second Electron, the existing
     #    window simply couldn't be focused (e.g. the window manager
     #    refused, or the window is on another desktop). Spawning a
     #    duplicate would surface a confusing "port already in use" crash
@@ -287,10 +319,10 @@ def open_electron_window() -> None:
     #    macOS/Linux a transient TCP blip fell straight through to a
     #    duplicate launch.
     if _electron_process_is_running():
-        log.warning("[TRAY] Electron appears to be running but window focus failed — skipping duplicate launch")
+        log.warning("[TRAY] Electron appears to be running but window focus failed, skipping duplicate launch")
         return
 
-    # 4. Last resort: Electron isn't running — build + launch with
+    # 4. Last resort: Electron isn't running, build + launch with
     #    electron . (production path, no Vite).
     from voice_typer.server.autostart_launcher import _ensure_built_and_launch
 
@@ -303,13 +335,13 @@ def open_electron_window() -> None:
         client_dir = os.path.join(project_root, "voice_typer", "client")
         log.info("[TRAY] Build-first failed, trying dev mode from %s", client_dir)
         # S-7: previously used ``shell=True`` here (which
-        # spawns a shell to find npm, propagating PATH/env to it — a
+        # spawns a shell to find npm, propagating PATH/env to it, a
         # shell-injection risk and breaks on paths with spaces).  We now
         # resolve the npm path explicitly via the shared
         # :func:`_electron_build._npm_command` helper, which uses
         # ``shutil.which`` (and on Windows checks ``PATHEXT`` so ``npm``
         # resolves to ``npm.cmd``).  When npm truly cannot be resolved,
-        # we log and skip — never fall back to ``shell=True``.
+        # we log and skip, never fall back to ``shell=True``.
         from voice_typer.server._electron_build import _npm_command
 
         cmd = _npm_command("dev")
@@ -329,12 +361,12 @@ def open_page(path: str) -> None:
 
     (): generalization of :func:`open_models_page` so any
         in-app route can be opened from the tray menu (Settings / History /
-        Help). Does NOT open the Electron window itself — callers that need
+        Help). Does NOT open the Electron window itself, callers that need
         the window open (e.g. :func:`open_models_page`) call
         :func:`open_electron_window` first, then :func:`open_page`.
 
     extracted from ``TrayIcon._open_page`` as a
-        pure module-level function (no instance state needed — just
+        pure module-level function (no instance state needed, just
         publishes via the event bus).
 
         Args:
@@ -362,7 +394,7 @@ def open_models_page(tray: "TrayIcon") -> None:
         The delegate on ``TrayIcon`` calls ``tray._open_page('/models')``
         (NOT this module's :func:`open_page` directly) so tests that do
         ``monkeypatch.setattr(tray, "_open_page", fake_open_page)`` keep
-        working — the patched instance attribute is consulted at call
+        working, the patched instance attribute is consulted at call
         time, not the module-level function.
 
         Args:

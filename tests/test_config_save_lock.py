@@ -10,7 +10,7 @@ read-migrate-write sequence. The two operations could race:
       ``keyring://openai`` reference + ``secrets_migrated=True`` to disk.
   (c) ``Config.save()`` (no lock) writes the FULL in-memory Config —
       including the original plaintext ``openai_api_key`` and
-      ``secrets_migrated=False`` — overwriting the migration's
+      ``secrets_migrated=False``, overwriting the migration's
       reference token. Plaintext key is back on disk.
 
 The fix acquires ``config.json.lock`` inside ``Config.save()`` using
@@ -20,18 +20,18 @@ a short timeout (default 5 seconds) to avoid hanging the IPC thread.
 
 Tests:
 
-1. ``test_save_acquires_config_lock`` — Config.save() must call
+1. ``test_save_acquires_config_lock``, Config.save() must call
    ``_acquire_config_lock`` before writing (verified via mock).
 
-2. ``test_save_blocks_when_lock_held`` — when the lock is held by
+2. ``test_save_blocks_when_lock_held``, when the lock is held by
    another caller (simulating a running migration), ``Config.save()``
    must block until the lock is released.
 
-3. ``test_save_returns_false_on_lock_timeout`` — when the lock cannot
+3. ``test_save_returns_false_on_lock_timeout``, when the lock cannot
    be acquired within the timeout, ``Config.save()`` returns False
    (rather than hanging the IPC thread indefinitely).
 
-4. ``test_save_serializes_with_migrate`` — running migrate and save
+4. ``test_save_serializes_with_migrate``, running migrate and save
    concurrently, the on-disk key must never be the plaintext (the
    lock serializes them so save cannot overwrite the migration's
    keyring:// reference with plaintext).
@@ -88,7 +88,7 @@ class TestConfigSaveLock:
         assert result is True
         assert called["count"] == 1, (
             "CR-37 regression: Config.save() did not call "
-            "_acquire_config_lock — without the lock, save() races "
+            "_acquire_config_lock, without the lock, save() races "
             "with migrate_secrets_to_keyring and can overwrite the "
             "migration's keyring:// reference token with plaintext."
         )
@@ -100,7 +100,7 @@ class TestConfigSaveLock:
         from voice_typer.server import credential_store
         from voice_typer.server.config import Config
 
-        # Acquire the lock from outside Config.save() — simulating a
+        # Acquire the lock from outside Config.save(), simulating a
         # running migrate_secrets_to_keyring holding the lock.
         lock_file = tmp_path / "config.json.lock"
         lock_fd = credential_store._acquire_migration_lock(lock_file)
@@ -129,22 +129,22 @@ class TestConfigSaveLock:
             # save() should still be blocked (thread alive, no result yet).
             assert t.is_alive() and not result_holder, (
                 "CR-37 regression: Config.save() did not block on the "
-                "lock — it must serialize with migrate_secrets_to_keyring "
+                "lock, it must serialize with migrate_secrets_to_keyring "
                 "via config.json.lock to avoid overwriting the migration's "
                 "keyring:// reference token with plaintext."
             )
 
-            # Release the lock — save() should now proceed.
+            # Release the lock, save() should now proceed.
             with contextlib.suppress(OSError):
                 lock_fd.close()
             t.join(timeout=5.0)
 
             assert not t.is_alive(), (
                 "Config.save() thread did not complete within 5s of "
-                "releasing the lock — the lock release did not unblock it."
+                "releasing the lock, the lock release did not unblock it."
             )
             assert result_holder.get("result") is True, (
-                f"Config.save() returned {result_holder.get('result')} after the lock was released — expected True."
+                f"Config.save() returned {result_holder.get('result')} after the lock was released, expected True."
             )
         finally:
             with contextlib.suppress(OSError):
@@ -157,7 +157,7 @@ class TestConfigSaveLock:
         from voice_typer.server import credential_store
         from voice_typer.server.config import Config
 
-        # Use a short timeout for the test (default is 5s — too long
+        # Use a short timeout for the test (default is 5s, too long
         # for a test).
         monkeypatch.setattr("voice_typer.server.config._CONFIG_LOCK_TIMEOUT_SECONDS", 0.5)
 
@@ -171,14 +171,14 @@ class TestConfigSaveLock:
 
             # save() returned False due to timeout.
             assert result is False, (
-                f"CR-37 regression: Config.save() returned {result} — "
+                f"CR-37 regression: Config.save() returned {result}, "
                 "expected False when the lock cannot be acquired within "
                 "the timeout. Without this guard, the IPC thread could "
                 "hang indefinitely on a long-held lock."
             )
             # Elapsed should be at least the timeout (0.5s).
             assert elapsed >= 0.4, (
-                f"Config.save() returned too quickly ({elapsed:.2f}s) — "
+                f"Config.save() returned too quickly ({elapsed:.2f}s), "
                 "expected to wait at least the timeout duration (0.5s) "
                 "before failing with False."
             )
@@ -188,7 +188,7 @@ class TestConfigSaveLock:
 
     def test_save_serializes_with_migrate(self, tmp_path, monkeypatch):
         """Config.save() and migrate_secrets_to_keyring must serialize
-        via the lock — they cannot interleave their read-modify-write
+        via the lock, they cannot interleave their read-modify-write
         cycles.
 
         Without the lock, save() could overwrite the migration's
@@ -268,7 +268,7 @@ class TestConfigSaveLock:
         data = json.loads(config_file.read_text())
         assert data.get("openai_api_key") != "sk-test-secret-cr37", (
             "CR-37 regression: plaintext API key is on disk after "
-            "concurrent migrate + save — the lock did not serialize "
+            "concurrent migrate + save, the lock did not serialize "
             "them properly. The migration's keyring:// reference was "
             f"overwritten with plaintext. Data: {data}"
         )

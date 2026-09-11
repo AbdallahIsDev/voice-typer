@@ -2,10 +2,10 @@
  *  regression tests for Group 2 (Performance & Resources) fixes.
  *
  * Covers:
- *  (a)  — i18n ``t()`` caches the per-key interpolation RegExp.
- *  (b)  — ``formatBytes`` caches ``Intl.NumberFormat`` instances.
- *  (c)  — ``closeAudioContext`` nulls the shared AudioContext.
- *  (d)  — ``useConnection`` only probes ``get_status`` after a
+ *  (a) , i18n ``t()`` caches the per-key interpolation RegExp.
+ *  (b) , ``formatBytes`` caches ``Intl.NumberFormat`` instances.
+ *  (c) , ``closeAudioContext`` nulls the shared AudioContext.
+ *  (d) , ``useConnection`` only probes ``get_status`` after a
  *      5-minute gap with no backend push events.
  *
  * These tests are deliberately narrow: they verify the caching / gating
@@ -18,7 +18,7 @@ import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // ───────────────────────────────────────────────────────────────────────
-//(a)  — t() caches the per-key interpolation RegExp
+//(a) , t() caches the per-key interpolation RegExp
 // ───────────────────────────────────────────────────────────────────────
 
 describe("ER-20: t() caches interpolation RegExp by key", () => {
@@ -41,7 +41,7 @@ describe("ER-20: t() caches interpolation RegExp by key", () => {
 		// key no matter how many ``t()`` calls interpolate it.
 		const realRegExp = RegExp;
 		// NOTE: a regular (non-arrow) function so `new ctorSpy(...)`
-		// works — Vitest forwards the construct call to the mock
+		// works, Vitest forwards the construct call to the mock
 		// implementation, and arrow functions are not constructible.
 		const ctorSpy = vi.fn(function (
 			this: unknown,
@@ -56,7 +56,7 @@ describe("ER-20: t() caches interpolation RegExp by key", () => {
 		} as unknown as { new (pattern: string, flags?: string): RegExp });
 		// Replace the global RegExp with our spy for the duration
 		// of the test. ``i18n.ts`` calls ``new RegExp(`\\{${k}\\}`, "g")``
-		// inside ``interpRegex()`` — that's the call we want to
+		// inside ``interpRegex()``, that's the call we want to
 		// count.
 		const g = globalThis as unknown as { RegExp: typeof RegExp };
 		g.RegExp = ctorSpy as unknown as typeof RegExp;
@@ -68,7 +68,7 @@ describe("ER-20: t() caches interpolation RegExp by key", () => {
 			// Pre-clear any cache state by reloading the module.
 			// (vi.resetModules in beforeEach already did this.)
 
-			// Synthetic fixture key (registered above) — typed as plain
+			// Synthetic fixture key (registered above), typed as plain
 			// `string` so the calls take t()'s dynamic-key (loose)
 			// overload; the compile-time catalog contract covers the
 			// shipped en.json keys, not test-fixture tables.
@@ -104,7 +104,7 @@ describe("ER-20: t() caches interpolation RegExp by key", () => {
 });
 
 // ───────────────────────────────────────────────────────────────────────
-//(b)  — formatBytes caches Intl.NumberFormat
+//(b) , formatBytes caches Intl.NumberFormat
 // ───────────────────────────────────────────────────────────────────────
 
 describe("ER-23: formatBytes caches Intl.NumberFormat", () => {
@@ -150,7 +150,7 @@ describe("ER-23: formatBytes caches Intl.NumberFormat", () => {
 
 		// Two calls with the same byte count + same locale should
 		// reuse the cached formatter.
-		fmt(2048, "en"); // 2 KB — kilobyte path
+		fmt(2048, "en"); // 2 KB, kilobyte path
 		const callsAfterFirst = ctorSpy.mock.calls.length;
 		fmt(2048, "en");
 		fmt(2048, "en");
@@ -168,7 +168,7 @@ describe("ER-23: formatBytes caches Intl.NumberFormat", () => {
 });
 
 // ───────────────────────────────────────────────────────────────────────
-//(c)  — closeAudioContext nulls the shared AudioContext
+//(c) , closeAudioContext nulls the shared AudioContext
 // ───────────────────────────────────────────────────────────────────────
 
 describe("ER-28: closeAudioContext nulls the shared AudioContext", () => {
@@ -179,7 +179,7 @@ describe("ER-28: closeAudioContext nulls the shared AudioContext", () => {
 		vi.resetModules();
 		localStorage.clear();
 
-		// Minimal mock AudioContext — only the methods the
+		// Minimal mock AudioContext, only the methods the
 		// manager touches. ``close()`` returns a Promise so the
 		// manager's ``closeAudioContext`` exercises its
 		// ``typeof p.then === "function"`` branch.
@@ -217,9 +217,9 @@ describe("ER-28: closeAudioContext nulls the shared AudioContext", () => {
 				return Promise.resolve();
 			}
 		}
-		// regular function (not arrow) so `new Ctor()` works — Vitest
+		// regular function (not arrow) so `new Ctor()` works, Vitest
 		// forwards construct calls to the mock implementation.
-		// biome-ignore lint/complexity/useArrowFunction: arrow functions cannot be used as constructors — `new Ctor()` requires a regular function or class
+		// biome-ignore lint/complexity/useArrowFunction: arrow functions cannot be used as constructors, `new Ctor()` requires a regular function or class
 		mockCtor = vi.fn(function () {
 			return new MockAudioContext();
 		});
@@ -256,7 +256,7 @@ describe("ER-28: closeAudioContext nulls the shared AudioContext", () => {
 			"@/lib/sound-manager"
 		);
 		_resetSoundManagerForTests();
-		// Should not throw — defensive against being called before
+		// Should not throw, defensive against being called before
 		// any AudioContext was ever constructed.
 		expect(() => closeAudioContext()).not.toThrow();
 		expect(mockCtor).not.toHaveBeenCalled();
@@ -264,7 +264,7 @@ describe("ER-28: closeAudioContext nulls the shared AudioContext", () => {
 });
 
 // ───────────────────────────────────────────────────────────────────────
-//(d)  — useConnection probes only after a 5-minute event gap
+//(d) , useConnection probes only after a 5-minute event gap
 // ───────────────────────────────────────────────────────────────────────
 
 // Hoist the mock call/event handlers so they're available inside the
@@ -287,7 +287,7 @@ vi.mock("@/hooks/usePython", () => ({
 
 vi.mock("@/stores/appStore", () => ({
 	useAppStore: (selector: (s: Record<string, unknown>) => unknown) => {
-		// Minimal stub store — useConnection only reads
+		// Minimal stub store, useConnection only reads
 		// ``connectionStatus`` and writes back via the setters.
 		// We back it with a plain object so the hook sees
 		// "connected" immediately and runs the health-check effect.
@@ -305,7 +305,7 @@ vi.mock("@/stores/appStore", () => ({
 }));
 
 // useNavigation is imported by the harness but its behaviour isn't
-// under test — stub it to a no-op so the harness compiles.
+// under test, stub it to a no-op so the harness compiles.
 vi.mock("@/hooks/useNavigation", () => ({
 	useNavigation: () => ({
 		currentPage: "home" as const,
@@ -349,7 +349,7 @@ describe("ER-61: useConnection probes only after 5-minute event gap", () => {
 		const captured: Array<(data?: Record<string, unknown>) => void> = [];
 		// mockPythonEvent is called once per usePythonEvent(...)
 		// invocation inside the hook. Each call registers a
-		// callback for a specific event type — we record all of
+		// callback for a specific event type, we record all of
 		// them so the test can dispatch a synthetic push to
 		// every subscriber.
 		mockPythonEvent.mockImplementation(((
@@ -386,13 +386,13 @@ describe("ER-61: useConnection probes only after 5-minute event gap", () => {
 			([type]) => type === "get_status",
 		).length;
 
-		// Simulate a backend push event (status_change) — this
+		// Simulate a backend push event (status_change), this
 		// refreshes the ``lastEventTs`` tracked by the hook.
 		act(() => {
 			for (const cb of captured) cb({ status: "idle" });
 		});
 
-		// Advance 45s — inside the 60s grace (HEALTH_CHECK_EVENT_GRACE_MS).
+		// Advance 45s, inside the 60s grace (HEALTH_CHECK_EVENT_GRACE_MS).
 		// The 15s interval tick fires, but the probe must be SKIPPED.
 		await act(async () => {
 			await vi.advanceTimersByTimeAsync(45 * 1000);
@@ -403,7 +403,7 @@ describe("ER-61: useConnection probes only after 5-minute event gap", () => {
 		).length;
 		expect(callsWithinGrace).toBe(initialCallCount);
 
-		// Advance past the 60s grace — the next 15s tick probes again.
+		// Advance past the 60s grace, the next 15s tick probes again.
 		await act(async () => {
 			await vi.advanceTimersByTimeAsync(60 * 1000);
 		});
@@ -424,7 +424,7 @@ describe("ER-61: useConnection probes only after 5-minute event gap", () => {
 			([type]) => type === "get_status",
 		).length;
 
-		// Advance 5 minutes with NO backend push events — the
+		// Advance 5 minutes with NO backend push events, the
 		// fallback poll should fire and call ``get_status``.
 		await act(async () => {
 			await vi.advanceTimersByTimeAsync(5 * 60 * 1000 + 100);

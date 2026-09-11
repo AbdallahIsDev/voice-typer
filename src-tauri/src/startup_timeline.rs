@@ -5,12 +5,12 @@
 //! derives the one-line "[STARTUP] Launch timeline: …" attribution
 //! from two environment markers stamped by the host that spawned it:
 //!
-//! - [`BOOT_EPOCH_ENV`] — epoch milliseconds at host process start
+//! - [`BOOT_EPOCH_ENV`]: epoch milliseconds at host process start
 //!   (Electron sets it at main-bundle eval; the Tauri host records it
 //!   as the first statement of `main`).
-//! - [`SPAWN_EPOCH_ENV`] — epoch milliseconds immediately before the
+//! - [`SPAWN_EPOCH_ENV`]: epoch milliseconds immediately before the
 //!   Python sidecar process is spawned (fresh on EVERY spawn,
-//!   including supervisor respawns — mirrors Electron's
+//!   including supervisor respawns: mirrors Electron's
 //!   `start-python.ts`, which re-stamps it per spawn).
 //!
 //! The Python side treats absent markers as "skip the line"
@@ -40,7 +40,7 @@ pub(crate) const SPAWN_EPOCH_ENV: &str = "VOICE_TYPER_SPAWN_EPOCH_MS";
 static BOOT_EPOCH_MS: OnceLock<String> = OnceLock::new();
 
 /// Record the host process boot time. Call ONCE, as early in `main`
-/// as practical — the marker's meaning is "host process start", so
+/// as practical: the marker's meaning is "host process start", so
 /// every statement that runs before it inflates the measured host-boot
 /// phase.
 pub(crate) fn record_boot_epoch() {
@@ -52,7 +52,7 @@ pub(crate) fn record_boot_epoch() {
 /// returns (accepted by both `tauri_plugin_shell::process::Command::
 /// envs` and `tokio::process::Command::envs`).
 ///
-/// The spawn marker is read at CALL time — call this immediately
+/// The spawn marker is read at CALL time, call this immediately
 /// before `.spawn()` so the measured "backend init" phase stays honest.
 pub(crate) fn sidecar_timeline_envs() -> Vec<(String, String)> {
     vec![
@@ -73,6 +73,6 @@ fn epoch_ms_string() -> String {
         // A clock set before 1970 (CMOS reset, VM migration) yields
         // Err; "0" keeps the marker well-formed so the Python side
         // still parses it (its max(0.0, now - epoch) clamps the delta
-        // to 0 — the line degrades to "0s", never to "skipped").
+        // to 0: the line degrades to "0s", never to "skipped").
         .unwrap_or_else(|_| "0".to_string())
 }

@@ -9,22 +9,22 @@
 )]
 
 //! Unit tests for `open_path` (moved verbatim from the inline
-//! `#[cfg(test)] mod tests` block to satisfy C-TEST-5 — tests must
+//! `#[cfg(test)] mod tests` block to satisfy C-TEST-5, tests must
 //! live in a sibling file, not inline in the production source).
 //!
-//! No test logic changed — the `use super::*;` path still resolves
+//! No test logic changed: the `use super::*;` path still resolves
 //! to the parent module (`open_path`) because the parent file
 //! declares this module via `#[cfg(test)] mod open_path_tests;`.
 
 use super::*;
 // The reaper-thread test below spawns a REAL child process (child of
-// the test binary) — serialize against the own-pid enumeration tests
+// the test binary): serialize against the own-pid enumeration tests
 // (see test_support.rs CHILD_PROCESS_TEST_LOCK).
 use crate::test_support::CHILD_PROCESS_TEST_LOCK;
 
 // pre-flight existence check rejects a missing path with a
 // structured error string. The error is what the caller puts in the
-// ``{"success": false, "error": ...}`` envelope — without this
+// ``{"success": false, "error": ...}`` envelope, without this
 // check, the OS binary would spawn and pop a "path not found"
 // dialog to the user while ``open_logs`` believed the open
 // succeeded.
@@ -50,7 +50,7 @@ fn test_open_path_rejects_missing_path() {
 // an existing path is accepted by the pre-flight existence check
 // WITHOUT spawning the OS file manager. (The previous version of
 // this test called `open_path_in_file_manager(&temp_dir)`, which on
-// Windows spawned `explorer.exe` on the temp dir — opening a real
+// Windows spawned `explorer.exe` on the temp dir, opening a real
 // file-explorer window on the developer's machine on every
 // `cargo test` run. The spawn is a side effect the contract does
 // NOT need, so we test the pure [`preflight_path_exists`] check
@@ -69,12 +69,12 @@ fn test_open_path_accepts_existing_path() {
 // directly observe the zombie from Rust (the kernel reaps it
 // asynchronously), but we CAN verify the spawn→reap path doesn't
 // panic. We use `true` (POSIX) / `cmd /c ver` (Windows) as a
-// stand-in for the file-manager binary — the reaper behavior is
+// stand-in for the file-manager binary, the reaper behavior is
 // identical regardless of which binary spawned, since it just
 // calls `child.wait()`.
 #[test]
 fn test_open_path_reaper_thread_does_not_panic() {
-    // Spawns a REAL child of the test binary — serialize against the
+    // Spawns a REAL child of the test binary, serialize against the
     // own-pid enumeration tests (see test_support.rs).
     let _child_lock = CHILD_PROCESS_TEST_LOCK
         .lock()

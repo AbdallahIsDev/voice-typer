@@ -2,7 +2,7 @@ import type { ComponentProps, ElementType, ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
 /**
- * Kbd — shared visual primitive for the bordered mono "chip" used to
+ * Kbd, shared visual primitive for the bordered mono "chip" used to
  * render keyboard shortcuts and voice-inserted characters. The single
  * source of truth for keycap presentation across the entire app.
  *
@@ -20,7 +20,7 @@ interface KbdProps {
 	/**
 	 * The underlying element to render. Defaults to `<kbd>` for keyboard
 	 * shortcuts. Pass `"code"` for voice-inserted characters (where
-	 * `<kbd>` would imply a physical key press — see PunctuationCheatSheet).
+	 * `<kbd>` would imply a physical key press, see PunctuationCheatSheet).
 	 */
 	as?: ElementType;
 	/** Optional className override / extension. */
@@ -28,12 +28,12 @@ interface KbdProps {
 }
 
 /**
- * Kbd — shared visual primitive for the bordered mono "chip" used to
+ * Kbd, shared visual primitive for the bordered mono "chip" used to
  * render keyboard shortcuts and voice-inserted characters. The single
  * source of truth for keycap presentation across the entire app.
  *
  * Renders `<kbd>` by default. Pass `as="code"` when the content is a
- * voice-inserted character rather than a physical key — `<kbd>` would
+ * voice-inserted character rather than a physical key, `<kbd>` would
  * incorrectly imply the user pressed a key.
  */
 export function Kbd({ children, as: Tag = "kbd", className }: KbdProps) {
@@ -51,7 +51,7 @@ export function Kbd({ children, as: Tag = "kbd", className }: KbdProps) {
 }
 
 /**
- * KbdGroup — renders a set of `Kbd` chips as adjacent keycaps separated
+ * KbdGroup, renders a set of `Kbd` chips as adjacent keycaps separated
  * only by a small gap (never a visible `+`). Used by HotkeyChips to lay
  * out the individual keys of a shortcut combo.
  */

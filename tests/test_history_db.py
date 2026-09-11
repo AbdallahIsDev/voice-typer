@@ -1,14 +1,14 @@
-"""Tests for voice_typer.history_db — SQLite history, favorites, retention.
+"""Tests for voice_typer.history_db: SQLite history, favorites, retention.
 
 IMPL-A: the tests now exercise the single-writer-thread architecture.
 Key points:
-- ``add_transcription`` is fire-and-forget — tests call ``db.flush()``
+- ``add_transcription`` is fire-and-forget, tests call ``db.flush()``
   before reading back rows so the writer has drained the queue.
 - Write-error tests monkeypatch ``_submit_write`` (the writer queue
   entrypoint) instead of ``_get_conn``.
 - Read-error tests monkeypatch ``_get_read_conn``.
 - ``TestDBLockRetry`` was removed (the ``_exec_with_retry`` helper is
-  gone — the single writer eliminates in-process contention).
+  gone, the single writer eliminates in-process contention).
 - ``TestChunkedRetention`` now verifies chunking by counting commits
   on the writer's connection via a ``_open_write_conn`` patch.
 """
@@ -488,7 +488,7 @@ class TestWriterThreadArchitecture:
         are logged.
 
         With the single-writer design, the writer thread drains the
-        queue serially — there is no in-process contention, so
+        queue serially, there is no in-process contention, so
         SQLITE_BUSY/LOCKED errors are impossible (barring external
         writers, which aren't present in this test).
         """
@@ -623,7 +623,7 @@ class TestWriterThreadArchitecture:
         """When WAL is actually enabled (the normal case), no warning
         is logged. This guards against false positives in the WAL
         verification logic."""
-        # Re-run the WAL check on the real writer connection — should
+        # Re-run the WAL check on the real writer connection, should
         # not emit a warning because the DB is already in WAL mode.
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.history_db"):
             # The writer's connection isn't directly accessible, but
@@ -649,7 +649,7 @@ class TestWriterThreadArchitecture:
         db = HistoryDB(db_path=tmp_path / "shutdown.db")
         assert db._writer_thread.is_alive()
 
-        # Enqueue a fire-and-forget write, then close — the writer
+        # Enqueue a fire-and-forget write, then close, the writer
         # should drain it before exiting.
         db.add_transcription("will be persisted before shutdown")
         db.close()
@@ -698,7 +698,7 @@ class TestQueueBounded:
         db = HistoryDB(tmp_path / "test.db")
         try:
             assert db._queue.maxsize == _WRITE_QUEUE_MAXSIZE
-            # Pin the constant to 10000 — if it changes, this test
+            # Pin the constant to 10000, if it changes, this test
             # forces a deliberate review of the drop-oldest behavior.
             assert _WRITE_QUEUE_MAXSIZE == 10000
         finally:
@@ -711,7 +711,7 @@ class TestQueueBounded:
         doesn't hang.
 
         Strategy: replace ``_writer_loop`` with a stub that signals
-        ready then exits immediately — the writer thread dies, so the
+        ready then exits immediately, the writer thread dies, so the
         queue is never drained (simulating a stalled writer). We then
         fill the queue, submit one more write, and verify the OLDEST
         future raises HistoryDBError.
@@ -725,7 +725,7 @@ class TestQueueBounded:
         # dies, so the queue is never drained.
         def _stalled_writer_loop(self):
             self._writer_ready.set()
-            return  # writer exits immediately — queue never drains
+            return  # writer exits immediately, queue never drains
 
         monkeypatch.setattr(HistoryDB, "_writer_loop", _stalled_writer_loop)
 
@@ -749,7 +749,7 @@ class TestQueueBounded:
 
             assert db._queue.full(), "Queue should be full after filling"
 
-            # Submit one more write — this triggers drop-oldest. Use
+            # Submit one more write, this triggers drop-oldest. Use
             # wait=False so the test doesn't block on a future.
             db._submit_write(lambda conn: None, wait=False)
 
@@ -829,7 +829,7 @@ class TestPreMigrationBackup:
         setup_conn.commit()
         setup_conn.close()
 
-        # Open with HistoryDB — triggers the v1 -> v2 -> v3 migration.
+        # Open with HistoryDB, triggers the v1 -> v2 -> v3 migration.
         db = HistoryDB(db_path=db_path)
         try:
             assert db._init_error is None, f"Expected migration to succeed; got _init_error={db._init_error}"
@@ -837,7 +837,7 @@ class TestPreMigrationBackup:
             db.close()
 
         # The .bak file must exist and contain the v1 schema (no
-        # favorite column) — proving the backup was taken BEFORE the
+        # favorite column), proving the backup was taken BEFORE the
         # migration ran.
         bak_path = db_path.with_name(f"{db_path.name}.pre-migration-v1.bak")
         assert bak_path.exists(), (
@@ -875,7 +875,7 @@ class TestPreMigrationBackup:
 
     def test_pre_migration_backup_taken_before_any_schema_write(self, tmp_path):
         """PRE-MIGRATION-BACKUP-ORDERING: the backup must be taken before
-        ANY write to the DB in ``init_schema`` — not merely before the
+        ANY write to the DB in ``init_schema``, not merely before the
         migration loop. Previously the ``CREATE TABLE IF NOT EXISTS``
         statements ran first; they are no-ops on an existing DB, but the
         ordering was one future pre-migration write away from silently
@@ -922,7 +922,7 @@ class TestPreMigrationBackup:
             cursor = bak_conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='transcriptions'")
             assert cursor.fetchone() is None, (
                 "PRE-MIGRATION-BACKUP-ORDERING regression: the backup must be "
-                "taken BEFORE any CREATE TABLE write — it captured a "
+                "taken BEFORE any CREATE TABLE write, it captured a "
                 "'transcriptions' table that only exists post-write."
             )
         finally:
@@ -1042,7 +1042,7 @@ class TestCloseWalCheckpoint:
 
     def test_close_does_not_block_on_checkpoint_failure(self, tmp_path, monkeypatch):
         """PI-11: if the checkpoint raises sqlite3.Error, close() must
-        NOT block — the suppress wrapper swallows the error and
+        NOT block, the suppress wrapper swallows the error and
         proceeds to send the shutdown sentinel.
 
         Without the suppress, a checkpoint failure (e.g. DB busy,
@@ -1060,7 +1060,7 @@ class TestCloseWalCheckpoint:
 
         monkeypatch.setattr(db, "checkpoint", _failing_checkpoint)
 
-        # close() must NOT raise — the sqlite3.Error is suppressed.
+        # close() must NOT raise, the sqlite3.Error is suppressed.
         db.close()
         # The writer thread must have exited despite the checkpoint
         # failure (proves close() proceeded to send the sentinel).
@@ -1069,7 +1069,7 @@ class TestCloseWalCheckpoint:
         )
 
     def test_close_truncates_wal_file(self, tmp_path):
-        """PI-11: end-to-end — after close(), the ``-wal`` sidecar file
+        """PI-11: end-to-end, after close(), the ``-wal`` sidecar file
         must be either absent or zero-size (TRUNCATE mode zeros it).
 
         We insert some rows (which generate WAL pages), close, and
@@ -1168,7 +1168,7 @@ class TestO2DbSubdirMigration:
         config_dir = self._redirect_config_dir(monkeypatch, tmp_path)
         (config_dir / "db").mkdir()
         (config_dir / "db" / "history.db").write_bytes(b"newer-db")
-        # A stale legacy file exists too — must NOT be clobbered or moved.
+        # A stale legacy file exists too, must NOT be clobbered or moved.
         legacy = config_dir / "history.db"
         legacy.write_bytes(b"stale-legacy")
 

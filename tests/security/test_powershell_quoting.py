@@ -1,13 +1,13 @@
 """PowerShell single-quote escaping tests split out of ``tests/test_security_fixes.py``.
 
-Domain: SEC-10 — generated PowerShell .lnk-creation scripts must wrap
+Domain: SEC-10, generated PowerShell .lnk-creation scripts must wrap
 every user-supplied value in a single-quoted string (``_ps_single_quote``)
 so ``$``, backtick, ``;``, ``|``, ``&``, ``()``, ``<>``, and newlines
 cannot inject commands. The only escaping required is doubling embedded
 single quotes (``'`` → ``''``).
 
 Class/method names + assertions are preserved verbatim from the
-original monolith — only file location has changed.
+original monolith, only file location has changed.
 """
 
 from __future__ import annotations
@@ -26,18 +26,18 @@ class TestPsSingleQuote:
     @pytest.mark.parametrize(
         "dangerous_char,description",
         [
-            ("$", "dollar — variable expansion"),
-            ("`", "backtick — escape sequences (e.g. `n, `t)"),
-            (";", "semicolon — statement chaining"),
-            ("|", "pipe — pipeline operator"),
-            ("&", "ampersand — call operator"),
-            ("(", "open-paren — grouping"),
-            (")", "close-paren — grouping"),
-            ("<", "less-than — input redirection"),
-            (">", "greater-than — output redirection"),
-            ('"', "double-quote — was the only char escaped pre-SEC-10"),
-            ("\n", "newline — statement separator"),
-            ("\t", "tab — whitespace in commands"),
+            ("$", "dollar, variable expansion"),
+            ("`", "backtick, escape sequences (e.g. `n, `t)"),
+            (";", "semicolon, statement chaining"),
+            ("|", "pipe, pipeline operator"),
+            ("&", "ampersand, call operator"),
+            ("(", "open-paren, grouping"),
+            (")", "close-paren, grouping"),
+            ("<", "less-than, input redirection"),
+            (">", "greater-than, output redirection"),
+            ('"', "double-quote, was the only char escaped pre-SEC-10"),
+            ("\n", "newline, statement separator"),
+            ("\t", "tab, whitespace in commands"),
         ],
         ids=[
             "dollar",
@@ -56,7 +56,7 @@ class TestPsSingleQuote:
     )
     def test_dangerous_character_preserved_literal(self, dangerous_char, description):
         """Each dangerous character must appear LITERALLY inside the
-        single-quoted string — no expansion, no escape-sequence
+        single-quoted string, no expansion, no escape-sequence
         processing, no statement break.
         """
         from voice_typer.server.server_platform import _ps_single_quote
@@ -80,7 +80,7 @@ class TestPsSingleQuote:
         """Embedded single quotes must be doubled (``'`` → ``''``).
 
         This is the ONLY escaping required inside a PowerShell
-        single-quoted string — it's what prevents a value containing
+        single-quoted string, it's what prevents a value containing
         ``'`` from prematurely terminating the string literal.
         """
         from voice_typer.server.server_platform import _ps_single_quote
@@ -109,7 +109,7 @@ class TestPsSingleQuote:
         Pre-SEC-10 the generator used double-quoted strings and
         doubled embedded ``"`` as ``""``. Post-SEC-10 we use
         single-quoted strings, so embedded ``"`` is a literal
-        character — no doubling.
+        character, no doubling.
         """
         from voice_typer.server.server_platform import _ps_single_quote
 
@@ -132,7 +132,7 @@ class TestBuildPowershellLnkScript:
             target="C:\\Python311\\pythonw.exe",
             arguments='"C:\\app\\autostart_launcher.py"',
             icon_ico=None,
-            description="Voice Typer — voice-to-text dictation",
+            description="Voice Typer, voice-to-text dictation",
         )
         defaults.update(overrides)
         return _build_powershell_lnk_script(**defaults)
@@ -178,7 +178,7 @@ class TestBuildPowershellLnkScript:
 
     def test_injection_in_description_neutralized(self):
         """A malicious description like ``'; Remove-Item C:\\ -Recurse; '``
-        must be neutralized — the embedded ``'`` chars are doubled so
+        must be neutralized, the embedded ``'`` chars are doubled so
         the description can't break out of the single-quoted string.
         """
         malicious = "'; Remove-Item C:\\ -Recurse; '"
@@ -186,7 +186,7 @@ class TestBuildPowershellLnkScript:
         # The malicious description must appear with each `'` doubled.
         # The expected escaped form (after the outer single-quote
         # wrap is applied by ``_ps_single_quote``) is
-        # ``'''; Remove-Item C:\\ -Recurse; '''`` — three single
+        # ``'''; Remove-Item C:\\ -Recurse; '''``, three single
         # quotes at each boundary (1 outer wrap + 2 from doubling
         # the embedded ``'``).
         expected_escaped = malicious.replace("'", "''")
@@ -199,7 +199,7 @@ class TestBuildPowershellLnkScript:
         # description value. Pre-SEC-10 the description was wrapped in
         # a single-quoted string WITHOUT doubling the embedded ``'``
         # chars, producing ``$l.Description = ''; Remove-Item...``
-        # (exactly TWO single quotes after ``=``) — PowerShell parsed
+        # (exactly TWO single quotes after ``=``), PowerShell parsed
         # this as an empty string ``''`` followed by ``; Remove-Item``
         # as a separate statement (the injection). Post-SEC-10 the
         # doubling produces ``$l.Description = '''; Remove-Item...``
@@ -234,12 +234,12 @@ class TestBuildPowershellLnkScript:
     def test_dangerous_char_in_target_path_is_literal(self, dangerous_char):
         """A target path containing a dangerous character must have
         that character appear literally inside the single-quoted
-        string — no expansion or command execution.
+        string, no expansion or command execution.
         """
         target = f"C:\\path with {dangerous_char} char\\pythonw.exe"
         script = self._build(target=target)
         # The dangerous character must appear inside the single-quoted
-        # TargetPath value. We don't assert the exact position — just
+        # TargetPath value. We don't assert the exact position, just
         # that the character is present in the script (it would be
         # stripped/escaped if the generator were mangling it).
         assert dangerous_char in script, (
@@ -285,7 +285,7 @@ class TestBuildPowershellLnkScript:
         assert "$l.Description = '" in script
 
     def test_script_ends_with_save(self):
-        """The script must end with ``$l.Save()`` — the actual
+        """The script must end with ``$l.Save()``, the actual
         shortcut-write call. Sanity check that the structure is
         intact.
         """
@@ -311,7 +311,7 @@ class TestCreateLnkShortcutIntegration:
     XZ-R6-AS-08: the previous implementation wrote the script to a
     temp .ps1 file and invoked ``powershell -File <tmp>`` (TOCTOU
     window). The current implementation passes the script directly via
-    ``-Command <script>`` — no on-disk artifact. The test was updated
+    ``-Command <script>``, no on-disk artifact. The test was updated
     to assert the new ``-Command`` invocation shape and to read the
     script content from the captured cmd argument (the last element)
     instead of from a temp file.

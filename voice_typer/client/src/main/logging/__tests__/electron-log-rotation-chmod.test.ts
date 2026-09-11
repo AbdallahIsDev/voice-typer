@@ -4,13 +4,13 @@
  * `appendLogLine` permission handling.
  *
  * : `appendLogLine` previously called `fs.chmodSync(filePath,
- * 0o600)` on EVERY write — a syscall per log line. The fix gates the
+ * 0o600)` on EVERY write, a syscall per log line. The fix gates the
  * chmod via a module-level `Set<string>` so it fires ONCE per session
  * per file. After rotation, the Set entry is cleared so the new active
  * file gets chmod'd on the next append.
  *
  * Single-file policy: `rotateIfNeeded` truncates the file IN PLACE
- * (empties it) when it exceeds the cap — a numbered `.1` backup is
+ * (empties it) when it exceeds the cap, a numbered `.1` backup is
  * never created. The per-path "perms verified" flag is reset on
  * truncation so the next append re-asserts 0o600.
  */
@@ -191,7 +191,7 @@ describe("XE-20-6: rotateIfNeeded chmods the .1 backup after rename", () => {
 			throw err;
 		});
 
-		// Must not throw — truncate failure is best-effort.
+		// Must not throw, truncate failure is best-effort.
 		expect(() => rotateIfNeeded(logPath, 10)).not.toThrow();
 
 		truncateSpy.mockRestore();

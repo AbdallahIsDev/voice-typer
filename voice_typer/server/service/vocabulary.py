@@ -84,7 +84,7 @@ def _find_new_duplicate(
     Baseline occurrences are matched by exact ``(original, correction)``
     and consumed one-for-one, so a plain echo of pre-existing duplicate
     entries (e.g. the renderer sending the full merged list back on an
-    unrelated edit) is allowed — the save only rejects when it would
+    unrelated edit) is allowed, the save only rejects when it would
     CREATE a new duplicate. Returns ``None`` when the save introduces
     no new duplicates.
     """
@@ -135,7 +135,7 @@ class VocabularyMixin(ServiceMixinBase):
                 every Vocabulary page load. The renderer's ``VocabularyData``
                 type expects a dict keyed by category name (misspellings,
                 technical_terms, names, products, phrase_corrections,
-                extra_word_patterns) — same shape as ``VocabularyManager.get_all()``.
+                extra_word_patterns), same shape as ``VocabularyManager.get_all()``.
                 We now delegate to ``get_all()`` and add the user-file path so
                 the renderer can show "edited" indicators.
 
@@ -143,7 +143,7 @@ class VocabularyMixin(ServiceMixinBase):
                 on the app via the ``_vocabulary_manager`` lazy property) instead
                 of constructing a throwaway per IPC call. The old impl did a
                 full disk read (bundled corrections.json + user vocabulary.json)
-                + merge on EVERY Vocabulary page load — a double file read on
+                + merge on EVERY Vocabulary page load, a double file read on
                 every IPC call. We now reuse the already-merged ``_data`` on
                 the live instance. A fresh-instance fallback is kept for test
                 fixtures / cold-start paths where ``_vocabulary_manager`` is
@@ -152,7 +152,7 @@ class VocabularyMixin(ServiceMixinBase):
         return a DEEP copy of the live data so the renderer
                 can't mutate the in-memory ``_data`` dict via the returned
                 reference. ``VocabularyManager.get_all()`` returns a SHALLOW
-                ``dict(self._data)`` copy — the top-level dict is unique but
+                ``dict(self._data)`` copy, the top-level dict is unique but
                 the per-category values (dicts / lists) are the SAME objects
                 the manager iterates in ``apply_to_text``. A renderer that
                 mutated a returned category (e.g. ``data['misspellings'].pop(...)``)
@@ -213,10 +213,10 @@ class VocabularyMixin(ServiceMixinBase):
         if live_vm is not None and hasattr(live_vm, "_lock") and hasattr(live_vm, "_data"):
             with live_vm._lock:
                 # CURRENT MERGED state (bundled + user file, tombstones
-                # already applied by ``_load_and_merge``) — the baseline
+                # already applied by ``_load_and_merge``), the baseline
                 # for the duplicate check and for computing deletions.
                 merged = {cat: live_vm._data.get(cat) for cat in CATEGORIES}
-                # RAW bundled defaults — the correct diff baseline. The
+                # RAW bundled defaults, the correct diff baseline. The
                 # user file stores ONLY customizations relative to these
                 # defaults; diffing against the MERGED state instead
                 # would drop unchanged user entries on every subsequent
@@ -236,11 +236,11 @@ class VocabularyMixin(ServiceMixinBase):
             bundled_defaults = _defaults
 
         # ``bundled`` (the merged state) is what the duplicate check
-        # compares against — an entry already in the file is not a NEW
+        # compares against, an entry already in the file is not a NEW
         # duplicate.
         bundled = merged
 
-        # Backend-level duplicate enforcement — the single source of
+        # Backend-level duplicate enforcement, the single source of
         # truth for "does this pair already exist". The renderer sends
         # the FULL merged list on every save (quick-add, edit dialog,
         # import, delete, clear), so the authoritative check must live
@@ -250,7 +250,7 @@ class VocabularyMixin(ServiceMixinBase):
         # ``_find_new_duplicate`` allows a plain echo of pre-existing
         # duplicates (e.g. the bundled ``to 2`` pair in legacy data) but
         # rejects any save that would CREATE a new duplicate wrong
-        # phrase (case-insensitive) — the matcher treats two entries
+        # phrase (case-insensitive), the matcher treats two entries
         # with the same normalized wrong phrase as the same lookup, so
         # a second one silently overwrites or double-fires.
         duplicate = _find_new_duplicate(data or {}, bundled)
@@ -283,7 +283,7 @@ class VocabularyMixin(ServiceMixinBase):
                     user_only[cat] = diff
 
         # Deletion tombstones. The diff alone can only express ADDITIONS /
-        # VALUE CHANGES relative to the bundled defaults — removing a
+        # VALUE CHANGES relative to the bundled defaults, removing a
         # BUNDLED default entry leaves no trace in the diff, so the entry
         # resurrects on the next merge. Persist a reserved ``_deleted``
         # map (category → list of removed keys / pairs) next to the user
@@ -339,7 +339,7 @@ class VocabularyMixin(ServiceMixinBase):
         # ``_secure_atomic_write`` directly.  This gives the user
         # vocabulary the same single-slot ``.bak`` before overwrite +
         # corrupt-quarantine + recovery guarantees that
-        # ``VocabularyManager._save_user`` already relies on — closing
+        # ``VocabularyManager._save_user`` already relies on, closing
         # the gap where this IPC path silently bypassed them (a crash
         # mid-write would leave a half-written user file with no .bak
         # to recover from).  ``durability=False`` matches
@@ -420,8 +420,8 @@ class VocabularyMixin(ServiceMixinBase):
     def test_vocabulary_correction(self, text: str) -> dict[str, object]:
         """Apply the LIVE vocabulary rules to a phrase ("Test corrections" panel).
 
-        Runs the actual ``VocabularyManager.apply_to_text`` pass — the
-        same engine dictation uses — so the preview can never drift
+        Runs the actual ``VocabularyManager.apply_to_text`` pass, the
+        same engine dictation uses, so the preview can never drift
         from production behavior. Falls back to a throwaway manager
         when the live ``_vocabulary_manager`` is not yet initialized
         (cold start / test fixtures).
@@ -432,7 +432,7 @@ class VocabularyMixin(ServiceMixinBase):
 
             vm = VocabularyManager(config_dir=self._app.config.config_dir)
         # track_usage=False: the "Test corrections" panel is a
-        # PREVIEW — firing it must not inflate the real usage numbers
+        # PREVIEW, firing it must not inflate the real usage numbers
         # that the Vocabulary/Analytics pages report.
         output = vm.apply_to_text(text, track_usage=False)
         return {"input": text, "output": output, "applied": output != text}

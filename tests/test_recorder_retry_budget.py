@@ -8,7 +8,7 @@ the counter exceeds ``_max_disconnect_retries``. But
 ``DisconnectHandler.restart_stream`` resets the counter to 0 on every
 SUCCESSFUL restart. So a Bluetooth mic that disconnects + reconnects
 every ~30s never reaches the threshold and the user never sees
-"Microphone disconnected" — the recorder silently recovers forever.
+"Microphone disconnected", the recorder silently recovers forever.
 
 Fix
 ---
@@ -18,7 +18,7 @@ When N restarts (default 3) accumulate within T seconds (default 60s),
 ``restart_stream`` fires ``on_device_lost`` (mirroring the max-retries
 callback-resolution + fallback chain in ``_handle_device_disconnect``)
 and clears the deque. A single disconnect+restart leaves the deque
-with 1 entry — well below the threshold — so the normal
+with 1 entry (well below the threshold) so the normal
 retry-then-recover flow is unaffected.
 """
 
@@ -84,7 +84,7 @@ class TestRetryBudgetSlidingWindow:
 
     def test_single_disconnect_restart_does_not_fire_on_device_lost(self, monkeypatch):
         """A single disconnect+restart cycle must NOT fire
-        ``on_device_lost`` — the deque has 1 entry, well below the
+        ``on_device_lost``, the deque has 1 entry, well below the
         threshold (default 3). This is the regression guard: the fix
         must not break the normal recovery flow."""
         import voice_typer.server.recording as recording_mod
@@ -190,7 +190,7 @@ class TestRetryBudgetSlidingWindow:
         # Deterministic clock: ``time.monotonic()`` on Windows is
         # quantized to the ~15.6ms system timer tick, so a real 0.06s
         # ``time.sleep`` can advance the clock by only 3 ticks (46.8ms)
-        # — LESS than the 0.05s window — making the prune step miss and
+        # (LESS than the 0.05s window) making the prune step miss and
         # the flap detector spuriously fire (~7% flake rate observed).
         # Patch ``time.monotonic`` with a fake clock the test advances
         # explicitly. Both ``recorder.py`` and ``disconnect_handler.py``
@@ -229,12 +229,12 @@ class TestRetryBudgetSlidingWindow:
             # well above the 15.6ms tick quantization).
             fake_clock["t"] += 0.06
 
-            # Third restart — the prune step evicts the 2 old entries
+            # Third restart, the prune step evicts the 2 old entries
             # BEFORE the threshold check, so the deque has only 1 entry
             # (the new one) and on_device_lost must NOT fire.
             r._handle_device_disconnect(_captured_generation=captured_gen)
             assert device_lost_calls == [], (
-                "Old restarts outside the window must be pruned — the "
+                "Old restarts outside the window must be pruned, the "
                 "deque should have 1 entry (the new restart), not 3. "
                 "Got on_device_lost fired, which means pruning is broken."
             )
@@ -266,7 +266,7 @@ class TestRetryBudgetSlidingWindow:
             r._handle_device_disconnect(_captured_generation=captured_gen)
             assert len(r._restart_timestamps) == 2
 
-            # Stop and restart — start() must clear the deque.
+            # Stop and restart, start() must clear the deque.
             r.stop()
             assert len(r._restart_timestamps) == 2, "stop() should NOT clear the deque (only start() does)."
             r.start()
@@ -303,7 +303,7 @@ class TestBTAwareRetryPolicyWiring:
     while non-BT devices keep the immediate 3-retry budget.
 
     Pre-fix, the helpers existed on ``DeviceManager`` but were never
-    called from the production disconnect path — ``_handle_device_disconnect``
+    called from the production disconnect path: ``_handle_device_disconnect``
     used the fixed ``_max_disconnect_retries = 3`` and never slept
     between retries, so a BT headset mode-switch (1-3s) exceeded the
     3-retry budget (~100ms at 32ms cadence) and the recording was
@@ -335,7 +335,7 @@ class TestBTAwareRetryPolicyWiring:
 
     def test_non_bt_device_uses_immediate_retry(self, monkeypatch):
         """Behavioral: a non-BT device (no BT keyword, 48 kHz native
-        rate) gets the immediate 3-retry budget — no sleep between
+        rate) gets the immediate 3-retry budget, no sleep between
         retries. This preserves the pre-fix behavior for non-BT
         devices so the fix doesn't regress the common case."""
         import voice_typer.server.recording as recording_mod
@@ -376,7 +376,7 @@ class TestBTAwareRetryPolicyWiring:
         """Behavioral: a BT device (named 'Bluetooth Headset', 8 kHz
         HFP native rate) gets the 6-retry budget AND a 0.75s sleep
         before each retry attempt past the first. This is the core
-        DJ-70 fix — without the sleep, the 6-retry budget fires within
+        DJ-70 fix, without the sleep, the 6-retry budget fires within
         ~200ms (6 × 32ms cadence), still too fast for the 1-3s HFP
         mode-switch window."""
         import voice_typer.server.recording as recording_mod

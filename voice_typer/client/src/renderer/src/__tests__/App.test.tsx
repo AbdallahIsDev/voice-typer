@@ -1,11 +1,11 @@
 /**
- * Integration tests for the App shell — D1-FIX (b-review Finding 1).
+ * Integration tests for the App shell, D1-FIX (b-review Finding 1).
  *
  * Scenario under test: the "Re-run setup wizard" button in Settings calls
  * `updateConfig({ onboarding_completed: false })` then
  * `onNavigate("onboarding")`.  Before the D1 fix, `updateConfig` only
  * updated Settings.tsx's LOCAL config state and queued a backend `set_config`
- * IPC — it did NOT touch the Zustand `appStore.config` snapshot that
+ * IPC, it did NOT touch the Zustand `appStore.config` snapshot that
  * App.tsx's route guard reads:
  *
  *   // App.tsx:42-46
@@ -18,7 +18,7 @@
  * Because the appStore only learned about the change later (via the async
  * `config_changed` push event handled in useTheme.ts), the route guard fired
  * on the very next render, saw the stale `true` value, and bounced the user
- * back to home — the onboarding wizard was never shown.
+ * back to home, the onboarding wizard was never shown.
  *
  * The D1 fix calls `useAppStore.getState().mergeConfig(updates)` synchronously
  * inside `updateConfig` so the route guard sees `onboarding_completed: false`
@@ -31,7 +31,7 @@
  * all child pages are mocked as trivial stubs.  The Settings stub simulates
  * the real SettingsPage's post-fix wizard-button behaviour: it calls
  * `useAppStore.getState().mergeConfig({ onboarding_completed: false })` then
- * `props.onNavigate?.("onboarding")` — exactly what the real page does after
+ * `props.onNavigate?.("onboarding")`, exactly what the real page does after
  * the D1 fix.
  */
 import {
@@ -149,7 +149,7 @@ vi.mock("@/components/common/Modal", () => ({
 	),
 }));
 
-// Toaster: sonner's portal — stubbed to null so it doesn't render to jsdom.
+// Toaster: sonner's portal, stubbed to null so it doesn't render to jsdom.
 vi.mock("@/components/ui/sonner", () => ({
 	Toaster: () => null,
 }));
@@ -273,7 +273,7 @@ const completedConfig: Partial<VoiceTyperConfig> = {
 	onboarding_completed: true,
 };
 
-describe("App route guard — D1-FIX wizard re-run bounce", () => {
+describe("App route guard, D1-FIX wizard re-run bounce", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		mockCall.mockReset();
@@ -316,7 +316,7 @@ describe("App route guard — D1-FIX wizard re-run bounce", () => {
 			expect(screen.getByTestId("settings-page")).toBeTruthy();
 		});
 
-		// Click the wizard button — the mocked Settings page calls
+		// Click the wizard button, the mocked Settings page calls
 		// `mergeConfig({ onboarding_completed: false })` then
 		// `onNavigate("onboarding")`, mirroring the real SettingsPage
 		// post-fix.
@@ -353,13 +353,13 @@ describe("App route guard — D1-FIX wizard re-run bounce", () => {
 
 		// Click the test-only "Force Nav To Onboarding" button in
 		// the mocked Sidebar.  This calls onNavigate("onboarding")
-		// WITHOUT first calling mergeConfig — so the appStore still
+		// WITHOUT first calling mergeConfig, so the appStore still
 		// holds onboarding_completed=true and the route guard must
 		// bounce back to home.
 		fireEvent.click(screen.getByText("Force Nav To Onboarding"));
 
 		// The route guard fires on the next render and bounces the
-		// user back to home — the onboarding page is never visible.
+		// user back to home, the onboarding page is never visible.
 		await waitFor(() => {
 			expect(screen.getByTestId("home-page")).toBeTruthy();
 		});
@@ -371,7 +371,7 @@ describe("App route guard — D1-FIX wizard re-run bounce", () => {
 	});
 });
 
-describe("App-wide shortcuts — zoom via the mounted App (keydown + wheel)", () => {
+describe("App-wide shortcuts, zoom via the mounted App (keydown + wheel)", () => {
 	// Same harness as the route-guard suite: mockCall resolves, store is
 	// seeded to the connected/idle state, nav state is reset so a
 	// previous test's navigation can't leak.
@@ -428,7 +428,7 @@ describe("App-wide shortcuts — zoom via the mounted App (keydown + wheel)", ()
 			expect(stable.setTextSize).toHaveBeenCalledWith(15);
 		});
 		// Persistence rides useTheme's SINGLE debounced save (flushed on
-		// unmount/beforeunload) — the shortcut layer must not write config
+		// unmount/beforeunload), the shortcut layer must not write config
 		// directly. (useTheme is stubbed here, so NO set_config at all is
 		// the correct App-level contract.)
 		expect(mockCall).not.toHaveBeenCalledWith("set_config", expect.anything());
@@ -452,7 +452,7 @@ describe("App-wide shortcuts — zoom via the mounted App (keydown + wheel)", ()
 		await waitFor(() => {
 			expect(stable.setTextSize).toHaveBeenCalledWith(14);
 		});
-		// No direct config write from the zoom path — the debounced save
+		// No direct config write from the zoom path, the debounced save
 		// in useTheme (stubbed here) owns the single backend write.
 		expect(mockCall).not.toHaveBeenCalledWith("set_config", expect.anything());
 	});
@@ -482,7 +482,7 @@ describe("App-wide shortcuts — zoom via the mounted App (keydown + wheel)", ()
 		await waitFor(() => {
 			expect(stable.setTextSize).toHaveBeenCalledWith(15);
 		});
-		// The zoom path performs NO direct set_config write — persistence
+		// The zoom path performs NO direct set_config write, persistence
 		// is owned by useTheme's debounced save (whose failures are logged
 		// there). No error surface may fire from the shortcut layer.
 		await act(async () => {

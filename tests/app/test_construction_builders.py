@@ -1,15 +1,15 @@
 """Focused tests for the ``AppConstruction`` mixin
-(``voice_typer/server/app_construction.py``) — the eager
+(``voice_typer/server/app_construction.py``), the eager
 subsystem-builder slice extracted from ``VoiceTyperApp``.
 
 Covers the mixin's public API on a minimal host class (external
-dependencies stubbed at their OWNING submodule seams — the canonical
+dependencies stubbed at their OWNING submodule seams, the canonical
 C-ARCH-2 patch targets for the new module), mirroring how
 ``tests/app/test_recording_init.py`` exercises the
 ``AppRecordingInit`` mixin surface:
 
 - ``_register_startup_i18n_fallbacks`` registers the three English
-  startup keys (idempotently) — the module-level helper re-exported
+  startup keys (idempotently), the module-level helper re-exported
   from ``voice_typer.server.app``.
 - ``_init_config`` happy path (Config.load() result stored, failure
   flag False) and corrupt-file path (load raises → fallback defaults,

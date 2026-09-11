@@ -8,7 +8,7 @@ hosts previously had no in-app path to extend the URL allowlist —
   1. ``trusted_extra_hosts: list[str]`` on the Config dataclass,
      persisted to config.json and re-applied to the runtime allowlist
      on every ``Config.load()`` (config/__init__.py).
-  2. ``add_trusted_endpoint`` IPC command (ConfigHandlersMixin) — adds a
+  2. ``add_trusted_endpoint`` IPC command (ConfigHandlersMixin), adds a
      host to the runtime allowlist AND persists it (config_handlers.py).
   3. ``set_config`` with ``trusted_extra_hosts`` re-applies the allowlist
      immediately (config_handlers.py).
@@ -57,7 +57,7 @@ def server_app():
 class TestConfigLoadReappliesTrustedHosts:
     def test_load_reapplies_persisted_hosts(self, tmp_config_dir):
         """A config.json carrying ``trusted_extra_hosts`` must extend the
-        runtime allowlist on load — the persisted config path (finding's
+        runtime allowlist on load, the persisted config path (finding's
         'Re-apply on Config.load')."""
         (tmp_config_dir / "config.json").write_text(
             json.dumps({"schema_version": 3, "trusted_extra_hosts": ["my-vllm.lan"]}),
@@ -177,7 +177,7 @@ class TestIpv6Allowlisting:
 
     def test_config_validator_accepts_public_ipv6(self):
         """A public IPv6 literal is accepted by the config validator
-        (validation only — the raw value is echoed; the allowlist
+        (validation only, the raw value is echoed; the allowlist
         applies the port/bracket normalization via ``_normalize_host``)."""
         validated, errors = validate_config_update({"trusted_extra_hosts": ["2606:4700:4700::1111"]})
         assert not errors, f"public IPv6 must validate; got errors: {errors!r}"
@@ -189,7 +189,7 @@ class TestIpv6Allowlisting:
         it to the bare literal."""
         validated, errors = validate_config_update({"trusted_extra_hosts": ["[2606:4700:4700::1111]:8443"]})
         assert not errors, f"bracketed IPv6 must validate; got errors: {errors!r}"
-        # The validator is pure — it echoes the raw entry; the
+        # The validator is pure, it echoes the raw entry; the
         # normalization to the bare literal happens in the allowlist.
         extend_url_allowlist(validated["trusted_extra_hosts"], caller="test")
         assert "2606:4700:4700::1111" in get_url_allowlist()
@@ -209,7 +209,7 @@ class TestIpv6Allowlisting:
             )
 
     def test_config_validator_rejects_colon_hostname(self):
-        """A NON-IPv6 host containing a colon is still rejected — IPv6 is
+        """A NON-IPv6 host containing a colon is still rejected, IPv6 is
         the only legal colon-bearing host form."""
         validated, errors = validate_config_update({"trusted_extra_hosts": ["bad:host:name"]})
         assert errors, "colon-bearing non-IPv6 hostname must be rejected"

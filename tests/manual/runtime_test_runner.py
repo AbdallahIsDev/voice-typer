@@ -107,7 +107,7 @@ def wait_for_log(log_file, pattern, timeout=90):
 
 def main():
     print("=" * 70)
-    print("VOICE TYPER — RUNTIME CYCLE TEST")
+    print("VOICE TYPER, RUNTIME CYCLE TEST")
     print("=" * 70)
 
     # 1. Clear old log (truncate instead of delete to avoid locked-file errors)
@@ -120,14 +120,14 @@ def main():
         except Exception:
             pass
         try:
-            # Truncate instead of unlink — works even if another process has it open
+            # Truncate instead of unlink, works even if another process has it open
             with open(LOG_FILE, "w", encoding="utf-8") as f:
                 f.truncate()
             print("  Log file truncated")
         except PermissionError:
-            print("  [WARN] Log file locked — will read from current end offset")
+            print("  [WARN] Log file locked, will read from current end offset")
     else:
-        print("  No old log found — starting fresh")
+        print("  No old log found, starting fresh")
 
     # 2. Start the app
     print("\n[2] Starting Voice Typer app...")
@@ -148,7 +148,7 @@ def main():
         # Check for startup completion as alternative
         startup_ok = wait_for_log(LOG_FILE, "_do_startup complete", timeout=30)
         if not startup_ok:
-            print("  [WARN] Startup may not have completed — proceeding anyway")
+            print("  [WARN] Startup may not have completed, proceeding anyway")
 
     # Print current log state
     print("\n[4] Current log state after startup:")
@@ -167,7 +167,7 @@ def main():
     if not recording_started:
         print("  [WARN] Recording may not have started")
 
-    # 6. Wait a few seconds (simulated "speaking" — mic will pick up ambient noise)
+    # 6. Wait a few seconds (simulated "speaking", mic will pick up ambient noise)
     print("\n[6] Waiting 4 seconds (ambient audio will be captured)...")
     time.sleep(4)
 
@@ -189,7 +189,7 @@ def main():
         LOG_FILE, "Audio too short, skipping transcription", timeout=5
     )
     if not cycle_done:
-        print("  [WARN] transcription cycle did not complete — checking for force recover")
+        print("  [WARN] transcription cycle did not complete, checking for force recover")
         force_recover = wait_for_log(LOG_FILE, "FORCE RECOVER", timeout=10)
 
     # 8b. Wait a bit more for any recovery timers
@@ -294,13 +294,13 @@ def main():
 
     # Determine outcome
     if busy_reset and not f2_blocked:
-        print("OUTCOME: SUCCESS — _busy recovered, F2 not blocked, tray recovered")
+        print("OUTCOME: SUCCESS, _busy recovered, F2 not blocked, tray recovered")
     elif force_recover and not f2_blocked:
-        print("OUTCOME: SUCCESS (via force recovery) — watchdog recovered stuck state")
+        print("OUTCOME: SUCCESS (via force recovery), watchdog recovered stuck state")
     elif busy_reset and f2_blocked:
-        print("OUTCOME: PARTIAL — _busy recovered but F2 was blocked at some point")
+        print("OUTCOME: PARTIAL, _busy recovered but F2 was blocked at some point")
     else:
-        print("OUTCOME: NEEDS INVESTIGATION — _busy may not have recovered properly")
+        print("OUTCOME: NEEDS INVESTIGATION, _busy may not have recovered properly")
 
     # Cleanup: stop the app
     print("\n[CLEANUP] Stopping the app...")
@@ -313,7 +313,7 @@ def main():
             proc.kill()
             print("  App killed")
         except Exception:
-            print("  Could not stop app — may need manual cleanup")
+            print("  Could not stop app, may need manual cleanup")
 
 
 if __name__ == "__main__":

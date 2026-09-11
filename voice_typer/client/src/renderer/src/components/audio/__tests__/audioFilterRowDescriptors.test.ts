@@ -6,7 +6,7 @@
  * The registry is a single source of truth: the JSX in `<AudioFilterChain>`
  * is a `.map` over `audioFilterRowDescriptors`, and the lookup Map
  * `audioFilterDescriptorByConfigKey` is derived from the array. Both
- * exports are `const`s evaluated once at module load — they have STABLE
+ * exports are `const`s evaluated once at module load, they have STABLE
  * identities across re-imports (no factory function involved), which is
  * what makes the registry safe to share across the render graph without
  * a `useMemo` wrapper.
@@ -16,7 +16,7 @@
  *      array reference AND the same Map reference (referential equality).
  *      A future refactor that turns the registry into a factory function
  *      returning a fresh array on every call would break the memoisation
- *      invariant in `<AudioFilterChain>` — this test pins the contract.
+ *      invariant in `<AudioFilterChain>`, this test pins the contract.
  *   2. Descriptor identity: each element of the array has a stable
  *      reference (the descriptors themselves are not rebuilt per access).
  *   3. `audioFilterDescriptorByConfigKey` is in sync with the array:
@@ -44,7 +44,7 @@ import {
 	audioFilterRowDescriptors,
 } from "../audioFilterRowDescriptors";
 
-describe("audioFilterRowDescriptors — stable identities", () => {
+describe("audioFilterRowDescriptors, stable identities", () => {
 	it("the array reference is stable across module re-imports (no factory)", async () => {
 		const mod1 = await import("../audioFilterRowDescriptors");
 		const mod2 = await import("../audioFilterRowDescriptors");
@@ -55,7 +55,7 @@ describe("audioFilterRowDescriptors — stable identities", () => {
 			mod2.audioFilterDescriptorByConfigKey,
 		);
 		// The exported const arrays/maps are referentially identical
-		// to the live bindings on the module namespace — i.e. they
+		// to the live bindings on the module namespace, i.e. they
 		// are NOT wrapped in a factory that returns a fresh copy.
 		expect(mod1.audioFilterRowDescriptors).toBe(audioFilterRowDescriptors);
 	});
@@ -86,7 +86,7 @@ describe("audioFilterRowDescriptors — stable identities", () => {
 	});
 });
 
-describe("audioFilterRowDescriptors — registry / map parity", () => {
+describe("audioFilterRowDescriptors, registry / map parity", () => {
 	it("the Map has exactly one entry per descriptor (no orphans, no dupes)", () => {
 		expect(audioFilterDescriptorByConfigKey.size).toBe(
 			audioFilterRowDescriptors.length,
@@ -111,7 +111,7 @@ describe("audioFilterRowDescriptors — registry / map parity", () => {
 	});
 });
 
-describe("audioFilterRowDescriptors — uniqueness invariants", () => {
+describe("audioFilterRowDescriptors, uniqueness invariants", () => {
 	it("every configKey is unique (no two rows write the same config field)", () => {
 		const keys = audioFilterRowDescriptors.map((d) => d.configKey as string);
 		const uniq = new Set(keys);
@@ -143,7 +143,7 @@ describe("audioFilterRowDescriptors — uniqueness invariants", () => {
 	});
 });
 
-describe("audioFilterRowDescriptors — parentToggle integrity", () => {
+describe("audioFilterRowDescriptors, parentToggle integrity", () => {
 	it("every parentToggle references a configKey whose descriptor has kind='toggle'", () => {
 		for (const d of audioFilterRowDescriptors) {
 			if (!d.parentToggle) continue;
@@ -163,7 +163,7 @@ describe("audioFilterRowDescriptors — parentToggle integrity", () => {
 	});
 });
 
-describe("audioFilterRowDescriptors — kind-specific field requirements", () => {
+describe("audioFilterRowDescriptors, kind-specific field requirements", () => {
 	it("every slider descriptor has min, max, step, and suffix set", () => {
 		for (const d of audioFilterRowDescriptors) {
 			if (d.kind !== "slider") continue;
@@ -214,7 +214,7 @@ describe("audioFilterRowDescriptors — kind-specific field requirements", () =>
 	});
 });
 
-describe("audioFilterRowDescriptors — section title contract", () => {
+describe("audioFilterRowDescriptors, section title contract", () => {
 	it("every descriptor references the SAME sectionTitleKey (single source of truth)", () => {
 		for (const d of audioFilterRowDescriptors) {
 			expect(d.sectionTitleKey).toBe(AUDIO_SECTION_TITLE_KEY);
@@ -226,7 +226,7 @@ describe("audioFilterRowDescriptors — section title contract", () => {
 	});
 });
 
-describe("audioFilterRowDescriptors — registry sanity", () => {
+describe("audioFilterRowDescriptors, registry sanity", () => {
 	it("registry is non-empty", () => {
 		expect(audioFilterRowDescriptors.length).toBeGreaterThan(0);
 	});

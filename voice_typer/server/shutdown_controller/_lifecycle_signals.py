@@ -1,4 +1,4 @@
-"""SignalsMixin — quit / watchdog / atexit / signal-handler delegates.
+"""SignalsMixin, quit / watchdog / atexit / signal-handler delegates.
 
 Split verbatim out of the pre-split ``shutdown_controller`` module.
 Every method is a thin delegate whose body lives in an extracted
@@ -33,7 +33,7 @@ class SignalsMixin:
     #     shutdown_controller.join_leaked_workers", fake_join)`` (see
     #     ``tests/test_shutdown_parallel_pool_drain.py::
     #     TestWatchdogJoinLeakedWorkers``) still intercept the call
-    #     — :func:`voice_typer.server.shutdown.lifecycle.arm_shutdown_watchdog`
+    #    , :func:`voice_typer.server.shutdown.lifecycle.arm_shutdown_watchdog`
     #     looks up ``join_leaked_workers`` DYNAMICALLY from
     #     ``voice_typer.server.shutdown_controller`` (lazy import) so the
     #     patched attribute is what the body sees.
@@ -58,7 +58,7 @@ class SignalsMixin:
         body lives in
         :func:`voice_typer.server.shutdown.lifecycle.arm_shutdown_watchdog`.
         This delegate preserves the instance-method API used by tests
-        (``controller._arm_shutdown_watchdog(timeout_s)`` — see
+        (``controller._arm_shutdown_watchdog(timeout_s)``, see
         ``tests/test_shutdown_controller.py::TestShutdownWatchdog``) and
         the call site inside :func:`lifecycle.quit` (which calls
         ``controller._arm_shutdown_watchdog(...)`` so test spies that
@@ -87,7 +87,7 @@ class SignalsMixin:
     def _atexit_cleanup(self) -> None:
         """atexit handler for critical cleanup paths.
 
-        Idempotent — short-circuits on ``_shutting_down`` and never
+        Idempotent, short-circuits on ``_shutting_down`` and never
         raises (). See :func:`voice_typer.server.atexit_safety.atexit_cleanup`
         for the full behavior contract ( extraction).
 
@@ -153,7 +153,7 @@ class SignalsMixin:
         body lives in
         :func:`voice_typer.server.signal_handlers.win32_console_handler`.
         This delegate preserves the instance-method API used by tests
-        (``controller._win32_console_handler(ctrl_type)`` — see
+        (``controller._win32_console_handler(ctrl_type)``, see
         ``tests/test_shutdown_controller.py::TestWin32ConsoleHandlerRouting``)
         and the ctypes callback wiring (``handler_routine(self._win32_console_handler)``
         inside :func:`signal_handlers.install_win32_console_handler`).

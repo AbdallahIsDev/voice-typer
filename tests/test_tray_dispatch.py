@@ -3,7 +3,7 @@
 Covers the compound tray fix that unblocks the Tauri tray runtime:
 
 (a) ``TrayIcon`` exposes ``dispatch_tray_action`` without any mock
-    injected by the caller — previously the method was missing entirely
+    injected by the caller, previously the method was missing entirely
     on the production ``TrayIcon`` class and the IPC layer's
     ``hasattr(tray, "dispatch_tray_action")`` guard returned False,
     silently dropping every Tauri tray click as ``unknown_tray_item``.
@@ -14,7 +14,7 @@ Covers the compound tray fix that unblocks the Tauri tray runtime:
     ``server.unknown_tray_item`` error envelope).
 
 (c) The Tauri-side ``build_tray_menu_model`` does NOT emit a
-    ``repaste_last`` item — AGENTS.md C-TRAY-1 forbids that entry
+    ``repaste_last`` item, AGENTS.md C-TRAY-1 forbids that entry
     on both runtimes. The pystray-side ``build_menu_for_tray`` already
     omitted it; this test pins the parity so a future re-introduction
     on the Tauri path is caught at CI time.
@@ -29,7 +29,7 @@ Covers the compound tray fix that unblocks the Tauri tray runtime:
     and the Tauri builder (``build_tray_menu_model``) emit the same
     set of top-level item ids (single source of truth for the menu
     structure). Settings/History/Help/Undo Last were previously MISSING
-    on the Tauri path — this test guards against regression.
+    on the Tauri path, this test guards against regression.
 
 These tests mock ``pystray`` at ``sys.modules`` (so the tray module can
 be imported without an X display) and ``event_bus`` (so publish helpers
@@ -118,7 +118,7 @@ def _make_tray() -> TrayIcon:
 
 class TestDispatchTrayActionMethodPresent:
     """``TrayIcon`` must expose ``dispatch_tray_action`` without any
-    caller-injected mock — the production class owns the method."""
+    caller-injected mock, the production class owns the method."""
 
     def test_hasattr_dispatch_tray_action_without_mock(self):
         """The production ``TrayIcon`` class owns ``dispatch_tray_action``.
@@ -132,7 +132,7 @@ class TestDispatchTrayActionMethodPresent:
         assert hasattr(tray, "dispatch_tray_action"), (
             "TrayIcon must expose dispatch_tray_action so the IPC layer's "
             "hasattr(tray, 'dispatch_tray_action') guard returns True under "
-            "the Tauri runtime — otherwise every tray click silently fails "
+            "the Tauri runtime, otherwise every tray click silently fails "
             "as 'server.unknown_tray_item'."
         )
         # The attribute must be a bound method, not a non-callable field.
@@ -157,7 +157,7 @@ class TestDispatchTrayActionRouting:
         registered), ``_tray_id_map`` is empty / misses the id →
         return False so the IPC layer emits ``unknown_tray_item``."""
         tray = _make_tray()
-        # _tray_id_map defaults to {} in __init__ — no publish yet.
+        # _tray_id_map defaults to {} in __init__, no publish yet.
         assert tray._tray_id_map == {}
         assert tray.dispatch_tray_action("does_not_exist") is False
 
@@ -177,7 +177,7 @@ class TestDispatchTrayActionRouting:
     def test_known_id_with_failing_callback_still_returns_true(self):
         """A callback that raises must NOT crash the IPC server thread.
 
-        The return value stays True — the click was *dispatched*; the
+        The return value stays True, the click was *dispatched*; the
         callback's failure is the renderer's concern (surfaced via
         toasts). This guards against a single broken callback taking
         down the entire Tauri tray IPC path.
@@ -229,13 +229,13 @@ class TestNoRepasteLastInTauriMenuModel:
         ids = {item["id"] for item in model if not item["separator"]}
         assert "repaste_last" not in ids, (
             "C-TRAY-1 violation: 'repaste_last' must NOT appear in the "
-            "Tauri tray menu model — AGENTS.md forbids a 'Repaste "
+            "Tauri tray menu model, AGENTS.md forbids a 'Repaste "
             "Last transcription' button on both runtimes."
         )
 
     def test_repaste_last_not_in_id_map(self):
         """The ``id_map`` (callback dispatch table) must NOT have a
-        ``repaste_last`` entry — even if a stray callback were passed,
+        ``repaste_last`` entry, even if a stray callback were passed,
         the builder must not register it under that id."""
         _model, id_map = build_tray_menu_model(
             hotkey="<f2>",
@@ -440,7 +440,7 @@ class TestMenuSpecParity:
             "quit",
         ):
             assert expected in tauri_ids, (
-                f"Tauri menu missing id {expected!r} — both builders must emit the same item set (OI-18 parity)."
+                f"Tauri menu missing id {expected!r}, both builders must emit the same item set (OI-18 parity)."
             )
         # C-TRAY-1 guard: repaste_last MUST NOT be on either side.
         assert "repaste_last" not in tauri_ids

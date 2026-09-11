@@ -23,14 +23,14 @@ def patch_config_dir_refs(monkeypatch, path: Path) -> None:
 
     Patches all three known bindings:
 
-    - ``voice_typer.server.config._config_dir`` — the canonical accessor;
+    - ``voice_typer.server.config._config_dir``, the canonical accessor;
       app.py routes its internal calls through ``_resolve_config_dir()``
       (call-time indirection), so this patch intercepts every app path;
-    - ``voice_typer.server.app._config_dir`` — belt-and-suspenders for
+    - ``voice_typer.server.app._config_dir``, belt-and-suspenders for
       any remaining consumers that resolve via the app module at call
       time (no production path does since BP-126; kept so older tests
       patching that attribute keep working);
-    - ``voice_typer.server._paths._config_dir`` — the lazy resolver's
+    - ``voice_typer.server._paths._config_dir``, the lazy resolver's
       memoized callable (once a previous test has triggered resolution,
       this attribute pins the REAL function and silently ignores the
       canonical-name patch).
@@ -55,7 +55,7 @@ class FakeConfig:
     tests can flip single knobs (e.g. ``noise_filter_notch=True``)
     without a subclass.
 
-    This is the SINGLE copy — it was previously duplicated as local
+    This is the SINGLE copy, it was previously duplicated as local
     ``FakeConfig`` classes in ``tests/test_audio_processor.py`` and
     ``tests/test_audio_processor_set_sample_rate.py``, which drifted
     (the latter lacked three fields the chain builder never reads).

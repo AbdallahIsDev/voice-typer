@@ -15,7 +15,7 @@ These tests pin the new skip-write contract:
   (a) ``Config.save()`` with unchanged content skips the write —
       verified by mocking ``_secure_atomic_write`` and asserting it
       was NOT called on the second save (identical content).
-  (b) ``Config.save()`` with changed content writes — verified by
+  (b) ``Config.save()`` with changed content writes, verified by
       mocking ``_secure_atomic_write`` and asserting it WAS called.
 """
 
@@ -41,14 +41,14 @@ class TestConfigSaveSkip:
 
         cfg = Config()
 
-        # First save — writes to disk and populates _last_saved_bytes.
+        # First save, writes to disk and populates _last_saved_bytes.
         # We let this go through the real write so the cache is set
         # to the actual serialized bytes.
         assert cfg.save() is True
         # The cache should now be populated (not None).
         assert cfg._last_saved_bytes is not None, "first save should have populated _last_saved_bytes"
 
-        # Second save — identical content. Mock _secure_atomic_write
+        # Second save, identical content. Mock _secure_atomic_write
         # to verify it is NOT called (the diff-cache check should
         # short-circuit before reaching the write).
         with patch("voice_typer.server.config._secure_atomic_write") as mock_write:
@@ -58,7 +58,7 @@ class TestConfigSaveSkip:
                 mock_write.assert_not_called(),
                 (
                     "_secure_atomic_write must NOT be called when "
-                    "content is unchanged — the diff-cache check should skip "
+                    "content is unchanged, the diff-cache check should skip "
                     "the write entirely"
                 ),
             )
@@ -75,7 +75,7 @@ class TestConfigSaveSkip:
 
         cfg = Config()
 
-        # First save — populates the cache.
+        # First save, populates the cache.
         assert cfg.save() is True
         cached_bytes = cfg._last_saved_bytes
         assert cached_bytes is not None
@@ -83,7 +83,7 @@ class TestConfigSaveSkip:
         # Change a config field so the serialized content differs.
         cfg.hotkey = "<f2>"
 
-        # Second save — changed content. Mock _secure_atomic_write to
+        # Second save, changed content. Mock _secure_atomic_write to
         # verify it IS called.
         with patch("voice_typer.server.config._secure_atomic_write") as mock_write:
             result = cfg.save()
@@ -92,7 +92,7 @@ class TestConfigSaveSkip:
                 mock_write.assert_called(),
                 (
                     "_secure_atomic_write must be called when content "
-                    "has changed — the diff-cache check should fall through"
+                    "has changed, the diff-cache check should fall through"
                 ),
             )
 
@@ -111,7 +111,7 @@ class TestConfigSaveSkip:
         from voice_typer.server.config import Config
 
         cfg = Config()
-        # Fresh instance — cache is None.
+        # Fresh instance, cache is None.
         assert cfg._last_saved_bytes is None
 
         with patch("voice_typer.server.config._secure_atomic_write") as mock_write:
@@ -119,7 +119,7 @@ class TestConfigSaveSkip:
             assert result is True
             (
                 mock_write.assert_called(),
-                ("first save (cache is None) must always write — the 'is not None' guard prevents skipping"),
+                ("first save (cache is None) must always write, the 'is not None' guard prevents skipping"),
             )
 
         # Cache is now populated.

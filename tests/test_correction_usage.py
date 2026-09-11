@@ -137,7 +137,7 @@ class TestCorrectionUsageTracker:
 
 class TestDebouncedFlushSweeper:
     """The debounced flush runs on the shared background sweeper
-    thread — NOT on the dictation path.
+    thread, NOT on the dictation path.
 
     ``record_corrections`` / ``record_dictation`` are called between
     "transcription done" and "text pasted"; a full json.dumps + atomic
@@ -188,7 +188,7 @@ class TestDebouncedFlushSweeper:
 
             assert elapsed < 2.0, (
                 f"record_dictation blocked for {elapsed:.2f}s on the usage-file "
-                "save — the debounced flush must run on the sweeper thread, "
+                "save, the debounced flush must run on the sweeper thread, "
                 "never on the dictation path"
             )
             # The save itself still runs (on the sweeper thread) without
@@ -214,7 +214,7 @@ class TestDebouncedFlushSweeper:
 
         # Second dictation lands INSIDE the debounce window: the file
         # may not reflect it yet, but the sweeper must persist it once
-        # the window elapses — with no explicit flush() call.
+        # the window elapses, with no explicit flush() call.
         t.record_dictation()
         deadline = time.monotonic() + 5.0
         raw: dict = {}
@@ -252,7 +252,7 @@ class TestDebouncedFlushSweeper:
         agree."""
         t = CorrectionUsageTracker(tmp_path)
         t.record_corrections([("misspellings", "recieve", 1)])
-        # No explicit flush() — only the snapshot read.
+        # No explicit flush(), only the snapshot read.
         snap = t.get_snapshot()
         assert snap["entries"]["misspellings"]["recieve"]["count"] == 1
         raw = json.loads((tmp_path / CORRECTION_USAGE_FILENAME).read_text(encoding="utf-8"))
@@ -261,7 +261,7 @@ class TestDebouncedFlushSweeper:
 
     def test_shared_sweeper_is_a_single_thread(self, tracker):
         """Recording from several trackers must not spawn one thread per
-        tracker — the sweeper is a process-wide singleton."""
+        tracker, the sweeper is a process-wide singleton."""
         before = threading.active_count()
         tracker.record_dictation()
         tracker.record_corrections([("misspellings", "recieve", 1)])
@@ -308,7 +308,7 @@ class TestDebouncedFlushSweeper:
         tracker.record_dictation()
         elapsed = time.perf_counter() - start
         assert elapsed < 1.0, (
-            f"record blocked for {elapsed:.2f}s on the in-flight flush save — "
+            f"record blocked for {elapsed:.2f}s on the in-flight flush save, "
             "the store write must run outside the instance lock"
         )
 
@@ -316,7 +316,7 @@ class TestDebouncedFlushSweeper:
         assert flush_done.wait(timeout=5.0), "flush never finished after release"
         worker.join(timeout=5.0)
 
-        # The mid-save record was only re-armed for the next flush — it
+        # The mid-save record was only re-armed for the next flush, it
         # must NOT be lost: a follow-up flush persists it.
         snap = tracker.get_snapshot()
         assert snap["dictations_by_day"][_day(time.time())] == 2
@@ -325,7 +325,7 @@ class TestDebouncedFlushSweeper:
     def test_flush_failure_keeps_increments_pending(self, tracker, tmp_path, monkeypatch):
         """A failed save must not raise out of flush() and must keep the
         increments pending so the next flush retries them."""
-        # Keep the sweeper out of this test — only the explicit flush
+        # Keep the sweeper out of this test, only the explicit flush
         # calls below may attempt saves, so the failure/retry sequence
         # is deterministic.
         monkeypatch.setattr(tracker, "_schedule_flush", lambda: None)
@@ -353,10 +353,10 @@ class TestDebouncedFlushSweeper:
     def test_flush_ordering_newer_payload_lands_last(self, tracker, tmp_path, monkeypatch):
         """Snapshot order must equal save order: the payload snapshot is
         taken while the save lock is held, so a flusher queued behind an
-        in-flight save cannot snapshot until that save has landed — an
+        in-flight save cannot snapshot until that save has landed, an
         interleaved snapshot/save sequence can therefore never write an
         OLDER payload over a NEWER one on disk."""
-        # Keep the sweeper out of this test — only the explicit flush
+        # Keep the sweeper out of this test, only the explicit flush
         # threads below may attempt saves, so the interleaving is
         # deterministic.
         monkeypatch.setattr(tracker, "_schedule_flush", lambda: None)
@@ -434,7 +434,7 @@ class TestDebouncedFlushSweeper:
         time.sleep(0.2)
         assert not second_snapshot_done.is_set(), (
             "a flusher queued behind an in-flight save snapshotted BEFORE that "
-            "save landed — snapshot order no longer equals save order"
+            "save landed, snapshot order no longer equals save order"
         )
 
         release_slow_save.set()
@@ -514,7 +514,7 @@ class TestSweeperStopRestartRace:
 
         assert len(sweepers) == 1, (
             f"expected exactly ONE live sweeper after the stop→restart race; "
-            f"got {len(sweepers)} — the stale thread survived a timed-out stop"
+            f"got {len(sweepers)}, the stale thread survived a timed-out stop"
         )
         # The survivor must be the REGISTERED replacement (not the stale
         # thread with the replacement somehow dead).
@@ -615,7 +615,7 @@ class TestEndToEndAppToIpc:
     vocabulary manager's tracker (one shared writer), the storage-step
     ``record_dictation`` hook must land in the same instance, and the
     service's ``get_correction_usage`` must serve the merged snapshot
-    back out — i.e. exactly what the renderer's Vocabulary page and
+    back out, i.e. exactly what the renderer's Vocabulary page and
     Analytics card read.
     """
 
@@ -635,7 +635,7 @@ class TestEndToEndAppToIpc:
         app._vocabulary_manager_backing = vm
         app.config = SimpleNamespace(config_dir=tmp_path)
 
-        # The property must expose the LIVE manager's tracker — one
+        # The property must expose the LIVE manager's tracker, one
         # shared writer for dictation hits + the IPC read path.
         assert app.correction_usage is vm.usage_tracker
 

@@ -11,7 +11,7 @@ Verifies the contract documented in
 - The function is thread-safe under concurrent access.
 - ``*args`` %-format arguments are forwarded to the configured-level
   call and passed (lazily, XV-125) as positional ``%-format`` args to
-  the DEBUG fallback — the framework only renders them if DEBUG is
+  the DEBUG fallback, the framework only renders them if DEBUG is
   enabled.
 """
 
@@ -26,13 +26,13 @@ from voice_typer.server import log_rate_limit
 from voice_typer.server.log_rate_limit import log_rate_limited, reset
 
 # Hint for xdist schedulers that respect ``xdist_group`` (loadgroup /
-# loadscope): pin every test in this module — and its sibling
-# ``test_log_rate_limit_lru.py`` — onto a single worker. Both modules
+# loadscope): pin every test in this module, and its sibling
+# ``test_log_rate_limit_lru.py``, onto a single worker. Both modules
 # mutate the process-wide module-level dicts in
 # ``voice_typer.server.log_rate_limit`` (``_RATE_LIMIT_COUNTS`` and the
 # summary dicts), reset via autouse fixtures; grouping them on one
 # worker is defense-in-depth for that shared state. xdist's default
-# ``load`` scheduler does NOT strictly honor this marker — it is a
+# ``load`` scheduler does NOT strictly honor this marker, it is a
 # hint, not a correctness guarantee. No-op when xdist isn't active.
 # (C-TEST-5.)
 pytestmark = pytest.mark.xdist_group("log_rate_limit")
@@ -152,7 +152,7 @@ def test_suppressed_occurrence_renders_format_args():
     """When *args are passed, the DEBUG fallback forwards them lazily.
 
     XV-125: the previous implementation eagerly rendered ``msg % args``
-    before calling ``logger.debug`` — defeating the lazy-formatting
+    before calling ``logger.debug``, defeating the lazy-formatting
     guarantee that ``logging`` provides (the framework only renders the
     format string when the level is enabled).  The fix passes the
     caller's *msg* (with the suppressed-occurrence suffix appended) as
@@ -176,7 +176,7 @@ def test_suppressed_occurrence_renders_format_args():
 
 def test_suppressed_occurrence_no_args_uses_literal_substitution():
     """When *args is empty, the DEBUG fallback passes *msg* as a literal
-    ``%s`` substitution — so a literal ``%`` in *msg* (e.g. ``"100% done"``)
+    ``%s`` substitution, so a literal ``%`` in *msg* (e.g. ``"100% done"``)
     is NOT re-interpreted as a format spec.
 
     XV-125: this branch preserves the pre-fix behaviour for callers that
@@ -253,7 +253,7 @@ def test_distinct_messages_get_independent_counters():
     """Two different message strings must not share a counter."""
     logger = FakeLogger()
 
-    # Fire message A twice — second should be suppressed to DEBUG.
+    # Fire message A twice, second should be suppressed to DEBUG.
     log_rate_limited(logger, logging.ERROR, "message A", every_n=100)
     log_rate_limited(logger, logging.ERROR, "message A", every_n=100)
     assert logger.log.call_count == 1  # only the 1st
@@ -330,7 +330,7 @@ def test_concurrent_calls_do_not_crash_and_total_count_is_consistent():
     # The configured-level call should have fired roughly
     # (1 + every 100th) × n_threads times.  We don't assert an exact
     # count here because thread interleaving can cause two threads to
-    # observe the same count value and both log at level — which is the
+    # observe the same count value and both log at level, which is the
     # explicitly-documented acceptable trade-off.  The invariant we DO
     # assert is that the configured-level path fired at least once
     # (the very first call) and never more than 2× the expected count
@@ -355,7 +355,7 @@ def test_every_n_le_1_disables_rate_limiting():
 
 
 def test_every_n_zero_logs_only_first():
-    """``every_n=0`` (or negative) disables the modulo branch — only the
+    """``every_n=0`` (or negative) disables the modulo branch, only the
     1st occurrence logs at the configured level."""
     logger = FakeLogger()
     for _ in range(50):
@@ -385,7 +385,7 @@ def test_reset_clears_counters():
 
 
 def test_level_is_forwarded_as_configured():
-    """The caller chooses the level — WARNING, INFO, CRITICAL all work."""
+    """The caller chooses the level. WARNING, INFO, CRITICAL all work."""
     logger = FakeLogger()
     log_rate_limited(logger, logging.WARNING, "warn-test", every_n=100)
     logger.log.assert_called_once_with(logging.WARNING, "warn-test", exc_info=False)
@@ -424,14 +424,14 @@ def test_integration_with_real_logger_and_caplog(caplog):
         except RuntimeError:
             log_rate_limited(real_logger, logging.ERROR, msg, exc_info=True, every_n=100)
 
-        # Occurrences 2..99 — all DEBUG.
+        # Occurrences 2..99, all DEBUG.
         for _ in range(98):
             try:
                 raise RuntimeError("synthetic chunk error")
             except RuntimeError:
                 log_rate_limited(real_logger, logging.ERROR, msg, exc_info=True, every_n=100)
 
-        # Occurrence 100 — ERROR with exc_info again.
+        # Occurrence 100. ERROR with exc_info again.
         try:
             raise RuntimeError("synthetic chunk error")
         except RuntimeError:
@@ -452,7 +452,7 @@ def test_integration_with_real_logger_and_caplog(caplog):
         assert r.exc_info[0] is RuntimeError
 
     # DEBUG records must NOT carry exc_info (the whole point of the
-    # rate-limit — avoid the expensive traceback capture on hot paths).
+    # rate-limit, avoid the expensive traceback capture on hot paths).
     for r in debug_records:
         assert r.exc_info is None
 
@@ -465,7 +465,7 @@ def test_integration_with_real_logger_and_caplog(caplog):
 
 
 class TestGt66PeriodicInfoSummary:
-    """GT-66: emit a periodic summary per counter key — every 60s of
+    """GT-66: emit a periodic summary per counter key, every 60s of
     wall-clock time, if any counter incremented >0 since the last
     summary, log::
 
@@ -474,7 +474,7 @@ class TestGt66PeriodicInfoSummary:
                  delta, key)
 
     YJ-45: the format string uses ``%s`` (NOT ``%r``) so the counter key
-    appears in the log line WITHOUT inner ``repr()`` quotes — keeping
+    appears in the log line WITHOUT inner ``repr()`` quotes, keeping
     the line grep-friendly (``grep '<key>' log`` finds it instead of
     ``grep "'<key>'" log``). The summary is routed through the module
     logger (``voice_typer.server.log_rate_limit``) so it's always
@@ -485,7 +485,7 @@ class TestGt66PeriodicInfoSummary:
 
     UE-16: the summary severity tracks the caller's configured
     ``level`` (clamped to >= INFO) so an ERROR-rate-limited path
-    surfaces an ERROR summary (not INFO) — alerting rules keyed on
+    surfaces an ERROR summary (not INFO), alerting rules keyed on
     ``level>=ERROR`` continue to fire on the recurrence. The existing
     tests below use ``logging.ERROR`` as the rate-limited level, so the
     summaries are now emitted at ERROR severity; assertions filter on
@@ -493,7 +493,7 @@ class TestGt66PeriodicInfoSummary:
     """
 
     def test_first_suppressed_occurrence_does_not_emit_summary(self, caplog):
-        """The first suppressed occurrence seeds the timer — no summary
+        """The first suppressed occurrence seeds the timer, no summary
         is emitted until 60s have elapsed.
         """
         logger = FakeLogger()
@@ -543,7 +543,7 @@ class TestGt66PeriodicInfoSummary:
         # the bare key (not ``repr(msg)``) keeps the line grep-friendly.
         #
         # (review Issue 3): the previous assertion
-        # ``assert msg in msg_text`` was too weak — ``msg`` is always a
+        # ``assert msg in msg_text`` was too weak: ``msg`` is always a
         # substring of ``repr(msg)``, so the test PASSED with BOTH
         # ``%s`` ( fix) AND ``%r`` (reverted). The added
         # ``repr(msg) not in msg_text`` assertion makes the test FAIL
@@ -558,7 +558,7 @@ class TestGt66PeriodicInfoSummary:
         """After an INFO summary fires, the per-key delta is reset to 0.
 
         PI-25: with deadline-based cadence, the second summary fires on
-        the *first* call after the next deadline — so its delta reflects
+        the *first* call after the next deadline, so its delta reflects
         only the occurrences accumulated SINCE the previous fire (here:
         1, from count=12 alone), not the cumulative total since process
         start (which would be 13).  The 1 vs. 13 distinction is what
@@ -593,7 +593,7 @@ class TestGt66PeriodicInfoSummary:
         second = summaries[1].getMessage()
         assert "10 suppressed occurrences" in first, f"first summary: {first!r}"
         # the second summary fires on the first call after the
-        # deadline (count=12 at t=122), so its delta is 1 — NOT the
+        # deadline (count=12 at t=122), so its delta is 1, NOT the
         # cumulative count of 13.  The "1" proves the delta was reset
         # after the first summary emission.
         assert "1 suppressed occurrences" in second, (
@@ -630,13 +630,13 @@ class TestGt66PeriodicInfoSummary:
         )
 
     def test_summary_per_key_independent(self, monkeypatch, caplog):
-        """Each counter key has its own summary cadence — a summary for
+        """Each counter key has its own summary cadence, a summary for
         key A does not reset key B's delta.
 
         PI-25: per-key independence means each key has its OWN deadline
         state.  When both keys are seeded at the same time (t=0) and
         both cross their deadlines simultaneously (t=61), BOTH keys
-        fire their own summaries — that is the correct behavior.  The
+        fire their own summaries: that is the correct behavior.  The
         test previously expected only key A to fire, which would only
         be true if the cadence were GLOBAL (a single shared timer); the
         contract is per-key, so both fire.
@@ -663,7 +663,7 @@ class TestGt66PeriodicInfoSummary:
 
         summaries = [r for r in caplog.records if r.levelno >= logging.INFO and "[rate-limit]" in r.message]
         # both keys were seeded at t=0 and both cross their
-        # 60s deadlines at t=61, so both fire — per-key independence
+        # 60s deadlines at t=61, so both fire, per-key independence
         # means each key fires on its own cadence, not "first key wins".
         assert len(summaries) == 2, (
             f"expected 2 summaries (both keys fire on their own cadence); "
@@ -828,7 +828,7 @@ class TestEviction:
 
         Pre-UE-16 the two summary dicts were keyed by the same
         ``counter_key`` tuple as ``_RATE_LIMIT_COUNTS`` but were never
-        pruned on eviction — so a caller that drove >1024 distinct
+        pruned on eviction, so a caller that drove >1024 distinct
         dynamic messages would leak summary state forever (the summary
         dicts were never bounded).
         """
@@ -890,7 +890,7 @@ class TestUe16SummarySeverity:
     """UE-16: the GT-66 summary severity is ``max(logging.INFO, level)``
     so an ERROR-rate-limited path surfaces an ERROR summary (not INFO).
 
-    Pre-UE-16 the summary was hardcoded at ``_log.info(...)`` — so a
+    Pre-UE-16 the summary was hardcoded at ``_log.info(...)``, so a
     caller invoking ``log_rate_limited(log, logging.CRITICAL, ...)``
     whose error fired 1000x in 60s would see one CRITICAL line then ~60s
     later an INFO summary. The CRITICAL severity was lost; alerting

@@ -3,7 +3,7 @@
 Pins the contract that the English fallback labels for the app-startup
 i18n keys (``error.config_load_failed.*`` / ``state.app.starting``) are
 registered by ``_register_startup_i18n_fallbacks()`` at app-INIT time
-(called from ``VoiceTyperApp.__init__``) — NOT at module import time.
+(called from ``VoiceTyperApp.__init__``). NOT at module import time.
 Importing ``voice_typer.server.app`` must stay side-effect-free with
 respect to the i18n registry.
 """
@@ -40,7 +40,7 @@ def test_module_import_does_not_register_fallbacks():
     may legitimately already exist (``i18n._INITIAL_LABELS`` owns the
     canonical English fallbacks), so assert on the MECHANISM: no
     module-level ``with i18n._LOCK`` registration block remains at
-    import scope — the only registrant is the helper function.
+    import scope, the only registrant is the helper function.
     """
     import ast
     import inspect
@@ -85,7 +85,7 @@ def test_helper_is_idempotent_and_thread_safe():
         try:
             app_module._register_startup_i18n_fallbacks()
             results.append(None)
-        except Exception as exc:  # pragma: no cover — surfaced below
+        except Exception as exc:  # pragma: no cover, surfaced below
             results.append(exc)
 
     threads = [threading.Thread(target=_call) for _ in range(4)]

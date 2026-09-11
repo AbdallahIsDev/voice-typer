@@ -25,7 +25,7 @@ function DirectionDisplay() {
 
 describe("I18N-3: RTL document direction", () => {
 	beforeEach(() => {
-		// Reset to a known baseline — English, which is LTR.
+		// Reset to a known baseline, English, which is LTR.
 		act(() => {
 			setLocale("en" as Locale);
 		});

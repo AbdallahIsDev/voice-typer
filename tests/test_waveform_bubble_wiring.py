@@ -21,7 +21,7 @@ These tests pin the contract of the extraction:
 7. The worker respects the bounded queue: when the queue is full,
    ``_push_bubble_level`` drops the sample (``queue.Full`` is suppressed).
 8. The worker exits when a ``None`` sentinel is put on the queue.
-9. ``_wire_waveform_bubble`` is idempotent — calling it twice reuses the
+9. ``_wire_waveform_bubble`` is idempotent, calling it twice reuses the
    existing queue / worker (doesn't spawn a second worker).
 10. ``_wire_waveform_bubble`` registers the worker on
     ``app._thread_registry`` so it's tracked for shutdown.
@@ -72,7 +72,7 @@ def bubble() -> WaveformBubble:
 
 @pytest.fixture
 def thread_registry() -> MagicMock:
-    """A mock ThreadRegistry — captures ``register()`` calls."""
+    """A mock ThreadRegistry, captures ``register()`` calls."""
     reg = MagicMock()
     return reg
 
@@ -81,8 +81,8 @@ def thread_registry() -> MagicMock:
 def app(bubble, thread_registry) -> MagicMock:
     """Minimal app mock with the two attributes the wiring touches.
 
-    - ``app._waveform_bubble`` — the ``WaveformBubble`` coordinator
-    - ``app._thread_registry`` — the central ``ThreadRegistry``
+    - ``app._waveform_bubble``, the ``WaveformBubble`` coordinator
+    - ``app._thread_registry``, the central ``ThreadRegistry``
 
     The real ``VoiceTyperApp.__init__`` creates both before calling
     ``_wire_waveform_bubble``; the mock mirrors that setup.
@@ -232,7 +232,7 @@ class TestWorkerLifecycle:
         """Putting ``None`` on the queue must cause the worker to exit.
 
         This is the sentinel shutdown path documented in
-        ``_bubble_level_worker`` — the worker breaks out of its drain
+        ``_bubble_level_worker``, the worker breaks out of its drain
         loop when it dequeues ``None``.
         """
         wiring._wire_waveform_bubble()
@@ -269,7 +269,7 @@ class TestBoundedQueue:
         # Stop the worker so it doesn't drain the queue while we fill it.
         wiring._bubble_level_worker_stop.set()
         with contextlib.suppress(queue.Full):
-            q.put_nowait(None)  # sentinel — worker will exit
+            q.put_nowait(None)  # sentinel, worker will exit
         wiring._bubble_level_worker.join(timeout=1.0)
         assert not wiring._bubble_level_worker.is_alive()
 
@@ -287,14 +287,14 @@ class TestBoundedQueue:
         assert q.full()
 
         # Now invoke the ``on_level`` callback directly. The queue is
-        # full, so ``put_nowait`` raises ``queue.Full`` — which the
+        # full, so ``put_nowait`` raises ``queue.Full``, which the
         # callback suppresses. The callback must NOT raise.
         on_level = wiring._app._waveform_bubble.on_level
         # Reset throttle so the push attempt isn't skipped by the gate.
         wiring._last_bubble_level_push_ts = 0.0
         on_level(0.05, 0.10)  # must not raise
 
-        # The queue is still at maxsize — the new sample was dropped.
+        # The queue is still at maxsize, the new sample was dropped.
         assert q.qsize() == 64, f"queue should still be at maxsize=64 after a drop, got {q.qsize()}"
 
 
@@ -312,7 +312,7 @@ class TestIdempotentWiring:
 
         assert first_worker is not None and first_worker.is_alive()
 
-        # Call again — must reuse, not create a new worker.
+        # Call again, must reuse, not create a new worker.
         wiring._wire_waveform_bubble()
         assert wiring._bubble_level_worker is first_worker, (
             "second _wire_waveform_bubble call must reuse the existing worker thread"
@@ -361,7 +361,7 @@ class TestOnLevelPublishes:
         bubble.update_level(0.05, 0.12)
 
         # The push is async (drained by the worker). Wait briefly for
-        # the worker to drain — the queue has maxsize=64 so a single
+        # the worker to drain, the queue has maxsize=64 so a single
         # item drains in well under 100 ms.
         deadline = time.monotonic() + 2.0
         while time.monotonic() < deadline:
@@ -466,9 +466,9 @@ class TestWorkerCoalescesStaleLevels:
     publishing only the LATEST one.
 
     Without coalescing, a 0.1s slow publish × N queued items = N×0.1s
-    freeze (and N stale frames painted in sequence — e.g. 64 queued
+    freeze (and N stale frames painted in sequence, e.g. 64 queued
     items = ~6.4s freeze, RW-9 PERF-3 finding). With coalescing, only
-    the latest level is published — the visualizer jumps directly to
+    the latest level is published, the visualizer jumps directly to
     the current smoothed level.
     """
 
@@ -506,7 +506,7 @@ class TestWorkerCoalescesStaleLevels:
             wiring._bubble_level_queue.put_nowait(it)
         assert wiring._bubble_level_queue.qsize() == 5
 
-        # Now wire — this creates + starts the worker on the
+        # Now wire, this creates + starts the worker on the
         # pre-populated queue. The worker's coalescing loop should
         # drain items 2-5 and keep only item 5 (the latest).
         wiring._wire_waveform_bubble()

@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""Voice Typer — Windows uninstaller autostart cleanup ().
+"""Voice Typer. Windows uninstaller autostart cleanup ().
 
 Removes the per-user Windows autostart entries that
 ``voice_typer/server/server_platform/autostart_windows.py`` creates at
 runtime when the user enables autostart via Settings:
 
   - **HKCU Run key** at
-    ``HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run`` — value
+    ``HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run``, value
     name ``com.voicetyper.autostart_<8hex>`` (per-install hash from
-    SHA-256 of the install path — see ``_run_key_name`` in
+    SHA-256 of the install path: see ``_run_key_name`` in
     ``autostart_windows.py``; pre-2026 installs used the bare
     ``VoiceTyper_<8hex>`` scheme, which this script still removes).
     This is a REGISTRY value, NOT a file, so
@@ -21,7 +21,7 @@ runtime when the user enables autostart via Settings:
     ``task_scheduler.TASK_NAME``). Lives
     in Task Scheduler, also NOT under AppData.
 
-Both mechanisms are removed here — including STALE entries from previous
+Both mechanisms are removed here: including STALE entries from previous
 installs at different paths (different hashes) and both the current
 canonical ``com.voicetyper.*`` names and the pre-rename bare
 ``VoiceTyper*`` names (so installs that predate the namespace rename are
@@ -39,7 +39,7 @@ vocabularies, HuggingFace model cache, venv, logs). OFF by default so
 users who reinstall keep their models; pass it explicitly to reclaim
 disk:
 
-    # Uninstall autostart only (default — preserves user data):
+    # Uninstall autostart only (default, preserves user data):
     python uninstall_permissions.py
 
     # Uninstall autostart AND purge all user data (GBs of models):
@@ -51,7 +51,7 @@ disk:
 
 Invoked by:
   - ``scripts/windows/uninstall.bat`` (the NSIS / Tauri preRemoveScript
-    hook — ``.bat`` wraps this Python script and falls back to native
+    hook, ``.bat`` wraps this Python script and falls back to native
     ``reg delete`` / PowerShell ``Remove-ItemProperty`` if Python is
     unavailable at uninstall time).
   - Manually by the user (documented in the README / Windows install
@@ -61,13 +61,13 @@ Invoked by:
 This script mirrors the Linux pattern in
 ``scripts/linux/uninstall_permissions.py`` ( + ): same
 ``--purge`` flag, same env-var fallback, same "best-effort, log + exit 0"
-semantics (the uninstaller must NEVER block on cleanup failure — a
+semantics (the uninstaller must NEVER block on cleanup failure, a
 locked task or registry permission error should not abort the user's
 uninstall).
 
 Exit codes:
   - 0: cleanup ran (some or all entries removed; missing entries are NOT
-        an error — they were already clean).
+        an error, they were already clean).
   - 1: fatal error (e.g. could not import the voice_typer package and
         Python fallback also unavailable). The .bat wrapper falls back
         to native reg.exe / PowerShell in this case.
@@ -122,7 +122,7 @@ def _purge_user_data() -> None:
     ``%APPDATA%\\voice-typer``.
 
     Mirrors the Linux purge in ``scripts/linux/uninstall_permissions.py``
-    (same subpaths list — kept inline here so the script runs even when
+    (same subpaths list, kept inline here so the script runs even when
     the voice_typer package is not importable). Removes each known
     subpath individually (NOT a blanket ``rmdir /s`` of the whole
     %APPDATA%) so we never touch unrelated user files.
@@ -131,7 +131,7 @@ def _purge_user_data() -> None:
     """
     appdata = os.environ.get("APPDATA")
     if not appdata:
-        _log("WARNING: --purge: APPDATA env var not set — skipping user-data purge")
+        _log("WARNING: --purge: APPDATA env var not set, skipping user-data purge")
         return
     data_dir = Path(appdata) / "voice-typer"
     if not data_dir.is_dir():
@@ -140,10 +140,10 @@ def _purge_user_data() -> None:
 
     _log(f"--purge: removing user data at {data_dir}")
     # The subpaths list covers a SUBSET of the canonical user-data
-    # inventories — the heavyweight dirs plus the recovery/onboarding
+    # inventories, the heavyweight dirs plus the recovery/onboarding
     # markers from voice_typer/server/_user_data_files.py::_USER_DATA_FILES
     # and the directory layout used by
-    # voice_typer/server/config/_accessors.py::purge_user_data — kept
+    # voice_typer/server/config/_accessors.py::purge_user_data, kept
     # inline here (rather than imported) because this script may run
     # when the voice_typer package has already been partially removed
     # by the NSIS uninstaller (the Python bundle is gone before the
@@ -182,7 +182,7 @@ def _purge_user_data() -> None:
         except OSError as exc:
             _log(f"WARNING: --purge: failed to remove {target}: {exc}")
     # Try to remove the now-empty data dir itself (best-effort; will
-    # fail if non-Voice-Typer files are inside — that's fine).
+    # fail if non-Voice-Typer files are inside, that's fine).
     with contextlib.suppress(OSError):
         data_dir.rmdir()
 
@@ -190,7 +190,7 @@ def _purge_user_data() -> None:
 def _do_autostart_cleanup() -> tuple[list[str], list[str]]:
     """Run the autostart cleanup via the voice_typer package helpers.
 
-    Returns ``(deleted_runkeys, deleted_tasks)`` — lists of names
+    Returns ``(deleted_runkeys, deleted_tasks)``: lists of names
     removed (best-effort). Falls back to direct ``winreg`` /
     ``schtasks`` invocations if the voice_typer package cannot be
     imported (e.g. the uninstaller already removed the Python bundle).
@@ -198,7 +198,7 @@ def _do_autostart_cleanup() -> tuple[list[str], list[str]]:
     deleted_runkeys: list[str] = []
     deleted_tasks: list[str] = []
 
-    # Try the voice_typer package path first (preferred — shares the
+    # Try the voice_typer package path first (preferred, shares the
     # production code's parsing / logging / error handling).
     try:
         # Import lazily so the script can still run when the
@@ -253,7 +253,7 @@ def _do_autostart_cleanup() -> tuple[list[str], list[str]]:
         _log(f"WARNING: PowerShell Run-key sweep raised: {exc}")
 
     # Task Scheduler sweep (same PowerShell pipeline as the
-    # voice_typer package path — included here for the fallback case).
+    # voice_typer package path, included here for the fallback case).
     # The wildcard union covers the current canonical names
     # (com.voicetyper.autostart*, com.voicetyper.prewarm) AND the
     # pre-rename bare names (VoiceTyperAutostart*, VoiceTyperPrewarm).
@@ -293,7 +293,7 @@ def _do_autostart_cleanup() -> tuple[list[str], list[str]]:
 
 
 def main() -> int:
-    """Entry point — returns 0 on completion (best-effort, never blocks)."""
+    """Entry point, returns 0 on completion (best-effort, never blocks)."""
     # (): purge runs BEFORE autostart cleanup so the
     # autostart entry is removed LAST (in case the data-dir purge
     # deletes the very Python bundle this script is running from —

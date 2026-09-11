@@ -1,14 +1,14 @@
-"""AsrBackendRegistry — thin facade composing the ASR split modules.
+"""AsrBackendRegistry, thin facade composing the ASR split modules.
 
 The former 1072-line ``asr_registry.py`` is split into three focused
 modules under :mod:`voice_typer.server.asr`:
 
-- :mod:`voice_typer.server.asr.registry` — :class:`RegistryCore` (the
+- :mod:`voice_typer.server.asr.registry`: :class:`RegistryCore` (the
   base class) with backend CRUD + load/fallback orchestration +
   ``AsrBackend`` / ``ConfigProtocol`` Protocols.
-- :mod:`voice_typer.server.asr.circuit_breaker` — :class:`CircuitBreaker`
+- :mod:`voice_typer.server.asr.circuit_breaker`, :class:`CircuitBreaker`
   with the failure-counter / disabled-set / subscriber state.
-- :mod:`voice_typer.server.asr.busy_flag` — :class:`BusyFlag` with the
+- :mod:`voice_typer.server.asr.busy_flag`: :class:`BusyFlag` with the
   per-backend busy flag.
 
 This module defines the public facade that subclasses
@@ -52,7 +52,7 @@ class AsrBackendRegistry(RegistryCore):
     split assigned to the facade.
 
     All public API names + signatures match the pre-split
-    ``AsrBackendRegistry`` — existing callers and tests are unchanged.
+    ``AsrBackendRegistry``: existing callers and tests are unchanged.
     """
 
     # Re-exported at class scope for backward compat (tests read
@@ -69,7 +69,7 @@ class AsrBackendRegistry(RegistryCore):
     # ── load orchestration ──────────────────────────────────────────
     #
     # ``load_active`` lives on the facade (not on RegistryCore) so its
-    # log calls use this module's ``log`` — which tests patch via
+    # log calls use this module's ``log``: which tests patch via
     # ``patch("voice_typer.server.asr_registry.log")``. The inherited
     # ``load_with_fallback`` / ``transcribe_with_fallback`` from
     # RegistryCore are not patched by any existing test, so they stay
@@ -83,14 +83,14 @@ class AsrBackendRegistry(RegistryCore):
         ``_is_disabled`` check: ``get_active``'s last-resort branch
         returns an unloaded backend even when that backend is in
         ``_disabled_backends``, and ``load_active`` would then attempt
-        (and usually fail) the load — silently re-attempting the exact
+        (and usually fail) the load, silently re-attempting the exact
         failure mode the breaker exists to prevent.
         """
         _cb = progress_callback or (lambda msg: None)
         # OI-15: the _is_disabled gate must come BEFORE get_active().
         if self._is_disabled(self.active_name):
             log.warning(
-                "[ASR_REGISTRY] active backend %s is disabled — refusing to load (OI-15)",
+                "[ASR_REGISTRY] active backend %s is disabled, refusing to load (OI-15)",
                 self.active_name,
             )
             return None
@@ -105,7 +105,7 @@ class AsrBackendRegistry(RegistryCore):
             return backend
         except (ModelNotDownloadedError, ModelIntegrityError) as exc:
             # Not a transient failure: the model isn't downloaded (or the
-            # cache failed integrity verification) — the app NEVER
+            # cache failed integrity verification), the app NEVER
             # downloads models automatically. Do NOT record a
             # circuit-breaker failure (a retry won't help and the breaker
             # would permanently disable a backend the user may download /
@@ -113,7 +113,7 @@ class AsrBackendRegistry(RegistryCore):
             # surface an actionable "open the Models page and download"
             # message.
             log.warning(
-                "[ASR_REGISTRY] active backend %s refused to load: %s — "
+                "[ASR_REGISTRY] active backend %s refused to load: %s, "
                 "model not downloaded / integrity check failed. "
                 "No circuit-breaker record.",
                 self.active_name,
@@ -203,7 +203,7 @@ class AsrBackendRegistry(RegistryCore):
         Raises :class:`RuntimeError` so the caller can catch and defer /
         log. This closes the TOCTOU window where
         :meth:`transcribe_with_fallback` captures the backend under
-        ``self._lock`` and then invokes it *outside* the lock — without
+        ``self._lock`` and then invokes it *outside* the lock, without
         this guard a concurrent ``unload()`` would tear down the backend
         (free CUDA tensors / ctranslate2 handle) while a transcription
         is mid-flight, crashing the C-level call with a use-after-free.
@@ -222,7 +222,7 @@ class AsrBackendRegistry(RegistryCore):
                 log.info("[ASR_REGISTRY] unloaded backend: %s", target)
             except Exception:
                 # ``log.exception`` so the full traceback lands in the
-                # log — a backend.unload() failure usually means a CUDA
+                # log, a backend.unload() failure usually means a CUDA
                 # context tear-down or torch-tensor free raised.
                 log.exception("[ASR_REGISTRY] failed to unload %s", target)
 
@@ -349,7 +349,7 @@ class AsrBackendRegistry(RegistryCore):
 
     @on_last_resort.setter
     def on_last_resort(self, fn: LastResortCallback | None) -> None:
-        """Backward-compatible property setter — assigning a callable adds
+        """Backward-compatible property setter, assigning a callable adds
         it to the subscriber set; assigning None clears the set."""
         self._breaker.on_last_resort = fn
 
@@ -363,13 +363,13 @@ class AsrBackendRegistry(RegistryCore):
 
     def set_last_resort_event_gate(self, gate: LastResortEventGate | None) -> None:
         """Install/clear the last-resort suppression gate (delegates to
-        the breaker) — True skips the fan-out (subscribers + the
+        the breaker), True skips the fan-out (subscribers + the
         ``asr_last_resort_unloaded`` publish)."""
         self._breaker.set_last_resort_event_gate(gate)
 
     def set_backend_disabled_event_gate(self, gate: BackendDisabledEventGate | None) -> None:
         """Install/clear the backend-disabled suppression gate (delegates
-        to the breaker) — True skips the trip fan-out (subscribers + the
+        to the breaker). True skips the trip fan-out (subscribers + the
         ``asr_backend_disabled`` event_bus publish)."""
         self._breaker.set_backend_disabled_event_gate(gate)
 

@@ -4,7 +4,7 @@ Covers the Wayland terminal-paste key sequence, the new terminal
 process names, the Win32 SendInput Shift+Insert helper, the Win32
 clipboard-monitor exclusion tag, and the macOS Secure Input detection
 helper. All tests are cross-platform (they mock ``ctypes.windll`` /
-``subprocess.run`` so they run on Linux CI) — the patterns mirror
+``subprocess.run`` so they run on Linux CI), the patterns mirror
 ``tests/test_clipboard_win32_return_value.py`` and
 ``tests/test_clipboard.py``.
 """
@@ -245,7 +245,7 @@ class TestWin32ExcludeClipboardFromMonitoring:
         # SetClipboardData returns non-zero (success).
         mock_user32.SetClipboardData.return_value = 0xBEEF
 
-        # Win32Clipboard context manager — _opened is True.
+        # Win32Clipboard context manager, _opened is True.
         fake_clip = MagicMock()
         fake_clip._opened = True
         fake_clip.__enter__ = lambda self: self
@@ -356,7 +356,7 @@ class TestImeCompositionGuard:
         fake_event_bus = MagicMock()
         monkeypatch.setitem(sys.modules, "voice_typer.server.event_bus", fake_event_bus)
         # The lazy import inside paste() does
-        # ``from voice_typer.server import event_bus`` — patch the
+        # ``from voice_typer.server import event_bus``, patch the
         # attribute on the parent package too.
         import voice_typer.server as server_pkg  # noqa: WPS433
 

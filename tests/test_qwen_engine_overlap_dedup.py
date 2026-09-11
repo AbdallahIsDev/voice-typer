@@ -19,7 +19,7 @@ pin the delegated contract: punctuation-stripped, case-insensitive
 matching with a skip cap of ``asr_utils.MAX_BOUNDARY_SKIP_WORDS``.
 Cross-engine parity is pinned in ``tests/test_chunk_seam_parity.py``.
 
-The model and the ONNX sessions are mocked — no real weights required.
+The model and the ONNX sessions are mocked, no real weights required.
 """
 
 from unittest.mock import MagicMock
@@ -50,7 +50,7 @@ def _make_audio(seconds: float = 65.0, sample_rate: int = 16000) -> np.ndarray:
     A moderate-amplitude sine wave (0.1) keeps RMS well above the
     hallucination filter's 0.001 threshold (the filter only fires on
     known hallucination phrases anyway, so the audio content here is
-    largely symbolic — the model is mocked).
+    largely symbolic, the model is mocked).
     """
     n = int(seconds * sample_rate)
     t = np.linspace(0, seconds, n, endpoint=False, dtype=np.float32)
@@ -77,7 +77,7 @@ class TestQwenSeamMergeDelegation:
 
     Each case drives the engine's real chunked path with mocked chunk
     transcriptions. Expected values match
-    ``asr_utils.merge_chunks`` — the canonical implementation shared
+    ``asr_utils.merge_chunks``, the canonical implementation shared
     with ParakeetEngine.
     """
 
@@ -123,7 +123,7 @@ class TestQwenSeamMergeDelegation:
         """The dedup cap is the shared constant, not the old Qwen-local N=3.
 
         A 3-word exact overlap drops at most
-        ``asr_utils.MAX_BOUNDARY_SKIP_WORDS`` (2) leading words — the
+        ``asr_utils.MAX_BOUNDARY_SKIP_WORDS`` (2) leading words, the
         same residual-duplicate trade-off ParakeetEngine already makes
         (the cap prevents a long spurious match from dropping
         legitimate words).
@@ -138,11 +138,11 @@ class TestTranscribeChunkedDedup:
     """``_transcribe_chunked`` end-to-end dedup behaviour (3-chunk audio)."""
 
     def test_duplicate_at_boundary_is_removed(self):
-        """Two boundaries with overlapping text — duplicates removed at both.
+        """Two boundaries with overlapping text, duplicates removed at both.
 
         The second boundary re-transcribes 3 overlap words ("the lazy
         dog"); the shared cap drops the first
-        ``MAX_BOUNDARY_SKIP_WORDS`` (2) — the identical residual word
+        ``MAX_BOUNDARY_SKIP_WORDS`` (2), the identical residual word
         ParakeetEngine produces on the same input (see
         ``test_skip_cap_matches_shared_constant``).
         """
@@ -164,7 +164,7 @@ class TestTranscribeChunkedDedup:
         """A chunk whose entire transcription duplicates prev tail is skipped.
 
         Critically, the skipped chunk must not participate in the next
-        boundary comparison — the next chunk dedups against the last
+        boundary comparison, the next chunk dedups against the last
         chunk that actually contributed text.
         """
         result = _transcribe_chunks(
@@ -180,7 +180,7 @@ class TestTranscribeChunkedDedup:
         assert result == "the end of the story continues here"
 
     def test_first_chunk_never_deduped(self):
-        """The first chunk has no predecessor — appended verbatim."""
+        """The first chunk has no predecessor, appended verbatim."""
         result = _transcribe_chunks(["alpha beta gamma", "gamma delta epsilon"], seconds=40.0)
         assert result == "alpha beta gamma delta epsilon"
 
@@ -189,7 +189,7 @@ class TestTranscribeChunkedDedup:
 
         If a chunk is rejected by the hallucination filter, its text is
         never merged, so the next chunk's dedup must compare against
-        the last valid chunk's tail — not the rejected chunk's text.
+        the last valid chunk's tail, not the rejected chunk's text.
         """
         engine = _make_engine()
         mock_model = MagicMock(name="qwen_model")
@@ -233,8 +233,8 @@ class TestSharedHelperRouting:
     """Pin that Qwen has no private dedup fork left behind.
 
     The engine must delegate seam merging to
-    ``voice_typer.server.asr_utils.merge_chunks`` — the canonical
-    implementation ParakeetEngine also uses — so the two local engines
+    ``voice_typer.server.asr_utils.merge_chunks``, the canonical
+    implementation ParakeetEngine also uses, so the two local engines
     cannot drift apart again.
     """
 

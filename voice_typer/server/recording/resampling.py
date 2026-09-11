@@ -1,14 +1,14 @@
 """scipy.signal.resample_poly lazy-loading + background preloader.
 
-Phase 4.5 /  — extracted from the original ``recording.py``
+Phase 4.5 / , extracted from the original ``recording.py``
 god-module.  Owns the cached ``_resample_poly`` binding, the cached
 import-error state, the preloader thread, and the locks that guard
 them.
 
-(Phase 4.5 follow-up) — also owns the ``resample_audio()``
+(Phase 4.5 follow-up), also owns the ``resample_audio()``
 helper (promoted from ``Recorder._resample_audio_impl``) that runs the
 scipy → linear-interp → raise fallback chain. The historical
-``Recorder._resample_audio_impl`` delegator was removed — callers
+``Recorder._resample_audio_impl`` delegator was removed, callers
 (:mod:`.format` ``resample_chunk`` / ``prepare_audio``) invoke this
 module directly.
 
@@ -58,15 +58,15 @@ _resample_poly_lock = threading.Lock()
 # cache of (up, down) → FIR filter taps for ``resample_poly``.
 # ``scipy.signal.resample_poly`` re-designs the FIR filter (via
 # ``firwin``) on every call, even when the (up, down) ratio is the
-# same — for a 48k→16k pipeline running at ~16 Hz, that's ~16 filter
+# same, for a 48k→16k pipeline running at ~16 Hz, that's ~16 filter
 # designs/sec × N=160 taps each ≈ 2.5k taps/sec of wasted work on
 # the RT thread. The cache stores the pre-computed taps (designed
 # with scipy's default ``('kaiser', 5.0)`` window, scaled by ``up``,
-# and zero-padded so the output is centered — the same shape scipy
+# and zero-padded so the output is centered, the same shape scipy
 # uses internally, and numerically identical to ``resample_poly`` for
 # the ratios where the shared design is uncapped) keyed by the reduced
 # (up, down) pair. Cache is bounded by the number of distinct
-# sample-rate ratios seen in practice (≤2 — the device's native
+# sample-rate ratios seen in practice (≤2, the device's native
 # rate and the chain's 16 kHz rate), so it's effectively a tiny
 # memo dict with no eviction policy.
 _resample_fir_cache: dict[tuple[int, int], tuple[np.ndarray, int, int]] = {}
@@ -78,7 +78,7 @@ _resample_fir_cache_lock = threading.Lock()
 # headsets (each re-negotiating a different native rate: 8k, 16k,
 # 44.1k, 48k) or a test harness cycling synthetic rates can grow
 # the cache to dozens of entries. Each entry holds a full FIR
-# (``2 * half_len + 1`` taps × float32) — for an unbounded cache
+# (``2 * half_len + 1`` taps × float32), for an unbounded cache
 # that's a slow memory leak. The cap of 32 is comfortably above the
 # 2-4 entries seen in normal operation; when exceeded, we clear the
 # whole cache (simpler than LRU, and a re-design is microseconds for
@@ -88,7 +88,7 @@ _RESAMPLE_FIR_CACHE_MAX_ENTRIES: int = 32
 # Cap on the FIR filter ``half_len`` for "ugly" (low-GCD) sample-rate
 # ratios. ``scipy.signal.resample_poly``'s default design uses
 # ``half_len = 10 * max(up, down)``; for 44.1k→16k (gcd=100,
-# max_rate=441) that yields a 8821-tap FIR — ~140× heavier than the
+# max_rate=441) that yields a 8821-tap FIR, ~140× heavier than the
 # 61-tap FIR for 48k→16k. The cap below truncates ``half_len`` (and
 # thus the filter length) at a practical bound, accepting a slightly
 # wider transition band on the rare 44.1k device in exchange for
@@ -102,22 +102,22 @@ _RESAMPLE_FIR_HALF_LEN_CAP: int = 256
 
 
 # Anti-aliasing FIR filter cache for the no-scipy linear-interp
-# fallback path. ``np.interp`` is pure linear interpolation — when
+# fallback path. ``np.interp`` is pure linear interpolation, when
 # DOWNSAMPLING (e.g. 48k→16k, 44.1k→16k), energy above the target
 # Nyquist (8 kHz) aliases into the speech band, degrading ASR accuracy.
 # We apply a short windowed-sinc low-pass filter at ``target_sr / 2``
 # BEFORE the linear-interp decimation. The filter is small (~31 taps)
 # and cached per (effective_sr, target_sr) pair so the design cost is
 # paid once per session. Without scipy this is the only anti-aliasing
-# we get — with scipy the ``resample_poly`` path is preferred (its own
+# we get: with scipy the ``resample_poly`` path is preferred (its own
 # FIR is longer / higher quality). This cache mirrors the
 # ``_resample_fir_cache`` pattern (lock-free fast-path ``dict.get``,
 # lock only on cache miss).
 _antialias_fir_cache: dict[tuple[int, int], np.ndarray] = {}
 _antialias_fir_cache_lock = threading.Lock()
-_ANTIALIAS_FIR_TAPS = 31  # odd; ~31 taps — short enough for RT, sufficient for anti-aliasing
+_ANTIALIAS_FIR_TAPS = 31  # odd; ~31 taps, short enough for RT, sufficient for anti-aliasing
 # Soft cap on the anti-alias FIR cache (mirrors
-# ``_RESAMPLE_FIR_CACHE_MAX_ENTRIES``). Same rationale — the original
+# ``_RESAMPLE_FIR_CACHE_MAX_ENTRIES``). Same rationale, the original
 # assumption that the cache stays at ≤2 entries is fragile under
 # device hot-plug churn, so we cap and clear-on-overflow.
 _ANTIALIAS_FIR_CACHE_MAX_ENTRIES: int = 32
@@ -135,7 +135,7 @@ _linear_interp_warn_lock = threading.Lock()
 def _get_antialias_fir(effective_sr: int, target_sr: int) -> np.ndarray | None:
     """Return a cached anti-aliasing FIR low-pass filter for the
     ``(effective_sr, target_sr)`` pair, or ``None`` if no filter is
-    needed (i.e. when UPSAMPLING — linear interp's natural sinc
+    needed (i.e. when UPSAMPLING, linear interp's natural sinc
     response already attenuates higher frequencies).
 
     The filter is a windowed-sinc low-pass at ``target_sr / 2``
@@ -161,7 +161,7 @@ def _get_antialias_fir(effective_sr: int, target_sr: int) -> np.ndarray | None:
     cutoff = 0.5 * target_sr / effective_sr  # normalized to source Nyquist
     n = np.arange(_ANTIALIAS_FIR_TAPS) - (_ANTIALIAS_FIR_TAPS - 1) / 2
     sinc = np.sinc(2.0 * cutoff * n)
-    # Hamming window — ~53 dB stop-band attenuation, narrow transition.
+    # Hamming window, ~53 dB stop-band attenuation, narrow transition.
     window = 0.54 - 0.46 * np.cos(2.0 * np.pi * np.arange(_ANTIALIAS_FIR_TAPS) / (_ANTIALIAS_FIR_TAPS - 1))
     fir = (sinc * window).astype(np.float32)
     fir = fir / fir.sum()  # normalize DC gain to 1
@@ -194,7 +194,7 @@ def _get_resample_fir_taps(up: int, down: int) -> tuple[np.ndarray, int, int]:
       discard so the result has exactly ``n_in * up // down[+1]``
       samples (matching scipy's output length).
 
-    The cache hit path is a lock-free ``dict.get`` — GIL-atomic in
+    The cache hit path is a lock-free ``dict.get``, GIL-atomic in
     CPython, so the read is safe without holding
     ``_resample_fir_cache_lock``. The lock is only acquired on a
     cache miss (to design the filter and publish the result without
@@ -216,7 +216,7 @@ def _get_resample_fir_taps(up: int, down: int) -> tuple[np.ndarray, int, int]:
     cached = _resample_fir_cache.get(key)
     if cached is not None:
         return cached
-    # Cache miss — design the filter. This is the same algorithm
+    # Cache miss, design the filter. This is the same algorithm
     # scipy uses internally; when the ``_RESAMPLE_FIR_HALF_LEN_CAP``
     # below does not truncate ``half_len``, the cached version produces
     # output numerically identical to the direct ``resample_poly`` call
@@ -233,7 +233,7 @@ def _get_resample_fir_taps(up: int, down: int) -> tuple[np.ndarray, int, int]:
     #   n_pre_pad = (down - half_len % down)
     #   n_pre_remove = (half_len + n_pre_pad) // down
     # ``n_post_pad`` is computed at call time because it depends on
-    # the input length (``n_in``) — see ``_cached_resample_poly``.
+    # the input length (``n_in``): see ``_cached_resample_poly``.
     max_rate = max(up, down)
     f_c = 1.0 / max_rate
     half_len = 10 * max_rate
@@ -245,12 +245,12 @@ def _get_resample_fir_taps(up: int, down: int) -> tuple[np.ndarray, int, int]:
     # a ~30× lower MAC count on the RT thread (512 samples × 16 Hz ×
     # 8821 taps ≈ 72M MACs/sec → ~2.4M MACs/sec at the 256 cap). The
     # cap is only hit when ``max_rate > 25`` (i.e. ``10 * max_rate > 250``),
-    # which in practice means non-power-of-2 ratios like 44.1/16 — the
+    # which in practice means non-power-of-2 ratios like 44.1/16, the
     # common 48k/16k path (max_rate=3) and 22.05k/16k path
     # (max_rate=15) are untouched.
     if half_len > _RESAMPLE_FIR_HALF_LEN_CAP:
         half_len = _RESAMPLE_FIR_HALF_LEN_CAP
-    # scipy's default window is ('kaiser', 5.0) — NOT 'hamming'.
+    # scipy's default window is ('kaiser', 5.0). NOT 'hamming'.
     # Using the wrong window produces a filter with different
     # stop-band attenuation and pass-band ripple, so the output
     # diverges from ``resample_poly``.
@@ -271,7 +271,7 @@ def _get_resample_fir_taps(up: int, down: int) -> tuple[np.ndarray, int, int]:
     ctx = (h_padded, n_pre_remove, n_pre_pad)
     with _resample_fir_cache_lock:
         # Race-safe: another thread may have populated the cache
-        # while we were designing — if so, prefer their value (it's
+        # while we were designing, if so, prefer their value (it's
         # functionally identical to ours, just reuse it).
         existing = _resample_fir_cache.get(key)
         if existing is not None:
@@ -289,8 +289,8 @@ def _get_resample_fir_taps(up: int, down: int) -> tuple[np.ndarray, int, int]:
 def _upfirdn_output_len(len_h: int, n_in: int, up: int, down: int) -> int:
     """Output length of ``scipy.signal.upfirdn`` for the given shapes.
 
-    Mirrors scipy's private ``_output_len`` helper — the formula
-    ``((n_in - 1) * up + len_h - 1) // down + 1`` — so the cached-taps
+    Mirrors scipy's private ``_output_len`` helper, the formula
+    ``((n_in - 1) * up + len_h - 1) // down + 1``, so the cached-taps
     fast path can reproduce ``resample_poly``'s padding decisions
     without reaching into scipy internals.
     """
@@ -317,7 +317,7 @@ def _resample_via_cached_taps(
       ``n_post_pad`` so the raw ``upfirdn`` output has at least
       ``n_pre_remove + n_out`` samples, and
     * slice ``raw[n_pre_remove : n_pre_remove + n_out]`` where
-      ``n_out = ceil(n_in * up / down)`` — the leading ``n_pre_remove``
+      ``n_out = ceil(n_in * up / down)``, the leading ``n_pre_remove``
       samples are the filter's spin-up transient.
 
     Returns float32 (the cached taps are pre-cast float32, so a float32
@@ -326,9 +326,9 @@ def _resample_via_cached_taps(
     contract at every call site).
 
     NOTE: the output equals ``resample_poly(audio, up, down)`` whenever
-    the shared filter design is identical — i.e. for ratios where the
+    the shared filter design is identical: i.e. for ratios where the
     ``_RESAMPLE_FIR_HALF_LEN_CAP`` below does not bite (max(up, down)
-    ≤ 25: 8k↔16k, 16k↔48k, 48k→16k, 96k→16k, ... — verified
+    ≤ 25: 8k↔16k, 16k↔48k, 48k→16k, 96k→16k, ..., verified
     bit-identical for float32 input). For capped "ugly" ratios
     (44.1k→16k, 22.05k→16k) the shorter FIR intentionally trades a
     wider transition band for ~30× fewer MACs; the output is then
@@ -340,7 +340,7 @@ def _resample_via_cached_taps(
     n_out = n_in * up // down + bool(n_in * up % down)
     # Replicate scipy's ``n_post_pad`` loop: append trailing zeros until
     # the raw output is long enough to slice ``n_out`` samples after the
-    # removed prefix (rarely needed given the filter lengths — scipy:
+    # removed prefix (rarely needed given the filter lengths, scipy:
     # "We should rarely need to do this given our filter lengths...").
     n_post_pad = 0
     while _upfirdn_output_len(h_padded.size + n_post_pad, n_in, up, down) < n_out + n_pre_remove:
@@ -395,7 +395,7 @@ def _start_scipy_preloader() -> None:
     the preloader has already been started (and is still alive), this is
     a no-op. If a previous preloader thread exited (scipy import
     finished), a new one is started only if the cached
-    ``_resample_poly`` is still None — i.e. the previous attempt failed
+    ``_resample_poly`` is still None: i.e. the previous attempt failed
     and we want to retry on the next Recorder construction.
 
     Stored in ``_scipy_preloader_thread`` so ``Recorder.__init__`` can
@@ -407,7 +407,7 @@ def _start_scipy_preloader() -> None:
         # Idempotent: don't start a second preloader if one is still alive.
         if _scipy_preloader_thread is not None and _scipy_preloader_thread.is_alive():
             return
-        # Don't re-spawn if scipy already loaded successfully — the
+        # Don't re-spawn if scipy already loaded successfully, the
         # cached _resample_poly is set, so a new preloader would be a
         # wasted thread.
         if _resample_poly is not None:
@@ -434,7 +434,7 @@ def _get_resample_poly():
         # retry after timeout instead of memoizing forever
         if time.monotonic() - _resample_poly_error_time < _RESAMPLE_RETRY_INTERVAL:
             raise _resample_poly_error
-        # Retry — clear the cached error
+        # Retry, clear the cached error
         _resample_poly_error = None
 
     with _resample_poly_lock:
@@ -444,7 +444,7 @@ def _get_resample_poly():
             # retry after timeout instead of memoizing forever
             if time.monotonic() - _resample_poly_error_time < _RESAMPLE_RETRY_INTERVAL:
                 raise _resample_poly_error
-            # Retry — clear the cached error
+            # Retry, clear the cached error
             _resample_poly_error = None
         try:
             from scipy.signal import resample_poly
@@ -471,7 +471,7 @@ def warm_up_resampler(recorder: Any) -> None:
     Patch-path compatibility: resolves ``_get_resample_poly`` as a
     module-global at call time, so a test patch of the OWNING module
     (``monkeypatch.setattr("voice_typer.server.recording.resampling._get_resample_poly", ...)``)
-    takes effect (C-ARCH-2 — the package-namespace indirection was removed).
+    takes effect (C-ARCH-2, the package-namespace indirection was removed).
     """
     try:
         resample_poly = _get_resample_poly()
@@ -480,7 +480,7 @@ def warm_up_resampler(recorder: Any) -> None:
         # when a future refactor caches a None sentinel instead of
         # raising. Pre-fix, the next line would call
         # ``None(np.zeros(...), 160, 441)`` and raise ``TypeError:
-        # 'NoneType' object is not callable`` — caught by the broad
+        # 'NoneType' object is not callable``: caught by the broad
         # ``except Exception`` below and logged as "Resampler warm-up
         # failed: 'NoneType' object is not callable", which is
         # misleading. The explicit None check emits the same "scipy
@@ -508,7 +508,7 @@ def resample_audio(
     """Shared resampling logic used by :mod:`.format`'s
     ``resample_chunk`` and ``prepare_audio``.
 
-    Phase 4.5 — promoted from ``Recorder._resample_audio_impl``
+    Phase 4.5, promoted from ``Recorder._resample_audio_impl``
         (the body is unchanged). The historical ``Recorder`` delegator
         was removed; callers invoke this function directly.
 
@@ -524,7 +524,7 @@ def resample_audio(
         Patch-path compatibility: resolves ``_get_resample_poly`` as a
         module-global at call time, so a test patch of the OWNING module
         (``monkeypatch.setattr("voice_typer.server.recording.resampling._get_resample_poly", ...)``)
-        takes effect (C-ARCH-2 — the package-namespace indirection was removed).
+        takes effect (C-ARCH-2, the package-namespace indirection was removed).
     """
     if log is None:
         log = logging.getLogger("voice_typer.server.recording")
@@ -552,7 +552,7 @@ def resample_audio(
         # ``_resample_via_cached_taps`` applies the same leading-sample
         # trim scipy does, so for ratios where the cached design is
         # identical to scipy's (48k→16k, 96k→16k, 8k↔16k, ...) the
-        # output matches ``resample_poly(audio, up, down)`` — for the
+        # output matches ``resample_poly(audio, up, down)``, for the
         # capped "ugly" ratios (44.1k→16k, 22.05k→16k) it is close but
         # not identical (see the helper's NOTE).
         try:
@@ -561,7 +561,7 @@ def resample_audio(
             taps = _get_resample_fir_taps(up, down)
             # ``_resample_via_cached_taps`` trims the spin-up prefix and
             # returns float32 (a no-op cast when the cached float32 taps
-            # already produced float32 output — avoiding the per-call
+            # already produced float32 output, avoiding the per-call
             # ``.astype(np.float32)`` allocation).
             audio = _resample_via_cached_taps(taps, audio, up, down, upfirdn)
         except Exception:
@@ -581,7 +581,7 @@ def resample_audio(
             )
         resampled = True
     except ResampleUnavailableError as exc:
-        # scipy missing — fall through to linear interp.
+        # scipy missing, fall through to linear interp.
         last_error = exc
         if log_resample:
             log.warning("[RECORDING] scipy not available, using linear interp resampling")
@@ -594,7 +594,7 @@ def resample_audio(
 
     if not resampled:
         try:
-            # PERF-017: numpy linear interpolation fallback — used when
+            # PERF-017: numpy linear interpolation fallback, used when
             # scipy is unavailable. When scipy IS available, the
             # resample_poly path above is preferred (higher quality,
             # anti-aliasing). This fallback produces acceptable results
@@ -638,7 +638,7 @@ def resample_audio(
                     if not _linear_interp_warned:
                         _linear_interp_warned = True
                         log.warning(
-                            "[RECORDING] scipy.signal.resample_poly unavailable — "
+                            "[RECORDING] scipy.signal.resample_poly unavailable, "
                             "using linear-interp resampling fallback%s. Anti-aliasing "
                             "FIR applied for downsampling, but quality is reduced; "
                             "install scipy for full-quality resampling.",

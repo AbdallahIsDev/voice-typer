@@ -8,11 +8,11 @@
 import { app, type BrowserWindow, dialog } from "electron";
 // `APP_NAME` is interpolated into the preload-error dialog body
 // (the existing locale keys don't fit a packaging-bug message; the body
-// is English-only — see the preload-error handler for rationale).
+// is English-only, see the preload-error handler for rationale).
 import { APP_NAME } from "../branding";
 import { RENDER_RELOAD_BACKOFF_MS } from "../constants";
 // `mainT` provides the localized title for the preload-error
-// dialog (the body is hardcoded English — see the preload-error handler
+// dialog (the body is hardcoded English, see the preload-error handler
 // for rationale; the existing `dialog.criticalError.title` key is
 // reused because it's already translated in all 8 locales).
 import { mainT } from "../i18n";
@@ -25,7 +25,7 @@ import { recordMainWindowRenderCrash } from "./crash-storm";
  * handlers on the dashboard window.
  *
  * Render-process-gone recovery: main window lacked render-process-gone recovery (the
- * bubble window already had all three handlers — see
+ * bubble window already had all three handlers, see
  * bubble-window.ts:127-159). Without these, a main-renderer
  * crash left the user with a blank/frozen dashboard while the
  * tray icon + Python backend kept running; "Open app" from the
@@ -39,19 +39,19 @@ export function registerRendererRecovery(win: BrowserWindow): void {
 	//
 	// previously this handler only logged.  A transient
 	// dev-server 500 or a one-shot file:// race left the dashboard
-	// blank with no recovery — the user had to find the tray icon
+	// blank with no recovery, the user had to find the tray icon
 	// and Quit + relaunch manually.  Mirroring the
 	// `render-process-gone` pattern below, we now schedule a
 	// single 2s-backoff `reload()` so the user gets a second
 	// chance.  The retry is capped at 1 to avoid reload loops on a
 	// genuinely broken packaging job (missing index.html in the
-	// asar — the reload would just fail-load again forever).
+	// asar, the reload would just fail-load again forever).
 	let didFailLoadRetried = false;
 	win.webContents.on("did-fail-load", (_e, code, desc, url) => {
 		log.error("[MAIN] did-fail-load", { code, desc, url });
 		if (didFailLoadRetried) {
 			log.warn(
-				"[MAIN] did-fail-load retry already attempted — not retrying again (avoid loop)",
+				"[MAIN] did-fail-load retry already attempted, not retrying again (avoid loop)",
 			);
 			return;
 		}
@@ -75,7 +75,7 @@ export function registerRendererRecovery(win: BrowserWindow): void {
 	// `render-process-gone` fires when the renderer process crashes
 	// (GPU process OOM, native module segfault, v8 heap exhaustion).
 	// Without a reload, the BrowserWindow stays alive with a blank
-	// webContents — the user sees a frozen window with no way to
+	// webContents, the user sees a frozen window with no way to
 	// recover short of quitting via the tray. We reload the window
 	// so the user gets a fresh renderer (the Python backend keeps
 	// running, so session state is preserved on the backend side).
@@ -114,7 +114,7 @@ export function registerRendererRecovery(win: BrowserWindow): void {
 	// mismatch, missing dependency). Logging the file + error makes
 	// the root cause obvious instead of presenting as a blank window.
 	//
-	// previously this handler only logged — the user was left
+	// previously this handler only logged, the user was left
 	// with a blank dashboard and no indication that the app had
 	// failed to start. Preload errors are always packaging bugs
 	// (a missing/incorrect preload bundle in the asar); retrying
@@ -124,7 +124,7 @@ export function registerRendererRecovery(win: BrowserWindow): void {
 	// message instead of a frozen window.
 	//
 	// The title uses the existing `dialog.criticalError.title` key
-	// (already translated in all 8 locales — see
+	// (already translated in all 8 locales, see
 	// `src/main/i18n/locales/*.json`). The body uses the dedicated
 	// `dialog.preloadError.body` key, also translated in all 8
 	// locales, with `{appName}` and `{file}` placeholder tokens

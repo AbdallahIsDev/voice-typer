@@ -1,6 +1,6 @@
 """Exception types raised by the recording pipeline.
 
-Phase 4.5 /  — extracted from the original ``recording.py``
+Phase 4.5 / , extracted from the original ``recording.py``
 god-module.  Both exception classes are re-exported from
 ``voice_typer.server.recording`` (the package ``__init__.py``) so
 existing imports ``from voice_typer.server.recording import

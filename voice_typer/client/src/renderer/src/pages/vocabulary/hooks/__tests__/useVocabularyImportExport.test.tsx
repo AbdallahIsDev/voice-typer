@@ -27,7 +27,7 @@ vi.mock("@/i18n/i18n", async () => {
 		t: (key: string, params?: Record<string, unknown>) => {
 			// Resolve the few keys the hook uses.
 			if (key === "vocabulary.importDuplicate")
-				return "Import blocked — a correction already exists";
+				return "Import blocked: a correction already exists";
 			if (key === "vocabulary.importSuccessSingular") return "Imported 1 entry";
 			if (key === "vocabulary.importSuccessPlural")
 				return `Imported ${params?.count} entries`;
@@ -36,7 +36,7 @@ vi.mock("@/i18n/i18n", async () => {
 			if (key === "vocabulary.importFailed")
 				return `Import failed: ${params?.error}`;
 			if (key === "vocabulary.exportNotAvailable")
-				return "Export not available — please restart the app";
+				return "Export not available: please restart the app";
 			if (key === "vocabulary.exportFailed") return "Export failed";
 			if (key === "vocabulary.exportSaved")
 				return `${params?.filename} saved successfully`;
@@ -111,7 +111,7 @@ describe("useVocabularyImportExport", () => {
 	it("surfaces the backend duplicate rejection with the targeted toast and does not persist", async () => {
 		const { persistVocabulary, setEntries, result } = setup();
 		// The backend write path (save_vocabulary_with_diff) rejects
-		// with client.duplicate_entry — the import must surface the
+		// with client.duplicate_entry, the import must surface the
 		// targeted message and NOT persist the merged list.
 		const err = new Error(
 			"duplicate correction: 'recieve' (2 entries)",
@@ -127,7 +127,7 @@ describe("useVocabularyImportExport", () => {
 		);
 
 		expect(toastError).toHaveBeenCalledWith(
-			"Import blocked — a correction already exists",
+			"Import blocked: a correction already exists",
 		);
 		expect(persistVocabulary).toHaveBeenCalledTimes(1);
 		// The failed save must NOT update the entries state.

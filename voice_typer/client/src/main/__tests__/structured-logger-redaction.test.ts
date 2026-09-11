@@ -11,7 +11,7 @@
  * the args + message and wrote the result to `electron-main.log`
  * without any PII redaction. The companion `printfLogger.ts` already
  * ran args through `redactPii` (via `formatArgsForFile`), but the
- * structured logger bypassed it — an asymmetric leak where the
+ * structured logger bypassed it, an asymmetric leak where the
  * printf-style logger was safe but the message-first `logger.warn` /
  * `logger.error` path could persist user-spoken text, bearer tokens,
  * API keys, and URL credentials to disk.
@@ -21,9 +21,9 @@
  * both code paths apply the same redaction.
  *
  * These tests verify:
- *   (a) `logger.warn(message_with_email)` — the line captured by the
+ *   (a) `logger.warn(message_with_email)`, the line captured by the
  *       mocked `appendLogLine` has the email replaced with `[EMAIL]`.
- *   (b) `logger.error(msg, { token: "Bearer ..." })` — the JSON-
+ *   (b) `logger.error(msg, { token: "Bearer ..." })`, the JSON-
  *       stringified arg has the bearer token replaced with
  *       `Bearer ***`.
  *   (c) `logger.warn` with a URL containing userinfo
@@ -152,7 +152,7 @@ describe("XZ-LOG-03: structuredLogger formatLine redacts PII / API keys / URL cr
 		// (the email pattern would otherwise redact first,
 		// masking the URL-userinfo strip). `internal-host` has
 		// no dot, so the email regex (which requires a dot in
-		// the domain) doesn't match — leaving the URL-userinfo
+		// the domain) doesn't match, leaving the URL-userinfo
 		// pattern to strip `alice:secretpass@`.
 		logger.warn("fetching from https://alice:secretpass@internal-host/api");
 
@@ -211,7 +211,7 @@ describe("XZ-LOG-03: structuredLogger formatLine redacts PII / API keys / URL cr
 
 	it("redaction is idempotent on already-redacted text (no double-redact)", async () => {
 		const { logger } = await importLoggingFresh();
-		// A pre-redacted message — calling redactPii on this
+		// A pre-redacted message, calling redactPii on this
 		// should be a no-op (the `[EMAIL]` token doesn't match
 		// any PII pattern). The line should pass through with
 		// the redaction token intact.

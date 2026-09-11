@@ -43,7 +43,7 @@ class TestLinuxBackendToolDetection:
     """§5.3: detection priority pactl → wpctl → amixer."""
 
     def test_pactl_preferred_over_wpctl_and_amixer(self, monkeypatch):
-        # All three tools present — pactl wins.
+        # All three tools present, pactl wins.
         monkeypatch.setattr("shutil.which", lambda t: f"/usr/bin/{t}")
         b = LinuxVolumeBackend()
         assert b.initialize() is True
@@ -316,12 +316,12 @@ class TestMacBackendOsascript:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Windows backend (smoke tests only — full pycaw tests need Windows)
+# Windows backend (smoke tests only, full pycaw tests need Windows)
 # ═══════════════════════════════════════════════════════════════════════════
 
 
 class TestWinBackendSmoke:
-    """§5.1: Windows backend — only tests that don't need pycaw/COM."""
+    """§5.1: Windows backend, only tests that don't need pycaw/COM."""
 
     def test_supports_per_session_is_true(self):
         b = WinVolumeBackend()
@@ -337,7 +337,7 @@ class TestWinBackendSmoke:
         b = WinVolumeBackend()
         # Force pycaw/comtypes to be unavailable regardless of the host
         # (on a Windows dev box pycaw may be installed, which would make
-        # initialize() succeed — this test pins the graceful-failure path,
+        # initialize() succeed, this test pins the graceful-failure path,
         # so we simulate the ImportError deterministically). Setting a
         # sys.modules entry to None makes the lazy ``from pycaw.pycaw
         # import ...`` inside initialize() raise ImportError.
@@ -367,7 +367,7 @@ class TestVolumeBackendFadeTo:
         # Use a non-subprocess subclass so the default ``fade_to`` ramp
         # path runs (the real ``LinuxVolumeBackend._set_linear_is_subprocess``
         # returns True, which collapses the ramp to a single set_linear
-        # call — see the comment on the LinuxVolumeBackend property).
+        # call: see the comment on the LinuxVolumeBackend property).
         class _InProcessLinuxBackend(LinuxVolumeBackend):
             @property
             def _set_linear_is_subprocess(self) -> bool:
@@ -771,7 +771,7 @@ class TestCrossPlatformImportSafety:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# XS-80: WinVolumeBackend ducking logic — behavioral coverage with mocked pycaw.
+# XS-80: WinVolumeBackend ducking logic, behavioral coverage with mocked pycaw.
 #
 # The existing TestWinBackendSmoke only verifies the 'pycaw not installed →
 # graceful failure' path. These tests mock pycaw.pycaw.AudioUtilities,
@@ -799,7 +799,7 @@ class TestWinBackendPycaw:
         """
         from unittest.mock import MagicMock
 
-        # Fake IAudioEndpointVolume / IAudioMeterInformation — the source
+        # Fake IAudioEndpointVolume / IAudioMeterInformation, the source
         # uses them only as type markers (accesses ``_iid_`` on the legacy
         # Activate path; we exercise the modern EndpointVolume path).
         class FakeIAudioEndpointVolume:
@@ -820,7 +820,7 @@ class TestWinBackendPycaw:
         meter_ptr.GetPeakValue.return_value = peak_value
         vol_ptr.QueryInterface.return_value = meter_ptr
 
-        # Fake speakers device — pycaw >= 20251023 path: EndpointVolume
+        # Fake speakers device, pycaw >= 20251023 path: EndpointVolume
         # property returns the vol_ptr directly.
         speakers = MagicMock()
         speakers.EndpointVolume = vol_ptr
@@ -1101,7 +1101,7 @@ class TestWinBackendPycaw:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# XS-80: MacVolumeBackend CoreAudio path — mocked CoreAudio module.
+# XS-80: MacVolumeBackend CoreAudio path, mocked CoreAudio module.
 #
 # The existing TestMacBackendOsascript patches CoreAudio to None to force the
 # osascript fallback. These tests patch sys.platform='darwin' and install a
@@ -1405,7 +1405,7 @@ class TestMacBackendCoreAudio:
         assert b.is_speaker_active() is False
 
     def test_is_speaker_active_safe_default_on_query_failure(self, monkeypatch):
-        """If CoreAudio query fails, returns True (safe default — duck anyway)."""
+        """If CoreAudio query fails, returns True (safe default, duck anyway)."""
         fake_ca = self._install_fake_coreaudio(monkeypatch)
         # Non-zero status on the device-is-running query → None → raise →
         # fall through to safe-default True.

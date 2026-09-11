@@ -6,7 +6,7 @@
 // helpers + native pickers).
 //
 // Split out from the original monolithic `types/ipc.ts`.
-// No behaviour change vs. the original file — pure structural refactor.
+// No behaviour change vs. the original file, pure structural refactor.
 //
 // Imports `PythonPushEvent` from `./push_events` for the `onEvent`
 // callback signature. The `declare global { interface Window { ... } }`
@@ -54,7 +54,7 @@ export interface WindowBridge {
 	//forward a renderer-caught error (e.g. from React's
 	// `componentDidCatch`) to the main process for persistence in
 	// `electron-renderer-errors.log`. The sandboxed renderer can't
-	// write to userData directly — only the main process can.
+	// write to userData directly, only the main process can.
 	// Optional so the Tauri bridge (which has no main-process file
 	// system access) can omit it without breaking the type contract.
 	logError?: (payload: {
@@ -64,7 +64,7 @@ export interface WindowBridge {
 		message?: string;
 	}) => Promise<void>;
 	//native folder picker for HuggingFace model imports. Was
-	// missing from the type — Models.tsx accessed it via a runtime cast.
+	// missing from the type, Models.tsx accessed it via a runtime cast.
 	// Declared optional because the Tauri bridge installs it but the
 	// legacy Electron preload also installs it (so the type is satisfied
 	// on both paths).

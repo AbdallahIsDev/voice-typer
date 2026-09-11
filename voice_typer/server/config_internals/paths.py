@@ -6,14 +6,14 @@ partial split).  Every public symbol here is re-exported from
 _config_dir`` callers keep working unchanged.
 
 Contents:
-- :func:`_validate_path_safety`     — path-traversal guard for user-supplied env vars.
-- :func:`_is_path_within`           — robust cross-platform path-containment check.
-- :func:`_validate_import_path`     — bounds-check for the ``import_model`` IPC handler.
-- :func:`_validate_systemroot`      — Windows ``SystemRoot`` sanity check (fail-closed).
-- :func:`_config_dir`               — platform-aware data-dir resolver (memoized).
-- :func:`_reset_config_dir_cache`   — test-only cache-clear helper.
-- :func:`_migrate_from_legacy`      — one-time v0 -> v1 config-dir move.
-- :func:`_acquire_config_lock`      — cross-process ``config.json.lock`` context manager.
+- :func:`_validate_path_safety`    : path-traversal guard for user-supplied env vars.
+- :func:`_is_path_within`          : robust cross-platform path-containment check.
+- :func:`_validate_import_path`    : bounds-check for the ``import_model`` IPC handler.
+- :func:`_validate_systemroot`     : Windows ``SystemRoot`` sanity check (fail-closed).
+- :func:`_config_dir`              : platform-aware data-dir resolver (memoized).
+- :func:`_reset_config_dir_cache`  : test-only cache-clear helper.
+- :func:`_migrate_from_legacy`     : one-time v0 -> v1 config-dir move.
+- :func:`_acquire_config_lock`     : cross-process ``config.json.lock`` context manager.
 
 No circular imports: this module depends only on the stdlib,
 ``platform_utils``, and (lazily, inside ``_acquire_config_lock``) on
@@ -127,7 +127,7 @@ def _get_legacy_voice_typer_dir() -> Path:
         The literal ``Path.home() / ".voice-typer"`` expression lives in
         :func:`voice_typer.server.config._legacy_voice_typer_dir` (defined in
         ``config.py``) so the ``test_config_py_still_has_legacy_migration_probe``
-        regression guard — which scans ``config.py`` for that exact pattern —
+        regression guard: which scans ``config.py`` for that exact pattern —
     continues to pass after the  split.  This shim lets
         :func:`_config_dir` invoke that helper without a top-level ``from
         voice_typer.server.config import ...`` (which would be a circular
@@ -146,7 +146,7 @@ def _validate_path_safety(path: Path, parent: Path) -> Path:
         that could escape the expected parent directory.
 
     fix: previously used ``str(resolved).startswith(str(parent_resolved))``
-        which is the classic prefix-match bug — ``/home/userX/secret`` would
+        which is the classic prefix-match bug, ``/home/userX/secret`` would
         be considered "within" ``/home/user`` because the string
         ``"/home/userX/secret"`` does start with ``"/home/user"``.  Now
         delegates to :func:`_is_path_within`, which uses
@@ -176,7 +176,7 @@ def _is_path_within(path: Path, root: Path, *, case_sensitive: bool | None = Non
         the comparison is case-sensitive (matching the filesystem).
 
         Uses :func:`os.path.commonpath` to correctly respect directory
-        boundaries — ``/home/userX`` is NOT considered within
+        boundaries, ``/home/userX`` is NOT considered within
         ``/home/user`` (a naive ``str.startswith`` would incorrectly accept
         it).  ``commonpath`` also handles the root-directory edge case
         (``/etc`` IS within ``/``).
@@ -186,7 +186,7 @@ def _is_path_within(path: Path, root: Path, *, case_sensitive: bool | None = Non
         auto-detect via ``sys.platform`` (Windows + macOS -> case-
         insensitive, everything else -> case-sensitive).  Tests pass
         ``True`` / ``False`` explicitly so they don't depend on the global
-        ``sys.platform`` value (which is fragile on Linux CI runners — the
+        ``sys.platform`` value (which is fragile on Linux CI runners, the
         POSIX-only Python build always reports ``"linux"`` regardless of
         whether the test is trying to exercise the Windows branch).
         Production callers pass ``None`` and get the current behaviour.
@@ -203,7 +203,7 @@ def _is_path_within(path: Path, root: Path, *, case_sensitive: bool | None = Non
             # Lexical normalization only. ``Path.resolve()`` follows the
             # actual filesystem, and on a case-insensitive filesystem
             # (macOS / Windows) it collapses the case of path components
-            # (e.g. ``/Home/X`` -> ``/home/X``) — which would silently
+            # (e.g. ``/Home/X`` -> ``/home/X``): which would silently
             # defeat an explicit ``case_sensitive=True``. Use
             # ``abspath`` + ``normpath`` to canonicalize ``.``/``..``
             # segments while preserving case, so ``/Home/X`` stays
@@ -237,15 +237,15 @@ def _validate_import_path(dir_path: str) -> str:
     filesystem paths the user did not pick via the file chooser.
 
     Allowed roots (the directory itself or a descendant):
-      - the user's home directory — covers ``~/Downloads``,
+      - the user's home directory, covers ``~/Downloads``,
         ``~/Documents``, the default HF cache at
         ``~/.cache/huggingface/hub``, etc.
-      - the OS temp directory (``tempfile.gettempdir()``) — covers
+      - the OS temp directory (``tempfile.gettempdir()``), covers
         ``/tmp``, ``%TEMP%``, etc.
       - the app's own HF cache directory (``_config_dir() /
-        "huggingface" / "hub"``) — so re-importing from the app's
+        "huggingface" / "hub"``), so re-importing from the app's
         cache is allowed.
-      - ``$HF_HOME`` if set — some users point this at a custom
+      - ``$HF_HOME`` if set, some users point this at a custom
         location (e.g. an external drive mounted under a non-home
         path).
 
@@ -285,7 +285,7 @@ def _validate_systemroot() -> None:
 
         On non-Windows platforms, this is a no-op.
 
-    fix — fail-closed vs reset-to-default decisions:
+    fix, fail-closed vs reset-to-default decisions:
           - Path traversal (``..``)             → ``sys.exit(1)`` (security issue)
           - Unusual characters (``<>|"&'\\n\\r\\t``) → ``sys.exit(1)`` (security issue)
           - Missing directory                   → reset to ``C:\\Windows`` + continue (usability)
@@ -306,19 +306,19 @@ def _validate_systemroot() -> None:
     # import avoids a circular module-load.
     from voice_typer.server import config as _cfg
 
-    Path = _cfg.Path  # noqa: PLW0642,N806 — intentional local shadow of module-level Path
+    Path = _cfg.Path  # noqa: PLW0642,N806, intentional local shadow of module-level Path
 
     if not _is_windows():
         return
 
     systemroot = os.environ.get("SYSTEMROOT", "")
     if not systemroot:
-        # SystemRoot not set — unusual but not a direct attack vector
+        # SystemRoot not set, unusual but not a direct attack vector
         # for our process.  Windows APIs may fail later; we just log.
         log.warning("[CONFIG] SystemRoot environment variable is not set")
         return
 
-    # Check for path traversal — fail-closed (security issue).
+    # Check for path traversal, fail-closed (security issue).
     # A malicious SystemRoot pointing at an attacker-controlled directory
     # with ``..`` segments is a classic DLL-injection vector.  Refusing
     # to start is safer than silently resetting (the user would have no
@@ -327,12 +327,12 @@ def _validate_systemroot() -> None:
     # matching (`".." in systemroot`) which produced false positives on
     # legitimate Windows paths like `C:\Win..dows` or `C:\Windows\file..exe`.
     # fixed this by switching to `PureWindowsPath(systemroot).parts`
-    # component check — only an actual `..` path SEGMENT is rejected, not
+    # component check, only an actual `..` path SEGMENT is rejected, not
     # a `..` substring inside a directory/file name. Restoring that fix
     # (3 regression tests in tests/test_validate_systemroot.py now pass).
     if ".." in PureWindowsPath(systemroot).parts:
         log.error(
-            "[CONFIG] SystemRoot contains path traversal ('..'): %s — "
+            "[CONFIG] SystemRoot contains path traversal ('..'): %s, "
             "possible DLL injection attack. ABORTING STARTUP (fail-closed).",
             systemroot,
         )
@@ -344,16 +344,16 @@ def _validate_systemroot() -> None:
 
     if re.search(r'[<>|"&\'\n\r\t]', systemroot):
         log.error(
-            "[CONFIG] SystemRoot contains unusual characters: %r — possible "
+            "[CONFIG] SystemRoot contains unusual characters: %r, possible "
             "injection attack. ABORTING STARTUP (fail-closed).",
             systemroot,
         )
         sys.exit(1)
 
-    # Verify the directory exists — reset to default + continue
+    # Verify the directory exists, reset to default + continue
     # (usability issue, not a direct security issue).  A user's
     # SystemRoot may be set to a path that no longer exists (e.g. they
-    # moved their Windows installation) — refusing to start would lock
+    # moved their Windows installation), refusing to start would lock
     # them out of the app entirely.  Resetting to the canonical default
     # lets the app start with a valid SystemRoot.
     if not Path(systemroot).is_dir():
@@ -371,7 +371,7 @@ def _validate_systemroot() -> None:
         # runtime already knows is invalid.
         if Path(default).is_dir():
             log.warning(
-                "[CONFIG] SystemRoot does not point to an existing directory: %s — "
+                "[CONFIG] SystemRoot does not point to an existing directory: %s, "
                 "resetting to default C:\\Windows (usability fallback).",
                 systemroot,
             )
@@ -379,7 +379,7 @@ def _validate_systemroot() -> None:
         else:
             log.warning(
                 "[CONFIG] SystemRoot does not point to an existing directory: %s "
-                "and the default C:\\Windows is also not present — leaving "
+                "and the default C:\\Windows is also not present, leaving "
                 "SystemRoot as-is so downstream Win32 APIs emit their own "
                 "diagnostics (usability fallback).",
                 systemroot,
@@ -387,18 +387,18 @@ def _validate_systemroot() -> None:
         return
 
     # SEC-audit-011: Verify SystemRoot contains System32\notepad.exe.
-    # This is the canonical sanity check — every valid Windows
+    # This is the canonical sanity check, every valid Windows
     # installation has notepad.exe in System32.  If it's missing, the
     # SystemRoot value is almost certainly invalid or tampered.
     #
-    # Not a hard blocker — log warning + continue.  The caller is
+    # Not a hard blocker, log warning + continue.  The caller is
     # expected to use a hardcoded fallback path for notepad specifically
     # (see ``system_handlers.py``).  Do NOT reset SystemRoot itself —
     # other system DLLs may still be valid even if notepad is missing.
     notepad_path = Path(systemroot) / "System32" / "notepad.exe"
     if not notepad_path.exists():
         log.warning(
-            "[CONFIG] SystemRoot does not contain System32\\notepad.exe: %s — "
+            "[CONFIG] SystemRoot does not contain System32\\notepad.exe: %s, "
             "caller should use hardcoded fallback for notepad.",
             systemroot,
         )
@@ -414,7 +414,7 @@ def _config_dir() -> Path:
         on macOS ``~/Library/Application Support/voice-typer``, on Linux
         ``$XDG_DATA_HOME/voice-typer`` (falling back to
         ``~/.local/share/voice-typer``).  The legacy ``~/.voice-typer`` is
-        still checked first for migration — existing users' data is
+        still checked first for migration, existing users' data is
         automatically found and used.
 
         SEC-005: user-supplied env vars are validated for path traversal.
@@ -430,7 +430,7 @@ def _config_dir() -> Path:
 
         Tests that need to force re-resolution (e.g. after monkeypatching
         ``os.environ`` or :func:`Path.home`) should call
-        :func:`_reset_config_dir_cache` — mirrors
+        :func:`_reset_config_dir_cache`: mirrors
         :func:`voice_typer.server.credential_store._reset_keyring_cache`.
     """
     # lazy import to avoid the circular import described at the top
@@ -451,7 +451,7 @@ def _config_dir() -> Path:
             return custom_path
 
     # check for legacy ~/.voice-typer first (migration
-    # path — existing users keep their data where it is).  The literal
+    # path, existing users keep their data where it is).  The literal
     # ``Path.home() / ".voice-typer"`` lives in
     # :func:`voice_typer.server.config._legacy_voice_typer_dir` (kept
     # there so the ``test_config_py_still_has_legacy_migration_probe``
@@ -502,7 +502,7 @@ def _reset_config_dir_cache() -> None:
         run at most once per process.  Tests that change the inputs —
         ``VOICE_TYPER_CONFIG_DIR``, ``XDG_DATA_HOME``, ``APPDATA``,
         :func:`Path.home`, or the existence of the legacy
-        ``~/.voice-typer`` directory — must call this helper to force
+        ``~/.voice-typer`` directory, must call this helper to force
         re-resolution on the next :func:`_config_dir` invocation.
 
         Mirrors :func:`voice_typer.server.credential_store._reset_keyring_cache`
@@ -518,7 +518,7 @@ def _migrate_from_legacy():
         symlinks.  If any symlink is found (e.g. ``legacy/models/qwen`` ->
         ``~/.ssh/id_rsa`` planted by an attacker who got write access to
         the legacy dir), abort the migration with a WARNING and leave the
-        legacy dir in place — copytree with the default ``symlinks=True``
+        legacy dir in place, copytree with the default ``symlinks=True``
         would have followed the link and copied arbitrary attacker-chosen
         content into the new config dir.  Mirrors the poison-dir rejection
         in :meth:`VoiceTyperService.import_model` via
@@ -547,7 +547,7 @@ def _migrate_from_legacy():
     symlink = _find_symlink_in_tree(legacy)
     if symlink is not None:
         log.warning(
-            "[CONFIG] refusing to migrate legacy config %s -> %s — "
+            "[CONFIG] refusing to migrate legacy config %s -> %s, "
             "symlink detected at %s (symlinks are not allowed in the "
             "config dir; leaving legacy dir in place for manual review)",
             legacy,
@@ -557,7 +557,7 @@ def _migrate_from_legacy():
         return
 
     # FI-13-A: the migration must be ATOMIC.  A direct
-    # ``shutil.copytree(legacy, target)`` is non-atomic — a crash or power
+    # ``shutil.copytree(legacy, target)`` is non-atomic, a crash or power
     # loss mid-copy leaves a partially-populated ``target`` directory that
     # the next launch treats as a completed migration (the ``target.exists()``
     # guard above short-circuits), permanently losing the remainder of the
@@ -568,13 +568,13 @@ def _migrate_from_legacy():
     # same parent as ``target`` so the rename stays on one filesystem.
     #
     # The staging name is scoped to the current PID so a stale staging dir
-    # left behind by a CRASHED earlier process never collides with ours — a
+    # left behind by a CRASHED earlier process never collides with ours, a
     # fixed name would force ``shutil.copytree`` (which requires the
     # destination to not exist) to raise FileExistsError if the pre-copy
     # ``rmtree`` failed on a Windows file lock, and that raise would
     # propagate out of this startup-time function.  Stale ``*.migrate-tmp-*``
     # dirs from dead processes are swept best-effort in the ``finally``
-    # block (never fatal — they are only ever our own incomplete copies).
+    # block (never fatal, they are only ever our own incomplete copies).
     staging = target.parent / (target.name + f".migrate-tmp-{os.getpid()}")
     if staging.exists():
         shutil.rmtree(staging, ignore_errors=True)
@@ -596,12 +596,12 @@ def _migrate_from_legacy():
             # the concurrent migration won, so keep its result and drop our
             # staging copy.  (Note: this branch also fires for any other
             # OSError where ``target`` happens to exist, e.g. a partial
-            # target left by an old non-atomic migration — keeping it is
+            # target left by an old non-atomic migration, keeping it is
             # still the safer choice than overwriting data we may not own.)
             if target.exists():
                 log.warning(
                     "[CONFIG] config dir %s appeared during atomic migration "
-                    "(%s) — keeping the concurrently-created target",
+                    "(%s), keeping the concurrently-created target",
                     target,
                     e,
                 )
@@ -609,7 +609,7 @@ def _migrate_from_legacy():
                 raise
     finally:
         # drop our staging dir (and any stale siblings from dead processes)
-        # best-effort — never fatal at startup.
+        # best-effort, never fatal at startup.
         for candidate in target.parent.glob(target.name + ".migrate-tmp-*"):
             with contextlib.suppress(OSError):
                 shutil.rmtree(candidate, ignore_errors=True)
@@ -709,7 +709,7 @@ def _acquire_config_lock_cross_process(timeout: float):
                         time.sleep(0.05)
                         continue
                     # any other flock failure (e.g. EBADF) is
-                    # also fatal — proceeding without the lock would
+                    # also fatal, proceeding without the lock would
                     # race concurrent writers.
                     log.warning(
                         "[CONFIG] flock on %s failed (%s) -- aborting save "

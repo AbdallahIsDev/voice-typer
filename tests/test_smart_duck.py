@@ -100,7 +100,7 @@ class TestSmartDuckSkip:
         assert backend.fade_calls == [], "Smart-duck skip should NOT call fade_to"
         assert backend.is_speaker_active_calls == 1, "duck() should query is_speaker_active() exactly once"
         assert ducker.is_ducked is True, "is_ducked should be True (logical state) even after skip"
-        assert ducker.actually_ducked is False, "actually_ducked should be False — we skipped the fade"
+        assert ducker.actually_ducked is False, "actually_ducked should be False, we skipped the fade"
 
     def test_skip_does_not_write_crash_recovery(self, tmp_path):
         """Smart-duck skip must NOT write a crash-recovery file.
@@ -109,7 +109,7 @@ class TestSmartDuckSkip:
         ducked" signal.  If we skipped the duck, we didn't change the
         volume, so there's nothing to recover from.  Writing a file
         would cause the next launch to "restore" a volume that was
-        never changed — confusing and wrong.
+        never changed, confusing and wrong.
         """
         from voice_typer.server.duck_crash_recovery import DuckCrashRecovery
 
@@ -179,7 +179,7 @@ class TestSmartDuckNormal:
 
 class TestSmartDuckSecondDuckAfterSkip:
     """Regression: v1 had a bug where calling duck() a second time after a
-    smart-duck skip would call fade_to() — fading the user's volume down to
+    smart-duck skip would call fade_to(), fading the user's volume down to
     the new duck level with no saved state to restore from.
 
     Scenario:
@@ -202,12 +202,12 @@ class TestSmartDuckSecondDuckAfterSkip:
         ducker = VolumeDucker(backend=backend)
         ducker.initialize()
 
-        # First duck — smart-duck skips
+        # First duck, smart-duck skips
         ducker.duck(0.25)
         assert backend.fade_calls == []
         assert ducker.actually_ducked is False
 
-        # Second duck — must NOT fade (v1.1 bugfix)
+        # Second duck, must NOT fade (v1.1 bugfix)
         ok = ducker.duck(0.15)
         assert ok is True
         assert backend.fade_calls == [], f"Second duck() after smart-duck skip must NOT fade; got {backend.fade_calls}"
@@ -247,8 +247,8 @@ class TestSmartDuckToggle:
         ducker.set_smart_duck_enabled(False)
 
         ducker.duck(0.25)
-        assert backend.is_speaker_active_calls == 0, "Smart-duck disabled — is_speaker_active() should not be called"
-        assert backend.fade_calls, "Smart-duck disabled — duck() should fade normally"
+        assert backend.is_speaker_active_calls == 0, "Smart-duck disabled, is_speaker_active() should not be called"
+        assert backend.fade_calls, "Smart-duck disabled, duck() should fade normally"
         assert ducker.actually_ducked is True
 
     def test_set_smart_duck_enabled_at_runtime(self):
@@ -257,7 +257,7 @@ class TestSmartDuckToggle:
         ducker = VolumeDucker(backend=backend)
         ducker.initialize()
 
-        # First duck — smart-duck enabled (default), skips
+        # First duck, smart-duck enabled (default), skips
         ducker.duck(0.25)
         assert backend.fade_calls == []
         ducker.restore()
@@ -265,18 +265,18 @@ class TestSmartDuckToggle:
         # Disable smart-duck
         ducker.set_smart_duck_enabled(False)
 
-        # Second duck — smart-duck disabled, fades normally
+        # Second duck, smart-duck disabled, fades normally
         ducker.duck(0.25)
         assert (0.25, 150) in backend.fade_calls
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Cross-platform is_speaker_active() — Linux
+# Cross-platform is_speaker_active(), Linux
 # ═══════════════════════════════════════════════════════════════════════════
 
 
 class TestLinuxIsSpeakerActive:
-    """LinuxVolumeBackend.is_speaker_active() — pactl / wpctl / amixer."""
+    """LinuxVolumeBackend.is_speaker_active(), pactl / wpctl / amixer."""
 
     def test_pactl_running_sink_input_returns_true(self, monkeypatch):
         """pactl list sink-inputs with 'State: running' → audio is playing."""
@@ -313,7 +313,7 @@ class TestLinuxIsSpeakerActive:
         """wpctl-only system (no pactl) → ALSA /proc/asound fallback."""
         b = LinuxVolumeBackend()
         b._tool = "wpctl"
-        # pactl list sink-inputs fails (None) — wpctl-only system.
+        # pactl list sink-inputs fails (None), wpctl-only system.
         # Then _alsa_is_playing is called.
         b._run = lambda cmd, timeout=2.0: None if cmd[0] == "pactl" else "ok"
         # Mock _alsa_is_playing to return True
@@ -336,7 +336,7 @@ class TestLinuxIsSpeakerActive:
 
 
 class TestLinuxAlsaProcfs:
-    """LinuxVolumeBackend._alsa_is_playing() — /proc/asound parsing."""
+    """LinuxVolumeBackend._alsa_is_playing(), /proc/asound parsing."""
 
     def test_running_substream_returns_true(self, tmp_path, monkeypatch):
         """Simulate /proc/asound/card0/pcm0p/sub0/status with 'state: RUNNING'."""
@@ -370,7 +370,7 @@ class TestLinuxAlsaProcfs:
         (sub / "status").write_text("state: IDLE\n")
         import voice_typer.server.volume_backends as vb_mod
 
-        original_path = vb_mod.Path  # noqa: F841 — used in fake_path closure
+        original_path = vb_mod.Path  # noqa: F841, used in fake_path closure
 
         def fake_path(p):
             if str(p) == "/proc/asound":
@@ -385,7 +385,7 @@ class TestLinuxAlsaProcfs:
         b = LinuxVolumeBackend()
         import voice_typer.server.volume_backends as vb_mod
 
-        original_path = vb_mod.Path  # noqa: F841 — used in fake_path closure
+        original_path = vb_mod.Path  # noqa: F841, used in fake_path closure
 
         class FakePath:
             def __init__(self, p):
@@ -402,12 +402,12 @@ class TestLinuxAlsaProcfs:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Cross-platform is_speaker_active() — macOS
+# Cross-platform is_speaker_active(), macOS
 # ═══════════════════════════════════════════════════════════════════════════
 
 
 class TestMacIsSpeakerActive:
-    """MacVolumeBackend.is_speaker_active() — osascript fallback.
+    """MacVolumeBackend.is_speaker_active(), osascript fallback.
 
     The CoreAudio pyobjc path can't be tested without macOS hardware
     (it defers to osascript per the existing _get_default_output_device
@@ -500,7 +500,7 @@ class TestSmartDuckIntrospection:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Concurrency — smart-duck + restore race
+# Concurrency, smart-duck + restore race
 # ═══════════════════════════════════════════════════════════════════════════
 
 

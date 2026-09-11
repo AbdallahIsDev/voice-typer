@@ -24,11 +24,11 @@
  * These tests use source-text assertions (matching the
  * `tcp-retry-timer.test.ts` pattern) because `tcpConnect` creates a
  * real `net.Socket` at call-time and its close handler is a closure
- * inside the nested `tryConnect()` — extracting it for runtime testing
+ * inside the nested `tryConnect()`, extracting it for runtime testing
  * would require restructuring the production code. Source-text
  * assertion is sufficient to pin the scoping contract.
  *
- * ON LINUX (sandbox): source-text assertion — no platform dependency.
+ * ON LINUX (sandbox): source-text assertion, no platform dependency.
  * ON WINDOWS / macOS (not run here): same source-text contract
  *   applies; the close handler is platform-agnostic.
  */
@@ -163,7 +163,7 @@ describe("FR-30: tcp-connect.ts close handler scopes heartbeat + pending cleanup
 
 	it("the retry-generation check (`retryGen !== state._tcpRetryGeneration`) appears AFTER the if (state.tcpSocket === client) block", () => {
 		//the retry-generation check is OUTSIDE the
-		// `state.tcpSocket === client` block — it gates the retry
+		// `state.tcpSocket === client` block, it gates the retry
 		// scheduling, not the state cleanup. This is correct: a
 		// stale-socket close should NOT schedule a retry (the newer
 		// socket is the live one), but the generation check is the

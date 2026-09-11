@@ -10,7 +10,7 @@ Why a singleton class instead of plain module-level globals?
 Python's ``global X`` statement only refers to the *current module's*
 namespace. If ``monitoring.py`` did ``global _monitor_active;
 _monitor_active = True``, the write would land in ``monitoring.py``'s
-``__dict__`` — NOT in ``worker.py``'s. The worker thread (which reads
+``__dict__``: NOT in ``worker.py``'s. The worker thread (which reads
 ``_monitor_active`` inside ``_level_worker_loop``) would never see
 the update.
 
@@ -31,7 +31,7 @@ recording package does).
 Test-patch compatibility
 ------------------------
 Tests access state via ``lm._test_mode`` (read) / ``lm._test_mode = False``
-(write) — i.e. via the package namespace, NOT via ``_state`` directly.
+(write): i.e. via the package namespace, NOT via ``_state`` directly.
 ``__init__.py`` installs a custom module class (``_LevelMonitorModule``)
 whose ``__getattr__`` / ``__setattr__`` route ``_``-prefixed attribute
 access through to ``_state``. So:
@@ -70,7 +70,7 @@ class _State:
     instance and access state via ``_state.X`` (read) / ``_state.X = Y``
     (write).
 
-    The class is intentionally NOT a ``dataclass`` — many attributes are
+    The class is intentionally NOT a ``dataclass``, many attributes are
     mutable containers (``deque``, ``dict``, ``threading.Event``) whose
     identity must remain stable across the lifetime of the process
     (tests do ``lm._test_chunks.clear()`` and expect the SAME deque
@@ -94,7 +94,7 @@ class _State:
 
         # Display gain applied to the smoothed RMS before it reaches any
         # UI surface (``get_level`` poll response AND the ``mic_level``
-        # push payload — both MUST scale identically so the two delivery
+        # push payload, both MUST scale identically so the two delivery
         # paths stay interchangeable for the renderer).
         # History: originally *5, raised to *8 ("MULT-8") so low-level
         # ambient sounds produce a visible bar response; the bubble's
@@ -105,12 +105,12 @@ class _State:
         # When set, audio from the callback is run through this processor's
         # process_chunk() before computing RMS/peak so the level bar
         # reflects the effect of noise filters in real-time.
-        # same as ``_monitor_stream`` — ``Optional[object]``
+        # same as ``_monitor_stream``: ``Optional[object]``
         # rejects ``.process_chunk()`` / ``.cancel()`` calls below.  Use
         # ``Any`` to match the runtime ``AudioProcessor`` type.
         self._level_processor: Any | None = None  # AudioProcessor instance
         # Stash of the config_dict last passed to ``update_level_processor``.
-        # ``start_monitoring``'s "different device — restart" branch reads
+        # ``start_monitoring``'s "different device, restart" branch reads
         # this so it can rebuild the chain at the NEW native sample rate
         # (the old processor was constructed against the old rate; without a
         # rebuild, the IIR filter ``zi`` arrays + RNNoise ``_carry`` would
@@ -120,7 +120,7 @@ class _State:
         # filter); the restart path skips the rebuild in that case.
         self._level_processor_config: dict | None = None
         # Lightweight level-bar mode. When False (default), the cosmetic
-        # level bar computes RMS/peak on RAW audio only — the filter chain
+        # level bar computes RMS/peak on RAW audio only, the filter chain
         # (which may include RNNoise, 5-50 ms per chunk on CPU) is SKIPPED
         # for the cosmetic bar to avoid pegging a core at 31-94 Hz for a
         # non-functional visualization. The filter chain STILL runs when
@@ -130,7 +130,7 @@ class _State:
         # Set to True (via ``update_level_processor``'s
         # ``level_bar_filtered`` config key, or directly by tests that pin
         # the filtered-bar contract) to opt IN to running the filter chain
-        # for the cosmetic bar — useful for users who want the bar to
+        # for the cosmetic bar, useful for users who want the bar to
         # reflect what they actually hear after filtering.
         self._level_bar_filtered: bool = False
 
@@ -241,7 +241,7 @@ class _State:
         self._LEVEL_IDLE_TIMEOUT_SEC: float = 60.0
 
         # ── : worker backstop poll interval ─────────────────────
-        # Raised from 50 ms to 250 ms — the stop path already calls
+        # Raised from 50 ms to 250 ms, the stop path already calls
         # ``_level_worker_wake_event.set()`` so stop latency is
         # unaffected; the timeout only governs the "missed wakeup"
         # recovery interval (a rare edge case). 250 ms cuts idle
@@ -259,14 +259,14 @@ class _State:
         hand (assigning to ~25 ``lm._X`` attributes one at a time).
         """
         # Re-initialise by creating a fresh instance and copying its
-        # attributes — simpler than re-listing every field here (and
+        # attributes, simpler than re-listing every field here (and
         # stays in sync if new fields are added to ``__init__``).
         fresh = _State()
         self.__dict__.clear()
         self.__dict__.update(fresh.__dict__)
 
 
-# Singleton instance — every submodule imports this and accesses state
+# Singleton instance, every submodule imports this and accesses state
 # via ``_state._X`` (read) / ``_state._X = Y`` (write). The package's
 # ``__init__.py`` installs a custom module class that routes
 # ``level_monitor._X`` reads/writes through to this singleton, so tests

@@ -109,7 +109,7 @@ def _fix_file_extensions(text: str) -> str:
         # Only collapse if the extension is a known file extension
         if f".{ext.lower()}" in _KNOWN_EXTENSIONS:
             return f"{before}.{ext.lower()}"
-        # Not a known extension — leave as-is
+        # Not a known extension, leave as-is
         return m.group(0)
 
     # Match word. ext  (e.g., "features. md")

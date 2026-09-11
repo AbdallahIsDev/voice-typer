@@ -17,7 +17,7 @@ import { DONE_STEP_NAME } from "../lib/constants";
  * Backend contract: recording is refused without this flag
  * (recording_controller), so the Get Started button stays disabled
  * until the user accepts. Only ``voice_biometric_consent`` is persisted
- * here — the HuggingFace consent for model downloads is granted
+ * here, the HuggingFace consent for model downloads is granted
  * explicitly on the Model step (the app never downloads a model
  * automatically, so there is no hidden download to consent to).
  *
@@ -31,7 +31,7 @@ export function useDoneStepConsent(stepName: string | undefined): {
 } {
 	const { call } = usePython();
 	// callRef mirror (Home.tsx pattern): the consent-probe effect below
-	// must not depend on the `call` identity — a test mock handing out a
+	// must not depend on the `call` identity, a test mock handing out a
 	// fresh `call` per render would re-fire the get_config probe on every
 	// render (OOM loop class). ``callRef.current`` is read instead.
 	const callRef = useLatestRef(call);
@@ -51,7 +51,7 @@ export function useDoneStepConsent(stepName: string | undefined): {
 					setConsentAccepted(true);
 				}
 			} catch (e) {
-				// Older backend without the flag — leave
+				// Older backend without the flag, leave
 				// consent unaccepted so the user is
 				// prompted to grant it.
 				console.warn(

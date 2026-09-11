@@ -4,12 +4,12 @@
  *
  * Background
  * ----------
- * Pre-: the cleanup only set `cancelled = true` — it did NOT
+ * Pre-: the cleanup only set `cancelled = true`, it did NOT
  * clear `status.onchange`. The `PermissionStatus` object is owned by
  * the `navigator.permissions` cache and lives for the document
  * lifetime, so the `onchange` closure (which captures
  * `setMicPermission` and `cancelled`) was held until the next mount
- * overwrote it — a bounded single-closure leak per unmount.
+ * overwrote it, a bounded single-closure leak per unmount.
  *
  * Post-: the cleanup calls `status.removeEventListener("change",
  * handler)` AND sets `status.onchange = null`. The `cancelled` flag
@@ -68,7 +68,7 @@ describe("AB-41: useMicrophonePermission cleanup clears onchange", () => {
 	beforeEach(() => {
 		mockStatus = makeMockPermissionStatus("granted");
 		queryMock = vi.fn().mockResolvedValue(mockStatus);
-		// `navigator.permissions` may not exist in jsdom — define it.
+		// `navigator.permissions` may not exist in jsdom, define it.
 		Object.defineProperty(navigator, "permissions", {
 			value: { query: queryMock },
 			configurable: true,
@@ -122,7 +122,7 @@ describe("AB-41: useMicrophonePermission cleanup clears onchange", () => {
 		expect(mockStatus._handlers.get("change")?.size ?? 0).toBe(0);
 	});
 
-	it("preserves the cancelled flag pattern — no setState after unmount", async () => {
+	it("preserves the cancelled flag pattern, no setState after unmount", async () => {
 		const { result, unmount } = renderHook(() => useMicrophonePermission());
 
 		await act(async () => {

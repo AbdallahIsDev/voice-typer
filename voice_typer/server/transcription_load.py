@@ -14,7 +14,7 @@ were removed rather than kept as dead duplicates.
 The protocol STAYS here as the canonical definition:
 ``voice_typer.server.transcription`` re-exports it so
 ``from voice_typer.server.transcription import TranscriberProtocol``
-resolves to the SAME class object (identity parity — pinned by
+resolves to the SAME class object (identity parity, pinned by
 ``tests/test_transcriber_protocol_parity.py``).
 """
 
@@ -31,7 +31,7 @@ np = lazy_module("numpy")
 class TranscriberProtocol(Protocol):
     """Protocol that every transcription engine must implement.
 
-    This is the REQUIRED surface shared by all engines — Whisper,
+    This is the REQUIRED surface shared by all engines, Whisper,
     Parakeet, Qwen and Cloud. Word-level transcription is deliberately
     NOT part of it: only the local Whisper engine implements
     ``transcribe_words`` (see :class:`WordLevelTranscriber`), and the
@@ -65,7 +65,7 @@ class WordLevelTranscriber(Protocol):
     """Optional capability protocol: word-level (streaming) transcription.
 
     Only the local Whisper ``TranscriptionEngine`` implements
-    ``transcribe_words`` — Parakeet, Qwen and the cloud engines
+    ``transcribe_words``: Parakeet, Qwen and the cloud engines
     deliberately do not. Production never assumes the capability: the
     streaming session coordinator gates with
     ``hasattr(active, "transcribe_words")`` (mirroring
@@ -75,7 +75,7 @@ class WordLevelTranscriber(Protocol):
 
     Consumers MUST either isinstance-check against this
     ``runtime_checkable`` protocol or repeat the explicit ``hasattr``
-    gate — never call ``transcribe_words`` unconditionally.
+    gate, never call ``transcribe_words`` unconditionally.
     """
 
     def transcribe_words(self, audio: np.ndarray, offset_seconds: float = 0.0) -> object: ...

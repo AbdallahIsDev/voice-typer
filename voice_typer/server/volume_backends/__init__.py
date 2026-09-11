@@ -4,11 +4,11 @@ This package was extracted from the original ``voice_typer/server/volume_backend
 monolith (1055 LOC) per   Each platform's backend lives in its own
 module:
 
-- :mod:`voice_typer.server.volume_backends.windows` — ``WinVolumeBackend``
+- :mod:`voice_typer.server.volume_backends.windows`, ``WinVolumeBackend``
   (pycaw / WASAPI)
-- :mod:`voice_typer.server.volume_backends.macos` — ``MacVolumeBackend``
+- :mod:`voice_typer.server.volume_backends.macos`, ``MacVolumeBackend``
   (CoreAudio via pyobjc, with osascript fallback)
-- :mod:`voice_typer.server.volume_backends.linux` — ``LinuxVolumeBackend``
+- :mod:`voice_typer.server.volume_backends.linux`, ``LinuxVolumeBackend``
   (pactl → wpctl → amixer)
 
 All three backends implement
@@ -18,7 +18,7 @@ Import order matters: ``get_volume_backend()`` in
 :mod:`voice_typer.server.server_platform.volume_factory` selects the first
 backend whose :meth:`initialize` succeeds for the current platform.  All
 imports of platform-specific libraries (pycaw, pyobjc, subprocess CLI
-tools) are guarded so that the package imports cleanly on any OS — the
+tools) are guarded so that the package imports cleanly on any OS, the
 backend simply returns ``False`` from :meth:`initialize` if its native
 library is unavailable.
 

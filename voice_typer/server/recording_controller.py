@@ -1,4 +1,4 @@
-"""#2 RecordingController — thin facade composing four focused helpers
+"""#2 RecordingController, thin facade composing four focused helpers
 (Phase 4.5 split).
 
 Owns the recording lifecycle: toggle/start/stop/cancel, silence/xrun
@@ -18,11 +18,11 @@ pattern already used in :mod:`voice_typer.server.recording`:
   ``stop`` / ``_stop_impl`` / ``_stop_and_transcribe_worker_entry`` /
   ``_run_stop_and_transcribe`` / ``cancel`` / ``_cancel_impl``.
 - :class:`voice_typer.server.transcription_watchdog.TranscriptionWatchdog`
-  — ``_start_watchdog_thread`` / ``_watchdog_loop`` / ``_reset_watchdog``
+ , ``_start_watchdog_thread`` / ``_watchdog_loop`` / ``_reset_watchdog``
   / ``_stop_watchdog_thread`` / ``_force_recover_from_stuck_transcription``
   / ``_mark_cycle_cancelled`` / ``_discard_cancelled_cycle_id``.
 - :class:`voice_typer.server.streaming_session_coordinator.StreamingSessionCoordinator`
-  — ``_streaming_enabled`` / ``_streaming_config`` /
+ , ``_streaming_enabled`` / ``_streaming_config`` /
   ``_start_streaming_session_if_enabled``.
 - :class:`voice_typer.server.mic_lifecycle_hooks.MicLifecycleHooks` —
   ``_wire_mic_watcher_hooks`` / ``_list_active_mic_ids`` /
@@ -50,11 +50,11 @@ What stays on ``RecordingController`` (NOT moved)
 - The audio callbacks (``on_recorder_rms`` / ``on_silence_warning`` /
   ``on_silence_auto_stop`` / ``on_max_duration_auto_stop`` /
   ``on_microphone_permission_revoked`` / ``on_xrun_threshold``) remain
-  here — they are tiny one-liners wired to the recorder.
+  here, they are tiny one-liners wired to the recorder.
 - The level_monitor coordination helpers
   (``_stop_level_monitor_for_recorder_start`` /
   ``_maybe_restart_level_monitor_for_always_visible_bubble``) remain
-  here — they touch only ``controller._level_monitor_was_active`` +
+  here, they touch only ``controller._level_monitor_was_active`` +
   ``level_monitor`` module globals.
 
 Patch-path compatibility
@@ -63,7 +63,7 @@ Tests do ``patch("voice_typer.server.recording_controller.gc.collect")``
 to spy on the GC call inside ``_force_recover_from_stuck_transcription``
 (now in :mod:`.transcription_watchdog`). Because the ``gc`` module is a
 singleton, patching ``recording_controller.gc.collect`` patches
-``gc.collect`` GLOBALLY — so the call from the watchdog helper is still
+``gc.collect`` GLOBALLY, so the call from the watchdog helper is still
 intercepted. This module keeps ``import gc`` at top so the patch PATH
 resolves cleanly.
 
@@ -73,7 +73,7 @@ Several tests construct a controller via ``RecordingController.__new__(...)``
 (skipping ``__init__``) and then invoke delegator methods directly. To
 support that pattern, the helper attributes (``_lifecycle``,
 ``_watchdog_helper``, ``_streaming_coordinator``, ``_mic_hooks``) are
-lazily created by ``__getattr__`` on first access — so a
+lazily created by ``__getattr__`` on first access, so a
 ``__new__``-constructed controller without ``__init__`` still works.
 """
 
@@ -107,7 +107,7 @@ class RecordingController:
     - Read ``app.config`` (recording_mode, streaming_*, silence_*)
     - Read/write ``app.recorder`` (Recorder instance)
     - Read/write ``app._busy_event`` (busy flag). NOTE: ``app._busy_event``
-      uses INVERTED semantics — ``is_set() == True`` means NOT busy,
+      uses INVERTED semantics, ``is_set() == True`` means NOT busy,
       ``is_set() == False`` means busy. This is because the event
       doubles as a "ready" signal (``wait()`` blocks while busy). All
       call sites in this module annotate the inverted meaning with
@@ -135,7 +135,7 @@ class RecordingController:
         # main transcription path pops + signals cancel on. The pipeline's
         # ``_transcribe`` step retrieves it via ``pop_streaming_session()``
         # (which checks this stash as a fallback) so it can call
-        # ``session.finalize(audio)`` — the streaming fast path that
+        # ``session.finalize(audio)``: the streaming fast path that
         # replaces batch transcription when a streaming session was active.
         # The stash is written + read under ``_streaming_session_lock``.
         self._pending_finalize_session: StreamingTranscriptionSession | None = None
@@ -160,7 +160,7 @@ class RecordingController:
         self._watchdog_max_firings = 3
         self._watchdog_lock = threading.Lock()
         # Dedicated lock for ``_streaming_session``. Previously the
-        # accessors claimed "thread-safe" but weren't — concurrent
+        # accessors claimed "thread-safe" but weren't, concurrent
         # start()/cancel() calls could see torn reads or trigger
         # duplicate add_final callbacks.
         self._streaming_session_lock = threading.Lock()
@@ -176,7 +176,7 @@ class RecordingController:
         # Bounded LRU registry of cycle_ids that were force-cancelled by
         # the watchdog (or by ESC during the transcription phase).
         # ``DictationPipeline.run()`` checks this registry BEFORE calling
-        # ``_copy_and_paste`` — if the cycle was cancelled (because the
+        # ``_copy_and_paste``: if the cycle was cancelled (because the
         # transcription thread took >4.5min and the watchdog fired), the
         # late transcription is NOT pasted into whatever window currently
         # has focus. Prevents data corruption when the user alt-tabs away
@@ -207,7 +207,7 @@ class RecordingController:
         self._level_monitor_was_active: bool = False
 
         # Phase 4.5 split: construct the four focused collaborator
-        # helpers. Each is stateless — all shared state stays on the
+        # helpers. Each is stateless, all shared state stays on the
         # controller (this object), and the helpers access it via the
         # back-reference passed to each method call.
         from voice_typer.server.mic_lifecycle_hooks import MicLifecycleHooks
@@ -306,7 +306,7 @@ class RecordingController:
         """1-line delegator → :meth:`StreamingSessionCoordinator.start_streaming_session_if_enabled`."""
         return self._streaming_coordinator.start_streaming_session_if_enabled(self)
 
-    # ── Streaming session accessors (kept on controller — pinned by ──
+    # ── Streaming session accessors (kept on controller, pinned by ──
     # static-source checks; tightly coupled to controller state) ─────────
 
     def get_streaming_session(self) -> StreamingTranscriptionSession | None:
@@ -328,26 +328,26 @@ class RecordingController:
     def pop_streaming_session(self) -> StreamingTranscriptionSession | None:
         """Atomically get AND clear the streaming session.
 
-        Pre-fix, ``_cancel_streaming_session`` did:
-            session = self.get_streaming_session()   # lock acquire/release #1
-            self.set_streaming_session(None)          # lock acquire/release #2
-        This left a TOCTOU window between the two lock acquisitions: a
-        concurrent ``_start_streaming_session_if_enabled`` could install
-        a NEW session that the subsequent ``set_streaming_session(None)``
-        would clobber — cancelling a session that was just freshly started.
+         Pre-fix, ``_cancel_streaming_session`` did:
+             session = self.get_streaming_session()   # lock acquire/release #1
+             self.set_streaming_session(None)          # lock acquire/release #2
+         This left a TOCTOU window between the two lock acquisitions: a
+         concurrent ``_start_streaming_session_if_enabled`` could install
+         a NEW session that the subsequent ``set_streaming_session(None)``
+         would clobber, cancelling a session that was just freshly started.
 
-        This method does the get-and-clear under a SINGLE lock
-        acquisition, eliminating the race.
+         This method does the get-and-clear under a SINGLE lock
+         acquisition, eliminating the race.
 
-        If the main slot is empty, also drains the
-        ``_pending_finalize_session`` stash. ``_stop_impl``'s main
-        transcription path pops the active session, signals cancel, and
-        stashes it here so the pipeline's ``_transcribe`` step can
-        retrieve it (via this method) and call ``session.finalize(audio)``
-        — the streaming fast path. Without this fallback, the pipeline
-        would always see ``None`` (the session was already popped by
-        ``_stop_impl``) and fall back to batch transcription even when
-        streaming was enabled.
+         If the main slot is empty, also drains the
+         ``_pending_finalize_session`` stash. ``_stop_impl``'s main
+         transcription path pops the active session, signals cancel, and
+         stashes it here so the pipeline's ``_transcribe`` step can
+         retrieve it (via this method) and call ``session.finalize(audio)``
+        , the streaming fast path. Without this fallback, the pipeline
+         would always see ``None`` (the session was already popped by
+         ``_stop_impl``) and fall back to batch transcription even when
+         streaming was enabled.
         """
         with self._streaming_session_lock:
             session = self._streaming_session
@@ -473,7 +473,7 @@ class RecordingController:
         """1-line delegator → :meth:`TranscriptionWatchdog.stop_thread`."""
         return self._watchdog_helper.stop_thread(self)
 
-    # ── Audio callbacks (wired to Recorder; kept on controller — tiny ──
+    # ── Audio callbacks (wired to Recorder; kept on controller, tiny ──
     # one-liners) ───────────────────────────────────────────────────────
 
     def on_recorder_rms(self, rms: float, peak: float) -> None:
@@ -533,7 +533,7 @@ class RecordingController:
 
         Spawned by ``DeviceManager._check_microphone_permission_revoked``
         on a fresh daemon thread (via ``recorder._spawn_device_thread``),
-        so we DON'T hold ``Recorder._lock`` here — but we still schedule
+        so we DON'T hold ``Recorder._lock`` here, but we still schedule
         the actual stop off this thread for parity with the silence /
         max-duration auto-stop callbacks (their comment explains the
         deadlock-avoidance rationale; we mirror it for consistency).

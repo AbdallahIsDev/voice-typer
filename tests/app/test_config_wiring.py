@@ -1,7 +1,7 @@
 """split from tests/test_app.py.
 
 All heavy dependencies are mocked via the project-wide ``mock_heavy_imports``
-autouse fixture (in ``tests/conftest.py``) — CR-60 hoisted the
+autouse fixture (in ``tests/conftest.py``), CR-60 hoisted the
 ``force_pynput_hotkey_backend`` patch from the old local fixture into
 that project-wide fixture, so test modules no longer need a local
 override.
@@ -107,7 +107,7 @@ class TestConfigWiring:
         # engine construction path runs.
         app.models._model_downloaded_precheck = lambda: True
         app._do_startup()
-        # Model load now runs in a daemon thread — wait for it so the
+        # Model load now runs in a daemon thread, wait for it so the
         # assertions below don't race with the background worker.
         load_thread = app.models._model_load_thread
         if load_thread is not None:
@@ -196,7 +196,7 @@ class TestTextCleanupConfig:
         # pytest.MonkeyPatch() so the patch is auto-reverted after the
         # test. Previously the manual instantiation bypassed pytest's
         # lifecycle and could leak patches on test failure. The patch
-        # targets text_cleanup's namespace — that's where the dictation
+        # targets text_cleanup's namespace, that's where the dictation
         # pipeline resolves clean_transcribed_text at call time, so the
         # spy fires if the disabled path ever regresses.
         monkeypatch.setattr("voice_typer.server.text_cleanup.clean_transcribed_text", spy)
@@ -229,7 +229,7 @@ class TestExternalCorrectionsWiring:
 
         Phase 5: the call moved from ``VoiceTyperApp._do_startup`` to
         ``StartupSequence.run`` (in the ``startup_sequence`` package). The
-        monkeypatch target must follow the call site — patch the name in
+        monkeypatch target must follow the call site, patch the name in
         the OWNING submodule (``startup_sequence._phases_early``, where
         phase 4 resolves it), not ``app``'s namespace.
         """
@@ -245,7 +245,7 @@ class TestExternalCorrectionsWiring:
         # Phase 1: was ``app._sync_prewarm_task = MagicMock()``
         # (test-seam delegate removed); patch the standalone function.
         monkeypatch.setattr("voice_typer.server.startup_tasks.sync_prewarm_task", MagicMock())
-        # Prevent the background model loader from doing real work — we
+        # Prevent the background model loader from doing real work, we
         # only care that configure_corrections ran synchronously in Step 0.
         app.models.load_background = MagicMock()
         app._do_startup()
@@ -378,7 +378,7 @@ class TestSettingsWindowIntegration:
         spawns a fresh Electron process (and in turn a fresh Python
         backend).  This replaces the old ``restart_ack`` design which
         tried to keep Electron alive while swapping only the Python
-        backend — that design had multiple race conditions (TCP close
+        backend, that design had multiple race conditions (TCP close
         racing with restart_ack delivery, tcpSocket set before connect
         causing auth failures, _restarting flag cleared too early)
         that produced cascading "Error: Timeout" and "Python socket

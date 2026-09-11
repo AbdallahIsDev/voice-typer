@@ -101,7 +101,7 @@ def test_empty_text_is_suppressed(published):
 def test_flush_bypasses_throttle_but_skips_bubble_mirror(published):
     """finalize()'s synchronous flush lands the last partial for
     main-window consumers, but must NOT re-assert ``recording`` on the
-    bubble channel — the lifecycle has already moved the pill to
+    bubble channel, the lifecycle has already moved the pill to
     transcribing by then.
     """
     clock = FakeClock()

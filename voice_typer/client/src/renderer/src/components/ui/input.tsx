@@ -7,7 +7,7 @@ import {
 } from "@/hooks/usePointerFocusModality";
 
 function Input({ className, type, ...props }: React.ComponentProps<"input">) {
-	// Pointer vs keyboard focus modality — the shared C-FOCUS-3 contract
+	// Pointer vs keyboard focus modality, the shared C-FOCUS-3 contract
 	// (see `hooks/usePointerFocusModality.ts` for the full rationale):
 	// text inputs always match `:focus-visible` on click, so the
 	// full-opacity ring paints on every mouse click. The modality state

@@ -13,7 +13,7 @@
  * factories that dynamic-import the helper (vitest re-evaluates mock
  * factory bodies in the IMPORTING test file's scope, so factories cannot
  * close over helper-module bindings). That works there because the guard
- * tests never call `vi.resetModules()`. Settings and History DO — to
+ * tests never call `vi.resetModules()`. Settings and History DO, to
  * reset page module-level caches (`_cachedConfig`, useHistoryCache) and
  * re-import the page per test. A dynamic-import factory would then hit a
  * FRESH helper module instance and hand the page a NEW set of vi.fn
@@ -28,7 +28,7 @@
  * evaluated and the imported binding resolves to the ONE singleton
  * object. `vi.resetModules()` wipes the module registry but not the test
  * file's already-bound import references, so the identity of
- * `stableMocks.mockCall` etc. survives a reset + page re-import — proven
+ * `stableMocks.mockCall` etc. survives a reset + page re-import, proven
  * empirically (see the probe in this directory's git history).
  *
  * ── Usage ─────────────────────────────────────────────────────────────
@@ -52,7 +52,7 @@
 import { type Mock, vi } from "vitest";
 
 /**
- * The assertable vi.fn() singletons — the ONLY objects the factories
+ * The assertable vi.fn() singletons, the ONLY objects the factories
  * wire into the mocked modules, so `expect(stableMocks.mockCall)` always
  * observes what the page called, across resets and re-imports.
  *
@@ -60,7 +60,7 @@ import { type Mock, vi } from "vitest";
  * vitest 5 the inferred bare-`vi.fn()` type references an internal
  * helper that declaration emit cannot name (TS2883), so inference
  * alone no longer compiles here. `Mock` (no type args) stays maximally
- * permissive — any args, any return — matching bare `vi.fn()`.
+ * permissive, any args, any return, matching bare `vi.fn()`.
  */
 type StableMockFns = {
 	mockCall: Mock;
@@ -87,7 +87,7 @@ export const stableMocks: StableMockFns = {
 	markUpdated: vi.fn(),
 	mockNavigate: vi.fn(),
 	mockToastError: vi.fn(),
-	/** Consent deep-link channel (useNavigation) — default: no pending field. */
+	/** Consent deep-link channel (useNavigation), default: no pending field. */
 	mockPendingConsentField: vi.fn<() => string | null>(() => null),
 	mockConsumeConsentField: vi.fn<() => string | null>(() => null),
 	/** Cross-page Settings search deep-link channel (useNavigation) —
@@ -102,7 +102,7 @@ export const stableMocks: StableMockFns = {
 	/** Event-handler capture map for pages that register usePythonEvent
 	 *  handlers and invoke them from tests (onboarding-model-step). */
 	pythonEventHandlers: {} as Record<string, (data: unknown) => void>,
-	// sonner toast fns — singletons so `import { toast } from "sonner"`
+	// sonner toast fns, singletons so `import { toast } from "sonner"`
 	// assertions (e.g. History) observe the page's calls.
 	toastSuccess: vi.fn(),
 	toastError: vi.fn(),
@@ -231,7 +231,7 @@ export function hugeiconsReactMock(opts: { spreadProps?: boolean } = {}) {
 	};
 }
 
-/** `@hugeicons/core-free-icons` — delegates to the canonical icon mock. */
+/** `@hugeicons/core-free-icons`, delegates to the canonical icon mock. */
 export async function hugeiconsCoreMock() {
 	const { createHugeiconsMock } = await import(
 		"@/__tests__/helpers/hugeicons-mock"
@@ -263,7 +263,7 @@ export function nextThemesMock() {
 }
 
 /**
- * The models-page `get_config` response shape — the minimal config the
+ * The models-page `get_config` response shape, the minimal config the
  * Models page (and Dashboard) reads, previously copy-pasted as a
  * `MOCK_CONFIG` const across ModelsPage.test.tsx, ModelsPage-cancel-download-reset and
  * the data-pages live-region guards. Returns a FRESH object per call so

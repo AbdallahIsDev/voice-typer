@@ -32,13 +32,13 @@ export default defineConfig({
 		logLevel: process.stdout.isTTY ? "info" : "silent",
 		plugins: [externalizeDepsPlugin()],
 		build: {
-			// R6-F13: never ship preload sourcemaps — they expose every
+			// R6-F13: never ship preload sourcemaps, they expose every
 			// exposed IPC channel name + arg shape.
 			sourcemap: false,
 			rollupOptions: {
 				input: {
 					// SEC-026: a single preload (`index.ts`) handles both the
-					// main renderer and the bubble renderer — the runtime
+					// main renderer and the bubble renderer, the runtime
 					// detects which window it is in via `location.href` and
 					// exposes only the appropriate API surface (see
 					// `preload/index.ts`). The bubble renderer therefore gets
@@ -47,7 +47,7 @@ export default defineConfig({
 					// `python.call({type:"quit_app"})` or `window_.close()`.
 					//
 					//the previous `bubble: src/preload/bubble.ts`
-					// entry was dead — `bubble-window.ts` sets
+					// entry was dead, `bubble-window.ts` sets
 					// `webPreferences.preload = "../preload/index.js"` (NOT
 					// `bubble.js`), so the standalone bubble preload was
 					// shipped by this CI build but never loaded at runtime.

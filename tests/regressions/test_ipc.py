@@ -2,7 +2,7 @@
 
 This module is part of the ``tests/regressions/`` package created by
 REF-4. The class/method names, assertion logic, and imports below are
-preserved verbatim from the original 4446-line monolith — only file
+preserved verbatim from the original 4446-line monolith, only file
 location has changed.
 
 Common preamble (imports + Linux test-env shim) is identical to the
@@ -36,7 +36,7 @@ class TestAccessibilityIpcEndpointExists:
     command was REMOVED from ``IPCServer._COMMAND_REGISTRY`` in the
     GT-32 stale-entry cleanup (the Tauri host invoked it via a
     dedicated Rust command), then RE-ADDED on 2026-08-10 (finding
-    #919 part b) — the Settings → Troubleshooting UI now invokes it
+    #919 part b), the Settings → Troubleshooting UI now invokes it
     on macOS to surface the stale-grant ``tccutil`` reset command.
     This test calls the handler method directly (not via ``_dispatch``)
     so it stays a pure PLAT-030 regression check; the dispatch-level
@@ -69,8 +69,8 @@ class TestAccessibilityIpcEndpointExists:
 
         # Invoke the handler directly. The handler runs
         # empty-schema payload validation (a non-dict payload is
-        # rejected with ``invalid_payload``), so pass ``{}`` — NOT
-        # ``None`` — as the data arg.
+        # rejected with ``invalid_payload``), so pass ``{}``, NOT
+        # ``None``, as the data arg.
         resp = server._handle_check_accessibility({}, {"id": "test"})
 
         assert resp["type"] == "accessibility_status"
@@ -110,7 +110,7 @@ class TestSendCatchesOSErrorSubclasses:
             pytest.fail(f"NEW-CQ-003: _send should catch {exc_class.__name__}, not propagate it")
         except Exception:
             # Other exception types (e.g. RuntimeError from the drop path)
-            # are acceptable — the key is that the original OSError subclass
+            # are acceptable, the key is that the original OSError subclass
             # was caught.
             pass
 

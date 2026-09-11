@@ -1,8 +1,8 @@
-// settingsTabLabels — the source of truth for "which labels appear on
+// settingsTabLabels, the source of truth for "which labels appear on
 // which Settings section page?" Used by the search auto-switch (so the
 // user's query navigates to the section page whose labels best match)
 // and by the hub's query filter (so hub rows hide unless their section
-// matches) — label-based, not hint-based.
+// matches), label-based, not hint-based.
 //
 // Hints (settings.searchHints.*) remain in i18n for completeness
 // (translated into zh/de/fr/hi/ru) but are NOT used by the

@@ -1,5 +1,5 @@
 /**
- * vitest rewrite — behavioral test for the privacy disclosure.
+ * vitest rewrite, behavioral test for the privacy disclosure.
  *
  * Replaces the following string-pattern Python test from
  * `tests/test_consent_and_privacy.py`:
@@ -15,7 +15,7 @@
  * the DOM as visible text.
  *
  * IA merge: About (product identity) and Privacy (the disclosure)
- * now share ONE page — this test mounts `@/pages/AboutAndPrivacy`.
+ * now share ONE page, this test mounts `@/pages/AboutAndPrivacy`.
  *
  * The corresponding Python test is skipped via `@pytest.mark.skip`
  * with a pointer back to this file.  It is NOT deleted.
@@ -55,7 +55,7 @@ vi.mock("sonner", () => ({
 
 import AboutAndPrivacyPage from "@/pages/AboutAndPrivacy";
 
-describe("Privacy disclosure — rewrite of test_about_page_has_privacy_section", () => {
+describe("Privacy disclosure, rewrite of test_about_page_has_privacy_section", () => {
 	beforeEach(() => {
 		mockCall.mockReset();
 		// Make every IPC call return a minimal shape so Privacy
@@ -96,7 +96,7 @@ describe("Privacy disclosure — rewrite of test_about_page_has_privacy_section"
 		// (about.audioProcessingTitle, etc.) whose en.json
 		// values are "Audio processing", "Model weights",
 		// "Cloud speech recognition", "Voice biometrics"
-		// (no trailing period — the de-punctuation pass).
+		// (no trailing period, the de-punctuation pass).
 		await waitFor(() => {
 			expect(screen.getAllByText(/Audio processing/i).length).toBeGreaterThan(
 				0,

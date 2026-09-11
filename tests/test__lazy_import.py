@@ -7,10 +7,10 @@ public contract of the module:
 - ``lazy_module()`` returns a ``_LazyModule`` and never imports on
   construction.
 - ``__getattr__`` triggers a real ``importlib.import_module`` call on
-  every access (no successful-module caching — the proxy is stateless
+  every access (no successful-module caching, the proxy is stateless
   so per-test ``monkeypatch.setitem(sys.modules, ...)`` mocks are always
   honoured).
-- ``__getattr__`` propagates ``ImportError`` / ``AttributeError`` — it
+- ``__getattr__`` propagates ``ImportError`` / ``AttributeError``, it
   never silently returns ``None``.
 - G4-M-43: ``ImportError`` is CACHED on the proxy so subsequent accesses
   don't re-attempt ``importlib.import_module``. The cache is per-proxy
@@ -91,7 +91,7 @@ def test_lazy_module_repr_shows_module_name():
 
 
 def test_lazy_module_does_not_import_on_construction(import_spy):
-    """Constructing a proxy must NOT trigger import — that's the whole
+    """Constructing a proxy must NOT trigger import, that's the whole
     point of PERF-COLDSTART-001 (defer heavy imports to first use).
     """
     proxy = lazy_module("os")
@@ -121,7 +121,7 @@ def test_getattr_re_resolves_on_every_access_no_caching(fake_module, import_spy)
 
     This is the documented contract that makes per-test ``monkeypatch``
     mocks safe (no stale caching, no cross-test leakage).  Note: this
-    differs from a typical lazy-import cache that imports once — the
+    differs from a typical lazy-import cache that imports once, the
     design here explicitly re-resolves every time.
     """
     name, _ = fake_module
@@ -136,7 +136,7 @@ def test_getattr_re_resolves_on_every_access_no_caching(fake_module, import_spy)
 
 def test_getattr_reflects_sys_modules_changes_between_accesses(fake_module):
     """If the entry in ``sys.modules`` is swapped between accesses, the
-    proxy must pick up the new module — proving it re-resolves each
+    proxy must pick up the new module, proving it re-resolves each
     time rather than caching the first resolved module.
     """
     name, mock1 = fake_module
@@ -146,7 +146,7 @@ def test_getattr_reflects_sys_modules_changes_between_accesses(fake_module):
     assert proxy.value == 1
 
     # Swap the module out from under the proxy.  Use direct assignment
-    # rather than monkeypatch — the fixture's teardown will still
+    # rather than monkeypatch, the fixture's teardown will still
     # restore the pre-fixture state.
     mock2 = MagicMock()
     mock2.value = 2
@@ -156,7 +156,7 @@ def test_getattr_reflects_sys_modules_changes_between_accesses(fake_module):
 
 
 def test_getattr_propagates_import_error(monkeypatch):
-    """If ``import_module`` raises, the proxy must propagate — never
+    """If ``import_module`` raises, the proxy must propagate, never
     silently return ``None`` or a MagicMock.
     """
 
@@ -190,7 +190,7 @@ def test_getattr_propagates_attribute_error_from_wrapped_module(monkeypatch):
 
 def test_getattr_for_module_name_does_not_trigger_import(fake_module, import_spy):
     """Accessing the private ``_module_name`` slot must NOT trigger an
-    import — slot lookup happens before ``__getattr__`` runs.
+    import, slot lookup happens before ``__getattr__`` runs.
     """
     name, _ = fake_module
     proxy = lazy_module(name)
@@ -221,7 +221,7 @@ def test_setattr_delegates_to_wrapped_module(fake_module):
 def test_setattr_on_module_name_delegates_to_wrapped_not_slot(fake_module):
     """Setting ``proxy._module_name`` delegates to the wrapped module
     (because ``__setattr__`` always delegates).  It does NOT reassign
-    the proxy's own slot — ``object.__setattr__`` is only used in
+    the proxy's own slot: ``object.__setattr__`` is only used in
     ``__init__``.
     """
     name, mock = fake_module
@@ -238,7 +238,7 @@ def test_setattr_on_module_name_delegates_to_wrapped_not_slot(fake_module):
 def test_proxy_dict_delegates_to_wrapped_module(fake_module):
     """``__dict__`` is not a slot on ``_LazyModule``, so accessing it
     falls through to ``__getattr__`` and returns the wrapped module's
-    ``__dict__`` — the proxy itself has no instance dict of its own.
+    ``__dict__``, the proxy itself has no instance dict of its own.
 
     This is a useful transparency guarantee: code that inspects
     ``proxy.__dict__`` sees the wrapped module's namespace, not the
@@ -255,7 +255,7 @@ def test_proxy_dict_delegates_to_wrapped_module(fake_module):
 
 def test_proxy_forwards_callable_attributes(fake_module):
     """Calling a function returned by ``proxy.fn(...)`` must invoke the
-    wrapped module's ``fn`` with the same arguments — the proxy is a
+    wrapped module's ``fn`` with the same arguments, the proxy is a
     transparent drop-in for ``import <name> as m; m.fn(...)``.
     """
     name, mock = fake_module
@@ -327,7 +327,7 @@ def test_two_proxies_for_same_module_share_state(fake_module):
 def test_monkeypatch_setattr_on_proxy_then_access_works(monkeypatch, fake_module):
     """Documented use case: ``monkeypatch.setattr(proxy, attr, value)``
     followed by ``proxy.attr`` works because both go through the wrapped
-    module — call sites in recording.py / tray_icon.py don't need to
+    module, call sites in recording.py / tray_icon.py don't need to
     change when switching from a real ``import`` to ``lazy_module()``.
     """
     name, mock = fake_module
@@ -344,7 +344,7 @@ def test_monkeypatch_setattr_on_proxy_then_access_works(monkeypatch, fake_module
 
 def test_xv_78_setattr_mutates_real_sys_modules_entry(monkeypatch, fake_module):
     """XV-78 (LOAD-BEARING): ``__setattr__`` must mutate the real module
-    object that lives in ``sys.modules`` — NOT the proxy instance and
+    object that lives in ``sys.modules``, NOT the proxy instance and
     NOT a private dict on the proxy. This is the load-bearing behaviour
     documented in the ``__setattr__`` docstring.
 
@@ -370,13 +370,13 @@ def test_xv_78_setattr_mutates_real_sys_modules_entry(monkeypatch, fake_module):
     # 1. The mock that's installed in sys.modules received the value.
     assert mock.XV_78_sentinel == "load-bearing"
 
-    # 2. The object in sys.modules IS the mock (identity check — no
+    # 2. The object in sys.modules IS the mock (identity check, no
     #    copy, no proxy-local shadow).
     assert sys.modules[name] is mock
     assert sys.modules[name].XV_78_sentinel == "load-bearing"
 
     # 3. A fresh ``importlib.import_module`` call picks up the mutation
-    #    — proving the value landed on the real module, not a
+    #  , proving the value landed on the real module, not a
     #    proxy-local attribute that only the proxy can see.
     fresh = importlib.import_module(name)
     assert fresh is mock
@@ -385,7 +385,7 @@ def test_xv_78_setattr_mutates_real_sys_modules_entry(monkeypatch, fake_module):
 
 def test_xv_78_setattr_visible_to_independent_importer(monkeypatch, fake_module):
     """XV-78 follow-up: a mutation via the proxy is visible to ANY code
-    that imports the same module name — including code that uses a
+    that imports the same module name, including code that uses a
     plain ``importlib.import_module`` (no proxy). This is the
     cross-importer visibility guarantee that ``monkeypatch.setattr``
     relies on: the test fixture patches the module, and the production
@@ -393,7 +393,7 @@ def test_xv_78_setattr_visible_to_independent_importer(monkeypatch, fake_module)
     sees the patch.
 
     If ``__setattr__`` stored the value on the proxy instead of on the
-    real module, this test would fail — the independent importer would
+    real module, this test would fail, the independent importer would
     see the unpatched module.
     """
     name, mock = fake_module
@@ -401,7 +401,7 @@ def test_xv_78_setattr_visible_to_independent_importer(monkeypatch, fake_module)
 
     proxy.shared_state = "from-proxy"
 
-    # An "independent importer" — a fresh call that does NOT go through
+    # An "independent importer", a fresh call that does NOT go through
     # the proxy. Production code typically does this at module top:
     #   import sounddevice as sd
     # …and then accesses ``sd.InputStream``. If the proxy's setattr
@@ -419,19 +419,19 @@ def test_xv_78_setattr_visible_to_independent_importer(monkeypatch, fake_module)
 def test_xv_78_setattr_does_not_store_on_proxy_instance(fake_module):
     """XV-78 negative pin: ``__setattr__`` must NOT store the value on
     the proxy instance itself. The proxy is stateless for attribute
-    storage — all writes go to the wrapped module. If this contract
+    storage, all writes go to the wrapped module. If this contract
     breaks, the proxy would start shadowing wrapped-module attributes
     and the per-test ``monkeypatch`` isolation would leak.
 
     We verify this by:
 
       1. Asserting the proxy class's ``__slots__`` does NOT include
-         ``__dict__`` — so the proxy literally has no instance dict
+         ``__dict__``, so the proxy literally has no instance dict
          to store arbitrary attributes on (bypassing ``__getattr__``,
          which would otherwise delegate to the wrapped module's
          ``__dict__``).
       2. Asserting the only slots are ``_module_name`` and
-         ``_cached_error`` — the two internal-only fields set in
+         ``_cached_error``, the two internal-only fields set in
          ``__init__`` via ``object.__setattr__``.
       3. Asserting both slot values are unchanged after a
          ``proxy.<attr> = <value>`` assignment (the value went to the
@@ -440,7 +440,7 @@ def test_xv_78_setattr_does_not_store_on_proxy_instance(fake_module):
     name, mock = fake_module
     proxy = lazy_module(name)
 
-    # 1. The proxy class does NOT declare a ``__dict__`` slot — there
+    # 1. The proxy class does NOT declare a ``__dict__`` slot, there
     #    is literally no instance dict to store arbitrary attributes on.
     assert "__dict__" not in _LazyModule.__slots__, (
         f"_LazyModule.__slots__ must not include '__dict__' (would allow "
@@ -453,7 +453,7 @@ def test_xv_78_setattr_does_not_store_on_proxy_instance(fake_module):
         f"_LazyModule.__slots__ must be exactly ('_module_name', '_cached_error'); got {_LazyModule.__slots__}"
     )
 
-    # 3. After a setattr, both slot values are unchanged — the value
+    # 3. After a setattr, both slot values are unchanged, the value
     #    went to the wrapped module, not to either slot.
     proxy.should_not_land_on_proxy = True
 
@@ -479,7 +479,7 @@ class TestImportErrorCaching:
 
     def test_import_error_cached_so_second_access_no_reimport(self, monkeypatch, import_spy):
         """A second attribute access after a failed import does NOT call
-        ``importlib.import_module`` again — the cached error is re-raised.
+        ``importlib.import_module`` again, the cached error is re-raised.
         """
         call_count = {"n": 0}
 
@@ -501,7 +501,7 @@ class TestImportErrorCaching:
         assert call_count["n"] == 1, f"import_module should be called once (cached), got {call_count['n']}"
 
     def test_cached_error_is_same_instance(self, monkeypatch):
-        """The cached error is the SAME exception instance — re-raised
+        """The cached error is the SAME exception instance, re-raised
         verbatim on every subsequent access, not a fresh copy.
         """
         original_error = ModuleNotFoundError("cached sentinel")
@@ -524,7 +524,7 @@ class TestImportErrorCaching:
 
     def test_cached_error_does_not_affect_sibling_proxy(self, monkeypatch):
         """A failed import on one proxy does NOT poison a fresh proxy for
-        the same module name — the cache is per-proxy, not per-module.
+        the same module name, the cache is per-proxy, not per-module.
         This lets a test that fixes the import after a failure recover
         by constructing a new proxy.
         """
@@ -541,7 +541,7 @@ class TestImportErrorCaching:
         with pytest.raises(ModuleNotFoundError):
             _ = proxy1.foo
 
-        # Second proxy for the same name gets a fresh attempt — install
+        # Second proxy for the same name gets a fresh attempt, install
         # a successful mock and restore the real import_module so the
         # proxy can resolve via sys.modules.
         mock = MagicMock()
@@ -569,7 +569,7 @@ class TestImportErrorCaching:
         assert import_spy["calls"] == [name, name]
 
 
-# ── reset_cache() — recovery from a cached ImportError ────────────────
+# ── reset_cache(), recovery from a cached ImportError ────────────────
 
 
 class TestResetCache:
@@ -579,7 +579,7 @@ class TestResetCache:
     This is the recovery path for proxies held as module-level
     singletons (e.g. ``sd = lazy_module("sounddevice")`` at the top of
     ``recording.py``). Without it, the only recovery was to construct a
-    new proxy — which is not always possible because the old proxy is
+    new proxy, which is not always possible because the old proxy is
     already bound at every call site.
     """
 
@@ -602,7 +602,7 @@ class TestResetCache:
             _ = proxy.foo
         assert call_count["n"] == 1
 
-        # Second access re-raises the cached error — import_module is
+        # Second access re-raises the cached error, import_module is
         # NOT called again.
         with pytest.raises(ModuleNotFoundError):
             _ = proxy.bar
@@ -632,7 +632,7 @@ class TestResetCache:
         monkeypatch.setattr(importlib, "import_module", boom)
         proxy = lazy_module("nonexistent.module.recover2")
 
-        # First access fails — module is missing.
+        # First access fails, module is missing.
         with pytest.raises(ModuleNotFoundError):
             _ = proxy.foo
 
@@ -653,16 +653,16 @@ class TestResetCache:
 
     def test_reset_cache_is_safe_when_no_error_cached(self, fake_module):
         """Calling ``reset_cache()`` on a healthy proxy (no cached error)
-        is a no-op — the next access still resolves normally.
+        is a no-op, the next access still resolves normally.
         """
         name, mock = fake_module
         mock.value = "ok"
         proxy = lazy_module(name)
 
-        # Successful access — no error cached.
+        # Successful access, no error cached.
         assert proxy.value == "ok"
 
-        # reset_cache() is safe — clears the (already-None) cache slot.
+        # reset_cache() is safe, clears the (already-None) cache slot.
         proxy.reset_cache()
         assert object.__getattribute__(proxy, "_cached_error") is None
 
@@ -671,7 +671,7 @@ class TestResetCache:
 
 
 # ``probe_required_deps`` + ``_REQUIRED_DEPS`` were deleted from
-# ``_lazy_import.py`` (zero production callers — the promised startup
+# ``_lazy_import.py`` (zero production callers, the promised startup
 # diagnostic was never wired). The five ``TestProbeRequiredDeps`` tests
 # were removed alongside. If a startup diagnostic is needed in the
 # future, add a fresh probe function and tests at that point.

@@ -9,7 +9,7 @@ defense-in-depth).
 Modernized to use the Win32 ``SendInput`` API instead of the
 deprecated ``keybd_event`` function. ``SendInput`` supersedes
 ``keybd_event`` (deprecated since Windows 2000); the behavior is
-preserved 1:1 — the same virtual-key code, scan code, and flag
+preserved 1:1, the same virtual-key code, scan code, and flag
 values flow through unchanged.
 """
 
@@ -46,13 +46,13 @@ def suppress_caps_lock_toggle(self) -> None:
         try:
             # GetKeyState returns a short where bit 0 (0x1) is the
             # toggle state. If 1, Caps Lock was just toggled ON by
-            # the physical press — undo it with a synthetic press.
+            # the physical press, undo it with a synthetic press.
 
             toggle_state = self._user32.GetKeyState(_VK_CAPITAL) & 0x1
             if toggle_state:
                 # Synthetic keydown + keyup toggles the state back.
                 # The 0x45 scan code is the hardware scan code for
-                # Caps Lock — preserved verbatim from the prior
+                # Caps Lock, preserved verbatim from the prior
                 # ``keybd_event`` callsite so the synthetic press is
                 # indistinguishable from a real one at the keyboard
                 # driver layer.

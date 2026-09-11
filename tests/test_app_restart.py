@@ -5,7 +5,7 @@ dispatches on its own worker thread (NOT the main thread). The tray's
 ``wrap_callback`` (``tray_menu.py``) catches ``SystemExit`` and
 suppresses it so pystray doesn't print a noisy traceback. An
 unconditional ``sys.exit(0)`` at the end of ``restart_app()`` is
-therefore silently swallowed when called from the tray — the process
+therefore silently swallowed when called from the tray, the process
 only eventually exits because ``_do_cleanup()`` called ``tray.stop()``
 which breaks the pystray event loop on its next iteration (up to ~1s
 later, during which the old process holds the single-instance mutex /
@@ -21,7 +21,7 @@ These tests verify:
   1. When called from the MAIN thread, ``sys.exit(0)`` IS called.
   2. When called from a NON-MAIN thread, ``sys.exit(0)`` is NOT called
      (no ``SystemExit`` is raised into the calling thread).
-  3. ``_do_cleanup()`` is invoked in BOTH cases — the cleanup must
+  3. ``_do_cleanup()`` is invoked in BOTH cases, the cleanup must
      always run regardless of which thread triggered the restart,
      because that's what calls ``tray.stop()`` to break the pystray
      loop on the non-main-thread path.
@@ -38,7 +38,7 @@ import pytest
 # The autouse ``mock_heavy_imports`` fixture from tests/conftest.py
 # applies, mocking sounddevice / faster_whisper / pynput / pystray / PIL
 # / pyperclip so the tests run headless. ``tmp_config_dir`` is also
-# provided by tests/conftest.py — it patches both
+# provided by tests/conftest.py, it patches both
 # ``config._config_dir`` and ``app._config_dir`` so PID file writes /
 # DuckCrashRecovery file writes land in ``tmp_path`` instead of the real
 # ``~/.local/share/voice-typer/`` directory.
@@ -97,7 +97,7 @@ def _stub_restart_environment(app, monkeypatch, *, spy_sys_exit):
 
     # Mock sys.exit: record the call AND raise SystemExit so that
     # behaviour mirrors the real sys.exit (which raises SystemExit). The
-    # SystemExit is what the production code would propagate — and what
+    # SystemExit is what the production code would propagate, and what
     # wrap_callback (tray_menu.py) catches in the real tray path.
     def _fake_sys_exit(code=0):
         spy_sys_exit.append(code)
@@ -136,7 +136,7 @@ class TestRestartAppThreadAwareExit:
     def test_restart_app_calls_sys_exit_on_main_thread(self, app, monkeypatch):
         """When called from the main thread, ``restart_app()`` must call
         ``sys.exit(0)`` so the process actually exits (the tray callback
-        wrapper isn't in the call stack in this case — main-thread
+        wrapper isn't in the call stack in this case, main-thread
         callers include ``ipc_server`` restart routes and programmatic
         restarts from the main loop)."""
         spy_sys_exit = []
@@ -146,7 +146,7 @@ class TestRestartAppThreadAwareExit:
         assert threading.current_thread() is threading.main_thread()
 
         # Spy on _do_cleanup to verify it ran (via the delegate on the
-        # app instance — see shutdown_controller.py:489-495 note about
+        # app instance: see shutdown_controller.py:489-495 note about
         # why tests must patch app._do_cleanup, not controller._do_cleanup).
         cleanup_calls = []
         monkeypatch.setattr(
@@ -169,11 +169,11 @@ class TestRestartAppThreadAwareExit:
 
     def test_restart_app_does_not_call_sys_exit_off_main_thread(self, app, monkeypatch):
         """When called from a non-main thread (the real-world tray
-        case — pystray dispatches menu callbacks on its own worker
+        case, pystray dispatches menu callbacks on its own worker
         thread), ``restart_app()`` must NOT call ``sys.exit(0)``.
 
         CPython's ``sys.exit()`` raises ``SystemExit`` in the CALLING
-        thread only — on a non-main thread the process does NOT exit.
+        thread only, on a non-main thread the process does NOT exit.
         The tray's ``wrap_callback`` (``tray_menu.py:77-93``) catches
         ``SystemExit`` and suppresses it, so an unconditional
         ``sys.exit(0)`` here would be silently swallowed and the
@@ -189,7 +189,7 @@ class TestRestartAppThreadAwareExit:
         _stub_restart_environment(app, monkeypatch, spy_sys_exit=spy_sys_exit)
 
         # Spy on _do_cleanup to verify it ran (this is the CRITICAL
-        # assertion for the non-main-thread path — _do_cleanup() is
+        # assertion for the non-main-thread path, _do_cleanup() is
         # what calls tray.stop() at shutdown_controller.py:348, which
         # is what actually breaks the pystray loop).
         cleanup_calls = []
@@ -206,7 +206,7 @@ class TestRestartAppThreadAwareExit:
         # no SystemExit should be raised. If a future regression
         # reintroduces an unconditional sys.exit(0), the SystemExit
         # would be raised in THIS worker thread, caught here, and
-        # recorded — the assertion below would then fail.
+        # recorded, the assertion below would then fail.
         errors: list = []
         worker = threading.Thread(target=lambda: _run_spy(app, errors))
         worker.start()
@@ -226,22 +226,22 @@ class TestRestartAppThreadAwareExit:
         )
 
         # CRITICAL: _do_cleanup() MUST have been called even on the
-        # non-main-thread path — that's what calls tray.stop() at
+        # non-main-thread path, that's what calls tray.stop() at
         # shutdown_controller.py:348, which is what actually breaks
         # the pystray loop so the process can exit.
         assert cleanup_calls == [1], (
             "restart_app must run _do_cleanup() on the non-main-thread "
-            "path too — tray.stop() (called inside _do_cleanup) is what "
+            "path too, tray.stop() (called inside _do_cleanup) is what "
             "breaks the pystray event loop so app.start() can return. "
             f"cleanup_calls={cleanup_calls}"
         )
 
         # And tray.stop() must have been called (it's invoked inside
         # _do_cleanup, but we stubbed _do_cleanup, so verify our stub
-        # ran and trust _do_cleanup's contract — separately asserted in
+        # ran and trust _do_cleanup's contract, separately asserted in
         # test_app_cleanup.py::TestDoCleanup*).
         # NOTE: because we stubbed _do_cleanup, app.tray.stop is NOT
-        # called in this test. That's intentional — the goal here is to
+        # called in this test. That's intentional, the goal here is to
         # verify restart_app() delegates to _do_cleanup, not to re-test
         # _do_cleanup's body. tray.stop() coverage lives in
         # tests/test_app.py::TestRestartAppCleanShutdown::test_restart_app_calls_tray_stop.
@@ -273,7 +273,7 @@ class TestRestartAppThreadAwareExit:
         )
 
         # tray.stop() is called inside _do_cleanup at
-        # shutdown_controller.py:348 — verify it ran.
+        # shutdown_controller.py:348, verify it ran.
         app.tray.stop.assert_called_once()
 
 
@@ -287,7 +287,7 @@ class TestRestartAppInPlaceStandalone:
     """
 
     def test_standalone_restart_sets_in_place_flag(self, app, monkeypatch):
-        """In standalone mode (``_electron_pid`` set — Python spawned
+        """In standalone mode (``_electron_pid`` set, Python spawned
         Electron as a child), ``restart_app()`` must set
         ``app._in_place_restart = True`` so the entrypoint loop knows to
         re-run the startup sequence instead of exiting."""
@@ -305,7 +305,7 @@ class TestRestartAppInPlaceStandalone:
             "entrypoint loop re-initializes instead of exiting"
         )
         assert app._is_restarting is True, "standalone restart must still mark _is_restarting=True for cleanup"
-        # The in-place path must NOT call sys.exit(0) — the process stays
+        # The in-place path must NOT call sys.exit(0), the process stays
         # alive to re-initialize.
         assert spy_sys_exit == [], (
             f"standalone restart must NOT call sys.exit(0) (in-place restart keeps "
@@ -313,14 +313,14 @@ class TestRestartAppInPlaceStandalone:
         )
 
     def test_non_standalone_restart_does_not_set_in_place_flag(self, app, monkeypatch):
-        """In dev mode (no ``_electron_pid`` — Electron spawned Python),
+        """In dev mode (no ``_electron_pid``, Electron spawned Python),
         ``restart_app()`` must NOT set ``_in_place_restart``: the old
         out-of-process relaunch (sys.exit + Electron respawn) is the
         correct behaviour there."""
         spy_sys_exit = []
         _stub_restart_environment(app, monkeypatch, spy_sys_exit=spy_sys_exit)
 
-        app._electron_pid = None  # dev mode — Electron is the parent
+        app._electron_pid = None  # dev mode, Electron is the parent
         monkeypatch.setattr(app, "_do_cleanup", lambda: None)
 
         # The out-of-process path calls sys.exit(0) on the main thread.
@@ -361,5 +361,5 @@ def _run_spy(app, errors):
     can assert no exception escaped into the worker thread."""
     try:
         app.restart_app()
-    except BaseException as exc:  # noqa: BLE001 — we want to capture EVERYTHING
+    except BaseException as exc:  # noqa: BLE001, we want to capture EVERYTHING
         errors.append(exc)

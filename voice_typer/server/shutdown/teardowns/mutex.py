@@ -1,6 +1,6 @@
 """Teardown helper for the single-instance mutex handle.
 
-Phase 4.5 (OI-36) — extracted verbatim from
+Phase 4.5 (OI-36), extracted verbatim from
 :meth:`ShutdownController._teardown_mutex_handle`. The body is unchanged;
 only the class boundary moved.
 """
@@ -20,7 +20,7 @@ def teardown_mutex_handle(controller) -> None:
     PLAT-HLEAK: on Windows, ``CloseHandle`` releases the named mutex
     so a subsequent launch can claim it. On POSIX, the
     ``_mutex_handle`` is a ``_PosixSingleInstanceHandle`` wrapping
-    the lockfile fd — its ``release()`` closes the fd (releasing the
+    the lockfile fd, its ``release()`` closes the fd (releasing the
     ``fcntl.flock``) and unlinks the ``backend.lock``. Without this
     branch, the Windows-only ``ctypes.windll.kernel32.CloseHandle``
     call would raise ``AttributeError`` on POSIX

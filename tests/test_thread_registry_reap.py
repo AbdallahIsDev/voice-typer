@@ -14,7 +14,7 @@ Post-AB-45:
 - ``register()`` calls ``reap_dead()`` at the start (cheap O(n) over
   the small dict).
 - Re-registering a name whose existing entry has a dead thread is
-  SILENT (no warning) — the dead entry was reaped, so the
+  SILENT (no warning), the dead entry was reaped, so the
   existing-entry check doesn't fire.
 """
 
@@ -44,7 +44,7 @@ def _make_short_lived_thread(exit_gate: threading.Event) -> threading.Thread:
 
 
 def _wait_for_exit(t: threading.Thread, timeout: float = 2.0) -> None:
-    """Wait for thread ``t`` to exit (no signaling — just join)."""
+    """Wait for thread ``t`` to exit (no signaling, just join)."""
     t.join(timeout=timeout)
     assert not t.is_alive(), f"thread {t.name!r} did not exit within {timeout}s"
 
@@ -151,7 +151,7 @@ class TestRegisterCallsReapDead:
         _wait_for_exit(t1)
         assert reg.list_active() == []
 
-        # Register a new thread — this should reap the dead entry.
+        # Register a new thread, this should reap the dead entry.
         stop = threading.Event()
 
         def _run():
@@ -169,7 +169,7 @@ class TestRegisterCallsReapDead:
 
     def test_register_same_name_dead_thread_silent(self, caplog):
         """Re-registering a name whose existing thread is dead is SILENT
-        (no warning) — the dead entry was reaped, so the
+        (no warning), the dead entry was reaped, so the
         existing-entry check doesn't fire."""
         reg = ThreadRegistry()
         t1_gate = threading.Event()
@@ -205,8 +205,8 @@ class TestRegisterCallsReapDead:
 
     def test_register_same_name_live_thread_warns(self, caplog):
         """Re-registering a name whose existing thread is STILL ALIVE
-        with a different thread object logs a warning (potential leak
-        — caller should have stopped the old thread)."""
+          with a different thread object logs a warning (potential leak
+        , caller should have stopped the old thread)."""
         reg = ThreadRegistry()
         stop1 = threading.Event()
         stop2 = threading.Event()
@@ -254,7 +254,7 @@ class TestReapDeadThreadSafety:
                     t = _make_short_lived_thread(exit_gate)
                     reg.register(f"worker-{i}", t, stop_event=stop, join_timeout=0.05)
                     # Release the gate so the thread dies on its own
-                    # (the registry never stops it) — reap_dead() then
+                    # (the registry never stops it), reap_dead() then
                     # has dead entries to reap concurrently.
                     exit_gate.set()
             except Exception as e:

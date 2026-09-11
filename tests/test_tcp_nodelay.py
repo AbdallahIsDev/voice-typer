@@ -92,11 +92,11 @@ def _make_tcp_socketpair() -> tuple[socket.socket, socket.socket]:
     underlying ``socketpair(2)`` syscall only accepts ``AF_UNIX``. On
     platforms where it appears to work (Windows fallback), the result is
     still two loopback TCP sockets, so a real bind+listen+connect on
-    ``127.0.0.1`` produces the equivalent pair — and it works in
+    ``127.0.0.1`` produces the equivalent pair, and it works in
     sandboxes where ``socketpair(AF_INET)`` returns
     ``errno 95 (EOPNOTSUPP)``.
 
-    Returns ``(server_side, client_side)`` — ``server_side`` is the
+    Returns ``(server_side, client_side)``: ``server_side`` is the
     accepted socket (the one a TCP server would hand to
     ``_handle_tcp_connection``), ``client_side`` is the connecting
     socket.
@@ -132,7 +132,7 @@ class TestTcpNoDelayBehavioral:
             a.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 0)
             assert a.getsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY) == 0
 
-            # Construct a _TCPLineIO from socket ``a`` — the constructor
+            # Construct a _TCPLineIO from socket ``a``, the constructor
             # should enable TCP_NODELAY.
             io = _TCPLineIO(a)
             try:
@@ -190,7 +190,7 @@ class TestTcpNoDelayBehavioral:
                 # the ordering; this behavioral test confirms no crash.
                 assert nodelay in (0, 1), f"DJ-80: TCP_NODELAY should be 0 or 1; got {nodelay}."
             except OSError:
-                # Socket was closed by the handler — expected for the
+                # Socket was closed by the handler, expected for the
                 # empty-token refuse path.
                 pass
         finally:

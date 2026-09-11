@@ -32,7 +32,7 @@ Accessibility).
   `x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility`
   and a 60 s retry timer. The moment the user toggles Voice Typer on in
   the Accessibility list, the retry succeeds and the native backend
-  auto-restarts — no app restart required.
+  auto-restarts: no app restart required.
 - **After macOS updates**: macOS updates sometimes invalidate the
   Accessibility grant for previously-trusted apps. The next Voice Typer
   launch will re-detect the missing grant and re-fire the onboarding
@@ -54,7 +54,7 @@ that opens an audio input device.
   microphone, macOS shows the standard "Voice Typer wants to access
   the microphone" dialog. The user must click **Allow**.
 - **If the user clicked Don't Allow**: Voice Typer cannot reopen the
-  microphone — the user must go to System Settings → Privacy & Security
+  microphone: the user must go to System Settings → Privacy & Security
   → Microphone and toggle Voice Typer on manually. Voice Typer shows a
   tray notification with a deep-link when it detects a permission
   failure.
@@ -85,7 +85,7 @@ mode `0660`, so only members of the `input` group can read them.
   `input` group via `usermod -aG input $USER` and installs the udev
   rule `99-voice-typer.rules` (which sets `GROUP="input"` on the
   event device nodes). After install, **log out and log back in once**
-  so the new group membership takes effect — there is no other manual
+  so the new group membership takes effect, there is no other manual
   step.
 - **AppImage install**: AppImage cannot install udev rules or modify
   group membership without root. The first launch shows a `pkexec` GUI
@@ -103,7 +103,7 @@ mode `0660`, so only members of the `input` group can read them.
 
 ### Caps Lock neutralization (per compositor)
 
-The native evdev backend is **read-only** — it cannot suppress the
+The native evdev backend is **read-only**, it cannot suppress the
 hotkey press from reaching the foreground app the way the Windows
 `WH_KEYBOARD_LL` hook or the macOS `CGEvent` tap can. If your hotkey is
 `Caps Lock` (the default on Linux), the OS will toggle caps state every
@@ -136,7 +136,7 @@ macOS / Windows. Microphone access is governed by:
   `audio` group to read from the default source. Modern PulseAudio
   installs use ACLs (Kit) or module-device-restore defaults; in
   practice, any local user can capture audio.
-- **PipeWire** (Wayland + modern X11): same — PipeWire's default
+- **PipeWire** (Wayland + modern X11): same, PipeWire's default
   config exposes the `alsa_input.*` source nodes to any local user
   via the `access=unrestricted` permission on the client. Some
   distributions (notably Fedora 38+) ship with a WirePlumber policy
@@ -149,10 +149,10 @@ macOS / Windows. Microphone access is governed by:
 If Voice Typer reports "no microphone found", check:
 
 1. `pactl list sources short` (PulseAudio) or `pw-cli list-objects`
-   (PipeWire) — the source must be listed.
+   (PipeWire): the source must be listed.
 2. `groups $USER` must include `audio` (or the equivalent ACL grant).
 3. On PipeWire + WirePlumber + a portal-enabled desktop, the portal
-   prompt may have been dismissed — re-launch Voice Typer to re-trigger
+   prompt may have been dismissed: re-launch Voice Typer to re-trigger
    it.
 
 ### No special permission for clipboard paste
@@ -175,11 +175,11 @@ keyboard hook. This is an **out-of-process** hook (registered via
 
 - Does NOT require administrator rights.
 - Does NOT require a DLL injection (the hook callback lives in the
-  listener exe's own address space — Windows routes the keyboard events
+  listener exe's own address space: Windows routes the keyboard events
   to it via the hook chain).
 - Does NOT require any UAC prompt or system-settings toggle.
 
-**Zero-command out of the box** — no onboarding prompt is shown on
+**Zero-command out of the box**: no onboarding prompt is shown on
 Windows. The only prerequisite is that the listener exe is registered
 as an auto-start entry (handled by the installer) or launched manually.
 
@@ -190,7 +190,7 @@ desktop (Win32) apps the way it does for UWP apps. The first time a
 Win32 process opens the default audio capture endpoint via WASAPI /
 DirectSound, Windows may show a one-time "Voice Typer wants to use your
 microphone" toast notification (Windows 10 1903+), but the access is
-granted automatically — there is no Settings toggle to deny.
+granted automatically: there is no Settings toggle to deny.
 
 If the user has globally disabled microphone access via Settings →
 Privacy → Microphone → "Allow apps to access your microphone" (which
@@ -209,7 +209,7 @@ apps.
 
 ### Recommended but optional: OS-level Caps Lock remap
 
-Not a permission — but a recommended ergonomic setup. The default
+Not a permission: but a recommended ergonomic setup. The default
 hotkey on Windows is `Caps Lock`. The native `WH_KEYBOARD_LL` binary
 suppresses the keydown event so the OS doesn't toggle caps state while
 Voice Typer is running, but when Voice Typer isn't running, Caps Lock
@@ -217,7 +217,7 @@ still toggles normally. To neutralize Caps Lock permanently (so it
 never toggles caps state, even when Voice Typer isn't running):
 
 - **PowerToys Keyboard Manager** (recommended): remap Caps Lock to
-  "Disable" — survives OS updates and is per-user (no admin needed).
+  "Disable": survives OS updates and is per-user (no admin needed).
 - **Registry Scancode Map** (alternative):
   ```reg
   Windows Registry Editor Version 5.00
@@ -234,19 +234,19 @@ After granting the permissions above, verify with:
 
 - **macOS**: open System Settings → Privacy & Security and confirm
   Voice Typer is listed (and toggled ON) under both Accessibility and
-  Microphone. Then trigger the global hotkey — if it works, the
-  Accessibility grant landed. Then start a dictation — if the recording
+  Microphone. Then trigger the global hotkey, if it works, the
+  Accessibility grant landed. Then start a dictation, if the recording
   indicator lights up, the Microphone grant landed.
 - **Linux**: `groups` should list `input` (and `audio` if you needed
   it). `ls -l /dev/input/event*` should show `crw-rw---- root input`.
-  Press Caps Lock outside Voice Typer — if the caps state doesn't
+  Press Caps Lock outside Voice Typer, if the caps state doesn't
   toggle, the neutralization landed.
-- **Windows**: no verification step is needed — if the installer
+- **Windows**: no verification step is needed, if the installer
   completed successfully, the hotkey works on next login.
 
 ## See also
 
-- [`docs/PLATFORM_STATUS.md`](PLATFORM_STATUS.md) — the feature × OS
+- [`docs/PLATFORM_STATUS.md`](PLATFORM_STATUS.md): the feature × OS
   matrix (which features ship on which platforms).
 - [`docs/adr/0008-zero-command-hotkey-architecture.md`](adr/0008-zero-command-hotkey-architecture.md) —
   the zero-command onboarding ADR (the auto-grant flow on macOS +

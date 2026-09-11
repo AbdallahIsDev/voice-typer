@@ -1,6 +1,6 @@
 {
 	"dialog.criticalError.body": "L'application a rencontré {count} exceptions non interceptées et va se fermer.\nJournal d'incidents : {logPath}\nVeuillez redémarrer {appName}.",
-	"dialog.criticalError.title": "{appName} — Erreur critique",
+	"dialog.criticalError.title": "{appName}, Erreur critique",
 	"dialog.export.config": "Exporter la configuration",
 	"dialog.export.history": "Exporter l'historique",
 	"dialog.export.statsImage": "Exporter l'image des statistiques",
@@ -12,7 +12,7 @@
 	"dialog.singleInstance.title": "{appName}",
 	"notify.app.config_load_failed_body": "Échec du chargement de la configuration. Les paramètres ont été réinitialisés aux valeurs par défaut. Consultez les journaux pour plus de détails.",
 	"state.app.starting": "Démarrage...",
-	"dialog.crashLoop.title": "{appName} — Boucle de crash",
+	"dialog.crashLoop.title": "{appName}, Boucle de crash",
 	"dialog.crashLoop.mainBody": "Le moteur de rendu de la fenêtre principale a planté à plusieurs reprises et ne peut pas être récupéré.\n\nUtilisez l'icône de la barre d'état pour Redémarrer ou Quitter, puis relancez {appName}.",
 	"dialog.crashLoop.bubbleBody": "Le moteur de rendu de la bulle superposée a planté à plusieurs reprises et ne peut pas être récupéré.\n\nUtilisez l'icône de la barre d'état pour Redémarrer ou Quitter, puis relancez {appName}.",
 	"dialog.pythonBackend.timeoutTitle": "Échec du démarrage du backend Python",

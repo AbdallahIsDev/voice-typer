@@ -1,21 +1,21 @@
 // src/renderer/src/hooks/useSnackbar.ts
 //
 //previously the renderer had TWO parallel toast systems:
-//   1. The bespoke ``useSnackbar`` hook (this file) — used by Settings,
+//   1. The bespoke ``useSnackbar`` hook (this file), used by Settings,
 //      Models, Microphone, Vocabulary, Templates, and Onboarding pages.
-//   2. The ``sonner`` library — used by History.tsx, ActivityList.tsx,
+//   2. The ``sonner`` library, used by History.tsx, ActivityList.tsx,
 //      and (partially) Vocabulary.tsx.
 //
 // Both rendered toasts to the user but looked different, had different
 // lifetimes, and stacked badly when both fired at once.  This file now
-// delegates ALL toast rendering to ``sonner`` — there is exactly ONE
+// delegates ALL toast rendering to ``sonner``, there is exactly ONE
 // toast system in the renderer.  The UI comes from the single global
 // ``<Toaster />`` mounted in App.tsx.  Toasts are raised via ``showSnack``
 // (or directly via ``toast.success(...)`` from ``sonner``); both go
 // through the same renderer.
 //
 // The bespoke ``Snackbar`` component that this hook used to
-// return was removed — it was a no-op that made pages render dead
+// return was removed, it was a no-op that made pages render dead
 // ``<Snackbar />`` JSX and, once the component stopped being exported,
 // crashed those pages at render time.  There is no longer a ``Snackbar``
 // member on the returned object; call sites must not destructure or
@@ -24,7 +24,7 @@
 //(Fix-M) / : this file was previously named
 // ``useSnackbar.tsx`` but contains no JSX.  The stale duplicate
 // ``.tsx`` (left on disk after the rename) was deleted by sessions 1,
-// 3, and 5 — only this ``.ts`` file now exists under
+// 3, and 5, only this ``.ts`` file now exists under
 // ``@/hooks/useSnackbar``.  Vite/TypeScript resolves imports without
 // an extension, so all ``import { useSnackbar } from "@/hooks/useSnackbar"``
 // statements continue to work without modification.
@@ -32,7 +32,7 @@
 //toast durations are now standardised per type so that
 // transient confirmations disappear quickly while errors stay on
 // screen long enough to be read.  Per-call overrides take precedence
-// over the per-type defaults — callers that need a custom lifetime
+// over the per-type defaults, callers that need a custom lifetime
 // (e.g. undo toasts) pass ``{ duration: ms }`` as the third argument.
 //
 //   success → 3000ms  (fleeting "saved" / "copied" pings)
@@ -66,7 +66,7 @@ export const SNACKBAR_DEFAULT_DURATION_MS: Record<SnackbarType, number> = {
 export interface ShowSnackOptions {
 	/** Override the per-type default duration (ms). */
 	duration?: number;
-	/** Optional id — passing the same id replaces the existing toast. */
+	/** Optional id, passing the same id replaces the existing toast. */
 	id?: string | number;
 	/** Optional secondary line rendered under the toast message. */
 	description?: string;
@@ -99,9 +99,43 @@ function resolveDuration(
 }
 
 /**
+ * Single sonner dispatch point: selects the toast method for a
+ * ``SnackbarType`` and forwards the message + options. Extracted from
+ * three verbatim copies of the same switch (``showSnack`` inside
+ * ``useSnackbar``, ``showUndoableToast``, ``showRetryableToast``) so the
+ * variant → method mapping exists in exactly one place, adding or
+ * renaming a variant now touches one switch, not three.
+ */
+function dispatchToast(
+	type: SnackbarType,
+	message: string,
+	opts: {
+		duration: number;
+		id?: string | number;
+		description?: string;
+		action?: { label: string; onClick: () => void };
+	},
+): void {
+	switch (type) {
+		case "success":
+			toast.success(message, opts);
+			break;
+		case "error":
+			toast.error(message, opts);
+			break;
+		case "warning":
+			toast.warning(message, opts);
+			break;
+		case "info":
+			toast.info(message, opts);
+			break;
+	}
+}
+
+/**
  * Unified snackbar hook.  All toasts are rendered by sonner's global
  * ``<Toaster />`` mounted in App.tsx.  This hook returns only
- * ``showSnack`` / ``clearSnack`` — there is no ``Snackbar`` component
+ * ``showSnack`` / ``clearSnack``, there is no ``Snackbar`` component
  * to render (the bespoke Snackbar component was removed).
  */
 export function useSnackbar() {
@@ -133,20 +167,7 @@ export function useSnackbar() {
 			if (options?.action) {
 				opts.action = options.action;
 			}
-			switch (type) {
-				case "success":
-					toast.success(message, opts);
-					break;
-				case "error":
-					toast.error(message, opts);
-					break;
-				case "warning":
-					toast.warning(message, opts);
-					break;
-				case "info":
-					toast.info(message, opts);
-					break;
-			}
+			dispatchToast(type, message, opts);
 		},
 		[],
 	);
@@ -176,9 +197,9 @@ export function useSnackbar() {
  * @param message Toast message body.
  * @param undoLabel Label for the action button (default "Undo").
  * @param onUndo Called when the user clicks Undo.
- * @param type Toast type — controls icon + color.
+ * @param type Toast type, controls icon + color.
  * @param timeoutMs Duration in ms.  Defaults to the per-type default
- *   (6000ms for warnings) — callers that need a longer window (e.g.
+ *   (6000ms for warnings), callers that need a longer window (e.g.
  *   destructive undos) pass an explicit ``timeoutMs``.
  */
 export function showUndoableToast(
@@ -199,20 +220,7 @@ export function showUndoableToast(
 			onClick: onUndo,
 		},
 	};
-	switch (type) {
-		case "success":
-			toast.success(message, opts);
-			break;
-		case "error":
-			toast.error(message, opts);
-			break;
-		case "warning":
-			toast.warning(message, opts);
-			break;
-		case "info":
-			toast.info(message, opts);
-			break;
-	}
+	dispatchToast(type, message, opts);
 }
 
 /**
@@ -220,11 +228,11 @@ export function showUndoableToast(
  * "Retry" action button.  When the user clicks Retry (or presses the
  * toast's action key), ``onRetry`` fires.
  *
- * Mirrors ``showUndoableToast`` — same option shape (``retryLabel``,
+ * Mirrors ``showUndoableToast``, same option shape (``retryLabel``,
  * ``type``, ``timeoutMs``) and same per-type default-duration logic.
  * Defaults to ``type === "error"`` because the retry affordance is
  * most useful on failure toasts (mic test failed, export failed,
- * model download failed) — but callers can pass ``type: "warning"``
+ * model download failed), but callers can pass ``type: "warning"``
  * for recoverable-but-non-fatal issues.
  *
  * The default ``retryLabel`` is ``t("common.retry")``.
@@ -251,18 +259,5 @@ export function showRetryableToast(
 			onClick: onRetry,
 		},
 	};
-	switch (type) {
-		case "success":
-			toast.success(message, opts);
-			break;
-		case "error":
-			toast.error(message, opts);
-			break;
-		case "warning":
-			toast.warning(message, opts);
-			break;
-		case "info":
-			toast.info(message, opts);
-			break;
-	}
+	dispatchToast(type, message, opts);
 }

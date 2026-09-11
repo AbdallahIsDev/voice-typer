@@ -8,7 +8,7 @@
     clippy::cast_possible_truncation
 )]
 
-//! Sibling tests for `platform::worker_path` (per C-TEST-5 — sibling
+//! Sibling tests for `platform::worker_path` (per C-TEST-5, sibling
 //! test file, no inline tests in production source).
 //!
 //! Covers:
@@ -39,7 +39,7 @@ use super::*;
 // ── Constants ───────────────────────────────────────────────────────
 
 /// The worker exe base name (without triple suffix + .exe) must stay
-/// pinned to `voice-typer-worker` — `externalBin` in `tauri.conf.json`
+/// pinned to `voice-typer-worker`: `externalBin` in `tauri.conf.json`
 /// + `plugins.shell.scope` + the Python-side `build_worker_*.sh`
 /// `--output-filename` flag all depend on this exact string.
 #[test]
@@ -48,7 +48,7 @@ fn test_worker_bin_base_name_pinned() {
 }
 
 /// The runtime-pack directory leaf name must stay pinned to
-/// `runtime-pack` — the Python-side pack downloader + the
+/// `runtime-pack`: the Python-side pack downloader + the
 /// `pack-manifest.json` integrity verifier both depend on this
 /// exact leaf name.
 #[test]
@@ -56,7 +56,7 @@ fn test_runtime_pack_dir_pinned() {
     assert_eq!(RUNTIME_PACK_DIR, "runtime-pack");
 }
 
-/// The default pack version must stay pinned to `v1` — the
+/// The default pack version must stay pinned to `v1`, the
 /// Phase 2a skeleton uses this as the dev-only sentinel before the
 /// pack downloader is wired up. Production code paths set the
 /// `VOICE_TYPER_PACK_VERSION` env var explicitly.
@@ -68,7 +68,7 @@ fn test_default_pack_version_pinned() {
 // ── pack_dir_from_env (per-platform runtime-pack root) ──────────────
 
 /// Windows: `%LOCALAPPDATA%\voice-typer\runtime-pack\`
-/// (NOT `%APPDATA%` — the runtime-pack is a per-machine cache that
+/// (NOT `%APPDATA%`: the runtime-pack is a per-machine cache that
 /// should NOT roam with the user profile; the sidecar's `config_dir`
 /// uses `%APPDATA%` for roaming config, but the pack is separate.)
 #[cfg(target_os = "windows")]
@@ -434,7 +434,7 @@ fn test_worker_exe_path_is_pure() {
     let p2 = worker_exe_path_from_env(env, "v1");
     assert_eq!(
         p1, p2,
-        "worker_exe_path_from_env must be pure — same inputs → same output"
+        "worker_exe_path_from_env must be pure: same inputs → same output"
     );
 }
 
@@ -497,7 +497,7 @@ fn test_worker_exe_path_version_interpolated() {
 /// The first test to call `pack_version()` populates the cache; later
 /// tests see the same cached value regardless of env-var changes.
 /// To make this test deterministic, we set the env var BEFORE the
-/// first call to `pack_version()` — but we can't guarantee ordering
+/// first call to `pack_version()`: but we can't guarantee ordering
 /// across tests in the same binary. Instead, we test the env-var
 /// resolution logic by directly calling the underlying
 /// `std::env::var` + filter logic (mirroring `pack_version`'s body).
@@ -517,9 +517,9 @@ fn test_pack_version_default_when_unset() {
     );
 }
 
-/// The `DEFAULT_PACK_VERSION` constant is `"v1"` — pinned by
+/// The `DEFAULT_PACK_VERSION` constant is `"v1"`, pinned by
 /// `test_default_pack_version_pinned` above. This test verifies the
-/// fallback string is non-empty (defensive — a future refactor that
+/// fallback string is non-empty (defensive, a future refactor that
 /// accidentally empties the constant would silently break the path
 /// construction with a `<pack_dir>//<worker_name>` double-slash).
 #[test]
@@ -535,7 +535,7 @@ fn test_default_pack_version_nonempty() {
 /// `worker_exe_path()` returns a `&'static Path` (the `OnceLock` holds
 /// the `PathBuf` for the process lifetime). Calling it twice returns
 /// the SAME `&Path` pointer (the cache is stable). This pins the
-/// caching contract — a future refactor that drops the `OnceLock`
+/// caching contract: a future refactor that drops the `OnceLock`
 /// would silently re-resolve env vars on every call (microsecond cost
 /// per call, but adds up under the WS reader / writer hot loops).
 #[test]
@@ -570,7 +570,7 @@ fn test_worker_exe_path_file_name_matches_target_triple() {
 
 /// `WorkerPathEnv` must be `Clone + Copy + Debug + PartialEq + Eq`
 /// (the derive macros are pinned on the struct). The `Copy` bound is
-/// important — it lets tests pass `WorkerPathEnv` by value without
+/// important: it lets tests pass `WorkerPathEnv` by value without
 /// `.clone()` boilerplate, and it documents that the struct is a
 /// small fixed-size bundle of `Option<&'static str>`s (no heap
 /// allocation).
@@ -591,7 +591,7 @@ fn test_worker_path_env_is_copy_clone_debug_eq() {
     let debug_str = format!("{:?}", env_copy);
     assert!(
         !debug_str.is_empty(),
-        "WorkerPathEnv must impl Debug (derive) — got empty debug string"
+        "WorkerPathEnv must impl Debug (derive): got empty debug string"
     );
     // PartialEq + Eq: == comparison compiles.
     assert_eq!(

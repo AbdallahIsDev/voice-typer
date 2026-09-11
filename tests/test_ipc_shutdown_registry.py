@@ -47,13 +47,13 @@ class TestShutdownCommandRegistry:
 
         Without this entry the TCP / stdin transports return
         ``unknown_command`` (now ``server.unknown_command``) when the
-        host sends a ``shutdown`` frame — stranding the host's
+        host sends a ``shutdown`` frame, stranding the host's
         cooperative-shutdown path and forcing it to fall back to the
         SIGTERM / kill_children hard-timeout backstop.
         """
         assert "shutdown" in IPCServer._COMMAND_REGISTRY, (
             "EC-9 regression: 'shutdown' is not registered in "
-            "_COMMAND_REGISTRY — the TCP/stdin transports cannot "
+            "_COMMAND_REGISTRY, the TCP/stdin transports cannot "
             "handle a cooperative shutdown request from the host."
         )
 
@@ -62,7 +62,7 @@ class TestShutdownCommandRegistry:
 
         A future refactor that renames the handler without updating
         the registry (or vice-versa) would silently break the
-        cooperative-shutdown path — the dispatch lookup would return
+        cooperative-shutdown path, the dispatch lookup would return
         ``None`` and the command would fall through to
         ``unknown_command``. Pinning the mapping catches that drift.
         """
@@ -80,13 +80,13 @@ class TestShutdownCommandRegistry:
         :meth:`IPCServer._dispatch` resolves the string via
         ``getattr(self, handler_name)`` at call time. If the method is
         renamed or removed without updating the registry, the dispatch
-        lookup raises ``AttributeError`` — which the dispatch-level
+        lookup raises ``AttributeError``, which the dispatch-level
         ``except Exception`` catches and converts to
         ``server.internal_error``, again stranding the host.
         """
         assert hasattr(IPCServer, "_handle_shutdown"), (
             "EC-9 regression: IPCServer has no '_handle_shutdown' "
-            "method — the registry entry points at a non-existent "
+            "method, the registry entry points at a non-existent "
             "handler and dispatch will raise AttributeError."
         )
         assert callable(IPCServer._handle_shutdown), "EC-9 regression: IPCServer._handle_shutdown is not callable."
@@ -107,7 +107,7 @@ class TestShutdownCommandRegistry:
         # Build an IPCServer with a MagicMock app + service so we can
         # assert on call patterns without spinning up the real
         # VoiceTyperApp (which would require sounddevice / pystray /
-        # faster_whisper — all mocked at conftest level, but the real
+        # faster_whisper, all mocked at conftest level, but the real
         # construction is still heavyweight).
         app = MagicMock()
         service = MagicMock()
@@ -128,14 +128,14 @@ class TestShutdownCommandRegistry:
             time.sleep(0.02)
         # the service layer is the canonical shutdown path.
         service.quit.assert_called_once_with()
-        # ``self.app.quit()`` must NOT be called — that's the
+        # ``self.app.quit()`` must NOT be called, that's the
         # bypass-the-service-layer bug  is fixing.
         app.quit.assert_not_called()
 
         # the ack envelope matches the prior WS-path ack shape
         # (``{"type": "result", "data": {"ack": True}}``) so the
-        # Tauri Rust host's ``shutdown`` match arm — which awaits this
-        # exact envelope before tearing down — keeps working unchanged.
+        # Tauri Rust host's ``shutdown`` match arm, which awaits this
+        # exact envelope before tearing down, keeps working unchanged.
         assert result is not None, (
             "_handle_shutdown must return the resp envelope (not None) "
             "so the dispatcher sends the ack back to the host."
@@ -163,7 +163,7 @@ class TestShutdownCommandRegistry:
         server = IPCServer(app, service=service)
 
         resp: dict = {"id": 42}
-        # Must NOT raise — the handler catches the exception, logs it
+        # Must NOT raise, the handler catches the exception, logs it
         # server-side, and still returns the ack.
         result = server._handle_shutdown(data=None, resp=resp)
 

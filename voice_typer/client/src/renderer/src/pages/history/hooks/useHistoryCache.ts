@@ -9,26 +9,26 @@
 //   keystroke)
 // - ``load`` (backend → React state; branches on filter to call
 //   ``get_history`` / ``get_favorites`` / ``search_history``)
-// - ``loadMore`` (paging — appends the next page to ``records``)
+// - ``loadMore`` (paging, appends the next page to ``records``)
 // - ``refreshFromEvent`` (re-fetches WITHOUT flipping ``loading`` so
 //   background ``transcription_final`` / ``history_changed`` events
 //   don't swap the spinner back in over the user's existing list)
-// - ``setFilter`` (cheap ref-only update — the page calls this every
+// - ``setFilter`` (cheap ref-only update, the page calls this every
 //   render to keep the hook's filter mirror in sync with the page's
 //   ``searchQuery`` / ``favoritesOnly`` state)
 //
 // Cursor pagination: ``loadMore`` now passes
 // ``before_timestamp`` + ``before_id`` (the ``(timestamp, id)`` of the
 // last row currently in ``records``) so the backend can use keyset
-// (cursor) pagination — O(log N) per page via ``idx_timestamp`` —
+// (cursor) pagination, O(log N) per page via ``idx_timestamp`` —
 // instead of OFFSET (O(N) scan). The OFFSET path is kept as a fallback
 // for the FIRST load (when ``records`` is empty and there's no last
 // row to anchor a cursor on) and for any page where the last row is
-// missing a ``timestamp`` or ``id`` field (defensive — older rows
+// missing a ``timestamp`` or ``id`` field (defensive, older rows
 // written before the ``id`` column existed can't be cursor-anchored).
 //
 // Pattern mirrors ``useVocabulary`` (sibling hook under
-// ``pages/vocabulary/hooks/useVocabulary.ts``) — backend list → React
+// ``pages/vocabulary/hooks/useVocabulary.ts``), backend list → React
 // state, error surfaced via ``loadError`` so the page can render a
 // retry EmptyState instead of an ambiguous empty list.
 //
@@ -49,7 +49,7 @@ import { deriveHistoryCursor, type HistoryCursor } from "../utils/cursor";
 export type { HistoryCursor };
 
 // Module-cache keys for the SWR seed (see lib/ipcCache.ts). Only the
-// FIRST page + stats are cached — that's what a revisit renders
+// FIRST page + stats are cached, that's what a revisit renders
 // instantly; `load` always revalidates fresh data over it.
 const HISTORY_CACHE_KEY = "history.firstPage";
 const HISTORY_STATS_CACHE_KEY = "history.todayStats";
@@ -74,7 +74,7 @@ const HISTORY_MAX_ROWS = 5000;
  * timestamp strings compare chronologically as strings and ``id``
  * breaks exact-timestamp ties. Rows whose fields are missing/untyped
  * (legacy rows written before the ``id`` column existed) are treated as
- * older — the conservative branch never truncates the user's list.
+ * older, the conservative branch never truncates the user's list.
  */
 function isRowOlderThan(row: HistoryRecord, anchor: HistoryRecord): boolean {
 	if (
@@ -97,14 +97,14 @@ function isRowOlderThan(row: HistoryRecord, anchor: HistoryRecord): boolean {
  * place instead of truncating the list.
  *
  * The fresh window replaces any existing row with the same ``id`` (its data
- * is newer — an edited row refreshes in place). The existing tail is
+ * is newer, an edited row refreshes in place). The existing tail is
  * retained only for rows strictly OLDER than the fresh window's oldest row
  * and not already covered by it, so:
  *   - appended tail rows keep the merged list in keyset order (they are all
  *     older than every fresh row);
  *   - a row deleted inside the fresh window is dropped, not resurrected;
  *   - a row deleted beyond the window lingers (stale) until the next full
- *     ``load`` — detecting it would require re-fetching the full depth,
+ *     ``load``, detecting it would require re-fetching the full depth,
  *     which the server's row cap exists to prevent.
  *
  * Callers cap the result at ``HISTORY_MAX_ROWS``.
@@ -118,7 +118,7 @@ function mergeRefreshedRecords(
 	// Content keys for legacy rows: rows written before the ``id``
 	// column existed carry no numeric ``id``, so id-keyed dedup can
 	// never match them. A legacy tail row whose ``(timestamp, text)``
-	// equals a fresh row IS that row (now carrying its id) — drop it
+	// equals a fresh row IS that row (now carrying its id), drop it
 	// instead of rendering the entry twice.
 	const freshContentKeys = new Set<string>();
 	for (const r of fresh) {
@@ -181,7 +181,7 @@ export function useHistoryCache(): UseHistoryCacheReturn {
 
 	// Ref mirrors of `call` / `markUpdated` so the load callbacks keep
 	// STABLE identities (`[]`-ish deps). Both are useCallback-stable in
-	// production, but test mocks return FRESH functions per render — an
+	// production, but test mocks return FRESH functions per render, an
 	// identity churn would re-create `load` every render and re-fire the
 	// page's mount-load effect (fetch → setRecords → re-render → new
 	// call → loop → worker OOM). Same pattern as useVocabulary.ts.
@@ -222,7 +222,7 @@ export function useHistoryCache(): UseHistoryCacheReturn {
 	 */
 	const deriveCursor = useCallback(deriveHistoryCursor, []);
 
-	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract — .current must NOT become a dep
+	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract, .current must NOT become a dep
 	const fetchPage = useCallback(
 		async (
 			query: string,
@@ -232,13 +232,13 @@ export function useHistoryCache(): UseHistoryCacheReturn {
 			cursor?: HistoryCursor,
 		): Promise<HistoryRecord[]> => {
 			// build the base payload with ``limit`` + ``offset``
-			// (the OFFSET path — always present so the backend can fall
+			// (the OFFSET path, always present so the backend can fall
 			// back to it when cursor params are absent or the cursor
 			// anchor row has been deleted). When ``cursor`` is supplied
 			// (i.e. ``loadMore`` paginating past the first page with a
 			// valid last-row ``(timestamp, id)``), also pass
 			// ``before_timestamp`` + ``before_id`` so the backend uses
-			// keyset pagination — O(log N) via ``idx_timestamp`` instead
+			// keyset pagination, O(log N) via ``idx_timestamp`` instead
 			// of the O(N) OFFSET scan. The server side (
 			// ``server/service/history.py``) accepts both shapes and
 			// prefers the cursor when both fields are non-null.
@@ -270,7 +270,7 @@ export function useHistoryCache(): UseHistoryCacheReturn {
 	// ``load`` is invoked from the page mount effect, the search debounce,
 	// the favorites toggle, the retry button, and the manual refresh
 	// button. When called with no args, falls back to the filter ref.
-	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract — .current must NOT become a dep
+	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract, .current must NOT become a dep
 	const load = useCallback(
 		async (query?: string, favoritesOnly?: boolean) => {
 			// Resolve the effective filter (explicit args win; otherwise read
@@ -283,7 +283,7 @@ export function useHistoryCache(): UseHistoryCacheReturn {
 			setLoading(true);
 			setLoadError(null);
 			try {
-				// First load — no cursor (OFFSET path). The backend returns
+				// First load, no cursor (OFFSET path). The backend returns
 				// the first ``HISTORY_PAGE_SIZE`` rows in ``(timestamp DESC,
 				// id DESC)`` order; ``loadMore`` will cursor-anchor on the
 				// last row of this page for subsequent fetches.
@@ -301,7 +301,7 @@ export function useHistoryCache(): UseHistoryCacheReturn {
 				};
 				setRecords(firstPage);
 				setStats(nextStats);
-				// SWR write-through — the next visit to this page seeds
+				// SWR write-through, the next visit to this page seeds
 				// from this snapshot instead of showing a loading state.
 				writeIpcCache(HISTORY_CACHE_KEY, firstPage);
 				writeIpcCache(HISTORY_STATS_CACHE_KEY, nextStats);
@@ -329,7 +329,7 @@ export function useHistoryCache(): UseHistoryCacheReturn {
 		const offset = offsetRef.current;
 		// derive cursor params from the last row of the current
 		// cache so the backend can use keyset (cursor) pagination. When
-		// the cache is empty (first load — shouldn't happen here since
+		// the cache is empty (first load, shouldn't happen here since
 		// ``loadMore`` is only called after ``load``) or the last row is
 		// missing ``timestamp`` / ``id``, ``deriveCursor`` returns
 		// ``undefined`` and ``fetchPage`` falls back to the OFFSET path.
@@ -366,13 +366,13 @@ export function useHistoryCache(): UseHistoryCacheReturn {
 	// ``transcription_final`` / ``history_changed`` handlers. It re-runs
 	// the load WITHOUT flipping ``loading`` so the spinner doesn't swap
 	// back in over the user's existing list during a background refresh.
-	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract — .current must NOT become a dep
+	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract, .current must NOT become a dep
 	const refreshFromEvent = useCallback(async () => {
 		const { query, favoritesOnly } = filterRef.current;
 
 		try {
 			// Refresh always re-fetches from the TOP (offset 0, no cursor)
-			// — a background ``transcription_final`` event means a NEW row
+			//, a background ``transcription_final`` event means a NEW row
 			// was inserted at the head of the list, so we want the freshest
 			// first page, not the next page after the old last row. The
 			// OFFSET path (no cursor) is correct here. Preserve the current
@@ -401,14 +401,14 @@ export function useHistoryCache(): UseHistoryCacheReturn {
 			// deleted inside the fresh window is dropped (it is not
 			// older than the head's oldest row); one deleted beyond
 			// the window lingers as stale until the next full
-			// ``load`` — an accepted, self-healing trade (detecting
+			// ``load``, an accepted, self-healing trade (detecting
 			// it would require re-fetching the full depth, which the
 			// server cap exists to prevent). An EMPTY fresh response
 			// means the filtered result set is gone entirely —
 			// replace, don't retain stale rows.
 			// Functional updater: a concurrent Load-More may commit its
 			// appended page between this refresh's IPC completion and the
-			// state commit — merging against the UP-TO-DATE state (not the
+			// state commit, merging against the UP-TO-DATE state (not the
 			// snapshot read before the await) preserves that page instead
 			// of overwriting it (lost-update hardening). ``hasMore`` and
 			// the offset derive from the COMMITTED merge for the same
@@ -432,7 +432,7 @@ export function useHistoryCache(): UseHistoryCacheReturn {
 				// holds ``refreshLimit`` rows (a false positive costs one
 				// Load-More click that returns 0 rows and self-corrects).
 				// An EMPTY fresh response means the filtered result set
-				// is gone entirely — ``capped`` is empty, ``hasMore``
+				// is gone entirely, ``capped`` is empty, ``hasMore``
 				// goes false, stale rows are not retained.
 				offsetRef.current = capped.length;
 				setHasMore(capped.length >= refreshLimit);
@@ -452,7 +452,7 @@ export function useHistoryCache(): UseHistoryCacheReturn {
 		}
 	}, [fetchPage]);
 
-	// Cheap ref-only update — called on every page render to keep the
+	// Cheap ref-only update, called on every page render to keep the
 	// hook's filter mirror in sync with the page's state. Must NOT
 	// trigger a re-render or fetch (the page decides when to fetch via
 	// ``load()`` / ``handleSearch`` debounce).

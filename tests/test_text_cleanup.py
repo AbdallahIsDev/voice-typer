@@ -545,7 +545,7 @@ class TestCorrectionsJsonIsValid:
         assert len(data["misspellings"]) >= 1, "corrections.json must have at least 1 misspelling entry"
 
 
-# Text cleanup test depth — Unicode + boundary + concurrent ─
+# Text cleanup test depth, Unicode + boundary + concurrent ─
 
 
 class TestTextCleanupUnicode:
@@ -759,7 +759,7 @@ class TestPhraseCorrectionPerformance:
         # a compiled ``re.Pattern`` (the combined alternation) plus a
         # non-empty lookup dict whose size matches the active phrases
         # (modulo first-wins dedup, which is a no-op for the bundled
-        # corrections.json — every bad phrase is unique).
+        # corrections.json, every bad phrase is unique).
         phrase_re, phrase_lookup = text_cleanup._get_phrases_regex()
         if text_cleanup._active_phrases:
             assert isinstance(phrase_re, re.Pattern)
@@ -852,7 +852,7 @@ class TestPhraseCorrectionPerformance:
 
     def test_membership_test_uses_original_lower_not_mutated_text(self):
         """XV-42: the membership test must check the ORIGINAL lowercased
-        text, not the mutated text — matching the original
+        text, not the mutated text, matching the original
         ``lower = text.lower()`` computed once before the loop.
 
         We install a phrase pair where the first substitution INTRODUCES
@@ -870,7 +870,7 @@ class TestPhraseCorrectionPerformance:
             text_cleanup._active_phrases = [("foo", "bar"), ("bar", "SHOULD_NOT_APPEAR")]
             # 'foo' -> 'bar' (introduces 'bar'); 'bar' should NOT then
             # match because the membership test uses original lower 'foo',
-            # not the mutated 'bar' — ``re.sub`` finds all matches in the
+            # not the mutated 'bar': ``re.sub`` finds all matches in the
             # ORIGINAL text before applying substitutions, so a
             # substitution cannot trigger another match in the same pass.
             out = text_cleanup._correct_whisper_phrases("foo")

@@ -1,4 +1,4 @@
-r"""MIG-1.8 Phase 1 — externalBin per-arch wiring validation (cross-platform).
+r"""MIG-1.8 Phase 1: externalBin per-arch wiring validation (cross-platform).
 
 This is the **Phase 1 wiring check** for the MIG-1.8 cross-platform
 externalBin + resources configuration. It validates that
@@ -17,7 +17,7 @@ Scope (ADR-0020 §4.1 + §7 + §6.4 + §5):
 1. **externalBin (base name + Tauri-appended triple).**
    ``tauri.conf.json`` declares
    ``bundle.externalBin: ["bin/python-sidecar", "bin/voice-typer-worker"]``
-   (Tauri appends the Rust target triple at spawn time — ADR-0020 §7
+   (Tauri appends the Rust target triple at spawn time, ADR-0020 §7
    "externalBin per-arch naming" + §4.1). The actual on-disk binaries
    are ``src-tauri/bin/python-sidecar-<triple>[.exe]`` and
    ``voice-typer-worker-<triple>[.exe]``. The base-name form is the
@@ -37,8 +37,8 @@ Scope (ADR-0020 §4.1 + §7 + §6.4 + §5):
        resources/native/linux-key-listener
 
    Native hotkey binaries are ``resources`` (NOT ``externalBin``) because
-   they are spawned by the Python sidecar — ADR-0020 §6.4 + §7. The old
-   per-arch prewarm resources are GONE (asserted absent below) — the
+   they are spawned by the Python sidecar, ADR-0020 §6.4 + §7. The old
+   per-arch prewarm resources are GONE (asserted absent below), the
    worker exe is spawned through externalBin, not extracted as a
    resource.
 
@@ -51,7 +51,7 @@ Scope (ADR-0020 §4.1 + §7 + §6.4 + §5):
    ``platform::worker_path::worker_exe_path_from_env``). Tauri's own
    ``externalBin`` resolver uses the same triple logic internally.
    All 6 supported (arch, os) combos must map to the exact triple
-   string Tauri expects — ADR-0020 §4.1.
+   string Tauri expects, ADR-0020 §4.1.
 
 4. **Shell scope + capabilities grant spawn on the sidecar.**
    Tauri v2 ships zero permissions by default; the
@@ -63,7 +63,7 @@ Scope (ADR-0020 §4.1 + §7 + §6.4 + §5):
    spawn is scoped to the sidecar binary only (ADR-0020 §7).
 
 This file does NOT spawn any real process. Every test is a static
-assertion over the JSON config + Rust source as text — same pattern as
+assertion over the JSON config + Rust source as text, same pattern as
 the MIG-1.5/1.6/1.7 ``test_externalbin_spawn_*.py`` files.
 
 VALIDATE ON HOST
@@ -73,7 +73,7 @@ This file is the Linux-sandbox wiring check. The actual cross-platform
 build + runtime validation MUST be executed by a human on real hosts
 (ADR-0020 §6 / runbook). One host per platform × arch combo:
 
-**VALIDATE ON HOST — Windows x64 (x86_64-pc-windows-msvc)**::
+**VALIDATE ON HOST, Windows x64 (x86_64-pc-windows-msvc)**::
 
     # 1. Build the sidecar .exe via Nuitka (gate check 1)
     python -m nuitka --onefile voice_typer/server/ipc_server.py \
@@ -97,7 +97,7 @@ build + runtime validation MUST be executed by a human on real hosts
     # 5. Confirm the ML worker exe exists in the runtime-pack dir:
     dir "%LOCALAPPDATA%\voice-typer\runtime-pack\<version>\voice-typer-worker-x86_64-pc-windows-msvc.exe"
 
-**VALIDATE ON HOST — Windows ARM64 (aarch64-pc-windows-msvc)**::
+**VALIDATE ON HOST, Windows ARM64 (aarch64-pc-windows-msvc)**::
 
     # Cross-compile from an x64 host (requires ARM64 toolchain).
     rustup target add aarch64-pc-windows-msvc
@@ -108,7 +108,7 @@ build + runtime validation MUST be executed by a human on real hosts
     # on a Windows-on-ARM device (Surface Pro X, Lenovo ThinkPad X13s).
     dir "%LOCALAPPDATA%\voice-typer\runtime-pack\<version>\voice-typer-worker-aarch64-pc-windows-msvc.exe"
 
-**VALIDATE ON HOST — macOS Intel (x86_64-apple-darwin)**::
+**VALIDATE ON HOST, macOS Intel (x86_64-apple-darwin)**::
 
     # On an Intel Mac (or via `arch -x86_64` on Apple Silicon):
     cd src-tauri
@@ -121,7 +121,7 @@ build + runtime validation MUST be executed by a human on real hosts
     ls ~/Library/Application\ Support/voice-typer/runtime-pack/<version>/ \
         | grep voice-typer-worker-x86_64-apple-darwin
 
-**VALIDATE ON HOST — macOS Apple Silicon (aarch64-apple-darwin)**::
+**VALIDATE ON HOST, macOS Apple Silicon (aarch64-apple-darwin)**::
 
     cd src-tauri
     cargo tauri build --target aarch64-apple-darwin
@@ -132,7 +132,7 @@ build + runtime validation MUST be executed by a human on real hosts
     ls ~/Library/Application\ Support/voice-typer/runtime-pack/<version>/ \
         | grep voice-typer-worker-aarch64-apple-darwin
 
-**VALIDATE ON HOST — Linux x64 (x86_64-unknown-linux-gnu)**::
+**VALIDATE ON HOST, Linux x64 (x86_64-unknown-linux-gnu)**::
 
     cd src-tauri
     cargo tauri build --target x86_64-unknown-linux-gnu
@@ -143,7 +143,7 @@ build + runtime validation MUST be executed by a human on real hosts
     # The worker exe lives in the runtime-pack data dir:
     ls ~/.local/share/voice-typer/runtime-pack/<version>/voice-typer-worker-x86_64-unknown-linux-gnu
 
-**VALIDATE ON HOST — Linux ARM64 (aarch64-unknown-linux-gnu)**::
+**VALIDATE ON HOST, Linux ARM64 (aarch64-unknown-linux-gnu)**::
 
     # On an ARM64 Linux host (Raspberry Pi 5, Ampere Altra, AWS Graviton).
     rustup target add aarch64-unknown-linux-gnu
@@ -157,18 +157,18 @@ build + runtime validation MUST be executed by a human on real hosts
 Each host run validates two things:
 1. The ``externalBin`` base names resolved to the right per-triple
    sidecar / worker binaries (sidecar spawned within 30 s, log shows
-   ``server_started port=<ephemeral>`` — never a fixed port like 9876).
+   ``server_started port=<ephemeral>``, never a fixed port like 9876).
 2. The per-arch worker exe is discoverable by
    ``worker_path::worker_exe_path_from_env`` in the runtime-pack dir
    (the file exists at the versioned path the path resolver returns).
 
 References:
-- ADR-0020 §4.1 — per-arch externalBin binary naming + ``target_triple_for``.
-- ADR-0020 §5 — prewarm binary is a ``bundle.resource`` (NOT externalBin).
-- ADR-0020 §6.4 — native hotkey binary is a ``bundle.resource``.
-- ADR-0020 §7 — ``tauri.conf.json`` externalBin + resources + shell scope
+- ADR-0020 §4.1, per-arch externalBin binary naming + ``target_triple_for``.
+- ADR-0020 §5, prewarm binary is a ``bundle.resource`` (NOT externalBin).
+- ADR-0020 §6.4, native hotkey binary is a ``bundle.resource``.
+- ADR-0020 §7: ``tauri.conf.json`` externalBin + resources + shell scope
   + capabilities JSON contract.
-- ADR-0020 §15 — six target triples (3 platforms × 2 archs) are the
+- ADR-0020 §15, six target triples (3 platforms × 2 archs) are the
   full MIG-1.8 cross-platform build matrix.
 """
 
@@ -246,7 +246,7 @@ def _read_spawn_module() -> str:
     (``spawn/dev_mode.rs``, ``spawn/release_mode.rs``,
     ``spawn/handshake.rs``, ``spawn/env_allowlist.rs``,
     ``spawn/target_triple.rs``; ``spawn/prewarm.rs`` was deleted when
-    prewarm became a worker startup phase — master plan §6.2 P-1). The
+    prewarm became a worker startup phase, master plan §6.2 P-1). The
     gate assertions target the spawn module as a whole, so we read every
     file and join them.
     """
@@ -279,7 +279,7 @@ def test_tauri_conf_external_bin_lists_python_sidecar_basename(
     The Tauri v2 ``externalBin`` mechanism appends the Rust target
     triple at runtime, so the JSON entry is the binary **base name**
     (no triple suffix, no ``.exe``). The Rust host calls
-    ``app.shell().sidecar("python-sidecar")`` — tauri-plugin-shell
+    ``app.shell().sidecar("python-sidecar")``, tauri-plugin-shell
     appends the triple internally and finds the right per-arch binary
     on disk (e.g. ``src-tauri/bin/python-sidecar-x86_64-pc-windows-msvc.exe``
     on Windows x64).
@@ -299,7 +299,7 @@ def test_tauri_conf_external_bin_has_no_triple_suffix_entries(
     """ADR-0020 §4.1 + §7: externalBin must NOT contain triple-suffixed entries.
 
     Tauri v2's ``externalBin`` mechanism appends the target triple at
-    runtime — listing the per-triple binary names explicitly would
+    runtime, listing the per-triple binary names explicitly would
     cause Tauri to look for ``python-sidecar-<triple>-<triple>[.exe]``
     (double-suffixed) and fail with "sidecar not found" at launch.
     The base-name-only form is the contract.
@@ -316,7 +316,7 @@ def test_tauri_conf_external_bin_has_no_triple_suffix_entries(
     for entry in external_bin:
         assert not triple_suffix_re.search(entry), (
             f"externalBin entry {entry!r} must NOT contain a target-triple "
-            f"suffix — Tauri appends the triple at runtime. Use the base "
+            f"suffix, Tauri appends the triple at runtime. Use the base "
             f"name only (e.g. {EXPECTED_EXTERNAL_BIN_BASENAME!r})."
         )
 
@@ -362,7 +362,7 @@ def test_tauri_conf_external_bin_lists_worker(tauri_conf) -> None:
     """
     external_bin = tauri_conf.get("bundle", {}).get("externalBin", [])
     assert EXPECTED_WORKER_BIN_BASENAME in external_bin, (
-        f"bundle.externalBin must contain {EXPECTED_WORKER_BIN_BASENAME!r} (the ML worker exe — master plan §6.2 P-1)"
+        f"bundle.externalBin must contain {EXPECTED_WORKER_BIN_BASENAME!r} (the ML worker exe, master plan §6.2 P-1)"
     )
 
 
@@ -372,13 +372,13 @@ def test_tauri_conf_resources_exclude_prewarm_binaries(tauri_conf) -> None:
     The standalone prewarm binary was retired; the worker exe (which
     runs the warm phase) is an externalBin, not a bundle resource.
     Any ``resources/prewarm-*`` entry in tauri.conf.json is a
-    regression — the old binaries no longer exist to be bundled, and
+    regression, the old binaries no longer exist to be bundled, and
     the installers would bloat with dead entries.
     """
     resources = tauri_conf.get("bundle", {}).get("resources", [])
     prewarm_entries = [r for r in resources if "prewarm" in r]
     assert not prewarm_entries, (
-        f"bundle.resources must NOT contain prewarm binaries (retired, master plan §6.2 P-1) — got: {prewarm_entries}"
+        f"bundle.resources must NOT contain prewarm binaries (retired, master plan §6.2 P-1), got: {prewarm_entries}"
     )
 
 
@@ -441,7 +441,7 @@ def test_spawn_rs_target_triple_for_has_six_known_arms(spawn_rs_source) -> None:
     The MIG-1.8 cross-platform build matrix is 3 platforms × 2 archs
     = 6 target triples (Windows x64/ARM64, macOS Intel/Apple Silicon,
     Linux x64/ARM64). The match in ``target_triple_for`` must have an
-    explicit arm for each — a missing arm means users on that arch
+    explicit arm for each, a missing arm means users on that arch
     see "sidecar not found" at launch.
     """
     # Extract the match body of target_triple_for.
@@ -504,7 +504,7 @@ def test_worker_exe_path_uses_current_target_triple() -> None:
     The worker exe is named ``voice-typer-worker-<triple>[.exe]`` (one
     per target triple) inside the runtime-pack dir.
     ``platform/worker_path.rs::worker_exe_path_from_env`` must call
-    ``current_target_triple()`` to resolve the suffix — NOT hardcode a
+    ``current_target_triple()`` to resolve the suffix, NOT hardcode a
     single arch (which would silently break on the other 5 triples).
     """
     worker_path_src = (_SRC_TAURI / "src" / "platform" / "worker_path.rs").read_text(encoding="utf-8")
@@ -526,7 +526,7 @@ def test_worker_exe_path_uses_current_target_triple() -> None:
         "worker_exe_path_from_env must format the binary name as "
         "`voice-typer-worker-{triple}{suffix}` (master plan §6.2 P-1)"
     )
-    # The Windows .exe suffix must be conditional on cfg!(windows) — a
+    # The Windows .exe suffix must be conditional on cfg!(windows), a
     # hardcoded `.exe` would break macOS/Linux; a hardcoded empty suffix
     # would break Windows.
     assert re.search(r"cfg!\s*\(\s*windows\s*\)", worker_path_src), (
@@ -546,13 +546,13 @@ def test_tauri_conf_shell_config_is_v2_valid(tauri_conf) -> None:
     fail app startup with "unknown field `scope`, expected `open`"
     (found on the first Windows host run). Both externalBins
     (python-sidecar + voice-typer-worker) are spawned by the Rust host
-    via ``app.shell().sidecar(...)`` — not ACL-scoped through
+    via ``app.shell().sidecar(...)``, not ACL-scoped through
     ``plugins.shell``; the JS-facing ``shell:allow-spawn`` grant keeps
     its deny-all default scope.
     """
     shell = tauri_conf.get("plugins", {}).get("shell")
     assert shell == {"open": False}, (
-        "plugins.shell must be exactly {'open': false} — tauri-plugin-shell "
+        "plugins.shell must be exactly {'open': false}, tauri-plugin-shell "
         "v2 rejects 'sidecar'/'scope' keys at startup ('unknown field "
         f"`scope`, expected `open`'); got {shell!r}"
     )
@@ -564,7 +564,7 @@ def test_tauri_conf_capabilities_reference_migrate_runtime(
     """ADR-0020 §7: ``app.security.capabilities`` must reference ``main-runtime``.
 
     The capability identifier in the JSON must match the file at
-    ``src-tauri/capabilities/main-runtime.json`` — Tauri resolves
+    ``src-tauri/capabilities/main-runtime.json``, Tauri resolves
     capability names by filename stem, not by the ``identifier`` field
     inside the JSON.
     """
@@ -588,7 +588,7 @@ def test_capabilities_json_grants_shell_allow_spawn(
     must explicitly grant ``shell:allow-spawn`` for the Rust host to
     spawn the ``python-sidecar`` binary via the ``app.shell().sidecar()``
     API. Without this grant, the spawn is silently blocked at runtime
-    (no compile error — the WebView's ``invoke('dispatch', ...)`` call
+    (no compile error, the WebView's ``invoke('dispatch', ...)`` call
     just hangs).
     """
     permissions = migrate_runtime_capability.get("permissions", [])
@@ -612,7 +612,7 @@ def test_capabilities_json_grants_shell_allow_kill(
     the cooperative ``{"type":"shutdown"}`` WS message does not ack
     within the shutdown timeout. Without ``shell:allow-kill``, the
     force-kill is silently blocked and the zombie sidecar keeps its
-    WebSocket port bound — the next respawn fails with "address in use".
+    WebSocket port bound, the next respawn fails with "address in use".
     """
     permissions = migrate_runtime_capability.get("permissions", [])
     assert "shell:allow-kill" in permissions, (

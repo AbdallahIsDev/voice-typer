@@ -41,7 +41,7 @@ export function WelcomeStep({ headingRef }: WelcomeStepProps) {
 			</p>
 			<ul className="flex flex-col gap-2 text-sm text-(--text-secondary)">
 				{/* `as const` keeps n a numeric-literal union so the template
-				    key collapses to the six real catalog keys — a plain
+				    key collapses to the six real catalog keys, a plain
 				    `number` would fall outside the compile-time
 				    translation-catalog contract on t(). */}
 				{([1, 2, 3, 4, 5, 6] as const).map((n) => (

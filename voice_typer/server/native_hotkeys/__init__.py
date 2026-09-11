@@ -4,22 +4,22 @@ Provides out-of-process hotkey detection via small native binaries that
 emit line-delimited events on stdout. This module implements the
 "Freestyle architecture" for Voice Typer:
 
-- macOS: ``macos-key-listener`` (Swift) — supports the FN key via
+- macOS: ``macos-key-listener`` (Swift), supports the FN key via
   ``NSEvent.modifierFlags.contains(.function)`` plus a ``CGEvent.tap``
   for key-up reliability and hotkey suppression.
-- Windows: ``windows-key-listener.exe`` (C) — uses ``WH_KEYBOARD_LL``
+- Windows: ``windows-key-listener.exe`` (C), uses ``WH_KEYBOARD_LL``
   (event-driven) instead of ``GetAsyncKeyState`` polling. Lower CPU,
   sub-millisecond latency, supports key suppression and modifier-only
   detection.
-- Linux: ``linux-key-listener`` (C) — uses ``/dev/input/event*``
+- Linux: ``linux-key-listener`` (C), uses ``/dev/input/event*``
   (evdev). Works on both X11 and Wayland (unlike pynput which is X11
-  only). Read-only — no key suppression on Linux.
+  only). Read-only, no key suppression on Linux.
 
 Wire protocol (line-delimited stdout, same for all three binaries):
 
     READY                  # emitted once after init succeeds
-    FN_DOWN                # macOS only — Fn/Globe pressed (edge-detected)
-    FN_UP                  # macOS only — Fn/Globe released (edge-detected)
+    FN_DOWN                # macOS only: Fn/Globe pressed (edge-detected)
+    FN_UP                  # macOS only: Fn/Globe released (edge-detected)
     KEY_DOWN:<Name>        # non-modifier key pressed
     KEY_UP:<Name>          # non-modifier key released
     MOD_DOWN:<Name>        # modifier pressed (Ctrl, Shift, Alt, Cmd/Win/Super)
@@ -47,7 +47,7 @@ All three backends share ``SubprocessHotkeyBackend`` which handles:
 - Restart-on-crash with exponential backoff (max 5 attempts)
 - Clean shutdown via SIGTERM (POSIX) / terminate() (Windows)
 
-Phase 4.5 /  — this file was previously a 1,188-line god-module
+Phase 4.5 / : this file was previously a 1,188-line god-module
 (``voice_typer/server/native_hotkeys.py``); it has been split into a
 package with one module per concern.  This ``__init__.py`` re-exports
 every public name that the original module exposed so existing imports
@@ -79,8 +79,8 @@ propagates to all callers.
 # `base.SubprocessHotkeyBackend._spawn_process` does `import subprocess`
 # directly (same module object), so the patch propagates to the actual
 # `subprocess.Popen` call site.
-import subprocess  # noqa: F401 — re-exported for monkeypatch.setattr targets
-import sys  # noqa: F401 — re-exported for monkeypatch.setattr targets
+import subprocess  # noqa: F401, re-exported for monkeypatch.setattr targets
+import sys  # noqa: F401, re-exported for monkeypatch.setattr targets
 
 from voice_typer.server.platform_utils import (
     is_linux,
@@ -95,7 +95,7 @@ from voice_typer.server.platform_utils import (
 # ``from voice_typer.server import native_hotkeys as _native_hotkeys_pkg``
 # to defer ``is_windows`` / ``is_linux`` / ``is_macos`` lookups to call
 # time, so the package's bindings for those names must be in place
-# before the submodules' lambdas ever fire — which they are, because
+# before the submodules' lambdas ever fire, which they are, because
 # the lambdas only execute when the wrapped functions are called at
 # runtime, long after this ``__init__.py`` has finished loading.
 from .base import (

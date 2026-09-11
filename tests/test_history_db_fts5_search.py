@@ -84,7 +84,7 @@ class TestFts5SearchWiring:
         assert [r["text"] for r in results] == ["The quick brown fox"]
 
     def test_search_no_match_returns_empty_list(self, db):
-        """A query that matches no tokens returns an empty list — the
+        """A query that matches no tokens returns an empty list, the
         sentinel for list-returning methods (ERR-013)."""
         results = db.search("nonexistenttok")
         assert results == []
@@ -105,7 +105,7 @@ class TestFts5SearchWiring:
 
     def test_search_separator_only_queries_take_like_fallback(self, db, monkeypatch):
         """Every non-empty separator-only query (punctuation, wildcards)
-        keeps the LIKE fallback path — the pinned contract
+        keeps the LIKE fallback path, the pinned contract
         (test_history_db.py, test_history_search_cjk.py). The fallback
         MUST actually run; short-circuiting these queries to an empty
         result regressed CJK punctuation search."""
@@ -131,13 +131,13 @@ class TestFts5SearchWiring:
 
     def test_search_preserves_order_by_timestamp_desc(self, db, tmp_path):
         """Results must be ordered by ``timestamp DESC`` (newest first)
-        — the same ordering contract as the pre-FTS5 LIKE path.
+        , the same ordering contract as the pre-FTS5 LIKE path.
 
-        We use explicit timestamps (via a writer closure) rather than
-        ``add_transcription`` + ``time.sleep`` because the latter only
-        has SECOND resolution: two rows added in the same second get
-        the same timestamp and the ORDER BY tie-break is
-        implementation-defined."""
+          We use explicit timestamps (via a writer closure) rather than
+          ``add_transcription`` + ``time.sleep`` because the latter only
+          has SECOND resolution: two rows added in the same second get
+          the same timestamp and the ORDER BY tie-break is
+          implementation-defined."""
         from datetime import datetime, timedelta
 
         from voice_typer.server.history_db import HistoryDB
@@ -189,7 +189,7 @@ class TestFts5SearchWiring:
 
 class TestFts5HelpersAreUsed:
     """``_is_fts_compatible_query`` and ``_sanitize_fts_query`` must
-    no longer be dead code — they are now wired into ``search()``."""
+    no longer be dead code, they are now wired into ``search()``."""
 
     def test_is_fts_compatible_query_returns_true_for_word(self):
         from voice_typer.server.history_db import _is_fts_compatible_query
@@ -224,7 +224,7 @@ class TestFts5HelpersAreUsed:
         assert _sanitize_fts_query("hello world") == '"hello" "world"'
 
     def test_sanitize_fts_query_treats_star_as_literal(self):
-        """``foo*`` is wrapped as ``"foo*"`` — the ``*`` is a literal
+        """``foo*`` is wrapped as ``"foo*"``, the ``*`` is a literal
         character inside the phrase, NOT an FTS5 prefix query."""
         from voice_typer.server.history_db import _sanitize_fts_query
 
@@ -275,7 +275,7 @@ class TestFts5SearchTriggersSync:
 
     def test_delete_removes_row_from_fts_index(self, db, tmp_path):
         """After ``delete(id)``, the FTS5 index must NOT contain the
-        deleted row's rowid — otherwise search() would return a
+        deleted row's rowid, otherwise search() would return a
         dangling JOIN result."""
         from voice_typer.server.history_db import HistoryDB
 
@@ -286,7 +286,7 @@ class TestFts5SearchTriggersSync:
             db2.flush()
 
             # Find the "findme before delete" row by text (don't rely
-            # on get_recent ordering — within the same timestamp
+            # on get_recent ordering, within the same timestamp
             # second, the tie-break is implementation-defined).
             all_rows = db2.get_recent(limit=10)
             findme = next(r for r in all_rows if r["text"] == "findme before delete")
@@ -333,13 +333,13 @@ class TestFts5SearchTriggersSync:
         Before XE-9-A, ``delete(id)`` only ran ``DELETE FROM
         transcriptions WHERE id = ?`` + commit. The FTS5 AFTER DELETE
         trigger fired the ``'delete'`` command which only marks the
-        rowid as deleted in the delete-bitmap — the segment data in
+        rowid as deleted in the delete-bitmap, the segment data in
         ``transcriptions_fts_data`` (containing the dictated text) was
         NOT zeroed and was recoverable via forensic tools until FTS5's
         background compaction merged that segment (days/weeks later).
         For a user who dictates a password / medical note and then
         deletes that single transcription via the History UI, the text
-        was NOT gone — a direct GDPR Art. 17 violation.
+        was NOT gone, a direct GDPR Art. 17 violation.
 
         The fix issues ``INSERT INTO transcriptions_fts(transcriptions_fts)
         VALUES('rebuild')`` after the row DELETE, which drops all
@@ -371,7 +371,7 @@ class TestFts5SearchTriggersSync:
             blocks_before = b"\n".join(b for (b,) in cur.fetchall())
             assert b"xe" in blocks_before or b"superscrete" in blocks_before, (
                 "Sanity check failed: secret_text token not found in any "
-                "transcriptions_fts_data block before delete — test setup "
+                "transcriptions_fts_data block before delete, test setup "
                 "is invalid (FTS5 may have segmented differently)."
             )
 
@@ -379,14 +379,14 @@ class TestFts5SearchTriggersSync:
             assert db2.delete(secret_row["id"]) is True
 
             # after delete, the FTS5 shadow segment data must
-            # NOT contain the secret text — the rebuild should have
+            # NOT contain the secret text, the rebuild should have
             # dropped all segments and rebuilt from the content table
             # (which no longer contains the secret row).
             cur.execute("SELECT block FROM transcriptions_fts_data")
             blocks_after = b"\n".join(b for (b,) in cur.fetchall())
             assert secret_text.encode() not in blocks_after, (
                 "XE-9-A regression: secret_text is still present in "
-                "transcriptions_fts_data after delete(id) — the FTS5 "
+                "transcriptions_fts_data after delete(id), the FTS5 "
                 "'rebuild' command was not issued (or failed silently). "
                 "The deleted row's dictated text is recoverable via "
                 "forensic tools, a GDPR Art. 17 violation."

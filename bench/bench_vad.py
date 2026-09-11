@@ -4,10 +4,10 @@
 The VAD processor is called on every audio chunk to decide SPEECH vs
 SILENCE. Two paths exist:
 
-1. :class:`voice_typer.server.vad_processor.VadProcessor.update_frame`
-   — the state machine: takes a per-frame RMS (dB) + optional Silero
-   probability, returns the new state. Cheap (pure-Python state machine).
-2. :func:`voice_typer.server.vad.compute_vad_prob` — the Silero model
+1. :class:`voice_typer.server.vad_processor.VadProcessor.update_frame`: the state
+   machine takes a per-frame RMS (dB) + optional Silero probability and
+   returns the new state. Cheap (pure-Python state machine).
+2. :func:`voice_typer.server.vad.compute_vad_prob`: the Silero model
    inference path. Expensive (Torch forward pass). Only invoked when
    ``use_silero_vad`` is enabled.
 
@@ -41,7 +41,7 @@ DEFAULT_RATE = 16000
 
 
 class _StubConfig:
-    """Minimal config stub for VadProcessor — exposes the few attributes
+    """Minimal config stub for VadProcessor: exposes the few attributes
     VadProcessor reads during construction and on first vad_enabled
     access."""
 
@@ -55,7 +55,7 @@ def _make_vad_processor():
     from voice_typer.server.vad_processor import VadProcessor
 
     # Pass a None ``vad_check_available_fn`` so VadProcessor uses its
-    # own lazy import path — this mirrors production behavior. We don't
+    # own lazy import path: this mirrors production behavior. We don't
     # want to pre-import torch for the state-machine-only benchmark.
     return VadProcessor(_StubConfig(), vad_check_available_fn=None)
 
@@ -101,7 +101,7 @@ def bench_update_frame_state_machine(iterations: int) -> dict:
 def bench_compute_vad_prob(iterations: int) -> dict | None:
     """Benchmark vad.compute_vad_prob (Silero model inference).
 
-    Returns None when torch / Silero is unavailable — the production
+    Returns None when torch / Silero is unavailable, the production
     path degrades to RMS-only VAD in that case, so the benchmark
     mirrors that.
     """
@@ -111,7 +111,7 @@ def bench_compute_vad_prob(iterations: int) -> dict | None:
         return None
     if not is_available():
         return None
-    # Silero needs 16kHz float32 input. Use 512 samples (32ms) — a
+    # Silero needs 16kHz float32 input. Use 512 samples (32ms), a
     # common chunk size for the production path.
     frame = _make_silero_audio(DEFAULT_FRAME_SAMPLES)
     # Warm-up: first call loads the model (slow). Discard from the
@@ -146,7 +146,7 @@ def main() -> int:
         if silero is not None:
             results.append(silero)
         else:
-            print("NOTE: Silero VAD unavailable — skipping (production degrades to RMS-only).", file=sys.stderr)
+            print("NOTE: Silero VAD unavailable, skipping (production degrades to RMS-only).", file=sys.stderr)
 
     if args.json:
         json.dump(results, sys.stdout, indent=2)
@@ -154,7 +154,7 @@ def main() -> int:
         return 0
 
     print("=" * 72)
-    print("Voice Typer — VAD Benchmark")
+    print("Voice Typer: VAD Benchmark")
     print("=" * 72)
     for r in results:
         print()

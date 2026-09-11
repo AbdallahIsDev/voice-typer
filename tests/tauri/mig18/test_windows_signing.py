@@ -1,11 +1,11 @@
-"""MIG-1.8 Phase 1 Check 5 — Windows Authenticode signing validation.
+"""MIG-1.8 Phase 1 Check 5: Windows Authenticode signing validation.
 
 This test file is the **5th check** in the MIG-1.8 Phase 1 Windows host
 validation gate (ADR-0020 §13.1). It validates the **structure** of the
-Windows code-signing configuration — specifically the
+Windows code-signing configuration, specifically the
 ``.github/workflows/tauri-windows-build.yml`` workflow +
 ``scripts/build/build_sidecar_windows.sh`` + ``build_prewarm_windows.sh``
-+ ``src-tauri/tauri.conf.json`` — to confirm they wire Authenticode
++ ``src-tauri/tauri.conf.json``, to confirm they wire Authenticode
 signing of the Nuitka sidecar + prewarm + NSIS/MSI installers per
 ADR-0020 §13.1 + ``docs/migration/signing-guide.md``.
 
@@ -19,10 +19,10 @@ no Authenticode cert, no PFX). These tests therefore:
   - validate the workflow uses an RFC-3161 timestamp server
     (``http://timestamp.digicert.com``) + ``/fd SHA256`` + ``/td SHA256``,
   - validate the build scripts (sidecar + prewarm) document the signing
-    next-step (CI-only signing pattern — they do NOT invoke signtool
+    next-step (CI-only signing pattern, they do NOT invoke signtool
     themselves; the workflow does, after the build),
   - validate the ``tauri.conf.json`` has a ``bundle.windows`` block OR
-    documents (via this test) that signing is CI-only — this is the
+    documents (via this test) that signing is CI-only, this is the
     known gap (GAP-2 below),
   - document (and assert) the known gap that the CI workflow does NOT
     sign the MSI installer (GAP-1 below), and
@@ -43,20 +43,20 @@ VALIDATE ON WINDOWS HOST:
     Expected: "Successfully verified" for all 3 binaries
 
 References:
-  - ADR-0020 §13.1 — Windows Authenticode signing spec (authoritative).
-  - docs/migration/signing-guide.md §"Windows — Authenticode" —
+  - ADR-0020 §13.1, Windows Authenticode signing spec (authoritative).
+  - docs/migration/signing-guide.md §"Windows, Authenticode" —
     authoritative code-signing guide (env vars, signtool commands,
     timestamp server, cert reuse strategy).
-  - .github/workflows/tauri-windows-build.yml — CI workflow that runs
+  - .github/workflows/tauri-windows-build.yml, CI workflow that runs
     signtool on the sidecar + prewarm + NSIS (signing is optional,
     gated on the ``WIN_CSC_LINK`` + ``WIN_CSC_KEY_PASSWORD`` secrets).
   - scripts/build/build_sidecar_windows.sh + build_prewarm_windows.sh —
     the build scripts that produce the .exe binaries; they document the
     signing next-step (signtool invocation is CI-only).
-  - src-tauri/tauri.conf.json — the Tauri bundle config (no
-    ``bundle.windows`` block — signing is CI-only; see GAP-2).
+  - src-tauri/tauri.conf.json, the Tauri bundle config (no
+    ``bundle.windows`` block, signing is CI-only; see GAP-2).
 
-Gaps documented (report, do NOT fix — out of scope for this gate check):
+Gaps documented (report, do NOT fix, out of scope for this gate check):
   - GAP-1: ``tauri-windows-build.yml`` does NOT have a ``signtool sign``
     step for the **MSI** installer. The signing guide mandates signing
     both MSI + NSIS, but the workflow only signs NSIS (the sidecar +
@@ -65,13 +65,13 @@ Gaps documented (report, do NOT fix — out of scope for this gate check):
   - GAP-2: ``tauri.conf.json`` has NO ``bundle.windows`` block (only
     ``bundle.linux`` is configured). Authenticode signing of the host
     exe + MSI/NSIS is therefore entirely CI-driven (via signtool in the
-    workflow) — Tauri's bundler does not auto-sign because no
+    workflow), Tauri's bundler does not auto-sign because no
     ``TAURI_SIGNING_PRIVATE_KEY`` / ``WIN_CSC_LINK`` is wired into the
-    config. This is acceptable for v1 (ADR-0020 §15 — no auto-update,
+    config. This is acceptable for v1 (ADR-0020 §15, no auto-update,
     so no updater signing key) but should be tracked.
     See ``test_known_gap_tauri_conf_missing_bundle_windows``.
   - GAP-3: ``build_sidecar_windows.sh`` + ``build_prewarm_windows.sh``
-    do NOT invoke ``signtool`` themselves — they only emit an
+    do NOT invoke ``signtool`` themselves, they only emit an
     ``echo ... NEXT: sign with signtool ...`` message at the end. This
     is intentional (CI-only signing pattern; the workflow runs signtool
     after the build), but a developer running the script locally will
@@ -167,7 +167,7 @@ def test_workflow_does_not_sign_prewarm(workflow_text: str):
     with 'Cannot sign missing binary') cannot silently return.
     """
     assert "prewarm-x86_64-pc-windows-msvc.exe" not in workflow_text, (
-        "tauri-windows-build.yml must NOT reference prewarm-*.exe — the "
+        "tauri-windows-build.yml must NOT reference prewarm-*.exe, the "
         "standalone prewarm binary was removed per plan-runtime-pack-split "
         "§6.2 P-1."
     )
@@ -178,7 +178,7 @@ def test_workflow_runs_signtool_sign_on_nsis(workflow_text: str):
 
     ADR-0020 §13.1 + signing-guide.md mandate that the NSIS installer
     (``*-setup.exe``) is Authenticode-signed after the Tauri bundle
-    step. This is the final user-facing installer — it MUST be signed.
+    step. This is the final user-facing installer, it MUST be signed.
     """
     # The NSIS signing step in the workflow signs ``${{ steps.artifacts.outputs.nsis_path }}``.
     assert "nsis_path" in workflow_text, (
@@ -200,7 +200,7 @@ def test_workflow_runs_signtool_sign_on_nsis(workflow_text: str):
 def test_workflow_runs_signtool_verify(workflow_text: str):
     """The CI workflow must run ``signtool verify`` after signing.
 
-    This is the post-signing verification step — it confirms the
+    This is the post-signing verification step, it confirms the
     signature is valid + the cert chain is trusted. ADR-0020 §13.1 +
     signing-guide.md §"Verify" mandate this step.
     """
@@ -226,7 +226,7 @@ def test_workflow_uses_win_csc_link_secret(workflow_text: str):
     """
     assert "WIN_CSC_LINK" in workflow_text, (
         "tauri-windows-build.yml must consume the WIN_CSC_LINK secret "
-        "(Authenticode PFX cert — reused from the Electron build per "
+        "(Authenticode PFX cert, reused from the Electron build per "
         "signing-guide.md §'Reused signing identities')."
     )
     assert "secrets.WIN_CSC_LINK" in workflow_text, (
@@ -244,7 +244,7 @@ def test_workflow_uses_win_csc_key_password_secret(workflow_text: str):
     """
     assert "WIN_CSC_KEY_PASSWORD" in workflow_text, (
         "tauri-windows-build.yml must consume the WIN_CSC_KEY_PASSWORD "
-        "secret (the PFX password — paired with WIN_CSC_LINK)."
+        "secret (the PFX password, paired with WIN_CSC_LINK)."
     )
     assert "secrets.WIN_CSC_KEY_PASSWORD" in workflow_text
 
@@ -269,7 +269,7 @@ def test_workflow_uses_rfc3161_timestamp_server(workflow_text: str):
     """The workflow must use an RFC-3161 timestamp server.
 
     ADR-0020 §13.1 + signing-guide.md §"Timestamp server": use the
-    ``/tr`` flag (RFC-3161, hash-then-timestamp) — NOT the legacy
+    ``/tr`` flag (RFC-3161, hash-then-timestamp), NOT the legacy
     ``/t`` flag. DigiCert is the canonical server; Sectigo + GlobalSign
     are also acceptable alternatives.
     """
@@ -277,7 +277,7 @@ def test_workflow_uses_rfc3161_timestamp_server(workflow_text: str):
         f"tauri-windows-build.yml must use the RFC-3161 timestamp server "
         f"{EXPECTED_TIMESTAMP_SERVER} (signing-guide.md §'Timestamp server')."
     )
-    # The /tr flag (RFC-3161 timestamp URL) — NOT the legacy /t flag.
+    # The /tr flag (RFC-3161 timestamp URL). NOT the legacy /t flag.
     assert "/tr " in workflow_text or "/tr\t" in workflow_text or "/tr`" in workflow_text, (
         "tauri-windows-build.yml must use the `/tr` flag (RFC-3161 timestamp) "
         "instead of the legacy `/t` flag (signing-guide.md §'Timestamp server')."
@@ -292,7 +292,7 @@ def test_workflow_does_not_use_legacy_t_flag(workflow_text: str):
     flag is required for cert-expiry survival. signing-guide.md uses
     ``/tr`` exclusively.
     """
-    # Look for `/t ` (with trailing space) — this would indicate the legacy
+    # Look for `/t ` (with trailing space), this would indicate the legacy
     # /t flag. We deliberately check for "/t " (with space) to avoid matching
     # /tr or /td. The /tr (RFC-3161 timestamp) and /td (timestamp digest)
     # flags are the correct ones.
@@ -302,7 +302,7 @@ def test_workflow_does_not_use_legacy_t_flag(workflow_text: str):
     legacy_pattern = " /t http"
     assert legacy_pattern not in workflow_text, (
         "tauri-windows-build.yml must NOT use the legacy `/t http://...` "
-        "timestamp flag — use `/tr` (RFC-3161) instead (signing-guide.md)."
+        "timestamp flag, use `/tr` (RFC-3161) instead (signing-guide.md)."
     )
 
 
@@ -337,7 +337,7 @@ def test_sidecar_build_script_documents_signing_next_step(
 ):
     """``build_sidecar_windows.sh`` must document the signtool next-step.
 
-    The script does NOT invoke ``signtool`` itself — signing is CI-only
+    The script does NOT invoke ``signtool`` itself, signing is CI-only
     (the workflow runs signtool after the build, per ADR-0020 §13.1 +
     the CI-only pattern documented in signing-guide.md). The script's
     final echo MUST point the user at signtool + the signing guide so a
@@ -384,13 +384,13 @@ def test_sidecar_build_script_signing_is_ci_only(
 
     The script's signtool reference is in an ``echo`` (documentation),
     NOT in an actual ``signtool sign ...`` invocation. This is the
-    CI-only signing pattern — the workflow runs signtool after the
+    CI-only signing pattern, the workflow runs signtool after the
     build. A developer running the script locally will produce an
     UNSIGNED binary unless they manually invoke signtool.
 
     This test ASSERTS the gap is present (so a future fix will flip it
     to a passing assertion). DO NOT fix this gap as part of MIG-1.8
-    check 5 — report it to the primary agent.
+    check 5, report it to the primary agent.
     """
     # The script's only signtool reference is in the final echo line:
     #   echo "[build_sidecar_windows] NEXT: sign with signtool (see ...)."
@@ -398,7 +398,7 @@ def test_sidecar_build_script_signing_is_ci_only(
     # We check that the script body does NOT contain a real signtool
     # invocation (the only mention is in an echo string).
     assert "signtool sign" not in sidecar_script_text, (
-        "build_sidecar_windows.sh now invokes `signtool sign` directly — "
+        "build_sidecar_windows.sh now invokes `signtool sign` directly, "
         "update this test to assert the script DOES sign (and remove "
         "GAP-3 from the module docstring)."
     )
@@ -413,7 +413,7 @@ def test_prewarm_build_script_signing_is_ci_only(
     the prewarm build script.
     """
     assert "signtool sign" not in prewarm_script_text, (
-        "build_prewarm_windows.sh now invokes `signtool sign` directly — "
+        "build_prewarm_windows.sh now invokes `signtool sign` directly, "
         "update this test to assert the script DOES sign (and remove "
         "GAP-3 from the module docstring)."
     )
@@ -423,7 +423,7 @@ def test_prewarm_build_script_signing_is_ci_only(
 def test_tauri_conf_has_bundle_block(tauri_conf_json: dict):
     """``tauri.conf.json`` must have a top-level ``bundle`` block.
 
-    This is a sanity check — the bundle block is the root of all
+    This is a sanity check, the bundle block is the root of all
     per-platform bundle config (linux, windows, macos).
     """
     assert "bundle" in tauri_conf_json, (
@@ -453,13 +453,13 @@ def test_known_gap_tauri_conf_missing_bundle_windows(tauri_conf_json: dict):
     The bundle config previously had a ``linux`` block (deb + rpm with
     postInstallScript / preRemoveScript entries) but NO ``windows`` block. Authenticode
     signing of the host exe + MSI/NSIS was therefore entirely CI-driven
-    (via signtool in the workflow) — Tauri's bundler did not auto-sign
+    (via signtool in the workflow), Tauri's bundler did not auto-sign
     because no ``TAURI_SIGNING_PRIVATE_KEY`` / ``WIN_CSC_LINK`` was
     wired into the config.
 
     XPLAT-4 fix: added ``bundle.windows.signCommand`` pointing at
     ``scripts/tauri-sign.cmd`` (``..\\scripts\tauri-sign.cmd %1`` relative
-    to the src-tauri cwd — same convention as ``bundle.windows.nsis.installerHooks``).
+    to the src-tauri cwd, same convention as ``bundle.windows.nsis.installerHooks``).
 
     Note on the env-var design: the Tauri bundler executes signCommand via
     ``Command::new`` with NO shell and NO ``${VAR}`` expansion
@@ -467,7 +467,7 @@ def test_known_gap_tauri_conf_missing_bundle_windows(tauri_conf_json: dict):
     literal ``${WIN_SIGN_COMMAND}`` value would be spawned as a program name
     and break every Windows ``cargo tauri build``. The wrapper script honors
     ``WIN_SIGN_COMMAND`` when set (runs it with the file path as ``%1``) and
-    exits 0 otherwise — so local builds without signing env vars still work,
+    exits 0 otherwise, so local builds without signing env vars still work,
     and CI/production builds that set the env var get signed by the bundler.
 
     This test now ASSERTS PRESENCE of the ``windows`` block (GAP-2 closed).
@@ -482,7 +482,7 @@ def test_known_gap_tauri_conf_missing_bundle_windows(tauri_conf_json: dict):
     assert "windows" in bundle, "tauri.conf.json should have a `bundle.windows` block (XPLAT-4 fix)."
     windows = bundle["windows"]
     assert "signCommand" in windows, (
-        "bundle.windows.signCommand must be set (XPLAT-4 fix — env-var ref for CI/production signing)."
+        "bundle.windows.signCommand must be set (XPLAT-4 fix, env-var ref for CI/production signing)."
     )
 
 
@@ -493,11 +493,11 @@ def test_known_gap_msi_not_signed_in_workflow(workflow_text: str):
     ADR-0020 §13.1 + signing-guide.md §"Tauri bundler signing" mandate
     signing BOTH the MSI + NSIS installers. The workflow
     (``tauri-windows-build.yml``) currently signs only the NSIS
-    installer — the MSI is uploaded as an artifact but left unsigned.
+    installer, the MSI is uploaded as an artifact but left unsigned.
 
     This test ASSERTS the gap is present (so a future fix will flip it
     to a passing assertion). DO NOT fix this gap as part of MIG-1.8
-    check 5 — report it to the primary agent.
+    check 5, report it to the primary agent.
 
     The fix would be to add a 3rd ``signtool sign`` step after the
     "Sign the final NSIS installer" step, targeting
@@ -505,7 +505,7 @@ def test_known_gap_msi_not_signed_in_workflow(workflow_text: str):
     """
     # The workflow produces an msi_path artifact output (used for upload)
     # but does NOT sign it. We check:
-    #   1. msi_path IS produced (sanity — the workflow knows about MSI).
+    #   1. msi_path IS produced (sanity, the workflow knows about MSI).
     #   2. msi_path is NOT referenced in any signtool sign command.
     assert "msi_path" in workflow_text, (
         "Reference pattern broken: tauri-windows-build.yml should produce "
@@ -537,7 +537,7 @@ def test_known_gap_msi_not_signed_in_workflow(workflow_text: str):
                 msi_signed = True
                 break
     assert not msi_signed, (
-        "tauri-windows-build.yml now signs the MSI installer — update "
+        "tauri-windows-build.yml now signs the MSI installer, update "
         "this test to assert the MSI IS signed, and remove GAP-1 from "
         "the module docstring."
     )
@@ -554,8 +554,8 @@ def test_signing_guide_exists_and_documents_windows_authenticode():
     assert SIGNING_GUIDE.is_file(), f"signing-guide.md not found at {SIGNING_GUIDE}."
     text = SIGNING_GUIDE.read_text(encoding="utf-8")
     # Section header for Windows Authenticode.
-    assert "Windows — Authenticode" in text, (
-        "signing-guide.md must have a 'Windows — Authenticode' section (per ADR-0020 §13.1 cross-reference)."
+    assert "Windows: Authenticode" in text, (
+        "signing-guide.md must have a 'Windows: Authenticode' section (per ADR-0020 §13.1 cross-reference)."
     )
     # The signtool command must be documented.
     assert "signtool sign" in text, "signing-guide.md must document the `signtool sign` command."
@@ -566,14 +566,14 @@ def test_signing_guide_exists_and_documents_windows_authenticode():
     # The WIN_CSC_LINK env var must be documented.
     assert "WIN_CSC_LINK" in text, (
         "signing-guide.md must document the WIN_CSC_LINK env var "
-        "(Authenticode PFX cert path — reused from the Electron build)."
+        "(Authenticode PFX cert path, reused from the Electron build)."
     )
 
 
 def test_adr_0020_section_13_1_documents_windows_signing():
     """ADR-0020 §13.1 must document the Windows Authenticode signing spec.
 
-    This is the authoritative source — the signing guide + the workflow
+    This is the authoritative source, the signing guide + the workflow
     + this test all derive from ADR-0020 §13.1.
     """
     assert ADR_0020.is_file(), f"ADR-0020 not found at {ADR_0020}."
@@ -599,7 +599,7 @@ def test_workflow_has_signing_step_for_sidecar(workflow_text: str):
 
     Prewarm was REMOVED from the signing list per
     plan-runtime-pack-split.md §6.2 P-1 (the standalone prewarm binary
-    no longer exists — prewarm is an in-process startup phase of the
+    no longer exists, prewarm is an in-process startup phase of the
     worker exe; see the workflow's removal note at the former prewarm
     build step and tests/test_architecture_doc_accuracy.py's pin).
     """
@@ -629,7 +629,7 @@ def test_workflow_signing_step_runs_before_tauri_build(workflow_text: str):
     """The sidecar signing step must run BEFORE the Tauri build step.
 
     ADR-0020 §13.1 signing order:
-      1. Sign sidecar (before bundling — unsigned sidecars trigger SmartScreen).
+      1. Sign sidecar (before bundling, unsigned sidecars trigger SmartScreen).
       2. Sign the native listener (same step; prewarm removed per §6.2 P-1).
       3. Tauri builds the MSI/EXE.
       4. Sign the NSIS installer (after bundling).
@@ -644,14 +644,14 @@ def test_workflow_signing_step_runs_before_tauri_build(workflow_text: str):
     assert sign_sidecar_pos < build_tauri_pos, (
         "tauri-windows-build.yml: the 'Sign sidecar + native listener' step must "
         "appear BEFORE the 'Build the Tauri app' step (ADR-0020 §13.1 "
-        "signing order — sign the sidecar before it enters the bundle)."
+        "signing order, sign the sidecar before it enters the bundle)."
     )
 
 
 def test_workflow_nsis_signing_step_runs_after_tauri_build(workflow_text: str):
     """The NSIS signing step must run AFTER the Tauri build step.
 
-    ADR-0020 §13.1 signing order — the NSIS installer must be signed
+    ADR-0020 §13.1 signing order, the NSIS installer must be signed
     AFTER it's produced by ``cargo tauri build``.
     """
     build_tauri_pos = workflow_text.find("Build the Tauri app")
@@ -661,5 +661,5 @@ def test_workflow_nsis_signing_step_runs_after_tauri_build(workflow_text: str):
     assert build_tauri_pos < sign_nsis_pos, (
         "tauri-windows-build.yml: the 'Build the Tauri app' step must "
         "appear BEFORE the 'Sign the final NSIS installer' step "
-        "(ADR-0020 §13.1 signing order — sign the installer after it's built)."
+        "(ADR-0020 §13.1 signing order, sign the installer after it's built)."
     )

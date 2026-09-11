@@ -6,11 +6,11 @@
 // permission via the existing `onboarding_check_permissions` IPC
 // dispatcher on mount and on a 60s refresh interval, and renders an
 // AMBER (warning) banner when `state !== "granted"` AND `needed ===
-// true`. Reuses the existing dispatcher — no new server-side code
+// true`. Reuses the existing dispatcher, no new server-side code
 // required (the dispatcher itself wraps
 // `voice_typer.server.permissions.check_keyboard_permission()`).
 //
-// Banner body: "Hotkeys require accessibility permission — click to
+// Banner body: "Hotkeys require accessibility permission, click to
 // fix" (localized via `useT()` per C-I18N-1).
 //
 // Click action mirrors `MicrophonePermissionBanner`'s platform-deep-
@@ -18,7 +18,7 @@
 //   - macOS: `<a href="x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility">`
 //     (opens System Settings → Privacy & Security → Accessibility).
 //   - Linux: no equivalent standard deep-link, and the renderer cannot
-//     directly invoke `pkexec` — the user must run
+//     directly invoke `pkexec`, the user must run
 //     `scripts/linux/install_permissions.py` (or revisit the Onboarding
 //     wizard). The banner text tells them what to do; no button is
 //     rendered. The backend's `request_keyboard_permission()` helper
@@ -27,7 +27,7 @@
 //   - Windows: no permission is needed (the dispatcher returns
 //     `needed: false`), so the banner never renders.
 
-import { AlertCircleIcon, Settings03Icon } from "@hugeicons/core-free-icons";
+import { AlertCircleIcon, Settings01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useRef, useState } from "react";
 import { useLatestRef } from "@/hooks/useLatestRef";
@@ -51,7 +51,7 @@ const KEYBOARD_PERMISSION_REFRESH_MS = 60_000;
  *
  * Mirrors the probe pattern in
  * `pages/onboarding/hooks/usePermissionsProbe.ts` but is intentionally
- * simpler: no test-hotkey listener, no reprobe callback — just a
+ * simpler: no test-hotkey listener, no reprobe callback, just a
  * passive periodic read.
  */
 function useKeyboardPermission(): PermissionsResult | null {
@@ -60,7 +60,7 @@ function useKeyboardPermission(): PermissionsResult | null {
 
 	// Ref mirror of `call` so the probe effect keeps `[]` deps. `call`
 	// is useCallback-stable in production, but test mocks return a FRESH
-	// call per render — depending on it would re-run the probe (and its
+	// call per render, depending on it would re-run the probe (and its
 	// 60s interval) on every render: probe → setResult → re-render →
 	// new call → effect re-fires → infinite loop. Same pattern as
 	// useVocabulary.ts.
@@ -73,7 +73,7 @@ function useKeyboardPermission(): PermissionsResult | null {
 	const cancelledRef = useRef(false);
 	const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract — .current must NOT become a dep
+	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract, .current must NOT become a dep
 	useEffect(() => {
 		cancelledRef.current = false;
 
@@ -86,7 +86,7 @@ function useKeyboardPermission(): PermissionsResult | null {
 				setResult(r);
 			} catch (err) {
 				if (cancelledRef.current) return;
-				// Probe failed — surface as an "error"
+				// Probe failed, surface as an "error"
 				// state so the banner renders (better to
 				// nag the user than to silently hide a
 				// real permission problem). Mirrors the
@@ -130,16 +130,16 @@ export interface KeyboardPermissionBannerProps {
 }
 
 /**
- * Renders an amber "Hotkeys require accessibility permission — click
+ * Renders an amber "Hotkeys require accessibility permission, click
  * to fix" banner when the OS has NOT granted the keyboard-monitoring
  * permission (macOS Accessibility / Linux input group + udev rule).
  *
  * Returns `null` when:
- *   - `result` is `null` (first probe still in flight) — avoid a
+ *   - `result` is `null` (first probe still in flight), avoid a
  *     flash-of-banner on every page mount.
- *   - `result.state === "granted"` — permission is fine.
- *   - `result.needed === false` — platform doesn't require the
- *     permission (Windows, unknown) — no banner to show.
+ *   - `result.state === "granted"`, permission is fine.
+ *   - `result.needed === false`, platform doesn't require the
+ *     permission (Windows, unknown), no banner to show.
  *
  * Click-through: opens the OS privacy deep-link on macOS; on Linux /
  * Windows the banner body still renders (telling the user what to do)
@@ -153,13 +153,13 @@ export function KeyboardPermissionBanner({
 	const probed = useKeyboardPermission();
 	const result = permissionResult ?? probed;
 
-	// First probe still in flight — don't flash a banner. Also guard
+	// First probe still in flight, don't flash a banner. Also guard
 	// `undefined`: a stub/mocked `onboarding_check_permissions` bridge
 	// can resolve to `undefined`, and `permissionResult ?? probed`
 	// would then pass it straight through to `result.state` below
 	// (crash). Treat both as "no result yet".
 	if (result === null || result === undefined) return null;
-	// Permission granted or not needed — no banner.
+	// Permission granted or not needed, no banner.
 	if (result.state === "granted") return null;
 	if (result.needed === false) return null;
 
@@ -202,7 +202,7 @@ export function KeyboardPermissionBanner({
 					className="inline-flex items-center gap-2 self-start rounded-md border border-warning/40 bg-warning/5 px-3 py-1.5 text-xs font-medium text-warning hover:bg-warning/10 transition-colors"
 				>
 					<HugeiconsIcon
-						icon={Settings03Icon}
+						icon={Settings01Icon}
 						strokeWidth={1.625}
 						className="h-3.5 w-3.5"
 					/>

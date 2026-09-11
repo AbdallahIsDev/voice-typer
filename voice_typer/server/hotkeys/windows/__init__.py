@@ -1,29 +1,29 @@
-"""Windows-native hotkey backend — split package.
+"""Windows-native hotkey backend, split package.
 
 Extracted from the original ``windows_native.py`` god-class.
 Each module owns one concern:
 
-- :mod:`.context` — Win32 ctypes argtypes/restype setup and the
+- :mod:`.context`: Win32 ctypes argtypes/restype setup and the
   stateless ``compute_modifier_vks`` helper.
-- :mod:`.ime_guard` — IME composition detection
+- :mod:`.ime_guard`: IME composition detection
   (``is_ime_composing`` / ``is_ime_composing_throttled``).
-- :mod:`.caps_lock_suppressor` — reactive and proactive
+- :mod:`.caps_lock_suppressor`: reactive and proactive
   CapsLock-toggle suppression.
-- :mod:`.polling_strategy` — the GetAsyncKeyState polling loop
+- :mod:`.polling_strategy`: the GetAsyncKeyState polling loop
   (``run_polling_loop``) and the modifier-only polling loop
   (``run_modifier_only_polling_loop``), plus the small key-state
   helpers (``modifiers_pressed``, ``other_modifiers_pressed``,
   ``is_altgr_pressed``, ``key_pressed``,
   ``any_non_modifier_key_pressed[_throttled]``).
-- :mod:`.message_loop_strategy` — the WM_HOTKEY / LL-hook message
+- :mod:`.message_loop_strategy`: the WM_HOTKEY / LL-hook message
   pump (``run_message_loop``).
-- :mod:`.ll_hook_strategy` — the WH_KEYBOARD_LL hook installer
+- :mod:`.ll_hook_strategy`: the WH_KEYBOARD_LL hook installer
   (``install_low_level_hook``) and the bounded-queue callback
   worker (``start_hook_callback_worker`` /
   ``enqueue_hook_callback``).
 
 The :class:`voice_typer.server.hotkeys.windows_native.WindowsNativeHotkey`
-class binds these strategy functions as methods — Python's
+class binds these strategy functions as methods, Python's
 descriptor protocol passes the instance as ``self``, and
 ``inspect.getsource`` follows the function object's
 ``__code__.co_filename`` back to the strategy module, so

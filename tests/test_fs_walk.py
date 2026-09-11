@@ -5,7 +5,7 @@ implementation of the symlink-poisoning directory scan behind BOTH the
 model-import path (``service/model/_delete_import.py`` via
 ``service/_helpers.py``) and the legacy-config migration
 (``config_internals/paths.py``). Previously the check was duplicated
-verbatim across those two modules with no dedicated tests — behavior
+verbatim across those two modules with no dedicated tests, behavior
 was only covered transitively. These tests pin the contract directly:
 
 1. A symlinked FILE anywhere in the tree is found.
@@ -25,7 +25,7 @@ import pytest
 from voice_typer.server._fs_walk import find_symlink_in_tree
 
 # Windows needs the SeCreateSymbolicLink privilege (admin or Developer
-# Mode) for ``os.symlink`` — the same platform gate the retention tests
+# Mode) for ``os.symlink``, the same platform gate the retention tests
 # use.
 _posix_symlink = pytest.mark.skipif(os.name != "posix", reason="requires POSIX symlink semantics")
 

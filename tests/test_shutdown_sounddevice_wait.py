@@ -7,13 +7,13 @@ The bug (follow-up)
 signal active PortAudio streams to stop, then wraps it via
 ``_run_with_timeout``. However:
 
-  1. ``sd.stop()`` is the non-blocking SIGNAL — it just sets the stop
+  1. ``sd.stop()`` is the non-blocking SIGNAL, it just sets the stop
      flag on each active stream and returns. The streams may still be
      mid-drain.
   2. The previous code did NOT call ``sd.wait()`` (the bounded drain
      that blocks until each stream has actually closed), so the
      cleanup thread could proceed to the next teardown while a
-     PortAudio stream was still alive — racing the recorder / DB
+     PortAudio stream was still alive, racing the recorder / DB
      teardown and leaking the audio device (the next process launch
      fails with "Device unavailable").
   3. PortAudio's stream-close handshake can DEADLOCK on backends
@@ -30,14 +30,14 @@ The fix (the fix)
      PortAudio backend is wedged), log at ERROR and force-abort.
   2. ``sd.wait()`` wrapped in ``_run_with_timeout(timeout=2.0)`` —
      the bounded drain that blocks until streams close. If it times
-     out (the dangerous case — PortAudio deadlock), log at ERROR and
+     out (the dangerous case, PortAudio deadlock), log at ERROR and
      call ``stream.abort()`` on every active stream via the new
      ``_abort_sounddevice_streams`` helper.
 
 The ``_run_with_timeout`` return value is checked explicitly against
-the ``TIMEOUT`` sentinel — this is the contract: "wait() return
+the ``TIMEOUT`` sentinel, this is the contract: "wait() return
 value is checked". ``Stream.abort()`` is documented as "terminate
-the stream immediately" — it bypasses the orderly stop handshake and
+the stream immediately", it bypasses the orderly stop handshake and
 invokes ``Pa_AbortStream`` under the hood, releasing the PortAudio
 resources the deadlock was holding.
 """
@@ -52,7 +52,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-# sounddevice is an optional dependency — skip the entire module
+# sounddevice is an optional dependency, skip the entire module
 # gracefully if it's not installed (matches the lazy-import pattern
 # in shutdown_controller._teardown_sounddevice).
 sounddevice = pytest.importorskip("sounddevice")
@@ -105,7 +105,7 @@ def _teardown_sounddevice_body() -> str:
     assert idx > -1, "teardown_sounddevice function must exist in the extracted module"
     next_def = src.find("\ndef ", idx + 1)
     if next_def == -1:
-        # Last function in the module — slice to end.
+        # Last function in the module, slice to end.
         return src[idx:]
     return src[idx:next_def]
 
@@ -136,13 +136,13 @@ class TestSounddeviceWaitSource:
 
     def test_teardown_sounddevice_calls_sd_wait(self):
         """``_teardown_sounddevice`` MUST call ``sd.wait`` (the bounded
-        drain) — not just ``sd.stop``. Previously only ``sd.stop`` was
+        drain), not just ``sd.stop``. Previously only ``sd.stop`` was
         called; the streams could still be mid-drain when the next
         teardown step proceeded."""
         body = _teardown_sounddevice_body()
         assert "sd.wait" in body, (
             "_teardown_sounddevice must call sd.wait() (the bounded "
-            "drain that blocks until streams close) — previously only "
+            "drain that blocks until streams close), previously only "
             "sd.stop() was called, leaving streams mid-drain"
         )
 
@@ -161,7 +161,7 @@ class TestSounddeviceWaitSource:
         # The return value is checked against TIMEOUT.
         assert "_wait_result is TIMEOUT" in body, (
             "the sd.wait() return value MUST be checked against "
-            "TIMEOUT — this is the explicit 'wait() return value is "
+            "TIMEOUT, this is the explicit 'wait() return value is "
             "checked' contract"
         )
 
@@ -169,12 +169,12 @@ class TestSounddeviceWaitSource:
         """When ``sd.wait()`` times out (returns ``TIMEOUT``),
         ``_teardown_sounddevice`` MUST call
         ``_abort_sounddevice_streams(sd)`` to force-abort every active
-        stream — breaking the PortAudio deadlock that wait() timed out
+        stream, breaking the PortAudio deadlock that wait() timed out
         on."""
         body = _teardown_sounddevice_body()
         assert "abort_sounddevice_streams" in body, (
             "_teardown_sounddevice must call abort_sounddevice_streams "
-            "when sd.wait() or sd.stop() times out — force-abort breaks the "
+            "when sd.wait() or sd.stop() times out, force-abort breaks the "
             "PortAudio deadlock"
         )
 
@@ -200,13 +200,13 @@ class TestSounddeviceWaitSource:
         assert "_streams" in body, "abort_sounddevice_streams must iterate the sd._streams registry of active streams"
         assert ".abort()" in body, (
             "abort_sounddevice_streams must call stream.abort() "
-            "on each active stream — 'terminate the stream immediately' "
+            "on each active stream: 'terminate the stream immediately' "
             "(Pa_AbortStream under the hood)"
         )
 
     def test_timeout_logged_at_error_level(self):
         """When ``sd.wait()`` times out, the log MUST be at ERROR
-        level (not DEBUG/WARNING) — PortAudio deadlock is a serious
+        level (not DEBUG/WARNING), PortAudio deadlock is a serious
         condition that operators need to see."""
         body = _teardown_sounddevice_body()
         # Find the wait-timeout block (the ``if _wait_result is TIMEOUT:``
@@ -258,7 +258,7 @@ class TestSounddeviceWaitBehavior:
     def test_sd_skipped_when_recorder_force_closed(self, monkeypatch):
         """(preserved): when ``_recorder_force_closed`` is True
         (recorder.stop() / discard() timed out), ``_teardown_sounddevice``
-        must SKIP ``sd.stop()`` / ``sd.wait()`` entirely — the leaked
+        must SKIP ``sd.stop()`` / ``sd.wait()`` entirely, the leaked
         recorder worker thread is still accessing the PortAudio stream,
         and concurrent sd.stop() can deadlock."""
         controller = _make_controller()
@@ -314,7 +314,7 @@ class TestSounddeviceWaitBehavior:
         )
 
     def test_abort_called_when_sd_stop_times_out(self, monkeypatch):
-        """when ``sd.stop()`` itself times out (rare — the
+        """when ``sd.stop()`` itself times out (rare, the
         signal non-blocking call hangs because PortAudio is wedged),
         ``_teardown_sounddevice`` MUST abort streams and return early
         (skip the wait)."""
@@ -348,7 +348,7 @@ class TestSounddeviceWaitBehavior:
     def test_no_abort_when_drain_succeeds(self, monkeypatch):
         """when both ``sd.stop()`` and ``sd.wait()`` return
         successfully (within their timeouts), ``stream.abort()`` MUST
-        NOT be called — the orderly drain worked, no force-abort
+        NOT be called, the orderly drain worked, no force-abort
         needed."""
         controller = _make_controller()
         fake_sd = MagicMock()
@@ -365,7 +365,7 @@ class TestSounddeviceWaitBehavior:
         stream_b.abort.assert_not_called()
 
     def test_abort_swallows_per_stream_exceptions(self, monkeypatch):
-        """``_abort_sounddevice_streams`` is best-effort — if
+        """``_abort_sounddevice_streams`` is best-effort, if
         one ``stream.abort()`` raises, the others MUST still be
         aborted (one bad stream must not prevent the rest from
         releasing their PortAudio resources)."""
@@ -399,11 +399,11 @@ class TestSounddeviceWaitBehavior:
 
     def test_teardown_never_raises(self, monkeypatch):
         """``_teardown_sounddevice`` must NEVER propagate
-        exceptions — every step is guarded by try/except so a failure
+        exceptions, every step is guarded by try/except so a failure
         in the sounddevice teardown does not prevent the rest of
         ``_do_cleanup`` from running."""
         controller = _make_controller()
-        # Make ``import sounddevice`` raise — exercises the outer
+        # Make ``import sounddevice`` raise, exercises the outer
         # try/except in _teardown_sounddevice.
         fake_sd = MagicMock()
         fake_sd.stop.side_effect = RuntimeError("simulated stop failure")
@@ -411,7 +411,7 @@ class TestSounddeviceWaitBehavior:
         fake_sd._streams = []
         monkeypatch.setitem(sys.modules, "sounddevice", fake_sd)
 
-        # Must not raise — _run_with_timeout re-raises the func's
+        # Must not raise, _run_with_timeout re-raises the func's
         # exception, but _teardown_sounddevice's outer try/except
         # swallows it.
         controller._teardown_sounddevice()
@@ -426,14 +426,14 @@ class TestTimeoutSentinelIntegration:
     must check against this sentinel (NOT against ``None`` or falsy)."""
 
     def test_timeout_sentinel_is_distinct_from_none(self):
-        """The ``TIMEOUT`` sentinel must NOT be ``None`` — callers
+        """The ``TIMEOUT`` sentinel must NOT be ``None``, callers
         must be able to distinguish 'timed out' from 'returned None'."""
         assert TIMEOUT is not None
         assert TIMEOUT is not False
 
     def test_wait_result_is_compared_with_is_timeout(self):
-        """The source MUST use ``is TIMEOUT`` (identity check) — not
-        ``== TIMEOUT`` or truthiness — because TIMEOUT is a singleton
+        """The source MUST use ``is TIMEOUT`` (identity check), not
+        ``== TIMEOUT`` or truthiness, because TIMEOUT is a singleton
         sentinel."""
         body = _teardown_sounddevice_body()
         assert "is TIMEOUT" in body, (

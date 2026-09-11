@@ -9,7 +9,7 @@
  *
  * Source of truth: `voice_typer/server/text_cleanup.py:374`
  * (`_RE_SPACING_PUNCT_BEFORE = re.compile(r"\s+([,.;:!?])")`)
- * — these are the punctuation characters Voice Typer's cleanup
+ *, these are the punctuation characters Voice Typer's cleanup
  * pipeline recognizes and preserves. Whisper / faster-whisper itself
  * turns the spoken forms ("comma", "period", "question mark", etc.)
  * into the literal characters; text_cleanup.py then normalizes
@@ -18,14 +18,14 @@
  * We additionally surface "apostrophe", "open quote", "close quote",
  * "hyphen", "dash", "ellipsis", "open paren", "close paren", "tab",
  * "new line", "new paragraph", "capital [word]", and "all caps [word]"
- * — these are common Whisper voice commands that the cleanup pipeline
+ *, these are common Whisper voice commands that the cleanup pipeline
  * preserves verbatim (apostrophes/quotes are part of `[,.;:!?]`'s
  * sibling punctuation set; new line / new paragraph become `\n` which
  * the pipeline passes through untouched; "capital"/"all caps" are
  * capitalization directives Whisper applies to the next spoken word).
  *
  * The Bubble window does not yet render
- * {@link PunctuationCheatSheetButton} — that integration belongs to
+ * {@link PunctuationCheatSheetButton}, that integration belongs to
  * the Bubble.tsx file scope. Until that wiring lands,
  * the cheat sheet is reachable from (a) the help overlay Modal in
  * App.tsx, and (b) any other surface that explicitly mounts the
@@ -116,7 +116,7 @@ export function PunctuationCheatSheet({
 					>
 						<span className="text-(--text-muted)">{t(entry.labelKey)}</span>
 						{/*
-						 * `<code>` is the correct semantic element here — these
+						 * `<code>` is the correct semantic element here, these
 						 * are voice-inserted characters, not keyboard shortcuts.
 						 * `<kbd>` would imply the user pressed a physical key.
 						 * Visual styling is shared with the HelpOverlay shortcut
@@ -133,13 +133,13 @@ export function PunctuationCheatSheet({
 }
 
 /**
- * PunctuationCheatSheetButton — a compact `?` affordance that opens a
+ * PunctuationCheatSheetButton, a compact `?` affordance that opens a
  * small Modal containing {@link PunctuationCheatSheet}.
  *
  * This lets the cheat sheet be triggered from anywhere
  * (Bubble window, microphone page, onboarding, etc.) without going
  * through the full help overlay. The Bubble window itself does not
- * yet render this button — that wiring is owned by the Bubble.tsx
+ * yet render this button, that wiring is owned by the Bubble.tsx
  * file scope. Until then, the affordance is available to any
  * surface that explicitly mounts it.
  *
@@ -162,7 +162,7 @@ export function PunctuationCheatSheetButton() {
 				onClick={() => setOpen(true)}
 				data-testid="punctuation-cheat-sheet-button"
 			>
-				{/* Decorative "?" — aria-hidden because the button's aria-label
+				{/* Decorative "?", aria-hidden because the button's aria-label
 				 * conveys the same meaning to assistive tech. */}
 				<span aria-hidden="true" className="text-sm font-semibold leading-none">
 					?
@@ -176,11 +176,11 @@ export function PunctuationCheatSheetButton() {
 				size="sm"
 				// Panel clips to the rounded shape; the body scrolls in the
 				// inner wrapper so the scrollbar can't escape the corner
-				// radius (same fix as the help overlay — Windows classic
+				// radius (same fix as the help overlay, Windows classic
 				// scrollbars ignore border-radius). shadow removed too.
 				className="w-110 max-h-[85vh] overflow-hidden shadow-none grid-rows-[auto_minmax(0,1fr)]"
 			>
-				{/* Scroll wrapper — keeps the cheat sheet scrollable on
+				{/* Scroll wrapper, keeps the cheat sheet scrollable on
 				    small viewports (Bubble window can be ~320×240). */}
 				<div className="-mx-6 -mb-6 min-h-0 overflow-y-auto px-6 pb-6">
 					<PunctuationCheatSheet />

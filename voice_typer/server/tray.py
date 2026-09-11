@@ -5,7 +5,7 @@ Restart / Quit. Left-click + "Open App" launches (or focuses) the
 Electron app; all settings / history / templates live in the Electron
 window only.
 
-Module-split history — each concern lives in its own satellite module;
+Module-split history, each concern lives in its own satellite module;
 ``TrayIcon`` below is a thin orchestrator of one-line delegates:
 menu building + Tauri click dispatch → ``tray_menu.py``; types →
 ``tray_types.py``; icon rendering → ``tray_icon.py``; i18n →
@@ -22,7 +22,7 @@ method is a one-line delegate. No behavior change. Delegate methods are
 kept on the class so monkeypatch.setattr + source-grep tests +
 event_bus.subscribe/unsubscribe (bound-method equality) keep working.
 ``start()``, ``_launch_bg_work`` and ``_drain_pending`` stay physical
-on the class — their bodies are source-pinned by tests (single bg-thread
+on the class, their bodies are source-pinned by tests (single bg-thread
 spawn site + call-site counts, daemon-thread rationale, fallback
 notification allowlist docstring contract).
 
@@ -43,7 +43,7 @@ import threading
 import time  # noqa: F401
 from collections.abc import Callable
 
-# PERF-COLDSTART-001: lazy import — pystray's xorg backend calls
+# PERF-COLDSTART-001: lazy import, pystray's xorg backend calls
 # Xlib.display.Display() at module import time (~48 ms cold-start, fails
 # without an X display). The proxy re-reads sys.modules on every access
 # so monkeypatches of voice_typer.server.tray.pystray keep working.
@@ -103,7 +103,7 @@ class TrayIcon:
         )
         self._autostart_enabled = False
         self._cpu_fallback_active: bool = False
-        # Pre-run state queue — flushed once the pystray event loop is live.
+        # Pre-run state queue, flushed once the pystray event loop is live.
         self._pending_states: list[tuple[AppState, str]] = []
         self._pending_notifications: list[tuple[str, str]] = []
         self._queue_lock = threading.Lock()
@@ -116,7 +116,7 @@ class TrayIcon:
         self._bg_work_fn: Callable | None = None
         self._bg_thread: threading.Thread | None = None
         # ``<caps_lock>`` mirrors ``config.DEFAULT_HOTKEY`` (the
-        # canonical default) — the legacy ``<f2>`` fallback would
+        # canonical default), the legacy ``<f2>`` fallback would
         # display "F2" in tray tooltips while the app bound Caps Lock.
         self._hotkey: str = getattr(config, "hotkey", "<caps_lock>") or "<caps_lock>"
         self._cached_menu = None  # P4 #30: menu cache
@@ -229,7 +229,7 @@ class TrayIcon:
             # mode happened); a swallowed subscribe failure left users
             # with no fallback alert.
             log.warning(
-                "[TRAY] could not subscribe to parakeet_cpu_fallback — CPU-fallback alerts will NOT be surfaced",
+                "[TRAY] could not subscribe to parakeet_cpu_fallback. CPU-fallback alerts will NOT be surfaced",
                 exc_info=True,
             )
 
@@ -238,7 +238,7 @@ class TrayIcon:
         # explicit opt-out via env var.
         if os.environ.get("VOICE_TYPER_NO_TRAY") == "1":
             log.info(
-                "[TRAY] VOICE_TYPER_NO_TRAY=1 set — skipping tray icon creation. "
+                "[TRAY] VOICE_TYPER_NO_TRAY=1 set, skipping tray icon creation. "
                 "The app remains usable via the global hotkey and the Electron window."
             )
             self._icon = None
@@ -259,7 +259,7 @@ class TrayIcon:
             return
 
         # Tauri sidecar runtime: the native tray is owned by the Rust host
-        # (ADR-0020 §6.5 — created in src-tauri/src/tray.rs::create_tray and
+        # (ADR-0020 §6.5, created in src-tauri/src/tray.rs::create_tray and
         # driven by the ``tray_menu`` / ``tray_state`` WS events this process
         # publishes; see tray_menu.maybe_publish_tray_menu for the full
         # two-tray-icons / mis-routed-notifications rationale). Degrade to
@@ -271,7 +271,7 @@ class TrayIcon:
 
         if is_tauri_sidecar():
             log.info(
-                "[TRAY] TAURI_SIDECAR=1 — native tray is owned by the Rust host; "
+                "[TRAY] TAURI_SIDECAR=1, native tray is owned by the Rust host; "
                 "skipping pystray icon creation. Menu/state reach the host via the "
                 "tray_menu/tray_state events."
             )
@@ -389,7 +389,7 @@ class TrayIcon:
 
          delegates to tray_notifications.do_notify,
         which calls ``self._icon.notify(message, title)`` (pystray's
-        native toast path — WinRT ToastNotification on Win10+).
+        native toast path. WinRT ToastNotification on Win10+).
         """
         from voice_typer.server.tray_notifications import do_notify as _do_notify
 
@@ -434,7 +434,7 @@ class TrayIcon:
            event bus so the Electron renderer can surface the
            notification as a toast. CROSS-LAYER GATE: the
            ACTUAL gate is the Tauri host's ``ALLOWED_EVENT_TYPES``
-           slice at ``src-tauri/src/sidecar/ws.rs:80-150`` — the
+           slice at ``src-tauri/src/sidecar/ws.rs:80-150``, the
            Tauri WS reader silently DROPS any inbound frame whose
            ``type`` is not in that slice (logged at
            ``[WS-READER] dropping unknown event type:``). Adding a
@@ -449,7 +449,7 @@ class TrayIcon:
            on the Python side without a matching ws.rs allowlist
            update is caught at CI time.
         3. Clears the queue (the dropped notification has been
-           preserved via logs + Tauri channel — it cannot be lost).
+           preserved via logs + Tauri channel, it cannot be lost).
 
         This is fail-safe: the call is wrapped in
         ``contextlib.suppress`` so a logging or event-bus failure
@@ -490,7 +490,7 @@ class TrayIcon:
     # ─── Internals: state + tooltip (delegates to tray_publish.py) ─────
 
     def _compute_tooltip(self, state: AppState, message: str) -> str:
-        """Compute the tray tooltip ``<APP_NAME> — <msg|state> …`` (delegate)."""
+        """Compute the tray tooltip ``<APP_NAME>, <msg|state> …`` (delegate)."""
         from voice_typer.server.tray_publish import compute_tooltip as _fn
 
         return _fn(self, state, message)
@@ -513,7 +513,7 @@ class TrayIcon:
 
     @staticmethod
     def _format_elapsed(seconds: float) -> str:
-        """mm:ss (under 1h) / h:mm:ss (1h+) — delegate to tray_state.format_elapsed."""
+        """mm:ss (under 1h) / h:mm:ss (1h+), delegate to tray_state.format_elapsed."""
         from voice_typer.server.tray_state import format_elapsed as _fmt
 
         return _fmt(seconds)
@@ -572,7 +572,7 @@ class TrayIcon:
         Wiring for the Tauri tray's "More microphones..." deep-link: the
         Microphones submenu stays useful (and reachable) even while the
         device list is momentarily empty. Composes the same primitives
-        ``open_models_page`` uses — show/focus the window, then publish
+        ``open_models_page`` uses, show/focus the window, then publish
         the ``navigate`` event for the ``microphone`` route. Monkeypatch
         friendly like its sibling (instance attributes are consulted at
         call time by the tray-menu id-map callbacks).
@@ -592,7 +592,7 @@ class TrayIcon:
     # ─── Menu building (delegates to tray_menu.py) ─────────────────────
 
     def invalidate_menu_cache(self) -> None:
-        """Mark the menu cache as stale (EAGER variant — also forces
+        """Mark the menu cache as stale (EAGER variant, also forces
         ``self._icon._update_menu()``; reserved for explicit user-facing
         refresh actions). Delegate to tray_menu.invalidate_menu_cache;
         the lazy setters use ``_invalidate_menu_cache_locked`` instead."""
@@ -630,13 +630,13 @@ class TrayIcon:
         return maybe_publish_tray_menu(self)
 
     def _build_microphones_submenu(self) -> list:
-        """Build the Microphones ▸ submenu — delegate."""
+        """Build the Microphones ▸ submenu, delegate."""
         from voice_typer.server.tray_menu import build_microphones_submenu
 
         return build_microphones_submenu(self)
 
     def _build_models_submenu(self) -> list:
-        """Build a list of model MenuItems — cached models + More models link."""
+        """Build a list of model MenuItems, cached models + More models link."""
         from voice_typer.server.tray_menu import build_models_submenu
 
         # build_models_menu_items (tray_models.py) is the MenuItem builder.

@@ -11,7 +11,7 @@
 //!
 //! Originally inline in `bubble/rate_limit.rs` as
 //! `#[cfg(test)] mod tests { ... }`; moved to this sibling file to keep
-//! production source files free of test code (C-TEST-5 — matches the
+//! production source files free of test code (C-TEST-5, matches the
 //! pattern established by `commands/bubble/tests.rs`).
 //!
 //! These tests pin the toggle-rate-limiter invariants:
@@ -23,7 +23,7 @@
 //! - **the anchored-at-zero regression**: `Some(0)` is a REAL
 //!   last-toggle timestamp (Windows QPC granularity can anchor the
 //!   process at exactly 0ns elapsed) and must never be mistaken for
-//!   "never toggled" — the second rapid toggle at 0ns is denied;
+//!   "never toggled": the second rapid toggle at 0ns is denied;
 //! - `monotonic_now_nanos` monotonicity contract (closes the
 //!   NTP-skew rate-limiter bypass) and the `TOGGLE_RATE_LIMIT_NS`
 //!   constant (500ms);
@@ -33,7 +33,7 @@
 //! The initial `None` state of the shared `LAST_TOGGLE` is pinned
 //! INSIDE the integration test (not in a standalone test) so no other
 //! test in this binary can observe a transient `Some` value while
-//! tests run in parallel — the integration test is the single owner
+//! tests run in parallel: the integration test is the single owner
 //! of the shared static and resets it to `None` before returning.
 
 use super::{monotonic_now_nanos, toggle_decision, LAST_TOGGLE, TOGGLE_RATE_LIMIT_NS};
@@ -103,7 +103,7 @@ fn test_toggle_decision_clock_backwards_allows_defensively() {
     // `now < last` should be impossible with a monotonic `Instant`,
     // but the branch exists to protect against a future clock-source
     // swap. Contract: allow (don't penalize the user) and store the
-    // new value — the same behavior the previous compare-exchange
+    // new value: the same behavior the previous compare-exchange
     // encoding had.
     assert_eq!(toggle_decision(Some(10_000), 9_999), Some(9_999));
 }
@@ -112,12 +112,12 @@ fn test_toggle_decision_clock_backwards_allows_defensively() {
 
 /// `monotonic_now_nanos` must return a non-decreasing value across
 /// successive calls (the whole point of switching from
-/// `SystemTime::now()` — closes the NTP-skew rate-limiter bypass).
+/// `SystemTime::now()`, closes the NTP-skew rate-limiter bypass).
 #[test]
 fn test_monotonic_now_nanos_is_non_decreasing() {
     let a = monotonic_now_nanos();
     // Spin briefly to ensure the clock advances (Instant's
-    // resolution is platform-dependent — on Linux it's typically
+    // resolution is platform-dependent: on Linux it's typically
     // 1ns, on Windows ~15ms).
     for _ in 0..1000 {
         std::hint::spin_loop();
@@ -150,7 +150,7 @@ fn test_monotonic_now_nanos_is_anchored_not_wall_clock() {
     );
 }
 
-/// The rate-limit threshold constant must remain 500ms — matches
+/// The rate-limit threshold constant must remain 500ms, matches
 /// the renderer's UI animation frame budget and the documented
 /// contract. A regression here would either over-throttle (e.g.
 /// 500µs) or under-throttle (e.g. 5s) legitimate user clicks.
@@ -158,7 +158,7 @@ fn test_monotonic_now_nanos_is_anchored_not_wall_clock() {
 fn test_toggle_rate_limit_ns_is_500ms() {
     assert_eq!(
         TOGGLE_RATE_LIMIT_NS, 500_000_000,
-        "TOGGLE_RATE_LIMIT_NS must be 500ms (500_000_000 ns) — matches the bubble \
+        "TOGGLE_RATE_LIMIT_NS must be 500ms (500_000_000 ns): matches the bubble \
          renderer's UI animation budget"
     );
 }
@@ -169,8 +169,8 @@ fn test_toggle_rate_limit_ns_is_500ms() {
 // `LAST_TOGGLE` (the pure `toggle_decision` tests above cover the
 // branch matrix without touching it). It asserts the shared state's
 // initial `None` ("never toggled") value at its start, drives the
-// REAL predicate twice in rapid succession — the exact user-facing
-// bypass scenario: toggle, then immediately toggle again — and
+// REAL predicate twice in rapid succession, the exact user-facing
+// bypass scenario: toggle, then immediately toggle again, and
 // resets the shared state to `None` before returning so the
 // process-wide limiter is left as if the test never ran.
 
@@ -184,7 +184,7 @@ fn test_toggle_rate_limiter_allows_rapid_double_toggle_is_denied() {
     );
     // First toggle: allowed (no stored last-toggle).
     let first = super::toggle_rate_limiter_allows();
-    // Second toggle immediately after (microseconds later — well
+    // Second toggle immediately after (microseconds later, well
     // inside the 500ms window): the limiter must HOLD.
     let second = super::toggle_rate_limiter_allows();
     assert!(
@@ -193,7 +193,7 @@ fn test_toggle_rate_limiter_allows_rapid_double_toggle_is_denied() {
     );
     assert!(
         !second,
-        "a second toggle in rapid succession (<< 500ms apart) must be rate-limited — \
+        "a second toggle in rapid succession (<< 500ms apart) must be rate-limited: \
          the limiter must not be bypassable by a rapid double toggle"
     );
     // Reset the shared state so this test leaves no trace for any

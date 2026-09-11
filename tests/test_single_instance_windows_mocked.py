@@ -17,7 +17,7 @@ executes on Linux, mirroring the strategy used by
    and ``user32`` attributes (``create=True`` because ``windll`` does
    not exist on POSIX).
 2. Patch ``_create_restrictive_security_attributes`` to return ``None``
-   so we don't have to mock the entire DACL builder — the function
+   so we don't have to mock the entire DACL builder, the function
    only uses the return value to pass to ``CreateMutexW`` as the
    ``lp_mutex_attributes`` argument, and ``None`` short-circuits the
    ``ctypes.byref(sa)`` path.
@@ -91,7 +91,7 @@ def fake_win32(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# Test 1 — error_already_exists triggers sys.exit(1)
+# Test 1, error_already_exists triggers sys.exit(1)
 # ---------------------------------------------------------------------------
 
 
@@ -122,7 +122,7 @@ def test_error_already_exists_triggers_sys_exit(fake_win32):
 
 
 # ---------------------------------------------------------------------------
-# Test 2 — SetHandleInformation clears HANDLE_FLAG_INHERIT
+# Test 2, SetHandleInformation clears HANDLE_FLAG_INHERIT
 # ---------------------------------------------------------------------------
 
 
@@ -153,7 +153,7 @@ def test_set_handle_information_clears_inheritance_bit(fake_win32):
 
 
 # ---------------------------------------------------------------------------
-# Test 3 — stale PID recovery clears the PID file and proceeds
+# Test 3, stale PID recovery clears the PID file and proceeds
 # ---------------------------------------------------------------------------
 
 
@@ -166,11 +166,11 @@ def test_stale_pid_recovery_clears_pid_file(fake_win32, monkeypatch):
     usually means another process holds the mutex RIGHT NOW, but if the
     PID file points to a dead process the mutex may be abandoned
     (previous owner crashed).  ``WaitForSingleObject`` returns
-    ``WAIT_ABANDONED`` in that case — we acquire ownership, write our
+    ``WAIT_ABANDONED`` in that case, we acquire ownership, write our
     own PID, and proceed.
     """
     fake_win32["kernel32"].GetLastError.return_value = ERROR_ALREADY_EXISTS
-    # Stale PID present — _read_stale_backend_pid returns a non-None PID.
+    # Stale PID present, _read_stale_backend_pid returns a non-None PID.
     monkeypatch.setattr(si_mod, "_read_stale_backend_pid", lambda: 12345)
     # WaitForSingleObject returns WAIT_ABANDONED → previous owner died,
     # we now own the mutex → proceed.
@@ -195,12 +195,12 @@ def test_stale_pid_recovery_clears_pid_file(fake_win32, monkeypatch):
     # The recovered mutex path writes OUR PID so the next launch can
     # detect a stale lock if we crash hard.
     assert len(write_calls) == 1, "stale PID recovery must write our own PID via _write_backend_pid_file"
-    # The function proceeds (returns the mutex) — does NOT sys.exit.
+    # The function proceeds (returns the mutex), does NOT sys.exit.
     assert result == 0xDEADBEEF
 
 
 # ---------------------------------------------------------------------------
-# Test 4 — mutex name is exactly "Local\VoiceTyperSingleInstance"
+# Test 4, mutex name is exactly "Local\VoiceTyperSingleInstance"
 # ---------------------------------------------------------------------------
 
 
@@ -215,7 +215,7 @@ def test_mutex_name_is_exactly_local_voicetyper_single_instance(fake_win32):
     and production installs run as separate instances.
 
     The source-string test in ``tests/regressions/test_platform_win32.py``
-    only checks that the token appears in the source — this behavioral
+    only checks that the token appears in the source, this behavioral
     test asserts the token is actually passed to ``CreateMutexW``.
     """
     fake_win32["kernel32"].GetLastError.return_value = 0  # success

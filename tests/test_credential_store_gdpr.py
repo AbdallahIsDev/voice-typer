@@ -1,4 +1,4 @@
-"""DJ-24 — ``_plaintext_config_cache`` retains plaintext API keys after GDPR delete.
+"""DJ-24: ``_plaintext_config_cache`` retains plaintext API keys after GDPR delete.
 
 The GDPR Art. 17 ``delete_all_personal_data`` flow (in
 ``voice_typer/server/service/privacy.py``) calls
@@ -10,7 +10,7 @@ fields to ``""``.
 
 BUT neither path touched the module-level ``_plaintext_config_cache``
 dict (added by ER-79 to avoid 5× re-parses of ``config.json`` at
-startup). The cache holds the parsed dict — which still contains the
+startup). The cache holds the parsed dict, which still contains the
 PRE-clear plaintext API keys. After a GDPR delete, no caller does a
 subsequent ``_read_plaintext_fallback`` (which would re-parse via the
 mtime check), so the stale dict lives in process memory until the app
@@ -19,12 +19,12 @@ restarts.
 DJ-24 fix: a new ``_clear_plaintext_config_cache()`` helper mirrors
 ``_reset_keyring_cache()``. It's called from:
 
-  - ``delete_secret()`` — after the ``_write_plaintext_fallback('')``
+  - ``delete_secret()``, after the ``_write_plaintext_fallback('')``
     call so the on-disk-clear's mtime bump is paired with a cache
     invalidation.
-  - ``clear_in_memory_secrets()`` — after the ``setattr`` loop so the
+  - ``clear_in_memory_secrets()``, after the ``setattr`` loop so the
     cache is invalidated whenever in-memory attributes are zeroed
-    (defensive — covers any future caller that bypasses
+    (defensive, covers any future caller that bypasses
     ``delete_secret`` and goes straight to ``clear_in_memory_secrets``).
 
 This test file asserts:
@@ -35,7 +35,7 @@ This test file asserts:
      ``clear_in_memory_secrets()``.
   3. The helper is exposed on the module (so the privacy mixin and
      tests can call it directly if needed).
-  4. The helper is idempotent — calling it on an already-empty cache
+  4. The helper is idempotent, calling it on an already-empty cache
      is a no-op.
 
 Additional coverage (GDPR orphan-cleanup + store_secret validation):
@@ -48,7 +48,7 @@ Additional coverage (GDPR orphan-cleanup + store_secret validation):
      historical / deprecated names, and is monkey-patchable for tests.
   7. ``delete_secret`` iterates ``_KNOWN_PROVIDERS_HISTORY`` and
      deletes any orphaned keychain entries for historical / deprecated
-     provider names — closing the "GDPR delete leaves orphaned
+     provider names, closing the "GDPR delete leaves orphaned
      OS-keychain entries" gap.
 """
 
@@ -82,7 +82,7 @@ def _isolated_config_dir(tmp_config_dir):
 def mock_keyring_unavailable(monkeypatch):
     """Mock keyring as unavailable (fail backend / D-Bus missing).
 
-    DJ-24 specifically affects the plaintext-fallback path — when
+    DJ-24 specifically affects the plaintext-fallback path, when
     keyring is available, plaintext API keys never reach
     ``config.json`` in the first place. We need the unavailable path
     to populate ``_plaintext_config_cache`` with real plaintext.
@@ -232,7 +232,7 @@ class TestDeleteSecretClearsCache:
         # _clear_plaintext_config_cache() so the stale cache is dropped.
         credential_store.delete_secret("openai")
 
-        # Assert: cache is empty — the stale plaintext value is no
+        # Assert: cache is empty, the stale plaintext value is no
         # longer reachable via the cache.
         assert not credential_store._plaintext_config_cache, (
             "DJ-24: _plaintext_config_cache must be empty after delete_secret() "
@@ -259,7 +259,7 @@ class TestDeleteSecretClearsCache:
 
         # Assert: cache is cleared ().
         assert not credential_store._plaintext_config_cache
-        # And a subsequent load re-reads from disk — the deleted
+        # And a subsequent load re-reads from disk, the deleted
         # provider is gone, the other provider is still there.
         assert credential_store.load_secret("openai") is None
         assert credential_store.load_secret("groq") == "gsk_groq"
@@ -295,7 +295,7 @@ class TestClearInMemorySecretsClearsCache:
     def test_clear_in_memory_secrets_clears_cache_even_if_setattr_fails(self, mock_keyring_unavailable, tmp_path):
         """DJ-24: the cache-clear must run even if the ``setattr``
         loop raises for every field (e.g. frozen dataclass). The
-        cache-clear is independent of the field-clear — defense in
+        cache-clear is independent of the field-clear, defense in
         depth so a partial-clean GDPR delete still drops the cache."""
         # Arrange: populate the cache.
         credential_store.store_secret("openai", "sk-leak")
@@ -309,7 +309,7 @@ class TestClearInMemorySecretsClearsCache:
 
         config = _FrozenConfig()
 
-        # Act — must not raise.
+        # Act, must not raise.
         cleared = credential_store.clear_in_memory_secrets(config)
 
         # Assert: cache is still cleared even though no field was set.
@@ -331,7 +331,7 @@ class TestStoreSecretRejectsUnknownProvider:
     ``keyring.set_password(KEYRING_SERVICE_NAME, "openai_v2", "sk-...")``,
     creating a keychain entry under the typo'd name. The GDPR delete
     path iterates ``PROVIDER_TO_CONFIG_FIELD`` (the 5 current
-    providers), so the ``openai_v2`` entry would NEVER be deleted — an
+    providers), so the ``openai_v2`` entry would NEVER be deleted, an
     orphan that persists in the OS keychain indefinitely (macOS
     Keychain survives app uninstall).
 
@@ -359,7 +359,7 @@ class TestStoreSecretRejectsUnknownProvider:
         # The typo'd provider must NOT have been written to the keyring.
         store = mock_keyring_available["store"]
         assert (credential_store.KEYRING_SERVICE_NAME, "openai_v2") not in store, (
-            "store_secret must NOT write to the keyring for an unknown provider — "
+            "store_secret must NOT write to the keyring for an unknown provider, "
             "the whole point of the validation is to prevent orphaned entries"
         )
         # A WARNING must be logged so the operator / caller sees the rejection.
@@ -378,7 +378,7 @@ class TestStoreSecretRejectsUnknownProvider:
         assert (credential_store.KEYRING_SERVICE_NAME, "OpenAI") not in store
 
     def test_rejects_deprecated_provider_name(self, mock_keyring_available):
-        """A plausible deprecated name (e.g. ``"polisher"`` — an old name
+        """A plausible deprecated name (e.g. ``"polisher"``, an old name
         for the LLM polisher that's now ``"llm"``) must be rejected
         because it's not in ``PROVIDER_TO_CONFIG_FIELD``."""
         result = credential_store.store_secret("polisher", "sk-deprecated-test")
@@ -413,7 +413,7 @@ class TestStoreSecretRejectsUnknownProvider:
 
     def test_rejection_sets_outcome_reason(self, mock_keyring_available):
         """The ``last_store_outcome()`` must reflect the rejection with a
-        reason mentioning the unknown provider name — so the IPC handler
+        reason mentioning the unknown provider name, so the IPC handler
         can surface *why* the store failed to the user."""
         credential_store.store_secret("openai_v2", "sk-outcome-test")
         outcome = credential_store.last_store_outcome()
@@ -441,7 +441,7 @@ class TestStoreSecretRejectsUnknownProvider:
         for provider, value in secrets.items():
             result = credential_store.store_secret(provider, value)
             assert result is True, (
-                f"store_secret({provider!r}, ...) must succeed (return True) for a known provider — "
+                f"store_secret({provider!r}, ...) must succeed (return True) for a known provider, "
                 f"the validation must not break the happy path"
             )
             assert credential_store.load_secret(provider) == value, (
@@ -477,14 +477,14 @@ class TestStoreSecretRejectsUnknownProvider:
         # store_secret with empty value → rejected (validation first).
         result = credential_store.store_secret("openai_v2", "")
         assert result is False, (
-            "store_secret('openai_v2', '') must be rejected by the validation — "
+            "store_secret('openai_v2', '') must be rejected by the validation, "
             "the empty-value delete path is NOT reached for unknown providers"
         )
-        # The orphaned entry is STILL there — store_secret didn't delete it.
+        # The orphaned entry is STILL there, store_secret didn't delete it.
         # (delete_secret is the cleanup path, covered by TestDeleteSecretOrphanCleanup.)
         store = mock_keyring_available["store"]
         assert store.get((credential_store.KEYRING_SERVICE_NAME, "openai_v2")) == "sk-orphan-pre-existing", (
-            "store_secret('openai_v2', '') must NOT delete the orphaned entry — "
+            "store_secret('openai_v2', '') must NOT delete the orphaned entry, "
             "the validation rejects the call before the empty-value branch runs"
         )
 
@@ -510,7 +510,7 @@ class TestKnownProvidersHistory:
 
     def test_history_includes_all_current_providers(self):
         """Every key in ``PROVIDER_TO_CONFIG_FIELD`` must be in
-        ``_KNOWN_PROVIDERS_HISTORY`` — the history is a SUPERSET of the
+        ``_KNOWN_PROVIDERS_HISTORY``, the history is a SUPERSET of the
         current providers. This is the minimum invariant; deprecated
         names are ADDITIVE on top."""
         current = set(credential_store.PROVIDER_TO_CONFIG_FIELD.keys())
@@ -551,7 +551,7 @@ class TestDeleteSecretOrphanCleanup:
     ``PROVIDER_TO_CONFIG_FIELD`` (the 5 current providers) and calls
     ``delete_secret(provider, config=...)`` for each. Pre-fix,
     ``delete_secret`` only deleted the specific provider's keychain
-    entry — so entries stored under names NOT in
+    entry, so entries stored under names NOT in
     ``PROVIDER_TO_CONFIG_FIELD`` (e.g. a deprecated ``"polisher"``
     name, or a typo'd ``"openai_v2"`` from a pre-validation
     ``store_secret`` call) would persist in the OS keychain
@@ -588,7 +588,7 @@ class TestDeleteSecretOrphanCleanup:
         )
         assert (credential_store.KEYRING_SERVICE_NAME, "polisher") not in store, (
             "delete_secret('openai') must ALSO delete the orphaned 'polisher' entry "
-            "(via _KNOWN_PROVIDERS_HISTORY iteration) — closing the GDPR orphan gap"
+            "(via _KNOWN_PROVIDERS_HISTORY iteration), closing the GDPR orphan gap"
         )
 
     def test_delete_secret_cleans_up_typo_entry(self, mock_keyring_available, monkeypatch):
@@ -628,7 +628,7 @@ class TestDeleteSecretOrphanCleanup:
 
     def test_delete_secret_skips_current_providers_in_history_iteration(self, mock_keyring_available, monkeypatch):
         """The history iteration must SKIP current providers (those in
-        ``PROVIDER_TO_CONFIG_FIELD``) — the privacy service's per-provider
+        ``PROVIDER_TO_CONFIG_FIELD``), the privacy service's per-provider
         loop handles them, so re-deleting would be redundant. This test
         verifies the skip by checking that ``delete_secret("openai")``
         does NOT delete the ``"groq"`` entry (groq is a current provider
@@ -654,7 +654,7 @@ class TestDeleteSecretOrphanCleanup:
         # It must still be present (delete_secret("openai") must NOT
         # delete groq).
         assert store.get((credential_store.KEYRING_SERVICE_NAME, "groq")) == "sk-groq", (
-            "delete_secret('openai') must NOT delete the 'groq' entry — "
+            "delete_secret('openai') must NOT delete the 'groq' entry, "
             "groq is a current provider and the orphan-cleanup iteration skips "
             "current providers (handled by the privacy service's per-provider loop)"
         )
@@ -662,7 +662,7 @@ class TestDeleteSecretOrphanCleanup:
     def test_delete_secret_no_op_when_history_has_no_deprecated_names(self, mock_keyring_available):
         """When ``_KNOWN_PROVIDERS_HISTORY`` has no deprecated names
         (only current providers), the orphan-cleanup iteration is a
-        no-op — ``delete_secret`` just deletes the specific provider.
+        no-op: ``delete_secret`` just deletes the specific provider.
         This is the default state of the production code (no deprecated
         names are known yet)."""
         # Default history (just current providers, no deprecated names).
@@ -678,17 +678,17 @@ class TestDeleteSecretOrphanCleanup:
         # openai was deleted.
         assert (credential_store.KEYRING_SERVICE_NAME, "openai") not in store
         # phantom_typo is NOT in the history → NOT deleted (it remains
-        # an orphan — the fix only cleans up KNOWN deprecated names).
+        # an orphan, the fix only cleans up KNOWN deprecated names).
         # This is the documented limitation: unknown typo'd names that
         # aren't in the history persist (the secretstorage enumeration
         # approach for fully-unknown names is a separate, larger scope).
         assert store.get((credential_store.KEYRING_SERVICE_NAME, "phantom_typo")) == "sk-phantom", (
             "delete_secret must NOT delete a phantom typo entry that's not in "
-            "_KNOWN_PROVIDERS_HISTORY — the fix only cleans up KNOWN deprecated names"
+            "_KNOWN_PROVIDERS_HISTORY, the fix only cleans up KNOWN deprecated names"
         )
 
     def test_delete_secret_orphan_cleanup_is_idempotent(self, mock_keyring_available, monkeypatch):
-        """Calling ``delete_secret`` twice must not raise — the second
+        """Calling ``delete_secret`` twice must not raise, the second
         call's orphan-cleanup iteration attempts to delete
         already-deleted entries, which is a no-op
         (``PasswordDeleteError`` / KeyError is caught and logged at
@@ -700,12 +700,12 @@ class TestDeleteSecretOrphanCleanup:
         store[(credential_store.KEYRING_SERVICE_NAME, "openai")] = "sk-openai"
         store[(credential_store.KEYRING_SERVICE_NAME, "polisher")] = "sk-polisher"
 
-        # First call — deletes openai + polisher.
+        # First call, deletes openai + polisher.
         credential_store.delete_secret("openai")
         assert (credential_store.KEYRING_SERVICE_NAME, "polisher") not in store
 
-        # Second call — must NOT raise. The orphan-cleanup iteration
-        # attempts to delete "polisher" again (already gone) — the
+        # Second call, must NOT raise. The orphan-cleanup iteration
+        # attempts to delete "polisher" again (already gone), the
         # fake backend's delete_password uses store.pop(..., None) which
         # is a no-op for missing keys.
         credential_store.delete_secret("groq")  # different provider, same history iteration
@@ -742,13 +742,13 @@ class TestDeleteSecretOrphanCleanup:
         """When keyring is unavailable, the orphan-cleanup iteration is
         SKIPPED (it's inside the ``if is_keyring_available():`` block),
         so ``delete_secret`` just does the plaintext-fallback clear.
-        This is the correct behavior — there's nothing to delete from a
+        This is the correct behavior, there's nothing to delete from a
         non-existent keyring. The test verifies no exception is raised
         and the plaintext-fallback path still runs."""
         test_history = frozenset(set(credential_store.PROVIDER_TO_CONFIG_FIELD.keys()) | {"polisher"})
         monkeypatch.setattr(credential_store, "_KNOWN_PROVIDERS_HISTORY", test_history)
 
-        # Must not raise — the unavailable keyring means the orphan
+        # Must not raise, the unavailable keyring means the orphan
         # iteration is skipped, but the plaintext-fallback clear still
         # runs (and clears the config.json field for the specific
         # provider).

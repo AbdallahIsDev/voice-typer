@@ -1,5 +1,5 @@
 /**
- * useHelpOverlayShortcut — "?" key opens the help overlay, Escape
+ * useHelpOverlayShortcut, "?" key opens the help overlay, Escape
  * closes it.
  *
  * Extracted from App.tsx (App.tsx slimming split) to keep
@@ -21,7 +21,7 @@ import { useCallback, useEffect, useState } from "react";
 /**
  * Wire the "?" / Escape help-overlay keyboard shortcut.
  *
- * @returns ``{ showHelpOverlay, openHelp, closeHelp }`` — the open
+ * @returns ``{ showHelpOverlay, openHelp, closeHelp }``, the open
  *   flag plus stable callbacks (memoized with empty deps) suitable for
  *   passing to React.memo'd children.
  */

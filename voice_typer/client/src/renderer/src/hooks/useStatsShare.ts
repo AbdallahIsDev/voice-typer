@@ -21,7 +21,7 @@ export const STATS_IMAGE_FILENAME = "voice-typer-stats";
  * `data.todayCount > 0`, which hid the button on days when the user
  * hadn't dictated yet BUT had past transcriptions (totalCount > 0).
  * The share image still produces a meaningful summary in that case
- * (lifetime stats, 7-day activity chart, streak, active days) — the
+ * (lifetime stats, 7-day activity chart, streak, active days), the
  * only zero field is today's WPM/minutes-saved. Hiding the button
  * silently degraded the shareable-moment UX for any user who opens
  * the dashboard before their first dictation of the day.
@@ -45,7 +45,7 @@ export function canShareStats(opts: {
 }
 
 /** Optional lifetime / setup metrics the share image can pull from the
- * Analytics page. Every field is optional — `computeShareStats` still
+ * Analytics page. Every field is optional, `computeShareStats` still
  * produces a valid summary from today's data alone. */
 export interface ShareStatsExtras {
 	/** All-time dictation count. */
@@ -73,7 +73,7 @@ export interface ShareStatsExtras {
  *
  * Zero-data policy (mirrors the Analytics page): when the user has no
  * dictation today, ``wpmDisplay`` shows "—" and ``fasterThanAvg`` is
- * ``null`` — the image never claims "0 WPM" or "0% faster than avg"
+ * ``null``, the image never claims "0 WPM" or "0% faster than avg"
  * as if they were real stats.
  */
 export function computeShareStats(
@@ -198,12 +198,12 @@ export function useStatsShare(options?: UseStatsShareOptions) {
 
 	/** Capture the off-screen image element and return a PNG data URL
 	 * (or `null` when the element is missing / zero-sized / capture
-	 * throws — the failure is surfaced via `onError`). */
+	 * throws, the failure is surfaced via `onError`). */
 	const captureImage = useCallback(async (): Promise<string | null> => {
 		const el = imageRef.current;
 		if (!el) {
 			console.warn(
-				"[renderer:useStatsShare] imageRef not attached — capture aborted",
+				"[renderer:useStatsShare] imageRef not attached, capture aborted",
 			);
 			onError?.(t("stats.shareImage.captureFailed"));
 			return null;
@@ -220,7 +220,7 @@ export function useStatsShare(options?: UseStatsShareOptions) {
 		}
 		if (el.offsetWidth === 0 || el.offsetHeight === 0) {
 			console.error(
-				"[renderer:useStatsShare] target has zero size — image will be blank. " +
+				"[renderer:useStatsShare] target has zero size, image will be blank. " +
 					"Check that the wrapper is not display:none or positioned off-screen.",
 			);
 			onError?.(t("stats.shareImage.captureFailed"));
@@ -309,7 +309,7 @@ export function useStatsShare(options?: UseStatsShareOptions) {
 
 	/** Capture + put the PNG on the OS clipboard. Returns `true` on
 	 * success. Browser fallback uses the async Clipboard API. (The
-	 * filename is only meaningful for file-based actions — clipboard
+	 * filename is only meaningful for file-based actions, clipboard
 	 * copy is content-only.) */
 	const copyImageToClipboard = useCallback(async (): Promise<boolean> => {
 		const dataUrl = await captureImage();
@@ -342,7 +342,7 @@ export function useStatsShare(options?: UseStatsShareOptions) {
 	}, [captureImage, onError]);
 
 	/** Reveal a previously-saved PNG in the OS file manager (best-effort
-	 * — the bridge may be unavailable, e.g. Tauri runtime). */
+	 *, the bridge may be unavailable, e.g. Tauri runtime). */
 	const revealInFolder = useCallback(
 		async (filePath: string): Promise<void> => {
 			await window.window_?.revealStatsImage?.(filePath);

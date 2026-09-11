@@ -4,7 +4,7 @@ Source marker: ``tests/test_new_ts_004_006_012_015.py``.
 
 This section of the original monolith contained only the module
 docstring for the NEW-TS-004 / NEW-TS-006 / NEW-TS-012 / NEW-TS-015
-regression cluster — the actual static-source checks for these
+regression cluster, the actual static-source checks for these
 TypeScript-side fixes live in their own dedicated test modules
 (``tests/test_electron_ipc_and_build.py`` and friends).  The
 ``if __name__ == "__main__"`` block is preserved verbatim so that
@@ -24,7 +24,7 @@ NEW-TS-004: Settings.tsx and Microphone.tsx re-implemented the snackbar
 pattern inline instead of using the shared useSnackbar hook.
 
 NEW-TS-006: Home.tsx registered two separate usePythonEvent listeners
-for 'transcription_final' — consolidated into one.
+for 'transcription_final', consolidated into one.
 
 NEW-TS-012: App.tsx had an ``as RecordingState`` cast that was never
 removed despite a comment claiming it was.  Replaced with a runtime

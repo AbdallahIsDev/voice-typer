@@ -1,16 +1,16 @@
 /**
- * E2E persistence regression tests for the Vocabulary page — the exact
+ * E2E persistence regression tests for the Vocabulary page, the exact
  * reproduction that exposed the fake-deletion bug:
  *
  *   1. load the page
- *   2. delete an entry (single / bulk / Clear All) — or edit it
+ *   2. delete an entry (single / bulk / Clear All), or edit it
  *   3. navigate away and back (the page unmounts and re-mounts,
  *      re-fetching `get_vocabulary`)
  *   4. the deleted entry must NOT reappear; the edited value must stick
  *
  * WHY A STATEFUL MINI-BACKEND: the existing tests stub `get_vocabulary`
  * with a STATIC object, so a save that never reaches the backend (or a
- * stale payload) still "passes" — the reload would return the same seed
+ * stale payload) still "passes", the reload would return the same seed
  * either way. This file instead drives a faithful in-memory port of the
  * backend's `save_vocabulary_with_diff`: the user store holds a DIFF
  * against the bundled defaults plus `_deleted` tombstones, and
@@ -84,7 +84,7 @@ function emptyCat(cat: Cat): Record<string, string> | Array<[string, string]> {
  * Stateful in-memory backend double. `bundled` is immutable; the user
  * store holds the diff against it (+ `_deleted` tombstones), exactly
  * like the real user vocabulary.json. `merged()` recomputes the view
- * from the store on every call — a "reload" is just a fresh `merged()`.
+ * from the store on every call, a "reload" is just a fresh `merged()`.
  */
 function makeMiniBackend(bundled: VocabularyData) {
 	let store: MiniStore = {};
@@ -169,7 +169,7 @@ function makeMiniBackend(bundled: VocabularyData) {
 				if (removed.size > 0) deleted[cat] = [...removed].sort();
 			} else {
 				// List cats: tombstones are RAW [wrong, correct] pairs
-				// (the real backend's ``_deleted`` holds pairs too) — NOT
+				// (the real backend's ``_deleted`` holds pairs too), NOT
 				// their JSON strings. ``merged`` re-stringifies on every
 				// read, so storing pre-stringified pairs would double-
 				// encode and never match (the exact bug this test file
@@ -225,7 +225,7 @@ const BUNDLED: VocabularyData = {
 
 /**
  * Seed the store the way the renderer would after an add: the FULL
- * merged payload (bundled + new user entries) — the renderer always
+ * merged payload (bundled + new user entries), the renderer always
  * sends the complete list, never a partial one.
  */
 function seedUser(
@@ -267,7 +267,7 @@ function wireMock() {
 // lazy import (the page pulls in the whole hook stack)
 import VocabularyPage from "../../Vocabulary";
 
-describe("Vocabulary page — delete/edit persistence across reload (fake-deletion regression)", () => {
+describe("Vocabulary page, delete/edit persistence across reload (fake-deletion regression)", () => {
 	beforeEach(() => {
 		wireMock();
 	});
@@ -280,7 +280,7 @@ describe("Vocabulary page — delete/edit persistence across reload (fake-deleti
 	const deleteRow = async (ariaLabel: string) => {
 		const btn = screen.getByRole("button", { name: ariaLabel });
 		fireEvent.click(btn);
-		// the delete is optimistic + persisted async — wait for the row
+		// the delete is optimistic + persisted async, wait for the row
 		// to leave the DOM AND the save round-trip to settle (the save
 		// is what makes the change survive a reload; without it the row
 		// comes back on remount)
@@ -308,7 +308,7 @@ describe("Vocabulary page — delete/edit persistence across reload (fake-deleti
 
 		await deleteRow("Delete: myword");
 
-		// navigate away and back — a fresh mount re-fetches from the
+		// navigate away and back, a fresh mount re-fetches from the
 		// (now updated) store
 		remount();
 		await screen.findByText("recieve");
@@ -349,7 +349,7 @@ describe("Vocabulary page — delete/edit persistence across reload (fake-deleti
 		expect(screen.queryByText("bbb")).toBeNull();
 	});
 
-	it("Clear All persists after reload — bundled defaults stay cleared", async () => {
+	it("Clear All persists after reload, bundled defaults stay cleared", async () => {
 		renderPage();
 		await screen.findByText("recieve");
 
@@ -382,7 +382,7 @@ describe("Vocabulary page — delete/edit persistence across reload (fake-deleti
 		});
 
 		remount();
-		// the page shows the empty state — nothing comes back, bundled
+		// the page shows the empty state, nothing comes back, bundled
 		// defaults included
 		await waitFor(() => expect(screen.queryByText("recieve")).toBeNull());
 		expect(screen.queryByText(/to 2/)).toBeNull();
@@ -409,13 +409,13 @@ describe("Vocabulary page — delete/edit persistence across reload (fake-deleti
 		// gone.
 		await screen.findByRole("button", { name: "Edit: recieve" });
 		expect(screen.getAllByText("recieve").length).toBeGreaterThanOrEqual(2);
-		// the correction value is now "recieve" (saved) — the row
+		// the correction value is now "recieve" (saved), the row
 		// renders original → correction, so the old "receive" is gone
 		expect(screen.queryByText("receive")).toBeNull();
 	});
 
 	it("a failed save surfaces an error toast and does NOT pretend success", async () => {
-		// make save_vocabulary reject — the UI must restore the row and
+		// make save_vocabulary reject, the UI must restore the row and
 		// show an error, never a false success
 		mockCall.mockImplementation((type: unknown) => {
 			const cmd =

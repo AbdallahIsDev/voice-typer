@@ -172,7 +172,7 @@ def test_streaming_resampler_reset_before_process_does_not_crash():
     assert rs._x_up_buf is None
 
 
-# ─── NotchFilter (IIR zi state — ANTIDENORMAL_EPSILON guard) ──────────────
+# ─── NotchFilter (IIR zi state, ANTIDENORMAL_EPSILON guard) ──────────────
 
 
 def test_notch_reset_zeros_state():
@@ -186,7 +186,7 @@ def test_notch_reset_zeros_state():
     leak the prior speaker's audio into the new session, AND must
     re-apply ``ANTIDENORMAL_EPSILON`` to ``zi[0]`` so the IIR doesn't
     fall into denormal-float territory on some CPUs (which burns
-    cycles in the audio callback — see base.py:ANTIDENORMAL_EPSILON).
+    cycles in the audio callback: see base.py:ANTIDENORMAL_EPSILON).
     """
     from voice_typer.server.audio_filters.base import ANTIDENORMAL_EPSILON
     from voice_typer.server.audio_filters.notch import NotchFilter
@@ -207,7 +207,7 @@ def test_notch_reset_zeros_state():
     notch.reset()
 
     # The state tuple is preserved (same b/a arrays, same zi array
-    # object reused — the production code zero-fills in place rather
+    # object reused, the production code zero-fills in place rather
     # than allocating a fresh np.zeros block on every reset).
     assert notch._state is not None
     _b2, _a2, zi_after = notch._state
@@ -227,14 +227,14 @@ def test_notch_reset_zeros_state():
 
 
 def test_notch_reset_before_process_does_not_crash():
-    """reset() before process() must not crash — the IIR state is
+    """reset() before process() must not crash, the IIR state is
     initialized at construction (``_init_filter`` allocates a
     zero-filled zi), so reset() on a fresh filter just re-zeros
     zi and re-applies the epsilon."""
     from voice_typer.server.audio_filters.notch import NotchFilter
 
     notch = NotchFilter(frequency_hz=60.0, sample_rate=_SR)
-    # No process() call — zi is still the initial zero-filled array.
+    # No process() call, zi is still the initial zero-filled array.
     notch.reset()
     # State must still be valid (filter not degraded).
     assert notch._state is not None
@@ -244,7 +244,7 @@ def test_notch_reset_before_process_does_not_crash():
 def test_notch_reset_idempotent():
     """Calling reset() twice must leave the filter in the same state
     as calling it once (idempotent). The second reset re-zeros an
-    already-zeroed zi and re-applies epsilon — no accumulation."""
+    already-zeroed zi and re-applies epsilon, no accumulation."""
     from voice_typer.server.audio_filters.base import ANTIDENORMAL_EPSILON
     from voice_typer.server.audio_filters.notch import NotchFilter
 
@@ -254,7 +254,7 @@ def test_notch_reset_idempotent():
     _b1, _a1, zi_after_first = notch._state
     assert zi_after_first[0] == np.float32(ANTIDENORMAL_EPSILON)
 
-    # Second reset — idempotent (no accumulation, no error).
+    # Second reset, idempotent (no accumulation, no error).
     notch.reset()
     _b2, _a2, zi_after_second = notch._state
     assert zi_after_second[0] == np.float32(ANTIDENORMAL_EPSILON)

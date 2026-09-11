@@ -1,7 +1,7 @@
 """Tests for the segmented (multi-connection) download engine.
 
 The engine (``voice_typer/server/segmented_download.py``) downloads a
-single large file as N concurrent HTTP Range segments — the classic
+single large file as N concurrent HTTP Range segments, the classic
 aria2/ADM approach on the standard HTTP path (NOT xet), so the
 pause/cancel transfer gate keeps working and no native code is
 involved.
@@ -14,7 +14,7 @@ under test are the production ones.
 
 import errno
 import hashlib
-import io  # noqa: F401 — referenced by string target in monkeypatch.setattr below
+import io  # noqa: F401, referenced by string target in monkeypatch.setattr below
 import os
 import threading
 import time
@@ -380,7 +380,7 @@ class TestGateIntegration:
         def run():
             try:
                 done["path"] = seg.download_file_segmented(**kw)
-            except BaseException as e:  # noqa: BLE001 — test must surface anything
+            except BaseException as e:  # noqa: BLE001, test must surface anything
                 errors["err"] = e
 
         t = threading.Thread(target=run, daemon=True)

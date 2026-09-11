@@ -6,14 +6,14 @@ SEC-HFHOME-001 (HIGH-12) pattern in :mod:`voice_typer.server.env_validation`:
 ``_validate_path_safety(Path(val), Path.home())`` AFTER the basic
 ``_path_pattern`` (NUL byte) + length check, so attacker-controlled
 values that escape the user's home directory via ``..`` or absolute
-paths outside home are rejected at the env-var entry point — defense
+paths outside home are rejected at the env-var entry point, defense
 in depth on top of the same check that ``config._config_dir()``
 already performs on the consumer side.
 
 Scope (this file only):
   * VOICE_TYPER_CONFIG_DIR-specific path-safety behaviour.
   * The HF_HOME equivalent is covered by ``TestPathSafetyExceptionType``
-    in ``tests/test_env_validation.py`` — not duplicated here.
+    in ``tests/test_env_validation.py``, not duplicated here.
 
 The tests use the REAL ``_validate_path_safety`` wherever possible
 (deterministic absolute paths outside home, or chdir to a temp dir
@@ -95,7 +95,7 @@ class TestConfigDirTraversalRejected:
         ``Path.home()`` (``%LOCALAPPDATA%\Temp``), so the same relative
         traversal would resolve back inside home and NOT be rejected.
         With the isolated home, ``../../etc/passwd`` from ``work``
-        resolves to ``tmp_path/etc/passwd`` — outside ``tmp_path/home``
+        resolves to ``tmp_path/etc/passwd``, outside ``tmp_path/home``
         on every platform.
         """
         fake_home = tmp_path / "home"
@@ -139,7 +139,7 @@ class TestConfigDirTraversalRejected:
         Note: ``_validate_path_safety`` in ``config.py`` itself embeds
         the raw path in its ``ValueError`` message (``"Path traversal
         detected: <path> escapes <parent>"``), which is logged via
-        ``%s: %s`` of the exception instance — that predicate-side
+        ``%s: %s`` of the exception instance, that predicate-side
         leak is shared by both the HF_HOME and VOICE_TYPER_CONFIG_DIR
         blocks and is out of scope for XZ-14-07 (it's owned by the
         config.py maintainer). The GT-63 contract for the SUT call
@@ -161,7 +161,7 @@ class TestConfigDirTraversalRejected:
         )
 
     def test_absolute_path_outside_home_logs_warning(self, monkeypatch, caplog):
-        """Companion to the ``/etc/passwd`` rejection test — verify
+        """Companion to the ``/etc/passwd`` rejection test, verify
         the WARNING is emitted (not just the env-var pop)."""
         monkeypatch.setenv("VOICE_TYPER_CONFIG_DIR", "/etc/passwd")
         with caplog.at_level(logging.WARNING):
@@ -204,7 +204,7 @@ class TestConfigDirInHomePreserved:
         assert os.environ.get("VOICE_TYPER_CONFIG_DIR") == "subdir/config"
 
     def test_home_itself_preserved(self, monkeypatch):
-        """``Path.home()`` itself is the parent — passing it as the
+        """``Path.home()`` itself is the parent, passing it as the
         config dir is accepted (a path IS within itself)."""
         safe_path = str(Path.home())
         monkeypatch.setenv("VOICE_TYPER_CONFIG_DIR", safe_path)
@@ -224,7 +224,7 @@ class TestConfigDirPathSafetyExceptionType:
 
     Mirrors ``TestPathSafetyExceptionType`` in
     ``tests/test_env_validation.py`` (which covers the same contract
-    for HF_HOME) — we mock ``_validate_path_safety`` so the test
+    for HF_HOME), we mock ``_validate_path_safety`` so the test
     doesn't depend on cwd / home layout for raising a specific
     exception type.
     """
@@ -331,7 +331,7 @@ class TestConfigDirPatternCheckStillRunsFirst:
     """XZ-14-07: the existing basic ``_path_pattern`` (NUL byte) +
     length (<= 4096) check still runs BEFORE the new
     ``_validate_path_safety`` call. The two checks are layered, not
-    redundant — pattern failures must not reach the (heavier)
+    redundant, pattern failures must not reach the (heavier)
     path-safety code path.
 
     This is verified by mocking ``_validate_path_safety`` to RAISE if

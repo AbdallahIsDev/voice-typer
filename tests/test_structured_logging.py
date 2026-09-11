@@ -167,7 +167,7 @@ def test_setup_logging_emits_json_when_gated(tmp_path: Path, monkeypatch) -> Non
 
 
 def test_setup_logging_default_is_text(tmp_path: Path, monkeypatch) -> None:
-    """Default (gate off) keeps the human-readable text format — regression guard."""
+    """Default (gate off) keeps the human-readable text format, regression guard."""
     monkeypatch.delenv("VOICE_TYPER_LOG_JSON", raising=False)
     reset()
     config_dir = tmp_path / "cfg"
@@ -185,7 +185,7 @@ def test_setup_logging_default_is_text(tmp_path: Path, monkeypatch) -> None:
         # Text format: a session_id bracket + level label, not JSON braces.
         # Text format: a session_id bracket + level label, not JSON braces.
         # The session id is generated at runtime (uuid4 hex), so the literal
-        # ``a3f1b2c4`` placeholder will NOT be in the file — the actual
+        # ``a3f1b2c4`` placeholder will NOT be in the file, the actual
         # 8-char session_id (matching ``[0-9a-f]{8}``) will be.
         assert "[a3f1b2c4]" not in content
         assert "INFO" in content
@@ -219,7 +219,7 @@ def test_correlation_id_context_manager_noop_on_empty() -> None:
 
 def test_set_reset_token_roundtrip_restores_prior() -> None:
     """``set_correlation_id`` returns a token whose ``reset`` restores the
-    *previous* value — the primitive that stops concurrent requests from
+    *previous* value, the primitive that stops concurrent requests from
     leaking each other's correlation id."""
     assert get_correlation_id() == ""
     tok_a = set_correlation_id("req-A")

@@ -3,15 +3,15 @@
 // Owns:
 // - ``entries`` / ``loading`` / ``loadError`` / ``saving`` React state
 // - ``entriesRef`` (ref mirror so delete-undo callbacks can read the
-// latest list at undo time — see D2-FIX comment for the bug history)
+// latest list at undo time, see D2-FIX comment for the bug history)
 // - ``loadVocabulary`` (backend → React state)
 // - ``persistVocabulary`` (strips client-side ``_id``, rebuilds the
 // category-bucketed VocabularyData, calls ``save_vocabulary``)
 // - mount-time effect that calls ``loadVocabulary`` once
 // - ``searchQuery`` / ``sortOrder`` state + ``filteredSorted`` memo
-// (client-side search+sort — mirrors the History/Templates pattern)
+// (client-side search+sort, mirrors the History/Templates pattern)
 //``instantDeleteEntry`` ( instant delete + 6-second
-// Undo toast — see D2-FIX comment for the ref-based pattern)
+// Undo toast, see D2-FIX comment for the ref-based pattern)
 //
 // Extracted from the former monolithic ``pages/Vocabulary.tsx`` render
 // function. The dialog + import/export state has been split into
@@ -79,7 +79,7 @@ interface UseVocabularyResult {
 	usageByKey: UsageByKey;
 	// Search + filter + sort (client-side, applied via useMemo).
 	// The search query is READ from the shared global search store
-	// (title-bar search) — the per-page search state was removed.
+	// (title-bar search), the per-page search state was removed.
 	searchQuery: string;
 	sortOrder: VocabSortOrder;
 	setSortOrder: (o: VocabSortOrder) => void;
@@ -91,7 +91,7 @@ export function useVocabulary({
 	showSnack,
 }: UseVocabularyArgs): UseVocabularyResult {
 	// SWR seed: revisit renders the last visit's list instantly from the
-	// module cache (survives page unmount) — `loadVocabulary` below
+	// module cache (survives page unmount), `loadVocabulary` below
 	// still revalidates fresh data in the background.
 	const cachedEntries = peekIpcCache<VocabRow[]>(VOCAB_CACHE_KEY);
 	const [entries, setEntries] = useState<VocabRow[]>(cachedEntries ?? []);
@@ -113,7 +113,7 @@ export function useVocabulary({
 		"newest",
 	);
 
-	// Per-correction usage snapshot (``get_correction_usage``) — powers
+	// Per-correction usage snapshot (``get_correction_usage``), powers
 	// the per-row "Used N×" indicator. Fetched alongside the vocabulary
 	// and re-fetched after every save (the server prunes usage records
 	// for deleted corrections, so the map must track the live entries).
@@ -123,16 +123,16 @@ export function useVocabulary({
 	// `instantDeleteEntry` undo callback can read the LATEST list at
 	// undo time (potentially seconds after the delete).  Previously the
 	// undo callback closed over `entries` from the render that created
-	// `instantDeleteEntry` — that snapshot STILL INCLUDED the deleted
+	// `instantDeleteEntry`, that snapshot STILL INCLUDED the deleted
 	// entry (because `instantDeleteEntry` reads `entries` to compute
 	// `updated` via `.filter`, but never replaces `entries` in the
 	// closure).  When the user clicked Undo, `restored = [...entries]`
 	// contained `entry` at its original index, `restored.indexOf(entry)`
 	// returned that index, and `restored.splice(idx, 0, entry)`
-	// (deleteCount=0) INSERTED A SECOND COPY at that index — the entry
+	// (deleteCount=0) INSERTED A SECOND COPY at that index, the entry
 	// reappeared TWICE after Undo.  The closure was also stale with
 	// respect to any other vocabulary edits made between the delete and
-	// the Undo click — those edits were silently lost.
+	// the Undo click, those edits were silently lost.
 	//
 	// Mirrors the pattern in Templates.tsx:383, which re-reads via
 	// `loadTemplatesFromLocalStorage()` inside the undo callback instead
@@ -163,11 +163,11 @@ export function useVocabulary({
 	// OOM'd (FATAL ERROR: heap limit, killed the whole axe-core suite).
 	const callRef = useLatestRef(call);
 
-	// Per-correction usage snapshot (``get_correction_usage``) — powers
+	// Per-correction usage snapshot (``get_correction_usage``), powers
 	// the per-row "Used N×" indicator. Fetched alongside the vocabulary
 	// and re-fetched after every save (the server prunes usage records
 	// for deleted corrections, so the map must track the live entries).
-	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract — .current must NOT become a dep
+	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract, .current must NOT become a dep
 	const loadUsage = useCallback(async () => {
 		try {
 			const snapshot = await callRef.current<{
@@ -189,7 +189,7 @@ export function useVocabulary({
 			}
 			setUsageByKey(map);
 		} catch (err) {
-			// Usage is a progressive enhancement — a failure to load it
+			// Usage is a progressive enhancement, a failure to load it
 			// must not break the vocabulary list (entries still render
 			// without the "used N×" line).
 			console.error(
@@ -200,7 +200,7 @@ export function useVocabulary({
 		}
 	}, []);
 
-	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract — .current must NOT become a dep
+	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract, .current must NOT become a dep
 	const loadVocabulary = useCallback(async () => {
 		setLoading(true);
 		// Clear any prior load error before retrying so the EmptyState
@@ -211,14 +211,14 @@ export function useVocabulary({
 			const data = await callRef.current<VocabularyData>("get_vocabulary");
 			const flat = flattenEntries(data ?? {});
 			// Merge exact duplicates (same original+correction+category)
-			// on load — the add dialog blocks new ones and import
+			// on load, the add dialog blocks new ones and import
 			// de-dupes, but legacy files / hand-edited JSON can still
 			// contain exact repeats. Keep the first occurrence and tell
 			// the user; the next save persists the merged list.
 			const { entries: unique, mergedCount } = dedupeEntries(flat);
 			const withIds = withEntryIds(unique);
 			setEntries(withIds);
-			// SWR write-through — the next visit seeds from this snapshot.
+			// SWR write-through, the next visit seeds from this snapshot.
 			writeIpcCache(VOCAB_CACHE_KEY, withIds);
 			if (mergedCount > 0) {
 				showSnackRef.current(
@@ -261,12 +261,12 @@ export function useVocabulary({
 		loadUsage();
 	}, [loadVocabulary, loadUsage]);
 
-	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract — .current must NOT become a dep
+	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract, .current must NOT become a dep
 	const persistVocabulary = useCallback(
 		async (updated: VocabRow[]) => {
 			// Strip the client-side ``_id`` before sending to the backend
 			// (the backend's save_vocabulary expects the raw
-			// VocabularyEntry shape — extra fields would be ignored but
+			// VocabularyEntry shape, extra fields would be ignored but
 			// we keep the contract clean).
 			const stripped: VocabularyEntry[] = updated.map(
 				({ _id: _ignored, ...rest }) => {
@@ -282,7 +282,7 @@ export function useVocabulary({
 					data as unknown as Record<string, unknown>,
 				);
 				// The save path prunes usage records for deleted corrections
-				// — refresh the map so removed entries stop showing counts.
+				//, refresh the map so removed entries stop showing counts.
 				await loadUsage();
 			} catch (err) {
 				console.error(
@@ -308,7 +308,7 @@ export function useVocabulary({
 	// 1. The stale-closure bug: `[...entries]` previously still
 	// contained the deleted entry, so `indexOf(entry)` returned the
 	// original index and `splice(idx, 0, entry)` (deleteCount=0)
-	// INSERTED a second copy at that index — the entry reappeared
+	// INSERTED a second copy at that index, the entry reappeared
 	// TWICE after Undo.
 	// 2. The lost-edits bug: any add/edit of OTHER entries between the
 	// delete and the Undo click were silently reverted because the
@@ -324,7 +324,7 @@ export function useVocabulary({
 	// ONE copy of the entry is restored, regardless of any concurrent
 	// edits.
 	//
-	// Deps no longer include `entries` — the callback reads from the ref,
+	// Deps no longer include `entries`, the callback reads from the ref,
 	// so its identity is now stable across renders (it only changes when
 	// `persistVocabulary` or `showSnack` change, which themselves only
 	// change when `call` changes).  This matches the Templates.tsx
@@ -332,7 +332,7 @@ export function useVocabulary({
 	const instantDeleteEntry = useCallback(
 		async (entry: VocabRow) => {
 			// Capture the PRE-DELETE snapshot up front. This is the list
-			// the failure path must restore — NOT `entriesRef.current`
+			// the failure path must restore, NOT `entriesRef.current`
 			// at catch time: the ref-sync effect (declared near the
 			// state) advances entriesRef to `updated` on the very next
 			// render after setEntries(updated), so by the time a slow
@@ -373,7 +373,7 @@ export function useVocabulary({
 					{ undoLabel: t("common.undo"), type: "warning", timeoutMs: 6000 },
 				);
 			} catch {
-				// Restore the pre-delete list on failure — from the
+				// Restore the pre-delete list on failure, from the
 				// captured snapshot, not the (already-advanced) ref.
 				setEntries(currentEntries);
 				showSnack(t("vocabulary.deleteFailed"), "error");
@@ -386,7 +386,7 @@ export function useVocabulary({
 	//
 	// Applied via useMemo so the filter/sort only re-runs when the
 	// underlying list, search query, category filter, or sort order
-	// changes — not on every keystroke that re-renders the page.
+	// changes, not on every keystroke that re-renders the page.
 
 	const filteredSorted = useMemo(() => {
 		const q = searchQuery.trim().toLowerCase();

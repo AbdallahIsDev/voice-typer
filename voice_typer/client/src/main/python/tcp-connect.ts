@@ -2,16 +2,16 @@
  * TCP client: connect to the Python backend's IPC server with retry.
  *
  * Extracted from `index.ts` (REF-2). Owns:
- *   - `tcpConnect(port)` — top-level entry; starts the first `tryConnect()`.
- *   - `tryConnect()` (nested) — creates a `net.Socket`, performs the
+ *   - `tcpConnect(port)`, top-level entry; starts the first `tryConnect()`.
+ *   - `tryConnect()` (nested), creates a `net.Socket`, performs the
  *     SEC-018 auth handshake, wires `data` / `error` / `close` handlers,
  *     and schedules exponential-backoff retries on close.
  *
  * The handler concerns live in leaves under `tcp/`:
- *   - `startup-watchdog.ts` — the 60s startup timeout window.
- *   - `frame-reader.ts`    — newline-framed JSON dispatch (`data` handler).
- *   - `close-handler.ts`   — ownership-scoped teardown on socket close.
- *   - `retry-scheduler.ts` — generation-checked exponential backoff.
+ *   - `startup-watchdog.ts`, the 60s startup timeout window.
+ *   - `frame-reader.ts`   , newline-framed JSON dispatch (`data` handler).
+ *   - `close-handler.ts`  , ownership-scoped teardown on socket close.
+ *   - `retry-scheduler.ts`, generation-checked exponential backoff.
  */
 import net from "node:net";
 
@@ -44,7 +44,7 @@ export function tcpConnect(port: number): void {
 		const client = new net.Socket();
 		//disable Nagle's algorithm so small push events
 		// (bubble_level at 15-50 Hz, heartbeat_ack) are not
-		// coalesced into larger segments — eliminates up to 40ms
+		// coalesced into larger segments, eliminates up to 40ms
 		// of per-write latency on the waveform-bubble hot path.
 		// The matching server-side setsockopt(TCP_NODELAY) lives
 		// in transport_tcp.py:_handle_tcp_connection.
@@ -58,7 +58,7 @@ export function tcpConnect(port: number): void {
 		// Instead, we set `tcpSocket = client` only after the auth line
 		// has been written (in the connect callback below).  Until then,
 		// sendToPython() sees tcpSocket === null and rejects with
-		// "Python backend is not connected" — a clear, immediate error
+		// "Python backend is not connected", a clear, immediate error
 		// instead of a mysterious 5-second timeout.
 		state._tcpAuthed = false;
 
@@ -72,7 +72,7 @@ export function tcpConnect(port: number): void {
 			// client.connect() handshake was in flight, destroy this stale
 			// socket and bail.  Without this guard, the stale socket would
 			// be installed as state.tcpSocket, write the auth line, call
-			// createWindows(), and start a heartbeat — all racing the fresh
+			// createWindows(), and start a heartbeat, all racing the fresh
 			// tcpConnect() that startPython() just issued.  The two sockets
 			// would then fight for the Python backend's single TCP accept
 			// slot.  The error/close handlers already check the generation
@@ -81,7 +81,7 @@ export function tcpConnect(port: number): void {
 				client.destroy();
 				return;
 			}
-			//clear the startup timeout — Python
+			//clear the startup timeout, Python
 			// connected successfully, no need to fire the
 			// 60s error dialog.
 			clearTcpStartupTimeout();
@@ -90,7 +90,7 @@ export function tcpConnect(port: number): void {
 			// IPC server reads this before processing any other commands.
 			// If the token doesn't match, the server drops the connection.
 			client.write(`${JSON.stringify({ type: "auth", token: IPC_TOKEN })}\n`);
-			// Auth line has been written — it's now safe to expose the
+			// Auth line has been written, it's now safe to expose the
 			// socket to sendToPython().  Any subsequent writes will be
 			// appended after the auth line in the send buffer, which is
 			// the correct order (Python reads auth first, then commands).
@@ -110,8 +110,8 @@ export function tcpConnect(port: number): void {
 			// that the TCP channel is back up.  This handles transient
 			// disconnects (sleep/resume, network blips) so the renderer's
 			// connectionStatus doesn't get stuck on "disconnected".
-			// (The full-restart flow no longer needs this — the renderer
-			// is reloaded fresh — but it's still useful for transient
+			// (The full-restart flow no longer needs this, the renderer
+			// is reloaded fresh, but it's still useful for transient
 			// TCP drops that don't warrant a full process restart.)
 			if (state._hadConnectedBefore) {
 				//route through broadcastToMainWindow.
@@ -123,7 +123,7 @@ export function tcpConnect(port: number): void {
 			state._hadConnectedBefore = true;
 			// Flush any idempotent commands that were queued while
 			// the socket was null (transient-disconnect replay queue
-			// — see ``send-to-python.ts``'s ``_pendingOutbound``).
+			//, see ``send-to-python.ts``'s ``_pendingOutbound``).
 			// The queue is drained in FIFO order; each entry is
 			// re-sent via ``sendToPython`` (which now has a non-null
 			// ``state.tcpSocket``) and the new promise's resolution
@@ -133,7 +133,7 @@ export function tcpConnect(port: number): void {
 			// Safe to call when the queue is empty (no-op). Errors
 			// from a re-sent entry (e.g. allowlist drift, rate limit,
 			// MAX_PENDING_REQUESTS cap) surface to the original
-			// caller's ``reject`` — the flush loop does not swallow
+			// caller's ``reject``, the flush loop does not swallow
 			// them.
 			flushPendingOutbound();
 			//start the heartbeat interval now that the
@@ -144,14 +144,14 @@ export function tcpConnect(port: number): void {
 			// would be undetected until 15s later).
 			if (state.heartbeatInterval) clearInterval(state.heartbeatInterval);
 			sendToPython({ type: "heartbeat" }).catch(() => {
-				/* best-effort — will retry on next tick */
+				/* best-effort, will retry on next tick */
 			});
 			//unref the heartbeat interval so it doesn't keep the Node.js
 			// event loop alive on its own. Without .unref(), a hidden background
 			// instance would never exit when the user closes all windows.
 			const h = setInterval(() => {
 				sendToPython({ type: "heartbeat" }).catch(() => {
-					/* best-effort — close handler will clear the interval */
+					/* best-effort, close handler will clear the interval */
 				});
 			}, HEARTBEAT_INTERVAL_MS);
 			h.unref();
@@ -170,7 +170,7 @@ export function tcpConnect(port: number): void {
 			// If a full app relaunch is in flight, Python's
 			// sys.exit(0) closes the TCP socket from its end.
 			// Node.js surfaces this either as an ECONNRESET error or
-			// as a 'close' event.  Neither is a real error — the
+			// as a 'close' event.  Neither is a real error, the
 			// process is about to exit.  Suppress the noisy log.
 			if (state._relaunching) {
 				client.destroy();

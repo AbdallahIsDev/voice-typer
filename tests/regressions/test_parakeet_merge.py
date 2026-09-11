@@ -5,25 +5,25 @@ Source marker: ``tests/test_new_cq030_parakeet_merge.py``.
 Regression tests for NEW-CQ-030 / parakeet_engine._merge_chunks.
 
 Old behaviour skipped ``int(len(words) * 0.12)`` words at every chunk
-boundary — silently dropping up to 3 legitimate words per 25-word chunk
+boundary, silently dropping up to 3 legitimate words per 25-word chunk
 even when the boundary contained no overlap duplicates.
 
 New behaviour:
 - Skips at most ``_MAX_BOUNDARY_SKIP_WORDS`` (2) words at a boundary.
 - Only skips a multi-word run when those words actually appear at the
   tail of the previous chunk (true overlap duplicate).
-- When no overlap duplicate is detected, skip is 0 — no words
+- When no overlap duplicate is detected, skip is 0, no words
   from the new chunk's head are dropped.  Boundary hallucinations are
   filtered upstream by ``should_reject_low_audio_hallucination``.
 - Never scales skip with chunk length.
 
 Class/method names, assertion logic, and imports below are preserved
-verbatim from the original monolith — only file location has changed.
+verbatim from the original monolith, only file location has changed.
 
 NOTE: ``TestSourceCheck`` (which statically inspects the owning module
 :mod:`voice_typer.server.recording.audio_pipeline` for the
 NEW-CONC-004 RMS suppression logic) is included here per the split
-plan — it was originally placed between
+plan, it was originally placed between
 ``TestRmsCallbackErrorSuppression`` and ``TestMergeChunksRegression``
 in the monolith, and the split assigns it to this file.
 """
@@ -72,8 +72,8 @@ class TestSourceCheck:
     Re-pointed at the OWNING submodule: ``inspect.getsource(recording)``
     reads only the package ``__init__.py``'s source, which merely
     ECHOED these code patterns (the echo-substrate
-    anti-pattern). The live suppression logic — the counter, the
-    every-100th re-log, and the "traceback suppressed" branch — is
+    anti-pattern). The live suppression logic, the counter, the
+    every-100th re-log, and the "traceback suppressed" branch, is
     implemented in ``AudioPipeline.process_audio_chunk``.
     """
 
@@ -141,10 +141,10 @@ class TestMergeChunksRegression:
         chunk_a = "the quick brown fox jumps over"
         chunk_b = "fox jumps over the lazy dog"
         # "fox jumps over" is the overlap run (3 words but only 2 fit in
-        # _MAX_BOUNDARY_SKIP_WORDS — so 2 are skipped).
+        # _MAX_BOUNDARY_SKIP_WORDS, so 2 are skipped).
         result = engine_no_model._merge_chunks([chunk_a, chunk_b])
         # The result should contain "the quick brown fox jumps over the lazy dog"
-        # OR drop "fox jumps" and keep "over the lazy dog" — at most 2 skipped.
+        # OR drop "fox jumps" and keep "over the lazy dog", at most 2 skipped.
         result_words = result.split()
         # Verify no word is duplicated beyond what existed in inputs.
         # Specifically, "fox" and "jumps" should not appear twice.
@@ -209,7 +209,7 @@ class TestComputeOverlapSkip:
     words of a new chunk to skip."""
 
     def test_no_overlap_returns_zero_skip(self, engine_no_model):
-        """When no overlap is detected, skip MUST be 0 — do not drop legitimate words.
+        """When no overlap is detected, skip MUST be 0, do not drop legitimate words.
 
         Regression for the previous 'allowance' of 1 word per
         boundary silently dropped up to 14 words per 5-minute recording
@@ -219,7 +219,7 @@ class TestComputeOverlapSkip:
         """
         # Two completely different word sets, new chunk has >1 word.
         skip = engine_no_model._compute_overlap_skip(["alpha", "bravo"], ["charlie", "delta"])
-        assert skip == 0  # no allowance — do not drop legitimate words
+        assert skip == 0  # no allowance, do not drop legitimate words
 
     def test_single_word_new_chunk_no_allowance(self, engine_no_model):
         skip = engine_no_model._compute_overlap_skip(["alpha", "bravo"], ["charlie"])

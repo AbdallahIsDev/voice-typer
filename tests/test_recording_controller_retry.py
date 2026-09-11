@@ -1,4 +1,4 @@
-"""FR-15 — regression tests for the F2 retry-model-load path in
+"""FR-15: regression tests for the F2 retry-model-load path in
 :mod:`voice_typer.server.recording_controller`.
 
 Pre-fix symptom: after the background model load FAILED, pressing F2
@@ -13,7 +13,7 @@ live loader" state and re-triggers ``start_background_load()``, sets
 auto-starts the dictation on success, and shows "Retrying model
 load..." in the tray.
 
-These tests run on any platform — the production code is
+These tests run on any platform, the production code is
 platform-agnostic (no ctypes / no PortAudio).
 """
 
@@ -44,11 +44,11 @@ def _make_controller_with_mock_app():
     # ``app.recorder.recording`` defaults to False (no recording in
     # progress) so the toggle proceeds past the recording check.
     app.recorder.recording = False
-    # ``app.models.active_transcriber()`` returns None — this is the
+    # ``app.models.active_transcriber()`` returns None, this is the
     # precondition for the  path (model load failed, no active
     # engine).
     app.models.active_transcriber.return_value = None
-    # ``app.models._model_load_thread`` is None — the loader already
+    # ``app.models._model_load_thread`` is None, the loader already
     # exited (its ``finally`` block nulled it).
     app.models._model_load_thread = None
     return ctrl, app
@@ -93,7 +93,7 @@ class TestRetriesModelLoad:
         set_state_calls = app.tray.set_state.call_args_list
         messages = [call.args[1] for call in set_state_calls if len(call.args) >= 2]
         # The retry path may fall back to "starting up" if
-        # start_background_load itself raises — but in the happy path
+        # start_background_load itself raises, but in the happy path
         # (MagicMock app), it should NOT appear.
         assert "Starting up -- please wait..." not in messages, (
             f"FR-15: 'starting up' message should not appear on the retry happy-path; got messages: {messages}"
@@ -101,12 +101,12 @@ class TestRetriesModelLoad:
 
     def test_start_background_load_failure_falls_back_to_starting_up(self):
         """If ``start_background_load()`` itself raises (extremely
-        unlikely — it only constructs a Thread), the tray should fall
+        unlikely, it only constructs a Thread), the tray should fall
         back to the 'starting up' message so the user still sees a
         loading indicator."""
         ctrl, app = _make_controller_with_mock_app()
         app.models.start_background_load.side_effect = RuntimeError("boom")
-        # Should NOT raise — the exception is caught and the tray
+        # Should NOT raise, the exception is caught and the tray
         # falls back to "starting up".
         ctrl.toggle()
         set_state_calls = app.tray.set_state.call_args_list
@@ -131,7 +131,7 @@ class TestRetriesModelLoad:
         # Still no active transcriber (load hasn't finished yet).
         app.models.active_transcriber.return_value = None
         ctrl.toggle()
-        # The queuing path runs — start_background_load is NOT called
+        # The queuing path runs, start_background_load is NOT called
         # because the loader is already running.
         app.models.start_background_load.assert_not_called()
         # ``_pending_dictation`` IS set (the queuing path sets it so
@@ -148,7 +148,7 @@ class TestRetriesModelLoad:
         app.models.active_transcriber.return_value = MagicMock(is_loaded=True)
         # ``app.recorder.recording`` is False → toggle starts a recording.
         app.recorder.recording = False
-        # ``app._start_dictation`` is a MagicMock by default — toggle
+        # ``app._start_dictation`` is a MagicMock by default, toggle
         # will call it.
         ctrl.toggle()
         # The retry path did NOT fire.

@@ -13,7 +13,7 @@ from voice_typer.server.branding import APP_NAME
 from voice_typer.server.model_registry import NO_MODEL_SIZE
 from voice_typer.server.tray_types import AppState
 
-# Mirrors ``Config.asr_backend`` (config/_schema.py) — the three valid
+# Mirrors ``Config.asr_backend`` (config/_schema.py), the three valid
 # backend names. ``set_active_backend`` validates against this allowlist
 # before any config write.
 AsrBackendName = Literal["whisper", "qwen", "parakeet"]
@@ -47,7 +47,7 @@ def _backend_for_model_size(model_size: str) -> AsrBackendName:
 class ChangeMixin:
     # Members provided by the composed ``ModelManager`` (manager.py):
     # core state lives on ``ModelManagerCore`` (_base.py). Annotations
-    # only — no values — so no runtime attribute is created and the
+    # only, no values, so no runtime attribute is created and the
     # runtime MRO is unaffected (same pattern as dictation_pipeline's
     # ``_StorageStepMixin._app``).
     _app: VoiceTyperApp
@@ -93,7 +93,7 @@ class ChangeMixin:
 
         Handles Whisper, Parakeet, and Qwen backends. Unloads the old
         engine and loads the new one immediately (unless currently
-        recording — in which case the change is deferred via
+        recording, in which case the change is deferred via
         ``_pending_model_change``).
 
         Uses the registry to unload/load instead of having
@@ -118,7 +118,7 @@ class ChangeMixin:
             should call ``_change_model_blocking`` instead.
         """
         # cancel any pending idle-unload timer before starting
-        # the unload/reload cycle — otherwise the timer could fire
+        # the unload/reload cycle, otherwise the timer could fire
         # mid-switch and unload the NEW model.
         self.cancel_idle_unload_timer()
         old_backend = self._app.config.asr_backend
@@ -144,7 +144,7 @@ class ChangeMixin:
 
         Mirrors ``start_background_load``'s thread-registration pattern
         () so ``shutdown_all()`` can join the thread during
-        ``quit()``. Best-effort registration — if the registry is missing
+        ``quit()``. Best-effort registration, if the registry is missing
         (e.g. in a stripped-down test fixture) we log and continue; the
         thread is a daemon and will die on process exit anyway.
         """
@@ -160,7 +160,7 @@ class ChangeMixin:
         self._model_change_thread = thread
         thread.start()
         # track the thread centrally so shutdown_all() can
-        # signal-and-join it. Best-effort — re-registering "ModelChange"
+        # signal-and-join it. Best-effort, re-registering "ModelChange"
         # overwrites the previous entry (with a warning log); the
         # previous thread is still a daemon and will be killed on
         # process exit.
@@ -200,16 +200,16 @@ class ChangeMixin:
             with self._app._config_mutation_lock:
                 new_backend, old_backend, deferred = self._change_model_setattr_phase(model_size)
                 if deferred:
-                    # Recording in progress — config saved, deferred
+                    # Recording in progress, config saved, deferred
                     # flag set, notification shown. Skip the load.
                     return
                 # Unload + unregister + clear legacy fields.
                 self._change_model_unload_phase(new_backend, old_backend)
             # _config_mutation_lock released here. _model_change_lock
-            # still held — concurrent IPC set_config calls can proceed.
+            # still held, concurrent IPC set_config calls can proceed.
             # Phase 2: construct + load the new engine OUTSIDE the
             # config lock (see above). ``NO_MODEL_SIZE`` ("") means the
-            # user has no active model — the unload above is the whole
+            # user has no active model, the unload above is the whole
             # change; do NOT construct/load an engine for the empty
             # size (there is no repo for it). The renderer sees
             # ``asr_backend_ready`` with an empty model and shows
@@ -224,7 +224,7 @@ class ChangeMixin:
         # snack is stale when the background load later fails). Published
         # AFTER the lock is released so subscribers don't block on the
         # lock. ``failure_reason is None`` covers the deferred
-        # early-return path (no event published — the load didn't
+        # early-return path (no event published, the load didn't
         # happen).
         if failure_reason is None:
             self._publish_backend_ready_event(new_backend, model_size)
@@ -240,7 +240,7 @@ class ChangeMixin:
 
         Returns ``(new_backend, old_backend, deferred)``. ``deferred`` is True when
         the model change was queued via ``_pending_model_change``
-        because a recording is in progress — the caller should skip
+        because a recording is in progress, the caller should skip
         the load phase. ``old_backend`` is captured BEFORE the setattr
         overwrites ``config.asr_backend`` so the unload phase can use
         the correct value.
@@ -262,7 +262,7 @@ class ChangeMixin:
         self._app.config.asr_backend = new_backend
         self._app.config.model_size = model_size
         if not self._app.config.save():
-            log.warning("[MODEL] config.save() returned False — model change may not persist")
+            log.warning("[MODEL] config.save() returned False, model change may not persist")
 
         if self._app.recorder.recording or not self._app._busy_event.is_set():
             log.info(
@@ -273,7 +273,7 @@ class ChangeMixin:
             # capture the request so the next _start_dictation
             # re-runs the unload/load cycle. Without this, the config
             # is saved on disk but the in-memory engine stays as the
-            # old backend — the "will change after current recording"
+            # old backend, the "will change after current recording"
             # notification was a lie.
             self._pending_model_change = model_size
             self._app.tray.notify(
@@ -289,7 +289,7 @@ class ChangeMixin:
         Caller MUST hold both ``_config_mutation_lock`` and
         ``_model_change_lock``. ``new_backend`` is the target backend.
         ``old_backend`` is the backend that was active BEFORE the setattr
-        phase overwrote ``config.asr_backend`` — captured by the caller
+        phase overwrote ``config.asr_backend``: captured by the caller
         in ``_change_model_setattr_phase`` and passed in here so we don't
         accidentally read the post-setattr value (which would always
         equal ``new_backend``).
@@ -301,7 +301,7 @@ class ChangeMixin:
         ``model_size`` kwarg. Skipping the unload (the
         optimization) broke ``test_model_change_uses_config_device``.
         """
-        # Deliberate unload — the old backend is being swapped out for a
+        # Deliberate unload, the old backend is being swapped out for a
         # new one; the last-resort tray notification must NOT tell the
         # user to download a backend they explicitly switched away from.
         self._mark_deliberately_unloaded(old_backend)
@@ -335,7 +335,7 @@ class ChangeMixin:
         ``_config_mutation_lock`` (see above).
 
         ``model_size`` is the user-requested model size (operation
-        input) — included in the failure log so a model-load failure
+        input), included in the failure log so a model-load failure
         report shows the input that produced the failure, not just the
         backend name. The underlying exception is already logged one
         level down by ``AsrBackendRegistry.load_active`` via
@@ -386,7 +386,7 @@ class ChangeMixin:
             )
             return f"load_active raised: {exc}"
 
-    # set_active_backend — switch ASR backend WITHOUT changing
+    # set_active_backend, switch ASR backend WITHOUT changing
     # model_size. Mirrors change_model's unload/reload cycle but only
     # swaps the backend. The model_size field is left untouched so
     # Whisper's model selection (which depends on model_size) is
@@ -403,14 +403,14 @@ class ChangeMixin:
 
         Previously ``Service.set_active_backend`` delegated to
         ``self._app.models.set_active_backend(backend)`` but
-        :class:`ModelManager` never defined that method — the IPC
+        :class:`ModelManager` never defined that method, the IPC
         ``set_config`` handler caught the ``AttributeError`` and logged
         a warning, returning ``ack`` to the renderer while the actual
         backend swap never happened. Old backends stayed loaded (GPU
         + RAM) until LRU eviction.
 
         if the user is recording or the transcribe thread holds
-        the busy event (mid-transcription), DEFER — persist config +
+        the busy event (mid-transcription), DEFER, persist config +
         capture the requested backend in ``_pending_backend_change`` +
         notify "will change after current recording" + return a
         "deferred" ack. The actual unload/load cycle runs on the next
@@ -419,7 +419,7 @@ class ChangeMixin:
         Without this guard, the background thread would run the unload
         phase mid-transcription, unloading the ctranslate2 model from
         underneath the in-flight transcribe thread (crash / heap
-        corruption / stuck thread — see  in review.md).
+        corruption / stuck thread: see  in review.md).
 
         Parameters
         ----------
@@ -503,7 +503,7 @@ class ChangeMixin:
             self._app.config.asr_backend = backend
             if not self._app.config.save():
                 log.warning("[MODEL] config.save() returned False during set_active_backend (deferred)")
-            # Capture the request — ``apply_pending_model_change`` will
+            # Capture the request, ``apply_pending_model_change`` will
             # re-invoke ``set_active_backend`` when the app is no longer
             # busy. Because we are not currently recording at that point
             # and ``_busy_event`` is set (not busy), this deferral
@@ -567,7 +567,7 @@ class ChangeMixin:
         On completion, publishes ``asr_backend_ready`` ONLY on success.
         On failure (load_active returned falsy OR raised), publishes
         ``asr_backend_load_failed`` with ``{"backend": ..., "failure_reason": ...}``
-        so the renderer can surface the failure — the set_config ack has
+        so the renderer can surface the failure, the set_config ack has
         already returned (and its Models-page success snack is stale when
         the background load later fails). The deferred case (recording
         in progress) and the no-op case (backend already active)
@@ -582,7 +582,7 @@ class ChangeMixin:
         # below type-check without per-site casts.
         backend = cast(AsrBackendName, backend)
         # cancel any pending idle-unload timer before starting
-        # the unload/reload cycle — otherwise the timer could fire
+        # the unload/reload cycle, otherwise the timer could fire
         # mid-switch and unload the NEW model. The post-load touch_model
         # call below re-arms a fresh timer on the new backend.
         self.cancel_idle_unload_timer()
@@ -598,7 +598,7 @@ class ChangeMixin:
             with self._app._config_mutation_lock:
                 old_backend = self._app.config.asr_backend
                 if old_backend == backend:
-                    # No-op — backend already active.
+                    # No-op, backend already active.
                     return
                 # Re-check ``recorder.recording`` and ``_busy_event``
                 # INSIDE both locks for race-safety. The non-blocking
@@ -636,7 +636,7 @@ class ChangeMixin:
                         log.warning(
                             "[MODEL] config.save() returned False during _set_active_backend_blocking (deferred)"
                         )
-                    # Capture the request — ``apply_pending_model_change``
+                    # Capture the request, ``apply_pending_model_change``
                     # will re-invoke ``_set_active_backend_blocking`` when
                     # the app is no longer busy.
                     self._pending_backend_change = backend
@@ -712,7 +712,7 @@ class ChangeMixin:
 
         Mirrors the ``asr_backend_disabled`` event pattern in
         ``asr_registry.py``. The event signals to the renderer (and any
-        in-process subscribers) that a backend load has finished — either
+        in-process subscribers) that a backend load has finished, either
         the user changed models via Settings, or the active backend was
         switched. The renderer's App-level ``useAsrBackendLoadToast``
         consumes it to clear the load-failure toast surface; the Models
@@ -720,7 +720,7 @@ class ChangeMixin:
         ack itself (not on this event).
 
         The event is published AFTER ``_model_change_lock`` is released
-        so subscribers don't block on the lock. Best-effort — a publish
+        so subscribers don't block on the lock. Best-effort, a publish
         failure is logged at DEBUG and swallowed (the load itself
         already succeeded; the event is purely informational).
         """
@@ -753,7 +753,7 @@ class ChangeMixin:
 
         Previously ``_change_model_blocking`` and
         ``_set_active_backend_blocking`` published ``asr_backend_ready``
-        UNCONDITIONALLY on completion — even when ``load_active`` had
+        UNCONDITIONALLY on completion, even when ``load_active`` had
         returned falsy or raised. There was no failure signal at all:
         the load-async path meant the ``set_config`` ack had already
         returned (its Models-page success snack + the tray state were
@@ -776,11 +776,11 @@ class ChangeMixin:
 
         NOTE: the renderer change (subscribing to
         ``asr_backend_load_failed`` and showing an error) is OUT OF
-        SCOPE for this fix — it lives in the Electron/renderer codebase.
+        SCOPE for this fix, it lives in the Electron/renderer codebase.
         This method only emits the event; the renderer's matching
         listener must be added separately.
 
-        Best-effort — a publish failure is logged at DEBUG and swallowed
+        Best-effort, a publish failure is logged at DEBUG and swallowed
         (the load already failed; the event is purely informational).
         """
         try:
@@ -813,12 +813,12 @@ class ChangeMixin:
         also applies a deferred backend-only change
         (``_pending_backend_change``) captured by
         :meth:`set_active_backend` while the user was recording/busy.
-        The two pending fields are independent — a single recording
+        The two pending fields are independent, a single recording
         could have triggered BOTH a ``change_model`` request (which
         sets ``_pending_model_change``) AND a ``set_active_backend``
         request (which sets ``_pending_backend_change``). We apply the
         model change FIRST (because ``change_model`` re-evaluates the
-        backend from the new ``model_size`` — e.g. model_size="parakeet"
+        backend from the new ``model_size``: e.g. model_size="parakeet"
         implies backend="parakeet") and then the backend change
         SECOND (so an explicit ``set_active_backend("whisper")``
         overrides the model-change-implied backend).
@@ -835,7 +835,7 @@ class ChangeMixin:
         # ``getattr`` defensive: some test fixtures (and the legacy
         # ``test_recording_and_audio.py::TestPendingModelChange``)
         # construct ModelManager via ``__new__`` and only set
-        # ``_pending_model_change`` — they don't know about the new
+        # ``_pending_model_change``: they don't know about the new
         # ``_pending_backend_change`` field added in  Reading
         # via ``getattr(..., None)`` preserves their behaviour (no
         # AttributeError) instead of forcing every test fixture to
@@ -853,7 +853,7 @@ class ChangeMixin:
             log.info("[MODEL] Applying deferred model change to %s", pending)
             # use the BLOCKING variant (not the non-blocking
             # ``change_model``) because the caller —
-            # ``recording_controller._start_dictation`` — needs the model
+            # ``recording_controller._start_dictation``: needs the model
             # fully loaded BEFORE the recorder starts capturing audio. The
             # non-blocking variant would return immediately and the
             # recorder would start with the OLD (unloaded) engine.

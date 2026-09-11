@@ -7,7 +7,7 @@ import { FIRST_RECORD_CELEBRATED_KEY } from "../lib/constants";
 
 /**
  * Previously used `get_today_stats` and checked `count === 1`
- * — this triggered on the first dictation of ANY day, not the user's
+ *, this triggered on the first dictation of ANY day, not the user's
  * lifetime first. We now check `get_history({limit: 1})` and celebrate
  * only when the user has exactly one historical record (this just-added
  * one). The flag is persisted to localStorage so we never celebrate twice.
@@ -35,7 +35,7 @@ export function useFirstRecordingCelebration(call: PythonCall) {
 			alreadyCelebrated =
 				localStorage.getItem(FIRST_RECORD_CELEBRATED_KEY) === "1";
 		} catch {
-			// localStorage unavailable — treat as not-celebrated
+			// localStorage unavailable, treat as not-celebrated
 			// (proceed with the celebration check below).
 			alreadyCelebrated = false;
 		}
@@ -50,7 +50,7 @@ export function useFirstRecordingCelebration(call: PythonCall) {
 				try {
 					localStorage.setItem(FIRST_RECORD_CELEBRATED_KEY, "1");
 				} catch (e) {
-					// localStorage unavailable — non-fatal.
+					// localStorage unavailable, non-fatal.
 					console.warn(
 						"[renderer:Home] setItem first-record-celebrated failed:",
 						e,
@@ -58,7 +58,7 @@ export function useFirstRecordingCelebration(call: PythonCall) {
 				}
 			}
 		} catch (e) {
-			// Non-critical — skip celebration if history fetch fails.
+			// Non-critical, skip celebration if history fetch fails.
 			console.warn("[renderer:Home] first-recording get_history failed:", e);
 		}
 	}, [call, showSnack]);

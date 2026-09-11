@@ -1,4 +1,4 @@
-"""UX-10: always-visible bubble mic button — backend config + push tests.
+"""UX-10: always-visible bubble mic button: backend config + push tests.
 
 Focused, dependency-light tests for the Python side of UX-10:
   - the two new config fields (``bubble_click_to_toggle``,

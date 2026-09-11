@@ -22,7 +22,7 @@ from urllib.parse import urlparse
 #
 # A field validator returns ``None`` on success or a human-readable error
 # string describing why the value is rejected.  ``expected_type`` is the
-# concrete Python type the value must be an instance of — note that for
+# concrete Python type the value must be an instance of. Note that for
 # bool fields we set ``expected_type=bool`` and rely on the fact that
 # ``isinstance(True, int)`` is True but ``isinstance(1, bool)`` is False,
 # so the int-vs-bool ambiguity is resolved by checking bool first in the
@@ -87,7 +87,7 @@ def _make_str_validator(max_len: int = _MAX_STRING_LEN) -> ValidatorFn:
         # Reject C0 control characters (0x00-0x1F), DEL (0x7F), AND C1
         # control characters (0x80-0x9F). C1 escapes such as CSI (0x9B)
         # and OSC (0x9D) can reprogram a terminal, poison logs, and
-        # corrupt crash dumps — same threat model as C0.
+        # corrupt crash dumps, same threat model as C0.
         for ch in v:
             o = ord(ch)
             if o < 0x20 or 0x7F <= o <= 0x9F:
@@ -103,7 +103,7 @@ def _make_optional_str_validator(max_len: int = _MAX_STRING_LEN) -> ValidatorFn:
     # validators cannot drift apart on length / control-char / type
     # checks. Pre-refactor, this function was a 15-line near-copy of
     # ``_make_str_validator`` with its own (slightly different) error
-    # strings — the only behavioural delta was accepting ``None``.
+    # strings, the only behavioural delta was accepting ``None``.
     inner = _make_str_validator(max_len)
 
     def _validate(v: object) -> str | None:
@@ -125,7 +125,7 @@ def _make_int_validator(*, lo: int, hi: int) -> ValidatorFn:
         if not _is_int_not_bool(v):
             return f"must be an integer, got {type(v).__name__}"
         if v < lo or v > hi:
-            # include the actual value — ints are non-PII and the
+            # include the actual value, ints are non-PII and the
             # value is essential for diagnosing off-by-one / unit bugs.
             return f"must be in [{lo}, {hi}], got {v}"
         return None
@@ -139,7 +139,7 @@ def _make_optional_int_validator(*, lo: int, hi: int) -> ValidatorFn:
     # :func:`_make_int_validator` so the two paths cannot drift on
     # range / type-error wording. Used by Optional[int] dataclass
     # fields like ``bubble_x`` / ``bubble_y`` / ``test_duration_seconds``
-    # whose ``None`` sentinel means "not set — use the renderer default".
+    # whose ``None`` sentinel means "not set: use the renderer default".
     inner = _make_int_validator(lo=lo, hi=hi)
 
     def _validate(v: object) -> str | None:
@@ -164,7 +164,7 @@ def _make_float_validator(*, lo: float, hi: float) -> ValidatorFn:
         if math.isnan(v) or math.isinf(v):
             return f"must be a finite number, got {v}"
         if v < lo or v > hi:
-            # include the actual value — floats are non-PII.
+            # include the actual value, floats are non-PII.
             return f"must be in [{lo}, {hi}], got {v}"
         return None
 
@@ -202,7 +202,7 @@ def _make_enum_validator(allowed: frozenset[str]) -> ValidatorFn:
 def _make_custom_theme_validator() -> ValidatorFn:
     """Validate a custom-theme dict: {light: {var: val, ...}, dark: {var: val, ...}}.
 
-    ``None`` is now accepted as a valid value — the renderer's
+    ``None`` is now accepted as a valid value, the renderer's
         ``useTheme.ts`` sends ``custom_theme: null`` when the user clicks
         "Clear custom theme / revert to preset". Previously the validator
         rejected ``None`` with ``"must be a dict, got NoneType"`` and the
@@ -288,7 +288,7 @@ def _make_linux_window_buttons_validator() -> ValidatorFn:
          "show_maximize": bool,
          "show_close": bool}
 
-    All five keys are REQUIRED — the renderer always sends the complete
+    All five keys are REQUIRED, the renderer always sends the complete
     object (it edits a full draft, never a partial patch), and requiring
     every key keeps a stale/partial write from silently half-configuring
     the title bar. Unknown extra keys are rejected so the shape cannot
@@ -334,14 +334,14 @@ def _make_url_validator(
         (used for fields where empty means "feature disabled").
 
     When ``require_https`` is True (default), non-loopback hosts
-        must use HTTPS — HTTP is only permitted for loopback hosts
+        must use HTTPS. HTTP is only permitted for loopback hosts
         (``localhost`` / ``127.0.0.1`` / ``::1``) so local development servers
         work.  This mirrors the request-time enforcement in
         ``voice_typer.server._secrets.require_https`` so a cleartext URL is
         rejected at ``set_config`` time, before it can ever reach config.
 
         SECRET-1 (MED-M): URLs with embedded credentials (``user:pass@host``)
-        are rejected outright — the user must use the dedicated ``api_key``
+        are rejected outright, the user must use the dedicated ``api_key``
         field instead.  Embedded credentials in URLs are a security
         anti-pattern: they end up in process lists (``ps aux``), shell
         history, log files, and browser history.  They also bypass the
@@ -400,8 +400,8 @@ def _make_url_validator(
         # place for API keys).  Reject the URL and point the user at the
         # dedicated api_key field.
         if parsed.username or parsed.password:
-            return "URL must not contain embedded credentials — use the api_key field"
-        # close the defense-in-depth gap — reject cleartext
+            return "URL must not contain embedded credentials. Use the api_key field"
+        # close the defense-in-depth gap, reject cleartext
         # HTTP for non-loopback hosts at config time, not just at call time.
         if require_https and parsed.scheme == "http" and host not in _loopback_hosts:
             return f"must use HTTPS for non-loopback host {host!r} (HTTP is only allowed for localhost/127.0.0.1/::1)"
@@ -413,7 +413,7 @@ def _make_url_validator(
 def _validate_trusted_extra_hosts(value: object) -> str | None:
     """Validate the ``trusted_extra_hosts`` config field.
 
-    Accepts a list of hostname strings (with or without a port — the
+    Accepts a list of hostname strings (with or without a port, the
     port is stripped at allowlist-application time). Each entry must be
     a non-empty bare hostname: letters/digits/hyphens/dots only, no
     scheme (``https://``), no path, no spaces. Mirrors the normalization
@@ -433,10 +433,10 @@ def _validate_trusted_extra_hosts(value: object) -> str | None:
         if not entry.strip() or "://" in entry or "/" in entry or " " in entry:
             return (
                 f"trusted_extra_hosts entry {entry!r} must be a bare hostname "
-                f"(no scheme, path, or spaces) — e.g. 'my-vllm.lan'"
+                f"(no scheme, path, or spaces): e.g. 'my-vllm.lan'"
             )
         raw = entry.strip()
-        # Colon-bearing entries MUST be genuine IPv6 literals — a bare
+        # Colon-bearing entries MUST be genuine IPv6 literals, a bare
         # hostname containing ``:`` is invalid (IPv6 is the only legal
         # colon-bearing host form). Accept bracketed ``[fc00::1]:8080``
         # and bare ``fc00::1``.
@@ -461,7 +461,7 @@ def _validate_trusted_extra_hosts(value: object) -> str | None:
                     return f"trusted_extra_hosts entry {entry!r} is not a valid IPv6 literal"
                 host = raw
             else:
-                # Single-colon, not bracketed, not valid IPv6 — a
+                # Single-colon, not bracketed, not valid IPv6, a
                 # hostname with a stray colon is invalid.
                 return f"trusted_extra_hosts entry {entry!r} contains invalid characters"
         else:

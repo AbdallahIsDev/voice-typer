@@ -8,7 +8,7 @@
 
 Per-platform guard: the resolver body only runs on Windows
 (``ctypes.windll`` is Windows-only). On Linux/macOS the function is
-never invoked — ``install_crash_handler`` short-circuits on
+never invoked, ``install_crash_handler`` short-circuits on
 ``sys.platform != "win32"`` before calling ``_ensure_kernel32``.
 
 Split out from the original monolithic ``crash_handler.py`` so the
@@ -38,7 +38,7 @@ def _ensure_kernel32() -> None:
     # Per-platform guard: ``ctypes.windll`` and ``ctypes.wintypes`` only
     # exist on Windows. On non-Windows this function is never called
     # (``install_crash_handler`` short-circuits), so the import here is
-    # safe — but we keep it inside the function body so Linux module
+    # safe, but we keep it inside the function body so Linux module
     # load doesn't trigger it.
     from ctypes import wintypes
 

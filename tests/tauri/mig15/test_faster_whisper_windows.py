@@ -1,4 +1,4 @@
-"""MIG-1.5 Phase 0-W Gate Check 4 — faster-whisper transcribe validation.
+"""MIG-1.5 Phase 0-W Gate Check 4: faster-whisper transcribe validation.
 
 These tests validate the ASR setup path for the Nuitka-frozen Windows
 sidecar (ADR-0020 §4.2 + §6.3). They cover:
@@ -17,18 +17,18 @@ sidecar (ADR-0020 §4.2 + §6.3). They cover:
    Windows via :func:`voice_typer.server._paths.config_dir` (the
    canonical wrapper over :func:`config._config_dir`).
 5. The transcription engine defaults to ``compute_type=int8`` on CPU
-   (no GPU required — the v1 Windows default per ADR-0020 §6.3).
+   (no GPU required, the v1 Windows default per ADR-0020 §6.3).
 6. The transcription engine surfaces a helpful ``RuntimeError`` when
-   ``transcribe()`` is called before ``load()`` — not a NoneType crash.
+   ``transcribe()`` is called before ``load()``, not a NoneType crash.
 7. The transcription engine handles short audio (≤ 1 s) without
-   crashing — passes through to the mocked ``WhisperModel.transcribe``.
+   crashing, passes through to the mocked ``WhisperModel.transcribe``.
 
 All tests mock ``faster_whisper.WhisperModel`` and ``ctranslate2`` —
 no real model load and no CUDA runtime is exercised in the sandbox.
 
 VALIDATE ON WINDOWS HOST:
     1. Launch Voice Typer (see check 2)
-    2. Press F8 (default dictation hotkey) — speak a 5-second test phrase
+    2. Press F8 (default dictation hotkey), speak a 5-second test phrase
     3. Press F8 again to stop
     4. Check log for:
        - "[ASR] loading model small.en from C:\\Users\\...\\AppData\\Roaming\\voice-typer\\models"
@@ -73,7 +73,7 @@ def _install_fake_ct2_modules(monkeypatch) -> tuple[types.ModuleType, types.Modu
     and ``_load_transcriber_impl``. We register stub modules in
     ``sys.modules`` so the imports succeed without requiring the real
     CTranslate2 native extension (which can't load in the Linux sandbox
-    even if the wheel were installed — it's Windows-only ABI here).
+    even if the wheel were installed, it's Windows-only ABI here).
 
     Returns the (faster_whisper, ctranslate2) stub modules so individual
     tests can wire return values on them.
@@ -133,7 +133,7 @@ def test_asr_setup_module_loads_with_ct2_stubs(monkeypatch):
 
     ``asr_setup.download_parakeet_weights`` delegates to
     ``transcription._check_disk_space_for_download`` and
-    ``transcription._download_with_retry`` — both of which live in a
+    ``transcription._download_with_retry``, both of which live in a
     module that lazy-imports ``faster_whisper`` / ``ctranslate2``. We
     verify the modules load without ImportError when the stubs are in
     place (proving the CT2 backend gate is satisfiable on Windows).
@@ -177,7 +177,7 @@ def test_build_script_includes_ct2_native_libs_via_include_data_dir():
 
     ``ctranslate2/lib`` holds the native DLLs: ``ctranslate2.dll``,
     ``libiomp5md.dll`` (Intel OpenMP), and MKL / OpenMP runtimes.
-    Nuitka does NOT auto-collect these — they must be explicitly
+    Nuitka does NOT auto-collect these, they must be explicitly
     included via ``--include-data-dir`` or ``import ctranslate2``
     crashes at startup with "ImportError: libiomp5md.dll not found"
     (see ADR-0020 §4.2 "CPU inference runtimes" + §11 fail scenarios).
@@ -232,7 +232,7 @@ def test_build_script_handles_ct2_libs_plural_guarded():
         # fail when the plural dir is absent.
         assert "[[ ! -d" in text or "if [[ ! -d" in text, (
             "build script includes ctranslate2/libs (plural) but lacks a "
-            "guard — a singular-only wheel install would fail the build"
+            "guard, a singular-only wheel install would fail the build"
         )
 
 
@@ -263,7 +263,7 @@ def test_model_path_resolves_to_appdata_on_windows(monkeypatch, tmp_path):
     # in BOTH the canonical location and the config module's import
     # binding so the call chain sees a Windows environment.
     monkeypatch.setattr("voice_typer.server.platform_utils.is_windows", lambda: True)
-    # config.py imports is_windows at module load — patch the bound name.
+    # config.py imports is_windows at module load, patch the bound name.
     import voice_typer.server.config as config_mod
 
     monkeypatch.setattr(config_mod, "is_windows", lambda: True)
@@ -341,11 +341,11 @@ def test_transcription_engine_defaults_to_int8_cpu(monkeypatch):
     # Resolve explicitly. _resolve_device("cpu") must return ("cpu", "int8").
     device, compute_type = engine._resolve_device("cpu")
     assert (device, compute_type) == ("cpu", "int8"), (
-        "explicit device='cpu' must resolve to compute_type=int8 — float16 would require the unbundled CUDA wheel"
+        "explicit device='cpu' must resolve to compute_type=int8, float16 would require the unbundled CUDA wheel"
     )
 
     # And the auto path with no CUDA device available (stub returns 0)
-    # also lands on int8 (NOT float16) — the safe CPU fallback.
+    # also lands on int8 (NOT float16), the safe CPU fallback.
     device_auto, compute_auto = engine._resolve_device("auto")
     assert (device_auto, compute_auto) == ("cpu", "int8"), (
         "auto device resolution must fall back to CPU/int8 when no CUDA "
@@ -361,10 +361,10 @@ def test_engine_surfaces_helpful_error_when_model_not_loaded(monkeypatch):
     The frozen sidecar can reach this state if the model download
     fails or the user invokes dictation before the model finishes
     loading. A clear error message lets the IPC layer surface a toast
-    ("Model not loaded — open Settings → Models to download") instead
+    ("Model not loaded, open Settings → Models to download") instead
     of a cryptic traceback.
 
-    See ``transcription.py:890-892`` — ``_transcribe_unlocked`` raises
+    See ``transcription.py:890-892``: ``_transcribe_unlocked`` raises
     ``RuntimeError("Model not loaded. Call load() first.")``.
     """
     _install_fake_ct2_modules(monkeypatch)
@@ -376,7 +376,7 @@ def test_engine_surfaces_helpful_error_when_model_not_loaded(monkeypatch):
     from voice_typer.server.transcription import TranscriptionEngine
 
     engine = TranscriptionEngine(model_size="small.en", device="cpu")
-    # Engine has NOT had load() called — _model is None.
+    # Engine has NOT had load() called, _model is None.
     assert engine._model is None
     assert engine.is_loaded is False
 
@@ -387,7 +387,7 @@ def test_engine_surfaces_helpful_error_when_model_not_loaded(monkeypatch):
         engine.transcribe(audio)
 
     msg = str(exc_info.value)
-    # Must be a clear, actionable error — not "AttributeError: 'NoneType'
+    # Must be a clear, actionable error, not "AttributeError: 'NoneType'
     # object has no attribute 'transcribe'".
     assert "Model not loaded" in msg, f"expected helpful 'Model not loaded' error, got: {msg!r}"
     # The IPC layer greps for "load" in the error to decide which toast
@@ -402,11 +402,11 @@ def test_engine_handles_short_audio_without_crashing(monkeypatch):
     """The engine MUST handle short audio (≤ 1 s) without crashing.
 
     VAD (voice activity detection) can produce zero segments on very
-    short clips — especially when the user releases the hotkey quickly.
+    short clips, especially when the user releases the hotkey quickly.
     The engine must return an empty string (no speech detected), not
     crash on an empty segment list or a duration-based assertion.
 
-    See ``transcription.py:894-895`` — ``_transcribe_unlocked`` returns
+    See ``transcription.py:894-895``: ``_transcribe_unlocked`` returns
     ``""`` for empty audio; for non-empty short audio it iterates the
     (possibly empty) segment generator and joins the results.
     """
@@ -446,7 +446,7 @@ def test_engine_handles_short_audio_without_crashing(monkeypatch):
     # the short audio (i.e. the engine didn't short-circuit before
     # the model call, which would hide a real bug).
     assert fake_model.transcribe.called, (
-        "engine must call model.transcribe() even on short audio — short-circuiting would hide VAD / model bugs"
+        "engine must call model.transcribe() even on short audio, short-circuiting would hide VAD / model bugs"
     )
     call_args = fake_model.transcribe.call_args
     # First positional arg is the audio array.
@@ -500,8 +500,8 @@ def test_engine_handles_short_audio_with_one_segment(monkeypatch):
 
 # ─── Tests: build script structure (sanity) ──────────────────────────────────
 def test_build_script_targets_ipc_server_entry_point():
-    """Nuitka must freeze ``ipc_server.py`` — the Tauri sidecar entry
-    point — not ``main.py`` (the legacy Electron entry) or any other
+    """Nuitka must freeze ``ipc_server.py``, the Tauri sidecar entry
+    point, not ``main.py`` (the legacy Electron entry) or any other
     module. ADR-0020 §4.2 mandates this.
     """
     text = _read_build_script()
@@ -509,5 +509,5 @@ def test_build_script_targets_ipc_server_entry_point():
         "Nuitka must target voice_typer/server/ipc_server.py (the Tauri WS sidecar entry point)"
     )
     # And the --windows-disable-console flag must be set (sidecar runs
-    # hidden — no console window pops up alongside the Tauri window).
+    # hidden, no console window pops up alongside the Tauri window).
     assert "--windows-disable-console" in text, "sidecar must run without a console window (--windows-disable-console)"

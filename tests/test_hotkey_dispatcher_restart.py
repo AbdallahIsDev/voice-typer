@@ -16,13 +16,13 @@ while eliminating the double-backend window.
 
 Three scenarios are covered:
 
-1. **Success path** — ``create_hotkey_backend`` returns a new backend
+1. **Success path**: ``create_hotkey_backend`` returns a new backend
    whose ``start()`` succeeds. Assert: NEW backend assigned to
    ``_hotkey_backend``, OLD ``stop()`` called BEFORE the new backend
    is started (no overlap), tray ``set_hotkey`` called with the new
    spec.
 
-2. **Failure path A** — ``create_hotkey_backend`` raises on the FIRST
+2. **Failure path A**: ``create_hotkey_backend`` raises on the FIRST
    call (for the new hotkey spec). Assert: OLD backend's ``stop()``
    WAS called (we stop before register), the factory is called a
    SECOND time to restore the OLD hotkey spec, the restored backend
@@ -30,11 +30,11 @@ Three scenarios are covered:
    tray ``set_hotkey`` called with the OLD spec, tray ``notify``
    shown naming the rejected hotkey.
 
-3. **Failure path B** — ``create_hotkey_backend`` returns a new
+3. **Failure path B**: ``create_hotkey_backend`` returns a new
    backend whose ``start()`` raises on the FIRST call. Same
    assertions as Failure path A (restore path is identical).
 
-These tests use a minimal mock app — they do NOT construct a real
+These tests use a minimal mock app, they do NOT construct a real
 ``VoiceTyperApp`` (which would pull in sounddevice / faster_whisper /
 pynput / pystray / PIL / pyperclip and the cross-process config lock).
 The mock app exposes just the surface area ``HotkeyDispatcher`` reads:
@@ -62,7 +62,7 @@ def _make_mock_app(
     """Build a minimal mock app satisfying the HotkeyDispatcher contract.
 
     ``config.save`` is a MagicMock so individual tests can override its
-    return value (default: ``True``) — the real ``Config.save`` acquires
+    return value (default: ``True``), the real ``Config.save`` acquires
     a cross-process ``fcntl``/``msvcrt`` lock that we don't want to
     exercise in these atomicity tests.
     """
@@ -131,7 +131,7 @@ def test_restart_success_installs_new_backend_and_stops_old(dispatcher: HotkeyDi
     old_backend.stop.assert_called_once()
 
     # OLD backend's stop() was called BEFORE NEW backend's
-    # start() — no window where both backends are simultaneously
+    # start(), no window where both backends are simultaneously
     # listening on the same hotkey (would cause double-toggle on Linux
     # pynput/Wayland where multiple registrations are permitted).
     assert call_order == ["old_backend.stop", "new_backend.start"], (
@@ -143,7 +143,7 @@ def test_restart_success_installs_new_backend_and_stops_old(dispatcher: HotkeyDi
 
 
 def test_restart_success_with_no_old_backend_does_not_crash(dispatcher: HotkeyDispatcher, monkeypatch):
-    """First-time restart (no old backend) — new backend installed, no
+    """First-time restart (no old backend), new backend installed, no
     stop call needed (nothing to stop)."""
     assert dispatcher._hotkey_backend is None
 
@@ -198,7 +198,7 @@ def test_restart_failure_in_factory_restores_old_hotkey_spec(dispatcher: HotkeyD
     factory.assert_any_call("<bad>", role="dictation")
     factory.assert_any_call("<f2>", role="dictation")  # old hotkey spec
 
-    # Restored backend is installed (a NEW instance — NOT old_backend,
+    # Restored backend is installed (a NEW instance, NOT old_backend,
     # which was already stopped).
     assert dispatcher._hotkey_backend is restored_backend
     restored_backend.start.assert_called_once()
@@ -228,7 +228,7 @@ def test_restart_failure_in_factory_with_failed_restore_leaves_no_backend(dispat
     old_backend.is_alive.return_value = True
     dispatcher._hotkey_backend = old_backend
 
-    # Factory raises on EVERY call — both the initial register and the
+    # Factory raises on EVERY call, both the initial register and the
     # restore attempt fail.
     factory = MagicMock(side_effect=RuntimeError("display gone"))
     monkeypatch.setattr("voice_typer.server.hotkey_dispatcher.create_hotkey_backend", factory)
@@ -241,7 +241,7 @@ def test_restart_failure_in_factory_with_failed_restore_leaves_no_backend(dispat
     # Factory was called twice (once for "<bad>", once for "<f2>")
     assert factory.call_count == 2
 
-    # No backend installed — restore also failed.
+    # No backend installed, restore also failed.
     assert dispatcher._hotkey_backend is None
 
     # Config was reverted to the OLD hotkey spec
@@ -341,7 +341,7 @@ def test_restart_with_failed_config_save_still_attempts_registration(dispatcher:
         f"Expected save-failure tray notification, got: {notify_calls}"
     )
 
-    # Registration still attempted — new backend installed, old stopped
+    # Registration still attempted, new backend installed, old stopped
     assert dispatcher._hotkey_backend is new_backend
     new_backend.start.assert_called_once()
     old_backend.stop.assert_called_once()
@@ -352,7 +352,7 @@ def test_restart_with_failed_config_save_still_attempts_registration(dispatcher:
 
 def test_restart_swallows_old_backend_stop_failure(dispatcher: HotkeyDispatcher, monkeypatch):
     """If OLD backend's stop() raises (e.g. listener thread already
-    dead), the NEW backend stays installed — we don't roll back a
+    dead), the NEW backend stays installed, we don't roll back a
     successful swap just because cleanup of the old backend failed."""
     old_backend = MagicMock()
     old_backend.is_alive.return_value = True
@@ -364,7 +364,7 @@ def test_restart_swallows_old_backend_stop_failure(dispatcher: HotkeyDispatcher,
     factory = MagicMock(return_value=new_backend)
     monkeypatch.setattr("voice_typer.server.hotkey_dispatcher.create_hotkey_backend", factory)
 
-    # Must not raise — old-backend stop failure is logged, not propagated.
+    # Must not raise, old-backend stop failure is logged, not propagated.
     dispatcher.restart("<f7>")
 
     # NEW backend still installed (the swap succeeded before stop was called)
@@ -399,7 +399,7 @@ def test_register_failure_does_not_overwrite_existing_backend(dispatcher: Hotkey
     # register() returns False on failure
     assert result is False
 
-    # OLD backend still in place — NOT overwritten with the broken new one
+    # OLD backend still in place, NOT overwritten with the broken new one
     assert dispatcher._hotkey_backend is old_backend
 
     # New backend WAS constructed and start was attempted
@@ -462,7 +462,7 @@ def test_register_failure_with_no_existing_backend_leaves_field_none(dispatcher:
 
 def test_restart_does_not_restore_hotkey_on_success(dispatcher: HotkeyDispatcher, monkeypatch):
     """G4-H-17 (negative test): when ``register()`` SUCCEEDS, the new
-    hotkey is kept — no restoration occurs, and ``config.save()`` is
+    hotkey is kept, no restoration occurs, and ``config.save()`` is
     called exactly once (the pre-register save). This guards against
     the restoration logic firing spuriously on the success path.
 
@@ -488,7 +488,7 @@ def test_restart_does_not_restore_hotkey_on_success(dispatcher: HotkeyDispatcher
     # New hotkey is kept (not restored to <f2>).
     assert dispatcher._app.config.hotkey == "<f8>"
 
-    # Only ONE save (the pre-register save) — no restoration save.
+    # Only ONE save (the pre-register save), no restoration save.
     assert dispatcher._app.config.save.call_count == 1
 
     # New backend installed, OLD stopped.

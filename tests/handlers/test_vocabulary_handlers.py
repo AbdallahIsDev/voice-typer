@@ -3,8 +3,8 @@
 Covers the 2 vocabulary IPC handlers defined in
 ``voice_typer/server/handlers/vocabulary_handlers.py``:
 
-- ``_handle_get_vocabulary`` — returns ``{type: vocabulary, data: <result>}``.
-- ``_handle_save_vocabulary`` — validates payload size (1 MB cap),
+- ``_handle_get_vocabulary``, returns ``{type: vocabulary, data: <result>}``.
+- ``_handle_save_vocabulary``, validates payload size (1 MB cap),
   per-value length (1024 char cap), then delegates to
   ``service.save_vocabulary_with_diff``.
 
@@ -19,7 +19,7 @@ from __future__ import annotations
 
 
 class TestGetVocabulary:
-    """``_handle_get_vocabulary`` — returns the current vocabulary dict."""
+    """``_handle_get_vocabulary``, returns the current vocabulary dict."""
 
     def test_happy_path_returns_vocabulary_type(self, ipc_server, fake_service):
         fake_service.get_vocabulary.return_value = {
@@ -42,7 +42,7 @@ class TestGetVocabulary:
 
 
 class TestGetCorrectionUsage:
-    """``_handle_get_correction_usage`` — per-correction usage snapshot."""
+    """``_handle_get_correction_usage``, per-correction usage snapshot."""
 
     def test_happy_path_returns_correction_usage_type(self, ipc_server, fake_service):
         fake_service.get_correction_usage.return_value = {
@@ -63,7 +63,7 @@ class TestGetCorrectionUsage:
 
 
 class TestSaveVocabulary:
-    """``_handle_save_vocabulary`` — payload size + value length validation."""
+    """``_handle_save_vocabulary``, payload size + value length validation."""
 
     def test_happy_path_returns_ack_with_diff(self, ipc_server, fake_service):
         fake_service.save_vocabulary_with_diff.return_value = {
@@ -83,7 +83,7 @@ class TestSaveVocabulary:
         the helper's non-dict message is ``"data must be an object"``
         (different from the pre-R4-F5 ``"save_vocabulary requires data:
         object"`` message, but the test was updated to assert on the
-        ``code`` field — which is the renderer-switchable signal —
+        ``code`` field, which is the renderer-switchable signal —
         rather than the message text).
         """
         resp = ipc_server._handle_save_vocabulary(["not", "a", "dict"], {})
@@ -175,7 +175,7 @@ class TestSaveVocabularyDuplicateRejection:
 
 
 class TestTestVocabularyCorrection:
-    """``test_vocabulary_correction`` — the "Test corrections" panel
+    """``test_vocabulary_correction``, the "Test corrections" panel
     preview that runs the LIVE backend engine."""
 
     def test_happy_path_returns_ack_with_output(self, ipc_server, fake_service):

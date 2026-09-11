@@ -1,5 +1,5 @@
 /**
- *  vitest rewrite — behavioral tests for renderer TS source files
+ *  vitest rewrite, behavioral tests for renderer TS source files
  * that were previously covered by string-pattern Python tests in
  * `tests/test_electron_ipc_and_build.py`.
  *
@@ -14,8 +14,8 @@
  * .github/workflows/build.yml, CHANGELOG.md, standard project files,
  * generate-icons.mjs, voice_typer/__init__.py, and the
  * `ALLOWED_COMMANDS` set inside src/main/index.ts).  These are not
- * React-component behavior tests — they are project-metadata
- * invariants — but they CAN run in vitest (Node.js `fs` is available
+ * React-component behavior tests, they are project-metadata
+ * invariants, but they CAN run in vitest (Node.js `fs` is available
  * even under the jsdom environment), so porting them keeps all
  * coverage in one runner and removes the Python↔Node split for
  * config-string invariants.
@@ -97,7 +97,7 @@
  *   - TestAllowlistCorrectness::test_dead_repaste_last_not_in_allowlist
  *   - TestAllowlistCorrectness::test_dead_complete_onboarding_not_in_allowlist
  *
- * KEEP in Python — REQUIRES-ELECTRON-RUNNER (behavioral version needs
+ * KEEP in Python, REQUIRES-ELECTRON-RUNNER (behavioral version needs
  * real Electron main process; jsdom cannot load `src/main/index.ts` or
  * `src/preload/index.ts` because they import `electron` and `node:*`):
  *   - TestElectronExposesDataExportHandlers::test_main_has_templates_export_handler
@@ -106,7 +106,7 @@
  *   - TestElectronExposesDataExportHandlers::test_history_export_still_present
  *   - TestElectronExposesDataExportHandlers::test_vocabulary_export_still_present
  *
- * KEEP in Python — REQUIRES-PYTHON-RUNNER (tests import Python modules
+ * KEEP in Python, REQUIRES-PYTHON-RUNNER (tests import Python modules
  * or introspect Python source via `inspect.getsource`; out of scope
  * for a TS-string rewrite):
  *   - TestAllowlistCorrectness::test_allowlist_matches_server_commands
@@ -127,7 +127,7 @@
  *   - TestVersionReadsFromPackageMetadata::test_version_uses_importlib_metadata
  *
  * The corresponding Python tests are skipped via `@pytest.mark.skip`
- * with a pointer back to this file. They are NOT deleted — they remain
+ * with a pointer back to this file. They are NOT deleted, they remain
  * as a fallback until CI verifies the vitest versions pass on all
  * platforms.
  *
@@ -154,7 +154,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
  * Page-level render helper. Pages like Settings mount Radix Tooltip
  * (via SettingRow / ui primitives); the real App shell wraps everything
  * in a TooltipProvider (App.tsx), so tests mounting pages directly must
- * provide one too — otherwise every Tooltip render throws "Tooltip must
+ * provide one too, otherwise every Tooltip render throws "Tooltip must
  * be used within TooltipProvider" and the page mounts empty.
  */
 const renderWithProviders = (ui: React.ReactElement) =>
@@ -167,8 +167,8 @@ import type { PythonRequest, WindowBridge } from "@/types/ipc";
 // Section 1: Type-level guards for `types/ipc.ts`
 // ────────────────────────────────────────────────────────────────────
 //
-// `types/ipc.ts` exports ONLY TypeScript types/interfaces — there are
-// no runtime values — so the assertions here are COMPILE-TIME checks
+// `types/ipc.ts` exports ONLY TypeScript types/interfaces, there are
+// no runtime values, so the assertions here are COMPILE-TIME checks
 // bound to runtime `const`s. If a future contributor removes
 // `exportTemplates`/`exportConfig` from `WindowBridge` or re-adds the
 // dead `RestartRequest` type, the const assignments below fail to
@@ -184,7 +184,7 @@ const _hasExportTemplates: HasExportTemplates = true;
 type HasExportConfig = "exportConfig" extends keyof WindowBridge ? true : false;
 const _hasExportConfig: HasExportConfig = true;
 
-// `RestartRequest` would have `type: "restart"` — it must NOT be a
+// `RestartRequest` would have `type: "restart"`, it must NOT be a
 // member of `PythonRequest`. The conditional resolves to `true` only
 // if `{ type: "restart" }` is assignable to `PythonRequest` (i.e. the
 // dead type was re-added). Today the union has been pruned, so it
@@ -678,7 +678,7 @@ describe("Vocabulary export null-safe path handling (rewrite of test_vocabulary_
 //
 // We use `vi.doMock` (NOT top-level `vi.mock`) for react-dom/client +
 // App + Bubble + ErrorBoundary so the mocks only apply to these
-// bootstrap-import tests — the RTL-based component tests above keep
+// bootstrap-import tests, the RTL-based component tests above keep
 // using the real react-dom/client.
 
 describe("main.tsx null-check (rewrite of test_main_tsx_no_non_null_assertion)", () => {
@@ -686,7 +686,7 @@ describe("main.tsx null-check (rewrite of test_main_tsx_no_non_null_assertion)",
 		vi.resetModules();
 		// Stub react-dom/client so createRoot().render() is a no-op.
 		// main.tsx uses `import ReactDOM from "react-dom/client"` (default
-		// import) AND `ReactDOM.createRoot(...)` — the mock must provide
+		// import) AND `ReactDOM.createRoot(...)`, the mock must provide
 		// BOTH a default export (with createRoot) and a named createRoot
 		// export so either import style works.
 		const createRootMock = vi.fn(() => ({ render: vi.fn() }));
@@ -941,7 +941,7 @@ describe("generate-icons.mjs renames root → clientDir (rewrite of TestIconScri
 //   - TestElectronBuilderConfigHasSigningAndPublish (2 tests)
 //
 // We read the YAML as plain text and assert on substring presence
-// (same as the Python test; no YAML parser is installed — see
+// (same as the Python test; no YAML parser is installed, see
 // worklog for the documented `js-yaml` follow-up).
 
 const ELECTRON_BUILDER_PATH = resolve(CLIENT_DIR, "electron-builder.yml");
@@ -953,7 +953,7 @@ function readElectronBuilderYml(): string {
 describe("electron-builder.yml has signing + publish (rewrite of TestElectronBuilderConfigHasSigningAndPublish)", () => {
 	it("does NOT declare a live GitHub publish provider (dead config removed)", () => {
 		// S1-CR-148 / S5-CR-51 deliberately removed the `publish: github`
-		// block from electron-builder.yml: it was dead config — no
+		// block from electron-builder.yml: it was dead config, no
 		// `electron-updater` integration exists on the Electron path and
 		// the Tauri path uses `tauri-plugin-updater` instead. The removal
 		// is documented in the config header. Assert BOTH halves: no live
@@ -1234,7 +1234,7 @@ describe("CHANGELOG test count is current (rewrite of test_changelog_has_current
 //   - test_dead_complete_onboarding_not_in_allowlist
 //
 // The 9th test (`test_allowlist_matches_server_commands`) cross-validates
-// the main allowlist against `voice_typer/server/ipc_server.py` — that
+// the main allowlist against `voice_typer/server/ipc_server.py`, that
 // requires reading Python source AND matching it against the TS source,
 // which is out of scope for a TS-string rewrite.  It stays in Python
 // with a REQUIRES-PYTHON-RUNNER comment.
@@ -1248,8 +1248,8 @@ describe("CHANGELOG test count is current (rewrite of test_changelog_has_current
 // test (`tests/test_security_doc_command_count.py`) both reference.
 //
 // We extract the ALLOWED_COMMANDS set by slicing the source between
-// `ALLOWED_COMMANDS = new Set([` and the closing `]);` — same logic
-// as the Python test — then regex-match the quoted entries.
+// `ALLOWED_COMMANDS = new Set([` and the closing `]);`, same logic
+// as the Python test, then regex-match the quoted entries.
 
 const ALLOWED_COMMANDS_PATH = resolve(
 	CLIENT_DIR,
@@ -1277,7 +1277,7 @@ function readAllowlistEntries(): Set<string> {
 	return entries;
 }
 
-describe("ALLOWED_COMMANDS in src/main/allowed-commands.ts (rewrite of TestAllowlistCorrectness — 8 of 9 tests)", () => {
+describe("ALLOWED_COMMANDS in src/main/allowed-commands.ts (rewrite of TestAllowlistCorrectness, 8 of 9 tests)", () => {
 	it("includes quit_app (rewrite of test_quit_app_in_allowlist)", () => {
 		expect(readAllowlistEntries().has("quit_app")).toBe(true);
 	});
@@ -1307,7 +1307,7 @@ describe("ALLOWED_COMMANDS in src/main/allowed-commands.ts (rewrite of TestAllow
 		// removal list because it was only invoked via the tray hotkey
 		//callback, not as an IPC command.  wired the renderer's
 		// "Re-paste" button (Home.tsx) to call it via the IPC bridge, so
-		// it was re-added to the allowlist — it is no longer dead.
+		// it was re-added to the allowlist, it is no longer dead.
 		//See allowed-commands.ts § for the full rationale.
 		expect(readAllowlistEntries().has("repaste_last")).toBe(true);
 	});

@@ -5,7 +5,7 @@
  * paste_failed) must announce their state to screen readers through the
  * i18n catalog (`t()`), NOT through an English fallback literal with a
  * hardcoded brand. Before the fix, `getBubbleAriaLabel` routed the four
- * mid-flow modes through `tf(key, "… Voice Typer … indicator")` — an
+ * mid-flow modes through `tf(key, "… Voice Typer … indicator")`, an
  * English literal that rendered for EVERY locale (the catalog keys were
  * absent from all 8 locale files), so non-English screen-reader users
  * heard English plus an unrenamable brand.
@@ -13,7 +13,7 @@
  * These tests pin the post-fix contract:
  *   - the four keys resolve from the English catalog with the
  *     `{appName}` placeholder substituted (byte-identical to the strings
- *     the old fallbacks produced — no observable English-output change);
+ *     the old fallbacks produced, no observable English-output change);
  *   - a registered non-English locale actually localizes the four labels
  *     (the fallback path would have returned English instead);
  *   - the helpers.ts source contains no hardcoded brand literal anymore
@@ -59,7 +59,7 @@ describe("getBubbleAriaLabel mid-flow modes route through the locale catalog", (
 		);
 	});
 
-	it("matches t() for the same key (single source of truth — no duplicate fallback copy)", () => {
+	it("matches t() for the same key (single source of truth, no duplicate fallback copy)", () => {
 		expect(getBubbleAriaLabel("blocked")).toBe(
 			t("bubble.blockedIndicatorAria"),
 		);

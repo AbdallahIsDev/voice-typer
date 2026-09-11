@@ -1,7 +1,7 @@
 """UE-11 + UE-48 regression tests for ModelManager.
 
 UE-11: ``set_active_backend`` must mirror ``change_model``'s deferral
-pattern — when the user is recording OR the transcribe thread holds
+pattern, when the user is recording OR the transcribe thread holds
 the busy event (mid-transcription), the request is captured in
 ``_pending_backend_change`` (sibling to ``_pending_model_change``)
 and applied on the next ``apply_pending_model_change`` call (invoked
@@ -9,16 +9,16 @@ from ``recording_controller.start`` before the new recording begins).
 Without this guard, ``set_active_backend`` unconditionally ran the
 unload phase mid-transcription, unloading the ctranslate2 model from
 underneath the in-flight transcribe thread (crash / heap corruption /
-stuck thread — see UE-11 in review.md).
+stuck thread: see UE-11 in review.md).
 
 ``ensure_active_engine_loaded`` must reject the request when
 the active backend is busy (inside
-``transcribe_with_fallback`` on another thread — e.g. a stuck
+``transcribe_with_fallback`` on another thread, e.g. a stuck
 ctranslate2 call). The rejection causes ``recording_controller.start``
 to fall through to the ``fallback_to_whisper`` path, which loads a
 SEPARATE Whisper backend rather than piling up on the stuck backend's
 ctranslate2 internal lock. ``force_unload_active`` is the watchdog's
-escalation path — it tears down the stuck model's GPU resources AND
+escalation path, it tears down the stuck model's GPU resources AND
 clears the busy flag so the next dictation isn't rejected.
 
 These tests pin the contract:
@@ -40,7 +40,7 @@ UE-11 (set_active_backend deferral):
 8. ``apply_pending_model_change`` returns True when at least one is
    set.
 9. Both pending fields are cleared BEFORE either apply runs (crash
-   safety — no re-fire on the next recording).
+   safety, no re-fire on the next recording).
 
 UE-48 (ensure_active_engine_loaded busy rejection):
 10. ``ensure_active_engine_loaded`` returns None when the active
@@ -49,22 +49,22 @@ UE-48 (ensure_active_engine_loaded busy rejection):
     F2 press is queued.
 12. ``ensure_active_engine_loaded`` does NOT reject when the active
     backend is not busy (the existing path is preserved).
-13. The busy-check is defensive — a registry that raises during
+13. The busy-check is defensive, a registry that raises during
     ``is_busy`` does NOT crash ``ensure_active_engine_loaded``.
 
 UE-48 (force_unload_active):
 14. ``force_unload_active`` drops the active backend's registry slot
     (``registry.unregister``) so the next load constructs a FRESH
     engine instance.
-15. ``force_unload_active`` does NOT call ``backend.unload()`` — the
+15. ``force_unload_active`` does NOT call ``backend.unload()``, the
     stuck thread may still be inside the engine's C-level call and
     destroying it there would use-after-free.
 16. ``force_unload_active`` calls ``release_gpu_memory()``.
 17. ``force_unload_active`` calls ``registry.force_clear_busy`` so
     the next dictation isn't rejected.
-18. ``force_unload_active`` is best-effort — never raises even if
+18. ``force_unload_active`` is best-effort, never raises even if
     every layer fails.
-19. ``force_unload_active`` is idempotent — calling it twice doesn't
+19. ``force_unload_active`` is idempotent, calling it twice doesn't
     raise.
 """
 
@@ -114,7 +114,7 @@ def _make_mm(
     Returns ``(mm, app, config, registry)``. The mock app has:
 
     * ``recorder.recording`` set to ``recording``
-    * ``_busy_event`` set to a threading.Event — ``set()`` if NOT
+    * ``_busy_event`` set to a threading.Event: ``set()`` if NOT
       busy, ``clear()`` if busy (mirrors the
       ``not _busy_event.is_set()`` check in ``change_model``)
     * ``config`` = the real ``_Config`` stub
@@ -166,7 +166,7 @@ class TestSetActiveBackendDefersWhenBusy:
 
     def test_set_active_backend_defers_when_recording(self):
         """When ``recorder.recording`` is True, ``set_active_backend``
-        MUST NOT run the unload phase — unloading the ctranslate2 model
+        MUST NOT run the unload phase, unloading the ctranslate2 model
         mid-inference crashes / corrupts / hangs the transcribe
         thread."""
         mm, app, config, registry = _make_mm(asr_backend="whisper", recording=True, busy=False)
@@ -195,7 +195,7 @@ class TestSetActiveBackendDefersWhenBusy:
         # deferral pattern).
         assert config.save_calls, (
             "UE-11: set_active_backend must persist the new backend via "
-            "config.save() even when deferring — a crash mid-recording "
+            "config.save() even when deferring, a crash mid-recording "
             "shouldn't lose the user's intent."
         )
         assert config.asr_backend == "qwen"
@@ -205,7 +205,7 @@ class TestSetActiveBackendDefersWhenBusy:
             whisper_engine.unload.assert_not_called(),
             (
                 "UE-11: set_active_backend must NOT call _change_model_unload_phase "
-                "when recording — unloading the ctranslate2 model mid-inference "
+                "when recording, unloading the ctranslate2 model mid-inference "
                 "crashes the transcribe thread."
             ),
         )
@@ -217,7 +217,7 @@ class TestSetActiveBackendDefersWhenBusy:
         )
 
     def test_set_active_backend_defers_when_busy_event_not_set(self):
-        """When ``_busy_event.is_set()`` is False (busy — transcribe
+        """When ``_busy_event.is_set()`` is False (busy, transcribe
         thread is running), ``set_active_backend`` MUST defer."""
         mm, app, config, registry = _make_mm(asr_backend="whisper", recording=False, busy=True)
         whisper_engine = MagicMock()
@@ -237,7 +237,7 @@ class TestSetActiveBackendDefersWhenBusy:
     def test_set_active_backend_does_not_defer_when_not_busy(self):
         """When NOT recording AND not busy, ``set_active_backend`` MUST
         apply immediately (the existing immediate-apply path is
-        preserved — UE-11 only adds the deferral for the busy case)."""
+        preserved, UE-11 only adds the deferral for the busy case)."""
         mm, app, config, registry = _make_mm(asr_backend="whisper", recording=False, busy=False)
         whisper_engine = MagicMock()
         whisper_engine.is_loaded = True
@@ -245,7 +245,7 @@ class TestSetActiveBackendDefersWhenBusy:
         mm.transcriber = whisper_engine
 
         # Stub _ensure_engine so it doesn't try to actually import
-        # qwen_engine — instead, register a mock qwen engine.
+        # qwen_engine, instead, register a mock qwen engine.
         def fake_ensure(backend_name):
             qwen_engine = MagicMock()
             qwen_engine.is_loaded = True
@@ -270,7 +270,7 @@ class TestSetActiveBackendDefersWhenBusy:
         # NOT deferred.
         assert mm._pending_backend_change is None, (
             "UE-11: set_active_backend must NOT defer when not recording "
-            "and not busy — the existing immediate-apply path is preserved."
+            "and not busy, the existing immediate-apply path is preserved."
         )
         # Config was set + saved.
         assert config.asr_backend == "qwen"
@@ -281,7 +281,7 @@ class TestSetActiveBackendDefersWhenBusy:
         """UE-11 must NOT break the existing no-op short-circuit when
         the requested backend equals the current backend."""
         mm, app, config, registry = _make_mm(asr_backend="whisper", recording=False, busy=False)
-        # No save_calls spy needed — the no-op must NOT call save().
+        # No save_calls spy needed, the no-op must NOT call save().
         config.save_calls.clear()
 
         mm.set_active_backend("whisper")
@@ -306,7 +306,7 @@ class TestApplyPendingBackendChange:
         AB-10 design note: ``apply_pending_model_change`` calls
         ``_set_active_backend_blocking`` (NOT the public non-blocking
         ``set_active_backend``) because the caller —
-        ``recording_controller._start_dictation`` — needs the model
+        ``recording_controller._start_dictation``, needs the model
         fully loaded BEFORE the recorder starts capturing audio.
         The public non-blocking variant would return immediately
         and the recorder would start with the OLD (unloaded) engine.
@@ -321,7 +321,7 @@ class TestApplyPendingBackendChange:
         mm._pending_backend_change = "whisper"
 
         # Spy: track _set_active_backend_blocking calls (the
-        # BLOCKING variant — see design note in the docstring above).
+        # BLOCKING variant: see design note in the docstring above).
         set_backend_calls: list[str] = []
         original_set_active_backend_blocking = mm._set_active_backend_blocking
 
@@ -360,14 +360,14 @@ class TestApplyPendingBackendChange:
     def test_apply_pending_model_change_applies_both_model_and_backend(self):
         """When BOTH ``_pending_model_change`` AND
         ``_pending_backend_change`` are set, both must be applied
-        (model FIRST, then backend — so an explicit
+        (model FIRST, then backend, so an explicit
         ``set_active_backend("whisper")`` overrides the model-change-
         implied backend).
 
         AB-10 design note: ``apply_pending_model_change`` calls the
         BLOCKING variants (``_change_model_blocking`` and
-        ``_set_active_backend_blocking``) — NOT the public non-blocking
-        ``change_model`` / ``set_active_backend`` — because the caller
+        ``_set_active_backend_blocking``), NOT the public non-blocking
+        ``change_model`` / ``set_active_backend``, because the caller
         (``recording_controller._start_dictation``) needs the model
         fully loaded BEFORE the recorder starts capturing audio.
         See ``model_manager.py:1341`` for the design rationale.
@@ -402,16 +402,16 @@ class TestApplyPendingBackendChange:
 
     def test_apply_pending_model_change_clears_both_before_apply(self):
         """Both pending fields must be cleared BEFORE either apply runs
-        — a crash mid-apply must not leave a stale request that
-        re-fires on the next recording.
+        , a crash mid-apply must not leave a stale request that
+          re-fires on the next recording.
 
-        AB-10 design note: ``apply_pending_model_change`` invokes the
-        BLOCKING variants (``_change_model_blocking`` and
-        ``_set_active_backend_blocking``) — NOT the public non-blocking
-        wrappers — because the caller needs the model fully loaded
-        before recording starts. The spies below target the blocking
-        variants accordingly. See ``model_manager.py:1341`` for the
-        design rationale.
+          AB-10 design note: ``apply_pending_model_change`` invokes the
+          BLOCKING variants (``_change_model_blocking`` and
+          ``_set_active_backend_blocking``), NOT the public non-blocking
+          wrappers, because the caller needs the model fully loaded
+          before recording starts. The spies below target the blocking
+          variants accordingly. See ``model_manager.py:1341`` for the
+          design rationale.
         """
         mm, app, config, registry = _make_mm(asr_backend="parakeet", recording=False, busy=False)
         mm._pending_model_change = "medium.en"
@@ -431,12 +431,12 @@ class TestApplyPendingBackendChange:
         # doesn't leave a stale request.
         assert mm._pending_model_change is None, (
             "UE-11: apply_pending_model_change must clear _pending_model_change "
-            "BEFORE invoking _change_model_blocking — a crash mid-apply must "
+            "BEFORE invoking _change_model_blocking, a crash mid-apply must "
             "not leave a stale request that re-fires on the next recording."
         )
         assert mm._pending_backend_change is None, (
             "UE-11: apply_pending_model_change must clear _pending_backend_change "
-            "BEFORE invoking _change_model_blocking — even if _change_model_blocking "
+            "BEFORE invoking _change_model_blocking, even if _change_model_blocking "
             "crashes, the backend change must not re-fire on the next recording."
         )
         # _set_active_backend_blocking was NOT called (the model change
@@ -476,7 +476,7 @@ class TestApplyPendingBackendChange:
         is called (the blocking model-change is NOT called).
 
         AB-10 design note: ``apply_pending_model_change`` invokes the
-        BLOCKING variants — NOT the public non-blocking wrappers —
+        BLOCKING variants, NOT the public non-blocking wrappers —
         because the caller needs the model fully loaded before
         recording starts. The spies below target the blocking variants
         accordingly. See ``model_manager.py:1341`` for the design
@@ -538,7 +538,7 @@ class TestEnsureActiveEngineLoadedBusyRejection:
         lazy-init path (no rejection)."""
         mm, app, config, registry = _make_mm(asr_backend="whisper", recording=False, busy=False)
         # Stub _ensure_engine so it doesn't actually construct an
-        # engine — we just want to verify the busy-check didn't reject.
+        # engine, we just want to verify the busy-check didn't reject.
         mm._ensure_engine = MagicMock()
         mm.touch_model = MagicMock()
         # Make the registry return a non-None engine so the method
@@ -552,7 +552,7 @@ class TestEnsureActiveEngineLoadedBusyRejection:
         # Not rejected (returns the active transcriber, not None).
         assert result is not None, (
             "ensure_active_engine_loaded must NOT reject when the "
-            "active backend is not busy — the existing lazy-init path is "
+            "active backend is not busy, the existing lazy-init path is "
             "preserved."
         )
         assert mm._pending_dictation is False
@@ -560,7 +560,7 @@ class TestEnsureActiveEngineLoadedBusyRejection:
     def test_busy_check_is_defensive_against_registry_errors(self):
         """If ``registry.is_busy`` raises (e.g. a mock registry that
         doesn't implement the method),
-        ``ensure_active_engine_loaded`` must NOT crash — it must log a
+        ``ensure_active_engine_loaded`` must NOT crash, it must log a
         debug message and continue with the existing path."""
         mm, app, config, registry = _make_mm(asr_backend="whisper", recording=False, busy=False)
         # Make is_busy raise.
@@ -575,11 +575,11 @@ class TestEnsureActiveEngineLoadedBusyRejection:
         # Must NOT raise.
         result = mm.ensure_active_engine_loaded()
 
-        # The busy-check failed open (defensive) — the method proceeded
+        # The busy-check failed open (defensive), the method proceeded
         # with the existing lazy-init path.
         assert result is not None, (
             "ensure_active_engine_loaded must be defensive "
-            "against registry.is_busy errors — the busy-check must "
+            "against registry.is_busy errors, the busy-check must "
             "fail OPEN (continue with the existing path), not crash."
         )
 
@@ -589,7 +589,7 @@ class TestEnsureActiveEngineLoadedBusyRejection:
 
 class TestForceUnloadActive:
     """``force_unload_active`` is the watchdog's escalation
-    path — ejects the stuck backend from the registry (so the next
+    path, ejects the stuck backend from the registry (so the next
     dictation constructs a FRESH engine instance) AND clears the busy
     flag so the next dictation isn't rejected. It must NOT destroy the
     engine object itself: the stuck thread may still be inside its
@@ -659,7 +659,7 @@ class TestForceUnloadActive:
         )
 
     def test_best_effort_never_raises(self):
-        """``force_unload_active`` must NEVER raise — even if every
+        """``force_unload_active`` must NEVER raise, even if every
         layer (registry.unregister, release_gpu_memory,
         force_clear_busy) raises. The watchdog calls this from its own
         force-recover path; a raise here would mask the recovery state
@@ -686,7 +686,7 @@ class TestForceUnloadActive:
                 sys.modules.pop("voice_typer.server.asr_utils", None)
 
     def test_idempotent_calling_twice_does_not_raise(self):
-        """``force_unload_active`` must be idempotent — calling it
+        """``force_unload_active`` must be idempotent, calling it
         twice must NOT raise (the second call is a no-op on an already-
         unloaded backend)."""
         mm, app, config, registry = _make_mm(asr_backend="parakeet", recording=False, busy=False)
@@ -699,7 +699,7 @@ class TestForceUnloadActive:
         # Second call (backend is already ejected).
         mm.force_unload_active()
 
-        # No exception raised — the test passing is the assertion.
+        # No exception raised, the test passing is the assertion.
         # Verify the slot stayed dropped (sanity) and the engine object
         # was never destroyed.
         assert registry.get("parakeet") is None
@@ -707,10 +707,10 @@ class TestForceUnloadActive:
 
     def test_does_not_touch_config_asr_backend(self):
         """``force_unload_active`` must NOT touch ``config.asr_backend``
-        — the next ``ensure_active_engine_loaded`` call will re-create
-        + re-load the SAME backend (the watchdog's contract is "tear
-        down the stuck model so the next dictation can load a fresh
-        one", not "switch to a different backend")."""
+        , the next ``ensure_active_engine_loaded`` call will re-create
+          + re-load the SAME backend (the watchdog's contract is "tear
+          down the stuck model so the next dictation can load a fresh
+          one", not "switch to a different backend")."""
         mm, app, config, registry = _make_mm(asr_backend="parakeet", recording=False, busy=False)
         parakeet_engine = MagicMock()
         parakeet_engine.is_loaded = True
@@ -728,7 +728,7 @@ class TestForceUnloadActive:
         """``force_unload_active`` must NOT call ``tray.set_state`` —
         the watchdog has already set the tray to IDLE with the
         "recovered" message, and overwriting that with the TY-11
-        "Idle — model unloaded" message would confuse the user."""
+        "Idle, model unloaded" message would confuse the user."""
         mm, app, config, registry = _make_mm(asr_backend="parakeet", recording=False, busy=False)
         parakeet_engine = MagicMock()
         parakeet_engine.is_loaded = True
@@ -739,10 +739,10 @@ class TestForceUnloadActive:
         (
             app.tray.set_state.assert_not_called(),
             (
-                "force_unload_active must NOT call tray.set_state — "
+                "force_unload_active must NOT call tray.set_state, "
                 "the watchdog has already set the tray state, and overwriting "
                 "it would confuse the user (the recovery message is more "
-                "specific than the TY-11 'Idle — model unloaded' message)."
+                "specific than the TY-11 'Idle, model unloaded' message)."
             ),
         )
 
@@ -789,7 +789,7 @@ class TestStuckRecoveryIntegration:
 
         # Step 3: the transcribe thread is stuck (the busy_context
         # cleared the flag on exit, but in the real world a stuck
-        # C-level ctranslate2 call never returns — so simulate that
+        # C-level ctranslate2 call never returns, so simulate that
         # by re-setting the flag without the context manager).
         registry.set_busy("parakeet")
         assert registry.is_busy("parakeet") is True
@@ -798,7 +798,7 @@ class TestStuckRecoveryIntegration:
         # force_unload_active.
         mm.force_unload_active()
 
-        # Step 5: the busy flag is cleared — the next dictation can
+        # Step 5: the busy flag is cleared, the next dictation can
         # proceed.
         assert registry.is_busy("parakeet") is False, (
             "UE-48 integration: after force_unload_active, the busy flag "
@@ -818,7 +818,7 @@ class TestStuckRecoveryIntegration:
         assert result is fresh_engine, (
             "UE-48 integration: after force_unload_active drops the "
             "registry slot, the next dictation must be served by a FRESH "
-            "engine instance — never the ejected stuck one."
+            "engine instance, never the ejected stuck one."
         )
         assert result is not parakeet_engine
         assert mm._pending_dictation is False

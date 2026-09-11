@@ -13,7 +13,7 @@
 //!
 //! Originally inline in `export.rs` as `#[cfg(test)] mod tests { ... }`;
 //! moved to this sibling file to keep production source files free of test
-//! code (C-TEST-5 — matches the pattern established by
+//! code (C-TEST-5: matches the pattern established by
 //! `commands/bubble/tests.rs`).
 //!
 //! These tests pin the CSV escape / value-to-string / json-to-csv helpers,
@@ -22,11 +22,11 @@
 //! used by `export_data`.
 
 use super::{
-    csv_escape_into, export_file_filters, json_to_csv, value_to_string,
-    value_to_string_into,
+    await_dialog_bridge, await_dialog_bridge_with_timeout, csv_escape_into, export_file_filters,
+    json_to_csv, value_to_string, value_to_string_into, DIALOG_CALLBACK_TIMEOUT_MS,
 };
 
-// The allocation-returning `csv_escape` twin was deleted — production
+// The allocation-returning `csv_escape` twin was deleted, production
 // escapes via `csv_escape_into`. This helper wraps it with a fresh buffer
 // so each escape-behavior assertion below still reads as
 // "input → escaped output".
@@ -41,10 +41,10 @@ use serde_json::{json, Value};
 //
 // The save dialog's offered file types must match the content being
 // written. The export `format` is the discriminator: the JSON-only
-// kinds (templates, config — both hard-pass "json") and any
+// kinds (templates, config: both hard-pass "json") and any
 // history/vocabulary export whose chosen format is "json" offer the
 // JSON filter ALONE (offering a CSV filter for JSON content lets the
-// user save a `.csv` file containing JSON — the bug this pins);
+// user save a `.csv` file containing JSON, the bug this pins);
 // CSV exports keep the historical [JSON, CSV] set in the same order.
 
 #[test]
@@ -72,7 +72,7 @@ fn test_export_file_filters_json_exports_offer_json_filter_only() {
 fn test_export_file_filters_csv_exports_keep_json_and_csv_filters() {
     // CSV-capable exports (history / vocabulary with format "csv")
     // keep their current filters: JSON first (the dialog's default
-    // selected filter — order pinned), CSV second.
+    // selected filter: order pinned), CSV second.
     let filters = export_file_filters("csv");
     assert_eq!(
         filters.len(),
@@ -130,7 +130,7 @@ fn test_csv_escape_into_all_special() {
     assert_eq!(escape("a,b\"c\nd\re"), "\"a,b\"\"c\nd\re\"");
 }
 
-// ── csv_escape_into — SEC-015 formula-injection defense (H-12) ─
+// ── csv_escape_into: SEC-015 formula-injection defense (H-12) ─
 
 #[test]
 fn test_csv_escape_into_formula_equals() {
@@ -179,7 +179,7 @@ fn test_csv_escape_into_leading_trailing_whitespace() {
     assert_eq!(escape("  hello"), "  hello");
     assert_eq!(escape("hello  "), "hello  ");
     // A leading TAB triggers the SEC-015 prefix (formula-injection
-    // defense) but is NOT a quoting trigger — the prefixed value
+    // defense) but is NOT a quoting trigger, the prefixed value
     // contains neither comma, quote, newline, nor CR, so it stays
     // unquoted.
     assert_eq!(escape("\thello"), "'\thello");
@@ -204,7 +204,7 @@ fn test_csv_escape_into_formula_with_comma_quoted() {
 
 #[test]
 fn test_csv_escape_into_appends_to_existing_buffer() {
-    // Contract: `csv_escape_into` appends — it must NOT
+    // Contract: `csv_escape_into` appends, it must NOT
     // overwrite existing buffer content. This is what `json_to_csv`
     // relies on when it writes the header row + each row's cells into
     // the same `out` buffer.
@@ -369,14 +369,14 @@ fn test_value_to_string() {
 
 #[test]
 fn test_require_main_window_error_envelope_shape() {
-    // The error envelope is a JSON string — verify its shape so
+    // The error envelope is a JSON string, verify its shape so
     // the renderer's reject handler (which JSON-parses the error
     // message) keeps working. Mirrors the sidecar's WS error
     // envelope: {"type":"error","data":{"code":...,"message":...}}.
     //
     // We can't call require_main_window() without a real Window,
     // but we can pin the literal envelope shape via the json! macro
-    // used inside the function — if anyone changes the shape, this
+    // used inside the function: if anyone changes the shape, this
     // test breaks and forces them to update the renderer's reject
     // handler too.
     let envelope = json!({
@@ -410,7 +410,7 @@ fn test_pi13_atomic_write_helper_preserves_existing_file_on_overwrite() {
     // Contract: when `atomic_write_bytes` is called on a
     // path that already has content, the new content fully
     // replaces the old (no truncated half). The temp-file-then-
-    // rename pattern guarantees this — either the OLD file is at
+    // rename pattern guarantees this: either the OLD file is at
     // `path` (rename hasn't happened yet) or the NEW file is at
     // `path` (rename succeeded). There's no intermediate state.
     let tmp = std::env::temp_dir().join(format!(
@@ -453,7 +453,7 @@ fn test_pi13_atomic_write_helper_failure_leaves_original_unchanged() {
     // We can't easily simulate a mid-rename failure in a unit test
     // (the rename syscall is atomic on POSIX). Instead, we test
     // the "create tmp file fails" path by pointing at a path
-    // inside a non-existent directory — `File::create(&tmp)`
+    // inside a non-existent directory: `File::create(&tmp)`
     // returns ENOENT, the function returns Err, and we verify
     // that a sentinel file at a DIFFERENT path (the "original
     // export file" we're simulating) is unchanged.
@@ -463,10 +463,10 @@ fn test_pi13_atomic_write_helper_failure_leaves_original_unchanged() {
     ));
     std::fs::remove_dir_all(&tmp).ok();
     std::fs::create_dir_all(&tmp).unwrap();
-    // "Original file" — must survive the failed write.
+    // "Original file": must survive the failed write.
     let original_path = tmp.join("export.csv");
     std::fs::write(&original_path, b"ORIGINAL,SENTINEL\n").unwrap();
-    // Path whose parent dir does NOT exist — `File::create` fails.
+    // Path whose parent dir does NOT exist, `File::create` fails.
     let bad_path = tmp.join("nonexistent_subdir").join("export.csv");
     let result = crate::util::atomic_write_bytes(&bad_path, b"NEW");
     assert!(
@@ -482,4 +482,102 @@ fn test_pi13_atomic_write_helper_failure_leaves_original_unchanged() {
         "PI-13: failed atomic write must NOT modify the original file"
     );
     std::fs::remove_dir_all(&tmp).ok();
+}
+
+// ── await_dialog_bridge (dialog-callback oneshot timeout) ─────────
+//
+// `export_data` hands a oneshot sender to tauri-plugin-dialog's
+// callback-based `save_file`/`pick_folder` and awaits the receiver.
+// The bridge MUST be bounded: a callback that never fires (window
+// destroyed mid-dialog, plugin edge case) would otherwise park the
+// async command future: and the renderer's `invoke()` promise —
+// forever. The production timeout is 10 minutes (far beyond any
+// legitimate dialog session); these tests pin every resolution leg
+// of the bridge without needing a live `tauri::AppHandle` (the same
+// constraint documented on `export_data`), using the
+// deadline-parameterized core so the timeout leg runs in tens of
+// milliseconds.
+
+#[tokio::test]
+async fn test_await_dialog_bridge_returns_value_when_callback_fires() {
+    let (tx, rx) = tokio::sync::oneshot::channel::<Option<String>>();
+    tx.send(Some("/home/user/export.json".to_string())).unwrap();
+    let result = await_dialog_bridge(rx).await;
+    assert_eq!(
+        result.as_deref(),
+        Some("/home/user/export.json"),
+        "a fired callback with a picked path must surface the path"
+    );
+}
+
+#[tokio::test]
+async fn test_await_dialog_bridge_none_when_user_cancels() {
+    // A fired callback with None = the user dismissed the dialog —
+    // the bridge must surface None (both call sites map it to their
+    // {"canceled": true} envelope).
+    let (tx, rx) = tokio::sync::oneshot::channel::<Option<String>>();
+    tx.send(None).unwrap();
+    let result = await_dialog_bridge(rx).await;
+    assert!(
+        result.is_none(),
+        "a user-cancel callback must resolve to None, got {result:?}"
+    );
+}
+
+#[tokio::test]
+async fn test_await_dialog_bridge_none_when_sender_dropped() {
+    // The dialog machinery torn down without invoking the callback:
+    // the oneshot sender is dropped, `recv()` errors. The previous
+    // `rx.await.unwrap_or(None)` shape treated this as a cancel, the
+    // bridge must keep that exact semantic.
+    let (tx, rx) = tokio::sync::oneshot::channel::<Option<String>>();
+    drop(tx);
+    let result = await_dialog_bridge(rx).await;
+    assert!(
+        result.is_none(),
+        "a dropped sender must resolve to None (cancel shape), got {result:?}"
+    );
+}
+
+#[tokio::test]
+async fn test_await_dialog_bridge_times_out_when_callback_never_fires() {
+    // The regression this pins: a callback that NEVER fires. The
+    // sender is kept alive (not dropped) so the oneshot stays pending
+    //: only the deadline can settle the await. The bridge must
+    // return the cancel shape (None) promptly instead of parking
+    // forever.
+    let (tx, rx) = tokio::sync::oneshot::channel::<Option<String>>();
+    let started = std::time::Instant::now();
+    let result =
+        await_dialog_bridge_with_timeout(rx, std::time::Duration::from_millis(50)).await;
+    let elapsed = started.elapsed();
+    assert!(
+        result.is_none(),
+        "a never-firing callback must resolve to the cancel shape (None), got {result:?}"
+    );
+    // Bounded: the deadline (50ms) settles the await, assert a
+    // generous ceiling (5s) so a loaded CI runner never flakes, while
+    // still proving the await did not park indefinitely.
+    assert!(
+        elapsed < std::time::Duration::from_secs(5),
+        "bridge await must be bounded by its deadline, took {elapsed:?}"
+    );
+    // Keep the sender alive until after the assertion, dropping it
+    // early would let `recv()` error out (the dropped-sender leg)
+    // instead of exercising the timeout leg.
+    drop(tx);
+}
+
+#[test]
+fn test_dialog_callback_timeout_is_generous() {
+    // The production deadline must stay generous: a user legitimately
+    // leaving the save dialog open for several minutes must NOT be
+    // resolved as canceled. Pin a floor of 5 minutes (the value is
+    // 10; the floor tolerates intentional tuning while catching an
+    // accidental regression to a tiny timeout).
+    assert!(
+        DIALOG_CALLBACK_TIMEOUT_MS >= 5 * 60 * 1000,
+        "dialog callback timeout must stay generous (>= 5 minutes), got {}ms",
+        DIALOG_CALLBACK_TIMEOUT_MS
+    );
 }

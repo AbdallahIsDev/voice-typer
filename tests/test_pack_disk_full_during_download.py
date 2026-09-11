@@ -1,4 +1,4 @@
-"""§8.9 — Disk fills during download: graceful stop on ``OSError``.
+"""§8.9: Disk fills during download: graceful stop on ``OSError``.
 
 Spec (§8.9):
 
@@ -84,7 +84,7 @@ def _patch_dest_to_fail_on_write(dest: Path, monkeypatch, *, fail_after_bytes: i
 
 
 class TestDiskFullDuringDownload:
-    """§8.9 — graceful stop on ``OSError`` from ``fh.write``."""
+    """§8.9, graceful stop on ``OSError`` from ``fh.write``."""
 
     def test_disk_full_raises_pack_disk_full_error(self, tmp_path: Path, monkeypatch):
         full = b"x" * 4096
@@ -137,7 +137,7 @@ class TestDiskFullDuringDownload:
         # the disk-full path. We can't assert ``not dest.exists()``
         # directly because our fake_open may have created the file via
         # the underlying real_open; instead, we assert the file size
-        # is 0 (or absent) — implementation deletes it.
+        # is 0 (or absent), implementation deletes it.
         # If the implementation deleted it, ``exists()`` is False.
         # If the rmtree fell back to truncate, the file is 0 bytes.
         if dest.exists():
@@ -172,7 +172,7 @@ class TestDiskFullDuringDownload:
 
     def test_disk_full_not_retried_automatically(self, tmp_path: Path, monkeypatch):
         """Unlike rate-limit retries, disk-full is NOT retried in the
-        download loop — the caller schedules the retry later."""
+        download loop, the caller schedules the retry later."""
         full = b"x" * 4096
         fake, expected = _make_normal_transport(full)
         dest = tmp_path / "pack-v1.partial"
@@ -194,7 +194,7 @@ class TestDiskFullDuringDownload:
                 http_get=counting_fake,
                 chunk_bytes=64,
             )
-        # Only ONE http_get call — no retry.
+        # Only ONE http_get call, no retry.
         assert call_count["n"] == 1
 
 

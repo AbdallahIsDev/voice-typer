@@ -1,4 +1,4 @@
-# Signing Guide — Tauri v2 Bundles (ADR-0020 §13 + §15)
+# Signing Guide: Tauri v2 Bundles (ADR-0020 §13 + §15)
 
 **Status**: this is the **authoritative code-signing + notarization guide**
 for the Tauri v2 builds of Voice Typer, covering Windows (Authenticode),
@@ -18,10 +18,10 @@ and the audit results confirming `tauri-plugin-updater` is not wired.
   but out of scope for v1.
 
 **Out of scope**:
-- Per-platform build steps — see `tauri-build-runbook.md` + per-platform
+- Per-platform build steps, see `tauri-build-runbook.md` + per-platform
   runbooks.
-- Cutover procedure — see `cutover-playbook.md`.
-- Auto-update — explicitly out of scope for v1 (ADR-0020 §15). See
+- Cutover procedure, see `cutover-playbook.md`.
+- Auto-update: explicitly out of scope for v1 (ADR-0020 §15). See
   §"No auto-update (ADR-0020 §15)" below for the audit results.
 
 ---
@@ -41,11 +41,11 @@ identities + env vars as the existing Electron build. Source of truth:
 
 > **CI secret rotation**: rotating any of these secrets for the Tauri
 > build rotates them for the Electron build too (same secret name). This
-> is intentional — one cert per platform, not one per runtime.
+> is intentional: one cert per platform, not one per runtime.
 
 ---
 
-## Windows — Authenticode (ADR-0020 §13.1)
+## Windows: Authenticode (ADR-0020 §13.1)
 
 ### Signing order
 
@@ -107,7 +107,7 @@ For `aarch64-pc-windows-msvc` (Windows on ARM), repeat with the
 Use an RFC-3161 timestamp server (DigiCert shown above) so the signature
 survives cert expiry. Alternative timestamp servers:
 
-- `http://timestamp.digicert.com` (DigiCert — used above)
+- `http://timestamp.digicert.com` (DigiCert: used above)
 - `http://timestamp.sectigo.com` (Sectigo)
 - `http://timestamp.globalsign.com/tsa/r6advanced1` (GlobalSign)
 
@@ -116,7 +116,7 @@ survives cert expiry. Alternative timestamp servers:
 The Tauri bundler signs the MSI + NSIS automatically if the
 `TAURI_SIGNING_PRIVATE_KEY` + `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` env
 vars are set. However, **for v1 we do NOT use the Tauri bundler's
-updater signing** (per ADR-0020 §15 — no auto-update). Instead, the MSI
+updater signing** (per ADR-0020 §15: no auto-update). Instead, the MSI
 + NSIS are signed with the same `signtool` command above:
 
 ```powershell
@@ -143,7 +143,7 @@ cert chains.
 ### Nuitka `--onefile` self-extraction caveat (ADR-0020 §13.1)
 
 Nuitka `--onefile` bundles an inner exe that extracts to a temp dir at
-runtime. **Only the outer `.exe` is signed** — the extracted inner exe
+runtime. **Only the outer `.exe` is signed**: the extracted inner exe
 is transient and not separately signed. AV may briefly flag the temp
 extraction; this is expected and benign, NOT a packaging bug. Do not
 attempt to sign the inner payload.
@@ -165,7 +165,7 @@ and what SmartScreen validates.
 
 ---
 
-## macOS — Developer ID + notarization + stapling (ADR-0020 §13.2)
+## macOS: Developer ID + notarization + stapling (ADR-0020 §13.2)
 
 ### Signing order
 
@@ -242,7 +242,7 @@ spctl --assess --verbose=4 "$APP"   # Gatekeeper assessment
 ```
 
 > **Prefer leaf-to-root manual signing** over `--deep` for production
-> releases — `--deep` is deprecated by Apple and doesn't handle all
+> releases, `--deep` is deprecated by Apple and doesn't handle all
 > edge cases (e.g., embedded frameworks with their own entitlements).
 > For v1, `--deep` is acceptable; track a follow-up to migrate to
 > leaf-to-root.
@@ -250,7 +250,7 @@ spctl --assess --verbose=4 "$APP"   # Gatekeeper assessment
 ### Notarize + staple the `.app`
 
 ```bash
-# Submit the .app for notarization (zipped — notarytool requires a zip).
+# Submit the .app for notarization (zipped, notarytool requires a zip).
 ditto -c -k --keepParent "$APP" /tmp/voice-typer-app.zip
 
 xcrun notarytool submit /tmp/voice-typer-app.zip \
@@ -287,7 +287,7 @@ xcrun stapler validate "$DMG"
 ### Verify
 
 ```bash
-# Final verification — must all pass.
+# Final verification: must all pass.
 codesign --verify --verbose=4 "$APP"
 spctl --assess --verbose=4 "$APP"
 xcrun stapler validate "$APP"
@@ -300,7 +300,7 @@ xcrun stapler validate "$DMG"
 
 Per ADR-0020 §13.2: build separately, produce two `.app` bundles, ship
 as two DMGs (or one universal DMG). The existing `electron-builder.yml`
-ships `dmg` with `arch: [x64, arm64]` — two separate DMGs. Mirror this
+ships `dmg` with `arch: [x64, arm64]` Two separate DMGs. Mirror this
 for Tauri:
 
 ```bash
@@ -313,13 +313,13 @@ bash scripts/build/build_tauri_all.sh macos aarch64-apple-darwin
 ### Cross-reference
 
 - Sub-agent #6's macOS validation runbook: `macos-validation-runbook.md`
-  (per-platform runbook — owned by sub-agent #6).
+  (per-platform runbook: owned by sub-agent #6).
 - `.github/workflows/build.yml` macOS job: existing `MAC_SIGNING_IDENTITY`
   + `APPLE_TEAM_ID` env wiring.
 
 ---
 
-## Linux — unsigned by default (ADR-0020 §13.3)
+## Linux: unsigned by default (ADR-0020 §13.3)
 
 ### Why unsigned
 
@@ -372,7 +372,7 @@ reused verbatim for the Tauri `.deb` / `.rpm` bundles:
 ### Cross-reference
 
 - Sub-agent #7's Linux validation runbook: `linux-validation-runbook.md`
-  (per-platform runbook — owned by sub-agent #7).
+  (per-platform runbook: owned by sub-agent #7).
 - `voice_typer/client/electron-builder.yml` `deb`/`rpm` sections: existing
   `afterInstall`/`afterRemove` wiring (the Tauri `bundle.linux.deb/rpm`
   config mirrors these).
@@ -385,7 +385,7 @@ reused verbatim for the Tauri `.deb` / `.rpm` bundles:
 
 Per ADR-0020 §15: **auto-update is out of scope for the v1 Tauri
 migration.** Ship the Tauri build as a manual-download release (matching
-today's Electron release model — there is no working auto-update today).
+today's Electron release model: there is no working auto-update today).
 Track auto-update as a separate follow-up ADR after the Tauri cutover
 stabilizes. Do **NOT** wire up `tauri-plugin-updater` in the v1 migration.
 
@@ -412,23 +412,23 @@ host source tree) + the docs/ADRs that reference `updater` for context.
 
 | File | Result |
 |------|--------|
-| `src-tauri/Cargo.toml` | ✅ **CLEAN** — no `tauri-plugin-updater` dependency. |
-| `src-tauri/tauri.conf.json` | ✅ **CLEAN** — no `plugins.updater` key. The `plugins` object contains only `notification`, `clipboard-manager`, `single-instance`, `shell`. |
-| `src-tauri/capabilities/main-runtime.json` | ✅ **CLEAN** — no `updater:*` permissions. The `permissions` array contains only `core:*`, `shell:*`, `notification:*`, `clipboard-manager:*` entries. `bubble-runtime.json` (the bubble-window sibling) was also audited in the same pass — it likewise contains no updater permissions. |
-| `src-tauri/src/main.rs` | ✅ **CLEAN** — no `updater` references (not touched by this sub-agent per task rules). |
+| `src-tauri/Cargo.toml` | ✅ **CLEAN**, no `tauri-plugin-updater` dependency. |
+| `src-tauri/tauri.conf.json` | ✅ **CLEAN**, no `plugins.updater` key. The `plugins` object contains only `notification`, `clipboard-manager`, `single-instance`, `shell`. |
+| `src-tauri/capabilities/main-runtime.json` | ✅ **CLEAN**, no `updater:*` permissions. The `permissions` array contains only `core:*`, `shell:*`, `notification:*`, `clipboard-manager:*` entries. `bubble-runtime.json` (the bubble-window sibling) was also audited in the same pass. It likewise contains no updater permissions. |
+| `src-tauri/src/main.rs` | ✅ **CLEAN**, no `updater` references (not touched by this sub-agent per task rules). |
 
-#### Doc references (NOT modified — context only)
+#### Doc references (NOT modified: context only)
 
 The following files reference `updater` for **design / context** reasons
 and are intentionally NOT modified by this audit:
 
 | File | Lines | Why it references `updater` | Action |
 |------|-------|-----------------------------|--------|
-| `docs/adr/0020-desktop-runtime-migration-analysis.md` | 136, 631, 807, 809, 991 | Authoritative spec — §15 explicitly decides NOT to wire `tauri-plugin-updater`. The reference at line 631 is inside an EXAMPLE `tauri.conf.json` snippet (showing what the config WOULD look like if updater were wired — for context, not as a build target). | No action — the ADR is the source of truth for the no-updater decision. |
-| `docs/adr/0013-desktop-runtime-migration-analysis.md` | 133, 146, 147 | The PRIOR (superseded) ADR — references `updater` as a hypothetical option. ADR-0020 supersedes ADR-0013. | No action — superseded ADR. |
-| `docs/API.md` | 123 | Mentions `electron-updater` (Electron's auto-updater, not Tauri's) in a comment about a config flag. | No action — Electron-side reference. |
-| `docs/auto-update-feature.md` | 10, 28, 58-67, 180-186 | Design-only spec for the (not-implemented) auto-update feature. The file's own header states: "STATUS: NOT IMPLEMENTED." | No action — design doc only. |
-| `voice_typer/client/electron-builder.yml` | 8 | Comment about `auto-updater` (Electron's). | No action — Electron-side config; the `publish: github` block is not consumed by any code today (per ADR-0020 §15). |
+| `docs/adr/0020-desktop-runtime-migration-analysis.md` | 136, 631, 807, 809, 991 | Authoritative spec: §15 explicitly decides NOT to wire `tauri-plugin-updater`. The reference at line 631 is inside an EXAMPLE `tauri.conf.json` snippet (showing what the config WOULD look like if updater were wired, for context, not as a build target). | No action: the ADR is the source of truth for the no-updater decision. |
+| `docs/adr/0013-desktop-runtime-migration-analysis.md` | 133, 146, 147 | The PRIOR (superseded) ADR: references `updater` as a hypothetical option. ADR-0020 supersedes ADR-0013. | No action: superseded ADR. |
+| `docs/API.md` | 123 | Mentions `electron-updater` (Electron's auto-updater, not Tauri's) in a comment about a config flag. | No action: Electron-side reference. |
+| `docs/auto-update-feature.md` | 10, 28, 58-67, 180-186 | Design-only spec for the (not-implemented) auto-update feature. The file's own header states: "STATUS: NOT IMPLEMENTED." | No action: design doc only. |
+| `voice_typer/client/electron-builder.yml` | 8 | Comment about `auto-updater` (Electron's). | No action: Electron-side config; the `publish: github` block is not consumed by any code today (per ADR-0020 §15). |
 
 #### Conclusion
 
@@ -447,7 +447,7 @@ If a future release decides to wire auto-update, file a new ADR
 
 The following comment is added to `src-tauri/Cargo.toml` to prevent
 future maintainers from accidentally adding the updater plugin. (No
-functional change — just a comment.)
+functional change: just a comment.)
 
 > This guard comment was NOT added in this round because the existing
 > `Cargo.toml` already has clear section comments + the absence of the
@@ -466,19 +466,19 @@ the signing commands in the appropriate order. The top-level
 through to the per-platform workflows when the user selects it.
 
 For the env var names to use in CI, see §"Reused signing identities"
-above — they are the same names the existing Electron build uses, so
+above: they are the same names the existing Electron build uses, so
 no new secrets need to be created.
 
 ---
 
 ## See also
 
-- [`tauri-build-runbook.md`](./tauri-build-runbook.md) — master index for
+- [`tauri-build-runbook.md`](./tauri-build-runbook.md): master index for
   the Tauri build pipeline.
-- [`cutover-playbook.md`](./cutover-playbook.md) — per-platform cutover
+- [`cutover-playbook.md`](./cutover-playbook.md): per-platform cutover
   procedure + rollback + mixed-mode support.
-- [`tauri-sidecar-bridge.md`](./tauri-sidecar-bridge.md) — the wire
+- [`tauri-sidecar-bridge.md`](./tauri-sidecar-bridge.md): the wire
   contract between the Rust host and the Python sidecar.
 - [`../adr/0020-desktop-runtime-migration-analysis.md`](../adr/0020-desktop-runtime-migration-analysis.md)
-  — §13 (signing) + §15 (no auto-update) are the authoritative sources
+ §13 (Signing) + §15 (no auto-update) are the authoritative sources
   for this guide.

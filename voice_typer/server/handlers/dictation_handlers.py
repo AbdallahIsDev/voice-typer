@@ -19,7 +19,7 @@ class DictationHandlersMixin(HandlerBase):
     """
 
     # The ``service`` / ``app`` / ``_send`` annotations are
-    # inherited from :class:`HandlerMixinBase` — no per-mixin
+    # inherited from :class:`HandlerMixinBase`: no per-mixin
     # re-declaration needed (the duplicate block removed here was one
     # of four that the  centralization refactor missed).
 
@@ -30,13 +30,13 @@ class DictationHandlersMixin(HandlerBase):
             # from ``data``, invoke ``_validate_dict_payload`` with an
             # empty schema so the ADR-0020 §2 claim ("every handler
             # re-validates via _validate_dict_payload") holds and a
-            # non-dict payload (e.g. ``{"data": "not-a-dict"}`` — a
+            # non-dict payload (e.g. ``{"data": "not-a-dict"}``, a
             # protocol violation) is rejected with ``invalid_payload``
             # rather than silently accepted.
             #
             # Pre-coerce ``None`` (the value ``msg.get("data")``
             # returns when the ``data`` key is absent, as in
-            # ``{"id": 1, "type": "toggle_dictation"}`` — a common
+            # ``{"id": 1, "type": "toggle_dictation"}``: a common
             # shape in existing tests and Electron callers that omit
             # the ``data`` key for no-arg commands) to ``{}`` so the
             # validation passes cleanly. Without this pre-coercion,

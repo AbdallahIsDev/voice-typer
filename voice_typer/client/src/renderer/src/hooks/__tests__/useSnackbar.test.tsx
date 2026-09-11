@@ -1,11 +1,11 @@
 /**
- * Tests for useSnackbar — covers  (action option on ShowSnackOptions
+ * Tests for useSnackbar, covers  (action option on ShowSnackOptions
  * + the showRetryableToast helper).
  *
  * Strategy: mock the ``sonner`` module so we can capture every call to
  * ``toast.success`` / ``toast.error`` / ``toast.warning`` / ``toast.info``
  * and assert the options object carries the expected ``action`` and
- * ``duration``. The hook under test is a thin delegator — what we want
+ * ``duration``. The hook under test is a thin delegator, what we want
  * to verify is the SHAPE of the options it forwards, not the rendering
  * of the toast (sonner has its own test coverage for rendering).
  */
@@ -66,7 +66,7 @@ afterEach(() => {
 	cleanup();
 });
 
-describe("useSnackbar — ZU-33 action option", () => {
+describe("useSnackbar, ZU-33 action option", () => {
 	it("forwards the action option to sonner.toast.error", async () => {
 		const { showSnack } = await renderWithHook();
 		const onClick = vi.fn();
@@ -166,7 +166,7 @@ describe("useSnackbar — ZU-33 action option", () => {
 	});
 });
 
-describe("showRetryableToast — ZU-33 helper", () => {
+describe("showRetryableToast, ZU-33 helper", () => {
 	it("renders an error toast with a Retry action button by default", async () => {
 		const { showRetryableToast } = await import("@/hooks/useSnackbar");
 		const onRetry = vi.fn();

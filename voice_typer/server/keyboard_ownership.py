@@ -6,11 +6,11 @@ ownership model instead of scattered boolean flags.
 # Problem
 The previous architecture had THREE independent Escape handlers:
 
-  1. The frontend HotkeyPicker (in capture mode) — listens to DOM
+  1. The frontend HotkeyPicker (in capture mode), listens to DOM
      ``keydown`` events for Escape to exit capture.
   2. The backend's global ESC cancel hotkey backend (Win32 native /
-     pynput) — polls the OS for Escape and fires ``_cancel_dictation``.
-  3. The backend's recording controller — receives ``cancel()`` calls
+     pynput), polls the OS for Escape and fires ``_cancel_dictation``.
+  3. The backend's recording controller, receives ``cancel()`` calls
      and discards the active recording.
 
 These three handlers had no shared state. The frontend's "I'm in
@@ -28,18 +28,18 @@ cleaned up properly), causing spurious ``[CANCEL]`` logs.
 A single ``KeyboardOwnership`` singleton tracks which subsystem owns
 the keyboard at any given time. The owner is one of:
 
-  - ``"normal"``        — no special owner; global hotkeys behave normally
-  - ``"hotkey_capture"`` — frontend HotkeyPicker is capturing a hotkey;
+  - ``"normal"``       : no special owner; global hotkeys behave normally
+  - ``"hotkey_capture"``: frontend HotkeyPicker is capturing a hotkey;
                            global hotkey backends (including ESC cancel)
                            must NOT fire.
-  - ``"recording"``      — a recording session is active; the ESC cancel
+  - ``"recording"``     : a recording session is active; the ESC cancel
                            hotkey may fire to cancel it.
 
 Ownership transitions are synchronous from the backend's perspective
 (``set_owner`` is called directly by IPC handlers in the same thread
 that the hotkey backends poll from). From the frontend's perspective,
 the IPC is still async, BUT the backend's hotkey backends now consult
-``KeyboardOwnership.current_owner()`` on every poll — so even if the
+``KeyboardOwnership.current_owner()`` on every poll, so even if the
 IPC is delayed, the moment it lands, the next poll cycle honors it.
 
 The previous ``_esc_cancel_paused`` boolean on ``VoiceTyperApp`` is
@@ -62,7 +62,7 @@ Owner = Literal["normal", "hotkey_capture", "recording"]
 class KeyboardOwnership:
     """Singleton tracking which subsystem owns keyboard input.
 
-    Thread-safe — the hotkey backends poll from background threads
+    Thread-safe, the hotkey backends poll from background threads
     while the IPC handler sets ownership from the IPC thread.
     """
 
@@ -120,7 +120,7 @@ class KeyboardOwnership:
         """True if the frontend is currently capturing a hotkey.
 
         Hotkey backends should consult this on every poll and skip
-        firing if True — the frontend owns the keyboard during capture.
+        firing if True, the frontend owns the keyboard during capture.
         """
         with self._lock:
             return self._owner == "hotkey_capture"

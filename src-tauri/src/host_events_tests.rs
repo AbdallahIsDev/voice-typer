@@ -1,4 +1,4 @@
-//! Tests for `host_events.rs` — pure payload-parsing contracts (per
+//! Tests for `host_events.rs`: pure payload-parsing contracts (per
 //! C-TEST-5, sibling test file; no Tauri runtime required).
 
 use super::parse_notification;

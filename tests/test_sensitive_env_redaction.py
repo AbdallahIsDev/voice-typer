@@ -3,7 +3,7 @@
 Split from the former catch-all test module (2026-08-25).
 ``_redact_sensitive_env_keys``
 redacts values and surfaces only sensitive KEY NAMES for the audit
-log line — the helper lives in
+log line, the helper lives in
 ``voice_typer.server._electron_build`` and is called by
 ``electron_launcher.spawn_electron`` and the three
 ``autostart_launcher`` spawn paths after ``env = dict(os.environ)``.
@@ -55,7 +55,7 @@ class TestSensitiveEnvRedaction:
             "CLIENT_CREDENTIAL": "xxx",  # sensitive
         }
         sensitive = _redact_sensitive_env_keys(env)
-        # Names only — no values leak.
+        # Names only, no values leak.
         assert "OPENAI_API_KEY" in sensitive
         assert "HF_TOKEN" in sensitive
         assert "ANTHROPIC_API_KEY" in sensitive

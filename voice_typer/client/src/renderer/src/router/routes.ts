@@ -3,10 +3,10 @@ import type { Page } from "../types/ipc";
 /**
  * Single data-driven route table for the React renderer.
  *
- * Previously the page registry was duplicated in four places — the
+ * Previously the page registry was duplicated in four places, the
  * `Page` union in `types/ipc.ts`, the `KNOWN_PAGES` Set in
  * `useNavigation.ts`, the `renderPage()` switch in `App.tsx`, and the
- * `pageMap` for the navigate event in `App.tsx` — and had already
+ * `pageMap` for the navigate event in `App.tsx`, and had already
  * drifted: the navigate `pageMap` was missing `onboarding`, so a
  * backend `navigate` event with `path: "onboarding"` hit the else
  * branch and logged a spurious warning instead of routing the user.
@@ -18,17 +18,17 @@ import type { Page } from "../types/ipc";
  * can validate strings, look up routes, and iterate over the set of
  * known pages without re-listing them. Because `ROUTES` is typed as
  * `Record<Page, RouteDef>`, the compiler will flag any entry that
- * drifts from the `Page` union — closing the drift loophole.
+ * drifts from the `Page` union, closing the drift loophole.
  *
  * To add a new page:
  *   1. Add the literal to the `Page` union in `types/ipc.ts`.
  *   2. Add a `RouteDef` entry to `ROUTES` below (the compiler will
- *      error if you forget — `Record<Page, RouteDef>` requires every
+ *      error if you forget, `Record<Page, RouteDef>` requires every
  *      `Page` literal to have an entry).
  *   3. Add a `case` to `PageSwitch`'s switch in `router/PageSwitch.tsx`
  *      and, if the page gets its own chunk, an entry to the shared
  *      `PAGE_LOADERS` registry in `router/pageLoaders.ts` (component
- *      wiring — legitimate routing logic, not registry duplication).
+ *      wiring, legitimate routing logic, not registry duplication).
  */
 export interface RouteDef {
 	page: Page;
@@ -41,7 +41,7 @@ export const ROUTES: Record<Page, RouteDef> = {
 	models: { page: "models" },
 	templates: { page: "templates" },
 	vocabulary: { page: "vocabulary" },
-	// "settings" is the Settings HUB page — a real destination (one card
+	// "settings" is the Settings HUB page, a real destination (one card
 	// whose rows open the section pages below). Existing call sites
 	// (Ctrl+, shortcut, tray menu, Python `navigate {path: "/settings"}`
 	// IPC event) land directly on the hub; the hub rows navigate to the

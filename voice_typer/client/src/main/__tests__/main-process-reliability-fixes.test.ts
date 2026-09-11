@@ -14,7 +14,7 @@
  *
  * index.ts cannot be imported directly (it fires Electron APIs at module-
  * eval time), so  /  assertions are source-text checks anchored
- * on the actual handler registration — same pattern as
+ * on the actual handler registration, same pattern as
  * `shutdown-hooks.test.ts`. stop-python.ts and bootstrap.ts are exercised
  * at runtime with mocked electron/state.
  */
@@ -200,7 +200,7 @@ describe("bootstrap.ts _productionExit stops Python BEFORE app.quit() (no uncond
 // describes swap in their own electron shape (crashReporter.start,
 // app.on spies, isPackaged:true), a fresh state, and a tmpDir-backed
 // config dir in their beforeEach. This replaces the old per-describe
-// `vi.doMock(...)` overrides of these same hoisted mocks — the
+// `vi.doMock(...)` overrides of these same hoisted mocks, the
 // hoisted-default + doMock-override overlap is order-dependent and
 // flaky under the full-suite run (see the drift guard
 // renderer/src/__tests__/helpers/__tests__/do-mock-drift-guard.test.ts).
@@ -211,21 +211,21 @@ const { mockElectronImpl, mockStateImpl, mockSingleInstanceImpl } = vi.hoisted(
 		mockElectronImpl: {
 			current: (): Record<string, unknown> => {
 				throw new Error(
-					"[main-process-reliability] mock factory current() not set — the global beforeEach must assign it before any test imports the module (electron/state/single_instance are never imported at module scope)",
+					"[main-process-reliability] mock factory current() not set, the global beforeEach must assign it before any test imports the module (electron/state/single_instance are never imported at module scope)",
 				);
 			},
 		},
 		mockStateImpl: {
 			current: (): MainState => {
 				throw new Error(
-					"[main-process-reliability] mock factory current() not set — the global beforeEach must assign it before any test imports the module (electron/state/single_instance are never imported at module scope)",
+					"[main-process-reliability] mock factory current() not set, the global beforeEach must assign it before any test imports the module (electron/state/single_instance are never imported at module scope)",
 				);
 			},
 		},
 		mockSingleInstanceImpl: {
 			current: (): Record<string, unknown> => {
 				throw new Error(
-					"[main-process-reliability] mock factory current() not set — the global beforeEach must assign it before any test imports the module (electron/state/single_instance are never imported at module scope)",
+					"[main-process-reliability] mock factory current() not set, the global beforeEach must assign it before any test imports the module (electron/state/single_instance are never imported at module scope)",
 				);
 			},
 		},
@@ -238,7 +238,7 @@ const { mockElectronImpl, mockStateImpl, mockSingleInstanceImpl } = vi.hoisted(
 // the first shape would be cached forever and every later per-describe
 // override would be silently dropped. Instead each factory returns a
 // module whose exports are GETTERS that re-read `current` on every
-// import after `vi.resetModules()` — the same per-import semantics as
+// import after `vi.resetModules()`, the same per-import semantics as
 // the old per-describe vi.doMock factories, minus the registry-timing
 // race. (bootstrap.ts / tcp-connect.ts / single_instance.ts import
 // electron bindings at module load, and the runtime describes always
@@ -430,11 +430,11 @@ describe("GT-A3-10: _resetStopPythonFlags() resets the idempotency guard", () =>
 		stopPython();
 		expect(sendToPythonMock).toHaveBeenCalledTimes(1);
 		mockProc.emit("exit", 0);
-		// isStopped is now latched — a second stopPython() is a no-op.
+		// isStopped is now latched, a second stopPython() is a no-op.
 		stopPython();
 		expect(sendToPythonMock).toHaveBeenCalledTimes(1);
 
-		// Reset the flags — simulate startPython() calling this before
+		// Reset the flags, simulate startPython() calling this before
 		// spawning a fresh backend.
 		_resetStopPythonFlags();
 		expect(mockState._stopPythonCalled).toBe(false);
@@ -453,11 +453,11 @@ describe("GT-A3-10: _resetStopPythonFlags() resets the idempotency guard", () =>
 
 	it("clears any armed killTimer from the previous cycle", () => {
 		stopPython();
-		// killTimer is armed (3s). Do NOT advance fake timers — the
+		// killTimer is armed (3s). Do NOT advance fake timers, the
 		// timer is still pending.
-		// Reset the flags — the armed killTimer should be cleared.
+		// Reset the flags, the armed killTimer should be cleared.
 		_resetStopPythonFlags();
-		// Advance past 3s — the old killTimer should NOT fire (it was
+		// Advance past 3s, the old killTimer should NOT fire (it was
 		// cleared). If it had fired, mockProc.kill would have been
 		// called.
 		expect(mockProc.kill).not.toHaveBeenCalled();
@@ -488,7 +488,7 @@ describe("GT-A3-7: bootstrapRuntime starts crashReporter + registers child-proce
 		// Override the hoisted-mutable factories for this describe:
 		// bootstrapRuntime needs crashReporter.start + app.on spies, a
 		// fresh (un-mutated) state, and a tmpDir-backed config dir.
-		// (../i18n and ../python keep their hoisted defaults — the old
+		// (../i18n and ../python keep their hoisted defaults, the old
 		// doMock overrides for them were byte-identical.)
 		mockElectronImpl.current = () => ({
 			app: {
@@ -525,7 +525,7 @@ describe("GT-A3-7: bootstrapRuntime starts crashReporter + registers child-proce
 		} catch {
 			/* ignore */
 		}
-		// ../logging has no hoisted default — drop its doMock so later
+		// ../logging has no hoisted default, drop its doMock so later
 		// tests don't see the stale mock. The mutable factories
 		// (electron/state/single_instance) are reset by the global
 		// beforeEach.
@@ -588,7 +588,7 @@ describe("GT-B3-8: bootstrap logEvent logs to console.error on fs failure", () =
 		consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
 		// Override the hoisted-mutable factories (see GT-A3-7 for the
-		// rationale — ../i18n + ../python keep their hoisted defaults).
+		// rationale, ../i18n + ../python keep their hoisted defaults).
 		mockElectronImpl.current = () => ({
 			app: {
 				getPath: vi.fn(() => tmpDir),

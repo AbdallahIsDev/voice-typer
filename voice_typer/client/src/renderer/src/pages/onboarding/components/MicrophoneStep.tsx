@@ -53,11 +53,11 @@ export function MicrophoneStep({
 							//surface two backend-provided
 							// flags the renderer previously ignored.
 							// `default === true` is the OS default
-							// input device — a "Default" badge
+							// input device, a "Default" badge
 							// helps the user understand why this
 							// option is pre-selected. `is_bluetooth
 							// === true` indicates a Bluetooth/HFP
-							// device (8 kHz sample rate) — a "BT"
+							// device (8 kHz sample rate), a "BT"
 							// badge warns the user that audio
 							// quality will be limited. The "BT"
 							// literal is intentionally untranslated
@@ -95,7 +95,7 @@ export function MicrophoneStep({
 				</Select>
 			) : (
 				// the no-mics branch was previously a
-				// dead end — just a passive message with no recovery
+				// dead end, just a passive message with no recovery
 				// affordance. Now it shows the message PLUS a hint about
 				// OS mic permission and (when the parent provides
 				// onRefreshMics) a Refresh button so the user can re-scan

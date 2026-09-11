@@ -1,5 +1,5 @@
 /**
- * Tests for the Vocabulary page — D2-FIX (b-review Finding 4).
+ * Tests for the Vocabulary page, D2-FIX (b-review Finding 4).
  *
  * Scenario under test: clicking the trash icon on a vocabulary entry fires
  * `instantDeleteEntry`, which:
@@ -14,14 +14,14 @@
  * Undo (up to 6 s later), `restored = [...entries]` contained `entry` at
  * its original index, `restored.indexOf(entry)` returned that index, and
  * `restored.splice(idx, 0, entry)` (deleteCount=0) INSERTED A SECOND COPY
- * at that index — the entry reappeared TWICE after Undo.  The closure was
+ * at that index, the entry reappeared TWICE after Undo.  The closure was
  * also stale with respect to any other vocabulary edits made between the
- * delete and the Undo click — those edits were silently lost.
+ * delete and the Undo click, those edits were silently lost.
  *
  * The D2 fix reads the LATEST entries via a ref (`entriesRef.current`,
  * kept in sync by a `useEffect`) inside the undo callback, filters out
  * the deleted entry defensively, and splices it back at its captured
- * original index — guaranteeing exactly ONE copy is restored regardless
+ * original index, guaranteeing exactly ONE copy is restored regardless
  * of concurrent edits.
  *
  * The test seeds 3 vocabulary entries, deletes one, captures the undo
@@ -105,7 +105,7 @@ async function deleteViaMenu(original: string) {
 	);
 }
 
-describe("Vocabulary page — D2-FIX undo duplicates", () => {
+describe("Vocabulary page, D2-FIX undo duplicates", () => {
 	beforeEach(() => {
 		mockCall.mockReset();
 		mockCall.mockImplementation((arg: unknown) => {
@@ -219,7 +219,7 @@ describe("Vocabulary page — D2-FIX undo duplicates", () => {
 	it("Undo preserves concurrent edits made between delete and undo click", async () => {
 		// D2-FIX bonus: the closure was previously stale with
 		// respect to any other vocabulary edits made between the
-		// delete and the Undo click — those edits were silently
+		// delete and the Undo click, those edits were silently
 		// lost because the restore replaced the current list with
 		// the stale pre-delete snapshot.  After the fix, the undo
 		// callback reads the LATEST entries via `entriesRef.current`
@@ -234,7 +234,7 @@ describe("Vocabulary page — D2-FIX undo duplicates", () => {
 		// silently reverting the user's concurrent "delete teh"
 		// edit.  After the fix, the undo reads the LATEST list
 		// (which has neither recieve nor teh, just "i am going to")
-		// and inserts ONLY "recieve" back — "teh" stays deleted.
+		// and inserts ONLY "recieve" back, "teh" stays deleted.
 		mockCall.mockImplementation((arg: unknown) => {
 			const type =
 				typeof arg === "string"
@@ -274,11 +274,11 @@ describe("Vocabulary page — D2-FIX undo duplicates", () => {
 		// Now invoke the FIRST Undo (for "recieve").  Before the
 		// fix, the closure held the pre-delete-#1 snapshot
 		// (containing BOTH recieve AND teh), so the restore would
-		// resurrect BOTH "recieve" AND "teh" — silently reverting
+		// resurrect BOTH "recieve" AND "teh", silently reverting
 		// the user's concurrent "delete teh" edit.  After the fix,
 		// the undo reads the LATEST list (which has neither recieve
 		// nor teh, just "i am going to") and inserts ONLY "recieve"
-		// back — "teh" stays deleted.
+		// back, "teh" stays deleted.
 		const firstWarningArgs = toastWarning.mock.calls[0];
 		const firstOpts = firstWarningArgs?.[1] as
 			| { action?: { onClick?: () => void } }
@@ -293,7 +293,7 @@ describe("Vocabulary page — D2-FIX undo duplicates", () => {
 
 		// "recieve" is restored exactly once.
 		expect(screen.getAllByText("recieve").length).toBe(1);
-		// "teh" must STAY deleted — the concurrent edit is preserved.
+		// "teh" must STAY deleted, the concurrent edit is preserved.
 		expect(screen.queryByText("teh")).toBeNull();
 		// "i am going to" is still present.
 		expect(screen.getByText("i am going to")).toBeTruthy();

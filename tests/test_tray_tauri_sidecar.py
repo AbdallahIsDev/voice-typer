@@ -4,7 +4,7 @@ Covers the ADR-0020 §6.5 single-icon invariant and the host-ready menu
 replay:
 
 1. Under ``TAURI_SIDECAR=1`` the pystray icon is NEVER created (the
-   native tray is owned by the Rust host) — ``start()`` degrades to the
+   native tray is owned by the Rust host): ``start()`` degrades to the
    unavailable path while still launching background work.
 2. When the sidecar publishes ``ready`` (a new host WS connection just
    authenticated), the last tray menu model + state are re-published so
@@ -22,7 +22,7 @@ from voice_typer.server.tray import TrayIcon
 
 
 def _make_tray(monkeypatch) -> TrayIcon:
-    """Build a TrayIcon with minimal fakes — no real pystray, no IPC."""
+    """Build a TrayIcon with minimal fakes, no real pystray, no IPC."""
     config = SimpleNamespace(
         hotkey="<caps_lock>",
         tray_left_click_action="open_app",
@@ -229,5 +229,5 @@ class TestTauriNotificationRouting:
 
         monkeypatch.setattr(event_bus, "publish", boom)
 
-        # Must not raise — notification failures never crash the tray.
+        # Must not raise, notification failures never crash the tray.
         tray_notifications.do_notify(tray, "Hello", "World")

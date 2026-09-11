@@ -5,7 +5,7 @@ defers setting ``secrets_migrated = True`` on disk when keyring is
 unavailable AND real plaintext was skipped. The next ``Config.load()``
 must observe the deferred state (secrets_migrated absent / False) so
 the next ``Config.save()`` does NOT persist ``secrets_migrated = True``
-to disk — otherwise the deferred migration never re-runs and plaintext
+to disk, otherwise the deferred migration never re-runs and plaintext
 API keys stay in config.json forever (defeating RW-01 encryption-at-
 rest).
 
@@ -15,7 +15,7 @@ migrate call, clobbering the deferral. This file pins the post-fix
 contract.
 
 Platform note: validated ON LINUX (sandbox). Windows/macOS host
-validation pending — the keyring-unavailable mock simulates the
+validation pending, the keyring-unavailable mock simulates the
 headless-Linux case (no gnome-keyring-daemon / D-Bus); the same
 deferral logic applies on macOS / Windows when their native backends
 are unavailable, but those paths are not exercised here.
@@ -72,7 +72,7 @@ def mock_keyring_available(monkeypatch: pytest.MonkeyPatch) -> dict:
     """Mock keyring as available with an in-memory store.
 
     Used to simulate the user installing gnome-keyring-daemon after a
-    period of running headless — the next Config.load() should observe
+    period of running headless, the next Config.load() should observe
     the deferred state and re-run the migration.
     """
     store: dict[tuple[str, str], str] = {}
@@ -107,7 +107,7 @@ class TestSecretsMigrationDeferralPreserved:
         """When keyring is unavailable and real plaintext is skipped,
         ``migrate_secrets_to_keyring`` defers (does NOT set
         ``secrets_migrated=True`` on disk). The subsequent
-        ``Config.load()`` must observe the deferred state — the
+        ``Config.load()`` must observe the deferred state, the
         constructed ``Config`` instance's ``secrets_migrated`` field
         must be ``False`` (NOT ``True``)."""
         del mock_keyring_unavailable  # fixture sets up the mock
@@ -173,13 +173,13 @@ class TestSecretsMigrationDeferralPreserved:
         assert on_disk.get("secrets_migrated", False) is False, (
             "FR-1 regression: Config.save() persisted "
             "secrets_migrated=True to disk after a deferred migration. "
-            "The next launch will see True and skip migration entirely — "
+            "The next launch will see True and skip migration entirely, "
             "plaintext API keys stay in config.json forever."
         )
         # NOTE: the  diagnostic flag
         # (``secrets_migrated_keyring_was_unavailable``) is NOT a
         # declared Config dataclass field, so ``Config.save()`` (which
-        # writes ``asdict(self)``) drops it. That's acceptable — the
+        # writes ``asdict(self)``) drops it. That's acceptable, the
         # flag's purpose was to record the deferral state at migrate
         # time; once ``Config.save()`` writes ``secrets_migrated=False``
         # (the  fix), the False value itself communicates "migration
@@ -201,7 +201,7 @@ class TestSecretsMigrationDeferralPreserved:
 
         Phase 2 (keyring installed): we manually override
         ``_probe_keyring`` inside the test body to return True (since
-        we can't apply both fixtures at once — pytest would let the
+        we can't apply both fixtures at once, pytest would let the
         later fixture's monkeypatch win). Migration re-runs.
         """
         del mock_keyring_unavailable
@@ -216,12 +216,12 @@ class TestSecretsMigrationDeferralPreserved:
             )
         )
 
-        # Phase 1: headless (keyring unavailable via fixture) — migration
+        # Phase 1: headless (keyring unavailable via fixture), migration
         # defers.
         cfg1 = Config.load()
         assert cfg1.secrets_migrated is False, (
             "FR-1 phase 1: Config.secrets_migrated should be False "
-            "(deferred) but is True — the deferral was "
+            "(deferred) but is True, the deferral was "
             "clobbered by Config.load()."
         )
         assert cfg1.openai_api_key == "sk-migrate-me-after-keyring-installed"
@@ -230,7 +230,7 @@ class TestSecretsMigrationDeferralPreserved:
         cfg1.save()
 
         # Phase 2: user installs gnome-keyring-daemon, restarts the
-        # app. Re-probe keyring — now it's available.
+        # app. Re-probe keyring, now it's available.
         credential_store._reset_keyring_cache()
         # Override the unavailable fixture's monkeypatch for Phase 2.
         # We can't easily flip the monkeypatch mid-test, so we patch
@@ -248,7 +248,7 @@ class TestSecretsMigrationDeferralPreserved:
         assert cfg2.secrets_migrated is True, (
             "FR-1 phase 2: after keyring became available, the "
             "deferred migration did NOT re-run. Config.secrets_migrated "
-            "should be True (migration succeeded) but is False — the "
+            "should be True (migration succeeded) but is False, the "
             "plaintext API key is still in config.json."
         )
         # In-memory Config still has the real value (loaded from keyring).

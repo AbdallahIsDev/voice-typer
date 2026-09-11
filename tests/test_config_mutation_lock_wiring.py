@@ -5,24 +5,24 @@ Finding SI-2: ``Config.set_mutation_lock()`` is defined at
 ``VoiceTyperApp.__init__`` created ``_config_mutation_lock =
 threading.RLock()`` at ``app.py:416`` but never passed it to ``Config``.
 All ~15 production ``app.config.save()`` call sites therefore ran
-WITHOUT in-process serialization — only the IPC ``set_config`` path
+WITHOUT in-process serialization, only the IPC ``set_config`` path
 (which manually acquired the lock around its own read-modify-save
 sequence) was protected. A background mic-fallback ``save()`` could
 interleave with an in-flight ``apply_config`` and persist a torn
 snapshot.
 
-These tests pin the wiring (BEHAVIORALLY — no ``inspect.getsource``):
+These tests pin the wiring (BEHAVIORALLY, no ``inspect.getsource``):
 
 1. ``VoiceTyperApp.__init__`` calls
    ``self.config.set_mutation_lock(self._config_mutation_lock)`` AFTER
    both ``self.config`` (``Config.load()`` at app.py:137) and
    ``self._config_mutation_lock`` (``threading.RLock()`` at app.py:416)
    are set. Verified by asserting the Config instance's
-   ``_mutation_lock`` IS the app's ``_config_mutation_lock`` — same
+   ``_mutation_lock`` IS the app's ``_config_mutation_lock``, same
    object identity (not a copy, not a fresh RLock).
 
 2. The wiring survives a fresh ``Config()`` default-constructed in the
-   ``Config.load()`` exception fallback branch (app.py:140) — i.e. when
+   ``Config.load()`` exception fallback branch (app.py:140), i.e. when
    ``Config.load()`` raises, the default ``Config()`` still gets the
    lock wired in.
 
@@ -31,7 +31,7 @@ These tests pin the wiring (BEHAVIORALLY — no ``inspect.getsource``):
    after ``type(self.app.config).load()`` (config_editor.py:341).
    ``Config.load()`` returns a brand-new object whose
    ``_mutation_lock`` instance attribute is unset (falls back to the
-   ``ClassVar`` default of ``None`` — config.py:1081), so without the
+   ``ClassVar`` default of ``None``, config.py:1081), so without the
    re-wiring every subsequent ``config.save()`` would run unlocked
    until the next app restart.
 """
@@ -50,7 +50,7 @@ class TestSetMutationLockWiredInInit:
     def test_config_mutation_lock_is_app_lock(self, tmp_config_dir, monkeypatch):
         """``app.config._mutation_lock`` IS ``app._config_mutation_lock``.
 
-        Same object identity — not a copy, not a freshly-constructed
+        Same object identity, not a copy, not a freshly-constructed
         RLock. Without this wiring, ``Config._save_with_mutation_lock``
         (config.py:1188) reads ``self._mutation_lock`` (which falls back
         to the ``ClassVar`` default of ``None``) and skips locking —
@@ -60,10 +60,10 @@ class TestSetMutationLockWiredInInit:
         app = make_voice_typer_app(tmp_config_dir, monkeypatch)
 
         assert hasattr(app, "_config_mutation_lock"), (
-            "VoiceTyperApp.__init__ must create self._config_mutation_lock (threading.RLock) — see app.py:416."
+            "VoiceTyperApp.__init__ must create self._config_mutation_lock (threading.RLock): see app.py:416."
         )
         assert isinstance(app._config_mutation_lock, type(threading.RLock())), (
-            f"app._config_mutation_lock must be a threading.RLock instance — got {type(app._config_mutation_lock)!r}."
+            f"app._config_mutation_lock must be a threading.RLock instance, got {type(app._config_mutation_lock)!r}."
         )
         # core assertion: the Config instance holds the SAME lock
         # reference, not None and not a different RLock.
@@ -75,7 +75,7 @@ class TestSetMutationLockWiredInInit:
             "set. Without this wiring, Config.save() skips the in-process "
             "mutation lock (config.py:1188 reads _mutation_lock, falls "
             "back to None, and _save_with_mutation_lock short-circuits "
-            "to _save_unlocked) — every production config.save() call "
+            "to _save_unlocked), every production config.save() call "
             "site runs unlocked, allowing a background mic-fallback save "
             "to interleave with an in-flight apply_config and persist a "
             "torn snapshot."
@@ -85,7 +85,7 @@ class TestSetMutationLockWiredInInit:
         """The wired lock must be an ``RLock`` (reentrant).
 
         ``Config._save_with_mutation_lock`` (config.py:1191) uses
-        ``with lock:`` — a plain ``Lock`` would deadlock if the same
+        ``with lock:``, a plain ``Lock`` would deadlock if the same
         thread already holds it (e.g. ``service.apply_config`` calls
         ``config.save()`` while inside ``with app._config_mutation_lock``).
         ``RLock`` allows the same thread to re-acquire, which is the
@@ -98,7 +98,7 @@ class TestSetMutationLockWiredInInit:
         acquired = lock.acquire(blocking=False)
         try:
             assert acquired, (
-                "First acquire of the wired mutation lock should succeed immediately — no other thread holds it."
+                "First acquire of the wired mutation lock should succeed immediately, no other thread holds it."
             )
             nested = lock.acquire(blocking=False)
             try:
@@ -122,7 +122,7 @@ class TestSetMutationLockWiredInInit:
         VoiceTyperApp.__init__ (app.py:138-141) catches the exception,
         falls back to ``Config()`` defaults, and sets
         ``_config_load_failed = True``. The ``set_mutation_lock`` call
-        must run on the fallback Config too — otherwise a corrupted
+        must run on the fallback Config too, otherwise a corrupted
         ``config.json`` at startup would leave the entire session
         unlocked.
         """
@@ -143,7 +143,7 @@ class TestSetMutationLockWiredInInit:
         assert app.config._mutation_lock is app._config_mutation_lock, (
             "SI-2 regression: when Config.load() raises and __init__ "
             "falls back to Config() defaults (app.py:140), the "
-            "set_mutation_lock wiring must still run — otherwise a "
+            "set_mutation_lock wiring must still run, otherwise a "
             "corrupted config.json at startup leaves the entire session "
             "unlocked. Every subsequent config.save() runs without the "
             "in-process mutation lock for the whole app lifetime."
@@ -157,7 +157,7 @@ class TestSetMutationLockRewiredAfterReload:
     replaces ``self.app.config`` with a freshly-loaded ``Config``
     instance. ``Config.load()`` returns a brand-new object whose
     ``_mutation_lock`` instance attribute is unset (falls back to the
-    ``ClassVar`` default of ``None`` — config.py:1081). Without
+    ``ClassVar`` default of ``None``, config.py:1081). Without
     re-wiring, every subsequent ``config.save()`` runs unlocked until
     the next app restart.
     """
@@ -166,7 +166,7 @@ class TestSetMutationLockRewiredAfterReload:
         """After ``ConfigEditorLauncher.launch`` reloads config from disk,
         ``app.config._mutation_lock`` is STILL ``app._config_mutation_lock``.
 
-        We don't run a real editor subprocess — instead we drive the
+        We don't run a real editor subprocess, instead we drive the
         launcher with a no-op platform launcher and assert the post-
         reload Config picks up the same lock reference. This is the
         behavior the SI-2 fix adds (the else-branch after the reload
@@ -210,7 +210,7 @@ class TestSetMutationLockRewiredAfterReload:
             "`self.app.config = type(self.app.config).load()`), the new "
             "Config instance's _mutation_lock is NOT app._config_mutation_lock. "
             "The reload path must call set_mutation_lock on the new Config "
-            "so subsequent config.save() calls stay serialized — without "
+            "so subsequent config.save() calls stay serialized, without "
             "it, every save() until the next app restart runs unlocked "
             "(Config._save_with_mutation_lock reads _mutation_lock, gets "
             "the ClassVar default of None, and short-circuits to "
@@ -225,7 +225,7 @@ class TestSetMutationLockRewiredAfterReload:
         ClassVar) so each Config instance can have its own lock. This
         test pins that the wiring doesn't accidentally stash the lock
         on the Config CLASS (which would leak across VoiceTyperApp
-        instances in the same process — rare in production but possible
+        instances in the same process, rare in production but possible
         in tests).
         """
         app1 = make_voice_typer_app(tmp_config_dir, monkeypatch)
@@ -237,12 +237,12 @@ class TestSetMutationLockRewiredAfterReload:
 
         app2 = make_voice_typer_app(tmp_config_dir, monkeypatch)
 
-        # Each app's Config holds its OWN app's lock — not the other's.
+        # Each app's Config holds its OWN app's lock, not the other's.
         assert app1.config._mutation_lock is app1._config_mutation_lock
         assert app2.config._mutation_lock is app2._config_mutation_lock
         assert app1.config._mutation_lock is not app2.config._mutation_lock, (
             "SI-2: two VoiceTyperApp instances must not share a mutation "
-            "lock — set_mutation_lock stores the reference per-Config-instance "
+            "lock, set_mutation_lock stores the reference per-Config-instance "
             "(config.py:1107 uses self.__dict__ so the ClassVar is shadowed "
             "per-instance). A shared class-level lock would serialize "
             "unrelated apps in the same process."
@@ -283,11 +283,11 @@ class TestWiringOrderMatters:
             "`self.config.set_mutation_lock(self._config_mutation_lock)` "
             "is missing from app.py."
         )
-        # The lock passed was NOT None (would clear the lock — opposite
+        # The lock passed was NOT None (would clear the lock, opposite
         # of the fix intent).
         assert recorded[0] is not None, (
             "SI-2: Config.set_mutation_lock was called with None during "
-            "VoiceTyperApp.__init__ — this CLEARS the lock (the opposite "
+            "VoiceTyperApp.__init__, this CLEARS the lock (the opposite "
             "of the fix). The wiring must run AFTER "
             "self._config_mutation_lock = threading.RLock() so a real "
             "RLock reference is passed, not None."

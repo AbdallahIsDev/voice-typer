@@ -4,17 +4,17 @@ Covers the three layers of the ``"gtcrn"`` noise-suppression method
 (the bundled ONNX streaming model that replaced the retired
 DeepFilterNet option):
 
-1. **Backend unit tests (fake ONNX session)** — a fake
+1. **Backend unit tests (fake ONNX session)**, a fake
    ``onnxruntime.InferenceSession`` is injected so the tests do NOT
    need the real model file or real inference. The fake implements an
-   identity enhancement (``enh = mix``), which — because the backend's
+   identity enhancement (``enh = mix``), which, because the backend's
    sqrt-Hann analysis/synthesis pair is perfectly reconstructing at
-   50 % overlap — makes the emitted stream exactly the input delayed
+   50 % overlap, makes the emitted stream exactly the input delayed
    by ONE hop. That gives a precise, model-independent contract to
    pin: hop assembly, first-hop zero padding, overlap-add, cache
    threading, and ``reset()``.
 
-2. **Suppressor integration tests (fake backend class)** — the
+2. **Suppressor integration tests (fake backend class)**, the
    ``GtcrnBackend`` symbol is swapped for a lightweight fake (mirroring
    how the RNNoise tests inject a fake ``pyrnnoise`` module via
    ``sys.modules``) to exercise ``NoiseSuppressor``'s hop buffering /
@@ -22,12 +22,12 @@ DeepFilterNet option):
    16 kHz-native no-resampling path, and the 48 kHz round-trip
    resampling path without any ONNX dependency.
 
-3. **Degradation matrix** — a failing backend construction must fall
+3. **Degradation matrix**, a failing backend construction must fall
    back to RNNoise at ``__init__`` (``is_degraded=True``, reason
    mentioning GTCRN) and further to ``"none"`` when RNNoise is also
    unavailable.
 
-4. **Loader legacy-value remap** — an on-disk
+4. **Loader legacy-value remap**, an on-disk
    ``noise_suppression_method="deepfilternet"`` loads as ``"gtcrn"``
    (and the never-implemented ``"speex"`` as ``"rnnoise"``) instead of
    being reset to the default.
@@ -87,7 +87,7 @@ class _FakeIdentitySession:
 
     ``run`` returns ``enh = mix`` unchanged (so the backend's ISTFT
     must reconstruct the input exactly, delayed by one hop) and each
-    cache ``cache + 1`` — a visible, monotonic marker proving the
+    cache ``cache + 1``, a visible, monotonic marker proving the
     backend threads the PREVIOUS call's cache outputs into the next
     call's inputs.
     """
@@ -175,7 +175,7 @@ class TestGtcrnBackendFakeSession:
         assert all(np.all(c == 1.0) for c in backend.caches), "after ONE hop the fake's +1 cache marker must be visible"
         backend.process_hop(hop)
         assert all(np.all(c == 2.0) for c in backend.caches), (
-            "after TWO hops the marker must be 2 — the previous call's "
+            "after TWO hops the marker must be 2, the previous call's "
             "cache outputs must be threaded into the next call's inputs"
         )
 
@@ -185,7 +185,7 @@ class TestGtcrnBackendFakeSession:
         assert all(np.all(c == 1.0) for c in backend.caches), "after reset the cache sequence restarts from zero"
 
     def test_hop_length_normalized_defensively(self, fake_identity_backend):
-        """Short hops are zero-padded, long hops truncated — never raised."""
+        """Short hops are zero-padded, long hops truncated, never raised."""
         backend = fake_identity_backend
         short = np.ones(100, dtype=np.float32) * 0.3
         out_short, _ = backend.process_hop(short)
@@ -214,7 +214,7 @@ class TestGtcrnBackendFakeSession:
 
     def test_bad_graph_input_arity_raises_at_init(self, monkeypatch, tmp_path):
         """A graph with the wrong input arity must fail AT CONSTRUCTION
-        (init-time warmup) — never on the first real audio chunk."""
+        (init-time warmup), never on the first real audio chunk."""
 
         class _TwoInputSession(_FakeIdentitySession):
             def get_inputs(self):
@@ -229,7 +229,7 @@ class TestGtcrnBackendFakeSession:
 
     def test_missing_model_file_raises(self, monkeypatch, tmp_path):
         """A missing bundled model is an init-time error (the suppressor
-        catches it and degrades to RNNoise — see the matrix below)."""
+        catches it and degrades to RNNoise: see the matrix below)."""
         monkeypatch.setattr(ort, "InferenceSession", _FakeIdentitySession)
         monkeypatch.setattr(gtcrn_module, "MODEL_PATH", tmp_path / "absent.onnx")
         with pytest.raises(RuntimeError, match="not found"):
@@ -337,7 +337,7 @@ class TestSuppressorGtcrnIntegration:
         assert ns._carry.size == 700 - 2 * _GTCRN_HOP_SIZE
 
     def test_carry_persists_across_process_calls(self, fake_gtcrn_class):
-        """A second call consumes the previous carry first — hop 3 spans
+        """A second call consumes the previous carry first, hop 3 spans
         the carry tail plus the new chunk's head."""
         ns = NoiseSuppressor(method="gtcrn", sample_rate=WHISPER_SAMPLE_RATE)
         rng = np.random.default_rng(6)
@@ -483,7 +483,7 @@ class TestNoiseSuppressionMethodParity:
         assert literal_args == {"rnnoise", "gtcrn", "none"}
         assert set(NOISE_SUPPRESSION_METHODS) == literal_args, (
             "NOISE_SUPPRESSION_METHODS (IPC validator allowlist) must match the "
-            "Config schema Literal — a drift silently rejects valid IPC values"
+            "Config schema Literal, a drift silently rejects valid IPC values"
         )
 
 
@@ -598,7 +598,7 @@ class TestRealModel:
         Assertions: finite output, EXACT input length (the
         length-match pad/truncate contract), and the noise energy on
         the noisy segment is reduced (output RMS strictly below input
-        RMS — GTCRN suppresses both the stationary tone and the white
+        RMS, GTCRN suppresses both the stationary tone and the white
         noise; measured ~0.03× input RMS on the reference CPU).
         """
         ns = NoiseSuppressor(method="gtcrn", sample_rate=WHISPER_SAMPLE_RATE)

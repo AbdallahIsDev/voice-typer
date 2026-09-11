@@ -5,61 +5,61 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) format.
 
 ## [Unreleased]
 
-### Models page — UI/UX overhaul (2026-08-20)
+### Models page: UI/UX overhaul (2026-08-20)
 
 - **"Last updated / refresh" indicator removed** from the Models page —
   model availability/install state doesn't change moment-to-moment, so
   the manual-refresh affordance served no purpose (the pattern remains
   on History, which has real-time-changing data).
-- **Tab switcher moved into the page flow** — the Local Models / Cloud
+- **Tab switcher moved into the page flow**, the Local Models / Cloud
   Models SegmentedControl is no longer pinned to the top of the
   viewport; it now sits below the page title/description (where the
   "Last updated" row used to be) and scrolls with the content.
-- **"Import Model" button is Local-Models-only** — it no longer renders
+- **"Import Model" button is Local-Models-only**, it no longer renders
   on the Cloud Models tab (importing a local model file doesn't apply
   there).
-- **HuggingFace consent is now just-in-time** — the always-visible
+- **HuggingFace consent is now just-in-time**, the always-visible
   consent banner was removed; consent is checked only when the user
   clicks a model's Download button. If missing, a transient toast with
   a one-click "Grant consent" action blocks the download, persists the
-  consent, and proceeds — no Settings navigation. The backend's GDPR
+  consent, and proceeds: no Settings navigation. The backend's GDPR
   consent gate is unchanged.
-- **Model family naming fixed** — group headers now show the company
+- **Model family naming fixed**: group headers now show the company
   ("OpenAI" next to the OpenAI logo) and each version name carries the
   family prefix via a new display utility (`formatModelDisplayName`:
-  hyphen → space + Title Case, display-layer only — slugs, repo_ids
+  hyphen → space + Title Case, display-layer only, slugs, repo_ids
   and config keys untouched): "Whisper Tiny", "Whisper Large V3",
   "Whisper Large V3 Turbo". The onboarding family strip matches.
-- **Metadata line distinguishes label+value pairs from tags** — VRAM
+- **Metadata line distinguishes label+value pairs from tags**, VRAM
   and WER render as muted-label + colon + primary-value pairs;
   Multilingual / English Only / speed / Distilled render as neutral
   pill tags; all labels follow one Title-Case rule ("Fast Speed",
   "English Only", …).
 - **Model size moved into the download button** (icon + size, e.g.
   "↓ 75MB") and out of the muted metadata line.
-- **WER benchmark data added** — published WER (%) on LibriSpeech
+- **WER benchmark data added**: published WER (%) on LibriSpeech
   test-clean for every bundled model (tiny 7.5%, large-v3 2.0%,
   large-v3-turbo 2.1%, Parakeet-TDT-0.6b-V3 1.93%, Qwen3-ASR-1.7B
   1.63%), sourced from the official model cards / published benchmarks
   and stored as a normal field in `ModelMetadata`; models without a
   reliable figure omit the field rather than guess.
-- **Group expand/collapse glyph changed** — chevrons (FAQ/accordion
+- **Group expand/collapse glyph changed**: chevrons (FAQ/accordion
   connotation) replaced with a plus (+) / minus (–) pair; the same
   pattern applies to every group on both tabs.
 - **Cloud tab rebuilt on the same group/list components as Local
-  Models** — each provider is a collapsible group (same icon, name,
+  Models**: each provider is a collapsible group (same icon, name,
   spacing, hover behavior) whose expanded row surfaces a "Configure"
   action that reveals the existing API-key entry + Save Key + Test
   Connection + consent controls. Both tabs compose the shared
   `components/models/ModelGroupList.tsx` primitives, so style updates
   land in one place.
-- **Tab renamed "Cloud Providers" → "Cloud Models"** — tab label,
+- **Tab renamed "Cloud Providers" → "Cloud Models"**, tab label,
   section heading and description aligned; on-page copy no longer
   mixes "providers" and "models".
 
-### Architecture — post-2026-06-30 review round
+### Architecture: post-2026-06-30 review round
 
-- **Native hotkey architecture (ADR-0008)** — finalized in this round. The
+- **Native hotkey architecture (ADR-0008)**: finalized in this round. The
   zero-command hotkey architecture now ships cross-platform native binaries
   (Swift on macOS, C on Windows, C on Linux) with a 4-state fallback chain
   to the legacy pynput/polling backends. CI builds all 3 native binaries on
@@ -68,23 +68,23 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) format.
   below for the four numbered gaps (CI build, macOS Accessibility onboarding,
   Linux zero-command setup, runtime fallback chain) that this round closed.
 
-- **Tauri migration progress (ADR-0020)** — the Rust host now compiles. The
+- **Tauri migration progress (ADR-0020)**. The Rust host now compiles. The
   `SidecarState` struct literal bug was fixed so `cargo check` +
   `cargo clippy` pass on a headless dev machine. The IPC allowlist was
   narrowed (see "17-command allowlist narrowing" below) and the Rust↔TS
   parity test (`tests/test_security_doc_command_count.py`) now passes. The
   Phase 0 host-validation gate (Windows / macOS / Linux) is still pending
-  on real hosts — see the per-platform runbooks under `docs/migration/`.
+  on real hosts: see the per-platform runbooks under `docs/migration/`.
 
-- **`recorder.py` decomposition** — the 3286-line `recorder.py` monolith
+- **`recorder.py` decomposition**: the 3286-line `recorder.py` monolith
   was split into a `voice_typer/server/recording/` package (`recorder.py`,
   `buffer.py`, `device_manager.py`, `resampling.py`, `exceptions.py`,
   `_recorder_split.py`). Public API unchanged; behavior preserved. See
   `docs/rw04-recording-decomposition.md`.
 
-- **`ipc_server.py` decomposition** — the 2808-line `ipc_server.py` was
+- **`ipc_server.py` decomposition**: the 2808-line `ipc_server.py` was
   split: domain handlers extracted into `voice_typer/server/handlers/`
-  mixin modules (one per domain — `system_handlers.py`,
+  mixin modules (one per domain, `system_handlers.py`,
   `model_handlers.py`, `dictation_handlers.py`, `repaste_handlers.py`,
   `templates_handlers.py`, `onboarding_handlers.py`,
   `microphone_test_handlers.py`, `vocabulary_automation_handlers.py`,
@@ -98,17 +98,17 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) format.
   `history_bounds.py`, `rate_limiter.py`). The `_COMMAND_REGISTRY` dict is
   the single source of truth for command→handler routing.
 
-- **`config.py` decomposition** — the 2131-line `config.py` monolith was
+- **`config.py` decomposition**: the 2131-line `config.py` monolith was
   split: validation logic extracted into `config_validators.py` (1445
   lines), file-IO safety extracted into `secure_file_io.py`, and the
   `Config` class retained as the public API.
 
-- **`history_db.py` decomposition** — the 2486-line `history_db.py` monolith
+- **`history_db.py` decomposition**: the 2486-line `history_db.py` monolith
   was split into focused modules under the existing package layout. SQLite
   WAL semantics, SEC-007 `0o600` file permissions, and the search/favorites/
   retention APIs are all preserved.
 
-- **17-command allowlist narrowing ** — 17 stale
+- **17-command allowlist narrowing **: 17 stale
   IPC command entries that no renderer code invoked were removed from all
   three allowlists:
   - `voice_typer/client/src/main/allowed-commands.ts` (TS renderer allowlist)
@@ -129,20 +129,20 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) format.
   directly via `ipc_server._handle_*`), but they are no longer reachable
   via IPC dispatch. The current reconciliation counts (re-verified
   2026-08-13 after the `transcribe_offline` addition by the runtime-pack
-  split, master plan §7.4 — slim core → worker offline-transcription
+  split, master plan §7.4: slim core → worker offline-transcription
   request):
   TS allowlist = 73, Rust allowlist = 71, Python registry = 75 (the +2
   are `tray_click` and `shutdown`, which are host-only commands the
-  renderer never sends — see the `_HOST_ONLY_COMMANDS` frozenset in
+  renderer never sends: see the `_HOST_ONLY_COMMANDS` frozenset in
   `tests/test_security_doc_command_count.py`; +2 2026-08-16:
   `get_correction_usage` + `test_vocabulary_correction` added by the
   vocabulary usage-tracking + live-correction-test feature, ADR-0020
   §16 addendum; 2026-08-14: −3 from the
   prewarm IPC retirements, `get_prewarm_status` / `run_prewarm` /
   `open_prewarm_log`, as prewarm became a worker startup phase, master
-  plan §6.2 P-1; +2 back the same day — `get_prewarm_status` /
+  plan §6.2 P-1; +2 back the same day, `get_prewarm_status` /
   `open_prewarm_log` restored for the Cache Status card, plan §6.3
-  addendum; +1 later the same day — `run_prewarm` restored (plan §6.3
+  addendum; +1 later the same day, `run_prewarm` restored (plan §6.3
   addendum 2nd half, re-implemented to re-run the worker's warm phase
   in-process via `prewarm.status.run_prewarm_now` instead of spawning
    the deleted standalone-prewarm subprocess); +1 `check_offline_pack_update`
@@ -151,12 +151,12 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) format.
   `tests/test_electron_ipc_and_build.py::TestAllowlistCorrectness`) now
   passes; previously it failed.
 
-- **Prewarm Cache Status + Run Prewarm Now restored (2026-08-14)** — the Settings → About
+- **Prewarm Cache Status + Run Prewarm Now restored (2026-08-14)**, the Settings → About
   "Cache Status" card + its IPC surface (`get_prewarm_status`,
   `open_prewarm_log`, `run_prewarm`) were restored from commit 5a319872
-  (user-facing feature re-opened by user; plan §6.3 addendum — restore,
+  (user-facing feature re-opened by user; plan §6.3 addendum, restore,
   don't reimplement). `run_prewarm` is RE-IMPLEMENTED: it no longer
-  spawns the deleted standalone-prewarm subprocess — the handler
+  spawns the deleted standalone-prewarm subprocess: the handler
   re-runs the worker's warm phase in-process via
   `prewarm.status.run_prewarm_now()` (warm_imports_for_worker on a
   daemon thread + status-file refresh). Adaptations: status now probes the worker's status
@@ -164,29 +164,29 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) format.
   of the deleted standalone-prewarm sentinel; the `prewarm_running`
   field is gone (no process-tracker machinery); "View prewarm log" opens
   `worker.log` (the retired `prewarm.log` no longer exists). `run_prewarm`
-  STAYS retired — start/stop is the `fast_startup` toggle gating the
+  STAYS retired: start/stop is the `fast_startup` toggle gating the
   worker warm phase, so the "Run Prewarm Now" button was not restored.
   Reconciliation counts now: TS allowlist = 68, Rust allowlist = 66,
    Python registry = 70 (`run_prewarm` still removed; `check_offline_pack_update`
    added by the auto-update feature, docs/auto-update-feature.md).
   (+2 2026-08-16: `get_correction_usage` + `test_vocabulary_correction`,
-  vocabulary usage tracking + live-correction test panel — see the
+  vocabulary usage tracking + live-correction test panel, see the
   ADR-0020 §16 addendum 2026-08-16; counts now 71/69/73.
   (+1 2026-08: `microphone_test_read_audio` added by the mic-test
-  file-reference transport fix — chunked WAV delivery under the 1 MiB
+  file-reference transport fix: chunked WAV delivery under the 1 MiB
   IPC frame cap, docs/adr/0020 §16 addendum; counts now 72/70/74.
   (+1 2026-09-08: `get_download_queue` added for the Models
   download-queue mount hydration (read-only snapshot); counts now
   73/71/75.)
 
-- **SidecarState struct literal fix** — the Rust host's
+- **SidecarState struct literal fix**: the Rust host's
   `SidecarState` struct literal was missing a field initializer, breaking
   `cargo check`. Fixed; the Rust host now compiles end-to-end on Linux
   (sandbox-validated). Windows / macOS host compilation still requires a
   real Windows / macOS host (see `docs/migration/{windows,macos}-validation-
   runbook.md`).
 
-- **Service mixin base class** — the 47 pyrefly errors in
+- **Service mixin base class**: the 47 pyrefly errors in
   `voice_typer/server/service/*.py` were resolved by introducing a
   `ServiceMixin` base class that carries the shared `app` + `config`
   references + a typed `service` accessor. Each domain service
@@ -195,52 +195,52 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) format.
   unchanged; pyrefly now passes clean on the `service/` package.
 
 ### New files
-- `docs/contributing/adding-an-ipc-command.md` — 11-touchpoint checklist for
+- `docs/contributing/adding-an-ipc-command.md` 11-Touchpoint checklist for
   adding a new IPC command. Replaces the 3-touchpoint list in
   `CONTRIBUTING.md` §6.4.
-- `scripts/check-new-command.sh` — companion script that greps all 11
+- `scripts/check-new-command.sh` Companion script that greps all 11
   touchpoints for a given command name and reports which are missing +
   flags any doc-count drift. Run as
   `bash scripts/check-new-command.sh <cmd>`.
 
 ### Modified files
-- `voice_typer/server/ipc/registry.py` — `_COMMAND_REGISTRY` dict narrowed
+- `voice_typer/server/ipc/registry.py` `_COMMAND_REGISTRY` dict narrowed
   from 78 → 61 entries (17 stale entries removed). The 17
   `_handle_*` methods are retained (tests call them directly).
-- `src-tauri/src/commands/sidecar_cmds.rs` — `allowed_commands()` literal
+- `src-tauri/src/commands/sidecar_cmds.rs` `allowed_commands()` literal
   narrowed from 76 → 59 entries (17 stale entries removed). Rust
   ↔ TS parity test now passes.
-- `voice_typer/client/src/main/allowed-commands.ts` — TODO
+- `voice_typer/client/src/main/allowed-commands.ts` TODO
   comment block removed (work is now done). Replaced with a brief
   concise `17 stale entries removed` comment.
-- `SECURITY.md` — doc count references updated (76 → 59 for the TS
+- `SECURITY.md` Doc count references updated (76 → 59 for the TS
   allowlist count; 76 → 61 for the Python registry count; "All other 75
   commands" → "All other 59 commands"). Also clarifies that BOTH
   `tray_click` AND `shutdown` are host-only (previously only `tray_click`
   was mentioned).
-- `docs/ARCHITECTURE.md` — `78-command` references updated to `61-command`
+- `docs/ARCHITECTURE.md` `78-command` references updated to `61-command`
   (3 references).
-- `CONTRIBUTING.md` — `73-command registry` reference updated to
+- `CONTRIBUTING.md` `73-command registry` reference updated to
   `61-command registry`. "HMAC/bearer-token auth handshake"
   phrase simplified to "bearer-token auth handshake".
-- `docs/migration/tauri-sidecar-bridge.md` — `78-command registry`
+- `docs/migration/tauri-sidecar-bridge.md` `78-command registry`
   references updated to `61-command registry` (2 references).
   "HMAC auth handshake" → "bearer-token auth handshake".
 - `docs/migration/{windows,macos,linux}-validation-runbook.md` —
   "WS + HMAC handshake" headings updated to "WS + bearer-token handshake".
   The parenthetical notes acknowledging the original ADR-0020
-  "HMAC" wording are preserved (the wire format is identical — only the
+  "HMAC" wording are preserved (the wire format is identical, only the
   comparison function differs).
-- `docs/migration/cutover-playbook.md` — "HMAC handshake: wrong token
+- `docs/migration/cutover-playbook.md` "HMAC handshake: wrong token
   rejected" → "Bearer-token handshake: wrong token rejected".
-- `voice_typer/server/ipc/rate_limiter.py` — stale 6-line NOTE comment
+- `voice_typer/server/ipc/rate_limiter.py` Stale 6-line NOTE comment
   about "kept in sync with `ipc_server.py`" deleted (the dedup is
   complete).
-- `CHANGELOG.md` — this entry.
+- `CHANGELOG.md` This entry.
 
-### Privacy & UX hardening — sub-agent 11 fix batch
+### Privacy & UX hardening: sub-agent 11 fix batch
 
-- **XZ-PRIV-04 (Low)** — `voice_typer/server/transcription.py`: the
+- **XZ-PRIV-04 (Low)**, `voice_typer/server/transcription.py`: the
   per-segment DEBUG log (`[TRANSCRIBE] Segment: [start - end] %s`)
   previously logged raw segment text unconditionally. User speech
   could leak into `voice-typer.log` even when
@@ -250,10 +250,10 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) format.
   `config.log_transcriptions`; (b) route the text through
   `security.redact_pii` so any structured PII patterns
   (email/phone/IBAN/SSN/CC) are stripped before the text reaches the
-  rotating log file. The transcription result is unchanged — only the
+  rotating log file. The transcription result is unchanged, only the
   log output is sanitized. Regression tests in
   `tests/test_transcription_pii_gating.py` pin both behaviors.
-- **XA-11-4 (Medium)** — `voice_typer/client/src/renderer/src/pages/About.tsx`:
+- **XA-11-4 (Medium)**, `voice_typer/client/src/renderer/src/pages/About.tsx`:
   added a "View Changelog" button to the Resources section linking to
   `CHANGELOG.md` at the repo root, using the existing
   `about.viewChangelog` i18n key (already translated to all supported
@@ -263,73 +263,73 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) format.
   `CHANGELOG.md` to be rendered).
 
 ### Tests
-- `tests/test_security_doc_command_count.py` — all 3 tests now PASS
+- `tests/test_security_doc_command_count.py` All 3 tests now PASS
   (previously failed).
 - `tests/test_electron_ipc_and_build.py::TestAllowlistCorrectness` —
   PASSES (the 17 stale entries were causing `test_allowlist_matches_server
   _commands` to fail because the Python registry had entries the TS
   allowlist didn't, with no `rust_only_commands` exemption for them).
-- `tests/test_error_codes_registry.py` — still PASSES (unaffected by the
+- `tests/test_error_codes_registry.py` Still PASSES (unaffected by the
   allowlist narrowing; the 17 removed commands didn't emit any error
   codes that the registry test guards).
 
-## [Unreleased — historical 2026-06-30]
+## [Unreleased: historical 2026-06-30]
 
-### Added — Zero-Command Hotkey Architecture (ADR 0008)
+### Added: Zero-Command Hotkey Architecture (ADR 0008)
 
-- **Gap 1: Cross-platform CI build pipeline** — GitHub Actions `build.yml` now
+- **Gap 1: Cross-platform CI build pipeline**, GitHub Actions `build.yml` now
   compiles all 3 native binaries (Swift on macOS, C on Windows, C on Linux)
   on their native platforms and bundles them into per-platform installers
   (.exe /.dmg /.deb /.rpm /.AppImage).
 
-- **Gap 2: macOS Accessibility onboarding** — When the native binary detects
+- **Gap 2: macOS Accessibility onboarding**, When the native binary detects
   missing Accessibility permission, Voice Typer shows a tray notification and
   deep-links to System Settings → Privacy & Security → Accessibility. A 60s
   retry timer auto-restarts the native backend once permission is granted.
 
-- **Gap 3: Linux zero-command setup** — `.deb`/`.rpm` packages now include
+- **Gap 3: Linux zero-command setup**, `.deb`/`.rpm` packages now include
   postinst scripts that automatically install the udev rule, add the user to
   the `input` group, and configure Caps Lock neutralization. AppImage users
   get a `pkexec` GUI prompt on first launch. The user only types their sudo
   password once (prompted by the OS, not by Voice Typer).
 
-- **Gap 4: Runtime fallback chain** — If the native binary dies permanently
+- **Gap 4: Runtime fallback chain**, If the native binary dies permanently
   (antivirus, OOM killer, code-signing expiry), Voice Typer transparently
   swaps to the legacy backend (pynput/polling) with the same hotkey. A 5-min
   retry timer auto-recovers the native backend when it comes back.
 
 ### New files
-- `voice_typer/server/permissions/` package — OS permission detection + onboarding
+- `voice_typer/server/permissions/` package: OS permission detection + onboarding
   (split into `permissions/__init__.py`, `permissions/mic.py`,
   `permissions/accessibility.py`, `permissions/filesystem.py`,
   `permissions/checker.py`)
-- `scripts/linux/install_permissions.py` — Linux udev/group/Caps Lock installer
-- `scripts/linux/uninstall_permissions.py` — Linux uninstaller
-- `scripts/linux/99-voice-typer.rules` — udev rule
-- `scripts/linux/00-voice-typer-capslock.conf` — XKB Caps Lock config
-- `scripts/linux/postinst` / `prerm` — Debian package scripts
-- `scripts/linux/postinst.rpm` / `prerm.rpm` — RPM package scripts
-- `scripts/linux/voice-typer.polkit` — polkit policy for pkexec
-- `tests/test_runtime_fallback.py` — 28 tests for Gap 4
-- `tests/test_permissions.py` — 31 tests for Gap 2 + Gap 3
+- `scripts/linux/install_permissions.py` Linux udev/group/Caps Lock installer
+- `scripts/linux/uninstall_permissions.py` Linux uninstaller
+- `scripts/linux/99-voice-typer.rules` Udev rule
+- `scripts/linux/00-voice-typer-capslock.conf` XKB Caps Lock config
+- `scripts/linux/postinst` / `prerm` Debian package scripts
+- `scripts/linux/postinst.rpm` / `prerm.rpm` RPM package scripts
+- `scripts/linux/voice-typer.polkit` Polkit policy for pkexec
+- `tests/test_runtime_fallback.py` 28 Tests for Gap 4
+- `tests/test_permissions.py` 31 Tests for Gap 2 + Gap 3
 
 ### Modified files
-- `voice_typer/server/native_hotkeys/` — added _on_error_callback, _on_permanent_failure_callback
-- `voice_typer/server/hotkeys/` — rewrote _NativeBackendAdapter as 4-state machine
-- `voice_typer/server/hotkey_dispatcher.py` — wires tray reference to adapter
-- `voice_typer/client/electron-builder.yml` — added rpm target + afterInstall/afterRemove hooks
-- `scripts/build/voice-typer.spec` — bundles Linux scripts + permissions module
-- `.github/workflows/build.yml` — added build-native matrix + build-macos + build-linux jobs
+- `voice_typer/server/native_hotkeys/` Added _on_error_callback, _on_permanent_failure_callback
+- `voice_typer/server/hotkeys/` Rewrote _NativeBackendAdapter as 4-state machine
+- `voice_typer/server/hotkey_dispatcher.py` Wires tray reference to adapter
+- `voice_typer/client/electron-builder.yml` Added rpm target + afterInstall/afterRemove hooks
+- `scripts/build/voice-typer.spec` Bundles Linux scripts + permissions module
+- `.github/workflows/build.yml` Added build-native matrix + build-macos + build-linux jobs
 
-### Added — earlier NATIVE-001 work
+### Added: earlier NATIVE-001 work
 - Cross-platform native hotkey architecture (NATIVE-001)
   - macOS: native Swift binary supports the Fn key via NSEvent.modifierFlags.function
   - Windows: native C binary uses WH_KEYBOARD_LL (lower CPU, supports key suppression)
-  - Linux: native C binary uses evdev (/dev/input/event*) — works on both X11 and Wayland
+  - Linux: native C binary uses evdev (/dev/input/event*), works on both X11 and Wayland
 - Default hotkey: `Caps Lock` on ALL platforms (Windows, macOS, Linux); `Fn`/Globe key remains an alternative on macOS via the Settings dropdown
 - Settings UI: dropdown trimmed to universally-present keys (Caps Lock, Alt, Ctrl, Shift, Win/Cmd, Fn on macOS)
 - Modifier-only hotkeys (Alt, Ctrl, Shift, Win/Cmd, Fn) now supported as single-key triggers
-- FN key support on macOS (firmware-only on Windows/Linux — rejected at validation)
+- FN key support on macOS (firmware-only on Windows/Linux, rejected at validation)
 
 ### Changed
 - create_hotkey_backend() now prefers native backends; falls back to legacy PynputHotkey/WindowsNativeHotkey/WaylandHotkey when native binary is missing
@@ -351,7 +351,7 @@ Changes that affect end users (new features, bug fixes, UX improvements).
 ### 1.0.0 (2026-06-21)
 
 - **Dual ASR backends**: Whisper (faster-whisper, default) and optional Qwen3-ASR-0.6B
-- **Parakeet backend** (optional, NVIDIA Parakeet TDT v3) — auto-downloads from HuggingFace on first use
+- **Parakeet backend** (optional, NVIDIA Parakeet TDT v3), auto-downloads from HuggingFace on first use
 - **Electron + React UI** with tray icon for background operation
 - **Hidden streaming transcription** with overlapping audio windows and batch fallback
 - **Text cleanup pipeline**: duplicate removal, hallucination cleanup, misspelling correction, phrase substitution, sentence capitalization
@@ -361,56 +361,56 @@ Changes that affect end users (new features, bug fixes, UX improvements).
 - **Microphone fallback chain**: same-name candidates across host APIs, ranked by reliability
 - **4-level GPU→CPU fallback** for model loading
 - **External corrections JSON** override file for custom misspelling/phrase corrections
-- **Push-to-talk mode** (configured via Settings; press-and-hold starts recording, release stops it — see FEATURES.md)
+- **Push-to-talk mode** (configured via Settings; press-and-hold starts recording, release stops it, see FEATURES.md)
 - **ESC cancel** at any stage of dictation
 - **Repaste last transcription** hotkey
 - **Auto-punctuation** (optional, runs after template matching)
-- **LLM text polishing** with 4 presets (professional, casual, email, code) — requires explicit user consent
+- **LLM text polishing** with 4 presets (professional, casual, email, code), requires explicit user consent
 - **Crash recovery**: stores last 10 transcriptions, prompts on restart if unpasted
 - **History database** with search, favorites, and retention policy
 - **Waveform bubble** overlay (optional) with real-time audio level visualization
-- **Onboarding flow** — first-run wizard rendered by the React UI
+- **Onboarding flow**: first-run wizard rendered by the React UI
 - **Theme support**: system/light/dark
 - **High-contrast mode** and adjustable text size (accessibility)
 - **Fast startup** via prewarm (keeps model weights in OS file cache)
 
 ### Security & Privacy Improvements
 
-- **API keys redacted** in `get_config` IPC responses — no longer echoed in cleartext
-- **LLM polish requires explicit consent** — separate `llm_polish_consent` flag
-- **Cloud/LLM URL allowlist** — prevents endpoint-swap attacks from exfiltrating data
-- **File permissions hardened** — config, history DB, and recovery files are 0o600 on POSIX
-- **IPC session token auth** — prevents unauthorized local processes from sending commands
+- **API keys redacted** in `get_config` IPC responses: no longer echoed in cleartext
+- **LLM polish requires explicit consent**, separate `llm_polish_consent` flag
+- **Cloud/LLM URL allowlist**: prevents endpoint-swap attacks from exfiltrating data
+- **File permissions hardened**: config, history DB, and recovery files are 0o600 on POSIX
+- **IPC session token auth**: prevents unauthorized local processes from sending commands
 - **CSP headers** added to both Electron HTMLs
-- **CSV export formula-injection defense** — cells starting with `=`, `+`, `-`, `@` are escaped
+- **CSV export formula-injection defense**: cells starting with `=`, `+`, `-`, `@` are escaped
 - **DevTools disabled in production builds**
 
 ### Reliability Improvements
 
-- **Clean shutdown** — replaced `os._exit(0)` with `sys.exit(0)` so Python cleanup runs (releases mutex, closes mic, unregisters hotkeys)
-- **All hotkey backends stopped on quit/restart** — no more "hotkey busy" after restart
-- **Cloud API timeouts** — 30s timeout on all HTTP requests (was unbounded)
-- **Crash recovery async writes** — background thread prevents main-thread blocking
-- **IPC rate limiting** — 200 burst / 60 sustained msg/s per connection
-- **Removed stale Python reaper** — no more `taskkill /T /F` killing legitimate autostart sessions
+- **Clean shutdown**: replaced `os._exit(0)` with `sys.exit(0)` so Python cleanup runs (releases mutex, closes mic, unregisters hotkeys)
+- **All hotkey backends stopped on quit/restart**, no more "hotkey busy" after restart
+- **Cloud API timeouts**: 30s timeout on all HTTP requests (was unbounded)
+- **Crash recovery async writes**: background thread prevents main-thread blocking
+- **IPC rate limiting**: 200 burst / 60 sustained msg/s per connection
+- **Removed stale Python reaper**: no more `taskkill /T /F` killing legitimate autostart sessions
 
 ### Performance Improvements
 
-- **Eager scipy preload** — first recording no longer blocks 200-800ms on import
-- **SQLite 20 MB cache** — history reads stay in memory
-- **Bubble level pushes off audio thread** — background queue + 30 Hz throttle prevents xruns
-- **Recorder snapshot O(1)** — `itertools.islice` replaces full-deque copy
-- **Xrun log rate-limited** — was 16 disk writes/sec, now once per 5 seconds
+- **Eager scipy preload**: first recording no longer blocks 200-800ms on import
+- **SQLite 20 MB cache**: history reads stay in memory
+- **Bubble level pushes off audio thread**, background queue + 30 Hz throttle prevents xruns
+- **Recorder snapshot O(1)**, `itertools.islice` replaces full-deque copy
+- **Xrun log rate-limited**: was 16 disk writes/sec, now once per 5 seconds
 
 ### UX Improvements
 
 - **Hotkey conflict notification** names the hotkey and suggests rebinding
 - **"View Logs" button** actually opens the log folder (was a fake handler)
-- **Settings inputs debounced** — typing "gpt-4o-mini" fires 1 IPC call, not 11
+- **Settings inputs debounced**: typing "gpt-4o-mini" fires 1 IPC call, not 11
 - **Label associations** on all settings inputs (screen reader support)
 - **"Reset to Defaults"** fetches from backend (no silent drift from hardcoded defaults)
 - **Honest "not implemented" messages** on fake buttons (model download, benchmark)
-  - Note: the microphone test is **real** — it opens a live `sounddevice.InputStream` via `level_monitor.start_test_recording()` and returns captured audio. (At the time, model download progress and the model benchmark were simulated — downloads are real today via `huggingface_hub.snapshot_download`, and the benchmark UI has since been removed.)
+  - Note: the microphone test is **real**, it opens a live `sounddevice.InputStream` via `level_monitor.start_test_recording()` and returns captured audio. (At the time, model download progress and the model benchmark were simulated, downloads are real today via `huggingface_hub.snapshot_download`, and the benchmark UI has since been removed.)
 
 ---
 
@@ -420,11 +420,11 @@ Changes that affect contributors (architecture, dead code removal, test coverage
 
 ### Architecture
 
-- **`set_config` allowlist** — 53 user-tunable fields with type/range/enum/URL validation; trusted-path fields (`corrections_path`, `qwen_model_path`, etc.) excluded
-- **Corrections deduplication** — `clean_transcribed_text(skip_corrections=True)` when VocabularyManager is enabled; single source of truth
-- **Generic ASR engine init** — `_init_asr_engine()` dispatcher consolidates qwen/parakeet init
-- **psutil replaces wmic** — `_another_voice_typer_alive` deleted (zero decision power); `killStalePython` deleted (mutex handles single-instance)
-- **Corrections load errors surfaced** — `configure_corrections()` returns error string; tray notification on malformed JSON
+- **`set_config` allowlist**: 53 user-tunable fields with type/range/enum/URL validation; trusted-path fields (`corrections_path`, `qwen_model_path`, etc.) excluded
+- **Corrections deduplication**, `clean_transcribed_text(skip_corrections=True)` when VocabularyManager is enabled; single source of truth
+- **Generic ASR engine init**, `_init_asr_engine()` dispatcher consolidates qwen/parakeet init
+- **psutil replaces wmic**, `_another_voice_typer_alive` deleted (zero decision power); `killStalePython` deleted (mutex handles single-instance)
+- **Corrections load errors surfaced**, `configure_corrections()` returns error string; tray notification on malformed JSON
 
 ### Dead Code Removal
 
@@ -432,7 +432,7 @@ Changes that affect contributors (architecture, dead code removal, test coverage
 - Removed dead shadcn/ui components (`dialog.tsx`, `sheet.tsx`, `popover.tsx`)
 - Removed `StatusBar.tsx` (imported but rendered as a comment)
 - Removed 6 dead `TrayController` protocol methods (`toggle_autostart`, `create_desktop_shortcut`, `set_notifications`, `set_silence_warning_seconds`, `set_silence_auto_stop_seconds`, `set_max_recording_seconds`)
-- (Correction to an earlier draft of this changelog: `AudioQualityAnalyzer` was **not** removed. It is still instantiated at `app.py:208` and used by `recording_controller.py:403` for per-chunk quality analysis. Only the user-facing tray notification that surfaced its report was suppressed — default `audio_quality_warnings=False`, with an early-return in `app.py:_finalize_audio_quality_report` that prevents the notification from ever firing.)
+- (Correction to an earlier draft of this changelog: `AudioQualityAnalyzer` was **not** removed. It is still instantiated at `app.py:208` and used by `recording_controller.py:403` for per-chunk quality analysis. Only the user-facing tray notification that surfaced its report was suppressed, default `audio_quality_warnings=False`, with an early-return in `app.py:_finalize_audio_quality_report` that prevents the notification from ever firing.)
 - Replaced fake `setTimeout` buttons with honest "not implemented" messages
 
 ### Testing
@@ -444,11 +444,11 @@ Changes that affect contributors (architecture, dead code removal, test coverage
 
 ### Documentation
 
-- `docs/ARCHITECTURE.md` — ASCII diagram + security boundary table
-- `docs/PLATFORM_STATUS.md` — feature × OS matrix
-- `archive/deleted_files.txt` — tracks files removed for manual cleanup
+- `docs/ARCHITECTURE.md` ASCII diagram + security boundary table
+- `docs/PLATFORM_STATUS.md` Feature × OS matrix
+- `archive/deleted_files.txt` Tracks files removed for manual cleanup
 
 ### Build
 
-- **npm pins fixed** — `typescript@^7.0.2`, `vite@^8.1.4`, `@types/node@^26.1.1` (were non-existent versions). The earlier draft of this changelog listed `typescript@^5.6.0`, `vite@^6.0.0`, `@types/node@^22.0.0`; those were also wrong — `electron-vite` 4 + Vite 8 require TypeScript 7.x and Node 22+ types. The pins are now aligned with the actual `voice_typer/client/package.json` and verified by `npm ci` in CI.
-- **gitignore** — `out/`, `dist/`, `*.tsbuildinfo` excluded from commits
+- **npm pins fixed**, `typescript@^7.0.2`, `vite@^8.1.4`, `@types/node@^26.1.1` (were non-existent versions). The earlier draft of this changelog listed `typescript@^5.6.0`, `vite@^6.0.0`, `@types/node@^22.0.0`; those were also wrong, `electron-vite` 4 + Vite 8 require TypeScript 7.x and Node 22+ types. The pins are now aligned with the actual `voice_typer/client/package.json` and verified by `npm ci` in CI.
+- **gitignore**, `out/`, `dist/`, `*.tsbuildinfo` excluded from commits

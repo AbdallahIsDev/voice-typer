@@ -49,7 +49,7 @@ export interface CrashStormTracker {
  *                  default was `60_000` (60s).
  * @param prefix    Log-level prefix for the storm line (e.g. `"[MAIN]"`
  *                  for the main window, `"[BUBBLE]"` for the bubble).
- *                  HU-29: this is a parameter — the legacy hardcoded
+ *                  HU-29: this is a parameter, the legacy hardcoded
  *                  `[MAIN]` caused bubble crash storms to be
  *                  misattributed to the main window in the logs.
  */
@@ -66,7 +66,7 @@ export function createCrashStormTracker(
 			timestamps.push(now);
 			// Evict timestamps older than the window. The `first !==
 			// undefined` guard mirrors the original main-window.ts
-			// implementation — TypeScript narrows `timestamps[0]` to
+			// implementation, TypeScript narrows `timestamps[0]` to
 			// `number | undefined` under `noUncheckedIndexedAccess`-
 			// style strictness even though we just checked `length >
 			// 0`, so the explicit guard keeps the assertion honest.

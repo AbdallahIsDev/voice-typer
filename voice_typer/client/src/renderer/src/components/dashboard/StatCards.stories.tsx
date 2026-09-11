@@ -59,7 +59,7 @@ export const Large: Story = {
 		docs: {
 			description: {
 				story:
-					"Demonstrates the `formatCompactNumber` and `formatDuration` helpers — 24,380 chars is rendered as `24.3K+` and 5,235 seconds as `1h 27m`.",
+					"Demonstrates the `formatCompactNumber` and `formatDuration` helpers, 24,380 chars is rendered as `24.3K+` and 5,235 seconds as `1h 27m`.",
 			},
 		},
 	},
@@ -73,7 +73,7 @@ export const DarkBackground: Story = {
 		docs: {
 			description: {
 				story:
-					"Rendered inside a dark-themed scoped wrapper (`dark` class on a container div, mirroring `useTheme`'s contract on `document.documentElement`) — verifies `--bg-subtle` card surfaces and icon contrast in dark mode.",
+					"Rendered inside a dark-themed scoped wrapper (`dark` class on a container div, mirroring `useTheme`'s contract on `document.documentElement`), verifies `--bg-subtle` card surfaces and icon contrast in dark mode.",
 			},
 		},
 	},
@@ -87,7 +87,7 @@ export const RtlLayout: Story = {
 		docs: {
 			description: {
 				story:
-					'Rendered inside a `dir="rtl"` wrapper — the card row order, icon/label alignment and number formatting must mirror for Arabic.',
+					'Rendered inside a `dir="rtl"` wrapper, the card row order, icon/label alignment and number formatting must mirror for Arabic.',
 			},
 		},
 	},

@@ -11,7 +11,7 @@ The general inter-chunk abort contract (for the non-fallback path) is
 covered by ``tests/test_parakeet_onnx_abort.py``. This file focuses on
 source-level regression guards and the CPU-fallback-specific abort
 behavior for single-segment audio (which is what
-``transcribe_with_fallback`` actually re-runs after a CUDA error — see
+``transcribe_with_fallback`` actually re-runs after a CUDA error: see
 the note below).
 
 NOTE: ``transcribe_with_fallback``'s post-fallback re-transcribe
@@ -20,12 +20,12 @@ currently calls ``_transcribe_segment`` directly on the full audio
 is a latent gap (the full audio gets passed to a single
 ``recognize()`` call which would exceed the model's input length);
 documenting this gap is out of scope for the RunOptions/warmup fix
-slice — the tests here use single-segment audio to match the actual
+slice, the tests here use single-segment audio to match the actual
 fallback behavior.
 
 NOTE: mid-run termination of a single-segment ``recognize()`` call is
 NOT supported (onnx-asr 0.12.0 does not forward ``RunOptions`` to
-``session.run`` — see the note on ``ParakeetEngine._abort_event``).
+``session.run``: see the note on ``ParakeetEngine._abort_event``).
 """
 
 from __future__ import annotations
@@ -128,7 +128,7 @@ class TestParakeetCpuFallbackAbortGate:
     def test_chunk_loop_has_abort_gate_in_source(self):
         """Source-level guard: ``_transcribe_chunks`` must contain the
         abort gate (``_abort_event.is_set()`` + ``break``). Catches a
-        future refactor that accidentally removes the gate — without
+        future refactor that accidentally removes the gate, without
         it, ESC during a multi-chunk CPU decode would wait for the
         full audio to finish (the OI-14 regression)."""
         import inspect
@@ -136,7 +136,7 @@ class TestParakeetCpuFallbackAbortGate:
         src = inspect.getsource(ParakeetEngine._transcribe_chunks)
         assert "_abort_event.is_set()" in src, (
             "_transcribe_chunks must check _abort_event.is_set() in the "
-            "chunk loop. The gate appears to have been removed — the CPU "
+            "chunk loop. The gate appears to have been removed, the CPU "
             "fallback path would no longer respect ESC."
         )
         assert "break" in src, (
@@ -148,7 +148,7 @@ class TestParakeetCpuFallbackAbortGate:
         """Source-level guard: the abort check must appear BEFORE the
         ``_transcribe_segment`` call inside the chunk loop (not after).
         A bottom-of-loop check would decode one extra chunk after ESC
-        before breaking — defeating the bounded-latency contract."""
+        before breaking, defeating the bounded-latency contract."""
         import inspect
 
         src = inspect.getsource(ParakeetEngine._transcribe_chunks)
@@ -160,7 +160,7 @@ class TestParakeetCpuFallbackAbortGate:
         assert abort_idx < segment_idx, (
             "Abort check must come BEFORE _transcribe_segment call in the "
             "chunk loop. A bottom-of-loop check would decode one extra "
-            "chunk after ESC — defeating the bounded-latency contract."
+            "chunk after ESC, defeating the bounded-latency contract."
         )
 
     def test_abort_event_clears_on_clear_abort(self):
@@ -177,13 +177,13 @@ class TestParakeetCpuFallbackAbortGate:
         """Behavioral smoke test: after a CUDA error triggers
         ``transcribe_with_fallback``'s CPU fallback (session recreation
         on CPU), the re-transcribe call respects the same ``_abort_event``
-        contract — setting abort before the fallback re-transcribe means
+        contract, setting abort before the fallback re-transcribe means
         the (single-segment) ``_transcribe_segment`` call still runs
         (the abort gate is BETWEEN chunks, not mid-segment) but the
         next ``transcribe()`` call on this engine would short-circuit.
 
         This test uses single-segment audio (≤25s) to match the actual
-        fallback behavior — ``transcribe_with_fallback`` calls
+        fallback behavior: ``transcribe_with_fallback`` calls
         ``_transcribe_segment`` directly on the full audio after
         recreation (does NOT re-route through ``transcribe()`` for
         chunk-splitting). The latent gap for multi-chunk audio is
@@ -201,7 +201,7 @@ class TestParakeetCpuFallbackAbortGate:
         engine._model = gpu_model
         mock_onnx_asr.load_model.side_effect = lambda *args, **kwargs: cpu_model
 
-        # 1s of audio (single segment — matches the fallback path).
+        # 1s of audio (single segment, matches the fallback path).
         audio = np.ones(16000, dtype=np.float32)
         with patch("voice_typer.server.event_bus.publish"):
             result = engine.transcribe_with_fallback(audio)

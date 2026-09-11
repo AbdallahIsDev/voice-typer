@@ -8,7 +8,7 @@ lockstep across three language surfaces:
     explicit ``protocol_version`` field does not match.
   - Python (WS receiver): ``voice_typer/server/sidecar_ws.py`` defines
     ``PROTOCOL_VERSION = 1`` and logs a WARNING on mismatch (advisory
-    only — does not reject).
+    only, does not reject).
   - Rust (host sender): ``src-tauri/src/sidecar/ws.rs`` defines
     ``const EXPECTED_PROTOCOL_VERSION: u64 = 1`` and sends it in its
     auth frame.
@@ -26,7 +26,7 @@ A drift between any two of these would either:
 
 This file is the regression guard: if any of the four constants drifts
 out of sync, this test fails before the change can be merged. Bumping
-the protocol version is a deliberate, multi-file change — never an
+the protocol version is a deliberate, multi-file change, never an
 accidental one.
 """
 
@@ -58,7 +58,7 @@ TS_PUSH_EVENTS_PATH = (
 
 
 # ────────────────────────────────────────────────────────────────────────────
-# Regexes (one per language surface — the constant is declared with
+# Regexes (one per language surface, the constant is declared with
 # different syntax in each file)
 # ────────────────────────────────────────────────────────────────────────────
 
@@ -68,7 +68,7 @@ _PYTHON_TCP_RE = re.compile(
     re.MULTILINE,
 )
 
-# Python (canonical source of truth — ``ipc/protocol_version.py``):
+# Python (canonical source of truth: ``ipc/protocol_version.py``):
 # ``PROTOCOL_VERSION: int = 1``. Both ``sidecar_ws.py`` and
 # ``transport_tcp.py`` import this constant; the source-scan below
 # catches any future drift introduced by re-defining the literal in
@@ -92,7 +92,7 @@ _TS_RE = re.compile(
 def _extract_int(pattern: re.Pattern[str], text: str, source_name: str) -> int:
     """Find the first match of *pattern* in *text* and return its int capture.
 
-    Fails with a clear message if the pattern doesn't match — the
+    Fails with a clear message if the pattern doesn't match, the
     constant may have been renamed, moved, or had its declaration
     syntax changed (e.g. ``const`` → ``let`` in Rust). The parity test
     is only useful if it can actually find the constant in each file.
@@ -102,7 +102,7 @@ def _extract_int(pattern: re.Pattern[str], text: str, source_name: str) -> int:
         pytest.fail(
             f"Could not find the protocol-version constant in {source_name} "
             f"using pattern {pattern.pattern!r}. The declaration may have "
-            "been renamed, moved, or had its syntax changed — update the "
+            "been renamed, moved, or had its syntax changed, update the "
             "regex in this test to match the new form."
         )
     return int(match.group(1))
@@ -127,11 +127,11 @@ def test_python_ws_protocol_version_matches_tcp() -> None:
     """The canonical Python WS-receiver ``PROTOCOL_VERSION``
     (``ipc/protocol_version.py``) MUST equal the TCP receiver's
     ``IPC_PROTOCOL_VERSION`` (which imports it). Both surfaces implement
-    the same auth-frame contract — a drift would mean the same client
+    the same auth-frame contract, a drift would mean the same client
     is accepted on one transport but rejected (or warned) on the other.
     """
     assert PYTHON_WS_PATH.is_file(), (
-        f"protocol_version.py not found at {PYTHON_WS_PATH} — the file may have "
+        f"protocol_version.py not found at {PYTHON_WS_PATH}, the file may have "
         "been renamed or moved; update the path in this test."
     )
     text = PYTHON_WS_PATH.read_text(encoding="utf-8")
@@ -151,7 +151,7 @@ def test_rust_host_protocol_version_matches_python() -> None:
     is ahead) or let an incompatible frame through (if Rust is ahead).
     """
     assert RUST_WS_PATH.is_file(), (
-        f"ws.rs not found at {RUST_WS_PATH} — the file may have been renamed or moved; update the path in this test."
+        f"ws.rs not found at {RUST_WS_PATH}, the file may have been renamed or moved; update the path in this test."
     )
     text = RUST_WS_PATH.read_text(encoding="utf-8")
     rust_version = _extract_int(_RUST_RE, text, str(RUST_WS_PATH))
@@ -172,7 +172,7 @@ def test_ts_push_events_protocol_version_matches_python() -> None:
     integer.
     """
     assert TS_PUSH_EVENTS_PATH.is_file(), (
-        f"push_events.ts not found at {TS_PUSH_EVENTS_PATH} — the file "
+        f"push_events.ts not found at {TS_PUSH_EVENTS_PATH}, the file "
         "may have been renamed or moved; update the path in this test."
     )
     text = TS_PUSH_EVENTS_PATH.read_text(encoding="utf-8")
@@ -193,7 +193,7 @@ def test_all_four_constants_agree() -> None:
 
     Bumping the protocol version is a deliberate, multi-file change:
       1. ``voice_typer/server/ipc/protocol_version.py:PROTOCOL_VERSION``
-         (canonical — imported by both ``sidecar_ws.py`` and
+         (canonical, imported by both ``sidecar_ws.py`` and
          ``transport_tcp.py``)
       2. ``src-tauri/src/sidecar/ws.rs:EXPECTED_PROTOCOL_VERSION``
       3. ``voice_typer/client/src/renderer/src/types/ipc/push_events.ts:
@@ -220,7 +220,7 @@ def test_all_four_constants_agree() -> None:
     assert len(distinct) == 1, (
         "Protocol version constants have drifted across languages. "
         f"Current values: {versions}. Bumping the protocol version "
-        "requires updating ALL constants in lockstep — see the "
+        "requires updating ALL constants in lockstep, see the "
         "docstring at the top of this test file."
     )
 

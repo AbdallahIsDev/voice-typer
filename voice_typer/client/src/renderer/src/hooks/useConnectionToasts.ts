@@ -1,5 +1,5 @@
 /**
- * useConnectionToasts — surfaces backend connection-state transitions as
+ * useConnectionToasts, surfaces backend connection-state transitions as
  * sonner toasts AND triggers a theme reload when the backend recovers.
  *
  * Extracted from App.tsx (App.tsx slimming split) to keep
@@ -24,17 +24,15 @@
  * region can read the previous value (needed to announce RECOVERIES only,
  * not the initial connecting → connected transition).
  *
- * : original behaviour — toasts reuse existing i18n keys
+ * : original behaviour, toasts reuse existing i18n keys
  * (`app.lostConnection`, `app.restartingBackend`, `about.connected`) so no
  * new translation keys are required.
  */
 import { useEffect, useRef } from "react";
+import type { TranslateFn } from "@/i18n/translate-types";
 import type { ConnectionStatus } from "@/stores/appStore";
 import { isRecoveringStatus } from "@/stores/appStore";
 import { SNACKBAR_DEFAULT_DURATION_MS, useSnackbar } from "./useSnackbar";
-
-/** Minimal `t` function type matching i18n.t's signature. */
-type TFn = (key: string, params?: Record<string, string>) => string;
 
 interface UseConnectionToastsArgs {
 	/** Current backend connection status (from useConnection / appStore). */
@@ -42,7 +40,7 @@ interface UseConnectionToastsArgs {
 	/** Reload theme from backend config (from useTheme). */
 	reloadThemeFromConfig: () => void;
 	/** i18n translate function (from useT). */
-	t: TFn;
+	t: TranslateFn;
 }
 
 export function useConnectionToasts({
@@ -54,7 +52,7 @@ export function useConnectionToasts({
 	// Tracks the previous connection status across renders so each toast
 	// fires exactly once per transition (not on every re-render). The
 	// initial mount path (prev === connectionStatus === "connecting")
-	// doesn't fire a toast — only state CHANGES do.
+	// doesn't fire a toast, only state CHANGES do.
 	const prevConnectionRef = useRef<ConnectionStatus>(connectionStatus);
 
 	useEffect(() => {
@@ -66,7 +64,7 @@ export function useConnectionToasts({
 
 		//surface connection-state transitions as toasts
 		// so the user gets immediate visual feedback when the backend
-		// drops out, restarts, or recovers — previously the only
+		// drops out, restarts, or recovers, previously the only
 		// feedback was the connecting/disconnected/restarting swap
 		// inside the main content area, which a user looking at the
 		// Home mic button could easily miss. Toasts reuse existing
@@ -76,15 +74,15 @@ export function useConnectionToasts({
 		// Transitions are tracked via the `prev` ref so each toast
 		// fires exactly once per transition (not on every re-render).
 		// The initial mount path (prev === connectionStatus ===
-		// "connecting") doesn't fire a toast — only state CHANGES do.
+		// "connecting") doesn't fire a toast, only state CHANGES do.
 		// Stable per-transition-type ``id``: sonner replaces an
 		// existing toast when the same ``id`` is re-fired. Without an
 		// ``id``, a backend flap (connecting → disconnected →
 		// restarting → connected → disconnected → …) would stack a
-		// fresh toast per transition — the user would see a pile of
+		// fresh toast per transition, the user would see a pile of
 		// overlapping toasts and couldn't read the sequence. With the
 		// stable ids below, the LATEST transition of each type
-		// REPLACES any in-flight toast of the same type — so at most
+		// REPLACES any in-flight toast of the same type, so at most
 		// one disconnected / one restarting / one connected toast is
 		// ever on screen, and the description text is always the most
 		// recent transition's.
@@ -103,7 +101,7 @@ export function useConnectionToasts({
 				});
 			} else if (connectionStatus === "connected" && prev !== "connecting") {
 				// Don't toast on the initial connect (prev ===
-				// "connecting") — the user just launched the app
+				// "connecting"), the user just launched the app
 				// and doesn't need a "Connected!" toast. Only
 				// surface RECOVERIES from a disconnected/restarting
 				// state.

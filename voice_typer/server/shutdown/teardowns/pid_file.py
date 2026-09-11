@@ -1,6 +1,6 @@
 """Teardown helper for the backend PID file (single-instance check).
 
-Phase 4.5 (OI-36) — extracted verbatim from
+Phase 4.5 (OI-36), extracted verbatim from
 :meth:`ShutdownController._teardown_pid_file`. The body is unchanged;
 only the class boundary moved.
 """
@@ -23,7 +23,7 @@ def _clear_pid_file_safely() -> None:
     invocation path never raises into interpreter shutdown.
 
     The failure log level is WARNING (was DEBUG pre-fix) so operators
-    see why the stale PID file survived — a stale file falsely blocks
+    see why the stale PID file survived, a stale file falsely blocks
     the next launch's single-instance check.
     """
     try:
@@ -64,7 +64,7 @@ def teardown_pid_file(controller) -> None:
 
 # Secondary safety net for the normal (non-watchdog) shutdown path:
 # register the pid-file removal as an atexit callback. atexit handlers
-# are bypassed by ``os._exit(0)`` — the watchdog-killed path is covered
+# are bypassed by ``os._exit(0)``: the watchdog-killed path is covered
 # separately by the explicit ``_clear_backend_pid_file()`` call inside
 # ``lifecycle._watchdog`` BEFORE ``os._exit(0)``. This atexit hook only
 # fires when Python's interpreter shutdown runs (e.g. main-thread

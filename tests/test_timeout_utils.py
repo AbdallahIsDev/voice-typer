@@ -3,7 +3,7 @@
 These tests pin the GROUP-5 fixes applied to
 ``voice_typer/server/_timeout_utils.py``:
 
-* **UE-21 / UE-11-F7 (Medium)** — ``_run_with_timeout`` returns
+* **UE-21 / UE-11-F7 (Medium)**: ``_run_with_timeout`` returns
   ``TIMEOUT`` and leaks the worker thread if it doesn't finish in
   *timeout*. The fix tracks leaked workers in a module-level
   ``_LEAKED_WORKERS`` registry (guarded by ``_LEAKED_WORKERS_LOCK``)
@@ -11,18 +11,18 @@ These tests pin the GROUP-5 fixes applied to
   watchdog to drain before ``os._exit(0)``. Workers are added on
   TIMEOUT; removed (best-effort) once they eventually finish.
 
-* **UE-11-F8 (Medium)** — ``_run_parallel_with_timeout`` re-orders
-  results by ``desc`` via ``by_desc = {desc: value}`` — duplicate
+* **UE-11-F8 (Medium)**: ``_run_parallel_with_timeout`` re-orders
+  results by ``desc`` via ``by_desc = {desc: value}``, duplicate
   ``desc`` silently overwrites. The fix raises ``ValueError`` at
   entry if any two items share a description.
 
-* **UE-11-F9 (Low)** — ``__all__`` had ``TIMEOUT`` + ``_TIMEOUT``
+* **UE-11-F9 (Low)**: ``__all__`` had ``TIMEOUT`` + ``_TIMEOUT``
   (alias), and ``SHUTDOWN_WATCHDOG_TIMEOUT_S`` +
   ``_DE11_GRACE_PERIOD_SECONDS`` (alias). The fix removes the
   aliases from ``__all__`` (kept as module-level names for
   back-compat with tests that import them directly).
 
-The tests run headless on Linux — they only touch the pure-Python
+The tests run headless on Linux, they only touch the pure-Python
 ``_timeout_utils`` module (no PortAudio, no filesystem, no Win32).
 """
 
@@ -51,7 +51,7 @@ from voice_typer.server._timeout_utils import (
 def _reset_leaked_workers():
     """Clear ``_LEAKED_WORKERS`` before and after each test.
 
-    The leaked-worker registry is module-level state — without this
+    The leaked-worker registry is module-level state, without this
     fixture, a test that leaks a worker would pollute the registry
     for every subsequent test in the process. We snapshot+restore so
     tests are hermetic.
@@ -118,7 +118,7 @@ class TestLeakedWorkerRegistry:
             assert _tu._LEAKED_WORKERS == [], "worker that raised must not be added to _LEAKED_WORKERS"
 
     def test_run_with_timeout_returns_none_when_func_returns_none(self):
-        """A worker that returns ``None`` is NOT a timeout — the
+        """A worker that returns ``None`` is NOT a timeout, the
         sentinel is distinct from ``None`` (DE-54 contract)."""
         result = _run_with_timeout("test-none", lambda: None, timeout=1.0)
         assert result is None
@@ -390,7 +390,7 @@ class TestRunParallelWithTimeoutDuplicateDesc:
 
     def test_duplicate_desc_does_not_run_any_func(self):
         """The uniqueness check fires BEFORE any func is submitted to
-        the pool — so a duplicate-desc call doesn't have side effects."""
+        the pool, so a duplicate-desc call doesn't have side effects."""
         call_count = 0
         lock = threading.Lock()
 
@@ -478,7 +478,7 @@ class TestAllCleanup:
         in the caller's namespace (because it's not in ``__all__``).
 
         We simulate the star-import by filtering ``dir()`` against
-        ``__all__`` — the actual ``import *`` would pollute this test
+        ``__all__``, the actual ``import *`` would pollute this test
         module's globals, so we check the contract directly.
         """
         # The contract: every name in __all__ is exported; names NOT
@@ -640,7 +640,7 @@ class TestLeakedWorkerRegistryCap:
             release.set()
 
     def test_registry_grows_normally_under_cap(self):
-        """Below the cap nothing is evicted — the single-leak contract
+        """Below the cap nothing is evicted, the single-leak contract
         of the existing tests still holds."""
         release = threading.Event()
         try:

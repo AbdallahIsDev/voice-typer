@@ -1,19 +1,19 @@
 /**
- * useModelConfig — config + models + catalog slice of the Models page.
+ * useModelConfig, config + models + catalog slice of the Models page.
  *
  * Extracted from the former
  * `useModelLifecycle.ts` (995-line) monolith. This sub-hook owns the
- * page's "core" state — the active config, the local model list, the
+ * page's "core" state, the active config, the local model list, the
  * model catalog, the API-key cache, and the per-mount config cache ref
- * — plus the actions that fetch and persist them:
- *   • `loadConfig` — parallelized `get_config` + `get_model_status` +
+ *, plus the actions that fetch and persist them:
+ *   • `loadConfig`, parallelized `get_config` + `get_model_status` +
  *     `get_model_catalog` in parallel.
- *   • `refreshModelStatus` — the extracted `get_model_status` + active-
+ *   • `refreshModelStatus`, the extracted `get_model_status` + active-
  *     model reconciliation helper.
- *   • `updateConfig` — `set_config` wrapper (: re-throws on error
+ *   • `updateConfig`, `set_config` wrapper (: re-throws on error
  *     so callers can branch success vs. failure).
  *   • The `config_changed` event subscription (merges partial payload
- *     into the cached config ref + reapplies active-state — no re-fetch).
+ *     into the cached config ref + reapplies active-state, no re-fetch).
  *
  * The `apiKeys` state lives here (not in `useCloudProviders`) because
  * `loadConfig` populates it from the freshly-fetched config; keeping it
@@ -23,7 +23,7 @@
  *
  * The hook returns a small set of "internal" helpers (`refreshModelStatus`,
  * `updateConfig`, `setConfig`, `setModels`) that the facade destructures
- * out before spreading into the final return object — they are NOT part
+ * out before spreading into the final return object, they are NOT part
  * of the public `useModelLifecycle` return shape (preserved verbatim
  * from the pre-split hook).
  */
@@ -64,7 +64,7 @@ export interface UseModelConfigResult {
 	apiKeys: Record<string, string>;
 	setApiKeys: React.Dispatch<React.SetStateAction<Record<string, string>>>;
 	loadConfig: () => Promise<void>;
-	// internal (facade destructures these out — not part of the public
+	// internal (facade destructures these out, not part of the public
 	// return shape of useModelLifecycle)
 	refreshModelStatus: () => Promise<void>;
 	updateConfig: (updates: Partial<VoiceTyperConfig>) => Promise<void>;
@@ -80,7 +80,7 @@ export function useModelConfig({
 }: UseModelConfigArgs): UseModelConfigResult {
 	// Ref mirrors of `call` / `markUpdated` so `loadConfig` keeps a
 	// STABLE identity ([] deps). Both are useCallback-stable in
-	// production, but test mocks return FRESH functions per render — an
+	// production, but test mocks return FRESH functions per render, an
 	// identity churn would re-fire the mount-load effect (loadConfig →
 	// setModels/setConfig → re-render → new call → loop → worker OOM).
 	// Same pattern as useVocabulary.ts.
@@ -92,7 +92,7 @@ export function useModelConfig({
 
 	// SWR seed: revisit renders the last visit's config instantly from
 	// the module cache (survives page unmount) so the page skips its
-	// loading branch entirely — `loadConfig` below still revalidates.
+	// loading branch entirely, `loadConfig` below still revalidates.
 	// Read ONCE at init (lazy useState initializers), not per render.
 	const [config, setConfig] = useState<VoiceTyperConfig | null>(
 		() => peekIpcCache<VoiceTyperConfig>(MODELS_CONFIG_CACHE_KEY) ?? null,
@@ -116,8 +116,8 @@ export function useModelConfig({
 
 	// SWR write-through: keep the module cache in sync with EVERY
 	// committed config state change (loadConfig results, `config_changed`
-	// merges, consent flips via setConfig) — not just the loadConfig
-	// path — so the next page visit seeds from current data instead of
+	// merges, consent flips via setConfig), not just the loadConfig
+	// path, so the next page visit seeds from current data instead of
 	// flickering back to a stale value until revalidation lands.
 	useEffect(() => {
 		if (config) writeIpcCache(MODELS_CONFIG_CACHE_KEY, config);
@@ -130,7 +130,7 @@ export function useModelConfig({
 	// Per-mount config cache (replaces module-level
 	// `_cachedConfig`). The ref lets the `config_changed` event handler
 	// merge incoming partial updates without re-fetching the whole
-	// config — and without leaking state across HMR / test mounts.
+	// config, and without leaking state across HMR / test mounts.
 	const cachedConfigRef = useRef<VoiceTyperConfig | null>(null);
 
 	// Refresh-model-status helper ─────────────────────────
@@ -145,11 +145,11 @@ export function useModelConfig({
 	// assumption: the configured model can be removed from disk
 	// out-of-band (deleted folder, moved cache), leaving the config
 	// pointing at a missing model. The backend's `get_model_status`
-	// (which stats the actual filesystem) is authoritative — the card
+	// (which stats the actual filesystem) is authoritative, the card
 	// for an active-but-missing model must show `downloaded: false` so
 	// the UI offers a restore/clear affordance instead of a dead-end
 	// disabled "Active" tick.
-	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract — .current must NOT become a dep
+	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract, .current must NOT become a dep
 	const refreshModelStatus = useCallback(async (): Promise<void> => {
 		try {
 			const status = await callRef.current<ModelStatusMap>("get_model_status");
@@ -178,17 +178,17 @@ export function useModelConfig({
 	// Parallelized loadConfig ─────────────────────────────
 	//
 	// Previously this function awaited `get_config`, then awaited
-	// `get_model_status`, then awaited `get_model_catalog` — strictly
+	// `get_model_status`, then awaited `get_model_catalog`, strictly
 	// sequential. A slow `get_model_catalog` delayed the page render
 	// even though the model cards don't need catalog metadata to render
 	// their skeleton.
 	//
 	// Now we fire all three in parallel via `Promise.allSettled`. The
-	// `get_config` result is the gating one — `applyActiveState` runs
+	// `get_config` result is the gating one, `applyActiveState` runs
 	// as soon as it resolves. The other two settle in the background.
-	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract — .current must NOT become a dep
+	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract, .current must NOT become a dep
 	const loadConfig = useCallback(async (): Promise<void> => {
-		// Claim the load generation — an earlier in-flight load whose
+		// Claim the load generation, an earlier in-flight load whose
 		// responses resolve after this one started must not clobber the
 		// fresher state this run produces.
 		const generation = ++loadGenerationRef.current;
@@ -205,7 +205,7 @@ export function useModelConfig({
 			const catalogResult = results[2];
 
 			if (!isCurrent()) {
-				// A newer loadConfig superseded this run — its results own
+				// A newer loadConfig superseded this run, its results own
 				// the state now; applying this run's (older) responses
 				// would regress config/models/apiKeys.
 				return;
@@ -215,12 +215,12 @@ export function useModelConfig({
 				const cfg = cfgResult.value;
 				cachedConfigRef.current = cfg;
 				setConfig(cfg);
-				// SWR write-through — the next visit seeds from this snapshot.
+				// SWR write-through, the next visit seeds from this snapshot.
 				writeIpcCache(MODELS_CONFIG_CACHE_KEY, cfg);
 
 				// Apply active-state mapping immediately so the cards
 				// render with the right Active badge on first paint.
-				// First load: `models` is still [] — seed from the
+				// First load: `models` is still [], seed from the
 				// static INITIAL_MODELS catalog. Subsequent loads:
 				// `models` already has entries; just refresh isActive.
 				setModels((prev) =>
@@ -324,7 +324,7 @@ export function useModelConfig({
 	// always showed their SUCCESS toast even when the backend save
 	// failed. The wrapper now re-throws on error so each caller can
 	// branch on the result.
-	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract — .current must NOT become a dep
+	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract, .current must NOT become a dep
 	const updateConfig = useCallback(
 		async (updates: Partial<VoiceTyperConfig>): Promise<void> => {
 			// callRef mirror (same convention as loadConfig /
@@ -343,7 +343,7 @@ export function useModelConfig({
 		apiKeys,
 		setApiKeys,
 		loadConfig,
-		// internal — facade destructures these out
+		// internal, facade destructures these out
 		refreshModelStatus,
 		updateConfig,
 		setConfig,

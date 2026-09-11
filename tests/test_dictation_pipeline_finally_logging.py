@@ -13,14 +13,14 @@ config dir was on a read-only mount).
 The fix replaces each ``contextlib.suppress(Exception)`` with an
 explicit ``try/except Exception`` that calls ``log.debug(...)`` with
 ``exc_info=True``. The cleanup behavior is preserved (the finally
-block still does NOT raise — the original exception from the try block
+block still does NOT raise, the original exception from the try block
 is not masked), but the failure is now observable in the debug log.
 
 These tests trigger a failure in each cleanup step (by mocking the
 cleanup target to raise) and assert:
   1. A DEBUG log line with the expected step name is emitted.
   2. The ``finally`` block does NOT raise (the original exception
-     path is preserved — run() returns normally after the body's
+     path is preserved, run() returns normally after the body's
      ``except Exception`` handler runs).
   3. ``exc_info=True`` is attached (the traceback is in the log).
 """
@@ -43,7 +43,7 @@ class _TestApp:
     Mirrors the stub pattern in
     ``test_dictation_pipeline_lock_fixes.py``: a custom class
     (not ``MagicMock``) so the four notify-once flag attributes default
-    to ``False`` via ``getattr(..., False)`` — MagicMock would auto-create
+    to ``False`` via ``getattr(..., False)``, MagicMock would auto-create
     truthy children.
     """
 
@@ -70,12 +70,12 @@ class _TestApp:
         self._crash_recovery = MagicMock()
         self._last_transcription: object = None
         self.models = MagicMock()
-        # ``recording`` is a MagicMock — tests that need real lock
+        # ``recording`` is a MagicMock, tests that need real lock
         # semantics override it. Default MagicMock supports ``with``
         # via auto-created ``__enter__``/``__exit__`` children.
         self.recording = MagicMock()
         # ``recorder.recording`` is read by the finally block's
-        # streaming-session cleanup branch — make it False so the
+        # streaming-session cleanup branch, make it False so the
         # ``if session is not None and not recorder.recording``
         # branch short-circuits when ``pop_streaming_session`` returns
         # None (the default MagicMock return).
@@ -159,7 +159,7 @@ class TestSentinelUnlinkFailureLogged:
 
     Post-fix: the failure is logged at DEBUG with ``exc_info=True`` so
     the traceback is in the log. The finally block still does NOT
-    raise — the original exception path is preserved.
+    raise, the original exception path is preserved.
     """
 
     def test_sentinel_unlink_failure_emits_debug_log(self, caplog, monkeypatch):
@@ -196,7 +196,7 @@ class TestSentinelUnlinkFailureLogged:
                 return _FakeSentinelFile()
 
         # Patch the lazy import ``from voice_typer.server._paths
-        # import config_dir as _config_dir`` — the import runs inside
+        # import config_dir as _config_dir``, the import runs inside
         # the try block each call, so monkeypatching the module
         # attribute is sufficient.
         monkeypatch.setattr(
@@ -255,7 +255,7 @@ class TestBusynessIdleFailureLogged:
     app was torn down mid-cycle), a DEBUG log line must be emitted.
 
     Pre-fix: the silent ``contextlib.suppress(Exception)`` meant the
-    app stayed stuck in BUSY forever — the watchdog would eventually
+    app stayed stuck in BUSY forever, the watchdog would eventually
     force-recover, but with no log entry explaining WHY the busy flag
     never cleared. Post-fix: the failure is logged at DEBUG. BP-90: the
     write now goes through the ``BusynessCoordinator``
@@ -301,7 +301,7 @@ class TestBusynessIdleFailureLogged:
 
 
 class TestGcCollectFailureLogged:
-    """When ``gc.collect(0)`` raises (extremely rare — e.g. a
+    """When ``gc.collect(0)`` raises (extremely rare, e.g. a
     SIGINT during GC, or a broken gc module in a frozen build), a
     DEBUG log line must be emitted instead of silently swallowing.
     """
@@ -367,7 +367,7 @@ class TestFinallyBlockDoesNotRaise:
 
     Pre-fix: ``contextlib.suppress(Exception)`` guaranteed this. The
     replacement ``try/except Exception: log.debug(...)`` must preserve
-    the same contract — a finally block that raises would mask the
+    the same contract, a finally block that raises would mask the
     original exception from the body's ``except Exception`` handler,
     which is exactly the bug the ``contextlib.suppress`` was guarding
     against.
@@ -375,7 +375,7 @@ class TestFinallyBlockDoesNotRaise:
 
     def test_finally_does_not_raise_when_sentinel_unlink_fails(self, monkeypatch):
         """A sentinel unlink failure must NOT propagate out of
-        ``run()`` — the finally block catches it and logs at DEBUG.
+        ``run()``, the finally block catches it and logs at DEBUG.
         """
 
         class _FakeSentinelFile:
@@ -401,7 +401,7 @@ class TestFinallyBlockDoesNotRaise:
         _configure_recording_for_finally(app)
         pipeline = _new_pipeline(app)
 
-        # ``run()`` should complete WITHOUT raising — the body's
+        # ``run()`` should complete WITHOUT raising, the body's
         # ``except Exception`` handler catches the body failure, and
         # the finally block's new try/except catches the sentinel
         # unlink failure. No exception should propagate.
@@ -414,18 +414,18 @@ class TestFinallyBlockDoesNotRaise:
                 recorded_rms=0.0,
                 cycle_id="test-cycle",
             )
-        except BaseException as e:  # noqa: BLE001 — we WANT to catch everything
+        except BaseException as e:  # noqa: BLE001, we WANT to catch everything
             propagated.append(e)
 
         assert not propagated, (
             "Non-regression: the finally block must NOT raise when a "
-            "cleanup step fails — the original exception path must be "
+            "cleanup step fails, the original exception path must be "
             f"preserved. Got propagated exception: {propagated!r}"
         )
 
     def test_finally_does_not_raise_when_busyness_idle_fails(self):
         """A busyness-idle failure must NOT propagate out of ``run()``
-        — the finally block catches it and logs at DEBUG.
+        , the finally block catches it and logs at DEBUG.
         """
 
         app = _TestApp()
@@ -446,6 +446,6 @@ class TestFinallyBlockDoesNotRaise:
 
         assert not propagated, (
             "Non-regression: the finally block must NOT raise when "
-            "_busyness.set_idle() fails — the original exception path must be "
+            "_busyness.set_idle() fails, the original exception path must be "
             f"preserved. Got propagated exception: {propagated!r}"
         )

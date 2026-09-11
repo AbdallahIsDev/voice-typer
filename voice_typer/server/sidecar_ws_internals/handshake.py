@@ -2,7 +2,7 @@
 
 Extracted verbatim from :mod:`voice_typer.server.sidecar_ws`
 (``_authenticate``); the canonical module re-exports the function so
-the direct-call surface (``sidecar_ws._authenticate(ws)`` — the
+the direct-call surface (``sidecar_ws._authenticate(ws)``, the
 mig15/mig16/mig17 ws_hmac suites, tests/tauri/test_sidecar_ws_unit.py,
 tests/test_sidecar_ws_protocol_version.py,
 tests/test_sidecar_ws_bearer_token_doc.py) and the
@@ -19,14 +19,14 @@ re-export on the canonical module.
 The auth-read deadline is NOT owned here: the function resolves
 ``_AUTH_TIMEOUT_SECONDS`` from the canonical module object at CALL
 time (see the comment at the read site) so the historical
-read/patch surface ``sidecar_ws._AUTH_TIMEOUT_SECONDS`` — asserted
+read/patch surface ``sidecar_ws._AUTH_TIMEOUT_SECONDS``, asserted
 and patched by the mig15-17 ws_hmac suites and
-tests/tauri/test_sidecar_ws_unit.py — keeps observing patches
+tests/tauri/test_sidecar_ws_unit.py, keeps observing patches
 exactly as it did when this body lived in sidecar_ws.py.
 
 Token-leak guards (the mig15-17 ws_hmac source greps read THIS file
 concatenated after the canonical sidecar_ws.py): every log call in
-this module uses a static string — the token value
+this module uses a static string, the token value
 (``expected_token`` / ``provided`` / the raw frame) is NEVER
 interpolated into a log message.
 """
@@ -44,7 +44,7 @@ from voice_typer.server.ipc.protocol_version import PROTOCOL_VERSION
 
 # Same logger object as the canonical module (``logging.getLogger`` is
 # idempotent per name). Keeps every log record's ``name`` attribute
-# byte-identical to the pre-split output — several tests pin
+# byte-identical to the pre-split output, several tests pin
 # ``caplog.at_level(..., logger="voice_typer.server.sidecar_ws")``.
 log = logging.getLogger("voice_typer.server.sidecar_ws")
 
@@ -65,7 +65,7 @@ async def _authenticate(websocket) -> bool:
 
     This is a **one-shot bearer-token** check, NOT an HMAC scheme:
     :func:`hmac.compare_digest` is used purely as a constant-time
-    *comparison* helper — there is no key derivation, no signing, no
+    *comparison* helper, there is no key derivation, no signing, no
     per-message MAC, and no nonce/replay protection. Subsequent frames
     after the handshake skip re-auth (mirroring the TCP handshake-once
     model from ADR-0014). Compensating controls for the absence of
@@ -115,7 +115,7 @@ async def _authenticate(websocket) -> bool:
     expected_token = os.environ.get(IPC_TOKEN_ENV_VAR, "")
     if not expected_token:
         log.error(
-            "[SIDECAR-WS] VOICE_TYPER_IPC_TOKEN not set — refusing to "
+            "[SIDECAR-WS] VOICE_TYPER_IPC_TOKEN not set, refusing to "
             "accept connections (the host must always set this env var)."
         )
         return False
@@ -123,7 +123,7 @@ async def _authenticate(websocket) -> bool:
     try:
         first_raw = await asyncio.wait_for(websocket.recv(), timeout=deadline)
     except asyncio.TimeoutError:
-        log.warning("[SIDECAR-WS] auth frame timeout — closing connection")
+        log.warning("[SIDECAR-WS] auth frame timeout, closing connection")
         return False
     except Exception:
         log.warning("[SIDECAR-WS] auth frame read failed", exc_info=True)
@@ -144,7 +144,7 @@ async def _authenticate(websocket) -> bool:
     # Shared with the TCP transport: ``extract_auth_token``
     # validates the frame shape + extracts the token; ``tokens_equal``
     # performs the constant-time ``hmac.compare_digest`` comparison
-    # (see ``voice_typer.server.ipc.auth`` — a bug fix to either
+    # (see ``voice_typer.server.ipc.auth``: a bug fix to either
     # concern lands in ONE module used by both transports).
     provided = extract_auth_token(first)
     if provided is None:
@@ -152,13 +152,13 @@ async def _authenticate(websocket) -> bool:
         return False
 
     if not tokens_equal(provided, expected_token):
-        log.warning("[SIDECAR-WS] auth token mismatch — rejecting")
+        log.warning("[SIDECAR-WS] auth token mismatch, rejecting")
         return False
 
     # detect host/sidecar protocol-version skew at handshake
     # time. The Rust host (src-tauri/src/sidecar/ws.rs) now includes a
     # `protocol_version` integer in its auth frame. The field is
-    # additive — older hosts that don't yet send it continue to function
+    # additive, older hosts that don't yet send it continue to function
     # (we just skip the check). When present and mismatched, log a
     # prominent WARNING so the mismatch is observable in diagnostics
     # before confusing partial-failure symptoms appear. We do NOT reject
@@ -178,7 +178,7 @@ async def _authenticate(websocket) -> bool:
         else:
             if host_protocol_int != PROTOCOL_VERSION:
                 log.warning(
-                    "[SIDECAR-WS] protocol version skew: host=%d sidecar=%d (continuing — field is advisory)",
+                    "[SIDECAR-WS] protocol version skew: host=%d sidecar=%d (continuing, field is advisory)",
                     host_protocol_int,
                     PROTOCOL_VERSION,
                 )

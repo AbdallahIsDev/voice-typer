@@ -16,7 +16,7 @@ on the ESC and repaste backends so they use the event-driven
 instead of the LL hook. The main dictation hotkey leaves the flag
 ``False`` (default) so it keeps the robust LL-hook-first path. If
 ``RegisterHotKey`` fails for ESC (some keys are reserved / already
-claimed), the ESC backend falls back to the LL hook — 2 hooks instead
+claimed), the ESC backend falls back to the LL hook, 2 hooks instead
 of 3, still an improvement.
 
 These tests mock ``ctypes.windll`` to simulate Windows and count
@@ -136,10 +136,10 @@ def test_three_backends_install_only_one_ll_hook(mock_win32):
         )
         # ESC and repaste backends have NO LL hook (they use WM_HOTKEY).
         assert esc._hook_handle is None, (
-            "ESC backend should NOT install an LL hook (prefer_message_loop=True, RegisterHotKey succeeded) — AB-35"
+            "ESC backend should NOT install an LL hook (prefer_message_loop=True, RegisterHotKey succeeded), AB-35"
         )
         assert repaste._hook_handle is None, (
-            "Repaste backend should NOT install an LL hook (prefer_message_loop=True, RegisterHotKey succeeded) — AB-35"
+            "Repaste backend should NOT install an LL hook (prefer_message_loop=True, RegisterHotKey succeeded), AB-35"
         )
     finally:
         for b in backends:
@@ -166,13 +166,13 @@ def test_main_backend_alone_installs_one_ll_hook(mock_win32):
 
 def test_prefer_message_loop_with_failed_register_hotkey_falls_back_to_ll_hook(mock_win32):
     """AB-35 fallback: if ``RegisterHotKey`` fails for an ESC/repaste
-    backend that prefers WM_HOTKEY, the backend falls back to the LL
-    hook (instead of polling). This is the "2 hooks instead of 3" case
-    — still an improvement over the pre-AB-35 3-hook baseline.
+      backend that prefers WM_HOTKEY, the backend falls back to the LL
+      hook (instead of polling). This is the "2 hooks instead of 3" case
+    , still an improvement over the pre-AB-35 3-hook baseline.
 
-    Without this fallback, ESC would silently regress to polling
-    (which misses ESC presses when the foreground window intercepts
-    them as WM_SYSKEYDOWN).
+      Without this fallback, ESC would silently regress to polling
+      (which misses ESC presses when the foreground window intercepts
+      them as WM_SYSKEYDOWN).
     """
     mock_user32, _, _ = mock_win32
     # Make RegisterHotKey fail (e.g. ESC is already claimed by another app).
@@ -231,7 +231,7 @@ def test_caps_lock_hotkey_ignores_prefer_message_loop(mock_win32):
 
     # Caps Lock with prefer_message_loop=True (an unusual combo, but
     # the HotkeyDispatcher currently only sets the flag on ESC/repaste,
-    # never on the main caps-lock hotkey — so this is defensive).
+    # never on the main caps-lock hotkey, so this is defensive).
     backend = _make_backend("<caps_lock>", prefer_message_loop=True)
     try:
         backend.start(MagicMock())

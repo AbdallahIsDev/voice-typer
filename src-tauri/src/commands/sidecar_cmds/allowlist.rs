@@ -1,5 +1,5 @@
 //! `ALLOWED_COMMANDS` defense-in-depth allowlist + shared error-code /
-//! pending-map constants — extracted from the former single-file
+//! pending-map constants: extracted from the former single-file
 //! `commands/sidecar_cmds.rs`.
 
 use std::collections::HashSet;
@@ -24,12 +24,12 @@ pub(crate) const DISALLOWED_WINDOW_CODE: &str = "disallowed_window";
 // `(u64, oneshot::Sender<Value>)` pair (~80 bytes on x86_64). An
 // unresponsive sidecar (WS reader stuck, sidecar process paused in a
 // debugger, GC pause) plus rapid tray clicks / renderer retries can
-// accumulate 1000s of entries — each one auto-expires via
+// accumulate 1000s of entries: each one auto-expires via
 // `dispatch_frame`'s own cleanup paths (the timeout branch AND the
 // WS-send-failure branch both run `pending.remove(&id)`), so the
 // steady-state bound is `clicks_per_sec * timeout` entries. At 10
 // clicks/sec (renderer retry storm) against the 120s model-lifecycle
-// timeout that's 1200 entries × 80 bytes = ~96 KiB — small in
+// timeout that's 1200 entries × 80 bytes = ~96 KiB, small in
 // absolute terms, but a dispatch future dropped before its timeout
 // fires (e.g. the heartbeat probe cancelled by its outer 15s
 // wrapper) leaves the entry in the map until the WS reader's drain
@@ -55,22 +55,22 @@ pub(crate) const PENDING_FULL_CODE: &str = "pending_full";
 //
 // Mirrors the Electron renderer-side allowlist in
 // `voice_typer/client/src/main/allowed-commands.ts` (the canonical
-// declaration — previously inline in `index.ts:79-191`, SEC-019). The
+// declaration: previously inline in `index.ts:79-191`, SEC-019). The
 // Tauri `dispatch` command is the only path from the webview to the Python
-// sidecar over WS — without this gate, a compromised renderer (XSS in the
+// sidecar over WS: without this gate, a compromised renderer (XSS in the
 // WebView, malicious extension) could
 // invoke arbitrary server-side commands by
 // `invoke('dispatch', {cmd: 'quit_app'})` or
 // `invoke('dispatch', {cmd: 'set_config', data: {...}})`.
 //
 // The Electron path enforces `ALLOWED_COMMANDS` in
-// `voice_typer/client/src/main/python/send-to-python.ts:48-51` — this
+// `voice_typer/client/src/main/python/send-to-python.ts:48-51`, this
 // Rust gate is the **defense-in-depth** equivalent (an attacker who
 // escapes the renderer sandbox cannot bypass it by talking to Rust
 // directly).
 //
 // `tray_click` is intentionally ABSENT from this literal
-// (and from the TS allowlist) — it is a Rust-only command invoked by
+// (and from the TS allowlist), it is a Rust-only command invoked by
 // the tray menu handler in `tray.rs::on_menu_event` via
 // `dispatch_inner`, which bypasses the allowlist gate. The renderer
 // never sends `tray_click`; including it here would create an attack
@@ -97,7 +97,7 @@ pub(crate) fn allowed_commands() -> &'static HashSet<&'static str> {
     ALLOWED_COMMANDS.get_or_init(|| {
         // This list MUST mirror the Electron renderer's
         // ALLOWED_COMMANDS in `voice_typer/client/src/main/allowed-commands.ts`
-        // (canonical declaration — was previously inline
+        // (canonical declaration: was previously inline
         // in `index.ts`). The Python test
         // `tests/test_security_doc_command_count.py` cross-checks
         // parity (count + exact entries).
@@ -110,7 +110,7 @@ pub(crate) fn allowed_commands() -> &'static HashSet<&'static str> {
         // and confirmed to have ZERO renderer callers (the only TS
         // matches were in doc comments, not actual `invoke()` calls).
         // Defense-in-depth principle: the Rust host should NOT
-        // allowlist commands the renderer never sends — a compromised
+        // allowlist commands the renderer never sends, a compromised
         // renderer would otherwise be able to `invoke('dispatch',
         // {cmd:'<one of these 17>'})` and reach a server-side handler
         // that no legitimate UI path exercises. The 17 removed:
@@ -123,13 +123,13 @@ pub(crate) fn allowed_commands() -> &'static HashSet<&'static str> {
         //   onboarding_request_keyboard_permission, refresh_microphones,
         //   show_electron_notification, test_llm_connection.
         // NOTE: `check_accessibility` is no longer part of the removed
-        // set — it was RE-ADDED on 2026-08-10 (finding #919 part b):
+        // set: it was RE-ADDED on 2026-08-10 (finding #919 part b):
         // the Settings → Troubleshooting UI now invokes it on macOS to
         // surface the stale-grant `tccutil` reset command. It is
         // registered here and in the TS allowlist + Python registry in
         // lockstep (see its inline comment below).
         // The matching Python-side `_COMMAND_REGISTRY` entries have been
-        // removed in lockstep — all three layers (this Rust literal, the TS
+        // removed in lockstep: all three layers (this Rust literal, the TS
         // `ALLOWED_COMMANDS` Set, and the Python `_COMMAND_REGISTRY`) now
         // stay in sync. The parity test `test_security_doc_command_count.py`
         // enforces count + exact-entry equality across all three.
@@ -234,7 +234,7 @@ pub(crate) fn allowed_commands() -> &'static HashSet<&'static str> {
             // allowlist and the Python `_COMMAND_REGISTRY`.
             "check_accessibility",
             // Linux troubleshooting (finding #127 part b): reset a stale
-            // polkit authorization — restart the polkit daemon via
+            // polkit authorization: restart the polkit daemon via
             // pkexec so the next "Grant permission" re-prompts. Invoked
             // by the Settings → Troubleshooting "Reset Linux Permission"
             // button. Python handler: `_handle_reset_linux_permissions`
@@ -244,19 +244,19 @@ pub(crate) fn allowed_commands() -> &'static HashSet<&'static str> {
             "import_model",
             // `heartbeat` and `relaunch_ack` are intentionally
             // ABSENT from this Rust allowlist (they ARE in the TS
-            // allowlist — Electron's main process needs them to talk
+            // allowlist: Electron's main process needs them to talk
             // to the Python sidecar). The Rust host never routes
             // either command through this `dispatch` gate:
             //   - `heartbeat` is sent by the Rust-side heartbeat task
             //     (`sidecar/ws/heartbeat.rs::spawn_heartbeat_task`)
             //     via `dispatch_inner`, which bypasses this allowlist
-            //     gate — it's never the result of an
+            //     gate: it's never the result of an
             //     `invoke('dispatch', ...)`.
             //   - `relaunch_ack` is sent by the `relaunch_app` Tauri
             //     event listener body in `sidecar/lifecycle.rs`
             //     (`on_relaunch_app`) as a fire-and-forget WS frame,
             //     which bypasses this allowlist gate (same
-            //     trusted-Rust-caller pattern as `tray_click` — see
+            //     trusted-Rust-caller pattern as `tray_click`, see
             //     the `tray_click` rationale above).
             // Including either here would create an attack surface
             // that only a compromised renderer could reach: a
@@ -282,26 +282,26 @@ pub(crate) fn allowed_commands() -> &'static HashSet<&'static str> {
             // Tauri host does not reject the renderer's `invoke()`.
             "get_history_count",
             "get_transcription_text",
-            // Onboarding reset — invoked by the Onboarding page.
+            // Onboarding reset: invoked by the Onboarding page.
             // Registered in the Python-side
             // `_COMMAND_REGISTRY` (ipc_server.py) and implemented in
             // `handlers/onboarding_handlers.py` (`_handle_onboarding_reset`).
             // Mirrors the TS allowlist.
             "onboarding_reset",
-            // `test_cloud_connection` — renderer "Test Connection" button
+            // `test_cloud_connection`: renderer "Test Connection" button
             // on the Cloud Providers page; mirrors the TS allowlist.
             "test_cloud_connection",
-            // `add_trusted_endpoint` — URL-allowlist extension
+            // `add_trusted_endpoint`: URL-allowlist extension
             // (self-hosted LLM/ASR endpoints); mirrors the TS allowlist.
             "add_trusted_endpoint",
-            // Master plan §7.4 — new IPC request `transcribe_offline`
+            // Master plan §7.4: new IPC request `transcribe_offline`
             // (slim core → worker). Mirrors the TS allowlist and the
             // Python `_COMMAND_REGISTRY`. The renderer invokes this to
             // run an offline transcription through the runtime-pack
             // worker (the slim core forwards the request to the worker
             // over the worker's dedicated WS hop). The push counterpart
             // `transcribe_offline_result` is published via
-            // `event_bus.publish(...)` (NOT a command — see
+            // `event_bus.publish(...)` (NOT a command, see
             // `ALLOWED_EVENT_TYPES` in
             // `src-tauri/src/sidecar/ws/event_protocol.rs`). Pinned by
             // `tests/test_event_types_parity.py`.
@@ -318,7 +318,7 @@ pub(crate) fn allowed_commands() -> &'static HashSet<&'static str> {
         // Build the set in one pass. Duplicate detection is enforced
         // by the `test_allowed_commands_set_contains_no_duplicates`
         // unit test (which asserts `set.len() == 71`), so we don't
-        // need a runtime `log::error!` per duplicate here — that path
+        // need a runtime `log::error!` per duplicate here, that path
         // was ~14 lines of defensive logging on a static `&[&str]`
         // literal and was redundant with the test. If a future
         // copy-paste slip adds a duplicate, the test fails in CI

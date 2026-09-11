@@ -5,7 +5,7 @@ Covers ``_apply_ai_enhancement`` (Step 7b, rule-based) and
 
 * Rule-based enhancer failure must (1) return the ORIGINAL text (the
   pipeline contract: failures degrade to un-enhanced text, never abort
-  the cycle), (2) publish ``text_enhancement_failed`` — NOT
+  the cycle), (2) publish ``text_enhancement_failed``, NOT
   ``llm_polish_failed`` (the E9-class event-type mismatch this fix
   removes), and (3) survive a raising event bus (suppress-wrap, so a
   broken bus can never abort the whole dictation).

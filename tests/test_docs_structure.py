@@ -5,10 +5,10 @@ Consolidated from the two former catch-all test modules (
 GDPR feature-gap doc checks and the punctuation cheat-sheet
 source-of-truth pin; ``tests/test_remaining_fixes.py`` contributed
 the docs/adr + API.md structure checks. All four classes are the
-same domain — "the shipped documentation tree keeps its promised
-shape" — so they live in one file.
+same domain: "the shipped documentation tree keeps its promised
+shape", so they live in one file.
 
-These are intentionally lightweight — the directive for the original
+These are intentionally lightweight, the directive for the original
 findings was "do NOT over-invest in LOW findings".
 """
 
@@ -65,7 +65,7 @@ class TestPunctuationCheatSheetSourceOfTruth:
     def test_text_cleanup_punct_regex_still_recognizes_canonical_six(self):
         """``_RE_SPACING_PUNCT_BEFORE`` in text_cleanup.py:374 must
         still cover the six canonical punctuation characters
-        ``, . ; : ! ?`` — these are what the cheat sheet advertises.
+        ``, . ; : ! ?``, these are what the cheat sheet advertises.
         """
         source = _text_cleanup_sources()
         # The regex character class is `[,.;:!?]`.
@@ -79,7 +79,7 @@ class TestPunctuationCheatSheetSourceOfTruth:
         """Sanity: text_cleanup.py does NOT contain a 'spoken word →
         character' dict (the directive's claim that the cheat sheet's
         source of truth is text_cleanup.py refers to the regex, not
-        to a word map — confirm no such map exists that we missed).
+        to a word map, confirm no such map exists that we missed).
         """
         source = _text_cleanup_sources()
         # If someone later adds a "spoken punctuation word" dict, the
@@ -103,7 +103,7 @@ class TestDocsADirectory:
 
         renamed ``0000-template.md`` →
         ``template.md`` (the ``0000-`` prefix collided with the ADR
-        numbering scheme — the template is not an ADR itself, so it
+        numbering scheme, the template is not an ADR itself, so it
         should not occupy an ADR number slot). This test was updated
         in lockstep to assert the new name. Pre- it asserted
         ``0000-template.md``.

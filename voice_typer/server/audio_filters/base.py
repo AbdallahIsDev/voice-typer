@@ -119,19 +119,19 @@ class FilterChain:
      (lock-free process): ``process()`` snapshots the filter list
     under the lock, releases the lock, then runs the filters lock-free.
     Filter ``process()`` calls are pure CPU (no shared-state mutation
-    that needs the chain lock) — holding the lock for the duration of
+    that needs the chain lock), holding the lock for the duration of
     the chain serializes the audio thread against config-rebuild
     ``swap()`` calls even when no rebuild is happening. The snapshot
     pattern means a rebuild sees the next ``process()`` call (no
     mid-chunk swap), but the current chunk runs without contending
     the lock. ``swap()`` uses an atomic reference swap (single
-    ``self._filters = ...`` assignment under the lock — microseconds)
+    ``self._filters = ...`` assignment under the lock, microseconds)
     so the worst-case blocking window is the snapshot copy time
     (``list(self._filters)`` is O(n_filters), typically <7).
 
     Introspection properties (``filter_names``, ``is_degraded``, etc.)
     take the lock and snapshot the list, then read filter attributes
-    lock-free — same rationale (filter attribute reads are atomic).
+    lock-free, same rationale (filter attribute reads are atomic).
     """
 
     def __init__(self, filters: list[AudioFilter] | None = None) -> None:
@@ -152,13 +152,13 @@ class FilterChain:
         only ``process()`` caller; ``swap()`` (the only mutator of
         ``_filters``) takes the lock briefly to swap the reference.
         The snapshot is a fresh list so a concurrent ``swap()`` cannot
-        mutate the array we're iterating — but a ``swap()`` that lands
+        mutate the array we're iterating, but a ``swap()`` that lands
         during ``process()`` only affects the NEXT ``process()`` call
         (the current chunk finishes on the old filter list). This is
         the desired semantics: a chunk is processed by exactly one
         filter list, never a mix.
         """
-        # Snapshot under the lock — O(n_filters), typically <7 elements.
+        # Snapshot under the lock. O(n_filters), typically <7 elements.
         with self._lock:
             filters_snapshot = list(self._filters)
         # Run lock-free. Filter.process() implementations are
@@ -190,7 +190,7 @@ class FilterChain:
         """Reset all filters' internal state."""
         # snapshot under the lock, reset lock-free. Filter
         # ``reset()`` implementations only mutate the filter's own
-        # state (zero ``zi`` arrays, reset envelope followers) — no
+        # state (zero ``zi`` arrays, reset envelope followers), no
         # cross-filter shared state, so no lock needed for the resets.
         with self._lock:
             filters_snapshot = list(self._filters)
@@ -201,7 +201,7 @@ class FilterChain:
     @property
     def filters(self) -> list[AudioFilter]:
         """List of filters in chain order (copy)."""
-        # snapshot under the lock — returns a fresh list the
+        # snapshot under the lock, returns a fresh list the
         # caller can iterate without holding the chain lock.
         with self._lock:
             return list(self._filters)
@@ -249,7 +249,7 @@ class FilterChain:
         previous session's audio residual is securely cleared (each
         filter's ``reset()`` zeroes its state array in-place via
         ``ndarray.fill(0)``). The original code did this BEFORE the
-        swap, under the lock — but the audio thread releases the lock
+        swap, under the lock, but the audio thread releases the lock
         BEFORE running the filters, so a concurrent ``process()``
         that had already snapshotted the old list would race with the
         reset regardless of whether the reset is done before or after
@@ -260,14 +260,14 @@ class FilterChain:
              ``O(n_filters × reset_cost)`` (each reset may zero a
              multi-KB state array) to ``O(1)`` (a single bytecode
              STORE). This matters because ``process()`` snapshots
-             under the same lock — a long reset loop would stall the
+             under the same lock, a long reset loop would stall the
              audio thread's snapshot for the duration of N resets.
           2. The race window (if any) is unchanged: the audio thread
              releases the lock before running filters in BOTH the old
              and new code, so a reset on the old filters can race
              with an in-flight ``process()`` on the old list in BOTH
              versions. Moving the reset out of the lock doesn't make
-             this worse — it just makes the lock window shorter.
+             this worse, it just makes the lock window shorter.
 
         the swap itself is a single atomic reference assignment
         (``self._filters = new_list``) under the lock. The
@@ -275,7 +275,7 @@ class FilterChain:
         the lock is held for microseconds, not for the duration of
         the copy. ``process()`` callers that snapshotted the old list
         before this swap will finish their chunk on the old filters
-        (the snapshot is a fresh list, immune to the swap) — the next
+        (the snapshot is a fresh list, immune to the swap), the next
         ``process()`` call sees the new list. This is the desired
         semantics: a chunk is processed by exactly one filter list,
         never a mix.
@@ -284,18 +284,18 @@ class FilterChain:
         single buggy filter's reset() must not break the swap (the
         new chain has already taken effect).
         """
-        # Build the new list first (outside the lock — no contention
+        # Build the new list first (outside the lock, no contention
         # with concurrent process() callers during the copy).
         new_list = list(new_filters)
         with self._lock:
             old = self._filters
-            # Atomic reference swap — single bytecode STORE. Concurrent
+            # Atomic reference swap, single bytecode STORE. Concurrent
             # process() callers see either the old or the new list,
             # never a mix (the GIL serializes the STORE against their
             # snapshot read).
             self._filters = new_list
         # zero state on old filters AFTER the swap (outside
-        # the lock — see the docstring for the rationale).
+        # the lock: see the docstring for the rationale).
         for f in old:
             with contextlib.suppress(Exception):
                 f.reset()

@@ -2,7 +2,7 @@
 //!
 //! Originally inline in `system_cmds.rs` as `#[cfg(test)] mod tests { ... }`;
 //! moved to this sibling file to keep production source files free of test
-//! code (C-TEST-5 — matches the pattern established by
+//! code (C-TEST-5: matches the pattern established by
 //! `commands/bubble/tests.rs`).
 //!
 //! These tests pin the defense-in-depth config-redaction logic
@@ -129,7 +129,7 @@ fn test_redact_config_secrets_array_of_objects() {
 
 #[test]
 fn test_redact_config_secrets_skips_null_values() {
-    // A sensitive key with a null value is not a leak — don't
+    // A sensitive key with a null value is not a leak, don't
     // redact (and don't log a warn).
     let mut v = json!({
         "api_key": null,
@@ -195,7 +195,7 @@ fn test_redact_config_secrets_no_secrets() {
 
 #[test]
 fn test_redact_config_secrets_non_object_root() {
-    // The root itself is not under any key — redaction only
+    // The root itself is not under any key, redaction only
     // applies to values whose parent KEY is sensitive. A bare
     // scalar root has nothing to redact.
     let mut v = json!("just a string");
@@ -209,12 +209,12 @@ fn test_redact_config_secrets_non_object_root() {
 // Pins the locale-storage contract mirrored from Electron's
 // `i18n:set-locale` IPC handler: bare-string payload in,
 // `{ok: bool, error?}` envelope out, and domain-level failures
-// RESOLVE (ok:false) instead of rejecting — matching the Electron
+// RESOLVE (ok:false) instead of rejecting, matching the Electron
 // handler's resolve-not-reject behavior.
 //
 // The command wrapper's `require_main_window(&window)` guard needs a
 // live `tauri::Window`, which cannot be constructed in unit tests; its
-// decision logic is pinned below via `main_window_label_check` — the
+// decision logic is pinned below via `main_window_label_check`, the
 // same pure predicate the guard itself uses.
 
 #[test]
@@ -236,7 +236,7 @@ fn test_set_host_locale_empty_returns_ok_false_envelope() {
 #[test]
 fn test_set_host_locale_valid_stores_and_returns_ok_true() {
     let state = Arc::new(SidecarState::new());
-    // Starts empty — nothing pushed yet.
+    // Starts empty: nothing pushed yet.
     assert!(lock(&state.host_locale).is_none());
     let result = set_host_locale_core(String::from("de-DE"), &state);
     assert_eq!(result["ok"], true);

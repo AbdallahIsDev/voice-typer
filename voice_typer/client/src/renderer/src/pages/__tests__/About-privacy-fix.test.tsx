@@ -1,11 +1,11 @@
 /**
- * Tests for the BG-59 fix — now living on the two IA destinations the
+ * Tests for the BG-59 fix, now living on the two IA destinations the
  * disclosure was split into.
  *
  * Scenario under test: the previous About page rendered a "Full Privacy
  * Policy" button in the Privacy section footer that pointed at the same
  * SECURITY.md URL as the "Security Policy" button in the Resources
- * section. The two byte-identical buttons were confusing UX — users
+ * section. The two byte-identical buttons were confusing UX, users
  * clicked "Full Privacy Policy" expecting a privacy-specific document
  * and landed on the security policy instead.
  *
@@ -41,7 +41,7 @@ vi.mock("@hugeicons/core-free-icons", () => hugeiconsCoreMock());
 vi.mock("sonner", () => sonnerMock());
 vi.mock("next-themes", () => nextThemesMock());
 
-describe("Merged About & Privacy page — BG-59 privacy URL fix", () => {
+describe("Merged About & Privacy page, BG-59 privacy URL fix", () => {
 	beforeEach(() => {
 		mockCall.mockReset();
 		mockCall.mockImplementation((type: string) => {
@@ -69,7 +69,7 @@ describe("Merged About & Privacy page — BG-59 privacy URL fix", () => {
 		cleanup();
 	});
 
-	it("does NOT render the 'Full Privacy Policy' button (removed — duplicate of Security Policy)", async () => {
+	it("does NOT render the 'Full Privacy Policy' button (removed, duplicate of Security Policy)", async () => {
 		const { default: AboutAndPrivacyPage } = await import(
 			"@/pages/AboutAndPrivacy"
 		);
@@ -81,14 +81,14 @@ describe("Merged About & Privacy page — BG-59 privacy URL fix", () => {
 			).toBeTruthy();
 		});
 
-		// The "Full Privacy Policy" button is gone — the i18n key
+		// The "Full Privacy Policy" button is gone, the i18n key
 		// (about.fullPrivacyPolicy) was removed from every locale
 		// (unused dead key, cleaned up with the note removal), and
 		// the UI renders no "Full Privacy Policy" surface at all.
 		expect(screen.queryByText("Full Privacy Policy")).toBeNull();
 	});
 
-	it("does NOT render the 'See the full privacy policy below' note (removed — the full privacy content is already shown inline above it)", async () => {
+	it("does NOT render the 'See the full privacy policy below' note (removed, the full privacy content is already shown inline above it)", async () => {
 		const { default: AboutAndPrivacyPage } = await import(
 			"@/pages/AboutAndPrivacy"
 		);
@@ -100,7 +100,7 @@ describe("Merged About & Privacy page — BG-59 privacy URL fix", () => {
 			).toBeTruthy();
 		});
 
-		// The trailing "Privacy policy — See the full privacy policy
+		// The trailing "Privacy policy, See the full privacy policy
 		// below…" line pointed at nothing (the full disclosure is
 		// rendered in the rows above it). Both the label and the note
 		// are gone; the Security Policy link lives in Resources.
@@ -136,7 +136,7 @@ describe("Merged About & Privacy page — BG-59 privacy URL fix", () => {
 
 		// Before BG-59, two anchors pointed at SECURITY.md (one in the
 		// Privacy footer, one in Resources). After BG-59, only one
-		// anchor should — the Resources-section Security Policy link.
+		// anchor should, the Resources-section Security Policy link.
 		const securityAnchors = container.querySelectorAll(
 			'a[href*="SECURITY.md"]',
 		);

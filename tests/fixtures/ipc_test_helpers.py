@@ -22,7 +22,7 @@ without breaking half the IPC tests.
 These helpers provide a single, canonical fake that mirrors
 ``AppProtocol`` exactly.  When a handler starts reading a new
 ``self.app.X`` field, the introspection regression test in
-``tests/test_di_providers.py`` fails — and ``make_fake_app`` is the
+``tests/test_di_providers.py`` fails, and ``make_fake_app`` is the
 single place to update so every test gets the new attribute.
 
 Usage
@@ -65,7 +65,7 @@ def make_fake_app() -> MagicMock:
     - ``_ipc_server``: ``None`` (matches the real app's state before
       ``IPCServer.start()`` sets the back-reference).
     - ``_shutting_down``: ``False`` (matches the real app's running
-      state — the IPC ``_send`` path checks
+      state, the IPC ``_send`` path checks
       ``getattr(self.app, '_shutting_down', False) is True`` and a
       child mock would be truthy but not ``is True``, so the shutdown
       short-circuit must be tested by setting ``_shutting_down = True``
@@ -76,7 +76,7 @@ def make_fake_app() -> MagicMock:
     The methods declared on ``AppProtocol`` (``change_model``,
     ``toggle_dictation``, ``undo_last``, ``repaste_last``,
     ``restart_app``, ``quit_app``, ``quit``, ``start``) are
-    auto-stubbed by ``MagicMock`` — calling them returns a child mock
+    auto-stubbed by ``MagicMock``, calling them returns a child mock
     and records the call for later assertion.  No explicit
     configuration is needed.
 
@@ -100,7 +100,7 @@ def make_fake_app() -> MagicMock:
     """
     app = MagicMock(name="fake_app")
 
-    # Public domain objects — pre-create them so callers can configure
+    # Public domain objects, pre-create them so callers can configure
     # them (e.g. ``fake_app.config.hotkey = "<f3>"``) without fighting
     # MagicMock's auto-child behavior.
     app.config = MagicMock(name="fake_app.config")
@@ -118,7 +118,7 @@ def make_fake_app() -> MagicMock:
     # (the hook actually wraps on the first call, exactly like
     # production).
     app.tray.set_state._vt_wrapped = False
-    # Per-correction usage tracker (``correction_usage.py``) — read by
+    # Per-correction usage tracker (``correction_usage.py``), read by
     # the vocabulary service (``get_correction_usage`` IPC + the
     # prune-after-save path). Child mock so handlers can stub
     # ``record_dictation`` / ``get_snapshot`` / ``prune_entries``.
@@ -196,7 +196,7 @@ def make_fake_service() -> MagicMock:
     service.save_vocabulary_with_diff.return_value = {"ok": True, "added": 0, "removed": 0}
     service.get_templates.return_value = []
     service.save_templates.return_value = True
-    # export_diagnostics mock removed — the service method no longer
+    # export_diagnostics mock removed, the service method no longer
     # exists (dead bundle pipeline deleted; support bundles come from
     # the CLI scripts/diagnostics.py export).
     return service
@@ -217,8 +217,8 @@ def make_ipc_server_with_fakes(*, thread_registry: Any = _UNSET_THREAD_REGISTRY)
 
     The returned server has:
 
-    - ``server.app`` — the fake app from :func:`make_fake_app`
-    - ``server.service`` — the fake service from :func:`make_fake_service`
+    - ``server.app``, the fake app from :func:`make_fake_app`
+    - ``server.service``, the fake service from :func:`make_fake_service`
       (NOT a real ``VoiceTyperService``; the DI seam in
       ``IPCServer.__init__`` stored it verbatim).
 
@@ -236,7 +236,7 @@ def make_ipc_server_with_fakes(*, thread_registry: Any = _UNSET_THREAD_REGISTRY)
     Returns
     -------
     tuple
-        ``(server, fake_app, fake_service)`` — the server is ready to
+        ``(server, fake_app, fake_service)``, the server is ready to
         ``start()`` (or just to call ``_dispatch`` on directly, which
         is the typical test pattern).  The fake app and service are
         returned so the test can configure return values and assert
@@ -275,7 +275,7 @@ def make_bare_ipc_server(
     drifted: three of them set only ``app`` / ``service`` /
     ``app._config_mutation_lock``; the fourth (toast_linux) additionally
     set ``server._dispatch_lock`` because ``__new__`` skips
-    ``__init__`` and ``_dispatch`` acquires that lock — without it a
+    ``__init__`` and ``_dispatch`` acquires that lock, without it a
     dispatch raises ``AttributeError``. This factory merges both shapes
     so every caller gets the lock fix.
 
@@ -288,24 +288,24 @@ def make_bare_ipc_server(
 
     Sets exactly:
 
-    - ``server.app`` — ``MagicMock`` with ``_config_mutation_lock`` set
+    - ``server.app``: ``MagicMock`` with ``_config_mutation_lock`` set
       to a fresh ``threading.RLock`` (the config handlers acquire the
       app-level lock).
-    - ``server.service`` — plain ``MagicMock``.
-    - ``server._dispatch_lock`` — fresh ``threading.RLock`` (mirrors
+    - ``server.service``, plain ``MagicMock``.
+    - ``server._dispatch_lock``, fresh ``threading.RLock`` (mirrors
       ``IPCServer.__init__``; ``RLock`` so a handler that re-enters
       ``_dispatch`` on the same thread doesn't self-deadlock).
 
     With ``send_path=True`` it additionally initializes the instance
     state that ``OutputMixin._send`` / ``push`` touch, mirroring the
-    production ``__init__`` values — the canonical fixture for the TCP
+    production ``__init__`` values, the canonical fixture for the TCP
     outbound-path tests that used to re-create this attribute block
     inline via ``IPCServer.__new__``:
 
     - ``app._shutting_down = False`` (bool so any ``is True`` shutdown
       gate sees a real ``False``).
-    - ``server._lock`` / ``server._tcp_write_lock`` — fresh RLocks.
-    - ``server._pending_tcp`` — ``_PendingBuffer(maxlen=_TCP_PENDING_BUFFER_CAP)``
+    - ``server._lock`` / ``server._tcp_write_lock``, fresh RLocks.
+    - ``server._pending_tcp``: ``_PendingBuffer(maxlen=_TCP_PENDING_BUFFER_CAP)``
       (the production bounded FIFO shape).
     - ``server._tcp_mode = True``, ``server._cached_shutting_down = False``,
       ``server._tcp_client = None``.
@@ -346,7 +346,7 @@ def make_bare_ipc_server(
     # ``__new__`` skips ``__init__``; ``_dispatch`` acquires this lock.
     server._dispatch_lock = threading.RLock()
     if send_path:
-        # Sender-path fixture state — exactly what ``OutputMixin._send``
+        # Sender-path fixture state, exactly what ``OutputMixin._send``
         # and ``push`` read/write (mirrors ``IPCServer.__init__``).
         app._shutting_down = False
         server._lock = threading.RLock()

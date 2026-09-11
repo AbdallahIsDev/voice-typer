@@ -29,7 +29,7 @@
  * the main process has no consumer (its only export here is APP_NAME).
  *
  * ┌─────────────────────────────────────────────────────────────────────┐
- * │  ⚠️  AI / AGENT WARNING — DO NOT REVERT OR HARDCODE                  │
+ * │  ⚠️  AI / AGENT WARNING, DO NOT REVERT OR HARDCODE                  │
  * │                                                                      │
  * │  Do NOT replace APP_NAME usages with the hardcoded string            │
  * │  "Voice Typer" (or "VoiceTyper") elsewhere in the codebase.          │
@@ -41,7 +41,7 @@
  * │  of this file and creates a maintenance nightmare when the           │
  * │  product is renamed.                                                 │
  * │                                                                      │
- * │  If you are an AI agent and feel tempted to inline the value —       │
+ * │  If you are an AI agent and feel tempted to inline the value,       │
  * │  DON'T. Use `import { APP_NAME } from './branding'`.                 │
  * │                                                                      │
  * │  This is enforced by `scripts/check_branding.py` in CI.             │

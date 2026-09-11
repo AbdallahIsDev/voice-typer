@@ -2,7 +2,7 @@
 
 Extracted from ``voice_typer/server/app.py`` (REF-3) so the entry file can
 stay focused on orchestration. The functions here are re-exported from
-``app.py`` for backwards compatibility — tests and other modules that do
+``app.py`` for backwards compatibility, tests and other modules that do
 ``from voice_typer.server.app import _ensure_single_instance`` continue to
 work.
 
@@ -11,11 +11,11 @@ secured with a restrictive DACL built by
 :func:`voice_typer.server._security_attributes._create_restrictive_security_attributes`.
 The ``VOICE_TYPER_RESTART`` env var allows a new instance to start while the
 old instance is shutting down. The old instance must release the mutex/flock
-before the new instance can acquire it — there is no time-limited token
+before the new instance can acquire it, there is no time-limited token
 bypass (the orphan restart-token machinery in ``security.py`` was removed;
 the env var is honored as a restart hint only).
 
-on ``error_already_exists`` we exit IMMEDIATELY — no retry loop.
+on ``error_already_exists`` we exit IMMEDIATELY, no retry loop.
 
 on POSIX (Linux/macOS) single-instance is enforced via an
 ``O_CREAT | O_EXCL`` exclusive-create on ``<config_dir>/backend.lock``
@@ -25,14 +25,14 @@ existing lockfile as defense-in-depth (). The fd is held for the
 process lifetime (closed by ``_PosixSingleInstanceHandle.release()``
 during graceful shutdown). The kernel auto-releases the flock if the
 process dies, so unlike the Windows named mutex there is no
-abandoned-lock recovery path for the flock half — but the
+abandoned-lock recovery path for the flock half, but the
 ``O_CREAT | O_EXCL`` half CAN leave a stale lockfile if the process
 dies between ``open()`` and the first ``write()``, so the POSIX path
 also does stale-PID recovery (see ``_ensure_posix_single_instance``).
 
 the prior docstring claimed the lockfile was named
 ``voice-typer.lock`` and that ``fcntl.flock`` was the *primary*
-mechanism. Both claims were stale — the actual lockfile is
+mechanism. Both claims were stale, the actual lockfile is
 ``backend.lock`` (see ``_ensure_posix_single_instance`` line ~587) and
 the primary mechanism is ``O_CREAT | O_EXCL`` with ``flock`` as the
 secondary defense-in-depth.
@@ -50,7 +50,7 @@ from typing import TYPE_CHECKING
 from voice_typer.server._security_attributes import (
     _create_restrictive_security_attributes,
 )
-from voice_typer.server.backend_pid import (  # noqa: F401 — re-exported for backwards compatibility
+from voice_typer.server.backend_pid import (  # noqa: F401, re-exported for backwards compatibility
     _backend_pid_file,
     _clear_backend_pid_file,
     _is_pid_alive,
@@ -80,9 +80,9 @@ else:
 # single-instance path. ``_backend_pid_file()`` and the POSIX ensure
 # path resolve ``_config_dir`` at call time through the owning
 # ``voice_typer.server.config`` module object instead, so the heavy
-# app orchestrator is never imported here (BP-126) — patch
+# app orchestrator is never imported here (BP-126), patch
 # ``voice_typer.server.config._config_dir`` to redirect those paths.
-from voice_typer.server.config import (  # noqa: E402,F401 — re-exported for monkeypatching
+from voice_typer.server.config import (  # noqa: E402,F401, re-exported for monkeypatching
     _config_dir,
 )
 
@@ -98,10 +98,10 @@ def _startup_line(level: str, msg: str) -> None:
     the startup banner). At that point the ``log`` logger has no
     handlers, so ``log.info``/``log.warning`` would be silently dropped
     (or hit the ugly ``logging.lastResort`` fallback formatter). Write a
-    clean terminal-style line to stderr instead — the same
+    clean terminal-style line to stderr instead, the same
     ``HH:MM:SS  [WARN ]msg`` shape the terminal formatter produces
     (C-LOG-1: time-only on the terminal, INFO level label omitted).
-    Harmless under ``pythonw.exe`` where stderr is devnull — the line is
+    Harmless under ``pythonw.exe`` where stderr is devnull, the line is
     simply invisible there, exactly as before.
     """
     try:
@@ -123,7 +123,7 @@ class _PosixSingleInstanceHandle(int):
         ``os.close(handle)`` works on the int value).
 
         The wrapper exists so graceful shutdown can explicitly close the fd
-        (releasing the ``fcntl.flock``) — mirroring the Windows path's
+        (releasing the ``fcntl.flock``), mirroring the Windows path's
         ``CloseHandle`` step. Without it, the POSIX fd was stored on
         ``ipc_server._single_instance_mutex`` and only released implicitly
         by process exit, which on graceful restart could leave the fd
@@ -131,7 +131,7 @@ class _PosixSingleInstanceHandle(int):
 
         ``release()`` is idempotent: subsequent calls are no-ops. It is
         safe to call after the underlying fd has already been closed
-        (e.g., by a test's ``os.close(handle)`` cleanup) — the
+        (e.g., by a test's ``os.close(handle)`` cleanup), the
         ``OSError`` from the double-close is suppressed at DEBUG level.
 
     coordination note: ``shutdown_controller._do_cleanup``
@@ -188,7 +188,7 @@ class _PosixSingleInstanceHandle(int):
                 "[SHUTDOWN] POSIX single-instance fd close failed",
                 exc_info=True,
             )
-        # Best-effort unlink — if the file was already removed (e.g.,
+        # Best-effort unlink, if the file was already removed (e.g.,
         # another launch's stale-reclaim), we don't care; the next
         # launch's ``O_EXCL`` will create a fresh lockfile.
         if self._lock_path is not None:
@@ -203,7 +203,7 @@ def _write_backend_pid_file() -> None:
 
         pid_file = _backend_pid_file()
         pid_file.parent.mkdir(parents=True, exist_ok=True)
-        # durability=False — the PID file is recreated on every
+        # durability=False, the PID file is recreated on every
         # launch, so a power-loss window of a few seconds is acceptable.
         # The atomic os.replace still guarantees consistency (no
         # half-written files); only the per-save fsync is dropped.
@@ -221,7 +221,7 @@ def _record_backend_ipc_port(port: int) -> None:
     launcher-side reader
     (``autostart.pid_file._read_ipc_port_from_pid_file``) and the
     post-spawn port poll already parse a ``port=<n>`` line, but no
-    writer ever emitted one — every backend silently fell back to the
+    writer ever emitted one, every backend silently fell back to the
     default IPC_PORT. Called once the IPC server has bound (ipc
     entrypoint, both the ``--port`` and standalone branches).
 
@@ -275,7 +275,7 @@ def _read_stale_backend_pid() -> int | None:
         # other than OSError) at DEBUG level so the next launch's
         # "Only one instance can run" failure has a traceable root
         # cause in the log. Previously this was a bare ``return None``
-        # which silently looked like "no stale PID" — the genuine-
+        # which silently looked like "no stale PID", the genuine-
         # duplicate path then exited with a confusing error message.
         #
         # ``single_instance.py`` is co-owned by Fix-B and Fix-I per
@@ -296,7 +296,7 @@ def _ensure_single_instance(silent: bool = False):
 
     dispatches to the Windows named-mutex path or the POSIX
         flock path. The ``VOICE_TYPER_RESTART`` env var is a hint that a
-        restart is in progress (no time-limited token bypass — the
+        restart is in progress (no time-limited token bypass, the
         old instance must release the mutex/flock before the new instance
         can acquire it).
 
@@ -308,7 +308,7 @@ def _ensure_single_instance(silent: bool = False):
         the backend PID file.
         On duplicate launch (either platform): the function exits the
         process via ``sys.exit(1)`` (Windows) or returns ``None`` (POSIX
-        — the caller decides whether to exit).
+       , the caller decides whether to exit).
         On restart bypass: returns ``None``.
 
         Parameters
@@ -316,24 +316,24 @@ def _ensure_single_instance(silent: bool = False):
         silent : bool
             If True, skip the Windows MessageBoxW dialog (the caller, e.g.
             the Electron frontend, handles the "already running" UX). The
-            stderr line always prints regardless of ``silent`` — it is the
+            stderr line always prints regardless of ``silent``, it is the
             single user-facing "already running" diagnostic in a terminal;
             under ``pythonw.exe`` stderr is devnull so it is invisible
             there (no packaged-app UX regression).
 
         On duplicate launch on Windows, ``CreateMutexW`` returns
-        ``error_already_exists`` (183) — the authoritative signal that
+        ``error_already_exists`` (183), the authoritative signal that
         another instance owns the lock. We bail immediately.
         (Previously the code second-guessed Windows with a flaky
         ``wmic``-based process scan and, when that scan returned False,
-        proceeded to create a *new* mutex — which let duplicate backends
+        proceeded to create a *new* mutex: which let duplicate backends
         run simultaneously, causing each recording to be transcribed and
         pasted N times.)
 
         SEC-001: Uses "Local\\VoiceTyperSingleInstance" with a restrictive
         DACL (only current user SID) to prevent cross-session mutex attacks.
         The ``VOICE_TYPER_RESTART`` env var is honored as a restart hint
-        only — there is no time-limited token file; the old instance must
+        only, there is no time-limited token file; the old instance must
         release the mutex/flock before the new instance can acquire it.
     """
     # dispatch to the platform-specific enforcement path via
@@ -342,7 +342,7 @@ def _ensure_single_instance(silent: bool = False):
     # checking ``sys.platform`` here would bypass the monkeypatch on
     # Linux test runs (where ``is_windows`` is forced True to exercise
     # the Windows mutex path's dispatcher routing) and fall through to
-    # the POSIX helper — defeating the test's assertion that the POSIX
+    # the POSIX helper, defeating the test's assertion that the POSIX
     # helper is NOT called when ``is_windows()`` is True.
     if is_windows():
         return _ensure_windows_single_instance(silent)
@@ -367,7 +367,7 @@ def _ensure_windows_single_instance(silent: bool = False):
     The mutex name is ``"Local\\VoiceTyperSingleInstance"`` (SEC-001)
     with a restrictive DACL so only the current user SID can open it.
     ``error_already_exists`` (183) from ``CreateMutexW`` is the
-    authoritative duplicate signal — we exit immediately, no retry.
+    authoritative duplicate signal, we exit immediately, no retry.
     """
     import ctypes
     from ctypes import wintypes
@@ -398,7 +398,7 @@ def _ensure_windows_single_instance(silent: bool = False):
     # stdin/stdout/stderr, and the handle is also marked inheritable).
     # A child Python backend spawned for diagnostics would falsely see
     # the mutex as already held (``error_already_exists``) and refuse
-    # to start — or worse, would inherit a duplicate handle that kept
+    # to start, or worse, would inherit a duplicate handle that kept
     # the named object alive even after the parent quit. We disable
     # inheritance via ``SetHandleInformation(..., HANDLE_FLAG_INHERIT, 0)``
     # immediately after ``CreateMutexW`` returns so no child ever
@@ -427,7 +427,7 @@ def _ensure_windows_single_instance(silent: bool = False):
             kernel32.SetHandleInformation(mutex, HANDLE_FLAG_INHERIT, 0)
         except Exception:
             log.debug(
-                "[STARTUP] SetHandleInformation(HANDLE_FLAG_INHERIT=0) failed — "
+                "[STARTUP] SetHandleInformation(HANDLE_FLAG_INHERIT=0) failed, "
                 "mutex handle remains inheritable by child processes",
                 exc_info=True,
             )
@@ -443,19 +443,19 @@ def _ensure_windows_single_instance(silent: bool = False):
             _startup_line(
                 "WARN",
                 "[STARTUP] Another instance's lock exists, but its PID file "
-                f"points to a dead process ({stale_pid}) — reclaiming the lock "
+                f"points to a dead process ({stale_pid}), reclaiming the lock "
                 "and proceeding",
             )
             _clear_backend_pid_file()
         # The probe below (WaitForSingleObject) is the authoritative check
         # for whether the mutex is genuinely held by a live process or was
-        # abandoned by a crashed one — no pre-probe message needed; the
+        # abandoned by a crashed one, no pre-probe message needed; the
         # outcome line (acquired vs. blocked) carries the information.
         # Use WaitForSingleObject with zero timeout to check if the
         # mutex is genuinely owned by another live process or was
         # abandoned (previous process crashed).  This is the correct
         # Windows API for distinguishing abandoned mutexes from live
-        # ones — CloseHandle+CreateMutexW doesn't work because the
+        # ones, CloseHandle+CreateMutexW doesn't work because the
         # named kernel object persists in the \BaseNamedObjects        # namespace even after all handles are closed.
         #
         # WaitForSingleObject return values:
@@ -473,8 +473,7 @@ def _ensure_windows_single_instance(silent: bool = False):
                 # Previous instance crashed.  The mutex is now OURS.
                 _startup_line(
                     "WARN",
-                    "[STARTUP] The previous instance's lock was abandoned "
-                    "(it crashed) — acquired ownership, proceeding",
+                    "[STARTUP] The previous instance's lock was abandoned (it crashed), acquired ownership, proceeding",
                 )
                 _write_backend_pid_file()
                 return mutex
@@ -482,25 +481,25 @@ def _ensure_windows_single_instance(silent: bool = False):
                 # Unexpectedly acquired the mutex.  Proceed anyway.
                 _startup_line(
                     "WARN",
-                    "[STARTUP] Mutex unexpectedly acquired after duplicate signal — proceeding",
+                    "[STARTUP] Mutex unexpectedly acquired after duplicate signal, proceeding",
                 )
                 _write_backend_pid_file()
                 return mutex
             # WAIT_TIMEOUT (or any other result) → genuine duplicate.
             # Fall through to sys.exit(1) below.
         # Windows guarantees: this means another process holds the mutex
-        # RIGHT NOW.  Trust it — no need to scan for the competing
+        # RIGHT NOW.  Trust it, no need to scan for the competing
         # process (: the old _another_voice_typer_alive() scan
-        # had zero decision power — the mutex already proved a
+        # had zero decision power, the mutex already proved a
         # duplicate, and the scan result only affected a log message).
-        # The single user-facing line for a duplicate launch — clear copy,
+        # The single user-facing line for a duplicate launch, clear copy,
         # no internal mutex/PID jargon. Always printed (even with
         # ``silent=True``) so a terminal launch of a second instance shows
         # exactly one understandable line and nothing else (no banner, no
-        # VEH line — logging was never initialized).
+        # VEH line, logging was never initialized).
         _startup_line(
             "INFO",
-            "[STARTUP] Voice Typer is already running — only one instance is allowed",
+            "[STARTUP] Voice Typer is already running, only one instance is allowed",
         )
         if not silent:
             msg = "Voice Typer is already running. Only one instance is allowed."
@@ -522,7 +521,7 @@ def _ensure_windows_single_instance(silent: bool = False):
         if not silent and sys.stderr is not None:
             print("Voice Typer: mutex access denied.", file=sys.stderr)
         sys.exit(1)
-    # P1-1.4: mutex acquired — write our PID so the next launch can
+    # P1-1.4: mutex acquired, write our PID so the next launch can
     # detect a stale lock if we crash hard.
     _write_backend_pid_file()
     return mutex
@@ -540,7 +539,7 @@ def _ensure_single_instance_posix(silent: bool = False):
 
     On ``O_EXCL`` failure (lockfile already exists), we attempt
         ``fcntl.flock(fd, LOCK_EX | LOCK_NB)`` on the existing lockfile
-        FIRST — before any PID liveness check. ``flock`` is the
+        FIRST, before any PID liveness check. ``flock`` is the
         crash-safe primitive (the kernel auto-releases it on process
         death, including hard crashes like SIGKILL/OOM/power loss). PID
         liveness via ``_is_pid_alive`` is a secondary diagnostic that can
@@ -566,13 +565,13 @@ def _ensure_single_instance_posix(silent: bool = False):
         (NOT via ``voice_typer.server._paths.config_dir``). Both resolve
         to the same function object at import time, but the test fixture
         ``isolated_config_dir`` monkeypatches the ``_config_dir``
-        attribute on the ``config`` module — and ``_paths.config_dir()``
+        attribute on the ``config`` module, and ``_paths.config_dir()``
         looks up its own memoized resolver, NOT ``config._config_dir``,
         so the patch was invisible to this function and the lockfile was
         created in the real config dir (not ``tmp_path``). Resolving via
         the ``config`` module's attribute at call time honors the
         monkeypatch (and keeps the heavy ``app`` orchestrator out of
-        this login-time path — BP-126).
+        this login-time path, BP-126).
     """
     import fcntl
 
@@ -585,14 +584,14 @@ def _ensure_single_instance_posix(silent: bool = False):
         # ``mkdir(parents=True, exist_ok=True)`` defaulted to 0o777
         # masked by umask → 0o755 on most Linux distros, which let other
         # non-root users stat the lock file (mode 0o600, content is
-        # the PID — minor info leak) and pre-create the dir with looser
+        # the PID, minor info leak) and pre-create the dir with looser
         # perms to plant a symlink at the lock file (the
         # ``os.open(O_CREAT|O_EXCL)`` call below follows symlinks on
         # Linux because ``O_NOFOLLOW`` was not set).
         #
         # The defensive ``os.chmod`` after creation handles the case
         # where the dir ALREADY existed (``exist_ok=True``) with looser
-        # perms from a prior run — ``mkdir`` is a no-op in that case so
+        # perms from a prior run, ``mkdir`` is a no-op in that case so
         # the ``mode`` argument has no effect, but ``chmod`` tightens
         # the existing perms.
         cdir.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -621,7 +620,7 @@ def _ensure_single_instance_posix(silent: bool = False):
             # the target file (or truncate it via the O_RDWR path).
             # ``O_NOFOLLOW`` is a Linux/macOS/BSD extension that breaks
             # the symlink chain at the LAST component (the file itself
-            # — we still want to follow the dir components of the path).
+            # , we still want to follow the dir components of the path).
             fd = os.open(
                 str(path),
                 os.O_CREAT | os.O_EXCL | os.O_RDWR | os.O_CLOEXEC | os.O_NOFOLLOW,
@@ -632,7 +631,7 @@ def _ensure_single_instance_posix(silent: bool = False):
             return None
         except OSError as exc:
             # ``O_NOFOLLOW`` raises ``ELOOP`` (errno 40) on Linux when
-            # the trailing component is a symlink — surface the same
+            # the trailing component is a symlink, surface the same
             # error message as the existing OSError handler so the
             # user sees a clear "cannot create lock file" diagnostic
             # (instead of a confusing "Too many levels of symbolic
@@ -651,7 +650,7 @@ def _ensure_single_instance_posix(silent: bool = False):
 
     fd = _try_acquire(lock_path)
     if fd is None:
-        # O_EXCL failed — lockfile exists. Try flock FIRST.
+        # O_EXCL failed, lockfile exists. Try flock FIRST.
         # ``flock`` is the crash-safe primitive (kernel auto-releases
         # on process death); PID liveness can be fooled by PID
         # recycling. Open the existing lockfile non-exclusively and
@@ -670,7 +669,7 @@ def _ensure_single_instance_posix(silent: bool = False):
             #      a victim's writable file).
             #   3. This secondary ``os.open(O_RDWR)`` (without
             #      ``O_NOFOLLOW``) would follow the symlink and open
-            #      the TARGET for read/write — the subsequent
+            #      the TARGET for read/write, the subsequent
             #      ``os.ftruncate`` / ``os.write`` (PID rewrite) would
             #      clobber the target's content.
             # ``O_NOFOLLOW`` causes the kernel to raise ``ELOOP`` if
@@ -678,11 +677,11 @@ def _ensure_single_instance_posix(silent: bool = False):
             # breaking the chain at the last hop. The broad ``except
             # OSError`` below already handles ``ELOOP`` by falling
             # through to the legacy PID-check path (which uses
-            # ``open(path)`` to read the PID — that DOES follow
+            # ``open(path)`` to read the PID, that DOES follow
             # symlinks, but only to READ the symlink target's content
             # as a PID; if it's not a digit, ``_read_pid_from_lockfile``
             # returns None and the legacy path ``os.unlink``s the
-            # symlink itself — NOT the target — before retrying
+            # symlink itself. NOT the target, before retrying
             # ``_try_acquire`` with ``O_EXCL``).
             existing_fd = os.open(
                 str(lock_path),
@@ -693,7 +692,7 @@ def _ensure_single_instance_posix(silent: bool = False):
             # permissions, the file disappeared between O_EXCL and
             # this open, OR ``O_NOFOLLOW`` raised ``ELOOP`` because
             # the trailing component is a symlink). Fall
-            # through to the legacy PID-check path below — it may
+            # through to the legacy PID-check path below, it may
             # still be able to read the PID via Python's ``open()``
             # and reclaim via unlink+retry. The legacy path's
             # ``os.unlink`` removes the symlink itself (not the
@@ -703,12 +702,12 @@ def _ensure_single_instance_posix(silent: bool = False):
             if exc.errno == errno.ELOOP:
                 # Explicit ELOOP handling so operators grep-ing
                 # logs for symlink attacks can find this code path.
-                # Not a warning — the legacy fallback below handles
-                # it gracefully — but a DEBUG log aids post-incident
+                # Not a warning, the legacy fallback below handles
+                # it gracefully, but a DEBUG log aids post-incident
                 # forensics.
                 log.debug(
                     "single_instance: backend.lock is a symlink (ELOOP on "
-                    "secondary open) — falling through to legacy PID-check path"
+                    "secondary open), falling through to legacy PID-check path"
                 )
             existing_fd = None
 
@@ -744,7 +743,7 @@ def _ensure_single_instance_posix(silent: bool = False):
                     if not silent and sys.stderr is not None:
                         print(msg, file=sys.stderr)
                     sys.exit(1)
-                # Unexpected flock errno — fall through to the legacy
+                # Unexpected flock errno, fall through to the legacy
                 # PID-check + unlink+retry path for robustness.
 
         # Legacy fallback: PID check + unlink + retry. Used when
@@ -758,7 +757,7 @@ def _ensure_single_instance_posix(silent: bool = False):
                 print(msg, file=sys.stderr)
             sys.exit(1)
 
-        # Stale lock — unlink and retry once.
+        # Stale lock, unlink and retry once.
         with contextlib.suppress(OSError):
             os.unlink(lock_path)
         fd = _try_acquire(lock_path)
@@ -779,7 +778,7 @@ def _ensure_single_instance_posix(silent: bool = False):
     try:
         fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError:
-        # Another process holds the flock — exit.
+        # Another process holds the flock, exit.
         with contextlib.suppress(OSError):
             os.close(fd)
         msg = "Voice Typer: another instance is already running (lock held)."

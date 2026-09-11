@@ -1,10 +1,10 @@
-"""FR-40 — regression tests for the extended remote-session detection
+"""FR-40: regression tests for the extended remote-session detection
 in :mod:`voice_typer.server.server_platform.remote_session`.
 
 Pre-fix symptom: ``is_remote_session`` only detected SSH (POSIX:
 ``$SSH_CLIENT`` / ``$SSH_TTY``) and Windows RDP (``SM_REMOTESESSION``).
 VNC, xrdp, NX/NoMachine, Citrix ICA, X2Go, Chrome Remote Desktop, and
-X11-forwarding-over-SSH-without-tty were all missed — clipboard and
+X11-forwarding-over-SSH-without-tty were all missed, clipboard and
 keystroke-injection behavior silently misbehaved on those backends.
 
 Post-fix: POSIX also checks ``$VNCDESKTOP``, ``$X2GO_SESSION``,
@@ -15,7 +15,7 @@ Remote Desktop), and scans ``/proc/*/comm`` for ``Xvnc`` / ``x2goagent``
 ``SM_REMOTESESSION`` misses. A warning is logged when a remote session
 is detected.
 
-These tests run on any platform — they patch ``platform_flags.SYSTEM`` to
+These tests run on any platform, they patch ``platform_flags.SYSTEM`` to
 exercise the POSIX and Windows branches, and clear all remote-session
 env vars to ensure a deterministic baseline.
 """
@@ -138,7 +138,7 @@ class TestPosixEnvVarDetection:
 class TestPosixProcScan:
     """FR-40: ``is_remote_session`` scans ``/proc/*/comm`` for VNC / NX
     / X2GO daemon processes (covers sessions that don't export an env
-    var to the user's shell — e.g. re-attached VNC sessions)."""
+    var to the user's shell, e.g. re-attached VNC sessions)."""
 
     def test_detects_xvnc_process(self, monkeypatch, tmp_path):
         """A ``/proc/<pid>/comm`` file containing "Xvnc" → returns
@@ -308,7 +308,7 @@ class TestWindowsDetection:
         # WTSQuerySessionInformationW returns 1 (success).
         mock_ctypes.windll.wtsapi32.WTSQuerySessionInformationW.return_value = 1
         # WTSGetActiveConsoleSessionId returns 0xFFFFFFFF (no physical
-        # console — headless / WVD session).
+        # console, headless / WVD session).
         mock_ctypes.windll.kernel32.WTSGetActiveConsoleSessionId.return_value = 0xFFFFFFFF
 
         # ``bytes_returned.value`` must be >= 4 (DWORD size).
@@ -350,7 +350,7 @@ class TestNoFalsePositiveLocalSession:
 
         monkeypatch.setattr(platform_flags, "SYSTEM", "linux")
         # Patch the /proc scan to return False (no VNC/NX/X2GO
-        # processes — the test environment likely doesn't have any,
+        # processes, the test environment likely doesn't have any,
         # but we patch to be deterministic).
         monkeypatch.setattr(remote_session, "_posix_proc_has_remote_desktop", lambda: False)
         assert remote_session.is_remote_session() is False

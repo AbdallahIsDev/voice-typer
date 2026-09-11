@@ -202,7 +202,7 @@ class TestHandlerCatchAllLogging:
         assert any(r.exc_info is not None for r in error_records)
 
     def test_catch_all_does_not_leak_traceback_to_client(self, ipc_server, fake_service):
-        # was ``_handle_export_diagnostics`` — switched to
+        # was ``_handle_export_diagnostics``, switched to
         # ``_handle_cancel_model_download`` (same catch-all path) after
         # the export_diagnostics handler was deleted.
         fake_service.cancel_model_download.side_effect = ValueError("malformed input\n  detail line 1\n  detail line 2")
@@ -219,7 +219,7 @@ class TestHandlerBaseErrorResponseExtraKwargs:
        that merge into ``resp["data"]`` alongside the standard ``code`` +
     ``message`` pair. Pre- the only ``_error_response`` was the
        standalone function in ``validation.py``, which does NOT accept
-       extra fields — so per-command validation errors that needed to
+       extra fields, so per-command validation errors that needed to
        carry field-level context (e.g. ``field="provider"``) had to be
        constructed inline as ``resp["data"] = {"message": "..."}`` with
        NO ``code`` field at all. The method form on ``HandlerBase``
@@ -271,7 +271,7 @@ class TestHandlerBaseErrorResponseExtraKwargs:
         """The ``code`` parameter is positional-or-keyword on the
         method signature, so a caller passing ``code=...`` in
         ``**extra`` would raise ``TypeError`` (Python's "multiple
-        values for keyword argument" error) — preventing accidental
+        values for keyword argument" error), preventing accidental
         shadowing of the standard pair. ``message`` is a positional
         parameter so the same protection applies."""
         from voice_typer.server.handlers._base import HandlerBase
@@ -279,7 +279,7 @@ class TestHandlerBaseErrorResponseExtraKwargs:
         helper = HandlerBase()
         resp = {}
         # ``code`` in **extra would collide with the explicit
-        # ``code`` parameter — Python rejects this at call time.
+        # ``code`` parameter, Python rejects this at call time.
         with pytest.raises(TypeError):
             helper._error_response(resp, "msg", code="client.not_found", **{"code": "x"})
 
@@ -298,13 +298,13 @@ class TestInlineValidationEnvelopesHaveCodeField:
        per-command validation rejections.
 
     The 7 sites covered (line numbers refer to source)
-       * ``cloud_test_handlers.py:154-158`` — missing ``provider``
-       * ``cloud_test_handlers.py:160-168`` — unknown ``provider`` (endpoint lookup)
-       * ``cloud_test_handlers.py:174-179`` — unknown ``provider`` (defensive config_field lookup)
-       * ``model_handlers.py:69-72``       — missing ``model`` (download_model)
-       * ``model_handlers.py:207-211``     — missing ``dir_path`` (import_model)
-       * ``model_handlers.py:240-243``     — directory not found (import_model)
-       * ``model_handlers.py:277-280``     — missing ``model`` (delete_model)
+       * ``cloud_test_handlers.py:154-158``, missing ``provider``
+       * ``cloud_test_handlers.py:160-168``, unknown ``provider`` (endpoint lookup)
+       * ``cloud_test_handlers.py:174-179``, unknown ``provider`` (defensive config_field lookup)
+       * ``model_handlers.py:69-72``     , missing ``model`` (download_model)
+       * ``model_handlers.py:207-211``   , missing ``dir_path`` (import_model)
+       * ``model_handlers.py:240-243``   , directory not found (import_model)
+       * ``model_handlers.py:277-280``   , missing ``model`` (delete_model)
     """
 
     # ── cloud_test_handlers.py ───────────────────────────────────
@@ -415,7 +415,7 @@ class TestNoInlineMessageOnlyEnvelopesRemain:
     inline pattern even on a code path the behavioural tests don't
     cover. The pattern is matched literally (not via regex) so a
     substring match in a docstring / comment would NOT trigger a
-    false positive — only the actual assignment-statement form
+    false positive, only the actual assignment-statement form
     matches.
     """
 
@@ -429,14 +429,14 @@ class TestNoInlineMessageOnlyEnvelopesRemain:
         # such site routes through ``self._error_response(...)``.
         assert 'resp["data"] = {"message":' not in src, (
             "cloud_test_handlers.py still contains an inline "
-            '``resp["data"] = {"message": ...}`` envelope — every '
+            '``resp["data"] = {"message": ...}`` envelope, every '
             "per-command validation error must route through "
             "``self._error_response(...)`` so the envelope carries a "
             "structured ``code`` field."
         )
         assert "resp['data'] = {'message':" not in src, (
             "cloud_test_handlers.py still contains an inline "
-            "``resp['data'] = {'message': ...}`` envelope — every "
+            "``resp['data'] = {'message': ...}`` envelope, every "
             "per-command validation error must route through "
             "``self._error_response(...)`` so the envelope carries a "
             "structured ``code`` field."
@@ -449,14 +449,14 @@ class TestNoInlineMessageOnlyEnvelopesRemain:
         src = (repo_root / "voice_typer/server/handlers/model_handlers.py").read_text()
         assert 'resp["data"] = {"message":' not in src, (
             "model_handlers.py still contains an inline "
-            '``resp["data"] = {"message": ...}`` envelope — every '
+            '``resp["data"] = {"message": ...}`` envelope, every '
             "per-command validation error must route through "
             "``self._error_response(...)`` so the envelope carries a "
             "structured ``code`` field."
         )
         assert "resp['data'] = {'message':" not in src, (
             "model_handlers.py still contains an inline "
-            "``resp['data'] = {'message': ...}`` envelope — every "
+            "``resp['data'] = {'message': ...}`` envelope, every "
             "per-command validation error must route through "
             "``self._error_response(...)`` so the envelope carries a "
             "structured ``code`` field ."

@@ -3,29 +3,29 @@
 
 Each test class pins a specific sub-finding:
 
-- ``the fix`` (Critical) — ``RecordingController._list_active_mic_ids``
+- ``the fix`` (Critical): ``RecordingController._list_active_mic_ids``
   returns the int ``index`` (not the str ``id``) so the
   ``MicrophoneDeviceWatcher`` membership check
   ``active_mic_id not in current_ids`` compares int-to-int. Pre-fix the
   provider returned ``m.get("id")`` (a str like ``"5"``) while
   ``set_active_mic_id`` is called with the int from
-  ``recorder._devices._resolve_device()`` — the int-vs-str mismatch made the
+  ``recorder._devices._resolve_device()``, the int-vs-str mismatch made the
   check ALWAYS fail, so ``on_active_mic_lost`` fired spuriously on the
   first device-change event after recording started.
 
-- ``the fix`` (Medium) — ``on_active_mic_lost`` (the fast-path OS-event
+- ``the fix`` (Medium): ``on_active_mic_lost`` (the fast-path OS-event
   callback) now publishes the ``microphone_disconnected`` IPC event via
   the shared ``_publish_microphone_disconnected_event`` helper, mirroring
   the slow-path ``on_device_lost``. Pre-fix only the slow path published,
   so the renderer showed no banner for the most common unplug scenario.
 
-- ``the fix`` (Medium) — ``VadProcessor.update_frame`` grey-zone logic in
+- ``the fix`` (Medium): ``VadProcessor.update_frame`` grey-zone logic in
   the SILENCE branch now seeds ``_consecutive_speech_frames`` to
   ``_speech_frames - 1`` after ``_grey_zone_hold_limit`` consecutive
   grey frames, so the next grey frame tips the state machine into
   SPEECH. Pre-fix the branch only decayed counters, so a user speaking
   softly (audio hovering in the grey zone) was never promoted to SPEECH
-  — the recorder stayed in SILENCE and auto-stopped.
+, the recorder stayed in SILENCE and auto-stopped.
 
 Run: ``python -m pytest tests/test_recording_controller_fixes.py -q --timeout=30``
 """
@@ -46,7 +46,7 @@ def _make_controller_for_mic_id_test() -> tuple:
     (the pre-fix format) and the int ``index`` (the post-fix format).
 
     The test asserts the provider returns ``[0, 1, 5]`` (ints), NOT
-    ``["0", "1", "5"]`` (strs) — so the watcher's
+    ``["0", "1", "5"]`` (strs), so the watcher's
     ``set_active_mic_id(5)`` (int) membership check passes.
     """
     from voice_typer.server.recording_controller import RecordingController
@@ -106,7 +106,7 @@ class TestMicIdTypeMismatch:
         from voice_typer.server.microphone_watcher import MicrophoneDeviceWatcher
 
         ctrl, app = _make_controller_for_mic_id_test()
-        # Build a real watcher (no OS bridge needed — we drive
+        # Build a real watcher (no OS bridge needed, we drive
         # ``_check_active_mic_lost`` directly).
         watcher = MicrophoneDeviceWatcher.__new__(MicrophoneDeviceWatcher)
         watcher._hooks_lock = threading.Lock()
@@ -133,7 +133,7 @@ class TestMicIdTypeMismatch:
 
         watcher._on_active_mic_lost = _tracking_callback
 
-        # Drive the check — the provider returns [0, 1, 5] (ints) and
+        # Drive the check, the provider returns [0, 1, 5] (ints) and
         # active_mic_id is 5 (int), so ``5 in [0, 1, 5]`` is True and
         # the callback MUST NOT fire.
         watcher._check_active_mic_lost()
@@ -317,7 +317,7 @@ class TestGreyZonePromote:
         frame to tip the state machine into SPEECH.
 
         The task description specifies seeding to ``_speech_frames - 1``
-        so the NEXT grey frame tips the transition — so 30 frames hit
+        so the NEXT grey frame tips the transition, so 30 frames hit
         the limit (seed) and the 31st tips it over.
         """
         from voice_typer.server.vad_processor import VadState
@@ -330,7 +330,7 @@ class TestGreyZonePromote:
             "test setup: grey_db must be between the silence and speech thresholds"
         )
 
-        # Feed 30 grey frames — the 30th hits the hold limit and seeds
+        # Feed 30 grey frames, the 30th hits the hold limit and seeds
         # speech_frames to _speech_frames - 1 (= 2 with default 3).
         for _ in range(30):
             vp.update_frame(grey_db)
@@ -346,7 +346,7 @@ class TestGreyZonePromote:
             f"got {vp.consecutive_speech_frames}"
         )
 
-        # Feed 1 more grey frame — tips the state machine into SPEECH.
+        # Feed 1 more grey frame, tips the state machine into SPEECH.
         vp.update_frame(grey_db)
         assert vp.state == VadState.SPEECH, (
             f"after 31 grey frames (30 seed + 1 tip), state must transition to SPEECH; got {vp.state}"
@@ -354,7 +354,7 @@ class TestGreyZonePromote:
 
     def test_grey_zone_promote_does_not_fire_before_hold_limit(self) -> None:
         """Feeding fewer than ``_grey_zone_hold_limit`` grey frames in
-        SILENCE state MUST NOT promote to SPEECH — the seed only fires
+        SILENCE state MUST NOT promote to SPEECH, the seed only fires
         at the limit, so a brief grey-zone excursion (e.g. a momentary
         dip in volume) doesn't false-positive into SPEECH."""
         from voice_typer.server.vad_processor import VadState
@@ -379,7 +379,7 @@ class TestGreyZonePromote:
         vp = _make_vad_processor_in_silence_state()
         grey_db = (vp.silence_threshold_db + vp.speech_threshold_db) / 2.0
 
-        # Feed 30 grey frames — the 30th triggers the seed + reset.
+        # Feed 30 grey frames, the 30th triggers the seed + reset.
         for _ in range(30):
             vp.update_frame(grey_db)
 

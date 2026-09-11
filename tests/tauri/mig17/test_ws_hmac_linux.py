@@ -1,7 +1,7 @@
-"""MIG-1.7 Phase 0-L Gate Check 3 — WS + HMAC handshake (Linux path).
+"""MIG-1.7 Phase 0-L Gate Check 3: WS + HMAC handshake (Linux path).
 
 This is gate check 3 of 9 for Phase 0-L (the Linux validation gate
-defined in ``docs/migration/linux-validation-runbook.md`` — see the
+defined in ``docs/migration/linux-validation-runbook.md``: see the
 "9-Point Validation Gate Summary" table, row 2; the task spec wrote
 §6.2 but the runbook's WS+HMAC gate is row 2 of the summary table
 and is operationally exercised in Step 5 (X11) + Step 6 (Wayland),
@@ -14,7 +14,7 @@ and the display-server-agnostic tests in §9 below).
 Per ADR-0020 §Reversibility, Phase 0-L must pass on BOTH X11 AND
 Wayland, on BOTH ``x86_64-unknown-linux-gnu`` AND
 ``aarch64-unknown-linux-gnu``. The two display servers are
-independently revertible — X11 can ship Tauri while Wayland still
+independently revertible, X11 can ship Tauri while Wayland still
 ships Electron. The WS auth path, however, is display-server-agnostic:
 the same ``sidecar_ws.py`` source runs (Nuitka-compiled) in the
 sidecar binary regardless of which session type the host launched
@@ -33,7 +33,7 @@ the Python auth code.
 What this gate proves
 ---------------------
 - The sidecar refuses connections if ``VOICE_TYPER_IPC_TOKEN`` is unset
-  (REVIEW-3 SEC-2 fix target — the WS path already enforces this).
+  (REVIEW-3 SEC-2 fix target, the WS path already enforces this).
 - The auth frame ``{"type":"auth","token":"<64-hex>"}`` is the FIRST
   frame on the WS; anything else is rejected before dispatch runs.
 - The token comparison uses ``hmac.compare_digest`` (constant-time).
@@ -47,16 +47,16 @@ What this gate proves
 - The ADR-0019 rate limiter is applied to every inbound WS frame,
   shared across all connections to the same server process (CR-11).
 - The auth handshake timeout is 5.0s (matches TCP path).
-- There is NO platform branch in the auth path — Linux behaves
+- There is NO platform branch in the auth path, Linux behaves
   identically to macOS/Windows.
-- There is NO display-server branch in the auth path — X11 behaves
+- There is NO display-server branch in the auth path, X11 behaves
   identically to Wayland (the auth code does not read ``DISPLAY``,
   ``WAYLAND_DISPLAY``, ``XDG_SESSION_TYPE``, or any other
   session-detection env var).
 
 What this gate does NOT prove (VALIDATE ON LINUX HOST)
 --------------------------------------------------------
-The tests below mock ``websockets.serve`` + ``os.environ`` — no real
+The tests below mock ``websockets.serve`` + ``os.environ``, no real
 WS server is bound and no real socket is opened. The end-to-end
 "does the Rust host actually connect + auth + receive ``ready``"
 proof must be run on a real Linux host per the runbook (Step 5 for
@@ -70,7 +70,7 @@ VALIDATE ON LINUX HOST:
     3. Verify NO log line contains the raw token value
     4. Verify the sidecar refuses connections if VOICE_TYPER_IPC_TOKEN is unset
     Expected: auth handshake completes within 100ms; no token leakage in logs
-    (Same behavior on both X11 and Wayland — the WS auth path is display-server-agnostic.)
+    (Same behavior on both X11 and Wayland, the WS auth path is display-server-agnostic.)
 
 Note on the log path: the runbook's 9-Point Validation Gate Summary
 (row 2, "WS + HMAC handshake works on X11 + Wayland") references
@@ -100,7 +100,7 @@ from tests.fixtures.sidecar_ws_test_helpers import _make_fake_server
 
 # ─── Helpers ────────────────────────────────────────────────────────────
 
-# Path to the Python source under test — used by the source-grep tests
+# Path to the Python source under test, used by the source-grep tests
 # (token-never-logged + no-platform-branch + no-display-server-branch).
 # Resolved at import time so a missing file fails collection loudly
 # rather than per-test.
@@ -124,16 +124,16 @@ assert _SIDECAR_HANDSHAKE_PATH.exists(), f"handshake.py not found at {_SIDECAR_H
 _AUTH_PY_PATH = Path(__file__).resolve().parents[3] / "voice_typer" / "server" / "ipc" / "auth.py"
 assert _AUTH_PY_PATH.exists(), f"ipc/auth.py not found at {_AUTH_PY_PATH}"
 
-# Path to the Rust WS client source — used by the display-server-agnostic
+# Path to the Rust WS client source, used by the display-server-agnostic
 # test that asserts the Rust auth-frame construction has no
 # ``cfg(target_os)`` branch and reads no display-server env var.
 # The Rust side builds the auth frame as
 # ``json!({"type": "auth", "token": token})`` (ws.rs:36) with no OS
-# conditional — this test guards against a regression.
+# conditional, this test guards against a regression.
 _WS_RS_PATH = Path(__file__).resolve().parents[3] / "src-tauri" / "src" / "sidecar" / "ws.rs"
 assert _WS_RS_PATH.exists(), f"ws.rs not found at {_WS_RS_PATH}"
 
-# Path to the Rust spawn.rs — used to document the externalBin
+# Path to the Rust spawn.rs, used to document the externalBin
 # target-triple resolution that selects the per-arch Linux binary at
 # spawn time. The arch (x86_64 vs aarch64) is orthogonal to the
 # display server (X11 vs Wayland): the spawn layer picks the arch
@@ -188,7 +188,7 @@ def _read_spawn_rs_source() -> str:
 
 # A realistic 64-char hex token (32 bytes × 2 hex chars), matching
 # what `util::generate_token()` produces on the Rust side
-# (see src-tauri/src/util.rs — "token must be 64 hex chars"). The
+# (see src-tauri/src/util.rs: "token must be 64 hex chars"). The
 # Python side does NOT enforce a length, so any non-empty string works,
 # but we use the realistic 64-char form to mirror production. The same
 # token format is used on BOTH Linux arches and BOTH display servers —
@@ -213,7 +213,7 @@ async def test_authenticate_refuses_when_ipc_token_env_unset(monkeypatch):
     On Linux this is especially important: the sidecar is spawned via
     ``externalBin`` (Tauri's per-arch binary resolution), and a
     missing env var would indicate the Rust host's spawn path failed
-    to inject the token — the sidecar must fail closed, not open.
+    to inject the token, the sidecar must fail closed, not open.
     This applies identically on X11 and Wayland (the env-var check
     happens before any frame is read, so the display server is
     irrelevant to this code path).
@@ -228,7 +228,7 @@ async def test_authenticate_refuses_when_ipc_token_env_unset(monkeypatch):
 
     assert accepted is False, "must reject when VOICE_TYPER_IPC_TOKEN is unset"
     # Critical: the sidecar must NOT read a frame off the wire when the
-    # env var is missing — otherwise an unauth sidecar would still
+    # env var is missing, otherwise an unauth sidecar would still
     # consume a frame from an attacker before rejecting.
     ws.recv.assert_not_awaited()
 
@@ -250,7 +250,7 @@ def test_ipc_token_is_read_from_env_var_not_from_arg_or_file(monkeypatch):
 
     This is the WS path's ONLY source of the expected token. It is
     NOT passed via a CLI flag (which would leak via ``/proc/<pid>/cmdline``
-    on Linux — any local user can read it), NOT read from a config
+    on Linux, any local user can read it), NOT read from a config
     file (which would need a separate file-permission story), and NOT
     hardcoded. The env var is set by the Rust host at spawn time and
     is visible only to the sidecar process + its parent (the host).
@@ -268,7 +268,7 @@ def test_ipc_token_is_read_from_env_var_not_from_arg_or_file(monkeypatch):
     pattern = r'os\.environ\.get\s*\(\s*(?:["\']VOICE_TYPER_IPC_TOKEN["\']|IPC_TOKEN_ENV_VAR)\s*,\s*["\']["\']\s*\)'
     assert re.search(pattern, source), (
         "sidecar_ws.py must read the expected token via "
-        "os.environ.get('VOICE_TYPER_IPC_TOKEN', '') — either as a "
+        "os.environ.get('VOICE_TYPER_IPC_TOKEN', ''), either as a "
         "literal string or via the IPC_TOKEN_ENV_VAR constant "
         "(defined in voice_typer.server._paths and equal to "
         "'VOICE_TYPER_IPC_TOKEN'). Found a different lookup shape. "
@@ -288,7 +288,7 @@ def test_ipc_token_is_read_from_env_var_not_from_arg_or_file(monkeypatch):
     ]
     for pattern, description in forbidden_patterns:
         assert not re.search(pattern, source, re.IGNORECASE), (
-            f"sidecar_ws.py must not read the token via {description} — the env var is the only secure source on Linux."
+            f"sidecar_ws.py must not read the token via {description}, the env var is the only secure source on Linux."
         )
 
 
@@ -306,7 +306,7 @@ async def test_auth_frame_format_is_type_auth_token_string(monkeypatch):
     The Python side validates ``type == "auth"`` and ``token`` is a
     non-empty string. The token itself is compared with
     ``hmac.compare_digest`` (see next test). This frame format is
-    identical on both Linux arches AND both display servers — the
+    identical on both Linux arches AND both display servers, the
     Rust host's auth-frame construction has no ``cfg(target_arch)``
     or ``cfg(target_os)`` branch and reads no display-server env var
     (verified in ``test_rust_auth_frame_has_no_display_server_branch``).
@@ -322,7 +322,7 @@ async def test_auth_frame_format_is_type_auth_token_string(monkeypatch):
 
 
 async def test_auth_frame_must_be_first_frame_non_auth_rejected(monkeypatch):
-    """The auth frame is the FIRST frame — a non-auth first frame is rejected.
+    """The auth frame is the FIRST frame, a non-auth first frame is rejected.
 
     This proves the sidecar reads exactly one frame for auth and rejects
     if it isn't ``{"type":"auth",...}``. A client cannot send a dispatch
@@ -338,7 +338,7 @@ async def test_auth_frame_must_be_first_frame_non_auth_rejected(monkeypatch):
 
     assert await sw._authenticate(ws) is False
     # recv must be called exactly once (only the first frame is read
-    # during auth — subsequent frames are read by the dispatch loop,
+    # during auth, subsequent frames are read by the dispatch loop,
     # which only runs if auth succeeds).
     assert ws.recv.await_count == 1
 
@@ -395,11 +395,11 @@ def test_authenticate_uses_hmac_compare_digest():
     can read it, but a timing side-channel would let an attacker who
     can repeatedly connect to the loopback WS recover the token byte
     by byte without reading any file. The X11 / Wayland distinction
-    is irrelevant here — both expose the loopback WS to local
+    is irrelevant here, both expose the loopback WS to local
     processes via the same ``127.0.0.1`` listener.
 
     The constant-time comparison lives in ``tokens_equal``
-    (``voice_typer/server/ipc/auth.py``) — used by BOTH the Python WS
+    (``voice_typer/server/ipc/auth.py``), used by BOTH the Python WS
     sidecar and the Rust WS client transport. ``sidecar_ws._authenticate``
     delegates to it. We therefore scan ipc/auth.py for the actual
     ``hmac.compare_digest`` call and sidecar_ws.py for the delegation.
@@ -411,7 +411,7 @@ def test_authenticate_uses_hmac_compare_digest():
     # function call to guard against a regression that switches to `==`.
     assert "hmac.compare_digest" in auth_source, (
         "ipc/auth.py must use hmac.compare_digest for token comparison "
-        "(constant-time). Found neither — possible timing side-channel "
+        "(constant-time). Found neither, possible timing side-channel "
         "regression."
     )
 
@@ -420,7 +420,7 @@ def test_authenticate_uses_hmac_compare_digest():
     pattern = r"hmac\.compare_digest\s*\(\s*provided\s*,\s*expected\s*\)"
     assert re.search(pattern, auth_source), (
         "hmac.compare_digest must be called as "
-        "hmac.compare_digest(provided, expected) — found a different "
+        "hmac.compare_digest(provided, expected), found a different "
         "call shape which may indicate the comparison is not actually "
         "between the user-supplied + env-var tokens."
     )
@@ -431,7 +431,7 @@ def test_authenticate_uses_hmac_compare_digest():
     delegate_pattern = r"tokens_equal\s*\(\s*provided\s*,\s*expected_token\s*\)"
     assert re.search(delegate_pattern, source), (
         "sidecar_ws.py must delegate the token comparison to "
-        "tokens_equal(provided, expected_token) — found a different "
+        "tokens_equal(provided, expected_token), found a different "
         "call shape which may indicate the comparison is not actually "
         "between the user-supplied + env-var tokens."
     )
@@ -449,7 +449,7 @@ async def test_authenticate_compare_digest_is_actually_invoked(monkeypatch):
 
     # Spy on hmac.compare_digest without changing its behavior. The
     # comparison runs inside ``tokens_equal`` (ipc/auth.py), which
-    # resolves ``hmac`` from its own module globals — patching the
+    # resolves ``hmac`` from its own module globals, patching the
     # stdlib module attribute intercepts it.
     real_compare = hmac.compare_digest
     spy = MagicMock(side_effect=real_compare)
@@ -475,18 +475,18 @@ def test_token_value_never_appears_in_any_log_call():
     and asserts none of them interpolate the ``provided`` or
     ``expected_token`` variables (or any variable holding the token
     value) into the log message. Only static strings like "auth
-    accepted" / "token=<redacted>" are permitted — never the value.
+    accepted" / "token=<redacted>" are permitted, never the value.
     """
     source = _read_sidecar_ws_source()
 
     # The token-bearing identifiers in _authenticate are:
     #   - expected_token  (the env-var value)
     #   - provided        (the frame's token field)
-    #   - first_raw       (the raw frame bytes/str — could contain token)
+    #   - first_raw       (the raw frame bytes/str, could contain token)
     token_bearing_vars = ("expected_token", "provided", "first_raw")
     # `first` is excluded from the bare-name check because it appears
     # in legitimate log messages like "first authenticated connection"
-    # — but we DO check that `first` is never interpolated as a log
+    # , but we DO check that `first` is never interpolated as a log
     # arg (e.g. `log.info("...%s", first)` would leak the frame).
 
     log_call_pattern = re.compile(r"log\.(info|debug|warning|error|critical)\s*\(")
@@ -511,7 +511,7 @@ def test_token_value_never_appears_in_any_log_call():
     # Also assert the literal _GOOD_TOKEN test value doesn't appear
     # in the source (sanity check that we're not accidentally shipping
     # a hardcoded test token in production code).
-    assert "deadbeef" not in source.lower(), "sidecar_ws.py contains a hardcoded 'deadbeef' token — remove it."
+    assert "deadbeef" not in source.lower(), "sidecar_ws.py contains a hardcoded 'deadbeef' token, remove it."
 
 
 def test_log_lines_use_static_strings_not_token_interpolation():
@@ -519,7 +519,7 @@ def test_log_lines_use_static_strings_not_token_interpolation():
 
     This is a stricter complement to the test above: it asserts that
     the specific log calls inside the _authenticate function use
-    string literals only — no %-interpolation of any variable that
+    string literals only, no %-interpolation of any variable that
     could hold the token. The log lines may say "token=<redacted>"
     (static) but never "token=%s" % provided.
     """
@@ -542,7 +542,7 @@ def test_log_lines_use_static_strings_not_token_interpolation():
     offenders = log_call_re.findall(auth_body)
     assert not offenders, (
         f"_authenticate uses f-string log calls (could leak token): {offenders}. "
-        f"Use static strings only — token values must never be interpolated."
+        f"Use static strings only, token values must never be interpolated."
     )
 
 
@@ -556,7 +556,7 @@ def test_loopback_host_constant_is_127_0_0_1():
     prompt, (b) trigger an macOS Application Firewall prompt, (c)
     expose the authed-but-localhost IPC to the LAN. On Linux it would
     additionally be picked up by ``firewalld`` / ``ufw`` and could be
-    reached by other hosts on the LAN — binding loopback avoids the
+    reached by other hosts on the LAN, binding loopback avoids the
     firewall prompt entirely. The sidecar must hardcode 127.0.0.1.
     This applies identically on X11 and Wayland (the bind happens
     before any frame is read, so the display server is irrelevant).
@@ -573,7 +573,7 @@ def test_run_binds_to_loopback_ephemeral_port(monkeypatch):
     (dev + prod, or two user sessions on a multi-seat box) and would
     require a firewall rule. The OS-assigned ephemeral port avoids
     both. The same bind call is used on both Linux arches and both
-    display servers — the Python socket layer is OS-/arch-/
+    display servers, the Python socket layer is OS-/arch-/
     session-agnostic.
 
     This test mocks ``websockets.serve`` so no real socket is bound.
@@ -581,7 +581,7 @@ def test_run_binds_to_loopback_ephemeral_port(monkeypatch):
     sw = _import_sidecar_ws()
 
     # Mock the websockets module + websockets.asyncio.server.serve.
-    # serve() is used as `async with serve(...) as ws_server:` — so it
+    # serve() is used as `async with serve(...) as ws_server:`, so it
     # must return an async context manager whose __aenter__ yields an
     # object with a .sockets attribute.
     mock_socket = MagicMock()
@@ -599,7 +599,7 @@ def test_run_binds_to_loopback_ephemeral_port(monkeypatch):
     monkeypatch.setitem(sys.modules, "websockets.asyncio.server", mock_websockets_asyncio_server)
 
     # _force_line_buffered_stdout reconfigures sys.stdout, which breaks
-    # pytest's capsys — patch it to a no-op for this test.
+    # pytest's capsys, patch it to a no-op for this test.
     monkeypatch.setattr(sw, "_force_line_buffered_stdout", lambda: None)
 
     # asyncio.Future() blocks forever inside _main(). Patch it to raise
@@ -641,7 +641,7 @@ def test_emit_server_started_reports_port_as_json(capsys):
     sw = _import_sidecar_ws()
     sw._emit_server_started(54321)
     captured = capsys.readouterr()
-    assert captured.err == "", "stderr must be empty — only stdout carries the JSON"
+    assert captured.err == "", "stderr must be empty, only stdout carries the JSON"
     payload = json.loads(captured.out.strip())
     assert payload == {"event": "server_started", "port": 54321}
 
@@ -659,12 +659,12 @@ def test_server_started_json_does_not_leak_token(capsys):
     """SECURITY: the server_started JSON must NOT contain the token.
 
     The token is passed to the sidecar via the ``VOICE_TYPER_IPC_TOKEN``
-    env var at spawn time (the host already knows it — it generated it).
+    env var at spawn time (the host already knows it, it generated it).
     Echoing it back over stdout would leak it to any process that can
     read the sidecar's stdout pipe. On Linux the sidecar's stdout is
     piped to the Tauri host process, but another local process could
-    ptrace/strace the sidecar and observe it — so stdout must be
-    token-free. (This is the same risk on X11 and Wayland — the
+    ptrace/strace the sidecar and observe it, so stdout must be
+    token-free. (This is the same risk on X11 and Wayland, the
     display server doesn't change the pipe semantics.)
     """
     sw = _import_sidecar_ws()
@@ -672,7 +672,7 @@ def test_server_started_json_does_not_leak_token(capsys):
     captured = capsys.readouterr()
     payload = json.loads(captured.out.strip())
     assert "token" not in payload, (
-        "server_started JSON must NOT contain the token — stdout is not "
+        "server_started JSON must NOT contain the token, stdout is not "
         "a secure channel. The token is passed via env var at spawn."
     )
     raw_lower = captured.out.lower()
@@ -687,7 +687,7 @@ def test_server_started_json_has_no_display_server_field(capsys):
     ``display_server`` / ``session_type`` / ``wayland`` field.
 
     The display server (X11 vs Wayland) is determined by the host's
-    own session — the host already knows which one it launched under
+    own session, the host already knows which one it launched under
     (it picked the WebView backend, the clipboard path, the native
     key-listener path). Adding a ``display_server`` field to
     ``server_started`` would be redundant and would create a spoofing
@@ -703,10 +703,10 @@ def test_server_started_json_has_no_display_server_field(capsys):
     captured = capsys.readouterr()
     payload = json.loads(captured.out.strip())
 
-    # Exactly two keys — no display_server, no session_type, no arch,
+    # Exactly two keys, no display_server, no session_type, no arch,
     # no platform, no triple.
     assert set(payload.keys()) == {"event", "port"}, (
-        "server_started JSON must have exactly {event, port} keys — "
+        "server_started JSON must have exactly {event, port} keys, "
         f"got {set(payload.keys())}. The display server is known to the "
         f"host (it's the host's own session); do not add it to the JSON."
     )
@@ -724,12 +724,12 @@ def test_server_started_json_has_no_display_server_field(capsys):
 def test_max_frame_bytes_constant_is_exactly_1_mib():
     """ADR-0020 §10: the WS frame cap is 1 MiB (1048576 bytes).
 
-    Without a cap, a malformed/huge frame can OOM the client. The cap
-    is enforced at the transport layer by passing ``max_size`` to
-    ``websockets.serve()`` (see test_run_binds_to_loopback_ephemeral_port).
-    The same cap applies on both Linux arches and both display servers
-    — the cap is a Python-int constant, not OS- / arch- / session-
-    dependent.
+      Without a cap, a malformed/huge frame can OOM the client. The cap
+      is enforced at the transport layer by passing ``max_size`` to
+      ``websockets.serve()`` (see test_run_binds_to_loopback_ephemeral_port).
+      The same cap applies on both Linux arches and both display servers
+    , the cap is a Python-int constant, not OS- / arch- / session-
+      dependent.
     """
     sw = _import_sidecar_ws()
     assert sw._MAX_FRAME_BYTES == 1024 * 1024
@@ -740,7 +740,7 @@ def test_run_passes_max_size_to_serve(monkeypatch):
     """``run()`` passes ``max_size=_MAX_FRAME_BYTES`` to ``serve()``.
 
     The websockets library rejects any inbound frame > max_size at the
-    transport layer with a 1009 close — the frame never reaches the
+    transport layer with a 1009 close, the frame never reaches the
     dispatch loop. This is the correct enforcement point (re-checking
     in the dispatch loop would be dead code).
     """
@@ -803,7 +803,7 @@ async def test_rate_limiter_applied_to_ws_frames():
 
     assert rejected >= 1, (
         "expected at least one rate_limited response after 201 frames in "
-        "the burst window — ADR-0019 limiter not applied to WS path"
+        "the burst window, ADR-0019 limiter not applied to WS path"
     )
 
 
@@ -816,14 +816,14 @@ async def test_rate_limiter_is_shared_across_connections():
     ``_get_rate_limiter(server)`` so all connections share the same
     sliding-window deque. This is critical on Linux where the loopback
     WS is reachable by any local process (any user on the box can
-    connect to ``127.0.0.1:<port>``) — the shared limiter prevents a
+    connect to ``127.0.0.1:<port>``), the shared limiter prevents a
     reconnect-based burst-reset attack. The X11 / Wayland distinction
     is irrelevant: both expose the loopback WS identically.
     """
     _import_sidecar_ws()
     server = _make_fake_server()
 
-    # _make_dispatch does NOT create the limiter eagerly — it's created
+    # _make_dispatch does NOT create the limiter eagerly, it's created
     # on first frame via _get_rate_limiter. Call _get_rate_limiter
     # directly twice and assert it returns the SAME instance.
     from voice_typer.server.ipc_server import _get_rate_limiter
@@ -833,7 +833,7 @@ async def test_rate_limiter_is_shared_across_connections():
 
     assert limiter_1 is limiter_2, (
         "CR-11 regression: _get_rate_limiter returned different instances "
-        "for the same server — the limiter must be shared across all WS "
+        "for the same server, the limiter must be shared across all WS "
         "connections to prevent burst-budget reset via reconnect."
     )
 
@@ -871,14 +871,14 @@ async def test_rate_limiter_rejects_with_structured_error():
 
 
 def test_no_platform_branch_in_auth_path():
-    """The WS auth path must be 100% cross-platform — no ``sys.platform``,
+    """The WS auth path must be 100% cross-platform, no ``sys.platform``,
     ``platform.system()``, or ``os.name`` check anywhere in sidecar_ws.py.
 
     The Linux path must be byte-for-byte identical to the macOS/Windows
     path. A platform branch in auth would be a bug farm: it would only
     be exercised on one platform, so the other platform's auth code
     would never be tested in CI (which runs on Linux). The current
-    implementation has NO platform branch — this test guards against
+    implementation has NO platform branch, this test guards against
     a regression that adds one.
     """
     source = _read_sidecar_ws_source()
@@ -908,7 +908,7 @@ def test_no_platform_branch_in_auth_path():
                 pytest.fail(
                     f"Platform branch detected in sidecar_ws.py line {lineno}: "
                     f"{description}.\n  Line: {line.rstrip()}\n"
-                    f"The WS auth path must be cross-platform — Linux must "
+                    f"The WS auth path must be cross-platform, Linux must "
                     f"behave identically to macOS/Windows. Move any platform-"
                     f"specific logic out of sidecar_ws.py."
                 )
@@ -918,7 +918,7 @@ def test_no_display_server_branch_in_auth_path():
     """Linux-specific: the WS auth path must have NO display-server branch.
 
     Phase 0-L requires the SAME auth behavior on X11 and Wayland. The
-    Python ``sidecar_ws.py`` is display-server-agnostic — Nuitka
+    Python ``sidecar_ws.py`` is display-server-agnostic, Nuitka
     compiles the same .py source into the sidecar binary regardless
     of the host's session type, and the auth logic doesn't read
     ``DISPLAY``, ``WAYLAND_DISPLAY``, ``XDG_SESSION_TYPE``,
@@ -961,7 +961,7 @@ def test_no_display_server_branch_in_auth_path():
                 pytest.fail(
                     f"Display-server branch detected in sidecar_ws.py line {lineno}: "
                     f"{description}.\n  Line: {line.rstrip()}\n"
-                    f"The WS auth path must be display-server-agnostic — X11 "
+                    f"The WS auth path must be display-server-agnostic, X11 "
                     f"and Wayland must run identical auth code. Display-server "
                     f"selection happens at the Tauri WebView / clipboard / "
                     f"native key-listener layers, not in the Python sidecar."
@@ -1013,7 +1013,7 @@ def test_rust_auth_frame_has_no_display_server_branch():
 
     The Rust host builds the auth frame as
     ``json!({"type": "auth", "token": token})`` (ws.rs:36). This frame
-    is identical on both Linux display servers — the sidecar binary
+    is identical on both Linux display servers, the sidecar binary
     is the same regardless of whether the host is on X11 or Wayland,
     and the auth-frame code path has no OS conditional and reads no
     session env var. This test scans ws.rs for ``cfg(target_arch)`` /
@@ -1025,14 +1025,14 @@ def test_rust_auth_frame_has_no_display_server_branch():
 
     # The auth frame is constructed at ws.rs as a `json!({...})` macro
     # call. The macro may be formatted inline on a single line OR
-    # split across multiple lines (rustfmt style) — accept both.
+    # split across multiple lines (rustfmt style), accept both.
     # Required keys: "type": "auth" and "token": token (the token
     # binding from the outer scope). Additional keys like
     # "protocol_version" are additive and may be present.
     assert re.search(
         r'json!\s*\(\s*\{\s*"type"\s*:\s*"auth"\s*,\s*"token"\s*:\s*token',
         source,
-    ), 'ws.rs must construct the auth frame as json!({"type": "auth", "token": token}) — got a different shape.'
+    ), 'ws.rs must construct the auth frame as json!({"type": "auth", "token": token}), got a different shape.'
 
     # Scan for cfg(target_arch) / cfg(target_os) anywhere in ws.rs —
     # the WS client (auth, reader, writer, reconnect) must be
@@ -1064,7 +1064,7 @@ def test_rust_auth_frame_has_no_display_server_branch():
     for pattern in forbidden_env_patterns:
         matches = re.findall(pattern, source)
         assert not matches, (
-            f"ws.rs reads the {pattern} env var — the WS auth path must "
+            f"ws.rs reads the {pattern} env var, the WS auth path must "
             f"not branch on display server. Move session detection to the "
             f"Tauri WebView / clipboard / native key-listener layers."
         )
@@ -1082,7 +1082,7 @@ def test_externalbin_triple_resolves_linux_arches():
     Tauri's ``externalBin`` mechanism then looks for a binary named
     ``bin/python-sidecar-<triple>`` (e.g.
     ``bin/python-sidecar-x86_64-unknown-linux-gnu``) at spawn time.
-    This is HOW the per-arch binary is selected on Linux — NOT via
+    This is HOW the per-arch binary is selected on Linux, NOT via
     any arch check in the Python sidecar. The Python auth code is
     arch-agnostic precisely because the arch selection happens here,
     in the Rust spawn layer, before the Python process even starts.
@@ -1116,7 +1116,7 @@ async def test_auth_protocol_identical_regardless_of_display_server_env(monkeypa
     display-server env vars are set.
 
     The contract: the auth decision is a pure function of
-    (provided_token, expected_token) — nothing else.
+    (provided_token, expected_token), nothing else.
     """
     sw = _import_sidecar_ws()
     monkeypatch.setenv("VOICE_TYPER_IPC_TOKEN", _GOOD_TOKEN)
@@ -1137,11 +1137,11 @@ async def test_auth_protocol_identical_regardless_of_display_server_env(monkeypa
     spy = MagicMock(side_effect=real_compare)
     monkeypatch.setattr(hmac, "compare_digest", spy)
 
-    # Must accept (token matches) — X11 env vars must not change this.
+    # Must accept (token matches). X11 env vars must not change this.
     assert await sw._authenticate(ws) is True
     spy.assert_called_once_with(_GOOD_TOKEN, _GOOD_TOKEN)
 
-    # Now flip the env vars to Wayland and re-run — the decision must
+    # Now flip the env vars to Wayland and re-run, the decision must
     # be identical (accept, same compare_digest call).
     monkeypatch.delenv("DISPLAY", raising=False)
     monkeypatch.setenv("WAYLAND_DISPLAY", "wayland-0")
@@ -1163,7 +1163,7 @@ async def test_auth_protocol_identical_regardless_of_display_server_env(monkeypa
 # throughout this file: ``websockets.serve`` is mocked so no real
 # socket is bound, and ``os.environ`` is manipulated via monkeypatch
 # so the tests don't leak env-var state to each other. The tests above
-# already exercise this pattern — these two tests assert the mocking
+# already exercise this pattern, these two tests assert the mocking
 # strategy itself is sound.
 
 
@@ -1183,7 +1183,7 @@ def test_websockets_serve_is_mocked_in_run_path(monkeypatch):
 
         real_serve_id = id(_real_serve)
     except Exception:
-        pass  # websockets not installed — that's fine, the mock wins
+        pass  # websockets not installed, that's fine, the mock wins
 
     mock_socket = MagicMock()
     mock_socket.getsockname.return_value = ("127.0.0.1", 54321)
@@ -1202,18 +1202,18 @@ def test_websockets_serve_is_mocked_in_run_path(monkeypatch):
 
     sw.run(_make_fake_server())
 
-    assert mock_serve.called, "mocked serve() must be called — mocking setup is broken"
+    assert mock_serve.called, "mocked serve() must be called, mocking setup is broken"
     if real_serve_id is not None:
         assert id(mock_serve) != real_serve_id, "mock_serve must not be the real websockets.serve"
 
 
 async def test_os_environ_manipulation_does_not_leak_between_tests(monkeypatch):
-    """monkeypatch.setenv/delenv auto-undoes after each test — verify.
+    """monkeypatch.setenv/delenv auto-undoes after each test, verify.
 
     If two tests both set VOICE_TYPER_IPC_TOKEN to different values and
     the second sees the first's value, the auth tests would be flaky.
     monkeypatch scopes env-var changes to the test, so this is a no-op
-    assertion — but it documents the contract.
+    assertion, but it documents the contract.
     """
     _import_sidecar_ws()  # imports cleanly (side effect asserted)
     # Set a token, verify it's visible.
@@ -1224,7 +1224,7 @@ async def test_os_environ_manipulation_does_not_leak_between_tests(monkeypatch):
     monkeypatch.setenv("VOICE_TYPER_IPC_TOKEN", "test-b")
     assert os.environ.get("VOICE_TYPER_IPC_TOKEN") == "test-b"
 
-    # After this test, monkeypatch auto-undoes — the next test sees
+    # After this test, monkeypatch auto-undoes, the next test sees
     # the original env (or no env). This is the contract.
 
 
@@ -1236,7 +1236,7 @@ async def test_auth_frame_timeout_is_5_seconds():
     is dropped after 5s (matches the TCP path's timeout).
 
     The same 5s timeout applies on both Linux arches AND both display
-    servers — it's a Python-float constant, not OS- / arch- / session-
+    servers, it's a Python-float constant, not OS- / arch- / session-
     dependent.
     """
     sw = _import_sidecar_ws()

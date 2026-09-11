@@ -12,7 +12,7 @@
  * missing from BOTH the current locale AND English).
  *
  * This test reads all 8 locale JSON files directly (NOT through the
- * runtime `t()` pipeline — runtime imports would post-process the
+ * runtime `t()` pipeline, runtime imports would post-process the
  * values via `_withAppName` and cache them, which is irrelevant for
  * key-set comparison; what matters here is the raw key surface area
  * translators see when they edit the JSON files). It flattens each
@@ -24,7 +24,7 @@
  *   - `missingInLocale`: keys present in `en.json` but absent from
  *     the locale file (translator needs to add these).
  *   - `extraInLocale`: keys present in the locale file but absent
- *     from `en.json` (translator needs to remove these — typically a
+ *     from `en.json` (translator needs to remove these, typically a
  *     stale key whose English counterpart was renamed or deleted).
  * so the developer knows exactly which keys to add or remove without
  * diffing the JSON files by hand.
@@ -50,7 +50,7 @@ type TranslationDict = Record<string, unknown>;
 // every other locale is parity-checked against it. Derived from the
 // imports above (not from `SUPPORTED_LOCALES`) so a stale import —
 // e.g. someone forgets to import the `pt` JSON file after adding
-// `"pt"` to `SUPPORTED_LOCALES` — would surface as a missing
+// `"pt"` to `SUPPORTED_LOCALES`, would surface as a missing
 // describe-block here rather than silently being skipped.
 const LOCALES = {
 	ar,
@@ -91,7 +91,7 @@ const localeFlats: Record<keyof typeof LOCALES, Map<string, string>> = {
 //      en-vs-each-locale, so a key deleted from every file at once
 //      would still pass the parity loop);
 //   2. every value carries the `{appName}` placeholder (the brand flows
-//      through the load-time substitution — C-BRAND-1 — never a literal
+//      through the load-time substitution, C-BRAND-1, never a literal
 //      brand string, not even in en.json);
 //   3. every value is a non-empty string (an empty value would render
 //      as a silent aria-label).
@@ -102,7 +102,7 @@ const MID_FLOW_INDICATOR_ARIA_KEYS = [
 	"bubble.pasteFailedIndicatorAria",
 ] as const;
 
-// All 8 locale tables including the English reference — the mid-flow
+// All 8 locale tables including the English reference, the mid-flow
 // key assertions below check en.json too (see point 1 above).
 const allLocaleFlats: Record<string, Map<string, string>> = {
 	en: enFlat,
@@ -161,10 +161,10 @@ describe("locale-key parity with en.json (C-I18N-1)", () => {
 				};
 				expect(
 					diff,
-					`${locale}.json key set drifts from en.json — ` +
+					`${locale}.json key set drifts from en.json, ` +
 						`${missingInLocale.length} missing, ${extraInLocale.length} extra. ` +
 						`Add the missing keys to ${locale}.json (with a genuine ` +
-						`translation — C-I18N-2) and remove the extra keys.`,
+						`translation, C-I18N-2) and remove the extra keys.`,
 				).toEqual({ missingInLocale: [], extraInLocale: [] });
 			});
 		});
@@ -174,7 +174,7 @@ describe("locale-key parity with en.json (C-I18N-1)", () => {
 // Direct coverage of the mid-flow bubble indicator aria keys. The
 // generic set-parity loop above covers ordinary drift, but these four
 // keys shipped with NO locale coverage at all (hardcoded English
-// fallbacks in the renderer) — so they get an explicit, key-by-key
+// fallbacks in the renderer), so they get an explicit, key-by-key
 // guard: present in every one of the 8 files, `{appName}` placeholder
 // in every value (C-BRAND-1), non-empty string (a real aria
 // announcement).
@@ -186,7 +186,7 @@ describe("mid-flow bubble indicator aria keys (all 8 locales)", () => {
 					const value = table.get(key);
 					expect(
 						value,
-						`${locale}.json is missing ${key} — add a genuine ` +
+						`${locale}.json is missing ${key}, add a genuine ` +
 							`translation (C-I18N-2) with the {appName} placeholder ` +
 							`(C-BRAND-1).`,
 					).toBeTruthy();
@@ -203,10 +203,42 @@ describe("mid-flow bubble indicator aria keys (all 8 locales)", () => {
 	}
 });
 
+// Direct coverage of the cloud-provider pending "testing" message
+// key (`models.test.testing`). The generic set-parity loop above
+// covers en-vs-locale drift, but a key deleted from EVERY file at
+// once would still pass that loop (the same gap the mid-flow aria
+// keys hit), and the key originally shipped as a hardcoded English
+// literal in the hook, bypassing t() entirely, so it gets an
+// explicit per-file guard: present + non-empty in all 8 files
+// INCLUDING en.json (C-I18N-1), and genuinely translated in every
+// non-English locale, not the English source text pasted verbatim
+// (C-I18N-2).
+describe("cloud-provider pending message key (all 8 locales)", () => {
+	for (const [locale, table] of Object.entries(allLocaleFlats)) {
+		it(`${locale}.json models.test.testing exists, is non-empty, and is genuinely translated in non-English locales`, () => {
+			const value = table.get("models.test.testing");
+			expect(
+				value,
+				`${locale}.json is missing models.test.testing, add a genuine ` +
+					`translation (C-I18N-2).`,
+			).toBeTruthy();
+			expect(value).not.toBe("");
+			if (locale !== "en") {
+				expect(
+					value,
+					`${locale}.json models.test.testing must be a genuine ` +
+						`translation, not the English source text pasted ` +
+						`verbatim (C-I18N-2).`,
+				).not.toBe(enFlat.get("models.test.testing"));
+			}
+		});
+	}
+});
+
 // Direct test of the `_withAppName` helper exported from store.ts.
 // Verifies the substitution is applied at registration time so the
 // runtime `t()` returns the substituted value (the actual ~290-string
-// sweep to MIGRATE literals to `{appName}` is a separate task — this
+// sweep to MIGRATE literals to `{appName}` is a separate task, this
 // just locks in the mechanism so the migration is unblocked).
 describe("_withAppName helper", () => {
 	it("substitutes {appName} with APP_NAME on every value", async () => {

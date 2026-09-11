@@ -8,7 +8,7 @@ Simulates the exact scenario the user reported:
 5. App must NOT stay stuck in busy=True / Transcribing...
 6. Pressing F2 again must work
 
-This test does NOT need a display or real GPU — it mocks the model but
+This test does NOT need a display or real GPU, it mocks the model but
 exercises the real code paths.
 
 BUILD-N06 / DOC-045: This script was written against the long-deleted

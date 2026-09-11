@@ -7,7 +7,7 @@ import sharp from "sharp";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 //renamed ``root`` → ``clientDir`` and kept
 // ``projectRoot`` for the repo root.  The old names (``root`` vs
-// ``projectRoot``) were confusing — ``root`` sounded like the repo
+// ``projectRoot``) were confusing, ``root`` sounded like the repo
 // root but was actually the client/ directory.
 const clientDir = resolve(__dirname, "..");
 const projectRoot = resolve(__dirname, "..", "..", "..");
@@ -25,23 +25,23 @@ const sizes = {
 // mark: rounded-rect chip + white glyph + brand-red indicator dot.
 // EVERY icon set below is derived from that one file.
 //
-// Chrome colors (user decision 2026-09 — the fill stays the SAME in
+// Chrome colors (user decision 2026-09, the fill stays the SAME in
 // light and dark): the chip is the dark neutral #1a1b1e in both modes
-// and the glyph is white in both — a constant dark-chipped mark on the
+// and the glyph is white in both, a constant dark-chipped mark on the
 // taskbar / Alt-Tab / app icons / favicons regardless of OS theme.
 // LIGHT and DARK each keep an INDEPENDENT chip + glyph constant below
 // (both set to the same value today), so the two modes can be diverged
 // later by editing ONE constant per mode and re-running the generators
-// — no mode needs to be re-added from scratch.
-//   - lightSvg — chip LIGHT_CHIP + glyph LIGHT_GLYPH: light-mode
+//, no mode needs to be re-added from scratch.
+//   - lightSvg, chip LIGHT_CHIP + glyph LIGHT_GLYPH: light-mode
 //     chrome AND the static default (bundle/exe icons, shortcuts,
 //     Task Manager / Alt+Tab when the app is closed).
-//   - darkSvg  — chip DARK_CHIP + glyph DARK_GLYPH: dark-mode chrome.
+//   - darkSvg , chip DARK_CHIP + glyph DARK_GLYPH: dark-mode chrome.
 //     Consumed by the Electron nativeTheme swap and the Tauri
 //     ``theme_icon.rs`` window-icon swap while the app runs.
-//   - tray glyph — the logo WITHOUT the background chip and WITHOUT
+//   - tray glyph, the logo WITHOUT the background chip and WITHOUT
 //     the indicator dot (just the glyph): the tray/notification mark
-//     (user decision: the tray shows the bare icon — no background
+//     (user decision: the tray shows the bare icon, no background
 //     chip, no red dot). The Python pystray host and the Tauri tray
 //     state icons colorize this shape per AppState at render time.
 const LIGHT_CHIP = "#1a1b1e"; // chip in the light-mode assets (user: the dark chip in BOTH modes)
@@ -64,7 +64,7 @@ function variantSvg(raw, chip, glyph) {
 	out = setGlyphFill(out, glyph);
 	if (!out.includes(`<rect width="256" height="256" rx="48" fill="${chip}"/>`)) {
 		throw new Error(
-			`variantSvg: chip fill not applied (${chip}) — logo.svg's <rect> drifted; ` +
+			`variantSvg: chip fill not applied (${chip}), logo.svg's <rect> drifted; ` +
 				"update the rect regex",
 		);
 	}
@@ -74,7 +74,7 @@ function variantSvg(raw, chip, glyph) {
 /** Re-fill the single glyph <path>'s fill attribute. Counts matches so
  *  a silently-failing replace (logo.svg's <path> drifted, or the fill
  *  regex no longer matches the source color) throws instead of shipping
- *  the wrong chrome — meaningful even when the target fill equals the
+ *  the wrong chrome, meaningful even when the target fill equals the
  *  source fill (today: white == white for both variants). */
 function setGlyphFill(svg, fill) {
 	let hits = 0;
@@ -87,7 +87,7 @@ function setGlyphFill(svg, fill) {
 	);
 	if (hits !== 1) {
 		throw new Error(
-			`setGlyphFill: expected exactly 1 glyph <path>, replaced ${hits} — ` +
+			`setGlyphFill: expected exactly 1 glyph <path>, replaced ${hits}, ` +
 				"logo.svg's <path> drifted; update the path regex",
 		);
 	}
@@ -97,13 +97,13 @@ function setGlyphFill(svg, fill) {
 /** The glyph <path> `d` from the canonical logo.svg. */
 function glyphPath(svg) {
 	const m = svg.match(/<path[^>]*\sd="([^"]+)"/);
-	if (!m) throw new Error("logo.svg: glyph <path> not found — cannot derive icons");
+	if (!m) throw new Error("logo.svg: glyph <path> not found, cannot derive icons");
 	return m[1];
 }
 
-/** The logo with its background rect AND indicator dot removed — the
+/** The logo with its background rect AND indicator dot removed, the
  *  tray/notification glyph (user decision: the tray shows the glyph
- *  alone — no background chip, no red dot). */
+ *  alone, no background chip, no red dot). */
 function trayGlyphSvg(svg) {
 	const stripped = svg
 		.replace(/^\s*<rect[^>]*\srx="48"[^>]*\/>\s*$/m, "")
@@ -115,7 +115,7 @@ function trayGlyphSvg(svg) {
 	if (/rx="48"/.test(stripped) || /<circle/.test(stripped)) {
 		throw new Error(
 			"trayGlyphSvg: background rect or indicator dot was not stripped " +
-				"from logo.svg — update the strip regexes",
+				"from logo.svg, update the strip regexes",
 		);
 	}
 	return stripped;
@@ -211,7 +211,7 @@ print("ICO generated")
 	let lastErr = null;
 	for (const py of candidates) {
 		// Skip venv candidates (paths starting with . or /) that don't
-		// exist on this platform — they would just produce a noisy error.
+		// exist on this platform, they would just produce a noisy error.
 		if ((py.startsWith(".") || py.startsWith("/")) && !existsSync(py)) continue;
 		try {
 			execSync(`"${py}" -c "${icoScript.replace(/\"/g, '\\"')}"`, {
@@ -239,15 +239,15 @@ print("ICO generated")
  *
  * Standalone function so the tray set can be regenerated WITHOUT
  * touching the Electron / server / bundle-icon sets (``node
- * generate-icons.mjs --tray``) — the repeatable wrapper
+ * generate-icons.mjs --tray``), the repeatable wrapper
  * ``scripts/build/generate_tray_icons.py`` calls exactly this path.
  * The four state names + palette MUST stay in sync with
  * ``src-tauri/src/tray.rs`` (``is_allowed_icon_name``) and the Python
- * host (``voice_typer/server/tray_icon.py::_make_icon``) — the drift
+ * host (``voice_typer/server/tray_icon.py::_make_icon``), the drift
  * guards in ``tests/tauri/test_tray_icons.py`` enforce that.
  */
 async function generateTauriTrayIcons(tauriIconsDir) {
-	// Tray glyph shape — the app logo WITHOUT its background rect and
+	// Tray glyph shape, the app logo WITHOUT its background rect and
 	// WITHOUT the indicator dot (the bare glyph, per the user decision:
 	// no background chip and no red dot in the tray). Derived from the
 	// canonical ``scripts/logo.svg``, tinted per state below. Mirrors
@@ -264,18 +264,18 @@ async function generateTauriTrayIcons(tauriIconsDir) {
 	// across the pystray (Python) and Tauri (Rust) hosts.
 	//
 	// Color palette (RGBA, alpha = 255 for full opacity):
-	//   idle         — (120, 120, 120)   gray
-	//   recording    — (46, 204, 113)    bright green (color-blind safe)
-	//   transcribing — (52, 152, 219)    blue
-	//   error        — (231, 76, 60)     red
+	//   idle        , (120, 120, 120)   gray
+	//   recording   , (46, 204, 113)    bright green (color-blind safe)
+	//   transcribing, (52, 152, 219)    blue
+	//   error       , (231, 76, 60)     red
 	//
 	// The glyph is rendered on a transparent background so the OS
 	// tray chrome (light/dark menubar, taskbar notch) shows through.
 	// On macOS, `icon_as_template(true)` is set in the Rust
-	// TrayIconBuilder chain — the OS applies the menubar color and
+	// TrayIconBuilder chain, the OS applies the menubar color and
 	// uses the alpha channel as a mask, so the per-state color is
 	// only visible on Windows/Linux. macOS users get the glyph SHAPE
-	// (which is identical across states — state is shown via the
+	// (which is identical across states, state is shown via the
 	// tooltip).
 	const trayStateColors = {
 		idle: { r: 120, g: 120, b: 120 },
@@ -287,7 +287,7 @@ async function generateTauriTrayIcons(tauriIconsDir) {
 	mkdirSync(tauriTrayDir, { recursive: true });
 	// Render the glyph DIRECTLY in the state color by injecting the
 	// color into the SVG fill (the tray glyph's only colored element is
-	// the logo glyph — the background chip and indicator dot are
+	// the logo glyph, the background chip and indicator dot are
 	// stripped from the tray shape, so the whole glyph carries the
 	// state color). (The previous sharp `tint` approach silently
 	// produced IDENTICAL icons for every state: tint preserves
@@ -311,11 +311,11 @@ async function generateTauriTrayIcons(tauriIconsDir) {
 	// to render the icon as a single-color alpha mask. The OS
 	// applies the menubar color (black on light menubar, white on
 	// dark menubar) and uses the alpha channel as the shape mask.
-	// The source PNG must be a single color with alpha — white glyph
+	// The source PNG must be a single color with alpha, white glyph
 	// on transparent background is the conventional choice (matches
 	// what Apple's own SF Symbols use for template images).
 	//
-	// This file is currently NOT loaded by the Rust host — the
+	// This file is currently NOT loaded by the Rust host, the
 	// state icons (idle/recording/transcribing/error) are loaded
 	// instead, and `icon_as_template(true)` is applied to whatever
 	// icon is currently set. The state icons' alpha channel (the
@@ -334,18 +334,18 @@ async function generateTauriTrayIcons(tauriIconsDir) {
 async function main() {
 	const rawSvg = readFileSync(svgPath, "utf-8");
 	// Brand chrome colors. BOTH the light and the dark variants carry
-	// the SAME chip + glyph today — #1a1b1e chip + white glyph (user
+	// the SAME chip + glyph today, #1a1b1e chip + white glyph (user
 	// decision 2026-09: the taskbar / Alt-Tab / app icons are a
 	// constant dark-chipped mark in light and dark OS themes alike;
-	// the brand-red dot is deliberately NOT inverted — it stays the
+	// the brand-red dot is deliberately NOT inverted, it stays the
 	// same red in both modes). Each mode keeps its own constants above
 	// so the two looks can be diverged later by editing ONE line per
 	// mode and re-running this script (+ `tauri icon` for the bundle
-	// set) — no mode needs to be re-added from scratch.
+	// set), no mode needs to be re-added from scratch.
 	const lightSvg = variantSvg(rawSvg, LIGHT_CHIP, LIGHT_GLYPH);
 	const darkSvg = variantSvg(rawSvg, DARK_CHIP, DARK_GLYPH);
 
-	// Tauri host icons dir — computed once at the top so the --tray
+	// Tauri host icons dir, computed once at the top so the --tray
 	// fast path can target it directly.
 	const tauriIconsDir = resolve(projectRoot, "src-tauri", "icons");
 
@@ -359,9 +359,9 @@ async function main() {
 		return;
 	}
 
-	// Light icons (chip LIGHT_CHIP + glyph LIGHT_GLYPH — static default + light chrome)
+	// Light icons (chip LIGHT_CHIP + glyph LIGHT_GLYPH, static default + light chrome)
 	await generateIcons(lightSvg, "light", "");
-	// Dark icons (dark chip + white glyph — dark chrome)
+	// Dark icons (dark chip + white glyph, dark chrome)
 	await generateIcons(darkSvg, "dark", "-dark");
 
 	// .ico generation
@@ -375,7 +375,7 @@ async function main() {
 		resolve(resourcesDir, "icon-dark.ico"),
 	);
 
-	// Tray icons (transparent background, logo glyph — white for the
+	// Tray icons (transparent background, logo glyph, white for the
 	// Python host's runtime per-state colorization, which uses only
 	// the alpha channel)
 	const traySvg = setGlyphFill(trayGlyphSvg(rawSvg), "white");
@@ -407,8 +407,8 @@ async function main() {
 	);
 	console.log("Created server/assets/tray-mic.ico (PLAT-024)");
 
-	// Logo PNGs for Python server (the LIGHT variant — the logo WITH
-	// its background chip — used e.g. for desktop shortcuts)
+	// Logo PNGs for Python server (the LIGHT variant, the logo WITH
+	// its background chip, used e.g. for desktop shortcuts)
 	for (const size of [64, 256]) {
 		await sharp(Buffer.from(lightSvg))
 			.resize(size, size)
@@ -425,13 +425,13 @@ async function main() {
 	// src-tauri/icons/32x32.png".
 	//
 	// Sizes:
-	//   - 32x32.png      — small Linux window icon (X11 _NET_WM_ICON fallback)
-	//   - 128x128.png    — standard window icon (Windows + Linux)
-	//   - 128x128@2x.png — Retina/HiDPI window icon (macOS + Linux Wayland)
-	//   - icon.png       — large 512x512 source icon (macOS .iconset)
+	//   - 32x32.png     , small Linux window icon (X11 _NET_WM_ICON fallback)
+	//   - 128x128.png   , standard window icon (Windows + Linux)
+	//   - 128x128@2x.png, Retina/HiDPI window icon (macOS + Linux Wayland)
+	//   - icon.png      , large 512x512 source icon (macOS .iconset)
 	//
 	// All four use the LIGHT variant (#1a1b1e chip + white glyph + red
-	// dot — the SAME look as the dark variant today) — the static
+	// dot, the SAME look as the dark variant today), the static
 	// default shown on the taskbar / Alt-Tab / Task Manager / pinned
 	// shortcuts when the app is NOT running.
 	// While the app RUNS, `src-tauri/src/theme_icon.rs` swaps the
@@ -450,7 +450,7 @@ async function main() {
 	console.log("Created src-tauri/icons/{32x32,128x128,128x128@2x,icon}.png");
 
 	// Dark-variant window icon for `theme_icon.rs` (OS-theme-reactive
-	// window icon — TR-4). This is the dark-mode chrome: dark chip +
+	// window icon, TR-4). This is the dark-mode chrome: dark chip +
 	// white glyph + red dot. It lives OUTSIDE `icons/` on purpose:
 	// `scripts/build/generate_tauri_icons.py::prune` deletes
 	// everything under `icons/` except the `bundle.icon` keep-set.
@@ -460,7 +460,7 @@ async function main() {
 		.toFile(resolve(themeIconsDir, "icon-dark-512.png"));
 	console.log("Created src-tauri/theme-icons/icon-dark-512.png");
 
-	// Tauri tray state icons (see generateTauriTrayIcons above — the
+	// Tauri tray state icons (see generateTauriTrayIcons above, the
 	// comment block moved there with the function).
 	await generateTauriTrayIcons(tauriIconsDir);
 

@@ -24,7 +24,7 @@ MagicMock()`` use the setter, which bypasses lazy construction.
 These tests run on the Linux sandbox. ``scipy`` is mocked at module
 level (via ``sys.modules``) because the test environment has a
 numpy/scipy version mismatch (numpy 1.26.4 vs scipy 1.18.0) that
-breaks the real ``scipy.signal`` import — mocking scipy lets the
+breaks the real ``scipy.signal`` import, mocking scipy lets the
 test construct a real ``VoiceTyperApp`` without paying the
 ``audio_filters`` import cost (which is the whole point of the fix).
 """
@@ -117,7 +117,7 @@ class TestHistoryDbLazyConstruction:
 
         # HistoryDB() must NOT have been called during __init__.
         assert mock_history_db_cls.call_count == 0, (
-            "HistoryDB() was called during __init__ — the lazy property should defer construction to first access."
+            "HistoryDB() was called during __init__, the lazy property should defer construction to first access."
         )
         assert instance._history_db_backing is None
 
@@ -143,7 +143,7 @@ class TestHistoryDbLazyConstruction:
 
     def test_history_db_setter_bypasses_construction(self, tmp_config_dir, monkeypatch):
         """(c): assigning via the setter stores directly into the
-        backing — a subsequent getter call returns the assigned value
+        backing, a subsequent getter call returns the assigned value
         without invoking the lazy constructor. This is the contract
         tests rely on when they inject mocks via
         ``app.history_db = MagicMock()``.
@@ -169,7 +169,7 @@ class TestHistoryDbLazyConstruction:
         # HistoryDB() must NOT have been called (the setter bypasses
         # lazy construction).
         assert mock_history_db_cls.call_count == 0, (
-            "Setter must bypass lazy construction — HistoryDB() was "
+            "Setter must bypass lazy construction, HistoryDB() was "
             "called even though a sentinel was assigned via the setter."
         )
 
@@ -188,7 +188,7 @@ class TestHistoryDbLazyConstruction:
         monkeypatch.setattr(_app_mod, "HistoryDB", mock_history_db_cls)
 
         instance = _app_mod.VoiceTyperApp()
-        # Simulate shutdown — quit() / restart_app() sets this before
+        # Simulate shutdown, quit() / restart_app() sets this before
         # the teardown path runs.
         instance._shutting_down_event.set()
 
@@ -196,7 +196,7 @@ class TestHistoryDbLazyConstruction:
         # (no construction).
         assert instance.history_db is None, (
             "history_db getter must return None when _shutting_down_event "
-            "is set — prevents lazy construction during shutdown teardown."
+            "is set, prevents lazy construction during shutdown teardown."
         )
         assert mock_history_db_cls.call_count == 0, "HistoryDB() must NOT be called when _shutting_down_event is set."
 
@@ -242,7 +242,7 @@ class TestAudioProcessorLazyConstruction:
         # The proxy's _real must be None (no construction yet).
         assert object.__getattribute__(backing, "_real") is None, (
             "The _LazyAudioProcessorProxy must NOT have constructed the "
-            "real AudioProcessor during __init__ — _real should be None."
+            "real AudioProcessor during __init__, _real should be None."
         )
 
     def test_audio_processor_not_constructed_at_init_via_mock(self, tmp_config_dir, monkeypatch):
@@ -267,7 +267,7 @@ class TestAudioProcessorLazyConstruction:
 
         # AudioProcessor(...) must NOT have been called during __init__.
         assert mock_ap_cls.call_count == 0, (
-            "AudioProcessor() was called during __init__ — "
+            "AudioProcessor() was called during __init__, "
             "the lazy proxy should defer construction to first attribute "
             "access."
         )
@@ -301,7 +301,7 @@ class TestAudioProcessorLazyConstruction:
 
     def test_audio_processor_setter_bypasses_proxy(self, tmp_config_dir, monkeypatch):
         """(c): assigning via the setter stores directly into the
-        backing — a subsequent getter call returns the assigned value
+        backing, a subsequent getter call returns the assigned value
         without invoking the proxy. This is the contract tests rely on
         when they inject mocks via ``app._audio_processor =
         MagicMock()``.
@@ -327,13 +327,13 @@ class TestAudioProcessorLazyConstruction:
         # AudioProcessor() must NOT have been called (the setter
         # bypasses the proxy entirely).
         assert mock_ap_cls.call_count == 0, (
-            "Setter must bypass the proxy — AudioProcessor() was called "
+            "Setter must bypass the proxy, AudioProcessor() was called "
             "even though a sentinel was assigned via the setter."
         )
 
     def test_audio_processor_proxy_caches_real_instance(self, tmp_config_dir, monkeypatch):
         """The proxy caches the real ``AudioProcessor`` after first
-        construction — subsequent attribute accesses reuse the cached
+        construction, subsequent attribute accesses reuse the cached
         instance (no re-construction).
         """
         _patch_app_platform_helpers(monkeypatch)
@@ -352,7 +352,7 @@ class TestAudioProcessorLazyConstruction:
         # Second attribute access reuses the cached instance.
         _ = instance._audio_processor.sample_rate
         assert mock_ap_cls.call_count == 1, (
-            "Subsequent attribute accesses must reuse the cached AudioProcessor — no re-construction."
+            "Subsequent attribute accesses must reuse the cached AudioProcessor, no re-construction."
         )
 
     def test_audio_processor_proxy_forwards_attribute_access(self, tmp_config_dir, monkeypatch):
@@ -393,50 +393,49 @@ class TestDeferredImportsInLazyGetters:
 
     def test_audio_processor_not_at_module_top(self):
         """``AudioProcessor`` is NOT a module-top attribute of
-        ``voice_typer.server.app`` — it's imported inside the
+        ``voice_typer.server.app``, it's imported inside the
         ``_LazyAudioProcessorProxy._resolve`` method.
         """
         from voice_typer.server import app as _app_mod
 
         assert not hasattr(_app_mod, "AudioProcessor"), (
-            "AudioProcessor should NOT be a module-top attribute — "
+            "AudioProcessor should NOT be a module-top attribute, "
             "it should be imported inside the _LazyAudioProcessorProxy._resolve "
             "method to defer the audio_filters → scipy import chain."
         )
 
     def test_duck_crash_recovery_not_at_module_top(self):
         """``DuckCrashRecovery`` is NOT a module-top attribute of
-        ``voice_typer.server.app`` — it's imported inside the
+        ``voice_typer.server.app``, it's imported inside the
         ``_duck_crash_recovery`` getter.
         """
         from voice_typer.server import app as _app_mod
 
         assert not hasattr(_app_mod, "DuckCrashRecovery"), (
-            "DuckCrashRecovery should NOT be a module-top attribute — "
+            "DuckCrashRecovery should NOT be a module-top attribute, "
             "it should be imported inside the _duck_crash_recovery getter."
         )
 
     def test_volume_ducker_not_at_module_top(self):
         """``VolumeDucker`` is NOT a module-top attribute of
-        ``voice_typer.server.app`` — it's imported inside the
+        ``voice_typer.server.app``, it's imported inside the
         ``_volume_ducker`` getter.
         """
         from voice_typer.server import app as _app_mod
 
         assert not hasattr(_app_mod, "VolumeDucker"), (
-            "VolumeDucker should NOT be a module-top attribute — "
-            "it should be imported inside the _volume_ducker getter."
+            "VolumeDucker should NOT be a module-top attribute, it should be imported inside the _volume_ducker getter."
         )
 
     def test_waveform_bubble_not_at_module_top(self):
         """``WaveformBubble`` is NOT a module-top attribute of
-        ``voice_typer.server.app`` — it's imported inside the
+        ``voice_typer.server.app``, it's imported inside the
         ``_waveform_bubble`` getter.
         """
         from voice_typer.server import app as _app_mod
 
         assert not hasattr(_app_mod, "WaveformBubble"), (
-            "WaveformBubble should NOT be a module-top attribute — "
+            "WaveformBubble should NOT be a module-top attribute, "
             "it should be imported inside the _waveform_bubble getter."
         )
 
@@ -458,7 +457,7 @@ class TestRecorderDeferredConstruction:
 
     These tests pin the contract deterministically by installing FAKE
     ``voice_typer.server.recording`` / ``recording_controller`` modules
-    into ``sys.modules`` (hermetic — no numpy/audio imports at all). The
+    into ``sys.modules`` (hermetic, no numpy/audio imports at all). The
     fake ``Recorder.__init__`` is gated on a ``threading.Event``, so the
     test can observe the sentinel state while the build is provably
     still in flight on a background thread.
@@ -471,7 +470,7 @@ class TestRecorderDeferredConstruction:
         background build thread's deferred imports (``from
         voice_typer.server.recording import Recorder`` / ``from
         voice_typer.server.recording_controller import
-        RecordingController``) resolve to the fakes — the test never
+        RecordingController``) resolve to the fakes, the test never
         imports numpy/audio and never constructs real subsystems.
         """
         fake_recording = types.ModuleType("voice_typer.server.recording")
@@ -490,7 +489,7 @@ class TestRecorderDeferredConstruction:
     def test_recorder_backing_is_sentinel_after_init_and_accessible_after_build(self, tmp_config_dir, monkeypatch):
         """Right after ``__init__``, ``_recorder_backing`` is still the
         ``_RECORDER_MISSING`` sentinel and ``_recorder_build_ready`` is
-        NOT set — the recorder was NOT built synchronously. The fake
+        NOT set, the recorder was NOT built synchronously. The fake
         ``Recorder.__init__`` blocks on an event, so the test can prove
         the construction is proceeding on a background thread while the
         sentinel state is observable; once released, ``app.recorder`` /
@@ -528,7 +527,7 @@ class TestRecorderDeferredConstruction:
                 "The background recorder build must not have completed during __init__."
             )
 
-            # Prove the build IS proceeding — on a background thread, not the main one.
+            # Prove the build IS proceeding, on a background thread, not the main one.
             assert entered.wait(5), "background recorder build thread never started"
 
             # While the build is in flight the sentinel must hold (no eager construction).

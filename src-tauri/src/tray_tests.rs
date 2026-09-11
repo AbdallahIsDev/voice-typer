@@ -8,7 +8,7 @@
     clippy::cast_possible_truncation
 )]
 
-//! Sibling tests for `tray` (per C-TEST-5 — sibling test file, no
+//! Sibling tests for `tray` (per C-TEST-5, sibling test file, no
 //! inline tests in production source).
 //!
 //! Covers three areas:
@@ -17,7 +17,7 @@
 //!   of the JSON shape the Python sidecar emits for tray icon +
 //!   tooltip updates and full menu rebuilds.
 //! - **Allowed-icon-name whitelist**: the four canonical tray icon
-//!   names (`idle`, `recording`, `transcribing`, `error`) — anything
+//!   names (`idle`, `recording`, `transcribing`, `error`), anything
 //!   else is rejected so a malformed sidecar payload can't reference
 //!   an arbitrary filesystem path.
 //! - **Click-event focus predicate**: `is_focus_main_window_event`
@@ -44,17 +44,17 @@ fn test_tray_state_payload_parses_icon_only() {
 #[test]
 fn test_tray_state_payload_parses_tooltip_only() {
     let p: TrayStatePayload =
-        serde_json::from_str(r#"{"tooltip":"Voice Typer — Recording"}"#).expect("parse");
-    assert!(p.icon.is_none());
-    assert_eq!(p.tooltip.as_deref(), Some("Voice Typer — Recording"));
+        serde_json::from_str(r#"{"tooltip":"Voice Typer: Recording"}"#).expect("parse");
+        assert!(p.icon.is_none());
+        assert_eq!(p.tooltip.as_deref(), Some("Voice Typer: Recording"));
 }
 
 #[test]
 fn test_tray_state_payload_parses_both_fields() {
     let p: TrayStatePayload =
-        serde_json::from_str(r#"{"icon":"error","tooltip":"Voice Typer — Error"}"#).expect("parse");
-    assert_eq!(p.icon.as_deref(), Some("error"));
-    assert_eq!(p.tooltip.as_deref(), Some("Voice Typer — Error"));
+        serde_json::from_str(r#"{"icon":"error","tooltip":"Voice Typer: Error"}"#).expect("parse");
+        assert_eq!(p.icon.as_deref(), Some("error"));
+        assert_eq!(p.tooltip.as_deref(), Some("Voice Typer: Error"));
 }
 
 #[test]
@@ -136,7 +136,7 @@ fn test_tray_menu_payload_parses_submenu() {
 // When present, `build_item_refs` forwards the string to Tauri's
 // `MenuItemBuilder::accelerator` / `CheckMenuItemBuilder::accelerator`
 // (validated by Tauri at `build()` time). These tests verify the
-// serde shape — the actual native-builder wiring is exercised by the
+// serde shape: the actual native-builder wiring is exercised by the
 // Tauri runtime on each platform.
 
 #[test]
@@ -162,7 +162,7 @@ fn test_tray_menu_payload_accelerator_defaults_none() {
 
 #[test]
 fn test_tray_menu_payload_parses_accelerator_with_checked_item() {
-    // A CheckMenuItem can ALSO have an accelerator — verify the
+    // A CheckMenuItem can ALSO have an accelerator, verify the
     // two fields coexist on the same item.
     let p: TrayMenuPayload = serde_json::from_str(
         r#"{"items":[{"id":"mute","label":"Mute","checked":true,"accelerator":"Ctrl+M"}]}"#,
@@ -190,7 +190,7 @@ fn test_allowed_icon_names_are_stable() {
     assert_eq!(
         ALLOWED_ICON_NAMES,
         &["idle", "recording", "transcribing", "error"],
-        "ALLOWED_ICON_NAMES changed — update src-tauri/icons/tray/ + bundle.resources too"
+        "ALLOWED_ICON_NAMES changed: update src-tauri/icons/tray/ + bundle.resources too"
     );
 }
 
@@ -222,7 +222,7 @@ fn test_allowed_icon_names_rejects_arbitrary_path() {
 // The predicate is the runtime gate inside `load_tray_icon` that
 // decides whether a sidecar-supplied icon name is safe to load from
 // disk. These tests verify the predicate AGREES with the
-// `ALLOWED_ICON_NAMES` test constant — if the two ever drift, the
+// `ALLOWED_ICON_NAMES` test constant: if the two ever drift, the
 // predicate would accept names the constant rejects (or vice versa),
 // and the icon whitelist would silently break. The constant is the
 // single source of truth shared across both the predicate impl and
@@ -242,7 +242,7 @@ fn test_is_allowed_icon_name_accepts_whitelist() {
 #[test]
 fn test_is_allowed_icon_name_rejects_arbitrary_path() {
     // Same sentinel set as `test_allowed_icon_names_rejects_arbitrary_path`
-    // — the predicate and the constant must agree on REJECTION too.
+    //: the predicate and the constant must agree on REJECTION too.
     let bad_names = [
         "",
         ".",
@@ -331,7 +331,7 @@ fn test_dispatch_args_tray_click_shape_with_empty_id() {
 
 /// Build a minimal `TrayIconEvent::Click` with the given button.
 /// All other fields use defaults (zero position, zero rect, Down
-/// button_state, "test" id) — the predicate only inspects `button`,
+/// button_state, "test" id): the predicate only inspects `button`,
 /// so the other fields' values don't affect the test outcome.
 fn make_click_event(button: MouseButton) -> TrayIconEvent {
     use tauri::tray::MouseButtonState;
@@ -359,7 +359,7 @@ fn test_focus_predicate_false_for_right_click() {
     let event = make_click_event(MouseButton::Right);
     assert!(
         !is_focus_main_window_event(&event),
-        "right-click must NOT trigger show+focus — it opens the context menu"
+        "right-click must NOT trigger show+focus: it opens the context menu"
     );
 }
 
@@ -368,14 +368,14 @@ fn test_focus_predicate_false_for_middle_click() {
     let event = make_click_event(MouseButton::Middle);
     assert!(
         !is_focus_main_window_event(&event),
-        "middle-click must NOT trigger show+focus — no binding for it"
+        "middle-click must NOT trigger show+focus: no binding for it"
     );
 }
 
 #[test]
 fn test_focus_predicate_false_for_double_click() {
     // Even a left-button DoubleClick must NOT trigger the show+focus
-    // path — only single left-click does. Double-clicking the tray
+    // path: only single left-click does. Double-clicking the tray
     // icon is reserved for future use (no current binding); treating
     // it as a focus trigger would fire show+focus twice in rapid
     // succession (once for Click, once for DoubleClick).
@@ -388,7 +388,7 @@ fn test_focus_predicate_false_for_double_click() {
     };
     assert!(
         !is_focus_main_window_event(&event),
-        "double-click must NOT trigger show+focus — only single left-click"
+        "double-click must NOT trigger show+focus: only single left-click"
     );
 }
 

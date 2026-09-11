@@ -8,7 +8,7 @@ them.
 
 ``_secure_atomic_write`` is still imported at FACADE module load time
 (``voice_typer/server/crash_recovery/__init__.py``) rather than lazily
-here — the interpreter-shutdown rationale from the pre-split module
+here, the interpreter-shutdown rationale from the pre-split module
 still applies: the import machinery can be partially dismantled during
 ``__del__``/atexit saves, so the call site resolves the function
 through the already-loaded facade module object (``_facade``) instead
@@ -30,12 +30,12 @@ from datetime import datetime
 from voice_typer.server import crash_recovery as _facade
 
 # Shared monotonic counter for the quarantine filename's sub-second
-# disambiguator — imported from the hardened implementation in
+# disambiguator, imported from the hardened implementation in
 # ``security.file_io`` (single definition; the same counter object also
 # backs ``PersistedJSON._quarantine_corrupt``, so quarantine events from
 # both sites in one process can never pick the same suffix). Rebinding
 # ``security.file_io._QUARANTINE_SUFFIX_SEQ`` does NOT rebind this
-# module's reference — tests that need a fresh counter monkeypatch
+# module's reference, tests that need a fresh counter monkeypatch
 # ``voice_typer.server.crash_recovery._io._QUARANTINE_SUFFIX_SEQ``.
 from voice_typer.server.security.file_io import _QUARANTINE_SUFFIX_SEQ
 
@@ -63,7 +63,7 @@ MAX_RECOVERY_ENTRIES = 10
 # not useful for crash recovery.
 _SAVE_QUEUE_MAXSIZE = 32
 
-# Logger name pinned to the package name (C-LOG-1) — see _worker.py.
+# Logger name pinned to the package name (C-LOG-1). See _worker.py.
 log = logging.getLogger("voice_typer.server.crash_recovery")
 
 
@@ -93,7 +93,7 @@ class _RecoveryIO:
         is reset to empty on failure, matching the prior behavior.
 
         M-64: previously this used :meth:`pathlib.Path.read_text`,
-        which silently follows symlinks — inconsistent with the
+        which silently follows symlinks, inconsistent with the
         write side (:meth:`_save_sync`), which already used
         :func:`voice_typer.server.config._secure_atomic_write`
         (POSIX ``O_NOFOLLOW``). A local attacker who replaced the
@@ -110,7 +110,7 @@ class _RecoveryIO:
         ``<path>.corrupt.<ts>-<pid>-<ns>`` before resetting ``_entries``.
         This preserves the corrupt file for forensic review and
         ensures the next ``_save_sync()`` starts fresh instead of
-        re-reading the same corrupt content.  Best-effort — a move
+        re-reading the same corrupt content.  Best-effort, a move
         failure (e.g. cross-device, permissions) is logged and
         swallowed so ``_load`` still resets ``_entries`` cleanly.
         """
@@ -152,7 +152,7 @@ class _RecoveryIO:
                 elif isinstance(data, dict) and "entries" in data:
                     self._entries = collections.deque(data["entries"], maxlen=MAX_RECOVERY_ENTRIES)
                 else:
-                    # Shape is wrong but JSON parsed — treat as
+                    # Shape is wrong but JSON parsed, treat as
                     # corrupt and quarantine so the next save isn't
                     # merged with stale data.
                     self._quarantine_corrupt()
@@ -162,7 +162,7 @@ class _RecoveryIO:
             except Exception as exc:
                 log.warning("[RECOVERY] Failed to load: %s", exc)
                 # Quarantine the corrupt file so the next save creates a
-                # fresh one.  Best-effort — failures are logged and
+                # fresh one.  Best-effort, failures are logged and
                 # swallowed so _load always resets _entries cleanly.
                 self._quarantine_corrupt()
                 self._entries = collections.deque(maxlen=MAX_RECOVERY_ENTRIES)
@@ -185,7 +185,7 @@ class _RecoveryIO:
         change): the destination embeds epoch-style seconds (here the
         pre-existing human-readable ``%Y%m%d_%H%M%S``), the PID, and
         sub-second nanoseconds mixed with a module-shared monotonic
-        counter — so two concurrent quarantines, even within the same
+        counter, so two concurrent quarantines, even within the same
         second (and on coarse-clock platforms where ``time.time_ns()``
         repeats), produce DISTINCT filenames without any ``exists()``
         probe loop (which had a TOCTOU window). The dot-separated
@@ -207,7 +207,7 @@ class _RecoveryIO:
         Best-effort: if the move fails (cross-device, permissions,
         file disappeared between the ``exists()`` check and now), the
         failure is logged at ``debug`` level and swallowed.  This must
-        never raise — callers (``_load``) rely on a clean reset to
+        never raise, callers (``_load``) rely on a clean reset to
         ``_entries = []`` regardless of quarantine outcome.
         """
         try:
@@ -216,7 +216,7 @@ class _RecoveryIO:
             ts = datetime.now().strftime("%Y%m%d_%H%M%S")
             pid = os.getpid()
             # Sub-second nanoseconds mixed with the shared monotonic
-            # counter (GIL-atomic ``next()``, no lock) — the counter
+            # counter (GIL-atomic ``next()``, no lock), the counter
             # disambiguates rapid back-to-back / concurrent calls when
             # the clock granularity repeats ``time_ns()`` (observed on
             # Windows).
@@ -252,7 +252,7 @@ class _RecoveryIO:
         ``_secure_atomic_write`` is imported at module
         load time (top of file) rather than lazily here.  This avoids
         the ``ImportError`` that occurred during interpreter shutdown
-        when the import machinery was partially dismantled — the
+        when the import machinery was partially dismantled, the
         lazy import would silently fail and the final recovery state
         would be lost.
 
@@ -269,7 +269,7 @@ class _RecoveryIO:
         mkdir+chmod; subsequent saves skip BOTH.  ``durability``
         controls whether ``_secure_atomic_write`` runs the two fsync
         calls (file data + parent dir).  Default ``False`` for the
-        per-dictation path (5+ saves/sec under streaming — fsync cost
+        per-dictation path (5+ saves/sec under streaming, fsync cost
         is not worth it for non-critical data).  ``True`` may be
         passed by ``_atexit_flush_all`` and ``__del__`` for the final
         shutdown save (one-time cost, durability guarantee matters
@@ -281,7 +281,7 @@ class _RecoveryIO:
         (guarded by ``_save_lock``) makes the second call a no-op
         so the atomic-write + rename happens exactly once on the
         shutdown path. The flag is set ONLY by ``_atexit_flush_all``
-        (NOT by ``shutdown()`` or ``__del__``) — so ``shutdown()``'s
+        (NOT by ``shutdown()`` or ``__del__``), so ``shutdown()``'s
         final save does NOT suppress a subsequent ``__del__`` save
         for post-shutdown mutations. The flag is reset to ``False``
         by ``_enqueue_save`` when a new mutation arrives post-shutdown.
@@ -293,7 +293,7 @@ class _RecoveryIO:
         the flag-set happens before any concurrent worker thread
         (blocked on ``_save_lock`` waiting for the atexit-save to
         release) can observe ``_final_save_done = False`` and write
-        the file again — the redundant-write race that
+        the file again, the redundant-write race that
         ``test_del_skips_when_atexit_already_saved`` reproduces
         order-dependently under xdist. ``shutdown()``, ``__del__``,
         the worker thread, and ``_enqueue_save``'s sync fallback all
@@ -313,14 +313,14 @@ class _RecoveryIO:
         propagating up and killing the worker thread. Pre-fix the
         ``with self._save_lock:`` lived at the function's top level;
         an exception there escaped into ``_save_loop`` (which had no
-        top-level handler either — fixed separately in ``_save_loop``).
+        top-level handler either, fixed separately in ``_save_loop``).
         """
         try:
             with self._save_lock:
                 # short-circuit if the atexit handler already
                 # persisted the final state. The flag is set ONLY by
                 # ``_atexit_flush_all`` (NOT by ``shutdown()`` or this
-                # function) — so ``shutdown()``'s final save does NOT
+                # function), so ``shutdown()``'s final save does NOT
                 # suppress a subsequent ``__del__`` save for post-shutdown
                 # mutations (the test
                 # ``test_del_saves_unpersisted_post_shutdown_mutations``
@@ -346,13 +346,13 @@ class _RecoveryIO:
                                 os.chmod(self._path.parent, 0o700)
                             except OSError as e:
                                 log.warning("[RECOVERY] Failed to chmod dir: %s", e)
-                                # Don't set _dir_ensured — retry mkdir+chmod
+                                # Don't set _dir_ensured, retry mkdir+chmod
                                 # on the next save.  Still proceed with the
                                 # save below; the chmod failure is not fatal.
                             else:
                                 self._dir_ensured = True
                         else:
-                            # Windows: no chmod, but mkdir succeeded — set
+                            # Windows: no chmod, but mkdir succeeded, set
                             # the flag so we skip the redundant mkdir on
                             # subsequent saves.
                             self._dir_ensured = True
@@ -384,7 +384,7 @@ class _RecoveryIO:
                     # the file. Without this, there's a race window
                     # between the atexit-save releasing the lock and
                     # ``_atexit_flush_all`` setting the flag outside
-                    # the lock — the worker thread can win that race
+                    # the lock, the worker thread can win that race
                     # (it's directly waiting on the lock acquire,
                     # while the test thread has to wake from
                     # ``done.wait()``, return from
@@ -392,7 +392,7 @@ class _RecoveryIO:
                     # flag-set line). Reproduces order-dependently under
                     # xdist in ``test_del_skips_when_atexit_already_saved``.
                     #
-                    # NOTE — the flag is NOT set here for the DEFAULT
+                    # NOTE, the flag is NOT set here for the DEFAULT
                     # (``set_final_save_done=False``) callers. Only
                     # ``_atexit_flush_all`` (via
                     # ``_run_save_with_timeout``) passes ``True``. This

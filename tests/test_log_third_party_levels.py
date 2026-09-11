@@ -13,7 +13,7 @@ These tests pin:
   huggingface_hub / transformers / pystray / asyncio)
 - applying the map resolves every mapped logger to <= WARNING with no
   leftover handlers
-- the silencing is applied even when ``sys.stderr`` is None — the
+- the silencing is applied even when ``sys.stderr`` is None, the
   pythonw.exe frozen-exe path that the old nested placement skipped
 """
 

@@ -3,7 +3,7 @@
 // The ADD path lives in the inline quick-add row
 // (``useVocabularyQuickAdd``) and the EDIT path uses the SAME inline
 // row treatment (``VocabInlineForm`` rendered in place of the edited
-// row) — the old edit MODAL (VocabDialog) was removed so create and
+// row), the old edit MODAL (VocabDialog) was removed so create and
 // modify are one consistent pattern.
 //
 // Owns:
@@ -14,7 +14,7 @@
 //
 // ``saveEdit`` reads from the form fields + the latest ``entries``
 // (provided by ``useVocabulary``) so it can splice the edited entry in
-// place (preserving its existing ``_id`` — React re-uses the DOM node
+// place (preserving its existing ``_id``, React re-uses the DOM node
 // so input focus / animation state isn't lost). After the IPC save
 // lands it calls ``persistVocabulary`` + ``setEntries`` (both provided
 // by ``useVocabulary``) to commit the change.
@@ -60,7 +60,7 @@ export function useVocabularyEdit({
 	const [trigger, setTrigger] = useState("");
 	const [replacement, setReplacement] = useState("");
 	// Category is NOT shown in the form (the page is a flat two-column
-	// list) — but it must be preserved on save so the backend bucket
+	// list), but it must be preserved on save so the backend bucket
 	// never changes behind the user's back. Initialised from the entry
 	// being edited; "auto" resolves via detectCategory.
 	const [category, setCategory] = useState<string>("auto");
@@ -68,7 +68,7 @@ export function useVocabularyEdit({
 	const openEdit = (entry: VocabRow) => {
 		setEditingEntry(entry);
 		setTrigger(entry.original);
-		// Preserve the entry's existing bucket (don't re-detect — an
+		// Preserve the entry's existing bucket (don't re-detect, an
 		// edit shouldn't silently re-categorize the entry).
 		setCategory(entry.category || "auto");
 		setReplacement(entry.correction);
@@ -85,11 +85,11 @@ export function useVocabularyEdit({
 		const resolvedCategory =
 			category === "auto" ? detectCategory(trimmedTrigger) : category;
 		try {
-			// Edit path only — splice the edited entry in place, keeping
+			// Edit path only, splice the edited entry in place, keeping
 			// its ``_id`` so React doesn't remount the row (which would
 			// lose input focus / animation state). An edit that changes
 			// the wrong phrase to one that ALREADY EXISTS is blocked by
-			// the backend (client.duplicate_entry) — the matcher keys on
+			// the backend (client.duplicate_entry), the matcher keys on
 			// the wrong phrase, so two entries sharing it would silently
 			// collide.
 			const updated: VocabRow[] = entries.map((e) =>

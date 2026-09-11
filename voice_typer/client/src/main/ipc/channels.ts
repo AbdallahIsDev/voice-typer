@@ -1,7 +1,7 @@
 // Single source of truth for IPC channel names.
 //
 // All `ipcMain.on` / `ipcMain.handle` and `ipcRenderer.invoke` /
-// `ipcRenderer.send` calls must reference these constants — not bare
+// `ipcRenderer.send` calls must reference these constants, not bare
 // string literals. The preload scripts (`preload/_bubble-channels.ts`,
 // `preload/index.ts`) re-export the subsets they need so the renderer
 // side stays in sync.

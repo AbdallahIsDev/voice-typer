@@ -1,4 +1,4 @@
-"""§8.11 — App-data folder write blocked: fallback directory.
+"""§8.11: App-data folder write blocked: fallback directory.
 
 Spec (§8.11):
 
@@ -28,7 +28,7 @@ from voice_typer.server.service import offline_pack
 
 
 class TestFallbackPackRoot:
-    """§8.11 — fallback pack root resolution."""
+    """§8.11, fallback pack root resolution."""
 
     def test_windows_roaming_fallback(self, monkeypatch):
         monkeypatch.setattr(platform, "system", lambda: "Windows")
@@ -68,7 +68,7 @@ class TestFallbackPackRoot:
 
 
 class TestPackDirUsesFallback:
-    """§8.11 — pack_dir_for_version honors explicit fallback root."""
+    """§8.11, pack_dir_for_version honors explicit fallback root."""
 
     def test_pack_dir_uses_explicit_root(self, tmp_path: Path):
         fallback = tmp_path / "fallback" / "runtime-pack"
@@ -95,7 +95,7 @@ class TestPackDirUsesFallback:
         fallback = tmp_path / "fb" / "runtime-pack"
         p = offline_pack.offline_pack_lock_path("v3", root=fallback)
         # The lock is a SIBLING of the version dir (the §8.3 swap renames
-        # the version dir to ``.trash`` — a lock inside it would have its
+        # the version dir to ``.trash``, a lock inside it would have its
         # inode carried away).
         assert p == fallback / "pack-v3.lock"
 

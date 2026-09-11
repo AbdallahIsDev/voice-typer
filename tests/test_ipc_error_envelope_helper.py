@@ -123,7 +123,7 @@ class TestSendErrorEnvelopeHelper:
 
     def test_helper_ignores_non_dict_msg(self, server) -> None:
         """When ``msg`` is a non-dict JSON value (list / int / str /
-        None — all valid JSON), the helper MUST NOT raise and MUST NOT
+        None, all valid JSON), the helper MUST NOT raise and MUST NOT
         add an ``id`` field. Mirrors the ``isinstance(msg, dict)``
         guard that previously lived at every inline site."""
         for non_dict in ([1, 2, 3], 42, "hello", None):
@@ -190,7 +190,7 @@ class TestLazyInt:
         _LazyInt(expensive)
         assert called == [], (
             "ER-84: _LazyInt must defer the wrapped callable until "
-            "int() is invoked — constructing the wrapper must be free."
+            "int() is invoked, constructing the wrapper must be free."
         )
 
     def test_int_invokes_callable_once(self) -> None:
@@ -211,7 +211,7 @@ class TestLazyInt:
 
     def test_percent_d_format_invokes_callable(self) -> None:
         """The ``%d`` format specifier MUST invoke ``__int__`` and
-        substitute the integer result — this is what the logging
+        substitute the integer result, this is what the logging
         framework does at render time. Verifies the lazy wrapper is
         transparent to ``%``-formatting."""
         result = "%d" % _LazyInt(lambda: 99)  # noqa: UP031  # intentional: verifies %-formatting dispatch to __int__
@@ -238,7 +238,7 @@ class TestSendNoClientLazySizeHint:
     ``len(str(msg))`` in ``_LazyInt`` so the eager stringification
     is deferred. The source-string assertion in
     ``tests/test_ipc_no_client_log_redaction.py`` pins the literal
-    ``"len(str(msg))"`` and ``"event (size=%d)"`` — both must remain
+    ``"len(str(msg))"`` and ``"event (size=%d)"``, both must remain
     in the source (the lambda body preserves the literal)."""
 
     def test_source_uses_lazy_int_wrapper(self) -> None:
@@ -266,7 +266,7 @@ class TestSendNoClientLazySizeHint:
         ``len(str(msg))`` callable MUST NOT be invoked at all (the
         logging framework short-circuits before formatting, and the
         ``_LazyInt`` wrapper never has ``__int__`` called). This is
-        the behavioral fix for ER-84 — the eager stringification was
+        the behavioral fix for ER-84, the eager stringification was
         the bug."""
         srv = IPCServer.__new__(IPCServer)
         srv.app = MagicMock()
@@ -278,13 +278,13 @@ class TestSendNoClientLazySizeHint:
         srv._tcp_mode = False  # no client, no TCP mode → "no client" log path
         srv._tcp_client = None
 
-        # Use a sentinel dict whose __str__ raises if invoked — proves
+        # Use a sentinel dict whose __str__ raises if invoked, proves
         # the stringification never happens when the log level filters
         # out the record.
         class _ExplodingDict(dict):
             def __str__(self) -> str:  # noqa: D401
                 raise AssertionError(
-                    "ER-84: len(str(msg)) was evaluated eagerly — the "
+                    "ER-84: len(str(msg)) was evaluated eagerly, the "
                     "_LazyInt wrapper should have deferred this until "
                     "the logging framework rendered the format string, "
                     "and the format string should NOT have been rendered "
@@ -303,7 +303,7 @@ class TestSendNoClientLazySizeHint:
         original_level = ipc_logger.level
         ipc_logger.setLevel(logging.WARNING)  # INFO and DEBUG both disabled
         try:
-            # This MUST NOT raise — _LazyInt defers the str(msg) call,
+            # This MUST NOT raise, _LazyInt defers the str(msg) call,
             # and the logger short-circuits before formatting.
             srv._send(msg)
         finally:

@@ -7,9 +7,9 @@ now lives in ``WindowsNativeHotkey._is_ime_composing()`` (a static
 method) and is checked on every iteration of the Win32 polling loop
 before invoking the user callback.
 
-These tests verify the same semantics — hotkey suppressed during
+These tests verify the same semantics, hotkey suppressed during
 composition, fires after composition ends, no false fires during
-toggles — against the actual implementation.
+toggles, against the actual implementation.
 """
 
 from __future__ import annotations
@@ -102,13 +102,13 @@ class TestIMEHotkeySuppression:
 
         Because suppression is evaluated per-iteration (not per-hotkey),
         toggling the IME state suppresses every active hotkey backend.
-        This test pins that the gate is shared — a single source of
-        truth — by verifying the same static method is used.
+        This test pins that the gate is shared, a single source of
+        truth, by verifying the same static method is used.
         """
         cls = _import_ime_check()
         if cls is None:
             pytest.skip("WindowsNativeHotkey not importable")
-        # The gate is a static method — callable without an instance —
+        # The gate is a static method, callable without an instance —
         # so every backend instance sees the same result.
         p_is_win, p_windll = _patch_ime_state(cls, composing=True)
         with p_is_win, p_windll:
@@ -117,7 +117,7 @@ class TestIMEHotkeySuppression:
         assert first is True and second is True
 
     def test_ime_toggle_does_not_fire_callback(self):
-        """Toggling IME state has no side effects — it's a pure query.
+        """Toggling IME state has no side effects, it's a pure query.
 
         The static method reads Windows IME APIs but does not invoke any
         user callback. The polling loop is responsible for deciding

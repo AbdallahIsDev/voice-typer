@@ -5,7 +5,7 @@ Pre-fix, ``_secure_read_text`` called ``f.read()`` with no size
 argument, reading the ENTIRE file into memory.  A maliciously planted
 multi-GB file at the config / vocabulary / templates / credential-store
 / crash-recovery path would exhaust RAM before the JSON parser saw a
-single byte — a DoS vector (XZ-R10-12 confirmation).
+single byte, a DoS vector (XZ-R10-12 confirmation).
 
 The fix adds a ``max_bytes`` keyword parameter (default 16 MiB, well
 above any legitimate config-file size) and routes the read through
@@ -14,35 +14,35 @@ above any legitimate config-file size) and routes the read through
 
 Test approach:
 
-1. **Default cap rejects oversized files** — write a 32 MiB file and
+1. **Default cap rejects oversized files**, write a 32 MiB file and
    verify ``_secure_read_text`` raises ``ValueError`` (default cap is
    16 MiB).
 
-2. **Explicit ``max_bytes`` rejects oversized files** — write a 1 KiB
+2. **Explicit ``max_bytes`` rejects oversized files**, write a 1 KiB
    file and call with ``max_bytes=512``; verify ``ValueError``.
 
-3. **Explicit ``max_bytes`` accepts files at the boundary** — write a
+3. **Explicit ``max_bytes`` accepts files at the boundary**, write a
    1 KiB file and call with ``max_bytes=1024``; verify success (the
    cap is exclusive of the limit, i.e. exactly ``max_bytes`` bytes is
    allowed).
 
-4. **``max_bytes=None`` is unbounded** — write a 32 MiB file and call
+4. **``max_bytes=None`` is unbounded**, write a 32 MiB file and call
    with ``max_bytes=None``; verify the read succeeds (legacy
    unbounded behaviour for tests / large fixtures).
 
-5. **Non-ASCII byte counting** — write a file with multi-byte UTF-8
+5. **Non-ASCII byte counting**, write a file with multi-byte UTF-8
    characters (e.g. CJK = 3 bytes per char) and verify the byte cap
    is enforced by BYTE count, not character count (a 4-char CJK
    string is 12 bytes, not 4).
 
-6. **Chunked abort does not read the whole file** — write a 100 MiB
+6. **Chunked abort does not read the whole file**, write a 100 MiB
    file and call with ``max_bytes=1MiB``; verify the read aborts
    quickly (does NOT read all 100 MiB before raising).  We verify
    this by spying on the file object's ``read`` method and asserting
    it was called only a few times (not 100 MiB / 64 KiB = 1600
    times).
 
-7. **PersistedJSON.load respects the cap** — write a >16 MiB JSON
+7. **PersistedJSON.load respects the cap**, write a >16 MiB JSON
    file at the ``PersistedJSON`` path and verify ``load()`` returns
    the default (the ``ValueError`` from the cap is caught by the
    ``except (JSONDecodeError, OSError, ValueError)`` handler and the
@@ -137,7 +137,7 @@ class TestSecureReadTextExplicitMaxBytes:
         unbounded behaviour for tests / large fixtures)."""
         from voice_typer.server.secure_file_io import _secure_read_text
 
-        # Write 20 MiB — exceeds the default 16 MiB cap, so the
+        # Write 20 MiB, exceeds the default 16 MiB cap, so the
         # default would reject.  With max_bytes=None it must succeed.
         big_file = tmp_path / "big.txt"
         chunk = "a" * (1024 * 1024)
@@ -261,7 +261,7 @@ class TestSecureReadTextChunkedAbort:
                 return self._real.close()
 
             # The Windows branch of _secure_read_text reads via
-            # ``with open(p, encoding=...) as f:`` — the wrapper must
+            # ``with open(p, encoding=...) as f:``, the wrapper must
             # support the context-manager protocol (dunder methods are
             # looked up on the type, not via __getattr__).
             def __enter__(self):
@@ -306,7 +306,7 @@ class TestSecureReadTextChunkedAbort:
             f"times for a 10 MiB file with max_bytes=1 MiB. The "
             f"chunked abort should have fired after ~17 chunks (1 MiB "
             f"/ 64 KiB), but the helper read the whole file. "
-            f"Pre-fix this was a single f.read() with no chunking — "
+            f"Pre-fix this was a single f.read() with no chunking, "
             f"the whole 10 MiB was loaded into RAM before the cap "
             f"check could fire."
         )
@@ -315,7 +315,7 @@ class TestSecureReadTextChunkedAbort:
         #    64 KiB = 16 chunks before the 17th triggers the abort).
         #  - Windows: the size pre-check (``st_size > max_bytes``)
         #    rejects the oversized file BEFORE any ``read()`` call, so
-        #    zero reads occur — the cap is enforced without touching
+        #    zero reads occur, the cap is enforced without touching
         #    the file data at all (even better than chunked abort).
         if os.name == "nt":
             assert len(read_calls) == 0, (
@@ -326,7 +326,7 @@ class TestSecureReadTextChunkedAbort:
         else:
             assert len(read_calls) >= 16, (
                 f"FR-53 regression: read() was called only {len(read_calls)} "
-                f"times — expected at least 16 chunks to exceed the 1 MiB "
+                f"times, expected at least 16 chunks to exceed the 1 MiB "
                 f"cap. The helper may be passing too large a chunk size to "
                 f"read(), which would defeat the chunked-abort purpose."
             )
@@ -341,7 +341,7 @@ class TestPersistedJSONLoadRespectsMaxBytes:
     """FR-53: ``PersistedJSON.load`` calls ``_secure_read_text`` which
     enforces the 16 MiB cap.  A >16 MiB file at the path triggers
     ``ValueError``, which is caught by the
-    ``except (JSONDecodeError, OSError, ValueError)`` handler — the
+    ``except (JSONDecodeError, OSError, ValueError)`` handler, the
     file is quarantined and the default is returned.
     """
 

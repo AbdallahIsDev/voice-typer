@@ -1,17 +1,17 @@
 # Contributing to Voice Typer
 
-Thank you for your interest in improving Voice Typer — a premium offline
+Thank you for your interest in improving Voice Typer, a premium offline
 background voice-to-text utility that lives in your system tray. This
 document is the canonical reference for getting a development
 environment running, understanding the project layout, and shipping
 changes that pass CI and respect the security model.
 
-> **TL;DR** — install [`uv`](https://docs.astral.sh/uv/) (`curl -LsSf https://astral.sh/uv/install.sh | sh`),
+> **TL;DR**: install [`uv`](https://docs.astral.sh/uv/) (`curl -LsSf https://astral.sh/uv/install.sh | sh`),
 > then `uv venv && uv pip install -e ".[test,dev]"`, `cd voice_typer/client && npm install`,
 > then `pytest tests/ -v` and `npm run test`.
 >
 > (`npm install` in `voice_typer/client/` auto-installs the husky git
-> hooks via the `prepare` script — see §4.3. Do NOT run
+> hooks via the `prepare` script: see §4.3. Do NOT run
 > `pre-commit install`; it writes to `.git/hooks/`, which git ignores
 > because husky sets `core.hooksPath = .husky/_/`. The pre-commit
 > framework is invoked via `pre-commit run` from inside husky's
@@ -49,20 +49,20 @@ locally.
 | OS | Required system packages / toolchain |
 |----|---------------------------------------|
 | **Windows 10/11** | "Desktop development with C++" workload from Visual Studio Build Tools (for compiling `pynput` keyboard hooks and the optional `windows-key-listener.c` native helper). Run `pip install -e ".[windows]"` to pull `pycaw`, `comtypes`, and `pywin32` for volume ducking and shortcut creation. |
-| **macOS 13+** (Ventura) | Xcode Command Line Tools (`xcode-select --install`). The `pyobjc-core`, `pyobjc-framework-CoreAudio`, and `pyobjc-framework-Cocoa` deps (declared with `sys_platform == 'darwin'` markers) require a working Clang. Grant **Accessibility** permission to the terminal (or the built app) the first time you press the hotkey — the native key listener needs it. CI runners pin to `macos-13` (Intel/x64) and `macos-14` (Apple Silicon/arm64); macOS 12 may work but is not tested. |
+| **macOS 13+** (Ventura) | Xcode Command Line Tools (`xcode-select --install`). The `pyobjc-core`, `pyobjc-framework-CoreAudio`, and `pyobjc-framework-Cocoa` deps (declared with `sys_platform == 'darwin'` markers) require a working Clang. Grant **Accessibility** permission to the terminal (or the built app) the first time you press the hotkey. The native key listener needs it. CI runners pin to `macos-13` (Intel/x64) and `macos-14` (Apple Silicon/arm64); macOS 12 may work but is not tested. |
 | **Linux (X11 or Wayland)** | `libxdo-dev` and `libxtst-dev` (Debian/Ubuntu: `sudo apt install libxdo-dev libxtst-dev`; Fedora: `sudo dnf install xdo-devel libXtst-devel`). Add your user to the `input` group so the native key listener can read `/dev/input/event*`: `sudo usermod -aG input $USER` then log out/in. See `scripts/linux/99-voice-typer.rules` and `scripts/linux/install_permissions.py` for the packaged udev/polkit story. |
 
 > **GPU users (optional):** if you want CUDA-accelerated transcription,
 > install the matching `torch` wheel *before* `pip install -e .` using
 > the `--index-url https://download.pytorch.org/whl/cu118` (or `cu121`)
-> flag. CPU-only installs work fine — `faster-whisper` and the optional
+> flag. CPU-only installs work fine, `faster-whisper` and the optional
 > `qwen-asr` extra both fall back to CPU automatically.
 
 ---
 
 ## 2. Development Setup
 
-There are two supported paths: **`uv`** (preferred — 10-100x faster than pip
+There are two supported paths: **`uv`** (preferred: 10-100x faster than pip
 for cold installs, parallel downloads, global cache) and **plain `pip`**
 (documented below). Both produce equivalent environments; pick whichever
 you already have installed.
@@ -94,7 +94,7 @@ source .venv/bin/activate          # macOS / Linux
 #    and uv's lockfile resolves all extras). See README §"Using uv"
 #    for the full backstory.
 uv pip install -e ".[test,dev]"
-#    Option B — pin to the hash-pinned locked set used by CI:
+#    Option B: pin to the hash-pinned locked set used by CI:
 #    (requirements.txt was removed; pip-installable deps now
 #    live ONLY in pyproject.toml. For reproducible builds with
 #    --require-hashes, use requirements-lock.txt.)
@@ -106,10 +106,10 @@ npm install
 
 # 6. Run the app in dev mode (two terminals, or use `npm run dev`
 #    which spawns the Python subprocess automatically)
-#    Terminal 1 — Python backend (optional; `npm run dev` starts it
+#    Terminal 1: Python backend (optional; `npm run dev` starts it
 #    automatically, but running it standalone is useful for debugging):
 python -m voice_typer.server.ipc_server
-#    Terminal 2 — Electron + Vite HMR:
+#    Terminal 2: Electron + Vite HMR:
 npm run dev
 
 # 7. Run tests (uv runs them in .venv automatically; --no-sync
@@ -126,7 +126,7 @@ git clone https://github.com/AbdallahIsDev/voice-typer.git
 cd voice-typer
 
 # 2. Create a dedicated venv (matches the path the launcher expects
-#    in production — see ~/.voice-typer/venv in docs/home-directory.md)
+#    in production: see ~/.voice-typer/venv in docs/home-directory.md)
 python -m venv ~/.voice-typer/venv
 
 # 3. Activate it
@@ -138,9 +138,9 @@ python -m venv ~/.voice-typer/venv
 source ~/.voice-typer/venv/bin/activate
 
 # 4. Install Python deps (editable + test + dev extras).
-#    Option A — extras syntax (preferred):
+#    Option A: extras syntax (preferred):
 pip install -e ".[test,dev]"
-#    Option B — pin to the hash-pinned locked set used by CI:
+#    Option B: pin to the hash-pinned locked set used by CI:
 #    (requirements.txt was removed; pip-installable deps now
 #    live ONLY in pyproject.toml. For reproducible builds with
 #    --require-hashes, use requirements-lock.txt.)
@@ -152,10 +152,10 @@ npm install
 
 # 6. Run the app in dev mode (two terminals, or use `npm run dev`
 #    which spawns the Python subprocess automatically)
-#    Terminal 1 — Python backend (optional; `npm run dev` starts it
+#    Terminal 1: Python backend (optional; `npm run dev` starts it
 #    automatically, but running it standalone is useful for debugging):
 python -m voice_typer.server.ipc_server
-#    Terminal 2 — Electron + Vite HMR:
+#    Terminal 2: Electron + Vite HMR:
 npm run dev
 ```
 
@@ -174,13 +174,13 @@ This project has a **single source of truth** for Python dependencies:
 `[project.optional-dependencies]` (extras: `test`, `dev`, `build`, `windows`,
 `macos`, `linux`, `qwen`, `deepfilternet`). The legacy `requirements.txt`
 mirror file was **removed** because it drifted out of sync with
-`pyproject.toml` — most notably it omitted two macOS pyobjc frameworks
+`pyproject.toml` Most notably it omitted two macOS pyobjc frameworks
 (`pyobjc-framework-CoreFoundation`, `pyobjc-framework-ApplicationServices`)
 that `pyproject.toml` correctly declares, causing `pip install
 -r requirements.txt` on macOS to silently break the mic watcher and the
 accessibility probe.
 
-For reproducible builds, use **`requirements-lock.txt`** — it is generated
+For reproducible builds, use **`requirements-lock.txt`**: it is generated
 via `uv pip compile --generate-hashes --universal` and is safe to install
 with `pip install --require-hashes -r requirements-lock.txt`. The
 completeness of the lockfile against `pyproject.toml` is enforced by
@@ -227,18 +227,18 @@ auto-installed by `npm install` in `voice_typer/client/` (via the
 `core.hooksPath = .husky/_` and installs husky's wrappers for every
 file in `.husky/`. There are currently two husky-managed hooks:
 
-1. **`.husky/pre-commit`** — runs `lint-staged` (Biome `check --write`
+1. **`.husky/pre-commit`**, runs `lint-staged` (Biome `check --write`
    on staged client `.ts/.tsx/.js/.jsx/.json/.css` files, then
-   re-stages the fixes), then — if `pre-commit` is on PATH — defers
+   re-stages the fixes), then, if `pre-commit` is on PATH: defers
    to `pre-commit run --hook-stage commit --files <staged>` for the
    full hook suite declared in `.pre-commit-config.yaml`. The
    `command -v pre-commit` guard means contributors who haven't
    installed the `pre-commit` framework are silently skipped (no hard
-   failure — the lint-staged biome gate still runs).
-2. **`.husky/pre-push`** — lean: runs `npm run typecheck` (cached,
+   failure: the lint-staged biome gate still runs).
+2. **`.husky/pre-push`**: lean: runs `npm run typecheck` (cached,
    ~5s on a warm tree) and the mypy ratchet at the pre-push stage
    (`pre-commit run --hook-stage pre-push`, ~seconds, only NEW typing
-   errors). It deliberately runs NO pytest — the full suite is greened
+   errors). It deliberately runs NO pytest, the full suite is greened
    at the end of every task (AGENTS.md), so a push-time re-run would
    only re-check an already-verified test state. See §7.2.1 for skip
    hooks in an emergency.
@@ -256,19 +256,19 @@ Prior to this fix, CONTRIBUTING.md told contributors to run both
 `npm install` (which triggers husky via `prepare`) AND `pre-commit
 install` (the pre-commit framework's own installer). Both commands
 write to the git hooks directory, and the entry observed that
-"whichever install ran LAST won" — leading to divergent behavior
+"whichever install ran LAST won": leading to divergent behavior
 depending on install order.
 
 The structural fix is husky v9's `core.hooksPath = .husky/_/`
 mechanism: git looks for hooks ONLY in `.husky/_/`, never in
 `.git/hooks/`. So `pre-commit install` (which writes to
-`.git/hooks/`) is a no-op when husky is active — its hook file is
+`.git/hooks/`) is a no-op when husky is active, its hook file is
 never invoked by git. The pre-commit framework is still used, but
 via `pre-commit run` (called from husky's `.husky/pre-commit`
 wrapper), NOT via its own git hook.
 
 **Do NOT run `pre-commit install`.** It is harmless (its output file
-is ignored) but misleading — contributors who run it expecting
+is ignored) but misleading: contributors who run it expecting
 "install the hooks" get no effect. The correct install command is
 just `npm install` in `voice_typer/client/`.
 
@@ -299,7 +299,7 @@ items. mypy stays at `stages: [pre-push]` so it does NOT run on every
 commit.
 
 The contributor must activate the project venv before running
-`pre-commit run mypy` — same convention as the `check-branding`
+`pre-commit run mypy` Same convention as the `check-branding`
 local hook (which also uses bare `python`).
 
 ```bash
@@ -316,13 +316,13 @@ pre-commit run mypy --all-files   # requires project venv activated
 
 ### Tauri Development (migration in progress)
 
-> **Note:** The Tauri stack is **NOT the default shipping app yet** — Electron is still the default. Cutover is per-platform per [`docs/migration/cutover-playbook.md`](docs/migration/cutover-playbook.md). The Tauri stack is additive: the Electron code is untouched and remains a reversible fallback. See [README § Runtime Architecture](README.md#runtime-architecture) and [ADR-0020](docs/adr/0020-desktop-runtime-migration-analysis.md) for the migration contract.
+> **Note:** The Tauri stack is **NOT the default shipping app yet**, Electron is still the default. Cutover is per-platform per [`docs/migration/cutover-playbook.md`](docs/migration/cutover-playbook.md). The Tauri stack is additive: the Electron code is untouched and remains a reversible fallback. See [README § Runtime Architecture](README.md#runtime-architecture) and [ADR-0020](docs/adr/0020-desktop-runtime-migration-analysis.md) for the migration contract.
 
-The Tauri v2 + Python sidecar host lives in `src-tauri/`. The React renderer (`voice_typer/client/src/renderer/`) is **shared between both stacks** — the same bundle runs under Electron (via `voice_typer/client/src/preload/index.ts`'s `contextBridge`) and under Tauri (via `voice_typer/client/src/renderer/src/lib/tauri-bridge.ts`, which auto-detects the host and installs the `window.python` / `window.bubble` / `window.window_` namespaces using Tauri's global `__TAURI__` API).
+The Tauri v2 + Python sidecar host lives in `src-tauri/`. The React renderer (`voice_typer/client/src/renderer/`) is **shared between both stacks**. The same bundle runs under Electron (via `voice_typer/client/src/preload/index.ts`'s `contextBridge`) and under Tauri (via `voice_typer/client/src/renderer/src/lib/tauri-bridge.ts`, which auto-detects the host and installs the `window.python` / `window.bubble` / `window.window_` namespaces using Tauri's global `__TAURI__` API).
 
 #### Prerequisites (in addition to the common prereqs in §1)
 
-- **Rust toolchain** — install via [rustup](https://rustup.rs/). The `src-tauri/rust-toolchain.toml` file pins the channel; `rustup` reads it automatically when you `cd src-tauri`.
+- **Rust toolchain**: install via [rustup](https://rustup.rs/). The `src-tauri/rust-toolchain.toml` file pins the channel; `rustup` reads it automatically when you `cd src-tauri`.
 - **Tauri v2 system deps** (per-OS):
   - **Linux (X11 or Wayland)**: `webkit2gtk-4.1`, `gtk-3`, `librsvg`, `libssl-dev`, `libayatana-appindicator3-dev` (Debian/Ubuntu: `sudo apt install libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev`). Set `PKG_CONFIG_PATH` if `cargo check` can't find `webkit2gtk-4.1`.
   - **macOS 13+** (Ventura): Xcode Command Line Tools (already required above). CI pins to `macos-13` (Intel) and `macos-14` (Apple Silicon).
@@ -333,31 +333,31 @@ The Tauri v2 + Python sidecar host lives in `src-tauri/`. The React renderer (`v
 
 | Variable | Purpose | When to set it |
 |---|---|---|
-| `TAURI_SIDECAR=1` | Tells the Python backend it is running under the Tauri host. Disables the Python-side heartbeat watchdog (ADR-0018) and the Win32 single-instance mutex — the Tauri host provides both via `tauri-plugin-single-instance` and the supervisor. | Set automatically when the sidecar is launched with `--ws` (i.e. `python -m voice_typer.server.ipc_server --ws`). Set manually only when debugging the WS server in isolation. |
-| `VOICE_TYPER_SIDECAR_DEV=1` | Tells the Tauri Rust host to spawn `python -m voice_typer.server.ipc_server --ws` as a subprocess instead of the Nuitka-frozen `externalBin` binary. Lets you iterate on UI/transport changes in seconds — no ~10-minute Nuitka rebuild required. | Set when running `cargo tauri dev` (see below). Do NOT set for `cargo tauri build` — production builds must use the frozen sidecar. |
+| `TAURI_SIDECAR=1` | Tells the Python backend it is running under the Tauri host. Disables the Python-side heartbeat watchdog (ADR-0018) and the Win32 single-instance mutex. The Tauri host provides both via `tauri-plugin-single-instance` and the supervisor. | Set automatically when the sidecar is launched with `--ws` (i.e. `python -m voice_typer.server.ipc_server --ws`). Set manually only when debugging the WS server in isolation. |
+| `VOICE_TYPER_SIDECAR_DEV=1` | Tells the Tauri Rust host to spawn `python -m voice_typer.server.ipc_server --ws` as a subprocess instead of the Nuitka-frozen `externalBin` binary. Lets you iterate on UI/transport changes in seconds, no ~10-minute Nuitka rebuild required. | Set when running `cargo tauri dev` (see below). Do NOT set for `cargo tauri build` Production builds must use the frozen sidecar. |
 
 #### Common commands
 
 ```bash
 cd src-tauri
 
-# Type-check + lint the Rust host (no display server required — runs in CI)
+# Type-check + lint the Rust host (no display server required, runs in CI)
 cargo check
 cargo clippy --all-targets -- -D warnings
 
-# Dev mode — runs the Rust host against a live Python subprocess.
+# Dev mode: runs the Rust host against a live Python subprocess.
 # Requires a display server for the WebView (WebView2 on Windows,
 # WKWebView on macOS, webkit2gtk on Linux). On a headless box,
 # `cargo check` is the most you can do.
 VOICE_TYPER_SIDECAR_DEV=1 cargo tauri dev
 
-# Production build — bundles the Nuitka-frozen sidecar + native hotkey
+# Production build: bundles the Nuitka-frozen sidecar + native hotkey
 # binaries + prewarm binaries per target triple. Requires the sidecar
-# binary to exist in src-tauri/bin/ — see the build runbook.
+# binary to exist in src-tauri/bin/, see the build runbook.
 cargo tauri build
 ```
 
-> **Headless dev containers:** `cargo tauri dev` and `cargo tauri build` both require a display server for the WebView. `cargo check` and `cargo clippy` do not — they are the recommended validation commands in CI and on headless dev machines. See [`docs/migration/tauri-sidecar-bridge.md`](docs/migration/tauri-sidecar-bridge.md) § "What's NOT implemented this round" for the current host-validation status.
+> **Headless dev containers:** `cargo tauri dev` and `cargo tauri build` both require a display server for the WebView. `cargo check` and `cargo clippy` do not: they are the recommended validation commands in CI and on headless dev machines. See [`docs/migration/tauri-sidecar-bridge.md`](docs/migration/tauri-sidecar-bridge.md) § "What's NOT implemented this round" for the current host-validation status.
 
 #### Windows (MSYS2/mingw) clippy workaround
 
@@ -378,11 +378,11 @@ rejects **backslash** paths in the `@arg` ("Invalid argument"; it also
 mangles `C:\Users` into `C:Users`). Forward-slash `@C:/...` paths are
 accepted (verified manually).
 
-**Workaround (local-only — never commit):** the gitignored files under
+**Workaround (local-only: never commit):** the gitignored files under
 `src-tauri/` (see the `# Local clippy toolchain workaround (MSYS2
 response-file bug)` comment block in `.gitignore`) provide two pieces:
 
-1. **`src-tauri/.cargo/config.toml`** — pins the GNU-target linker and
+1. **`src-tauri/.cargo/config.toml`**: pins the GNU-target linker and
    archiver to the MSYS2 mingw tools so cargo invokes the right gcc:
 
    ```toml
@@ -392,7 +392,7 @@ response-file bug)` comment block in `.gitignore`) provide two pieces:
    ```
 
 2. **`src-tauri/.cargo-tmp/linker_wrap.c`** (source) +
-   **`src-tauri/.cargo-tmp/linker-wrap.exe`** (built) — a small C
+   **`src-tauri/.cargo-tmp/linker-wrap.exe`** (built): a small C
    wrapper that: (a) rewrites every `@...` argument to forward slashes
    (`C:\Users\...` → `C:/Users/...`), (b) polls briefly for the
    response file in case clippy-driver's temp-dir cleanup races the
@@ -411,7 +411,7 @@ x86_64-w64-mingw32-gcc.exe -O2 -o .cargo-tmp/linker-wrap.exe .cargo-tmp/linker_w
 ```
 
 **Use the wrapper** when the raw `x86_64-w64-mingw32-gcc.exe` still
-trips on the response-file bug — point cargo at it with the standard
+trips on the response-file bug: point cargo at it with the standard
 target-linker env var (no config edit needed):
 
 ```bash
@@ -435,19 +435,19 @@ invocations on the GNU target.) These files are gitignored on purpose
 | `src-tauri/tauri.conf.json` | Per-arch `externalBin` (6 target triples) + `resources` (3 native hotkey binaries; the prewarm binaries were dropped with the prewarm retirement, master plan §6.2 P-1) + Tauri v2 capabilities. `withGlobalTauri: true` exposes `window.__TAURI__`. |
 | `src-tauri/capabilities/main-runtime.json` + `bubble-runtime.json` | Least-privilege capability split (CR-5 / SEC-026): `main-runtime` grants the privileged main window scoped `shell:allow-spawn` per sidecar binary, `notification`, `clipboard-manager`, `single-instance`, `dialog`, and `core:tray:*`; `bubble-runtime` is minimal (`core:event:default` + `core:window:allow-start-dragging`) so a compromised bubble renderer cannot spawn, write clipboard, or touch the tray. (The legacy `migrate-runtime.json` file was split into these two scopes.) |
 | `voice_typer/client/src/renderer/src/lib/tauri-bridge.ts` | React ↔ Tauri bridge. Auto-installs `window.python` / `window.bubble` / `window.window_` using Tauri's global API when Tauri is detected; no-op under Electron (the preload already installed the namespaces). |
-| `voice_typer/server/sidecar_ws.py` | WebSocket server side of the bridge. Binds `127.0.0.1:0`, emits `{"event":"server_started","port":N}` to stdout, performs bearer-token auth handshake (ZR-56 reconciliation 2026-07-24: the implementation has always been a constant-time bearer-token literal match via `hmac.compare_digest`, not a keyed HMAC — historical "HMAC" wording has been reconciled across docs), dispatches WS frames via `IPCServer._dispatch` (reuses the 75-command registry unchanged — CR-18 reconciliation 2026-07-19; re-verified 2026-07-24 S4-CR-18; +1 2026-08-13 for `transcribe_offline` per master plan §7.4; −3 2026-08-14 for the prewarm retirements `get_prewarm_status` / `run_prewarm` / `open_prewarm_log` per master plan §6.2 P-1; +2 2026-08-14: `get_prewarm_status` / `open_prewarm_log` restored for the Settings → About Cache Status card per plan §6.3 addendum — registered verbatim from 5a319872; +1 2026-08-14: `run_prewarm` restored (plan §6.3 addendum 2nd half — re-implemented: re-runs the worker's warm phase in-process via `prewarm.status.run_prewarm_now`, no deleted-subprocess spawn); +1 2026-08-14: `check_offline_pack_update` added by the auto-update feature, docs/auto-update-feature.md; +2 2026-08-16: `get_correction_usage` + `test_vocabulary_correction` added by the vocabulary usage-tracking + live-correction-test feature (ADR-0020 §16 addendum 2026-08-16); see `_HOST_ONLY_COMMANDS` in `tests/test_security_doc_command_count.py` for the +2 host-only delta), handles `{"type":"shutdown"}` cooperative shutdown. |
+| `voice_typer/server/sidecar_ws.py` | WebSocket server side of the bridge. Binds `127.0.0.1:0`, emits `{"event":"server_started","port":N}` to stdout, performs bearer-token auth handshake (ZR-56 reconciliation 2026-07-24: the implementation has always been a constant-time bearer-token literal match via `hmac.compare_digest`, not a keyed HMAC: historical "HMAC" wording has been reconciled across docs), dispatches WS frames via `IPCServer._dispatch` (reuses the 75-command registry unchanged: CR-18 reconciliation 2026-07-19; re-verified 2026-07-24 S4-CR-18; +1 2026-08-13 for `transcribe_offline` per master plan §7.4; −3 2026-08-14 for the prewarm retirements `get_prewarm_status` / `run_prewarm` / `open_prewarm_log` per master plan §6.2 P-1; +2 2026-08-14: `get_prewarm_status` / `open_prewarm_log` restored for the Settings → About Cache Status card per plan §6.3 addendum, registered verbatim from 5a319872; +1 2026-08-14: `run_prewarm` restored (plan §6.3 addendum 2nd half, re-implemented: re-runs the worker's warm phase in-process via `prewarm.status.run_prewarm_now`, no deleted-subprocess spawn); +1 2026-08-14: `check_offline_pack_update` added by the auto-update feature, docs/auto-update-feature.md; +2 2026-08-16: `get_correction_usage` + `test_vocabulary_correction` added by the vocabulary usage-tracking + live-correction-test feature (ADR-0020 §16 addendum 2026-08-16); see `_HOST_ONLY_COMMANDS` in `tests/test_security_doc_command_count.py` for the +2 host-only delta), handles `{"type":"shutdown"}` cooperative shutdown. |
 | `voice_typer/server/ipc_server.py` | `--ws` CLI flag + `TAURI_SIDECAR=1` env gate. Under `TAURI_SIDECAR=1`: heartbeat thread is NOT started; Win32 single-instance mutex is NOT acquired. Electron path unchanged. |
 
 #### Cutover status
 
 The Tauri stack is gated on a per-platform Phase 0 validation spike before it can become the default. See:
 
-- [`docs/migration/windows-validation-runbook.md`](docs/migration/windows-validation-runbook.md) — Phase 0-W (Windows, in progress; CI workflow dispatch-enabled for validation).
-- [`docs/migration/macos-validation-runbook.md`](docs/migration/macos-validation-runbook.md) — Phase 0-M (macOS, host validation not started; CI workflow dispatch-enabled for validation).
-- [`docs/migration/linux-validation-runbook.md`](docs/migration/linux-validation-runbook.md) — Phase 0-L (Linux X11 + Wayland, host validation not started; CI workflow dispatch-enabled for validation).
-- [`docs/migration/cutover-playbook.md`](docs/migration/cutover-playbook.md) — per-platform cutover gates.
-- [`docs/migration/tauri-build-runbook.md`](docs/migration/tauri-build-runbook.md) — full Nuitka + Tauri build instructions.
-- [`docs/migration/tauri-sidecar-bridge.md`](docs/migration/tauri-sidecar-bridge.md) — bridge architecture + current implementation status.
+- [`docs/migration/windows-validation-runbook.md`](docs/migration/windows-validation-runbook.md): Phase 0-W (Windows, in progress; CI workflow dispatch-enabled for validation).
+- [`docs/migration/macos-validation-runbook.md`](docs/migration/macos-validation-runbook.md): Phase 0-M (macOS, host validation not started; CI workflow dispatch-enabled for validation).
+- [`docs/migration/linux-validation-runbook.md`](docs/migration/linux-validation-runbook.md): Phase 0-L (Linux X11 + Wayland, host validation not started; CI workflow dispatch-enabled for validation).
+- [`docs/migration/cutover-playbook.md`](docs/migration/cutover-playbook.md): per-platform cutover gates.
+- [`docs/migration/tauri-build-runbook.md`](docs/migration/tauri-build-runbook.md): full Nuitka + Tauri build instructions.
+- [`docs/migration/tauri-sidecar-bridge.md`](docs/migration/tauri-sidecar-bridge.md): bridge architecture + current implementation status.
 
 ---
 
@@ -458,7 +458,7 @@ voice-typer/
 ├── voice_typer/
 │   ├── server/                       # Python backend (the "real" app)
 │   │   ├── ipc_server.py             # TCP JSON-lines server, SEC-018 token auth
-│   │   ├── app.py                    # VoiceTyperApp — orchestrator
+│   │   ├── app.py                    # VoiceTyperApp, orchestrator
 │   │   ├── config/                 # SEC-002 allowlist, SEC-003 redaction (package: __init__.py + loader.py + sanitization.py + coercion.py)
 │   │   ├── security.py               # token / URL / file-perm helpers
 │   │   ├── tray.py / tray_menu.py    # pystray tray icon + menu
@@ -471,13 +471,13 @@ voice-typer/
 │   │   ├── crash_recovery.py         # RELIABILITY-005 async flush
 │   │   ├── cloud_engines.py          # RELIABILITY-004 URL allowlist
 │   │   ├── llm_polish.py             # PRIVACY-001 consent gate
-│   │   ├── audio_filters/            # ADR 0009 — RNNoise, gate, EQ, …
+│   │   ├── audio_filters/            # ADR 0009, RNNoise, gate, EQ, …
 │   │   ├── native/                   # C/Swift key listeners per OS
 │   │   └── ...
 │   │
 │   └── client/                       # Electron + React frontend
 │       ├── src/
-│       │   ├── main/index.ts         # Electron main process — spawns Python
+│       │   ├── main/index.ts         # Electron main process, spawns Python
 │       │   ├── preload/index.ts      # SEC-014 contextIsolation bridge
 │       │   ├── preload/bubble.ts     # SEC-016 bubble-scoped bridge
 │       │   └── renderer/src/
@@ -494,7 +494,7 @@ voice-typer/
 │   ├── conftest.py                   # mock_heavy_imports autouse fixture (session + per-test split, see below)
 │   ├── fixtures/                     # WAV files + ipc_test_helpers for audio tests
 │   ├── manual/                       # scripts you run by hand (cublas, etc.)
-│   ├── <domain>/                     # domain subpackages — one package per feature area
+│   ├── <domain>/                     # domain subpackages, one package per feature area
 │   │   # e.g. vocabulary/, templates/, onboarding/, keyring/, microphones/,
 │   │   # config_side_effects/, history/, models_menu/, model_download/,
 │   │   # phrase_patterns/, recording/, hotkeys/, handlers/, service/, server/,
@@ -510,9 +510,9 @@ voice-typer/
 │   ├── PLATFORM_STATUS.md            # per-OS support matrix
 │   ├── home-directory.md             # ~/.voice-typer/ layout
 │   └── adr/                          # Architecture Decision Records
-│       ├── README.md                 # ADR index — read this first
+│       ├── README.md                 # ADR index, read this first
 │       ├── template.md               # boilerplate scaffold for new ADRs
-│       └── 0000-0020                 # one file per decision (see index — ADR-0020 is the cross-platform Tauri migration ADR)
+│       └── 0000-0020                 # one file per decision (see index, ADR-0020 is the cross-platform Tauri migration ADR)
 │
 ├── scripts/
 │   ├── build/                        # PyInstaller spec, icon generators
@@ -534,7 +534,7 @@ voice-typer/
 ### 4.1 Python tests
 
 ```bash
-# Full suite — verbose, with coverage collection (the 65% gate fires in
+# Full suite: verbose, with coverage collection (the 65% gate fires in
 # CI / make test-cov, which pass --cov-fail-under=65 explicitly)
 pytest tests/ -v
 
@@ -552,7 +552,7 @@ pytest --cov=voice_typer --cov-report=html
 open htmlcov/index.html
 ```
 
-The `addopts` in `pyproject.toml` already include `-v --tb=short --cov=voice_typer` (plus strict markers/config, a 60s timeout, and importlib import mode), so a bare `pytest` is enough for CI-equivalent output. Note the 65% coverage GATE itself is not in `addopts` — it is enforced CI-side via an explicit `--cov-fail-under=65` (see `.github/workflows/build.yml` and `make test-cov`), so local subset runs don't spuriously fail on partial-file coverage.
+The `addopts` in `pyproject.toml` already include `-v --tb=short --cov=voice_typer` (plus strict markers/config, a 60s timeout, and importlib import mode), so a bare `pytest` is enough for CI-equivalent output. Note the 65% coverage GATE itself is not in `addopts` It is enforced CI-side via an explicit `--cov-fail-under=65` (see `.github/workflows/build.yml` and `make test-cov`), so local subset runs don't spuriously fail on partial-file coverage.
 
 ### 4.2 Frontend tests
 
@@ -568,7 +568,7 @@ npm run lint           # biome check (formatter + linter)
 npm run typecheck      # tsc -p tsconfig.web.json --noEmit && tsc -p tsconfig.node.json
                        #   --noEmit. NEVER a bare root `tsc --noEmit`: the root
                        #   tsconfig.json is solution-style (files: []) so plain
-                       #   --noEmit checks nothing — use tsc -b / the -p forms.
+                       #   --noEmit checks nothing: use tsc -b / the -p forms.
 npm run build          # electron-vite build (full production bundle)
 ```
 
@@ -582,11 +582,11 @@ section earlier in this doc for the full architecture and the
 XS-34 / XS-35 rationale.
 
 ```bash
-# Hooks are auto-installed by `npm install` — no manual step.
+# Hooks are auto-installed by `npm install`, no manual step.
 # To re-install after a hooksPath reset:
 cd voice_typer/client && npm run prepare
 
-# Run the full hook suite manually (no install needed — pre-commit
+# Run the full hook suite manually (no install needed, pre-commit
 # run reads .pre-commit-config.yaml directly):
 pre-commit run --all-files
 
@@ -602,7 +602,7 @@ misleading. The correct install command is just `npm install` in
 `voice_typer/client/`.
 
 Hooks (see `.pre-commit-config.yaml`): `ruff` (lint + format), `mypy`
-(server-only, `stages: [pre-push]` — runs `python
+(server-only, `stages: [pre-push]` Runs `python
 scripts/mypy_ratchet_check.py` from the project venv so it reuses the
 deps already installed by `uv pip install -e ".[test,dev]"` instead
 of reinstalling torch in an isolated venv; the ratchet script runs
@@ -619,7 +619,7 @@ python bench/bench_startup.py        # cold-start time of the tray icon
 python bench/bench_transcription.py  # transcribe a fixed WAV and report WPS
 ```
 
-### 4.5 Mutation testing (local-only — do not run in CI)
+### 4.5 Mutation testing (local-only: do not run in CI)
 
 **S2-CR-62:** `mutmut>=2.4` is declared in the `[dev]` extra in
 `pyproject.toml` and configured via the `[tool.mutmut]` table there,
@@ -642,7 +642,7 @@ bug has been weakened or deleted.
 **Exact commands** (run from the repo root, with `.[dev]` installed):
 
 ```bash
-# 1. Generate and evaluate all mutants (long — see above).
+# 1. Generate and evaluate all mutants (long, see above).
 #    paths_to_mutate and test_command come from [tool.mutmut] in
 #    pyproject.toml, so no flags are needed.
 mutmut run
@@ -660,7 +660,7 @@ mutmut run --use-coverage     # restricts to lines covered by tests
 
 **Configuration source of truth:** the `[tool.mutmut]` table in
 `pyproject.toml` (search for `TEST-010`). Modern mutmut (≥2.x) reads
-its config from `pyproject.toml`, not from a Python shim — the
+its config from `pyproject.toml`, not from a Python shim, the
 legacy `tests/mutmut_config.py` file was deleted as part of the
 S2-CR-62 config-drift cleanup and should NOT be recreated.
 
@@ -676,7 +676,7 @@ Python backend as a child process with that token injected through the
 window and a small always-on-top "bubble" window for live waveform
 feedback. The Python process (`voice_typer/server/ipc_server.py`) binds
 to **`127.0.0.1:9876`** and speaks JSON-lines over TCP. The very first
-frame Electron sends is `{"type":"auth","token":...}` — the connection
+frame Electron sends is `{"type":"auth","token":...}` The connection
 is dropped unless the token matches (SEC-018). All subsequent IPC is
 untrusted-by-default: each inbound message is size-capped at 1 MB
 (SEC-009), rate-limited at 200 burst / 60 sustained messages per second
@@ -687,8 +687,8 @@ enum/URL validation; `get_config` redacts API keys via SEC-003).
 
 The Python **backend** is a long-running tray app. `VoiceTyperApp`
 (in `app.py`) wires together: a **pystray** tray icon (with a minimal
-menu — most configuration lives in the Electron UI), three hotkey
-backends (Win32, macOS CGEvent, Linux `/dev/input` — see ADR 0007), a
+menu: most configuration lives in the Electron UI), three hotkey
+backends (Win32, macOS CGEvent, Linux `/dev/input` See ADR 0007), a
 PortAudio recorder that captures 16 kHz mono into a bounded `deque`,
 and a transcription pipeline. The pipeline dispatches to one of three
 **ASR engines**: `faster-whisper` (default, CUDA-first with CPU
@@ -696,7 +696,7 @@ fallback), `qwen_engine.QwenEngine` (experimental Qwen3-ASR-0.6B), or
 `parakeet_engine.ParakeetEngine` (NVIDIA Parakeet). ARCH-013 unified
 the latter two through a generic `_init_asr_engine` dispatcher. After
 ASR, text flows through `text_cleanup` (dedup, misspellings,
-self-corrections, capitalization — skipped per ARCH-009 if the
+self-corrections, capitalization: skipped per ARCH-009 if the
 VocabularyManager is enabled to avoid double-application), the
 VocabularyManager, TemplateManager, optional LLM polish (gated by
 PRIVACY-001 consent), auto-punctuation, then is copied to the clipboard
@@ -704,7 +704,7 @@ and pasted into the focused field. History entries land in a SQLite
 WAL database (SEC-007: `0o600` perms on POSIX) and crash-recovery
 state is flushed through a daemon thread (RELIABILITY-005).
 
-The **React renderer** never talks to Python directly — it goes through
+The **React renderer** never talks to Python directly, it goes through
 the **preload bridge**. Electron's `webPreferences` are locked down
 per SEC-014 (`contextIsolation: true`, `sandbox: true`,
 `webSecurity: true`, `nodeIntegration: false`), so the renderer sees
@@ -737,13 +737,13 @@ subscription. See `docs/ARCHITECTURE.md` for the full diagram and
   surfaces ~700 baselined typing-debt errors that are not fixed yet —
   see `docs/mypy-ratchet.md`). The pre-commit hook already scopes mypy
   to `^voice_typer/server/` and runs with the project's ``[tool.mypy]``
-  config (no override flags — see CR-183 fix in
+  config (no override flags: see CR-183 fix in
   ``.pre-commit-config.yaml`` for the rationale).
 - **Use `log.exception(...)`** for error paths, not bare `print()` or
   `logging.error(...)` without a traceback. The exception is
   automatically attached. See `voice_typer/server/log/__init__.py` for the
   shared logger setup.
-- **Never use `# type: ignore`** to silence a real type error — fix
+- **Never use `# type: ignore`** to silence a real type error, fix
   the type or add a per-module override in `pyproject.toml` (the list
   under `[[tool.mypy.overrides]]` enumerates every library that
   genuinely lacks stubs).
@@ -753,7 +753,7 @@ subscription. See `docs/ARCHITECTURE.md` for the full diagram and
   to the issue/ADR that introduced them. The convention is
   `# TAG-NNN: <one-line rationale>`. Examples:
   ```python
-  # SEC-018: token must be 32 bytes of crypto.random — do NOT shorten
+  # SEC-018: token must be 32 bytes of crypto.random, do NOT shorten
   token = secrets.token_bytes(32)
   # RACE-016: acquire the lock BEFORE checking the flag, otherwise
   # we race with the stop-dictation path and can record a half-frame.
@@ -770,7 +770,7 @@ subscription. See `docs/ARCHITECTURE.md` for the full diagram and
   `ruff check --fix` and `ruff format` before committing; the
   pre-commit hook does this automatically.
 - **Mocking convention (TEST-033):** import mock objects directly —
-  `from unittest.mock import MagicMock, patch` — never
+  `from unittest.mock import MagicMock, patch` Never
   `from unittest import mock` followed by `mock.MagicMock(...)`.
   Prefer `pytest`'s `monkeypatch` fixture for attribute/item
   replacement (auto-cleaned); use `unittest.mock.patch` only when you
@@ -786,7 +786,7 @@ subscription. See `docs/ARCHITECTURE.md` for the full diagram and
   `voice_typer/client/biome.json`.
 - **Type checker:** the root `tsconfig.json` is solution-style
   (`files: []`), so a bare `tsc --noEmit` at the repo root checks
-  NOTHING and must never be used as a pass/fail gate — it prints a
+  NOTHING and must never be used as a pass/fail gate, it prints a
   false "clean". Use the project forms: `npm run typecheck` runs
   `tsc -p tsconfig.web.json --noEmit` then `tsc -p tsconfig.node.json
   --noEmit`; `npm run typecheck:root` runs `tsc -b --noEmit`; CI runs
@@ -796,18 +796,18 @@ subscription. See `docs/ARCHITECTURE.md` for the full diagram and
   `#utils` → `./src/renderer/src/lib/utils.ts` (declared in
   `package.json#imports` and mirrored in the tsconfigs). Prefer these
   over relative paths that climb above two levels.
-- **React 19 + shadcn/ui** — components live under
+- **React 19 + shadcn/ui**: components live under
   `src/renderer/src/components/` (with `ui/` for shadcn primitives).
   Pages live under `src/renderer/src/pages/`. Hooks live under
   `src/renderer/src/hooks/`.
 - **IPC discipline:** all backend calls go through `usePython()`.
-  Validate every IPC response at runtime before casting — see
+  Validate every IPC response at runtime before casting, see
   `asRecordingState` in `types/ipc.ts`. Never `JSON.parse` an
   untrusted string from the backend without a schema check.
-- **Inline-tag comments** apply the same way as Python — e.g.
+- **Inline-tag comments** apply the same way as Python, e.g.
   `// SEC-016: this handler is bubble-scoped, do not expose to main`.
 
-### 6.3 Security — non-negotiable
+### 6.3 Security: non-negotiable
 
 The `SEC-*` tags in the codebase are load-bearing controls documented
 in `docs/ARCHITECTURE.md` § "Security boundaries". **Never bypass a
@@ -818,7 +818,7 @@ particular:
   loopback-only bind.
 - Do not add fields to `set_config` outside the SEC-002 allowlist
   without type/range/enum/URL validation.
-- Do not log API keys, tokens, or transcription text — `SEC-003` and
+- Do not log API keys, tokens, or transcription text, `SEC-003` and
   `RELIABILITY-004` redact them; new logging must follow the same
   pattern.
 - Do not disable `contextIsolation`, `sandbox`, or `webSecurity` in
@@ -836,7 +836,7 @@ Voice Typer's IPC surface is a **multi-layer allowlist**: the Python backend
 only dispatches commands it knows about, the Electron main process and the
 Tauri Rust host each only *forward* commands the renderer is allowed to send,
 and three docs must reflect the resulting counts in lockstep. A new command
-is useless — or, worse, silently blocked — unless **all 11 touchpoints** below
+is useless: or, worse, silently blocked, unless **all 11 touchpoints** below
 are updated together.
 
 > **ZR-48 reconciliation (2026-07-24):** an earlier draft of this section
@@ -851,45 +851,45 @@ are updated together.
 
 #### The 11 touchpoints (in update order)
 
-1. **Python `_COMMAND_REGISTRY`** — add `"<cmd>": "_handle_<cmd>"` to the
+1. **Python `_COMMAND_REGISTRY`**, add `"<cmd>": "_handle_<cmd>"` to the
    `_COMMAND_REGISTRY` dict in `voice_typer/server/ipc/registry.py`. This is
    what actually routes the inbound `{"type": "…"}` message to a handler.
-2. **Python handler method** — implement `def _handle_<cmd>(self, data, resp)`
+2. **Python handler method**: implement `def _handle_<cmd>(self, data, resp)`
    in `voice_typer/server/handlers/<domain>_handlers.py` (preferred) or
-   directly on `IPCServer` in `ipc_server.py` (rare — only for IPC-server-
+   directly on `IPCServer` in `ipc_server.py` (rare: only for IPC-server-
    owned state like `heartbeat` / `relaunch_ack`).
-3. **Python service method** — add the underlying `def <cmd>(self, ...)` to
+3. **Python service method**: add the underlying `def <cmd>(self, ...)` to
    `voice_typer/server/service/<domain>.py`. (Skip if the handler is pure
-   IPC-server state — see the existing `heartbeat` handler for the pattern.)
-4. **TS renderer allowlist** — add `"<cmd>"` to the `ALLOWED_COMMANDS` Set
+   IPC-server state: see the existing `heartbeat` handler for the pattern.)
+4. **TS renderer allowlist**, add `"<cmd>"` to the `ALLOWED_COMMANDS` Set
    in `voice_typer/client/src/main/allowed-commands.ts`. The Electron main
    process refuses to forward any command not in this list (SEC-019 lateral
    boundary on the Electron path).
-5. **Rust host allowlist** — add `"<cmd>"` to the `allowed_commands()`
+5. **Rust host allowlist**, add `"<cmd>"` to the `allowed_commands()`
    literal in `src-tauri/src/commands/sidecar_cmds.rs`. The Tauri host's
    `dispatch` command refuses to forward any command not in this list
    (defense-in-depth backstop for a compromised-renderer attack on the
-   Tauri path — see ADR-0015).
-6. **TS discriminated union** — add a `type: "<cmd>"` literal to the
+   Tauri path: see ADR-0015).
+6. **TS discriminated union**, add a `type: "<cmd>"` literal to the
    renderer Request union in
    `voice_typer/client/src/renderer/src/types/ipc/requests.ts` so the
    renderer's `call<T>()` helper can type-check requests and responses.
-   (Skip if the renderer uses an untyped `call<T>` — but typed is preferred.)
-7. **TS renderer call site** — add a `python.call("<cmd>", ...)` invocation
+   (Skip if the renderer uses an untyped `call<T>` But typed is preferred.)
+7. **TS renderer call site**, add a `python.call("<cmd>", ...)` invocation
    in the renderer code path that triggers the command. (Skip for host-only
-   commands like `tray_click` / `shutdown` — they originate from the Rust
+   commands like `tray_click` / `shutdown` They originate from the Rust
    host, never from the renderer.)
-8. **`SECURITY.md` doc count** — update the `only the **N** commands listed
+8. **`SECURITY.md` doc count**: update the `only the **N** commands listed
    in ALLOWED_COMMANDS` count (this is the renderer-reachable count, NOT the
    registry count). Enforced by `tests/test_security_doc_command_count.py
    ::test_security_md_documents_renderer_count_not_registry_count`.
-9. **`docs/ARCHITECTURE.md` doc count** — update the `N-command
+9. **`docs/ARCHITECTURE.md` doc count**: update the `N-command
    _COMMAND_REGISTRY` references (3 occurrences). Enforced by
    `scripts/check_new_command.sh` touchpoint 9.
-10. **`CONTRIBUTING.md` doc count** — update the `N-command registry
+10. **`CONTRIBUTING.md` doc count**: update the `N-command registry
     unchanged` count in the `sidecar_ws.py` row of the module table (this
     section). Enforced by `scripts/check_new_command.sh` touchpoint 10.
-11. **`docs/migration/tauri-sidecar-bridge.md` doc count** — update the
+11. **`docs/migration/tauri-sidecar-bridge.md` doc count**: update the
     `N-command registry` references (2 occurrences). Enforced by
     `scripts/check_new_command.sh` touchpoint 11.
 
@@ -923,7 +923,7 @@ Adding a new **hotkey backend** has its own (smaller) touchpoint set: see
 `voice_typer/server/hotkeys/factory.py` (registry) +
 `voice_typer/server/native_hotkeys/factory.py` (native backend registry) +
 the `hotkey_dispatcher.py` wiring. The factory functions are the single
-point of registration — grep `factory.py` for the existing backend names
+point of registration, grep `factory.py` for the existing backend names
 and add the new one alongside.
 
 Adding a new **ASR engine** has its own touchpoint set: see
@@ -942,25 +942,25 @@ Adding a new **ASR engine** has its own touchpoint set: see
 > **Regression guards:**
 > - `tests/test_electron_ipc_and_build.py::TestAllowlistCorrectness` —
 >   bidirectional parity between `_COMMAND_REGISTRY` and `ALLOWED_COMMANDS`.
-> - `tests/test_security_doc_command_count.py` — four-way parity:
+> - `tests/test_security_doc_command_count.py` Four-way parity:
 >   TS allowlist ↔ Rust allowlist ↔ Python `_COMMAND_REGISTRY` (with the
 >   `_HOST_ONLY_COMMANDS` delta for `tray_click` + `shutdown`) ↔
 >   `SECURITY.md` documented count.
-> - `scripts/check_new_command.sh` — pre-PR grep checker for all 11
+> - `scripts/check_new_command.sh` Pre-PR grep checker for all 11
 >   touchpoints (including the doc-count references the tests don't
 >   enforce).
 
 ### 6.5 i18n (every user-visible string must be localizable)
 
 Voice Typer ships **8 UI locales** (`en`, `ar`, `de`, `es`, `fr`, `hi`,
-`ru`, `zh`) — see `SUPPORTED_LOCALES` in
+`ru`, `zh`), see `SUPPORTED_LOCALES` in
 `voice_typer/client/src/renderer/src/i18n/locale.ts`. There are **two**
 translation stores, both of which must be updated for every new string:
 
-- **Renderer** — `voice_typer/client/src/renderer/src/i18n/translations/*.json`
+- **Renderer**, `voice_typer/client/src/renderer/src/i18n/translations/*.json`
   (8 files), consumed through the `@/i18n/i18n` package (`t`, `tChoice`,
   `useT`, `useTChoice`, `setLocale`, `getLocale`).
-- **Main process** — `voice_typer/client/src/main/i18n/locales/*.json`
+- **Main process**, `voice_typer/client/src/main/i18n/locales/*.json`
   (8 files), consumed through `mainT()` (`voice_typer/client/src/main/i18n.ts`)
   for dialogs and tray labels that render outside the React tree.
 
@@ -972,7 +972,7 @@ completeness suite):**
    `"Save"` in a `tsx`/`ts` file is a violation.
 2. **Add the key to ALL 8 locale files** (C-I18N-1). The parity test
    asserts every non-English file defines the *same dot-key set* as
-   `en.json` — a key added only to English silently falls back for the
+   `en.json` A key added only to English silently falls back for the
    other 7 locales.
 3. **Every non-English value must be a genuine translation** (C-I18N-2) —
    never paste the English text into `ar.json` / `de.json` / etc. If you
@@ -1006,21 +1006,21 @@ completeness suite):**
 
 **Directory structure** (`voice_typer/client/src/renderer/src/`):
 
-- `pages/<Page>/` — one folder per top-level route. A page file owns
+- `pages/<Page>/` One folder per top-level route. A page file owns
   routing/section composition; feature-specific building blocks live in
   `pages/<Page>/components/`, `lib/`, and `hooks/` subfolders. Keep page
-  entry files thin (wiring + composition) — move logic to modules.
-- `components/` — shared cross-page primitives (`ui/` shadcn-style
+  entry files thin (wiring + composition), move logic to modules.
+- `components/` Shared cross-page primitives (`ui/` shadcn-style
   primitives, `common/` app-level shared components, `feedback/`,
   `settings/`, `layout/`, `hotkey/`, `models/`, `help/`, `history/`).
-- `hooks/` — shared React hooks (connection, models, config, i18n).
-- `lib/` — pure utilities + store logic (theme, hotkeys, sound, utils).
-- `__tests__/` — colocated with the code under test
+- `hooks/` Shared React hooks (connection, models, config, i18n).
+- `lib/` Pure utilities + store logic (theme, hotkeys, sound, utils).
+- `__tests__/` Colocated with the code under test
   (`src/renderer/src/.../__tests__/`).
 
-**Test helpers** — `src/renderer/src/__tests__/helpers/renderApp.tsx`
+**Test helpers**, `src/renderer/src/__tests__/helpers/renderApp.tsx`
 exports `renderApp()` which mounts `<App />` with the Zustand store, i18n
-provider, and `window.python` mock already wired — prefer it over
+provider, and `window.python` mock already wired: prefer it over
 hand-rolling the React tree in component tests. Sibling files:
 `fixtures.ts` (config snapshots) and `mocks.tsx` (mock components /
 `window.python` bridge).
@@ -1029,7 +1029,7 @@ hand-rolling the React tree in component tests. Sibling files:
 
 - **Theme via tokens, not raw palette.** Use semantic CSS variables
   (`bg-(--bg)`, `text-(--text-primary)`, `text-(--text-muted)`,
-  `border-border/10`) — never hardcoded Tailwind palette colors — so both
+  `border-border/10`): never hardcoded Tailwind palette colors, so both
   the light/dark/system themes and custom presets keep working.
 - **Shared primitives for keycaps, hotkeys, and shortcuts.** Render
   keyboard shortcuts as keycap chips through the shared `HotkeyChips`
@@ -1040,7 +1040,7 @@ hand-rolling the React tree in component tests. Sibling files:
   (WCAG 2.4.7). Use full-opacity `focus-visible:ring-ring` on interactive
   primitives and the pointer-modality pattern from `SearchField` for
   click-vs-keyboard suppression.
-- **Localize, don't hardcode** — see §6.5. New pages/components consume
+- **Localize, don't hardcode**: see §6.5. New pages/components consume
   `t()`/`tChoice()` and add every key to all 8 locales.
 - **RTL-aware layout.** Prefer logical properties so Arabic mirrors
   correctly.
@@ -1055,7 +1055,7 @@ hand-rolling the React tree in component tests. Sibling files:
 
 ## 7. Testing Guidelines
 
-### 7.1 Python — pytest
+### 7.1 Python: pytest
 
 - **Framework:** pytest with `pytest-asyncio`, `pytest-mock`,
   `pytest-timeout`, `pytest-cov`, `hypothesis`, and `pytest-benchmark`
@@ -1065,9 +1065,9 @@ hand-rolling the React tree in component tests. Sibling files:
   `pystray`, `PIL`, and `pyperclip` so the suite runs on any CI
   runner without a display or microphone.
 - **Opt-out markers** (registered in `pytest_configure`):
-  - `@pytest.mark.real_pynput` — use the real `pynput.keyboard`
+  - `@pytest.mark.real_pynput` Use the real `pynput.keyboard`
     listener (for tests that exercise the actual key dispatch path).
-  - `@pytest.mark.real_pil` — use the real `PIL.ImageDraw` (for tests
+  - `@pytest.mark.real_pil` Use the real `PIL.ImageDraw` (for tests
     that render the tray icon bitmap).
   - (`real_torch` was removed with PLAN_ONNX_INTEGRATION Phase 1c —
     no consumer survived the ORT migration; construct explicit
@@ -1076,9 +1076,9 @@ hand-rolling the React tree in component tests. Sibling files:
   cannot be shortened without weakening what they verify) carries
   `@pytest.mark.slow`. These are skipped by default; run them with
   `pytest --slow` (CI runs them in a separate best-effort job). Keep
-  the default suite fast — do not use `slow` to paper over fixable
+  the default suite fast: do not use `slow` to paper over fixable
   slowness (sleep-polling, oversized fixtures).
-- **Parallelism — `xdist_group` markers:** `make test` and CI run
+- **Parallelism, `xdist_group` markers:** `make test` and CI run
   pytest with `-n auto --dist=loadgroup` (pytest-xdist; see C-TEST-3 —
   do not remove). Under `loadgroup`, every test whose module carries a
   module-level marker
@@ -1091,7 +1091,7 @@ hand-rolling the React tree in component tests. Sibling files:
   mutable state run on the same worker instead of being scattered
   round-robin. The marker is a **grouping hint, not a correctness
   guarantee**: xdist's default `load` scheduler does NOT honor it, and
-  it is a no-op when xdist isn't active — shared-state isolation still
+  it is a no-op when xdist isn't active, shared-state isolation still
   has to come from autouse reset fixtures. Never move `-n auto
   --dist=loadgroup` into `pyproject.toml` `addopts` (that would force
   parallelism on single-test debugging runs); the flags stay
@@ -1101,15 +1101,15 @@ hand-rolling the React tree in component tests. Sibling files:
   `functools.lru_cache` on module functions. Existing groups (reuse
   these names; don't invent near-duplicates):
   `keyboard_ownership` (`test_keyboard_ownership.py`,
-  `test_keyboard_ownership_watchdog.py` — the `KeyboardOwnership`
+  `test_keyboard_ownership_watchdog.py` The `KeyboardOwnership`
   singleton), `log_rate_limit` (`test_log_rate_limit.py`,
-  `test_log_rate_limit_lru.py` — module-level counter/summary dicts),
+  `test_log_rate_limit_lru.py` Module-level counter/summary dicts),
   `native_binary_path` (`test_binary_path_caching.py`,
   `test_native_hotkeys_binary_path.py`,
   `test_native_hotkeys_factory_binary_path.py`,
-  `tests/tauri/test_native_binary_path_tauri.py` — the
+  `tests/tauri/test_native_binary_path_tauri.py` The
   `get_native_binary_path` `lru_cache(maxsize=1)`), `ipc_layer_fixes`
-  (`test_ipc_server.py` — the merged IPC-layer suites; FZ-58 Tier-1
+  (`test_ipc_server.py` The merged IPC-layer suites; FZ-58 Tier-1
   folded `test_ipc_layer_fixes.py` / `test_ipc_package_fixes.py` /
   `test_ipc_server_lifecycle_fixes.py` into it),
   `gen_tauri_icons_stub` (`tests/tauri/test_gen_tauri_icons_stub.py`,
@@ -1120,15 +1120,15 @@ hand-rolling the React tree in component tests. Sibling files:
   `pyproject.toml`. If your change drops coverage below 65 %, add
   tests or mark unreachable branches with `# pragma: no cover`.
 - **Property-based testing:** use `hypothesis` for parsers and pure
-  functions — see `tests/test_text_cleanup_hypothesis.py` and
+  functions, see `tests/test_text_cleanup_hypothesis.py` and
   `tests/test_property_based.py` for patterns.
 - **Benchmarks:** `pytest-benchmark` is available; put slow benchmarks
   in `tests/test_benchmarks.py` (CI runs them but does not fail on
-  regression — that's a manual decision).
+  regression: that's a manual decision).
 - **Mutation testing:** `mutmut` is configured (see `[tool.mutmut]`
   in `pyproject.toml`) for `text_cleanup.py`, `config/__init__.py`, `tray.py`,
   and `tray_menu.py`. Run it locally before merging changes to those
-  modules — `mutmut run` then `mutmut results`. **Local-only — see
+  modules, `mutmut run` then `mutmut results`. **Local-only, see
   §4.5** for why it's not in CI and the exact commands.
 - **WAV fixtures:** `tests/fixtures/` ships `silence.wav`,
   `tone.wav`, `noise.wav`, and `test_440hz_1s_16k.wav` with a
@@ -1140,10 +1140,10 @@ hand-rolling the React tree in component tests. Sibling files:
   large feature (e.g. `test_clipboard_security.py`,
   `test_clipboard_restore_race.py`). ZR-49 reconciliation (2026-07-30):
   the legacy `test_round<N>_<theme>.py` batch-round convention is
-  **deprecated** — no files in the tree use it. The historical
+  **deprecated**: no files in the tree use it. The historical
   `tests/regressions/*_test.py` (suffix form) and
   `test_<feature>_<session>_fixes.py` (per-round session) patterns are
-  also **deprecated** — the last 19 suffix-form files were renamed to
+  also **deprecated**: the last 19 suffix-form files were renamed to
   `tests/regressions/test_<feature>.py` (ZR-49, 2026-08-24); they are
   kept in git history under their old names. New tests MUST use
   `test_<feature>.py` or `test_<feature>_<concern>.py`. To find every
@@ -1151,8 +1151,8 @@ hand-rolling the React tree in component tests. Sibling files:
   `tests/**/test_X*.py` (the latter catches sub-packages like
   `tests/handlers/`, `tests/server/`, `tests/tauri/mig*/`).
 - **No new `inspect.getsource` source-string tests** (ARCH-12): tests
-  must exercise behavior — render/call the code under test and assert
-  observable effects — never string-match against source text
+  must exercise behavior: render/call the code under test and assert
+  observable effects: never string-match against source text
   (`inspect.getsource(...)`, source regexes). A source-string pin breaks
   on any refactor without catching a single real regression. When you
   touch code pinned by an existing getsource test, migrate that pin to a
@@ -1161,19 +1161,19 @@ hand-rolling the React tree in component tests. Sibling files:
   asserting a module re-exports a symbol). See
   [`docs/adr/arch-12-source-text-test-migration.md`](docs/adr/arch-12-source-text-test-migration.md)
   for the migration playbook.
-### 7.2 Frontend — vitest + Testing Library
+### 7.2 Frontend: vitest + Testing Library
 
 - **Framework:** vitest 2.x with jsdom, `@testing-library/react` 16,
   and `@testing-library/jest-dom` (set up in
   `voice_typer/client/src/renderer/src/test-setup.ts`).
 - **Run:** `npm run test` (one-shot) or `npm run test:watch`.
 - **Co-located tests:** test files sit next to the code under
-  `__tests__/` directories — see
+  `__tests__/` directories, see
   `src/renderer/src/components/__tests__/ThemeSwitch.test.tsx`,
   `Sidebar.test.tsx`, `ErrorBoundary.test.tsx`, and
   `src/renderer/src/pages/__tests__/Home.test.tsx`.
 - **Mocking `@hugeicons/react`:** the project uses `@hugeicons/react`
-  for icons, which has no good test stub — mock it as a `<span
+  for icons, which has no good test stub, mock it as a `<span
   data-testid="hugeicon" data-name={icon?.name}>` and stub
   `@hugeicons/core-free-icons` exports as `{ name }` tagged objects.
   See the existing `__tests__` files for the exact pattern.
@@ -1192,7 +1192,7 @@ hand-rolling the React tree in component tests. Sibling files:
 #### 7.2.1 Skipping pre-commit / pre-push hooks (XS-59)
 
 In an emergency, you can skip the husky hooks when committing or
-pushing. **Do this only when you understand the cost** — the hooks
+pushing. **Do this only when you understand the cost**, the hooks
 are there to catch the exact classes of bugs (lint drift, format drift,
 type drift, broken test contracts) that the CI gate will then catch
 and fail your PR. If you skip locally, expect to fix the same issues
@@ -1213,20 +1213,20 @@ before the PR can merge.
 - **Bypass the coverage ratchet on a single run** (when deliberately
   adding new modules that drop the percentage temporarily):
   `pytest tests/path -o addopts=""` or `pytest tests/path --no-cov`
-  — but expect to be told to add tests for the new module in code
+ But expect to be told to add tests for the new module in code
   review.
 
 ### 7.3 Manual tests
 
 `tests/manual/` contains scripts that need real hardware or a real
-model — `cublas_fallback.py`, `runtime_proof.py`, `diagnose_f2.py`.
+model, `cublas_fallback.py`, `runtime_proof.py`, `diagnose_f2.py`.
 Run them by hand when investigating GPU or hotkey issues; they are
 not part of the CI suite.
 
 ### 7.4 Testing patterns
 
 A handful of patterns recur across the suite.  Reach for these before
-inventing a new arrangement — they keep tests fast, isolated, and
+inventing a new arrangement: they keep tests fast, isolated, and
 consistent with what reviewers expect.
 
 #### 7.4.1 Headless hardware mocks (autouse)
@@ -1255,7 +1255,7 @@ fixture over `monkeypatch`-ing the same import in 20 individual
 tests.  When you need to *un-mock* one of these for a single test
 (e.g. a real-PIL test that runs after a `sys.modules.setdefault("PIL",
 MagicMock())` from another module), the fixture already evicts mock
-entries before importing the real package — see the long comment in
+entries before importing the real package, see the long comment in
 `conftest.py` for the rationale.
 
 #### 7.4.2 Dependency-injection service seam
@@ -1291,14 +1291,14 @@ For tests that only need the registry or dispatch (no service
 behaviour), the lighter pattern used by
 `TestElectronNotificationFieldValidation` in
 `tests/test_bugfix_regressions.py` constructs `IPCServer.__new__(IPCServer)`
-and assigns `app` / `service` directly — bypasses the
+and assigns `app` / `service` directly: bypasses the
 `VoiceTyperService` construction cost entirely.
 
 #### 7.4.3 Push-event testing
 
 The IPC server fans out push events via the module-level
-`_push_event_registry`.  Two helpers — `_set_push_event(fn)` and
-`_clear_push_event(fn)` — let a test capture pushed events without
+`_push_event_registry`.  Two helpers, `_set_push_event(fn)` and
+`_clear_push_event(fn)` Let a test capture pushed events without
 spinning up a real TCP client:
 
 ```python
@@ -1323,7 +1323,7 @@ assert any(m["type"] == "electron_notification" for m in captured)
 For tests that patch the push hook at the source, target the
 *module* the handler is defined in (e.g.
 `voice_typer.server.handlers.system_handlers._push_event_now`),
-not the re-export in `ipc_server.py` — Python's `from x import y`
+not the re-export in `ipc_server.py` Python's `from x import y`
 binds the name at import time, so patching the re-export won't
 affect handlers that already captured the reference.
 
@@ -1348,7 +1348,7 @@ received a value within `[_HISTORY_LIMIT_MIN, _HISTORY_LIMIT_MAX]`.
    git checkout -b feat/my-feature
    # or: fix/sec-018-token-leak, docs/adr-0008-foo, test/recording-edge-cases
    ```
-2. **Write tests first** (or alongside) — every bug fix gets a
+2. **Write tests first** (or alongside), every bug fix gets a
    regression test, every new feature gets coverage.
 3. **Run the full local suite** before pushing:
    ```bash
@@ -1377,7 +1377,7 @@ received a value within `[_HISTORY_LIMIT_MIN, _HISTORY_LIMIT_MAX]`.
 ### 8.2 Pull Request template
 
 When opening a PR, include the following (the repo has a
-`.github/PULL_REQUEST_TEMPLATE.md` — fill it in):
+`.github/PULL_REQUEST_TEMPLATE.md` Fill it in):
 
 ```markdown
 ## Summary
@@ -1396,7 +1396,7 @@ When opening a PR, include the following (the repo has a
 
 ## Security impact
 <if this touches any SEC-* control, explain why the change is safe
-or attaches a new ADR. Otherwise write "None — no SEC-* controls
+or attaches a new ADR. Otherwise write "None, no SEC-* controls
 affected.">
 
 ## Testing
@@ -1408,7 +1408,7 @@ affected.">
 - [ ] Coverage not reduced
 
 ## Screenshots / recordings
-<for UI changes — before/after>
+<for UI changes: before/after>
 
 ## Checklist
 - [ ] Code is formatted (ruff + biome)
@@ -1426,7 +1426,7 @@ A maintainer will merge your PR once:
   pre-commit).
 - Coverage does not drop below 65 %.
 - No `SEC-*` control is bypassed without an ADR.
-- The commit history is clean (squash or rebase as needed — maintainers
+- The commit history is clean (squash or rebase as needed, maintainers
   will prompt you).
 - The CHANGELOG is updated for user-visible changes.
 
@@ -1440,12 +1440,12 @@ and include:
 - OS and Python version (`python --version`).
 - Steps to reproduce.
 - Expected vs. actual behavior.
-- Log file — see the **About → Diagnostics** page in the app, or
+- Log file: see the **About → Diagnostics** page in the app, or
   `<DATA_DIR>/voice-typer.log` on disk (Python backend log; the Tauri
   Rust host log is at `<DATA_DIR>/logs/voice-typer.log`). The data
   directory resolves per-platform: `%APPDATA%\voice-typer` on Windows,
   `~/Library/Application Support/voice-typer` on macOS,
-  `$XDG_DATA_HOME/voice-typer` on Linux — see `docs/home-directory.md`
+  `$XDG_DATA_HOME/voice-typer` on Linux, see `docs/home-directory.md`
   §"Log File Paths" for the canonical per-platform table.
 
 ---
@@ -1454,5 +1454,5 @@ and include:
 
 Open an issue with the `question` label on the
 [GitHub issue tracker](https://github.com/AbdallahIsDev/voice-typer/issues).
-For security-sensitive reports, see `SECURITY.md` — do not open a
+For security-sensitive reports, see `SECURITY.md` Do not open a
 public issue for vulnerabilities.

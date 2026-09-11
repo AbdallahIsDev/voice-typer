@@ -3,7 +3,7 @@
  * (`lib/python-bridge/error-envelope.ts`).
  *
  * The Rust host's `dispatch` command passes the sidecar's error
- * envelope through VERBATIM (the `VoiceTyperError` passthrough — see
+ * envelope through VERBATIM (the `VoiceTyperError` passthrough, see
  * `src-tauri/src/error.rs`): the invoke promise rejects with a STRING
  * whose contents are `{"type":"error","data":<sidecar data verbatim>}`.
  * These tests pin the renderer-side parsing contract:
@@ -14,11 +14,11 @@
  *   for `client.consent_required` envelopes (deep-link data), with the
  *   SAME guards the Electron path in `usePython.ts` applies (non-empty
  *   strings / arrays only; JSON `null` model_id stays `undefined`).
- * - `err.legacy_code` — the documented Tauri-only superset (the
+ * - `err.legacy_code`, the documented Tauri-only superset (the
  *   transitional alias the server emits alongside the canonical
  *   namespaced `code`).
  * - Byte-level fixture: the EXACT string serde_json produces for the
- *   Rust passthrough (map keys sort alphabetically — `"data"` before
+ *   Rust passthrough (map keys sort alphabetically, `"data"` before
  *   `"type"`) parses into the expected fields, pinning the end-to-end
  *   Rust-serialize → renderer-parse contract.
  */
@@ -40,7 +40,7 @@ function parse(raw: unknown): ParsedError | null {
 	return parseTauriErrorEnvelope(raw) as ParsedError | null;
 }
 
-describe("parseTauriErrorEnvelope — code + message (pre-existing behavior)", () => {
+describe("parseTauriErrorEnvelope, code + message (pre-existing behavior)", () => {
 	it("stamps err.code + extracts message from a structured error envelope", () => {
 		const err = parse(
 			JSON.stringify({
@@ -64,7 +64,7 @@ describe("parseTauriErrorEnvelope — code + message (pre-existing behavior)", (
 	});
 });
 
-describe("parseTauriErrorEnvelope — errors[] stamping (validation parity)", () => {
+describe("parseTauriErrorEnvelope, errors[] stamping (validation parity)", () => {
 	it("stamps a non-empty errors array verbatim", () => {
 		const err = parse(
 			JSON.stringify({
@@ -109,7 +109,7 @@ describe("parseTauriErrorEnvelope — errors[] stamping (validation parity)", ()
 	});
 });
 
-describe("parseTauriErrorEnvelope — consent fields (client.consent_required)", () => {
+describe("parseTauriErrorEnvelope, consent fields (client.consent_required)", () => {
 	it("stamps consent_field / engine_name / model_id when non-empty strings", () => {
 		const err = parse(
 			JSON.stringify({
@@ -163,7 +163,7 @@ describe("parseTauriErrorEnvelope — consent fields (client.consent_required)",
 	});
 });
 
-describe("parseTauriErrorEnvelope — legacy_code (Tauri-only superset)", () => {
+describe("parseTauriErrorEnvelope, legacy_code (Tauri-only superset)", () => {
 	it("stamps the transitional alias alongside the canonical code", () => {
 		const err = parse(
 			JSON.stringify({
@@ -198,11 +198,11 @@ describe("parseTauriErrorEnvelope — legacy_code (Tauri-only superset)", () => 
 	});
 });
 
-describe("parseTauriErrorEnvelope — Rust passthrough byte fixtures", () => {
+describe("parseTauriErrorEnvelope, Rust passthrough byte fixtures", () => {
 	it("parses the exact serde_json output of the Rust Server passthrough (sorted keys)", () => {
 		// Byte-for-byte what `VoiceTyperError::Server` serializes to:
 		// serde_json (no preserve_order) emits map keys in sorted order —
-		// `"data"` before `"type"` — and passes the sidecar's `data`
+		// `"data"` before `"type"`, and passes the sidecar's `data`
 		// through verbatim. This pins the end-to-end contract: whatever
 		// fields the Python backend puts in `data` reach the renderer.
 		const rustWire =
@@ -222,7 +222,7 @@ describe("parseTauriErrorEnvelope — Rust passthrough byte fixtures", () => {
 
 	it("parses the exact Rust pending_full / data_too_large envelope bytes", () => {
 		// Golden strings pinned by the Rust unit tests in
-		// `src-tauri/src/error_tests.rs` — the renderer must parse the
+		// `src-tauri/src/error_tests.rs`, the renderer must parse the
 		// exact bytes the host puts on the wire.
 		const pendingFull =
 			'{"data":{"code":"pending_full","message":' +
@@ -239,7 +239,7 @@ describe("parseTauriErrorEnvelope — Rust passthrough byte fixtures", () => {
 	});
 });
 
-describe("parseTauriErrorEnvelope — cross-transport code parity", () => {
+describe("parseTauriErrorEnvelope, cross-transport code parity", () => {
 	// The SAME fixture envelopes the Electron path resolves as values,
 	// the Tauri path rejects as strings. Whatever the transport, the
 	// thrown Error must surface the SAME `.code` / `.errors` so callers

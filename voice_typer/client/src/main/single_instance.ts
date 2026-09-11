@@ -2,15 +2,15 @@
  * Single-instance gate + stale-lock recovery.
  *
  * Extracted from `index.ts`. Owns:
- *   - `computeConfigDir()` — re-exported from `./config-dir` (the
+ *   - `computeConfigDir()`, re-exported from `./config-dir` (the
  *     dependency-free leaf it was extracted into during the config-dir
  *     migration; see its module docstring). Re-exported here so all
  *     existing `from "../single_instance"` import sites keep working
  *     without churn.
  *   - `electronPidFile()` / `writeElectronPidFile()` / `clearElectronPidFile()`
- *     / `readStaleElectronPid()` — PID-file management for stale-lock
+ *     / `readStaleElectronPid()`, PID-file management for stale-lock
  *     detection.
- *   - `acquireSingleInstanceLock()` — top-level gate that must run
+ *   - `acquireSingleInstanceLock()`, top-level gate that must run
  *     before `app.whenReady()`. On a duplicate launch it calls
  *     `app.exit(0)`; on the primary instance it writes the PID file and
  *     registers `app.on("second-instance", …)` to show + focus the
@@ -58,7 +58,7 @@ export function clearElectronPidFile(): void {
 		if (fs.existsSync(electronPidFile())) fs.unlinkSync(electronPidFile());
 	} catch (e) {
 		// best-effort: file may already be gone (race with another
-		// process) or the FS may be read-only. Non-fatal — a leftover
+		// process) or the FS may be read-only. Non-fatal, a leftover
 		// PID file just means the next launch does stale-lock detection.
 		log.warn("[single_instance] clearElectronPidFile failed:", e);
 	}
@@ -80,7 +80,7 @@ export function clearElectronPidFile(): void {
  * matches Voice Typer; ``false`` otherwise. Any error (file missing,
  * spawn failure, permission denied) returns ``false`` so the caller
  * falls back to the conservative "PID is alive" path (treats the PID
- * as still-held by Voice Typer — preventing accidental lockout of an
+ * as still-held by Voice Typer, preventing accidental lockout of an
  * unrelated process).
  */
 export function isPidVoiceTyper(pid: number): boolean {
@@ -109,7 +109,7 @@ export function isPidVoiceTyper(pid: number): boolean {
 		// Any read/spawn failure (file missing, permission denied,
 		// ps/tasklist not on PATH) returns false so the caller falls back
 		// to the conservative "PID is alive" path. Previously this was
-		// a silent catch — a flaky /proc mount or a stripped-down
+		// a silent catch, a flaky /proc mount or a stripped-down
 		// Windows image that lacked tasklist would silently mis-classify
 		// every stale-PID check. Log the failure so operators can
 		// diagnose the root cause from the runtime log.
@@ -124,7 +124,7 @@ export function isPidVoiceTyper(pid: number): boolean {
  * the PID is still alive.
  *
  * : a stale-PID check via ``process.kill(pid, 0)`` only verifies
- * the PID exists — not that it's Voice Typer. PID reuse by an unrelated
+ * the PID exists, not that it's Voice Typer. PID reuse by an unrelated
  * process would cause a lockout until that process exits. We now also
  * verify the process command line via :func:`isPidVoiceTyper`.
  */
@@ -144,13 +144,13 @@ export function readStaleElectronPid(): number | null {
 			if (!isPidVoiceTyper(pid)) {
 				log.warn(
 					`[single_instance] PID ${pid} is alive but is not ${APP_NAME} ` +
-						"(PID reuse) — treating lock as stale",
+						"(PID reuse), treating lock as stale",
 				);
 				return pid;
 			}
 			return null; // still alive AND is this app's process
 		} catch (e) {
-			// process.kill(pid, 0) threw — ESRCH (PID is gone) is
+			// process.kill(pid, 0) threw, ESRCH (PID is gone) is
 			// the EXPECTED signal that the previous Voice Typer
 			// instance crashed hard. Other errors (EPERM on a PID
 			// owned by another user, EINVAL on a malformed pid)
@@ -158,17 +158,17 @@ export function readStaleElectronPid(): number | null {
 			// stale-lock recovery path is diagnosable instead of
 			// opaque (the only observable was the return value).
 			log.warn(
-				`[single_instance] readStaleElectronPid process.kill(${pid}, 0) threw — treating as stale:`,
+				`[single_instance] readStaleElectronPid process.kill(${pid}, 0) threw, treating as stale:`,
 				e,
 			);
-			return pid; // stale — process is gone
+			return pid; // stale, process is gone
 		}
 	} catch (e) {
 		// Outer fallback: fs.existsSync / fs.readFileSync on the PID
 		// file itself failed (permission denied, FS read-only, file
 		// vanished mid-read). Returns null so the caller treats the
-		// lock as held (conservative — don't accidentally double-launch).
-		// Previously this was a silent catch — a corrupt PID file or
+		// lock as held (conservative, don't accidentally double-launch).
+		// Previously this was a silent catch, a corrupt PID file or
 		// a transient FS error was invisible. Log so operators can
 		// see when the gate is falling back to its safe default.
 		log.warn("[single_instance] readStaleElectronPid PID-file read failed:", e);
@@ -179,7 +179,7 @@ export function readStaleElectronPid(): number | null {
 /**
  * Acquire the single-instance lock with at most one stale-lock retry.
  *
- * MUST run before `app.whenReady()` — the lock is checked at process start.
+ * MUST run before `app.whenReady()`, the lock is checked at process start.
  *
  * Behaviour:
  *   - If the first `requestSingleInstanceLock()` fails AND the existing
@@ -202,7 +202,7 @@ export function acquireSingleInstanceLock(): void {
 		const stalePid = readStaleElectronPid();
 		if (stalePid !== null) {
 			log.warn(
-				`[STARTUP] single-instance lock held by dead PID ${stalePid} — ` +
+				`[STARTUP] single-instance lock held by dead PID ${stalePid}, ` +
 					"clearing stale PID file and retrying",
 			);
 			clearElectronPidFile();
@@ -229,14 +229,14 @@ export function acquireSingleInstanceLock(): void {
 						);
 					}
 				} catch (e) {
-					/* best-effort — the retry below will fail if the lock is still held */
+					/* best-effort, the retry below will fail if the lock is still held */
 					log.warn("[single_instance] Linux SingletonLock cleanup failed:", e);
 				}
 			}
 			try {
 				app.releaseSingleInstanceLock();
 			} catch (e) {
-				/* ignore — Electron may reject if we never held the lock */
+				/* ignore, Electron may reject if we never held the lock */
 				log.warn("[single_instance] releaseSingleInstanceLock failed:", e);
 			}
 			gotTheLock = app.requestSingleInstanceLock();
@@ -258,12 +258,12 @@ export function acquireSingleInstanceLock(): void {
 		// and will show itself.
 		//
 		// Use app.exit(0) instead of app.quit() to guarantee immediate
-		// termination — app.quit() allows the event loop to drain (which can
+		// termination, app.quit() allows the event loop to drain (which can
 		// fire whenReady and start Python before the process exits), while
 		// app.exit(0) terminates without waiting.
 		app.exit(0);
 	} else {
-		// We got the lock — write our PID so a future launch can
+		// We got the lock, write our PID so a future launch can
 		// detect if we've crashed hard and release the stale lock.
 		writeElectronPidFile();
 		app.on("second-instance", () => {

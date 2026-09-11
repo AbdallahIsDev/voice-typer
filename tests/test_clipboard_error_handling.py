@@ -4,20 +4,20 @@ AP-29, AP-31).
 These tests pin the narrowed exception handling and re-raised
 ``TimeoutExpired`` behavior introduced by the four fixes:
 
-* **AP-27** — ``Win32Clipboard.empty()`` previously had a bare
+* **AP-27**: ``Win32Clipboard.empty()`` previously had a bare
   ``except Exception: return False`` with NO log. Sibling methods
   (``__exit__``, ``get_sequence_number``, ``_win32_empty_clipboard``)
   were already narrowed to ``except (OSError, AttributeError):`` with
   ``log.debug(..., exc_info=True)``. This test pins the same pattern
   for ``empty()``.
 
-* **AP-28** — ``ClipboardManager.copy()`` 's verify loop had a bare
+* **AP-28**: ``ClipboardManager.copy()`` 's verify loop had a bare
   ``except Exception: pass`` with only an inline comment. This test
   pins the narrowed catch (``ImportError``, ``AttributeError``,
   ``NotImplementedError``, ``OSError``) and the new DEBUG log so
   transient verify failures are diagnosable.
 
-* **AP-29** — The signal-handler registration block in
+* **AP-29**, The signal-handler registration block in
   ``clipboard/__init__.py`` had a second broad ``except Exception:
   pass`` with zero logging. The broad catch is preserved (documented
   as defensive for truly unexpected errors), but a DEBUG log is now
@@ -25,7 +25,7 @@ These tests pin the narrowed exception handling and re-raised
   ``signal.signal`` to raise a generic ``RuntimeError`` and asserts
   the DEBUG log fires.
 
-* **AP-31** — ``_linux_wayland_copy`` / ``_linux_wayland_paste`` /
+* **AP-31**: ``_linux_wayland_copy`` / ``_linux_wayland_paste`` /
   ``_linux_paste_via_wtype`` previously wrapped
   ``subprocess.TimeoutExpired`` in a generic ``RuntimeError``, losing
   the type info callers need to dispatch on timeout vs non-zero-exit.
@@ -43,7 +43,7 @@ import pytest
 
 # ---------------------------------------------------------------------------
 # pynput / pynput.keyboard / pyperclip are mocked at collection time by
-# tests/clipboard/conftest.py (single source of truth —  dedup).
+# tests/clipboard/conftest.py (single source of truth, dedup).
 # ---------------------------------------------------------------------------
 from voice_typer.server import clipboard as clip_mod  # noqa: E402
 from voice_typer.server.clipboard import (  # noqa: E402
@@ -66,7 +66,7 @@ def fake_win32_empty():
     per-case (default returns 1 = success).
     """
     mock_user32 = MagicMock()
-    mock_user32.OpenClipboard.return_value = 1  # success — opens clipboard
+    mock_user32.OpenClipboard.return_value = 1  # success, opens clipboard
     mock_user32.CloseClipboard.return_value = 1
     mock_user32.EmptyClipboard.return_value = 1  # default success
     mock_windll = MagicMock()
@@ -122,7 +122,7 @@ class TestWin32EmptyNarrowedException:
     def test_empty_does_not_catch_runtime_error(self, fake_win32_empty):
         """AP-27 narrows from ``except Exception`` to
         ``except (OSError, AttributeError)``. A ``RuntimeError`` (a
-        programmer error) must NOT be swallowed — it should propagate so
+        programmer error) must NOT be swallowed, it should propagate so
         it surfaces during development.
         """
         fake_win32_empty.EmptyClipboard.side_effect = RuntimeError("programmer bug")
@@ -268,7 +268,7 @@ class TestVerifyLoopNarrowedException:
 
     def test_verify_loop_does_not_catch_value_error(self):
         """AP-28 narrows from ``except Exception``. A ``ValueError`` (a
-        programmer error) must NOT be swallowed by the verify loop — it
+        programmer error) must NOT be swallowed by the verify loop, it
         should propagate to the outer ``except Exception as e:`` in
         copy(), which wraps it as ``ClipboardCopyError``.
         """
@@ -344,7 +344,7 @@ class TestSignalRegistrationBroadExceptLogs:
             monkeypatch.setattr(clip_mod, "_SIGNAL_HANDLERS_REGISTERED", False)
 
             # The registration block catches (ValueError, OSError)
-            # first, then the broad ``except Exception:`` — we expect
+            # first, then the broad ``except Exception:``, we expect
             # the RuntimeError to hit the broad branch.
             try:
                 import signal as _sig
@@ -379,7 +379,7 @@ class TestSignalRegistrationBroadExceptLogs:
     def test_source_has_broad_except_with_debug_log(self):
         """Source-string pin: the broad ``except Exception:`` block in
         clipboard/__init__.py MUST contain a ``log.debug(...)`` call
-        (not bare ``pass``). This guards against regression — if a
+        (not bare ``pass``). This guards against regression, if a
         future contributor removes the log line, this test fails.
         """
         import inspect
@@ -431,7 +431,7 @@ class TestLinuxTimeoutExpiredReraise:
         # Sanity: it must NOT be a RuntimeError (RuntimeError is NOT a
         # superclass of TimeoutExpired).
         assert not isinstance(exc_info.value, RuntimeError), (
-            "AP-31: the re-raised exception must NOT be a RuntimeError — "
+            "AP-31: the re-raised exception must NOT be a RuntimeError, "
             "callers need to dispatch on subprocess.TimeoutExpired"
         )
 

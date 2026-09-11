@@ -1,8 +1,8 @@
-"""MIG-1.5 Phase 0-W Gate Check 1 — Nuitka Windows .exe build validation.
+"""MIG-1.5 Phase 0-W Gate Check 1: Nuitka Windows .exe build validation.
 
 This test file is the **first of 9 gate checks** in the Phase 0-W
 Windows host validation gate (ADR-0020). It validates the *structure*
-of ``scripts/build/build_sidecar_windows.sh`` — the bash entrypoint
+of ``scripts/build/build_sidecar_windows.sh``, the bash entrypoint
 that freezes ``voice_typer/server/ipc_server.py`` into
 ``python-sidecar-x86_64-pc-windows-msvc.exe`` via Nuitka.
 
@@ -27,19 +27,19 @@ VALIDATE ON WINDOWS HOST:
     3. pip install uv; uv venv; .venv\\Scripts\\activate
     4. uv pip install -e ".[dev,test]" nuitka==2.5.4 zstandard ordered-set
     5. Download python-build-standalone cpython-3.12.x+x86_64-pc-windows-msvc to C:\\tools\\pybs\\python
-       (pinned: cpython-3.12.8+20241219 — see docs/migration/windows-validation-runbook.md §0.7)
+       (pinned: cpython-3.12.8+20241219: see docs/migration/windows-validation-runbook.md §0.7)
     6. bash scripts/build/build_sidecar_windows.sh
     Expected: python-sidecar-x86_64-pc-windows-msvc.exe (~150-200 MB) produced in src-tauri/bin/
 
 References:
-  - ADR-0020 §4.2 — Nuitka Windows freeze spec (authoritative).
-  - docs/migration/windows-validation-runbook.md §1 — exact host commands.
-  - scripts/build/build_sidecar_linux.sh — sibling with XPLAT-3
+  - ADR-0020 §4.2, Nuitka Windows freeze spec (authoritative).
+  - docs/migration/windows-validation-runbook.md §1, exact host commands.
+  - scripts/build/build_sidecar_linux.sh, sibling with XPLAT-3
     ctranslate2/libs guard pattern.
-  - scripts/build/build_sidecar_macos.sh — sibling with NUITKA_ARGS array
+  - scripts/build/build_sidecar_macos.sh, sibling with NUITKA_ARGS array
     pattern.
 
-Gaps documented (report, do NOT fix — out of scope for this gate check):
+Gaps documented (report, do NOT fix, out of scope for this gate check):
   - GAP-1: ``build_sidecar_windows.sh`` does NOT include a
     ``ctranslate2/libs`` (plural) existence guard like the Linux +
     macOS siblings. The Windows wheel layout puts all DLLs under
@@ -101,7 +101,7 @@ def test_build_script_is_bash_syntax_valid():
     spawned. Safe to run on the Linux sandbox.
     """
     if not bash_usable():
-        pytest.skip("bash not available or not usable on this host — cannot run `bash -n`.")
+        pytest.skip("bash not available or not usable on this host, cannot run `bash -n`.")
     result = subprocess.run(
         ["bash", "-n", str(BUILD_SCRIPT)],
         capture_output=True,
@@ -187,12 +187,12 @@ def test_script_onefile_tempdir_uses_supported_cache_dir_token(script_text: str)
     tempdir bloat from onefile re-extractions across launches.
 
     Token migration: the spec previously used ``%LOCALAPPDATA%``, which
-    Nuitka does NOT support as a spec variable — 2.8.10 fails the build
+    Nuitka does NOT support as a spec variable, 2.8.10 fails the build
     with "Found unknown variable name" (it rewrites the legacy
     ``%VAR%`` form to ``{LOCALAPPDATA}``, then rejects it; observed on
     the 2026-09-02 windows-2022 CI run of the worker build). The
     documented token ``{CACHE_DIR}`` expands to
-    ``C:\\Users\\<user>\\AppData\\Local`` — identical semantics.
+    ``C:\\Users\\<user>\\AppData\\Local``, identical semantics.
     """
     assert "{CACHE_DIR}" in script_text, (
         "build_sidecar_windows.sh --onefile-tempdir-spec must use "
@@ -264,12 +264,12 @@ def test_script_outputs_to_src_tauri_bin(script_text: str):
     )
 
 
-# ─── 4. ctranslate2/lib guard (singular — layout-aware, REQUIRED) ───────────
+# ─── 4. ctranslate2/lib guard (singular, layout-aware, REQUIRED) ───────────
 def test_script_has_ctranslate2_lib_guard(script_text: str):
     """The script must bundle ctranslate2's native DLLs from EITHER layout.
 
     ctranslate2 ships its DLLs either under ``ctranslate2/lib`` (older
-    wheels) or directly in ``ctranslate2/`` (modern wheels — e.g. the
+    wheels) or directly in ``ctranslate2/`` (modern wheels, e.g. the
     cp312 win_amd64 wheel has ctranslate2.dll + cudnn64_9.dll +
     libiomp5md.dll at the package root). The script prefers the
     ``lib/`` layout and falls back to the package dir; it hard-fails
@@ -280,7 +280,7 @@ def test_script_has_ctranslate2_lib_guard(script_text: str):
     """
     # The script must define the lib/ path and resolve the native-DLL
     # location from EITHER layout (old lib/ wheels OR modern
-    # package-root wheels — mirrors the inline command in
+    # package-root wheels, mirrors the inline command in
     # .github/workflows/tauri-windows-build.yml).
     assert 'CT2_LIB_DIR="$CT2_DIR/lib"' in script_text, (
         "build_sidecar_windows.sh must define CT2_LIB_DIR as $CT2_DIR/lib (the ctranslate2/lib path)."
@@ -292,7 +292,7 @@ def test_script_has_ctranslate2_lib_guard(script_text: str):
         "build_sidecar_windows.sh must fall back to the ctranslate2 package dir "
         "(modern wheels ship DLLs without a lib/ subdir)."
     )
-    # ctranslate2.dll is mandatory in the resolved layout — hard-fail when absent.
+    # ctranslate2.dll is mandatory in the resolved layout, hard-fail when absent.
     assert '! -f "$CT2_DLL"' in script_text, (
         'build_sidecar_windows.sh must guard: `if [[ ! -f "$CT2_DLL" ]]; then echo ERROR ...; exit 1; fi`'
     )
@@ -305,13 +305,13 @@ def test_script_has_ctranslate2_dll_guard(script_text: str):
     )
 
 
-# ─── 5. ctranslate2/libs guard (plural — KNOWN GAP) ──────────────────────────
+# ─── 5. ctranslate2/libs guard (plural, KNOWN GAP) ──────────────────────────
 def test_known_gap_no_ctranslate2_libs_guard(script_text: str):
     """XPLAT-3 / BUILD-2 parity: the Windows script now HAS a
     ``ctranslate2/libs`` (plural) existence guard like the Linux + macOS
     siblings.
 
-    Previously a KNOWN GAP — the Windows script only included the singular
+    Previously a KNOWN GAP, the Windows script only included the singular
     ``lib/`` with no guard for the optional ``libs/`` dir. BUILD-2 added
     the guard (mirroring the Linux + macOS XPLAT-3 pattern). This test
     now ASSERTS the guard IS present.
@@ -319,7 +319,7 @@ def test_known_gap_no_ctranslate2_libs_guard(script_text: str):
     See:
       - build_sidecar_linux.sh lines ~213 + ~229 (the XPLAT-3 guard)
       - build_sidecar_macos.sh lines ~106 + ~137 (the same guard)
-      - build_sidecar_windows.sh lines ~127 + ~144 (BUILD-2 guard — added this run)
+      - build_sidecar_windows.sh lines ~127 + ~144 (BUILD-2 guard, added this run)
     """
     # The Linux + macOS siblings MUST have the libs guard (sanity check
     # that our reference pattern is correct).
@@ -427,7 +427,7 @@ def test_script_entry_point_is_ipc_server(script_text: str):
     """The Nuitka entry point must be ``voice_typer/server/ipc_server.py``.
 
     This is the same entry point used by the Electron path + the dev
-    sidecar — only the freeze tool changes (ADR-0020 §4.2).
+    sidecar, only the freeze tool changes (ADR-0020 §4.2).
     """
     assert "voice_typer/server/ipc_server.py" in script_text, (
         "build_sidecar_windows.sh entry point must be "
@@ -451,7 +451,7 @@ def test_script_verifies_output_after_build(script_text: str):
 def test_script_documents_signing_next_step(script_text: str):
     """The script must point to the signing runbook after a successful build.
 
-    ADR-0020 §13.1 — Windows Authenticode signing is the next step
+    ADR-0020 §13.1, Windows Authenticode signing is the next step
     after the .exe is produced. The script's final echo must reference
     signing-guide.md.
     """
@@ -465,7 +465,7 @@ def test_script_documents_signing_next_step(script_text: str):
 def test_linux_sibling_has_xplat3_ctranslate2_libs_guard():
     """Sanity check: the Linux sibling MUST have the XPLAT-3 guard.
 
-    This is a reference-pattern check — if the Linux sibling loses the
+    This is a reference-pattern check, if the Linux sibling loses the
     guard, the GAP-1 note for Windows becomes invalid (we'd be measuring
     against a moving target).
     """

@@ -3,13 +3,13 @@
 clipboard split, pass b. Contains the implementation of the four safety helpers
 that lived as staticmethods on :class:`ClipboardManager`:
 
-* :func:`_is_safe_paste_target_impl` — verifies the foreground window
+* :func:`_is_safe_paste_target_impl`: verifies the foreground window
   is safe for pasting (blocks UAC dialogs, credential prompts, Winlogon,
   elevated targets, password fields).
-* :func:`_is_terminal_process_impl` — name-based terminal detection.
-* :func:`_detect_focused_process_impl` — Win32 focused-process name
+* :func:`_is_terminal_process_impl`: name-based terminal detection.
+* :func:`_detect_focused_process_impl`: Win32 focused-process name
   probe (for terminal/rich-editor logging).
-* :func:`_get_frontmost_pid_macos_impl` — macOS frontmost-app PID
+* :func:`_get_frontmost_pid_macos_impl`: macOS frontmost-app PID
   probe (for TOCTOU re-check).
 
 Design contract (preserved verbatim from the pre-split ``manager.py``):
@@ -19,7 +19,7 @@ Design contract (preserved verbatim from the pre-split ``manager.py``):
   ``_is_content_editable``, ``_get_uia_focused_element``,
   ``_is_password_field_macos``, ``_is_password_field_linux``,
   ``_TERMINAL_PROCESS_NAMES``) are looked up via the PACKAGE
-  (``_cb.X``) at call time — NOT via this module's globals — so test
+  (``_cb.X``) at call time. NOT via this module's globals, so test
   patches like
   ``patch.object(clip_mod, "is_windows", return_value=True)`` /
   ``patch("voice_typer.server.clipboard._is_elevated_target", ...)``
@@ -51,7 +51,7 @@ def _is_safe_paste_target_impl() -> bool:
     distinguishes "safety-check infrastructure is broken" from
     "target is safe." Previously any exception (including from
     ``_is_password_field`` or ``_is_elevated_target``) returned
-    ``True`` (fail-open) — meaning a broken UIA install would
+    ``True`` (fail-open): meaning a broken UIA install would
     silently disable credential-prompt blocking. Now:
 
       * Exceptions from ``_is_password_field`` or
@@ -60,7 +60,7 @@ def _is_safe_paste_target_impl() -> bool:
         into a credential prompt with broken detection.
       * Exceptions from ``_is_content_editable`` → log DEBUG,
         continue (fail-open). contentEditable is informational
-        only — not a security gate.
+        only, not a security gate.
       * Truly outer exceptions (e.g. ``ctypes`` itself broken) →
         still fail-open. This indicates a broken Python install,
         not a security infra issue.
@@ -100,20 +100,20 @@ def _is_safe_paste_target_impl() -> bool:
         try:
             if _cb.is_macos():
                 if _cb._is_password_field_macos():
-                    _cb.log.info("[CLIPBOARD] Paste blocked — macOS password field is focused")
+                    _cb.log.info("[CLIPBOARD] Paste blocked, macOS password field is focused")
                     return False
                 # macOS Secure Input guard. While Secure Input is active,
-                # synthesized keystrokes (CGEventPost — used by pynput's
+                # synthesized keystrokes (CGEventPost, used by pynput's
                 # macOS backend) are silently dropped by the kernel. The
                 # paste keystroke would never reach the target. Skip the
                 # paste; the helper itself emits the WARNING + tray
                 # toast on the first detection per session.
                 if _cb._is_secure_input_enabled():
-                    _cb.log.info("[CLIPBOARD] Paste blocked — macOS Secure Input is active")
+                    _cb.log.info("[CLIPBOARD] Paste blocked, macOS Secure Input is active")
                     return False
             elif _cb.is_linux():  # noqa: SIM102
                 if _cb._is_password_field_linux():
-                    _cb.log.info("[CLIPBOARD] Paste blocked — Linux password field is focused")
+                    _cb.log.info("[CLIPBOARD] Paste blocked. Linux password field is focused")
                     return False
         except Exception:
             # Outer fail-open: if the dispatch itself raises,
@@ -121,7 +121,7 @@ def _is_safe_paste_target_impl() -> bool:
             # behavior, and we'd rather allow paste than block all
             # dictation because of a bug in the platform helper.
             _cb.log.warning(
-                "[CLIPBOARD] non-Windows password-field check raised — failing open",
+                "[CLIPBOARD] non-Windows password-field check raised, failing open",
                 exc_info=True,
             )
         return True
@@ -130,7 +130,7 @@ def _is_safe_paste_target_impl() -> bool:
 
         user32 = ctypes.windll.user32
         # Fetch hwnd ONCE and pass to all helpers (avoids redundant
-        # GetForegroundWindow calls — History: ).
+        # GetForegroundWindow calls, History: ).
         hwnd = user32.GetForegroundWindow()
         if not hwnd:
             return True
@@ -158,7 +158,7 @@ def _is_safe_paste_target_impl() -> bool:
         # Legitimate credential-prompt blocking is governed by the
         # UIA ``IsPassword`` check + the specific
         # ``_CRED_DIALOG_CLASSES`` set (Credential Dialog Xaml Host,
-        # CredDialog) — those remain blocked. Remove ``#32770``
+        # CredDialog), those remain blocked. Remove ``#32770``
         # from the inline blocklist to allow dictation into Open/
         # Save As / Properties dialogs.
         blocked_classes = {"Credential Dialog Xaml Host", "CredDialog"}
@@ -168,7 +168,7 @@ def _is_safe_paste_target_impl() -> bool:
 
         #  (revised): Block paste if the target is elevated
         # and we are not. The previous code called _is_elevated_target()
-        # but discarded the return value — only the side-effect (a log
+        # but discarded the return value, only the side-effect (a log
         # line inside the function) was observed, and the paste
         # proceeded anyway. This was unsafe: if the target is elevated
         # (e.g. an Administrator cmd window), our SendInput will be
@@ -181,18 +181,18 @@ def _is_safe_paste_target_impl() -> bool:
         # The user will see no paste and can investigate (the function
         # logs a warning explaining why).
         #
-        # Fail-closed on exception — if the elevation check itself
+        # Fail-closed on exception, if the elevation check itself
         # raises, we block paste rather than risk UIPI failure.
         # (History: )
         try:
             if _cb._is_elevated_target(hwnd):
                 _cb.log.warning(
-                    "[CLIPBOARD] Target window is elevated but we are not — blocking paste to avoid UIPI failure"
+                    "[CLIPBOARD] Target window is elevated but we are not, blocking paste to avoid UIPI failure"
                 )
                 return False
         except Exception:
             _cb.log.warning(
-                "[CLIPBOARD] _is_elevated_target check raised — blocking paste (fail-closed)",
+                "[CLIPBOARD] _is_elevated_target check raised, blocking paste (fail-closed)",
                 exc_info=True,
             )
             return False
@@ -217,20 +217,20 @@ def _is_safe_paste_target_impl() -> bool:
             com_initialized = True
             focused = _cb._get_uia_focused_element()
         except ImportError:
-            # comtypes unavailable — _is_password_field will fall
+            # comtypes unavailable, _is_password_field will fall
             # through to its ImportError branch and use the
             # window-class heuristic. Pass focused=None so the
             # helper knows to fetch it itself (which will also
             # fail safely).
             pass
         except Exception:
-            # COM init failed — log and proceed. _is_password_field
+            # COM init failed, log and proceed. _is_password_field
             # will retry CoInitialize (idempotent on same thread).
             _cb.log.debug("[CLIPBOARD] CoInitialize failed in _is_safe_paste_target", exc_info=True)
 
         try:
             # check if the focused element is a password field.
-            # Fail-closed on exception — if password-field detection
+            # Fail-closed on exception, if password-field detection
             # itself raises, block paste rather than risk pasting
             # into a credential prompt. (History: )
             try:
@@ -238,23 +238,23 @@ def _is_safe_paste_target_impl() -> bool:
                     return False
             except Exception:
                 _cb.log.warning(
-                    "[CLIPBOARD] _is_password_field check raised — blocking paste (fail-closed)",
+                    "[CLIPBOARD] _is_password_field check raised, blocking paste (fail-closed)",
                     exc_info=True,
                 )
                 return False
 
             # PLAT-CONTENT: check if the focused element is a
             # contentEditable element (rich editor like Word, Gmail
-            # compose, etc.). We don't block paste — just log it so
+            # compose, etc.). We don't block paste, just log it so
             # the user knows the paste target supports rich text and
             # our plain-text paste may lose formatting.
             #
-            # Keep fail-OPEN here — contentEditable is informational,
+            # Keep fail-OPEN here, contentEditable is informational,
             # not a security gate. (History: )
             try:
                 if _cb._is_content_editable(focused):
                     _cb.log.info(
-                        "[CLIPBOARD] Paste target is a contentEditable element — "
+                        "[CLIPBOARD] Paste target is a contentEditable element, "
                         "pasting plain text (rich text formatting may be lost)"
                     )
             except Exception:
@@ -270,7 +270,7 @@ def _is_safe_paste_target_impl() -> bool:
                     # re-import to guard against an interpreter
                     # corner case where ``comtypes`` was unbound
                     # between the ``import`` at line 377 and the
-                    # ``finally`` block — but the module is bound
+                    # ``finally`` block, but the module is bound
                     # at function scope, so this re-import is
                     # redundant. Using the top-of-function
                     # ``comtypes.CoUninitialize()`` directly is
@@ -282,27 +282,27 @@ def _is_safe_paste_target_impl() -> bool:
 
         return True
     except (ImportError, AttributeError):
-        # outer exception — fail-open ONLY for truly
+        # outer exception, fail-open ONLY for truly
         # broken infra (ctypes itself unavailable, missing
         # attribute on the windll proxy). This is rare and
         # indicates a broken Python install rather than a security-
         # infra issue. Security-check exceptions are caught earlier
         # (per-helper) and fail-closed. (History: , )
         _cb.log.warning(
-            "[CLIPBOARD] _is_safe_paste_target infra unavailable (ImportError/AttributeError) — failing open",
+            "[CLIPBOARD] _is_safe_paste_target infra unavailable (ImportError/AttributeError), failing open",
             exc_info=True,
         )
-        return True  # Fail open — don't block paste on outer infra error
+        return True  # Fail open, don't block paste on outer infra error
     except Exception:
         # any OTHER exception here is security-relevant
         # (e.g. Win32 APIs raising during shutdown, broken COM init)
-        # — fail CLOSED so we never paste into an unverified target.
+        # , fail CLOSED so we never paste into an unverified target.
         # The per-helper ``except Exception`` blocks above already
         # caught and routed the expected exceptions; reaching this
         # outer fallthrough means something genuinely unexpected
         # happened in the safety-check infrastructure.
         _cb.log.warning(
-            "[CLIPBOARD] _is_safe_paste_target outer exception — failing CLOSED",
+            "[CLIPBOARD] _is_safe_paste_target outer exception, failing CLOSED",
             exc_info=True,
         )
         return False
@@ -365,7 +365,7 @@ def _get_frontmost_pid_macos_impl() -> int | None:
     Uses ``AppKit.NSWorkspace`` (pyobjc) to fetch
     ``frontmostApplication().processIdentifier()``. Returns ``None``
     if pyobjc is unavailable, the workspace is unavailable, or the
-    query raises. The caller treats ``None`` as "unknown — skip the
+    query raises. The caller treats ``None`` as "unknown, skip the
     TOCTOU re-check" (fail-open), preserving the legacy behavior on
     systems without pyobjc.
     """
@@ -386,7 +386,7 @@ def _get_frontmost_pid_macos_impl() -> int | None:
         return int(pid) if pid is not None else None
     except Exception:
         _cb.log.debug(
-            "[CLIPBOARD] _get_frontmost_pid_macos raised — skipping TOCTOU re-check",
+            "[CLIPBOARD] _get_frontmost_pid_macos raised, skipping TOCTOU re-check",
             exc_info=True,
         )
         return None

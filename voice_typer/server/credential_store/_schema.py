@@ -39,7 +39,7 @@ KEYRING_SERVICE_NAME = "com.voicetyper.keyring"
 #: data-encryption key (DEK) is stored. Cloud-provider secrets use the
 #: provider name as the username key (see :data:`PROVIDER_TO_CONFIG_FIELD`);
 #: this double-underscore name can never collide with a provider because
-#: ``store_secret`` rejects names not in that map — the DEK deliberately
+#: ``store_secret`` rejects names not in that map, the DEK deliberately
 #: bypasses ``store_secret`` (see :mod:`._dek`) and is addressed directly.
 DATA_ENCRYPTION_KEY_USERNAME = "__data_encryption_key__"
 

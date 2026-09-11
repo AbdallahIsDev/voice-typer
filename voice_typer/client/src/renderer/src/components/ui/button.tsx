@@ -9,7 +9,7 @@ const buttonVariants = cva(
 	// `transition-all`. The Button actually transitions colors
 	// (hover/aria-expanded backgrounds, text, border), box-shadow
 	// (focus-visible ring), opacity (disabled), and transform
-	// (active:translate-y-px) — exactly Tailwind's default `transition`
+	// (active:translate-y-px), exactly Tailwind's default `transition`
 	// set. `transition-all` would additionally watch every other
 	// animatable property (width/height/padding changes from variant
 	// swaps), promoting needless main-thread style recalculation.
@@ -27,7 +27,7 @@ const buttonVariants = cva(
 				destructive:
 					"bg-destructive/10 text-destructive hover:bg-destructive/20 focus-visible:border-destructive/40 focus-visible:ring-destructive/20 dark:bg-destructive/20 dark:hover:bg-destructive/30 dark:focus-visible:ring-destructive/40",
 				// warning variant for mid-tier destructive actions
-				// (e.g. ConfirmDialog variant="warning" — skip onboarding,
+				// (e.g. ConfirmDialog variant="warning", skip onboarding,
 				// discard draft). Less alarming than destructive (amber, not
 				// red) but visually distinct from default. Uses the --warning
 				// design token from the status-token palette so the tint
@@ -40,7 +40,7 @@ const buttonVariants = cva(
 				default:
 					// CONSISTENT BUTTON SIZING (2026-08-28): every text
 					// button shares the same h-fit/w-fit box, px-3 py-1.5
-					// padding, and 1.3 line-height — the old fixed
+					// padding, and 1.3 line-height, the old fixed
 					// h-6/h-8/h-10 heights and px-2/px-2.5/px-4 paddings
 					// made buttons of different sizes look inconsistent
 					// app-wide. The `size` variants still form a real

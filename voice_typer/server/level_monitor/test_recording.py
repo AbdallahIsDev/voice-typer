@@ -8,12 +8,12 @@ Contains the ad-hoc microphone-test recording API (``start_test_recording``,
 also call into.
 
 The test recording uses the SAME PortAudio InputStream as the continuous
-level monitor (see :mod:`.monitoring`) — opening a second stream on the
+level monitor (see :mod:`.monitoring`), opening a second stream on the
 same device triggers a Windows MME device-conflict error. When
 ``_test_mode`` is True, the level worker (see :mod:`.worker`) also
-appends each chunk to ``_test_raw_chunks`` (RAW audio — "before" WAV)
+appends each chunk to ``_test_raw_chunks`` (RAW audio, "before" WAV)
 and, when a live filter processor is active, to ``_test_filtered_chunks``
-(FILTERED audio — "after" WAV).
+(FILTERED audio, "after" WAV).
 """
 
 from __future__ import annotations
@@ -58,7 +58,7 @@ def _secure_clear_test_chunks(*deques: collections.deque) -> None:
     ----------
     *deques
         The deques whose ``np.ndarray`` elements should be zeroed.
-        The deques themselves are NOT mutated — the caller is
+        The deques themselves are NOT mutated, the caller is
         expected to ``.clear()`` or replace them after this call.
         We pass a snapshot of the deque's contents to the worker
         (via ``collections.deque(list(d))``) so a subsequent
@@ -124,7 +124,7 @@ def _purge_test_recordings() -> None:
 
     Keep-only-latest: a fresh test invalidates prior recordings (they
     were already delivered/fetched by the renderer, or superseded).
-    Never raises — a locked file must not break the new test.
+    Never raises, a locked file must not break the new test.
     """
     try:
         d = _test_recordings_dir()
@@ -201,7 +201,7 @@ def read_test_recording_slice(path: str, offset: int, length: int) -> dict:
         # per-slice base64 strings; independently-encoded fragments carry
         # their own "=" padding, and joining fragments whose byte sizes are
         # not multiples of 3 produces corrupted audio (padding appearing
-        # mid-stream). 256*1024 % 3 == 1 — clamp to the nearest lower
+        # mid-stream). 256*1024 % 3 == 1, clamp to the nearest lower
         # multiple of 3 so interior slices never carry padding.
         length -= length % 3
         offset = max(0, int(offset))
@@ -232,7 +232,7 @@ def _reset_test_chunks(locked: bool) -> None:
     """(Re) create the bounded test-chunk deques under the right capacity.
 
     The maxlen is computed from the CURRENT device sample rate
-    (``_monitor_sample_rate`` — NOT a constant, because the stream runs
+    (``_monitor_sample_rate``: NOT a constant, because the stream runs
     at the device native rate) and the CURRENT requested duration
     (``_test_duration``, already clamped to [1,30] by the caller).
 
@@ -325,7 +325,7 @@ def start_test_recording(
             # re-check state under the lock.
             pass  # handled below the lock
         else:
-            # Monitor is already active on the right device — set test mode
+            # Monitor is already active on the right device. Set test mode
             _state._test_mode = True
             _state._test_start_time = time.perf_counter()
             _state._test_duration = max(1.0, min(30.0, duration))
@@ -360,7 +360,7 @@ def start_test_recording(
                 "sample_rate": sr,
             }
 
-    # Monitor not running or on wrong device — start/restart it
+    # Monitor not running or on wrong device, start/restart it
     # (outside the lock since start_monitoring acquires its own lock).
     # Local import to avoid a top-level circular dependency.
     from .monitoring import start_monitoring
@@ -373,7 +373,7 @@ def start_test_recording(
             "duration": duration,
         }
 
-    # Monitor is now running on the correct device — set test mode
+    # Monitor is now running on the correct device. Set test mode
     with _state._monitor_lock:
         if _state._test_mode:
             return {
@@ -442,16 +442,16 @@ def stop_test_recording() -> dict:
         # - ``_test_chunks``: backward-compat shim, always empty in
         #   production (kept for tests outside this module that append
         #   to it directly).
-        # - ``_test_raw_chunks``: RAW audio — source for the "before" WAV.
+        # - ``_test_raw_chunks``: RAW audio, source for the "before" WAV.
         # - ``_test_filtered_chunks``: FILTERED audio (post-``process_chunk``)
-        #   captured by the worker — source for the "after" WAV when
+        #   captured by the worker, source for the "after" WAV when
         #   populated, eliminating the 7-70s synchronous re-filter that
         # previously blocked the IPC thread at stop time ().
         raw_chunks = list(_state._test_raw_chunks)
         filtered_chunks = list(_state._test_filtered_chunks)
         filters = dict(_state._test_filters)
         # Dead ``list(_test_peak_history)`` expression removed
-        # (the value was discarded immediately — peak history is
+        # (the value was discarded immediately, peak history is
         # consumed via the dedicated level-monitor callback, not here).
         rms_hist = list(_state._test_rms_history)
         clip_count = _state._test_clip_count
@@ -491,7 +491,7 @@ def stop_test_recording() -> dict:
     # this module that append to it directly) and is NOT a source of audio.
     # Only ``_test_raw_chunks`` ("before" WAV) and ``_test_filtered_chunks"
     # ("after" WAV) are sources. If both are empty, return "No audio
-    # captured" — even if the legacy shim has data (test_stop_returns_
+    # captured": even if the legacy shim has data (test_stop_returns_
     # no_audio_when_only_test_chunks_populated relies on this).
     if not was_active and not raw_chunks and not filtered_chunks:
         return {
@@ -516,7 +516,7 @@ def stop_test_recording() -> dict:
         }
 
     # Build ``raw_audio`` (the "before" WAV) from ``_test_raw_chunks``.
-    # Fall back to ``filtered_chunks`` (rare — raw buffer empty but
+    # Fall back to ``filtered_chunks`` (rare, raw buffer empty but
     # filtered populated) so a valid WAV is always produced when any
     # audio exists. ``_test_chunks`` is NOT used (legacy shim).
     try:
@@ -539,10 +539,10 @@ def stop_test_recording() -> dict:
     # Build ``audio`` (the "after" WAV) from
     # ``_test_filtered_chunks`` when the worker populated it. This is
     # the audio that already went through the live ``_level_processor``
-    # filter chain during recording — concatenating it directly avoids
+    # filter chain during recording, concatenating it directly avoids
     # the 7-70s synchronous re-filter that previously ran here. The
     # post-hoc filter block below is SKIPPED in this case (would
-    # double-filter). Fallback: ``raw_audio.copy()`` — the post-hoc
+    # double-filter). Fallback: ``raw_audio.copy()``, the post-hoc
     # filter then runs on it (existing behavior, for the no-live-
     # processor path).
     if filtered_chunks:
@@ -589,11 +589,11 @@ def stop_test_recording() -> dict:
     if quality["has_clipping"]:
         detected_issues.append("Audio clipping detected")
     if quality["volume_level"] == "very_low":
-        detected_issues.append("Volume too low — speak closer to the microphone")
+        detected_issues.append("Volume too low, speak closer to the microphone")
     elif quality["volume_level"] == "low":
-        detected_issues.append("Volume is low — consider raising input gain")
+        detected_issues.append("Volume is low, consider raising input gain")
     if not quality["has_voice"]:
-        detected_issues.append("No voice detected — try speaking during the test")
+        detected_issues.append("No voice detected, try speaking during the test")
     quality["detected_issues"] = detected_issues
 
     # Estimate transcription quality (0-100)
@@ -679,7 +679,7 @@ def stop_test_recording() -> dict:
     raw_audio_file = _write_test_wav(raw_buf, "raw")
 
     log.info(
-        "[LEVEL-MON] Test stopped: %.1fs recorded — wrote raw(before)=%d bytes + filtered(after)=%d bytes WAV to %s/",
+        "[LEVEL-MON] Test stopped: %.1fs recorded, wrote raw(before)=%d bytes + filtered(after)=%d bytes WAV to %s/",
         duration_ms / 1000,
         len(raw_buf.getvalue()),
         len(buf.getvalue()),
@@ -775,7 +775,7 @@ def _do_auto_stop_test() -> None:
             },
         )
     except Exception:
-        # this is load-bearing — if the publish fails, the
+        # this is load-bearing, if the publish fails, the
         # frontend UI hangs in "test running" state forever with no
         # indication the test completed. Log a warning so the user can
         # diagnose why the mic test isn't completing.
@@ -794,7 +794,7 @@ def _do_auto_stop_test() -> None:
     # frontend retrieves) and by ``cancel_test_recording`` (the
     # user-cancel path), so the bounded deque (``maxlen == 3s of
     # audio at 16kHz``) caps the lingering memory at one test's
-    # worth — the intended fix.
+    # worth, the intended fix.
 
 
 def _cancel_test_locked() -> bool:

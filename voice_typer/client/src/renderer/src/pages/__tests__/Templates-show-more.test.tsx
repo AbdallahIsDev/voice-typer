@@ -35,7 +35,7 @@ vi.mock("@hugeicons/core-free-icons", () => hugeiconsCoreMock());
 vi.mock("sonner", () => sonnerMock());
 vi.mock("next-themes", () => nextThemesMock());
 
-/** 450 templates — exceeds two DISPLAY_CAP batches (200 + 200 = 400)
+/** 450 templates, exceeds two DISPLAY_CAP batches (200 + 200 = 400)
  *  but not three (600). */
 const seedTemplates = {
 	templates: Array.from({ length: 450 }, (_, i) => ({
@@ -46,12 +46,12 @@ const seedTemplates = {
 };
 
 /** TemplateListRow renders an InfoTooltip (Radix Tooltip) which throws
- *  without a TooltipProvider ancestor — the real App shell provides
+ *  without a TooltipProvider ancestor, the real App shell provides
  *  one, so tests mounting the page directly must too. */
 const renderWithProviders = (ui: React.ReactElement) =>
 	render(<TooltipProvider delayDuration={200}>{ui}</TooltipProvider>);
 
-describe("Templates page — paginated Show more (incremental reveal)", () => {
+describe("Templates page, paginated Show more (incremental reveal)", () => {
 	beforeEach(() => {
 		mockCall.mockReset();
 		mockCall.mockImplementation((type: string) => {

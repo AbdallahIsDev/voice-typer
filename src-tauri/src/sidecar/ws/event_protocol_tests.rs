@@ -25,7 +25,7 @@ fn test_translate_event_name_relaunch_app_passes_through() {
     // `relaunch_electron` (kept in the ALLOWED_EVENT_TYPES block-list
     // for one release cycle so old Python sidecars don't get
     // silently dropped) must pass through `translate_event_name`
-    // UNCHANGED — re-adding the rename arm would break the
+    // UNCHANGED: re-adding the rename arm would break the
     // `test_ws_reader_does_not_rename_relaunch_app` parity test in
     // `tests/tauri/mig19/test_wire_swap_recovery.py`.
     assert_eq!(translate_event_name("relaunch_app"), "relaunch_app");
@@ -65,7 +65,7 @@ fn test_translate_event_name_unknown_passes_through() {
 
 #[test]
 fn test_translate_event_name_bubble_level_not_renamed() {
-    // `bubble_level` is the high-frequency coalesced event — it must
+    // `bubble_level` is the high-frequency coalesced event, it must
     // NOT be translated (it's matched literally in the reader task's
     // coalesce branch above). A regression that mapped `bubble_level`
     // to `bubble:level` would break the coalesce path silently.
@@ -139,10 +139,10 @@ fn test_transcription_partial_is_allowed_and_passthrough() {
     );
     assert!(
         is_allowed_event_type("transcription_partial"),
-        "is_allowed_event_type(`transcription_partial`) must return true — \
+        "is_allowed_event_type(`transcription_partial`) must return true: \
          the WS reader would otherwise drop the frame"
     );
-    // Passthrough: no kebab-case rename arm — the renderer subscribes
+    // Passthrough: no kebab-case rename arm, the renderer subscribes
     // via usePythonEvent("transcription_partial", ...).
     assert_eq!(
         translate_event_name("transcription_partial"),
@@ -152,11 +152,11 @@ fn test_transcription_partial_is_allowed_and_passthrough() {
 
 // ── High-rate carve-out + generic envelope builder ────────────
 
-/// `HIGH_RATE_EVENT_TYPES` must contain EXACTLY `bubble_level` — no
+/// `HIGH_RATE_EVENT_TYPES` must contain EXACTLY `bubble_level`, no
 /// more, no less. The carve-out skips the generic `python-event`
 /// envelope for its members, so an over-broad list silently starves
 /// catch-all consumers (a previous version listed `mic_level`, which
-/// killed the Microphone meter — see the ws_tests regression guard).
+/// killed the Microphone meter: see the ws_tests regression guard).
 #[test]
 fn test_high_rate_event_types_is_exactly_bubble_level() {
     assert_eq!(
@@ -177,7 +177,7 @@ fn test_is_high_rate_event_type_truth_table() {
     assert!(is_high_rate_event_type("bubble_level"));
     // Regression guard: mic_level consumers ride the GENERIC
     // python-event envelope (usePythonEvent → api.onEvent →
-    // listen("python-event")) — it must never be high-rate again.
+    // listen("python-event")): it must never be high-rate again.
     assert!(!is_high_rate_event_type("mic_level"));
     assert!(!is_high_rate_event_type("status_change"));
     assert!(!is_high_rate_event_type(""));
@@ -185,7 +185,7 @@ fn test_is_high_rate_event_type_truth_table() {
 }
 
 /// The generic envelope builder must produce exactly
-/// `{"type": <name>, "data": <payload>}` — the shape the renderer's
+/// `{"type": <name>, "data": <payload>}`, the shape the renderer's
 /// usePythonEvent dispatcher consumes via `api.onEvent`.
 #[test]
 fn test_python_event_envelope_shape() {
@@ -201,11 +201,11 @@ fn test_python_event_envelope_shape() {
     );
 }
 
-// ── Pack + worker IPC event types (master plan §7.4 — 13 new) ───────
+// ── Pack + worker IPC event types (master plan §7.4, 13 new) ───────
 //
 // The runtime-pack split introduces 13 new server-initiated event types:
 // pack download lifecycle (4), pack integrity (4), worker process
-// lifecycle (3), and offline transcription (2 — request + result push).
+// lifecycle (3), and offline transcription (2, request + result push).
 // Each is registered in `ALLOWED_EVENT_TYPES` so the WS reader's
 // `is_allowed_event_type` gate does NOT silently drop the frame once
 // the worker comes online. This test pins the full 13-entry set so a
@@ -244,7 +244,7 @@ fn test_offline_pack_worker_event_types_are_allowed() {
     assert_eq!(
         pack_worker_events.len(),
         13,
-        "sanity: the §7.4 pack/worker event set is exactly 13 entries — \
+        "sanity: the §7.4 pack/worker event set is exactly 13 entries, \
          if the plan adds/removes one, update this test in lockstep"
     );
     for &evt in pack_worker_events {
@@ -254,7 +254,7 @@ fn test_offline_pack_worker_event_types_are_allowed() {
         );
         assert!(
             is_allowed_event_type(evt),
-            "is_allowed_event_type(`{evt}`) must return true — the WS reader \
+            "is_allowed_event_type(`{evt}`) must return true: the WS reader \
              would otherwise drop the frame"
         );
     }

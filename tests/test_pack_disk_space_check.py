@@ -1,4 +1,4 @@
-"""§8.8 — Disk space check before download.
+"""§8.8: Disk space check before download.
 
 Spec (§8.8):
 
@@ -15,7 +15,7 @@ Tested behaviors:
      < 630 MB.
   5. ``check_pack_disk_space`` returns None when free space >= 630 MB.
   6. ``check_pack_disk_space`` swallows ``OSError`` from
-     ``shutil.disk_usage`` (best-effort — don't block the download
+     ``shutil.disk_usage`` (best-effort, don't block the download
      on a failed stat).
   7. The error message mentions both the compressed and unpacked
      sizes (so the user knows why 630 MB is needed for a "180 MB"
@@ -33,7 +33,7 @@ from voice_typer.server.service import offline_pack
 
 
 class TestPackSizeConstants:
-    """§8.8 — pack size budget."""
+    """§8.8, pack size budget."""
 
     def test_required_mb_is_630(self):
         assert offline_pack.OFFLINE_PACK_REQUIRED_MB == 630
@@ -51,7 +51,7 @@ class TestPackSizeConstants:
 
 
 class TestCheckPackDiskSpace:
-    """§8.8 — disk space check."""
+    """§8.8, disk space check."""
 
     def test_insufficient_space_raises(self, tmp_path: Path, monkeypatch):
         """When free space < 630 MB, RuntimeError is raised."""
@@ -82,7 +82,7 @@ class TestCheckPackDiskSpace:
     def test_disk_usage_oserror_swallowed(self, tmp_path: Path, monkeypatch):
         """A failed ``disk_usage`` stat does NOT block the download."""
         monkeypatch.setattr(shutil, "disk_usage", lambda p: (_ for _ in ()).throw(OSError("stat failed")))
-        # Should NOT raise — best-effort check.
+        # Should NOT raise, best-effort check.
         offline_pack.check_offline_pack_disk_space(tmp_path)
 
     def test_error_message_mentions_compressed_and_unpacked(self, tmp_path: Path, monkeypatch):

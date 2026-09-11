@@ -2,7 +2,7 @@
 
 Extracted verbatim from :mod:`voice_typer.server.sidecar_ws`; the
 canonical module re-exports :func:`_make_dispatch` so the direct-call
-test surface (``sidecar_ws._make_dispatch(server)`` — the mig15-17
+test surface (``sidecar_ws._make_dispatch(server)``, the mig15-17
 ws_hmac suites, tests/test_ipc_server.py, the rate-limiter chokepoint
 tests) keeps working, and ``inspect.getsource`` pins on the function
 object follow it here automatically.
@@ -39,7 +39,7 @@ if TYPE_CHECKING:  # pragma: no cover - type-checker-only
 
 # Same logger object as the canonical module (``logging.getLogger`` is
 # idempotent per name). Keeps every log record's ``name`` attribute
-# byte-identical to the pre-split output — several tests pin
+# byte-identical to the pre-split output, several tests pin
 # ``caplog.at_level(..., logger="voice_typer.server.sidecar_ws")``.
 log = logging.getLogger("voice_typer.server.sidecar_ws")
 
@@ -53,20 +53,20 @@ def _make_dispatch(server: IPCServer):
     """
     # ADR-0019 + : per-process rate limiter. Reuse the same private
     # _RateLimiter class the TCP path uses (ipc_server.py:215) so the
-    # burst/sustained semantics are identical — 200 burst, 600 sustained
+    # burst/sustained semantics are identical, 200 burst, 600 sustained
     # over a 10s window (RELIABILITY-006-).
     #
     # the limiter is looked up lazily via _get_rate_limiter(server)
     # so it is shared across ALL WS connections to this server process.
     # A local attacker can no longer reset the 200-message burst budget
-    # by dropping the WS and reconnecting — the 10s sliding window
+    # by dropping the WS and reconnecting, the 10s sliding window
     # continues to evict old timestamps across reconnects.
     # dedicated ThreadPoolExecutor for WS dispatch so
     # ``_do_cleanup`` can drain / cancel in-flight dispatch requests
     # BEFORE tearing down the recorder / history DB / crash-recovery
     # writer. Previously ``loop.run_in_executor(None, server._dispatch,
     # msg)`` used the asyncio loop's default executor, which has no
-    # handle the shutdown path can reach — a long-running handler
+    # handle the shutdown path can reach, a long-running handler
     # (e.g. ``download_model``) would race teardown, half-flush the
     # history DB, and leak a partially-written crash-recovery snapshot.
     #
@@ -118,7 +118,7 @@ def _make_dispatch(server: IPCServer):
     # explicit ``threading.Event`` coordination between the WS
     # dispatch path and ``ShutdownController._do_cleanup``. The pool's
     # ``shutdown(wait=True)`` only guarantees that the
-    # ``ThreadPoolExecutor``'s worker queue has drained — it does NOT
+    # ``ThreadPoolExecutor``'s worker queue has drained, it does NOT
     # guarantee that the per-dispatch coroutine body has finished its DB
     # write (the Future resolves on ``server._dispatch`` return, but the
     # WS ``dispatch`` coroutine may still be in its ``await
@@ -129,7 +129,7 @@ def _make_dispatch(server: IPCServer):
     # transcription_final DB write.
     #
     # ``_ws_drained_event`` is SET when no dispatch is in-flight (the
-    # initial state — no dispatch has started yet, so the drain is
+    # initial state, no dispatch has started yet, so the drain is
     # trivially complete). ``_ws_inflight_count`` is the number of
     # dispatches currently between the entry point and the exit of the
     # ``dispatch`` coroutine body. ``_ws_inflight_lock`` guards the
@@ -137,7 +137,7 @@ def _make_dispatch(server: IPCServer):
     # race the count into a wrong value or miss the Event-set on the
     # last exit.
     #
-    # Pre-constructed in ``IPCServer.__init__`` — plain reads here (the
+    # Pre-constructed in ``IPCServer.__init__``: plain reads here (the
     # ``getattr`` fallbacks only fire on test doubles that bypass
     # ``__init__``).
     ws_drained_event = getattr(server, "_ws_drained_event", None)
@@ -147,7 +147,7 @@ def _make_dispatch(server: IPCServer):
 
         if ws_drained_event is None:
             ws_drained_event = _threading.Event()
-            ws_drained_event.set()  # initially drained — count is 0
+            ws_drained_event.set()  # initially drained, count is 0
             server._ws_drained_event = ws_drained_event
         if ws_inflight_lock is None:
             ws_inflight_lock = _threading.Lock()
@@ -161,7 +161,7 @@ def _make_dispatch(server: IPCServer):
             return {
                 "type": "error",
                 "data": {
-                    # Namespaced form (canonical) — see
+                    # Namespaced form (canonical): see
                     # ``voice_typer/server/ipc/validation.py`` for the
                     # migration contract.
                     "code": "client.invalid_payload",
@@ -176,11 +176,11 @@ def _make_dispatch(server: IPCServer):
         # host can re-queue / surface a graceful "backend is exiting"
         # message instead of starting a long-running handler (e.g.
         # ``download_model``) that would race teardown. The
-        # ``shutdown`` message itself is exempt — the host sends it to
+        # ``shutdown`` message itself is exempt, the host sends it to
         # TRIGGER shutdown, and it is now handled by the shared
         # ``_COMMAND_REGISTRY`` entry ``"shutdown": "_handle_shutdown"``
         # (registered in ipc_server.py by ) which delegates to
-        # ``service.quit()`` — the SAME path the TCP ``quit_app``
+        # ``service.quit()``: the SAME path the TCP ``quit_app``
         # command uses. Pre- the WS path special-cased
         # ``shutdown`` here and called ``server.app.quit()`` directly,
         # bypassing the service layer (so any future shutdown
@@ -188,7 +188,7 @@ def _make_dispatch(server: IPCServer):
         # on Tauri). The special-case is now removed; ``shutdown``
         # flows through ``server._dispatch`` like every other command.
         if msg_type != "shutdown" and getattr(server.app, "_shutting_down", False):
-            log.debug("[SIDECAR-WS] rejecting %s — server shutting down", msg_type)
+            log.debug("[SIDECAR-WS] rejecting %s, server shutting down", msg_type)
             return {
                 "type": "error",
                 "data": {
@@ -198,13 +198,13 @@ def _make_dispatch(server: IPCServer):
             }
 
         # ADR-0019 +  rate limit check. Look up the shared limiter
-        # on every call (cheap — dict-style getattr) so all WS frames to
+        # on every call (cheap, dict-style getattr) so all WS frames to
         # this server share the same sliding-window budget. _RateLimiter
         # .allow() returns a bool (no retry-after); the host backs off
         # via backoff on repeated rate-limit hits.
         #
         # pass ``command=msg_type`` so the per-command cost map
-        # (``COMMAND_COSTS``) is applied — e.g. ``download_model``
+        # (``COMMAND_COSTS``) is applied: e.g. ``download_model``
         # consumes 50 of the 200 burst units, so a buggy client can fire
         # at most 4 expensive commands per second before the 5th is
         # rejected. Cheap commands (``heartbeat``, ``get_status``) keep
@@ -212,7 +212,7 @@ def _make_dispatch(server: IPCServer):
         # ``rate_limiter.allow()`` form (no ``command`` kwarg) is still
         # supported and treats the call as cost 1.
         #
-        # ``shutdown`` is a CONTROL frame, not a dispatch frame — it
+        # ``shutdown`` is a CONTROL frame, not a dispatch frame, it
         # must bypass the rate limiter so a sidecar being spammed with
         # frames (over the 200-burst budget) can still shut down
         # cleanly (ADR-0020 §10). The TCP path's read loop applies the
@@ -220,7 +220,7 @@ def _make_dispatch(server: IPCServer):
         # WS path must stay in parity.
         if msg_type != "shutdown" and not rate_limiter.allow(command=msg_type):
             # allow() already increments _rejected atomically when
-            # it returns False — the separate .reject() call was removed
+            # it returns False, the separate .reject() call was removed
             # to eliminate the benign race where two threads could both
             # observe the same deque state, both decide to reject, and
             # double-count the rejection. This keeps WS-path rejected_count
@@ -237,12 +237,12 @@ def _make_dispatch(server: IPCServer):
         # TOCTOU re-check: the early ``_shutting_down`` gate
         # above was read BEFORE the rate-limiter call. The flag can
         # flip in the gap between that read and the actual
-        # ``pool.submit`` — e.g. ``ShutdownController.quit()`` runs
+        # ``pool.submit``: e.g. ``ShutdownController.quit()`` runs
         # concurrently between the early gate and here, OR the
         # rate-limiter itself blocks long enough for the shutdown
         # sequence to start. Re-check immediately before the in-flight
         # count increment (so a TOCTOU-rejected dispatch does NOT
-        # touch the count — net-zero) and short-circuit with the SAME
+        # touch the count, net-zero) and short-circuit with the SAME
         # ``server.shutting_down`` error envelope as the early gate.
         # This shrinks (does NOT eliminate) the TOCTOU window: the
         # flag can still flip DURING the handler's execution, but that
@@ -252,11 +252,11 @@ def _make_dispatch(server: IPCServer):
         # BEFORE the in-flight count increment (rather than
         # immediately before ``loop.run_in_executor``) avoids
         # incrementing then decrementing the count for a rejected
-        # dispatch — the count is only touched for dispatches that
+        # dispatch, the count is only touched for dispatches that
         # actually reach the executor.
         if msg_type != "shutdown" and getattr(server.app, "_shutting_down", False):
             log.debug(
-                "[SIDECAR-WS] TOCTOU re-check rejecting %s — server shutting down",
+                "[SIDECAR-WS] TOCTOU re-check rejecting %s, server shutting down",
                 msg_type,
             )
             return {
@@ -274,7 +274,7 @@ def _make_dispatch(server: IPCServer):
         # ``_ws_inflight_lock`` so two concurrent dispatches cannot
         # interleave as ``inc → inc → clear → clear`` (both would clear
         # the Event, then the first exit would set it prematurely while
-        # the second dispatch is still running — a TOCTOU on the count).
+        # the second dispatch is still running, a TOCTOU on the count).
         # The lock is held for the minimum work needed (increment +
         # Event.clear); the dispatch body itself runs without the lock.
         with ws_inflight_lock:
@@ -288,30 +288,30 @@ def _make_dispatch(server: IPCServer):
         # below has a defined value to return even when
         # ``loop.run_in_executor`` raises (in which case
         # ``return_error`` is set to a non-None dict and we return
-        # early at ``if return_error is not None:`` — but pyrefly
+        # early at ``if return_error is not None:``, but pyrefly
         # cannot track that early-return control flow).
         result: dict | None = None
         try:
             # Pre-executor TOCTOU re-check: the early ``_shutting_down``
             # gate above and the in-flight-count re-check both run BEFORE
             # the count increment. The flag can flip in the window
-            # between that re-check and this point — e.g. during the
+            # between that re-check and this point: e.g. during the
             # count increment + ``ws_drained_event.clear()`` under
             # ``ws_inflight_lock``, the ``asyncio.get_running_loop()``
             # call, or the ``try`` entry. Re-checking immediately before
             # ``loop.run_in_executor`` shrinks the TOCTOU window to just
             # the ``run_in_executor`` await itself (the residual race
             # during the handler's execution is owned by the handler's
-            # own shutdown-awareness — e.g. ``download_model`` checks
+            # own shutdown-awareness: e.g. ``download_model`` checks
             # ``_shutting_down`` between chunks). On rejection, the
             # ``finally`` block below decrements the in-flight count
-            # (net-zero — the count was incremented above) and re-sets
+            # (net-zero, the count was incremented above) and re-sets
             # the drain Event when the count drops to zero, so
             # ``_do_cleanup`` is not blocked on a dispatch that never
             # reached the executor.
             if msg_type != "shutdown" and getattr(server.app, "_shutting_down", False):
                 log.debug(
-                    "[SIDECAR-WS] pre-executor TOCTOU re-check rejecting %s — server shutting down",
+                    "[SIDECAR-WS] pre-executor TOCTOU re-check rejecting %s, server shutting down",
                     msg_type,
                 )
                 return {
@@ -331,7 +331,7 @@ def _make_dispatch(server: IPCServer):
             log.exception("[SIDECAR-WS] _dispatch raised")
             #  (2026-07-18): the error envelope now matches the
             # TCP path (``ipc_server._handle_tcp_connection``'s
-            #  block) verbatim — same ``code`` AND same
+            #  block) verbatim, same ``code`` AND same
             # ``message`` ("internal error"). Pre- the WS path
             # used the message "dispatch raised" while TCP used
             # "internal error"; both messages were generic (neither
@@ -360,7 +360,7 @@ def _make_dispatch(server: IPCServer):
             # guarantees the Event is set even if ``run_in_executor``
             # raised (the in-flight count MUST be consistent with the
             # actual dispatch state, otherwise ``_do_cleanup`` would
-            # wait on an Event that never fires — a deadlock).
+            # wait on an Event that never fires, a deadlock).
             with ws_inflight_lock:
                 server._ws_inflight_count = server._ws_inflight_count - 1
                 if server._ws_inflight_count <= 0:

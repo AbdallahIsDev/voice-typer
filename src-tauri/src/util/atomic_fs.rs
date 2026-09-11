@@ -2,7 +2,7 @@
 //!
 //! Split out of the former catch-all `util.rs` so the generic
 //! durable-fs primitives (temp file + fsync + same-filesystem rename)
-//! live in one focused module — they are consumed almost entirely by
+//! live in one focused module, they are consumed almost entirely by
 //! `migrate/*`, plus `sidecar/supervisor.rs` (restart counter) and
 //! `commands/export.rs`. Re-exported from `crate::util` so every
 //! existing `crate::util::atomic_write_bytes` /
@@ -21,7 +21,7 @@ use std::path::Path;
 /// it for atomic persistence of the restart counter. Previously the
 /// counter used `std::fs::write` (non-atomic: truncate-then-write),
 /// which on a crash mid-write could leave a partially-written
-/// `restart_counter.json` that fails to parse — falling back to 0
+/// `restart_counter.json` that fails to parse, falling back to 0
 /// (the fail-open default in `read_restart_counter`), silently
 /// bypassing the circuit breaker on the next launch.
 ///
@@ -46,11 +46,11 @@ pub(crate) fn atomic_write_bytes(path: &Path, contents: &[u8]) -> Result<(), Str
     // `.NAME.tmp.migrate` meant two concurrent `atomic_write_bytes`
     // calls to the same `path` would: (1) both open the SAME temp
     // file with `File::create` (which truncates), (2) interleave
-    // writes, (3) race the rename — corrupted content + lost writes.
+    // writes, (3) race the rename, corrupted content + lost writes.
     // The PID disambiguates across processes; the 4-byte random
     // suffix disambiguates within a process (multiple threads, or
     // rapid sequential calls). `rand::rng()` is the thread-local RNG
-    // (rand 0.9 API) — same as `generate_token` uses.
+    // (rand 0.9 API): same as `generate_token` uses.
     let tmp_name = match path.file_name().and_then(|n| n.to_str()) {
         Some(n) => {
             let mut rng_bytes = [0u8; 4];
@@ -88,7 +88,7 @@ pub(crate) fn atomic_write_bytes(path: &Path, contents: &[u8]) -> Result<(), Str
     // POSIX so the rename itself is durable. Without this, a crash
     // after the rename returns but before the kernel flushes the
     // directory entry could leave the OLD file (or NO file) at `path`
-    // on next mount — the file data is durable (we fsync'd the temp
+    // on next mount: the file data is durable (we fsync'd the temp
     // file above), but the directory metadata linking the new name to
     // the inode is not. Mirrors the Python side's
     // `_secure_atomic_write` pattern at
@@ -98,7 +98,7 @@ pub(crate) fn atomic_write_bytes(path: &Path, contents: &[u8]) -> Result<(), Str
     // fail the write (matches the Python side's suppress-and-continue
     // pattern). The data is already safely in the new file; the only
     // loss on a crash-before-dir-fsync is the rename itself, which on
-    // next mount would surface as "the old file is still there" — a
+    // next mount would surface as "the old file is still there", a
     // known acceptable degradation that the Python side also accepts.
     #[cfg(unix)]
     {
@@ -118,18 +118,18 @@ pub(crate) fn atomic_write_bytes(path: &Path, contents: &[u8]) -> Result<(), Str
 //the (now-removed) `atomic_write_bytes` impl.  already moved
 // `atomic_write_bytes` here because it's a generic fs-write helper
 // with no coupling to Electron-migration logic; the same reasoning
-// applies to `atomic_copy` / `atomic_copy_file` — they're generic
+// applies to `atomic_copy` / `atomic_copy_file`, they're generic
 // fs-copy helpers. Co-locating all three atomic-fs helpers in
 // `util.rs` lets the `migrate.rs` callers reach them via a single
 // `util::` qualification and drops the bridge
 // `use crate::util::atomic_write_bytes;` import that lived in
 // `migrate.rs` solely to let `atomic_copy` call `atomic_write_bytes`
-// unqualified. Pure refactor — no behavior change.
+// unqualified. Pure refactor: no behavior change.
 
 /// Atomically copy `src` to `dst` by reading src into memory
 /// then writing via `atomic_write_bytes`. Suitable for small-to-
 /// medium files (config.json, history.db, WAL sidecars). For very
-/// large files (model weights) use `atomic_copy_file` instead — it
+/// large files (model weights) use `atomic_copy_file` instead, it
 /// streams via `std::fs::copy` to a sibling temp file then renames,
 /// avoiding the memory doubling that `atomic_copy`'s read-into-memory
 /// would impose on multi-GB model weights.
@@ -158,7 +158,7 @@ pub(crate) fn atomic_copy_file(src: &Path, dst: &Path) -> Result<(), String> {
     let dir = dst
         .parent()
         .ok_or_else(|| format!("dst has no parent: {}", dst.display()))?;
-    // Same uniqueness scheme as `atomic_write_bytes` — PID + 4
+    // Same uniqueness scheme as `atomic_write_bytes`, PID + 4
     // random bytes hex so concurrent invocations on the same dst don't
     // race on the same temp filename. Dotted, exactly like
     // `atomic_write_bytes`'s `.NAME.tmp.*` and the docstring's "dotfile
@@ -176,7 +176,7 @@ pub(crate) fn atomic_copy_file(src: &Path, dst: &Path) -> Result<(), String> {
     let tmp = dir.join(&tmp_name);
 
     // Stream-copy src → tmp via std::fs::copy (kernel-level splice on
-    // Linux, no userspace buffering — efficient for large files).
+    // Linux, no userspace buffering: efficient for large files).
     if let Err(e) = std::fs::copy(src, &tmp) {
         let _ = std::fs::remove_file(&tmp);
         return Err(format!("copy {} → {}: {}", src.display(), tmp.display(), e));
@@ -185,7 +185,7 @@ pub(crate) fn atomic_copy_file(src: &Path, dst: &Path) -> Result<(), String> {
     // fsync the temp file so the data is durable before the rename.
     // Without this, a crash after rename but before the kernel flushes
     // the temp file's data could leave the renamed file with zero
-    // bytes (ext4's auto-no-csum mode) — corrupting the destination.
+    // bytes (ext4's auto-no-csum mode): corrupting the destination.
     {
         // WRITE access is required: Win32 `FlushFileBuffers` (what
         // `File::sync_all` maps to on Windows) fails with
@@ -200,7 +200,7 @@ pub(crate) fn atomic_copy_file(src: &Path, dst: &Path) -> Result<(), String> {
             .write(true)
             .open(&tmp)
             .map_err(|e| format!("open tmp for fsync {}: {}", tmp.display(), e))?;
-        // Best-effort fsync — not all filesystems support it (tmpfs,
+        // Best-effort fsync: not all filesystems support it (tmpfs,
         // network FS), and a failure here doesn't invalidate the copy
         // (the data is still in the page cache and will be flushed
         // eventually). Log and continue.
@@ -208,7 +208,7 @@ pub(crate) fn atomic_copy_file(src: &Path, dst: &Path) -> Result<(), String> {
             // kept the historical `[MIGRATE]` log prefix
             // (this helper was originally in `migrate.rs`) so log
             // aggregators / test fixtures that match on the prefix
-            // keep working — pure refactor, no log-output change.
+            // keep working: pure refactor, no log-output change.
             log::warn!(
                 "[MIGRATE] fsync of tmp {} failed (non-fatal): {}",
                 tmp.display(),
@@ -230,7 +230,7 @@ pub(crate) fn atomic_copy_file(src: &Path, dst: &Path) -> Result<(), String> {
     }
 
     // Fsync the parent directory after the rename on POSIX so the
-    // rename itself is durable — the exact pattern (and best-effort
+    // rename itself is durable: the exact pattern (and best-effort
     // semantics) `atomic_write_bytes` uses above: without this, a
     // crash after the rename returns could leave the OLD file (or NO
     // file) at `dst` on next mount, while the copied data is already
@@ -247,7 +247,7 @@ pub(crate) fn atomic_copy_file(src: &Path, dst: &Path) -> Result<(), String> {
     Ok(())
 }
 
-// Sibling test module — tests live in `atomic_fs_tests.rs` (per
+// Sibling test module: tests live in `atomic_fs_tests.rs` (per
 // C-TEST-5: no inline `#[cfg(test)] mod tests` blocks in production
 // source).
 #[cfg(test)]

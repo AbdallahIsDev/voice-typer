@@ -3,7 +3,7 @@
 corrupt DB file.
 
 The previous implementation logged at WARNING with only the destination
-filename — no event_bus publication, no tray notification. The user
+filename, no event_bus publication, no tray notification. The user
 only discovered the loss when they next opened the History page and saw
 it empty.
 
@@ -123,7 +123,7 @@ class TestCorruptionNotification:
 
     def test_does_not_crash_when_no_app_ref(self, db, monkeypatch):
         """When ``self._app`` is not set (early init), the recovery path
-        must still succeed — only the event_bus publication fires."""
+        must still succeed, only the event_bus publication fires."""
         # Ensure no _app attribute.
         assert not hasattr(db, "_app") or db._app is None
 
@@ -393,7 +393,7 @@ class TestIterdumpDataRecovery:
         fake_conn.execute.return_value.fetchall.return_value = [("integrity check failed",)]
         fake_conn.close = MagicMock()
 
-        # Don't patch _open_write_conn — let it open a real fresh DB
+        # Don't patch _open_write_conn, let it open a real fresh DB
         # after the rename moves the existing db_path aside.
         #
         # Stop db2's writer thread + close its connections BEFORE
@@ -403,7 +403,7 @@ class TestIterdumpDataRecovery:
         # would find no renamed file (recovered_count=0). Recovery
         # re-opens fresh connections from db_path itself (which is
         # only renamed after close releases the lock), so closing
-        # first is safe. ``close()`` is idempotent — the test's
+        # first is safe. ``close()`` is idempotent, the test's
         # ``finally`` still calls it again.
         db2.close()
         try:
@@ -432,7 +432,7 @@ class TestIterdumpDataRecovery:
             assert "second row" in texts, f"expected 'second row' in recovered rows; got: {texts}"
         finally:
             # Close the returned fresh connection (it's not owned by
-            # db2's writer thread — the writer thread still has its
+            # db2's writer thread, the writer thread still has its
             # own connection to the OLD renamed file).
             with contextlib_suppress_sqlite_error():
                 result.close()
@@ -487,7 +487,7 @@ class TestIterdumpDataRecovery:
 
 
 # Helper used by the end-to-end test above (kept at module scope so
-# pytest doesn't try to collect it as a test — its name doesn't start
+# pytest doesn't try to collect it as a test, its name doesn't start
 # with ``test_``).
 def contextlib_suppress_sqlite_error():
     import contextlib

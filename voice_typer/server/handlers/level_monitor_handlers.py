@@ -39,7 +39,7 @@ class LevelMonitorHandlersMixin(HandlerBase):
     def _handle_level_monitor_start(self, data: dict | None, resp: dict) -> dict | None:
         """Handle the ``level_monitor_start`` IPC command.
 
-        Migrated to :meth:`HandlerBase._wrap` — the helper handles the
+        Migrated to :meth:`HandlerBase._wrap`: the helper handles the
         surrounding ``try/except`` → ``_respond_with_error`` catch-all
         and the non-dict ``data`` pre-coercion identically to the
         inline ``if not isinstance(data, dict): data = {}`` guard.
@@ -68,7 +68,7 @@ class LevelMonitorHandlersMixin(HandlerBase):
             except ConsentRequiredError:
                 raise
             except Exception:
-                log.exception("[IPC] level_monitor_start: failed to read voice_biometric_consent — failing open")
+                log.exception("[IPC] level_monitor_start: failed to read voice_biometric_consent, failing open")
 
             # validate ``mic_id`` type via the shared
             # ``_validate_dict_payload`` helper. Non-dict ``data`` is

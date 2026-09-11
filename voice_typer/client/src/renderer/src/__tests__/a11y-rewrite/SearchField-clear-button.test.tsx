@@ -1,5 +1,5 @@
 /**
- *  vitest rewrite — behavioral test for `SearchField.tsx` clear button.
+ *  vitest rewrite, behavioral test for `SearchField.tsx` clear button.
  *
  * Replaces the following string-pattern Python test from
  * `tests/test_ux_components.py`:
@@ -35,7 +35,7 @@ vi.mock("@hugeicons/core-free-icons", async () => {
 
 import { SearchField } from "@/components/common/SearchField";
 
-describe("SearchField clear button — RW-0 rewrite of test_history_has_clear_button", () => {
+describe("SearchField clear button, RW-0 rewrite of test_history_has_clear_button", () => {
 	beforeEach(() => {
 		cleanup();
 	});

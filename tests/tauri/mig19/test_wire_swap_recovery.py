@@ -1,10 +1,10 @@
-"""MIG-1.9 Phase 4 — Wire-swap + recovery validation (ADR-0020 §10).
+"""MIG-1.9 Phase 4: Wire-swap + recovery validation (ADR-0020 §10).
 
 This test file validates the Tauri host's WebSocket disconnect →
 respawn → backoff → recovery logic, which ADR-0020 §10 mandates
 as the crash-recovery path for the Python sidecar under Tauri.
 
-Scope (ADR-0020 §10 — "WebSocket disconnect / error handling + supervisor
+Scope (ADR-0020 §10: "WebSocket disconnect / error handling + supervisor
 + rate limiter"):
 
   1. backoff schedule is ``500ms → 1s → 2s → 4s → 8s`` (5 steps,
@@ -23,7 +23,7 @@ Scope (ADR-0020 §10 — "WebSocket disconnect / error handling + supervisor
      the Rust client (``tokio-tungstenite`` ``WebSocketConfig``) and
      the Python server (``websockets.serve(max_size=...)``).
   8. ADR-0019's rate limiter (``_RateLimiter`` from ``ipc_server.py``)
-     is ported to the WS accept path — every incoming WS frame passes
+     is ported to the WS accept path, every incoming WS frame passes
      through ``rate_limiter.allow()`` before dispatch.
 
 The Linux sandbox CANNOT compile/run the Rust host or the Nuitka-frozen
@@ -33,11 +33,11 @@ the Rust source (``src-tauri/src/sidecar/{supervisor,ws}.rs`` + ``util.rs`` +
 sidecar_ws.py``) and assert the recovery logic is wired correctly.
 End-to-end runtime validation (real WS disconnect → real respawn
 → real backoff sleep → real ``app.restart()``) is documented in the
-VALIDATE ON HOST block below — a human must run those commands on a
+VALIDATE ON HOST block below, a human must run those commands on a
 real desktop host per platform.
 
 =====================================================================
-VALIDATE ON HOST — exact commands a human must run to validate the
+VALIDATE ON HOST, exact commands a human must run to validate the
 wire-swap recovery end-to-end on a real desktop host
 =====================================================================
 
@@ -47,7 +47,7 @@ sandbox cannot execute them. They validate the ADR-0020 §10 crash
 recovery state machine: WS disconnect → backoff → reconnect OR
 full-app relaunch.
 
-Prerequisites (per platform — see tests/tauri/mig18/test_per_triple_freeze.py
+Prerequisites (per platform: see tests/tauri/mig18/test_per_triple_freeze.py
 for the full per-triple build runbook):
   - Rust stable toolchain for the host target triple.
   - The Nuitka-frozen sidecar binary at
@@ -61,7 +61,7 @@ A. backoff schedule (500ms → 1s → 2s → 4s → 8s, cap 5)
 ---------------------------------------------------------------------
     1. cd <repo-root> && cargo tauri dev
        (or: VOICE_TYPER_SIDECAR_DEV=1 cargo tauri dev for the unfrozen
-       Python sidecar — faster iteration, no Nuitka recompile).
+       Python sidecar, faster iteration, no Nuitka recompile).
     2. Wait for the sidecar to start (Rust logs:
        "[SIDECAR] server_started: port=<N>").
     3. Find the sidecar PID: pgrep -fa python-sidecar
@@ -69,19 +69,19 @@ A. backoff schedule (500ms → 1s → 2s → 4s → 8s, cap 5)
     4. Kill the sidecar to simulate a crash:
        kill -9 <pid>          # macOS / Linux
        taskkill /F /PID <pid> # Windows
-    5. Watch the Tauri host logs — you MUST see exactly this sequence:
+    5. Watch the Tauri host logs, you MUST see exactly this sequence:
        [WS-READER] sidecar closed the WS       (or "error: ..." on kill -9)
        [supervisor] respawn attempt 1 after 500ms
        [supervisor] respawn attempt 2 after 1000ms
        [supervisor] respawn attempt 3 after 2000ms
        [supervisor] respawn attempt 4 after 4000ms
        [supervisor] respawn attempt 5 after 8000ms
-       [supervisor] exhausted 5 retries — falling back to full-app relaunch
+       [supervisor] exhausted 5 retries, falling back to full-app relaunch
        (then the app exits + relaunches via the Tauri launcher)
     6. BONUS: kill the sidecar, let it respawn successfully on attempt
-       1, then kill it again — the second crash MUST start fresh at
+       1, then kill it again, the second crash MUST start fresh at
        "attempt 1 after 500ms" (per-call backoff, no persistent
-       counter — see test_gap_no_persistent_crash_counter_across_invocations).
+       counter: see test_gap_no_persistent_crash_counter_across_invocations).
 
 ---------------------------------------------------------------------
 B. respawn serialization (no double-respawn race)
@@ -89,9 +89,9 @@ B. respawn serialization (no double-respawn race)
     1. cargo tauri dev (as above).
     2. Kill the sidecar AND immediately trigger a second disconnect
        signal (e.g. kill the respawned sidecar before the first
-       respawn returns — within ~500ms).
+       respawn returns, within ~500ms).
     3. The host log MUST show exactly one:
-       [supervisor] respawn already in progress — skipping
+       [supervisor] respawn already in progress, skipping
        (the second respawn call bails out via the AtomicBool).
     4. Verify only ONE respawn_inner loop is running at a time
        (no interleaved "attempt N" lines from two parallel loops).
@@ -106,13 +106,13 @@ C. 1 MiB WS frame cap
          async def main():
              async with websockets.connect("ws://127.0.0.1:<N>") as ws:
                  await ws.send(json.dumps({"type":"auth","token":"<token>"}))
-                 # Send a 2 MiB text frame — must be REJECTED.
+                 # Send a 2 MiB text frame, must be REJECTED.
                  big = "x" * (2 * 1024 * 1024)
                  await ws.send(big)
                  print(await ws.recv())  # expect a 1009 close or error
          asyncio.run(main())
     3. Expected: the connection closes with code 1009 (message too big)
-       OR the Rust host's tokio-tungstenite client errors out — either
+       OR the Rust host's tokio-tungstenite client errors out, either
        way, the oversized frame is NOT buffered into memory.
     4. Verify a frame just under 1 MiB (e.g. 1 MiB - 1 byte) is
        accepted (proves the cap is exactly 1 MiB, not lower).
@@ -147,36 +147,36 @@ E. Cooperative shutdown vs. supervisor (regression guard)
        [SHUTDOWN] sending {"type":"shutdown"}
        [SHUTDOWN] sidecar exited cleanly
        and MUST NOT show:
-       [WS-READER] unexpected close — triggering supervisor
+       [WS-READER] unexpected close, triggering supervisor
        (because shutting_down is set BEFORE the WS reader exits,
-       the respawn is correctly suppressed — see
+       the respawn is correctly suppressed: see
        test_ws_reader_skips_respawn_during_shutdown).
 
 References:
-  - ADR-0020 §10     — authoritative spec for WS disconnect / supervisor /
+  - ADR-0020 §10   , authoritative spec for WS disconnect / supervisor /
                        rate limiter / frame cap / heartbeat removal.
-  - ADR-0020 §1      — WS transport + server_started handshake.
-  - ADR-0020 §9      — bubble_level coalesce (30 Hz cap).
-  - ADR-0019         — per-connection rate limiter (200 burst / 60
-                       sustained msg/s) — ported to the WS path here.
-  - src-tauri/src/sidecar/supervisor.rs   — supervisor implementation.
-  - src-tauri/src/sidecar/ws.rs    — WS reader/writer + supervisor trigger.
-  - src-tauri/src/util.rs          — SUPERVISOR_BACKOFF_MS / SUPERVISOR_MAX_RETRIES /
+  - ADR-0020 §1    , WS transport + server_started handshake.
+  - ADR-0020 §9    , bubble_level coalesce (30 Hz cap).
+  - ADR-0019       , per-connection rate limiter (200 burst / 60
+                       sustained msg/s), ported to the WS path here.
+  - src-tauri/src/sidecar/supervisor.rs , supervisor implementation.
+  - src-tauri/src/sidecar/ws.rs  , WS reader/writer + supervisor trigger.
+  - src-tauri/src/util.rs        , SUPERVISOR_BACKOFF_MS / SUPERVISOR_MAX_RETRIES /
                                      MAX_FRAME_BYTES / PRE_RESTART_DELAY_MS.
-  - src-tauri/src/state.rs         — SidecarState (respawn_in_progress
+  - src-tauri/src/state.rs       , SidecarState (respawn_in_progress
                                      AtomicBool, shutting_down AtomicBool).
-  - voice_typer/server/sidecar_ws.py — Python WS server (rate limiter
+  - voice_typer/server/sidecar_ws.py, Python WS server (rate limiter
                                      + max_size frame cap).
 
-Gaps documented (report, do NOT fix — out of scope for MIG-1.9 check-3):
+Gaps documented (report, do NOT fix, out of scope for MIG-1.9 check-3):
   - ADR-0020 §10 says the backoff schedule is "500→1000→2000 ms,
-    cap 5 retries" — but the implemented schedule (``SUPERVISOR_BACKOFF_MS``)
+    cap 5 retries", but the implemented schedule (``SUPERVISOR_BACKOFF_MS``)
     is 500→1000→2000→4000→8000 ms (5 entries, doubling). The ADR text
     is ambiguous (only 3 values shown but cap=5); the implementation's
     5-step doubling matches the *cap* but extends beyond the 3 values
     shown. This is a documentation/ADR wording gap, not a code bug.
   - The supervisor uses a per-call ``attempt`` counter
-    local to ``respawn_inner`` — there is NO persistent crash
+    local to ``respawn_inner``, there is NO persistent crash
     counter across ``respawn`` invocations. A flapping sidecar
     that recovers on attempt 0 every time will NEVER escalate to
     ``app.restart()``, even if it flaps 1000 times in a minute. If
@@ -184,13 +184,13 @@ Gaps documented (report, do NOT fix — out of scope for MIG-1.9 check-3):
     across calls, it is NOT implemented. See
     test_gap_no_persistent_crash_counter_across_invocations.
   - ADR-0020 §10 line 709 says "the existing limiter in
-    ``log_rate_limit.py``" — but the WS path actually reuses
+    ``log_rate_limit.py``", but the WS path actually reuses
     ``_RateLimiter`` from ``ipc_server.py`` (the TCP path's limiter).
     ``log_rate_limit.py`` is a *logging* rate-limiter helper, not the
     IPC rate-limiter. ADR wording bug; the implementation correctly
     reuses the IPC limiter.
   - The Rust WS client (``reconnect_ws``) does NOT enforce a
-    rate limit on outbound frames — only the Python WS server enforces
+    rate limit on outbound frames, only the Python WS server enforces
     the inbound limit. ADR-0020 §10 only mandates the server-side
     limiter, so this is by design, but a buggy Rust bridge could
     still self-DoS the sidecar's outbound queue. Out of scope for v1.
@@ -222,7 +222,7 @@ UTIL_RS = SRC_TAURI_DIR / "util.rs"
 STATE_RS = SRC_TAURI_DIR / "state.rs"
 SIDECAR_WS_PY = PROJECT_ROOT / "voice_typer" / "server" / "sidecar_ws.py"
 IPC_SERVER_PY = PROJECT_ROOT / "voice_typer" / "server" / "ipc_server.py"
-# Phase 4.5 /  — ``ipc_server.py`` is now a thin shim re-exporting
+# Phase 4.5 /: ``ipc_server.py`` is now a thin shim re-exporting
 # symbols from the ``voice_typer/server/ipc/`` package.  Tests that
 # source-inspect the rate-limiter implementation read ``ipc/rate_limiter.py``
 # (where ``_RateLimiter`` / ``_get_rate_limiter`` / the ``_RATE_LIMIT_*``
@@ -257,7 +257,7 @@ def ws_source() -> str:
     parts = [WS_RS.read_text(encoding="utf-8")]
     for name in ("reader.rs", "writer.rs"):
         sibling = WS_RS.parent / "ws" / name
-        assert sibling.is_file(), f"missing: {sibling} — the ws.rs module split was rolled back"
+        assert sibling.is_file(), f"missing: {sibling}, the ws.rs module split was rolled back"
         parts.append(sibling.read_text(encoding="utf-8"))
     return "\n\n".join(parts)
 
@@ -265,7 +265,7 @@ def ws_source() -> str:
 @pytest.fixture(scope="module")
 def ws_event_protocol_source() -> str:
     """Full text of src-tauri/src/sidecar/ws/event_protocol.rs (read once
-    per module). — the
+    per module)., the
     ``translate_event_name`` body + ``ALLOWED_EVENT_TYPES`` slice moved
     here from ``ws.rs``."""
     assert WS_EVENT_PROTOCOL_RS.is_file(), f"missing: {WS_EVENT_PROTOCOL_RS}"
@@ -326,7 +326,7 @@ def ipc_server_source() -> str:
     Phase 4.5 / ARCH-045: ``ipc_server.py`` was split into the
     ``voice_typer/server/ipc/`` package.  The rate-limiter implementation
     (``_RateLimiter``, ``_get_rate_limiter``, ``_RATE_LIMIT_*`` constants)
-    now lives in ``ipc/rate_limiter.py`` — this fixture reads that file so
+    now lives in ``ipc/rate_limiter.py``, this fixture reads that file so
     the rate-limiter source-inspection tests find the symbols they expect.
     """
     assert IPC_RATE_LIMITER_PY.is_file(), f"missing: {IPC_RATE_LIMITER_PY}"
@@ -348,7 +348,7 @@ def adr_0020_source() -> str:
 def test_supervisor_backoff_schedule_is_5_steps_doubling(util_source: str) -> None:
     """ADR-0020 §10: backoff is 500ms→1s→2s→4s→8s (5 doubling steps).
 
-    The schedule must be exactly ``&[500, 1000, 2000, 4000, 8000]`` — a
+    The schedule must be exactly ``&[500, 1000, 2000, 4000, 8000]``, a
     doubling geometric progression with 5 entries. This is the literal
     constant the supervisor iterates over in ``respawn_inner``.
     """
@@ -359,7 +359,7 @@ def test_supervisor_backoff_schedule_is_5_steps_doubling(util_source: str) -> No
         util_source,
     )
     assert match is not None, (
-        "SUPERVISOR_BACKOFF_MS const declaration not found in util.rs — did the constant move or get renamed?"
+        "SUPERVISOR_BACKOFF_MS const declaration not found in util.rs, did the constant move or get renamed?"
     )
     vals = [int(v.strip()) for v in match.group("vals").split(",") if v.strip()]
     assert vals == [500, 1000, 2000, 4000, 8000], (
@@ -368,13 +368,13 @@ def test_supervisor_backoff_schedule_is_5_steps_doubling(util_source: str) -> No
 
 
 def test_supervisor_backoff_schedule_length_matches_max_retries(util_source: str) -> None:
-    """``SUPERVISOR_BACKOFF_MS.len()`` must be 5 — it IS the retry cap.
+    """``SUPERVISOR_BACKOFF_MS.len()`` must be 5, it IS the retry cap.
 
     The ``respawn_inner`` loop iterates over the schedule; the schedule
     length is the number of respawn attempts before the exhaustion
     branch (post-loop ``app.restart()`` fallback) fires. The standalone
     ``SUPERVISOR_MAX_RETRIES`` constant was production-dead (no runtime
-    reader) and has been removed — the cap is the schedule length now.
+    reader) and has been removed, the cap is the schedule length now.
     """
     sched_match = re.search(
         r"SUPERVISOR_BACKOFF_MS\s*:\s*&\[u64\]\s*=\s*&\[(?P<vals>[^\]]+)\]",
@@ -418,7 +418,7 @@ def test_supervisor_respawn_inner_iterates_backoff_schedule(supervisor_source: s
     ``enumerate()`` so the attempt index is available for the cap check.
     """
     assert "for (attempt, delay_ms) in SUPERVISOR_BACKOFF_MS.iter().enumerate()" in supervisor_source, (
-        "respawn_inner must iterate SUPERVISOR_BACKOFF_MS with enumerate() — "
+        "respawn_inner must iterate SUPERVISOR_BACKOFF_MS with enumerate(), "
         "the attempt index is needed for the SUPERVISOR_MAX_RETRIES cap check"
     )
 
@@ -433,7 +433,7 @@ def test_supervisor_max_retries_constant_is_5(util_source: str) -> None:
 
     The cap is the ``SUPERVISOR_BACKOFF_MS`` schedule length (the
     standalone ``SUPERVISOR_MAX_RETRIES`` constant was production-dead
-    and has been removed — same invariant, live symbol).
+    and has been removed, same invariant, live symbol).
     """
     match = re.search(r"SUPERVISOR_BACKOFF_MS\s*:\s*&\[u64\]\s*=\s*&\[(?P<vals>[^\]]+)\]", util_source)
     assert match is not None, "SUPERVISOR_BACKOFF_MS schedule not found in util.rs"
@@ -451,7 +451,7 @@ def test_supervisor_exhaustion_branch_calls_app_restart(supervisor_source: str) 
     The exhaustion path is the **post-loop** ``app.restart()`` at the
     bottom of ``respawn_inner`` (the in-loop
     ``attempt as u32 >= SUPERVISOR_MAX_RETRIES`` guard was intentionally
-    removed as dead code — ``SUPERVISOR_BACKOFF_MS.len() == SUPERVISOR_MAX_RETRIES ==
+    removed as dead code: ``SUPERVISOR_BACKOFF_MS.len() == SUPERVISOR_MAX_RETRIES ==
     5``, so ``attempt`` ranges ``0..=4`` and that condition was always
     false; see the NF-R19-2 comment in supervisor.rs). The post-loop path emits
     ``supervisor_relaunching`` (reason="backoff_exhausted") and then calls
@@ -459,16 +459,16 @@ def test_supervisor_exhaustion_branch_calls_app_restart(supervisor_source: str) 
     """
     # The exhaustion branch must exist + call app.restart().
     assert "backoff schedule exhausted" in supervisor_source, (
-        "supervisor post-loop exhaustion branch (``backoff schedule exhausted``) not found — "
+        "supervisor post-loop exhaustion branch (``backoff schedule exhausted``) not found, "
         "the exhaustion path is missing"
     )
     assert "app.restart()" in supervisor_source, (
-        "app.restart() call not found in supervisor.rs — full-app relaunch fallback is missing"
+        "app.restart() call not found in supervisor.rs, full-app relaunch fallback is missing"
     )
     # The exhaustion branch must emit a Tauri event BEFORE restart so
     # the UI can render a "restarting…" banner.
     assert '"supervisor_relaunching"' in supervisor_source, (
-        "supervisor_relaunching event not emitted in supervisor.rs — the UI cannot show a "
+        "supervisor_relaunching event not emitted in supervisor.rs, the UI cannot show a "
         "restarting banner before app.restart()"
     )
 
@@ -480,7 +480,7 @@ def test_supervisor_exhaustion_branch_has_pre_restart_delay(supervisor_source: s
     The delay is ``PRE_RESTART_DELAY_MS`` (=500ms per util.rs).
     """
     assert "PRE_RESTART_DELAY_MS" in supervisor_source, (
-        "PRE_RESTART_DELAY_MS not referenced in supervisor.rs — the pre-restart "
+        "PRE_RESTART_DELAY_MS not referenced in supervisor.rs, the pre-restart "
         "delay (so the UI can render the restarting banner) is missing"
     )
     match = re.search(
@@ -492,7 +492,7 @@ def test_supervisor_exhaustion_branch_has_pre_restart_delay(supervisor_source: s
 
 
 def test_supervisor_loop_exit_falls_back_to_app_restart(supervisor_source: str) -> None:
-    """If the backoff loop exits without returning (defensive — should
+    """If the backoff loop exits without returning (defensive, should
     not happen since the exhaustion branch fires first), the post-loop
     fallback MUST also call ``app.restart()``.
 
@@ -508,7 +508,7 @@ def test_supervisor_loop_exit_falls_back_to_app_restart(supervisor_source: str) 
         f"branch + post-loop fallback), found {restart_count}"
     )
     assert "backoff schedule exhausted" in supervisor_source, (
-        "post-loop exhaustion log message not found — the defensive "
+        "post-loop exhaustion log message not found, the defensive "
         "fallback for SUPERVISOR_BACKOFF_MS.len() < SUPERVISOR_MAX_RETRIES is missing"
     )
 
@@ -519,9 +519,9 @@ def test_supervisor_respawn_inner_respects_shutting_down_flag(supervisor_source:
     slow backoff could respawn the sidecar DURING app shutdown)."""
     assert "state.shutting_down.load" in supervisor_source, (
         "supervisor must check state.shutting_down inside the backoff "
-        "loop — a respawn during shutdown would race with app.quit()"
+        "loop, a respawn during shutdown would race with app.quit()"
     )
-    assert "shutting down — skipping respawn" in supervisor_source, (
+    assert "shutting down, skipping respawn" in supervisor_source, (
         "supervisor must log + return Ok(()) when shutting_down is set"
     )
 
@@ -533,7 +533,7 @@ def test_supervisor_respawn_inner_respects_shutting_down_flag(supervisor_source:
 
 def test_ws_reader_loop_breaks_on_eof_none(ws_source: str) -> None:
     """The WS reader loop must exit when ``read.next()`` returns ``None``
-    (the stream returned EOF — sidecar closed the socket without sending
+    (the stream returned EOF, sidecar closed the socket without sending
     a Close frame). ``while let Some(msg) = read.next().await`` exits
     naturally on None.
     """
@@ -546,7 +546,7 @@ def test_ws_reader_loop_breaks_on_eof_none(ws_source: str) -> None:
 def test_ws_reader_loop_breaks_on_close_frame(ws_source: str) -> None:
     """A ``Message::Close`` frame from the sidecar must break the loop."""
     assert "Ok(Message::Close(_))" in ws_source, (
-        "WS reader must match Ok(Message::Close(_)) — a clean WS close from the sidecar must break the reader loop"
+        "WS reader must match Ok(Message::Close(_)), a clean WS close from the sidecar must break the reader loop"
     )
     # The Close arm must `break` (not continue).
     close_arm = re.search(
@@ -566,7 +566,7 @@ def test_ws_reader_loop_breaks_on_stream_error(ws_source: str) -> None:
     ``"{}"`` contains a literal ``}`` which would break a naive
     ``[^}]*`` block matcher.
     """
-    assert "Err(e)" in ws_source, "WS reader must match Err(e) — a stream error must be handled"
+    assert "Err(e)" in ws_source, "WS reader must match Err(e), a stream error must be handled"
     assert "[WS-READER] error:" in ws_source, "WS reader Err arm must log '[WS-READER] error: <e>'"
     # The Err arm must `break;` (not continue). We verify the substring
     # exists; the structural proof that it's in the Err arm comes from
@@ -591,22 +591,22 @@ def test_ws_reader_triggers_respawn_after_loop_exit(ws_source: str, ws_respawn_s
     """After the reader loop exits (EOF/Close/Err), the reader task MUST
     call ``respawn`` to start the backoff supervisor."""
     assert "respawn(" in ws_source, (
-        "WS reader must call respawn() after the reader loop exits — the disconnect → supervisor trigger is missing"
+        "WS reader must call respawn() after the reader loop exits, the disconnect → supervisor trigger is missing"
     )
     # the std::thread spawn bridge moved out of
-    # ws.rs into ws/respawn_scheduler.rs — the reader's post-loop
+    # ws.rs into ws/respawn_scheduler.rs, the reader's post-loop
     # cleanup calls ``cleanup_and_trigger_respawn`` (ws.rs) which hands
     # the supervisor future to ``trigger_respawn_off_thread``
     # (respawn_scheduler.rs). The spawn MUST be a std::thread + block_on
     # bridge (the WS stream half is !Send so a tokio::spawn would fail
-    # the Send requirement) — verify that bridge lives in
+    # the Send requirement), verify that bridge lives in
     # respawn_scheduler.rs.
     assert (
         "std::thread::Builder" in ws_respawn_scheduler_source or "std::thread::spawn" in ws_respawn_scheduler_source
     ), (
         "respawn_scheduler.rs must spawn the supervisor on a std::thread "
         "(the WS stream half is !Send so a tokio::spawn would fail the Send "
-        "requirement) — the spawn bridge moved out of ws.rs (ARCH-045)"
+        "requirement), the spawn bridge moved out of ws.rs (ARCH-045)"
     )
     assert "tauri::async_runtime::block_on" in ws_respawn_scheduler_source, (
         "respawn_scheduler.rs must use tauri::async_runtime::block_on to "
@@ -620,7 +620,7 @@ def test_ws_reader_triggers_respawn_after_loop_exit(ws_source: str, ws_respawn_s
 
 
 def test_ws_reader_skips_respawn_during_shutdown(ws_source: str) -> None:
-    """The supervisor trigger must be gated on ``!shutting_down`` — otherwise
+    """The supervisor trigger must be gated on ``!shutting_down``, otherwise
     a normal app quit (which closes the WS) would spuriously respawn
     the sidecar DURING shutdown.
 
@@ -638,14 +638,14 @@ def test_ws_reader_skips_respawn_during_shutdown(ws_source: str) -> None:
         r"state_for_(?:reader|cleanup)\.shutting_down\.load\s*\(",
         ws_source,
     ), (
-        "WS reader must check shutting_down before triggering supervisor — "
+        "WS reader must check shutting_down before triggering supervisor, "
         "a clean app quit would otherwise cause a spurious respawn"
     )
     # The supervisor trigger must be inside a `if !shutting_down` guard.
     assert re.search(
         r"if\s*!\s*state_for_(?:reader|cleanup)\.shutting_down\.load",
         ws_source,
-    ), "supervisor trigger must be inside `if !shutting_down` — the spawn must be suppressed during shutdown"
+    ), "supervisor trigger must be inside `if !shutting_down`, the spawn must be suppressed during shutdown"
 
 
 def test_ws_reader_emits_relaunching_with_reason_disconnected(ws_source: str) -> None:
@@ -670,7 +670,7 @@ def test_ws_reader_drains_pending_dispatch_on_disconnect(ws_source: str) -> None
     )
     assert "drained" in ws_source, "WS reader must log how many pending dispatch requests were drained"
     assert "pending.drain()" in ws_source or ".drain()" in ws_source, (
-        "WS reader must drain the pending map (not iterate + remove) — drain() is O(n) and atomic vs. per-key remove"
+        "WS reader must drain the pending map (not iterate + remove), drain() is O(n) and atomic vs. per-key remove"
     )
 
 
@@ -679,7 +679,7 @@ def test_ws_reader_clears_ws_tx_on_disconnect(ws_source: str) -> None:
     ``None`` so new dispatch calls fail fast with "sidecar not
     connected" instead of queueing onto a dead channel."""
     assert "*ws_tx_guard = None" in ws_source, (
-        "WS reader must clear ws_tx to None on disconnect — new dispatch "
+        "WS reader must clear ws_tx to None on disconnect, new dispatch "
         "calls must fail fast, not queue onto a dead channel"
     )
 
@@ -694,22 +694,22 @@ def test_respawn_in_progress_is_atomic_bool(state_source: str) -> None:
     (not a ``Mutex<bool>`` or plain ``bool``) so the compare_exchange
     is lock-free + atomic across threads."""
     assert "respawn_in_progress: AtomicBool" in state_source, (
-        "SidecarState.respawn_in_progress must be AtomicBool — a Mutex<bool> "
+        "SidecarState.respawn_in_progress must be AtomicBool, a Mutex<bool> "
         "would deadlock if respawn panics while holding the lock"
     )
 
 
 def test_supervisor_uses_compare_exchange_to_acquire_flag(supervisor_source: str) -> None:
     """The supervisor must use ``compare_exchange(false, true)``
-    to acquire the respawn flag — this is the only lock-free way to
+    to acquire the respawn flag, this is the only lock-free way to
     guarantee exactly one supervisor runs at a time."""
     assert "compare_exchange(false, true" in supervisor_source, (
         "supervisor must acquire respawn_in_progress with "
-        "compare_exchange(false, true, ...) — test_and_set is not "
+        "compare_exchange(false, true, ...), test_and_set is not "
         "available on Rust's AtomicBool"
     )
     assert "Ordering::SeqCst" in supervisor_source, (
-        "supervisor compare_exchange must use SeqCst ordering — the respawn "
+        "supervisor compare_exchange must use SeqCst ordering, the respawn "
         "flag is synchronized with shutting_down (also SeqCst) and the "
         "child/token/ws_tx Mutexes; weaker orderings could reorder the "
         "flag store relative to the Mutex unlocks"
@@ -727,9 +727,9 @@ def test_supervisor_skips_when_respawn_already_in_progress(supervisor_source: st
     literal braces that break a naive ``[^}]*`` matcher.
     """
     assert "respawn already in progress" in supervisor_source, (
-        "supervisor must log 'respawn already in progress — skipping' when compare_exchange fails"
+        "supervisor must log 'respawn already in progress, skipping' when compare_exchange fails"
     )
-    # The skip block must `return Ok(())` (not Err — bailing out is not
+    # The skip block must `return Ok(())` (not Err, bailing out is not
     # an error). The compare_exchange's `.is_err()` branch is the skip
     # path; verify both substrings exist (their co-location in the same
     # branch is verified by reading supervisor.rs lines 22-29).
@@ -738,14 +738,14 @@ def test_supervisor_skips_when_respawn_already_in_progress(supervisor_source: st
         "supervisor must check `.is_err()` on the compare_exchange result to detect the 'already in progress' case"
     )
     assert "return Ok(());" in supervisor_source, (
-        "supervisor must `return Ok(())` when compare_exchange fails — "
+        "supervisor must `return Ok(())` when compare_exchange fails, "
         "the in-flight supervisor owns the recovery (bail-out is not an error)"
     )
 
 
 def test_supervisor_clears_flag_on_all_exit_paths(supervisor_source: str) -> None:
     """The ``respawn_in_progress`` flag MUST be cleared on EVERY exit
-    path (Ok, Err) — otherwise a single respawn would permanently
+    path (Ok, Err), otherwise a single respawn would permanently
     disable future recovery.
 
     The implementation scopes the inner body in a closure/let binding
@@ -762,13 +762,13 @@ def test_supervisor_clears_flag_on_all_exit_paths(supervisor_source: str) -> Non
     # The clear must use SeqCst (matches the acquire ordering).
     assert "respawn_in_progress.store(false, Ordering::SeqCst)" in supervisor_source, (
         "supervisor must clear respawn_in_progress with "
-        "store(false, SeqCst) — matching the compare_exchange acquire "
+        "store(false, SeqCst), matching the compare_exchange acquire "
         "ordering, and on every exit path"
     )
     # The clear must come AFTER respawn_inner resolves (so the
     # inner body's MutexGuards are dropped first, maintaining the
     # "drop guards before await" Send-safety pattern). The local
-    # binding is now ``inner_result`` ( — wraps the call in
+    # binding is now ``inner_result`` (, wraps the call in
     # AssertUnwindSafe so a panic in respawn_inner clears the flag
     # in the catch_unwind Err arm).
     assert re.search(
@@ -777,7 +777,7 @@ def test_supervisor_clears_flag_on_all_exit_paths(supervisor_source: str) -> Non
     ), (
         "supervisor must bind respawn_inner's result (wrapped in "
         "AssertUnwindSafe(...).catch_unwind()) to a local before clearing "
-        "the flag — this guarantees the clear runs AFTER the inner body "
+        "the flag, this guarantees the clear runs AFTER the inner body "
         "resolves (Ok or Err) AND on panic (GT-9)."
     )
 
@@ -806,29 +806,29 @@ def test_supervisor_respawn_in_progress_comment_documents_race(state_source: str
 def test_supervisor_attempt_counter_is_local_to_invocation(supervisor_source: str) -> None:
     """The supervisor attempt counter must be a LOCAL ``attempt`` variable
     in the ``for (attempt, delay_ms) in SUPERVISOR_BACKOFF_MS.iter().enumerate()``
-    loop — NOT a persistent field on ``SidecarState``.
+    loop, NOT a persistent field on ``SidecarState``.
 
     This means each ``respawn`` call starts fresh at attempt 0, so
     a successful reconnection (which returns Ok(()) immediately) leaves
-    no residual state — the NEXT disconnect starts a fresh backoff
+    no residual state, the NEXT disconnect starts a fresh backoff
     schedule at 500ms. This is the implicit "crash counter reset on
     successful reconnection" behavior.
     """
     # The attempt variable must come from enumerate() (local), not from
     # a state field like state.crash_count.fetch_add(1).
     assert "for (attempt, delay_ms) in SUPERVISOR_BACKOFF_MS.iter().enumerate()" in supervisor_source, (
-        "supervisor attempt counter must be the `attempt` from enumerate() — a "
+        "supervisor attempt counter must be the `attempt` from enumerate(), a "
         "local loop variable, not a persistent SidecarState field"
     )
     # There must NOT be a persistent crash counter field on SidecarState.
     assert "crash_count" not in supervisor_source, (
-        "supervisor must not use a persistent crash_count — the attempt counter is per-call (local to respawn_inner)"
+        "supervisor must not use a persistent crash_count, the attempt counter is per-call (local to respawn_inner)"
     )
 
 
 def test_supervisor_returns_on_successful_reconnect(supervisor_source: str) -> None:
     """On a successful spawn + reconnect, the supervisor MUST return
-    ``Ok(())`` immediately — this is the "reset" point. The next
+    ``Ok(())`` immediately, this is the "reset" point. The next
     disconnect will start a fresh backoff schedule at attempt 0.
 
     We use substring checks (not a regex block match) because the
@@ -845,7 +845,7 @@ def test_supervisor_returns_on_successful_reconnect(supervisor_source: str) -> N
         "supervisor must emit 'supervisor_reconnected' on successful respawn"
     )
     assert "return Ok(());" in supervisor_source, (
-        "supervisor must `return Ok(())` on successful reconnect_ws — "
+        "supervisor must `return Ok(())` on successful reconnect_ws, "
         "this is the crash-counter reset point (next disconnect starts fresh)"
     )
     # The success branch must be inside the reconnect_ws Ok arm.
@@ -866,7 +866,7 @@ def test_supervisor_rotates_token_on_each_respawn_attempt(supervisor_source: str
     ``generate_token()``) so a compromised old token is invalidated
     when the sidecar restarts. ADR-0020 §3."""
     assert "generate_token()" in supervisor_source, (
-        "supervisor must call generate_token() on each respawn attempt — the token rotates per respawn (ADR-0020 §3)"
+        "supervisor must call generate_token() on each respawn attempt, the token rotates per respawn (ADR-0020 §3)"
     )
     assert "new_token" in supervisor_source, "supervisor must use a `new_token` local for the rotated token"
 
@@ -880,13 +880,13 @@ def test_supervisor_no_persistent_crash_counter_field_on_state(state_source: str
     This is by design (per ADR-0020 §10's state machine: each
     disconnect triggers a fresh backoff sequence), but it means a
     flapping sidecar that recovers on attempt 0 every time will never
-    escalate to ``app.restart()`` — see
+    escalate to ``app.restart()``: see
     test_gap_no_persistent_crash_counter_across_invocations.
     """
     # List of forbidden persistent-counter field names.
     for forbidden in ("crash_count", "respawn_count", "supervisor_attempt", "restart_count"):
         assert forbidden not in state_source, (
-            f"SidecarState must NOT have a persistent {forbidden} field — "
+            f"SidecarState must NOT have a persistent {forbidden} field, "
             f"the supervisor attempt counter is per-call (local to respawn_inner)"
         )
 
@@ -898,7 +898,7 @@ def test_gap_no_persistent_crash_counter_across_invocations(supervisor_source: s
     ADR-0020 §10's state machine says "running → (unexpected exit) →
     reconnecting → respawn with backoff (cap 5 retries) → running | give
     up → full-app relaunch". The implementation's "cap 5 retries"
-    applies PER-CALL — a sidecar that flaps 1000 times in a minute but
+    applies PER-CALL, a sidecar that flaps 1000 times in a minute but
     recovers on attempt 0 every time will trigger 1000 respawn
     calls, each running 1 attempt (500ms backoff), never escalating
     to app.restart().
@@ -915,7 +915,7 @@ def test_gap_no_persistent_crash_counter_across_invocations(supervisor_source: s
     assert "flap_count" not in state_source
     # The per-call exhaustion path lives in the post-loop branch (the
     # in-loop ``attempt as u32 >= SUPERVISOR_MAX_RETRIES`` guard was removed as
-    # dead code — see  in supervisor.rs). Assert the dead guard is GONE
+    # dead code: see  in supervisor.rs). Assert the dead guard is GONE
     # so a future edit that reintroduces it (which would never fire,
     # since SUPERVISOR_BACKOFF_MS.len() == SUPERVISOR_MAX_RETRIES == 5) is caught.
     assert "attempt as u32 >= SUPERVISOR_MAX_RETRIES" not in supervisor_source, (
@@ -925,7 +925,7 @@ def test_gap_no_persistent_crash_counter_across_invocations(supervisor_source: s
         "path is the post-loop `backoff schedule exhausted` branch that "
         "calls app.restart(). Reintroducing the dead guard is misleading."
     )
-    # Document the gap explicitly — if this test fails in the future,
+    # Document the gap explicitly, if this test fails in the future,
     # it means a sustained-flap detector was added (good! update the
     # gap docstring at the top of this file).
 
@@ -969,17 +969,17 @@ def test_rust_ws_client_enforces_max_message_and_frame_size(ws_source: str) -> N
     form (was struct-expression form).
     """
     # max_message_size MUST be set to Some(MAX_FRAME_BYTES) via
-    # assignment (tungstenite 0.27 non_exhaustive config — see ws.rs
+    # assignment (tungstenite 0.27 non_exhaustive config: see ws.rs
     # comment).
     assert re.search(
         r"\.max_message_size\s*=\s*Some\s*\(\s*MAX_FRAME_BYTES\s*\)",
         ws_source,
-    ), "Rust WS client must set max_message_size = Some(MAX_FRAME_BYTES) — guards against fragmented-message bypass"
+    ), "Rust WS client must set max_message_size = Some(MAX_FRAME_BYTES), guards against fragmented-message bypass"
     assert re.search(
         r"\.max_frame_size\s*=\s*Some\s*\(\s*MAX_FRAME_BYTES\s*\)",
         ws_source,
     ), (
-        "Rust WS client must set max_frame_size = Some(MAX_FRAME_BYTES) — "
+        "Rust WS client must set max_frame_size = Some(MAX_FRAME_BYTES), "
         "rejects single frames > 1 MiB at the transport layer"
     )
     # The config must be passed to connect_async_with_config (not the
@@ -997,7 +997,7 @@ def test_python_ws_server_enforces_max_size(sidecar_ws_source: str) -> None:
     code 1009) before they reach the dispatch loop."""
     assert "max_size=_MAX_FRAME_BYTES" in sidecar_ws_source, (
         "Python WS server must pass max_size=_MAX_FRAME_BYTES to "
-        "websockets.serve() — the library rejects frames > 1 MiB with "
+        "websockets.serve(), the library rejects frames > 1 MiB with "
         "close code 1009 at the transport layer"
     )
     assert "serve(" in sidecar_ws_source, "Python WS server must call websockets.serve() (the async server)"
@@ -1017,7 +1017,7 @@ def test_python_sidecar_max_frame_bytes_constant_is_1_mib(sidecar_ws_source: str
 
 def test_python_sidecar_outbound_frame_cap(sidecar_ws_source: str) -> None:
     """The Python WS server must ALSO cap OUTBOUND frames (events
-    published by the sidecar to the host) at 1 MiB — a huge
+    published by the sidecar to the host) at 1 MiB, a huge
     ``download_progress`` or ``vocabulary_suggestion`` payload must
     be dropped, not sent (which would close the connection)."""
     assert "_MAX_FRAME_BYTES" in sidecar_ws_source
@@ -1039,7 +1039,7 @@ def test_sidecar_ws_imports_rate_limiter(sidecar_ws_source: str) -> None:
     from ``ipc_server.py`` (the same limiter the TCP path uses) so
     burst/sustained semantics are identical across transports."""
     assert "_get_rate_limiter" in sidecar_ws_source, (
-        "sidecar_ws.py must import _get_rate_limiter from ipc_server.py — "
+        "sidecar_ws.py must import _get_rate_limiter from ipc_server.py, "
         "the WS path reuses the TCP path's _RateLimiter (ADR-0019 port)"
     )
     assert "from voice_typer.server.ipc_server import _get_rate_limiter" in sidecar_ws_source, (
@@ -1056,14 +1056,14 @@ def test_sidecar_ws_calls_rate_limiter_allow_per_frame(sidecar_ws_source: str) -
         "sidecar_ws.py must look up the shared rate limiter via _get_rate_limiter(server) on every frame"
     )
     assert "rate_limiter.allow()" in sidecar_ws_source, (
-        "sidecar_ws.py must call rate_limiter.allow() per frame — the WS accept path rate-limiter is the ADR-0019 port"
+        "sidecar_ws.py must call rate_limiter.allow() per frame, the WS accept path rate-limiter is the ADR-0019 port"
     )
     # SEC-6 / DOWNGRADE #2 fix: allow() now increments _rejected atomically
     # when it returns False. The separate .reject() call was removed from
     # the WS path to keep rejected_count consistent with the TCP path
     # (both count via allow()). Assert the no-op .reject() is NOT called.
     assert "rate_limiter.reject()" not in sidecar_ws_source, (
-        "sidecar_ws.py must NOT call rate_limiter.reject() — SEC-6 moved "
+        "sidecar_ws.py must NOT call rate_limiter.reject(), SEC-6 moved "
         "the counter increment into allow() atomically. The .reject() call "
         "was removed (DOWNGRADE #2 fix) to keep WS-path rejected_count "
         "consistent with the TCP path."
@@ -1089,7 +1089,7 @@ def test_sidecar_ws_returns_rate_limited_error(sidecar_ws_source: str) -> None:
     # Look at the next 400 chars after the rate_limited string.
     block = sidecar_ws_source[rl_idx : rl_idx + 400]
     assert "websocket.close" not in block, (
-        "rate_limited branch must NOT close the WS connection — the "
+        "rate_limited branch must NOT close the WS connection, the "
         "connection stays open and the client can retry after backing off"
     )
 
@@ -1104,13 +1104,13 @@ def test_rate_limiter_is_per_process(ipc_server_source: str) -> None:
     shares the 10s sliding window across all connections.
     """
     assert "_get_rate_limiter" in ipc_server_source, (
-        "ipc_server.py must define _get_rate_limiter() — the per-process limiter lookup helper (CR-11)"
+        "ipc_server.py must define _get_rate_limiter(), the per-process limiter lookup helper (CR-11)"
     )
     # The helper must store the limiter on the server instance (not
     # module-level) so each IPCServer gets its own.
     assert "server._rate_limiter_instance" in ipc_server_source, (
         "_get_rate_limiter must store the limiter on the server instance "
-        "(server._rate_limiter_instance) — per-process, not module-level"
+        "(server._rate_limiter_instance), per-process, not module-level"
     )
 
 
@@ -1136,7 +1136,7 @@ def test_rate_limiter_burst_is_200_sustained_600(ipc_server_source: str) -> None
 def test_adr_0020_section_10_documents_backoff(adr_0020_source: str) -> None:
     """ADR-0020 §10 must document the backoff schedule + cap 5."""
     assert "### 10. WebSocket disconnect / error handling + supervisor + rate limiter" in adr_0020_source, (
-        "ADR-0020 §10 heading not found — the section was renamed or removed"
+        "ADR-0020 §10 heading not found, the section was renamed or removed"
     )
     # The supervisor state machine + backoff must be documented.
     assert "500" in adr_0020_source and "1000" in adr_0020_source and "2000" in adr_0020_source, (
@@ -1176,7 +1176,7 @@ def test_supervisor_respawn_inner_calls_reconnect_ws(supervisor_source: str) -> 
     reconnect is the only path to ``return Ok(())``."""
     assert "reconnect_ws(app, state, port, &new_token)" in supervisor_source, (
         "supervisor must call reconnect_ws(app, state, port, &new_token) "
-        "after each spawn — re-auth with the rotated token is mandatory"
+        "after each spawn, re-auth with the rotated token is mandatory"
     )
 
 
@@ -1195,7 +1195,7 @@ def test_supervisor_respawn_inner_handles_spawn_failure(supervisor_source: str) 
     # spawn-error arm is verified by reading supervisor.rs lines 104-108.
     assert "continue;" in supervisor_source, (
         "supervisor must `continue` to the next backoff attempt on "
-        "spawn failure (not bail out — a transient spawn error is recoverable)"
+        "spawn failure (not bail out, a transient spawn error is recoverable)"
     )
 
 
@@ -1239,14 +1239,14 @@ def test_supervisor_respawn_inner_swaps_child_handle_under_lock(supervisor_sourc
     # `mutex_lock(&...)` helper ().
     assert "state.child.lock().unwrap()" in supervisor_source or "mutex_lock(&state.child)" in supervisor_source, (
         "supervisor must store the new child handle under state.child's "
-        "Mutex (legacy .lock().unwrap() or new mutex_lock helper) — kill_children "
+        "Mutex (legacy .lock().unwrap() or new mutex_lock helper), kill_children "
         "needs the latest PID"
     )
-    # The token swap must acquire state.token under a Mutex — same
+    # The token swap must acquire state.token under a Mutex, same
     # dual-form acceptance as above.
     assert "state.token.lock().unwrap()" in supervisor_source or "mutex_lock(&state.token)" in supervisor_source, (
         "supervisor must store the new token under state.token's Mutex "
-        "(legacy .lock().unwrap() or new mutex_lock helper) — dispatch() reads "
+        "(legacy .lock().unwrap() or new mutex_lock helper), dispatch() reads "
         "the token to construct the auth frame"
     )
     assert "state.child_exit_rx.lock().await" in supervisor_source, (
@@ -1262,7 +1262,7 @@ def test_ws_reader_emits_python_event_alias_for_backward_compat(ws_source: str) 
     ipcRenderer.on('python-event'))."""
     assert '"python-event"' in ws_source, (
         "WS reader must emit 'python-event' as the generic catch-all event "
-        "(ADR-0020 §6.3 — mirrors Electron's ipcRenderer.on('python-event'))"
+        "(ADR-0020 §6.3, mirrors Electron's ipcRenderer.on('python-event'))"
     )
 
 
@@ -1291,7 +1291,7 @@ def test_ws_reader_does_not_rename_relaunch_app(ws_source: str, ws_event_protoco
     )
     assert not rename_re.search(ws_source), (
         "ws.rs MUST NOT have a `relaunch_electron` => `relaunch_app` "
-        "rename arm — the Python sidecar now publishes `relaunch_app` "
+        "rename arm, the Python sidecar now publishes `relaunch_app` "
         "directly (PVT-2 cleanup). Re-introducing the rename would "
         "recreate the pre-PVT-2 silent-restart bug."
     )
@@ -1299,12 +1299,12 @@ def test_ws_reader_does_not_rename_relaunch_app(ws_source: str, ws_event_protoco
     # match arm pattern in ws.rs (only in comments is OK).
     assert '"relaunch_electron" =>' not in ws_source, (
         "ws.rs MUST NOT match the legacy `relaunch_electron` event name "
-        "in a per-type branch (PVT-2 cleanup — the rename arm is gone)."
+        "in a per-type branch (PVT-2 cleanup, the rename arm is gone)."
     )
-    # (2026-07-24): ws.rs was refactored — the prior
+    # (2026-07-24): ws.rs was refactored, the prior
     # ``let emit_name = event_type;`` direct assignment was replaced
     # by ``let emit_name = translate_event_name(event_type);``
-    # ( — extracted the snake→kebab bubble_* renames into
+    # (, extracted the snake→kebab bubble_* renames into
     # a unit-testable function). The translate function has an
     # ``other => other`` arm so any event NOT in the rename table is
     # forwarded under its own name (preserving the original
@@ -1314,7 +1314,7 @@ def test_ws_reader_does_not_rename_relaunch_app(ws_source: str, ws_event_protoco
         ws_source,
     ), (
         "ws.rs must compute `emit_name` via `translate_event_name(event_type)` "
-        "(PVT-G5-062 — single unit-testable rename table). The prior "
+        "(PVT-G5-062, single unit-testable rename table). The prior "
         "`let emit_name = event_type;` direct assignment was refactored."
     )
     # The translate function MUST have an `other => other` arm so any
@@ -1337,14 +1337,14 @@ def test_yj21_respawn_inner_acquires_child_lock_before_shutting_down_recheck(
 ) -> None:
     """YJ-21 / CR-81: ``respawn_inner`` must acquire the ``state.child``
     lock BEFORE re-checking ``shutting_down`` inside the post-spawn
-    install block — closing the narrow race where ``shutdown_sidecar_for_exit``
+    install block, closing the narrow race where ``shutdown_sidecar_for_exit``
     on the main thread runs between the (previously lock-free) shutdown
     check and the lock acquire.
 
     Pre-fix sequence (the race YJ-21 closes):
       1. respawn_inner: ``shutting_down.load()`` → false (no lock held).
       2. main thread: ``shutting_down.swap(true)``, acquires ``state.child``
-         lock, takes the slot (None — respawn_inner cleared it earlier),
+         lock, takes the slot (None, respawn_inner cleared it earlier),
          releases the lock, returns.
       3. respawn_inner: acquires ``state.child`` lock, installs the fresh
          child, returns ``Ok(())``.
@@ -1369,7 +1369,7 @@ def test_yj21_respawn_inner_acquires_child_lock_before_shutting_down_recheck(
     match = install_block_re.search(supervisor_source)
     assert match is not None, (
         "supervisor.rs must have a `Ok((port, child, exit_rx)) => { ... }` "
-        "match arm in respawn_inner — could not anchor YJ-21 install-block "
+        "match arm in respawn_inner, could not anchor YJ-21 install-block "
         "source inspection."
     )
     install_block_start = match.end()
@@ -1390,7 +1390,7 @@ def test_yj21_respawn_inner_acquires_child_lock_before_shutting_down_recheck(
     lock_acquired_at = mutex_lock_match.start()
 
     # The shutting_down recheck must appear AFTER the lock acquire,
-    # inside the same block — so it executes WHILE the lock is held.
+    # inside the same block, so it executes WHILE the lock is held.
     recheck_pattern = r"state\.shutting_down\.load\(\s*Ordering::SeqCst\s*\)"
     rechecks_after_lock = list(re.finditer(recheck_pattern, install_block))
     assert rechecks_after_lock, (
@@ -1412,7 +1412,7 @@ def test_yj21_respawn_inner_acquires_child_lock_before_shutting_down_recheck(
     # The pattern is: shutting_down recheck → if true → kill_tree.
     # NOTE: the `kill_tree` call textually lives OUTSIDE the
     # `if shutting_down` brace group (in the `if let Some(c) = child`
-    # block right after the lock scope closes) — the lock scope must
+    # block right after the lock scope closes), the lock scope must
     # not span an `.await` (`std::sync::MutexGuard` is `!Send`), so
     # the kill is deliberately performed after the guard is dropped.
     # The regex therefore allows the closing brace of the recheck
@@ -1421,7 +1421,7 @@ def test_yj21_respawn_inner_acquires_child_lock_before_shutting_down_recheck(
     # ALSO: the code `kill_tree` can sit past the 4500-char install
     # window (the install-block docstring is long), so the kill-branch
     # search restarts from the recheck position instead of the block
-    # start — the docstring's `kill_tree` prose mentions all appear
+    # start, the docstring's `kill_tree` prose mentions all appear
     # BEFORE the recheck, so slicing from `first_recheck` excludes them.
     kill_region = supervisor_source[
         install_block_start + first_recheck.start() : install_block_start + first_recheck.start() + 4000
@@ -1430,6 +1430,6 @@ def test_yj21_respawn_inner_acquires_child_lock_before_shutting_down_recheck(
     assert kill_branch_re.search(kill_region), (
         "YJ-21 / CR-81: when the inside-lock recheck sees "
         "`shutting_down == true`, the freshly-spawned child must be "
-        "killed (kill_tree) instead of being installed — otherwise the "
+        "killed (kill_tree) instead of being installed, otherwise the "
         "child leaks."
     )

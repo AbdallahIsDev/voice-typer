@@ -3,7 +3,7 @@
 Verifies that:
 - The catalog was pruned (2026-08-15) to the three Whisper variants
   (``tiny`` default, ``large-v3``, ``large-v3-turbo``) plus
-  ``parakeet`` and ``qwen`` — the removed variants (tiny.en, base*,
+  ``parakeet`` and ``qwen``, the removed variants (tiny.en, base*,
   small*, medium*, large-v1/v2, turbo alias, distil-*) are GONE from
   the registry.
 - ``get_model_metadata`` returns correctly-typed fields.
@@ -13,7 +13,7 @@ Verifies that:
 - The turbo model has the expected metadata (size, speed, accuracy).
 - Every entry carries a ``network_behavior`` field.
 
-These tests are pure — no network, no file I/O, no model downloads.
+These tests are pure, no network, no file I/O, no model downloads.
 Importing ``voice_typer.server.model_registry`` must be side-effect
 free (no HuggingFace calls, no GPU init).
 """
@@ -80,14 +80,14 @@ class TestModelRegistryContainsWhisperVariants:
     def test_default_model_size_is_the_no_model_sentinel(self):
         """DEFAULT_MODEL_SIZE is deliberately the "no model selected"
         sentinel (NO_MODEL_SIZE, ""), NOT a registry entry. The app has
-        NO concrete default model — a fresh install must not claim a
+        NO concrete default model, a fresh install must not claim a
         model is selected when none is (the old "tiny" default made
         every consumer surface a phantom model name). It must equal the
         NO_MODEL_SIZE sentinel so config defaults / coercion resets land
         on "no model selected", and the user explicitly chooses."""
         assert DEFAULT_MODEL_SIZE == NO_MODEL_SIZE, (
             f"DEFAULT_MODEL_SIZE={DEFAULT_MODEL_SIZE!r} must be the 'no model "
-            f"selected' sentinel (NO_MODEL_SIZE={NO_MODEL_SIZE!r}) — the app "
+            f"selected' sentinel (NO_MODEL_SIZE={NO_MODEL_SIZE!r}), the app "
             "has no concrete default model."
         )
 
@@ -116,7 +116,7 @@ class TestGetModelMetadataReturnsCorrectFields:
         assert meta.accuracy_rating in ("low", "medium", "high")
 
     def test_get_model_metadata_returns_none_for_unknown(self):
-        """Unknown model names return None — never raise."""
+        """Unknown model names return None, never raise."""
         assert get_model_metadata("not-a-real-model") is None
         assert get_model_metadata("") is None
 
@@ -138,7 +138,7 @@ class TestGetModelMetadataReturnsCorrectFields:
 
     def test_wer_is_published_benchmark_data_for_every_entry(self):
         """Every registry entry carries a real, sourced WER (%) on
-        LibriSpeech test-clean (lower is better) — see the per-entry
+        LibriSpeech test-clean (lower is better): see the per-entry
         comments for the exact source (model card / published
         benchmark). No placeholder or fabricated figures; if a model
         had no reliable figure the field would be None and the renderer
@@ -176,7 +176,7 @@ class TestGetModelMetadataReturnsCorrectFields:
         except Exception:
             # frozen dataclass raises FrozenInstanceError on setattr.
             return
-        # If we get here, the dataclass is NOT frozen — that's a bug.
+        # If we get here, the dataclass is NOT frozen, that's a bug.
         raise AssertionError("ModelMetadata should be frozen=True but setattr succeeded")
 
 
@@ -193,7 +193,7 @@ class TestGetAllModelsReturnsList:
 
     def test_get_all_models_preserves_registry_order(self):
         """The list is in the same order as MODEL_REGISTRY.values()
-        (the renderer renders in this order — tiny first)."""
+        (the renderer renders in this order, tiny first)."""
         all_models = get_all_models()
         registry_order = list(MODEL_REGISTRY.values())
         assert [m.name for m in all_models] == [m.name for m in registry_order]
@@ -265,7 +265,7 @@ class TestLargeV3TurboHasCorrectMetadata:
         )
 
     def test_turbo_alias_removed(self):
-        """The ``turbo`` alias was removed with the catalog prune — only
+        """The ``turbo`` alias was removed with the catalog prune, only
         the explicit ``large-v3-turbo`` name remains."""
         assert get_model_metadata("turbo") is None, (
             "'turbo' alias should have been removed (only large-v3-turbo remains)"
@@ -314,7 +314,7 @@ class TestModelMetadataHasNetworkBehaviorField:
 
     def test_default_is_local_only(self):
         """A dataclass constructed without ``network_behavior`` defaults
-        to ``\"local-only\"`` — the safest assumption (offline)."""
+        to ``\"local-only\"``, the safest assumption (offline)."""
         meta = ModelMetadata(
             name="probe",
             download_size_mb=1,
@@ -366,7 +366,7 @@ class TestModelMetadataHasNetworkBehaviorField:
         )
 
     def test_qwen_is_local_only(self):
-        """Qwen is local-only — the user must manually configure the
+        """Qwen is local-only, the user must manually configure the
         model path in Settings."""
         meta = get_model_metadata("qwen")
         assert meta is not None, "qwen missing from registry"

@@ -1,6 +1,6 @@
 /**
  * Regression tests for the Dashboard page fixes landed in session BG
- * (Group 3 — UX & UI).
+ * (Group 3, UX & UI).
  *
  * Covers three findings, each in its own describe block so a failure
  * pinpoints which contract regressed:
@@ -32,11 +32,11 @@
  * in `pages-improvements.test.tsx`. The contracts we need to verify
  * (role attribute, element tag, opacity class, import statements) are
  * all visible in the source text, so we use static `fs.readFileSync`
- * checks — same pattern used by `accessibility.test.tsx` and the
+ * checks, same pattern used by `accessibility.test.tsx` and the
  * `R7-F18` block in `pages-improvements.test.tsx`.
  *
  * The `formatDuration` behavioural tests, by contrast, are real unit
- * tests — the shared helper has no React dependencies, so we can call
+ * tests, the shared helper has no React dependencies, so we can call
  * it directly.
  */
 import { describe, expect, it } from "vitest";
@@ -83,7 +83,7 @@ const HOOK_SRC = fs.readFileSync(
 	path.resolve(__dirname, "..", "dashboard", "hooks", "useDashboardData.ts"),
 	"utf8",
 );
-// the SHARED model-install truth (lib/utils/models.ts) — its source is
+// the SHARED model-install truth (lib/utils/models.ts), its source is
 // read here so the point-10 assertions can verify the `downloaded`
 // check lives in ONE place (the shared helper), not in the hook.
 const MODELS_SRC = fs.readFileSync(
@@ -195,7 +195,7 @@ describe("BG-9: formatDuration shared via lib/format.ts + i18n keys", () => {
 
 		// No hardcoded English suffix literals like `${hourLabel}` or
 		// `"1h"` / `"0m"` returned directly. The previous impl used
-		// const minuteLabel = "m"; const hourLabel = "h"; — those are
+		// const minuteLabel = "m"; const hourLabel = "h";, those are
 		// gone.
 		expect(FORMAT_SRC).not.toMatch(/const\s+minuteLabel\s*=\s*"m"/);
 		expect(FORMAT_SRC).not.toMatch(/const\s+hourLabel\s*=\s*"h"/);
@@ -252,7 +252,7 @@ describe("BG-9: formatDuration shared via lib/format.ts + i18n keys", () => {
 	});
 
 	it("formatDuration(5235) returns '1h 27m' (StatCards storybook snapshot)", () => {
-		// StatCards.stories.tsx documents 5235s → "1h 27m" — preserve
+		// StatCards.stories.tsx documents 5235s → "1h 27m", preserve
 		// that contract through the i18n refactor.
 		setLocale("en");
 		expect(formatDuration(5235)).toBe("1h 27m");
@@ -261,7 +261,7 @@ describe("BG-9: formatDuration shared via lib/format.ts + i18n keys", () => {
 	it("formatDuration resolves through t() so the visible glyphs track the active locale", () => {
 		// We can't assert non-English glyphs (F1 hasn't translated the
 		// keys yet), but we CAN assert that formatDuration's output
-		// matches what t() returns for the resolved key — proving the
+		// matches what t() returns for the resolved key, proving the
 		// helper is wired through i18n rather than returning hardcoded
 		// English. After F1 translates, this test continues to pass
 		// because both sides go through t().
@@ -290,8 +290,8 @@ describe("BG-10: Dashboard Share button gated on canShareStats (not todayCount >
 		expect(DASHBOARD_SRC).toMatch(/todayCount:\s*data\.todayCount/);
 		expect(DASHBOARD_SRC).toMatch(/totalCount:\s*data\.totalCount/);
 		// The old `data.todayCount > 0` gate is no longer present.
-		// (We can't ban the substring entirely — the field is still
-		// read elsewhere — but the specific gating expression
+		// (We can't ban the substring entirely, the field is still
+		// read elsewhere, but the specific gating expression
 		// `data.todayCount > 0 && (` is gone.)
 		expect(DASHBOARD_SRC).not.toMatch(/data\.todayCount\s*>\s*0\s*&&\s*\(/);
 	});
@@ -305,7 +305,7 @@ describe("DJ-93: Dashboard share-image container style hoisted to module-level c
 		// top: 0, left: 0, zIndex: -100, pointerEvents: "none" }}` literal
 		// to a module-level `SHARE_IMAGE_CAPTURE_STYLE` constant typed as
 		// `CSSProperties`. The static values never change between renders,
-		// so a single module-level instance is correct — and crucially,
+		// so a single module-level instance is correct, and crucially,
 		// the stable object identity lets a future `React.memo` on the
 		// share-image subtree short-circuit re-renders when the stats
 		// haven't changed.
@@ -328,7 +328,7 @@ describe("DJ-93: Dashboard share-image container style hoisted to module-level c
 		// everything else), pointerEvents:none (invisible to mouse).
 		// The values are checked inside the constant declaration block
 		// (between `SHARE_IMAGE_CAPTURE_STYLE: CSSProperties = {` and the
-		// closing `}`), not anywhere else in the file — so a future
+		// closing `}`), not anywhere else in the file, so a future
 		// refactor that accidentally moves a value out of the constant
 		// (e.g. back into an inline literal) fails this test.
 		const constStart = DASHBOARD_SRC.indexOf("SHARE_IMAGE_CAPTURE_STYLE");
@@ -352,7 +352,7 @@ describe("DJ-93: Dashboard share-image container style hoisted to module-level c
 		// inline literal created a fresh object on every render.
 		expect(DASHBOARD_SRC).toMatch(/style=\{SHARE_IMAGE_CAPTURE_STYLE\}/);
 		// The old inline `style={{ position: "absolute", ... }}` literal
-		// is gone — the `position: "absolute"` value now appears ONLY in
+		// is gone, the `position: "absolute"` value now appears ONLY in
 		// the module-level constant declaration (covered by the previous
 		// test). A stray inline `position: "absolute"` outside the
 		// constant block would indicate a regression.
@@ -372,7 +372,7 @@ describe("DJ-93: Dashboard share-image container style hoisted to module-level c
 describe("Dashboard noDataDescription interpolates {hotkey} from config", () => {
 	it('Dashboard.tsx calls t("analytics.noDataDescription", { hotkey: ... })', () => {
 		// The empty-state CTA copy is "Press {hotkey} on the Home page to
-		// dictate — your stats will appear here." The previous call omitted
+		// dictate, your stats will appear here." The previous call omitted
 		// the params object, so the literal "{hotkey}" token leaked into
 		// the rendered UI. The fix passes the resolved hotkey (falling back
 		// to "F2" when configRaw is null or the field is missing).
@@ -409,11 +409,11 @@ describe("Dashboard dataPath uses {path} interpolation fed by get_status config_
 	it("useDashboardData.ts fetches get_status in the Promise.all (C-DATA-1 local IPC)", () => {
 		// The hook now fires `get_status` alongside `get_config` /
 		// `get_today_stats` / `get_history` / `get_history_count`. The call
-		// is a local IPC probe (C-DATA-1, offline) — no network. A `.catch`
+		// is a local IPC probe (C-DATA-1, offline), no network. A `.catch`
 		// fallback keeps the Promise.all alive if the backend doesn't expose
 		// `get_status` or the field is missing (older sidecar).
 		// The hook reads `call` through a ref (callRef.current) so the
-		// mount-load effect keeps a stable identity — the get_status
+		// mount-load effect keeps a stable identity, the get_status
 		// probe is still part of the refreshData Promise.all.
 		expect(HOOK_SRC).toMatch(
 			/current<\{ config_dir\?:\s*string[^>]*>\s*\("get_status"/,
@@ -472,12 +472,12 @@ describe("SevenDayActivityChart migrates binary plural to tChoice", () => {
 	it("en.json defines dayCountTooltip_one / dayCountTooltip_other (CLDR plural keys)", () => {
 		// The tChoice lookup chain falls back through `{key}_{category}`
 		// → `{key}_other` → bare `{key}`. The CLDR-style keys already
-		// exist in en.json — pin them so a future JSON cleanup doesn't
+		// exist in en.json, pin them so a future JSON cleanup doesn't
 		// accidentally drop them and silently fall back to the bare key.
 		expect(EN_JSON.analytics.dayCountTooltip_one).toBeDefined();
 		expect(EN_JSON.analytics.dayCountTooltip_other).toBeDefined();
 		// The legacy binary-plural keys can stay (other agents may still
-		// reference them) — we only assert the new CLDR keys are present.
+		// reference them), we only assert the new CLDR keys are present.
 	});
 });
 
@@ -516,7 +516,7 @@ describe("Corrections-applied card (server-side usage tracking)", () => {
 		// only surface model/device when the configured model's weights
 		// are actually on disk (config defaults like "tiny"/"cuda"
 		// must not be advertised as a live selection). The `downloaded`
-		// check lives in ONE shared place — resolveActiveModel in
+		// check lives in ONE shared place, resolveActiveModel in
 		// lib/utils/models.ts (the same helper the About page uses) —
 		// never an inline duplicate in the hook.
 		expect(HOOK_SRC).toMatch(/"get_model_status"/);
@@ -538,9 +538,9 @@ describe("Corrections-applied card (server-side usage tracking)", () => {
 
 describe("Top stat cards: merged dictation card + range-aware values", () => {
 	it("the single dictation card uses the plain totalDictations label", () => {
-		// The old split — Card 1 "Dictations ({range})" (sample-window
+		// The old split, Card 1 "Dictations ({range})" (sample-window
 		// count) vs Card 3 "Total Dictations" (range-blind true
-		// count) — is merged into ONE card whose VALUE respects the
+		// count), is merged into ONE card whose VALUE respects the
 		// selected range. The LABEL is range-free: the
 		// TimeRangeSelector + the chart subtitle already state the
 		// active window, and the suffixed label was the only one in
@@ -565,7 +565,7 @@ describe("Top stat cards: merged dictation card + range-aware values", () => {
 	});
 
 	it("no top stat card keeps a (?) tooltip (the range is in the segmented control)", () => {
-		// The tooltips merely restated the selected range — removed
+		// The tooltips merely restated the selected range, removed
 		// from every card (Part D).
 		expect(DASHBOARD_SRC).not.toMatch(/totalDictationsTooltip/);
 		expect(DASHBOARD_SRC).not.toMatch(/activeDaysTooltip/);
@@ -593,7 +593,7 @@ describe("Top stat cards: merged dictation card + range-aware values", () => {
 	it("the Characters card reuses the Home StatCards compact formatter", () => {
 		// Part C: the Analytics Characters card reuses the Home page
 		// Characters card's K-abbreviation formatting (exported from
-		// StatCards) — never a reimplementation.
+		// StatCards), never a reimplementation.
 		expect(DASHBOARD_SRC).toMatch(
 			/import\s*\{[^}]*formatCompactNumber[^}]*\}\s*from\s*"@\/components\/dashboard\/StatCards"/,
 		);

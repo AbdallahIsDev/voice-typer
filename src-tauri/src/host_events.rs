@@ -6,12 +6,12 @@
 //! ELECTRON MAIN process today (`handle-message.ts`) and had no Tauri
 //! counterpart:
 //!
-//! - `show_window` — published by `tray_window.py` when the tray's
+//! - `show_window`: published by `tray_window.py` when the tray's
 //!   "Open App" action (or a left-click focus redirect) fires. Under
 //!   Electron the main process calls `showMainWindow()`; under Tauri
 //!   nobody listened, so the tray's "Open App" entry was a no-op
 //!   whenever the Win32 focus fallback could not reach the window.
-//! - `notification` — published by `system_handlers.py` /
+//! - `notification`: published by `system_handlers.py` /
 //!   `model_manager.py` / `parakeet_engine.py` /
 //!   `tray_notifications.py` (the Tauri runtime never creates a pystray
 //!   icon, so its toasts must surface here). Under Electron the main
@@ -29,7 +29,7 @@ use tauri::{AppHandle, Listener, Manager};
 /// Payload of the server `notification` event
 /// (`{"type":"notification","data":{"title":...,"message":...}}`).
 /// Extra fields (`duration_ms`, `critical`, `click_path`,
-/// `click_consent_field`) are intentionally ignored here — native toast
+/// `click_consent_field`) are intentionally ignored here, native toast
 /// click-routing is a follow-up; the fields this module consumes are the
 /// only ones the OS toast needs.
 #[derive(Debug, Clone, Deserialize)]
@@ -104,7 +104,7 @@ fn show_main_window(app: &AppHandle) {
             // a background process and only flashes the taskbar), so the
             // dashboard stayed buried behind other apps' windows. The
             // momentary always-on-top raise below mirrors Electron's
-            // `showMainWindow()` (main-window.ts) — lift, focus, drop.
+            // `showMainWindow()` (main-window.ts): lift, focus, drop.
             if let Err(e) = window.unminimize() {
                 log::warn!("[HOST-EVENTS] main window unminimize failed: {}", e);
             }
@@ -148,7 +148,7 @@ pub(crate) fn setup(app: &AppHandle) {
     });
 }
 
-// Sibling test module — tests live in `host_events_tests.rs` (per
+// Sibling test module: tests live in `host_events_tests.rs` (per
 // C-TEST-5: no inline `#[cfg(test)] mod tests` blocks in production
 // source).
 #[cfg(test)]

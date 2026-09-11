@@ -14,7 +14,7 @@ Manifest key resolution
 The manifest is keyed by BOTH the arch-suffixed name
 (``linux-key-listener-x86_64``, ``windows-key-listener-aarch64.exe``)
 AND the legacy non-suffixed name (``linux-key-listener``,
-``windows-key-listener.exe``) — see
+``windows-key-listener.exe``): see
 ``voice_typer/server/native/binaries.json`` for the full alias table.
 ``voice_typer.server.native_hotkeys.binary_path._equivalent_manifest_names``
 mirrors this mapping and is consulted at runtime by
@@ -24,7 +24,7 @@ form the binary on disk uses.
 This script replicates that fallback logic so a freshly-compiled binary
 updates BOTH its arch-suffixed entry AND its legacy alias entry (if any)
 in a single pass. macOS (``macos-key-listener``) is a single universal
-binary with no arch suffix — only the one entry is touched.
+binary with no arch suffix, only the one entry is touched.
 
 Usage
 -----
@@ -40,14 +40,14 @@ their ``$OUT`` directory as ``$1``.
 Exit codes
 ----------
 
-0  success — manifest written, all binaries hashed
+0  success, manifest written, all binaries hashed
 1  misuse / IO error / manifest unparseable
 
 Design notes
 ------------
 
 - Idempotent: running twice produces the same manifest.
-- Never deletes manifest entries — only updates ``sha256`` fields for
+- Never deletes manifest entries, only updates ``sha256`` fields for
   binaries that exist on disk. Entries for binaries not present on the
   current platform are left untouched (so a Linux compile run does not
   wipe the Windows entry populated by a prior Windows CI leg).
@@ -87,7 +87,7 @@ _ARCH_SUFFIX_TO_LEGACY: dict[str, str] = {v: k for k, v in _LEGACY_TO_ARCH_SUFFI
 
 # Every binary name this script knows how to hash. The manifest may
 # contain additional entries (e.g. ``linux-key-listener-aarch64``) that
-# we never encounter on the host platform — those entries are left
+# we never encounter on the host platform, those entries are left
 # untouched.
 _KNOWN_BINARY_NAMES: frozenset[str] = frozenset(
     {
@@ -109,7 +109,7 @@ def _host_arch_key() -> str | None:
     """Normalize ``platform.machine()`` to the manifest's arch keys.
 
     Returns "x86_64", "aarch64", or ``None`` on an unrecognized machine
-    string (in which case ``sha256_by_arch`` is left untouched — only the
+    string (in which case ``sha256_by_arch`` is left untouched, only the
     flat ``sha256`` field is updated for the entry).
     """
     machine = platform.machine().lower()
@@ -153,7 +153,7 @@ def _discover_binaries(native_dir: Path) -> list[Path]:
     """Return the sorted list of compiled native binaries in ``native_dir``.
 
     Only files whose ``name`` is in :data:`_KNOWN_BINARY_NAMES` are
-    returned — the directory also contains the ``.c`` / ``.swift``
+    returned, the directory also contains the ``.c`` / ``.swift``
     sources and the ``binaries.json`` manifest itself, which we must not
     hash.
     """
@@ -238,7 +238,7 @@ def update_manifest(
             # Legacy entries carry a per-arch ``sha256_by_arch`` dict so
             # the same legacy file name can be disambiguated across
             # x86_64 / aarch64 hosts. Keep the dict in sync for the arch
-            # this build ran on — otherwise every regen leaves the per-arch
+            # this build ran on, otherwise every regen leaves the per-arch
             # hash stale while the flat field moves on (schema drift the
             # checksum tests reject: flat must equal by_arch.x86_64).
             by_arch = entry.get("sha256_by_arch")
@@ -284,7 +284,7 @@ def main(argv: list[str]) -> int:
         return 1
 
     if not updated:
-        log.warning("no known binaries found in %s — manifest left untouched", native_dir)
+        log.warning("no known binaries found in %s, manifest left untouched", native_dir)
     else:
         log.info("manifest updated: %d entr(y|ies) at %s", len(updated), manifest_path)
     return 0

@@ -1,5 +1,5 @@
 /**
- * A11yLiveRegions — the app shell's three screen-reader live regions
+ * A11yLiveRegions, the app shell's three screen-reader live regions
  * (recording / connection-error / connection-recovery), extracted from
  * App.tsx.
  *
@@ -10,7 +10,7 @@
  *     region for those transitions).
  *   - connection-error stream (assertive): disconnected / restarting.
  *   - connection-recovery stream (polite): announces only real
- *     recoveries — not the initial connecting → connected transition.
+ *     recoveries, not the initial connecting → connected transition.
  *
  * The i18n layer is mocked to return raw keys so assertions key on the
  * exact translation keys (stable against copy edits).
@@ -57,7 +57,7 @@ function recoveryRegion(): Element | null {
 	return polite.length >= 2 ? (polite[polite.length - 1] ?? null) : null;
 }
 
-describe("A11yLiveRegions — recording stream (polite)", () => {
+describe("A11yLiveRegions, recording stream (polite)", () => {
 	afterEach(() => cleanup());
 
 	it.each([
@@ -93,7 +93,7 @@ describe("A11yLiveRegions — recording stream (polite)", () => {
 	});
 });
 
-describe("A11yLiveRegions — connection error stream (assertive)", () => {
+describe("A11yLiveRegions, connection error stream (assertive)", () => {
 	beforeEach(() => cleanup());
 	afterEach(() => cleanup());
 
@@ -119,7 +119,7 @@ describe("A11yLiveRegions — connection error stream (assertive)", () => {
 	});
 });
 
-describe("A11yLiveRegions — connection recovery stream (polite)", () => {
+describe("A11yLiveRegions, connection recovery stream (polite)", () => {
 	beforeEach(() => cleanup());
 	afterEach(() => cleanup());
 

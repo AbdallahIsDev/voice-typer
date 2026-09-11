@@ -17,7 +17,7 @@ REBOUND (not mutated) inside ``_load_external_corrections`` via a
 ``global`` statement, and read as bare names inside
 ``_capitalize_pronoun_i``. A Python function's ``global`` always targets
 its own module, so writer + reader must share one module for the
-verbatim bodies to keep working — hence this cluster lives here rather
+verbatim bodies to keep working, hence this cluster lives here rather
 than in :mod:`._casing`.
 """
 
@@ -107,13 +107,13 @@ def _load_bundled_corrections():
     OR parse error): empty containers, ``loaded_any=False``, and a
     single ``"bundled: <exc>"`` entry in ``load_errors`` (the missing-
     file case is the normal first-launch path and produces no error
-    entry — matching the prior inline behaviour where
+    entry, matching the prior inline behaviour where
     ``if _BUNDLED_CORRECTIONS_PATH.exists()`` skipped the load block
     silently).
 
     The bundled path uses the lenient ``data.get("phrase_corrections",
     [])`` form (no outer ``isinstance`` check) to preserve the prior
-    behaviour — any iterable of 2-element pairs is accepted. The user
+    behaviour, any iterable of 2-element pairs is accepted. The user
     path (:func:`_load_user_corrections`) is stricter.
     """
     if not _BUNDLED_CORRECTIONS_PATH.exists():
@@ -153,11 +153,11 @@ def _load_user_corrections(
 
     When no user file exists (no ``corrections_path`` AND no ``config_dir``,
     OR the resolved path does not exist): returns
-    ``(None, {}, [], [], set(), set(), False, [])`` — no error, no log
+    ``(None, {}, [], [], set(), set(), False, [])``, no error, no log
     (matching the prior ``if path is not None and path.exists()`` silent skip).
 
     On success: returns the resolved path (for the success log),
-    FRESH containers (NOT merged with bundled — the orchestrator
+    FRESH containers (NOT merged with bundled, the orchestrator
     merges them via ``dict.update`` / ``list.extend``), the
     Roman-numeral word-set extensions (lowercase strings,
     EMPTY sets if the user file doesn't include those keys),
@@ -203,7 +203,7 @@ def _load_user_corrections(
             ]
         # extract optional Roman-numeral word-set extensions.
         # Both keys default to empty sets when absent or wrongly typed
-        # (silent skip — matches the strict isinstance pattern used for
+        # (silent skip, matches the strict isinstance pattern used for
         # the other correction fields). Strings are lowercased so the
         # case-insensitive membership check in _capitalize_pronoun_i
         # works regardless of how the user capitalised them in the file.
@@ -277,7 +277,7 @@ def _load_external_corrections(
     # the keys from the user file reverts to bundled-only behaviour. The
     # bundled defaults themselves are constants and never mutated. The
     # state update happens outside the ``_active_state_lock`` (same
-    # accepted race window as the other module-level state — the lock is
+    # accepted race window as the other module-level state, the lock is
     # taken in ``configure_corrections`` for the other state, and a
     # concurrent ``clean_transcribed_text`` call seeing the OLD extension
     # set for one dictation is benign: it just uses a slightly-staler set
@@ -296,7 +296,7 @@ def _load_external_corrections(
             len(extra_word_patterns),
         )
 
-    # raise whenever ANY load error occurred — previously the
+    # raise whenever ANY load error occurred, previously the
     # raise was gated on ``not loaded_any``, which meant a malformed
     # USER file was silently swallowed when the BUNDLED file loaded OK
     # (the bundled corrections were returned as if nothing had gone
@@ -384,7 +384,7 @@ def _truncate_corrections(
     """cap a corrections list at ``max_count`` entries.
 
     Keeps the first ``max_count`` items (matching the prior
-    ``list(items)[:max_count]`` slice semantics — preserves load order
+    ``list(items)[:max_count]`` slice semantics, preserves load order
     so bundled corrections, which load first, are never evicted by
     user-provided corrections appended on top). Logs a single
     ``[CLEANUP] Too many <label>...`` warning when truncation fires so
@@ -417,7 +417,7 @@ def _filter_corrections_by_length(
 
     rationale: long patterns cause expensive regex backtracking
     (ReDoS vector); long replacements cause excessive memory/CPU during
-    substitution. The limit is per-field — an entry is dropped if EITHER
+    substitution. The limit is per-field, an entry is dropped if EITHER
     field exceeds its limit (the OR semantics unify the prior
     per-correction-type variants, which all dropped the entry either way
     but counted pattern-vs-replacement overflows separately for
@@ -462,10 +462,10 @@ def _active_corrections(
 #
 # these remain the BUNDLED DEFAULTS. Users can extend them
 # (e.g. with "george", "edward", "charles", "napoleon", "alexander"
-# — names the original hardcoded set was missing) by adding a
+# , names the original hardcoded set was missing) by adding a
 # ``roman_numeral_context_words`` list (lowercase strings) to their
 # ``voice-typer-corrections.json``. The user-provided words are
-# purely ADDITIVE to this bundled set — they extend, never replace.
+# purely ADDITIVE to this bundled set, they extend, never replace.
 # See :func:`_load_user_corrections` for the loader path.
 #
 # Format in the user corrections file:
@@ -522,18 +522,18 @@ _ROMAN_NUMERAL_FOLLOWING_WORDS = {
 # ``roman_numeral_following_words`` keys. Resets to empty on every
 # load call (so removing the keys from the user file reverts to
 # bundled-only behaviour). Checked ADDITIVELY to the bundled defaults
-# in :func:`_capitalize_pronoun_i` — a word in EITHER set triggers
+# in :func:`_capitalize_pronoun_i`: a word in EITHER set triggers
 # the Roman-numeral lowercase behaviour.
 _user_roman_numeral_context_extensions: set[str] = set()
 _user_roman_numeral_following_extensions: set[str] = set()
 
 # precompiled regex for standalone 'i' (not preceded or followed by
-# an alpha character — preserves the original semantics where 'i3' or '3i'
+# an alpha character, preserves the original semantics where 'i3' or '3i'
 # do NOT match, which differs from `\b` word boundaries that treat digits
 # and underscore as word characters). The regex is compiled once at module
 # load; `re.finditer` scans the text in C and yields match positions to
 # the Python loop, which then mutates a mutable ``list[text]`` buffer in
-# place — avoiding both the per-character Python loop (O(N) Python iter)
+# place, avoiding both the per-character Python loop (O(N) Python iter)
 # AND the per-match O(N) substring slicing the prior re.sub callback
 # performed (``text[:start].rstrip()`` + ``text[end:].lstrip()`` each
 # allocated a fresh string of length O(start) / O(N-end), giving O(M·N)
@@ -560,7 +560,7 @@ def _prev_word_ending_at(text: str, end_idx: int) -> str:
         i -= 1
     if i < 0:
         return ""
-    # Original guard: preceding[-1].isalpha() — a digit/punctuation
+    # Original guard: preceding[-1].isalpha(), a digit/punctuation
     # immediately before the match means no Roman-numeral context applies.
     if not text[i].isalpha():
         return ""
@@ -607,12 +607,12 @@ def _capitalize_pronoun_i(text: str) -> str:
         This revision eliminates the per-match O(N) substring slicing the
         prior ``re.sub`` callback performed (``text[:start].rstrip()`` +
         ``text[end:].lstrip()`` each allocated a fresh O(N) string, giving
-        O(M·N) total slicing for M standalone-'i' matches — quadratic on
+        O(M·N) total slicing for M standalone-'i' matches, quadratic on
         pathological input like ``"i i i i i"``). The replacer now uses
         bounded backward/forward scans (:func:`_prev_word_ending_at` /
         :func:`_next_word_starting_at`) that touch only the surrounding
         word characters (typically <30 chars per match), making the total
-        work O(N + M·k) where k is the average word length — effectively
+        work O(N + M·k) where k is the average word length, effectively
         O(N) for any realistic input.
 
         Behaviour is identical to the original: a standalone ``i`` is
@@ -627,11 +627,11 @@ def _capitalize_pronoun_i(text: str) -> str:
     matches = list(_PRONOUN_I_RE.finditer(text))
     if not matches:
         return text
-    # Mutate a mutable buffer in place — no per-match string allocation
+    # Mutate a mutable buffer in place, no per-match string allocation
     # beyond the O(k) word slices inside the helpers.
     chars = list(text)
     # check both the bundled defaults AND the user-provided
-    # extension sets (additive — a word in EITHER set triggers the
+    # extension sets (additive, a word in EITHER set triggers the
     # Roman-numeral lowercase behaviour). The extension sets are
     # refreshed by ``_load_external_corrections`` on every
     # ``configure_corrections`` call, so the user's corrections file

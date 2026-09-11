@@ -1,15 +1,15 @@
-"""WS frame-encode ThreadPoolExecutor — singleton cache + lifecycle.
+"""WS frame-encode ThreadPoolExecutor, singleton cache + lifecycle.
 
 Extracted verbatim from :mod:`voice_typer.server.sidecar_ws` (the
 ``_ws_encode_pool_singleton`` / ``_get_ws_encode_pool`` /
 ``shutdown_encode_pool`` block); the canonical module re-exports these
 names so ``sidecar_ws._get_ws_encode_pool`` and
 ``sidecar_ws.shutdown_encode_pool`` keep resolving. The encode FUNCTION
-(``_encode_ws_frame``) stays in the canonical module — its body is
+(``_encode_ws_frame``) stays in the canonical module, its body is
 pinned by ``tests/test_ipc_server.py::TestWriterEncodesOnce``
 (``inspect.getsource(sidecar_ws)`` whole-module source check).
 
-The singleton global lives HERE (with its accessor functions) — it is
+The singleton global lives HERE (with its accessor functions), it is
 the only module-level mutable state sidecar_ws.py ever had.
 """
 
@@ -25,7 +25,7 @@ if TYPE_CHECKING:  # pragma: no cover - type-checker-only
 
 # Same logger object as the canonical module (``logging.getLogger`` is
 # idempotent per name). Keeps every log record's ``name`` attribute
-# byte-identical to the pre-split output — several tests pin
+# byte-identical to the pre-split output, several tests pin
 # ``caplog.at_level(..., logger="voice_typer.server.sidecar_ws")``.
 log = logging.getLogger("voice_typer.server.sidecar_ws")
 
@@ -41,16 +41,16 @@ log = logging.getLogger("voice_typer.server.sidecar_ws")
 # crash-recovery writer.
 #
 # A module-level singleton cache (``_ws_encode_pool_singleton``) is
-# also kept so the per-connection ``_writer`` task — which has no
+# also kept so the per-connection ``_writer`` task, which has no
 # server reference (its signature is locked to ``(websocket, outbound)``
-# by ``tests/test_sidecar_ws_handle_connection_split.py``) — can reach
+# by ``tests/test_sidecar_ws_handle_connection_split.py``), can reach
 # the same pool. The single-process / single-server lifecycle makes
 # the singleton safe: there is exactly one encode pool per sidecar
 # process. ``_make_dispatch(server)`` seeds the singleton on first
 # call, before any WS connection is accepted.
 #
 # Pre- this used ``loop.run_in_executor(None, _encode_ws_frame, event)``
-# — the asyncio loop's DEFAULT executor, which has no handle
+# , the asyncio loop's DEFAULT executor, which has no handle
 # ``ShutdownController`` can reach. A long-running encode (a near-cap
 # 1 MiB ``vocabulary_suggestion`` frame at shutdown) would race
 # teardown, half-flush the history DB, and leak a partially-written
@@ -67,7 +67,7 @@ def _get_ws_encode_pool(server: IPCServer | None = None) -> ThreadPoolExecutor:
     ~550-558): created on first use, stored on the IPC server as
     ``server._ws_encode_pool`` so the shutdown path can reach it via
     ``app._ipc_server._ws_encode_pool``. When called WITHOUT a server
-    (the ``_writer`` task's case — its signature is locked to
+    (the ``_writer`` task's case, its signature is locked to
     ``(websocket, outbound)``), the module-level singleton cache is
     used. The first call WITH a server seeds the singleton; subsequent
     calls without a server reuse it.
@@ -75,7 +75,7 @@ def _get_ws_encode_pool(server: IPCServer | None = None) -> ThreadPoolExecutor:
     ``max_workers=4`` matches the WS dispatch pool size
     (``_ws_dispatch_pool``, also 4). The encode workload (~50-100 ms
     per near-cap frame) can saturate 2 workers under concurrent
-    connections each pushing near-cap frames at 1-5 Hz — a third
+    connections each pushing near-cap frames at 1-5 Hz, a third
     in-flight encode would queue behind the two workers, stalling the
     writer task's outbound drain and back-pressuring the dispatch
     path's response serialization. Aligning the encode pool to 4
@@ -103,7 +103,7 @@ def _get_ws_encode_pool(server: IPCServer | None = None) -> ThreadPoolExecutor:
     # websocket + outbound, or from ``_read_loop``'s response path
     # where we want to avoid the ``getattr`` overhead on every frame).
     # Use the module-level cache; create lazily if no server-bearing
-    # call has happened yet (defensive — in production
+    # call has happened yet (defensive, in production
     # ``_make_dispatch(server)`` runs in ``run(server)`` BEFORE any
     # connection is accepted, so the singleton is seeded before
     # ``_writer`` is started).
@@ -123,7 +123,7 @@ def shutdown_encode_pool(server: IPCServer | None = None) -> None:
     (~2s) item of the shutdown parallel batch: it cancels QUEUED
     encodes and drops the server/singleton refs, and the drain item
     adds a bounded daemon-thread ``shutdown(wait=True)`` join for any
-    RUNNING encode — mirroring the dispatch-pool drain
+    RUNNING encode, mirroring the dispatch-pool drain
     (``_ws_dispatch_pool.shutdown(wait=False, cancel_futures=True)``
     + bounded join). This closes the gap where the pool's worker
     threads were only reclaimed by the ``atexit`` join at process
@@ -143,5 +143,5 @@ def shutdown_encode_pool(server: IPCServer | None = None) -> None:
     if pool is not None:
         try:
             pool.shutdown(wait=False, cancel_futures=True)
-        except Exception:  # noqa: BLE001 — defensive, never fatal
+        except Exception:  # noqa: BLE001, defensive, never fatal
             log.warning("[SIDECAR-WS] encode pool shutdown failed", exc_info=True)

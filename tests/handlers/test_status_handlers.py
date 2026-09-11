@@ -3,10 +3,10 @@
 Covers the 3 status-query IPC handlers defined in
 ``voice_typer/server/handlers/status_handlers.py``:
 
-- ``_handle_get_status`` — returns ``{type: status, data: <dict|string>}``.
-- ``_handle_get_volume_backend_status`` — returns
+- ``_handle_get_status``, returns ``{type: status, data: <dict|string>}``.
+- ``_handle_get_volume_backend_status``, returns
   ``{type: volume_backend_status, data: <status with is_windows flag>}``.
-- ``_handle_get_model_status`` — returns ``{type: model_status, data: <result>}``.
+- ``_handle_get_model_status``, returns ``{type: model_status, data: <result>}``.
 
 The status handlers are mostly thin pass-throughs to the service
 layer; the interesting invariants are:
@@ -18,7 +18,7 @@ layer; the interesting invariants are:
    detect the platform itself).
 
 UE-15 (2026-07-30): ``_handle_get_rms_level`` and
-``_handle_get_audio_status`` were deleted — both commands were
+``_handle_get_audio_status`` were deleted, both commands were
 dropped from ``_COMMAND_REGISTRY`` and the renderer allowlist during
 the Tauri migration. The corresponding ``TestGetRmsLevel`` and
 ``TestGetAudioStatus`` classes were removed in lockstep.
@@ -34,12 +34,12 @@ the slim core no longer spawns a separate prewarm process. The
 
 (RESTORED 2026-08-14): ``_handle_get_prewarm_status`` and
 ``_handle_open_prewarm_log`` were restored verbatim from commit
-5a319872 — the About-page Cache Status card is a user-facing product
+5a319872, the About-page Cache Status card is a user-facing product
 feature (plan §6.3 addendum), not prewarm machinery. The matching
 ``TestGetPrewarmStatus`` and ``TestOpenPrewarmLog`` classes were
-re-added below (``TestRunPrewarm`` stays deleted — its handler was
+re-added below (``TestRunPrewarm`` stays deleted, its handler was
 not restored: it spawned the removed standalone-prewarm subprocess).
-The open-log tests point at ``worker.log`` — the restored handler
+The open-log tests point at ``worker.log``, the restored handler
 opens the worker's log (the worker exe runs the warm phase now).
 """
 
@@ -49,10 +49,10 @@ from unittest.mock import MagicMock
 
 
 class TestGetStatus:
-    """``_handle_get_status`` — returns the current recording status."""
+    """``_handle_get_status``, returns the current recording status."""
 
     def test_happy_path_dict_return_value(self, ipc_server, fake_service):
-        """New-style: ``service.get_status()`` returns a dict — pass through."""
+        """New-style: ``service.get_status()`` returns a dict, pass through."""
         fake_service.get_status.return_value = {
             "status": "recording",
             "xruns_since_start": 2,
@@ -79,7 +79,7 @@ class TestGetStatus:
 
 
 class TestGetVolumeBackendStatus:
-    """``_handle_get_volume_backend_status`` — augments with ``is_windows``."""
+    """``_handle_get_volume_backend_status``, augments with ``is_windows``."""
 
     def test_happy_path_includes_is_windows_flag(self, ipc_server, fake_service):
         """The handler adds ``is_windows`` to the service's status dict.
@@ -111,7 +111,7 @@ class TestGetVolumeBackendStatus:
 
 
 class TestGetModelStatus:
-    """``_handle_get_model_status`` — returns which models are on disk."""
+    """``_handle_get_model_status``, returns which models are on disk."""
 
     def test_happy_path_returns_model_status(self, ipc_server, fake_service):
         fake_service.get_model_status.return_value = {
@@ -133,17 +133,17 @@ class TestGetModelStatus:
 
 
 # RESTORED 2026-08-14 verbatim from 5a319872
-# (tests/handlers/test_status_handlers.py) — the handler + its test
+# (tests/handlers/test_status_handlers.py), the handler + its test
 # coverage belong to the user-facing Cache Status card (plan §6.3
 # addendum). TestRunPrewarm stays deleted (handler not restored).
 
 
 class TestGetPrewarmStatus:
-    """``_handle_get_prewarm_status`` — returns the OS file cache state."""
+    """``_handle_get_prewarm_status``, returns the OS file cache state."""
 
     def test_happy_path_returns_prewarm_status(self, ipc_server, monkeypatch):
         """The handler delegates to ``prewarm.status.get_prewarm_status()``
-        (module-attr call-time read) — patch it so the test doesn't
+        (module-attr call-time read), patch it so the test doesn't
         actually probe the filesystem.
         """
         monkeypatch.setattr(
@@ -173,7 +173,7 @@ class TestGetPrewarmStatus:
 
 
 class TestRunPrewarm:
-    """``_handle_run_prewarm`` — re-runs the warm phase on demand.
+    """``_handle_run_prewarm``, re-runs the warm phase on demand.
 
     RESTORED 2026-08-14 (plan §6.3 addendum 2nd half): the handler
     delegates to ``prewarm.status.run_prewarm_now()`` (a background
@@ -203,7 +203,7 @@ class TestRunPrewarm:
 
 
 class TestOpenPrewarmLog:
-    """``_handle_open_prewarm_log`` — opens the worker log in the OS editor.
+    """``_handle_open_prewarm_log``, opens the worker log in the OS editor.
 
     RESTORED 2026-08-14: the handler opens ``worker.log`` (the worker
     exe runs the warm phase; its log carries the ``[PREWARM]`` lines).
@@ -214,7 +214,7 @@ class TestOpenPrewarmLog:
         handler returns ``{opened: False, reason: "not_found"}``.
 
         The handler tries to create an empty placeholder file if
-        prewarm hasn't run yet — but if the config dir is read-only
+        prewarm hasn't run yet, but if the config dir is read-only
         (e.g. permissions issue), the placeholder write fails and
         the handler falls through to the not_found path.
         """
@@ -238,7 +238,7 @@ class TestOpenPrewarmLog:
         ``open`` on macOS, ``xdg-open`` on Linux.  We stub BOTH opener
         seams so the test never actually launches an editor in CI, and
         assert only the observable behavior (``opened: True`` + the
-        resolved ``path``) — not the opener mechanism — so the test is
+        resolved ``path``) (not the opener mechanism) so the test is
         portable across Windows / macOS / Linux runners.
         """
         log_dir = tmp_path / "logs"

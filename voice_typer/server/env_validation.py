@@ -1,7 +1,7 @@
 """Environment variable validation.
 
 Extracted from ``voice_typer/server/app.py`` (REF-3). The canonical
-import path is this module — ``voice_typer.server.logging_setup`` (and
+import path is this module, ``voice_typer.server.logging_setup`` (and
 tests) import ``_validate_env_vars`` from here directly; the former
 ``app.py`` re-export was removed once its last test importers migrated.
 
@@ -17,7 +17,7 @@ The Tauri production path strips these via ``env_clear()`` in
 ``src-tauri/src/sidecar/spawn.rs``; the Electron launcher strips them
 from the Electron FRONTEND child but NOT from the Python sidecar
 process itself. Standalone mode (``python -m voice_typer.server``)
-inherits the parent shell env verbatim — so a developer with
+inherits the parent shell env verbatim, so a developer with
 ``HF_TOKEN`` exported in their shell would have huggingface_hub
 silently attach their personal HF token to model-download requests
 (``asr_setup.py:417`` calls ``snapshot_download()`` WITHOUT
@@ -53,7 +53,7 @@ _PATH_VALUE_PATTERN = re.compile(r"^[^\0]+$")  # no null bytes
 # The duplication is deliberate (env_validation is a low-level startup
 # module; importing electron_launcher would pull in ``_electron_build``
 # and ``platform_utils`` at startup time, which is intentionally
-# avoided — see ``shutdown_controller.py:917`` and
+# avoided: see ``shutdown_controller.py:917`` and
 # ``ipc_server.py:2039`` which both lazy-import electron_launcher for
 # the same reason). Drift is caught by
 # ``tests/test_env_validation_sensitive_env.py::TestSensitiveEnvNamesDriftDetection``.
@@ -142,7 +142,7 @@ def _validate_env_vars() -> None:
             # *rule* that failed ("path escapes home directory"), not the
             # *value* that failed (the path itself stays redacted).
             log.warning(
-                "[ENV] VOICE_TYPER_CONFIG_DIR=<redacted> failed path-safety validation (%s: %s) — "
+                "[ENV] VOICE_TYPER_CONFIG_DIR=<redacted> failed path-safety validation (%s: %s), "
                 "discarding to prevent config path traversal.",
                 type(exc).__name__,
                 exc,
@@ -171,7 +171,7 @@ def _validate_env_vars() -> None:
     # would let the renderer import any directory under ``/etc``.
     # After the basic pattern check, also run the same
     # ``_validate_path_safety(Path(hf_home), Path.home())`` check that
-    # ``_config_dir()`` uses for ``VOICE_TYPER_CONFIG_DIR`` — this
+    # ``_config_dir()`` uses for ``VOICE_TYPER_CONFIG_DIR``, this
     # rejects values that escape the user's home directory via ``..``
     # or absolute paths outside home.  If validation fails, log a
     # warning and discard the unsafe value so downstream consumers
@@ -204,7 +204,7 @@ def _validate_env_vars() -> None:
             # *rule* that failed ("path escapes home directory"), not the
             # *value* that failed (the path itself stays redacted).
             log.warning(
-                "[ENV] HF_HOME=<redacted> failed path-safety validation (%s: %s) — "
+                "[ENV] HF_HOME=<redacted> failed path-safety validation (%s: %s), "
                 "discarding to prevent import_model path traversal.",
                 type(exc).__name__,
                 exc,
@@ -241,7 +241,7 @@ def _validate_env_vars() -> None:
     # already strips these via ``env_clear()`` in
     # ``src-tauri/src/sidecar/spawn.rs``; the Electron launcher
     # (``electron_launcher._strip_sensitive_env``) strips them from the
-    # Electron FRONTEND child only — NOT from the Python sidecar
+    # Electron FRONTEND child only. NOT from the Python sidecar
     # process itself. Standalone mode (``python -m voice_typer.server``)
     # inherits the parent shell env verbatim. Closing this gap prevents
     # a developer's exported ``HF_TOKEN`` from being silently attached
@@ -249,13 +249,13 @@ def _validate_env_vars() -> None:
     # ``asr_setup.py`` (which calls snapshot_download WITHOUT
     # ``token=`` so huggingface_hub falls back to ``os.environ``).
     #
-    # log the key NAME only — never the value (these are
+    # log the key NAME only, never the value (these are
     # secrets). The warning lets an operator diagnose "why is my env
     # var being ignored?" without leaking the secret to the log.
     for _sensitive_name in _SENSITIVE_ENV_NAMES:
         if os.environ.pop(_sensitive_name, None) is not None:
             log.warning(
-                "[ENV] Sensitive env var %s was set in the parent shell — "
+                "[ENV] Sensitive env var %s was set in the parent shell, "
                 "Voice Typer does not read it from env (cloud keys come from "
                 "the keyring; the HF token is never used by Voice Typer "
                 "itself). Discarding to prevent it from leaking into child "
@@ -290,7 +290,7 @@ def _validate_hf_endpoint(raw: str) -> None:
     ----------
     raw:
         The raw value of the ``HF_ENDPOINT`` env var (already
-        basic-pattern-checked by the caller — non-empty, no NUL bytes,
+        basic-pattern-checked by the caller, non-empty, no NUL bytes,
         length ≤ 4096).
 
     Validation rules:
@@ -302,7 +302,7 @@ def _validate_hf_endpoint(raw: str) -> None:
          :class:`urllib.parse.urlparse` with a non-empty ``hostname``).
       3. The hostname MUST be in :data:`_ALLOWED_HF_ENDPOINT_HOSTS`
          (``huggingface.co`` or ``hf-mirror.com``). Subdomains
-         (e.g. ``cdn.huggingface.co``) are also accepted — the check
+         (e.g. ``cdn.huggingface.co``) are also accepted, the check
          uses ``endswith`` against the suffix ``.<host>``.
 
     On any failure, the env var is removed via ``os.environ.pop`` and a
@@ -317,7 +317,7 @@ def _validate_hf_endpoint(raw: str) -> None:
     if scheme != "https":
         # pre-redact the raw HF_ENDPOINT value (URL -> PII / secret).
         log.warning(
-            "[ENV] HF_ENDPOINT=<redacted> rejected — must use https:// scheme "
+            "[ENV] HF_ENDPOINT=<redacted> rejected: must use https:// scheme "
             "(got %r). Discarding to prevent plaintext model downloads.",
             scheme or "<empty>",
         )
@@ -325,7 +325,7 @@ def _validate_hf_endpoint(raw: str) -> None:
         return
     if not hostname:
         log.warning(
-            "[ENV] HF_ENDPOINT=<redacted> rejected — could not parse hostname. "
+            "[ENV] HF_ENDPOINT=<redacted> rejected, could not parse hostname. "
             "Discarding to prevent download redirection.",
         )
         os.environ.pop("HF_ENDPOINT", None)
@@ -337,7 +337,7 @@ def _validate_hf_endpoint(raw: str) -> None:
     )
     if not allowed:
         log.warning(
-            "[ENV] HF_ENDPOINT=<redacted> rejected — hostname %r is not in the "
+            "[ENV] HF_ENDPOINT=<redacted> rejected, hostname %r is not in the "
             "allowlist %s. Discarding to prevent download redirection "
             "to an attacker-controlled server.",
             hostname_lower,
@@ -351,10 +351,10 @@ def _validate_hf_endpoint(raw: str) -> None:
     )
 
 
-# Sidecar env-var contract — set by Rust host in src-tauri/src/sidecar/spawn.rs.
+# Sidecar env-var contract. Set by Rust host in src-tauri/src/sidecar/spawn.rs.
 # NOTE: VOICE_TYPER_PREWARM_EXE was REMOVED from this contract (2026-08-30):
 # the prewarm binary was retired (plan-runtime-pack-split §6.2) and the host
-# no longer sets the var in either release or dev mode — expecting it here
+# no longer sets the var in either release or dev mode, expecting it here
 # warned on every single spawn ("expected env var VOICE_TYPER_PREWARM_EXE is
 # unset").
 _EXPECTED_SIDECAR_ENV = {
@@ -388,7 +388,7 @@ def _validate_sidecar_env() -> None:
     ``VOICE_TYPER_CONFIG_DIR`` above.
     """
     if os.environ.get("TAURI_SIDECAR") != "1":
-        return  # Not a sidecar — skip validation
+        return  # Not a sidecar, skip validation
 
     from pathlib import Path
 
@@ -405,7 +405,7 @@ def _validate_sidecar_env() -> None:
             # than an empty string (which would silently fail downstream
             # truthiness checks). Pre-redact the value per
             log.warning(
-                "[SIDECAR-ENV] env var %s is empty (expected %s) — popping",
+                "[SIDECAR-ENV] env var %s is empty (expected %s), popping",
                 var,
                 expected,
             )
@@ -422,7 +422,7 @@ def _validate_sidecar_env() -> None:
             if len(actual) > 4096 or "\0" in actual:
                 # pre-redact the path value (path -> PII).
                 log.warning(
-                    "[SIDECAR-ENV] env var %s=<redacted> failed basic path validation (length or NUL byte) — popping",
+                    "[SIDECAR-ENV] env var %s=<redacted> failed basic path validation (length or NUL byte), popping",
                     var,
                 )
                 os.environ.pop(var, None)
@@ -431,7 +431,7 @@ def _validate_sidecar_env() -> None:
                 _validate_path_safety(Path(actual), Path.home())
             except (ValueError, OSError, RuntimeError) as exc:
                 # pre-redact the path value (path -> PII). Log
-                # only the exception *type name* — the exception
+                # only the exception *type name*, the exception
                 # *message* from _validate_path_safety embeds the
                 # offending path verbatim ("Path traversal detected:
                 # <path> escapes <home>"), so logging ``%s`` of the
@@ -439,7 +439,7 @@ def _validate_sidecar_env() -> None:
                 # The type name is enough for an operator to grep the
                 # source for the failing predicate.
                 log.warning(
-                    "[SIDECAR-ENV] env var %s=<redacted> failed path-safety validation (%s) — popping",
+                    "[SIDECAR-ENV] env var %s=<redacted> failed path-safety validation (%s), popping",
                     var,
                     type(exc).__name__,
                 )

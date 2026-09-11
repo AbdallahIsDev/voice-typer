@@ -26,9 +26,9 @@ class ParakeetEngine(LoadMixin, TranscribeMixin):
     The ONNX migration (PLAN_ONNX_INTEGRATION.md §3) swaps the backend
     from ``transformers.AutoModelForTDT`` + ``torch`` to
     ``onnx_asr.load_model(...)`` (onnx-asr 0.12.0 exports only
-    ``load_model`` / ``load_vad`` — there is no ``Model`` class).
+    ``load_model`` / ``load_vad``: there is no ``Model`` class).
     GPU→CPU fallback (§3.4) recreates the ORT session
-    with ``CPUExecutionProvider`` only — ONNX Runtime cannot move a
+    with ``CPUExecutionProvider`` only. ONNX Runtime cannot move a
     session between providers in place (unlike torch's ``.to("cpu")``).
     """
 
@@ -67,8 +67,8 @@ class ParakeetEngine(LoadMixin, TranscribeMixin):
         self._model: Any = None
         # Backward-compat: the pre-migration code populated a separate
         # ``_processor`` (transformers' ``AutoProcessor``). The ONNX
-        # backend has no separate processor — ``onnx_asr.Model`` bundles
-        # the tokenizer + ONNX session — so this is always ``None`` in
+        # backend has no separate processor, ``onnx_asr.Model`` bundles
+        # the tokenizer + ONNX session, so this is always ``None`` in
         # production. Kept as an instance attribute so existing tests
         # that ``engine._processor = MagicMock()`` keep working.
         self._processor: Any = None
@@ -108,7 +108,7 @@ class ParakeetEngine(LoadMixin, TranscribeMixin):
         # in-flight ``recognize()`` call through ``onnx-asr`` 0.12.0:
         # the library's ``recognize_batch()`` invokes ``session.run()``
         # without forwarding a ``run_options`` argument (verified by
-        # inspecting the wheel source — ``asr.py`` + ``models/nemo.py``
+        # inspecting the wheel source, ``asr.py`` + ``models/nemo.py``
         # call ``self._encoder.run(["outputs", ...], {...})`` with no
         # ``run_options`` parameter). The working abort path is
         # therefore the ``_abort_event`` check between chunks ONLY —

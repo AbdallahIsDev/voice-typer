@@ -22,11 +22,11 @@ Windows the spawned child would briefly flash a console window:
 
 Post-fix: both calls pass ``creationflags=CREATE_NO_WINDOW``
 (``0x08000000``) on Windows so the subprocess runs without a console
-window. The flag is guarded by ``is_windows()``  — on macOS /
+window. The flag is guarded by ``is_windows()``, on macOS /
 Linux ``creationflags`` is NOT a valid ``subprocess.run`` kwarg and
 ``subprocess`` raises ``ValueError`` if it's set.
 
-These tests run on any platform — they mock ``sys.platform`` and
+These tests run on any platform, they mock ``sys.platform`` and
 ``subprocess.run`` so the ``creationflags`` kwarg is asserted without
 needing a real Windows host. VALIDATE ON WINDOWS HOST.
 """
@@ -41,7 +41,7 @@ from unittest.mock import MagicMock
 import pytest
 
 # ---------------------------------------------------------------------------
-# _system_python_can_import_launcher — CREATE_NO_WINDOW
+# _system_python_can_import_launcher, CREATE_NO_WINDOW
 # ---------------------------------------------------------------------------
 
 
@@ -56,7 +56,7 @@ class TestSystemPythonProbeCreateNoWindow:
         # Force is_windows() → True. The probe reads ``is_windows`` from
         # ``voice_typer.server.platform_utils`` (imported at the top of
         # ``autostart.py``), and ``is_windows`` reads ``sys.platform``
-        # from the same module — so patching ``sys.platform`` on the
+        # from the same module, so patching ``sys.platform`` on the
         # platform_utils module is the canonical way to flip the result.
         monkeypatch.setattr(
             "voice_typer.server.platform_utils.sys.platform",
@@ -89,7 +89,7 @@ class TestSystemPythonProbeCreateNoWindow:
         )
 
     def test_linux_omits_creationflags(self, monkeypatch):
-        """On Linux, the probe must NOT pass ``creationflags`` — it's
+        """On Linux, the probe must NOT pass ``creationflags``, it's
         not a valid ``subprocess.run`` kwarg on POSIX and raises
         ``ValueError`` if set."""
         monkeypatch.setattr(
@@ -147,7 +147,7 @@ class TestSystemPythonProbeCreateNoWindow:
 
 
 # ---------------------------------------------------------------------------
-# _unregister_all_voicetyper_tasks — CREATE_NO_WINDOW
+# _unregister_all_voicetyper_tasks, CREATE_NO_WINDOW
 # ---------------------------------------------------------------------------
 
 
@@ -199,14 +199,14 @@ class TestUnregisterAllTasksCreateNoWindow:
         #
         # We must patch BOTH ``sys.modules`` AND the attribute on the
         # ``voice_typer.server`` package: production code does
-        # ``from voice_typer.server import task_scheduler`` which — per
-        # Python's import system — resolves ``task_scheduler`` as an
+        # ``from voice_typer.server import task_scheduler`` which, per
+        # Python's import system, resolves ``task_scheduler`` as an
         # attribute of the already-imported ``voice_typer.server`` package
         # BEFORE consulting ``sys.modules["voice_typer.server.task_scheduler"]``.
         # If a prior test (e.g. ``test_e2e_regression.py``) imported the
         # real ``task_scheduler`` module, the attribute is already set on
         # ``voice_typer.server`` and replacing only ``sys.modules`` leaves
-        # the production code reaching the real module — whose
+        # the production code reaching the real module, whose
         # ``is_supported()`` returns False on Linux (no schtasks.exe),
         # causing the function to early-return ``[]``.
         fake_task_scheduler = types.ModuleType("task_scheduler")
@@ -265,12 +265,12 @@ class TestUnregisterAllTasksCreateNoWindow:
 
 
 class TestIsWaylandSessionLinuxOnly:
-    """``is_wayland_session`` must return False on macOS — Wayland
+    """``is_wayland_session`` must return False on macOS, Wayland
     is a Linux display-server protocol and macOS uses Quartz/Aqua."""
 
     def test_returns_false_on_macos_even_with_wayland_env(self, monkeypatch):
         """Setting ``WAYLAND_DISPLAY`` on macOS must NOT cause
-        ``is_wayland_session`` to return True — macOS does not run
+        ``is_wayland_session`` to return True, macOS does not run
         Wayland. Pre-, this returned True because the platform
         guard accepted ``darwin`` as a Wayland-capable platform."""
         from voice_typer.server import platform_utils
@@ -280,12 +280,12 @@ class TestIsWaylandSessionLinuxOnly:
         monkeypatch.setenv("XDG_SESSION_TYPE", "wayland")
         assert platform_utils.is_wayland_session() is False, (
             "is_wayland_session must return False on macOS even "
-            "when WAYLAND_DISPLAY + XDG_SESSION_TYPE=wayland are set — "
+            "when WAYLAND_DISPLAY + XDG_SESSION_TYPE=wayland are set, "
             "macOS uses Quartz/Aqua, not Wayland"
         )
 
     def test_returns_false_on_windows(self, monkeypatch):
-        """Windows can never be Wayland — same as pre-fix."""
+        """Windows can never be Wayland, same as pre-fix."""
         from voice_typer.server import platform_utils
 
         monkeypatch.setattr(platform_utils.sys, "platform", "win32")

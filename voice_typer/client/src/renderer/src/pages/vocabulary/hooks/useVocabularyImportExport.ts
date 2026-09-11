@@ -1,4 +1,4 @@
-// Vocabulary import / export — domain adapter over the shared
+// Vocabulary import / export, domain adapter over the shared
 // :func:`useCollectionImportExport` round-trip skeleton.
 //
 // The skeleton owns the import/export FLOW (hidden-input ref → file.text()
@@ -7,8 +7,8 @@
 // toast mapping). THIS hook supplies only the Vocabulary domain specifics:
 //
 //   - ``parseImportedVocabulary`` (bare-array JSON, backend-shape
-//     VocabularyData, or CSV — see lib/importExport.ts)
-//   - pair-based de-dup key (``original|correction`` — with categories
+//     VocabularyData, or CSV, see lib/importExport.ts)
+//   - pair-based de-dup key (``original|correction``, with categories
 //     hidden from the UI the same wrong→correct pair is a visual duplicate
 //     regardless of its backend bucket, matching the load-time dedupe)
 //   - the persisted item shape mapping (``_id`` stripped on read,
@@ -29,7 +29,7 @@
 // attaches to, so re-selecting the same file fires onChange again.
 //
 // A rejected export (IPC returned ``success: false``) toasts the failure
-// (``notifyOnExportRejected``): a failed export must not be silent — the
+// (``notifyOnExportRejected``): a failed export must not be silent, the
 // user clicked the button and otherwise gets no feedback at all.
 
 import { useCallback } from "react";
@@ -69,7 +69,7 @@ export function useVocabularyImportExport({
 }: UseVocabularyImportExportArgs): UseVocabularyImportExportResult {
 	// Read the current items in the PERSISTED shape (row ids are a
 	// client-side React-key concern, not part of the import/export
-	// contract — they are re-attached by withEntryIds below).
+	// contract, they are re-attached by withEntryIds below).
 	const readExisting = useCallback(
 		() =>
 			entriesRef.current.map(({ _id: _ignored, ...rest }) => {
@@ -95,10 +95,10 @@ export function useVocabularyImportExport({
 	// Bulk "Export selected" passes the exact rows (mapped to the
 	// persisted item shape); the toolbar export passes none, so the
 	// full list is fetched from the backend. Either way the payload
-	// shape is identical — and ``category`` is included so re-importing
+	// shape is identical, and ``category`` is included so re-importing
 	// (or importing on another machine) preserves the user's category
 	// assignments. Previously the export stripped category, which
-	// meant an imported entry fell back to auto-detect — silently
+	// meant an imported entry fell back to auto-detect, silently
 	// undoing the user's manual categorisation.
 	const getExportItems = useCallback(
 		async (rows?: VocabRow[]): Promise<VocabularyEntry[]> => {

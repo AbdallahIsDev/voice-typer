@@ -8,12 +8,12 @@ use crate::util::{LOG_AGE_RETENTION_SECS, LOG_SIZE_FALLBACK_BYTES};
 use std::sync::atomic::AtomicBool;
 
 // POSIX-only `Permissions::from_mode` trait import. On Windows this is
-// a no-op (the OS uses ACLs, not mode bits) — the `#[cfg(unix)]` blocks
+// a no-op (the OS uses ACLs, not mode bits), the `#[cfg(unix)]` blocks
 // below gate every call site.
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 
-/// Startup sweep — Tiers 1 (age) + 2 (size fallback) of the three-tier
+/// Startup sweep: Tiers 1 (age) + 2 (size fallback) of the three-tier
 /// log-cleanup design. Deletes any regular file in `logs_dir` that is
 /// EITHER older than [`crate::util::LOG_AGE_RETENTION_SECS`] (7 days)
 /// OR larger than [`crate::util::LOG_SIZE_FALLBACK_BYTES`] (25 MB).
@@ -26,15 +26,15 @@ use std::os::unix::fs::PermissionsExt;
 /// the inter-process truncation locks must persist across sessions.
 /// Files locked by another live process (e.g. `voice-typer.log` held
 /// open by an already-running Python backend in host-first launch
-/// order) fail the remove and are skipped silently — their owner
+/// order) fail the remove and are skipped silently, their owner
 /// sweeps them at its own startup.
 ///
-/// Best-effort: every error is swallowed — a sweep failure must never
+/// Best-effort: every error is swallowed, a sweep failure must never
 /// block logger init or app startup.
 pub(crate) fn sweep_stale_logs(logs_dir: &std::path::Path) {
     let entries = match std::fs::read_dir(logs_dir) {
         Ok(entries) => entries,
-        Err(_) => return, // missing dir (fresh install) — nothing to sweep
+        Err(_) => return, // missing dir (fresh install): nothing to sweep
     };
     let now_secs = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -67,7 +67,7 @@ pub(crate) fn sweep_stale_logs(logs_dir: &std::path::Path) {
         if age <= LOG_AGE_RETENTION_SECS && meta.len() <= LOG_SIZE_FALLBACK_BYTES {
             continue;
         }
-        // Best-effort remove — a locked file (another live process)
+        // Best-effort remove: a locked file (another live process)
         // fails here and is skipped; its owner sweeps it.
         let _ = std::fs::remove_file(&path);
     }
@@ -84,12 +84,12 @@ pub(crate) fn sweep_stale_logs(logs_dir: &std::path::Path) {
 ///
 /// **Emits the session banner**: the FIRST line written to the file
 /// for the session is `[STARTUP] logging initialized: file=...,
-/// level=..., session=...` — mirroring the Python side's banner
+/// level=..., session=...`: mirroring the Python side's banner
 /// (`voice_typer/server/logging_setup.py`) and carrying the ONLY
 /// sanctioned per-session id occurrence (the trailing `session=`
 /// field; every other file line is clean `ts  LEVEL  msg`).
 ///
-/// Replaces the prior `env_logger::Builder::init()` call — this
+/// Replaces the prior `env_logger::Builder::init()` call, this
 /// logger writes to BOTH stderr (matching the prior env_logger
 /// output) AND the rotating file. If file init fails, the caller
 /// should fall back to `env_logger` for stderr-only output.
@@ -105,20 +105,20 @@ pub(crate) fn sweep_stale_logs(logs_dir: &std::path::Path) {
 pub(crate) fn init_file_logger(config_dir: &std::path::Path) -> Result<(), String> {
     let logs_dir = config_dir.join("logs");
     std::fs::create_dir_all(&logs_dir).map_err(|e| format!("create logs dir failed: {e}"))?;
-    // Startup sweep — Tiers 1 (age, 7 days) + 2 (size fallback, 25 MB)
+    // Startup sweep: Tiers 1 (age, 7 days) + 2 (size fallback, 25 MB)
     // of the three-tier cleanup design. Runs BEFORE the writer opens
     // `voice-typer-rust.log` so a stale/oversized active file is removed
     // and a fresh one created for this session. Mirrors the Python
     // `_sweep_stale_logs` and the Electron `sweepStaleLogs`. Best-effort:
-    // every error is swallowed — a sweep failure must never block logger
+    // every error is swallowed: a sweep failure must never block logger
     // init.
     sweep_stale_logs(&logs_dir);
     // Tighten the parent `<config_dir>/logs/` dir to
-    // `0o700` on POSIX (owner rwx only — no group/other access). Mirrors
+    // `0o700` on POSIX (owner rwx only, no group/other access). Mirrors
     // the Python side's `os.chmod(config_dir, 0o700)` at
     // `voice_typer/server/log.py:891-893`. Best-effort: a `chmod` failure
     // is logged but does NOT block logger init (a too-permissive dir is
-    // a softening of the security posture, not a hard failure — the
+    // a softening of the security posture, not a hard failure, the
     // individual log files inside still get `0o600` via `OpenOptionsExt`).
     #[cfg(unix)]
     {
@@ -127,7 +127,7 @@ pub(crate) fn init_file_logger(config_dir: &std::path::Path) -> Result<(), Strin
     // rename Rust's log basename to `voice-typer-rust` so the
     // final path is `<config_dir>/logs/voice-typer-rust.log`. Pre-fix
     // the basename was `voice-typer`, producing
-    // `<config_dir>/logs/voice-typer.log` — the SAME basename as the
+    // `<config_dir>/logs/voice-typer.log`: the SAME basename as the
     // Python sidecar's `<config_dir>/voice-typer.log`. The two paths
     // were different (Python wrote to the config_dir root, Rust to
     // `logs/`) so they didn't actually collide, BUT the basename
@@ -144,7 +144,7 @@ pub(crate) fn init_file_logger(config_dir: &std::path::Path) -> Result<(), Strin
     // Default to `Info` if the var is unset OR unparseable so a typo
     // (e.g. `RUST_LOG=debog`) doesn't silently disable all logging.
     // Both the global `log::set_max_level` AND the per-logger
-    // `level_filter` are set to this value — `set_max_level` is the
+    // `level_filter` are set to this value, `set_max_level` is the
     // fast-path short-circuit at the macro call site, while
     // `level_filter` is consulted inside `CombinedLogger::enabled`
     // (which `log::log!` calls as a second filter).
@@ -162,7 +162,7 @@ pub(crate) fn init_file_logger(config_dir: &std::path::Path) -> Result<(), Strin
         .ok()
         .and_then(|s| s.parse::<log::LevelFilter>().ok())
         .or_else(|| {
-            // RUST_LOG unset/unparseable — try VOICE_TYPER_DEBUG.
+            // RUST_LOG unset/unparseable: try VOICE_TYPER_DEBUG.
             if is_debug_env_truthy(std::env::var("VOICE_TYPER_DEBUG").ok().as_deref()) {
                 Some(log::LevelFilter::Debug)
             } else {
@@ -186,7 +186,7 @@ pub(crate) fn init_file_logger(config_dir: &std::path::Path) -> Result<(), Strin
         level_filter: max_level,
         // `AtomicBool` so future code (e.g. a Tauri command)
         // can toggle stderr verbosity at runtime. The per-line cost
-        // is a single `AtomicBool::load(Relaxed)` — same as a `bool`
+        // is a single `AtomicBool::load(Relaxed)`, same as a `bool`
         // load on x86/ARM (Relaxed loads compile to a plain MOV).
         stderr_verbose: AtomicBool::new(stderr_verbose_init),
     };
@@ -210,7 +210,7 @@ pub(crate) fn init_file_logger(config_dir: &std::path::Path) -> Result<(), Strin
     //
     // Both arms MOVE `combined` (into the swap slot or the leaked
     // global), and both error paths bail out BEFORE the banner below
-    // — the two success paths converge at a SINGLE banner emission
+    //: the two success paths converge at a SINGLE banner emission
     // site, so the banner fires exactly once per process regardless
     // of which path installed the sink.
     match EarlyLogger::instance() {
@@ -234,21 +234,21 @@ pub(crate) fn init_file_logger(config_dir: &std::path::Path) -> Result<(), Strin
     // BEFORE the banner so the banner (an INFO record) survives the
     // level gate under the default `Info` configuration.
     log::set_max_level(max_level);
-    // Session banner — the FIRST line written to the log file for
+    // Session banner: the FIRST line written to the log file for
     // this session. Mirrors the Python side's startup banner
     // (`voice_typer/server/logging_setup.py` logs
     // `[STARTUP] logging initialized: file=..., level=..., json=...,
     // debug=..., quiet=..., session=...`), adapted to the fields the
     // Rust logger knows: the logs dir, the resolved max level, and
     // the 8-char hex session id. The session id is the ONLY
-    // sanctioned id occurrence in the file — every other line is
+    // sanctioned id occurrence in the file, every other line is
     // clean `ts  LEVEL  msg`. Cross-process correlation with the
     // Python sidecar is preserved: the SAME id is passed to the
     // sidecar via `VOICE_TYPER_SESSION_ID`, and the sidecar stamps it
     // into its own banner. Logged at INFO so it lands in the file
     // under the default level gate. Emitted HERE (not in
     // `install_early_logger`) because the banner belongs to
-    // file-logger init — the early stderr-only phase has no file
+    // file-logger init: the early stderr-only phase has no file
     // sink yet, and no record is routed to the fresh file between
     // the install above and this line (sweep/chmod/writer-open emit
     // nothing), so the banner is guaranteed to be the first line.
@@ -268,7 +268,7 @@ pub(crate) fn init_file_logger(config_dir: &std::path::Path) -> Result<(), Strin
 /// via `eprintln!` (the global `log` sink may not be installed yet).
 ///
 /// Extracted from `main.rs` so the host entrypoint stays wiring-only
-//(C-) — no `env_logger::Builder` plumbing inline.
+//(C-): no `env_logger::Builder` plumbing inline.
 ///
 /// # Error handling
 ///
@@ -293,7 +293,7 @@ pub(crate) fn init_file_logger_or_stderr_fallback(config_dir: &std::path::Path) 
                 .try_init()
         {
             eprintln!(
-                "[MAIN] env_logger fallback ALSO failed: {} — running with NO logger; all log::*! calls will be dropped",
+                "[MAIN] env_logger fallback ALSO failed: {}, running with NO logger; all log::*! calls will be dropped",
                 e2
             );
         }

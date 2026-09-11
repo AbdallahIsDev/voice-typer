@@ -20,7 +20,7 @@ The consolidation is COMPLETE: 0 handler mixins declare
 ``log = logging.getLogger(...)`` inline. 9 handler modules plus the
 shared base class import ``log`` from this module:
 
-- ``_base.py`` (the HandlerBase base class — uses ``log`` in
+- ``_base.py`` (the HandlerBase base class, uses ``log`` in
   ``_respond_with_error``, so all 6 handler mixins that inherit
   ``HandlerBase`` indirectly emit through this logger)
 - ``config_handlers.py``
@@ -37,7 +37,7 @@ The remaining handler mixins (``dictation_handlers.py``,
 ``level_monitor_handlers.py``, ``microphone_handlers.py``,
 ``microphone_test_handlers.py``, ``repaste_handlers.py``,
 ``vocabulary_automation_handlers.py``) do NOT use logging directly and
-therefore do not need to import ``log`` — their error paths route
+therefore do not need to import ``log``, their error paths route
 through ``HandlerBase._respond_with_error`` (which uses the shared
 ``log``).  New handlers that need to emit log records SHOULD import
 ``log`` from this module rather than re-declaring the logger inline,
@@ -47,7 +47,7 @@ The logger name stays ``"voice_typer.server.ipc_server"`` for backward
 compatibility: existing log-scraping tests (``test_logging_format``,
 ``tests/test_ipc_error_envelope_parity.py``) assert this name in their
 ``caplog`` assertions, and the dispatcher's outer ``except Exception``
-in ``voice_typer/server/ipc_server.py`` also uses this name — so
+in ``voice_typer/server/ipc_server.py`` also uses this name, so
 handler-emitted records and dispatcher-emitted records land under the
 same logger in the unified ``voice-typer.log``.
 

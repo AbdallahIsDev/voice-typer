@@ -1,11 +1,11 @@
-r"""MIG-1.8 Phase 1 — OpenMP runtimes bundling validation (Win + macOS + Linux).
+r"""MIG-1.8 Phase 1: OpenMP runtimes bundling validation (Win + macOS + Linux).
 
 This test file validates that the **OpenMP runtime libraries** that
 CTranslate2 links against are correctly bundled into the Nuitka-frozen
 sidecar binary on all 3 desktop platforms (Windows, macOS, Linux).
 
-ADR-0020 §4 ("Nuitka freeze spec") — and §4.2 / §4.3 / §4.4 in
-particular — call out the OpenMP runtimes explicitly:
+ADR-0020 §4 ("Nuitka freeze spec"), and §4.2 / §4.3 / §4.4 in
+particular, call out the OpenMP runtimes explicitly:
 
   - **Windows** (§4.2): ``libiomp5md.dll`` (Intel OpenMP). Lives under
     ``$SITE/ctranslate2/lib/``. If missing, the frozen ``.exe`` BUILDS
@@ -27,7 +27,7 @@ redistributables present in the wheel.
 The Linux sandbox CANNOT run a real Nuitka freeze here (no MSVC,
 no Xcode, no python-build-standalone interpreter for any of the 3
 targets). These tests therefore validate the **structure** of the
-3 build scripts — they assert that each script:
+3 build scripts, they assert that each script:
 
   1. Bundles the platform-specific OpenMP runtime via
      ``--include-data-dir`` for ``ctranslate2/lib`` (the mandatory
@@ -37,11 +37,11 @@ targets). These tests therefore validate the **structure** of the
      ``libiomp5.so``) in its header comment so a future maintainer
      cannot accidentally delete the runtime.
   3. Includes ``ctranslate2/lib`` UNCONDITIONALLY (it is the
-     mandatory dir — the OpenMP runtime + ctranslate2's own native
+     mandatory dir, the OpenMP runtime + ctranslate2's own native
      lib both live there).
-  4. Guards ``ctranslate2/libs`` (plural — the OPTIONAL secondary
+  4. Guards ``ctranslate2/libs`` (plural, the OPTIONAL secondary
      dir) with an ``if [[ -d ... ]]`` existence check (XPLAT-3
-     pattern). Windows is a **known gap** — it does not have this
+     pattern). Windows is a **known gap**, it does not have this
      guard. This test file documents the gap (asserts absence)
      rather than fixing it.
 
@@ -49,7 +49,7 @@ VALIDATE ON HOST:
     These commands must be run on a real host with a freshly-built
     sidecar binary to verify the OpenMP runtimes actually survived
     the Nuitka freeze (the structure tests below only prove the
-    build script *tries* to bundle them — they do NOT prove the
+    build script *tries* to bundle them, they do NOT prove the
     files landed inside the onefile archive).
 
     # ─── Windows (PowerShell on Windows 10 22H2 / Windows 11) ──────────────
@@ -98,33 +98,33 @@ VALIDATE ON HOST:
     # Expected: libgomp.so.1 OR libiomp5.so listed as a NEEDED library.
 
 References:
-  - ADR-0020 §4.2 — Windows Nuitka freeze spec (libiomp5md.dll).
-  - ADR-0020 §4.3 — macOS Nuitka freeze spec (libiomp5.dylib).
-  - ADR-0020 §4.4 — Linux Nuitka freeze spec (libgomp.so / libiomp5.so).
-  - ADR-0020 §11 — Known Issues: "CPU inference runtimes (easy to miss,
+  - ADR-0020 §4.2, Windows Nuitka freeze spec (libiomp5md.dll).
+  - ADR-0020 §4.3, macOS Nuitka freeze spec (libiomp5.dylib).
+  - ADR-0020 §4.4, Linux Nuitka freeze spec (libgomp.so / libiomp5.so).
+  - ADR-0020 §11, Known Issues: "CPU inference runtimes (easy to miss,
     instant crash if absent)".
-  - scripts/build/build_sidecar_{windows,macos,linux}.sh — the 3 scripts
+  - scripts/build/build_sidecar_{windows,macos,linux}.sh, the 3 scripts
     under test.
-  - tests/tauri/mig15/test_nuitka_windows_build.py — sibling test that
+  - tests/tauri/mig15/test_nuitka_windows_build.py, sibling test that
     documents the GAP-1 (no ctranslate2/libs guard on Windows).
-  - tests/tauri/mig16/test_nuitka_macos_build.py — sibling macOS test.
-  - tests/tauri/mig17/test_nuitka_linux_build.py — sibling Linux test
+  - tests/tauri/mig16/test_nuitka_macos_build.py, sibling macOS test.
+  - tests/tauri/mig17/test_nuitka_linux_build.py, sibling Linux test
     that documents the XPLAT-3 ctranslate2/libs guard pattern.
 
-Gaps documented (report, do NOT fix — out of scope for MIG-1.8):
+Gaps documented (report, do NOT fix, out of scope for MIG-1.8):
   - GAP-OpenMP-W1: ``build_sidecar_windows.sh`` does NOT have a
     ``ctranslate2/libs`` (plural) existence guard like the Linux +
     macOS siblings (XPLAT-3 pattern parity gap). The Windows wheel
     layout puts all DLLs under ``ctranslate2/lib`` (singular), so
-    this is likely benign on Windows — but it is an inconsistency.
+    this is likely benign on Windows, but it is an inconsistency.
     See ``test_windows_known_gap_no_ctranslate2_libs_guard``.
   - GAP-OpenMP-W2: ``build_sidecar_windows.sh`` uses an explicit
-    ``--include-dll=$CT2_DLL`` for ``ctranslate2.dll`` only — it
+    ``--include-dll=$CT2_DLL`` for ``ctranslate2.dll`` only, it
     does NOT explicitly name ``libiomp5md.dll`` in an
     ``--include-dll`` flag. Instead, the OpenMP runtime is captured
     implicitly via ``--include-data-dir=$CT2_LIB_DIR`` (the whole
     folder). This is acceptable (the folder is copied verbatim) but
-    is a fragile coupling — if a future Nuitka version changes how
+    is a fragile coupling, if a future Nuitka version changes how
     ``--include-data-dir`` handles DLLs, the OpenMP runtime could
     silently drop out. Documented here, not fixed.
 """
@@ -203,7 +203,7 @@ def test_build_script_is_bash_syntax_valid(script: Path):
     is spawned. Safe to run on the Linux sandbox.
     """
     if not bash_usable():
-        pytest.skip("bash not available or not usable on this host — cannot run `bash -n`.")
+        pytest.skip("bash not available or not usable on this host, cannot run `bash -n`.")
     result = subprocess.run(
         ["bash", "-n", str(script)],
         capture_output=True,
@@ -220,7 +220,7 @@ def test_windows_bundles_libiomp5md_dll_via_include_data_dir(windows_text: str):
     """Windows must ``--include-data-dir`` the ctranslate2 native-DLL folder.
 
     ADR-0020 §4.2: ``libiomp5md.dll`` lives under ``$SITE/ctranslate2/lib``
-    (older wheels) or at the package root (modern wheels — the cp312
+    (older wheels) or at the package root (modern wheels, the cp312
     win_amd64 wheel ships ctranslate2.dll + cudnn64_9.dll +
     libiomp5md.dll directly in ``ctranslate2/``). Because Nuitka does
     NOT glob ``*.dll``, the reliable pattern is ``--include-data-dir``
@@ -244,7 +244,7 @@ def test_windows_bundles_libiomp5md_dll_via_include_data_dir(windows_text: str):
         "ctranslate2 native-DLL folder ($CT2_DATA_DIR_SRC=$CT2_DATA_DIR_DEST)."
     )
     # Both layouts must resolve a RELATIVE dest (absolute dests are silently
-    # ignored by Nuitka — see the script header note).
+    # ignored by Nuitka: see the script header note).
     assert 'CT2_DATA_DIR_DEST="ctranslate2/lib"' in windows_text, (
         "the lib/ layout must map to a RELATIVE dest (ctranslate2/lib)."
     )
@@ -289,7 +289,7 @@ def test_macos_bundles_libiomp5_dylib_via_include_data_dir(macos_text: str):
 
     ADR-0020 §4.3: CTranslate2 on macOS ships ``libctranslate2.dylib`` +
     ``libiomp5.dylib`` (OpenMP) under ``$SITE/ctranslate2/lib/``.
-    Apple Silicon wheels are CPU-only (no CUDA) — OpenMP is the only
+    Apple Silicon wheels are CPU-only (no CUDA), OpenMP is the only
     parallel backend.
     """
     assert "--include-data-dir" in macos_text, (
@@ -316,7 +316,7 @@ def test_macos_documents_libiomp5_dylib_in_header(macos_text: str):
     """
     assert "libiomp5.dylib" in macos_text, (
         "build_sidecar_macos.sh must document libiomp5.dylib in its header "
-        "comment (ADR-0020 §4.3 — the macOS OpenMP runtime)."
+        "comment (ADR-0020 §4.3, the macOS OpenMP runtime)."
     )
 
 
@@ -350,7 +350,7 @@ def test_linux_documents_both_libgomp_and_libiomp5_in_header(linux_text: str):
     ADR-0020 §4.4: Linux wheels ship BOTH OpenMP runtimes
     (``libiomp5.so`` + ``libgomp.so``) under ``$SITE/ctranslate2/lib/``.
     CTranslate2 may link against either, depending on how the wheel was
-    built — the script header must document BOTH filenames so a future
+    built, the script header must document BOTH filenames so a future
     maintainer cannot accidentally delete the ``--include-data-dir`` line.
 
     Note: ADR-0020 §4.4 also mentions ``libgomp.so`` in the same breath
@@ -358,11 +358,11 @@ def test_linux_documents_both_libgomp_and_libiomp5_in_header(linux_text: str):
     """
     assert "libgomp.so" in linux_text or "libgomp" in linux_text, (
         "build_sidecar_linux.sh must document libgomp.so (GNU OpenMP) in its "
-        "header comment (ADR-0020 §4.4 — Linux OpenMP runtime)."
+        "header comment (ADR-0020 §4.4, Linux OpenMP runtime)."
     )
     assert "libiomp5.so" in linux_text or "libiomp5" in linux_text, (
         "build_sidecar_linux.sh must document libiomp5.so (Intel OpenMP) in "
-        "its header comment (ADR-0020 §4.4 — Linux OpenMP runtime)."
+        "its header comment (ADR-0020 §4.4, Linux OpenMP runtime)."
     )
 
 
@@ -373,7 +373,7 @@ def test_ctranslate2_lib_data_dir_is_unconditional(script: Path):
 
     The OpenMP runtime (``libiomp5md.dll`` / ``libiomp5.dylib`` /
     ``libgomp.so`` / ``libiomp5.so``) lives under ``ctranslate2/lib``.
-    This directory is **mandatory** — without it, the frozen binary
+    This directory is **mandatory**, without it, the frozen binary
     BUILDS but CRASHES on ``import ctranslate2`` (ADR-0020 §11).
 
     The script must NOT wrap the ``--include-data-dir`` for
@@ -414,7 +414,7 @@ def test_ctranslate2_lib_data_dir_is_unconditional(script: Path):
                 f"{script.name} line {i + 1}: --include-data-dir for "
                 "ctranslate2/lib (singular, mandatory) is INSIDE an "
                 "`if [[ -d ... ]]` guard block. The ctranslate2/lib "
-                "folder must be bundled UNCONDITIONALLY — it contains "
+                "folder must be bundled UNCONDITIONALLY, it contains "
                 "the OpenMP runtime (libiomp5md.dll / libiomp5.dylib / "
                 "libgomp.so). See ADR-0020 §11."
             )
@@ -451,7 +451,7 @@ def test_linux_has_xplat3_ctranslate2_libs_guard(linux_text: str):
     so the script must guard it with ``if [[ -d "$CT2_LIBS_DIR" ]]``.
 
     The Linux script is the **canonical reference source** for this
-    XPLAT-3 pattern (it has the most thorough comments — see the
+    XPLAT-3 pattern (it has the most thorough comments: see the
     "XPLAT-3-ctranslate2-guard" reference in the script header).
     """
     assert "CT2_LIBS_DIR" in linux_text, "build_sidecar_linux.sh must define CT2_LIBS_DIR (XPLAT-3 pattern)."
@@ -467,7 +467,7 @@ def test_linux_has_xplat3_ctranslate2_libs_guard(linux_text: str):
 def test_windows_known_gap_no_ctranslate2_libs_guard(windows_text: str):
     """BUILD-2 fix: the Windows script now HAS the ctranslate2/libs guard.
 
-    Previously a KNOWN GAP — the Windows script only included the singular
+    Previously a KNOWN GAP, the Windows script only included the singular
     ``lib/`` with no guard for the optional ``libs/`` dir. BUILD-2 added
     the guard (mirroring the Linux + macOS XPLAT-3 pattern). This test
     now ASSERTS the guard IS present.
@@ -521,13 +521,13 @@ def test_all_three_scripts_reference_ctranslate2_package(windows_text: str, maco
     """All 3 scripts must ``--include-package=ctranslate2``.
 
     Without this, Nuitka would not include the ctranslate2 Python
-    package itself — the OpenMP runtime DLLs are useless if the
+    package itself, the OpenMP runtime DLLs are useless if the
     Python module that loads them is absent.
     """
     for label, text in (("windows", windows_text), ("macos", macos_text), ("linux", linux_text)):
         assert "--include-package=ctranslate2" in text, (
             f"build_sidecar_{label}.sh must --include-package=ctranslate2 "
-            "(the Python package — distinct from the data-dir that bundles "
+            "(the Python package, distinct from the data-dir that bundles "
             "the native DLLs)."
         )
 
@@ -535,7 +535,7 @@ def test_all_three_scripts_reference_ctranslate2_package(windows_text: str, maco
 def test_all_three_scripts_reference_faster_whisper_package(windows_text: str, macos_text: str, linux_text: str):
     """All 3 scripts must ``--include-package=faster_whisper``.
 
-    faster-whisper is the consumer of ctranslate2 — without it, the
+    faster-whisper is the consumer of ctranslate2, without it, the
     OpenMP runtime is never loaded. ADR-0020 §4.2/§4.3/§4.4 all
     mandate this flag.
     """

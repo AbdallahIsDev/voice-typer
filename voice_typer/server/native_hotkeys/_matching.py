@@ -1,4 +1,4 @@
-"""Native hotkey backend — {name}."""
+"""Native hotkey backend, {name}."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ class _MatchingMixin:
     # Members provided by the composed ``SubprocessHotkeyBackend``
     # (``_core.py`` ``__init__``): cross-mixin attribute access is
     # runtime-valid but pyrefly cannot see it on a standalone mixin.
-    # Annotations only — no values — so no runtime attribute is created
+    # Annotations only, no values, so no runtime attribute is created
     # and the runtime MRO is unaffected (same pattern as
     # dictation_pipeline's mixin declarations and model_manager's
     # ``ChangeMixin``).
@@ -36,10 +36,10 @@ class _MatchingMixin:
         """Handle FN_DOWN / FN_UP. Used by the macOS backend only.
 
         ``payload`` is accepted for dispatch-table uniformity
-        but ignored — ``FN_DOWN`` / ``FN_UP`` are exact-match events
+        but ignored, ``FN_DOWN`` / ``FN_UP`` are exact-match events
         with no payload (the prefix IS the line).
         """
-        del payload  # unused — kept for dispatch-table signature parity
+        del payload  # unused, kept for dispatch-table signature parity
         with self._match_lock:
             self._fn_down = down
         self._try_match(down)
@@ -74,32 +74,32 @@ class _MatchingMixin:
     def _on_key_event(self, key_name: str, *, down: bool) -> None:
         """Handle KEY_DOWN / KEY_UP events.
 
-        auto-repeat filter: the OS auto-repeats key-down
-        events while a key is held (Windows WM_KEYDOWN repeats,
-        Linux evdev emits value=2 repeats, macOS NSEvent .keyDown
-        repeats). Without filtering, each repeat would re-call
-        ``_try_match``, re-firing the hotkey callback on every repeat
-        — for a toggle-mode hotkey that means toggling on/off every
-        ~30ms while the key is held. We suppress the repeat by
-        checking ``self._main_key_down`` BEFORE updating state — if
-        the main key is already tracked as down, this KEY_DOWN is an
-        OS auto-repeat (not a fresh press) and we return early.
-        The not-down → down transition (the first KEY_DOWN after a
-        KEY_UP or after init) is the only one that fires ``_try_match``.
+         auto-repeat filter: the OS auto-repeats key-down
+         events while a key is held (Windows WM_KEYDOWN repeats,
+         Linux evdev emits value=2 repeats, macOS NSEvent .keyDown
+         repeats). Without filtering, each repeat would re-call
+         ``_try_match``, re-firing the hotkey callback on every repeat
+        , for a toggle-mode hotkey that means toggling on/off every
+         ~30ms while the key is held. We suppress the repeat by
+         checking ``self._main_key_down`` BEFORE updating state, if
+         the main key is already tracked as down, this KEY_DOWN is an
+         OS auto-repeat (not a fresh press) and we return early.
+         The not-down → down transition (the first KEY_DOWN after a
+         KEY_UP or after init) is the only one that fires ``_try_match``.
 
-        Known limitation: ``_main_key_down`` is a single boolean
-        shared across all keys, not a per-key set. This means a
-        KEY_DOWN:A followed by a KEY_DOWN:V (without KEY_UP:A) would
-        suppress the V press. In practice this never happens because
-        the OS only auto-repeats the most-recent key, and the wire
-        protocol doesn't emit a new KEY_DOWN for a different key
-        while the previous one is still held (the user must release
-        first). If this assumption ever breaks, the fix is to track
-        per-key down-state in a set, not a boolean.
+         Known limitation: ``_main_key_down`` is a single boolean
+         shared across all keys, not a per-key set. This means a
+         KEY_DOWN:A followed by a KEY_DOWN:V (without KEY_UP:A) would
+         suppress the V press. In practice this never happens because
+         the OS only auto-repeats the most-recent key, and the wire
+         protocol doesn't emit a new KEY_DOWN for a different key
+         while the previous one is still held (the user must release
+         first). If this assumption ever breaks, the fix is to track
+         per-key down-state in a set, not a boolean.
         """
         with self._match_lock:
             if down:
-                # auto-repeat filter — if the main key is
+                # auto-repeat filter, if the main key is
                 # already tracked as down, this KEY_DOWN is an OS
                 # auto-repeat. Skip the state update (no-op anyway)
                 # AND skip the ``_try_match`` call so the hotkey
@@ -117,7 +117,7 @@ class _MatchingMixin:
         The primary spec (``self._parsed``, role "dictation") is tried
         first; extra matchers (``self._extra_matchers``) are tried in
         registration order. The first matcher whose spec matches the
-        current event fires its callback and short-circuits — at most
+        current event fires its callback and short-circuits, at most
         ONE role fires per event. This prevents double-firing when two
         specs could both match (e.g. ``<ctrl>+v`` and ``<ctrl>+<shift>+v``
         would both match a Ctrl+Shift+V press if we didn't short-circuit;
@@ -147,7 +147,7 @@ class _MatchingMixin:
         if self._try_match_one(primary, down, key_name=key_name):
             return
         # Extra matchers (roles "esc", "repaste", etc.). Each is
-        # independent — if the primary already fired, we skip them.
+        # independent, if the primary already fired, we skip them.
         for matcher in self._extra_matchers:
             if self._try_match_one(matcher, down, key_name=key_name):
                 return

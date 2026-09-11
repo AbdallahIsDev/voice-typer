@@ -1,5 +1,5 @@
 /**
- * CollectionToolbar — the shared toolbar shell extracted from the
+ * CollectionToolbar, the shared toolbar shell extracted from the
  * VocabToolbar / TemplateToolbar mirror.
  *
  * These tests pin the shell's contract for the Wave-5 page migration:
@@ -96,7 +96,7 @@ afterEach(() => {
 	cleanup();
 });
 
-describe("CollectionToolbar — domain label injection", () => {
+describe("CollectionToolbar, domain label injection", () => {
 	it("resolves every action button's visible label and accessible name from the injected keys", () => {
 		setupToolbar();
 
@@ -109,7 +109,7 @@ describe("CollectionToolbar — domain label injection", () => {
 		).toBeTruthy();
 		expect(screen.getByText("test.clearAll")).toBeTruthy();
 		// The Add button's accessible name comes from its visible label
-		// (no aria-label by default — see the drift tests below).
+		// (no aria-label by default, see the drift tests below).
 		expect(screen.getByRole("button", { name: "test.add" })).toBeTruthy();
 		// The shared ExportFormatMenu trigger renders inside the shell.
 		expect(
@@ -135,7 +135,7 @@ describe("CollectionToolbar — domain label injection", () => {
 	});
 });
 
-describe("CollectionToolbar — hidden import input", () => {
+describe("CollectionToolbar, hidden import input", () => {
 	it("renders the sr-only file input with the injected accept filter, aria-hidden, and out of tab order", () => {
 		setupToolbar();
 		const input = document.querySelector(
@@ -169,7 +169,7 @@ describe("CollectionToolbar — hidden import input", () => {
 	});
 });
 
-describe("CollectionToolbar — drift props (both pages' forms expressible)", () => {
+describe("CollectionToolbar, drift props (both pages' forms expressible)", () => {
 	it("Add button has NO aria-label by default (the Vocabulary form: visible label is the accessible name)", () => {
 		setupToolbar();
 		const add = screen.getByRole("button", { name: "test.add" });
@@ -200,7 +200,7 @@ describe("CollectionToolbar — drift props (both pages' forms expressible)", ()
 	});
 });
 
-describe("CollectionToolbar — visual tokens (byte-identical extraction)", () => {
+describe("CollectionToolbar, visual tokens (byte-identical extraction)", () => {
 	it("single-row layout: full-width justify-between parent + gap-2 secondary cluster (C-UI-10: spacing via parent gap)", () => {
 		setupToolbar();
 		const root = document.querySelector("div.flex.w-full");
@@ -238,7 +238,7 @@ describe("CollectionToolbar — visual tokens (byte-identical extraction)", () =
 	});
 });
 
-describe("CollectionToolbar — action wiring", () => {
+describe("CollectionToolbar, action wiring", () => {
 	it("clicking Clear All and Add invokes the page callbacks", () => {
 		const props = setupToolbar();
 		fireEvent.click(screen.getByRole("button", { name: "test.clearAllAria" }));

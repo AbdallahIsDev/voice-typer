@@ -1,16 +1,16 @@
 /**
- * Tests for hooks/theme/themeSync + themeBridge — the backend→store
+ * Tests for hooks/theme/themeSync + themeBridge, the backend→store
  * sync concern extracted from useTheme.ts.
  *
  * Covers:
- *   1. ``ensureThemeSideEffects`` — the initOnce guard: the initial
+ *   1. ``ensureThemeSideEffects``, the initOnce guard: the initial
  *      config reload and the ``beforeunload`` flush listener run
  *      EXACTLY ONCE across repeated calls; the bridge references are
  *      refreshed on every call.
- *   2. ``reloadThemeFromConfig`` — seeds the store + localStorage from
+ *   2. ``reloadThemeFromConfig``, seeds the store + localStorage from
  *      the backend, syncs the sound-feedback flag, and flips
  *      ``hasInitialReloadCompleted`` even on failure.
- *   3. ``handleConfigChanged`` — merges backend-pushed partials into
+ *   3. ``handleConfigChanged``, merges backend-pushed partials into
  *      the app config cache + the theme store.
  *   4. The ``_resetThemeStoreForTest`` seam in ``hooks/useTheme.ts``
  *      fully resets the singleton state so the guard re-arms.
@@ -73,7 +73,7 @@ afterEach(() => {
 	removeBeforeUnloadFlush();
 });
 
-describe("themeSync — ensureThemeSideEffects (initOnce guard)", () => {
+describe("themeSync, ensureThemeSideEffects (initOnce guard)", () => {
 	it("runs the initial reload + beforeunload install EXACTLY ONCE", async () => {
 		armBridge();
 		const addSpy = vi.spyOn(window, "addEventListener");
@@ -127,7 +127,7 @@ describe("themeSync — ensureThemeSideEffects (initOnce guard)", () => {
 	});
 });
 
-describe("themeSync — reloadThemeFromConfig", () => {
+describe("themeSync, reloadThemeFromConfig", () => {
 	it("seeds the store + localStorage from the backend config", async () => {
 		armBridge();
 		callMock.mockResolvedValueOnce({
@@ -189,7 +189,7 @@ describe("themeSync — reloadThemeFromConfig", () => {
 	});
 });
 
-describe("themeSync — handleConfigChanged", () => {
+describe("themeSync, handleConfigChanged", () => {
 	it("merges the partial into the app config cache and updates the store", () => {
 		armBridge();
 		handleConfigChanged({
@@ -217,7 +217,7 @@ describe("themeSync — handleConfigChanged", () => {
 	});
 });
 
-describe("themeSync — bridge shared with the persist write path", () => {
+describe("themeSync, bridge shared with the persist write path", () => {
 	it("a save scheduled through themePersist fires against the bridge registered here", () => {
 		armBridge();
 		scheduleThemeSave({ theme_mode: "dark" });

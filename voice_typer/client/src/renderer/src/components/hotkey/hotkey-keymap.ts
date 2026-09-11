@@ -12,14 +12,14 @@
  * Re-exports the shared validation API (``detectPlatform`` /
  * ``isReserved`` / ``normalizeHotkey`` / ``RESERVED_SHORTCUTS``) from
  * ``hotkey-validation.ts`` so existing imports from ``hotkey-utils``
- * keep resolving via the backward-compat shim — they're the platform
+ * keep resolving via the backward-compat shim, they're the platform
  * detection entry points the preset getters use.
  *
  * The matching backend mirror lives in
  * ``voice_typer/server/config_validators.py`` (per-platform reserved
  * shortcuts) and ``voice_typer/server/native_hotkeys.py``
  * (``_normalize_key_name``). All three sides share a common key-name
- * vocabulary — see the comment above ``KEY_CODE_TO_PYNPUT``.
+ * vocabulary, see the comment above ``KEY_CODE_TO_PYNPUT``.
  */
 
 import { t } from "@/i18n/i18n";
@@ -65,20 +65,20 @@ export const KEY_CODE_TO_PYNPUT: Record<string, string> = {
 	// (e.code) to pynput-style lowercase names. It is ONE OF THREE
 	// independent key-name tables that share a common vocabulary:
 	//
-	//   Frontend:  KEY_CODE_TO_PYNPUT (hotkey-keymap.ts) — e.code → pynput
-	//   Backend:   _VK_MAP (hotkeys.py) — pynput name → Win32 VK code
-	//   Native:    _normalize_key_name (native_hotkeys.py) — pynput name →
+	//   Frontend:  KEY_CODE_TO_PYNPUT (hotkey-keymap.ts), e.code → pynput
+	//   Backend:   _VK_MAP (hotkeys.py), pynput name → Win32 VK code
+	//   Native:    _normalize_key_name (native_hotkeys.py), pynput name →
 	//              wire-protocol name (CapsLock, Space, MediaNext, etc.)
 	//
 	// All three must agree on the set of names ("f1", "space",
 	// "caps_lock", "page_up", etc.). _normalize_key_name is the
-	// canonical name-to-name transformer — if you add a name here,
+	// canonical name-to-name transformer, if you add a name here,
 	// add it there too so the native backends can recognize it.
 	//
 	// letters and digits were missing from
 	// this table, so capturing combos like Alt+Q, Ctrl+Alt+V, or even
 	// the default repaste hotkey Ctrl+Alt+V would fail with "Key 'v'
-	// is not supported" — despite the error message literally
+	// is not supported", despite the error message literally
 	// suggesting "Try letters, numbers, F-keys, or Space." Adding
 	// letters and digits (keyed by e.code, which is layout-independent)
 	// fixes sub-task 2.2 and the Alt+Q symptom of 2.2.5.
@@ -193,7 +193,7 @@ export const MODIFIER_KEYS = [
  *
  * : ``MetaLeft`` / ``MetaRight`` previously always mapped to
  * ``"cmd"``, which is the macOS name for the modifier. On Windows and
- * Linux, committing a bare Win/Super key would emit ``"<cmd>"`` — a
+ * Linux, committing a bare Win/Super key would emit ``"<cmd>"``, a
  * name the native backend on those platforms can't register, silently
  * breaking the hotkey. This factory now branches on ``isMac`` so the
  * Meta keys map to ``"cmd"`` on macOS (where ``<cmd>`` is registered)
@@ -201,7 +201,7 @@ export const MODIFIER_KEYS = [
  * the registered name).
  *
  * On Linux, ``<super>`` is also accepted by the backend as an alias
- * for the Meta key — we emit ``"win"`` for parity with the legacy
+ * for the Meta key, we emit ``"win"`` for parity with the legacy
  * modifier vocabulary and let the backend normalize as needed.
  *
  * @param isMac Whether the current platform is macOS.
@@ -226,18 +226,18 @@ export function getModifierCodeMap(isMac: boolean): Record<string, string> {
 // ────────────────────────────────────────────────────────────────────
 
 /**
- * Single-key presets — only keys that are safe to use alone as a
+ * Single-key presets, only keys that are safe to use alone as a
  * dictation trigger.
  *
  * the dropdown was reduced to only the
  * keys that are safe to use as a bare modifier/single-key trigger.
  * Removed:
  * - Win (Windows only): pressing the Win key alone opens the Start
- *   menu — not a usable dictation key.
+ *   menu, not a usable dictation key.
  * - Shift: users hold Shift for capitalization while typing, so a
  *   bare-Shift trigger would fire constantly while the user is just
  *   typing uppercase letters. Not a usable dictation key.
- * - Cmd (macOS): same problem as Win on Windows — Cmd alone is a
+ * - Cmd (macOS): same problem as Win on Windows, Cmd alone is a
  *   system-reserved gesture (Spotlight on newer macOS, etc.).
  *
  * Removed (not universally present, kept here only as documentation):
@@ -254,7 +254,7 @@ export function getModifierCodeMap(isMac: boolean): Record<string, string> {
  *   accidentally enable caps lock mode)
  * - Alt (every keyboard; modifier-only release detection)
  * - Ctrl (every keyboard; modifier-only release detection)
- * - Fn (macOS only — firmware-only on Windows/Linux)
+ * - Fn (macOS only, firmware-only on Windows/Linux)
  *
  * F1–F12 entries were removed from the
  * dropdown entirely. They're not universally present on laptop
@@ -277,7 +277,7 @@ export function getSingleKeyPresets(): { value: string; label: string }[] {
 	const isMac = detectPlatform() === "darwin";
 	return [
 		// Safe single-key options only.
-		// Caps Lock: label is intentionally bare — no "recommended"
+		// Caps Lock: label is intentionally bare, no "recommended"
 		// or "requires OS remap" qualifier. The hotkey backend
 		// transparently handles the OS-level toggle suppression.
 		{ value: "caps_lock", label: t("hotkeyKeys.capsLock") },
@@ -290,7 +290,7 @@ export function getSingleKeyPresets(): { value: string; label: string }[] {
 }
 
 /**
- * Combo presets — multi-key hotkey combinations (e.g. Ctrl+Shift+V,
+ * Combo presets, multi-key hotkey combinations (e.g. Ctrl+Shift+V,
  * Ctrl+Alt+V) used for re-paste and other shortcut settings.
  *
  * this is a getter so the platform is re-detected on every

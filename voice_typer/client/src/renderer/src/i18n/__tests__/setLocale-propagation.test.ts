@@ -26,7 +26,7 @@
  * Testing approach: the IPC pushes (, ) are tested directly by
  * mocking `window.window_` and `window.python` and asserting on the
  * spy calls. The `ensureLocaleLoaded` call () is tested
- * behaviorally — we verify that after `setLocale("ar")`, the Arabic
+ * behaviorally, we verify that after `setLocale("ar")`, the Arabic
  * translation table is loaded (i.e. `t("models.title")` returns the
  * Arabic string from ar.json). This is preferable to spying on the
  * `ensureLocaleLoaded` export because `setLocale` calls it via the
@@ -118,7 +118,7 @@ describe("NH-2: setLocale kicks off ensureLocaleLoaded for non-English locales",
 		// Register a fresh Arabic table so `t()` resolves to Arabic
 		// strings immediately. In production, `ensureLocaleLoaded`
 		// performs a dynamic `import("./translations/ar.json")` and
-		// registers the table — here we register it directly to make
+		// registers the table, here we register it directly to make
 		// the test deterministic (no dependency on Vite's chunk-load
 		// timing).
 		//
@@ -150,7 +150,7 @@ describe("NH-2: setLocale kicks off ensureLocaleLoaded for non-English locales",
 	});
 
 	it("does NOT throw when switching to a locale whose chunk is not yet loaded", () => {
-		// `ensureLocaleLoaded` is fire-and-forget — `setLocale` must
+		// `ensureLocaleLoaded` is fire-and-forget, `setLocale` must
 		// return synchronously even if the dynamic import is still
 		// in-flight. The function delegates the async work to
 		// `ensureLocaleLoaded` and does NOT await it.
@@ -201,7 +201,7 @@ describe("NH-3: setLocale pushes the locale to the Electron main process", () =>
 			Promise.reject(new Error("IPC failed")),
 		);
 		// The rejection is swallowed by `safePushIpc` and surfaces as a
-		// console.warn — `setLocale` itself must not throw or return a
+		// console.warn, `setLocale` itself must not throw or return a
 		// rejected promise.
 		const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 		expect(() => setLocale("ar" as Locale)).not.toThrow();
@@ -279,12 +279,12 @@ describe("NH-4: setLocale pushes the locale + tray labels to the Python backend"
 	});
 
 	it("sends English fallback strings for keys missing from the current locale", () => {
-		// Register a partial Arabic translation table — only `models.title`
+		// Register a partial Arabic translation table, only `models.title`
 		// is present, `microphone.microphone` is missing. The helper's
 		// `t("microphone.microphone")` falls back to English (which has
 		// the key) and returns the English string. The English string is
 		// sent to the backend (which merges it over its own English
-		// default — a no-op for that key).
+		// default, a no-op for that key).
 		registerTranslations("ar", {
 			models: { title: "النماذج" },
 		});
@@ -368,7 +368,7 @@ describe("NH-4: trayLabelsForLocale helper", () => {
 	});
 
 	it("returns English fallback strings for keys missing from the current locale", () => {
-		// Register a partial Arabic table — only `models.title` present.
+		// Register a partial Arabic table, only `models.title` present.
 		registerTranslations("ar", {
 			models: { title: "النماذج" },
 		});
@@ -393,7 +393,7 @@ describe("NH-4: trayLabelsForLocale helper", () => {
 		// so `t()` returns the raw key for that entry.
 		registerTranslations("en", {
 			models: { title: "Models" },
-			// `microphone.microphone` intentionally absent — `t()` will
+			// `microphone.microphone` intentionally absent, `t()` will
 			// return the raw key "microphone.microphone".
 		});
 		setLocale("ar" as Locale);
@@ -433,7 +433,7 @@ describe("NH-4: trayLabelsForLocale helper", () => {
 
 	it("pushes every server tray state message under its server key", () => {
 		// Every ``state.*`` key in the server i18n registry must follow
-		// the renderer locale via ``set_tray_locale`` — not just
+		// the renderer locale via ``set_tray_locale``, not just
 		// no-model-selected. The server keys map to ``trayState.*``
 		// renderer translations (placeholders stay literal so the
 		// server's i18n.t formats them at call time).
@@ -558,7 +558,7 @@ describe("NH-2/NH-3/NH-4 combined: a single setLocale call triggers all propagat
 		});
 	});
 
-	it("persists the locale to localStorage (regression — F-3 contract)", () => {
+	it("persists the locale to localStorage (regression, F-3 contract)", () => {
 		//The  fix must NOT have removed the existing localStorage
 		// persistence. Verified here so a future refactor doesn't drop
 		// it accidentally.
@@ -567,13 +567,13 @@ describe("NH-2/NH-3/NH-4 combined: a single setLocale call triggers all propagat
 		expect(localStorage.getItem("voice-typer-ui-locale")).toBe("ar");
 	});
 
-	it("updates document.documentElement.dir / lang (regression — F-4 contract)", () => {
+	it("updates document.documentElement.dir / lang (regression, F-4 contract)", () => {
 		setLocale("ar" as Locale);
 		expect(document.documentElement.dir).toBe("rtl");
 		expect(document.documentElement.lang).toBe("ar");
 	});
 
-	it("notifies subscribers (regression — F-3 contract)", () => {
+	it("notifies subscribers (regression, F-3 contract)", () => {
 		let notifiedCount = 0;
 		const unsub = subscribeLocale(() => {
 			notifiedCount++;
@@ -595,7 +595,7 @@ describe("NH-2/NH-3/NH-4 combined: a single setLocale call triggers all propagat
 		});
 		setLocale("ar" as Locale);
 		// The Python IPC payload's `labels` field must use Arabic
-		// strings (not English) — proving `trayLabelsForLocale()` ran
+		// strings (not English), proving `trayLabelsForLocale()` ran
 		// AFTER `_currentLocale = next`.
 		const msg = pythonBridge.call.mock.calls[0]?.[0];
 		expect(msg).toMatchObject({

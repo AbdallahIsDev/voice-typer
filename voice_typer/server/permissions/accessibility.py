@@ -71,7 +71,7 @@ def _open_macos_accessibility_settings() -> None:
     That call is the only sanctioned way to programmatically surface
     the "Open System Settings" button on macOS 14+ (deep-links alone
     no longer route the user directly to the per-app toggle in
-    Sequoia — they land on the Accessibility list and the user has
+    Sequoia, they land on the Accessibility list and the user has
     to scroll/find Voice Typer themselves).
     """
     # Primary: deep-link via URL scheme (macOS Ventura+)
@@ -87,7 +87,7 @@ def _open_macos_accessibility_settings() -> None:
         return
     except OSError as exc:
         log.warning(
-            "[PERMISSION] Failed to open via 'open %s': %s — falling back to prefpane path",
+            "[PERMISSION] Failed to open via 'open %s': %s, falling back to prefpane path",
             deep_link,
             exc,
         )
@@ -133,7 +133,7 @@ def _trigger_macos_accessibility_consent_prompt() -> bool:
 
     Returns ``True`` if the process is already trusted (no prompt
     needed); ``False`` if not trusted (prompt was shown, or would
-    have been shown if pyobjc is unavailable — see below).
+    have been shown if pyobjc is unavailable: see below).
 
     On non-macOS hosts (Linux sandbox, CI, Windows) or when pyobjc
     isn't installed, this is a silent no-op returning ``False`` —
@@ -148,10 +148,10 @@ def _trigger_macos_accessibility_consent_prompt() -> bool:
     # (which can be called from the hotkey adapter on every binary
     # error). Reset only by process restart.
     if getattr(_p, "_a11y_prompt_shown", False):
-        log.debug("[PERMISSION] macOS a11y TCC prompt already shown this session — skipping")
+        log.debug("[PERMISSION] macOS a11y TCC prompt already shown this session, skipping")
         return False
     if not _p._is_pyobjc_available():
-        log.debug("[PERMISSION] pyobjc not available — cannot trigger native TCC prompt; will use deep-link fallback")
+        log.debug("[PERMISSION] pyobjc not available, cannot trigger native TCC prompt; will use deep-link fallback")
         return False
     try:
         from ApplicationServices import (
@@ -164,7 +164,7 @@ def _trigger_macos_accessibility_consent_prompt() -> bool:
         # aren't importable (partial pyobjc install). Flip the cache
         # so future probes short-circuit, then fall back to deep-link.
         _p._PYOBJC_AVAILABLE = False
-        log.debug("[PERMISSION] pyobjc partial install — cannot trigger TCC prompt; will use deep-link fallback")
+        log.debug("[PERMISSION] pyobjc partial install, cannot trigger TCC prompt; will use deep-link fallback")
         return False
 
     try:

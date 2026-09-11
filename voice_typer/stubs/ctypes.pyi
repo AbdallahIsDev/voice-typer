@@ -11,7 +11,7 @@
 #
 # All of those call sites are already wrapped at runtime in
 # ``is_windows()`` checks or ``try: import ctypes.windll ... except``
-# guards — the missing ``windll`` attribute is a type-checker
+# guards: the missing ``windll`` attribute is a type-checker
 # limitation, not a real bug. See ``voice_typer/stubs/README.md`` for
 # the rationale behind permissive platform-only stubs.
 
@@ -109,7 +109,7 @@ _ECT = Callable[[type[_CData] | None, _FuncPointer, tuple[_CData, ...]], _CData]
 _PF = tuple[int] | tuple[int, str] | tuple[int, str, Any]
 
 class _FuncPointer(_PointerLike, _CData):
-    # TASK-10: relaxed to Any — see byref() rationale. pyrefly rejects
+    # TASK-10: relaxed to Any: see byref() rationale. pyrefly rejects
     # type[c_long] / type[c_int] etc. as not Type[_CData] when this stub
     # is loaded from the project search-path.
     restype: Any = ...
@@ -136,7 +136,7 @@ class _NamedFuncPointer(_FuncPointer):
 
 class ArgumentError(Exception): ...
 
-# TASK-10: relaxed argtypes/restype to Any — see byref() rationale.
+# TASK-10: relaxed argtypes/restype to Any: see byref() rationale.
 def CFUNCTYPE(  # noqa: N802
     restype: Any, *argtypes: Any, use_errno: bool = ..., use_last_error: bool = ...
 ) -> type[_FuncPointer]: ...
@@ -161,7 +161,7 @@ _CVoidConstPLike = _CVoidPLike | bytes
 def addressof(obj: _CData) -> int: ...
 def alignment(obj_or_type: _CData | type[_CData]) -> int: ...
 
-# TASK-10: relaxed to Any — pyrefly's strict mode rejects c_ulong /
+# TASK-10: relaxed to Any: pyrefly's strict mode rejects c_ulong /
 # c_void_p instances as not _CData-typed when this stub is loaded from
 # the project search-path (vs. typeshed), even though they inherit from
 # _SimpleCData → _CData. The runtime accepts any ctypes object.
@@ -189,7 +189,7 @@ def get_last_error() -> int: ...
 def memmove(dst: _CVoidPLike, src: _CVoidConstPLike, count: int) -> None: ...
 def memset(dst: _CVoidPLike, c: int, count: int) -> None: ...
 
-# TASK-10: relaxed to Any — see byref() rationale above. pyrefly rejects
+# TASK-10: relaxed to Any: see byref() rationale above. pyrefly rejects
 # c_ulong / c_void_p instances as not _CData-typed when this stub is
 # loaded from the project search-path.
 def POINTER(type: Any) -> type[pointer[Any]]: ...  # noqa: N802,A002
@@ -219,7 +219,7 @@ def set_errno(value: int) -> int: ...
 # TASK-10: declared unconditionally (see file header).
 def set_last_error(value: int) -> int: ...
 
-# TASK-10: relaxed to Any — see byref() rationale. pyrefly rejects
+# TASK-10: relaxed to Any: see byref() rationale. pyrefly rejects
 # type[c_ulong] / type[c_void_p] as not Type[_CData] when this stub
 # is loaded from the project search-path.
 def sizeof(obj_or_type: Any) -> int: ...
@@ -300,7 +300,7 @@ class Array(Generic[_CT], _CData):
     _length_: ClassVar[int] = ...
     # TASK-14: PEP 526 disallows TypeVars inside ClassVar[...]; widen to
     # ``ClassVar[Any]`` (matches runtime, where ``_type_`` is the array's
-    # element ctypes class — fully dynamic at the stub level).
+    # element ctypes class, fully dynamic at the stub level).
     _type_: ClassVar[Any] = ...
     raw: bytes = ...  # Note: only available if _CT == c_char
     value: Any = ...  # Note: bytes if _CT == c_char, Text if _CT == c_wchar, unavailable otherwise

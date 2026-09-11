@@ -10,7 +10,7 @@
  * #FFAF00) on the Electron side while Python used `38;5;226` (yellow
  * #FFFF00). On Windows conhost (the default terminal for
  * `cargo tauri dev` on Windows), 256→16-color quantization maps
- * orange to bright-red — making WARN look red and ERROR look yellow
+ * orange to bright-red, making WARN look red and ERROR look yellow
  * by comparison, the exact inversion the Python color-quantization
  * fix was designed to prevent. The TS side now matches Python's `38;5;226`.
  *
@@ -25,7 +25,7 @@
  *     re-exports them so existing `import { RESET, ... } from
  *     "../logging"` call sites continue to resolve.
  *
- * Leaf module — no imports.
+ * Leaf module, no imports.
  */
 
 // ANSI colors are emitted ONLY when attached to a terminal. When
@@ -57,7 +57,7 @@ export const RENDERER_CLR = esc("38;5;227");
 
 /**
  * Bright cyan for the structured `log` logger's `[INFO]` prefix.
- * Intentionally matches `BUBBLE_CLR` — INFO is the "happy" level and
+ * Intentionally matches `BUBBLE_CLR`, INFO is the "happy" level and
  * visually parallels the `[BUBBLE]` tag color.
  */
 export const INFO_CLR = esc("38;5;39");

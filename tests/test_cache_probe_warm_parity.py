@@ -1,6 +1,6 @@
 """Prewarm file-warming wiring + behavioral-parity pins.
 
-``_iter_warmable_files`` (os.scandir, cached d_type — no per-file stat)
+``_iter_warmable_files`` (os.scandir, cached d_type, no per-file stat)
 was built and tested long before production actually called it: the
 ``_warm_package_files`` loop kept using the old ``rglob('*')`` +
 ``is_file()`` pattern, so the stat-count regression test guarded a
@@ -11,7 +11,7 @@ These tests pin the completed wiring:
    (source-level wiring pin, so the wiring cannot silently regress again);
 2. the warmed-file SET is byte-identical between the old consumer-filtered
    rglob pattern and the new walker (the skip-dir pruning now lives inside
-   the walker — deleting it outright would warm MORE files than the old
+   the walker, deleting it outright would warm MORE files than the old
    pattern, a startup regression);
 3. skip directories (``tests/``, ``docs/``, ``__pycache__``,
    ``*.dist-info``/``*.egg-info``) are pruned by the walker itself.
@@ -58,7 +58,7 @@ def _build_mixed_tree(root: Path) -> None:
     (normal / "meta.json").write_bytes(b"x")
     (normal / "readme.txt").write_bytes(b"x")
     (normal / "source.py").write_text("x")
-    # Warmable files inside every skip-dir variant — must NOT be warmed.
+    # Warmable files inside every skip-dir variant, must NOT be warmed.
     for skip in ("tests", "test", "docs", "__pycache__"):
         d = pkg / "sub" / skip
         d.mkdir(parents=True)
@@ -95,11 +95,11 @@ class TestWarmPackageFilesWiring:
     def test_warm_package_files_routes_through_iter_warmable_files(self):
         """Source pin: the production loop must reference
         ``_iter_warmable_files`` and must NOT contain the old rglob
-        pattern — the wiring cannot silently regress again."""
+        pattern, the wiring cannot silently regress again."""
         src = inspect.getsource(cache_probe._warm_package_files)
         assert "_iter_warmable_files(" in src, (
             "wiring regression: _warm_package_files no longer calls "
-            "_iter_warmable_files — production is back on the slow "
+            "_iter_warmable_files, production is back on the slow "
             "rglob path (or never calls the optimized walker)"
         )
         assert ".rglob(" not in src, (
@@ -111,7 +111,7 @@ class TestWarmedFileSetParity:
     def test_walker_set_equals_old_pattern_set(self, tmp_path, monkeypatch):
         """The warmed-file SET must be identical between the old
         rglob+consumer-filter pattern and the new walker-driven
-        production loop — behavior-preserving wiring."""
+        production loop, behavior-preserving wiring."""
         _build_mixed_tree(tmp_path)
         pkg_root = tmp_path / "fakepkg"
 
@@ -128,7 +128,7 @@ class TestWarmedFileSetParity:
         assert any("__pycache__" not in str(p) and "tests" not in str(p) for p in old_set)
 
     def test_skip_dirs_pruned_inside_walker(self, tmp_path):
-        """``_iter_warmable_files`` itself must prune skip dirs — files
+        """``_iter_warmable_files`` itself must prune skip dirs, files
         under ``tests/`` / ``docs/`` / ``__pycache__`` /
         ``*.dist-info``/``*.egg-info`` never reach the consumer."""
         pkg = tmp_path / "pkg"
@@ -156,9 +156,9 @@ class TestWarmedFileSetParity:
 
     def test_hidden_dotfile_is_not_warmed_same_as_old_pattern(self, tmp_path):
         """A hidden file named exactly ``.json`` has NO ``Path.suffix``
-        — the old pattern skipped it, the walker must too (the walker's
-        suffix test intentionally keeps ``Path.suffix`` semantics rather
-        than a raw ``endswith``)."""
+        , the old pattern skipped it, the walker must too (the walker's
+          suffix test intentionally keeps ``Path.suffix`` semantics rather
+          than a raw ``endswith``)."""
         pkg = tmp_path / "pkg"
         pkg.mkdir()
         (pkg / ".json").write_bytes(b"x")
@@ -172,8 +172,8 @@ class TestWarmedFileSetParity:
         assert files == [pkg / "real.json"]
 
     def test_root_named_like_skip_dir_is_not_pruned(self, tmp_path):
-        """The old consumer filter checked ``rel.parts[:-1]`` — parts
-        BELOW the root — so a root literally named ``tests`` was NOT
+        """The old consumer filter checked ``rel.parts[:-1]``, parts
+        BELOW the root, so a root literally named ``tests`` was NOT
         skipped. The walker must preserve that (root is never pruned)."""
         root = tmp_path / "tests"
         root.mkdir()

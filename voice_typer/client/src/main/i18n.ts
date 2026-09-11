@@ -32,16 +32,16 @@
  *      `src/renderer/src/i18n/i18n.ts`.
  *
  * The shape of every locale entry MUST match the `en` entry (same keys).
- * This parity is NOT enforced by TypeScript — the JSON tables are
+ * This parity is NOT enforced by TypeScript, the JSON tables are
  * typed `Record<string, string>`, which cannot express per-locale key
- * sets — it is enforced by the contract tests:
+ * sets, it is enforced by the contract tests:
  * `main/__tests__/i18n-locale-contract.test.ts` (every locale must
  * provide the full English key set) and
  * `main/__tests__/i18n-main-keys-contract.test.ts` (the `MAIN_KEYS`
  * list must match `MAIN_STRINGS.en` exactly).
  *
  * Dead-code cleanup: `getMainLocale()` and the
- * `export` modifier on the `MainLocale` type were removed — no consumer
+ * `export` modifier on the `MainLocale` type were removed, no consumer
  * outside this module ever imported either. `MainLocale` stays as a
  * module-local type alias so internal references (`currentLocale`)
  * remain typed.
@@ -57,19 +57,19 @@
  * Fallback chain: when the renderer pushes a locale, {@link setMainLocale}
  * resolves it against MAIN_STRINGS in this order:
  *
- *   1. `currentLocale` — exact match (e.g. `"zh"`, `"ar"`).
- *   2. `primary subtag` — when the pushed locale is a regional variant
+ *   1. `currentLocale`, exact match (e.g. `"zh"`, `"ar"`).
+ *   2. `primary subtag`, when the pushed locale is a regional variant
  *      (contains `-`), try the bare primary subtag (e.g. `"zh-CN"` →
  *      `"zh"`). This mirrors the renderer's `t()` lookup chain so a
  *      regional UI locale that hasn't yet been registered in
  *      MAIN_STRINGS falls back to its parent language instead of
- *      English — e.g. a user on `"zh-CN"` sees Chinese dialogs (with
+ *      English, e.g. a user on `"zh-CN"` sees Chinese dialogs (with
  *      English fallback only for keys the Chinese table lacks), not
  *      English dialogs outright.
- *   3. `"en"` — the universal fallback when neither step resolves.
+ *   3. `"en"`, the universal fallback when neither step resolves.
  *      `mainT()` then looks up the key against the resolved locale's
  *      table, then against `MAIN_STRINGS.en`, then returns the raw key
- *      (defensive — should never happen for keys declared in
+ *      (defensive, should never happen for keys declared in
  *      {@link MAIN_STRINGS.en}).
  */
 
@@ -79,12 +79,12 @@ import { APP_NAME } from "./branding";
 // Static JSON imports (not `readFileSync` at module init).
 //
 // The locale tables were originally loaded via
-// `readFileSync(join(__dirname, "i18n", "locales", ...))` — the
+// `readFileSync(join(__dirname, "i18n", "locales", ...))`, the
 // comment there claimed "the bundler inlines the JSON file content at
 // build time when the readFileSync call is statically analyzable".
 // That is FALSE: Rollup/electron-vite never inlines `readFileSync`
 // calls. The JSON files exist under `src/main/i18n/locales/` in the
-// source tree (so vitest passed — `__dirname` points at source there),
+// source tree (so vitest passed, `__dirname` points at source there),
 // but nothing copies them into the electron-vite output
 // (`out/main/i18n/locales/`), so every dev AND packaged build failed to
 // load all 8 locales with ENOENT and fell back to empty tables.
@@ -135,7 +135,7 @@ function _loadLocaleJson(locale: string): Record<string, string> {
  * Must stay in sync with the renderer's `SUPPORTED_LOCALES`.
  *
  * Loaded from the statically-bundled JSON imports above (see
- * `LOCALE_TABLES`) — never from disk at runtime. The `{appName}`
+ * `LOCALE_TABLES`), never from disk at runtime. The `{appName}`
  * placeholder in `dialog.singleInstance.title` is substituted with
  * `APP_NAME` from `./branding` so the JSON files stay free of
  * hardcoded product names (see the branding rule in AGENTS.md).
@@ -153,7 +153,7 @@ function _withAppName(table: Record<string, string>): Record<string, string> {
 }
 
 // TypeScript can't infer that every locale key (en, ar, de, ...) is
-// always present in MAIN_STRINGS — the runtime loader guarantees it
+// always present in MAIN_STRINGS, the runtime loader guarantees it
 // (each `i18n/locales/<locale>.json` file is committed and tested by
 // `i18n-locale-contract.test.ts`), but the `Record<string, ...>` type
 // widens the key set to `string`. We assert the narrower type so
@@ -172,7 +172,7 @@ const MAIN_STRINGS: Record<MainLocale, MainStringsTable> = {
 	zh: _withAppName(_loadLocaleJson("zh")),
 };
 
-/** English reference keys — every locale must provide exactly these keys. */
+/** English reference keys, every locale must provide exactly these keys. */
 type MainStrings = typeof MAIN_STRINGS.en;
 type MainStringsKey = keyof MainStrings;
 
@@ -222,7 +222,7 @@ export const MAIN_KEYS = [
 	"dialog.pythonBackend.restartLoopBody",
 ] as const;
 
-/** Literal-union type of {@link MAIN_KEYS} — narrows `mainT`'s `key` parameter. */
+/** Literal-union type of {@link MAIN_KEYS}, narrows `mainT`'s `key` parameter. */
 export type MainKey = (typeof MAIN_KEYS)[number];
 
 /**
@@ -234,14 +234,14 @@ export type MainKey = (typeof MAIN_KEYS)[number];
  * locale via the `i18n:set-locale` IPC channel. The criticalError
  * dialog (fired by `bootstrap.ts` when the app is crashing) and the
  * singleInstance dialog (fired by `start-python.ts` when Python exits
- * early) are the two main beneficiaries — both can fire BEFORE the
+ * early) are the two main beneficiaries, both can fire BEFORE the
  * renderer has mounted, so the prior `"en"` hard-default meant every
  * non-English user saw English crash text.
  *
  * Seeding is best-effort: if `app.getLocale()` throws (rare race before
  * `app.whenReady()` on some platforms) or returns an unregistered
  * locale whose primary subtag is also unregistered, the seed falls back
- * to `"en"` — identical to the prior default. The renderer's explicit
+ * to `"en"`, identical to the prior default. The renderer's explicit
  * IPC push (via {@link setMainLocale}) ALWAYS overrides the seed, so
  * the user's chosen UI language wins once the renderer mounts.
  */
@@ -266,7 +266,7 @@ function seedLocaleFromOs(): MainLocale {
 			return resolveLocale(osLocale).locale;
 		}
 	} catch {
-		// Best-effort — if app.getLocale() is unavailable at module
+		// Best-effort, if app.getLocale() is unavailable at module
 		// load (rare pre-ready race), fall back to "en". The
 		// renderer's IPC push will override the seed once it loads.
 	}
@@ -274,29 +274,29 @@ function seedLocaleFromOs(): MainLocale {
 }
 
 /**
- * Resolve a locale string (BCP-47 — e.g. `"zh"`, `"zh-CN"`, `"pt-BR"`)
- * against {@link MAIN_STRINGS}. Pure function — no side effects, no
+ * Resolve a locale string (BCP-47, e.g. `"zh"`, `"zh-CN"`, `"pt-BR"`)
+ * against {@link MAIN_STRINGS}. Pure function, no side effects, no
  * warning emission. Used by both the OS-locale seed
  * ({@link seedLocaleFromOs}) and the renderer-pushed locale
  * ({@link setMainLocale}) so the resolution chain stays in one place.
  *
  * Resolution chain (mirrors the renderer's `t()` lookup chain):
  *
- *   1. Exact match — if the locale is directly registered in
+ *   1. Exact match, if the locale is directly registered in
  *      {@link MAIN_STRINGS} (e.g. `"zh"`, `"ar"`), use it as-is.
- *   2. Primary subtag — if the locale is a regional variant
+ *   2. Primary subtag, if the locale is a regional variant
  *      (contains `-`) and not directly registered, try the bare
  *      primary subtag (e.g. `"zh-CN"` → `"zh"`). This lets a regional
  *      UI locale fall back to its parent language instead of English
  *      when MAIN_STRINGS hasn't yet been extended for the regional
  *      variant.
- *   3. English fallback — if neither step resolves, fall back to
+ *   3. English fallback, if neither step resolves, fall back to
  *      `"en"`. The caller is responsible for emitting any user-facing
  *      warning (the seed path is silent; {@link setMainLocale} warns
  *      so a missing renderer-pushed locale is visible during dev).
  *
  * The returned `registered` flag is `true` for steps 1 and 2, `false`
- * for step 3 — letting {@link setMainLocale} distinguish "successfully
+ * for step 3, letting {@link setMainLocale} distinguish "successfully
  * resolved via fallback" from "fell all the way through to en".
  */
 function resolveLocale(locale: string): {
@@ -325,15 +325,15 @@ function resolveLocale(locale: string): {
  *
  * Resolution chain (mirrors the renderer's `t()` lookup chain):
  *
- *   1. Exact match — if the pushed locale is directly registered in
+ *   1. Exact match, if the pushed locale is directly registered in
  *      {@link MAIN_STRINGS} (e.g. `"zh"`, `"ar"`), use it as-is.
- *   2. Primary subtag — if the pushed locale is a regional variant
+ *   2. Primary subtag, if the pushed locale is a regional variant
  *      (contains `-`) and not directly registered, try the bare
  *      primary subtag (e.g. `"zh-CN"` → `"zh"`). This lets a regional
  *      UI locale fall back to its parent language instead of English
  *      when MAIN_STRINGS hasn't yet been extended for the regional
  *      variant.
- *   3. English fallback — if neither step resolves, fall back to
+ *   3. English fallback, if neither step resolves, fall back to
  *      `"en"` and emit a console warning so the missing locale is
  *      visible during development. The user still gets English dialogs
  *      rather than a crash.
@@ -342,7 +342,7 @@ export function setMainLocale(locale: string): void {
 	const { locale: resolved, registered } = resolveLocale(locale);
 	if (!registered) {
 		console.warn(
-			`[i18n] setMainLocale: unknown locale "${locale}" — falling back to "en". ` +
+			`[i18n] setMainLocale: unknown locale "${locale}", falling back to "en". ` +
 				`Add dialog strings for this locale (or its primary subtag) to i18n/locales/<locale>.json.`,
 		);
 	}
@@ -356,7 +356,7 @@ export function setMainLocale(locale: string): void {
  * raw key. The locale itself was already normalized by
  * {@link setMainLocale} (regional variant → primary subtag → en), so
  * `currentLocale` here is always one of the keys present in
- * MAIN_STRINGS — the `table?.[...]` access therefore always resolves,
+ * MAIN_STRINGS, the `table?.[...]` access therefore always resolves,
  * and the English fallback is only a defensive guard against a key
  * that was somehow declared outside {@link MainStringsKey}.
  *

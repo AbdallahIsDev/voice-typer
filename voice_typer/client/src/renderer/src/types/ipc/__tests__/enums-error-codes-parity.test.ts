@@ -7,7 +7,7 @@
  * (``pending_full``, ``data_too_large``) that were absent from both the
  * Python ``ErrorCodes`` class and the TS ``ErrorCodes`` union. The
  * renderer's ``switch (code)`` block therefore fell through to the
- * generic "unknown error" path for both codes — a silent UX regression.
+ * generic "unknown error" path for both codes, a silent UX regression.
  *
  *  closed the gap by:
  *   - Adding ``PENDING_FULL = "client.pending_full"`` and
@@ -29,7 +29,7 @@
  * that drops any of these literals from the union fails loudly.
  *
  * VP-5 (2026-08-11): the tests below now pin the BARE forms
- * ``pending_full`` / ``data_too_large`` — the codes the Rust host
+ * ``pending_full`` / ``data_too_large``, the codes the Rust host
  * ACTUALLY emits. The namespaced forms (``client.pending_full`` /
  * ``client.payload_too_large_dispatch``) are future-migration targets
  * with no active emitter, so asserting them made the parity test pass
@@ -48,10 +48,10 @@ import type { ErrorCodes } from "../enums";
  * at compile time) if the literal somehow slips through.
  */
 
-describe("ErrorCodes union — cross-language parity codes are present", () => {
+describe("ErrorCodes union, cross-language parity codes are present", () => {
 	it("'pending_full' is assignable to ErrorCodes (Rust PENDING_FULL_CODE parity)", () => {
 		// VP-5: the Rust host emits the BARE legacy form `pending_full`
-		// (allowlist.rs PENDING_FULL_CODE) — the namespaced
+		// (allowlist.rs PENDING_FULL_CODE), the namespaced
 		// `client.pending_full` is a future-migration target only.
 		const code: ErrorCodes = "pending_full";
 		expect(code).toBeTruthy();
@@ -59,7 +59,7 @@ describe("ErrorCodes union — cross-language parity codes are present", () => {
 
 	it("'data_too_large' is assignable to ErrorCodes (Rust dispatch cap parity)", () => {
 		// VP-5: the Rust host emits the BARE `data_too_large` code
-		// (dispatch.rs 256 KiB payload cap) — `client.payload_too_large_dispatch`
+		// (dispatch.rs 256 KiB payload cap), `client.payload_too_large_dispatch`
 		// is a future-migration target only.
 		const code: ErrorCodes = "data_too_large";
 		expect(code).toBeTruthy();

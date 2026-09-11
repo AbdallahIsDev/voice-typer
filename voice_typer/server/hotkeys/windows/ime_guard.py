@@ -3,7 +3,7 @@
 Extracted from the original ``windows_native.py`` god-class
 split). Detects when the IME is in composition mode (e.g. typing
 CJK characters) so the polling loop can suppress hotkey triggers
-during composition — otherwise GetAsyncKeyState may fire hotkey
+during composition, otherwise GetAsyncKeyState may fire hotkey
 triggers for keys that are part of the composition string.
 """
 

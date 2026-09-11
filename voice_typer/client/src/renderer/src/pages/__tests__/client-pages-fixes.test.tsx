@@ -140,9 +140,9 @@ describe("S2-CR-39: Onboarding mic auto-select prefers default-flagged device", 
 		expect(src).toContain("m.default === true");
 		expect(src).toContain("mics.microphones.find(");
 		// Sanity: the prior buggy fallback (`microphones[0].id` as the
-		// unconditional pick) is gone — the `[0]` reference is now only
+		// unconditional pick) is gone, the `[0]` reference is now only
 		// used as the nullish-coalesced fallback (via the `fallback`
-		// local, `(defaultMic ?? fallback)?.id ?? prev` — the
+		// local, `(defaultMic ?? fallback)?.id ?? prev`, the
 		// `?? ` chain, never a bare `[0]` pick).
 		expect(src).toContain("const fallback = mics.microphones[0]");
 		expect(src).toContain("defaultMic ?? fallback");
@@ -161,7 +161,7 @@ describe("S2-CR-39: Onboarding mic auto-select prefers default-flagged device", 
 	it("auto-selects the default-flagged device when multiple mics are present", async () => {
 		// Backend returns 3 mics; only the second is flagged `default: true`.
 		// The wizard must auto-select mic-2 (the default), NOT mic-1 (which
-		// is first in enumeration order — the prior buggy behaviour).
+		// is first in enumeration order, the prior buggy behaviour).
 		let capturedMicId: string | null = null;
 		mockCall.mockImplementation(
 			(type: string, payload?: Record<string, unknown>) => {
@@ -233,7 +233,7 @@ describe("S2-CR-39: Onboarding mic auto-select prefers default-flagged device", 
 			expect(screen.getByTestId("select-content")).toBeTruthy();
 		});
 
-		// Click Continue — the `onboarding_set_microphone` call should
+		// Click Continue, the `onboarding_set_microphone` call should
 		// carry the DEFAULT mic's id, not the first one.
 		const continueBtn = await screen.findByRole("button", {
 			name: "Continue",
@@ -359,7 +359,7 @@ describe("S2-CR-39: Onboarding mic auto-select prefers default-flagged device", 
 	});
 });
 
-// ── S5-CR-104: History Clear All — muted at rest, solid destructive on hover (updated 2026-08-30) ────────────
+// ── S5-CR-104: History Clear All, muted at rest, solid destructive on hover (updated 2026-08-30) ────────────
 // Original test pinned a permanently tinted Clear All (text-destructive/80
 // at rest). The UI-consistency pass (2026-08-30) standardized ALL Clear All
 // controls (History, Vocabulary, Templates) to the shared muted-at-rest →
@@ -383,7 +383,7 @@ describe("S5-CR-104: History Clear All button uses shared muted→solid-destruct
 		expect(src).toContain(
 			"hover:text-destructive-foreground dark:hover:bg-destructive",
 		);
-		// Permanent tint must be gone — History used to carry
+		// Permanent tint must be gone, History used to carry
 		// border-destructive/40 text-destructive/80 at rest and a 5% wash
 		// on hover (hover:bg-destructive/5) which the pass removed.
 		expect(src).not.toContain("text-destructive/80");
@@ -399,7 +399,7 @@ describe("S5-CR-104: History Clear All button uses shared muted→solid-destruct
 			.replace(/\/\/.*$/gm, "");
 		// The Clear All block (onClick={handleClearAll}) must carry the
 		// shared destructive hover token, while Favorites (onClick={toggleFavorites})
-		// carries warning tokens — they must stay distinct.
+		// carries warning tokens, they must stay distinct.
 		const onClickIdx = stripped.indexOf("onClick={handleClearAll}");
 		expect(onClickIdx).toBeGreaterThan(-1);
 		const slice = stripped.slice(onClickIdx, onClickIdx + 1200);
@@ -418,7 +418,7 @@ describe("S5-CR-104: History Clear All button uses shared muted→solid-destruct
 		// solid-red-hover contract. The outline/ghost variants
 		// carry dark:hover:bg-input/30 (resp. dark:hover:bg-muted/50),
 		// which out-specifies a plain hover:bg-destructive under
-		// Tailwind v4's `&:is(.dark *)` dark variant — each call
+		// Tailwind v4's `&:is(.dark *)` dark variant, each call
 		// site must therefore restate dark:hover:bg-destructive or
 		// dark mode hovers grey, not red.
 		const fs = await import("node:fs");
@@ -475,7 +475,7 @@ describe("EC-12: Home.tsx extraction (subcomponents moved to ./home/)", () => {
 	it("Home.tsx no longer inlines RecordingStatusPill / MicToggleButton / LastTranscriptionPreview / RecordingErrorCard", async () => {
 		const fs = await import("node:fs");
 		const src = fs.readFileSync("src/renderer/src/pages/Home.tsx", "utf8");
-		// Strip comments before checking — the extraction leaves a
+		// Strip comments before checking, the extraction leaves a
 		// header comment naming the extracted files.
 		const stripped = src
 			.replace(/\/\*[\s\S]*?\*\//g, "")

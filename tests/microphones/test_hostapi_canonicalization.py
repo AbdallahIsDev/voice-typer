@@ -10,13 +10,13 @@ OS UI deliberately does not offer, and MME truncates names at 31 chars.
 These tests pin:
 
 1. ``list_microphones()`` collapses the duplicate views to the platform's
-   canonical host API (Windows → WASAPI — the view matching the Windows
+   canonical host API (Windows → WASAPI, the view matching the Windows
    Settings "Input" page, with full untruncated names), keeping virtual
    microphones and degrading gracefully when the preferred API yields
    nothing.
 2. The ``default`` flag comes from the canonical host API's own
    ``default_input_device`` (the PortAudio *global* default can sit on a
-   non-canonical API — here an MME record).
+   non-canonical API, here an MME record).
 3. Persisted stable ids whose host API is no longer enumerated resolve
    via unambiguous exact-name match; endpoint names that differ across
    host APIs stay unresolved rather than guessing a wrong device.
@@ -65,7 +65,7 @@ def _sd_device(
     }
 
 
-# Real captured dump — input records grouped per host API.
+# Real captured dump, input records grouped per host API.
 _REALTEK = "Microphone (Realtek(R) Audio)"
 _WO_MIC = "WO Mic (WO Mic Device)"
 _AUDIORELAY_TRUNCATED = "AudioRelay (Virtual Mic for Aud"
@@ -242,7 +242,7 @@ class TestWindowsCanonicalization:
 class TestGracefulDegradation:
     def test_empty_preferred_api_returns_full_list(self, monkeypatch):
         """A Windows install where WASAPI yields no input devices must get
-        the complete unfiltered enumeration — never an empty list."""
+        the complete unfiltered enumeration, never an empty list."""
         devices = [
             _sd_device(1, _REALTEK, _MME),
             _sd_device(3, _WO_MIC, _MME, 1),
@@ -425,7 +425,7 @@ class TestCrossHostApiIdResolution:
         assert mic["index"] == 9
 
     def test_pipe_in_device_name_splits_once_not_per_segment(self, monkeypatch):
-        """A device name containing "|" must be recovered WHOLE — the name
+        """A device name containing "|" must be recovered WHOLE, the name
         is everything after the FIRST "|". Splitting per-segment would
         resolve "WASAPI|A|B" against an unrelated device named "A"."""
         mics = [

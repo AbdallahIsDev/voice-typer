@@ -16,7 +16,7 @@ The fix:
   type-checking clean (they get the pre-generic ``Any`` behaviour —
   ``T`` is left unconstrained and resolves to ``Unknown``). New
   callers can opt INTO type safety by explicitly parameterising the
-  class — e.g. ``PersistedJSON[dict[str, Any]](path, default={})``.
+  class, e.g. ``PersistedJSON[dict[str, Any]](path, default={})``.
 
 The two existing call sites (``VocabularyManager``,
 ``TemplateManager``) do not parameterise yet; parameterising them is a
@@ -41,7 +41,7 @@ def test_persistedjson_is_generic() -> None:
     assert issubclass(PersistedJSON, Generic), (
         "PersistedJSON must inherit from typing.Generic[T] so callers "
         "can opt into static type-checking on the JSON round-trip. "
-        "The pre-fix class used ``Any`` everywhere — callers got zero "
+        "The pre-fix class used ``Any`` everywhere, callers got zero "
         "type-checking on the saved/loaded shape."
     )
 
@@ -55,10 +55,10 @@ def test_persistedjson_has_typevar_parameter() -> None:
     params = getattr(PersistedJSON, "__parameters__", ())
     assert len(params) == 1, f"PersistedJSON must declare exactly one type parameter (T). Got {params!r}."
 
-    # Verify the typevar name is ``T`` (cosmetic — guards against an
+    # Verify the typevar name is ``T`` (cosmetic, guards against an
     # accidental rename to something less idiomatic).
     tvar = params[0]
-    assert tvar.__name__ == "T", f"PersistedJSON's type parameter must be named 'T' — got {tvar.__name__!r}."
+    assert tvar.__name__ == "T", f"PersistedJSON's type parameter must be named 'T', got {tvar.__name__!r}."
 
 
 def test_load_signature_returns_typevar() -> None:
@@ -67,7 +67,7 @@ def test_load_signature_returns_typevar() -> None:
 
     We inspect the resolved type hints (which evaluate forward
     references and substitute the TypeVar). The return annotation
-    must be the TypeVar instance itself — pyrefly then enforces that
+    must be the TypeVar instance itself, pyrefly then enforces that
     a parameterised ``PersistedJSON[dict]`` returns ``dict`` from
     :meth:`load`.
     """
@@ -116,7 +116,7 @@ def test_legacy_unparameterised_call_still_works(tmp_path: Path) -> None:
     """
     store = PersistedJSON(tmp_path / "legacy.json", default=None)
     # ``.save`` accepts a dict even though ``default=None`` was passed
-    # — the ``default: Any`` annotation leaves ``T`` unconstrained.
+    # , the ``default: Any`` annotation leaves ``T`` unconstrained.
     store.save({"key": "value"})
     loaded = store.load()
     assert loaded == {"key": "value"}
@@ -126,7 +126,7 @@ def test_parameterised_load_returns_typed_value(tmp_path: Path) -> None:
     """A parameterised ``PersistedJSON[dict[str, object]]`` returns a
     statically-typed ``dict[str, object]`` from :meth:`load`.
 
-    The runtime behaviour is unchanged — we just verify the round-trip
+    The runtime behaviour is unchanged, we just verify the round-trip
     works AND that the type annotation is honoured (no runtime cast
     needed).
     """
@@ -153,7 +153,7 @@ def test_parameterised_save_rejects_wrong_shape_at_type_check_time(
     the source in this test file.
     """
     store: PersistedJSON[dict[str, object]] = PersistedJSON(tmp_path / "shape.json", default={})
-    # Right shape: dict[str, object] — type-checks.
+    # Right shape: dict[str, object], type-checks.
     store.save({"k1": "v1", "k2": 99})
     assert store.load() == {"k1": "v1", "k2": 99}
 
@@ -171,7 +171,7 @@ def test_default_property_still_returns_any(tmp_path: Path) -> None:
     * Parameterising ``default`` as ``T`` would force callers to
       either pass ``default=None`` (narrowing ``T = None`` and
       breaking subsequent ``.save(dict)``) or explicitly parameterise
-      the class — too invasive for the 2 existing call sites.
+      the class, too invasive for the 2 existing call sites.
     """
     store = PersistedJSON(tmp_path / "default_test.json", default={"sentinel": True})
     # ``default`` is Any-typed: callers can read it without a cast.

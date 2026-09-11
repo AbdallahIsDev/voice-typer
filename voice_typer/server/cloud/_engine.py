@@ -55,7 +55,7 @@ def _facade():
     The facade module (``voice_typer.server.cloud_engines``) owns the
     engine-adjacent singletons tests rebind to steer the engine
     (``_opener``, ``assert_url_allowed``). Reading them through the
-    facade at call time — instead of importing them at module level —
+    facade at call time, instead of importing them at module level —
     keeps that contract intact now that the class body lives in this
     leaf. Call-time-only import: the facade imports this package at
     module level, so the facade is always fully initialized by the
@@ -121,7 +121,7 @@ class CloudEngine:
         # explicitly pass ``local_engine=`` (e.g. the streaming session
         # which only knows about the active transcriber).  The factory
         # is invoked at most once per fallback attempt; if it returns
-        # ``None`` (no local engine available — e.g. cold start with
+        # ``None`` (no local engine available: e.g. cold start with
         # whisper backend not yet registered), the fallback is skipped
         # and the original cloud error is re-raised.
         self._local_engine_factory = local_engine_factory
@@ -144,12 +144,12 @@ class CloudEngine:
     @property
     def is_loaded(self) -> bool:
         # consent is required for the engine to be
-        # considered "loaded" — without consent, the engine should
+        # considered "loaded": without consent, the engine should
         # not be selected for transcription.
         return self._loaded and bool(self.api_key) and self.consent_given
 
     def load(self, progress_callback=None) -> None:
-        """No-op for cloud engines — no local model to load."""
+        """No-op for cloud engines, no local model to load."""
         if progress_callback:
             progress_callback("Cloud engine ready")
         self._loaded = True
@@ -193,7 +193,7 @@ class CloudEngine:
         """
         if not self.consent_given:
             raise CloudConsentRequiredError(
-                f"Cloud {self.provider} consent not given — refusing to send audio.",
+                f"Cloud {self.provider} consent not given, refusing to send audio.",
                 provider=self.provider,
             )
         if not self.is_loaded:
@@ -210,11 +210,11 @@ class CloudEngine:
             return ""
         # Honor a pre-set abort (e.g. ESC hit during audio finalization,
         # before the cloud call started). Skip the network round-trip
-        # entirely — return empty so the pipeline's empty-check path
+        # entirely, return empty so the pipeline's empty-check path
         # runs instead of waiting 10s for a request the user already
         # cancelled.
         if self._abort_event.is_set():
-            log.info("[CLOUD] %s transcribe skipped — abort requested before first request", self.provider)
+            log.info("[CLOUD] %s transcribe skipped, abort requested before first request", self.provider)
             return ""
         return self._send_request(audio)
 
@@ -246,9 +246,9 @@ class CloudEngine:
                 for signature parity with the three local engines
                 (Whisper/Parakeet/Qwen) so ``DictationPipeline._transcribe``
                 can pass it unconditionally without a broad ``except TypeError``
-                fallback. The cloud engines don't use it — RMS/peak/silence
+                fallback. The cloud engines don't use it, RMS/peak/silence
                 detection is irrelevant when audio is shipped to a remote API
-                — so the value is simply ignored here on the cloud path.
+               , so the value is simply ignored here on the cloud path.
                 When a ``local_engine`` is provided, ``audio_stats`` is forwarded
                 so the local fallback benefits from the same pre-computation
                 (all three local engines accept the kwarg).
@@ -256,7 +256,7 @@ class CloudEngine:
         try:
             return self.transcribe(audio)
         except ConsentRequiredError:
-            # consent errors must propagate — do NOT fall back to
+            # consent errors must propagate, do NOT fall back to
             # the local engine (the user explicitly declined cloud consent;
             # silently falling back would violate that choice).
             raise
@@ -291,7 +291,7 @@ class CloudEngine:
                 # (stdlib-only) so the lazy import is safe and never
                 # creates a circular import. Best-effort: a publish
                 # failure (no subscribers, etc.) is logged at DEBUG and
-                # does NOT abort the fallback — the local engine still
+                # does NOT abort the fallback, the local engine still
                 # runs.
                 try:
                     from voice_typer.server import event_bus
@@ -368,7 +368,7 @@ class CloudEngine:
     # knowledge of provider-specific request shape or response schema:
     #   - ``request_factory`` builds a fresh `Request` per attempt
     #     (re-built each attempt so a streaming multipart body isn't
-    #     reused after a partial read — see the comment in
+    #     reused after a partial read: see the comment in
     #     `_send_openai_compatible` for the truncated-body bug this
     #     prevents).
     #   - ``parse_response`` takes the raw response bytes and returns
@@ -403,7 +403,7 @@ class CloudEngine:
             # user has already cancelled.
             if self._abort_event.is_set():
                 log.info(
-                    "[CLOUD] %s abort requested — skipping retry %d/%d",
+                    "[CLOUD] %s abort requested, skipping retry %d/%d",
                     provider,
                     attempt + 1,
                     max_retries,
@@ -430,7 +430,7 @@ class CloudEngine:
                         # empty transcript as valid. Not retried: a 200
                         # empty body is a provider-side anomaly (like the
                         # non-retried 5xx), not a transient network
-                        # error — retrying would just re-send audio.
+                        # error, retrying would just re-send audio.
                         raise CloudEmptyResponseError(f"{provider} returned HTTP 200 with an empty body")
                     text = parse_response(raw)
                     if not text:
@@ -440,7 +440,7 @@ class CloudEngine:
                     log.info("[CLOUD] %s transcription: %d chars", provider, len(text))
                     return text
             except CloudEmptyResponseError:
-                # Propagate the typed error unchanged — do NOT let the
+                # Propagate the typed error unchanged, do NOT let the
                 # catch-all ``except Exception`` below re-wrap it into a
                 # generic CloudEngineError (that would lose the
                 # empty-response semantics the IPC layer switches on).
@@ -449,7 +449,7 @@ class CloudEngine:
                 # 429 Too Many Requests is the only retryable 4xx.
                 # Honor Retry-After (numeric seconds or HTTP-date); cap the
                 # wait at 60s so a hostile server can't stall us forever.
-                # Only retry once on 429 — the backoff loop is intended for
+                # Only retry once on 429, the backoff loop is intended for
                 # transient network errors, not rate-limit backoff.
                 if exc.code == 429 and not retried_429 and attempt < max_retries - 1:
                     retried_429 = True
@@ -468,13 +468,13 @@ class CloudEngine:
                     # later with a hostile Retry-After).
                     if self._abort_event.wait(timeout=wait):
                         log.info(
-                            "[CLOUD] %s abort requested — aborting Retry-After wait",
+                            "[CLOUD] %s abort requested, aborting Retry-After wait",
                             provider,
                         )
                         raise CloudEngineError(f"{provider} transcription aborted by user") from exc
                     continue
                 # Non-retryable HTTPError (4xx other than 429, or 5xx that
-                # we also surface without retrying — 5xx from a cloud ASR
+                # we also surface without retrying, 5xx from a cloud ASR
                 # provider typically indicates a sustained outage that
                 # won't clear in 2s of backoff).
                 safe_msg = redact_secret(redact_url(str(exc)))
@@ -511,7 +511,7 @@ class CloudEngine:
                     # top of the next attempt.
                     if self._abort_event.wait(timeout=backoff):
                         log.info(
-                            "[CLOUD] %s abort requested — aborting backoff wait",
+                            "[CLOUD] %s abort requested, aborting backoff wait",
                             provider,
                         )
                         raise CloudEngineError(f"{provider} transcription aborted by user") from exc
@@ -564,13 +564,13 @@ class CloudEngine:
 
         PERF: exponential backoff retry (3 attempts) for transient
         network errors. HTTP goes through the shared module-level
-        OpenerDirector (built once, so the handler chain — redirect
-        refusal, plaintext-HTTP refusal — is not reconstructed per
+        OpenerDirector (built once, so the handler chain, redirect
+        refusal, plaintext-HTTP refusal, is not reconstructed per
         request); note the stdlib opener does NOT pool connections —
         each request opens a fresh TCP/TLS connection and sends
         ``Connection: close``.
 
-        Thin wrapper around ``_transcribe_with_retry`` — supplies the
+        Thin wrapper around ``_transcribe_with_retry``, supplies the
         OpenAI-specific request factory (multipart body, rebuilt per
         attempt because ``_StreamingMultipartBody`` carries internal
         state) and the OpenAI response parser (``result["text"]``).
@@ -595,7 +595,7 @@ class CloudEngine:
         def _build_request() -> Request:
             # Rebuild `body` and `req` INSIDE the retry loop.
             # `_StreamingMultipartBody.read()` advances internal state with
-            # no `reset()` method — reusing the same body across retries
+            # no `reset()` method, reusing the same body across retries
             # sent a truncated/empty multipart with stale Content-Length,
             # producing confusing 400/malformed-multipart errors that hid
             # the real network failure.
@@ -631,7 +631,7 @@ class CloudEngine:
         transient network errors, matching the OpenAI-compatible path
         (now shared via ``_transcribe_with_retry``).
         """
-        # Opt in to allow_loopback_http=True — see the
+        # Opt in to allow_loopback_http=True: see the
         # OpenAI-compatible transcribe path above for the rationale.
         _facade().assert_url_allowed(
             self.api_url,
@@ -674,7 +674,7 @@ class CloudEngine:
         PERF: returns a streaming ``_StreamingMultipartBody`` file-like
         object (defined in ``voice_typer.server.cloud._transport``) that
         yields the pre-built parts as ~64 KB chunks on demand, avoiding a
-        SECOND full-body copy — the naive ``b"".join(parts)`` built one
+        SECOND full-body copy, the naive ``b"".join(parts)`` built one
         contiguous ~5.2 MB ``bytes`` object next to the WAV that is
         already resident in ``parts``; ``Content-Length`` is computed
         upfront via ``__len__`` so the server knows the total size
@@ -705,7 +705,7 @@ class CloudEngine:
         SEC-002 endpoint-swap, that would leak the key to an
         attacker-controlled URL.  It also probed OpenAI's
         ``/v1/audio/transcriptions`` endpoint with HEAD, which
-        returns 405 Method Not Allowed — so the test always reported
+        returns 405 Method Not Allowed, so the test always reported
         failure even with valid credentials.
 
         The fix: probe a provider-known endpoint with a GET (or
@@ -718,20 +718,20 @@ class CloudEngine:
         # No cloud interaction without consent (ADR-0016 Design Rule 1).
         # ``test_connection`` sends the API key to the provider,
         # so it is gated exactly like ``transcribe`` (which refuses with
-        # ``CloudConsentRequiredError``) — an engine whose per-provider
+        # ``CloudConsentRequiredError``), an engine whose per-provider
         # consent flag is False must refuse BEFORE any URL-allowlist
         # check or network I/O. Returning ``(False, msg)`` (rather than
         # raising) lets the UI surface the consent requirement directly
         # in the test-connection result area instead of an opaque
         # failure.
         if not self.consent_given:
-            return False, "Cloud consent not given — refusing to test connection"
+            return False, "Cloud consent not given, refusing to test connection"
 
         if not self.api_key:
             return False, "API key not configured"
 
         try:
-            # Opt in to allow_loopback_http=True — see the
+            # Opt in to allow_loopback_http=True: see the
             # OpenAI-compatible transcribe path for the rationale.
             # The allowlist hook resolves through the facade namespace
             # at call time (see :func:`_facade`).
@@ -746,9 +746,9 @@ class CloudEngine:
 
         # SEC-011: probe by sending an empty audio body to the real
         # transcription endpoint.  A 401/403 means "key rejected"
-        # (which is a useful diagnostic — the user knows their key is
+        # (which is a useful diagnostic, the user knows their key is
         # wrong).  A 400/422 means "key accepted, body invalid"
-        # (which is what we want — it proves the key works).  A 2xx
+        # (which is what we want, it proves the key works).  A 2xx
         # is unexpected but also fine.  Network errors propagate as
         # connection failures.
         try:
@@ -761,7 +761,7 @@ class CloudEngine:
                 # Deepgram: send empty WAV bytes; expect 400 (bad audio)
                 # or 200 (success with empty transcript). Use the
                 # shared _audio_to_wav_bytes helper (was inline before
-                # — the test_cloud_engines_wav_helper regression guard
+                # , the test_cloud_engines_wav_helper regression guard
                 # pins the helper as the single source of WAV encoding
                 # so the duplicate byte-string literal can't drift).
                 empty_wav = _audio_to_wav_bytes(np.zeros(0, dtype=np.float32))
@@ -788,7 +788,7 @@ class CloudEngine:
             # SEC-audit-006 (Round 0 forward-port): use the shared
             # opener's ``open()`` instead of default ``urlopen()`` so
             # HTTP redirects are NOT followed (the URL allowlist is only
-            # checked on the initial request — a redirect to an attacker
+            # checked on the initial request, a redirect to an attacker
             # URL would otherwise POST the test payload there).  Mirrors
             # ``_call_api`` in ``llm_polish.py`` and the main
             # transcription path above.  Use the shared
@@ -804,7 +804,7 @@ class CloudEngine:
                 return True, f"Connected to {self.provider} (status {resp.status})"
         except Exception as exc:
             # A 400/401/403/422 error means the server is reachable
-            # and responding — that's actually a "successful" test
+            # and responding, that's actually a "successful" test
             # from a connectivity standpoint.  We just need to
             # distinguish "server responded with HTTP error" from
             # "network unreachable".
@@ -812,14 +812,14 @@ class CloudEngine:
             # urllib.error.HTTPError carries the status code
             status = getattr(exc, "code", None)
             if status is not None:
-                # HTTP error — server is reachable.  401/403 = key
+                # HTTP error, server is reachable.  401/403 = key
                 # rejected; 400/422 = key accepted, body invalid.
                 if status in (401, 403):
                     return False, f"Connected to {self.provider}, but API key was rejected (HTTP {status})"
                 # A 5xx means the server is reachable but is itself
                 # failing (overload, maintenance, internal error).
                 # Treating that as a plain "Connected" success is
-                # misleading — the user's transcriptions will fail
+                # misleading, the user's transcriptions will fail
                 # until the provider recovers.  Surface a diagnostic
                 # that names the status and hints at the cause, while
                 # still reporting ``success=True`` (the connection
@@ -828,10 +828,10 @@ class CloudEngine:
                 if 500 <= status < 600:
                     return True, (
                         f"Connected to {self.provider}, but server returned "
-                        f"HTTP {status} — provider may be temporarily unavailable"
+                        f"HTTP {status}, provider may be temporarily unavailable"
                     )
                 # Any other HTTP error means the server is up and
-                # talking to us — treat as success.
+                # talking to us, treat as success.
                 return True, f"Connected to {self.provider} (HTTP {status})"
             # Chain ``redact_url`` (strips URL userinfo +
             # query-string secrets) BEFORE ``redact_secret`` (masks

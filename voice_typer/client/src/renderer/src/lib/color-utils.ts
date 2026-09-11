@@ -1,4 +1,4 @@
-// lib/color-utils.ts — color conversion helpers extracted from
+// lib/color-utils.ts, color conversion helpers extracted from
 // ThemeSettingsSection.tsx ( / Fix-M).
 //
 // These are pure functions with no React dependency, so they belong in a
@@ -7,7 +7,7 @@
 //
 // All functions are written defensively (try/catch around DOM access,
 // explicit fallbacks for unparseable values) so a malformed CSS color
-// string never throws — it returns ``#000000`` instead.  This matches
+// string never throws, it returns ``#000000`` instead.  This matches
 // the original contract in ThemeSettingsSection.tsx.
 //
 // ``pickBestForeground`` and ``passesWCAG`` extend the
@@ -27,7 +27,7 @@
 //
 // the underscore-prefixed helpers
 // (``_srgbGamma``, ``_cssColorToHexViaOklch``, ``_cssColorToHexViaDOM``,
-// ``_relativeLuminance``, ``_parseHex``) are NOT exported — they are
+// ``_relativeLuminance``, ``_parseHex``) are NOT exported, they are
 // internal implementation details. Only the public API (``cssColorToHex``,
 // ``contrastRatio``, ``pickBestForeground``) is exported; ``passesWCAG``
 // is a test/validator convenience wrapper marked ``@internal`` (no production
@@ -41,7 +41,7 @@
 // foreground / background pairs against the AA (4.5:1 for normal
 // text, 3:1 for large text / UI components) and AAA (7:1 / 4.5:1)
 // thresholds. We implement the contrast ratio directly rather than
-// pulling in a third-party a11y library — the formula is small,
+// pulling in a third-party a11y library, the formula is small,
 // well-specified, and only depends on the sRGB → relative luminance
 // transform.
 //
@@ -105,7 +105,7 @@ function _relativeLuminance(color: string): number {
  * Compute the WCAG 2.1 contrast ratio between two hex colours.
  *
  * Returns a number in ``[1, 21]`` (``1:1`` = identical colours,
- * ``21:1`` = pure black on pure white). Order doesn't matter — the
+ * ``21:1`` = pure black on pure white). Order doesn't matter, the
  * formula uses the lighter luminance as the numerator.
  *
  * Common thresholds (callers compare against these):
@@ -138,7 +138,7 @@ export function contrastRatio(fg: string, bg: string): number {
  * ``a`` unchanged, ``1`` returns ``b``, ``0.5`` is the exact midpoint.
  * Used to derive subtly-lighter surfaces / more-visible borders from
  * theme tokens (e.g. framing the share-image stat cards) without
- * hardcoding a colour — the result stays theme-driven because both
+ * hardcoding a colour, the result stays theme-driven because both
  * inputs come from the resolved palette.
  *
  * Invalid inputs are treated as black (``#000000``), matching the
@@ -238,7 +238,7 @@ function _cssColorToHexViaOklch(color: string): string | null {
  * Returns ``null`` when:
  *   - the DOM is unavailable (SSR / sandboxed renderer without document)
  *   - the browser couldn't parse the color (computed style returns
- *     ``rgba(0, 0, 0, 0)`` — transparent black — which we treat as a
+ *     ``rgba(0, 0, 0, 0)``, transparent black, which we treat as a
  *     miss so the caller can fall through to the oklch parser)
  *   - the computed style doesn't match the rgb()/rgba() regex
  */
@@ -266,7 +266,7 @@ function _cssColorToHexViaDOM(color: string): string | null {
 			);
 		}
 	} catch (e) {
-		// Fall through to next attempt — the regex match / parse / hex
+		// Fall through to next attempt, the regex match / parse / hex
 		// conversion can fail on malformed inputs; the next strategy
 		// (DOM-based getComputedStyle) is more permissive.
 		console.warn(
@@ -290,7 +290,7 @@ function _cssColorToHexViaDOM(color: string): string | null {
  * valid hex values regardless of Chromium version.
  *
  * Results are memoized per input string (see ``_cssColorToHexCache``)
- * because the resolution is deterministic for a given input — hot
+ * because the resolution is deterministic for a given input, hot
  * callers like ``readThemePalette`` re-resolve the same token set on
  * every theme-applied event / page mount.
  *
@@ -319,8 +319,8 @@ export function cssColorToHex(color: string): string {
 //
 // Resolution is deterministic per input string (getComputedStyle
 // resolves a given color string to the same rgb()/rgba() value every
-// time), so the full chain — hex fast-path, DOM probe, oklch
-// fallback — is memoized by the raw input. ``null`` marks a
+// time), so the full chain, hex fast-path, DOM probe, oklch
+// fallback, is memoized by the raw input. ``null`` marks a
 // KNOWN-UNPARSEABLE input (including a missing-DOM environment,
 // where the probe always fails) so repeated bad values skip the DOM
 // probe too; a missing key (``undefined``) means "not resolved yet".
@@ -330,7 +330,7 @@ const _cssColorToHexCache = new Map<string, string | null>();
 const _CSS_COLOR_TO_HEX_CACHE_MAX = 256;
 
 function _resolveCssColorToHex(color: string): string | null {
-	// Already a clean hex colour — normalise and return.
+	// Already a clean hex colour, normalise and return.
 	const hexMatch = color.match(/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/);
 	if (hexMatch && hexMatch[1] !== undefined) {
 		// Capture group 1 exists whenever `hexMatch` is non-null (the
@@ -372,7 +372,7 @@ function _resolveCssColorToHex(color: string): string | null {
 
 /**
  * Default candidate list for ``pickBestForeground``. White + black
- * covers ~99% of cases — any colour with luminance > 0.18 will pick
+ * covers ~99% of cases, any colour with luminance > 0.18 will pick
  * black, any colour with luminance < 0.18 will pick white. Themes
  * with very narrow luminance ranges (e.g. amoled dark) may want to
  * pass a wider candidate list.
@@ -397,7 +397,7 @@ export const DEFAULT_FOREGROUND_CANDIDATES: readonly string[] = [
  * @returns The candidate with the highest contrast ratio against ``bg``.
  *          If two candidates tie, the FIRST one in the list wins
  *          (so ``["#ffffff", "#000000"]`` prefers white when contrast
- *          is equal — matching the prior hardcoded behaviour for
+ *          is equal, matching the prior hardcoded behaviour for
  *          dark backgrounds).
  */
 export function pickBestForeground(
@@ -405,7 +405,7 @@ export function pickBestForeground(
 	candidates: readonly string[] = DEFAULT_FOREGROUND_CANDIDATES,
 ): string {
 	if (candidates.length === 0) return "#000000";
-	// Biome lint/style/noNonNullAssertion: avoid `!` — the length check
+	// Biome lint/style/noNonNullAssertion: avoid `!`, the length check
 	// above guarantees index 0 exists, but biome can't prove it. Use a
 	// non-null assertion via explicit access + fallback to satisfy the
 	// linter without changing runtime behavior.
@@ -431,7 +431,7 @@ export function pickBestForeground(
  *
  *   ``if (!passesWCAG(fg, bg, 4.5)) warn("fails AA");``
  *
- * @internal — this helper has NO production caller today (only
+ * @internal, this helper has NO production caller today (only
  * ``themes/__tests__/parity.test.ts`` uses it). It is kept exported
  * (rather than deleted) because it is a 3-line pure wrapper with real
  * test coverage, and a future caller (e.g. a theme editor warning on

@@ -1,6 +1,6 @@
 """Tests for the H-17 and fixes in ``dictation_pipeline.py``.
 
-H-17 — ``app._lock`` acquired on one side only (zero protection)
+H-17: ``app._lock`` acquired on one side only (zero protection)
 -----------------------------------------------------------------
 ``DictationPipeline.run``'s ``finally`` block cleared
 ``recording._transcription_thread = None`` under ``self._app._lock``,
@@ -8,7 +8,7 @@ while the matching WRITE (``RecordingController._stop_impl``) and READ
 (``_force_recover_from_stuck_transcription``) both guarded the field
 with ``RecordingController._watchdog_lock``. Because the clear used a
 DIFFERENT lock, it provided ZERO mutual exclusion against the
-write/read — a concurrent ``_stop_impl`` could be mid-assignment of
+write/read, a concurrent ``_stop_impl`` could be mid-assignment of
 ``self._transcription_thread`` (Thread → None or vice versa) when the
 clear ran, and the watchdog could observe a stale or partially-
 constructed reference.
@@ -33,7 +33,7 @@ sanity check at the ``DictationPipeline._apply_llm_polish`` layer:
   3. ``_apply_llm_polish`` performs a sanity check that
      ``redact_pii`` is importable BEFORE calling ``polish()``. If the
      import fails AND templates were applied this cycle, polish is
-     SKIPPED entirely (fail-closed) — without ``redact_pii``, the
+     SKIPPED entirely (fail-closed), without ``redact_pii``, the
      gate inside ``_call_api`` would also fail open, sending
      the un-redacted clipboard-substituted text to the LLM API. When
      templates were NOT applied, the sanity check is skipped (the
@@ -59,7 +59,7 @@ class _TestApp:
     ``tests/fixtures/dictation_pipeline_helpers.py`` (the canonical
     shared ``_TestApp`` factory): a custom class (instead of
     ``MagicMock``) so the four notify-once flag attributes correctly
-    default to ``False`` via ``getattr(..., False)`` — MagicMock
+    default to ``False`` via ``getattr(..., False)``, MagicMock
     would auto-create truthy children for any attribute access.
     """
 
@@ -88,10 +88,10 @@ class _TestApp:
         self.models = MagicMock()
         # recording is a MagicMock so attribute access on
         # ``_watchdog_lock`` / ``_transcription_thread`` returns
-        # MagicMock children by default — but tests that need real
+        # MagicMock children by default, but tests that need real
         # lock semantics override ``recording`` with a stub.
         self.recording = MagicMock()
-        # ``recorder`` is read by the finally block in run() — make
+        # ``recorder`` is read by the finally block in run(), make
         # it a MagicMock with ``recording = False`` so the session
         # cleanup branch is short-circuited.
         self.recorder = MagicMock()
@@ -100,16 +100,16 @@ class _TestApp:
         self._schedule_timer = MagicMock()
         self._waveform_bubble = MagicMock()
         # ``_lock`` is kept for back-compat with any test that still
-        # mocks it — the H-17 fix means the production code no longer
+        # mocks it, the H-17 fix means the production code no longer
         # acquires ``app._lock`` for the _transcription_thread clear.
         self._lock = MagicMock()
         self._lock.__enter__ = MagicMock(return_value=self._lock)
         self._lock.__exit__ = MagicMock(return_value=False)
         # NOTE: the four notify-once flags are intentionally NOT
-        # pre-declared — production code relies on getattr-default.
+        # pre-declared, production code relies on getattr-default.
 
     # Auto-mock unknown attributes (like MagicMock) but DO NOT
-    # auto-create the notify-once flag names — they must default to
+    # auto-create the notify-once flag names, they must default to
     # False via getattr-with-default.
     def __getattr__(self, name: str) -> MagicMock:
         if name in {
@@ -141,13 +141,13 @@ def _new_pipeline(app: _TestApp) -> DictationPipeline:
     pipeline._audio_stats = None
     pipeline._recorded_rms = 0.0
     pipeline._device_info = ""
-    # ``_check_resources_throttled`` reads these — they're normally
+    # ``_check_resources_throttled`` reads these, they're normally
     # set by ``__init__``. Initialize them so ``run()`` doesn't crash
     # on the resource-check fast-path before reaching the finally
     # block whose lock-acquisition we're testing.
     pipeline._last_resources_check_ts = 0.0
     pipeline._resources_check_interval = 60.0
-    # H-17 / : new attribute added in __init__ — must be
+    # H-17 / : new attribute added in __init__, must be
     # initialized here too because ``_new_pipeline`` bypasses
     # ``__init__``.
     pipeline._templates_applied = False
@@ -176,7 +176,7 @@ class _RecordingStub:
     # ``threading.Lock`` doesn't expose an "is_held_by_current_thread"
     # API without ``RLock``. We use a wrapper to record acquisition.
     # We can't use RLock here because the production code uses plain
-    # Lock — but we can wrap the lock to record the acquire call.
+    # Lock, but we can wrap the lock to record the acquire call.
     # Actually, simpler: just use a real Lock and verify the
     # ``_transcription_thread`` field is None after the clear (which
     # only happens if the lock was acquired and the assignment ran).
@@ -187,14 +187,14 @@ class TestTranscriptionThreadClearUsesWatchdogLock:
     ``recording._transcription_thread`` under
     ``recording._watchdog_lock`` (NOT ``app._lock``).
 
-    Pre-fix: the clear used ``app._lock`` — a DIFFERENT lock from the
+    Pre-fix: the clear used ``app._lock``, a DIFFERENT lock from the
     one used by the WRITE (``RecordingController._stop_impl``) and
     READ (``_force_recover_from_stuck_transcription``), both of which
     use ``_watchdog_lock``. The mismatch provided zero mutual
     exclusion, so a concurrent ``_stop_impl`` could be mid-assignment
     when the clear ran.
 
-    Post-fix: the clear acquires ``recording._watchdog_lock`` — the
+    Post-fix: the clear acquires ``recording._watchdog_lock``, the
     SAME lock used by the write/read.
     """
 
@@ -209,7 +209,7 @@ class TestTranscriptionThreadClearUsesWatchdogLock:
              ``None`` (the clear ran).
           2. ``app._lock.__enter__`` was NOT called (the clear did
              not acquire ``app._lock``).
-          3. The pipeline uses ``recording._watchdog_lock`` — verified
+          3. The pipeline uses ``recording._watchdog_lock``, verified
              by replacing it with a lock that records acquisition and
              asserting it was acquired.
         """
@@ -231,7 +231,7 @@ class TestTranscriptionThreadClearUsesWatchdogLock:
         # ``get_streaming_session()`` instead.)
         app.recording.pop_streaming_session = MagicMock(return_value=None)
         # ``_reset_watchdog`` / ``_stop_watchdog_thread`` are called
-        # from finally — make them no-ops.
+        # from finally, make them no-ops.
         app.recording._reset_watchdog = MagicMock()
         app.recording._stop_watchdog_thread = MagicMock()
 
@@ -270,20 +270,20 @@ class TestTranscriptionThreadClearUsesWatchdogLock:
         )
         # Assert 2: the watchdog lock was acquired (the clear used it).
         assert acquired, (
-            "H-17: finally block must acquire recording._watchdog_lock — "
+            "H-17: finally block must acquire recording._watchdog_lock, "
             "acquisition list is empty (clear likely used app._lock instead)."
         )
         # Assert 3: app._lock was NOT acquired by the clear. (It may
-        # be acquired by other code paths in run() — we only care
+        # be acquired by other code paths in run(), we only care
         # that the clear didn't use it. Since the clear now uses
         # _watchdog_lock, app._lock.__enter__ call count should be
         # unchanged from before the clear ran. The simplest
         # invariant: app._lock.__enter__ was NOT called for the
         # transcription_thread clear. We verify by checking that
         # _watchdog_lock was acquired at least once AND
-        # _transcription_thread is None — which together prove the
+        # _transcription_thread is None, which together prove the
         # clear used _watchdog_lock.)
-        # (No direct assertion on app._lock here — the MagicMock
+        # (No direct assertion on app._lock here, the MagicMock
         # auto-creates child mocks that make call-counting fragile.
         # The two assertions above are sufficient: the clear ran,
         # and it used _watchdog_lock.)
@@ -304,7 +304,7 @@ class TestTranscriptionThreadClearUsesWatchdogLock:
         app.recording._cancelled_cycle_ids = set()
         app.recording._cancelled_cycle_ids_lock = threading.Lock()
         # ``_transcribe`` and the finally block both call
-        # ``pop_streaming_session()`` (atomic) — mock it to return
+        # ``pop_streaming_session()`` (atomic), mock it to return
         # None so the cleanup branches short-circuit.
         app.recording.pop_streaming_session = MagicMock(return_value=None)
         app.recording._reset_watchdog = MagicMock()
@@ -318,7 +318,7 @@ class TestTranscriptionThreadClearUsesWatchdogLock:
                 cycle_id="test-cycle",
             )
 
-        # The clear still ran (defensive fallback) — the field is None.
+        # The clear still ran (defensive fallback), the field is None.
         assert recording_stub._transcription_thread is None, (
             "H-17 defensive fallback: clear must still run when _watchdog_lock is missing (assigns without lock)"
         )
@@ -379,8 +379,8 @@ class TestTemplatesAppliedFlag:
 
     def test_flag_not_set_when_template_manager_raises(self):
         """When ``template_manager.match`` raises, the exception is
-        swallowed (existing behavior) and the flag must remain False
-        — we cannot know whether a match would have occurred.
+          swallowed (existing behavior) and the flag must remain False
+        , we cannot know whether a match would have occurred.
         """
         app = _make_app_with_template_manager(match_side_effect=RuntimeError("boom"))
         pipeline = _new_pipeline(app)
@@ -402,7 +402,7 @@ def _make_app_with_template_manager(
     """Build an app with a mock ``_template_manager``.
 
     The mock's ``match`` method returns ``match_return`` or raises
-    ``match_side_effect`` (mutually exclusive — pass one or the other).
+    ``match_side_effect`` (mutually exclusive, pass one or the other).
     """
     app = _TestApp()
     app._template_manager = MagicMock()
@@ -499,7 +499,7 @@ class TestPolishPrivacyNotice:
 
     def test_no_notice_when_consent_not_given(self, caplog):
         """Privacy NOTICE must NOT fire when LLM polish consent is False
-        (the polish call is skipped — no API send).
+        (the polish call is skipped, no API send).
         """
         app = _TestApp()
         app.config.llm_polish = True
@@ -525,7 +525,7 @@ class TestFailClosedOnRedactPiiUnavailable:
     (returns the original text). Without ``redact_pii``, the
     gate inside ``_call_api`` would also fail open (its try/except
     falls through to sending the original text). Skipping polish
-    preserves the original text on the paste path — the user sees
+    preserves the original text on the paste path, the user sees
     their transcription, not a leaked LLM payload.
     """
 
@@ -550,13 +550,13 @@ class TestFailClosedOnRedactPiiUnavailable:
         # Force ``from voice_typer.server.security import redact_pii``
         # to raise ImportError. We do this by patching the
         # ``voice_typer.server.security`` module's ``redact_pii``
-        # attribute to be missing — the simplest way is to replace
+        # attribute to be missing, the simplest way is to replace
         # the module in ``sys.modules`` with one that raises on
         # attribute access. But the import statement
         # ``from voice_typer.server.security import redact_pii`` will
         # succeed if the module exists (just no attribute). The
         # cleanest way is to make ``redact_pii`` raise AttributeError
-        # — but ``from X import Y`` raises ImportError when Y is
+        # , but ``from X import Y`` raises ImportError when Y is
         # missing from X (Python 3.6+).
         import sys
 
@@ -612,7 +612,7 @@ class TestFailClosedOnRedactPiiUnavailable:
     def test_polish_not_skipped_when_redact_pii_unimportable_but_no_templates(self, caplog, monkeypatch):
         """When ``redact_pii`` is unimportable but templates were NOT
         applied, polish proceeds normally. The text is the user's own
-        dictation (lower privacy risk) — the fail-open in
+        dictation (lower privacy risk), the fail-open in
         ``_call_api`` is acceptable in this case.
         """
         app = self._make_app_with_llm_polish_enabled()
@@ -637,7 +637,7 @@ class TestFailClosedOnRedactPiiUnavailable:
             else:
                 sys.modules.pop("voice_typer.server.security", None)
 
-        # Polish proceeded normally — the polisher was called.
+        # Polish proceeded normally, the polisher was called.
         assert result == "polished text", (
             "when redact_pii is unimportable but templates were NOT applied, polish must proceed normally"
         )
@@ -654,7 +654,7 @@ class TestFailClosedOnRedactPiiUnavailable:
         pipeline._templates_applied = True
 
         # ``redact_pii`` is importable (the real security module is
-        # in place — no patching).
+        # in place, no patching).
         result = pipeline._apply_llm_polish("hello world")
 
         # Polish proceeded normally.

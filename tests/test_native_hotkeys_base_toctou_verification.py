@@ -30,14 +30,14 @@ These tests pin:
   3. The new ``if self._failed:`` check in ``start()`` short-circuits
      the READY-timeout wait so the operator sees the precise error.
   4. When the binary path is ``None``, ``_spawn_process`` sets
-     ``_failed=True`` and returns early (defensive — the start()
+     ``_failed=True`` and returns early (defensive, the start()
      method already raises ``FileNotFoundError`` for this case, but
      ``_spawn_process`` is also called from the watchdog respawn path
      which doesn't go through ``start()``).
 
 Also pins the XZ-R6-NH-02 constructor change: ``__init__`` accepts
 an optional ``binary_path`` parameter so the factory can pass its
-verified binary in (cross-file part — the factory itself is owned by
+verified binary in (cross-file part, the factory itself is owned by
 another agent).
 """
 
@@ -90,7 +90,7 @@ def _patch_binary_path(monkeypatch: pytest.MonkeyPatch, fake_bin: Path | None) -
 
 class TestSpawnProcessReVerifiesBinary:
     """XZ-R6-NH-01: ``_spawn_process`` must call
-    ``verify_native_binary_or_skip`` on EVERY invocation — not just
+    ``verify_native_binary_or_skip`` on EVERY invocation, not just
     the first. The watchdog respawn path goes through ``_spawn_process``
     directly (no factory), so this is the only gate that closes the
     TOCTOU window for respawns."""
@@ -105,7 +105,7 @@ class TestSpawnProcessReVerifiesBinary:
             lambda p: (verify_calls.append(p), True)[1],
         )
         # Also patch the base module's binding of the verifier (same
-        # reason as get_native_binary_path — base.py imports it locally).
+        # reason as get_native_binary_path, base.py imports it locally).
         # Reset verify_calls to drop the import-time check (if any).
         verify_calls.clear()
         b = LinuxEvdevHotkey("<caps_lock>")
@@ -148,7 +148,7 @@ class TestSpawnProcessReVerifiesBinary:
         )
         assert not popen_calls, (
             "XZ-R6-NH-01: _spawn_process must NOT call subprocess.Popen when "
-            "verification fails — that would spawn an untrusted binary."
+            "verification fails, that would spawn an untrusted binary."
         )
 
     def test_none_binary_path_sets_failed_and_skips_spawn(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -173,7 +173,7 @@ class TestSpawnProcessReVerifiesBinary:
 class TestStartShortCircuitsOnSpawnFailure:
     """XZ-R6-NH-01: when ``_spawn_process`` sets ``_failed=True`` and
     returns early (no spawn), the ``start()`` method must immediately
-    raise ``RuntimeError`` with the precise error message — NOT wait
+    raise ``RuntimeError`` with the precise error message, NOT wait
     for the ``_ready_event`` timeout and overwrite the message with
     the generic "Timed out waiting for READY"."""
 
@@ -196,7 +196,7 @@ class TestStartShortCircuitsOnSpawnFailure:
         )
         assert "Timed out waiting for READY" not in str(exc_info.value), (
             "XZ-R6-NH-01: start() must NOT fall through to the READY-timeout path "
-            "when _spawn_process set _failed=True — that overwrites the precise "
+            "when _spawn_process set _failed=True, that overwrites the precise "
             "error message."
         )
 
@@ -283,7 +283,7 @@ class TestInitAcceptsBinaryPathParameter:
 class TestReVerificationOnEverySpawn:
     """XZ-R6-NH-01: the watchdog respawn path goes through
     ``_spawn_process`` directly (no factory). The verifier must be
-    called on EVERY spawn — including respawns — so an attacker
+    called on EVERY spawn (including respawns) so an attacker
     swapping the binary between the first spawn and a respawn is
     caught."""
 

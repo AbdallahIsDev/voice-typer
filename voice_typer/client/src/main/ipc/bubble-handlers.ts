@@ -2,20 +2,20 @@
  * Bubble-window IPC handlers.
  *
  * Extracted from `index.ts` (REF-2). Registers:
- *   - bubble:draggable — toggle draggability (synced to bubble renderer)
- *   - bubble:resize — fit pill content exactly (clamped to min/max)
- *   - bubble:show-from-renderer — show from the bubble's own UI
- *   - bubble:set-position — top/bottom config (synced to bubble renderer)
+ *   - bubble:draggable, toggle draggability (synced to bubble renderer)
+ *   - bubble:resize, fit pill content exactly (clamped to min/max)
+ *   - bubble:show-from-renderer, show from the bubble's own UI
+ *   - bubble:set-position, top/bottom config (synced to bubble renderer)
  *     (Channel-rename: previously `set_bubble_position` (snake_case);
  *     migrated to `bubble:set-position` to match the bubble:* convention.
  *     The legacy listener was removed once the preload files were migrated.)
- *   - bubble:toggle-dictation — bubble mic button → Python backend
- *   - bubble:ready — renderer readiness signal
- *   - bubble:dismiss — '×' button (cancel-then-hide; the same body is
+ *   - bubble:toggle-dictation, bubble mic button → Python backend
+ *   - bubble:ready, renderer readiness signal
+ *   - bubble:dismiss, '×' button (cancel-then-hide; the same body is
  *     shared with the main-process global dismiss shortcut)
- *   - bubble:hidden — exit-animation-complete signal
+ *   - bubble:hidden, exit-animation-complete signal
  *
- * The `bubble:move-by` keyboard-nudge handler was removed — it had no
+ * The `bubble:move-by` keyboard-nudge handler was removed, it had no
  * production caller (the bubble window is `focusable: false`, so the
  * renderer-side keydown handler that fed this channel was dead code).
  *
@@ -26,7 +26,7 @@
 import { ipcMain } from "electron";
 import { BUBBLE_HEIGHT, BUBBLE_WIDTH } from "../constants";
 //converted from defensive `require("../logging")` to a static
-// ESM import — the previous try/catch + console.* fallback was added
+// ESM import, the previous try/catch + console.* fallback was added
 // to tolerate minimal test mocks, but the real logging module is now
 // always present and the test mocks have been updated to expose `log`.
 import { log } from "../logging";
@@ -58,7 +58,7 @@ export const MAX_BUBBLE_H = 200;
 
 /**
  * : the 5 bubble-only Python event types. These events must NOT be
- * broadcast to the main window — they are consumed exclusively by the
+ * broadcast to the main window, they are consumed exclusively by the
  * bubble window. `handle-message.ts` imports this set to filter events.
  */
 export const BUBBLE_ONLY_TYPES: ReadonlySet<string> = new Set([
@@ -75,7 +75,7 @@ export const BUBBLE_ONLY_TYPES: ReadonlySet<string> = new Set([
  * "transcribing", dismiss sends `toggle_dictation` first to stop the
  * pipeline.
  *
- * Updated at the SOURCE — `handle-message.ts` calls
+ * Updated at the SOURCE, `handle-message.ts` calls
  * `setLastKnownBubbleMode()` when it dispatches a `bubble_set_state`
  * event to the bubble renderer (BEFORE the `webContents.send`). The
  * previous design monkey-patched `webContents.send` inside the
@@ -90,7 +90,7 @@ let _lastKnownBubbleMode: string | null = null;
 /**
  * Set the last-known bubble mode. Called from `handle-message.ts`
  * when a `bubble_set_state` push event is dispatched to the bubble
- * window — BEFORE the `webContents.send` so the dismiss handler sees
+ * window, BEFORE the `webContents.send` so the dismiss handler sees
  * the new mode even if the renderer hasn't acknowledged it yet.
  */
 export function setLastKnownBubbleMode(mode: string): void {
@@ -123,7 +123,7 @@ export function _resetLastKnownBubbleMode(): void {
  *
  * The `channel` argument is included in the rejection log so operators
  * can grep the runtime log to identify WHICH bubble IPC was rejected
- * (previously the rejection was silent — a misconfigured preload or a
+ * (previously the rejection was silent, a misconfigured preload or a
  * hostile renderer could send packets that were silently dropped, with
  * no log trail to diagnose). The `senderUrl` field surfaces the origin
  * frame's URL so a cross-origin attempt is visible at diagnosis time.
@@ -182,11 +182,11 @@ function clampBubbleSize(
  * first sends `toggle_dictation` to the Python backend (which stops
  * the audio pipeline) before hiding. Without this, dismissing while
  * recording would vanish the bubble but the finalized text would still
- * get pasted — violating the user's "stop this" intent.
+ * get pasted, violating the user's "stop this" intent.
  *
  * Idempotency: `toggle_dictation` is non-idempotent (a second toggle
  * re-starts recording). A rapid double-dismiss would fire two
- * toggle_dictation calls — the first stops the recording, the second
+ * toggle_dictation calls, the first stops the recording, the second
  * starts a new one. Clear the cached mode to "idle" immediately AFTER
  * firing the dismiss-triggered toggle so a second dismiss sees "idle"
  * and skips the toggle. The next `bubble_set_state` push from the
@@ -227,7 +227,7 @@ export function registerBubbleHandlers(): void {
 		// The draggable toggle is a config value that BOTH the main window
 		// (Settings page, via window.bubble.setDraggable) and the bubble
 		// renderer need to sync, so it is NOT restricted to the bubble frame.
-		// (Position/draggable are config values, not hijack vectors — unlike
+		// (Position/draggable are config values, not hijack vectors, unlike
 		// the drag-move commands below, which stay bubble-only.)
 		if (typeof payload !== "boolean") return;
 		const draggable = payload;
@@ -280,7 +280,7 @@ export function registerBubbleHandlers(): void {
 	// allowlisted `toggle_dictation` command. SEC-016: restricted to the
 	// bubble frame so only the bubble can trigger dictation this way.
 	//
-	// The Python backend's reply is a Promise<unknown> — `sendToPython`
+	// The Python backend's reply is a Promise<unknown>, `sendToPython`
 	// RESOLVES even when the backend returns a structured `{ _error, _code }`
 	// envelope (the rejection path is reserved for transport-level
 	// failures: TCP disconnect, timeout, disallowed command). Inspect the
@@ -355,7 +355,7 @@ export function registerBubbleHandlers(): void {
 
 	// Canonical channel (kebab-case `bubble:*` convention).
 	// Runtime-narrow the payload. The previous `(_event, position:
-	// "top" | "bottom")` annotation was compile-time only — a
+	// "top" | "bottom")` annotation was compile-time only, a
 	// non-matching payload would have been passed to
 	// `applyBubblePosition` and silently ignored by the inner
 	// `if (position === "top" || position === "bottom")` guard.
@@ -368,11 +368,11 @@ export function registerBubbleHandlers(): void {
 	ipcMain.on(BubbleChannels.ready, (event) => {
 		// SEC-016: only the bubble window signals readiness.
 		if (!assertFromBubble(event, BubbleChannels.ready)) return;
-		// The readiness log is kept for diagnostics — operators
+		// The readiness log is kept for diagnostics, operators
 		// can grep the runtime log to confirm the bubble
 		// renderer booted past its React mount.
 		log.warn("[BUBBLE] renderer reports ready");
-		// The bubble mode is now tracked at the source — see
+		// The bubble mode is now tracked at the source, see
 		// `setLastKnownBubbleMode()` above (called from
 		// `handle-message.ts` when `bubble_set_state` is
 		// dispatched). No `webContents.send` monkey-patch is
@@ -384,7 +384,7 @@ export function registerBubbleHandlers(): void {
 	// preload's `dismiss()` method sends this IPC; before this handler
 	// existed, the message was silently dropped by Electron's default
 	// ipcMain behavior (no registered listener). Now it routes to
-	// `hideBubbleWindow()` — the same path used by every other hide
+	// `hideBubbleWindow()`, the same path used by every other hide
 	// trigger (timeout fallback, set_config, etc.), so the bubble
 	// plays its exit animation and the rapid-toggle guard correctly
 	// cancels any in-flight show. SEC-016: restricted to the bubble

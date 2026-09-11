@@ -11,12 +11,12 @@ The ONNX migration (PLAN_ONNX_INTEGRATION.md §3, Option B-1) removed
 ``_warm_up_model()`` entirely. The ONNX Runtime + ``onnx_asr.load_model``
 backend:
 
-1. Has no separate processor / model split — the onnx-asr adapter
+1. Has no separate processor / model split, the onnx-asr adapter
    bundles the tokenizer + ONNX session
    the tokenizer + ONNX session, so the warmup-shaped
    ``processor([...])`` → ``model.generate()`` → ``processor.decode()``
    pipeline no longer exists.
-2. Has no torch autograd graph to prime — ORT sessions are stateless
+2. Has no torch autograd graph to prime, ORT sessions are stateless
    inference engines; the first ``session.run()`` call (which happens
    lazily inside the first ``recognize()``) IS the kernel JIT. There is
    no benefit to a separate warmup pass: the first real dictation pays
@@ -26,7 +26,7 @@ This file therefore asserts the *absence* of the warmup contract:
 
 1. ``ParakeetEngine`` has no ``_warm_up_model`` attribute (regression
    guard against accidental re-introduction).
-2. ``load()`` does NOT call ``model.recognize()`` — the model is
+2. ``load()`` does NOT call ``model.recognize()``, the model is
    constructed by ``onnx_asr.load_model(...)`` and immediately returned; the
    first ``recognize()`` happens on the first ``transcribe()``.
 
@@ -112,14 +112,14 @@ def _make_engine_with_mocks(device: str = "cpu"):
 
 
 class TestParakeetOnnxNoWarmup:
-    """The ONNX migration removed the warmup pass — assert its absence."""
+    """The ONNX migration removed the warmup pass, assert its absence."""
 
     def test_engine_has_no_warm_up_model_attribute(self):
         """``ParakeetEngine`` must NOT have a ``_warm_up_model`` attribute.
 
         The pre-migration torch/transformers backend ran a 0.5s silence
         through ``model.generate()`` at load time to prime CUDA kernels.
-        The ONNX backend has no such pass — the onnx-asr adapter is a
+        The ONNX backend has no such pass, the onnx-asr adapter is a
         stateless inference engine, and the first ``session.run()``
         (inside the first ``recognize()``) IS the kernel JIT. Re-introducing
         ``_warm_up_model`` would be a regression (dead code, no observable
@@ -127,7 +127,7 @@ class TestParakeetOnnxNoWarmup:
         """
         engine = _make_engine_with_mocks(device="cpu")[0]
         assert not hasattr(engine, "_warm_up_model"), (
-            "ParakeetEngine must NOT have a _warm_up_model method — the ONNX "
+            "ParakeetEngine must NOT have a _warm_up_model method, the ONNX "
             "migration removed warmup (no torch generate() to prime, no "
             "separate processor + model split). Re-introducing it would be "
             "dead code on the ORT backend."
@@ -137,7 +137,7 @@ class TestParakeetOnnxNoWarmup:
         )
 
     def test_load_does_not_call_model_recognize(self):
-        """``load()`` must NOT call ``model.recognize()`` — the ONNX
+        """``load()`` must NOT call ``model.recognize()``, the ONNX
         backend has no warmup pass. The first ``recognize()`` happens
         on the first ``transcribe()`` (the user's first dictation)."""
         engine, mock_onnx_asr, _ = _make_engine_with_mocks(device="cpu")
@@ -152,7 +152,7 @@ class TestParakeetOnnxNoWarmup:
         (
             mock_model.recognize.assert_not_called(),
             (
-                "load() must NOT call model.recognize() — the ONNX backend has "
+                "load() must NOT call model.recognize(), the ONNX backend has "
                 "no warmup pass. The first recognize() happens on the first "
                 "transcribe() (the user's first dictation)."
             ),
@@ -163,13 +163,13 @@ class TestParakeetOnnxNoWarmup:
 
         The ONNX migration removed all torch references. The pre-migration
         ``_torch``, ``_AutoModelForTDT``, ``_AutoProcessor``, ``_hf_home_set``
-        class attributes (cached by ``_ensure_imports``) are gone — the
+        class attributes (cached by ``_ensure_imports``) are gone, the
         ONNX backend uses ``_onnx_asr`` and ``_ort`` instead. This guard
         prevents an accidental revert.
         """
         for attr in ("_torch", "_AutoModelForTDT", "_AutoProcessor", "_hf_home_set"):
             assert not hasattr(ParakeetEngine, attr), (
-                f"ParakeetEngine must NOT have a {attr!r} class attribute — "
+                f"ParakeetEngine must NOT have a {attr!r} class attribute, "
                 f"the ONNX migration removed all torch/transformers references. "
                 f"Re-introducing it would revert the ONNX migration."
             )

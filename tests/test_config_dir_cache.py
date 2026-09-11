@@ -17,14 +17,14 @@ for the process lifetime in production.
 
 Tests that change those inputs (e.g. ``monkeypatch.setenv`` /
 ``monkeypatch.setattr(Path, "home", ...)``) must call the
-``_reset_config_dir_cache()`` test helper — mirrors
+``_reset_config_dir_cache()`` test helper, mirrors
 ``voice_typer.server.credential_store._reset_keyring_cache``.
 
 What these tests verify
 -----------------------
 1. ``_config_dir`` exposes the ``functools.lru_cache`` API
    (``cache_info`` / ``cache_clear``) with ``maxsize=1``.
-2. Repeated calls return the SAME ``Path`` object (cache hits — no
+2. Repeated calls return the SAME ``Path`` object (cache hits, no
    re-allocation, no re-stat).
 3. ``_reset_config_dir_cache()`` clears the cache (``currsize=0``,
    ``hits=0``, ``misses=0`` after the reset).
@@ -32,7 +32,7 @@ What these tests verify
    autouse fixture that doesn't know whether the cache has been
    populated).
 5. The cache, not the function, is what returns stale state after an
-   env-var change — and ``_reset_config_dir_cache()`` is the release
+   env-var change, and ``_reset_config_dir_cache()`` is the release
    valve (mirrors the ``_reset_keyring_cache`` contract).
 """
 
@@ -64,7 +64,7 @@ def test_config_dir_exposes_lru_cache_api():
     """XV-119: ``_config_dir`` carries the ``functools.lru_cache``
     marker attributes (``cache_info`` / ``cache_clear``).
 
-    A plain function or a lambda does NOT expose these — their presence
+    A plain function or a lambda does NOT expose these, their presence
     is the structural proof that the decorator was applied.
     """
     assert hasattr(config._config_dir, "cache_info"), (
@@ -79,7 +79,7 @@ def test_config_dir_lru_cache_maxsize_is_one():
     """XV-119: the cache is configured with ``maxsize=1``.
 
     The function takes no arguments, so a single-slot cache is
-    sufficient — every call after the first is a hit.  A larger
+    sufficient, every call after the first is a hit.  A larger
     maxsize would be a waste of memory; a maxsize of ``None``
     (unbounded) or ``0`` (disabled) would defeat the fix.
     """
@@ -94,14 +94,14 @@ def test_config_dir_returns_same_object_on_repeated_calls():
     """XV-119: repeated calls return the SAME ``Path`` object.
 
     ``functools.lru_cache`` returns the cached object on a hit (not a
-    freshly-allocated equal one) — this is what makes the cache a perf
+    freshly-allocated equal one), this is what makes the cache a perf
     win: no ``Path`` re-allocation and, crucially, no re-``stat()``
     inside ``_validate_path_safety`` / ``Path.resolve`` / ``Path.exists``.
     """
     first = config._config_dir()
     second = config._config_dir()
     third = config._config_dir()
-    # Identity comparison — lru_cache returns the same object on hits.
+    # Identity comparison, lru_cache returns the same object on hits.
     assert first is second, (
         "repeated _config_dir() calls must return the SAME Path object (lru_cache hit); got distinct objects"
     )
@@ -119,7 +119,7 @@ def test_config_dir_cache_hit_miss_counts():
     ``resolve()`` / ``commonpath`` work) runs exactly ONCE across
     N calls.
     """
-    # Fixture already cleared the cache — first call is a miss.
+    # Fixture already cleared the cache, first call is a miss.
     config._config_dir()
     config._config_dir()
     config._config_dir()
@@ -171,7 +171,7 @@ def test_reset_config_dir_cache_forces_re_resolution():
     config._config_dir()
     assert config._config_dir.cache_info().misses == 1
 
-    # Reset — the next call must be a fresh miss.
+    # Reset, the next call must be a fresh miss.
     config._reset_config_dir_cache()
     config._config_dir()
     info = config._config_dir.cache_info()
@@ -189,7 +189,7 @@ def test_cache_returns_stale_value_until_reset(monkeypatch, tmp_path):
     This is the documented contract: the function is deterministic
     w.r.t. ``os.environ`` + ``Path.home()`` + filesystem state at
     process lifetime, and tests that change any of those inputs must
-    call ``_reset_config_dir_cache()`` — exactly mirroring
+    call ``_reset_config_dir_cache()``, exactly mirroring
     ``credential_store._reset_keyring_cache()`` for the keyring-probe
     cache.
     """
@@ -202,13 +202,13 @@ def test_cache_returns_stale_value_until_reset(monkeypatch, tmp_path):
     custom_b = tmp_path / "config_b"
     custom_b.mkdir()
 
-    # First call with custom_a — populates the cache.
+    # First call with custom_a, populates the cache.
     monkeypatch.setenv("VOICE_TYPER_CONFIG_DIR", str(custom_a))
     config._reset_config_dir_cache()
     first = config._config_dir()
     assert first == custom_a, f"first call should return custom_a ({custom_a}), got {first}"
 
-    # Change env to custom_b WITHOUT resetting the cache — the cache
+    # Change env to custom_b WITHOUT resetting the cache, the cache
     # must return the stale custom_a (this is the documented behavior).
     monkeypatch.setenv("VOICE_TYPER_CONFIG_DIR", str(custom_b))
     stale = config._config_dir()

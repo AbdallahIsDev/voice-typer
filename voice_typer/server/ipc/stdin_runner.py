@@ -1,25 +1,25 @@
 """Stdin runner mixin for the IPC server (split from ``ipc_server.py``).
 
-Contains the :class:`StdinRunnerMixin` class — the legacy stdin/stdout
+Contains the :class:`StdinRunnerMixin` class, the legacy stdin/stdout
 IPC transport (``_send_stdin_error_envelope`` + ``_run``) that is mixed
 into :class:`IPCServer` via multiple inheritance.
 
 The stdin/stdout path is the legacy transport, predating the TCP and
 WebSocket transports. It is gated behind the ``VOICE_TYPER_ALLOW_STDIN_IPC=1``
 env var (see ``LifecycleMixin.start``) because it bypasses the
-``VOICE_TYPER_IPC_TOKEN`` handshake — a security control needed for the
+``VOICE_TYPER_IPC_TOKEN`` handshake, a security control needed for the
 network transports but redundant for the local terminal path.
 
 The mixin accesses instance state (``self._running``, ``self._send``,
 ``self._dispatch``, ``self._on_ipc_client_disconnect``) which is
-declared on :class:`IPCServer` itself — the mixin provides only the
+declared on :class:`IPCServer` itself, the mixin provides only the
 method bodies.
 
 Source-string-pinning tests (``tests/server/test_ipc_server_regressions.py``)
 use ``inspect.getsource(IPCServer._run)`` and assert that the helper
 ``_send_stdin_error_envelope(`` is called at least three times. Because
 ``IPCServer._run`` resolves through MRO to ``StdinRunnerMixin._run``,
-``inspect.getsource`` returns the source from this module — the body is
+``inspect.getsource`` returns the source from this module, the body is
 moved verbatim so the pinned substring appears in the source.
 """
 
@@ -190,7 +190,7 @@ class StdinRunnerMixin:
                     #
                     # PII guard: log ONLY the command ``type`` (extracted
                     # from the already-parsed ``msg`` BEFORE the dispatch
-                    # failure) — NOT the raw stdin line. The raw line is
+                    # failure), NOT the raw stdin line. The raw line is
                     # 120 chars of stdin JSON which can include API keys
                     # (``set_config`` carries ``cloud_api_key`` /
                     # ``openai_api_key``) or transcription text
@@ -228,4 +228,4 @@ class StdinRunnerMixin:
         # ownership so a crashed CLI client doesn't leave the
         # backend stuck in ``"hotkey_capture"`` state. The helper
         # is a no-op during shutdown (``self._running == False``).
-        self._on_ipc_client_disconnect("stdin EOF — IPC client disconnected")
+        self._on_ipc_client_disconnect("stdin EOF. IPC client disconnected")

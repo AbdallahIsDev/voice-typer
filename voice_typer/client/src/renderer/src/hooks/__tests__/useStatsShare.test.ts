@@ -23,7 +23,7 @@ function makeElement(overrides?: Partial<HTMLDivElement>): HTMLDivElement {
 	} as unknown as HTMLDivElement;
 }
 
-/** A valid-looking PNG data URL (content is mocked away — only the
+/** A valid-looking PNG data URL (content is mocked away, only the
  * string shape matters to the bridge calls). */
 const PNG_DATA_URL = "data:image/png;base64,AA==";
 

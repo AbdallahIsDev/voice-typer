@@ -75,7 +75,7 @@ class TestConfigDeclaresConsentFlags:
         assert validated["voice_biometric_consent"] is True
 
     def test_consent_fields_reject_non_bool(self):
-        """Consent fields must be bool — non-bool values are rejected."""
+        """Consent fields must be bool, non-bool values are rejected."""
         from voice_typer.server.config import validate_config_update
 
         validated, errors = validate_config_update(
@@ -89,7 +89,7 @@ class TestConfigDeclaresConsentFlags:
 
 class TestNoAutoUpdateFetchOnSettingsMount:
     """C-DATA-1 regression guard: PrewarmAndUpdates must NOT issue
-    ANY network call — not on mount, not on user click, not anywhere
+    ANY network call, not on mount, not on user click, not anywhere
     in the production code path.
 
     History:
@@ -102,7 +102,7 @@ class TestNoAutoUpdateFetchOnSettingsMount:
          KEPT the manual "Check for Updates" button (``handleManualCheck``)
          which still issued a renderer ``fetch()`` on explicit user click.
       3. C-DATA-1 (the offline guarantee) forbids ANY network call in
-         the production code path — including an explicit user click.
+         the production code path, including an explicit user click.
          The manual button + handler + ``latestVersion`` state have all
          been removed; the Updates section now shows the installed
          version plus a static offline message directing the user to
@@ -156,14 +156,14 @@ class TestNoAutoUpdateFetchOnSettingsMount:
         """No ``useEffect`` body may call ``checkForUpdate``."""
         bodies = self._use_effect_bodies(component_source)
         # The component's ONLY useEffect is the mount-time
-        # get_prewarm_status fetch (Cache Status card — restored
+        # get_prewarm_status fetch (Cache Status card, restored
         # 2026-08-14, plan §6.3 addendum). The loop below asserts
         # none of the effect bodies can fire the (removed) GitHub
         # release check, which is the strongest C-DATA-1 form.
         for idx, body in enumerate(bodies):
             assert "checkForUpdate" not in body, (
                 f"PrewarmAndUpdates.tsx useEffect #{idx} references "
-                f"'checkForUpdate' — regression: auto-firing the "
+                f"'checkForUpdate', regression: auto-firing the "
                 f"GitHub release check on mount leaks the user's IP and "
                 f"breaks the C-DATA-1 offline guarantee."
             )
@@ -178,7 +178,7 @@ class TestNoAutoUpdateFetchOnSettingsMount:
         for idx, body in enumerate(bodies):
             assert not github_pattern.search(body), (
                 f"PrewarmAndUpdates.tsx useEffect #{idx} fetches the "
-                f"GitHub releases API on mount — regression: this leaks "
+                f"GitHub releases API on mount, regression: this leaks "
                 f"the user's public IP + Electron User-Agent on every "
                 f"Settings page open. C-DATA-1 forbids any network call "
                 f"in the production code path."
@@ -186,7 +186,7 @@ class TestNoAutoUpdateFetchOnSettingsMount:
 
     def test_no_api_github_reference_anywhere_in_component(self, component_source):
         """C-DATA-1: the component source must NOT reference the GitHub
-        releases API anywhere — not in a ``useEffect``, not in a click
+        releases API anywhere, not in a ``useEffect``, not in a click
         handler, not in a constant.
 
         The earlier the fix removed the auto-fire ``useEffect``
@@ -212,7 +212,7 @@ class TestNoAutoUpdateFetchOnSettingsMount:
         )
 
     def test_no_handle_manual_check_handler(self, component_source):
-        """The ``handleManualCheck`` handler must NOT exist — it was the
+        """The ``handleManualCheck`` handler must NOT exist, it was the
         click handler that fired the renderer ``fetch()`` to
         ``api.github.com``.
 
@@ -226,7 +226,7 @@ class TestNoAutoUpdateFetchOnSettingsMount:
         Typer).
         """
         assert "handleManualCheck" not in component_source, (
-            "PrewarmAndUpdates.tsx contains 'handleManualCheck' — "
+            "PrewarmAndUpdates.tsx contains 'handleManualCheck', "
             "C-DATA-1 forbids any network call in the production code path. "
             "The manual update-check handler was removed because its "
             "fetch() to api.github.com violated the offline guarantee."
@@ -239,7 +239,7 @@ class TestNoAutoUpdateFetchOnSettingsMount:
         auto-check behind a new ``Config.auto_update_check_consent``
         flag, OR (b) remove the auto-fire ``useEffect`` and only run
         the check on explicit button click. The project chose (b)
-        (per the comment in PrewarmAndUpdates.tsx) — simpler,
+        (per the comment in PrewarmAndUpdates.tsx), simpler,
         no new config surface, no implicit-consent ambiguity. This
         test documents that decision.
         """
@@ -335,7 +335,7 @@ class TestWhisperLoadRefusesUncachedModel:
     def test_cache_miss_raises_not_downloaded_without_network(self, monkeypatch):
         """Cache miss → ``ModelNotDownloadedError``; the only
         ``snapshot_download`` calls are local-only probes
-        (``local_files_only=True``) — never a network transfer."""
+        (``local_files_only=True``), never a network transfer."""
         calls = []
 
         def fake_snapshot(**kwargs):
@@ -355,7 +355,7 @@ class TestWhisperLoadRefusesUncachedModel:
 
     def test_cache_miss_raises_even_with_consent(self, monkeypatch):
         """Consent is irrelevant on the load path: even with
-        ``huggingface_consent=True`` the load refuses — there is nothing
+        ``huggingface_consent=True`` the load refuses, there is nothing
         to consent to, because downloads only happen via an explicit
         user action."""
 
@@ -475,7 +475,7 @@ class TestEngineAcceptsConfigInRealConstructionPath:
         assert engine.config is None
 
     def test_require_model_downloaded_does_not_crash_without_config(self, tmp_path, monkeypatch):
-        """When ``config`` is None the load gate still works — the local
+        """When ``config`` is None the load gate still works, the local
         cache probe doesn't read config, so an uncached model raises
         ``ModelNotDownloadedError`` (not ``AttributeError``)."""
         import sys
@@ -498,7 +498,7 @@ class TestEngineAcceptsConfigInRealConstructionPath:
             engine._require_model_downloaded("small.en")
 
     def test_load_path_never_downloads_even_with_consent(self, tmp_path, monkeypatch):
-        """The engine load path NEVER downloads — even with consent
+        """The engine load path NEVER downloads, even with consent
         granted, an uncached model refuses to load with
         ``ModelNotDownloadedError``. Downloads are an explicit user
         action (``service.download_model``), not part of loading."""

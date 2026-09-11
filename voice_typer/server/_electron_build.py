@@ -31,7 +31,7 @@ Strategy summary
 ----------------
 1. **Locate** the dev-mode Electron binary
    (``node_modules/electron/dist/electron[.exe]``).
-2. **Verify the pre-built bundles** (``out/main/index.js``) exist — the
+2. **Verify the pre-built bundles** (``out/main/index.js``) exist, the
    app is NEVER built from source at launch time.  A packaged install
    ships pre-built bundles; when they are missing the launcher fails
    fast so the caller can fall back to the dev path.
@@ -43,7 +43,7 @@ Strategy summary
    Electron).
 
 The orchestration of these steps (when to fall back, what env vars to
-set, what to do with the child PID) lives in the launcher modules — this
+set, what to do with the child PID) lives in the launcher modules, this
 file only provides the primitives.
 """
 
@@ -100,7 +100,7 @@ def _electron_binary() -> str | None:
         if len(expected_sha) != 64 or not all(c in "0123456789abcdef" for c in expected_sha):
             log.error(
                 "[ELECTRON-BUILD] VOICE_TYPER_ELECTRON_SHA256 is set but is not a "
-                "64-char hex SHA-256 (got %d chars) — refusing to launch the "
+                "64-char hex SHA-256 (got %d chars), refusing to launch the "
                 "binary rather than guessing; unset the env var to skip the check",
                 len(expected_sha),
             )
@@ -119,7 +119,7 @@ def _electron_binary() -> str | None:
             return None
         if actual_sha != expected_sha:
             log.error(
-                "[ELECTRON-BUILD] Electron binary CHECKSUM MISMATCH for %s — "
+                "[ELECTRON-BUILD] Electron binary CHECKSUM MISMATCH for %s, "
                 "expected %s, got %s. Refusing to launch this binary; falling "
                 "back to `npm run dev`. Unset VOICE_TYPER_ELECTRON_SHA256 to "
                 "skip the check.",
@@ -145,7 +145,7 @@ def _main_entry_built() -> bool:
     built app to display anything:
 
     * A missing renderer bundle makes the main window fail to load
-      (``did-fail-load`` ERR_FILE_NOT_FOUND) — the window never shows
+      (``did-fail-load`` ERR_FILE_NOT_FOUND), the window never shows
       and the process lingers as a hidden zombie holding the
       single-instance lock, silently killing every later launch
       (RACE-011).
@@ -153,7 +153,7 @@ def _main_entry_built() -> bool:
 
     If the client has never been fully built (fresh checkout, deleted
     ``out/``), this is ``False`` and the caller must run
-    ``npm run build`` first — or fall back to ``npm run dev``, which
+    ``npm run build`` first, or fall back to ``npm run dev``, which
     builds-and-runs in one step.
     """
     return (
@@ -177,7 +177,7 @@ def _npm_command(script: str = "dev") -> list[str] | None:
             The argv list to pass to :class:`subprocess.Popen`, or ``None``
             if npm truly cannot be resolved on the current platform.  When
             ``None`` is returned, the caller MUST log a clear error and skip
-            the operation — it MUST NOT fall back to ``shell=True`` (S-7:
+            the operation, it MUST NOT fall back to ``shell=True`` (S-7:
             shell=True is a shell-injection risk and breaks on paths with
             spaces).
 
@@ -209,7 +209,7 @@ def _npm_command(script: str = "dev") -> list[str] | None:
         npm_cmd_path = shutil.which("npm.cmd")
         if npm_cmd_path is not None:
             return [npm_cmd_path, "run", script]
-        # npm truly not resolvable — caller logs and skips (no shell=True).
+        # npm truly not resolvable, caller logs and skips (no shell=True).
         return None
     # POSIX: shutil.which missed, but Popen's PATH lookup may still find it.
     # Return the list form so Popen does the lookup without spawning a shell.
@@ -224,14 +224,14 @@ def _spawn_flags(hidden: bool = False) -> dict:
     hidden : bool
         If ``True`` (autostart at login), prevents console windows from
         flashing on Windows by adding ``CREATE_NO_WINDOW``.  If
-        ``False`` (default — used by ``electron_launcher`` and by the
+        ``False`` (default, used by ``electron_launcher`` and by the
         autostart desktop-shortcut path), Windows child processes get
         normal process creation so they can create their own console
         windows if needed (e.g. for ``npm run dev``).
 
     On POSIX, the child is detached into a new session
     (``start_new_session=True``) so it survives the launcher process
-    exiting — this is required for both the autostart path (the
+    exiting: this is required for both the autostart path (the
     launcher exits immediately after spawning) and the standalone
     backend path (the backend may exit before Electron does).
     """
@@ -242,7 +242,7 @@ def _spawn_flags(hidden: bool = False) -> dict:
             # flashing during autostart (the user is logging in, not
             # clicking a shortcut).
             kwargs["creationflags"] = 0x08000000
-        # else: no creation flags — processes get normal console
+        # else: no creation flags, processes get normal console
         # behavior, which lets `npm run dev` open its own console.
     else:
         # Detach into a new session so the child survives this launcher.
@@ -255,24 +255,24 @@ def _launcher_child_env() -> dict[str, str]:
 
     The child's stdout/stderr land in ``electron-stdout.log`` /
     ``electron-stderr.log`` (or the ``tauri-stdout.log`` /
-    ``tauri-stderr.log`` equivalents — the same helper is used by
+    ``tauri-stderr.log`` equivalents, the same helper is used by
     ``autostart_launcher._spawn_tauri_host`` and the Tauri focus-probe
     branch of ``_focus_running_app``). These tweaks keep those files
     clean (matching the plain-text format of ``voice-typer.log``):
 
-    - ``FORCE_COLOR=0`` — some JS tooling (vite/rollup/chalk) force-
+    - ``FORCE_COLOR=0``: some JS tooling (vite/rollup/chalk) force-
       enables ANSI colour even when stdout is NOT a TTY; this disables
       it so no escape codes reach the log file.
-    - ``NO_COLOR=1`` — the de-facto cross-ecosystem no-ANSI contract
+    - ``NO_COLOR=1``: the de-facto cross-ecosystem no-ANSI contract
       (no-color.org) honoured by Rust console crates / CLI tooling that
       ignores ``FORCE_COLOR`` (the Tauri host is a Rust binary). Belt-
       and-suspenders for anything the host or its tooling prints to
       stderr; the Rust logger itself is ANSI-free, this guards the
       rest.
-    - ``CLICOLOR=0`` — the BSD/macOS convention for tools that honour
+    - ``CLICOLOR=0``: the BSD/macOS convention for tools that honour
       ``CLICOLOR`` instead of ``NO_COLOR`` (Cargo/rustc-side tooling on
       macOS, `xcodebuild`, etc.).
-    - ``RUST_LOG_STDERR=0`` — the Rust host's ``CombinedLogger``
+    - ``RUST_LOG_STDERR=0``: the Rust host's ``CombinedLogger``
       mirrors its entire rotating-file stream (``voice-typer-rust.log``)
       to stderr when ``RUST_LOG_STDERR=1`` is inherited. That flag
       exists for terminal tailing (``journalctl``/`cargo tauri dev`);
@@ -281,7 +281,7 @@ def _launcher_child_env() -> dict[str, str]:
       stays clean and carries only crash/early diagnostics (the panic
       hook + ``EarlyLogger`` write to stderr directly and are NOT
       gated by this var).
-    - ``npm_config_loglevel=silent`` — suppress npm's banner notices
+    - ``npm_config_loglevel=silent``: suppress npm's banner notices
       (``npm notice run voice-typer-desktop@1.0.0 dev``) written by the
       npm parent process.
 
@@ -312,7 +312,7 @@ def _electron_log_files() -> dict:
     ``console.error/warn`` (raw pipe) AND the file tee (``appendLogLine``).
 
     RACE-009 originally added this raw capture so Electron crashes could
-    be diagnosed — that value is now served by:
+    be diagnosed, that value is now served by:
     ``electron-crashes.log`` (uncaughtException handler),
     ``electron-main.log``/``electron-runtime.log`` (structured logging),
     and the VEH crash buffer.
@@ -322,10 +322,10 @@ def _electron_log_files() -> dict:
 
 
 # substring markers for "sensitive" env var names. When a child process
-# inherits the parent's env (intentional — same-app restart), we log
+# inherits the parent's env (intentional, same-app restart), we log
 # ONLY the key names matching one of these markers so a future leak in a
 # downstream log is auditable. Values are NEVER printed. The list is
-# intentionally conservative — it catches the common SaaS API-key
+# intentionally conservative, it catches the common SaaS API-key
 # conventions (OPENAI_API_KEY, ANTHROPIC_API_KEY, HF_TOKEN,
 # GEMINI_API_KEY, AZURE_SPEECH_KEY, etc.) and OS-level secrets
 # (AWS_SECRET_ACCESS_KEY, *_PASSWORD) without flagging benign vars
@@ -346,7 +346,7 @@ def _redact_sensitive_env_keys(env: dict[str, str]) -> list[str]:
     Helper used by the Electron / autostart launchers right after
     ``env = dict(os.environ)`` to surface (without values) which
     sensitive-looking env vars the child will inherit. The list is
-    intended for an audit log line — it is NOT a security control.
+    intended for an audit log line, it is NOT a security control.
     """
     return sorted(key for key in env if any(marker in key.upper() for marker in _SENSITIVE_ENV_MARKERS))
 
@@ -354,7 +354,7 @@ def _redact_sensitive_env_keys(env: dict[str, str]) -> list[str]:
 def _log_sensitive_env_keys(env: dict[str, str], *, context: str) -> None:
     """Log (at INFO) the names of sensitive env keys present in ``env``.
 
-    Only the KEY NAMES are logged — values are never printed. If no
+    Only the KEY NAMES are logged, values are never printed. If no
     sensitive keys are present, nothing is logged (avoids log noise on
     the common case).
     """

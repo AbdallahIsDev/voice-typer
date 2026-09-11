@@ -1,19 +1,19 @@
-"""god-class decomposition: TimerCoordinator — extracted from VoiceTyperApp.
+"""god-class decomposition: TimerCoordinator, extracted from VoiceTyperApp.
 
 Owns the lifecycle of fire-and-forget ``threading.Timer`` instances
 scheduled by the application:
 
-    - ``_schedule_timer`` — create, track, and start a timer. A
+    - ``_schedule_timer``: create, track, and start a timer. A
       *generation guard* prevents stale callbacks (scheduled before a
       cancel) from firing after ``_cancel_pending_timers`` has bumped
       the generation counter.
-    - ``_cancel_pending_timers`` — cancel and clear all pending timers.
+    - ``_cancel_pending_timers``: cancel and clear all pending timers.
 The pending list is guarded by ``_pending_timers_lock`` ()
       so concurrent appends from the tray / transcription / timer
       threads can't race with the snapshot-and-clear iteration.
 
 The actual logic lived on ``VoiceTyperApp`` as two private methods of
-the same name. The behaviour is preserved verbatim — only the class
+the same name. The behaviour is preserved verbatim, only the class
 boundary moved. ``VoiceTyperApp`` keeps thin delegate methods so all
 existing callers (and tests that monkeypatch
 ``app._schedule_timer`` / ``app._cancel_pending_timers``) keep working
@@ -38,7 +38,7 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     # Imported only under TYPE_CHECKING to avoid a circular import at
-    # runtime — ``voice_typer.server.app`` imports
+    # runtime, ``voice_typer.server.app`` imports
     # ``voice_typer.server.timer_coordinator`` (this module).
     pass
 
@@ -59,7 +59,7 @@ class _ZeroDelayThread(threading.Thread):
     ``_cancel_pending_timers`` if a future change re-adds zero-delay
     timers to the pending list) can polymorphically call ``.cancel()``
     without ``AttributeError``. A started thread can't actually be
-    cancelled — the no-op mirrors what ``Timer.cancel()`` would return
+    cancelled, the no-op mirrors what ``Timer.cancel()`` would return
     for an already-fired timer (``False``), without the bookkeeping.
     """
 
@@ -80,7 +80,7 @@ class TimerCoordinator:
     Phase 6: extracted from ``VoiceTyperApp``. The app passes
         itself (``app``) as a back-reference so ``TimerCoordinator`` can be
         extended later to call back into the app if needed (currently the
-        two methods are self-contained and don't use ``self._app`` — but
+        two methods are self-contained and don't use ``self._app``, but
         the back-reference is kept for parity with ``SettingsController``
         and to support future wiring such as ``app._shutting_down_event``
         gating).
@@ -100,7 +100,7 @@ class TimerCoordinator:
         ``_timer_generation`` at scheduling time. ``_cancel_pending_timers``
         *increments* the counter (under the lock). When a timer fires, the
         guarded callback compares its captured generation against the
-        current one and skips the user callback if they differ — i.e. the
+        current one and skips the user callback if they differ, i.e. the
         timer was scheduled before the most recent cancel and is now stale.
     """
 
@@ -121,57 +121,57 @@ class TimerCoordinator:
     def _schedule_timer(self, delay: float, func) -> threading.Thread:
         """Create, track, and start a timer. Replaces fire-and-forget timers.
 
-        Fast path: for ``delay <= 0`` (6 callers in
-        ``recording_controller`` / ``model_manager`` pass ``0``),
-        short-circuit to a bare daemon ``_ZeroDelayThread`` instead of
-        ``threading.Timer(0, ...)``. ``Timer(0)`` still allocates the
-        internal ``threading.Event`` (signals "timer finished"), the
-        cancel-bookkeeping machinery, and the ``Timer`` sub-object —
-        all wasted when the callback runs immediately. A bare
-        ``Thread`` is cheaper. The ``guarded_func`` / generation-check
-        logic (RACE-013) is preserved unchanged — the generation
-        capture, the unlocked check, the locked re-check, the
-        ``_shutting_down_event`` consultation, and the eviction from
-        ``_pending_timers`` all run identically. We do NOT append the
-        zero-delay thread to ``_pending_timers`` because a started
-        thread cannot be cancelled — ``guarded_func``'s
-        ``if timer in self._pending_timers: remove(timer)`` becomes a
-        no-op (the thread was never in the list), so the list doesn't
-        accumulate stale shells (the original PERF-TMR concern).
+         Fast path: for ``delay <= 0`` (6 callers in
+         ``recording_controller`` / ``model_manager`` pass ``0``),
+         short-circuit to a bare daemon ``_ZeroDelayThread`` instead of
+         ``threading.Timer(0, ...)``. ``Timer(0)`` still allocates the
+         internal ``threading.Event`` (signals "timer finished"), the
+         cancel-bookkeeping machinery, and the ``Timer`` sub-object —
+         all wasted when the callback runs immediately. A bare
+         ``Thread`` is cheaper. The ``guarded_func`` / generation-check
+         logic (RACE-013) is preserved unchanged, the generation
+         capture, the unlocked check, the locked re-check, the
+         ``_shutting_down_event`` consultation, and the eviction from
+         ``_pending_timers`` all run identically. We do NOT append the
+         zero-delay thread to ``_pending_timers`` because a started
+         thread cannot be cancelled, ``guarded_func``'s
+         ``if timer in self._pending_timers: remove(timer)`` becomes a
+         no-op (the thread was never in the list), so the list doesn't
+         accumulate stale shells (the original PERF-TMR concern).
 
-        PERF-TMR: Each call creates a fresh threading.Timer. A timer pool
-        was considered but rejected because:
-          - Only ~3-5 timers are created per dictation cycle
-          - threading.Timer creation cost (~0.05 ms) is negligible vs.
-            transcription latency (~1-5 seconds)
-          - A timer pool would add complexity (reuse tracking, stale timer
-            cleanup, thread-safety) for no measurable user-visible gain
-          - The generation-guard pattern already prevents stale callbacks
+         PERF-TMR: Each call creates a fresh threading.Timer. A timer pool
+         was considered but rejected because:
+           - Only ~3-5 timers are created per dictation cycle
+           - threading.Timer creation cost (~0.05 ms) is negligible vs.
+             transcription latency (~1-5 seconds)
+           - A timer pool would add complexity (reuse tracking, stale timer
+             cleanup, thread-safety) for no measurable user-visible gain
+           - The generation-guard pattern already prevents stale callbacks
 
-        ``gen = self._timer_generation`` is now captured INSIDE
-        the ``_pending_timers_lock`` critical section. Previously the
-        read happened outside the lock, so a concurrent
-        ``_cancel_pending_timers`` could bump the generation between
-        our read and our ``append`` — a stale timer would capture the
-        OLD generation, then fire after the cancel and incorrectly
-        run ``func`` (because ``gen == self._timer_generation`` would
-        still be True at fire time if no further cancel happened).
-        Reading under the lock pairs the capture with the append so
-        the timer either:
-          (a) is in the pending list with the current generation
-              (will be cancelled by a subsequent cancel), OR
-          (b) is in the pending list with the current generation and
-              no cancel happens before it fires (legitimate run).
-        The previous race let a timer escape cancellation entirely.
+         ``gen = self._timer_generation`` is now captured INSIDE
+         the ``_pending_timers_lock`` critical section. Previously the
+         read happened outside the lock, so a concurrent
+         ``_cancel_pending_timers`` could bump the generation between
+         our read and our ``append``: a stale timer would capture the
+         OLD generation, then fire after the cancel and incorrectly
+         run ``func`` (because ``gen == self._timer_generation`` would
+         still be True at fire time if no further cancel happened).
+         Reading under the lock pairs the capture with the append so
+         the timer either:
+           (a) is in the pending list with the current generation
+               (will be cancelled by a subsequent cancel), OR
+           (b) is in the pending list with the current generation and
+               no cancel happens before it fires (legitimate run).
+         The previous race let a timer escape cancellation entirely.
 
-        when a timer fires (the guarded callback runs),
-        ``guarded_func`` removes it from ``_pending_timers`` under
-        the lock. Previously fired timers stayed in the list forever
-        — a long-running app that schedules ~5 timers per dictation
-        cycle accumulated ~4,000 stale ``threading.Timer`` shells in
-        ``_pending_timers``, which ``_cancel_pending_timers`` would
-        then iterate (calling ``timer.cancel()`` on already-fired
-        timers — a no-op but still O(N) work) on every shutdown.
+         when a timer fires (the guarded callback runs),
+         ``guarded_func`` removes it from ``_pending_timers`` under
+         the lock. Previously fired timers stayed in the list forever
+        , a long-running app that schedules ~5 timers per dictation
+         cycle accumulated ~4,000 stale ``threading.Timer`` shells in
+         ``_pending_timers``, which ``_cancel_pending_timers`` would
+         then iterate (calling ``timer.cancel()`` on already-fired
+         timers, a no-op but still O(N) work) on every shutdown.
         """
         with self._pending_timers_lock:
             gen = self._timer_generation
@@ -184,7 +184,7 @@ class TimerCoordinator:
                 # unlocked gen check below) when
                 # ``_cancel_pending_timers`` bumps the generation, the
                 # running callback would still proceed to call
-                # ``func()`` — which touches app state (tray, recorder,
+                # ``func()``: which touches app state (tray, recorder,
                 # IPC server) that ``_do_cleanup`` is concurrently
                 # tearing down. We close the window with a second
                 # generation check performed UNDER the lock (pairs with
@@ -218,14 +218,14 @@ class TimerCoordinator:
                     # ``_schedule_timer`` call (one ``guarded_func`` per
                     # timer). For the zero-delay fast path,
                     # ``timer`` is NOT in ``_pending_timers`` so this
-                    # ``in`` check is False — no-op, no harm.
+                    # ``in`` check is False, no-op, no harm.
                     if isinstance(timer, threading.Timer) and timer in self._pending_timers:
                         self._pending_timers.remove(timer)
                 func()
 
             # Zero/near-zero delay → bare daemon Thread instead
             # of ``Timer(0, ...)``. ``Timer(0)`` still pays for the
-            # internal ``threading.Event`` and cancel-bookkeeping — all
+            # internal ``threading.Event`` and cancel-bookkeeping, all
             # wasted when the callback runs immediately. We do NOT
             # append to ``_pending_timers``: a started thread can't be
             # cancelled, so tracking it there would only accumulate

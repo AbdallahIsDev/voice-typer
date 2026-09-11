@@ -3,7 +3,7 @@
 These tests verify that an *uncaught* exception raised by an IPC
 handler is converted into a structured ``{"type": "error", ...}``
 response on the TCP socket **without** tearing down the client
-connection — so the renderer can recover (or at least report the
+connection, so the renderer can recover (or at least report the
 error to the user) instead of being silently disconnected.
 
 Why a dedicated test file?
@@ -15,7 +15,7 @@ wraps ``self._dispatch(msg)`` in a ``try/except Exception:`` block
 (see the ``ERR-018`` comment in ``ipc_server.py``).  Before ERR-018,
 any uncaught handler exception bubbled up to the outer
 ``except Exception:`` clause, which logged ``"client connection
-closed"`` at DEBUG and tore down the TCP session — so a single buggy
+closed"`` at DEBUG and tore down the TCP session, so a single buggy
 handler killed the entire IPC session until the user restarted the
 backend.
 
@@ -23,7 +23,7 @@ There were already unit tests covering *handler-level* exception
 catching (e.g. ``tests/test_server.py::
 TestDispatchToggleDictation::test_exception_returns_error_response``
 exercises the ``try/except`` inside ``_handle_toggle_dictation``).
-But **no** test exercised the *dispatch-level* catching path — the
+But **no** test exercised the *dispatch-level* catching path, the
 safety net that fires when a handler itself fails to catch.  This
 file fills that gap with an end-to-end TCP integration test:
 
@@ -35,7 +35,7 @@ file fills that gap with an end-to-end TCP integration test:
      ``{"type": "error", "data": {"message": "internal error"}}``.
   5. Restore the original handler, send a second ``get_status``
      request on the SAME socket, and assert a normal ``status``
-     response is returned — proving the connection survived.
+     response is returned, proving the connection survived.
 
 The test mirrors the live-TCP patterns already established in
 ``tests/test_feature_hardening_regressions.py`` (``live_server``
@@ -221,7 +221,7 @@ def live_server(tmp_path, monkeypatch):
 
     server.stop()
     # close HistoryDB writer thread so it doesn't leak across the
-    # pytest session (Windows native thread-limit crash — see ).
+    # pytest session (Windows native thread-limit crash: see ).
     with suppress(Exception):
         if hasattr(app, "history_db") and hasattr(app.history_db, "close"):
             app.history_db.close()
@@ -274,12 +274,12 @@ class TestTcpDispatchExceptionHandling:
           - Response ``type`` is ``"error"``.
           - Response ``data.message`` is the dispatch-loop's generic
             ``"internal error"`` string (the safety net deliberately
-            does NOT leak the raw exception message — see the
+            does NOT leak the raw exception message: see the
             ``ERR-018`` comment in ``ipc_server.py``).
         """
         client, server = authenticated_client
 
-        def boom(data, resp):  # noqa: ARG001 — handler signature
+        def boom(data, resp):  # noqa: ARG001, handler signature
             raise RuntimeError("simulated handler crash")
 
         # Patch the bound handler on the live server instance.  The
@@ -293,7 +293,7 @@ class TestTcpDispatchExceptionHandling:
 
         assert resp["type"] == "error", f"Expected error response for raising handler, got: {resp}"
         assert resp.get("id") == 1, f"Response id mismatch: {resp}"
-        # The dispatch safety net sends a fixed, generic message — it
+        # The dispatch safety net sends a fixed, generic message, it
         # intentionally does NOT forward str(exception) to the client
         # (that would leak server internals / stack details over IPC).
         # We assert the contract here so a future refactor that
@@ -309,7 +309,7 @@ class TestTcpDispatchExceptionHandling:
         uncaught handler exception, so a single buggy handler killed
         the entire IPC session.  Post-ERR-018 the dispatch loop's
         inner ``try/except`` catches, sends the error response, and
-        ``continue``s — the connection survives.
+        ``continue``s, the connection survives.
         """
         client, server = authenticated_client
 
@@ -324,18 +324,18 @@ class TestTcpDispatchExceptionHandling:
 
         monkeypatch.setattr(server, "_handle_get_status", flaky)
 
-        # First request — handler raises, dispatch loop catches.
+        # First request, handler raises, dispatch loop catches.
         _send_line(client, {"id": 10, "type": "get_status"})
         resp1 = _read_response_line(client, timeout=2.0)
         assert resp1["type"] == "error", f"First response should be error (handler raised): {resp1}"
         assert resp1.get("id") == 10
 
-        # Second request on the SAME socket — connection must survive
+        # Second request on the SAME socket, connection must survive
         # and the handler (now un-flaked) must return a normal status.
         _send_line(client, {"id": 11, "type": "get_status"})
         resp2 = _read_response_line(client, timeout=2.0)
         assert resp2["type"] == "status", (
-            f"Second response should be a normal status — connection "
+            f"Second response should be a normal status, connection "
             f"did not survive the prior handler exception: {resp2}"
         )
         assert resp2.get("id") == 11
@@ -364,7 +364,7 @@ class TestTcpDispatchExceptionHandling:
             assert resp["type"] == "error", f"Iteration {i}: expected error, got {resp}"
             assert resp.get("id") == 100 + i
 
-        # Connection must still be alive — send a different command
+        # Connection must still be alive, send a different command
         # (get_config) to a handler that does NOT raise and confirm
         # we get a normal response on the same socket.
         _send_line(client, {"id": 999, "type": "get_config"})
@@ -382,7 +382,7 @@ class TestStdinListenerGatedInTcpMode:
     A direct-terminal invocation of
     ``python -m voice_typer.server.ipc_server --port N`` would
     otherwise accept unauthenticated JSON commands on stdin while the
-    TCP socket enforces the VOICE_TYPER_IPC_TOKEN handshake — an auth
+    TCP socket enforces the VOICE_TYPER_IPC_TOKEN handshake, an auth
     bypass.  The CLI sets ``_tcp_mode = True`` *before* ``start()``;
     this test mirrors that ordering.
     """
@@ -409,7 +409,7 @@ class TestStdinListenerGatedInTcpMode:
 
         UE-13 (High): the unauthenticated stdin listener is gated
         behind ``VOICE_TYPER_ALLOW_STDIN_IPC=1`` (``--allow-stdin`` on
-        the CLI) — so the legacy stdin/stdout path is exercised via the
+        the CLI), so the legacy stdin/stdout path is exercised via the
         documented explicit opt-in, exactly like
         ``tests/test_ipc_server.py::TestStdinGate::test_stdin_thread_spawned_when_env_var_set``.
         """
@@ -430,7 +430,7 @@ class TestStdinListenerGatedInTcpMode:
 class TestResetMacosAccessibilityDispatchError:
     """ADR-0020 §16 item (4): ``reset_macos_accessibility`` must behave
     under the dispatch-level exception safety net like every other
-    registered command — a buggy handler yields a structured error
+    registered command, a buggy handler yields a structured error
     response (not a torn-down connection) and the socket survives.
     """
 
@@ -440,7 +440,7 @@ class TestResetMacosAccessibilityDispatchError:
         leak the exception message) without disconnecting the client."""
         client, server = authenticated_client
 
-        def boom(data, resp):  # noqa: ARG001 — handler signature
+        def boom(data, resp):  # noqa: ARG001, handler signature
             raise RuntimeError("simulated reset_macos_accessibility crash")
 
         monkeypatch.setattr(server, "_handle_reset_macos_accessibility", boom)
@@ -471,7 +471,7 @@ class TestResetMacosAccessibilityDispatchError:
 class TestCheckAccessibilityDispatchError:
     """ADR-0020 §16 item (4) (finding #919 part b re-registration):
     ``check_accessibility`` must behave under the dispatch-level
-    exception safety net like every other registered command — a
+    exception safety net like every other registered command, a
     buggy handler yields a structured error response (not a torn-down
     connection) and the socket survives.
     """
@@ -482,7 +482,7 @@ class TestCheckAccessibilityDispatchError:
         leak the exception message) without disconnecting the client."""
         client, server = authenticated_client
 
-        def boom(data, resp):  # noqa: ARG001 — handler signature
+        def boom(data, resp):  # noqa: ARG001, handler signature
             raise RuntimeError("simulated check_accessibility crash")
 
         monkeypatch.setattr(server, "_handle_check_accessibility", boom)
@@ -513,7 +513,7 @@ class TestCheckAccessibilityDispatchError:
 class TestResetLinuxPermissionsDispatchError:
     """ADR-0020 §16 item (4): ``reset_linux_permissions`` must behave
     under the dispatch-level exception safety net like every other
-    registered command — a buggy handler yields a structured error
+    registered command, a buggy handler yields a structured error
     response (not a torn-down connection) and the socket survives.
     """
 
@@ -523,7 +523,7 @@ class TestResetLinuxPermissionsDispatchError:
         leak the exception message) without disconnecting the client."""
         client, server = authenticated_client
 
-        def boom(data, resp):  # noqa: ARG001 — handler signature
+        def boom(data, resp):  # noqa: ARG001, handler signature
             raise RuntimeError("simulated reset_linux_permissions crash")
 
         monkeypatch.setattr(server, "_handle_reset_linux_permissions", boom)
@@ -560,7 +560,7 @@ class TestResetLinuxPermissionsDispatchError:
 class TestGetCorrectionUsageDispatchError:
     """ADR-0020 §16 item (4): ``get_correction_usage`` must behave under
     the dispatch-level exception safety net like every other registered
-    command — a buggy handler yields a structured error response (not a
+    command, a buggy handler yields a structured error response (not a
     torn-down connection) and the socket survives.
     """
 
@@ -571,7 +571,7 @@ class TestGetCorrectionUsageDispatchError:
         """
         client, server = authenticated_client
 
-        def boom(data, resp):  # noqa: ARG001 — handler signature
+        def boom(data, resp):  # noqa: ARG001, handler signature
             raise RuntimeError("simulated get_correction_usage crash")
 
         monkeypatch.setattr(server, "_handle_get_correction_usage", boom)
@@ -602,7 +602,7 @@ class TestGetCorrectionUsageDispatchError:
 class TestTestVocabularyCorrectionDispatchError:
     """ADR-0020 §16 item (4): ``test_vocabulary_correction`` must behave
     under the dispatch-level exception safety net like every other
-    registered command — a buggy handler yields a structured error
+    registered command, a buggy handler yields a structured error
     response (not a torn-down connection) and the socket survives.
     """
 
@@ -613,7 +613,7 @@ class TestTestVocabularyCorrectionDispatchError:
         """
         client, server = authenticated_client
 
-        def boom(data, resp):  # noqa: ARG001 — handler signature
+        def boom(data, resp):  # noqa: ARG001, handler signature
             raise RuntimeError("simulated test_vocabulary_correction crash")
 
         monkeypatch.setattr(server, "_handle_test_vocabulary_correction", boom)
@@ -650,7 +650,7 @@ class TestMicrophoneTestReadAudioDispatchError:
     def test_handler_exception_returns_error_response(self, authenticated_client, monkeypatch):
         client, server = authenticated_client
 
-        def boom(data, resp):  # noqa: ARG001 — handler signature
+        def boom(data, resp):  # noqa: ARG001, handler signature
             raise RuntimeError("simulated microphone_test_read_audio crash")
 
         monkeypatch.setattr(server, "_handle_microphone_test_read_audio", boom)
@@ -727,7 +727,7 @@ class TestMicrophoneTestReadAudioValidation:
 class TestGetDownloadQueueDispatchError:
     """ADR-0020 §16 item (4): ``get_download_queue`` must behave under
     the dispatch-level exception safety net like every other registered
-    command — a buggy handler yields a structured error response (not a
+    command, a buggy handler yields a structured error response (not a
     torn-down connection) and the socket survives.
     """
 
@@ -738,7 +738,7 @@ class TestGetDownloadQueueDispatchError:
         """
         client, server = authenticated_client
 
-        def boom(data, resp):  # noqa: ARG001 — handler signature
+        def boom(data, resp):  # noqa: ARG001, handler signature
             raise RuntimeError("simulated get_download_queue crash")
 
         monkeypatch.setattr(server, "_handle_get_download_queue", boom)

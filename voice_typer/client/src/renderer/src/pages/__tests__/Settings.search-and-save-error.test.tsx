@@ -1,14 +1,14 @@
 /**
  * + tests for the Settings page.
  *
- * — cross-tab search grouping: when the global query matches
+ *, cross-tab search grouping: when the global query matches
  * Settings rows on OTHER sub-pages, a "Results from other tabs"
  * section lists them grouped by tab; each match is a button that
  * navigates to its tab with a rowHint deep-link. When the query
  * matches nothing anywhere, the existing "No settings match" banner
  * still renders (and the cross-tab section does not).
  *
- * — save-error surface: useSettingsConfig's per-flush `error`
+ *, save-error surface: useSettingsConfig's per-flush `error`
  * string renders as a visible destructive banner (aria-live="polite")
  * under the page heading until the next successful save clears it.
  */
@@ -65,7 +65,7 @@ function happyCallMock() {
 	});
 }
 
-describe("Settings — cross-tab search results", () => {
+describe("Settings, cross-tab search results", () => {
 	beforeEach(() => {
 		mockCall.mockReset();
 		mockPythonEvent.mockReset();
@@ -162,7 +162,7 @@ describe("Settings — cross-tab search results", () => {
 	});
 });
 
-describe("Settings — save-error banner", () => {
+describe("Settings, save-error banner", () => {
 	beforeEach(() => {
 		mockCall.mockReset();
 		mockPythonEvent.mockReset();
@@ -186,7 +186,7 @@ describe("Settings — save-error banner", () => {
 		});
 
 		const { default: SettingsPage } = await import("@/pages/Settings");
-		// Switches live on the section pages now — the hub's rows are
+		// Switches live on the section pages now, the hub's rows are
 		// plain buttons. Mount on Privacy, whose first switch is the
 		// Crash Recovery toggle (PrivacySettingsSection).
 		renderWithProviders(<SettingsPage page="settingsPrivacy" />);
@@ -209,7 +209,7 @@ describe("Settings — save-error banner", () => {
 	it("renders no banner while saves succeed", async () => {
 		happyCallMock();
 		const { default: SettingsPage } = await import("@/pages/Settings");
-		// Switches live on the section pages now — mount on Privacy.
+		// Switches live on the section pages now, mount on Privacy.
 		renderWithProviders(<SettingsPage page="settingsPrivacy" />);
 		await waitFor(() => {
 			expect(screen.getByText("Settings")).toBeTruthy();

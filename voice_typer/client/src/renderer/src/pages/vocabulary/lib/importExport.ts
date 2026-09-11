@@ -5,11 +5,11 @@
 //
 // Accepts:
 //  - A bare JSON array of ``{original, correction, category?}`` objects
-//    (the new export shape — see ``useVocabularyImportExport``).
+//    (the new export shape, see ``useVocabularyImportExport``).
 //  - A backend-shape ``VocabularyData`` object (the legacy / sync
-//    export shape) — flattened via ``flattenEntries``.
+//    export shape), flattened via ``flattenEntries``.
 //  - CSV text (the format produced by the export side's
-//    ``exportVocabulary`` IPC handler) — ``original,correction[,category]``
+//    ``exportVocabulary`` IPC handler), ``original,correction[,category]``
 //    per line, RFC 4180 quoting, optional header row.
 //
 // Throws on malformed JSON, unknown shape, or a CSV with zero valid
@@ -57,7 +57,7 @@ function parseJsonVocabulary(text: string): VocabularyEntry[] {
 			}));
 	}
 	if (parsed && typeof parsed === "object") {
-		// Backend-shape VocabularyData — flatten it.
+		// Backend-shape VocabularyData, flatten it.
 		return flattenEntries(parsed as VocabularyData);
 	}
 	throw new Error("File does not contain a vocabulary array or data object");
@@ -67,7 +67,7 @@ function parseJsonVocabulary(text: string): VocabularyEntry[] {
 // ``csvEscape`` (RFC 4180): cells containing a comma, double-quote, or
 // newline are wrapped in double-quotes with any embedded double-quote
 // doubled (``"`` → ``""``). The header row ``original,correction`` (or
-// ``original,correction,category``) is optional — if present, it is
+// ``original,correction,category``) is optional, if present, it is
 // skipped. Lines with fewer than 2 fields are skipped. A line with
 // exactly 2 fields auto-detects its category via ``detectCategory``;
 // a line with 3+ fields uses the third as the category (falling back
@@ -79,7 +79,7 @@ function parseCsvVocabulary(text: string): VocabularyEntry[] {
 	const rows: VocabularyEntry[] = [];
 	const lines = splitCsvLines(text);
 	let startIdx = 0;
-	// Optional header detection — if the first non-empty line's first
+	// Optional header detection, if the first non-empty line's first
 	// cell is literally ``original`` (case-insensitive), skip it.
 	const firstLine = lines[0];
 	if (firstLine !== undefined) {

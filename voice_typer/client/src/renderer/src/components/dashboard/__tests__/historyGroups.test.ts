@@ -62,7 +62,7 @@ function utcStamp(offsetDays: number, hour = 12): string {
 	d.setHours(hour, 0, 0, 0);
 	// Render in the "YYYY-MM-DD HH:MM:SS" UTC shape the DB stores. The
 	// helper bucketing must treat it as UTC and convert to LOCAL —
-	// mirroring parseUtcTimestamp's contract — so build the string from
+	// mirroring parseUtcTimestamp's contract, so build the string from
 	// the UTC fields of the instant that is `hour` local.
 	const y = d.getFullYear();
 	const mo = String(d.getMonth() + 1).padStart(2, "0");
@@ -75,7 +75,7 @@ describe("recordDayKey", () => {
 	it("buckets a UTC 'YYYY-MM-DD HH:MM:SS' stamp into the LOCAL calendar day", () => {
 		// Use a stamp for TODAY 00:30 local. Parsed as UTC it must land
 		// on today's local key (parseUtcTimestamp appends Z and
-		// localDateKey converts back to local — the same pipeline the
+		// localDateKey converts back to local, the same pipeline the
 		// Dashboard uses).
 		const now = new Date();
 		const pad = (n: number) => String(n).padStart(2, "0");
@@ -113,7 +113,7 @@ describe("dayGroupHeading", () => {
 	});
 
 	it("renders older dates as a long month/day (and adds the year when not current)", () => {
-		// A fixed past date — Mar 15 of the current year, unless today is
+		// A fixed past date, Mar 15 of the current year, unless today is
 		// early enough in the year that Mar 15 is "in the future" (it
 		// still renders as a plain date, the label does not depend on
 		// pastness).
@@ -168,7 +168,7 @@ describe("groupRecordsByDate", () => {
 		expect(groups[2]?.label).toBe("Today");
 	});
 
-	it("does not drop records with unparseable timestamps — shared trailing-key bucket with empty label", () => {
+	it("does not drop records with unparseable timestamps, shared trailing-key bucket with empty label", () => {
 		const records = [rec(1, utcStamp(0, 10)), rec(2, "garbage"), rec(3, "")];
 		const groups = groupRecordsByDate(records);
 		expect(groups).toHaveLength(2);

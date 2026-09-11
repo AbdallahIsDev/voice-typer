@@ -1,15 +1,15 @@
-// useForceCancel — the "Force cancel" state machine for a stuck
+// useForceCancel, the "Force cancel" state machine for a stuck
 // dictation transcription, extracted from Home.tsx so the page file
 // stays a thin composition root. Behaviour is preserved
-// statement-for-statement — this machine is consent/privacy-sensitive
+// statement-for-statement, this machine is consent/privacy-sensitive
 // surface wiring (the reveal gate and every reset path must stay
 // exactly as they were).
 //
 // Owns:
 //
-//   - `applyStatusChange(data)` — the `status_change` handler body.
+//   - `applyStatusChange(data)`, the `status_change` handler body.
 //     Entering "transcribing" stamps `transcribeStartedAt` (first
-//     stamp wins — `prev ?? Date.now()`) and hides the affordance;
+//     stamp wins, `prev ?? Date.now()`) and hides the affordance;
 //     every other status resets both. Home.tsx keeps the subscription
 //     (single `usePythonEvent("status_change", …)` registration) and
 //     delegates here.
@@ -20,7 +20,7 @@
 //     in case the page mounts mid-transcription (the push event that
 //     started it fired before Home subscribed), the same stamp/reset
 //     transitions are derived from the store snapshot.
-//   - `handleForceCancel` — the affordance's click handler:
+//   - `handleForceCancel`, the affordance's click handler:
 //     `force_cancel_transcription` IPC with success/failure toasts.
 
 import { useCallback, useEffect, useState } from "react";
@@ -52,7 +52,7 @@ export function useForceCancel(call: PythonCall) {
 	// sync effect self-contained.
 	const recordingState = useAppStore((s) => s.recordingState);
 
-	// status_change listener body — tracks entry into "transcribing" so
+	// status_change listener body, tracks entry into "transcribing" so
 	// we can show "Force cancel" after FORCE_CANCEL_DELAY_MS. The hotkey
 	// is NOT re-fetched here (it belongs to the `config_changed`
 	// handler): the `status_change` event fires on every recording →

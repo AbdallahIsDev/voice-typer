@@ -3,7 +3,7 @@
 Source-inspection + behavioural tests for the dictation-pipeline
 failure path that was previously masking transcription errors from
 the user (the bubble was hidden or set to "idle" on failure, so the
-only signal was the tray icon flipping to ERROR — which the user
+only signal was the tray icon flipping to ERROR, which the user
 often does not see).
 
 The fix surfaces the failure in the bubble's `error` mode for a
@@ -66,7 +66,7 @@ def test_run_exception_handler_schedules_error_to_idle_timer() -> None:
 
 def test_run_exception_handler_does_not_immediately_hide_on_error() -> None:
     """XA-6-3 regression guard: the exception handler must NOT call
-    `hide()` or `set_state('idle')` as the FIRST action — that would
+    `hide()` or `set_state('idle')` as the FIRST action, that would
     mask the failure. The error-state call must come first; the
     hide/idle calls must come only inside a scheduled callback (a
     nested `def`), not in the immediate exception body.
@@ -88,7 +88,7 @@ def test_run_exception_handler_does_not_immediately_hide_on_error() -> None:
     # cleanup is deferred (not inline).
     if block.find(".hide()") >= 0:
         assert block.find(".hide()") > set_err_idx, (
-            'XA-6-3 regression: hide() is called BEFORE set_state("error") — the failure would be masked.'
+            'XA-6-3 regression: hide() is called BEFORE set_state("error"), the failure would be masked.'
         )
     # For set_state("idle"): it may legitimately appear inside the
     # scheduled callback (the error->idle transition). Verify it does
@@ -96,7 +96,7 @@ def test_run_exception_handler_does_not_immediately_hide_on_error() -> None:
     # scheduled-callback `def`).
     idle_idx = block.find('set_state("idle")')
     if idle_idx >= 0 and idle_idx < set_err_idx:
-        # idle appears before error — that's only OK if it's in a
+        # idle appears before error, that's only OK if it's in a
         # DIFFERENT except block (e.g. the cancellation path). Confirm
         # by checking that set_state("error") exists somewhere after.
         # (The  test_run_exception_handler_calls_set_state_error

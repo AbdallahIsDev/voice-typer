@@ -6,7 +6,7 @@ loop, outbound)``. The ``ready`` event was broadcast via
 ``event_bus.publish`` synchronously to the subscriber set, which did
 NOT yet include the WS subscriber (``_push_to_ws``). The event was
 delivered only to other transports' subscribers (e.g. ``server.push``
-on the TCP path, which writes to ``_pending_tcp`` — a buffer with no
+on the TCP path, which writes to ``_pending_tcp``, a buffer with no
 consumer in WS mode). The WS writer task's outbound queue never
 received ``ready``, so the Tauri host never got ``ready`` over the WS
 on first connection and the UI stayed un-hydrated until the next push
@@ -22,7 +22,7 @@ These tests pin the ordering by capturing the ``_push_to_ws`` callback
 (via a spy on ``_install_subscriber``) and asserting it received the
 ``ready`` event. The existing ``test_sidecar_ready_emitted.py`` tests
 only verify that ``event_bus.publish`` was CALLED (via a publish spy
-that replaces the real publish) — they do NOT verify the WS subscriber
+that replaces the real publish), they do NOT verify the WS subscriber
 actually received the event, so they would pass against the pre-FR-2
 buggy ordering. These tests close that gap.
 """
@@ -81,7 +81,7 @@ async def test_ws_subscriber_receives_ready_event_on_first_auth(monkeypatch, iso
 
     Pre-FR-2 the emit ran BEFORE the subscriber was registered, so the
     event was published to a subscriber set that did not include
-    ``_push_to_ws`` — the WS writer task's outbound queue never received
+    ``_push_to_ws``, the WS writer task's outbound queue never received
     it and the Tauri host never got ``ready`` over the WS.
 
     The test captures the ``_push_to_ws`` callback by spying on

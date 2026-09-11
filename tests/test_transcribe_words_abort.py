@@ -101,7 +101,7 @@ class TestTranscribeWordsAbort:
             # Generator that sets the abort event immediately before
             # yielding the 3rd segment (index 2). The consumer's
             # next top-of-loop check (before processing segment 2)
-            # then sees the abort and breaks — so word0 + word1 are
+            # then sees the abort and breaks, so word0 + word1 are
             # collected, word2/3/4 are NOT.
             def gen():
                 for i, seg in enumerate(segments):
@@ -119,7 +119,7 @@ class TestTranscribeWordsAbort:
         # First two segments' words were consumed before abort fired.
         assert "word0" in word_texts, f"word0 should be present (consumed before abort), got {word_texts!r}"
         assert "word1" in word_texts, f"word1 should be present (consumed before abort), got {word_texts!r}"
-        # Segment 2+ must NOT have been processed — abort fired first.
+        # Segment 2+ must NOT have been processed, abort fired first.
         assert "word2" not in word_texts, f"abort should have stopped the loop before segment 2, got {word_texts!r}"
         assert "word3" not in word_texts
         assert "word4" not in word_texts
@@ -161,7 +161,7 @@ class TestTranscribeWordsAbort:
 
     def test_abort_event_is_threading_event_instance(self):
         """Guard against accidental refactors that change the abort
-        token type — the check in ``_transcribe_words_unlocked`` calls
+        token type, the check in ``_transcribe_words_unlocked`` calls
         ``.is_set()``, which only exists on ``threading.Event``."""
         from voice_typer.server.transcription import TranscriptionEngine
 
@@ -173,7 +173,7 @@ class TestTranscribeWordsAbort:
         pipeline's ESC / watchdog cancel path) sets the same event that
         ``_transcribe_words_unlocked`` checks, so the word loop breaks
         early. This verifies the wiring from the cancel API to the
-        loop body — not just a direct ``_abort_event.set()`` call."""
+        loop body, not just a direct ``_abort_event.set()`` call."""
         from voice_typer.server.transcription import TranscriptionEngine
 
         engine = TranscriptionEngine(model_size="small.en", device="cpu")

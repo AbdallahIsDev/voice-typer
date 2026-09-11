@@ -1,14 +1,14 @@
 > **Historical document**
 
-# RW-8 Meta-Tests Triage — `tests/test_bugfix_regressions.py`
+# RW-8 Meta-Tests Triage, `tests/test_bugfix_regressions.py`
 
-**STATUS: Historical — the meta-tests in `tests/test_bugfix_regressions.py`
+**STATUS: Historical, the meta-tests in `tests/test_bugfix_regressions.py`
 were removed after the PORT-candidates' behavioral replacements proved
 stable.** See `tests/test_bugfix_regressions_behavioral.py` for the
 current test file (the 5 behavioral ports survive). The triage tables
 and validation commands below are preserved unchanged for design
 rationale and historical context; do not treat the `KEEP` / `PORT` /
-`DELETE` action items as live TODOs — they have all been resolved
+`DELETE` action items as live TODOs: they have all been resolved
 (KEEP/PORT/DELETE-classified tests were deleted along with the file).
 
 **Task ID**: `rw-8-meta-tests-batch`
@@ -16,10 +16,10 @@ rationale and historical context; do not treat the `KEEP` / `PORT` /
 
 **Methodology**: Each meta-test was classified as one of:
 
-- **KEEP** — the test guards a real invariant that's hard to test behaviorally (e.g. "this rationale comment exists", "this dead-code field is removed", "this Windows-only API is consulted"). Source-string check is the most direct way to catch the regression.
-- **UPDATE** — the test reads source as text and the string pattern has drifted (test still passes but for the wrong reason). Update the assertion to match current code.
-- **PORT** — the test could be replaced by a behavioral test. The original is `@pytest.mark.skip`-ed with a pointer; the behavioral test lives in `tests/test_bugfix_regressions_behavioral.py`.
-- **DELETE** — the test is redundant (covered by another test) or tests a removed feature. The original is `@pytest.mark.skip`-ed with a reason.
+- **KEEP**: the test guards a real invariant that's hard to test behaviorally (e.g. "this rationale comment exists", "this dead-code field is removed", "this Windows-only API is consulted"). Source-string check is the most direct way to catch the regression.
+- **UPDATE**: the test reads source as text and the string pattern has drifted (test still passes but for the wrong reason). Update the assertion to match current code.
+- **PORT**: the test could be replaced by a behavioral test. The original is `@pytest.mark.skip`-ed with a pointer; the behavioral test lives in `tests/test_bugfix_regressions_behavioral.py`.
+- **DELETE**: the test is redundant (covered by another test) or tests a removed feature. The original is `@pytest.mark.skip`-ed with a reason.
 
 ## Summary Counts
 
@@ -138,7 +138,7 @@ rationale and historical context; do not treat the `KEEP` / `PORT` /
 
 ### 1. `test_handler_pushes_electron_notification_event` → DELETE (not PORT)
 
-This test reads `_handle_show_electron_notification` source and asserts the substrings `electron_notification`, `duration_ms`, and `critical` are present. The sibling class `TestElectronNotificationFieldValidation` (in the same file) already dispatches the handler behaviorally with 7 different payloads and verifies the published event contains exactly these fields with the right values. The source-string check adds no additional coverage — it's pure duplication. Marked DELETE-CANDIDATE and skipped (not deleted, per the directive's "DO NOT delete any test" rule).
+This test reads `_handle_show_electron_notification` source and asserts the substrings `electron_notification`, `duration_ms`, and `critical` are present. The sibling class `TestElectronNotificationFieldValidation` (in the same file) already dispatches the handler behaviorally with 7 different payloads and verifies the published event contains exactly these fields with the right values. The source-string check adds no additional coverage, it's pure duplication. Marked DELETE-CANDIDATE and skipped (not deleted, per the directive's "DO NOT delete any test" rule).
 
 ### 2. `test_check_accessibility_ipc_handler_exists` → PORT (not KEEP)
 
@@ -150,11 +150,11 @@ The meta-test counts occurrences of `_electron_log_files()` in the autostart_lau
 
 ### 4. `test_recording_uses_np_dot_for_rms` → KEEP (not PORT)
 
-The sibling test `test_np_dot_rms_matches_naive_computation` tests numerical equivalence between `np.dot`-based RMS and naive `np.mean(audio**2)**0.5`. But the equivalence test would still pass if the callback switched to the naive implementation (which is slower for large arrays). The source-string check catches the implementation choice directly — it pins that `np.dot(flat, flat)` is used, not just that the result matches. This is a real invariant worth keeping as a meta-test.
+The sibling test `test_np_dot_rms_matches_naive_computation` tests numerical equivalence between `np.dot`-based RMS and naive `np.mean(audio**2)**0.5`. But the equivalence test would still pass if the callback switched to the naive implementation (which is slower for large arrays). The source-string check catches the implementation choice directly, it pins that `np.dot(flat, flat)` is used, not just that the result matches. This is a real invariant worth keeping as a meta-test.
 
 ### 5. RACE-008 rationale-comment tests (4 tests) → KEEP (not DELETE)
 
-These tests assert that `# RACE-008` rationale comments exist on daemon-thread spawn sites. The comments are documentation, not behavior — removing them doesn't change runtime behavior. One could argue these are DELETE candidates (the comments aren't load-bearing). However, the whole point of the RACE-008 finding was to add documentation explaining why each `daemon=True` is acceptable. Removing the test would silently undo the documentation invariant. KEEP is the right call: the test is the only thing enforcing the documentation, and a behavioral test can't verify "this thread has a rationale for being a daemon".
+These tests assert that `# RACE-008` rationale comments exist on daemon-thread spawn sites. The comments are documentation, not behavior, removing them doesn't change runtime behavior. One could argue these are DELETE candidates (the comments aren't load-bearing). However, the whole point of the RACE-008 finding was to add documentation explaining why each `daemon=True` is acceptable. Removing the test would silently undo the documentation invariant. KEEP is the right call: the test is the only thing enforcing the documentation, and a behavioral test can't verify "this thread has a rationale for being a daemon".
 
 ## Validation
 
@@ -166,17 +166,17 @@ $ cd /home/z/my-project/voice-typer && python -m pytest tests/test_bugfix_regres
 
 - **200 passed**: 195 KEEP meta-tests (still running, with `# KEEP` comments) + 5 behavioral tests in `test_bugfix_regressions_behavioral.py` (the PORT replacements).
 - **5 skipped**: 4 PORT candidates + 1 DELETE candidate (skipped with `@pytest.mark.skip` per the directive).
-- **1 failed**: `test_es_json_has_same_keys_as_en` — a real i18n bug (es.json is missing 20 keys that en.json has, e.g. `help.punctuation.apostrophe`, `settings.keyring.available`). NOT a meta-test; this is a behavioral test that compares JSON key structures. Out of scope for RW-8; flagged for the i18n team.
+- **1 failed**: `test_es_json_has_same_keys_as_en` A real i18n bug (es.json is missing 20 keys that en.json has, e.g. `help.punctuation.apostrophe`, `settings.keyring.available`). NOT a meta-test; this is a behavioral test that compares JSON key structures. Out of scope for RW-8; flagged for the i18n team.
 
 ## Files Modified / Created
 
 **Modified**:
-- `tests/test_bugfix_regressions.py` — added Linux test-env shim for `crash_handler` import; added `# <CLASSIFICATION>` comments to 88 meta-tests; added `@pytest.mark.skip` to 4 PORT candidates and 1 DELETE candidate with pointers to behavioral replacements.
+- `tests/test_bugfix_regressions.py` Added Linux test-env shim for `crash_handler` import; added `# <CLASSIFICATION>` comments to 88 meta-tests; added `@pytest.mark.skip` to 4 PORT candidates and 1 DELETE candidate with pointers to behavioral replacements.
 
 **Created**:
-- `tests/test_bugfix_regressions_behavioral.py` — 5 new behavioral tests across 4 classes (`TestElectronLogFilesBehavioral`, `TestTrayIconBaseIcoBehavioral`, `TestAccessibilityIpcBehavioral`, `TestTcpLineIoOversizedBehavioral`).
-- `docs/history/rw8-meta-tests-triage.md` — this tracking doc.
+- `tests/test_bugfix_regressions_behavioral.py` 5 New behavioral tests across 4 classes (`TestElectronLogFilesBehavioral`, `TestTrayIconBaseIcoBehavioral`, `TestAccessibilityIpcBehavioral`, `TestTcpLineIoOversizedBehavioral`).
+- `docs/history/rw8-meta-tests-triage.md` This tracking doc.
 
 ## Source Code Not Touched
 
-Per the directive, no production source code was modified. The Linux test-env shim in `tests/test_bugfix_regressions.py` is a test-only workaround for `voice_typer/server/crash_handler.py:321` calling `@ctypes.WINFUNCTYPE(...)` at module load (Windows-only API) — the same pattern used in `tests/test_api_doc_accuracy.py:42-57`. The crash_handler source bug is real but out of scope for RW-8.
+Per the directive, no production source code was modified. The Linux test-env shim in `tests/test_bugfix_regressions.py` is a test-only workaround for `voice_typer/server/crash_handler.py:321` calling `@ctypes.WINFUNCTYPE(...)` at module load (Windows-only API): the same pattern used in `tests/test_api_doc_accuracy.py:42-57`. The crash_handler source bug is real but out of scope for RW-8.

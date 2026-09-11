@@ -1,38 +1,38 @@
-r"""MIG-1.9 Phase 3 + §7 — Tauri v2 capabilities least-privilege validation.
+r"""MIG-1.9 Phase 3 + §7: Tauri v2 capabilities least-privilege validation.
 
 This is the **capabilities gate** for MIG-1.9 Phase 3 (the Tauri v2
 shell + Python sidecar runtime migration). It validates that
  ``src-tauri/capabilities/main-runtime.json`` grants exactly the
-least-privilege permissions ADR-0020 §7 mandates — and **nothing
+least-privilege permissions ADR-0020 §7 mandates, and **nothing
 broader**.
 
 Scope of this check (ADR-0020 §7 "Tauri config + capabilities"):
 
 1. ``src-tauri/capabilities/main-runtime.json`` exists + is valid
    JSON + its ``identifier`` matches the filename (Tauri v2 enforces
-   this — capabilities are loaded by filename and matched by
+   this, capabilities are loaded by filename and matched by
    identifier in ``app.security.capabilities``).
 
 2. ``src-tauri/tauri.conf.json``'s ``app.security.capabilities`` list
-   references ``main-runtime`` — without this reference the
+   references ``main-runtime``, without this reference the
    capability file is dead code (Tauri silently ignores it).
 
 3. The capability grants **``shell:allow-spawn``** AND the
    ``tauri.conf.json`` ``plugins.shell.scope`` is restricted to
    ``bin/python-sidecar`` (sidecar = true). ADR-0020 §7 requires the
-   spawn permission be *scoped to the sidecar binary only* — Tauri v2
+   spawn permission be *scoped to the sidecar binary only*, Tauri v2
    enforces BOTH the capability permission AND the config scope at
    runtime, so an unconstrained ``shell:allow-spawn`` is a privilege
    escape (any webview ``invoke('shell:spawn', ...)`` could launch
    ``cmd.exe`` / ``sh``).
 
 4. The capability grants **``shell:allow-kill``** (or the more
-   scoped ``shell:allow-kill-children``) — this is the supervisor
-   force-kill backstop (ADR-0020 §10 — the Rust supervisor kills the
+   scoped ``shell:allow-kill-children``), this is the supervisor
+   force-kill backstop (ADR-0020 §10, the Rust supervisor kills the
    sidecar child on crash / shutdown to prevent zombie processes).
 
 5. The capability grants **``notification:allow-notify``** (or
-   ``notification:default``) — ADR-0020 §6.1 routes the existing
+   ``notification:default``), ADR-0020 §6.1 routes the existing
    ``electron_notification`` event through
    ``tauri-plugin-notification`` (WinRT ToastNotification /
    NSUserNotificationCenter / libnotify). Without this grant, the
@@ -40,12 +40,12 @@ Scope of this check (ADR-0020 §7 "Tauri config + capabilities"):
 
 6. The capability grants
    **``clipboard-manager:allow-write-text``** (or
-   ``clipboard-manager:default``) — ADR-0020 §6.2 routes the long-text
+   ``clipboard-manager:default``), ADR-0020 §6.2 routes the long-text
    paste path through ``tauri-plugin-clipboard-manager`` (clipboard +
    Ctrl/Cmd+V via enigo). The short-text path uses enigo.text() only
    and does NOT need this grant, but the long-text path does.
 
-7. The capability grants **``single-instance:default``** — OR, per
+7. The capability grants **``single-instance:default``**, OR, per
    the implementation note in ``main-runtime.json``'s description
    field, the ``tauri-plugin-single-instance`` plugin is registered
    in ``src-tauri/src/main.rs`` AND listed in
@@ -67,18 +67,18 @@ Scope of this check (ADR-0020 §7 "Tauri config + capabilities"):
      cloud engines stay in the Python sidecar, ADR-0020 §6.5).
    - No ``process:default`` / ``process:allow-restart`` (supervisor
      full-app relaunch uses ``AppHandle::restart()`` from the core
-     tauri crate, not the plugin — ADR-0020 §15 + the capability
+     tauri crate, not the plugin, ADR-0020 §15 + the capability
      description).
 
-9. The generic **``dispatch``** command (ADR-0020 §7 — "Exactly ONE
+9. The generic **``dispatch``** command (ADR-0020 §7: "Exactly ONE
    generic Rust command bridges the webview to the sidecar") is
    registered as a ``#[tauri::command]`` in
    ``src-tauri/src/commands/sidecar_cmds.rs`` AND listed in
    ``src-tauri/src/main.rs``'s ``tauri::generate_handler!`` macro.
-   Custom Tauri v2 commands do NOT need a capability entry — only
+   Custom Tauri v2 commands do NOT need a capability entry, only
    plugin commands (``shell:*``, ``notification:*``, etc.) are gated
    by the capability system. ADR-0020 §7: "no per-command ``ipc:``
-   capability entry is needed — Rust maps ``dispatch`` to the WS
+   capability entry is needed, Rust maps ``dispatch`` to the WS
    connection."
 
 10. The capability's ``identifier`` field matches the filename stem
@@ -92,11 +92,11 @@ VALIDATE ON HOST
 
 This file is the Linux-sandbox static check. The actual runtime
 capability enforcement MUST be exercised by a human on real hosts
-(ADR-0020 §6 / migration runbook) — Tauri v2 silently blocks
+(ADR-0020 §6 / migration runbook), Tauri v2 silently blocks
 ungated ``invoke()`` calls at runtime (no compile error, no console
 warning in release builds). One host per platform × arch combo:
 
-**VALIDATE ON HOST — Windows x64 (x86_64-pc-windows-msvc)**::
+**VALIDATE ON HOST, Windows x64 (x86_64-pc-windows-msvc)**::
 
     # 1. Build + install the NSIS bundle.
     cd src-tauri
@@ -107,24 +107,24 @@ warning in release builds). One host per platform × arch combo:
     # 2. Launch "Voice Typer" from the Start Menu.
 
     # 3. Trigger each capability path from the UI:
-    #    a) Sidecar spawn — automatic on launch.
+    #    a) Sidecar spawn, automatic on launch.
     #       Expected: sidecar spawns within 30 s, log shows
     #       [SIDECAR] server_started port=<ephemeral>.
     #       Fail: "permission denied: shell:allow-spawn" → capability
     #       missing OR scope mismatch.
-    #    b) Toast — trigger a notification (e.g. dictation timeout).
+    #    b) Toast, trigger a notification (e.g. dictation timeout).
     #       Expected: WinRT toast appears.
     #       Fail: silent no-op → notification:allow-notify missing.
-    #    c) Clipboard paste — dictate >300 chars (long-text path).
+    #    c) Clipboard paste, dictate >300 chars (long-text path).
     #       Expected: text pasted into focused window via clipboard+Ctrl+V.
     #       Fail: "permission denied: clipboard-manager:allow-write-text"
     #       → capability missing.
-    #    d) Single-instance — launch a second "Voice Typer" instance.
+    #    d) Single-instance, launch a second "Voice Typer" instance.
     #       Expected: first instance focuses, second exits.
     #       Fail: two sidecars running → plugin not registered OR
     #       Python-side VoiceTyperSingleInstance mutex not disabled
     #       (TAURI_SIDECAR=1).
-    #    e) Dispatch — invoke any command from the React UI (e.g.
+    #    e) Dispatch, invoke any command from the React UI (e.g.
     #       toggle dictation). Expected: command reaches sidecar.
     #       Fail: "command not found" → dispatch not in generate_handler!.
 
@@ -132,7 +132,7 @@ warning in release builds). One host per platform × arch combo:
     #    Open DevTools (Ctrl+Shift+I in dev mode) → Console.
     #    Expected: no "[Tauri] capability denied" warnings.
 
-**VALIDATE ON HOST — macOS (aarch64-apple-darwin)**::
+**VALIDATE ON HOST, macOS (aarch64-apple-darwin)**::
 
     cd src-tauri
     cargo tauri build --target aarch64-apple-darwin
@@ -143,7 +143,7 @@ warning in release builds). One host per platform × arch combo:
     # UNUserNotificationCenter; single-instance = NSApplication
     # activation. Fail patterns same as Windows.
 
-**VALIDATE ON HOST — Linux x64 (x86_64-unknown-linux-gnu)**::
+**VALIDATE ON HOST, Linux x64 (x86_64-unknown-linux-gnu)**::
 
     cd src-tauri
     cargo tauri build --target x86_64-unknown-linux-gnu
@@ -153,29 +153,29 @@ warning in release builds). One host per platform × arch combo:
     # (notify-send); single-instance = lockfile in
     # <config_dir>/.single-instance.lock.
     # Wayland-specific: AppImage on Wayland may restrict wl-copy
-    # access — test the AppImage on a Wayland session (Fedora 40
+    # access, test the AppImage on a Wayland session (Fedora 40
     # default, Ubuntu 22.04 with GNOME session) before cutover
     # (ADR-0020 §6.6).
 
 Each host run validates three things:
 1. The capability grants actually take effect at runtime (Tauri v2
-   silently blocks ungated calls — only a real host run catches a
+   silently blocks ungated calls, only a real host run catches a
    typo like ``notification:allow-notify`` vs ``notification:notify``).
 2. The shell scope restricts spawn to ``bin/python-sidecar`` (a
    malicious / buggy webview ``invoke('shell:spawn', {program: 'cmd'})
    must be rejected).
 3. The single-instance plugin actually focuses the existing instance
-   (not just exits silently) — ADR-0020 §12.
+   (not just exits silently), ADR-0020 §12.
 
 References:
-- ADR-0020 §7 — Tauri config + capabilities + least-privilege contract.
-- ADR-0020 §6.1 — toast / notification path (tauri-plugin-notification).
-- ADR-0020 §6.2 — paste path (clipboard-manager + enigo).
-- ADR-0020 §10 — force-kill backstop (shell:allow-kill).
-- ADR-0020 §12 — single-instance behavior + ordering.
-- ADR-0020 §15 — auto-update intentionally NOT granted (updater plugin
+- ADR-0020 §7, Tauri config + capabilities + least-privilege contract.
+- ADR-0020 §6.1, toast / notification path (tauri-plugin-notification).
+- ADR-0020 §6.2, paste path (clipboard-manager + enigo).
+- ADR-0020 §10, force-kill backstop (shell:allow-kill).
+- ADR-0020 §12, single-instance behavior + ordering.
+- ADR-0020 §15, auto-update intentionally NOT granted (updater plugin
   out of scope for v1).
-- Tauri v2 docs — "Capabilities" (https://tauri.app/security/capabilities/):
+- Tauri v2 docs: "Capabilities" (https://tauri.app/security/capabilities/):
   every plugin command must be explicitly whitelisted or Tauri silently
   blocks it at runtime.
 """
@@ -234,7 +234,7 @@ EXPECTED_SIDECAR_BINARY = "bin/python-sidecar"
 
 #: plan-runtime-pack-split.md §4.4/§7: the worker exe is the second
 #: externalBin binary (offline transcription). It belongs in the same
-#: least-privilege spawn scope as the sidecar — no foreign binaries
+#: least-privilege spawn scope as the sidecar, no foreign binaries
 #: (cmd, sh, bash, powershell, etc.) may be added.
 EXPECTED_WORKER_BINARY = "bin/voice-typer-worker"
 
@@ -244,7 +244,7 @@ FORBIDDEN_BROAD_PERMISSIONS = (
     "shell:default",  # grants ALL shell perms → defeats spawn scope
     "fs:default",  # unrestricted filesystem access (sidecar owns FS)
     "http:default",  # unrestricted HTTP fetch (cloud engines in sidecar)
-    "http:allow-fetch",  # same — HTTP stays in Python sidecar (ADR-0020 §6.5)
+    "http:allow-fetch",  # same, HTTP stays in Python sidecar (ADR-0020 §6.5)
     "process:default",  # unrestricted process control
     "process:allow-restart",  # supervisor uses core AppHandle::restart() (not plugin)
     "global-shortcut:default",  # native hotkey binaries stay in Python (§6.4)
@@ -282,7 +282,7 @@ def bubble_runtime_capability() -> dict:
 # ``migrate_runtime_capability`` continue to work after the  split.
 @pytest.fixture(scope="module")
 def migrate_runtime_capability(main_runtime_capability: dict) -> dict:
-    """Back-compat alias — delegates to ``main_runtime_capability`` after CR-5."""
+    """Back-compat alias, delegates to ``main_runtime_capability`` after CR-5."""
     return main_runtime_capability
 
 
@@ -329,19 +329,19 @@ def test_tauri_conf_references_migrate_runtime_capability(
     was deleted)."""
     security = tauri_conf.get("app", {}).get("security", {})
     assert "capabilities" in security, (
-        "app.security.capabilities must exist (ADR-0020 §7) — without it the capability files are never loaded"
+        "app.security.capabilities must exist (ADR-0020 §7), without it the capability files are never loaded"
     )
     capabilities = security["capabilities"]
     assert isinstance(capabilities, list), "app.security.capabilities must be a list of identifier strings"
     assert EXPECTED_MAIN_CAPABILITY_IDENTIFIER in capabilities, (
-        f"app.security.capabilities must reference {EXPECTED_MAIN_CAPABILITY_IDENTIFIER!r} — got {capabilities!r}"
+        f"app.security.capabilities must reference {EXPECTED_MAIN_CAPABILITY_IDENTIFIER!r}, got {capabilities!r}"
     )
     assert EXPECTED_BUBBLE_CAPABILITY_IDENTIFIER in capabilities, (
         f"app.security.capabilities must reference {EXPECTED_BUBBLE_CAPABILITY_IDENTIFIER!r} "
-        f"(CR-5 split — the bubble window MUST have its own minimal capability) — got {capabilities!r}"
+        f"(CR-5 split, the bubble window MUST have its own minimal capability), got {capabilities!r}"
     )
     assert "migrate-runtime" not in capabilities, (
-        f"app.security.capabilities must NOT reference 'migrate-runtime' (CR-5 deleted it) — got {capabilities!r}"
+        f"app.security.capabilities must NOT reference 'migrate-runtime' (CR-5 deleted it), got {capabilities!r}"
     )
 
 
@@ -377,27 +377,27 @@ def test_grants_shell_allow_spawn_scoped_to_python_sidecar(
     """ADR-0020 §7: ``shell:allow-spawn`` granted + spawn scoping intact.
 
     tauri-plugin-shell v2 deserializes ``plugins.shell`` into a struct
-    whose ONLY field is ``open`` and denies unknown fields — the
+    whose ONLY field is ``open`` and denies unknown fields, the
     former v1-style ``plugins.shell.scope`` block crashed app startup
     with "unknown field `scope`, expected `open`" (found on the first
     Windows host run). Spawn scoping is therefore owned by the Rust
     host: it spawns ONLY ``app.shell().sidecar(...)`` binaries
     (``bin/python-sidecar``, ``bin/voice-typer-worker``), which is not
     ACL-gated. The JS-facing ``shell:allow-spawn`` grant keeps the
-    plugin-default EMPTY allow scope — a compromised webview cannot
+    plugin-default EMPTY allow scope, a compromised webview cannot
     ``invoke('shell:spawn', ...)`` anything.
     """
     permissions = migrate_runtime_capability["permissions"]
     assert "shell:allow-spawn" in permissions, (
-        "capability must grant 'shell:allow-spawn' (ADR-0020 §7) — "
+        "capability must grant 'shell:allow-spawn' (ADR-0020 §7), "
         "without it the Rust host cannot spawn the Python sidecar"
     )
 
-    # plugins.shell must be exactly {'open': false} — any other shape
+    # plugins.shell must be exactly {'open': false}, any other shape
     # (v1-style sidecar/scope keys) fails Tauri startup.
     shell_plugin = tauri_conf.get("plugins", {}).get("shell")
     assert shell_plugin == {"open": False}, (
-        "plugins.shell must be exactly {'open': false} — tauri-plugin-shell "
+        "plugins.shell must be exactly {'open': false}, tauri-plugin-shell "
         "v2 rejects 'sidecar'/'scope' keys at startup "
         f"('unknown field `scope`, expected `open`'); got {shell_plugin!r}"
     )
@@ -418,7 +418,7 @@ def test_grants_shell_allow_kill_for_force_kill(
     the sidecar leaks as a zombie holding the microphone.
 
     ADR-0020 §7 names ``shell:allow-kill-children``; the implementation
-    uses ``shell:allow-kill`` (slightly broader — kills any spawned
+    uses ``shell:allow-kill`` (slightly broader, kills any spawned
     child, not just direct children). Both are accepted by this gate;
     what matters is that the kill permission exists.
     """
@@ -430,7 +430,7 @@ def test_grants_shell_allow_kill_for_force_kill(
     granted_kill_perms = acceptable_kill_perms & set(permissions)
     assert granted_kill_perms, (
         f"capability must grant at least one of {acceptable_kill_perms} "
-        f"(ADR-0020 §7 + §10 — force-kill backstop) — permissions: "
+        f"(ADR-0020 §7 + §10, force-kill backstop), permissions: "
         f"{permissions!r}"
     )
 
@@ -446,7 +446,7 @@ def test_grants_notification_permission(
     The ``electron_notification`` event routes through
     ``tauri-plugin-notification`` (WinRT ToastNotification /
     NSUserNotificationCenter / libnotify). Without this grant, the
-    toast path silently no-ops — the user sees no notification and
+    toast path silently no-ops, the user sees no notification and
     there is no error in the dev console (Tauri v2 silently blocks
     ungated plugin commands in release builds).
 
@@ -461,7 +461,7 @@ def test_grants_notification_permission(
     granted = acceptable_notification_perms & set(permissions)
     assert granted, (
         f"capability must grant at least one of "
-        f"{acceptable_notification_perms} (ADR-0020 §6.1 + §7 — toast path) "
+        f"{acceptable_notification_perms} (ADR-0020 §6.1 + §7, toast path) "
         f"— permissions: {permissions!r}"
     )
 
@@ -482,7 +482,7 @@ def test_clipboard_manager_plugin_removed(
     ``allow-clear`` / ``clipboard-manager:default``) were vestigial
     and ``allow-read-text`` was a clipboard-exfiltration vector (a
     compromised renderer could read the system clipboard WITHOUT a
-    user gesture, unlike the web API — silently harvesting
+    user gesture, unlike the web API, silently harvesting
     password-manager / 2FA secrets).
 
     This test asserts the plugin's capability grants are GONE so a
@@ -498,8 +498,8 @@ def test_clipboard_manager_plugin_removed(
     granted = forbidden_clipboard_perms & set(permissions)
     assert not granted, (
         f"capability must NOT grant any of "
-        f"{forbidden_clipboard_perms} (XE-4-4 — clipboard-manager "
-        f"plugin removed as vestigial exfiltration vector) — "
+        f"{forbidden_clipboard_perms} (XE-4-4, clipboard-manager "
+        f"plugin removed as vestigial exfiltration vector), "
         f"permissions: {permissions!r}"
     )
 
@@ -514,24 +514,24 @@ def test_grants_single_instance(
 ) -> None:
     """ADR-0020 §7 + §12: single-instance gate is in place.
 
-    ADR-0020 §7 lists ``single-instance:default`` as the canonical
-    capability grant. However, the ``tauri-plugin-single-instance``
-    plugin is non-scoped (it gates the second instance at the OS
-    mutex / NSApplication activation / lockfile layer, not via an IPC
-    permission), so it does not strictly require a capability grant
-    — see the ``main-runtime.json`` description field which
-    documents this exemption.
+      ADR-0020 §7 lists ``single-instance:default`` as the canonical
+      capability grant. However, the ``tauri-plugin-single-instance``
+      plugin is non-scoped (it gates the second instance at the OS
+      mutex / NSApplication activation / lockfile layer, not via an IPC
+      permission), so it does not strictly require a capability grant
+    , see the ``main-runtime.json`` description field which
+      documents this exemption.
 
-    This test accepts EITHER:
-    - ``single-instance:default`` (or ``single-instance:allow-*``) in
-      the capability's permissions list, OR
-    - The plugin is registered in ``main.rs`` via
-      ``tauri_plugin_single_instance::init(...)`` AND listed in
-      ``tauri.conf.json``'s ``plugins`` object.
+      This test accepts EITHER:
+      - ``single-instance:default`` (or ``single-instance:allow-*``) in
+        the capability's permissions list, OR
+      - The plugin is registered in ``main.rs`` via
+        ``tauri_plugin_single_instance::init(...)`` AND listed in
+        ``tauri.conf.json``'s ``plugins`` object.
 
-    The plugin registration is what actually enforces single-instance
-    behavior at runtime (ADR-0020 §12 — second launch focuses the
-    existing main window and exits).
+      The plugin registration is what actually enforces single-instance
+      behavior at runtime (ADR-0020 §12, second launch focuses the
+      existing main window and exits).
     """
     permissions = migrate_runtime_capability["permissions"]
     capability_grants_single_instance = any(perm.startswith("single-instance:") for perm in permissions)
@@ -544,21 +544,21 @@ def test_grants_single_instance(
         # Must fall back to the plugin-registration path.
         assert plugin_in_main_rs, (
             "single-instance:default not granted in capability AND "
-            "tauri_plugin_single_instance::init not called in main.rs — "
+            "tauri_plugin_single_instance::init not called in main.rs, "
             "ADR-0020 §12 single-instance gate is missing"
         )
         assert plugin_in_tauri_conf, (
             "single-instance:default not granted in capability AND "
-            "'single-instance' not listed in tauri.conf.json plugins — "
+            "'single-instance' not listed in tauri.conf.json plugins, "
             "ADR-0020 §12 single-instance gate is missing"
         )
 
     # If the capability grants it directly, the plugin must STILL be
-    # registered (the capability alone is insufficient — capabilities
+    # registered (the capability alone is insufficient, capabilities
     # gate IPC, not plugin registration).
     assert plugin_in_main_rs, (
         "tauri_plugin_single_instance::init must be called in main.rs "
-        "regardless of capability grant — capabilities gate IPC, not "
+        "regardless of capability grant, capabilities gate IPC, not "
         "plugin registration (ADR-0020 §12)"
     )
 
@@ -576,18 +576,18 @@ def test_does_not_grant_overly_broad_permissions(
     defeat the per-triple spawn scope (``shell:default``), grant
     filesystem access the Rust host doesn't need (``fs:default``),
     or enable HTTP fetch that must stay in the Python sidecar
-    (``http:default`` — ADR-0020 §6.5 keeps cloud engines in Python).
+    (``http:default``, ADR-0020 §6.5 keeps cloud engines in Python).
 
-    Auto-update (``updater:*``) is intentionally NOT granted — v1
+    Auto-update (``updater:*``) is intentionally NOT granted, v1
     ships without auto-update (ADR-0020 §15). Process control
-    (``process:*``) is unnecessary — supervisor uses the core
+    (``process:*``) is unnecessary, supervisor uses the core
     ``AppHandle::restart()`` API, not the process plugin.
     """
     permissions = migrate_runtime_capability["permissions"]
     granted_forbidden = [perm for perm in permissions if perm in FORBIDDEN_BROAD_PERMISSIONS]
     assert not granted_forbidden, (
         f"capability grants overly-broad / out-of-scope permissions: "
-        f"{granted_forbidden!r} — ADR-0020 §7 mandates least privilege; "
+        f"{granted_forbidden!r}, ADR-0020 §7 mandates least privilege; "
         f"see FORBIDDEN_BROAD_PERMISSIONS for the rationale per identifier"
     )
 
@@ -601,38 +601,38 @@ def test_dispatch_command_is_registered_as_tauri_command(
 ) -> None:
     """ADR-0020 §7: the generic ``dispatch`` command is registered.
 
-    ADR-0020 §7 mandates "Exactly ONE generic Rust command" bridging
-    the webview to the sidecar: ``invoke('dispatch', {cmd, data})``.
-    The webview calls ``dispatch``; Rust forwards the envelope over
-    the WebSocket and awaits the per-id response.
+      ADR-0020 §7 mandates "Exactly ONE generic Rust command" bridging
+      the webview to the sidecar: ``invoke('dispatch', {cmd, data})``.
+      The webview calls ``dispatch``; Rust forwards the envelope over
+      the WebSocket and awaits the per-id response.
 
-    Custom Tauri v2 commands (``#[tauri::command]`` fns registered
-    via ``tauri::generate_handler!``) do NOT need a capability entry
-    — only plugin commands (``shell:*``, ``notification:*``, etc.)
-    are gated by the capability system. ADR-0020 §7: "no per-command
-    ``ipc:`` capability entry is needed — Rust maps ``dispatch`` to
-    the WS connection."
+      Custom Tauri v2 commands (``#[tauri::command]`` fns registered
+      via ``tauri::generate_handler!``) do NOT need a capability entry
+    , only plugin commands (``shell:*``, ``notification:*``, etc.)
+      are gated by the capability system. ADR-0020 §7: "no per-command
+      ``ipc:`` capability entry is needed, Rust maps ``dispatch`` to
+      the WS connection."
 
-    This test verifies the dispatch command is:
-    1. Defined as a ``#[tauri::command]`` in ``sidecar_cmds.rs``.
-    2. Listed in ``main.rs``'s ``tauri::generate_handler!`` macro.
+      This test verifies the dispatch command is:
+      1. Defined as a ``#[tauri::command]`` in ``sidecar_cmds.rs``.
+      2. Listed in ``main.rs``'s ``tauri::generate_handler!`` macro.
 
-    A failure here means the webview's ``invoke('dispatch', ...)``
-    call would reject with "command not found" at runtime.
+      A failure here means the webview's ``invoke('dispatch', ...)``
+      call would reject with "command not found" at runtime.
     """
     # 1. sidecar_cmds.rs defines dispatch as a #[tauri::command].
     assert "#[tauri::command]" in sidecar_cmds_rs_source, (
-        "sidecar_cmds.rs must define at least one #[tauri::command] — no tauri::command attribute found"
+        "sidecar_cmds.rs must define at least one #[tauri::command], no tauri::command attribute found"
     )
     # The public generic dispatch command is `pub async fn dispatch(`.
     # (The / decomposition also adds `dispatch_inner` and
-    # `dispatch_frame` internal helpers — match the public command
+    # `dispatch_frame` internal helpers, match the public command
     # exactly so those helpers don't shadow this check.)
     assert "fn dispatch(" in sidecar_cmds_rs_source, (
-        "sidecar_cmds.rs must define a `dispatch` function — ADR-0020 §7 mandates exactly one generic dispatch command"
+        "sidecar_cmds.rs must define a `dispatch` function, ADR-0020 §7 mandates exactly one generic dispatch command"
     )
     # The #[tauri::command] attribute must appear BEFORE `fn dispatch(`
-    # (within a few lines — Rust attribute placement is strict). The
+    # (within a few lines, Rust attribute placement is strict). The
     # attribute immediately preceding the public dispatch command is the
     # last `#[tauri::command]` before `fn dispatch(`.
     dispatch_idx = sidecar_cmds_rs_source.find("fn dispatch(")
@@ -642,14 +642,14 @@ def test_dispatch_command_is_registered_as_tauri_command(
     )
     assert tauri_cmd_idx < dispatch_idx, (
         "#[tauri::command] attribute must precede `fn dispatch(` in "
-        "sidecar_cmds.rs — currently the attribute appears AFTER the fn"
+        "sidecar_cmds.rs, currently the attribute appears AFTER the fn"
     )
 
     # 2. main.rs registers dispatch in generate_handler!.
     assert "generate_handler!" in main_rs_source, "main.rs must call tauri::generate_handler! to register commands"
     assert "dispatch" in main_rs_source, (
         "main.rs must reference `dispatch` (in the generate_handler! list "
-        "or a `use` statement) — ADR-0020 §7 generic dispatch command"
+        "or a `use` statement), ADR-0020 §7 generic dispatch command"
     )
     # The dispatch identifier must appear inside the generate_handler!
     # macro body (between `generate_handler!` and the closing `]`).
@@ -658,13 +658,13 @@ def test_dispatch_command_is_registered_as_tauri_command(
     # The macro body is terminated by `]` followed by `)` (when invoked
     # inline as `.invoke_handler(tauri::generate_handler![...])`) or by
     # `]` followed by `;` (when assigned to a variable). Find the first
-    # `]` after `generate_handler!` — that closes the macro body.
+    # `]` after `generate_handler!`, that closes the macro body.
     macro_body_full = main_rs_source[gen_handler_start:]
     closing_idx = macro_body_full.find("]")
     assert closing_idx != -1, "generate_handler! macro body not terminated by ']'"
     macro_body = macro_body_full[:closing_idx]
     assert "dispatch" in macro_body, (
         "`dispatch` must be listed inside the generate_handler![...] macro "
-        "body in main.rs — without it, invoke('dispatch', ...) rejects at "
+        "body in main.rs, without it, invoke('dispatch', ...) rejects at "
         "runtime with 'command not found'"
     )

@@ -184,7 +184,7 @@ function lastSetConfigPayload(): Record<string, unknown> | null {
 	return last?.[1] ?? null;
 }
 
-describe("useSettingsConfig — XA-14 fixes", () => {
+describe("useSettingsConfig, XA-14 fixes", () => {
 	beforeEach(() => {
 		resetStableMocks();
 		vi.resetModules();
@@ -203,14 +203,14 @@ describe("useSettingsConfig — XA-14 fixes", () => {
 
 		const { result, unmount } = renderHook(() => useSettingsConfig());
 
-		// The hook does NOT auto-load on mount — the consumer
+		// The hook does NOT auto-load on mount, the consumer
 		// (Settings.tsx) calls loadConfig() in a useEffect.
 		await result.current.loadConfig();
 		await waitFor(() => {
 			expect(result.current.config).not.toBeNull();
 		});
 
-		// Type into a debounced field — the value is mirrored
+		// Type into a debounced field, the value is mirrored
 		// into pendingDebouncedValuesRef but the timer hasn't
 		// fired yet (delayMs=500).
 		result.current.updateConfigDebounced("llm_api_key", "sk-test-123", 500);
@@ -219,7 +219,7 @@ describe("useSettingsConfig — XA-14 fixes", () => {
 		// 500ms debounce window).
 		expect(setConfigCallCount()).toBe(0);
 
-		// Unmount BEFORE the debounce timer fires — pre-fix
+		// Unmount BEFORE the debounce timer fires, pre-fix
 		// the value would be dropped. Post-fix, the unmount
 		// cleanup merges pendingDebouncedValuesRef into
 		// pendingUpdatesRef and flushes synchronously.
@@ -376,7 +376,7 @@ describe("useSettingsConfig — XA-14 fixes", () => {
 		await result.current.updateConfig({ history_max_entries: 5 });
 
 		// No additional get_config call should fire after the
-		// save failure — pre-fix the catch block called
+		// save failure, pre-fix the catch block called
 		// loadConfig() which silently overwrote the user's
 		// attempted value with the backend's old value.
 		expect(getConfigSpy.mock.calls.length).toBe(initialGetConfigCalls);
@@ -406,7 +406,7 @@ describe("useSettingsConfig — XA-14 fixes", () => {
 
 		expect(result.current.hasPendingOrSaving).toBe(false);
 
-		// Schedule a debounced write — pending becomes true
+		// Schedule a debounced write, pending becomes true
 		// immediately, so hasPendingOrSaving should be true.
 		// Wrap in act because updateConfigDebounced's setPending
 		// is a state update from outside a React event handler
@@ -420,7 +420,7 @@ describe("useSettingsConfig — XA-14 fixes", () => {
 	});
 });
 
-describe("useSettingsConfig — initial load failure surfaces loadError", () => {
+describe("useSettingsConfig, initial load failure surfaces loadError", () => {
 	beforeEach(() => {
 		resetStableMocks();
 		vi.resetModules();
@@ -444,7 +444,7 @@ describe("useSettingsConfig — initial load failure surfaces loadError", () => 
 		await waitFor(() => {
 			expect(result.current.loadError).toBe("backend unreachable");
 		});
-		// NOTE: `config` itself may be non-null here — the hook seeds it
+		// NOTE: `config` itself may be non-null here, the hook seeds it
 		// from its module-level cache (populated by earlier successful
 		// loads in this file), which is exactly why the Settings page
 		// only falls into its error branch when NO cached config exists.
@@ -481,18 +481,18 @@ describe("useSettingsConfig — initial load failure surfaces loadError", () => 
 });
 
 // ─────────────────────────────────────────────────────────────────────
-// mergeExternalConfig — pure state update + outside-updater cache write.
+// mergeExternalConfig, pure state update + outside-updater cache write.
 //
 // The merge used to mutate the module-level `_cachedConfig` cache
-// INSIDE the `setConfig` updater (impure — StrictMode double-invokes
+// INSIDE the `setConfig` updater (impure, StrictMode double-invokes
 // updaters, and a replayed render could cache a merge computed from a
 // stale base). The merge now computes from the `configRef` mirror and
 // writes state + cache outside the updater. These tests pin the
 // preserved contract: state merge, module-cache propagation to fresh
 // mounts, the diff-baseline update (no re-send of pushed values), and
-// the null-config no-op guard — plus correctness under StrictMode.
+// the null-config no-op guard, plus correctness under StrictMode.
 // ─────────────────────────────────────────────────────────────────────
-describe("useSettingsConfig — mergeExternalConfig contract", () => {
+describe("useSettingsConfig, mergeExternalConfig contract", () => {
 	beforeEach(() => {
 		resetStableMocks();
 		vi.resetModules();
@@ -588,7 +588,7 @@ describe("useSettingsConfig — mergeExternalConfig contract", () => {
 			result.current.mergeExternalConfig({ hotkey: "F3" });
 		});
 
-		// No state, no cache write, no diff-baseline write — the null
+		// No state, no cache write, no diff-baseline write, the null
 		// guard is preserved.
 		expect(result.current.config).toBeNull();
 		await result.current.updateConfig({ hotkey: "F5" });

@@ -2,7 +2,7 @@
 
 Project-wide log convention (``AGENTS.md`` C-LOG-2): every
 lifecycle-completion log line ends with a space-separated ``<duration>``
-suffix so performance is measurable at a glance — `` 2.3s`` for
+suffix so performance is measurable at a glance, `` 2.3s`` for
 sub-minute durations, `` 1m 2.3s`` for anything longer. The leading
 space is part of the return value, so callers splice it directly onto
 the timed event (``...warmed 2.3s``) and MUST NOT add their own space
@@ -18,7 +18,7 @@ from __future__ import annotations
 def format_duration(seconds: float) -> str:
     """Format *seconds* as `` 2.3s`` (sub-minute) or `` 1m 2.3s``.
 
-    The return value carries a single leading space — the duration is a
+    The return value carries a single leading space, the duration is a
     suffix token spliced directly after the timed event
     (``[VAD] ... preloaded + warmed 2.3s``). ``seconds`` is clamped at 0
     so a negative clock delta can never render as a nonsense duration.

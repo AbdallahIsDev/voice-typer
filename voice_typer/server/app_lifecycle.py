@@ -1,22 +1,22 @@
-"""(Phase 4.5 spaghetti split): LifecycleController — extracted
+"""(Phase 4.5 spaghetti split): LifecycleController, extracted
 from VoiceTyperApp.
 
 Owns the restart / quit / relaunch-ack lifecycle of ``VoiceTyperApp``:
 
-    - ``restart_app`` — push ``relaunch_app`` event, save config, set
+    - ``restart_app``: push ``relaunch_app`` event, save config, set
       ``_shutting_down``, wait for ack, run ``_do_cleanup``, exit via
       ``sys.exit(0)`` (only on main thread; non-main thread relies on
 ``tray.stop()`` inside ``_do_cleanup`` +  watchdog).
-    - ``_wait_for_relaunch_ack`` — bounded wait on the IPC server's
+    - ``_wait_for_relaunch_ack``: bounded wait on the IPC server's
       ``relaunch_ack`` event (PERF-005: 0ms short-circuit when no IPC
       server attached).
-    - ``quit_app`` — push ``quit_app`` event over TCP so Electron
+    - ``quit_app``: push ``quit_app`` event over TCP so Electron
       quits cleanly, then guard-and-delegate to ``self._app.quit()``
       (the audited ``SystemExit`` path).
 
 Previously all of this lived on ``VoiceTyperApp`` as ~360 LOC across 3
 methods (``restart_app`` 208 LOC, ``_wait_for_relaunch_ack`` 84 LOC,
-``quit_app`` 68 LOC). The behaviour is preserved verbatim — only the
+``quit_app`` 68 LOC). The behaviour is preserved verbatim, only the
 class boundary moved. ``VoiceTyperApp`` keeps thin delegate methods so
 callers (tray menu callbacks, IPC handlers, tests calling
 ``app.restart_app()`` / ``app.quit_app()`` directly) keep working
@@ -27,7 +27,7 @@ A note on logging: this module uses
 conventional ``__name__``. Tests like
 ``tests/app/test_app_de_2i_fixes.py::TestDE47ConfigSaveRaisesInRestartApp``
 and ``tests/app/test_quit_restart.py::TestAppRestartLogMessage``
-capture logs at ``logger="voice_typer.server.app"`` — using ``__name__``
+capture logs at ``logger="voice_typer.server.app"``, using ``__name__``
 would route logs to the ``voice_typer.server.app_lifecycle`` logger
 and break those caplog captures.
 
@@ -42,7 +42,7 @@ tests in ``tests/test_app_cleanup.py`` patch
 ``voice_typer.server.app.sys`` IS the global ``sys`` module (and
 likewise for ``time`` / ``os`` / ``event_bus``), those patches
 propagate to this module's calls too. The controllers do NOT capture
-those names at import time — every call site uses the live module
+those names at import time, every call site uses the live module
 attribute, so the patches take effect.
 
 A note on the delegate indirection for ``_do_cleanup`` and ``quit``:
@@ -81,7 +81,7 @@ log = logging.getLogger("voice_typer.server.app")
 # The ``[QUIT] Quitting ...`` line must appear ONCE per process. A quit
 # can be triggered twice back-to-back (tray Quit + Electron's quit IPC,
 # or SIGTERM racing the tray quit) and the re-entry guard in
-# ``quit_app`` sits AFTER this log line (deliberately — the event push
+# ``quit_app`` sits AFTER this log line (deliberately, the event push
 # must run first, F-06), so without this flag both calls logged the
 # identical line within the same second.
 _quit_line_logged = False
@@ -99,7 +99,7 @@ class LifecycleController:
           ordering; the plain boolean is kept in sync for legacy readers).
         - Call ``app._do_cleanup()`` (the delegate on ``VoiceTyperApp``)
           so test spies that ``monkeypatch.setattr(app, "_do_cleanup", spy)``
-          still intercept the call — mirrors the ``ShutdownController``
+          still intercept the call, mirrors the ``ShutdownController``
           convention.
         - Call ``app.quit()`` (the delegate) so test spies that
           ``monkeypatch.setattr(app, "quit", spy)`` still intercept.
@@ -127,12 +127,12 @@ class LifecycleController:
                 ``tray.py`` swallowed ``SystemExit``, preventing the audited
                 ``self.quit()`` path from terminating the process. ``os._exit``
                 skips Python atexit handlers, ``__del__`` methods, and
-                ``finally`` blocks — leaking the Win32 named mutex, leaving
+                ``finally`` blocks, leaking the Win32 named mutex, leaving
                 PortAudio mic handles open, and not unregistering
                 ``RegisterHotKey`` registrations.
 
         Now that ``_wrap`` suppresses ``SystemExit`` (see
-                fix in ``tray.py`` — ``tray.stop()`` inside ``quit()`` already
+                fix in ``tray.py``: ``tray.stop()`` inside ``quit()`` already
                 breaks the pystray loop, so re-raising just caused pystray to
                 print a noisy traceback), we delegate to ``self._app.quit()``
                 which does the full cleanup (cancel timers, signal streaming
@@ -149,7 +149,7 @@ class LifecycleController:
                 guard. Pre-fix, the guard sat at the top of the method and a
                 double-quit (e.g. user clicks the tray Quit item twice, or
                 SIGTERM races with the tray quit) silently dropped the second
-                push — leaving Electron with no shutdown signal if the first
+                push, leaving Electron with no shutdown signal if the first
                 push was lost in a TCP race. The fix pushes unconditionally on
                 every call and only guards the actual ``self._app.quit()`` call
                 so cleanup isn't run twice.
@@ -167,7 +167,7 @@ class LifecycleController:
         # so we don't leave the mic open or lose the in-flight audio.
         try:
             if app.recorder and app.recorder.recording:
-                log.info("[QUIT] Recording in progress — discarding before quit")
+                log.info("[QUIT] Recording in progress, discarding before quit")
                 app.recorder.discard()
         except Exception:
             log.debug("[QUIT] Could not discard recording", exc_info=True)
@@ -181,7 +181,7 @@ class LifecycleController:
         event_bus.publish({"type": "quit_app"})
         # Stash the publish so ``ShutdownController.quit()`` (called via
         # ``app.quit()`` below) does NOT re-publish the event on this
-        # path — quit() publishes ``quit_app`` itself for the Ctrl+C /
+        # path, quit() publishes ``quit_app`` itself for the Ctrl+C /
         # signal paths that bypass ``quit_app()``, and the flag lets it
         # skip here instead of sending a redundant second write.
         app._quit_app_published = True
@@ -191,7 +191,7 @@ class LifecycleController:
         # ``self._app.quit()`` cleanup is skipped on the second call.
         # use _shutting_down_event.is_set() for cross-thread memory
         # ordering (the threading.Event version provides acquire/release
-        # semantics — the plain boolean has no such guarantee).
+        # semantics, the plain boolean has no such guarantee).
         if app._shutting_down_event.is_set():
             log.debug("[QUIT] Already shutting down, ignoring duplicate quit_app call")
             return
@@ -216,11 +216,11 @@ class LifecycleController:
                 Electron process (which in turn spawns a fresh Python backend).
                 If the ``relaunch_app`` event is lost (TCP race), Electron's
                 ``pythonProcess.on("exit")`` handler sees exit code 0 and
-                triggers the same relaunch as a fallback — see
+                triggers the same relaunch as a fallback: see
                 ``client/src/main/index.ts``.
 
         (IMPROVE-mode run, 2026-07-21): re-entry guard at the
-                top — mirror ``quit_app``. Pre-fix, a double-clicked tray
+                top, mirror ``quit_app``. Pre-fix, a double-clicked tray
                 "Restart" item or a tray restart racing with SIGTERM-triggered
                 quit would push duplicate ``relaunch_app`` events, re-acquire
                 ``_config_mutation_lock`` for a second ``config.save()``,
@@ -237,16 +237,16 @@ class LifecycleController:
                 invariant pinned by
                 ``tests/test_app_cleanup.py::test_restart_app_guard_is_first_statement_in_method``)
                 and delegates the rest to this method. This guard is a mirror
-                of the delegate's guard — idempotent, so the double-check is
+                of the delegate's guard, idempotent, so the double-check is
                 harmless and makes the controller safe for direct calls from
                 future code.
         """
         app = self._app
         # re-entry guard (mirror the delegate on VoiceTyperApp
-        # — idempotent if the delegate has already short-circuited).
+        # , idempotent if the delegate has already short-circuited).
         # use _shutting_down_event.is_set() for cross-thread
         # memory ordering (the threading.Event version provides
-        # acquire/release semantics — the plain boolean has no such
+        # acquire/release semantics, the plain boolean has no such
         # guarantee).
         if app._shutting_down_event.is_set():
             log.debug("[RESTART] ignoring duplicate restart_app call (already shutting down)")
@@ -258,17 +258,17 @@ class LifecycleController:
         # In standalone/terminal mode Python spawned Electron as a child
         # (`app._electron_pid` is set).  The user expectation is that
         # Restart keeps THIS process alive and re-initializes the app in
-        # the same terminal/console — NOT that the process exits and a
+        # the same terminal/console. NOT that the process exits and a
         # hidden backend is respawned by Electron (the old behaviour,
         # which detached the app from the terminal the user launched it
         # in).  We detect standalone mode by the tracked Electron PID and
         # branch: teardown everything (including killing the Electron
-        # child — we'll relaunch it), then signal the entrypoint loop to
+        # child, we'll relaunch it), then signal the entrypoint loop to
         # re-run the startup sequence instead of ``sys.exit(0)``.
         _in_place_restart = vars(app).get("_electron_pid") is not None
         if _in_place_restart:
             log.info(
-                "[RESTART] Standalone mode — in-place restart: tearing down and "
+                "[RESTART] Standalone mode, in-place restart: tearing down and "
                 "re-initializing in the same terminal (PID=%s)",
                 app._electron_pid,
             )
@@ -280,7 +280,7 @@ class LifecycleController:
             app._is_restarting = True
             app._in_place_restart = True
             # In standalone in-place mode we do NOT push ``relaunch_app``
-            # to Electron — the Electron child is going to be terminated
+            # to Electron, the Electron child is going to be terminated
             # and re-launched by this same process, so there is no host
             # to ack the relaunch.
             app._shutting_down = True
@@ -293,11 +293,11 @@ class LifecycleController:
                     exc_info=True,
                 )
             app._do_cleanup()
-            # Do NOT call ``sys.exit(0)`` — the process must stay alive.
+            # Do NOT call ``sys.exit(0)``: the process must stay alive.
             # ``tray.stop()`` (the last cleanup step) breaks the pystray
             # loop so ``app.start()`` returns, and the entrypoint loop
             # observes ``_in_place_restart`` and re-initializes.
-            log.info("[RESTART] In-place restart complete — entrypoint loop will re-initialize")
+            log.info("[RESTART] In-place restart complete, entrypoint loop will re-initialize")
             return
 
         # ── RESTART-FLAG ──────────────────────────────────────────────
@@ -305,7 +305,7 @@ class LifecycleController:
         # cleanup body can distinguish the two.  In STANDALONE mode
         # Python spawned Electron as a child (`app._electron_pid` is
         # set); on a restart the ``relaunch_app`` event has already been
-        # pushed to Electron, which will respawn Python — so the
+        # pushed to Electron, which will respawn Python, so the
         # cleanup MUST NOT kill the Electron child (that would leave
         # nothing to relaunch).  In dev mode Electron is the parent and
         # `app._electron_pid` is None, so the flag is inert there.
@@ -320,7 +320,7 @@ class LifecycleController:
         # from reverting to default after a restart.
         # wrap in try/except so an unexpected exception from
         # save() (e.g. RecursionError from asdict on a cyclic
-        # dataclass) does not abort the restart sequence — the user's
+        # dataclass) does not abort the restart sequence, the user's
         # "Restart" tray click must still work.
         try:
             save_ok = app.config.save()
@@ -335,7 +335,7 @@ class LifecycleController:
         # _push_event_now() MUST be called BEFORE _shutting_down is set
         # to True. The _send() method in ipc_server.py checks
         # _shutting_down and if True, closes the TCP socket WITHOUT
-        # writing the event — silently dropping it. This was the root
+        # writing the event, silently dropping it. This was the root
         # cause of the "restart does nothing" bug: the relaunch_app
         # event was never received by Electron, so _relaunching stayed
         # false, and the fallback exit handler also failed because the
@@ -368,12 +368,12 @@ class LifecycleController:
         #    unchanged.
         app._shutting_down = True
         # RACE-020: also set the Event version so executor tasks can
-        # check it (matches quit()'s shutdown signaling — important now
+        # check it (matches quit()'s shutdown signaling, important now
         # that restart_app() shares the same _do_cleanup() body).
         app._shutting_down_event.set()
         # (IMPROVE-mode run, 2026-07-21): the redundant
         # ``self._restore_volume(fade_ms=0)`` call that lived here was
-        # deleted — ``_do_cleanup()`` (invoked further down via
+        # deleted, ``_do_cleanup()`` (invoked further down via
         # ``ShutdownController._do_cleanup``) already invokes the
         # volume-restore path. Pre-fix, the double-restore wasted ~10ms
         # and produced confusing log noise (two "volume restored" lines
@@ -388,7 +388,7 @@ class LifecycleController:
         # longer reaches into ``_relaunch_ack_event`` private state.
         # Lowered from 2.0s to 0.5s: the host acks in <100ms when it
         # works (Tauri ``main.rs``'s ``tokio::time::sleep(10ms)`` before
-        # ``app.restart()``); 2.0s was the wrong ceiling — the worst
+        # ``app.restart()``); 2.0s was the wrong ceiling, the worst
         # case is the host-is-dead case where waiting accomplishes
         # nothing and blocks the tray callback thread. 500ms is generous
         # for the happy path and bounds the dead-host stall at 4×
@@ -398,7 +398,7 @@ class LifecycleController:
         # ceiling only applies when there's actually someone to ack.
         self._wait_for_relaunch_ack(timeout=0.5)
 
-        # 3. : run the SAME audited cleanup as quit() — flushes
+        # 3. : run the SAME audited cleanup as quit(), flushes
         #    history_db and _crash_recovery (so no pending writes are
         #    silently lost on restart), stops recorder + mic watcher
         #    (so PortAudio streams don't leak across the restart), stops
@@ -421,7 +421,7 @@ class LifecycleController:
         #    ``self._thread_registry.shutdown_all()`` BEFORE
         #    ``_do_cleanup()``. The registry's centralized
         #    signal-and-join (per-thread stop_event + join-with-timeout)
-        #    must run on the restart path too — otherwise the
+        #    must run on the restart path too, otherwise the
         #    bubble-level-pusher and any other registered daemon threads
         #    never receive their stop signal and are only cleaned up
         #    implicitly when the process exits. The per-site shutdown
@@ -441,12 +441,12 @@ class LifecycleController:
         # so test spies that monkeypatch app._do_cleanup intercept.
         app._do_cleanup()
 
-        # 4. Exit cleanly — electron will relaunch us.
+        # 4. Exit cleanly, electron will relaunch us.
         # mirror ShutdownController.quit()'s threading-aware
         # exit. restart_app is invoked from the tray menu callback,
         # which runs on pystray's worker thread (NOT the main thread).
         # When sys.exit(0) is called from a non-main thread, CPython
-        # raises SystemExit in THAT thread only — the process does not
+        # raises SystemExit in THAT thread only, the process does not
         # exit. The tray's _wrap callback wrapper suppresses
         # SystemExit, so the sys.exit(0) is silently swallowed and the
         # process lingers for up to ~1s (holding the single-instance
@@ -457,14 +457,14 @@ class LifecycleController:
         # shutdown_controller.py:464,497-498.
         #
         # if restart_app() is running on a non-main thread (the
-        # common case — pystray tray menu callback), arm the same
+        # common case, pystray tray menu callback), arm the same
         # shutdown watchdog ``quit()`` uses. If ``tray.stop()`` (called
         # inside ``_do_cleanup`` above) failed to break the pystray
         # loop and the main thread is still parked in ``tray.run()``
         # after ``SHUTDOWN_WATCHDOG_TIMEOUT_S`` seconds, the watchdog
         # calls ``os._exit(0)`` to unblock the process. Without this,
         # a hung pystray backend leaves the old process unkillable
-        # after a Restart click — and the new process can't claim the
+        # after a Restart click, and the new process can't claim the
         # single-instance mutex / IPC port, so the restart silently
         # fails. The watchdog is a daemon thread, so it never blocks
         # the normal exit path (if the main thread returns from
@@ -476,14 +476,14 @@ class LifecycleController:
                 app.shutdown._arm_shutdown_watchdog(app._shutdown_watchdog_timeout_s)
             except Exception:
                 # This is the LAST line of defense against a hung
-                # restart — if the watchdog itself failed to arm (e.g.
+                # restart, if the watchdog itself failed to arm (e.g.
                 # ``app.shutdown`` is None because ShutdownController
                 # lazy-init failed), the old process will never exit and
                 # the new instance can't bind. Failure here MUST be loud
                 # (ERROR) so it shows up in the default-INFO production
                 # log; the previous DEBUG level was invisible to operators.
                 log.error(
-                    "[RESTART] failed to arm shutdown watchdog — restart may hang",
+                    "[RESTART] failed to arm shutdown watchdog, restart may hang",
                     exc_info=True,
                 )
         log.info("[RESTART] Old process exiting via sys.exit(0)")
@@ -503,26 +503,26 @@ class LifecycleController:
         longer reaches into ``_relaunch_ack_event`` private state.
         The wrapper clears the event before waiting (preserving the
         stale-ack guard) and returns ``True``/``False`` on ack /
-        timeout — same contract as the previous inline ``wait``.
+        timeout, same contract as the previous inline ``wait``.
 
         The previous implementation always blocked for 300ms
         (``time.sleep(0.3)``) when no IPC server / no ack event was
         attached, and ``restart_app`` waited up to 2.0s for the ack.
         Both timeouts penalised the dead-host case (host already gone,
         WS torn down, IPC server absent) where waiting accomplishes
-        nothing — the tray callback thread just sits in a sleep while
+        nothing, the tray callback thread just sits in a sleep while
         the IPC dispatch gate rejects all new requests for the same
         window. This helper now:
 
         1. Skips the wait entirely (0ms) when ``self._app._ipc_server``
-           is ``None`` (early restart, no IPC wired yet) — no IPC
+           is ``None`` (early restart, no IPC wired yet), no IPC
            server means no one is listening for the ``relaunch_app``
            event.
         2. Otherwise delegates to ``ipc_server.wait_for_relaunch_ack``
            which itself short-circuits to 0ms when the IPC server has
            no live WS dispatch pool, no ``_relaunch_ack_event``
            attribute, or the wait times out within ``timeout``
-           seconds (``restart_app`` now passes ``0.5`` — was ``2.0``).
+           seconds (``restart_app`` now passes ``0.5``: was ``2.0``).
 
         Parameters
         ----------
@@ -538,7 +538,7 @@ class LifecycleController:
             pool is bound, the IPCServer has no ``_relaunch_ack_event``
             attribute (e.g. a test double), or the wait timed out.
             Callers today ignore the return value (the original inline
-            code didn't return one either) — the contract is preserved
+            code didn't return one either), the contract is preserved
             for future use.
         """
         app = self._app
@@ -549,7 +549,7 @@ class LifecycleController:
         # the tray callback thread for nothing. The previous 300ms
         # pause was a belt-and-suspenders fallback for the case where
         # the host might still observe the relaunch intent via the
-        # ``pythonProcess.on("exit")`` handler — but that handler
+        # ``pythonProcess.on("exit")`` handler, but that handler
         # triggers on PROCESS EXIT, not on a 300ms sleep, so the sleep
         # was pure waste.
         if ipc_server is None:
@@ -577,7 +577,7 @@ class LifecycleController:
             acked = ipc_server.wait_for_relaunch_ack(timeout=timeout)
         if not acked:
             log.debug(
-                "[RESTART] relaunch_ack timed out after %.3fs — host may be dead or slow; proceeding with cleanup",
+                "[RESTART] relaunch_ack timed out after %.3fs, host may be dead or slow; proceeding with cleanup",
                 timeout,
             )
         return acked

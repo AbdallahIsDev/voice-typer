@@ -67,7 +67,7 @@ def _patch_ok_stream(monkeypatch, recording_mod):
 class TestRec1StaleWorkerGuardWrapper:
     """REC-1 contract pinned at the ``Recorder._start_audio_worker`` /
     ``_stop_audio_worker`` wrapper layer (the collaborator
-    ``capture.py`` does NOT enforce this — the wrapper restores it)."""
+    ``capture.py`` does NOT enforce this, the wrapper restores it)."""
 
     def test_stop_keeps_stop_event_and_thread_when_still_alive(self):
         from voice_typer.server.recording import Recorder
@@ -85,11 +85,11 @@ class TestRec1StaleWorkerGuardWrapper:
 
         assert r._worker_stop_event.is_set(), (
             "REC-1: _stop_audio_worker cleared the stop event even though "
-            "the worker is still alive — the stale worker would resume looping."
+            "the worker is still alive, the stale worker would resume looping."
         )
         assert r._worker_thread is not None, (
             "REC-1: _stop_audio_worker nulled the thread reference even though "
-            "the worker is still alive — the next _start_audio_worker would "
+            "the worker is still alive, the next _start_audio_worker would "
             "spawn a duplicate (SPSC invariant violation)."
         )
 
@@ -154,14 +154,14 @@ class TestRec2RollbackOnWorkerStartFailure:
             r.start()
 
         assert len(teardown_calls) >= 1, (
-            "REC-2: start() did not call _teardown_stream() on audio-worker failure — leaked PortAudio stream."
+            "REC-2: start() did not call _teardown_stream() on audio-worker failure, leaked PortAudio stream."
         )
         assert not r._recording_event.is_set(), (
-            "REC-2: start() did not clear _recording_event on failure — "
+            "REC-2: start() did not clear _recording_event on failure, "
             "the next start()'s is_set() early-return would mask the retry."
         )
         assert r._stop_generation == gen_before + 1, (
-            "REC-2: start() did not bump _stop_generation on failure — in-flight disconnect handlers won't bail out."
+            "REC-2: start() did not bump _stop_generation on failure, in-flight disconnect handlers won't bail out."
         )
 
     def test_start_rolls_back_stream_and_audio_worker_when_event_worker_raises(self, monkeypatch):
@@ -199,10 +199,10 @@ class TestRec2RollbackOnWorkerStartFailure:
             r.start()
 
         assert len(teardown_calls) >= 1, (
-            "REC-2: start() did not call _teardown_stream() on event-worker failure — leaked PortAudio stream."
+            "REC-2: start() did not call _teardown_stream() on event-worker failure, leaked PortAudio stream."
         )
         assert len(stop_calls) >= 1, (
-            "REC-2: start() did not call _stop_audio_worker() on event-worker failure — leaked audio worker thread."
+            "REC-2: start() did not call _stop_audio_worker() on event-worker failure, leaked audio worker thread."
         )
         assert not r._recording_event.is_set()
         assert r._stop_generation == gen_before + 1

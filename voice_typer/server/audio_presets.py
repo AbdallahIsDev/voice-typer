@@ -1,4 +1,4 @@
-"""Audio preset definitions — single source of truth.
+"""Audio preset definitions, single source of truth.
 
 This module eliminates the previous 3-way duplication of preset → filter
 mappings (service.py, Microphone.tsx, AudioPresetSelector.tsx). All
@@ -7,11 +7,11 @@ copy of the preset catalog (labels + descriptions), so no display
 metadata is exported from this module.
 
 Presets (ADR 0007 §5.5):
-    auto       — Best for 90% of users. All filters ON, RNNoise.
-    studio     — Quiet room, good mic. Minimal processing.
-    noisy_room — Keyboard/fan/HVAC. Aggressive, GTCRN.
-    off        — Raw audio, no filtering.
-    custom     — User controls each filter individually.
+    auto      , Best for 90% of users. All filters ON, RNNoise.
+    studio    , Quiet room, good mic. Minimal processing.
+    noisy_room, Keyboard/fan/HVAC. Aggressive, GTCRN.
+    off       , Raw audio, no filtering.
+    custom    , User controls each filter individually.
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ PRESET_CUSTOM = "custom"
 # parameter overrides (threshold, ratio, cutoff, etc.) where a preset
 # needs to deviate from the config defaults. Presets without explicit
 # parameter overrides (``PRESET_AUTO``, ``PRESET_STUDIO``, ``PRESET_OFF``)
-# use the config defaults for every threshold / ratio / cutoff — this
+# use the config defaults for every threshold / ratio / cutoff, this
 # matches the original contract (presets only flipped toggles) so
 # existing behavior is preserved for those presets.
 PRESETS: dict[str, dict[str, Any]] = {
@@ -54,7 +54,7 @@ PRESETS: dict[str, dict[str, Any]] = {
     },
     PRESET_NOISY_ROOM: {
         "noise_filter_highpass": True,
-        # GTCRN — the bundled ONNX streaming denoiser (higher quality
+        # GTCRN, the bundled ONNX streaming denoiser (higher quality
         # than RNNoise; ~2 ms per 16 ms hop on CPU). Replaces the
         # retired DeepFilterNet option this preset historically
         # selected (whose processing path was never wired).
@@ -66,7 +66,7 @@ PRESETS: dict[str, dict[str, Any]] = {
         "noise_filter_notch": True,
         # Per-preset parameter overrides. Previously
         # ``PRESET_NOISY_ROOM`` had identical toggle values to
-        # ``PRESET_AUTO`` — switching to "Noisy Room" only changed the
+        # ``PRESET_AUTO``: switching to "Noisy Room" only changed the
         # suppression method (and the notch toggle) while leaving every
         # threshold / ratio / cutoff at the config default. A noisy
         # environment (keyboard / fan / HVAC) needs more aggressive
@@ -89,7 +89,7 @@ PRESETS: dict[str, dict[str, Any]] = {
         "noise_filter_limiter": False,
         "noise_filter_notch": False,
     },
-    # PRESET_CUSTOM is not in this dict — it means "use individual field values"
+    # PRESET_CUSTOM is not in this dict, it means "use individual field values"
 }
 
 
@@ -101,7 +101,7 @@ def apply_preset(preset: str, config: Any) -> None:
     parameter overrides (threshold / ratio / cutoff) from
     :data:`PRESETS` via ``setattr``. Presets without explicit
     parameter overrides (``PRESET_AUTO``, ``PRESET_STUDIO``,
-    ``PRESET_OFF``) only set the boolean toggles — every threshold /
+    ``PRESET_OFF``) only set the boolean toggles, every threshold /
     ratio / cutoff on ``config`` is left at whatever value it
     currently holds (typically the :class:`Config` default).
     ``PRESET_NOISY_ROOM`` additionally overrides

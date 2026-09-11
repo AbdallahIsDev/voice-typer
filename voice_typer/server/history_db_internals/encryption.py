@@ -3,7 +3,7 @@
 Extracted from the once-monolithic ``history_db.py``. The functions in
 this module are free functions that take the
 :class:`~voice_typer.server.history_db.HistoryDB` instance (``db``)
-instead of ``self`` — they read/write the instance's attributes (the
+instead of ``self``: they read/write the instance's attributes (the
 resolved encryption status, the decrypt-aware FTS re-index watermark,
 the write queue) via the passed-in reference. Cross-calls into other
 ``HistoryDB`` surface go through ``db.<method>(...)`` so class-level
@@ -21,12 +21,12 @@ monkeypatch ``history_db._ENCRYPTION_BACKFILL_BATCH`` keep working.
 
 Free functions:
 
-- :func:`_init_encryption` — resolve the DEK once per process (writer
+- :func:`_init_encryption`: resolve the DEK once per process (writer
   thread, before readiness is signaled) and kick the plaintext→
   ciphertext backfill / decrypt-aware re-index.
-- :func:`encryption_status` — report the resolved at-rest-encryption
+- :func:`encryption_status`: report the resolved at-rest-encryption
   state (``"active"`` / ``"disabled"`` / ``"key-unavailable"``).
-- :func:`_has_encrypted_rows` / :func:`_has_plaintext_rows` — row-flag
+- :func:`_has_encrypted_rows` / :func:`_has_plaintext_rows`, row-flag
   probes used by :func:`_init_encryption`.
 - :func:`_enqueue_backfill_step` / :func:`_encrypt_backfill_step` —
   bounded, idempotent, resumable background encryption of legacy
@@ -34,7 +34,7 @@ Free functions:
 - :func:`_enqueue_reindex_step` / :func:`_reindex_encrypted_fts_step` —
   bounded decrypt-aware repair of the FTS index after a startup
   ``'rebuild'`` re-tokenized ciphertext.
-- :func:`_mark_fts5_rebuild_failed` — persist the
+- :func:`_mark_fts5_rebuild_failed`: persist the
   ``fts5_rebuild_failed`` schema_meta flag so the next launch's startup
   rebuild retries (also called by the delete/clear_all failure paths).
 """
@@ -54,7 +54,7 @@ log = logging.getLogger(__name__)
 
 #: Guards the ONE-SHOT per-DB-path INFO logs in ``_init_encryption``
 #: (the status line + the backfill schedule line).  ``_init_encryption``
-#: runs on every ``HistoryDB`` construction — the lazy ``app.history_db``
+#: runs on every ``HistoryDB`` construction, the lazy ``app.history_db``
 #: property creates one, and corruption recovery / GDPR-delete re-creation
 #: spin up a writer thread that calls it again.  Without this guard the
 #: status + backfill-schedule lines repeat within milliseconds (and the
@@ -64,7 +64,7 @@ log = logging.getLogger(__name__)
 #:
 #: Unlike the schema init which is fully idempotent, encryption state
 #: CAN change between constructions (DEK cache reset, keyring toggled),
-#: so ``_init_encryption`` still runs the full logic every time — this
+#: so ``_init_encryption`` still runs the full logic every time, this
 #: set only suppresses the INFO-log surplus and the duplicate backfill
 #: enqueue.  Tests that need a fresh encryption session for the same
 #: path can call :func:`_reset_encryption_initialized_paths`.
@@ -72,7 +72,7 @@ _initialized_db_paths: set[str] = set()
 
 
 def _reset_encryption_initialized_paths() -> None:
-    """Test seam — clear the per-path log-guard set.
+    """Test seam, clear the per-path log-guard set.
 
     Called by tests between HistoryDB instances that share a db_path
     but expect to see the encryption-init logs fire again (or to
@@ -87,7 +87,7 @@ def _init_encryption(db: HistoryDB, conn: sqlite3.Connection) -> None:
     Runs on the writer thread BEFORE ``_writer_ready`` is signaled
     (see ``history_db_internals.writer._writer_loop``), so the
     encryption state is deterministic the moment ``HistoryDB()``
-    returns — no reader can observe a flagged row while the key is
+    returns, no reader can observe a flagged row while the key is
     still unresolved. The one keyring read is bounded by the
     existing 5s keyring-I/O timeout isolation; the BACKFILL itself
     is a queued writer item and never blocks startup. Never raises
@@ -97,7 +97,7 @@ def _init_encryption(db: HistoryDB, conn: sqlite3.Connection) -> None:
     Key-loss policy (stricter than ADR §9, per review): a DEK is
     generated only when the keyring is available AND no encrypted
     rows exist. When encrypted rows exist but the DEK cannot be
-    loaded, the status becomes ``"key-unavailable"`` — reads return
+    loaded, the status becomes ``"key-unavailable"``, reads return
     the ``"<decryption failed>"`` placeholder, NEW writes stay
     plaintext (flag 0), and the DEK is NEVER regenerated (a fresh
     key could not decrypt the existing rows).
@@ -137,12 +137,12 @@ def _init_encryption(db: HistoryDB, conn: sqlite3.Connection) -> None:
                 db._encryption_status,
             )
         if dek is not None and db._has_plaintext_rows(conn):
-            # Legacy rows exist alongside the active key — encrypt
+            # Legacy rows exist alongside the active key, encrypt
             # them in bounded background batches (never blocks
             # startup: the step is a queued writer item that
             # re-enqueues itself between batches). The ENQUEUE runs on
             # EVERY construction (a later instance may be the one with
-            # a working keyring / DEK — e.g. "cleartext DB opened with
+            # a working keyring / DEK: e.g. "cleartext DB opened with
             # keyring later backfills"); only the INFO log is one-shot.
             if is_first_init:
                 log.info(
@@ -158,12 +158,12 @@ def _init_encryption(db: HistoryDB, conn: sqlite3.Connection) -> None:
             if is_first_init:
                 log.info(
                     "[HISTORY] startup FTS5 rebuild re-tokenized encrypted rows "
-                    "with ciphertext — scheduling decrypt-aware re-index"
+                    "with ciphertext, scheduling decrypt-aware re-index"
                 )
             db._enqueue_reindex_step()
-    except Exception as e:  # noqa: BLE001 — crypto must never kill the writer
+    except Exception as e:  # noqa: BLE001, crypto must never kill the writer
         log.warning(
-            "[HISTORY] at-rest-encryption initialization failed (%s) — history continues in plaintext mode",
+            "[HISTORY] at-rest-encryption initialization failed (%s), history continues in plaintext mode",
             type(e).__name__,
         )
 
@@ -173,12 +173,12 @@ def encryption_status(db: HistoryDB) -> str:
 
     One of:
 
-    - ``"active"`` — a DEK is available; new rows are encrypted and
+    - ``"active"``: a DEK is available; new rows are encrypted and
       flagged rows decrypt transparently on read.
-    - ``"disabled"`` — no DEK and nothing encrypted (keyring
+    - ``"disabled"``: no DEK and nothing encrypted (keyring
       unavailable on first run): behavior is byte-identical to the
       pre-encryption plaintext mode (zero-regression guarantee).
-    - ``"key-unavailable"`` — encrypted rows exist but the DEK
+    - ``"key-unavailable"``: encrypted rows exist but the DEK
       cannot be loaded (keyring wiped/unavailable): reads return
       the ``"<decryption failed>"`` placeholder, new writes stay
       plaintext, and the DEK is never regenerated in this state.
@@ -205,9 +205,9 @@ def _enqueue_backfill_step(db: HistoryDB) -> None:
 
     Enqueued from the writer thread itself (init + the tail of each
     step), so the batches serialize with normal writes in FIFO
-    order — a batch can never race a live INSERT. Queue-full is
+    order, a batch can never race a live INSERT. Queue-full is
     swallowed: the remaining rows simply stay plaintext until the
-    next launch (the backfill is idempotent — it selects by flag).
+    next launch (the backfill is idempotent, it selects by flag).
     """
     with contextlib.suppress(queue.Full):
         db._queue.put_nowait((db._encrypt_backfill_step, None))
@@ -221,7 +221,7 @@ def _encrypt_backfill_step(db: HistoryDB, conn: sqlite3.Connection) -> int:
     re-enqueued so the writer thread yields to foreground writes
     between batches. The UPDATE is the flag-flip form guarded in the
     ``au_fts`` trigger, so the FTS index keeps the plaintext tokens
-    these rows were originally indexed with — search stays correct
+    these rows were originally indexed with, search stays correct
     before, during, and after the backfill.
 
     Returns the number of rows encrypted in this step.
@@ -253,7 +253,7 @@ def _encrypt_backfill_step(db: HistoryDB, conn: sqlite3.Connection) -> int:
             conn.commit()
     except sqlite3.Error as e:
         log.warning(
-            "[HISTORY] history-encryption backfill batch failed (%s) — will resume on next launch",
+            "[HISTORY] history-encryption backfill batch failed (%s), will resume on next launch",
             e,
         )
         with contextlib.suppress(sqlite3.Error):
@@ -266,7 +266,7 @@ def _encrypt_backfill_step(db: HistoryDB, conn: sqlite3.Connection) -> int:
             encrypted,
         )
     if encrypted >= batch_size:
-        # More plaintext rows remain — yield to foreground writes
+        # More plaintext rows remain, yield to foreground writes
         # and continue in the next queued step.
         db._enqueue_backfill_step()
     return encrypted
@@ -282,7 +282,7 @@ def _reindex_encrypted_fts_step(db: HistoryDB, conn: sqlite3.Connection) -> int:
     """Restore plaintext FTS tokens for encrypted rows after a 'rebuild'.
 
     The FTS5 ``'rebuild'`` command drops all segments and re-tokenizes
-    from the CONTENT table — for a row whose ``text`` column holds
+    from the CONTENT table, for a row whose ``text`` column holds
     ciphertext that means the index now contains ciphertext tokens,
     so full-text search no longer matches the row's real words. This
     step repairs the invariant (ADR §6: FTS shadow tables stay
@@ -290,7 +290,7 @@ def _reindex_encrypted_fts_step(db: HistoryDB, conn: sqlite3.Connection) -> int:
     encrypted rows per invocation:
 
     1. issue the FTS5 ``'delete'`` command with the row's CIPHERTEXT
-       (exactly what the rebuild indexed — a token match, so the
+       (exactly what the rebuild indexed, a token match, so the
        delete is safe), then
     2. re-INSERT the DECRYPTED plaintext so the row is searchable
        again.
@@ -298,9 +298,9 @@ def _reindex_encrypted_fts_step(db: HistoryDB, conn: sqlite3.Connection) -> int:
     Progression uses an ascending-id watermark (rows never lose the
     encrypted flag mid-run), so each batch resumes where the
     previous one stopped and the step terminates when a short batch
-    is seen — no repeated work, no unbounded memory. Only runs when
+    is seen, no repeated work, no unbounded memory. Only runs when
     a DEK is cached (in key-loss mode there is no plaintext to
-    index — search over those rows is already degraded by design).
+    index, search over those rows is already degraded by design).
     Re-enqueues itself while full batches remain, so it never
     starves foreground writes.
 
@@ -322,10 +322,10 @@ def _reindex_encrypted_fts_step(db: HistoryDB, conn: sqlite3.Connection) -> int:
             ).fetchall()
             for row_id, ciphertext in rows:
                 # 'delete' with the ciphertext that the rebuild
-                # indexed (token match — removes exactly those
+                # indexed (token match, removes exactly those
                 # tokens), then insert the decrypted plaintext.
                 # BOTH shadow indexes are maintained in lockstep
-                # (unicode61 + trigram CJK — same ADR §6 invariant).
+                # (unicode61 + trigram CJK, same ADR §6 invariant).
                 # The CJK pair is gated on table existence (SQLite
                 # without the trigram tokenizer never got the V5
                 # migration).
@@ -354,7 +354,7 @@ def _reindex_encrypted_fts_step(db: HistoryDB, conn: sqlite3.Connection) -> int:
             conn.commit()
     except sqlite3.Error as e:
         log.warning(
-            "[HISTORY] decrypt-aware FTS re-index batch failed (%s) — "
+            "[HISTORY] decrypt-aware FTS re-index batch failed (%s), "
             "encrypted rows may stay unsearchable until the next rebuild",
             e,
         )
@@ -380,10 +380,10 @@ def _mark_fts5_rebuild_failed(db: HistoryDB, conn: sqlite3.Connection) -> None:
     ``delete`` (after a failed per-row ``'optimize'``) and
     ``clear_all`` (after a failed ``'rebuild'``). The retention
     path (``retention.py``) sets the same flag via the same
-    schema_meta key — paired change in that module.
+    schema_meta key, paired change in that module.
 
     Best-effort: a failure to persist the flag (e.g. disk full)
-    is swallowed at DEBUG — the in-memory
+    is swallowed at DEBUG, the in-memory
     ``db._fts5_rebuild_failures`` counter is still incremented
     by the caller, so the failure is observable via diagnostics
     even if the persisted flag isn't updated.

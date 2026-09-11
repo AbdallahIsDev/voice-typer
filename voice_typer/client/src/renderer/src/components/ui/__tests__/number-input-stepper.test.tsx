@@ -1,5 +1,5 @@
 /**
- * NumberInputStepper tests — covers RTL logical positioning (physical `right-1` /
+ * NumberInputStepper tests, covers RTL logical positioning (physical `right-1` /
  * `pr-8` were replaced with logical `inset-e-1` / `pe-8` so the steppers
  * sit at the inline-end edge in both LTR and RTL locales).
  *
@@ -25,7 +25,7 @@ afterEach(() => {
 	cleanup();
 });
 
-describe("NumberInputStepper — RTL logical positioning", () => {
+describe("NumberInputStepper, RTL logical positioning", () => {
 	it("uses logical `inset-e-1` (not physical `right-1`) for the stepper container", () => {
 		render(
 			<NumberInputStepper
@@ -70,7 +70,7 @@ describe("NumberInputStepper — RTL logical positioning", () => {
 	});
 });
 
-describe("NumberInputStepper — at-boundary aria-disabled (no native disabled)", () => {
+describe("NumberInputStepper, at-boundary aria-disabled (no native disabled)", () => {
 	// When the value is at min or max, the stepper buttons must:
 	//   - expose ``aria-disabled="true"`` so SRs announce the disabled
 	//     state (the native ``disabled`` attribute causes SRs to skip

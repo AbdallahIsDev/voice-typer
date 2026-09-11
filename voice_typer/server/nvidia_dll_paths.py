@@ -5,7 +5,7 @@ shipped by the ``nvidia-*`` pip packages or bundled under ``torch/lib``)
 to the Windows loader so that faster-whisper's CTK runtime can locate
 them at model-load time.
 
-On non-Windows platforms every entry point is a no-op — the inner
+On non-Windows platforms every entry point is a no-op, the inner
 implementation early-returns when ``is_windows()`` is false, so callers
 on Linux / macOS can invoke ``_configure_nvidia_dll_paths()`` unconditionally.
 
@@ -17,7 +17,7 @@ that import them from there.
 State ownership: the mutable state that these functions mutate —
 ``_nvidia_dll_path_handles`` (the open DLL-directory handles),
 ``_nvidia_dll_paths_configured`` (one-shot latch), and
-``_nvidia_config_lock`` (RACE-029 serializer) — STAYS declared at
+``_nvidia_config_lock`` (RACE-029 serializer). STAYS declared at
 module level in ``transcription`` so existing tests and callers that
 read/write ``transcription._nvidia_dll_path_handles`` continue to work.
 The ``_NvidiaDllPathManager`` class encapsulates the operations on that
@@ -55,9 +55,9 @@ class _NvidiaDllPathManager:
     """Encapsulates the mutable NVIDIA DLL-path state.
 
     The state lives in a ``state_dict`` mapping the three canonical
-    keys — ``_nvidia_dll_path_handles`` (list),
+    keys, ``_nvidia_dll_path_handles`` (list),
     ``_nvidia_dll_paths_configured`` (bool), ``_nvidia_config_lock``
-    (threading.Lock) — to their current values. When ``state_dict`` is
+    (threading.Lock), to their current values. When ``state_dict`` is
     ``None`` (the default for the production singleton), the manager
     reads/writes through the ``voice_typer.server.transcription``
     module's globals via late binding, so existing tests that poke
@@ -67,7 +67,7 @@ class _NvidiaDllPathManager:
 
     Constructing a manager with an explicit ``state_dict`` (a plain
     dict) is useful for unit tests that want a fresh, isolated state
-    without touching module globals — see
+    without touching module globals: see
     ``tests/test_transcription_phase_helpers.py``.
     """
 
@@ -209,7 +209,7 @@ class _NvidiaDllPathManager:
             # The old CUDA-DLL-001 ``("torch", "lib")`` entry (torch GPU
             # wheels place cublas64_12.dll etc. under torch/lib) was
             # removed 2026-08-15 together with the torch dependency
-            # (PLAN_ONNX_INTEGRATION.md §4.3 C-2 — torch is fully gone;
+            # (PLAN_ONNX_INTEGRATION.md §4.3 C-2, torch is fully gone;
             # there is no torch/lib to scan).
         ]
         existing_paths = os.environ.get("PATH", "").split(os.pathsep)
@@ -286,17 +286,17 @@ def _free_nvidia_dll_path_handles() -> None:
 def _configure_nvidia_dll_paths():
     """Expose NVIDIA wheel DLL directories to the Windows loader.
 
-    Delegates to the ``transcription._nvidia_dll_paths`` singleton.
-    RACE-029: serialized by ``_nvidia_config_lock`` to prevent concurrent
-    calls from corrupting ``_nvidia_dll_path_handles`` and PATH.
+     Delegates to the ``transcription._nvidia_dll_paths`` singleton.
+     RACE-029: serialized by ``_nvidia_config_lock`` to prevent concurrent
+     calls from corrupting ``_nvidia_dll_path_handles`` and PATH.
 
-    Also gates CUDA visibility: when the runtime DLLs cannot actually be
-    loaded (CPU-only torch install, missing ``nvidia-*`` wheels), every
-    downstream ``import ctranslate2`` / ``import torch`` would otherwise
-    pay ~20s of CUDA device enumeration before falling back to CPU.
-    Setting ``CUDA_VISIBLE_DEVICES=""`` here — before those imports run
-    — makes them skip the GPU probe entirely (~3s vs ~22s cold) and
-    keeps model loading on CPU directly.
+     Also gates CUDA visibility: when the runtime DLLs cannot actually be
+     loaded (CPU-only torch install, missing ``nvidia-*`` wheels), every
+     downstream ``import ctranslate2`` / ``import torch`` would otherwise
+     pay ~20s of CUDA device enumeration before falling back to CPU.
+     Setting ``CUDA_VISIBLE_DEVICES=""`` here, before those imports run
+    , makes them skip the GPU probe entirely (~3s vs ~22s cold) and
+     keeps model loading on CPU directly.
     """
     from voice_typer.server import transcription as _t
 
@@ -319,10 +319,10 @@ def _configure_nvidia_dll_paths_locked():
 # ── CUDA runtime availability gate ────────────────────────────────────
 #
 # The CUDA runtime DLLs (cuBLAS / cuLt / cuDNN) ship with the
-# ``nvidia-*`` wheels or the GPU build of torch — NOT with a CPU-only
+# ``nvidia-*`` wheels or the GPU build of torch. NOT with a CPU-only
 # torch install. On such machines ``ctranslate2.get_cuda_device_count()``
 # still reports a device (the driver is present), but model load fails
-# with "cublas64_12.dll is not found or cannot be loaded" — after
+# with "cublas64_12.dll is not found or cannot be loaded", after
 # ~20s of CUDA enumeration during ``import ctranslate2``. These helpers
 # make that failure cheap and early.
 
@@ -360,7 +360,7 @@ def _cuda_runtime_available() -> bool:
         _cuda_available = True  # fail-open: let ctranslate2 decide
     if not _cuda_available:
         log.warning(
-            "[CUDA-DLL] CUDA runtime DLLs unavailable (%s missing) — CUDA disabled; model will load on CPU",
+            "[CUDA-DLL] CUDA runtime DLLs unavailable (%s missing). CUDA disabled; model will load on CPU",
             " / ".join(_CUDA_DLL_CANDIDATES),
         )
     return _cuda_available
@@ -391,12 +391,12 @@ def _configure_cuda_visibility_if_broken() -> None:
         return
     # Only skip when the variable is present AND explicitly empty
     # (i.e. the user already hid the GPU). An UNSET variable must be
-    # set to "" here — otherwise ``import ctranslate2`` would still
+    # set to "" here, otherwise ``import ctranslate2`` would still
     # probe CUDA for ~20s before the model-load failure.
     if os.environ.get("CUDA_VISIBLE_DEVICES") == "":
         return  # already hidden
     os.environ["CUDA_VISIBLE_DEVICES"] = ""
     log.info(
-        "[CUDA-DLL] Set CUDA_VISIBLE_DEVICES='' — downstream imports "
+        "[CUDA-DLL] Set CUDA_VISIBLE_DEVICES='': downstream imports "
         "(ctranslate2/torch) skip CUDA enumeration (~20s) and load on CPU"
     )

@@ -1,4 +1,4 @@
-"""Scripts/generate_checksums.py — compute SHA-256 checksums for release artifacts.
+"""Scripts/generate_checksums.py, compute SHA-256 checksums for release artifacts.
 
 Generates SHA256SUMS.txt from release artifacts.
 Usage:
@@ -28,7 +28,7 @@ def generate_checksums(dist_dir: Path) -> None:
         sys.exit(1)
 
     # Find all release artifacts (exe, zip, dmg, AppImage, deb, etc.)
-    # Previous filter was inverted — it `continue`d on every
+    # Previous filter was inverted, it `continue`d on every
     # file matching release extensions, so SHA256SUMS.txt ended up
     # listing only NON-release files (README, .build manifests, etc.).
     # Now: append only files whose suffix matches a release extension,

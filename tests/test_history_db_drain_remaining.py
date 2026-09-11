@@ -17,7 +17,7 @@ suppress wrapper, that exception:
 2. Propagates up through ``_drain_remaining`` and ``_writer_loop``.
 3. Kills the writer thread mid-shutdown-drain.
 4. Silently drops every remaining fire-and-forget write that was
-   queued behind the offending item — because the writer thread is
+   queued behind the offending item, because the writer thread is
    now dead and the remaining items are never persisted.
 
 The fix routes the shutdown drain through ``_execute_write_item``, the
@@ -52,7 +52,7 @@ def _make_pre_resolved_future() -> concurrent.futures.Future:
     """Return a Future already resolved with a result.
 
     Calling ``set_exception`` on this future raises
-    ``InvalidStateError`` — which is exactly the scenario that exposed
+    ``InvalidStateError``, which is exactly the scenario that exposed
     the PVT-005 regression in ``_drain_remaining``.
     """
     future: concurrent.futures.Future = concurrent.futures.Future()
@@ -64,7 +64,7 @@ def _failing_write_closure(conn: sqlite3.Connection) -> None:
     """A write closure that always raises.
 
     Forces ``_execute_write_item``'s except branch to invoke
-    ``future.set_exception(e)`` — which is the call that raises
+    ``future.set_exception(e)``, which is the call that raises
     ``InvalidStateError`` against the pre-resolved future.
     """
     raise RuntimeError("simulated write failure (PVT-005 regression test)")
@@ -92,7 +92,7 @@ class TestDrainRemainingPreResolvedFuture:
         future = _make_pre_resolved_future()
         db._queue.put_nowait((_failing_write_closure, future))
 
-        # Open a fresh write-capable connection — the writer's
+        # Open a fresh write-capable connection, the writer's
         # connection was closed by close(). The failing closure never
         # touches the connection (it raises immediately), so any
         # connection works.
@@ -106,11 +106,11 @@ class TestDrainRemainingPreResolvedFuture:
             with contextlib.suppress(sqlite3.Error):
                 conn.close()
 
-        # The future remains in its pre-resolved state — the
+        # The future remains in its pre-resolved state, the
         # set_exception call was suppressed (not applied) because the
         # future was already resolved.
         assert future.result() == "pre-resolved", (
-            "Future state was mutated by _drain_remaining — expected the "
+            "Future state was mutated by _drain_remaining, expected the "
             "pre-resolved result to be preserved (set_exception suppressed)."
         )
 
@@ -124,7 +124,7 @@ class TestDrainRemainingPreResolvedFuture:
            stays in the queue (instead of being processed by the
            normal ``_writer_loop`` path).
         2. Manually set ``_shutdown`` and enqueue the
-           ``_SHUTDOWN_SENTINEL`` AHEAD of the test item — so when the
+           ``_SHUTDOWN_SENTINEL`` AHEAD of the test item, so when the
            writer resumes, it receives the sentinel first and calls
            ``_drain_remaining`` (which then processes the test item),
            rather than processing the test item via the normal
@@ -179,7 +179,7 @@ class TestDrainRemainingPreResolvedFuture:
             # _drain_remaining when InvalidStateError escapes.
             db._writer_thread.join(timeout=5.0)
             assert not db._writer_thread.is_alive(), (
-                "Writer thread did not exit within 5s — likely stuck. "
+                "Writer thread did not exit within 5s, likely stuck. "
                 "This indicates _drain_remaining or _writer_loop hung."
             )
         finally:
@@ -196,7 +196,7 @@ class TestDrainRemainingPreResolvedFuture:
         # Sanity-check that the writer thread exited for the expected
         # reason (no other uncaught exceptions either). We allow
         # RuntimeError because that's what _failing_write_closure raises
-        # — but it should be caught by _execute_write_item, never
+        # , but it should be caught by _execute_write_item, never
         # escape. If it escaped, _drain_remaining is broken.
         escaped_runtime_errors = [
             e for e in captured_exceptions if isinstance(e, RuntimeError) and "simulated write failure" in str(e)

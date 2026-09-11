@@ -5,7 +5,7 @@ Verifies the fix for the head-of-line blocking bug where
 (``voice_typer/server/ipc/transport_tcp.py::_handle_tcp_connection``).
 A long-running handler (e.g. ``download_model``, up to 120s) blocked
 the read loop from reading subsequent commands from the same Electron
-client — every pending request waited in the kernel socket buffer
+client, every pending request waited in the kernel socket buffer
 until the slow handler returned.
 
 The fix offloads ``_dispatch`` to the dedicated
@@ -19,7 +19,7 @@ so concurrent dispatch is safe even though responses may arrive in a
 different order than requests.
 
 This mirrors the WS path's ``run_in_executor`` pattern at
-``voice_typer/server/sidecar_ws.py:572`` — adapted for the thread-based
+``voice_typer/server/sidecar_ws.py:572``, adapted for the thread-based
 TCP transport by wrapping the dispatch + response-send in a single
 callable so the read loop can discard the Future.
 
@@ -34,7 +34,7 @@ Test strategy
    ``tests/test_keyboard_ownership_watchdog.py``).
 3. Send two commands back-to-back: a slow one (dispatch sleeps 1s)
    then a fast one (instant). Assert the fast dispatch STARTS before
-   the slow dispatch FINISHES — proving the read loop did not block.
+   the slow dispatch FINISHES, proving the read loop did not block.
 4. Verify the the heartbeat fast-path still bypasses ``_dispatch``
    (heartbeats are handled inline and are not delayed by an in-flight
    slow dispatch).
@@ -62,8 +62,8 @@ def _make_server_with_pool() -> IPCServer:
     dispatch pool.
 
     The pool stands in for the production ``_tcp_dispatch_pool`` (which
-    is normally created by ``start_tcp()``). Using a real pool — rather
-    than a ``MagicMock`` — lets us verify that ``submit`` actually runs
+    is normally created by ``start_tcp()``). Using a real pool, rather
+    than a ``MagicMock``, lets us verify that ``submit`` actually runs
     the dispatch concurrently, which is the whole point of the SU-19
     fix. A ``MagicMock`` whose ``submit`` is a no-op would not exercise
     the concurrency path at all.
@@ -138,7 +138,7 @@ class TestTCPDispatchConcurrency:
 
         Sends a slow command (dispatch sleeps 1s) then a fast command
         (instant) back-to-back. Asserts the fast dispatch STARTS before
-        the slow dispatch FINISHES — proving the read loop did not wait
+        the slow dispatch FINISHES, proving the read loop did not wait
         for the slow dispatch to complete before reading the next
         command.
         """
@@ -212,7 +212,7 @@ class TestTCPDispatchConcurrency:
             fast_start = next(e for e in starts if e["type"] == "fast_command")
 
             # (3) The second (fast) message is dispatched BEFORE the first
-            # (slow) completes — proving non-blocking. If the read loop
+            # (slow) completes, proving non-blocking. If the read loop
             # blocked on the slow dispatch, fast_start would be >= slow_end.
             assert fast_start["ts"] < slow_end_ev["ts"], (
                 f"SU-19 REGRESSION: the fast dispatch started at "
@@ -229,7 +229,7 @@ class TestTCPDispatchConcurrency:
             gap = fast_start["ts"] - slow_start["ts"]
             assert gap < 0.5, (
                 f"the fast dispatch started {gap:.3f}s after the slow "
-                f"dispatch started — the read loop waited for the slow dispatch "
+                f"dispatch started, the read loop waited for the slow dispatch "
                 f"to finish before reading the next message (expected <0.5s "
                 f"for non-blocking read loop)."
             )
@@ -241,7 +241,7 @@ class TestTCPDispatchConcurrency:
             for e in starts:
                 assert e["thread"] != handler_thread_name, (
                     f"dispatch for {e['type']!r} ran on the handler "
-                    f"thread {e['thread']!r} (same as the read loop) — it was "
+                    f"thread {e['thread']!r} (same as the read loop), it was "
                     f"NOT offloaded to the worker pool."
                 )
                 assert "tcp-dispatch" in e["thread"], (

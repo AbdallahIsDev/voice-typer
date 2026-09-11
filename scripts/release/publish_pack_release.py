@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Auto-update — GitHub Releases publisher (plan-runtime-pack-split.md §10.1).
+"""Auto-update. GitHub Releases publisher (plan-runtime-pack-split.md §10.1).
 
-Publishes the slim-core installer + pack onefile + ``pack-manifest.json``
+Publishes the slim-core installer + runtime-pack zip + ``pack-manifest.json``
 as GitHub Release assets. Uses the ``gh`` CLI (preferred) or the GitHub
 REST API as a fallback (when ``gh`` is unavailable / in CI without
 ``gh`` installed).
@@ -11,32 +11,35 @@ This script is the CI-side counterpart to the client-side
 uploads the assets; the checker fetches ``pack-manifest.json`` from the
 same release to decide whether a newer pack is available.
 
-Asset naming convention (C-CI-13 — the new artifact-naming rule
-introduced by the installer split):
+Asset naming (C-CI-13, canonical source: ``scripts/build/artifact_names.py``,
+plan-runtime-pack-split.md §11.9; re-exported here as
+``ASSET_NAME_BUILDERS`` so callers of this module can construct the
+expected names without a second copy of the scheme):
 
   * Slim-core installer:
-      - Windows: ``VoiceTyper-Setup-<version>.exe`` (NSIS)
-      - macOS:   ``VoiceTyper-<version>.<arch>.app.tar.gz``
-      - Linux:   ``voice-typer-<version>-<arch>.AppImage``
-  * Pack onefile:     ``pack-<version>.zip``
-  * Pack manifest:    ``pack-manifest.json`` (NOT versioned — the
+      - Windows: ``voice-typer-slim-core-<version>-<triple>.exe`` (NSIS)
+      - macOS:   ``voice-typer-slim-core-<version>-<triple>``
+      - Linux:   ``voice-typer-slim-core-<version>-<triple>``
+  * Runtime-pack zip:  ``voice-typer-runtime-pack-<pack-version>-<triple>.zip``
+  * Full-offline:      ``voice-typer-full-offline-<version>-<triple>[.exe]``
+  * Pack manifest:    ``pack-manifest.json`` (NOT versioned, the
     ``releases/latest/download/pack-manifest.json`` URL serves the
     latest release's manifest).
 
-The pack onefile + manifest are platform-independent (the pack contains
-platform-specific binaries inside, but the zip + manifest are the same
-file shape across platforms). The slim-core installer IS platform-
-specific — publish one per platform.
+The publisher does NOT enforce these names, it uploads whatever paths
+the caller passes; ``artifact_names.py`` is the naming reference. The
+pack manifest is platform-independent; the slim-core installer and the
+runtime-pack zip are per-target-triple. Publish one per platform.
 
 Usage (CI):
 
   python scripts/release/publish_pack_release.py \\
       --tag v1.2.3 \\
       --repo AbdallahIsDev/voice-typer \\
-      --slim-core-windows dist/VoiceTyper-Setup-1.2.3.exe \\
-      --slim-core-macos dist/VoiceTyper-1.2.3.arm64.app.tar.gz \\
-      --slim-core-linux dist/voice-typer-1.2.3-x86_64.AppImage \\
-      --pack-onefile dist/pack-1.2.3.zip \\
+      --slim-core-windows dist/voice-typer-slim-core-1.2.3-x86_64-pc-windows-msvc.exe \\
+      --slim-core-macos dist/voice-typer-slim-core-1.2.3-aarch64-apple-darwin \\
+      --slim-core-linux dist/voice-typer-slim-core-1.2.3-x86_64-unknown-linux-gnu \\
+      --pack-onefile dist/voice-typer-runtime-pack-3-x86_64-pc-windows-msvc.zip \\
       --pack-manifest dist/pack-manifest.json \\
       --notes "Release notes for 1.2.3"
 
@@ -45,7 +48,10 @@ Or programmatically:
   from scripts.release.publish_pack_release import publish_release
   result = publish_release(
       tag="v1.2.3",
-      assets=[Path("dist/pack-1.2.3.zip"), Path("dist/pack-manifest.json")],
+      assets=[
+          Path("dist/voice-typer-runtime-pack-3-x86_64-pc-windows-msvc.zip"),
+          Path("dist/pack-manifest.json"),
+      ],
       repo="AbdallahIsDev/voice-typer",
       notes="Release notes for 1.2.3",
   )
@@ -56,16 +62,16 @@ missing assets and skips already-uploaded ones (``gh release upload
 retry a partially-failed publish without manual cleanup.
 
 SECURITY: this script does NOT sign the assets. Code signing is a
-separate CI step (C-CI-11 — the existing 4 signing steps + the new
+separate CI step (C-CI-11, the existing 4 signing steps + the new
 worker-exe signing). The publisher only uploads already-signed
 artifacts. The pack's integrity is verified client-side via the
 SHA-256 in ``pack-manifest.json`` (see
 :func:`voice_typer.server.service.offline_pack.verify_offline_pack_or_skip`).
 
 Exit codes:
-  0 — success (all assets uploaded).
-  1 — failure (``gh`` / API error, missing asset, etc.).
-  2 — usage error (missing required args).
+  0: success (all assets uploaded).
+  1: failure (``gh`` / API error, missing asset, etc.).
+  2: usage error (missing required args).
 """
 
 from __future__ import annotations
@@ -92,16 +98,34 @@ log = logging.getLogger(__name__)
 DEFAULT_REPO = "AbdallahIsDev/voice-typer"
 DEFAULT_GH_CLI = "gh"
 
-# Asset-name templates (C-CI-13). The publisher does NOT enforce these
-# names — it uploads whatever paths the caller passes. The templates
-# are documented here so CI workflows can construct the expected names
-# consistently.
-ASSET_NAME_TEMPLATES = {
-    "slim_core_windows": "VoiceTyper-Setup-{version}.exe",
-    "slim_core_macos": "VoiceTyper-{version}.{arch}.app.tar.gz",
-    "slim_core_linux": "voice-typer-{version}-{arch}.AppImage",
-    "pack_onefile": "pack-{version}.zip",
-    "pack_manifest": "pack-manifest.json",  # NOT versioned
+# Make ``scripts.build.artifact_names`` (the canonical §11.9 naming
+# module) importable under every execution mode, direct script run
+# (``python scripts/release/publish_pack_release.py`` puts
+# ``scripts/release`` on sys.path), flat import from the tests
+# (``release.publish_pack_release`` with ``scripts/`` on sys.path), and
+# package import from the repo root. Same bootstrap pattern as
+# ``scripts/diagnostics.py``.
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+from scripts.build import artifact_names  # noqa: E402
+
+# Canonical release-asset naming (plan §11.9 / C-CI-13). The single
+# source of truth is ``scripts/build/artifact_names.py``; these aliases
+# re-export its builders so CI workflows and callers that already
+# import this module can construct the expected asset names without a
+# second copy of the naming scheme. The publisher does NOT enforce the
+# names, it uploads whatever paths the caller passes.
+ASSET_NAME_BUILDERS = {
+    # (app_version, triple) -> "voice-typer-slim-core-<app_version>-<triple>[.exe]"
+    "slim_core": artifact_names.slim_core_installer_name,
+    # (pack_version, triple) -> "voice-typer-runtime-pack-<pack_version>-<triple>.zip"
+    "runtime_pack": artifact_names.runtime_pack_name,
+    # () -> "pack-manifest.json" (NOT versioned)
+    "pack_manifest": artifact_names.pack_manifest_name,
+    # (app_version, triple) -> "voice-typer-full-offline-<app_version>-<triple>[.exe]"
+    "full_offline": artifact_names.full_offline_installer_name,
 }
 
 
@@ -147,11 +171,11 @@ def build_gh_create_command(
 ) -> list[str]:
     """Build the ``gh release create`` argv.
 
-    The command creates the release WITHOUT assets — assets are uploaded
+    The command creates the release WITHOUT assets, assets are uploaded
     in a separate ``gh release upload`` step so a partial asset upload
     can be retried without recreating the release.
 
-    ``--generate-notes`` is intentionally NOT used — the caller passes
+    ``--generate-notes`` is intentionally NOT used, the caller passes
     explicit ``--notes`` / ``--notes-file`` so the release notes are
     deterministic (GitHub's auto-generated notes include commit titles
     that may leak internal context).
@@ -177,7 +201,7 @@ def build_gh_create_command(
     elif notes is not None:
         cmd.extend(["--notes", notes])
     else:
-        # No notes — use an empty string so GitHub doesn't auto-generate.
+        # No notes: use an empty string so GitHub doesn't auto-generate.
         cmd.extend(["--notes", ""])
     return cmd
 
@@ -224,7 +248,7 @@ def run_gh(cmd: list[str], *, runner: callable | None = None) -> subprocess.Comp
 def gh_release_exists(tag: str, *, repo: str, runner: callable | None = None) -> bool:
     """Return True if a release with *tag* already exists.
 
-    Uses ``gh release view`` — exit 0 means the release exists, non-zero
+    Uses ``gh release view``: exit 0 means the release exists, non-zero
     means it doesn't (or ``gh`` failed).
     """
     cmd = ["gh", "release", "view", tag, "--repo", repo]
@@ -275,12 +299,12 @@ def _api_request(
         with urllib.request.urlopen(req, timeout=300) as resp:
             return resp.getcode(), resp.read()
     except urllib.error.HTTPError as exc:
-        # HTTPError is a subclass of URLError (OSError) — read the body
+        # HTTPError is a subclass of URLError (OSError), read the body
         # so the caller can surface the GitHub API error message. The
         # read is best-effort: we already have the HTTP status code (the
         # most important field); the body is just supplementary context.
         # ``exc.read()`` can raise ``OSError`` (socket closed / partial
-        # body) or ``http.client.HTTPException`` (IncompleteRead) — we
+        # body) or ``http.client.HTTPException`` (IncompleteRead), we
         # suppress any failure so a flaky body read does not mask the
         # original HTTP error.
         body_bytes = b""
@@ -367,7 +391,7 @@ def validate_assets(assets: list[Path]) -> list[str]:
 
     An asset is invalid if:
       * it does not exist (broken CI artifact path).
-      * it is empty (0 bytes — a failed build produced an empty file).
+      * it is empty (0 bytes, a failed build produced an empty file).
       * it is a directory (caller passed a dir instead of a file).
     """
     errors: list[str] = []
@@ -426,10 +450,10 @@ def publish_release(
             is available, else ``"api"``.
 
     Returns:
-        :class:`PublishResult`. Never raises — all errors are captured
+        :class:`PublishResult`. Never raises, all errors are captured
         in ``result.errors``. The caller checks ``result.success``.
     """
-    # Validate assets first — fail fast on missing/empty files.
+    # Validate assets first, fail fast on missing/empty files.
     asset_errors = validate_assets(assets)
     if asset_errors:
         return PublishResult(
@@ -496,7 +520,7 @@ def _publish_via_gh(
     """Publish via the ``gh`` CLI backend."""
     # Create the release if it doesn't exist (idempotent).
     if gh_release_exists(tag, repo=repo, runner=runner):
-        log.info("[RELEASE] release %s already exists — uploading assets only", tag)
+        log.info("[RELEASE] release %s already exists, uploading assets only", tag)
     else:
         cmd = build_gh_create_command(
             tag,
@@ -560,7 +584,7 @@ def _publish_via_api(
             success=False,
             tag=tag,
             errors=[
-                "GitHub API backend requires a token — set GH_TOKEN / GITHUB_TOKEN env var "
+                "GitHub API backend requires a token. Set GH_TOKEN / GITHUB_TOKEN env var "
                 "or pass --token. (The gh CLI backend authenticates via `gh auth login`.)"
             ],
             backend="api",
@@ -582,10 +606,10 @@ def _publish_via_api(
     )
     upload_url: str | None = None
     if release_url is not None:
-        # Success — ``upload_url_or_err`` is actually the upload_url.
+        # Success, ``upload_url_or_err`` is actually the upload_url.
         upload_url = upload_url_or_err
     else:
-        # Failure — ``upload_url_or_err`` is the error message. Check
+        # Failure, ``upload_url_or_err`` is the error message. Check
         # whether the failure is the "release already exists" case
         # (GitHub returns 422 with ``already_exists`` in the body). If
         # so, re-fetch the release by tag to get its upload_url.
@@ -623,7 +647,7 @@ def _publish_via_api(
         return PublishResult(
             success=False,
             tag=tag,
-            errors=["release has no upload_url — cannot upload assets"],
+            errors=["release has no upload_url, cannot upload assets"],
             backend="api",
         )
 
@@ -654,7 +678,8 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
             "Publish a GitHub Release with the slim-core installer + "
-            "pack onefile + pack-manifest.json (plan-runtime-pack-split.md §10.1)."
+            "runtime-pack zip + pack-manifest.json (asset naming: "
+            "plan-runtime-pack-split.md §11.9 / artifact_names.py)."
         ),
     )
     parser.add_argument("--tag", required=True, help="Release tag (e.g. v1.2.3)")
@@ -663,25 +688,25 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         "--slim-core-windows",
         type=Path,
         default=None,
-        help="Path to the Windows slim-core installer (.exe)",
+        help="Path to the Windows slim-core installer (voice-typer-slim-core-<version>-<triple>.exe)",
     )
     parser.add_argument(
         "--slim-core-macos",
         type=Path,
         default=None,
-        help="Path to the macOS slim-core installer (.app.tar.gz)",
+        help="Path to the macOS slim-core installer (voice-typer-slim-core-<version>-<triple>)",
     )
     parser.add_argument(
         "--slim-core-linux",
         type=Path,
         default=None,
-        help="Path to the Linux slim-core installer (.AppImage)",
+        help="Path to the Linux slim-core installer (voice-typer-slim-core-<version>-<triple>)",
     )
     parser.add_argument(
         "--pack-onefile",
         type=Path,
         default=None,
-        help="Path to the pack onefile (pack-<version>.zip)",
+        help="Path to the runtime-pack zip (voice-typer-runtime-pack-<pack-version>-<triple>.zip)",
     )
     parser.add_argument(
         "--pack-manifest",
@@ -799,7 +824,7 @@ if __name__ == "__main__":
 
 
 __all__ = [
-    "ASSET_NAME_TEMPLATES",
+    "ASSET_NAME_BUILDERS",
     "DEFAULT_GH_CLI",
     "DEFAULT_REPO",
     "PublishResult",

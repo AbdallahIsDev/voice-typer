@@ -47,7 +47,7 @@ against the refactored code.
 
 Previously:
 1. ``runtime_proof.py`` imported from ``voice_typer.config``,
-   ``voice_typer.transcription``, and ``voice_typer.tray`` — all of
+   ``voice_typer.transcription``, and ``voice_typer.tray``, all of
    which were moved to ``voice_typer.server.*`` during the package
    reorganization.  The script would crash on import.
 2. ``runtime_test_runner.py`` grepped the production log for Flet-era
@@ -293,7 +293,7 @@ if __name__ == "__main__":
 """Regression tests for NEW-DEAD-010: PTT (push-to-talk) mode must be
 fully wired.
 
-Previously ``HotkeyBackend.set_on_release`` was half-wired — the
+Previously ``HotkeyBackend.set_on_release`` was half-wired, the
 config UI exposed PTT mode but key-release did not stop recording.
 NEW-CQ-029 fixed this by:
 1. Adding key-up transition detection to the Win32 polling backend.
@@ -419,7 +419,7 @@ class TestPttFunctionalFlow:
 
     def test_toggle_mode_does_not_set_on_release(self):
         """In toggle mode (not push_to_talk), set_on_release must NOT
-        be called — the hotkey press toggles recording on/off.
+        be called, the hotkey press toggles recording on/off.
         """
         app = MagicMock()
         app.config.hotkey = "<f2>"
@@ -451,7 +451,7 @@ if __name__ == "__main__":
 
 """Regression tests for NEW-DEAD-015: LLMPolisher.test_connection wired up.
 
-Previously ``LLMPolisher.test_connection()`` was dead — defined but
+Previously ``LLMPolisher.test_connection()`` was dead, defined but
 never invoked by any IPC route or UI button.  The fix:
 
 1. Adds ``VoiceTyperService.test_llm_connection()`` that constructs an
@@ -527,20 +527,20 @@ class TestDispatchesTestLlmConnection:
     dispatcher routed ``test_llm_connection`` to the service-layer
     method. ZR-45 removed the command from ``_COMMAND_REGISTRY`` (and
     from the renderer allowlist) because the renderer no longer
-    invokes it — the "Test connection" affordance was removed from the
+    invokes it, the "Test connection" affordance was removed from the
     Models page UI in favour of the cloud-provider probe in
     ``CloudProvidersPanel``. The service-layer method
     ``service.test_llm_connection`` still exists (it's called by other
     service methods), but the IPC dispatch route is gone.
 
-    The tests below are INVERTED — they now assert the command is NOT
+    The tests below are INVERTED, they now assert the command is NOT
     in the registry (regression guard against a silent re-add without
     an ADR-0020 §16 addendum + renderer allowlist update).
     """
 
     def test_ipc_does_not_dispatch_test_llm_connection(self, server_with_mock_app):
         """``_dispatch({'type': 'test_llm_connection'})`` must NOT call
-        ``service.test_llm_connection()`` — ZR-45 removed the route.
+        ``service.test_llm_connection()``, ZR-45 removed the route.
 
         The dispatch should hit ``_handle_unknown_command`` and return
         an ``error`` envelope with the ``server.unknown_command`` code
@@ -551,7 +551,7 @@ class TestDispatchesTestLlmConnection:
 
         result = srv._dispatch({"id": 1, "type": "test_llm_connection"})
 
-        # the service method MUST NOT be invoked — there is no
+        # the service method MUST NOT be invoked, there is no
         # dispatch route to it.
         srv.service.test_llm_connection.assert_not_called()
         assert result["type"] == "error", (
@@ -595,7 +595,7 @@ class TestDispatchesTestLlmConnection:
 
 class TestRendererAllowlist:
     """ZR-45: the Electron main process allowlist must NOT include
-    ``test_llm_connection`` — the IPC command was removed from
+    ``test_llm_connection``, the IPC command was removed from
     ``_COMMAND_REGISTRY`` and the renderer no longer invokes it."""
 
     def test_allowlist_does_not_include_test_llm_connection(self):
@@ -627,7 +627,7 @@ class TestRendererAllowlist:
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
 
-# === Source:  — ipc/ subpackage dead-code removal ===
+# === Source:, ipc/ subpackage dead-code removal ===
 
 """Regression tests for ``voice_typer/server/ipc/`` subpackage is
 NOT a parallel implementation of ``ipc_server.py``.
@@ -662,7 +662,7 @@ class TestIpcDeadCodeStaysRemoved:
         repo_root = Path(__file__).resolve().parent.parent
         assert not (repo_root / rel_path).exists(), (
             f" regression: {rel_path} was deleted as dead-code parallel of "
-            "ipc_server.py — do NOT re-create it. The canonical implementation "
+            "ipc_server.py, do NOT re-create it. The canonical implementation "
             "lives in voice_typer/server/ipc_server.py."
         )
 
@@ -684,37 +684,37 @@ class TestIpcDeadCodeStaysRemoved:
 
     def test_ipc_init_does_not_re_export_ipcserver_or_main(self):
         """The ``ipc`` package __init__ must NOT re-export ``IPCServer`` or
-        ``main`` — those names live only in ``ipc_server.py`` (the shim
+        ``main``, those names live only in ``ipc_server.py`` (the shim
         that retains the full implementation).  Re-exporting them from
         ``ipc`` would re-create the parallel-system surface.
         """
         import voice_typer.server.ipc as ipc_pkg
 
         assert not hasattr(ipc_pkg, "IPCServer"), (
-            "ipc/__init__.py must not re-export IPCServer — it lives in "
+            "ipc/__init__.py must not re-export IPCServer, it lives in "
             "voice_typer.server.ipc_server. Re-exporting it re-creates the "
             "parallel-system surface that  removed."
         )
         assert not hasattr(ipc_pkg, "main"), (
-            "ipc/__init__.py must not re-export main — it lives in "
+            "ipc/__init__.py must not re-export main, it lives in "
             "voice_typer.server.ipc_server. Re-exporting it re-creates the "
             "parallel-system surface that  removed."
         )
 
     def test_ipc_init_does_not_re_export_push_event_now_or_process_meta(self):
         """The ``ipc`` package __init__ must NOT re-export
-        ``_push_event_now`` or ``_set_process_metadata`` — they live in
+        ``_push_event_now`` or ``_set_process_metadata``, they live in
         ``ipc_server.py`` and were previously re-exported from the (now
         deleted) ``ipc/push_events.py`` and ``ipc/process_meta.py``.
         """
         import voice_typer.server.ipc as ipc_pkg
 
         assert not hasattr(ipc_pkg, "_push_event_now"), (
-            "ipc/__init__.py must not re-export _push_event_now — its "
+            "ipc/__init__.py must not re-export _push_event_now, its "
             "source module ipc/push_events.py was deleted as dead code."
         )
         assert not hasattr(ipc_pkg, "_set_process_metadata"), (
-            "ipc/__init__.py must not re-export _set_process_metadata — "
+            "ipc/__init__.py must not re-export _set_process_metadata, "
             "its source module ipc/process_meta.py was deleted as dead code."
         )
 
@@ -740,7 +740,7 @@ class TestIpcDeadCodeStaysRemoved:
         from voice_typer.server import ipc_server
         from voice_typer.server.ipc import transport as ipc_transport
 
-        # The class object identity must match — no parallel copy.
+        # The class object identity must match, no parallel copy.
         assert ipc_server._TCPLineIO is ipc_transport._TCPLineIO, (
             "ipc_server._TCPLineIO must be the SAME class object as "
             "ipc.transport._TCPLineIO (single source of truth for the "
@@ -795,7 +795,7 @@ class TestExtendUrlAllowlistIsWired:
         {
             # Config.load re-applies persisted trusted_extra_hosts.
             # config/__init__.py was split into a package
-            # (``config/__init__.py`` + ``config/loader.py``) — the
+            # (``config/__init__.py`` + ``config/loader.py``), the
             # actual call site moved to loader.py.
             "voice_typer/server/config/loader.py",
             # ConfigHandlersMixin: set_config trusted_extra_hosts re-apply
@@ -857,7 +857,7 @@ class TestExtendUrlAllowlistIsWired:
         )
 
     def test_dead_code_marker_removed_from_secrets_module(self) -> None:
-        """The DEAD-CODE marker must be GONE from ``_secrets.py`` — the
+        """The DEAD-CODE marker must be GONE from ``_secrets.py``, the
         function is live (XZ-SEC-05 wired), so the marker would now be
         actively misleading.
         """
@@ -877,19 +877,19 @@ class TestExtendUrlAllowlistIsWired:
 
 class TestHistoryDbInternalsRecoveryModuleStaysRemoved:
     """``voice_typer.server.history_db_internals.recovery`` was 519 LOC of
-    dead code — 0% coverage, 0 actual importers.
+    dead code, 0% coverage, 0 actual importers.
 
     The ``HistoryDB`` class methods that handle corruption recovery
     (``_maybe_recover_from_corruption``, ``_backup_before_migration``,
     ``_try_iterdump_recovery``) all live in
-    :mod:`voice_typer.server.history_db` itself — the standalone
+    :mod:`voice_typer.server.history_db` itself, the standalone
     functions in ``recovery.py`` (``backup_before_migration``,
     ``maybe_recover_from_corruption``, ``try_iterdump_recovery``,
     ``apply_recovered_inserts``, ``notify_corruption_recovered``,
     ``secure_copy_db_file_impl``) were an unused extraction that never
     got wired in.
 
-    Note: ``history_db_internals/search.py`` is now LIVE — session-2
+    Note: ``history_db_internals/search.py`` is now LIVE, session-2
     promoted it to the canonical search implementation and
     ``history_db.py`` delegates to it. Only ``recovery.py`` stays
     deleted; this test guards against accidental re-creation
@@ -900,7 +900,7 @@ class TestHistoryDbInternalsRecoveryModuleStaysRemoved:
 
     def test_recovery_module_stays_removed(self) -> None:
         """``voice_typer.server.history_db_internals.recovery`` must
-        NOT be importable — the module was deleted as dead code.
+        NOT be importable, the module was deleted as dead code.
         If this test fails, someone restored the file (e.g. by
         cherry-picking an old commit). Re-delete it.
         """
@@ -909,14 +909,14 @@ class TestHistoryDbInternalsRecoveryModuleStaysRemoved:
         try:
             importlib.import_module("voice_typer.server.history_db_internals.recovery")
         except ModuleNotFoundError:
-            return  # expected — the module is gone
+            return  # expected, the module is gone
         raise AssertionError(
             "regression: voice_typer.server.history_db_internals.recovery "
             "is importable again. This module was deleted as 519 LOC of dead code "
             "(0 importers, 0% coverage). The HistoryDB corruption-recovery methods "
             "(_maybe_recover_from_corruption, _backup_before_migration, "
             "_try_iterdump_recovery) all live in voice_typer.server.history_db "
-            "itself — recovery.py was an unused extraction. Re-delete the file."
+            "itself, recovery.py was an unused extraction. Re-delete the file."
         )
 
     def test_recovery_file_does_not_exist_on_disk(self) -> None:
@@ -945,7 +945,7 @@ class TestHistoryDbInternalsRecoveryModuleStaysRemoved:
 
         We allow the module to be MENTIONED in comments / docstrings
         (e.g. an explanatory comment in ``privacy.py`` referencing
-        the historical path) — only actual ``from ... import`` /
+        the historical path), only actual ``from ... import`` /
         ``import ...`` statements are forbidden.
         """
         repo_root = Path(__file__).resolve().parent.parent
@@ -1027,7 +1027,7 @@ class TestLegacyConfigDirRemoved:
         """
         assert CONFIG_MODULE_PATHS, (
             "Expected at least one config module file under "
-            "voice_typer/server/config/ and voice_typer/server/config*.py — "
+            "voice_typer/server/config/ and voice_typer/server/config*.py, "
             "module layout may have changed again; update CONFIG_MODULE_PATHS."
         )
         offenders: list[str] = []
@@ -1039,7 +1039,7 @@ class TestLegacyConfigDirRemoved:
             if "def _legacy_config_dir" in source:
                 offenders.append(str(path.relative_to(REPO_ROOT)))
         assert not offenders, (
-            "Config modules still define _legacy_config_dir — the dead-code removal "
+            "Config modules still define _legacy_config_dir, the dead-code removal "
             "should have deleted it (no callers in the repo, no entry "
             f"points in pyproject.toml, no setup.py). Offenders: {offenders}"
         )

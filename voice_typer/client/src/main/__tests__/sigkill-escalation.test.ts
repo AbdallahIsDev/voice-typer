@@ -3,7 +3,7 @@
  * stop-python.ts SIGTERM→SIGKILL escalation + index.ts race-free
  * will-quit teardown.
  *
- * (TC-40) — this file's two describe blocks were previously
+ * (TC-40), this file's two describe blocks were previously
  * `describe.skip` because they asserted the OLD contract:
  *   - stop-python.ts's killTimer sent SIGKILL directly at 3s, and
  *   - index.ts's will-quit armed a 3s forceExitTimer.
@@ -20,7 +20,7 @@
  *     the will-quit handler now defers to stopPython()'s escalation and
  *     `pythonProcess.once("exit")` → `app.exit(0)` (the SIGTERM backstop
  *     in index.ts is `KILL_TIMER_MS + ESCALATE_TIMER_MS + 500`,
- *     `.unref()`'d — pinned behaviorally by sigterm-backstop.test.ts).
+ *     `.unref()`'d, pinned behaviorally by sigterm-backstop.test.ts).
  *
  * These tests are the "un-skipped" replacement: they assert the CURRENT
  * contract so the file is live again. The POSIX behavioral tests run on
@@ -90,7 +90,7 @@ vi.mock("../python/tcp-connect", () => ({
 	clearTcpStartupTimeout: vi.fn(),
 }));
 
-// `_treeKillWindows` uses spawnSync — spied for the Windows taskkill tests.
+// `_treeKillWindows` uses spawnSync, spied for the Windows taskkill tests.
 const { mockSpawnSync } = vi.hoisted(() => ({
 	mockSpawnSync: vi.fn(() => ({ status: 0 })),
 }));
@@ -167,7 +167,7 @@ describe("stop-python.ts SIGTERM→SIGKILL escalation (current contract)", () =>
 	// The old skipped test asserted the killTimer sent SIGKILL at 3s.
 	// The current contract is graceful-first: SIGTERM at KILL_TIMER_MS.
 	it.skipIf(IS_WIN)(
-		"killTimer sends SIGTERM (graceful) at KILL_TIMER_MS — NOT SIGKILL",
+		"killTimer sends SIGTERM (graceful) at KILL_TIMER_MS, NOT SIGKILL",
 		async () => {
 			const proc = makeMockProc({ autoExitOnKill: false });
 			mockState.pythonProcess = proc as unknown as MainState["pythonProcess"];
@@ -186,7 +186,7 @@ describe("stop-python.ts SIGTERM→SIGKILL escalation (current contract)", () =>
 	it.skipIf(IS_WIN)(
 		"escalateTimer sends SIGKILL at KILL_TIMER_MS + ESCALATE_TIMER_MS when the proc ignores SIGTERM",
 		async () => {
-			// autoExitOnKill: false — proc stuck in a C extension holding
+			// autoExitOnKill: false, proc stuck in a C extension holding
 			// the GIL; SIGTERM is queued but never delivered.
 			const proc = makeMockProc({ autoExitOnKill: false });
 			mockState.pythonProcess = proc as unknown as MainState["pythonProcess"];
@@ -195,7 +195,7 @@ describe("stop-python.ts SIGTERM→SIGKILL escalation (current contract)", () =>
 			await vi.advanceTimersByTimeAsync(KILL_TIMER_MS);
 			expect(proc.kill).toHaveBeenCalledWith("SIGTERM");
 
-			// Cross the escalation threshold — SIGKILL must fire (the
+			// Cross the escalation threshold, SIGKILL must fire (the
 			// proc never exited, so exitCode/signalCode are still null).
 			await vi.advanceTimersByTimeAsync(ESCALATE_TIMER_MS);
 			expect(proc.kill).toHaveBeenCalledWith("SIGKILL");
@@ -223,7 +223,7 @@ describe("stop-python.ts SIGTERM→SIGKILL escalation (current contract)", () =>
 		},
 	);
 
-	// Windows branch — the existing escalation test file skips on win32,
+	// Windows branch, the existing escalation test file skips on win32,
 	// so the taskkill tree-kill behavior has NO other behavioral coverage.
 	it.skipIf(!IS_WIN)(
 		"killTimer runs taskkill /T /PID (graceful tree kill) on Windows",

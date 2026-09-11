@@ -2,7 +2,7 @@
 
 Pins the behavioral and source-level contracts for two findings:
 
-* XV-88 — ``VocabularyManager._save_user`` previously contained a
+* XV-88: ``VocabularyManager._save_user`` previously contained a
   42-line DEAD duplicate retry loop after the live retry loop. The
   dead block was unreachable because:
 
@@ -25,7 +25,7 @@ Pins the behavioral and source-level contracts for two findings:
   that the dead block stays removed and the live retry behaviour
   (M-63: raise on exhaustion) is preserved.
 
-* XV-95 — ``history_db._WAL_CHECKPOINT_INTERVAL`` is ``300.0`` (5 min)
+* XV-95: ``history_db._WAL_CHECKPOINT_INTERVAL`` is ``300.0`` (5 min)
   but the module docstring and the comments around the checkpoint log
   message said "60s". The actual log message itself was already
   correct (it interpolates ``_WAL_CHECKPOINT_INTERVAL``), but the
@@ -66,17 +66,17 @@ class TestDeadCodeRemoved:
 
     def test_save_user_has_exactly_one_secure_atomic_write_call(self):
         """The live retry loop calls ``_secure_atomic_write`` once per
-        iteration. Before the fix, the dead duplicate block added a
-        second call site. After the fix, the function body must
-        contain exactly ONE call to ``_secure_atomic_write``.
+          iteration. Before the fix, the dead duplicate block added a
+          second call site. After the fix, the function body must
+          contain exactly ONE call to ``_secure_atomic_write``.
 
-        PI-8: the call is now routed through ``self._user_store.save(
-        self._data)`` (the new :class:`PersistedJSON` helper), which
-        internally calls ``_secure_atomic_write`` exactly once per
-        ``save()`` invocation. So the XV-88 "no dead duplicate" intent
-        is preserved iff ``_save_user`` contains exactly ONE call site
-        — either the direct ``_secure_atomic_write(...)`` form OR the
-        ``self._user_store.save(...)`` form (NOT both, NOT zero).
+          PI-8: the call is now routed through ``self._user_store.save(
+          self._data)`` (the new :class:`PersistedJSON` helper), which
+          internally calls ``_secure_atomic_write`` exactly once per
+          ``save()`` invocation. So the XV-88 "no dead duplicate" intent
+          is preserved iff ``_save_user`` contains exactly ONE call site
+        , either the direct ``_secure_atomic_write(...)`` form OR the
+          ``self._user_store.save(...)`` form (NOT both, NOT zero).
         """
         src = _save_user_src()
         direct_count = src.count("_secure_atomic_write(")
@@ -84,7 +84,7 @@ class TestDeadCodeRemoved:
         total = direct_count + helper_count
         assert total == 1, (
             "_save_user must call _secure_atomic_write exactly once "
-            "(either directly OR via self._user_store.save — the live "
+            "(either directly OR via self._user_store.save, the live "
             "retry loop). A count of 0 means the persistence call was "
             "lost; a count >1 indicates the dead duplicate block was "
             f"re-introduced. direct={direct_count}, helper={helper_count}, "
@@ -122,13 +122,13 @@ class TestDeadCodeRemoved:
 
     def test_save_user_does_not_contain_dead_block_marker(self):
         """The dead block's distinctive comment ('we deliberately do
-        NOT re-raise') must NOT appear in ``_save_user`` — that
+        NOT re-raise') must NOT appear in ``_save_user``, that
         comment lived only inside the dead block.
         """
         src = _save_user_src()
         assert "we deliberately do NOT re-raise" not in src, (
             "_save_user still contains the dead block's distinctive "
-            "'do NOT re-raise' comment — the dead duplicate block was "
+            "'do NOT re-raise' comment, the dead duplicate block was "
             "not fully removed."
         )
 
@@ -140,7 +140,7 @@ class TestDeadCodeRemoved:
         assert '"[VOCAB] Failed to save"' not in src, (
             "_save_user still contains the dead block's outer "
             "'except Exception: log.exception(\"[VOCAB] Failed to save\")' "
-            "handler — the dead duplicate block was not fully removed."
+            "handler, the dead duplicate block was not fully removed."
         )
 
 
@@ -189,7 +189,7 @@ class TestLiveRetryBehaviourPreserved:
 
     def test_permission_error_is_retried_then_raised(self, vm, monkeypatch):
         """M-63 contract: a persistent ``PermissionError`` must be
-        retried ``max_retries`` (3) times and then RAISE — not
+        retried ``max_retries`` (3) times and then RAISE, not
         silently return. This proves the LIVE retry loop is the one
         that runs (the dead block's 'do NOT re-raise' comment
         described the OPPOSITE behaviour).
@@ -210,7 +210,7 @@ class TestLiveRetryBehaviourPreserved:
         with pytest.raises(PermissionError, match="simulated lock"):
             vm._save_user()
 
-        # 3 attempts (max_retries) — proves the live loop ran to
+        # 3 attempts (max_retries), proves the live loop ran to
         # exhaustion. The dead block would only have been reachable
         # if the live loop had silently returned, which it did not.
         assert call_count == 3, (
@@ -228,7 +228,7 @@ class TestLiveRetryBehaviourPreserved:
         call_count = 0
 
         def fails_with_oserror(path, content, **kwargs):
-            # accepts ``durability`` kwarg — see always_fails above.
+            # accepts ``durability`` kwarg: see always_fails above.
             nonlocal call_count
             call_count += 1
             raise OSError("disk full (simulated)")
@@ -250,7 +250,7 @@ class TestLiveRetryBehaviourPreserved:
         call_count = 0
 
         def fails_once_then_succeeds(path, content, **kwargs):
-            # accepts ``durability`` kwarg — see always_fails above.
+            # accepts ``durability`` kwarg: see always_fails above.
             nonlocal call_count
             call_count += 1
             if call_count == 1:
@@ -307,7 +307,7 @@ class TestCheckpointIntervalDocs:
         overview_block = overview_block.split("Why this design exists", 1)[0]
         assert "every 60s" not in overview_block, (
             "history_db.py architecture-overview docstring still says "
-            "'every 60s' for the WAL checkpoint cadence — must be "
+            "'every 60s' for the WAL checkpoint cadence, must be "
             "'every 300s' to match _WAL_CHECKPOINT_INTERVAL."
         )
 
@@ -315,33 +315,33 @@ class TestCheckpointIntervalDocs:
         """The comment above the ``log.debug`` call in
         ``_run_checkpoint`` (about log-flood avoidance) must reference
         ``_WAL_CHECKPOINT_INTERVAL`` (the constant) instead of a
-        hardcoded ``300s`` literal — drift-free documentation.
+        hardcoded ``300s`` literal, drift-free documentation.
         """
         from voice_typer.server.history_db_internals.writer import _run_checkpoint as _run_checkpoint_impl
 
         src = inspect.getsource(_run_checkpoint_impl)
         assert "_WAL_CHECKPOINT_INTERVAL" in src, (
             "_run_checkpoint comment must reference '_WAL_CHECKPOINT_INTERVAL' "
-            "(the constant) instead of a hardcoded literal — drift-free."
+            "(the constant) instead of a hardcoded literal, drift-free."
         )
-        assert "every 60s" not in src, "_run_checkpoint comment still says 'every 60s' — the stale cadence."
+        assert "every 60s" not in src, "_run_checkpoint comment still says 'every 60s', the stale cadence."
 
     def test_run_checkpoint_retry_comment_references_constant_not_hardcoded(self):
         """The comment about 'next checkpoint attempt will retry'
         (above the OperationalError log.debug) must reference
         ``_WAL_CHECKPOINT_INTERVAL`` (the constant) instead of a
-        hardcoded ``300s`` literal — drift-free documentation.
+        hardcoded ``300s`` literal, drift-free documentation.
         """
         from voice_typer.server.history_db_internals.writer import _run_checkpoint as _run_checkpoint_impl
 
         src = inspect.getsource(_run_checkpoint_impl)
         assert "_WAL_CHECKPOINT_INTERVAL" in src, (
             "_run_checkpoint OperationalError-handling comment must "
-            "reference '_WAL_CHECKPOINT_INTERVAL' (the constant) instead of a hardcoded literal — drift-free."
+            "reference '_WAL_CHECKPOINT_INTERVAL' (the constant) instead of a hardcoded literal, drift-free."
         )
         assert "attempt in 60s will retry" not in src, (
             "_run_checkpoint OperationalError-handling comment still "
-            "says 'attempt in 60s will retry' — the stale cadence."
+            "says 'attempt in 60s will retry', the stale cadence."
         )
 
     def test_checkpoint_skipped_log_uses_constant_not_hardcoded_60(self):
@@ -376,7 +376,7 @@ class TestCheckpointIntervalDocs:
 
         run_checkpoint_src = inspect.getsource(_run_checkpoint_impl)
         assert "60s" not in run_checkpoint_src, (
-            "_run_checkpoint must not reference '60s' anywhere — the "
+            "_run_checkpoint must not reference '60s' anywhere, the "
             "actual cadence is 300s. Found stale 60s reference:\n" + run_checkpoint_src
         )
         # The module-level docstring's architecture overview block
@@ -391,18 +391,18 @@ class TestCheckpointIntervalDocs:
     def test_60s_for_write_future_timeout_is_preserved(self):
         """Sanity check: the ``_WRITE_FUTURE_TOTAL_TIMEOUT = 60.0``
         comment (which correctly references '60s' for a DIFFERENT
-        constant — the blocking-write total timeout, NOT the WAL
+        constant, the blocking-write total timeout, NOT the WAL
         checkpoint interval) must be preserved. XV-95 does NOT touch
         this comment because it correctly describes its own constant.
         """
         assert "_WRITE_FUTURE_TOTAL_TIMEOUT = 60.0" in HISTORY_DB_SOURCE, (
-            "_WRITE_FUTURE_TOTAL_TIMEOUT must remain 60.0 — this is a "
+            "_WRITE_FUTURE_TOTAL_TIMEOUT must remain 60.0, this is a "
             "DIFFERENT constant from _WAL_CHECKPOINT_INTERVAL and is "
             "NOT in scope for XV-95."
         )
         assert "60s is" in HISTORY_DB_SOURCE, (
             "The comment '60s is 2× the per-retry timeout' for "
-            "_WRITE_FUTURE_TOTAL_TIMEOUT must be preserved — it "
+            "_WRITE_FUTURE_TOTAL_TIMEOUT must be preserved, it "
             "correctly describes that constant (which IS 60s)."
         )
 
@@ -436,7 +436,7 @@ class TestCheckpointLogBehaviour:
             rigged = MagicMock(spec=sqlite3.Connection)
             rigged.execute.side_effect = sqlite3.OperationalError("database table is locked (simulated)")
             with caplog.at_level(logging.DEBUG, logger="voice_typer.server.history_db_internals.writer"):
-                # _run_checkpoint must not raise — OperationalError is
+                # _run_checkpoint must not raise, OperationalError is
                 # caught and logged at DEBUG level.
                 db._run_checkpoint(rigged)
             # The log line must report the actual interval (300s).

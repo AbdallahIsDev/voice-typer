@@ -7,7 +7,7 @@
  *
  * to flush jsdom's `requestAnimationFrame` queue (jsdom schedules rAF
  * callbacks on the macrotask queue, so a single `setTimeout(0)` is enough
- * to drain them — see `bubble_rAF_pause.test.tsx`,
+ * to drain them, see `bubble_rAF_pause.test.tsx`,
  * `bubble-raf-gating.test.tsx`, etc.). The duplication made it easy for
  * a contributor to drop the `await` (silently breaking the test) or to
  * swap in `await Promise.resolve()` (which only flushes microtasks, not
@@ -32,7 +32,7 @@
  * effects visible to subsequent `expect` assertions.
  *
  * This is a NO-OP under Node's `node` test environment (no rAF), but is
- * safe to call there — `setTimeout` is always available.
+ * safe to call there, `setTimeout` is always available.
  */
 export function flushRaf(): Promise<void> {
 	return new Promise<void>((resolve) => {

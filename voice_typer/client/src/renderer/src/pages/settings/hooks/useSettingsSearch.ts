@@ -2,7 +2,7 @@
 //
 // Extracted from `pages/Settings.tsx` (page-root slimming): the search
 // block was the page's largest cohesive chunk of event/derivation logic
-// — one memoized "label universe" consumed by THREE derivations (the
+//, one memoized "label universe" consumed by THREE derivations (the
 // empty-banner sentinel, the cross-section result groups, and the
 // section auto-switch effect) plus the auto-switch navigation itself.
 // The page root now wires this hook and renders; the search semantics
@@ -23,7 +23,7 @@ import type { Page } from "@/types/ipc";
 /**
  * The ONE match predicate shared by all three search derivations
  * (empty-banner sentinel, cross-section result groups, auto-switch):
- * case-insensitive substring — a label matches when the LABEL contains
+ * case-insensitive substring, a label matches when the LABEL contains
  * the query. Deliberately the stricter of the two semantics that used to
  * coexist: the superstring direction (query contains a short label) was
  * applied only by the auto-switch, which let the page navigate to a
@@ -87,7 +87,7 @@ export function useSettingsSearch({
 	// types. The `activeSection` dep keeps the universe at least as fresh
 	// as every consumer's own re-run schedule (it used to be re-fetched by
 	// each derivation on section switches too).
-	// biome-ignore lint/correctness/useExhaustiveDependencies: deliberate over-dependency — query/activeSection re-trigger this memo in sync with every consumer's own re-run schedule
+	// biome-ignore lint/correctness/useExhaustiveDependencies: deliberate over-dependency, query/activeSection re-trigger this memo in sync with every consumer's own re-run schedule
 	const sectionLabelsByPage = useMemo(() => {
 		const sectionLabels = getSectionLabels();
 		sectionLabels.settingsAdvanced = [
@@ -97,10 +97,10 @@ export function useSettingsSearch({
 		return sectionLabels;
 	}, [query, activeSection]);
 
-	// label-based search auto-switch (SECTION PAGES ONLY — on the hub a
+	// label-based search auto-switch (SECTION PAGES ONLY, on the hub a
 	// query filters the section rows instead of yanking the user to a
 	// section page mid-typing). Score each section page by counting
-	// label matches (via the shared `searchLabelMatches` predicate — the
+	// label matches (via the shared `searchLabelMatches` predicate, the
 	// ONE match semantic, identical to the banner + cross-section groups)
 	// and navigate to the highest-scoring one. Requires q.length >= 2 to
 	// avoid jarring switches as the user types.
@@ -108,7 +108,7 @@ export function useSettingsSearch({
 	// When the best-matching page is DIFFERENT from the current section
 	// page, navigate + carry the matched label as a settingsScrollTarget
 	// rowHint so the destination can scroll to + highlight the matched
-	// row. When it IS the current page, no navigation is needed — the
+	// row. When it IS the current page, no navigation is needed, the
 	// local filter predicate (`_filter_settings`) handles in-page
 	// filtering.
 	//
@@ -139,7 +139,7 @@ export function useSettingsSearch({
 			}
 		}
 		if (bestPage && bestScore > 0 && bestPage !== activeSection) {
-			// Cross-page navigation — carry the matched label as a
+			// Cross-page navigation, carry the matched label as a
 			// rowHint so the destination page can scroll + ring.
 			navigate(bestPage, {
 				settingsScrollTarget: { rowHint: bestLabel },
@@ -147,7 +147,7 @@ export function useSettingsSearch({
 		}
 	}, [query, activeSection, navigate, sectionLabelsByPage]);
 
-	// empty-state sentinel — derived purely from `query` via
+	// empty-state sentinel, derived purely from `query` via
 	// useMemo: if no section label (across all section pages + the
 	// PrewarmAndUpdates rows) matches the query, the empty banner is
 	// shown on section pages. Consumes the SAME memoized label universe
@@ -170,7 +170,7 @@ export function useSettingsSearch({
 	// (the active page's own matches are filtered inline by the
 	// sections). Each entry navigates to its page with a rowHint so the
 	// destination scrolls to + rings the matched row (the proven search
-	// deep-link path). Only rendered on section pages — the hub's rows
+	// deep-link path). Only rendered on section pages, the hub's rows
 	// already list their matched labels inline.
 	const otherSectionGroups = useMemo(() => {
 		if (!activeSection || !query.trim()) return [];
@@ -180,7 +180,7 @@ export function useSettingsSearch({
 			.map(([sectionPage, labels]) => ({
 				sectionPage: sectionPage as SettingsSectionPage,
 				// Different section titles can render the same translated
-				// word — dedupe so a match produces ONE chip per unique
+				// word, dedupe so a match produces ONE chip per unique
 				// label (and unique React keys).
 				labels: [...new Set(labels)].filter((label) =>
 					searchLabelMatches(label, q),

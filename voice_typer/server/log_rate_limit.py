@@ -11,7 +11,7 @@ Motivation
 ----------
 Several hot paths in the server (notably the audio worker thread, which
 runs at ~16 Hz) can hit a persistent error condition that would
-otherwise flood the log at ``ERROR`` level — roughly 960 lines per
+otherwise flood the log at ``ERROR`` level, roughly 960 lines per
 minute.  Using ``log.exception()`` for those paths captures valuable
 diagnostic stack traces on the *first* occurrence but produces an
 unreadable wall of noise if the error persists.  This helper preserves
@@ -25,7 +25,7 @@ Design
   because there is no useful per-instance state to manage and the call
   sites can stay as a single function call.  Chosen over a context
   manager / decorator (Option C) because the rate-limit decision happens
-  *after* the wrapped code raises — i.e. in the ``except`` branch — so
+  *after* the wrapped code raises: i.e. in the ``except`` branch, so
   the call form is more natural.
 - Counters are keyed by ``(logger.name, key_or_msg)`` so distinct
   messages (or explicit ``key`` overrides) get independent counters.
@@ -175,7 +175,7 @@ def log_rate_limited(
         formatting a traceback on every occurrence would re-introduce
         the cost this helper exists to avoid).
     key:
-        Optional explicit counter key.  Defaults to *msg* — meaning two
+        Optional explicit counter key.  Defaults to *msg*, meaning two
         call sites with the same *msg* share a counter.  Pass an
         explicit ``key`` when the message text is dynamic (e.g. contains
         interpolated values) so each logical error class gets its own
@@ -219,7 +219,7 @@ def log_rate_limited(
         # the evictions here and log a WARNING after releasing the
         # lock so the I/O doesn't block other callers.
         # the two  summary dicts are keyed by the same
-        # ``counter_key`` tuple — prune their entries for the evicted
+        # ``counter_key`` tuple, prune their entries for the evicted
         # key here too, otherwise a caller that drives >1024 distinct
         # dynamic messages would leak summary state forever (the
         # summary dicts were never bounded).  ``popitem(last=False)``
@@ -253,11 +253,11 @@ def log_rate_limited(
 
     # Suppressed occurrence: log at DEBUG without exc_info.  :
     # the previous implementation did ``rendered = msg % args`` eagerly
-    # before the ``logger.debug`` call — defeating the lazy-formatting
+    # before the ``logger.debug`` call, defeating the lazy-formatting
     # guarantee that ``logging`` provides (the framework only renders
     # the format string when the level is enabled).  On hot paths where
     # DEBUG is disabled (the default), the eager ``msg % args`` was
-    # pure waste — at high suppression counts (audio worker at ~16 Hz,
+    # pure waste, at high suppression counts (audio worker at ~16 Hz,
     # ~960/min) it showed up as measurable CPU.  We now build a single
     # format string and pass ``*args, count`` as positional %-format
     # args.  The logging framework defers the actual ``%`` substitution
@@ -278,7 +278,7 @@ def log_rate_limited(
         logger.debug("%s (suppressed occurrence %d)", msg, count)
 
     # periodic INFO summary so chronic suppressed-occurrence
-    # conditions surface at INFO level (the file-handler default) — not
+    # conditions surface at INFO level (the file-handler default), not
     # just at DEBUG (which is only visible when VOICE_TYPER_DEBUG=1).
     # Tracked per ``counter_key`` so each error class gets its own
     # summary cadence.  The first suppressed occurrence seeds the

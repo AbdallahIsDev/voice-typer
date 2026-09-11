@@ -18,7 +18,7 @@
  *   renderer; config/status are re-fetched to reconcile
  * - Select buttons remain ENABLED while any download is in progress
  *   (only the Download / Download-Deps buttons are gated on
- *   `anyDownloading` — the earlier "Select disabled" claim was wrong)
+ *   `anyDownloading`, the earlier "Select disabled" claim was wrong)
  */
 
 import {
@@ -61,7 +61,7 @@ vi.mock("sonner", () => sonnerMock({ errorTo: "mockToastError" }));
 // We import en.json directly for assertion string lookups.
 import en from "@/i18n/translations/en.json";
 
-// Static import of ModelsPage — vitest hoists vi.mock() before this,
+// Static import of ModelsPage, vitest hoists vi.mock() before this,
 // so all dependencies (usePython, hugeicons, etc.) are mocked.
 import ModelsPage from "@/pages/Models";
 
@@ -118,14 +118,14 @@ function removeDialogMock() {
 // ── Suite ─────────────────────────────────────────────────────────────
 
 // The page persists the active tab (Local / Cloud) in sessionStorage
-// via useFilterState — clear it before EVERY test so a test that
+// via useFilterState, clear it before EVERY test so a test that
 // switches to the Cloud tab never leaks that state into a later test
 // that expects the default Local tab.
 beforeEach(() => {
 	sessionStorage.clear();
 });
 
-describe("ModelsPage — Import Model flow", () => {
+describe("ModelsPage, Import Model flow", () => {
 	afterEach(() => {
 		cleanup();
 		vi.clearAllMocks();
@@ -175,10 +175,10 @@ describe("ModelsPage — Import Model flow", () => {
 	});
 
 	it("shows a 'No model selected' banner when model_size is empty", async () => {
-		// model_size === "" is the backend's NO_MODEL_SIZE sentinel — the
+		// model_size === "" is the backend's NO_MODEL_SIZE sentinel, the
 		// page must surface the genuine no-model state via the compact
 		// dismissible banner (replaced the former centered EmptyState py-16
-		// block — see 2026-08-30 polish pass). Banner is sticky, accent
+		// block, see 2026-08-30 polish pass). Banner is sticky, accent
 		// tinted, with a close X far right, session-dismissible.
 		await renderPage({ ...MOCK_CONFIG, model_size: "" });
 
@@ -220,7 +220,7 @@ describe("ModelsPage — Import Model flow", () => {
 
 	it("selecting a model removes the no-model banner immediately (optimistic config flip)", async () => {
 		// Regression (user-reported): the banner stayed visible after the
-		// user picked a model — config state only updated when the
+		// user picked a model, config state only updated when the
 		// backend's `config_changed` echo arrived (or never, if the page
 		// missed it). The select action must mirror the committed
 		// selection into config state synchronously so the banner
@@ -569,7 +569,7 @@ describe("ModelsPage — Import Model flow", () => {
 // button disabled state, DOM ids) rather than internal state shape, so
 // they survive future refactors of the page internals.
 
-describe("ModelsPage — MDL-3: cancel produces no duplicate snackbar", () => {
+describe("ModelsPage, MDL-3: cancel produces no duplicate snackbar", () => {
 	afterEach(() => {
 		cleanup();
 		vi.clearAllMocks();
@@ -598,7 +598,7 @@ describe("ModelsPage — MDL-3: cancel produces no duplicate snackbar", () => {
 		const downloadButton = screen.getByRole("button", {
 			name: t("models.card.downloadAria").replace("{name}", "large-v3-turbo"),
 		});
-		// Resolve download_model with cancelled:true — this simulates
+		// Resolve download_model with cancelled:true, this simulates
 		// the user clicking Cancel during the download (the cancel
 		// handler in Models.tsx already shows the "cancelled" snackbar;
 		// downloadModel itself must NOT show another one).
@@ -628,7 +628,7 @@ describe("ModelsPage — MDL-3: cancel produces no duplicate snackbar", () => {
 		// trigger a snackbar.
 		await new Promise((r) => setTimeout(r, 0));
 
-		// No snackbar should have been shown by downloadModel — the
+		// No snackbar should have been shown by downloadModel, the
 		// cancel handler is responsible for the "cancelled" toast,
 		// and we did not click Cancel in this test.
 		expect(showSnack).not.toHaveBeenCalled();
@@ -655,7 +655,7 @@ describe("ModelsPage — MDL-3: cancel produces no duplicate snackbar", () => {
 		fireEvent.click(downloadButton);
 
 		// useModelDownload routes the failure through showSnack (the
-		// canonical snackbar system) with a Retry action button — NOT a
+		// canonical snackbar system) with a Retry action button, NOT a
 		// raw sonner toast.error.
 		await waitFor(() => {
 			expect(showSnack).toHaveBeenCalledWith(
@@ -671,7 +671,7 @@ describe("ModelsPage — MDL-3: cancel produces no duplicate snackbar", () => {
 	});
 });
 
-describe("ModelsPage — failed download surfaces the inline DownloadProgressBar error + Retry", () => {
+describe("ModelsPage, failed download surfaces the inline DownloadProgressBar error + Retry", () => {
 	afterEach(() => {
 		cleanup();
 		vi.clearAllMocks();
@@ -680,7 +680,7 @@ describe("ModelsPage — failed download surfaces the inline DownloadProgressBar
 
 	it("shows the inline error + Retry button when download_model fails, and Retry re-invokes the download", async () => {
 		// First download_model call fails (the inline error state),
-		// second (from the Retry button) succeeds — the stronger
+		// second (from the Retry button) succeeds, the stronger
 		// assertion is that Retry actually re-runs the IPC.
 		let downloadCallCount = 0;
 		mockCall.mockImplementation((type: string) => {
@@ -737,7 +737,7 @@ describe("ModelsPage — failed download surfaces the inline DownloadProgressBar
 	});
 });
 
-describe("ModelsPage — MDL-5: cloud provider API key inputs have unique HTML ids", () => {
+describe("ModelsPage, MDL-5: cloud provider API key inputs have unique HTML ids", () => {
 	afterEach(() => {
 		cleanup();
 		vi.clearAllMocks();
@@ -764,7 +764,7 @@ describe("ModelsPage — MDL-5: cloud provider API key inputs have unique HTML i
 		fireEvent.click(cloudTab);
 
 		// (overhaul point 11) each provider is a collapsible group whose
-		// API-key form is hidden behind the "Configure" action — expand
+		// API-key form is hidden behind the "Configure" action, expand
 		// the group + click Configure to reveal each provider's input.
 		const providerLabel = (key: string) =>
 			EN_KEYS.get(`models.providers.${key}.label`) ?? key;
@@ -808,7 +808,7 @@ describe("ModelsPage — MDL-5: cloud provider API key inputs have unique HTML i
 	});
 });
 
-describe("ModelsPage — MDL-9: download does not auto-activate in the renderer", () => {
+describe("ModelsPage, MDL-9: download does not auto-activate in the renderer", () => {
 	afterEach(() => {
 		cleanup();
 		vi.clearAllMocks();
@@ -886,7 +886,7 @@ describe("ModelsPage — MDL-9: download does not auto-activate in the renderer"
 
 		// After download success, the "Active" button (with the
 		// Tick02Icon and the "Active" label) should NOT be shown
-		// for tiny.en — small.en is still the active model.
+		// for tiny.en, small.en is still the active model.
 		await waitFor(() => {
 			expect(mockCall).toHaveBeenCalledWith("download_model", {
 				model: "large-v3-turbo",
@@ -910,7 +910,7 @@ describe("ModelsPage — MDL-9: download does not auto-activate in the renderer"
 	});
 });
 
-describe("ModelsPage — Select buttons stay enabled during a download", () => {
+describe("ModelsPage, Select buttons stay enabled during a download", () => {
 	afterEach(() => {
 		cleanup();
 		vi.clearAllMocks();
@@ -961,7 +961,7 @@ describe("ModelsPage — Select buttons stay enabled during a download", () => {
 		});
 		fireEvent.click(downloadButton);
 
-		// The Select button for tiny remains enabled — the actual
+		// The Select button for tiny remains enabled, the actual
 		// source only disables Download buttons (not Select buttons)
 		// while any download is in progress. Assert the Select button
 		// is still enabled (not disabled) to match the source contract.
@@ -973,12 +973,12 @@ describe("ModelsPage — Select buttons stay enabled during a download", () => {
 		// Give React a tick to flush state updates.
 		await new Promise((r) => setTimeout(r, 0));
 		// Select button should still be enabled (not disabled by
-		// anyDownloading — only Download buttons are gated on that).
+		// anyDownloading, only Download buttons are gated on that).
 		expect(selectButton.getAttribute("disabled")).toBeNull();
 	});
 });
 
-describe("ModelsPage — segmented control card border treatment (2026-08-21)", () => {
+describe("ModelsPage, segmented control card border treatment (2026-08-21)", () => {
 	afterEach(() => {
 		cleanup();
 		vi.clearAllMocks();
@@ -1001,13 +1001,13 @@ describe("ModelsPage — segmented control card border treatment (2026-08-21)", 
 
 		// The tablist is the SegmentedControl container; it must carry
 		// the model-card border treatment (`border border-border/5`
-		// `rounded-xl bg-(--bg-subtle)` — the app-wide page-card token)
-		// so the control reads as one card among the model cards — NOT
+		// `rounded-xl bg-(--bg-subtle)`, the app-wide page-card token)
+		// so the control reads as one card among the model cards, NOT
 		// a borderless strip. The tabs
 		// variant's base `border-none` was REMOVED (2026-08-21) because
 		// tailwind-merge treats `border` (width) and `border-none`
 		// (style) as different groups, so `border-style: none` silently
-		// killed the container border — guard against it returning.
+		// killed the container border, guard against it returning.
 		const tablist = screen.getByRole("tablist");
 		const cls = tablist.className;
 		expect(cls).toContain("border-border/5");
@@ -1024,7 +1024,7 @@ describe("ModelsPage — segmented control card border treatment (2026-08-21)", 
 	});
 });
 
-describe("ModelsPage — initial load failure shows an error state with Retry", () => {
+describe("ModelsPage, initial load failure shows an error state with Retry", () => {
 	afterEach(() => {
 		cleanup();
 		vi.clearAllMocks();
@@ -1072,7 +1072,7 @@ describe("ModelsPage — initial load failure shows an error state with Retry", 
 
 		// 2. Revisit: config seeds non-null from the cache, but the
 		//    revalidation get_config REJECTS. The page must NOT present
-		//    the stale data as silently fresh — an inline role="alert"
+		//    the stale data as silently fresh, an inline role="alert"
 		//    banner with Retry renders while the seeded page stays up.
 		mockCall.mockImplementation((type: string) => {
 			if (type === "get_config") return Promise.reject(new Error("down"));
@@ -1127,7 +1127,7 @@ describe("ModelsPage — initial load failure shows an error state with Retry", 
 			).toBeTruthy();
 		});
 		// The error card is gone once the config loads (assert on the
-		// card's title — the loaded page may contain other alert roles).
+		// card's title, the loaded page may contain other alert roles).
 		expect(screen.queryByText(t("models.loadFailedTitle"))).toBeNull();
 	});
 });

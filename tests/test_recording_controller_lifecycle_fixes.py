@@ -2,19 +2,19 @@
 
 Each test class pins a specific sub-finding from UE-9:
 
-- ``UE-9-F1`` (High)   — ``_stop_impl`` uses the atomic
+- ``UE-9-F1`` (High) : ``_stop_impl`` uses the atomic
   ``_cancel_streaming_session()`` helper (``pop_streaming_session()`` +
   public ``session.cancel()``) instead of get + private-attr poke. The
   session is popped from the slot (clearing ``self._streaming_session``)
   and cancelled via the public API.
-- ``UE-9-F3`` (Medium) — ``_start_watchdog_thread`` holds
+- ``UE-9-F3`` (Medium): ``_start_watchdog_thread`` holds
   ``_watchdog_lock`` across the ENTIRE read-check-create-start sequence
   (not just the ``_watchdog_firings = 0`` reset).
-- ``UE-9-F6`` (Low)    — ``_stop_impl`` logs a WARNING when
+- ``UE-9-F6`` (Low)  : ``_stop_impl`` logs a WARNING when
   ``recorder._dropped_ring_chunks > 0`` after ``recorder.stop()``
   (read before the next ``start()`` resets the counter).
-- ``UE-9-F15`` (Low)   — ``_toggle_impl`` does NOT increment
-  ``_cycle_counter`` for blocked / queued / errored toggles — only when
+- ``UE-9-F15`` (Low) : ``_toggle_impl`` does NOT increment
+  ``_cycle_counter`` for blocked / queued / errored toggles, only when
   committing to a real start/stop.
 
 ``UE-9-F8`` (inverted ``_busy_event`` semantics) is a documentation-only
@@ -96,7 +96,7 @@ class TestStopImplDoesNotPreCancelStreamingSession:
     Previously ``_stop_impl`` pre-cancelled the streaming session BEFORE
     constructing ``DictationPipeline``, which caused
     ``DictationPipeline._transcribe``'s ``pop_streaming_session()`` call to
-    return ``None`` — silently falling back to batch transcription and
+    return ``None``, silently falling back to batch transcription and
     discarding the incremental streaming transcript.
 
     The fix removed the pre-cancellation from the normal stop path (the
@@ -108,7 +108,7 @@ class TestStopImplDoesNotPreCancelStreamingSession:
 
     def test_stop_does_not_pop_session_when_pipeline_will_handle_it(self):
         """On the normal stop path, ``_stop_impl`` must NOT pop the
-        streaming session — ``DictationPipeline.run()``'s finally block
+        streaming session: ``DictationPipeline.run()``'s finally block
         does that. Pre-cancelling here was the root cause of the
         streaming-finalize fast path being dead in production."""
         ctrl, app = _make_controller()
@@ -121,7 +121,7 @@ class TestStopImplDoesNotPreCancelStreamingSession:
         with patch("voice_typer.server.dictation_pipeline.DictationPipeline"):
             ctrl.stop()
 
-        # The session MUST still be in the slot — the pipeline's finally
+        # The session MUST still be in the slot, the pipeline's finally
         # block (which is patched out here) is responsible for popping it.
         assert ctrl.get_streaming_session() is fake_session, (
             "_stop_impl must NOT pre-pop the streaming session; "
@@ -226,7 +226,7 @@ class TestStartWatchdogThreadHoldsLock:
         # was NOT held (pre-fix behavior). We verify the observer did
         # acquire the lock (the sequence completed and released it).
         assert observed_lock_held.is_set(), (
-            "UE-9-F3: the lock observer never acquired _watchdog_lock — "
+            "UE-9-F3: the lock observer never acquired _watchdog_lock, "
             "_start_watchdog_thread may be holding it indefinitely (deadlock?)"
         )
 
@@ -268,7 +268,7 @@ class TestStartWatchdogThreadHoldsLock:
         assert results[1] is not None
         assert results[0] is results[1], (
             "UE-9-F3: concurrent _start_watchdog_thread calls spawned "
-            "different threads — the lock is not serializing the "
+            "different threads, the lock is not serializing the "
             "read-check-create-start sequence."
         )
 
@@ -332,7 +332,7 @@ class TestDroppedRingChunksWarning:
     def test_no_crash_when_recorder_lacks_dropped_ring_chunks_attr(self):
         """If the recorder (e.g. a mock or older subclass) lacks the
         ``_dropped_ring_chunks`` attribute, ``_stop_impl`` must not
-        crash — ``getattr(..., 0)`` defaults to 0 (no WARNING)."""
+        crash: ``getattr(..., 0)`` defaults to 0 (no WARNING)."""
         ctrl, app = _make_controller()
         app.recorder.recording = True
         app.recorder.stop.return_value = b"\x00" * 16000
@@ -349,7 +349,7 @@ class TestDroppedRingChunksWarning:
 
 class TestCycleCounterNotIncrementedForBlockedToggles:
     """UE-9-F15: ``_toggle_impl`` must NOT increment ``_cycle_counter``
-    for blocked / queued / errored toggles — only when committing to a
+    for blocked / queued / errored toggles, only when committing to a
     real start/stop."""
 
     def test_busy_toggle_does_not_increment_cycle_counter(self):

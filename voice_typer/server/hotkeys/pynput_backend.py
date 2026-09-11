@@ -40,7 +40,7 @@ class PynputHotkey(HotkeyBackend):
     ``GlobalHotKeys`` fails (common on some Windows / WSL setups).
 
     (liveness watchdog): pynput's listener thread can die
-    silently — on Linux/X11 it can be killed by an X server restart,
+    silently, on Linux/X11 it can be killed by an X server restart,
     on macOS the Accessibility permission can be revoked at runtime,
     and on Windows the message pump can hang. The user sees "hotkey
     stopped working" with no error message. A dedicated watchdog
@@ -60,7 +60,7 @@ class PynputHotkey(HotkeyBackend):
 
     # max consecutive restart failures before surfacing a tray
     # notification. 5 attempts × 30s = ~2.5min of retrying before the
-    # user is told to restart — long enough to ride out transient X
+    # user is told to restart, long enough to ride out transient X
     # server restarts / window manager reloads, short enough that the
     # user isn't left hanging if pynput is genuinely broken.
     _WATCHDOG_MAX_FAILURES: int = 5
@@ -121,7 +121,7 @@ class PynputHotkey(HotkeyBackend):
         Shared by :meth:`start` (initial) and the watchdog (restart).
         On success, returns True and ``self._listener`` is set to the
         new listener. On failure, returns False and ``self._listener``
-        is None (the caller — usually the watchdog — handles the
+        is None (the caller, usually the watchdog, handles the
         failure count).
 
         The GlobalHotKeys → fallback Listener chain is identical to
@@ -140,7 +140,7 @@ class PynputHotkey(HotkeyBackend):
         try:
             self._listener = GlobalHotKeys({self.hotkey_str: callback})
             self._listener.start()
-            # was 0.5s — the listener thread reaches
+            # was 0.5s, the listener thread reaches
             # "alive" state within a few ms. 50ms is enough on the
             # slowest machines. With 3 hotkeys (toggle, PTT, repaste)
             # this saves ~1.4s of startup time.
@@ -210,7 +210,7 @@ class PynputHotkey(HotkeyBackend):
 
         After ``_WATCHDOG_MAX_FAILURES`` consecutive failures, surface
         a tray notification (via ``self._tray``, set by
-        ``HotkeyDispatcher``) and stop retrying — the user must restart
+        ``HotkeyDispatcher``) and stop retrying, the user must restart
         Voice Typer manually.
         """
         while not self._watchdog_stop_event.is_set():
@@ -228,7 +228,7 @@ class PynputHotkey(HotkeyBackend):
                 if self._watchdog_stop_event.wait(timeout=wait_for):
                     return
             # Poll the listener. ``self._listener`` may be None if
-            # the initial start failed AND the fallback failed — in
+            # the initial start failed AND the fallback failed, in
             # that case the watchdog attempts a restart on each tick.
             listener = self._listener
             alive = listener is not None and bool(_safe_is_alive(listener))
@@ -244,11 +244,11 @@ class PynputHotkey(HotkeyBackend):
             # Listener is dead (or None). Attempt restart.
             callback = self._user_callback
             if callback is None:
-                # No callback yet — start() hasn't been called or
+                # No callback yet. Start() hasn't been called or
                 # completed. Skip this tick; the next one will retry.
                 continue
             log.warning(
-                "[HOTKEY] pynput listener died (alive=%s) — attempting restart (attempt %d/%d)",
+                "[HOTKEY] pynput listener died (alive=%s), attempting restart (attempt %d/%d)",
                 alive,
                 self._watchdog_failure_count + 1,
                 self._WATCHDOG_MAX_FAILURES,
@@ -269,7 +269,7 @@ class PynputHotkey(HotkeyBackend):
                 )
                 if self._watchdog_failure_count >= self._WATCHDOG_MAX_FAILURES:
                     self._surface_watchdog_failure_notification()
-                    # Stop retrying — the user must restart manually.
+                    # Stop retrying, the user must restart manually.
                     # The watchdog thread exits; ``is_alive()`` will
                     # return False until the user restarts Voice Typer.
                     return
@@ -279,12 +279,12 @@ class PynputHotkey(HotkeyBackend):
         failures. Uses ``self._tray`` (set by ``HotkeyDispatcher``) if
         available; otherwise logs at ERROR (the log file is the
         fallback surface)."""
-        message = f"Hotkey listener died and could not be restarted — please restart {APP_NAME}."
+        message = f"Hotkey listener died and could not be restarted. Please restart {APP_NAME}."
         tray = getattr(self, "_tray", None)
         if tray is not None:
             with contextlib.suppress(Exception):
                 # ``notify_safety`` bypasses the user's notification
-                # toggle (this is a safety-critical message — the
+                # toggle (this is a safety-critical message, the
                 # hotkey is dead and the user needs to know).
                 notify_safety = getattr(tray, "notify_safety", None)
                 if callable(notify_safety):
@@ -385,7 +385,7 @@ class PynputHotkey(HotkeyBackend):
 
         self._listener = listener(on_press=on_press, on_release=on_release)
         self._listener.start()
-        # PERF- was 0.5s — reduced to 50ms for the same reason.
+        # PERF- was 0.5s, reduced to 50ms for the same reason.
         time.sleep(0.05)
         self._fallback = True
         log.info(
@@ -509,7 +509,7 @@ def _parse_hotkey_to_pynput(hotkey_str, key, key_code):
     # a 1-part spec like ``<alt>`` returns ``key.alt`` directly rather
     # than ``(modifiers, target)``). For multi-modifier specs with no
     # main key (e.g. ``<ctrl>+<shift>``), pynput cannot match without a
-    # target key — return None, matching the previous behaviour.
+    # target key, return None, matching the previous behaviour.
     if not parsed.keys:
         if len(parsed.modifiers) == 1:
             mod_key = _to_pynput_modifier(parsed.modifiers[0])
@@ -536,11 +536,11 @@ def _safe_is_alive(listener) -> bool:
 
     pynput's ``is_alive()`` can raise (e.g. if the listener's internal
     thread object was collected). The watchdog must not crash on a
-    polling failure — treat any exception as "not alive" so the
+    polling failure, treat any exception as "not alive" so the
     restart path engages.
     """
     try:
         return bool(listener.is_alive())
     except Exception:
-        log.debug("[HOTKEY] listener.is_alive() raised — treating as dead", exc_info=True)
+        log.debug("[HOTKEY] listener.is_alive() raised, treating as dead", exc_info=True)
         return False

@@ -1,10 +1,10 @@
-# Cutover Playbook — Electron → Tauri (ADR-0020 Phase 5)
+# Cutover Playbook: Electron → Tauri (ADR-0020 Phase 5)
 
 **Status**: this is the **per-platform cutover procedure** for flipping the
 default shipping Voice Typer app from Electron to Tauri. It is the
 authoritative playbook for Phase 5 of ADR-0020. Cutover is **per-platform**,
 not all-at-once: Windows first, then macOS, then Linux. The Electron build
-path stays intact and shippable on every platform throughout — Tauri is
+path stays intact and shippable on every platform throughout, Tauri is
 strictly additive until the platform's cutover gate is met.
 
 **Scope of this document**:
@@ -16,10 +16,10 @@ strictly additive until the platform's cutover gate is met.
 - Mixed-mode period (some users on Electron, some on Tauri) support handling.
 
 **Out of scope**:
-- Per-platform build steps — see `tauri-build-runbook.md` + per-platform
+- Per-platform build steps, see `tauri-build-runbook.md` + per-platform
   runbooks.
-- Signing — see `signing-guide.md`.
-- Auto-update — out of scope for v1 (ADR-0020 §15). Users upgrade by
+- Signing, see `signing-guide.md`.
+- Auto-update: out of scope for v1 (ADR-0020 §15). Users upgrade by
   downloading the new release manually, same as today.
 
 ---
@@ -53,7 +53,7 @@ that platform's target arch(s):
      Task Scheduler / LaunchAgent / systemd user timer).
    - Native hotkey binary still toggles dictation.
 3. **crash isolation** verified: kill the sidecar process from
-   Task Manager / Activity Monitor / `kill -9` — the UI shows the
+   Task Manager / Activity Monitor / `kill -9` The UI shows the
    "reconnecting…" state, the Rust supervisor respawns the sidecar, and
    dictation resumes within the backoff window. After repeated kills
    (5+), the host falls back to full-app relaunch via `AppHandle::restart()`.
@@ -106,10 +106,10 @@ that platform's target arch(s):
 For each platform that flips, file the following in the release notes
 for that version:
 
-- [ ] Per-platform runbook checklist (all 9 points) — checked + dated.
-- [ ] crash isolation test — log excerpt showing `supervisor_relaunching`
+- [ ] Per-platform runbook checklist (all 9 points), checked + dated.
+- [ ] crash isolation test, log excerpt showing `supervisor_relaunching`
       events + successful respawn.
-- [ ] Side-by-side smoke test — screenshot or video.
+- [ ] Side-by-side smoke test, screenshot or video.
 - [ ] Bundle size + startup latency measurements (with comparison to
       the prior Electron release).
 - [ ] Signing verification: `signtool verify` (Win), `spctl --assess`
@@ -125,7 +125,7 @@ for that version:
 > **One platform at a time.** Do NOT cut over multiple platforms in the
 > same release. Each platform's cutover is its own release.
 
-### Step 1 — Pre-flight (T-1 release)
+### Step 1: Pre-flight (T-1 release)
 
 - Confirm all hard criteria above are met + the evidence trail is filed.
 - Tag a release candidate: `v<version>-rc.<platform>` (e.g.
@@ -136,7 +136,7 @@ for that version:
 - Have a rollback pilot user (NOT the implementer) install the RC + run
   the user acceptance test.
 
-### Step 2 — Flip the default (T-0 release)
+### Step 2: Flip the default (T-0 release)
 
 For the platform being cut over, in the same release tag (`v<version>`):
 
@@ -161,11 +161,11 @@ For the platform being cut over, in the same release tag (`v<version>`):
    platform + the Electron installer for the not-yet-cut-over platforms.
    Both are uploaded to the same release.
 
-### Step 3 — Post-flip monitoring (T+1 to T+14 days)
+### Step 3: Post-flip monitoring (T+1 to T+14 days)
 
 - Monitor the GitHub issue tracker for `<platform>`-specific
   regressions.
-- Monitor the auto-reported crash logs (if the user opts in — no PII).
+- Monitor the auto-reported crash logs (if the user opts in, no PII).
 - After 14 days with no critical regressions, the platform is considered
   "stable on Tauri" and the Electron fallback can be marked "legacy" in
   the release notes (but NOT deleted from the repo).
@@ -189,7 +189,7 @@ For the platform being cut over, in the same release tag (`v<version>`):
 3. **Tag a hotfix release** (`v<version>.<patch>`) with:
    - "Rolling back `<platform>` to Electron due to <issue link>."
    - "Tauri build for `<platform>` is still downloadable from this
-     release as a beta — user feedback wanted."
+     release as a beta: user feedback wanted."
 4. The CI now builds the Electron installer for the rolled-back platform
    again. The Tauri installer can still be built manually via the
    `workflow_dispatch` orchestrator for users who want to opt in.
@@ -207,7 +207,7 @@ For the platform being cut over, in the same release tag (`v<version>`):
 
 ## Per-platform cutover order
 
-Per ADR-0020 §"Migration Plan" + §"Phase 5 — Validation & cutover":
+Per ADR-0020 §"Migration Plan" + §"Phase 5, Validation & cutover":
 
 | Order | Platform | Why this order | Archs | Phase 0 gate |
 |-------|----------|----------------|---------|--------------|
@@ -217,7 +217,7 @@ Per ADR-0020 §"Migration Plan" + §"Phase 5 — Validation & cutover":
 
 **Each platform is independent.** Windows can ship Tauri while macOS still
 ships Electron, and the two are independently revertible. There is no
-"all-platforms cut over" milestone — the migration is complete when each
+"all-platforms cut over" milestone. The migration is complete when each
 platform has been stable on Tauri for ≥ 1 release cycle.
 
 ### Linux sub-order (X11 before Wayland, x86_64 before aarch64)
@@ -229,7 +229,7 @@ platform has been stable on Tauri for ≥ 1 release cycle.
   validated as acceptable.
 - **x86_64 before aarch64**: aarch64 Linux is less tested
   (`python-build-standalone` aarch64 + CTranslate2 aarch64 wheels +
-  glibc pinning — ADR-0020 Risk #7). Defer aarch64 Linux to a follow-up
+  glibc pinning: ADR-0020 Risk #7). Defer aarch64 Linux to a follow-up
   if Phase 0-L on x86_64 passes but aarch64 is unstable.
 
 ---
@@ -243,7 +243,7 @@ for the same platform. This is expected and supported. Both builds read
 ### How to tell which build a user is on
 
 > **Note (DOC-2):** the `runtime=tauri` / `runtime=electron` first-log-line
-> marker is a **planned future feature** — it is referenced by
+> marker is a **planned future feature**, it is referenced by
 > `tests/tauri/mig19/test_linux_cutover.py` as the intended cutover
 > verification mechanism, but no code in `src-tauri/src/` or
 > `voice_typer/server/` currently writes that line yet. Until it is
@@ -291,7 +291,7 @@ identified by:
      under `tauri-host` and consider rollback per §"Rollback procedure".
 4. If the user is on a **beta Tauri build** (downloaded manually from
    the release page on a platform that hasn't cut over yet), make this
-   clear in the ticket — beta builds are not supported with the same
+   clear in the ticket: beta builds are not supported with the same
    SLA as the default shipping app.
 
 ### Release notes language during mixed-mode
@@ -322,12 +322,12 @@ Track every cutover (and rollback) in this section. Format:
 
 ## See also
 
-- [`tauri-build-runbook.md`](./tauri-build-runbook.md) — master index for
+- [`tauri-build-runbook.md`](./tauri-build-runbook.md): master index for
   the Tauri build pipeline (cross-cutting) + per-platform runbook links.
-- [`signing-guide.md`](./signing-guide.md) — Windows Authenticode, macOS
+- [`signing-guide.md`](./signing-guide.md): Windows Authenticode, macOS
   Developer ID + notarization + stapling, Linux unsigned + the
   no-auto-update audit (ADR-0020 §13 + §15).
-- [`tauri-sidecar-bridge.md`](./tauri-sidecar-bridge.md) — the 63-command
+- [`tauri-sidecar-bridge.md`](./tauri-sidecar-bridge.md): the 63-command
   + 24-event wire contract (ADR-0020 §2 + §"Sidecar→UI Event Table").
 - [`../adr/0020-desktop-runtime-migration-analysis.md`](../adr/0020-desktop-runtime-migration-analysis.md)
-  — the authoritative migration spec (Phase 5 + §"Reversibility").
+ The authoritative migration spec (Phase 5 + §"Reversibility").

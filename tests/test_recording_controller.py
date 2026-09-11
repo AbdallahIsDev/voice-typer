@@ -7,7 +7,7 @@ audio callback thread (which holds ``Recorder._lock``) so the stop
 sequence doesn't deadlock.  Previously both call sites used
 ``self._app._schedule_timer(0, ...)`` which built a ``threading.Timer``
 object, appended it to ``_pending_timers``, and started a Timer thread
-that immediately fired — paying the Timer scheduling cost and polluting
+that immediately fired, paying the Timer scheduling cost and polluting
 the pending-timer list with a zero-delay entry that was never going to
 be cancelled meaningfully.
 
@@ -15,7 +15,7 @@ XV-134 (fixed in :mod:`voice_typer.server.timer_coordinator`) makes
 ``_schedule_timer(0, func)`` short-circuit to a plain daemon thread via
 the new ``TimerCoordinator.defer`` method.  These tests verify the
 recording-controller call sites still trigger the off-thread dispatch
-end-to-end — they don't re-test the TimerCoordinator internals (those
+end-to-end, they don't re-test the TimerCoordinator internals (those
 are covered by ``tests/test_timer_coordinator.py``).
 """
 
@@ -30,7 +30,7 @@ def _make_minimal_controller():
     """Build a RecordingController with only the attributes the
     auto-stop callbacks read.
 
-    The full ``__init__`` pulls in models, recorder, tray, etc. — none
+    The full ``__init__`` pulls in models, recorder, tray, etc., none
     of which the auto-stop callbacks touch.  Using ``__new__`` keeps
     the test fast and dependency-free.
     """
@@ -52,7 +52,7 @@ class TestSilenceAutoStopDispatch:
         """The callback must call ``self._app._schedule_timer(0, ...)``
         so the stop sequence runs off the audio callback thread.
 
-        XV-134 makes that call short-circuit to a daemon thread — we
+        XV-134 makes that call short-circuit to a daemon thread, we
         verify the call site still passes ``0`` (the contract that
         triggers the short-circuit) and that the dispatched callback
         actually runs.
@@ -124,7 +124,7 @@ class TestSilenceAutoStopDispatch:
 
     def test_tray_notification_fired_synchronously(self):
         """The user-facing notification fires on the calling thread
-        (immediate feedback) — only the stop sequence is deferred."""
+        (immediate feedback), only the stop sequence is deferred."""
         ctrl = _make_minimal_controller()
         notify_on: list[threading.Thread] = []
 
@@ -226,7 +226,7 @@ class TestLifecycleLockSerialization:
 
     def test_concurrent_stop_calls_serialize_on_toggle_lock(self):
         """GT-22: two threads calling ``stop()`` concurrently must
-        serialize on ``_toggle_lock`` — while one is inside the
+        serialize on ``_toggle_lock``, while one is inside the
         critical section, the other must block (not enter concurrently).
 
         We assert serialization directly: the first thread holds the
@@ -269,7 +269,7 @@ class TestLifecycleLockSerialization:
             with enter_lock:
                 enter_count[0] += 1
             entered_event.set()
-            # Block while holding the RLock — a second ``stop()`` on a
+            # Block while holding the RLock, a second ``stop()`` on a
             # different thread CANNOT enter here unless the lock is
             # mis-implemented (plain Lock with no acquisition, etc.).
             release_event.wait(timeout=2.0)
@@ -293,7 +293,7 @@ class TestLifecycleLockSerialization:
         time.sleep(0.1)
         assert not t2_entered.is_set(), (
             "GT-22: second concurrent stop() entered _stop_impl while the "
-            "first was still holding _toggle_lock — lock not serializing"
+            "first was still holding _toggle_lock, lock not serializing"
         )
 
         # Release the first stopper; the second can now proceed.
@@ -322,7 +322,7 @@ class TestLifecycleLockSerialization:
 
         from voice_typer.server.recording_controller import RecordingController
 
-        # Full __init__ — MagicMock() app satisfies all attribute reads.
+        # Full __init__. MagicMock() app satisfies all attribute reads.
         app = MagicMock()
         ctrl = RecordingController(app)
         # The toggle lock must be the RLock produced by __init__.
@@ -402,7 +402,7 @@ class TestTranscriptionThreadSnapshot:
         # Start the observer FIRST so it queues for the lock before
         # force_recover acquires it for the snapshot. If force_recover
         # does NOT acquire the lock, the observer gets it immediately
-        # (observed_locked set early — before force_recover returns).
+        # (observed_locked set early, before force_recover returns).
         obs = threading.Thread(target=observer, name="lock-observer")
         obs.start()
         time.sleep(0.05)  # let observer block on the lock
@@ -478,7 +478,7 @@ class TestSetThreadRegistryLock:
     """GT-47: ``set_thread_registry`` must hold ``_buffer_clear_worker_lock``
     while reading ``_buffer_clear_worker`` and calling ``registry.register``.
 
-    Pre-fix the read happened outside the lock — a concurrent
+    Pre-fix the read happened outside the lock, a concurrent
     ``_stop_buffer_clear_worker`` could clear the global to ``None``
     between the read and the register, leaving the central registry
     with a stale/dead thread reference.
@@ -518,7 +518,7 @@ class TestTimerShutdownSuppression:
 
     def test_callback_suppressed_when_shutdown_event_set(self):
         """If ``app._shutting_down_event`` is set when the timer fires,
-        the user callback must NOT run — even if the generation matches
+        the user callback must NOT run, even if the generation matches
         (no cancel has happened)."""
         import threading
 

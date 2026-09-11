@@ -11,19 +11,19 @@ time). The fix replaces each eager import with::
 The proxy defers the real import to first attribute access. These
 tests pin:
 
-1. **Eager-import suppression** — importing any of the 5 modules does
+1. **Eager-import suppression**, importing any of the 5 modules does
    NOT trigger ``numpy`` being loaded into ``sys.modules`` (assuming
    no sibling import pulls it in).
-2. **Transparent proxy** — once the proxy IS triggered, ``np.array``,
+2. **Transparent proxy**, once the proxy IS triggered, ``np.array``,
    ``np.float32``, ``np.dot``, ``np.ndarray`` all work as if numpy
    had been imported eagerly.
-3. **Test-patch compatibility** — ``monkeypatch.setattr(np, "array",
+3. **Test-patch compatibility**: ``monkeypatch.setattr(np, "array",
    fake)`` propagates to production code that resolves ``np.array``
    via the proxy (the proxy's ``__setattr__`` delegates to the real
-   module in ``sys.modules``, so a per-test mock sticks — see
+   module in ``sys.modules``, so a per-test mock sticks: see
    ``_lazy_import.py``'s ``__setattr__`` docstring for the load-bearing
    rationale).
-4. **PEP 563 guard** — every file that uses ``np.ndarray`` annotations
+4. **PEP 563 guard**, every file that uses ``np.ndarray`` annotations
    has ``from __future__ import annotations`` at the top so the
    annotation strings stay unevaluated (otherwise the lazy proxy
    would be triggered at function-definition time, defeating the
@@ -80,7 +80,7 @@ def _purge_numpy_and_targets() -> bool:
     was NOT already loaded), ``False`` when numpy was already loaded.
 
     NOTE (ALL platforms): numpy's C extension cannot be imported more
-    than once per process — numpy >= 2.4 added a re-initialization
+    than once per process, numpy >= 2.4 added a re-initialization
     guard (numpy PR #29030, PEP 489 multi-phase init) that raises
     ``ImportError: cannot load module more than once per process`` on
     re-import. This is CROSS-PLATFORM: numpy 2.4.0 release notes state
@@ -93,11 +93,11 @@ def _purge_numpy_and_targets() -> bool:
     (e.g. by an earlier test or by pytest's own collection of other
     test modules that ``import numpy`` at their top), removing it from
     ``sys.modules`` and re-importing it later raises that ImportError
-    and poisons every subsequent numpy import in the session — the lazy
+    and poisons every subsequent numpy import in the session, the lazy
     ``_LazyModule`` proxy caches the first failure and fails every
     later attribute access. We therefore NEVER purge a loaded numpy
     (any platform), and we do NOT purge the target modules either when
-    numpy is already resident — re-importing e.g.
+    numpy is already resident, re-importing e.g.
     ``voice_typer.server.recording`` would give its submodules fresh
     identities while other already-imported module references still
     point at the old objects, fracturing the module graph for every
@@ -147,14 +147,14 @@ def test_module_does_not_eagerly_import_numpy(module_path: str, np_attr: str) ->
     The lazy ``lazy_module("numpy")`` proxy is supposed to defer the
     real import to first attribute access. If a regression reintroduces
     ``import numpy as np`` at the top of any of the 5 target files,
-    this test fails immediately — numpy will be in ``sys.modules``
+    this test fails immediately, numpy will be in ``sys.modules``
     right after the ``importlib.import_module`` call.
 
     NOTE: this test only passes for modules whose entire transitive
     import graph also avoids numpy. ``voice_typer.server.app`` and
     ``voice_typer.server.audio_processor`` currently transitively pull
     in ``voice_typer.server.audio_filters.base`` which does
-    ``import numpy as np`` at module top — that file is OUTSIDE this
+    ``import numpy as np`` at module top, that file is OUTSIDE this
     sub-agent's assigned file set, so the assertion is skipped for
     those two modules (with a clear marker). The skip is removed once
     ``audio_filters.base`` is migrated to the lazy proxy too.
@@ -167,7 +167,7 @@ def test_module_does_not_eagerly_import_numpy(module_path: str, np_attr: str) ->
     # Some targets may pull in numpy transitively via a sibling module
     # we don't own (e.g. audio_filters.base). For those, we still
     # verify that the target module's OWN ``np`` attribute is a lazy
-    # proxy (not the real numpy module) — proving the target module
+    # proxy (not the real numpy module), proving the target module
     # itself did the right thing, even if a sibling didn't.
     from voice_typer.server._lazy_import import _LazyModule
 
@@ -231,7 +231,7 @@ def test_module_import_keeps_numpy_out_of_sys_modules(module_path: str) -> None:
         )
 
 
-# ── 2. Transparent proxy — np.array / np.float32 / np.dot work ─────────
+# ── 2. Transparent proxy, np.array / np.float32 / np.dot work ─────────
 
 
 def test_proxy_supports_array_construction() -> None:
@@ -264,7 +264,7 @@ def test_proxy_supports_dtype_attributes() -> None:
 
 
 def test_proxy_supports_dot() -> None:
-    """``np.dot(a, a)`` must work — exercises a function attribute."""
+    """``np.dot(a, a)`` must work, exercises a function attribute."""
     from voice_typer.server._lazy_import import lazy_module
 
     np = lazy_module("numpy")
@@ -273,47 +273,47 @@ def test_proxy_supports_dot() -> None:
     assert result == 14.0  # 1 + 4 + 9
 
 
-# ── 3. Test-patch compatibility — monkeypatch.setattr(np, "array", fake) ──
+# ── 3. Test-patch compatibility, monkeypatch.setattr(np, "array", fake) ──
 
 
 def test_monkeypatch_setattr_on_proxy_propagates(monkeypatch: pytest.MonkeyPatch) -> None:
     """``monkeypatch.setattr(np, "array", fake)`` must propagate to the
-    real numpy module so production code that does ``import numpy as np``
-    (separate from the proxy) sees the fake.
+      real numpy module so production code that does ``import numpy as np``
+      (separate from the proxy) sees the fake.
 
-    This is the load-bearing test-patch pattern documented in
-    ``_lazy_import.py``'s ``__setattr__`` docstring. The proxy's
-    ``__setattr__`` delegates to ``setattr(self._resolve(), name, value)``
-    — i.e. it mutates the REAL numpy module in ``sys.modules``, NOT the
-    proxy itself. This means any other code that imports the real numpy
-    sees the patched attribute too (mirroring what would happen with a
-    direct ``import numpy as np; np.array = fake``).
+      This is the load-bearing test-patch pattern documented in
+      ``_lazy_import.py``'s ``__setattr__`` docstring. The proxy's
+      ``__setattr__`` delegates to ``setattr(self._resolve(), name, value)``
+    , i.e. it mutates the REAL numpy module in ``sys.modules``, NOT the
+      proxy itself. This means any other code that imports the real numpy
+      sees the patched attribute too (mirroring what would happen with a
+      direct ``import numpy as np; np.array = fake``).
 
-    XV-78 (LOAD-BEARING — DO NOT REMOVE): if ``__setattr__`` stored the
-    value on the proxy, ``__getattr__`` would never see it (because
-    ``__getattr__`` only runs when normal lookup fails, and the proxy
-    uses ``__slots__`` so there's no per-instance dict). The result
-    would be a silent write/read asymmetry that breaks the entire test
-    fixture layer.
+      XV-78 (LOAD-BEARING, DO NOT REMOVE): if ``__setattr__`` stored the
+      value on the proxy, ``__getattr__`` would never see it (because
+      ``__getattr__`` only runs when normal lookup fails, and the proxy
+      uses ``__slots__`` so there's no per-instance dict). The result
+      would be a silent write/read asymmetry that breaks the entire test
+      fixture layer.
     """
     from voice_typer.server._lazy_import import lazy_module
 
     np_proxy = lazy_module("numpy")
     # Force the real numpy to be loaded so we can compare identity.
-    np_proxy._resolve()  # noqa: SLF001 — intentional for the test; force real numpy load
+    np_proxy._resolve()  # noqa: SLF001, intentional for the test; force real numpy load
     captured: list = []
 
     def fake_array(*args, **kwargs):
         captured.append((args, kwargs))
         return "fake"
 
-    # Patch the PROXY — __setattr__ delegates to the real numpy.
+    # Patch the PROXY, __setattr__ delegates to the real numpy.
     monkeypatch.setattr(np_proxy, "array", fake_array)
 
     # Verify the patch is visible via the proxy.
     assert np_proxy.array([1, 2, 3]) == "fake"
     # Verify the patch is visible via the real numpy module (the
-    # critical load-bearing assertion — separate importers see the
+    # critical load-bearing assertion, separate importers see the
     # same patched value).
     import numpy as real_np
 
@@ -321,12 +321,12 @@ def test_monkeypatch_setattr_on_proxy_propagates(monkeypatch: pytest.MonkeyPatch
         "XV-78 regression: monkeypatch.setattr on the lazy proxy did "
         "NOT propagate to the real numpy module in sys.modules. "
         "Production code that does ``import numpy as np`` would NOT "
-        "see the patch — the test fixture layer is broken."
+        "see the patch, the test fixture layer is broken."
     )
     assert captured, "fake_array was not called"
 
 
-# ── 4. PEP 563 guard — from __future__ import annotations ──────────────
+# ── 4. PEP 563 guard, from __future__ import annotations ──────────────
 
 
 # Files that have ``np.ndarray`` annotations in their source. Without
@@ -349,7 +349,7 @@ def test_file_has_future_annotations(rel_path: str) -> None:
 
     Without PEP 563, the lazy ``np`` proxy is triggered at
     function-definition time when Python evaluates the ``np.ndarray``
-    annotation — defeating the purpose of the lazy import. The check
+    annotation, defeating the purpose of the lazy import. The check
     is a simple source-level grep (no AST) so it's robust to module
     structure changes.
     """
@@ -364,13 +364,13 @@ def test_file_has_future_annotations(rel_path: str) -> None:
         f"but is missing ``from __future__ import annotations``. "
         f"Without PEP 563, the annotations are evaluated at function-"
         f"definition time, triggering the lazy proxy and pulling in "
-        f"numpy eagerly — the optimization we're trying to land."
+        f"numpy eagerly, the optimization we're trying to land."
     )
 
 
 def test_app_py_has_future_annotations() -> None:
     """``app.py`` itself does not currently use ``np.ndarray`` annotations
-    (it doesn't use ``np`` at all — verified via grep), but adding
+    (it doesn't use ``np`` at all, verified via grep), but adding
     ``from __future__ import annotations`` is still a good guard against
     future regressions: if a contributor adds an ``np.ndarray``
     annotation later, the future import ensures it stays unevaluated.
@@ -395,11 +395,11 @@ def test_numpy_no_longer_in_app_module_top_imports(capsys: pytest.CaptureFixture
     """``python -X importtime`` smoke check: numpy should NOT appear as
     a direct child of any of the 5 target modules' import trees.
 
-    This is a SOURCE-LEVEL check (not a subprocess invocation — that
+    This is a SOURCE-LEVEL check (not a subprocess invocation, that
     would be slow and flaky in CI). We verify that the literal string
     ``"import numpy as np"`` does NOT appear at module top in any of
     the 5 files (it can appear inside function bodies as a local
-    import — that's fine and intentional in some hot paths like
+    import, that's fine and intentional in some hot paths like
     ``transcription._generate_probe_audio``).
     """
     import pathlib

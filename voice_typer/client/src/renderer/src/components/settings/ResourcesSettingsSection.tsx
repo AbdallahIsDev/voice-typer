@@ -1,4 +1,4 @@
-// ResourcesSettingsSection — documentation, development, and feedback
+// ResourcesSettingsSection, documentation, development, and feedback
 // links.
 //
 // IA split: the resources grid that previously lived on the About page
@@ -6,7 +6,7 @@
 // destination). The About page is product identity only.
 //
 // NOTE ON KEY NAMESPACE: the section renders the `about.*` i18n keys
-// (about.resourcesTitle, about.documentationLink etc.) — the keys
+// (about.resourcesTitle, about.documentationLink etc.), the keys
 // predate the IA split. The namespaces are internal; the user-facing
 // destinations are correct.
 //
@@ -54,7 +54,7 @@ const CHANGELOG_URL =
 const DOCUMENTATION_URL =
 	"https://github.com/AbdallahIsDev/voice-typer/blob/main/README.md";
 
-/** Resources & Feedback links — icon per target + external-link chip. */
+/** Resources & Feedback links, icon per target + external-link chip. */
 const RESOURCE_LINKS = [
 	{
 		href: DOCUMENTATION_URL,
@@ -82,7 +82,7 @@ const RESOURCE_LINKS = [
 ] as const;
 
 interface ResourcesSettingsSectionProps {
-	/** Search-filter predicate — same shape as the page-level helper. */
+	/** Search-filter predicate, same shape as the page-level helper. */
 	isVisible: IsVisibleFn;
 }
 
@@ -129,7 +129,7 @@ export const ResourcesSettingsSection = memo(function ResourcesSettingsSection({
 									className="size-4 shrink-0"
 								/>
 								<span className="min-w-0 truncate">{t(link.label)}</span>
-								{/* external-link indicator — all of these
+								{/* external-link indicator, all of these
 								    navigate away from the app. */}
 								<HugeiconsIcon
 									icon={ArrowUpRight01Icon}

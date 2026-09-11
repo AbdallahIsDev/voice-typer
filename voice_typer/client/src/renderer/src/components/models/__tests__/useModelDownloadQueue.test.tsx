@@ -1,11 +1,11 @@
 /**
- * useModelDownloadQueue unit tests — renderer-side download-queue state.
+ * useModelDownloadQueue unit tests, renderer-side download-queue state.
  *
  * The hook derives the pending-download queue from the backend's
  * `download_progress` events:
  *   • an event WITH `queue_position` marks the model as queued at that
  *     1-based FIFO position (the backend is the single source of truth
- *     — the queue survives renderer navigation/reload),
+ *    , the queue survives renderer navigation/reload),
  *   • an event WITHOUT the field means "not queued" (active transfer or
  *     terminal state) and clears the entry,
  *   • position-only updates (drain / queue-advance) re-render without
@@ -29,7 +29,7 @@ import {
 
 const { mockCall } = stableMocks;
 
-// Hoisted (NOT a standard singleton — it is this file's event capture
+// Hoisted (NOT a standard singleton, it is this file's event capture
 // map) because the vi.mock factory below is hoisted above module-body
 // declarations and closes over it.
 const { eventHandlers } = vi.hoisted(() => ({
@@ -66,7 +66,7 @@ function fireEvent(data: Record<string, unknown> | undefined) {
 
 beforeEach(() => {
 	resetStableMocks();
-	// Default snapshot response — an empty queue (the pre-stableMocks
+	// Default snapshot response, an empty queue (the pre-stableMocks
 	// preamble's mock resolved `{ queue: [] }`): the event tests below
 	// don't care about hydration. The hydration describe overrides per
 	// call via mockResolvedValueOnce / mockRejectedValueOnce.
@@ -77,7 +77,7 @@ afterEach(() => {
 	cleanup();
 });
 
-describe("useModelDownloadQueue — event-derived queue state", () => {
+describe("useModelDownloadQueue, event-derived queue state", () => {
 	it("marks a model queued when an event carries queue_position", () => {
 		render(<QueueProbe />);
 		fireEvent({
@@ -130,7 +130,7 @@ describe("useModelDownloadQueue — event-derived queue state", () => {
 	});
 });
 
-describe("useModelDownloadQueue — mount hydration", () => {
+describe("useModelDownloadQueue, mount hydration", () => {
 	it("restores chips from the get_download_queue snapshot on mount", async () => {
 		mockCall.mockResolvedValueOnce({ queue: ["tiny", "base"] });
 		render(<QueueProbe />);
@@ -143,7 +143,7 @@ describe("useModelDownloadQueue — mount hydration", () => {
 	it("stays empty and tracks events when the snapshot rejects", async () => {
 		mockCall.mockRejectedValueOnce(new Error("bridge down"));
 		render(<QueueProbe />);
-		// Let the rejected promise settle — no chip, no crash.
+		// Let the rejected promise settle, no chip, no crash.
 		await act(async () => {});
 		expect(screen.queryByTestId(/queued-/)).toBeNull();
 		// The live event path still works after a failed snapshot.

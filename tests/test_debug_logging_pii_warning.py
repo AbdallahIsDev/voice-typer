@@ -5,7 +5,7 @@ records routinely carry low-level context (absolute paths, device names,
 hostnames, IPC frame dumps) that the PIIRedactionFilter intentionally
 does NOT blanket-scrub. A one-time WARNING in the log itself reminds the
 user at every debug startup that the file is not share-by-default
-material — and warns anyone the log is sent to before reading it.
+material, and warns anyone the log is sent to before reading it.
 """
 
 from __future__ import annotations
@@ -39,7 +39,7 @@ class TestDebugModePiiWarning:
         names the env var and the sharing risk."""
         with caplog.at_level(logging.WARNING, logger="voice_typer"):
             logging.getLogger("voice_typer").warning(
-                "[STARTUP] Debug logging is enabled (VOICE_TYPER_DEBUG=1) — "
+                "[STARTUP] Debug logging is enabled (VOICE_TYPER_DEBUG=1), "
                 "DEBUG records may include sensitive context (file paths, "
                 "device names, hostnames) beyond what PII redaction covers. "
                 "Do not share the log file publicly without review; disable "

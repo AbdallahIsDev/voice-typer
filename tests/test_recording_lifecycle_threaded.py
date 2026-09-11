@@ -7,13 +7,13 @@ These tests pin the daemon-worker refactor of ``_start_impl``:
 * ``ensure_active_engine_loaded()`` + post-load steps run on a daemon
   worker thread (``_start_dictation_worker_entry``), NOT on the F2
   dispatch thread.
-* The F2 thread returns after a bounded ``join(timeout=...)`` — fast
+* The F2 thread returns after a bounded ``join(timeout=...)``, fast
   enough to never block the dispatch thread in production (5-30s
   idle-unload reload).
 * The worker signals ``_start_complete_event`` in its ``finally`` block
   so tests that need to assert model-loaded state can wait on the event.
 * The ``recording`` flag is set synchronously by ``recorder.start()``
-  on the F2 thread — tests that assert ``recording=True`` immediately
+  on the F2 thread, tests that assert ``recording=True`` immediately
   after ``_start_dictation`` still pass.
 
 The tests stub ``ensure_active_engine_loaded`` with a configurable
@@ -172,7 +172,7 @@ class TestFastF2ReturnDuringModelReload:
         # 0.1s here (model pre-loaded path), so anything >= 2s means the
         # dispatch thread waited on the worker.
         assert elapsed < 2.0, (
-            f"F2 dispatch thread took {elapsed:.3f}s to return — "
+            f"F2 dispatch thread took {elapsed:.3f}s to return, "
             f"expected < 2.0s even when model reload is in flight. "
             f"The daemon worker should handle the 5s load asynchronously."
         )
@@ -183,7 +183,7 @@ class TestFastF2ReturnDuringModelReload:
         # F2 thread returned in <0.2s).
         assert not load_completed.is_set(), (
             "ensure_active_engine_loaded() should still be in progress "
-            "(5s sleep) when the F2 thread returns — the worker is async"
+            "(5s sleep) when the F2 thread returns, the worker is async"
         )
 
         # ``recorder.start()`` was called synchronously (before the
@@ -198,7 +198,7 @@ class TestFastF2ReturnDuringModelReload:
 
     def test_recording_flag_set_synchronously(self) -> None:
         """The ``recorder.recording`` flag is set to True synchronously
-        by ``recorder.start()`` on the F2 thread — tests that assert
+        by ``recorder.start()`` on the F2 thread, tests that assert
         ``recording=True`` immediately after ``_start_dictation`` still
         pass."""
         app = _make_app_with_mock_recorder()
@@ -220,7 +220,7 @@ class TestFastF2ReturnDuringModelReload:
         # recording must be True immediately after _start_impl returns.
         assert app.recorder.recording is True, (
             "recorder.recording must be True immediately after _start_impl "
-            "returns — recorder.start() is called synchronously on the F2 thread"
+            "returns, recorder.start() is called synchronously on the F2 thread"
         )
         assert app.recorder.start.assert_called_once
 
@@ -243,7 +243,7 @@ class TestFastF2ReturnDuringModelReload:
         event = getattr(controller, "_start_complete_event", None)
         assert event is not None, "_start_complete_event must be published on the controller"
 
-        # Wait for the worker to signal (should be fast — model is
+        # Wait for the worker to signal (should be fast, model is
         # already loaded).
         waited = event.wait(timeout=2.0)
         assert waited, "Worker must signal _start_complete_event within 2s when the model is already loaded (fast path)"
@@ -358,14 +358,14 @@ class TestFastF2ReturnDuringModelReload:
         assert load_started.wait(timeout=2.0), "start worker must reach the model load"
 
         # ESC cancel fires on another thread while the cold start's bounded
-        # join is still in flight — must return in < 100 ms, not the 2.0 s
+        # join is still in flight, must return in < 100 ms, not the 2.0 s
         # join window.
         cancel_start = time.monotonic()
         controller._lifecycle.cancel(controller)
         cancel_elapsed = time.monotonic() - cancel_start
 
         assert cancel_elapsed < 0.100, (
-            f"concurrent cancel took {cancel_elapsed:.3f}s during a cold start — "
+            f"concurrent cancel took {cancel_elapsed:.3f}s during a cold start, "
             f"the bounded start-worker join must NOT hold ``_toggle_lock`` "
             f"(expected < 100 ms)"
         )
@@ -384,7 +384,7 @@ class TestFastF2ReturnDuringModelReload:
         app = _make_app_with_mock_recorder()
         controller = _make_controller_with_lifecycle(app)
 
-        # Model already loaded — ensure_active_engine_loaded is a no-op.
+        # Model already loaded, ensure_active_engine_loaded is a no-op.
         start_time = time.monotonic()
         with controller._toggle_lock:
             controller._lifecycle._start_impl(controller)
@@ -394,9 +394,7 @@ class TestFastF2ReturnDuringModelReload:
         # Generous budget: only needs to hold on a loaded CI runner —
         # the product's bounded join is 0.1s here, so >= 1s means the
         # dispatch thread stalled.
-        assert elapsed < 1.0, (
-            f"F2 thread took {elapsed:.3f}s — expected < 1.0s when model is already loaded (fast path)"
-        )
+        assert elapsed < 1.0, f"F2 thread took {elapsed:.3f}s, expected < 1.0s when model is already loaded (fast path)"
 
         # Worker completed (event signaled).
         event = getattr(controller, "_start_complete_event", None)
@@ -412,7 +410,7 @@ class TestStartWorkerJoinTimeoutReset:
     If an exception fires between ``worker.start()`` and the adaptive
     timeout publish (e.g. ``active_transcriber()`` raising on the
     pre-load probe), ``_start_impl``'s except path swallows it and
-    returns normally — so ``_run_public_entry`` still performs the
+    returns normally, so ``_run_public_entry`` still performs the
     bounded join of the just-started worker.  Without the entry reset,
     that join uses the PREVIOUS cycle's timeout (up to 2.0 s on the
     cold-model path), stalling the public entry.
@@ -436,7 +434,7 @@ class TestStartWorkerJoinTimeoutReset:
             if calls["n"] == 2:
                 # Call 1 = the toggle decision; call 2 fires AFTER
                 # worker.start() but BEFORE the join-timeout publish in
-                # _start_impl — exactly the leak window.
+                # _start_impl, exactly the leak window.
                 raise RuntimeError("transcriber probe failed")
             return _loaded
 
@@ -457,7 +455,7 @@ class TestStartWorkerJoinTimeoutReset:
         elapsed = time.monotonic() - start_time
 
         assert elapsed < 0.5, (
-            f"public entry took {elapsed:.3f}s — a stale 2.0 s join timeout "
+            f"public entry took {elapsed:.3f}s, a stale 2.0 s join timeout "
             f"leaked into this entry's bounded join after a start-path "
             f"exception (expected the reset 0.1 s default)"
         )
@@ -587,7 +585,7 @@ class TestRecordingStartFailureReason:
 
     def test_unknown_error_keeps_generic_label(self) -> None:
         """An unknown start failure falls back to the generic
-        "Recording failed" label — raw exception text (which can leak
+        "Recording failed" label, raw exception text (which can leak
         paths / device names) must never reach the tray."""
         from voice_typer.server.tray_types import AppState
 

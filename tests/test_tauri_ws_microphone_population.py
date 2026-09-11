@@ -1,17 +1,17 @@
 """Regression pins for the Tauri ``--ws`` sidecar microphone-list gap.
 
 USER-VISIBLE DEFECT (Windows host report, 2026-08-30): inside the Tauri
-app the Microphone page is completely empty — no microphones are listed
+app the Microphone page is completely empty, no microphones are listed
 — while the same machine's Electron app and the OS list them fine.
 
 ROOT CAUSE (code-verified):
 
 ``ipc/entrypoint.py:main()``'s ``--ws`` (Tauri sidecar) branch calls
-``sidecar_ws.run(server)`` and then ``sys.exit(_ws_exit)`` — it NEVER
+``sidecar_ws.run(server)`` and then ``sys.exit(_ws_exit)``, it NEVER
 reaches ``app.start()`` at the bottom of the loop. ``app.start()`` is
 the only caller of ``tray.start(bg_work=self._do_startup)``
 (app.py:1092), which is the only launcher of the
-``StartupSequence`` (app.py:1137) — and its phase 6
+``StartupSequence`` (app.py:1137), and its phase 6
 (``startup_sequence/_phases_late.py``) is the only production caller of
 ``startup_tasks.load_microphones``, the only writer of
 ``app._microphones`` at startup. The ``refresh_microphones`` IPC route
@@ -22,16 +22,16 @@ serves ``app._microphones`` verbatim and therefore always answers
 ``useMicrophoneData.ts``) exhausts and the page stays permanently
 empty. The Electron host spawns the backend WITHOUT ``--ws`` (TCP
 ``--port`` path), ``app.start()`` runs, phase 6 populates the list,
-and the page works — the exact divergence the user reported.
+and the page works, the exact divergence the user reported.
 
 These tests pin the causal chain so the fix (run the startup
 background work in the ``--ws`` entrypoint branch) is verifiable:
 
-1. The ws-mode process shape — built EXACTLY the way the FIXED
+1. The ws-mode process shape, built EXACTLY the way the FIXED
    ``ipc/entrypoint.py`` builds it (``VoiceTyperApp`` →
    ``build_ipc_server`` → ``server._tcp_mode = True`` →
    ``server.start()`` → startup background work launched on the
-   ws-sidecar-startup daemon thread) — serves the POPULATED device
+   ws-sidecar-startup daemon thread), serves the POPULATED device
    list to the renderer once phase 6 completes.
 2. The population flows over both the handler and the real WebSocket
    transport; before the first population the list is ``[]`` (the
@@ -110,7 +110,7 @@ def ws_mode_app(tmp_config_dir, monkeypatch):
     entrypoint sets: TAURI_SIDECAR=1 (parse_ipc_args) and the WS auth
     token (set by the Rust host before spawn). The fixed entrypoint
     ALSO launches the app startup background work on a daemon thread
-    in this mode (see the module docstring) — tests that need that
+    in this mode (see the module docstring), tests that need that
     work mirror the launch themselves.
     """
     monkeypatch.setattr(f"{_AUTOSTART}.is_autostart_enabled", lambda: False, raising=False)
@@ -141,12 +141,12 @@ def _reset_mic_cache():
 def _build_ws_mode_server(app):
     """Build + start the IPC server exactly like entrypoint's ws branch.
 
-    ``ipc/entrypoint.py`` does, in order: ``server._tcp_mode = True``
-    (unconditional, skips the stdin listener) then ``server.start()``
-    — and in ws mode never proceeds to ``app.start()``. The returned
-    server is the full production composition (real service layer over
-    the real app), so ``get_microphones`` responses below are the
-    exact bytes a Tauri renderer would receive.
+      ``ipc/entrypoint.py`` does, in order: ``server._tcp_mode = True``
+      (unconditional, skips the stdin listener) then ``server.start()``
+    , and in ws mode never proceeds to ``app.start()``. The returned
+      server is the full production composition (real service layer over
+      the real app), so ``get_microphones`` responses below are the
+      exact bytes a Tauri renderer would receive.
     """
     from voice_typer.server.providers import build_ipc_server
 
@@ -163,14 +163,14 @@ class TestWsSidecarMicPopulation:
         """Renderer-visible outcome of the FIXED ws-mode shape: devices.
 
         PortAudio enumeration WORKS in this process (fake sounddevice
-        lists 2 devices), the IPC server is fully started — and the
+        lists 2 devices), the IPC server is fully started, and the
         entrypoint's ws branch now launches the same startup background
         work (``app.start`` on a daemon thread) that the Electron path
         runs, so the phase-6 ``load_microphones`` task populates
         ``app._microphones`` and the handler serves the devices. This
         test replicates that launch exactly (startup background work
         running concurrently with the WS server) and polls for the
-        population — pinning the renderer-visible fix contract.
+        population, pinning the renderer-visible fix contract.
         """
         import threading
         import time
@@ -180,7 +180,7 @@ class TestWsSidecarMicPopulation:
         # Mirror the fixed entrypoint: the ws branch launches the app
         # startup work on a daemon thread. app.start() parks in
         # tray.run()'s unavailable-path drain loop (TAURI_SIDECAR=1),
-        # so the thread never joins — poll for the population instead.
+        # so the thread never joins, poll for the population instead.
         _startup = threading.Thread(
             target=ws_mode_app._do_startup,
             name="ws-sidecar-startup",
@@ -212,7 +212,7 @@ class TestWsSidecarMicPopulation:
         """Control: the enumeration itself is NOT the failure.
 
         ``list_microphones()`` returns the full device list inside the
-        same process shape — proving the empty page is caused by the
+        same process shape, proving the empty page is caused by the
         missing population trigger, not by PortAudio/DDL/device-query
         failure in the sidecar context.
         """
@@ -234,7 +234,7 @@ class TestWsSidecarMicPopulationControl:
         ``_phase_6_autostart_prewarm_mics`` schedules (the only
         production writer of ``app._microphones``). Calling it in the
         ws-mode shape immediately changes the ``get_microphones``
-        response — pinning that the population trigger is the ONE
+        response, pinning that the population trigger is the ONE
         missing link in the Tauri sidecar.
         """
         from voice_typer.server import startup_tasks
@@ -283,14 +283,14 @@ class TestWsSidecarMicRoundTrip:
 
         1. Client authenticates (as the Rust host does) and dispatches
            ``get_microphones`` while the startup background work has
-           not populated the list yet — the response reflects
-           ``app._microphones`` verbatim (``[]`` — the pre-first-
+           not populated the list yet, the response reflects
+           ``app._microphones`` verbatim (``[]``, the pre-first-
            population snapshot the renderer's boot-race retry backoff
            is designed to tolerate).
         2. The phase-6 population task (now launched by the entrypoint's
            ws branch via the startup daemon thread) running in the
            SAME live process makes the NEXT dispatch return the
-           devices — proving the renderer sees the list the moment the
+           devices, proving the renderer sees the list the moment the
            startup work runs.
         """
         from voice_typer.server import sidecar_ws, startup_tasks
@@ -319,7 +319,7 @@ class TestWsSidecarMicRoundTrip:
                         "is [] (the renderer's boot-race retry backoff covers it)"
                     )
 
-                    # The one missing link — the phase-6 population task.
+                    # The one missing link, the phase-6 population task.
                     startup_tasks.load_microphones(ws_mode_app)
 
                     await client.send(json.dumps({"type": "get_microphones", "data": {}, "id": 102}))

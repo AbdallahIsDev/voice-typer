@@ -8,9 +8,9 @@ credit-card forms, etc.
 These tests exercise the platform-native password-field detection
 helpers added in ``clipboard_target_safety.py``:
 
-* ``_is_password_field_macos`` — uses pyobjc (AppKit + ApplicationServices)
+* ``_is_password_field_macos``, uses pyobjc (AppKit + ApplicationServices)
   to query the focused UI element's ``AXRole`` / ``AXIsSecure``.
-* ``_is_password_field_linux`` — uses pyatspi to walk the AT-SPI tree
+* ``_is_password_field_linux``, uses pyatspi to walk the AT-SPI tree
   and check the focused accessible's role for ``ATSPI_ROLE_PASSWORD_TEXT``.
 
 Since pyobjc / pyatspi are not installed in the test environment (and
@@ -18,7 +18,7 @@ would require a desktop session to actually query a UI), the helpers are
 exercised via ``sys.modules`` mocks that inject fake modules with the
 expected API surface.
 
-The tests also pin the fallback behavior — when the platform library is
+The tests also pin the fallback behavior, when the platform library is
 unavailable, the helper logs a WARNING (once) and returns ``False``
 (allowing the caller to fall back to the legacy "paste allowed" path).
 """
@@ -33,7 +33,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 # pynput / pynput.keyboard / pyperclip are mocked at collection time by
-# tests/clipboard/conftest.py (single source of truth —  dedup).
+# tests/clipboard/conftest.py (single source of truth, dedup).
 from voice_typer.server import (
     clipboard as clip_mod,  # noqa: E402
     clipboard_target_safety as safety_mod,  # noqa: E402
@@ -519,7 +519,7 @@ class TestSignalHandlerRegistration:
         """On POSIX, the module-level registration block ran successfully."""
         # The registration is module-level and runs at import. We just
         # assert the flag was set (which only happens when the signal
-        # module exposes SIGHUP — i.e. POSIX).
+        # module exposes SIGHUP, i.e. POSIX).
         import signal as signal_mod
 
         if hasattr(signal_mod, "SIGHUP"):
@@ -531,5 +531,5 @@ class TestSignalHandlerRegistration:
                 "POSIX signal handlers should have been registered at clipboard.py module import time"
             )
         else:
-            # On Windows, SIGHUP doesn't exist — registration skipped.
+            # On Windows, SIGHUP doesn't exist, registration skipped.
             assert clip_mod._SIGNAL_HANDLERS_REGISTERED is False

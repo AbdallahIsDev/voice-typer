@@ -1,4 +1,4 @@
-// RecordingSettingsSection — Recording section of the Settings page.
+// RecordingSettingsSection, Recording section of the Settings page.
 //
 // Renders the "Recording" SettingsSection block with Dictation Key,
 // Re-Paste Key, Recording Mode, Auto-Stop, ESC to Cancel, Auto-Paste,
@@ -42,11 +42,11 @@ import { anyRowVisible, GatedSettingRow } from "./settingsRowGating";
 import type { SettingsSectionSharedProps } from "./types";
 
 //(Sub-agent 14): the dictation-key dropdown presets are now
-// derived from ``getSingleKeyPresets()`` — the SAME single source of
+// derived from ``getSingleKeyPresets()``, the SAME single source of
 // truth used elsewhere in the hotkey system. Previously this file
 // re-declared its own inline list which:
 //   1. Reintroduced the ``<shift>`` hazard (Shift is held for
-//      capitalization while typing — using it as a dictation key
+//      capitalization while typing, using it as a dictation key
 //      would fire dictation on every uppercase letter).
 //   2. Did NOT include the macOS-only Fn / Globe key (the inline
 //      list was platform-static; the getter re-detects the platform
@@ -111,7 +111,7 @@ export const RecordingSettingsSection = memo(function RecordingSettingsSection({
 	//dictation-key presets derived from the shared
 	// single-key preset list (platform-aware, no <shift> hazard).
 	const dictationKeyPresets = useDictationKeyPresets();
-	// Memoized repaste-key presets — getComboPresets() re-detects the
+	// Memoized repaste-key presets, getComboPresets() re-detects the
 	// platform on every call, so it can't be hoisted to module scope,
 	// but it can be memoized per-mount so the array identity stays
 	// stable across renders.
@@ -195,7 +195,7 @@ export const RecordingSettingsSection = memo(function RecordingSettingsSection({
 
 	// Preview one existing cue at the configured volume. The manager
 	// gates on the enabled flag internally, so a disabled toggle means
-	// the preview is a no-op — matching the cues' real behavior.
+	// the preview is a no-op, matching the cues' real behavior.
 	const handleTestSound = () => {
 		playSoundCue("complete");
 	};
@@ -246,7 +246,7 @@ export const RecordingSettingsSection = memo(function RecordingSettingsSection({
 		"settings.hotkeySection.soundFeedbackInfoSearch",
 	);
 	// New rows reuse ONE info string for both the search predicate and
-	// the tooltip (no separate InfoSearch keys) — the predicate accepts
+	// the tooltip (no separate InfoSearch keys), the predicate accepts
 	// the same string.
 	const soundVolumeLabel = t("settings.hotkeySection.soundVolume");
 	const soundVolumeInfoSearch = t("settings.hotkeySection.soundVolumeInfo");
@@ -641,7 +641,7 @@ export const RecordingSettingsSection = memo(function RecordingSettingsSection({
 					</GatedSettingRow>
 
 					{/*dead_air_timeout setting REMOVED. It was redundant with
-                                            stop_on_silence_seconds — auto-stop already resets on every speech
+                                            stop_on_silence_seconds, auto-stop already resets on every speech
                                             detection, so "silence after speech" needs no separate control.
                                             Do NOT re-add this setting. */}
 				</SettingsSection>

@@ -13,8 +13,8 @@ The fix adds:
   2. A daemon thread (``_heartbeat_loop``) that wakes every 5 seconds
      and calls ``_check_heartbeat_timeout``.  If more than
      ``_HEARTBEAT_TIMEOUT_SECONDS`` (9 missed heartbeats at the
-     default 45s timeout — PI-30 reduced from 120s/24 misses) have elapsed since the last heartbeat,
-     the watchdog calls ``self.app.quit()`` — which runs the shared
+     default 45s timeout, PI-30 reduced from 120s/24 misses) have elapsed since the last heartbeat,
+     the watchdog calls ``self.app.quit()``, which runs the shared
      ``_do_cleanup()`` path from RW-3 (restores volume, flushes
      recovery, releases the mutex, closes PortAudio).
   3. A guard so the watchdog does NOT fire before the first heartbeat
@@ -102,7 +102,7 @@ class TestHeartbeatHandler:
         """Calling ``_handle_heartbeat`` records ``time.monotonic()``.
 
         Before the first call, ``_last_heartbeat_at`` is ``None`` (the
-        watchdog won't fire).  After the call, it's a float — arming
+        watchdog won't fire).  After the call, it's a float, arming
         the watchdog.
         """
         assert server._last_heartbeat_at is None
@@ -124,7 +124,7 @@ class TestHeartbeatHandler:
     def test_dispatch_routes_heartbeat_to_handler(self, server: IPCServer) -> None:
         """``_dispatch({"type": "heartbeat"})`` invokes the handler.
 
-        This is the path that production uses — Electron's
+        This is the path that production uses, Electron's
         ``sendToPython({type: "heartbeat"})`` lands in ``_dispatch``
         via the TCP read loop.  Verifies the registry wiring.
         """
@@ -204,14 +204,14 @@ class TestHeartbeatWatchdog:
     def test_does_not_fire_within_grace_period(self, server: IPCServer) -> None:
         """Within the grace period, the watchdog must not fire.
 
-        A heartbeat received recently means Electron is alive — even
+        A heartbeat received recently means Electron is alive, even
         if we're 0.1s shy of the timeout, we're still inside it.
         """
         # Heartbeat at t=100.
         with patch("voice_typer.server.ipc_server.time.monotonic", return_value=100.0):
             server._handle_heartbeat(None, {"id": 1})
 
-        # 0.1s before the timeout — still inside the grace period.
+        # 0.1s before the timeout, still inside the grace period.
         with patch(
             "voice_typer.server.ipc_server.time.monotonic",
             return_value=100.0 + _HEARTBEAT_TIMEOUT_SECONDS - 0.1,
@@ -255,7 +255,7 @@ class TestHeartbeatWatchdog:
         with patch("voice_typer.server.ipc_server.time.monotonic", return_value=100.0):
             server._handle_heartbeat(None, {"id": 1})
 
-        # Exactly at the timeout boundary (15.0s later) — strictly
+        # Exactly at the timeout boundary (15.0s later), strictly
         # greater-than means we need to be even a hair past it.
         with patch(
             "voice_typer.server.ipc_server.time.monotonic",
@@ -297,11 +297,11 @@ class TestHeartbeatWatchdog:
         menu item), ``app._shutting_down`` is ``True`` and the real
         ``VoiceTyperApp.quit()`` is a no-op.  With the fake app we
         simulate this by checking that the watchdog still calls
-        ``app.quit()`` — the real ``quit()`` is itself idempotent
+        ``app.quit()``, the real ``quit()`` is itself idempotent
         (early-returns on ``_shutting_down``), so the call is harmless.
 
         This test documents that the watchdog does NOT pre-check
-        ``_shutting_down`` — it relies on ``app.quit()``'s own
+        ``_shutting_down``, it relies on ``app.quit()``'s own
         idempotency guard.  This is intentional: the watchdog must
         trigger cleanup when it fires, and a redundant call is
         cheaper than a missed cleanup.
@@ -318,7 +318,7 @@ class TestHeartbeatWatchdog:
         ):
             fired = server._check_heartbeat_timeout()
 
-        # Watchdog still fires — relies on app.quit() being idempotent.
+        # Watchdog still fires, relies on app.quit() being idempotent.
         assert fired is True
         server.app.quit.assert_called_once_with()
 
@@ -337,7 +337,7 @@ class TestHeartbeatThreadLifecycle:
         intentionally skips spawning the heartbeat-watchdog thread (the Tauri
         Rust host owns liveness via WS-close + heartbeat dispatch). Other
         tests in the suite set this env var, and the test runner may also
-        inherit it — without an explicit ``delenv`` the four lifecycle tests
+        inherit it, without an explicit ``delenv`` the four lifecycle tests
         below would observe the skip path (``_heartbeat_thread is None``) and
         fail with "0 threads spawned" / "0 calls". Mirrors the same ``delenv``
         pattern used in ``tests/test_ipc_server.py``.
@@ -348,7 +348,7 @@ class TestHeartbeatThreadLifecycle:
     def test_start_spawns_daemon_thread(self) -> None:
         """``start()`` must spawn the heartbeat thread as a daemon.
 
-        Daemon threads don't block process exit — critical because
+        Daemon threads don't block process exit, critical because
         the watchdog sleeps for 5 seconds between checks; if it were
         a non-daemon thread, the process would hang on shutdown until
         the next tick.
@@ -388,7 +388,7 @@ class TestHeartbeatThreadLifecycle:
 
         Without this, the watchdog would linger up to 5 seconds past
         shutdown.  It's a daemon thread, so it wouldn't block process
-        exit — but explicit shutdown is cleaner for test start/stop
+        exit, but explicit shutdown is cleaner for test start/stop
         cycles.
         """
         app = make_fake_app()
@@ -411,8 +411,8 @@ class TestHeartbeatThreadLifecycle:
         """The loop body delegates to ``_check_heartbeat_timeout``.
 
         Verifies the wiring: the loop calls the check method on each
-        tick.  Uses a real (slow) interval — patched to be fast for
-        the test — and asserts the check is invoked at least once
+        tick.  Uses a real (slow) interval, patched to be fast for
+        the test, and asserts the check is invoked at least once
         before stop().
         """
         app = make_fake_app()
@@ -528,7 +528,7 @@ def test_heartbeat_over_real_tcp_socket_updates_timestamp(monkeypatch) -> None:
 
     client_sock, server_sock = socket.socketpair()
 
-    # Run the connection handler in a thread — it blocks on readline()
+    # Run the connection handler in a thread, it blocks on readline()
     # until the client closes.  Pass the expected token directly (the
     # handler requires a non-empty expected_token and does not fall back
     # to the env var when None).
@@ -575,7 +575,7 @@ def test_heartbeat_over_real_tcp_socket_updates_timestamp(monkeypatch) -> None:
 
     assert server._last_heartbeat_at is not None, "heartbeat command over TCP did not update _last_heartbeat_at"
 
-    # Read the response from the client side — should be a
+    # Read the response from the client side, should be a
     # heartbeat_ack with id=1.
     client_sock.settimeout(2.0)
     response_line = b""
@@ -588,7 +588,7 @@ def test_heartbeat_over_real_tcp_socket_updates_timestamp(monkeypatch) -> None:
     assert response["type"] == "heartbeat_ack"
     assert response["id"] == 1
 
-    # Close the client side — server's readline() returns "" (EOF).
+    # Close the client side, server's readline() returns "" (EOF).
     client_sock.close()
     handler_thread.join(timeout=5.0)
     assert not handler_thread.is_alive()

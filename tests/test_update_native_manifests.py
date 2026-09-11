@@ -150,7 +150,7 @@ def test_arch_suffixed_binary_updates_legacy_alias(native_dir: Path) -> None:
 
 
 def test_macos_single_entry(native_dir: Path) -> None:
-    """``macos-key-listener`` has NO alias — only its own entry is touched."""
+    """``macos-key-listener`` has NO alias, only its own entry is touched."""
     _write_binary(native_dir, "macos-key-listener", b"universal-binary")
     expected = hashlib.sha256(b"universal-binary").hexdigest()
 
@@ -253,7 +253,7 @@ def test_multiple_binaries_all_updated(native_dir: Path) -> None:
 
 
 def test_aarch64_binary_does_not_update_legacy(native_dir: Path) -> None:
-    """aarch64 arch-suffixed names have NO legacy alias — only direct entry."""
+    """aarch64 arch-suffixed names have NO legacy alias, only direct entry."""
     _write_binary(native_dir, "linux-key-listener-aarch64", b"aarch64-payload")
     expected = hashlib.sha256(b"aarch64-payload").hexdigest()
 
@@ -262,7 +262,7 @@ def test_aarch64_binary_does_not_update_legacy(native_dir: Path) -> None:
     manifest = json.loads((native_dir / "binaries.json").read_text())
     assert manifest["binaries"]["linux-key-listener-aarch64"]["sha256"] == expected
     # Legacy ``linux-key-listener`` (always x86_64) MUST NOT be touched
-    # by an aarch64 build — that would let an aarch64 binary satisfy
+    # by an aarch64 build, that would let an aarch64 binary satisfy
     # verification for an x86_64 host.
     assert manifest["binaries"]["linux-key-listener"]["sha256"] == ""
     assert manifest["binaries"]["linux-key-listener-x86_64"]["sha256"] == ""
@@ -299,7 +299,7 @@ def test_main_returns_one_on_too_many_args(native_dir: Path) -> None:
 class TestSha256ByArchSync:
     """Legacy manifest entries carry a per-arch ``sha256_by_arch`` dict
     (see the schema in ``binaries.json``). ``update_manifest`` must keep
-    the dict in sync for the arch the build ran on — otherwise every
+    the dict in sync for the arch the build ran on, otherwise every
     manifest regen moves the flat ``sha256`` forward while the per-arch
     hash stays stale, breaking the schema invariant
     (``sha256 == sha256_by_arch.x86_64`` on an x86_64 tree) that the
@@ -368,13 +368,13 @@ class TestSha256ByArchSync:
         assert entry["sha256_by_arch"][other] == "", (
             f"the non-built arch ({other}) must not be fabricated by an update on this host"
         )
-        # The arch-suffixed alias entry has no by-arch dict — untouched shape.
+        # The arch-suffixed alias entry has no by-arch dict, untouched shape.
         assert "sha256_by_arch" not in manifest["binaries"]["linux-key-listener-x86_64"]
         assert manifest["binaries"]["linux-key-listener-x86_64"]["sha256"] == expected
 
     def test_unknown_machine_leaves_by_arch_untouched(self, tmp_path: Path, monkeypatch) -> None:
         """An unrecognized ``platform.machine()`` must not corrupt the
-        ``sha256_by_arch`` dict — only the flat field moves on."""
+        ``sha256_by_arch`` dict, only the flat field moves on."""
         nd = tmp_path / "native"
         nd.mkdir()
         seeded_by_arch = self._seed_manifest_with_by_arch(nd / "binaries.json")

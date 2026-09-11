@@ -36,15 +36,15 @@ import pytest
 from voice_typer.server.native_hotkeys import binary_path
 
 # Hint for xdist schedulers that respect ``xdist_group`` (loadgroup /
-# loadscope): pin every test in this module — and its siblings
+# loadscope): pin every test in this module, and its siblings
 # ``test_binary_path_caching.py``,
 # ``test_native_hotkeys_factory_binary_path.py`` and
-# ``tests/tauri/test_native_binary_path_tauri.py`` — onto a single
+# ``tests/tauri/test_native_binary_path_tauri.py``, onto a single
 # worker. All four exercise ``get_native_binary_path``'s process-wide
 # ``lru_cache(maxsize=1)`` (cleared between tests by the conftest
 # autouse cache-reset fixture); grouping them on one worker is
 # defense-in-depth for that shared cache. xdist's default ``load``
-# scheduler does NOT strictly honor this marker — it is a hint, not a
+# scheduler does NOT strictly honor this marker, it is a hint, not a
 # correctness guarantee. No-op when xdist isn't active. (C-TEST-5.)
 pytestmark = pytest.mark.xdist_group("native_binary_path")
 
@@ -206,7 +206,7 @@ class TestCandidateBinaryNames:
         assert names == ["linux-key-listener"]
 
 
-# ─── get_native_binary_path — happy path (arch-suffixed binary) ─────────────
+# ─── get_native_binary_path, happy path (arch-suffixed binary) ─────────────
 
 
 class TestGetNativeBinaryPathArchSuffix:
@@ -289,7 +289,7 @@ class TestGetNativeBinaryPathArchSuffix:
         assert result.name == "macos-key-listener"
 
 
-# ─── get_native_binary_path — legacy fallback ───────────────────────────────
+# ─── get_native_binary_path, legacy fallback ───────────────────────────────
 
 
 class TestGetNativeBinaryPathLegacyFallback:
@@ -350,7 +350,7 @@ class TestGetNativeBinaryPathLegacyFallback:
         assert result.name == "linux-key-listener-x86_64"
 
 
-# ─── get_native_binary_path — env var & unknown platform ────────────────────
+# ─── get_native_binary_path, env var & unknown platform ────────────────────
 
 
 class TestGetNativeBinaryPathEnvAndUnknown:
@@ -395,13 +395,13 @@ class TestGetNativeBinaryPathEnvAndUnknown:
             lambda: ["linux-key-listener-x86_64", "linux-key-listener"],
         )
         # Override Path.is_file to always return False for our probe
-        # paths — this guarantees None even if the real source tree
+        # paths, this guarantees None even if the real source tree
         # has a compiled binary from a prior test run.
         real_is_file = Path.is_file
 
         def fake_is_file(self):
             # Only allow the empty_dir probes (which will return False
-            # anyway since the dir is empty) — reject everything else
+            # anyway since the dir is empty), reject everything else
             # so the dev-mode + PyInstaller fallbacks all miss.
             if str(self).startswith(str(empty_dir)):
                 return real_is_file(self)

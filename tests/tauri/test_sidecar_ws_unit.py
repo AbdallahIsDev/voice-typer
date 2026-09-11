@@ -4,15 +4,15 @@ These tests do NOT require the `websockets` package to be installed
 (the module lazy-imports it inside `run()`). They exercise the
 auxiliary helpers that ARE importable without the dep:
 
-- :func:`sidecar_ws._force_line_buffered_stdout` — stdout reconfigure.
-- :func:`sidecar_ws._emit_server_started` — JSON protocol.
-- :func:`sidecar_ws._authenticate` — HMAC token check.
-- :func:`sidecar_ws._make_dispatch` — shutdown + rate-limit + dispatch
+- :func:`sidecar_ws._force_line_buffered_stdout`, stdout reconfigure.
+- :func:`sidecar_ws._emit_server_started`, JSON protocol.
+- :func:`sidecar_ws._authenticate`. HMAC token check.
+- :func:`sidecar_ws._make_dispatch`, shutdown + rate-limit + dispatch
   envelope construction.
 
 The full WS round-trip (binding, accepting a connection, reading a
 frame) is exercised by an integration test that requires the dep
-installed — see ``tests/tauri/test_sidecar_ws_integration.py`` (skip
+installed: see ``tests/tauri/test_sidecar_ws_integration.py`` (skip
 if websockets is not installed).
 """
 
@@ -74,7 +74,7 @@ async def test_authenticate_rejects_when_token_env_missing(monkeypatch):
     monkeypatch.delenv("VOICE_TYPER_IPC_TOKEN", raising=False)
     sw = _import_sidecar_ws()
 
-    # Fake websocket — recv() should never be called when the env is missing.
+    # Fake websocket, recv() should never be called when the env is missing.
     ws = MagicMock()
     ws.recv = AsyncMock()
 
@@ -110,7 +110,7 @@ async def test_authenticate_rejects_mismatched_token(monkeypatch):
 
 
 async def test_authenticate_rejects_non_auth_first_frame(monkeypatch):
-    """First frame must be `{"type":"auth",...}` — anything else is rejected."""
+    """First frame must be `{"type":"auth",...}`, anything else is rejected."""
     monkeypatch.setenv("VOICE_TYPER_IPC_TOKEN", "tok")
     sw = _import_sidecar_ws()
 
@@ -153,7 +153,7 @@ async def test_authenticate_rejects_timeout(monkeypatch):
     ws.recv = AsyncMock(side_effect=_never_resolves)
     # Patch the auth timeout down to 0.1s so the test doesn't wait 5s.
     # monkeypatch (not a bare assignment) so the module global is
-    # restored after the test — the bare assignment leaked 0.1 into
+    # restored after the test, the bare assignment leaked 0.1 into
     # sidecar_ws._AUTH_TIMEOUT_SECONDS for every later test in the
     # same pytest process (order-dependent failures in the mig15-17
     # suites' ``== 5.0`` value assertions).
@@ -164,7 +164,7 @@ async def test_authenticate_rejects_timeout(monkeypatch):
 
 
 async def test_authenticate_accepts_bytes_or_str(monkeypatch):
-    """WS frames may arrive as bytes or str — both must work."""
+    """WS frames may arrive as bytes or str, both must work."""
     monkeypatch.setenv("VOICE_TYPER_IPC_TOKEN", "tok")
     sw = _import_sidecar_ws()
 
@@ -182,11 +182,11 @@ async def test_dispatch_shutdown_returns_ack_and_schedules_quit(monkeypatch):
     every other command.
 
     the WS path used to special-case
-    ``shutdown`` here — it acked immediately with ``{"ack": True}`` and
+    ``shutdown`` here, it acked immediately with ``{"ack": True}`` and
     scheduled ``app.quit()`` on a background thread. relocated
     the shutdown handler to the shared ``_COMMAND_REGISTRY`` entry
     ``"shutdown": "_handle_shutdown"`` (registered in ipc_server.py),
-    which delegates to ``service.quit()`` — the SAME path the TCP
+    which delegates to ``service.quit()``, the SAME path the TCP
     ``quit_app`` command uses. The special-case is removed; ``shutdown``
     now flows through ``server._dispatch`` like every other command.
 
@@ -249,7 +249,7 @@ async def test_dispatch_missing_type_returns_invalid_payload():
 
 
 async def test_dispatch_non_string_type_returns_invalid_payload():
-    """`type` must be a string — numbers/None/objects are rejected.
+    """`type` must be a string, numbers/None/objects are rejected.
 
     RT-FIX-9 / EC-FIX-2: error codes are now namespaced. Accept either
     the canonical ``client.invalid_payload`` form or the bare legacy
@@ -322,7 +322,7 @@ def test_force_line_buffered_stdout_does_not_crash():
     """The reconfigure call must not raise. We can't easily assert the
     buffering mode from inside the test (Python's stdout reconfigure
     is not introspectable post-call), but a clean return is the
-    contract — the host depends on it not raising."""
+    contract, the host depends on it not raising."""
     sw = _import_sidecar_ws()
     # Should be a no-op-or-reconfigure, never raise.
     sw._force_line_buffered_stdout()
@@ -347,7 +347,7 @@ def test_max_frame_bytes_is_1_mib():
 #
 # the previous ``test_shutdown_ack_timeout_is_2s`` test asserted
 # ``sidecar_ws._SHUTDOWN_ACK_TIMEOUT_SECONDS == 2.0``. That Python
-# constant was dead code — Python never enforced the cooperative-shutdown
+# constant was dead code, Python never enforced the cooperative-shutdown
 # timeout (it just acked ``{"type":"shutdown"}`` and exited; the Rust
 # host's kill-children backstop is what enforces the 2s window). The
 # constant was deleted, so the test was deleted too.

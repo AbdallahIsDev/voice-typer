@@ -26,12 +26,12 @@ class WaylandHotkey(HotkeyBackend):
     M-88 (security): when ``$XDG_RUNTIME_DIR`` is unset, the socket
     server is **refused** (returns ``None`` from ``_socket_path()``)
     and the backend falls back to pynput-only. Previously, the code
-    fell back to ``/tmp/voice-typer-hotkey.sock`` — a world-writable
+    fell back to ``/tmp/voice-typer-hotkey.sock``: a world-writable
     directory where another local user could pre-create a symlink at
     that path, causing ``bind()`` to write to (and ``chmod()`` to
     secure) an attacker-controlled file (classic /tmp symlink attack).
     The clear warning ``XDG_RUNTIME_DIR unset; Wayland hotkey socket
-    disabled — set XDG_RUNTIME_DIR or run via systemd user session.``
+    disabled, set XDG_RUNTIME_DIR or run via systemd user session.``
     is logged so the user knows how to fix the environment.
 
     Falls back to pynput if the socket fails (or is disabled), with a
@@ -40,7 +40,7 @@ class WaylandHotkey(HotkeyBackend):
 
     No-client detection: the socket backend is only useful if an
     external tool actually connects to send commands. On aarch64 Linux
-    Wayland (where the native evdev binary isn't built — ),
+    Wayland (where the native evdev binary isn't built, ),
     users get a socket nobody writes to + a pynput fallback that
     silently no-ops; the dictation hotkey appears dead with no
     actionable error. After ``NO_CLIENT_GRACE_SECONDS`` (30s) with no
@@ -58,7 +58,7 @@ class WaylandHotkey(HotkeyBackend):
     # session, each one used to bind the SAME socket path
     # (``$XDG_RUNTIME_DIR/voice-typer-hotkey.sock``). The second
     # ``start()`` would ``os.unlink`` the first backend's socket and
-    # bind a new one — silently killing the first backend's IPC
+    # bind a new one, silently killing the first backend's IPC
     # listener. The fix: each backend gets a per-role suffix.
     @staticmethod
     def _sanitize_role(role: str | None) -> str:
@@ -89,19 +89,19 @@ class WaylandHotkey(HotkeyBackend):
     # the rest of the class (and tests) can use ``self.SOCKET_PATH``
     # attribute-style access. Previously the code referenced
     # ``self.SOCKET_PATH`` (uppercase) but only a private
-    # ``_socket_path()`` staticmethod existed — a real bug that would
+    # ``_socket_path()`` staticmethod existed, a real bug that would
     # have raised AttributeError at runtime on every code path. The
     # property delegates to the staticmethod so the logic stays in one
     # place.
     #
-    # M-88: the property is now ``str | None`` — ``None`` signals that
+    # M-88: the property is now ``str | None``, ``None`` signals that
     # ``XDG_RUNTIME_DIR`` is unset and the socket is disabled.
     #
     # The property now passes ``self._role`` to
     # ``_socket_path()`` so each backend instance binds its own
     # per-role socket filename.
     @property
-    def SOCKET_PATH(self) -> str | None:  # noqa: N802 — matches existing attr-access call sites
+    def SOCKET_PATH(self) -> str | None:  # noqa: N802, matches existing attr-access call sites
         return self._socket_path(self._role)
 
     PING_RESPONSE = b"pong\n"
@@ -113,7 +113,7 @@ class WaylandHotkey(HotkeyBackend):
     # ``_start_pynput_fallback_with_timeout``) so the two warnings
     # (socket has no client + pynput fallback timed out) fire together
     # and give the user a single, coherent "your hotkey isn't working
-    # — here's how to fix it" signal rather than two staggered
+    # , here's how to fix it" signal rather than two staggered
     # warnings 30s apart.
     NO_CLIENT_GRACE_SECONDS: float = 30.0
 
@@ -154,7 +154,7 @@ class WaylandHotkey(HotkeyBackend):
         super().__init__(hotkey_str)
         self._hotkey_str = hotkey_str
         self._callback: Callable[[], None] | None = None
-        # typed as Any — socket is created lazily inside start()
+        # typed as Any, socket is created lazily inside start()
         # and remains None if the socket bind fails. _accept_loop checks
         # self._alive before touching this socket, but pyrefly cannot
         # prove the narrowing across the thread boundary.
@@ -168,7 +168,7 @@ class WaylandHotkey(HotkeyBackend):
         # connects to send "toggle"/"ping" commands. On aarch64 Linux
         # Wayland (where the native evdev binary isn't built), users
         # get a socket nobody writes to + a pynput fallback that
-        # silently no-ops — the dictation hotkey appears dead with no
+        # silently no-ops, the dictation hotkey appears dead with no
         # actionable error. We track whether ANY client has ever
         # connected and, after a grace period, surface an actionable
         # warning so the user knows how to fix it (install
@@ -203,7 +203,7 @@ class WaylandHotkey(HotkeyBackend):
         no-client timer thread. If a client connects before the grace
         period elapses, the callback is never invoked.
 
-        The callback is optional — without it, the warning is logged
+        The callback is optional: without it, the warning is logged
         only. This keeps the WaylandHotkey backend decoupled from the
         tray module (which lives in a different layer and would create
         an import cycle if imported here).
@@ -229,7 +229,7 @@ class WaylandHotkey(HotkeyBackend):
         if self.SOCKET_PATH is None:
             log.warning(
                 "[HOTKEY-WAYLAND] XDG_RUNTIME_DIR unset; Wayland hotkey "
-                "socket disabled — set XDG_RUNTIME_DIR or run via systemd "
+                "socket disabled. Set XDG_RUNTIME_DIR or run via systemd "
                 "user session."
             )
             self._start_pynput_fallback()
@@ -257,7 +257,7 @@ class WaylandHotkey(HotkeyBackend):
         # window, the fallback is suppressed entirely (the socket is
         # already servicing commands, pynput would just waste CPU).
         # The fallback is also skipped unconditionally when the session
-        # is Wayland without DISPLAY — pynput's X11 backend cannot
+        # is Wayland without DISPLAY, pynput's X11 backend cannot
         # initialize there, so starting it just delays the inevitable
         # failure log.
         self._schedule_deferred_pynput_fallback()
@@ -273,7 +273,7 @@ class WaylandHotkey(HotkeyBackend):
         timer and pynput is never started.
 
         The fallback is also skipped when the session is Wayland AND
-        ``$DISPLAY`` is unset — pynput's X11 backend cannot initialize
+        ``$DISPLAY`` is unset, pynput's X11 backend cannot initialize
         without an X server (XWayland or otherwise), so starting it is
         pure overhead with a guaranteed failure log. On a Wayland+
         XWayland host (``DISPLAY=:0`` set), the fallback still runs
@@ -281,7 +281,7 @@ class WaylandHotkey(HotkeyBackend):
         """
         if os.environ.get("XDG_SESSION_TYPE") == "wayland" and not os.environ.get("DISPLAY"):
             log.debug(
-                "[HOTKEY-WAYLAND] Skipping pynput fallback — Wayland session "
+                "[HOTKEY-WAYLAND] Skipping pynput fallback. Wayland session "
                 "with no DISPLAY (pynput's X11 backend cannot initialize)"
             )
             return
@@ -299,14 +299,14 @@ class WaylandHotkey(HotkeyBackend):
 
         Idempotent: if a client connected between the timer being
         scheduled and firing, ``_client_ever_connected`` is set and we
-        skip the pynput launch — the socket is already working, pynput
+        skip the pynput launch, the socket is already working, pynput
         would just waste CPU. Also no-ops if ``stop()`` was called
         during the defer window (``_alive`` is False).
         """
         if not self._alive:
             return
         if self._client_ever_connected.is_set():
-            log.debug("[HOTKEY-WAYLAND] IPC client connected during pynput defer window — suppressing pynput fallback")
+            log.debug("[HOTKEY-WAYLAND] IPC client connected during pynput defer window, suppressing pynput fallback")
             return
         self._start_pynput_fallback_with_timeout()
 
@@ -322,7 +322,7 @@ class WaylandHotkey(HotkeyBackend):
         ``stop()`` during teardown.
         """
         # Cancel any stale timer from a previous start() cycle (defensive
-        # — start() clears the timer ref in stop(), but be robust to
+        # , start() clears the timer ref in stop(), but be robust to
         # double-start).
         if self._no_client_timer is not None:
             self._no_client_timer.cancel()
@@ -340,25 +340,25 @@ class WaylandHotkey(HotkeyBackend):
         silently no-op.
         """
         if not self._alive:
-            # stop() was called during the grace period — don't warn.
+            # stop() was called during the grace period, don't warn.
             return
         if self._client_ever_connected.is_set():
             # A client connected between the timer firing and this
-            # callback running — no warning needed.
+            # callback running, no warning needed.
             return
         socket_path = self.SOCKET_PATH
         if socket_path is None:
             # XDG_RUNTIME_DIR was unset between start() and now
             # (shouldn't happen in practice, but be defensive).
             return
-        title = "Voice Typer — Wayland Hotkey Idle"
+        title = "Voice Typer. Wayland Hotkey Idle"
         message = (
             "Wayland hotkey backend active but no external tool is "
             f"sending commands. Install linux-key-listener, or send "
             f"'toggle' to {socket_path} (e.g. `echo -n toggle | nc -U "
             f"{socket_path}`)."
         )
-        log.warning("[HOTKEY-WAYLAND] %s — %s", title, message)
+        log.warning("[HOTKEY-WAYLAND] %s, %s", title, message)
         if self._on_no_client is not None:
             try:
                 self._on_no_client(title, message)
@@ -380,7 +380,7 @@ class WaylandHotkey(HotkeyBackend):
 
         # M-88: SOCKET_PATH is None when XDG_RUNTIME_DIR is unset.
         # ``start()`` guards this before calling us, but be defensive
-        # in case of direct calls — refuse to bind anywhere under /tmp.
+        # in case of direct calls, refuse to bind anywhere under /tmp.
         socket_path = self.SOCKET_PATH
         if socket_path is None:
             raise RuntimeError("XDG_RUNTIME_DIR unset; refusing to use /tmp fallback (M-88: /tmp symlink attack)")
@@ -478,10 +478,10 @@ class WaylandHotkey(HotkeyBackend):
     def _start_pynput_fallback(self) -> None:
         """Start pynput as a direct fallback (no socket)."""
         # _callback may be None if start() was never called with
-        # one — guard before forwarding to PynputHotkey.start(), which
+        # one, guard before forwarding to PynputHotkey.start(), which
         # has a non-Optional callback contract.
         if self._callback is None:
-            log.warning("[HOTKEY-WAYLAND] Cannot start pynput fallback — no callback registered")
+            log.warning("[HOTKEY-WAYLAND] Cannot start pynput fallback, no callback registered")
             return
         try:
             self._pynput_fallback = PynputHotkey(self._hotkey_str)
@@ -491,10 +491,10 @@ class WaylandHotkey(HotkeyBackend):
             log.warning("[HOTKEY-WAYLAND] Pynput fallback also failed: %s", exc)
 
     def _start_pynput_fallback_with_timeout(self) -> None:
-        """Start pynput with a timeout — kill it if it doesn't respond."""
+        """Start pynput with a timeout, kill it if it doesn't respond."""
         # same callback guard as _start_pynput_fallback.
         if self._callback is None:
-            log.warning("[HOTKEY-WAYLAND] Cannot start pynput fallback — no callback registered")
+            log.warning("[HOTKEY-WAYLAND] Cannot start pynput fallback, no callback registered")
             return
         try:
             self._pynput_fallback = PynputHotkey(self._hotkey_str)
@@ -502,7 +502,7 @@ class WaylandHotkey(HotkeyBackend):
             log.info("[HOTKEY-WAYLAND] Pynput fallback started (with timeout)")
 
             # Set a timer to stop pynput if it doesn't fire within 30s
-            # On Wayland, pynput usually silently fails — the timer
+            # On Wayland, pynput usually silently fails, the timer
             # cleans it up so it doesn't waste resources.
             self._pynput_timer = threading.Timer(30.0, self._stop_pynput_fallback)
             self._pynput_timer.daemon = True
@@ -536,7 +536,7 @@ class WaylandHotkey(HotkeyBackend):
         if self._no_client_timer is not None:
             self._no_client_timer.cancel()
             self._no_client_timer = None
-        # cancel the deferred pynput fallback timer too — if
+        # cancel the deferred pynput fallback timer too, if
         # stop() runs during the defer window, pynput should never be
         # started. ``_on_pynput_deferred_timeout`` also re-checks
         # ``_alive`` so a race between the timer firing and stop() is
@@ -563,7 +563,7 @@ class WaylandHotkey(HotkeyBackend):
             self._thread.join(timeout=1.0)
             self._thread = None
         # M-88: SOCKET_PATH may be None if XDG_RUNTIME_DIR was unset at
-        # start() time — in that case the socket was never created, so
+        # start() time, in that case the socket was never created, so
         # there is nothing to unlink. Guard against None to avoid an
         # AttributeError / TypeError from os.path.exists(None).
         socket_path = self.SOCKET_PATH
@@ -588,7 +588,7 @@ class WaylandHotkey(HotkeyBackend):
             socket_ok = os.path.exists(socket_path)
         thread_alive = self._thread is not None and self._thread.is_alive()
         pynput_alive = self._pynput_fallback is not None and self._pynput_fallback.is_alive()
-        # Report whether any IPC client has ever connected — the
+        # Report whether any IPC client has ever connected, the
         # no-client warning fires after NO_CLIENT_GRACE_SECONDS if this
         # is False, so surfacing it in diagnose() lets the user (and
         # the onboarding flow) tell apart "socket listening + clients
@@ -603,7 +603,7 @@ class WaylandHotkey(HotkeyBackend):
 
 #  verify-compat alias: some downstream callers and the F20
 # verify command import the class as ``WaylandHotkeyBackend``. Keep
-# both names available — the canonical name remains ``WaylandHotkey``
+# both names available, the canonical name remains ``WaylandHotkey``
 # (matches the existing ``WaylandHotkey`` references in factory.py,
 # native_adapter.py, __init__.py and the existing test suite).
 WaylandHotkeyBackend = WaylandHotkey

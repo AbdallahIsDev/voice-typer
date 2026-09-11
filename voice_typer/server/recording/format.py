@@ -12,7 +12,7 @@ and instance-level monkeypatches keep working unchanged.
 
 Cold-start compatibility
 ------------------------
-Importing this module must NOT pull numpy into ``sys.modules`` — the
+Importing this module must NOT pull numpy into ``sys.modules``, the
 numpy proxy is created lazily at the bottom of this file, mirroring
 ``recorder.py`` (the ~250-335 ms cold-start saving documented there).
 
@@ -52,14 +52,14 @@ def ensure_mono(recorder: Recorder, audio: Any) -> Any:
     allocation on the 16 Hz audio-worker hot path while keeping the
     number of passes minimal: one allocation, one add pass, one scale
     pass. (An earlier revision computed into a per-thread scratch and
-    returned ``view.copy()`` — the copy allocated a fresh array anyway,
+    returned ``view.copy()``: the copy allocated a fresh array anyway,
     so the scratch saved nothing and added a third memcpy pass. The
     scratch holder ``recorder._mono_scratch_local`` is still declared
     on ``Recorder`` because its presence in ``__init__`` is pinned by
     the mono/downmix regression tests.) The result is a fresh,
-    caller-owned array — it can be stored in ``_buffer`` /
+    caller-owned array, it can be stored in ``_buffer`` /
     ``_preroll_buffer`` without aliasing anything. The ``>2``-channel
-    path (rare — channels are clamped to [1, 2] at stream-open time)
+    path (rare, channels are clamped to [1, 2] at stream-open time)
     falls back to ``np.mean`` for simplicity.
 
     No-copy paths: 1-D input is returned as-is, and a 2-D single-column
@@ -67,7 +67,7 @@ def ensure_mono(recorder: Recorder, audio: Any) -> Any:
     (safe: callers either read it immediately or copy-on-append into
     the growable recording storage).
 
-    Thread safety: no shared mutable state — every call either returns
+    Thread safety: no shared mutable state, every call either returns
     a view of its own input or a freshly allocated array, so the audio
     worker thread and the RT callback's pre-roll path cannot interfere.
     """
@@ -77,7 +77,7 @@ def ensure_mono(recorder: Recorder, audio: Any) -> Any:
         n = audio.shape[0]
         if audio.shape[1] == 2:
             # Fast path: stereo downmix via in-place add + scale into a
-            # fresh output array. One allocation, two passes — same
+            # fresh output array. One allocation, two passes, same
             # element-wise operations (and therefore identical output
             # bytes) as the earlier scratch+``view.copy()`` version,
             # without the extra copy pass. The result is caller-owned,
@@ -86,7 +86,7 @@ def ensure_mono(recorder: Recorder, audio: Any) -> Any:
             np.add(audio[:, 0], audio[:, 1], out=out)
             out *= 0.5
             return out
-        # >2 channels (rare — clamped to [1,2] at stream-open):
+        # >2 channels (rare, clamped to [1,2] at stream-open):
         # fall back to np.mean which handles arbitrary channel
         # counts. The allocation cost is acceptable for this rare
         # path.
@@ -127,7 +127,7 @@ def prepare_audio(
     log_resample: bool = True,
 ) -> Any:
     """Convert captured audio to the configured sample rate (a standalone
-    module function — the historical ``Recorder._prepare_audio`` pure
+    module function, the historical ``Recorder._prepare_audio`` pure
     delegator was removed; callers invoke this function directly).
 
     previously the except blocks used bare ``Exception``,
@@ -154,7 +154,7 @@ def prepare_audio(
     return audio
 
 
-# Lazy numpy proxy — MUST stay a lazy import (see module docstring
+# Lazy numpy proxy. MUST stay a lazy import (see module docstring
 # §Cold-start compatibility); sibling modules follow the same pattern.
 from voice_typer.server._lazy_import import lazy_module  # noqa: E402
 

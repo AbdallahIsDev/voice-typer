@@ -23,7 +23,7 @@ from voice_typer.server.ipc.validation import (  # noqa: F401
 
 # Maximum serialized response size for ``get_history`` / ``get_favorites`` /
 # ``search_history`` before the handler proactively truncates row ``text``
-# previews further. Mirrors ``sidecar_ws._MAX_FRAME_BYTES`` (1 MiB) — the
+# previews further. Mirrors ``sidecar_ws._MAX_FRAME_BYTES`` (1 MiB), the
 # Tauri WS layer SILENTLY DROPS frames exceeding this cap, which previously
 # manifested as the Dashboard's "Total Dictations" stat never updating once
 # dictation texts grew past ~5KB avg × 200 rows = 1MB. The 32KB headroom
@@ -39,7 +39,7 @@ _HISTORY_MAX_FRAME_BYTES = 1 * 1024 * 1024 - 32 * 1024
 # :meth:`HistoryHandlersMixin._extract_history_cursor`). ``before_id``
 # accepts ``(int, str)`` for the same form-string reason as ``limit`` /
 # ``offset``; ``bool`` is explicitly REJECTED (a Python ``True`` /
-# ``False`` is also an ``int`` subclass — without ``reject_bool`` the
+# ``False`` is also an ``int`` subclass: without ``reject_bool`` the
 # cursor would silently become ``1``/``0``).
 _HISTORY_CURSOR_FIELDS: dict = {
     "before_timestamp": {"type": str, "required": False, "default": None},
@@ -62,7 +62,7 @@ class HistoryHandlersMixin(HandlerBase):
     """
 
     # The ``service`` / ``app`` / ``_send`` annotations are inherited
-    # from :class:`HandlerMixinBase` — no per-mixin re-declaration
+    # from :class:`HandlerMixinBase`: no per-mixin re-declaration
     # needed (the duplicate block removed here was one of four that
     # the  centralization refactor missed).
 
@@ -77,8 +77,8 @@ class HistoryHandlersMixin(HandlerBase):
         non-negative invariant (a negative keyset row id has no
         meaning in SQLite's auto-increment primary key).
 
-        Returns ``(before_timestamp, before_id)`` — both ``None`` when
-        the payload carries no usable cursor — or an error-envelope
+        Returns ``(before_timestamp, before_id)``: both ``None`` when
+        the payload carries no usable cursor, or an error-envelope
         ``dict`` when ``before_id`` is negative, which the caller
         returns verbatim (the same ``list | dict`` return convention
         as :meth:`_enforce_history_frame_cap`). The
@@ -107,7 +107,7 @@ class HistoryHandlersMixin(HandlerBase):
     def _handle_get_history(self, data: dict | None, resp: dict) -> dict | None:
         """Handle the ``get_history`` IPC command.
 
-        Migrated to :meth:`HandlerBase._wrap` — the helper handles
+        Migrated to :meth:`HandlerBase._wrap`: the helper handles
         the surrounding ``try/except`` → ``_respond_with_error``
         catch-all and the non-dict ``data`` pre-coercion (``None`` /
         list → ``{}``) that the inline ``if not isinstance(data, dict):
@@ -122,7 +122,7 @@ class HistoryHandlersMixin(HandlerBase):
             # (list → defaults) still holds. ``required: False`` (no
             # default) means absent fields fall through to the
             # ``_bound_history_limit`` / ``_bound_history_offset``
-            # clamping helpers (50 / 0) — preserving the existing
+            # clamping helpers (50 / 0), preserving the existing
             # ``test_default_limit_offset_when_payload_missing``
             # contract.
             #
@@ -137,7 +137,7 @@ class HistoryHandlersMixin(HandlerBase):
             #
             # Keyset pagination cursor (``before_timestamp`` /
             # ``before_id``) follows the shared
-            # ``_HISTORY_CURSOR_FIELDS`` contract — see
+            # ``_HISTORY_CURSOR_FIELDS`` contract: see
             # :meth:`_extract_history_cursor` for the both-required /
             # negative-reject semantics.
             validated, error = _validate_dict_payload(
@@ -168,7 +168,7 @@ class HistoryHandlersMixin(HandlerBase):
                 rows = self.service.get_history(limit, offset)
             # Defense-in-depth size check. ``get_recent`` already
             # projects ``text`` to a 500-char preview at the SQL layer,
-            # so a 500-row response is ~350KB worst-case — well under
+            # so a 500-row response is ~350KB worst-case, well under
             # the 1 MiB WS frame cap. But other columns (``model``,
             # ``device``, ``language``) are unbounded at the schema
             # level, and a future schema change could re-introduce a
@@ -204,13 +204,13 @@ class HistoryHandlersMixin(HandlerBase):
         handlers below) AFTER the service returns rows. The SQL layer
         already truncates ``text`` to ``_HISTORY_TEXT_PREVIEW_LENGTH``
         (500) chars per row, so this method is a no-op in the common
-        case — it only kicks in when the *cumulative* serialized size
+        case, it only kicks in when the *cumulative* serialized size
         exceeds the cap (e.g. a future schema change adds a large
         column, or the renderer requests ``limit=500`` with rows whose
         ``model`` / ``device`` fields are unusually long).
 
         Halving each row's ``text`` per iteration is O(log L) per row
-        where L is the preview length — at most ~9 iterations to bring
+        where L is the preview length, at most ~9 iterations to bring
         a 500-char preview down to 1 char. The loop bails out as soon
         as the serialized size fits. ``text_truncated`` is forced
         ``True`` on every row that was shortened so the renderer's
@@ -221,7 +221,7 @@ class HistoryHandlersMixin(HandlerBase):
         degenerate case where the response still doesn't fit after
         aggressive truncation. Previously the function returned the
         oversized rows at that point and accepted the WS-layer frame
-        drop (a silent failure — the client saw no response). Now it
+        drop (a silent failure, the client saw no response). Now it
         returns an error-envelope dict instead, so the caller fails
         fast with a clear structured error rather than producing a
         frame that is silently dropped.
@@ -264,7 +264,7 @@ class HistoryHandlersMixin(HandlerBase):
                     row["text_truncated"] = True
                     shortened_any = True
             if not shortened_any:
-                # Every row is already at the floor — bail out.
+                # Every row is already at the floor, bail out.
                 break
             try:
                 serialized = json.dumps(rows, ensure_ascii=False, default=str).encode("utf-8")
@@ -311,11 +311,11 @@ class HistoryHandlersMixin(HandlerBase):
     def _handle_delete_history(self, data: dict | None, resp: dict) -> dict | None:
         """Handle the ``delete_history`` IPC command.
 
-        Migrated to :meth:`HandlerBase._wrap` with ``pre_coerce=False``
-        — the helper handles the surrounding ``try/except`` →
-        ``_respond_with_error`` catch-all while passing non-dict
-        ``data`` through unchanged so the schema still rejects it with
-        ``invalid_payload``.
+         Migrated to :meth:`HandlerBase._wrap` with ``pre_coerce=False``
+        , the helper handles the surrounding ``try/except`` →
+         ``_respond_with_error`` catch-all while passing non-dict
+         ``data`` through unchanged so the schema still rejects it with
+         ``invalid_payload``.
         """
 
         def body(d: dict) -> dict:
@@ -342,27 +342,27 @@ class HistoryHandlersMixin(HandlerBase):
     def _handle_restore_history(self, data: dict | None, resp: dict) -> dict | None:
         """Handle the ``restore_history`` IPC command.
 
-        re-insert a previously-deleted record so the
-                renderer's Undo-delete toast can recover the entry.
+         re-insert a previously-deleted record so the
+                 renderer's Undo-delete toast can recover the entry.
 
-        added a 256 KB whole-payload cap
-                (``max_payload_bytes``) and an inline 8192-char per-field
-                cap on ``record['text']``. Without these guards, a
-                misbehaving caller could push a multi-MB ``record`` blob
-                (or a single 1 MB ``text`` field) that the history store
-                would happily persist, bloating the SQLite DB and the
-                diagnostics bundle. The whole-payload cap catches a
-                caller who stuffs a giant blob into a non-``text`` field;
-                the per-field cap catches a caller who stuffs it into
-                ``text`` specifically.
+         added a 256 KB whole-payload cap
+                 (``max_payload_bytes``) and an inline 8192-char per-field
+                 cap on ``record['text']``. Without these guards, a
+                 misbehaving caller could push a multi-MB ``record`` blob
+                 (or a single 1 MB ``text`` field) that the history store
+                 would happily persist, bloating the SQLite DB and the
+                 diagnostics bundle. The whole-payload cap catches a
+                 caller who stuffs a giant blob into a non-``text`` field;
+                 the per-field cap catches a caller who stuffs it into
+                 ``text`` specifically.
 
-        Migrated to :meth:`HandlerBase._wrap` with ``pre_coerce=False``
-        — the helper handles the surrounding ``try/except`` →
-        ``_respond_with_error`` catch-all while passing non-dict
-        ``data`` through unchanged so the schema still rejects it with
-        ``invalid_payload``. The per-field ``text`` cap
-        early-return routes through :meth:`HandlerBase._error_response`
-        (same envelope shape as the previous inline construction).
+         Migrated to :meth:`HandlerBase._wrap` with ``pre_coerce=False``
+        , the helper handles the surrounding ``try/except`` →
+         ``_respond_with_error`` catch-all while passing non-dict
+         ``data`` through unchanged so the schema still rejects it with
+         ``invalid_payload``. The per-field ``text`` cap
+         early-return routes through :meth:`HandlerBase._error_response`
+         (same envelope shape as the previous inline construction).
         """
 
         # 256 KB whole-payload cap (see below). The helper's
@@ -417,11 +417,11 @@ class HistoryHandlersMixin(HandlerBase):
     def _handle_toggle_favorite(self, data: dict | None, resp: dict) -> dict | None:
         """Handle the ``toggle_favorite`` IPC command.
 
-        Migrated to :meth:`HandlerBase._wrap` with ``pre_coerce=False``
-        — the helper handles the surrounding ``try/except`` →
-        ``_respond_with_error`` catch-all while passing non-dict
-        ``data`` through unchanged so the schema still rejects it with
-        ``invalid_payload``.
+         Migrated to :meth:`HandlerBase._wrap` with ``pre_coerce=False``
+        , the helper handles the surrounding ``try/except`` →
+         ``_respond_with_error`` catch-all while passing non-dict
+         ``data`` through unchanged so the schema still rejects it with
+         ``invalid_payload``.
         """
 
         def body(d: dict) -> dict:
@@ -445,7 +445,7 @@ class HistoryHandlersMixin(HandlerBase):
     def _handle_get_favorites(self, data: dict | None, resp: dict) -> dict | None:
         """Handle the ``get_favorites`` IPC command.
 
-        Migrated to :meth:`HandlerBase._wrap` — the helper handles
+        Migrated to :meth:`HandlerBase._wrap`: the helper handles
         the surrounding ``try/except`` → ``_respond_with_error``
         catch-all and the non-dict ``data`` pre-coercion that the
         inline ``if not isinstance(data, dict): data = {}`` guard
@@ -455,10 +455,10 @@ class HistoryHandlersMixin(HandlerBase):
         def body(d: dict) -> dict:
             # validate ``limit`` / ``offset`` types via the
             # shared ``_validate_dict_payload`` helper. Same pattern as
-            # ``_handle_get_history`` (above) — ``(int, str)`` accepts
+            # ``_handle_get_history`` (above), ``(int, str)`` accepts
             # numeric strings from form inputs. Keyset cursor
             # (``before_timestamp`` / ``before_id``) follows the shared
-            # ``_HISTORY_CURSOR_FIELDS`` contract — see
+            # ``_HISTORY_CURSOR_FIELDS`` contract: see
             # :meth:`_extract_history_cursor` for the both-required /
             # negative-reject semantics.
             validated, error = _validate_dict_payload(
@@ -502,7 +502,7 @@ class HistoryHandlersMixin(HandlerBase):
     def _handle_search_history(self, data: dict | None, resp: dict) -> dict | None:
         """Handle the ``search_history`` IPC command.
 
-        Migrated to :meth:`HandlerBase._wrap` — the helper handles
+        Migrated to :meth:`HandlerBase._wrap`: the helper handles
         the surrounding ``try/except`` → ``_respond_with_error``
         catch-all and the non-dict ``data`` pre-coercion that the
         inline ``if not isinstance(data, dict): data = {}`` guard
@@ -580,14 +580,14 @@ class HistoryHandlersMixin(HandlerBase):
         ``transcription_final``-triggered refresh doesn't run a full
         ``COUNT(*)`` scan on every dictation.
 
-        The handler takes no required payload — an empty dict (or no
+        The handler takes no required payload, an empty dict (or no
         ``data`` at all) is the expected request shape. A non-dict
         ``data`` is coerced to ``{}`` for forward compatibility (a
         future caller could pass ``{"force_refresh": true}`` to bypass
-        the cache — not currently implemented, but the schema accepts
+        the cache, not currently implemented, but the schema accepts
         any dict so the request doesn't fail).
 
-        Migrated to :meth:`HandlerBase._wrap` — the helper handles the
+        Migrated to :meth:`HandlerBase._wrap`: the helper handles the
         ``try/except`` → ``_respond_with_error`` catch-all and the
         non-dict ``data`` pre-coercion identically.
         """
@@ -607,27 +607,27 @@ class HistoryHandlersMixin(HandlerBase):
     def _handle_get_transcription_text(self, data: dict | None, resp: dict) -> dict | None:
         """Handle the ``get_transcription_text`` IPC command.
 
-        Returns the FULL text of a single transcription row by id.
-        Companion to the 500-char ``text`` preview returned by
-        ``get_history`` / ``get_favorites`` / ``search_history``.
-        The renderer fetches the full text on demand (when the user
-        expands a row in the History page) so list responses stay
-        under the 1 MiB WS frame cap.
+         Returns the FULL text of a single transcription row by id.
+         Companion to the 500-char ``text`` preview returned by
+         ``get_history`` / ``get_favorites`` / ``search_history``.
+         The renderer fetches the full text on demand (when the user
+         expands a row in the History page) so list responses stay
+         under the 1 MiB WS frame cap.
 
-        Request shape: ``{"id": int | str}`` — same ``id`` schema as
-        ``delete_history`` / ``toggle_favorite`` (accepts string IDs
-        from form inputs). Response shape: ``{"type": "transcription_text",
-        "data": {"id": int, "text": str}}`` — the renderer uses the
-        ``text`` field to replace the row's truncated preview.
+         Request shape: ``{"id": int | str}``: same ``id`` schema as
+         ``delete_history`` / ``toggle_favorite`` (accepts string IDs
+         from form inputs). Response shape: ``{"type": "transcription_text",
+         "data": {"id": int, "text": str}}``: the renderer uses the
+         ``text`` field to replace the row's truncated preview.
 
-        If the row doesn't exist, the response returns ``text: ""``
-        (matching the ``HistoryDB.get_transcription_text`` sentinel).
-        The renderer treats an empty string as "no text to show".
+         If the row doesn't exist, the response returns ``text: ""``
+         (matching the ``HistoryDB.get_transcription_text`` sentinel).
+         The renderer treats an empty string as "no text to show".
 
-        Migrated to :meth:`HandlerBase._wrap` with ``pre_coerce=False``
-        — non-dict ``data`` passes through unchanged so the schema
-        still rejects it with ``client.invalid_payload`` (the behavior
-        the previous no-coercion implementation pinned).
+         Migrated to :meth:`HandlerBase._wrap` with ``pre_coerce=False``
+        , non-dict ``data`` passes through unchanged so the schema
+         still rejects it with ``client.invalid_payload`` (the behavior
+         the previous no-coercion implementation pinned).
         """
 
         def body(d: dict) -> dict:

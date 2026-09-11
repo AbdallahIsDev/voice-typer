@@ -1,4 +1,4 @@
-// lib/theme-palette.ts — resolve the app's live theme tokens into
+// lib/theme-palette.ts, resolve the app's live theme tokens into
 // concrete hex colours for the share-stats image.
 //
 // The stats image is captured via html-to-image, which serializes the
@@ -8,12 +8,12 @@
 // with RESOLVED hex colours, not `var(--…)` references.
 //
 // Single source of truth: the CSS custom properties currently applied
-// on `document.documentElement` — the same tokens every themed surface
+// on `document.documentElement`, the same tokens every themed surface
 // in the app renders with (theme presets set them via `applyThemeVars`,
 // custom themes via `applyThemeVars(presetId='custom', …, customVars)`).
 // We read them live at render time and convert each oklch/rgb/hsl value
 // to hex via `cssColorToHex` (which resolves through a hidden DOM
-// probe — the browser's own var()/oklch resolution — with a manual
+// probe, the browser's own var()/oklch resolution, with a manual
 // oklch parser fallback). A future theme change automatically flows
 // into the exported image with no edits in the stats-image module.
 import { useEffect, useMemo, useState } from "react";
@@ -63,7 +63,7 @@ export const FALLBACK_THEME_PALETTE: StatsThemePalette = {
  *
  * Pure DOM read (no React) so it can be called from tests and from
  * non-component code. Falls back to `FALLBACK_THEME_PALETTE` per-token
- * when a variable is missing or unparseable — the image must never
+ * when a variable is missing or unparseable, the image must never
  * render with `transparent`/broken colours because a token is absent.
  */
 export function readThemePalette(): StatsThemePalette {
@@ -77,7 +77,7 @@ export function readThemePalette(): StatsThemePalette {
 		const raw = style.getPropertyValue(name).trim();
 		if (!raw) return fallback;
 		const hex = cssColorToHex(raw);
-		// cssColorToHex returns #000000 for unparseable input — treat
+		// cssColorToHex returns #000000 for unparseable input, treat
 		// that as a miss for the background/surface tokens (a genuinely
 		// black theme would still set its own --background explicitly).
 		if (hex === "#000000" && name !== "--foreground" && name !== "--card") {
@@ -120,8 +120,8 @@ export function readThemePalette(): StatsThemePalette {
  * theme edit, mode flip, revert-to-default) so the returned palette
  * object is stable across unrelated re-renders and refreshes exactly
  * when the applied CSS variables change. The palette is read from the
- * live CSS variables on `document.documentElement` — the same tokens
- * every themed surface renders with — so the ground truth is the
+ * live CSS variables on `document.documentElement`, the same tokens
+ * every themed surface renders with, so the ground truth is the
  * applied on-screen state, not a cached config value.
  */
 export function useThemePalette(): StatsThemePalette {
@@ -137,7 +137,7 @@ export function useThemePalette(): StatsThemePalette {
 	}, []);
 
 	// `version` is the reactive trigger for re-reading the live CSS
-	// variables — it isn't a body value (same documented pattern as
+	// variables, it isn't a body value (same documented pattern as
 	// App.tsx:183).
 	// biome-ignore lint/correctness/useExhaustiveDependencies: version is the reactive trigger for re-reading the live CSS variables
 	return useMemo(() => readThemePalette(), [version]);
@@ -146,7 +146,7 @@ export function useThemePalette(): StatsThemePalette {
 /**
  * Return `accent` when it clears the given minimum WCAG contrast ratio
  * against `background`, otherwise `fallback`. Used for accent-coloured
- * stat values on themed surfaces — if a theme's primary colour happens
+ * stat values on themed surfaces, if a theme's primary colour happens
  * to be too close to its card background, the value degrades to the
  * (guaranteed-legible) foreground colour instead of becoming unreadable.
  * Minimum for large text / UI is 3:1 (WCAG 1.4.11).

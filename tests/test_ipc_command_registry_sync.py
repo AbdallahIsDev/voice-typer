@@ -3,23 +3,23 @@
 This file is the regression home for two IPC-layer fixes plus a CI
 sync gate that the original review proposed but no test file pinned:
 
-1. **** — ``_dispatch`` now stamps the inbound request ``id``
+1. ****: ``_dispatch`` now stamps the inbound request ``id``
    onto the response envelope so clients using id-based request/response
    correlation (the standard JSON-RPC-like pattern in ``usePython.ts``)
    can match the response back to the originating request. Pre-fix,
    ``_validate_dict_payload`` returned a FRESH error-envelope dict with
    no ``id`` field; every handler that did ``if error: return error``
-   discarded the ``resp`` dict (which had ``id`` pre-populated) — so
+   discarded the ``resp`` dict (which had ``id`` pre-populated), so
    validation rejections orphaned the pending request and the renderer
    would time out instead of resolving the rejection.
 
-2. **S1-** — ``IPCServer._accept_tcp`` now wraps
+2. **S1-**: ``IPCServer._accept_tcp`` now wraps
    ``pool.submit(...)`` in ``try/except RuntimeError`` so a concurrent
    ``stop()`` shutdown of the TCP worker pool no longer kills the
    accept thread + leaks the just-accepted socket. The accept loop
    gracefully closes the conn and breaks out.
 
-3. **S2- / ** — every command in
+3. **S2- / **, every command in
    ``IPCServer._COMMAND_REGISTRY`` (minus the explicitly-documented
    ``_PYTHON_ONLY_COMMANDS`` exception set) MUST be present in the
    Electron ``ALLOWED_COMMANDS`` set so the renderer can invoke them.
@@ -71,12 +71,12 @@ def _make_server() -> IPCServer:
 
 class TestRequestIdPreservedOnValidationErrors:
     """``_dispatch`` stamps the inbound request ``id`` on
-    every response — including validation-error responses that bypass
+    every response, including validation-error responses that bypass
     the ``resp`` dict pre-populated with ``id``.
 
     Pre-fix, ``_validate_dict_payload`` returned a FRESH error-envelope
     dict with no ``id`` field; every handler that did
-    ``if error: return error`` discarded the ``resp`` dict — so
+    ``if error: return error`` discarded the ``resp`` dict, so
     validation rejections orphaned the pending request and the
     renderer's ``usePython.ts`` would time out instead of resolving
     the rejection.
@@ -90,7 +90,7 @@ class TestRequestIdPreservedOnValidationErrors:
         # Pick a registered command whose handler uses
         # ``_validate_dict_payload`` and returns the error directly.
         # ``onboarding_set_microphone`` validates ``mic_id`` is a str
-        # or None — passing an int triggers the validation error path.
+        # or None, passing an int triggers the validation error path.
         msg = {
             "type": "onboarding_set_microphone",
             "id": 4242,
@@ -111,7 +111,7 @@ class TestRequestIdPreservedOnValidationErrors:
         assert data.get("field") == "mic_id"
 
     def test_validation_error_preserves_string_request_id(self) -> None:
-        """The id can be a string (JSON-RPC style) — preserved too."""
+        """The id can be a string (JSON-RPC style), preserved too."""
         server = _make_server()
         msg = {
             "type": "onboarding_set_microphone",
@@ -140,7 +140,7 @@ class TestRequestIdPreservedOnValidationErrors:
         keeps the id that ``_dispatch`` pre-populated."""
         server = _make_server()
         # ``service.onboarding_is_first_run`` returns a dict (no error
-        # key) — handler returns ``resp`` after mutation. ``resp`` was
+        # key), handler returns ``resp`` after mutation. ``resp`` was
         # pre-populated with id by ``_dispatch``.
         server.service.onboarding_is_first_run.return_value = {"is_first_run": True}
         msg = {"type": "onboarding_is_first_run", "id": 99}
@@ -160,7 +160,7 @@ class TestAcceptTcpPoolSubmitRace:
 
     Pre-fix, ``pool.submit(...)`` on a shut-down pool raised
     ``RuntimeError("cannot schedule new futures after shutdown")``,
-    which was NOT caught by the outer ``except OSError`` — killing the
+    which was NOT caught by the outer ``except OSError``, killing the
     accept thread silently AND leaking the just-accepted ``conn``
     socket (no ``finally`` closed it).
     """
@@ -187,18 +187,18 @@ class TestAcceptTcpPoolSubmitRace:
         preceding = src[:submit_idx]
         last_try = preceding.rfind("try:")
         assert last_try != -1, (
-            "S1-pool.submit(...) must be inside a try/except RuntimeError block — no preceding ``try:`` found."
+            "S1-pool.submit(...) must be inside a try/except RuntimeError block, no preceding ``try:`` found."
         )
         # And the except RuntimeError must come AFTER the submit.
         following = src[submit_idx:]
         # ``except RuntimeError`` (not ``except Exception``) is the
         # narrow, intentional handler. ``except Exception`` would also
         # catch unrelated bugs in ``_run_tcp_handler_safely`` (which is
-        # NOT what we want — that function already has its own try).
+        # NOT what we want, that function already has its own try).
         assert "except RuntimeError" in following, (
             "S1-pool.submit(...) must be followed by an "
             "``except RuntimeError`` clause that closes the leaked conn "
-            "and breaks the loop. ``except Exception`` is too broad — "
+            "and breaks the loop. ``except Exception`` is too broad, "
             "it would mask unrelated handler bugs."
         )
 
@@ -220,12 +220,12 @@ class TestAcceptTcpPoolSubmitRace:
         # the except block before the next ``break`` or end of function.
         assert "conn.close()" in except_block, (
             "S1-the except RuntimeError handler must call "
-            "``conn.close()`` to release the just-accepted socket — "
+            "``conn.close()`` to release the just-accepted socket, "
             "otherwise it leaks until process exit."
         )
         assert "break" in except_block, (
             "S1-the except RuntimeError handler must ``break`` "
-            "out of the accept loop — the pool is gone, no more "
+            "out of the accept loop, the pool is gone, no more "
             "connections can be dispatched."
         )
 
@@ -251,7 +251,7 @@ class TestAcceptTcpPoolSubmitRace:
         # We can't easily reproduce the exact race window in a unit
         # test, but we CAN assert that calling ``pool.submit`` on a
         # shut-down pool raises RuntimeError (proving the wrapping is
-        # necessary) — and that the wrapped version doesn't propagate.
+        # necessary), and that the wrapped version doesn't propagate.
         with pytest.raises(RuntimeError):
             pool.submit(lambda: None)
 
@@ -299,7 +299,7 @@ def _ts_allowed_commands() -> set[str]:
     """Parse the TS ``ALLOWED_COMMANDS = new Set([...])`` literal.
 
     Mirrors the parser in ``test_command_registry_parity.py``
-    and ``test_security_doc_command_count.py`` — same regex, same
+    and ``test_security_doc_command_count.py``, same regex, same
     anchoring. Duplicated here so this test file is self-contained.
     """
     src = ALLOWED_COMMANDS_TS.read_text(encoding="utf-8")
@@ -322,7 +322,7 @@ class TestAllowedCommandsCoversRegistry:
     original finding #99 / #156 proposed under this file name. It
     exists as an additional regression guard because the original
     incident (onboarding commands missing from the allowlist) silently
-    broke the onboarding flow under Electron — the parity test alone
+    broke the onboarding flow under Electron, the parity test alone
     was not enough to catch the renderer-side call sites.
     """
 
@@ -332,17 +332,17 @@ class TestAllowedCommandsCoversRegistry:
         (regression pin).
 
         Note: ``onboarding_get_model_catalog`` was intentionally REMOVED
-        in a follow-up cleanup pass — the renderer now uses
+        in a follow-up cleanup pass, the renderer now uses
         ``get_model_catalog`` (the non-onboarding command) for model
         catalog data. The removal was coordinated across both the Python
         ``_COMMAND_REGISTRY`` and the TS ``ALLOWED_COMMANDS`` set, and
         is pinned by ``tests/test_dead_code_stays_removed.py``. We do
-        NOT assert its presence here — that would contradict the
+        NOT assert its presence here, that would contradict the
         intentional narrowing."""
         ts = _ts_allowed_commands()
         assert "onboarding_check_permissions" in ts, (
             "S2- / : onboarding_check_permissions MUST be "
-            "in ALLOWED_COMMANDS — the renderer's onboarding flow calls "
+            "in ALLOWED_COMMANDS, the renderer's onboarding flow calls "
             "it to walk the user through macOS Accessibility / Linux "
             "input-group permission grants."
         )
@@ -392,7 +392,7 @@ class TestAllowedCommandsCoversRegistry:
 
     def test_check_accessibility_is_re_registered_in_registry(self) -> None:
         """(finding #919 part b): ``check_accessibility`` was
-        re-registered in ``_COMMAND_REGISTRY`` on 2026-08-10 — the
+        re-registered in ``_COMMAND_REGISTRY`` on 2026-08-10, the
         Settings → Troubleshooting UI now invokes it on macOS to
         surface the stale-grant ``tccutil`` reset command
         (``suggest_reset`` + ``reset_command`` on a confirmed stale
@@ -406,7 +406,7 @@ class TestAllowedCommandsCoversRegistry:
         (``voice_typer/server/handlers/system_handlers.py``),
         registered here so the renderer's ``call("check_accessibility")``
         dispatches to it (a compromised-renderer concern does NOT apply
-        to this command — it is a read-only probe that returns the local
+        to this command, it is a read-only probe that returns the local
         TCC grant state + a reset command string the renderer already
         knew how to construct; the destructive action (the ``tccutil``
         reset itself) stays behind ``reset_macos_accessibility``).
@@ -414,7 +414,7 @@ class TestAllowedCommandsCoversRegistry:
         registry = _python_registry_keys()
         assert "check_accessibility" in registry, (
             "'check_accessibility' MUST be in _COMMAND_REGISTRY (finding "
-            "#919 part b re-registration) — the Settings → Troubleshooting "
+            "#919 part b re-registration), the Settings → Troubleshooting "
             "UI calls it on macOS to surface the stale-grant reset "
             "command. Remove this assertion only if the renderer caller "
             "is also removed (keep the three allowlists in lockstep)."
@@ -428,14 +428,14 @@ class TestAllowedCommandsCoversRegistry:
 
     def test_check_accessibility_registered_in_renderer_allowlist(self) -> None:
         """(finding #919 part b, renderer side): ``check_accessibility``
-        must be in the TS ``ALLOWED_COMMANDS`` set — the Settings →
+        must be in the TS ``ALLOWED_COMMANDS`` set, the Settings →
         Troubleshooting UI invokes it via ``call()``, and the Electron
         main process rejects anything not in this Set (SEC-019).
         """
         ts = _ts_allowed_commands()
         assert "check_accessibility" in ts, (
             "'check_accessibility' MUST be in the renderer "
-            "ALLOWED_COMMANDS (finding #919 part b) — the "
+            "ALLOWED_COMMANDS (finding #919 part b), the "
             "Troubleshooting section calls it on macOS. Keep the "
             "registry + TS + Rust allowlists in lockstep."
         )

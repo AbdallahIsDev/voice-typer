@@ -1,5 +1,5 @@
 /**
- * Tests for the Vocabulary page —  (load-error variant) and
+ * Tests for the Vocabulary page,  (load-error variant) and
  *  (localised load-failed description).
  *
  * : the load-error EmptyState in Vocabulary.tsx previously used
@@ -34,14 +34,14 @@ vi.mock("@hugeicons/core-free-icons", () => hugeiconsCoreMock());
 vi.mock("sonner", () => sonnerMock());
 vi.mock("next-themes", () => nextThemesMock());
 
-describe("Vocabulary page — load-error variant + localised description", () => {
+describe("Vocabulary page, load-error variant + localised description", () => {
 	beforeEach(() => {
 		mockCall.mockReset();
 		// get_vocabulary throws → loadVocabulary sets loadError AND
 		// entries is empty → Vocabulary renders the load-error
 		// EmptyState. We throw a non-Error (string) so the catch
 		// block's fallback (`t("vocabulary.loadFailedDescription")`)
-		// is exercised — if we threw an Error, err.message would be
+		// is exercised, if we threw an Error, err.message would be
 		// used instead and the localised description wouldn't show.
 		mockCall.mockRejectedValue("backend exploded");
 		toastError.mockClear();

@@ -1,5 +1,5 @@
 /**
- * PageSwitch — the route→component mapping extracted from App.tsx.
+ * PageSwitch, the route→component mapping extracted from App.tsx.
  *
  * Verifies, per route literal:
  *   - the mapped page component mounts (lazy chunks resolve through
@@ -87,7 +87,7 @@ async function renderFor(page: Page) {
 	);
 }
 
-describe("PageSwitch — route table mapping", () => {
+describe("PageSwitch, route table mapping", () => {
 	it.each([
 		["home", "page-home"],
 		["history", "page-history"],

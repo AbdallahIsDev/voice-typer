@@ -12,7 +12,7 @@
  * both runtimes:
  *  1. In Tauri mode, `window.python.call({type, data})` routes to
  *     `invoke('dispatch', {cmd: type, data})`.
- *  2. In Electron mode, the module is a no-op — it does NOT override
+ *  2. In Electron mode, the module is a no-op, it does NOT override
  *     the namespaces the preload installed.
  *  3. In Tauri mode, `window.bubble.onLevel(cb)` registers a Tauri
  *     event listener on the `bubble_level` channel.
@@ -27,7 +27,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // The `label` option controls which Tauri window the stub reports as.
 // The bubble-namespace installer uses this label to decide whether to
 // install the full BubbleWindowBubble API (label "bubble") or only the
-// MainRendererBubbleMutators subset (label "main" — the SEC-026 split).
+// MainRendererBubbleMutators subset (label "main", the SEC-026 split).
 // Tests that exercise bubble-only event subscriptions (onLevel / onShow /
 // onHide / onDraggable) MUST pass `{ label: "bubble" }` so the installer
 // returns the full bubble namespace.
@@ -89,7 +89,7 @@ describe("tauri-bridge detection", () => {
 		// Reset module registry so the auto-install side effect runs
 		// fresh on each `await import("@/lib/tauri-bridge/install")`.
 		//(: the side effect moved from `index.ts` to the sibling
-		// `install.ts` module — importing `@/lib/tauri-bridge` alone no
+		// `install.ts` module, importing `@/lib/tauri-bridge` alone no
 		// longer triggers the installer; tests below also import
 		// `@/lib/tauri-bridge/install` for the side effect.)
 		vi.resetModules();
@@ -136,7 +136,7 @@ describe("tauri-bridge detection", () => {
 		expect(python).toBeDefined();
 		expect(typeof python?.call).toBe("function");
 
-		// A typical get_config dispatch — the renderer uses this shape
+		// A typical get_config dispatch, the renderer uses this shape
 		// via `usePython().call("get_config")`.
 		await python?.call({ type: "get_config" });
 
@@ -195,7 +195,7 @@ describe("tauri-bridge detection", () => {
 	it("registers a Tauri event listener for window.bubble.onLevel in Tauri mode", async () => {
 		// The bubble namespace's event subscriptions (onLevel / onShow /
 		// onHide / onDraggable) are ONLY installed on the bubble window
-		// (SEC-026 — the main renderer gets only the 5 shared mutators).
+		// (SEC-026, the main renderer gets only the 5 shared mutators).
 		// Pass `{ label: "bubble" }` so the installer returns the full
 		// BubbleWindowBubble shape with onLevel present.
 		const stub = makeTauriStub({ label: "bubble" });
@@ -208,9 +208,9 @@ describe("tauri-bridge detection", () => {
 		expect(bubble).toBeDefined();
 		expect(typeof bubble?.onLevel).toBe("function");
 
-		// Subscribe — should synchronously register a Tauri event listener
+		// Subscribe, should synchronously register a Tauri event listener
 		// on the `bubble_level` channel (the Rust host coalesces this to
-		// ≤30 Hz before emitting — see main.rs:427-442).
+		// ≤30 Hz before emitting, see main.rs:427-442).
 		const cb = vi.fn();
 		bubble?.onLevel(cb);
 

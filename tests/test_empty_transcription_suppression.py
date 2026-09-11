@@ -5,19 +5,19 @@ co-operating causes:
 
 1. ``DictationPipeline._handle_empty_transcription`` suppressed the
    user-facing notification for EVERY recording shorter than the 15s
-   grace period — including ones with clear audio (high RMS) where the
+   grace period, including ones with clear audio (high RMS) where the
    engine was the real culprit (returned ``""`` silently). The user
    saw no clipboard output, no error toast, no tray status beyond
    "No speech detected".
 
 2. ``DictationPipeline._transcribe`` had no diagnostic log when the
-   engine returned an empty string — the silent-failure path was
+   engine returned an empty string, the silent-failure path was
    invisible in the log file.
 
 3. ``AsrBackendRegistry.get_active`` would return an unloaded backend
    as a last resort without warning, even though an unloaded backend
    can return ``""`` from ``transcribe_with_fallback`` without
-   raising — making the empty-transcription path impossible to
+   raising, making the empty-transcription path impossible to
    trace from the registry side.
 
 The fix narrows the suppression to ONLY the case it was designed for
@@ -45,7 +45,7 @@ class _TestApp:
 
     A custom class (instead of ``MagicMock``) so the four notify-once
     flag attributes correctly default to ``False`` via
-    ``getattr(..., False)`` — MagicMock would auto-create truthy
+    ``getattr(..., False)``, MagicMock would auto-create truthy
     children for any attribute access.
     """
 
@@ -68,7 +68,7 @@ class _TestApp:
         self._lock.__exit__ = MagicMock(return_value=False)
 
     # Auto-mock unknown attributes (like MagicMock) but DO NOT
-    # auto-create the notify-once flag names — they must default to
+    # auto-create the notify-once flag names, they must default to
     # False via getattr-with-default.
     def __getattr__(self, name: str) -> MagicMock:
         if name in {
@@ -136,7 +136,7 @@ class TestHandleEmptyTranscriptionRefinedSuppression:
     def test_short_recording_with_real_audio_shows_empty_status(self):
         """HP-7 case: short recording, real audio, engine returned empty.
 
-        Pre-fix: this was silently suppressed — user saw "No speech
+        Pre-fix: this was silently suppressed, user saw "No speech
         detected" with no indication that audio was captured but the
         engine returned nothing. Post-fix: tray status reflects
         "Transcription returned empty" so the user knows something
@@ -149,13 +149,13 @@ class TestHandleEmptyTranscriptionRefinedSuppression:
 
         pipeline._handle_empty_transcription()
 
-        # No popup notification — short clip is too ambiguous.
+        # No popup notification, short clip is too ambiguous.
         app.tray.notify.assert_not_called()
         # But tray status must reflect the empty-transcription failure.
         statuses = [c.args[1] for c in app.tray.set_state.call_args_list]
         assert "Transcription returned empty" in statuses, (
             "Short recording with real audio should set tray to "
-            "'Transcription returned empty' (HP-7 fix) — got: " + str(statuses)
+            "'Transcription returned empty' (HP-7 fix), got: " + str(statuses)
         )
 
     def test_long_recording_with_near_silence_notifies_check_microphone(self):
@@ -193,7 +193,7 @@ class TestHandleEmptyTranscriptionRefinedSuppression:
         notification_text = app.tray.notify.call_args.args[1]
         assert "no transcription was produced" in notification_text.lower(), (
             "Long recording with real audio should notify user that "
-            "transcription returned empty — got: " + notification_text
+            "transcription returned empty, got: " + notification_text
         )
         # Tray status must reflect the empty-transcription failure.
         statuses = [c.args[1] for c in app.tray.set_state.call_args_list]
@@ -222,7 +222,7 @@ class TestTranscribeEmptyResultDiagnostic:
         UE-47: the test's MagicMock ``active`` has a truthy
         ``is_loaded`` attribute (MagicMock auto-mock), so
         ``backend_was_loaded`` is True and the empty-warning path
-        runs WITHOUT raising ``BackendNotLoadedError`` — the test
+        runs WITHOUT raising ``BackendNotLoadedError``, the test
         still asserts ``result == ""`` (the empty string propagates
         unchanged when the backend WAS loaded).
         """
@@ -342,7 +342,7 @@ class TestCancelledCycleEmptyHandling:
     """An ESC-cancelled cycle that aborts before the first
     segment flows into ``_handle_empty_transcription`` with an empty
     result. Without the cancelled-cycle check it surfaces the
-    misleading "No speech detected — check your microphone" message
+    misleading "No speech detected, check your microphone" message
     (the user pressed ESC deliberately; their mic is fine). Cancelled
     cycles must end QUIETLY.
     """
@@ -364,8 +364,8 @@ class TestCancelledCycleEmptyHandling:
         → no tray status, no notification, no misleading message."""
         app = self._cancelled_app(cancelled=True)
         pipeline = _new_pipeline(app)
-        pipeline._duration = 20.0  # past the 15s grace — would notify
-        pipeline._recorded_rms = 0.01  # real audio — would notify
+        pipeline._duration = 20.0  # past the 15s grace, would notify
+        pipeline._recorded_rms = 0.01  # real audio, would notify
 
         pipeline._handle_empty_transcription()
 

@@ -20,7 +20,7 @@ Contracts pinned here:
    running).
 4. The 5 monkeypatch sites that previously targeted
    ``voice_typer.server.app.TranscriptionEngine`` now target the
-   canonical path (static check via grep — the migration is mechanical
+   canonical path (static check via grep, the migration is mechanical
    and should not regress).
 """
 
@@ -39,7 +39,7 @@ class TestTranscriptionEngineReExportRemoved:
 
     def test_app_module_does_not_export_transcription_engine(self) -> None:
         """``voice_typer.server.app`` MUST NOT have a ``TranscriptionEngine``
-        attribute — the re-export was removed as part of the migration.
+        attribute, the re-export was removed as part of the migration.
 
         Production code in ``app.py`` does not instantiate
         ``TranscriptionEngine`` directly (the ASR registry in
@@ -52,7 +52,7 @@ class TestTranscriptionEngineReExportRemoved:
 
         assert not hasattr(app_mod, "TranscriptionEngine"), (
             "Regression: voice_typer.server.app still re-exports "
-            "TranscriptionEngine. The re-export should be removed — "
+            "TranscriptionEngine. The re-export should be removed, "
             "tests should patch voice_typer.server.transcription.TranscriptionEngine "
             "(the canonical location) instead."
         )
@@ -68,7 +68,7 @@ class TestTranscriptionEngineReExportRemoved:
 
         assert inspect.isclass(TranscriptionEngine), (
             "voice_typer.server.transcription.TranscriptionEngine must be a "
-            "class — migrated monkeypatch sites rely on patching it with a "
+            "class, migrated monkeypatch sites rely on patching it with a "
             "MagicMock."
         )
 
@@ -79,7 +79,7 @@ class TestTranscriptionEngineReExportRemoved:
         """
         from unittest.mock import MagicMock
 
-        # This must not raise AttributeError — the canonical path exists.
+        # This must not raise AttributeError, the canonical path exists.
         monkeypatch.setattr(
             "voice_typer.server.transcription.TranscriptionEngine",
             MagicMock(),

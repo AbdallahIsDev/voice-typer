@@ -1,5 +1,5 @@
 /**
- * themeStore.ts — the singleton theme Zustand store + its localStorage
+ * themeStore.ts, the singleton theme Zustand store + its localStorage
  * hydration readers. Split out of ``hooks/useTheme.ts`` so the hook file
  * stays a thin composition root and the state concern has a single home.
  *
@@ -13,7 +13,7 @@
  * one caller's setter re-renders ALL callers.
  *
  * The "internal" setters (``setThemeModeState`` etc.) update state
- * WITHOUT scheduling a backend save — they're used by backend-pushed
+ * WITHOUT scheduling a backend save, they're used by backend-pushed
  * paths (``themeSync.reloadThemeFromConfig``, the ``config_changed``
  * handler) where the change came FROM the backend, so round-tripping it
  * would be a feedback loop. The public-facing setters (in the hook body)
@@ -32,7 +32,7 @@ import type { VoiceTyperConfig } from "@/types/config";
 //the four ``LS_*`` constants previously lived here (and were
 // duplicated in ``theme-bootstrap.ts``). They now live in
 // ``lib/theme-storage-keys.ts`` (single source of truth) so the
-// bootstrap and the hook cannot drift out of sync — a one-sided key
+// bootstrap and the hook cannot drift out of sync, a one-sided key
 // rename would previously have caused a silent cache desync (the
 // bootstrap reading from the old key while this hook wrote to the new
 // one, producing a FOUC on every launch).
@@ -42,7 +42,7 @@ export function readLsThemeMode(): VoiceTyperConfig["theme_mode"] {
 		const v = localStorage.getItem(LS_THEME_MODE);
 		if (v === "light" || v === "dark" || v === "system") return v;
 	} catch (e) {
-		// localStorage read failure — using default. Common in SSR,
+		// localStorage read failure, using default. Common in SSR,
 		// sandboxed renderers, or when storage is disabled.
 		console.warn("[renderer:useTheme] readLsThemeMode failed:", e);
 	}
@@ -64,7 +64,7 @@ export function readLsThemePreset(): VoiceTyperConfig["theme_preset"] {
 			return v as VoiceTyperConfig["theme_preset"];
 		}
 	} catch (e) {
-		// localStorage read failure — using default.
+		// localStorage read failure, using default.
 		console.warn("[renderer:useTheme] readLsThemePreset failed:", e);
 	}
 	return "default";
@@ -85,7 +85,7 @@ export function readLsCustomTheme(): CustomThemeData | null {
 			}
 		}
 	} catch (e) {
-		// localStorage parse failure — using default.
+		// localStorage parse failure, using default.
 		console.warn("[renderer:useTheme] readLsCustomTheme parse failed:", e);
 	}
 	return null;
@@ -99,7 +99,7 @@ export function readLsTextSize(): number {
 			if (Number.isFinite(n) && n >= 10 && n <= 20) return n;
 		}
 	} catch (e) {
-		// localStorage read failure — using default.
+		// localStorage read failure, using default.
 		console.warn("[renderer:useTheme] readLsTextSize failed:", e);
 	}
 	return 14;
@@ -112,7 +112,7 @@ export interface ThemeState {
 	textSize: number;
 	// FLASH-FIX: tracks whether the first ``reloadThemeFromConfig``
 	// call has completed. Until it has, the theme-application effect
-	// in the hook is suppressed — the pre-React ``theme-bootstrap.ts``
+	// in the hook is suppressed, the pre-React ``theme-bootstrap.ts``
 	// already applied the cached localStorage state to the DOM, so
 	// re-applying here would either be a no-op (when localStorage
 	// matches the bootstrap state) or a visible flash (when

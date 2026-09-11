@@ -6,12 +6,12 @@
  *
  *   1. Dev-mode warning: when a key is missing from BOTH the current
  *      locale AND the English fallback, `t()` returns the raw key
- *      string (defensive — callers must not crash on a typo) but also
+ *      string (defensive, callers must not crash on a typo) but also
  *      emits a single `console.warn("[renderer:i18n] missing key:", key,
  *      "for locale:", currentLocale)` so the typo is visible during
  *      QA. Production builds skip the warning (`import.meta.env?.DEV`
  *      is `false` in production per Vite). Vitest runs with
- *      `DEV=true`, so the warning fires under test — these tests
+ *      `DEV=true`, so the warning fires under test, these tests
  *      spy on `console.warn` to assert the diagnostic shape.
  *
  *   2. Primary-subtag fallback: when the current locale is a regional
@@ -51,7 +51,7 @@ import { _invalidateResolvedCache, t } from "@/i18n/translate";
  * Cast helper: the `Locale` type is a closed union of the 8 shipped
  * locales and does NOT include regional variants like `zh-CN`. At
  * runtime, the i18n store accepts any string as a locale key (the
- * `Map<Locale, ...>` typing is advisory — JavaScript Maps don't enforce
+ * `Map<Locale, ...>` typing is advisory, JavaScript Maps don't enforce
  * key types). Tests that exercise the primary-subtag fallback need to
  * register a regional variant, so we cast through `unknown` to satisfy
  * TypeScript without changing the production `Locale` union.
@@ -63,8 +63,8 @@ function asLocale(s: string): Locale {
 /**
  * Wrap a synthetic test-fixture key so it takes t()'s dynamic-key
  * (loose) overload. These keys are intentionally absent from the
- * shipped en.json catalog — the tests below register their own
- * translation tables for them at runtime — so the compile-time catalog
+ * shipped en.json catalog, the tests below register their own
+ * translation tables for them at runtime, so the compile-time catalog
  * contract must not apply to them (that guard exists to catch
  * statically written production keys drifting from the catalog).
  * Values pass through unchanged; this is typing-only.
@@ -90,7 +90,7 @@ describe("t() dev-mode missing-key warning", () => {
 	});
 
 	it("emits a console.warn when a key is missing from current locale AND English", () => {
-		// No tables registered for `nonexistent.key` — `t()` should
+		// No tables registered for `nonexistent.key`, `t()` should
 		// fall through to the raw-key path and emit the dev warning.
 		const result = t(fixtureKey("nonexistent.key"));
 		expect(result).toBe("nonexistent.key");
@@ -104,7 +104,7 @@ describe("t() dev-mode missing-key warning", () => {
 	});
 
 	it("does NOT warn when the key resolves via the English fallback", () => {
-		// English has the key — the lookup succeeds at step 3 of the
+		// English has the key, the lookup succeeds at step 3 of the
 		// chain (currentLocale → primary subtag → en). No warning.
 		registerTranslations("en", { app: { name: APP_NAME } });
 		const result = t("app.name");
@@ -123,14 +123,14 @@ describe("t() dev-mode missing-key warning", () => {
 		expect(warnSpy).not.toHaveBeenCalled();
 	});
 
-	it("warns at most once per (locale, key) pair — subsequent calls hit the resolved cache", () => {
+	it("warns at most once per (locale, key) pair, subsequent calls hit the resolved cache", () => {
 		// First call resolves the chain, finds nothing, warns, and
 		// caches the raw key in `_resolvedCache`.
 		const first = t(fixtureKey("repeat.miss"));
 		expect(first).toBe("repeat.miss");
 		expect(warnSpy).toHaveBeenCalledTimes(1);
 		// Second call hits the cache and returns the cached raw key
-		// WITHOUT re-walking the chain — so no second warning.
+		// WITHOUT re-walking the chain, so no second warning.
 		const second = t(fixtureKey("repeat.miss"));
 		expect(second).toBe("repeat.miss");
 		expect(warnSpy).toHaveBeenCalledTimes(1);
@@ -138,7 +138,7 @@ describe("t() dev-mode missing-key warning", () => {
 });
 
 describe("t() primary-subtag fallback for regional locales", () => {
-	// Cast the regional locale once — used by every test in this block.
+	// Cast the regional locale once, used by every test in this block.
 	const ZH_CN = asLocale("zh-CN");
 
 	beforeEach(() => {
@@ -183,7 +183,7 @@ describe("t() primary-subtag fallback for regional locales", () => {
 
 	it("prefers the regional map's value over the primary subtag when both have the key", () => {
 		// Both `zh-CN` and `zh` define `app.greeting`. The regional
-		// value must win — primary-subtag is a FALLBACK, not an
+		// value must win, primary-subtag is a FALLBACK, not an
 		// override.
 		registerTranslations("zh", { app: { greeting: "ZH greeting" } });
 		registerTranslations(ZH_CN, {
@@ -211,7 +211,7 @@ describe("t() primary-subtag fallback for regional locales", () => {
 			_setCurrentLocale(ZH_CN);
 
 			const result = t(fixtureKey("totally.missing"));
-			// Raw key returned (defensive — no crash).
+			// Raw key returned (defensive, no crash).
 			expect(result).toBe("totally.missing");
 			// Dev warning fired exactly once, naming the regional
 			// locale (not the primary subtag) so the developer knows
@@ -230,7 +230,7 @@ describe("t() primary-subtag fallback for regional locales", () => {
 	});
 
 	it("skips the primary-subtag step for bare-primary locales (no `-` in the tag)", () => {
-		// `zh` itself is a bare primary — `t()` against `zh` must not
+		// `zh` itself is a bare primary, `t()` against `zh` must not
 		// redundantly re-look-up `zh` (which would be a no-op anyway).
 		// We verify the chain still works end-to-end: `zh` → `en` →
 		// key, picking up the English value for `app.enOnly`.
@@ -248,7 +248,7 @@ describe("t() primary-subtag fallback for regional locales", () => {
 
 		// Mutate the `zh` table AFTER the first call resolved. If the
 		// cache works, the second call returns the ORIGINAL (cached)
-		// value rather than the new one — proving the chain was
+		// value rather than the new one, proving the chain was
 		// short-circuited.
 		registerTranslations("zh", { app: { zhOnly: "MUTATED value" } });
 		const second = t(fixtureKey("app.zhOnly"));

@@ -3,39 +3,39 @@
 Pins the five findings applied to ``voice_typer/server/shutdown_controller.py``
 in task DE-2J:
 
-* **DE-7 (High)** — ``_do_cleanup`` uses the atomic
+* **DE-7 (High)**: ``_do_cleanup`` uses the atomic
   ``RecordingController.pop_streaming_session()`` instead of the
   two-step ``get_streaming_session()`` + ``set_streaming_session(None)``
   pair, eliminating the TOCTOU race where a concurrent
   ``_start_streaming_session_if_enabled`` could install a NEW session
   that the subsequent ``set_streaming_session(None)`` would clobber.
 
-* **DE-10 (Medium)** — ``_do_cleanup`` is reordered so
+* **DE-10 (Medium)**: ``_do_cleanup`` is reordered so
   ``crash_recovery.flush`` and ``history_db.flush`` run BEFORE the
   hotkey / level_monitor / event_bus teardown. Pre-fix, the cumulative
   ~20s teardown delay before the flushes meant a process killed
   mid-shutdown (Windows CTRL_LOGOFF/SHUTDOWN, SIGKILL) would silently
   lose pending transcription INSERTs + crash-snapshot writes.
 
-* **DE-11 (High)** — After ``_do_cleanup()`` returns, if the calling
+* **DE-11 (High)**, After ``_do_cleanup()`` returns, if the calling
   thread is NOT the main thread (signal watcher / Win32 console
   handler / IPC ``quit_app`` handler), ``quit()`` schedules a hard
   ``os._exit(0)`` after a 2s grace period. Pre-fix, ``sys.exit(0)``
   on a non-main thread only raised ``SystemExit`` in THAT thread and
   the process hung waiting for the main thread (parked in
-  ``tray.run()``) to wake up — which never happened if
+  ``tray.run()``) to wake up, which never happened if
   ``tray.stop()`` failed. The tray.stop() failure log is also
   escalated from DEBUG to ERROR.
 
-* **DE-53 (Medium)** — The ``_electron_pid`` read-terminate-clear
+* **DE-53 (Medium)**, The ``_electron_pid`` read-terminate-clear
   sequence inside ``_do_cleanup`` is now guarded by a dedicated
   ``_electron_pid_lock``. Pre-fix, two concurrent quit() callers (IPC
   + signal-watcher) could both read the same PID, both call
   ``terminate_electron(pid)`` (racing with PID recycling on Windows),
-  and both clear the attribute — potentially clobbering a NEW PID
+  and both clear the attribute, potentially clobbering a NEW PID
   installed by a concurrent ``restart_app()``.
 
-* **DE-54 (Medium)** — ``_run_with_timeout`` now returns a dedicated
+* **DE-54 (Medium)**: ``_run_with_timeout`` now returns a dedicated
   ``_TIMEOUT`` sentinel (instead of ``None``) when the worker thread
   does not finish in time. ``_do_cleanup`` checks for the sentinel
   after ``recorder.stop()`` (and the ``discard()`` fallback); if
@@ -49,7 +49,7 @@ filesystem PID/devnull paths, Win32 kernel32, the ``event_bus`` /
 ``level_monitor`` modules, the ``electron_launcher`` /
 ``tray_window`` modules) so they run headless on Linux without
 touching real subsystems. They do NOT import ``voice_typer.server.app``
-(which has heavy import-time side effects) — instead they construct a
+(which has heavy import-time side effects), instead they construct a
 ``_FakeApp`` duck-typed stand-in that satisfies the surface
 ``ShutdownController._do_cleanup`` touches.
 """
@@ -65,7 +65,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-# Direct import — does NOT pull in voice_typer.server.app, so heavy
+# Direct import, does NOT pull in voice_typer.server.app, so heavy
 # import-time side effects don't leak into these unit tests.
 from voice_typer.server._timeout_utils import (
     _DE11_GRACE_PERIOD_SECONDS,
@@ -100,7 +100,7 @@ class _FakeApp:
         self.recorder.recording = False  # skip recorder.stop() branch by default
         self.recording = MagicMock()
         self.recording._transcription_thread = None
-        # ``pop_streaming_session`` returns None by default — tests that
+        # ``pop_streaming_session`` returns None by default, tests that
         # care override it.
         self.recording.pop_streaming_session = MagicMock(return_value=None)
         # Keep the legacy get/set accessors as MagicMocks so we can detect
@@ -135,16 +135,16 @@ def fake_app(tmp_config_dir, monkeypatch):
     Stubs (so ``_do_cleanup`` doesn't touch the real filesystem / Win32
     API / devnull FDs):
 
-    - ``voice_typer.server.backend_pid._clear_backend_pid_file`` — no-op.
-    - ``voice_typer.server.app._close_devnull_files`` — no-op.
-    - ``voice_typer.server.app._register_devnull_file`` — no-op.
-    - ``voice_typer.server.platform_utils.is_windows`` — returns False (POSIX test env).
-    - ``voice_typer.server.electron_launcher.terminate_electron`` — recorder.
+    - ``voice_typer.server.backend_pid._clear_backend_pid_file``, no-op.
+    - ``voice_typer.server.app._close_devnull_files``, no-op.
+    - ``voice_typer.server.app._register_devnull_file``, no-op.
+    - ``voice_typer.server.platform_utils.is_windows``, returns False (POSIX test env).
+    - ``voice_typer.server.electron_launcher.terminate_electron``, recorder.
     """
     import voice_typer.server.app as _app_module
 
     # The PID-file teardown resolves through the owning backend_pid
-    # module at call time — stub it there (the app re-export is no
+    # module at call time, stub it there (the app re-export is no
     # longer on the shutdown lookup path).
     import voice_typer.server.backend_pid as _backend_pid_module
 
@@ -282,7 +282,7 @@ class TestFlushBeforeTeardown:
 
         fake_app._crash_recovery.flush.side_effect = _spy_crash_flush
 
-        # Spy on level_monitor.stop_monitoring — patch the module-level
+        # Spy on level_monitor.stop_monitoring, patch the module-level
         # function so the call is recorded. Don't run the real stop_monitoring
         # (it mutates module-global state other tests need).
         import voice_typer.server.level_monitor as _lm
@@ -334,7 +334,7 @@ class TestFlushBeforeTeardown:
     def test_history_db_flush_runs_before_event_bus_shutdown(self, controller, fake_app, monkeypatch):
         """``history_db.flush`` must run BEFORE ``event_bus.shutdown``.
 
-        The event_bus is the deferred-publish executor — once it's shut
+        The event_bus is the deferred-publish executor, once it's shut
         down, any deferred ``history_db.add_transcription`` task that
         was queued but not yet drained would be lost."""
         call_order: list[str] = []
@@ -405,7 +405,7 @@ class TestForceExitOnNonMainThread:
 
     def test_grace_period_constant_is_one_second(self):
         """DE-11: the grace period must be 1.0s (reduced from 2.0s with
-        the quit-latency fix — the 5s dispatch-drain deadlock no longer
+        the quit-latency fix, the 5s dispatch-drain deadlock no longer
         stalls _do_cleanup, so the watchdog only waits for the pystray
         loop to unwind)."""
         assert _DE11_GRACE_PERIOD_SECONDS == 1.0, (
@@ -422,7 +422,7 @@ class TestForceExitOnNonMainThread:
         monkeypatch.setattr(sys, "exit", lambda code=0: exit_calls.append(code))
         monkeypatch.setattr(os, "_exit", lambda code=0: os_exit_calls.append(code))
 
-        # pytest runs tests on the main thread — so this calls quit()
+        # pytest runs tests on the main thread, so this calls quit()
         # from the main thread.
         controller.quit()
 
@@ -435,7 +435,7 @@ class TestForceExitOnNonMainThread:
         """When ``quit()`` is called from a non-main thread (signal
         watcher / IPC handler / Win32 console handler), it must schedule
         ``os._exit(0)`` to fire after the grace period. We DON'T want
-        the test to actually sleep 2s — so we monkeypatch ``time.sleep``
+        the test to actually sleep 2s, so we monkeypatch ``time.sleep``
         to record the duration without blocking, and monkeypatch
         ``os._exit`` to a no-op so the watcher thread doesn't kill the
         test process."""
@@ -473,7 +473,7 @@ class TestForceExitOnNonMainThread:
         t = threading.Thread(target=_call_quit, name="test-quit-non-main")
         t.start()
         # Wait for quit() to return (it should return immediately after
-        # spawning the watcher thread — the watcher thread is the one
+        # spawning the watcher thread, the watcher thread is the one
         # that sleeps + calls os._exit).
         done.wait(timeout=5.0)
         t.join(timeout=5.0)
@@ -495,7 +495,7 @@ class TestForceExitOnNonMainThread:
 
     def test_quit_on_non_main_thread_does_not_block(self, controller, fake_app, monkeypatch):
         """``quit()`` on a non-main thread must return IMMEDIATELY after
-        spawning the watcher thread — it must NOT block on the 2s
+        spawning the watcher thread, it must NOT block on the 2s
         sleep. The watcher thread runs concurrently."""
         fake_app._do_cleanup = MagicMock()
         monkeypatch.setattr(sys, "exit", lambda code=0: None)
@@ -573,11 +573,11 @@ class TestElectronPidLock:
         # A Lock's acquire/release should work; block=False should return
         # True on first acquire, False on second (held).
         assert lock.acquire(blocking=False), (
-            "DE-53: _electron_pid_lock must be a valid Lock — acquire(blocking=False) should succeed when uncontended"
+            "DE-53: _electron_pid_lock must be a valid Lock, acquire(blocking=False) should succeed when uncontended"
         )
         try:
             assert not lock.acquire(blocking=False), (
-                "DE-53: _electron_pid_lock must be non-reentrant — second "
+                "DE-53: _electron_pid_lock must be non-reentrant, second "
                 "acquire(blocking=False) on the same thread must fail"
             )
         finally:
@@ -633,7 +633,7 @@ class TestElectronPidLock:
         def _call_cleanup():
             barrier.wait()
             # Bypass the _cleanup_done guard by calling the body directly
-            # AND resetting the flag — the lock is what we're testing.
+            # AND resetting the flag, the lock is what we're testing.
             controller._do_cleanup()
 
         # First call: sets _cleanup_done = True. Then both threads call
@@ -643,9 +643,9 @@ class TestElectronPidLock:
         # check-then-set; the other short-circuits. That still tests
         # that the lock prevents double-terminate IF the second thread
         # somehow entered the body (defense-in-depth).
-        controller._do_cleanup()  # first call — sets _cleanup_done
+        controller._do_cleanup()  # first call, sets _cleanup_done
 
-        # Reset so subsequent calls enter the body again — but the lock
+        # Reset so subsequent calls enter the body again, but the lock
         # is what we're verifying; the test asserts that even if both
         # threads DID enter the body (e.g. a future caller bypasses
         # _quit_lock), the lock serializes them.
@@ -660,13 +660,13 @@ class TestElectronPidLock:
         t2.join(timeout=5.0)
 
         # At most ONE of the two threads should have called
-        # terminate_electron(77777) — the other either short-circuited
+        # terminate_electron(77777), the other either short-circuited
         # via _cleanup_done OR observed _electron_pid == None under the
         # lock.
         pid_77777_calls = [pid for pid in terminate_calls if pid == 77777]
         assert len(pid_77777_calls) <= 1, (
             f"DE-53: terminate_electron(77777) was called "
-            f"{len(pid_77777_calls)} times — expected at most 1 (the lock "
+            f"{len(pid_77777_calls)} times, expected at most 1 (the lock "
             f"should serialize the read-terminate-clear). "
             f"All calls: {terminate_calls}"
         )
@@ -678,7 +678,7 @@ class TestElectronPidLock:
 class TestSkipSdStopOnRecorderTimeout:
     """DE-54: when ``recorder.stop()`` (or the ``discard()`` fallback)
     times out, ``_do_cleanup`` must set a flag and SKIP the subsequent
-    ``sd.stop()`` call — the leaked recorder.stop() worker thread is
+    ``sd.stop()`` call, the leaked recorder.stop() worker thread is
     still holding the PortAudio stream lock, and calling ``sd.stop()``
     while that lock is held deadlocks the cleanup thread."""
 
@@ -688,7 +688,7 @@ class TestSkipSdStopOnRecorderTimeout:
         import voice_typer.server._timeout_utils as _tu
 
         assert _tu._TIMEOUT is _TIMEOUT, "DE-54: _TIMEOUT must be a module-level singleton"
-        # Must NOT be None — that's the whole point (distinguish from
+        # Must NOT be None, that's the whole point (distinguish from
         # a normal None return).
         assert _TIMEOUT is not None
 
@@ -731,7 +731,7 @@ class TestSkipSdStopOnRecorderTimeout:
     def test_run_with_timeout_returns_none_when_func_returns_none(self):
         """``_run_with_timeout`` must return ``None`` when the func
         returns ``None`` (NOT the sentinel). This is the key
-        distinguishability guarantee — DE-54 relies on it."""
+        distinguishability guarantee. DE-54 relies on it."""
         from voice_typer.server.shutdown_controller import _run_with_timeout
 
         def _none_func():
@@ -754,7 +754,7 @@ class TestSkipSdStopOnRecorderTimeout:
         # fires.
         fake_app.recorder.recording = True
 
-        # Make recorder.stop() block past its 5s timeout — but to keep
+        # Make recorder.stop() block past its 5s timeout, but to keep
         # the test fast, monkeypatch ``_run_with_timeout`` to use a
         # 0.1s timeout for the recorder.stop / sd.stop calls only.
         import voice_typer.server.shutdown_controller as _sc
@@ -797,7 +797,7 @@ class TestSkipSdStopOnRecorderTimeout:
         ``sd.stop()`` MUST still be called (the safety-net path is
         preserved)."""
         fake_app.recorder.recording = True
-        # recorder.stop() succeeds (default MagicMock return — no
+        # recorder.stop() succeeds (default MagicMock return, no
         # side_effect, returns immediately).
 
         fake_sd = MagicMock()
@@ -811,7 +811,7 @@ class TestSkipSdStopOnRecorderTimeout:
     def test_sd_stop_called_when_recorder_not_recording(self, controller, fake_app, monkeypatch):
         """DE-54: when ``recorder.recording`` is False (no recorder.stop
         call attempted), ``sd.stop()`` MUST still be called (the safety-
-        net path is preserved — there's no timeout to skip from)."""
+        net path is preserved, there's no timeout to skip from)."""
         fake_app.recorder.recording = False
 
         fake_sd = MagicMock()
@@ -864,21 +864,21 @@ class TestSkipSdStopOnRecorderTimeout:
         """UE-2: when ``_recorder_teardown_done`` is NEVER set within
         9.5s (e.g. the recorder teardown helper crashed mid-call
         before reaching the line that sets the event), ``sd.stop()``
-        must be skipped — the leaked worker may still be accessing
+        must be skipped, the leaked worker may still be accessing
         the PortAudio stream, and a concurrent ``sd.stop()`` call
         reproduces the DE-54 deadlock the code documents as avoided.
         """
         fake_app.recorder.recording = True
 
         # The default ``controller._recorder_teardown_done`` is a fresh
-        # threading.Event that is NEVER set during this test — the
+        # threading.Event that is NEVER set during this test, the
         # ``_recorder_force_closed`` flag is also False. This is the
         # exact pre-fix condition: wait() returns False, but the
         # ``_recorder_force_closed`` check below would proceed to
         # ``sd.stop()`` and deadlock. The fix: check the wait() return
         # value FIRST and skip if the recorder teardown never signaled.
 
-        # Speed up the test — patch the wait() timeout down to 0.1s
+        # Speed up the test, patch the wait() timeout down to 0.1s
         # so the test finishes in <1s instead of waiting 9.5s.
         from voice_typer.server.shutdown.teardowns import sounddevice
 
@@ -902,7 +902,7 @@ class TestSkipSdStopOnRecorderTimeout:
 
         controller._do_cleanup()
 
-        # sd.stop() must NOT have been called — the wait() timed out
+        # sd.stop() must NOT have been called, the wait() timed out
         # AND _recorder_force_closed is False, so the leaked worker
         # might still be in the stream. Without the UE-2 fix, this
         # would have been called and the test would have either

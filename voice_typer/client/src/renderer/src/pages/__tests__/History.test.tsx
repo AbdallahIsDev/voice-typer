@@ -1,5 +1,5 @@
 /**
- * History page tests — , ,  regression coverage.
+ * History page tests, , ,  regression coverage.
  *
  * : Favorites toggle exposes aria-pressed + a stable accessible
  *        name containing the visible "Favorites" text (Label-in-Name).
@@ -16,7 +16,7 @@
  *        total is not) and shows a clearer confirmation message that
  *        ALL history (including hidden entries) will be deleted.
  *
- * Mock strategy mirrors Home.test.tsx — usePython is mocked so the
+ * Mock strategy mirrors Home.test.tsx, usePython is mocked so the
  * cache hook's IPC calls are intercepted by `mockCall`, and
  * usePythonEvent is a no-op (the page keeps its debounce wrapper +
  * usePythonEvent calls for the R7-F13 source-level contract).
@@ -24,7 +24,7 @@
  *  export tests exercise the `useHistoryExport` hook directly via
  * `renderHook` because the Radix DropdownMenu used by ExportFormatMenu
  * requires real pointer events (fireEvent.click alone doesn't open the
- * menu in the jsdom test environment — a known limitation shared with
+ * menu in the jsdom test environment, a known limitation shared with
  * the pre-existing rw1 "History export null-safe" test).
  */
 import {
@@ -94,10 +94,10 @@ const zeroStats: TodayStats = {
 };
 beforeEach(() => {
 	// Reset the shared singletons (mockCall, mockPythonEvent, toast,
-	// showSnack, …) — replaces the old clearAllMocks + per-fn resets.
+	// showSnack, …), replaces the old clearAllMocks + per-fn resets.
 	resetStableMocks();
 	localStorage.clear();
-	// Reset the global search store — the History page now reads its
+	// Reset the global search store, the History page now reads its
 	// query from here, so a leaked query between tests would skew
 	// filtering/load behavior.
 	useGlobalSearch.setState({ query: "" });
@@ -163,7 +163,7 @@ describe("BG-51: Favorites toggle exposes aria-pressed + stable accessible name"
 
 		fireEvent.click(favBtn);
 
-		// After click, the favorites filter is active — aria-pressed flips
+		// After click, the favorites filter is active, aria-pressed flips
 		// to "true" and the accessible name stays "Favorites" (no swap).
 		await waitFor(() => {
 			expect(favBtn.getAttribute("aria-pressed")).toBe("true");
@@ -374,7 +374,7 @@ describe("BG-53: Clear All under active filter is unambiguous", () => {
 			expect(screen.getByText("hello world")).toBeTruthy();
 		});
 
-		// Activate the favorites filter — visible list becomes empty
+		// Activate the favorites filter, visible list becomes empty
 		// but the cached stats still report 5 entries.
 		const favBtn = screen.getByRole("button", { name: t("history.favorites") });
 		fireEvent.click(favBtn);
@@ -383,7 +383,7 @@ describe("BG-53: Clear All under active filter is unambiguous", () => {
 			expect(favBtn.getAttribute("aria-pressed")).toBe("true");
 		});
 
-		// Click Clear All — should open the dialog (NOT short-circuit on
+		// Click Clear All, should open the dialog (NOT short-circuit on
 		// records.length === 0, because the stats count is 5).
 		const clearBtn = screen.getByRole("button", {
 			name: t("history.clearAllAria"),
@@ -481,7 +481,7 @@ describe("BG-53: Clear All under active filter is unambiguous", () => {
 		});
 		fireEvent.click(clearBtn);
 
-		// Dialog must NOT open — totalCount is 0, nothing to clear.
+		// Dialog must NOT open, totalCount is 0, nothing to clear.
 		// Wait for any pending state updates to settle, then assert
 		// no dialog appeared (waitFor polls until the negative
 		// assertion holds stably).
@@ -501,7 +501,7 @@ describe("BG-53: Clear All under active filter is unambiguous", () => {
 // transcriptions yet", sending the user down the wrong recovery path.
 describe("History load-error EmptyState uses the error variant", () => {
 	it('renders role="alert" with destructive styling when the backend load fails', async () => {
-		// Every IPC call rejects — useHistoryCache.load() catches,
+		// Every IPC call rejects, useHistoryCache.load() catches,
 		// sets loadError, and leaves records as []. The page then
 		// renders the load-error EmptyState (variant="error").
 		mockCall.mockRejectedValue(new Error("backend unreachable"));

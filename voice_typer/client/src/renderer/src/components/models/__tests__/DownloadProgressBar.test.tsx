@@ -32,7 +32,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // `models.download.progressAria` sentinel test (existing). The stubs
 // interpolate the params so tests can verify the component passes the
 // right values through. The stubs override the catalogue values during
-// tests — which is fine, since the tests assert on component behaviour,
+// tests, which is fine, since the tests assert on component behaviour,
 // not catalogue contents.
 let useSentinel = false;
 vi.mock("@/i18n/i18n", async (importOriginal) => {
@@ -75,7 +75,7 @@ const baseProps = {
 	onCancel: vi.fn(),
 };
 
-describe("DownloadProgressBar — i18n aria-label", () => {
+describe("DownloadProgressBar, i18n aria-label", () => {
 	afterEach(() => {
 		cleanup();
 		useSentinel = false;
@@ -101,7 +101,7 @@ describe("DownloadProgressBar — i18n aria-label", () => {
 		render(<DownloadProgressBar {...baseProps} />);
 		const bar = screen.getByRole("progressbar");
 		// en.json: models.download.progressAria = "Model download: {percent}% complete".
-		//the {percent} placeholder MUST be interpolated — screen
+		//the {percent} placeholder MUST be interpolated, screen
 		// readers would otherwise announce the literal token "{percent}"
 		// (with curly braces) for the entire duration of every download.
 		// For progress=42 the expected label is "Model download: 42% complete".
@@ -120,7 +120,7 @@ describe("DownloadProgressBar — i18n aria-label", () => {
 		render(<DownloadProgressBar {...baseProps} />);
 		// The status line shows the human-readable status string + the
 		// downloaded/total/speed/ETA spans. SR users need to hear updates
-		// as the download progresses — wrap the <p> in aria-live=polite.
+		// as the download progresses, wrap the <p> in aria-live=polite.
 		const status = screen.getByText("downloading");
 		expect(status.closest("p")).toHaveAttribute("aria-live", "polite");
 	});
@@ -137,7 +137,7 @@ describe("DownloadProgressBar — i18n aria-label", () => {
 
 // ─────────────────────────────────────────────────────────────────────
 //throttling boundary coverage. The pre-existing tests only
-//covered progress=42 and 42.7 — both round to 40. The original
+//covered progress=42 and 42.7, both round to 40. The original
 // finding flagged this as insufficient: the throttle formula
 // `Math.round(progress / 10) * 10` has surprising behaviour at the 5%
 // midpoint (rounds UP to 10) and at the 0% / 100% extremes (no
@@ -145,7 +145,7 @@ describe("DownloadProgressBar — i18n aria-label", () => {
 // These tests pin the formula at every boundary so a future "round to
 // nearest 5" change (or a Math.floor regression) is caught.
 // ─────────────────────────────────────────────────────────────────────
-describe("DownloadProgressBar — aria-valuenow throttle boundaries", () => {
+describe("DownloadProgressBar, aria-valuenow throttle boundaries", () => {
 	afterEach(() => {
 		cleanup();
 	});
@@ -153,7 +153,7 @@ describe("DownloadProgressBar — aria-valuenow throttle boundaries", () => {
 	it.each([
 		{ progress: 0, expected: 0 },
 		{ progress: 4, expected: 0 },
-		// 5 is the midpoint — Math.round(0.5) === 1 in JS, so 5 → 10.
+		// 5 is the midpoint, Math.round(0.5) === 1 in JS, so 5 → 10.
 		{ progress: 5, expected: 10 },
 		{ progress: 14.9, expected: 10 },
 		{ progress: 15, expected: 20 },
@@ -173,14 +173,14 @@ describe("DownloadProgressBar — aria-valuenow throttle boundaries", () => {
 
 // ─────────────────────────────────────────────────────────────────────
 //explicit error state. Before this fix the bar had no error
-// UI — a failed download was only surfaced via a toast (which auto-
+// UI, a failed download was only surfaced via a toast (which auto-
 // dismisses) and the bar was unmounted by the consumer. Now when
 // `error` is set the bar: (a) renders the error text in a role="alert"
 // region so SR users hear the failure announcement automatically, (b)
 // turns the fill red via the `bg-destructive` class, and (c) disables
 // the Pause button (pausing a failed download is a no-op).
 // ─────────────────────────────────────────────────────────────────────
-describe("DownloadProgressBar — explicit error state", () => {
+describe("DownloadProgressBar, explicit error state", () => {
 	afterEach(() => {
 		cleanup();
 	});
@@ -230,7 +230,7 @@ describe("DownloadProgressBar — explicit error state", () => {
 	});
 
 	it("does NOT render the paused chip / byte / speed / ETA spans in the error state", () => {
-		// The error region should be focused on the failure — not
+		// The error region should be focused on the failure, not
 		// cluttered with stale progress metrics from before the failure.
 		render(
 			<DownloadProgressBar
@@ -240,7 +240,7 @@ describe("DownloadProgressBar — explicit error state", () => {
 			/>,
 		);
 		const alert = screen.getByRole("alert");
-		// The `·` separator prefixes every supplemental span — none
+		// The `·` separator prefixes every supplemental span, none
 		// should be present in the error state.
 		expect(alert.textContent).not.toContain("·");
 	});
@@ -277,12 +277,12 @@ describe("DownloadProgressBar — explicit error state", () => {
 // ─────────────────────────────────────────────────────────────────────
 // In-place Retry button. Before it existed the only
 // recovery path for a failed download was to re-navigate to the model
-// card and click Download again — particularly painful when
+// card and click Download again, particularly painful when
 // a multi-GB download fails at 90%+. Now when
 // `error` is set AND `onRetry` is provided, a Retry button renders
 // next to Cancel.
 // ─────────────────────────────────────────────────────────────────────
-describe("DownloadProgressBar — in-place Retry button", () => {
+describe("DownloadProgressBar, in-place Retry button", () => {
 	afterEach(() => {
 		cleanup();
 	});
@@ -317,14 +317,14 @@ describe("DownloadProgressBar — in-place Retry button", () => {
 	});
 
 	it("does NOT render a Retry button when `error` is set but `onRetry` is absent", () => {
-		// The prop is optional — callers that don't want a retry
+		// The prop is optional, callers that don't want a retry
 		// affordance should not see one.
 		render(<DownloadProgressBar {...baseProps} error="disk full" />);
 		expect(screen.queryByRole("button", { name: /retry/i })).toBeNull();
 	});
 
 	it("does NOT render a Retry button when `onRetry` is provided but `error` is null", () => {
-		// Retry only makes sense in the error state — don't show it
+		// Retry only makes sense in the error state, don't show it
 		// during a healthy download.
 		render(
 			<DownloadProgressBar {...baseProps} error={null} onRetry={vi.fn()} />,
@@ -336,11 +336,11 @@ describe("DownloadProgressBar — in-place Retry button", () => {
 // ─────────────────────────────────────────────────────────────────────
 //render `models.progress.paused`. The i18n key
 //("· Paused") has existed in en.json since  but was never
-// rendered — the only paused cue was the amber bar fill, which is
+// rendered, the only paused cue was the amber bar fill, which is
 // invisible to SR users and easy to miss for sighted users. The fix
 // prepends the chip to the status line when `isPaused` is true.
 // ─────────────────────────────────────────────────────────────────────
-describe("DownloadProgressBar — render models.progress.paused chip", () => {
+describe("DownloadProgressBar, render models.progress.paused chip", () => {
 	afterEach(() => {
 		cleanup();
 	});
@@ -357,7 +357,7 @@ describe("DownloadProgressBar — render models.progress.paused chip", () => {
 	});
 
 	it("does NOT render the paused chip in the error state even if isPaused=true", () => {
-		// The error state overrides the paused state — showing both
+		// The error state overrides the paused state, showing both
 		// would be contradictory (the download has failed, not paused).
 		render(
 			<DownloadProgressBar
@@ -373,12 +373,12 @@ describe("DownloadProgressBar — render models.progress.paused chip", () => {
 
 // ─────────────────────────────────────────────────────────────────────
 // Model-specific aria-label. The generic aria-label
-// was always "Model download: N% complete" — useless when two models
+// was always "Model download: N% complete", useless when two models
 // are downloading concurrently (e.g. Whisper + Parakeet on the same
 // Models page). When `modelName` is provided the label becomes
 // "{name} download: N% complete" so SR users can disambiguate.
 // ─────────────────────────────────────────────────────────────────────
-describe("DownloadProgressBar — model-specific aria-label", () => {
+describe("DownloadProgressBar, model-specific aria-label", () => {
 	afterEach(() => {
 		cleanup();
 	});
@@ -402,7 +402,7 @@ describe("DownloadProgressBar — model-specific aria-label", () => {
 
 	it("uses the generic aria-label when `modelName` is NOT provided (backwards compat)", () => {
 		// Existing callers (LocalModelsPanel) don't yet pass modelName
-		// — they must keep seeing the original "Model download: N%
+		//, they must keep seeing the original "Model download: N%
 		// complete" label.
 		render(<DownloadProgressBar {...baseProps} progress={50} />);
 		const bar = screen.getByRole("progressbar");

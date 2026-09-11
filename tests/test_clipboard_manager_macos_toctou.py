@@ -1,6 +1,6 @@
 """macOS TOCTOU coverage for ``ClipboardManager.paste()``.
 
- (Medium): the clipboard package had a coverage gap — the macOS
+ (Medium): the clipboard package had a coverage gap, the macOS
 TOCTOU (Time-Of-Check-To-Time-Of-Use) re-check inside
 ``ClipboardManager.paste()`` was only tested by mocking
 ``_get_frontmost_pid_macos`` directly (see
@@ -37,7 +37,7 @@ import sys
 from unittest.mock import MagicMock, patch
 
 # pynput / pynput.keyboard / pyperclip are mocked at collection time by
-# tests/clipboard/conftest.py (single source of truth —  dedup).
+# tests/clipboard/conftest.py (single source of truth, dedup).
 from voice_typer.server import clipboard as clip_mod  # noqa: E402
 from voice_typer.server.clipboard import ClipboardManager  # noqa: E402
 
@@ -94,7 +94,7 @@ class TestMacosToctouPidRecheck:
         (PID 5678) in the ~5ms window before the Cmd+V keystroke is
         sent. The TOCTOU re-check at ``manager.py:1153-1162`` detects
         the PID change, logs a TOCTOU warning, and returns ``False``
-        WITHOUT sending the keystroke — preventing the dictated text
+        WITHOUT sending the keystroke, preventing the dictated text
         (potentially a password) from being pasted into the wrong
         window.
         """
@@ -162,7 +162,7 @@ class TestMacosToctouPidRecheck:
         ``test_paste_aborts_on_macos_toctou_pid_change`` (which only
         tests the abort path) and
         ``test_paste_proceeds_when_macos_pid_unavailable`` (which tests
-        the fail-open ``None`` path) — neither verifies the happy path
+        the fail-open ``None`` path), neither verifies the happy path
         where the PID is available AND unchanged.
         """
         cm = make_clipboard_manager(save_restore=False)

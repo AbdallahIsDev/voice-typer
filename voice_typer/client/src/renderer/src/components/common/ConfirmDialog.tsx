@@ -64,7 +64,7 @@ export default function ConfirmDialog({
 	// `onPointerDownOutside` / `onInteractOutside` with
 	// `(event) => event.preventDefault()` (see the alert-dialog source:
 	// the AlertDialog contract deliberately forbids outside dismissal,
-	// and it does NOT compose with a caller handler — the prop is
+	// and it does NOT compose with a caller handler, the prop is
 	// silently dropped). So a per-dialog onPointerDownOutside is dead
 	// code; the only way to get backdrop-click-to-close on an
 	// AlertDialog is a document-level pointerdown listener that checks
@@ -129,13 +129,13 @@ export default function ConfirmDialog({
 					<AlertDialogDescription>{message}</AlertDialogDescription>
 				</AlertDialogHeader>
 				<AlertDialogFooter>
-					{/* Cancel button has NO onClick — handleOpenChange
+					{/* Cancel button has NO onClick, handleOpenChange
                                             calls onCancel when the dialog closes. Letting Radix
                                             trigger onOpenChange(false) is the single close signal. */}
 					{/* Tertiary treatment (ghost + muted-until-hover), NOT the
 					    default outline variant: no border, no fill, muted
 					    text at rest, brightening to the primary text colour
-					    (with a subtle background) on hover — consistent with
+					    (with a subtle background) on hover, consistent with
 					    the app's secondary buttons (e.g. the header Import /
 					    Export controls). The old outline styling kept a
 					    visible border + solid white text at all times, which
@@ -159,7 +159,7 @@ export default function ConfirmDialog({
 						onClick={handleConfirm}
 						// Destructive confirm: solid, clearly-saturated red
 						// background with near-white text at rest (reads
-						// unambiguously as danger — the previous
+						// unambiguously as danger, the previous
 						// bg-destructive/10 wash was a muddy, desaturated
 						// red that read as disabled); on hover the red
 						// lightens slightly (opacity reduction) as subtle

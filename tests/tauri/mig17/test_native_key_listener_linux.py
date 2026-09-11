@@ -1,4 +1,4 @@
-"""MIG-1.7 Phase 0-L Gate Check 9 — native ``linux-key-listener`` (evdev, C).
+"""MIG-1.7 Phase 0-L Gate Check 9: native ``linux-key-listener`` (evdev, C).
 
 Validates that the native Linux hotkey binary (built by
 ``scripts/build/compile_native.sh`` / wrapped by
@@ -9,7 +9,7 @@ Python sidecar's ``native_hotkeys.SubprocessHotkeyBackend`` /
 ``LinuxEvdevHotkey``.
 
 ADR-0020 §6.4 mandates KEEPING the native binary (do NOT switch to
-``tauri-plugin-global-shortcut`` — Tauri's plugin uses X11 ONLY on
+``tauri-plugin-global-shortcut``, Tauri's plugin uses X11 ONLY on
 Linux, which **breaks Wayland**; evdev is the only Wayland-capable
 path). The binary is spawned as a subprocess by the PYTHON SIDECAR
 (not by the Tauri host); Tauri only ships it as a
@@ -19,32 +19,32 @@ path). The binary is spawned as a subprocess by the PYTHON SIDECAR
 paths. See ``native_hotkeys.get_native_binary_path`` for the full
 6-step lookup chain.
 
-These tests run on any platform (Linux sandbox included) — they mock
+These tests run on any platform (Linux sandbox included), they mock
 ``subprocess.Popen``, ``pathlib.Path.is_file``/``Path.exists``, and
 the ``is_windows()``/``is_macos()``/``is_linux()`` platform
 predicates so the Linux code path is exercised deterministically
 without depending on a real evdev device. The actual evdev
 ``/dev/input/event*`` reads + the X11/Wayland toggle can only be
-validated on a real Linux display host — see the "VALIDATE ON LINUX
+validated on a real Linux display host: see the "VALIDATE ON LINUX
 HOST" block below.
 
 VALIDATE ON LINUX HOST:
     1. Launch Voice Typer
-    2. Press F8 (default dictation hotkey) — verify dictation starts
-    3. Press F8 again — verify dictation stops + transcribed text
+    2. Press F8 (default dictation hotkey), verify dictation starts
+    3. Press F8 again, verify dictation stops + transcribed text
        pastes
-    4. Press ESC — verify dictation cancels
+    4. Press ESC, verify dictation cancels
     5. Check ~/.local/share/voice-typer/logs/voice-typer.log for:
        - "[NATIVE-HOTKEY] Starting Linux backend (hotkey=F8)"
        - "[NATIVE-HOTKEY] Linux binary is READY"
        - "[NATIVE-HOTKEY] hotkey pressed: F8"
     6. Verify the hotkey is NOT suppressed on Linux (evdev is
-       read-only — F8 will reach the foreground app)
+       read-only, F8 will reach the foreground app)
     7. Test on both X11 and Wayland sessions
     Expected: hotkey responds within 50ms; works on both X11 +
     Wayland; key NOT suppressed (Linux limitation)
     Note: if the user is not in the `input` group, the binary will
-    fail to open /dev/input/event* — run
+    fail to open /dev/input/event*, run
     `sudo usermod -aG input $USER` + log out + log back in.
 
     Shell verification commands (runbook Step 12 + §3):
@@ -70,26 +70,26 @@ VALIDATE ON LINUX HOST:
         # Verify /dev/input/event* is group-readable by 'input':
         ls -l /dev/input/event0
         # Expected: crw-rw---- root input ... (mode 0660, group=input)
-        # — installed by the 99-voice-typer.rules udev rule.
+        #, installed by the 99-voice-typer.rules udev rule.
 
         # Tail the sidecar log for hotkey activity:
         tail -f ~/.local/share/voice-typer/logs/voice-typer.log | \\
             grep -E 'hotkey|native|KEY_DOWN|MOD_DOWN|toggle'
 
-    Pass criteria (runbook Step 12 — gate point 8):
+    Pass criteria (runbook Step 12, gate point 8):
         - ``linux-key-listener`` appears in ``ps aux`` while Voice
           Typer is running.
         - Pressing the configured hotkey (F8) toggles dictation
           (bubble appears + recording starts; second press stops +
           pastes) on BOTH X11 and Wayland sessions.
         - The hotkey is NOT suppressed (F8 reaches the foreground app
-          — e.g. browser dev tools F8 "step over" still fires). This
+        , e.g. browser dev tools F8 "step over" still fires). This
           is the documented Linux limitation per ADR-0020 §6.4.
         - ``groups $USER`` includes ``input``.
         - No ``permission denied: /dev/input/event*`` errors in the
           sidecar log.
 
-Wire protocol (line-delimited TEXT, not JSON — same as the Windows +
+Wire protocol (line-delimited TEXT, not JSON, same as the Windows +
 macOS native listeners):
 
     READY                  # emitted once after init succeeds
@@ -99,7 +99,7 @@ macOS native listeners):
     MOD_UP:<Name>          # modifier released
     ERROR:<message>        # fatal error, binary will exit(1)
 
-Note: there is NO ``FN_DOWN``/``FN_UP`` event on Linux — the Fn key
+Note: there is NO ``FN_DOWN``/``FN_UP`` event on Linux, the Fn key
 is firmware-only on most Linux laptops and never reaches the OS
 (ADR-0020 §6.4 table row "Fn / Globe key on macOS").
 
@@ -107,7 +107,7 @@ Note on runbook section numbering: the native Linux key-listener
 gate is documented in Step 12 of ``linux-validation-runbook.md``
 (gate point 8 of the 9-point Phase 0-L validation gate). The task
 spec refers to this as "§6.8"; in the actual runbook file the
-heading is "Step 12 — Native ``linux-key-listener`` toggles
+heading is "Step 12, Native ``linux-key-listener`` toggles
 dictation on X11 AND Wayland". This test file validates Step 12 +
 §3 (native listener build + toggle) + ADR-0020 §6.4.
 """
@@ -174,7 +174,7 @@ def linux_env(monkeypatch):
     The sandbox has no native-binary manifest populated (no real
     ``linux-key-listener`` binary + no SHA-256 entry), so the
     verification fails and ``_spawn_process`` returns early without
-    calling ``Popen`` — breaking the ``TestSubprocessSpawn`` suite
+    calling ``Popen``, breaking the ``TestSubprocessSpawn`` suite
     which asserts on the ``Popen`` call. Mock the verifier to return
     True here so the ``Popen`` call is reached; the verifier's own
     behavior is pinned by the dedicated ``tests/test_native_hotkeys*``
@@ -227,7 +227,7 @@ class TestTauriBundleResources:
 
         ADR-0020 §6.4: "Tauri does not touch the hotkey subsystem at
         all." If the binary were in ``externalBin``, Tauri would own
-        its lifecycle — that would violate the ADR. It must be a
+        its lifecycle, that would violate the ADR. It must be a
         ``resource`` so the Python sidecar spawns it via
         ``subprocess.Popen``.
         """
@@ -240,14 +240,14 @@ class TestTauriBundleResources:
         # Must NOT be in externalBin (Tauri must not spawn it).
         for ext in external_bins:
             assert "linux-key-listener" not in ext, (
-                f"linux-key-listener must NOT be in externalBin (Tauri must not spawn it — ADR-0020 §6.4). Found: {ext}"
+                f"linux-key-listener must NOT be in externalBin (Tauri must not spawn it, ADR-0020 §6.4). Found: {ext}"
             )
 
     def test_tauri_conf_also_bundles_windows_and_macos_listeners(self):
         """All three platform binaries are bundled (cross-platform ship).
 
         ADR-0020 §7 lists all three. This is a sanity check that the
-        Linux entry isn't alone — confirms the resources array is the
+        Linux entry isn't alone, confirms the resources array is the
         cross-platform native-listener block. (Tauri ships all three
         platform binaries in every bundle; the sidecar picks the
         matching one at runtime via ``_BINARY_NAMES[sys.platform]``.)
@@ -272,10 +272,10 @@ class TestTauriBundleResources:
         # (NOT `postInstall` which was the Tauri v1 short form).
         # See https://v2.tauri.app/reference/config/#debconfig
         assert "postInstallScript" in deb, (
-            "bundle.linux.deb.postInstallScript missing — Tauri v2 requires the 'postInstallScript' key"
+            "bundle.linux.deb.postInstallScript missing, Tauri v2 requires the 'postInstallScript' key"
         )
         assert "postInstall" not in deb, (
-            "stale short-form 'postInstall' key present on bundle.linux.deb — "
+            "stale short-form 'postInstall' key present on bundle.linux.deb, "
             "Tauri v2 requires the 'postInstallScript' long-form key"
         )
         post_install = deb["postInstallScript"]
@@ -300,7 +300,7 @@ class TestSubprocessSpawn:
         ``Popen`` is required because the sidecar needs a long-lived
         child process whose stdout is streamed line-by-line by the
         reader thread. ``run``/``call``/``check_output`` would block
-        until the binary exits — useless for an event-driven listener
+        until the binary exits, useless for an event-driven listener
         that runs for the app's lifetime.
         """
         backend = linux_env.LinuxEvdevHotkey("<f8>")
@@ -333,7 +333,7 @@ class TestSubprocessSpawn:
         ``_spawn_process`` builds ``cmd = [str(binary_path), self.hotkey_str]``.
         The native C binary parses ``argv[1]`` via
         ``validate_hotkey_spec(argv[1])`` to know which hotkey to
-        watch. This is NOT stdin, NOT JSON — it's a plain pynput-style
+        watch. This is NOT stdin, NOT JSON, it's a plain pynput-style
         spec string as argv[1].
         """
         backend = linux_env.LinuxEvdevHotkey("<f8>")
@@ -359,7 +359,7 @@ class TestSubprocessSpawn:
     def test_spawn_pipes_stdout_for_wire_protocol(self, linux_env, monkeypatch, tmp_path):
         """stdout=PIPE, stderr=STDOUT, stdin=PIPE (G4-H-31 watchdog).
 
-        stdout MUST be piped — the reader thread reads line-delimited
+        stdout MUST be piped, the reader thread reads line-delimited
         wire-protocol events (READY / KEY_DOWN / MOD_DOWN / ERROR)
         from it. stderr is redirected to stdout so error output is
         visible in the same stream. stdin is PIPE (G4-H-31) so the
@@ -383,9 +383,7 @@ class TestSubprocessSpawn:
 
         backend._spawn_process()
         kwargs = captured["kwargs"]
-        assert kwargs.get("stdout") == subprocess.PIPE, (
-            "stdout must be PIPE — reader thread streams wire-protocol lines"
-        )
+        assert kwargs.get("stdout") == subprocess.PIPE, "stdout must be PIPE, reader thread streams wire-protocol lines"
         assert kwargs.get("stderr") == subprocess.STDOUT, (
             "stderr must redirect to stdout so errors surface in the wire stream"
         )
@@ -395,7 +393,7 @@ class TestSubprocessSpawn:
         # for hotkey detection (poll on /dev/input/event* fds); the
         # PING/PONG channel is a separate liveness probe.
         assert kwargs.get("stdin") == subprocess.PIPE, (
-            "stdin must be PIPE — G4-H-31 added a PING/PONG watchdog that writes "
+            "stdin must be PIPE, G4-H-31 added a PING/PONG watchdog that writes "
             "to the binary's stdin every 30s to detect a stuck reader (the binary "
             "responds with PONG\\n); was DEVNULL before the watchdog was added"
         )
@@ -405,7 +403,7 @@ class TestSubprocessSpawn:
 
         ``_spawn_process`` sets ``start_new_session=is_macos() or is_linux()``
         so the child is in its own process group. The sidecar then
-        sends ``SIGTERM`` (not ``terminate()``) to shut it down — the
+        sends ``SIGTERM`` (not ``terminate()``) to shut it down, the
         C binary installs a SIGTERM handler (``on_signal``) that
         exits the ``poll()`` loop cleanly via ``g_should_exit``.
         """
@@ -432,7 +430,7 @@ class TestSubprocessSpawn:
     def test_spawn_failure_raises_runtime_error(self, linux_env, monkeypatch, tmp_path):
         """If ``Popen`` raises ``OSError``, ``_spawn_process`` raises ``RuntimeError``.
 
-        This covers the "binary disappeared mid-restart" path — the
+        This covers the "binary disappeared mid-restart" path, the
         reader loop catches the RuntimeError and notifies the adapter
         via ``_on_permanent_failure_callback`` (which on Linux would
         fall back to ``WaylandHotkey`` or ``PynputHotkey``).
@@ -443,7 +441,7 @@ class TestSubprocessSpawn:
         # ``os.open`` (O_RDONLY | O_CLOEXEC) BEFORE the SHA-256 verify +
         # Popen so the fd pins the inode for the pre-Popen stat check.
         # The file must exist on disk or the ``os.open`` fails first
-        # (setting ``_failed=True`` + returning early — NOT raising).
+        # (setting ``_failed=True`` + returning early. NOT raising).
         # Create a placeholder so the ``os.open`` succeeds; the test
         # exercises the ``Popen``-raises path, not the ``os.open``-fails
         # path.
@@ -461,7 +459,7 @@ class TestSubprocessSpawn:
         assert backend._error_message is not None
 
     def test_spawn_does_not_use_create_no_window_on_linux(self, linux_env, monkeypatch, tmp_path):
-        """On Linux, ``creationflags`` is 0 (no CREATE_NO_WINDOW — Windows-only).
+        """On Linux, ``creationflags`` is 0 (no CREATE_NO_WINDOW, Windows-only).
 
         ``_spawn_process`` only sets ``CREATE_NO_WINDOW`` when
         ``is_windows()`` is True. On Linux this flag would be a no-op
@@ -484,7 +482,7 @@ class TestSubprocessSpawn:
         backend._spawn_process()
         # creationflags must be 0 on Linux (CREATE_NO_WINDOW is Windows-only).
         assert captured["kwargs"].get("creationflags", 0) == 0, (
-            "creationflags must be 0 on Linux — CREATE_NO_WINDOW is Windows-only and would be a no-op or raise on POSIX"
+            "creationflags must be 0 on Linux, CREATE_NO_WINDOW is Windows-only and would be a no-op or raise on POSIX"
         )
 
 
@@ -613,7 +611,7 @@ class TestBinaryDiscovery:
         # exists because we mock Path.is_file.
         fake_native_dir = tmp_path / "fake-bundle"
         fake_native_dir.mkdir()
-        # NOTE: do NOT write the binary file — Path.is_file is mocked
+        # NOTE: do NOT write the binary file, Path.is_file is mocked
         # to return True so discovery still succeeds.
         candidate = fake_native_dir / "linux-key-listener"
 
@@ -659,7 +657,7 @@ class TestWireProtocol:
         MOD_UP:<Name>
         ERROR:<message>
 
-    There is NO ``FN_DOWN``/``FN_UP`` event on Linux — the Fn key is
+    There is NO ``FN_DOWN``/``FN_UP`` event on Linux, the Fn key is
     firmware-only on most Linux laptops (ADR-0020 §6.4).
     """
 
@@ -676,7 +674,7 @@ class TestWireProtocol:
 
         The adapter's ``_on_error_callback`` is then invoked so the
         sidecar can classify the error (e.g. show the input-group
-        onboarding prompt — ``scripts/linux/install_permissions.py``
+        onboarding prompt: ``scripts/linux/install_permissions.py``
         via pkexec for AppImage users).
         """
         backend = linux_env.LinuxEvdevHotkey("<f8>")
@@ -729,17 +727,17 @@ class TestWireProtocol:
         fired: list[str] = []
         backend._callback = lambda: fired.append("press")
 
-        # V alone — no fire.
+        # V alone, no fire.
         backend._handle_line("KEY_DOWN:V")
         # Release V (the OS always emits KEY_UP between two distinct
-        # KEY_DOWN events for the same key — the auto-repeat filter in
+        # KEY_DOWN events for the same key, the auto-repeat filter in
         # ``_on_key_event`` suppresses a second KEY_DOWN while the main
         # key is still tracked as down, so we must explicitly release V
         # before pressing it again with the modifiers held).
         backend._handle_line("KEY_UP:V")
         assert fired == []
 
-        # Hold Ctrl+Alt, then press V — fire.
+        # Hold Ctrl+Alt, then press V, fire.
         backend._handle_line("MOD_DOWN:Ctrl")
         backend._handle_line("MOD_DOWN:Alt")
         backend._handle_line("KEY_DOWN:V")
@@ -789,18 +787,18 @@ class TestInputGroupPermission:
         assert LINUX_KEY_LISTENER_C.is_file(), f"Missing C source: {LINUX_KEY_LISTENER_C}"
 
     def test_c_source_opens_dev_input_event_devices(self):
-        """The C source must open ``/dev/input/event*`` (evdev) — NOT use X11.
+        """The C source must open ``/dev/input/event*`` (evdev). NOT use X11.
 
         ADR-0020 §6.4 table row "Wayland support": the native binary
         uses evdev (``/dev/input/event*``) which sits BELOW the
         display server, so it works on both X11 and Wayland. The
-        Tauri plugin uses X11 only on Linux (breaks Wayland) — this
+        Tauri plugin uses X11 only on Linux (breaks Wayland), this
         is the critical Linux-specific reason to keep the native binary.
         """
         src = LINUX_KEY_LISTENER_C.read_text(encoding="utf-8")
         assert "/dev/input" in src, (
             "linux-key-listener.c must open devices under /dev/input "
-            "(evdev — the only Wayland-capable Linux hotkey path)"
+            "(evdev, the only Wayland-capable Linux hotkey path)"
         )
         assert "event" in src, "linux-key-listener.c must scan for eventN devices in /dev/input"
 
@@ -860,7 +858,7 @@ class TestInputGroupPermission:
         """
         backend = linux_env.LinuxEvdevHotkey("<fn>")
         err = backend._validate_platform()
-        assert err is not None, "LinuxEvdevHotkey must reject <fn> specs — Fn is firmware-only on most Linux laptops"
+        assert err is not None, "LinuxEvdevHotkey must reject <fn> specs, Fn is firmware-only on most Linux laptops"
         assert "FN" in err or "fn" in err, f"_validate_platform error must mention FN/fn; got {err!r}"
 
     def test_linux_backend_does_not_support_fn(self, linux_env):
@@ -872,7 +870,7 @@ class TestInputGroupPermission:
         """
         backend = linux_env.LinuxEvdevHotkey("<f8>")
         assert backend.supports_fn is False, (
-            "LinuxEvdevHotkey.supports_fn must be False — Fn is firmware-only "
+            "LinuxEvdevHotkey.supports_fn must be False, Fn is firmware-only "
             "on most Linux laptops (never reaches the OS)"
         )
 
@@ -886,7 +884,7 @@ class TestEvdevGlobalHotkeys:
     ADR-0020 §6.4 table row "Wayland support": the native binary
     uses evdev (``/dev/input/event*``) which sits BELOW the display
     server, so it works on both X11 and Wayland. The Tauri plugin
-    uses X11 only on Linux — **breaks Wayland**. This is the
+    uses X11 only on Linux, **breaks Wayland**. This is the
     critical Linux-specific reason to keep the native binary.
 
     The 9-point Phase 0-L validation gate (runbook §7) requires
@@ -898,7 +896,7 @@ class TestEvdevGlobalHotkeys:
         """The C source includes ``<linux/input.h>`` (the evdev API).
 
         ``<linux/input.h>`` defines ``struct input_event``,
-        ``EV_KEY``, ``KEY_F8``, ``EVIOCGBIT``, etc. — the evdev
+        ``EV_KEY``, ``KEY_F8``, ``EVIOCGBIT``, etc., the evdev
         userspace API. Without this header the binary couldn't read
         keyboard events.
         """
@@ -954,7 +952,7 @@ class TestEvdevGlobalHotkeys:
         )
         assert "KEY_A" in src and "KEY_SPACE" in src and "KEY_ENTER" in src, (
             "linux-key-listener.c must check for KEY_A, KEY_SPACE, KEY_ENTER "
-            "(keyboard heuristic — filters out non-keyboard input devices)"
+            "(keyboard heuristic, filters out non-keyboard input devices)"
         )
 
     def test_c_source_handles_autorepeat_events(self):
@@ -1027,7 +1025,7 @@ class TestKeySuppressionNotSupported:
     def test_c_source_opens_devices_read_only(self):
         """The binary opens ``/dev/input/event*`` with ``O_RDONLY`` (read-only).
 
-        evdev is read-only — there's no ``EVIOCGRAB`` (which would
+        evdev is read-only, there's no ``EVIOCGRAB`` (which would
         grab exclusive access and effectively suppress events but
         also break the foreground app's keyboard entirely). The
         binary just observes events and emits wire-protocol lines.
@@ -1035,12 +1033,12 @@ class TestKeySuppressionNotSupported:
         src = LINUX_KEY_LISTENER_C.read_text(encoding="utf-8")
         assert "O_RDONLY" in src, (
             "linux-key-listener.c must open /dev/input/event* with O_RDONLY "
-            "(evdev is read-only — no key suppression on Linux)"
+            "(evdev is read-only, no key suppression on Linux)"
         )
         # The binary must NOT use EVIOCGRAB (which would grab exclusive
         # access and break the foreground app's keyboard entirely).
         assert "EVIOCGRAB" not in src, (
-            "linux-key-listener.c must NOT use EVIOCGRAB (exclusive grab) — "
+            "linux-key-listener.c must NOT use EVIOCGRAB (exclusive grab), "
             "that would break the foreground app's keyboard entirely. The "
             "binary observes events only (no suppression)."
         )
@@ -1049,7 +1047,7 @@ class TestKeySuppressionNotSupported:
         """The binary does not write to ``/dev/input/event*`` (no ``write(2)``).
 
         evdev writes (``EV_KEY`` synthesis via ``write()``) require
-        ``O_WRONLY`` and are not used by the listener — the binary
+        ``O_WRONLY`` and are not used by the listener, the binary
         only reads events. This pins the read-only contract.
         """
         src = LINUX_KEY_LISTENER_C.read_text(encoding="utf-8")
@@ -1057,8 +1055,8 @@ class TestKeySuppressionNotSupported:
         # must NOT use write() to inject synthetic events.
         assert "read(" in src, "linux-key-listener.c must use read(2) to consume input_event structs"
         # write() to a fd would be event injection (synthesis). The
-        # binary should not do this — it's read-only. (write() to
-        # stdout via fputs/fputc is fine — that's the wire protocol.)
+        # binary should not do this, it's read-only. (write() to
+        # stdout via fputs/fputc is fine, that's the wire protocol.)
         # We check that no write() to the device fds exists.
         # The simplest check: the device open() uses O_RDONLY (validated
         # in the previous test), so write() to those fds would fail
@@ -1067,7 +1065,7 @@ class TestKeySuppressionNotSupported:
     def test_c_source_documents_read_only_limitation(self):
         """The C source header comment documents the read-only limitation.
 
-        Per ADR-0020 §6.4, this is a documented limitation — not a
+        Per ADR-0020 §6.4, this is a documented limitation, not a
         bug. The header comment in ``linux-key-listener.c`` must
         mention it so future maintainers don't try to add suppression.
         """
@@ -1079,7 +1077,7 @@ class TestKeySuppressionNotSupported:
         )
         assert "suppress" in src.lower(), (
             "linux-key-listener.c must reference suppression (the documented "
-            "Linux limitation — evdev cannot suppress keystrokes)"
+            "Linux limitation, evdev cannot suppress keystrokes)"
         )
 
     def test_adr_documents_linux_no_suppression(self):
@@ -1103,19 +1101,19 @@ class TestKeySuppressionNotSupported:
         """The Python ``LinuxEvdevHotkey`` does not advertise suppression capability.
 
         There's no ``supports_suppression`` attribute on
-        ``SubprocessHotkeyBackend`` (the parent class) — suppression
+        ``SubprocessHotkeyBackend`` (the parent class), suppression
         is implicit per-platform (macOS/Windows yes, Linux no). The
         macOS subclass's source uses CGEvent tap (returns nil);
         Linux's source uses O_RDONLY evdev (no suppression). The
         Python backend doesn't need an explicit flag because the
-        binary's wire protocol carries no suppression state — the
+        binary's wire protocol carries no suppression state, the
         sidecar just matches events.
         """
         backend = linux_env.LinuxEvdevHotkey("<f8>")
         # No suppression attribute on the Linux backend (it's implicit
         # in the C source's read-only evdev design).
         assert not getattr(backend, "supports_suppression", False), (
-            "LinuxEvdevHotkey must NOT advertise supports_suppression — evdev is read-only (ADR-0020 §6.4)"
+            "LinuxEvdevHotkey must NOT advertise supports_suppression, evdev is read-only (ADR-0020 §6.4)"
         )
 
 
@@ -1148,12 +1146,12 @@ class TestSidecarOwnership:
         Phase 4.5 / ARCH-045 split the original ``native_hotkeys.py``
         god-module into a package: ``SubprocessHotkeyBackend`` now lives
         in ``_core.py`` (composed from the ``_spawn``/``_reader``/
-        ``_watchdog``/``_matching`` mixins — 2026-08-30 decomposition)
+        ``_watchdog``/``_matching`` mixins, 2026-08-30 decomposition)
         and ``LinuxEvdevHotkey`` in ``linux_backend.py``. Both are
         re-exported from ``native_hotkeys/__init__.py``. We read EVERY
         ``*.py`` file in the package directory and assert the class
         definitions are present somewhere in the package (not just
-        re-exported from elsewhere) — robust to future module
+        re-exported from elsewhere), robust to future module
         decompositions, which previously staled this pin.
         """
         # Read the package __init__.py + every submodule. The
@@ -1226,7 +1224,7 @@ class TestSidecarOwnership:
         ``HotkeyDispatcher.__init__`` calls
         ``create_hotkey_backend(hotkey_str)``, which calls
         ``create_native_backend(hotkey_str)``, which calls
-        ``get_native_binary_path()`` — if the binary is found and
+        ``get_native_binary_path()``, if the binary is found and
         ``is_linux()`` is True, a ``LinuxEvdevHotkey`` is returned.
 
         CR-002 (fail-closed): ``verify_native_binary_or_skip`` returns
@@ -1312,7 +1310,7 @@ class TestSidecarOwnership:
     def test_adr_documents_wayland_regression_risk(self):
         """ADR-0020 §6.4 documents the Wayland regression risk.
 
-        The Tauri plugin uses X11 only on Linux — switching would
+        The Tauri plugin uses X11 only on Linux, switching would
         break Wayland. Keeping the native binary (evdev) preserves
         Wayland support. This is the Linux-specific critical feature
         ADR-0020 §6.4 preserves (analogous to Fn/Globe on macOS).
@@ -1349,7 +1347,7 @@ class TestSidecarOwnership:
         assert "X11" in src and "Wayland" in src, "Runbook Step 12 must require testing on BOTH X11 and Wayland"
 
 
-# ─── §9. ``scripts/linux/postinst`` — input group + udev rules ──────────────
+# ─── §9. ``scripts/linux/postinst``, input group + udev rules ──────────────
 
 
 class TestPostinstSetup:
@@ -1378,7 +1376,7 @@ class TestPostinstSetup:
         """The ``postinst`` script invokes ``install_permissions.py``.
 
         The postinst doesn't install the udev rule / add the user to
-        the ``input`` group directly — it delegates to
+        the ``input`` group directly, it delegates to
         ``scripts/linux/install_permissions.py`` (the single source of
         truth for "what system modifications does Voice Typer make on
         Linux"). This is the zero-command setup flow: the user only
@@ -1436,7 +1434,7 @@ class TestPostinstSetup:
     def test_install_permissions_py_adds_user_to_input_group(self):
         """``install_permissions.py`` adds the user to the ``input`` group.
 
-        Uses ``usermod -aG input <username>`` (idempotent — checks
+        Uses ``usermod -aG input <username>`` (idempotent, checks
         ``grp.getgrnam('input').gr_mem`` first and skips if the user
         is already a member). The target user is determined from
         ``$SUDO_USER`` (set by sudo/apt/dnf) or ``$PKEXEC_UID``
@@ -1464,10 +1462,10 @@ class TestPostinstSetup:
     def test_udev_rule_grants_input_group_access(self):
         """The udev rule grants the ``input`` group read access to ``eventN`` devices.
 
-        ``KERNEL=="event[0-9]*", SUBSYSTEM=="input", GROUP="input", MODE="0660"``
-        — this is the standard pattern for /dev/input access (same
-        as the docker group for /var/run/docker.sock). Owner (root)
-        gets rw, group (input) gets rw, others get nothing.
+          ``KERNEL=="event[0-9]*", SUBSYSTEM=="input", GROUP="input", MODE="0660"``
+        , this is the standard pattern for /dev/input access (same
+          as the docker group for /var/run/docker.sock). Owner (root)
+          gets rw, group (input) gets rw, others get nothing.
         """
         assert UDEV_RULES.is_file()
         src = UDEV_RULES.read_text(encoding="utf-8")
@@ -1572,7 +1570,7 @@ class TestBuildScript:
 
         The C source's build instructions (header comment) must
         reference ``gcc``. ``-O2`` for performance (the binary is in
-        the hot path — every keystroke is parsed). ``-std=c99`` for
+        the hot path, every keystroke is parsed). ``-std=c99`` for
         portability (no GNU extensions needed; the source uses
         ``_GNU_SOURCE`` only for ``strdup``/``strcasestr``).
         """

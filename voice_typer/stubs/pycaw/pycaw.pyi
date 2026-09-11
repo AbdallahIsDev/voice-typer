@@ -1,5 +1,5 @@
 # ruff: noqa: A001, A002, N802, N803, N816
-# PYREFLY-001: stub for `pycaw.pycaw` — the Windows WASAPI wrapper used
+# PYREFLY-001: stub for `pycaw.pycaw`: the Windows WASAPI wrapper used
 # by `voice_typer/server/volume_backends.py::WinVolumeBackend`.
 #
 # Import surface (from grep):

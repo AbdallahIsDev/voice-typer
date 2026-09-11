@@ -18,7 +18,7 @@
  *     live-region guard contract from data-pages-live-region-guards.
  *
  * The components are mounted directly (the pages themselves mount them
- * in their first-load branches — covered by loading-patterns.test.tsx).
+ * in their first-load branches, covered by loading-patterns.test.tsx).
  */
 
 import { cleanup, render, screen } from "@testing-library/react";
@@ -168,7 +168,7 @@ describe("DashboardSkeleton", () => {
 	it("mirrors the dashboard blocks and stays a NON-live region", () => {
 		render(<DashboardSkeleton />);
 		// <section> with aria-busy, NOT an <output> (zero live regions
-		// at first paint — data-pages-live-region-guards contract).
+		// at first paint, data-pages-live-region-guards contract).
 		const region = document.querySelector("section[aria-busy=true]");
 		expect(region).not.toBeNull();
 		expect(screen.queryByRole("status")).toBeNull();

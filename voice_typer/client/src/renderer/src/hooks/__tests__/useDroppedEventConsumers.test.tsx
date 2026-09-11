@@ -13,7 +13,7 @@
  * the right toast shape, and rate-limits repeat emissions.
  *
  * Cooldown state lives in `degradationToastStore` (Zustand, outside the
- * hook modules — HMR-safe), so the reset seam is the store's
+ * hook modules, HMR-safe), so the reset seam is the store's
  * `resetForTest`, exercised in `beforeEach`.
  *
  * Mock strategy mirrors `useLastResortUnloadedToast.test.tsx`:

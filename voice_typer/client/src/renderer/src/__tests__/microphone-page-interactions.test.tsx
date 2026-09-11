@@ -88,7 +88,7 @@ async function renderMicrophonePage(configOverrides = {}) {
 	);
 }
 
-describe("Microphone page — Start Test consent gate (GDPR Art. 9)", () => {
+describe("Microphone page, Start Test consent gate (GDPR Art. 9)", () => {
 	beforeEach(() => {
 		resetStableMocks();
 		localStorage.clear();
@@ -109,7 +109,7 @@ describe("Microphone page — Start Test consent gate (GDPR Art. 9)", () => {
 		);
 		expect(startCalls.length).toBe(0);
 
-		// The store must be imported dynamically — vi.resetModules() above
+		// The store must be imported dynamically, vi.resetModules() above
 		// means the page holds a FRESH lib/consentGate instance; a
 		// top-level import would be a different singleton.
 		const { useConsentGateStore } = await import("@/lib/consentGate");
@@ -156,7 +156,7 @@ describe("Microphone page — Start Test consent gate (GDPR Art. 9)", () => {
 	});
 });
 
-describe("Microphone page — unified radio mic list", () => {
+describe("Microphone page, unified radio mic list", () => {
 	beforeEach(() => {
 		resetStableMocks();
 		localStorage.clear();
@@ -200,7 +200,7 @@ describe("Microphone page — unified radio mic list", () => {
 	});
 });
 
-describe("Microphone page — device-lost recovery via mic switch", () => {
+describe("Microphone page, device-lost recovery via mic switch", () => {
 	beforeEach(() => {
 		resetStableMocks();
 		localStorage.clear();
@@ -219,7 +219,7 @@ describe("Microphone page — device-lost recovery via mic switch", () => {
 
 		const { useDeviceLostStore } = await import("@/stores/deviceLostStore");
 		// act(): the flag must be COMMITTED to the subscribed page (and its
-		// callbacks re-created with lostSource set) BEFORE the click — an
+		// callbacks re-created with lostSource set) BEFORE the click, an
 		// unflushed update leaves the page's stale closure unable to see it.
 		await act(async () => {
 			useDeviceLostStore.getState().markLost("alsa:hw:1");
@@ -241,7 +241,7 @@ describe("Microphone page — device-lost recovery via mic switch", () => {
 	});
 });
 
-describe("Microphone page — fixed test duration (slider removed)", () => {
+describe("Microphone page, fixed test duration (slider removed)", () => {
 	beforeEach(() => {
 		resetStableMocks();
 		localStorage.clear();

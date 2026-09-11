@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Voice Typer — Nuitka sidecar build (Windows x86_64 + aarch64)
-# ADR-0020 §4.2 — Nuitka freeze of voice_typer/server/ipc_server.py into
+# Voice Typer. Nuitka sidecar build (Windows x86_64 + aarch64)
+# ADR-0020 §4.2. Nuitka freeze of voice_typer/server/ipc_server.py into
 # python-sidecar-<triple>.exe, using python-build-standalone as the base
 # interpreter.
 #
@@ -25,7 +25,7 @@
 #   - --include-package=faster_whisper --include-package=ctranslate2
 #   - --include-package=voice_typer --include-package=websockets
 #   - --include-data-dir=<SITE>/ctranslate2/lib=ctranslate2/lib (dest is
-#     RELATIVE to the dist folder — absolute dests are silently ignored)
+#     RELATIVE to the dist folder, absolute dests are silently ignored)
 #   - --include-dll=<SITE>/ctranslate2/lib/ctranslate2.dll
 #   - --windows-disable-console
 #   - --onefile-tempdir-spec={CACHE_DIR}/voice-typer/onefile-tmp
@@ -74,7 +74,7 @@ echo "[build_sidecar_windows] OUTPUT=$OUTPUT_PATH"
 # Priority:
 #   1. $VOICE_TYPER_PYBS_DIR/python/python.exe (set by CI workflow)
 #   2. $PYBS env var (explicit path to python.exe)
-#   3. `python` from PATH (dev fallback — must already be a python-build-standalone install)
+#   3. `python` from PATH (dev fallback, must already be a python-build-standalone install)
 PYBS_DIR="${VOICE_TYPER_PYBS_DIR:-}"
 if [[ -n "$PYBS_DIR" && -f "$PYBS_DIR/python/python.exe" ]]; then
     PY="$PYBS_DIR/python/python.exe"
@@ -103,13 +103,13 @@ echo "[build_sidecar_windows] SITE=$SITE"
 
 # ─── Locate ctranslate2 native DLLs (for --include-data-dir + --include-dll) ─
 # ctranslate2 ships its DLLs either under ctranslate2/lib (older wheels) or
-# directly in ctranslate2/ (modern wheels — e.g. the cp312 win_amd64 wheel
+# directly in ctranslate2/ (modern wheels, e.g. the cp312 win_amd64 wheel
 # has ctranslate2.dll + cudnn64_9.dll + libiomp5md.dll at the package root).
-# Prefer the lib/ layout, fall back to the package dir — mirrors the inline
+# Prefer the lib/ layout, fall back to the package dir, mirrors the inline
 # command in .github/workflows/tauri-windows-build.yml.
 CT2_DIR="$SITE/ctranslate2"
 if [[ ! -d "$CT2_DIR" ]]; then
-    echo "ERROR: $CT2_DIR not found — ctranslate2 install is incomplete." >&2
+    echo "ERROR: $CT2_DIR not found, ctranslate2 install is incomplete." >&2
     exit 1
 fi
 CT2_LIB_DIR="$CT2_DIR/lib"
@@ -117,13 +117,13 @@ if [[ -d "$CT2_LIB_DIR" ]]; then
     CT2_DATA_DIR_SRC="$CT2_LIB_DIR"
     CT2_DATA_DIR_DEST="ctranslate2/lib"
 else
-    echo "[build_sidecar_windows] WARNING: $CT2_LIB_DIR not found — falling back to $CT2_DIR (modern wheel layout)"
+    echo "[build_sidecar_windows] WARNING: $CT2_LIB_DIR not found, falling back to $CT2_DIR (modern wheel layout)"
     CT2_DATA_DIR_SRC="$CT2_DIR"
     CT2_DATA_DIR_DEST="ctranslate2"
 fi
 CT2_DLL="$CT2_DATA_DIR_SRC/ctranslate2.dll"
 if [[ ! -f "$CT2_DLL" ]]; then
-    echo "ERROR: $CT2_DLL not found — ctranslate2 install is incomplete." >&2
+    echo "ERROR: $CT2_DLL not found, ctranslate2 install is incomplete." >&2
     exit 1
 fi
 echo "[build_sidecar_windows] CT2_DATA_DIR=$CT2_DATA_DIR_SRC → $CT2_DATA_DIR_DEST"
@@ -139,16 +139,16 @@ mkdir -p "$SIDECAR_DIR"
 # and rejects with FATAL 'Found unknown variable name').
 #
 # S4-CR-25 / nu-opt-1: psutil imports ALL platform submodules (_pslinux,
-# _psosx, _psbsd, _pssunos, _psaix) at the module root — Nuitka compiles
+# _psosx, _psbsd, _pssunos, _psaix) at the module root, Nuitka compiles
 # ALL of them on every OS, wasting hours. These are conditionally imported
 # at runtime via sys.platform guards; exclude the non-Windows ones to save
 # ~15 min of C compilation. Also removed deprecated --enable-plugin=numpy.
 #
 # BUILD-2 / XPLAT-3 parity: ctranslate2/libs (plural) is OPTIONAL on Windows
-# — most Windows wheels ship everything under ctranslate2/lib (singular), but
+#, most Windows wheels ship everything under ctranslate2/lib (singular), but
 # GPU-enabled wheels may also have a libs/ dir with CUDA DLLs. Guard it to
 # avoid a hard Nuitka failure if the dir is absent (mirrors the Linux + macOS
-# sibling scripts — see ADR-0020 §4.2 + XPLAT-3).
+# sibling scripts: see ADR-0020 §4.2 + XPLAT-3).
 CT2_LIBS_DIR="$SITE/ctranslate2/libs"
 
 # Parallel C compilation: Nuitka invokes gcc/clang per Python module;
@@ -167,14 +167,14 @@ NUITKA_ARGS=(
     # NU-106 (VAD): keep torch.jit ENABLED. Nuitka's torch plugin
     # disables JIT by default in standalone mode (sets PYTORCH_JIT=0 /
     # omits torch.jit), which breaks torch.jit.load(silero_vad.jit) with
-    # "module 'torch' has no attribute 'jit'" — Silero VAD silently
+    # "module 'torch' has no attribute 'jit'": Silero VAD silently
     # degrades to RMS. Make the choice explicit.
     --module-parameter=torch-disable-jit=no
     --nofollow-import-to=torch._dynamo
     --nofollow-import-to=torch._inductor
     # NU-106 (VAD): torch.export / torch._functorch / torch.testing /
     # torch.package are loaded UNCONDITIONALLY by plain `import torch`
-    # (torch 2.13) — do NOT exclude them or `import torch` fails with
+    # (torch 2.13), do NOT exclude them or `import torch` fails with
     # ModuleNotFoundError and Silero VAD silently degrades to RMS.
     --nofollow-import-to=scipy._lib.cobyqa
     --nofollow-import-to=scipy._lib.array_api_extra.testing
@@ -202,7 +202,7 @@ if [[ -d "$CT2_LIBS_DIR" ]]; then
     NUITKA_ARGS+=(--include-data-dir="$CT2_LIBS_DIR=$CT2_LIBS_DIR")
     echo "[build_sidecar_windows] CT2_LIBS_DIR=$CT2_LIBS_DIR (including extra DLLs)"
 else
-    echo "[build_sidecar_windows] NOTE: ctranslate2/libs not found at $CT2_LIBS_DIR — skipping (optional on CPU-only wheels)"
+    echo "[build_sidecar_windows] NOTE: ctranslate2/libs not found at $CT2_LIBS_DIR, skipping (optional on CPU-only wheels)"
 fi
 echo "[build_sidecar_windows] Running Nuitka..."
 "$PY" -m nuitka "${NUITKA_ARGS[@]}"

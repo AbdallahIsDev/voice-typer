@@ -1,23 +1,23 @@
-r"""MIG-1.9 Phase 3 + 4 + 5 — Final glue validation for the Tauri migration.
+r"""MIG-1.9 Phase 3 + 4 + 5: Final glue validation for the Tauri migration.
 
 This is the **end-to-end wiring check** that closes out MIG-1.9. It
 validates that the three migration artefacts —
 ``src-tauri/tauri.conf.json`` (ADR-0020 §7), ``src-tauri/src/main.rs``
 (wiring-only Rust host), and ``src-tauri/Cargo.toml`` (plugin crate
-list) — are mutually consistent and match the ADR contract.
+list), are mutually consistent and match the ADR contract.
 
 Scope (ADR-0020 §7 + §15):
 
-1. **``build`` block** — ``frontendDist`` points at the React renderer
+1. **``build`` block**: ``frontendDist`` points at the React renderer
    build output, ``devUrl`` is the Vite dev server
    (``http://localhost:1420``), and ``beforeDevCommand`` +
    ``beforeBuildCommand`` both invoke ``npm run build:renderer`` via the
    Tauri v2 object form with an explicit ``cwd`` anchored at
    ``src-tauri/``, so a fresh ``out/renderer/`` is always present before
-   Tauri bundles or serves — regardless of the directory ``tauri dev`` /
+   Tauri bundles or serves, regardless of the directory ``tauri dev`` /
    ``tauri build`` was invoked from.
 
-2. **``app.security`` block** — ``csp`` is set and reproduces the
+2. **``app.security`` block**: ``csp`` is set and reproduces the
    Electron CSP's core directives (``default-src 'self'``,
    ``img-src 'self' data:``, ``style-src 'self' 'unsafe-inline'``,
    ``script-src 'self'``). ``capabilities`` references the
@@ -30,19 +30,19 @@ Scope (ADR-0020 §7 + §15):
    Tauri migration ships as a manual download (same model as today's
    Electron build); auto-update is a follow-up ADR.
 
-4. **Plugin chain in ``main.rs``** — registers ``shell``,
+4. **Plugin chain in ``main.rs``**, registers ``shell``,
    ``notification``, ``clipboard-manager``, ``single-instance`` (first
-   — ADR-0020 §12 single-instance gate), and ``dialog`` (MIG-1.1
+ , ADR-0020 §12 single-instance gate), and ``dialog`` (MIG-1.1
    save-file dialogs for the export commands).
 
-5. **Command handler list in ``main.rs``** — registers ``dispatch``,
+5. **Command handler list in ``main.rs``**, registers ``dispatch``,
    ``shutdown_sidecar``, the six ``bubble_*`` commands, and
    ``export_history`` / ``export_vocabulary``. The dead
    ``paste_text`` Tauri command was removed (FZ-19 / PVT-051):
    production never invoked it (the Python sidecar owns the paste
    path via ``dictation_pipeline.py::_dispatch_paste``).
 
-6. **``main.rs`` is wiring-only** — well under ~300 lines, with no
+6. **``main.rs`` is wiring-only**, well under ~300 lines, with no
    business logic. All real logic lives in the focused modules
    (``state``, ``util``, ``sidecar::*``, ``commands::*``,
    ``platform::*``) per ADR-0020 module layout.
@@ -50,7 +50,7 @@ Scope (ADR-0020 §7 + §15):
 These are *static* source-text + JSON-shape assertions; they do not
 spawn Tauri, do not build the renderer, and do not run the sidecar.
 The end-to-end runtime flow is captured in the **VALIDATE ON HOST**
-block below — those commands run on a real desktop host (Windows /
+block below, those commands run on a real desktop host (Windows /
 macOS / Linux) with the Nuitka-frozen sidecar + native hotkey binary
 present, and are out of scope for CI.
 
@@ -75,7 +75,7 @@ to confirm the full glue holds end-to-end:
     cd voice_typer/client && npm run build:renderer
     ls out/renderer/                                        # index.html + assets/
 
-    # 3. WebView CSP is enforced — open DevTools (right-click → Inspect),
+    # 3. WebView CSP is enforced, open DevTools (right-click → Inspect),
     #    confirm the <meta http-equiv="Content-Security-Policy"> tag in
     #    the rendered index.html matches the tauri.conf.json value, and
     #    that no inline <script> executes (console should show CSP
@@ -115,7 +115,7 @@ to confirm the full glue holds end-to-end:
     #    python-sidecar process must spawn (the single-instance plugin
     #    runs before the .setup task).
 
-    # 10. No updater — confirm there is NO "Check for Updates…" menu
+    # 10. No updater, confirm there is NO "Check for Updates…" menu
     #     item, no `tauri-plugin-updater` JS import in the renderer,
     #     and no `latest.json` network call in the DevTools Network
     #     tab. Auto-update is out of scope for v1 (ADR-0020 §15).
@@ -145,12 +145,12 @@ _CLIENT_PACKAGE_JSON = _REPO_ROOT / "voice_typer" / "client" / "package.json"
 #: ADR-0020 §7: the renderer build output (electron-vite renderer-only
 #: build → out/renderer/). beforeDevCommand + beforeBuildCommand must
 #: populate this dir before Tauri bundles or serves the webview.
-#: NOTE: ``dist/`` is the electron-builder INSTALLER output dir — the
+#: NOTE: ``dist/`` is the electron-builder INSTALLER output dir, the
 #: renderer build never emits there, so frontendDist must point at
 #: ``out/renderer`` (the electron-vite renderer output).
 EXPECTED_FRONTEND_DIST = "../voice_typer/client/out/renderer"
 
-#: ADR-0020 §7: Vite dev server default port (1420 — Vite's
+#: ADR-0020 §7: Vite dev server default port (1420, Vite's
 #: canonical "first user port", matching Tauri's own create-tauri-app
 #: template). The Tauri host loads this URL in dev mode.
 EXPECTED_DEV_URL = "http://localhost:1420"
@@ -186,7 +186,7 @@ EXPECTED_BUBBLE_CAPABILITY_IDENTIFIER = "bubble-runtime"
 #:   - script-src 'self'           (NO 'unsafe-eval', NO 'unsafe-inline')
 #: The Electron CSP additionally carries font-src / media-src /
 #: connect-src / frame-ancestors / form-action / base-uri directives
-#: that the Tauri CSP currently omits — see the implementation-gap
+#: that the Tauri CSP currently omits: see the implementation-gap
 #: note attached to test_tauri_conf_security_csp_matches_electron_subset.
 EXPECTED_CSP_CORE_DIRECTIVES = [
     "default-src 'self'",
@@ -197,13 +197,13 @@ EXPECTED_CSP_CORE_DIRECTIVES = [
 
 #: ADR-0020 §6 + §6.2 + §12: plugins that main.rs MUST register via
 #: ``.plugin(tauri_plugin_*::init())``. single-instance MUST be first
-#: (see ADR-0020 §12 — its duplicate-instance gate runs before any
+#: (see ADR-0020 §12, its duplicate-instance gate runs before any
 #: sidecar spawn to avoid zombie python processes on double-launch).
 EXPECTED_MAIN_RS_PLUGINS = [
     "tauri_plugin_single_instance",
     "tauri_plugin_shell",
     "tauri_plugin_notification",
-    # tauri_plugin_clipboard_manager REMOVED — the paste path
+    # tauri_plugin_clipboard_manager REMOVED, the paste path
     # was deleted (/) and the renderer uses the web-API
     # navigator.clipboard.writeText() for all writes. The plugin
     # registration was pure dead code, and the capability grant
@@ -216,15 +216,15 @@ EXPECTED_MAIN_RS_PLUGINS = [
 # ADR-0020 §6.2 + §7 + §9 + §10 +  +  + : commands
 #: that main.rs MUST register in ``tauri::generate_handler![...]``.
 EXPECTED_MAIN_RS_COMMANDS = [
-    # ADR-0020 §6.2 + §10 — generic dispatch + shutdown.
+    # ADR-0020 §6.2 + §10, generic dispatch + shutdown.
     # ``paste_text`` was removed (dead in
-    # production — Python sidecar owns the paste path).
+    # production, Python sidecar owns the paste path).
     "dispatch",
     "shutdown_sidecar",
     # export commands (dialog save-file flow)
     "export_history",
     "export_vocabulary",
-    # ADR-0020 §9 — bubble window commands
+    # ADR-0020 §9, bubble window commands
     "bubble_show",
     "bubble_signal_ready",
     "bubble_set_position",
@@ -232,7 +232,7 @@ EXPECTED_MAIN_RS_COMMANDS = [
     "bubble_move_by",
     "bubble_hide_complete",
     # bubble window extensions (resize / toggle).
-    # `bubble_emit_state` removed — dead in production.
+    # `bubble_emit_state` removed, dead in production.
     "bubble_resize",
     "bubble_toggle_dictation",
     # bubble dismiss (SEC-026 bubble '×' button). Registered in
@@ -244,7 +244,7 @@ EXPECTED_MAIN_RS_COMMANDS = [
     "bubble_dismiss",
     # system-level window_ commands.
     "open_logs",
-    # `open_host_logs` REMOVED — dead in production:
+    # `open_host_logs` REMOVED, dead in production:
     # the renderer's "View Logs" button calls `openLogs` →
     # `open_logs` (opens config root), NOT `open_host_logs`.
     # ZERO `invoke('open_host_logs')` call sites existed.
@@ -261,7 +261,7 @@ EXPECTED_MAIN_RS_COMMANDS = [
 
 #: ADR-0020 §15: the v1 Tauri migration MUST NOT wire up
 #: ``tauri-plugin-updater``. Auto-update is an explicit non-goal for
-#: v1 (out of scope — track as a separate follow-up ADR after the
+#: v1 (out of scope, track as a separate follow-up ADR after the
 #: Tauri cutover stabilizes).
 FORBIDDEN_UPDATER_TOKENS = [
     "tauri-plugin-updater",
@@ -270,7 +270,7 @@ FORBIDDEN_UPDATER_TOKENS = [
 
 #: ADR-0020 module-layout note (main.rs doc comment): main.rs is
 #: "wiring-only (~200 lines)". The hard ceiling for the v1 migration
-#: is 300 lines — anything beyond that means business logic has crept
+#: is 300 lines, anything beyond that means business logic has crept
 #: back into the host entrypoint and must be moved to a focused module
 #: under ``sidecar::``, ``commands::``, ``platform::``, or ``util``.
 MAIN_RS_WIRING_ONLY_LINE_CEILING = 300
@@ -320,12 +320,12 @@ def test_tauri_conf_frontend_dist_points_to_renderer_build_output(
     ``src-tauri/`` (the location of tauri.conf.json), so
     ``../voice_typer/client/out/renderer`` resolves to the
     electron-vite renderer-only build output (``npm run build:renderer``
-    emits ``voice_typer/client/out/renderer/`` — NOT ``dist/``, which is
+    emits ``voice_typer/client/out/renderer/``, NOT ``dist/``, which is
     the electron-builder installer output dir).
     """
     build = tauri_conf.get("build", {})
     assert "frontendDist" in build, (
-        "build.frontendDist must exist (ADR-0020 §7) — Tauri v2 embeds the "
+        "build.frontendDist must exist (ADR-0020 §7), Tauri v2 embeds the "
         "webview from this directory in production builds"
     )
     assert build["frontendDist"] == EXPECTED_FRONTEND_DIST, (
@@ -348,7 +348,7 @@ def test_tauri_conf_dev_url_is_vite_default_port(tauri_conf) -> None:
     """
     build = tauri_conf.get("build", {})
     assert "devUrl" in build, (
-        "build.devUrl must exist (ADR-0020 §7) — Tauri loads this URL in dev mode (cargo tauri dev)"
+        "build.devUrl must exist (ADR-0020 §7), Tauri loads this URL in dev mode (cargo tauri dev)"
     )
     assert build["devUrl"] == EXPECTED_DEV_URL, (
         f"build.devUrl must be {EXPECTED_DEV_URL!r} (Vite dev server, port 1420); got {build['devUrl']!r}"
@@ -367,7 +367,7 @@ def test_package_json_defines_build_renderer_script(
     Tauri's ``beforeDevCommand`` + ``beforeBuildCommand`` invoke this
     npm script to populate ``frontendDist`` before serving / bundling.
     The script builds only the React renderer (not the Electron main
-    process) via electron-vite's ``--config`` flag — the Electron
+    process) via electron-vite's ``--config`` flag, the Electron
     main-process build artefacts are not consumed by Tauri.
     """
     scripts = client_package_json.get("scripts", {})
@@ -379,8 +379,8 @@ def test_package_json_defines_build_renderer_script(
     assert isinstance(script_value, str) and script_value, (
         f"package.json:scripts.{EXPECTED_RENDERER_BUILD_SCRIPT} must be a non-empty string; got {script_value!r}"
     )
-    # The script must invoke a build tool (electron-vite or vite) — not
-    # just `echo` or `true` — so the renderer out/renderer/ is actually populated.
+    # The script must invoke a build tool (electron-vite or vite), not
+    # just `echo` or `true`, so the renderer out/renderer/ is actually populated.
     assert re.search(r"\b(electron-vite|vite)\b.*\bbuild\b", script_value), (
         f"package.json:scripts.{EXPECTED_RENDERER_BUILD_SCRIPT} must invoke a "
         f"Vite-family build (electron-vite or vite build); got {script_value!r}"
@@ -405,7 +405,7 @@ def test_tauri_conf_before_dev_command_runs_renderer_build(tauri_conf) -> None:
     - ``script`` invokes ``npm run build:renderer``;
     - ``cwd`` is ``../voice_typer/client``, resolved against
       ``src-tauri/`` because the CLI pins its own process CWD there
-      immediately before spawning the hook — deterministic for every
+      immediately before spawning the hook, deterministic for every
       invocation directory and platform;
     - ``wait: true`` makes the CLI block until the build exits before
       polling ``devUrl`` (the dev recipe serves pre-built static output
@@ -414,7 +414,7 @@ def test_tauri_conf_before_dev_command_runs_renderer_build(tauri_conf) -> None:
     """
     build = tauri_conf.get("build", {})
     assert "beforeDevCommand" in build, (
-        "build.beforeDevCommand must exist (ADR-0020 §7) — Tauri runs this before starting the dev server"
+        "build.beforeDevCommand must exist (ADR-0020 §7), Tauri runs this before starting the dev server"
     )
     cmd = build["beforeDevCommand"]
     assert isinstance(cmd, dict), (
@@ -430,7 +430,7 @@ def test_tauri_conf_before_dev_command_runs_renderer_build(tauri_conf) -> None:
         f"which is where the CLI pins its CWD before spawning); got {cmd.get('cwd')!r}"
     )
     assert cmd.get("wait") is True, (
-        "build.beforeDevCommand.wait must be true — the dev recipe serves static "
+        "build.beforeDevCommand.wait must be true, the dev recipe serves static "
         "output on the devUrl port while this hook rebuilds it; without wait the "
         "CLI polls against stale files mid-rebuild"
     )
@@ -442,13 +442,13 @@ def test_tauri_conf_before_build_command_runs_renderer_build(tauri_conf) -> None
     In production builds, Tauri runs this before bundling the app so
     ``frontendDist`` is populated with a fresh renderer build. Same
     object shape as ``beforeDevCommand`` minus ``wait`` (the
-    ``HookCommand`` schema has no ``wait`` field — build hooks always
+    ``HookCommand`` schema has no ``wait`` field, build hooks always
     run synchronously) and with the same ``src-tauri/``-anchored ``cwd``
     contract.
     """
     build = tauri_conf.get("build", {})
     assert "beforeBuildCommand" in build, (
-        "build.beforeBuildCommand must exist (ADR-0020 §7) — Tauri runs this before bundling the production app"
+        "build.beforeBuildCommand must exist (ADR-0020 §7), Tauri runs this before bundling the production app"
     )
     cmd = build["beforeBuildCommand"]
     assert isinstance(cmd, dict), (
@@ -471,7 +471,7 @@ def test_tauri_conf_before_build_command_runs_renderer_build(tauri_conf) -> None
 def test_tauri_conf_security_csp_is_set(tauri_conf) -> None:
     """ADR-0020 §7: ``app.security.csp`` must be a non-empty string.
 
-    Tauri v2 enforces CSP at the WebView level — this is the primary
+    Tauri v2 enforces CSP at the WebView level, this is the primary
     defense against XSS in the renderer (the renderer can invoke
     Tauri IPC, so a script-injection → arbitrary command dispatch is
     the threat model). Without a CSP, the webview accepts any
@@ -480,7 +480,7 @@ def test_tauri_conf_security_csp_is_set(tauri_conf) -> None:
     """
     security = tauri_conf.get("app", {}).get("security", {})
     assert "csp" in security, (
-        "app.security.csp must exist (ADR-0020 §7) — Tauri v2 enforces CSP "
+        "app.security.csp must exist (ADR-0020 §7), Tauri v2 enforces CSP "
         "at the WebView level; the field must be set explicitly"
     )
     csp = security["csp"]
@@ -501,7 +501,7 @@ def test_tauri_conf_security_csp_matches_electron_subset(tauri_conf) -> None:
     The Electron CSP additionally carries ``font-src``, ``media-src``,
     ``connect-src 'self' https://api.github.com``, ``frame-ancestors 'none'``,
     ``form-action 'none'``, ``base-uri 'self'``. The current Tauri CSP
-    omits those extras — that is a known implementation gap (tracked
+    omits those extras: that is a known implementation gap (tracked
     as a follow-up; not a v1 blocker because ``default-src 'self'``
     falls back for any unlisted directive). This test pins the four
     core directives so a regression that loosens them is caught.
@@ -514,7 +514,7 @@ def test_tauri_conf_security_csp_matches_electron_subset(tauri_conf) -> None:
         )
 
     # CR-SEC: script-src must NOT allow 'unsafe-eval' or 'unsafe-inline'
-    # — those are the two script-injection footguns. The Electron CSP
+    # , those are the two script-injection footguns. The Electron CSP
     # also forbids them; the Tauri CSP must do the same.
     assert "'unsafe-eval'" not in csp, (
         f"app.security.csp must NOT contain 'unsafe-eval' (script injection footgun); full CSP was: {csp!r}"
@@ -538,7 +538,7 @@ def test_tauri_conf_security_capabilities_references_migrate_runtime(
     ``main-runtime`` AND ``bubble-runtime`` (CR-5 deleted migrate-runtime)."""
     security = tauri_conf.get("app", {}).get("security", {})
     assert "capabilities" in security, (
-        "app.security.capabilities must exist (ADR-0020 §7) — Tauri v2 "
+        "app.security.capabilities must exist (ADR-0020 §7), Tauri v2 "
         "ships zero permissions by default; every plugin/invoke must be "
         "explicitly whitelisted via a capability file"
     )
@@ -549,12 +549,12 @@ def test_tauri_conf_security_capabilities_references_migrate_runtime(
     assert EXPECTED_CAPABILITY_IDENTIFIER in capabilities, (
         f"app.security.capabilities must reference "
         f"{EXPECTED_CAPABILITY_IDENTIFIER!r} (the main-window capability "
-        f"file — CR-5 split); got {capabilities!r}"
+        f"file, CR-5 split); got {capabilities!r}"
     )
     assert EXPECTED_BUBBLE_CAPABILITY_IDENTIFIER in capabilities, (
         f"app.security.capabilities must reference "
         f"{EXPECTED_BUBBLE_CAPABILITY_IDENTIFIER!r} (the bubble-window "
-        f"sandboxed capability file — CR-5 split / SEC-026); got "
+        f"sandboxed capability file, CR-5 split / SEC-026); got "
         f"{capabilities!r}"
     )
     assert "migrate-runtime" not in capabilities, (
@@ -564,7 +564,7 @@ def test_tauri_conf_security_capabilities_references_migrate_runtime(
     )
 
 
-# ─── Test 6: NO tauri-plugin-updater (ADR-0020 §15 — no auto-update v1) ─
+# ─── Test 6: NO tauri-plugin-updater (ADR-0020 §15, no auto-update v1) ─
 
 
 @pytest.mark.parametrize("forbidden_token", FORBIDDEN_UPDATER_TOKENS)
@@ -576,7 +576,7 @@ def test_cargo_toml_has_no_updater_plugin(cargo_toml_source, forbidden_token) ->
     key distribution problem + a manifest-hosting problem that are
     orthogonal to the runtime migration. Ship the Tauri build as a
     manual-download release (matching today's Electron release
-    model — there is no working auto-update today, see
+    model, there is no working auto-update today, see
     ``docs/auto-update-feature.md``'s "STATUS: NOT IMPLEMENTED"
     header). Track auto-update as a separate follow-up ADR.
     """
@@ -617,7 +617,7 @@ def test_tauri_conf_unit_config_plugins_are_null(tauri_conf) -> None:
     are plain ``Builder::new(...)`` in the plugins-workspace sources),
     so the runtime deserializes their config entries into ``()``. An
     empty map (``{}``) fails app startup with "invalid type: map,
-    expected unit" — found on the first Windows host run (CI builds
+    expected unit", found on the first Windows host run (CI builds
     but never launches the app); same error class as tauri issue
     #8769. The KEYS themselves must stay present (the §12 gate tests
     assert presence), carrying explicit ``null`` values.
@@ -629,7 +629,7 @@ def test_tauri_conf_unit_config_plugins_are_null(tauri_conf) -> None:
             f"tauri.conf.json:plugins must still declare '{plugin_name}' (the gate tests assert key presence)"
         )
         assert plugins[plugin_name] is None, (
-            f"tauri.conf.json:plugins.'{plugin_name}' must be null (serde unit) — "
+            f"tauri.conf.json:plugins.'{plugin_name}' must be null (serde unit), "
             f"got {plugins[plugin_name]!r}; any non-null value fails app startup "
             "with 'invalid type: map, expected unit'"
         )
@@ -642,22 +642,22 @@ def test_main_rs_registers_required_plugin(main_rs_source, plugin_crate) -> None
     Each plugin must be wired via ``.plugin(<crate>::init(...))`` on
     the Tauri builder. The required set is:
 
-      - ``tauri_plugin_single_instance`` (FIRST — ADR-0020 §12 single-
+      - ``tauri_plugin_single_instance`` (FIRST, ADR-0020 §12 single-
         instance gate runs before any sidecar spawn to avoid zombie
         python processes on double-launch)
-      - ``tauri_plugin_shell`` (ADR-0020 §4.1 — spawns the python-sidecar
+      - ``tauri_plugin_shell`` (ADR-0020 §4.1, spawns the python-sidecar
         externalBin)
       - ``tauri_plugin_notification`` (replaces Electron's
-        show_electron_notification — ADR-0020 §6)
+        show_electron_notification, ADR-0020 §6)
       - ``tauri_plugin_clipboard_manager`` (paste fallback path when
-        enigo can't reach the focused window — ADR-0020 §6.2)
-      - ``tauri_plugin_dialog`` (MIG-1.1 — save-file dialog for the
+        enigo can't reach the focused window, ADR-0020 §6.2)
+      - ``tauri_plugin_dialog`` (MIG-1.1, save-file dialog for the
         export_history / export_vocabulary commands)
     """
     # Look for the plugin registration call: `.plugin(tauri_plugin_X::init(`
     # (the call may span multiple lines, so use a regex that allows
     # whitespace between the segments). We don't pin the argument shape
-    # (some plugins take a closure, some take nothing) — just confirm
+    # (some plugins take a closure, some take nothing), just confirm
     # the crate's init() is invoked via .plugin(...).
     pattern = re.compile(
         r"\.plugin\s*\(\s*" + re.escape(plugin_crate) + r"::init",
@@ -674,7 +674,7 @@ def test_main_rs_single_instance_is_first_plugin(main_rs_source) -> None:
     """ADR-0020 §12: ``tauri_plugin_single_instance`` MUST be the FIRST ``.plugin()`` call.
 
     The single-instance plugin's duplicate-instance callback runs
-    synchronously during plugin init — if it isn't first, a second
+    synchronously during plugin init, if it isn't first, a second
     launch could spawn a zombie python-sidecar (via the .setup task
     or the WS bridge) before the single-instance gate trips and
     exits the second process. Pinning "first" prevents a future
@@ -688,7 +688,7 @@ def test_main_rs_single_instance_is_first_plugin(main_rs_source) -> None:
     assert plugin_calls, "main.rs must register at least one .plugin(...) call (ADR-0020 §6 + §12)"
     assert plugin_calls[0] == "tauri_plugin_single_instance", (
         f"main.rs: tauri_plugin_single_instance MUST be the first .plugin() "
-        f"call (ADR-0020 §12 — runs before any sidecar spawn); got "
+        f"call (ADR-0020 §12, runs before any sidecar spawn); got "
         f"{plugin_calls[0]!r} as first. Full order: {plugin_calls}"
     )
 
@@ -703,14 +703,14 @@ def test_main_rs_registers_required_command(main_rs_source, command) -> None:
     Each command must be listed in the ``tauri::generate_handler![...]``
     macro call. The required set is:
 
-      - ``dispatch`` (ADR-0020 §6.2 — generic WS-forwarding command)
-      - ``shutdown_sidecar`` (ADR-0020 §10 — clean sidecar exit on
+      - ``dispatch`` (ADR-0020 §6.2, generic WS-forwarding command)
+      - ``shutdown_sidecar`` (ADR-0020 §10, clean sidecar exit on
         main-window close)
-      - ``export_history`` / ``export_vocabulary`` (MIG-1.1 — CSV export
+      - ``export_history`` / ``export_vocabulary`` (MIG-1.1, CSV export
         via dialog save-file)
       - ``bubble_show`` / ``bubble_signal_ready`` / ``bubble_set_position``
         / ``bubble_set_draggable`` / ``bubble_move_by`` /
-        ``bubble_hide_complete`` (MIG-1.2 / ADR-0020 §9 — bubble window)
+        ``bubble_hide_complete`` (MIG-1.2 / ADR-0020 §9, bubble window)
     """
     # The command name must appear inside the generate_handler![...]
     # macro call. Locate the macro call, then check the command is
@@ -748,7 +748,7 @@ def test_main_rs_does_not_register_paste_text(main_rs_source) -> None:
     wrapper in ``sidecar_cmds.rs`` + the dedicated paste module were
     pure maintenance overhead. The Tauri command registration, the
     ``use`` import, the ``commands::paste`` module declaration, and
-    the function definition are ALL gone — this test pins the absence
+    the function definition are ALL gone, this test pins the absence
     so a future contributor doesn't accidentally re-wire the dead path.
 
     The check is on the entire ``main.rs`` source (not just the
@@ -757,7 +757,7 @@ def test_main_rs_does_not_register_paste_text(main_rs_source) -> None:
     wired up.
     """
     assert "paste_text" not in main_rs_source, (
-        "main.rs must NOT reference `paste_text` — the dead Tauri command "
+        "main.rs must NOT reference `paste_text`, the dead Tauri command "
         "was deleted in FZ-19 / PVT-051 (Python sidecar owns the paste path). "
         "Remove any registration, import, or comment that mentions `paste_text`."
     )
@@ -784,7 +784,7 @@ def test_main_rs_does_not_register_unknown_commands(main_rs_source) -> None:
     )
     assert handler_match, "main.rs must call tauri::generate_handler![...] (ADR-0020 §6.2 + §7)"
     handler_body = handler_match.group("body")
-    # Strip `//` line comments before tokenizing — the macro body carries
+    # Strip `//` line comments before tokenizing, the macro body carries
     # explanatory comments (e.g. "// : bubble window extensions
     # (resize / state / toggle)") whose prose words would otherwise be
     # mis-read as command identifiers.
@@ -814,7 +814,7 @@ def test_main_rs_does_not_register_unknown_commands(main_rs_source) -> None:
     # Tolerate a small number of unknown identifiers (formatting noise
     # like `path::to::cmd` would surface the last segment, which is
     # usually in EXPECTED_MAIN_RS_COMMANDS). Anything genuinely unknown
-    # is a contract widening — flag it.
+    # is a contract widening, flag it.
     assert not unknown, (
         "main.rs: generate_handler! list contains identifiers not in the "
         "frozen v1 command contract (ADR-0020 §16). New commands must go "
@@ -834,14 +834,14 @@ def test_main_rs_is_wiring_only_under_line_ceiling(main_rs_source) -> None:
     logic lives in focused modules" (state, util, sidecar::*,
     commands::*, platform::*).
 
-    The hard ceiling for v1 is 300 lines — anything beyond that
+    The hard ceiling for v1 is 300 lines, anything beyond that
     means business logic has crept back into the host entrypoint and
     must be moved to a focused module. The check is on non-blank,
     non-comment lines so doc comments + blank lines don't inflate the
     count (the ceiling guards against logic creep, not documentation).
     """
     # Count non-blank, non-comment lines. Rust comments: `//` line,
-    # `/* ... */` block (block comments are rare in Rust idiom — most
+    # `/* ... */` block (block comments are rare in Rust idiom, most
     # are `//` or `///` / `//!` doc lines).
     lines = main_rs_source.splitlines()
     code_lines = []
@@ -879,7 +879,7 @@ def test_main_rs_has_no_business_logic_patterns(main_rs_source) -> None:
 
     The wiring-only contract means no:
       - ``tokio::spawn(async move {...})`` blocks with non-trivial bodies
-        (the .setup spawn is the ONE allowed exception — it forwards
+        (the .setup spawn is the ONE allowed exception, it forwards
         to spawn_sidecar_and_get_port + reconnect_ws + respawn,
         all of which live in focused modules)
       - ``match`` statements on sidecar protocol fields (lives in
@@ -892,28 +892,28 @@ def test_main_rs_has_no_business_logic_patterns(main_rs_source) -> None:
     module but lingered in the host entrypoint.
     """
     # enigo / WebSocket / serde_json frame construction must NOT appear
-    # in main.rs — they live in the focused modules.
+    # in main.rs, they live in the focused modules.
     forbidden_in_main = [
-        # enigo keystroke construction — lives in commands/sidecar_cmds.rs
+        # enigo keystroke construction, lives in commands/sidecar_cmds.rs
         r"\benigo::",
-        # raw WebSocket connection — lives in sidecar/ws.rs
+        # raw WebSocket connection, lives in sidecar/ws.rs
         r"\btungstenite::",
         r"\bWebSocketStream\b",
-        # serde_json frame serialization — lives in sidecar/ws.rs +
+        # serde_json frame serialization, lives in sidecar/ws.rs +
         # commands/sidecar_cmds.rs (main.rs only deals with the typed
         # SidecarState; it never (de)serializes a WS frame)
         r"\bserde_json::from_str\b",
         r"\bserde_json::to_string\b",
-        # faster-whisper / model loading — lives in the Python sidecar,
+        # faster-whisper / model loading, lives in the Python sidecar,
         # NEVER in the Rust host
         r"\bfaster_whisper\b",
         r"\bWhisperModel\b",
-        # ctranslate2 — same as above
+        # ctranslate2, same as above
         r"\bctranslate2\b",
     ]
     for pattern in forbidden_in_main:
         assert not re.search(pattern, main_rs_source), (
-            f"main.rs must NOT contain {pattern!r} — that's business logic "
+            f"main.rs must NOT contain {pattern!r}, that's business logic "
             f"that belongs in a focused module (sidecar/ / commands/ / "
             f"platform/), per ADR-0020 module layout. The host entrypoint "
             f"is wiring-only."

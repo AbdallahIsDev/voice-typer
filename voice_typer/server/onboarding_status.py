@@ -3,10 +3,10 @@
 Onboarding state used to be spread across THREE dotfile markers in the
 config dir, all describing the same thing (the wizard's lifecycle):
 
-* ``.onboarding_complete``  — ``{"completed": bool, "version": int}``
+* ``.onboarding_complete`` : ``{"completed": bool, "version": int}``
   terminal marker: the wizard finished successfully.
-* ``.onboarding_started``   — ``{"started": bool, "version": int}``
-  wizard-has-rendered marker (distinct from ``completed`` — a user can
+* ``.onboarding_started``  : ``{"started": bool, "version": int}``
+  wizard-has-rendered marker (distinct from ``completed``, a user can
   be mid-wizard: started without being completed).
 * ``.onboarding_fail_count``— ``{"count": int, "last_fail_ts": float}``
   the startup auto-heal circuit breaker's fail counter (no ``.json``
@@ -19,7 +19,7 @@ This module consolidates them into ONE JSON document,
      "fail_count": int, "last_fail_ts": float}
 
 The ``started`` and ``completed`` fields are intentionally kept
-separate — they are NOT redundant: ``startup_sequence.py``'s auto-heal
+separate, they are NOT redundant: ``startup_sequence.py``'s auto-heal
 checks ``started`` to distinguish a genuine mid-wizard crash from a
 stale lost-marker state, and ``OnboardingController.is_first_run``
 checks ``completed``. Merging them into one flag would break the
@@ -27,14 +27,14 @@ auto-heal logic.
 
 Migration: the first time the status file is read (or written), any
 legacy markers present are merged into the status document, the status
-file is written, and the legacy markers are deleted — so upgrading
+file is written, and the legacy markers are deleted, so upgrading
 users end up with exactly one file, created by the app itself.
 
 Write-error policy: :func:`write_status` raises on disk failure so
 callers with a re-raise contract (``OnboardingController.mark_complete``)
 can surface the error to the IPC layer. Best-effort callers (the
 startup fail counter) wrap it themselves. :func:`read_status` never
-raises — it falls back to validated defaults.
+raises, it falls back to validated defaults.
 """
 
 import json
@@ -62,7 +62,7 @@ _LEGACY_KEYS: frozenset[str] = frozenset({"count"})
 
 
 def _defaults() -> dict:
-    """Schema defaults — the safe baseline for every missing field."""
+    """Schema defaults, the safe baseline for every missing field."""
     return {
         "version": _STATUS_VERSION,
         "started": False,
@@ -83,7 +83,7 @@ def read_status(config_dir: "Path | str") -> dict:
     If the status file is missing, migrates the legacy markers in place
     (merging their values, writing the status file, deleting the legacy
     files). If no legacy markers exist either, returns the defaults
-    WITHOUT writing — a fresh install has no onboarding activity yet,
+    WITHOUT writing, a fresh install has no onboarding activity yet,
     so we don't create the file until the app actually records state.
 
     Never raises: every failure mode (missing/corrupt file, read
@@ -100,7 +100,7 @@ def read_status(config_dir: "Path | str") -> dict:
             if isinstance(parsed, dict):
                 data.update(_coerce(parsed))
             # Legacy markers alongside a status file are leftovers from
-            # an interrupted migration — clean them up best-effort.
+            # an interrupted migration, clean them up best-effort.
             _delete_legacy(config_dir)
             return data
     except (OSError, UnicodeDecodeError, json.JSONDecodeError):
@@ -144,7 +144,7 @@ def reset_status(config_dir: "Path | str") -> bool:
     Returns ``True`` when the status document is gone (deleted, or
     already absent), ``False`` if it could not be deleted (a deletion
     error is logged at DEBUG). Legacy-marker cleanup is best-effort and
-    does not affect the result — once the status document is gone the
+    does not affect the result, once the status document is gone the
     wizard will re-run regardless. Callers with an error contract
     (``reset_onboarding_complete``) check the return value; best-effort
     callers (``OnboardingController.reset``) may ignore it.
@@ -200,7 +200,7 @@ def _coerce(data: dict) -> dict:
     # rename (and with the legacy marker format).
     count = data.get("fail_count", data.get("count", 0))
     if not isinstance(count, int) or isinstance(count, bool) or count < 0:
-        # Invalid/missing canonical value — fall back to the legacy
+        # Invalid/missing canonical value, fall back to the legacy
         # ``count`` if it carries a valid value. Defensive: no writer
         # has produced both keys, but a corrupt file shouldn't lose a
         # valid counter.

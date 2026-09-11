@@ -6,20 +6,20 @@
  * against MAIN_STRINGS (the main-process dialog bundle). The resolution
  * chain mirrors the renderer's `t()` lookup chain:
  *
- *   1. Exact match — `locale` is directly registered in MAIN_STRINGS
+ *   1. Exact match, `locale` is directly registered in MAIN_STRINGS
  *      (e.g. `"zh"`, `"ar"`).
- *   2. Primary subtag — when `locale` is a regional variant (contains
+ *   2. Primary subtag, when `locale` is a regional variant (contains
  *      `-`) and not directly registered, try the bare primary subtag
  *      (e.g. `"zh-CN"` → `"zh"`). This lets a regional UI locale fall
  *      back to its parent language instead of jumping straight to
  *      English when MAIN_STRINGS hasn't been extended for the regional
  *      variant.
- *   3. English fallback — if neither step resolves, fall back to
+ *   3. English fallback, if neither step resolves, fall back to
  *      `"en"` and emit a console warning so the missing locale is
  *      visible during development.
  *
  * After `setMainLocale` runs, `mainT()` looks up the key against the
- * resolved locale's MAIN_STRINGS table — so a user on `"zh-CN"` (with
+ * resolved locale's MAIN_STRINGS table, so a user on `"zh-CN"` (with
  * no regional table) sees the Chinese dialogs from `MAIN_STRINGS.zh`
  * rather than English dialogs.
  *
@@ -38,7 +38,7 @@ describe("setMainLocale primary-subtag fallback", () => {
 	});
 
 	it("uses the locale directly when it is registered in MAIN_STRINGS", () => {
-		// Exact match — no fallback needed. Probes a non-English locale
+		// Exact match, no fallback needed. Probes a non-English locale
 		// so the assertion can distinguish "registered locale picked up"
 		// from "default English".
 		setMainLocale("zh");
@@ -82,7 +82,7 @@ describe("setMainLocale primary-subtag fallback", () => {
 	});
 
 	it("falls back to en for an unknown non-regional locale with a warning", () => {
-		// `"klingon"` has no `-` and isn't registered — straight to the
+		// `"klingon"` has no `-` and isn't registered, straight to the
 		// English fallback path.
 		const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 		try {
@@ -114,7 +114,7 @@ describe("setMainLocale primary-subtag fallback", () => {
 	});
 
 	it("does not warn on the primary-subtag fallback path (silent resolution)", () => {
-		// The primary-subtag fallback is a SUCCESSFUL resolution — it
+		// The primary-subtag fallback is a SUCCESSFUL resolution, it
 		// found a parent-language table. The warning is reserved for
 		// the final "fall back to en" step, so a regional variant
 		// that resolves via the primary subtag must NOT warn.
@@ -139,7 +139,7 @@ describe("setMainLocale primary-subtag fallback", () => {
 		setMainLocale("zh-CN");
 		expect(mainT("dialog.criticalError.title")).toContain("严重错误");
 
-		// Uppercase primary — does NOT match MAIN_STRINGS.zh.
+		// Uppercase primary, does NOT match MAIN_STRINGS.zh.
 		const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 		try {
 			setMainLocale("ZH-CN");
@@ -161,9 +161,9 @@ describe("setMainLocale + mainT integration (full chain)", () => {
 	});
 
 	it("a regional-locale user sees the parent language's dialog strings (zh-TW → zh)", () => {
-		// End-to-end: push `"zh-TW"` (Traditional Chinese — not
+		// End-to-end: push `"zh-TW"` (Traditional Chinese, not
 		// registered), resolve via primary subtag to `"zh"` (Simplified
-		// Chinese — registered), and verify `mainT` returns a Chinese
+		// Chinese, registered), and verify `mainT` returns a Chinese
 		// string for a representative dialog key.
 		setMainLocale("zh-TW");
 		const body = mainT("dialog.criticalError.body", {
@@ -171,7 +171,7 @@ describe("setMainLocale + mainT integration (full chain)", () => {
 			logPath: "/tmp/crash.log",
 		});
 		// The Chinese body contains the literal "{count} 个未捕获的异常"
-		// — verify the count placeholder was interpolated and the
+		//, verify the count placeholder was interpolated and the
 		// Chinese text is present.
 		expect(body).toContain("3");
 		expect(body).toContain("未捕获的异常");

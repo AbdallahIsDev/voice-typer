@@ -1,6 +1,6 @@
 """Teardown helper for the crash-recovery writer.
 
-Phase 4.5 (OI-36) — extracted verbatim from
+Phase 4.5 (OI-36), extracted verbatim from
 :meth:`ShutdownController._teardown_crash_recovery`. The body is unchanged;
 only the class boundary moved.
 """
@@ -30,12 +30,12 @@ def teardown_crash_recovery(controller) -> None:
     """flush pending crash-recovery writes + shutdown the writer.
 
     RELIABILITY-005: flush before the process exits so the latest
-    state is persisted. Short timeout — if the disk is genuinely
+    state is persisted. Short timeout, if the disk is genuinely
     slow we'd rather exit and lose the in-flight snapshot than hang
     the shutdown.
 
     ATOMICITY: flush() and shutdown() run in SEPARATE try/except
-    blocks. Pre-fix, both calls shared one try block — if flush()
+    blocks. Pre-fix, both calls shared one try block, if flush()
     raised, shutdown() was NEVER attempted and the writer thread +
     state file handle leaked. The split guarantees shutdown() runs
     even when flush() fails, so the writer thread is joined and the

@@ -1,7 +1,7 @@
 """Structural pin: split-package mixins must declare their host-provided
 members.
 
-The pyrefly floor is a COUNT gate — a fresh error in a split-package
+The pyrefly floor is a COUNT gate, a fresh error in a split-package
 mixin can hide under the floor (exactly the stale-headroom failure
 mode this session fixed: 84 native_hotkeys + 19 microphone_watcher
 errors rode silently under the stale floor). This test pins the
@@ -10,7 +10,7 @@ mixin that reads composed-class state must carry the annotation-only
 host-provided declarations (and, for cross-mixin methods, the
 TYPE_CHECKING-only stubs) that make those reads type-check. Deleting
 the declarations re-introduces the missing-attribute errors under the
-floor's headroom — this test catches that immediately, without
+floor's headroom, this test catches that immediately, without
 running pyrefly.
 
 Runs on any platform (pure AST inspection, no pyrefly dependency).
@@ -176,7 +176,7 @@ def test_mixin_host_member_declarations_present() -> None:
             missing = expected - declared
             assert not missing, (
                 f"{rel_path}: {class_name} lost host-provided member "
-                f"declaration(s) {sorted(missing)} — re-add the "
+                f"declaration(s) {sorted(missing)}, re-add the "
                 f"annotation-only declaration so pyrefly keeps resolving "
                 f"the composed-class attribute (missing declarations were "
                 f"the original error source)."
@@ -192,7 +192,7 @@ def test_mixin_type_checking_stubs_present() -> None:
             missing = expected - stubs
             assert not missing, (
                 f"{rel_path}: {class_name} lost the TYPE_CHECKING stub(s) "
-                f"{sorted(missing)} for sibling-mixin methods — without the "
+                f"{sorted(missing)} for sibling-mixin methods, without the "
                 f"stub the cross-mixin method reference is an untyped "
                 f"missing-attribute error again."
             )

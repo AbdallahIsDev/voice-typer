@@ -136,7 +136,7 @@ class MicrophoneTestMixin(ServiceMixinBase):
         ``<config>/mic-test-recordings/`` and referenced by path; the
         renderer fetches bytes via the chunked ``microphone_test_read_audio``
         command. Auto-transcription (best-effort) reads the filtered WAV
-        file directly — no base64 round-trip.
+        file directly, no base64 round-trip.
 
         Returns:
             dict with success, audio_file, raw_audio_file, duration_ms,
@@ -189,7 +189,7 @@ class MicrophoneTestMixin(ServiceMixinBase):
                                 result["transcription_confidence"] = None
                                 # HU-21: the test-transcription text is the
                                 # user's dictated voice content (biometric
-                                # PII under GDPR Art. 9) — never log it,
+                                # PII under GDPR Art. 9), never log it,
                                 # not even truncated. Mirror the dictation
                                 # path (dictation_pipeline.py): log only
                                 # the char count, at DEBUG (the success is
@@ -203,11 +203,11 @@ class MicrophoneTestMixin(ServiceMixinBase):
                         except Exception as tx_err:
                             log.debug("[SERVICE] Test transcription failed: %s", tx_err)
                     else:
-                        log.debug("[SERVICE] Active engine not loaded — skipping transcription")
+                        log.debug("[SERVICE] Active engine not loaded, skipping transcription")
                         # Phase 2d degradation matrix (§8.10): the mic
                         # test must tell the user WHY the "You said:"
                         # line is missing instead of silently omitting
-                        # it. Marker is factual — ``no_engine_loaded``
+                        # it. Marker is factual, ``no_engine_loaded``
                         # covers pack-missing (no offline engine) AND
                         # an engine that is still warming up / a cloud
                         # engine mid-connect; the renderer maps it to
@@ -275,13 +275,13 @@ class MicrophoneTestMixin(ServiceMixinBase):
 
         result = start_monitoring(mic_id=mic_id)
         # Seed the level processor from the current config. Use the
-        # shared ``to_filter_dict`` helper (single source of truth — the
+        # shared ``to_filter_dict`` helper (single source of truth, the
         # same one ``config_applier`` uses) so the dict is COMPLETE. The
         # previous hand-rolled 5-key dict omitted ``noise_filter_notch``
         # (+ eq/compressor/limiter/gate-* keys): ``AudioProcessor``
         # reads them directly, so construction crashed with
         # ``'SimpleNamespace' object has no attribute
-        # 'noise_filter_notch'`` — and the partial dict was ALSO stashed
+        # 'noise_filter_notch'``, and the partial dict was ALSO stashed
         # as ``_state._level_processor_config``, breaking every later
         # processor rebuild after a device hot-swap.
         try:
@@ -289,7 +289,7 @@ class MicrophoneTestMixin(ServiceMixinBase):
 
             update_level_processor(to_filter_dict(self._app.config))
         except Exception:
-            # previously pass — silently swallowed update_level_processor failures
+            # previously pass, silently swallowed update_level_processor failures
             log.debug(
                 "[SERVICE] level_monitor_start: update_level_processor failed",
                 exc_info=True,

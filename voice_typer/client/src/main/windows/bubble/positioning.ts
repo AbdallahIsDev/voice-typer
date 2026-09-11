@@ -6,14 +6,14 @@
  *     `resetSavedBubblePosition()` / `setSavedBubblePosition()` —
  *      in-session persistence of the user's last drag
  *     position.
- *   - `centerOnPrimaryDisplay()` — top/bottom centered position for
+ *   - `centerOnPrimaryDisplay()`, top/bottom centered position for
  *     the bubble.
- *   - `centerOnActiveDisplay()` —  multi-monitor aware
+ *   - `centerOnActiveDisplay()`,  multi-monitor aware
  *     positioning using `screen.getCursorScreenPoint()`.
- *   - `getActiveDisplay()` — resolve the display the cursor is on.
- *   - `isPositionOnAnyDisplay()` —  validate a candidate
+ *   - `getActiveDisplay()`, resolve the display the cursor is on.
+ *   - `isPositionOnAnyDisplay()`,  validate a candidate
  *     position against the current set of displays' work areas.
- *   - `isForegroundFullscreen()` — SEC-025 best-effort exclusive-
+ *   - `isForegroundFullscreen()`, SEC-025 best-effort exclusive-
  *     fullscreen detection.
  *
  * : bubble position is now remembered across show/hide cycles.
@@ -22,7 +22,7 @@
  * module-level state (`savedBubblePos`) and schedules a debounced
  * durable persist of the pair to the Python config; on the next
  * `showBubbleWindow()` (in `show-hide.ts`) we restore those coordinates
- * instead of re-centering — falling back to the durable config pair
+ * instead of re-centering, falling back to the durable config pair
  * after a restart (see `resolveRestoredBubblePosition`). A
  * `bubble:set-position` IPC (top/bottom toggle from the Settings page)
  * resets the saved position so the new edge default takes effect; the
@@ -32,7 +32,7 @@
 import { BrowserWindow, screen } from "electron";
 import { BUBBLE_HEIGHT, BUBBLE_WIDTH } from "../../constants";
 //converted from defensive `require("../../logging")` to a static
-// ESM import — the previous try/catch + console.* fallback was added
+// ESM import, the previous try/catch + console.* fallback was added
 // to tolerate minimal test mocks, but the real logging module is now
 // always present and the test mocks have been updated to expose `log`.
 import { BUBBLE_CLR, log, RESET } from "../../logging";
@@ -40,7 +40,7 @@ import { sendToPython } from "../../python/send-to-python";
 import { state } from "../../state";
 
 //in-session persistence of the bubble's last user-positioned
-// coordinates. `null` means "no saved position — use the default
+// coordinates. `null` means "no saved position, use the default
 // center-on-active-display placement". Updated by the BrowserWindow
 // `moved` event (see createBubbleWindow in lifecycle.ts) and cleared
 // by the `bubble:set-position` IPC handler (see bubble-handlers.ts) so
@@ -95,7 +95,7 @@ export function resetSavedBubblePosition(): void {
 // pair. The Python backend publishes the pair inside every
 // `bubble_config` push; `handle-message.ts` feeds it here via
 // `setPersistedBubblePosition()`. Unlike `savedBubblePos` (in-session),
-// this value survives app restarts — it IS the persisted config.
+// this value survives app restarts, it IS the persisted config.
 //
 // `null` means "never dragged" or "the user toggled top/bottom in
 // Settings, which clears both keys server-side". A coordinate of `0`
@@ -126,7 +126,7 @@ export function getPersistedBubblePosition(): { x: number; y: number } | null {
  * Resolve the position the bubble should be restored to: the in-session
  * saved drag position wins (fast path); without one, fall back to the
  * durable pair from the Python config (restart restore). Either way the
- * candidate must lie on a currently-attached display — a stale/off-screen
+ * candidate must lie on a currently-attached display, a stale/off-screen
  * position returns `null` and the caller re-centers.
  */
 export function resolveRestoredBubblePosition(): {
@@ -210,7 +210,7 @@ export function suppressDurablePersistFor(ms = SUPPRESS_WINDOW_MS): void {
  */
 export function recordBubbleMoved(pos: { x: number; y: number }): void {
 	if (!isPositionOnAnyDisplay(pos)) {
-		// Window ended up off-screen — don't poison either store. The
+		// Window ended up off-screen, don't poison either store. The
 		// next show falls back to centering.
 		setSavedBubblePosition(null);
 		return;
@@ -224,7 +224,7 @@ export function recordBubbleMoved(pos: { x: number; y: number }): void {
 /**
  * Reset the debounced-persist machinery (pending timer + suppression
  * window) to a clean slate. Underscore-prefixed to signal
- * "internal/test-only" — mirrors the existing `_resetIpcBackpressure`
+ * "internal/test-only", mirrors the existing `_resetIpcBackpressure`
  * convention. Production code never needs this: both fields converge on
  * their own (the timer fires, the suppression window expires).
  */
@@ -265,7 +265,7 @@ export function isPositionOnAnyDisplay(pos: { x: number; y: number }): boolean {
 		}
 		return false;
 	} catch {
-		// Headless / no screen — be permissive so tests that mock
+		// Headless / no screen, be permissive so tests that mock
 		// `screen` minimally don't break.
 		return true;
 	}
@@ -274,7 +274,7 @@ export function isPositionOnAnyDisplay(pos: { x: number; y: number }): boolean {
 //the Electron `state.ts` default for `bubblePosition` now
 // matches the Python config default ("bottom"). Previously the
 // Electron default was "top" and this module flipped it to "bottom"
-// at module load — a fragile one-shot override that masked the
+// at module load, a fragile one-shot override that masked the
 // inconsistency. The canonical default now lives in `state.ts`; the
 // runtime override block has been removed so `state.bubblePosition`
 // always reflects the last explicit user choice (or the canonical
@@ -287,11 +287,11 @@ export function isForegroundFullscreen(): boolean {
 	try {
 		// Electron doesn't expose a direct "is foreground fullscreen"
 		// API. On macOS, `BrowserWindow.getFocusedWindow()` inspects
-		// the focused window's fullscreen state — a single call is
+		// the focused window's fullscreen state, a single call is
 		// sufficient. (An earlier revision looped over
 		// `screen.getAllDisplays()` and issued one native
 		// `getFocusedWindow()` call PER DISPLAY even though the loop
-		// body never used the display — on a multi-display Mac that
+		// body never used the display, on a multi-display Mac that
 		// was N redundant native round-trips on every bubble show.
 		// On Windows / Linux the detection is a no-op: we return
 		// false and let setVisibleOnAllWorkspaces run.)
@@ -302,7 +302,7 @@ export function isForegroundFullscreen(): boolean {
 			}
 		}
 	} catch (e) {
-		// Best-effort detection — `BrowserWindow.getFocusedWindow()`
+		// Best-effort detection, `BrowserWindow.getFocusedWindow()`
 		// can throw in headless test environments or if the GPU process is gone.
 		// Non-fatal: we err on the side of NOT painting over fullscreen apps.
 		//route through structured `log` so the failure
@@ -327,7 +327,7 @@ export function getActiveDisplay(): Electron.Display {
 	try {
 		const cursor = screen.getCursorScreenPoint();
 		// Electron's getDisplayMatching takes a Rectangle (x, y, width,
-		// height) — pass a 1×1 rect at the cursor location to find the
+		// height), pass a 1×1 rect at the cursor location to find the
 		// display that contains the cursor.
 		return screen.getDisplayMatching({
 			x: cursor.x,
@@ -342,7 +342,7 @@ export function getActiveDisplay(): Electron.Display {
 
 /**
  * Center the bubble on the primary display (legacy behavior, preserved
- * for callers that explicitly want the primary screen — e.g. tests
+ * for callers that explicitly want the primary screen, e.g. tests
  * that mock `screen.getPrimaryDisplay()`).
  */
 export function centerOnPrimaryDisplay(): { x: number; y: number } {

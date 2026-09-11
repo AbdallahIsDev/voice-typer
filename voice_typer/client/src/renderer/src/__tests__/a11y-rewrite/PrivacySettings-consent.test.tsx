@@ -1,5 +1,5 @@
 /**
- *  vitest rewrite — behavioral test for `PrivacySettingsSection.tsx`
+ *  vitest rewrite, behavioral test for `PrivacySettingsSection.tsx`
  * consent toggles.
  *
  * Replaces the following string-pattern Python test from
@@ -179,7 +179,7 @@ function makeConfig(
 		noise_filter_compressor_output_gain_db: 0,
 		noise_filter_limiter: false,
 		noise_filter_limiter_ceiling_db: 0,
-		// Consent flags — start all at false.
+		// Consent flags, start all at false.
 		huggingface_consent: false,
 		voice_biometric_consent: false,
 		cloud_openai_consent: false,
@@ -195,7 +195,7 @@ function makeConfig(
 // uses it for per-row + section-level visibility.
 const alwaysVisible = () => true;
 
-describe("PrivacySettings consent toggles — RW-0 rewrite of test_settings_has_all_consent_toggles_consolidated", () => {
+describe("PrivacySettings consent toggles, RW-0 rewrite of test_settings_has_all_consent_toggles_consolidated", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		cleanup();
@@ -418,7 +418,7 @@ describe("PrivacySettings consent toggles — RW-0 rewrite of test_settings_has_
 			/>,
 		);
 
-		// Click the "Agree to All" button — PRIV-AGREE-ALL now requires
+		// Click the "Agree to All" button, PRIV-AGREE-ALL now requires
 		// an explicit confirmation step (ConfirmDialog): the first click
 		// opens the dialog, and updateConfig only fires after the user
 		// confirms. This is the consolidated consent affordance the
@@ -429,7 +429,7 @@ describe("PrivacySettings consent toggles — RW-0 rewrite of test_settings_has_
 		expect(agreeAllBtn).toBeTruthy();
 		fireEvent.click(agreeAllBtn as HTMLElement);
 
-		// The confirmation dialog is open — click its confirm button
+		// The confirmation dialog is open, click its confirm button
 		// (same "Agree to All" label) to actually grant the consents.
 		await waitFor(() => {
 			expect(screen.getByRole("alertdialog")).toBeTruthy();

@@ -4,25 +4,25 @@ Background
 ----------
 Three related findings from the XZ review:
 
-* **XZ-PII-03 (Medium)** — ``redact_pii()`` in ``security.py`` only
+* **XZ-PII-03 (Medium)**: ``redact_pii()`` in ``security.py`` only
   applied the four PII patterns (email / phone / SSN / CC). API keys,
   bearer tokens, and URL-embedded credentials passed through verbatim.
   The ``llm_polish.py`` docstring claimed API keys were covered,
   which was false. Internal ``_redact_text`` already chained PII +
-  ``redact_secret`` + ``redact_url`` — the standalone ``redact_pii``
+  ``redact_secret`` + ``redact_url``, the standalone ``redact_pii``
   helper was inconsistent.
 
-* **XZ-PII-05 (Low)** — ``DictationPipeline._apply_llm_polish``'s
+* **XZ-PII-05 (Low)**: ``DictationPipeline._apply_llm_polish``'s
   failure log line (``log.warning("[LLM_POLISH] Polish failed: %s",
   exc)``) didn't apply explicit redaction. LLM API errors can echo
   the request URL + Authorization header (which carries the API key)
   back in their body; the log line was a credential-leak vector.
 
-* **XZ-PII-06 (Low)** — ``cloud_engines.py`` had inconsistent
+* **XZ-PII-06 (Low)**: ``cloud_engines.py`` had inconsistent
   redaction across its four exception branches. The
   ``HTTPError`` / ``URLError`` branches used
   ``redact_secret(redact_url(str(exc)))`` but the generic
-  ``Exception`` branches used only ``redact_secret(str(exc))`` — a
+  ``Exception`` branches used only ``redact_secret(str(exc))``, a
   URL-embedded credential in a 500-response body would leak.
 
 These tests pin all three fixes.
@@ -62,7 +62,7 @@ class TestRedactPiiAlsoRedactsApiSecrets:
         assert secret not in redacted
 
     def test_short_text_without_secrets_is_preserved(self) -> None:
-        # Below the 20-char threshold — should pass through unchanged
+        # Below the 20-char threshold, should pass through unchanged
         # (matches the ``_FAST_TRIGGER`` short-circuit semantics).
         text = "Hello world"
         assert redact_pii(text) == text
@@ -114,7 +114,7 @@ class TestRedactPiiIsConsistentWithInternalRedactText:
     def test_redact_pii_matches_redact_text_for_mixed_input(self) -> None:
         from voice_typer.server.security import _redact_text
 
-        text = "Contact john.doe@example.com — auth=Bearer sk-abcdefghijklmnopqrstuvwxyz1234567890"
+        text = "Contact john.doe@example.com, auth=Bearer sk-abcdefghijklmnopqrstuvwxyz1234567890"
         assert redact_pii(text) == _redact_text(text)
 
 
@@ -149,7 +149,7 @@ class TestLlmPolishFailureLogRedactsException:
         class _BoomError(Exception):
             pass
 
-        boom = _BoomError(f"OpenAI API error: 401 Unauthorized — {bearer}")
+        boom = _BoomError(f"OpenAI API error: 401 Unauthorized, {bearer}")
         polisher = MagicMock()
         polisher.polish.side_effect = boom
         app._llm_polisher = polisher
@@ -184,7 +184,7 @@ class TestCloudEnginesRedactionConsistency:
     branches in the cloud engine retry skeleton (two OpenAI-compatible,
     two Deepgram) must all use ``redact_secret(redact_url(str(exc)))``.
     Pre-fix, the two generic ``Exception`` branches used only
-    ``redact_secret(str(exc))`` — a URL-embedded credential in a
+    ``redact_secret(str(exc))``, a URL-embedded credential in a
     500-response body would leak into the log.
 
     The engine body lives in ``voice_typer.server.cloud._engine`` (the
@@ -202,11 +202,11 @@ class TestCloudEnginesRedactionConsistency:
         # The  fix removed every ``redact_secret(str(exc))``
         # occurrence in favour of ``redact_secret(redact_url(str(exc)))``.
         # The pre-fix pattern was ``safe_msg = redact_secret(str(exc))``
-        # — a single ``redact_secret`` call wrapping ``str(exc)``
+        # , a single ``redact_secret`` call wrapping ``str(exc)``
         # without the inner ``redact_url``.
         assert "redact_secret(str(exc))" not in src, (
             "XZ-PII-06: every redaction site in cloud._engine must "
-            "use ``redact_secret(redact_url(str(exc)))`` — found a "
+            "use ``redact_secret(redact_url(str(exc)))``, found a "
             "stale ``redact_secret(str(exc))`` site that skips URL-"
             "credential redaction."
         )
@@ -233,7 +233,7 @@ class TestCloudEnginesRedactionConsistency:
         # that each of the two provider paths would independently
         # duplicate the redaction, but the current production code
         # factors the skeleton into ``_transcribe_with_retry`` and
-        # shares the redaction across both providers — that's the
+        # shares the redaction across both providers, that's the
         # intended DRY design, not a regression.)
         chain_count = src.count("redact_secret(redact_url(str(exc)))")
         assert chain_count >= 4, (

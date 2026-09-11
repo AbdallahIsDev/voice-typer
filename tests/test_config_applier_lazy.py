@@ -1,15 +1,15 @@
 """DJ-29: lazy ``pre_state_dict`` capture in ``config_applier.apply_config``.
 
 Previously, ``apply_config`` called ``dataclasses.asdict(app.config)``
-eagerly on EVERY invocation — including no-op updates with an empty
-``updates`` dict — which deep-copies all 150+ Config fields per IPC
+eagerly on EVERY invocation, including no-op updates with an empty
+``updates`` dict, which deep-copies all 150+ Config fields per IPC
 ``set_config`` call. The captured snapshot was only consulted by:
 
-1. The G4-L-20 dirty-check — but since XV-120 that check has used
+1. The G4-L-20 dirty-check, but since XV-120 that check has used
    ``set_keys`` (captured per-key via ``getattr`` in the setattr
    loop), NOT ``pre_state_dict``. Only the ``is not None`` guard
    referenced it.
-2. The G4-H-12 rollback path on ``save_strict()`` failure — but the
+2. The G4-H-12 rollback path on ``save_strict()`` failure, but the
    ``set_keys`` log already captures the old value for exactly the
    keys that were mutated, which is the precise set that needs
    restoration.
@@ -53,7 +53,7 @@ def _make_service_and_app(tmp_config_dir, monkeypatch):
     app._config_mutation_lock = _fake_lock()
     # Use a REAL Config instance so the dirty-check (getattr/setattr
     # on actual fields) behaves like production. MagicMock would make
-    # every getattr return a fresh child mock — useless for the
+    # every getattr return a fresh child mock, useless for the
     # ``pre_values == post_values`` comparison.
     app.config = Config()
     app.config.save = MagicMock(return_value=True)
@@ -71,7 +71,7 @@ def _make_service_and_app(tmp_config_dir, monkeypatch):
     service = VoiceTyperService(app)
 
     # credential_store pre-route: no api_key fields in these tests,
-    # but the import path is exercised — stub the mapping to empty so
+    # but the import path is exercised, stub the mapping to empty so
     # nothing is routed.
     import voice_typer.server.credential_store as cs
 
@@ -90,7 +90,7 @@ class TestLazyPreStateDict:
     def test_asdict_not_called_when_updates_is_empty(self, tmp_config_dir, monkeypatch):
         """DJ-29 core guarantee: when ``updates`` is empty, ``apply_config``
         MUST NOT call ``dataclasses.asdict(app.config)``. Previously it
-        did — deep-copying 150+ Config fields per no-op IPC call."""
+        did, deep-copying 150+ Config fields per no-op IPC call."""
         service, app = _make_service_and_app(tmp_config_dir, monkeypatch)
 
         asdict_call_count = {"n": 0}
@@ -102,7 +102,7 @@ class TestLazyPreStateDict:
 
         monkeypatch.setattr(dataclasses, "asdict", _spy_asdict)
 
-        # Empty updates — the no-op path.
+        # Empty updates, the no-op path.
         service.apply_config({})
 
         assert asdict_call_count["n"] == 0, (
@@ -118,7 +118,7 @@ class TestLazyPreStateDict:
         """DJ-29 + G4-L-20: when ``updates`` is empty, the dirty-check
         (``pre_values == post_values`` with both empty dicts) returns
         True, so ``save_strict()`` MUST NOT be called. This was the
-        original G4-L-20 intent — DJ-29 just removed the
+        original G4-L-20 intent, DJ-29 just removed the
         ``pre_state_dict is not None`` guard that was masking it for
         MagicMock-backed test fixtures (production Config instances
         always had ``pre_state_dict is not None``)."""
@@ -133,13 +133,13 @@ class TestLazyPreStateDict:
         equals the current state, the dirty-check (``pre_values ==
         post_values``) returns True, so ``save_strict()`` MUST NOT be
         called. The eager asdict snapshot is NOT needed for this
-        check — ``set_keys`` captures the pre-setattr values via
+        check: ``set_keys`` captures the pre-setattr values via
         ``getattr`` and the post-setattr values are also retrieved via
         ``getattr``."""
         service, app = _make_service_and_app(tmp_config_dir, monkeypatch)
 
         # Read the current hotkey value, then "update" it to the same
-        # value — no actual change.
+        # value, no actual change.
         current_hotkey = app.config.hotkey
         service.apply_config({"hotkey": current_hotkey})
 
@@ -149,7 +149,7 @@ class TestLazyPreStateDict:
         """DJ-29: when ``updates`` is non-empty AND at least one value
         actually changed, the dirty-check returns False and
         ``save_strict()`` MUST be called. This is the G4-L-20 + CR-97
-        happy path — preserving it ensures the lazy snapshot removal
+        happy path, preserving it ensures the lazy snapshot removal
         didn't break the persistence contract."""
         service, app = _make_service_and_app(tmp_config_dir, monkeypatch)
 
@@ -162,7 +162,7 @@ class TestLazyPreStateDict:
 
     def test_asdict_not_called_even_when_values_change(self, tmp_config_dir, monkeypatch):
         """DJ-29 stronger guarantee: ``dataclasses.asdict()`` is NEVER
-        called by ``apply_config`` — not on the no-op path, not on the
+        called by ``apply_config``, not on the no-op path, not on the
         changed-value path, not on the rollback path. The rollback
         path now uses ``set_keys`` (the per-key pre-setattr value log)
         instead of the eager snapshot."""
@@ -182,7 +182,7 @@ class TestLazyPreStateDict:
 
         assert asdict_call_count["n"] == 0, (
             "DJ-29: dataclasses.asdict() must NEVER be called by "
-            "apply_config — not even on the changed-value path. The "
+            "apply_config, not even on the changed-value path. The "
             "G4-H-12 rollback path builds the restoration dict from "
             "set_keys (per-key pre-setattr values) instead of the "
             "eager asdict snapshot."
@@ -196,7 +196,7 @@ class TestLazyPreStateDict:
         this iterated the full ``pre_state_dict`` from
         ``dataclasses.asdict``; now it iterates ``set_keys`` (the
         per-key pre-setattr value log). Behaviour is identical for
-        the keys the caller asked to change — restoring other fields
+        the keys the caller asked to change, restoring other fields
         was always a no-op because nothing else was mutated."""
         service, app = _make_service_and_app(tmp_config_dir, monkeypatch)
 
@@ -224,7 +224,7 @@ class TestLazyPreStateDict:
         MUST be re-run with the ORIGINAL values (from ``set_keys``) so
         live state (hotkey registration, etc.) matches the restored
         config. Previously the "old updates" dict was built from
-        ``pre_state_dict``; now it's built from ``set_keys`` — same
+        ``pre_state_dict``; now it's built from ``set_keys``, same
         content for the keys the caller asked to change."""
         service, app = _make_service_and_app(tmp_config_dir, monkeypatch)
 
@@ -251,7 +251,7 @@ class TestLazyPreStateDict:
         # Second call: with the original value (rollback re-run).
         assert len(side_effect_calls) == 2, (
             "DJ-29 + G4-H-12: apply_config_side_effects must be called twice "
-            "on save_strict failure — once with the new values (initial "
+            "on save_strict failure, once with the new values (initial "
             "application) and once with the original values (rollback re-run "
             "so live state matches the restored config)."
         )
@@ -326,7 +326,7 @@ class TestLazyPreStateDict:
             "DJ-29 regression: ConfigApplier.apply_config references "
             "pre_state_dict as a Name node in code (lines: "
             + ", ".join(str(ln) for ln in pre_state_dict_refs)
-            + "). The variable was removed in DJ-29 — the dirty-check "
+            + "). The variable was removed in DJ-29, the dirty-check "
             "uses set_keys and the rollback path builds the restoration "
             "dict from set_keys."
         )
@@ -334,7 +334,7 @@ class TestLazyPreStateDict:
 
 class TestLLMPolisherInvalidation:
     """BP-133: rotating ANY effective polish credential must drop the
-    cached ``LLMPolisher`` — the effective key is ``llm_api_key OR
+    cached ``LLMPolisher``, the effective key is ``llm_api_key OR
     openai_api_key``, so the old ``llm_``-prefix-only predicate left a
     silently broken polish after every OpenAI key rotation."""
 

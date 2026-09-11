@@ -7,16 +7,16 @@
 //! `log::error!` global logger) for operator triage without requiring
 //! DevTools to be open.
 //!
-//! The payload is an opaque JSON value — the renderer sends
+//! The payload is an opaque JSON value, the renderer sends
 //! `{message, stack?, componentStack?, location?}`. We serialize it to
 //! a single line and emit via `log::error!` with a `[RENDERER_ERROR]`
-//! prefix. Returns `Ok(())` unconditionally — the renderer's promise
+//! prefix. Returns `Ok(())` unconditionally: the renderer's promise
 //! resolves so its `__tauriLog.error` call doesn't itself become an
 //! unhandled rejection.
 //!
 //! Payload size is capped at 8 KiB DURING serialization (not after):
 //! the React UI's `__tauriLog.error(...)` is called with arbitrary
-//! `Value` payloads — a runaway renderer could pass a multi-MB object
+//! `Value` payloads: a runaway renderer could pass a multi-MB object
 //! (e.g. an entire Redux state dump, a circular-ref retry, or a stack
 //! trace from a deeply-recursive crash). The former
 //! serialize-then-truncate approach materialized the FULL multi-MB
@@ -43,7 +43,7 @@ const MAX_RENDERER_ERROR_PAYLOAD_BYTES: usize = 8 * 1024;
 /// `io::Write` sink that collects at most `cap` bytes, then aborts the
 /// stream. Once the buffer is full (or a write would overflow it), the
 /// writer records `overflowed = true` and returns an error, which
-/// stops `serde_json` mid-serialization — no further allocation or CPU
+/// stops `serde_json` mid-serialization: no further allocation or CPU
 /// is spent on bytes that would only be discarded. The buffered prefix
 /// is exactly the first `cap` bytes of the full serialization (when
 /// the payload exceeds the cap), i.e. byte-identical to the former
@@ -76,7 +76,7 @@ impl std::io::Write for CappedWriter {
     fn write(&mut self, data: &[u8]) -> std::io::Result<usize> {
         let remaining = self.cap - self.buf.len();
         if remaining == 0 {
-            // Buffer already exactly full — any further byte proves the
+            // Buffer already exactly full: any further byte proves the
             // payload exceeds the cap. Fail fast.
             self.overflowed = true;
             return Err(Self::cap_error());
@@ -84,7 +84,7 @@ impl std::io::Write for CappedWriter {
         let take = remaining.min(data.len());
         self.buf.extend_from_slice(&data[..take]);
         if take < data.len() {
-            // Partial fit — the payload continues past the cap. The
+            // Partial fit: the payload continues past the cap. The
             // accepted prefix is already buffered; abort the rest.
             self.overflowed = true;
             return Err(Self::cap_error());
@@ -113,7 +113,7 @@ impl std::io::Write for CappedWriter {
 /// panic-free.
 ///
 /// The `<unserializable>` fallback mirrors the former
-/// `serde_json::to_string(..).unwrap_or_else(..)` arm — unreachable for
+/// `serde_json::to_string(..).unwrap_or_else(..)` arm: unreachable for
 /// `serde_json::Value` in practice, kept so the contract is unchanged.
 pub(crate) fn cap_and_serialize_renderer_payload(payload: &Value) -> String {
     let mut writer = CappedWriter::new(MAX_RENDERER_ERROR_PAYLOAD_BYTES);
@@ -124,7 +124,7 @@ pub(crate) fn cap_and_serialize_renderer_payload(payload: &Value) -> String {
                 // A genuine serialization failure (not the cap abort).
                 return "<unserializable>".to_string();
             }
-            // Else: the error IS the cap abort — fall through with the
+            // Else: the error IS the cap abort, fall through with the
             // truncated prefix in `writer.buf`.
         }
         // `serializer` borrows `writer` mutably; it is dropped at the
@@ -136,7 +136,7 @@ pub(crate) fn cap_and_serialize_renderer_payload(payload: &Value) -> String {
         // Floor the truncated prefix to a UTF-8 char boundary so the
         // log line stays valid UTF-8 (see doc above for the panic this
         // replaces). `from_utf8` reports the longest valid prefix via
-        // `valid_up_to` — no allocation, no replacement characters.
+        // `valid_up_to`: no allocation, no replacement characters.
         let valid_len = match std::str::from_utf8(&writer.buf) {
             Ok(_) => writer.buf.len(),
             Err(e) => e.valid_up_to(),
@@ -147,7 +147,7 @@ pub(crate) fn cap_and_serialize_renderer_payload(payload: &Value) -> String {
         out.push_str("...[truncated]");
         out
     } else {
-        // Complete serialization — serde_json only ever emits valid
+        // Complete serialization: serde_json only ever emits valid
         // UTF-8, so the lossy conversion is byte-exact here too.
         String::from_utf8_lossy(&writer.buf).into_owned()
     }
@@ -161,7 +161,7 @@ pub(crate) fn cap_and_serialize_renderer_payload(payload: &Value) -> String {
 /// `invoke('renderer_log_error', payload)` directly and flood the
 /// 25 MiB rotating log at 60 Hz × 8 KiB ≈ 480 KiB/s, evicting real
 /// diagnostic logs in ~52 s. The `window` parameter is auto-injected
-/// by Tauri at runtime — the renderer's invoke() call is unchanged.
+/// by Tauri at runtime: the renderer's invoke() call is unchanged.
 #[tauri::command]
 pub async fn renderer_log_error(
     payload: Value,
@@ -176,7 +176,7 @@ pub async fn renderer_log_error(
 
 // Unit tests for `cap_and_serialize_renderer_payload` (cap boundary,
 // truncation marker, UTF-8-boundary safety) live in the sibling
-// `renderer_log_tests.rs` file (C-TEST-5 — no inline test code in
+// `renderer_log_tests.rs` file (C-TEST-5: no inline test code in
 // production source, matching the `window_close_tests.rs` pattern).
 #[cfg(test)]
 #[path = "renderer_log_tests.rs"]

@@ -12,7 +12,7 @@
 //! Unit tests for `util::atomic_fs` (atomic write/copy helpers).
 //!
 //! Moved verbatim from `util_tests.rs` when the atomic-fs concern was
-//! split into its own submodule — tests move with their code. No test
+//! split into its own submodule, tests move with their code. No test
 //! logic changed; `use super::*;` now resolves to the `util::atomic_fs`
 //! module because this file is declared via
 //! `#[cfg(test)] #[path = "atomic_fs_tests.rs"] mod atomic_fs_tests;`
@@ -71,7 +71,7 @@ fn test_atomic_write_bytes_overwrites_existing_file() {
     // Atomic overwrite: a pre-existing file at `path` must be
     // replaced atomically (the rename is atomic on POSIX, and on
     // Windows the temp file is in the same dir so rename succeeds
-    // even when the target exists — Windows allows rename-over-
+    // even when the target exists, Windows allows rename-over-
     // existing when both files are on the same volume + the
     // target isn't open by another handle).
     let tmp = std::env::temp_dir().join(format!(
@@ -96,7 +96,7 @@ fn test_atomic_write_bytes_overwrites_existing_file() {
 #[cfg(unix)]
 #[test]
 fn test_atomic_write_bytes_parent_dir_fsync_does_not_fail_write() {
-    // The parent-dir `sync_all()` is best-effort — a failure
+    // The parent-dir `sync_all()` is best-effort, a failure
     // (e.g. the dir is on a read-only filesystem, or the dir
     // doesn't support fsync) must NOT fail the write. The data is
     // already safely in the new file (we fsync'd the temp file
@@ -149,7 +149,7 @@ fn test_atomic_write_bytes_parent_dir_fsync_does_not_fail_write() {
 #[test]
 fn test_atomic_write_bytes_empty_path_returns_error() {
     // Edge case: a path with no parent (`Path::new("")` has
-    // `parent() == None`) must return Err — the prior code
+    // `parent() == None`) must return Err, the prior code
     // returned an error here via the `ok_or_else` on `path.parent()`;
     // The parent-dir fsync must NOT change that behavior (we
     // still error out before reaching the fsync code).
@@ -167,7 +167,7 @@ fn test_atomic_write_bytes_empty_path_returns_error() {
 #[test]
 fn test_atomic_copy_file_copies_content_and_cleans_dotted_temp() {
     // Success contract: dst bytes match src exactly (the fsync open
-    // must NOT truncate the just-copied temp — write(true) without
+    // must NOT truncate the just-copied temp, write(true) without
     // truncate(true)), the rename leaves no `.dst.tmp.copy.*` file
     // behind, and the parent-dir fsync (mirrored from
     // atomic_write_bytes) never fails the copy.
@@ -220,7 +220,7 @@ fn test_atomic_copy_file_copies_content_and_cleans_dotted_temp() {
 
 #[test]
 fn test_atomic_copy_file_temp_name_is_dotted_while_in_flight() {
-    // The temp file the copy streams into must be a DOTfile — matching
+    // The temp file the copy streams into must be a DOTfile, matching
     // the docstring's "dotfile in the user's config dir" claim, and
     // hiding crash-orphaned temps from normal directory listings (same
     // convention as atomic_write_bytes's `.NAME.tmp.*`).
@@ -301,7 +301,7 @@ fn test_atomic_copy_file_overwrites_existing_dst() {
 fn test_atomic_copy_file_parent_dir_fsync_does_not_fail_copy() {
     // Mirror of test_atomic_write_bytes_parent_dir_fsync_does_not_fail_
     // write: the parent-dir `sync_all()` (mirrored from
-    // atomic_write_bytes after the rename) is best-effort — the copy
+    // atomic_write_bytes after the rename) is best-effort, the copy
     // must succeed regardless, and the rename's dir-mtime side-effect
     // is observable. The test name pins the "does not fail the copy"
     // contract for future regression coverage.
@@ -343,7 +343,7 @@ fn test_atomic_copy_file_parent_dir_fsync_does_not_fail_copy() {
 fn test_atomic_copy_file_empty_dst_returns_error() {
     // Edge case: a dst with no parent (`Path::new("")` has
     // `parent() == None`) must return Err before any filesystem
-    // work — unchanged by the write-mode fsync open and the
+    // work: unchanged by the write-mode fsync open and the
     // parent-dir fsync.
     let result = atomic_copy_file(std::path::Path::new("src.bin"), std::path::Path::new(""));
     assert!(

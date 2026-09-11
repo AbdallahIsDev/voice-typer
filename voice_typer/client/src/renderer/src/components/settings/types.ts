@@ -8,7 +8,7 @@
 
 import type { VoiceTyperConfig } from "@/types/config";
 
-/** Visible-state predicate — matches the page-level `_filter_settings`
+/** Visible-state predicate, matches the page-level `_filter_settings`
  *  helper.
  *
  *  FIX (Task ID 6 / Settings Search): the optional third parameter
@@ -18,7 +18,7 @@ import type { VoiceTyperConfig } from "@/types/config";
  *  every row inside the Overlay section, even if the row's own
  *  label/info don't contain the word). Section components MUST derive
  *  this from the same literal/constant they hand to the ``title`` prop
- *  — never hardcode the title in the predicate call.
+ * , never hardcode the title in the predicate call.
  */
 export type IsVisibleFn = (
 	label: string,

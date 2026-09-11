@@ -34,7 +34,7 @@ use super::allowlist::{is_command_allowed, PENDING_MAX};
 // legitimately take >15s) to the long 120s timeout, and everything
 // else to the new 15s `DISPATCH_SHORT_TIMEOUT_SECS`.
 //
-// Model lifecycle commands are the 6 entries below — they involve
+// Model lifecycle commands are the 6 entries below, they involve
 // network I/O (download), filesystem I/O (import/delete), or
 // subprocess management (cancel/pause/resume) that can each take
 // 10s+ on a slow connection / cold disk.
@@ -49,7 +49,7 @@ const _LONG_RUNNING_COMMANDS: &[&str] = &[
 
 // Commands that stream a multi-GB model file and can legitimately run
 // for tens of minutes. They get the download-scale 1h cap instead of the
-// 120s long-running cap — the sidecar keeps the download running after
+// 120s long-running cap: the sidecar keeps the download running after
 // a host-side timeout, so a premature cap produced a false-failure UI
 // (Retry button) over an in-flight download.
 const _DOWNLOAD_COMMANDS: &[&str] = &["download_model", "import_model"];
@@ -59,9 +59,9 @@ const _DOWNLOAD_COMMANDS: &[&str] = &["download_model", "import_model"];
 /// - 1h (`DISPATCH_DOWNLOAD_TIMEOUT_SECS`) for the multi-GB transfer
 ///   commands (`download_model` / `import_model`).
 /// - 120s (`DISPATCH_TIMEOUT_SECS`) for the remaining model lifecycle
-///   commands listed in [`_LONG_RUNNING_COMMANDS`] — delete / cancel /
+///   commands listed in [`_LONG_RUNNING_COMMANDS`]: delete / cancel /
 ///   pause / resume complete in seconds but can stall on slow disk.
-/// - 15s (`DISPATCH_SHORT_TIMEOUT_SECS`) for everything else — the
+/// - 15s (`DISPATCH_SHORT_TIMEOUT_SECS`) for everything else, the
 ///   sidecar's median response time is <50ms, so 15s is generous
 ///   while still bounding the worst-case UI freeze.
 fn dispatch_timeout_for(cmd: &str) -> u64 {
@@ -84,8 +84,8 @@ pub(crate) struct DispatchArgs {
 
 /// Internal dispatch path: forwards a command to the Python sidecar
 /// over WS and awaits the per-id response. Performs NO allowlist check
-/// — callers are trusted Rust-internal code (e.g. the tray menu click
-/// handler, which routes `tray_click` — a Rust-only command that is
+///: callers are trusted Rust-internal code (e.g. the tray menu click
+/// handler, which routes `tray_click`: a Rust-only command that is
 /// NOT in the renderer `ALLOWED_COMMANDS` set because the renderer
 /// never invokes it; the Rust↔TS allowlist parity tests would fail
 /// if it were added).
@@ -116,8 +116,8 @@ pub(crate) async fn dispatch_inner(
 /// via `state.ws_tx.try_send` WITHOUT inserting a pending oneshot entry
 /// or awaiting a response. Used by `commands::bubble::bubble_toggle_dictation`
 /// (a sandboxed-window command that must NOT use the full `dispatch`
-/// path — the bubble renderer is allowed to send only the fixed
-/// `toggle_dictation` command — see the sanctioned-bypass rationale
+/// path: the bubble renderer is allowed to send only the fixed
+/// `toggle_dictation` command: see the sanctioned-bypass rationale
 /// in `commands/bubble/commands.rs::bubble_toggle_dictation`).
 ///
 /// The synthetic `id: 0` is NOT special-cased server-side.
@@ -125,19 +125,19 @@ pub(crate) async fn dispatch_inner(
 /// `voice_typer/server/sidecar_ws.py`) treats `id=0` like any other
 /// request id: it runs the handler, and if the handler returns a
 /// non-`None` response envelope (which `_handle_toggle_dictation`
-/// always does — it sets `resp["type"] = "ack"`), the server echoes
+/// always does: it sets `resp["type"] = "ack"`), the server echoes
 /// the response back over the WS with `"id": 0` attached. The Rust
 /// WS reader (`sidecar/ws/reader.rs`) then looks up `id=0` in
 /// `state.pending`, finds no entry (because `dispatch_fire_and_forget`
 /// never inserted one), and drops the frame after a single
 /// DEBUG-level `[WS-READER] RX response id=0 had NO pending entry`
-/// line — no WARN fires (the `pending.remove(&id)` call returns
+/// line: no WARN fires (the `pending.remove(&id)` call returns
 /// `None`, the `if let Some(tx) = ...` fulfillment branch is
 /// skipped, and the loop continues).
 ///
 /// The previous doc text here was internally contradictory: it
 /// claimed BOTH "server does NOT echo `id=0` back" AND "one-line
-/// `[WS-READER] unknown id` warning per toggle" — two mutually
+/// `[WS-READER] unknown id` warning per toggle", two mutually
 /// exclusive statements. The actual behavior is: server echoes the
 /// response back, reader silently drops it. The net effect (no
 /// response delivered to the caller, no warning noise) is what the
@@ -165,7 +165,7 @@ pub(crate) fn dispatch_fire_and_forget(
     });
     let ws_tx_opt = mutex_lock(&state.ws_tx).clone();
     let ws_tx = ws_tx_opt.ok_or(VoiceTyperError::NotConnected)?;
-    // `ws_tx` is a bounded `mpsc::Sender` — use `try_send`
+    // `ws_tx` is a bounded `mpsc::Sender`, use `try_send`
     // (synchronous) rather than `.send().await` (which would require an
     // async context AND block on the writer-task consumer). Returns
     // `TrySendError::Full` if the writer is overwhelmed (256-cap) or
@@ -181,7 +181,7 @@ pub(crate) fn dispatch_fire_and_forget(
 // ─── pending-entry Drop guard (cancellation cleanup) ───────────────────
 
 /// Drop guard that removes a dispatch's pending-map entry when the
-/// dispatch future goes out of scope — including when the future is
+/// dispatch future goes out of scope, including when the future is
 /// CANCELLED mid-await.
 ///
 /// Why this exists: every explicit exit path of `dispatch_frame`
@@ -191,11 +191,11 @@ pub(crate) fn dispatch_fire_and_forget(
 /// before fulfilling the oneshot). But a CANCELLED future reaches
 /// none of them: e.g. the heartbeat liveness probe wraps
 /// `dispatch_inner` in a 15s `tokio::time::timeout` (same deadline as
-/// the short `heartbeat` dispatch timeout — the inner branch loses
+/// the short `heartbeat` dispatch timeout, the inner branch loses
 /// the race by construction), and on timeout the inner future is
 /// simply DROPPED mid-await. Before this guard, the entry then
 /// lingered until a late response, the reader's exit drain, or the
-/// miss-#3 supervisor respawn cleared it — a bounded but real leak,
+/// miss-#3 supervisor respawn cleared it, a bounded but real leak,
 /// and one that `heartbeat.rs` used to document as a "known
 /// limitation".
 ///
@@ -206,7 +206,7 @@ pub(crate) fn dispatch_fire_and_forget(
 /// guard's `Drop`.
 ///
 /// Idempotence: the guard's removal may race with any of the
-/// explicit removals listed above — ids are unique per dispatch
+/// explicit removals listed above: ids are unique per dispatch
 /// (`next_id.fetch_add`), so a remove of an already-removed id is a
 /// `HashMap` no-op; double-remove is harmless by construction.
 ///
@@ -214,11 +214,11 @@ pub(crate) fn dispatch_fire_and_forget(
 /// but `Drop` is synchronous and can run on a runtime worker thread
 /// (mid-poll cancellation), where `block_on` / `blocking_lock` would
 /// panic ("Cannot start a runtime from within a runtime"). The
-/// sanctioned pattern is `tauri::async_runtime::spawn` — a
+/// sanctioned pattern is `tauri::async_runtime::spawn`, a
 /// SYNCHRONOUS submit of the removal future to the global Tauri
 /// runtime; it never blocks the dropping worker. (Verified against
 /// tauri-2.11.5: `async_runtime::spawn` is a sync `get_or_init` +
-/// `tokio::spawn` under an enter guard — submit-only — and its
+/// `tokio::spawn` under an enter guard, submit-only, and its
 /// `JoinHandle` is not `#[must_use]`, so detaching it is warning-
 /// free.) The removal itself then runs asynchronously as a detached
 /// task; `heartbeat_tests.rs::
@@ -230,10 +230,10 @@ struct PendingEntryGuard {
 }
 
 impl PendingEntryGuard {
-    /// Constructed right after `pending.insert(id, tx)` — the entry
+    /// Constructed right after `pending.insert(id, tx)`, the entry
     /// the guard owns. Takes its own `Arc` clone so the guard (and
     /// the detached removal task it spawns) stays valid even when the
-    /// dispatch future — and the `&Arc<SidecarState>` it borrowed — is
+    /// dispatch future: and the `&Arc<SidecarState>` it borrowed, is
     /// dropped first.
     fn new(state: &Arc<SidecarState>, id: u64) -> Self {
         Self {
@@ -243,7 +243,7 @@ impl PendingEntryGuard {
     }
 
     /// Submit the entry removal to the global Tauri async runtime.
-    /// Submit-only (never blocks the caller — C-TOKIO-1); the
+    /// Submit-only (never blocks the caller, C-TOKIO-1); the
     /// returned `JoinHandle` is intentionally detached.
     fn remove_pending_async(&self) {
         let state = self.state.clone();
@@ -251,7 +251,7 @@ impl PendingEntryGuard {
         tauri::async_runtime::spawn(async move {
             let mut pending = state.pending.lock().await;
             // Log only when the guard actually removed something (the
-            // cancellation case) — on the normal paths the explicit
+            // cancellation case): on the normal paths the explicit
             // removals already ran and this remove is a silent no-op.
             if pending.remove(&id).is_some() {
                 log::debug!("[dispatch] id={} pending entry removed by Drop guard", id);
@@ -269,7 +269,7 @@ impl Drop for PendingEntryGuard {
 /// Shared dispatch body used by both the `dispatch` Tauri command
 /// (renderer `invoke('dispatch', {cmd, data})` calls) and the tray menu
 /// event handler in `tray.rs::on_menu_event` (which previously emitted
-/// a Tauri event named "dispatch" that had no listener — the click was
+/// a Tauri event named "dispatch" that had no listener, the click was
 /// silently dropped).
 ///
 /// Builds a WS frame `{"type": cmd, "data": data, "id": <next_id>}`,
@@ -278,7 +278,7 @@ impl Drop for PendingEntryGuard {
 ///
 /// The pending entry is inserted AFTER confirming `ws_tx` is
 /// `Some`. Previously the entry was inserted first and the early-return
-/// Err branch on `ws_tx == None` leaked the entry — the WS reader never
+/// Err branch on `ws_tx == None` leaked the entry, the WS reader never
 /// fulfilled it (no frame was sent), so the map accumulated stale
 /// senders across reconnects. We also remove the pending entry on
 /// `ws_tx.send` failure (writer task has exited; the reader's drain
@@ -294,7 +294,7 @@ impl Drop for PendingEntryGuard {
 /// briefly (up to `SHUTDOWN_ACK_TIMEOUT_MS`); dispatches initiated in
 /// that window would send the frame but their response either lands on
 /// a reader that fulfills it late (after the writer/reader tasks begin
-/// tearing down) or is drained when the reader exits — the client then
+/// tearing down) or is drained when the reader exits, the client then
 /// awaits its full per-command dispatch timeout before rejecting.
 /// Short-circuit here instead.
 ///
@@ -303,10 +303,10 @@ impl Drop for PendingEntryGuard {
 /// after the pending insert was removed as redundant: the pending entry
 /// is id-keyed and every removal path (response fulfillment, reader
 /// drain on exit, the `PendingEntryGuard` drop guard) is safe against a
-/// stale `ws_tx` — a reconnect that replaced the writer mid-flight
+/// stale `ws_tx`: a reconnect that replaced the writer mid-flight
 /// cannot strand a fulfilled-or-dropped entry.
 ///
-/// Demoted from `pub(crate) async fn` to `async fn` — the
+/// Demoted from `pub(crate) async fn` to `async fn`, the
 /// only caller is `dispatch_inner` in this same file (the tray menu
 /// handler in `tray.rs` calls `dispatch_inner`, not `dispatch_frame`
 /// directly).
@@ -317,7 +317,7 @@ async fn dispatch_frame(
 ) -> Result<Value, VoiceTyperError> {
     // Relaxed is sufficient here: `next_id` is a pure unique-id
     // generator. Uniqueness comes from the atomic RMW itself, not from
-    // the ordering — no other data is published through this operation
+    // the ordering: no other data is published through this operation
     // and no other thread reasons about the counter's history (the id
     // is used only as a pending-map key + log-correlation tag + frame
     // field). Matches the Relaxed fetch_add already used by the
@@ -348,7 +348,7 @@ async fn dispatch_frame(
     // constructing the WS frame. The WS layer's
     // `max_message_size=1 MiB` check fires in the writer task AFTER
     // the frame has been serialized and enqueued on the bounded
-    // `mpsc::channel(256)` — a compromised renderer could send 256
+    // `mpsc::channel(256)`, a compromised renderer could send 256
     // concurrent ~5 MB dispatches (~1.28 GB peak) before the writer
     // task ever broke a single frame. Capping at 256 KiB (4× the WS
     // layer's 1 MiB / 4 cap to allow for cmd + id + JSON envelope
@@ -360,7 +360,7 @@ async fn dispatch_frame(
     // SINGLE-SERIALIZE OPTIMIZATION: the data Value is serialized
     // ONCE here into ``data_str``. The same ``data_str`` is then
     // reused for both the size check AND the manual frame
-    // construction below — previously the size check called
+    // construction below: previously the size check called
     // ``serde_json::to_string(data_val).map(|s| s.len())`` (bytes
     // discarded) and ``frame.to_string()`` re-serialized the cloned
     // data Value, plus the data Value was CLONED into the frame.
@@ -369,7 +369,7 @@ async fn dispatch_frame(
     // + a deep Value clone per dispatch.
     const DISPATCH_DATA_MAX_BYTES: usize = 256 * 1024;
     // `Cow<'static, str>` for `data_str` so the `data: None` case
-    // uses `Cow::Borrowed("{}")` (a zero-allocation static slice — no
+    // uses `Cow::Borrowed("{}")` (a zero-allocation static slice, no
     // heap-allocated `String` for the common 2-byte literal). The
     // `data: Some(v)` case stays `Cow::Owned(serde_json::to_string(v)...)`
     // (one heap allocation for the serialized payload, same as before).
@@ -391,7 +391,7 @@ async fn dispatch_frame(
             DISPATCH_DATA_MAX_BYTES
         );
         // The `DataTooLarge` variant's Display AND wire string are the
-        // same envelope JSON this branch used to inline — single-sourced
+        // same envelope JSON this branch used to inline, single-sourced
         // in `error.rs`.
         return Err(VoiceTyperError::DataTooLarge);
     }
@@ -437,7 +437,7 @@ async fn dispatch_frame(
         if pending.len() >= PENDING_MAX {
             log::warn!(
                 "[dispatch] id={} cmd={} rejected: pending map at capacity ({}/{}); \
-                 sidecar unresponsive — renderer should back off and retry",
+                 sidecar unresponsive: renderer should back off and retry",
                 id,
                 cmd,
                 pending.len(),
@@ -458,7 +458,7 @@ async fn dispatch_frame(
     // From the insert onward, the pending entry is owned by a Drop
     // guard: if this future is cancelled mid-await (the heartbeat
     // probe's 15s outer timeout, or any other `select!`/timeout wrapper
-    // dropping it), `PendingEntryGuard::drop` removes the entry — no
+    // dropping it), `PendingEntryGuard::drop` removes the entry, no
     // explicit arm of this function runs on a dropped future. The
     // explicit removals below (send failure / timeout) stay as
     // belt-and-braces; the double remove is an idempotent no-op.
@@ -467,14 +467,14 @@ async fn dispatch_frame(
     // Optimization: a prior version of this dispatch path took a second
     // `state.ws_tx` lock here (the "needs_cleanup" check) to detect a
     // WS-disconnect that happened between the outer clone above and the
-    // pending-entry insert. That second lock was redundant — the
+    // pending-entry insert. That second lock was redundant, the
     // `try_send` error path below already handles the WS-disconnected
     // case (TrySendError::Closed removes the pending entry and returns
     // the same "sidecar not connected" error). Removing the second lock
     // halves mutex contention per dispatch with no behavior change.
 
     // Send the frame via the WS writer channel. On send failure, remove
-    // the pending entry too — the writer task has exited so the WS
+    // the pending entry too: the writer task has exited so the WS
     // reader's drain loop is the only other remover and it may not have
     // run yet (race window).
     if let Err(e) = ws_tx.try_send(Message::Text(frame_str.into())) {
@@ -501,7 +501,7 @@ async fn dispatch_frame(
             // ADR-0020 §2: if the response is a `type:"error"` envelope,
             // surface it as a Rust error so the webview's `invoke()`
             // rejects (the Electron path silently treated
-            // `type:"error"` as success — surfacing it as a rejection is
+            // `type:"error"` as success, surfacing it as a rejection is
             // the host-side fix).
             if response.get("type").and_then(|t| t.as_str()) == Some("error") {
                 let code = response
@@ -528,7 +528,7 @@ async fn dispatch_frame(
                 // (`data.errors[]`, `consent_field`, `engine_name`,
                 // `model_id`, …) reach the webview intact. The former
                 // `format!("server error [{}]: {}", code, msg)` concat
-                // destroyed them — that flat string now lives only in
+                // destroyed them: that flat string now lives only in
                 // the variant's log-facing `Display` (the `log::warn!`
                 // line above preserves it for tray / heartbeat
                 // consumers). See `error.rs` + the error-envelope
@@ -541,7 +541,7 @@ async fn dispatch_frame(
             }
             // Move the `data` field out of `response` instead of
             // deep-cloning it. `Value::take` swaps the field with
-            // `Value::Null` and returns the moved value — O(1) on the
+            // `Value::Null` and returns the moved value, O(1) on the
             // hot dispatch path instead of O(n) in the size of the
             // payload (history exports / model catalogs can be hundreds
             // of KB). `response` is dropped immediately after this
@@ -553,7 +553,7 @@ async fn dispatch_frame(
             Ok(data)
         }
         Ok(Err(_)) => {
-            // The oneshot sender was dropped without sending — the WS
+            // The oneshot sender was dropped without sending, the WS
             // reader exited (sidecar crashed / WS closed mid-response).
             log::warn!(
                 "[dispatch] id={} cmd={} response channel closed (WS reader dropped)",
@@ -563,7 +563,7 @@ async fn dispatch_frame(
             Err(VoiceTyperError::ChannelClosed)
         }
         Err(_) => {
-            // Timeout — remove the pending entry.
+            // Timeout: remove the pending entry.
             let mut pending = state.pending.lock().await;
             pending.remove(&id);
             log::error!(
@@ -585,7 +585,7 @@ pub async fn dispatch(
     window: tauri::Window,
 ) -> Result<Value, VoiceTyperError> {
     // FLAT-ARGS CONTRACT (do not re-wrap into a struct param): the
-    // renderer invokes `invoke('dispatch', { cmd, data })` — see
+    // renderer invokes `invoke('dispatch', { cmd, data })`, see
     // `python-namespace.ts` and the allowlist.rs doc comment. Tauri v2
     // maps each invoke key to a parameter NAME, so the previous single
     // `args: DispatchArgs` param made the host expect the top-level key
@@ -606,7 +606,7 @@ pub async fn dispatch(
     // the window-label guard and allowlist check so the cap applies
     // uniformly regardless of caller.
     if args.cmd.len() > 64 {
-        // Log only the length (not the cmd itself) — logging the cmd
+        // Log only the length (not the cmd itself), logging the cmd
         // would itself be a DoS vector if it's multi-MB, and slicing
         // it for a preview could panic on a UTF-8 char boundary.
         log::warn!(
@@ -620,7 +620,7 @@ pub async fn dispatch(
     // window with NO `dispatch` access (ADR-0020 §7 + §9 + SEC-026).
     // The capability file `bubble-runtime.json` deliberately omits
     // `dispatch`-related permissions, but Tauri v2's capability system
-    // only gates plugin commands — user-defined `#[tauri::command]`
+    // only gates plugin commands: user-defined `#[tauri::command]`
     // functions are NOT capability-gated. Without this runtime guard,
     // a compromised bubble renderer (e.g. XSS in the waveform pill)
     // could `invoke('dispatch', {cmd:'quit_app'})` to drive the full

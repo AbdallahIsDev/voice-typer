@@ -1,5 +1,5 @@
 /**
- * Canonical bubble-dismiss shortcut binding — shared between the
+ * Canonical bubble-dismiss shortcut binding, shared between the
  * Electron main process and the renderer.
  *
  * Extracted from `main/shortcuts/global-shortcuts.ts` (accelerator
@@ -16,14 +16,14 @@
  *   so the shortcut works system-wide, even without app focus.
  * - `display` is the renderer's keycap-chip string ("Ctrl+Shift+D")
  *   consumed by the hotkey catalog entry `SHORTCUTS.dismissBubble`.
- *   It holds the RAW key names only — rendering stays on the shared
+ *   It holds the RAW key names only, rendering stays on the shared
  *   HotkeyChips path (`components/hotkey/HotkeyChips.tsx`), which
  *   splits the string into separate keycap chips and derives the
  *   macOS glyph form ("⌃⇧D") at render time.
  *
  * The two forms describe the SAME binding: `CommandOrControl` maps to
  * Ctrl on Windows/Linux and ⌘ on macOS. Change them together or not
- * at all — the main-side pin (`main/__tests__/global-shortcuts.test.ts`),
+ * at all, the main-side pin (`main/__tests__/global-shortcuts.test.ts`),
  * the renderer-side pin (`components/hotkey/__tests__/shortcuts.test.ts`),
  * and the cross-process contract (`main/__tests__/dismiss-shortcut-import.test.ts`)
  * all assert the two processes read this one object.

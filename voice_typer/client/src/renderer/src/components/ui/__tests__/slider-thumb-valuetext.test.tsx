@@ -13,7 +13,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { Slider } from "@/components/ui/slider";
 
-describe("Slider — per-thumb aria-valuetext", () => {
+describe("Slider, per-thumb aria-valuetext", () => {
 	afterEach(() => {
 		cleanup();
 	});

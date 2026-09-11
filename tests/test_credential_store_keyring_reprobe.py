@@ -7,14 +7,14 @@ entire process lifetime. On a system where the keyring backend was
 unavailable at startup (e.g. ``gnome-keyring-daemon`` not yet running on a
 headless Linux session, or the macOS Keychain locked at login window), every
 subsequent ``store_secret`` / ``load_secret`` call for the rest of the
-session fell through to the plaintext fallback in ``config.json`` — even if
+session fell through to the plaintext fallback in ``config.json``, even if
 the backend appeared seconds later. A user who started the daemon mid-session
 had to fully restart the app to get OS-keychain storage.
 
 The fix introduces a rate-limited on-demand re-probe:
 
 * When the cache says **available** (True), the result is cached for the
-  process lifetime — a working backend doesn't suddenly disappear.
+  process lifetime, a working backend doesn't suddenly disappear.
 * When the cache says **unavailable** (False), the result is cached only
   for :data:`_KEYRING_REPROBE_INTERVAL_SECONDS` seconds. The next call after
   that interval re-probes.
@@ -42,7 +42,7 @@ def _isolated_cache():
 
     Without this, the module-level cache leaks state across tests (the first
     test that probes "unavailable" would cause every subsequent test to see
-    the cached False until the re-probe interval elapsed — which is 5
+    the cached False until the re-probe interval elapsed, which is 5
     minutes by default).
     """
     credential_store._reset_keyring_cache()
@@ -100,7 +100,7 @@ class TestAvailableResultCachedForProcessLifetime:
         assert credential_store.is_keyring_available() is True
         assert credential_store.is_keyring_available() is True
 
-        # Only the first call probes — the next two hit the cache.
+        # Only the first call probes, the next two hit the cache.
         assert len(calls) == 1
 
     def test_available_result_survives_long_time_travel(self, monkeypatch):
@@ -121,7 +121,7 @@ class TestAvailableResultCachedForProcessLifetime:
 
 class TestUnavailableResultReprobedAfterInterval:
     """A negative probe result must be re-probed once the configured
-    interval has elapsed — so a backend that appears mid-session is
+    interval has elapsed, so a backend that appears mid-session is
     picked up on the next ``store_secret`` / ``load_secret`` call."""
 
     def test_unavailable_result_cached_within_interval(self, monkeypatch):
@@ -129,7 +129,7 @@ class TestUnavailableResultReprobedAfterInterval:
         monkeypatch.setattr(credential_store, "_probe_keyring", _stub_probe(False, recorder=calls))
 
         assert credential_store.is_keyring_available() is False
-        # Second call within the interval — should hit the cache.
+        # Second call within the interval, should hit the cache.
         assert credential_store.is_keyring_available() is False
         assert len(calls) == 1, "second call inside interval must NOT re-probe"
 
@@ -157,7 +157,7 @@ class TestUnavailableResultReprobedAfterInterval:
         assert len(calls) == 1
 
         # Move the probe timestamp far into the past so the interval gate
-        # opens. (We don't sleep — just rewrite the timestamp.)
+        # opens. (We don't sleep, just rewrite the timestamp.)
         credential_store._keyring_last_probe_ts = time.time() - (
             credential_store._KEYRING_REPROBE_INTERVAL_SECONDS + 1.0
         )
@@ -211,7 +211,7 @@ class TestUnavailableResultReprobedAfterInterval:
 
 class TestResetKeyringCacheClearsProbeTimestamp:
     """``_reset_keyring_cache`` is the test-only escape hatch. It MUST
-    clear ``_keyring_last_probe_ts`` too — otherwise the re-probe
+    clear ``_keyring_last_probe_ts`` too, otherwise the re-probe
     interval gate would skip the probe even after the cache is cleared,
     breaking every test that relies on a forced re-probe."""
 
@@ -293,6 +293,6 @@ class TestConcurrentReprobesAreSerialized:
         t2.join(timeout=5.0)
 
         assert len(results) == 2
-        # The probe should have fired exactly once — the second thread
+        # The probe should have fired exactly once, the second thread
         # observed the cache populated by the first under the lock.
         assert len(calls) == 1, f"concurrent re-probes must be serialized; saw {len(calls)} probes"

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Voice Typer — Nuitka sidecar build (macOS x86_64 + aarch64)
-# ADR-0020 §4.3 — Nuitka freeze of voice_typer/server/ipc_server.py into
+# Voice Typer. Nuitka sidecar build (macOS x86_64 + aarch64)
+# ADR-0020 §4.3. Nuitka freeze of voice_typer/server/ipc_server.py into
 # python-sidecar-<triple>, using python-build-standalone as the base
 # interpreter.
 #
@@ -27,10 +27,10 @@
 #   - --include-data-dir=<SITE>/ctranslate2/libs=<SITE>/ctranslate2/libs
 #   - --macos-create-bundle --macos-app-name=VoiceTyperSidecar
 #   - --macos-signed-app-name=com.voicetyper.sidecar
-#   - --macos-app-mode=background   (LSUIElement=true — no Dock icon)
+#   - --macos-app-mode=background   (LSUIElement=true, no Dock icon)
 #
 # Codesign (S5-CR-56): Nuitka's `--macos-signed-app-name` only sets the
-# bundle's signed name during bundle creation — it does NOT actually
+# bundle's signed name during bundle creation, it does NOT actually
 # invoke codesign on the output binary. This script explicitly signs the
 # output binary:
 #   - If $MAC_SIGNING_IDENTITY is set (CI release builds), passes
@@ -117,7 +117,7 @@ echo "[build_sidecar_macos] SITE=$SITE"
 CT2_LIB_DIR="$SITE/ctranslate2/lib"
 CT2_LIBS_DIR="$SITE/ctranslate2/libs"
 if [[ ! -d "$CT2_LIB_DIR" ]]; then
-    echo "ERROR: $CT2_LIB_DIR not found — ctranslate2 install is incomplete." >&2
+    echo "ERROR: $CT2_LIB_DIR not found, ctranslate2 install is incomplete." >&2
     exit 1
 fi
 echo "[build_sidecar_macos] CT2_LIB_DIR=$CT2_LIB_DIR"
@@ -151,13 +151,13 @@ NUITKA_ARGS=(
     # NU-106 (VAD): keep torch.jit ENABLED. Nuitka's torch plugin
     # disables JIT by default in standalone mode, breaking
     # torch.jit.load(silero_vad.jit) with "module 'torch' has no
-    # attribute 'jit'" — Silero VAD silently degrades to RMS. Make the
+    # attribute 'jit'": Silero VAD silently degrades to RMS. Make the
     # choice explicit.
     --module-parameter=torch-disable-jit=no
     --nofollow-import-to=torch._dynamo
     --nofollow-import-to=torch._inductor
     # NU-106 (VAD): torch.export / torch._functorch are loaded
-    # UNCONDITIONALLY by plain `import torch` (torch 2.13) — do NOT
+    # UNCONDITIONALLY by plain `import torch` (torch 2.13), do NOT
     # exclude them or `import torch` fails with ModuleNotFoundError and
     # Silero VAD silently degrades to RMS.
     --nofollow-import-to=transformers
@@ -199,7 +199,7 @@ echo "[build_sidecar_macos] OK: $OUTPUT_PATH (${SIZE_MB} MB)"
 # S5-CR-56: ad-hoc codesign fallback when no Developer ID identity is set.
 # Mirrors `build_native_listener_macos.sh`. When MAC_SIGNING_IDENTITY is set,
 # Nuitka already signed the binary at build time via --macos-sign-identity
-# (see above) — skip the ad-hoc fallback in that case.
+# (see above), skip the ad-hoc fallback in that case.
 if [[ -z "${MAC_SIGNING_IDENTITY:-}" ]] && command -v codesign >/dev/null; then
     echo "[build_sidecar_macos] Ad-hoc codesign (parent .app will re-sign --deep)..."
     codesign --force --sign - "$OUTPUT_PATH" || true

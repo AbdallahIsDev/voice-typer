@@ -10,11 +10,11 @@ AUDIO-6 / AUDIO-9 path did::
     if callable(set_sr):
         set_sr(force_sr)
     else:
-        log.debug("[APP] AudioProcessor lacks set_sample_rate — skipping AUDIO-6 rebuild")
+        log.debug("[APP] AudioProcessor lacks set_sample_rate, skipping AUDIO-6 rebuild")
 
 but ``AudioProcessor`` never defined ``set_sample_rate``. So ``getattr``
 always returned ``None`` and the controller fell through to the
-``else`` log line every time — the actual rate change was never
+``else`` log line every time, the actual rate change was never
 propagated. All filter coefficients stayed tuned to the original
 ``config.sample_rate`` (16 kHz), so a hot-plugged device running at
 48 kHz (or 44.1 kHz) silently mistuned the entire chain:
@@ -27,12 +27,12 @@ propagated. All filter coefficients stayed tuned to the original
 This module pins the contract added by FA5-FIX:
 
   1. ``set_sample_rate(new_sr)`` updates ``processor._sample_rate``.
-  2. ``set_sample_rate(new_sr)`` triggers a real rebuild — the chain's
+  2. ``set_sample_rate(new_sr)`` triggers a real rebuild, the chain's
      filter instances are reconstructed at the new rate, evidenced by
      the HighPass IIR ``b`` coefficients changing and the filter's
      internal ``_sample_rate`` matching the new rate.
   3. The filter SET (which filters are active) is preserved across the
-     rate change — only the coefficients change.
+     rate change, only the coefficients change.
   4. A subsequent ``rebuild_from_config`` uses the NEW rate (AUDIO-6 /
      AUDIO-9 contract: controller calls ``set_sample_rate(force_sr)``
      BEFORE ``rebuild_from_config(config)``).
@@ -48,7 +48,7 @@ from voice_typer.server.audio_processor import AudioProcessor
 from tests.fixtures.config_helpers import FakeConfig
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Test config — the shared minimal config stand-in from
+# Test config, the shared minimal config stand-in from
 # tests/fixtures/config_helpers.py (previously a local copy of
 # test_audio_processor.py's FakeConfig; consolidated so the two files
 # cannot drift again).
@@ -114,7 +114,7 @@ class TestSetSampleRateUpdatesInternalRate:
 
 class TestSetSampleRateRebuildsFilters:
     """XV-31: ``set_sample_rate(new_sr)`` must rebuild the chain's filters
-    at the new rate — not just update the bookkeeping field."""
+    at the new rate, not just update the bookkeeping field."""
 
     def test_highpass_b_coefficients_change(self, processor):
         """An order-4 Butterworth high-pass at 80 Hz produces different
@@ -137,15 +137,15 @@ class TestSetSampleRateRebuildsFilters:
     def test_highpass_sos_state_layout_after_rebuild(self, processor):
         """SOS-form witness that the chain was rebuilt at the new rate.
 
-        The high-pass state is ``(sos, zi)``: the section matrix folds
-        BOTH the numerator and the old denominator into one N×6 array
-        (columns 3:6 are the per-section denominators), and the IIR
-        memory is a per-section 2-tap vector. Pinning the layout after
-        ``set_sample_rate`` proves the filter was reconstructed with the
-        SOS design (the old separate ``b``/``a`` state no longer exists
-        — ``state[1]`` is the zi memory, not the denominator); the
-        rate-sensitivity of the coefficients themselves is pinned by
-        ``test_highpass_b_coefficients_change``.
+          The high-pass state is ``(sos, zi)``: the section matrix folds
+          BOTH the numerator and the old denominator into one N×6 array
+          (columns 3:6 are the per-section denominators), and the IIR
+          memory is a per-section 2-tap vector. Pinning the layout after
+          ``set_sample_rate`` proves the filter was reconstructed with the
+          SOS design (the old separate ``b``/``a`` state no longer exists
+        , ``state[1]`` is the zi memory, not the denominator); the
+          rate-sensitivity of the coefficients themselves is pinned by
+          ``test_highpass_b_coefficients_change``.
         """
         processor.set_sample_rate(48000)
 
@@ -157,13 +157,13 @@ class TestSetSampleRateRebuildsFilters:
             f"zi must be a per-section 2-tap (got {zi.shape} for {sos.shape[0]} sections)"
         )
         assert not np.allclose(sos[:, 3:6], np.zeros_like(sos[:, 3:6])), (
-            "SOS denominator columns must be non-zero — the section matrix "
+            "SOS denominator columns must be non-zero, the section matrix "
             "carries the denominator that the old ``a`` array held"
         )
 
     def test_highpass_internal_sample_rate_matches_new_rate(self, processor):
         """The HighPass filter's own ``_sample_rate`` field must reflect
-        the new rate after ``set_sample_rate`` — proves the chain was
+        the new rate after ``set_sample_rate``, proves the chain was
         rebuilt at the new rate, not just the processor's bookkeeping
         field updated in isolation."""
         processor.set_sample_rate(48000)
@@ -178,7 +178,7 @@ class TestSetSampleRateRebuildsFilters:
 
     def test_filter_set_preserved_across_rate_change(self, processor):
         """XV-31: the filter configuration is preserved across the rate
-        change — only the coefficients change, not which filters are
+        change, only the coefficients change, not which filters are
         active. (A regression that swapped in a wrong/different filter
         set would still pass the coefficient-change tests above.)"""
         initial_names = processor.filter_names
@@ -215,7 +215,7 @@ class TestSetSampleRateThenRebuildFromConfig:
     def test_rebuild_from_config_does_not_revert_rate(self, processor, config):
         """Even though ``config.sample_rate == 16000``, a
         ``rebuild_from_config`` after ``set_sample_rate(48000)`` must
-        NOT revert the chain to 16 kHz — the controller's intent
+        NOT revert the chain to 16 kHz, the controller's intent
         (``force_sr``) wins over the stale config value."""
         assert config.sample_rate == 16000
         processor.set_sample_rate(48000)
@@ -228,7 +228,7 @@ class TestSetSampleRateThenRebuildFromConfig:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# smoke test — the rebuilt chain must be functional
+# smoke test, the rebuilt chain must be functional
 # ═══════════════════════════════════════════════════════════════════════════
 
 

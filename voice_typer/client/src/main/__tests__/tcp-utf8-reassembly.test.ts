@@ -8,7 +8,7 @@
  * appended each chunk via `state.tcpBuffer += chunk.toString()`. This
  * decoded each chunk INDEPENDENTLY, so a multi-byte UTF-8 character split
  * across two TCP chunks (e.g. F0 9F 98 80 split after byte one) surfaced
- * U+FFFD in the reassembled line — corrupting transcription_final events
+ * U+FFFD in the reassembled line, corrupting transcription_final events
  * containing non-ASCII text (CJK, emoji, accented Latin, etc.).
  *
  * The fix keeps `state.tcpBuffer` as a `Buffer`, concatenates raw bytes via
@@ -26,7 +26,7 @@
  * future refactor cannot silently regress to the per-chunk toString() approach.
  *
  * ON LINUX (sandbox): runtime test via mocked net.Socket.
- * ON WINDOWS / macOS: same Buffer contract — the reassembly is byte-level
+ * ON WINDOWS / macOS: same Buffer contract, the reassembly is byte-level
  *   and platform-agnostic.
  */
 import type { EventEmitter } from "node:events";
@@ -43,7 +43,7 @@ import type { MainState } from "../state";
 // ────────────────────────────────────────────────────────────────────
 
 const { MockSocket, createdSockets } = vi.hoisted(() => {
-	// Use require inside hoisted block — vi.hoisted() runs before ESM
+	// Use require inside hoisted block, vi.hoisted() runs before ESM
 	// imports are resolved, so we cannot reference the top-level
 	// `import { EventEmitter }` here. require("node:events") works
 	// because Node.js built-in modules are synchronously available.
@@ -222,7 +222,7 @@ describe("TCP UTF-8 reassembly (Buffer-based)", () => {
 
 	it("reassembles a 4-byte UTF-8 char (U+1F600) split across two chunks without U+FFFD", () => {
 		// U+1F600 = UTF-8 F0 9F 98 80 (4 bytes).
-		// Split after the first byte — without Buffer-based reassembly,
+		// Split after the first byte, without Buffer-based reassembly,
 		// the first chunk's toString() surfaces U+FFFD for the lone 0xF0.
 		const fullLine = `{"type":"transcription_final","text":"\u{1F600}"}\n`;
 		const fullBytes = Buffer.from(fullLine, "utf-8");
@@ -239,7 +239,7 @@ describe("TCP UTF-8 reassembly (Buffer-based)", () => {
 		expect(createdSockets.length).toBeGreaterThanOrEqual(1);
 		const socket = createdSockets[0] as EventEmitter;
 
-		// Emit the two chunks — simulating TCP splitting the message
+		// Emit the two chunks, simulating TCP splitting the message
 		// mid-character.
 		socket.emit("data", chunk1);
 		socket.emit("data", chunk2);
@@ -363,7 +363,7 @@ describe("tcp-connect.ts source-text contract (Buffer-based reassembly)", () => 
 	it("decodes each line via subarray + toString utf8", () => {
 		// subarray extracts the line bytes; toString("utf8") decodes
 		// the complete line exactly once. They are on separate lines
-		// (subarray on state.tcpBuffer, toString on lineBuf) — assert
+		// (subarray on state.tcpBuffer, toString on lineBuf), assert
 		// both are present, not chained.
 		expect(src).toMatch(/\.subarray\(/);
 		expect(src).toMatch(/\.toString\("utf8"\)/);
@@ -371,7 +371,7 @@ describe("tcp-connect.ts source-text contract (Buffer-based reassembly)", () => 
 
 	it("does NOT use StringDecoder (the fix is Buffer.concat, not StringDecoder)", () => {
 		// The prior characterization test documented that StringDecoder
-		// was NOT applied. The fix uses Buffer.concat instead — a different
+		// was NOT applied. The fix uses Buffer.concat instead, a different
 		// (simpler) fix that achieves the same byte-correct result.
 		expect(src).not.toMatch(
 			/import\s+\{\s*StringDecoder\s*\}\s+from\s+["']node:string_decoder["']/,
@@ -379,7 +379,7 @@ describe("tcp-connect.ts source-text contract (Buffer-based reassembly)", () => 
 	});
 
 	it("resets tcpBuffer to Buffer.alloc(0) on close and overflow", () => {
-		// The reset must use Buffer.alloc(0) — assigning an empty string
+		// The reset must use Buffer.alloc(0), assigning an empty string
 		// would store a string in a Buffer-typed slot (type drift).
 		expect(src).toMatch(/state\.tcpBuffer\s*=\s*Buffer\.alloc\(0\)/);
 		// No remaining empty-string assignments to tcpBuffer in the source.

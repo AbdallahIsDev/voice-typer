@@ -99,7 +99,7 @@ class TestFallbackPublishesBeforeReload:
 
         assert result == "transcribed"
         # Publish must land AFTER classification and BEFORE the model
-        # teardown/reload — the whole point is telling the user why the
+        # teardown/reload, the whole point is telling the user why the
         # next seconds freeze.
         assert order == ["inner", "classify", "publish", "beam", "reload", "inner"], f"unexpected call order: {order}"
         assert len(published) == 1
@@ -122,7 +122,7 @@ class TestFallbackPublishesBeforeReload:
         def always_failing(audio, *args, **kwargs):
             raise RuntimeError(long_message)
 
-        # Both attempts fail — we only care about the published payload.
+        # Both attempts fail, we only care about the published payload.
         engine = _AlwaysGpuEngine()
         with pytest.raises(RuntimeError):
             with_gpu_fallback(engine, always_failing, b"audio")
@@ -312,7 +312,7 @@ class TestSubscriptionWiring:
         # THIS subscriber must receive the event EXACTLY once (the
         # single-delivery contract). The global notification count is NOT
         # asserted: an earlier test in the same xdist worker can leak a
-        # live gpu_cpu_fallback subscriber, which — correctly — also
+        # live gpu_cpu_fallback subscriber, which (correctly) also
         # receives this publish and shows its own notification; that is
         # the bus working as designed, not this test's contract.
         assert len(own_deliveries) == 1

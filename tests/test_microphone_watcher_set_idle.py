@@ -1,7 +1,7 @@
 """focused tests for ``MicrophoneDeviceWatcher.set_idle()``.
 
 the watcher had dead ``_is_idle`` / ``_idle_poll_interval_s`` /
-``_active_poll_interval_s`` state — the attributes were initialised in
+``_active_poll_interval_s`` state, the attributes were initialised in
 ``__init__`` but never read by any code path, so the idle/active cadence
 selection never actually happened. The macOS polling path hardcoded a
 3 s cadence; the Linux secondary ``sd.query_devices()`` poll hardcoded
@@ -17,16 +17,16 @@ These tests pin the contract:
 1. ``set_idle(True)`` / ``set_idle(False)`` mutate ``self._is_idle``.
 2. The default state is ``True`` (the app launches idle).
 3. ``_run_macos`` selects ``_idle_poll_interval_s`` when idle and
-   ``_active_poll_interval_s`` when not — verified by inspecting the
+   ``_active_poll_interval_s`` when not, verified by inspecting the
    source (the cadence selection is inside a ``while`` loop that's
    hard to drive deterministically without a real CoreAudio round
    trip, so the source-guard pattern mirrors
    ``test_load_active_source_contains_is_disabled_check``).
 4. The ``_run_linux`` secondary poll selects ``_idle_poll_interval_s``
-   when idle and ``_active_poll_interval_s`` when not — same
+   when idle and ``_active_poll_interval_s`` when not, same
    source-guard pattern.
 5. ``set_idle`` accepts truthy/falsy values (not just strict bool).
-6. ``set_idle`` is idempotent — calling it twice with the same value
+6. ``set_idle`` is idempotent, calling it twice with the same value
    is a no-op.
 """
 
@@ -62,7 +62,7 @@ class TestSetIdle:
         """The watcher must launch in the idle state (no recording active)."""
         watcher = MicrophoneDeviceWatcher(on_change=lambda: None)
         assert watcher._is_idle is True, (
-            "the default _is_idle must be True — the app launches "
+            "the default _is_idle must be True, the app launches "
             "idle (no recording in flight). Pre-fix, the attribute existed "
             "but was never read by any code path."
         )
@@ -93,7 +93,7 @@ class TestSetIdle:
 
     def test_idle_and_active_intervals_have_expected_defaults(self):
         """The default intervals must be 12 s (idle) and 3 s (active)
-        — the values documented in the ``set_idle`` docstring."""
+        , the values documented in the ``set_idle`` docstring."""
         watcher = MicrophoneDeviceWatcher(on_change=lambda: None)
         assert watcher._idle_poll_interval_s == 12.0, "the default idle poll interval must be 12.0 s."
         assert watcher._active_poll_interval_s == 3.0, "the default active poll interval must be 3.0 s."
@@ -105,7 +105,7 @@ class TestRunMacosIdleCadence:
     def test_run_macos_source_references_is_idle(self):
         """``_run_macos``'s source must reference ``self._is_idle`` so
         the idle/active cadence selection actually happens (pre-fix,
-        ``_is_idle`` was dead state — never read)."""
+        ``_is_idle`` was dead state, never read)."""
         src = inspect.getsource(MicrophoneDeviceWatcher._run_macos)
         assert "_is_idle" in src, (
             "_run_macos must read self._is_idle to select between "
@@ -162,7 +162,7 @@ class TestRunLinuxSecondaryPollIdleCadence:
 
     def test_run_linux_does_not_reference_dead_constant(self):
         """``_run_linux``'s source must NOT reference the former
-        ``_LINUX_SD_QUERY_INTERVAL_S`` constant — it was replaced by the
+        ``_LINUX_SD_QUERY_INTERVAL_S`` constant, it was replaced by the
         idle/active cadence selection. If a future refactor reintroduces
         the dead constant, this test catches it."""
         src = inspect.getsource(MicrophoneDeviceWatcher._run_linux)

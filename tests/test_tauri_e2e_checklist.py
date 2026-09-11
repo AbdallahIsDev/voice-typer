@@ -1,7 +1,7 @@
 """the mission TAURI-E2E headless checklist verification suite.
 
-Mission (review.md entry #1): drive the REAL Python backend — the
-exact code the Tauri sidecar runs — through the checklist items that are
+Mission (review.md entry #1): drive the REAL Python backend, the
+exact code the Tauri sidecar runs, through the checklist items that are
 verifiable headless via the IPC server harness, and pin every verified
 contract with tests so regressions surface in CI.
 
@@ -18,7 +18,7 @@ Harness shape (mirrors ``tests/test_tauri_ws_microphone_population.py``):
   per-test temp config dir;
 - the REAL dictation-pipeline steps (``_store_result``,
   ``_apply_vocabulary``, ``_apply_templates``) drive the dictation-shaped
-  flows — the same step objects the 11-stage pipeline runs after a
+  flows, the same step objects the 11-stage pipeline runs after a
   transcription;
 - one test drives the full WebSocket transport (the path the Tauri host
   actually uses) through ``sidecar_ws._handle_connection``.
@@ -41,7 +41,7 @@ Checklist coverage (the mission items, headless subset):
    ``_deleted`` tombstones).
 5. Export/import round-trips: the getters' data JSON-round-trips and
    re-imports to an equivalent state through the full-replace save paths
-   (the server registry has no export commands — export is a Tauri-host
+   (the server registry has no export commands, export is a Tauri-host
    Rust command consuming these getters' data).
 6. Analytics counters: corrections + dictation counters move and persist
    (C-PERSIST-2: correction-usage.json is an independent file).
@@ -59,7 +59,7 @@ Checklist coverage (the mission items, headless subset):
 Historical note: the headless checklist run found that ``status_change``
 frames were never delivered on the WS transport (the tray-state hook
 pushed them through the TCP-only ``IPCServer.push`` path). That defect
-was FIXED (the hook now publishes through ``event_bus`` — see
+was FIXED (the hook now publishes through ``event_bus``: see
 ``ipc/lifecycle.py``) and is pinned by the dedicated suite
 ``tests/test_tray_status_change_ws_delivery.py``. The other WS push
 paths (``state_changed`` snapshot, ``tray_state``, ``tray_menu``,
@@ -113,7 +113,7 @@ def ws_backend(tmp_config_dir, monkeypatch):
     # access fails → the device-rate fallback WARNING fires asynchronously
     # from the background device-cache prewarm and can land inside a test's
     # log-capture window (timing-dependent, host-dependent). A real OS
-    # answers the default-input probe with a device dict — emulate that
+    # answers the default-input probe with a device dict, emulate that
     # here so the app under test sees production-like behavior and the
     # happy path stays deterministically log-clean (no raced warnings).
     import sys as _sys
@@ -221,7 +221,7 @@ class TestConfigRoundTrip:
         assert after["data"]["theme_mode"] == "dark"
         assert after["data"]["show_notifications"] is True
 
-        # C-CONF-1: config.json is THE canonical store — the write must be
+        # C-CONF-1: config.json is THE canonical store, the write must be
         # on disk, not just in memory.
         on_disk = json.loads((config_dir / "config.json").read_text(encoding="utf-8"))
         assert on_disk["theme_mode"] == "dark"
@@ -269,7 +269,7 @@ class TestConfigRoundTrip:
         assert resp["data"]["code"] == "invalid_field"
         assert resp["data"]["errors"]  # full error list, not just errors[0]
 
-        # nothing was applied — the payload is rejected atomically, both
+        # nothing was applied, the payload is rejected atomically, both
         # in memory and on disk.
         after = {}
         server._handle_get_config(None, after)
@@ -290,7 +290,7 @@ class TestWsTransportRoundTrip:
         around the dispatch response; a push frame that arrives AHEAD of
         the response is STASHED by type (not discarded) so a later
         ``_recv_type`` call for it cannot time out on a frame that was
-        already consumed — the response and the push are sent from
+        already consumed, the response and the push are sent from
         different threads (dispatch pool vs event-bus subscriber), so
         their wire order is not deterministic.
         """
@@ -367,7 +367,7 @@ class TestWsTransportRoundTrip:
                     assert resp["id"] == 201
 
                     # The push frame must arrive on this connection (order
-                    # vs the dispatch response is not deterministic — the
+                    # vs the dispatch response is not deterministic, the
                     # stash covers the push-first interleaving).
                     push = await self._recv_type(client, "config_changed", stash)
                     assert push["data"]["theme_mode"] == "dark"
@@ -460,7 +460,7 @@ class TestHistoryPersistence:
 
         Simulates the app restart: the writer thread of the first instance
         is closed (its WAL checkpointed), a new instance opens the same
-        ``history.db`` and must serve the previously written row — and its
+        ``history.db`` and must serve the previously written row, and its
         FTS index must still answer content queries.
         """
         app, server = ws_backend
@@ -515,7 +515,7 @@ class TestTemplatesCrud:
             ("ticket id", "TICKET-42", "contains"),
         }
 
-        # persisted to the config dir (survives app-data resets — the
+        # persisted to the config dir (survives app-data resets, the
         # documented reason the store lives in templates.json).
         on_disk = json.loads((Path(app.config.config_dir) / "templates.json").read_text(encoding="utf-8"))
         assert len(on_disk["templates"]) == 2
@@ -625,7 +625,7 @@ class TestExportImportRoundTrips:
     """Export shapes re-import to an equivalent state.
 
     The Tauri host's export commands (export_history / export_vocabulary /
-    export_templates — Rust, src-tauri/src/commands/export.rs) write the
+    export_templates, Rust, src-tauri/src/commands/export.rs) write the
     JSON the renderer passes them, sourced from these Python getters. The
     import side on Python is the full-replace save path (save_templates /
     save_vocabulary full merged list), so a round-trip here proves the
@@ -682,7 +682,7 @@ class TestExportImportRoundTrips:
 
     def test_history_export_shape_is_valid_json(self, ws_backend):
         """No server-side history import exists (single-record restore
-        only) — pin the export shape instead: rows JSON-round-trip and
+        only), pin the export shape instead: rows JSON-round-trip and
         carry the fields the Rust export + History page rely on."""
         app, server = ws_backend
         app.history_db.add_transcription("export shape row", duration=2.0, model="tiny")
@@ -840,7 +840,7 @@ class TestStatusFlow:
     """C-HOME-1 tuple invariant + the pushes the WS path delivers.
 
     Historical note: the checklist run found ``status_change`` never
-    reached the WS client (TCP-only push) — FIXED (the tray hook now
+    reached the WS client (TCP-only push), FIXED (the tray hook now
     publishes through ``event_bus``; pinned by
     tests/test_tray_status_change_ws_delivery.py). The delivery paths
     below pin the WS-transport behavior that was always healthy.
@@ -871,7 +871,7 @@ class TestStatusFlow:
 
         # The connect-time snapshot the WS transport publishes on every
         # authenticated connection must carry the SAME {status, message}
-        # pair — the C-HOME-1 backend-level invariant.
+        # pair, the C-HOME-1 backend-level invariant.
         from voice_typer.server.sidecar_ws_internals.connection import (
             _emit_initial_state_snapshot,
         )
@@ -886,7 +886,7 @@ class TestStatusFlow:
     def test_tray_state_and_menu_reach_the_bus_in_tauri_mode(self, ws_backend, bus_events):
         """TAURI_SIDECAR=1: every tray transition publishes ``tray_state``
         (icon + tooltip for the host tray) and the menu push on the label
-        visibility flip — both flow to the WS host via the event bus."""
+        visibility flip, both flow to the WS host via the event bus."""
         app, server = ws_backend
         from voice_typer.server.tray_types import AppState
 

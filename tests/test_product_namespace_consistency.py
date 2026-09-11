@@ -11,13 +11,13 @@ The canonical product root is ``com.voicetyper.*``:
 
 Legacy / wrong roots that must NOT reappear:
 
-- ``org.voice-typer.*`` — the pre-Tauri Electron polkit namespace.
+- ``org.voice-typer.*``, the pre-Tauri Electron polkit namespace.
   Review finding #54 renamed it to ``com.voicetyper.*``; the legacy
   policy file is removed at install/upgrade time by
   ``install_permissions.py::_install_polkit_policy`` AND at uninstall
   (via ``LEGACY_POLKIT_POLICY_DEST``), so converged systems never
   register the old action ID.
-- ``app.voicetyper`` — the pre-migration OS keyring service name.
+- ``app.voicetyper``, the pre-migration OS keyring service name.
   ``KEYRING_SERVICE_NAME`` in the ``credential_store`` package now
   uses ``com.voicetyper.keyring``, and
   ``_migrate_legacy_service_names_locked()`` copies legacy entries
@@ -25,29 +25,25 @@ Legacy / wrong roots that must NOT reappear:
   allowlisted tokens are the package submodules that define and
   migrate that legacy tuple (see ``_LEGACY_TOKEN_ALLOWLIST``).
 - ``com.voice-typer`` / ``com.voice_typer`` / ``org.voicetyper`` /
-  ``org.voice_typer`` — misspellings / alternative spellings of the
+  ``org.voice_typer``, misspellings / alternative spellings of the
   product root (a real ``com.voice-typer`` once shipped in
   ``docs/permissions-per-os.md``).
 
 This test scans every tracked text file and fails on any reverse-DNS
 token in the ``voicetyper`` family whose root is not ``com.voicetyper``.
 The only legacy tokens allowed to remain are SCOPED TO SPECIFIC FILES
-(see ``_LEGACY_TOKEN_ALLOWLIST`` — nothing is allowed globally):
+(see ``_LEGACY_TOKEN_ALLOWLIST``, nothing is allowed globally):
 
-- the uninstaller/installer script (both copies) — the explicit legacy
+- the uninstaller/installer script (both copies), the explicit legacy
   cleanup itself (``LEGACY_POLKIT_POLICY_DEST`` removal at
   install/upgrade + uninstall);
 - the tests that pin that cleanup;
-- the polkit file headers — the rename history must spell the old name
+- the polkit file headers, the rename history must spell the old name
   to be meaningful;
-- ``scripts/append_review_findings.py`` — a one-shot review log whose
-  finding-#54 entry snapshots the state at close time (bare root +
-  artifact tokens). A historical record is not rewritten; the guard
-  still catches any NEW legacy-root usage anywhere else in the repo.
 
 This test file itself is exempt from the scan: its docstring
 necessarily spells out the exact banned spellings (``org.voicetyper``,
-``com.voice-typer``, ...) so a human can see what is forbidden — those
+``com.voice-typer``, ...) so a human can see what is forbidden, those
 are definitions, not product-namespace usages.
 """
 
@@ -67,10 +63,10 @@ CANONICAL_ROOT = "com.voicetyper"
 
 # Legacy tokens that legitimately remain, SCOPED to the files that
 # perform or document the explicit legacy cleanup (see module docstring).
-# Nothing is allowed globally — every other file must use the canonical
+# Nothing is allowed globally, every other file must use the canonical
 # ``com.voicetyper.*`` root.
 _LEGACY_TOKEN_ALLOWLIST: dict[str, frozenset[str]] = {
-    # Uninstaller/installer script (both copies) — the explicit legacy
+    # Uninstaller/installer script (both copies), the explicit legacy
     # cleanup itself: removal of the legacy policy at install/upgrade
     # (``_install_polkit_policy``) and at uninstall (``uninstall()``).
     "scripts/linux/install_permissions.py": frozenset({"org.voice-typer.policy", "org.voice-typer.*"}),
@@ -79,22 +75,11 @@ _LEGACY_TOKEN_ALLOWLIST: dict[str, frozenset[str]] = {
     ),
     # Tests pinning that cleanup.
     "tests/test_install_permissions_polkit_stable.py": frozenset({"org.voice-typer.policy"}),
-    # Polkit file headers — the rename history must spell the old name
+    # Polkit file headers, the rename history must spell the old name
     # to be meaningful.
     "scripts/linux/voice-typer.polkit": frozenset({"org.voice-typer.policy", "org.voice-typer.install-permissions"}),
     "src-tauri/resources/linux-scripts/voice-typer.polkit": frozenset(
         {"org.voice-typer.policy", "org.voice-typer.install-permissions"}
-    ),
-    # Historical findings log — the finding-#54 entry snapshots the
-    # close-time state (bare root + legacy artifact tokens). A one-shot
-    # record is not rewritten.
-    "scripts/append_review_findings.py": frozenset(
-        {
-            "org.voice-typer",
-            "org.voice-typer.policy",
-            "org.voice-typer.install-permissions",
-            "org.voice-typer.*",
-        }
     ),
     # The keyring half of the legacy namespace cleanup: the
     # ``_LEGACY_KEYRING_SERVICE_NAMES`` tuple + migration docstrings
@@ -111,7 +96,7 @@ _LEGACY_TOKEN_ALLOWLIST: dict[str, frozenset[str]] = {
     # The drift-guard test module pins the credential_store legacy
     # tuple STRING verbatim (``_LEGACY_KEYRING_SERVICE_NAMES: ... =
     # ("app.voicetyper", ...)``) and its allowlist docstring names the
-    # token — definitions/pins, not usages.
+    # token, definitions/pins, not usages.
     "tests/tauri/test_config_script_drift.py": frozenset({"app.voicetyper"}),
 }
 
@@ -183,15 +168,15 @@ class TestProductNamespaceConsistency:
             if rel_path == _SELF:
                 continue  # this module defines the banned spellings
             if rel in _SESSION_LOG_FILES:
-                continue  # session metadata — not a namespace source of truth
+                continue  # session metadata, not a namespace source of truth
             text = path.read_bytes().decode("utf-8", errors="replace")
             for match in _RDNN_RE.finditer(text):
                 token = match.group(1)
                 if token == CANONICAL_ROOT or token.startswith(CANONICAL_ROOT + "."):
-                    continue  # canonical — allowed everywhere
+                    continue  # canonical, allowed everywhere
                 allowed = _LEGACY_TOKEN_ALLOWLIST.get(rel, frozenset())
                 if token in allowed:
-                    continue  # documented legacy artifact — scoped to this file
+                    continue  # documented legacy artifact, scoped to this file
                 line = text.count("\n", 0, match.start()) + 1
                 violations.append((rel, line, token))
 

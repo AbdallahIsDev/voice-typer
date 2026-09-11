@@ -1,5 +1,5 @@
 /* =============================================================================
- * Voice Typer — Linux native key-listener dedup unit test (C-level)
+ * Voice Typer: Linux native key-listener dedup unit test (C-level)
  *
  * Compiles the production listener source (``linux-key-listener.c``) INTO this
  * test translation unit via ``#include`` so the file-local static helpers
@@ -78,7 +78,7 @@ int main(void) {
         assert(is_duplicate_event(&dup) == 1);
     }
 
-    /* ── Within 5 ms window — duplicate ─────────────────────────────────── */
+    /* ── Within 5 ms window: duplicate ─────────────────────────────────── */
     /* Some drivers re-stamp duplicates at slightly different times; the 5 ms
      * slack tolerates this. */
     {
@@ -89,7 +89,7 @@ int main(void) {
         assert(is_duplicate_event(&dup) == 1);
     }
 
-    /* ── Exactly 5 ms — duplicate (inclusive window) ────────────────────── */
+    /* ── Exactly 5 ms: duplicate (inclusive window) ────────────────────── */
     {
         struct input_event ev = make_ev(KEY_ENTER, 1, 3000, 0);
         remember_emitted_event(&ev);
@@ -98,7 +98,7 @@ int main(void) {
         assert(is_duplicate_event(&dup) == 1);
     }
 
-    /* ── Beyond 5 ms — NOT a duplicate (genuine new press) ──────────────── */
+    /* ── Beyond 5 ms: NOT a duplicate (genuine new press) ──────────────── */
     /* 6 ms after the prior event: the dedup window has closed, so this is
      * treated as a fresh key press. The 5 ms threshold is well below the
      * ~80 ms inter-keystroke interval for fast typists, so this only fires
@@ -111,7 +111,7 @@ int main(void) {
         assert(is_duplicate_event(&next) == 0);
     }
 
-    /* ── Different code — never a duplicate ─────────────────────────────── */
+    /* ── Different code: never a duplicate ─────────────────────────────── */
     {
         struct input_event ev = make_ev(KEY_A, 1, 5000, 0);
         remember_emitted_event(&ev);
@@ -120,7 +120,7 @@ int main(void) {
         assert(is_duplicate_event(&other) == 0);
     }
 
-    /* ── Different value (key-up vs key-down) — not a duplicate ─────────── */
+    /* ── Different value (key-up vs key-down): not a duplicate ─────────── */
     {
         struct input_event down = make_ev(KEY_A, 1, 6000, 0);
         remember_emitted_event(&down);
@@ -129,7 +129,7 @@ int main(void) {
         assert(is_duplicate_event(&up) == 0);
     }
 
-    /* ── Different second timestamp — not a duplicate ───────────────────── */
+    /* ── Different second timestamp: not a duplicate ───────────────────── */
     /* A press more than 1 s after the prior one must never be suppressed. */
     {
         struct input_event ev = make_ev(KEY_A, 1, 7000, 0);
@@ -162,7 +162,7 @@ int main(void) {
         remember_emitted_event(&b);
 
         /* An A-event now (matching the OLD state) is no longer a duplicate
-         * of the current state (which is B), so it is NOT suppressed — even
+         * of the current state (which is B), so it is NOT suppressed, even
          * though its timestamp is within the 5 ms window. */
         struct input_event a_again = make_ev(KEY_A, 1, 10000, 2000); /* +2 ms */
         assert(is_duplicate_event(&a_again) == 0);

@@ -7,7 +7,7 @@ Mocks a CUDA error during ``model.recognize()`` and verifies:
    session recreation, NOT torch's ``.to("cpu")``).
 2. The ``parakeet_cpu_fallback`` event is published to ``event_bus``.
 3. The ``notification`` event is published (user-facing toast).
-4. The notification is ONE-TIME per loaded session — a second
+4. The notification is ONE-TIME per loaded session, a second
    fallback in the same session does NOT re-notify.
 5. ``self.device`` is mutated to ``"cpu"`` (the session is now CPU-
    bound; the next ``transcribe_with_fallback`` call uses the CPU path
@@ -26,7 +26,7 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
-# NOTE: no module-level ``pytest.importorskip("onnx_asr")`` — these
+# NOTE: no module-level ``pytest.importorskip("onnx_asr")``, these
 # tests mock onnx_asr.load_model so they run without the real package.
 # (Belt-and-suspenders: if a downstream CI env has onnx_asr installed
 # and wants to validate against the real package, the mocks here still
@@ -51,7 +51,7 @@ def _mock_onnx_asr_module(recognize_side_effect=None) -> MagicMock:
     - ``callable`` → ``recognize()`` calls the callable.
     - ``str`` → ``recognize()`` returns the string.
 
-    Every ``Model(...)`` call returns a FRESH MagicMock — so the GPU
+    Every ``Model(...)`` call returns a FRESH MagicMock, so the GPU
     session and the CPU-fallback recreated session are distinct mock
     instances, and tests can assert per-instance call counts. Tests
     that want the GPU model to raise and the CPU model to succeed
@@ -121,7 +121,7 @@ def _make_engine_with_cuda_loaded(recognize_return_value: str = "hello world"):
     ``load()``) and any subsequent models (created by ``_load_impl``
     during the CPU fallback). Tests that want the GPU model to raise
     should reconfigure ``engine._model.recognize.side_effect`` AFTER
-    ``load()`` returns — the CPU-fallback model (created by
+    ``load()`` returns, the CPU-fallback model (created by
     ``_load_impl``) will still use the default return value.
     """
     mock_onnx_asr = _mock_onnx_asr_module(recognize_side_effect=recognize_return_value)
@@ -141,7 +141,7 @@ def _make_engine_with_cuda_loaded(recognize_return_value: str = "hello world"):
 
 
 class TestParakeetOnnxCpuFallback:
-    """GPU→CPU fallback (session recreation) — PLAN_ONNX_INTEGRATION.md §3.4."""
+    """GPU→CPU fallback (session recreation). PLAN_ONNX_INTEGRATION.md §3.4."""
 
     def test_cuda_error_triggers_session_recreation_on_cpu(self):
         """A CUDA error during ``recognize()`` → unload + reload with
@@ -174,7 +174,7 @@ class TestParakeetOnnxCpuFallback:
         second_call_kwargs = mock_onnx_asr.load_model.call_args_list[1].kwargs
         assert second_call_kwargs["providers"] == ["CPUExecutionProvider"], (
             f"CPU fallback must recreate session with providers=['CPUExecutionProvider'] "
-            f"only (NOT torch's .to('cpu') — see PLAN_ONNX_INTEGRATION.md §3.4). "
+            f"only (NOT torch's .to('cpu'), see PLAN_ONNX_INTEGRATION.md §3.4). "
             f"Got: {second_call_kwargs['providers']}"
         )
 
@@ -202,7 +202,7 @@ class TestParakeetOnnxCpuFallback:
 
     def test_cpu_fallback_emits_notification_event(self):
         """A successful fallback also publishes a ``notification`` event
-        (user-facing toast: 'GPU transcription failed — switched to CPU')."""
+        (user-facing toast: 'GPU transcription failed, switched to CPU')."""
         cuda_oom = RuntimeError("CUDA out of memory")
         engine, _, _ = _make_engine_with_cuda_loaded()
         engine._model.recognize.side_effect = cuda_oom
@@ -221,13 +221,13 @@ class TestParakeetOnnxCpuFallback:
         assert "GPU transcription failed" in notif_events[0]["data"]["message"]
 
     def test_cpu_fallback_notification_is_one_time(self):
-        """The notification fires ONCE per loaded session — a second
+        """The notification fires ONCE per loaded session, a second
         fallback in the same session does NOT re-notify."""
         cuda_oom = RuntimeError("CUDA cublas error")
         engine, mock_onnx_asr, _ = _make_engine_with_cuda_loaded()
         # The first transcribe triggers the fallback. The CPU model
         # returns "hello world" by default. The SECOND transcribe runs
-        # on CPU (device was mutated to "cpu" by the fallback) — no
+        # on CPU (device was mutated to "cpu" by the fallback), no
         # fallback fires, no notification.
         engine._model.recognize.side_effect = cuda_oom
 
@@ -243,12 +243,12 @@ class TestParakeetOnnxCpuFallback:
 
         notif_events = [e for e in published_events if e.get("type") == "notification"]
         assert len(notif_events) == 1, (
-            f"notification must be ONE-TIME per session — got {len(notif_events)} notifications for 2 calls."
+            f"notification must be ONE-TIME per session, got {len(notif_events)} notifications for 2 calls."
         )
 
     def test_non_cuda_error_does_not_trigger_cpu_fallback(self):
         """A non-CUDA error (e.g. ValueError) does NOT trigger the
-        CPU fallback — it surfaces as ``TranscriptionBackendError``."""
+        CPU fallback, it surfaces as ``TranscriptionBackendError``."""
         engine, _, _ = _make_engine_with_cuda_loaded()
         engine._model.recognize.side_effect = ValueError("invalid audio shape")
 
@@ -279,7 +279,7 @@ class TestParakeetOnnxCpuFallback:
     def test_cpu_fallback_mutates_device_to_cpu(self):
         """After a successful CPU fallback, ``self.device`` is ``"cpu"``
         so the next ``transcribe_with_fallback`` call uses the CPU path
-        directly (no re-attempt at CUDA — the ORT session was recreated
+        directly (no re-attempt at CUDA, the ORT session was recreated
         on CPU and stays there until the next ``load()``)."""
         cuda_oom = RuntimeError("CUDA out of memory")
         engine, _, _ = _make_engine_with_cuda_loaded()

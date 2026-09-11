@@ -1,5 +1,5 @@
 //! `server_started` stdout-handshake parsing + the shutting-down loop
-//! short-circuit — extracted from the former single-file
+//! short-circuit: extracted from the former single-file
 //! `sidecar/spawn.rs`.
 
 use serde_json::Value;
@@ -8,7 +8,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 /// Pure form of the shutting-down check used by both spawn loops.
 /// Returns `true` when `shutting_down` is `Some(flag)` AND the flag is
 /// set (`load(SeqCst) == true`). Returns `false` when `shutting_down`
-/// is `None` (cold-start path — no flag to check) or when the flag is
+/// is `None` (cold-start path: no flag to check) or when the flag is
 /// not yet set.
 ///
 /// Extracted as a pure helper so it can be unit-tested without
@@ -39,14 +39,14 @@ pub(crate) fn parse_server_started(line: &str) -> Option<u16> {
     }
 }
 
-/// Worker-handshake stdout parser (Phase 2b — runtime-pack split §7.3).
+/// Worker-handshake stdout parser (Phase 2b, runtime-pack split §7.3).
 /// Mirrors [`parse_server_started`] but for the ML worker's DISTINCT
 /// event name: `{"event":"worker_started","port":N,"protocol":1}`
 /// (see `voice_typer/worker/_ws_server.py` `_WORKER_STARTED_EVENT`).
 ///
 /// The worker deliberately does NOT emit `server_started` (that name
 /// is reserved for the slim-core sidecar, which the host already
-/// listens for) — a distinct event name lets the host's stdout parser
+/// listens for): a distinct event name lets the host's stdout parser
 /// route the worker's bind info to the worker-spawn code path instead
 /// of mistaking it for a second sidecar.
 ///
@@ -66,7 +66,7 @@ pub(crate) fn parse_worker_started(line: &str) -> Option<u16> {
 /// Shared by [`parse_server_started`] and [`parse_worker_started`].
 ///
 /// The port is parsed via `u16::try_from(p).ok()` instead of `p as
-/// u16` — the previous `as u16` cast silently truncated any port value
+/// u16`: the previous `as u16` cast silently truncated any port value
 /// above 65535 (e.g. a corrupted `port: 70000` JSON would wrap to
 /// `70000_u32 as u16 = 4464`). `try_from` returns `Err` for out-of-range
 /// values, which `.ok()` maps to `None`.

@@ -194,7 +194,7 @@ describe("Home page", () => {
 
 	// ── BG-10 (partial): Share Stats button uses canShareStats helper ──
 
-	// Minimal config mock — Home.tsx only reads `hotkey` and `asr_backend`
+	// Minimal config mock, Home.tsx only reads `hotkey` and `asr_backend`
 	// from the cfg object, so we provide just those fields. The mock is
 	// cast to `any` at the call site (call<VoiceTyperConfig>) so the
 	// partial shape is fine for the test.
@@ -267,7 +267,7 @@ describe("Home page", () => {
 		// Stats cache: today's count is 5 (user has dictated today).
 		const stats = { count: 5, chars: 250, word_count: 50, duration: 120 };
 		localStorage.setItem("vt_home_stats_cache", JSON.stringify(stats));
-		// Recent cache is empty — but todayCount > 0 is sufficient for
+		// Recent cache is empty, but todayCount > 0 is sufficient for
 		// canShareStats to return true.
 		mockCall.mockImplementation((type: string) => {
 			if (type === "get_config") return Promise.resolve(MOCK_CFG);

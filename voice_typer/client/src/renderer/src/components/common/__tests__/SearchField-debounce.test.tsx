@@ -14,7 +14,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { SearchField } from "@/components/common/SearchField";
 
-describe("SearchField — optional onChange debounce", () => {
+describe("SearchField, optional onChange debounce", () => {
 	beforeEach(() => {
 		vi.useFakeTimers();
 	});
@@ -48,7 +48,7 @@ describe("SearchField — optional onChange debounce", () => {
 		expect(onChange).toHaveBeenLastCalledWith("que");
 	});
 
-	it("the input stays fully controlled — displayed value tracks the value prop immediately", () => {
+	it("the input stays fully controlled, displayed value tracks the value prop immediately", () => {
 		const onChange = vi.fn();
 		const { rerender } = render(
 			<SearchField value="" onChange={onChange} debounceMs={150} />,

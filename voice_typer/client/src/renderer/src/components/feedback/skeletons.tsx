@@ -115,7 +115,7 @@ export function SwitchSkeleton({ className }: { className?: string }) {
  * Dimensions come from the real heading: the h1 is `text-2xl` (32px
  * line box → h-8) and the description is `text-sm` (20px → h-5). With
  * `action` set, renders the with-children variant: heading column left,
- * action placeholder(s) right — same wrap layout PageHeading uses.
+ * action placeholder(s) right: same wrap layout PageHeading uses.
  */
 export function HeadingSkeleton({
 	titleWidth = "w-56",
@@ -147,7 +147,7 @@ export function HeadingSkeleton({
 
 /**
  * Neutral fallback for PageSwitch's Suspense boundary (lazy route
- * chunk streaming). Deliberately generic — it shows for at most one
+ * chunk streaming). Deliberately generic, it shows for at most one
  * frame in practice because route chunks are prefetched at idle
  * (see router/prefetch.ts) and React.lazy caches resolved modules —
  * so it renders only the shell + heading, never a fake page body.

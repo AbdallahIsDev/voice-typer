@@ -9,7 +9,7 @@
  * that escape React's `ErrorBoundary` (e.g. unhandled promise
  * rejections in `useEffect`, top-level `await` failures in dynamically
  * imported modules). Without the install call, these errors are
- * SILENTLY swallowed — the exact regression the module was written to
+ * SILENTLY swallowed, the exact regression the module was written to
  * prevent. `ErrorBoundary` only catches render-phase errors; it
  * cannot catch async ones.
  *
@@ -21,7 +21,7 @@
  * access, etc.) which we don't want in a unit test.
  *
  * The test runs in a `node` environment (no jsdom) because it only
- * does `fs.readFileSync` + string assertions — no DOM access needed.
+ * does `fs.readFileSync` + string assertions, no DOM access needed.
  */
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";

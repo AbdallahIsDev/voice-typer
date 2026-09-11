@@ -2,25 +2,25 @@
 
 These tests exercise the public API of
 :class:`voice_typer.server.recording.session_state.SessionState`
-in isolation — the owning :class:`Recorder` is replaced with a
+in isolation, the owning :class:`Recorder` is replaced with a
 ``FakeRecorder`` namespace object that carries just the attributes the
 extracted bodies touch. No real audio is captured, no sounddevice probe
 runs, no PortAudio / no subprocess is touched.
 
 Scope
 -----
-- ``reset_session_state`` — verifies the per-session state reset
+- ``reset_session_state``, verifies the per-session state reset
   touches every documented attribute (ARCH-023 invariant).
-- ``cache_session_config`` — verifies the cached-scalar assignment +
+- ``cache_session_config``, verifies the cached-scalar assignment +
   the ``max_rec`` return value (the fix).
-- ``secure_clear_caches`` — verifies the secure-zeroing of the two cached audio arrays + the audio-processor
+- ``secure_clear_caches``, verifies the secure-zeroing of the two cached audio arrays + the audio-processor
   ``reset()`` + the ``_buffer_sr`` reset. Also verifies the
   ``_recording_pkg._secure_clear_array`` patch-path indirection
   (regression).
-- ``resize_buffers_for_sample_rate`` — verifies dynamic buffer sizing
+- ``resize_buffers_for_sample_rate``, verifies dynamic buffer sizing
   for the effective sample rate + ring buffer resizing + preroll
   deque resizing (defensive preservation of existing contents).
-- ``prepend_preroll_to_buffer`` — verifies the preroll is filtered
+- ``prepend_preroll_to_buffer``, verifies the preroll is filtered
   through the audio processor (R18-F12), prepended to ``_buffer``, and
   the preroll deque is zeroed + cleared (privacy gap).
 """
@@ -158,7 +158,7 @@ def _make_recorder(
     rec._vad.calibrated = True
     rec._user_stop_pending = True  # sentinel: reset to False
     rec._preroll_buffer = collections.deque(maxlen=64)
-    # AUDIO-HOT flap-detection deque — reset_session_state clears it
+    # AUDIO-HOT flap-detection deque, reset_session_state clears it
     # (start() is the "begin a new session" boundary).
     rec._restart_timestamps = collections.deque([1.0, 2.0])
     rec._dropped_ring_chunks = 999
@@ -173,7 +173,7 @@ def _make_recorder(
 
     # The preroll-prepend loop invokes the real
     # ``voice_typer.server.recording.format.ensure_mono`` (a free
-    # function taking the recorder) — no per-recorder stub needed; it
+    # function taking the recorder), no per-recorder stub needed; it
     # downmixes multi-channel chunks without touching recorder state.
     return rec
 
@@ -316,7 +316,7 @@ def test_reset_session_state_zeros_and_clears_preroll_buffer():
 
     assert len(rec._preroll_buffer) == 0
     # The original numpy buffers (which we kept a separate reference to)
-    # must be zeroed in-place — not just dropped from the deque.
+    # must be zeroed in-place, not just dropped from the deque.
     assert np.all(chunk_a == 0), "preroll chunk must be zeroed in-place (the fix)"
     assert np.all(chunk_b == 0), "preroll chunk must be zeroed in-place (the fix)"
 
@@ -425,11 +425,11 @@ def test_cache_session_config_propagates_type_error_from_int():
     The body has two ``int()`` calls:
 
     1. ``self._cached_max_recording_time = int(self.config.max_recording_time_seconds)``
-       — UNPROTECTED. A non-int-coercible config value (e.g. a bare
+     , UNPROTECTED. A non-int-coercible config value (e.g. a bare
        ``object()``) raises ``TypeError`` here, propagating to the
        caller. This matches the original ``Recorder._cache_session_config``
        behavior.
-    2. ``max_rec = int(self._cached_max_recording_time)`` — wrapped in
+    2. ``max_rec = int(self._cached_max_recording_time)``, wrapped in
        ``try/except (TypeError, ValueError)``. This is DEFENSIVE dead
        code in normal flow (once ``_cached_max_recording_time`` is set
        to an ``int`` by the first line, the second ``int()`` never
@@ -649,7 +649,7 @@ def test_secure_clear_caches_swallows_oserror_and_value_error(monkeypatch):
         _raise_os_error,
     )
 
-    # Must not raise — the OSError is swallowed + logged.
+    # Must not raise, the OSError is swallowed + logged.
     SessionState(_make_recorder()).secure_clear_caches(rec)
 
 
@@ -675,7 +675,7 @@ def test_resize_buffers_grows_main_buffer_for_high_sample_rate():
     )
 
     new_maxlen = rec._audio_pipeline._buffer.maxlen
-    # ~900s / 0.032s ≈ 28125 chunks + 1000 safety ≈ 29125 — well above the
+    # ~900s / 0.032s ≈ 28125 chunks + 1000 safety ≈ 29125, well above the
     # placeholder initial maxlen of 1000.
     assert new_maxlen > initial_maxlen
     blocksize = scaled_audio_blocksize(48000)
@@ -697,12 +697,12 @@ def test_resize_buffers_preserves_existing_buffer_contents():
         max_rec=900,
     )
 
-    # The deque is replaced — but contents preserved.
+    # The deque is replaced, but contents preserved.
     assert list(rec._audio_pipeline._buffer) == [chunk_a, chunk_b]
 
 
 def test_resize_buffers_skips_main_buffer_resize_when_max_rec_zero():
-    """``max_rec=0`` means "no max duration limit" — buffer resize is skipped."""
+    """``max_rec=0`` means "no max duration limit", buffer resize is skipped."""
     rec = _make_recorder()
     initial_maxlen = rec._audio_pipeline._buffer.maxlen
 
@@ -751,7 +751,7 @@ def test_resize_buffers_resizes_ring_buffer_proportional_to_sample_rate():
 
     # Rate-scaled ~32 ms blocks: int(48000 / 1536 * 2.0) = 62 chunks,
     # which the 64-chunk floor bumps to 64 chunks ≈ 2.048 s at 48 kHz.
-    # The ~2 s DURATION contract is what matters — the chunk count is
+    # The ~2 s DURATION contract is what matters, the chunk count is
     # rate-invariant by design of the scaled blocksize (a fixed-512
     # capacity computation would over-allocate the chunk count ~3×
     # while the callback delivers 3×-sized chunks).
@@ -825,7 +825,7 @@ def test_resize_buffers_preroll_resized_for_effective_sample_rate():
     assert expected == 33
     assert rec._preroll_buffer.maxlen == expected
     # DURATION contract: ≈ the configured 1.0 s (the +2-chunk slack is
-    # the only headroom) — NOT the ~3.04 s a fixed-512 chunk count
+    # the only headroom), NOT the ~3.04 s a fixed-512 chunk count
     # (95 chunks) would capture with scaled chunks.
     duration_s = rec._preroll_buffer.maxlen * blocksize / 48000
     assert 0.95 <= duration_s <= 1.15, f"pre-roll duration {duration_s:.3f}s must ≈ 1.0s"
@@ -899,7 +899,7 @@ def test_prepend_preroll_to_buffer_prepends_chunks_in_chronological_order():
     """Preroll chunks are prepended so the OLDEST preroll lands at the FRONT of ``_buffer``.
 
     The original ``_preroll_buffer`` is a deque where the audio callback
-    called ``append(mono_preroll)`` for each captured chunk — so the
+    called ``append(mono_preroll)`` for each captured chunk, so the
     FIRST element is the OLDEST preroll chunk and the LAST element is
     the MOST-RECENT preroll chunk. The prepend must produce a ``_buffer``
     where the oldest preroll chunk is at position 0 (i.e. the very
@@ -908,7 +908,7 @@ def test_prepend_preroll_to_buffer_prepends_chunks_in_chronological_order():
         [oldest_preroll, ..., newest_preroll, recording_chunk_1, ...]
 
     The body achieves this by iterating ``reversed(preroll_chunks)``
-    and calling ``_buffer.appendleft(chunk.copy())`` for each — the
+    and calling ``_buffer.appendleft(chunk.copy())`` for each, the
     most-recent chunk is appended first (lands at index 0), then the
     next-most-recent pushes it to index 1, etc., until the oldest chunk
     is appended LAST and lands at index 0 (i.e. the very front).
@@ -920,7 +920,7 @@ def test_prepend_preroll_to_buffer_prepends_chunks_in_chronological_order():
     rec._preroll_buffer.append(old)
     rec._preroll_buffer.append(mid)
     rec._preroll_buffer.append(new)
-    # Keep copies to assert against — the in-place zeroing of the
+    # Keep copies to assert against, the in-place zeroing of the
     # preroll deque (the fix) overwrites the original arrays.
     expected_old = old.copy()
     expected_mid = mid.copy()
@@ -958,7 +958,7 @@ def test_prepend_preroll_to_buffer_calls_audio_processor_process_chunk():
 
 
 def test_prepend_preroll_to_buffer_falls_back_to_raw_chunk_on_processor_exception():
-    """If the filter chain raises, the raw (mono) chunk is prepended — start() must not block."""
+    """If the filter chain raises, the raw (mono) chunk is prepended, start() must not block."""
     rec = _make_recorder(config=_make_config(sample_rate=16000), effective_sr=16000)
     # Make process_chunk raise on the first call.
     rec._audio_processor = _make_audio_processor()
@@ -967,7 +967,7 @@ def test_prepend_preroll_to_buffer_falls_back_to_raw_chunk_on_processor_exceptio
     rec._preroll_buffer.append(chunk)
     expected = chunk.copy()  # zeros the original in-place
 
-    # Must NOT raise — the exception is caught + logged.
+    # Must NOT raise, the exception is caught + logged.
     SessionState(_make_recorder()).prepend_preroll_to_buffer(rec)
 
     chunks = list(rec._audio_pipeline._buffer)
@@ -976,7 +976,7 @@ def test_prepend_preroll_to_buffer_falls_back_to_raw_chunk_on_processor_exceptio
 
 
 def test_prepend_preroll_to_buffer_skips_filter_when_processor_none():
-    """A ``None`` audio processor bypasses the filter chain — raw mono chunk is prepended."""
+    """A ``None`` audio processor bypasses the filter chain, raw mono chunk is prepended."""
     rec = _make_recorder(config=_make_config(sample_rate=16000), effective_sr=16000)
     rec._audio_processor = None
     chunk = np.array([0.1, 0.2, 0.3], dtype=np.float32)
@@ -996,7 +996,7 @@ def test_prepend_preroll_to_buffer_zeros_and_clears_preroll_deque():
 
     Without this, the preroll chunks (which are now duplicated into
     ``_buffer``) remain referenced by ``_preroll_buffer`` until the
-    next ``start()`` — keeping the user's voice data alive in process
+    next ``start()``, keeping the user's voice data alive in process
     memory for the entire recording session.
     """
     rec = _make_recorder(config=_make_config(sample_rate=16000), effective_sr=16000)
@@ -1078,8 +1078,8 @@ def test_resize_buffers_uses_package_audio_ring_buffer_capacity():
 
     The package re-exports ``_AUDIO_RING_BUFFER_CAPACITY`` from
     ``.recorder`` (int). The resize itself now guards against the LIVE
-    ring ``maxlen`` (not this constant) — see the live-maxlen guard
-    tests below — but the constant remains the documented default
+    ring ``maxlen`` (not this constant): see the live-maxlen guard
+    tests below, but the constant remains the documented default
     capacity that ``recorder_init`` builds the deque with.
     """
     from voice_typer.server import recording as rec_pkg
@@ -1097,14 +1097,14 @@ def test_resize_buffers_ring_guard_uses_live_maxlen_not_constant():
     """A ring left oversized by a prior session must resize DOWN to the computed capacity.
 
     The guard must compare the computed capacity against the LIVE
-    ``recorder._ring_buffer.maxlen`` — not the module constant
+    ``recorder._ring_buffer.maxlen``, not the module constant
     ``_AUDIO_RING_BUFFER_CAPACITY``. Pre-fix, a ring left at a
     non-default capacity (e.g. 187 slots from an oversized prior
     session or an env-var override) survived every later 16 kHz
     resize: the computed capacity (64) happened to EQUAL the module
     constant, so the constant-based guard skipped the resize and the
     ring kept its history-dependent capacity (187 chunks ≈ 5.98 s at
-    16 kHz — the exact stuck-oversized defect).
+    16 kHz, the exact stuck-oversized defect).
     """
     rec = _make_recorder(config=_make_config(sample_rate=16000))
     # Simulate an oversized ring from a prior session (any producer
@@ -1119,11 +1119,11 @@ def test_resize_buffers_ring_guard_uses_live_maxlen_not_constant():
         max_rec=900,
     )
 
-    # 16000 / 512 * 2.0 = 62.5 → 62, floored to 64 — the LIVE guard
+    # 16000 / 512 * 2.0 = 62.5 → 62, floored to 64, the LIVE guard
     # must see 64 != 187 and resize DOWN.
     assert rec._ring_buffer.maxlen == 64, (
         "ring-resize guard must compare against the live maxlen, not the "
-        "module constant — an oversized ring from a prior session must be "
+        "module constant, an oversized ring from a prior session must be "
         "resized down to the computed capacity for the current rate"
     )
 
@@ -1131,7 +1131,7 @@ def test_resize_buffers_ring_guard_uses_live_maxlen_not_constant():
 def test_resize_buffers_ring_guard_resizes_unbounded_ring():
     """An unbounded ring (``maxlen is None``) must be given a bounded capacity.
 
-    ``maxlen=None`` means "no capacity limit" — the resize must always
+    ``maxlen=None`` means "no capacity limit", the resize must always
     size such a ring (an unbounded SPSC ring defeats the
     callback→worker backpressure design). Pre-fix the constant-based
     guard skipped the resize whenever the computed capacity equaled the
@@ -1156,7 +1156,7 @@ def test_resize_buffers_ring_resize_preserves_oversized_ring_contents(
     """Resizing an oversized ring down preserves in-flight chunks + reports the real "was" value.
 
     The debug log's ``(was %d)`` field must report the LIVE previous
-    capacity (187), not the module constant (64) — the log is the
+    capacity (187), not the module constant (64), the log is the
     operator's evidence of what the resize actually replaced.
     """
     import logging

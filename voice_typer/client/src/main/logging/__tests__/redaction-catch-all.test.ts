@@ -6,13 +6,13 @@
  * ----------
  * The catch-all pattern `[A-Za-z0-9_-]{20,}` redacts ANY 20+ char
  * bare alphanumeric token, including hex-shaped tokens:
- *   - 32 hex chars — UUID v4 without dashes, random 128-bit secrets
+ *   - 32 hex chars, UUID v4 without dashes, random 128-bit secrets
  *     (API keys / session tokens can be emitted as bare 32-hex
  *     strings, so they MUST be redacted).
- *   - 40 hex chars — SHA-1 hashes / Git SHAs / container digests.
- *   - 64 hex chars — SHA-256 hashes / container image digests.
+ *   - 40 hex chars, SHA-1 hashes / Git SHAs / container digests.
+ *   - 64 hex chars, SHA-256 hashes / container image digests.
  *
- * A 32-hex string is 128 bits of randomness — the exact shape of a
+ * A 32-hex string is 128 bits of randomness, the exact shape of a
  * random secret. Redacting all bare 20+ char tokens (with no
  * recognized prefix) is the safe default: an operator can still
  * distinguish commit SHAs by context, but a leaked 32-hex token in a
@@ -27,7 +27,7 @@
  *   3. A 64-char hex token (SHA-256) IS redacted.
  *   4. A 50-char hex token IS redacted (no length-range exemption).
  *   5. A 19-char bare token is NOT matched (below the 20-char
- *      threshold — unchanged behavior).
+ *      threshold, unchanged behavior).
  *   6. GitHub / GitLab / Slack PATs ARE redacted (regression guard).
  *   7. Tokens inside `key=value` / `--flag value` ARE redacted by
  *      the earlier SEC-9 patterns.
@@ -42,7 +42,7 @@ import { describe, expect, it } from "vitest";
 import { redactPii } from "../rotation";
 
 describe("redactPii catch-all: hex-shaped bare tokens are redacted", () => {
-	// A canonical UUID v4 without dashes (32 hex chars) — 128 bits
+	// A canonical UUID v4 without dashes (32 hex chars), 128 bits
 	// of randomness, i.e. a possible random secret.
 	const UUID_NO_DASHES = "e3e70682c2094cac1dac62bf75cbb5bd";
 
@@ -69,7 +69,7 @@ describe("redactPii catch-all: hex-shaped bare tokens are redacted", () => {
 	});
 
 	it("a 50-char hex token (intermediate length) IS redacted", () => {
-		// No length-range exemption exists — any 20+ char bare
+		// No length-range exemption exists, any 20+ char bare
 		// token, hex or not, is redacted.
 		const hash50 = `${"0123456789abcdef".repeat(3)}01`;
 		expect(hash50.length).toBe(50);
@@ -121,5 +121,42 @@ describe("redactPii catch-all: hex-shaped bare tokens are redacted", () => {
 	it("does NOT redact 20+ char path components (backslash lookaround)", () => {
 		const input = `C:\\Users\\${UUID_NO_DASHES}\\logs`;
 		expect(redactPii(input)).toBe(input);
+	});
+});
+
+describe("redactPii: known PythonCallErrorCode values survive the catch-all", () => {
+	it("preserves backend_not_connected inside a python-call rejected line", () => {
+		const input = `python-call rejected {"cmd":"get_config","code":"backend_not_connected"}`;
+		const out = redactPii(input);
+		expect(out).toContain("backend_not_connected");
+		expect(out).not.toContain("***");
+	});
+
+	it("preserves backend_exited_early (exactly 20 chars)", () => {
+		const input = `python-call rejected {"cmd":"get_config","code":"backend_exited_early"}`;
+		const out = redactPii(input);
+		expect(out).toContain("backend_exited_early");
+		expect(out).not.toContain("***");
+	});
+
+	it("preserves command_failed and command_timeout", () => {
+		expect(redactPii(`failed {"code":"command_failed"}`)).toContain(
+			"command_failed",
+		);
+		expect(redactPii(`failed {"code":"command_timeout"}`)).toContain(
+			"command_timeout",
+		);
+	});
+
+	it("still redacts a real secret next to a preserved code", () => {
+		const pat = `ghp_${"a".repeat(36)}`;
+		const out = redactPii(`code backend_not_connected token ${pat} end`);
+		expect(out).toContain("backend_not_connected");
+		expect(out).not.toContain(pat);
+		expect(out).toContain("***");
+	});
+
+	it("still redacts a code with an extra char (exact-match, not pattern)", () => {
+		expect(redactPii("code backend_not_connectedX end")).toContain("***");
 	});
 });

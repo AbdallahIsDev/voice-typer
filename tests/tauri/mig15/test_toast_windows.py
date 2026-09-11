@@ -1,4 +1,4 @@
-"""MIG-1.5 Phase 0-W Gate Check 6 — toast notification wiring validation.
+"""MIG-1.5 Phase 0-W Gate Check 6: toast notification wiring validation.
 
 Source-inspection + behavior tests that validate the wiring required for
 ``tauri-plugin-notification`` to post Windows toast notifications on a
@@ -13,7 +13,7 @@ What this file pins (the toast wiring contract):
    so the webview can call ``invoke('plugin:notification|notify', ...)``.
 2. ``src-tauri/tauri.conf.json`` declares ``"notification": {}`` in the
    ``plugins`` section (Tauri v2 requires both the plugin registration
-   in Rust AND the config entry — the config block enables the JS
+   in Rust AND the config entry, the config block enables the JS
    bindings to be generated).
 3. ``src-tauri/capabilities/main-runtime.json`` grants at least one
    ``notification:*`` permission (the least-privilege gate; Tauri v2
@@ -54,7 +54,7 @@ renamed the event at the source):
     _handle_show_electron_notification``.
   - The published payload shape is
     ``{"type": "notification", "data": {"title": "...", "message": "...",
-    "duration_ms": int, "critical": bool}}`` — i.e. the event name is
+    "duration_ms": int, "critical": bool}}``, i.e. the event name is
     ``notification`` (NOT ``electron_notification``) and the body field
     is ``message`` (NOT ``body``). The legacy ``electron_notification``
     name is only emitted by an OLD Python sidecar; the Rust-side alias
@@ -106,7 +106,7 @@ SYSTEM_HANDLERS_PY = _REPO_ROOT / "voice_typer" / "server" / "handlers" / "syste
 
 
 def _read(path: Path) -> str:
-    """Read a file as UTF-8 text. Fail loud if missing — every path this
+    """Read a file as UTF-8 text. Fail loud if missing, every path this
     module reads is a hard dependency of the toast wiring, so a missing
     file is a real regression (not a soft skip)."""
     assert path.is_file(), f"required toast-wiring artifact missing: {path}"
@@ -142,14 +142,14 @@ class TestMainRsRegistersNotificationPlugin:
         call inside the ``tauri::Builder::default()`` chain.
 
         Without this, ``invoke('plugin:notification|notify', ...)`` from
-        the webview returns "plugin not registered" — no toast ever
+        the webview returns "plugin not registered", no toast ever
         appears, regardless of capability grants or tauri.conf.json
         config.
         """
         src = _read(MAIN_RS)
         assert "tauri_plugin_notification::init()" in src, (
             "main.rs must register tauri_plugin_notification::init() in the "
-            "Builder chain — without it, the webview's notification invoke() "
+            "Builder chain, without it, the webview's notification invoke() "
             "calls fail with 'plugin not registered'."
         )
 
@@ -173,21 +173,21 @@ class TestTauriConfDeclaresNotificationPlugin:
 
     def test_tauri_conf_json_has_notification_in_plugins(self):
         """``tauri.conf.json`` MUST declare a ``notification`` entry under
-        the top-level ``plugins`` key (value ``null`` — see the sibling
+        the top-level ``plugins`` key (value ``null``: see the sibling
         unit-compatibility test).
 
         Tauri v2 requires BOTH the Rust plugin registration AND the
-        config entry — the config block is what triggers generation of
+        config entry, the config block is what triggers generation of
         the JS bindings the webview imports. Missing config ⇒
         ``@tauri-apps/plugin-notification`` import fails at runtime.
         """
         src = _read(TAURI_CONF_JSON)
         conf = json.loads(src)
         assert "plugins" in conf, (
-            "tauri.conf.json must have a top-level 'plugins' object — Tauri v2 generates JS bindings from this section."
+            "tauri.conf.json must have a top-level 'plugins' object, Tauri v2 generates JS bindings from this section."
         )
         assert "notification" in conf["plugins"], (
-            "tauri.conf.json plugins section must declare 'notification' — "
+            "tauri.conf.json plugins section must declare 'notification', "
             "without it, the @tauri-apps/plugin-notification JS bindings "
             "are not generated and the webview's notify() call fails."
         )
@@ -196,7 +196,7 @@ class TestTauriConfDeclaresNotificationPlugin:
         """The ``notification`` plugin config MUST be serde-unit compatible
         (``null``). tauri-plugin-notification v2 registers NO config type
         (its init is a plain ``Builder::new("notification")``), so the
-        runtime deserializes this entry into ``()`` — an empty map
+        runtime deserializes this entry into ``()``, an empty map
         (``{}``) fails app startup with "invalid type: map, expected
         unit" (found on the first Windows host run; see tauri issue
         #8769 for the same error class)."""
@@ -205,7 +205,7 @@ class TestTauriConfDeclaresNotificationPlugin:
         notif_cfg = conf["plugins"]["notification"]
         assert notif_cfg is None, (
             f"tauri.conf.json plugins.notification must be null (serde unit), got "
-            f"{type(notif_cfg).__name__}: {notif_cfg!r} — a non-null value fails "
+            f"{type(notif_cfg).__name__}: {notif_cfg!r}, a non-null value fails "
             "app startup with 'invalid type: map, expected unit'"
         )
 
@@ -216,7 +216,7 @@ class TestTauriConfDeclaresNotificationPlugin:
 class TestCapabilitiesGrantNotificationPermission:
     """Gate 3: the main-runtime capability must grant a notification permission.
 
-    Tauri v2 ships zero permissions by default — even with the plugin
+    Tauri v2 ships zero permissions by default, even with the plugin
     registered + the config entry, the webview's notify() call returns
     ``PermissionDenied`` unless an explicit ``notification:*`` permission
     is granted in a capability file the window matches.
@@ -226,7 +226,7 @@ class TestCapabilitiesGrantNotificationPermission:
         """The ``main-runtime`` capability MUST grant at least one
         ``notification:*`` permission. The runbook §6.5 pass criteria
         says "No ``notification:allow-notify`` capability error in
-        ``voice-typer.log``" — i.e. ``notification:allow-notify`` is the
+        ``voice-typer.log``", i.e. ``notification:allow-notify`` is the
         canonical grant. We accept ``notification:default`` as an
         equivalent (it's a Tauri v2 permission set that bundles
         ``allow-notify`` + the permission-check helpers).
@@ -239,7 +239,7 @@ class TestCapabilitiesGrantNotificationPermission:
         notif_perms = [p for p in perms if isinstance(p, str) and p.startswith("notification:")]
         assert notif_perms, (
             f"main-runtime.json must grant at least one 'notification:*' "
-            f"permission — found none in {perms!r}. Without this, the "
+            f"permission, found none in {perms!r}. Without this, the "
             f"webview's notify() call returns PermissionDenied."
         )
 
@@ -262,25 +262,25 @@ class TestCapabilitiesGrantNotificationPermission:
 
 class TestWsRsRenamesElectronNotificationToNotification:
     """Gate 4: the WS reader emits the canonical ``notification`` event
-    to the webview.
+      to the webview.
 
-    CR-8 reconciliation: the ``electron_notification`` →
-    ``notification`` rename was moved INTO the Python sidecar (it now
-    publishes ``notification`` directly), so the Rust-side alias branch
-    was REMOVED from ``ws.rs`` — see the removal comment in the reader
-    task. The canonical event reaches the webview through the generic
-    specific-event emit (``translate_event_name`` passes unknown events
-    — including ``notification`` — through unchanged).
+      CR-8 reconciliation: the ``electron_notification`` →
+      ``notification`` rename was moved INTO the Python sidecar (it now
+      publishes ``notification`` directly), so the Rust-side alias branch
+      was REMOVED from ``ws.rs``: see the removal comment in the reader
+      task. The canonical event reaches the webview through the generic
+      specific-event emit (``translate_event_name`` passes unknown events
+    , including ``notification``, through unchanged).
 
-    Source-inspection test: we read ``ws.rs`` as a string and assert the
-    current wiring. We don't compile/run the Rust code (the Linux
-    sandbox can't build the Tauri app — that's the whole point of the
-    Phase 0-W gate).
+      Source-inspection test: we read ``ws.rs`` as a string and assert the
+      current wiring. We don't compile/run the Rust code (the Linux
+      sandbox can't build the Tauri app, that's the whole point of the
+      Phase 0-W gate).
     """
 
     def test_ws_rs_uses_translate_event_name_for_specific_events(self):
         """``ws.rs`` MUST derive the emitted event name via
-        ``translate_event_name(event_type)`` — the generic rename
+        ``translate_event_name(event_type)``, the generic rename
         helper whose ``other => other`` arm passes ``notification``
         through unchanged (the Python sidecar publishes the canonical
         name directly per CR-8).
@@ -311,7 +311,7 @@ class TestWsRsRenamesElectronNotificationToNotification:
         #   let _ = app_for_reader.emit(emit_name, payload.clone());
         assert "emit(emit_name, payload.clone())" in src, (
             "ws.rs must emit the specific event WITH the payload "
-            "(emit(emit_name, payload.clone())) — otherwise the toast "
+            "(emit(emit_name, payload.clone())), otherwise the toast "
             "renders blank."
         )
 
@@ -326,7 +326,7 @@ class TestWsRsEmitsLegacyElectronNotificationForBackwardCompat:
 
     def test_ws_rs_passes_through_event_types_via_translate_arm(self):
         """``translate_event_name``'s ``other => other`` arm passes ANY
-        unrecognized event type through unchanged — including the
+        unrecognized event type through unchanged, including the
         canonical ``notification`` name the Python sidecar publishes
         directly (per CR-8). The specific-event emit then carries that
         name to the webview.
@@ -343,7 +343,7 @@ class TestWsRsEmitsLegacyElectronNotificationForBackwardCompat:
         assert "let emit_name = translate_event_name(event_type);" in src, (
             "ws.rs must derive the emit name via `translate_event_name(event_type)` "
             "(the `other => other` arm passes canonical names like 'notification' "
-            "through unchanged — the Python sidecar publishes the canonical name "
+            "through unchanged, the Python sidecar publishes the canonical name "
             "directly per CR-8)."
         )
 
@@ -351,13 +351,13 @@ class TestWsRsEmitsLegacyElectronNotificationForBackwardCompat:
         """``ws.rs`` MUST emit the specific event (using ``emit_name``)
         so direct listeners like ``appWindow.on('electron_notification')``
         keep firing. The generic ``python-event`` envelope is NOT
-        sufficient — direct listeners don't subscribe to that."""
+        sufficient, direct listeners don't subscribe to that."""
         src = _read_ws_bridge_rs()
         # The emit form (from ws.rs:130):
         #   let _ = app_for_reader.emit(emit_name, payload.clone());
         assert "emit(emit_name" in src, (
             "ws.rs must emit the specific event using `emit_name` (the "
-            "result of the match arm) — this is what carries the legacy "
+            "result of the match arm), this is what carries the legacy "
             "'electron_notification' name through to direct UI listeners."
         )
 
@@ -366,12 +366,12 @@ class TestWsRsEmitsLegacyElectronNotificationForBackwardCompat:
         ``python-event`` envelope (per ADR-0020 §6.3) which the
         ``usePython`` hook's onEvent catch-all listens to. This is the
         secondary path by which the renderer learns about a notification
-        event — both paths must be present for the toast wiring to be
+        event, both paths must be present for the toast wiring to be
         complete."""
         src = _read_ws_bridge_rs()
         assert 'emit("python-event"' in src, (
             "ws.rs must also emit the generic 'python-event' envelope "
-            "(ADR-0020 §6.3) — this is the catch-all path the usePython "
+            "(ADR-0020 §6.3), this is the catch-all path the usePython "
             "hook uses to learn about notification events."
         )
 
@@ -381,7 +381,7 @@ class TestWsRsEmitsLegacyElectronNotificationForBackwardCompat:
 # IMPLEMENTATION GAP (reported, not fixed):
 #   The task description said "Test that the Python tray.notify() path
 #   emits the electron_notification event via event_bus.publish". The
-#   actual implementation does NOT do that — tray.notify() calls
+#   actual implementation does NOT do that, tray.notify() calls
 #   pystray's _icon.notify(message, title) directly (which itself shows
 #   a native OS toast on Windows via pystray's Win10 ToastNotification
 #   backend). The event_bus.publish path for notifications is the
@@ -403,11 +403,11 @@ class TestTrayNotifyPath:
     def test_tray_notify_calls_pystray_icon_notify_directly(self):
         """``TrayIcon.notify()`` MUST call ``self._icon.notify(message, title)``
         (pystray's native toast path). On Windows 10+, pystray's Win10
-        backend uses the WinRT ``ToastNotification`` API — the same
+        backend uses the WinRT ``ToastNotification`` API, the same
         API surface ``tauri-plugin-notification`` uses on the Rust side.
 
         This test exists to pin the ACTUAL behavior (which diverges from
-        the task spec — see the module docstring's IMPLEMENTATION GAP
+        the task spec: see the module docstring's IMPLEMENTATION GAP
         section). It is a source-inspection test: we read ``tray.py``
         and assert the call form is present.
         """
@@ -444,13 +444,13 @@ class TestTrayNotifyPath:
         # and ends at the next "def " at the same indent level.
         notify_start = src.find("def notify(self, title: str, message: str)")
         assert notify_start != -1, "tray.py must define notify(self, title, message)"
-        # Find the next method def after notify() — search for the next
+        # Find the next method def after notify(), search for the next
         # "\n    def " at the same indent (4 spaces).
         next_def = src.find("\n    def ", notify_start + 1)
-        # notify() is the last method — take the rest of the class.
+        # notify() is the last method, take the rest of the class.
         notify_body = src[notify_start:] if next_def == -1 else src[notify_start:next_def]
         assert "event_bus.publish" not in notify_body, (
-            "tray.py::notify() must NOT call event_bus.publish — it uses "
+            "tray.py::notify() must NOT call event_bus.publish, it uses "
             "pystray's _icon.notify() directly. (The event_bus.publish "
             "path for notifications lives in system_handlers.py::"
             "_handle_show_electron_notification, NOT in tray.py.)"
@@ -472,7 +472,7 @@ class TestIpcHandlerPublishesNotificationViaEventBus:
     The handler lives in
     ``voice_typer/server/handlers/system_handlers.py::
     _handle_show_electron_notification``. It validates the input dict,
-    then publishes a ``notification`` event (per CR-8 — renamed from
+    then publishes a ``notification`` event (per CR-8, renamed from
     the legacy ``electron_notification``) with the title/message/
     duration_ms/critical fields.
 
@@ -494,7 +494,7 @@ class TestIpcHandlerPublishesNotificationViaEventBus:
         NOTE: the ``show_electron_notification`` IPC command was REMOVED
         from the dispatch registry (it is handled directly by dedicated
         Tauri/Rust commands), so this test invokes the retained handler
-        directly — the same pattern used by
+        directly, the same pattern used by
         ``tests/handlers/test_ipc_validation_coverage.py``.
         """
         server = make_bare_ipc_server()
@@ -523,7 +523,7 @@ class TestIpcHandlerPublishesNotificationViaEventBus:
 
         The Rust-side alias in ``ws.rs`` is what handles old Python
         sidecars that still emit the legacy name during a rolling
-        upgrade — the NEW Python sidecar must NOT emit it.
+        upgrade, the NEW Python sidecar must NOT emit it.
         """
         server = make_bare_ipc_server()
         captured: dict = {}
@@ -584,7 +584,7 @@ class TestNotificationPayloadShape:
         Notes on the divergence from the task spec:
           - Event name is ``notification`` (NOT ``electron_notification``)
             per CR-8.
-          - Body field is ``message`` (NOT ``body``) — this is the
+          - Body field is ``message`` (NOT ``body``), this is the
             field name the renderer's notification handler reads.
           - Two extra fields (``duration_ms``, ``critical``) control
             the toast's auto-close timeout and priority.
@@ -639,10 +639,10 @@ class TestNotificationPayloadShape:
             )
         assert "message" in captured["data"], (
             "payload data must have a 'message' field (the actual "
-            "implementation field name — NOT 'body' as the task spec said)."
+            "implementation field name. NOT 'body' as the task spec said)."
         )
         assert "body" not in captured["data"], (
-            "payload data must NOT have a 'body' field — the actual "
+            "payload data must NOT have a 'body' field, the actual "
             "implementation uses 'message'. (See module docstring "
             "IMPLEMENTATION GAP section.)"
         )

@@ -1,5 +1,5 @@
 /**
- * HOTKEY-MULTIKEY-001 + HOTKEY-FULLMSG-001 — Tests for the multi-key
+ * HOTKEY-MULTIKEY-001 + HOTKEY-FULLMSG-001, Tests for the multi-key
  * capture architecture and full-shortcut error messages in HotkeyPicker.
  *
  * These tests verify the behavioral requirements added in Tasks 1.1 and 1.3:
@@ -69,7 +69,7 @@ async function waitForError(): Promise<string> {
 	return alert.textContent ?? "";
 }
 
-describe("HotkeyPicker — HOTKEY-MULTIKEY-001 multi-key capture", () => {
+describe("HotkeyPicker, HOTKEY-MULTIKEY-001 multi-key capture", () => {
 	afterEach(() => {
 		cleanup();
 	});

@@ -3,7 +3,7 @@
 AP-30: ``_verify_model_integrity`` hash loop previously ``continue``d
 on ``compute_file_sha256`` failure (permission denied, file locked,
 I/O error) without recording ``details["failed_file"]``, so callers
-saw ``(False, {"failed_file": None, ...})`` — indistinguishable from
+saw ``(False, {"failed_file": None, ...})``, indistinguishable from
 an empty-manifest soft-pass. The fix records the unhashable file as
 ``failed_file`` (with ``actual_hash = None``), escalates the log from
 DEBUG to WARNING, and ``break``s on the FIRST unhashable file (mirroring
@@ -12,7 +12,7 @@ the ``not file_path.exists()`` branch).
 AP-43: ``_MODEL_SIZE_MB`` in ``asr_utils`` was missing the ``"parakeet"``
 key. The disk-space pre-check fell through to the 500 MB default and
 passed with only ~1 GB free, even though Parakeet TDT 0.6b v3 is
-~2.5 GB uncompressed — so the pre-check false-passed and the download
+~2.5 GB uncompressed, so the pre-check false-passed and the download
 failed partway with a less-clear ``download_retry_exhausted`` reason.
 The fix adds ``"parakeet": 2500``.
 """
@@ -31,7 +31,7 @@ def _override_integrity_cache_path(tmp_path, monkeypatch):
     """Pin the integrity cache inside tmp_path.
 
     ``hash_file_cached`` (used by the failure-details path) persists
-    digests on every fresh compute — without this override those writes
+    digests on every fresh compute, without this override those writes
     would land in the real user config dir and leak fake-repo entries
     across tests / CI runs. Mirrors the fixture in
     tests/test_integrity_cache.py.
@@ -51,7 +51,7 @@ def _override_integrity_cache_path(tmp_path, monkeypatch):
 
 class TestVerifyModelIntegrityRecordsUnhashableFile:
     """AP-30: when ``compute_file_sha256`` raises, ``details["failed_file"]``
-    must be set to the filename and ``actual_hash`` to ``None`` — not
+    must be set to the filename and ``actual_hash`` to ``None``, not
     silently skipped with ``failed_file = None``."""
 
     def test_failed_file_recorded_and_actual_hash_none(self, tmp_path):
@@ -64,7 +64,7 @@ class TestVerifyModelIntegrityRecordsUnhashableFile:
             "model.bin": "cafebabe" * 8,
         }
         # Create the files so the ``not file_path.exists()`` branch is
-        # NOT taken — we want to reach the ``compute_file_sha256`` call.
+        # NOT taken, we want to reach the ``compute_file_sha256`` call.
         (local_dir / "config.json").write_text("{}")
         (local_dir / "model.bin").write_bytes(b"\x00" * 16)
 
@@ -139,7 +139,7 @@ class TestVerifyModelIntegrityRecordsUnhashableFile:
         # expected hash so the loop proceeds past it. With ``break``,
         # ``failed_file`` is ``model.bin``. With the pre-fix ``continue``,
         # the loop would skip ``model.bin`` and proceed to
-        # ``tokenizer.json`` — and since that hash also won't match the
+        # ``tokenizer.json``, and since that hash also won't match the
         # manifest, ``failed_file`` would be ``tokenizer.json`` instead.
         call_count = {"n": 0}
 
@@ -175,8 +175,8 @@ class TestVerifyModelIntegrityRecordsUnhashableFile:
             f"AP-30: loop must break on the FIRST unhashable file (model.bin); got {details['failed_file']!r}."
         )
         # Only the first two files should have been visited:
-        #   1. config.json — hash computed (matches) → continue
-        #   2. model.bin   — raises OSError → break
+        #   1. config.json, hash computed (matches) → continue
+        #   2. model.bin , raises OSError → break
         # The third file (tokenizer.json) must NOT have been visited —
         # proving the loop broke rather than continued.
         assert call_count["n"] == 2, (
@@ -187,7 +187,7 @@ class TestVerifyModelIntegrityRecordsUnhashableFile:
 
     def test_log_escalated_to_warning(self, tmp_path, caplog):
         """AP-30: the diagnostic must be logged at WARNING (not DEBUG)
-        so it's visible in production logs — permission denied / file
+        so it's visible in production logs, permission denied / file
         locked / I/O error are all actionable by the operator."""
         repo_id = "test-org/ap30-warning-log"
         local_dir = tmp_path / "model"
@@ -239,7 +239,7 @@ class TestModelSizeMbIncludesParakeet:
 
         Pre-fix: the key was missing and ``_MODEL_SIZE_MB.get("parakeet", 500)``
         fell through to 500 MB, making the pre-check require only
-        ``500 + 500 = 1000 MB`` free — far below Parakeet's ~2.5 GB
+        ``500 + 500 = 1000 MB`` free, far below Parakeet's ~2.5 GB
         uncompressed size.
         """
         assert "parakeet" in _MODEL_SIZE_MB, (
@@ -300,7 +300,7 @@ class TestModelSizeMbIncludesParakeet:
             type("FakeHF", (), {"constants": fake_hf_constants})(),
         )
 
-        # Simulate ~1.5 GB free (1536 MB) — must RAISE (1775 MB required).
+        # Simulate ~1.5 GB free (1536 MB), must RAISE (1775 MB required).
         usage_1_5gb = shutil._ntuple_diskusage(0, 0, 1536 * 1024 * 1024)
         monkeypatch.setattr(shutil, "disk_usage", lambda _p: usage_1_5gb)
 

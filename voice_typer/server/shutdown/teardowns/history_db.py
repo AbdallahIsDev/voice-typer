@@ -1,6 +1,6 @@
 """Teardown helper for the history DB writer.
 
-Phase 4.5 (OI-36) — extracted verbatim from
+Phase 4.5 (OI-36), extracted verbatim from
 :meth:`ShutdownController._teardown_history_db`. The body is unchanged;
 only the class boundary moved.
 """
@@ -50,7 +50,7 @@ def teardown_history_db(controller) -> None:
     do not accept a ``timeout`` parameter themselves).
 
     ATOMICITY: flush() and close() run in SEPARATE try/except blocks.
-    Pre-fix, both calls shared one try block — if flush() raised,
+    Pre-fix, both calls shared one try block, if flush() raised,
     close() was NEVER attempted and the SQLite connection + writer
     thread leaked until ``os._exit(0)`` killed them mid-WAL-write.
     The split guarantees close() runs even when flush() fails, so the
@@ -66,7 +66,7 @@ def teardown_history_db(controller) -> None:
 
     flush_err: Exception | None = None
     try:
-        # 8.0s inner budget for flush — strictly less than the 15.0s
+        # 8.0s inner budget for flush, strictly less than the 15.0s
         # outer wrapper budget. See docstring.
         _run_with_timeout(
             "history_db.flush",

@@ -1,7 +1,7 @@
 // History export hook.
 //
 // Owns:
-//   - ``doExport`` (filter-aware paging loop — pages through
+//   - ``doExport`` (filter-aware paging loop, pages through
 //     ``get_history`` / ``get_favorites`` / ``search_history`` until
 //     the backend returns an empty page or the row cap is hit,
 //     aggregates the rows, then invokes the preload bridge
@@ -35,14 +35,14 @@ import { type HistorySortOrder, sortRecords } from "../utils/historySort";
 // on a single 1000-row JSON.parse).
 const EXPORT_PAGE_SIZE = 100;
 
-// Keyset cursor for the export paging loop — the shared derivation
+// Keyset cursor for the export paging loop, the shared derivation
 // (utils/cursor.ts) anchors each page to the (timestamp, id) of the
 // LAST row of the accumulated export, so each subsequent page asks the
 // backend for rows strictly older than it. O(log N) per page via the
 // timestamp index instead of the O(N) OFFSET skip the export loop
 // previously paid on every page (O(pages × offset) overall for a
 // large export). When the last row lacks a usable timestamp/id the
-// shared derivation returns undefined — the backend then falls back
+// shared derivation returns undefined, the backend then falls back
 // to the OFFSET path (the payload always carries limit + offset, same
 // defensive fallback as the page cache's loadMore).
 const deriveExportCursor = deriveHistoryCursor;
@@ -90,18 +90,18 @@ export function useHistoryExport({
 			let allRecords: HistoryRecord[];
 			try {
 				// Page through the matching endpoint until the backend
-				// returns an empty page (or a partial page — no more rows)
+				// returns an empty page (or a partial page, no more rows)
 				// or we hit the EXPORT_MAX_ROWS cap. Each page after the
 				// first carries keyset cursor params (before_timestamp +
 				// before_id, derived from the last accumulated row) so the
 				// backend walks the timestamp index instead of skipping
-				// past all previous rows — the same pagination strategy
+				// past all previous rows, the same pagination strategy
 				// useHistoryCache's loadMore already uses. limit + offset
 				// stay in the payload as the defensive fallback.
 				allRecords = [];
 				let offset = 0;
 				// The `eslint-disable-next-line no-constant-condition`
-				// directive above `while (true)` was removed — the project
+				// directive above `while (true)` was removed, the project
 				// uses Biome exclusively (no ESLint is installed), so the
 				// directive was inert but misleading. The loop is an
 				// intentional page-until-exhausted loop with explicit
@@ -140,7 +140,7 @@ export function useHistoryExport({
 						);
 						break;
 					}
-					// Backend returned a partial page — no more rows.
+					// Backend returned a partial page, no more rows.
 					if (safePage.length < EXPORT_PAGE_SIZE) break;
 				}
 			} catch (err) {

@@ -10,14 +10,14 @@ sprinkled across the test tree (``tests/tauri/test_sidecar_ws_unit.py``,
 ``tests/test_ipc_error_envelope_parity.py``, and
 ``tests/test_sidecar_ws_thread_safety.py``). Three of those copies had
 diverged from the canonical shape and were missing the
-``_ws_dispatch_pool = None`` fix — a stale copy that re-introduces the
+``_ws_dispatch_pool = None`` fix, a stale copy that re-introduces the
 ``wrap_future`` assertion failure anytime a new
 test copies the wrong helper.
 
 Centralising the factory here means future additions to
 :func:`sidecar_ws._make_dispatch` (e.g. a new ``getattr(server, "_ws_*",
 None) is None`` lazy-create branch) only need to update ONE place —
-this module — and every sidecar WS test picks up the fix
+this module, and every sidecar WS test picks up the fix
 automatically.
 
 The helper is intentionally a superset of every prior inline copy: it
@@ -44,7 +44,7 @@ def _make_fake_server() -> MagicMock:
     dedicated thread pool for WS dispatch, separate from the default
     executor). A MagicMock attribute access auto-vivifies a child
     MagicMock, so ``getattr(server, "_ws_dispatch_pool", None)`` returns
-    a non-None MagicMock — the lazy-create branch in ``_make_dispatch``
+    a non-None MagicMock, the lazy-create branch in ``_make_dispatch``
     is skipped, and the MagicMock is passed to
     ``loop.run_in_executor``. ``asyncio.futures.wrap_future`` then
     asserts the submit() return is a real ``concurrent.futures.Future``
@@ -56,7 +56,7 @@ def _make_fake_server() -> MagicMock:
     ``getattr(server, "_ws_inflight_count", None) is None`` returns
     ``False`` on a MagicMock (the auto-vivified child mock is not
     ``None``), so the lazy-create branch is skipped and the child mock
-    is later compared with ``<= 0`` — a ``TypeError``. All four attrs
+    is later compared with ``<= 0``, a ``TypeError``. All four attrs
     are explicitly set to ``None`` here so the lazy-create branches in
     ``_make_dispatch`` run and install real ``ThreadPoolExecutor`` /
     ``threading.Lock`` / ``threading.Event`` / ``int`` instances.
@@ -65,24 +65,24 @@ def _make_fake_server() -> MagicMock:
     other three lazy-create attrs) so the lazy-create branches run and
     create real concurrency primitives. The executor / lock / event /
     counter are shared across calls on the same server (so cleanup is
-    the test's responsibility — we let them leak at process exit, which
+    the test's responsibility, we let them leak at process exit, which
     is fine for a unit test).
 
     Tests that exercise ``_handle_connection`` (not just
     ``_make_dispatch``) also need:
 
-    - ``_ready_emitted = True`` — skips the post-auth ``ready`` event
+    - ``_ready_emitted = True``, skips the post-auth ``ready`` event
       emission so the spied ``event_bus.publish`` doesn't see a stray
       ``ready`` from setup (and so the writer task doesn't try to
       serialise one before the test's own publish burst begins).
-    - ``server.app.tray._state = None`` — skips the initial
+    - ``server.app.tray._state = None``, skips the initial
       ``state_changed`` emission in ``_install_subscriber``. Without
       this, ``getattr(server.app.tray, "_state", None)`` returns an
       auto-vivified MagicMock (truthy), the ``state_changed`` event is
       published with a MagicMock ``status`` value, and the writer
       task's ``json.dumps(event)`` blows up with
       ``TypeError: Object of type MagicMock is not JSON serializable``.
-    - ``server.push = MagicMock()`` — defensive: matches the original
+    - ``server.push = MagicMock()``, defensive: matches the original
       ``tests/test_sidecar_ws_thread_safety.py`` helper. ``server.push``
       is not currently called by ``sidecar_ws`` (the WS writer
       subscribes to ``event_bus`` instead), but pre-creating it keeps
@@ -108,7 +108,7 @@ def _make_fake_server() -> MagicMock:
     # shutdown gate in ``_make_dispatch`` BEFORE the rate-limit
     # check. On a MagicMock, ``getattr(server.app, "_shutting_down",
     # False)`` returns an auto-vivified child mock (truthy, NOT
-    # ``is True``) and the gate fires — every dispatch returns
+    # ``is True``) and the gate fires, every dispatch returns
     # ``server.shutting_down`` instead of reaching the rate-limit /
     # handler path. Pin it to ``False`` so the dispatch body runs
     # (and the rate-limit / readonly / state-mutating branches
@@ -132,24 +132,24 @@ __all__ = ["_make_fake_server"]
 #
 # Before this section existed, every file in the ``test_sidecar_ws*``
 # family rebuilt its own fake websocket (and, for the connection-cap
-# tests, its own semaphore-bearing fake server) inline — eight copies
+# tests, its own semaphore-bearing fake server) inline, eight copies
 # of the recv-driven fake, two copies of the read-loop fake, two copies
 # of the semaphore server, all drifting independently. The factories
 # below are the SINGLE canonical shape: each one is a superset of every
 # inline copy it replaces (it records sends/closes and pins the
 # ``closed`` flag even where a particular test never asserts on them,
-# which is harmless — tests that need different send/close behaviour
+# which is harmless, tests that need different send/close behaviour
 # overwrite the attributes after construction, exactly as they did
 # against the inline copies).
 
 # Peer address reported by every fake websocket. Tests only rely on it
 # being a concrete (host, port) tuple for logging / duplicate-probe
-# paths — the exact values are arbitrary.
+# paths, the exact values are arbitrary.
 _FAKE_PEER_ADDRESS = ("127.0.0.1", 12345)
 
 
 class _BlockingAsyncIter:
-    """Async iterator that never yields — parks the dispatch loop.
+    """Async iterator that never yields, parks the dispatch loop.
 
     The ``async for raw in websocket:`` loop in ``_handle_connection``
     blocks on ``__anext__`` until the connection task is cancelled, so
@@ -161,7 +161,7 @@ class _BlockingAsyncIter:
         return self
 
     async def __anext__(self) -> str:
-        # Never resolves — the only way out is cancellation, which
+        # Never resolves, the only way out is cancellation, which
         # raises CancelledError (a BaseException, NOT caught by the
         # connection's ``except Exception:`` clause, so the ``finally:``
         # cleanup still runs).
@@ -170,7 +170,7 @@ class _BlockingAsyncIter:
 
 
 class _EmptyAsyncIter:
-    """Async iterator that ends immediately — clean disconnect."""
+    """Async iterator that ends immediately, clean disconnect."""
 
     def __aiter__(self) -> _EmptyAsyncIter:
         return self
@@ -211,7 +211,7 @@ def make_fake_websocket(
       the loser's acquire task runs, so the race window never opens.
     - ``send`` / ``close`` are recorded into ``ws._sent_frames`` /
       ``ws._closed_with`` so tests can assert call order and args.
-    - ``ws.closed = False`` — the ``websockets`` library exposes an int
+    - ``ws.closed = False``, the ``websockets`` library exposes an int
       (0=open) there; the duplicate-auth probe treats
       ``not bool(existing.closed)`` as "is open", so the mock presents
       as OPEN by default.
@@ -316,7 +316,7 @@ def make_fake_server_with_semaphore(value: int) -> MagicMock:
     context manager; RLock works everywhere the production ``Lock``
     works and additionally tolerates re-entrancy). The active-connection
     slot is pinned to ``None`` so the first duplicate-auth probe sees no
-    existing connection — explicit is better than implicit for race
+    existing connection, explicit is better than implicit for race
     tests (on a raw MagicMock the probe treats the auto-vivified child
     as "closed", which happens to work but is accidental).
     """
@@ -337,7 +337,7 @@ def make_real_server_for_graceful_shutdown() -> MagicMock:
 
     Moved verbatim from ``tests/test_sidecar_ws.py``. A raw ``MagicMock``
     returns truthy children for any ``getattr``, which short-circuits
-    ``_attach_ws_graceful_shutdown``'s idempotency guard — pre-setting
+    ``_attach_ws_graceful_shutdown``'s idempotency guard, pre-setting
     the attributes to real values (``False``, empty sets) lets the
     install actually run.
     """
@@ -372,16 +372,16 @@ def make_fake_websocket_parked_after_auth(auth_token: str, *, park_dispatch: boo
     immediately (``park_dispatch=False``).
 
     Consolidates the post-auth fakes from
-    ``tests/test_sidecar_ws_thread_safety.py`` (blocking — holds the
+    ``tests/test_sidecar_ws_thread_safety.py`` (blocking, holds the
     connection open so the writer task / ``_push_to_ws`` subscriber stay
     installed while events are published from other threads) and
-    ``tests/test_sidecar_ws_ready_ordering.py`` (empty — immediate clean
+    ``tests/test_sidecar_ws_ready_ordering.py`` (empty, immediate clean
     disconnect after auth + ready emit).
 
     The first ``recv()`` returns the auth frame (consumed by
     ``_authenticate``); the ``async for`` dispatch iterator is either
     blocking or empty. ``send`` is a no-op coroutine and ``close`` a
-    plain ``MagicMock`` — tests that need tracking senders overwrite
+    plain ``MagicMock``, tests that need tracking senders overwrite
     ``ws.send`` after construction.
     """
     ws = MagicMock()

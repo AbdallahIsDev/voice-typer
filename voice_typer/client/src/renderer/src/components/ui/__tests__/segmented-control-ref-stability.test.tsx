@@ -19,7 +19,7 @@
  *
  * An inline arrow creates a NEW function identity on every render. React
  * detects the identity change and re-invokes the old ref with `null` and
- * the new ref with the element on EVERY parent re-render — causing
+ * the new ref with the element on EVERY parent re-render, causing
  * `resizeObserver.disconnect()` + `resizeObserver.observe(el)` +
  * `requestAnimationFrame(updateIndicator)` to fire repeatedly even when
  * the underlying DOM node hasn't changed. The fix hoists the callback
@@ -70,7 +70,7 @@ const OPTIONS = [
 
 /**
  * jsdom's getBoundingClientRect returns all-zero rects, which collapses
- * every measured indicator position to left:0/width:0 — position
+ * every measured indicator position to left:0/width:0, position
  * assertions would be meaningless. This helper pins DISTINCT rects onto
  * the container and each option label (DOM order == option order for the
  * default variant's `<label>` elements) so the indicator's `left`
@@ -128,7 +128,7 @@ describe("SegmentedControl container ref callback stability", () => {
 	it("does NOT re-invoke ResizeObserver.observe on value-stable re-render", () => {
 		// An inline arrow `ref={(el) => {...}}` would have created
 		// a new function identity on every render, causing React to call
-		// ref(null) + ref(el) on this re-render — which would in turn
+		// ref(null) + ref(el) on this re-render, which would in turn
 		// call `disconnect()` + `observe()`. The hoisted `useCallback`
 		// keeps the identity stable across value-stable re-renders, so
 		// neither `disconnect()` nor `observe()` should fire.
@@ -154,7 +154,7 @@ describe("SegmentedControl container ref callback stability", () => {
 			/>,
 		);
 
-		// observe() must NOT have been called again — ref is stable.
+		// observe() must NOT have been called again, ref is stable.
 		expect(observeSpy).toHaveBeenCalledTimes(1);
 		expect(disconnectSpy).not.toHaveBeenCalled();
 
@@ -196,7 +196,7 @@ describe("SegmentedControl container ref callback stability", () => {
 	});
 
 	it("also keeps the ref stable in the tabs variant", () => {
-		// Same behaviour must hold for variant="tabs" — the container
+		// Same behaviour must hold for variant="tabs", the container
 		// <div> is the same element, just with role="tablist".
 		const { rerender } = render(
 			<SegmentedControl
@@ -230,7 +230,7 @@ describe("SegmentedControl per-option label ref stability + value-change behavio
 		// A fresh inline closure per option per render (what an
 		// un-memoized `getLabelRef(opt.value)` produces) makes React call
 		// the old ref with `null` and the new one with the element on
-		// EVERY re-render — 2N attach/detach round-trips plus label-Map
+		// EVERY re-render, 2N attach/detach round-trips plus label-Map
 		// churn for an unchanged option list. With stable cached
 		// callbacks, React does not re-invoke the refs at all, so the
 		// label Map performs ZERO writes during a re-render.
@@ -253,7 +253,7 @@ describe("SegmentedControl per-option label ref stability + value-change behavio
 					ariaLabel="label-ref-stability"
 				/>,
 			);
-			// Only label-ref Map writes matter here — filter by our option
+			// Only label-ref Map writes matter here, filter by our option
 			// values so React-internal Map traffic (keyed by objects) can't
 			// skew the count.
 			const labelRefWrites = setSpy.mock.calls.filter(
@@ -267,7 +267,7 @@ describe("SegmentedControl per-option label ref stability + value-change behavio
 
 	it("does NOT re-invoke ResizeObserver.observe when the value changes (container ref stable across value changes)", () => {
 		// `updateIndicator` used to depend on `value`, so `setContainerRef`
-		// got a new identity on every value change — React detached the old
+		// got a new identity on every value change, React detached the old
 		// ref and re-attached the new one, re-firing `observe()` on an
 		// element that never changed. Decoupling the measurement from the
 		// `value` closure (reading it from a ref inside the observer) keeps
@@ -309,7 +309,7 @@ describe("SegmentedControl per-option label ref stability + value-change behavio
 		);
 		mockMeasureRects(container, { 0: 0, 1: 48 });
 		// The indicator element only mounts once the first measurement
-		// lands (async rAF) — wait for it before asserting positions.
+		// lands (async rAF), wait for it before asserting positions.
 		await waitFor(() =>
 			expect(container.querySelector(".bg-primary")).toBeTruthy(),
 		);
@@ -382,7 +382,7 @@ describe("SegmentedControl per-option label ref stability + value-change behavio
 
 	it("keeps the label-ref cache consistent when an option is removed and re-added (dynamic option sets)", async () => {
 		// The per-option callbacks live in a ref-held cache; pruning removed
-		// options must never corrupt the refs for a re-added option — the
+		// options must never corrupt the refs for a re-added option, the
 		// remounted element must be re-registered and remain measurable.
 		const threeOptions = [...OPTIONS, { value: "c", label: "C" }];
 		const props = {

@@ -6,7 +6,7 @@
  * Pre-: the rAF loop scheduled the next frame at the START of the
  * callback, then early-returned if `!visibleRef.current` or
  * `!recordingRef.current`. That meant the loop kept spinning at 60 fps
- * even when the bubble was hidden — every frame paid the rAF scheduling
+ * even when the bubble was hidden, every frame paid the rAF scheduling
  * cost + the closure entry cost, even though no DOM work was done.
  *
  * Post-: the scheduling call has moved to the END of the callback,
@@ -98,7 +98,7 @@ beforeEach(() => {
 	});
 
 	// jsdom's getComputedStyle returns empty strings for CSS custom
-	// properties — stub it so the barColor fallback path doesn't throw.
+	// properties, stub it so the barColor fallback path doesn't throw.
 	vi.spyOn(window, "getComputedStyle").mockImplementation(
 		() =>
 			({
@@ -159,7 +159,7 @@ describe("DJ-90: useAudioLevels rAF loop pauses when bubble is hidden", () => {
 		hideBubble();
 		await tickFrames(10);
 
-		// At most ONE call — the in-flight frame that was already
+		// At most ONE call, the in-flight frame that was already
 		// scheduled before hideBubble() fired. (If hideBubble happened
 		// to fire between frames, even that one might not run.) The
 		// key assertion: the loop did NOT keep spinning.
@@ -187,7 +187,7 @@ describe("DJ-90: useAudioLevels rAF loop pauses when bubble is hidden", () => {
 		await tickFrames(5);
 		expect(rafSpy.mock.calls.length).toBe(0);
 
-		// Show again — the wake trigger (in the visibility-tracking
+		// Show again, the wake trigger (in the visibility-tracking
 		// effect) should kick off a fresh rAF, and the loop should
 		// resume scheduling per-frame.
 		showBubble();

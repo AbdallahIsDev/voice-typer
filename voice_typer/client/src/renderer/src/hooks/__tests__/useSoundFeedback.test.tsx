@@ -13,7 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // ── Mocks ────────────────────────────────────────────────────────────
 // We mock the sound-manager module so we can assert the hook calls the
-// canonical playSoundCue / initAudioContext — not a local duplicate.
+// canonical playSoundCue / initAudioContext, not a local duplicate.
 vi.mock("@/lib/sound-manager", () => ({
 	initAudioContext: vi.fn((): boolean => true),
 	playSoundCue: vi.fn((): void => {}),
@@ -24,7 +24,7 @@ vi.mock("@/lib/sound-manager", () => ({
 	// The hook's mount effect calls ``isSoundFeedbackEnabled`` to gate
 	//``initAudioContext`` () and ``closeAudioContext`` on cleanup.
 	// Without these in the mock, vitest 4.x throws "No export defined"
-	// — older vitest versions silently treated missing exports as
+	//, older vitest versions silently treated missing exports as
 	// ``undefined`` and the call would no-op. Vitest 4 surfaces the
 	// missing export as a hard error so the mock must list every
 	// imported symbol.
@@ -49,7 +49,7 @@ beforeEach(() => {
 	unsubscribeSpy.mockClear();
 	// Clear any call history on the mocked sound-manager fns so each
 	// test starts with a clean slate. (Module mocks persist across
-	// tests in the same file — vi.restoreAllMocks in afterEach restores
+	// tests in the same file, vi.restoreAllMocks in afterEach restores
 	// spies but does NOT reset module-level mock fns.)
 	vi.clearAllMocks();
 	// Install a minimal window.python bridge.
@@ -150,7 +150,7 @@ describe("useSoundFeedback", () => {
 	});
 });
 
-describe("useSoundFeedback — runtime sound_feedback_enabled toggle (config_changed)", () => {
+describe("useSoundFeedback, runtime sound_feedback_enabled toggle (config_changed)", () => {
 	it("closes the AudioContext when config_changed disables sound feedback", async () => {
 		const { closeAudioContext, initAudioContext } = await import(
 			"@/lib/sound-manager"
@@ -216,7 +216,7 @@ describe("useSoundFeedback — runtime sound_feedback_enabled toggle (config_cha
 	});
 });
 
-describe("useSoundFeedback — ZU-34 onVisualCue callback (deaf mirror)", () => {
+describe("useSoundFeedback, ZU-34 onVisualCue callback (deaf mirror)", () => {
 	it("invokes onVisualCue('start') on recording_started", async () => {
 		const { playSoundCue } = await import("@/lib/sound-manager");
 		const onVisualCue = vi.fn();
@@ -281,7 +281,7 @@ describe("useSoundFeedback — ZU-34 onVisualCue callback (deaf mirror)", () => 
 	});
 
 	it("does NOT fire onVisualCue when the callback is not provided (backwards compat)", async () => {
-		// Render without any options — the hook should still play the
+		// Render without any options, the hook should still play the
 		// sound cue but never crash trying to call an undefined callback.
 		const { playSoundCue } = await import("@/lib/sound-manager");
 		await renderWithHook();

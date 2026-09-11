@@ -1,5 +1,5 @@
 /**
- * Modal — accessible dialog with focus trap and backdrop dismissal.
+ * Modal, accessible dialog with focus trap and backdrop dismissal.
  *
  * Wraps the Radix Dialog primitive to provide consistent focus management
  * across all dialogs in the app. Features:
@@ -36,7 +36,7 @@ import { cn } from "@/lib/utils";
  * Fired when the user attempts to close the dialog (Escape, backdrop
  * click, or the corner close button) BEFORE the close completes.
  * Return `false` (or a promise resolving to `false`) to veto the
- * close — e.g. to first confirm discarding unsaved edits. Returning
+ * close, e.g. to first confirm discarding unsaved edits. Returning
  * `true`/`undefined` lets the close proceed.
  */
 export type ModalCloseIntentVeto = () => boolean | Promise<boolean>;
@@ -56,9 +56,9 @@ interface ModalProps {
 	title?: string;
 	/** Optional description (sets aria-describedby) */
 	description?: string;
-	/** Content children — typically the message body + ModalFooter */
+	/** Content children, typically the message body + ModalFooter */
 	children: React.ReactNode;
-	/** Optional size override — `lg` is a roomier panel (max-w-xl on
+	/** Optional size override, `lg` is a roomier panel (max-w-xl on
 	 * desktop) for content-heavy overlays like the help reference. */
 	size?: "default" | "sm" | "lg";
 	/** Optional class name for the content panel */
@@ -92,7 +92,7 @@ export function Modal({
 				return;
 			}
 			// The user attempted a close (Esc / overlay / corner X).
-			// Radix fires onOpenChange(false) as a close REQUEST — the
+			// Radix fires onOpenChange(false) as a close REQUEST, the
 			// controlled `open` prop simply doesn't flip while the gate
 			// is being evaluated, which keeps the dialog open. While a
 			// gate is already pending, further requests are swallowed so
@@ -132,7 +132,7 @@ export function Modal({
 }
 
 /**
- * ConfirmDiscardDialog — thin ConfirmDialog preset for the "you have
+ * ConfirmDiscardDialog, thin ConfirmDialog preset for the "you have
  * unsaved edits" veto flow. Centralizes the copy keys so every dialog
  * that gates its close intent presents the same confirm/discard
  * choice.
@@ -163,7 +163,7 @@ export function ConfirmDiscardDialog({
 }
 
 /**
- * ModalFooter — thin re-export of {@link DialogFooter} so call sites that
+ * ModalFooter, thin re-export of {@link DialogFooter} so call sites that
  * already import `Modal` don't need a second import from
  * `@/components/ui/dialog`. Production code that needs more control
  * should import `DialogFooter` directly.

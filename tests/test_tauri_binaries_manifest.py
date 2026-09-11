@@ -18,7 +18,7 @@ check. The fix has two parts:
      ``verify_tauri_binary_or_skip(path)`` in
      ``autostart_launcher.py`` that hashes the discovered binary and
      compares against the manifest's ``sha256`` field. On mismatch
-     (or empty ``sha256`` — meaning the binary was not built in this
+     (or empty ``sha256``: meaning the binary was not built in this
      dev tree), the helper logs an ERROR and the autostart launcher
      falls back to spawning the Electron dev binary instead of an
      untrusted Tauri binary.
@@ -33,10 +33,10 @@ because the ``.app`` bundle ships a universal Mach-O binary.
 This test pins the manifest side: it verifies the file exists at the
 expected path, is valid JSON, and contains the three required binary
 entries (Linux / Windows / macOS) with all the fields the future
-loader will consume — including the per-(platform, arch) ``sha256``
+loader will consume, including the per-(platform, arch) ``sha256``
 dict. If a future contributor accidentally deletes the manifest,
 renames a field, or reverts the schema to the flat-string form, this
-test fails — surfacing the break before the (yet-to-be-written) loader
+test fails, surfacing the break before the (yet-to-be-written) loader
 ships.
 """
 
@@ -62,10 +62,10 @@ _REQUIRED_BINARY_ENTRIES: tuple[str, ...] = (
 
 # Each binary entry must declare these top-level fields. The loader
 # (when implemented) consumes ``sha256`` (now a per-(platform, arch)
-# dict — see ); ``version`` / ``min_proto_version`` are reserved
+# dict: see ); ``version`` / ``min_proto_version`` are reserved
 # for future IPC-protocol gating ( follow-up); ``_platforms`` /
 # ``_install_paths`` are documentation/CI hints (the loader does NOT
-# consume them at runtime — install-path discovery lives in
+# consume them at runtime, install-path discovery lives in
 # ``autostart_launcher._tauri_binary``).
 _REQUIRED_ENTRY_FIELDS: tuple[str, ...] = (
     "sha256",
@@ -94,19 +94,19 @@ class TestTauriBinariesManifest:
         ``package.json``) so the autostart launcher can find it via
         a simple relative-path lookup. A future move to
         ``voice_typer/server/tauri-binaries.json`` is fine IF the
-        loader is updated to match — but the move must be explicit,
+        loader is updated to match, but the move must be explicit,
         not accidental."""
         assert _MANIFEST_PATH.exists(), (
             f"XZ-R6-AS-01 regression: `tauri-binaries.json` not found at "
             f"repo root ({_MANIFEST_PATH}). The manifest is the integrity "
-            f"gate for the Tauri host binary spawned at autostart — "
+            f"gate for the Tauri host binary spawned at autostart, "
             f"without it, the (yet-to-be-written) loader in "
             f"`autostart_launcher.py` has no SHA-256 to compare against."
         )
 
     def test_manifest_is_valid_json(self) -> None:
         """The manifest must parse as valid JSON (the loader will
-        ``json.loads`` it at autostart — a malformed file would crash
+        ``json.loads`` it at autostart, a malformed file would crash
         the autostart path on every login)."""
         assert _MANIFEST_PATH.exists(), "manifest file missing (see previous test)"
         try:
@@ -115,7 +115,7 @@ class TestTauriBinariesManifest:
             pytest.fail(
                 f"XZ-R6-AS-01 regression: `tauri-binaries.json` is not "
                 f"valid JSON: {exc}. The autostart loader calls "
-                f"`json.loads(...)` on this file — a malformed manifest "
+                f"`json.loads(...)` on this file, a malformed manifest "
                 f"would crash the autostart path on every login."
             )
         assert isinstance(data, dict), "XZ-R6-AS-01: manifest root must be a JSON object (dict)."
@@ -141,7 +141,7 @@ class TestTauriBinariesManifest:
     def test_manifest_has_entry_for_each_platform(self, binary_name: str) -> None:
         """The manifest must include an entry for each of the three
         platform Tauri binaries. A future contributor adding a new
-        platform (e.g. FreeBSD) MUST extend this list — silently
+        platform (e.g. FreeBSD) MUST extend this list, silently
         omitting a platform from the manifest means the loader has
         no SHA-256 to compare against and either (a) refuses to
         spawn the binary (fail-closed, the safer default) or (b)
@@ -150,7 +150,7 @@ class TestTauriBinariesManifest:
         assert binary_name in data["binaries"], (
             f"XZ-R6-AS-01: manifest is missing the `{binary_name}` entry. "
             f"The autostart launcher discovers the Tauri binary by file "
-            f"name per-OS — every platform's binary file name must have "
+            f"name per-OS, every platform's binary file name must have "
             f"a matching manifest entry (even if its per-arch `sha256` "
             f"sub-keys are empty during dev)."
         )
@@ -167,7 +167,7 @@ class TestTauriBinariesManifest:
         assert field_name in entry, (
             f"XZ-R6-AS-01: manifest entry `{binary_name}` is missing "
             f"the `{field_name}` field. The autostart loader consumes "
-            f"this field — a rename or removal must update the loader "
+            f"this field, a rename or removal must update the loader "
             f"too."
         )
 
@@ -176,7 +176,7 @@ class TestTauriBinariesManifest:
         """the ``sha256`` field MUST be a dict mapping
         per-(platform, arch) keys to hex-digest strings (or empty
         strings in dev builds). A flat string here is a schema
-        regression — the loader consults the per-arch sub-key
+        regression, the loader consults the per-arch sub-key
         matching ``platform.system().lower() + '-' +
         platform.machine()`` (with macOS collapsed to ``macos``).
 
@@ -191,7 +191,7 @@ class TestTauriBinariesManifest:
             f"`{binary_name}.sha256` must be a per-(platform, arch) "
             f'dict (e.g. {{"linux-x86_64": "<hex>", "linux-aarch64": '
             f'"<hex>"}}), got {type(sha).__name__}. A flat string is a '
-            f"schema regression — the loader consults the per-arch sub-key."
+            f"schema regression, the loader consults the per-arch sub-key."
         )
 
     @pytest.mark.parametrize("binary_name", _REQUIRED_BINARY_ENTRIES)
@@ -200,7 +200,7 @@ class TestTauriBinariesManifest:
         expected per-arch sub-keys. Linux has two arches, Windows has
         two arches, and macOS uses a single ``macos`` key (universal
         binary). A missing sub-key means the loader cannot look up
-        the sha256 for that arch — it would fail-closed even on a
+        the sha256 for that arch, it would fail-closed even on a
         legitimate production build.
         """
         data = json.loads(_MANIFEST_PATH.read_text(encoding="utf-8"))
@@ -219,10 +219,10 @@ class TestTauriBinariesManifest:
     @pytest.mark.parametrize("binary_name", _REQUIRED_BINARY_ENTRIES)
     def test_sha256_per_arch_values_are_hex_strings(self, binary_name: str) -> None:
         """each per-arch sha256 value MUST be a string (hex
-        digest, or empty string in dev builds). The loader does
-        ``hashlib.sha256(...).hexdigest() == entry['sha256'][arch]``
-        — a non-string field would TypeError at runtime. If non-empty,
-        must be a 64-char lowercase hex string.
+          digest, or empty string in dev builds). The loader does
+          ``hashlib.sha256(...).hexdigest() == entry['sha256'][arch]``
+        , a non-string field would TypeError at runtime. If non-empty,
+          must be a 64-char lowercase hex string.
         """
         data = json.loads(_MANIFEST_PATH.read_text(encoding="utf-8"))
         sha_dict = data["binaries"][binary_name]["sha256"]

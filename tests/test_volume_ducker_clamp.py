@@ -6,7 +6,7 @@ after the first successful call.  Because ``VolumeController.
 _duck_volume`` calls ``set_smart_duck_poll_interval`` on EVERY
 dictation start (before the now-no-op ``initialize``), the 2nd and
 later dictations silently bypassed the floor on Linux ``pactl`` (and
-macOS ``osascript``) backends — burning 10–20 % CPU on one core for
+macOS ``osascript``) backends, burning 10–20 % CPU on one core for
 the duration of every subsequent dictation.
 
 These tests pin the AB-15 fix: the floor is now applied by a shared
@@ -25,7 +25,7 @@ class SlowSubprocessBackend(VolumeBackend):
     """Backend mimicking Linux ``pactl`` / macOS ``osascript``.
 
     ``min_poll_interval_ms = 1500`` matches the production Linux
-    backend — polling faster than this wastes 10–20 % CPU per core
+    backend, polling faster than this wastes 10–20 % CPU per core
     on subprocess spawning.
     """
 
@@ -59,7 +59,7 @@ class SlowSubprocessBackend(VolumeBackend):
 
 class TestClampPollInterval:
     """AB-15: the ``min_poll_interval_ms`` floor must apply on every
-    ``set_smart_duck_poll_interval`` call — not only inside ``initialize``.
+    ``set_smart_duck_poll_interval`` call, not only inside ``initialize``.
     """
 
     def test_initialize_still_applies_floor(self) -> None:
@@ -74,7 +74,7 @@ class TestClampPollInterval:
         """AB-15 regression: after ``initialize`` has run (so the 2nd
         call to ``initialize`` is a no-op), re-setting the interval to
         500 ms MUST still be clamped up to the backend's 1500 ms
-        minimum — otherwise the smart-duck monitor polls at 500 ms and
+        minimum, otherwise the smart-duck monitor polls at 500 ms and
         burns 10–20 % CPU per core on Linux ``pactl`` for the rest of
         the dictation."""
         ducker = VolumeDucker(backend=SlowSubprocessBackend())
@@ -84,7 +84,7 @@ class TestClampPollInterval:
         # Simulate the second dictation's _duck_volume path: it calls
         # set_smart_duck_poll_interval BEFORE the (now no-op) initialize.
         ducker.set_smart_duck_poll_interval(500)
-        assert ducker._smart_duck_poll_ms == 1500  # clamped — NOT 500
+        assert ducker._smart_duck_poll_ms == 1500  # clamped, NOT 500
 
         # The second initialize() call is a no-op and must not undo the clamp.
         assert ducker.initialize() is True
@@ -99,7 +99,7 @@ class TestClampPollInterval:
 
     def test_set_smart_duck_poll_interval_clamps_below_50_floor(self) -> None:
         """The [50, 5000] hard clamp still applies; then the backend
-        floor is applied on top — so an out-of-range low value ends up
+        floor is applied on top, so an out-of-range low value ends up
         at the backend minimum, not 50."""
         ducker = VolumeDucker(backend=SlowSubprocessBackend())
         assert ducker.initialize() is True
@@ -119,7 +119,7 @@ class TestClampPollInterval:
     def test_set_smart_duck_poll_interval_before_initialize_passes_through(self) -> None:
         """When no backend is bound yet (production ducker is created
         with ``backend=None`` and auto-detects inside ``initialize``),
-        the helper returns the value unchanged — the floor is applied
+        the helper returns the value unchanged, the floor is applied
         later by ``initialize``.  This preserves the first-dictation
         behaviour the production code path relies on."""
         ducker = VolumeDucker(backend=None)
@@ -139,7 +139,7 @@ class TestClampPollInterval:
 
             @property
             def min_poll_interval_ms(self) -> int:
-                return 0  # default — no floor
+                return 0  # default, no floor
 
         ducker = VolumeDucker(backend=InProcessBackend())
         assert ducker.initialize() is True

@@ -1,4 +1,4 @@
-"""Native hotkey backend — facade module.
+"""Native hotkey backend, facade module.
 
 Re-exports SubprocessHotkeyBackend + constants + get_native_binary_path
 from the leaf modules, keeping the import path

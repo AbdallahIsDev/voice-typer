@@ -11,7 +11,7 @@ cache the HuggingFace hub ``refs/main`` existence check (with a
 5-second TTL so a download started in the Models page is reflected
 within 5 seconds without making the user wait on every right-click).
 (An older ``import qwen_asr`` availability cache was removed 2026-08-15
-with the torch Qwen engine — Qwen is a built-in ONNX backend now.)
+with the torch Qwen engine. Qwen is a built-in ONNX backend now.)
 
 Qwen availability (its ``downloaded`` flag in the submenu data) is
 NOT the qwen_asr import alone: it mirrors the Models page's
@@ -24,46 +24,43 @@ import, so Qwen appeared selectable with zero weights downloaded.
 
 import json
 import logging
-import time
 from pathlib import Path
 from typing import Any
 
 log = logging.getLogger(__name__)
 
-# caches for the model availability checks.
-# These are module-level because the tray menu is rebuilt on every
-# right-click and the underlying data (HF model downloaded) changes
-# very rarely — only when the user finishes a model download.
-# Cache of (repo_id, config_dir) → (downloaded, timestamp).
-# TTL is 5 seconds: long enough to avoid per-right-click stat() calls,
-# short enough that a download finishing in the Models page is
-# reflected on the next right-click within 5 seconds.
-_HF_DOWNLOAD_CACHE_TTL_SECONDS = 5.0
-_hf_download_cache: "dict[tuple[str, str], tuple[bool, float]]" = {}
+# Availability verdicts are owned by the shared
+# :mod:`voice_typer.server.model_availability` store (BP-158), one
+# fingerprint-freshness cache consulted by the tray submenu, the
+# tooltip probe, the model-manager precheck, and the service status
+# poll alike. The per-right-click TTL dict that used to live here is
+# gone; correctness now comes from mtime + explicit invalidation, not
+# expiry. ``invalidate_model_availability_cache`` below delegates to
+# the shared store so existing callers keep working unchanged.
 # ``ensure_hf_env()`` mutates process-global environment
 # variables (``HF_HOME``, ``HF_HUB_CACHE``, ``TRANSFORMERS_CACHE``).
 # It is documented as idempotent and only needs to run ONCE per
-# process — the env state never changes mid-session. Calling it on
+# process, the env state never changes mid-session. Calling it on
 # every tray right-click (which triggers a fresh ``import``
 # resolution + dict update + permission check on the cache dir) was
 # pure overhead. The flag is set on first invocation and short-
 # circuits all subsequent calls. ``invalidate_model_availability_cache``
-# does NOT reset this — env setup is process-lifetime, not
+# does NOT reset this, env setup is process-lifetime, not
 # per-right-click.
 _hf_env_ensured: bool = False
 
-# Qwen's HuggingFace repo id — informational only: the backend
+# Qwen's HuggingFace repo id, informational only: the backend
 # registry (``model_registry.py``) declares Qwen ``network_behavior=
 # "local-only"``, so the weights are NEVER auto-fetched. They live
 # either under the configured ``qwen_model_path`` or in the HF cache
 # under this repo. Mirrors ``ModelMetadata.repo_id`` for "qwen" so the
 # tray and the Models page's ``get_model_status`` agree on what
 # "downloaded" means.
-# The pre-exported ONNX repo (torch-free, 2026-08-15) — the old torch
+# The pre-exported ONNX repo (torch-free, 2026-08-15), the old torch
 # ``Qwen/Qwen-Audio`` repo_id was removed with the torch engine.
 _QWEN_REPO_ID = "andrewleech/qwen3-asr-1.7b-onnx"
 
-# Parakeet's ONNX export repo (fp16, torch-free) — informational
+# Parakeet's ONNX export repo (fp16, torch-free), informational
 # only: the backend registry (``model_registry.py``) declares Parakeet
 # ``network_behavior="local-only"``, so the weights are NEVER
 # auto-fetched. They live either under the configured
@@ -79,7 +76,7 @@ _PARAKEET_REPO_ID = "grikdotnet/parakeet-tdt-0.6b-fp16"
 # support (verified against the installed package 2026-08-15), so the
 # family logos shown on the Models page (``src/assets/models/``) cannot
 # be rendered as real images here. The closest faithful equivalent is a
-# per-family Unicode mark prefixed to each model label — the same glyph
+# per-family Unicode mark prefixed to each model label, the same glyph
 # for every model in a family. The glyphs approximate each brand mark:
 # ``✱`` ≈ OpenAI's knot (Whisper family), ``◉`` ≈ NVIDIA's eye
 # (Parakeet), ``⊙`` ≈ Qwen's ring. All three render in the system
@@ -125,7 +122,7 @@ def more_models_label(localize=None) -> str:
 
     ``localize`` is an optional ``Callable[[str], str]`` (e.g. the tray
     i18n ``_`` function). When the localization table LACKS the
-    ``more_models`` key it returns the raw key itself — that must fall
+    ``more_models`` key it returns the raw key itself, that must fall
     back to the English literal so the menu never renders the bare key
     "more_models" as a user-facing label. The literal fallback also
     keeps the string greppable for source-level regression tests
@@ -148,7 +145,7 @@ def _ensure_hf_env_once() -> None:
     """run ``asr_setup.ensure_hf_env()`` exactly once per process.
 
     The function mutates ``os.environ`` (setting HF_HOME / HF_HUB_CACHE /
-    TRANSFORMERS_CACHE paths) — those values are process-global and never
+    TRANSFORMERS_CACHE paths), those values are process-global and never
     change after the first call, so re-running on every tray right-click
     was wasted work (a ``dict.update`` on ``os.environ`` + a pathlib
     resolve + ``mkdir(parents=True, exist_ok=True)`` per call). Cached
@@ -167,35 +164,21 @@ def _ensure_hf_env_once() -> None:
 def _check_hf_model_downloaded(repo_id: str, config_dir) -> bool:
     """Return True if the HuggingFace model ``repo_id`` is FULLY downloaded.
 
-    cached for 5 seconds so a tray right-click doesn't
-        trigger repeated completeness probes (one per candidate model).
-        A download finishing in the Models page is reflected on the next
-        right-click within the TTL window.
+     Thin delegate to the shared :mod:`voice_typer.server.model_availability`
+     store (BP-158), same verdict the service status poll, the tooltip
+     probe, and the model-manager precheck consult. Kept under this name
+     so existing callers and test patches keep resolving.
 
-    PARTIAL-DOWNLOAD HONESTY (mirrors the Models page's
-    ``_compute_model_status``): the old check only tested the
-    ``refs/main`` marker, which huggingface_hub writes at download START
-    — so a paused / cancelled / killed download reported a usable model
-    in the tray. The loader's own local-only snapshot probe decides
-    completeness (every expected file fully present).
+     PARTIAL-DOWNLOAD HONESTY (mirrors the Models page's
+     ``_compute_model_status``): the old check only tested the
+     ``refs/main`` marker, which huggingface_hub writes at download START
+    , so a paused / cancelled / killed download reported a usable model
+     in the tray. The loader's own local-only snapshot probe decides
+     completeness (every expected file fully present).
     """
-    cache_key = (repo_id, str(config_dir))
-    now = time.monotonic()
-    cached = _hf_download_cache.get(cache_key)
-    if cached is not None:
-        downloaded, ts = cached
-        if now - ts < _HF_DOWNLOAD_CACHE_TTL_SECONDS:
-            return downloaded
-    repo_dir = config_dir / "huggingface" / "hub" / (f"models--{repo_id.replace('/', '--')}")
-    downloaded = False
-    if repo_dir.is_dir():
-        from voice_typer.server.transcription_download import (
-            is_model_snapshot_complete,
-        )
+    from voice_typer.server import model_availability
 
-        downloaded = is_model_snapshot_complete(repo_id)
-    _hf_download_cache[cache_key] = (downloaded, now)
-    return downloaded
+    return model_availability.is_available(repo_id, config_dir)
 
 
 def _check_qwen_model_downloaded(config_dir, qwen_model_path) -> bool:
@@ -207,7 +190,7 @@ def _check_qwen_model_downloaded(config_dir, qwen_model_path) -> bool:
     ``models--Qwen--Qwen-Audio``.
 
     This is deliberately distinct from the ``qwen_asr`` pip-package
-    import check — a package can be installed with ZERO weights on
+    import check, a package can be installed with ZERO weights on
     disk. The tray previously used the package import as Qwen's
     availability gate, so Qwen appeared selectable (and failed on
     click at engine-load time) whenever ``qwen_asr`` was installed but
@@ -218,7 +201,11 @@ def _check_qwen_model_downloaded(config_dir, qwen_model_path) -> bool:
     """
     if isinstance(qwen_model_path, str) and Path(qwen_model_path).is_dir():
         return True
-    return _check_hf_model_downloaded(_QWEN_REPO_ID, config_dir)
+    from voice_typer.server import model_availability
+
+    return model_availability.is_available(
+        _QWEN_REPO_ID, config_dir, extra_watch_dirs=[qwen_model_path] if qwen_model_path else None
+    )
 
 
 def _check_parakeet_model_downloaded(config_dir, parakeet_model_path) -> bool:
@@ -231,26 +218,30 @@ def _check_parakeet_model_downloaded(config_dir, parakeet_model_path) -> bool:
     """
     if isinstance(parakeet_model_path, str) and Path(parakeet_model_path).is_dir():
         return True
-    return _check_hf_model_downloaded(_PARAKEET_REPO_ID, config_dir)
+    from voice_typer.server import model_availability
+
+    return model_availability.is_available(
+        _PARAKEET_REPO_ID, config_dir, extra_watch_dirs=[parakeet_model_path] if parakeet_model_path else None
+    )
 
 
 def is_active_model_downloaded(config) -> bool:
     """Return True if the currently-configured ASR model is on disk.
 
     Fast single-model probe mirroring ``ModelMixin._compute_model_status``
-    (service/model.py) for the ACTIVE backend only — one TTL-cached
+    (service/model.py) for the ACTIVE backend only, one TTL-cached
     HF-cache check (or path ``isdir``) instead of the full registry
     scan. Used by:
 
-    - ``TrayIcon._compute_tooltip`` — only show the ``[model]`` suffix
+    - ``TrayIcon._compute_tooltip``: only show the ``[model]`` suffix
       when the model is actually downloaded (a stale ``model_size``
       selected before the model was deleted must not be advertised).
-    - ``ModelManager._model_downloaded_precheck`` — refuse the load
+    - ``ModelManager._model_downloaded_precheck``: refuse the load
       attempt early (before the heavy engine import + LOADING state)
       when the configured model is definitively absent.
 
     Cloud backends (openai / groq / deepgram / custom) have no local
-    model to gate — returns True (nothing to refuse). Unknown model
+    model to gate, returns True (nothing to refuse). Unknown model
     sizes (not in ``MODEL_REGISTRY``) also return True and let the
     load path surface its own error. Non-``Config`` objects (test
     doubles) return True so probes never run against a real user cache
@@ -259,7 +250,7 @@ def is_active_model_downloaded(config) -> bool:
     # Guard: only probe against a REAL Config. Test doubles
     # (MagicMock / SimpleNamespace / local ``_Config`` classes) are
     # duck-typed for ``load_background`` but must not read the real
-    # user's HF cache — the probe would be nondeterministic and the
+    # user's HF cache, the probe would be nondeterministic and the
     # pre-check would misfire. In production ``app.config`` is always a
     # real ``Config``.
     from voice_typer.server.config import Config as _ConfigCls
@@ -273,7 +264,7 @@ def is_active_model_downloaded(config) -> bool:
     from voice_typer.server.model_registry import NO_MODEL_SIZE
 
     # Qwen / Parakeet are selected via ``asr_backend``, NOT via
-    # ``model_size`` — their weights check is independent of the empty
+    # ``model_size``: their weights check is independent of the empty
     # "no model selected" sentinel, so a config with ``asr_backend =
     # "parakeet"`` + ``model_size = ""`` (e.g. a user who set the model
     # path in Settings) still reports the installed weights correctly.
@@ -281,7 +272,7 @@ def is_active_model_downloaded(config) -> bool:
         return _check_qwen_model_downloaded(config_dir, getattr(config, "qwen_model_path", None))
     if backend == "parakeet":
         return _check_parakeet_model_downloaded(config_dir, getattr(config, "parakeet_model_path", None))
-    # Whisper: "No model selected" (``model_size == ""``) — there is
+    # Whisper: "No model selected" (``model_size == ""``), there is
     # nothing to probe. Return False (definitively absent) so the load
     # path refuses with a "No model selected" message instead of trying
     # to load a model for the empty size, and the tray tooltip shows no
@@ -294,22 +285,27 @@ def is_active_model_downloaded(config) -> bool:
 
         meta = get_model_metadata(model_size)
         if meta is None:
-            # Unknown model size — let the load path surface its own
+            # Unknown model size, let the load path surface its own
             # error rather than refusing on a guessed repo id.
             return True
         return _check_hf_model_downloaded(meta.repo_id, config_dir)
-    # cloud / custom / unknown backend — no local model gate.
+    # cloud / custom / unknown backend, no local model gate.
     return True
 
 
 def invalidate_model_availability_cache() -> None:
     """Invalidate the cached model availability checks.
 
-    Called by the model download path (Models page) so the next tray
-    right-click reflects the newly-downloaded model immediately,
-    without waiting for the TTL to expire.
+    Delegates to the shared :mod:`voice_typer.server.model_availability`
+    store (BP-158), one call clears the verdicts for every consumer
+    (tray submenu, tooltip, precheck, service poll). Called by the
+    model download path (Models page) so the next tray right-click
+    reflects the newly-downloaded model immediately. Signature kept
+    so existing callers and test patches keep resolving.
     """
-    _hf_download_cache.clear()
+    from voice_typer.server import model_availability
+
+    model_availability.invalidate()
 
 
 def build_models_submenu_data(
@@ -341,7 +337,7 @@ def build_models_submenu_data(
     cfg: dict = {}
     qwen_model_path: Any = None
     if config_provider is not None:
-        # ``model_size == ""`` (NO_MODEL_SIZE) must stay ``""`` — the
+        # ``model_size == ""`` (NO_MODEL_SIZE) must stay ``""``, the
         # ``or "tiny"`` fallback only applies when the attribute is
         # MISSING (None), so a genuine "no model selected" state does
         # not get relabeled as tiny (which would mark tiny active in
@@ -367,7 +363,7 @@ def build_models_submenu_data(
             # ``model_size="tiny.en"`` + ``asr_backend="whisper"``
             # regardless of the user's actual configuration. Log at
             # DEBUG (not WARNING) because the tray menu falling back
-            # to defaults is non-fatal — the user can still open
+            # to defaults is non-fatal, the user can still open
             # Settings to reconfigure. The ``exc_info=True`` ensures
             # the traceback lands in ``voice-typer.log`` for diagnosis.
             log.debug(
@@ -379,7 +375,7 @@ def build_models_submenu_data(
         current_backend = cfg.get("asr_backend", "whisper") if cfg else "whisper"
         qwen_model_path = cfg.get("qwen_model_path") if cfg else None
 
-    # Models to check — mirrors MODEL_REGISTRY (Whisper family:
+    # Models to check, mirrors MODEL_REGISTRY (Whisper family:
     # tiny / large-v3 / large-v3-turbo; ``large-v3`` restored
     # 2026-08-15 at the user's request).
     candidates = [
@@ -403,14 +399,14 @@ def build_models_submenu_data(
             # page's ``get_model_status`` semantics.
             downloaded = _check_qwen_model_downloaded(config_dir, qwen_model_path)
         elif repo_id:
-            # cached check with 5-second TTL — avoids
+            # cached check with 5-second TTL, avoids
             # 5× filesystem exists() per right-click.
             downloaded = _check_hf_model_downloaded(repo_id, config_dir)
         else:
             downloaded = False
 
         # ``no_model``: with ``model_size == ""`` the user has NO active
-        # model — nothing in the submenu may render as active (the
+        # model, nothing in the submenu may render as active (the
         # parakeet/qwen branches below are backend-keyed and would
         # otherwise light up their row).
         no_model = current_model == ""
@@ -490,14 +486,14 @@ def build_models_menu_items(
         # RadioMenuItem active). Previously we manually prefixed the
         # label with "• " (and non-active with "  "), which bypassed
         # the native checkmark and broke screen-reader semantics.
-        # ``checked`` MUST be a callable — pystray wraps it via
+        # ``checked`` MUST be a callable, pystray wraps it via
         # ``_assert_callable(checked, lambda _: None)`` and invokes it
         # as ``checked(item)`` at render time; a raw bool raises
         # ``ValueError`` at MenuItem construction (crashes the tray
         # at startup). The menu is rebuilt on every right-click via
         # invalidate_menu_cache, so the captured bool is fresh at
         # display time.
-        # Label = family glyph + name (see ``_menu_label``) — the
+        # Label = family glyph + name (see ``_menu_label``), the
         # text-only stand-in for the family logo, since pystray's
         # native menus cannot render images.
         items.append(

@@ -1,9 +1,9 @@
 """Session state management for :class:`Recorder` (extracted from ``recorder.py``).
 
-Phase 4.5 — extracted from :mod:`.recorder` to shrink the
+Phase 4.5, extracted from :mod:`.recorder` to shrink the
 3772-LOC ``recorder.py`` god class (see  in ``review.md``).
 Owns the per-session state reset, config-derived scalar caching,
-secure-cache clearing (the bulk ``_secure_clear_caches`` — NOT
+secure-cache clearing (the bulk ``_secure_clear_caches``, NOT
 ``_secure_clear_session_caches`` which stays on Recorder for source-
 inspection contracts), buffer resizing for the effective sample rate,
 and the preroll prepend.
@@ -15,24 +15,24 @@ back-reference to the owning ``Recorder`` instance
 (``SessionState(recorder)``). The collaborator reference is used to
 access *shared* state that lives on ``Recorder`` and is NOT moved here:
 
-- ``self._recorder._audio_pipeline._buffer`` — main audio buffer (deque)
-- ``self._recorder._audio_pipeline._chunk_count`` / ``_cached_resampled`` / etc. — cached state
-- ``self._recorder._effective_sr`` / ``_buffer_sr`` — sample-rate tracking
-- ``self._recorder._ring_buffer`` — SPSC ring buffer (deque)
-- ``self._recorder._preroll_buffer`` — preroll deque
-- ``self._recorder.config`` — for ``sample_rate`` / ``max_recording_time_seconds``
-- ``self._recorder._audio_processor`` — filter chain
-- ``self._recorder._vad`` (VadProcessor) — VAD state (accessed via
+- ``self._recorder._audio_pipeline._buffer``: main audio buffer (deque)
+- ``self._recorder._audio_pipeline._chunk_count`` / ``_cached_resampled`` / etc., cached state
+- ``self._recorder._effective_sr`` / ``_buffer_sr``, sample-rate tracking
+- ``self._recorder._ring_buffer``: SPSC ring buffer (deque)
+- ``self._recorder._preroll_buffer``: preroll deque
+- ``self._recorder.config``: for ``sample_rate`` / ``max_recording_time_seconds``
+- ``self._recorder._audio_processor``: filter chain
+- ``self._recorder._vad`` (VadProcessor). VAD state (accessed via
   ``recorder._vad.<attr>``; the historical ``Recorder._vad_*`` shims
   were removed)
-- ``self._recorder._recent_rms_values`` / ``_silence_timer`` / etc. — RMS state
+- ``self._recorder._recent_rms_values`` / ``_silence_timer`` / etc., RMS state
 - ``self._recorder._devices._device_disconnected`` /
-  ``_device_disconnect_retries`` — disconnect state (DeviceManager)
+  ``_device_disconnect_retries``: disconnect state (DeviceManager)
 - ``recorder._audio_pipeline._xruns`` / ``_xrun_timestamps`` /
-  ``_clip_count`` / etc. — XRUN/clip telemetry (owned by
+  ``_clip_count`` / etc. XRUN/clip telemetry (owned by
   :class:`.audio_pipeline.AudioPipeline`)
-- ``self._recorder._cached_target_sr`` / ``_cached_vad_*`` — cached scalars
-- ``self._recorder._cached_resampled_segments`` / ``_cached_resampled_concat_dirty`` — segment cache
+- ``self._recorder._cached_target_sr`` / ``_cached_vad_*``, cached scalars
+- ``self._recorder._cached_resampled_segments`` / ``_cached_resampled_concat_dirty``, segment cache
 - ... and any other state referenced in the extracted bodies
 
 Each method on this class takes ``recorder`` as an explicit parameter
@@ -110,7 +110,7 @@ def coerce_max_recording_time(value: int) -> int:
 class SessionState:
     """Session state management for :class:`Recorder`.
 
-    Phase 4.5 — extracted from :mod:`.recorder`. See the module
+    Phase 4.5, extracted from :mod:`.recorder`. See the module
         docstring for the collaborator-pattern rationale and the list of
         recorder-owned vs. collaborator-owned state.
     """
@@ -141,7 +141,7 @@ class SessionState:
         #      earliest "owned" hook where the recorder is fully
         #      initialized and can accept new attrs.
         #
-        #   2. The state semantically belongs to "session state" — it
+        #   2. The state semantically belongs to "session state", it
         #      tracks per-session restart timestamps and is cleared by
         #      ``reset_session_state`` on every ``start()``. Placing it
         #      here keeps the reset logic next to the declaration.
@@ -153,7 +153,7 @@ class SessionState:
         # and if ``len(_restart_timestamps) >= _flapping_max_restarts``
         # (default 3), fires ``on_device_lost`` and clears the deque.
         # This catches a flapping BT mic that disconnects + reconnects
-        # 3+ times in 60s — a real user-facing regression where the
+        # 3+ times in 60s, a real user-facing regression where the
         # per-attempt retry counter was reset on every successful
         # restart so the threshold was never reached and the user never
         # saw "Microphone disconnected".
@@ -163,13 +163,13 @@ class SessionState:
         # to ``_flapping_max_restarts - 1`` entries (the threshold is
         # checked AFTER pruning; if it's met, the deque is cleared).
         # The max in-memory size is therefore ``_flapping_max_restarts``
-        # entries (3 by default) — negligible.
+        # entries (3 by default), negligible.
         recorder._restart_timestamps = collections.deque()
         # Default: 3 restarts within the window triggers on_device_lost.
         # Tuned for BT HFP/HSP flapping (typical flap cadence is 5-30s
         # between disconnect+reconnect cycles; 3 in 60s catches a real
         # flap while a single disconnect+reconnect cycle leaves the
-        # deque with 1 entry — well below the threshold).
+        # deque with 1 entry, well below the threshold).
         recorder._flapping_max_restarts = 3
         # Default: 60s sliding window. Long enough to catch a slow flap
         # (one cycle every ~20s), short enough that a user who
@@ -195,7 +195,7 @@ class SessionState:
         (revised): The dead ``_silence_warning_sent`` and
                 ``_max_duration_warning_sent`` boolean flags have been REMOVED.
                 They were declared and reset here but NEVER read in any
-                conditional — the actual silence-warning state machine uses
+                conditional, the actual silence-warning state machine uses
                 the integer counter ``_silence_warning_count`` (which IS read
                 elsewhere). The dead flags were misleading maintainers into
                 thinking warning deduplication existed when it didn't.
@@ -230,7 +230,7 @@ class SessionState:
         # ``reset_session_state`` runs from ``start()`` AFTER
         # ``_secure_clear_session_caches`` (which already zeroed the
         # previous session's segments), so the list is normally
-        # already-empty here — but defensive zeroing protects against
+        # already-empty here, but defensive zeroing protects against
         # any code path that populates the list between
         # ``_secure_clear_session_caches`` and this reset (e.g. a
         # racing ``snapshot()`` from the streaming thread), and keeps
@@ -251,7 +251,7 @@ class SessionState:
         # contract. ``reset_session_state`` runs from ``start()`` AFTER
         # ``_secure_clear_session_caches`` (which zeros the cached arrays
         # and the resample-path segment list), so the no-resample segment
-        # list is normally already-empty here — but defensive zeroing
+        # list is normally already-empty here, but defensive zeroing
         # protects against any code path that populates the list between
         # ``_secure_clear_session_caches`` and this reset (e.g. a racing
         # ``snapshot()`` from the streaming thread), and keeps the
@@ -272,7 +272,7 @@ class SessionState:
         recorder._cached_resampled_segments = []
         recorder._cached_resampled_concat_dirty = False
         # reset the no-resample-path segment list + dirty flag for the
-        # same reason — ``_ensure_no_resample_concat`` short-circuits
+        # same reason, ``_ensure_no_resample_concat`` short-circuits
         # when the dirty flag is ``False``, so a stale ``True`` would
         # serve a stale or empty cache on the next snapshot.
         recorder._cached_no_resample_segments = []
@@ -319,7 +319,7 @@ class SessionState:
         # VadProcessor.reset() handles the actual state restoration.
         # The owner-attribute assignments below are kept as a redundant
         # safety net AND as source-level documentation that start()
-        # resets the VAD calibration state — existing tests pin on
+        # resets the VAD calibration state, existing tests pin on
         # resetting the VAD state alongside the recorder-owned caches.
         recorder._vad.reset()
         recorder._vad.state = VadState.UNKNOWN
@@ -347,7 +347,7 @@ class SessionState:
         # Sliding-window flap detection: clear the restart-
         # timestamp deque so a fresh session doesn't inherit a stale
         # flap-detection window from the prior session. ``stop()``
-        # does NOT clear the deque (only ``start()`` does) — this
+        # does NOT clear the deque (only ``start()`` does), this
         # preserves the in-flight flap state across a stop+restart
         # cycle within the same session (e.g. when the user pauses
         # and resumes the same recording). ``start()`` is the explicit
@@ -386,13 +386,13 @@ class SessionState:
 
                 Returns ``max_rec`` (the parsed ``_cached_max_recording_time``
                 as an int, or 0 on TypeError/ValueError) so ``start()`` can
-                pass it to ``_resize_buffers_for_sample_rate`` later — the
+                pass it to ``_resize_buffers_for_sample_rate`` later, the
                 dynamic buffer sizing is deferred until the device loop
                 finalizes ``effective_sr``.
         """
         _silence_warning = recorder.config.silence_warning_seconds
         # stop_on_silence_seconds is a Config dataclass field (default
-        # 60.0) — always present on a real Config instance, so the
+        # 60.0), always present on a real Config instance, so the
         # getattr fallback could never fire on a real Config.
         _stop_on_silence = recorder.config.stop_on_silence_seconds
         _silence = float(_silence_warning) if isinstance(_silence_warning, int | float) else 20.0
@@ -418,7 +418,7 @@ class SessionState:
         # block after the device loop succeeds.
         return coerce_max_recording_time(recorder._cached_max_recording_time)
 
-    # ── Secure cache clearing (bulk — NOT _secure_clear_session_caches) ─
+    # ── Secure cache clearing (bulk. NOT _secure_clear_session_caches) ─
 
     def secure_clear_caches(self, recorder: Any) -> None:
         """Securely clear cached audio arrays (a ``SessionState`` method
@@ -434,7 +434,7 @@ class SessionState:
                 buffers.  The cached arrays can hold up to ~30 min of 16 kHz
                 float32 audio (~115 MB) of the user's voice, so simply dropping
                 the reference left that data in process memory until the numpy
-                allocator reused the block — defeating SEC-audit-008's intent.
+                allocator reused the block, defeating SEC-audit-008's intent.
 
                 This helper factors the 4-way duplication between ``stop()``'s
                 two code paths (empty-buffer early return + main path) and
@@ -447,7 +447,7 @@ class SessionState:
 
                 NOTE: this is the bulk ``_secure_clear_caches`` called by
                 ``stop()`` / ``discard()``. The smaller ``_secure_clear_session_caches``
-                helper called from ``start()`` STAYS on ``Recorder`` — it has a
+                helper called from ``start()`` STAYS on ``Recorder``, it has a
                 positive source-inspection contract (``tests/test_secure_clear_array.py``
                 pins that ``Recorder._secure_clear_session_caches`` source
                 contains ``_secure_clear_array(self._cached_resampled)`` and
@@ -482,7 +482,7 @@ class SessionState:
         # (the 1-segment fast path), so simply dropping the list
         # reference (as the original code did) leaves up to ~115 MB of
         # dictated float32 audio in process memory until the numpy
-        # allocator reuses the blocks — defeating 's intent for
+        # allocator reuses the blocks, defeating 's intent for
         # the segment cache. Zero each segment in-place BEFORE the
         # list reassignment. Best-effort: a failure to zero one
         # segment doesn't block zeroing the rest or the cache reset.
@@ -533,7 +533,7 @@ class SessionState:
         # after stop()/discard(). ``AudioProcessor.reset()`` was only
         # called from ``Recorder.start()`` pre-fix, so the filter
         # state from the prior recording lingered in process memory
-        # until the next start() — defeating SEC-audit-008's intent
+        # until the next start(), defeating SEC-audit-008's intent
         # for the filter-state path. Best-effort: a missing or
         # misbehaving ``reset`` is swallowed so secure-clear still
         # completes for the numpy caches above.
@@ -569,7 +569,7 @@ class SessionState:
         the ACTUAL chunk duration ``blocksize / effective_sr``.
 
         The blocksize used for the sizing below is the rate-scaled one
-        (``scaled_audio_blocksize(sizing_sr)`` — the same helper the
+        (``scaled_audio_blocksize(sizing_sr)``: the same helper the
         stream open paths in ``stream_lifecycle.py`` and
         ``disconnect_handler.py`` pass to ``sd.InputStream``), so
         ``chunk_seconds`` is ~32 ms at EVERY native rate (512 @ 16 kHz,
@@ -580,7 +580,7 @@ class SessionState:
         buffer / ring chunk counts for chunks that never arrive.
 
         History: the main buffer used to be sized against a stale
-        1024-sample/16kHz assumption (chunk_seconds=0.064) — at the
+        1024-sample/16kHz assumption (chunk_seconds=0.064), at the
         then-fixed 512-sample blocks a 30-min dictation silently lost
         its first ~25 min via deque maxlen eviction. We resize to
         ``int(max_rec / chunk_seconds) + safety`` so the buffer can
@@ -591,20 +591,20 @@ class SessionState:
         the pre-roll deque placeholder in __init__ is sized from
         ``config.sample_rate``; re-size here from ``sizing_sr`` so the
         deque holds the configured ``pre_roll_buffer_seconds`` of
-        audio — a duration contract, not a chunk count computed for a
-        different chunk size — at every rate. Existing pre-roll
+        audio, a duration contract, not a chunk count computed for a
+        different chunk size, at every rate. Existing pre-roll
         chunks already captured by the audio callback (between
         stream.start() above and here) are preserved.
         """
         sizing_sr = effective_sr if effective_sr > 0 else recorder.config.sample_rate
         if sizing_sr <= 0:
             sizing_sr = recorder.config.sample_rate
-        # Rate-scaled ~32 ms blocks — the SAME blocksize the stream was
+        # Rate-scaled ~32 ms blocks, the SAME blocksize the stream was
         # opened with (stream_lifecycle.py passes
         # ``scaled_audio_blocksize(candidate_sr)`` to ``sd.InputStream``;
         # the disconnect-handler restart path does the same). Sizing the
-        # buffers from this value keeps ``chunk_seconds`` — and with it
-        # the main-buffer / ring / pre-roll chunk counts — matched to
+        # buffers from this value keeps ``chunk_seconds``, and with it
+        # the main-buffer / ring / pre-roll chunk counts, matched to
         # the chunks the audio callback actually delivers at every
         # native rate.
         blocksize = scaled_audio_blocksize(sizing_sr)
@@ -616,14 +616,14 @@ class SessionState:
             if needed_chunks > current_maxlen:
                 if hasattr(recorder._audio_pipeline._buffer, "set_hard_cap"):
                     # Contiguous storage: raise the chunk-count cap and the
-                    # derived sample hard-cap IN PLACE — the filled window
+                    # derived sample hard-cap IN PLACE, the filled window
                     # is preserved automatically (single backing array).
                     recorder._audio_pipeline._buffer.maxlen = needed_chunks
                     recorder._audio_pipeline._buffer.set_hard_cap(needed_chunks * 2 * blocksize)
                 else:
                     # Legacy container (plain deque swapped in by the
                     # hot-swap path): preserve any data already in the
-                    # buffer (defensive — start() clears the buffer, so
+                    # buffer (defensive. Start() clears the buffer, so
                     # this is normally empty) when resizing.
                     old_data = list(recorder._audio_pipeline._buffer)
                     recorder._audio_pipeline._buffer = collections.deque(old_data, maxlen=needed_chunks)
@@ -651,7 +651,7 @@ class SessionState:
         # silence_threshold (5s) + ring_backlog (4s) = 9.0s from when
         # the user stopped speaking. The 4s headroom was sized for
         # "VAD inference latency spikes" but Silero VAD is 1-5ms
-        # against a 32ms budget — 1000× overkill. Reducing to 1s
+        # against a 32ms budget, 1000× overkill. Reducing to 1s
         # limits worst-case silence latency to ~6s while still
         # absorbing 1s spikes (GC pauses, etc.). The 4s capacity is
         # also available as ``_AUDIO_RING_BUFFER_CAPACITY_FALLBACK_S``
@@ -669,7 +669,7 @@ class SessionState:
             # floor at 64 chunks so a 16 kHz / 512-block device
             # still gets ~2s of headroom (64 * 512 / 16000 = 2.048s;
             # the scaled blocksize keeps the ~2 s duration contract at
-            # higher native rates too — each chunk stays ~32 ms).
+            # higher native rates too, each chunk stays ~32 ms).
             # This re-applies the headroom intent that is also applied
             # by the ring-reassignment block in
             # ``_recorder_split.start_recording``, which runs after
@@ -680,7 +680,7 @@ class SessionState:
             # constant: a ring left at a non-default capacity (an
             # oversized prior session, an env-var sizing, or a legacy
             # unbounded deque) must be resized even when the computed
-            # capacity happens to equal the module default — comparing
+            # capacity happens to equal the module default, comparing
             # against the constant skipped exactly those resizes and
             # left the ring's capacity dependent on device history.
             # ``maxlen is None`` (unbounded) also always resizes: an
@@ -701,7 +701,7 @@ class SessionState:
                     blocksize,
                     new_ring_capacity,
                     # report the LIVE previous capacity (0 marks the
-                    # unbounded/unknown case) — the log is the
+                    # unbounded/unknown case), the log is the
                     # operator's evidence of what was actually replaced.
                     _prev_ring_maxlen if _prev_ring_maxlen is not None else 0,
                 )
@@ -734,7 +734,7 @@ class SessionState:
         """Prepend the preroll buffer to the main buffer (a
         ``SessionState`` method; the historical
         ``Recorder._prepend_preroll_to_buffer`` pure delegator was
-        removed — invoked from the audio worker loop).
+        removed, invoked from the audio worker loop).
 
         Prepend captured pre-roll chunks to the main recording buffer.
 
@@ -758,7 +758,7 @@ class SessionState:
             if preroll_chunks:
                 for chunk in reversed(preroll_chunks):
                     mono_chunk = ensure_mono(recorder, chunk)
-                    # R18-F12: best-effort filter — if the processor
+                    # R18-F12: best-effort filter, if the processor
                     # raises (or returns None), fall back to the raw
                     # chunk so pre-roll never blocks start().
                     if recorder._audio_processor is not None:
@@ -778,7 +778,7 @@ class SessionState:
                 # Real chunk size for the duration estimate: the
                 # pre-roll deque holds raw device-rate callback chunks
                 # of ``scaled_audio_blocksize(effective_sr)`` samples
-                # each — NOT a fixed 512. A fixed-512 estimate
+                # each, NOT a fixed 512. A fixed-512 estimate
                 # understated the reported duration by the
                 # scaled/fixed ratio (~3× at 48 kHz, ~6× at 96 kHz).
                 _preroll_chunk_s = scaled_audio_blocksize(recorder._effective_sr) / recorder._effective_sr

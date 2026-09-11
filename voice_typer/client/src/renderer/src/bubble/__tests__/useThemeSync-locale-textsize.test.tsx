@@ -1,5 +1,5 @@
 /**
- * Focused tests for `useThemeSync` — locale + text-size reaction.
+ * Focused tests for `useThemeSync`, locale + text-size reaction.
  *
  * Covers the two sync surfaces added alongside the existing theme
  * triplet handling:
@@ -13,7 +13,7 @@
  *      garbled payloads (no `dir` flip from a hostile value).
  *   2. `text_size` in the `bubble:config` payload: the hook must set
  *      `--font-scale` = text_size / 14 on `document.documentElement`
- *      — the same formula the main window's `useTheme` applies — and
+ *     , the same formula the main window's `useTheme` applies, and
  *      must ignore non-numeric / non-positive values.
  */
 import { act, cleanup, render } from "@testing-library/react";
@@ -100,7 +100,7 @@ function renderHarness() {
 	);
 }
 
-describe("useThemeSync — localeChanged push", () => {
+describe("useThemeSync, localeChanged push", () => {
 	it("routes a supported locale through setLocale (locale state, dir, lang)", () => {
 		renderHarness();
 
@@ -132,7 +132,7 @@ describe("useThemeSync — localeChanged push", () => {
 		act(() => {
 			for (const cb of mockBubble.listeners.localeChanged ?? []) cb("<script>");
 		});
-		// Not a supported locale — setLocale must never run.
+		// Not a supported locale, setLocale must never run.
 		expect(getLocale()).toBe("en");
 		expect(document.documentElement.lang).not.toBe("<script>");
 
@@ -152,7 +152,7 @@ describe("useThemeSync — localeChanged push", () => {
 	});
 });
 
-describe("useThemeSync — text_size from bubble:config", () => {
+describe("useThemeSync, text_size from bubble:config", () => {
 	it("sets --font-scale to text_size / 14 when the config carries text_size", () => {
 		renderHarness();
 

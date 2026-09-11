@@ -25,7 +25,7 @@ python tests/manual/cublas_fallback.py
 ```
 
 All unique test coverage from these scripts is already captured in the
-automated test suite under `tests/` — specifically in `test_e2e_smoke.py`,
+automated test suite under `tests/`, specifically in `test_e2e_smoke.py`,
 `test_e2e_regression.py`, and `tests/test_transcription.py::TestFallbackChain`.
 The diagnostic scripts themselves are kept for manual troubleshooting when
 a developer needs to reproduce a specific hardware-dependent failure path
@@ -47,7 +47,7 @@ Each script now exposes a stable `run()` callable (renamed/aliased from
 its historical `main` / `run_runtime_proof` function) so it can be
 wrapped as a proper pytest test in [`tests/test_manual_slow.py`](../test_manual_slow.py).
 The wrappers are marked with `@pytest.mark.slow` and **skipped by
-default** — they only run when `--slow` is passed.
+default**: they only run when `--slow` is passed.
 
 | Script | Slow-test wrapper | What it asserts |
 |---|---|---|
@@ -59,7 +59,7 @@ default** — they only run when `--slow` is passed.
 ### Running the slow tests
 
 ```bash
-# Skipped by default — same as the regular suite:
+# Skipped by default: same as the regular suite:
 pytest tests/test_manual_slow.py -v
 
 # Opt in to the slow tests:
@@ -82,5 +82,5 @@ of being exiled to a separate CI workflow.
 The `.github/workflows/build.yml` workflow has a `slow-tests` job
 (`continue-on-error: true`, `main`-branch only) that runs
 `pytest --slow tests/test_manual_slow.py` on every push to `main`.
-Failures there do NOT block the build — the job exists to surface
+Failures there do NOT block the build, the job exists to surface
 regressions in the manual scripts themselves, not to gate releases.

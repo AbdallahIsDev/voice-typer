@@ -3,6 +3,7 @@ include LICENSE
 include README.md
 include SECURITY.md
 include CHANGELOG.md
+include CODE_OF_CONDUCT.md
 include CONTRIBUTING.md
 include FEATURES.md
 include pyproject.toml
@@ -25,19 +26,19 @@ recursive-include voice_typer/server/native *
 # explicitly; this entry closes the sdist gap.)
 #
 # Phase 1a (companion §2.5): the .jit is RETAINED until Phase 1c
-# (total torch removal) — Parakeet + Qwen still use torch between 1a
+# (total torch removal). Parakeet + Qwen still use torch between 1a
 # and 1c, and the Nuitka flag --module-parameter=torch-disable-jit=no
 # (C-CI-8 / NU-106) protects the bundle while torch is shipped. Do NOT
 # delete the .jit or this MANIFEST entry at Phase 1a.
 include voice_typer/server/silero_vad.jit
 
 # Phase 1a (companion §2.3.1): include the bundled Silero VAD ONNX
-# model — the new ORT backend's primary model file, loaded by
+# model, the new ORT backend's primary model file, loaded by
 # voice_typer/server/vad.py via onnxruntime.InferenceSession. Without
 # this, `pip install voice-typer` from sdist leaves VAD raising
 # FileNotFoundError at first dictation. (Frozen builds via
 # voice-typer.spec and the build_sidecar_*.sh Nuitka invocations
-# must also include this file — see companion §2.3.1 for the full
+# must also include this file: see companion §2.3.1 for the full
 # packaging checklist; those edits are out of this slice's scope.)
 include voice_typer/server/silero_vad.onnx
 
@@ -48,11 +49,11 @@ include voice_typer/server/silero_vad.onnx
 # onnxruntime.InferenceSession for the "gtcrn" noise-suppression method
 # (selected by the noisy_room preset). Without this, `pip install
 # voice-typer` from sdist leaves the suppressor degrading to RNNoise
-# with an is_degraded warning. Zero network egress — the model ships
+# with an is_degraded warning. Zero network egress, the model ships
 # beside silero_vad.onnx and the frozen bundle's
 # --include-package-data=voice_typer.server picks it up (C-CI-9).
-# 2026-08-25 local verification: model binary absent from this tree — the cloud patch exports text-only diffs and cannot carry binaries (expected size 535190 bytes, MIT streaming export). Restored via review entry GA-1; re-enable this line when the asset lands.
-# 2026-09-07: asset delivered (GA-1) — official export fetched from the upstream
+# 2026-08-25 local verification: model binary absent from this tree, the cloud patch exports text-only diffs and cannot carry binaries (expected size 535190 bytes, MIT streaming export). Restored via review entry GA-1; re-enable this line when the asset lands.
+# 2026-09-07: asset delivered (GA-1), official export fetched from the upstream
 # repo (Xiaobin-Rong/gtcrn, stream/onnx_models/gtcrn_simple.onnx), size verified
 # 535190 bytes, MIT license, I/O contract verified against gtcrn_backend.py
 # (mix[1,257,1,2] in, enh + 3 recurrent caches out). Line re-enabled.
@@ -68,7 +69,7 @@ include voice_typer/server/hotkey_reserved.json
 include voice_typer/server/model_hashes.json
 
 # WR-19: removed three dead lines that referenced voice_typer/server/assets/
-# (the directory does not exist on disk — verified via `ls
+# (the directory does not exist on disk, verified via `ls
 # voice_typer/server/assets/`). The previous `recursive-include
 # voice_typer/server/assets *` + two `include voice_typer/server/assets/*.png`
 # / `*.ico` lines silently matched nothing.

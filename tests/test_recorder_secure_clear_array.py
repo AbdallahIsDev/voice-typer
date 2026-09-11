@@ -8,10 +8,10 @@ Pre-fix bug (verified by ruff F821 in review.md):
   - The function is defined in ``recording/buffer.py:37`` and re-exported
     by ``recording/__init__.py:114``, but the bare-name lookup in
     ``recorder.py`` does NOT see it (the module never imports
-    ``_secure_clear_array`` directly — per the module docstring, all
+    ``_secure_clear_array`` directly, per the module docstring, all
     cross-submodule helpers must be routed via ``_recording_pkg.X``).
   - The call sites were wrapped in ``try/except Exception: pass``, so the
-    ``NameError`` was silently swallowed — SEC-audit-008 audio-buffer
+    ``NameError`` was silently swallowed, SEC-audit-008 audio-buffer
     clearing was a no-op.
 
 Post-fix:
@@ -66,12 +66,12 @@ class TestSecureClearArrayCallSite:
         assert "import recording as _recording_pkg" not in src, (
             "The `_recording_pkg` package-object bridge was removed per "
             "C-ARCH-2. Reintroducing it restores the dual patch-path "
-            "debt class — patch the owning module instead."
+            "debt class, patch the owning module instead."
         )
 
         # The call must use the imported (bare) name.
         assert "_secure_clear_array(" in inspect.getsource(recorder.Recorder), (
-            "Expected a ``_secure_clear_array(...)`` call on Recorder — the secure-clear path went missing."
+            "Expected a ``_secure_clear_array(...)`` call on Recorder, the secure-clear path went missing."
         )
 
     def test_secure_clear_array_background_uses_owning_module_import(self):
@@ -90,13 +90,13 @@ class TestSecureClearArrayCallSite:
         # The historical package-object bridge must NOT be reintroduced.
         assert "import recording as _recording_pkg" not in src, (
             "The `_recording_pkg` package-object bridge was removed per "
-            "C-ARCH-2 — do not reintroduce it in _recorder_split.py."
+            "C-ARCH-2, do not reintroduce it in _recorder_split.py."
         )
 
         # The call must use the bare name resolved from the buffer module.
         assert "_secure_clear_array_background(" in src, (
             "Expected a ``_secure_clear_array_background(...)`` call in "
-            "_recorder_split.py — the secure-clear path went missing."
+            "_recorder_split.py, the secure-clear path went missing."
         )
 
 
@@ -114,7 +114,7 @@ class TestSecureClearArrayBehavior:
         owning recording package chain.
 
         Pre-fix (CR-17): the bare-name call raised NameError, which was
-        swallowed by the surrounding ``try/except Exception: pass`` — so
+        swallowed by the surrounding ``try/except Exception: pass``, so
         the underlying ``buffer._secure_clear_array`` was NEVER invoked.
         Post-fix: the call uses the module-top import, and a removed
         binding fails at import time instead of being swallowed.
@@ -154,10 +154,10 @@ class TestSecureClearArrayBehavior:
 
         # start() (which runs the secure-clear path before clearing state)
         # should call the package-namespace helper for each cached array.
-        # We don't actually start a stream — just exercise the start()
+        # We don't actually start a stream, just exercise the start()
         # method body up to the point where it tries to open an
         # InputStream (which will fail since sounddevice is mocked).
-        # start() may fail later (no real device) — that's fine;
+        # start() may fail later (no real device), that's fine;
         # we only care that the secure-clear call sites ran first.
         with contextlib.suppress(Exception):
             r.start()
@@ -174,6 +174,6 @@ class TestSecureClearArrayBehavior:
             "Expected _recording_pkg._secure_clear_array to be called at "
             "least once from start(), but it was never invoked. CR-17 "
             "regression: the bare-name call site is raising NameError "
-            "and the surrounding try/except is swallowing it — "
+            "and the surrounding try/except is swallowing it, "
             "SEC-audit-008 audio-buffer clearing is a no-op."
         )

@@ -1,39 +1,39 @@
 """Metadata registry for all supported ASR models.
 
 This module is the single source of truth for *rich*
-model metadata — anything beyond the bare ``download_size_mb`` table
+model metadata, anything beyond the bare ``download_size_mb`` table
 that lives in :mod:`voice_typer.server.transcription`.
 
 Each entry in :data:`MODEL_REGISTRY` is a :class:`ModelMetadata`
 instance capturing:
 
-- ``download_size_mb`` — same value as ``_MODEL_SIZE_MB[name]``
-- ``required_vram_mb`` — estimated VRAM for inference (GPU) or RAM (CPU)
-- ``backend`` — ``"whisper"`` for the standard Systran faster-whisper
+- ``download_size_mb``: same value as ``_MODEL_SIZE_MB[name]``
+- ``required_vram_mb``: estimated VRAM for inference (GPU) or RAM (CPU)
+- ``backend``: ``"whisper"`` for the standard Systran faster-whisper
   repos, ``"distil-whisper"`` for the distilled variants.
-- ``multilingual`` — whether the model handles non-English audio
-- ``supported_languages`` — ``None`` (all) or a list like ``["en"]``
-- ``description`` — one-line, user-facing description shown in the
+- ``multilingual``: whether the model handles non-English audio
+- ``supported_languages``: ``None`` (all) or a list like ``["en"]``
+- ``description``: one-line, user-facing description shown in the
   Models page card.
-- ``repo_id`` — HuggingFace repo ID.  Distilled variants use the
+- ``repo_id``: HuggingFace repo ID.  Distilled variants use the
   ``Systran/faster-distil-whisper-*`` prefix; the rest use
   ``Systran/faster-whisper-*``.
-- ``is_distilled`` — ``True`` for distil-* models
-- ``speed_rating`` — ``"fast"`` / ``"medium"`` / ``"slow"``
-- ``accuracy_rating`` — ``"low"`` / ``"medium"`` / ``"high"``
-- ``wer`` — published Word Error Rate (WER, %) on the LibriSpeech
+- ``is_distilled``: ``True`` for distil-* models
+- ``speed_rating``: ``"fast"`` / ``"medium"`` / ``"slow"``
+- ``accuracy_rating``: ``"low"`` / ``"medium"`` / ``"high"``
+- ``wer``: published Word Error Rate (WER, %) on the LibriSpeech
   ``test-clean`` benchmark (lower is better), sourced from each model's
   official model card / evaluation.  ``None`` means no reliable
-  published figure is available — the Models page must omit the WER
+  published figure is available, the Models page must omit the WER
   field for that model rather than guessing.
-``network_behavior`` () — one of ``"local-only"``,
+``network_behavior`` (), one of ``"local-only"``,
   ``"downloads-on-first-use-consent-gated"``,
   ``"downloads-on-first-use-no-consent"``, or ``"cloud-per-call"``.
   Declares what network activity the model requires so the UI / privacy
   surface can show "downloads on first use (consent gated)" vs.
   "local-only" vs. "cloud per call" honestly.  Whisper + distil variants
   are consent-gated HF downloads; parakeet downloads without explicit
-consent (documented honestly per  — this is a known issue to
+consent (documented honestly per : this is a known issue to
   fix in a follow-up); qwen is local-only (user supplies the model
   path); cloud providers (not in this registry) are per-call.
 
@@ -75,14 +75,14 @@ class ModelMetadata:
     is_distilled: bool = False
     speed_rating: str = "medium"  # "fast", "medium", "slow"
     accuracy_rating: str = "high"  # "low", "medium", "high"
-    # Published WER (%) on LibriSpeech test-clean — sourced per entry
+    # Published WER (%) on LibriSpeech test-clean, sourced per entry
     # (see the comments in MODEL_REGISTRY). ``None`` = no reliable
     # published figure; the Models page omits the WER field for it.
     wer: float | None = None
     # declares what network activity the model requires, so the
     # UI/privacy surface can show "downloads on first use (consent gated)"
     # vs. "local-only" vs. "cloud per call" honestly.  Default
-    # ``"local-only"`` is the safest assumption — entries that DO
+    # ``"local-only"`` is the safest assumption, entries that DO
     # download must override explicitly so the catalog cannot silently
     # misrepresent a download as offline.
     network_behavior: str = "local-only"
@@ -114,7 +114,7 @@ class ModelMetadata:
 # the empty string, meaning the user has genuinely not picked a model
 # yet (or their previous selection was cleared because the model's
 # weights were removed and no other model was on disk). The app must
-# NOT try to load a model in this state — it reports "No model
+# NOT try to load a model in this state, it reports "No model
 # selected" in the tray tooltip / Models page and waits for the user
 # to pick one. ``""`` is used instead of ``None`` so ``model_size``
 # stays a plain ``str`` end-to-end (JSON round-trip, IPC types, the
@@ -122,17 +122,17 @@ class ModelMetadata:
 NO_MODEL_SIZE: str = ""
 
 # The canonical DEFAULT model size. THIS IS DELIBERATELY "no model
-# selected" — the app has NO concrete default model. A fresh install /
+# selected": the app has NO concrete default model. A fresh install /
 # config reset must not claim a model is selected when none is (a
 # concrete default like the old "tiny" made every consumer surface a
-# phantom model name — "tiny" — even when its weights were never
+# phantom model name, "tiny": even when its weights were never
 # installed). The user explicitly chooses a model (onboarding or the
 # Models page) and that choice persists across restarts.
 #
 # Kept as a named constant (single indirection over ``NO_MODEL_SIZE``)
 # so the config dataclass default, the load-time coercion reset target,
 # the onboarding pre-selection, and IPC payload defaults all read the
-# same source of truth — and the client mirror ``MODEL_DEFAULT`` in
+# same source of truth, and the client mirror ``MODEL_DEFAULT`` in
 # ``client/src/renderer/src/pages/onboarding/lib/constants.ts`` stays in
 # lockstep (parity test ``tests/test_default_model_sync.py``).
 DEFAULT_MODEL_SIZE: str = NO_MODEL_SIZE
@@ -151,14 +151,14 @@ MODEL_REGISTRY: dict[str, ModelMetadata] = {
         repo_id="Systran/faster-whisper-tiny",
         speed_rating="fast",
         accuracy_rating="low",
-        # WER 7.5% on LibriSpeech test-clean — self-reported in the
+        # WER 7.5% on LibriSpeech test-clean, self-reported in the
         # openai/whisper-tiny model card ("Test WER ... self-reported
         # 7.540"); Whisper paper Table 9 reports 7.6 (greedy). The
         # Systran/faster-whisper-tiny weights are the same OpenAI
         # checkpoints.
         wer=7.5,
     ),
-    # ``large-v3`` — highest-accuracy multilingual Whisper. Restored
+    # ``large-v3``: highest-accuracy multilingual Whisper. Restored
     # to the catalog 2026-08-15 at the user's request (the initial
     # catalog prune kept only tiny + large-v3-turbo).
     "large-v3": ModelMetadata(
@@ -173,7 +173,7 @@ MODEL_REGISTRY: dict[str, ModelMetadata] = {
         repo_id="Systran/faster-whisper-large-v3",
         speed_rating="slow",
         accuracy_rating="high",
-        # WER 2.0% on LibriSpeech test-clean — published Whisper
+        # WER 2.0% on LibriSpeech test-clean, published Whisper
         # benchmark consensus (whisper.cpp benchmark tables / HF Open
         # ASR Leaderboard; e.g. "Whisper Large-v3 ... 2.0% WER on
         # LibriSpeech test-clean"). OpenAI does not pin a number in the
@@ -191,12 +191,12 @@ MODEL_REGISTRY: dict[str, ModelMetadata] = {
         backend="whisper",
         multilingual=True,
         supported_languages=None,
-        description="Turbo model — near-large-v3 accuracy at 8x speed. Recommended for most users.",
+        description="Turbo model, near-large-v3 accuracy at 8x speed. Recommended for most users.",
         network_behavior="downloads-on-first-use-consent-gated",
         repo_id="Systran/faster-whisper-large-v3-turbo",
         speed_rating="fast",
         accuracy_rating="high",
-        # WER 2.1% on LibriSpeech test-clean — published benchmark
+        # WER 2.1% on LibriSpeech test-clean, published benchmark
         # consensus for the pruned turbo checkpoint (slightly above
         # large-v3's 2.0%; OpenAI's turbo release notes describe it as
         # "minor quality degradation" vs large-v3).
@@ -216,12 +216,12 @@ MODEL_REGISTRY: dict[str, ModelMetadata] = {
         backend="parakeet",
         multilingual=True,
         supported_languages=None,
-        description="NVIDIA Parakeet TDT 0.6b v3 — ONNX fp16 export (grikdotnet), fast CPU/GPU ASR without PyTorch.",
+        description="NVIDIA Parakeet TDT 0.6b v3. ONNX fp16 export (grikdotnet), fast CPU/GPU ASR without PyTorch.",
         network_behavior="downloads-on-first-use-consent-gated",
         repo_id="grikdotnet/parakeet-tdt-0.6b-fp16",
         speed_rating="fast",
         accuracy_rating="high",
-        # WER 1.93% on LibriSpeech test-clean — self-reported in the
+        # WER 1.93% on LibriSpeech test-clean, self-reported in the
         # nvidia/parakeet-tdt-0.6b-v3 model card (model-index:
         # "LibriSpeech (clean) ... Test WER 1.93"; test-other 3.59).
         # The app downloads the grikdotnet ONNX fp16 export of the
@@ -230,36 +230,36 @@ MODEL_REGISTRY: dict[str, ModelMetadata] = {
     ),
     # ── Qwen (by Alibaba) ─────────────────────────────────────────
     # added to registry for status consistency. Qwen uses a
-    # different download mechanism — the user must manually configure
+    # different download mechanism, the user must manually configure
     # ``qwen_model_path`` in Settings (pointing at a local snapshot of
     # ``Qwen/Qwen3-``). The repo_id below is informational
     # only; it is NOT auto-fetched. ``_check_qwen_deps()`` verifies
     # the configured path exists locally before the engine loads.
     #
     # previously the description claimed
-    # "Auto-downloaded on first use", which was inaccurate — the
+    # "Auto-downloaded on first use", which was inaccurate, the
     # engine does not auto-download. Corrected to "Requires manual
     # model path setup in Settings" so the user is not misled into
     # expecting a transparent first-use download.
     "qwen": ModelMetadata(
         name="qwen",
         display_name="Qwen-3",
-        download_size_mb=0,  # local-only — size depends on user-supplied snapshot
+        download_size_mb=0,  # local-only, size depends on user-supplied snapshot
         required_vram_mb=4096,
         backend="qwen",
         multilingual=True,
         supported_languages=None,
-        description="Alibaba Qwen3-ASR-1.7B (ONNX) — multilingual ASR via "
+        description="Alibaba Qwen3-ASR-1.7B (ONNX), multilingual ASR via "
         "onnxruntime. Requires manual model path setup in Settings "
         "(pre-exported ONNX dir, see PLAN_ONNX_INTEGRATION.md §4.3 C-2).",
         network_behavior="local-only",
-        # The pre-exported ONNX repo (torch-free, 2026-08-15) — the old
+        # The pre-exported ONNX repo (torch-free, 2026-08-15), the old
         # torch ``Qwen/Qwen-Audio`` repo_id was removed with the torch
         # engine.
         repo_id="andrewleech/qwen3-asr-1.7b-onnx",
         speed_rating="medium",
         accuracy_rating="high",
-        # WER 1.63% on LibriSpeech test-clean — from the official
+        # WER 1.63% on LibriSpeech test-clean, from the official
         # Qwen/Qwen3-ASR-1.7B model card evaluation table
         # ("LibriSpeech clean | other ... 1.63 | 3.38", best of the
         # compared models). The app runs a pre-exported ONNX snapshot
@@ -272,7 +272,7 @@ MODEL_REGISTRY: dict[str, ModelMetadata] = {
 def get_model_metadata(model_size: str) -> ModelMetadata | None:
     """Return metadata for ``model_size`` or ``None`` if unknown.
 
-    Safe to call with any string — never raises.  Used by
+    Safe to call with any string, never raises.  Used by
     :meth:`VoiceTyperService.download_model` to resolve the HF repo_id
     without hard-coding a separate name→repo map.
     """

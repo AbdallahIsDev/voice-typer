@@ -14,13 +14,13 @@ The previous implementation used::
         )
 
 Two concurrent processes corrupting DIFFERENT files in the same second
-both picked ``ts`` + ``counter=0`` — but their ``corrupt_path``s point
+both picked ``ts`` + ``counter=0``, but their ``corrupt_path``s point
 at DIFFERENT parent files, so the ``while exists()`` loop never trips
 on each other.  The bug surfaces when two processes corrupt the SAME
 file path (e.g. two app instances launched against the same user
 account) within the same second: both pick ``ts-0``, the
 ``exists()`` check has a TOCTOU window, and one process's
-``os.replace`` overwrites the other's quarantine — losing forensic
+``os.replace`` overwrites the other's quarantine, losing forensic
 history.
 
 The fix mirrors ``config.py:_backup_before_migration`` (line 1900-1903)
@@ -99,7 +99,7 @@ def test_concurrent_quarantine_same_path_no_clobber(tmp_path: Path) -> None:
     in its own config dir, both detecting corruption in the same
     epoch second.  The previous ``ts = int(time.time())`` + counter
     loop had a TOCTOU window when the SAME-PATH scenario applied
-    (two processes, same config.json path — one process's
+    (two processes, same config.json path, one process's
     ``os.replace`` would clobber the other's quarantine).  This test
     exercises the same-second, same-name, DIFFERENT-directory variant
     which is the closest race that's safely simulable in a
@@ -107,7 +107,7 @@ def test_concurrent_quarantine_same_path_no_clobber(tmp_path: Path) -> None:
     system path, so no FS-level serialization masks the filename
     collision).
 
-    Note: this is a probabilistic test — under extreme contention the
+    Note: this is a probabilistic test, under extreme contention the
     two ``time.time_ns()`` calls could still produce the same value if
     the OS clock has nanosecond resolution AND both threads happen to
     be scheduled to read the clock in the exact same nanosecond.  In
@@ -132,7 +132,7 @@ def test_concurrent_quarantine_same_path_no_clobber(tmp_path: Path) -> None:
     # Capture the destination path each thread passes to os.replace
     # by spying on os.replace.  We can't read the filesystem AFTER
     # both threads finish because both quarantine files have the
-    # same NAME (``race.json.corrupt-*``) — they're just in different
+    # same NAME (``race.json.corrupt-*``), they're just in different
     # parent directories.  Spying on os.replace captures the dst
     # path each thread computed.
     real_os_replace = os.replace
@@ -200,7 +200,7 @@ def test_concurrent_quarantine_same_path_no_clobber(tmp_path: Path) -> None:
         dest_filenames = [Path(d).name for d in dests]
 
         if dest_filenames[0] == dest_filenames[1]:
-            # Same filename — collision.  This is the regression
+            # Same filename, collision.  This is the regression
             # we're guarding against (the OLD ``ts``-only suffix
             # would produce the same filename when both threads
             # hit the same epoch second).
@@ -212,12 +212,12 @@ def test_concurrent_quarantine_same_path_no_clobber(tmp_path: Path) -> None:
         for d in dests:
             assert Path(d).exists(), (
                 f"Quarantine file {d} should exist after both threads "
-                f"finished — if it's missing, one thread clobbered the "
+                f"finished, if it's missing, one thread clobbered the "
                 f"other's quarantine file."
             )
 
     assert not clobber_seen, (
-        "At least one iteration saw a clobber — both threads produced "
+        "At least one iteration saw a clobber, both threads produced "
         "the same quarantine FILENAME, indicating the same-second "
         "TOCTOU race regressed.  Dest filenames were: "
         f"{dest_filenames}"
@@ -228,8 +228,8 @@ def test_concurrent_quarantine_different_paths_distinct(tmp_path: Path) -> None:
     """Two concurrent ``_quarantine_corrupt`` calls on DIFFERENT paths
     must produce distinct quarantine filenames (each in its own parent).
 
-    This is the simpler case — different parent paths mean no real
-    collision risk — but it pins the filename pattern so future
+    This is the simpler case, different parent paths mean no real
+    collision risk, but it pins the filename pattern so future
     refactors don't accidentally collapse to a non-unique scheme.
     """
     path_a = tmp_path / "data_a.json"
@@ -266,7 +266,7 @@ def test_concurrent_quarantine_different_paths_distinct(tmp_path: Path) -> None:
     assert len(quarantined_a) == 1, f"data_a.json should have 1 quarantine file, got {len(quarantined_a)}"
     assert len(quarantined_b) == 1, f"data_b.json should have 1 quarantine file, got {len(quarantined_b)}"
 
-    # Distinct parents — must always be distinct.
+    # Distinct parents, must always be distinct.
     assert quarantined_a[0].name != quarantined_b[0].name
 
     # Both must match the new pattern.
@@ -308,7 +308,7 @@ def test_quarantine_no_counter_loop_filenames(tmp_path: Path) -> None:
     for q in quarantined:
         assert not old_counter_re.match(q.name), (
             f"Quarantine filename must NOT match the old counter-loop "
-            f"pattern (.corrupt-<ts>.<N>). Got: {q.name} — the counter "
+            f"pattern (.corrupt-<ts>.<N>). Got: {q.name}, the counter "
             f"loop has a TOCTOU window and must be removed."
         )
 

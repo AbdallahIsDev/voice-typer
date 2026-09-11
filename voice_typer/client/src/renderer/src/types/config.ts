@@ -1,11 +1,11 @@
 // Must mirror Python `ALLOWED_USER_MODELS` (derived from
 // `voice_typer/server/model_registry.py`'s `MODEL_REGISTRY`). The
 // Whisper catalog (pruned 2026-08-15) is `tiny` / `large-v3` /
-// `large-v3-turbo` — `large-v3` was restored at the user's request
-// the same day — plus `qwen` and `parakeet`; the parity test
+// `large-v3-turbo`, `large-v3` was restored at the user's request
+// the same day, plus `qwen` and `parakeet`; the parity test
 // `types/__tests__/config-parity.test.ts` keeps the union in lockstep.
 // `""` is the genuine "no model selected" state (the backend's
-// `NO_MODEL_SIZE` sentinel) — the user has no active model until they
+// `NO_MODEL_SIZE` sentinel), the user has no active model until they
 // pick one. The default is `MODEL_DEFAULT`
 // (`onboarding/lib/constants.ts`), mirroring the backend's
 // `DEFAULT_MODEL_SIZE`.
@@ -34,7 +34,7 @@ export interface LinuxWindowButtonsConfig {
  *  (parsed from `gsettings org.gnome.desktop.wm.preferences button-layout`)
  *  plus the detected desktop environment (drives circle vs Breeze-square
  *  button styling). `layout` is null on non-Linux or when the probe
- *  failed. Never sent back via `set_config` — the allowlist rejects it. */
+ *  failed. Never sent back via `set_config`, the allowlist rejects it. */
 export interface LinuxWindowButtonsSystemInfo {
 	desktop_environment: "gnome" | "kde" | "xfce" | "mate" | "other" | "unknown";
 	layout: { side: "left" | "right"; buttons: string[] } | null;
@@ -61,7 +61,7 @@ export interface VoiceTyperConfig {
 	// in the IPC allowlist; absence on the wire is treated as 0.0.
 	pre_roll_buffer_seconds?: number;
 	//auto-calibrate VAD thresholds from ambient noise
-	// (server-side recording setting — no renderer UI, mirroring the
+	// (server-side recording setting, no renderer UI, mirroring the
 	// other `vad_*` fields which are intentionally absent from this
 	// interface). Declared `vad_auto_calibrate: bool = False` in the
 	// Python `Config` dataclass and IPC allowlist. OPTIONAL so older
@@ -95,7 +95,7 @@ export interface VoiceTyperConfig {
 	show_notifications: boolean;
 	//prewarm scheduled-task master toggle.
 	fast_startup: boolean;
-	//auto-update feature — runtime-pack download consent (docs/auto-update-feature.md §8.4).
+	//auto-update feature, runtime-pack download consent (docs/auto-update-feature.md §8.4).
 	offline_pack_consent: boolean;
 
 	// Clipboard borrow/restore (ADR-0010)
@@ -184,7 +184,7 @@ export interface VoiceTyperConfig {
 	// this position on next show; when null, the window falls back to
 	// the platform-default position computed from `bubble_position`
 	// ("top" / "bottom"). Both axes are stored together (either both
-	// null or both non-null) — the renderer writes them as a pair via
+	// null or both non-null), the renderer writes them as a pair via
 	// `set_config({ bubble_x, bubble_y })`.
 	//
 	//the Python `Config` dataclass in
@@ -192,7 +192,7 @@ export interface VoiceTyperConfig {
 	// `int | None = None`) alongside `bubble_position`, and they're in
 	// the IPC allowlist, so they survive across restarts via the
 	// normal config.json serialisation path. Older sidecars
-	//(pre-) silently dropped both keys — the renderer
+	//(pre-) silently dropped both keys, the renderer
 	// treats absence as null. REQUIRED on the TS side because every
 	//modern sidecar (post-) echoes them on `get_config`.
 	bubble_x: number | null;
@@ -206,7 +206,7 @@ export interface VoiceTyperConfig {
 	//the Python `Config` dataclass now persists
 	// this as `float = 1.0` and it's in the IPC allowlist. OPTIONAL on
 	// the TS side for backward compat with older config.json files /
-	// older sidecars that predate the field — absence is treated as
+	// older sidecars that predate the field, absence is treated as
 	// 1.0 by both the renderer and the server.
 	bubble_scale?: number;
 
@@ -217,7 +217,7 @@ export interface VoiceTyperConfig {
 	//the Python `Config` dataclass now persists
 	// this as `int = 5` and it's in the IPC allowlist. OPTIONAL on the
 	// TS side for backward compat with older config.json files /
-	// older sidecars that predate the field — absence falls back to
+	// older sidecars that predate the field, absence falls back to
 	// the server default of 5s.
 	test_duration_seconds?: number;
 
@@ -261,7 +261,7 @@ export interface VoiceTyperConfig {
 
 	// Linux window-button customization (Settings → Appearance, Linux
 	// only). OPTIONAL for backward compat with older sidecars that
-	// predate the field — absence falls back to the resolver defaults
+	// predate the field, absence falls back to the resolver defaults
 	// (system mode / right side / all three buttons).
 	linux_window_buttons?: LinuxWindowButtonsConfig;
 	// READ-ONLY computed snapshot attached by the sidecar's `get_config`
@@ -282,14 +282,14 @@ export interface VoiceTyperConfig {
 	// (max_recording_time_seconds_gpu, max_recording_time_seconds_cpu, and
 	// max_recording_time_seconds=0 auto-selection). Now always a concrete value.
 	max_recording_time_seconds: number;
-	//dead_air_timeout REMOVED — redundant with stop_on_silence_seconds.
+	//dead_air_timeout REMOVED, redundant with stop_on_silence_seconds.
 
 	// Volume ducking
 	volume_duck_enabled: boolean;
 	volume_duck_level: number;
 	/**
 	 * @deprecated REMOVED from the Python Config
-	 * dataclass (`voice_typer/server/config.py:775-781`) — ducking now
+	 * dataclass (`voice_typer/server/config.py:775-781`), ducking now
 	 * always applies to the master volume cross-platform. Existing
 	 * `config.json` files that still carry the key are silently
 	 * scrubbed by the v3 schema migration, so the field is NOT on the
@@ -307,7 +307,7 @@ export interface VoiceTyperConfig {
 	volume_duck_fade_ms: number;
 	/**
 	 * @deprecated REMOVED from the Python Config
-	 * dataclass (`voice_typer/server/config.py:784-786`) — smart duck
+	 * dataclass (`voice_typer/server/config.py:784-786`), smart duck
 	 * is now ALWAYS ON when `volume_duck_enabled` is True. Existing
 	 * `config.json` files that still carry the key are silently
 	 * scrubbed by the v3 schema migration, so the field is NOT on the
@@ -335,7 +335,7 @@ export interface VoiceTyperConfig {
 	// disk to "off" / "auto" BEFORE the IPC validator sees them, so
 	// the IPC boundary never accepts either value. The wider TS union
 	// let renderer code construct a payload that the Python IPC
-	// validator would silently reject — narrowed to eliminate that
+	// validator would silently reject, narrowed to eliminate that
 	// drift.
 	audio_preset: "auto" | "studio" | "noisy_room" | "off" | "custom";
 
@@ -346,7 +346,7 @@ export interface VoiceTyperConfig {
 	noise_filter_gate: boolean;
 	/**
 	 * @deprecated REMOVED from the Python Config
-	 * dataclass (`voice_typer/server/config.py:837-840`) — replaced
+	 * dataclass (`voice_typer/server/config.py:837-840`), replaced
 	 * by the open/close threshold pair below per ADR 0007. Existing
 	 * `config.json` files that still carry the key are silently
 	 * scrubbed by the v3 schema migration, so the field is NOT on
@@ -372,30 +372,30 @@ export interface VoiceTyperConfig {
 	// `voice_typer/server/config.py:842` declares
 	// `noise_filter_rnnoise: bool = True` (legacy field kept for
 	// back-compat with old config.json files, migrated/ignored per
-	// ADR 0007 §5). It is NOT in the IPC allowlist — renderer
+	// ADR 0007 §5). It is NOT in the IPC allowlist, renderer
 	// `set_config({ noise_filter_rnnoise: ... })` calls are rejected
 	// by the validator. The field IS read by `level_monitor.py` and
 	// synced by `config_applier.py` (which derives it from
 	// `audio_preset`). The previous `// DEPRECATED` comment was
-	// incorrect — this is a live runtime switch, not a deprecated
+	// incorrect, this is a live runtime switch, not a deprecated
 	// field.
 	noise_filter_rnnoise: boolean; // RUNTIME (server-controlled, not IPC-settable per ADR 0009)
 	//ADR 0009: RUNTIME (server-controlled, not IPC-settable
 	// per ADR 0009). The Python `Config` dataclass at
 	// `voice_typer/server/config.py:843` declares
-	// `noise_filter_post_capture: bool = True` (runtime switch — see
+	// `noise_filter_post_capture: bool = True` (runtime switch, see
 	// ADR 0009). Actively read by `level_monitor.py` and synced by
-	// `config_applier.py`. NOT in the IPC allowlist — renderer
+	// `config_applier.py`. NOT in the IPC allowlist, renderer
 	// `set_config({ noise_filter_post_capture: ... })` calls are
 	// rejected by the validator. The previous `// DEPRECATED`
-	// comment was incorrect — this is a live runtime switch, not a
+	// comment was incorrect, this is a live runtime switch, not a
 	// deprecated field.
 	noise_filter_post_capture: boolean; // RUNTIME (server-controlled, not IPC-settable per ADR 0009)
 	//tightened to mirror the Python `NOISE_SUPPRESSION_METHODS`
 	// frozenset in `voice_typer/server/config_validators.py`
 	// ({"rnnoise", "gtcrn", "none"}). The historical "speex"
-	// option was never implemented — there is no speex backend in
-	// `audio_filters/noise_suppressor.py` — and was rejected at the
+	// option was never implemented, there is no speex backend in
+	// `audio_filters/noise_suppressor.py`, and was rejected at the
 	// IPC boundary. "deepfilternet" was retired when the bundled
 	// GTCRN ONNX streaming model replaced the unmaintained
 	// DeepFilterNet package (the Python config loader remaps the
@@ -435,20 +435,20 @@ export interface VoiceTyperConfig {
 
 	//sound feedback on record start/stop.  Opt-in (default
 	// false).  When true, the renderer plays a short Web Audio API cue
-	// when recording starts and stops — useful for accessibility and
+	// when recording starts and stops, useful for accessibility and
 	// for users who prefer an auditory signal.
 	sound_feedback_enabled: boolean;
 
 	//volume multiplier applied to the sound-feedback cues
 	// (Settings → Recording slider + Test Sound preview). Range is
-	// clamped by the server to [0.0, 1.0] — 1.0 keeps the cues'
+	// clamped by the server to [0.0, 1.0], 1.0 keeps the cues'
 	// baked-in level, 0.0 mutes them. OPTIONAL on the TS side for
 	// backward compat with older sidecars that predate the field —
 	// absence is treated as 1.0 by the renderer's sound-manager.
 	sound_volume?: number;
 
 	// P4: AI grammar / punctuation / capitalization.
-	// Master toggle (ai_enhancement_enabled) defaults OFF — the user
+	// Master toggle (ai_enhancement_enabled) defaults OFF, the user
 	// must explicitly opt in via Settings → AI Enhancement.  The three
 	// sub-toggles default ON so enabling the master toggle "just works".
 	// See voice_typer/server/ai_enhancement.py for the implementation.
@@ -470,13 +470,13 @@ export interface VoiceTyperConfig {
 	//marks that plaintext API keys have been migrated to
 	// the OS keychain.  Set to true by Config.load() after the
 	// first migration run.  The renderer doesn't display this
-	// directly — it consults ``keyring_status`` for the user-facing
+	// directly, it consults ``keyring_status`` for the user-facing
 	// indicator.
 	secrets_migrated?: boolean;
 
 	//OS keychain backend status.  Attached to the
 	// ``get_config`` / ``get_defaults`` IPC responses by the
-	// service layer (NOT stored in the Config dataclass — it's
+	// service layer (NOT stored in the Config dataclass, it's
 	// runtime-probed state).  Optional because legacy responses
 	//(pre-) don't include it; the renderer treats absence
 	// as "keyring unavailable, plaintext fallback".

@@ -3,12 +3,12 @@
 the former 1072-line ``asr_registry.py`` was split into three
 focused modules under ``voice_typer/server/asr/``:
 
-- ``asr/registry.py`` — ``RegistryCore`` (base class) with backend CRUD
+- ``asr/registry.py``: ``RegistryCore`` (base class) with backend CRUD
   + load/fallback orchestration + ``AsrBackend`` / ``ConfigProtocol``
   Protocols.
-- ``asr/circuit_breaker.py`` — ``CircuitBreaker`` with the
+- ``asr/circuit_breaker.py``: ``CircuitBreaker`` with the
   failure-counter / disabled-set / subscriber state.
-- ``asr/busy_flag.py`` — ``BusyFlag`` with the per-backend busy flag.
+- ``asr/busy_flag.py``: ``BusyFlag`` with the per-backend busy flag.
 
 ``AsrBackendRegistry`` (in ``asr_registry.py``) is a thin facade that
 subclasses ``RegistryCore`` and composes ``CircuitBreaker`` +
@@ -307,7 +307,7 @@ class TestPatchObjectContract:
     def test_patch_record_success_intercepts_load_with_fallback(self):
         """``patch.object(registry, "_record_success")`` must intercept
         the call from ``load_with_fallback`` (inherited from
-        RegistryCore) — the MRO resolves ``self._record_success`` on the
+        RegistryCore), the MRO resolves ``self._record_success`` on the
         facade instance, honouring the patch."""
         registry = _make_registry()
         backend = registry.get("parakeet")

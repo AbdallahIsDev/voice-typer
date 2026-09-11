@@ -175,7 +175,7 @@ class TestLegacyFieldPropertyDelegatesToRegistry:
     """ARCH-047: the three legacy engine attributes
     (``transcriber`` / ``_qwen_engine`` / ``_parakeet_engine``) are now
     ``@property`` accessors that delegate directly to
-    ``self._registry.get(...)`` — no mirrored state, no sync step.
+    ``self._registry.get(...)``, no mirrored state, no sync step.
 
     Their ``@property.setter`` counterparts delegate to
     ``self._registry.register(...)`` / ``unregister(...)`` so test code
@@ -189,12 +189,12 @@ class TestLegacyFieldPropertyDelegatesToRegistry:
         from voice_typer.server.asr_registry import AsrBackendRegistry
         from voice_typer.server.model_manager import ModelManager
 
-        # Minimal config stub — only `asr_backend` is read.
+        # Minimal config stub, only `asr_backend` is read.
         class _Config:
             asr_backend = "whisper"
 
         registry = AsrBackendRegistry(_Config())
-        # Bypass __init__ — we only need the registry. The three legacy
+        # Bypass __init__, we only need the registry. The three legacy
         # engine attributes are now @property accessors that delegate to
         # ``registry.get(...)``, so they don't need to be initialized.
         mm = ModelManager.__new__(ModelManager)
@@ -207,12 +207,12 @@ class TestLegacyFieldPropertyDelegatesToRegistry:
         'unregistered backend' / 'registered backend'."""
         mm, registry = self._make_mm()
 
-        # Set a transcriber instance — should register.
+        # Set a transcriber instance, should register.
         transcriber = object()
         mm.transcriber = transcriber
         assert registry.get("whisper") is transcriber
 
-        # Re-assign the SAME instance — registry must NOT churn. The
+        # Re-assign the SAME instance, registry must NOT churn. The
         # setter short-circuits when ``current is value``, so no
         # unregister/register pair fires. We approximate "no churn" by
         # checking the registered object identity is unchanged.
@@ -292,7 +292,7 @@ class TestSetActiveBackend:
     the active ASR backend WITHOUT changing ``model_size``.
 
     Previously the IPC handler caught the ``AttributeError`` raised by
-    the missing method, logged a warning, and returned ``ack`` — the
+    the missing method, logged a warning, and returned ``ack``, the
     actual backend swap never happened. These tests use the REAL
     :class:`ModelManager` (not a MagicMock) so a missing method shows
     up as a real test failure instead of being masked by mock auto-stub.
@@ -309,7 +309,7 @@ class TestSetActiveBackend:
             "silently swallowed the AttributeError."
         )
         # The method must be callable on the class itself (not just an
-        # instance attribute) — this is what distinguishes a real method
+        # instance attribute), this is what distinguishes a real method
         # from a MagicMock auto-stub.
         assert callable(ModelManager.set_active_backend)
 
@@ -322,7 +322,7 @@ class TestSetActiveBackend:
         mm._app = MagicMock()
         mm._model_change_lock = __import__("threading").RLock()
         # The ValueError must be raised BEFORE any lock acquisition or
-        # config mutation — the validation happens at the top of the method.
+        # config mutation, the validation happens at the top of the method.
         try:
             mm.set_active_backend("nonexistent-backend")
         except ValueError as e:
@@ -379,7 +379,7 @@ class TestSetActiveBackend:
 
         config.save = spy_save
 
-        # Already on whisper — calling set_active_backend("whisper") is a no-op.
+        # Already on whisper, calling set_active_backend("whisper") is a no-op.
         mm.set_active_backend("whisper")
 
         assert save_calls == [], (
@@ -489,7 +489,7 @@ class TestWhisperFallbackConstructsOnColdBoot:
         fake_whisper_engine.is_loaded = False  # not yet loaded
         fake_whisper_cls = MagicMock(return_value=fake_whisper_engine)
         fake_whisper_mod = MagicMock(TranscriptionEngine=fake_whisper_cls)
-        # Primary backend module — its engine raises on load().
+        # Primary backend module, its engine raises on load().
         failing_engine = MagicMock()
         failing_engine.is_loaded = False
         failing_engine.load.side_effect = RuntimeError("parakeet CUDA OOM")
@@ -518,7 +518,7 @@ class TestWhisperFallbackConstructsOnColdBoot:
         registry = AsrBackendRegistry(_Config())
         # Pre-register the parakeet engine (simulating _ensure_engine having run).
         registry.register("parakeet", failing_engine)
-        # IMPORTANT: do NOT register a whisper engine — this is the
+        # IMPORTANT: do NOT register a whisper engine, this is the
         # cold-boot scenario  addresses.
 
         result = registry.load_with_fallback(progress_callback=lambda msg: None)
@@ -649,7 +649,7 @@ class TestCircuitBreaker:
         failing_engine.load.reset_mock()
         registry.load_with_fallback(progress_callback=lambda msg: None)
         failing_engine.load.assert_not_called()
-        # Disabled backends should be skipped — load_with_fallback should
+        # Disabled backends should be skipped, load_with_fallback should
         # go straight to the whisper fallback.
 
     def test_reset_failures_clears_disabled_state(self):

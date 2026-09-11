@@ -17,7 +17,7 @@
  * sound-manager.ts) so ~41 KB of encoded audio does not bloat the
  * cue-playback source, editor syntax highlighting, Vite HMR re-parses,
  * or grep/diff noise. They are deliberately kept as base64 data URLs —
- * NOT as real .wav files imported via Vite ``?url`` — because a real
+ * NOT as real .wav files imported via Vite ``?url``, because a real
  * asset changes how the fallback resolves across dev (http://localhost)
  * and packaged (file:// + asar) loads, a difference that cannot be
  * verified by the focused test suite in a headless sandbox; a data URL

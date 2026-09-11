@@ -3,14 +3,14 @@
 This test addresses two CI-change risks identified in the batch
 :
 
-1. **YAML syntax validity** — any malformed ``.github/workflows/*.yml``
+1. **YAML syntax validity**, any malformed ``.github/workflows/*.yml``
    file breaks EVERY push (GitHub rejects the workflow file at 0s with
    "workflow file issue"). The Linux sandbox CANNOT execute a real
    GitHub Actions workflow, so the only locally-verifiable signal is
    that the file parses as valid YAML. This test parses every workflow
    file with ``yaml.safe_load`` and asserts no exception is raised.
 
-2. **C-CI-1 pin preservation** — the project pins all GitHub Actions
+2. **C-CI-1 pin preservation**, the project pins all GitHub Actions
    to specific Node-24-runtime versions (see the header comment block
    in ``build.yml``). Unpinning (e.g. ``actions/checkout@v5`` →
    ``actions/checkout@main``) introduces a supply-chain risk via tag
@@ -38,7 +38,7 @@ PROJECT_ROOT = WORKFLOWS_DIR.parents[1]
 # C-CI-1: the canonical pinned-version map. Every `uses: <action>@<ref>`
 # directive in every workflow file MUST reference one of these versions.
 # If a future Node-24-runtime bump lands (e.g. actions/checkout@v6), update
-# BOTH the workflow files AND this map in the same PR — the test will fail
+# BOTH the workflow files AND this map in the same PR, the test will fail
 # otherwise, forcing the maintainer to consciously acknowledge the bump.
 PINNED_ACTION_VERSIONS: dict[str, str] = {
     "actions/checkout": "v5",
@@ -48,7 +48,7 @@ PINNED_ACTION_VERSIONS: dict[str, str] = {
     # Node 24 runtime versions (v5 upload/download-artifact and v6
     # setup-uv run on the deprecated Node 20 runtime). Bumped by commit
     # e80dbe1d "ci: bump upload/download-artifact to v6 and setup-uv to
-    # v7 (Node 24 runtime)" — keep these in lock-step with the
+    # v7 (Node 24 runtime)", keep these in lock-step with the
     # workflows' uses: directives.
     "actions/upload-artifact": "v6",
     "actions/download-artifact": "v6",
@@ -63,7 +63,7 @@ PINNED_ACTION_VERSIONS: dict[str, str] = {
 # leading-whitespace-then-`uses:` anchor.
 USES_RE = re.compile(r"^\s*-\s+uses:\s+([A-Za-z0-9_.\-/]+)@([A-Za-z0-9_.\-/]+)\s*$", re.MULTILINE)
 # Inline `uses:` (indented under a step key, e.g. inside a `with:` block on
-# the next line — rare, but `actions/attest-build-provenance` uses this form
+# the next line, rare, but `actions/attest-build-provenance` uses this form
 # in some workflows). This catches the `        uses: foo@vN` form too.
 USES_INLINE_RE = re.compile(r"^\s*uses:\s+([A-Za-z0-9_.\-/]+)@([A-Za-z0-9_.\-/]+)\s*$", re.MULTILINE)
 
@@ -130,14 +130,14 @@ def test_workflow_actions_are_pinned(wf_path: Path) -> None:
     text = wf_path.read_text(encoding="utf-8")
     uses_directives = _extract_uses(text)
     if not uses_directives:
-        # Some workflows (e.g. mutation.yml — RETIRED) legitimately have
+        # Some workflows (e.g. mutation.yml, RETIRED) legitimately have
         # zero `uses:` directives because they only run a single shell
-        # step. Skip the pin assertion for those — nothing to pin.
+        # step. Skip the pin assertion for those, nothing to pin.
         pytest.skip(f"{wf_path.name}: no `uses:` directives (retired / shell-only workflow)")
     violations: list[str] = []
     for action_name, ref, line_no in uses_directives:
         if action_name not in PINNED_ACTION_VERSIONS:
-            # Unknown action — not necessarily wrong (the project may use
+            # Unknown action, not necessarily wrong (the project may use
             # other third-party actions like github/codeql-action). Skip
             # the pin assertion but record it for debug visibility.
             continue
@@ -145,7 +145,7 @@ def test_workflow_actions_are_pinned(wf_path: Path) -> None:
         if ref != expected_ref:
             violations.append(f"  line {line_no}: {action_name}@{ref} (expected @{expected_ref})")
     assert not violations, (
-        f"{wf_path.name}: C-CI-1 pin violation — the following `uses:` "
+        f"{wf_path.name}: C-CI-1 pin violation, the following `uses:` "
         "directives do not match the canonical pinned version map "
         "(see PINNED_ACTION_VERSIONS in this test):\n"
         + "\n".join(violations)
@@ -156,7 +156,7 @@ def test_workflow_actions_are_pinned(wf_path: Path) -> None:
 
 
 def test_workflow_files_exist() -> None:
-    """Sanity check — the workflows directory must exist and contain files.
+    """Sanity check, the workflows directory must exist and contain files.
 
     A misconfigured test environment (wrong cwd, missing checkout) would
     otherwise cause `_workflow_files()` to return `[]` and the parametrized
@@ -165,7 +165,7 @@ def test_workflow_files_exist() -> None:
     """
     files = _workflow_files()
     assert files, (
-        f"no .yml files found under {WORKFLOWS_DIR} — the test "
+        f"no .yml files found under {WORKFLOWS_DIR}, the test "
         "environment is misconfigured (wrong cwd or missing checkout)."
     )
     # The project ships at least these 9 workflow files today; if any
@@ -233,7 +233,7 @@ def test_macos_missing_binary_is_hard_failure() -> None:
         pytest.skip("tauri-macos-build.yml not found")
     text = wf.read_text(encoding="utf-8")
     assert "SKIP (not found)" not in text, (
-        "stale `SKIP (not found)` message still present — missing "
+        "stale `SKIP (not found)` message still present, missing "
         "nested binaries must hard-fail with `::error::` + `exit 1`."
     )
     assert "::error::Expected binary missing from .app bundle:" in text, (
@@ -272,7 +272,7 @@ def test_macos_gate_documentation_present() -> None:
     # The jobs must be ENABLED (no `if: false` guards left) so the
     # Phase 0-M validation run can execute via workflow_dispatch.
     assert "if: false" not in text, (
-        "expected NO `if: false` job guards — the macOS jobs must be "
+        "expected NO `if: false` job guards, the macOS jobs must be "
         "enabled (`if: true`) for the Phase 0-M validation run."
     )
     assert text.count("if: true") >= 3, (
@@ -286,8 +286,8 @@ def test_tauri_workflows_have_config_drift_failfast_gate() -> None:
 
     The guards are the same tests the full suite enforces
     (``test_bundle_identifier_parity.py`` identifier↔appId +
-    productName + version parity — run as the WHOLE module so a new
-    identity-parity class is auto-included — plus the
+    productName + version parity, run as the WHOLE module so a new
+    identity-parity class is auto-included, plus the
     ``test_gen_tauri_icons_stub.py`` bundle.icon↔git drift tests), but as a
     dedicated pre-build step a drift regression (e.g. an icon added to one
     side only, or the Tauri identifier / Electron appId / productName /
@@ -314,7 +314,7 @@ def test_tauri_workflows_have_config_drift_failfast_gate() -> None:
         )
         for node in node_ids:
             assert node in text, (
-                f"{name} drift gate must run {node} — a drift regression would "
+                f"{name} drift gate must run {node}, a drift regression would "
                 "otherwise only surface after the full test suite."
             )
         assert "--no-cov" in text, (
@@ -384,7 +384,7 @@ def test_windows_signtool_has_d_du_flags() -> None:
     signing_helper = PROJECT_ROOT / "scripts" / "windows" / "sign-authenticode.ps1"
     assert signing_helper.is_file(), "missing shared Windows signing helper"
     text = signing_helper.read_text(encoding="utf-8")
-    # The description is derived from branding.py (C-BRAND-1) — the
+    # The description is derived from branding.py (C-BRAND-1), the
     # /d flag must interpolate `$sigDescription`, never a hardcoded name.
     brand_source = "voice_typer/server/branding.py"
     assert brand_source in text, f"signtool description must be sourced from branding.py (missing `{brand_source}`)."

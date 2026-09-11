@@ -3,7 +3,7 @@
  * + `role="alert"` switch + secondary "Force retry" action.
  *
  * Background: the  finding documented that the root element used
- * `role="alertdialog" aria-modal="false"` (contradictory — alertdialog
+ * `role="alertdialog" aria-modal="false"` (contradictory, alertdialog
  * is implicitly modal) and that the `restarting` state had NO spinner,
  * NO progress, NO action button. Users perceived the app as frozen
  * during transient backend restarts and had no in-app escape.
@@ -41,7 +41,7 @@ vi.mock("@/i18n/i18n", () => ({
 	useT: () => (key: string) => key,
 }));
 
-// EmptyState uses HugeiconsIcon — mock to render a plain span so we
+// EmptyState uses HugeiconsIcon, mock to render a plain span so we
 // don't need the @hugeicons/react runtime in the test.
 vi.mock("@hugeicons/react", () => ({
 	HugeiconsIcon: ({ children }: { children?: React.ReactNode }) => (
@@ -51,7 +51,7 @@ vi.mock("@hugeicons/react", () => ({
 	),
 }));
 
-describe("ConnectionStatusScreen — roleless wrapper + restarting spinner + force-retry action", () => {
+describe("ConnectionStatusScreen, roleless wrapper + restarting spinner + force-retry action", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 	});
@@ -110,7 +110,7 @@ describe("ConnectionStatusScreen — roleless wrapper + restarting spinner + for
 		);
 		// The Spinner is wrapped in an <output aria-live="polite">
 		// (so SR users hear the loading state). The output element
-		// has implicit role="status" — assert it renders. The
+		// has implicit role="status", assert it renders. The
 		// description node is also a status region now, so query by
 		// accessible name.
 		expect(screen.getByRole("status", { name: "a11y.loading" })).toBeTruthy();
@@ -151,7 +151,7 @@ describe("ConnectionStatusScreen — roleless wrapper + restarting spinner + for
 			/>,
 		);
 		// Same spinner + restartingBackend title + force-retry as
-		// "restarting" (isRecoveringStatus) — never the disconnected
+		// "restarting" (isRecoveringStatus), never the disconnected
 		// lost-connection copy.
 		expect(screen.getByRole("status", { name: "a11y.loading" })).toBeTruthy();
 		expect(

@@ -27,7 +27,7 @@ from voice_typer.server import transcription, transcription_load
 def test_transcriber_protocol_identity() -> None:
     """The two module-level names MUST refer to the SAME class object.
 
-    Identity (``is``) — not equality — is the contract: ``runtime_checkable``
+    Identity (``is``) (not equality) is the contract: ``runtime_checkable``
     protocols register structural members on the class, so two
     byte-identical-looking class objects still produce different
     ``isinstance`` results.
@@ -56,7 +56,7 @@ def test_transcriber_protocol_method_surface() -> None:
     would silently start returning ``False`` for compliant engines. We
     assert the seven documented members are present.
 
-    ``transcribe_words`` is intentionally ABSENT — it is an optional
+    ``transcribe_words`` is intentionally ABSENT, it is an optional
     capability (see ``WordLevelTranscriber``), not part of the required
     engine surface: Parakeet, Qwen and Cloud deliberately do not
     implement it.
@@ -80,10 +80,10 @@ def test_transcriber_protocol_method_surface() -> None:
 def test_word_level_capability_is_separate_protocol() -> None:
     """``WordLevelTranscriber`` types the optional ``transcribe_words`` capability.
 
-    ``isinstance`` against the ``runtime_checkable`` capability protocol
-    must accept only objects that actually implement ``transcribe_words``
-    — mirroring the production ``hasattr(active, "transcribe_words")``
-    gate in the streaming session coordinator.
+      ``isinstance`` against the ``runtime_checkable`` capability protocol
+      must accept only objects that actually implement ``transcribe_words``
+    , mirroring the production ``hasattr(active, "transcribe_words")``
+      gate in the streaming session coordinator.
     """
     cls = transcription_load.WordLevelTranscriber
     assert getattr(cls, "_is_runtime_protocol", False) is True

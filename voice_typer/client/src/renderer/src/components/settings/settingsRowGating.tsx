@@ -1,4 +1,4 @@
-// settingsRowGating — shared primitives for the Settings sections'
+// settingsRowGating, shared primitives for the Settings sections'
 // in-section search filtering.
 //
 // The page-level search predicate (pages/Settings.tsx `_filter_settings`,
@@ -11,7 +11,7 @@
 //   2. a per-row wrap so a query that matches ONE row hides the OTHER
 //      rows of the same section (previously several sections showed
 //      the entire card whenever any single row matched, which defeated
-//      the purpose of in-section search — see AudioSettingsSection's
+//      the purpose of in-section search, see AudioSettingsSection's
 //      comment on its per-row gates).
 //
 // This module owns both halves once:
@@ -22,8 +22,8 @@
 //   - `GatedSettingRow` wraps `SettingRow` with the per-row predicate
 //     call. It is a slot-props wrapper (not a descriptor registry à la
 //     audioFilterRowDescriptors) because the sections' rows are
-//     heterogeneous — HotkeyPickers with capture callbacks, Inputs with
-//     draft state, segmented controls, sliders — a registry would need
+//     heterogeneous, HotkeyPickers with capture callbacks, Inputs with
+//     draft state, segmented controls, sliders, a registry would need
 //     a per-row render slot anyway.
 //
 // Rows whose rendered tooltip text differs from the searchable
@@ -64,12 +64,12 @@ interface GatedSettingRowProps {
 	/** Search-filter predicate from the Settings page. */
 	isVisible: IsVisibleFn;
 	/**
-	 * The section title — the predicate's third argument, so a query
+	 * The section title, the predicate's third argument, so a query
 	 * that matches the heading surfaces every row of the section. MUST
 	 * be the same constant handed to `<SettingsSection title>`.
 	 */
 	sectionTitle: string;
-	/** Rendered row label — also the predicate's primary match target. */
+	/** Rendered row label, also the predicate's primary match target. */
 	label: string;
 	/** Rendered tooltip text. Also the predicate's info when `searchInfo` is omitted. */
 	info?: string;
@@ -84,7 +84,7 @@ interface GatedSettingRowProps {
 
 /**
  * A `SettingRow` that renders only when the search predicate accepts
- * it — the per-row half of in-section search filtering. With an empty
+ * it, the per-row half of in-section search filtering. With an empty
  * query (predicate always true) it renders exactly what `SettingRow`
  * would, so the no-search behavior is unchanged.
  */

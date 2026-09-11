@@ -1,4 +1,4 @@
-"""Streaming-session coordinator — extracted from ``RecordingController``
+"""Streaming-session coordinator, extracted from ``RecordingController``
 (Phase 4.5 split).
 
 Owns the streaming-session **startup** path: checking whether hidden
@@ -71,7 +71,7 @@ def _publish_live_preview_unsupported(cycle_id: str) -> None:
             exc_info=True,
         )
     # Mirror onto the bubble channel so the sandboxed bubble window
-    # (SEC-026 — no python bridge) can show a localized hint instead of
+    # (SEC-026, no python bridge) can show a localized hint instead of
     # silently omitting live text for engines without transcribe_words.
     try:
         event_bus.publish(
@@ -102,7 +102,7 @@ class StreamingSessionCoordinator:
     """
 
     def __init__(self) -> None:
-        # Stateless helper — all state lives on the controller.
+        # Stateless helper, all state lives on the controller.
         pass
 
     def streaming_enabled(self, controller) -> bool:
@@ -172,7 +172,7 @@ class StreamingSessionCoordinator:
                 # finalize()'s bounded join (~10s) can return while the
                 # worker's own transcription call is merely SLOW and still
                 # holds the busy flag (set/cleared around the call by the
-                # registry wrapper) — the fence converts that concurrent-
+                # registry wrapper), the fence converts that concurrent-
                 # entry race into committed-only output. NOT a post-force-
                 # recovery guard: force_unload_active() force-clears the
                 # busy flag AND drops the registry slot, so after recovery

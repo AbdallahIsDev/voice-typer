@@ -14,7 +14,7 @@
 //     ``"transcription_final"``, ``"recording_started"``,
 //     ``"navigate"``, etc.).
 //   - The server never PUBLISHED ``"model_loaded"`` via
-//     ``event_bus.publish(...)`` — the only ``model_loaded`` symbol in
+//     ``event_bus.publish(...)``, the only ``model_loaded`` symbol in
 //     the Python tree is a LOCAL log variable in
 //     ``recording_controller.py:145`` that is fed to ``log.info(...)``
 //     and nothing else.
@@ -22,7 +22,7 @@
 // didn't exist.  The dead type was deleted.
 //
 //(part 3): the same rationale + guard was applied to
-// ``TranscriptionPartialEvent`` — at the time, also a dead type with no
+// ``TranscriptionPartialEvent``, at the time, also a dead type with no
 // publisher.
 //
 // These tests pin the deletions so a future contributor cannot silently
@@ -35,7 +35,7 @@
 // one-time `supported:false` capability signal from
 // ``streaming_session_coordinator.py``) AND a subscriber (the bubble's
 // live-dictation-preview hook). The negative guards below were updated
-// to positive guards for that event — only ``model_loaded`` remains a
+// to positive guards for that event, only ``model_loaded`` remains a
 // pinned deletion.
 //
 //the acceptedTypes list + length assertion
@@ -48,11 +48,11 @@
 // but never modelled in the TS union). Length grew from 27 to 29.
 //
 //removed ``relaunch_electron`` (RelaunchElectronEvent interface
-// DELETED — verified the Python side emits only ``relaunch_app`` now).
+// DELETED, verified the Python side emits only ``relaunch_app`` now).
 //Length shrunk by 1, then grew by 3 () for a net of 29.
 //
 // NOTE: ``types/ipc.ts`` exports ONLY TypeScript types/interfaces —
-// there are no runtime values — so the bulk of these assertions are
+// there are no runtime values, so the bulk of these assertions are
 // COMPILE-TIME checks.  If someone re-adds ``ModelLoadedEvent`` to the
 // ``PythonPushEvent`` union, the type-level guards below fail to
 // compile and CI breaks.
@@ -74,11 +74,11 @@ describe("NEW-IPC-002 / PVT-G5-010: dead-type removal guards", () => {
 		// Build a sample list of ``type`` literals that the
 		// ``PythonPushEvent`` union admits.  If the union ever grows to
 		// include ``ModelLoadedEvent`` (type: "model_loaded"), this list
-		// must be updated — and the literal appearing in
+		// must be updated, and the literal appearing in
 		// the list below would make the assertion fail loudly.
 		// ``transcription_partial`` is deliberately ABSENT from this
 		// negative guard: it is a legitimate union member today (live
-		// publisher + subscriber — see the positive guard further down).
+		// publisher + subscriber, see the positive guard further down).
 		//
 		//the list was extended from 9 → 27
 		// entries to cover the new event types added to the union.
@@ -91,7 +91,7 @@ describe("NEW-IPC-002 / PVT-G5-010: dead-type removal guards", () => {
 			"config_changed",
 			"hotkey_capture_cancel",
 			"history_changed",
-			//new — backend emits on every client connect.
+			//new, backend emits on every client connect.
 			"state_changed",
 			//18 previously-untyped event literals.
 			"paste_failed",
@@ -112,7 +112,7 @@ describe("NEW-IPC-002 / PVT-G5-010: dead-type removal guards", () => {
 			"show_window",
 			"quit_app",
 			//``relaunch_electron`` REMOVED from this list
-			// (RelaunchElectronEvent interface deleted — verified
+			// (RelaunchElectronEvent interface deleted, verified
 			// no Python emitter; see the new compile-time guard
 			// below). The canonical event is ``relaunch_app``.
 			"relaunch_app",
@@ -132,9 +132,9 @@ describe("NEW-IPC-002 / PVT-G5-010: dead-type removal guards", () => {
 			//ten events published by the Python sidecar that
 			// were previously dropped at the Rust WS-reader
 			// gate (and missing from this union). Now wired
-			// end-to-end — see the per-interface docstrings
+			// end-to-end, see the per-interface docstrings
 			// in types/ipc/push_events.ts. NOT included:
-			// `download_stalled` (its emit was deleted — the
+			// `download_stalled` (its emit was deleted, the
 			// TimeoutError → success:false path already
 			// surfaces the failure to the renderer).
 			"asr_backend_ready",
@@ -163,7 +163,7 @@ describe("NEW-IPC-002 / PVT-G5-010: dead-type removal guards", () => {
 		//+3 (asr_backend_disabled + asr_last_resort_unloaded +
 		// llm_polish_failed) = 32.
 		// relaunch_app added (was documented in comment but missing from list) = 33.
-		// +1 (text_enhancement_failed — rule-based enhancement
+		// +1 (text_enhancement_failed, rule-based enhancement
 		// failure event) = 34.
 		// +10 (previously-dropped-but-published events wired
 		// through the Rust allowlist + this union: the ASR
@@ -178,7 +178,7 @@ describe("NEW-IPC-002 / PVT-G5-010: dead-type removal guards", () => {
 		// Compile-time guard: if ``ModelLoadedEvent`` is ever added
 		// back to the ``PythonPushEvent`` union, the conditional type
 		// below resolves to ``true`` and the assignment of ``false``
-		// to the annotated variable fails to compile — CI breaks
+		// to the annotated variable fails to compile, CI breaks
 		// before the dead contract ships.
 		type WouldBeModelLoaded = {
 			type: "model_loaded";
@@ -187,7 +187,7 @@ describe("NEW-IPC-002 / PVT-G5-010: dead-type removal guards", () => {
 		};
 
 		// Type-level assertion (no runtime cost). ``extends`` here
-		// checks assignability — ``WouldBeModelLoaded`` is assignable
+		// checks assignability, ``WouldBeModelLoaded`` is assignable
 		// to ``PythonPushEvent`` ONLY if the union still contains
 		// ``ModelLoadedEvent``.
 		//
@@ -195,7 +195,7 @@ describe("NEW-IPC-002 / PVT-G5-010: dead-type removal guards", () => {
 		// to ``false`` and the assignment is legal.  If a future
 		// contributor re-adds ``ModelLoadedEvent`` to the union, the
 		// conditional resolves to ``true`` and ``false`` is no longer
-		// assignable to ``true`` — ``tsc`` fails and CI catches it.
+		// assignable to ``true``, ``tsc`` fails and CI catches it.
 		type Guard = WouldBeModelLoaded extends PythonPushEvent ? true : false;
 		const _typeGuard: Guard = false;
 		expect(_typeGuard).toBe(false);
@@ -224,7 +224,7 @@ describe("NEW-IPC-002 / PVT-G5-010: dead-type removal guards", () => {
 		// after verifying the Python side emits only ``relaunch_app``.
 		// If a future contributor re-adds ``RelaunchElectronEvent`` to
 		// the union, the conditional resolves to ``true`` and the
-		// ``false`` assignment fails to compile — CI catches it before
+		// ``false`` assignment fails to compile, CI catches it before
 		// the deprecated contract ships again.
 		type WouldBeRelaunchElectron = {
 			type: "relaunch_electron";
@@ -253,7 +253,7 @@ describe("NEW-IPC-002 / PVT-G5-010: dead-type removal guards", () => {
 			? true
 			: false;
 		// The consent_required payload is all-optional (derived
-		// from the four real Python emitters — only one of them
+		// from the four real Python emitters, only one of them
 		// sends provider/model/message; two send ONLY
 		// consent_field). The minimal shape below must therefore
 		// ALSO be assignable; under the old required-fields type
@@ -307,7 +307,7 @@ describe("TASK-24-FIX-5/6/9/10/11: new IPC contract types exist with the expecte
 		const legacy: ModelStatusEntry = {
 			downloaded: false,
 			deps_ok: true,
-			// hash_verified intentionally omitted — backend
+			// hash_verified intentionally omitted, backend
 			// predates the field; absence is treated as "unknown".
 		};
 		expect(ok.hash_verified).toBe("verified");
@@ -384,15 +384,15 @@ describe("YJ-34: asr_backend_disabled / asr_last_resort_unloaded / llm_polish_fa
 	//
 	// WIRE-SHAPE NOTE (corrected): `asr_backend_disabled`
 	// and `asr_last_resort_unloaded` put payload fields under the
-	// canonical `data:` key — verified by reading the Python
+	// canonical `data:` key, verified by reading the Python
 	// emitters at `asr_registry.py:625-637` (`asr_backend_disabled`)
 	// and `:361-372` (`asr_last_resort_unloaded`). Earlier guards
-	// asserted the fields were at the message ROOT — that was a
+	// asserted the fields were at the message ROOT, that was a
 	// stale claim from before the Python emitters were wrapped in
 	// the `data:` envelope (matching every other
 	// `event_bus.publish(...)` caller). `llm_polish_failed` publishes
 	// a bare `{ "type": "..." }` frame with NO payload fields. The
-	// guards below mirror these exact wire shapes — if a future
+	// guards below mirror these exact wire shapes, if a future
 	// Python refactor removes the `data:` envelope (or a TS refactor
 	// re-flattens the interfaces), the guards fail compile.
 
@@ -426,7 +426,7 @@ describe("YJ-34: asr_backend_disabled / asr_last_resort_unloaded / llm_polish_fa
 	});
 
 	it("a `{ type: 'llm_polish_failed' }` value IS assignable to PythonPushEvent (compile-time guard)", () => {
-		// `llm_polish_failed` has NO payload fields — mirrors the bare
+		// `llm_polish_failed` has NO payload fields, mirrors the bare
 		// `{type}` shape of `RecordingStartedEvent` and
 		// `HotkeyCaptureCancelEvent`.
 		type HasLLMPolishFailed = {
@@ -451,7 +451,7 @@ describe("YJ-34 (parity): every Python event_bus.publish type literal is in the 
 	// Each literal here must ALSO appear in the `acceptedTypes` list
 	// above (which is the runtime mirror of the `PythonPushEvent` union).
 	// If a future Python emitter adds a NEW `type` literal that has no
-	// matching TS interface, this test fails — surfacing the drift
+	// matching TS interface, this test fails, surfacing the drift
 	// before an untyped event ships.
 	//
 	// NOTE: this list intentionally does NOT include the
@@ -463,7 +463,7 @@ describe("YJ-34 (parity): every Python event_bus.publish type literal is in the 
 	// emitter is added to the Python tree, append its `type` literal
 	// here AND add a matching interface to `ipc.ts`'s
 	// `PythonPushEvent` union. A CI grep-test on the Python side
-	// (`tests/test_*event_emitters*.py` — TBD) will eventually
+	// (`tests/test_*event_emitters*.py`, TBD) will eventually
 	// automate this; until then, this static list is the contract.
 	const PYTHON_EMITTER_TYPE_LITERALS: readonly string[] = [
 		"status_change",
@@ -573,7 +573,7 @@ describe("YJ-34 (parity): every Python event_bus.publish type literal is in the 
 			"paste_deferred",
 			"tray_fallback_notification",
 			// Host-bridge-synthesized (NOT emitted by Python's
-			// event_bus.publish — but still members of the union so
+			// event_bus.publish, but still members of the union so
 			// renderer code can subscribe). Excluded from the
 			// Python-emitter parity check below.
 			"reconnecting",
@@ -595,7 +595,7 @@ describe("YJ-34 (parity): every Python event_bus.publish type literal is in the 
 	it("the Python emitter list and the acceptedTypes list have the expected YJ-34 length", () => {
 		// 33 Python-emitted events (the union also includes 2
 		// host-bridge-synthesized events: `reconnecting` +
-		// `reconnected` — total union length is 35).
+		// `reconnected`, total union length is 35).
 		//
 		// NOTE: the existing `acceptedTypes` list in the FIRST
 		// `describe` block above (line ~73) has only 32 entries —
@@ -625,7 +625,7 @@ describe("XZ-CC-7: TranscriptionFinalEvent has no duration_ms field (compile-tim
 	//   }
 	// The Python emitter at `voice_typer/server/dictation_pipeline.py`
 	// publishes `{type: "transcription_final", data: {text: text[:200]}}`
-	// — it NEVER populates `duration_ms`. The optional-but-never-sent
+	//, it NEVER populates `duration_ms`. The optional-but-never-sent
 	// field gave a false impression of an IPC contract that doesn't
 	// exist; any renderer code reading `event.data.duration_ms` would
 	// always get `undefined` at runtime. The fix removed the field.
@@ -639,7 +639,7 @@ describe("XZ-CC-7: TranscriptionFinalEvent has no duration_ms field (compile-tim
 		// this `WouldHaveDurationMs` shape becomes assignable to
 		// `TranscriptionFinalEvent`, the conditional resolves to
 		// `true`, and the `const _guard: Guard = false` assignment
-		// fails to compile — CI catches the regression before the
+		// fails to compile, CI catches the regression before the
 		// dead field ships again.
 		type WouldHaveDurationMs = {
 			type: "transcription_final";
@@ -683,7 +683,7 @@ describe("dead response types stay removed (compile-time guards)", () => {
 	//(Medium): the previous ``ToggleDictationResult`` interface
 	// declared ``recording: boolean`` as a REQUIRED field. The Python
 	// handler for ``toggle_dictation`` returns ``{type: "ack"}`` with NO
-	// ``data`` field — so any renderer code reading
+	// ``data`` field, so any renderer code reading
 	// ``const { recording } = await call<ToggleDictationResult>(...)``
 	// got ``recording: undefined`` while TypeScript type-checked it as
 	// ``boolean``. The fix removed the dead type entirely (callers pass
@@ -691,7 +691,7 @@ describe("dead response types stay removed (compile-time guards)", () => {
 	//
 	//(Low): the 26-line ``ResponseData<T extends
 	// PythonRequest["type"]>`` conditional-types cascade had ZERO
-	// consumers — ``usePython.call`` is generic over ``<T = unknown>``
+	// consumers, ``usePython.call`` is generic over ``<T = unknown>``
 	// with no constraint on ``PythonRequest["type"]``, so the cascade
 	// never flowed into any call site. The dead types
 	// ``ToggleDictationResult``, ``ToggleFavoriteResult``, and
@@ -701,7 +701,7 @@ describe("dead response types stay removed (compile-time guards)", () => {
 	// These guards verify the names are NOT re-exported from
 	// ``@/types/ipc``. If a future contributor re-adds any of them,
 	// the ``keyof`` check resolves to ``true`` and the ``false``
-	// assignment fails to compile — CI catches the regression before
+	// assignment fails to compile, CI catches the regression before
 	// the dead contract ships again.
 
 	it("ToggleDictationResult is NOT exported from @/types/ipc (XZ-CC-6 guard)", () => {

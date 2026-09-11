@@ -1,14 +1,14 @@
 // @vitest-environment node
 /**
- * unit tests for `main/windows/theme-listener.ts` — the standalone
+ * unit tests for `main/windows/theme-listener.ts`, the standalone
  * module extracted from `main-window.ts` that owns the single
  * `nativeTheme.on("updated", ...)` listener for the dashboard window's
  * taskbar icon.
  *
  * The module exposes three exports:
- *   • `registerNativeThemeListener()` — idempotent registration.
- *   • `_resetNativeThemeListenerForTest()` — test-only teardown.
- *   • `_nativeThemeListenerRegistered()` — test-only predicate.
+ *   • `registerNativeThemeListener()`, idempotent registration.
+ *   • `_resetNativeThemeListenerForTest()`, test-only teardown.
+ *   • `_nativeThemeListenerRegistered()`, test-only predicate.
  *
  * Behaviour under test:
  *   1. Emitting a `"updated"` event after registration calls
@@ -100,7 +100,7 @@ function emitNativeThemeUpdated(): void {
 	for (const fn of nativeThemeListeners) fn();
 }
 
-describe("theme-listener — nativeTheme 'updated' → mainWindow.setIcon", () => {
+describe("theme-listener, nativeTheme 'updated' → mainWindow.setIcon", () => {
 	beforeEach(() => {
 		// clearMocks in vitest.config.ts already clears call history,
 		// but we additionally reset the listener registry + dark flag
@@ -122,7 +122,7 @@ describe("theme-listener — nativeTheme 'updated' → mainWindow.setIcon", () =
 		expect(nativeThemeListeners.length).toBe(1);
 	});
 
-	it("is idempotent — calling N times still leaves exactly one listener", () => {
+	it("is idempotent, calling N times still leaves exactly one listener", () => {
 		for (let i = 0; i < 5; i++) {
 			registerNativeThemeListener();
 		}
@@ -216,7 +216,7 @@ describe("theme-listener — nativeTheme 'updated' → mainWindow.setIcon", () =
 		_resetNativeThemeListenerForTest();
 		expect(nativeThemeListeners.length).toBe(0);
 
-		// Cycle 2 — the module-level handler closure must have been
+		// Cycle 2, the module-level handler closure must have been
 		// nulled by the prior reset, otherwise registerNativeThemeListener
 		// would early-return and the listener count would stay 0.
 		registerNativeThemeListener();

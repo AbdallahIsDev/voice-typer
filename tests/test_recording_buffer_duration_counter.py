@@ -5,7 +5,7 @@ Background
 ``Recorder.current_duration_seconds`` is polled at 4 Hz by the streaming
 thread as an early-exit guard BEFORE calling ``snapshot()``. Pre-fix,
 each poll iterated the whole deque via
-``sum(int(c.shape[0]) for c in buffer)`` — O(chunks) per call. On a
+``sum(int(c.shape[0]) for c in buffer)``. O(chunks) per call. On a
 30-min dictation at ~16 Hz chunk arrival, that summed over ~28k chunks
 per poll.
 
@@ -157,7 +157,7 @@ class TestEvictionCompensation:
     actual contents."""
 
     def test_eviction_subtracts_oldest_chunk_samples(self) -> None:
-        """Fill the deque to ``maxlen``, then append one more — the
+        """Fill the deque to ``maxlen``, then append one more, the
         oldest chunk's samples must be subtracted from the counter."""
         maxlen = 3
         recorder = _make_pipeline_stub_recorder(maxlen=maxlen)
@@ -168,7 +168,7 @@ class TestEvictionCompensation:
             pipeline.append_to_buffer_locked(np.ones(100, dtype=np.float32))
         assert recorder._audio_pipeline._total_buffered_samples == maxlen * 100
 
-        # Append one more — the leftmost chunk (100 samples) is evicted.
+        # Append one more, the leftmost chunk (100 samples) is evicted.
         pipeline.append_to_buffer_locked(np.ones(50, dtype=np.float32))
 
         # Expected: (maxlen chunks × 100) - 100 (evicted) + 50 (new) = 250
@@ -187,7 +187,7 @@ class TestEvictionCompensation:
         pipeline.append_to_buffer_locked(np.ones(500, dtype=np.float32))
         assert recorder._audio_pipeline._total_buffered_samples == 1500
 
-        # Append a 10-sample chunk — the 1000-sample chunk is evicted.
+        # Append a 10-sample chunk, the 1000-sample chunk is evicted.
         pipeline.append_to_buffer_locked(np.ones(10, dtype=np.float32))
 
         # Expected: 1500 - 1000 (evicted) + 10 (new) = 510
@@ -195,7 +195,7 @@ class TestEvictionCompensation:
 
     def test_no_eviction_when_maxlen_is_none(self) -> None:
         """When ``maxlen`` is ``None`` (unbounded deque), no eviction
-        happens — the counter just accumulates."""
+        happens, the counter just accumulates."""
         recorder = _make_pipeline_stub_recorder(maxlen=None)
         pipeline = recorder._audio_pipeline
 
@@ -231,7 +231,7 @@ def _make_duration_stub(
 
 class TestCurrentDurationSeconds:
     """``current_duration_seconds`` must be an O(1) scalar read of
-    ``_total_buffered_samples / sample_rate`` — no chunk iteration."""
+    ``_total_buffered_samples / sample_rate``, no chunk iteration."""
 
     def test_returns_counter_divided_by_sample_rate(self) -> None:
         """For 16000 samples at 16 kHz → 1.0 second."""
@@ -246,7 +246,7 @@ class TestCurrentDurationSeconds:
         """Empty buffer → 0.0 (defensive guard against stale counter)."""
         recorder = _make_duration_stub(
             buffer_chunks=[],
-            total_samples=12345,  # stale value — guard must still return 0.0
+            total_samples=12345,  # stale value, guard must still return 0.0
             buffer_sr=16000,
         )
         assert Recorder.current_duration_seconds.fget(recorder) == 0.0
@@ -273,7 +273,7 @@ class TestCurrentDurationSeconds:
         assert Recorder.current_duration_seconds.fget(recorder) == pytest.approx(1.0)
 
     def test_does_not_iterate_buffer_chunks(self) -> None:
-        """The property must NOT iterate the deque — pin this by
+        """The property must NOT iterate the deque, pin this by
         making iteration raise (so a regression to O(chunks) would
         fail loudly). We replace the deque with a custom container
         whose ``__iter__`` raises."""
@@ -286,19 +286,19 @@ class TestCurrentDurationSeconds:
         class _NoIterDeque:
             """Stand-in for ``_buffer`` whose ``__bool__`` returns
             True (so the empty-buffer guard doesn't short-circuit)
-            but ``__iter__`` raises — pins the O(1) contract."""
+            but ``__iter__`` raises, pins the O(1) contract."""
 
             def __bool__(self) -> bool:
                 return True
 
             def __iter__(self):
                 raise AssertionError(
-                    "current_duration_seconds must NOT iterate _buffer — "
+                    "current_duration_seconds must NOT iterate _buffer, "
                     "it should read _total_buffered_samples directly."
                 )
 
         recorder._audio_pipeline._buffer = _NoIterDeque()
-        # Must not raise — the property reads _total_buffered_samples
+        # Must not raise, the property reads _total_buffered_samples
         # without iterating.
         assert Recorder.current_duration_seconds.fget(recorder) == pytest.approx(1.0)
 
@@ -348,10 +348,10 @@ def _make_session_state_stub() -> MagicMock:
     recorder._cached_vad_resample_up_down = (1, 1)
     recorder._cached_vad_resample_sr = 9999
     # STATE-OWNERSHIP: the XRUN/clip telemetry sentinels live
-    # on the owning collaborator (AudioPipeline) — reset_session_state
+    # on the owning collaborator (AudioPipeline), reset_session_state
     # writes through ``recorder._audio_pipeline.<attr>``.
     # STATE-OWNERSHIP: the buffer bookkeeping state ALSO lives
-    # on the owning collaborator — seed the stub pipeline AFTER it is
+    # on the owning collaborator, seed the stub pipeline AFTER it is
     # created (the buffer / chunk counter / sample total / buffer-side
     # sample rate are what the reset assertions below read).
     recorder._audio_pipeline = MagicMock(name="AudioPipelineStub")
@@ -404,7 +404,7 @@ class TestStopRecordingZerosCounter:
     def test_empty_buffer_path_zeros_counter(self) -> None:
         """When ``_buffer`` is empty inside the locked block, the
         empty-buffer fast-path runs and must zero the counter."""
-        # Reuse the mock factory from the stop tests — it sets up all
+        # Reuse the mock factory from the stop tests, it sets up all
         # the stubs stop_recording needs.
         from tests.test_recorder_split_stop import _build_mock_recorder
 
@@ -437,7 +437,7 @@ class TestStopRecordingZerosCounter:
 
 class TestDiscardRecordingZerosCounter:
     """``discard_recording`` must zero ``_total_buffered_samples``
-    when it swaps in a fresh empty deque — otherwise
+    when it swaps in a fresh empty deque, otherwise
     ``current_duration_seconds`` would continue returning the
     discarded session's total until the next ``start()`` reset."""
 
@@ -462,7 +462,7 @@ class TestStopRecordingStatsSingleAbsAllocation:
     ``max(flat.max(), -flat.min())``) and compute ``np.abs(flat)``
     ONCE for silence_pct (reused). Pre-fix, the code allocated
     ``np.abs(flat).max()`` (~115 MB) AND ``np.abs(audio)`` (~115 MB)
-    for the silence mask — a ~230 MB transient for a 30-min 16 kHz
+    for the silence mask, a ~230 MB transient for a 30-min 16 kHz
     mono dictation."""
 
     def test_peak_silence_pct_values_unchanged(self) -> None:
@@ -501,7 +501,7 @@ class TestStopRecordingStatsSingleAbsAllocation:
 
     def test_np_abs_called_once_per_stop(self) -> None:
         """``np.abs`` must be called at most ONCE on the full audio
-        array during stop() — pre-fix called it TWICE (once for peak,
+        array during stop(), pre-fix called it TWICE (once for peak,
         once for silence_pct). We patch ``numpy.abs`` and count calls
         whose input is the full ``flat`` array (the only large input
         in this test)."""
@@ -512,7 +512,7 @@ class TestStopRecordingStatsSingleAbsAllocation:
 
         # Patch np.abs at the module where stop_recording looks it up.
         # ``_recorder_split`` does ``import numpy as np`` at module
-        # top — patching ``numpy.abs`` globally catches all calls.
+        # top, patching ``numpy.abs`` globally catches all calls.
         real_abs = np.abs
         call_count = {"n": 0}
 
@@ -557,12 +557,12 @@ class TestSourceStringContracts:
 
     def test_current_duration_seconds_reads_counter(self) -> None:
         """The property body must reference
-        ``_total_buffered_samples`` (the O(1) counter) — NOT iterate
+        ``_total_buffered_samples`` (the O(1) counter), NOT iterate
         ``_buffer``."""
         src = inspect.getsource(Recorder.current_duration_seconds.fget)
         assert "_total_buffered_samples" in src, (
             "current_duration_seconds must read _total_buffered_samples "
-            "(the O(1) counter) — a regression to sum(int(c.shape[0]) "
+            "(the O(1) counter), a regression to sum(int(c.shape[0]) "
             "for c in buffer) would re-introduce the O(chunks) per-poll "
             "cost the counter was added to avoid."
         )
@@ -573,7 +573,7 @@ class TestSourceStringContracts:
         # we only flag a real regression, not a comment.
         assert "total_samples = sum(" not in src, (
             "current_duration_seconds must NOT iterate _buffer via "
-            "`total_samples = sum(int(c.shape[0]) for c in buffer)` — "
+            "`total_samples = sum(int(c.shape[0]) for c in buffer)`, "
             "that's the O(chunks) per-poll hot path the counter replaces."
         )
         # The property must return the counter divided by the sample
@@ -602,22 +602,21 @@ class TestSourceStringContracts:
 
     def test_stop_recording_uses_max_min_for_peak(self) -> None:
         """``stop_recording`` must compute peak via
-        ``max(float(flat.max()), -float(flat.min()))`` (allocation-free)
-        — NOT ``np.abs(flat).max()`` (which allocates a ~115 MB
-        transient)."""
+          ``max(float(flat.max()), -float(flat.min()))`` (allocation-free)
+        , NOT ``np.abs(flat).max()`` (which allocates a ~115 MB
+          transient)."""
         from voice_typer.server.recording._recorder_split import stop_recording
 
         src = inspect.getsource(stop_recording)
         assert "max(float(flat.max()), -float(flat.min()))" in src, (
             "stop_recording must compute peak allocation-free via "
-            "max(float(flat.max()), -float(flat.min())) — mirrors "
+            "max(float(flat.max()), -float(flat.min())), mirrors "
             "AudioPipeline.compute_rms_and_peak. Pre-fix used "
             "np.abs(flat).max() which allocated a ~115 MB transient."
         )
         # The old np.abs(flat).max() pattern must NOT appear.
         assert "np.abs(flat).max()" not in src, (
-            "stop_recording must NOT use np.abs(flat).max() — that "
-            "allocates a ~115 MB transient for a 30-min dictation."
+            "stop_recording must NOT use np.abs(flat).max(), that allocates a ~115 MB transient for a 30-min dictation."
         )
 
 

@@ -12,7 +12,7 @@
 //!
 //! Moved verbatim from the inline `#[cfg(test)] mod tests` block in
 //! `ws.rs` as part of the C-TEST-5 test-isolation migration. No test
-//! logic changed — only the module path adjusted (now a sibling of
+//! logic changed: only the module path adjusted (now a sibling of
 //! `ws` rather than a child). The private `queue_auth_and_store_ws_tx`
 //! helper was bumped to `pub(super)` so the sibling test file (within
 //! the `sidecar` parent module) can access it.
@@ -61,11 +61,11 @@ async fn test_pending_dispatch_map_fulfill_by_id() {
     }
 
     // The oneshot must resolve with the response (within a generous
-    // 1s timeout — should be near-instant since the send already
+    // 1s timeout: should be near-instant since the send already
     // happened).
     let received = tokio::time::timeout(Duration::from_secs(1), rx)
         .await
-        .expect("oneshot did not resolve within 1s — sender was never invoked")
+        .expect("oneshot did not resolve within 1s: sender was never invoked")
         .expect("oneshot sender was dropped without sending");
     assert_eq!(
         received, response,
@@ -118,7 +118,7 @@ async fn test_pending_dispatch_map_unfulfilled_id_leaves_entry() {
 /// response to EVERY orphaned oneshot, and clear the pending map.
 /// This pins the contract used by both `cleanup_and_trigger_respawn`
 /// (auth-failure path) and the WS reader's cleanup block (normal
-/// disconnect / panic path) — without the drain, in-flight dispatches
+/// disconnect / panic path): without the drain, in-flight dispatches
 /// wait the full 120s timeout for a response that will never come.
 #[tokio::test]
 async fn test_ue8_drain_pending_sends_disconnect_error_to_all() {
@@ -145,7 +145,7 @@ async fn test_ue8_drain_pending_sends_disconnect_error_to_all() {
     for rx in rx_list {
         let received = tokio::time::timeout(Duration::from_secs(1), rx)
             .await
-            .expect("oneshot did not resolve within 1s — drain helper did not send")
+            .expect("oneshot did not resolve within 1s: drain helper did not send")
             .expect("oneshot sender was dropped without sending");
         assert_eq!(
             received["type"], "error",
@@ -176,7 +176,7 @@ async fn test_ue8_drain_pending_empty_map_returns_zero() {
 
 /// the drain helper must handle a receiver that was already
 /// dropped (the dispatch caller timed out / was cancelled). `oneshot::
-/// Sender::send` returns Err in that case — the helper must swallow
+/// Sender::send` returns Err in that case, the helper must swallow
 /// the error (it already uses `let _ =`) and continue draining the
 /// rest. This pins the "swallow send-error" contract.
 #[tokio::test]
@@ -192,7 +192,7 @@ async fn test_ue8_drain_pending_swallows_send_error_for_dropped_receiver() {
     state.pending.lock().await.insert(2u64, tx2);
     assert_eq!(state.pending.lock().await.len(), 2);
 
-    // Drain — must not panic on the dropped receiver.
+    // Drain: must not panic on the dropped receiver.
     let drained = drain_pending_with_disconnect_error(&state).await;
     assert_eq!(
         drained, 2,
@@ -237,7 +237,7 @@ async fn test_si15_queue_auth_increments_ws_generation_and_stores_ws_tx() {
         "precondition: fresh state must have ws_tx = None"
     );
 
-    // First reconnect — bumps generation 0 → 1, stores ws_tx.
+    // First reconnect: bumps generation 0 → 1, stores ws_tx.
     let (_ws_rx1, gen1) = queue_auth_and_store_ws_tx(&state, "token-1")
         .await
         .expect("first queue_auth must succeed");
@@ -252,7 +252,7 @@ async fn test_si15_queue_auth_increments_ws_generation_and_stores_ws_tx() {
         "ws_tx must be Some after queue_auth"
     );
 
-    // Second reconnect — bumps generation 1 → 2, stores a NEW ws_tx
+    // Second reconnect: bumps generation 1 → 2, stores a NEW ws_tx
     // (replacing the old one). This mirrors the supervisor's
     // reconnect-after-kill path.
     let (_ws_rx2, gen2) = queue_auth_and_store_ws_tx(&state, "token-2")
@@ -315,7 +315,7 @@ async fn test_si15_cleanup_generation_guard_skips_clear_on_mismatch() {
         // else: SKIP the clear (this is the race guard).
     }
 
-    // The new ws_tx must STILL be present — the old cleanup did NOT
+    // The new ws_tx must STILL be present, the old cleanup did NOT
     // clobber it because the generations mismatched (mine=1, current=2).
     assert!(
         mutex_lock(&state.ws_tx).is_some(),
@@ -332,7 +332,7 @@ async fn test_si15_cleanup_generation_guard_skips_clear_on_mismatch() {
 async fn test_si15_cleanup_generation_guard_clears_on_match() {
     let state = Arc::new(crate::state::SidecarState::new());
 
-    // Single reconnect — generation 1, no newer reconnect has run.
+    // Single reconnect: generation 1, no newer reconnect has run.
     let (_ws_rx, gen1) = queue_auth_and_store_ws_tx(&state, "token")
         .await
         .expect("queue_auth must succeed");
@@ -376,7 +376,7 @@ async fn test_si15_cleanup_generation_guard_clears_on_match() {
 /// skipped on mismatch. The respawn-trigger branch shares the same
 /// `if` block, so a mismatched generation skips it transitively
 /// (constructing a `tauri::AppHandle` in a unit test is infeasible,
-/// so the trigger call itself is not exercised here — the gating
+/// so the trigger call itself is not exercised here, the gating
 /// predicate is the unit under test, not the spawn-thread bridge).
 #[tokio::test]
 async fn test_cleanup_delayed_reader_skips_drain_and_respawn_on_generation_mismatch() {
@@ -384,7 +384,7 @@ async fn test_cleanup_delayed_reader_skips_drain_and_respawn_on_generation_misma
 
     // Old reconnect (gen=1) stored a ws_tx, then a NEW reconnect
     // (gen=2) replaced it. The old reader's cleanup is now running
-    // with my_generation=1 — its `read.next()` returned None late
+    // with my_generation=1: its `read.next()` returned None late
     // (Tokio runtime contention) after the new reconnect's auth
     // already completed.
     let (_old_ws_rx, _gen1) = queue_auth_and_store_ws_tx(&state, "old-token")
@@ -399,7 +399,7 @@ async fn test_cleanup_delayed_reader_skips_drain_and_respawn_on_generation_misma
     // prematurely (mirrors the real writer task holding the rx).
     let _new_ws_rx_guard = new_ws_rx;
 
-    // The NEW connection has a pending dispatch in flight — the
+    // The NEW connection has a pending dispatch in flight, the
     // new reader will fulfill it when the sidecar responds. An old
     // reader's cleanup MUST NOT drain this entry; doing so would
     // reject the new connection's in-flight dispatch with a
@@ -427,10 +427,10 @@ async fn test_cleanup_delayed_reader_skips_drain_and_respawn_on_generation_misma
             *ws_tx_guard = None;
         }
         let _count = drain_pending_with_disconnect_error(&state).await;
-        // (respawn trigger elided — requires tauri::AppHandle;
+        // (respawn trigger elided: requires tauri::AppHandle;
         //  gating predicate is the unit under test, see test doc.)
     } else {
-        // mismatch path — log only, no side effects.
+        // mismatch path: log only, no side effects.
     }
 
     // Assert: ws_tx survived (new reconnect's sender intact).
@@ -438,7 +438,7 @@ async fn test_cleanup_delayed_reader_skips_drain_and_respawn_on_generation_misma
         mutex_lock(&state.ws_tx).is_some(),
         "ws_tx must survive an old-generation cleanup (race guard)"
     );
-    // Assert: pending map was NOT drained — the new connection's
+    // Assert: pending map was NOT drained, the new connection's
     // in-flight dispatch is still waiting for its response.
     assert_eq!(
         state.pending.lock().await.len(),
@@ -449,13 +449,13 @@ async fn test_cleanup_delayed_reader_skips_drain_and_respawn_on_generation_misma
     // receiver hasn't been fulfilled with a disconnect error). A
     // drain would have sent a `sidecar_disconnected` value, so a
     // successful `try_recv()` (or `Err(Closed)`) would prove the
-    // channel was closed — `Err(Empty)` means it's still open.
+    // channel was closed: `Err(Empty)` means it's still open.
     assert!(
         matches!(
             pending_rx.try_recv(),
             Err(tokio::sync::oneshot::error::TryRecvError::Empty)
         ),
-        "pending dispatch oneshot must NOT be closed — old-generation cleanup must not drain it"
+        "pending dispatch oneshot must NOT be closed: old-generation cleanup must not drain it"
     );
 }
 
@@ -523,14 +523,14 @@ async fn test_cleanup_drains_pending_on_generation_match() {
 ///
 /// If this test fails, either:
 /// - someone changed the cap without updating this regression
-///   guard (deliberate change — update the assertion); or
+///   guard (deliberate change: update the assertion); or
 /// - someone removed the named constant and went back to an
-///   inline magic number (regression — restore the constant).
+///   inline magic number (regression: restore the constant).
 #[test]
 fn test_ws_writer_channel_capacity_is_64() {
     assert_eq!(
         WS_WRITER_CHANNEL_CAPACITY, 64,
-        "WS writer channel capacity must be 64 (was 256 — see comment on the constant)"
+        "WS writer channel capacity must be 64 (was 256: see comment on the constant)"
     );
 }
 
@@ -550,7 +550,7 @@ async fn test_queue_auth_creates_bounded_channel_at_capacity() {
         .expect("queue_auth must succeed on a fresh state");
 
     // The auth frame is the very first frame queued inside
-    // queue_auth_and_store_ws_tx — so the channel currently has
+    // queue_auth_and_store_ws_tx: so the channel currently has
     // 1 frame in flight (the auth frame). We can send
     // (WS_WRITER_CHANNEL_CAPACITY - 1) more frames before Full.
     let ws_tx = mutex_lock(&state.ws_tx)
@@ -569,7 +569,7 @@ async fn test_queue_auth_creates_bounded_channel_at_capacity() {
     let overflow = ws_tx.try_send(Message::Text("overflow".into()));
     assert!(
         matches!(overflow, Err(mpsc::error::TrySendError::Full(_))),
-        "send at capacity+1 must return TrySendError::Full (got {:?}) — \
+        "send at capacity+1 must return TrySendError::Full (got {:?}), \
          if this fails, the channel is unbounded or has the wrong capacity",
         overflow
     );
@@ -594,7 +594,7 @@ async fn test_queue_auth_creates_bounded_channel_at_capacity() {
 //
 // Mechanism honesty: exercising `spawn_reader_task` directly requires a
 // live `AppHandle` + WebSocket stream, which is infeasible to construct
-// in a unit test — so these tests pin the contract through the REAL pure
+// in a unit test: so these tests pin the contract through the REAL pure
 // pieces the reader calls: the `is_allowed_event_type` /
 // `is_high_rate_event_type` gates and the `python_event_envelope`
 // builder from `ws/event_protocol.rs` (re-exported by `ws.rs`), plus
@@ -631,7 +631,7 @@ fn test_low_rate_events_take_dual_typed_plus_envelope_path() {
 fn test_python_event_envelope_shape_is_type_plus_data() {
     // The generic envelope emitted alongside every low-rate typed event
     // must carry the (translated) event name in `type` and the untouched
-    // payload in `data` — the shape the renderer's usePythonEvent
+    // payload in `data`: the shape the renderer's usePythonEvent
     // dispatcher pattern-matches on (`api.onEvent` →
     // `dispatchEvent({type, data})`).
     let payload = json!({"rms": 0.5, "peak": 0.9});
@@ -646,7 +646,7 @@ fn test_python_event_envelope_shape_is_type_plus_data() {
     let env_kebab = python_event_envelope("bubble:set-state", json!({}));
     assert_eq!(env_kebab["type"], "bubble:set-state");
     assert_eq!(env_kebab["data"], json!({}));
-    // Empty payloads stay `{}` — never null (the reader normalizes a
+    // Empty payloads stay `{}`: never null (the reader normalizes a
     // missing `data` field to `{}` BEFORE building the envelope).
     let env_empty = python_event_envelope("ready", json!({}));
     assert_eq!(env_empty, json!({"type": "ready", "data": {}}));
@@ -675,7 +675,7 @@ fn test_mic_level_stays_dual_emitted_meter_regression_guard() {
     // event-dispatcher.ts` `api.onEvent(...)` → `tauri-bridge/
     // python-namespace.ts` `tauri.event.listen("python-event", ...)`.
     // A previous version of the carve-out listed `mic_level` here based
-    // on misreading that chain as a typed-channel subscription — that
+    // on misreading that chain as a typed-channel subscription, that
     // variant would silence the live level meter entirely while every
     // host-side test stayed green (nothing exercises the renderer
     // dispatcher from Rust).
@@ -685,7 +685,7 @@ fn test_mic_level_stays_dual_emitted_meter_regression_guard() {
     );
     assert!(
         !is_high_rate_event_type("mic_level"),
-        "mic_level consumers ride the GENERIC `python-event` envelope — \
+        "mic_level consumers ride the GENERIC `python-event` envelope: \
          classifying it high-rate kills the Microphone level meter"
     );
 }
@@ -705,7 +705,7 @@ fn test_bubble_level_coalesce_emits_current_payload_not_stale() {
     // Simulate a 60 Hz stream (~100 ms; 6 frames at 16.667 ms apart).
     // With BUBBLE_LEVEL_COALESCE_HZ=30 (min interval ≈33.333 ms),
     // frames i=0/i=2/i=4 emit; frames i=1/i=3/i=5 are suppressed. The
-    // emit on frame i=2 must carry frame i=2's payload — NOT frame
+    // emit on frame i=2 must carry frame i=2's payload, NOT frame
     // i=1's (the most recent suppressed frame).
     let hz = BUBBLE_LEVEL_COALESCE_HZ;
     let start = Instant::now();
@@ -758,7 +758,7 @@ fn test_bubble_level_coalesce_emits_current_payload_not_stale() {
         "first emit must carry frame 0's payload (no stale retention)"
     );
 
-    // EVERY emit must carry its OWN frame's payload — the current
+    // EVERY emit must carry its OWN frame's payload, the current
     // frame whose timestamp passed the coalesce check, never a prior
     // suppressed frame's.
     for (frame_idx, payload) in &emitted_payloads {
@@ -775,7 +775,7 @@ fn test_bubble_level_coalesce_emits_current_payload_not_stale() {
 // The reader task's flood-prone warn sites (invalid JSON + non-numeric
 // id) previously logged the FULL inbound frame text. Inbound frames can
 // carry `transcription_partial` / `transcription_final` event data —
-// the user's dictated speech (PII) — so a malformed/truncated frame
+// the user's dictated speech (PII), so a malformed/truncated frame
 // would persist that PII verbatim to the host's rotating log file.
 // `truncate_frame_text` bounds each warn line to a small byte cap with
 // a `...[truncated]` marker. These tests pin the truncation contract.

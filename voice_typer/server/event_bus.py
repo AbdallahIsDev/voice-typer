@@ -36,16 +36,16 @@ the ADR is the spec-side anchor).
 
 Events emitted via ``event_bus.publish`` (the modern path):
 
-* ``ready`` — emitted once on first authenticated WS connection
+* ``ready``: emitted once on first authenticated WS connection
   (sidecar_ws.py) or on TCP server start (ipc_server.py:1899).
   Payload: ``{}``.
-* ``bubble_show`` — show waveform bubble. Payload: ``{}``.
-* ``bubble_hide`` — hide waveform bubble. Payload: ``{}``.
-* ``bubble_level`` — ~60 Hz RMS/peak for the waveform bubble.
+* ``bubble_show``: show waveform bubble. Payload: ``{}``.
+* ``bubble_hide``: hide waveform bubble. Payload: ``{}``.
+* ``bubble_level``: ~60 Hz RMS/peak for the waveform bubble.
   Payload: ``{rms:float, peak:float}``.
-* ``bubble_set_state`` — set the bubble's state machine.
+* ``bubble_set_state``: set the bubble's state machine.
   Payload: ``{state:str}``.
-* ``recording_level`` — main-window mirror of the recording level,
+* ``recording_level``: main-window mirror of the recording level,
   published at ≤8 Hz by the bubble-level worker while recording.
   Exists because the typed ``bubble_level`` channel is consumed
   exclusively by the bubble window (Electron routes it to the bubble
@@ -53,82 +53,82 @@ Events emitted via ``event_bus.publish`` (the modern path):
   the main renderer's live recording indicator needs its own
   low-rate event on the generic path. Payload: ``{rms:float,
   peak:float}``.
-* ``transcription_final`` — final transcription text (UI preview).
+* ``transcription_final``: final transcription text (UI preview).
   Payload: ``{text:str (≤200 chr), quality?:{mean_logprob:float,
   min_logprob:float, no_speech_prob_max:float, segments:float}}``.
   ``quality`` is present only when the active engine produced numeric
   per-segment confidence stats (Whisper batch path); the renderer uses
   it to flag low-confidence dictations inline.
-* ``transcription_partial`` — live partial transcription text while
+* ``transcription_partial``: live partial transcription text while
   dictation is still recording (Whisper-family engines with word-level
   timestamps; published by the hidden streaming session's coalescing
-  broadcaster — latest-value-wins, ≤4 Hz, unchanged/empty suppressed).
+  broadcaster, latest-value-wins, ≤4 Hz, unchanged/empty suppressed).
   ALSO published ONCE per recording start with ``supported:false``
   when the active engine lacks ``transcribe_words`` (Parakeet/Qwen) so
   the renderer can surface a one-time "live preview unavailable" hint
   instead of silence.
   Payload: ``{text:str, cycle_id:str, supported?:false}`` (``supported``
   is only present, as ``false``, on the capability-gap signal).
-* ``vocabulary_suggestion`` — pending correction suggestions.
+* ``vocabulary_suggestion``: pending correction suggestions.
   Payload: ``{suggestions:[{original,corrected,confidence,context,timestamp}]}``.
-* ``hotkey_capture_cancel`` — cancel hotkey capture mode. Payload: ``{}``.
-* ``config_changed`` — config was updated; renderer should refresh.
+* ``hotkey_capture_cancel``: cancel hotkey capture mode. Payload: ``{}``.
+* ``config_changed``: config was updated; renderer should refresh.
   Payload: ``{<validated config updates>}``.
-* ``history_changed`` — history mutation (add/delete/clear/fav/restore).
+* ``history_changed``: history mutation (add/delete/clear/fav/restore).
   Payload: ``{reason:str}``.
-* ``microphone_test_complete`` — a microphone test finished.
+* ``microphone_test_complete``: a microphone test finished.
   Payload: ``{duration:float}``.
-* ``microphones_changed`` — the mic list changed (hot-plug).
+* ``microphones_changed``: the mic list changed (hot-plug).
   Payload: ``{count:int}``.
-* ``audio_clip`` — an audio clipping event was observed.
+* ``audio_clip``: an audio clipping event was observed.
   Payload: ``{peak:float, count:int}``.
-* ``recording_started`` — dictation started. Payload: ``{}``.
-* ``recording_stopped`` — dictation stopped. Payload: ``{}``.
-* ``download_progress`` — model download progress.
+* ``recording_started``: dictation started. Payload: ``{}``.
+* ``recording_stopped``: dictation stopped. Payload: ``{}``.
+* ``download_progress``: model download progress.
   Payload: ``{model, progress(0-100), status, +optional downloaded_bytes,
   total_bytes, speed_bytes_per_sec, eta_seconds, paused, resumed}``.
-* ``notification`` — request a renderer toast. Payload: ``{title, message,
-  duration_ms, critical}``. (Canonical name — previously emitted as
+* ``notification``: request a renderer toast. Payload: ``{title, message,
+  duration_ms, critical}``. (Canonical name, previously emitted as
 ``electron_notification``;  renamed the wire event on the Python
   side so both the Electron and Tauri paths consume the same name.)
-* ``navigate`` — tray → UI route change. Payload: ``{path:str}``.
-* ``show_window`` — show the main window. Payload: ``{}``.
-* ``quit_app`` — sidecar requests app quit. Payload: ``{}``.
-* ``relaunch_app`` — sidecar requests app relaunch. Payload: ``{}``.
-* ``paste_failed`` — clipboard paste failed; renderer
+* ``navigate``: tray → UI route change. Payload: ``{path:str}``.
+* ``show_window``: show the main window. Payload: ``{}``.
+* ``quit_app``: sidecar requests app quit. Payload: ``{}``.
+* ``relaunch_app``: sidecar requests app relaunch. Payload: ``{}``.
+* ``paste_failed``: clipboard paste failed; renderer
   shows a sonner toast with "Open recovery file" action.
   Payload: ``{message:str, recovery_path:str|null}``.
-* ``tray_menu`` — serialized menu model pushed
+* ``tray_menu``: serialized menu model pushed
   to the Tauri sidecar host only (``TAURI_SIDECAR=1``). On Electron/
   pystray the native menu is the single source of truth and this is
   a no-op. Payload: ``{items:[<menu node dict>]}``.
-* ``tray_state`` — tray icon name + tooltip
+* ``tray_state``: tray icon name + tooltip
   pushed to the Tauri sidecar host only (``TAURI_SIDECAR=1``). On
   Electron/pystray the ``TrayIcon`` is updated directly so emitting
   a parallel event would double-publish. Payload: ``{icon:str?,
   tooltip:str?}`` (at least one field present).
-* ``consent_required`` — emitted by ``service/model.py``
+* ``consent_required``: emitted by ``service/model.py``
   when the renderer must prompt for HuggingFace consent before a model
   download can proceed. Payload: ``{provider:str, model:str,
   message:str}``.
-* ``parakeet_cpu_fallback`` — emitted by
+* ``parakeet_cpu_fallback``: emitted by
   ``parakeet_engine.py`` when GPU transcription fails and the engine
   falls back to CPU. The tray shows a "(CPU fallback)" status suffix.
   Payload: ``{device:str (="cpu"), reason:str}``.
-* ``gpu_cpu_fallback`` — emitted by ``transcription_fallback.py``
+* ``gpu_cpu_fallback``: emitted by ``transcription_fallback.py``
   (Whisper path) when a GPU inference error triggers the synchronous
   CPU reload, published BEFORE the teardown so the tray can surface
   "switching to CPU" feedback during the multi-second reload.
   Consumed in-process by ``tray_notifications.on_gpu_cpu_fallback``;
   also allowlisted in the Rust ``ALLOWED_EVENT_TYPES`` slice for wire
   parity. Payload: ``{device:str (="cpu"), reason:str}``.
-* ``text_enhancement_failed`` — emitted by
+* ``text_enhancement_failed``: emitted by
   ``dictation_pipeline/enhancement_steps.py`` (``_apply_ai_enhancement``,
   Step 7b) when the RULE-BASED AI-enhancement pass fails. Distinct
   from ``llm_polish_failed`` (the LLM-polish path): the transcription
   is still delivered un-enhanced. Payload: ``{}``.
 
-Master plan §7.4 — runtime-pack / worker IPC events (13 new event
+Master plan §7.4, runtime-pack / worker IPC events (13 new event
 types introduced by the slim-core / runtime-pack split). The
 canonical schema is the ``OFFLINE_PACK_EVENT_TYPES`` frozenset in
 ``voice_typer/server/service/offline_pack.py``; the per-event payloads
@@ -148,58 +148,58 @@ that closes the "4th allowlist has no parity test" gap from §9.4).
 Offline-pack download lifecycle (push, published by
 ``voice_typer/server/service/offline_pack.py``):
 
-* ``offline_pack_download_started`` — payload ``{version:str, url:str,
+* ``offline_pack_download_started``: payload ``{version:str, url:str,
   total_bytes:int}``. User-visible download started.
-* ``offline_pack_download_progress`` — payload ``{version:str, progress:int
+* ``offline_pack_download_progress``: payload ``{version:str, progress:int
   (0-100), downloaded_bytes:int, total_bytes:int,
-  speed_bytes_per_sec:int, eta_seconds:int}``. Silent — no UI surface
+  speed_bytes_per_sec:int, eta_seconds:int}``. Silent, no UI surface
   today (the ``usePackDownload`` hook surfaces a coarser progress bar
   via the started/completed siblings).
-* ``offline_pack_download_completed`` — payload ``{version:str, sha256:str}``.
+* ``offline_pack_download_completed``: payload ``{version:str, sha256:str}``.
   Download finished, verification pending (see ``offline_pack_verified`` /
   ``offline_pack_corrupt``).
-* ``offline_pack_download_failed`` — payload ``{version:str, reason:str,
+* ``offline_pack_download_failed``: payload ``{version:str, reason:str,
   attempts:int}``. Exhausted the §8.2 / §8.7 retry budgets.
 
 Offline-pack integrity (push, published by ``service/offline_pack.py``):
 
-* ``offline_pack_verified`` — payload ``{version:str, sha256:str}``. SHA256 +
+* ``offline_pack_verified``: payload ``{version:str, sha256:str}``. SHA256 +
   signature both pass.
-* ``offline_pack_missing`` — payload ``{version:str, path:str}``. Cheap
+* ``offline_pack_missing``: payload ``{version:str, path:str}``. Cheap
   existence probe found no pack file (deleted by user / quarantined
-  by AV — §8.10).
-* ``offline_pack_corrupt`` — payload ``{version:str, path:str, reason:str}``.
+  by AV, §8.10).
+* ``offline_pack_corrupt``: payload ``{version:str, path:str, reason:str}``.
   SHA256 mismatch / signature failure.
-* ``offline_pack_ready`` — payload ``{version:str, worker_pid:int}``. Worker
-  started AND prewarmed — ready to transcribe (queued
+* ``offline_pack_ready``: payload ``{version:str, worker_pid:int}``. Worker
+  started AND prewarmed, ready to transcribe (queued
   ``transcribe_offline`` requests now dispatch).
 
 Worker process lifecycle (push, published by the slim-core supervisor
 once the worker process spawns / crashes / unloads):
 
-* ``worker_started`` — payload ``{pid:int, version:str}``. Worker
-  spawned + WS handshake done (prewarm NOT done yet — see
+* ``worker_started``: payload ``{pid:int, version:str}``. Worker
+  spawned + WS handshake done (prewarm NOT done yet, see
   ``offline_pack_ready``).
-* ``worker_crashed`` — payload ``{pid:int, exit_code:int}``. Worker
+* ``worker_crashed``: payload ``{pid:int, exit_code:int}``. Worker
   process exited non-zero (or killed by a signal); supervisor
   restarts with exponential backoff.
-* ``worker_unloaded`` — payload ``{reason:str}``. Worker unloaded
+* ``worker_unloaded``: payload ``{reason:str}``. Worker unloaded
   (idle timeout / explicit user action via the "Keep offline engine
   running" checkbox / shutdown).
 
 Offline transcription (request + result push):
 
-* ``transcribe_offline`` — REQUEST (renderer → slim core → worker),
+* ``transcribe_offline``: REQUEST (renderer → slim core → worker),
   NOT a push event. Registered in ``_COMMAND_REGISTRY``
   (``voice_typer/server/ipc/registry.py``) so the dispatcher routes
   it; also in the TS ``ALLOWED_COMMANDS`` Set + the Rust
   ``allowed_commands()`` literal (the three command allowlists).
   Payload: ``{audio_path:str, sample_rate:int,
   language:str|null}``. Resolves to ``{type:"ack", data:{queued:True}}``
-  (the worker takes seconds to minutes — the actual transcription
+  (the worker takes seconds to minutes, the actual transcription
   comes back via the ``transcribe_offline_result`` push event, not as
   a synchronous response).
-* ``transcribe_offline_result`` — PUSH (worker → slim core →
+* ``transcribe_offline_result``: PUSH (worker → slim core →
   renderer). Payload: ``{text:str, latency_ms:int}``. The worker
   emits this once the offline transcription completes; the slim core
   forwards it via ``event_bus.publish``.
@@ -209,10 +209,10 @@ Events emitted via ``IPCServer.push`` (NOT through ``event_bus.publish``
 or the tray-state hook, both of which already hold a reference to the
 server):
 
-* ``state_changed`` — ; emitted ONCE per TCP/WS client connect
+* ``state_changed``: ; emitted ONCE per TCP/WS client connect
   so the renderer immediately knows the current app state. Payload:
   ``{status:str, message:str}``.
-* ``status_change`` — emitted on EVERY tray state transition via the
+* ``status_change``: emitted on EVERY tray state transition via the
   ``_hook_tray_set_state`` wrapper installed in ``IPCServer.start()``.
   Payload: ``{status:str}``. Distinct from ``state_changed``: the
   former is a per-transition signal with just ``status``; the latter
@@ -222,35 +222,35 @@ Published but previously undocumented (all deliverable end-to-end —
 each is in the Rust ``ALLOWED_EVENT_TYPES`` allowlist and, where the
 renderer consumes it, in the TS ``PythonPushEvent`` union):
 
-* ``asr_backend_ready`` — background model-load SUCCEEDED (the
+* ``asr_backend_ready``: background model-load SUCCEEDED (the
   completion signal for the ``set_config`` ack's ``model_loading``
   envelope). Payload: ``{backend:str, model_size:str}``.
-* ``asr_backend_load_failed`` — background model-load FAILED after the
+* ``asr_backend_load_failed``: background model-load FAILED after the
   ``set_config`` ack. Payload: ``{backend:str, model_size:str,
   failure_reason:str}``.
-* ``microphone_permission_revoked`` — OS revoked mic permission
+* ``microphone_permission_revoked``: OS revoked mic permission
   mid-recording; the recording is stopped. Payload: ``{}``.
-* ``microphone_disconnected`` — active mic lost from the recorder
+* ``microphone_disconnected``: active mic lost from the recorder
   stream (fast unplug path / retry exhaustion). Payload: ``{}``.
-* ``cloud_fallback_used`` — a cloud ASR provider failed and the local
+* ``cloud_fallback_used``: a cloud ASR provider failed and the local
   engine took over. Payload: ``{provider:str, reason:str (≤200 chr)}``.
-* ``dictation_suppressed`` — a short near-silent recording's failure
+* ``dictation_suppressed``: a short near-silent recording's failure
   notification was suppressed (UX-SILENCE-GRACE). Payload:
   ``{duration:float, recorded_rms:float, reason:str}``.
-* ``history_corrupted`` — the history DB was corrupted, backed up, and
+* ``history_corrupted``: the history DB was corrupted, backed up, and
   rebuilt. Payload: ``{path:str, db_path:str, recovered_count:int}``.
-* ``history_fts5_rebuild_failed`` — the FTS5 index rebuild failed
+* ``history_fts5_rebuild_failed``: the FTS5 index rebuild failed
   after a delete/clear (deleted text may remain recoverable).
   Payload: ``{db_path:str, deleted:int, error:str, source:str}``.
-* ``paste_deferred`` — a synthesized paste keystroke was dropped (e.g.
+* ``paste_deferred``: a synthesized paste keystroke was dropped (e.g.
   macOS Secure Input active). Payload: ``{reason:str, message:str}``
   (the clipboard text itself is unaffected).
-* ``tray_fallback_notification`` — the tray icon is unavailable and
+* ``tray_fallback_notification``: the tray icon is unavailable and
   queued tray notifications were drained to the log + this event.
   Payload: ``{"data": {"title": ..., "message": ...}}`` (nested under
   ``data``; consumers read the nested shape).
 
-Total: 50 events — the live count is ``len(EVENT_TYPES)`` and this
+Total: 50 events, the live count is ``len(EVENT_TYPES)`` and this
 sentence is kept in lockstep with it by
 ``tests/test_event_bus.py::TestCanonicalCatalogue
 ::test_catalogue_total_count_updated``. Update this docstring whenever
@@ -268,7 +268,7 @@ Subscriber exception isolation
 ------------------------------
 A subscriber that raises is logged at **WARNING** level (with
 ``exc_info``) on the FIRST occurrence for that subscriber, then at
-DEBUG (without ``exc_info``) on subsequent occurrences — see
+DEBUG (without ``exc_info``) on subsequent occurrences, see
 :func:`voice_typer.server.log_rate_limit.log_rate_limited`. Production
 file handlers run at INFO so the first failure surfaces; rate-limiting
 prevents log spam if a subscriber is persistently broken. The
@@ -280,7 +280,7 @@ and continue) and is verified by
 Config-change reactions
 -----------------------
 There is NO subscribe/publish channel for internal config-change
-listeners on this bus — an earlier ``ConfigChangeListener`` /
+listeners on this bus, an earlier ``ConfigChangeListener`` /
 ``subscribe_config_changes`` subscription infrastructure was removed
 because its publish fan-out was never wired into the config-apply
 path, so listeners registered through it would never fire. To make a
@@ -291,7 +291,7 @@ it to the registered handler list in
 ``voice_typer/server/config_applier.py`` (``ConfigApplier.
 _side_effect_handlers``, documented from ~line 370). The dispatcher
 runs every registered handler after the validated updates have been
-applied — that is the live, tested mechanism.
+applied: that is the live, tested mechanism.
 """
 
 from __future__ import annotations
@@ -308,7 +308,7 @@ from voice_typer.server.log_rate_limit import log_rate_limited
 
 # EVENT_TYPES registry ────────────────────────────────────
 # The docstring catalogue above lists every event the system knows about,
-# but until  the list lived ONLY in the docstring — there was no
+# but until  the list lived ONLY in the docstring, there was no
 # Python constant. 30+ ``event_bus.publish({"type": "<name>"})`` call
 # sites used bare string literals, and the Rust WS reader
 # (``src-tauri/src/sidecar/ws.rs:62-98``) mirrored the list by hand
@@ -371,12 +371,12 @@ EVENT_TYPES: frozenset[str] = frozenset(
         "device_lost",
         "dictation_lost",
         # Model-load lifecycle (model_manager/_change.py background
-        # thread — the set_config ack's ``model_loading`` envelope pairs
+        # thread, the set_config ack's ``model_loading`` envelope pairs
         # with these):
         "asr_backend_ready",
         "asr_backend_load_failed",
         # Mid-recording device/permission events (recorder stream's
-        # device-health paths — distinct from the level-monitor's
+        # device-health paths, distinct from the level-monitor's
         # ``device_lost``):
         "microphone_permission_revoked",
         "microphone_disconnected",
@@ -415,7 +415,7 @@ def _subscriber_key(fn: typing.Callable[..., typing.Any]) -> str:
     - Named functions / unbound methods: use ``module.qualname`` —
       stable across calls and unique within a process.
     - Lambdas and C-level callables (``__qualname__`` is ``<lambda>``
-      or absent): fall back to ``id(fn)`` — unique for the callable's
+      or absent): fall back to ``id(fn)``: unique for the callable's
       lifetime, which is the only window the counter matters for.
     """
     qualname = getattr(fn, "__qualname__", None) or ""
@@ -435,19 +435,19 @@ log = logging.getLogger("voice_typer.server.event_bus")
 
 # ── Resolver wrappers for the snapshot tuple ───────────────────────────
 #
-# publish() iterates a tuple of "resolvers" — zero-argument callables
+# publish() iterates a tuple of "resolvers", zero-argument callables
 # that return the live subscriber callback (or None if the subscriber
 # was GC'd since the snapshot was taken). Three resolver kinds exist,
 # one per subscriber bucket in _SubscriberSet:
 #
-#   * weakref.WeakMethod       — for Python bound methods (_weak_py).
+#   * weakref.WeakMethod      , for Python bound methods (_weak_py).
 #     WeakMethod is already a zero-arg callable returning the bound
 #     method or None, so it is used directly as the resolver.
-#   * _StrongResolver           — for plain functions / lambdas (_strong)
+#   * _StrongResolver          , for plain functions / lambdas (_strong)
 #     and C-level bound methods that can't be weakly referenced
 #     (_strong_c). Wraps the strong callback; __call__ always returns
-#     it (never None — strong refs don't die).
-#   * _CWeakResolver            — for C-level bound methods (_weak_c).
+#     it (never None, strong refs don't die).
+#   * _CWeakResolver           , for C-level bound methods (_weak_c).
 #     Wraps a (weakref.ref, name) pair; __call__ returns
 #     getattr(weakref(), name, None) or None.
 #
@@ -487,12 +487,12 @@ class _CWeakResolver:
 class _SubscriberSet:
     """A set-like container for event-bus subscribers ().
 
-    ``IPCServer`` subscribes with ``subscribe(self.push)`` — a *bound
+    ``IPCServer`` subscribes with ``subscribe(self.push)``, a *bound
     method*. A plain ``set`` holds a strong ref to the bound method,
     which holds a strong ref to the IPCServer via ``__self__``. If the
     IPCServer is destroyed without calling ``unsubscribe(self.push)``
     (exception during ``stop()``, crash, ``restart_app``), the bound
-    method keeps the IPCServer alive forever — a leak.
+    method keeps the IPCServer alive forever, a leak.
 
     This container fixes the leak by storing bound methods via
     ``weakref.WeakMethod`` (Python-level) or ``weakref.ref(__self__)``
@@ -507,7 +507,7 @@ class _SubscriberSet:
         # Python bound methods (have __func__), keyed by
         # (id(__self__), id(__func__)). Value is a WeakMethod.
         self._weak_py: dict[tuple[int, int], weakref.WeakMethod] = {}
-        # C-level bound methods (e.g. list.append — have __self__ +
+        # C-level bound methods (e.g. list.append, have __self__ +
         # __name__ but no __func__). Keyed by (id(__self__), __name__).
         # Value is (weakref to __self__, method_name).
         self._weak_c: dict[tuple[int, str], tuple[weakref.ref, str]] = {}
@@ -646,7 +646,7 @@ _lock = threading.RLock()
 # When ``publish()`` is called from a real-time audio thread
 # (sounddevice's PortAudio callback, or the in-process "audio-worker"
 # thread that drives the callback), synchronous fan-out to every
-# subscriber can glitch capture — a slow subscriber (json.dumps +
+# subscriber can glitch capture, a slow subscriber (json.dumps +
 # socket.sendall to a stalled Electron renderer) blocks the RT loop.
 # Detect the audio thread by name and defer to a single-worker
 # ThreadPoolExecutor so the RT thread returns in microseconds.
@@ -660,12 +660,12 @@ _deferred_executor_lock = threading.Lock()
 # bound the deferred-publish queue. ``ThreadPoolExecutor`` uses
 # an unbounded ``SimpleQueue`` internally; a slow subscriber (stalled
 # socket.sendall to the Electron renderer) at 60 Hz ``bubble_level``
-# fan-out would queue 36,000 tasks over 10 minutes — unbounded memory
+# fan-out would queue 36,000 tasks over 10 minutes, unbounded memory
 # growth under backpressure. The counter tracks in-flight deferred
 # tasks; when it exceeds ``_DEFERRED_QUEUE_MAX`` new submissions are
 # dropped (with a rate-limited WARNING) so memory is bounded. Dropped
 # events are idempotent high-frequency UI updates (bubble_level,
-# recording_level) — losing some under backpressure is preferable to
+# recording_level), losing some under backpressure is preferable to
 # OOM-killing the audio process.
 _DEFERRED_QUEUE_MAX = 256
 _deferred_in_flight: int = 0
@@ -681,7 +681,7 @@ def _get_deferred_executor() -> ThreadPoolExecutor:
         and both created a fresh executor before either acquired
         ``_deferred_executor_lock``. (The first thread to acquire the
         lock would install theirs; the second thread's executor was a
-        local that went out of scope — but its worker thread kept
+        local that went out of scope, but its worker thread kept
         running, leaking a thread + a kernel-level worker pool.)
 
         The fix creates the executor BEFORE acquiring the lock (in the
@@ -692,30 +692,30 @@ def _get_deferred_executor() -> ThreadPoolExecutor:
         pattern for lazy singletons guarded by a mutex.
     """
     global _deferred_executor
-    # Fast path — no lock acquired. The global is published via the
+    # Fast path, no lock acquired. The global is published via the
     # GIL-atomic pointer assignment inside the slow path below; reads
     # here are safe under the GIL.
     if _deferred_executor is not None:
         return _deferred_executor
     # Slow path: optimistically create our own executor BEFORE
     # acquiring the lock, so two racing threads don't serialize on
-    # executor construction (which spawns a worker thread — ~1ms).
+    # executor construction (which spawns a worker thread, ~1ms).
     local_executor = ThreadPoolExecutor(
         max_workers=1,
         thread_name_prefix="event-bus-publisher",
     )
     with _deferred_executor_lock:
         if _deferred_executor is None:
-            # We won the race — install ours.
+            # We won the race. Install ours.
             _deferred_executor = local_executor
             return local_executor
-        # We lost the race — another thread installed theirs while we
+        # We lost the race, another thread installed theirs while we
         # were constructing ours. Shut ours down so its worker thread
         # doesn't leak (), then return the winner.
         winner = _deferred_executor
     # Shutdown OUTSIDE the lock to avoid blocking other racing callers.
     # ``wait=False`` returns immediately; the worker thread exits on
-    # its next idle poll (it has no queued tasks — we never submitted
+    # its next idle poll (it has no queued tasks, we never submitted
     # any to our local executor).
     local_executor.shutdown(wait=False)
     return winner
@@ -815,7 +815,7 @@ def _deliver_deferred(event, resolvers):
 # register a zero-arg probe here; :func:`has_live_transport` reports
 # whether any registered probe currently has a live client.
 _transport_probes: list[typing.Any] = []
-# RLock (not Lock) — mirrors ``_lock``: the WeakMethod eviction
+# RLock (not Lock), mirrors ``_lock``: the WeakMethod eviction
 # callback (``_on_transport_probe_dead``) fires at arbitrary decref
 # points on arbitrary threads, and may run while the same thread holds
 # this lock if a future change ever resolves/holds a probe (and thus a
@@ -860,7 +860,7 @@ def _on_transport_probe_dead(ref: typing.Any) -> None:
 
 
 def register_transport_probe(probe: typing.Callable[[], bool] | None) -> None:
-    """Register *probe* — a zero-arg callable reporting whether the IPC
+    """Register *probe*, a zero-arg callable reporting whether the IPC
     transport currently has a live host client connected.
 
     The TCP transport (``IPCServer.start_tcp`` in
@@ -882,7 +882,7 @@ def unregister_transport_probe(probe: typing.Callable[[], bool] | None) -> None:
         # ``WeakMethod.__eq__`` compares the underlying bound method,
         # so re-wrapping here matches the stored entry even though the
         # callback differs. ``ValueError`` = never registered (or
-        # already evicted) — a no-op.
+        # already evicted), a no-op.
         _transport_probes.remove(_as_probe_entry(probe))
 
 
@@ -900,7 +900,7 @@ def has_live_transport() -> bool:
         return True
     for entry in probes:
         # Bound-method entries are WeakMethods (resolve to None once
-        # the owning server is GC'd — the eviction callback normally
+        # the owning server is GC'd, the eviction callback normally
         # removes them first; the skip is purely defensive).
         cb = entry() if isinstance(entry, weakref.WeakMethod) else entry
         if cb is None:
@@ -938,7 +938,7 @@ def publish(event: dict, *, async_dispatch: bool = False) -> bool:
             :class:`ThreadPoolExecutor` so the caller returns immediately
             (subscribers run on the executor thread, not the publisher's
             thread). Useful for non-RT publisher threads that must not
-            block on slow IPC writes — e.g. the transcription thread
+            block on slow IPC writes: e.g. the transcription thread
             calling ``publish({"type": "transcription_final", ...})``
             would otherwise block on ``IPCServer.push`` →
             ``socket.sendall`` to a stalled Electron renderer (seconds of
@@ -946,7 +946,7 @@ def publish(event: dict, *, async_dispatch: bool = False) -> bool:
 
             When ``False`` (default), subscribers are called synchronously
             in the publisher's thread (existing ``_push_event_now``
-            semantics — most tests assert the callable was invoked by the
+            semantics, most tests assert the callable was invoked by the
             time ``publish`` returns).
 
             The RT-thread auto-defer (PERF-2) takes precedence over this
@@ -1058,7 +1058,7 @@ def shutdown() -> None:
 
         This is the SINGLE canonical lifecycle hook for the lazily-created
         ``ThreadPoolExecutor``.  Previously a duplicate ``shutdown_executor()``
-    function existed alongside this one — it was deleted in
+    function existed alongside this one, it was deleted in
         (DRY, Rule 24) because nothing in the codebase called it (only
         ``shutdown()`` is invoked from
         ``shutdown_controller._teardown_event_bus``).
@@ -1066,7 +1066,7 @@ def shutdown() -> None:
     the call now uses ``executor.shutdown(wait=True,
         cancel_futures=True)`` instead of ``wait=False``. ``wait=False``
         returned immediately and did NOT block on already-running or queued
-        tasks — but the worker thread is a NON-DAEMON (CPython
+        tasks, but the worker thread is a NON-DAEMON (CPython
         ``ThreadPoolExecutor`` default), so it kept the interpreter alive
         past the ``shutdown()`` call until all queued/in-flight tasks
         finished. The 5s ``_run_with_timeout`` wrapper in
@@ -1087,7 +1087,7 @@ def shutdown() -> None:
         ``ShutdownController._teardown_event_bus`` releases the worker
         promptly so it doesn't contribute to shutdown latency.
 
-        Idempotent — safe to call multiple times. After this call,
+        Idempotent, safe to call multiple times. After this call,
         ``_deferred_executor`` is set to ``None`` so the next RT-thread
         ``publish`` lazily creates a fresh executor (or, if the process
         is exiting, the ``RuntimeError`` branch in ``publish`` falls

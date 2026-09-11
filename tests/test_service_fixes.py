@@ -6,7 +6,7 @@ Dedicated coverage for the three fixes applied to
 * **XV-1 (High)**: ``_check_parakeet_deps`` and ``_check_qwen_deps`` use
   :func:`importlib.util.find_spec` instead of
   :func:`importlib.import_module`.  ``find_spec`` only resolves the
-  module's file path on disk — it does NOT execute the module body — so
+  module's file path on disk (it does NOT execute the module body) so
   probing for ``torch`` (which allocates 500 MB–1 GB of RSS when
   imported) no longer loads torch into the process.  These helpers are
   called via :meth:`_compute_model_status` on every cache miss of
@@ -57,7 +57,7 @@ def _make_service(tmp_config_dir):
 
 
 # XV-1 deps-probe tests removed 2026-08-15: ``_check_qwen_deps`` /
-# ``_check_parakeet_deps`` were deleted with the torch engine — both
+# ``_check_parakeet_deps`` were deleted with the torch engine, both
 # backends are ONNX now (onnxruntime + onnx-asr are base deps), so the
 # Models-page ``deps_ok`` is a constant True with no module probe.
 
@@ -99,7 +99,7 @@ class TestDownloadPollScopedToModelDir:
         stubbed (model registry, huggingface_hub.snapshot_download,
         asr_setup pause helpers, consent gate, per-download
         cancellation plumbing, event bus, tray-models cache) so the
-        test is hermetic — no network, no torch, no real audio.
+        test is hermetic, no network, no torch, no real audio.
         """
 
         # Build a fake HF hub cache with TWO repos:
@@ -142,7 +142,7 @@ class TestDownloadPollScopedToModelDir:
         # threaded download is a no-op that returns immediately.
         def fake_snapshot_download(*args, **kwargs):
             if kwargs.get("local_files_only"):
-                raise FileNotFoundError("not cached — drive into polling branch")
+                raise FileNotFoundError("not cached, drive into polling branch")
             return None
 
         monkeypatch.setattr("huggingface_hub.snapshot_download", fake_snapshot_download)
@@ -174,7 +174,7 @@ class TestDownloadPollScopedToModelDir:
         monkeypatch.setattr("voice_typer.server.asr_setup.wait_while_paused", lambda timeout_s=1.0: None)
 
         # Stub segmented planning to "no big files": this test pins the
-        # classic poll loop's stat behavior — the segmented fast lane
+        # classic poll loop's stat behavior, the segmented fast lane
         # (which would call HfApi over the network) is out of scope here.
         monkeypatch.setattr(
             "voice_typer.server.segmented_download.plan_segmented_files",
@@ -209,7 +209,7 @@ class TestDownloadPollScopedToModelDir:
         try:
             svc.download_model("target-model")
         except Exception:
-            # Any residual stubbing gap is fine — the stat spy has
+            # Any residual stubbing gap is fine, the stat spy has
             # already captured the polling iteration's file accesses.
             pass
         finally:
@@ -263,7 +263,7 @@ class TestMicrophonesCacheEmptyList:
         code_only = "\n".join(code_lines)
         assert "if self._microphones_cache and " not in code_only, (
             "XV-5 regression: refresh_microphones still uses bare-truthiness "
-            "cache check — this skips the cache when PortAudio returns 0 mics."
+            "cache check, this skips the cache when PortAudio returns 0 mics."
         )
 
     def test_empty_list_served_from_cache(self, tmp_config_dir, monkeypatch):
@@ -296,7 +296,7 @@ class TestMicrophonesCacheEmptyList:
 
     def test_non_empty_list_still_served_from_cache(self, tmp_config_dir, monkeypatch):
         """Sanity: a non-empty cache continues to be served (regression
-        guard — the XV-5 fix must not break the non-empty path)."""
+        guard, the XV-5 fix must not break the non-empty path)."""
         svc = _make_service(tmp_config_dir)
         cached_mics = [{"name": "USB Mic", "index": 0}]
         svc._microphones_cache = cached_mics

@@ -1,16 +1,16 @@
-"""Tray lifecycle glue — extracted from ``tray.py``.
+"""Tray lifecycle glue, extracted from ``tray.py``.
 
 Owns the non-constructor lifecycle pieces of ``TrayIcon``:
 
-  - :func:`wrap_bg_work` — ADR-0020 §6.5: wrap bg_work so the initial
+  - :func:`wrap_bg_work`: ADR-0020 §6.5: wrap bg_work so the initial
     tray menu is published to Tauri after background setup.
   - :func:`subscribe_host_ready_republish` / :func:`on_host_ready` —
     Tauri-only listener that replays menu+state on every host
     (re)connect (covers the bg_work-vs-handshake publish race).
-  - :func:`run` — block the main thread on pystray's event loop, or
+  - :func:`run`: block the main thread on pystray's event loop, or
     on ``_run_event`` when the tray is unavailable (60s pending-queue
     drain loop).
-  - :func:`stop` — idempotent teardown (icon-lock serialized,
+  - :func:`stop`: idempotent teardown (icon-lock serialized,
     elapsed-timer cancel, cache clears, event-bus unsubs).
 
 ``TrayIcon.start`` + ``TrayIcon._launch_bg_work`` stay physically on
@@ -64,7 +64,7 @@ def wrap_bg_work(tray: TrayIcon, bg_work: Callable | None) -> Callable | None:
 def subscribe_host_ready_republish(tray: TrayIcon) -> None:
     """Subscribe a listener that re-publishes the tray menu on host (re)connect.
 
-    Idempotent via ``tray._host_ready_republish_subscribed`` — the
+    Idempotent via ``tray._host_ready_republish_subscribed``, the
     registration now happens at TrayIcon CONSTRUCTION under Tauri
     (``start()`` never runs in ws-mode), and the pystray ``start()``
     path still calls it; the flag makes the second call a no-op so the
@@ -75,12 +75,12 @@ def subscribe_host_ready_republish(tray: TrayIcon) -> None:
     MOMENT receive it. The sidecar WS subscriber (``sidecar_ws.
     _install_subscriber``) installs per connection, so the one-shot
     publish from ``_wrap_bg_work``'s finally block races the first
-    handshake — when bg_work finishes before the host authenticates,
+    handshake: when bg_work finishes before the host authenticates,
     the event lands on an empty subscriber set, the Rust host keeps
     its placeholder menu forever, and nothing re-publishes.
 
     Subscribing to the sidecar's ``ready`` event (published AFTER the
-    WS subscriber is installed — see sidecar_ws C-WS-1 ordering) turns
+    WS subscriber is installed: see sidecar_ws C-WS-1 ordering) turns
     every fresh host connection into a menu+state replay. This covers
     both the startup race and supervisor respawns/reconnects. Safe
     under Tauri only (guarded by the same ``TAURI_SIDECAR`` gate as
@@ -93,7 +93,7 @@ def subscribe_host_ready_republish(tray: TrayIcon) -> None:
         _event_bus.subscribe(tray._on_host_ready)
     except Exception:
         log.warning(
-            "[TRAY] could not subscribe host-ready republish — the Tauri tray "
+            "[TRAY] could not subscribe host-ready republish, the Tauri tray "
             "menu may stay at its placeholder until the next state change",
             exc_info=True,
         )
@@ -110,7 +110,7 @@ def on_host_ready(tray: TrayIcon, event: dict) -> None:
     try:
         tray._maybe_publish_tray_menu()
         tray._publish_tray_state()
-        log.debug("[TRAY] host ready — tray menu + state re-published")
+        log.debug("[TRAY] host ready, tray menu + state re-published")
     except Exception:
         log.debug("[TRAY] host-ready tray republish failed", exc_info=True)
 
@@ -126,7 +126,7 @@ def run(tray: TrayIcon) -> None:
     """
     if tray._tray_unavailable and tray._icon is None:
         log.info(
-            "[TRAY] Tray unavailable — main thread blocking on Event "
+            "[TRAY] Tray unavailable, main thread blocking on Event "
             "(stop() will release, pending queues drained every 60s). "
             "Hotkey + IPC server still active."
         )
@@ -181,14 +181,14 @@ def stop(tray: TrayIcon) -> None:
     """Stop the tray icon and exit the event loop (idempotent).
 
     release ``_run_event``. Unsubscribe
-    parakeet_cpu_fallback (set.discard — safe if never registered).
+    parakeet_cpu_fallback (set.discard, safe if never registered).
 
     ``tray._icon.stop()`` + ``tray._icon = None`` are
     serialized by ``tray._icon_lock`` so a concurrent
     ``_apply_state`` (e.g. from the 1s elapsed-recording tick or a
     state-change IPC) cannot read ``tray._icon`` as non-None
     between ``stop()`` returning and the ``= None`` assignment
-    landing — the documented WinError 1402 (torn-down Icon) race.
+    landing, the documented WinError 1402 (torn-down Icon) race.
     ``_icon_lock`` is an RLock so a re-entrant callback from within
     ``Icon.stop()`` (if any backend ever invokes one) cannot
     self-deadlock.

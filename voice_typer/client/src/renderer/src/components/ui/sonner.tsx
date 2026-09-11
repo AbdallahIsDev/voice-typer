@@ -17,7 +17,7 @@ import { getLocale, isRtlLocale, subscribeLocale, t } from "@/i18n/i18n";
  *
  * THEME-FIX: previously this used `useTheme()` from `next-themes`, but
  * `next-themes` requires a `<ThemeProvider>` ancestor to actually track
- * theme state — and no such provider is mounted anywhere in the
+ * theme state, and no such provider is mounted anywhere in the
  * renderer (the app uses a custom `useTheme` hook in `@/hooks/useTheme`
  * that toggles the `dark` class on `<html>`). Without a provider,
  * `next-themes`'s `useTheme()` always returned `{ theme: undefined }`,
@@ -67,7 +67,7 @@ function useResolvedTheme(): "light" | "dark" {
  * notification stream that drives `useT()`, fired by `setLocale` /
  * `ensureLocaleLoaded`). The snapshot is a primitive boolean, so
  * `useSyncExternalStore` re-renders the Toaster only when the RTL-ness
- * of the active locale actually flips — e.g. switching English →
+ * of the active locale actually flips, e.g. switching English →
  * Arabic moves the toaster corner without a page reload.
  */
 function useRtlLocale(): boolean {
@@ -93,14 +93,14 @@ const Toaster = ({ ...props }: ToasterProps) => {
 			//   - richColors: sonner's semantic palette (green for
 			//     success, red for error, amber for warning, blue
 			//     for info) layered on top of our CSS-variable
-			//     tokens — gives toasts an at-a-glance type signal
+			//     tokens, gives toasts an at-a-glance type signal
 			//     without us hand-tinting each variant.
 			//   - closeButton: lets users dismiss a sticky toast
 			//     (errors stay 8s; some users want them gone now)
 			//     without waiting for the timer or hunting for the
 			//     action button.
 			//   - position: reactive to the active locale (see
-			//     useRtlLocale above) — flipping to Arabic at runtime
+			//     useRtlLocale above), flipping to Arabic at runtime
 			//     re-renders the Toaster with the mirrored corner.
 			//   - duration={4000}: fallback for toasts raised via
 			//     ``toast.*`` directly (bypassing ``useSnackbar``).
@@ -111,7 +111,7 @@ const Toaster = ({ ...props }: ToasterProps) => {
 			closeButton
 			position={rtl ? "bottom-left" : "bottom-right"}
 			// Localized accessible names for the toast container and its
-			// close button — sonner's built-ins are hard-coded English
+			// close button, sonner's built-ins are hard-coded English
 			// ("Notifications" / "Close"), which leaked untranslated text
 			// to screen-reader users in every non-English locale.
 			containerAriaLabel={t("a11y.notifications")}

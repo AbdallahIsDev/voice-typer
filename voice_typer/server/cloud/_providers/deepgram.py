@@ -1,6 +1,6 @@
 """Deepgram ``/v1/listen`` URL building.
 
-Extracted from the ``cloud_engines.py`` monolith. Pure shaping — no
+Extracted from the ``cloud_engines.py`` monolith. Pure shaping, no
 I/O; the caller sends the returned URL with the audio WAV bytes.
 
 SEC-005: query parameters (model, language) are URL-encoded to prevent

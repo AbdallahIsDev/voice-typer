@@ -9,7 +9,7 @@
  *   - A component that reads the locale ONCE at mount via ``getLocale()``
  *     and never re-renders when the locale changes (the ``useT()``
  *     hook's ``useSyncExternalStore`` subscription is what makes
- *     re-render work — a component using bare ``t()`` without the hook
+ *     re-render work, a component using bare ``t()`` without the hook
  *     would be stuck on the mount-time locale).
  *   - A component whose rendered TEXT doesn't change when the locale
  *     changes (would indicate the component is hardcoding English
@@ -17,7 +17,7 @@
  *   - A component whose LAYOUT doesn't flip when ``dir`` flips (would
  *     indicate the component is using physical CSS properties like
  *     ``ml-4`` / ``pl-9`` instead of logical ones like ``ms-4`` /
- *     ``ps-9`` — the ``isRtlLocale()`` helper lets a component gate
+ *     ``ps-9``, the ``isRtlLocale()`` helper lets a component gate
  *     layout-flip logic on the current locale).
  *
  * This test file mounts a minimal React component that exercises the
@@ -34,7 +34,7 @@
  *   4. ``document.documentElement.lang`` tracks the active locale (so
  *      screen readers pronounce content in the user-selected language).
  *   5. A component using bare ``t()`` (NOT the ``useT()`` hook) does
- *      NOT re-render when the locale changes — this is the
+ *      NOT re-render when the locale changes, this is the
  *      negative-test guardrail that documents why callers MUST use
  *      ``useT()`` for reactive text. The test asserts the negative
  *      case so a future refactor that makes bare ``t()`` reactive
@@ -59,7 +59,7 @@ import {
  * locale change. Renders a translation key as text so we can assert
  * the visible string tracks the active locale.
  *
- * Uses ``analytics.title`` (defined in all 8 locale files — ``en``:
+ * Uses ``analytics.title`` (defined in all 8 locale files, ``en``:
  * ``"Analytics"``, ``ar``: ``"تحليلات"``) as a stable, locale-aware
  * probe.
  */
@@ -76,7 +76,7 @@ function AnalyticsTitle() {
  * Minimal component that calls bare ``t()`` at render time WITHOUT
  * subscribing to locale changes via ``useT()``. The component captures
  * the locale at mount time and never re-renders when the locale
- * changes — this is the negative-test probe (see header docstring).
+ * changes, this is the negative-test probe (see header docstring).
  */
 function StaticTitle() {
 	return (
@@ -92,7 +92,7 @@ function StaticTitle() {
  * locale. Uses the ``useT()`` hook so it re-renders on locale change.
  *
  * Uses distinctive class names (``row-reverse-probe`` / ``row-probe``)
- * so the RTL / LTR states are unambiguously distinguishable — a naive
+ * so the RTL / LTR states are unambiguously distinguishable, a naive
  * ``expect(className).not.toContain("flex-row")`` assertion would fail
  * because ``"flex-row-reverse"`` contains the substring ``"flex-row"``.
  */
@@ -135,7 +135,7 @@ describe("XA-20-21: component-level RTL render behavior", () => {
 		render(<AnalyticsTitle />);
 		// English baseline.
 		expect(screen.getByTestId("analytics-title").textContent).toBe("Analytics");
-		// Switch to Arabic — the useT() subscription MUST trigger a re-render
+		// Switch to Arabic, the useT() subscription MUST trigger a re-render
 		// with the Arabic translation. If the component used bare t() without
 		// useT(), the text would stay "Analytics" (the mount-time locale).
 		act(() => {
@@ -159,7 +159,7 @@ describe("XA-20-21: component-level RTL render behavior", () => {
 
 	it("document.documentElement.dir + lang track the active locale while a component is mounted", () => {
 		render(<AnalyticsTitle />);
-		// English baseline — setLocale("en") in beforeEach set dir="ltr".
+		// English baseline, setLocale("en") in beforeEach set dir="ltr".
 		expect(document.documentElement.dir).toBe("ltr");
 		expect(document.documentElement.lang).toBe("en");
 		act(() => {
@@ -177,16 +177,16 @@ describe("XA-20-21: component-level RTL render behavior", () => {
 	it("LayoutProbe component flips its CSS class + data-dir attribute when locale switches to/from ar", () => {
 		render(<LayoutProbe />);
 		const probe = screen.getByTestId("layout-probe");
-		// English baseline — LTR layout.
+		// English baseline, LTR layout.
 		expect(probe.dataset.dir).toBe("ltr");
 		expect(probe.className).toBe("row-probe");
-		// Switch to Arabic — the layout MUST flip to RTL.
+		// Switch to Arabic, the layout MUST flip to RTL.
 		act(() => {
 			setLocale("ar" as Locale);
 		});
 		expect(probe.dataset.dir).toBe("rtl");
 		expect(probe.className).toBe("row-reverse-probe");
-		// Switch back — the layout MUST flip back to LTR.
+		// Switch back, the layout MUST flip back to LTR.
 		act(() => {
 			setLocale("en" as Locale);
 		});
@@ -194,7 +194,7 @@ describe("XA-20-21: component-level RTL render behavior", () => {
 		expect(probe.className).toBe("row-probe");
 	});
 
-	it("bare t() component (no useT() hook) does NOT re-render on locale change — documents the reactive-subscription contract", () => {
+	it("bare t() component (no useT() hook) does NOT re-render on locale change, documents the reactive-subscription contract", () => {
 		// This is a NEGATIVE test: it asserts that bare t() (without the
 		// useT() hook) is NOT reactive. If a future refactor makes bare
 		// t() reactive (e.g. by adding a global subscription), this test

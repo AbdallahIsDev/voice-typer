@@ -1,4 +1,4 @@
-"""G4-L-25 regression guard — ``VoiceTyperService.reset_config_to_defaults``.
+"""G4-L-25 regression guard: ``VoiceTyperService.reset_config_to_defaults``.
 
 Finding G4-L-25 (Low): there's no IPC command to factory-reset the
 config to defaults.  Users who want a clean slate have to manually
@@ -21,7 +21,7 @@ G4-L-25 fix adds ``VoiceTyperService.reset_config_to_defaults()`` which:
   5. Calls ``Config.save_strict()`` so a disk failure surfaces as a
      ``RuntimeError`` rather than a silent success.
   6. Does NOT touch ``history.db`` / vocabulary / templates / logs /
-     keychain entries — only the in-memory + on-disk config is reset.
+     keychain entries, only the in-memory + on-disk config is reset.
 
 Agent 2-j wires the IPC handler that calls this method.
 
@@ -49,7 +49,7 @@ def _build_service(tmp_path: Path):
     # MagicMock would silently accept any setattr, hiding regressions).
     cfg = Config()
     app.config = cfg
-    # Real lock — MagicMock would silently accept the `with` statement
+    # Real lock, MagicMock would silently accept the `with` statement
     # but not actually serialize, hiding concurrency bugs.
     app._config_mutation_lock = threading.Lock()
     app.tray.notify = MagicMock()
@@ -67,7 +67,7 @@ def test_reset_config_to_defaults_method_exists() -> None:
     from voice_typer.server.service import VoiceTyperService
 
     assert hasattr(VoiceTyperService, "reset_config_to_defaults"), (
-        "VoiceTyperService must define reset_config_to_defaults — see G4-L-25."
+        "VoiceTyperService must define reset_config_to_defaults: see G4-L-25."
     )
 
 
@@ -138,7 +138,7 @@ def test_reset_config_to_defaults_preserves_api_keys_by_default(tmp_path) -> Non
         if not hasattr(svc, "reset_config_to_defaults"):
             pytest.skip("G4-L-25 not yet landed")
         # Seed in-memory Config with API keys (these are the REAL
-        # values, not keyring:// reference tokens — see Config.load).
+        # values, not keyring:// reference tokens: see Config.load).
         cfg.openai_api_key = "sk-preserve-me"
         cfg.groq_api_key = "gsk-preserve-me"
         cfg.llm_api_key = "llm-preserve-me"
@@ -189,7 +189,7 @@ def test_reset_config_to_defaults_wipes_api_keys_whenAsked(tmp_path) -> None:  #
 
 def test_reset_config_to_defaults_does_not_touch_history_db(tmp_path) -> None:
     """G4-L-25: reset must NOT touch history.db (transcription history
-    is preserved — GDPR Art. 17 delete is a separate, intentional action)."""
+    is preserved. GDPR Art. 17 delete is a separate, intentional action)."""
     svc, mp, _ = _build_service(tmp_path)
     try:
         if not hasattr(svc, "reset_config_to_defaults"):
@@ -209,7 +209,7 @@ def test_reset_config_to_defaults_does_not_touch_history_db(tmp_path) -> None:
         rows = hdb2.get_recent(limit=10)
         hdb2.close()
         assert any(r.get("text") == "must survive reset" for r in rows), (
-            "history.db must NOT be touched by reset_config_to_defaults — "
+            "history.db must NOT be touched by reset_config_to_defaults, "
             "G4-L-25 (history is preserved across factory reset)."
         )
     finally:
@@ -251,7 +251,7 @@ def test_reset_config_to_defaults_invalidates_cached_llm_polisher(tmp_path) -> N
 
         svc.reset_config_to_defaults()
 
-        assert svc._app._llm_polisher is None, "app._llm_polisher must be set to None by reset — G4-L-25."
+        assert svc._app._llm_polisher is None, "app._llm_polisher must be set to None by reset, G4-L-25."
     finally:
         mp.undo()
 
@@ -303,7 +303,7 @@ def test_reset_config_to_defaults_acquires_config_mutation_lock(tmp_path) -> Non
         assert result["success"] is True
         assert held_during_reset == [True], (
             "reset_config_to_defaults must acquire app._config_mutation_lock "
-            "for the backup + reset + save sequence — G4-L-25."
+            "for the backup + reset + save sequence, G4-L-25."
         )
     finally:
         mp.undo()
@@ -333,7 +333,7 @@ def test_reset_config_to_defaults_restores_config_on_save_failure(tmp_path, monk
 
         assert result["success"] is False
         # The pre-swap Config object must be restored (identity), and its
-        # values must be intact — the old API key stays active until the
+        # values must be intact, the old API key stays active until the
         # user retries; it is never silently reset in-memory while disk
         # keeps the old values.
         assert svc._app.config is cfg, "HU-22: save failure must restore app.config to the pre-swap object"

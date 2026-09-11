@@ -86,7 +86,7 @@ beforeEach(() => {
 	// Replace the global `Audio` constructor with our stub factory.
 	// `vi.stubGlobal` is the recommended way to override globals in vitest.
 	// We use a function declaration (not an arrow function) so `new Audio(...)`
-	// works correctly — vitest warns when `vi.fn()` wraps an arrow function
+	// works correctly, vitest warns when `vi.fn()` wraps an arrow function
 	// and it's invoked with `new`.
 	vi.stubGlobal(
 		"Audio",
@@ -112,7 +112,7 @@ function latestAudio(): AudioStub | undefined {
 	return audioInstances[audioInstances.length - 1];
 }
 
-describe("useMicrophonePlayback — initial state", () => {
+describe("useMicrophonePlayback, initial state", () => {
 	it("exposes playingEnhanced=false, playingOriginal=false, playingRef.current=false on mount", () => {
 		const { result } = renderHook(() => useMicrophonePlayback());
 		expect(result.current.playingEnhanced).toBe(false);
@@ -121,7 +121,7 @@ describe("useMicrophonePlayback — initial state", () => {
 	});
 });
 
-describe("useMicrophonePlayback — playAudio (enhanced vs original)", () => {
+describe("useMicrophonePlayback, playAudio (enhanced vs original)", () => {
 	it("sets playingEnhanced=true + playingOriginal=false when isEnhanced=true", () => {
 		const { result } = renderHook(() => useMicrophonePlayback());
 
@@ -163,7 +163,7 @@ describe("useMicrophonePlayback — playAudio (enhanced vs original)", () => {
 	});
 });
 
-describe("useMicrophonePlayback — playback pause/resume (replace in-flight clip)", () => {
+describe("useMicrophonePlayback, playback pause/resume (replace in-flight clip)", () => {
 	it("pauses the previous audio before starting a new one", () => {
 		const { result } = renderHook(() => useMicrophonePlayback());
 
@@ -193,7 +193,7 @@ describe("useMicrophonePlayback — playback pause/resume (replace in-flight cli
 	});
 });
 
-describe("useMicrophonePlayback — onended / onerror / play() rejection", () => {
+describe("useMicrophonePlayback, onended / onerror / play() rejection", () => {
 	it("clears all playing flags + playingRef when onended fires", () => {
 		const { result } = renderHook(() => useMicrophonePlayback());
 
@@ -202,7 +202,7 @@ describe("useMicrophonePlayback — onended / onerror / play() rejection", () =>
 		});
 		expect(result.current.playingEnhanced).toBe(true);
 
-		// Fire onended — the audio finished naturally.
+		// Fire onended, the audio finished naturally.
 		act(() => {
 			latestAudio()?.onended?.();
 		});
@@ -261,7 +261,7 @@ describe("useMicrophonePlayback — onended / onerror / play() rejection", () =>
 	});
 });
 
-describe("useMicrophonePlayback — stopPlayback", () => {
+describe("useMicrophonePlayback, stopPlayback", () => {
 	it("pauses the audio element + clears all playing flags", () => {
 		const { result } = renderHook(() => useMicrophonePlayback());
 
@@ -296,7 +296,7 @@ describe("useMicrophonePlayback — stopPlayback", () => {
 	});
 });
 
-describe("useMicrophonePlayback — AudioContext cleanup on unmount", () => {
+describe("useMicrophonePlayback, AudioContext cleanup on unmount", () => {
 	it("pauses the in-flight audio element when the hook unmounts", () => {
 		const { result, unmount } = renderHook(() => useMicrophonePlayback());
 
@@ -315,7 +315,7 @@ describe("useMicrophonePlayback — AudioContext cleanup on unmount", () => {
 
 	it("does NOT throw when unmounting with no in-flight audio", () => {
 		const { unmount } = renderHook(() => useMicrophonePlayback());
-		// No playAudio call — audioRef.current is null. The cleanup
+		// No playAudio call, audioRef.current is null. The cleanup
 		// should be a no-op (no `Cannot read properties of null`).
 		expect(() => unmount()).not.toThrow();
 	});
@@ -335,7 +335,7 @@ describe("useMicrophonePlayback — AudioContext cleanup on unmount", () => {
 		// detect it below.
 		const spy = vi.spyOn(console, "error").mockImplementation(() => {});
 
-		// Fire onended AFTER unmount — should be a no-op (the cleanup
+		// Fire onended AFTER unmount, should be a no-op (the cleanup
 		// cleared audioRef, so the audio's onended handler... wait, the
 		// handler still exists on the audio instance. But it calls
 		// setPlayingEnhanced(false) which would warn.)

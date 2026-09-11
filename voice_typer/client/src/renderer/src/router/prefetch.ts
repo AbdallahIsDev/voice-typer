@@ -4,18 +4,18 @@
 // Without prefetching, the FIRST navigation to each page waits on a
 // dynamic import before anything renders. This module closes that gap:
 //
-//   1. `prefetchRouteChunks()` — called once from App after mount, on
+//   1. `prefetchRouteChunks()`, called once from App after mount, on
 //      `requestIdleCallback`, warms every route chunk. The app is a
 //      desktop shell (local files, small chunks), so warming all of
 //      them at idle is effectively free and makes every subsequent
 //      route switch render synchronously from React.lazy's module
-//      cache — no Suspense fallback at all.
-//   2. `prefetchPage(page)` — intent-based backup for the idle pass:
+//      cache, no Suspense fallback at all.
+//   2. `prefetchPage(page)`, intent-based backup for the idle pass:
 //      the Sidebar calls it on nav-item hover/focus so the chunk is
 //      already streaming before the click lands.
 //
 // Fire-and-forget: a failed prefetch (dev HMR race, crash) must never
-// surface — the normal lazy import path still handles the load.
+// surface, the normal lazy import path still handles the load.
 
 import type { Page } from "@/types/ipc";
 
@@ -29,7 +29,7 @@ type IdleWindow = Window & {
 
 /**
  * Warm every route chunk during browser idle time. Safe to call
- * multiple times — the work happens once per session.
+ * multiple times, the work happens once per session.
  */
 export function prefetchRouteChunks(): void {
 	if (idlePrefetchStarted) return;

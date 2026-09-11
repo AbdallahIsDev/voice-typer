@@ -4,16 +4,16 @@
  * persistence in `bubble/positioning.ts`.
  *
  * Covers the full in-main lifecycle:
- *   - `setPersistedBubblePosition` — the cache write path fed by
+ *   - `setPersistedBubblePosition`, the cache write path fed by
  *     `handle-message.ts` from `bubble_config` pushes.
- *   - `resolveRestoredBubblePosition` — restore priority: in-session
+ *   - `resolveRestoredBubblePosition`, restore priority: in-session
  *     drag position first, durable config pair second; off-screen
  *     candidates are rejected either way.
- *   - `recordBubbleMoved` + the debounced durable persist — a user drag
+ *   - `recordBubbleMoved` + the debounced durable persist, a user drag
  *     schedules exactly one `set_config` write ~500ms after the last
  *     move; off-screen moves and suppressed windows (programmatic
  *     placements) never write; failures are logged, never thrown.
- *   - `cancelScheduledDurablePersist` — the Settings edge-toggle reset
+ *   - `cancelScheduledDurablePersist`, the Settings edge-toggle reset
  *     must be able to cancel a pending write so it can't race the
  *     server-side clear.
  */
@@ -107,7 +107,7 @@ describe("resolveRestoredBubblePosition", () => {
 	it("prefers the in-session drag position over the durable pair", () => {
 		setPersistedBubblePosition({ x: 10, y: 10 });
 		recordBubbleMoved({ x: 500, y: 300 });
-		// recordBubbleMoved scheduled a persist — neutralize it for this
+		// recordBubbleMoved scheduled a persist, neutralize it for this
 		// assertion's isolation.
 		cancelScheduledDurablePersist();
 
@@ -177,7 +177,7 @@ describe("recordBubbleMoved + debounced durable persist", () => {
 		await vi.advanceTimersByTimeAsync(2000);
 
 		expect(sendToPythonSpy).not.toHaveBeenCalled();
-		// The in-session slot still updates — only the durable write is
+		// The in-session slot still updates, only the durable write is
 		// suppressed.
 		expect(getSavedBubblePosition()).toEqual({ x: 130, y: 240 });
 	});

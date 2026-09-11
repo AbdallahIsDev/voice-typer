@@ -63,7 +63,7 @@ describe("useLastResortUnloadedToast", () => {
 		handler?.({ backend: "whisper", timestamp: "2026-08-11T00:00:00Z" });
 
 		expect(toast.warning).toHaveBeenCalledWith(
-			// 2026-08-15: generic title — no backend interpolation.
+			// 2026-08-15: generic title, no backend interpolation.
 			"models.lastResortUnloaded",
 			{
 				id: "asr-last-resort-unloaded:whisper",
@@ -97,7 +97,7 @@ describe("useLastResortUnloadedToast", () => {
 		handler?.({ backend: "whisper" });
 		expect(toast.warning).toHaveBeenCalledTimes(1);
 
-		// A different backend is a different transition — NOT suppressed by
+		// A different backend is a different transition, NOT suppressed by
 		// the per-backend cooldown. But it IS collapsed by the short global
 		// dedupe window if it fires within 10s of the whisper toast, so
 		// advance the clock past that window first (a genuine later
@@ -109,7 +109,7 @@ describe("useLastResortUnloadedToast", () => {
 
 	it("collapses rapid genuine transitions across DIFFERENT backends to one toast", () => {
 		// Renderer-side dedupe: whisper and qwen both breaking within the
-		// 10s dedupe window must NOT stack two toasts — the user sees ONE
+		// 10s dedupe window must NOT stack two toasts, the user sees ONE
 		// notification pointing at the Models page.
 		renderHook(() => useLastResortUnloadedToast(mockT, onOpenModels));
 		const handler = registered.get("asr_last_resort_unloaded");
@@ -121,7 +121,7 @@ describe("useLastResortUnloadedToast", () => {
 		expect(toast.warning).toHaveBeenCalledTimes(1);
 
 		// The single toast still carries the first backend's dedupe id
-		// (the title itself is generic — 2026-08-15).
+		// (the title itself is generic, 2026-08-15).
 		expect(toast.warning).toHaveBeenCalledWith(
 			"models.lastResortUnloaded",
 			expect.objectContaining({ id: "asr-last-resort-unloaded:whisper" }),
@@ -130,7 +130,7 @@ describe("useLastResortUnloadedToast", () => {
 
 	it("toasts a different backend again after the dedupe window lapses", () => {
 		// After the 10s dedupe window, a NEW backend breaking is a
-		// genuinely separate notification cycle — not collapsed.
+		// genuinely separate notification cycle, not collapsed.
 		renderHook(() => useLastResortUnloadedToast(mockT, onOpenModels));
 		const handler = registered.get("asr_last_resort_unloaded");
 		expect(handler).toBeDefined();
@@ -181,7 +181,7 @@ describe("useLastResortUnloadedToast", () => {
 		handler2?.({ backend: "whisper" });
 		expect(toast.warning).toHaveBeenCalledTimes(1);
 
-		// A different backend is still a fresh transition — advance past
+		// A different backend is still a fresh transition, advance past
 		// the dedupe window so the qwen toast isn't collapsed into the
 		// (suppressed) whisper one.
 		nowSpy.mockReturnValue(1_000_000 + 10_001);

@@ -4,7 +4,7 @@
 Previously this module eagerly did ``from voice_typer.server.config
 import _config_dir`` at module load (line 86), which pulled in the
 heavy ``voice_typer.server.config`` package (validators,
-secure_file_io, volume_ducker, duck_crash_recovery, etc.) — measured
+secure_file_io, volume_ducker, duck_crash_recovery, etc.), measured
 cold-start cost: ~54ms. The eager import has been replaced by
 :func:`_resolve_config_dir`, which imports ``_config_dir`` from the
 ``config`` package on first call and caches the function reference on
@@ -12,13 +12,13 @@ the module's ``_config_dir`` attribute.
 
 These tests pin:
 
-1. **Eager-import suppression** — importing ``_paths`` does NOT pull
+1. **Eager-import suppression**, importing ``_paths`` does NOT pull
    ``voice_typer.server.config`` into ``sys.modules`` (the heavy
    ``config`` package stays unloaded until a helper is actually
    called). This is the load-bearing assertion: a regression that
    re-introduces a top-level ``from voice_typer.server.config import
    _config_dir`` makes this test fail immediately.
-2. **Cold-import in a fresh interpreter** — a subprocess imports
+2. **Cold-import in a fresh interpreter**, a subprocess imports
    ``_paths`` and asserts the heavy ``voice_typer.server.config``
    package is NOT pulled into ``sys.modules`` (the regression the eager
    import caused). This used to be a ``python -X importtime`` wall-clock
@@ -26,10 +26,10 @@ These tests pin:
    machine-dependent (Windows CI runners with cold disk caches /
    antivirus scanning can take 10ms+ for any .py import), so the check
    is now deterministic.
-3. **Lazy resolution still works** — calling any helper (e.g.
+3. **Lazy resolution still works**, calling any helper (e.g.
    :func:`config_dir`) triggers the lazy import on first use and
    caches the resolved function on ``_paths._config_dir``.
-4. **Test-patch compatibility** — the existing
+4. **Test-patch compatibility**, the existing
    ``monkeypatch.setattr(_paths, "_config_dir", lambda: tmp_path)``
    pattern (used by ``tests/test_paths.py`` and
    ``tests/test_app_cleanup.py``) short-circuits the lazy resolver,
@@ -103,7 +103,7 @@ def _restore_purged_modules():
     ORIGINAL module object (e.g. ``voice_typer.server.task_scheduler``
     does ``from voice_typer.server import _paths`` at import time).
     If the deleted entries are never put back, later tests resolve
-    through STALE objects — a ``Path.home`` / ``_config_dir``
+    through STALE objects, a ``Path.home`` / ``_config_dir``
     monkeypatch lands on the fresh object in ``sys.modules`` while the
     stale reference still returns the real config dir (order-dependent
     failures in ``test_task_scheduler::TestPrewarmCommand`` and
@@ -212,9 +212,9 @@ def test_paths_cold_import_does_not_pull_config_in_fresh_interpreter() -> None:
     (Windows CI runners with cold disk caches / antivirus scanning can
     take 10ms+ for any .py import, inflating the cumulative figure even
     when the module body is tiny), which made the bound flaky. The
-    load-bearing property — a regression that re-introduces an eager
+    load-bearing property, a regression that re-introduces an eager
     ``from voice_typer.server.config import _config_dir`` makes the
-    import pull the whole config package — is asserted directly in a
+    import pull the whole config package, is asserted directly in a
     fresh subprocess, deterministically.
     """
     script = (
@@ -265,7 +265,7 @@ def test_first_helper_call_triggers_lazy_import(tmp_path: Path) -> None:
     result = _paths.config_dir()
 
     # The returned path is the real platform config dir (we don't
-    # assert on its exact value — that depends on the host's
+    # assert on its exact value, that depends on the host's
     # ``$XDG_DATA_HOME`` / ``$HOME``). We just assert it's a Path.
     assert isinstance(result, Path)
     assert "voice_typer.server.config" in sys.modules, (
@@ -276,7 +276,7 @@ def test_first_helper_call_triggers_lazy_import(tmp_path: Path) -> None:
     )
     assert _paths._config_dir is not None, (
         " regression: _paths._config_dir is still None after the "
-        "first helper call — the lazy resolver didn't cache the "
+        "first helper call, the lazy resolver didn't cache the "
         "imported function."
     )
 
@@ -286,7 +286,7 @@ def test_first_helper_call_triggers_lazy_import(tmp_path: Path) -> None:
     cached_fn = _paths._config_dir
     _ = _paths.config_dir()
     assert _paths._config_dir is cached_fn, (
-        " regression: _paths._config_dir changed between calls — "
+        " regression: _paths._config_dir changed between calls, "
         "the lazy resolver is re-importing on every call instead of "
         "caching."
     )
@@ -298,7 +298,7 @@ def test_helpers_return_paths_under_pinned_config_dir(tmp_path: Path, monkeypatc
 
     When the test fixture patches ``_paths._config_dir`` to a custom
     callable, the lazy resolver sees a non-None value and returns it
-    immediately — the heavy ``config`` import never fires, and the
+    immediately, the heavy ``config`` import never fires, and the
     helpers return paths under the pinned tmp_path.
 
     This mirrors the autouse fixture in ``tests/test_paths.py`` and
@@ -311,7 +311,7 @@ def test_helpers_return_paths_under_pinned_config_dir(tmp_path: Path, monkeypatc
     _paths = importlib.import_module("voice_typer.server._paths")
     monkeypatch.setattr(_paths, "_config_dir", lambda: tmp_path)
 
-    # The patched value must short-circuit the lazy resolver — the
+    # The patched value must short-circuit the lazy resolver, the
     # heavy ``config`` package should NOT be imported.
     assert _paths.config_dir() == tmp_path
     assert _paths.hf_cache_dir() == tmp_path / "huggingface"
@@ -320,7 +320,7 @@ def test_helpers_return_paths_under_pinned_config_dir(tmp_path: Path, monkeypatc
     assert _paths.autostart_log() == tmp_path / "autostart.log"
     assert "voice_typer.server.config" not in sys.modules, (
         " regression: the patched _paths._config_dir did NOT "
-        "short-circuit the lazy resolver — voice_typer.server.config "
+        "short-circuit the lazy resolver, voice_typer.server.config "
         "was imported even though the test fixture pinned the value. "
         "The lazy resolver must check `if _config_dir is None` before "
         "importing."

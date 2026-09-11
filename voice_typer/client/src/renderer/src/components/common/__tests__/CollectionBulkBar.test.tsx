@@ -1,5 +1,5 @@
 /**
- * CollectionBulkBar — the shared floating bulk-action bar extracted
+ * CollectionBulkBar, the shared floating bulk-action bar extracted
  * from the VocabBulkBar / TemplateBulkBar mirror (the pair differed
  * ONLY in i18n keys and data-testid).
  *
@@ -83,7 +83,7 @@ afterEach(() => {
 	cleanup();
 });
 
-describe("CollectionBulkBar — domain label injection", () => {
+describe("CollectionBulkBar, domain label injection", () => {
 	it("renders the selected count with { count } interpolated through t()", () => {
 		setupBulkBar({ selectedCount: 3 });
 		expect(screen.getByText('test.selectedCount:{"count":"3"}')).toBeTruthy();
@@ -105,7 +105,7 @@ describe("CollectionBulkBar — domain label injection", () => {
 	});
 });
 
-describe("CollectionBulkBar — action wiring", () => {
+describe("CollectionBulkBar, action wiring", () => {
 	it("Delete selected invokes the page callback", () => {
 		const props = setupBulkBar();
 		fireEvent.click(screen.getByRole("button", { name: "test.bulkDelete" }));
@@ -113,7 +113,7 @@ describe("CollectionBulkBar — action wiring", () => {
 	});
 
 	it("Export selected opens the format menu and forwards the picked format", async () => {
-		// userEvent (not fireEvent) — Radix's DropdownMenuTrigger opens on
+		// userEvent (not fireEvent), Radix's DropdownMenuTrigger opens on
 		// the full pointer-event pipeline, which plain fireEvent.click
 		// skips (same pattern as ExportFormatMenu.test.tsx).
 		const user = userEvent.setup();
@@ -122,7 +122,7 @@ describe("CollectionBulkBar — action wiring", () => {
 		await user.click(
 			screen.getByRole("button", { name: "test.exportSelected" }),
 		);
-		// Radix opens the portal asynchronously — await the menu before
+		// Radix opens the portal asynchronously, await the menu before
 		// querying its items.
 		const csvItem = await screen.findByRole("menuitem", {
 			name: "exportFormat.csv",
@@ -141,7 +141,7 @@ describe("CollectionBulkBar — action wiring", () => {
 	});
 });
 
-describe("CollectionBulkBar — visual tokens (byte-identical extraction)", () => {
+describe("CollectionBulkBar, visual tokens (byte-identical extraction)", () => {
 	it("keeps the sticky floating-bar treatment: sticky bottom-4, mt-auto, centered w-fit, subtle surface, gap-2 spacing (C-UI-10)", () => {
 		setupBulkBar();
 		const bar = screen.getByTestId("test-bulk-bar");

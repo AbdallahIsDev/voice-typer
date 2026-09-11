@@ -1,14 +1,14 @@
 // Client-side sort for vocabulary entries.
 //
 // Extracted from the former monolithic ``pages/Vocabulary.tsx``.  Mirrors
-// the History/Templates sort pattern — the backend returns entries in
+// the History/Templates sort pattern, the backend returns entries in
 // category-bucket order, so "newest"/"oldest" are identity / reverse of
 // the loaded array (the backend doesn't expose per-entry timestamps, so
 // we approximate "newest" as "last in the flattened array" = most
 // recently added under the existing add-to-end semantics).
 //
 // Generic over ``T`` so callers passing ``VocabRow`` (VocabularyEntry
-// + ``_id``) get back ``VocabRow[]`` — preserving the stable UUID
+// + ``_id``) get back ``VocabRow[]``, preserving the stable UUID
 // through the sort so it can be used as the React key.
 //
 // Uses ``getLocale()`` for the A→Z / Z→A collation so accented

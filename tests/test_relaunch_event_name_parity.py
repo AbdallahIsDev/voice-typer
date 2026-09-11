@@ -4,7 +4,7 @@ The Python sidecar publishes ``{"type": "relaunch_app"}`` via
 ``event_bus.publish`` (see ``voice_typer/server/app.py:1041`` and
 ``voice_typer/server/ipc_server.py:1946``).  The Tauri Rust host listens
 for ``relaunch_app`` (``src-tauri/src/main.rs``).  The Electron main
-process previously listened for ``relaunch_electron`` — a stale name
+process previously listened for ``relaunch_electron``, a stale name
 left over from the PVT-2 rename that updated the Python+Tauri side but
 forgot the Electron listener.  EC-3 fixes the drift: the Electron
 listener now matches on ``relaunch_app``.
@@ -12,7 +12,7 @@ listener now matches on ``relaunch_app``.
 These tests pin the parity contract at the SOURCE level so a future
 contributor can't silently reintroduce the drift by copying an old diff
 or reverting one side of the rename.  They read the source files as
-TEXT (no import of the TypeScript module — that's impossible from
+TEXT (no import of the TypeScript module, that's impossible from
 Python; we treat the .ts file as a string and assert on the literal
 event name in the dispatch arm).
 
@@ -56,7 +56,7 @@ def _event_bus_source() -> str:
     """Return the source text of ``voice_typer/server/event_bus.py``.
 
     We use ``inspect.getsource`` on the imported module so the test
-    tracks the LIVE source (not a frozen snapshot) — if a future
+    tracks the LIVE source (not a frozen snapshot), if a future
     refactor moves the catalogue into a sibling module, this test will
     surface the change rather than silently passing against stale text.
     """
@@ -73,7 +73,7 @@ def _handle_message_ts_source() -> str:
     root so the test is location-independent.
     """
     ts_path = _repo_root() / "voice_typer" / "client" / "src" / "main" / "python" / "handle-message.ts"
-    assert ts_path.is_file(), f"EC-3: expected Electron main module at {ts_path} — file not found"
+    assert ts_path.is_file(), f"EC-3: expected Electron main module at {ts_path}, file not found"
     return ts_path.read_text(encoding="utf-8")
 
 
@@ -92,7 +92,7 @@ class TestEventBusCatalogueListsRelaunchApp:
         """The literal ``relaunch_app`` MUST appear in the catalogue.
 
         We don't pin a specific line number (catalogue entries can
-        shift as events are added) — we just require the canonical
+        shift as events are added), we just require the canonical
         name to be present anywhere in the module source.  The presence
         of the entry in this module's docstring is what makes it the
         code-side anchor; the ADR is the spec-side anchor.
@@ -108,7 +108,7 @@ class TestEventBusCatalogueListsRelaunchApp:
         ``event_bus.py`` at all.
 
         EC-3 removed the stale "(renamed relaunch_app on the Tauri side)"
-        framing from the catalogue docstring — there is no longer a
+        framing from the catalogue docstring, there is no longer a
         rename; the canonical name on every runtime (Python, Electron,
         Tauri) is ``relaunch_app``.  Any remaining ``relaunch_electron``
         literal in this module is a documentation bug.
@@ -129,7 +129,7 @@ class TestHandleMessageDispatchesOnRelaunchApp:
 
     The Python backend publishes ``{"type": "relaunch_app"}`` (see
     ``voice_typer/server/app.py:1041``).  The Electron-side dispatch
-    arm MUST match on the same literal — previously it matched on the
+    arm MUST match on the same literal, previously it matched on the
     stale ``"relaunch_electron"`` literal, which silently broke the
     event-driven restart path (only the exit-code-0 fallback worked).
     """
@@ -141,7 +141,7 @@ class TestHandleMessageDispatchesOnRelaunchApp:
         This is the wire-protocol parity check: the string the Python
         side publishes must equal the string the Electron side matches.
         We accept either the quoted literal form (``"relaunch_app": () =>``)
-        OR the object-key form (``relaunch_app: () =>``) — both resolve
+        OR the object-key form (``relaunch_app: () =>``), both resolve
         to the wire string ``"relaunch_app"`` at runtime, and the
         refactor from the quoted form to the object-key form (a
         Prettier-friendly shorthand) shouldn't fail the parity check.
@@ -163,7 +163,7 @@ class TestHandleMessageDispatchesOnRelaunchApp:
         Belt-and-braces: even if a contributor adds a new comment that
         mentions ``relaunch_electron`` for historical context, the
         QUOTED literal (the form used in ``msg.type === "..."``) must
-        not appear — that's the form that would silently break the
+        not appear, that's the form that would silently break the
         dispatch if reintroduced.  We allow ``relaunch_electron`` in
         prose (unquoted) but forbid the quoted form outright.
         """
@@ -194,7 +194,7 @@ class TestRelaunchEventNameCrossSideParity:
         ts_src = _handle_message_ts_source()
         assert "relaunch_app" in py_src, "EC-3: Python event_bus.py must reference 'relaunch_app'"
         # Accept either the quoted literal (``"relaunch_app"``) or the
-        # object-key shorthand (``relaunch_app:``) — both resolve to
+        # object-key shorthand (``relaunch_app:``), both resolve to
         # the wire string ``"relaunch_app"`` at runtime. The refactor
         # from quoted-literal to object-key (a Prettier-friendly
         # shorthand) shouldn't fail the parity check.

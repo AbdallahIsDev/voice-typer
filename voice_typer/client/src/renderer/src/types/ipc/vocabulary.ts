@@ -1,9 +1,9 @@
 // types/ipc/vocabulary.ts
 //
-// Vocabulary-domain types — mirrors the Python `VocabularyManager`.
+// Vocabulary-domain types, mirrors the Python `VocabularyManager`.
 //
 // Split out from the original monolithic `types/ipc.ts`.
-// No behaviour change vs. the original file — pure structural refactor.
+// No behaviour change vs. the original file, pure structural refactor.
 
 export interface VocabularyData {
 	misspellings?: Record<string, string>;

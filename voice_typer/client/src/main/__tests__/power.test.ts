@@ -6,12 +6,12 @@
  *   • subscribes to all three `powerMonitor` events: `suspend`,
  *     `resume`, `on-battery` (the finding explicitly named these
  *     three).
- *   • is idempotent — calling N times still registers exactly one
+ *   • is idempotent, calling N times still registers exactly one
  *     listener per event (no listener stacking).
  *   • wires `suspend` → `stopPython()`, `resume` → `startPython()`
  *     (the Python lifecycle hooks).
  *
- * C-DATA-1: powerMonitor is a local OS event (no network) — these
+ * C-DATA-1: powerMonitor is a local OS event (no network), these
  * tests do NOT touch the network and do NOT require the Python
  * backend to be running. `startPython` / `stopPython` are mocked.
  */
@@ -21,7 +21,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // any `const` declarations. To make the spy references available
 // inside the hoisted factory, declare them with `vi.hoisted` (also
 // hoisted, runs before any imports). This is the canonical vitest 4
-// pattern — same as `bootstrap-error-handler-fixes.test.ts`.
+// pattern, same as `bootstrap-error-handler-fixes.test.ts`.
 const mocks = vi.hoisted(() => {
 	// Capture every `.on(event, handler)` call on the mocked
 	// powerMonitor so the tests can assert which events were
@@ -36,12 +36,18 @@ const mocks = vi.hoisted(() => {
 		mockPowerMonitorOn,
 		stopPythonMock: vi.fn(),
 		startPythonMock: vi.fn(),
+		powerSaveBlockerStart: vi.fn((_type: string) => 42),
+		powerSaveBlockerStarted: vi.fn((_id: number) => true),
 	};
 });
 
 vi.mock("electron", () => ({
 	powerMonitor: {
 		on: mocks.mockPowerMonitorOn,
+	},
+	powerSaveBlocker: {
+		start: (type: string) => mocks.powerSaveBlockerStart(type),
+		isStarted: (id: number) => mocks.powerSaveBlockerStarted(id),
 	},
 }));
 
@@ -58,10 +64,14 @@ vi.mock("../python", () => ({
 	startPython: mocks.startPythonMock,
 }));
 
+import { log } from "../logging";
 import {
+	_appSuspensionBlockerIdForTest,
 	_powerMonitorHandlersRegisteredForTest,
+	_resetAppSuspensionBlockerForTest,
 	_resetPowerMonitorHandlersForTest,
 	registerPowerMonitorHandlers,
+	startAppSuspensionBlocker,
 } from "../power";
 
 describe("power.ts registerPowerMonitorHandlers", () => {
@@ -78,11 +88,11 @@ describe("power.ts registerPowerMonitorHandlers", () => {
 		expect(events).toContain("suspend");
 		expect(events).toContain("resume");
 		expect(events).toContain("on-battery");
-		// exactly 3 listeners — no extras
+		// exactly 3 listeners, no extras
 		expect(mocks.powerMonitorOnCalls.length).toBe(3);
 	});
 
-	it("is idempotent — calling N times registers each listener exactly once", () => {
+	it("is idempotent, calling N times registers each listener exactly once", () => {
 		for (let i = 0; i < 5; i++) {
 			registerPowerMonitorHandlers();
 		}
@@ -124,7 +134,7 @@ describe("power.ts registerPowerMonitorHandlers", () => {
 		expect(onBatteryCall).toBeDefined();
 
 		onBatteryCall?.handler();
-		// on-battery is a best-effort log-only transition — must
+		// on-battery is a best-effort log-only transition, must
 		// NOT tear down or spawn the backend (the backend's
 		// prewarm scheduler handles its own battery backoff).
 		expect(mocks.stopPythonMock).not.toHaveBeenCalled();
@@ -161,5 +171,49 @@ describe("power.ts registerPowerMonitorHandlers", () => {
 
 		expect(() => resumeCall?.handler()).not.toThrow();
 		expect(mocks.startPythonMock).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe("power.ts startAppSuspensionBlocker (BP-160)", () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		_resetAppSuspensionBlockerForTest();
+	});
+
+	it("starts a prevent-app-suspension blocker (never prevent-display-sleep)", () => {
+		const id = startAppSuspensionBlocker();
+
+		expect(mocks.powerSaveBlockerStart).toHaveBeenCalledTimes(1);
+		expect(mocks.powerSaveBlockerStart).toHaveBeenCalledWith(
+			"prevent-app-suspension",
+		);
+		expect(id).toBe(42);
+		expect(_appSuspensionBlockerIdForTest()).toBe(42);
+	});
+
+	it("is idempotent, the second call reuses the blocker (no stacking)", () => {
+		startAppSuspensionBlocker();
+		const second = startAppSuspensionBlocker();
+
+		expect(mocks.powerSaveBlockerStart).toHaveBeenCalledTimes(1);
+		expect(second).toBe(42);
+	});
+
+	it("swallows powerSaveBlocker failures (returns null, no throw)", () => {
+		mocks.powerSaveBlockerStart.mockImplementationOnce(() => {
+			throw new Error("not supported");
+		});
+
+		expect(() => startAppSuspensionBlocker()).not.toThrow();
+		expect(_appSuspensionBlockerIdForTest()).toBeNull();
+	});
+
+	it("logs the blocker id interpolated (no %d placeholder)", () => {
+		startAppSuspensionBlocker();
+		const infoMock = vi.mocked(log.info);
+		expect(infoMock).toHaveBeenCalledTimes(1);
+		const firstArg = String(infoMock.mock.calls[0]?.[0]);
+		expect(firstArg).toContain("(id=42)");
+		expect(firstArg).not.toContain("%d");
 	});
 });

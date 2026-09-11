@@ -7,7 +7,7 @@ detects GPU/CUDA runtime errors via FOUR layered checks:
   2. ``ctranslate2.CUDAError`` / ``ctranslate2.RuntimeError`` isinstance
      check (faster-whisper wraps ctranslate2 errors).
   3. MRO-based class-name check (catches wrapped exceptions whose
-     original class still appears in the MRO — e.g. a re-raised
+     original class still appears in the MRO, e.g. a re-raised
      ``CudaRuntimeError`` from a third-party wrapper).
   4. Attribute check (``.cuda_error`` / ``.is_cuda_error``).
   5. Substring fallback (``"cublas"``, ``"cuda"``, ``"cudnn"``,
@@ -20,7 +20,7 @@ the early returns could misclassify a ROCm error (not in the substring
 list) as a non-GPU error and skip the GPU→CPU fallback.
 
 These tests pin the contract for checks #2, #3, and #4 using REAL class
-subclasses (not ``MagicMock`` — ``isinstance`` checks against
+subclasses (not ``MagicMock``: ``isinstance`` checks against
 ``MagicMock`` attributes always return ``False`` so a MagicMock-based
 test would not exercise the class-hierarchy path).
 
@@ -43,7 +43,7 @@ def _mock_heavy_imports_for_classifier(monkeypatch):
     constructed without GPU / model files.
 
     ``torch`` is already mocked at session scope by
-    ``tests/conftest.py:mock_heavy_imports_session`` — it installs a
+    ``tests/conftest.py:mock_heavy_imports_session``, it installs a
     real ``_FakeOutOfMemoryError`` class at ``torch.cuda.OutOfMemoryError``
     so the production isinstance check at line 1400 works correctly
     (a plain MagicMock attribute would raise ``TypeError`` under
@@ -79,7 +79,7 @@ class TestIsGpuRuntimeErrorClassifier:
     branch coverage.
 
     Each test installs a REAL class (subclass of ``RuntimeError`` or
-    ``Exception``) — never a ``MagicMock`` — because the production code
+    ``Exception``) (never a ``MagicMock``) because the production code
     uses ``isinstance(exc, cls)`` which returns ``False`` (or raises
     ``TypeError``) for MagicMock attributes. The REAL class is what
     discriminates a passing test from a no-op.
@@ -100,10 +100,10 @@ class TestIsGpuRuntimeErrorClassifier:
         ctranslate2 builds don't expose ``CUDAError`` as a class
         (returns ``None`` or an arbitrary object). A ``MagicMock``
         attribute also fails this guard (``isinstance(MagicMock(), type)``
-        is ``False``) — so the test MUST install a REAL class.
+        is ``False``), so the test MUST install a REAL class.
 
         Setup:
-          * Define ``FakeCUDAError(RuntimeError)`` — a real subclass so
+          * Define ``FakeCUDAError(RuntimeError)``, a real subclass so
             ``isinstance(exc, FakeCUDAError)`` returns ``True``.
           * Install it at ``sys.modules["ctranslate2"].CUDAError``.
           * Raise ``FakeCUDAError("boom")`` and assert the classifier
@@ -112,7 +112,7 @@ class TestIsGpuRuntimeErrorClassifier:
         import ctranslate2
 
         class FakeCUDAError(RuntimeError):
-            """Real class — mirrors ctranslate2.CUDAError's hierarchy."""
+            """Real class, mirrors ctranslate2.CUDAError's hierarchy."""
 
         monkeypatch.setattr(ctranslate2, "CUDAError", FakeCUDAError, raising=False)
 
@@ -134,12 +134,12 @@ class TestIsGpuRuntimeErrorClassifier:
         hierarchy.
 
         Setup:
-          * Define ``CudaRuntimeError(RuntimeError)`` — name contains
+          * Define ``CudaRuntimeError(RuntimeError)``, name contains
             "cuda" so the MRO check matches.
           * Raise it and assert ``True``.
 
         Note: this test deliberately does NOT install the class on
-        ``ctranslate2`` — the ctranslate2 isinstance loop (#2) must
+        ``ctranslate2``, the ctranslate2 isinstance loop (#2) must
         fall through so the MRO check (#3) is the one that fires.
         """
 
@@ -150,7 +150,7 @@ class TestIsGpuRuntimeErrorClassifier:
         class CudaRuntimeError(RuntimeError):
             pass
 
-        # Confirm the class name has the substring (defensive — if a
+        # Confirm the class name has the substring (defensive, if a
         # future refactor renames the local, the test should fail loud
         # rather than silently pass via the substring fallback at #5).
         assert "cuda" in CudaRuntimeError.__name__.lower(), (
@@ -175,7 +175,7 @@ class TestIsGpuRuntimeErrorClassifier:
         Some libraries (e.g. newer ``torch`` / ``pynvml``) attach a
         structured ``.cuda_error`` attribute to a generic ``RuntimeError``
         rather than raising a typed subclass. The class-hierarchy (#2)
-        and MRO (#3) checks both miss this case — only the attribute
+        and MRO (#3) checks both miss this case, only the attribute
         check catches it.
 
         Setup:
@@ -184,7 +184,7 @@ class TestIsGpuRuntimeErrorClassifier:
           * Set ``exc.cuda_error = "oom"``.
           * Assert ``True``.
 
-        This test pins check #4 specifically — the message "oom" alone
+        This test pins check #4 specifically, the message "oom" alone
         would NOT match the substring fallback (#5) so the attribute
         check is the sole signal.
         """
@@ -192,7 +192,7 @@ class TestIsGpuRuntimeErrorClassifier:
         exc.cuda_error = "oom"  # type: ignore[attr-defined]
 
         # Defensive: confirm the exception would NOT match the substring
-        # fallback — otherwise this test would pass even if the
+        # fallback, otherwise this test would pass even if the
         # attribute check regressed.
         assert "cuda" not in str(exc).lower()
         assert "cublas" not in str(exc).lower()

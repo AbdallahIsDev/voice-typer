@@ -1,5 +1,5 @@
 /**
- *  vitest rewrite — behavioral tests for `RecordingSettingsSection.tsx`
+ *  vitest rewrite, behavioral tests for `RecordingSettingsSection.tsx`
  * HotkeyPicker wiring.
  *
  * Replaces the following string-pattern Python tests from
@@ -29,7 +29,7 @@
  *      `repaste_hotkey` field and its `onChange` propagates back as
  *      `{ repaste_hotkey: <new value> }`.
  *   4. No free-text `<Input>` is rendered with `value={config.repaste_hotkey}`
- *      — i.e. the only way the user can edit the repaste key is via
+ *     , i.e. the only way the user can edit the repaste key is via
  *      the HotkeyPicker.
  *
  * The corresponding Python tests are skipped via `@pytest.mark.skip`
@@ -205,7 +205,7 @@ function makeConfig(
 
 const alwaysVisible = () => true;
 
-describe("RecordingSettings HotkeyPicker — RW-0 rewrite of test_settings_imports_hotkey_picker", () => {
+describe("RecordingSettings HotkeyPicker, RW-0 rewrite of test_settings_imports_hotkey_picker", () => {
 	beforeEach(() => {
 		hotkeyPickerInstances.length = 0;
 		cleanup();
@@ -235,7 +235,7 @@ describe("RecordingSettings HotkeyPicker — RW-0 rewrite of test_settings_impor
 	});
 });
 
-describe("RecordingSettings repaste HotkeyPicker — RW-0 rewrite of test_repaste_key_uses_hotkey_picker_combo_mode", () => {
+describe("RecordingSettings repaste HotkeyPicker, RW-0 rewrite of test_repaste_key_uses_hotkey_picker_combo_mode", () => {
 	beforeEach(() => {
 		hotkeyPickerInstances.length = 0;
 		cleanup();
@@ -354,7 +354,7 @@ describe("RecordingSettings repaste HotkeyPicker — RW-0 rewrite of test_repast
 		// Behavioral: no <input> element in the rendered DOM
 		// has a value attribute equal to the repaste_hotkey
 		// string ("<ctrl>+<alt>+v").  (The HotkeyPicker mock
-		// doesn't render a real <input> — it renders a div
+		// doesn't render a real <input>, it renders a div
 		// with data-testid="hotkey-picker".)
 		const inputs = container.querySelectorAll("input");
 		for (const input of inputs) {

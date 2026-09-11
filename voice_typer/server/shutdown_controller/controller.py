@@ -36,7 +36,7 @@ class ShutdownController(CleanupMixin, SequencingMixin, TeardownsMixin, SignalsM
     - Read/write ``app._shutting_down`` / ``app._shutting_down_event``
       (quit's idempotency guard).
     - Read/write ``app._cleanup_done`` (the hard idempotency flag inside
-      ``_do_cleanup`` — once True, subsequent calls are no-ops).
+      ``_do_cleanup``: once True, subsequent calls are no-ops).
     - Call ``app._thread_registry.shutdown_all()`` (centralized
       signal-and-join of all registered daemon threads).
     - Call ``app._cancel_pending_timers()`` (TimerCoordinator concern,
@@ -59,7 +59,7 @@ class ShutdownController(CleanupMixin, SequencingMixin, TeardownsMixin, SignalsM
       re-export still take effect. (``register_devnull_file`` /
       ``close_devnull_files`` live on ``voice_typer.server.log`` and
       are called directly from ``signal_handlers`` / the devnull
-      teardown — not via an app re-export.)
+      teardown, not via an app re-export.)
     """
 
     # the ordered list of every ``_teardown_*`` phase method that
@@ -68,7 +68,7 @@ class ShutdownController(CleanupMixin, SequencingMixin, TeardownsMixin, SignalsM
     # crash_recovery) whose flush-bearing helpers
     # (``_teardown_history_db`` / ``_teardown_crash_recovery``) MUST run
     # before the hotkey / level_monitor / event_bus teardowns begin
-    # (flush-before-teardown guarantee — see
+    # (flush-before-teardown guarantee: see
     # ``tests/regressions/test_electron.py::TestShutdownControllerPhasesContract::
     # test_flush_bearing_phases_run_first``). The remaining 11 entries
     # are the parallel batch. The list is inspectable at runtime so
@@ -94,7 +94,7 @@ class ShutdownController(CleanupMixin, SequencingMixin, TeardownsMixin, SignalsM
     def __init__(self, app: VoiceTyperApp) -> None:
         self._app = app
         # MED-PPP / XCUT-4: POSIX signal handlers must be
-        # async-signal-safe — i.e. they may only call a small set of
+        # async-signal-safe: i.e. they may only call a small set of
         # reentrant functions (``write``, ``_exit``, ``sigaction``-style
         # flag setters, ``sem_post``, etc.). The previous handler did
         # ``log.info(...)`` (acquires the logging lock),
@@ -105,7 +105,7 @@ class ShutdownController(CleanupMixin, SequencingMixin, TeardownsMixin, SignalsM
         # deadlocked.
         #
         # The fix: the signal handler now ONLY calls
-        # ``Event.set()`` (async-signal-safe in CPython — it's a thin
+        # ``Event.set()`` (async-signal-safe in CPython, it's a thin
         # wrapper around ``PyThread_acquire_lock`` with a non-blocking
         # flag and never blocks). A watcher thread (started lazily in
         # ``_install_signal_handlers``) polls the event and performs
@@ -130,13 +130,13 @@ class ShutdownController(CleanupMixin, SequencingMixin, TeardownsMixin, SignalsM
         # IPC ``quit_app`` handler, atexit safety net). Without this
         # lock, two threads can both read ``app._shutting_down == False``,
         # both set it to True, and both proceed into
-        # ``thread_registry.shutdown_all()`` — a duplicate pass that
+        # ``thread_registry.shutdown_all()``: a duplicate pass that
         # races per-thread ``join_timeout`` accounting.
         #
         # This is a SEPARATE lock from the three app-level locks
         # (``_lock``, ``_config_mutation_lock``, ``_pending_timers_lock``)
         # governed by docs/architecture/lock-order-contract.md. It is
-        # NEVER nested with any of those — ``quit()`` does not acquire
+        # NEVER nested with any of those, ``quit()`` does not acquire
         # any of them. The lock is released BEFORE ``_do_cleanup()``
         # (which has its own ``_cleanup_done`` guard) so a second quit()
         # arriving during cleanup short-circuits at the
@@ -147,7 +147,7 @@ class ShutdownController(CleanupMixin, SequencingMixin, TeardownsMixin, SignalsM
         # sequence inside ``_teardown_electron``. Two concurrent ``quit()``
         # callers (IPC + signal-watcher) could both read the same PID, both
         # call ``terminate_electron(pid)`` (racing with PID recycling on
-        # Windows), and both clear the attribute — potentially clobbering a
+        # Windows), and both clear the attribute, potentially clobbering a
         # NEW PID installed by a concurrent ``restart_app()``. This lock
         # serializes the read-terminate-clear critical section; the second
         # caller observes ``_electron_pid is None`` (cleared by the first)
@@ -178,7 +178,7 @@ class ShutdownController(CleanupMixin, SequencingMixin, TeardownsMixin, SignalsM
         # text ``_timed_out = self._run_plan(sequenced_plan,
         # frozenset())`` is pinned by
         # ``tests/test_shutdown_recording_fixes.py``). ``None`` outside
-        # an active ``_do_cleanup`` call — direct ``_run_plan``
+        # an active ``_do_cleanup`` call, direct ``_run_plan``
         # invocations from tests (which use a fresh controller or
         # ``__new__``) skip the inter-step check.
         self._shutdown_deadline: float | None = None

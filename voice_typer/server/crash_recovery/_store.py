@@ -36,7 +36,7 @@ from voice_typer.server.crash_recovery._io import (
 )
 from voice_typer.server.crash_recovery._worker import _LIVE_INSTANCES, _SaveWorker
 
-# Logger name pinned to the package name (C-LOG-1) — see _worker.py.
+# Logger name pinned to the package name (C-LOG-1). See _worker.py.
 log = logging.getLogger("voice_typer.server.crash_recovery")
 
 
@@ -77,7 +77,7 @@ class CrashRecovery(_SaveWorker, _RecoveryIO):
         # Bounded deque: collections.deque(maxlen=...) auto-evicts the
         # oldest entry when full, so the manual ``while len() > MAX:
         # pop(0)`` trim in ``add()`` is now a defensive no-op (kept for
-        # readability — it never executes under the bounded deque).
+        # readability, it never executes under the bounded deque).
         self._entries: collections.deque = collections.deque(maxlen=MAX_RECOVERY_ENTRIES)
         self._lock = threading.Lock()
         # Serializes _save_sync() disk writes so that concurrent
@@ -97,12 +97,12 @@ class CrashRecovery(_SaveWorker, _RecoveryIO):
         # ``_dir_ensured`` guards the per-save ``os.chmod``
         # on ``self._path.parent``. The chmod is idempotent (setting
         # 0o700 on an already-0o700 dir is a no-op) but it's still a
-        # syscall per transcription — under rapid dictation (5+ saves /
+        # syscall per transcription, under rapid dictation (5+ saves /
         # second when streaming is on) the redundant chmod dominated
         # the save path's syscall count. The flag is set on the first
         # successful mkdir+chmod; subsequent saves skip the chmod. If
         # the chmod fails (logged at warning), the flag is NOT set so
-        # the next save retries — same behavior as before for the
+        # the next save retries, same behavior as before for the
         # failure case. Guarded by ``_save_lock`` (acquired in
         # ``_save_sync``) so the flag is race-free.
         self._dir_ensured = False
@@ -111,7 +111,7 @@ class CrashRecovery(_SaveWorker, _RecoveryIO):
         # (``_atexit_flush_all``) and ``__del__``. Both paths call
         # ``_save_sync()`` during interpreter shutdown; without the
         # flag, the second path re-serialized the same ``_entries``
-        # state and re-wrote the atomic temp file + rename — pure
+        # state and re-wrote the atomic temp file + rename, pure
         # wasted I/O on the shutdown path (where the GIL is being
         # torn down and the write window is most fragile). The flag
         # is set ONLY by ``_atexit_flush_all`` (NOT by ``shutdown()``
@@ -146,7 +146,7 @@ class CrashRecovery(_SaveWorker, _RecoveryIO):
         # off the main thread so it doesn't block the UI/tray critical
         # path. The ``_loaded`` guard (double-checked locking under
         # ``_lock`` in ``_load``) ensures the disk read happens at most
-        # once per instance — all subsequent ``_load()`` calls are a
+        # once per instance, all subsequent ``_load()`` calls are a
         # cheap boolean check + immediate return.
         self._loaded = False
         self._start_save_thread()
@@ -189,7 +189,7 @@ class CrashRecovery(_SaveWorker, _RecoveryIO):
                 :meth:`_detect_and_notify_lost_dictation` can determine
                 whether partial text from THIS specific cycle was saved
                 before a hard crash (and is therefore recoverable). When
-                ``None`` (the default — backward-compatible with existing
+                ``None`` (the default, backward-compatible with existing
                 callers in ``dictation_pipeline`` that don't yet pass a
                 cycle_id), the entry is anonymous and won't match any
                 cycle-specific lookup.
@@ -223,7 +223,7 @@ class CrashRecovery(_SaveWorker, _RecoveryIO):
         ``with self._lock:`` block. Pre-fix, the in-line call could
         deadlock when invoked post-shutdown: ``_enqueue_save()`` falls
         back to ``_save_sync()`` which acquires ``_save_lock`` and then
-        (for the snapshot) re-acquires ``self._lock`` — but the calling
+        (for the snapshot) re-acquires ``self._lock``, but the calling
         thread was already holding ``self._lock``, so the re-acquire
         deadlocked. Moving the enqueue out of the lock scope breaks the
         re-entrancy. Mirrors the existing pattern in
@@ -327,17 +327,17 @@ class CrashRecovery(_SaveWorker, _RecoveryIO):
         • If an unpasted entry with a matching ``cycle_id`` exists, the
           crash was SOFT (a Python exception was caught and
           :meth:`add` was called from the exception handler before the
-          process died) — the partial TEXT is recoverable. Set
+          process died), the partial TEXT is recoverable. Set
           ``recoverable: True`` and ``recovery_type: "text_only"``.
         • If no such entry exists, the crash was HARD (SIGKILL / OOM /
-          segfault) — the transcription thread never reached the
+          segfault), the transcription thread never reached the
           exception handler, so no text was saved. Nothing is
           recoverable. Set ``recoverable: False`` and
           ``recovery_type: "none"``.
 
         AUDIO IS NEVER RECOVERABLE. The audio buffer lives only in
         process memory (see ``dictation_pipeline._transcribe``'s finally
-        block — it zero-fills the numpy array after transcription
+        block, it zero-fills the numpy array after transcription
         completes), and the ``.dictation-in-flight`` sentinel only
         persists the ``cycle_id`` correlation string, never audio
         samples. The previous message ("Partial audio may be
@@ -356,7 +356,7 @@ class CrashRecovery(_SaveWorker, _RecoveryIO):
                 # ``dictation_pipeline`` writes ``str(cycle_id)`` to this
                 # file when a dictation starts; if the write was partial
                 # or the file is empty (e.g. crashed mid-write),
-                # ``cycle_id`` will be "" — the lookup below explicitly
+                # ``cycle_id`` will be "": the lookup below explicitly
                 # excludes the empty string so it falls through to the
                 # "hard crash, nothing recoverable" branch, which is the
                 # correct outcome.
@@ -364,7 +364,7 @@ class CrashRecovery(_SaveWorker, _RecoveryIO):
                 with contextlib.suppress(Exception):
                     # HU-10: read through ``_secure_read_text`` (POSIX
                     # ``O_NOFOLLOW`` / Windows reparse-point check) —
-                    # same helper the recovery-file load path uses — so
+                    # same helper the recovery-file load path uses, so
                     # a symlink planted at the sentinel path can never
                     # exfiltrate an arbitrary file's content into the
                     # production log at WARNING. On refusal
@@ -390,7 +390,7 @@ class CrashRecovery(_SaveWorker, _RecoveryIO):
                 recovery_type = "text_only" if recoverable else "none"
                 log.warning(
                     "[RECOVERY] Detected interrupted dictation from previous session "
-                    "(cycle_id=%r) — emitting dictation_lost event "
+                    "(cycle_id=%r), emitting dictation_lost event "
                     "(recoverable=%s, recovery_type=%s)",
                     cycle_id,
                     recoverable,
@@ -425,7 +425,7 @@ class CrashRecovery(_SaveWorker, _RecoveryIO):
             # entries and resurrect the just-cleared state. Without the
             # flag, a ``clear()`` that ran before the first ``_load()``
             # would see the disk file still holding the entries and
-            # repopulate them — breaking the "cleared after
+            # repopulate them, breaking the "cleared after
             # acknowledgment" contract.
             self._loaded = True
         self._enqueue_save()
@@ -444,7 +444,7 @@ class CrashRecovery(_SaveWorker, _RecoveryIO):
             return len(self._entries)
 
     def __del__(self) -> None:
-        """Best-effort GC-time flush — delegates to ``_cleanup_*`` helpers.
+        """Best-effort GC-time flush, delegates to ``_cleanup_*`` helpers.
 
         Defense-in-depth outer ``try/except`` preserves the original
         "never raise from GC" contract; each helper also owns its
@@ -469,14 +469,14 @@ class CrashRecovery(_SaveWorker, _RecoveryIO):
         iteration exits cleanly. Idempotent (``shutdown()`` also sets
         this at line ~849). Wrapped in its own ``try/except
         BaseException`` so a failure here does not prevent
-        ``_cleanup_flush_pending`` from running — the pre-extraction
+        ``_cleanup_flush_pending`` from running, the pre-extraction
         ``__del__`` wrapped everything in ONE ``try/except``, so a
         failure in ``self._stopped = True`` would have skipped the
         final save. Extraction isolates the failure (slight resilience
-        upgrade, not a downgrade — the original behavior is preserved
+        upgrade, not a downgrade, the original behavior is preserved
         for the success path; only the failure path is improved).
         """
-        try:  # noqa: SIM105 — explicit try/except preserves the
+        try:  # noqa: SIM105, explicit try/except preserves the
             #       "never raise from GC" pattern's visual parity with
             #       ``__del__`` and ``_cleanup_flush_pending`` (both of
             #       which use the same try/except BaseException: pass
@@ -490,7 +490,7 @@ class CrashRecovery(_SaveWorker, _RecoveryIO):
             # ``shutdown()``-was-never-called case.
             self._stopped = True
         except BaseException:
-            # ``__del__``-path helpers must NEVER raise — see
+            # ``__del__``-path helpers must NEVER raise, see
             # ``_cleanup_flush_pending`` for the full ``BaseException``
             # rationale (``KeyboardInterrupt`` / ``SystemExit`` /
             # ``GeneratorExit`` during interpreter shutdown).
@@ -516,7 +516,7 @@ class CrashRecovery(_SaveWorker, _RecoveryIO):
         ``_entries`` WITHOUT holding ``_lock``. A concurrent
         ``add()`` could mutate the deque mid-check, leaving the
         GC path reading a stale (empty) view and skipping the
-        save — losing the just-added entry. The check now
+        save, losing the just-added entry. The check now
         acquires ``_lock`` for the boolean read. ``_save_sync``
         re-acquires ``_lock`` internally for the snapshot, so the
         race window between the check and the save is the same
@@ -538,14 +538,14 @@ class CrashRecovery(_SaveWorker, _RecoveryIO):
         Design decision: ``__del__`` is INTENTIONALLY
         retained as the third safety-net tier alongside
         ``shutdown()`` and atexit. The original fix proposal
-        ("Remove ``__del__`` entirely — atexit is documented safety
+        ("Remove ``__del__`` entirely, atexit is documented safety
         net") was rejected because: (a) atexit does NOT fire for
         non-Python-initiated exits (SIGKILL, segfault, os._exit) —
         ``__del__`` is the only path that catches the
         ``shutdown()``-was-never-called case under those exits; (b)
         the ``_final_save_done`` dedup (checked inside ``_save_sync``
         under ``_save_lock``) makes the redundant-write cost zero
-        when atexit already fired — the only remaining cost is the
+        when atexit already fired, the only remaining cost is the
         ``_lock`` acquisition + ``bool(self._entries)`` read, which
         is negligible; (c) removing ``__del__`` would regress
         ``test_del_saves_unpersisted_post_shutdown_mutations``
@@ -560,7 +560,7 @@ class CrashRecovery(_SaveWorker, _RecoveryIO):
             # concurrent ``add()`` that arrives AFTER this check
             # releases the lock will race with the GC, but that's
             # inherent to ``__del__`` (the instance is being torn
-            # down — concurrent mutations are already UB).
+            # down, concurrent mutations are already UB).
             with self._lock:
                 has_entries = bool(self._entries)
             # Save whenever there's any data to lose.  This covers
@@ -568,20 +568,20 @@ class CrashRecovery(_SaveWorker, _RecoveryIO):
             # is mid-save; _save_lock serializes) and "worker dead
             # after shutdown() with post-shutdown mutations" (the
             # Finding A3 regression).  If _entries is empty, this
-            # is a no-op (matches the original behavior — saves
+            # is a no-op (matches the original behavior, saves
             # are only triggered by state changes, not by GC).
             # if ``_atexit_flush_all`` already set
             # ``_final_save_done``, ``_save_sync``'s short-circuit
-            # returns immediately — no redundant atomic-write +
+            # returns immediately, no redundant atomic-write +
             # rename on the shutdown path.
             # pass ``durability=True`` for this final GC save
             # (one-time cost, durability guarantee matters there).
             # The per-dictation path uses ``durability=False`` (5+
-            # saves/sec under streaming — fsync cost not worth it).
+            # saves/sec under streaming, fsync cost not worth it).
             if has_entries:
                 self._save_sync(durability=True)
         except BaseException:
-            # ``__del__`` must NEVER raise — including for
+            # ``__del__`` must NEVER raise: including for
             # ``BaseException`` subclasses (``KeyboardInterrupt``,
             # ``SystemExit``, ``GeneratorExit``) that ``except Exception:``
             # would NOT catch. A ``KeyboardInterrupt`` raised during

@@ -42,7 +42,7 @@ describe("pythonArgs()", () => {
 	beforeAll(() => {
 		originalResourcesPath = (process as unknown as Record<string, unknown>)
 			.resourcesPath;
-		// Electron-only property — define it so the packaged branches are
+		// Electron-only property, define it so the packaged branches are
 		// deterministic in the plain-Node test environment.
 		Object.defineProperty(process, "resourcesPath", {
 			value: RESOURCES,

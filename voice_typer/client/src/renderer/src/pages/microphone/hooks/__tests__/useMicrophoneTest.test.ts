@@ -1,5 +1,5 @@
 /**
- * Unit tests for `useMicrophoneTest` — the composition hook over
+ * Unit tests for `useMicrophoneTest`, the composition hook over
  * `useMicrophoneLevelMonitor` + `useMicrophoneTestSession` +
  * `useMicrophonePlayback`.
  *
@@ -101,7 +101,7 @@ beforeEach(() => {
 	);
 	// rAF stub: jsdom's rAF fires via setInterval. Replace with a no-op
 	// so the level monitor's rAF loop doesn't spin during the test (we
-	// don't need to assert on level values here — that's covered by the
+	// don't need to assert on level values here, that's covered by the
 	// dedicated useMicrophoneLevelMonitor tests).
 	vi.stubGlobal(
 		"requestAnimationFrame",
@@ -211,7 +211,7 @@ function makeHookArgs(configOverrides: Partial<VoiceTyperConfig> = {}) {
 	};
 }
 
-describe("useMicrophoneTest — composition smoke test (renders without crashing)", () => {
+describe("useMicrophoneTest, composition smoke test (renders without crashing)", () => {
 	it("exposes the full return shape (level/peak/testRunning/...)", () => {
 		const args = makeHookArgs();
 		const { result } = renderHook(() => useMicrophoneTest(args));
@@ -253,7 +253,7 @@ describe("useMicrophoneTest — composition smoke test (renders without crashing
 	});
 });
 
-describe("useMicrophoneTest — test start/stop lifecycle", () => {
+describe("useMicrophoneTest, test start/stop lifecycle", () => {
 	it("startTest invokes microphone_test_start IPC + flips testRunning=true", async () => {
 		callMock.mockImplementation((cmd: string) => {
 			if (cmd === "microphone_test_start")
@@ -309,7 +309,7 @@ describe("useMicrophoneTest — test start/stop lifecycle", () => {
 			await result.current.startTest();
 		});
 
-		// Stop the first test — populates testAudioBase64 etc.
+		// Stop the first test, populates testAudioBase64 etc.
 		callMock.mockImplementation((cmd: string) => {
 			if (cmd === "microphone_test_read_audio") {
 				return Promise.resolve({
@@ -337,7 +337,7 @@ describe("useMicrophoneTest — test start/stop lifecycle", () => {
 		});
 		expect(result.current.testAudioBase64).toBe("clip-1");
 
-		// Start a SECOND test — should clear the first test's audio
+		// Start a SECOND test, should clear the first test's audio
 		// before the new test runs.
 		callMock.mockImplementation((cmd: string) => {
 			if (cmd === "microphone_test_start")
@@ -419,10 +419,10 @@ describe("useMicrophoneTest — test start/stop lifecycle", () => {
 	});
 });
 
-describe("useMicrophoneTest — biometric consent gating (GDPR Art. 9)", () => {
+describe("useMicrophoneTest, biometric consent gating (GDPR Art. 9)", () => {
 	it("does NOT call level_monitor_start when voice_biometric_consent is false", async () => {
 		// Privacy gate: the level monitor opens a continuous
-		// biometric-capture InputStream — the mount effect must skip
+		// biometric-capture InputStream, the mount effect must skip
 		// ``level_monitor_start`` + the one-shot poll until consent is
 		// granted (previously the page spammed futile IPC calls on
 		// every mount for non-consenting users).
@@ -468,7 +468,7 @@ describe("useMicrophoneTest — biometric consent gating (GDPR Art. 9)", () => {
 			initialProps: { args: firstArgs },
 		});
 
-		// Mount with consent off — no start.
+		// Mount with consent off, no start.
 		await act(async () => {
 			await new Promise((r) => setTimeout(r, 0));
 		});
@@ -517,7 +517,7 @@ describe("useMicrophoneTest — biometric consent gating (GDPR Art. 9)", () => {
 	});
 });
 
-describe("useMicrophoneTest — handlePresetChange / handleConfigChange", () => {
+describe("useMicrophoneTest, handlePresetChange / handleConfigChange", () => {
 	it("handlePresetChange delegates to updateConfig with the audio_preset field", () => {
 		const args = makeHookArgs();
 		const { result } = renderHook(() => useMicrophoneTest(args));
@@ -543,7 +543,7 @@ describe("useMicrophoneTest — handlePresetChange / handleConfigChange", () => 
 	});
 });
 
-describe("useMicrophoneTest — setter pass-through", () => {
+describe("useMicrophoneTest, setter pass-through", () => {
 	it("setShowAdvanced toggles the showAdvanced state", () => {
 		const { result } = renderHook(() => useMicrophoneTest(makeHookArgs()));
 		expect(result.current.showAdvanced).toBe(false);
@@ -555,7 +555,7 @@ describe("useMicrophoneTest — setter pass-through", () => {
 	});
 });
 
-describe("useMicrophoneTest — unmount cleanup cancels in-flight test", () => {
+describe("useMicrophoneTest, unmount cleanup cancels in-flight test", () => {
 	it("does NOT throw on unmount while a test is running (cleanup cancels the test)", async () => {
 		callMock.mockImplementation((cmd: string) => {
 			if (cmd === "microphone_test_start")
@@ -578,7 +578,7 @@ describe("useMicrophoneTest — unmount cleanup cancels in-flight test", () => {
 		});
 		expect(result.current.testRunning).toBe(true);
 
-		// Unmount while the test is running — the session hook's cleanup
+		// Unmount while the test is running, the session hook's cleanup
 		// should send microphone_test_cancel + clear the timers.
 		expect(() => unmount()).not.toThrow();
 

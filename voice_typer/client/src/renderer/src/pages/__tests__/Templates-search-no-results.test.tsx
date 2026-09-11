@@ -1,7 +1,7 @@
 /**
  *  regression test: when a Templates search yields no matches, the
  * EmptyState must use the dedicated `templates.noResults` /
- * `templates.noResultsDescription` i18n keys — NOT the misleading
+ * `templates.noResultsDescription` i18n keys, NOT the misleading
  * `templates.emptyTitle` ("No templates yet") nor the cross-module
  * `history.noResultsDescription`.
  *
@@ -33,12 +33,12 @@ vi.mock("sonner", () => sonnerMock());
 vi.mock("next-themes", () => nextThemesMock());
 
 /** TemplateListRow renders an InfoTooltip (Radix Tooltip) which throws
- *  without a TooltipProvider ancestor — the real App shell provides
+ *  without a TooltipProvider ancestor, the real App shell provides
  *  one, so tests mounting the page directly must too. */
 const renderWithProviders = (ui: React.ReactElement) =>
 	render(<TooltipProvider delayDuration={200}>{ui}</TooltipProvider>);
 
-describe("Templates page — search-no-results uses dedicated i18n keys", () => {
+describe("Templates page, search-no-results uses dedicated i18n keys", () => {
 	beforeEach(() => {
 		mockCall.mockReset();
 		// Seed two templates so the page renders the list (not the empty-title state)

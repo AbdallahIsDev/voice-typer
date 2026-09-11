@@ -1,11 +1,11 @@
 /**
  * Log-retention constants for the Electron main-process log files
- * (three-tier cleanup design — mirrors
+ * (three-tier cleanup design, mirrors
  * `voice_typer/server/_log_constants.py` and `src-tauri/src/util.rs`).
  *
  * Extracted from the original `main/logging.ts` (spaghetti split).
  *
- * Leaf module — no imports.
+ * Leaf module, no imports.
  */
 
 /**
@@ -20,7 +20,7 @@
 export const DEFAULT_CRASH_LOG_MAX_BYTES = 1_048_576;
 
 /**
- * Tier 1 — age retention (session-start delete).
+ * Tier 1, age retention (session-start delete).
  *
  * Any log file in `logs/` whose last write is older than 7 days is
  * deleted by the startup sweep (`sweepStaleLogs`). Bounds storage for
@@ -29,21 +29,21 @@ export const DEFAULT_CRASH_LOG_MAX_BYTES = 1_048_576;
 export const LOG_AGE_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
- * Tier 2 — size fallback (session-start delete).
+ * Tier 2, size fallback (session-start delete).
  *
  * Any log file larger than 25 MB is deleted by the startup sweep even
- * if freshly written — covers a marathon session that pushed a log past
+ * if freshly written, covers a marathon session that pushed a log past
  * the fallback between startups. Checked ONLY at session start, never
  * mid-session.
  */
 export const LOG_SIZE_FALLBACK_BYTES = 25 * 1024 * 1024;
 
 /**
- * Tier 3 — mid-session hard ceiling for the structured
+ * Tier 3, mid-session hard ceiling for the structured
  * `electron-main.log`.
  *
  * When the file exceeds 40 MB mid-session it is truncated IN PLACE
- * (emptied) and writing continues — the emergency brake so a single
+ * (emptied) and writing continues, the emergency brake so a single
  * never-ending session cannot grow a log without bound. Deliberately
  * far above the Tier-2 fallback (25 MB) so normal multi-day usage never
  * truncates mid-session (a file the ceiling truncates would have been
@@ -52,7 +52,7 @@ export const LOG_SIZE_FALLBACK_BYTES = 25 * 1024 * 1024;
 export const DEFAULT_MAIN_LOG_MAX_BYTES = 40 * 1024 * 1024;
 
 /**
- * Tier 3 — mid-session hard ceiling for the persistent runtime log
+ * Tier 3, mid-session hard ceiling for the persistent runtime log
  * (`electron-runtime.log`). Same rationale as
  * {@link DEFAULT_MAIN_LOG_MAX_BYTES}: 40 MB emergency brake, far above
  * the 25 MB session-start fallback so normal multi-day usage never

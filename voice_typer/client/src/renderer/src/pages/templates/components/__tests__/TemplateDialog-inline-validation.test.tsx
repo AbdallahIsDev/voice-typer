@@ -2,14 +2,14 @@
  *  regression tests for the Add/Edit Template dialog:
  *
  *   (1) Save button is disabled when either the trigger or expansion field
- *       is empty — mirrors the sibling VocabDialog pattern so the user
+ *       is empty, mirrors the sibling VocabDialog pattern so the user
  *       sees the disabled affordance up-front instead of clicking an
  *       enabled button and getting a transient warning toast.
  *
  *   (2) An inline warning renders under the output textarea when the
  *       expansion contains unknown template-variable tokens (e.g.
  *       ``{date}``). The substitution layer in ``templates/lib/transform.ts``
- *       silently drops unknown tokens — the warning surfaces the issue so
+ *       silently drops unknown tokens, the warning surfaces the issue so
  *       the user knows why ``{date}`` would be emitted verbatim.
  *
  * The dialog is a pure presentational wrapper (all state + handlers are
@@ -39,7 +39,7 @@ vi.mock("@/i18n/i18n", () => {
 			"templates.exactMatch": "Exact match",
 			"templates.contains": "Contains",
 			"templates.unknownVariableWarning":
-				"Unknown variable {vars} — supported: {today}, {now}, {clipboard}, {username}",
+				"Unknown variable {vars}, supported: {today}, {now}, {clipboard}, {username}",
 		};
 		let result = catalog[key] ?? key;
 		if (params) {
@@ -286,10 +286,10 @@ describe("TemplateDialog unknown-variable warning", () => {
 		});
 		const alert = screen.getByRole("alert");
 		expect(alert).toBeTruthy();
-		// The unknown token should appear in the alert (deduped — only
+		// The unknown token should appear in the alert (deduped, only
 		// listed once even though the user typed it three times).
 		expect(alert.textContent).toContain("{date}");
-		// Count occurrences of ``{date}`` — should be exactly 1 in the
+		// Count occurrences of ``{date}``, should be exactly 1 in the
 		// joined unknown-vars list (the i18n key interpolates {vars} as
 		// a comma-separated list).
 		const matches = alert.textContent?.match(/\{date\}/g) ?? [];
@@ -301,7 +301,7 @@ describe("TemplateDialog unknown-variable warning", () => {
 			trigger: "report",
 			// {date} is unknown; {today} / {now} / {clipboard} /
 			// {username} are known.
-			expansion: "{date} — known: {today}, {now}, {clipboard}, {username}",
+			expansion: "{date}, known: {today}, {now}, {clipboard}, {username}",
 		});
 		const alert = screen.getByRole("alert");
 		expect(alert).toBeTruthy();
@@ -322,14 +322,14 @@ describe("TemplateDialog unknown-variable warning", () => {
 		// comma-separated, so a token appears as e.g. ``{today}`` only
 		// if it's in the list. We assert each known token's absence
 		// from the alert text by checking that the alert does not list
-		// any known token as unknown — the unknown-vars list is the
+		// any known token as unknown, the unknown-vars list is the
 		// only place those tokens would appear in the alert (the i18n
-		// template is ``Unknown variable {vars} — supported: ...`` so
+		// template is ``Unknown variable {vars}, supported: ...`` so
 		// the {vars} placeholder is replaced with the comma-separated
 		// unknown list).
 		// Note: the supported list in the i18n template may also list
 		// known tokens, so we can only assert on the unknown-vars list
-		// being exactly ``{date}`` — which the dedup test above
+		// being exactly ``{date}``, which the dedup test above
 		// already covers.
 	});
 
@@ -380,7 +380,7 @@ describe("TemplateDialog unknown-variable warning", () => {
 				/>
 			</TooltipProvider>,
 		);
-		// No alert — {today} is a known variable.
+		// No alert, {today} is a known variable.
 		expect(screen.queryByRole("alert")).toBeNull();
 	});
 

@@ -1,10 +1,10 @@
-// useLastTranscriptionPreview — the ephemeral "last transcription" card
+// useLastTranscriptionPreview, the ephemeral "last transcription" card
 // state, extracted from Home.tsx so the page file stays a thin
 // composition root. Behaviour is preserved statement-for-statement.
 //
 // Owns the `lastText` / `lastQuality` pair plus its auto-clear timer:
 //
-//   - `applyTranscriptionFinal(data)` — the text/quality half of the
+//   - `applyTranscriptionFinal(data)`, the text/quality half of the
 //     `transcription_final` push handler (Home.tsx keeps the
 //     subscription and calls this, then its shared
 //     `debouncedRefreshFromEvent`). Empty/whitespace payloads are
@@ -13,12 +13,12 @@
 //     previous transcription isn't exposed on a shared/locked screen.
 //     A stale low-confidence flag can never attach to a NEW
 //     transcription because quality is set/cleared everywhere the text
-//     is (Whisper batch path only — see `build_quality_summary` in
+//     is (Whisper batch path only, see `build_quality_summary` in
 //     `voice_typer/server/transcription.py`).
-//   - the `recording_started` subscription — clears the text + timer
+//   - the `recording_started` subscription, clears the text + timer
 //     (but NOT the quality value, matching the original handler) when
 //     a new recording begins.
-//   - `handleUndo` / `handleRepaste` / `handleDiscard` — the preview
+//   - `handleUndo` / `handleRepaste` / `handleDiscard`, the preview
 //     card's action callbacks. Undo/repaste surface a sonner error on
 //     IPC failure; Discard clears the EPHEMERAL preview card only —
 //     the transcription itself stays in persisted history (the server's
@@ -49,7 +49,7 @@ type TranscriptionFinalData = TranscriptionFinalEvent["data"];
  *
  * @param call the Python bridge `call` function (from `usePython()`).
  * @param celebrateFirstRecording the first-run celebration callback
- *   (from `useFirstRecordingCelebration`) — invoked after a non-empty
+ *   (from `useFirstRecordingCelebration`), invoked after a non-empty
  *   `transcription_final` payload is accepted, exactly as before.
  */
 export function useLastTranscriptionPreview(
@@ -63,7 +63,7 @@ export function useLastTranscriptionPreview(
 	const lastTextTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
 	// Clear the text and its pending auto-clear timer (no quality
-	// change). Shared by `recording_started` and the undo path — the
+	// change). Shared by `recording_started` and the undo path, the
 	// exact statement sequence those handlers used inline.
 	const clearTextAndTimer = useCallback(() => {
 		setLastText("");
@@ -75,7 +75,7 @@ export function useLastTranscriptionPreview(
 
 	// transcription_final: update lastText + auto-clear, celebrate the
 	// first ever transcription. The refresh half of the handler
-	// (`debouncedRefreshFromEvent`) stays in Home.tsx — the page root
+	// (`debouncedRefreshFromEvent`) stays in Home.tsx, the page root
 	// invokes it right after this.
 	const applyTranscriptionFinal = useCallback(
 		(data?: TranscriptionFinalData) => {
@@ -93,7 +93,7 @@ export function useLastTranscriptionPreview(
 		[celebrateFirstRecording],
 	);
 
-	// recording_started: a new dictation began — drop the preview text
+	// recording_started: a new dictation began, drop the preview text
 	// (quality is intentionally left as-is, matching the original
 	// handler; the card is unrenderable without text, and the next
 	// accepted transcription_final always refreshes quality).
@@ -132,7 +132,7 @@ export function useLastTranscriptionPreview(
 		}
 	}, [call]);
 
-	// Discard: clears the EPHEMERAL preview card only — the transcription
+	// Discard: clears the EPHEMERAL preview card only, the transcription
 	// itself stays in persisted history (and remains on screen in
 	// History). The server's transcription_final payload carries no
 	// history id, so there is no honest backend command to delete "the

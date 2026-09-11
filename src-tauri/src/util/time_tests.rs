@@ -12,7 +12,7 @@
 //! Unit tests for `util::time` (log timestamp formatting).
 //!
 //! Moved verbatim from `util_tests.rs` when the timestamp concern was
-//! split into its own submodule — tests move with their code. No test
+//! split into its own submodule, tests move with their code. No test
 //! logic changed; `use super::*;` now resolves to the `util::time`
 //! module because this file is declared via
 //! `#[cfg(test)] #[path = "time_tests.rs"] mod time_tests;` inside
@@ -28,7 +28,7 @@ fn test_now_timestamp_format() {
     // Clean space-separated format `YYYY-MM-DD  HH:MM:SS` → 20 chars:
     // TWO spaces between the date and the time (so the time column
     // aligns in the log file), seconds-only precision (no millisecond
-    // fraction), no `T` separator, no `Z` suffix — reads naturally and
+    // fraction), no `T` separator, no `Z` suffix, reads naturally and
     // matches the Python side's clean `_iso_timestamp` format.
     assert_eq!(ts.len(), 20, "unexpected timestamp length: \"{}\"", ts);
     assert_eq!(ts.chars().nth(4), Some('-'), "year-month sep: {}", ts);
@@ -46,7 +46,7 @@ fn test_now_timestamp_format() {
 #[test]
 fn test_now_time_only_format() {
     let ts = now_time_only();
-    // Time-only format `HH:MM:SS` → 8 chars (no date — the date lives
+    // Time-only format `HH:MM:SS` → 8 chars (no date, the date lives
     // only in the log file; terminal output shows just the clock).
     assert_eq!(ts.len(), 8, "unexpected time-only length: \"{}\"", ts);
     assert_eq!(ts.chars().nth(2), Some(':'), "hour-min sep: {}", ts);

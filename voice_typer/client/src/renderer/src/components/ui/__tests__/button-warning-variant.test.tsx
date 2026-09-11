@@ -6,7 +6,7 @@
  * props but the implementation silently fell through to ``"default"``
  * styling because ``button.tsx``'s cva had no ``warning`` entry. The
  * skip-onboarding confirmation (the only ``warning`` caller) rendered
- * with the default blue primary styling — no visual signal that skipping
+ * with the default blue primary styling, no visual signal that skipping
  * is a warning-tier action.
  *
  *  added a ``warning`` variant to ``button.tsx``'s cva (amber-tinted,

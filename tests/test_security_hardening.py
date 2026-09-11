@@ -121,7 +121,7 @@ class TestQwenModelIntegrityHardFail:
     The Qwen model is loaded from a user-supplied local path (not a
     HuggingFace repo_id), so there is NO upstream SHA pin from
     ``snapshot_download``. The empty-files state was previously a
-    soft-pass in ``qwen_engine._verify_qwen_model_hashes`` — a
+    soft-pass in ``qwen_engine._verify_qwen_model_hashes``, a
     tampered or substituted local Qwen directory would load with NO
     content hash verification.
 
@@ -136,7 +136,7 @@ class TestQwenModelIntegrityHardFail:
         manifest MUST hard-fail integrity verification.
 
         Constructs a plausible Qwen model directory (model.safetensors,
-        config.json, tokenizer.json — the typical Qwen layout) and
+        config.json, tokenizer.json, the typical Qwen layout) and
         asserts that ``verify_model_integrity(dir, "qwen")`` returns
         False because ``model_hashes.json["qwen"]`` has
         ``"revision": "local"`` with an empty ``"files"`` dict.
@@ -199,7 +199,7 @@ class TestQwenModelIntegrityHardFail:
             result = verify_model_integrity(str(tmp_path), "qwen")
             assert result is False, (
                 "verify_model_integrity must return False when a pinned "
-                "file's actual hash does not match the manifest — this is "
+                "file's actual hash does not match the manifest, this is "
                 "the canonical hard-fail path for a tampered local Qwen "
                 "model directory."
             )
@@ -214,7 +214,7 @@ class TestQwenModelIntegrityHardFail:
         Populates the manifest with the CORRECT pinned hashes for the
         Qwen repo, then constructs a directory whose file contents
         match. Verifies that ``verify_model_integrity`` returns True.
-        This is the positive case — operators who populate
+        This is the positive case, operators who populate
         ``model_hashes.json`` with real hashes can load their local
         Qwen model.
         """
@@ -244,7 +244,7 @@ class TestQwenModelIntegrityHardFail:
             result = verify_model_integrity(str(tmp_path), "qwen")
             assert result is True, (
                 "verify_model_integrity must return True when all pinned "
-                "hashes match — this is the success path for an operator "
+                "hashes match, this is the success path for an operator "
                 "who has populated model_hashes.json with real hashes."
             )
         finally:
@@ -292,7 +292,7 @@ class TestQwenModelIntegrityHardFail:
 # removed with the torch Qwen engine. The ONNX backend
 # (``qwen_onnx_model.py``) loads ONLY the specific known files
 # (encoder/decoder ONNX sessions, embed_tokens.bin, tokenizer.json,
-# config.json) via ``is_onnx_model_dir`` + ``from_pretrained`` — a
+# config.json) via ``is_onnx_model_dir`` + ``from_pretrained``, a
 # stricter trust posture than the old extension allowlist, with no
 # code-execution surface from the model dir.
 
@@ -357,7 +357,7 @@ class TestHallucinationLogging:
     """SEC-009: Hallucination logging gates text behind log_transcriptions flag."""
 
     def test_log_transcriptions_false_only_metadata(self, caplog):
-        """When log_transcriptions=False, only char count is logged — no text."""
+        """When log_transcriptions=False, only char count is logged, no text."""
         from voice_typer.server.hallucination import log_hallucination_rejection
 
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.hallucination"):
@@ -485,7 +485,7 @@ class TestCorrectionsLimits:
         ``_phrase_pattern_cache`` was dead on the production hot path and
         has been removed. The live path is ``_get_phrases_regex``, which
         builds ONE combined-alternation regex per active-phrase list and
-        caches it by list identity — so memory grows with the number of
+        caches it by list identity, so memory grows with the number of
         distinct ``configure_corrections`` calls, not with the number of
         distinct phrases ever seen. This test pins that the live cache
         contract holds: a single call returns a compiled regex + lookup
@@ -495,7 +495,7 @@ class TestCorrectionsLimits:
         import re
 
         # The mutable regex-cache state lives on the ``_engine`` leaf of
-        # the text_cleanup package — poke it there so the reading
+        # the text_cleanup package, poke it there so the reading
         # functions see the replacement.
         from voice_typer.server.text_cleanup import _engine as text_cleanup
 
@@ -597,7 +597,7 @@ class TestSecureFileWrites:
         assert "_secure_atomic_write" in source
 
     # (IMPROVE-mode run PI): ``test_security_restart_token_uses_secure_write``
-    # removed — the ``generate_restart_token`` function it pinned was dead code
+    # removed, the ``generate_restart_token`` function it pinned was dead code
     # (imported into ``app.py`` but never called in production) and has been
     # deleted from ``voice_typer/server/security.py``. The other tests in this
     # class still verify ``_secure_atomic_write`` usage across
@@ -684,7 +684,7 @@ class TestSecureReadUsage:
         assert "_secure_read_text" in source
 
     # (IMPROVE-mode run PI): ``test_security_verify_restart_uses_secure_read``
-    # removed — the ``verify_restart_token`` function it pinned was dead code
+    # removed, the ``verify_restart_token`` function it pinned was dead code
     # (imported into ``app.py`` but never called in production) and has been
     # deleted from ``voice_typer/server/security.py``. The other tests in this
     # class still verify ``_secure_read_text`` usage across ``vocabulary``,

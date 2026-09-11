@@ -80,7 +80,7 @@ function stripComments(
 			continue;
 		}
 		if (c === "/" && next === "/") {
-			// line comment — drop the rest
+			// line comment, drop the rest
 			break;
 		}
 		if (c === "/" && next === "*") {
@@ -186,7 +186,7 @@ describe("renderer log prefix convention (XZ-R16-09)", () => {
 					const { content, span } = firstStringArg(fullLines, i, callStart);
 					const rel = path.relative(RENDERER_SRC, file);
 					if (content === null) {
-						// Non-string first arg — allow if a [renderer:...] tag appears
+						// Non-string first arg, allow if a [renderer:...] tag appears
 						// anywhere within the full call span (multi-line aware).
 						if (!/\[renderer:/.test(span)) {
 							violations.push(`${rel}:${i + 1}: non-string first arg`);

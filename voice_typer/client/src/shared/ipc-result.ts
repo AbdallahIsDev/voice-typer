@@ -22,19 +22,19 @@
  *
  * Wire-compatibility contract: the SUCCESS payload is spread at the
  * TOP level (`{ success: true, path, … }`), NOT nested under a `data`
- * key — the renderer (`useHistoryExport`, `useTemplateImportExport`,
+ * key, the renderer (`useHistoryExport`, `useTemplateImportExport`,
  * `useVocabularyImportExport`, model hooks) reads `result.success` /
  * `result.path` / `result.error` directly, and the Tauri bridge
  * (`lib/tauri-bridge/window-namespace.ts`) mirrors the same shape.
  * A future `data`-nesting migration must update ALL consumers + the
  * Tauri mirror in lockstep.
  *
- * Known legacy divergences (documented, NOT migrated — changing them
+ * Known legacy divergences (documented, NOT migrated, changing them
  * would break pinned contracts):
- *   - `{ ok, error }` — best-effort window pushes (`setLocale`,
+ *   - `{ ok, error }`, best-effort window pushes (`setLocale`,
  *     `restartBackend`, `logError`) whose renderer consumers read
  *     `result.ok` (e.g. `useCloudProviders.ts`).
- *   - `{ _error, _code }` — the python-call rejection envelope, a
+ *   - `{ _error, _code }`, the python-call rejection envelope, a
  *     deliberate per-mechanism contract consumed by `usePython.ts`
  *     (see `python-call-error-code.ts`).
  */
@@ -52,7 +52,7 @@ export type IpcResult<T = Record<string, never>> =
  * `{ success: true, … }` success or a `{ success: false, … }` early
  * return such as dialog-canceled / invalid-format); a THROW is
  * normalized to `{ success: false, error: <message> }` (string
- * coercion via `String(e)` so non-Error throws — numbers, strings —
+ * coercion via `String(e)` so non-Error throws, numbers, strings —
  * still produce a usable message, matching the previous
  * `(e as Error).message` intent for Errors).
  */

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Voice Typer — Nuitka Linux sidecar build (Phase 0-L, ADR-0020 §4.4)
+# Voice Typer. Nuitka Linux sidecar build (Phase 0-L, ADR-0020 §4.4)
 #
 # Builds the frozen Python sidecar (`python-sidecar-<triple>`) for Linux,
 # for both x86_64-unknown-linux-gnu and aarch64-unknown-linux-gnu.
@@ -79,8 +79,8 @@ if [[ "$ARCH" == "--check" ]]; then
 fi
 if [[ "$ARCH" != "x86_64" && "$ARCH" != "aarch64" ]]; then
     echo "Usage: $0 {x86_64|aarch64}" >&2
-    echo "  x86_64  — native build on x86_64 host" >&2
-    echo "  aarch64 — native build on aarch64 host, OR cross-build on x86_64" >&2
+    echo "  x86_64 , native build on x86_64 host" >&2
+    echo "  aarch64, native build on aarch64 host, OR cross-build on x86_64" >&2
     exit 1
 fi
 TRIPLE="${ARCH}-unknown-linux-gnu"
@@ -181,7 +181,7 @@ fi
 
 # ─── Verify Nuitka is installed in the pybs env ─────────────────────────────
 if ! "$PYBS_PYTHON" -c 'import nuitka' >/dev/null 2>&1; then
-    echo "[build_sidecar_linux] Nuitka not installed in pybs env — installing..."
+    echo "[build_sidecar_linux] Nuitka not installed in pybs env, installing..."
     "$PYBS_PYTHON" -m pip install --quiet nuitka zstandard
 fi
 "$PYBS_PYTHON" -m nuitka --version | head -1
@@ -199,7 +199,7 @@ fi
 # --include-package=voice_typer. We add the project root to PYTHONPATH if
 # voice_typer isn't installed as a wheel.
 if ! "$PYBS_PYTHON" -c 'import voice_typer' >/dev/null 2>&1; then
-    echo "[build_sidecar_linux] voice_typer not installed in pybs env — using PYTHONPATH=$PROJECT_ROOT"
+    echo "[build_sidecar_linux] voice_typer not installed in pybs env, using PYTHONPATH=$PROJECT_ROOT"
     export PYTHONPATH="$PROJECT_ROOT${PYTHONPATH:+:$PYTHONPATH}"
 fi
 
@@ -234,22 +234,22 @@ NUITKA_ENV=(
 #   --include-package=faster_whisper --include-package=ctranslate2
 #   --include-package=voice_typer   --include-package=websockets
 #   --include-data-dir=$SITE/ctranslate2/lib=$SITE/ctranslate2/lib   (always present)
-#   --include-data-dir=$SITE/ctranslate2/libs=$SITE/ctranslate2/libs (optional — guarded)
+#   --include-data-dir=$SITE/ctranslate2/libs=$SITE/ctranslate2/libs (optional, guarded)
 #   --onefile-tempdir-spec=$XDG_CACHE_HOME/voice-typer/onefile-tmp
 #   --output-filename=python-sidecar-<triple>
 #   voice_typer/server/ipc_server.py
 #
-# XPLAT-3: ctranslate2/libs is OPTIONAL — CPU-only wheels (e.g. aarch64)
+# XPLAT-3: ctranslate2/libs is OPTIONAL. CPU-only wheels (e.g. aarch64)
 # ship libctranslate2.so + libiomp5.so under ctranslate2/lib/ only, with no
 # ctranslate2/libs/ directory. Nuitka's --include-data-dir fails hard if the
 # source path is missing, so guard it (mirrors build_sidecar_macos.sh and
-# build_prewarm_linux.sh — see ADR-0020 §4.4 + XPLAT-3).
+# build_prewarm_linux.sh: see ADR-0020 §4.4 + XPLAT-3).
 CT2_LIBS_DIR="$SITE/ctranslate2/libs"
 
 # Parallel C compilation: Nuitka invokes gcc/clang per Python module.
 # --jobs=N lets Nuitka fan those out (default: 1 = sequential).
 # Cap at the host CPU count via nproc(1); override with NUITKA_JOBS.
-# Note: each job forks a C compiler (~300-500 MB RSS) — on a 16 GB
+# Note: each job forks a C compiler (~300-500 MB RSS), on a 16 GB
 # machine, --jobs=4 is comfortable, --jobs=8 is borderline. Pair this
 # with build_tauri_all.sh --parallel cautiously: 3 Nuitka builds x
 # N jobs each can OOM-kill the box.
@@ -266,13 +266,13 @@ NUITKA_ARGS=(
     # NU-106 (VAD): keep torch.jit ENABLED. Nuitka's torch plugin
     # disables JIT by default in standalone mode, breaking
     # torch.jit.load(silero_vad.jit) with "module 'torch' has no
-    # attribute 'jit'" — Silero VAD silently degrades to RMS. Make the
+    # attribute 'jit'": Silero VAD silently degrades to RMS. Make the
     # choice explicit.
     --module-parameter=torch-disable-jit=no
     --nofollow-import-to=torch._dynamo
     --nofollow-import-to=torch._inductor
     # NU-106 (VAD): torch.export / torch._functorch are loaded
-    # UNCONDITIONALLY by plain `import torch` (torch 2.13) — do NOT
+    # UNCONDITIONALLY by plain `import torch` (torch 2.13), do NOT
     # exclude them or `import torch` fails with ModuleNotFoundError and
     # Silero VAD silently degrades to RMS.
     --nofollow-import-to=transformers
@@ -291,7 +291,7 @@ NUITKA_ARGS=(
 if [[ -d "$CT2_LIBS_DIR" ]]; then
     NUITKA_ARGS+=(--include-data-dir="$CT2_LIBS_DIR=$CT2_LIBS_DIR")
 else
-    echo "[build_sidecar_linux] NOTE: ctranslate2/libs not found at $CT2_LIBS_DIR — skipping (optional on CPU-only wheels)"
+    echo "[build_sidecar_linux] NOTE: ctranslate2/libs not found at $CT2_LIBS_DIR, skipping (optional on CPU-only wheels)"
 fi
 set +e
 "${NUITKA_ENV[@]}" "$PYBS_PYTHON" -m nuitka "${NUITKA_ARGS[@]}" 2>&1 | tee "$BUILD_LOG"
@@ -351,14 +351,14 @@ verify_glibc "$OUTPUT_BIN"
 # ─── Quick smoke (help text only; no display server required) ───────────────
 # ADR-0020 §4.5 Phase 0 gate: run the sidecar binary with a one-shot command
 # that loads faster_whisper to prove CTranslate2 + DLLs + model load all work
-# inside Nuitka. That requires a tiny model file — skip here and defer to the
+# inside Nuitka. That requires a tiny model file, skip here and defer to the
 # runbook's Step 7. Just verify --help works (proves the Python interpreter +
 # faster_whisper + ctranslate2 + websockets all loaded).
 echo "[build_sidecar_linux] smoke: $OUTPUT_BIN --help"
 if [[ "$CROSS_BUILD" == "true" ]]; then
     # Use qemu explicitly for the help check (binfmt_misc may not be active).
     qemu-aarch64-static "$OUTPUT_BIN" --help 2>&1 | head -20 \
-        || echo "[build_sidecar_linux] (cross-build --help skipped — verify on aarch64 host)"
+        || echo "[build_sidecar_linux] (cross-build --help skipped, verify on aarch64 host)"
 else
     "$OUTPUT_BIN" --help 2>&1 | head -20 \
         || echo "[build_sidecar_linux] (—help returned non-zero; check $BUILD_LOG)"

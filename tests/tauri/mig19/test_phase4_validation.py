@@ -1,4 +1,4 @@
-"""MIG-1.9 Phase 4 — Validation gate for the frozen 68-command / 21-event bridge.
+"""MIG-1.9 Phase 4: Validation gate for the frozen 68-command / 21-event bridge.
 
 ADR-0020 §2 mandates the 68-command table + the 21-event table as the
 **frozen wire contract** for the v1 Tauri migration. ADR-0020 §16
@@ -19,32 +19,32 @@ updating the ADR, this test fails loudly:
 2. Each registry value names a ``_handle_<cmd>`` method that actually
    exists on :class:`IPCServer` (no orphaned / dangling entries).
 3. ``_validate_dict_payload`` is the single source of truth for command
-   payload validation (ADR-0020 §2 + §16 item 3) — it must be importable
+   payload validation (ADR-0020 §2 + §16 item 3), it must be importable
    and return ``(validated_dict, None)`` / ``(None, error)`` tuples.
 4. The Rust WS bridge (``src-tauri/src/sidecar/ws.rs``) forwards every
    server-initiated event by name (no allowlist) AND emits a generic
    ``python-event`` catch-all for the ``usePython`` hook, applies the
    ADR §6.1 backward-compat ``electron_notification`` → ``notification``
    alias (the ``relaunch_electron`` → ``relaunch_app`` rename was dropped
-   in the PVT-2 cleanup — the Python sidecar now publishes
+   in the PVT-2 cleanup, the Python sidecar now publishes
    ``relaunch_app`` directly and ``main.rs`` listens for it), and
    coalesces ``bubble_level`` to ≤30 Hz per ADR §9.
 5. ``TAURI_SIDECAR=1`` env var disables the heartbeat-watchdog thread
-   on the Python side (ADR-0020 §2 + §10 — replaces ADR-0018 on the
+   on the Python side (ADR-0020 §2 + §10, replaces ADR-0018 on the
    Tauri path).
 6. The sidecar NEVER echoes the auth token in any outbound frame or
-   log message (ADR-0020 §3 — token rotation is per-launch and a
+   log message (ADR-0020 §3, token rotation is per-launch and a
    leaked token in a log defeats that).
 7. The command / event contract is frozen: registry size is asserted,
    new commands require explicit baseline updates here so the
    reviewer is forced to add ADR addendum + test coverage.
 
 =====================================================================
-VALIDATE ON HOST — exact commands a human must run on each platform
+VALIDATE ON HOST, exact commands a human must run on each platform
 =====================================================================
 
 These commands MUST be run on a real host with a Nuitka-frozen sidecar
-binary + Tauri bundle (the Linux sandbox cannot build them — see the
+binary + Tauri bundle (the Linux sandbox cannot build them: see the
 MIG-1.8 per-triple freeze test). They exercise the **full WS bridge**
 end-to-end: a real Rust host connecting to a real Python sidecar over
 the HMAC-authenticated WS, dispatching every command and observing
@@ -81,14 +81,14 @@ VALIDATE ON WINDOWS HOST (x86_64-pc-windows-msvc):
          - notification (trigger a toast via the settings)
          - hotkey_capture_cancel (start + ESC a hotkey capture)
          - navigate / show_window (tray menu items)
-         - relaunch_app (restart_app command — verify app relaunches)
-         - quit_app (quit_app command — verify clean exit)
+         - relaunch_app (restart_app command, verify app relaunches)
+         - quit_app (quit_app command, verify clean exit)
          - ready (emitted once on first authed connection)
        Expected: each event appears BOTH under its specific name AND
        under the generic ``python-event`` name in the webview.
     5. Verify the heartbeat watchdog is DISABLED on the Tauri path:
        - Check sidecar.log for the line:
-         "[IPC] TAURI_SIDECAR=1 — skipping heartbeat-watchdog thread"
+         "[IPC] TAURI_SIDECAR=1, skipping heartbeat-watchdog thread"
        - Kill the webview (Task Manager → End Task on the app window).
          Wait 130s. The sidecar process must EXIT (supervisor
          detected the WS-close and force-respawned / killed it). It
@@ -115,7 +115,7 @@ VALIDATE ON LINUX HOST (x86_64-unknown-linux-gnu + aarch64-unknown-linux-gnu):
     ``src-tauri/target/release/bundle/appimage/*.AppImage``. Check the
     log file at ``~/.local/share/voice-typer/logs/``. On Wayland
     sessions additionally verify the global-hotkey + tray paths
-    (those are host-concern, not bridge-concern — they are validated
+    (those are host-concern, not bridge-concern, they are validated
     separately in the mig15/mig16/mig17 host tests).
 
 =====================================================================
@@ -166,7 +166,7 @@ WS_READER_RS = REPO_ROOT / "src-tauri" / "src" / "sidecar" / "ws" / "reader.rs"
 WS_WRITER_RS = REPO_ROOT / "src-tauri" / "src" / "sidecar" / "ws" / "writer.rs"
 ADR_0020 = REPO_ROOT / "docs" / "adr" / "0020-desktop-runtime-migration-analysis.md"
 
-# ── ADR-0020 §2 — frozen 68-command table (the v1 wire contract) ─────────
+# ── ADR-0020 §2, frozen 68-command table (the v1 wire contract) ─────────
 #
 # This set is the authoritative list of commands the ADR freezes for v1.
 # Source: ADR-0020 §2 table ("Sidecar←UI Command Table"). Per §16, this
@@ -181,7 +181,7 @@ EXPECTED_COMMANDS: frozenset[str] = frozenset(
         "get_status",
         "get_volume_backend_status",
         "get_model_status",
-        # RESTORED 2026-08-14 (plan §6.3 addendum — Cache Status card,
+        # RESTORED 2026-08-14 (plan §6.3 addendum, Cache Status card,
         # verbatim from 5a319872):
         "get_prewarm_status",
         "open_prewarm_log",
@@ -190,7 +190,7 @@ EXPECTED_COMMANDS: frozenset[str] = frozenset(
         # in-process (warm_imports_for_worker on a daemon thread) instead
         # of spawning the deleted standalone-prewarm subprocess.
         "run_prewarm",
-        "transcribe_offline",  # master plan §7.4 — slim core → worker offline ASR
+        "transcribe_offline",  # master plan §7.4, slim core → worker offline ASR
         # auto-update feature (docs/auto-update-feature.md): runtime-pack
         # manifest check + consent-gated background download.
         "check_offline_pack_update",
@@ -238,7 +238,7 @@ EXPECTED_COMMANDS: frozenset[str] = frozenset(
         # is recorded in ``docs/adr/0020-desktop-runtime-migration-analysis.md``.
         "get_correction_usage",
         "test_vocabulary_correction",
-        # vocabulary_automation_handlers — REMOVED from _COMMAND_REGISTRY:
+        # vocabulary_automation_handlers, REMOVED from _COMMAND_REGISTRY:
         # ``get_vocabulary_suggestions``, ``apply_vocabulary_suggestion``,
         # ``dismiss_vocabulary_suggestion`` were deferred pending UX
         # redesign (the renderer's allowed-commands.ts dropped the three
@@ -251,7 +251,7 @@ EXPECTED_COMMANDS: frozenset[str] = frozenset(
         # onboarding_handlers
         "onboarding_is_first_run",
         "onboarding_start",
-        # REMOVED: ``onboarding_get_step`` — the renderer holds wizard
+        # REMOVED: ``onboarding_get_step``, the renderer holds wizard
         # state client-side (see ``test_dead_code_stays_removed.py``).
         "onboarding_next_step",
         "onboarding_prev_step",
@@ -259,7 +259,7 @@ EXPECTED_COMMANDS: frozenset[str] = frozenset(
         "onboarding_set_hotkey",
         "onboarding_set_model",
         # ADR-0020 §16 addendum (2026-08-06): ``onboarding_set_backend``
-        # — the Model step's explicit local-vs-cloud backend choice
+        # , the Model step's explicit local-vs-cloud backend choice
         # (Model-step rework: the user chooses; the app NEVER
         # auto-downloads models). Handler in onboarding_handlers.py with
         # a ``_validate_dict_payload`` schema + IPC validation coverage.
@@ -273,11 +273,11 @@ EXPECTED_COMMANDS: frozenset[str] = frozenset(
         # server-side for / The renderer's permission flow
         # now uses this + a Tauri-side invocation.
         "onboarding_check_permissions",
-        # REMOVED: ``onboarding_get_model_catalog`` — the renderer uses
+        # REMOVED: ``onboarding_get_model_catalog``, the renderer uses
         # the non-onboarding ``get_model_catalog`` command for catalog
         # data; this onboarding-scoped alias was never wired up on the
         # client. See ``test_dead_code_stays_removed.py``.
-        # REMOVED: ``onboarding_request_keyboard_permission`` — the
+        # REMOVED: ``onboarding_request_keyboard_permission``, the
         # renderer's permission flow now uses ``onboarding_check_permissions``
         # + a Tauri-side invocation; the legacy IPC dispatch route was
         # deleted in lockstep with the TS allowlist narrowing.
@@ -285,7 +285,7 @@ EXPECTED_COMMANDS: frozenset[str] = frozenset(
         # microphone_handlers
         "get_microphones",
         # REMOVED: ``refresh_microphones``, ``get_rms_level``,
-        # ``get_audio_status`` — these were dropped to match the
+        # ``get_audio_status``, these were dropped to match the
         # Tauri/Rust allowlist narrowing (the renderer's
         # ``allowed-commands.ts`` also dropped them; the service-layer
         # methods still exist and are called from internal code paths;
@@ -296,7 +296,7 @@ EXPECTED_COMMANDS: frozenset[str] = frozenset(
         "microphone_test_stop",
         "microphone_test_read_audio",
         "microphone_test_cancel",
-        # REMOVED: ``microphone_test_status`` — the renderer polls
+        # REMOVED: ``microphone_test_status``, the renderer polls
         # ``microphone_test_get_level`` at 60 Hz during a test; the
         # separate status query was unused. See
         # ``test_dead_code_stays_removed.py``.
@@ -304,7 +304,7 @@ EXPECTED_COMMANDS: frozenset[str] = frozenset(
         # level_monitor_handlers
         "level_monitor_start",
         "level_monitor_stop",
-        # REMOVED: ``level_monitor_status`` — the renderer subscribes
+        # REMOVED: ``level_monitor_status``, the renderer subscribes
         # to the ``level_monitor_level`` push event instead of polling
         # a status endpoint. See ``test_dead_code_stays_removed.py``.
         # model_handlers
@@ -313,7 +313,7 @@ EXPECTED_COMMANDS: frozenset[str] = frozenset(
         "pause_model_download",
         "resume_model_download",
         # Pending-download FIFO queue snapshot (read-only, no payload)
-        # — hydrates the renderer's queue chips on mount; live updates
+        # , hydrates the renderer's queue chips on mount; live updates
         # flow via ``download_progress``. See the §16 addendum in
         # ADR-0020. No-payload read: no ``_validate_dict_payload``
         # schema required (same exemption as ``get_correction_usage``);
@@ -321,7 +321,7 @@ EXPECTED_COMMANDS: frozenset[str] = frozenset(
         # ``tests/test_ipc_dispatch_errors.py``.
         "get_download_queue",
         "get_model_catalog",
-        # REMOVED: ``test_llm_connection`` — the renderer's Settings
+        # REMOVED: ``test_llm_connection``, the renderer's Settings
         # page now uses the service-layer method directly (not over
         # IPC). The TS allowlist also dropped it. See
         # ``test_dead_code_stays_removed.py`` for the
@@ -338,7 +338,7 @@ EXPECTED_COMMANDS: frozenset[str] = frozenset(
         # Python-side service methods still exist for the legacy
         # Electron path. See ``test_dead_code_stays_removed.py``.
         # ADR-0020 §16 addendum (2026-08-10, finding #919 part b):
-        # ``check_accessibility`` — RE-ADDED to the contract. The
+        # ``check_accessibility``. RE-ADDED to the contract. The
         # Settings → Troubleshooting UI invokes it on macOS to surface
         # the stale-grant ``tccutil`` reset command (``suggest_reset``
         # + ``reset_command`` on a confirmed stale grant); the command
@@ -350,7 +350,7 @@ EXPECTED_COMMANDS: frozenset[str] = frozenset(
         "set_tray_locale",
         "set_esc_cancel_paused",
         # ADR-0020 §16 addendum (2026-08-09, finding #127 part b):
-        # ``reset_macos_accessibility`` — Settings → Troubleshooting
+        # ``reset_macos_accessibility``, Settings → Troubleshooting
         # "Reset Accessibility Permission" button. Runs `tccutil reset
         # Accessibility <bundle-id>` (bundle ID resolved at runtime via
         # macos_bundle_id.py) + re-opens System Settings. Handler in
@@ -358,7 +358,7 @@ EXPECTED_COMMANDS: frozenset[str] = frozenset(
         # dispatch-errors test (tests/test_ipc_dispatch_errors.py).
         "reset_macos_accessibility",
         # ADR-0020 §16 addendum (2026-08-10, finding #127 part b):
-        # ``reset_linux_permissions`` — Settings → Troubleshooting
+        # ``reset_linux_permissions``, Settings → Troubleshooting
         # "Reset Linux Permission" button (Linux sibling of the macOS
         # TCC reset). Clears a stale polkit authorization
         # (``auth_admin_keep`` is cached by polkitd) by restarting the
@@ -367,17 +367,17 @@ EXPECTED_COMMANDS: frozenset[str] = frozenset(
         # system_handlers.py with a `_validate_dict_payload` schema +
         # dispatch-errors test (tests/test_ipc_dispatch_errors.py).
         "reset_linux_permissions",
-        # ipc_server ( / ADR-0018) — kept on the registry even
+        # ipc_server ( / ADR-0018), kept on the registry even
         # though it is REMOVED on the Tauri path; a stray frame from a
         # legacy UI must still hit the handler (not ``unknown_command``).
         "heartbeat",
         # ADR-0020 §16 addendum (2026-07-24): commands added
         # since the prior baseline. Each has a ``_handle_<cmd>`` mixin +
         # ``_validate_dict_payload`` schema + dispatch-errors test.
-        #   - ``shutdown`` (system_handlers.py — graceful IPC shutdown;
+        #   - ``shutdown`` (system_handlers.py, graceful IPC shutdown;
         # the  controller lives in ``shutdown_controller.py``).
         # REMOVED: ``delete_all_personal_data`` + ``export_gdpr_bundle``
-        # — the Tauri host now invokes them via dedicated Rust commands
+        # , the Tauri host now invokes them via dedicated Rust commands
         # (with their own allowlist entries and consent prompts) rather
         # than bridging through the generic dispatch path. The
         # Python-side service methods still exist (called from the
@@ -395,14 +395,14 @@ assert len(EXPECTED_COMMANDS) == 71, (
     "§16 addendum 2026-08-13 master plan §7.4; + ``check_offline_pack_update`` "
     "§16 addendum 2026-08-14 auto-update feature docs/auto-update-feature.md; + 3 "
     "``get_prewarm_status`` / ``open_prewarm_log`` / ``run_prewarm`` §16 addendum 2026-08-14 "
-    "plan §6.3 addendum — Cache Status card restored verbatim from 5a319872; ``run_prewarm`` "
+    "plan §6.3 addendum, Cache Status card restored verbatim from 5a319872; ``run_prewarm`` "
     "re-implemented (in-process warm pass, no deleted-subprocess spawn); + 2 "
     "``get_correction_usage`` / ``test_vocabulary_correction`` §16 addendum 2026-08-16 "
     "— vocabulary usage tracking + live correction test panel; + "
-    "``get_download_queue`` §16 addendum 2026-09-08 — pending-download "
+    "``get_download_queue`` §16 addendum 2026-09-08, pending-download "
     "FIFO queue snapshot, read-only mount hydration for the Models "
     "page queue chips). The prior 76-command "
-    "list was stale — it included 17 commands that had been deliberately "
+    "list was stale, it included 17 commands that had been deliberately "
     "REMOVED from ``_COMMAND_REGISTRY`` to match the Tauri host's Rust "
     "allowlist narrowing (see ``test_dead_code_stays_removed.py`` for the "
     "regression guards). 59 = original 68-command frozen table − 9 commands "
@@ -435,7 +435,7 @@ assert len(EXPECTED_COMMANDS) == 71, (
 # fail on these (otherwise the gate would block on a pre-existing
 # implementation gap rather than on NEW regressions), but the
 # ``test_known_undocumented_commands_are_reported`` test below asserts
-# the set is exactly what we expect — so when the gap is closed (the
+# the set is exactly what we expect, so when the gap is closed (the
 # command is either removed or formally added to the ADR), the test
 # prompts removal of the entry here too.
 #
@@ -451,7 +451,7 @@ KNOWN_UNDOCUMENTED_COMMANDS: frozenset[str] = frozenset(
         # is a host-initiated dispatch command the Rust tray emits when
         # the user clicks a menu item (``dispatch({cmd:'tray_click',
         # data:{id}})``). It is NOT in the frozen 68-command table and
-        # has no Python ``_handle_tray_click`` mixin — the Rust host
+        # has no Python ``_handle_tray_click`` mixin, the Rust host
         # routes it directly to the sidecar's tray-click handler. Added
         # without a formal ADR-0020 §16 addendum (tracked as a gap; the
         # Python-side ``tray_click`` IPC handler lives in
@@ -473,7 +473,7 @@ KNOWN_UNDOCUMENTED_COMMANDS: frozenset[str] = frozenset(
         # only the ADR documentation + ``_validate_dict_payload``
         # schema + dispatch-errors test (option (b) above).
         "test_cloud_connection",
-        # XZ-SEC-05: ``add_trusted_endpoint`` — adds a hostname to the
+        # XZ-SEC-05: ``add_trusted_endpoint``, adds a hostname to the
         # runtime URL allowlist + persists it to config.json under
         # ``trusted_extra_hosts`` (self-hosted LLM/ASR endpoint
         # remediation). Python handler: ``ConfigHandlersMixin`` in
@@ -484,16 +484,16 @@ KNOWN_UNDOCUMENTED_COMMANDS: frozenset[str] = frozenset(
     }
 )
 
-# ── ADR-0020 §event table — frozen 21-event table ───────────────────────
+# ── ADR-0020 §event table, frozen 21-event table ───────────────────────
 #
-# Source: ADR-0020 "Sidecar→UI Event Table" — 21 events. These are
-# server-initiated (channel 2) — distinct from the command/response
+# Source: ADR-0020 "Sidecar→UI Event Table", 21 events. These are
+# server-initiated (channel 2), distinct from the command/response
 # envelope (channel 1). Each is delivered as
 # ``{"type":<name>,"data":{...}}`` and re-emitted by the Rust bridge
 # as a Tauri event of the same name (modulo the backward-compat
 # ``electron_notification`` → ``notification`` alias below; the
 # ``relaunch_electron`` → ``relaunch_app`` rename was dropped in the
-# cleanup — the Python sidecar now publishes ``relaunch_app``
+# cleanup, the Python sidecar now publishes ``relaunch_app``
 # directly, so the bridge forwards it unchanged).
 EXPECTED_EVENTS: frozenset[str] = frozenset(
     {
@@ -526,10 +526,10 @@ EXPECTED_EVENTS: frozenset[str] = frozenset(
         # added since the prior 21-event baseline. All three are emitted
         # via ``event_bus.publish`` (or ``IPCServer.push``) and flow
         # through the same channel.
-        #   - ``paste_failed`` (dictation_handlers.py — paste-error feedback).
-        #   - ``state_changed`` (IPCServer.push — emitted on TCP connect).
+        #   - ``paste_failed`` (dictation_handlers.py, paste-error feedback).
+        #   - ``state_changed`` (IPCServer.push, emitted on TCP connect).
         #   - ``status_change`` (IPCServer.push via ``_hook_tray_set_state``
-        #     — emitted on every tray state transition).
+        #   , emitted on every tray state transition).
         "paste_failed",
         "state_changed",
         "status_change",
@@ -542,13 +542,13 @@ assert len(EXPECTED_EVENTS) == 24, (
 )
 
 # Events that the Rust bridge renames before re-emitting as Tauri
-# events (ADR-0020 §6.1 — payloads are unchanged, only the event name
+# events (ADR-0020 §6.1, payloads are unchanged, only the event name
 # changes). The Rust bridge also emits a backward-compat
 # ``notification`` alias when it sees the legacy
 # ``electron_notification`` event name ( in ws.rs).
 #
 # cleanup: the ``relaunch_electron`` → ``relaunch_app`` entry was
-# REMOVED — the Python sidecar now publishes ``relaunch_app`` directly,
+# REMOVED, the Python sidecar now publishes ``relaunch_app`` directly,
 # so the Rust bridge forwards it unchanged. ``main.rs`` listens for the
 # renamed event directly. This dict is intentionally empty; it remains
 # as a documentation anchor for the ADR-0020 §6.1 rename policy (future
@@ -570,7 +570,7 @@ def _import_ipc_server():
 
 
 def _import_sidecar_ws():
-    """Import sidecar_ws lazily — the module imports cleanly even when
+    """Import sidecar_ws lazily, the module imports cleanly even when
     the ``websockets`` package is absent (it is lazy-imported inside
     ``run()``)."""
     from voice_typer.server import sidecar_ws
@@ -583,7 +583,7 @@ def _import_sidecar_ws():
 
 def test_command_registry_exists_and_is_dict():
     """``_COMMAND_REGISTRY`` MUST be a class-level ``dict[str, str]`` on
-    :class:`IPCServer` (ADR-0020 §2 — dispatch is a single dict lookup)."""
+    :class:`IPCServer` (ADR-0020 §2, dispatch is a single dict lookup)."""
     ipc_server = _import_ipc_server()
     assert hasattr(ipc_server.IPCServer, "_COMMAND_REGISTRY"), (
         "IPCServer must expose a class-level _COMMAND_REGISTRY (ADR-0020 §2)"
@@ -598,7 +598,7 @@ def test_command_registry_exists_and_is_dict():
 def test_command_registry_contains_expected_keys():
     """Every command listed in the ADR-0020 §2 table MUST be present in
     ``_COMMAND_REGISTRY``. A missing entry means the wire contract was
-    silently narrowed — ADR-0020 §16 forbids that."""
+    silently narrowed, ADR-0020 §16 forbids that."""
     ipc_server = _import_ipc_server()
     actual = set(ipc_server.IPCServer._COMMAND_REGISTRY.keys())
     missing = EXPECTED_COMMANDS - actual
@@ -613,7 +613,7 @@ def test_command_registry_handlers_resolve_to_methods():
     """Every ``_COMMAND_REGISTRY[cmd]`` value MUST name an existing
     ``_handle_<cmd>`` method on :class:`IPCServer`. A dangling entry
     would crash at dispatch time with ``AttributeError`` (the registry
-    is the source of truth — there is no fallback chain)."""
+    is the source of truth, there is no fallback chain)."""
     ipc_server = _import_ipc_server()
     registry = ipc_server.IPCServer._COMMAND_REGISTRY
     broken: list[str] = []
@@ -647,7 +647,7 @@ def test_command_registry_handlers_have_correct_signature():
         except (ValueError, TypeError):
             continue
         params = list(sig.parameters.keys())
-        # Expect (self, data, resp) — accept extra optional params
+        # Expect (self, data, resp), accept extra optional params
         # (e.g. kwargs) defensively, but the first three MUST match.
         if params[:3] != ["self", "data", "resp"]:
             broken.append(f"{cmd} → {handler_name}: params={params}")
@@ -672,7 +672,7 @@ def test_validate_dict_payload_is_importable_and_callable():
 
 
 def test_validate_dict_payload_returns_validated_dict_on_success():
-    """On success: ``(validated_dict, None)`` — the second element is
+    """On success: ``(validated_dict, None)``, the second element is
     ``None`` so the caller can ``if error: return error`` cleanly."""
     ipc_server = _import_ipc_server()
     schema = {
@@ -688,7 +688,7 @@ def test_validate_dict_payload_returns_validated_dict_on_success():
 
 
 def test_validate_dict_payload_rejects_non_dict_data():
-    """Non-dict ``data`` MUST return ``(None, error_response)`` — the
+    """Non-dict ``data`` MUST return ``(None, error_response)``, the
     handler can ``return resp`` immediately. The error response carries
     the ``invalid_payload`` code so the client can distinguish it from
     a handler fault (ERR-009)."""
@@ -762,7 +762,7 @@ def test_validate_dict_payload_is_referenced_in_adr():
 def _read_ws_rs() -> str:
     """Read the Rust WS bridge source: the ``ws.rs`` parent module PLUS
     its ``ws/reader.rs`` / ``ws/writer.rs`` task submodules. The parent
-    file MUST exist — its absence means the Tauri migration was rolled
+    file MUST exist, its absence means the Tauri migration was rolled
     back mid-flight.
 
     reader/writer module split (mirrors the earlier
@@ -776,13 +776,13 @@ def _read_ws_rs() -> str:
     across the split.
     """
     assert WS_RS.is_file(), (
-        f"src-tauri/src/sidecar/ws.rs is missing at {WS_RS} — the Tauri "
+        f"src-tauri/src/sidecar/ws.rs is missing at {WS_RS}, the Tauri "
         "WS bridge has been removed (ADR-0020 regression)."
     )
     parts = [WS_RS.read_text(encoding="utf-8")]
     for sibling in (WS_READER_RS, WS_WRITER_RS):
         assert sibling.is_file(), (
-            f"{sibling} is missing — the ws.rs reader/writer module split was rolled back mid-flight."
+            f"{sibling} is missing, the ws.rs reader/writer module split was rolled back mid-flight."
         )
         parts.append(sibling.read_text(encoding="utf-8"))
     return "\n\n".join(parts)
@@ -801,7 +801,7 @@ def _read_ws_event_protocol_rs() -> str:
     """
     assert WS_EVENT_PROTOCOL_RS.is_file(), (
         f"src-tauri/src/sidecar/ws/event_protocol.rs is missing at "
-        f"{WS_EVENT_PROTOCOL_RS} — the split was rolled "
+        f"{WS_EVENT_PROTOCOL_RS}, the split was rolled "
         "back (ADR-0020 regression)."
     )
     parts = [WS_EVENT_PROTOCOL_RS.read_text(encoding="utf-8")]
@@ -817,14 +817,14 @@ def test_ws_bridge_does_not_silently_filter_events():
     not a per-event-type dispatcher that silently drops unknown event
     types.
 
-    RT-FIX-9 (2026-07-24): ws.rs was refactored — the prior
+    RT-FIX-9 (2026-07-24): ws.rs was refactored, the prior
     ``let emit_name = event_type;`` direct assignment was replaced by
     ``let emit_name = translate_event_name(event_type);`` (PVT-G5-062:
     extracted the snake→kebab bubble_* renames into a unit-testable
     function), AND an explicit ``ALLOWED_EVENT_TYPES`` allowlist was
     added (G4-H-32: defense-in-depth against a compromised sidecar
     process injecting arbitrary event names). The allowlist is an
-    INTENTIONAL security hardening — it logs + drops unknown event
+    INTENTIONAL security hardening, it logs + drops unknown event
     types rather than silently passing them through. The translate
     function has an ``other => other`` arm so any allowlisted event
     that is NOT in the rename table is forwarded under its own name
@@ -853,7 +853,7 @@ def test_ws_bridge_does_not_silently_filter_events():
     # ``let emit_name = event_type;`` direct assignment.
     assert re.search(r"let\s+emit_name\s*=\s*translate_event_name\(\s*event_type\s*\)\s*;", src), (
         "ws.rs must compute `emit_name` via `translate_event_name(event_type)` "
-        "(PVT-G5-062 — single unit-testable rename table). ADR-0020 §event table."
+        "(PVT-G5-062, single unit-testable rename table). ADR-0020 §event table."
     )
     # The translate function MUST have an `other => other` arm so any
     # allowlisted-but-not-renamed event name passes through unchanged
@@ -891,7 +891,7 @@ def test_ws_bridge_does_not_rename_relaunch_app():
     publishes ``relaunch_app`` directly (see ``app.py``
     ``restart_app``), and ``main.rs`` listens for it via
     ``app.listen("relaunch_app", ...)`` (calling ``app.restart()``).
-    The Rust bridge forwards the event unchanged — no rename arm.
+    The Rust bridge forwards the event unchanged, no rename arm.
 
     This is a regression check: re-introducing the rename arm would
     silently demote the user's Restart click back to the pre-PVT-2
@@ -905,7 +905,7 @@ def test_ws_bridge_does_not_rename_relaunch_app():
     )
     assert not rename_re.search(src), (
         "ws.rs MUST NOT have a `relaunch_electron` => `relaunch_app` "
-        "rename arm — the Python sidecar now publishes `relaunch_app` "
+        "rename arm, the Python sidecar now publishes `relaunch_app` "
         "directly (PVT-2 cleanup). Re-introducing the rename would "
         "recreate the pre-PVT-2 silent-restart bug."
     )
@@ -913,7 +913,7 @@ def test_ws_bridge_does_not_rename_relaunch_app():
     # match arm pattern in ws.rs (only in comments is OK).
     assert '"relaunch_electron" =>' not in src, (
         "ws.rs MUST NOT match the legacy `relaunch_electron` event name "
-        "in a per-type branch (PVT-2 cleanup — the rename arm is gone)."
+        "in a per-type branch (PVT-2 cleanup, the rename arm is gone)."
     )
 
 
@@ -947,9 +947,9 @@ def test_ws_bridge_coalesces_bubble_level():
     src = _read_ws_rs()
     assert "bubble_level" in src, "ws.rs must handle the `bubble_level` event specifically (ADR-0020 §9 coalescing)."
     assert "bubble_coalesce_should_emit" in src, (
-        "ws.rs must call `bubble_coalesce_should_emit` for bubble_level events (ADR-0020 §9 — coalesce to ≤30 Hz)."
+        "ws.rs must call `bubble_coalesce_should_emit` for bubble_level events (ADR-0020 §9, coalesce to ≤30 Hz)."
     )
-    # ER-35: the coalesced emit path is TYPED-ONLY — no per-frame
+    # ER-35: the coalesced emit path is TYPED-ONLY, no per-frame
     # `json!({...})` catch-all duplicate. Renderer consumers listen on the
     # typed `bubble_level` event (bubble-namespace onLevel); no
     # `usePythonEvent("bubble_level")` subscriber exists, so the catch-all
@@ -968,7 +968,7 @@ def test_ws_bridge_coalesces_bubble_level():
 # Events whose source name has been renamed in the Python sidecar
 # ( in ws.rs + handlers/system_handlers.py + startup_sequence.py).
 # The Rust bridge has a backward-compat alias so legacy sidecars that
-# still emit the OLD name keep working — but new sidecars emit the
+# still emit the OLD name keep working, but new sidecars emit the
 # NEW name directly. The Phase 4 test accepts EITHER name in the
 # Python source to tolerate the rolling rename.
 EVENT_NAME_RENAMES_IN_SOURCE: dict[str, str] = {
@@ -984,12 +984,12 @@ def test_ws_bridge_forwards_all_24_event_names():
     allowlist), so the contract is: each event name MUST appear in
     the Python source as an ``event_bus.publish({"type": <name>})``
     call (or ``server.push({"type": <name>})`` for the ``ready``
-    event) — proving the sidecar actually emits it — AND the bridge
+    event) (proving the sidecar actually emits it) AND the bridge
     must NOT filter it (covered by the no-allowlist test above).
 
     For events whose name has been renamed in the Python sidecar
     (see ``EVENT_NAME_RENAMES_IN_SOURCE``), EITHER the old OR the
-    new name must appear — the Rust bridge has a backward-compat
+    new name must appear, the Rust bridge has a backward-compat
     alias (CR-8 in ws.rs) so both paths reach the webview.
     """
     # Read all Python source files in voice_typer/server/.
@@ -1115,7 +1115,7 @@ def test_tauri_sidecar_env_disables_python_single_instance_mutex():
 def test_sidecar_authenticate_does_not_echo_token(monkeypatch):
     """ADR-0020 §3: the sidecar MUST NOT echo the auth token in any
     outbound frame or response. The ``_authenticate`` helper returns a
-    bare ``bool`` (accept / reject) — the host treats rejection as a
+    bare ``bool`` (accept / reject), the host treats rejection as a
     crash and respawns with a fresh token. If the sidecar ever
     responded with the token (e.g. ``{"type":"auth_ok","token":"..."}``)
     it would defeat the per-launch rotation."""
@@ -1123,7 +1123,7 @@ def test_sidecar_authenticate_does_not_echo_token(monkeypatch):
     token = "deadbeef" * 8  # 64 hex chars
     monkeypatch.setenv("VOICE_TYPER_IPC_TOKEN", token)
 
-    # Fake websocket — capture every frame the sidecar writes back.
+    # Fake websocket, capture every frame the sidecar writes back.
     sent_frames: list[str] = []
 
     class _FakeWS:
@@ -1142,11 +1142,11 @@ def test_sidecar_authenticate_does_not_echo_token(monkeypatch):
     assert accepted is True
     # The authenticate path must NOT have written any frame back.
     # (It only reads; if it ever writes, the frame would land in
-    # sent_frames — which stays empty.)
+    # sent_frames, which stays empty.)
     for frame in sent_frames:
         assert token not in frame, (
             "sidecar_ws._authenticate wrote a frame containing the "
-            f"auth token: {frame!r} (ADR-0020 §3 — token MUST NOT be "
+            f"auth token: {frame!r} (ADR-0020 §3, token MUST NOT be "
             "echoed)."
         )
 
@@ -1158,7 +1158,7 @@ def test_sidecar_source_does_not_log_token_verbatim():
     ``log.*`` calls that interpolate the token (``expected_token``)
     or the env var value.
     The env var NAME (``VOICE_TYPER_IPC_TOKEN``) MAY appear in log
-    messages — the VALUE may not."""
+    messages, the VALUE may not."""
     src = SIDECAR_WS_PY.read_text(encoding="utf-8") + "\n" + SIDECAR_WS_HANDSHAKE_PY.read_text(encoding="utf-8")
     # Find every log.* call that mentions ``expected_token`` or
     # ``provided`` (the inbound token value). They MUST NOT appear in
@@ -1188,7 +1188,7 @@ def test_sidecar_source_does_not_log_token_verbatim():
             violations.append(snippet)
     assert not violations, (
         "sidecar_ws.py contains log.* calls that interpolate the auth "
-        "token (expected_token / provided) — ADR-0020 §3 forbids "
+        "token (expected_token / provided), ADR-0020 §3 forbids "
         "logging the token verbatim. Offending lines:\n  " + "\n  ".join(repr(v) for v in violations)
     )
 
@@ -1196,7 +1196,7 @@ def test_sidecar_source_does_not_log_token_verbatim():
 def test_sidecar_emit_server_started_does_not_leak_token(capsys):
     """ADR-0020 §1 + §3: the only line the sidecar writes to stdout is
     ``{"event":"server_started","port":<n>}``. The token MUST NOT
-    appear in this line — stdout is parsed by the host but is also
+    appear in this line, stdout is parsed by the host but is also
     captured in crash reports / pipe dumps."""
     sw = _import_sidecar_ws()
     sw._emit_server_started(54321)
@@ -1221,7 +1221,7 @@ def test_command_contract_is_frozen_no_untested_additions():
     ``_handle_<cmd>`` mixin, (2) an ADR addendum, and (3) an entry in
     ``EXPECTED_COMMANDS`` here (which forces the reviewer to update
     this test). This test fails the moment an untested command is
-    added — UNLESS it is listed in ``KNOWN_UNDOCUMENTED_COMMANDS``,
+    added, UNLESS it is listed in ``KNOWN_UNDOCUMENTED_COMMANDS``,
     which tracks the pre-existing §16 violations documented as
     implementation gaps (see ``test_known_undocumented_commands_are_reported``).
     """
@@ -1256,7 +1256,7 @@ def test_known_undocumented_commands_are_reported():
     stale entry here.
 
     This is the "don't let the gap list silently grow OR silently
-    shrink" guardrail — both directions require explicit action.
+    shrink" guardrail, both directions require explicit action.
     """
     ipc_server = _import_ipc_server()
     actual = set(ipc_server.IPCServer._COMMAND_REGISTRY.keys())
@@ -1277,7 +1277,7 @@ def test_known_undocumented_commands_are_reported():
         if stale_in_known:
             msg_parts.append(
                 "Commands in KNOWN_UNDOCUMENTED_COMMANDS that are NO "
-                "LONGER in _COMMAND_REGISTRY (the gap was closed — "
+                "LONGER in _COMMAND_REGISTRY (the gap was closed, "
                 "remove the stale entry from KNOWN_UNDOCUMENTED_COMMANDS):\n  " + "\n  ".join(sorted(stale_in_known))
             )
         pytest.fail("\n\n".join(msg_parts))
@@ -1306,7 +1306,7 @@ def test_adr_0020_states_61_command_contract():
     reconciliation (2026-07-26): the prior 68-command baseline
     was stale. The actual ``_COMMAND_REGISTRY`` was reduced to 61
     commands during the Tauri/Rust allowlist narrowing (17 commands
-    were deliberately REMOVED — see ``EXPECTED_COMMANDS`` comments +
+    were deliberately REMOVED: see ``EXPECTED_COMMANDS`` comments +
     ``test_dead_code_stays_removed.py``). The ADR was updated to say
     "61 commands" in §2 + §16; the historical "68 commands" reference
     in the IPC-1 reconciliation note is preserved as context only.

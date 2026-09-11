@@ -4,8 +4,8 @@ Background
 ----------
 ``PIIRedactionFilter`` in ``voice_typer/server/security.py`` redacts
 structured PII patterns (email / phone / SSN / CC) but does NOT redact
-free-form transcription text. The convention — enforced at
-``dictation_pipeline/storage_step.py:_store_result`` — is that the
+free-form transcription text. The convention, enforced at
+``dictation_pipeline/storage_step.py:_store_result``, is that the
 transcription text itself is NEVER interpolated directly into a
 ``log.<level>(...)`` call; only a non-reversible SHA-256 prefix (12
 chars) and the text length are logged, so an operator can correlate
@@ -30,7 +30,7 @@ transcription-text variable names (``text``, ``transcript``,
 ``partial``, ``final_text``, ``result``) as a FORMAT ARGUMENT (i.e.
 ``%s`` substitution). The length / hash / redacted-proxy forms
 (``len(text)``, ``text_hash``, ``redact_pii(text)``, ``text[:N]``
-inside an ``event_bus.publish`` payload) are allowed — only the
+inside an ``event_bus.publish`` payload) are allowed, only the
 bare-variable interpolation is rejected.
 
 Package split note: pre-split, the whole pipeline lived in a single
@@ -38,9 +38,9 @@ Package split note: pre-split, the whole pipeline lived in a single
 file. Post-split (8-file package), the test walks every ``.py`` in the
 package directory so a regression introduced in any mixin module is
 still caught. The ``__init__.py`` is also scanned even though it's a
-thin facade — defensive parity with the pre-split scan.
+thin facade, defensive parity with the pre-split scan.
 
-CONTRIBUTING.md should also document this convention — that's a
+CONTRIBUTING.md should also document this convention, that's a
 cross-file follow-up owned by the docs agent.
 """
 
@@ -68,14 +68,14 @@ def _is_raw_text_arg(arg: ast.expr) -> bool:
     raw-transcription-text variables (e.g. ``text``, ``partial``).
 
     Allowed (NOT flagged):
-      - ``len(text)``                     — Call with Name as arg
-      - ``text_hash``                     — different name (not in the tuple)
-      - ``redact_pii(text)``              — Call wrapping the name
-      - ``text[:200]``                    — Subscript
-      - ``f"...{text}..."``               — JoinedStr (different node type)
-      - ``"literal " + text``             — BinOp
-      - ``str(text)``                     — Call wrapping the name
-      - string literals / numbers / None  — Constant
+      - ``len(text)``                   , Call with Name as arg
+      - ``text_hash``                   , different name (not in the tuple)
+      - ``redact_pii(text)``            , Call wrapping the name
+      - ``text[:200]``                  , Subscript
+      - ``f"...{text}..."``             , JoinedStr (different node type)
+      - ``"literal " + text``           , BinOp
+      - ``str(text)``                   , Call wrapping the name
+      - string literals / numbers / None, Constant
     """
     # Bare Name node matching one of the raw-text variables.
     return bool(isinstance(arg, ast.Name) and arg.id in _RAW_TEXT_VARIABLES)
@@ -90,7 +90,7 @@ def _collect_offending_log_calls(source: str, filename: str) -> list[str]:
 
     class _Visitor(ast.NodeVisitor):
         def visit_Call(self, node: ast.Call) -> None:
-            # Match ``log.<level>(...)`` calls — i.e. an Attribute
+            # Match ``log.<level>(...)`` calls, i.e. an Attribute
             # access on a Name ``log`` whose ``.attr`` is one of the
             # known log method names.
             if isinstance(node.func, ast.Attribute) and node.func.attr in _LOG_METHODS:  # noqa: SIM102
@@ -103,11 +103,11 @@ def _collect_offending_log_calls(source: str, filename: str) -> list[str]:
                     # two positionals in that case.
                     args = node.args
                     if node.func.attr == "log":  # noqa: SIM108
-                        # ``log.log(level, fmt, *args)`` — skip the
+                        # ``log.log(level, fmt, *args)``, skip the
                         # first TWO positionals (level + fmt).
                         format_args = args[2:]
                     else:
-                        # ``log.<level>(fmt, *args)`` — skip the first
+                        # ``log.<level>(fmt, *args)``, skip the first
                         # positional (the format string).
                         format_args = args[1:]
                     for arg in format_args:
@@ -115,7 +115,7 @@ def _collect_offending_log_calls(source: str, filename: str) -> list[str]:
                             offenders.append(
                                 f"{filename}:{node.lineno}: log.{node.func.attr}(...) "
                                 f"interpolates raw text variable `{ast.unparse(arg)}` "
-                                f"as a format arg — wrap with redact_pii/len/hash instead."
+                                f"as a format arg, wrap with redact_pii/len/hash instead."
                             )
             self.generic_visit(node)
 
@@ -150,7 +150,7 @@ class TestNoRawTranscriptionTextInLogCalls:
         # Sanity guard: the package must contain at least the
         # ``__init__.py`` plus the 7 mixin/helper modules documented in
         # the package docstring (8 modules total). If the glob returns
-        # fewer, the test silently passes — pin the count so a future
+        # fewer, the test silently passes, pin the count so a future
         # module rename / deletion is caught here.
         assert len(package_sources) >= 8, (
             f"Expected at least 8 .py files in the dictation_pipeline package "
@@ -202,16 +202,16 @@ def test_dictation_pipeline_source_is_readable() -> None:
     was loaded from a compiled .pyc with no source available)."""
     source = inspect.getsource(dictation_pipeline)
     assert "class DictationPipeline" in source, (
-        "Could not find `class DictationPipeline` in the source — inspect.getsource may have returned the wrong module."
+        "Could not find `class DictationPipeline` in the source, inspect.getsource may have returned the wrong module."
     )
 
 
 def test_raw_text_variables_tuple_is_nonempty() -> None:
     """If someone accidentally empties ``_RAW_TEXT_VARIABLES``, the
     offender-grep becomes a no-op. Pin the tuple to a non-empty set."""
-    assert _RAW_TEXT_VARIABLES, "_RAW_TEXT_VARIABLES must be non-empty — otherwise the regression test silently passes."
+    assert _RAW_TEXT_VARIABLES, "_RAW_TEXT_VARIABLES must be non-empty, otherwise the regression test silently passes."
     assert "text" in _RAW_TEXT_VARIABLES, (
-        "'text' MUST be in the raw-text-variables tuple — it's the "
+        "'text' MUST be in the raw-text-variables tuple, it's the "
         "canonical name for the transcription text throughout the "
         "pipeline."
     )

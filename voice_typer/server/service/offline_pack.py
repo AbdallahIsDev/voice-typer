@@ -1,4 +1,4 @@
-"""Runtime pack downloader service — Phase 2b (plan-runtime-pack-split.md §4.5–4.9, §8).
+"""Runtime pack downloader service. Phase 2b (plan-runtime-pack-split.md §4.5–4.9, §8).
 
 A SEPARATE consent-gated downloader for the ML **runtime pack**
 (worker exe + onnxruntime + ctranslate2 + engines). Modeled on
@@ -6,7 +6,7 @@ A SEPARATE consent-gated downloader for the ML **runtime pack**
 
 * the pack download phones home to **GitHub Releases** (revealing the
   user's IP to Microsoft), so it MUST be gated on a DIFFERENT consent
-  flag — :attr:`Config.offline_pack_consent` — NOT
+  flag, :attr:`Config.offline_pack_consent`: NOT
   :attr:`Config.huggingface_consent` (which gates HuggingFace model
   downloads only). See §8.4 / C-DATA-1.
 * the pack is verified against a new ``pack-manifest.json`` manifest
@@ -16,7 +16,7 @@ A SEPARATE consent-gated downloader for the ML **runtime pack**
   see §4.6).
 * the worker exe must be **stopped** before the swap on Windows
   (``os.replace`` raises ``PermissionError`` when the destination is
-  open — see ``security/file_io.py:266``). On POSIX the rename-over is
+  open: see ``security/file_io.py:266``). On POSIX the rename-over is
   atomic and the worker keeps running on the old inode.
 
 Cross-platform pack path resolution (per §4.7, mirrors
@@ -52,7 +52,7 @@ Edge cases handled (full list in §8):
   * §8.4  consent gate (``offline_pack_consent`` flag)
   * §8.6  corporate proxy (``HTTP_PROXY`` / ``HTTPS_PROXY`` + SSRF gate)
    * §8.7  GitHub rate limit (1s/2s/4s, ``X-RateLimit-Reset``)
-  * §8.8  disk space check (630 MB required — 180 MB compressed + 450 MB
+  * §8.8  disk space check (630 MB required, 180 MB compressed + 450 MB
           unpacked)
   * §8.9  disk-full mid-download (graceful stop on ``OSError``, partial
           deleted, one notification)
@@ -62,7 +62,7 @@ Edge cases handled (full list in §8):
   * §8.13 dual-instance lock file (``pack-<version>.lock``)
   * §8.16 background checksum (cheap existence sync; hash async)
   * §8.18 signing (macOS notarization via ``codesign``/``spctl``;
-          Linux unsigned by design — integrity on every platform is
+          Linux unsigned by design, integrity on every platform is
           enforced by the per-file SHA-256 manifest, which is the
           fail-closed gate the install stage runs before the swap)
 
@@ -73,22 +73,22 @@ worker lifecycle + offline-transcription events belong to the
 runtime-pack worker protocol and stay in the canonical list so both
 sides keep the same allowlist:
 
-  * ``offline_pack_download_started``    — payload ``{version, url, total_bytes}``
-  * ``offline_pack_download_progress``   — payload ``{version, progress,
+  * ``offline_pack_download_started``   : payload ``{version, url, total_bytes}``
+  * ``offline_pack_download_progress``  : payload ``{version, progress,
                                     downloaded_bytes, total_bytes,
                                     speed_bytes_per_sec, eta_seconds}``
-  * ``offline_pack_download_completed``  — payload ``{version, sha256}``
-  * ``offline_pack_download_failed``     — payload ``{version, reason, attempts}``
-  * ``offline_pack_verified``            — payload ``{version, sha256}``
-  * ``offline_pack_missing``             — payload ``{version, path}``
-  * ``offline_pack_corrupt``             — payload ``{version, path, reason}``
-  * ``offline_pack_ready``               — payload ``{version, worker_pid}``
-  * ``worker_started``           — payload ``{pid, version}``
-  * ``worker_crashed``           — payload ``{pid, exit_code}``
-  * ``worker_unloaded``          — payload ``{reason}``
-  * ``transcribe_offline``       — request, payload ``{audio_path,
+  * ``offline_pack_download_completed`` : payload ``{version, sha256}``
+  * ``offline_pack_download_failed``    : payload ``{version, reason, attempts}``
+  * ``offline_pack_verified``           : payload ``{version, sha256}``
+  * ``offline_pack_missing``            : payload ``{version, path}``
+  * ``offline_pack_corrupt``            : payload ``{version, path, reason}``
+  * ``offline_pack_ready``              : payload ``{version, worker_pid}``
+  * ``worker_started``          : payload ``{pid, version}``
+  * ``worker_crashed``          : payload ``{pid, exit_code}``
+  * ``worker_unloaded``         : payload ``{reason}``
+  * ``transcribe_offline``      : request, payload ``{audio_path,
                                     sample_rate, language}``
-  * ``transcribe_offline_result`` — payload ``{text, latency_ms}``
+  * ``transcribe_offline_result``: payload ``{text, latency_ms}``
 
 The :data:`OFFLINE_PACK_EVENT_TYPES` constant below is the canonical list —
 the IPC layer imports it to wire the allowlists in lockstep.
@@ -143,7 +143,7 @@ class OfflinePackManifest(TypedDict):
 
     Lives at the per-platform pack path:
     ``<pack-root>/<version>/pack-manifest.json``. Do NOT extend
-    ``tauri-binaries.json`` — that manifest's schema is scoped to a
+    ``tauri-binaries.json``: that manifest's schema is scoped to a
     single host binary spawned by the launcher (see §4.6).
     """
 
@@ -162,7 +162,7 @@ OFFLINE_PACK_COMPRESSED_MB = 180
 OFFLINE_PACK_UNPACKED_MB = 450
 OFFLINE_PACK_REQUIRED_MB = OFFLINE_PACK_COMPRESSED_MB + OFFLINE_PACK_UNPACKED_MB  # 630 MB total
 
-# Per-file size cap (defense-in-depth — §5.5, §8.8). The pack total is
+# Per-file size cap (defense-in-depth, §5.5, §8.8). The pack total is
 # ~530 MB compressed+unpacked; individual files are typically << 100 MB
 # (the largest is the worker exe at ~80 MB). A 500 MB per-file cap
 # rejects PATOLOGICAL entries (e.g. a 100 GB size field that would
@@ -175,7 +175,7 @@ OFFLINE_PACK_MAX_PER_FILE_BYTES = 500 * 1024 * 1024  # 500 MB
 
 # ── Retry / backoff (§8.7) ─────────────────────────────────────────
 
-# GitHub rate limit (§8.7): exponential backoff 1s, 2s, 4s — one sleep
+# GitHub rate limit (§8.7): exponential backoff 1s, 2s, 4s, one sleep
 # per retry; with ``MAX_ATTEMPTS = 3`` exactly three sleeps can happen,
 # so the tuple has exactly three entries (a longer tuple's tail would
 # be unreachable).
@@ -192,19 +192,19 @@ OFFLINE_PACK_RATE_LIMIT_MAX_ATTEMPTS = 3
 # safe path component: one leading alphanumeric, then alphanumerics /
 # dots / underscores / hyphens. This mirrors the same fail-closed
 # discipline the per-file size cap applies to untrusted manifest data
-# (the manifest comes over the network — never trust path parts).
+# (the manifest comes over the network, never trust path parts).
 _PACK_VERSION_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
 # ── Lock file (§8.13) ────────────────────────────────────────────────────
 
-# Lock acquisition is blocking with a short timeout — the second
+# Lock acquisition is blocking with a short timeout, the second
 # instance waits, sees the lock-file version, and either defers (same
 # version) or proceeds with its own download (different version).
 OFFLINE_PACK_LOCK_TIMEOUT_S = 30.0
 OFFLINE_PACK_LOCK_POLL_S = 0.25
 
 # ``flock``/``msvcrt.locking`` errnos that mean "locked by another
-# process" (contention) — NOT "native lock API unavailable". See
+# process" (contention). NOT "native lock API unavailable". See
 # :meth:`OfflinePackLock._try_native_lock` for why misrouting these to
 # the PID-file fallback was a fail-open bug.
 _LOCK_CONTENTION_ERRNOS = frozenset(
@@ -216,7 +216,7 @@ _LOCK_CONTENTION_ERRNOS = frozenset(
     }
 )
 
-# ── IPC events (§7.4 — published via event_bus.publish) ──────────────────
+# ── IPC events (§7.4, published via event_bus.publish) ──────────────────
 
 OFFLINE_PACK_EVENT_TYPES: frozenset[str] = frozenset(
     {
@@ -249,8 +249,8 @@ class OfflinePackConsentRequiredError(RuntimeError):
     dialog instead of an error toast. The structured fields let the
     renderer deep-link to the exact Settings toggle.
 
-    The consent flag is ``offline_pack_consent`` — NOT
-    ``huggingface_consent`` — because the pack download phones home to
+    The consent flag is ``offline_pack_consent``: NOT
+    ``huggingface_consent``, because the pack download phones home to
     GitHub Releases (Microsoft), not HuggingFace. See §8.4.
     """
 
@@ -261,7 +261,7 @@ class OfflinePackConsentRequiredError(RuntimeError):
     def __init__(self, message: str | None = None, *, version: str | None = None) -> None:
         self.version = version
         super().__init__(
-            message or f"Runtime pack consent not given — refusing to download pack {version or '<unknown>'}."
+            message or f"Runtime pack consent not given, refusing to download pack {version or '<unknown>'}."
         )
 
 
@@ -290,14 +290,14 @@ def _default_offline_pack_root() -> Path:
     """Resolve the per-platform default pack root directory.
 
     Mirrors the path table documented in §4.7 (which itself mirrors
-    ``src-tauri/src/platform/paths.rs:163-356`` — owned by the
+    ``src-tauri/src/platform/paths.rs:163-356``: owned by the
     orchestrator's platform layer; the Rust ``worker_path.rs`` resolver
     owns the worker-binary side). We code against the documented path
     table here.
 
     The ``VT_PACK_ROOT`` env var override lets tests (and power users)
     relocate the pack to a custom path. Production code SHOULD NOT
-    document this env var — it's a test escape hatch.
+    document this env var, it's a test escape hatch.
     """
     env = os.environ.get("VT_PACK_ROOT")
     if env:
@@ -316,7 +316,7 @@ def _default_offline_pack_root() -> Path:
 def offline_pack_dir_for_version(version: str, *, root: Path | None = None) -> Path:
     """Return ``<pack-root>/<version>/`` for the given pack version.
 
-    The directory may not exist yet — callers should ``mkdir(parents=True,
+    The directory may not exist yet, callers should ``mkdir(parents=True,
     exist_ok=True)`` before writing.
     """
     base = root if root is not None else _default_offline_pack_root()
@@ -338,7 +338,7 @@ def offline_pack_lock_path(version: str, *, root: Path | None = None) -> Path:
 
     The lock file is a SIBLING of the version directory (it lives in the
     pack root, NOT inside ``<version>/``). ``atomic_swap_offline_pack``
-    renames ``<version>/`` to ``<version>.trash`` — a lock living inside
+    renames ``<version>/`` to ``<version>.trash``: a lock living inside
     the version dir would have its inode carried away at the swap
     instant, and the next instance's ``open()`` would create a fresh
     lock file and acquire instantly (the cross-process exclusion would
@@ -377,10 +377,10 @@ def fallback_offline_pack_root() -> Path | None:
 def load_offline_pack_manifest(manifest_path: Path) -> OfflinePackManifest | None:
     """Load + structurally validate ``pack-manifest.json``.
 
-    Returns ``None`` when the file is missing or malformed (fail-closed
-    — mirrors :func:`verify_tauri_binary_or_skip`'s manifest-missing
-    path in :mod:`voice_typer.server.autostart_launcher`). The caller
-    MUST treat ``None`` as "do not trust the pack".
+     Returns ``None`` when the file is missing or malformed (fail-closed
+    , mirrors :func:`verify_tauri_binary_or_skip`'s manifest-missing
+     path in :mod:`voice_typer.server.autostart_launcher`). The caller
+     MUST treat ``None`` as "do not trust the pack".
     """
     try:
         raw = Path(manifest_path).read_text(encoding="utf-8")
@@ -402,7 +402,7 @@ def validate_offline_pack_manifest_dict(
 ) -> OfflinePackManifest | None:
     """Structurally validate a parsed ``pack-manifest.json`` object.
 
-    The dict-level half of :func:`load_offline_pack_manifest` — split so
+    The dict-level half of :func:`load_offline_pack_manifest`, split so
     an already-parsed manifest (e.g. the remote manifest fetched by the
     update checker) can be validated WITHOUT a temp-file round-trip.
     Fail-closed on any missing/wrong-typed field: the caller MUST treat
@@ -422,7 +422,7 @@ def validate_offline_pack_manifest_dict(
         # Defense-in-depth for path traversal: the version is used raw in
         # pack paths (dir, partial, lock, staging, trash). A ``../`` hop,
         # an absolute path, or a Windows drive anchor would write outside
-        # the pack root — reject before any path is built from it.
+        # the pack root, reject before any path is built from it.
         log.error(
             "[PACK] FAIL CLOSED: manifest %s 'version' %r is not a safe version string",
             source,
@@ -489,7 +489,7 @@ def verify_offline_pack_or_skip(version: str, *, root: Path | None = None) -> bo
     - If a declared file is missing → FAIL CLOSED.
     - Otherwise → return True (the pack is safe to use).
 
-    The check is O(pack-size) — ~450 MB hashed. Callers that need a
+    The check is O(pack-size), ~450 MB hashed. Callers that need a
     *cheap* launch-time check should use :func:`offline_pack_exists` instead
     and run :func:`verify_offline_pack_or_skip` in the background (§8.10,
     §8.16).
@@ -540,7 +540,7 @@ def _verify_manifest_files(
             return False
         if not hmac.compare_digest(actual, entry["sha256"]):
             log.error(
-                "[PACK] FAIL CLOSED: SHA-256 mismatch for %s (file %s) — tampered or stale",
+                "[PACK] FAIL CLOSED: SHA-256 mismatch for %s (file %s), tampered or stale",
                 version,
                 entry["name"],
             )
@@ -553,7 +553,7 @@ def offline_pack_exists(version: str, *, root: Path | None = None) -> bool:
 
     Returns True iff ``pack-<version>/pack-manifest.json`` AND every
     file declared in the manifest is **present on disk**. Does NOT
-    hash — that's :func:`verify_offline_pack_or_skip`'s job. Use this on the
+    hash, that's :func:`verify_offline_pack_or_skip`'s job. Use this on the
     hot startup path; schedule the full checksum in the background.
     """
     manifest_path = offline_pack_manifest_path(version, root=root)
@@ -574,7 +574,7 @@ def check_offline_pack_disk_space(pack_dir: Path, *, required_mb: int = OFFLINE_
 
     Same disk-full detection + user-friendly error structure as
     :func:`voice_typer.server.asr_utils._check_disk_space_for_download`
-    (the message builder is SHARED — :func:`asr_utils._disk_space_error` —
+    (the message builder is SHARED, :func:`asr_utils._disk_space_error` —
     so the two gates cannot drift); the pack check points at the pack
     directory tree rather than the HF cache and uses a fixed required
     budget instead of a per-model estimate.
@@ -622,7 +622,7 @@ def require_offline_pack_consent(config: Config | None, *, version: str | None =
     if consent:
         return
     log.warning(
-        "[PACK] offline_pack_consent not given — refusing to download pack %s. "
+        "[PACK] offline_pack_consent not given, refusing to download pack %s. "
         "The renderer should show a consent dialog.",
         version or "<unknown>",
     )
@@ -642,7 +642,7 @@ def assert_offline_pack_url_allowed(url: str) -> None:
     ``codeload.github.com``) are added to the runtime allowlist on
     first call so the pack download is not blocked.
 
-    Callers SHOULD pass ``require_https=True`` (the default) — the
+    Callers SHOULD pass ``require_https=True`` (the default), the
     pack must come over HTTPS.
     """
     from voice_typer.server.security.url_allowlist import (
@@ -652,7 +652,7 @@ def assert_offline_pack_url_allowed(url: str) -> None:
     )
 
     # Add GitHub hosts to the runtime allowlist (idempotent). This is
-    # NOT a bypass of the SSRF defense — the IP-literal blocklist +
+    # NOT a bypass of the SSRF defense, the IP-literal blocklist +
     # DNS-rebinding check inside ``assert_url_allowed`` still run.
     # ``extend_url_allowlist`` is the documented production path for
     # trusted third-party hosts (see ``url_allowlist.py:85``).
@@ -666,7 +666,7 @@ def proxy_env() -> dict[str, str]:
     """Return the HTTP/HTTPS proxy env vars (§8.6).
 
     Respects ``HTTP_PROXY`` / ``HTTPS_PROXY`` (and their lowercase
-    variants — ``requests`` and ``httpx`` both honor lowercase). The
+    variants, ``requests`` and ``httpx`` both honor lowercase). The
     returned dict is suitable for passing as ``proxies=`` to
     ``requests`` or for setting on a custom ``httpx.Client``.
     """
@@ -728,7 +728,7 @@ class OfflinePackLock:
                     self._acquired = True
                     self._write_pid()
                     return True
-                # Locked by another process — close our fh and retry.
+                # Locked by another process. Close our fh and retry.
                 with contextlib.suppress(OSError):
                     self._fh.close()
                 self._fh = None
@@ -743,22 +743,22 @@ class OfflinePackLock:
         """Acquire the OS-native exclusive lock on ``self._fh``.
 
         Return ``True`` when acquired, ``False`` when the lock is held
-        by another process (contention — the caller's retry loop waits
+        by another process (contention, the caller's retry loop waits
         until the timeout). Only a genuinely UNAVAILABLE native API
         (ImportError / AttributeError) falls back to the PID-file path.
 
         Contention is detected via errno, NOT via the exception type:
         ``fcntl.flock`` with ``LOCK_NB`` raises ``BlockingIOError``
-        (an ``OSError`` subclass with EAGAIN/EWOULDBLOCK — CPython
+        (an ``OSError`` subclass with EAGAIN/EWOULDBLOCK, CPython
         translates EAGAIN-family errnos) or a plain ``OSError`` with
         EACCES. Catching the broad ``OSError`` as "API unavailable"
         misrouted contention to the PID-file fallback, which fails
         OPEN while the holder is between its ``flock`` and the PID
-        write (empty lock file) — both instances then proceeded.
+        write (empty lock file), both instances then proceeded.
         """
         fh = self._fh
         if fh is None:
-            # No open file handle — cannot lock (caller should have
+            # No open file handle, cannot lock (caller should have
             # opened it in :meth:`acquire` first).
             return False
         try:
@@ -766,12 +766,12 @@ class OfflinePackLock:
                 import msvcrt
 
                 # Lock the first byte of the file. ``LK_NBLCK`` is
-                # non-blocking — we retry on failure.
+                # non-blocking, we retry on failure.
                 #
                 # MUST ``seek(0)`` first: ``msvcrt.locking`` locks the
                 # byte range at the CURRENT file position, and the lock
                 # file is opened in append mode ("a+b"), so the position
-                # sits at EOF — a second opener would lock a DIFFERENT
+                # sits at EOF, a second opener would lock a DIFFERENT
                 # (non-overlapping) range and both lockers would
                 # succeed, defeating the exclusive lock. Locking byte 0
                 # always keeps every contender contending for the same
@@ -782,8 +782,8 @@ class OfflinePackLock:
                     return True
                 except OSError as exc:
                     if exc.errno in _LOCK_CONTENTION_ERRNOS:
-                        return False  # held by another process — wait
-                    raise  # unexpected — surface to acquire()'s handler
+                        return False  # held by another process, wait
+                    raise  # unexpected, surface to acquire()'s handler
             else:
                 import fcntl
 
@@ -792,13 +792,13 @@ class OfflinePackLock:
                     return True
                 except OSError as exc:
                     if exc.errno in _LOCK_CONTENTION_ERRNOS:
-                        # Contention — report "held" so the retry loop
+                        # Contention, report "held" so the retry loop
                         # waits. Do NOT fall through to the PID-file
                         # fallback (see docstring).
                         return False
-                    raise  # unexpected — surface to acquire()'s handler
+                    raise  # unexpected, surface to acquire()'s handler
         except (ImportError, AttributeError) as exc:
-            log.debug("[PACK] native lock unavailable: %s — using PID-file fallback", exc)
+            log.debug("[PACK] native lock unavailable: %s, using PID-file fallback", exc)
             return self._pid_file_fallback()
 
     def _pid_file_fallback(self) -> bool:
@@ -819,8 +819,8 @@ class OfflinePackLock:
                 pid = int(parts[0]) if parts[0].isdigit() else None
                 started_at = float(parts[1]) if len(parts) > 1 and _is_float(parts[1]) else 0.0
                 if pid is not None and _is_process_alive(pid) and started_at > 0 and (time.time() - started_at) < 86400:
-                    return False  # live + recent — wait
-                # Stale — truncate and steal.
+                    return False  # live + recent, wait
+                # Stale, truncate and steal.
                 fh.seek(0)
                 fh.truncate()
         except (OSError, ValueError):
@@ -846,14 +846,14 @@ class OfflinePackLock:
         The lock FILE is deliberately NOT unlinked here:
 
         * Native locks (``flock`` / ``msvcrt.locking``) are released by
-          ``close()`` alone — a leftover file is instantly re-lockable
+          ``close()`` alone, a leftover file is instantly re-lockable
           and harmless.
         * The PID-file fallback detects stale holders via PID + start
           time (dead process or >1 day → steal), so unblocking waiters
           never depended on the unlink.
         * Unlinking raced with waiters: between the holder's close and
           the unlink, a waiting instance's next ``open()`` could create
-          a fresh inode — and while the file is absent, a second waiter
+          a fresh inode, and while the file is absent, a second waiter
           and the unlink can interleave arbitrarily. A stable inode
           also keeps the sibling lock's identity intact across the
           §8.3 version-dir swap.
@@ -946,7 +946,7 @@ def atomic_swap_offline_pack(
     POSIX: the rename-over is atomic at the *directory* level only if
     the destination doesn't exist. We therefore trash the old directory
     first (``rename current → current.trash``), then rename ``new →
-    current``. The worker keeps running on the old inode — the open
+    current``. The worker keeps running on the old inode, the open
     file descriptor inside ``current.trash/`` stays valid until the
     worker exits. No stop/start hook is called.
 
@@ -985,11 +985,11 @@ def atomic_swap_offline_pack(
             raise
         if start_worker is not None:
             start_worker()
-        # Best-effort trash cleanup — don't fail if it can't be deleted
+        # Best-effort trash cleanup, don't fail if it can't be deleted
         # (AV scan, etc). The next swap will retry.
         shutil.rmtree(trash, ignore_errors=True)
         return trash
-    # POSIX — trash-then-rename. The worker keeps running on the old
+    # POSIX, trash-then-rename. The worker keeps running on the old
     # inode (the open file descriptor inside ``current.trash/`` stays
     # valid until the worker exits).
     if current_dir.exists():
@@ -1002,7 +1002,7 @@ def atomic_swap_offline_pack(
         # launch-time existence probe finds nothing until the next
         # install attempt recovers it).
         log.exception(
-            "[PACK] POSIX swap: rename new -> current failed: %s — restoring the previous pack from %s",
+            "[PACK] POSIX swap: rename new -> current failed: %s, restoring the previous pack from %s",
             exc,
             trash,
         )
@@ -1078,18 +1078,18 @@ def install_offline_pack(
     Pipeline (all stages fail CLOSED, nothing is half-swapped):
 
     1. Extract ``pack-<version>.zip`` into ``<pack-root>/<version>.new/``
-       (a fresh staging dir — stale leftovers from a failed install are
+       (a fresh staging dir, stale leftovers from a failed install are
        discarded first).
     2. Verify every manifest-declared file in the staging dir
-       (per-file SHA-256 — the same fail-closed rules
+       (per-file SHA-256, the same fail-closed rules
        :func:`verify_offline_pack_or_skip` enforces on the installed
        pack).
     3. Write ``pack-manifest.json`` into the staging dir (the manifest
-       is the caller's authoritative copy — already schema-validated
+       is the caller's authoritative copy, already schema-validated
        when fetched remotely).
     4. :func:`atomic_swap_offline_pack` the staging dir into
        ``<pack-root>/<version>/``.
-    5. Delete the consumed archive (frees ~180 MB — mirrors the NSIS
+    5. Delete the consumed archive (frees ~180 MB, mirrors the NSIS
        full-offline installer) and publish ``offline_pack_verified``
        with ``{version, sha256}`` (the renderer's documented payload).
 
@@ -1110,10 +1110,10 @@ def install_offline_pack(
     staging = Path(str(pack_dir) + ".new")
     if not archive.exists():
         # The download reported success but wrote no archive (e.g. an
-        # injected transport in tests) — nothing to install.
+        # injected transport in tests), nothing to install.
         log.warning("[PACK] install skipped: archive %s not found", archive)
         return False
-    # Fresh staging dir — never merge with a previous attempt's files.
+    # Fresh staging dir, never merge with a previous attempt's files.
     shutil.rmtree(staging, ignore_errors=True)
     staging.mkdir(parents=True)
     try:
@@ -1128,7 +1128,7 @@ def install_offline_pack(
         )
         return False
     if not _verify_manifest_files(staging, manifest, version=version):
-        log.error("[PACK] install verification failed for pack %s — NOT swapped in", version)
+        log.error("[PACK] install verification failed for pack %s. NOT swapped in", version)
         shutil.rmtree(staging, ignore_errors=True)
         _publish_event(
             event_bus,
@@ -1156,7 +1156,7 @@ def install_offline_pack(
         )
         return False
     log.info("[PACK] installed pack %s at %s", version, pack_dir)
-    # The archive is consumed — free the ~180 MB (mirrors the NSIS
+    # The archive is consumed, free the ~180 MB (mirrors the NSIS
     # installer's post-extract Delete).
     with contextlib.suppress(OSError):
         archive.unlink()
@@ -1186,17 +1186,17 @@ def download_offline_pack_with_resume(
     §8.1: the partial file is saved at ``dest`` (which the caller
     places at ``pack-<version>.partial``). On the next launch, the
     download continues from the byte offset of the existing partial.
-    The partial is NEVER trusted — only a fully-downloaded + SHA-256-
+    The partial is NEVER trusted, only a fully-downloaded + SHA-256-
     verified pack is used.
 
     Resume status contract (enforced when the transport reports a
-    ``status`` key — the default :func:`_http_get_streaming` always
+    ``status`` key, the default :func:`_http_get_streaming` always
     does): a resume request MUST be answered with HTTP 206. A 200
     means the server ignored the ``Range`` header and is sending the
-    FULL body — appending it after the existing partial would corrupt
+    FULL body, appending it after the existing partial would corrupt
     the file, so the download restarts from byte 0. A 416 whose
     reported total equals the partial size means the pack is already
-    fully downloaded — the request short-circuits straight to SHA-256
+    fully downloaded, the request short-circuits straight to SHA-256
     verification (no body transfer, no re-hash of the network).
 
     §8.9: on ``OSError`` (disk full) the partial is deleted and a
@@ -1209,7 +1209,7 @@ def download_offline_pack_with_resume(
     Parameters
     ----------
     http_get
-        Injectable transport — defaults to :func:`_http_get_streaming`.
+        Injectable transport, defaults to :func:`_http_get_streaming`.
         Tests substitute a fake to avoid real network I/O. A fake may
         omit the ``status`` key; such responses keep the legacy append
         semantics (they model a well-behaved 206 responder).
@@ -1220,11 +1220,11 @@ def download_offline_pack_with_resume(
     # Ensure the pack directory exists before opening the partial —
     # first launch the directory may not exist yet.
     dest.parent.mkdir(parents=True, exist_ok=True)
-    # Phase 1 — resume-state probe (existing partial size + a hasher
+    # Phase 1, resume-state probe (existing partial size + a hasher
     # pre-seeded with the bytes already on disk).
     offset, h = _probe_partial_for_resume(dest, chunk_bytes)
     downloaded_bytes = offset
-    # Phase 2 — rate-limited request/stream loop (§8.7 + §8.1 status
+    # Phase 2, rate-limited request/stream loop (§8.7 + §8.1 status
     # contract) until the body lands on disk.
     backoff_iter = iter(OFFLINE_PACK_RATE_LIMIT_BACKOFF_S)
     attempt = 0
@@ -1249,7 +1249,7 @@ def download_offline_pack_with_resume(
             if reset_at is not None:
                 wait_s = max(wait_s, reset_at - time.time())
             log.warning(
-                "[PACK] rate-limited on %s (attempt %d) — sleeping %.1fs",
+                "[PACK] rate-limited on %s (attempt %d), sleeping %.1fs",
                 version,
                 attempt,
                 wait_s,
@@ -1259,7 +1259,7 @@ def download_offline_pack_with_resume(
         status = resp.get("status")
         if status == 416 and offset > 0 and resp.get("content_length") == offset:
             # The server cannot satisfy ``Range: bytes=<offset>-``
-            # because the file is exactly that long — the partial IS
+            # because the file is exactly that long, the partial IS
             # the complete pack. Short-circuit to verification without
             # transferring a body.
             _publish_event(
@@ -1288,7 +1288,7 @@ def download_offline_pack_with_resume(
             # Range ignored). A blind append would corrupt the partial;
             # restart from byte 0 instead.
             log.warning(
-                "[PACK] server rejected resume at offset %d (status %s) for %s — restarting download from byte 0",
+                "[PACK] server rejected resume at offset %d (status %s) for %s, restarting download from byte 0",
                 offset,
                 status,
                 version,
@@ -1343,7 +1343,7 @@ def download_offline_pack_with_resume(
                 {"version": version, "reason": "io_error", "attempts": attempt},
             )
             raise
-        # Phase 3 — finalize: verify the complete file's SHA-256.
+        # Phase 3, finalize: verify the complete file's SHA-256.
         return _finalize_download(
             h,
             dest,
@@ -1359,7 +1359,7 @@ def _probe_partial_for_resume(dest: Path, chunk_bytes: int) -> tuple[int, hashli
     Returns ``(offset, hasher)`` where *hasher* already covers the
     partial's on-disk bytes so the final digest spans the whole file.
     When the partial cannot be re-read (corrupt inode, permission
-    denied) it is discarded and the probe reports offset 0 — the
+    denied) it is discarded and the probe reports offset 0, the
     download restarts from scratch.
     """
     offset = 0
@@ -1379,7 +1379,7 @@ def _probe_partial_for_resume(dest: Path, chunk_bytes: int) -> tuple[int, hashli
                     h.update(buf)
         except OSError as exc:
             log.warning(
-                "[PACK] resume: cannot re-hash partial %s (%s) — restarting from 0",
+                "[PACK] resume: cannot re-hash partial %s (%s), restarting from 0",
                 dest,
                 exc,
             )
@@ -1404,13 +1404,13 @@ def _stream_response_to_disk(
 ) -> int:
     """Write the response body to *dest*, appending only when resuming.
 
-    Feeds *h* (the running whole-file hasher) and publishes throttled
-    ``offline_pack_download_progress`` events. Raises
-    :class:`OfflinePackDiskFullError` on a mid-write ``OSError`` (§8.9)
-    — the ``with`` below has already closed the handle by the time the
-    caller's handler runs, so the caller's unlink is safe on Windows.
+     Feeds *h* (the running whole-file hasher) and publishes throttled
+     ``offline_pack_download_progress`` events. Raises
+     :class:`OfflinePackDiskFullError` on a mid-write ``OSError`` (§8.9)
+    , the ``with`` below has already closed the handle by the time the
+     caller's handler runs, so the caller's unlink is safe on Windows.
 
-    Returns the updated ``downloaded_bytes`` count.
+     Returns the updated ``downloaded_bytes`` count.
     """
     with dest.open("ab" if offset > 0 else "wb") as fh:
         last_progress = time.monotonic()
@@ -1457,7 +1457,7 @@ def _stream_response_to_disk(
             # Deterministic transport cleanup: closing the iterator runs
             # the transport generator's ``finally`` (which closes the
             # HTTP response) even when the loop is abandoned mid-body
-            # (disk full / IO error) — not just at GC. Test fakes whose
+            # (disk full / IO error), not just at GC. Test fakes whose
             # ``iter_chunks`` returns a plain (non-generator) iterator
             # have no ``close`` and are unaffected.
             close = getattr(chunk_iter, "close", None)
@@ -1477,7 +1477,7 @@ def _finalize_download(
 ) -> bool:
     """Verify the completed download's SHA-256 and publish the outcome.
 
-    A mismatch discards the partial (§8.2 fail-closed — the next
+    A mismatch discards the partial (§8.2 fail-closed, the next
     trigger re-downloads) and publishes ``offline_pack_corrupt``; a
     match publishes ``offline_pack_download_completed``.
     """
@@ -1517,36 +1517,36 @@ class _RateLimitedError(Exception):
 
 
 def _http_get_streaming(url: str, *, offset: int = 0) -> dict:
-    """Default HTTP transport — uses ``urllib.request`` (no extra dep).
+    """Default HTTP transport, uses ``urllib.request`` (no extra dep).
 
-    Returns a dict shaped ``{status, content_length,
-    iter_chunks(callable)}`` so tests can substitute a fake without
-    touching real I/O. Respects ``HTTP_PROXY`` / ``HTTPS_PROXY`` env
-    vars (§8.6) — ``build_opener`` installs the default ``ProxyHandler``
-    built from ``urllib.request.getproxies()``.
+     Returns a dict shaped ``{status, content_length,
+     iter_chunks(callable)}`` so tests can substitute a fake without
+     touching real I/O. Respects ``HTTP_PROXY`` / ``HTTPS_PROXY`` env
+     vars (§8.6), ``build_opener`` installs the default ``ProxyHandler``
+     built from ``urllib.request.getproxies()``.
 
-    Resource discipline (proactive close-out, response-close half): the
-    response object is closed on EVERY exit path — the rate-limit
-    (403/429) and non-200/206 raises close it before propagating, and
-    ``iter_chunks`` closes it in a ``finally`` so normal exhaustion, an
-    early caller break, and an abandoned/closed generator all release
-    the socket deterministically instead of at GC.
+     Resource discipline (proactive close-out, response-close half): the
+     response object is closed on EVERY exit path, the rate-limit
+     (403/429) and non-200/206 raises close it before propagating, and
+     ``iter_chunks`` closes it in a ``finally`` so normal exhaustion, an
+     early caller break, and an abandoned/closed generator all release
+     the socket deterministically instead of at GC.
 
-    Redirect discipline: the opener installs the SAME SSRF-aware
-    redirect handler the manifest fetch uses
-    (:class:`voice_typer.server.service.update_check._SSRFAwareRedirectHandler`
-    — imported, not copied), so every 3xx hop on the body-download path
-    is re-validated through
-    :func:`assert_offline_pack_url_allowed` instead of being silently
-    followed to any target by urllib's default redirect handler.
+     Redirect discipline: the opener installs the SAME SSRF-aware
+     redirect handler the manifest fetch uses
+     (:class:`voice_typer.server.service.update_check._SSRFAwareRedirectHandler`
+    , imported, not copied), so every 3xx hop on the body-download path
+     is re-validated through
+     :func:`assert_offline_pack_url_allowed` instead of being silently
+     followed to any target by urllib's default redirect handler.
 
-    The ``status`` key lets the download loop enforce the §8.1 resume
-    contract: 200 = full body (never append after a partial), 206 =
-    partial body at the requested offset, 416 with ``content_length``
-    set = the complete file size (the requested range is unsatisfiable
-    because the partial already IS the whole file — ``content_length``
-    carries the total parsed from the 416's ``Content-Range`` header,
-    and there is no ``iter_chunks`` to consume).
+     The ``status`` key lets the download loop enforce the §8.1 resume
+     contract: 200 = full body (never append after a partial), 206 =
+     partial body at the requested offset, 416 with ``content_length``
+     set = the complete file size (the requested range is unsatisfiable
+     because the partial already IS the whole file, ``content_length``
+     carries the total parsed from the 416's ``Content-Range`` header,
+     and there is no ``iter_chunks`` to consume).
     """
     import urllib.error
     import urllib.request
@@ -1558,7 +1558,7 @@ def _http_get_streaming(url: str, *, offset: int = 0) -> dict:
         req.add_header("Range", f"bytes={offset}-")
     # build_opener REPLACES the default redirect handler with the
     # SSRF-aware one (dedup by class hierarchy) while keeping the
-    # env-var ProxyHandler — same construction as the manifest fetch in
+    # env-var ProxyHandler, same construction as the manifest fetch in
     # update_check._http_get_manifest.
     opener = urllib.request.build_opener(_SSRFAwareRedirectHandler())
     try:
@@ -1576,7 +1576,7 @@ def _http_get_streaming(url: str, *, offset: int = 0) -> dict:
             raise
         finally:
             # ``HTTPError`` wraps the error response in a file-like
-            # object — release it on every path out of this handler
+            # object, release it on every path out of this handler
             # (416 short-circuit AND the re-raise).
             with contextlib.suppress(OSError):
                 exc.close()
@@ -1593,7 +1593,7 @@ def _http_get_streaming(url: str, *, offset: int = 0) -> dict:
     except BaseException:
         # Resource discipline: the caller never sees ``iter_chunks`` on
         # these failure paths, so the generator's ``finally`` never
-        # runs — close the response here before the raise escapes.
+        # runs, close the response here before the raise escapes.
         with contextlib.suppress(OSError):
             resp.close()
         raise
@@ -1624,7 +1624,7 @@ def _parse_content_range_total(headers: object) -> int | None:
 
     Unsatisfied-range responses carry ``Content-Range: bytes */<total>``
     (RFC 9110 §14.4). Returns ``None`` when the header is missing or
-    malformed — the caller then treats the 416 as a plain error.
+    malformed, the caller then treats the 416 as a plain error.
     """
     get = getattr(headers, "get", None)
     if get is None:
@@ -1681,7 +1681,7 @@ class BackgroundChecksum:
         self._done.set()
         if ok:
             # E9 parity: the renderer's OfflinePackVerifiedEvent requires
-            # ``{version, sha256}`` — same payload as the install-stage emit.
+            # ``{version, sha256}``: same payload as the install-stage emit.
             manifest = load_offline_pack_manifest(offline_pack_manifest_path(self.version, root=self.root))
             _publish_event(
                 self.event_bus,
@@ -1755,7 +1755,7 @@ def verify_offline_pack_signature_macos(path: Path) -> bool | None:
 
 
 def _publish_event(event_bus: ModuleType | None, event_type: str, payload: dict) -> None:
-    """Best-effort publish — swallow errors (the bus is best-effort)."""
+    """Best-effort publish, swallow errors (the bus is best-effort)."""
     if event_bus is None:
         return
     try:

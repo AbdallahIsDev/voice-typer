@@ -1,5 +1,5 @@
 /**
- * unit tests for `components/audio/FilterRow.tsx` — the
+ * unit tests for `components/audio/FilterRow.tsx`, the
  * presentational per-row renderer for `<AudioFilterChain>`.
  *
  * `FilterRow` reads a single `AudioFilterRowDescriptor` + the live
@@ -10,7 +10,7 @@
  * Coverage:
  *   1. Renders the resolved label + a control for each `kind`
  *      (toggle/slider/select).
- *   2. The control has an accessible name (`aria-label`) wired up — the
+ *   2. The control has an accessible name (`aria-label`) wired up, the
  *      `<SettingRow>`'s visible label is rendered as a `<span id=labelId>`
  *      and the control is given an `aria-label={aria}` resolved from the
  *      labels dict. (FilterRow uses `aria-label`, not `aria-labelledby` —
@@ -21,7 +21,7 @@
  *   3. The label and info strings are resolved from the labels dict
  *      (with a fallback to the raw key if the dict is missing the key).
  *   4. `set(configKey, value)` is called when the user interacts with the
- *      control — verifies the `write` closure wires the descriptor's
+ *      control, verifies the `write` closure wires the descriptor's
  *      configKey through to the parent's `set` callback.
  *   5. `parentToggle` propagation: when the parent toggle's config value
  *      is falsy (and its defaultValue is also falsy), FilterRow returns
@@ -34,7 +34,7 @@
  *
  * Mock strategy: the heavy Radix UI components (`Switch`, `Select`,
  * `Slider`) and the `SettingRow`/`RangeSlider` wrappers are left
- * UN-mocked — jsdom supports them well enough for the assertions here
+ * UN-mocked, jsdom supports them well enough for the assertions here
  * (label text, aria-label, click/focus events, container.queryAll). The
  * existing `SettingRow.test.tsx`, `RangeSlider.test.tsx`, and
  * `switch.test.tsx` cover the primitives' own contracts in depth.
@@ -69,12 +69,12 @@ function descriptorFor(configKey: string): AudioFilterRowDescriptor {
 	return d;
 }
 
-/** Empty config cast to VoiceTyperConfig — tests override individual keys. */
+/** Empty config cast to VoiceTyperConfig, tests override individual keys. */
 function emptyConfig(): VoiceTyperConfig {
 	return {} as VoiceTyperConfig;
 }
 
-describe("FilterRow — toggle kind", () => {
+describe("FilterRow, toggle kind", () => {
 	afterEach(() => cleanup());
 
 	it("renders the resolved label + a Switch control", () => {
@@ -177,7 +177,7 @@ describe("FilterRow — toggle kind", () => {
 	});
 });
 
-describe("FilterRow — slider kind", () => {
+describe("FilterRow, slider kind", () => {
 	afterEach(() => cleanup());
 
 	it("renders the resolved label + a slider control with aria-label", () => {
@@ -248,7 +248,7 @@ describe("FilterRow — slider kind", () => {
 	});
 });
 
-describe("FilterRow — select kind", () => {
+describe("FilterRow, select kind", () => {
 	afterEach(() => cleanup());
 
 	it("renders the resolved label + a Select trigger with aria-label", () => {
@@ -279,12 +279,12 @@ describe("FilterRow — select kind", () => {
 	});
 });
 
-describe("FilterRow — label/info/aria fallback to raw key when labels dict is missing the key", () => {
+describe("FilterRow, label/info/aria fallback to raw key when labels dict is missing the key", () => {
 	afterEach(() => cleanup());
 
 	it("falls back to labelKey when labels[labelKey] is undefined", () => {
 		const d = descriptorFor("noise_filter_highpass");
-		// Empty labels dict — every lookup falls back to the raw key.
+		// Empty labels dict, every lookup falls back to the raw key.
 		render(
 			withProvider(
 				<FilterRow
@@ -315,7 +315,7 @@ describe("FilterRow — label/info/aria fallback to raw key when labels dict is 
 	});
 });
 
-describe("FilterRow — parentToggle propagation (disabled-state hides the row)", () => {
+describe("FilterRow, parentToggle propagation (disabled-state hides the row)", () => {
 	afterEach(() => cleanup());
 
 	it("returns null when parentToggle's config value is false (parent default is true)", () => {
@@ -343,7 +343,7 @@ describe("FilterRow — parentToggle propagation (disabled-state hides the row)"
 				/>,
 			),
 		);
-		// FilterRow returns null — container is empty.
+		// FilterRow returns null, container is empty.
 		expect(container.firstChild).toBeNull();
 		expect(screen.queryByText(`[${d.labelKey}]`)).toBeNull();
 	});
@@ -381,7 +381,7 @@ describe("FilterRow — parentToggle propagation (disabled-state hides the row)"
 			d.ariaKey,
 			d.sectionTitleKey,
 		]);
-		// config has neither the parent nor the child set — both fall
+		// config has neither the parent nor the child set, both fall
 		// back to their descriptor defaultValues (parent=true, child=80).
 		const config = emptyConfig();
 		render(
@@ -470,7 +470,7 @@ describe("FilterRow — parentToggle propagation (disabled-state hides the row)"
 	});
 });
 
-describe("FilterRow — write closure wires descriptor.configKey to set()", () => {
+describe("FilterRow, write closure wires descriptor.configKey to set()", () => {
 	afterEach(() => cleanup());
 
 	it("toggle write forwards the new boolean under descriptor.configKey", () => {

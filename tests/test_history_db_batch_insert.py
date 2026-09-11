@@ -49,7 +49,7 @@ def test_single_row_insert_uses_batch_path(db, monkeypatch):
     We instrument ``conn.commit`` to count calls during the
     ``_drain_batchable_inserts`` invocation. The multi-row path calls
     ``conn.commit()`` exactly once for the whole batch. The per-row
-    fallback calls ``conn.commit()`` once per row — for N=1 that's
+    fallback calls ``conn.commit()`` once per row, for N=1 that's
     also one commit, so we additionally verify the SQL emitted is the
     multi-row ``VALUES (?, ?, ?, ?, ?, ?, ?)`` form by intercepting
     ``cursor.execute``.
@@ -63,7 +63,7 @@ def test_single_row_insert_uses_batch_path(db, monkeypatch):
     try:
         # Set up schema on our instrumented conn (the writer thread
         # already set up the schema on the DB file, but our conn has
-        # not seen it yet — sqlite3 picks up the existing schema from
+        # not seen it yet, sqlite3 picks up the existing schema from
         # the file automatically, so this is just paranoia).
         # No-op: schema is persisted in the file.
 
@@ -139,7 +139,7 @@ def test_single_row_insert_uses_batch_path(db, monkeypatch):
             future=None,
         )
 
-        # Single-item batch — N=1.
+        # Single-item batch, N=1.
         db._drain_batchable_inserts(instrumented, item)
 
         # The multi-row INSERT path was used: exactly one INSERT and
@@ -248,7 +248,7 @@ class TestInsertSqlSingleSource:
     (``_build_insert_sql``) so the column list and placeholder shape
     cannot drift between the two paths.
 
-    These tests pin the exact SQL emitted for each shape — if a future
+    These tests pin the exact SQL emitted for each shape, if a future
     edit changes the schema columns or the placeholder form, the pin
     fails loudly instead of silently diverging between the paths.
     """

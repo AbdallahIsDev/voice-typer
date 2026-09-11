@@ -21,14 +21,14 @@ boundary.
 
 These tests pin both invariants:
 
-1. **Parity (positive case)** — when both modules import cleanly,
+1. **Parity (positive case)**, when both modules import cleanly,
    ``SECRET_CONFIG_FIELDS`` must equal
    ``frozenset(credential_store.PROVIDER_TO_CONFIG_FIELD.values())``.
    A future contributor adding a provider to
    ``PROVIDER_TO_CONFIG_FIELD`` without wiring it into the sanitizer
    would fail here.
 
-2. **Fail-closed (negative case)** — when the
+2. **Fail-closed (negative case)**, when the
    ``credential_store`` import fails, ``_derive_secret_fields`` must
    RAISE (not silently fall back to a hardcoded literal). This is
    verified by poisoning ``sys.modules`` so the function-local
@@ -74,7 +74,7 @@ class TestSecretFieldsParity:
         )
 
     def test_secret_config_fields_is_frozenset(self):
-        """Type pin — the helper returns ``frozenset[str]``, not a
+        """Type pin, the helper returns ``frozenset[str]``, not a
         ``set`` or ``list`` (frozenset is hashable and immutable so
         callers cannot accidentally mutate the redaction list)."""
         assert isinstance(SECRET_CONFIG_FIELDS, frozenset)
@@ -82,7 +82,7 @@ class TestSecretFieldsParity:
     def test_secret_config_fields_contains_all_known_providers(self):
         """The set must contain at least the 5 historical provider
         fields. Asserts 'contains at least' (not 'exactly') so adding
-        a new provider doesn't break this test — the parity test
+        a new provider doesn't break this test, the parity test
         above pins the exact-equality invariant."""
         known = {
             "cloud_api_key",
@@ -117,7 +117,7 @@ class TestDeriveSecretFieldsFailClosed:
 
         We simulate the import failure by poisoning
         ``sys.modules['voice_typer.server.credential_store']`` with
-        ``None`` — the standard CPython idiom that makes
+        ``None``, the standard CPython idiom that makes
         ``from voice_typer.server.credential_store import X`` raise
         ``ImportError``. The helper's function-local import will then
         fail, and per the fail-closed contract the helper must
@@ -125,7 +125,7 @@ class TestDeriveSecretFieldsFailClosed:
         """
         # Poison sys.modules so the function-local import raises.
         # Setting a key to None in sys.modules is the CPython idiom
-        # for "halt import of this module" — any subsequent
+        # for "halt import of this module", any subsequent
         # ``import voice_typer.server.credential_store`` (or
         # ``from ... import X``) raises ImportError.
         monkeypatch.setitem(sys.modules, "voice_typer.server.credential_store", None)
@@ -214,7 +214,7 @@ class TestDeriveSecretFieldsFailClosed:
         # Simulate a non-ImportError by replacing the credential_store
         # module with an object whose attribute access raises.
         # The helper does ``from voice_typer.server.credential_store
-        # import PROVIDER_TO_CONFIG_FIELD`` — this first imports the
+        # import PROVIDER_TO_CONFIG_FIELD``, this first imports the
         # module (using the cached entry in sys.modules, which we
         # replace with a poisoned stub), then accesses
         # ``PROVIDER_TO_CONFIG_FIELD`` on it.

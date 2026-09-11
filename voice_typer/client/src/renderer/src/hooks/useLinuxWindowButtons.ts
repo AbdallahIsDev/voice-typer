@@ -1,5 +1,5 @@
 /**
- * useLinuxWindowButtons — resolves the effective Linux window-button
+ * useLinuxWindowButtons, resolves the effective Linux window-button
  * layout from the shared config snapshot.
  *
  * Extracted from App.tsx (the entry component stays pure wiring) using

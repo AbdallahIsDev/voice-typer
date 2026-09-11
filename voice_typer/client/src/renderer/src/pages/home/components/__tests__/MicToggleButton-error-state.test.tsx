@@ -1,5 +1,5 @@
 /**
- * MicToggleButton error state — when the last recording attempt failed
+ * MicToggleButton error state, when the last recording attempt failed
  * (`error` prop), the idle button renders a distinct hollow-destructive
  * treatment with an alert glyph and `aria-live="polite"`, instead of
  * the solid glow of the healthy idle button.

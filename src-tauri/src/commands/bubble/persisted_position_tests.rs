@@ -1,4 +1,4 @@
-//! Tests for `persisted_position.rs` (pure-function style — no Tauri
+//! Tests for `persisted_position.rs` (pure-function style, no Tauri
 //! runtime needed; C-TEST-5 keeps them in this sibling module).
 
 use super::*;
@@ -74,7 +74,7 @@ fn suppression_window_blocks_then_expires() {
     let _guard = CACHE_GUARD.lock().unwrap_or_else(|e| e.into_inner());
 
     // No suppression initially (fresh process state in test runs may
-    // have residue from other tests — force-clear first).
+    // have residue from other tests, force-clear first).
     if let Ok(mut slot) = SUPPRESS_UNTIL.lock() {
         *slot = None;
     }
@@ -111,7 +111,7 @@ fn schedule_stores_latest_move_last_write_wins() {
 async fn quiesced_wake_fires_after_full_debounce_window() {
     let _guard = CACHE_GUARD.lock().unwrap_or_else(|e| e.into_inner());
     *PENDING_MOVE.lock().unwrap_or_else(|e| e.into_inner()) = None;
-    // Drain any leftover wakeup permit from a previous test — notify
+    // Drain any leftover wakeup permit from a previous test, notify
     // permits persist in the shared static between tests and would
     // otherwise make the waiter below return instantly with None.
     let _ = tokio::time::timeout(Duration::from_millis(5), wait_for_quiesced_move()).await;
@@ -129,7 +129,7 @@ async fn quiesced_wake_fires_after_full_debounce_window() {
     // scheduler jitter).
     assert!(
         started.elapsed() >= Duration::from_millis(PERSIST_DEBOUNCE_MS - 50),
-        "fired {:?} after store — earlier than the {}ms debounce window",
+        "fired {:?} after store, earlier than the {}ms debounce window",
         started.elapsed(),
         PERSIST_DEBOUNCE_MS
     );
@@ -164,7 +164,7 @@ async fn quiesced_wake_extends_window_and_keeps_latest_move() {
     assert_eq!(fired, Some((3, 4)));
     assert!(
         started.elapsed() >= Duration::from_millis(PERSIST_DEBOUNCE_MS - 50),
-        "fired {:?} after the last move — the debounce window was not re-armed",
+        "fired {:?} after the last move, the debounce window was not re-armed",
         started.elapsed()
     );
 

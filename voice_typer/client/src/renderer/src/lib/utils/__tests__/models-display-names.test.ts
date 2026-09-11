@@ -1,12 +1,12 @@
 /**
  * Unit tests for the display-layer model naming helpers added in the
  * UI/UX overhaul (point 5):
- *   • `formatModelDisplayName` — hyphenated internal slug →
+ *   • `formatModelDisplayName`, hyphenated internal slug →
  *     human-readable capitalized label (hyphens treated as word
  *     separators for display ONLY; the slug itself is untouched);
- *   • `getModelVariantDisplayName` — backend display_name priority +
+ *   • `getModelVariantDisplayName`, backend display_name priority +
  *     the Whisper family prefix ("Whisper Tiny", "Whisper Large V3").
- *   • `requiresHuggingFaceConsent` — which models are gated on HF
+ *   • `requiresHuggingFaceConsent`, which models are gated on HF
  *     download consent (point 4).
  */
 import { describe, expect, it } from "vitest";
@@ -30,7 +30,7 @@ function makeModel(name: string, backend: string): ModelInfo {
 	};
 }
 
-describe("formatModelDisplayName — slug → display label (display-layer only)", () => {
+describe("formatModelDisplayName, slug → display label (display-layer only)", () => {
 	it("capitalizes single-word slugs", () => {
 		expect(formatModelDisplayName("tiny")).toBe("Tiny");
 		expect(formatModelDisplayName("qwen")).toBe("Qwen");
@@ -56,7 +56,7 @@ describe("formatModelDisplayName — slug → display label (display-layer only)
 	});
 });
 
-describe("getModelVariantDisplayName — family prefix + display_name priority", () => {
+describe("getModelVariantDisplayName, family prefix + display_name priority", () => {
 	it("prepends 'Whisper' to formatted whisper-variant slugs", () => {
 		expect(getModelVariantDisplayName(makeModel("tiny", "whisper"))).toBe(
 			"Whisper Tiny",
@@ -87,7 +87,7 @@ describe("getModelVariantDisplayName — family prefix + display_name priority",
 	});
 });
 
-describe("requiresHuggingFaceConsent — JIT consent gate scope (point 4)", () => {
+describe("requiresHuggingFaceConsent, JIT consent gate scope (point 4)", () => {
 	it("gates whisper + parakeet (HF-downloading models)", () => {
 		expect(requiresHuggingFaceConsent(makeModel("tiny", "whisper"))).toBe(true);
 		expect(
@@ -98,12 +98,12 @@ describe("requiresHuggingFaceConsent — JIT consent gate scope (point 4)", () =
 		);
 	});
 
-	it("does NOT gate qwen (local-only — nothing phones home)", () => {
+	it("does NOT gate qwen (local-only, nothing phones home)", () => {
 		expect(requiresHuggingFaceConsent(makeModel("qwen", "qwen"))).toBe(false);
 	});
 });
 
-describe("formatModelSize — canonical `<number> <UNIT>` display (2026-08-21)", () => {
+describe("formatModelSize, canonical `<number> <UNIT>` display (2026-08-21)", () => {
 	it("strips the ~ approximation marker and inserts the number/unit space", () => {
 		expect(formatModelSize("~75MB")).toBe("75 MB");
 		expect(formatModelSize("~3GB")).toBe("3 GB");
@@ -119,7 +119,7 @@ describe("formatModelSize — canonical `<number> <UNIT>` display (2026-08-21)",
 	it("uppercases the unit and trims surrounding whitespace", () => {
 		expect(formatModelSize(" 3gb ")).toBe("3 GB");
 		expect(formatModelSize("999TB")).toBe("999 TB");
-		// Generic for arbitrary providers — supports a potential TB size.
+		// Generic for arbitrary providers, supports a potential TB size.
 		expect(formatModelSize("~1.2TB")).toBe("1.2 TB");
 	});
 

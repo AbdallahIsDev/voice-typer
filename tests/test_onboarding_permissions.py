@@ -50,7 +50,7 @@ class TestOnboardingCheckPermissions:
         The probe runs against the real host platform (Linux in the
         sandbox); on Linux it returns either ``state="granted"`` (if
         the test runner is already in the ``input`` group) or
-        ``state="denied"`` (if not). We don't pin the value — we just
+        ``state="denied"`` (if not). We don't pin the value, we just
         assert the dict shape and that ``needed`` is a bool.
         """
         server, _fake_app, _fake_service = make_ipc_server_with_fakes()
@@ -74,7 +74,7 @@ class TestOnboardingCheckPermissions:
             assert "commands" in data["instructions"]
 
     def test_check_permissions_does_not_invoke_service(self):
-        """The handler must NOT delegate to ``self.service`` — the
+        """The handler must NOT delegate to ``self.service``, the
         permission probe lives in
         :mod:`voice_typer.server.permissions` (via
         :meth:`OnboardingController.check_permissions`) and is shared
@@ -87,7 +87,7 @@ class TestOnboardingCheckPermissions:
         """
         server, _fake_app, fake_service = make_ipc_server_with_fakes()
         server._handle_onboarding_check_permissions({}, {})
-        # The fake_service is a MagicMock — any attribute access
+        # The fake_service is a MagicMock, any attribute access
         # auto-creates a child mock, but only CALLS are recorded in
         # ``mock_calls``. We assert ``onboarding_check_permissions``
         # was never called on the service.
@@ -262,7 +262,7 @@ class TestOnboardingCheckPermissions:
         assert data["instructions"] is None
 
     def test_check_permissions_windows_returns_not_needed(self, monkeypatch):
-        """On Windows, no permission is needed — ``needed=False``,
+        """On Windows, no permission is needed: ``needed=False``,
         ``instructions=None`` (UX-4 auto-pass branch)."""
         from voice_typer.server import permissions as perm_mod
         from voice_typer.server.permissions import PermissionState
@@ -334,7 +334,7 @@ class TestOnboardingSetMicrophoneAcceptsNull:
 
     def test_set_microphone_rejects_int(self):
         """Regression guard: ``mic_id=123`` (int) must still be
-        rejected — the validator accepts ``str | None`` only."""
+        rejected, the validator accepts ``str | None`` only."""
         server, _fake_app, _fake_service = make_ipc_server_with_fakes()
         resp = server._handle_onboarding_set_microphone({"mic_id": 123}, {})
 

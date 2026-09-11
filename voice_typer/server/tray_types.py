@@ -57,7 +57,7 @@ class TrayController(Protocol):
     # wire the "Refresh mics" menu item. Previously the call sites used
     # ``getattr(controller, "active_microphone_id", None)`` /
     # ``getattr(controller, "refresh_microphones", None)`` against names
-    # that were NEVER defined on ``VoiceTyperApp`` — the defensive
+    # that were NEVER defined on ``VoiceTyperApp``, the defensive
     # ``getattr`` silently returned ``None`` and the Tauri tray submenu
     # never marked the active mic nor offered "Refresh mics". Promoting
     # to the Protocol lets pyrefly verify the contract; the call sites

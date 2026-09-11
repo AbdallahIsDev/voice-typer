@@ -3,11 +3,11 @@
 Covers the 4 microphone-test IPC handlers defined in
 ``voice_typer/server/handlers/microphone_test_handlers.py``:
 
-- ``_handle_microphone_test_start`` — start a recording test
+- ``_handle_microphone_test_start``, start a recording test
   (``mic_id``, ``duration``, optional ``filters``).
-- ``_handle_microphone_test_stop`` — stop an in-progress test early.
-- ``_handle_microphone_test_cancel`` — cancel an in-progress test.
-- ``_handle_microphone_test_get_level`` — poll the real-time audio level.
+- ``_handle_microphone_test_stop``, stop an in-progress test early.
+- ``_handle_microphone_test_cancel``, cancel an in-progress test.
+- ``_handle_microphone_test_get_level``, poll the real-time audio level.
 
 All four handlers are thin pass-throughs to the service layer with
 the standard try/except error envelope.  The interesting invariant
@@ -25,7 +25,7 @@ from __future__ import annotations
 
 
 class TestMicrophoneTestStart:
-    """``_handle_microphone_test_start`` — start a recording test."""
+    """``_handle_microphone_test_start``, start a recording test."""
 
     def test_happy_path_with_all_params(self, ipc_server, fake_service):
         fake_service.microphone_test_start.return_value = {
@@ -34,7 +34,7 @@ class TestMicrophoneTestStart:
             "sample_rate": 16000,
         }
         # ``filters`` is the ADR 0007 filter-config DICT the renderer's
-        # ``buildTestFilters`` sends — not a list. Downstream consumers
+        # ``buildTestFilters`` sends, not a list. Downstream consumers
         # (``level_monitor.test_recording``) require a mapping
         # (``filters.get(...)`` / ``SimpleNamespace(**filters)``).
         filters = {
@@ -115,7 +115,7 @@ class TestMicrophoneTestStart:
         # exact toggle in Settings ().
         assert resp["data"]["consent_field"] == "voice_biometric_consent"
         assert resp["data"]["engine_name"] == "microphone_test"
-        # Service must NOT have been called — the gate fires BEFORE
+        # Service must NOT have been called, the gate fires BEFORE
         # the validation/dispatch block.
         fake_service.microphone_test_start.assert_not_called()
 
@@ -131,7 +131,7 @@ class TestMicrophoneTestStart:
             start microphone test
             voice_typer.server.asr_errors.***: voice biometric ...
 
-        The rejection is now logged at WARNING with no traceback — the
+        The rejection is now logged at WARNING with no traceback, the
         renderer surfaces the consent dialog from the structured
         ``client.consent_required`` envelope. Unexpected exceptions keep
         the ERROR + exc_info contract (pinned in
@@ -169,7 +169,7 @@ class TestMicrophoneTestStart:
 
 
 class TestMicrophoneTestStop:
-    """``_handle_microphone_test_stop`` — stop an in-progress test."""
+    """``_handle_microphone_test_stop``, stop an in-progress test."""
 
     def test_happy_path_returns_microphone_test_result(self, ipc_server, fake_service):
         fake_service.microphone_test_stop.return_value = {
@@ -191,7 +191,7 @@ class TestMicrophoneTestStop:
 
 
 class TestMicrophoneTestCancel:
-    """``_handle_microphone_test_cancel`` — cancel an in-progress test."""
+    """``_handle_microphone_test_cancel``, cancel an in-progress test."""
 
     def test_happy_path_returns_microphone_test_result(self, ipc_server, fake_service):
         fake_service.microphone_test_cancel.return_value = {"ok": True, "reason": "cancelled"}
@@ -209,7 +209,7 @@ class TestMicrophoneTestCancel:
 
 
 class TestMicrophoneTestGetLevel:
-    """``_handle_microphone_test_get_level`` — poll the real-time audio level."""
+    """``_handle_microphone_test_get_level``, poll the real-time audio level."""
 
     def test_happy_path_returns_microphone_test_level(self, ipc_server, fake_service):
         fake_service.microphone_test_get_level.return_value = {

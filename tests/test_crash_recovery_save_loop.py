@@ -8,7 +8,7 @@ The save-loop worker wraps its body in a two-clause ``try/except``:
 2. A log-and-continue clause for ordinary ``Exception`` subclasses so
    a transient failure (e.g. a ``RuntimeError`` from a corrupted
    queue, or a ``ValueError`` escaping ``_save_sync``) does NOT kill
-   the worker — it logs at ERROR and keeps draining the queue.
+   the worker, it logs at ERROR and keeps draining the queue.
 
 Pre-fix, clause (1) was written as ``except BaseException: raise``.
 Because every ``Exception`` is also a ``BaseException``, clause (1)
@@ -97,7 +97,7 @@ class TestSaveLoopSurvivesRegularException:
             while call_count["n"] < 1 and time.monotonic() < deadline:
                 time.sleep(0.01)
             assert call_count["n"] >= 1, (
-                "Worker never processed the first save — it may have died before reaching _save_sync."
+                "Worker never processed the first save, it may have died before reaching _save_sync."
             )
 
             # Second add() enqueues another save. If the worker died
@@ -106,13 +106,13 @@ class TestSaveLoopSurvivesRegularException:
             cr.add("second", pasted=False)
             flushed = cr.flush(timeout=5.0)
             assert flushed, (
-                "flush() timed out — the worker likely died on the first regular Exception (the dead-except bug)."
+                "flush() timed out, the worker likely died on the first regular Exception (the dead-except bug)."
             )
 
         # Worker thread MUST still be alive.
         assert cr._save_thread is not None, "Worker thread was never created."
         assert cr._save_thread.is_alive(), (
-            "Worker thread died after a regular Exception — the "
+            "Worker thread died after a regular Exception, the "
             "``except Exception:`` log-and-continue clause is unreachable "
             "(the propagating clause is too broad)."
         )
@@ -153,7 +153,7 @@ class TestSaveLoopSurvivesRegularException:
             while call_count["n"] < 1 and time.monotonic() < deadline:
                 time.sleep(0.01)
             cr.add("second", pasted=False)  # should succeed
-            assert cr.flush(timeout=5.0), "flush() timed out — worker died on transient exception."
+            assert cr.flush(timeout=5.0), "flush() timed out, worker died on transient exception."
 
         # The second entry must have been persisted to disk. Reload a
         # fresh instance from the same path to verify.
@@ -161,7 +161,7 @@ class TestSaveLoopSurvivesRegularException:
         try:
             texts = [e.get("text") for e in reloaded.get_all()]
             assert "second" in texts, (
-                "The second save was not persisted — the worker may have "
+                "The second save was not persisted, the worker may have "
                 "died on the first transient exception (the dead-except bug)."
             )
         finally:
@@ -218,7 +218,7 @@ class TestDelNeverRaisesBaseException:
         # Replace _save_sync with one that raises the BaseException subclass.
         cr._save_sync = raising_save_sync
         try:
-            # Must NOT raise — the fixed ``except BaseException: pass``
+            # Must NOT raise, the fixed ``except BaseException: pass``
             # swallows it. Pre-fix this raised (KeyboardInterrupt etc.
             # are not caught by ``except Exception:``).
             cr.__del__()

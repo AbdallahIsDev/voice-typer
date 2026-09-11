@@ -5,12 +5,12 @@
 // Split out from the original monolithic `types/ipc.ts`.
 // This module owns the three foundational unions that other domain files
 // build on:
-//   - `RecordingState` — the 6-state backend lifecycle union.
-//   - `Page` — the renderer's route-name union.
-//   - `ErrorCodes` — the namespaced + legacy error-code union referenced
+//   - `RecordingState`, the 6-state backend lifecycle union.
+//   - `Page`, the renderer's route-name union.
+//   - `ErrorCodes`, the namespaced + legacy error-code union referenced
 //     by `ErrorEvent` (in `./push_events`).
 //
-// No behaviour change vs. the original file — pure structural refactor.
+// No behaviour change vs. the original file, pure structural refactor.
 
 // ── Recording states ──────────────────────────────────────────────
 
@@ -35,10 +35,10 @@ export type RecordingState =
 
 // `settings` is the Settings HUB page (a single card whose rows open the
 // section pages). Each `settings*` section literal renders exactly one
-// settings domain — the canonical list of section pages (order, titles,
+// settings domain, the canonical list of section pages (order, titles,
 // descriptions, icons) lives in
 // `components/settings/settingsSections.ts` and must stay in lockstep
-// with this union. `settings` itself is NOT a section page — it is the
+// with this union. `settings` itself is NOT a section page, it is the
 // hub that links to them.
 export type Page =
 	| "home"
@@ -118,11 +118,11 @@ export type ErrorCodes =
 	| "respawn_exhausted"
 	// Rust-host dispatch cap codes. The Tauri `#[tauri::command]`
 	// layer in `src-tauri/src/commands/sidecar_cmds/` emits the BARE
-	// legacy forms: `pending_full` (dispatch queue full — renderer must
+	// legacy forms: `pending_full` (dispatch queue full, renderer must
 	// back off ~250ms and retry) and `data_too_large` (payload exceeds
 	// the 256 KiB cap). The namespaced forms below are canonical targets
 	// for future migration, but the bare forms are what the wire
-	// actually carries TODAY — both MUST be accepted by any `switch`
+	// actually carries TODAY, both MUST be accepted by any `switch`
 	// that narrows `ErrorEvent.code`.
 	// (Note: keep semicolons OUT of comment lines inside the union body.
 	// The parity-test parser in `tests/test_error_codes_registry.py`
@@ -159,7 +159,7 @@ export type ErrorCodes =
 // backend-exited) without parsing the human-readable message text.
 //
 // The canonical declaration lives in
-// `src/shared/python-call-error-code.ts` — a cross-boundary module
+// `src/shared/python-call-error-code.ts`, a cross-boundary module
 // included by BOTH `tsconfig.web.json` and `tsconfig.node.json` (both
 // tsconfigs now list `src/shared` recursively in their `include`
 // arrays). This file re-exports the type so existing imports

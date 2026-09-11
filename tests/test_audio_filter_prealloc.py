@@ -141,7 +141,7 @@ class TestCompressorByteIdentical:
         np.testing.assert_array_equal(out_opt, out_ref)
 
     def test_buffer_reuse_across_calls_byte_identical(self) -> None:
-        """Same-size chunks reuse the buffer — output still byte-identical."""
+        """Same-size chunks reuse the buffer, output still byte-identical."""
         sr = _SR
         c_opt = Compressor(threshold_db=-18.0, ratio=4.0, sample_rate=sr)
         c_ref = Compressor(threshold_db=-18.0, ratio=4.0, sample_rate=sr)
@@ -456,7 +456,7 @@ def _make_stub_ns(sample_rate: int = RNNOISE_SAMPLE_RATE):
     output-conversion path (int16 -> float64 -> /32767 -> resample) is
     byte-identical between the optimized in-place path and a fresh-allocation
     reference. Uses the native RNNoise rate (48kHz) so no resampling is
-    involved — the test isolates the ``_process_rnnoise`` frame loop.
+    involved, the test isolates the ``_process_rnnoise`` frame loop.
     """
     ns = NoiseSuppressor(method="none", sample_rate=sample_rate)
 
@@ -557,7 +557,7 @@ class TestNoiseSuppressorByteIdentical:
             offset += cs
             out_opt = ns_opt.process(chunk, sr)
             out_ref = _ns_reference_process_rnnoise(ns_ref, chunk, sr)
-            # Both may be None (buffering) or both non-None — must match.
+            # Both may be None (buffering) or both non-None, must match.
             if out_opt is None:
                 assert out_ref is None
             else:

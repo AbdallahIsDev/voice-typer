@@ -1,7 +1,7 @@
 /**
  * @vitest-environment node
  *
- *  (IMPL-7) — Electron crash log rotation + REVIEW-12/REVIEW-9
+ *  (IMPL-7), Electron crash log rotation + REVIEW-12/REVIEW-9
  * circuit-breaker regression coverage.
  *
  * These tests run in a `node` environment (no jsdom) because they
@@ -19,7 +19,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // intercept the imports done by `bootstrap.ts` even though the import
 // statement appears later in the file.
 
-// Mock `electron` — bootstrap.ts only uses app.getPath / dialog.showErrorBox
+// Mock `electron`, bootstrap.ts only uses app.getPath / dialog.showErrorBox
 // / session.defaultSession.webRequest.onHeadersReceived. We provide all
 // three so importing the module does not throw at top level.
 vi.mock("electron", () => ({
@@ -39,7 +39,7 @@ vi.mock("electron", () => ({
 	},
 }));
 
-// Mock `./single_instance` — its real implementation transitively imports
+// Mock `./single_instance`, its real implementation transitively imports
 // `./windows`, which pulls in heavy Electron BrowserWindow machinery we
 // do not need here.
 vi.mock("../single_instance", () => ({
@@ -55,14 +55,14 @@ vi.mock("../single_instance", () => ({
 // production exit hook can call it before `app.quit()`. The real
 // `./python` index transitively imports `./send-to-python` → `../index`
 // (the main entry, which fires Electron APIs at module-eval time). We
-// mock `./python` to short-circuit that chain — the test only needs the
+// mock `./python` to short-circuit that chain, the test only needs the
 // `stopPython` symbol to exist; it never invokes it (the test injects
 // its own `exit` hook that records calls without calling stopPython).
 vi.mock("../python", () => ({
 	stopPython: vi.fn(),
 }));
 
-// Mock `./state` — bootstrap.ts only reads `state.sessionNonce` and never
+// Mock `./state`, bootstrap.ts only reads `state.sessionNonce` and never
 // observes its initial value; an empty object is sufficient.
 vi.mock("../state", () => ({
 	state: { sessionNonce: "" },
@@ -95,7 +95,7 @@ function rmrf(target: string): void {
 /**
  * Helper: emit N `uncaughtException` events on the real `process` object.
  *
- * `process.emit` is synchronous — when there is at least one
+ * `process.emit` is synchronous, when there is at least one
  * `uncaughtException` listener attached, Node does not crash the process
  * and just returns `true`. This lets the test drive the handler
  * deterministically.
@@ -166,7 +166,7 @@ describe("rotateIfNeeded (CR-9)", () => {
 		const target = path.join(tmpDir, "big.log");
 		fs.writeFileSync(target, "x".repeat(2_000));
 		rotateIfNeeded(target, 1_000);
-		// Single-file policy: the file is emptied IN PLACE — it keeps
+		// Single-file policy: the file is emptied IN PLACE, it keeps
 		// its single identity (no numbered .1 backup is ever created).
 		expect(fs.existsSync(target)).toBe(true);
 		expect(fs.statSync(target).size).toBe(0);
@@ -176,7 +176,7 @@ describe("rotateIfNeeded (CR-9)", () => {
 	it("ignores a stale .1 backup from an old build (single-file policy never writes backups)", () => {
 		const target = path.join(tmpDir, "rollover.log");
 		// A leftover numbered backup from a PRE-single-file build must
-		// be left untouched — the current policy never creates or
+		// be left untouched, the current policy never creates or
 		// writes backups.
 		fs.writeFileSync(`${target}.1`, "OLD_BACKUP_CONTENT");
 		// Seed the active file with new oversized content.
@@ -197,7 +197,7 @@ describe("rotateIfNeeded (CR-9)", () => {
 		expect(fs.existsSync(target)).toBe(true);
 		expect(fs.statSync(target).size).toBe(DEFAULT_CRASH_LOG_MAX_BYTES);
 		// One byte over the cap → truncate in place. Reset the cache
-		// first — the prior rotateIfNeeded call cached the file size
+		// first, the prior rotateIfNeeded call cached the file size
 		// (1048576), and fs.appendFileSync doesn't update the cache,
 		// so the second call would see the stale cached size and skip
 		// truncation.
@@ -210,7 +210,7 @@ describe("rotateIfNeeded (CR-9)", () => {
 	});
 });
 
-describe("_installErrorHandlers — CR-9 rotation + circuit breaker", () => {
+describe("_installErrorHandlers, CR-9 rotation + circuit breaker", () => {
 	let tmpDir: string;
 	let exitCalls: number[];
 
@@ -242,7 +242,7 @@ describe("_installErrorHandlers — CR-9 rotation + circuit breaker", () => {
 		}
 
 		// Single-file policy: the oversized pre-seed was truncated IN
-		// PLACE on the first emit — no .1 backup exists, and the
+		// PLACE on the first emit, no .1 backup exists, and the
 		// active file holds the 6 new crash lines (each ~hundreds of
 		// bytes, well under the 1 MiB cap, so no further truncation).
 		expect(fs.existsSync(`${crashLogPath}.1`)).toBe(false);
@@ -289,7 +289,7 @@ describe("_installErrorHandlers — CR-9 rotation + circuit breaker", () => {
 		// The crash log must NOT have been touched.
 		expect(fs.existsSync(crashLogPath)).toBe(false);
 
-		// Only 2 rejections — breaker has not tripped yet.
+		// Only 2 rejections, breaker has not tripped yet.
 		expect(exitCalls.length).toBe(0);
 	});
 
@@ -342,7 +342,7 @@ describe("_installErrorHandlers — CR-9 rotation + circuit breaker", () => {
 		}
 
 		// Single-file policy: the oversized pre-seed was truncated in
-		// place — no .1 backup exists, and the active file holds the
+		// place, no .1 backup exists, and the active file holds the
 		// new event.
 		expect(fs.existsSync(`${rejectionLogPath}.1`)).toBe(false);
 		expect(fs.readFileSync(rejectionLogPath, "utf-8")).toContain(
@@ -364,7 +364,7 @@ describe("_installErrorHandlers — CR-9 rotation + circuit breaker", () => {
 	});
 });
 
-describe("_installErrorHandlers — REVIEW-9 sliding window", () => {
+describe("_installErrorHandlers, REVIEW-9 sliding window", () => {
 	let tmpDir: string;
 	let exitCalls: number[];
 	let realNow: typeof Date.now;
@@ -397,7 +397,7 @@ describe("_installErrorHandlers — REVIEW-9 sliding window", () => {
 			emitUncaught(4);
 			expect(exitCalls).toEqual([]);
 
-			// 61 seconds later — outside the sliding window.
+			// 61 seconds later, outside the sliding window.
 			nowMs += 61_000;
 
 			// Burst 2: 4 more errors. The first of these

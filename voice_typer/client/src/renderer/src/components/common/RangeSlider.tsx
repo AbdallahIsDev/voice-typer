@@ -22,7 +22,7 @@ interface RangeSliderProps {
 	 * real `onChange` is only invoked when the user releases the pointer
 	 * (or Tabs away from the slider after an arrow-key step).  Use this
 	 * for settings where each `onChange` triggers an immediate IPC
-	 * write — prevents a flood of `set_config` calls during a drag.
+	 * write, prevents a flood of `set_config` calls during a drag.
 	 *
 	 * Commit handlers currently bound: `onPointerUp` (covers
 	 * mouse/touch/pen release) and `onBlur` (covers keyboard-only
@@ -52,7 +52,7 @@ export function RangeSlider({
 }: RangeSliderProps) {
 	// Local "display" value used while `deferApply` is on.  During a drag
 	// the shadcn Slider moves the thumb on its own (its own internal state),
-	// but our React `value` prop is the *committed* value — so if we don't
+	// but our React `value` prop is the *committed* value, so if we don't
 	// shadow it with a local state, the thumb snaps back to the last
 	// committed value on every re-render.  The local state lets the thumb
 	// follow the drag while the real `onChange` is deferred to pointer-up.
@@ -140,16 +140,13 @@ export function RangeSlider({
 				max={max}
 				step={step}
 				aria-label={ariaLabel}
-				// Explicit aria-valuenow / aria-valuemin / aria-valuemax so
-				// screen readers always announce the numeric range. Radix
-				// Slider usually derives these from its own props, but the
-				// shadcn wrapper doesn't forward them — pass them explicitly
-				// so the slider has a complete ARIA contract regardless of
-				// how the underlying primitive evolves.
-				aria-valuenow={renderedValue}
-				aria-valuemin={min}
-				aria-valuemax={max}
-				// Thumb-level valuetext ("value + unit") — the focused thumb
+				// The slider's ARIA value contract lives on the THUMB
+				// (role="slider"), which Radix derives automatically from
+				// these very min/max/value props, aria-valuenow/min/max
+				// must NOT be duplicated on the root span: the root has no
+				// role, and value attributes on a role-less element are
+				// axe `aria-allowed-attr` violations.
+				// Thumb-level valuetext ("value + unit"), the focused thumb
 				// is the ARIA surface screen readers read; a root-level
 				// aria-valuetext is ignored or double-announced by Radix.
 				getThumbAriaValueText={(thumbValue) => `${thumbValue}${suffix}`}

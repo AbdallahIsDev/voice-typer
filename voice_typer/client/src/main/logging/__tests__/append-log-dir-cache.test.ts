@@ -13,12 +13,12 @@
  *
  * These tests verify:
  *   1. `fs.mkdirSync` is called exactly ONCE for the first append into
- *      a (missing) directory — and the directory is really created.
+ *      a (missing) directory, and the directory is really created.
  *   2. `fs.mkdirSync` is NOT called on subsequent appends to log files
  *      in the same directory (cache hit), while the lines still land.
  *   3. Different directories have independent cache entries.
  *   4. After a failed append (directory deleted at runtime), the cache
- *      entry is invalidated — the next append re-runs the mkdir and
+ *      entry is invalidated, the next append re-runs the mkdir and
  *      recovers.
  */
 import fs from "node:fs";
@@ -104,11 +104,11 @@ describe("appendLogLine per-directory mkdir cache", () => {
 			(args: unknown[]) => args[0] === logsDir,
 		);
 		expect(dirCalls.length).toBe(1);
-		// Every line still landed — the cache must not lose writes.
+		// Every line still landed, the cache must not lose writes.
 		expect(fs.readFileSync(logPath, "utf-8")).toBe("line 1\nline 2\nline 3\n");
 	});
 
-	it("caches per directory — a different directory gets its own mkdir", () => {
+	it("caches per directory, a different directory gets its own mkdir", () => {
 		const dirA = path.join(tmpDir, "logs-a");
 		const dirB = path.join(tmpDir, "logs-b");
 		const pathA = path.join(dirA, "a.log");
@@ -143,7 +143,7 @@ describe("appendLogLine per-directory mkdir cache", () => {
 		fs.rmSync(logsDir, { recursive: true, force: true });
 
 		// Next append hits the cached entry, skips mkdir, and the
-		// appendFileSync fails (ENOENT) — swallowed by the
+		// appendFileSync fails (ENOENT), swallowed by the
 		// best-effort catch, but the cache entry must be dropped.
 		appendLogLine(logPath, "during outage\n", 1024 * 1024);
 		expect(

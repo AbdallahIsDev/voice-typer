@@ -10,7 +10,7 @@ interface HotkeyChipsProps {
 	 * keys of a combo (rendered as a `KbdGroup` of `Kbd` chips with a
 	 * small gap and NO visible `+`). On macOS the modifier labels are
 	 * rendered as native glyphs ("Ctrl+B" → "⌃B") automatically via
-	 * {@link formatHotkeyForPlatform} — the same treatment `formatHotkey`
+	 * {@link formatHotkeyForPlatform}, the same treatment `formatHotkey`
 	 * applies in the Sidebar.
 	 */
 	keys: string;
@@ -49,10 +49,10 @@ function HotkeyCombo({
 }
 
 /**
- * HotkeyChips — renders a formatted hotkey string as shadcn/ui `<Kbd>`
+ * HotkeyChips, renders a formatted hotkey string as shadcn/ui `<Kbd>`
  * chips. `" / "` separates alternative bindings ("Tab / Shift+Tab");
  * `"+"` separates the keys of a combo ("Ctrl+Alt+V"), rendered as
- * separate keycaps with only a small gap between them — never a visible
+ * separate keycaps with only a small gap between them, never a visible
  * `+`. This is the single visual primitive for every hotkey display in
  * the app, so the chip styling always matches the design-system `Kbd`
  * component.

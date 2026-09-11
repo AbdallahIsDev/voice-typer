@@ -1,13 +1,13 @@
-// usePasteDeferredToast — surfaces the ``paste_deferred`` push event
+// usePasteDeferredToast, surfaces the ``paste_deferred`` push event
 // (auto-paste skipped, transcription safe on the clipboard).
 //
 // After a dictation the pipeline writes the text to the clipboard and
 // synthesizes a paste keystroke into the focused app. Two real-world
 // conditions make that keystroke impossible: the target app activated
-// macOS Secure Input (password field — the OS blocks synthesized
+// macOS Secure Input (password field, the OS blocks synthesized
 // keystrokes by design) or an IME text composition was in progress.
-// In both cases the TRANSCRIPTION IS NOT LOST — it sits on the
-// clipboard — but the user sees no text appear where they expect it,
+// In both cases the TRANSCRIPTION IS NOT LOST, it sits on the
+// clipboard, but the user sees no text appear where they expect it,
 // and without this toast they have no way to know their words are one
 // manual paste away.
 //
@@ -19,15 +19,13 @@
 //
 // Cooldown: the secure-input emitter already dedupes to once per
 // session server-side, but the IME-composition path can defer one
-// paste per dictation while a composition stays open — a 10s window
+// paste per dictation while a composition stays open, a 10s window
 // collapses consecutive deferrals into one visible notice.
 
 import { usePythonEvent } from "@/hooks/usePython";
+import type { TranslateFn } from "@/i18n/translate-types";
 import { useDegradationToastStore } from "@/stores/degradationToastStore";
 import { SNACKBAR_DEFAULT_DURATION_MS, useSnackbar } from "./useSnackbar";
-
-/** Minimal `t` function type matching i18n.t's signature. */
-type TFn = (key: string, params?: Record<string, string>) => string;
 
 /** Sonner id (single replaceable surface). */
 const PASTE_DEFERRED_TOAST_ID = "paste-deferred";
@@ -49,7 +47,7 @@ const PASTE_DEFERRED_HINT_KEYS: Record<string, string> = {
  *
  * @param t i18n translate function (from useT).
  */
-export function usePasteDeferredToast(t: TFn): void {
+export function usePasteDeferredToast(t: TranslateFn): void {
 	const { showSnack } = useSnackbar();
 	usePythonEvent("paste_deferred", (data): (() => void) | undefined => {
 		const payload = (data ?? {}) as { reason?: unknown };

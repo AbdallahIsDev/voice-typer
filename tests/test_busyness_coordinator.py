@@ -5,7 +5,7 @@ AC-66: extract BusynessCoordinator that owns the legacy
 methods (``is_busy`` / ``set_busy`` / ``set_idle`` / ``wait_idle``).
 
 These tests verify the coordinator's API surface + the NON-inverted
-semantic (``is_busy()`` returns True while busy — vs the legacy
+semantic (``is_busy()`` returns True while busy, vs the legacy
 ``_busy_event.is_set()`` which returned True when NOT busy).
 """
 
@@ -93,7 +93,7 @@ class TestBusynessCoordinatorWaitIdle:
             bc.set_idle()
 
         threading.Thread(target=_background_setter, daemon=True).start()
-        # No timeout — would hang forever if the background thread didn't fire.
+        # No timeout, would hang forever if the background thread didn't fire.
         result = bc.wait_idle()
         assert result is True
 

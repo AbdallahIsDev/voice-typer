@@ -20,7 +20,7 @@ includes a ``"protocol": <int>`` field so the Rust host can detect version
 skew at handshake time (before any command dispatch). Pre-negotiation
 sidecars emitted only ``{"event":"server_started","port":<n>}``; old hosts
 that don't yet parse the ``protocol`` field continue to function (the field
-is additive on the Python side — see ``_emit_server_started``'s ``None``
+is additive on the Python side: see ``_emit_server_started``'s ``None``
 default).
 """
 
@@ -40,10 +40,10 @@ class TestProtocolVersionConstant:
         """The module MUST expose a ``PROTOCOL_VERSION`` integer constant.
 
         Without it, the Rust host's ``EXPECTED_PROTOCOL`` has nothing to
-        compare against — the protocol-version negotiation is impossible.
+        compare against, the protocol-version negotiation is impossible.
         """
         assert hasattr(sidecar_ws, "PROTOCOL_VERSION"), (
-            "S2-CR-72: sidecar_ws.PROTOCOL_VERSION must exist — the Rust "
+            "S2-CR-72: sidecar_ws.PROTOCOL_VERSION must exist, the Rust "
             "host's EXPECTED_PROTOCOL constant compares against it at "
             "handshake time"
         )
@@ -52,7 +52,7 @@ class TestProtocolVersionConstant:
         """The constant MUST be an ``int`` (not a string, not None).
 
         The Rust host parses it via ``serde_json::Value::as_u64`` then
-        ``u32::try_from`` — a non-int JSON value degrades to ``None`` on
+        ``u32::try_from``, a non-int JSON value degrades to ``None`` on
         the Rust side and is treated as a mismatch. An int is the only
         type that survives the round-trip.
         """
@@ -68,7 +68,7 @@ class TestProtocolVersionConstant:
         Rust side (``parse_server_started`` returns ``None`` when the
         field is absent, and the host's mismatch check treats ``None``
         as a mismatch against ``EXPECTED_PROTOCOL``). A protocol version
-        of 0 would be ambiguous with "field absent" — using positive
+        of 0 would be ambiguous with "field absent", using positive
         integers only keeps the contract unambiguous.
         """
         assert sidecar_ws.PROTOCOL_VERSION > 0, (
@@ -89,11 +89,11 @@ class TestProtocolVersionConstant:
           - src-tauri/src/sidecar/spawn.rs::tests::test_expected_protocol_matches_python_sidecar_default
           - tests/test_app_sidecar_protocol.py (this test)
 
-        The bump is a coordinated 2-sided change — see the S2-CR-72
+        The bump is a coordinated 2-sided change: see the S2-CR-72
         finding for the rationale.
         """
         assert sidecar_ws.PROTOCOL_VERSION == 1, (
-            "S2-CR-72: PROTOCOL_VERSION is currently 1 — if you're bumping "
+            "S2-CR-72: PROTOCOL_VERSION is currently 1, if you're bumping "
             "this value, also update src-tauri/src/sidecar/spawn.rs::"
             "EXPECTED_PROTOCOL and its parity test "
             "(test_expected_protocol_matches_python_sidecar_default). "
@@ -116,7 +116,7 @@ class TestEmitServerStartedPayload:
     def test_emit_with_protocol_includes_protocol_field(self, capsys):
         """When ``protocol`` is passed, the payload includes the field.
 
-        This is the production path — ``run()`` calls
+        This is the production path: ``run()`` calls
         ``_emit_server_started(port, PROTOCOL_VERSION)``.
         """
         sidecar_ws._emit_server_started(54321, 1)
@@ -137,7 +137,7 @@ class TestEmitServerStartedPayload:
     def test_emit_without_protocol_omits_protocol_field(self, capsys):
         """When ``protocol`` is ``None`` (default), the field is absent.
 
-        This is the backward-compatible path — pre-negotiation tests
+        This is the backward-compatible path, pre-negotiation tests
         that assert the exact two-field payload shape (e.g.
         ``tests/tauri/test_sidecar_ws_unit.py::test_emit_server_started_writes_valid_json_to_stdout``)
         continue to pass unchanged.
@@ -154,7 +154,7 @@ class TestEmitServerStartedPayload:
         # Explicit: the field must NOT be present (not present-with-None).
         assert "protocol" not in payload, (
             "S2-CR-72: 'protocol' key must be ABSENT (not present-with-None) "
-            "when the protocol arg is None — pre-negotiation tests assert "
+            "when the protocol arg is None, pre-negotiation tests assert "
             "the exact two-field payload shape. Got: " + repr(payload)
         )
 
@@ -162,7 +162,7 @@ class TestEmitServerStartedPayload:
         """Passing ``protocol=None`` explicitly is the same as the default.
 
         Defensive: ensures the helper treats ``None`` (the default) and
-        an explicit ``None`` identically — no subtle branching on
+        an explicit ``None`` identically, no subtle branching on
         "was the arg provided?".
         """
         sidecar_ws._emit_server_started(54321, None)
@@ -174,7 +174,7 @@ class TestEmitServerStartedPayload:
         """The protocol field MUST be a JSON int (not a string).
 
         The Rust parser uses ``serde_json::Value::as_u64`` which returns
-        ``None`` for string values — a string protocol would be silently
+        ``None`` for string values, a string protocol would be silently
         treated as absent on the Rust side, defeating the negotiation.
         """
         sidecar_ws._emit_server_started(54321, 1)
@@ -188,7 +188,7 @@ class TestEmitServerStartedPayload:
         """The helper coerces ``protocol`` via ``int(...)`` so a bool or
         float is normalized to an int in the JSON output.
 
-        Defensive: ``int(True) == 1`` and ``int(1.0) == 1`` — both are
+        Defensive: ``int(True) == 1`` and ``int(1.0) == 1``, both are
         valid inputs that should produce ``"protocol": 1`` in the JSON,
         not ``"protocol": true`` or ``"protocol": 1.0`` (which the Rust
         parser would reject via ``as_u64``).
@@ -198,7 +198,7 @@ class TestEmitServerStartedPayload:
         assert payload["protocol"] == 1
         assert isinstance(payload["protocol"], int)
         # Specifically NOT a bool in the JSON output (json.dumps would
-        # emit ``true`` for an uncoerced bool — ``int(True)`` produces 1).
+        # emit ``true`` for an uncoerced bool: ``int(True)`` produces 1).
         assert payload["protocol"] is not True
 
     def test_emit_with_production_protocol_value(self, capsys):
@@ -230,9 +230,9 @@ class TestRunCallSiteWiring:
 
     def test_run_calls_emit_with_protocol_constant(self):
         """``run()`` MUST call ``_emit_server_started(port, PROTOCOL_VERSION)``
-        — not ``_emit_server_started(port)`` (which would emit the
-        pre-negotiation two-field payload and trigger a protocol-mismatch
-        on the Rust side).
+        , not ``_emit_server_started(port)`` (which would emit the
+          pre-negotiation two-field payload and trigger a protocol-mismatch
+          on the Rust side).
         """
         import inspect
 

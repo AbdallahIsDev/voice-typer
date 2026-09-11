@@ -7,7 +7,7 @@ the function docstring) is:
 
 * ``CoInitialize()`` is called at most once per paste attempt, and
 * ``CoUninitialize()`` is ALWAYS called in the ``finally`` block when
-  ``CoInitialize`` succeeded — even when the password-field check
+  ``CoInitialize`` succeeded, even when the password-field check
   returns ``False`` early (paste blocked) or the contentEditable check
   raises.
 
@@ -38,7 +38,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 # pynput / pynput.keyboard / pyperclip are mocked at collection time by
-# tests/clipboard/conftest.py (single source of truth —  dedup).
+# tests/clipboard/conftest.py (single source of truth, dedup).
 from voice_typer.server import clipboard as clip_mod  # noqa: E402
 from voice_typer.server.clipboard.safety import _is_safe_paste_target_impl  # noqa: E402
 
@@ -57,7 +57,7 @@ def fake_win32(monkeypatch):
     mock_windll.user32 = mock_user32
 
     # ``_get_uia_focused_element`` is patched to a mock so the real
-    # (comtypes.client-based) UIA fetch never runs — the comtypes
+    # (comtypes.client-based) UIA fetch never runs, the comtypes
     # lifecycle we assert on is the one managed by
     # ``_is_safe_paste_target_impl`` itself.
     monkeypatch.setattr(clip_mod, "is_windows", lambda: True)
@@ -76,7 +76,7 @@ def _install_fake_comtypes() -> tuple[MagicMock, MagicMock]:
     ``(fake_comtypes, fake_client)``.
 
     ``_is_safe_paste_target_impl`` does a bare ``import comtypes`` inside
-    the try block, so a ``sys.modules`` entry is sufficient — no
+    the try block, so a ``sys.modules`` entry is sufficient, no
     ``builtins.__import__`` patching needed (the outer ``import ctypes``
     must keep working).
     """
@@ -88,7 +88,7 @@ def _install_fake_comtypes() -> tuple[MagicMock, MagicMock]:
 
 class TestComtypesTeardown:
     """``CoUninitialize`` must run in the ``finally`` whenever
-    ``CoInitialize`` succeeded — regardless of the paste outcome."""
+    ``CoInitialize`` succeeded, regardless of the paste outcome."""
 
     def test_password_field_blocks_paste_and_still_tears_down_com(self, fake_win32):
         """Password field focused → paste blocked (False) BUT the

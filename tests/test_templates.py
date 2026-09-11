@@ -1,4 +1,4 @@
-"""Tests for voice_typer.templates — TemplateManager CRUD, match, variables."""
+"""Tests for voice_typer.templates: TemplateManager CRUD, match, variables."""
 
 import json
 
@@ -213,7 +213,7 @@ class TestTemplatesBackupAndQuarantine:
 
         content_a = templates_file.read_text(encoding="utf-8")
         assert '"hello"' in content_a
-        # No .bak yet — first save has nothing to back up.
+        # No .bak yet, first save has nothing to back up.
         assert not bak_file.exists()
 
         # Save template B (different trigger).
@@ -254,7 +254,7 @@ class TestTemplatesBackupAndQuarantine:
         templates_file.write_text(corrupt_payload, encoding="utf-8")
         assert templates_file.exists()
 
-        # Construct a TemplateManager — this calls _load which must
+        # Construct a TemplateManager, this calls _load which must
         # detect the corrupt JSON, quarantine it, and fall back to the
         # default (empty templates list).
         tm = TemplateManager(config_dir=template_dir)
@@ -392,7 +392,7 @@ class TestTemplatesLoadValidatesStructure:
     valid-JSON-but-wrong-structure file (e.g. mixed-type list, or a
     list of dicts missing ``output``) passed the ``isinstance(data,
     list)`` check but crashed ``_rebuild_indexes`` with
-    ``AttributeError: 'int' object has no attribute 'get'`` — and
+    ``AttributeError: 'int' object has no attribute 'get'``, and
     since ``_load`` is called from ``__init__`` with no try/except,
     the constructor raised, crashing app startup with an opaque
     traceback and no recovery path (the file is NOT quarantined
@@ -472,14 +472,14 @@ class TestTemplatesMatchHandlesMissingOutput:
         ``output`` and verify ``match`` doesn't raise."""
         # Seed with a valid template so ``match`` doesn't early-exit
         # on ``not self._templates`` (the  defense-in-depth is
-        # the .get("output", "") call — we want to exercise that path).
+        # the .get("output", "") call, we want to exercise that path).
         tm.add("seed-trigger", "seed-output")
         # Inject a malformed template directly into the live index
-        # (bypasses _rebuild_indexes validation — simulates a future
+        # (bypasses _rebuild_indexes validation, simulates a future
         # bug where a code path adds to the index without validating).
         with tm._lock:
             tm._exact_index["trigger-no-output"] = {"trigger": "trigger-no-output"}
-        # match must NOT raise KeyError — it must return "" (the
+        # match must NOT raise KeyError, it must return "" (the
         # default from .get("output", "")).
         result = tm.match("trigger-no-output")
         assert result == "", f"FR-37 regression: match should return '' for a template without 'output', got {result!r}"
@@ -518,7 +518,7 @@ class TestMatchIteratesContainsListDirectly:
 
         src = inspect.getsource(TemplateManager.match)
         assert "list(self._contains_list)" not in src, (
-            "match must not copy the contains-list per dictation — index rebuilds "
+            "match must not copy the contains-list per dictation, index rebuilds "
             "reassign the attribute under the same lock, so direct iteration is safe"
         )
         assert "for trigger_norm, t in self._contains_list:" in src, "match must iterate the contains-list directly"
@@ -526,7 +526,7 @@ class TestMatchIteratesContainsListDirectly:
     def test_match_survives_concurrent_rebuilds(self, tm):
         """Behavioral guard: concurrent CRUD mutations (each rebuilding
         the indexes under the lock) must never crash or corrupt an
-        in-flight ``match`` — the exact race the removed copy was
+        in-flight ``match``, the exact race the removed copy was
         believed to guard against."""
         import threading
 
@@ -537,7 +537,7 @@ class TestMatchIteratesContainsListDirectly:
             try:
                 for i in range(30):
                     tm.add(f"filler trigger {i}", "ok", match_mode="contains")
-            except Exception as exc:  # pragma: no cover — surfaced via the assert below
+            except Exception as exc:  # pragma: no cover, surfaced via the assert below
                 mutator_errors.append(exc)
 
         thread = threading.Thread(target=mutator)

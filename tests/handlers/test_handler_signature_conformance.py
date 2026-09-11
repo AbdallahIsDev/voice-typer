@@ -76,7 +76,7 @@ def _resolve_annotation(ann: object) -> str:
     if ann is inspect.Parameter.empty:
         return "<empty>"
     if isinstance(ann, str):
-        # Forward ref string — strip any surrounding quotes.
+        # Forward ref string, strip any surrounding quotes.
         return ann.strip("'\"")
     if hasattr(ann, "__name__"):
         return ann.__name__
@@ -107,7 +107,7 @@ class TestHandlerSignatureConformance:
         ``data``, ``resp``, and return-type annotations matching the
         ``CommandHandler`` signature.
 
-        Missing annotations fail the test — this is the YJ-1 contract
+        Missing annotations fail the test, this is the YJ-1 contract
         that allows the keystone ``# type: ignore[assignment]`` at
         ``ipc_server.py:1908`` to be deleted once ALL 15 handler mixins
         conform (the other 11 are owned by agents 14 and 15).
@@ -127,19 +127,19 @@ class TestHandlerSignatureConformance:
             assert self_p.name == "self", f"{mixin_cls.__name__}.{name}: first param must be 'self'"
             assert data_p.name == "data", f"{mixin_cls.__name__}.{name}: second param must be 'data'"
             assert resp_p.name == "resp", f"{mixin_cls.__name__}.{name}: third param must be 'resp'"
-            # data: object | None — accept either the ``object | None``
+            # data: object | None, accept either the ``object | None``
             # typing form or a forward-ref string. The annotation must
             # NOT be ``inspect.Parameter.empty`` (untyped).
             data_ann = _resolve_annotation(data_p.annotation)
             if data_ann == "<empty>":
                 failures.append(f"{mixin_cls.__name__}.{name}: missing 'data' annotation")
-            # resp: ResponseEnvelope — accept either the alias itself
+            # resp: ResponseEnvelope, accept either the alias itself
             # or the underlying ``dict[str, object]`` shape, plus the
             # forward-ref string form ``"ResponseEnvelope"``.
             resp_ann = _resolve_annotation(resp_p.annotation)
             if resp_ann == "<empty>":
                 failures.append(f"{mixin_cls.__name__}.{name}: missing 'resp' annotation")
-            # Return: ResponseEnvelope | None — accept the union form
+            # Return: ResponseEnvelope | None, accept the union form
             # or the stringified form (pyrefly strips the alias).
             ret_ann = _resolve_annotation(sig.return_annotation)
             if ret_ann == "<empty>":
@@ -169,11 +169,11 @@ class TestResponseEnvelopeImportable:
 
     A handler mixin importing ``ResponseEnvelope`` from
     ``ipc_server.py`` would re-introduce the cycle the move was
-    designed to break — so this test guards the canonical location.
+    designed to break, so this test guards the canonical location.
     """
 
     def test_response_envelope_importable_from_validation(self) -> None:
-        # ``ResponseEnvelope = dict[str, object]`` — the alias must
+        # ``ResponseEnvelope = dict[str, object]``, the alias must
         # resolve to ``dict[str, object]`` so callers can use it both
         # as a type annotation AND as a runtime value (e.g.
         # ``typing.get_args(ResponseEnvelope)`` returns ``(str, object)``).
@@ -190,7 +190,7 @@ class TestResponseEnvelopeImportable:
         assert args == (str, object), f"ResponseEnvelope args must be (str, object); got {args!r}"
 
     def test_command_handler_importable_from_validation(self) -> None:
-        # ``CommandHandler`` is a ``Callable`` alias — sanity-check it
+        # ``CommandHandler`` is a ``Callable`` alias, sanity-check it
         # is the expected shape by accessing its ``__args__``.
         # ``Callable[[object | None, ResponseEnvelope], Optional[ResponseEnvelope]]``
         # has 2 args: the parameter-types tuple and the return type.
@@ -201,7 +201,7 @@ class TestResponseEnvelopeImportable:
 
         # ``typing.get_origin`` returns ``collections.abc.Callable`` for
         # ``typing.Callable[...]`` aliases on Python 3.9+. Accept either
-        # form — the alias is structurally a Callable either way.
+        # form, the alias is structurally a Callable either way.
         origin = typing.get_origin(CommandHandler)
         assert origin is collections.abc.Callable, (
             f"CommandHandler origin must be collections.abc.Callable; got {origin!r}"
@@ -211,7 +211,7 @@ class TestResponseEnvelopeImportable:
         param_types, return_type = args
         # NOTE: ``typing.Callable[[X, Y], Z]`` stores the parameter-type
         # container as a LIST on Python 3.9+ (not a tuple). Accept either
-        # form — the structural shape (length + element types) is what
+        # form, the structural shape (length + element types) is what
         # matters, not the container type.
         assert isinstance(param_types, tuple | list), f"param_types must be a tuple or list; got {type(param_types)!r}"
         # First param: ``object | None``
@@ -245,7 +245,7 @@ class TestRestoreHistoryNarrowing:
     narrowing guard before the ``record.get(...)`` call so pyrefly sees a
     ``dict`` shape (which has ``.get``) instead of bare ``object``.
 
-    This test exercises the narrowing path at runtime — both the happy
+    This test exercises the narrowing path at runtime, both the happy
     path (a dict record with a text field) and the defensive guard
     (a non-dict record, which the schema's ``"type": dict`` rule should
     reject upstream but the handler now defends against explicitly).
@@ -312,7 +312,7 @@ class TestRestoreHistoryNarrowing:
         fake_service = MagicMock()
         server = IPCServer(fake_app, service=fake_service)
 
-        # A non-dict record — schema validation rejects with
+        # A non-dict record, schema validation rejects with
         # ``client.invalid_field`` BEFORE the defensive guard runs.
         resp: ResponseEnvelope = {}
         result = server._handle_restore_history({"record": ["not", "a", "dict"]}, resp)

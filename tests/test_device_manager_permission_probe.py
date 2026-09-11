@@ -1,8 +1,8 @@
-"""FR-17 — regression tests for the periodic microphone-permission
+"""FR-17: regression tests for the periodic microphone-permission
 re-probe in :mod:`voice_typer.server.recording.device_manager`.
 
 Pre-fix symptom: ``permissions.verify_microphone_accessible()`` was
-only invoked inside ``Recorder.start()`` — a one-shot gate. If the OS
+only invoked inside ``Recorder.start()``, a one-shot gate. If the OS
 revoked microphone access mid-recording (macOS System Settings →
 Privacy & Security → Microphone, Windows Privacy toggle, Flatpak
 portal), PortAudio kept the stream open but delivered zero-filled
@@ -18,7 +18,7 @@ sets ``_device_disconnected=True`` and spawns a handler that calls
 ``recorder.on_microphone_permission_revoked`` (a NEW callback distinct
 from ``on_silence_auto_stop``).
 
-These tests run on any platform — they construct a minimal
+These tests run on any platform, they construct a minimal
 ``DeviceManager`` via ``__new__`` to avoid the full ``Recorder``
 dependency tree, and they mock ``permissions.check_microphone_permission``
 directly.
@@ -35,7 +35,7 @@ def _make_minimal_device_manager():
     attributes the FR-17 path reads.
 
     The full ``__init__`` constructs a ``MicrophoneDeviceWatcher`` and
-    reads ``recorder.config`` — neither is needed for the permission
+    reads ``recorder.config``, neither is needed for the permission
     re-probe path.
     """
     from voice_typer.server.recording.device_manager import DeviceManager
@@ -49,9 +49,9 @@ def _make_minimal_device_manager():
     dm._permission_check_counter = 0
     dm._permission_check_interval = 1
     # ``_device_health_stop_event`` is used by the loop's ``wait()``
-    # call — set it so the loop exits after one iteration in tests.
+    # call, set it so the loop exits after one iteration in tests.
     dm._device_health_stop_event = threading.Event()
-    # ``_device_check_interval_s`` is the wake interval — set to 0.01
+    # ``_device_check_interval_s`` is the wake interval, set to 0.01
     # so the test's loop wake is fast.
     dm._device_check_interval_s = 0.01
     # The recorder's ``_recording_event`` must report "recording" so
@@ -114,7 +114,7 @@ class TestPermissionRevokedDetection:
 
     def test_returns_false_on_unknown(self, monkeypatch):
         """On UNKNOWN (probe failed / unsupported platform), the helper
-        returns False — defer to the runtime PortAudio-open
+        returns False, defer to the runtime PortAudio-open
         re-classification path in the recorder."""
         from voice_typer.server import permissions
 
@@ -152,7 +152,7 @@ class TestPermissionRevokedDetection:
 
     def test_does_not_fire_when_recording_stopped(self, monkeypatch):
         """If the user already stopped the recording before the probe
-        fired, the helper must NOT schedule the handler — there's
+        fired, the helper must NOT schedule the handler, there's
         nothing to revoke."""
         from voice_typer.server import permissions
 
@@ -211,7 +211,7 @@ class TestPermissionRevokedHandlerCallback:
         )
         dm._check_microphone_permission_revoked()
 
-        # The handler was spawned via _spawn_device_thread — extract
+        # The handler was spawned via _spawn_device_thread, extract
         # the target and invoke it directly (the production code
         # spawns it on a daemon thread; we test the target itself).
         call_kwargs = dm.recorder._spawn_device_thread.call_args.kwargs
@@ -304,7 +304,7 @@ class TestHealthCheckerLoopPeriodicProbe:
         # so the loop body executes once, then exits.
         dm._device_health_stop_event.set()
         # ``wait(timeout=0.01)`` returns True immediately because the
-        # event is set — the loop body does NOT run. To exercise the
+        # event is set, the loop body does NOT run. To exercise the
         # loop body, we need the event NOT set, then set it after a
         # short delay.
         dm._device_health_stop_event = threading.Event()
@@ -335,7 +335,7 @@ class TestHealthCheckerLoopPeriodicProbe:
         (counter goes 0→1, below the threshold of 2).
 
         To guarantee only ONE wake fires before the stop event, we
-        use a long wake interval (0.5s) — the loop is sleeping in
+        use a long wake interval (0.5s), the loop is sleeping in
         ``Event.wait(0.5)`` when the stop event arrives (~0.05s
         later), so it wakes-on-stop and exits without a second wake.
         With the original 0.01s wake interval + 0.05s stop delay,

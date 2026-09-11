@@ -1,9 +1,9 @@
-; Voice Typer — NSIS uninstaller customization (CR-69 + CR-70).
+; Voice Typer. NSIS uninstaller customization (CR-69 + CR-70).
 ;
 ; This file is `!include`d by electron-builder's generated installer.nsi
 ; (via the `nsis.include` config option in electron-builder.yml) AND by
 ; Tauri v2's NSIS bundler (src-tauri/tauri.conf.json ->
-; bundle.windows.nsis.installerHooks — must be an .nsh here, NOT the
+; bundle.windows.nsis.installerHooks, must be an .nsh here, NOT the
 ; .bat: NSIS cannot `!include` a batch file). It defines the
 ; `customUnInstall` macro that NSIS runs during the uninstall phase,
 ; AFTER the main app files are removed but BEFORE the installer exits.
@@ -14,7 +14,7 @@
 ;          current canonical names starting with "com.voicetyper" (the
 ;          per-user autostart entry written by
 ;          autostart_windows._register_app_autostart_runkey when the
-;          user enables autostart in Settings — format
+;          user enables autostart in Settings, format
 ;          `com.voicetyper.autostart_<8char-hash>`, reverse-DNS
 ;          namespace) AND the pre-rename bare names starting with
 ;          "VoiceTyper" (format `VoiceTyper_<8char-hash>`, e.g.
@@ -23,7 +23,7 @@
 ;          different hashes) are also cleaned up.
 ;
 ;          Also runs `schtasks /delete /tn "VoiceTyperAutostart*" /f`
-;          for each matching Task Scheduler task — the fallback autostart
+;          for each matching Task Scheduler task, the fallback autostart
 ;          mechanism when the Run key fails. The Task Scheduler task
 ;          name format is `com.voicetyper.autostart_<8char-hash>`
 ;          (pre-rename: `VoiceTyperAutostart_<8char-hash>`). We use
@@ -39,11 +39,11 @@
 ;          but we keep the explicit RMDir here as a belt-and-suspenders
 ;          guarantee (the appName may be renamed via `productName` while
 ;          our Python backend hardcodes `voice-typer` as the data dir
-;          name — see voice_typer/server/_paths.py).
+;          name: see voice_typer/server/_paths.py).
 ;
 ; HuggingFace cache (CR-70): the HF cache lives at
 ; %USERPROFILE%\.cache\huggingface on Windows. It can grow to multiple
-; GB. We do NOT remove it by default — the user may want to reuse it
+; GB. We do NOT remove it by default, the user may want to reuse it
 ; for other HF-based apps. To remove it manually:
 ;     rmdir /s /q "%USERPROFILE%\.cache\huggingface"
 ;
@@ -94,7 +94,7 @@
     StrCmp $2 "com.voicetyper" 0 try_legacy_prefix
       DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" $1
       DetailPrint "[voice-typer-uninstall] Removed HKCU Run key: $1"
-      ; Don't increment — re-read same index (next value shifted in).
+      ; Don't increment, re-read same index (next value shifted in).
       Goto enum_loop
     ; Copy first 10 chars of $1 into $2 and compare to "VoiceTyper"
     ; (pre-rename bare scheme).
@@ -103,7 +103,7 @@
     StrCmp $2 "VoiceTyper" 0 next_value
       DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" $1
       DetailPrint "[voice-typer-uninstall] Removed HKCU Run key: $1"
-      ; Don't increment — re-read same index (next value shifted in).
+      ; Don't increment, re-read same index (next value shifted in).
       Goto enum_loop
     next_value:
       IntOp $0 $0 + 1
@@ -119,7 +119,7 @@
   ; Get-ScheduledTask (which DOES support wildcards in -TaskName) to
   ; enumerate matching tasks, then call schtasks /Delete for each.
   ; Best-effort: failures (no matching task, PowerShell disabled, etc.)
-  ; are non-fatal — the Pop discards the exit code.
+  ; are non-fatal, the Pop discards the exit code.
   ;
   ; Sweep widened from `VoiceTyperAutostart*` to `VoiceTyper*` so it ALSO
   ; catches the prewarm task `VoiceTyperPrewarm` (registered by
@@ -134,7 +134,7 @@
   ; around the task name so schtasks handles names with spaces correctly
   ; (unlikely for "com.voicetyper.autostart_<hash>" but defensive).
   nsExec::ExecToLog 'powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "Get-ScheduledTask -TaskName $\'VoiceTyper*$\',$\'com.voicetyper*$\' -ErrorAction SilentlyContinue | ForEach-Object { schtasks.exe /Delete /TN $\"$($_.TaskName)$\" /F }"'
-  Pop $0  ; exit code — best-effort, discard
+  Pop $0  ; exit code, best-effort, discard
 
   ; Belt-and-suspenders: explicit delete of the prewarm task name in case
   ; the wildcard sweep above missed it (e.g. PowerShell Get-ScheduledTask
@@ -143,9 +143,9 @@
   ; exit code). Deletes both the current canonical name and the
   ; pre-rename legacy name.
   nsExec::ExecToLog 'schtasks.exe /Delete /TN "com.voicetyper.prewarm" /F'
-  Pop $0  ; exit code — best-effort, discard
+  Pop $0  ; exit code, best-effort, discard
   nsExec::ExecToLog 'schtasks.exe /Delete /TN "VoiceTyperPrewarm" /F'
-  Pop $0  ; exit code — best-effort, discard
+  Pop $0  ; exit code, best-effort, discard
 
   ; ─── CR-70: per-user data directory cleanup ────────────────────────
   ; Belt-and-suspenders: deleteAppDataOnUninstall: true in the nsis:

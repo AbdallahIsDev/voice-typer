@@ -1,13 +1,13 @@
 """TCP accept-loop worker-pool tests split out of ``tests/test_security_fixes.py``.
 
-Domain: SEC-8 — the TCP accept loop must dispatch connections to a
+Domain: SEC-8, the TCP accept loop must dispatch connections to a
 worker pool IMMEDIATELY after ``accept()`` so a slow-auth client
 cannot stall the accept loop. Pre-fix ``_handle_tcp_connection`` ran
 INLINE on the accept-loop thread; post-fix it's submitted to
 ``self._tcp_worker_pool``.
 
 Class/method names + assertions are preserved verbatim from the
-original monolith — only file location has changed. The ``sec8_server``
+original monolith, only file location has changed. The ``sec8_server``
 fixture (real IPCServer on an ephemeral port) is co-located here
 because it's only used by TestAcceptLoopWorkerPool.
 """
@@ -174,7 +174,7 @@ def sec8_server(tmp_path, monkeypatch):
 
     yield server, port, token, app
 
-    # Teardown — close everything to unblock the accept loop and worker
+    # Teardown, close everything to unblock the accept loop and worker
     # pool. We don't call server.stop() because it also tries to join
     # the stdin thread (which we never started).
     server._running = False
@@ -220,7 +220,7 @@ class TestAcceptLoopWorkerPool:
         client's auth + dispatch completes in well under 5 seconds.
 
         We assert the fast client receives a get_status response
-        within 3 seconds of connecting — well under the 5s auth
+        within 3 seconds of connecting, well under the 5s auth
         timeout the slow client is holding. Pre-fix, this test would
         fail because the fast client's accept() would be delayed by
         ~5s.
@@ -263,7 +263,7 @@ class TestAcceptLoopWorkerPool:
             elapsed = time.monotonic() - start
             pytest.fail(
                 f"fast client did not receive a response within 3.0s of "
-                f"sending get_status ({elapsed:.2f}s elapsed) — "
+                f"sending get_status ({elapsed:.2f}s elapsed), "
                 f"the slow-auth client likely blocked the accept loop "
                 f"(SEC-8 regression): {exc!r}"
             )
@@ -281,11 +281,11 @@ class TestAcceptLoopWorkerPool:
         #    under the 5s auth timeout. Pre-fix, the response would
         #    have taken ~5s (slow client's auth timeout) plus the
         #    fast client's own dispatch time. We use 3.5s as the
-        #    threshold — generous enough to absorb CI jitter, tight
+        #    threshold, generous enough to absorb CI jitter, tight
         #    enough to fail clearly if the slow client blocks the
         #    accept loop.
         assert elapsed < 3.5, (
-            f"fast client took {elapsed:.2f}s to get a response — "
+            f"fast client took {elapsed:.2f}s to get a response, "
             f"the slow-auth client likely blocked the accept loop "
             f"(SEC-8 regression). Expected < 3.5s."
         )
@@ -335,11 +335,11 @@ class TestAcceptLoopWorkerPool:
         # _run_tcp_handler_safely (which is the worker's entrypoint),
         # but the accept loop body itself must not call it directly.
         # Look for the call pattern `self._handle_tcp_connection(conn,`
-        # — that's the inline form. The worker-pool form is
+        # , that's the inline form. The worker-pool form is
         # `pool.submit(self._run_tcp_handler_safely, conn, ...)`.
         assert "self._handle_tcp_connection(conn," not in code_only, (
             "_accept_tcp must NOT call self._handle_tcp_connection "
-            "inline — that's the pre-SEC-8 pattern that allows a "
+            "inline, that's the pre-SEC-8 pattern that allows a "
             "slow-auth client to stall the accept loop. Use "
             "pool.submit(self._run_tcp_handler_safely, ...) instead."
         )
@@ -360,7 +360,7 @@ class TestAcceptLoopWorkerPool:
         With the SEC-8 worker-pool fix, multiple handlers can run
         concurrently. If a second client authenticates while the first
         is still in its dispatch loop, ``self._tcp_client`` is
-        reassigned to the new client — iterating ``self._tcp_client``
+        reassigned to the new client, iterating ``self._tcp_client``
         directly would read from the WRONG socket. The local
         ``client = auth_client`` capture (and the finally-block
         ``if self._tcp_client is client`` guard) prevents this.

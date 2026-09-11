@@ -118,7 +118,7 @@ afterEach(() => {
 	vi.clearAllMocks();
 });
 
-describe("useModelConfig — loadConfig (parallelized fetch)", () => {
+describe("useModelConfig, loadConfig (parallelized fetch)", () => {
 	it("fires get_config + get_model_status + get_model_catalog in parallel via Promise.allSettled", async () => {
 		const cfg = makeConfig({ model_size: "tiny" });
 		callMock.mockImplementation((cmd: string) => {
@@ -184,7 +184,7 @@ describe("useModelConfig — loadConfig (parallelized fetch)", () => {
 		const args = makeHookArgs();
 		const { result } = renderHook(() => useModelConfig(args));
 
-		// The hook should not throw — the allSettled wrapper catches the
+		// The hook should not throw, the allSettled wrapper catches the
 		// rejection and logs it. markUpdated still fires in the finally block.
 		await waitFor(() => {
 			expect(args.markUpdated).toHaveBeenCalled();
@@ -256,7 +256,7 @@ describe("useModelConfig — loadConfig (parallelized fetch)", () => {
 	});
 });
 
-describe("useModelConfig — config drift detection (config_changed event)", () => {
+describe("useModelConfig, config drift detection (config_changed event)", () => {
 	it("merges a partial config_changed payload into the cached config + reapplies active state", async () => {
 		const initial = makeConfig({ model_size: "tiny", openai_api_key: "" });
 		callMock.mockImplementation((cmd: string) => {
@@ -287,7 +287,7 @@ describe("useModelConfig — config drift detection (config_changed event)", () 
 		// Config reflects the merged partial (no re-fetch).
 		expect(result.current.config?.model_size).toBe("large-v3-turbo");
 		expect(result.current.config?.openai_api_key).toBe("sk-new");
-		// Untouched fields preserved (drift detection — not a clobber).
+		// Untouched fields preserved (drift detection, not a clobber).
 		expect(result.current.config?.language).toBe("en");
 	});
 
@@ -308,7 +308,7 @@ describe("useModelConfig — config drift detection (config_changed event)", () 
 		const args = makeHookArgs();
 		const { result } = renderHook(() => useModelConfig(args));
 
-		// Fire config_changed BEFORE get_config resolves — cachedConfigRef is null.
+		// Fire config_changed BEFORE get_config resolves, cachedConfigRef is null.
 		const handler = getConfigChangedHandler();
 		expect(handler).toBeDefined();
 
@@ -319,7 +319,7 @@ describe("useModelConfig — config drift detection (config_changed event)", () 
 		// Config is still null (the merge bailed because cachedConfigRef was null).
 		expect(result.current.config).toBeNull();
 
-		// Now resolve get_config — the initial config lands.
+		// Now resolve get_config, the initial config lands.
 		await act(async () => {
 			resolveGetConfig(makeConfig({ model_size: "tiny" }));
 		});
@@ -328,7 +328,7 @@ describe("useModelConfig — config drift detection (config_changed event)", () 
 		});
 	});
 });
-describe("useModelConfig — refreshModelStatus helper", () => {
+describe("useModelConfig, refreshModelStatus helper", () => {
 	it("invokes get_model_status + reconciles downloaded/depsOk on the local model list", async () => {
 		const initial = makeConfig({ model_size: "tiny" });
 		callMock.mockImplementation((cmd: string) => {
@@ -371,7 +371,7 @@ describe("useModelConfig — refreshModelStatus helper", () => {
 	it("does NOT force the active model to downloaded when the backend reports it missing ( STALE-ACTIVE regression)", async () => {
 		// Config says small.en is the active model, but the backend
 		// (which stats the actual filesystem) reports it as NOT
-		// downloaded — the model was removed out-of-band. The hook must
+		// downloaded, the model was removed out-of-band. The hook must
 		// preserve that truth so the card can offer a restore/clear
 		// affordance instead of a dead-end disabled "Active" tick.
 		const initial = makeConfig({ model_size: "tiny" });
@@ -422,7 +422,7 @@ describe("useModelConfig — refreshModelStatus helper", () => {
 	});
 });
 
-describe("useModelConfig — removed refresh surface", () => {
+describe("useModelConfig, removed refresh surface", () => {
 	it("no longer exposes refreshing / handleManualRefresh (the refresh indicator is gone)", async () => {
 		callMock.mockImplementation((cmd: string) => {
 			if (cmd === "get_config")
@@ -452,7 +452,7 @@ describe("useModelConfig — removed refresh surface", () => {
 	});
 });
 
-describe("useModelConfig — updateConfig re-throws on error", () => {
+describe("useModelConfig, updateConfig re-throws on error", () => {
 	it("re-throws the underlying error so callers can branch success vs. failure", async () => {
 		callMock.mockImplementation((cmd: string) => {
 			if (cmd === "get_config") return Promise.resolve(makeConfig());

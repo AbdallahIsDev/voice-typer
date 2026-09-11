@@ -3,7 +3,7 @@
  *
  * Sidebar renders the primary navigation: 9 nav items (Home, History,
  * Analytics, Templates, Vocabulary, Models, Microphone, Settings,
- * About & Privacy — the former About and Privacy pages merged into ONE
+ * About & Privacy, the former About and Privacy pages merged into ONE
  * destination). The branding header + the ThemeSwitch moved OUT of
  * the sidebar (the theme control now lives in the TitleBar), so the
  * sidebar is nav-only.
@@ -38,7 +38,7 @@ import { Sidebar } from "@/components/layout/Sidebar";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
 // Sidebar renders real Radix Tooltips (via HotkeyTooltip on the nav
-// items), which REQUIRE a TooltipProvider ancestor — the app shell
+// items), which REQUIRE a TooltipProvider ancestor, the app shell
 // provides one (App.tsx:475). Same props as App.tsx so tooltip timing
 // in tests mirrors production.
 function renderWithProviders(ui: React.ReactElement) {
@@ -120,7 +120,7 @@ describe("Sidebar", () => {
 
 	it("renders NO branding header (no logo, no app-name text in the sidebar)", () => {
 		const { container } = renderWithProviders(<Sidebar {...baseProps} />);
-		// The logo/title header block was removed from the sidebar — the
+		// The logo/title header block was removed from the sidebar, the
 		// nav is the sidebar's only content now.
 		const nav = screen.getByRole("navigation", { name: "Main navigation" });
 		expect(nav).toBeTruthy();

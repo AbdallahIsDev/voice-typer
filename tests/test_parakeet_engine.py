@@ -5,22 +5,22 @@ engine's behavior under the ``onnx_asr.load_model`` backend. Engine-class
 behavior (load, transcribe, fallback, abort, integrity) is now covered
 by the focused ONNX test files:
 
-- ``tests/test_parakeet_onnx_load.py`` — load + is_available + providers
-- ``tests/test_parakeet_onnx_transcribe.py`` — parity + transcribe path
-- ``tests/test_parakeet_onnx_abort.py`` — inter-chunk abort contract
-- ``tests/test_parakeet_onnx_gpu_fallback.py`` — CUDA→CPU session recreation
-- ``tests/test_parakeet_onnx_sha.py`` — manifest + integrity allowlist
-- ``tests/test_parakeet_cpu_abort.py`` — CPU-fallback abort gate guards
-- ``tests/test_parakeet_warmup.py`` — warmup-removed regression guard
+- ``tests/test_parakeet_onnx_load.py``, load + is_available + providers
+- ``tests/test_parakeet_onnx_transcribe.py``, parity + transcribe path
+- ``tests/test_parakeet_onnx_abort.py``, inter-chunk abort contract
+- ``tests/test_parakeet_onnx_gpu_fallback.py``, CUDA→CPU session recreation
+- ``tests/test_parakeet_onnx_sha.py``, manifest + integrity allowlist
+- ``tests/test_parakeet_cpu_abort.py``, CPU-fallback abort gate guards
+- ``tests/test_parakeet_warmup.py``, warmup-removed regression guard
 
 This file pins the module-level helper functions re-exported by
 ``parakeet_engine`` (the canonical home is ``asr_utils.py`` per §5.3/§5.4):
 
-- ``_is_likely_english`` / ``_is_latin_char`` — language-hallucination filter
-- ``_merge_chunks`` / ``_compute_overlap_skip`` — overlap-dedup chunk merge
-- ``_split_audio`` — chunk-splitting delegate (asr_utils.split_audio)
-- ``ParakeetEngine.unload`` — model memory release (not covered elsewhere)
-- ``ParakeetEngine.__init__`` — config + state setup (not covered elsewhere)
+- ``_is_likely_english`` / ``_is_latin_char``, language-hallucination filter
+- ``_merge_chunks`` / ``_compute_overlap_skip``, overlap-dedup chunk merge
+- ``_split_audio``, chunk-splitting delegate (asr_utils.split_audio)
+- ``ParakeetEngine.unload``, model memory release (not covered elsewhere)
+- ``ParakeetEngine.__init__``, config + state setup (not covered elsewhere)
 """
 
 from __future__ import annotations
@@ -122,7 +122,7 @@ class TestParakeetEngineInit:
     def test_init_default_batch_size_is_two(self):
         """``_INFERENCE_BATCH_SIZE`` default is 2 (kept for backward
         compat with pre-migration tests even though the ONNX backend
-        doesn't batch — ``onnx_asr.recognize`` processes one audio at
+        doesn't batch: ``onnx_asr.recognize`` processes one audio at
         a time)."""
         engine = _make_engine()
         assert engine._INFERENCE_BATCH_SIZE == 2
@@ -145,7 +145,7 @@ class TestParakeetEngineInit:
 
     def test_is_loaded_true_when_model_set(self):
         """ONNX engine: ``is_loaded`` checks ``_model`` only (no
-        separate processor needed — ``onnx_asr.load_model`` bundles them)."""
+        separate processor needed: ``onnx_asr.load_model`` bundles them)."""
         engine = _make_engine()
         engine._model = MagicMock()
         assert engine.is_loaded is True
@@ -223,7 +223,7 @@ class TestIsLatinChar:
     def test_whitespace_is_latin(self):
         from voice_typer.server.parakeet_engine import _is_latin_char
 
-        # Unicode category "Z*" (Separator) — space is Zs, treated as Latin.
+        # Unicode category "Z*" (Separator), space is Zs, treated as Latin.
         assert _is_latin_char(" ") is True
 
     def test_punctuation_is_latin(self):
@@ -265,7 +265,7 @@ class TestParakeetEngineUnload:
 
     def test_unload_runs_gc(self):
         """``unload()`` must run ``gc.collect()`` AFTER nulling the model
-        (OUTSIDE the lock — see the docstring) so the ORT session is
+        (OUTSIDE the lock: see the docstring) so the ORT session is
         eligible for immediate destruction."""
         engine = _make_engine()
         engine._model = MagicMock()
@@ -280,7 +280,7 @@ class TestParakeetEngineUnload:
 
     def test_unload_when_already_unloaded_is_noop(self):
         """Calling ``unload()`` when the model is already None must not
-        raise (idempotent contract — callers like ``transcribe_with_fallback``
+        raise (idempotent contract, callers like ``transcribe_with_fallback``
         may unload twice in error paths)."""
         engine = _make_engine()
         assert engine._model is None

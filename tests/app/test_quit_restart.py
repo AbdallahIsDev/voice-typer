@@ -1,7 +1,7 @@
 """split from tests/test_app.py.
 
 All heavy dependencies are mocked via the project-wide ``mock_heavy_imports``
-autouse fixture (in ``tests/conftest.py``) — CR-60 hoisted the
+autouse fixture (in ``tests/conftest.py``), CR-60 hoisted the
 ``force_pynput_hotkey_backend`` patch from the old local fixture into
 that project-wide fixture, so test modules no longer need a local
 override.
@@ -43,7 +43,7 @@ class TestQuitAppCleanShutdown:
     """RELIABILITY-001: ``quit_app`` must NOT use ``os._exit(0)``.
     It should delegate to the audited ``self.quit()`` cleanup path so
     that Python atexit handlers, ``__del__`` methods, and ``finally``
-    blocks run — releasing the Win32 mutex, closing PortAudio streams,
+    blocks run, releasing the Win32 mutex, closing PortAudio streams,
     and unregistering hotkeys.
     """
 
@@ -87,7 +87,7 @@ class TestQuitAppCleanShutdown:
             raise SystemExit(0)
 
         monkeypatch.setattr(app, "quit", fake_quit)
-        # Stub the side-effect that runs before quit() — push_event
+        # Stub the side-effect that runs before quit(), push_event
         # goes over IPC and is not relevant to this unit test.
         # B-1: production code now calls event_bus.publish directly.
         monkeypatch.setattr(
@@ -160,7 +160,7 @@ class TestQuitAppCleanShutdown:
 class TestRestartAppCleanShutdown:
     """RELIABILITY-001: ``restart_app`` must NOT use ``os._exit(0)``.
     After spawning the new subprocess, it should stop backends
-    (including esc_backend and repaste_backend — RELIABILITY-003) and
+    (including esc_backend and repaste_backend, RELIABILITY-003) and
     exit via ``sys.exit(0)`` so Python cleanup runs in the old
     process."""
 
@@ -196,7 +196,7 @@ class TestRestartAppCleanShutdown:
         # Belt-and-suspenders: don't let os._exit kill the pytest process.
         monkeypatch.setattr("os._exit", lambda code: None)
         # shutdown_controller now nulls the backend attrs after
-        # stop() — capture mocks in locals so assertions still work.
+        # stop(), capture mocks in locals so assertions still work.
         hotkey_backend = MagicMock()
         esc_backend = MagicMock()
         repaste_backend = MagicMock()
@@ -275,7 +275,7 @@ class TestRestartAppCleanupPath:
 
     def test_restart_stops_all_backends(self, app, monkeypatch):
         """restart_app must stop _hotkey_backend, _esc_backend, and
-        _repaste_backend — not just _hotkey_backend."""
+        _repaste_backend, not just _hotkey_backend."""
         import subprocess as _sp
 
         monkeypatch.setattr(_sp, "Popen", lambda *a, **kw: MagicMock())
@@ -285,7 +285,7 @@ class TestRestartAppCleanupPath:
         monkeypatch.setattr("os._exit", lambda code: None)
         monkeypatch.setattr("sys.exit", lambda code=0: (_ for _ in ()).throw(SystemExit(code)))
         # shutdown_controller now nulls the backend attrs after
-        # stop() — capture mocks in locals so assertions still work.
+        # stop(), capture mocks in locals so assertions still work.
         hotkey_backend = MagicMock()
         esc_backend = MagicMock()
         repaste_backend = MagicMock()
@@ -415,7 +415,7 @@ class TestAppQuitAppAlwaysPushesEvent:
         app._shutting_down = True
         # the re-entry guard now reads _shutting_down_event.is_set()
         # instead of the plain boolean.  Set the Event too so the guard
-        # triggers (mirrors production — quit() / restart_app() set both).
+        # triggers (mirrors production, quit() / restart_app() set both).
         app._shutting_down_event.set()
 
         app.quit_app()
@@ -474,7 +474,7 @@ class TestSingleInstanceEnforcement:
     """TEST-037: verify VoiceTyperApp is only instantiated once per
     process. The audit claimed ``VoiceTyperApp()`` was called twice in
     startup code; investigation shows it's called exactly once (in
-    ``ipc/entrypoint.main()`` — ``main()`` was extracted from the
+    ``ipc/entrypoint.main()``: ``main()`` was extracted from the
     top-level ``ipc_server.py`` into the ``ipc`` package). This test
     enforces that invariant so a future refactor doesn't accidentally
     introduce a double-instantiation bug.

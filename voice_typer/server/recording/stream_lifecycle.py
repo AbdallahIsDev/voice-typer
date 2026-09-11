@@ -1,6 +1,6 @@
 """PortAudio stream open/teardown for :class:`Recorder` (extracted from ``recorder.py``).
 
-Phase 4.5 — extracted from :mod:`.recorder` to shrink the
+Phase 4.5, extracted from :mod:`.recorder` to shrink the
 3772-LOC ``recorder.py`` god class (see  in ``review.md``).
 Owns the stream-open candidate-iteration loop, the all-devices
 fallback loop, the PortAudio callback closure construction, and the
@@ -13,17 +13,17 @@ back-reference to the owning ``Recorder`` instance
 (``StreamLifecycle(recorder)``). The collaborator reference is used to
 access *shared* state that lives on ``Recorder`` and is NOT moved here:
 
-- ``self._stream`` — the PortAudio InputStream (owned by THIS
-  lifecycle — STATE-OWNERSHIP; the recorder-level slot was removed)
-- ``self._recorder.config`` — for ``microphone`` / ``sample_rate``
+- ``self._stream``: the PortAudio InputStream (owned by THIS
+  lifecycle, STATE-OWNERSHIP; the recorder-level slot was removed)
+- ``self._recorder.config``: for ``microphone`` / ``sample_rate``
 - ``self._recorder._effective_sr`` / ``_actual_channels`` /
-  ``_buffer_sr`` — sample-rate tracking
-- ``self._recorder._audio_processor`` — filter chain (for set_sample_rate)
-- ``self._recorder._classify_portaudio_open_error`` — error classifier
-- ``self._recorder._devices._resolve_effective_sample_rate`` — sample-rate resolver (DeviceManager)
-- ``self._recorder._devices._all_input_device_candidates`` — last-resort device list (DeviceManager)
-- ``self._recorder._recording_event`` — recording gate
-- ``self._recorder._audio_callback_dispatch`` — the real-time callback (delegates to AudioCallbackDispatcher)
+  ``_buffer_sr``: sample-rate tracking
+- ``self._recorder._audio_processor``: filter chain (for set_sample_rate)
+- ``self._recorder._classify_portaudio_open_error``, error classifier
+- ``self._recorder._devices._resolve_effective_sample_rate``, sample-rate resolver (DeviceManager)
+- ``self._recorder._devices._all_input_device_candidates``, last-resort device list (DeviceManager)
+- ``self._recorder._recording_event``: recording gate
+- ``self._recorder._audio_callback_dispatch``: the real-time callback (delegates to AudioCallbackDispatcher)
 - ... and any other state referenced in the extracted bodies
 
 Patch-path compatibility
@@ -31,7 +31,7 @@ Patch-path compatibility
 Tests use ``monkeypatch.setattr(recording.sd, "InputStream", fake)`` and
 similar to inject fake sounddevice behavior. The lazy ``sd`` proxy
 re-resolves ``sys.modules`` on every access, so the patch propagates
-here automatically — no ``_recording_pkg.sd`` indirection needed.
+here automatically, no ``_recording_pkg.sd`` indirection needed.
 """
 
 from __future__ import annotations
@@ -49,7 +49,7 @@ from voice_typer.server._audio_constants import (
 )
 from voice_typer.server._lazy_import import lazy_module
 
-# PERF-COLDSTART-001: lazy import — sounddevice loads the PortAudio C
+# PERF-COLDSTART-001: lazy import, sounddevice loads the PortAudio C
 # library at import time. The lazy proxy re-resolves ``sys.modules`` on
 # every attribute access, so test patches of the form
 # ``monkeypatch.setattr(recording.sd, "InputStream", fake)`` propagate
@@ -68,7 +68,7 @@ if TYPE_CHECKING:
 class StreamLifecycle:
     """PortAudio stream open/teardown for :class:`Recorder`.
 
-    Phase 4.5 — extracted from :mod:`.recorder`. See the module
+    Phase 4.5, extracted from :mod:`.recorder`. See the module
         docstring for the collaborator-pattern rationale.
     """
 
@@ -136,11 +136,11 @@ class StreamLifecycle:
                 # If config.recording_channels > 0, use that value
                 # instead of auto-detecting (allows user override).
                 # recording_channels is a Config dataclass field
-                # (default 1) — always present on a real Config instance,
+                # (default 1), always present on a real Config instance,
                 # so the getattr fallback could never fire. The ``or 1``
                 # guard is preserved because recording_channels=0 is an
                 # invalid misconfig that would produce a zero-channel
-                # stream — defensive against misconfig, not missing attr.
+                # stream, defensive against misconfig, not missing attr.
                 config_channels = int(recorder.config.recording_channels or 1)
                 channels = config_channels if config_channels > 0 else 1
                 try:
@@ -163,7 +163,7 @@ class StreamLifecycle:
                     # Channel probe failure falls back to the device default;
                     # log so a device that keeps failing here is diagnosable.
                     log.debug(
-                        "[RECORDING] channel probe failed for device %r — using default channel count",
+                        "[RECORDING] channel probe failed for device %r, using default channel count",
                         candidate,
                         exc_info=True,
                     )
@@ -179,7 +179,7 @@ class StreamLifecycle:
                     # the Silero VAD window (1536 @ 48 kHz, 1411 @ 44.1 kHz;
                     # the 512 floor keeps the contract on low-rate devices).
                     # A fixed 512 block at native 48 kHz produced 10.7 ms
-                    # chunks (~93.75 callbacks/sec) — ~3× the designed
+                    # chunks (~93.75 callbacks/sec), ~3× the designed
                     # worker/VAD cadence, with VAD hysteresis frame counts
                     # running ~3× faster than documented. PortAudio
                     # may still deliver a different size on some drivers,
@@ -205,7 +205,7 @@ class StreamLifecycle:
                     if actual_sr in SILERO_VAD_SAMPLE_RATES and actual_sr != candidate_sr:
                         # AUDIO-BT: detecting a Bluetooth HFP (hands-free
                         # telephony) profile is EXPECTED behaviour for a BT
-                        # headset — it is not a fault or misconfiguration.
+                        # headset, it is not a fault or misconfiguration.
                         # Demoted from WARNING to INFO so the default log
                         # isn't littered with a non-error on every BT mic
                         # connection.
@@ -218,7 +218,7 @@ class StreamLifecycle:
                             candidate_sr,
                         )
                 except Exception:
-                    # BT quality detection is advisory only — but a persistent
+                    # BT quality detection is advisory only, but a persistent
                     # probe failure should still leave a trail.
                     log.debug("[RECORDING] Bluetooth HFP profile probe failed", exc_info=True)
 
@@ -268,7 +268,7 @@ class StreamLifecycle:
         ``recorder._effective_sr`` is updated under the lock.
         ``used_fallback`` is ``True`` if a fallback device opened
         successfully, ``False`` otherwise (so the caller can distinguish
-        the primary-success and fallback-success cases — only the
+        the primary-success and fallback-success cases, only the
         fallback-success case persists the new device index to config).
         """
         selected_device: Any = None
@@ -298,7 +298,7 @@ class StreamLifecycle:
             try:
                 # AUDIO-CH: also query channels for fallback devices.
                 # PERF: use the cached lookup (same rationale as the
-                # primary candidate loop above) — the fallback path
+                # primary candidate loop above), the fallback path
                 # iterates ALL input devices, so per-candidate RPC
                 # savings compound quickly here.
                 fb_channels = 1
@@ -308,9 +308,9 @@ class StreamLifecycle:
                         fb_channels = 2
                 except Exception:
                     # Same channel-probe failure contract as the primary
-                    # candidate loop above — fall back to mono, leave a trail.
+                    # candidate loop above, fall back to mono, leave a trail.
                     log.debug(
-                        "[RECORDING] channel probe failed for fallback device %r — using mono",
+                        "[RECORDING] channel probe failed for fallback device %r, using mono",
                         candidate,
                         exc_info=True,
                     )
@@ -356,7 +356,7 @@ class StreamLifecycle:
             # may return None when PortAudio can't enumerate the
             # device. The earlier ``if dev_info_extra:`` gate
             # protects the first access (logging at line ~1505),
-            # but this post-success log was unguarded — calling
+            # but this post-success log was unguarded, calling
             # ``["name"]`` on None would raise ``TypeError`` here
             # after a *successful* stream open. Fall back to a
             # placeholder so the log line still fires.
@@ -387,8 +387,8 @@ class StreamLifecycle:
                 ``AudioCallbackDispatcher.audio_worker_loop`` /
                 ``AudioPipeline.process_audio_chunk`` for the full architecture.
 
-                The closure captures ``recorder`` only — no other start()-locals
-                — so it is safe to extract from ``start()`` into a helper that
+                The closure captures ``recorder`` only, no other start()-locals
+               , so it is safe to extract from ``start()`` into a helper that
                 returns the closure. ``recorder._current_callback`` is set here
                 so :meth:`Recorder._handle_device_disconnect` can re-bind the
                 same callback when restarting the stream.
@@ -413,7 +413,7 @@ class StreamLifecycle:
 
     def teardown_stream_body(self, recorder: Any, *, force: bool = False) -> None:
         """Body of :meth:`Recorder._teardown_stream` (inside the
-                ``_stream_lifecycle_lock`` block — the lock acquisition stays on
+                ``_stream_lifecycle_lock`` block, the lock acquisition stays on
                 ``Recorder`` for source-inspection contracts).
 
                 Stop + close the PortAudio stream, draining any in-flight
@@ -422,7 +422,7 @@ class StreamLifecycle:
         17-H-: extracted from ``stop()`` so ``discard()`` shares the
                 same callback-drain contract. Without the poll, ``discard()``
                 could call ``stream.close()`` while the audio callback (firing
-                ~16×/s) was still running — risking use-after-free or deadlock
+                ~16×/s) was still running, risking use-after-free or deadlock
                 when ESC-cancel landed mid-callback.
 
                 Behavior:
@@ -443,12 +443,12 @@ class StreamLifecycle:
                 blocks indefinitely waiting for pending buffers that will
                 never drain. ``stream.abort()`` returns immediately
                 (PortAudio discards the buffers). Both ``abort()`` and
-                ``close()`` are best-effort on the force path — failures
+                ``close()`` are best-effort on the force path, failures
                 are suppressed so the disconnect-recovery critical path
                 can't be blocked by a stuck PortAudio stream, and
                 ``_stream`` is always cleared so the next ``start()``
                 opens a fresh stream. The CLEAN path (``force=False``,
-                the default — used by ``stop()`` / ``discard()`` /
+                the default, used by ``stop()`` / ``discard()`` /
                 ``__del__``) keeps ``stream.stop()`` + ``stream.close()``
                 with exception propagation for graceful drain.
 
@@ -467,7 +467,7 @@ class StreamLifecycle:
         if force:
             # Known-dead-device path (disconnect handler).
             # ``abort()`` returns immediately without waiting for
-            # pending buffers to drain — unlike ``stop()`` which blocks
+            # pending buffers to drain, unlike ``stop()`` which blocks
             # indefinitely on a dead device. Both ``abort()`` and
             # ``close()`` are best-effort here: the device is already
             # gone, so failures are suppressed to keep the recovery
@@ -494,7 +494,7 @@ class StreamLifecycle:
                 self._stream.close()
             self._stream = None
             return
-        # CLEAN path (stop from hotkey / discard / __del__) — graceful
+        # CLEAN path (stop from hotkey / discard / __del__), graceful
         # drain via ``stop()`` so pending buffers complete before
         # ``close()``. Exceptions from ``stop()`` / ``close()`` propagate
         # to the caller (``Recorder._teardown_stream`` → its ``finally``
@@ -512,7 +512,7 @@ class StreamLifecycle:
         #         break  # callback completed
         #
         # but ``threading.Event.wait(timeout)`` returns ``True`` when the
-        # flag is *set* — and the flag is set while the callback is
+        # flag is *set*, and the flag is set while the callback is
         # *running* (see lines 1082/1086: set on entry, clear on exit).
         # So the loop broke immediately when the callback WAS running
         # (defeating the safety guard) and blocked for the full
@@ -536,7 +536,7 @@ class StreamLifecycle:
         # The existing ``while`` loop already short-circuits on the
         # first iteration (``is_set()`` returns False → body never
         # runs), but the explicit ``if`` guard also skips the
-        # ``time.perf_counter()`` call + deadline arithmetic — a tiny
+        # ``time.perf_counter()`` call + deadline arithmetic, a tiny
         # but non-zero saving on every stop() (the common case is that
         # the RT callback is ~10µs and has already returned by the time
         # teardown runs). On a healthy system the fast-path fires

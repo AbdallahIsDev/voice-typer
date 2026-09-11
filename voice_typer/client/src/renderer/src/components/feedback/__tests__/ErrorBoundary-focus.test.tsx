@@ -56,7 +56,7 @@ afterEach(() => {
 	shouldThrow = false;
 });
 
-describe("ErrorBoundary — focus management on trigger", () => {
+describe("ErrorBoundary, focus management on trigger", () => {
 	it("moves focus to the Reset settings button when a child throws", () => {
 		shouldThrow = true;
 		render(
@@ -75,7 +75,7 @@ describe("ErrorBoundary — focus management on trigger", () => {
 	});
 
 	it("does NOT render a reset button when the boundary has not triggered", () => {
-		// Render a non-throwing child — the boundary never enters the
+		// Render a non-throwing child, the boundary never enters the
 		// error state, so no fallback UI is rendered.
 		shouldThrow = false;
 		render(

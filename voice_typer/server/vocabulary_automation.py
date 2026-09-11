@@ -13,7 +13,7 @@ The class is *opt-in*: the dictation pipeline only calls
 Pipeline placement
 ------------------
 Analysis runs AFTER the transcription has been fully cleaned up,
-enhanced, polished, and is about to be pasted — so the suggested
+enhanced, polished, and is about to be pasted, so the suggested
 corrections target the final text the user sees, not a stale
 intermediate.  See ``DictationPipeline._analyze_vocabulary``.
 
@@ -52,7 +52,7 @@ from typing import TYPE_CHECKING, Any
 # amortizes the per-word strip+lower work.
 from voice_typer.server.text_cleanup import _token_key
 
-if TYPE_CHECKING:  # pragma: no cover — import only for type checkers
+if TYPE_CHECKING:  # pragma: no cover, import only for type checkers
     from voice_typer.server.vocabulary import VocabularyManager
 
 log = logging.getLogger(__name__)
@@ -128,14 +128,14 @@ def _levenshtein(a: str, b: str, *, max_distance: int | None = None) -> int:
     Uses the standard O(m·n) dynamic programming algorithm with a
     single-row rolling array.  When ``max_distance`` is provided and
     the distance exceeds it, the function returns ``max_distance + 1``
-    early — this is the "uR-l" / "bounded Levenshtein" optimization
+    early: this is the "uR-l" / "bounded Levenshtein" optimization
     that lets us short-circuit irrelevant comparisons without
     computing the full distance.
 
     Parameters
     ----------
     a, b : str
-        The strings to compare.  Case-sensitive — callers should
+        The strings to compare.  Case-sensitive, callers should
         normalize case before calling.
     max_distance : int, optional
         If provided and the distance exceeds this, return
@@ -162,7 +162,7 @@ def _levenshtein(a: str, b: str, *, max_distance: int | None = None) -> int:
 
     m, n = len(a), len(b)
     if max_distance is not None and abs(m - n) > max_distance:
-        # Length difference alone exceeds the bound — can't match.
+        # Length difference alone exceeds the bound, can't match.
         return max_distance + 1
 
     # Single-row rolling array.
@@ -241,7 +241,7 @@ def _collect_vocabulary_words(vm: VocabularyManager) -> set[str]:
 
 
 # Maximum Levenshtein distance we consider a "close match".  2 is
-# conservative — it catches single-character typos and most
+# conservative, it catches single-character typos and most
 # phonetic confusions (recieve → receive, definately → definitely)
 # without matching unrelated words.  We also require the lengths to
 # be within 1 of each other to avoid silly matches.
@@ -269,7 +269,7 @@ _MAX_CONTEXT_LENGTH = 80
 # unattended dictation session would grow the list without bound
 # (~50 suggestions / 5 min × 8h ≈ 4800 entries × ~200 bytes ≈ 1 MB).
 # When the cap is exceeded, the OLDEST pending suggestions are dropped
-# (they're the least likely to still be actionable — the user has had
+# (they're the least likely to still be actionable, the user has had
 # the most time to act on them and hasn't).
 MAX_PENDING = 200
 
@@ -283,7 +283,7 @@ class VocabularyAutomation:
     ``timestamp`` field on each suggestion lets the UI sort by
     recency if desired.
 
-    The class is NOT thread-safe — the dictation pipeline runs on a
+    The class is NOT thread-safe, the dictation pipeline runs on a
     single background thread, and the IPC handlers run on the IPC
     thread.  We use a single ``threading.Lock`` around mutations to
     ``_pending`` so a user dismissing a suggestion while a new
@@ -317,7 +317,7 @@ class VocabularyAutomation:
         # Late import to avoid a circular import at module load time
         # (this module is imported by dictation_pipeline, which is
         # imported during app startup before threading is fully set
-        # up — but threading is always available, so the import is
+        # up, but threading is always available, so the import is
         # actually fine; we keep it lazy for symmetry with other
         # late imports in this codebase).
         import threading
@@ -344,7 +344,7 @@ class VocabularyAutomation:
             Each segment may be a dict with ``text`` / ``avg_logprob``
             keys, or an object with ``.text`` / ``.avg_logprob``
             attributes (faster-whisper's Segment namedtuple).  May
-            be empty — in that case we treat the whole text as one
+            be empty, in that case we treat the whole text as one
             segment with the given ``confidence``.
         confidence : float
             The overall transcription confidence, in [0.0, 1.0].
@@ -440,7 +440,7 @@ class VocabularyAutomation:
         for i, word in enumerate(words):
             # Strip punctuation for matching but keep the original
             # for display (memoized normalizer shared with
-            # text_cleanup — same strip+lower semantics).
+            # text_cleanup, same strip+lower semantics).
             clean = _token_key(word)
             if len(clean) < _MIN_WORD_LENGTH:
                 continue
@@ -459,7 +459,7 @@ class VocabularyAutomation:
                     _MAX_LEVENSHTEIN_DISTANCE,
                 )
                 if corrected is None:
-                    # No close match — the user will need to supply
+                    # No close match, the user will need to supply
                     # the correction themselves.  We still queue the
                     # suggestion so they know the word was flagged.
                     corrected = clean
@@ -515,7 +515,7 @@ class VocabularyAutomation:
             # ``MAX_PENDING`` entries).
             #
             # In normal operation ``_pending`` contains only "pending"
-            # (non-applied, non-dismissed) entries — ``apply_suggestion``
+            # (non-applied, non-dismissed) entries, ``apply_suggestion``
             # and ``dismiss_suggestion`` filter applied/dismissed entries
             # out at the time they're marked.  ``get_pending_suggestions``
             # ALSO filters at read time, so a transiently-present
@@ -523,7 +523,7 @@ class VocabularyAutomation:
             # suggestions`` calls ``apply_suggestion`` while we hold a
             # snapshot, but doesn't mutate ``_pending`` until
             # ``apply_suggestion`` itself acquires the lock) would be
-            # dropped here too, which is correct — it's no longer
+            # dropped here too, which is correct, it's no longer
             # actionable.
             if len(self._pending) > MAX_PENDING:
                 overflow = len(self._pending) - MAX_PENDING
@@ -583,14 +583,14 @@ class VocabularyAutomation:
 
         The lock-held contract lets ``auto_apply_high_confidence_suggestions``
         iterate the pending list and apply each qualifying suggestion
-        in one atomic pass — without re-acquiring the lock per item
+        in one atomic pass: without re-acquiring the lock per item
         (which would re-introduce the check-and-apply race between
         iterations).
         """
         if suggestion.applied or suggestion.dismissed:
             return False
         try:
-            # Add to misspellings — that's the most appropriate
+            # Add to misspellings, that's the most appropriate
             # category for "the ASR said X, the correct word is Y".
             # ``_vm.add_entry`` acquires its OWN (different) lock, so
             # holding ``self._lock`` here cannot deadlock.
@@ -632,7 +632,7 @@ class VocabularyAutomation:
         suggestion.  (Without the lock, two callers could both set
         ``dismissed``/``applied`` to True, leaving the suggestion in
         an inconsistent state and double-removing it from the
-        pending list — harmless for the list, but the ``applied``
+        pending list, harmless for the list, but the ``applied``
         side effect would still have run.)
 
         Parameters
@@ -740,7 +740,7 @@ def _get_segment_confidence(seg: Any, fallback: float) -> float:
     * A ``confidence`` field already in [0, 1] (Parakeet-style).
     * An ``avg_logprob`` field in roughly [-1, 0] (Whisper-style);
       we transform with ``exp(avg_logprob)``.
-    * Neither — return ``fallback``.
+    * Neither, return ``fallback``.
     """
     if isinstance(seg, dict):
         if "confidence" in seg:
@@ -803,7 +803,7 @@ def _find_closest_vocabulary_match(
 
     word_len = len(word)
 
-    # Build a fresh {length: [word, ...]} index on every call — the
+    # Build a fresh {length: [word, ...]} index on every call, the
     # vocabulary can change between dictations and the production
     # caller passes a new set each time, so a persistent cache would
     # never hit.  Preserve iteration order within each bucket so
@@ -832,7 +832,7 @@ def _find_closest_vocabulary_match(
                 best_distance = d
                 best_match = candidate
                 if d == 0:
-                    # Exact match — can't do better.
+                    # Exact match, can't do better.
                     return best_match
 
     return best_match if best_distance <= max_distance else None

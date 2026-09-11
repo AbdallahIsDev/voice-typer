@@ -1,6 +1,6 @@
 """Teardown helper for the level_monitor module's PortAudio stream.
 
-Phase 4.5 (OI-36) — extracted verbatim from
+Phase 4.5 (OI-36), extracted verbatim from
 :meth:`ShutdownController._teardown_level_monitor`. The body is unchanged;
 only the class boundary moved.
 """
@@ -32,7 +32,7 @@ def teardown_level_monitor(controller) -> None:
     PortAudio InputStream + worker thread as module-level globals
     that are NOT registered with ``app._thread_registry``. Without
     this call the stream + worker leak across restart_app().
-    Best-effort — stop_monitoring() is itself idempotent.
+    Best-effort, stop_monitoring() is itself idempotent.
     """
     try:
         from voice_typer.server import level_monitor

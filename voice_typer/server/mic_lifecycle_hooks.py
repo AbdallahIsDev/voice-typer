@@ -1,4 +1,4 @@
-"""Mic-watcher hooks — extracted from ``RecordingController`` (Phase 4.5 split).
+"""Mic-watcher hooks, extracted from ``RecordingController`` (Phase 4.5 split).
 
 Owns the active-mic-lost callback wiring + the OS-event-driven
 ``on_active_mic_lost`` / ``on_device_lost`` callbacks that fire when the
@@ -11,7 +11,7 @@ Collaborator pattern
 ``RecordingController.__init__`` with NO arguments (it is stateless).
 Each method takes a back-reference to the owning ``RecordingController``
 instance (``controller``) and accesses shared state that lives on the
-controller — ``controller._app`` (the VoiceTyperApp), the recorder's
+controller, ``controller._app`` (the VoiceTyperApp), the recorder's
 ``_mic_watcher`` attribute, etc.
 
 ``RecordingController`` keeps 1-line delegator methods
@@ -48,14 +48,14 @@ class MicLifecycleHooks:
     """
 
     def __init__(self) -> None:
-        # Stateless helper — all state lives on the controller.
+        # Stateless helper, all state lives on the controller.
         pass
 
     def wire(self, controller) -> None:
         """Register the active-mic-lost callback + device-id provider +
         ``on_device_lost`` callback on the recorder.
 
-        Idempotent — safe to call multiple times. The hooks are stored on
+        Idempotent, safe to call multiple times. The hooks are stored on
         the recorder's DeviceManager-owned ``_mic_watcher``
         (``recorder._devices._mic_watcher``) and on the recorder itself
         (``on_device_lost``). All assignments are best-effort and wrapped
@@ -170,7 +170,7 @@ class MicLifecycleHooks:
         The watcher fires this when it detects a device-list change AND
         the active mic_id (set in ``_start_impl``) is no longer in the
         freshly-queried device list. This is sub-second detection of
-        USB/BT unplug mid-recording — faster than the 1-2s zero-fill-
+        USB/BT unplug mid-recording, faster than the 1-2s zero-fill-
         chunk retry path in ``_handle_device_disconnect``.
 
         Now publishes the same ``microphone_disconnected`` IPC event as

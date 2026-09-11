@@ -9,7 +9,7 @@
  * `message: "respawn exhausted: <supervisorMessage>"`. The
  * `useConnection` `error` handler did
  * `data.message.includes("respawn exhausted")` to detect the
- * supervisor-exhausted condition — English-only substring matching
+ * supervisor-exhausted condition, English-only substring matching
  * that silently broke if either side drifted and leaked the raw
  * English phrase into all 8 locales.
  *
@@ -75,7 +75,7 @@ Object.defineProperty(window, "localStorage", {
 
 // Mock the i18n module so `useT()` returns a controllable `t` function.
 //The  fix routes the respawn-exhausted branch through
-// `t("connection.respawnFailed")` — the test asserts that key is
+// `t("connection.respawnFailed")`, the test asserts that key is
 // resolved (and that the raw supervisor message is NOT leaked to the
 // UI).
 vi.mock("@/i18n/i18n", () => ({
@@ -85,7 +85,7 @@ vi.mock("@/i18n/i18n", () => ({
 
 /**
  * Minimal harness that mirrors what App.tsx does for routing. We don't
- * care about navigation here — we just need `useConnection` mounted
+ * care about navigation here, we just need `useConnection` mounted
  * inside a React tree so the `usePythonEvent` subscriptions register.
  */
 function Harness() {
@@ -123,11 +123,11 @@ function dispatchEvent(eventType: string, data: unknown): void {
 	);
 }
 
-describe("ZU-17: useConnection error handler — typed respawn_exhausted code + localized message", () => {
+describe("ZU-17: useConnection error handler, typed respawn_exhausted code + localized message", () => {
 	beforeEach(() => {
 		resetStableMocks();
 		mockT.mockReset();
-		// `t` returns its key by default — the test asserts the
+		// `t` returns its key by default, the test asserts the
 		// `connection.respawnFailed` key was the one passed in.
 		mockT.mockImplementation((key: string) => key);
 		localStorage.clear();
@@ -171,12 +171,12 @@ describe("ZU-17: useConnection error handler — typed respawn_exhausted code + 
 		await act(async () => {
 			dispatchEvent("error", {
 				code: "respawn_exhausted",
-				message: "raw supervisor message — should NOT leak to UI",
+				message: "raw supervisor message, should NOT leak to UI",
 			});
 		});
 
 		// The localized `connection.respawnFailed` key MUST have
-		// been resolved through `t(...)` — proves the renderer
+		// been resolved through `t(...)`, proves the renderer
 		// surfaces the localized string instead of the raw
 		// English "respawn exhausted: ..." sentinel.
 		expect(mockT).toHaveBeenCalledWith("connection.respawnFailed");
@@ -187,7 +187,7 @@ describe("ZU-17: useConnection error handler — typed respawn_exhausted code + 
 		// `data.message.includes("respawn exhausted")`. Post-fix,
 		// the handler branches on `data.code === "respawn_exhausted"`
 		// and never inspects `message`. This test verifies the
-		// branch fires even when the message is EMPTY — the
+		// branch fires even when the message is EMPTY, the
 		// sentinel-removal contract.
 		mockCall.mockImplementation((type: string) => {
 			switch (type) {
@@ -208,7 +208,7 @@ describe("ZU-17: useConnection error handler — typed respawn_exhausted code + 
 		});
 
 		await act(async () => {
-			// Empty message — pre-fix code would NOT detect
+			// Empty message, pre-fix code would NOT detect
 			// this as a respawn-exhausted condition because
 			// `"".includes("respawn exhausted") === false`.
 			// Post-fix code detects it via the structured code.

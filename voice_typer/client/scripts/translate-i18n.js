@@ -92,7 +92,7 @@ const arMore = {
 		"إذا قمت بتكوين مفتاح API لـ OpenAI/Groq/Deepgram، يتم إرسال الصوت إلى هذا المزود للنسخ. تنطبق سياسة خصوصية المزود على الصوت المرسل.",
 	"about.voiceBiometricsTitle": "القياسات الحيوية الصوتية.",
 	"about.voiceBiometricsDesc":
-		"قد تعتبر تسجيلاتك الصوتية بيانات بيومترية بموجب BIPA إلينوي والمادة 9 من اللائحة العامة لحماية البيانات. لا يقوم Voice Typer بتخزين الصوت الخام بعد اكتمال النسخ — فقط النص المنسوخ يتم الاحتفاظ به في قاعدة البيانات المحلية.",
+		"قد تعتبر تسجيلاتك الصوتية بيانات بيومترية بموجب BIPA إلينوي والمادة 9 من اللائحة العامة لحماية البيانات. لا يقوم Voice Typer بتخزين الصوت الخام بعد اكتمال النسخ, فقط النص المنسوخ يتم الاحتفاظ به في قاعدة البيانات المحلية.",
 	"about.localDataTitle": "البيانات المحلية.",
 	"about.localDataDesc":
 		"يتم تخزين الإعدادات والمفردات والقوالب والسجل في دليل ملف تعريف المستخدم الخاص بك ({configDir}). لا يتم إرسال أي تتبع أو تحليلات أو تقارير أعطال إلى أي مكان.",
@@ -150,10 +150,10 @@ const arMore = {
 	"about.neverRun": "لم يتم التشغيل أبدًا",
 	"about.runPrewarmNow": "تشغيل مسبق الآن",
 	"about.prewarmStarting": "بدأ التشغيل المسبق…",
-	"about.prewarmComplete": "اكتمل التشغيل المسبق — تم تسخين التخزين المؤقت",
+	"about.prewarmComplete": "اكتمل التشغيل المسبق, تم تسخين التخزين المؤقت",
 	"about.prewarmFailed": "فشل بدء التشغيل المسبق",
 	"about.prewarmAlreadyHot":
-		"التخزين المؤقت ساخن بالفعل — لا حاجة للتشغيل المسبق",
+		"التخزين المؤقت ساخن بالفعل, لا حاجة للتشغيل المسبق",
 	"about.viewPrewarmLog": "عرض سجل التشغيل المسبق",
 	"about.prewarmLogNotFound": "لم يتم العثور على سجل التشغيل المسبق",
 	"about.prewarmLogOpened": "تم فتح سجل التشغيل المسبق",
@@ -307,7 +307,7 @@ const arMore = {
 		"إظهار الفقاعة فقط أثناء التسجيل، أو إبقائها مرئية في جميع الأوقات.",
 	"settings.bubblePositionLabel": "موضع الفقاعة",
 	"settings.bubblePositionInfo":
-		"أين تظهر الفقاعة على الشاشة — أعلى أو أسفل المركز.",
+		"أين تظهر الفقاعة على الشاشة, أعلى أو أسفل المركز.",
 	"settings.showOnAppStartup": "الإظهار عند بدء التطبيق",
 	"settings.showOnAppStartupInfo":
 		"إظهار الفقاعة بمجرد فتح التطبيق. عند إيقافه، تظهر فقط عند بدء التسجيل.",
@@ -345,9 +345,9 @@ const arMore = {
 	"settings.keyring.availableWithBackend":
 		"مخزن بأمان في سلسلة مفاتيح نظام التشغيل (الخلفية: {backend}).",
 	"settings.keyring.fallback":
-		"خلفية سلسلة المفاتيح غير متاحة — سيتم تخزين الأسرار كنص عادي بأذونات 0o600.",
+		"خلفية سلسلة المفاتيح غير متاحة, سيتم تخزين الأسرار كنص عادي بأذونات 0o600.",
 	"settings.keyring.fallbackWithReason":
-		"خلفية سلسلة المفاتيح غير متاحة ({reason}) — سيتم تخزين الأسرار كنص عادي بأذونات 0o600.",
+		"خلفية سلسلة المفاتيح غير متاحة ({reason}), سيتم تخزين الأسرار كنص عادي بأذونات 0o600.",
 	"settings.apiUrl": "عنوان API",
 	"settings.apiUrlInfo":
 		"عنوان URL لنقطة نهاية خدمة نموذج اللغة الذكاء الاصطناعي.",
@@ -358,7 +358,7 @@ const arMore = {
 	"settings.modelPlaceholder": "gpt-4o-mini",
 	"settings.preset": "الإعداد المسبق",
 	"settings.presetInfo":
-		"أسلوب الكتابة للتطبيق — مهني، غير رسمي، بريد إلكتروني، أو كود.",
+		"أسلوب الكتابة للتطبيق, مهني، غير رسمي، بريد إلكتروني، أو كود.",
 	"settings.show": "إظهار",
 	"settings.hide": "إخفاء",
 	"settings.trayClickOpenApp": "فتح التطبيق",
@@ -472,23 +472,23 @@ const arMore = {
 	"models.snack.deleteFailedError": "فشل الحذف: {error}",
 	"models.snack.apiKeySaved": "تم حفظ مفتاح API لـ {provider}",
 	"models.snack.consentGranted":
-		"تم منح الموافقة لـ {provider} — سيتم إرسال الصوت إلى هذا المزود.",
+		"تم منح الموافقة لـ {provider}, سيتم إرسال الصوت إلى هذا المزود.",
 	"models.snack.consentRevoked":
-		"تم سحب الموافقة لـ {provider} — لن يتم إرسال الصوت.",
+		"تم سحب الموافقة لـ {provider}, لن يتم إرسال الصوت.",
 	"models.snack.hfConsentGranted":
-		"تم منح الموافقة — ستتم عمليات تنزيل النموذج من HuggingFace.",
+		"تم منح الموافقة, ستتم عمليات تنزيل النموذج من HuggingFace.",
 	"models.snack.hfConsentRevoked":
-		"تم سحب الموافقة — تم حظر تنزيلات النموذج من HuggingFace.",
+		"تم سحب الموافقة, تم حظر تنزيلات النموذج من HuggingFace.",
 	"models.snack.resumeFailed": "فشل الاستئناف: {error}",
 	"models.snack.pauseFailed": "فشل الإيقاف المؤقت: {error}",
 	"models.snack.cancelled":
 		"تم إلغاء التنزيل. سيتم إعادة استخدام الملفات الجزئية عند المحاولة مرة أخرى.",
 	"models.snack.cancelFailed": "فشل الإلغاء: {error}",
 	"models.test.needApiKey": "يرجى إدخال مفتاح API أولاً",
-	"models.test.connectionSuccessful": "الاتصال ناجح — مفتاح API صالح.",
+	"models.test.connectionSuccessful": "الاتصال ناجح, مفتاح API صالح.",
 	"models.test.connectionFailed": "فشل الاتصال: {status} {statusText}",
 	"models.test.endpointUnavailable":
-		"تم حفظ مفتاح API — نقطة نهاية الاختبار غير متاحة لهذا المزود.",
+		"تم حفظ مفتاح API, نقطة نهاية الاختبار غير متاحة لهذا المزود.",
 	"models.test.connectionTestFailed": "فشل اختبار الاتصال: {error}",
 	"models.benchmark.notImplemented": "لم يتم تنفيذ المعيار بعد.",
 	"models.benchmark.title": "معيار النموذج",
@@ -513,7 +513,7 @@ const arMore = {
 	// Settings appearance section
 	"settings.appearance.title": "المظهر",
 	"settings.appearance.description":
-		"تخصيص المظهر — نظام الألوان وسمات المظهر وحجم النص.",
+		"تخصيص المظهر, نظام الألوان وسمات المظهر وحجم النص.",
 	"settings.appearance.colorScheme": "نظام الألوان",
 	"settings.appearance.colorSchemeInfo":
 		"التبديل بين الفاتح والداكن أو اتباع إعدادات النظام.",
@@ -531,7 +531,7 @@ const arMore = {
 	"settings.appearance.customThemeInfo":
 		"إنشاء نظام ألوان خاص بك باستخدام منتقي الألوان.",
 	"settings.appearance.customThemeInfoRendered":
-		"أنشئ نظام ألوان خاص بك — اختر كل لون يدوياً.",
+		"أنشئ نظام ألوان خاص بك, اختر كل لون يدوياً.",
 	"settings.appearance.customThemeAria": "سمة مخصصة",
 	"settings.appearance.resetToDefaultColors":
 		"إعادة التعيين إلى الألوان الافتراضية",
@@ -545,7 +545,7 @@ const arMore = {
 	"settings.appearance.hexValueAria": "قيمة {label} السداسية العشرية",
 	"settings.appearance.customDropdownLabel": "مخصص (استخدم المفتاح أدناه)",
 	"settings.appearance.hexInvalid":
-		"لون سداسي عشري غير صالح — يجب أن يكون #rrggbb (مثل #1a2b3c). سيتم العودة إلى القيمة السابقة عند فقدان التركيز.",
+		"لون سداسي عشري غير صالح, يجب أن يكون #rrggbb (مثل #1a2b3c). سيتم العودة إلى القيمة السابقة عند فقدان التركيز.",
 	"settings.appearance.contrastWarning":
 		"تباين منخفض: {ratio}:1 (WCAG AA يتطلب 4.5:1). قم بزيادة الفرق بين هذا اللون والخلفية ذات الصلة.",
 	"settings.appearance.contrastWarningShort": "التباين {ratio}:1",
@@ -650,16 +650,16 @@ const arMore = {
 		"معادل 3 نطاقات: تعزيز الوسط (وضوح الكلام)، خفض المنخفض (الهدير)، ارتفاع طفيف (الحضور).",
 	"settings.audioEnhancement.equalizerInfoSearch": "معادل 3 نطاقات.",
 	"settings.audioEnhancement.equalizerAria": "معادل الصوت",
-	"settings.audioEnhancement.eqLow": "EQ — منخفض (باس)",
+	"settings.audioEnhancement.eqLow": "EQ, منخفض (باس)",
 	"settings.audioEnhancement.eqLowInfo": "تعزيز/خفض تحت 800Hz.",
 	"settings.audioEnhancement.eqLowInfoSearch": "تعزيز/خفض تحت 800Hz.",
 	"settings.audioEnhancement.eqLowAria": "EQ منخفض",
-	"settings.audioEnhancement.eqMid": "EQ — وسط (كلام)",
+	"settings.audioEnhancement.eqMid": "EQ, وسط (كلام)",
 	"settings.audioEnhancement.eqMidInfo":
 		"تعزيز/خفض 800Hz–5kHz (نطاق وضوح الكلام).",
 	"settings.audioEnhancement.eqMidInfoSearch": "تعزيز/خفض 800Hz–5kHz.",
 	"settings.audioEnhancement.eqMidAria": "EQ وسط",
-	"settings.audioEnhancement.eqHigh": "EQ — مرتفع (ثلاثة أضعاف)",
+	"settings.audioEnhancement.eqHigh": "EQ, مرتفع (ثلاثة أضعاف)",
 	"settings.audioEnhancement.eqHighInfo": "تعزيز/خفض فوق 5kHz.",
 	"settings.audioEnhancement.eqHighInfoSearch": "تعزيز/خفض فوق 5kHz.",
 	"settings.audioEnhancement.eqHighAria": "EQ مرتفع",
@@ -728,7 +728,7 @@ const arMore = {
 	// settings aiEnhancement
 	"settings.aiEnhancement.title": "تحسين الذكاء الاصطناعي",
 	"settings.aiEnhancement.description":
-		"قواعد نحوية وعلامات ترقيم وكتابة أحرف كبيرة. يعمل دون اتصال — لا حاجة لـ API سحابي.",
+		"قواعد نحوية وعلامات ترقيم وكتابة أحرف كبيرة. يعمل دون اتصال, لا حاجة لـ API سحابي.",
 	"settings.aiEnhancement.enable": "تمكين تحسين الذكاء الاصطناعي",
 	"settings.aiEnhancement.enableInfo":
 		"تطبيق تصحيحات نحوية قائمة على القواعد وعلامات ترقيم تلقائية وكتابة أحرف كبيرة تلقائياً على نصوصك المنسوخة. يعمل بالكامل على الجهاز.",
@@ -898,7 +898,7 @@ const arMore = {
 	"settings.troubleshooting.reRunWizardHint":
 		"إعادة تشغيل معالج الإعداد لإعادة تكوين الميكروفون والمفتاح السريع والنموذج",
 	"settings.troubleshooting.reRunWizardToast":
-		"تم إعادة تمكين معالج الإعداد — جاري الانتقال إليه الآن",
+		"تم إعادة تمكين معالج الإعداد, جاري الانتقال إليه الآن",
 
 	// Home section remaining
 	"home.entryCountSingular": "{count} إدخال",

@@ -3,7 +3,7 @@
 Extracted from the once-monolithic ``history_db.py`` ( split). The
 functions in this module are free functions that take the
 :class:`~voice_typer.server.history_db.HistoryDB` instance (or specific
-parameters) instead of ``self`` — they do not depend on instance state
+parameters) instead of ``self``: they do not depend on instance state
 beyond what is passed in.
 
 Public re-exports (used by tests via ``history_db._MIGRATIONS`` /
@@ -15,9 +15,9 @@ Public re-exports (used by tests via ``history_db._MIGRATIONS`` /
 
 Free functions:
 
-- :func:`open_write_conn` — opens + configures the writer's connection.
-- :func:`check_wal_mode` — verifies WAL mode is actually enabled.
-- :func:`init_schema` — runs CREATE TABLE, migrations, indexes, integrity
+- :func:`open_write_conn`: opens + configures the writer's connection.
+- :func:`check_wal_mode`: verifies WAL mode is actually enabled.
+- :func:`init_schema`: runs CREATE TABLE, migrations, indexes, integrity
   check. Returns the connection to use (may be a fresh one if corruption
   was detected and the DB was recreated).
 """
@@ -55,7 +55,7 @@ _MIGRATION_V2 = """
 
 # M-61: FTS5 full-text search index.
 #
-# Previously `search()` did a `WHERE text LIKE ?` table scan — O(n) on
+# Previously `search()` did a `WHERE text LIKE ?` table scan, O(n) on
 # the full transcriptions table. For a user with thousands of history
 # rows this is several hundred milliseconds per keystroke in the search
 # box. The FTS5 virtual table brings this down to O(log n + match count)
@@ -63,7 +63,7 @@ _MIGRATION_V2 = """
 # prefix queries via `query*`).
 #
 # The migration is intentionally additive:
-#   - CREATE VIRTUAL TABLE IF NOT EXISTS — safe to re-run on every
+#   - CREATE VIRTUAL TABLE IF NOT EXISTS, safe to re-run on every
 #     schema init (existing FTS table is left untouched).
 #   - Triggers keep the FTS table in sync with INSERT/UPDATE/DELETE on
 #     `transcriptions`. They are created with `IF NOT EXISTS` so the
@@ -112,7 +112,7 @@ _MIGRATION_V3 = """
 #
 # This migration is deliberately a PLAIN migration (no embedded
 # ``BEGIN;``) so the migration runner wraps it in one transaction and —
-# critically — runs its partial-prior-state reconciliation over it: the
+# critically, runs its partial-prior-state reconciliation over it: the
 # ``text_is_encrypted`` column is already part of the canonical CREATE
 # TABLE above, so on a FRESH database the ALTER must be filtered out
 # (otherwise "duplicate column name" aborts the migration), while on a
@@ -128,7 +128,7 @@ _MIGRATION_V3 = """
 #     ``transcriptions_ai_fts`` indexes plaintext tokens; the writer then
 #     UPDATEs the row to ciphertext + flag 1. The au_fts WHEN guard makes
 #     that flag-flip UPDATE a no-op for FTS (the plaintext tokens stay in
-#     the index — full-text search keeps working for encrypted rows, ADR
+#     the index, full-text search keeps working for encrypted rows, ADR
 #     §6 decision: FTS shadow tables remain plaintext-tokenized).
 #   - UPDATE guard is ``NEW.text_is_encrypted = 0 AND OLD.text_is_encrypted
 #     = 0`` (not merely "flag unchanged"): a favorite-toggle UPDATE on an
@@ -139,7 +139,7 @@ _MIGRATION_V3 = """
 #     plaintext rows still re-index normally.
 #   - DELETE guard (``old.text_is_encrypted = 0``): the 'delete' command
 #     for an encrypted row would present ciphertext tokens that were never
-#     indexed — same corruption — so token removal is skipped for
+#     indexed, same corruption, so token removal is skipped for
 #     encrypted rows. Stale rowids left in the index are harmless: every
 #     FTS search SQL JOINs back against ``transcriptions``, which filters
 #     dangling rowids out of the result set.
@@ -171,10 +171,10 @@ _MIGRATION_V4 = """
 
 # Second FTS5 index using the ``trigram`` tokenizer, consulted ONLY for
 # queries containing CJK / fullwidth characters (the unicode61 index
-# keeps serving Latin queries — see search.py's router).
+# keeps serving Latin queries: see search.py's router).
 #
 # WHY: unicode61 indexes a contiguous CJK run as ONE token, so CJK
-# substring search can never use it — every CJK query fell back to a
+# substring search can never use it, every CJK query fell back to a
 # full-table LIKE scan (O(N) per keystroke as history grows). The
 # trigram tokenizer indexes every 3-character substring, giving
 # O(match count) substring matching for ANY script (verified live:
@@ -186,11 +186,11 @@ _MIGRATION_V4 = """
 #   - Queries containing a CJK/fullwidth char with length >= 3 take the
 #     trigram MATCH path (indexed). The trigram tokenizer indexes only
 #     3-char substrings, so a 1-2 char query would SILENTLY match
-#     nothing — those keep the LIKE path (substring semantics for every
+#     nothing, those keep the LIKE path (substring semantics for every
 #     length).
 #   - The whole capped query is ONE FTS5 phrase (whitespace is part of
 #     the substring; no per-token splitting like the unicode61 router).
-#   - LIKE wildcards (% _) are literal characters here — identical
+#   - LIKE wildcards (% _) are literal characters here, identical
 #     results to the escaped-LIKE fallback.
 #
 # The table is EXTERNAL-CONTENT (content='transcriptions'), so it adds
@@ -200,7 +200,7 @@ _MIGRATION_V4 = """
 # decrypt-aware re-index in internals/encryption.py maintains BOTH
 # indexes). The GDPR 'rebuild'/'optimize' sweep sites in
 # internals/writer.py, internals/crud_writes.py, and
-# internals/retention.py MUST keep both indexes in lockstep — the
+# internals/retention.py MUST keep both indexes in lockstep, the
 # CJK shadow tables carry the same dictated-plaintext exposure.
 #
 # Backfill uses the FTS5 ``'rebuild'`` command (idempotent: it
@@ -269,7 +269,7 @@ def cjk_trigram_table_exists(conn: sqlite3.Connection) -> bool:
     creation on SQLite builds without the trigram tokenizer, so the
     lockstep rebuild/optimize/reindex sites and the search router must
     degrade to the unicode61/LIKE paths instead of raising
-    ``no such table``. Safe to call per-operation — the probe costs
+    ``no such table``. Safe to call per-operation, the probe costs
     micro-seconds against queries that were previously O(N) scans.
     """
     try:
@@ -308,13 +308,13 @@ def open_write_conn(db_path: Path) -> sqlite3.Connection:
 
         The writer owns the *only* write-capable connection in the
         process. Configuration:
-          - ``journal_mode=WAL`` — concurrent readers don't block writes.
-          - ``synchronous=NORMAL`` — safe in WAL mode, faster than FULL.
-          - ``busy_timeout=5000`` — safety net for *external* writers
+          - ``journal_mode=WAL``: concurrent readers don't block writes.
+          - ``synchronous=NORMAL``: safe in WAL mode, faster than FULL.
+          - ``busy_timeout=5000``: safety net for *external* writers
             (antivirus, external CLI). In-process contention is
             impossible because there's only one writer thread.
-          - ``cache_size=-20000`` — 20 MB page cache.
-    ``secure_delete=ON`` — : overwrite deleted rows
+          - ``cache_size=-20000``: 20 MB page cache.
+    ``secure_delete=ON``: : overwrite deleted rows
             with zeros so dictated text is not recoverable from free
             pages.
 
@@ -337,7 +337,7 @@ def open_write_conn(db_path: Path) -> sqlite3.Connection:
     except OSError as e:
         log.warning("[HISTORY_DB] Could not create DB directory %s: %s", db_path.parent, e)
     # SEC-007: tighten dir permissions before the connection creates
-    # files in it (POSIX only — Windows has no POSIX mode bits).
+    # files in it (POSIX only. Windows has no POSIX mode bits).
     if not is_windows():
         try:
             os.chmod(db_path.parent, 0o700)
@@ -349,7 +349,7 @@ def open_write_conn(db_path: Path) -> sqlite3.Connection:
         timeout=5.0,
     )
     # Safety net for external contention only (in-process contention
-    # is impossible — there's only one writer thread).
+    # is impossible, there's only one writer thread).
     conn.execute("PRAGMA busy_timeout=5000")
     conn.execute("PRAGMA synchronous=NORMAL")
     conn.execute("PRAGMA cache_size=-20000")  # 20 MB
@@ -362,7 +362,7 @@ def open_write_conn(db_path: Path) -> sqlite3.Connection:
     # pages that could be carved out with a hex editor. Tradeoff:
     # deletes are slightly slower (extra I/O to zero the page).
     # Acceptable for transcription history where privacy outweighs
-    # throughput. Note: this PRAGMA is database-persistent — once
+    # throughput. Note: this PRAGMA is database-persistent, once
     # set, it applies to all connections on this DB file.
     conn.execute("PRAGMA secure_delete=ON")
     conn.row_factory = sqlite3.Row
@@ -381,7 +381,7 @@ def open_write_conn(db_path: Path) -> sqlite3.Connection:
     # abort connection setup (the FK setting is a hardening extra,
     # not a correctness requirement for the current schema). The
     # current schema has no FK constraints so this is a no-op today,
-    # but it is a latent footgun if FKs are added later — SQLite
+    # but it is a latent footgun if FKs are added later, SQLite
     # defaults to ``foreign_keys=OFF`` for backward compat with
     # pre-2004 schemas, silently allowing orphaned child rows.
     # Readers don't need this (FK enforcement is write-path only).
@@ -406,8 +406,8 @@ def check_wal_mode(conn: sqlite3.Connection, db_path: Path) -> None:
         returns.
 
         This method fetches the PRAGMA result and logs a warning if
-        WAL is not active. It does NOT crash — the app should still
-        work (just slower) — but the warning must be visible so users
+        WAL is not active. It does NOT crash, the app should still
+        work (just slower), but the warning must be visible so users
         can diagnose the misconfiguration.
 
     (privacy): after the PRAGMA runs (which may lazily create
@@ -424,7 +424,7 @@ def check_wal_mode(conn: sqlite3.Connection, db_path: Path) -> None:
         mode_row = cur.fetchone()
     except sqlite3.Error as e:
         log.warning(
-            "[HISTORY_DB] Could not set/check WAL mode (%s) at %s — "
+            "[HISTORY_DB] Could not set/check WAL mode (%s) at %s, "
             "app will work but writes may be slower and more contended.",
             e,
             db_path,
@@ -433,7 +433,7 @@ def check_wal_mode(conn: sqlite3.Connection, db_path: Path) -> None:
     mode = mode_row[0] if mode_row else ""
     if str(mode).lower() != "wal":
         log.warning(
-            "[HISTORY_DB] WAL mode NOT enabled (got %r) at %s — "
+            "[HISTORY_DB] WAL mode NOT enabled (got %r) at %s, "
             "app will work but writes may be slower and more contended.",
             mode,
             db_path,
@@ -442,10 +442,10 @@ def check_wal_mode(conn: sqlite3.Connection, db_path: Path) -> None:
     # SQLite has now created the ``-wal`` and ``-shm`` sidecar files
     # on disk (they were NOT present when ``open_write_conn`` ran its
     # chmod loop because that runs BEFORE the PRAGMA). Re-run the
-    # chmod loop here so the sidecars get 0o600 too — without this,
+    # chmod loop here so the sidecars get 0o600 too, without this,
     # they inherit the process umask (typically 0o644 on Linux =
     # world-readable, exposing dictated text in the WAL to any local
-    # user). Best-effort — chmod failures are logged at debug level.
+    # user). Best-effort, chmod failures are logged at debug level.
     if not is_windows():
         for suffix in ("", "-wal", "-shm"):
             p = db_path.with_suffix(db_path.suffix + suffix) if suffix else db_path
@@ -484,7 +484,7 @@ def init_schema(
         failure to ``__init__`` and skips the main write loop. The
         per-statement try/except that previously swallowed errors
         (allowing a partial migration to leave the schema
-        half-migrated) is removed — a partial migration now fails
+        half-migrated) is removed, a partial migration now fails
         loudly and rolls back ALL changes (including DDL ALTERs,
         which SQLite would otherwise auto-commit between statements).
 
@@ -516,13 +516,13 @@ def init_schema(
     # If that fails (transient disk-full), ``_init_error=e`` is set and
     # the function returns ``conn`` (doesn't raise). A recursive
     # ``init_schema`` may SUCCEED on retry (disk-full was transient) but
-    # ``_init_error`` remains set from the first call — the writer
+    # ``_init_error`` remains set from the first call, the writer
     # thread checks ``if self._init_error is not None:`` and exits
     # without entering the write loop, leaving the user with "history
     # DB unavailable" for the rest of the session even though the
     # schema is fully set up. Clearing at the TOP of init_schema means
     # BOTH the initial call AND the recursive recovery call start with
-    # a clean slate — a failure during this invocation re-sets it, a
+    # a clean slate, a failure during this invocation re-sets it, a
     # success leaves it cleared.
     with contextlib.suppress(Exception):
         db._init_error = None
@@ -531,7 +531,7 @@ def init_schema(
 
     # ``init_schema`` has three exit
     # paths (migration failure, corruption-recovery recursion, normal
-    # return) — each closes ``cursor`` before returning so no cursor
+    # return), each closes ``cursor`` before returning so no cursor
     # is leaked even when a fresh connection is substituted mid-init.
 
     # New DBs opt into
@@ -542,12 +542,12 @@ def init_schema(
     # ``VACUUM`` requires. ``auto_vacuum`` can ONLY be set when the
     # schema is empty (no tables), so this is a no-op for existing
     # DBs (which keep the full-``VACUUM``-at-20% fallback path).
-    # Detection: query ``sqlite_master`` for any user table — if
+    # Detection: query ``sqlite_master`` for any user table, if
     # none exist, this is a fresh DB and the PRAGMA takes effect.
     try:
         has_tables = cursor.execute("SELECT 1 FROM sqlite_master WHERE type='table' LIMIT 1").fetchone() is not None
     except sqlite3.Error:
-        has_tables = True  # be conservative — don't touch auto_vacuum
+        has_tables = True  # be conservative, don't touch auto_vacuum
     if not has_tables:
         try:
             cursor.execute("PRAGMA auto_vacuum=INCREMENTAL")
@@ -559,7 +559,7 @@ def init_schema(
         except sqlite3.Error as e:
             log.warning(
                 "[HISTORY_DB] Could not set auto_vacuum=INCREMENTAL on "
-                "new DB (%s) — falling back to full-VACUUM reclamation",
+                "new DB (%s), falling back to full-VACUUM reclamation",
                 e,
             )
 
@@ -577,7 +577,7 @@ def init_schema(
         row = cursor.fetchone()
         current_version = int(row[0]) if row else 1
     except sqlite3.Error:
-        # No schema_meta yet — brand-new DB (the CREATEs below make it).
+        # No schema_meta yet, brand-new DB (the CREATEs below make it).
         # Nothing meaningful to back up; the migration loop is what
         # builds the initial schema.
         fresh_db = True
@@ -631,19 +631,19 @@ def init_schema(
     # 2. Plain ALTER/CREATE migrations (e.g. _MIGRATION_V2) are
     #    wrapped in ``BEGIN;…COMMIT;`` so the whole migration is
     #    atomic. Without the wrapper, SQLite's DDL auto-commit
-    #    behavior would persist each ALTER individually — a
+    #    behavior would persist each ALTER individually, a
     #    mid-migration failure would leave the schema
     #    half-migrated with no way to roll back the already-
     #    committed ALTERs.
     #
     # On ``sqlite3.Error``: rollback the transaction, set
     # ``_init_error``, and return early. The version is NOT
-    # bumped — the next launch retries from the pre-migration
+    # bumped, the next launch retries from the pre-migration
     # version. The per-statement try/except that previously
     # swallowed errors () is removed because it allowed
     # partial migrations to silently corrupt the schema.
     # NOTE: the pre-migration backup was MOVED above the CREATE TABLE
-    # statements (PRE-MIGRATION-BACKUP-ORDERING) — it must snapshot the
+    # statements (PRE-MIGRATION-BACKUP-ORDERING), it must snapshot the
     # DB before ANY write, not merely before the migration loop. The
     # rationale lives with the backup call at the top of this function:
     # a v4+ migration with a silent corruption bug would pass
@@ -657,8 +657,8 @@ def init_schema(
         if not migration_sql:
             continue
 
-        # Trigram-availability gate (V5): skip — WITHOUT bumping the
-        # recorded version — when the linked SQLite lacks the FTS5
+        # Trigram-availability gate (V5): skip: WITHOUT bumping the
+        # recorded version: when the linked SQLite lacks the FTS5
         # ``trigram`` tokenizer. The version stays un-bumped so a future
         # SQLite upgrade retries the migration on the next launch; CJK
         # queries keep working in the meantime via the search router's
@@ -667,7 +667,7 @@ def init_schema(
         if version == 5 and not sqlite_supports_trigram():
             log.warning(
                 "[HISTORY_DB] SQLite %s lacks the FTS5 trigram tokenizer "
-                "(needs >= %s) — skipping CJK index migration v5; CJK "
+                "(needs >= %s), skipping CJK index migration v5; CJK "
                 "search falls back to the bounded LIKE path",
                 sqlite3.sqlite_version,
                 ".".join(str(part) for part in _SQLITE_TRIGRAM_MIN_VERSION),
@@ -678,14 +678,14 @@ def init_schema(
             # Migrations split into two shapes:
             #
             # 1. Plain migrations (no embedded ``BEGIN;``) such as
-            #    _MIGRATION_V2 — a sequence of ``ALTER TABLE ADD
+            #    _MIGRATION_V2, a sequence of ``ALTER TABLE ADD
             #    COLUMN`` statements. These need partial-prior-state
             #    reconciliation: a previous run may have added SOME of
             #    the columns but failed before the version was bumped
             #    (disk full, process killed mid-migration). Re-running
             #    the whole migration verbatim would hit "duplicate
-            #    column name" on the already-added columns and — under
-            #    the previous handler — bump the version unconditionally,
+            #    column name" on the already-added columns and, under
+            #    the previous handler, bump the version unconditionally,
             #    leaving the NOT-yet-added columns missing forever.
             #
             #    Fix: pre-compute the existing columns, filter out
@@ -698,7 +698,7 @@ def init_schema(
             #    un-bumped so the next launch retries the missing ALTERs.
             #
             # 2. Migrations carrying their own ``BEGIN;…COMMIT;`` (e.g.
-            #    _MIGRATION_V3 with triggers) — passed through unchanged.
+            #    _MIGRATION_V3 with triggers), passed through unchanged.
             #    V3 uses ``IF NOT EXISTS`` for all CREATE statements and
             #    an idempotent backfill, so re-running on a
             #    partial-prior state is already safe.
@@ -713,7 +713,7 @@ def init_schema(
                     if col is not None and col in pre_existing_cols:
                         log.info(
                             "[HISTORY_DB] Migration v%d: column %r "
-                            "already exists — skipping ALTER "
+                            "already exists, skipping ALTER "
                             "(partial-prior-state reconciliation)",
                             version,
                             col,
@@ -726,7 +726,7 @@ def init_schema(
                 else:
                     log.info(
                         "[HISTORY_DB] Migration v%d: all statements "
-                        "already applied — persisting version without "
+                        "already applied, persisting version without "
                         "re-running any statement",
                         version,
                     )
@@ -747,7 +747,7 @@ def init_schema(
             )
         except sqlite3.Error as e:
             # rollback any partial migration. The version is NOT
-            # bumped — the next launch retries. Surface the error to
+            # bumped, the next launch retries. Surface the error to
             # ``__init__`` via ``_init_error`` so the writer thread
             # skips the main write loop.
             #
@@ -757,7 +757,7 @@ def init_schema(
             # partial-prior state is reconciled rather than aborting the
             # whole migration. A "duplicate column name" error reaching
             # here means a concurrent writer added the column between
-            # our PRAGMA and our ALTER (a race) — rolling back and
+            # our PRAGMA and our ALTER (a race), rolling back and
             # retrying on the next launch is the correct response.
             with contextlib.suppress(sqlite3.Error):
                 conn.rollback()

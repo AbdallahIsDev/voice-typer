@@ -4,7 +4,7 @@ Extracted from ``config/__init__.py`` to chip away
 at the monolith. The constants here are imported by ``Config`` field
 defaults and by external callers (``onboarding.py``,
 ``hotkey_dispatcher.py``, ``config_applier.py``, ``clipboard/manager.py``)
-via ``from voice_typer.server.config import DEFAULT_HOTKEY`` — the
+via ``from voice_typer.server.config import DEFAULT_HOTKEY``, the
 ``config/__init__.py`` re-exports them so callers don't need to know
 about this leaf module.
 
@@ -51,7 +51,7 @@ def _default_hotkey_for_platform() -> str:
     - macOS: Caps Lock works once Accessibility is granted. The Fn /
       Globe key remains available as an alternative in the dropdown.
     - Other platforms: ``<caps_lock>`` (legacy ``<f2>`` is no longer
-      used as a default — the function keys are not universally
+      used as a default, the function keys are not universally
       present on laptop keyboards without an Fn combo).
     """
     return DEFAULT_HOTKEY

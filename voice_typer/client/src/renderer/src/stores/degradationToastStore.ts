@@ -5,7 +5,7 @@
 //
 // Same pattern + rationale as ``lastResortToastStore.ts``: cooldown
 // timestamps live at module scope in a SEPARATE file so Vite HMR of the
-// hook modules does NOT reset them — editing a toast hook while the app
+// hook modules does NOT reset them, editing a toast hook while the app
 // runs must not clear the cooldown and immediately re-nag the user.
 //
 // Scope is deliberately small (a few timestamps); the cooldown
@@ -19,14 +19,14 @@ interface DegradationToastState {
 	/**
 	 * Wall-clock timestamp of the last ``llm_polish_failed`` toast
 	 * shown (``null`` = none yet). The backend can emit one event per
-	 * transcription while polish is broken — without a renderer-side
+	 * transcription while polish is broken, without a renderer-side
 	 * cooldown every dictation would re-toast.
 	 */
 	llmPolishFailedAt: number | null;
 	/**
 	 * Wall-clock timestamp of the last ``text_enhancement_failed``
 	 * toast shown (``null`` = none yet). Same cooldown rationale as
-	 * ``llmPolishFailedAt`` — the rule-based enhancement step can emit
+	 * ``llmPolishFailedAt``, the rule-based enhancement step can emit
 	 * one event per transcription while it is broken.
 	 */
 	textEnhancementFailedAt: number | null;
@@ -38,7 +38,7 @@ interface DegradationToastState {
 	/**
 	 * Wall-clock timestamp of the last ``asr_backend_load_failed``
 	 * toast shown (``null`` = none yet). The backend emits one failure
-	 * per load attempt — a retry loop must not re-toast on every
+	 * per load attempt, a retry loop must not re-toast on every
 	 * attempt inside the window.
 	 */
 	asrBackendLoadFailedAt: number | null;
@@ -58,14 +58,14 @@ interface DegradationToastState {
 	/**
 	 * Wall-clock timestamp of the last ``cloud_fallback_used`` toast
 	 * shown (``null`` = none yet). The backend emits one event per
-	 * transcription while the cloud provider is down — without a
+	 * transcription while the cloud provider is down, without a
 	 * cooldown every dictation during an outage would re-toast.
 	 */
 	cloudFallbackUsedAt: number | null;
 	/**
 	 * Wall-clock timestamp of the last ``paste_deferred`` toast shown
 	 * (``null`` = none yet). The IME-composition path can defer one
-	 * paste per dictation while a composition is open — the window
+	 * paste per dictation while a composition is open, the window
 	 * collapses consecutive deferrals.
 	 */
 	pasteDeferredAt: number | null;
@@ -74,7 +74,7 @@ interface DegradationToastState {
 	 * (``null`` = none yet). One-way record: hooks WRITE the timestamp
 	 * when they show a toast; only the backend-disabled hook READS it
 	 * (to stay quiet shortly after any other degradation surfaced).
-	 * It does NOT currently collapse cross-event stacking — each hook
+	 * It does NOT currently collapse cross-event stacking, each hook
 	 * enforces only its own per-event cooldown window.
 	 */
 	lastAnyToastShownAt: number | null;
@@ -87,7 +87,7 @@ interface DegradationToastState {
 	setCloudFallbackUsedAt: (timestamp: number) => void;
 	setPasteDeferredAt: (timestamp: number) => void;
 	setLastAnyToastShownAt: (timestamp: number) => void;
-	/** Test seam — reset every field. */
+	/** Test seam, reset every field. */
 	resetForTest: () => void;
 }
 

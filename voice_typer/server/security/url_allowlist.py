@@ -45,11 +45,11 @@ _DEFAULT_ALLOWED_HOSTS = frozenset(
         "api.groq.com",
         # Deepgram
         "api.deepgram.com",
-        # Anthropic (Claude) — common LLM polish target
+        # Anthropic (Claude), common LLM polish target
         "api.anthropic.com",
         # Google Gemini / Vertex
         "generativelanguage.googleapis.com",
-        # Local self-hosted endpoints — explicitly allowed for development
+        # Local self-hosted endpoints, explicitly allowed for development
         "localhost",
         "127.0.0.1",
         "::1",
@@ -69,12 +69,12 @@ _ENV_TRUSTED_HOSTS_VAR = "VOICE_TYPER_TRUSTED_HOSTS"
 # production call sites and carried a dead-code notice. Runtime wiring
 # has since landed, giving it three production caller families:
 #
-#   1. ``_load_env_allowlist_extensions`` (in this module) — process
+#   1. ``_load_env_allowlist_extensions`` (in this module), process
 #      startup bootstrap from the ``VOICE_TYPER_TRUSTED_HOSTS`` env var.
 #   2. ``Config.load`` (``voice_typer/server/config/__init__.py``) —
 #      re-applies the persisted ``trusted_extra_hosts`` list on launch.
 #   3. ``ConfigHandlersMixin`` (``voice_typer/server/handlers/
-#      config_handlers.py``) — the ``add_trusted_endpoint`` IPC command
+#      config_handlers.py``), the ``add_trusted_endpoint`` IPC command
 #      (runtime extension + persistence) and the ``set_config``
 #      ``trusted_extra_hosts`` path.
 #
@@ -103,7 +103,7 @@ def extend_url_allowlist(
     caller : str, optional
         Identifier of the caller adding the hosts (e.g. ``"env_validation"``,
         ``"cloud_engines"``, ``"config.load"``). When ``None`` (default),
-        the caller is auto-detected via :func:`inspect.stack` — the
+        the caller is auto-detected via :func:`inspect.stack`, the
         caller's module name + function name + line number. Used in the
         WARNING-level audit log so operators can trace every allowlist
         extension back to its origin.
@@ -126,11 +126,11 @@ def extend_url_allowlist(
             func = frame.function or "<unknown>"
             lineno = frame.lineno
             caller = f"{mod}.{func}:L{lineno}"
-        except Exception as exc:  # noqa: BLE001 — inspect failures must not break the call
+        except Exception as exc:  # noqa: BLE001, inspect failures must not break the call
             caller = f"<inspect-failed: {exc}>"
 
     # Normalize the input hosts (lowercase, strip port, drop empties)
-    # so the audit log shows exactly what was added — not the raw input.
+    # so the audit log shows exactly what was added, not the raw input.
     # IPv6 literals (e.g. ``fc00::1`` or ``[fc00::1]:8080``) survive
     # port-stripping intact via ``_normalize_host`` (see HU-35 follow-up).
     normalized: list[str] = []
@@ -144,7 +144,7 @@ def extend_url_allowlist(
     # calibrate the audit log level. WARNING is reserved for the
     # security-relevant case (actual hosts being added). When the call is
     # a no-op (empty iterable, or every host filtered out), demote to INFO
-    # — operators still get an audit trail but no longer see WARNING spam
+    # , operators still get an audit trail but no longer see WARNING spam
     # for every empty extend call.
     if normalized:
         log.warning(
@@ -171,7 +171,7 @@ def _normalize_host(h: str) -> str:
     """Normalize a hostname: lowercase, strip port, strip whitespace.
 
     IPv6-aware port stripping: a bare IPv6 literal (``fc00::1``) or a
-    bracketed form (``[fc00::1]:8080``) is kept INTACT — the old
+    bracketed form (``[fc00::1]:8080``) is kept INTACT, the old
     ``h.split(":")[0]`` split on the first colon, mangling IPv6
     literals to their first hextet (``fc00::1`` → ``fc00``) so they
     could never be allowlisted.
@@ -192,23 +192,23 @@ def _normalize_host(h: str) -> str:
             try:
                 ipaddress.ip_address(inner)
             except ValueError:
-                pass  # not an IPv6 literal — fall through to the generic path
+                pass  # not an IPv6 literal, fall through to the generic path
             else:
                 return inner.lower()
-    # Bare IPv6 literal (``fc00::1``) — no port, no brackets.
+    # Bare IPv6 literal (``fc00::1``), no port, no brackets.
     if host.count(":") > 1:
         try:
             ipaddress.ip_address(host)
         except ValueError:
             # Multi-colon string that is NOT a valid IPv6 literal (e.g.
-            # ``fc00::1:8080`` — an un-bracketed IPv6-with-port, or
+            # ``fc00::1:8080``: an un-bracketed IPv6-with-port, or
             # ``bad:host:name``). Returning ``""`` makes
             # ``extend_url_allowlist`` DROP the entry, matching the
             # reject semantics of ``_validate_trusted_extra_hosts`` and
             # the ``add_trusted_endpoint`` handler. Pre-fix, this fell
             # through to ``split(":")[0]`` and silently allowlisted a
             # mangled first hextet (``fc00``) via the
-            # ``VOICE_TYPER_TRUSTED_HOSTS`` env-var path — identical
+            # ``VOICE_TYPER_TRUSTED_HOSTS`` env-var path, identical
             # input was accepted by one path and rejected by another.
             # The bracketed form ``[fc00::1]:8080`` is the documented
             # way to attach a port.
@@ -231,7 +231,7 @@ def _load_env_allowlist_extensions() -> list[str]:
     :func:`extend_url_allowlist`.
 
     Hosts added here are STILL subject to the SSRF IP-literal blocklist
-    (:func:`_is_private_ip`) — a user cannot bypass SSRF defense by
+    (:func:`_is_private_ip`), a user cannot bypass SSRF defense by
     adding a private IP via env var. The DNS-rebinding check in
     :func:`assert_url_allowed` is also unaffected.
 
@@ -257,23 +257,23 @@ def _load_env_allowlist_extensions() -> list[str]:
     return hosts
 
 
-# SSRF defense — IP-literal blocklist + best-effort DNS rebinding check ──
+# SSRF defense. IP-literal blocklist + best-effort DNS rebinding check ──
 #
 # The hostname allowlist above only checks the textual hostname.  If a
 # trusted hostname (e.g. ``api.openai.com``) is made to resolve to a
-# private/reserved IP — via ``/etc/hosts`` tampering, compromised DNS,
-# DNS rebinding, or a malicious local DNS resolver — the request is sent
+# private/reserved IP, via ``/etc/hosts`` tampering, compromised DNS,
+# DNS rebinding, or a malicious local DNS resolver, the request is sent
 # to the private IP, exfiltrating the API key (in the Authorization
 # header) and the request body to the cloud metadata endpoint
 # (169.254.169.254) or any internal service.
 #
 # The two helpers below close that gap:
 #
-#   * ``_is_ip_literal(host)`` — True if the host string is already an
+#   * ``_is_ip_literal(host)``: True if the host string is already an
 #     IP literal (e.g. ``"10.0.0.1"``, ``"::1"``).  Used to decide
 #     between the IP-literal blocklist path and the DNS-rebinding path.
 #
-#   * ``_is_private_ip(ip_str)`` — True if the IP is in a
+#   * ``_is_private_ip(ip_str)``: True if the IP is in a
 #     private/reserved range.  Covers RFC 1918 (10/8, 172.16/12,
 #     192.168/16), link-local (169.254/16, including the cloud metadata
 #     endpoint 169.254.169.254), loopback (127/8, ::1), unspecified
@@ -306,7 +306,7 @@ def _is_ip_literal(host: str) -> bool:
 def _is_private_ip(ip_str: str) -> bool:
     """Return True if ``ip_str`` is a private/reserved IP address.
 
-    SSRF defense — rejects IP literals in private/reserved ranges
+    SSRF defense, rejects IP literals in private/reserved ranges
         so an attacker cannot use a private-IP endpoint (planted in
         ``/etc/hosts`` or via :func:`extend_url_allowlist`) to receive cloud
         API keys.  Covers:
@@ -332,7 +332,7 @@ def _is_private_ip(ip_str: str) -> bool:
     try:
         ip = ipaddress.ip_address(ip_str)
     except ValueError:
-        return False  # not an IP literal — caller should resolve first
+        return False  # not an IP literal, caller should resolve first
     # ``is_private`` for IPv4 includes RFC 1918 + 127/8 + 169.254/16 +
     # a few others (per CPython source).  We OR the other checks for
     # defense-in-depth and to cover IPv6 cases that ``is_private`` may
@@ -388,7 +388,7 @@ def assert_url_allowed(
             somehow adds the host to the allowlist.
         allow_loopback_http : bool
     when True, loopback hosts (localhost, 127.0.0.1, ::1)
-            are also exempt from the HTTPS requirement — i.e. plain HTTP
+            are also exempt from the HTTPS requirement, i.e. plain HTTP
             to ``http://localhost:11434`` is permitted. Defaults to False
             so callers must OPT IN to allowing cleartext loopback traffic.
             Callers that send user-supplied text (``llm_polish``,
@@ -413,7 +413,7 @@ def assert_url_allowed(
             tampering, and compromised-DNS attacks).  The DNS resolution
             is best-effort: a ``socket.gaierror`` (no DNS, offline,
             sandboxed test env) is silently swallowed and the URL is
-            allowed — the actual HTTP layer will surface the DNS error in
+            allowed, the actual HTTP layer will surface the DNS error in
             the normal way.  Callers that run in a no-network test
             environment can set this to False to skip the resolution
             entirely (the IP-literal blocklist still runs).
@@ -462,7 +462,7 @@ def assert_url_allowed(
             raise ValueError(
                 f"{client_name}: {field_name} must use HTTPS for loopback "
                 f"host {host!r} (HTTP requires explicit opt-in via "
-                f"allow_loopback_http=True — local development servers "
+                f"allow_loopback_http=True, local development servers "
                 f"should be the only consumers of cleartext loopback)."
             )
         raise ValueError(
@@ -472,17 +472,17 @@ def assert_url_allowed(
             f"and transcribed text over the public internet is not permitted."
         )
 
-    # SSRF defense — after the allowlist + HTTPS checks pass,
+    # SSRF defense, after the allowlist + HTTPS checks pass,
     # verify the host is not a private/reserved IP literal (and
     # best-effort, that a hostname doesn't resolve to a private IP).
     #
     # Loopback IPs (127.0.0.1, ::1) are EXEMPTED because they're
-    # explicitly allowlisted for local development — the user has
+    # explicitly allowlisted for local development, the user has
     # already opted in to sending data to localhost.  All other
     # private/reserved IP literals (10/8, 172.16/12, 192.168/16,
     # 169.254/16 including the cloud metadata endpoint, fc00::/7,
     # fe80::/10, 0.0.0.0, ::, etc.) are REJECTED even if the user
-    # explicitly added them to the allowlist — defense-in-depth
+    # explicitly added them to the allowlist, defense-in-depth
     # against an attacker who tricks the user into calling
     # ``extend_url_allowlist(["10.0.0.5"])`` and then sets
     # ``cloud_api_url = "https://10.0.0.5/"`` to exfiltrate the API
@@ -492,12 +492,12 @@ def assert_url_allowed(
     # ``socket.getaddrinfo`` and rejects if ANY resolved IP is
     # private/reserved.  This catches DNS rebinding (attacker's DNS
     # returns a public IP for the first resolution, then a private IP
-    # for the actual connection — TOCTOU on DNS) and ``/etc/hosts``
+    # for the actual connection. TOCTOU on DNS) and ``/etc/hosts``
     # tampering.  Best-effort: ``gaierror`` is swallowed (offline test
     # environments) and the URL is allowed.
     if is_loopback:
         # Loopback IPs (127.0.0.1, ::1) are explicitly allowlisted for
-        # local development — skip the SSRF check (the user has opted
+        # local development, skip the SSRF check (the user has opted
         # in to sending data to localhost).
         return
     if _is_ip_literal(host):
@@ -507,7 +507,7 @@ def assert_url_allowed(
         if _is_private_ip(host):
             raise ValueError(
                 f"{client_name}: {field_name} host {host!r} is a "
-                f"private/reserved IP literal — refusing to prevent "
+                f"private/reserved IP literal, refusing to prevent "
                 f"SSRF. Even if explicitly allowlisted, "
                 f"private/reserved IP literals are rejected to "
                 f"prevent exfiltration of API keys to internal "
@@ -517,7 +517,7 @@ def assert_url_allowed(
         # Best-effort post-resolution check (catches DNS rebinding,
         # /etc/hosts tampering, compromised DNS).  Resolve via
         # getaddrinfo; if any resolved IP is private/reserved, reject.
-        # Failure to resolve is NON-FATAL (gaierror swallowed) — the
+        # Failure to resolve is NON-FATAL (gaierror swallowed), the
         # HTTP layer will surface the DNS error in the normal way.
         # This means a no-network test environment won't reject
         # allowlisted hostnames (the IP-literal blocklist above still
@@ -533,7 +533,7 @@ def assert_url_allowed(
             if _is_private_ip(ip):
                 raise ValueError(
                     f"{client_name}: {field_name} host {host!r} resolves "
-                    f"to private/reserved IP {ip!r} — refusing to "
+                    f"to private/reserved IP {ip!r}, refusing to "
                     f"prevent SSRF (DNS rebinding defense). If "
                     f"this is a legitimate local endpoint, use the IP "
                     f"literal directly (e.g. http://127.0.0.1:port) "

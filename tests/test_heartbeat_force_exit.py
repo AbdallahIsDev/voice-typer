@@ -1,7 +1,7 @@
 """regression: heartbeat watchdog force-exits if ``tray.stop()`` hangs.
 
 Before CR-9, the heartbeat watchdog called ``self.app.quit()`` and
-returned — relying entirely on ``tray.stop()`` (called inside
+returned, relying entirely on ``tray.stop()`` (called inside
 ``app.quit()``'s ``_do_cleanup()``) to break the pystray loop so the
 main thread could unwind and the process could exit.
 
@@ -10,7 +10,7 @@ on Windows Server (with RDP session disconnects) has been observed to
 hang inside ``stop()``. When that happens, ``app.quit()`` returns (it
 only calls ``sys.exit(0)`` from the main thread; from the daemon
 heartbeat thread it just unwinds the cleanup path), but the main
-thread is still stuck in ``tray.run()`` — so the process never exits.
+thread is still stuck in ``tray.run()``, so the process never exits.
 The mic stays open, the single-instance mutex stays held, and the
 next launch hits ``ERROR_ALREADY_EXISTS``.
 
@@ -63,8 +63,8 @@ def server() -> IPCServer:
     Teardown: ``IPCServer.__init__`` allocates several ``threading.Lock``
     / ``RLock`` / ``Event`` sync primitives (the TCP write lock, the
     dispatch lock, the heartbeat stop event, etc.). No real thread is
-    spawned by ``__init__`` — the heartbeat / stdin threads are only
-    started by ``start()`` — but the watchdog code paths exercised by
+    spawned by ``__init__``, the heartbeat / stdin threads are only
+    started by ``start()``, but the watchdog code paths exercised by
     these tests do spawn real daemon threads (the ``heartbeat-force-exit``
     thread) that call a patched ``os._exit`` and exit naturally. Calling
     ``server.stop()`` in teardown sets ``_running = False`` and
@@ -77,7 +77,7 @@ def server() -> IPCServer:
     s._running = True
     yield s
     # ``stop()`` is idempotent and safe to call even when ``start()``
-    # was never invoked — it sets ``_running = False`` and unregisters
+    # was never invoked, it sets ``_running = False`` and unregisters
     # the push callable.
     with contextlib.suppress(Exception):
         s.stop()
@@ -109,7 +109,7 @@ def test_force_exit_thread_scheduled_after_quit(server: IPCServer) -> None:
     def capturing_start(self):
         if self.name == "heartbeat-force-exit":
             created_threads.append(self)
-        # Don't actually start the thread — we don't want os._exit to
+        # Don't actually start the thread, we don't want os._exit to
         # fire during this test.
 
     # Patch time.sleep inside the daemon thread target so it doesn't
@@ -156,7 +156,7 @@ def test_force_exit_thread_NOT_scheduled_when_timeout_does_not_fire(  # noqa: N8
         if self.name == "heartbeat-force-exit":
             created_threads.append(self)
 
-    # Now check at t=101 (well within the 45s timeout — should NOT fire).
+    # Now check at t=101 (well within the 45s timeout, should NOT fire).
     with (
         patch.object(threading.Thread, "start", capturing_start),
         patch(
@@ -170,7 +170,7 @@ def test_force_exit_thread_NOT_scheduled_when_timeout_does_not_fire(  # noqa: N8
     server.app.quit.assert_not_called()
     assert len(created_threads) == 0, (
         "no force-exit thread should be scheduled when the timeout did "
-        "not fire — only schedule when app.quit() is actually called"
+        "not fire, only schedule when app.quit() is actually called"
     )
 
 
@@ -180,8 +180,8 @@ def test_force_exit_thread_NOT_scheduled_before_first_heartbeat(  # noqa: N802
     """No force-exit thread before Electron's first heartbeat (slow cold-start guard).
 
     Mirrors the existing guard: ``_last_heartbeat_at`` is ``None``
-    until the first heartbeat lands. The watchdog refuses to fire — and
-    therefore refuses to schedule the force-exit thread — so a slow
+    until the first heartbeat lands. The watchdog refuses to fire, and
+    therefore refuses to schedule the force-exit thread, so a slow
     Electron cold start doesn't cause a spurious process exit.
     """
     assert server._last_heartbeat_at is None
@@ -214,7 +214,7 @@ def test_force_exit_calls_os_exit_with_code_1_after_grace_period(
 ) -> None:
     """The force-exit thread calls ``os._exit(1)`` after the grace period.
 
-    The grace period default is 10s — too long for a unit test. We
+    The grace period default is 10s, too long for a unit test. We
     patch ``_HEARTBEAT_FORCE_EXIT_GRACE_SECONDS`` down to 0.05s and
     patch ``os._exit`` so the test process doesn't actually die.
 
@@ -251,7 +251,7 @@ def test_force_exit_calls_os_exit_with_code_1_after_grace_period(
 
         # The force-exit thread is now sleeping for fake_grace seconds
         # before calling os._exit. Wait long enough for it to fire.
-        # Use a real (short) sleep here — we patched the constant down
+        # Use a real (short) sleep here, we patched the constant down
         # to 50ms, so 1s of polling is plenty.
         deadline = time.monotonic() + 2.0
         while time.monotonic() < deadline and not exit_calls:
@@ -269,19 +269,19 @@ def test_force_exit_thread_does_not_fire_if_quit_exits_process_first(
 
     In production, ``app.quit()`` either:
       (a) unwinds the main thread and the process exits before the
-          10s grace period expires — the daemon thread is reaped by
+          10s grace period expires, the daemon thread is reaped by
           the OS, never reaching ``os._exit``.
-      (b) hangs inside ``tray.stop()`` — the daemon thread fires
+      (b) hangs inside ``tray.stop()``, the daemon thread fires
           ``os._exit(1)`` after 10s.
 
     This test simulates (a) by patching ``os._exit`` to record the
     call without actually exiting, and asserting the call happens
     only if the grace period elapses. The test patches the grace
-    period DOWN so the thread fires quickly — verifying the os._exit
+    period DOWN so the thread fires quickly, verifying the os._exit
     path actually executes when it should.
     """
     # The scenario where quit() "succeeds" is the same as the scenario
-    # where it "hangs" from the daemon thread's perspective — the
+    # where it "hangs" from the daemon thread's perspective, the
     # thread doesn't know either way. The only signal is "the process
     # is still alive after the grace period". This test documents that
     # the force-exit thread fires regardless of whether quit() succeeded,
@@ -360,7 +360,7 @@ def test_force_exit_thread_scheduling_failure_is_swallowed(
     """If ``threading.Thread`` itself raises, the watchdog must not propagate.
 
     Defensive: this is essentially impossible in normal CPython, but
-    the try/except around the scheduling is the contract — the daemon
+    the try/except around the scheduling is the contract, the daemon
     thread is best-effort, and the watchdog must still return True
     (so the heartbeat loop exits) even if the force-exit thread
     couldn't be started.
@@ -392,12 +392,12 @@ def test_force_exit_thread_scheduling_failure_is_swallowed(
 def test_default_grace_period_is_10_seconds() -> None:
     """The default grace period is 10 seconds (per the spec).
 
-    Production must use 10s — long enough for graceful ``app.quit()``
+    Production must use 10s, long enough for graceful ``app.quit()``
     to complete, short enough to bound the worst-case hang. Tests
     patch it down; production must not.
     """
     assert _HEARTBEAT_FORCE_EXIT_GRACE_SECONDS == 10.0, (
-        "default grace period must be 10s per spec — if this is "
+        "default grace period must be 10s per spec, if this is "
         "changed, update the comment in ipc_server.py and the "
         "rationale in review.md"
     )
@@ -411,7 +411,7 @@ def test_force_exit_does_not_fire_when_cleanup_completed_before_grace(
 ) -> None:
     """FR-11: when ``_do_cleanup()`` completes within the grace window
     (the shutdown-completion event is set), the force-exit thread must
-    NOT call ``os._exit(1)`` — it exits silently.
+    NOT call ``os._exit(1)``, it exits silently.
 
     Pre-fix, the thread used a bare ``time.sleep(grace)`` with no
     completion signal, so a healthy-but-slow quit() (>10s: PortAudio
@@ -445,7 +445,7 @@ def test_force_exit_does_not_fire_when_cleanup_completed_before_grace(
         # return without calling os._exit. Give it a few real-time ticks
         # to run, then assert it did NOT fire. (time.monotonic is
         # globally patched to a constant inside this block, so poll by
-        # iteration count — a wall-clock deadline would never advance.)
+        # iteration count, a wall-clock deadline would never advance.)
         for _ in range(20):
             if exit_calls:
                 break
@@ -460,7 +460,7 @@ def test_force_exit_does_not_fire_when_cleanup_completed_before_grace(
 def test_force_exit_still_fires_when_cleanup_stuck(server: IPCServer) -> None:
     """FR-11: when cleanup is stuck (the shutdown-completion event is
     never set), the force-exit thread STILL calls ``os._exit(1)`` after
-    the grace period — the hard force-exit is preserved for the genuine
+    the grace period, the hard force-exit is preserved for the genuine
     hang case."""
     with patch("voice_typer.server.ipc_server.time.monotonic", return_value=100.0):
         server._handle_heartbeat(None, {"id": 1})
@@ -499,7 +499,7 @@ def test_force_exit_still_fires_when_cleanup_stuck(server: IPCServer) -> None:
 
 def test_do_cleanup_sets_shutdown_completed_event(monkeypatch) -> None:
     """FR-11: the shared cleanup path sets the shutdown-completion event
-    when ``_do_cleanup()`` finishes — the actual wiring that disarms the
+    when ``_do_cleanup()`` finishes, the actual wiring that disarms the
     heartbeat force-exit watchdog for a healthy-but-slow quit.
 
     Drives ``ShutdownController._do_cleanup`` (the real body in
@@ -529,6 +529,6 @@ def test_do_cleanup_sets_shutdown_completed_event(monkeypatch) -> None:
 
     assert server._shutdown_completed_event.is_set(), (
         "FR-11: _do_cleanup must set the shutdown-completion event when it "
-        "finishes — otherwise the heartbeat force-exit watchdog stays armed "
+        "finishes, otherwise the heartbeat force-exit watchdog stays armed "
         "and kills a healthy-but-slow quit mid-cleanup"
     )

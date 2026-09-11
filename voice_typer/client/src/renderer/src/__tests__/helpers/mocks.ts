@@ -16,7 +16,7 @@
  * or `bubble:show` events can do so via the same `_listeners.config` /
  * `_listeners.show` accessors they already use today.
  *
- * This file is intended to be imported directly by tests — its only side
+ * This file is intended to be imported directly by tests, its only side
  * effect is overwriting `window.bubble`, which is the explicit purpose of
  * the function. Tests are responsible for calling it inside `beforeEach`
  * (so each test gets a fresh mock) and for cleaning up via `afterEach`
@@ -47,7 +47,7 @@ export interface MockBubbleBridge {
 	toggleDictation: ReturnType<typeof vi.fn>;
 	dismiss: ReturnType<typeof vi.fn>;
 	/**
-	 * Internal listener bookkeeping — exposed so tests can simulate
+	 * Internal listener bookkeeping, exposed so tests can simulate
 	 * backend events (`bubble:config`, `bubble:show`, `bubble:hide`,
 	 * `bubble:set-state`) by invoking the registered callback. This
 	 * mirrors the `_listeners` field on the local `makeMockBubble()`
@@ -73,7 +73,7 @@ export interface MockBubbleBridge {
  * The mock OVERWRITES the no-op default installed by `test-setup.ts`
  * (see the comment block above the `window.bubble` default stub there).
  * Tests that don't care about bubble behaviour can simply NOT call
- * this function — the default stub keeps components mounting.
+ * this function, the default stub keeps components mounting.
  */
 export function installBubbleBridgeMock(): MockBubbleBridge {
 	const listeners: MockBubbleBridge["_listeners"] = {
@@ -127,7 +127,7 @@ export function installBubbleBridgeMock(): MockBubbleBridge {
  *
  * Tests that want a hard reset between cases can call this in
  * `afterEach` to delete `window.bubble` entirely. Tests that re-install
- * on every `beforeEach` don't need this — the next install overwrites
+ * on every `beforeEach` don't need this, the next install overwrites
  * the previous mock. Provided for parity with the existing local
  * `afterEach(() => { delete (window as ...).bubble; })` pattern in
  * `Bubble.test.tsx` / `Bubble-keyboard-move.test.tsx`.

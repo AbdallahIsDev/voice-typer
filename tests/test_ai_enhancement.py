@@ -1,4 +1,4 @@
-"""Tests for voice_typer.server.ai_enhancement — P4 AI grammar/punctuation/capitalization.
+"""Tests for voice_typer.server.ai_enhancement: P4 AI grammar/punctuation/capitalization.
 
 These tests cover the four public functions:
   * auto_capitalize
@@ -62,7 +62,7 @@ class TestAutoCapitalize:
         assert result == "My birthday is in July"
 
     def test_auto_capitalize_leaves_ambiguous_month_words_alone(self):
-        """BP-132: may/march/august double as common words — mid-sentence
+        """BP-132: may/march/august double as common words, mid-sentence
         occurrences must NOT capitalize ("the plan may work", not
         "the plan May work"). Sentence-start still capitalizes."""
         assert auto_capitalize("the plan may work") == "The plan may work"
@@ -113,7 +113,7 @@ class TestAutoPunctuate:
     def test_auto_punctuate_skips_urls(self):
         """URLs should not get terminal punctuation."""
         result = auto_punctuate("https://example.com this is a very long url string here")
-        # The URL safety pattern should match — no punctuation added.
+        # The URL safety pattern should match, no punctuation added.
         assert not result.endswith(".")
 
     def test_auto_punctuate_empty_string(self):
@@ -208,7 +208,7 @@ class TestFixGrammarBasics:
 
     def test_fix_grammar_basics_no_apostrophe_i(self):
         """`i` after an apostrophe (e.g. in a contraction we just fixed) should not be re-capitalized."""
-        # "don't" contains `t` after `'` — the regex's negative
+        # "don't" contains `t` after `'`, the regex's negative
         # lookbehind for `[A-Za-z']` prevents us from matching the
         # `t` or any letter adjacent to an apostrophe.
         result = fix_grammar_basics("don't i know you")
@@ -256,7 +256,7 @@ class TestEnhanceTranscription:
 
         text = "i dont know"
         result = enhance_transcription(text, cfg)
-        # Grammar is off — `dont` stays `dont`, `i` stays `i`.
+        # Grammar is off: `dont` stays `dont`, `i` stays `i`.
         assert "dont" in result
         # But auto_capitalize still ran (capitalized the first letter).
         assert result.startswith("I")

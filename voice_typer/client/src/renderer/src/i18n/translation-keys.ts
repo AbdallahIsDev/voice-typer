@@ -11,7 +11,7 @@
 // nested JSON objects recurse and their dot-joined paths become keys,
 // string leaves become keys. The union derives from the SAME JSON
 // module the runtime store flattens (type-only import below), so the
-// contract stays in lockstep with the catalog by construction — no
+// contract stays in lockstep with the catalog by construction, no
 // generated key list to keep in sync, no separate flat-keys module, no
 // build step.
 //
@@ -26,7 +26,7 @@
 import type en from "./translations/en.json";
 
 /**
- * JSON value shapes that terminate recursion — the leaves of the
+ * JSON value shapes that terminate recursion, the leaves of the
  * catalog tree. A leaf value produces a key; anything else must be a
  * nested object that recurses.
  */
@@ -41,7 +41,7 @@ type JsonLeaf = string | number | boolean | null;
  * recursion as a key (``en.json`` contains only string leaves today —
  * the extra leaf kinds keep the type total). Arrays contribute no keys
  * (deliberately stricter than the runtime ``flatten``, which would
- * treat array indices as keys — no catalog entry is an array, so the
+ * treat array indices as keys, no catalog entry is an array, so the
  * two agree on the real catalog).
  */
 type FlatKeys<T> = T extends JsonLeaf
@@ -77,7 +77,7 @@ type PluralCategory = "zero" | "one" | "two" | "few" | "many" | "other";
  * Strip a trailing ``_zero``..``_other`` suffix from a catalog key.
  *
  * Written as a generic helper over a naked type parameter so the
- * conditional DISTRIBUTES over the ``TranslationKey`` union — a direct
+ * conditional DISTRIBUTES over the ``TranslationKey`` union, a direct
  * ``TranslationKey extends \`\${infer B}_${PluralCategory}\`` would
  * check the union as a single type (every member would have to match)
  * and collapse to ``never``.

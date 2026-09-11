@@ -6,7 +6,7 @@
  *   - `computeConfigDir()` env-var + platform-path resolution
  *   - `electronPidFile()` path joining
  *   - `readStaleElectronPid()` stale-PID recovery (file-based, no
- *     Electron APIs required) — verifies the three outcomes:
+ *     Electron APIs required), verifies the three outcomes:
  *     no file → null, alive PID → null, dead PID → the PID.
  *
  * The `acquireSingleInstanceLock()` function calls
@@ -95,7 +95,7 @@ describe("single_instance.ts", () => {
 	});
 
 	afterAll(() => {
-		// Restore env fully (defensive — afterEach should already have).
+		// Restore env fully (defensive, afterEach should already have).
 		for (const k of Object.keys(process.env)) {
 			if (!(k in _origEnv)) delete process.env[k as keyof NodeJS.ProcessEnv];
 		}
@@ -187,13 +187,13 @@ describe("single_instance.ts", () => {
 			// falls through to the ``isPidVoiceTyper`` check. We mock the
 			// cmdline probe to return a process that does NOT contain
 			// "electron" / "voice-typer" / "voice_typer" (simulating PID
-			// reuse by an unrelated process — e.g. a browser or shell that
+			// reuse by an unrelated process, e.g. a browser or shell that
 			// happened to claim the PID after Voice Typer crashed).
 			//
 			// Without this mock the test would be flaky on Linux: the real
 			// ``/proc/<pid>/cmdline`` of the vitest runner contains the
 			// project path ``/home/z/.../voice-typer/...`` which trips the
-			// ``voice-typer`` substring check in ``isPidVoiceTyper`` — so
+			// ``voice-typer`` substring check in ``isPidVoiceTyper``, so
 			// ``readStaleElectronPid`` would (incorrectly for this test's
 			// intent) return null and the PID-reuse path would go unexercised.
 			const realReadFileSync = fs.readFileSync;

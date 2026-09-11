@@ -7,13 +7,13 @@
  *      `KILL_TIMER_MS + ESCALATE_TIMER_MS + 500` so the
  *      `escalateTimer` in `stop-python.ts` has a guaranteed window to
  *      fire SIGKILL BEFORE Electron exits. Pre-fix the delay was a
- *      hardcoded `3000` — equal to `KILL_TIMER_MS` — so on
+ *      hardcoded `3000`, equal to `KILL_TIMER_MS`, so on
  *      SIGTERM-with-Python-stuck-in-C-extension the unref'd backstop
  *      fired at t=3s, exited Electron, and the `escalateTimer`
  *      (scheduled for t=6s) NEVER fired. Python was orphaned, still
  *      holding the single-instance mutex.
  *  (b) The timer is `.unref()`'d so it does NOT keep the Node event
- *      loop alive on its own — if all other handles (including the
+ *      loop alive on its own, if all other handles (including the
  *      non-`.unref()`'d `killTimer` in `stop-python.ts`) have settled
  *      and Python has exited cleanly, Electron can exit promptly
  *      without waiting the full backstop delay.
@@ -88,7 +88,7 @@ vi.mock("../windows", () => ({
 // Import the REAL constants from stop-python.ts so the test pins the
 // contract against the canonical values (not a hardcoded 6500). This
 // also implicitly verifies that index.ts imports the constants rather
-// than redefining them — if a regression re-introduced a magic number,
+// than redefining them, if a regression re-introduced a magic number,
 // the source-text assertions below would catch it.
 import { ESCALATE_TIMER_MS, KILL_TIMER_MS } from "../python/stop-python";
 
@@ -107,7 +107,7 @@ describe("index.ts: SIGTERM backstop race fix", () => {
 
 		// Capture the signalQuitHandler registered via
 		// `process.on("SIGTERM", …)` so we can invoke it
-		// directly (deterministic — no reliance on
+		// directly (deterministic, no reliance on
 		// `process.emit` reaching only our listener).
 		capturedSigtermHandler = null;
 		capturedSigintHandler = null;
@@ -181,7 +181,7 @@ describe("index.ts: SIGTERM backstop race fix", () => {
 		// module eval (none expected, but defensive).
 		setTimeoutSpy.mockClear();
 		capturedSigtermHandler?.();
-		// Exactly ONE setTimeout call — the backstop arming.
+		// Exactly ONE setTimeout call, the backstop arming.
 		expect(setTimeoutSpy).toHaveBeenCalledTimes(1);
 		const [cb, delay] = setTimeoutSpy.mock.calls[0] ?? [];
 		expect(cb).toBeTypeOf("function");
@@ -197,7 +197,7 @@ describe("index.ts: SIGTERM backstop race fix", () => {
 
 	it(".unref()'s the backstop timer so it does NOT pin the event loop", () => {
 		capturedSigtermHandler?.();
-		// The backstop MUST be .unref()'d — without .unref(),
+		// The backstop MUST be .unref()'d, without .unref(),
 		// the timer would keep the event loop alive for the
 		// full 6.5s even after Python has exited cleanly,
 		// defeating the "exit promptly when Python is dead"
@@ -224,7 +224,7 @@ describe("index.ts: SIGTERM backstop race fix", () => {
 		expect(unrefSpy).toHaveBeenCalledTimes(1);
 	});
 
-	it("is idempotent — second invocation does NOT re-arm the backstop", () => {
+	it("is idempotent, second invocation does NOT re-arm the backstop", () => {
 		capturedSigtermHandler?.();
 		setTimeoutSpy.mockClear();
 		unrefSpy.mockClear();
@@ -249,7 +249,7 @@ describe("index.ts: SIGTERM backstop race fix", () => {
 		setTimeoutSpy.mockClear();
 		capturedSigtermHandler?.();
 		// When app.quit() throws, the catch block calls
-		// process.exit(0) SYNCHRONOUSLY — before the backstop
+		// process.exit(0) SYNCHRONOUSLY, before the backstop
 		// is armed.
 		expect(processExitSpy).toHaveBeenCalledWith(0);
 		// The backstop is STILL armed (after the catch) so the
@@ -273,7 +273,7 @@ describe("index.ts: SIGTERM backstop source-text contract", () => {
 
 	it("imports KILL_TIMER_MS and ESCALATE_TIMER_MS from ./python/stop-python", () => {
 		// The backstop must reference the canonical constants
-		// (PRESERVE ARCHITECTURE rule — do NOT redefine).
+		// (PRESERVE ARCHITECTURE rule, do NOT redefine).
 		expect(src).toMatch(
 			/import\s*\{[^}]*\bKILL_TIMER_MS\b[^}]*\}\s*from\s*["']\.\/python\/stop-python["']/,
 		);
@@ -284,7 +284,7 @@ describe("index.ts: SIGTERM backstop source-text contract", () => {
 
 	it("backstop delay is KILL_TIMER_MS + ESCALATE_TIMER_MS + 500 (no magic 3000)", () => {
 		// The backstop setTimeout must use the expression
-		// `KILL_TIMER_MS + ESCALATE_TIMER_MS + 500` — NOT a
+		// `KILL_TIMER_MS + ESCALATE_TIMER_MS + 500`, NOT a
 		// hardcoded 3000 (the pre-fix value that raced with
 		// the killTimer). Allow an optional trailing comma
 		// after `500` (the source uses trailing-comma style).

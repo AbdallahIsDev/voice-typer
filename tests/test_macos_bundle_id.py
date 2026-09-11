@@ -9,19 +9,19 @@ Python backend up to the nearest ``*.app`` bundle and reads
 
 This module tests:
 
-1. ``app_bundle_root`` — pure path parsing.
-2. ``read_bundle_identifier`` — Info.plist parsing (missing file / key /
+1. ``app_bundle_root``, pure path parsing.
+2. ``read_bundle_identifier``, Info.plist parsing (missing file / key /
    wrong type are all ``None``).
-3. ``_resolve_host_bundle_id`` — the process-chain walk (scripted ``ps``
+3. ``_resolve_host_bundle_id``, the process-chain walk (scripted ``ps``
    output; resolves the nearest ``.app``, skips non-app ancestors,
    stops at launchd / ps failure / depth bound).
-4. ``resolve_host_bundle_id`` — macOS-only guard (no ``ps`` on other
+4. ``resolve_host_bundle_id``, macOS-only guard (no ``ps`` on other
    platforms).
 5. The ``startup_tasks`` integration: the message helper embeds the
    resolved bundle ID when available and falls back to the generic
    walkthrough otherwise, and the module never hardcodes a bundle ID.
 6. Real-process integration (macOS-only): the ACTUAL ``ps`` walk
-   against the live process tree — a process launched inside a
+   against the live process tree, a process launched inside a
    synthetic ``.app`` resolves its bundle ID end-to-end, and the
    public no-arg resolver agrees with an independent read of the
    current process chain.
@@ -218,7 +218,7 @@ def _expected_bundle_id_from_current_chain() -> str | None:
 
     Mirrors the resolver's walk so the integration test has an
     independent expected value computed from the same real ``ps``
-    output — the point is exercising the real process tree, plist
+    output, the point is exercising the real process tree, plist
     parsing and path handling end-to-end, not re-verifying the loop.
     """
     pid = os.getppid()
@@ -257,7 +257,7 @@ class TestRealProcessTreeIntegration:
         """A process whose executable lives inside a ``*.app`` must resolve.
 
         Builds a synthetic ``Voice Typer Test.app`` on disk with a real
-        Mach-O executable (a copy of ``/bin/sleep`` — a shebang script
+        Mach-O executable (a copy of ``/bin/sleep``, a shebang script
         would report the INTERPRETER path in ``ps comm``, not the bundle
         path) and a real ``Info.plist``, launches it as a live
         subprocess, then runs the resolver's real ``ps`` walk from that
@@ -298,7 +298,7 @@ class TestRealProcessTreeIntegration:
         parent via real ``ps``) and compares against an independent read
         of the same chain. When the suite is launched inside an ``.app``
         (packaged run, CI inside a bundle), the resolver must return that
-        bundle's identifier — non-None; in a plain dev/terminal run it
+        bundle's identifier, non-None; in a plain dev/terminal run it
         must return None. Either way the real walk must match the tree.
         """
         result = mbid.resolve_host_bundle_id()
@@ -346,7 +346,7 @@ class TestStartupTasksSource:
         )
         assert "tccutil reset Accessibility com.voicetyper" not in src, (
             "startup_tasks.py must NOT hardcode a bundle ID in the tccutil "
-            "re-grant notification — resolve it at runtime instead."
+            "re-grant notification, resolve it at runtime instead."
         )
 
 
@@ -367,5 +367,5 @@ class TestOnboardingSource:
         )
         assert "tccutil reset Accessibility com.voicetyper" not in src, (
             "onboarding.py must NOT hardcode a bundle ID in the macOS "
-            "permissions guidance — resolve it at runtime instead."
+            "permissions guidance, resolve it at runtime instead."
         )

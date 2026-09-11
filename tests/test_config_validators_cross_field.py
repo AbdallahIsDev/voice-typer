@@ -75,7 +75,7 @@ class TestCrossFieldHotkeyConflicts:
         assert errors == []
 
     def test_empty_strings_do_not_conflict(self) -> None:
-        # Empty strings are treated as "not set" — two unset hotkeys
+        # Empty strings are treated as "not set", two unset hotkeys
         # don't conflict.
         errors = _check_cross_field_hotkey_conflicts({"hotkey": "", "repaste_hotkey": ""})
         assert errors == []
@@ -122,14 +122,14 @@ class TestCrossFieldViaValidateConfigUpdate:
         assert any("Hotkey conflict" in e for e in errors), f"expected a cross-field conflict error, got: {errors}"
         # Both fields passed their per-field validator (so they're in
         # ``validated``), but the cross-field check still added an error.
-        # The dispatcher treats the payload atomically — it sees the
+        # The dispatcher treats the payload atomically, it sees the
         # error and refuses to apply the update.
         assert "hotkey" in validated
         assert "repaste_hotkey" in validated
 
     def test_no_conflict_when_only_one_hotkey_in_payload(self) -> None:
         # A partial update with only one hotkey field can't conflict
-        # with itself — the cross-field check should produce no errors.
+        # with itself, the cross-field check should produce no errors.
         validated, errors = validate_config_update({"hotkey": "<f5>"})
         assert errors == []
         assert validated == {"hotkey": "<f5>"}
@@ -138,12 +138,12 @@ class TestCrossFieldViaValidateConfigUpdate:
         self,
     ) -> None:
         # If ``hotkey`` fails its per-field validator (e.g. it's a
-        # reserved shortcut), it's NOT in ``validated`` — so the
+        # reserved shortcut), it's NOT in ``validated``, so the
         # cross-field check should NOT see it and should NOT produce
         # a cross-field error (the per-field error is enough).
         # Use a hotkey that's reserved on the current (linux) platform.
         validated, errors = validate_config_update({"hotkey": "<alt>+<tab>", "repaste_hotkey": "<alt>+<tab>"})
-        # Both should be rejected as reserved — the cross-field check
+        # Both should be rejected as reserved, the cross-field check
         # should add NO additional errors (since neither is in validated).
         per_field_errors = [e for e in errors if "Hotkey conflict" not in e]
         cross_field_errors = [e for e in errors if "Hotkey conflict" in e]
@@ -156,10 +156,10 @@ class TestCrossFieldViaValidateConfigUpdate:
 class TestCrossFieldViaValidateConfig:
     """Integration: the cross-field check runs in ``validate_config`` (load path).
 
-    Unlike ``validate_config_update`` (which only sees fields the renderer
-    pushed), ``validate_config`` sees ALL hotkey fields via ``getattr``
-    — so it catches conflicts in a hand-edited config.json that the IPC
-    path alone could not surface.
+      Unlike ``validate_config_update`` (which only sees fields the renderer
+      pushed), ``validate_config`` sees ALL hotkey fields via ``getattr``
+    , so it catches conflicts in a hand-edited config.json that the IPC
+      path alone could not surface.
     """
 
     def test_conflict_between_hotkey_and_repaste_caught_at_load(self) -> None:
@@ -292,7 +292,7 @@ class TestCrossPlatformWarnings:
         # in the win32 explicit reserved list, so
         # ``_check_platform_reserved`` does NOT catch it.  This is the
         # only test that specifically exercises the ``_check_alt_shift``
-        # path in ``_cross_platform_hotkey_warning`` — without it, a
+        # path in ``_cross_platform_hotkey_warning``, without it, a
         # future contributor could remove the ``_check_alt_shift`` call
         # and the other 4 blanket-rule tests would still pass (because
         # they exercise ``_check_os_shell_combos``).
@@ -333,7 +333,7 @@ class TestCrossPlatformWarnings:
 
     def test_no_warning_for_non_string_value(self) -> None:
         # The function is type-hinted ``str`` but should not crash on
-        # a wrong-type input — it returns None (no warning) instead.
+        # a wrong-type input, it returns None (no warning) instead.
         with patch.object(sys, "platform", "linux"):
             assert _cross_platform_hotkey_warning(None, "hotkey") is None  # type: ignore[arg-type]
             assert _cross_platform_hotkey_warning(123, "hotkey") is None  # type: ignore[arg-type]
@@ -349,7 +349,7 @@ class TestCrossPlatformWarnings:
         # consider OTHER platforms.
         #
         # Since <alt>+<tab> is in the UNIVERSAL list (not per-platform),
-        # it's NOT in _RESERVED_HOTKEYS — so the cross-platform warning
+        # it's NOT in _RESERVED_HOTKEYS, so the cross-platform warning
         # returns None for it.  This is intentional: universal reserved
         # shortcuts are already hard-rejected by _validate_hotkey, so
         # warning about them again would be redundant.
@@ -390,7 +390,7 @@ class TestCrossPlatformWarnings:
 
     def test_skips_missing_attributes(self) -> None:
         # A Config object without a hotkey attribute should not
-        # crash — the missing field is skipped.
+        # crash, the missing field is skipped.
         cfg = SimpleNamespace(
             hotkey="<cmd>+<q>",
             # repaste_hotkey intentionally absent
@@ -479,7 +479,7 @@ class TestLanguageValidator:
 
     def test_nul_byte_still_rejected_as_control_char(self) -> None:
         # Regression test for test_str_validator_via_ipc_rejects_nul_in_language
-        # in tests/config/test_config_validation.py — the new validator MUST still reject NUL
+        # in tests/config/test_config_validation.py, the new validator MUST still reject NUL
         # bytes (and the error must contain the word "control" so the
         # existing test continues to pass).
         err = _validate_language("en\x00fr")
@@ -532,7 +532,7 @@ class TestLanguageValidator:
         # rejected at IPC write time (not just at Whisper load time).
         validated, errors = validate_config_update({"language": "zzzzz"})
         assert errors == [
-            "field 'language' Invalid language code 'zzzzz' — expected a 2-letter ISO 639-1 code like 'en', 'zh', 'ja'"
+            "field 'language' Invalid language code 'zzzzz', expected a 2-letter ISO 639-1 code like 'en', 'zh', 'ja'"
         ]
         assert "language" not in validated
 
@@ -544,7 +544,7 @@ class TestLanguageValidator:
     # ── empty / too-small whisper.tokenizer.LANGUAGES dict fallback ────
     #
     # Regression guard: when the whisper package IS importable but its
-    # LANGUAGES dict is empty (or suspiciously small — fewer than 50
+    # LANGUAGES dict is empty (or suspiciously small, fewer than 50
     # entries vs. the upstream 99), `_try_load_whisper_languages` MUST
     # return None so `_build_allowed_languages` falls back to the
     # hardcoded list.  Without this guard, every language code is
@@ -700,7 +700,7 @@ class TestLanguageValidator:
             patch.object(_lang_mod, "_ALLOWED_LANGUAGES_SOURCE", source),
         ):
             assert _lang_mod._validate_language("en") is None, (
-                "valid code 'en' was rejected when LANGUAGES was empty — fallback did not fire"
+                "valid code 'en' was rejected when LANGUAGES was empty, fallback did not fire"
             )
             assert _lang_mod._validate_language("fr") is None
             assert _lang_mod._validate_language("yue") is None
@@ -737,7 +737,7 @@ class TestBoundsFixes:
         assert "max_recording_time_seconds" not in validated
 
     def test_max_recording_time_seconds_900_still_accepted(self) -> None:
-        # Regression: existing tests use 900 (15 min) — must still pass.
+        # Regression: existing tests use 900 (15 min), must still pass.
         validated, errors = validate_config_update({"max_recording_time_seconds": 900})
         assert errors == []
         assert validated == {"max_recording_time_seconds": 900}
@@ -760,7 +760,7 @@ class TestBoundsFixes:
         assert "recording_channels" not in validated
 
     def test_recording_channels_8_still_accepted(self) -> None:
-        # Upper bound unchanged — 8 channels (7.1 surround) still ok.
+        # Upper bound unchanged, 8 channels (7.1 surround) still ok.
         validated, errors = validate_config_update({"recording_channels": 8})
         assert errors == []
 
@@ -768,13 +768,13 @@ class TestBoundsFixes:
 
     def test_history_max_entries_0_now_accepted(self) -> None:
         # Was rejected under the old lo=10; now accepted under lo=0
-        # (matches history_retention_count semantics — 0 = disable).
+        # (matches history_retention_count semantics, 0 = disable).
         validated, errors = validate_config_update({"history_max_entries": 0})
         assert errors == []
         assert validated == {"history_max_entries": 0}
 
     def test_history_max_entries_10_still_accepted(self) -> None:
-        # Regression: 10 was the old lower bound — must still pass.
+        # Regression: 10 was the old lower bound, must still pass.
         validated, errors = validate_config_update({"history_max_entries": 10})
         assert errors == []
 
@@ -829,13 +829,13 @@ class TestCustomThemeCaps:
         assert "too many top-level keys" in err
 
     def test_exactly_64_top_level_keys_passes_top_level_cap(self) -> None:
-        # 64 is the boundary — must NOT trip the top-level cap.  (It
+        # 64 is the boundary, must NOT trip the top-level cap.  (It
         # will fail later because 'light'/'dark' aren't dicts, but
         # that's a different error.)
         validator = _make_custom_theme_validator()
         big = {f"k{i}": {} for i in range(64)}
         err = validator(big)
-        # The top-level cap (> 64) should NOT fire — the error should
+        # The top-level cap (> 64) should NOT fire, the error should
         # be about 'light' not being a dict, NOT about too many keys.
         assert err is not None
         assert "too many top-level keys" not in err, (
@@ -853,7 +853,7 @@ class TestCustomThemeCaps:
         assert "too many keys" in err
 
     def test_exactly_64_per_mode_keys_passes_cap(self) -> None:
-        # 64 keys in ``light`` (6 required + 58 extra) — must NOT trip
+        # 64 keys in ``light`` (6 required + 58 extra), must NOT trip
         # the per-mode cap.
         validator = _make_custom_theme_validator()
         ok_mode = {**_valid_mode_dict(), **{f"--extra-{i}": "#ffffff" for i in range(58)}}
@@ -890,7 +890,7 @@ class TestCustomThemeCaps:
     def test_normal_7_char_color_passes(self) -> None:
         # Regression: a legitimate #RRGGBB (7 chars) must pass.
         validator = _make_custom_theme_validator()
-        # _valid_theme() already uses 7-char colors — explicit check:
+        # _valid_theme() already uses 7-char colors, explicit check:
         theme = {
             "light": {**_valid_mode_dict(), "--background": "#abcdef"},
             "dark": _valid_mode_dict(),
@@ -941,7 +941,7 @@ class TestCrossFieldCloudConfig:
     via :func:`validate_config`) so the user doesn't discover the
     inconsistency at transcribe time (when
     ``cloud_engines.CloudEngine.transcribe`` raises
-    ``CloudConfigError`` — PI-17 / PI-24).
+    ``CloudConfigError``, PI-17 / PI-24).
     """
 
     def test_cloud_url_without_key_raises(self) -> None:
@@ -959,7 +959,7 @@ class TestCrossFieldCloudConfig:
     def test_cloud_key_without_url_raises(self) -> None:
         """Setting ``cloud_api_key`` to a non-empty value while
         ``cloud_api_url`` is empty in the same update is rejected
-        (the cloud engine needs an explicit URL — there's no default
+        (the cloud engine needs an explicit URL, there's no default
         when the key is set without one).
         """
         _, errors = validate_config_update(
@@ -972,7 +972,7 @@ class TestCrossFieldCloudConfig:
 
     def test_llm_polish_without_key_raises(self) -> None:
         """Enabling ``llm_polish`` while ``llm_api_key`` is empty in
-        the same update is rejected — the polish path would silently
+        the same update is rejected, the polish path would silently
         no-op (``polish()`` returns the original text when no key is
         configured), leaving the user wondering why "polish" does
         nothing.
@@ -987,7 +987,7 @@ class TestCrossFieldCloudConfig:
 
     def test_llm_polish_without_consent_raises(self) -> None:
         """Enabling ``llm_polish`` while ``llm_polish_consent`` is
-        False in the same update is rejected — the polish path requires
+        False in the same update is rejected, the polish path requires
         both the master toggle AND explicit consent (PII is sent to a
         third-party LLM endpoint).
         """
@@ -1015,7 +1015,7 @@ class TestCrossFieldCloudConfig:
 
     def test_cloud_config_valid_when_all_fields_set(self) -> None:
         """When all cloud/LLM fields are set consistently in the same
-        update, no cross-field error is raised — the happy path.
+        update, no cross-field error is raised, the happy path.
         """
         _, errors = validate_config_update(
             {
@@ -1048,7 +1048,7 @@ class TestCrossFieldCloudConfig:
     def test_partial_update_does_not_trigger_false_positive(self) -> None:
         """PI-18 regression guard: when the renderer pushes only ONE
         of the two paired fields (e.g. just ``cloud_api_url`` without
-        ``cloud_api_key``), the cross-field check must NOT fire — the
+        ``cloud_api_key``), the cross-field check must NOT fire, the
         other field may already be set in the saved config, and we
         can't tell from the delta alone. False positives here would
         break the common "update one field at a time" UX.

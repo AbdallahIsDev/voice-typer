@@ -1,35 +1,35 @@
-// useDownloadProgressEvent — model-download progress bar state for the
+// useDownloadProgressEvent, model-download progress bar state for the
 // Home page, extracted from Home.tsx so the page file stays a thin
 // composition root.
 //
 // Subscribes to `download_progress` events emitted while any model
-// download is in flight (whichever page started it — the Home bar
+// download is in flight (whichever page started it, the Home bar
 // exists to make an in-flight download visible wherever the user is).
 // The wire payload is `{ model, progress (0-100 int), status, +optional
 // downloaded_bytes, total_bytes, speed_bytes_per_sec, eta_seconds,
 // paused, resumed, queue_position }` (server `push_progress`,
 // voice_typer/server/service/_download_helpers.py). NOTE the field is
-// `progress`, NOT `percent` — a `percent` read never matched a real
+// `progress`, NOT `percent`, a `percent` read never matched a real
 // event, so the bar could never fill; that read is fixed here together
 // with the lifecycle below.
 //
 // Lifecycle: the bar must render exactly while a download is genuinely
 // in flight (active transfer OR waiting in the pending-download queue)
 // and clear when all downloads finish. The backend ships NO dedicated
-// download-complete event — the whole lifecycle travels on
-// `download_progress` — so terminal events are recognized by wire
+// download-complete event, the whole lifecycle travels on
+// `download_progress`, so terminal events are recognized by wire
 // contract:
-//   - `progress === 100` — the ONLY value any success path pushes (all
+//   - `progress === 100`, the ONLY value any success path pushes (all
 //     intermediate events cap at 95: the poll loop, the segmented
 //     fast-lane callback, and the pause/resume transition percentages);
-//   - terminal `status` markers — see TERMINAL_STATUS_MARKERS below
+//   - terminal `status` markers, see TERMINAL_STATUS_MARKERS below
 //     (the full terminal catalog of the server download paths; these
 //     status strings are already displayed verbatim by the Models
 //     page's DownloadProgressBar, so this consumes the existing
 //     contract rather than adding one).
 // Queued models (events carrying a 1-based `queue_position`) keep the
 // bar up while the queue drains, and a queued download cancelled from
-// the Models page pushes NO event at all — the terminal-armed drain
+// the Models page pushes NO event at all, the terminal-armed drain
 // timer (TERMINAL_DRAIN_MS) is the safety net that clears those ghost
 // entries once the stream goes quiet.
 //
@@ -48,7 +48,7 @@ import type { RecordingState } from "@/types/ipc";
  * voice_typer/server/service/model/_downloads.py +
  * _download_helpers.py carries one of these; no intermediate status
  * does. Unmatched future terminal strings degrade to the drain timer /
- * recording-state reset — never worse than the pre-fix behavior.
+ * recording-state reset, never worse than the pre-fix behavior.
  */
 const TERMINAL_STATUS_MARKERS = [
 	"complete", // "Download of {model} complete" / "Parakeet download complete"
@@ -66,7 +66,7 @@ const TERMINAL_STATUS_MARKERS = [
  * the next download's thread immediately and its first push ("Starting
  * download…") follows within milliseconds, so a genuine queue chain
  * cancels the timer; only a quiet stream (all done, or a queued model
- * silently cancelled from the Models page — no event exists for that)
+ * silently cancelled from the Models page, no event exists for that)
  * lets it fire.
  */
 export const TERMINAL_DRAIN_MS = 3000;
@@ -89,7 +89,7 @@ function isTerminalProgressEvent(data: Record<string, unknown>): boolean {
  * (0-100), or `null` when no download bar should render. Call once at
  * the top level of Home.
  *
- * @param recordingState the store's recording state — the bar resets
+ * @param recordingState the store's recording state, the bar resets
  *   whenever it leaves "loading".
  */
 export function useDownloadProgressEvent(
@@ -125,14 +125,14 @@ export function useDownloadProgressEvent(
 		if (!data) return undefined;
 		const model = data.model;
 		if (typeof model !== "string" || model === "") return undefined;
-		// Any live event cancels a pending drain — the stream is not
+		// Any live event cancels a pending drain, the stream is not
 		// quiet after all (a queued download started, or a new download
 		// began within the grace window).
 		cancelDrain();
 
 		const queuePosition = data.queue_position;
 		if (typeof queuePosition === "number" && queuePosition > 0) {
-			// Queued behind the active transfer — keep the bar up, but do
+			// Queued behind the active transfer, keep the bar up, but do
 			// NOT take the percentage: queued events carry progress 0 and
 			// would slam the live transfer's readout to zero.
 			activeModelsRef.current.add(model);
@@ -142,13 +142,13 @@ export function useDownloadProgressEvent(
 		if (isTerminalProgressEvent(data)) {
 			activeModelsRef.current.delete(model);
 			if (activeModelsRef.current.size === 0) {
-				// Last download finished — hide the bar now.
+				// Last download finished, hide the bar now.
 				setDownloadPct(null);
 			}
 			// Arm the drain window on EVERY terminal event: a genuine
 			// queue chain pushes the next download's first event within
 			// milliseconds (cancelling this timer), while a quiet window
-			// clears ghost entries the stream never announces — a queued
+			// clears ghost entries the stream never announces, a queued
 			// model cancelled from the Models page pushes no event for
 			// itself, so set-tracking alone would leave the bar up.
 			drainTimerRef.current = setTimeout(() => {
@@ -160,7 +160,7 @@ export function useDownloadProgressEvent(
 
 		// Active transfer (or a start/pause/resume transition event).
 		// Percentages outside 0-100 are ignored (defensive against
-		// malformed payloads) — transition-only events without a valid
+		// malformed payloads), transition-only events without a valid
 		// percentage just mark the model active.
 		activeModelsRef.current.add(model);
 		const pct = data.progress;

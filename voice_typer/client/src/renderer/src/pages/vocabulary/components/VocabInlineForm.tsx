@@ -1,4 +1,4 @@
-// Inline vocabulary entry form — the SINGLE add/edit pattern for the
+// Inline vocabulary entry form, the SINGLE add/edit pattern for the
 // page (the edit dialog modal was removed so create and modify use the
 // same inline row treatment, keeping the list visible while editing).
 //
@@ -6,13 +6,13 @@
 // word/phrase) plus Save / Cancel. The parent owns all state
 // (useVocabularyQuickAdd for create, useVocabularyEdit for edit);
 // this component is purely presentational. The category picker was
-// removed with the flat-list redesign — the backend bucket is
+// removed with the flat-list redesign, the backend bucket is
 // auto-detected on save (and preserved on edit).
 //
 // Used in two places:
 //   - the quick-add row above the table (withBottomBorder, add icon)
 //   - the in-place edit row replacing the row being edited
-//     (no bottom border — the list's divide-y draws the separators —
+//     (no bottom border, the list's divide-y draws the separators —
 //     pencil icon, distinct testid)
 import { Add01Icon } from "@hugeicons/core-free-icons";
 import type { IconSvgElement } from "@hugeicons/react";
@@ -32,11 +32,11 @@ interface VocabInlineFormProps {
 	onReplacementChange: (v: string) => void;
 	onSave: () => void;
 	onCancel: () => void;
-	/** test id — "vocab-quick-add" (add row) vs "vocab-edit-row" (edit row). */
+	/** test id, "vocab-quick-add" (add row) vs "vocab-edit-row" (edit row). */
 	testId?: string;
-	/** Leading icon on the Save button — Add for create, pencil for edit. */
+	/** Leading icon on the Save button, Add for create, pencil for edit. */
 	submitIcon?: IconSvgElement;
-	/** Bottom border — the quick-add row above the table keeps its card
+	/** Bottom border, the quick-add row above the table keeps its card
 	 * look; the in-list edit row drops it (the list's divide-y owns the
 	 * separators there). */
 	withBottomBorder?: boolean;
@@ -60,7 +60,7 @@ export function VocabInlineForm({
 			className={cn(
 				"grid grid-cols-1 gap-2 bg-(--bg-subtle) px-3.5 py-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto_auto] sm:items-center",
 				// Standalone quick-add row (above the table): full card
-				// treatment — same border, radius, and surface as the
+				// treatment, same border, radius, and surface as the
 				// table container so the form reads as part of the same
 				// design system (the old form only had a bottom border
 				// and a translucent background that matched nothing).
@@ -104,7 +104,7 @@ export function VocabInlineForm({
 					{t("common.cancel")}
 				</Button>
 			</div>
-			{/* Inline rejection message — shown when the write is blocked
+			{/* Inline rejection message, shown when the write is blocked
 			    (frontend pre-check or authoritative backend
 			    client.duplicate_entry rejection). role="alert" so
 			    screen readers announce it. */}

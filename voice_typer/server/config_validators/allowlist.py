@@ -9,19 +9,19 @@ has its own focused home.  It owns:
   ``config/coercion.py`` so the IPC validator and the post-load clamp
   can never drift).
 * :data:`STREAMING_LEFT_OVERLAP_SECONDS_MIN` /
-  :data:`STREAMING_RIGHT_GUARD_SECONDS_MIN` — canonical lower bounds
+  :data:`STREAMING_RIGHT_GUARD_SECONDS_MIN`: canonical lower bounds
   for the streaming-overlap / -guard fields (same shared-source
   rationale).
-* :data:`ALLOWED_USER_MODELS` — derived from
+* :data:`ALLOWED_USER_MODELS`: derived from
   :data:`model_registry.MODEL_REGISTRY` at import time so the two
   cannot drift.
-* :data:`NOISE_SUPPRESSION_METHODS` — the canonical noise-suppression
+* :data:`NOISE_SUPPRESSION_METHODS`: the canonical noise-suppression
   backend enum (``"rnnoise" | "gtcrn" | "none"``); imported by
   ``audio_filters/noise_suppressor.py`` and re-exported via
   ``config/__init__.py``.
 * The pre-built ``_VALIDATOR_*`` instances used inside
   :data:`IPC_CONFIG_ALLOWLIST`.
-* :data:`IPC_CONFIG_ALLOWLIST` — the explicit, reviewed map of fields
+* :data:`IPC_CONFIG_ALLOWLIST`: the explicit, reviewed map of fields
   the Electron renderer is permitted to mutate via the IPC
   ``set_config`` command, together with their per-field validators.
 
@@ -71,7 +71,7 @@ from voice_typer.server.model_registry import (
 # Defined here (the import-safe leaf package) so ``config.py`` can import
 # them without participating in a circular import. Both the IPC validator
 # below and ``Config._coerce_max_recording_time`` read from these
-# constants — closing the split-brain bug where the IPC validator's
+# constants, closing the split-brain bug where the IPC validator's
 # ``lo=30`` disagreed with the post-load clamp's ``lo=300``, causing a
 # user-set 30-second value to be silently bumped to 300 on the next
 # ``Config.load()``.
@@ -81,7 +81,7 @@ MAX_RECORDING_TIME_SECONDS_MAX: int = 3600  # 60 minutes
 
 # shared streaming-field minimums (mirrors  pattern).
 # Pre-fix the IPC validator used ``lo=0.0`` while
-# ``Config._coerce_streaming_fields`` clamped to ``3.0`` / ``1.5`` — a
+# ``Config._coerce_streaming_fields`` clamped to ``3.0`` / ``1.5``, a
 # value the renderer persisted (``0.5``) silently changed across
 # save/load cycles (split-brain validation). Defined here (the import-safe
 # leaf package) so ``config.py`` can mirror the values without participating
@@ -110,11 +110,11 @@ ALLOWED_USER_MODELS: frozenset[str] = frozenset(_MODEL_REGISTRY_FOR_ALLOWLIST.ke
 # drifted out of sync:
 #   - ``config.py:911`` dataclass field comment advertised
 #     ``"rnnoise" | "deepfilternet" | "speex" | "none"`` (``"speex"`` was
-#     never implemented — there is no speex backend in
+#     never implemented, there is no speex backend in
 #     ``audio_filters/noise_suppressor.py``).
 #   - ``config_validators.py:768`` IPC validator used
 #     ``{"rnnoise", "deepfilternet", "none"}`` (correct set, but inlined
-#     as a literal — easy to drift).
+#     as a literal, easy to drift).
 #   - ``audio_filters/noise_suppressor.py`` runtime fallback only
 #     dispatched on ``"rnnoise"`` / ``"deepfilternet"`` / ``"none"``
 #     (matches the IPC validator but not the dataclass comment).
@@ -122,7 +122,7 @@ ALLOWED_USER_MODELS: frozenset[str] = frozenset(_MODEL_REGISTRY_FOR_ALLOWLIST.ke
 # The canonical set is now defined ONCE here and re-exported via the
 # wildcard ``from .config_validators import *`` in ``config.py``.
 # ``audio_filters/noise_suppressor.py`` imports the constant directly
-# (its agent — 2-g — is coordinated to swap its inlined literal for
+# (its agent, 2-g, is coordinated to swap its inlined literal for
 # the imported constant and to drop the ``"speex"`` mention from its
 # docstring). ``config.py`` agent 2-a is coordinated to drop
 # ``"speex"`` from the dataclass comment at line 911.
@@ -149,17 +149,17 @@ NOISE_SUPPRESSION_METHODS: frozenset[str] = frozenset({"rnnoise", "gtcrn", "none
 # `test_ignores_unknown_fields_without_crashing`).
 #
 # Fields deliberately excluded:
-#   - `schema_version`           — managed by Config.load() migration path
-#   - `wayland_warned`           — internal UX state, not user-tunable
-#   - `qwen_model_path`          — trusted-path, set by model download flow
-#   - `parakeet_model_path`      — trusted-path, set by model download flow
-#   - `corrections_path`         — trusted-path, set by file picker IPC
+#   - `schema_version`          : managed by Config.load() migration path
+#   - `wayland_warned`          : internal UX state, not user-tunable
+#   - `qwen_model_path`         : trusted-path, set by model download flow
+#   - `parakeet_model_path`     : trusted-path, set by model download flow
+#   - `corrections_path`        : trusted-path, set by file picker IPC
 #
 # When adding a field here, also add a test in
 # `tests/test_server.py::TestDispatchSetConfigAllowlist`.
 # ──────────────────────────────────────────────────────────────────────────
 
-# Pre-built validator instances — built once at import time so the
+# Pre-built validator instances, built once at import time so the
 # IPC_CONFIG_ALLOWLIST can reference them by name.  Mirrors the original
 # module's `_VALIDATOR_*` block verbatim.
 _VALIDATOR_HOTKEY = _validate_hotkey
@@ -185,7 +185,7 @@ IPC_CONFIG_ALLOWLIST: dict[str, FieldSpec] = {
     # ── Recording ─────────────────────────────────────────────────────
     "microphone": ((str, type(None)), _VALIDATOR_MICROPHONE),
     # ── Transcription ─────────────────────────────────────────────────
-    # ``model_size`` additionally accepts ``NO_MODEL_SIZE`` ("") — the
+    # ``model_size`` additionally accepts ``NO_MODEL_SIZE`` (""), the
     # genuine "no model selected" state (see
     # ``model_registry.NO_MODEL_SIZE``). The server enters it when a
     # stale selection is cleared with no downloaded fallback; the
@@ -226,7 +226,7 @@ IPC_CONFIG_ALLOWLIST: dict[str, FieldSpec] = {
     # prewarm scheduled-task master toggle. Surfaced in Settings →
     # General so users can opt out (e.g. gamers who want the RAM back).
     "fast_startup": (bool, _bool_validator),
-    # auto-update feature — offline-pack download consent toggle
+    # auto-update feature, offline-pack download consent toggle
     # (docs/auto-update-feature.md §8.4). Renderer-writable via
     # set_config so the Settings UI can persist the opt-in. Renamed
     # from ``runtime_pack_consent`` 2026-08-14 (legacy key migrated in
@@ -272,7 +272,7 @@ IPC_CONFIG_ALLOWLIST: dict[str, FieldSpec] = {
     # ── P2 Features ───────────────────────────────────────────────────
     "templates_enabled": (bool, _bool_validator),
     "vocabulary_enabled": (bool, _bool_validator),
-    # Cloud ASR — secrets and URLs are sensitive but the renderer actively
+    # Cloud ASR, secrets and URLs are sensitive but the renderer actively
     # manages them, so they are in the allowlist with strict validators.
     "cloud_api_key": (str, _VALIDATOR_API_KEY),
     "cloud_api_url": (str, _VALIDATOR_API_URL),
@@ -280,7 +280,7 @@ IPC_CONFIG_ALLOWLIST: dict[str, FieldSpec] = {
     "openai_api_key": (str, _VALIDATOR_API_KEY),
     "groq_api_key": (str, _VALIDATOR_API_KEY),
     "deepgram_api_key": (str, _VALIDATOR_API_KEY),
-    # LLM polish — same rationale as cloud ASR.
+    # LLM polish, same rationale as cloud ASR.
     "llm_polish": (bool, _bool_validator),
     "llm_api_key": (str, _VALIDATOR_API_KEY),
     "llm_api_url": (str, _VALIDATOR_LLM_API_URL),
@@ -302,7 +302,7 @@ IPC_CONFIG_ALLOWLIST: dict[str, FieldSpec] = {
     "sound_feedback_enabled": (bool, _bool_validator),
     # Volume multiplier for the renderer's sound-feedback cues
     # (Settings → Recording slider + Test Sound preview). Range
-    # [0.0, 1.0] — the cues' synthesis gain is baked in, so the field
+    # [0.0, 1.0], the cues' synthesis gain is baked in, so the field
     # scales it; negative values are nonsense and >1.0 would clip.
     "sound_volume": (float, _make_float_validator(lo=0.0, hi=1.0)),
     # ── Crash recovery ────────────────────────────────────────────────
@@ -320,10 +320,10 @@ IPC_CONFIG_ALLOWLIST: dict[str, FieldSpec] = {
     "fix_grammar_basics": (bool, _bool_validator),
     # ── P5: Vocabulary automation ───────────────────────────────────
     # Master toggle + two float thresholds.  The confidence threshold
-    # range is [0.0, 1.0] — values outside that range are nonsense
+    # range is [0.0, 1.0], values outside that range are nonsense
     # (a confidence can't be negative or above 1).  The auto-apply
     # threshold must be >= the suggest threshold to be meaningful,
-    # but we don't enforce that here — the user may want to set
+    # but we don't enforce that here, the user may want to set
     # ``auto_apply_threshold = 1.0`` to effectively disable auto-apply
     # while still queueing suggestions for review.
     "vocabulary_automation_enabled": (bool, _bool_validator),
@@ -360,7 +360,7 @@ IPC_CONFIG_ALLOWLIST: dict[str, FieldSpec] = {
     "bubble_x": ((int, type(None)), _make_optional_int_validator(lo=-100_000, hi=100_000)),
     "bubble_y": ((int, type(None)), _make_optional_int_validator(lo=-100_000, hi=100_000)),
     # Persisted bubble scale factor (multiplier on the base DPI).
-    # Range [0.5, 3.0] — wider than the renderer's visible [0.5, 2.0]
+    # Range [0.5, 3.0], wider than the renderer's visible [0.5, 2.0]
     # clamp so a future renderer change can loosen the visible range
     # without a server-side allowlist edit. Accepts ``None`` for the
     # same "not set" reason as ``bubble_x`` / ``bubble_y`` above.
@@ -414,7 +414,7 @@ IPC_CONFIG_ALLOWLIST: dict[str, FieldSpec] = {
     "custom_theme": ((dict, type(None)), _make_custom_theme_validator()),
     # Linux title-bar window-button customization (Settings → Appearance,
     # Linux only). Shape contract pinned by
-    # _make_linux_window_buttons_validator (mode/side + 3 bools — all
+    # _make_linux_window_buttons_validator (mode/side + 3 bools, all
     # required, unknown keys rejected). Ignored on Windows/macOS.
     "linux_window_buttons": (dict, _make_linux_window_buttons_validator()),
     "text_size": (int, _make_int_validator(lo=8, hi=72)),
@@ -425,7 +425,7 @@ IPC_CONFIG_ALLOWLIST: dict[str, FieldSpec] = {
     # minimum was an arbitrary / likely-typo value; 30 seconds still
     # guards against accidentally-zero values while allowing short
     # recordings for testing).
-    # REVERTED — the IPC validator's ``lo=30`` disagreed with
+    # REVERTED, the IPC validator's ``lo=30`` disagreed with
     # ``Config._coerce_max_recording_time``'s post-load clamp (``lo=300``),
     # causing a split-brain bug where a user could set 30 seconds via IPC
     # but the next ``Config.load()`` silently bumped it back to 300. Both
@@ -440,7 +440,7 @@ IPC_CONFIG_ALLOWLIST: dict[str, FieldSpec] = {
         ),
     ),
     # silence_rms_threshold / silence_peak_threshold REMOVED from
-    # the IPC allowlist — they were also removed from the Config dataclass
+    # the IPC allowlist, they were also removed from the Config dataclass
     # (declared, validated, persisted, never read at runtime per ADR 0007
     # §4.3). Existing config.json values are silently scrubbed by the v3
     # schema migration.
@@ -453,13 +453,13 @@ IPC_CONFIG_ALLOWLIST: dict[str, FieldSpec] = {
     # previously unreachable) calibration path in vad_processor.py.
     "vad_auto_calibrate": (bool, _bool_validator),
     # AUDIO-CH: recording channels (: lower bound raised from
-    # 0 to 1 — 0 channels is nonsensical and would crash the recorder at
+    # 0 to 1, 0 channels is nonsensical and would crash the recorder at
     # open-stream time with an obscure PyAudio / sounddevice error).
     "recording_channels": (int, _make_int_validator(lo=1, hi=8)),
     # AUDIO-PRE: pre-roll buffer
     "pre_roll_buffer_seconds": (float, _make_float_validator(lo=0.0, hi=30.0)),
     # normalize_audio / normalize_target_peak REMOVED from the IPC
-    # allowlist — also removed from the Config dataclass (replaced by the
+    # allowlist, also removed from the Config dataclass (replaced by the
     # Compressor filter per ADR 0007 §5.2). Existing config.json values
     # are silently scrubbed by the v3 schema migration.
     # 014: paste safety warnings
@@ -494,7 +494,7 @@ IPC_CONFIG_ALLOWLIST: dict[str, FieldSpec] = {
             )
         ),
     ),
-    # ── Noise filtering (ADR 0007 — filter chain) ────────────────────
+    # ── Noise filtering (ADR 0007, filter chain) ────────────────────
     # Removed deprecated fields: noise_filter_enabled,
     # noise_filter_gate_threshold, noise_filter_rnnoise,
     # noise_filter_post_capture. Use noise_suppression_method + the
@@ -517,7 +517,7 @@ IPC_CONFIG_ALLOWLIST: dict[str, FieldSpec] = {
     # Adaptive noise-floor calibration for the NoiseGate (see
     # ``Config.noise_filter_gate_adaptive`` in config/_schema.py): the
     # schema field + build_chain consumption existed, but the knob was
-    # unreachable from the UI — the allowlist entry makes it settable
+    # unreachable from the UI, the allowlist entry makes it settable
     # through the sanctioned set_config path.
     "noise_filter_gate_adaptive": (bool, _bool_validator),
     "noise_filter_eq": (bool, _bool_validator),

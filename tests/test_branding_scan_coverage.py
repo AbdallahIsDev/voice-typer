@@ -10,7 +10,7 @@ These tests pin the new behavior:
 * Both build-config files ARE scanned (a non-allowlisted literal in
   them is flagged).
 * The productName / title fields are allowlisted as a documented
-  "build-config literal" exception to C-BRAND-1 — they are NOT flagged.
+  "build-config literal" exception to C-BRAND-1, they are NOT flagged.
 * A clean build-config file (only productName / title literals) passes.
 
 A second gap (found when the bubble aria fallbacks shipped with the
@@ -21,7 +21,7 @@ The substring-in-literal tests below pin the scanner's second pattern
 plus the exemptions it must keep intact (comments, renderer locale
 files, the source-of-truth branding files, APP_NAME-composed lines).
 The substring pattern's scope is ALL non-test .ts/.tsx under
-``voice_typer/client/src/`` (main, preload, shared, renderer) — the
+``voice_typer/client/src/`` (main, preload, shared, renderer), the
 renderer-only scope was widened after the last blocking legacy
 literal (``src/main/single_instance.ts``) was migrated to
 ``${APP_NAME}``; the main/preload/shared tests below pin the widened
@@ -70,7 +70,7 @@ def _violation_lines(result: subprocess.CompletedProcess) -> list[str]:
 
     We pull out the ``<stripped_line>`` portion of each violation so
     tests can assert exactly which source lines were flagged (and,
-    more importantly, which were NOT — e.g. allowlisted productName
+    more importantly, which were NOT, e.g. allowlisted productName
     / title lines must never appear in this list).
     """
     lines = result.stdout.splitlines()
@@ -88,11 +88,11 @@ def _violation_lines(result: subprocess.CompletedProcess) -> list[str]:
 def _make_fake_project_root(tmp_path: Path) -> Path:
     """Lay down the minimum files check_branding.py needs to boot.
 
-    * ``voice_typer/server/branding.py`` — provides APP_NAME.
+    * ``voice_typer/server/branding.py``, provides APP_NAME.
     * The two build-config files are added per-test (so each test
       controls their exact contents).
 
-    We do NOT create ``src-tauri/src/branding.rs`` — the script's
+    We do NOT create ``src-tauri/src/branding.rs``, the script's
     cross-language parity check is skipped when that file is absent
     (``_read_rust_app_name`` returns None), so the fake root doesn't
     need a Rust mirror.
@@ -181,9 +181,9 @@ def test_electron_builder_yml_is_scanned(tmp_path):
     # would be present if those lines were flagged.
     for v in violations:
         assert "productName:" not in v, f"productName should be allowlisted but was flagged: {v!r}"
-        # Match the YAML key prefix `title:` — careful not to match
+        # Match the YAML key prefix `title:`, careful not to match
         # the substring inside `description:` (which does NOT contain
-        # `title:` — verified: "description" has no "title" substring).
+        # `title:`, verified: "description" has no "title" substring).
         assert not v.startswith("title:"), f"title should be allowlisted but was flagged: {v!r}"
 
 
@@ -236,9 +236,9 @@ def test_real_project_branding_scan_passes():
 # quoted STANDALONE literal (quote + brand + quote). A source line like
 #     return tf("bubble.blockedIndicatorAria", "Voice Typer blocked indicator");
 # embeds the brand inside a longer literal and passed the scanner
-# untouched — exactly how the hardcoded bubble aria fallbacks shipped.
+# untouched, exactly how the hardcoded bubble aria fallbacks shipped.
 # The tests below pin the substring pattern for ALL non-test client
-# .ts/.tsx source (main / preload / shared / renderer — the scope was
+# .ts/.tsx source (main / preload / shared / renderer, the scope was
 # widened from renderer-only once the last legacy main-process literal
 # was migrated to ``${APP_NAME}``) and the exemptions it must keep.
 
@@ -359,7 +359,7 @@ def test_renderer_test_files_are_out_of_substring_scope(tmp_path):
     """Renderer test files are outside the substring pattern's scope.
 
     Test files assert golden OUTPUT values (e.g. the aria label after
-    {appName} substitution) as literal expectations — pinning the
+    {appName} substitution) as literal expectations, pinning the
     literal in the test is the point of a golden assertion. This test
     documents the scope boundary; widening the pattern to tests would
     require migrating those golden assertions first.
@@ -385,11 +385,11 @@ def test_main_process_ts_substring_literal_is_flagged(tmp_path):
     """Main-process .ts source is IN the substring pattern's scope.
 
     The scope was originally renderer-only because the repo carried a
-    legacy log literal (``src/main/single_instance.ts`` — "is not
+    legacy log literal (``src/main/single_instance.ts``: "is not
     <brand>" inside a template literal). That literal was migrated to
     ``${APP_NAME}``, an audit confirmed zero other non-comment
     non-exempt brand literals in main/preload/shared non-test TS, and
-    the pattern was widened to the full client source tree — so a
+    the pattern was widened to the full client source tree, so a
     fixture main-process violation now FAILS the checker.
     """
     root = _make_fake_project_root(tmp_path)
@@ -445,7 +445,7 @@ def test_substring_in_literal_in_shared_ts_source_is_flagged(tmp_path):
 def test_main_process_app_name_composed_line_is_not_flagged(tmp_path):
     """The migrated single_instance.ts pattern (brand via ``${APP_NAME}``
     in a template literal) is the CORRECT pattern and must not be
-    flagged — pins that the real main-process file passes the widened
+    flagged, pins that the real main-process file passes the widened
     scan."""
     root = _make_fake_project_root(tmp_path)
     _write_renderer_source(

@@ -1,4 +1,4 @@
-// lib/theme-storage-keys.ts — single source of truth for the localStorage
+// lib/theme-storage-keys.ts, single source of truth for the localStorage
 // key strings and shared theme-mode type used by both the pre-React
 // bootstrap (``theme-bootstrap.ts``) and the React ``useTheme`` hook
 // (``hooks/useTheme.ts``).
@@ -8,7 +8,7 @@
 // ``LS_TEXT_SIZE`` and a local ``ThemeMode`` type alias. The two copies
 // had to be kept in sync manually; if one drifted, the bootstrap would
 // read a stale value or the hook would silently fall back to the
-// default. Centralising them here makes drift impossible — both modules
+// default. Centralising them here makes drift impossible, both modules
 // import the same constant.
 //
 //this module also exports a single ``isValidThemePresetId``

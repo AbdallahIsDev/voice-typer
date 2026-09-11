@@ -1,4 +1,4 @@
-"""MIG-1.6 Phase 0-M Gate Check 6 — toast notification wiring validation (macOS).
+"""MIG-1.6 Phase 0-M Gate Check 6: toast notification wiring validation (macOS).
 
 Source-inspection + behavior tests that validate the wiring required for
 ``tauri-plugin-notification`` to post macOS notification banners on a real
@@ -18,10 +18,10 @@ What this file pins (the macOS toast wiring contract):
 
 1. ``src-tauri/src/main.rs`` registers ``tauri_plugin_notification::init()``
    so the webview can call ``invoke('plugin:notification|notify', ...)``.
-   (Cross-platform — same call as Windows.)
+   (Cross-platform, same call as Windows.)
 2. ``src-tauri/tauri.conf.json`` declares ``"notification": {}`` in the
    ``plugins`` section (Tauri v2 requires both the plugin registration
-   in Rust AND the config entry — the config block enables the JS
+   in Rust AND the config entry, the config block enables the JS
    bindings to be generated).
 3. ``src-tauri/capabilities/main-runtime.json`` grants at least one
    ``notification:*`` permission (the least-privilege gate; Tauri v2
@@ -32,20 +32,20 @@ What this file pins (the macOS toast wiring contract):
    re-emits incoming ``electron_notification`` events under the canonical
    ``notification`` name (so new UI code subscribing to ``notification``
    keeps working during a rolling upgrade from an old Python sidecar).
-   This is a CROSS-PLATFORM rename — the same code path runs on macOS,
+   This is a CROSS-PLATFORM rename, the same code path runs on macOS,
    Windows, and Linux.
 5. The published notification payload shape is
    ``{"type":"notification","data":{"title":"...","message":"...",
    "duration_ms":int,"critical":bool}}`` (per CR-8). This is the
-   platform-agnostic shape — the renderer's notification handler reads
+   platform-agnostic shape, the renderer's notification handler reads
    the same fields regardless of OS.
 6. macOS notifications require the app to be SIGNED with a Developer ID
    Application certificate (see ``docs/migration/signing-guide.md``).
    Unsigned dev builds (``cargo tauri build`` without ``--target
    universal-apple-darwin`` + codesign) silently fail to post
-   notifications — the UNUserNotificationCenter API returns
+   notifications, the UNUserNotificationCenter API returns
    ``notificationNotScheduled`` without any visible error. This is a
-   GAP if unsigned — documented below + in the VALIDATE ON MACOS HOST
+   GAP if unsigned, documented below + in the VALIDATE ON MACOS HOST
    block.
 7. The ``entitlements.plist`` does NOT need a notification-specific
    entitlement. Unlike iOS (which requires the
@@ -55,7 +55,7 @@ What this file pins (the macOS toast wiring contract):
    ``UNUserNotificationCenter`` need NO entitlement beyond the hardened-
    runtime minimum. The existing ``entitlements.plist`` (audio-input +
    allow-jit + disable-library-validation) is sufficient.
-8. macOS 13+ (Ventura and newer — the project's minimum per
+8. macOS 13+ (Ventura and newer, the project's minimum per
    ``LSMinimumSystemVersion: 13.0`` in ADR-0020 §13.2) requires the
    user to grant notification permission in System Settings →
    Notifications → Voice Typer. The app must call
@@ -67,7 +67,7 @@ What this file pins (the macOS toast wiring contract):
 IMPLEMENTATION GAPS (reported, not fixed)
 =========================================
 
-GAP-A — No Info.plist template in the repo:
+GAP-A, No Info.plist template in the repo:
 
   The macOS runbook §6.4 says the built ``.app/Contents/Info.plist``
   MUST contain ``NSUserNotificationsUsageDescription`` (and
@@ -76,12 +76,12 @@ GAP-A — No Info.plist template in the repo:
   Tauri generates one at build time from its defaults + the
   ``bundle.macOS`` section of ``tauri.conf.json``, which is currently
   empty). This means the ``NSUserNotificationsUsageDescription`` key
-  is NOT in source — it must be set via a Tauri ``Info.plist`` template
+  is NOT in source, it must be set via a Tauri ``Info.plist`` template
   (or merged in via a build script) before Phase 0-M can pass §6.4.
   This test file DOCUMENTS the gap; the actual fix lives outside this
   gate check (it's a build-script change tracked separately).
 
-GAP-B — Signing gap for dev builds:
+GAP-B, Signing gap for dev builds:
 
   Unsigned dev builds (``cargo tauri build`` without a Developer ID
   certificate) silently fail to post notifications on macOS 13+.
@@ -91,13 +91,13 @@ GAP-B — Signing gap for dev builds:
   no error in the log. The VALIDATE ON MACOS HOST block documents the
   workaround (sign with Developer ID first).
 
-GAP-C — No requestPermission() call in main.rs:
+GAP-C, No requestPermission() call in main.rs:
 
   The Tauri notification plugin exposes a ``requestPermission()``
   JavaScript API that wraps
   ``UNUserNotificationCenter.requestAuthorization(...)``. The Python
   sidecar's ``show_electron_notification`` IPC handler publishes the
-  event but does NOT call ``requestPermission()`` first — it relies on
+  event but does NOT call ``requestPermission()`` first, it relies on
   the renderer's notification handler to do so. If the renderer doesn't
   call ``requestPermission()`` BEFORE the first ``notify()`` call, the
   notification silently no-ops on macOS 13+. This is a renderer-side
@@ -111,7 +111,7 @@ VALIDATE ON MACOS HOST:
 5. Check ~/Library/Logs/voice-typer/voice-typer.log for:
    - notification event emitted
 Expected: notification appears within 1s; title + message match
-(Unsigned dev builds may not show notifications — sign with Developer ID first.)
+(Unsigned dev builds may not show notifications, sign with Developer ID first.)
 """
 
 from __future__ import annotations
@@ -146,7 +146,7 @@ MACOS_RUNBOOK = _REPO_ROOT / "docs" / "migration" / "macos-validation-runbook.md
 
 
 def _read(path: Path) -> str:
-    """Read a file as UTF-8 text. Fail loud if missing — every path this
+    """Read a file as UTF-8 text. Fail loud if missing, every path this
     module reads is a hard dependency of the macOS toast wiring, so a
     missing file is a real regression (not a soft skip)."""
     assert path.is_file(), f"required macOS toast-wiring artifact missing: {path}"
@@ -177,7 +177,7 @@ def _read_ws_bridge_rs() -> str:
 class TestMainRsRegistersNotificationPlugin:
     """Gate 1: the Rust host must register the notification plugin.
 
-    This is the CROSS-PLATFORM wiring — the same call works on macOS,
+    This is the CROSS-PLATFORM wiring, the same call works on macOS,
     Windows, and Linux. Tauri's notification plugin internally dispatches
     to ``UNUserNotificationCenter`` on macOS, ``WinRT ToastNotification``
     on Windows, and ``libnotify`` on Linux.
@@ -188,14 +188,14 @@ class TestMainRsRegistersNotificationPlugin:
         call inside the ``tauri::Builder::default()`` chain.
 
         Without this, ``invoke('plugin:notification|notify', ...)`` from
-        the webview returns "plugin not registered" — no notification
+        the webview returns "plugin not registered", no notification
         banner ever appears on macOS, regardless of capability grants,
         tauri.conf.json config, or TCC permission.
         """
         src = _read(MAIN_RS)
         assert "tauri_plugin_notification::init()" in src, (
             "main.rs must register tauri_plugin_notification::init() in the "
-            "Builder chain — without it, the webview's notification invoke() "
+            "Builder chain, without it, the webview's notification invoke() "
             "calls fail with 'plugin not registered' on macOS."
         )
 
@@ -219,11 +219,11 @@ class TestTauriConfDeclaresNotificationPlugin:
 
     def test_tauri_conf_json_has_notification_in_plugins(self):
         """``tauri.conf.json`` MUST declare a ``notification`` entry under
-        the top-level ``plugins`` key (value ``null`` — see the sibling
+        the top-level ``plugins`` key (value ``null``: see the sibling
         unit-compatibility test).
 
         Tauri v2 requires BOTH the Rust plugin registration AND the
-        config entry — the config block is what triggers generation of
+        config entry, the config block is what triggers generation of
         the JS bindings the webview imports. Missing config ⇒
         ``@tauri-apps/plugin-notification`` import fails at runtime
         (this is identical on macOS + Windows + Linux).
@@ -231,10 +231,10 @@ class TestTauriConfDeclaresNotificationPlugin:
         src = _read(TAURI_CONF_JSON)
         conf = json.loads(src)
         assert "plugins" in conf, (
-            "tauri.conf.json must have a top-level 'plugins' object — Tauri v2 generates JS bindings from this section."
+            "tauri.conf.json must have a top-level 'plugins' object, Tauri v2 generates JS bindings from this section."
         )
         assert "notification" in conf["plugins"], (
-            "tauri.conf.json plugins section must declare 'notification' — "
+            "tauri.conf.json plugins section must declare 'notification', "
             "without it, the @tauri-apps/plugin-notification JS bindings "
             "are not generated and the webview's notify() call fails on macOS."
         )
@@ -243,7 +243,7 @@ class TestTauriConfDeclaresNotificationPlugin:
         """The ``notification`` plugin config MUST be serde-unit compatible
         (``null``). tauri-plugin-notification v2 registers NO config type
         (its init is a plain ``Builder::new("notification")``), so the
-        runtime deserializes this entry into ``()`` — an empty map
+        runtime deserializes this entry into ``()``, an empty map
         (``{}``) fails app startup with "invalid type: map, expected
         unit" (found on the first Windows host run; see tauri issue
         #8769 for the same error class)."""
@@ -252,7 +252,7 @@ class TestTauriConfDeclaresNotificationPlugin:
         notif_cfg = conf["plugins"]["notification"]
         assert notif_cfg is None, (
             f"tauri.conf.json plugins.notification must be null (serde unit), got "
-            f"{type(notif_cfg).__name__}: {notif_cfg!r} — a non-null value fails "
+            f"{type(notif_cfg).__name__}: {notif_cfg!r}, a non-null value fails "
             "app startup with 'invalid type: map, expected unit'"
         )
 
@@ -263,7 +263,7 @@ class TestTauriConfDeclaresNotificationPlugin:
 class TestCapabilitiesGrantNotificationPermission:
     """Gate 3: the main-runtime capability must grant a notification permission.
 
-    Tauri v2 ships zero permissions by default — even with the plugin
+    Tauri v2 ships zero permissions by default, even with the plugin
     registered + the config entry, the webview's notify() call returns
     ``PermissionDenied`` unless an explicit ``notification:*`` permission
     is granted in a capability file the window matches. This is the
@@ -285,7 +285,7 @@ class TestCapabilitiesGrantNotificationPermission:
         notif_perms = [p for p in perms if isinstance(p, str) and p.startswith("notification:")]
         assert notif_perms, (
             f"main-runtime.json must grant at least one 'notification:*' "
-            f"permission — found none in {perms!r}. Without this, the "
+            f"permission, found none in {perms!r}. Without this, the "
             f"webview's notify() call returns PermissionDenied on macOS."
         )
 
@@ -331,14 +331,14 @@ class TestWsRsRenamesElectronNotificationToNotification:
     incoming ``electron_notification`` events under the canonical
     ``notification`` name.
 
-    This is a CROSS-PLATFORM rename — the same ``ws.rs`` code runs on
+    This is a CROSS-PLATFORM rename, the same ``ws.rs`` code runs on
     macOS, Windows, and Linux. The CR-8 rename moved the event-name
     migration logic out of the platform-specific tray code and into the
     Rust WS bridge so all three platforms get the same behavior for free.
 
     Source-inspection test: we read ``ws.rs`` as a string and assert the
     alias branch exists. We don't compile/run the Rust code (the Linux
-    sandbox can't build the Tauri app — that's the whole point of the
+    sandbox can't build the Tauri app, that's the whole point of the
     Phase 0-M gate).
     """
 
@@ -375,12 +375,12 @@ class TestWsRsRenamesElectronNotificationToNotification:
         src = _read_ws_bridge_rs()
         assert "emit(emit_name, payload.clone())" in src, (
             "ws.rs must emit the event WITH the payload (payload.clone()), "
-            "not just an empty event — otherwise the macOS banner renders blank."
+            "not just an empty event, otherwise the macOS banner renders blank."
         )
 
     def test_ws_rs_does_not_rename_relaunch_app(self):
         """PVT-2 cleanup: the ``relaunch_electron`` → ``relaunch_app``
-        rename arm was REMOVED from ws.rs — the Python sidecar now
+        rename arm was REMOVED from ws.rs, the Python sidecar now
         publishes ``relaunch_app`` directly (see ``app.py``
         ``restart_app``), and ``main.rs`` listens for ``relaunch_app``
         via ``app.listen("relaunch_app", ...)``. Verified here because
@@ -388,7 +388,7 @@ class TestWsRsRenamesElectronNotificationToNotification:
         MUST NOT carry this rename anymore (regression check)."""
         src = _read_ws_bridge_rs()
         assert '"relaunch_electron" => "relaunch_app"' not in src, (
-            "ws.rs must NOT rename 'relaunch_electron' → 'relaunch_app' — "
+            "ws.rs must NOT rename 'relaunch_electron' → 'relaunch_app', "
             "the Python sidecar now publishes 'relaunch_app' directly "
             "(PVT-2 cleanup). The rename arm must be removed."
         )
@@ -415,14 +415,14 @@ class TestNotificationPayloadShape:
            },
        }
 
-    This is the SAME shape on macOS, Windows, and Linux — the renderer's
+    This is the SAME shape on macOS, Windows, and Linux, the renderer's
     notification handler reads ``data.title`` + ``data.message`` and
     passes them to ``tauri-plugin-notification``'s ``notify()`` call,
     which on macOS dispatches to ``UNUserNotificationCenter.add(...)``.
 
     The ``duration_ms`` field is a hint for the auto-close timeout
-    (macOS ignores it — banners follow the user's System Settings →
-    Notifications → Voice Typer → banner style — but it's honored on
+    (macOS ignores it, banners follow the user's System Settings →
+    Notifications → Voice Typer → banner style, but it's honored on
     Windows + Linux). The ``critical`` field requests critical-priority
     delivery (on macOS, this maps to a "Critical" banner that bypasses
     Do Not Disturb IF the user has granted critical-alert permission;
@@ -451,7 +451,7 @@ class TestNotificationPayloadShape:
             per CR-8. The legacy name only flows from OLD Python sidecars;
             the Rust-side alias in ``ws.rs`` re-emits it as
             ``notification`` for new UI code.
-          - Body field is ``message`` (NOT ``body``) — this is the field
+          - Body field is ``message`` (NOT ``body``), this is the field
             name the renderer's notification handler reads when calling
             ``tauri-plugin-notification``'s ``notify({title, body})``.
           - Two extra fields (``duration_ms``, ``critical``) control the
@@ -478,7 +478,7 @@ class TestNotificationPayloadShape:
             f"payload top-level keys must be {{'type', 'data'}}, got {set(captured.keys())!r}"
         )
         assert captured["type"] == "notification", (
-            f"event name must be 'notification' (per CR-8) — got {captured.get('type')!r}"
+            f"event name must be 'notification' (per CR-8), got {captured.get('type')!r}"
         )
         # data shape.
         data = captured["data"]
@@ -510,12 +510,12 @@ class TestNotificationPayloadShape:
                 {},
             )
         assert "message" in captured["data"], (
-            "payload data must have a 'message' field — this is the field "
+            "payload data must have a 'message' field, this is the field "
             "name the renderer reads when calling tauri-plugin-notification's "
             "notify({title, body}) on macOS."
         )
         assert "body" not in captured["data"], (
-            "payload data must NOT have a 'body' field — the actual "
+            "payload data must NOT have a 'body' field, the actual "
             "implementation uses 'message' (the renderer maps data.message "
             "→ notify body)."
         )
@@ -553,7 +553,7 @@ class TestNotificationPayloadShape:
         ``UNNotificationContent.interruptionLevel`` to ``timeSensitive``
         (or ``critical`` if the user has granted critical-alert
         permission). A string value would always be truthy in JS,
-        causing every notification to be escalated to critical — which
+        causing every notification to be escalated to critical, which
         would bypass Do Not Disturb without the user's consent."""
         server = make_bare_ipc_server()
         captured: dict = {}
@@ -622,7 +622,7 @@ class TestMacOSNotificationsRequireSigning:
 
     The actual "is the .app bundle signed with a Developer ID
     certificate?" check MUST be done on the macOS host (see VALIDATE
-    ON MACOS HOST block — `codesign -dv --verbose=4 /Applications/Voice
+    ON MACOS HOST block: `codesign -dv --verbose=4 /Applications/Voice
     Typer.app` should show ``Authority=Developer ID Application: ...``).
     """
 
@@ -634,7 +634,7 @@ class TestMacOSNotificationsRequireSigning:
         which means the bundle can't be notarized, which means
         notifications silently fail on macOS 11+."""
         assert ENTITLEMENTS_PLIST.is_file(), (
-            f"entitlements.plist MUST exist at {ENTITLEMENTS_PLIST} — "
+            f"entitlements.plist MUST exist at {ENTITLEMENTS_PLIST}, "
             f"it's consumed by codesign when signing the .app bundle. "
             f"Without signing, macOS notifications silently fail."
         )
@@ -650,12 +650,12 @@ class TestMacOSNotificationsRequireSigning:
         notifications on macOS 13+."""
         signing_guide = _REPO_ROOT / "docs" / "migration" / "signing-guide.md"
         assert signing_guide.is_file(), (
-            f"signing-guide.md MUST exist at {signing_guide} — it documents "
+            f"signing-guide.md MUST exist at {signing_guide}, it documents "
             f"the macOS Developer ID signing flow required for notifications."
         )
         src = _read(signing_guide)
         assert "Developer ID" in src, (
-            "signing-guide.md MUST mention 'Developer ID' — the Developer ID "
+            "signing-guide.md MUST mention 'Developer ID', the Developer ID "
             "Application certificate is required for macOS notifications on "
             "macOS 13+ (unsigned dev builds silently fail to post)."
         )
@@ -671,7 +671,7 @@ class TestMacOSNotificationsRequireSigning:
         src = _read(MACOS_RUNBOOK)
         assert "Developer ID" in src, (
             "macos-validation-runbook.md MUST mention 'Developer ID' in its "
-            "prerequisites — gate check 6 (toast) requires a signed .app bundle."
+            "prerequisites, gate check 6 (toast) requires a signed .app bundle."
         )
 
 
@@ -688,7 +688,7 @@ class TestEntitlementsDoNotIncludeNotificationEntitlement:
     notifications via ``UNUserNotificationCenter`` need NO
     notification-specific entitlement. The existing entitlements
     (audio-input + allow-jit + disable-library-validation) are
-    sufficient — adding a notification entitlement would be cargo-cult
+    sufficient, adding a notification entitlement would be cargo-cult
     and would NOT change behavior.
 
     This is a NEGATIVE test: we verify the entitlements.plist does NOT
@@ -701,19 +701,19 @@ class TestEntitlementsDoNotIncludeNotificationEntitlement:
         """The ``entitlements.plist`` MUST NOT contain any of:
 
           - ``com.apple.developer.usernotifications.communication``
-            (iOS-only — communication-notification entitlement)
+            (iOS-only, communication-notification entitlement)
           - ``com.apple.developer.usernotifications.time-sensitive``
-            (iOS-only — time-sensitive entitlement; macOS handles this
+            (iOS-only, time-sensitive entitlement; macOS handles this
             via the ``interruptionLevel`` field on
             ``UNNotificationContent``, not via entitlement)
-          - ``aps-environment`` (APNs push — irrelevant for local
+          - ``aps-environment`` (APNs push, irrelevant for local
             notifications)
 
         These keys are documented in Apple's entitlements reference as
         iOS-only or APNs-only. Adding them to a macOS app's entitlements
         would be cargo-cult: they don't change behavior, but they DO
         make the entitlements file harder to audit (a reviewer would
-        reasonably wonder "why is aps-environment here — are we using
+        reasonably wonder "why is aps-environment here, are we using
         push?").
         """
         src = _read(ENTITLEMENTS_PLIST)
@@ -724,7 +724,7 @@ class TestEntitlementsDoNotIncludeNotificationEntitlement:
         ]
         for key in forbidden_keys:
             assert key not in src, (
-                f"entitlements.plist MUST NOT contain '{key}' — this is an "
+                f"entitlements.plist MUST NOT contain '{key}', this is an "
                 f"iOS-only or APNs-only entitlement. Local macOS notifications "
                 f"via UNUserNotificationCenter need NO notification-specific "
                 f"entitlement; the existing audio-input + allow-jit + "
@@ -741,7 +741,7 @@ class TestEntitlementsDoNotIncludeNotificationEntitlement:
           - ``com.apple.security.cs.disable-library-validation``
           - ``com.apple.security.device.audio-input``
 
-        These are NOT notification-specific — they're the hardened-
+        These are NOT notification-specific, they're the hardened-
         runtime minimum. But they're a hard dependency of the signing
         step that gates notifications (unsigned ⇒ no notifications),
         so we verify them here as a proxy for "the entitlements file
@@ -754,7 +754,7 @@ class TestEntitlementsDoNotIncludeNotificationEntitlement:
         ]
         for key in required_keys:
             assert key in src, (
-                f"entitlements.plist MUST contain '{key}' — it's a "
+                f"entitlements.plist MUST contain '{key}', it's a "
                 f"hardened-runtime minimum required for notarization (per "
                 f"ADR-0020 §13.2). Without it, the signing step fails, "
                 f"which means macOS notifications silently fail too."
@@ -791,7 +791,7 @@ class TestMacOSNotificationPermissionGrant:
 
     def test_macos_runbook_documents_unusernotificationcenter_authorization(self):
         """The macOS runbook §6.4 MUST mention
-        ``UNUserNotificationCenter`` authorization — this is the API
+        ``UNUserNotificationCenter`` authorization, this is the API
         surface that requires the user grant on macOS 11+. The runbook
         is the source-of-truth docs for the Phase 0-M gate; a developer
         running gate check 6 must be able to discover the
@@ -812,16 +812,16 @@ class TestMacOSNotificationPermissionGrant:
         where to look."""
         src = _read(MACOS_RUNBOOK)
         # The runbook should mention both "System Settings" and
-        # "Notifications" (case-insensitive) — together they pin the
+        # "Notifications" (case-insensitive), together they pin the
         # macOS System Settings → Notifications UI path.
         src_lower = src.lower()
         assert "system settings" in src_lower or "system preferences" in src_lower, (
             "macos-validation-runbook.md MUST mention 'System Settings' (or "
-            "the legacy 'System Preferences') — the macOS UI path where the "
+            "the legacy 'System Preferences'), the macOS UI path where the "
             "user manually grants notification permission."
         )
         assert "notification" in src_lower, (
-            "macos-validation-runbook.md MUST mention 'notification' — the "
+            "macos-validation-runbook.md MUST mention 'notification', the "
             "System Settings panel where the user grants per-app notification "
             "permission on macOS 13+."
         )
@@ -830,7 +830,7 @@ class TestMacOSNotificationPermissionGrant:
         """The macOS runbook §6.4 MUST document the pass criteria for
         the notification gate (a banner appears in the top-right
         corner with the Voice Typer icon). This is the human-verifiable
-        assertion that gate check 6 is "passing" — without it, the
+        assertion that gate check 6 is "passing", without it, the
         gate check is a no-op (the renderer's notify() call returning
         without error is NOT sufficient; macOS silently swallows
         notifications from unsigned/unauthorized apps)."""
@@ -838,7 +838,7 @@ class TestMacOSNotificationPermissionGrant:
         # The runbook should mention "top-right" (where macOS banners
         # appear) AND "Notification Center" (where they persist).
         assert "top-right" in src or "top right" in src, (
-            "macos-validation-runbook.md MUST mention 'top-right' — the "
+            "macos-validation-runbook.md MUST mention 'top-right', the "
             "screen position where macOS notification banners appear. This "
             "is the human-verifiable pass criteria for gate check 6."
         )
@@ -849,18 +849,18 @@ class TestMacOSNotificationPermissionGrant:
         key is the human-readable description shown in the macOS TCC
         prompt when the app first requests notification authorization.
         Without it, the TCC prompt shows a generic "Voice Typer Would
-        Like to Send You Notifications" message — functional but not
+        Like to Send You Notifications" message, functional but not
         user-friendly.
 
         IMPLEMENTATION GAP (GAP-A in module docstring): the Info.plist
-        template that should declare this key is NOT in the repo — it's
+        template that should declare this key is NOT in the repo, it's
         generated by ``cargo tauri build`` from defaults. The runbook
         documents the requirement; the build-script fix is tracked
         separately. This test only verifies the runbook documents it."""
         src = _read(MACOS_RUNBOOK)
         assert "NSUserNotificationsUsageDescription" in src, (
             "macos-validation-runbook.md MUST mention "
-            "'NSUserNotificationsUsageDescription' — the Info.plist key "
+            "'NSUserNotificationsUsageDescription', the Info.plist key "
             "that provides the human-readable description for the macOS "
             "TCC notification authorization prompt."
         )
@@ -872,7 +872,7 @@ class TestMacOSNotificationPermissionGrant:
 class TestSourceInspectionBeltAndBraces:
     """Gate 9: belt-and-braces source-inspection tests.
 
-    These don't correspond to a single gate point — they pin additional
+    These don't correspond to a single gate point, they pin additional
     invariants that would be easy to break in a refactor but would
     silently regress the macOS toast path if broken.
     """
@@ -881,25 +881,25 @@ class TestSourceInspectionBeltAndBraces:
         """``ws.rs`` MUST also emit the generic ``python-event``
         envelope (per ADR-0020 §6.3) which the ``usePython`` hook's
         onEvent catch-all listens to. This is the secondary path by
-        which the renderer learns about a notification event — both
+        which the renderer learns about a notification event, both
         paths (specific-event emit + python-event envelope) must be
         present for the toast wiring to be complete on macOS."""
         src = _read_ws_bridge_rs()
         assert 'emit("python-event"' in src, (
             "ws.rs must also emit the generic 'python-event' envelope "
-            "(ADR-0020 §6.3) — this is the catch-all path the usePython "
+            "(ADR-0020 §6.3), this is the catch-all path the usePython "
             "hook uses to learn about notification events on macOS."
         )
 
     def test_ws_rs_emits_specific_event_with_emit_name(self):
         """``ws.rs`` MUST emit the specific event (using ``emit_name``)
-        so direct listeners like ``appWindow.on('notification')`` keep
-        firing. The generic ``python-event`` envelope is NOT sufficient
-        — direct listeners don't subscribe to that."""
+          so direct listeners like ``appWindow.on('notification')`` keep
+          firing. The generic ``python-event`` envelope is NOT sufficient
+        , direct listeners don't subscribe to that."""
         src = _read_ws_bridge_rs()
         assert "emit(emit_name" in src, (
             "ws.rs must emit the specific event using `emit_name` (the "
-            "result of the match arm) — this is what carries the canonical "
+            "result of the match arm), this is what carries the canonical "
             "'notification' name to direct UI listeners on macOS."
         )
 
@@ -908,7 +908,7 @@ class TestSourceInspectionBeltAndBraces:
         ``translate_event_name`` (the snake→kebab bubble-lifecycle
         renames), then emit the result as the specific event name.
 
-        PVT-2 cleanup: the per-type ``match`` arm was REMOVED — the
+        PVT-2 cleanup: the per-type ``match`` arm was REMOVED, the
         bridge now uses ``let emit_name = translate_event_name(event_type);``
         so every event type is forwarded under its (translated) name, and
         the legacy ``relaunch_electron``/``electron_notification`` renames
@@ -917,14 +917,14 @@ class TestSourceInspectionBeltAndBraces:
         src = _read_ws_bridge_rs()
         assert re.search(r"let\s+emit_name\s*=\s*translate_event_name\s*\(\s*event_type\s*\)\s*;", src), (
             "ws.rs must forward every event type via "
-            "`let emit_name = translate_event_name(event_type);` (PVT-2 cleanup — "
+            "`let emit_name = translate_event_name(event_type);` (PVT-2 cleanup, "
             "the per-type match arm was removed; translate_event_name carries the "
             "snake→kebab renames while passing 'notification' through unchanged)."
         )
 
     def test_system_handlers_publishes_notification_event(self):
         """The Python sidecar's ``system_handlers.py`` MUST publish a
-        ``notification`` event (per CR-8) — NOT the legacy
+        ``notification`` event (per CR-8), NOT the legacy
         ``electron_notification`` name. This is a source-inspection
         test: we read ``system_handlers.py`` and assert the canonical
         event name is present in the publish call.
@@ -935,19 +935,19 @@ class TestSourceInspectionBeltAndBraces:
         src = _read(SYSTEM_HANDLERS_PY)
         assert '"type": "notification"' in src, (
             "system_handlers.py MUST publish with type='notification' "
-            "(per CR-8) — NOT the legacy 'electron_notification' name. "
+            "(per CR-8). NOT the legacy 'electron_notification' name. "
             "The Rust-side alias in ws.rs handles old Python sidecars; "
             "the NEW Python sidecar must emit the canonical name."
         )
 
     def test_system_handlers_does_not_publish_legacy_event_name(self):
         """The Python sidecar's ``system_handlers.py`` MUST NOT publish
-        a ``"type": "electron_notification"`` event (per CR-8 — the
+        a ``"type": "electron_notification"`` event (per CR-8, the
         legacy name was renamed at the source).
 
         This is a NEGATIVE test: we verify the legacy name is NOT used
         as a published event type. (The legacy name may still appear
-        in COMMENTS or docstrings documenting the rename — that's fine.
+        in COMMENTS or docstrings documenting the rename, that's fine.
         What we're checking is that no ``event_bus.publish({"type":
         "electron_notification", ...})`` call exists.)"""
         src = _read(SYSTEM_HANDLERS_PY)
@@ -956,29 +956,29 @@ class TestSourceInspectionBeltAndBraces:
         # literal in a publish context.
         assert '"type": "electron_notification"' not in src, (
             "system_handlers.py MUST NOT publish with type='electron_notification' "
-            "(per CR-8 — the legacy name was renamed at the source). Only the "
+            "(per CR-8, the legacy name was renamed at the source). Only the "
             "Rust-side alias in ws.rs should reference the legacy name, for "
             "backward compat with old Python sidecars."
         )
 
     def test_macos_runbook_lists_toast_as_gate_point(self):
         """The macOS runbook MUST list the toast notification check as
-        a numbered gate point (§6.4 — "tauri-plugin-notification posts
+        a numbered gate point (§6.4: "tauri-plugin-notification posts
         a notification (gate point 5, BOTH arches)"). This pins the
         runbook-side contract: the toast gate is one of the 9 Phase
         0-M gates, and a developer running the gate sequence must
         encounter it."""
         src = _read(MACOS_RUNBOOK)
         # The runbook's gate-point header for notifications:
-        # "Step 6.4 — `tauri-plugin-notification` posts a notification
+        # "Step 6.4: `tauri-plugin-notification` posts a notification
         #  (gate point 5, BOTH arches)"
         assert "tauri-plugin-notification" in src, (
             "macos-validation-runbook.md MUST mention 'tauri-plugin-notification' "
-            "as a gate-point header — gate check 6 is the toast gate."
+            "as a gate-point header, gate check 6 is the toast gate."
         )
         assert "gate point 5" in src, (
             "macos-validation-runbook.md MUST label the toast gate as "
-            "'gate point 5' (per ADR-0020 §6.4 — the gate-point numbering "
+            "'gate point 5' (per ADR-0020 §6.4, the gate-point numbering "
             "is the canonical reference for the 9 Phase 0-M gates)."
         )
 
@@ -993,7 +993,7 @@ class TestValidateOnMacOSHostBlock:
     This is a meta-test: we verify the module docstring (which is the
     human-readable runbook for the macOS host validation step) contains
     the expected command sequence. The actual validation is performed
-    by a human on a real macOS host — this test just pins the docs
+    by a human on a real macOS host, this test just pins the docs
     contract so the commands don't drift.
     """
 
@@ -1009,11 +1009,11 @@ class TestValidateOnMacOSHostBlock:
 
     def test_docstring_contains_validate_on_macos_host_header(self):
         """The module docstring MUST contain the
-        ``VALIDATE ON MACOS HOST:`` header — this is the canonical
+        ``VALIDATE ON MACOS HOST:`` header, this is the canonical
         marker the macOS host validator scans for."""
         doc = self._module_docstring()
         assert "VALIDATE ON MACOS HOST:" in doc, (
-            "Module docstring MUST contain 'VALIDATE ON MACOS HOST:' header — "
+            "Module docstring MUST contain 'VALIDATE ON MACOS HOST:' header, "
             "this is the canonical marker the macOS host validator scans for."
         )
 
@@ -1021,30 +1021,30 @@ class TestValidateOnMacOSHostBlock:
         """The VALIDATE ON MACOS HOST block MUST mention the Developer
         ID signing requirement ("must be signed with Developer ID for
         notifications to work"). This is the single most common reason
-        a developer's local macOS toast test silently fails — the
+        a developer's local macOS toast test silently fails, the
         block must call it out."""
         doc = self._module_docstring()
         assert "Developer ID" in doc, (
-            "VALIDATE ON MACOS HOST block MUST mention 'Developer ID' — "
+            "VALIDATE ON MACOS HOST block MUST mention 'Developer ID', "
             "unsigned dev builds silently fail to post notifications on macOS."
         )
         assert "signed" in doc, (
-            "VALIDATE ON MACOS HOST block MUST mention 'signed' — the signing prerequisite for macOS notifications."
+            "VALIDATE ON MACOS HOST block MUST mention 'signed', the signing prerequisite for macOS notifications."
         )
 
     def test_docstring_documents_system_settings_fallback(self):
         """The VALIDATE ON MACOS HOST block MUST document the System
         Settings → Notifications fallback path (step 4 in the canonical
         command sequence). This is what the validator does when the
-        notification doesn't appear — grant the permission manually."""
+        notification doesn't appear, grant the permission manually."""
         doc = self._module_docstring()
         assert "System Settings" in doc, (
-            "VALIDATE ON MACOS HOST block MUST mention 'System Settings' — "
+            "VALIDATE ON MACOS HOST block MUST mention 'System Settings', "
             "the macOS UI path where the user manually grants notification "
             "permission if the TCC prompt was dismissed."
         )
         assert "Notifications" in doc, (
-            "VALIDATE ON MACOS HOST block MUST mention 'Notifications' — the "
+            "VALIDATE ON MACOS HOST block MUST mention 'Notifications', the "
             "System Settings panel name for per-app notification permission."
         )
 
@@ -1064,14 +1064,14 @@ class TestValidateOnMacOSHostBlock:
     def test_docstring_documents_unsigned_dev_build_caveat(self):
         """The VALIDATE ON MACOS HOST block MUST document the unsigned-
         dev-build caveat (the last line of the block: "Unsigned dev
-        builds may not show notifications — sign with Developer ID
+        builds may not show notifications, sign with Developer ID
         first."). This is the troubleshooting hint for the most common
         silent-failure mode on a developer's local macOS host."""
         doc = self._module_docstring()
         assert "Unsigned dev builds" in doc, (
             "VALIDATE ON MACOS HOST block MUST document the unsigned-dev-build "
-            "caveat ('Unsigned dev builds may not show notifications — sign "
-            "with Developer ID first.') — this is the troubleshooting hint "
+            "caveat ('Unsigned dev builds may not show notifications, sign "
+            "with Developer ID first.'), this is the troubleshooting hint "
             "for the most common silent-failure mode on macOS."
         )
 
@@ -1085,7 +1085,7 @@ class TestValidateOnMacOSHostBlock:
         doc = self._module_docstring()
         assert "within 1s" in doc, (
             "VALIDATE ON MACOS HOST block MUST document the expected timing "
-            "('within 1s') — the upper bound for how long the validator should "
+            "('within 1s'), the upper bound for how long the validator should "
             "wait for the banner before declaring the gate failed."
         )
 

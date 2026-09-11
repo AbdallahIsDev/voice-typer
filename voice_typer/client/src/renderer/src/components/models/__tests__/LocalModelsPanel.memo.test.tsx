@@ -1,5 +1,5 @@
 /**
- * LocalModelsPanel / ModelCardActions — React.memo re-render gating
+ * LocalModelsPanel / ModelCardActions, React.memo re-render gating
  * during download-progress ticks.
  *
  * Every `download_progress` event updates the consolidated download
@@ -7,7 +7,7 @@
  * re-renders the Models page and this panel ~2-10× per second. The
  * panel MUST re-render (the active row's DownloadProgressBar needs the
  * fresh progress), but the per-model action rows that did not change
- * must NOT re-render — previously every one of them re-rendered on
+ * must NOT re-render, previously every one of them re-rendered on
  * every tick (ModelCardActions had no memo() while every settings
  * section did).
  *
@@ -20,7 +20,7 @@
  *      through the shared Button, and Button is not memo'd. Same
  *      technique as `components/layout/__tests__/sidebar-memo.test.tsx`.)
  *   2. A real prop change (model data changes) still re-renders the
- *      row — guards against an over-aggressive memo freezing stale UI.
+ *      row, guards against an over-aggressive memo freezing stale UI.
  *
  * Stable handler refs matter: the panel forwards the page-level
  * callbacks (onSelectModel / onDownloadModel / ...) straight through to
@@ -61,7 +61,7 @@ vi.mock("@/components/ui/button", () => ({
 
 vi.mock("@/hooks/usePython", () => ({
 	// `useModelDownloadQueue` hydrates via `call("get_download_queue")`
-	// on mount — resolve an empty queue (same stub as the sibling
+	// on mount, resolve an empty queue (same stub as the sibling
 	// download-queue tests).
 	usePython: vi.fn(() => ({ call: vi.fn(async () => ({ queue: [] })) })),
 	usePythonEvent: vi.fn(),
@@ -141,7 +141,7 @@ const families: ModelFamily[] = [
 	},
 ];
 
-// Stable handler refs — the page passes useCallback'd handlers, so the
+// Stable handler refs, the page passes useCallback'd handlers, so the
 // same references flow through every render. Re-created refs would
 // defeat the memo for the wrong reason (identity churn, not value
 // change).
@@ -183,7 +183,7 @@ afterEach(() => {
 	cleanup();
 });
 
-describe("LocalModelsPanel — download-progress tick re-render gating", () => {
+describe("LocalModelsPanel, download-progress tick re-render gating", () => {
 	it("a progress tick does NOT re-render unrelated model rows (memo'd ModelCardActions)", () => {
 		const { rerender } = render(<LocalModelsPanel {...baseProps} />);
 
@@ -213,14 +213,14 @@ describe("LocalModelsPanel — download-progress tick re-render gating", () => {
 		);
 
 		// The active download's progress bar re-rendered (its controls
-		// count again) — the progress MUST flow through.
+		// count again), the progress MUST flow through.
 		expect(rendersOf("Pause download")).toBe(2);
 		expect(rendersOf("Cancel model download")).toBe(2);
-		// The active row's action button did NOT re-render either — its
+		// The active row's action button did NOT re-render either, its
 		// props (isDownloadingThis=true, …) are unchanged by the tick.
 		expect(rendersOf("Downloading…")).toBe(1);
 
-		// Unrelated rows did NOT re-render — their buttons still rendered
+		// Unrelated rows did NOT re-render, their buttons still rendered
 		// exactly once.
 		expect(rendersOf("Download large-v3-turbo")).toBe(1);
 		expect(rendersOf("Download parakeet-mlx")).toBe(1);

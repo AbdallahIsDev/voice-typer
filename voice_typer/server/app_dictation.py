@@ -1,28 +1,28 @@
-"""AppDictation — dictation-control mixin extracted from VoiceTyperApp.
+"""AppDictation, dictation-control mixin extracted from VoiceTyperApp.
 
 Owns the dictation start/stop/cancel/toggle delegates, the undo/repaste
 entry points, the audio-quality chunk delegation (with the one-shot
 delegate-loss warning latch), and the volume duck/restore delegates:
 
     - ``toggle_dictation`` / ``_start_dictation`` / ``_stop_dictation`` /
-      ``_cancel_dictation`` / ``_cancel_streaming_session`` — thin
+      ``_cancel_dictation`` / ``_cancel_streaming_session``, thin
       delegates to ``RecordingController`` (``self.recording``).
     - ``_on_audio_quality_chunk`` / ``_rebuild_audio_processor`` /
-      ``_finalize_audio_quality_report`` — delegates to
+      ``_finalize_audio_quality_report``: delegates to
       ``AudioQualityController`` (``self.audio_quality``), each with the
       None-guard for a failed lazy init.
-    - ``undo_last`` / ``repaste_last`` — delegates to
+    - ``undo_last`` / ``repaste_last``: delegates to
       ``UndoRepasteController`` (``self.undo``), each with the
       None-guard.
-    - ``push_bubble_config`` — pushes config changes to the waveform
+    - ``push_bubble_config``: pushes config changes to the waveform
       bubble renderer.
     - ``_on_volume_crash_restore`` / ``_duck_volume`` /
-      ``_restore_volume`` — delegates to ``VolumeController``
+      ``_restore_volume``: delegates to ``VolumeController``
       (``self.volume``); ducking happens at dictation start and the
       restore at dictation stop.
 
 Previously all of this lived on ``VoiceTyperApp`` in ``app.py``. The
-behaviour is preserved verbatim — only the class boundary moved.
+behaviour is preserved verbatim, only the class boundary moved.
 ``VoiceTyperApp(AppDictation)`` inherits every method, so instance-level
 monkeypatching (``monkeypatch.setattr(app, "_stop_dictation", spy)``)
 and direct calls (``app.toggle_dictation()``) keep working unchanged.
@@ -41,14 +41,14 @@ import logging
 from typing import Any
 
 # Tests capture the delegate-loss / controller-unavailable warnings at
-# this logger name — see module docstring.
+# this logger name: see module docstring.
 log = logging.getLogger("voice_typer.server.app")
 
 
 class AppDictation:
     """Dictation-control mixin for ``VoiceTyperApp``.
 
-    Declares NO ``__init__`` — construction order and the backing
+    Declares NO ``__init__``: construction order and the backing
     attributes stay entirely in ``app.py``; only the accessors live
     here.
     """
@@ -77,13 +77,13 @@ class AppDictation:
         delegate = self.audio_quality
         if delegate is None:
             if not self._audio_quality_delegate_warned:
-                log.warning("[APP] audio_quality controller unavailable — lazy-init failed earlier; skipping chunk")
+                log.warning("[APP] audio_quality controller unavailable, lazy-init failed earlier; skipping chunk")
                 self._audio_quality_delegate_warned = True
             else:
-                log.debug("[APP] audio_quality controller unavailable — skipping chunk")
+                log.debug("[APP] audio_quality controller unavailable, skipping chunk")
             return None
         # Delegate is back: reset the latch so the NEXT loss episode
-        # warns again (only write when latched — this runs at ~94 Hz).
+        # warns again (only write when latched: this runs at ~94 Hz).
         if self._audio_quality_delegate_warned:
             self._audio_quality_delegate_warned = False
         return delegate._on_audio_quality_chunk(rms, peak)
@@ -92,7 +92,7 @@ class AppDictation:
         """Delegate to AudioQualityController."""
         delegate = self.audio_quality
         if delegate is None:
-            log.warning("[APP] audio_quality controller unavailable — lazy-init failed earlier; skipping rebuild")
+            log.warning("[APP] audio_quality controller unavailable, lazy-init failed earlier; skipping rebuild")
             return None
         return delegate._rebuild_audio_processor(force_sr=force_sr)
 
@@ -105,7 +105,7 @@ class AppDictation:
         """
         delegate = self.audio_quality
         if delegate is None:
-            log.warning("[APP] audio_quality controller unavailable — lazy-init failed earlier; skipping finalize")
+            log.warning("[APP] audio_quality controller unavailable, lazy-init failed earlier; skipping finalize")
             return None
         return delegate._finalize_audio_quality_report(audio)
 
@@ -127,8 +127,8 @@ class AppDictation:
            never auto-recovered.
 
         ``RecordingController.stop()`` already contains the full,
-        correct implementation — including all three missing side
-        effects — but was unreachable from production call sites
+        correct implementation: including all three missing side
+        effects, but was unreachable from production call sites
         (``toggle``, ``on_silence_auto_stop``, ``on_max_duration_auto_stop``
         all called ``app._stop_dictation`` directly). Making this method
         a delegate routes all production stop traffic through the
@@ -146,13 +146,13 @@ class AppDictation:
         """Feature: Repaste last transcription (tray menu + hotkey).
 
         delegates directly to the canonical ``UndoRepasteController``
-        (``self.undo``) — the thin ``RepasteController`` wrapper in
+        (``self.undo``), the thin ``RepasteController`` wrapper in
         ``controllers/`` was deleted as a parallel-system delegator.
-        Behaviour preserved verbatim — only the call chain shortened.
+        Behaviour preserved verbatim, only the call chain shortened.
         """
         delegate = self.undo
         if delegate is None:
-            log.warning("[APP] undo controller unavailable — lazy-init failed earlier; skipping repaste")
+            log.warning("[APP] undo controller unavailable, lazy-init failed earlier; skipping repaste")
             return None
         return delegate.repaste_last()
 
@@ -160,13 +160,13 @@ class AppDictation:
         """Undo last transcription by sending backspace keystrokes.
 
         delegates directly to the canonical ``UndoRepasteController``
-        (``self.undo``) — the thin ``UndoController`` wrapper in
+        (``self.undo``), the thin ``UndoController`` wrapper in
         ``controllers/`` was deleted as a parallel-system delegator.
-        Behaviour preserved verbatim — only the call chain shortened.
+        Behaviour preserved verbatim, only the call chain shortened.
         """
         delegate = self.undo
         if delegate is None:
-            log.warning("[APP] undo controller unavailable — lazy-init failed earlier; skipping undo")
+            log.warning("[APP] undo controller unavailable, lazy-init failed earlier; skipping undo")
             return None
         return delegate.undo_last()
 
@@ -199,7 +199,7 @@ class AppDictation:
         """Delegate to RecordingController.cancel().
 
         while the frontend HotkeyPicker is in hotkey capture
-        mode, the ESC cancel is a no-op — the frontend owns the Escape key
+        mode, the ESC cancel is a no-op, the frontend owns the Escape key
         while capturing.
 
         NOTE: this reads the *canonical* KeyboardOwnership state via
@@ -209,13 +209,13 @@ class AppDictation:
         of sync with the real ownership (the ESC-release path resets the
         canonical owner but relied on a frontend round-trip to clear the
         alias). Trusting the stale alias made ESC a permanent no-op whenever
-        the two diverged — see the ESC-cancel regression fix.
+        the two diverged: see the ESC-cancel regression fix.
         """
         try:
             from voice_typer.server.keyboard_ownership import keyboard_ownership
 
             if keyboard_ownership().is_hotkey_capture_active():
-                log.debug("[CANCEL] ESC cancel paused (frontend hotkey capture) — no-op")
+                log.debug("[CANCEL] ESC cancel paused (frontend hotkey capture), no-op")
                 return
         except Exception:  # pragma: no cover - defensive
             log.debug("[CANCEL] keyboard ownership check failed", exc_info=True)

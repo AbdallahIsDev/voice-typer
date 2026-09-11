@@ -100,7 +100,7 @@ class TestSplitAudio:
     def test_custom_sample_rate_scales_chunk_lengths(self):
         """``sample_rate`` controls samples-per-chunk independently of duration.
 
-        At 100 Hz with 1s chunks, ``chunk_len`` is 100 samples — not 16000.
+        At 100 Hz with 1s chunks, ``chunk_len`` is 100 samples, not 16000.
         """
         audio = np.arange(250, dtype=np.float32)  # 2.5s at 100 Hz
         chunks = split_audio(
@@ -147,7 +147,7 @@ class TestSplitAudioDelegationFromEngines:
 
         audio = np.arange(int(50 * SR), dtype=np.float32)
         # ParakeetEngine._split_audio is an instance method, but the
-        # body does not use ``self`` — pass ``None`` to verify the
+        # body does not use ``self``, pass ``None`` to verify the
         # delegation does not depend on instance state.
         chunks_method = ParakeetEngine._split_audio(None, audio, 25.0, 3.0)
         chunks_helper = split_audio(
@@ -186,7 +186,7 @@ class TestRequireHuggingFaceConsent:
     The gate must raise
     :class:`voice_typer.server.asr_errors.HuggingFaceConsentRequiredError`
     (NOT the bare :class:`ConsentRequiredError`) so the raised exception
-    carries ``provider="huggingface"`` / ``scope="download"`` — the IPC
+    carries ``provider="huggingface"`` / ``scope="download"``, the IPC
     dispatcher reads those fields via ``getattr(exc, ...)`` when building
     the ``server.consent_required`` envelope, and the base class ships
     them as empty strings.
@@ -221,5 +221,5 @@ class TestRequireHuggingFaceConsent:
 
         cfg = type("Cfg", (), {"huggingface_consent": True})()
 
-        # No raise — the caller proceeds with the download.
+        # No raise, the caller proceeds with the download.
         assert _require_huggingface_consent(cfg, "tiny") is None

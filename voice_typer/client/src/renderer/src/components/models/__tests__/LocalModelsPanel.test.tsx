@@ -1,13 +1,13 @@
 /**
- * LocalModelsPanel unit tests —  /  /
+ * LocalModelsPanel unit tests,  /  /
  *
  * Coverage:
  *   1. : the low-disk-space warning banner uses the CORRECT i18n
  *      keys (models.disk.lowSpaceTitle + models.disk.lowSpaceBody) and
- *      the new models.disk.freeSpace interpolation — NOT the unrelated
+ *      the new models.disk.freeSpace interpolation, NOT the unrelated
  *      depsRequired / hfConsent.blockedHint keys it was reusing before.
  *   2. : the "Open models folder" button uses
- *      models.openFolder.label + models.openFolder.aria — NOT the
+ *      models.openFolder.label + models.openFolder.aria, NOT the
  *      misleading models.import.importModel* keys.
  *   3.  line 261: the per-model insufficient-disk badge uses
  *      models.status.insufficientDisk (not depsRequired).
@@ -15,7 +15,7 @@
  *      modelsFolderSupported=true; low-disk banner only when
  *      free_bytes < 1GB.
  *   5. (UI/UX overhaul point 4) the HuggingFace consent banner is GONE
- *      — the panel never renders persistent consent UI (consent moved
+ *     , the panel never renders persistent consent UI (consent moved
  *      to a just-in-time toast at download time).
  *   6. the panel forwards `modelName`, `error`, and `onRetry` to
  *      <DownloadProgressBar> so the inline error UI + Retry button
@@ -78,7 +78,7 @@ vi.mock("@/components/models/ModelCardActions", () => ({
 // Capture the props forwarded to <DownloadProgressBar> so we can
 // assert that `modelName`, `error`, and `onRetry` are wired through.
 // Previously the panel forwarded only 9 of
-// the 12 props — the inline error UI + Retry button were dead code.
+// the 12 props, the inline error UI + Retry button were dead code.
 vi.mock("@/components/models/DownloadProgressBar", () => ({
 	DownloadProgressBar: (props: Record<string, unknown>) => (
 		<div
@@ -112,7 +112,7 @@ const tinyMeta: ModelMetadata = {
 const bigMeta: ModelMetadata = {
 	name: "large-v3-turbo",
 	display_name: "Whisper Medium (EN)",
-	download_size_mb: 1500, // 1.5 GB — larger than the free space in low-disk fixtures
+	download_size_mb: 1500, // 1.5 GB, larger than the free space in low-disk fixtures
 	required_vram_mb: 4096,
 	backend: "whisper",
 	multilingual: false,
@@ -185,7 +185,7 @@ const baseProps = {
 	onOpenModelsFolder: noop,
 };
 
-describe("LocalModelsPanel — low-disk banner uses correct i18n keys", () => {
+describe("LocalModelsPanel, low-disk banner uses correct i18n keys", () => {
 	afterEach(() => cleanup());
 
 	it("low-disk banner shows 'Low disk space' title (NOT 'Dependencies required')", () => {
@@ -210,7 +210,7 @@ describe("LocalModelsPanel — low-disk banner uses correct i18n keys", () => {
 			screen.getByText(/Not enough free space to download models/i),
 		).toBeInTheDocument();
 		// The wrong body key (hfConsent.blockedHint) reads "Model downloads
-		// are blocked until you grant consent." — must NOT appear in the
+		// are blocked until you grant consent.", must NOT appear in the
 		// low-disk banner.
 		expect(
 			screen.queryByText(
@@ -226,7 +226,7 @@ describe("LocalModelsPanel — low-disk banner uses correct i18n keys", () => {
 			models_dir: "",
 		};
 		render(<LocalModelsPanel {...baseProps} diskInfo={disk} />);
-		// models.disk.freeSpace = "{size} free" — for 500 MB the {size}
+		// models.disk.freeSpace = "{size} free", for 500 MB the {size}
 		// placeholder is the locale-aware "500 MB" string. Asserting the
 		// word "free" appears and the hardcoded English " free)" literal
 		// (which would have a leading space + closing paren) does NOT.
@@ -249,7 +249,7 @@ describe("LocalModelsPanel — low-disk banner uses correct i18n keys", () => {
 	});
 });
 
-describe("LocalModelsPanel — HuggingFace consent is NOT a persistent banner", () => {
+describe("LocalModelsPanel, HuggingFace consent is NOT a persistent banner", () => {
 	afterEach(() => cleanup());
 
 	it("never renders the consent banner (consent moved to the shared dialog at download time)", () => {
@@ -276,7 +276,7 @@ describe("LocalModelsPanel — HuggingFace consent is NOT a persistent banner", 
 	});
 });
 
-describe("LocalModelsPanel — Open models folder button", () => {
+describe("LocalModelsPanel, Open models folder button", () => {
 	afterEach(() => cleanup());
 
 	it("renders 'Open models folder' button (NOT 'Import Model') when modelsFolderSupported=true", () => {
@@ -318,7 +318,7 @@ describe("LocalModelsPanel — Open models folder button", () => {
 	});
 });
 
-describe("LocalModelsPanel — UI/UX overhaul: metadata line + display names", () => {
+describe("LocalModelsPanel, UI/UX overhaul: metadata line + display names", () => {
 	afterEach(() => cleanup());
 
 	it("renders the company-name group header (OpenAI) and Whisper-prefixed variant names", () => {
@@ -354,7 +354,7 @@ describe("LocalModelsPanel — UI/UX overhaul: metadata line + display names", (
 				modelCatalog={slugCatalog}
 			/>,
 		);
-		// The group header (accordion trigger — mocked as a div in this
+		// The group header (accordion trigger, mocked as a div in this
 		// file) carries the COMPANY name; the variant heading (h4) is
 		// the Whisper-prefixed display name.
 		expect(screen.getByText("OpenAI")).toBeInTheDocument();
@@ -365,7 +365,7 @@ describe("LocalModelsPanel — UI/UX overhaul: metadata line + display names", (
 
 	it("renders VRAM as a label+value pair and Multilingual as a tag pill", () => {
 		render(<LocalModelsPanel {...baseProps} />);
-		// VRAM label (muted) + colon + value — one pair per variant.
+		// VRAM label (muted) + colon + value, one pair per variant.
 		const vramLabels = screen.getAllByText("VRAM");
 		expect(vramLabels.length).toBeGreaterThanOrEqual(1);
 		// ~512 MB for tinyMeta.
@@ -413,7 +413,7 @@ describe("LocalModelsPanel — UI/UX overhaul: metadata line + display names", (
 	});
 });
 
-describe("LocalModelsPanel — insufficient-disk badge per model", () => {
+describe("LocalModelsPanel, insufficient-disk badge per model", () => {
 	afterEach(() => cleanup());
 
 	it("renders 'Insufficient disk space' badge when model size > free_bytes (NOT 'Dependencies required')", () => {
@@ -446,10 +446,10 @@ describe("LocalModelsPanel — insufficient-disk badge per model", () => {
 // The panel forwards `modelName`, `error`, and `onRetry` to
 // <DownloadProgressBar> so the inline error UI + Retry button render.
 // Previously the panel forwarded only 9 of
-// the 12 props — the inline retry affordance was dead code in
+// the 12 props, the inline retry affordance was dead code in
 // production.
 // ─────────────────────────────────────────────────────────────────────
-describe("LocalModelsPanel — forward error/modelName/onRetry to DownloadProgressBar", () => {
+describe("LocalModelsPanel, forward error/modelName/onRetry to DownloadProgressBar", () => {
 	afterEach(() => cleanup());
 
 	it("forwards modelName to <DownloadProgressBar> when the model is downloading", () => {
@@ -485,7 +485,7 @@ describe("LocalModelsPanel — forward error/modelName/onRetry to DownloadProgre
 	});
 
 	it("does NOT forward the error when failedDownload is for a DIFFERENT model", () => {
-		// The bar's error prop is per-model — a failure for
+		// The bar's error prop is per-model, a failure for
 		// medium.en must not render an error UI on the tiny.en
 		// card (the bar would be mounted on the medium.en card
 		// instead, where the error UI belongs).

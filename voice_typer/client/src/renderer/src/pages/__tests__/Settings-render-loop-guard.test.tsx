@@ -6,18 +6,18 @@
  * Root cause (fixed in `components/settings/useSettingsConfig.ts` via
  * the `callRef` mirror + in `hooks/useTheme.ts`): a test mock (or
  * future code) that hands out a FRESH `call` identity on every render
- * re-fires any effect listing `call` in its deps — each run re-fetches
+ * re-fires any effect listing `call` in its deps, each run re-fetches
  * get_config (loadConfig) + the theme-singleton reload + the
  * keyboard-permission probe and stores fresh state → render → new
  * `call` → … → unbounded render loop until the heap is exhausted.
  *
  * The harness below (shared `renderLoopGuard` helper) drives the page
- * with the SAME worst-case mock shape — a NEW `call` per render — and
+ * with the SAME worst-case mock shape, a NEW `call` per render, and
  * asserts the page still settles: the mount load fires EXACTLY `expected`
  * times per command and the committed render count stays bounded. If
  * future code puts an unstable value in an effect dep (or re-introduces
  * `call` directly), the load re-fires and/or the render count explodes
- * and this test fails fast — instead of the worker OOMing.
+ * and this test fails fast, instead of the worker OOMing.
  */
 
 import { makeConfig } from "@/__tests__/helpers/fixtures";
@@ -31,7 +31,7 @@ const commands: GuardCommand[] = [
 	// useSettingsConfig.loadConfig and once from the useTheme singleton
 	// reload (themeInitStarted initOnce guard).
 	{ name: "get_config", response: makeConfig({}), expected: 2 },
-	// KeyboardPermissionBanner's mount probe — granted, so the banner
+	// KeyboardPermissionBanner's mount probe, granted, so the banner
 	// stays hidden.
 	{
 		name: "onboarding_check_permissions",

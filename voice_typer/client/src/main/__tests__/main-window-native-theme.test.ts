@@ -72,7 +72,7 @@ describe("R6-F3: nativeTheme listener registration", () => {
 		expect(nativeThemeListeners.length).toBe(1);
 	});
 
-	it("is idempotent — calling N times still leaves exactly one listener", async () => {
+	it("is idempotent, calling N times still leaves exactly one listener", async () => {
 		const mod = await import("../windows/main-window");
 		mod._resetNativeThemeListenerForTest();
 
@@ -101,7 +101,7 @@ describe("R6-F3: nativeTheme listener registration", () => {
 		mod.registerNativeThemeListener();
 
 		const setIcon = vi.fn();
-		// Install a fresh mainWindow after registration — the handler
+		// Install a fresh mainWindow after registration, the handler
 		// should observe it because it reads `state.mainWindow` at call
 		// time, not at registration time.
 		(state as { mainWindow: unknown }).mainWindow = {
@@ -123,7 +123,7 @@ describe("R6-F3: nativeTheme listener registration", () => {
 		const setIcon = vi.fn();
 		(state as { mainWindow: unknown }).mainWindow = {
 			setIcon,
-			isDestroyed: () => true, // destroyed — handler must bail
+			isDestroyed: () => true, // destroyed, handler must bail
 		};
 
 		nativeThemeListeners[0]?.();

@@ -9,7 +9,7 @@ the fallback was unreachable dead code. These tests pin the post-cleanup
 contract so it cannot silently regress:
 
 1. every alias exported by ``_helpers`` resolves to the CANONICAL
-   ``asr_utils`` implementation (same function object — no parallel
+   ``asr_utils`` implementation (same function object, no parallel
    copy can creep back in);
 2. the merge-chunk / language-filter constants in
    ``parakeet_engine._constants`` are the same objects as their
@@ -39,7 +39,7 @@ class TestHelpersResolveCanonicalImplementations:
         assert _helpers._compute_overlap_skip_impl is asr_utils.compute_overlap_skip
 
     def test_no_local_fallback_copies_remain(self) -> None:
-        """The ``_local_*`` re-implementations were deleted — none of
+        """The ``_local_*`` re-implementations were deleted, none of
         the names may reappear (a reintroduced fallback would be
         unreachable dead code again, and a drift hazard)."""
         for name in (

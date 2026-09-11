@@ -144,7 +144,7 @@ class TestWaveformBubbleThreadSafety:
             bubble.update_level(0.05, 0.1)
         # (fix): replaced time.sleep(0.05) with a direct
         # assertion. The call-queue is synchronous (update_level calls
-        # the callback inline), so no waiting is needed — all 200
+        # the callback inline), so no waiting is needed, all 200
         # callbacks have already fired by the time we reach the assert.
         assert len(received) == 200
 
@@ -270,7 +270,7 @@ class TestModuleLevelPushHook:
     The original implementation used a closure that did
     ``getattr(self, "_ipc_server", None)``.  In production the
     closure's ``self`` and the app that had ``_ipc_server`` set
-    turned out to be the same instance — but the lookup still
+    turned out to be the same instance, but the lookup still
     returned ``None`` for reasons we could not pin down from the
     logs (suspected: stale app instance, or the hook firing before
     ``IPCServer.start()`` finished).  The module-level hook is
@@ -305,7 +305,7 @@ class TestModuleLevelPushHook:
         # Bypass the real __init__ and call only the wire method.
         app.waveform_wiring._wire_waveform_bubble()
 
-        # Register a fake push function at the module level — the
+        # Register a fake push function at the module level, the
         # exact same hook that IPCServer.start() sets in production.
         sent: list = []
         from voice_typer.server import event_bus
@@ -463,13 +463,13 @@ class TestAppMainWiresIpcHook:
         monkeypatch.setattr(app_module, "VoiceTyperApp", FakeApp)
 
         # previously this FakeServer class was defined twice
-        # in the same test function — the second definition silently
+        # in the same test function, the second definition silently
         # shadowed the first. Deleted the duplicate; kept the second
         # (it's the one that was actually used by the monkeypatch
         # below, so behavior is unchanged).
         class FakeServer:
             # ``event_bus._SubscriberSet`` stores bound-method
-            # subscribers via WEAK references (a leak fix) — if the
+            # subscribers via WEAK references (a leak fix), if the
             # server instance is garbage-collected after ``main()``
             # returns (nothing else holds a ref to the local ``server``
             # inside ``main``), its subscription is evicted before the
@@ -518,7 +518,7 @@ class TestAppMainWiresIpcHook:
             assert calls["ipc_started"] == 1, "IPCServer.start was not called by ipc_server.main()"
             assert calls["app_started"] == 1, "VoiceTyperApp.start was not called"
             # Module-level hook must be set (the whole point of the fix).
-            # the registry is a set — non-empty means at
+            # the registry is a set, non-empty means at
             # least one server registered its push callable.
             with event_bus._lock:
                 assert len(event_bus._subscribers) > 0, "ipc_server.main() did not register the IPC push hook"

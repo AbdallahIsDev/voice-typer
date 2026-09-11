@@ -116,7 +116,7 @@ def _strip_sensitive_env(env: dict) -> None:
         HUGGING_FACE_HUB_TOKEN, DEEPGRAM_API_KEY, GROQ_API_KEY).
       - Any key whose upper-cased name contains one of
         ``_SENSITIVE_ENV_MARKERS`` (API_KEY / SECRET / TOKEN / PASSWORD
-        / CREDENTIAL) — except the IPC token trio in
+        / CREDENTIAL), except the IPC token trio in
         ``_PRESERVED_ENV_NAMES`` which is needed by the child.
 
     The Python server reads NO API keys from env (cloud keys come from
@@ -171,13 +171,13 @@ def launch_electron_frontend(port: int, token: str) -> int | None:
     """
     # Guard the client directory BEFORE spawning. The pip-installed
     # backend has no ``voice_typer/client`` tree, so ``Popen(cwd=CLIENT_DIR)``
-    # would raise ``NotADirectoryError`` ([WinError 267]) — a confusing
+    # would raise ``NotADirectoryError`` ([WinError 267]), a confusing
     # traceback for a user who ran ``voice-typer`` from a terminal. Fail
     # gracefully with an actionable message instead (the backend keeps
     # running in standalone mode with no UI).
     if not CLIENT_DIR.is_dir():
         log.warning(
-            "[LAUNCHER] Electron client directory not found (%s) — cannot "
+            "[LAUNCHER] Electron client directory not found (%s), cannot "
             "launch the UI. This backend has no bundled frontend (e.g. a "
             "pip install); run from a source checkout with "
             "`voice_typer/client`, or use the packaged desktop app.",
@@ -207,7 +207,7 @@ def launch_electron_frontend(port: int, token: str) -> int | None:
     env[IPC_TOKEN_ENV_VAR] = token
     # surface (without values) any sensitive env keys the
     # parent had, so a future leak in a downstream log is auditable.
-    # Only KEY NAMES are logged — values are never printed.
+    # Only KEY NAMES are logged, values are never printed.
     # Short context label: the PII filter would otherwise mangle the
     # 20+ char function name (``electron_launcher.***``) in the audit line.
     _log_sensitive_env_keys(dict(os.environ), context="electron_launcher")
@@ -218,7 +218,7 @@ def launch_electron_frontend(port: int, token: str) -> int | None:
 
     exe = _electron_binary()
     if exe and not _main_entry_built():
-        # The app is NEVER built from source at launch time — packaged
+        # The app is NEVER built from source at launch time, packaged
         # installs ship pre-built bundles (``out/main/index.js``) and
         # the dev path uses ``npm run dev``. When the pre-built output
         # is missing, fall through to the dev path below instead of
@@ -260,7 +260,7 @@ def launch_electron_frontend(port: int, token: str) -> int | None:
     try:
         cmd = _npm_command("dev")
         if cmd is None:
-            # S-7: npm truly not resolvable — log and bail (no shell=True).
+            # S-7: npm truly not resolvable, log and bail (no shell=True).
             log.error(
                 "[LAUNCHER] npm not found on PATH; cannot launch dev mode. Install Node.js / npm or add it to PATH."
             )
@@ -316,13 +316,13 @@ def terminate_electron(pid: int) -> None:
                 return
             except subprocess.TimeoutExpired:
                 # Taskkill hung (e.g. a wedged process
-                # tree) — the previous blanket `except Exception`
+                # tree), the previous blanket `except Exception`
                 # swallowed this at DEBUG, silently leaving orphaned
                 # Electron renderer/GPU processes behind. Log at
                 # WARNING and fall back to a direct SIGTERM so the
                 # shutdown path still makes a best-effort kill.
                 log.warning(
-                    "[LAUNCHER] taskkill /T /F timed out for pid=%s — falling back to direct SIGTERM",
+                    "[LAUNCHER] taskkill /T /F timed out for pid=%s, falling back to direct SIGTERM",
                     pid,
                 )
                 with contextlib.suppress(OSError, ProcessLookupError):
@@ -342,7 +342,7 @@ def terminate_electron(pid: int) -> None:
             except (OSError, ChildProcessError):
                 return
             time.sleep(0.1)
-        # Still alive — SIGKILL.
+        # Still alive, SIGKILL.
         with contextlib.suppress(OSError, ProcessLookupError):
             os.kill(pid, signal.SIGKILL)
         with contextlib.suppress(OSError, ChildProcessError):
@@ -355,6 +355,6 @@ def generate_session_token() -> str:
     """Generate a 32-byte hex session token for IPC auth.
 
     Uses ``secrets.token_hex`` (cryptographically secure) for 256 bits
-    of entropy — matches the token size Electron generates on its side.
+    of entropy, matches the token size Electron generates on its side.
     """
     return secrets.token_hex(32)

@@ -1,5 +1,5 @@
 /**
- * "Nord" theme preset — cool arctic blues and frosty greys.
+ * "Nord" theme preset, cool arctic blues and frosty greys.
  *
  * See ``themes.ts`` for the ``ThemePreset`` interface and how presets
  * are consumed.
@@ -10,7 +10,7 @@
  * --sidebar-primary, --sidebar-primary-foreground,
  * --sidebar-accent-foreground, --sidebar-ring, --destructive,
  * --destructive-foreground, --scrollbar-thumb, and
- * --scrollbar-thumb-hover — components reading those vars in light
+ * --scrollbar-thumb-hover, components reading those vars in light
  * mode silently fell back to the stylesheet default. Both maps now
  * cover the same key set.
  */

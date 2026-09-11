@@ -8,7 +8,7 @@ pattern mirrors :class:`.device_manager.DeviceManager`:
   back-reference to the owning ``Recorder`` (``DisconnectHandler(recorder)``).
 - The collaborator accesses *shared* state that lives on ``Recorder`` and is
   NOT moved here: ``recorder._stream_lifecycle._stream`` (the PortAudio
-  InputStream slot — STATE-OWNERSHIP: owned by
+  InputStream slot. STATE-OWNERSHIP: owned by
   :class:`.stream_lifecycle.StreamLifecycle`),
   ``self._recorder._stream_lifecycle_lock``,
   ``self._recorder._effective_sr``, ``self._recorder._actual_channels``,
@@ -19,7 +19,7 @@ Source-inspection invariants
 ----------------------------
 ``Recorder._handle_device_disconnect`` (bouncer checks + retry policy +
 ``with recorder._stream_lifecycle_lock:`` restart block) stays ON
-``Recorder`` — its source is pinned by
+``Recorder``: its source is pinned by
 ``tests/test_recorder_worker_lifecycle.py`` (behavioral bouncer /
 restart-lock / re-check tests) and by source-string checks in
 ``tests/test_recorder_retry_budget.py`` (BT-aware helpers +
@@ -41,7 +41,7 @@ Tests use ``monkeypatch.setattr(recording.sd, "InputStream", fake)`` and
 similar to inject fake sounddevice behavior. The ``sd`` lazy-module proxy
 in this module re-resolves ``sys.modules`` on every attribute access (see
 ``voice_typer/server/_lazy_import.py``), so the patch on the package-level
-``recording.sd`` propagates here automatically — no ``_recording_pkg.sd``
+``recording.sd`` propagates here automatically, no ``_recording_pkg.sd``
 indirection needed.
 """
 
@@ -59,8 +59,8 @@ from typing import Any
 # (``stream_lifecycle.py``): ~32 ms of audio per callback chunk at the
 # candidate's native rate (512 floor preserves the Silero VAD contract
 # at 16 kHz and below; 1536 @ 48 kHz, 1411 @ 44.1 kHz). A fixed 512 at
-# 48 kHz would produce ~94 callbacks/s — ~3× the designed 16-31 Hz
-# worker/VAD cadence — and every chunk-count-based time constant
+# 48 kHz would produce ~94 callbacks/s, ~3× the designed 16-31 Hz
+# worker/VAD cadence, and every chunk-count-based time constant
 # (VAD hysteresis frames, ring-buffer headroom) would then run ~3×
 # faster than designed on this path too.
 from voice_typer.server._audio_constants import scaled_audio_blocksize
@@ -68,7 +68,7 @@ from voice_typer.server._lazy_import import lazy_module
 from voice_typer.server.recording.session_state import coerce_max_recording_time
 from voice_typer.server.recording.vad_helpers import refresh_vad_caches
 
-# PERF-COLDSTART-001: lazy import — sounddevice loads the PortAudio C
+# PERF-COLDSTART-001: lazy import, sounddevice loads the PortAudio C
 # library at import time. The lazy proxy re-resolves ``sys.modules`` on
 # every attribute access, so test patches of the form
 # ``monkeypatch.setattr(recording.sd, "InputStream", fake)`` (which
@@ -119,13 +119,13 @@ def retune_audio_processor(
         try:
             _set_sr(int(effective_sr))
             log.info(
-                "[RECORDING] AudioProcessor.set_sample_rate(%d) called %s — chain retuned to device native rate",
+                "[RECORDING] AudioProcessor.set_sample_rate(%d) called %s, chain retuned to device native rate",
                 effective_sr,
                 context,
             )
         except Exception:
             log.warning(
-                "[RECORDING] retune_audio_processor failed %s — "
+                "[RECORDING] retune_audio_processor failed %s, "
                 "set_sample_rate(%d) failed; per-chunk resample will run on the worker thread",
                 context,
                 effective_sr,
@@ -135,13 +135,13 @@ def retune_audio_processor(
         try:
             proc.rebuild_from_config(config)  # type: ignore[attr-defined]
             log.info(
-                "[RECORDING] AudioProcessor.rebuild_from_config called %s — "
+                "[RECORDING] AudioProcessor.rebuild_from_config called %s, "
                 "chain rebuilt (fallback, set_sample_rate unavailable)",
                 context,
             )
         except Exception:
             log.warning(
-                "[RECORDING] retune_audio_processor failed %s — "
+                "[RECORDING] retune_audio_processor failed %s, "
                 "rebuild_from_config failed; filter coefficients may be mistuned",
                 context,
                 exc_info=True,
@@ -169,7 +169,7 @@ class DisconnectHandler:
     def __init__(self, recorder: Any) -> None:
         # Collaborator back-reference. Typed ``Any`` to avoid a circular
         # import (``recorder`` imports ``disconnect_handler`` at module top
-        # to construct this class in ``RecorderInitMixin._init_*``) — same
+        # to construct this class in ``RecorderInitMixin._init_*``), same
         # convention as the other extracted collaborators
         # (``stream_lifecycle.py``, ``session_state.py``).
         self._recorder = recorder
@@ -188,8 +188,8 @@ class DisconnectHandler:
         # ``Recorder._disconnect_handler_lock`` /
         # ``Recorder._disconnect_handler_running``; consumers access
         # them via ``recorder._disconnect_handler.<attr>`` (the exact
-        # lock/flag semantics — acquire-then-check-then-set under the
-        # lock, clear-on-exit in the spawned guard — are unchanged).
+        # lock/flag semantics, acquire-then-check-then-set under the
+        # lock, clear-on-exit in the spawned guard, are unchanged).
         self._single_flight_lock = threading.Lock()
         self._single_flight_running: bool = False
 
@@ -205,12 +205,12 @@ class DisconnectHandler:
         """Spawn a daemon device-path thread, registered with the thread registry.
 
         Promoted from ``Recorder._spawn_device_thread`` (Phase 4.5
-        completion) — the body is unchanged. ``recorder._spawn_device_thread``
+        completion), the body is unchanged. ``recorder._spawn_device_thread``
         (the documented 1-line delegator) routes here; the delegator is
         the seam tests intercept (``r._spawn_device_thread = stub``).
 
         Replaces bare ``threading.Thread(...).start()`` sites in the
-        device-disconnect path that were unregistered — risking
+        device-disconnect path that were unregistered, risking
         half-written config on shutdown (the prewarm and mic-fallback-save
         threads may be mid-``sd.query_devices()`` (50-200ms) or
         mid-``config.save()`` (50-500ms disk write) when the process
@@ -242,13 +242,13 @@ class DisconnectHandler:
                 # or by a test simulating a restart), clear the guard
                 # so a new spawn can proceed. The flag and the guard
                 # are coupled: a True guard means "a handler is
-                # running for an active disconnect" — if the
+                # running for an active disconnect": if the
                 # disconnect is no longer active, the guard is stale.
                 if not recorder._devices._device_disconnected:
                     self._single_flight_running = False
                 if self._single_flight_running:
                     log.debug(
-                        "[RECORDING] %s spawn suppressed — handler already running (single-flight)",
+                        "[RECORDING] %s spawn suppressed, handler already running (single-flight)",
                         name,
                     )
                     return False
@@ -307,7 +307,7 @@ class DisconnectHandler:
         """Body of :meth:`Recorder._stream_finished_callback`.
 
         Promoted from ``Recorder._stream_finished_callback`` (Phase 4.5
-        completion) — the body is unchanged. ``recorder._stream_finished_callback``
+        completion), the body is unchanged. ``recorder._stream_finished_callback``
         (the documented 1-line delegator, the sounddevice
         ``finished_callback`` target) routes here.
 
@@ -318,7 +318,7 @@ class DisconnectHandler:
         keeps working.
 
         sounddevice's finished_callback fires when the PortAudio stream
-        stops for any reason — including device disconnection, driver
+        stops for any reason: including device disconnection, driver
         error, or explicit stop(). We check whether we expected the
         stream to stop; if not, it was likely an unexpected device
         disconnect. Note: sd.InputStream does NOT support an
@@ -334,7 +334,7 @@ class DisconnectHandler:
         # exception on ``self._capture._last_callback_error``, and
         # re-raises so PortAudio still aborts the stream. Without this
         # block, the user would see the "Stream finished unexpectedly"
-        # warning below — a misdiagnosis that hides a real bug in the RT
+        # warning below, a misdiagnosis that hides a real bug in the RT
         # callback. Read the attribute atomically (single attribute-read
         # under the GIL) and clear it immediately so a future genuine
         # disconnect is not masked by a stale reference.
@@ -346,7 +346,7 @@ class DisconnectHandler:
                 exc_info=captured_err,
             )
             # The stream aborted because of a code bug, not a device
-            # issue — do NOT spawn the disconnect-retry handler (it
+            # issue, do NOT spawn the disconnect-retry handler (it
             # would mask the bug by restarting the stream on the
             # default device). The recording state is left to the
             # user's next start()/stop()/discard() call.
@@ -354,14 +354,14 @@ class DisconnectHandler:
         if recorder._devices._device_disconnected:
             return  # already handling disconnect via callback detection
         # STREAM-FIX: if stop() set this flag, the stream
-        # finished because the user pressed the hotkey — expected, no
+        # finished because the user pressed the hotkey, expected, no
         # warning. The flag is cleared after stream.close() in stop().
         if recorder._user_stop_pending:
             return
         # If the stream stopped but we didn't call stop() ourselves,
         # treat it as an unexpected disconnect.
         if recorder._stream_lifecycle._stream is not None and not recorder._recording_event.is_set():
-            log.warning("[RECORDING] Stream finished unexpectedly — possible device disconnect")
+            log.warning("[RECORDING] Stream finished unexpectedly, possible device disconnect")
             recorder._devices._device_disconnected = True
             # capture the current stop_generation so the handler
             # can detect a deliberate stop/start cycle that happened
@@ -391,7 +391,7 @@ class DisconnectHandler:
         On failure, the exception is logged and
         ``recorder._device_disconnected`` is cleared so the next
         health-checker cycle re-probes (preserves the pre-extraction
-        behavior — see the original ``except Exception`` branch).
+        behavior: see the original ``except Exception`` branch).
         """
         recorder = self._recorder
         # Medium: PortAudio device IDs are not stable across hot-swap on
@@ -451,7 +451,7 @@ class DisconnectHandler:
                         _cand_info = sd.query_devices(_cand)
                         # Name-match check: confirm the device at this
                         # alternate index is the same physical device
-                        # (same name) — guards against PortAudio
+                        # (same name), guards against PortAudio
                         # renumbering pointing the index at a different
                         # device after hot-swap.
                         _cand_name = str(_cand_info.get("name", "")).strip().lower()
@@ -523,7 +523,7 @@ class DisconnectHandler:
             # ``sd.InputStream(...)`` above to the STATE-OWNERSHIP
             # handoff below, this created stream is owned by NO ONE
             # else. If ``stream.start()`` raises (the device can die in
-            # the open→start window — PortAudioError/OSError) or
+            # the open→start window, PortAudioError/OSError) or
             # anything else in this window fails, the created-but-
             # unstarted stream must be closed or its PortAudio
             # resources (and the device handle) leak. Mirrors the
@@ -538,7 +538,7 @@ class DisconnectHandler:
                 # AFTER ``stream.start()`` (between start and clear, the
                 # new stream's PortAudio callback fired ~1-3 times at 16
                 # Hz × ~60ms window ≈ 1 chunk, pushing fresh NEW-rate
-                # audio into ``_ring_buffer`` — which the subsequent
+                # audio into ``_ring_buffer``: which the subsequent
                 # ``.clear()`` indiscriminately zeroed along with the
                 # intended OLD-rate chunks). Moving the clear BEFORE
                 # ``stream.start()`` means only pre-disconnect old-rate
@@ -562,7 +562,7 @@ class DisconnectHandler:
                 # ``collections.deque.clear()`` is atomic under the GIL
                 # and the ring buffer is single-producer (audio callback)
                 # / single-consumer (worker), so clearing here without
-                # the lock is safe — the worker's next ``popleft()``
+                # the lock is safe, the worker's next ``popleft()``
                 # raises ``IndexError`` and the drain loop breaks cleanly.
                 for _payload in recorder._ring_buffer:
                     _arr = _payload[0] if isinstance(_payload, tuple) else _payload
@@ -581,7 +581,7 @@ class DisconnectHandler:
                 # new stream and bail out.
                 if _captured_generation != recorder._stop_generation:
                     log.debug(
-                        "[RECORDING] Disconnect restart aborted — "
+                        "[RECORDING] Disconnect restart aborted, "
                         "stop_generation changed (%d != %d) before stream assignment",
                         _captured_generation,
                         recorder._stop_generation,
@@ -656,7 +656,7 @@ class DisconnectHandler:
                 # doesn't linger in process memory (SEC-audit-008).
                 recorder._session_state.secure_clear_caches(recorder)
                 # SEC-audit-008: swap-and-secure-clear-background for
-                # ``_buffer`` — mirrors ``discard()``'s pattern in
+                # ``_buffer``: mirrors ``discard()``'s pattern in
                 # ``_recorder_split.py:467-475``. The bare
                 # ``.clear()`` previously used here drops all chunk
                 # references WITHOUT zeroing the underlying numpy
@@ -693,7 +693,7 @@ class DisconnectHandler:
                 # landed on a DIFFERENT native rate than the session
                 # started with (mid-session device switch, e.g. BT
                 # headset ↔ built-in mic). Pre-fix this path only
-                # updated ``_effective_sr`` — the ring buffer,
+                # updated ``_effective_sr``: the ring buffer,
                 # pre-roll deque, and main-buffer caps kept the old
                 # rate's sizing for the rest of the session. The same
                 # ``SessionState.resize_buffers_for_sample_rate`` entry
@@ -741,7 +741,7 @@ class DisconnectHandler:
             # and if the threshold is met (default: 3 restarts in 60s),
             # fire ``on_device_lost`` and clear the deque. This catches a
             # flapping BT mic that disconnects + reconnects repeatedly
-            # within a short window — a real user-facing regression
+            # within a short window, a real user-facing regression
             # where the per-attempt ``_device_disconnect_retries``
             # counter was reset to 0 on every successful restart (the
             # ``recorder._device_disconnect_retries = 0`` line above),
@@ -751,8 +751,8 @@ class DisconnectHandler:
             # The sliding window is the right shape: a single
             # disconnect+restart cycle leaves the deque with 1 entry
             # (well below the threshold), so the normal recovery flow
-            # is unaffected. Three restarts in 60s — indicative of a
-            # real flap (BT link-manager cycle is 5-30s) — triggers the
+            # is unaffected. Three restarts in 60s, indicative of a
+            # real flap (BT link-manager cycle is 5-30s), triggers the
             # callback so the UI can surface the disconnect.
             #
             # The pruning happens BEFORE the threshold check so old
@@ -763,7 +763,7 @@ class DisconnectHandler:
             # ``start()`` from the UI is the explicit "reset" boundary).
             #
             # The deque + threshold constants live on the Recorder
-            # (initialized by ``SessionState.__init__`` — see
+            # (initialized by ``SessionState.__init__``: see
             # ``session_state.py`` for the rationale on why they live
             # there instead of in ``Recorder.__init__``). ``time`` is
             # imported at module top (alongside ``collections`` /
@@ -781,7 +781,7 @@ class DisconnectHandler:
                 recorder._restart_timestamps.popleft()
             if len(recorder._restart_timestamps) >= recorder._flapping_max_restarts:
                 log.error(
-                    "[RECORDING] Flapping device detected — %d restarts within "
+                    "[RECORDING] Flapping device detected, %d restarts within "
                     "the %.1fs flap-detection window. Firing on_device_lost so "
                     "the UI surfaces the disconnect (the per-attempt retry "
                     "counter resets on every successful restart, so the "
@@ -839,7 +839,7 @@ class DisconnectHandler:
             log.exception("[RECORDING] Failed to restart with default device: %s", e)
             # High: clear the disconnect flag so the next health-checker
             # cycle (30s) re-probes. Pre-fix, the except branch left
-            # ``_device_disconnected=True`` forever — the health-checker's
+            # ``_device_disconnected=True`` forever, the health-checker's
             # ``if self._device_disconnected: continue`` skip meant the
             # recorder never auto-recovered even if the user plugged in
             # a new mic. The retry counter is NOT reset here (only on

@@ -1,4 +1,4 @@
-"""Tests for voice_typer.vocabulary — VocabularyManager CRUD, merge, apply."""
+"""Tests for voice_typer.vocabulary: VocabularyManager CRUD, merge, apply."""
 
 import json
 
@@ -342,7 +342,7 @@ class TestVocabularyBackupAndQuarantine:
 
         content_a = user_file.read_text(encoding="utf-8")
         assert '"teh"' in content_a
-        # No .bak yet — first save has nothing to back up.
+        # No .bak yet, first save has nothing to back up.
         assert not bak_file.exists()
 
         # Save vocab B: a different entry "whitespace" -> "white space".
@@ -366,7 +366,7 @@ class TestVocabularyBackupAndQuarantine:
     def test_vocabulary_quarantines_corrupt_file(self, vocab_dir, bundled):
         """PI-8: write corrupt JSON to the vocab file, call load, assert
         the file is moved to .corrupt-<ts> and load returns the default
-        (empty user vocab — bundled still loads).
+        (empty user vocab, bundled still loads).
 
         Without quarantine, the next save would atomically overwrite the
         corrupt file with the in-memory defaults, destroying any chance
@@ -382,7 +382,7 @@ class TestVocabularyBackupAndQuarantine:
         user_file.write_text(corrupt_payload, encoding="utf-8")
         assert user_file.exists()
 
-        # Construct a VocabularyManager — this calls _load_user which
+        # Construct a VocabularyManager, this calls _load_user which
         # must detect the corrupt JSON, quarantine it, and fall back
         # to the default (empty user vocab). Bundled corrections still
         # load normally (they're a separate file).
@@ -526,7 +526,7 @@ class TestVocabularyGetCategoryLockAndSnapshot:
         miss_again = vm.get_category("misspellings")
         assert "__injected_key__" not in miss_again, (
             "FR-38 regression: get_category returned the LIVE internal dict, "
-            "not a copy — mutating the returned object corrupted the manager's state."
+            "not a copy, mutating the returned object corrupted the manager's state."
         )
         assert len(miss_again) == original_len
 
@@ -542,7 +542,7 @@ class TestVocabularyGetCategoryLockAndSnapshot:
         phrases_again = vm.get_category("phrase_corrections")
         assert len(phrases_again) == original_len, (
             "FR-38 regression: get_category returned the LIVE internal list, "
-            "not a copy — mutating the returned object corrupted the manager's state."
+            "not a copy, mutating the returned object corrupted the manager's state."
         )
         assert not any(p == ["__injected__", "__injected__"] for p in phrases_again)
 
@@ -568,10 +568,10 @@ class TestVocabularyGetCategoryLockAndSnapshot:
             while not stop.is_set():
                 try:
                     # get_category must return a SNAPSHOT under the
-                    # lock — iterating it can't see a concurrent
+                    # lock, iterating it can't see a concurrent
                     # mutation.
                     tech = vm.get_category("technical_terms")
-                    # Iterate the snapshot — pre-fix this could see
+                    # Iterate the snapshot, pre-fix this could see
                     # a half-applied mutation and raise RuntimeError.
                     for k in tech:
                         _ = tech[k]

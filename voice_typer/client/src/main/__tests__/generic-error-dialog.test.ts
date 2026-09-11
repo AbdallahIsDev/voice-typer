@@ -30,7 +30,7 @@ vi.mock("../logging", () => ({
 		debug: vi.fn(),
 	},
 	// The dedup wrapper added for the "collapse repeated python-call
-	// rejected lines" work — python-call-handler imports it; the mock
+	// rejected lines" work, python-call-handler imports it; the mock
 	// must provide it (identity passthrough keeps the assertion surface
 	// unchanged).
 	dedupeRepeatedLogs: <T extends (...args: never[]) => unknown>(fn: T): T => fn,
@@ -68,9 +68,9 @@ describe("DE-86: python-call-handler returns generic message for command_failed"
 		// production was returning the raw errMsg (Python traceback
 		// with filesystem paths) as `_error`. Fixed to return the generic
 		// ERROR_MESSAGES[code] for command_failed. A bounded form of
-		// errMsg is logged server-side (HU-26) — never forwarded.
+		// errMsg is logged server-side (HU-26), never forwarded.
 		// Simulate a Python traceback that includes a filesystem
-		// path and user data — must NOT leak to the renderer.
+		// path and user data, must NOT leak to the renderer.
 		const pythonErr = new Error(
 			"KeyError: 'user_utterance_text' at /home/user/.voice-typer/history.db:42",
 		);
@@ -93,7 +93,7 @@ describe("DE-86: python-call-handler returns generic message for command_failed"
 		// HU-26: the logged error is the first line of errMsg, capped at
 		// MAX_LOG_ERROR_CHARS (200). A short single-line message (like
 		// this 73-char KeyError) passes through intact so support staff
-		// can diagnose — but multi-line tracebacks and >200-char
+		// can diagnose, but multi-line tracebacks and >200-char
 		// messages are bounded (see the two truncation tests below).
 		const pythonErr = new Error(
 			"KeyError: 'user_utterance_text' at /home/user/.voice-typer/history.db:42",
@@ -113,7 +113,7 @@ describe("DE-86: python-call-handler returns generic message for command_failed"
 
 	it("command_failed: multi-line tracebacks are cut to the first line when logged", async () => {
 		// HU-26: the raw traceback body (frame lines with filesystem
-		// paths) must NOT land in electron-main.log — only the first
+		// paths) must NOT land in electron-main.log, only the first
 		// line is persisted; the backend writes the full detail to
 		// voice-typer.log.
 		const pythonErr = new Error(

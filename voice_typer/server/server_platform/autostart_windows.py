@@ -1,15 +1,15 @@
-"""Windows autostart — Task Scheduler + Startup .bat + HKCU Run key.
+"""Windows autostart. Task Scheduler + Startup .bat + HKCU Run key.
 
-Phase 4.5 /  — extracted from the original
+Phase 4.5 / , extracted from the original
 ``voice_typer/server/server_platform.py`` god-module.  Implements three
 parallel autostart mechanisms on Windows:
 
-  - **Task Scheduler with a LogonTrigger** (preferred — fires at
+  - **Task Scheduler with a LogonTrigger** (preferred, fires at
     logon+0, split Command/Arguments, hidden; may need UAC elevation
     for a locked task created by an admin install).
-  - **Startup-folder .bat** (admin-free fallback — always processed by
+  - **Startup-folder .bat** (admin-free fallback, always processed by
     Explorer at logon, no command-line parsing).
-  - **HKCU Run key** (last resort — its raw command line can be
+  - **HKCU Run key** (last resort, its raw command line can be
     rejected by the Windows 11 StartupApp launcher; see
     ``_validate_runkey_command``).
 
@@ -22,7 +22,7 @@ see ``_validate_runkey_command``).
 
 PLAT-RUN: append the install-path hash to the task name + Run-key name
 so two installations in different directories register distinct entries
-and don't conflict.  Pre-fix these were fixed strings — two installs
+and don't conflict.  Pre-fix these were fixed strings, two installs
 would overwrite each other's entries.  The hash matches the mutex name
 hash in ``app.py`` (SHA-256 of ``sys.executable``, first 8 hex chars).
 
@@ -32,17 +32,17 @@ This module is the FACADE for the Windows autostart mechanisms. It owns
 the mechanism clusters that tests patch directly and the orchestrators
 that sequence them; mechanism submodules hold the rest:
 
-  - :mod:`._autostart_windows_task` — pure Task Scheduler XML parsers
+  - :mod:`._autostart_windows_task`: pure Task Scheduler XML parsers
     (``_extract_command_from_task_xml`` / ``_extract_arguments_from_task_xml``).
-  - :mod:`._autostart_windows_sweep` — the one-time legacy-entry sweep
+  - :mod:`._autostart_windows_sweep`: the one-time legacy-entry sweep
     (``sweep_legacy_autostart_entries`` + its ``_sweep_legacy_*`` /
     ``_entry_targets_this_install`` / ``_legacy_sweep_marker_path`` /
     ``_sweep_v1_marker_files`` helpers).
-  - :mod:`._autostart_windows_uninstall` — uninstaller-path cleanup
+  - :mod:`._autostart_windows_uninstall`: uninstaller-path cleanup
     (``_unregister_all_voicetyper_runkeys`` / ``_unregister_all_voicetyper_tasks``).
-  - :mod:`._autostart_windows_startup_bat` — the Startup-folder .bat
+  - :mod:`._autostart_windows_startup_bat`: the Startup-folder .bat
     register / unregister / is-registered trio.
-  - :mod:`._autostart_windows_runkey` — the HKCU Run-key register /
+  - :mod:`._autostart_windows_runkey`: the HKCU Run-key register /
     unregister / is-registered trio
     (``_register_app_autostart_runkey`` / ``_unregister_app_autostart_runkey`` /
     ``_is_app_autostart_runkey_registered``).
@@ -62,7 +62,7 @@ on the OWNING module. Resolution rules:
     helpers ``_run_key_name`` / ``_validate_runkey_command`` /
     ``_cleanup_stale_runkey_entry``,
     ``_startup_bat_name`` / ``_startup_bat_path``) are resolved as
-    plain module-global lookups at call time — tests patch them via
+    plain module-global lookups at call time, tests patch them via
     ``monkeypatch.setattr(autostart_windows, "X", ...)``.
   - Names re-imported from the submodules (the bottom import block)
     resolve through the SAME facade module-global lookup, so facade
@@ -70,17 +70,17 @@ on the OWNING module. Resolution rules:
     code that calls a facade-owned name reads it lazily through the
     facade module object (``from voice_typer.server.server_platform
     import autostart_windows as _aw`` inside the function) at call
-    time — so facade patches propagate into submodule behavior as
+    time, so facade patches propagate into submodule behavior as
     well.
   - ``_autostart_command`` / ``get_autostart_dir`` /
     ``_install_hash`` / ``_install_hash_suffix`` /
     ``_install_identifier`` / ``_resolve_tauri_binary_for_autostart`` /
-    ``_APP_AUTOSTART_TASK_NAME`` — owned by :mod:`.autostart`; patched
+    ``_APP_AUTOSTART_TASK_NAME``: owned by :mod:`.autostart`; patched
     via ``monkeypatch.setattr(autostart_mod, "X", ...)``.  This module
     (and every ``_autostart_windows_*`` submodule) binds that module as
     ``_autostart_mod`` and resolves all of them through its attribute
     at call time.
-  - ``is_windows`` — owned by :mod:`.platform_flags` (re-exported from
+  - ``is_windows``: owned by :mod:`.platform_flags` (re-exported from
     :mod:`voice_typer.server.platform_utils`); bound into this module's
     namespace at import time and called directly, so tests patch
     ``monkeypatch.setattr(autostart_windows, "is_windows", ...)``.
@@ -128,13 +128,13 @@ log = logging.getLogger(__name__)
 # startup sequencing). We prefer the Task Scheduler path; the
 # Startup-folder .bat is the admin-free fallback, and the HKCU Run key
 # remains as the last resort (its raw command line can be rejected by
-# the Windows 11 StartupApp launcher at logon — see
+# the Windows 11 StartupApp launcher at logon, see
 # ``_validate_runkey_command``).
 #
 # PLAT-RUN: append the install-path hash to the task name so two
 # installations in different directories register distinct schtasks
 # entries and don't conflict. Pre-fix this was a fixed string
-# "VoiceTyperAutostart" — two installs would overwrite each other's
+# "VoiceTyperAutostart": two installs would overwrite each other's
 # task. The hash matches the mutex name hash in app.py (SHA-256 of
 # sys.executable, first 8 hex chars).
 #
@@ -155,16 +155,16 @@ def _enable_autostart_windows() -> bool:
         fields (immune to command-line parsing), is hidden, and is the
         documented-preferred mechanism. Creating a task may require
         UAC elevation when a previous task was created by an admin
-        install (locked task) — the ``_schtasks_elevated`` fallback
+        install (locked task), the ``_schtasks_elevated`` fallback
         handles that.
       - **Startup-folder .bat** needs NO admin elevation and is ALWAYS
-        processed by Explorer at logon — the reliable fallback for
+        processed by Explorer at logon, the reliable fallback for
         standard users and locked-task machines.
       - **HKCU Run key** was previously FIRST because it needs no
         elevation, but its value is a raw command line that the
         Windows 11 StartupApp launcher can reject at logon (observed:
         Shell-Core 9707/9708 with PID 0 on every logon for a malformed
-        value — see ``_validate_runkey_command``). It stays as the last
+        value: see ``_validate_runkey_command``). It stays as the last
         resort with correct quoting (``subprocess.list2cmdline``).
     """
     if _register_app_autostart_task():
@@ -226,7 +226,7 @@ def _app_autostart_command_and_args() -> tuple[str, str]:
         checking whether the system Python can actually import
         ``voice_typer.server.autostart_launcher``. If the user installed
         Voice Typer only inside the venv, the autostart task would use the
-        system Python — which would fail at login with
+        system Python: which would fail at login with
         ``ModuleNotFoundError`` and silently never start the app. We now
         probe the system Python before swapping; if the probe fails, we
         keep the venv Python (and log a warning) so the autostart entry
@@ -243,7 +243,7 @@ def _app_autostart_command_and_args() -> tuple[str, str]:
 
     # PLAT-VENV: detect virtualenv and use system Python instead.
     # probe whether the system Python can import
-    # voice_typer.server.autostart_launcher BEFORE swapping — if the
+    # voice_typer.server.autostart_launcher BEFORE swapping, if the
     # venv is the only place voice_typer is installed, the system
     # Python would fail at login.
     if sys.prefix != sys.base_prefix:
@@ -259,7 +259,7 @@ def _app_autostart_command_and_args() -> tuple[str, str]:
                 "[AUTOSTART] Running inside venv (%s) but system Python "
                 "cannot import voice_typer.server.autostart_launcher "
                 "(probe failed). Keeping venv Python for the Windows "
-                "Task Scheduler entry — autostart will break if the "
+                "Task Scheduler entry, autostart will break if the "
                 "venv is deleted, but works for the current user.",
                 sys.executable,
             )
@@ -273,7 +273,7 @@ def _app_autostart_command_and_args() -> tuple[str, str]:
     # AUTOSTART-CMD-VALIDATE: verify the resolved Python interpreter
     # path exists. If it doesn't (venv deleted, dev-mode install moved),
     # fall back to the Tauri binary with empty args (the Tauri binary
-    # is the autostart target directly — no Python launcher needed).
+    # is the autostart target directly, no Python launcher needed).
     if not Path(python_bin).exists():
         log.warning(
             "[AUTOSTART] Resolved Python interpreter does not exist: %s "
@@ -294,7 +294,7 @@ def _app_autostart_command_and_args() -> tuple[str, str]:
             return tauri_bin, ""
         log.error(
             "[AUTOSTART] No Python interpreter AND no Tauri binary "
-            "available — Task Scheduler entry will be non-functional"
+            "available, Task Scheduler entry will be non-functional"
         )
     args = f'"{launcher}" --hidden --delay {delay_str}'
     log.info("[AUTOSTART] Resolved Task Scheduler command: %s %s", python_bin, args)
@@ -391,7 +391,7 @@ def _register_app_autostart_task() -> bool:
                 capture=True,
             )
             if rc != 0 and "access is denied" in (output or "").lower():
-                log.info("[CONFIG] Non-elevated schtasks failed — retrying with UAC elevation prompt")
+                log.info("[CONFIG] Non-elevated schtasks failed, retrying with UAC elevation prompt")
                 rc, output = task_scheduler._schtasks_elevated(
                     ["/Create", "/TN", _autostart_mod._APP_AUTOSTART_TASK_NAME, "/XML", temp_xml, "/F"],
                 )
@@ -442,7 +442,7 @@ def _is_app_autostart_task_registered() -> bool:
     the schtasks /Query succeeded (task exists), WITHOUT verifying the
     task's <Command> path actually exists on disk. If the venv was
     deleted after registration, the task would still "exist" but its
-    command would point at a nonexistent pythonw.exe — the task would
+    command would point at a nonexistent pythonw.exe, the task would
     fire at login, fail silently, and the Settings toggle would show
     "autostart enabled" while the app never started. We now parse the
     task XML, extract the <Command> element, and verify the path
@@ -463,21 +463,21 @@ def _is_app_autostart_task_registered() -> bool:
             return False
         # AUTOSTART-CMD-VALIDATE: parse the task XML and verify the
         # <Command> path exists. If the command points at a deleted
-        # pythonw.exe (venv removed), the task is stale — report False
+        # pythonw.exe (venv removed), the task is stale, report False
         # so the Settings toggle reflects the actual state.
         command_path = _extract_command_from_task_xml(output)
         if command_path is None:
-            # Could not parse the XML — conservatively report True
+            # Could not parse the XML, conservatively report True
             # (the task exists; we just can't validate the command).
             log.debug(
-                "[AUTOSTART] Could not parse <Command> from task XML — "
+                "[AUTOSTART] Could not parse <Command> from task XML, "
                 "reporting task as registered (cannot validate path)"
             )
             return True
         if not Path(command_path).exists():
             log.warning(
                 "[AUTOSTART] Task Scheduler task exists but its command "
-                "path does not exist: %s — reporting as NOT registered "
+                "path does not exist: %s, reporting as NOT registered "
                 "(stale task)",
                 command_path,
             )
@@ -498,7 +498,7 @@ def _is_app_autostart_task_registered() -> bool:
 # :mod:`._autostart_windows_runkey` (same layout as the Startup .bat
 # trio in :mod:`._autostart_windows_startup_bat`). The naming helper
 # (``_run_key_name``), the shared raw-string command validator
-# (``_validate_runkey_command`` — the doubled-backslash check that
+# (``_validate_runkey_command``: the doubled-backslash check that
 # makes the self-heal work), and the stale-entry cleanup helper stay
 # here: every mechanism (Run key, Startup .bat, legacy sweep) reads
 # them through the facade module object.
@@ -518,7 +518,7 @@ def _run_key_name() -> str:
 
     The hash MUST NOT depend on ``sys.executable``: the app can launch
     via the console shim (``python.exe`` / ``voice-typer.exe``), the
-    dev venv, or the autostart launcher (``pythonw.exe``) — each has a
+    dev venv, or the autostart launcher (``pythonw.exe``), each has a
     different ``sys.executable``, so a name derived from it would be
     registered by one process and never found by the next (the
     perpetual "Config says autostart=true but it is disabled --
@@ -536,7 +536,7 @@ def _validate_runkey_command(value: str) -> bool:
     checks if the path exists.
 
     Returns ``True`` if the exe path exists (or if the command line is
-    empty/ambiguous — we err on the side of "valid" to avoid deleting
+    empty/ambiguous, we err on the side of "valid" to avoid deleting
     entries we can't parse confidently). Returns ``False`` only when
     we're CERTAIN the exe path doesn't exist (quoted path or unquoted
     single-token path that doesn't exist on disk).
@@ -545,17 +545,17 @@ def _validate_runkey_command(value: str) -> bool:
     cleanup loop in :func:`_register_app_autostart_runkey`.
     """
     if not value or not isinstance(value, str):
-        return True  # empty/None — don't claim stale (caller checks truthy)
+        return True  # empty/None, don't claim stale (caller checks truthy)
     tokens = shlex.split(value, posix=False)
     if not tokens:
-        return True  # malformed — don't claim stale
+        return True  # malformed, don't claim stale
     exe_token = tokens[0]
     exe_path = exe_token.strip('"')
     if not exe_path:
-        return True  # malformed — don't claim stale
+        return True  # malformed, don't claim stale
     # AUTOSTART-QUOTING-FIX: a doubled backslash inside a Windows path
     # (e.g. ``"C:\\Users\\11\\...pythonw.exe"``) is a MALFORMED command
-    # line — the freedesktop Exec quoting bug baked ``\\`` into every
+    # line, the freedesktop Exec quoting bug baked ``\\`` into every
     # Run-key value. ``Path.exists()`` collapses ``\\`` to ``\``, so it
     # reports such paths as existing and the broken entry is never
     # re-registered (the "autostart fixed but still broken at logon"
@@ -572,7 +572,7 @@ def _validate_runkey_command(value: str) -> bool:
     # Ambiguous unquoted spaced paths are preserved (can't recover
     # the full exe path without quotes).
     if not was_quoted and has_multiple_tokens:
-        return True  # ambiguous — preserve (can't validate confidently)
+        return True  # ambiguous, preserve (can't validate confidently)
     return Path(exe_path).exists()
 
 

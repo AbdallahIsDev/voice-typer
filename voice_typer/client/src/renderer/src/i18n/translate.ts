@@ -7,21 +7,21 @@
 // silently degrading to a stub.
 //
 // Reads shared state (``_currentLocale`` via ``getLocale``, ``_translations``)
-// from ``./store`` — never mutates it directly.
+// from ``./store``, never mutates it directly.
 
 import type { Locale } from "./locale";
 import { _translations, getLocale } from "./store";
 // Catalog-derived compile-time key contract (flat key union from
 // translations/en.json) used by the strict t()/tChoice() overloads
-// below — see translation-keys.ts for the derivation.
+// below, see translation-keys.ts for the derivation.
 import type { TranslationChoiceKey, TranslationKey } from "./translation-keys";
 
 //cache the per-parameter interpolation RegExp. ``t()`` /
 // ``tChoice()`` previously built a fresh ``new RegExp(`\\{${k}\\}`, "g")``
-// for every parameter of every call — under a hot render path with
+// for every parameter of every call, under a hot render path with
 // several interpolations per string this allocated thousands of
 // short-lived RegExp objects per second. The keyspace is tiny (only a
-// handful of distinct placeholder names — ``count``, ``name``, …) so a
+// handful of distinct placeholder names, ``count``, ``name``, …) so a
 // Map<string, RegExp> cache reuses the same RegExp instance forever.
 export const _interpCache = new Map<string, RegExp>();
 
@@ -63,7 +63,7 @@ function interpRegex(key: string): RegExp {
 	return r;
 }
 
-// Cache Intl.PluralRules instances per locale — constructing one is
+// Cache Intl.PluralRules instances per locale, constructing one is
 // expensive enough that we don't want to do it on every tChoice() call.
 export const _pluralRulesCache: Map<Locale, Intl.PluralRules> = new Map();
 
@@ -74,7 +74,7 @@ export const _pluralRulesCache: Map<Locale, Intl.PluralRules> = new Map();
  * The dead PluralRules stub fallback
  * has been removed. If the requested locale fails AND the English
  * fallback fails (no Intl runtime), we rethrow with a clear message
- * instead of silently degrading — silent degradation hid a real
+ * instead of silently degrading, silent degradation hid a real
  * runtime-availability bug.
  */
 function getPluralRules(locale: Locale): Intl.PluralRules {
@@ -90,7 +90,7 @@ function getPluralRules(locale: Locale): Intl.PluralRules {
 				rules = new Intl.PluralRules("en");
 			} catch (enErr) {
 				// Last resort used to be a stub that always returned
-				// "other" — but if even English PluralRules fails,
+				// "other", but if even English PluralRules fails,
 				// the Intl runtime is fundamentally broken. Surface
 				// the error loudly so it's not silently masked.
 				throw new Error(
@@ -109,16 +109,16 @@ function getPluralRules(locale: Locale): Intl.PluralRules {
  *
  * Lookup chain (in order):
  *
- *   1. ``currentLocale`` — the active UI locale's translation map.
- *   2. ``primary subtag`` — when the current locale is a regional
+ *   1. ``currentLocale``, the active UI locale's translation map.
+ *   2. ``primary subtag``, when the current locale is a regional
  *      variant (contains ``-``), try the bare primary subtag's map
  *      before falling back to English. e.g. ``zh-CN`` → ``zh`` → ``en``.
  *      Bare primaries (``en``, ``zh``, ``ar`` …) skip this step because
  *      the subtag would equal the locale itself.
- *   3. ``en`` — the universal fallback. English is always loaded
+ *   3. ``en``, the universal fallback. English is always loaded
  *      synchronously at module init (see ``store.ts``) so this step
  *      never blocks on a dynamic import.
- *   4. the raw key — defensive last resort so callers don't crash on
+ *   4. the raw key, defensive last resort so callers don't crash on
  *      a typo. In dev mode (``import.meta.env?.DEV``) this step also
  *      emits a ``console.warn`` so a misspelled or absent key surfaces
  *      during QA instead of silently rendering the literal key string
@@ -128,7 +128,7 @@ function getPluralRules(locale: Locale): Intl.PluralRules {
  * provided, each ``{key}`` in the translated string is replaced with
  * the corresponding value from ``params``.
  *
- * Key typing — two overloads (the same strict+loose pattern as
+ * Key typing, two overloads (the same strict+loose pattern as
  * ``PythonCall`` in ``lib/python-bridge/usePython.ts``):
  *
  *   - STRICT (this overload): a statically written key literal must be
@@ -140,7 +140,7 @@ function getPluralRules(locale: Locale): Intl.PluralRules {
  *     template expressions or held in ``string``-typed variables at
  *     runtime). The loose overload is gated so it can NOT become a
  *     default escape hatch for static literals: it only accepts key
- *     types that are ``string`` itself — a concrete literal (or union
+ *     types that are ``string`` itself, a concrete literal (or union
  *     of literals) that is absent from the catalog matches NEITHER
  *     overload and fails with an actionable error naming the bad key.
  *
@@ -150,18 +150,18 @@ function getPluralRules(locale: Locale): Intl.PluralRules {
  */
 export function t(key: TranslationKey, params?: Record<string, string>): string;
 /**
- * Dynamic-key overload — see the strict overload above for the lookup
+ * Dynamic-key overload, see the strict overload above for the lookup
  * chain and interpolation contract. This overload only matches when
  * the argument's type is plain ``string`` (or wider), i.e. the key is
  * built at runtime rather than statically written. A statically
  * written literal that is absent from the catalog does NOT match this
- * overload — the parameter type degrades to an error-message string —
+ * overload, the parameter type degrades to an error-message string —
  * so typos still fail at compile time.
  */
 export function t<K extends string>(
 	key: string extends K
 		? K
-		: `t() key "${K}" is not in the en.json translation catalog — fix the key path, or type the value as plain string when the key is genuinely built at runtime`,
+		: `t() key "${K}" is not in the en.json translation catalog, fix the key path, or type the value as plain string when the key is genuinely built at runtime`,
 	params?: Record<string, string>,
 ): string;
 export function t(key: string, params?: Record<string, string>): string {
@@ -170,10 +170,10 @@ export function t(key: string, params?: Record<string, string>): string {
 
 	//per-(locale, key) resolved-string cache. The cached value
 	// is the pre-interpolation template, so we still run interpolation
-	// after the cache hit — only the lookup chain is short-circuited.
+	// after the cache hit, only the lookup chain is short-circuited.
 	//
 	// The cache also memoizes the raw-key fallback (step 4 below) so a
-	// missing key warns at most once per (locale, key) pair — subsequent
+	// missing key warns at most once per (locale, key) pair, subsequent
 	// calls return the cached raw key without re-warning. This keeps
 	// dev-mode console output readable without losing the first-occurrence
 	// signal that surfaces a typo.
@@ -199,7 +199,7 @@ export function t(key: string, params?: Record<string, string>): string {
 		result = currentMap.get(key) ?? key;
 	} else if (currentLocale.includes("-")) {
 		// Regional variant (e.g. ``zh-CN``, ``pt-BR``). Try the primary
-		// subtag's map before falling back to English — a translator
+		// subtag's map before falling back to English, a translator
 		// adding a regional override for a handful of keys should not
 		// silently lose the parent language's coverage for the rest.
 		const primary = currentLocale.split("-")[0] as Locale;
@@ -231,7 +231,7 @@ export function t(key: string, params?: Record<string, string>): string {
 	// (``import.meta.env?.DEV`` is ``false`` in production per Vite, and
 	// the optional chain short-circuits to ``undefined`` in non-Vite
 	// environments like SSR). Vitest runs with ``DEV=true`` so the
-	// warning fires during tests — see ``translate-fallback.test.ts``.
+	// warning fires during tests, see ``translate-fallback.test.ts``.
 	if (missedKey && import.meta.env?.DEV) {
 		console.warn(
 			"[renderer:i18n] missing key:",
@@ -270,12 +270,12 @@ export function t(key: string, params?: Record<string, string>): string {
 //   3. Fall back to `{key}_other` (the universal CLDR fallback) if the
 //      category-specific key is missing.
 //   4. Fall back to the bare `key` (no suffix) for catalogs that haven't
-//      been pluralized yet — preserves backwards compatibility with
+//      been pluralized yet, preserves backwards compatibility with
 //      existing single-form strings.
 //   5. Last resort: return the raw key (matching `t()` semantics).
 //
 // After resolving the catalog value, `{placeholder}` interpolation runs
-// just like `t()` — pass `{ count: "5" }` (or any other params) to
+// just like `t()`, pass `{ count: "5" }` (or any other params) to
 // substitute into the resolved string. The `count` used for plural
 // selection is automatically exposed as `{count}` in the params for
 // convenience, mirroring ICU MessageFormat semantics.
@@ -299,9 +299,9 @@ export function t(key: string, params?: Record<string, string>): string {
 /**
  * Resolve a pluralized translation key for the given count.
  *
- * Key typing — the same strict+loose overload pair as ``t()`` above:
+ * Key typing, the same strict+loose overload pair as ``t()`` above:
  * the strict overload accepts a bare catalog key or the base of a
- * plural family (``TranslationChoiceKey`` — the union of
+ * plural family (``TranslationChoiceKey``, the union of
  * ``TranslationKey`` and the suffix-stripped bases of the
  * ``_zero``..``_other`` plural-suffixed catalog keys), so a typo'd base
  * key fails at compile time; the loose overload handles genuinely
@@ -321,14 +321,14 @@ export function tChoice(
 	params?: Record<string, string>,
 ): string;
 /**
- * Dynamic-key overload — see the strict ``tChoice`` overload above.
+ * Dynamic-key overload, see the strict ``tChoice`` overload above.
  * Accepts only plain-``string``-typed base keys (runtime-built); static
  * literals the catalog cannot resolve fail at compile time.
  */
 export function tChoice<K extends string>(
 	key: string extends K
 		? K
-		: `tChoice() base key "${K}" is not in the en.json translation catalog — fix the key path, or type the value as plain string when the key is genuinely built at runtime`,
+		: `tChoice() base key "${K}" is not in the en.json translation catalog, fix the key path, or type the value as plain string when the key is genuinely built at runtime`,
 	count: number,
 	params?: Record<string, string>,
 ): string;
@@ -342,7 +342,7 @@ export function tChoice(
 	// Build the candidate keys in fallback order:
 	//   1. {key}_{category}    (e.g. "inbox.messages_one")
 	//   2. {key}_other         (CLDR universal fallback)
-	//   3. {key}               (bare key — backwards compat)
+	//   3. {key}               (bare key, backwards compat)
 	const candidates = [`${key}_${category}`, `${key}_other`, key];
 
 	let resolved: string | undefined;
@@ -359,7 +359,7 @@ export function tChoice(
 		}
 	}
 	if (resolved === undefined) {
-		// Nothing found — return the bare key (matches t() semantics).
+		// Nothing found, return the bare key (matches t() semantics).
 		return key;
 	}
 	// Auto-expose `count` as a stringified interpolation param unless

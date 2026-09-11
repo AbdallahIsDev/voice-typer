@@ -1,11 +1,11 @@
 /**
  * Focused tests for useHistoryExport's cursor (keyset) pagination.
  *
- * The export loop previously paged with OFFSET only — every page forced
+ * The export loop previously paged with OFFSET only, every page forced
  * the backend to skip past all previously fetched rows (O(pages ×
  * offset)). It now threads before_timestamp + before_id (derived from
- * the last accumulated row) through every page after the first — the
- * same strategy useHistoryCache's loadMore uses — while keeping
+ * the last accumulated row) through every page after the first, the
+ * same strategy useHistoryCache's loadMore uses, while keeping
  * limit + offset in the payload as the defensive fallback (rows
  * without a usable timestamp/id cursor-anchor via OFFSET instead).
  *
@@ -73,7 +73,7 @@ function mountExport(searchQuery = "", favoritesOnly = false) {
 	);
 }
 
-describe("useHistoryExport — cursor (keyset) pagination", () => {
+describe("useHistoryExport, cursor (keyset) pagination", () => {
 	it("first page has no cursor; subsequent pages cursor-anchor on the last accumulated row", async () => {
 		// Three full pages then an empty page. Pages are handed out
 		// sequentially by the offset the loop passes.

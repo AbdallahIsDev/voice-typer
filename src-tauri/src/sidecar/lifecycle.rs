@@ -1,4 +1,4 @@
-//! Host lifecycle callbacks — relaunch / quit / exit teardown.
+//! Host lifecycle callbacks: relaunch / quit / exit teardown.
 //!
 //! Relocated verbatim from `state.rs` (pure move, no behavior change) so
 //! the shared-state module stays data-only. `state.rs` re-exports these
@@ -17,7 +17,7 @@ use tauri::Manager;
 
 /// Local override for the host's `RunEvent::Exit` shutdown budget.
 ///
-/// `util::SHUTDOWN_ACK_TIMEOUT_MS` is 2000ms (2s) — but the sidecar's
+/// `util::SHUTDOWN_ACK_TIMEOUT_MS` is 2000ms (2s): but the sidecar's
 /// graceful shutdown path can legitimately take 3-4s on a cold disk
 /// (WAL checkpoint, native hotkey binary teardown). The 2s budget
 /// force-kills the sidecar mid-flush, which can corrupt `history.db`
@@ -32,9 +32,9 @@ use tauri::Manager;
 /// wait expires.
 ///
 /// The renderer-invoked `shutdown_sidecar` command keeps the tighter
-/// 2s budget (`SHUTDOWN_ACK_TIMEOUT_MS`) — there a tight budget is
+/// 2s budget (`SHUTDOWN_ACK_TIMEOUT_MS`): there a tight budget is
 /// appropriate because the UI is still alive and a long block freezes
-/// it. The `RunEvent::Exit` path is when the host is going away — it
+/// it. The `RunEvent::Exit` path is when the host is going away, it
 /// should err on the side of giving the sidecar more time.
 const HOST_SHUTDOWN_GRACE_MS: u64 = 35_000;
 
@@ -43,7 +43,7 @@ const HOST_SHUTDOWN_GRACE_MS: u64 = 35_000;
 ///
 /// The sidecar's own graceful cleanup (WAL checkpoint, crash-recovery
 /// flush, native hotkey binary teardown) takes 3-4s, so the old
-/// `PRE_RESTART_FLUSH_DELAY_MS` (10ms) could never cover it — the
+/// `PRE_RESTART_FLUSH_DELAY_MS` (10ms) could never cover it, the
 /// restart structurally hard-killed a still-alive backend mid-flush.
 /// 5s = the 3-4s cleanup plus headroom for the WS round-trip; it is
 /// deliberately FAR below the exit path's 30s
@@ -61,7 +61,7 @@ pub(super) const PRE_RESTART_SIDECAR_GRACE_MS: u64 = 5_000;
 /// single leading space so the caller splices it with a bare `{}`).
 /// Mirrors Python's `voice_typer/server/duration.py::format_duration`
 /// (the cross-language convention; no Rust-side helper existed yet, so
-/// this local one keeps the formats in lockstep — sub-minute
+/// this local one keeps the formats in lockstep, sub-minute
 /// `{:.1}s`, minutes `{}m {:.1}s`).
 pub(super) fn format_duration_suffix(d: std::time::Duration) -> String {
     let total_secs = d.as_secs_f64();
@@ -93,13 +93,13 @@ pub(super) fn format_duration_suffix(d: std::time::Duration) -> String {
 /// 2. Run the cooperative pre-restart sidecar teardown —
 ///    `begin_shutdown()` + the `{"type":"shutdown"}` frame + a
 ///    bounded graceful-exit wait (`PRE_RESTART_SIDECAR_GRACE_MS`) +
-///    force-kill backstop — so the backend is TOLD the restart is
+///    force-kill backstop: so the backend is TOLD the restart is
 ///    coming and gets an honest moment to flush (WAL checkpoint,
 ///    crash-recovery entries, native hotkey teardown) instead of being
 ///    hard-killed mid-cleanup. This also arms `shutting_down` so the
 ///    supervisor never races the restart window with a pointless
 ///    respawn, and it makes the `RunEvent::Exit` teardown that fires
-///    DURING `app.restart()` short-circuit (idempotency guard) — the
+///    DURING `app.restart()` short-circuit (idempotency guard), the
 ///    detached `on_host_exit` thread cannot be joined BEFORE the
 ///    restart because it only spawns on the Exit event the restart
 ///    itself emits; running the teardown inline first turns that
@@ -110,20 +110,20 @@ pub(super) fn format_duration_suffix(d: std::time::Duration) -> String {
 ///
 /// The sequence is spawned on the async runtime (NOT `tokio::time::sleep`
 /// on the event-loop thread) so the Tauri event loop is not blocked;
-/// inside it, every wait is `.await`ed (C-TOKIO-1 — no `block_on`
+/// inside it, every wait is `.await`ed (C-TOKIO-1, no `block_on`
 /// inside a runtime worker) and the disk write is `spawn_blocking`.
 pub(crate) fn on_relaunch_app(app_handle: &tauri::AppHandle, _event: tauri::Event) {
     use crate::util::PRE_RESTART_FLUSH_DELAY_MS;
 
     log::info!(
-        "[RESTART] relaunch_app event received — sending relaunch_ack + calling app.restart()"
+        "[RESTART] relaunch_app event received: sending relaunch_ack + calling app.restart()"
     );
     let state: tauri::State<'_, Arc<SidecarState>> = app_handle.state();
     let state_inner = state.inner().clone();
     let ack_sent = send_fire_and_forget_frame(&state_inner, "relaunch_ack");
     if ack_sent.is_none() {
         log::warn!(
-            "[RESTART] ws_tx is None — cannot send relaunch_ack; Python will wait 2s timeout"
+            "[RESTART] ws_tx is None: cannot send relaunch_ack; Python will wait 2s timeout"
         );
     }
 
@@ -131,7 +131,7 @@ pub(crate) fn on_relaunch_app(app_handle: &tauri::AppHandle, _event: tauri::Even
     // this host process is the CLI's child. `app.restart()` exits the
     // process, which (1) ends the CLI dev session (no more Rust rebuild
     // watching) and (2) the relaunched exe is reaped when the CLI's
-    // Windows job object closes — the whole app just dies. In dev the
+    // Windows job object closes: the whole app just dies. In dev the
     // CONTRACT is: the host must survive; only the SIDECAR restarts.
     // The sidecar exits itself right after publishing `relaunch_app`
     // (tray Restart → restart_app()), so the normal supervisor path
@@ -152,7 +152,7 @@ pub(crate) fn on_relaunch_app(app_handle: &tauri::AppHandle, _event: tauri::Even
             clear_restart_counter_for_user_restart(&dev_clear_state);
         });
         log::info!(
-            "[RESTART] dev-mode sidecar (VOICE_TYPER_SIDECAR_DEV=1) — skipping \
+            "[RESTART] dev-mode sidecar (VOICE_TYPER_SIDECAR_DEV=1): skipping \
              app.restart(); the supervisor will respawn the exiting sidecar \
              (host + `tauri dev` session stay alive)"
         );
@@ -162,11 +162,11 @@ pub(crate) fn on_relaunch_app(app_handle: &tauri::AppHandle, _event: tauri::Even
     let restart_for_async = app_handle.clone();
     let clear_state = state_inner.clone();
     tauri::async_runtime::spawn(async move {
-        // 1. User-restart counter reset — OFF the async worker
+        // 1. User-restart counter reset: OFF the async worker
         //    (spawn_blocking: atomic temp-file write + fsync + rename)
         //    and AWAITED so it is ordered before `app.restart()`. If
         //    the join fails, the relaunched process inherits the prior
-        //    count — logged, best-effort (same semantics as the write
+        //    count: logged, best-effort (same semantics as the write
         //    itself failing).
         if let Err(join_err) = tauri::async_runtime::spawn_blocking(move || {
             clear_restart_counter_for_user_restart(&clear_state);
@@ -174,7 +174,7 @@ pub(crate) fn on_relaunch_app(app_handle: &tauri::AppHandle, _event: tauri::Even
         .await
         {
             log::warn!(
-                "[RESTART] spawn_blocking(clear_restart_counter) join failed: {} — \
+                "[RESTART] spawn_blocking(clear_restart_counter) join failed: {}, \
                  relaunched process may inherit the prior crash-loop count",
                 join_err
             );
@@ -192,7 +192,7 @@ pub(crate) fn on_relaunch_app(app_handle: &tauri::AppHandle, _event: tauri::Even
         );
         shutdown_sidecar_for_exit_with_budget(&state_inner, PRE_RESTART_SIDECAR_GRACE_MS).await;
         log::info!(
-            "[RESTART] cooperative sidecar teardown settled{} — proceeding to app.restart()",
+            "[RESTART] cooperative sidecar teardown settled{}: proceeding to app.restart()",
             format_duration_suffix(teardown_started.elapsed())
         );
 
@@ -221,7 +221,7 @@ pub(crate) fn on_relaunch_app(app_handle: &tauri::AppHandle, _event: tauri::Even
 /// 2. Call `app.exit(0)` so the host process terminates. The
 ///    `RunEvent::Exit` / `ExitRequested` callback (`on_host_exit` →
 ///    `shutdown_sidecar_for_exit`) then runs the sidecar teardown. That
-///    teardown is idempotent — it short-circuits on the already-set
+///    teardown is idempotent: it short-circuits on the already-set
 ///    `shutting_down` flag; the sidecar exits itself as part of its own
 ///    quit path, and `SidecarHandle::Drop` is the best-effort kill
 ///    backstop for the (rare) hung-cleanup case.
@@ -236,14 +236,14 @@ pub(crate) fn on_quit_app(app_handle: &tauri::AppHandle) {
     // may be mid-backoff-sleep so it observes `shutting_down` immediately
     // instead of after its next 100ms poll). It returns the PREVIOUS flag
     // value: `true` means a shutdown is already in flight. On that path
-    // the notify is a benign spurious wakeup — the supervisor re-checks
-    // the flag and goes back to sleep — and `shutdown_sidecar_for_exit`
+    // the notify is a benign spurious wakeup, the supervisor re-checks
+    // the flag and goes back to sleep, and `shutdown_sidecar_for_exit`
     // also fires its own (idempotent) notify on the `RunEvent::Exit` path.
     if sidecar_state.begin_shutdown() {
-        log::info!("[QUIT] quit_app event received — shutdown already in progress; exiting host");
+        log::info!("[QUIT] quit_app event received, shutdown already in progress; exiting host");
     } else {
         log::info!(
-            "[QUIT] quit_app event received — setting shutting_down + exiting host (tray Quit → app.exit)"
+            "[QUIT] quit_app event received: setting shutting_down + exiting host (tray Quit → app.exit)"
         );
     }
     app_handle.exit(0);
@@ -254,7 +254,7 @@ pub(crate) fn on_quit_app(app_handle: &tauri::AppHandle) {
 /// stays wiring-only.
 ///
 /// Spawns the sidecar teardown on a dedicated std thread (NOT a tokio
-/// task) so the Tauri event loop returns immediately — `block_on` can
+/// task) so the Tauri event loop returns immediately, `block_on` can
 /// block for up to ~35s on dev-mode shutdowns (the dev-mode sidecar
 /// has no `CommandEvent` stream, so `shutdown_sidecar_for_exit`
 /// always sleeps the full `EXIT_SHUTDOWN_ACK_TIMEOUT_MS`=30s). The
@@ -269,7 +269,7 @@ pub(crate) fn on_host_exit(app_handle: &tauri::AppHandle) {
     use std::time::Duration;
 
     let sidecar_state = app_handle.state::<Arc<SidecarState>>().inner().clone();
-    // BP-33 (Phase 2c): the worker is host-managed too — mark it
+    // BP-33 (Phase 2c): the worker is host-managed too, mark it
     // quitting (blocks a concurrent verified-trigger (re)start) and
     // take its child for the force-kill below. Missing state would
     // panic, but main.rs always manages WorkerState unconditionally.
@@ -283,7 +283,7 @@ pub(crate) fn on_host_exit(app_handle: &tauri::AppHandle) {
             )
             .await;
             // Worker teardown AFTER the sidecar (the sidecar owns the
-            // worker WS client — it must go down first). Force-kill,
+            // worker WS client: it must go down first). Force-kill,
             // best-effort: no graceful worker protocol exists yet
             // (plan §7.3 graceful close is TBD with the WS bridge).
             crate::sidecar::spawn::worker::stop_worker_child(&worker_state).await;

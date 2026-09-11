@@ -27,7 +27,7 @@ flag is:
 
 * **Self-clearing.** The ``busy_context`` context manager and the
   ``transcribe_with_fallback`` wrapper both clear the flag in a
-  ``finally`` block — a backend that raises mid-transcription still
+  ``finally`` block, a backend that raises mid-transcription still
   gets its flag cleared, so the next dictation isn't rejected
   forever.
 
@@ -69,7 +69,7 @@ from voice_typer.server.asr_registry import AsrBackendRegistry
 
 
 class _Config:
-    """Minimal config stub — only ``asr_backend`` is read by the busy
+    """Minimal config stub, only ``asr_backend`` is read by the busy
     flag API (via ``registry.active_name``)."""
 
     def __init__(self, asr_backend: str = "parakeet") -> None:
@@ -109,7 +109,7 @@ class TestIsBusyDefault:
 
     def test_is_busy_unknown_name_returns_false(self):
         """``is_busy`` on an unknown backend name must return False
-        (no KeyError, no AttributeError — defensive)."""
+        (no KeyError, no AttributeError, defensive)."""
         registry = _make_registry()
         assert registry.is_busy("nonexistent") is False
 
@@ -156,7 +156,7 @@ class TestSetClearBusy:
 
     def test_set_busy_unknown_name_is_noop(self):
         """``set_busy`` on an unknown backend name must be a no-op
-        (defensive — the busy set is keyed by name and queried by
+        (defensive, the busy set is keyed by name and queried by
         ``is_busy``, which returns False for unknown names)."""
         registry = _make_registry()
         # Must NOT raise. The unknown name may end up in the set, but
@@ -184,7 +184,7 @@ class TestBusyContext:
         )
 
     def test_busy_context_clears_on_exception(self):
-        """The flag must be cleared EVEN IF the body raises — a
+        """The flag must be cleared EVEN IF the body raises, a
         transcription that raises mid-call must not leave the backend
         permanently busy."""
 
@@ -286,7 +286,7 @@ class TestTranscribeWithFallbackWrapper:
 
     def test_wrapper_passes_through_text_unchanged(self):
         """The wrapper must return the backend's text unchanged
-        (transparent passthrough — no transformation, no truncation)."""
+        (transparent passthrough, no transformation, no truncation)."""
         registry = _make_registry()
         backend = registry.get("parakeet")
         expected_text = "the quick brown fox jumps over the lazy dog"
@@ -295,7 +295,7 @@ class TestTranscribeWithFallbackWrapper:
         text = registry.transcribe_with_fallback(b"audio", name="parakeet")
 
         assert text == expected_text, (
-            "UE-48: the wrapper is a transparent passthrough — it must return the backend's text unchanged."
+            "UE-48: the wrapper is a transparent passthrough, it must return the backend's text unchanged."
         )
 
     def test_wrapper_forwards_args_and_kwargs(self):
@@ -386,7 +386,7 @@ class TestForceClearBusy:
 
     def test_force_clear_busy_idempotent(self):
         """``force_clear_busy`` on a not-busy backend must be a
-        no-op (idempotent — matches ``clear_busy``'s contract)."""
+        no-op (idempotent, matches ``clear_busy``'s contract)."""
         registry = _make_registry()
         # Must NOT raise.
         registry.force_clear_busy("parakeet")
@@ -395,7 +395,7 @@ class TestForceClearBusy:
 
 class TestBusyFlagSurvivesBackendSwap:
     """UE-48: the flag is keyed by backend NAME, not the backend
-    object — a backend that was unregistered + re-registered under the
+    object, a backend that was unregistered + re-registered under the
     same name (e.g. by ``change_model``) doesn't carry over a stale
     busy state."""
 
@@ -417,21 +417,21 @@ class TestBusyFlagSurvivesBackendSwap:
         new_backend.is_loaded = True
         registry.register("parakeet", new_backend)
 
-        # The new backend is NOT busy — the busy flag was tied to the
+        # The new backend is NOT busy, the busy flag was tied to the
         # OLD backend's transcription, which has been conceptually
         # cancelled by the change_model swap. (In practice, the
         # busy_context's finally block would have cleared it; this
         # test pins the registry-level behaviour independently.)
         #
-        # NOTE: this test pins the CURRENT behaviour — the busy flag
+        # NOTE: this test pins the CURRENT behaviour, the busy flag
         # is a name-keyed set, so unregistering the backend leaves
         # the flag set. Callers that swap a backend mid-transcription
         # MUST call ``force_clear_busy(name)`` to reset the flag (the
         # ``change_model`` / ``set_active_backend`` paths do NOT
-        # automatically clear it — they defer to the watchdog /
+        # automatically clear it, they defer to the watchdog /
         # busy_context's finally block).
         assert registry.is_busy("parakeet") is True, (
-            "UE-48: the busy flag is keyed by name, not object — "
+            "UE-48: the busy flag is keyed by name, not object, "
             "unregistering the backend does NOT clear the flag. "
             "Callers that swap a backend mid-transcription MUST call "
             "force_clear_busy(name) explicitly."
@@ -443,7 +443,7 @@ class TestBusyFlagSurvivesBackendSwap:
 
 
 class TestThreadSafety:
-    """UE-48: the busy flag is thread-safe — the transcribe thread
+    """UE-48: the busy flag is thread-safe, the transcribe thread
     sets it, the IPC thread reads it. Both paths acquire the
     registry's ``_lock``."""
 
@@ -507,7 +507,7 @@ class TestThreadSafety:
                     # exit (the noise thread may immediately re-set it,
                     # but that's a separate state).
                     pass
-                # No assertion on the flag value here — the noise
+                # No assertion on the flag value here, the noise
                 # thread races with us. The test just verifies no
                 # exception is raised.
         finally:

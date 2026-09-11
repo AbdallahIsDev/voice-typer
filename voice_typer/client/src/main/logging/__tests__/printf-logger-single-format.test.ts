@@ -6,7 +6,7 @@
  * Pre-fix `log.warn("foo", "bar")` called `formatArgsForFile(args)` twice:
  * once inside `writeStdout` (for the stdout tee) and once inside
  * `mainRuntimeLogger.write` (for the file tee). Both calls produced the
- * identical string, so the second call was pure overhead — every WARN/
+ * identical string, so the second call was pure overhead, every WARN/
  * ERROR line paid for two PII-redaction passes over the same args.
  *
  * Post-fix the printf-style `log.warn` / `log.error` compute the
@@ -14,13 +14,13 @@
  * `mainRuntimeLogger.write`.
  *
  * The test counts `redactPii` calls (spied via the rotation module mock)
- * as a proxy for `formatArgsForFile` calls — `formatArgsForFile` invokes
+ * as a proxy for `formatArgsForFile` calls, `formatArgsForFile` invokes
  * `redactPii` exactly once per arg, so `redactPii` call count =
  * `args.length * (number of formatArgsForFile invocations)`.
  *
  * Tests:
  *   1. `log.warn("foo", "bar")` calls `redactPii` exactly 2 times
- *      (once per arg) — proving `formatArgsForFile` was invoked once.
+ *      (once per arg), proving `formatArgsForFile` was invoked once.
  *      Pre-fix this would have been 4 (2 args × 2 calls).
  *   2. Same assertion for `log.error`.
  *   3. `log.info` with N args calls `redactPii` exactly N times (single
@@ -85,7 +85,7 @@ vi.mock("../structuredLogger", async () => {
 });
 
 // Suppress console output during the test (the printf logger mirrors to
-// console.warn / console.error / console.log — we don't want the test
+// console.warn / console.error / console.log, we don't want the test
 // runner output polluted).
 let logSpy: ReturnType<typeof vi.spyOn>;
 let warnSpy: ReturnType<typeof vi.spyOn>;
@@ -169,7 +169,7 @@ describe("printfLogger formats args exactly once per log.warn / log.error", () =
 		expect(fileLine.endsWith("\n")).toBe(true);
 	});
 
-	it("redactPii is actually invoked (not just imported) — confirms the shared format primitive ran", async () => {
+	it("redactPii is actually invoked (not just imported), confirms the shared format primitive ran", async () => {
 		const { log } = await import("../printfLogger");
 		log.warn("secret-token-test");
 		// Verify redactPii was called with the arg string (proving the

@@ -6,11 +6,11 @@
  * Pre-fix: `useAudioLevels.ts` drove the 7-bar bubble visualizer via
  * `requestAnimationFrame` and directly mutated `el.style.height` and
  * `el.style.opacity` at 60fps. There was NO check for
- * `window.matchMedia("(prefers-reduced-motion: reduce)").matches` — the
+ * `window.matchMedia("(prefers-reduced-motion: reduce)").matches`, the
  * CSS `@media (prefers-reduced-motion: reduce)` rule only affects CSS
  * animations/transitions and CANNOT suppress JS-driven rAF DOM mutation.
  * Vestibular/motion-sensitive users (≈35% of population) could not
- * disable the bubble's animated bars — WCAG 2.1 SC 2.3.3 "Animation
+ * disable the bubble's animated bars, WCAG 2.1 SC 2.3.3 "Animation
  * from Interactions" violation.
  *
  * Post-fix: `useAudioLevels` reads `reducedMotionRef.current` (set once
@@ -22,10 +22,10 @@
  *
  * These tests verify:
  *   1. When `prefers-reduced-motion: reduce` matches at mount, the bars
- *      are rendered at the static mid-height with opacity 0.5 — NOT at
+ *      are rendered at the static mid-height with opacity 0.5, NOT at
  *      the animated level-driven heights.
  *   2. The rAF loop still spins (so we can react to visibility /
- *      recording gates + the `change` event) — no regression of
+ *      recording gates + the `change` event), no regression of
  *   3. Toggling reduced-motion at runtime (firing the `change` event)
  *      snaps the bars to the static mid-height.
  */
@@ -96,7 +96,7 @@ function makeMockBubble() {
 
 let mockBubble: ReturnType<typeof makeMockBubble>;
 
-// A controllable matchMedia mock — lets each test decide whether
+// A controllable matchMedia mock, lets each test decide whether
 // `prefers-reduced-motion: reduce` matches at mount + dispatch `change`
 // events at runtime.
 interface MockMQL {
@@ -168,7 +168,7 @@ beforeEach(() => {
 		vi.fn(matchMediaImpl);
 
 	// jsdom's getComputedStyle returns empty strings for CSS custom
-	// properties — stub it so the barColor fallback path doesn't throw.
+	// properties, stub it so the barColor fallback path doesn't throw.
 	vi.spyOn(window, "getComputedStyle").mockImplementation(
 		() =>
 			({
@@ -243,7 +243,7 @@ describe("reduced-motion gating (prefers-reduced-motion)", () => {
 		showBubble();
 		await tickFrames(3);
 
-		// The loop should still be scheduling rAF frames — the
+		// The loop should still be scheduling rAF frames, the
 		// reduced-motion gate skips the per-bar mutation but does NOT
 		// stop the loop (so we can react to visibility / recording gates
 		// + the `change` event without a remount).
@@ -253,7 +253,7 @@ describe("reduced-motion gating (prefers-reduced-motion)", () => {
 	});
 
 	it("toggling reduced-motion at runtime snaps bars to static mid-height", async () => {
-		// Mount WITHOUT reduced-motion — bars animate normally.
+		// Mount WITHOUT reduced-motion, bars animate normally.
 		reducedMotionMql.matches = false;
 
 		render(<Bubble />);
@@ -268,7 +268,7 @@ describe("reduced-motion gating (prefers-reduced-motion)", () => {
 		});
 		await tickFrames(5);
 
-		// Now toggle reduced-motion ON at runtime — dispatch the
+		// Now toggle reduced-motion ON at runtime, dispatch the
 		// `change` event the same way the browser would.
 		act(() => {
 			reducedMotionMql.matches = true;
@@ -297,7 +297,7 @@ describe("reduced-motion gating (prefers-reduced-motion)", () => {
 		reducedMotionMql.matches = false;
 
 		// Deterministic rAF driver (see the transform-writes test for
-		// the rationale — jsdom's real rAF clock is not flushed
+		// the rationale, jsdom's real rAF clock is not flushed
 		// reliably by setTimeout(0) ticks).
 		const rafQueue: FrameRequestCallback[] = [];
 		const rafSpy = vi
@@ -331,7 +331,7 @@ describe("reduced-motion gating (prefers-reduced-motion)", () => {
 
 		const midHeight = (MIN_HEIGHT + MAX_HEIGHT) / 2;
 		const midScale = midHeight / MAX_HEIGHT;
-		// At least one bar should NOT be at the static mid-height — the
+		// At least one bar should NOT be at the static mid-height, the
 		// animation is running normally.
 		const atMid = Array.from(bars).filter(
 			(b) =>
@@ -347,7 +347,7 @@ describe("reduced-motion gating (prefers-reduced-motion)", () => {
 
 		// jsdom's real `requestAnimationFrame` fires on a ~16 ms
 		// internal clock that `setTimeout(0)` flushes only race
-		// against — the loop's DOM writes would be timing-flaky.
+		// against, the loop's DOM writes would be timing-flaky.
 		// Drive the frames deterministically instead: collect the
 		// callbacks in a queue and flush them manually (the loop's
 		// self-rescheduling lands in the NEXT flush iteration).
@@ -381,7 +381,7 @@ describe("reduced-motion gating (prefers-reduced-motion)", () => {
 			document.querySelectorAll<HTMLSpanElement>(".gap-0\\.75 > span");
 		expect(bars.length).toBe(7);
 		for (const bar of bars) {
-			// Base layout box: reserved ONCE at the full height — a
+			// Base layout box: reserved ONCE at the full height, a
 			// per-frame height write would force layout on the pill
 			// (the LevelBar-style compositor-only contract).
 			expect(bar.style.height).toBe(`${MAX_HEIGHT}px`);

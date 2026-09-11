@@ -8,7 +8,7 @@ package ``__init__.py``, but ``recorder.py`` never imported it.  The
 surrounding ``try/except Exception: pass`` swallowed the resulting
 ``NameError``, so SEC-audit-008's secure-zeroing of cached audio arrays
 (*``_cached_resampled``* and *``_cached_no_resample_arr``*) NEVER
-executed — the previous session's audio lingered in process memory
+executed, the previous session's audio lingered in process memory
 until the next GC pass freed the numpy arrays.  That is exactly the
 regression SEC-audit-008 was meant to fix.
 
@@ -128,7 +128,7 @@ def test_secure_clear_array_on_empty_array_is_noop():
 
 
 # ─── 3. Integration: ``Recorder.start()`` zeros cached arrays ────────────
-# (the recorder factory is the shared ``make_fake_recorder`` — the
+# (the recorder factory is the shared ``make_fake_recorder``, the
 # byte-identical local ``_make_recorder`` copy was removed in the XS-42
 # helper-dedup pass; see
 # ``tests/fixtures/recorder_test_helpers.make_recorder`` for the
@@ -148,7 +148,7 @@ def test_recorder_start_zeros_cached_resampled_array():
     swallowed by ``except Exception: pass``.  The cached array
     reference was then replaced with a fresh empty array, but the
     underlying numpy buffer (with the previous session's audio) was
-    not zeroed — it lingered in process memory until GC.
+    not zeroed, it lingered in process memory until GC.
     Post-the array is zeroed in-place before being replaced.
     """
     rec = _make_recorder()
@@ -228,14 +228,14 @@ def test_recorder_start_except_clause_does_not_swallow_nameerror():
     test) because the only way to deterministically catch a regression
     that re-broadens the ``except`` is to inspect the source.  A
     behavioral test would need to delete ``_secure_clear_array`` from
-    the module namespace and confirm the call raises — but that's
+    the module namespace and confirm the call raises, but that's
     exactly the regression this test pins, so the source-string check
     is the most direct detection.
 
     the secure-clear call sites were extracted from
     ``Recorder.start`` into ``Recorder._secure_clear_session_caches``
     (the orchestrator just delegates). The source-string check now
-    inspects the helper method — the regression it pins (broad
+    inspects the helper method, the regression it pins (broad
     ``except Exception:`` swallowing a ``NameError`` from a missing
     ``_secure_clear_array`` import) is still prevented as long as the
     helper's source keeps the narrowed ``(OSError, ValueError)`` clause.
@@ -275,8 +275,8 @@ def test_recorder_start_except_clause_does_not_swallow_nameerror():
             # Stop after we've seen the body of the second ``except ...:``
             # clause (one for _cached_resampled, one for
             # _cached_no_resample_arr).  The body may be ``pass`` (the
-            # original  form) or — per the project's
-            # "no ``except: pass``" rule — a real handler such as
+            # original  form) or, per the project's
+            # "no ``except: pass``" rule, a real handler such as
             # ``log.warning(...)``.  Either way, the first non-empty,
             # non-``except`` line after the 2nd ``except`` marks the end
             # of the secure-clear block.
@@ -296,7 +296,7 @@ def test_recorder_start_except_clause_does_not_swallow_nameerror():
     )
     assert "except Exception:" not in block_src, (
         "Recorder._secure_clear_session_caches must NOT use bare ``except Exception:`` around the "
-        "_secure_clear_array calls — that swallows NameError-class import "
+        "_secure_clear_array calls, that swallows NameError-class import "
         "bugs ( regression). Use a narrowed clause like "
         "``except (OSError, ValueError):``.\n"
         f"secure-clear block:\n{block_src}"
@@ -462,7 +462,7 @@ def test_discard_clears_cached_arrays():
     rec._cached_no_resample_arr = cached_no_resample
 
     # ``discard()`` has an idle fast-path (recorder.py:2855) that
-    # returns early when ``_recording_event`` is NOT set — this guards
+    # returns early when ``_recording_event`` is NOT set, this guards
     # against a start()/discard() race that previously left the
     # recorder in a "recording" state with no live stream. Set the
     # event so ``discard()`` proceeds to its full body (which calls
@@ -489,7 +489,7 @@ def _assert_array_memory_zeroed(arr: np.ndarray, *, ctx: str = "") -> None:
     buffer that forensic recovery would target.
 
     Used by the regression tests to verify that the segment
-    arrays' memory is genuinely zeroed — not just that the Python-level
+    arrays' memory is genuinely zeroed, not just that the Python-level
     array reads as zero.
     """
     import ctypes
@@ -508,7 +508,7 @@ def _assert_array_memory_zeroed(arr: np.ndarray, *, ctx: str = "") -> None:
         f"{[i for i, b in enumerate(raw_bytes) if b != 0][:10]}. "
         "regression: the segment array's memory must be zeroed "
         "in-place via _secure_clear_array before the list reference is "
-        "dropped — otherwise up to ~115 MB of dictated float32 audio "
+        "dropped, otherwise up to ~115 MB of dictated float32 audio "
         "lingers in process memory until the numpy allocator reuses the block."
     )
 
@@ -520,13 +520,13 @@ def test_stop_zeros_cached_resampled_segments_in_place():
 
     ``secure_clear_caches`` only zeroed ``_cached_resampled``
     and ``_cached_no_resample_arr``. The segment list
-    (``_cached_resampled_segments``) — the primary storage for the
+    (``_cached_resampled_segments``), the primary storage for the
     resampled prefix in the snapshot path (see
-    ``_recorder_split._ensure_resampled_concat``) — was simply
+    ``_recorder_split._ensure_resampled_concat``), was simply
     reassigned to ``[]`` without zeroing the underlying numpy buffers.
     Up to ~115 MB of dictated float32 audio (30 min @ 16 kHz) survived
     ``stop()`` in process memory until the numpy allocator reused the
-    blocks — defeating SEC-audit-008's intent for the segment cache.
+    blocks, defeating SEC-audit-008's intent for the segment cache.
     """
     rec = _make_recorder()
 
@@ -554,7 +554,7 @@ def test_discard_zeros_cached_resampled_segments_in_place(monkeypatch):
 
     ``monkeypatch`` is used to neutralize
     ``_secure_clear_array_background`` so this test doesn't enqueue a
-    buffer onto the shared module-level ``_buffer_clear_queue`` — that
+    buffer onto the shared module-level ``_buffer_clear_queue``, that
     queue is drained by a long-lived daemon worker whose timing can
     shift the pre-existing race in ``test_recorder_split_stop.py``
     (where the worker zeros buffer chunks before ``np.concatenate``
@@ -587,7 +587,7 @@ def test_discard_zeros_cached_resampled_segments_in_place(monkeypatch):
 
 def test_start_zeros_cached_resampled_segments_in_place():
     """(companion): ``start()`` must zero the segment list in-place
-    via ``_secure_clear_session_caches()`` — the helper called from
+    via ``_secure_clear_session_caches()``, the helper called from
     ``start_recording`` (mirrors the ``stop()``/``discard()`` path).
     """
     rec = _make_recorder()
@@ -609,7 +609,7 @@ def test_start_zeros_cached_resampled_segments_in_place():
 
 def test_secure_clear_caches_handles_empty_segment_list_without_raising():
     """``secure_clear_caches`` must handle an empty segment list
-    (the common case at session start) without raising — the size guard
+    (the common case at session start) without raising, the size guard
     (``seg.size > 0``) skips the zeroing pass."""
     rec = _make_recorder()
     rec._cached_resampled_segments = []
@@ -624,7 +624,7 @@ def test_secure_clear_caches_handles_empty_segment_list_without_raising():
 
 def test_secure_clear_caches_handles_none_entries_in_segment_list():
     """``secure_clear_caches`` must skip ``None`` entries in the
-    segment list (defensive — the production code path never appends
+    segment list (defensive, the production code path never appends
     ``None``, but the loop guard ``if seg is not None and seg.size > 0``
     must not raise ``AttributeError`` on a stray ``None``)."""
     rec = _make_recorder()

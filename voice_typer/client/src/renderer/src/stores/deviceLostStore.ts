@@ -6,20 +6,20 @@
 // recorder). One App-level subscriber
 // (`hooks/useDeviceLostToast.ts`) consumes the event ONCE and:
 //   1. raises the global toast, and
-//   2. records the loss here — the Microphone page reads this store to
+//   2. records the loss here, the Microphone page reads this store to
 //      pause the live meter + show a recovery banner. A single event →
 //      a single subscription feeding both surfaces (no duplicate
 //      subscribers, no divergent state).
 //
 // The store lives at module scope in its OWN file (not inside the hook)
-// so Vite HMR of the hook module does not reset it — same rationale as
+// so Vite HMR of the hook module does not reset it, same rationale as
 // `lastResortToastStore.ts`.
 
 import { create } from "zustand";
 
 /**
  * Global dedupe window (ms) for the device-lost recovery toast. The
- * window governs the store's ``lastToastShownAt`` clock — BOTH the
+ * window governs the store's ``lastToastShownAt`` clock, BOTH the
  * level-monitor path (``device_lost``) and the recorder-stream path
  * (``microphone_disconnected``) check that one clock, so the window
  * lives WITH the clock (imported by both consumer hooks) to keep the
@@ -43,13 +43,13 @@ interface DeviceLostState {
 	 * rapid re-emissions collapse into one visible notification.
 	 */
 	lastToastShownAt: number | null;
-	/** Record a device loss (idempotent — latest wins). */
+	/** Record a device loss (idempotent, latest wins). */
 	markLost: (source: string) => void;
 	/** Record that a device-lost toast showed at ``timestamp``. */
 	setLastToastShownAt: (timestamp: number) => void;
 	/** Clear the lost flag (user hit Retry / monitoring recovered). */
 	clearLost: () => void;
-	/** Test seam — reset every field. */
+	/** Test seam, reset every field. */
 	resetForTest: () => void;
 }
 

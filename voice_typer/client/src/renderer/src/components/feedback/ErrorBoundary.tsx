@@ -1,4 +1,4 @@
-// ErrorBoundary — catches render errors so a single bad
+// ErrorBoundary, catches render errors so a single bad
 // config or component crash doesn't white-screen the entire app.
 //
 // Previously, any uncaught exception in a React render (e.g. a config
@@ -12,19 +12,19 @@
 // The fallback now exposes three recovery affordances in
 // addition to the existing "Try Again" / "Reload App" buttons:
 //
-//   - "Copy error" — copies the error name, message, and component
+//   - "Copy error", copies the error name, message, and component
 //     stack to the clipboard so users can paste it into a bug report
 //     without having to dig through log files.  The button label
 //     briefly flips to "Copied!" for affirmative feedback (the
-//     toast system can't be relied on here — the same render crash
+//     toast system can't be relied on here, the same render crash
 //     that triggered the boundary may have broken the toaster).
 //
-//   - "Open logs" — invokes the main process's ``window:open-logs``
+//   - "Open logs", invokes the main process's ``window:open-logs``
 //     IPC handler so the user can attach the full log file to a
 //     support request.  Same path as Settings → Troubleshooting →
 //     Open Log Folder.
 //
-//   - "Reset settings" — escape hatch for the common case where a
+//   - "Reset settings", escape hatch for the common case where a
 //     bad config value (e.g. a malformed theme token, an out-of-range
 //     number field) is what crashed the renderer.  Asks the Python
 //     backend to re-publish its default Config dataclass, applies it
@@ -37,7 +37,7 @@
 // main process for explicit persistence in
 // ``electron-renderer-errors.log`` (separate from the
 // ``console-message`` path so React's ``componentStack`` is
-// preserved — ``console.error`` serializes ``errorInfo`` to a string
+// preserved, ``console.error`` serializes ``errorInfo`` to a string
 // and loses the structured component-tree trace).
 
 import { Component, createRef, type ErrorInfo, type ReactNode } from "react";
@@ -81,7 +81,7 @@ export class ErrorBoundary extends Component<
 	// recovery affordance instead of being stranded at the top of
 	// a long alert region. ``componentDidUpdate`` performs the focus
 	// when ``hasError`` transitions from false → true (focusing in
-	// ``componentDidCatch`` directly would be too early — the
+	// ``componentDidCatch`` directly would be too early, the
 	// fallback render hasn't committed yet so the button ref is
 	// still null).
 	resetButtonRef = createRef<HTMLButtonElement>();
@@ -108,7 +108,7 @@ export class ErrorBoundary extends Component<
 		// `console-message` handler persists level>=3
 		// (ERROR) console output to `electron-renderer-errors.log`
 		// so this `console.error` automatically lands in the file
-		// — the previous comment claiming "the renderer process's
+		//, the previous comment claiming "the renderer process's
 		// console is captured by Electron's main process and
 		// written to the log file" was misleading because the
 		// console-message handler only re-emitted to the terminal
@@ -123,7 +123,7 @@ export class ErrorBoundary extends Component<
 		// Forward the caught error to the main process
 		// for explicit persistence in `electron-renderer-errors.log`
 		// (separate from the console-message path so React's
-		// `componentStack` is preserved — the console.error above
+		// `componentStack` is preserved, the console.error above
 		// serializes `errorInfo` to a string, losing the structured
 		// component tree trace). The IPC call is fire-and-forget:
 		// if the preload doesn't expose `logError` (Tauri mode) or
@@ -193,7 +193,7 @@ export class ErrorBoundary extends Component<
 	 * wrapper (Button spreads ``{...props}`` to its underlying
 	 * ``<button>`` host element, but React's special handling of ``ref``
 	 * makes ref-forwarding through function components unreliable
-	 * without an explicit forwardRef / ref-as-prop destructure — which
+	 * without an explicit forwardRef / ref-as-prop destructure, which
 	 * Button doesn't do). ``querySelector`` is safe here because the
 	 * fallback UI has just committed, so the button is in the DOM by
 	 * the time componentDidMount / componentDidUpdate fires.
@@ -321,7 +321,7 @@ export class ErrorBoundary extends Component<
 		// IPC handler (same path as Settings → Troubleshooting).  The
 		// main process opens the OS file manager at the log folder.
 		// Errors are swallowed because there's no UI to surface them
-		// from inside a crashed renderer — the user can still copy
+		// from inside a crashed renderer, the user can still copy
 		// the error text manually as a fallback.
 		try {
 			void window.window_?.openLogs?.();
@@ -378,7 +378,7 @@ export class ErrorBoundary extends Component<
 			try {
 				localStorage.clear();
 			} catch (e) {
-				// Ignore — some sandboxed contexts disable localStorage.
+				// Ignore, some sandboxed contexts disable localStorage.
 				console.warn("[renderer:ErrorBoundary] localStorage.clear failed:", e);
 			}
 			window.location.reload();
@@ -429,7 +429,7 @@ export class ErrorBoundary extends Component<
 					</p>
 					<div className="flex flex-wrap items-center justify-center gap-2">
 						{/* "Reset settings" is rendered FIRST and visually
-                                                    highlighted as the recommended recovery action — most
+                                                    highlighted as the recommended recovery action, most
                                                     render crashes stem from a bad config value, so this
                                                     affordance has the highest expected payoff. The
                                                     destructive tint + soft background visually separate

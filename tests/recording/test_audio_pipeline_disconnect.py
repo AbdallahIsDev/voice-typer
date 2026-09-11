@@ -8,7 +8,7 @@ detector must:
 1. Fire **once** (and only once) when zero-filled input appears after
    the warmup window (``_chunk_count > 10``). Pre-fix, the re-entrancy
    guard was missing and every subsequent zero chunk spawned a fresh
-   ``device-disconnect-handler`` thread — ~89 threads for 100 zero
+   ``device-disconnect-handler`` thread, ~89 threads for 100 zero
    chunks.
 2. NOT fire during a deliberate ``stop()`` drain. ``stop()`` clears
    ``_recording_event`` before the stream is torn down; PortAudio may
@@ -46,21 +46,21 @@ def _make_disconnect_recorder_stub(
     The stub exposes exactly the attributes that
     ``AudioPipeline.detect_device_disconnect`` reads / writes:
 
-    - ``_chunk_count`` — buffer-chunk count, gates the warmup window
+    - ``_chunk_count``, buffer-chunk count, gates the warmup window
       (the detector only fires when ``> 10``).
-    - ``_device_disconnected`` — re-entrancy flag, set to True on first
+    - ``_device_disconnected``, re-entrancy flag, set to True on first
       detection and cleared by the disconnect handler on successful
       restart.
-    - ``_disconnect_handler`` — ``MagicMock`` stand-in for the owning
-      collaborator; ``_single_flight_running`` — single-flight guard
+    - ``_disconnect_handler``: ``MagicMock`` stand-in for the owning
+      collaborator; ``_single_flight_running``, single-flight guard
       for the handler thread (STATE-OWNERSHIP: moved off ``Recorder``
       onto ``DisconnectHandler``; the stub mirrors the new owner path).
-    - ``_recording_event`` — real ``threading.Event``; the detector
+    - ``_recording_event``, real ``threading.Event``; the detector
       double-checks it's still set before treating zeros as a real
       disconnect (a deliberate ``stop()`` clears the event).
-    - ``_stop_generation`` — captured into the handler kwargs so the
+    - ``_stop_generation``, captured into the handler kwargs so the
       handler can bail if a stop/start cycle happened in between.
-    - ``_spawn_device_thread`` — MagicMock so we can assert it was
+    - ``_spawn_device_thread``, MagicMock so we can assert it was
       called exactly once and inspect the kwargs.
 
     ``recording_active=False`` clears the event so tests can simulate
@@ -85,7 +85,7 @@ def _make_disconnect_recorder_stub(
     # spawning a real device-disconnect-handler thread.
     recorder._spawn_device_thread = MagicMock(return_value=True)
     # ``_handle_device_disconnect`` is referenced by the spawn kwargs
-    # — it must be a real callable target (MagicMock is fine since
+    # , it must be a real callable target (MagicMock is fine since
     # the spawn mock swallows the call without invoking it).
     recorder._handle_device_disconnect = MagicMock(name="_handle_device_disconnect")
     return recorder
@@ -115,7 +115,7 @@ class TestZeroFilledIndataTriggersDisconnect:
         # The detector returns True so the caller (process_audio_chunk)
         # skips the rest of the pipeline for this chunk.
         assert ret is True
-        # The disconnect flag was set — the re-entrancy guard for
+        # The disconnect flag was set, the re-entrancy guard for
         # subsequent chunks relies on this.
         assert recorder._devices._device_disconnected is True
         # The single-flight guard was cleared before the spawn so a
@@ -171,7 +171,7 @@ class TestDeliberateStopDoesNotTriggerDisconnect:
 class TestDisconnectHandlerSpawnedOnce:
     """Pre-fix, every subsequent zero-filled chunk after the warmup
     window re-entered the spawn block and launched a fresh
-    ``device-disconnect-handler`` thread — ~89 threads for 100 zero
+    ``device-disconnect-handler`` thread, ~89 threads for 100 zero
     chunks. The re-entrancy guard (``_device_disconnected`` flag)
     must ensure the handler is spawned EXACTLY ONCE for a sustained
     zero-input window."""
@@ -181,7 +181,7 @@ class TestDisconnectHandlerSpawnedOnce:
         pipeline = recorder._audio_pipeline
 
         # Simulate a sustained disconnect: 100 zero-filled callbacks
-        # in a row (≈6 seconds at 16 Hz — the device is gone, the
+        # in a row (≈6 seconds at 16 Hz, the device is gone, the
         # callback keeps delivering zeros).
         for _ in range(100):
             pipeline.detect_device_disconnect(_zero_chunk())
@@ -190,7 +190,7 @@ class TestDisconnectHandlerSpawnedOnce:
         # clears it on successful restart; here no restart happens so
         # it stays True).
         assert recorder._devices._device_disconnected is True
-        # CRITICAL: the handler is spawned exactly ONCE — not 89
+        # CRITICAL: the handler is spawned exactly ONCE, not 89
         # times. The re-entrancy guard short-circuits subsequent
         # chunks at the ``if recorder._devices._device_disconnected: return
         # True`` line BEFORE the spawn block.
@@ -202,12 +202,12 @@ class TestDisconnectHandlerSpawnedOnce:
         recorder = _make_disconnect_recorder_stub(chunk_count=11)
         pipeline = recorder._audio_pipeline
 
-        # First zero past warmup — triggers.
+        # First zero past warmup, triggers.
         pipeline.detect_device_disconnect(_zero_chunk())
         assert recorder._devices._device_disconnected is True
         assert recorder._spawn_device_thread.call_count == 1
 
-        # 50 more zeros — re-entrancy guard suppresses spawn.
+        # 50 more zeros, re-entrancy guard suppresses spawn.
         for _ in range(50):
             pipeline.detect_device_disconnect(_zero_chunk())
 
@@ -229,7 +229,7 @@ class TestWarmupWindowGuardsFalsePositive:
 
         ret = pipeline.detect_device_disconnect(_zero_chunk())
 
-        # Returns False — caller proceeds with normal pipeline (the
+        # Returns False, caller proceeds with normal pipeline (the
         # zero chunk is appended to the buffer as if it were audio).
         assert ret is False
         assert recorder._devices._device_disconnected is False
@@ -270,7 +270,7 @@ class TestNonZeroIndataNeverTriggers:
         recorder = _make_disconnect_recorder_stub(chunk_count=20)
         pipeline = recorder._audio_pipeline
 
-        # A 0.5-amplitude 440 Hz sine — normal audio.
+        # A 0.5-amplitude 440 Hz sine, normal audio.
         t = np.linspace(0, 512 / 16000, 512, endpoint=False)
         indata = (0.5 * np.sin(2 * np.pi * 440 * t)).astype(np.float32).reshape(-1, 1)
         ret = pipeline.detect_device_disconnect(indata)
@@ -285,7 +285,7 @@ class TestNonZeroIndataNeverTriggers:
         recorder = _make_disconnect_recorder_stub(chunk_count=20)
         pipeline = recorder._audio_pipeline
 
-        # Mostly zero, with a single non-zero sample — still
+        # Mostly zero, with a single non-zero sample, still
         # legitimate audio (a transient or a low-amplitude tail).
         indata = _zero_chunk()
         indata[100, 0] = 0.001

@@ -7,7 +7,7 @@
  * helper now owns both halves, and a file's preamble collapses to one
  * import + a destructure + one `vi.mock` line per module. The same
  * preamble existed in the components and hooks test suites (settings
- * sections, the `useConnection` variants) — they are covered by this
+ * sections, the `useConnection` variants), they are covered by this
  * guard too.
  *
  * This guard makes the pattern self-enforcing, mirroring
@@ -15,8 +15,8 @@
  *
  *   1. No PAGE / COMPONENT test file (anything under
  *      `src/renderer/src/pages/**` or `.../components/**` in a
- *      `__tests__` dir) — and no HOOKS test file whose harness is the
- *      standard singleton preamble (see the carve-outs below) — may
+ *      `__tests__` dir), and no HOOKS test file whose harness is the
+ *      standard singleton preamble (see the carve-outs below), may
  *      hand-roll a `vi.hoisted` singleton block, i.e. a `vi.hoisted`
  *      destructure (or plain binding) that declares one of the
  *      standard singleton names (`mockCall`, `mockPythonEvent`,
@@ -30,7 +30,7 @@
  *      - hook-level tests under `pages/history/hooks` and
  *        `pages/microphone/hooks` (own callMock / event-registry
  *        patterns, not the page preamble);
- *      - tests under `hooks/models` — the model-hook unit tests use a
+ *      - tests under `hooks/models`, the model-hook unit tests use a
  *        `callMock` / sub-hook-mock harness, and the
  *        `useModelLifecycle` facade test mocks all five sub-hooks and
  *        asserts referential pass-through of bespoke vi.fn refs (not
@@ -50,7 +50,7 @@
  *      the TDZ (`Cannot access 'sonnerMock' before initialization`).
  *      An import sorter (biome) reordering a mocked-module import
  *      above the helper import would silently reintroduce that
- *      mock-factory TDZ crash — this test fails first. Type-only
+ *      mock-factory TDZ crash, this test fails first. Type-only
  *      imports are exempt (erased at compile time, no module
  *      evaluation).
  */
@@ -83,7 +83,7 @@ const SINGLETON_NAMES = [
 ];
 
 /**
- * A hand-rolled singleton block — two shapes:
+ * A hand-rolled singleton block, two shapes:
  *  1. destructure: `const { mockCall, mockPythonEvent } = vi.hoisted(…)`
  *     The body char class is `[^{}]` (newlines allowed, braces not) —
  *     a destructure binding list never contains a nested brace, so the
@@ -184,7 +184,7 @@ describe("stableMocks page-test drift guard", () => {
 		expect(
 			offenders,
 			`[guard] hand-rolled vi.hoisted singleton blocks found in ` +
-				`page/component/hook tests — import stableMocks + the shape ` +
+				`page/component/hook tests, import stableMocks + the shape ` +
 				`factories from @/__tests__/helpers/stableMocks (one ` +
 				`vi.mock line per module) instead. Offenders:\n` +
 				offenders.map((o) => `  - ${o.path}:${o.line}`).join("\n"),
@@ -197,7 +197,7 @@ describe("stableMocks page-test drift guard", () => {
 /** The canonical module specifiers that stableMocks' shape factories
  *  mock. A static VALUE import of one of these in a stableMocks-based
  *  file triggers that module's vi.mock factory body at the import's
- *  position — the factory closes over the helper's bindings, so the
+ *  position, the factory closes over the helper's bindings, so the
  *  helper import must come first. */
 const STABLE_MOCK_FACTORY_MODULES = [
 	"@/hooks/usePython",
@@ -212,14 +212,14 @@ const STABLE_MOCK_FACTORY_MODULES = [
 
 /** The stableMocks import statement. The clause char class excludes
  *  quotes and semicolons, so the match must start at the import
- *  statement itself — it can never begin at an earlier `import` and
+ *  statement itself, it can never begin at an earlier `import` and
  *  span across other statements into the helper's specifier. */
 const STABLE_MOCKS_IMPORT_RE =
 	/import\s+[^"';]*?from\s+["']@\/__tests__\/helpers\/stableMocks["']/;
 
-/** A static VALUE import statement — exact grammar so the match can't
+/** A static VALUE import statement, exact grammar so the match can't
  *  span into other statements. `import type` and inline `type` clauses
- *  are excluded (erased at compile time — no module evaluation, so no
+ *  are excluded (erased at compile time, no module evaluation, so no
  *  factory trigger). */
 const VALUE_IMPORT_RE =
 	/(?<![\w$])import\s+(?:type\s+(?:[\w$]+\s*,\s*)?(?:\{[^}]*\}|\*\s+as\s+[\w$]+|[\w$]+)\s*from\s*)?(?:[\w$]+\s*,\s*)?(?:\{[^}]*\}|\*\s+as\s+[\w$]+|[\w$]+)\s*from\s*["']([^"']+)["']/g;
@@ -269,7 +269,7 @@ describe("stableMocks import-order guard (mock-factory TDZ)", () => {
 		expect(
 			offenders,
 			`[guard] a stableMocks-based test file statically imports a ` +
-				`mocked module ABOVE its stableMocks import — the mocked ` +
+				`mocked module ABOVE its stableMocks import, the mocked ` +
 				`module's vi.mock factory body would run while the helper's ` +
 				`binding is still in the TDZ. Move the ` +
 				`@/__tests__/helpers/stableMocks import above every static ` +

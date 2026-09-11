@@ -123,7 +123,7 @@ describe("LastTranscriptionPreview Copy action", () => {
 		);
 		fireEvent.click(screen.getByTestId("last-transcription-copy"));
 		await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
-		// Full text — never the clamped preview slice.
+		// Full text, never the clamped preview slice.
 		expect(writeText.mock.calls[0]?.[0]).toBe(longText);
 		expect(toastSuccess).toHaveBeenCalledTimes(1);
 	});

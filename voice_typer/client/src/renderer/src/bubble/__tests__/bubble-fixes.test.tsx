@@ -118,7 +118,7 @@ beforeEach(() => {
 	});
 
 	// jsdom's getComputedStyle returns empty strings for CSS custom
-	// properties — stub it so the barColor fallback path doesn't throw.
+	// properties, stub it so the barColor fallback path doesn't throw.
 	vi.spyOn(window, "getComputedStyle").mockImplementation(
 		() =>
 			({
@@ -206,8 +206,8 @@ describe("bubble: prefers-reduced-motion", () => {
 		});
 
 		// The visualizer bars are the 7 spans inside .gap-0.75. They
-		// should all be at the fixed mid-height (13.5px visual — the
-		// full-height box scaled to mid) with opacity 0.5 — the
+		// should all be at the fixed mid-height (13.5px visual, the
+		// full-height box scaled to mid) with opacity 0.5, the
 		// reduced-motion fallback render (matches the
 		// reduced-motion gating contract: static mid-height bars at
 		// opacity 0.5, see useAudioLevels-reduced-motion.test.tsx).
@@ -287,7 +287,7 @@ describe("bubble: error message from bubble:set-state payload", () => {
 		setBubbleState({ state: "error", message: "Mic permission denied" });
 		expect(screen.getByText(/Mic permission denied/)).toBeTruthy();
 
-		// Transition back to recording — the message should clear.
+		// Transition back to recording, the message should clear.
 		setBubbleState("recording");
 		expect(screen.queryByText(/Mic permission denied/)).toBeNull();
 	});
@@ -352,7 +352,7 @@ describe("bubble: recording interrupts fading→exit transition", () => {
 
 		triggerHide(); // transcribing → fading
 
-		// Now send recording — this should interrupt the fading→exit
+		// Now send recording, this should interrupt the fading→exit
 		// transition: zero exitTick, restore enter animation, switch
 		// mode to recording.
 		setBubbleState("recording");
@@ -366,7 +366,7 @@ describe("bubble: recording interrupts fading→exit transition", () => {
 		const output = document.querySelector('output[aria-live="polite"]');
 		expect(output?.className).toContain("animate-bubble-enter");
 
-		// hideComplete should NOT have been called — the exit was
+		// hideComplete should NOT have been called, the exit was
 		// cancelled.
 		expect(mockBubble.hideComplete).not.toHaveBeenCalled();
 	});

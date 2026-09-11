@@ -19,7 +19,7 @@ These tests pin the contract of the extraction:
 4. ``_duck_volume`` does NOT call ``duck()`` when ``initialize()`` returns
    False (backend missing / failed).
 5. ``_duck_volume`` swallows exceptions from the ducker (never re-raises
-   — dictation must continue even if volume control fails).
+ , dictation must continue even if volume control fails).
 6. ``_restore_volume`` calls ``restore(fade_ms=…, per_session=False)``.
 7. ``_restore_volume`` uses the configured fade when ``fade_ms`` is None.
 8. ``_restore_volume`` passes an explicit ``fade_ms`` straight through
@@ -45,7 +45,7 @@ from voice_typer.server.volume_ducker import DEFAULT_DUCK_LEVEL
 
 
 class _FakeState:
-    """Minimal stand-in for ``VolumeState`` — only ``.linear`` is read."""
+    """Minimal stand-in for ``VolumeState``, only ``.linear`` is read."""
 
     def __init__(self, linear: float) -> None:
         self.linear = linear
@@ -161,7 +161,7 @@ class TestDuckVolume:
         fake_app._volume_ducker.duck.assert_not_called()
 
     def test_duck_swallows_exceptions(self, fake_app, controller):
-        """A ducker exception must not propagate — dictation continues regardless."""
+        """A ducker exception must not propagate, dictation continues regardless."""
         fake_app._volume_ducker.duck.side_effect = RuntimeError("backend exploded")
 
         # Must NOT raise.
@@ -252,7 +252,7 @@ class TestOnVolumeCrashRestore:
         assert "42%" in message, f"crash-restore notification must mention the percent; got {message!r}"
 
     def test_swallows_tray_notify_exception(self, fake_app, controller):
-        """A tray failure must not propagate — crash recovery is best-effort."""
+        """A tray failure must not propagate, crash recovery is best-effort."""
         fake_app.tray.notify.side_effect = RuntimeError("tray not ready")
 
         # Must NOT raise.

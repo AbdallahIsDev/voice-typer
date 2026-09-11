@@ -6,7 +6,7 @@ EC-10 found that the G4-M-22 namespacing migration was partial:
 * The ``ERROR_CODES`` registry listed 9 namespaced codes but 15+ legacy
   codes were actively emitted and NOT registered.
 * The renderer's ``ErrorEvent.code`` was a bare ``string`` with no
-  narrowing — clients branching on ``code`` silently fell through to a
+  narrowing, clients branching on ``code`` silently fell through to a
   generic "unknown error" path for handler exceptions.
 
 closed those gaps:
@@ -21,14 +21,14 @@ closed those gaps:
 
 This file is the regression guard. It asserts:
 
-A. **Required namespaced codes** — every code listed in the
+A. **Required namespaced codes**, every code listed in the
    spec is present in :data:`ERROR_CODES`.
 B. **Every emitted ``"code": "<value>"`` literal** in the Python server
    source tree is either a registered namespaced code OR a documented
    legacy alias. This is the contract test requested: if a
    future change introduces a new error code WITHOUT registering it
    (or without documenting it as a legacy alias), this test will fail.
-C. **Behavioural guard** — calling
+C. **Behavioural guard**, calling
    :meth:`HandlerBase._respond_with_error` actually stamps the
    namespaced ``"server.internal_error"`` code on the response (guards
    against a future regression that re-introduces the bare legacy
@@ -93,7 +93,7 @@ REQUIRED_NAMESPACED_CODES: frozenset[str] = frozenset(
         "client.auth_failed",
         "client.invalid_payload",
         "client.rate_limited",
-        # Pre-existing namespaced codes (kept for stability — these
+        # Pre-existing namespaced codes (kept for stability, these
         # were in the registry before  and must remain).
         "client.invalid_field",
         "client.missing_field",
@@ -117,7 +117,7 @@ REQUIRED_NAMESPACED_CODES: frozenset[str] = frozenset(
 # Codes that appear ONLY as ``code="..."`` keyword args to
 # ``_error_response`` (e.g. ``not_initialized``, ``payload_too_large``)
 # are included here even though the literal-``"code": "..."`` regex
-# below doesn't catch that form — this keeps the alias registry
+# below doesn't catch that form, this keeps the alias registry
 # comprehensive for future grep-based audits.
 LEGACY_ALIASES: dict[str, str] = {
     "internal_error": "server.internal_error",
@@ -134,7 +134,7 @@ LEGACY_ALIASES: dict[str, str] = {
     # ``payload_too_large`` and ``not_initialized`` are emitted via the
     # ``code="..."`` keyword-arg form in ``vocabulary_handlers.py`` and
     # ``vocabulary_automation_handlers.py`` respectively. They have no
-    # namespaced counterpart in ``ERROR_CODES`` yet — they pre-date the
+    # namespaced counterpart in ``ERROR_CODES`` yet, they pre-date the
     # namespacing migration and are still emitted as bare
     # codes. Listed here (with an empty counterpart) so the literal
     # grep below accepts them; the counterpart-presence test in
@@ -172,7 +172,7 @@ def _iter_emitted_code_literals():
     Walks the entire ``voice_typer/server`` Python tree. Includes
     docstring and comment occurrences (a docstring reference to a code
     that doesn't exist in the registry is just as much a drift bug as
-    an active emission — readers will assume the code is real).
+    an active emission, readers will assume the code is real).
     """
     for py_file in sorted(SERVER_DIR.rglob("*.py")):
         try:
@@ -216,7 +216,7 @@ class TestErrorCodesRegistryContents:
             assert code, f"ERROR_CODES contains an empty string: {ERROR_CODES!r}"
             assert "." in code, (
                 f"ERROR_CODES entry {code!r} is not namespaced "
-                f"(missing '.') — every entry must use the "
+                f"(missing '.'), every entry must use the "
                 f"'<namespace>.<name>' convention."
             )
 
@@ -264,7 +264,7 @@ class TestLegacyAliases:
     """Legacy aliases are documented and have namespaced counterparts.
 
     Each legacy alias MUST map to a namespaced code in
-    ``ERROR_CODES`` — UNLESS the alias is a "pending migration" code
+    ``ERROR_CODES``, UNLESS the alias is a "pending migration" code
     (e.g. ``payload_too_large``) whose namespaced form hasn't been
     added yet. Pending-migration codes have an empty string as their
     counterpart in :data:`LEGACY_ALIASES` and are skipped here.
@@ -326,7 +326,7 @@ class TestRespondWithErrorEmitsNamespacedCode:
     replace that reverts the change)."""
 
     def test_respond_with_error_stamps_namespaced_internal_error(self):
-        # HandlerBase is a mixin with no __init__ — instantiate
+        # HandlerBase is a mixin with no __init__, instantiate
         # directly. The method only touches ``self`` to access the
         # module-level ``log`` (imported into the class scope by
         # ``_log.py``).
@@ -353,7 +353,7 @@ class TestRespondWithErrorEmitsNamespacedCode:
         assert result["data"]["code"] != "internal_error", (
             "_respond_with_error is emitting the LEGACY bare "
             "'internal_error' code."
-            "'server.internal_error' — the regression must be reverted."
+            "'server.internal_error', the regression must be reverted."
         )
 
 
@@ -428,7 +428,7 @@ def _parse_ts_error_codes_union(text: str) -> set[str]:
     anchor = re.search(r"\btype\s+ErrorCodes\b", text)
     if anchor is None:
         pytest.fail(
-            "Could not find `type ErrorCodes` declaration in the TS file — the union may have been renamed or moved."
+            "Could not find `type ErrorCodes` declaration in the TS file, the union may have been renamed or moved."
         )
     # Slice from the anchor to the next top-level ``;`` (the
     # terminator of the type alias). This deliberately over-matches
@@ -436,7 +436,7 @@ def _parse_ts_error_codes_union(text: str) -> set[str]:
     # (none of the current entries do).
     tail = text[anchor.start() :]
     terminator = tail.find(";")
-    # No terminator found — parse to end of file (defensive).
+    # No terminator found, parse to end of file (defensive).
     block = tail if terminator == -1 else tail[:terminator]
     return {m.group(1) for m in _TS_UNION_MEMBER_RE.finditer(block)}
 
@@ -450,7 +450,7 @@ class TestTsErrorCodesParity:
     of namespaced error codes the server may emit. The renderer's TS
     ``ErrorCodes`` union (in
     ``voice_typer/client/src/renderer/src/types/ipc/enums.ts``) MUST
-    be a superset of the Python registry — otherwise a code the server
+    be a superset of the Python registry, otherwise a code the server
     emits would fail to type-check at the call site that branches on
     it (the renderer's ``usePython.ts`` error-envelope switch).
 
@@ -458,7 +458,7 @@ class TestTsErrorCodesParity:
     ``shutting_down``, etc.) and two Rust-host-only codes
     (``disallowed_window`` and ``disallowed_command``) that the Python
     server never emits but the Rust ``#[tauri::command]`` functions do.
-    Those are permitted extras — the parity direction is one-way
+    Those are permitted extras, the parity direction is one-way
     (Python ⊆ TS), not bidirectional.
     """
 
@@ -480,13 +480,13 @@ class TestTsErrorCodesParity:
         the Python ``ErrorCodes`` class without a matching entry in the
         TS ``ErrorCodes`` union, the renderer's ``switch (code)`` block
         won't have a case for it and will fall through to the generic
-        "unknown error" path — a silent UX regression.
+        "unknown error" path, a silent UX regression.
         """
         path = _find_ts_error_codes_file()
         text = path.read_text(encoding="utf-8")
         ts_codes = _parse_ts_error_codes_union(text)
         assert ts_codes, (
-            "Parsed zero entries from the TS ErrorCodes union — the regex may be broken or the union was reformatted."
+            "Parsed zero entries from the TS ErrorCodes union, the regex may be broken or the union was reformatted."
         )
         missing = ERROR_CODES - ts_codes
         assert not missing, (
@@ -505,7 +505,7 @@ class TestTsErrorCodesParity:
 
         These codes are NOT in the Python ``ERROR_CODES`` registry
         (they're emitted by Rust before dispatch reaches Python), but
-        they ARE in the renderer's error-handling switch — the TS
+        they ARE in the renderer's error-handling switch, the TS
         union is the canonical "every code the wire may carry" set.
         """
         path = _find_ts_error_codes_file()
@@ -533,7 +533,7 @@ class TestTsErrorCodesParity:
         sidecar. The namespaced forms (``client.pending_full`` /
         ``client.payload_too_large_dispatch``) are future-migration
         targets only. The renderer's ``switch (code)`` must branch on
-        the bare forms, so the TS union must include them — otherwise
+        the bare forms, so the TS union must include them, otherwise
         the parity test asserting only the namespaced forms passes
         vacuously.
         """

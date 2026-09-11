@@ -17,7 +17,7 @@
  * which broke tray Quit/Restart (stopPython sends `quit_app`).
  *  (fix): removed 5 dead/mismatched entries (`quit`,
  * `restart`, `save_config`, `save_vocabulary_with_diff`,
- * `complete_onboarding`) — none exist as server IPC commands.
+ * `complete_onboarding`), none exist as server IPC commands.
  *
  * Stale-entry cleanup: removed 17 entries that were never invoked
  * from any renderer code (`apply_vocabulary_suggestion`,
@@ -40,7 +40,7 @@
  *
  *  (renderer bits): `repaste_last` was previously in the
  *  "removed" list, but it IS a real app method
- * (`service.repaste_last` / `app.repaste_last`) — it was previously
+ * (`service.repaste_last` / `app.repaste_last`), it was previously
  * invoked only via the tray hotkey callback, not as an IPC command.
  * Re-added here so the renderer's "Re-paste" button can call it.
  * The server-side `_handle_repaste_last` handler IS registered in
@@ -51,7 +51,7 @@
  *
  * Renderer-allowlist security hardening: `tray_click` was previously
  * in this Set "to match the server's `_COMMAND_REGISTRY` exactly",
- * but the renderer NEVER invokes it — only the Rust tray menu
+ * but the renderer NEVER invokes it, only the Rust tray menu
  * handler (`tray.rs::on_menu_event`) does, via `dispatch_inner`
  * which bypasses the allowlist gate. Including it here contradicted
  * the Rust doc comment (which said it was NOT in the renderer
@@ -60,12 +60,12 @@
  * `_COMMAND_REGISTRY` is unchanged (the Rust host still routes
  * `tray_click` via `dispatch_inner`).
  *
- * PRESERVES the exact command strings — do not rename, reorder, or
+ * PRESERVES the exact command strings, do not rename, reorder, or
  * deduplicate without coordinating with the Python-side
  * `tests/test_electron_ipc_and_build.py::test_allowlist_matches_server_commands`
  * test which slices the `ALLOWED_COMMANDS = new Set([` substring out
  * of this file. See `tests/test_electron_ipc_and_build.py` docstring
- * (I7 owns the Python side — coordination note left there).
+ * (I7 owns the Python side, coordination note left there).
  */
 export const ALLOWED_COMMANDS = new Set<string>([
 	"get_status",
@@ -89,12 +89,12 @@ export const ALLOWED_COMMANDS = new Set<string>([
 	"save_templates",
 	"get_volume_backend_status",
 	"get_model_status",
-	// Prewarm status commands — RESTORED 2026-08-14 verbatim from
+	// Prewarm status commands, RESTORED 2026-08-14 verbatim from
 	// commit 5a319872: the About-page Cache Status card is a user-facing
 	// product feature (plan §6.3 addendum), not prewarm machinery.
 	// `run_prewarm` is ALSO restored (§6.3 addendum second half) but
 	// re-implemented: the Python handler no longer spawns the deleted
-	// standalone-prewarm subprocess — it re-runs the warm phase
+	// standalone-prewarm subprocess, it re-runs the warm phase
 	// in-process (warm_imports_for_worker on a daemon thread, see
 	// prewarm/status.run_prewarm_now).
 	"get_prewarm_status",
@@ -128,7 +128,7 @@ export const ALLOWED_COMMANDS = new Set<string>([
 	//
 	// Renderer-allowlist security hardening: `tray_click` was previously
 	// in this Set "to match the server's `_COMMAND_REGISTRY` exactly",
-	// but the renderer NEVER invokes it — only the Rust tray menu
+	// but the renderer NEVER invokes it, only the Rust tray menu
 	// handler (`tray.rs::on_menu_event`) does, via `dispatch_inner`
 	// which bypasses the allowlist gate. Including it here contradicted
 	// the Rust doc comment (which said it was NOT in the renderer
@@ -198,7 +198,7 @@ export const ALLOWED_COMMANDS = new Set<string>([
 	// d-review Finding 2: server commands previously missing from
 	// the allowlist. The stale-entry cleanup pass removed 9 of the
 	// 10 original entries from this Set because they were never
-	// invoked from any renderer code — see the stale-entry note in
+	// invoked from any renderer code, see the stale-entry note in
 	// the file header. Only `force_cancel_transcription` remains
 	// (it IS invoked by the renderer).
 	"force_cancel_transcription",
@@ -217,7 +217,7 @@ export const ALLOWED_COMMANDS = new Set<string>([
 	// `_COMMAND_REGISTRY` (ipc_server.py) and implemented in
 	// `handlers/onboarding_handlers.py` (`_handle_onboarding_reset`).
 	// (The sibling `onboarding_request_keyboard_permission` entry
-	// was removed — no renderer caller.)
+	// was removed, no renderer caller.)
 	"onboarding_reset",
 	// Cloud provider connection test: invoked by the Models page Cloud tab
 	// "Test Connection" button. Routes the HTTP probe through the Python
@@ -235,13 +235,13 @@ export const ALLOWED_COMMANDS = new Set<string>([
 	// resolved at runtime).
 	"reset_macos_accessibility",
 	// Linux troubleshooting (finding #127 part b): reset a stale polkit
-	// authorization — restart the polkit daemon via pkexec so the next
+	// authorization, restart the polkit daemon via pkexec so the next
 	// "Grant permission" re-prompts. Invoked by the Settings →
 	// Troubleshooting "Reset Linux Permission" button. Python handler:
 	// SystemHandlersMixin._handle_reset_linux_permissions (pkaction
 	// enumerates + pkcheck verifies).
 	"reset_linux_permissions",
-	// macOS accessibility-status probe (finding #919 part b — RE-ADDED
+	// macOS accessibility-status probe (finding #919 part b, RE-ADDED
 	// 2026-08-10): the Settings → Troubleshooting UI now invokes
 	// `check_accessibility` on macOS to surface the stale-grant
 	// `tccutil` reset command next to the "Reset Accessibility
@@ -253,7 +253,7 @@ export const ALLOWED_COMMANDS = new Set<string>([
 	// (no renderer caller at the time); re-wired through the TS,
 	// Rust, and Python registries in lockstep.
 	"check_accessibility",
-	// Master plan §7.4 — new IPC request `transcribe_offline`
+	// Master plan §7.4, new IPC request `transcribe_offline`
 	// (slim core → worker). The renderer invokes this to run an
 	// offline transcription through the runtime-pack worker (the
 	// slim core forwards the request to the worker over the

@@ -1,19 +1,19 @@
-"""god-class decomposition: ShutdownController — extracted from VoiceTyperApp.
+"""god-class decomposition: ShutdownController, extracted from VoiceTyperApp.
 
 Owns the entire shutdown / cleanup lifecycle of ``VoiceTyperApp``:
 
-    - ``_do_cleanup`` — the shared, idempotent cleanup body invoked by
+    - ``_do_cleanup``: the shared, idempotent cleanup body invoked by
       ``quit()``, ``restart_app()``, and ``_atexit_cleanup()``. 30+
       try/except blocks release every subsystem (recorder, hotkeys,
       history DB, crash recovery, bubble level worker, Win32 mutex,
       Electron subprocess, devnull FDs, etc.).
-    - ``quit`` — sets ``_shutting_down``, calls
+    - ``quit``: sets ``_shutting_down``, calls
       ``thread_registry.shutdown_all()``, delegates to ``_do_cleanup``,
       then ``sys.exit(0)`` (only when called from the main thread).
-    - ``_atexit_log`` / ``_atexit_cleanup`` — atexit safety net that
+    - ``_atexit_log`` / ``_atexit_cleanup``: atexit safety net that
       runs ``_do_cleanup`` if the process is killed externally without
       ``quit()`` / ``restart_app()`` having run.
-    - ``_install_signal_handlers`` — POSIX SIGINT/SIGTERM handlers that
+    - ``_install_signal_handlers``: POSIX SIGINT/SIGTERM handlers that
       trigger ``quit()`` on a separate thread.
     - ``_install_win32_console_handler`` / ``_win32_console_handler`` —
       Windows console control handler that keeps the tray app alive
@@ -21,12 +21,12 @@ Owns the entire shutdown / cleanup lifecycle of ``VoiceTyperApp``:
       Ctrl+C / logoff / shutdown.
 
 Previously all of this lived on ``VoiceTyperApp`` as ~480 LOC across 7
-methods. The behaviour is preserved verbatim — only the class boundary
+methods. The behaviour is preserved verbatim, only the class boundary
 moved. ``VoiceTyperApp`` keeps thin delegate methods (``app.quit()``,
 ``app._do_cleanup()``, ``app._atexit_cleanup()``, etc.) for back-compat
 with callers (``app.start()`` registers the atexit handlers, tray menu
 callbacks invoke ``quit_app`` which calls ``quit``, tests call
-``app._do_cleanup()`` directly) and — crucially — so test spies that
+``app._do_cleanup()`` directly) and, crucially, so test spies that
 ``monkeypatch.setattr(app, "_do_cleanup", spy)`` still intercept the
 cleanup call from ``quit`` / ``restart_app`` / ``_atexit_cleanup``.
 
@@ -45,7 +45,7 @@ A note on the delegate indirection for ``_do_cleanup``: ``quit`` and
 (the delegate on ``VoiceTyperApp``) rather than ``self._do_cleanup()``
 (the body on ``ShutdownController`` itself). This is so test spies
 that ``monkeypatch.setattr(app, "_do_cleanup", spy)`` still intercept
-the call — see ``tests/test_app_cleanup.py::TestQuitAppUsesSharedCleanup::
+the call: see ``tests/test_app_cleanup.py::TestQuitAppUsesSharedCleanup::
 test_quit_calls_do_cleanup`` and
 ``TestAtexitCleanupSafetyNet::test_atexit_cleanup_never_raises``.
 ``restart_app`` (which stays on ``VoiceTyperApp``) also calls
@@ -53,19 +53,19 @@ test_quit_calls_do_cleanup`` and
 
 Package layout (this module is the compatibility facade):
 
-- :mod:`._deadline`          — module-level deadline-budget helpers.
-- :mod:`._plans`             — ``SequencingMixin`` (thin plan-builder
+- :mod:`._deadline`         : module-level deadline-budget helpers.
+- :mod:`._plans`            : ``SequencingMixin`` (thin plan-builder
                               delegates; bodies in ``shutdown/plan.py``).
-- :mod:`._cleanup`           — ``CleanupMixin`` (thin delegates; bodies
+- :mod:`._cleanup`          : ``CleanupMixin`` (thin delegates; bodies
                               in ``shutdown/cleanup.py`` +
                               ``shutdown/ws_drain.py``).
-- :mod:`._teardowns`         — ``TeardownsMixin`` (thin teardown delegates).
-- :mod:`._lifecycle_signals` — ``SignalsMixin`` (quit / watchdog /
+- :mod:`._teardowns`        : ``TeardownsMixin`` (thin teardown delegates).
+- :mod:`._lifecycle_signals`: ``SignalsMixin`` (quit / watchdog /
                               atexit / signal-handler delegates).
-- :mod:`.controller`         — the ``ShutdownController`` class itself.
+- :mod:`.controller`        : the ``ShutdownController`` class itself.
 
 The stdlib modules below are re-imported here (with ``F401``) because
-tests reach through this namespace to patch them — e.g.
+tests reach through this namespace to patch them, e.g.
 ``monkeypatch.setattr("voice_typer.server.shutdown_controller.os._exit",
 ...)`` resolves ``os`` on THIS module object before setting ``_exit``
 on the (shared, singleton) stdlib module.
@@ -83,9 +83,9 @@ import time  # noqa: F401  # tests do monkeypatch.setattr(_sc.time, "monotonic"/
 # Single source of truth for the declarative shutdown plan + driver lives
 # in :mod:`voice_typer.server.shutdown.plan` (extracted out of this module
 # to keep the controller wiring-focused). Re-imported here so existing
-# callers — tests do
+# callers, tests do
 # ``from voice_typer.server.shutdown_controller import ShutdownPlan,
-# ShutdownStep`` — keep resolving, and so the dataclass constructors used
+# ShutdownStep``: keep resolving, and so the dataclass constructors used
 # in ``_do_cleanup`` below remain in scope without duplication.
 from voice_typer.server._timeout_utils import (  # noqa: F401  # SHUTDOWN_WATCHDOG_TIMEOUT_S + join_leaked_workers re-exported for tests
     SHUTDOWN_WATCHDOG_TIMEOUT_S,

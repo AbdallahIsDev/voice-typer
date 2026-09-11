@@ -1,4 +1,4 @@
-// OverlaySettingsSection — the Overlay section of the Settings surface.
+// OverlaySettingsSection, the Overlay section of the Settings surface.
 //
 // Extracted from the former GeneralSettingsSection (which stacked the
 // General and Overlay cards on one page) so the Overlay domain gets its
@@ -83,7 +83,7 @@ export const OverlaySettingsSection = memo(function OverlaySettingsSection({
 		updateConfig({ bubble_draggable: checked });
 		window.bubble?.setDraggable?.(checked);
 	};
-	//mic button toggle — only meaningful in always_visible mode.
+	//mic button toggle, only meaningful in always_visible mode.
 	const handleBubbleMicButtonChange = (checked: boolean) =>
 		updateConfig({ bubble_mic_button: checked });
 
@@ -130,7 +130,7 @@ export const OverlaySettingsSection = memo(function OverlaySettingsSection({
 			</GatedSettingRow>
 
 			{/* ── Switches ───────────────────────────────────────── */}
-			{/* Show on app startup toggle — only visible when Always Visible is selected */}
+			{/* Show on app startup toggle, only visible when Always Visible is selected */}
 			{config.bubble_behavior === "always_visible" && (
 				<GatedSettingRow
 					isVisible={isVisible}
@@ -146,7 +146,7 @@ export const OverlaySettingsSection = memo(function OverlaySettingsSection({
 				</GatedSettingRow>
 			)}
 
-			{/*mic button toggle — only visible when Always Visible is
+			{/*mic button toggle, only visible when Always Visible is
                 selected. Lets the user disable the clickable mic button
                 (reverting the bubble to non-interactive). */}
 			{config.bubble_behavior === "always_visible" && (

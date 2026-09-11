@@ -7,7 +7,7 @@
  * terminal. When output is redirected to log files (the launcher's
  * `electron-stdout.log` / `electron-stderr.log`), pipes, or CI, every
  * constant resolves to `""` and `ts()` switches to the date-prefixed
- * form — so the files stay clean and grep-friendly (mirrors Node's own
+ * form, so the files stay clean and grep-friendly (mirrors Node's own
  * `isTTY` color detection and the Python side's
  * `do_color = sys.stderr.isatty()` gate).
  */

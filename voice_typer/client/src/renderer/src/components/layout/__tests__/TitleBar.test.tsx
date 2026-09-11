@@ -1,12 +1,12 @@
 /**
- *  vitest suite — covers  for the TitleBar component.
+ *  vitest suite, covers  for the TitleBar component.
  *
- * - : window-control icons render at `size-2.5` (10px) — the native
- *   Windows glyph proportions — and use
+ * - : window-control icons render at `size-2.5` (10px), the native
+ *   Windows glyph proportions, and use
  *   `text-(--text-primary) dark:text-white` (PURE #fff white in dark
  *   mode, where the theme presets would otherwise tint the glyphs
  *   off-white/gray via --text-primary → --foreground). All four
- *   glyphs are FILLED outline paths with NO stroke attribute — they
+ *   glyphs are FILLED outline paths with NO stroke attribute, they
  *   are the exact outlines of Windows' own caption glyphs
  *   (`Segoe Fluent Icons`: ChromeClose E8BB, ChromeMinimize E921,
  *   ChromeMaximize E922, ChromeRestore E923) scaled to a 10px em, so
@@ -16,15 +16,15 @@
  *   window is focused; while unfocused the bar CONTAINER drops to
  *   `opacity-60`, dimming every element (sidebar/back/forward/help +
  *   window controls) uniformly. Opacity (not a dim color) is
- *   theme-agnostic — it scales whatever colors the active theme
- *   resolves — so light/dark/custom themes are all safe and the
+ *   theme-agnostic, it scales whatever colors the active theme
+ *   resolves, so light/dark/custom themes are all safe and the
  *   pure-white glyph pins stay untouched. Driven by the DOM
  *   `focus`/`blur` events on `window` (no IPC; fires in both Electron
  *   Chromium and the Tauri webviews).
  * - : the close button hover is PLATFORM-CONVENTION-DEPENDENT:
  *   Windows uses the native red (`hover:bg-[#e81123]` + `dark:`
  *   twins, red in EVERY theme), while Linux (GNOME/KDE) uses the same
- *   neutral hover as minimize/maximize — never red. The dedicated
+ *   neutral hover as minimize/maximize, never red. The dedicated
  *   `IS_WIN-pinned` / `IS_LINUX-pinned` tests assert BOTH halves of
  *   the coupling: the UA→constant derivation AND the close-variant
  *   gate (`IS_WIN ? "close" : "default"`), using the constants from
@@ -36,7 +36,7 @@
  *   Linux (GNOME/Adwaita-style) uses CIRCULAR 28×28 buttons with an
  *   always-visible subtle circle (`bg-foreground/5`) that deepens on
  *   hover/focus/active. (The old Linux minimize filled-dot glyph was
- *   removed 2026-08-24 — the icons no longer branch on IS_LINUX.)
+ *   removed 2026-08-24, the icons no longer branch on IS_LINUX.)
  * - : aria-keyshortcuts="Control+B" on the sidebar toggle.
  * - : aria-keyshortcuts="?" on the help button.
  *
@@ -45,7 +45,7 @@
  * jsdom's DEFAULT UA is Linux, so the Windows assertions below stub a
  * Windows UA and re-import the module (same pattern as the macOS
  * block). The static `TitleBar` import used by the XA-1 block runs on
- * the jsdom Linux UA, which is fine — those assertions are
+ * the jsdom Linux UA, which is fine, those assertions are
  * platform-neutral (focus rings, hover parity of non-window-control
  * buttons).
  *
@@ -74,7 +74,7 @@ import type { WindowBridge } from "@/types/ipc";
 
 // TitleBar renders real Radix Tooltips (via HotkeyTooltip on the
 // sidebar/back/forward/help buttons), which REQUIRE a TooltipProvider
-// ancestor — the app shell provides one (App.tsx:475). Same props as
+// ancestor, the app shell provides one (App.tsx:475). Same props as
 // App.tsx so tooltip timing in tests mirrors production.
 function renderWithProviders(ui: React.ReactElement) {
 	return render(
@@ -128,7 +128,7 @@ interface LoadedTitleBar {
 async function loadTitleBarFor(ua: string): Promise<LoadedTitleBar> {
 	vi.spyOn(window.navigator, "userAgent", "get").mockReturnValue(ua);
 	vi.resetModules();
-	// Fresh module instances — hotkey-utils re-evaluates its
+	// Fresh module instances, hotkey-utils re-evaluates its
 	// module-load platform constants against the stubbed UA, and
 	// TitleBar re-imports them from that same fresh registry.
 	const hotkeyUtils = await import("@/components/hotkey/hotkey-utils");
@@ -143,7 +143,7 @@ async function loadTitleBarFor(ua: string): Promise<LoadedTitleBar> {
 	};
 }
 
-describe("TitleBar — Windows window controls (red close hover)", () => {
+describe("TitleBar, Windows window controls (red close hover)", () => {
 	// Reset the module registry after each test so a later block's
 	// static `TitleBar` import re-resolves on the default (Linux) UA.
 	afterEach(() => {
@@ -158,7 +158,7 @@ describe("TitleBar — Windows window controls (red close hover)", () => {
 			IS_LINUX,
 			IS_MAC,
 		} = await loadTitleBarFor(WIN_UA);
-		// Pin the platform constants FIRST — the red hover below is
+		// Pin the platform constants FIRST, the red hover below is
 		// only correct because the component resolved IS_WIN=true.
 		// These assertions guard the UA→constant derivation AND the
 		// close-variant gate (`IS_WIN ? "close" : "default"`), so a
@@ -218,7 +218,7 @@ describe("TitleBar — Windows window controls (red close hover)", () => {
 		expect(cls).toContain("active:bg-[#c42b1c]");
 		expect(cls).toContain("dark:active:bg-[#c42b1c]");
 		// twMerge must DEDUPE the ghost variant's gray dark-hover
-		// (`dark:hover:bg-muted/50`) against our dark-red twin — if
+		// (`dark:hover:bg-muted/50`) against our dark-red twin, if
 		// both classes stayed in the DOM, CSS source order (not
 		// specificity, which is equal at 0-3-0) would decide which
 		// wins, and the close button could hover gray again.
@@ -242,7 +242,7 @@ describe("TitleBar — Windows window controls (red close hover)", () => {
 		const closeBtn = screen.getByLabelText("Close");
 		const cls = closeBtn.className;
 		// The red must only appear as `hover:bg-[#e81123]` /
-		// `focus-visible:bg-[#e81123]` — never as a standalone
+		// `focus-visible:bg-[#e81123]`, never as a standalone
 		// (resting) `bg-[#e81123]` class or any theme-tinted red wash.
 		expect(cls).toContain("hover:bg-[#e81123]");
 		expect(cls).not.toMatch(/(^|\s)bg-\[#e81123\](\s|$)/);
@@ -293,7 +293,7 @@ describe("TitleBar — Windows window controls (red close hover)", () => {
 			/>,
 		);
 		// ALL THREE glyphs are the exact filled outlines of Windows'
-		// caption font glyphs (Segoe Fluent Icons Chrome*) — solid
+		// caption font glyphs (Segoe Fluent Icons Chrome*), solid
 		// currentColor mass, NO stroke attribute (a stroked shape is
 		// sub-pixel at DPR 1 and antialiases to ~50% alpha = the gray /
 		// toned-down look). Filled paths render full-opacity color.
@@ -334,7 +334,7 @@ describe("TitleBar — Windows window controls (red close hover)", () => {
 			/>,
 		);
 		// Maximized → the middle button becomes "Restore" and renders
-		// the two-box ChromeRestore glyph — same filled-outline
+		// the two-box ChromeRestore glyph, same filled-outline
 		// treatment as the other window-control glyphs (no stroke).
 		const restoreBtn = screen.getByLabelText("Restore");
 		const svg = restoreBtn.querySelector('svg[aria-hidden="true"]');
@@ -389,7 +389,7 @@ describe("TitleBar — Windows window controls (red close hover)", () => {
 		);
 		// --text-primary aliases --foreground, which theme presets
 		// (Nord/Dracula/Tokyo Night/...) tint off-white (L 0.90-0.92)
-		// in dark mode — so the glyphs rendered gray. `dark:text-white`
+		// in dark mode, so the glyphs rendered gray. `dark:text-white`
 		// pins the dark-mode glyph to true #fff.
 		for (const label of ["Minimize", "Maximize", "Close"]) {
 			const cls = screen.getByLabelText(label).className;
@@ -412,15 +412,15 @@ describe("TitleBar — Windows window controls (red close hover)", () => {
 			/>,
 		);
 		// The dim lives on the bar CONTAINER (opacity scales the
-		// theme's own colors — theme-agnostic, safe in light/dark/
+		// theme's own colors, theme-agnostic, safe in light/dark/
 		// custom themes) rather than a per-glyph dim color.
 		const bar = container.querySelector(".drag-region");
 		expect(bar).toBeTruthy();
 		// Focused by default → no dim.
 		expect(bar?.className).not.toContain("opacity-60");
 		// Window loses focus (user clicked another app, e.g. VS Code) →
-		// the WHOLE bar dims — every element (sidebar/back/forward/help
-		// + all three window controls) — while the pure-white glyph
+		// the WHOLE bar dims, every element (sidebar/back/forward/help
+		// + all three window controls), while the pure-white glyph
 		// color pins stay untouched underneath.
 		act(() => {
 			window.dispatchEvent(new Event("blur"));
@@ -453,14 +453,14 @@ describe("TitleBar — Windows window controls (red close hover)", () => {
 				onThemeChange={() => {}}
 			/>,
 		);
-		// Dim the window first (container opacity only — the button's
+		// Dim the window first (container opacity only, the button's
 		// own classes are untouched).
 		act(() => {
 			window.dispatchEvent(new Event("blur"));
 		});
 		const closeBtn = screen.getByLabelText("Close");
 		const cls = closeBtn.className;
-		// The dim is container opacity — the button's color classes
+		// The dim is container opacity, the button's color classes
 		// are intact, so the native Windows red+white close hover
 		// still applies (hovering the close button of an unfocused
 		// window shows red+white, exactly like Windows 11).
@@ -517,7 +517,7 @@ describe("TitleBar — Windows window controls (red close hover)", () => {
 			/>,
 		);
 		const toggle = screen.getByLabelText("Toggle sidebar (Ctrl+B)");
-		// The plain-text `title` is gone — the shortcut moved into the
+		// The plain-text `title` is gone, the shortcut moved into the
 		// Radix tooltip as Kbd chips.
 		expect(toggle.hasAttribute("title")).toBe(false);
 		// Focusing the trigger opens the tooltip (Radix opens on focus).
@@ -532,7 +532,7 @@ describe("TitleBar — Windows window controls (red close hover)", () => {
 		);
 		expect(kbdTexts).toContain("Ctrl");
 		expect(kbdTexts).toContain("B");
-		// The accessible name is preserved — aria-label untouched.
+		// The accessible name is preserved, aria-label untouched.
 		expect(toggle.getAttribute("aria-label")).toBe("Toggle sidebar (Ctrl+B)");
 	});
 
@@ -572,7 +572,7 @@ describe("TitleBar — Windows window controls (red close hover)", () => {
 	});
 });
 
-describe("TitleBar — Linux window controls (GNOME/KDE neutral close hover)", () => {
+describe("TitleBar, Linux window controls (GNOME/KDE neutral close hover)", () => {
 	// jsdom's default UA is Linux; the block below still loads the
 	// module explicitly with a Linux UA so the assertions document the
 	// Linux platform contract rather than depending on jsdom defaults.
@@ -588,7 +588,7 @@ describe("TitleBar — Linux window controls (GNOME/KDE neutral close hover)", (
 			IS_LINUX,
 			IS_MAC,
 		} = await loadTitleBarFor(LINUX_UA);
-		// Pin the platform constants FIRST — the neutral hover below
+		// Pin the platform constants FIRST, the neutral hover below
 		// is only correct because the component resolved
 		// IS_LINUX=true / IS_WIN=false. These assertions guard the
 		// UA→constant derivation AND the close-variant gate, so a
@@ -610,14 +610,14 @@ describe("TitleBar — Linux window controls (GNOME/KDE neutral close hover)", (
 		);
 		const closeBtn = screen.getByLabelText("Close");
 		const cls = closeBtn.className;
-		// NO red anywhere — neutral hover because IS_LINUX=true.
+		// NO red anywhere, neutral hover because IS_LINUX=true.
 		expect(cls).not.toContain("hover:bg-[#e81123]");
 		expect(cls).not.toContain("dark:hover:bg-[#e81123]");
 		expect(cls).toContain("hover:bg-foreground/10");
 		expect(cls).toContain("dark:hover:bg-foreground/10");
 	});
 
-	it("close button uses the NEUTRAL hover on Linux — never red (GNOME/KDE convention)", async () => {
+	it("close button uses the NEUTRAL hover on Linux, never red (GNOME/KDE convention)", async () => {
 		const { TitleBar: LinuxTitleBar } = await loadTitleBarFor(LINUX_UA);
 		const bridge = makeBridge();
 		(window as unknown as { window_?: WindowBridge }).window_ = bridge;
@@ -632,12 +632,12 @@ describe("TitleBar — Linux window controls (GNOME/KDE neutral close hover)", (
 		);
 		const closeBtn = screen.getByLabelText("Close");
 		const cls = closeBtn.className;
-		// GNOME/KDE draw a NEUTRAL close-button hover — no Windows red.
+		// GNOME/KDE draw a NEUTRAL close-button hover, no Windows red.
 		expect(cls).not.toContain("hover:bg-[#e81123]");
 		expect(cls).not.toContain("dark:hover:bg-[#e81123]");
 		expect(cls).not.toContain("hover:text-white");
 		// The close button must match the minimize/maximize neutral
-		// hover exactly (foreground/10 wash, light AND dark — the
+		// hover exactly (foreground/10 wash, light AND dark, the
 		// Linux circular buttons deepen to /10 on hover from the
 		// always-visible /5 circle background).
 		const minCls = screen.getByLabelText("Minimize").className;
@@ -645,7 +645,7 @@ describe("TitleBar — Linux window controls (GNOME/KDE neutral close hover)", (
 		expect(cls).toContain("dark:hover:bg-foreground/10");
 		expect(minCls).toContain("hover:bg-foreground/10");
 		expect(minCls).toContain("dark:hover:bg-foreground/10");
-		// Neutral at rest in dark mode — glyph still pure white.
+		// Neutral at rest in dark mode, glyph still pure white.
 		expect(cls).toContain("dark:text-white");
 		expect(cls).not.toMatch(/(^|\s)bg-\[#e81123\](\s|$)/);
 	});
@@ -726,9 +726,9 @@ describe("TitleBar — Linux window controls (GNOME/KDE neutral close hover)", (
 			/>,
 		);
 		// GNOME/Adwaita draws maximize as a square outline and close as
-		// an X — the SAME geometry as Windows. Both platforms now render
+		// an X, the SAME geometry as Windows. Both platforms now render
 		// the identical FILLED native glyph paths (Segoe Fluent Icons
-		// ChromeMaximize / ChromeClose outlines — see TitleBar.tsx); only
+		// ChromeMaximize / ChromeClose outlines, see TitleBar.tsx); only
 		// the BUTTON differs (see the circular-button test above). Pin
 		// the shared filled-path treatment here so a future "fix" that
 		// diverges them fails loudly.
@@ -780,7 +780,7 @@ describe("TitleBar — Linux window controls (GNOME/KDE neutral close hover)", (
 		expect(bridge.close).toHaveBeenCalledTimes(1);
 	});
 });
-describe("TitleBar — macOS native traffic-light mode", () => {
+describe("TitleBar, macOS native traffic-light mode", () => {
 	// IS_MAC is a module-load constant computed from navigator.userAgent
 	// (hotkey-utils.ts). To exercise the macOS path we stub the UA,
 	// wipe the module cache, and re-import TitleBar with a cache-busting
@@ -833,9 +833,9 @@ describe("TitleBar — macOS native traffic-light mode", () => {
 	});
 });
 
-describe("TitleBar — XA-1 (focus-ring parity + sidebar-toggle hover)", () => {
+describe("TitleBar, XA-1 (focus-ring parity + sidebar-toggle hover)", () => {
 	// NOTE: this block uses the STATIC `TitleBar` import, which was
-	// resolved at module load with jsdom's DEFAULT UA — Linux — so
+	// resolved at module load with jsdom's DEFAULT UA, Linux, so
 	// the close button here renders with the neutral (non-red) hover.
 	// That's fine: every assertion in this block is platform-neutral
 	// (focus rings, sidebar-toggle hover parity). If a future test
@@ -923,13 +923,13 @@ describe("TitleBar — XA-1 (focus-ring parity + sidebar-toggle hover)", () => {
 	});
 });
 
-describe("TitleBar — theme control (icon-only, moved from sidebar)", () => {
+describe("TitleBar, theme control (icon-only, moved from sidebar)", () => {
 	afterEach(() => {
 		vi.restoreAllMocks();
 		vi.resetModules();
 	});
 
-	it("renders a theme icon button in the title bar (icon-only — no visible text label)", async () => {
+	it("renders a theme icon button in the title bar (icon-only, no visible text label)", async () => {
 		const { TitleBar: WinTitleBar } = await loadTitleBarFor(WIN_UA);
 		renderWithProviders(
 			<WinTitleBar
@@ -947,7 +947,7 @@ describe("TitleBar — theme control (icon-only, moved from sidebar)", () => {
 			"Current theme: Light. Click to switch to Dark.",
 		);
 		expect(themeBtn).toBeTruthy();
-		// No visible text label — the span that used to say "Light",
+		// No visible text label, the span that used to say "Light",
 		// "Dark", or "System" is gone.
 		expect(themeBtn.textContent).not.toMatch(/Light|Dark|System/);
 	});
@@ -1024,7 +1024,7 @@ describe("TitleBar — theme control (icon-only, moved from sidebar)", () => {
 		);
 		const minimizeBtn = screen.getByLabelText("Minimize");
 		// The theme button must be a previous sibling of the minimize
-		// button (in the same parent container — the drag-region bar).
+		// button (in the same parent container, the drag-region bar).
 		const bar = themeBtn.closest(".drag-region");
 		expect(bar).toBeTruthy();
 		if (bar) {
@@ -1054,7 +1054,7 @@ describe("TitleBar — theme control (icon-only, moved from sidebar)", () => {
 	});
 });
 
-describe("TitleBar — Tauri drag region (data-tauri-drag-region)", () => {
+describe("TitleBar, Tauri drag region (data-tauri-drag-region)", () => {
 	afterEach(() => {
 		delete (window as unknown as { __TAURI__?: unknown }).__TAURI__;
 		cleanup();
@@ -1080,7 +1080,7 @@ describe("TitleBar — Tauri drag region (data-tauri-drag-region)", () => {
 
 	it("renders data-tauri-drag-region on the bar inside the Tauri webview", () => {
 		// Simulate the Tauri global injected when `withGlobalTauri: true`
-		// (tauri.conf.json) — `isTauri()` returns true iff
+		// (tauri.conf.json), `isTauri()` returns true iff
 		// `window.__TAURI__.core.invoke` exists (tauri-bridge/detect.ts).
 		(window as unknown as { __TAURI__?: unknown }).__TAURI__ = {
 			core: { invoke: vi.fn() },

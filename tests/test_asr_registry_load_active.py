@@ -6,7 +6,7 @@ exception, logged it, and returned None. It did NOT call
 ``self._record_failure(self.active_name)`` (circuit breaker) NOR
 ``backend.unload()`` (resource cleanup). A user repeatedly retrying
 a failed ``change_model`` (e.g. F2 hotkey on a broken Parakeet
-install) called ``load_active`` each time — failure counter never
+install) called ``load_active`` each time, failure counter never
 incremented (backend never auto-disabled) and partially-allocated
 torch tensors / CUDA contexts from each failed ``from_pretrained``
 were never released (GPU memory accumulation across retries).
@@ -141,12 +141,12 @@ class TestLoadActiveUnloadOnFailure:
     def test_load_active_swallows_unload_failure(self):
         """If ``backend.unload()`` itself raises, ``load_active`` must
         swallow the unload exception (log a warning) and still return
-        None — NOT propagate the unload exception to the caller."""
+        None, NOT propagate the unload exception to the caller."""
         registry, engine = _make_registry_with_failing_backend()
         # Make unload also fail.
         engine.unload.side_effect = RuntimeError("unload failed")
 
-        # Must NOT raise — load_active should swallow the unload exception.
+        # Must NOT raise, load_active should swallow the unload exception.
         result = registry.load_active(progress_callback=lambda msg: None)
         assert result is None, (
             "load_active must return None (not raise) when both "

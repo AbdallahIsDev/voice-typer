@@ -42,7 +42,7 @@ function SelectTrigger({
 	children,
 	// Opt-in: drop the trailing chevron. Used by triggers that already
 	// carry an icon of their own (e.g. the Vocabulary sort control has a
-	// sort glyph on the left — a second chevron on the right reads as
+	// sort glyph on the left, a second chevron on the right reads as
 	// visually overloaded). Defaults to showing it so generic selects
 	// keep the standard dropdown affordance.
 	hideChevron = false,
@@ -71,7 +71,7 @@ function SelectTrigger({
 			data-size={size}
 			// Base styling mirrors the app's outline Button (rounded-4xl,
 			// border-border/5, h-8/h-9 by size) so a Select never looks
-			// like an orphan next to the Import/Export/Add buttons — the
+			// like an orphan next to the Import/Export/Add buttons, the
 			// sort dropdowns used to override these per-page and drifted
 			// apart; the shared base is the single source of truth now.
 			className={cn(
@@ -82,7 +82,7 @@ function SelectTrigger({
 		>
 			{children}
 			{/* Single chevron dropdown affordance (the old up/down double
-			    arrows read as "sort" — wrong for a generic select). */}
+			    arrows read as "sort", wrong for a generic select). */}
 			{!hideChevron && (
 				<SelectPrimitive.Icon asChild>
 					<HugeiconsIcon

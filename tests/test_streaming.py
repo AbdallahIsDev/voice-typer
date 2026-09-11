@@ -19,7 +19,7 @@ from voice_typer.server.streaming import (
 # pytestmark below skips them as a group if it isn't, replacing the
 # previous per-method ``setup_method`` skip (which called
 # ``pytest.skip(allow_module_level=True)`` from inside an instance
-# method — a no-op, since ``allow_module_level`` only takes effect at
+# method, a no-op, since ``allow_module_level`` only takes effect at
 # module import time).
 try:
     import hypothesis  # noqa: F401
@@ -533,7 +533,7 @@ class TestAssemblerLock:
 
 
 class TestTransientErrorRetry:
-    """M17: Transient errors permanently disable streaming — now uses retry counter."""
+    """M17: Transient errors permanently disable streaming, now uses retry counter."""
 
     def test_single_failure_does_not_require_fallback(self):
         """A single transient error should NOT set _fallback_required."""
@@ -677,7 +677,7 @@ class TestAudioPipelineProperties:
 
     def test_mid_chunk_reset(self):
         """A chunk that starts mid-recording (non-zero start) should
-        be handled correctly — the pipeline doesn't assume contiguous
+        be handled correctly, the pipeline doesn't assume contiguous
         audio."""
         import numpy as np
 
@@ -776,7 +776,7 @@ class TestHypothesisAudioPipeline:
         check()
 
 
-# (Session DE — Group 4): eviction log privacy ───────────────
+# (Session DE, Group 4): eviction log privacy ───────────────
 
 
 class TestEvictionLogPrivacy:
@@ -810,13 +810,13 @@ class TestEvictionLogPrivacy:
 
     def test_evicted_word_content_not_logged_at_debug(self, caplog):
         """When eviction fires, the DEBUG log must NOT contain the evicted
-        word's textual content — only its length / index."""
+        word's textual content, only its length / index."""
         import logging
 
         assembler = self._make_assembler_with_small_maxlen(maxlen=2)
         pii_word = "supersecretpassword123"
         # Fill the deque, then trigger eviction with the PII word.
-        # _insert_word_unlocked is the function under test — call it
+        # _insert_word_unlocked is the function under test, call it
         # directly to control timing.
         assembler._insert_word_unlocked(WordTiming("first", start_seconds=0.0, end_seconds=0.2))
         assembler._insert_word_unlocked(WordTiming("second", start_seconds=0.3, end_seconds=0.5))
@@ -832,7 +832,7 @@ class TestEvictionLogPrivacy:
         )
 
     def test_evicted_word_length_still_logged_at_debug(self, caplog):
-        """DE-57 fix must NOT silence the DEBUG log entirely — the
+        """DE-57 fix must NOT silence the DEBUG log entirely, the
         PII-safe length metric must still be emitted so developers can
         diagnose eviction storms."""
         import logging
@@ -857,7 +857,7 @@ class TestEvictionLogPrivacy:
 
     def test_evicted_word_content_not_logged_at_warning_either(self, caplog):
         """Regression guard for the existing  sanitization at WARNING
-        level — the fix for DE-57 must not regress it."""
+        level, the fix for DE-57 must not regress it."""
         import logging
 
         assembler = self._make_assembler_with_small_maxlen(maxlen=2)
@@ -913,7 +913,7 @@ def test_process_available_audio_once_zeros_snapshot_after_transcription():
 
 def test_process_available_audio_once_zeros_audio_even_on_transcribe_failure():
     """XZ-PRIV-02: the secure-clear ``finally`` block MUST fire even
-    when ``transcribe_words`` raises — otherwise a mid-transcription
+    when ``transcribe_words`` raises, otherwise a mid-transcription
     exception would leave the previous chunk's audio in process memory.
     """
     from voice_typer.server.streaming import StreamingTranscriptionSession
@@ -994,14 +994,14 @@ class TestFinalizeImplInner:
     The inner function has 4 distinct return branches:
 
       1. empty ``snapshot_committed_text`` → ``transcribe_with_fallback``
-         (streaming.py:866-869) — covered by existing
+         (streaming.py:866-869), covered by existing
          ``test_streaming_session_without_confirmed_text_uses_fast_batch_finalize``
       2. ``_fallback_required=True`` → ``transcribe_with_fallback``
-         (streaming.py:870-873) — covered here
+         (streaming.py:870-873), covered here
       3. tail-skip when ``last_committed_time >= full_audio_duration - 1.5``
-         (streaming.py:879-887) — covered here
+         (streaming.py:879-887), covered here
       4. tail-merge via ``transcribe_words``; on exception → fall back to
-         ``transcribe_with_fallback`` (streaming.py:896-919) — happy path
+         ``transcribe_with_fallback`` (streaming.py:896-919), happy path
          covered by existing tests, exception-swallow path covered here
 
     These tests call ``_finalize_impl_inner`` directly so each branch can
@@ -1031,7 +1031,7 @@ class TestFinalizeImplInner:
     def test_finalize_fallback_required_uses_transcribe_with_fallback(self):
         """Branch 2 (streaming.py:870-873): when ``_fallback_required``
         is True, ``_finalize_impl_inner`` MUST short-circuit straight to
-        ``transcribe_with_fallback`` — even when there IS committed text —
+        ``transcribe_with_fallback``, even when there IS committed text —
         because the streaming thread has permanently lost trust in its
         transcription output (e.g. N consecutive transient errors). The
         ``local_engine`` kwarg MUST be forwarded so the cloud→local
@@ -1047,7 +1047,7 @@ class TestFinalizeImplInner:
 
         # Pass a NON-empty snapshot_committed_text so the first
         # ``if not snapshot_committed_text`` branch (line 866) does NOT
-        # fire — we want to reach the ``_fallback_required`` check on
+        # fire, we want to reach the ``_fallback_required`` check on
         # line 870 specifically.
         result = session._finalize_impl_inner(
             full_audio,
@@ -1068,14 +1068,14 @@ class TestFinalizeImplInner:
             "to transcribe_with_fallback so the cloud→local fallback path "
             "actually fires when the active transcriber is a CloudEngine."
         )
-        # transcribe_words must NOT be called — we short-circuited before
+        # transcribe_words must NOT be called, we short-circuited before
         # the tail-merge branch.
         transcriber.transcribe_words.assert_not_called()
 
     def test_finalize_skips_tail_when_last_word_within_1_5s(self):
         """Branch 3 (streaming.py:879-887): when the streaming thread's
         last committed word is within 1.5s of the end of the audio, the
-        expensive tail re-transcription is skipped — the streaming thread
+        expensive tail re-transcription is skipped, the streaming thread
         already captured it. This is a PERF optimization that saves 2-3s
         of serial transcription after stop.
         """
@@ -1092,11 +1092,11 @@ class TestFinalizeImplInner:
 
         # Must return the snapshot text unchanged
         assert result == "hello world"
-        # CRITICAL: transcribe_words must NOT be called — the tail
+        # CRITICAL: transcribe_words must NOT be called, the tail
         # re-transcription is skipped because the streaming thread
         # already captured the last word.
         transcriber.transcribe_words.assert_not_called()
-        # And transcribe_with_fallback must NOT be called either — this
+        # And transcribe_with_fallback must NOT be called either, this
         # is the happy-path skip, not a fallback.
         transcriber.transcribe_with_fallback.assert_not_called()
 
@@ -1131,7 +1131,7 @@ class TestFinalizeImplInner:
 
         # Must have fallen back rather than propagating the exception.
         assert result == "fallback result"
-        # transcribe_words was attempted (and raised) — prove we
+        # transcribe_words was attempted (and raised), prove we
         # reached the tail-merge branch.
         transcriber.transcribe_words.assert_called_once()
         # And transcribe_with_fallback was invoked as the fallback.
@@ -1155,7 +1155,7 @@ class TestValidateWords:
     would either (a) let malformed words into the assembler (corrupting
     committed text) or (b) raise inside the tail-merge ``try`` block,
     triggering the silent fallback to ``transcribe_with_fallback``
-    (quality regression — the streaming thread's output is discarded).
+    (quality regression, the streaming thread's output is discarded).
     """
 
     def _make_session(self):
@@ -1178,7 +1178,7 @@ class TestValidateWords:
         ``" ".join(...)`` calls.
         """
         session = self._make_session()
-        # dataclass type hints are NOT enforced at runtime — the
+        # dataclass type hints are NOT enforced at runtime, the
         # constructor accepts the int. _validate_words is the runtime
         # guard.
         bad = WordTiming(word=123, start_seconds=0.0, end_seconds=1.0)  # type: ignore[arg-type]
@@ -1188,7 +1188,7 @@ class TestValidateWords:
     def test_validate_words_rejects_none_timestamps(self):
         """Branch 2 (streaming.py:933-934): timestamps MUST be present.
         A ``None`` start or end (e.g. from a cloud provider that omits
-        ``end`` for the final word) must raise ``TypeError`` — without
+        ``end`` for the final word) must raise ``TypeError``, without
         timestamps the dedup/merge logic in ``StreamingTextAssembler``
         would silently drop the word or, worse, ``TypeError`` deep
         inside ``round(word.start_seconds, 3)`` when computing the
@@ -1315,7 +1315,7 @@ def test_busy_check_exception_treated_as_not_busy():
 
 class TestTokenKeySharedWithTextCleanup:
     """The streaming token normalizer must BE the memoized helper from
-    text_cleanup (single authoritative definition — the module
+    text_cleanup (single authoritative definition, the module
     previously carried its own uncached ``_word_key`` duplicate of the
     same ``^\\W+|\\W+$`` normalization)."""
 

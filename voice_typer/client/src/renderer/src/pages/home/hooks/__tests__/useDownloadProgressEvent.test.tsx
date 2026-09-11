@@ -2,7 +2,7 @@
  * Tests for useDownloadProgressEvent (extracted from Home.tsx).
  *
  * Contract: subscribe to `download_progress` pushes, keep only valid
- * 0-100 percentages from the wire field `progress` (NOT `percent` — the
+ * 0-100 percentages from the wire field `progress` (NOT `percent`, the
  * server payload is `{model, progress, status, ...}`), and hide the bar
  * when no download is genuinely in flight:
  *   - reset to null whenever the recording state leaves "loading"
@@ -75,7 +75,7 @@ describe("useDownloadProgressEvent", () => {
 		});
 		expect(result.current).toBe(42.5);
 		// 0 is a legit non-terminal value (the "Starting download…" push);
-		// 100 is NOT (the wire caps intermediate events at 95 — see the
+		// 100 is NOT (the wire caps intermediate events at 95, see the
 		// terminal-event describe below).
 		fireDownloadProgress({
 			model: "tiny.en",
@@ -120,7 +120,7 @@ describe("useDownloadProgressEvent", () => {
 		expect(result.current).toBe(42);
 	});
 
-	it("ignores events without a model (defensive — the backend always sends one)", () => {
+	it("ignores events without a model (defensive, the backend always sends one)", () => {
 		const { result } = renderHook(() => useDownloadProgressEvent("loading"));
 		fireDownloadProgress({ progress: 42, status: "Downloading" });
 		expect(result.current).toBeNull();
@@ -128,7 +128,7 @@ describe("useDownloadProgressEvent", () => {
 
 	it("reads the wire field `progress`, not `percent`", () => {
 		const { result } = renderHook(() => useDownloadProgressEvent("loading"));
-		// A `percent` payload never exists on the wire — it must be ignored
+		// A `percent` payload never exists on the wire, it must be ignored
 		// (pre-fix the hook read ONLY `percent`, so the bar could never fill).
 		fireDownloadProgress({ model: "tiny.en", percent: 42 });
 		expect(result.current).toBeNull();
@@ -170,7 +170,7 @@ describe("useDownloadProgressEvent", () => {
 	});
 });
 
-describe("useDownloadProgressEvent — terminal events clear the bar", () => {
+describe("useDownloadProgressEvent, terminal events clear the bar", () => {
 	it("clears on the terminal success event (progress 100 + complete status)", () => {
 		const { result } = renderHook(() => useDownloadProgressEvent("idle"));
 		fireDownloadProgress({
@@ -255,7 +255,7 @@ describe("useDownloadProgressEvent — terminal events clear the bar", () => {
 	});
 });
 
-describe("useDownloadProgressEvent — download queue chain", () => {
+describe("useDownloadProgressEvent, download queue chain", () => {
 	it("a queued event keeps the bar up without regressing the live percentage", () => {
 		const { result } = renderHook(() => useDownloadProgressEvent("idle"));
 		fireDownloadProgress({
@@ -263,7 +263,7 @@ describe("useDownloadProgressEvent — download queue chain", () => {
 			progress: 60,
 			status: "Downloading tiny.en: 30 MB",
 		});
-		// A second download is queued behind the live one — its event
+		// A second download is queued behind the live one, its event
 		// carries progress 0 and queue_position 1.
 		fireDownloadProgress({
 			model: "large-v3",
@@ -288,7 +288,7 @@ describe("useDownloadProgressEvent — download queue chain", () => {
 			status: "Download of large-v3 queued",
 			queue_position: 1,
 		});
-		// tiny.en finishes — the bar must PERSIST (large-v3 is still
+		// tiny.en finishes, the bar must PERSIST (large-v3 is still
 		// pending), holding its last percentage until the next transfer.
 		fireDownloadProgress({
 			model: "tiny.en",
@@ -309,7 +309,7 @@ describe("useDownloadProgressEvent — download queue chain", () => {
 			status: "Downloading large-v3: 2 GB",
 		});
 		expect(result.current).toBe(90);
-		// Final completion — nothing is queued or transferring any more.
+		// Final completion, nothing is queued or transferring any more.
 		fireDownloadProgress({
 			model: "large-v3",
 			progress: 100,
@@ -319,7 +319,7 @@ describe("useDownloadProgressEvent — download queue chain", () => {
 	});
 });
 
-describe("useDownloadProgressEvent — terminal drain window", () => {
+describe("useDownloadProgressEvent, terminal drain window", () => {
 	it("clears a silently-cancelled queued model once the drain window passes", () => {
 		const { result } = renderHook(() => useDownloadProgressEvent("idle"));
 		fireDownloadProgress({
@@ -334,7 +334,7 @@ describe("useDownloadProgressEvent — terminal drain window", () => {
 			queue_position: 1,
 		});
 		// tiny.en completes. large-v3 was cancelled from the Models page
-		// while queued — the backend pushes NO event for that, so the
+		// while queued, the backend pushes NO event for that, so the
 		// entry is indistinguishable from a pending chain start until the
 		// stream stays quiet past the drain window.
 		fireDownloadProgress({
@@ -357,7 +357,7 @@ describe("useDownloadProgressEvent — terminal drain window", () => {
 			status: "Download of tiny.en complete",
 		});
 		expect(result.current).toBeNull();
-		// The queue drains a moment later — well inside the window.
+		// The queue drains a moment later, well inside the window.
 		act(() => {
 			vi.advanceTimersByTime(TERMINAL_DRAIN_MS - 10);
 		});

@@ -7,7 +7,7 @@ structured PII patterns (email, US phone, SSN, credit card) from log
 records via ``_PATTERNS``. The risk called out by XZ-LOG-12 is that
 future code might ``log.info("[TRANSCRIBE] result: %s", text)``
 directly, interpolating the raw transcription text into the log record.
-The filter only catches the four structured PII patterns — free-form
+The filter only catches the four structured PII patterns, free-form
 medical/financial/address/name content passes through verbatim.
 
 The convention (established by XZ-PII-04 / SEC-009) is:
@@ -22,7 +22,7 @@ The convention (established by XZ-PII-04 / SEC-009) is:
 This test greps the ``voice_typer/server/`` source tree for log calls
 that interpolate a transcription-like variable directly, and fails if
 any are found. It is a static source-inspection test (no runtime
-behavior) — the goal is to make a future regression a noisy test
+behavior), the goal is to make a future regression a noisy test
 failure rather than a silent privacy leak.
 
 The test is allowlist-based: known-safe call sites (which already
@@ -61,7 +61,7 @@ _PII_VARIABLE_NAMES = frozenset(
 
 # File names that contain log calls but are out of scope for this
 # regression test (e.g. test files, the redaction filter itself).
-# The filter itself logs at DEBUG when it redacts a pattern — that
+# The filter itself logs at DEBUG when it redacts a pattern, that
 # log line is the filter doing its job, not a leak.
 _OUT_OF_SCOPE_FILES = frozenset(
     {
@@ -81,7 +81,7 @@ _OUT_OF_SCOPE_FILES = frozenset(
 _SAFE_LOG_CALL_SITES: dict[str, set[str]] = {
     # dictation_pipeline.py: the consolidated "[TRANSCRIBE] Transcription:
     # hash=%s len=%d" line logs a non-reversible SHA-256 prefix + length
-    # (NOT the raw text) — see  The line is gated behind
+    # (NOT the raw text): see  The line is gated behind
     # ``log_transcriptions`` config flag.
     "dictation_pipeline.py": {
         "[TRANSCRIBE] Transcription: hash=%s len=%d",
@@ -97,7 +97,7 @@ _SAFE_LOG_CALL_SITES: dict[str, set[str]] = {
         "[TRANSCRIBE] Segment: [%d chars @ %.1fs - %.1fs]",  # no text content
         "[TRANSCRIBE] Result: %d chars",  # length only, no text
     },
-    # microphone_test.py: HU-21 FIXED — the mic-test transcription log
+    # microphone_test.py: HU-21 FIXED, the mic-test transcription log
     # now logs only ``%d chars`` (a ``len(text)`` call, which the AST
     # walker does not flag) at DEBUG, so no allowlist entry is needed
     # and the regression guard stays strict.
@@ -131,7 +131,7 @@ _SAFE_LOG_CALL_SITES: dict[str, set[str]] = {
 
 def _iter_server_python_files() -> list[pathlib.Path]:
     """Yield all ``.py`` files under ``voice_typer/server/``."""
-    if not _SERVER_DIR.is_dir():  # pragma: no cover — defensive
+    if not _SERVER_DIR.is_dir():  # pragma: no cover, defensive
         return []
     return sorted(_SERVER_DIR.rglob("*.py"))
 
@@ -150,7 +150,7 @@ def _find_unsafe_log_calls(source: str, file_name: str) -> list[str]:
     """
     try:
         tree = ast.parse(source, filename=file_name)
-    except SyntaxError:  # pragma: no cover — defensive
+    except SyntaxError:  # pragma: no cover, defensive
         return []
 
     safe_formats = _SAFE_LOG_CALL_SITES.get(file_name, set())
@@ -158,7 +158,7 @@ def _find_unsafe_log_calls(source: str, file_name: str) -> list[str]:
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue
-        # Match ``log.<level>(...)`` — the function is an Attribute
+        # Match ``log.<level>(...)``, the function is an Attribute
         # whose value is a Name ``log``.
         func = node.func
         if not isinstance(func, ast.Attribute):
@@ -183,7 +183,7 @@ def _find_unsafe_log_calls(source: str, file_name: str) -> list[str]:
         # Check the interpolated values.
         for value_arg in node.args[1:]:
             if isinstance(value_arg, ast.Name) and value_arg.id in _PII_VARIABLE_NAMES:
-                unsafe.append(f"log.{func.attr}({fmt_str!r}, {value_arg.id}) — interpolates raw transcription variable")
+                unsafe.append(f"log.{func.attr}({fmt_str!r}, {value_arg.id}), interpolates raw transcription variable")
     return unsafe
 
 
@@ -217,7 +217,7 @@ class TestNoRawTranscriptionInLogs:
                 continue
             try:
                 source = path.read_text(encoding="utf-8")
-            except (OSError, UnicodeDecodeError):  # pragma: no cover — defensive
+            except (OSError, UnicodeDecodeError):  # pragma: no cover, defensive
                 continue
             unsafe = _find_unsafe_log_calls(source, path.name)
             for desc in unsafe:
@@ -226,7 +226,7 @@ class TestNoRawTranscriptionInLogs:
         assert not all_unsafe, (
             "XZ-LOG-12 regression: found log calls that interpolate a raw "
             "transcription variable directly. The PIIRedactionFilter only "
-            "catches four structured PII patterns — free-form medical / "
+            "catches four structured PII patterns, free-form medical / "
             "financial / address / name content would leak into the log "
             "file. Either (a) apply ``redact_pii()`` / log a hash before "
             "the call, OR (b) add the format string to "
@@ -242,7 +242,7 @@ class TestNoRawTranscriptionInLogs:
         breakage noisy.
         """
         assert _PII_VARIABLE_NAMES, (
-            "XZ-LOG-12: ``_PII_VARIABLE_NAMES`` is empty — the regression guard would not catch any unsafe log calls."
+            "XZ-LOG-12: ``_PII_VARIABLE_NAMES`` is empty, the regression guard would not catch any unsafe log calls."
         )
 
     def test_safe_log_call_sites_allowlist_uses_unique_snippets(self) -> None:
@@ -255,5 +255,5 @@ class TestNoRawTranscriptionInLogs:
         for file_name, snippets in _SAFE_LOG_CALL_SITES.items():
             assert len(snippets) == len(set(snippets)), (
                 f"XZ-LOG-12: ``_SAFE_LOG_CALL_SITES['{file_name}']`` has "
-                f"duplicate entries — each allowlist snippet must be unique."
+                f"duplicate entries, each allowlist snippet must be unique."
             )

@@ -3,22 +3,22 @@
 Extracted from the original ``clipboard/manager.py`` monolith (1417 LOC)
 into three focused modules:
 
-* :mod:`..restore` — ``_pending_restores`` registry,
+* :mod:`..restore`: ``_pending_restores`` registry,
   ``_pending_restores_lock``, ``_MAX_PENDING_RESTORES``,
   ``_force_restore_pending_at_exit`` atexit handler, and the
   implementations of :meth:`ClipboardManager._delayed_restore` /
   :meth:`ClipboardManager.restore_now`.
-* :mod:`..safety` — implementations of
+* :mod:`..safety`: implementations of
   :meth:`ClipboardManager._is_safe_paste_target` /
   :meth:`ClipboardManager._is_terminal_process` /
   :meth:`ClipboardManager._detect_focused_process` /
   :meth:`ClipboardManager._get_frontmost_pid_macos`.
-* this package (``clipboard/manager/``) — slim
+* this package (``clipboard/manager/``), slim
   :class:`ClipboardManager` composed from concern mixins:
-  :mod:`._copy` (:class:`CopyMixin` — snapshot capture + copy +
-  verify), :mod:`._paste` (:class:`PasteMixin` — paste orchestrator,
+  :mod:`._copy` (:class:`CopyMixin`: snapshot capture + copy +
+  verify), :mod:`._paste` (:class:`PasteMixin`: paste orchestrator,
   gates, dispatch, SendInput senders), :mod:`._keyboard`
-  (:class:`KeyboardMixin` — stuck-modifier release + safe key press),
+  (:class:`KeyboardMixin`: stuck-modifier release + safe key press),
   plus ``__init__`` / ``refresh_config`` and the thin ``*_impl``
   delegators defined HERE so tests that patch
   ``voice_typer.server.clipboard.manager.<impl>`` keep intercepting
@@ -26,10 +26,10 @@ into three focused modules:
 
 Contains:
 
-* :class:`ClipboardCopyError` — distinguishes "copy failed" from
+* :class:`ClipboardCopyError`: distinguishes "copy failed" from
   "save/restore disabled" (ADR-0010 §5.2). Defined in :mod:`._errors`
   and re-exported here.
-* :class:`ClipboardManager` — copy/paste orchestrator with snapshot
+* :class:`ClipboardManager`: copy/paste orchestrator with snapshot
   borrow/restore lifecycle (ADR-0010 §5.x).
 
 Design contract: all patchable symbols (``is_windows``, ``is_macos``,
@@ -39,8 +39,8 @@ Design contract: all patchable symbols (``is_windows``, ``is_macos``,
 ``_have_wtype``, ``Win32Clipboard``, ``_win32_empty_clipboard``,
 ``_send_ctrl_v_win32``, ``_is_elevated_target``, ``_is_password_field``,
 ``_is_content_editable``, ``_get_uia_focused_element``) are looked up
-via the PACKAGE (``_cb.X``) at call time — NOT via this module's
-globals — so test patches like
+via the PACKAGE (``_cb.X``) at call time. NOT via this module's
+globals, so test patches like
 ``patch.object(clip_mod, "is_windows", return_value=True)`` /
 ``patch("voice_typer.server.clipboard._is_elevated_target", ...)``
 actually take effect on the code paths in this module (and in the
@@ -76,7 +76,7 @@ from voice_typer.server import clipboard as _cb
 # ``tests/test_clipboard_restore_race.py``,
 # ``tests/test_clipboard_pending_restores_cap.py``) keep working
 # unchanged. The re-export binds the SAME list / lock / int / function
-# objects — mutations made through ``manager._pending_restores`` are
+# objects, mutations made through ``manager._pending_restores`` are
 # visible through ``restore._pending_restores`` and vice versa.
 from voice_typer.server.clipboard.restore import (  # noqa: E402,F401
     _MAX_PENDING_RESTORES,
@@ -104,7 +104,7 @@ from voice_typer.server.clipboard_snapshot import ClipboardSnapshot
 
 # import the single canonical credential-dialog class set
 # so this module and ``clipboard_target_safety.py`` can't drift.
-# ``#32770`` (generic Win32 Dialog class — ) is NOT in the
+# ``#32770`` (generic Win32 Dialog class, ) is NOT in the
 # unified set; legitimate dictation into Open/Save As / Properties
 # dialogs is governed by the UIA ``IsPassword`` check instead.
 # import canonical default for the restore-delay literal that
@@ -144,12 +144,12 @@ class ClipboardManager(KeyboardMixin, PasteMixin, CopyMixin):
         # on clipboard sequence number mismatch.
         self._last_copied_text: str = ""
         # ADR-0010 §5.6 / DP8: removed ``_clear_thread`` and
-        # ``_saved_clipboard`` — dead code replaced by the snapshot
+        # ``_saved_clipboard``: dead code replaced by the snapshot
         # return value of copy() and the daemon-thread restore in paste().
         # PLAT-SECURE (revised): cached config flag for clipboard_save_restore.
         # Initialized to True (default) and refreshed via refresh_config()
         # when the user changes the setting. Used to gate snapshot capture
-        # in copy() (DP7 — the flag is now actually consulted).
+        # in copy() (DP7, the flag is now actually consulted).
         self._clipboard_save_restore_enabled: bool = True
         # ADR-0010 §5.6 / §5.3: cached restore delay in milliseconds. Read
         # by paste() when scheduling the daemon-thread restore. Refreshed
@@ -173,7 +173,7 @@ class ClipboardManager(KeyboardMixin, PasteMixin, CopyMixin):
             self._clipboard_save_restore_enabled = bool(getattr(config, "clipboard_save_restore", True))
         except Exception:
             _cb.log.warning(
-                "[CLIPBOARD] refresh_config: clipboard_save_restore lookup failed — using safe default",
+                "[CLIPBOARD] refresh_config: clipboard_save_restore lookup failed, using safe default",
                 exc_info=True,
             )
             self._clipboard_save_restore_enabled = True  # safe default
@@ -182,7 +182,7 @@ class ClipboardManager(KeyboardMixin, PasteMixin, CopyMixin):
             self._restore_delay_ms = int(getattr(config, "clipboard_restore_delay_ms", _DEFAULT_RESTORE_DELAY_MS))
         except Exception:
             _cb.log.warning(
-                "[CLIPBOARD] refresh_config: clipboard_restore_delay_ms lookup failed — using default",
+                "[CLIPBOARD] refresh_config: clipboard_restore_delay_ms lookup failed, using default",
                 exc_info=True,
             )
             self._restore_delay_ms = _DEFAULT_RESTORE_DELAY_MS
@@ -195,7 +195,7 @@ class ClipboardManager(KeyboardMixin, PasteMixin, CopyMixin):
             self.paste_enabled = bool(getattr(config, "paste_on_stop", True))
         except Exception:
             _cb.log.warning(
-                "[CLIPBOARD] refresh_config: paste_on_stop lookup failed — using safe default",
+                "[CLIPBOARD] refresh_config: paste_on_stop lookup failed, using safe default",
                 exc_info=True,
             )
             self.paste_enabled = True

@@ -82,7 +82,7 @@ class TrackedConnection:
 
     def execute(self, sql, *args, **kwargs):
         # ``conn.execute(...)`` returns a cursor that auto-closes when
-        # iterated —  explicitly does NOT require tracking those.
+        # iterated, explicitly does NOT require tracking those.
         return self._real.execute(sql, *args, **kwargs)
 
     def commit(self):
@@ -204,7 +204,7 @@ def test_write_method_closes_cursor(db, monkeypatch, method, kwargs, setup):
 
 
 # ──────────────────────────────────────────────────────────────────
-# _drain_batchable_inserts cursor close ( — writer-thread path)
+# _drain_batchable_inserts cursor close (, writer-thread path)
 # ──────────────────────────────────────────────────────────────────
 
 
@@ -241,7 +241,7 @@ def test_drain_batchable_inserts_closes_cursor(db):
 
 def test_drain_batchable_inserts_closes_cursor_on_exception(db, monkeypatch):
     """``_drain_batchable_inserts`` must close the cursor even when the
-    INSERT raises (DJ-18 — ``finally: cursor.close()``)."""
+    INSERT raises (DJ-18: ``finally: cursor.close()``)."""
     from voice_typer.server.history_db import _BatchableInsert
 
     real_conn = db._open_write_conn() if not db._shutdown.is_set() else None
@@ -292,7 +292,7 @@ def test_drain_batchable_inserts_closes_cursor_on_exception(db, monkeypatch):
 
 
 # ──────────────────────────────────────────────────────────────────
-# _do_retention cursor close ( — writer-thread path)
+# _do_retention cursor close (, writer-thread path)
 # ──────────────────────────────────────────────────────────────────
 
 

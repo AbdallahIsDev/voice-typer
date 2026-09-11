@@ -1,20 +1,20 @@
 """Regression tests for the WAL checkpoint interval constant wiring.
 
-XV-95 — history_db WAL checkpoint interval: the docstring/log must
+XV-95, history_db WAL checkpoint interval: the docstring/log must
 reference the ``_WAL_CHECKPOINT_INTERVAL`` constant (NOT a hardcoded
 ``"60s"``/``"300s"`` literal). The original bug was a stale docstring
 that still said ``60s`` after the interval was bumped to ``300s``.
 
 These tests pin the contract by inspecting the source of:
 
-* ``HistoryDB._run_checkpoint`` — docstring + log-message + comments
+* ``HistoryDB._run_checkpoint``, docstring + log-message + comments
 * the module docstring's architecture overview
 * the comment block next to the constant definition
 
 If a future refactor hardcodes a numeric cadence (e.g. re-introduces
 ``"60s"`` or hardcodes ``"300s"`` in the docstring/log/comments),
 the corresponding assertion fails. This is a source-text contract
-test — same pattern as the existing ``inspect.getsource`` tests
+test, same pattern as the existing ``inspect.getsource`` tests
 elsewhere in this suite.
 """
 
@@ -27,7 +27,7 @@ from voice_typer.server.history_db_internals.writer import _run_checkpoint as _r
 def test_wal_checkpoint_interval_constant_exists_and_is_positive():
     """``_WAL_CHECKPOINT_INTERVAL`` must be a positive float seconds value."""
     assert hasattr(history_db_mod, "_WAL_CHECKPOINT_INTERVAL"), (
-        "_WAL_CHECKPOINT_INTERVAL must be defined as a module-level constant in history_db.py — see XV-95."
+        "_WAL_CHECKPOINT_INTERVAL must be defined as a module-level constant in history_db.py: see XV-95."
     )
     value = history_db_mod._WAL_CHECKPOINT_INTERVAL
     assert isinstance(value, (int, float)), f"_WAL_CHECKPOINT_INTERVAL must be numeric, got {type(value)!r}."
@@ -56,7 +56,7 @@ def test_wal_checkpoint_interval_constant_is_documented_in_neighbor_comment():
 
 def test_run_checkpoint_docstring_references_constant():
     """The ``_run_checkpoint`` implementation's docstring must reference the
-    ``_WAL_CHECKPOINT_INTERVAL`` constant — NOT a hardcoded numeric
+    ``_WAL_CHECKPOINT_INTERVAL`` constant, NOT a hardcoded numeric
     cadence like ``60s`` or ``300s``.
 
     XV-95 root cause: a prior version of the docstring hardcoded
@@ -103,7 +103,7 @@ def test_run_checkpoint_log_message_interpolates_constant():
     # even though the constant was still interpolated. Relax it: the
     # constant must appear within a few lines of a ``log.`` call (its
     # argument region) without pinning the message text or the exact
-    # line layout — so both multi-line and inlined log calls pass.
+    # line layout, so both multi-line and inlined log calls pass.
     lines = src.splitlines()
     log_lines = [i for i, ln in enumerate(lines) if "log." in ln]
     const_lines = [i for i, ln in enumerate(lines) if "_WAL_CHECKPOINT_INTERVAL" in ln]
@@ -130,7 +130,7 @@ def test_run_checkpoint_comments_reference_constant_not_hardcoded():
     for forbidden in ("300s", "60s"):
         assert forbidden not in src, (
             f"_run_checkpoint source must not contain the hardcoded "
-            f"literal {forbidden!r} — reference _WAL_CHECKPOINT_INTERVAL "
+            f"literal {forbidden!r}, reference _WAL_CHECKPOINT_INTERVAL "
             f"instead (XV-95 drift prevention)."
         )
 

@@ -1,7 +1,7 @@
 """split from tests/test_app.py.
 
 All heavy dependencies are mocked via the project-wide ``mock_heavy_imports``
-autouse fixture (in ``tests/conftest.py``) — CR-60 hoisted the
+autouse fixture (in ``tests/conftest.py``), CR-60 hoisted the
 ``force_pynput_hotkey_backend`` patch from the old local fixture into
 that project-wide fixture, so test modules no longer need a local
 override.
@@ -16,7 +16,7 @@ class TestTrayControllerProtocolCompliance:
 
     # toggle_autostart, set_notifications, set_silence_*,
     # set_max_recording_time_seconds, create_desktop_shortcut removed
-    # from TrayController protocol — no caller existed.  The public
+    # from TrayController protocol, no caller existed.  The public
     # methods are now just the ones the tray menu actually invokes.
     # ARCH-DEAD-SETTINGS: show_settings / open_settings removed along
     # with voice_typer.server.settings; the Electron frontend owns the
@@ -68,8 +68,8 @@ class TestWin32ConsoleHandler:
 
     def test_ctrl_logoff_event_invokes_fast_cleanup(self, app, monkeypatch):
         """CTRL_LOGOFF_EVENT (5) must route to ``_do_fast_cleanup``
-        (XZ-R17-06) — the critical-only path that ends with
-        ``os._exit(0)`` — NOT a quit thread."""
+        (XZ-R17-06), the critical-only path that ends with
+        ``os._exit(0)``, NOT a quit thread."""
         fast_cleanup = MagicMock()
         monkeypatch.setattr(app.shutdown, "_do_fast_cleanup", fast_cleanup)
         # stub os._exit so the fast-path's hard exit doesn't kill pytest
@@ -82,7 +82,7 @@ class TestWin32ConsoleHandler:
 
     def test_ctrl_shutdown_event_invokes_fast_cleanup(self, app, monkeypatch):
         """CTRL_SHUTDOWN_EVENT (6) must route to ``_do_fast_cleanup``
-        (XZ-R17-06) — NOT a quit thread."""
+        (XZ-R17-06), NOT a quit thread."""
         fast_cleanup = MagicMock()
         monkeypatch.setattr(app.shutdown, "_do_fast_cleanup", fast_cleanup)
         monkeypatch.setattr("voice_typer.server.shutdown_controller.os._exit", lambda code=0: None)
@@ -156,7 +156,7 @@ class TestRefreshMicrophonesFailurePath:
         monkeypatch.setattr(startup_tasks, "load_microphones", _boom)
 
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.app"):
-            # Must not raise — the failure path is caught and logged.
+            # Must not raise, the failure path is caught and logged.
             app.refresh_microphones()
 
         warning_records = [r for r in caplog.records if "[TRAY] refresh_microphones failed" in r.message]

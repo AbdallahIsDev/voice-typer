@@ -10,7 +10,7 @@ was a bare ``while True`` that re-waited ``_WRITE_FUTURE_TIMEOUT``
 *alive*. A writer that was alive but never made progress (e.g. a
 multi-batch retention sweep on a huge DB locked by an external
 process, antivirus, or a deadlocked SQLite WAL) would loop forever
-between 30s per-retry waits — hanging the IPC handler thread
+between 30s per-retry waits, hanging the IPC handler thread
 indefinitely.
 
 The fix ADDS a deadline check at the top of every loop iteration:
@@ -20,12 +20,12 @@ raise HistoryDBError(...)``. The per-retry timeout (30s) is preserved
 only ADDS an upper bound.
 
 These tests pin:
-  1. The constant values (60.0 total, 30.0 per-retry) — guards
+  1. The constant values (60.0 total, 30.0 per-retry), guards
      against accidental tightening.
-  2. The deadline fires when the writer is alive but stuck — using
+  2. The deadline fires when the writer is alive but stuck, using
      monkeypatched small values for test speed (real 60s deadline
      would make the test take a full minute).
-  3. Successful writes are NOT affected by the deadline — a write
+  3. Successful writes are NOT affected by the deadline, a write
      that completes well within the deadline returns its result
      immediately.
 """
@@ -54,10 +54,10 @@ class TestWriteFutureTotalTimeoutConstant:
     """
 
     def test_total_timeout_constant_is_60_seconds(self):
-        """The hard cap is 60s — 2× the per-retry 30s timeout.
+        """The hard cap is 60s, 2× the per-retry 30s timeout.
 
         Per the comment at ``history_db.py:75-84``: "60s is 2× the
-        per-retry timeout — generous enough that a legitimate slow
+        per-retry timeout, generous enough that a legitimate slow
         write (large retention sweep) is never aborted prematurely,
         but short enough that a truly stuck writer surfaces a clear
         error to the caller instead of hanging the IPC handler
@@ -123,13 +123,13 @@ class TestSubmitWriteTotalDeadlineFires:
 
     We simulate a stuck writer by replacing ``db._execute_write_item``
     with a no-op that pulls items off the queue but never resolves
-    their futures — the writer thread is alive and draining the
+    their futures, the writer thread is alive and draining the
     queue, but no future ever completes. Pre-the hard-deadline fix this would loop
     forever between 30s per-retry waits; post-the hard-deadline fix it raises
     ``HistoryDBError`` after the total deadline.
 
     For test speed, both timeouts are monkeypatched to small values
-    (real values are 30s/60s — testing those would take a full
+    (real values are 30s/60s, testing those would take a full
     minute). The deadline logic is independent of the constant
     values, so any positive numbers exercise the same code path.
     """
@@ -163,7 +163,7 @@ class TestSubmitWriteTotalDeadlineFires:
         # via the dead-writer guard, which is a separate code path
         # tested in test_history_db_writer_death.py).
         assert db._writer_thread.is_alive(), (
-            "writer thread must be alive for the the hard-deadline fix deadline test — "
+            "writer thread must be alive for the the hard-deadline fix deadline test, "
             "the dead-writer guard is a separate code path."
         )
 
@@ -178,7 +178,7 @@ class TestSubmitWriteTotalDeadlineFires:
         # masking a regression to the 60s pre-the hard-deadline fix behavior.
         assert elapsed < 5.0, (
             f"_submit_write took {elapsed:.1f}s on a stuck-but-alive "
-            "writer — expected ~0.5s (the monkeypatched "
+            "writer, expected ~0.5s (the monkeypatched "
             "_WRITE_FUTURE_TOTAL_TIMEOUT). Pre-the hard-deadline fix this looped "
             "forever between 30s per-retry waits."
         )
@@ -197,7 +197,7 @@ class TestSubmitWriteTotalDeadlineFires:
         raising ``HistoryDBError``.
 
         The warning is the operator-visible signal that a writer was
-        alive but stuck — without it, the only diagnostic would be
+        alive but stuck, without it, the only diagnostic would be
         the raised exception (which is caught by the IPC handler's
         existing except clause and may not surface in the log).
         """
@@ -259,7 +259,7 @@ class TestSubmitWriteTotalDeadlineFires:
             f"dead, not the the hard-deadline fix stuck-writer message. Got: {msg}"
         )
         assert "total deadline" not in msg, (
-            "the hard-deadline fix deadline message must NOT fire on a dead writer — the "
+            "the hard-deadline fix deadline message must NOT fire on a dead writer, the "
             "early-return guard must short-circuit before the retry "
             f"loop is entered. Got: {msg}"
         )
@@ -273,12 +273,12 @@ class TestSubmitWriteSuccessfulNotAffected:
     within the deadline.
 
     A write that completes in well under the deadline (the normal
-    case — most writes complete in <100ms) must return its result
+    case, most writes complete in <100ms) must return its result
     immediately. The deadline check at the top of the loop sees
     ``elapsed = 0`` on the first iteration and skips, then
     ``future.result(timeout=30s)`` returns immediately on success.
 
-    These tests use the REAL (60s) deadline — if the deadline check
+    These tests use the REAL (60s) deadline, if the deadline check
     had a bug that fired prematurely (e.g. checked ``>= 0`` instead
     of ``>= _WRITE_FUTURE_TOTAL_TIMEOUT``), these tests would raise
     HistoryDBError instead of returning the result.
@@ -295,7 +295,7 @@ class TestSubmitWriteSuccessfulNotAffected:
     def test_successful_write_does_not_block_near_deadline(self, db, monkeypatch):
         """Even when ``_WRITE_FUTURE_TOTAL_TIMEOUT`` is set very small
         (simulating a tight deadline), a write that completes immediately
-        must still succeed — the deadline check at the top of the first
+        must still succeed, the deadline check at the top of the first
         iteration sees ``elapsed = 0`` and skips, then the future
         resolves successfully before any retry.
 
@@ -320,7 +320,7 @@ class TestSubmitWriteSuccessfulNotAffected:
         ``flush`` API (the only production caller of ``_submit_write``
         with ``wait=True`` from outside the write methods)."""
         # flush() is wrapped in contextlib.suppress(HistoryDBError)
-        # so it never raises — but it must complete in well under the
+        # so it never raises, but it must complete in well under the
         # 60s deadline. If the deadline check had a bug that fired
         # prematurely, flush would still complete (because of the
         # suppress) but would take ~60s. The timing assertion catches
@@ -329,7 +329,7 @@ class TestSubmitWriteSuccessfulNotAffected:
         db.flush()
         elapsed = time.monotonic() - start
         assert elapsed < 5.0, (
-            f"flush took {elapsed:.1f}s on a healthy writer — expected "
+            f"flush took {elapsed:.1f}s on a healthy writer, expected "
             "<5s. If this approaches 60s, the the hard-deadline fix deadline check is "
             "firing prematurely on successful writes."
         )

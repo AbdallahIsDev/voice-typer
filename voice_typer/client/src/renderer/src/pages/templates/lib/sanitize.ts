@@ -1,7 +1,7 @@
 /**
  * Strip NUL bytes from a template field value.
  *
- * Templates are plain text — the UI never renders them via
+ * Templates are plain text, the UI never renders them via
  * ``dangerouslySetInnerHTML`` (they are emitted as text into the typed
  * buffer and shown as ``<p>`` text content in the list/dialog). The
  * previous implementation also stripped ``<``, ``>``, ``"``, and ``'``
@@ -11,10 +11,10 @@
  * DOM context they are inserted into. Worse, the load-side-only strip
  * caused displayed text to silently diverge from the saved text (the
  * save path did not strip, so a template saved with ``<3`` re-rendered
- * as ``3`` on next load — corrupting user data).
+ * as ``3`` on next load, corrupting user data).
  *
  * NUL bytes are still removed because browsers truncate attribute
- * strings at NUL — if a value were ever flowed into an attribute
+ * strings at NUL, if a value were ever flowed into an attribute
  * (e.g. ``aria-label``), an injected ``\u0000`` could let the
  * trailing portion execute as a separate attribute. Plain-text
  * rendering is unaffected because NUL has no legitimate use in

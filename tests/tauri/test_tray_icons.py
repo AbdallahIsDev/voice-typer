@@ -2,46 +2,46 @@
 
 The tray icons are REAL committed PNGs rendered from the app logo
 glyph (the logo WITHOUT its background chip and WITHOUT the indicator
-dot — the tray shows the bare icon, per user decision) + shared state
+dot, the tray shows the bare icon, per user decision) + shared state
 palette by
 ``voice_typer/client/scripts/generate-icons.mjs`` (tray-only mode:
 ``node generate-icons.mjs --tray``, wrapped for repeatability by
-``scripts/build/generate_tray_icons.py`` — edit the mjs's tray glyph /
+``scripts/build/generate_tray_icons.py``, edit the mjs's tray glyph /
 ``trayStateColors`` to change them).
 
-They are NOT ``bundle.icon`` app icons — they are ``bundle.resources``
-(string entry ``"icons/tray/"`` — Tauri preserves the relative path,
+They are NOT ``bundle.icon`` app icons, they are ``bundle.resources``
+(string entry ``"icons/tray/"``, Tauri preserves the relative path,
 so the files land at ``$RESOURCE/icons/tray/``, mirroring the source
 tree), exactly where ``src-tauri/src/tray.rs::load_tray_icon`` reads
 them at runtime. That is why ``test_gen_tauri_icons_stub.py``'s
 config ↔ git guard excludes ``icons/tray/``.
 
-(Note: Tauri's ``BundleResources`` is an untagged enum — ``List`` of
+(Note: Tauri's ``BundleResources`` is an untagged enum: ``List`` of
 strings OR a ``Map`` object, never a mix. A map entry can therefore
 NOT be added to the string list; the string form is the only option
 for a resources array that already uses strings.)
 
 Pairs guarded here (each fails if the two sides drift):
 
-1. ``bundle.resources`` ↔ the tray PNGs — EVERY Tauri config (base +
+1. ``bundle.resources`` ↔ the tray PNGs, EVERY Tauri config (base +
    each per-arch override) must declare the string ``"icons/tray/"``.
    CI merges a per-arch config over the base, REPLACING the resources
-   array — a config missing the entry ships no tray icons and the tray
+   array, a config missing the entry ships no tray icons and the tray
    silently stops updating (``load_tray_icon`` returns ``None``).
 2. committed tray PNGs ↔ the Rust host whitelist
    (``ALLOWED_ICON_NAMES`` in ``src-tauri/src/tray_tests.rs`` /
-   ``is_allowed_icon_name``) — a state added to one side but not the
+   ``is_allowed_icon_name``), a state added to one side but not the
    other breaks the tray icon updates at runtime.
-3. the mjs emitter ↔ the Rust whitelist — ``trayStateColors`` keys in
+3. the mjs emitter ↔ the Rust whitelist: ``trayStateColors`` keys in
    ``generate-icons.mjs`` must be exactly the 4 whitelisted states.
 4. the state palette ↔ the Python host (``tray_icon.py::_make_icon``)
-   — both hosts must show identical colors per state.
-5. file validity — every committed tray PNG is a 32x32 PNG (the mjs's
+ , both hosts must show identical colors per state.
+5. file validity, every committed tray PNG is a 32x32 PNG (the mjs's
    ``trayIconSize``).
-6. the committed PNGs' IHDR layout — every tray PNG is pinned to 8-bit
+6. the committed PNGs' IHDR layout, every tray PNG is pinned to 8-bit
    RGBA (color type 6), default zlib compression, no filtering, no
    interlacing (the exact output of the generator's encoding pipeline).
-7. the committed PNGs' rendered palette — each state icon's dominant
+7. the committed PNGs' rendered palette, each state icon's dominant
    opaque color must equal its ``generate-icons.mjs`` ``trayStateColors``
    value (the generator injects the color into the SVG fill; a
    generator/rendering change that stops doing that silently ships
@@ -69,11 +69,11 @@ TRAY_ICON_PY = PROJECT_ROOT / "voice_typer" / "server" / "tray_icon.py"
 TRAY_TESTS_RS = SRC_TAURI / "src" / "tray_tests.rs"
 
 # The string resource entry that ships the tray icons. Tauri preserves
-# the relative path, so it lands at $RESOURCE/icons/tray/ — the exact
+# the relative path, so it lands at $RESOURCE/icons/tray/, the exact
 # path tray.rs reads (see the module docstring).
 TRAY_RESOURCE_ENTRY = "icons/tray/"
 
-# The macOS template source — tracked + shipped, but NOT a whitelisted
+# The macOS template source, tracked + shipped, but NOT a whitelisted
 # state icon (the Rust host never loads it; documented fallback).
 TEMPLATE_PNG = "tray-mic-template.png"
 
@@ -89,7 +89,7 @@ def _all_tauri_configs() -> list[Path]:
 
     ``tauri.dev.conf.json`` (the dev-mode override, C-TDEV-1) is
     intentionally excluded: it is a minimal ``tauri dev`` overlay (no
-    ``bundle`` section — dev builds reuse the base config's bundle) and
+    ``bundle`` section, dev builds reuse the base config's bundle) and
     is never merged by a CI ``--config`` per-arch build.
     """
     per_arch = sorted(p for p in SRC_TAURI.glob("tauri.*.conf.json") if p.name != "tauri.dev.conf.json")
@@ -122,7 +122,7 @@ def _rust_whitelist() -> set[str]:
 
 
 def _mjs_state_icons() -> set[str]:
-    """The ``trayStateColors`` keys in ``generate-icons.mjs`` — the
+    """The ``trayStateColors`` keys in ``generate-icons.mjs``, the
     filenames the emitter writes."""
     text = MJS.read_text(encoding="utf-8")
     block = re.search(r"const trayStateColors = \{(.*?)\};", text, re.S)
@@ -145,7 +145,7 @@ def _python_palette() -> dict[str, tuple[int, int, int]]:
     """The ``tray_icon.py::_make_icon`` palette as ``{state: (r, g, b)}``.
 
     Only the ``255``-alpha entries (the full-opacity state colors) are
-    parsed — the shape-fallback and indicator colors are out of scope.
+    parsed, the shape-fallback and indicator colors are out of scope.
     """
     text = TRAY_ICON_PY.read_text(encoding="utf-8")
     return {
@@ -167,7 +167,7 @@ def test_tray_resource_wired_in_every_config() -> None:
         bundle = json.loads(cfg.read_text(encoding="utf-8"))["bundle"]
         resources = bundle.get("resources", [])
         assert TRAY_RESOURCE_ENTRY in resources, (
-            f"{cfg.name} bundle.resources must include {TRAY_RESOURCE_ENTRY!r} — "
+            f"{cfg.name} bundle.resources must include {TRAY_RESOURCE_ENTRY!r}, "
             "without it the tray PNGs never ship (tray.rs reads "
             "$RESOURCE/icons/tray/). Fix with "
             "`python scripts/build/generate_tray_icons.py`."
@@ -185,19 +185,19 @@ def test_tracked_tray_pngs_match_rust_whitelist() -> None:
     tracked = _tracked_tray_pngs()
     whitelist = _rust_whitelist()
     assert whitelist == set(STATE_ICONS), (
-        f"Rust whitelist changed ({sorted(whitelist)}) — update STATE_ICONS to match, then regenerate the tray PNGs."
+        f"Rust whitelist changed ({sorted(whitelist)}), update STATE_ICONS to match, then regenerate the tray PNGs."
     )
     expected = {f"{name}.png" for name in whitelist} | {TEMPLATE_PNG}
     missing = expected - tracked
     assert not missing, (
         "tray PNGs committed under src-tauri/icons/tray/ must match the Rust "
-        f"whitelist — missing: {sorted(missing)}. Regenerate with "
+        f"whitelist, missing: {sorted(missing)}. Regenerate with "
         "`python scripts/build/generate_tray_icons.py` and commit them."
     )
     extra = tracked - expected
     assert not extra, (
         "committed tray PNGs that are neither whitelisted states nor the "
-        f"template (dead files — is_allowed_icon_name never loads them): "
+        f"template (dead files, is_allowed_icon_name never loads them): "
         f"{sorted(extra)}"
     )
 
@@ -223,7 +223,7 @@ def test_python_icon_map_matches_rust_whitelist() -> None:
     names the Python host sends to the Tauri Rust sidecar-state listener,
     which validates them against ``ALLOWED_ICON_NAMES`` (icon_cache.rs).
     A state renamed/added on the Python side without a matching Rust
-    whitelist entry would silently fall back — freezing the tray icon at
+    whitelist entry would silently fall back, freezing the tray icon at
     its last state. This pair joins the existing 7 drift-guard pairs in
     this module.
     """
@@ -239,7 +239,7 @@ def test_python_icon_map_matches_rust_whitelist() -> None:
     unknown = set(_APP_STATE_TO_ICON_NAME.values()) - whitelist
     assert not unknown, (
         f"tray_publish._APP_STATE_TO_ICON_NAME sends icon name(s) {sorted(unknown)} "
-        f"that the Rust host whitelist ({sorted(whitelist)}) does not accept — "
+        f"that the Rust host whitelist ({sorted(whitelist)}) does not accept, "
         "the tray icon would freeze at its last state. Add the name to "
         "ALLOWED_ICON_NAMES (tray_tests.rs / icon_cache.rs) + commit a tray PNG."
     )
@@ -251,7 +251,7 @@ def test_palette_matches_python_host() -> None:
     The mjs palette mirrors ``tray_icon.py::_make_icon``; if they drift,
     the tray icon color for a state differs between the Python and Tauri
     hosts. Only the 4 Tauri states are compared (the Python host has
-    extra states — LOADING/CANCELLING — the Tauri host doesn't render).
+    extra states (LOADING/CANCELLING) the Tauri host doesn't render).
     """
     mjs_palette = _mjs_palette()
     py_palette = _python_palette()
@@ -271,7 +271,7 @@ def test_committed_tray_pngs_are_valid_32x32() -> None:
     of silently shipping a broken tray icon.
     """
     tracked = _tracked_tray_pngs()
-    assert tracked, "no tracked tray PNGs — run the generator and commit them"
+    assert tracked, "no tracked tray PNGs, run the generator and commit them"
     for name in sorted(tracked):
         data = (TRAY_DIR / name).read_bytes()
         assert data.startswith(PNG_MAGIC), f"{name} is not a PNG"
@@ -289,11 +289,11 @@ def test_committed_tray_pngs_have_pinned_ihdr_layout() -> None:
     with zlib default compression and no filtering/interlacing. A future
     sharp/PNG-encoding change (palette PNG, 16-bit channels, interlaced
     output) silently alters the bytes the platform tray renders with —
-    the Rust host just loads whatever ``load_tray_icon`` reads — so the
+    the Rust host just loads whatever ``load_tray_icon`` reads, so the
     layout is pinned here, not replicated by ``generate_tray_icons.py``.
     """
     tracked = _tracked_tray_pngs()
-    assert tracked, "no tracked tray PNGs — run the generator and commit them"
+    assert tracked, "no tracked tray PNGs, run the generator and commit them"
     for name in sorted(tracked):
         data = (TRAY_DIR / name).read_bytes()
         assert data.startswith(PNG_MAGIC) and data[12:16] == b"IHDR", f"{name} is not a valid PNG"
@@ -303,7 +303,7 @@ def test_committed_tray_pngs_have_pinned_ihdr_layout() -> None:
         bit_depth, color_type, compression, filter_method, interlace = ihdr
         assert (bit_depth, color_type) == (8, 6), (
             f"{name} is {bit_depth}-bit color-type {color_type}; expected 8-bit "
-            "RGBA (color type 6) — the generator must render RGBA PNGs."
+            "RGBA (color type 6), the generator must render RGBA PNGs."
         )
         assert (compression, filter_method, interlace) == (0, 0, 0), (
             f"{name} IHDR compression/filter/interlace "
@@ -315,12 +315,12 @@ def test_committed_tray_pngs_have_pinned_ihdr_layout() -> None:
 # The tray PNGs carry no PLTE chunk (they are truecolor RGBA), so the
 # "palette" contract is the DOMINANT non-transparent pixel color per
 # state == the mjs ``trayStateColors`` value. shallow-decode the IDAT
-# (32x32 RGBA, filters 0-4, no interlace — zlib only, stdlib) and count.
+# (32x32 RGBA, filters 0-4, no interlace, zlib only, stdlib) and count.
 def _decode_tray_png_rgba(path: Path) -> list[tuple[int, int, int, int]]:
     """Decode a 32x32 RGBA tray PNG to a flat RGBA pixel list (stdlib).
 
     Handles the PNG unfiltering for filters 0-4 (None/Sub/Up/Average/
-    Paeth) — the format the generator's encoding pipeline emits (IHDR
+    Paeth), the format the generator's encoding pipeline emits (IHDR
     layout pinned by ``test_committed_tray_pngs_have_pinned_ihdr_layout``).
     """
     import zlib
@@ -385,12 +385,12 @@ def test_committed_tray_png_colors_match_mjs_palette() -> None:
 
     The mjs injects the state color into the SVG glyph fill before
     rendering
-    (``setGlyphFill(traySvg, "rgb(...)")`` — a count-guarded re-fill of
+    (``setGlyphFill(traySvg, "rgb(...)")``, a count-guarded re-fill of
     the single glyph <path>, so a glyph whose fill no longer matches
     throws instead of shipping identical states), so the rendered icon's
     dominant opaque pixel MUST be exactly that RGB. A palette edit
     in ``generate-icons.mjs`` (or a generator that stops injecting the
-    color — the previous sharp-``tint`` bug shipped identical white icons
+    color, the previous sharp-``tint`` bug shipped identical white icons
     for every state) fails here instead of silently shipping a tray whose
     recording icon looks like its error icon.
     """
@@ -399,6 +399,6 @@ def test_committed_tray_png_colors_match_mjs_palette() -> None:
         dominant = _dominant_tray_color(TRAY_DIR / f"{state}.png")
         assert dominant == mjs_palette[state], (
             f"{state}.png dominant color {dominant} drifted from the mjs "
-            f"trayStateColors value {mjs_palette[state]} — regenerate with "
+            f"trayStateColors value {mjs_palette[state]}, regenerate with "
             "`python scripts/build/generate_tray_icons.py` and commit."
         )

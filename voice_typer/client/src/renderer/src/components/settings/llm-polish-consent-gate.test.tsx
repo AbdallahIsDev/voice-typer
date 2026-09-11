@@ -1,5 +1,5 @@
 /**
- * LlmPolishingSettingsSection — LLM-polish enablement consent gate.
+ * LlmPolishingSettingsSection, LLM-polish enablement consent gate.
  *
  * Turning the "LLM Polishing" master toggle ON sends transcribed text
  * to the configured LLM provider, which requires `llm_polish_consent`.
@@ -65,7 +65,7 @@ function makeConfig(
 
 const alwaysVisible: SettingsSectionSharedProps["isVisible"] = () => true;
 
-describe("LlmPolishingSettingsSection — enabling LLM polish asks for llm_polish_consent first", () => {
+describe("LlmPolishingSettingsSection, enabling LLM polish asks for llm_polish_consent first", () => {
 	let updateConfig: SettingsSectionSharedProps["updateConfig"];
 
 	const renderSection = (config: VoiceTyperConfig) =>

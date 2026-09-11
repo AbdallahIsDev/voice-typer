@@ -8,7 +8,7 @@ private ``VoiceTyperApp`` attributes the service layer still touches
 deliberately NOT declared on the protocol. Before this module existed,
 every service call site re-implemented the same workaround —
 ``getattr(app, "_x")`` / ``setattr(app, "_x", v)`` with an inline
-``# noqa: B009`` / ``# noqa: B010`` marker — so the "attribute is real
+``# noqa: B009`` / ``# noqa: B010`` marker, so the "attribute is real
 but off-protocol" knowledge was copy-pasted across the service mixins.
 
 This module is the single home for that knowledge:
@@ -30,7 +30,7 @@ The accessors keep the runtime semantics of the ``getattr`` /
 * :func:`app_microphones` tolerates a missing attribute (the list is
   empty before the first enumeration; fakes without it read ``[]`` —
   the pre-split ``getattr(app, "_microphones", [])`` semantics);
-* writes are plain attribute assignments — identical to
+* writes are plain attribute assignments, identical to
   ``setattr(app, "_x", value)``.
 
 The ``cast`` in ``_internal`` is the documented, single suppression
@@ -124,7 +124,7 @@ def set_app_template_manager(app: object, manager: TemplateManager) -> None:
 def invalidate_llm_polisher(app: object) -> None:
     """Drop the cached LLM polish engine so the next request rebuilds.
 
-    Used when the config changes (reset-to-defaults) — the next polish
+    Used when the config changes (reset-to-defaults), the next polish
     must rebuild with the new settings instead of reusing a client
     bound to the old ones.
     """

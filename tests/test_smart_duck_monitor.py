@@ -10,7 +10,7 @@ The monitor solves the "audio starts mid-dictation" gap:
   3. WITH the monitor: a background daemon thread polls
      is_speaker_active() every poll_interval_ms.  When audio starts,
      the monitor retroactively applies the duck (fade + crash-recovery
-     save) — closing the gap.
+     save), closing the gap.
 
 These tests use a controllable FakeBackend whose `is_speaker_active()`
 return value can be flipped at runtime, so we can simulate "audio
@@ -99,7 +99,7 @@ class ControllableBackend(VolumeBackend):
             self.speaker_ever_active = True
         return self._speaker_active
 
-    # Test helper — flip the speaker activity at runtime.
+    # Test helper, flip the speaker activity at runtime.
     def set_speaker_active(self, active: bool) -> None:
         self._speaker_active = active
 
@@ -129,7 +129,7 @@ class TestMonitorLifecycle:
         assert not ducker.is_monitor_running
 
     def test_monitor_does_not_start_when_smart_duck_disabled(self):
-        """If smart-duck is disabled, duck() proceeds normally — no monitor."""
+        """If smart-duck is disabled, duck() proceeds normally, no monitor."""
         backend = ControllableBackend(current=0.5, speaker_active=False)
         ducker = VolumeDucker(backend=backend)
         ducker.set_smart_duck_poll_interval(50)
@@ -143,7 +143,7 @@ class TestMonitorLifecycle:
 
     def test_monitor_does_not_start_when_audio_already_playing(self):
         """If audio was already playing at duck time, duck() proceeds
-        normally — no monitor needed."""
+        normally, no monitor needed."""
         backend = ControllableBackend(current=0.5, speaker_active=True)
         ducker = VolumeDucker(backend=backend)
         ducker.set_smart_duck_poll_interval(50)
@@ -169,7 +169,7 @@ class TestMonitorLifecycle:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Retroactive duck — the core feature
+# Retroactive duck, the core feature
 # ═══════════════════════════════════════════════════════════════════════════
 
 
@@ -184,7 +184,7 @@ class TestRetroactiveDuck:
         ducker.set_smart_duck_poll_interval(50)  # fast poll for tests
         ducker.initialize()
 
-        # Start dictation — smart-duck skips (no audio).
+        # Start dictation, smart-duck skips (no audio).
         ducker.duck(0.25)
         assert not ducker.actually_ducked
         assert ducker.is_monitor_running
@@ -233,14 +233,14 @@ class TestRetroactiveDuck:
 
     def test_audio_never_starts_no_retroactive_duck(self):
         """If audio never starts during dictation, the monitor should
-        never duck — volume stays unchanged."""
+        never duck, volume stays unchanged."""
         backend = ControllableBackend(current=0.5, speaker_active=False)
         ducker = VolumeDucker(backend=backend)
         ducker.set_smart_duck_poll_interval(50)
         ducker.initialize()
 
         ducker.duck(0.25)
-        # Negative wait: poll for several poll intervals — audio never
+        # Negative wait: poll for several poll intervals, audio never
         # starts, so the monitor must never duck.
         assert not wait_until(lambda: ducker.actually_ducked, timeout=1.0), (
             "Monitor should NOT have ducked if audio never started"
@@ -309,7 +309,7 @@ class TestMonitorDisableMidDictation:
         ducker.set_smart_duck_enabled(False)
         assert wait_until(lambda: not ducker.is_monitor_running, timeout=1.0)
 
-        # Audio starts — but monitor is gone, so no retroactive duck.
+        # Audio starts, but monitor is gone, so no retroactive duck.
         backend.set_speaker_active(True)
         # Negative wait: monitor is gone, so no duck.
         assert not wait_until(lambda: ducker.actually_ducked, timeout=1.0), (
@@ -341,10 +341,10 @@ class TestMonitorSecondDuck:
         # Change the duck level mid-dictation.
         ducker.duck(0.15)
         # Monitor should still be running (it picks up _ducked_level on
-        # each poll — no need to restart).
+        # each poll, no need to restart).
         assert ducker.is_monitor_running
 
-        # Audio starts — retroactive duck should use the NEW level (0.15).
+        # Audio starts, retroactive duck should use the NEW level (0.15).
         backend.set_speaker_active(True)
         assert wait_until(lambda: ducker.actually_ducked, timeout=2.0)
         assert (0.15, 150) in backend.fade_calls, (
@@ -407,13 +407,13 @@ class TestPollInterval:
         assert ducker._smart_duck_poll_ms == 250
 
     def test_poll_interval_clamped_low(self):
-        """Below 50ms is too aggressive — clamp."""
+        """Below 50ms is too aggressive, clamp."""
         ducker = VolumeDucker(backend=ControllableBackend())
         ducker.set_smart_duck_poll_interval(10)
         assert ducker._smart_duck_poll_ms == 50
 
     def test_poll_interval_clamped_high(self):
-        """Above 5000ms is too slow — clamp."""
+        """Above 5000ms is too slow, clamp."""
         ducker = VolumeDucker(backend=ControllableBackend())
         ducker.set_smart_duck_poll_interval(10000)
         assert ducker._smart_duck_poll_ms == 5000
@@ -452,7 +452,7 @@ class TestMonitorConcurrency:
         ducker.initialize()
         ducker.duck(0.25)
 
-        # Restore immediately — race with the monitor's first poll.
+        # Restore immediately, race with the monitor's first poll.
         ducker.restore()
         # Wait for the monitor to stop (poll instead of fixed sleep).
         assert wait_until(lambda: not ducker.is_monitor_running, timeout=2.0)
@@ -499,7 +499,7 @@ class TestMonitorConcurrency:
 
         If restore() fired in the window between assignment and .start(),
         _stop_smart_duck_monitor would capture the unstarted thread ref
-        and call .join() on it — raising ``RuntimeError: cannot join
+        and call .join() on it, raising ``RuntimeError: cannot join
         thread before it is started``.
 
         The fix: create the Thread, call .start(), THEN assign to
@@ -555,5 +555,5 @@ class TestMonitorConcurrency:
             f"First: {join_errors[0]}"
         )
         # Other errors (e.g. from overlapping duck/restore state) are
-        # acceptable in this stress test — we're only checking for the
+        # acceptable in this stress test, we're only checking for the
         # specific join-before-start crash.

@@ -2,7 +2,7 @@
 
 Extracted from the original ``tests/test_history_and_models.py`` catch-all
 (Epic EC-25 / Entry #23 test-file split). This module pins the behavior of
-:meth:`voice_typer.server.history_db.HistoryDB.search` — specifically the
+:meth:`voice_typer.server.history_db.HistoryDB.search`, specifically the
 LIKE-escape handling for ``%`` and ``_`` characters and the length cap on
 the query string.
 

@@ -1,5 +1,5 @@
 /**
- *  vitest rewrite — behavioral tests for hotkey-related TS modules
+ *  vitest rewrite, behavioral tests for hotkey-related TS modules
  * covered by `tests/test_hotkeys.py`.
  *
  * This file replaces the following string-pattern Python tests (each
@@ -21,8 +21,8 @@
  * The Python tests asserted on substring presence/absence inside TS
  * source files. These pass even when the function silently returns the
  * wrong value, fail on innocent refactors (renaming the function,
- * switching quote style, extracting constants), and — for the "absent"
- * variants — silently pass if the offending code is merely moved to a
+ * switching quote style, extracting constants), and, for the "absent"
+ * variants, silently pass if the offending code is merely moved to a
  * sibling file. The vitest versions below exercise the real runtime
  * behaviour: they import the function or mount the component, then
  * assert on the actual returned value or rendered DOM, so a refactor
@@ -32,7 +32,7 @@
  * NOTE: tests that overlap with the  rewrite
  * (`__tests__/a11y-rewrite/hotkey-utils-behavior.test.ts` and
  * `__tests__/a11y-rewrite/RecordingSettings-hotkey-picker.test.tsx`)
- * are NOT duplicated here — the  file already covers
+ * are NOT duplicated here, the  file already covers
  * `test_formats_single_key`, `test_formats_combo`,
  * `test_validate_rejects_empty`,
  * `test_validate_rejects_modifiers_only_in_combo`,
@@ -53,7 +53,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
  * Page-level render helper. Pages like Settings mount Radix Tooltip
  * (via SettingRow / ui primitives); the real App shell wraps everything
  * in a TooltipProvider (App.tsx), so tests mounting pages directly must
- * provide one too — otherwise every Tooltip render throws "Tooltip must
+ * provide one too, otherwise every Tooltip render throws "Tooltip must
  * be used within TooltipProvider" and the page mounts empty.
  */
 const renderWithProviders = (ui: React.ReactElement) =>
@@ -314,7 +314,7 @@ describe('dictation key HotkeyPicker uses mode="single" with raw single-key pres
 		// Production deliberately moved the dictation picker to
 		// mode="single" (see RecordingSettingsSection.tsx): the old
 		// combo mode reintroduced the `<shift>` hazard (Shift is held
-		// for capitalization — dictation would fire on every uppercase
+		// for capitalization, dictation would fire on every uppercase
 		// letter) and violated the single-key-only promise of the
 		// dropdown. The repaste picker remains combo mode.
 		expect(dictationPicker?.mode).toBe("single");
@@ -343,7 +343,7 @@ describe('dictation key HotkeyPicker uses mode="single" with raw single-key pres
 		const presetValues = (dictationPicker?.presets ?? []).map((p) => p.value);
 		// Single mode strips angle brackets before matching, so the
 		// preset values are the RAW key names: ``caps_lock``, ``alt``,
-		// ``ctrl`` (no ``shift`` — it would fire on every capital
+		// ``ctrl`` (no ``shift``, it would fire on every capital
 		// letter). On macOS an extra ``fn`` entry is appended. Assert
 		// the Windows baseline set (raw form, no <...> wrappers).
 		expect(presetValues).toContain("caps_lock");
@@ -537,7 +537,7 @@ describe("hotkey-utils exports (defense-in-depth for test_validate_function_exis
 	it("KEY_CODE_TO_PYNPUT maps KeyV → v (HOTKEY-FIX-002 regression guard)", () => {
 		// The default repaste hotkey is <ctrl>+<alt>+v.  If the KeyV
 		// entry is ever dropped from KEY_CODE_TO_PYNPUT, capture will
-		// fail with "Key 'v' is not supported" — silently breaking
+		// fail with "Key 'v' is not supported", silently breaking
 		// the default config.  This is a behavioral guard that the
 		// source-string test_validate_function_exists couldn't cover.
 		expect(KEY_CODE_TO_PYNPUT.KeyV).toBe("v");

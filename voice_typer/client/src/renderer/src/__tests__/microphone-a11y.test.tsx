@@ -37,7 +37,7 @@ function flatten(obj: Record<string, unknown>, prefix = ""): void {
 }
 flatten(enMessages as Record<string, unknown>);
 
-// Non-optional lookup for assertion arguments — a missing key is a test
+// Non-optional lookup for assertion arguments, a missing key is a test
 // setup bug, not an empty matcher.
 function enText(key: string): string {
 	const value = enFlat.get(key);
@@ -89,9 +89,9 @@ vi.mock("@/components/audio/AudioFilterChain", () => ({
 
 // InfoTooltip's real implementation mounts a Radix Tooltip.Root, which
 // requires the app-global TooltipProvider boundary (App.tsx). These
-// PresetAccordionSelector tests only need the trigger contract — a
+// PresetAccordionSelector tests only need the trigger contract, a
 // focusable trigger whose accessible name is composed through t() exactly
-// like the real component ("More info about {label}") — so a plain
+// like the real component ("More info about {label}"), so a plain
 // stand-in keeps them provider-free. Radix hover/focus behaviour itself
 // is pinned in components/feedback/__tests__/InfoTooltip.test.tsx.
 // The mock mirrors the real triggerAs contract: "button" (default) →
@@ -114,7 +114,7 @@ vi.mock("@/components/feedback/InfoTooltip", () => ({
 		if (triggerAs === "inline") {
 			return (
 				// biome-ignore lint/a11y/noStaticElementInteractions: mirrors the real inline trigger (focusable span whose clicks never select the row).
-				// biome-ignore lint/a11y/useKeyWithClickEvents: mirrors the real inline trigger — click propagation is suppressed; keyboard opens the tooltip via focus.
+				// biome-ignore lint/a11y/useKeyWithClickEvents: mirrors the real inline trigger, click propagation is suppressed; keyboard opens the tooltip via focus.
 				// biome-ignore lint/a11y/useAriaPropsSupportedByRole: mirrors the real inline trigger (aria-label as the sole accessible name, no role).
 				<span
 					// biome-ignore lint/a11y/noNoninteractiveTabindex: mirrors the real inline trigger (focusable by design; tooltip opens on focus).
@@ -165,7 +165,7 @@ const micB: MicrophoneDevice = {
 	rate: 44100,
 };
 
-// Minimal VoiceTyperConfig — only the fields PresetAccordionSelector
+// Minimal VoiceTyperConfig, only the fields PresetAccordionSelector
 // itself reads (audio_preset + the noise_filter_* fields handed to the
 // stubbed AudioFilterChain). The full object is too noisy for this unit
 // test.
@@ -201,7 +201,7 @@ describe("mic selection rows expose radio semantics with per-row accessible name
 		const group = screen.getByRole("radiogroup");
 		expect(group).toBeTruthy();
 
-		// Per-row accessible names — the regression BG-45 called out was
+		// Per-row accessible names, the regression BG-45 called out was
 		// N indistinguishable controls; each radio now announces WHICH
 		// microphone it selects.
 		expect(screen.getByRole("radio", { name: "Blue Yeti X" })).toBeTruthy();
@@ -296,7 +296,7 @@ describe("TestReviewPanel quality block is announced to AT", () => {
 
 		// The "Detected Issues:" heading carries role="status" so SR
 		// users are alerted when issues appear after a test. It renders as
-		// an <output> element — the semantic status live-region element,
+		// an <output> element, the semantic status live-region element,
 		// whose implicit ARIA role is status. Assert the COMPUTED role via
 		// toHaveRole (the literal role attribute is absent on <output>).
 		const detectedIssuesHeading = Array.from(
@@ -309,7 +309,7 @@ describe("TestReviewPanel quality block is announced to AT", () => {
 	it("hides the decorative bullet glyph from assistive tech", () => {
 		renderReviewPanel();
 
-		// The "•" bullet is purely decorative — its meaning is conveyed
+		// The "•" bullet is purely decorative, its meaning is conveyed
 		// by list structure, so it must be aria-hidden. It uses the theme
 		// warning TOKEN (text-warning), never a hardcoded palette class
 		// like text-amber-500.
@@ -515,7 +515,7 @@ describe("PresetAccordionSelector memoizes getPresetOptions() to a single call p
 
 		// Re-render with a different preset. The memoized preset
 		// array is reused (useMemo dep is []), so getPresetOptions()
-		// is NOT called again — presetAuto should still have been
+		// is NOT called again, presetAuto should still have been
 		// called only once total.
 		rerender(
 			<PresetAccordionSelector
@@ -627,7 +627,7 @@ describe("PresetAccordionSelector memoizes getPresetOptions() to a single call p
 
 // ──────────────────────────────────────────────────────────────────────
 //PresetAccordionSelector compact rows: option descriptions are NOT
-// permanently visible — each option exposes a keyboard-focusable
+// permanently visible, each option exposes a keyboard-focusable
 // InfoTooltip trigger instead, and interacting with that trigger never
 // changes the selected preset.
 // ──────────────────────────────────────────────────────────────────────
@@ -675,7 +675,7 @@ describe("PresetAccordionSelector descriptions live behind InfoTooltip triggers"
 
 		// 5 option triggers (role=button) + the header trigger, which is
 		// the INLINE span variant (it lives inside the AccordionTrigger
-		// button, where a nested button would be invalid DOM) — asserted
+		// button, where a nested button would be invalid DOM), asserted
 		// via its aria-label, not a role.
 		const infoTriggers = screen.getAllByRole("button", {
 			name: /^More info about/,

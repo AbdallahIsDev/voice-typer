@@ -1,6 +1,6 @@
 /**
  *  (session NH) test: physical Tailwind properties
- * (``ml-``, ``mr-``, ``pl-``, ``pr-``) don't auto-flip in RTL — only
+ * (``ml-``, ``mr-``, ``pl-``, ``pr-``) don't auto-flip in RTL, only
  * logical-property classes (``ms-``, ``me-``, ``ps-``, ``pe-``) do.
  *
  * The renderer sets ``document.documentElement.dir = "rtl"`` for Arabic
@@ -69,9 +69,9 @@ describe("NH-11: physical Tailwind properties are replaced with logical (RTL fli
 				// ``has-data-[icon=inline-end]:pr-2.5``.
 				//
 				// Edge cases that should NOT be flagged:
-				//   - ``mt-*`` / ``mb-*`` (block-axis — physical is fine,
+				//   - ``mt-*`` / ``mb-*`` (block-axis, physical is fine,
 				//     vertical doesn't flip in RTL).
-				//   - ``px-*`` / ``py-*`` (axis-pair utilities — these are
+				//   - ``px-*`` / ``py-*`` (axis-pair utilities, these are
 				//     already direction-agnostic).
 				//   - The literal substrings inside comments / strings that
 				//merely mention the legacy class name in an
@@ -99,7 +99,7 @@ describe("NH-11: physical Tailwind properties are replaced with logical (RTL fli
 		});
 	}
 
-	it("dropdown-menu.tsx uses data-inset:ps-9.5 (logical) — not data-inset:pl-9.5", () => {
+	it("dropdown-menu.tsx uses data-inset:ps-9.5 (logical), not data-inset:pl-9.5", () => {
 		const src = readSrc("components/ui/dropdown-menu.tsx");
 		expect(src).toContain("data-inset:ps-9.5");
 		expect(src).not.toContain("data-inset:pl-9.5");
@@ -136,14 +136,14 @@ describe("NH-11: physical Tailwind properties are replaced with logical (RTL fli
 
 	it("GeneralSettingsSection.tsx uses no physical ml-* / mr-* / pl-* / pr-* utilities (RTL guard)", () => {
 		// The Settings Hub migration deleted ModelSettingsSection.tsx
-		// (its `w-56 pe-8` API-key input moved with it) — this suite
+		// (its `w-56 pe-8` API-key input moved with it), this suite
 		// keeps a settings-section file in scope via
 		// GeneralSettingsSection.tsx instead, pinned to the same
 		// logical-utilities-only contract the FILES_UNDER_TEST loop
 		// asserts for it.
 		const src = readSrc("components/settings/GeneralSettingsSection.tsx");
 		// Word-boundary regex on the same stripped source the loop test
-		// uses — no physical inline-axis utilities may appear.
+		// uses, no physical inline-axis utilities may appear.
 		const stripped = src
 			.replace(/\/\*[\s\S]*?\*\//g, "")
 			.replace(/\/\/.*$/gm, "");

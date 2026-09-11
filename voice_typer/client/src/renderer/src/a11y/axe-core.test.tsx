@@ -21,21 +21,31 @@
  *   - Onboarding
  *   - Dashboard
  *
+ * Interactive-surface scans (second describe block below): the
+ * surfaces users actually see beyond the empty page roots —
+ * ConsentGateDialog open, HelpOverlay open, ShareStatsDialog open,
+ * the app shell (Sidebar + TitleBar/GlobalSearchBar, both sidebar
+ * states), a populated History list (rows + date groups), and a
+ * cycle through every Settings section page. Radix portals render
+ * outside the testing-library container, so portal surfaces are
+ * scanned via document.body.
+ *
  * Previously 5 of the 9 promised pages
  * (Home, Settings, Models, Microphone, Dashboard) were listed in the
- * header comment but had no `it()` blocks — the file only scanned
+ * header comment but had no `it()` blocks, the file only scanned
  * About, Onboarding, History, Vocabulary, and Templates.  The missing
  * five are added below.  Each new test follows the existing pattern:
  * dynamic import the page, render with stub props, run axe-core
  * against the container, and assert no violations (excluding
  * color-contrast which is unreliable in jsdom's Tailwind-less env).
  */
-import { render } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import axe from "axe-core";
 import { describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
-// Disable color-contrast — the test environment doesn't load the full
+// Disable color-contrast, the test environment doesn't load the full
 // Tailwind stylesheet, so axe's computed contrast values would be
 // meaningless and produce false positives.
 const AXE_OPTIONS: axe.RunOptions = {
@@ -108,15 +118,15 @@ const STUB_CONFIG = {
 // ── Helper: mock the usePython hook ──────────────────────────────────
 // Module-scope STABLE mocks. The real hooks return `useCallback([])`-
 // wrapped identities (`call` in usePython, `markUpdated` in
-// useLastUpdated) that keep the SAME reference across renders — the
+// useLastUpdated) that keep the SAME reference across renders, the
 // mocks MUST mirror that stability. The previous inline shape
 // (`call: vi.fn(...)` inside the factory) handed out a FRESH `call` on
 // every render; effects keyed on `call` re-ran each render,
 // re-fetching + re-storing state with fresh arrays → render → new
-// `call` → … — the page-level infinite render loop that OOM'd this	// very suite (FATAL heap OOM in the Vocabulary scan; the hooks were
+// `call` → …, the page-level infinite render loop that OOM'd this     // very suite (FATAL heap OOM in the Vocabulary scan; the hooks were
 // fixed with the `callRef` mirror in hooks/useVocabulary.ts). With
 // a stable mock, a page that renders
-// fine in production renders fine here too — and the mock can never
+// fine in production renders fine here too, and the mock can never
 // be the trigger of that loop class again.
 const { mockCall, mockMarkUpdated } = vi.hoisted(() => ({
 	mockCall: vi.fn(),
@@ -194,7 +204,7 @@ const stable = vi.hoisted(() => ({
 
 vi.mock("@/hooks/usePython", () => ({
 	usePython: () => ({
-		// Stable `call` — identical reference on every render (see the
+		// Stable `call`, identical reference on every render (see the
 		// stability comment above; mirrors the real hook's
 		// `useCallback([])`).
 		call: mockCall,
@@ -213,7 +223,7 @@ vi.mock("@/stores/appStore", () => ({
 // Models, Microphone, Dashboard).  Each of these pages pulls in heavy
 // transitive dependencies (useConnection, useTheme, useSoundFeedback,
 // useLastUpdated, useStatsShare, useModelLifecycle, useSnackbar) that
-// aren't needed for an a11y scan — stubbing them keeps the test light
+// aren't needed for an a11y scan, stubbing them keeps the test light
 // and avoids the OOM that plagues the Onboarding test (which doesn't
 // stub its full dep tree).
 vi.mock("@/hooks/useConnection", () => ({
@@ -242,7 +252,7 @@ vi.mock("@/hooks/useSoundFeedback", () => ({
 vi.mock("@/hooks/useLastUpdated", () => ({
 	useLastUpdated: () => ({
 		agoLabel: "",
-		// Stable identity — the real hook's `markUpdated` is a
+		// Stable identity, the real hook's `markUpdated` is a
 		// `useCallback([])`; a fresh fn per render would re-fire Home's
 		// mount effect (`[call, markUpdated]` deps) the same way an
 		// unstable `call` does (see the usePython mock comment above).
@@ -375,7 +385,7 @@ Object.defineProperty(globalThis, "matchMedia", {
 	writable: true,
 });
 
-/** Axe helper — filters out the disabled color-contrast rule. */
+/** Axe helper, filters out the disabled color-contrast rule. */
 async function expectNoAxeViolations(container: HTMLElement): Promise<void> {
 	const results = await axe.run(container, AXE_OPTIONS);
 	const violations = results.violations.filter(
@@ -388,13 +398,13 @@ async function expectNoAxeViolations(container: HTMLElement): Promise<void> {
  * Page-render helper. Pages use Radix `Tooltip` (via SettingRow and
  * other ui primitives); the real App shell wraps everything in a
  * `TooltipProvider` (App.tsx), so tests mounting pages directly must
- * provide one too — otherwise every Tooltip render throws
+ * provide one too, otherwise every Tooltip render throws
  * "Tooltip must be used within TooltipProvider" (surfaced as an
  * unhandled error on the CI Client test run during the axe scans).
  */
 const renderPage = (ui: React.ReactElement) =>
 	render(<TooltipProvider delayDuration={200}>{ui}</TooltipProvider>);
-describe("axe-core automated WCAG scan — all pages", () => {
+describe("axe-core automated WCAG scan, all pages", () => {
 	it("About & Privacy page (merged): no axe violations", async () => {
 		const AboutAndPrivacyPage = (await import("@/pages/AboutAndPrivacy"))
 			.default;
@@ -447,7 +457,7 @@ describe("axe-core automated WCAG scan — all pages", () => {
 		//(session NH): the consent banner heading was promoted
 		// from <h3> to <h2> in components/models/LocalModelsPanel.tsx,
 		// so the heading hierarchy is now h1 (PageHeading) → h2
-		// (consent banner) — no more axe heading-order violation.
+		// (consent banner), no more axe heading-order violation.
 		// Flipped back from `it.fails` to `it` so this acts as a
 		// regression spec.
 		const ModelsPage = (await import("@/pages/Models")).default;
@@ -469,6 +479,231 @@ describe("axe-core automated WCAG scan — all pages", () => {
 		// test now passes. Flip back from `it.fails` to `it`.
 		const DashboardPage = (await import("@/pages/Dashboard")).default;
 		const { container } = renderPage(<DashboardPage />);
+		await expectNoAxeViolations(container);
+	});
+});
+// ── Interactive-surface scans ─────────────────────────────────────────
+// The page-root scans above cover the empty/stub mount states. These
+// scans cover dialog-open states, the app shell, a populated list, and
+// the non-default Settings sections, the states users actually see.
+// Dialogs/portals render OUTSIDE the testing-library `container` (Radix
+// portals attach to document.body), so those scans run axe against
+// document.body instead of the container.
+
+/** Axe helper for portal surfaces, scans the whole document body. */
+async function expectNoAxeViolationsInDocument(): Promise<void> {
+	const results = await axe.run(document.body, AXE_OPTIONS);
+	const violations = results.violations.filter(
+		(v) => v.id !== "color-contrast",
+	);
+	expect(violations).toEqual([]);
+}
+
+describe("axe-core automated WCAG scan, interactive surfaces", () => {
+	it("ConsentGateDialog (open): no axe violations", async () => {
+		const { useConsentGateStore } = await import("@/lib/consentGate");
+		const ConsentGateDialog = (
+			await import("@/components/consent/ConsentGateDialog")
+		).default;
+		useConsentGateStore.setState({ request: null });
+		useConsentGateStore.getState().open({
+			consentField: "cloud_groq_consent",
+			bodyKey: "consentDialog.field.cloud_groq_consent",
+		});
+		try {
+			renderPage(<ConsentGateDialog />);
+			await screen.findByRole("alertdialog");
+			await expectNoAxeViolationsInDocument();
+		} finally {
+			useConsentGateStore.setState({ request: null });
+		}
+	});
+
+	it("HelpOverlay (open): no axe violations", async () => {
+		const { HelpOverlay } = await import("@/components/help/HelpOverlay");
+		renderPage(
+			<HelpOverlay
+				open
+				onClose={vi.fn()}
+				dictationLabel="F2"
+				repasteLabel="Ctrl+Alt+V"
+			/>,
+		);
+		await screen.findByRole("dialog");
+		await expectNoAxeViolationsInDocument();
+	});
+
+	it("ShareStatsDialog (open): no axe violations", async () => {
+		const { ShareStatsDialog } = await import(
+			"@/components/dashboard/ShareStatsDialog"
+		);
+		const { FALLBACK_THEME_PALETTE } = await import("@/lib/theme-palette");
+		const user = userEvent.setup();
+		renderPage(
+			<ShareStatsDialog
+				actions={{
+					downloadImage: vi.fn().mockResolvedValue("/tmp/x.png"),
+					saveImageAs: vi.fn().mockResolvedValue(null),
+					copyImageToClipboard: vi.fn().mockResolvedValue(true),
+					revealInFolder: vi.fn().mockResolvedValue(undefined),
+				}}
+				stats={{
+					wpm: 92,
+					wpmDisplay: "92",
+					minutesSaved: 18,
+					minutesSavedDisplay: "18",
+					modeDisplay: "Offline",
+					modeDetail: "Local Model",
+					fasterThanAvg: "120% faster than avg typer",
+					hasTodayActivity: true,
+					dictations: "42",
+					activeDays: "12",
+					activeDaysDetail: "5-day streak",
+					chars: "8400",
+					recordingTime: "1h 12m",
+					model: "Tiny",
+					device: "GPU",
+				}}
+				palette={FALLBACK_THEME_PALETTE}
+			/>,
+		);
+		// Real i18n is loaded (en), the trigger is the icon-only share
+		// button whose accessible name is the localized share aria-label.
+		await user.click(
+			await screen.findByRole("button", { name: "Share stats" }),
+		);
+		// The preview popup is a Radix Dialog in a portal.
+		await screen.findByRole("dialog");
+		await expectNoAxeViolationsInDocument();
+	});
+
+	it("app shell, Sidebar (expanded) + TitleBar/GlobalSearchBar: no axe violations", async () => {
+		const { Sidebar } = await import("@/components/layout/Sidebar");
+		const { TitleBar } = await import("@/components/layout/TitleBar");
+		const { container } = renderPage(
+			<div className="flex h-screen">
+				<Sidebar currentPage="home" onNavigate={vi.fn()} />
+				<TitleBar
+					isMaximized={false}
+					onToggleSidebar={vi.fn()}
+					onGoBack={vi.fn()}
+					onGoForward={vi.fn()}
+					canGoBack={false}
+					canGoForward={false}
+					themeMode="system"
+					onThemeChange={vi.fn()}
+					onOpenHelp={vi.fn()}
+					currentPage="home"
+				/>
+			</div>,
+		);
+		// Let the title bar's focus/blur + search effects settle.
+		await act(async () => {});
+		await expectNoAxeViolations(container);
+	});
+
+	it("app shell, Sidebar (collapsed rail): no axe violations", async () => {
+		const { Sidebar } = await import("@/components/layout/Sidebar");
+		const { container } = renderPage(
+			<Sidebar currentPage="home" onNavigate={vi.fn()} collapsed />,
+		);
+		await act(async () => {});
+		await expectNoAxeViolations(container);
+	});
+
+	// (was a pinned `it.fails`: the History date-group headings rendered
+	// as <h3> directly under the page's <h1>. Fixed to <h2> in
+	// ActivityList.tsx, now a passing regression spec.)
+	it("History page (populated with rows): date-group headings follow heading order", async () => {
+		const defaultImpl = mockCall.getMockImplementation();
+		const now = Date.now();
+		const historyRows = [
+			{
+				id: 1,
+				text: "hello from the populated axe scan",
+				timestamp: new Date(now - 60_000).toISOString(),
+				duration: 4,
+				model: "tiny",
+				device: "cpu",
+				word_count: 6,
+				char_count: 33,
+				favorite: 0,
+				language: "en",
+			},
+			{
+				id: 2,
+				text: "an older favorite entry",
+				timestamp: new Date(now - 26 * 60 * 60 * 1000).toISOString(),
+				duration: 7,
+				model: "small",
+				device: "cpu",
+				word_count: 4,
+				char_count: 23,
+				favorite: 1,
+				language: "en",
+			},
+		];
+		mockCall.mockImplementation(async (cmd: string) => {
+			if (cmd === "get_history") return historyRows;
+			if (cmd === "get_history_count") return { count: historyRows.length };
+			return defaultImpl ? defaultImpl(cmd) : undefined;
+		});
+		try {
+			const HistoryPage = (await import("@/pages/History")).default;
+			const { container } = renderPage(<HistoryPage />);
+			await waitFor(() => {
+				expect(
+					screen.getByText("hello from the populated axe scan"),
+				).toBeTruthy();
+			});
+			await expectNoAxeViolations(container);
+		} finally {
+			// Restore the module-level default implementation so later
+			// tests in this file see the original empty-state responses.
+			// `getMockImplementation()` returns undefined when the mock
+			// has no base implementation, restore a matching
+			// undefined-returning stub in that case.
+			mockCall.mockImplementation(defaultImpl ?? (async () => undefined));
+		}
+	});
+
+	it("Settings section pages (full cycle): no axe violations", async () => {
+		const SettingsPage = (await import("@/pages/Settings")).default;
+		const { SETTINGS_SECTION_PAGES } = await import(
+			"@/components/settings/settingsSections"
+		);
+		// The hub (default "settings" page) is scanned by the page-root
+		// block above; cycle every SECTION page here so the non-default
+		// Settings surfaces get a full-rule scan too. The volume
+		// RangeSlider's former root-level aria attributes (the reason
+		// settingsHotkeys was once excluded here) are fixed at the
+		// shared wrapper + RangeSlider level: naming attrs and value
+		// attrs now live only on the thumb (role="slider"), which
+		// Radix derives automatically.
+		for (const sectionPage of SETTINGS_SECTION_PAGES) {
+			const { container, unmount } = renderPage(
+				<SettingsPage page={sectionPage} />,
+			);
+			// Flush async section init (IPC mocks resolve on microtasks).
+			await act(async () => {});
+			await expectNoAxeViolations(container);
+			unmount();
+		}
+	});
+
+	// Regression pin for the slider aria wiring: the sound volume
+	// RangeSlider in RecordingSettingsSection (settingsHotkeys) formerly
+	// set aria-label + aria-valuenow/min/max on the slider ROOT span
+	// (role-less), axe aria-prohibited-attr / aria-allowed-attr. Fixed by
+	// moving the slider's naming + value ARIA contract to the thumb
+	// (role="slider") in ui/slider.tsx + RangeSlider.tsx. The hotkeys
+	// section is now part of the green cycle above; this scan stays as an
+	// explicit guard so a future wrapper regression cannot silently
+	// re-exclude it from the cycle.
+	it("Settings hotkeys section: full-rule scan stays green after the slider aria fix", async () => {
+		const SettingsPage = (await import("@/pages/Settings")).default;
+		const { container } = renderPage(<SettingsPage page="settingsHotkeys" />);
+		await act(async () => {});
 		await expectNoAxeViolations(container);
 	});
 });

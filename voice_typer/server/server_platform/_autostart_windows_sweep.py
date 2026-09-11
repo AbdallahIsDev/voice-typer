@@ -11,11 +11,11 @@ module propagate:
 
   - ``is_windows`` / ``_run_key_name`` / ``_startup_bat_name`` /
     ``_extract_command_from_task_xml`` / ``_extract_arguments_from_task_xml``
-    are owned by the facade module (``autostart_windows``) — read lazily
+    are owned by the facade module (``autostart_windows``), read lazily
     (inside the function, avoiding a circular import) as ``_aw.X``.
   - ``_install_identifier`` / ``_resolve_tauri_binary_for_autostart`` /
     ``get_autostart_dir`` / ``_APP_AUTOSTART_TASK_NAME`` / ``_install_hash``
-    are owned by :mod:`.autostart` — bound once at module import time as
+    are owned by :mod:`.autostart`: bound once at module import time as
     ``_autostart_mod`` and read through its attribute at call time.
   - Names defined IN THIS MODULE (the sweep functions themselves) are
     plain module-global lookups, patchable on this module.
@@ -38,7 +38,7 @@ log = logging.getLogger(__name__)
 # PLAT-RUN renamed the autostart entries from fixed strings (and later
 # from a ``sys.executable``-derived hash) to a stable install-path hash.
 # Upgraded installs can therefore carry legacy ``VoiceTyper*`` entries
-# that ALL point at the same install and ALL fire at logon — duplicate
+# that ALL point at the same install and ALL fire at logon, duplicate
 # autostart. The sweep below removes those legacy entries once per
 # install (marker-gated), while preserving the current install's own
 # entry and other installs' entries (multi-install support).
@@ -52,14 +52,14 @@ def _entry_targets_this_install(value: str) -> bool:
     preserved. A command targets this install when either:
 
       • it references the current install's autostart launcher script
-        (``autostart_launcher.py`` — the stable per-install identifier
+        (``autostart_launcher.py``: the stable per-install identifier
         from :func:`autostart._install_identifier`). Every Python-backed
         entry embeds it in the arguments, so this covers the
         overwhelming majority of legacy entries regardless of which
         interpreter registered them.
       • its executable is the current install's Tauri binary (the
         ``_tauri_binary()`` fallback used when no Python interpreter is
-        available — a bare binary with no launcher in the arguments).
+        available, a bare binary with no launcher in the arguments).
 
     Conservative by design: if neither check matches, the entry is
     treated as NOT belonging to this install and is left alone.
@@ -132,7 +132,7 @@ def _sweep_legacy_runkeys() -> list[str]:
                     winreg.DeleteValue(key, name)
                     deleted.append(name)
                     log.info("[AUTOSTART] Legacy sweep removed duplicate Run key: %s", name)
-                    # Don't increment i — the next value shifts into the
+                    # Don't increment i, the next value shifts into the
                     # current slot after DeleteValue.
                     continue
                 except OSError as exc:
@@ -159,10 +159,10 @@ def _sweep_legacy_tasks() -> list[str] | None:
     on the ``<Command>`` path + ``<Arguments>`` text).
 
     Returns:
-      - ``list`` — the deleted task names. An empty list means the sweep
+      - ``list``: the deleted task names. An empty list means the sweep
         ran and found nothing (or the platform doesn't use scheduled
         tasks);
-      - ``None`` — the enumeration FAILED (PowerShell unavailable /
+      - ``None``: the enumeration FAILED (PowerShell unavailable /
         non-zero exit / exception). ``None`` tells the marker-gated
         orchestrator NOT to write the completion marker, so the task
         portion is retried on the next startup instead of being lost
@@ -170,7 +170,7 @@ def _sweep_legacy_tasks() -> list[str] | None:
 
     The PowerShell call is bounded by a 15s timeout (not the
     uninstaller's 60s) because this runs from ``sync_autostart`` on the
-    startup path — a hung PowerShell must not stall app startup.
+    startup path, a hung PowerShell must not stall app startup.
     """
     from voice_typer.server.server_platform import autostart_windows as _aw
 
@@ -214,7 +214,7 @@ def _sweep_legacy_tasks() -> list[str] | None:
         )
         if result.returncode != 0:
             log.debug(
-                "[AUTOSTART] Legacy task sweep enumeration failed (rc=%s) — will retry next startup",
+                "[AUTOSTART] Legacy task sweep enumeration failed (rc=%s), will retry next startup",
                 result.returncode,
             )
             return None
@@ -250,7 +250,7 @@ def _sweep_legacy_startup_bats() -> list[str]:
     ``_startup_bat_name()`` AND whose content targets this install
     (:func:`_entry_targets_this_install` on the file text).
 
-    Returns the list of deleted file names. Best-effort — unreadable /
+    Returns the list of deleted file names. Best-effort, unreadable /
     undeletable files are logged and skipped.
     """
     from voice_typer.server.server_platform import autostart_windows as _aw
@@ -294,7 +294,7 @@ def _sweep_v1_marker_files(config_dir: Path) -> list[str]:
 
     The v2 sweep marker (``autostart-sweep-v2-<hash>.done``) is
     version-scoped precisely so installs that already ran the v1 sweep
-    re-run once after the PLAT-RUN rename — but nothing ever removed the
+    re-run once after the PLAT-RUN rename, but nothing ever removed the
     v1 marker files themselves, so they linger in ``config_dir`` forever
     (one per legacy ``python.exe`` / ``pythonw.exe`` install hash). They
     are tiny but pure clutter once their sweep has been superseded.
@@ -336,7 +336,7 @@ def _legacy_sweep_marker_path(config_dir: Path) -> Path:
     prewarm names moved from the bare ``VoiceTyper*`` scheme into the
     canonical ``com.voicetyper.*`` reverse-DNS namespace, so installs
     that already ran the v1 sweep (old marker name) MUST re-run the
-    sweep once — the version bump makes the v1 marker miss and the new
+    sweep once, the version bump makes the v1 marker miss and the new
     sweep removes the pre-rename entries that would otherwise linger as
     duplicate autostart triggers.
     """
@@ -361,7 +361,7 @@ def sweep_legacy_autostart_entries(config_dir: Path) -> dict:
       • the current install's own entry (``_run_key_name`` /
         ``_APP_AUTOSTART_TASK_NAME`` / ``_startup_bat_name``), and
       • other installs' entries (different launcher path → different
-        install → preserved — PLAT-RUN multi-install support).
+         install → preserved, PLAT-RUN multi-install support).
 
     It runs AT MOST ONCE per install: after the sweep (whether or not
     anything was removed) a marker file keyed by the install hash is
@@ -376,7 +376,7 @@ def sweep_legacy_autostart_entries(config_dir: Path) -> dict:
     "tasks": [...], "bats": [...]}}``.
     """
     # One-time cleanup of v1 sweep markers (``autostart-sweep-<hash>.done``)
-    # left behind by the pre-v2 sweep — see ``_sweep_v1_marker_files``.
+    # left behind by the pre-v2 sweep: see ``_sweep_v1_marker_files``.
     # Runs BEFORE the marker check so installs whose v2 marker already
     # exists (written by a pre-fix version) still get their v1 clutter
     # removed, and before the winreg gate because it is pure filesystem
@@ -388,7 +388,7 @@ def sweep_legacy_autostart_entries(config_dir: Path) -> dict:
     # Windows-only + test-safety gate. The run-key sweep needs winreg,
     # and ``tests/conftest.py`` blocks the REAL ``winreg`` module
     # (``sys.modules["winreg"] = None``) so tests can never touch the
-    # developer's actual HKCU registry — that same guard makes this
+    # developer's actual HKCU registry, that same guard makes this
     # whole sweep inert under test unless a ``fake_winreg`` fixture is
     # injected, which also stops the task/bat sweeps (real PowerShell /
     # real Startup folder) from running during pytest.
@@ -403,11 +403,11 @@ def sweep_legacy_autostart_entries(config_dir: Path) -> dict:
     }
     if removed["tasks"] is None:
         # The task enumeration failed (PowerShell unavailable / non-zero
-        # exit). Do NOT write the completion marker — the sweep retries
+        # exit). Do NOT write the completion marker, the sweep retries
         # next startup so a transient failure can't permanently skip the
         # task portion. The run-key / .bat sweeps already ran (both are
         # idempotent, so re-running them is harmless).
-        log.warning("[AUTOSTART] Legacy autostart sweep: task enumeration failed — will retry on next startup")
+        log.warning("[AUTOSTART] Legacy autostart sweep: task enumeration failed, will retry on next startup")
         return {
             "swept": False,
             "removed": {"runkeys": removed["runkeys"], "tasks": [], "bats": removed["bats"]},
@@ -417,7 +417,7 @@ def sweep_legacy_autostart_entries(config_dir: Path) -> dict:
         marker.write_text("", encoding="utf-8")
     except OSError as exc:
         # Best-effort: if the marker can't be written the sweep re-runs
-        # next startup (still safe — every sub-sweep is idempotent).
+        # next startup (still safe, every sub-sweep is idempotent).
         log.warning(
             "[AUTOSTART] Could not write legacy-sweep marker %s: %s",
             marker,

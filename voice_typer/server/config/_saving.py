@@ -5,15 +5,15 @@ the monolith split). Hosts the bodies behind the ``Config`` save-path
 methods (which live as thin delegators on the
 ``_ConfigLifecycleMixin`` in ``config/_lifecycle.py``):
 
-- :func:`_save_impl` — ``Config.save()`` body (cross-process lock +
+- :func:`_save_impl`: ``Config.save()`` body (cross-process lock +
   never-raises error mapping + Windows dir-ACL tightening),
-- :func:`_save_with_mutation_lock_impl` — in-process RLock wrapper,
-- :func:`_save_unlocked_impl` — the atomic write itself (dirty-flag +
+- :func:`_save_with_mutation_lock_impl`: in-process RLock wrapper,
+- :func:`_save_unlocked_impl`: the atomic write itself (dirty-flag +
   byte-identical short-circuits, credential-store secret routing,
   best-effort ``config.json.bak`` backup),
-- :func:`_save_strict_impl` — raising variant,
-- :func:`_warmup_keyring_probe_impl` — one-time keyring probe,
-- :func:`_enforce_windows_owner_only_acl` — Windows icacls lockdown.
+- :func:`_save_strict_impl`: raising variant,
+- :func:`_warmup_keyring_probe_impl`: one-time keyring probe,
+- :func:`_enforce_windows_owner_only_acl`: Windows icacls lockdown.
 
 Import-safety / monkeypatch contract: this module is imported at the
 TOP of ``config/__init__.py``. Every name that lives in the
@@ -33,7 +33,7 @@ import os
 from dataclasses import asdict
 from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:  # pragma: no cover — typing-only, never imported at runtime
+if TYPE_CHECKING:  # pragma: no cover, typing-only, never imported at runtime
     from pathlib import Path
 
     from voice_typer.server.config import Config
@@ -52,7 +52,7 @@ def _enforce_windows_owner_only_acl(path: "Path | str") -> bool:
     ``tempfile.mkstemp`` inside ``_secure_atomic_write`` inherits the
     parent dir's DACL on Windows, so if the config dir is shared, the
     temp file (and thus the final ``config.json`` after ``os.replace``)
-    inherits that shared DACL — making the plaintext API keys
+    inherits that shared DACL, making the plaintext API keys
     world-readable. Calling this helper after every config write
     re-tightens the ACL to owner-only.
 
@@ -93,7 +93,7 @@ def _enforce_windows_owner_only_acl(path: "Path | str") -> bool:
     if not _cfg.is_windows():
         return True
     # Fast path: files inside a dir we already tightened inherit the
-    # owner-only DACL — no subprocess needed. Avoids ~420ms of icacls
+    # owner-only DACL, no subprocess needed. Avoids ~420ms of icacls
     # subprocess overhead per save (2 calls/save) that made concurrent
     # saves exceed the cross-process lock deadline.
     parent_dir = str(_cfg.Path(path).parent)
@@ -109,9 +109,9 @@ def _enforce_windows_owner_only_acl(path: "Path | str") -> bool:
         )
         return False
     try:
-        # /inheritance:r — remove all inherited ACEs
-        # /grant:r      — replace (not merge) explicit grants
-        # "<user>:F"    — Full control to the current user only
+        # /inheritance:r. Remove all inherited ACEs
+        # /grant:r     , replace (not merge) explicit grants
+        # "<user>:F"   : Full control to the current user only
         # Using a list (not a shell string) sidesteps cmd.exe
         # metacharacter injection even if USERNAME contains shell
         # specials.
@@ -148,7 +148,7 @@ def _enforce_windows_owner_only_acl(path: "Path | str") -> bool:
 
 
 def _save_impl(cfg: "Config") -> bool:
-    """Body of ``Config.save()`` — see the delegator's docstring.
+    """Body of ``Config.save()``: see the delegator's docstring.
 
     Save config to disk atomically via temp file + os.replace.
     Returns True on success, False on failure. Errors are logged but
@@ -160,12 +160,12 @@ def _save_impl(cfg: "Config") -> bool:
 
     # Windows-only, best-effort: tighten the config DIR's ACL when
     # this save CREATES the directory. We cannot run ``icacls <dir>
-    # /inheritance:r`` on an existing dir — while ANY file in it is
+    # /inheritance:r`` on an existing dir, while ANY file in it is
     # held open (``config.json.lock`` during every save), the ACL
     # rewrite poisons the open file on Python < 3.11.13 (where
     # ``os.open`` lacks ``FILE_SHARE_DELETE`` on Windows), failing
     # every subsequent ``Config.save()`` in the process with
-    # ``PermissionError`` (reproduced on 3.11.9 — the CI 3.11 leg
+    # ``PermissionError`` (reproduced on 3.11.9, the CI 3.11 leg
     # failed ~20 config tests); the same rewrite on a dir that
     # already contains files breaks writes to those files too. A
     # directory we just created is guaranteed empty, so the icacls
@@ -175,7 +175,7 @@ def _save_impl(cfg: "Config") -> bool:
     # dir DACL. Note this is narrow belt-and-suspenders: in the
     # normal flow the config dir is created by logging/history init
     # BEFORE the first save (and per-user ``%APPDATA%`` is
-    # owner-only by default anyway) — the meaningful hardening is
+    # owner-only by default anyway), the meaningful hardening is
     # the per-file icacls on ``config.json`` / ``config.json.bak``
     # in ``_save_unlocked``. Guarded by the same dirty-flag
     # short-circuit as ``_save_unlocked`` so no-op saves skip it;
@@ -202,7 +202,7 @@ def _save_impl(cfg: "Config") -> bool:
             ):
                 _cfg._windows_owner_only_acl_verified.add(str(config_dir))
         except Exception:
-            # Best-effort hardening — never block the save (see the
+            # Best-effort hardening, never block the save (see the
             # never-raises contract in the ``save`` docstring).
             pass
     try:
@@ -222,7 +222,7 @@ def _save_impl(cfg: "Config") -> bool:
         # smuggled in via ``setattr`` or a botched migration), and
         # ``ValueError`` for circular references. The previous
         # ``except`` tuple only caught ``TimeoutError`` /
-        # ``OSError`` / ``PermissionError`` — a ``TypeError``
+        # ``OSError`` / ``PermissionError``: a ``TypeError``
         # propagated to the caller, violating the ``save()``
         # docstring's "never raises" contract (which the IPC
         # ``set_config`` path relies on: a ``TypeError`` would
@@ -256,7 +256,7 @@ def _save_with_mutation_lock_impl(cfg: "Config") -> bool:
 
 
 def _save_unlocked_impl(cfg: "Config") -> bool:
-    """Body of ``Config._save_unlocked`` — assumes both locks held.
+    """Body of ``Config._save_unlocked``: assumes both locks held.
 
     Best-effort single-slot backup of the existing config.json BEFORE
     we overwrite it. The backup preserves the EXACT bytes that were on
@@ -265,7 +265,7 @@ def _save_unlocked_impl(cfg: "Config") -> bool:
 
     When the in-memory serialized content matches the
     previously-persisted bytes (``_last_saved_bytes``), the entire
-    backup block is skipped — no ``Path.read_bytes`` call, no
+    backup block is skipped, no ``Path.read_bytes`` call, no
     ``config.json.bak`` write, no ``os.chmod``. This is the common
     case for ``set_config`` round-trips that don't change any
     persisted field.
@@ -275,7 +275,7 @@ def _save_unlocked_impl(cfg: "Config") -> bool:
     is checked at the TOP of this function. When False AND
     ``_last_saved_bytes`` is populated, the entire save is
     short-circuited BEFORE the expensive ``asdict(self)`` +
-    ``json.dumps`` calls — the common case for back-to-back
+    ``json.dumps`` calls, the common case for back-to-back
     ``save()`` calls with no intervening mutation (e.g. a
     ``set_config`` IPC round-trip whose ``updates`` dict was a
     no-op after the per-key dirty-check in ``apply_config``).
@@ -284,7 +284,7 @@ def _save_unlocked_impl(cfg: "Config") -> bool:
 
     # Dirty-flag short-circuit. If no persisted field has
     # been mutated since the last successful save (and we have in
-    # fact saved at least once), there is nothing to do — skip the
+    # fact saved at least once), there is nothing to do, skip the
     # entire save including ``asdict(self)`` + ``json.dumps`` +
     # ``_secure_atomic_write`` + ``.bak`` write. The ``_dirty`` flag
     # is set True by ``__setattr__`` on every persisted-field
@@ -292,7 +292,7 @@ def _save_unlocked_impl(cfg: "Config") -> bool:
     # successful write. The ``_last_saved_bytes is not None`` guard
     # ensures a fresh ``Config()`` (which has ``_dirty=True`` from
     # ``__post_init__``) always falls through to the real write on
-    # its first save — even if ``_dirty`` were manually cleared,
+    # its first save, even if ``_dirty`` were manually cleared,
     # the cache would still be ``None`` and the guard below would
     # fall through. Belt-and-suspenders.
     if not cfg._dirty and cfg._last_saved_bytes is not None:
@@ -305,7 +305,7 @@ def _save_unlocked_impl(cfg: "Config") -> bool:
         except OSError as e:
             log.warning("[CONFIG] Failed to chmod config dir: %s", e)
     # The config DIR's ACL is tightened in ``save()`` BEFORE the
-    # cross-process lock is acquired, NOT here — this function is
+    # cross-process lock is acquired, NOT here, this function is
     # always called with ``config.json.lock`` held open, and
     # running ``icacls <dir> /inheritance:r`` while the lock file
     # is open poisons it on Python < 3.11.13 (``os.open`` lacks
@@ -318,7 +318,7 @@ def _save_unlocked_impl(cfg: "Config") -> bool:
     # Reset the ``_secrets_routed_in_save`` flag at the
     # start of the routing block. Set to True below ONLY if the
     # routing try-block completes (whether keyring was available
-    # or not — the routing was "attempted" and the secret is
+    # or not, the routing was "attempted" and the secret is
     # either in keyring or persisted as plaintext in config.json
     # by the final ``_secure_atomic_write``). Readers
     # (``config_applier.apply_config``) check this flag to decide
@@ -336,7 +336,7 @@ def _save_unlocked_impl(cfg: "Config") -> bool:
                 value = data.get(field_name, "")
                 # defensive type guard for non-string api_key
                 # values. ``asdict(self)`` reflects whatever the
-                # in-memory Config instance carries — normally a
+                # in-memory Config instance carries, normally a
                 # str (the dataclass field type) but a buggy IPC
                 # caller or a monkeypatched test instance could
                 # set a non-string value, which would crash here
@@ -346,19 +346,19 @@ def _save_unlocked_impl(cfg: "Config") -> bool:
                 # aborting the entire save).
                 #
                 # Coerce int/float (excluding bool, which is a
-                # subclass of int in Python) to str — backward
+                # subclass of int in Python) to str, backward
                 # compat with old configs that stored api_key as
                 # an int. Skip other non-string truthy types
                 # (dict, list) with a warning so the save can
                 # proceed for the remaining providers.
                 if not isinstance(value, str):
                     if not value:
-                        # Falsy (None, 0, [], {}, "") — nothing
+                        # Falsy (None, 0, [], {}, ""), nothing
                         # to route to credential_store.
                         continue
                     if isinstance(value, (int, float)) and not isinstance(value, bool):
                         log.warning(
-                            "[CONFIG] DE-23: %s field has non-string value (type=%s) — coercing to str",
+                            "[CONFIG] DE-23: %s field has non-string value (type=%s), coercing to str",
                             field_name,
                             type(value).__name__,
                         )
@@ -367,7 +367,7 @@ def _save_unlocked_impl(cfg: "Config") -> bool:
                     else:
                         log.warning(
                             "[CONFIG] DE-23: %s field has non-string value (type=%s)"
-                            " — skipping credential_store routing",
+                            ": skipping credential_store routing",
                             field_name,
                             type(value).__name__,
                         )
@@ -376,11 +376,11 @@ def _save_unlocked_impl(cfg: "Config") -> bool:
                     # pass ``_caller_holds_config_lock=True``
                     # so ``store_secret`` → ``_write_plaintext_fallback`` does
                     # NOT re-acquire ``config.json.lock`` (which would deadlock
-                    # — fcntl.flock is per-open-file-description on Linux, so a
+                    # , fcntl.flock is per-open-file-description on Linux, so a
                     # second ``open()`` + ``flock(LOCK_EX | LOCK_NB)`` on the
                     # same lock file from THIS process fails with EWOULDBLOCK
                     # and spins until the 5s ``_CONFIG_LOCK_TIMEOUT_SECONDS``
-                    # deadline, then raises TimeoutError — pre-fix, that was
+                    # deadline, then raises TimeoutError, pre-fix, that was
                     # caught by ``_write_plaintext_fallback``'s broad
                     # ``except Exception`` and logged at ERROR, silently
                     # dropping the user's API key when keyring failed mid-save).
@@ -413,7 +413,7 @@ def _save_unlocked_impl(cfg: "Config") -> bool:
         # credential_store exceptions can echo the secret value
         # being stored, which would leak into log files.
         log.warning(
-            "[CONFIG] credential_store routing failed: %s — writing config with current api_key values",
+            "[CONFIG] credential_store routing failed: %s, writing config with current api_key values",
             type(e).__name__,
         )
         # Leave ``_secrets_routed_in_save`` at False (set
@@ -427,7 +427,7 @@ def _save_unlocked_impl(cfg: "Config") -> bool:
     # is populated after each successful ``save()`` and is ``None``
     # on a fresh ``Config()`` instance (set in ``__post_init__``).
     # When the cache is populated and the new ``content_bytes`` match
-    # it, there is nothing to do — the on-disk file already has the
+    # it, there is nothing to do, the on-disk file already has the
     # exact bytes we would write. This mirrors the
     # ``PersistedJSON._last_written_bytes`` pattern in
     # ``secure_file_io.py`` (load → cache, save → diff → skip). The
@@ -436,7 +436,7 @@ def _save_unlocked_impl(cfg: "Config") -> bool:
     # same config the server already has): without this skip, every
     # such call paid the full ``_secure_atomic_write`` cost (temp
     # file, ``os.replace``, optional fsync) plus the
-    # ``config.json.bak`` backup read+write — pure I/O churn for an
+    # ``config.json.bak`` backup read+write, pure I/O churn for an
     # identical result. The ``is not None`` guard ensures a fresh
     # instance (cache never populated) always falls through to the
     # real write, so the first save after construction/load is
@@ -451,7 +451,7 @@ def _save_unlocked_impl(cfg: "Config") -> bool:
     # then mutated back. Without this check, those no-op
     # mutations would trigger a full write unnecessarily.
     if cfg._last_saved_bytes is not None and cfg._last_saved_bytes == content_bytes:
-        # Clear the dirty flag here too — the content
+        # Clear the dirty flag here too, the content
         # matches what's on disk, so the in-memory state is
         # effectively "clean" relative to disk.
         object.__setattr__(cfg, "_dirty", False)
@@ -469,7 +469,7 @@ def _save_unlocked_impl(cfg: "Config") -> bool:
     # wrote on the last successful save, which (barring external
     # modification) equals the current on-disk content. This skips
     # one filesystem read (the ``_secure_read_text`` open + read +
-    # inode-verify) per modified save — the .bak WRITE still
+    # inode-verify) per modified save, the .bak WRITE still
     # happens (the content has changed, so the backup is needed),
     # but the READ is eliminated. The ``_secure_read_text`` path
     # is retained as a fallback for the first save (cache is
@@ -500,7 +500,7 @@ def _save_unlocked_impl(cfg: "Config") -> bool:
                 # the .bak). The subsequent ``_secure_atomic_write``
                 # uses ``os.replace`` which replaces the SYMLINK
                 # itself (safe), so the actual config.json write
-                # is fine — but the .bak was already poisoned.
+                # is fine, but the .bak was already poisoned.
                 existing_text = _cfg._secure_read_text(config_file)
                 existing_bytes = existing_text.encode("utf-8")
             if existing_bytes != content_bytes:
@@ -517,7 +517,7 @@ def _save_unlocked_impl(cfg: "Config") -> bool:
                         log.debug("[CONFIG] Failed to chmod config.json.bak: %s", e)
                 else:
                     # enforce owner-only ACL on the
-                    # backup file on Windows — it contains the
+                    # backup file on Windows, it contains the
                     # same plaintext API keys as config.json.
                     _cfg._enforce_windows_owner_only_acl(bak_path)
         except (OSError, ValueError) as e:
@@ -541,11 +541,11 @@ def _save_unlocked_impl(cfg: "Config") -> bool:
         _cfg._enforce_windows_owner_only_acl(config_file)
     # record the bytes we just persisted so the next
     # identical save can short-circuit the backup block above.
-    # Updated only AFTER a successful write — a failed write
+    # Updated only AFTER a successful write, a failed write
     # leaves the cache stale, which forces the next save through
     # the full backup path (safe-but-slower fallback).
     object.__setattr__(cfg, "_last_saved_bytes", content_bytes)
-    # Clear the dirty flag — the in-memory state now
+    # Clear the dirty flag, the in-memory state now
     # matches the on-disk state. The next ``save()`` call (with no
     # intervening mutation) will short-circuit at the top of this
     # function via the ``not self._dirty`` check.
@@ -554,20 +554,20 @@ def _save_unlocked_impl(cfg: "Config") -> bool:
 
 
 def _save_strict_impl(cfg: "Config") -> None:
-    """Body of ``Config.save_strict`` — save; raise on failure.
+    """Body of ``Config.save_strict``: save; raise on failure.
 
     Wraps ``save()`` and raises :class:`RuntimeError` if the
     underlying save returned ``False`` (which indicates an
     ``OSError`` or ``PermissionError`` was caught and logged by
-    ``save()``). Callers who care about persistence — i.e. IPC
+    ``save()``). Callers who care about persistence, i.e. IPC
     handlers that return an ``ack`` to the renderer only when the
-    config actually landed on disk — call this instead of
+    config actually landed on disk: call this instead of
     ``save()`` so a silent disk failure is surfaced as an IPC error
     rather than a successful-but-empty ack.
 
     The error message is intentionally generic (it does NOT embed
     the underlying ``OSError`` message) because the renderer may
-    display the error string to the user — the underlying message
+    display the error string to the user, the underlying message
     could contain a filesystem path that we don't want to leak
     across the IPC boundary. ``save()`` already logs the full
     error message on the server side.
@@ -594,7 +594,7 @@ def _warmup_keyring_probe_impl() -> None:
     The probe is idempotent: ``credential_store.is_keyring_available``
     caches its result at module level
     (``credential_store._keyring_available_cache``), so subsequent
-    calls — including the first ``save`` — read the cached
+    calls: including the first ``save``: read the cached
     value in O(1). Calling more than once is a no-op after the
     first call (the ``config`` module's ``_warmup_called`` flag
     records the first invocation; tests assert on it to verify the
@@ -605,12 +605,12 @@ def _warmup_keyring_probe_impl() -> None:
 
     The probe is wrapped in ``credential_store.is_keyring_available``'s
     own broad ``except Exception`` (which catches D-Bus connection
-    errors, missing pyobjc / pywin32, etc.) — this function does
+    errors, missing pyobjc / pywin32, etc.): this function does
     NOT add its own try/except so a genuine import error in
     ``credential_store`` surfaces at the call site rather than
     being silently swallowed. The ``_warmup_called`` flag is set to
     True even if the probe itself returns False (keyring
-    unavailable) — the WARMUP happened; the unavailability
+    unavailable), the WARMUP happened; the unavailability
     is the cached result, not a warmup failure.
     """
     import voice_typer.server.config as _cfg
@@ -624,7 +624,7 @@ def _warmup_keyring_probe_impl() -> None:
         return
     from voice_typer.server import credential_store
 
-    # Touch the probe — the result is cached inside
+    # Touch the probe, the result is cached inside
     # ``credential_store`` (``_keyring_available_cache``) for the
     # process lifetime (positive) or until the re-probe interval
     # (negative). The return value is intentionally ignored here:

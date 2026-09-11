@@ -40,7 +40,7 @@ class TestPickAvailablePortReturnsBoundSocket:
     def test_returned_socket_is_bound(self):
         """The returned socket is already bound (no re-bind needed).
 
-        This is the CR-7 gold-standard contract — by the time the caller
+        This is the CR-7 gold-standard contract, by the time the caller
         receives the socket, the kernel has already reserved the port.
         No other local process can claim it.
         """
@@ -59,7 +59,7 @@ class TestPickAvailablePortReturnsBoundSocket:
     def test_returned_socket_has_reuseaddr(self):
         """The returned socket has SO_REUSEADDR set (matches legacy behavior)
         on POSIX; on Windows the option is deliberately NOT set (its
-        semantics are inverted there — it would let a second socket
+        semantics are inverted there, it would let a second socket
         hijack the port), so we assert the socket is usable instead."""
         import os
 
@@ -78,14 +78,14 @@ class TestPickAvailablePortReturnsBoundSocket:
             sock.close()
 
     def test_returned_socket_is_listenable(self):
-        """``listen()`` succeeds on the returned socket — confirms the
+        """``listen()`` succeeds on the returned socket, confirms the
         socket is valid for direct hand-off to ``start_tcp`` (the
         no-race-window gold-standard path)."""
         from voice_typer.server.ipc_server import _pick_available_port
 
         port, sock = _pick_available_port(0, max_tries=1)
         try:
-            # listen() must succeed — this is what _accept_tcp does.
+            # listen() must succeed, this is what _accept_tcp does.
             sock.listen(1)
             # Verify the socket is now in LISTEN state by binding a
             # client and connecting.
@@ -107,7 +107,7 @@ class TestPickAvailablePortFallback:
     def test_all_busy_falls_back_to_ephemeral(self):
         """When every port in range is busy, OS assigns an ephemeral one.
 
-        The CR-7 fix preserves this fallback behavior — the returned
+        The CR-7 fix preserves this fallback behavior, the returned
         socket is still bound to 127.0.0.1:0 (kernel-assigned port).
         """
         from voice_typer.server.ipc_server import _pick_available_port
@@ -175,7 +175,7 @@ class TestStartTcpAcceptsTuple:
 
     def test_start_tcp_with_tuple_no_race_window(self):
         """Passing a ``(port, sock)`` tuple uses the pre-bound socket
-        directly — no race window.  This is the CR-7 gold-standard path.
+        directly, no race window.  This is the CR-7 gold-standard path.
         """
         from voice_typer.server.ipc_server import IPCServer, _pick_available_port
 
@@ -190,7 +190,7 @@ class TestStartTcpAcceptsTuple:
 
         old = os.environ.pop("VOICE_TYPER_IPC_TOKEN", None)
         try:
-            # Pass the tuple — start_tcp should use the pre-bound socket.
+            # Pass the tuple, start_tcp should use the pre-bound socket.
             srv.start_tcp((port, sock))
             # Wait for the accept thread to call listen() and store the
             # socket.  Note: the stored socket should be the SAME object
@@ -202,7 +202,7 @@ class TestStartTcpAcceptsTuple:
             # The stored socket MUST be the same pre-bound socket we
             # passed in (proves no re-bind happened → no race window).
             assert srv._tcp_server_socket is sock, (
-                "start_tcp with tuple should reuse the same socket object — "
+                "start_tcp with tuple should reuse the same socket object, "
                 "a different object means it re-bound (race window re-opened)"
             )
             srv.stop()
@@ -243,7 +243,7 @@ class TestStartTcpAcceptsTuple:
             try:
                 client.settimeout(2.0)
                 client.connect(("127.0.0.1", port))
-                # Don't send auth — the server will close after the
+                # Don't send auth, the server will close after the
                 # auth timeout, which is fine for this test.
             finally:
                 client.close()

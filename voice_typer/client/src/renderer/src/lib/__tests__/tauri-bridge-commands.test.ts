@@ -12,14 +12,14 @@
  *
  *   (locale push):
  *   - `window.window_.setLocale(locale)` → `invoke('set_host_locale', { locale })`
- *     (Electron `i18n:set-locale` parity — the Rust host stores the
+ *     (Electron `i18n:set-locale` parity, the Rust host stores the
  *      value in `SidecarState::host_locale`)
  *
  *   (bubble commands):
  *   - `window.bubble.show()` → `invoke('bubble_show')`
  *   - `window.bubble.signalReady()` → `invoke('bubble_signal_ready')`
  *   - `window.bubble.setPosition(position)` → `invoke('bubble_set_position', { x: position, y: position })`
- *     (: `position: "top" | "bottom"` — the Rust host takes
+ *     (: `position: "top" | "bottom"`, the Rust host takes
  *      `(x: Value, y: Value)` and resolves the strings to absolute
  *      physical coords based on monitor bounds)
  *   - `window.bubble.setDraggable(draggable)` → `invoke('bubble_set_draggable', { draggable })`
@@ -35,7 +35,7 @@
  * `window.__TAURI__` is absent (Electron runtime), the bridge MUST NOT
  * override the namespaces already installed by the Electron preload
  * (`window.python`, `window.bubble`, `window.window_`). This is the
- * Phase 3 UI port invariant — the renderer code is identical on both
+ * Phase 3 UI port invariant, the renderer code is identical on both
  * paths because the bridge auto-installs the right namespace.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -90,7 +90,7 @@ interface WindowBridgeState {
 		//`dismiss` is now wired in the Tauri bridge
 		// (invoke("bubble_dismiss")). Optional here because the
 		// main-renderer bridge (label "main") doesn't install
-		// it — the bubble-dismiss test below overrides
+		// it, the bubble-dismiss test below overrides
 		// `getCurrentWindow` to return `label: "bubble"` so the
 		// full BubbleWindowBubble (including dismiss) is installed.
 		dismiss?: () => void;
@@ -128,7 +128,7 @@ describe("tauri-bridge commands (MIG-1.1 + MIG-1.2)", () => {
 		// Reset module registry so the auto-install side effect runs
 		// fresh on each `await import("@/lib/tauri-bridge/install")`.
 		//(: the side effect moved from `index.ts` to the sibling
-		// `install.ts` module — tests below also import
+		// `install.ts` module, tests below also import
 		// `@/lib/tauri-bridge/install` for the side effect.)
 		vi.resetModules();
 	});
@@ -176,7 +176,7 @@ describe("tauri-bridge commands (MIG-1.1 + MIG-1.2)", () => {
 		];
 		// Default the mock to a success-with-path shape so the
 		// `await` resolves cleanly (the test only asserts the invoke
-		// payload, not the return shape — that's covered separately).
+		// payload, not the return shape, that's covered separately).
 		stub.core.invoke.mockResolvedValueOnce({
 			success: true,
 			path: "/tmp/history.json",
@@ -288,7 +288,7 @@ describe("tauri-bridge commands (MIG-1.1 + MIG-1.2)", () => {
 		//setPosition takes a single string ("top" | "bottom"),
 		// matching the MainRendererBubbleMutators.setPosition?: (pos: string) => void
 		// contract. The Rust host's signature is
-		// `bubble_set_position(x: Value, y: Value)` — Tauri v2 rejects
+		// `bubble_set_position(x: Value, y: Value)`, Tauri v2 rejects
 		// a `{ position }` payload (missing required args), so the
 		// bridge forwards the string as BOTH x and y. The Rust host
 		// resolves "top"/"bottom" to absolute physical coords based on
@@ -303,7 +303,7 @@ describe("tauri-bridge commands (MIG-1.1 + MIG-1.2)", () => {
 		});
 	});
 
-	it("bubble.setPosition forwards 'bottom' as { x, y } (XPLAT-6 — string shape used by production)", async () => {
+	it("bubble.setPosition forwards 'bottom' as { x, y } (XPLAT-6, string shape used by production)", async () => {
 		const stub = makeTauriStub();
 		(window as unknown as WindowBridgeState).__TAURI__ = stub;
 
@@ -312,7 +312,7 @@ describe("tauri-bridge commands (MIG-1.1 + MIG-1.2)", () => {
 
 		const bubble = (window as unknown as WindowBridgeState).bubble;
 		expect(bubble?.setPosition).toBeDefined();
-		// Production's second call shape — GeneralSettingsSection.tsx:151
+		// Production's second call shape, GeneralSettingsSection.tsx:151
 		// passes `"bottom"` when the user picks the bottom anchor from the
 		// bubble-position dropdown. The bridge forwards the string as
 		// both x and y so the Rust host can resolve it to
@@ -367,7 +367,7 @@ describe("tauri-bridge commands (MIG-1.1 + MIG-1.2)", () => {
 		// the default `makeTauriStub` (window label "main") would NOT
 		// install it. Override `getCurrentWindow` to return
 		// `label: "bubble"` so the bridge installs the full
-		// `BubbleWindowBubble` (including `hideComplete`) — same
+		// `BubbleWindowBubble` (including `hideComplete`), same
 		// pattern as the bubble.dismiss test below.
 		const stub = makeTauriStub();
 		stub.window.getCurrentWindow = vi.fn(() => ({
@@ -559,7 +559,7 @@ describe("tauri-bridge commands (MIG-1.1 + MIG-1.2)", () => {
 		await import("@/lib/tauri-bridge/install");
 
 		// The Electron-installed namespaces must be untouched (same
-		// referential identity — not replaced, not wrapped).
+		// referential identity, not replaced, not wrapped).
 		expect(w.python).toBe(electronPython);
 		expect(w.bubble).toBe(electronBubble);
 		expect(w.window_).toBe(electronWindow);

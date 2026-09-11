@@ -202,14 +202,14 @@ describe("useBubbleBridge: centralised IPC subscriptions", () => {
 			</BubbleBridgeProvider>,
 		);
 
-		// Drive the show event — both handlers should fire.
+		// Drive the show event, both handlers should fire.
 		act(() => {
 			for (const cb of mockBubble._listeners.show) cb();
 		});
 		expect(showA).toHaveBeenCalledTimes(1);
 		expect(showB).toHaveBeenCalledTimes(1);
 
-		// Drive the config event — both handlers should fire.
+		// Drive the config event, both handlers should fire.
 		act(() => {
 			for (const cb of mockBubble._listeners.config) {
 				cb({ theme_mode: "dark" });
@@ -234,7 +234,7 @@ describe("useBubbleBridge: centralised IPC subscriptions", () => {
 		expect(mockBubble.onLevel).toHaveBeenCalledTimes(1);
 		expect(mockBubble._listeners.level.length).toBe(1);
 
-		// Drive a level event — the handler should fire.
+		// Drive a level event, the handler should fire.
 		act(() => {
 			for (const cb of mockBubble._listeners.level) {
 				cb({ rms: 0.5, peak: 0.7 });
@@ -242,7 +242,7 @@ describe("useBubbleBridge: centralised IPC subscriptions", () => {
 		});
 		expect(onLevel).toHaveBeenCalledWith({ rms: 0.5, peak: 0.7 });
 
-		// Now toggle levelActive to false — the bridge should
+		// Now toggle levelActive to false, the bridge should
 		// unsubscribe from onLevel.
 		rerender(
 			<BubbleBridgeProvider>
@@ -288,7 +288,7 @@ describe("useBubbleBridge: centralised IPC subscriptions", () => {
 			</BubbleBridgeProvider>,
 		);
 
-		// Default mode is "recording" — a setState handler observes the
+		// Default mode is "recording", a setState handler observes the
 		// NEW mode ("idle"), proving the ref updates before fan-out
 		// (no registration-order dependence).
 		act(() => {
@@ -303,7 +303,7 @@ describe("useBubbleBridge: centralised IPC subscriptions", () => {
 		expect(seen).toEqual(["setState:idle", "show:recording"]);
 
 		// transcribing survives a show() (the backend may push the state
-		// before re-showing) — same reducer `useBubbleStateMachine` uses.
+		// before re-showing), same reducer `useBubbleStateMachine` uses.
 		act(() => {
 			for (const cb of mockBubble._listeners.setState) cb("transcribing");
 		});

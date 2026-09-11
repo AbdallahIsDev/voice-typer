@@ -4,11 +4,11 @@ Verifies the three core contracts of the ``_await_socket_writable`` refactor
 (which replaced the per-write ``gettimeout`` / ``settimeout`` / restore
 dance with a single ``select.select`` call):
 
-(a) ``select.select`` is called BEFORE ``sendall`` — the write-readiness
+(a) ``select.select`` is called BEFORE ``sendall``, the write-readiness
     gate runs first so a stalled renderer can't block the worker thread.
 (b) When ``select.select`` returns an empty writable list (timeout), the
     error is logged and the frame is dropped (client marked dead, pending
-    entries re-merged — not silently lost).
+    entries re-merged, not silently lost).
 (c) When ``select.select`` returns the socket as writable, ``sendall`` is
     called with the correct encoded JSON line.
 
@@ -128,7 +128,7 @@ def test_select_timeout_logs_error_and_drops_frame(
     is not writable within the timeout), ``_send`` must:
 
     1. Log the write failure at DEBUG level (the existing convention for
-       client-write failures — keeps the log clean under sustained
+       client-write failures, keeps the log clean under sustained
        disconnects).
     2. Drop the current frame (``sendall`` is NOT called).
     3. Mark the client as dead (``_tcp_client = None``) so the accept
@@ -146,7 +146,7 @@ def test_select_timeout_logs_error_and_drops_frame(
     with patch_obj, caplog.at_level(logging.DEBUG, logger="voice_typer"):
         server._send({"type": "test_event", "id": 1})
 
-    # sendall must NOT have been called — select said not writable.
+    # sendall must NOT have been called, select said not writable.
     tcp_client.conn.sendall.assert_not_called()
 
     # Client must be marked dead.
@@ -188,7 +188,7 @@ def test_select_writable_sendall_called_with_correct_data() -> None:
 
     msg = {"type": "test_event", "id": 42, "text": "hello"}
     # Production now uses compact JSON (no whitespace, ensure_ascii=False)
-    # per XV-83 — see ``tests/test_ipc_server.py::TestCompactJsonSerialization``.
+    # per XV-83: see ``tests/test_ipc_server.py::TestCompactJsonSerialization``.
     expected_line = json.dumps(msg, ensure_ascii=False, separators=(",", ":")) + "\n"
 
     with _patch_select_writable(tcp_client.conn):
@@ -267,7 +267,7 @@ def test_select_writable_sendall_called_with_correct_data_and_drain() -> None:
         assert timeout == _TCP_WRITE_TIMEOUT_SECONDS
         assert wlist == [tcp_client.conn]
 
-    # All pending drained — none re-merged.
+    # All pending drained, none re-merged.
     assert len(server._pending_tcp) == 0, f"Pending must be fully drained; got {server._pending_tcp!r}"
 
     # Client stays alive.

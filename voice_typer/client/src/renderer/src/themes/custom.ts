@@ -1,5 +1,5 @@
 /**
- * "Custom" theme preset — placeholder for user-defined colours.
+ * "Custom" theme preset, placeholder for user-defined colours.
  *
  * The ``light`` / ``dark`` maps are empty because the actual variable
  * overrides are computed at runtime from ``custom_theme`` config data

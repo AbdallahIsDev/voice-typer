@@ -6,7 +6,7 @@
 //! underlying OS process. If the host process crashes (segfault,
 //! OOM kill, `kill -9`), the sidecar Python process is orphaned
 //! and keeps running with the microphone, the IPC port, and the
-//! native hotkey binary child still held — a privacy + resource
+//! native hotkey binary child still held, a privacy + resource
 //! leak. This module attaches a kill-on-parent-exit guarantee to
 //! a freshly-spawned sidecar pid so the orphan is reaped when the
 //! host dies abnormally.
@@ -17,18 +17,18 @@
 //!   Job Object configured with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`.
 //!   The Job Object handle is stored in a process-wide static so it
 //!   stays alive for the lifetime of the host process. When the host
-//!   exits (for any reason — normal exit, crash, `TerminateProcess`),
+//!   exits (for any reason: normal exit, crash, `TerminateProcess`),
 //!   Windows closes the Job Object handle, which triggers the kill-
 //!   on-job-close limit and terminates every process assigned to the
 //!   Job Object (including the sidecar and its own subprocesses if
-//!   they were also assigned — which they aren't here, but the
+//!   they were also assigned: which they aren't here, but the
 //!   sidecar's own children will die when the sidecar dies because
 //!   the sidecar uses `kill_on_drop`-equivalent patterns in its
 //!   Python shutdown path).
 //!
 //! - **POSIX (Linux/macOS)**: a small "reaper" subprocess is spawned
 //!   via `/bin/sh` that polls `kill -0 <parent_pid>` once per
-//!   second. When the parent (the Tauri host) dies — for any
+//!   second. When the parent (the Tauri host) dies, for any
 //!   reason, including `SIGKILL` which the host can't intercept —
 //!   the reaper detects the failed `kill -0` and sends `SIGKILL` to
 //!   the sidecar pid. The reaper is detached into its own session
@@ -85,18 +85,18 @@
 // to the platform-specific implementation below. The function is
 // best-effort: errors are returned as `Err(String)` so the caller can
 // log them, but a failure here does NOT abort the sidecar spawn (the
-// sidecar is already running — killing the host's spawn path wouldn't
+// sidecar is already running: killing the host's spawn path wouldn't
 // help). The caller in `sidecar::spawn::spawn_sidecar_release` logs
 // the error and continues.
 
 /// Attach a kill-on-parent-exit guarantee to the given pid. After this
 /// returns `Ok(())`, the OS will (best-effort) terminate the process
-/// identified by `pid` when the calling host process exits — whether
+/// identified by `pid` when the calling host process exits, whether
 /// normally or via a hard crash that bypasses user-space exit handlers.
 ///
 /// Returns `Err(String)` on best-effort failure (e.g. the Job Object
 /// syscall failed on Windows, or the reaper subprocess failed to spawn
-/// on POSIX). The caller should log the error and continue — the
+/// on POSIX). The caller should log the error and continue, the
 /// sidecar is already running, and the missing kill-on-exit guarantee
 /// is a degraded-mode fallback, not a fatal condition.
 ///
@@ -116,11 +116,11 @@ pub(crate) fn register_kill_on_parent_exit(pid: u32) -> Result<(), String> {
     #[cfg(not(any(target_os = "windows", unix)))]
     {
         let _ = pid;
-        // Unsupported platform — log and return Ok so the caller doesn't
+        // Unsupported platform: log and return Ok so the caller doesn't
         // treat this as a fatal error. The sidecar will still run; it
         // just won't have the kill-on-parent-exit guarantee.
         log::warn!(
-            "[process] register_kill_on_parent_exit: unsupported platform — \
+            "[process] register_kill_on_parent_exit: unsupported platform, \
              sidecar pid {} will NOT be auto-killed on host crash",
             pid
         );
@@ -143,7 +143,7 @@ pub(crate) fn register_kill_on_parent_exit(pid: u32) -> Result<(), String> {
 //     when the LAST handle to the Job Object is closed.
 //   - `JOB_OBJECT_LIMIT_BREAKAWAY_OK`: allow child processes of the
 //     sidecar to break away from the Job Object if they choose to
-//     (this is defensive — the sidecar's children aren't expected to
+//     (this is defensive: the sidecar's children aren't expected to
 //     call `SetProcessJobObject`, but if they do, we don't want the
 //     breakaway to silently fail and cause confusing behavior).
 
@@ -157,14 +157,14 @@ use windows_impl::register_kill_on_parent_exit_windows;
 // ─── POSIX: reaper subprocess ──────────────────────────────────────────
 //
 // Spawns a small `/bin/sh` subprocess that polls `kill -0 <parent_pid>`
-// once per second. When the parent (Tauri host) dies — for any reason,
-// including `SIGKILL` — the reaper detects the failed `kill -0` and
+// once per second. When the parent (Tauri host) dies, for any reason,
+// including `SIGKILL`: the reaper detects the failed `kill -0` and
 // sends `SIGKILL` to the sidecar pid. The reaper also exits cleanly
 // when the sidecar target dies.
 //
 // The reaper is detached into its own session via `setsid()` so it
 // doesn't receive signals sent to the host's process group (e.g.
-// `Ctrl-C` in the terminal that launched the host — the host should
+// `Ctrl-C` in the terminal that launched the host, the host should
 // die and the reaper should then kill the sidecar, not die itself
 // before it can do its job).
 
@@ -185,12 +185,12 @@ use posix_impl::register_kill_on_parent_exit_posix;
 // control primitives aren't scattered across modules.
 
 /// Kill the process tree rooted at `pid` (the sidecar and its
-/// descendants). Platform-native, best-effort — never panics.
+/// descendants). Platform-native, best-effort: never panics.
 ///
 /// On Unix this does a **recursive** depth-first walk over the
-/// sidecar's descendants so ALL descendants are reaped — grandchildren
+/// sidecar's descendants so ALL descendants are reaped, grandchildren
 /// (native hotkey binary, model subprocesses) included. The root pid
-/// itself is NOT killed here — the caller (`SidecarHandle::kill_tree`
+/// itself is NOT killed here, the caller (`SidecarHandle::kill_tree`
 /// / `spawn.rs` cleanup) kills the root separately via
 /// `child.kill()` afterwards, so we focus on the descendants only.
 ///
@@ -203,7 +203,7 @@ use posix_impl::register_kill_on_parent_exit_posix;
 ///   (macOS has no `/proc`).
 ///
 /// Per-pid signal delivery uses `libc::kill(2)` directly (see
-/// `signal_pid`) — NO `kill -TERM <pid>` / `kill -KILL <pid>`
+/// `signal_pid`): NO `kill -TERM <pid>` / `kill -KILL <pid>`
 /// shell-outs. The prior shell-out version forked+exec'd a child
 /// process per descendant per signal phase (~5-10ms each on Linux);
 /// for N descendants that was (1 + N) pgrep spawns + N TERM spawns +
@@ -232,7 +232,7 @@ use posix_impl::register_kill_on_parent_exit_posix;
 /// The sidecar therefore inherits the HOST's process group by default.
 /// Sending `kill(-<host_pgid>, ...)` would kill the HOST itself
 /// (catastrophic). We ONLY send the process-group signal when
-/// `getpgid(sidecar_pid) != getpgrp()` — i.e., the sidecar is
+/// `getpgid(sidecar_pid) != getpgrp()`: i.e., the sidecar is
 /// verifiably in its OWN group (which would require a future spawn-
 /// path change to call `pre_exec(|| { setpgid(0, 0); Ok(()) })`, or
 /// the Python sidecar to call `os.setsid()`). Until then, the
@@ -244,7 +244,7 @@ use posix_impl::register_kill_on_parent_exit_posix;
 /// `tokio::process::Child`, not a `SidecarHandle`, so they can't use
 /// `kill_tree`).
 pub(crate) fn kill_process_tree(pid: u32) {
-    // pid 0 is the kernel scheduler — never a real sidecar pid, and
+    // pid 0 is the kernel scheduler, never a real sidecar pid, and
     // passing it here is catastrophic on Unix: `enumerate_children(0)`
     // falls back to `pgrep -P 0`, which matches PID 1 (init) + kernel
     // threads, and the DFS then descends into the ENTIRE process tree
@@ -264,16 +264,16 @@ pub(crate) fn kill_process_tree(pid: u32) {
     // Capture each shell-out / syscall result and log on Err / non-zero
     // exit so a broken `taskkill` / `pgrep` / `kill` (PATH issue,
     // permissions, etc.) isn't silently swallowed. The function
-    // remains best-effort — failures are logged but don't abort
+    // remains best-effort: failures are logged but don't abort
     // shutdown.
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
         use std::process::Command;
-        // CREATE_NO_WINDOW (0x0800_0000) — without this flag,
+        // CREATE_NO_WINDOW (0x0800_0000): without this flag,
         // `Command::new("taskkill")` spawns a visible console window
         // for the duration of the taskkill call. On a normal desktop
-        // shutdown the window flashes for ~50-100ms — visually
+        // shutdown the window flashes for ~50-100ms, visually
         // jarring and can steal focus from the foreground app the
         // user is typing into (a dictation app shouldn't pop a
         // console on shutdown). The flag is a no-op on POSIX.
@@ -337,12 +337,12 @@ pub(crate) fn kill_process_tree(pid: u32) {
             );
         }
 
-        // Short-circuit when no descendants exist — avoids the
+        // Short-circuit when no descendants exist, avoids the
         // unconditional 200ms sleep below on the Tauri event-loop thread
         // (called from shutdown_sidecar_for_exit via block_on).
         //
         // The process-group kill below is (in the current
-        // production spawn path) ALWAYS a safe no-op — the sidecar
+        // production spawn path) ALWAYS a safe no-op, the sidecar
         // inherits the host's pgid, and `signal_process_group` refuses
         // to signal its own host's group. The grace sleep existed only
         // to give that (nonexistent) group-signal time to land, so we
@@ -357,12 +357,12 @@ pub(crate) fn kill_process_tree(pid: u32) {
         // return) could leave a child un-killed. But the process-group
         // kill only fires when the sidecar is in its own group (see
         // the safety guard in the function doc comment), which is
-        // currently never the case — so in practice this short-circuit
+        // currently never the case: so in practice this short-circuit
         // is safe. When the spawn path is updated to put the sidecar
         // in its own group, this early return should be reconsidered.
         if all_descendants.is_empty() {
             log::debug!(
-                "[KILL-TREE] no descendants for pid {} — skipping SIGTERM/SIGKILL cycle",
+                "[KILL-TREE] no descendants for pid {}: skipping SIGTERM/SIGKILL cycle",
                 pid
             );
             // Attempt the process-group kill (best-effort, no-op when
@@ -375,7 +375,7 @@ pub(crate) fn kill_process_tree(pid: u32) {
                 posix_impl::kill_process_group_if_safe(pid, libc::SIGKILL);
             } else {
                 log::debug!(
-                    "[KILL-TREE] process-group SIGTERM did not fire — skipping grace sleep + group SIGKILL entirely"
+                    "[KILL-TREE] process-group SIGTERM did not fire: skipping grace sleep + group SIGKILL entirely"
                 );
             }
             return;
@@ -384,7 +384,7 @@ pub(crate) fn kill_process_tree(pid: u32) {
         // Resolve the sidecar's process-group ID ONCE, up-front. We
         // use it for both the SIGTERM and SIGKILL process-group sends.
         // `getpgid` returns the pgid of the process at the time of the
-        // call — if the sidecar has already exited (and its pid was
+        // call: if the sidecar has already exited (and its pid was
         // recycled), this could return a stale or wrong pgid. We
         // mitigate by checking against the host's own pgid (see the
         // safety guard in `signal_process_group`).
@@ -392,7 +392,7 @@ pub(crate) fn kill_process_tree(pid: u32) {
         // Range guard: `pid` is `u32` but `libc::pid_t` is `i32` on
         // all supported Unix platforms. A `pid > i32::MAX` would
         // silently wrap to a negative `pid_t` (which POSIX interprets
-        // as a process-GROUP signal — `kill(-pgid, sig)` — and would
+        // as a process-GROUP signal: `kill(-pgid, sig)`, and would
         // signal an UNRELATED process group). The kernel never
         // assigns pids > `i32::MAX` on any real system, but defensive
         // guarding prevents a future caller passing a malformed
@@ -407,7 +407,7 @@ pub(crate) fn kill_process_tree(pid: u32) {
             unsafe { libc::getpgid(pid as libc::pid_t) }
         } else {
             log::warn!(
-                "[KILL-TREE] getpgid skipped for out-of-range pid {} (> i32::MAX) — \
+                "[KILL-TREE] getpgid skipped for out-of-range pid {} (> i32::MAX), \
                  would truncate on cast to pid_t",
                 pid
             );
@@ -422,7 +422,7 @@ pub(crate) fn kill_process_tree(pid: u32) {
         for &dpid in &all_descendants {
             posix_impl::signal_pid(dpid, libc::SIGTERM);
         }
-        // Process-group SIGTERM — catches any child spawned in the
+        // Process-group SIGTERM: catches any child spawned in the
         // race window between the snapshot and the per-pid kills
         // above. Best-effort: no-op when the sidecar shares the host's
         // pgid (the safety guard inside returns without signaling).
@@ -437,7 +437,7 @@ pub(crate) fn kill_process_tree(pid: u32) {
         for &dpid in &all_descendants {
             posix_impl::signal_pid(dpid, libc::SIGKILL);
         }
-        // Process-group SIGKILL — force-kill any race-window child
+        // Process-group SIGKILL: force-kill any race-window child
         // that survived the SIGTERM phase. Same safety guard applies.
         if pid_in_range {
             posix_impl::signal_process_group(sidecar_pgid, libc::SIGKILL);
@@ -455,23 +455,23 @@ pub(crate) fn kill_process_tree(pid: u32) {
     // branch, `cargo check` on those targets would fail with an
     // "unreachable code" warning, AND a future port to such a target
     // would silently inherit a no-op `kill_process_tree` that
-    // doesn't even log — making shutdown debugging on the new target
+    // doesn't even log: making shutdown debugging on the new target
     // harder than necessary. The branch logs at `warn!` (not `info!`)
     // because a sidecar that's NOT reaped on shutdown is a resource
-    // leak (mic / IPC port held open) — operators need to see this.
+    // leak (mic / IPC port held open), operators need to see this.
     #[cfg(not(any(target_os = "windows", unix)))]
     {
         let _ = pid;
         log::warn!(
             "[KILL-TREE] kill_process_tree is a no-op on this platform \
-             (neither Windows nor Unix); pid {} will NOT be reaped — \
+             (neither Windows nor Unix); pid {} will NOT be reaped: \
              the sidecar may leak the mic / IPC port until manually killed",
             pid
         );
     }
 }
 
-// Sibling test module — tests live in `tests.rs` in this directory
+// Sibling test module: tests live in `tests.rs` in this directory
 // (per C-TEST-5: no inline `#[cfg(test)] mod tests` blocks in
 // production source).
 #[cfg(test)]

@@ -115,7 +115,7 @@ describe("QV-9: lastText is rendered inside an <output aria-live='polite'> regio
 		expect(liveRegion?.getAttribute("aria-live")).toBe("polite");
 		// The Home page wraps the preview in an <output> element (the
 		// semantic HTML5 live region). Walk up to confirm an <output>
-		// ancestor exists with aria-live="polite" — the
+		// ancestor exists with aria-live="polite", the
 		// LastTranscriptionPreview container itself no longer carries
 		// aria-live (the ancestor <output> is the single live region
 		// so the same text isn't announced twice by screen readers),
@@ -150,7 +150,7 @@ describe("QV-96: LastTranscriptionPreview container does NOT carry its own aria-
 				onRepaste={() => {}}
 			/>,
 		);
-		// The outermost element must NOT carry aria-live — the
+		// The outermost element must NOT carry aria-live, the
 		// ancestor `<output aria-live="polite">` wrapper in Home.tsx
 		// is the single live region. A second aria-live here would
 		// cause screen readers to announce the same text twice.
@@ -365,7 +365,7 @@ describe("Home renders the single dynamic status line below the mic button", () 
 
 	it("flips the status pill to the error state when the dynamic line shows an error (no model selected)", async () => {
 		// Resolve get_config with the NO_MODEL_SIZE sentinel ("") so
-		// the no-model branch of the status line activates — the pill
+		// the no-model branch of the status line activates, the pill
 		// must agree with the red error line below the button instead of
 		// staying in the underlying idle state.
 		mockCall.mockImplementation((cmd: string) => {
@@ -391,7 +391,7 @@ describe("Home renders the single dynamic status line below the mic button", () 
 		expect(pillLabel).toBeTruthy();
 		const dot = pillLabel.previousElementSibling as HTMLElement | null;
 		expect(dot?.style.backgroundColor).toBe("var(--destructive)");
-		// The underlying state is NOT shown — "READY" is gone.
+		// The underlying state is NOT shown, "READY" is gone.
 		expect(screen.queryByText("READY")).toBeNull();
 	});
 
@@ -542,7 +542,7 @@ describe("Home keeps the status pill and the dynamic line derived from the same 
 // `status` role) and the timer is role="timer" with EXPLICIT
 // aria-live="off" (per WAI-ARIA the `timer` role only carries the
 // value implicitly, and some screen readers announce role="timer"
-// content anyway — the explicit attribute is the hardening). This
+// content anyway, the explicit attribute is the hardening). This
 // guard asserts the invariant so a future <output> swap or stray
 // aria-live can't silently double-announce every state change.
 
@@ -559,7 +559,7 @@ describe("Home keeps exactly ONE live region across pill / timer / dynamic line"
 		cleanup();
 	});
 
-	it("renders all three surfaces with exactly one [aria-live] element — the dynamic line", async () => {
+	it("renders all three surfaces with exactly one [aria-live] element, the dynamic line", async () => {
 		// Recording state puts ALL THREE surfaces in the DOM at once:
 		// the pill (RECORDING label), the MM:SS timer, and the dynamic
 		// status line.
@@ -568,13 +568,13 @@ describe("Home keeps exactly ONE live region across pill / timer / dynamic line"
 
 		await renderHome();
 
-		// The pill must be present but NON-live — a plain <div>, never
+		// The pill must be present but NON-live, a plain <div>, never
 		// an <output> (whose implicit `status` role is a live region).
 		const pillLabel = screen.getByText("RECORDING");
 		expect(pillLabel.closest("output")).toBeNull();
 		expect(pillLabel.closest("div")).not.toBeNull();
 
-		// The timer is role="timer" with EXPLICIT aria-live="off" — the
+		// The timer is role="timer" with EXPLICIT aria-live="off", the
 		// tick is never announced by any screen reader (the implicit
 		// off value is not reliably honored by all of them).
 		const timer = screen.getByLabelText(/Recording duration:/i);
@@ -667,7 +667,7 @@ describe("QV-25: owned files contain no task-ID / session-prefix comments", () =
 
 	// Known task-ID / session-prefix tokens that MUST NOT appear in source
 	// comments (per AGENTS.md C-STYLE-1). The list is intentionally
-	// non-exhaustive — it covers the prefixes that were previously
+	// non-exhaustive, it covers the prefixes that were previously
 	// scattered across these files.
 	const FORBIDDEN_TOKENS = [
 		"EC-",
@@ -730,8 +730,8 @@ describe("Home renders an inline status hint while transcribing or loading", () 
 		await renderHome();
 
 		// en.json value for home.transcribingHint. The inline hint is an
-		// <output> element (biome useSemanticElements) — the semantic
-		// HTML5 live region — carrying the explicit aria-live="polite"
+		// <output> element (biome useSemanticElements), the semantic
+		// HTML5 live region, carrying the explicit aria-live="polite"
 		// that the previous <p role="status"> provided.
 		const hint = screen.getByText("Transcribing… please wait");
 		expect(hint).toBeTruthy();
@@ -747,7 +747,7 @@ describe("Home renders an inline status hint while transcribing or loading", () 
 
 		// en.json value for home.downloadingModel. The inline hint
 		// is suppressed once `downloadPct` arrives (the progressbar
-		// takes over) — verified in a separate test below.
+		// takes over), verified in a separate test below.
 		const hint = screen.getByText("Downloading model…");
 		expect(hint).toBeTruthy();
 		expect(hint.getAttribute("aria-live")).toBe("polite");
@@ -835,7 +835,7 @@ describe("MicToggleButton surfaces disabledReason as the accessible name when di
  * resolves the config AFTER mount so ``cfg`` is populated
  * deterministically BEFORE the mic button is clicked (the gate reads
  * ``cfg.voice_biometric_consent``). The other mount fetches stay
- * pending — with ``stats``/``recent`` null the StatCards/ActivityList
+ * pending, with ``stats``/``recent`` null the StatCards/ActivityList
  * never render with empty data (``compactNumber`` would crash on
  * ``undefined``).
  */
@@ -880,7 +880,7 @@ describe("Home gates dictation on voice_biometric_consent (GDPR Art. 9)", () => 
 		});
 		fireEvent.click(micButton);
 
-		// The IPC must NOT be called — the client-side gate short-circuits
+		// The IPC must NOT be called, the client-side gate short-circuits
 		// into the unified consent dialog.
 		const toggleCalls = mockCall.mock.calls.filter(
 			(c) => c[0] === "toggle_dictation",
@@ -889,7 +889,7 @@ describe("Home gates dictation on voice_biometric_consent (GDPR Art. 9)", () => 
 
 		// The consent gate opened with the exact field + a retry that
 		// starts dictation (Allow in the dialog). NOTE: the store must
-		// be imported dynamically — the beforeEach calls
+		// be imported dynamically, the beforeEach calls
 		// ``vi.resetModules()`` so Home (imported after the reset) holds
 		// a FRESH module instance of lib/consentGate; the top-level
 		// import would be a different singleton.
@@ -904,7 +904,7 @@ describe("Home gates dictation on voice_biometric_consent (GDPR Art. 9)", () => 
 				onAllow: expect.any(Function),
 			}),
 		);
-		// Fire the retry WITHOUT awaiting it — the deferred-config mock
+		// Fire the retry WITHOUT awaiting it, the deferred-config mock
 		// leaves ``toggle_dictation`` pending forever, so awaiting would
 		// hang the test. The assertion is on the IPC call itself.
 		await act(async () => {
@@ -966,7 +966,7 @@ describe("Home shows recording errors as red status-line text, not a card", () =
 
 		await renderHome();
 
-		// The error is shown as red text in the status line — no card,
+		// The error is shown as red text in the status line, no card,
 		// no secondary CTA.
 		expect(
 			screen.queryByRole("button", { name: /Open Microphone settings/i }),

@@ -5,7 +5,7 @@ CR-40 background
 ``voice_typer/server/ipc_server.py::main()`` writes a diagnostic
 ``startup-error.log`` to the config dir when ``VoiceTyperApp()`` (or
 ``app.start()``) raises. Previously the secondary write itself was
-wrapped in ``except Exception: pass`` — so if the config dir was
+wrapped in ``except Exception: pass``, so if the config dir was
 read-only (e.g. a locked-down kiosk, a misconfigured AppImage, or a
 pythonw.exe run where stdout/stderr are devnull), the traceback was
 lost forever and the user saw only "Python process exited: 1".
@@ -98,7 +98,7 @@ class TestStartupDiagnosticsFallback:
 
         Asserts the fallback file at
         ``$TMPDIR/voice-typer-startup-error.log`` contains the full
-        traceback — proving CR-40's second-tier fallback works.
+        traceback, proving CR-40's second-tier fallback works.
         """
         # Redirect tempfile.gettempdir() to our tmp_path so we can
         # deterministically assert the fallback file landed there and
@@ -106,7 +106,7 @@ class TestStartupDiagnosticsFallback:
         monkeypatch.setattr(tempfile, "gettempdir", lambda: str(tmp_path))
 
         # Point _config_dir() at a (nonexistent) path so any non-mocked
-        # write attempt would also fail — defense in depth.
+        # write attempt would also fail, defense in depth.
         fake_config_dir = tmp_path / "config"
 
         patches = _patch_main_dependencies(fake_config_dir)
@@ -129,7 +129,7 @@ class TestStartupDiagnosticsFallback:
         # silently discarded by ``except Exception: pass``.
         content = fallback_file.read_text(encoding="utf-8")
         assert "Voice Typer startup failed at" in content, (
-            "fallback file missing the diagnostic header — got:\n" + content
+            "fallback file missing the diagnostic header, got:\n" + content
         )
         assert "Traceback" in content
         assert "simulated VoiceTyperApp() construction failure" in content
@@ -141,13 +141,13 @@ class TestStartupDiagnosticsFallback:
         capsys: pytest.CaptureFixture[str],
     ) -> None:
         """When both ``_secure_atomic_write`` AND the tempfile fail, main()
-        must still print the traceback to stderr.
+          must still print the traceback to stderr.
 
-        Simulates the worst case: read-only config dir AND a tempfile dir
-        that doesn't exist (e.g. a locked-down container with a missing
-        ``$TMPDIR``). The third-tier fallback — ``print(buf, file=sys.stderr)``
-        — must still surface the traceback so the user (or test harness)
-        can see why the process died.
+          Simulates the worst case: read-only config dir AND a tempfile dir
+          that doesn't exist (e.g. a locked-down container with a missing
+          ``$TMPDIR``). The third-tier fallback: ``print(buf, file=sys.stderr)``
+        , must still surface the traceback so the user (or test harness)
+          can see why the process died.
         """
         # Make tempfile.gettempdir() return a directory that does NOT
         # exist on disk so Path.write_text() raises FileNotFoundError.

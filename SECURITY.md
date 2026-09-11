@@ -34,7 +34,7 @@ process can connect to the IPC port without this token.
 ### Command Allowlist (SEC-019)
 
 The Electron main process enforces an allowlist of IPC commands. The renderer
-cannot invoke arbitrary commands — only the **73** commands listed in
+cannot invoke arbitrary commands: only the **73** commands listed in
 `ALLOWED_COMMANDS` (a `Set` defined at
 `voice_typer/client/src/main/allowed-commands.ts`) are forwarded to the Python backend.
 The authoritative count is enforced by CI (see
@@ -47,7 +47,7 @@ entry-level parity is asserted by `tests/test_rust_allowlist_parity.py`.
 > `voice_typer/server/ipc/registry.py` (re-exported by
 > `ipc_server.py`) registers **75** handlers. Two of
 > those are intentionally absent from the renderer allowlist:
-> `tray_click` (a Rust-only command routed via `dispatch_inner` — the
+> `tray_click` (a Rust-only command routed via `dispatch_inner` The
 > tray handler invokes it directly, bypassing the allowlist gate) and
 > `shutdown` (cooperative shutdown is sent via `shutdown_sidecar`
 > directly, NOT via the generic dispatch path). The remaining **73**
@@ -55,17 +55,17 @@ entry-level parity is asserted by `tests/test_rust_allowlist_parity.py`.
 > the `_HOST_ONLY_COMMANDS` frozenset in
 > `tests/test_security_doc_command_count.py`. (reconciliation
 > 2026-07-24: an earlier draft of this blockquote mentioned "78
-> handlers" + "17 stale entries" + "19 of the 78 handlers" — that
+> handlers" + "17 stale entries" + "19 of the 78 handlers", that
 > framing was a leftover from the 78-entry registry. The 17
-> stale entries were deleted from all three sources of truth — the
+> stale entries were deleted from all three sources of truth, the
 > Python `_COMMAND_REGISTRY`, the TS `ALLOWED_COMMANDS` set, and the
-> Rust `allowed_commands()` literal — in lockstep during, so
+> Rust `allowed_commands()` literal: in lockstep during, so
 > they no longer exist in any layer. The current counts are 75 Python
 > ↔ 73 TS ↔ 71 Rust, with the +2 host-only delta as the only
 > intentional divergence. `check_accessibility` was re-added on
-> 2026-08-10 (finding #919 part b) — the Settings → Troubleshooting
+> 2026-08-10 (finding #919 part b), the Settings → Troubleshooting
 > UI now invokes it on macOS to surface the stale-grant `tccutil`
-> reset command — bumping the counts from 68/66/64; it was part of
+> reset command: bumping the counts from 68/66/64; it was part of
 > the 17 removed in the cleanup pass. `transcribe_offline` was added
 > on 2026-08-13 by the runtime-pack split (master plan §7.4 —
 > slim core → worker offline-transcription request). On 2026-08-14,
@@ -78,16 +78,16 @@ entry-level parity is asserted by `tests/test_rust_allowlist_parity.py`.
 > plan §6.3 addendum) while `run_prewarm` stayed removed (its
 > standalone-prewarm subprocess machinery is gone), bringing the
 > counts to 69/67/65. `check_offline_pack_update` was added the same day by
-> the auto-update feature (docs/auto-update-feature.md) — the
+> the auto-update feature (docs/auto-update-feature.md), the
 > runtime-pack manifest check + consent-gated background download —
 > bringing the counts to 70/68/66. Later the same day, `run_prewarm`
-> was ALSO restored (plan §6.3 addendum 2nd half) — re-implemented to
+> was ALSO restored (plan §6.3 addendum 2nd half), re-implemented to
 > re-run the worker's warm phase in-process via
 > `prewarm.status.run_prewarm_now()` (warm_imports_for_worker on a
 > daemon thread + status-file refresh) instead of spawning the deleted
-> standalone-prewarm subprocess — bringing the counts to 71/69/67.
+> standalone-prewarm subprocess: bringing the counts to 71/69/67.
 > `test_vocabulary_correction` was added on 2026-08-15 (the Vocabulary
-> page's live-engine "Test this entry" panel) — bringing the counts to
+> page's live-engine "Test this entry" panel), bringing the counts to
 > 72/70/68. `get_correction_usage` was added on 2026-08-16
 > (server-side per-correction usage tracking powering the Vocabulary
 > page's "used N×" and the Analytics corrections-applied rate) —
@@ -96,9 +96,9 @@ entry-level parity is asserted by `tests/test_rust_allowlist_parity.py`.
 > **TS-only exceptions (`_TS_ONLY_EXCEPTIONS`):** Two commands are present
 > in the renderer TS `ALLOWED_COMMANDS` but intentionally absent from the
 > Rust host's `allowed_commands()` literal: `heartbeat` (watchdog
-> tick — the Rust WS-reader task sends this directly to the Python
+> tick: the Rust WS-reader task sends this directly to the Python
 > backend; the renderer never dispatches it) and `relaunch_ack` (PERF-005
-> relaunch ack — the `relaunch_app` Tauri command sends this directly to
+> relaunch ack, the `relaunch_app` Tauri command sends this directly to
 > release the relaunch-wait event; the renderer never dispatches it).
 > Keeping these out of the Rust allowlist closes the attack surface where
 > a compromised renderer could `invoke('dispatch', {cmd:'heartbeat'})` to
@@ -149,13 +149,13 @@ SEC-018 model:
    of shape `{"type":"auth","token":"<token>"}`. The sidecar's
    `_authenticate()` (`voice_typer/server/sidecar_ws.py:177`) compares
    the supplied token against the expected value with
-   `hmac.compare_digest` (constant-time comparison — no early-exit
+   `hmac.compare_digest` (constant-time comparison: no early-exit
    timing leak). A 5-second auth-frame timeout matching the TCP path's
    closes unauthenticated connections before they hold
    resources.
 4. **Reject.** On mismatch or timeout the sidecar closes the WS with
    code `1008` (policy violation) and logs `[SIDECAR-WS] auth token
-   mismatch — rejecting`. No dispatch frames are processed until auth
+   mismatch: rejecting`. No dispatch frames are processed until auth
    succeeds.
 5. **Lateral boundary.** Once authenticated, the Tauri `dispatch`
    command (in `src-tauri/capabilities/main-runtime.json` +

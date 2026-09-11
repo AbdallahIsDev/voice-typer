@@ -2,7 +2,7 @@
 //
 // The Python dictation pipeline attaches a compact `quality` summary to
 // the `transcription_final` push event when the active engine produced
-// numeric per-segment confidence stats (Whisper batch path only — see
+// numeric per-segment confidence stats (Whisper batch path only, see
 // `build_quality_summary` in `voice_typer/server/transcription.py`).
 // This module folds that summary into a single boolean the preview card
 // uses to decide whether to surface an inline "may be inaccurate"
@@ -12,7 +12,7 @@
 //   - `mean_logprob`: Whisper's per-segment `avg_logprob` is a log
 //     probability; values approaching 0 are confident decodings. A mean
 //     below -1.0 means the model assigned < ~37% probability to its own
-//     tokens on average — empirically where misheard words become
+//     tokens on average, empirically where misheard words become
 //     common.
 //   - `no_speech_prob_max`: the highest per-segment probability that a
 //     segment was silent. Above 0.6 at least one transcribed segment

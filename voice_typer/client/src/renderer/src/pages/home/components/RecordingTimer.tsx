@@ -6,7 +6,7 @@ import { t } from "@/i18n/i18n";
  * recording.
  *
  * Owns its own per-second `setInterval` + elapsed-seconds state so the
- * tick re-renders ONLY this leaf — previously the interval lived in
+ * tick re-renders ONLY this leaf, previously the interval lived in
  * Home.tsx, so every second re-rendered the entire Home tree (stats,
  * activity list, share image, …) just to bump two digits. The component
  * is additionally wrapped in `React.memo` so unrelated Home re-renders
@@ -14,7 +14,7 @@ import { t } from "@/i18n/i18n";
  * unchanged.
  *
  * Rendered output is byte-identical to the previous inline span in
- * Home.tsx — including `role="timer"` + explicit `aria-live="off"`:
+ * Home.tsx, including `role="timer"` + explicit `aria-live="off"`:
  * per WAI-ARIA the `timer` role only carries live="off" implicitly and
  * some screen readers announce role="timer" content changes anyway, so
  * the explicit attribute is what guarantees the per-second tick is
@@ -32,7 +32,7 @@ export function formatElapsedSeconds(totalSec: number): string {
 }
 
 export function RecordingTimer({ isRecording }: RecordingTimerProps) {
-	// Elapsed seconds while recording — reset to 0 when a new recording
+	// Elapsed seconds while recording, reset to 0 when a new recording
 	// starts (and when recording stops, so the next start begins at zero).
 	const [elapsedSec, setElapsedSec] = useState(0);
 	useEffect(() => {

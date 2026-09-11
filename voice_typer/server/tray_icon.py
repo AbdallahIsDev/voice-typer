@@ -20,7 +20,7 @@ log = logging.getLogger(__name__)
 def _get_pil_image():
     """Lazy import of PIL.Image to avoid importing heavy dependencies at module load.
 
-    This also allows tests that mock PIL to work correctly — the module-level
+    This also allows tests that mock PIL to work correctly, the module-level
     import would resolve to a mock if a test with mocked PIL imports this
     module first, breaking real_pil tests.
     """
@@ -55,7 +55,7 @@ def _pil_lanczos() -> int:
 # the exact overhead  was designed to eliminate.
 _icon_cache: dict[tuple[AppState, int], "PilImage.Image"] = {}
 
-# DPI never changes within a session — cache the result
+# DPI never changes within a session, cache the result
 # of _get_dpi_aware_icon_size() after the first call so we don't run
 # Win32 GetDC(0) + GetDeviceCaps + ReleaseDC on every tray state
 # change (10–30 ms per state change → 0 ms after the first call).
@@ -195,7 +195,7 @@ def _draw_shape(shape: str, size: int, color: tuple):
         cx = size // 2
         draw.polygon([(cx, margin), (margin + inner, margin + inner), (margin, margin + inner)], fill=color)
     else:
-        # Unknown shape — fallback to circle
+        # Unknown shape, fallback to circle
         draw.ellipse([margin, margin, margin + inner, margin + inner], fill=color)
 
     return img
@@ -227,7 +227,7 @@ def _draw_shape_indicator(img, shape: str, color: tuple):
     draw = ImageDraw.Draw(img)
     img_size = img.size
     if not img_size or len(img_size) != 2:
-        log.warning("[TRAY] _draw_shape_indicator: image has invalid size %r — skipping indicator overlay", img_size)
+        log.warning("[TRAY] _draw_shape_indicator: image has invalid size %r, skipping indicator overlay", img_size)
         return img  # Can't draw indicator on image without valid size
     w, h = img_size
     ind_size = max(4, w // 5)  # indicator is ~20% of icon size
@@ -252,12 +252,12 @@ def _make_icon(state: AppState, size: int = 0):
     """Generate a colored tray icon based on state.
 
         Uses a pre-rendered WHITE app-logo-glyph PNG (the logo WITHOUT its
-        background chip and WITHOUT the indicator dot — per the user
+        background chip and WITHOUT the indicator dot, per the user
         decision the tray shows the bare icon; derived from
         ``client/scripts/logo.svg`` by ``client/scripts/generate-icons.mjs``)
         and colorizes it per state.
     If size is 0, auto-detect DPI.
-    the old ``vt_logo.svg`` reference was stale — that file
+    the old ``vt_logo.svg`` reference was stale, that file
         was removed; the source SVG now lives at ``client/scripts/logo.svg``.
 
     Icons use both color AND shape to differentiate
@@ -277,7 +277,7 @@ def _make_icon(state: AppState, size: int = 0):
     # shape-indicator-baked .ico per state; loading it directly skips
     # the PNG→ICO re-encode path entirely (faster first-render and a
     # smaller icon-cache footprint). The base ``tray-mic.ico`` is
-    # white/uncolored and is intentionally NOT used here — falling
+    # white/uncolored and is intentionally NOT used here, falling
     # through to the PNG synthesis path colorizes it correctly per
     # state. ``_get_icon_path`` returns the state-specific path ONLY
     # when the file exists, so the name comparison is a safe guard.
@@ -293,15 +293,15 @@ def _make_icon(state: AppState, size: int = 0):
                 return pre_built
             except Exception:
                 log.debug(
-                    "[TRAY] Pre-built state ICO load failed — falling back to PNG synthesis",
+                    "[TRAY] Pre-built state ICO load failed, falling back to PNG synthesis",
                     exc_info=True,
                 )
 
     # Color-blind accessible colors.
-    # RECORDING: bright green (was red/orange) — clearly distinct from
+    # RECORDING: bright green (was red/orange), clearly distinct from
     #   ERROR red and CANCELLING orange for color-blind users.
-    # ERROR: red — keeps the universal "error" association.
-    # CANCELLING: orange — distinct from both green and red.
+    # ERROR: red, keeps the universal "error" association.
+    # CANCELLING: orange, distinct from both green and red.
     colors = {
         AppState.IDLE: (120, 120, 120, 255),
         AppState.RECORDING: (46, 204, 113, 255),  # Bright green
@@ -345,13 +345,13 @@ def _make_icon(state: AppState, size: int = 0):
             colored = colored.resize((size, size), _pil_lanczos())
         png_loaded = True
     except Exception:
-        log.debug("[TRAY] PNG icon load failed — using shape fallback", exc_info=True)
+        log.debug("[TRAY] PNG icon load failed, using shape fallback", exc_info=True)
 
     if not png_loaded:
-        # No PNG icon available — use shape-only fallback
+        # No PNG icon available: use shape-only fallback
         colored = _draw_shape(shape, size, color)
     else:
-        # PNG loaded — overlay a small shape indicator
+        # PNG loaded, overlay a small shape indicator
         # for color-blind accessibility (shape visible even if color
         # perception is impaired)
         # ``colored`` is guaranteed non-None here because ``png_loaded``
@@ -362,11 +362,11 @@ def _make_icon(state: AppState, size: int = 0):
     if is_windows() and pil_img is not None and colored is not None:
         # Save as ICO format for Windows tray.
         # ICO supports multiple sizes (16, 32, 48) and is the
-        # native format for Windows tray icons — sharper than PNG on
+        # native format for Windows tray icons, sharper than PNG on
         # Windows 11 with per-monitor DPI scaling.
         #
         # the 256×256 plane was previously included for
-        # "completeness" but Windows tray never requests it — the
+        # "completeness" but Windows tray never requests it, the
         # shell's NIM_GETICON queries cap out at 48×48 (or 64×64 on
         # high-DPI). Each 256×256 RGBA plane is ~256 KB in the ICO
         # buffer, so caching it across 6 states × DPI sizes inflated
@@ -380,7 +380,7 @@ def _make_icon(state: AppState, size: int = 0):
             ico_buf.seek(0)
             colored = pil_img.open(ico_buf)
         except Exception:
-            log.debug("[TRAY] PIL ICO conversion failed — using PNG", exc_info=True)
+            log.debug("[TRAY] PIL ICO conversion failed, using PNG", exc_info=True)
 
     # ``colored`` is guaranteed non-None at this point —
     # either the try block produced a PIL image (and we asserted that

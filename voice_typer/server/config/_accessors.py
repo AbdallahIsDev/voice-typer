@@ -30,7 +30,7 @@ from voice_typer.server._user_data_files import (
 )
 from voice_typer.server.config._defaults import _USER_DATA_DIRS
 
-if TYPE_CHECKING:  # pragma: no cover — typing-only, never imported at runtime
+if TYPE_CHECKING:  # pragma: no cover, typing-only, never imported at runtime
     pass
 
 log = logging.getLogger("voice_typer.server.config")
@@ -94,7 +94,7 @@ def purge_user_data(*, remove_config_dir: bool = False) -> dict[str, list[str]]:
 
     Intended to be called from uninstall scripts (Linux ``prerm --purge``,
     Windows NSIS uninstaller hook, macOS ``Uninstall Voice Typer.app``
-    helper). The function is idempotent — missing files / dirs are
+    helper). The function is idempotent, missing files / dirs are
     silently skipped (returning them in the ``missing`` list so the
     caller can log a report if needed).
 
@@ -115,18 +115,18 @@ def purge_user_data(*, remove_config_dir: bool = False) -> dict[str, list[str]]:
         common case for optional files like ``history.db-wal``), and
         ``errors`` lists ``(path, error_message)`` tuples for entries
         that existed but could not be removed (permission errors, etc.).
-        The function NEVER raises — uninstall scripts must not abort
+        The function NEVER raises, uninstall scripts must not abort
         mid-cleanup if a single file is locked.
 
     The function is best-effort and platform-agnostic. It does NOT
     remove the OS keychain entries (those live in
-    ``credential_store.PROVIDER_TO_CONFIG_FIELD`` — callers that want a
+    ``credential_store.PROVIDER_TO_CONFIG_FIELD``: callers that want a
     full secret purge should call
     ``credential_store.delete_all_secrets()`` separately, since that
     operation is irreversible and may require user interaction on some
     platforms). It also does NOT remove autostart entries (LaunchAgent
     plist, HKCU Run key, Task Scheduler entry, XDG autostart .desktop
-    file) — those are owned by ``autostart_launcher`` and have their own
+    file), those are owned by ``autostart_launcher`` and have their own
     ``disable_autostart()`` API.
     """
     removed: list[str] = []
@@ -173,7 +173,7 @@ def purge_user_data(*, remove_config_dir: bool = False) -> dict[str, list[str]]:
     # copy of the full history DB before schema migration, containing
     # all dictated text in plaintext. Pre- this file survived
     # ``purge_user_data`` (the loop only matched ``history.db.corrupt-*``)
-    # — a GDPR Art. 17 gap mirroring the ``history.db.corrupt-*`` issue
+    # , a GDPR Art. 17 gap mirroring the ``history.db.corrupt-*`` issue
     # fixed by
     if base.exists():
         for entry in base.iterdir():
@@ -193,7 +193,7 @@ def purge_user_data(*, remove_config_dir: bool = False) -> dict[str, list[str]]:
                 or name.startswith(f"{_RECOVERY_FILENAME}.corrupt")
                 # Pre-migration installs quarantined the corrupt file
                 # under the legacy prefixed name
-                # (``voice-typer-recovery.json.corrupt.<ts>``) — match
+                # (``voice-typer-recovery.json.corrupt.<ts>``), match
                 # it too so a pre-migration purge still removes it.
                 or name.startswith(f"{_LEGACY_RECOVERY_FILENAME}.corrupt")
             ):
@@ -228,8 +228,8 @@ def purge_all_user_data(*, remove_models: bool = True) -> dict[str, list[str]]:
 
     Intended to be called from the uninstaller (Linux ``prerm --purge``,
     Windows NSIS ``deleteAppDataOnUninstall`` hook, macOS ``Uninstall
-    Voice Typer.app`` helper). The function is idempotent — missing
-    files / dirs are silently skipped — and NEVER raises: an uninstall
+    Voice Typer.app`` helper). The function is idempotent, missing
+    files / dirs are silently skipped, and NEVER raises: an uninstall
     script must not abort mid-cleanup if a single file is locked (the
     lock holder is typically the dying backend process shutting down
     in parallel).
@@ -245,12 +245,12 @@ def purge_all_user_data(*, remove_models: bool = True) -> dict[str, list[str]]:
 
         Implementation note: :func:`purge_user_data` with
         ``remove_config_dir=True`` already recursively removes the
-        entire ``_config_dir()`` — which INCLUDES the canonical HF
+        entire ``_config_dir()``: which INCLUDES the canonical HF
         cache subdir (``<config_dir>/huggingface`` per
         :func:`voice_typer.server._paths.hf_cache_dir`). The explicit
         HF-cache deletion below is a belt-and-suspenders pass that
         also covers the LEGACY cache path
-        (``~/.voice-typer/huggingface`` — see
+        (``~/.voice-typer/huggingface``: see
         :func:`voice_typer.server._paths.legacy_hf_cache_dir`) used as
         a defensive fallback when ``_config_dir()`` itself raises
         (e.g. the BootTrigger scenario where ``$HOME`` is unset). On
@@ -260,13 +260,13 @@ def purge_all_user_data(*, remove_models: bool = True) -> dict[str, list[str]]:
     Returns
     -------
     dict
-        ``{"deleted": [...], "failed": [...]}`` — ``deleted`` lists
+        ``{"deleted": [...], "failed": [...]}``: ``deleted`` lists
         every file / dir path that was successfully removed (a
         superset of :func:`purge_user_data`'s ``removed`` list,
         plus the HF cache dir when ``remove_models=True``);
         ``failed`` lists ``"<path>: <error>"`` strings for entries
         that existed but could not be removed (permission errors,
-        locked files, etc.). The function NEVER raises — failures are
+        locked files, etc.). The function NEVER raises, failures are
         surfaced in ``failed`` so the uninstaller can log a report
         without aborting.
 
@@ -285,7 +285,7 @@ def purge_all_user_data(*, remove_models: bool = True) -> dict[str, list[str]]:
     failed: list[str] = list(base_result.get("errors", []))
 
     # 2. Optionally also delete the HuggingFace model cache directory.
-    #    This is a belt-and-suspenders pass — see the docstring above
+    #    This is a belt-and-suspenders pass: see the docstring above
     #    for why the explicit step is needed alongside
     #    ``purge_user_data(remove_config_dir=True)``. We resolve BOTH
     #    the canonical and the legacy cache paths and remove whichever
@@ -309,7 +309,7 @@ def purge_all_user_data(*, remove_models: bool = True) -> dict[str, list[str]]:
             # ``_config_dir()`` itself may raise in the BootTrigger
             # scenario (``$HOME`` / ``%USERPROFILE%`` unset). Surface
             # the failure in ``failed`` so the uninstaller can log it
-            # — the legacy path may still be resolvable below.
+            # , the legacy path may still be resolvable below.
             failed.append(f"hf_cache_dir: {type(exc).__name__}: {exc}")
 
         for cache_path in cache_paths:

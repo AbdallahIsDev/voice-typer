@@ -1,9 +1,9 @@
-"""#2 HotkeyDispatcher — extracted from VoiceTyperApp.
+"""#2 HotkeyDispatcher, extracted from VoiceTyperApp.
 
 Owns global hotkey registration: dictation toggle hotkey, ESC cancel
 hotkey, and repaste hotkey. Each hotkey gets its own HotkeyBackend
 instance (Win32 native, pynput, or Wayland), unless an identical spec
-is already tracked in ``_shared_backend_pool`` — in which case the
+is already tracked in ``_shared_backend_pool``, in which case the
 existing backend is reused (rare; e.g. two roles bound to the same key).
 
 Previously this concern lived in VoiceTyperApp as ~100 LOC across:
@@ -13,7 +13,7 @@ Previously this concern lived in VoiceTyperApp as ~100 LOC across:
 All of those now live here. VoiceTyperApp keeps thin delegate methods
 for back-compat with callers (settings window, tests).
 
-TODO — full per-spec backend pooling (deferred; touches native binary
+TODO, full per-spec backend pooling (deferred; touches native binary
 wire protocol)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 The current implementation pools the THREE ROLES (dictation / ESC /
@@ -31,7 +31,7 @@ role (e.g. ``EVENT role=esc KEY_UP <esc>``). This would let the
 binary itself handle suppression for all three specs (eliminating the
 macOS / Windows suppression limitation noted in the class docstring)
 and would let a SINGLE native binary serve an arbitrary number of
-distinct specs — collapsing the per-spec pool to one process even
+distinct specs, collapsing the per-spec pool to one process even
 when the specs differ. The ``_shared_backend_pool`` dict established
 here is the Python-side tracking infrastructure that the full
 refactor will repurpose: each ``HotkeyBackend`` entry would become a
@@ -41,12 +41,12 @@ than a distinct subprocess.
 Stepping stones (no wire-protocol change required):
   1. (DONE) Pool the three roles into one subprocess via extra
      matchers on the dictation backend (``_shared_backend``).
-  2. (DONE — minimal) Track every created backend by spec in
+  2. (DONE, minimal) Track every created backend by spec in
      ``_shared_backend_pool`` so identical specs reuse a backend.
   3. (TODO) Add a ``remove_extra_matcher(role)`` API to the native
      adapter so roles can be torn down individually without stopping
      the shared subprocess.
-  4. (TODO — wire protocol change) Extend the native binary to accept
+  4. (TODO, wire protocol change) Extend the native binary to accept
      multiple ``(role, spec)`` pairs at startup and emit role-tagged
      events. Replace the extra-matcher shim with direct role dispatch.
 """
@@ -71,7 +71,7 @@ log = logging.getLogger(__name__)
 # Registry of dispatchers with a live PTT safety timer. Lets the test
 # harness cancel leaked timers between tests (mirrors
 # ``transcription_watchdog._LIVE_WATCHDOG_CONTROLLERS``); production
-# behaviour is unaffected — a WeakSet drops dispatchers automatically
+# behaviour is unaffected, a WeakSet drops dispatchers automatically
 # on GC.
 _LIVE_PTT_TIMER_DISPATCHERS: weakref.WeakSet = weakref.WeakSet()
 
@@ -108,7 +108,7 @@ class HotkeyDispatcher:
     - Call ``app.tray.notify`` on registration failure
     - Call ``app.tray.set_hotkey`` after a hotkey restart
 
-    Architecture note — pooled subprocess (one process for all three roles)
+    Architecture note, pooled subprocess (one process for all three roles)
     ----------------------------------------------------------------
     ``register`` creates the dictation backend via
     ``create_hotkey_backend(hotkey, role="dictation")`` and stashes it
@@ -117,11 +117,11 @@ class HotkeyDispatcher:
     owns the SINGLE native listener process. ``register_esc`` and
     ``register_repaste`` STILL call ``create_hotkey_backend`` (for API
     compatibility with code that asserts ``_esc_backend is mock_backend``)
-    but the returned backends are marked ``_delegated=True`` — their
+    but the returned backends are marked ``_delegated=True``, their
     ``start()`` skips spawning a subprocess, and the actual matching for
     ESC / repaste happens via extra matchers on the shared (dictation)
     backend's event stream. The native binary emits ALL keystroke
-    events on stdout (it does not filter to the matched spec — the
+    events on stdout (it does not filter to the matched spec, the
     Python side does the matching), so one process is sufficient.
 
     Resource reduction: 1 native binary subprocess instead of 3, 1
@@ -151,7 +151,7 @@ class HotkeyDispatcher:
     subprocess model is used (3 subprocesses). This preserves the
     pre-refactor behavior on platforms without the native binary.
 
-    Planned future refactor (deferred — touches native binary wire protocol)
+    Planned future refactor (deferred, touches native binary wire protocol)
     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     Extend the native binary's command-line surface to accept a list
     of ``(role, hotkey_spec)`` pairs (e.g. via a startup handshake
@@ -170,7 +170,7 @@ class HotkeyDispatcher:
         self._hotkey_backend: HotkeyBackend | None = None
         self._esc_backend: HotkeyBackend | None = None
         self._repaste_backend: HotkeyBackend | None = None
-        # Shared backend handle — the dictation backend, whose native
+        # Shared backend handle, the dictation backend, whose native
         # subprocess ALSO matches the ESC and repaste specs via extra
         # matchers (see :meth:`_pool_aux_into_shared`). On platforms
         # that select the native ``SubprocessHotkeyBackend`` this
@@ -179,11 +179,11 @@ class HotkeyDispatcher:
         # ``_repaste_backend`` instances still exist for API
         # compatibility (tests assert ``_esc_backend is mock_backend``)
         # but are marked ``_delegated=True`` so their ``start()`` skips
-        # spawning — they own no subprocess, reader thread, or watchdog.
+        # spawning, they own no subprocess, reader thread, or watchdog.
         # ``None`` until :meth:`_create_and_start_main_backend`
         # succeeds, and reset to ``None`` by :meth:`stop_all`.
         self._shared_backend: HotkeyBackend | None = None
-        # Per-spec backend pool — tracks every live backend by its
+        # Per-spec backend pool, tracks every live backend by its
         # hotkey spec so that two roles bound to the SAME spec (rare;
         # e.g. dictation and repaste both set to ``<f2>``) reuse one
         # backend instance instead of spawning a second native
@@ -194,7 +194,7 @@ class HotkeyDispatcher:
         # :meth:`_untrack_pooled_backend` when the backend is stopped
         # (so a stale entry is never returned). :meth:`stop_all`
         # clears the entire dict. ``get_active_backend_count()``
-        # returns ``len(self._shared_backend_pool)`` — the number of
+        # returns ``len(self._shared_backend_pool)``: the number of
         # DISTINCT native subprocesses currently owned by this
         # dispatcher.
         #
@@ -227,7 +227,7 @@ class HotkeyDispatcher:
         # :meth:`_handle_shared_native_state_changed`. Re-registering an
         # aux role may itself trigger a native-backend swap (e.g. the
         # role's own native subprocess also fails), which fires the hook
-        # again — the flag breaks the recursion.
+        # again, the flag breaks the recursion.
         self._resyncing_aux = False
         # threading.Event for atomic cross-
         # thread access. Both sessions independently identified the
@@ -294,7 +294,7 @@ class HotkeyDispatcher:
         validation_error = _validate_hotkey(hotkey_str)
         if validation_error is not None:
             log.warning(
-                "[HOTKEY] configured hotkey %r rejected (%s) — falling back to default <caps_lock>",
+                "[HOTKEY] configured hotkey %r rejected (%s), falling back to default <caps_lock>",
                 hotkey_str,
                 validation_error,
             )
@@ -327,12 +327,12 @@ class HotkeyDispatcher:
         # skip the teardown+rebuild if the ESC backend is
         # already alive with the same spec ("<esc>"). Previously
         # ``register()`` unconditionally called ``register_esc()``, which
-        # stops and recreates the backend on every call — causing a
+        # stops and recreates the backend on every call, causing a
         # brief ESC-unavailable window and unnecessary OS grab churn.
         # When ESC is disabled, tear down any existing backend.
         #
         # ``skip_aux=True`` (used by ``restart()``) skips the
-        # aux-backend calls entirely — the ESC/repaste specs are
+        # aux-backend calls entirely, the ESC/repaste specs are
         # unchanged on a hotkey restart, so re-creating those
         # backends is wasted work that briefly leaves them dead.
         if not skip_aux:
@@ -428,7 +428,7 @@ class HotkeyDispatcher:
         if pooled is not None:
             if pooled.is_alive():
                 log.info(
-                    "[HOTKEY] Reusing pooled backend for %s (active pool size=%d) — no new subprocess spawned",
+                    "[HOTKEY] Reusing pooled backend for %s (active pool size=%d), no new subprocess spawned",
                     format_hotkey_label(hotkey_str),
                     len(self._shared_backend_pool),
                 )
@@ -438,7 +438,7 @@ class HotkeyDispatcher:
                 self._shared_backend = pooled
                 self._repool_aux_into_shared()
                 return pooled
-            # Stale entry — drop it so the factory path below can
+            # Stale entry, drop it so the factory path below can
             # install a fresh backend under the same key.
             self._shared_backend_pool.pop(hotkey_str, None)
         # pass role="dictation" so the WaylandHotkey backend (if
@@ -470,7 +470,7 @@ class HotkeyDispatcher:
         # invisible to most users). Done after ``create_hotkey_backend``
         # so the warning fires even if ``start()`` later raises.
         self._maybe_warn_wayland_caps_lock(hotkey_str)
-        # PTT safety timeout — if a recording started via
+        # PTT safety timeout, if a recording started via
         # push-to-talk exceeds 60s without a stop event, auto-stop and
         # surface a tray notification. The release callback is wired
         # below for PTT mode; this timer is a safety net in case the
@@ -515,7 +515,7 @@ class HotkeyDispatcher:
         Called AFTER a backend's ``start()`` succeeds so the pool only
         ever contains live backends. If an entry already exists for
         ``spec`` (e.g. a stale entry from a backend that's about to be
-        stopped), it is overwritten — the caller has just installed a
+        stopped), it is overwritten, the caller has just installed a
         fresh backend for that spec.
         """
         self._shared_backend_pool[spec] = backend
@@ -529,7 +529,7 @@ class HotkeyDispatcher:
         :meth:`register`) so the pool never returns a dead backend.
         Identity comparison (``is``) is used instead of spec lookup
         because the same spec may have been re-registered under a new
-        backend instance — we only want to drop the OLD instance.
+        backend instance, we only want to drop the OLD instance.
         """
         if backend is None:
             return
@@ -549,7 +549,7 @@ class HotkeyDispatcher:
         This is the count of live hotkey subprocesses owned by this
         dispatcher. On the full-pooling path (native
         ``SubprocessHotkeyBackend`` selected) with three DIFFERENT
-        specs, this is 1 — the dictation backend's subprocess hosts
+        specs, this is 1, the dictation backend's subprocess hosts
         the ESC and repaste extra matchers, and the ESC / repaste
         backends are delegated (no subprocess of their own). When
         pooling is unavailable (legacy backend) or specs collide, the
@@ -575,7 +575,7 @@ class HotkeyDispatcher:
         follows the same adapter pattern (and silently returns
         ``None`` for legacy backends like ``PynputHotkey`` /
         ``WaylandHotkey`` / ``WindowsNativeHotkey`` that don't support
-        extra matchers — those fall back to the per-role subprocess
+        extra matchers, those fall back to the per-role subprocess
         model).
 
         This deliberately accesses a private attribute (``_native``)
@@ -587,7 +587,7 @@ class HotkeyDispatcher:
             return None
         # BROKEN-3: when the backend is a ``_NativeBackendAdapter`` that
         # has swapped to its legacy fallback (the native subprocess
-        # permanently failed) — or both died — the wrapped native object
+        # permanently failed), or both died, the wrapped native object
         # is DEAD and no longer receives events. Report "no native" so
         # aux roles fall back to per-role subprocesses instead of
         # pooling onto the dead subprocess (which silently kills
@@ -637,23 +637,23 @@ class HotkeyDispatcher:
             shared_native.set_role_callback(role, callback)
             # Mark the aux backend as delegated so its start() skips
             # spawning a subprocess. The aux backend's own callback
-            # (passed to start()) is NEVER invoked — the shared
+            # (passed to start()) is NEVER invoked, the shared
             # backend's extra matcher handles dispatch.
             aux_native = self._native_of(aux_backend)
             if aux_native is not None:
                 aux_native._delegated = True
             # DEBUG: the caller's per-role "[HOTKEY] ... registered"
-            # INFO line appends "(pooled into shared backend)" — a
+            # INFO line appends "(pooled into shared backend)", a
             # second INFO here duplicated the same event.
             log.debug(
-                "[HOTKEY] Pooled %s into shared backend — separate %s backend is delegated (no subprocess)",
+                "[HOTKEY] Pooled %s into shared backend, separate %s backend is delegated (no subprocess)",
                 format_hotkey_label(spec),
                 role,
             )
             return True
         except Exception:
             log.debug(
-                "[HOTKEY] Failed to pool %s into shared backend — falling back to per-role subprocess",
+                "[HOTKEY] Failed to pool %s into shared backend, falling back to per-role subprocess",
                 role,
                 exc_info=True,
             )
@@ -669,7 +669,7 @@ class HotkeyDispatcher:
         the ESC / repaste extra matchers on the OLD (stopped) shared
         backend and the roles would silently stop firing.
 
-        Idempotent — safe to call when no aux backends are registered
+        Idempotent, safe to call when no aux backends are registered
         (no-op) or when the shared backend doesn't support pooling
         (no-op).
         """
@@ -713,24 +713,24 @@ class HotkeyDispatcher:
 
     def _handle_shared_native_state_changed(self, state: str) -> None:
         """BROKEN-3: re-sync the aux (ESC / repaste) backends when the
-        shared backend's ``_NativeBackendAdapter`` swaps native ↔ legacy.
+         shared backend's ``_NativeBackendAdapter`` swaps native ↔ legacy.
 
-        When the adapter's native subprocess permanently fails and it
-        swaps to a legacy backend (``FALLBACK`` state), the pooled
-        ``"esc"`` / ``"repaste"`` extra matchers live on the DEAD native
-        — the legacy backend that actually receives events knows nothing
-        about those roles, so the delegated aux backends silently stop
-        firing. Re-registering the active aux roles re-runs the pooling
-        decision: with ``_shared_native()`` now reporting ``None`` for a
-        FALLBACK adapter (see :meth:`_native_of`), each role falls back
-        to its own per-role subprocess and keeps working. On recovery
-        back to ``NATIVE``, the same re-registration re-pools the roles
-        onto the recovered native — avoiding a double-fire (per-role
-        subprocess + extra matcher both matching).
+         When the adapter's native subprocess permanently fails and it
+         swaps to a legacy backend (``FALLBACK`` state), the pooled
+         ``"esc"`` / ``"repaste"`` extra matchers live on the DEAD native
+        , the legacy backend that actually receives events knows nothing
+         about those roles, so the delegated aux backends silently stop
+         firing. Re-registering the active aux roles re-runs the pooling
+         decision: with ``_shared_native()`` now reporting ``None`` for a
+         FALLBACK adapter (see :meth:`_native_of`), each role falls back
+         to its own per-role subprocess and keeps working. On recovery
+         back to ``NATIVE``, the same re-registration re-pools the roles
+         onto the recovered native, avoiding a double-fire (per-role
+         subprocess + extra matcher both matching).
 
-        Guarded by ``_resyncing_aux`` so a recursive swap (the role's
-        own native also failing, re-firing this hook from inside
-        ``register_esc``) cannot loop forever.
+         Guarded by ``_resyncing_aux`` so a recursive swap (the role's
+         own native also failing, re-firing this hook from inside
+         ``register_esc``) cannot loop forever.
         """
         if self._resyncing_aux:
             return
@@ -755,7 +755,7 @@ class HotkeyDispatcher:
 
         The factory detects the condition at register time and logs it;
         this method mirrors the warning via the tray's safety channel so
-        the user actually sees it. Idempotent — calling it multiple times
+        the user actually sees it. Idempotent, calling it multiple times
         for the same hotkey re-surfaces the same notification, which is
         acceptable (the user may have dismissed the first one).
         """
@@ -769,7 +769,7 @@ class HotkeyDispatcher:
             with contextlib.suppress(Exception):
                 self._app.tray.notify_safety(
                     APP_NAME,
-                    "On Wayland, Caps Lock cannot be suppressed — "
+                    "On Wayland, Caps Lock cannot be suppressed, "
                     "your text will be capitalized. Bind Alt or a "
                     "function key instead, or remap Caps Lock via "
                     "your compositor's settings.",
@@ -785,7 +785,7 @@ class HotkeyDispatcher:
     # and surfaces a tray notification. The timer is armed in
     # ``_create_and_start_main_backend`` for PTT mode and canceled on the
     # normal stop path (``_cancel_ptt_safety_timer``). The timer is a
-    # best-effort safety net — it does NOT replace the normal key-up
+    # best-effort safety net, it does NOT replace the normal key-up
     # detection, it only catches the case where key-up was missed.
     _PTT_SAFETY_TIMEOUT_SECONDS: float = 60.0
 
@@ -841,7 +841,7 @@ class HotkeyDispatcher:
         event was lost.
         """
         log.warning(
-            "[HOTKEY] PTT release event missed — auto-stopping recording after %.0fs safety timeout",
+            "[HOTKEY] PTT release event missed, auto-stopping recording after %.0fs safety timeout",
             self._PTT_SAFETY_TIMEOUT_SECONDS,
         )
         try:
@@ -850,7 +850,7 @@ class HotkeyDispatcher:
             with contextlib.suppress(Exception):
                 self._app.tray.notify_safety(
                     APP_NAME,
-                    "PTT release event missed — recording auto-stopped after 60s safety timeout.",
+                    "PTT release event missed, recording auto-stopped after 60s safety timeout.",
                 )
         except Exception:
             log.exception("[HOTKEY] PTT safety timeout handler failed")
@@ -862,7 +862,7 @@ class HotkeyDispatcher:
         ``app.toggle_dictation`` directly with NO ownership check. This meant
         that pressing any key during a hotkey capture session (e.g. re-assigning
         the current hotkey, or capturing a new key like Tab) would immediately
-        trigger recording — because the OS-level listener sees the same keypress
+        trigger recording: because the OS-level listener sees the same keypress
         the frontend capture handler sees, and there was no guard.
 
         This mirrors the ESC callback's ownership check ( at line
@@ -874,15 +874,15 @@ class HotkeyDispatcher:
         def _dictation_callback() -> None:
             # guard against hotkey callbacks firing during
             # shutdown. The shutdown controller stops hotkey backends
-            # with a 5s timeout each — if stop() times out, the listener
+            # with a 5s timeout each, if stop() times out, the listener
             # thread may still fire callbacks that call toggle_dictation()
             # → _start_dictation(), undoing cleanup and racing
             # recorder.stop()/discard().
             if getattr(self._app, "_shutting_down", False):
-                log.debug("[HOTKEY] dictation ignored — app shutting down")
+                log.debug("[HOTKEY] dictation ignored, app shutting down")
                 return
             if keyboard_ownership().is_hotkey_capture_active():
-                log.debug("[HOTKEY] dictation ignored — frontend hotkey capture active")
+                log.debug("[HOTKEY] dictation ignored, frontend hotkey capture active")
                 return
             self._app.toggle_dictation()
 
@@ -898,10 +898,10 @@ class HotkeyDispatcher:
         def _repaste_callback() -> None:
             # shutdown guard (see _dictation_callback).
             if getattr(self._app, "_shutting_down", False):
-                log.debug("[HOTKEY] repaste ignored — app shutting down")
+                log.debug("[HOTKEY] repaste ignored, app shutting down")
                 return
             if keyboard_ownership().is_hotkey_capture_active():
-                log.debug("[HOTKEY] repaste ignored — frontend hotkey capture active")
+                log.debug("[HOTKEY] repaste ignored, frontend hotkey capture active")
                 return
             self._app.repaste_last()
 
@@ -930,7 +930,7 @@ class HotkeyDispatcher:
         succeeds, and untracked when stopped. The fast-path reuse
         (returning the existing backend instead of calling the
         factory) is NOT implemented for ESC because the ESC callback
-        differs from the dictation callback — reusing a dictation
+        differs from the dictation callback, reusing a dictation
         backend (rare case where the user bound dictation to ESC)
         would cause both callbacks to fire on the same keypress.
         The full refactor (see module docstring TODO) solves this
@@ -961,7 +961,7 @@ class HotkeyDispatcher:
             # the per-keystroke WH_KEYBOARD_LL hook for the ESC backend.
             # Only the main dictation hotkey installs an LL hook (was 3).
             # If RegisterHotKey fails for ESC (some keys are reserved),
-            # the backend falls back to the LL hook for ESC only — 2 hooks
+            # the backend falls back to the LL hook for ESC only, 2 hooks
             # instead of 3, still an improvement. suppress() so non-Windows
             # backends without ``_prefer_message_loop_first`` are skipped.
             with contextlib.suppress(AttributeError, TypeError):
@@ -970,16 +970,16 @@ class HotkeyDispatcher:
             def _esc_callback() -> None:
                 # shutdown guard (see _dictation_callback).
                 if getattr(self._app, "_shutting_down", False):
-                    log.debug("[HOTKEY] ESC ignored — app shutting down")
+                    log.debug("[HOTKEY] ESC ignored, app shutting down")
                     return
                 # centralized ownership check.
                 if keyboard_ownership().is_hotkey_capture_active():
-                    log.info("[HOTKEY] ESC pressed during hotkey capture — waiting for key-up")
+                    log.info("[HOTKEY] ESC pressed during hotkey capture, waiting for key-up")
                     # ESC-KEYUP-FIX: set the pending flag and install
                     # a release callback. The actual cancel happens on
                     # key-up (release), not key-down (press).
                     #  + M-94 (combined): ``threading.Event.set()``
-                    # is atomic — no race vs. a concurrent ``.clear()``
+                    # is atomic, no race vs. a concurrent ``.clear()``
                     # from the IPC disconnect worker.
                     self._esc_pending_capture_exit_event.set()
                     # Route the release callback through the shared
@@ -1004,7 +1004,7 @@ class HotkeyDispatcher:
             # Pool ESC into the shared backend (one subprocess for all
             # three roles). If pooling succeeds, the separate
             # ``_esc_backend`` is marked delegated and its ``start()``
-            # skips spawning — the actual ESC matching happens via an
+            # skips spawning, the actual ESC matching happens via an
             # extra matcher on the shared (dictation) backend's
             # subprocess. If pooling fails (no shared backend, or the
             # shared backend is a legacy backend without extra-matchers
@@ -1039,7 +1039,7 @@ class HotkeyDispatcher:
             # surface the failure to the user via the tray's
             # safety channel (bypasses the notification toggle) so they
             # know ESC cancel is unavailable. Previously this branch
-            # only emitted a ``log.warning`` — the user had no signal
+            # only emitted a ``log.warning``: the user had no signal
             # until they pressed ESC and nothing happened.
             with contextlib.suppress(Exception):
                 self._app.tray.notify_safety(
@@ -1063,7 +1063,7 @@ class HotkeyDispatcher:
         concurrent ``.set()`` from the ESC listener between the
         ``is_set()`` read and the ``clear()`` write would be lost),
         but ``threading.Event`` is the canonical primitive for this
-        pattern and the race window is sub-microsecond — far shorter
+        pattern and the race window is sub-microsecond, far shorter
         than the human reaction time between two ESC presses.  The
         previous plain-bool implementation had the SAME race window
         plus an additional race against the IPC disconnect worker
@@ -1071,14 +1071,14 @@ class HotkeyDispatcher:
         thread).  The Event eliminates the second race; the first is
         tolerable (a second ESC press within the same microsecond
         would re-arm the flag and the next release would fire the
-        cancel again — idempotent via ``keyboard_ownership().reset()``).
+        cancel again, idempotent via ``keyboard_ownership().reset()``).
         """
         #  + M-94 (combined): threading.Event.is_set() / .clear()
         if not self._esc_pending_capture_exit_event.is_set():
             return
         self._esc_pending_capture_exit_event.clear()
 
-        log.info("[HOTKEY] ESC released during hotkey capture — canceling capture")
+        log.info("[HOTKEY] ESC released during hotkey capture, canceling capture")
 
         # Reset keyboard ownership so subsequent keys
         # are no longer blocked by the capture check.
@@ -1119,7 +1119,7 @@ class HotkeyDispatcher:
             self._esc_spec = None
             # Also remove the pooled "esc" extra matcher from the shared
             # backend. The delegated ESC backend's stop() only clears its
-            # own (never-spawned) state — the shared backend stays alive,
+            # own (never-spawned) state, the shared backend stays alive,
             # so without this ESC keeps firing the cancel callback after
             # the hotkey is disabled (``esc_cancel_enabled`` toggle). No-op
             # in the legacy per-role subprocess model (role never pooled).
@@ -1142,7 +1142,7 @@ class HotkeyDispatcher:
             # validate the configured repaste hotkey BEFORE
             # attempting to register it. ``Config.load()`` bypasses the
             # denylist, so a stale/hand-edited config could contain an
-            # OS-reserved shortcut (e.g. ``<win>+<l>``) or — after
+            # OS-reserved shortcut (e.g. ``<win>+<l>``) or, after
             # ``<caps_lock>+<v>`` (caps_lock is now correctly
             # rejected by Stage 5 as a non-modifier key in a multi-
             # non-modifier combo, instead of being silently accepted
@@ -1155,7 +1155,7 @@ class HotkeyDispatcher:
             validation_error = _validate_hotkey(self._app.config.repaste_hotkey)
             if validation_error is not None:
                 log.warning(
-                    "[HOTKEY] configured repaste_hotkey %r rejected (%s) — "
+                    "[HOTKEY] configured repaste_hotkey %r rejected (%s), "
                     "disabling repaste (not resetting to <caps_lock> to avoid "
                     "conflict with the main dictation hotkey)",
                     self._app.config.repaste_hotkey,
@@ -1227,7 +1227,7 @@ class HotkeyDispatcher:
         stop the OLD backend BEFORE starting the NEW one.
         Previously ``register()`` brought up the new backend first and
         the old backend was only stopped AFTER ``register()`` returned
-        success — leaving a window where BOTH backends were running on
+        success, leaving a window where BOTH backends were running on
         platforms that permit multiple global-hotkey registrations
         (pynput on Linux/X11, Wayland). Both fired the dictation
         callback on the same keypress → double-toggle. Stopping the
@@ -1268,7 +1268,7 @@ class HotkeyDispatcher:
 
         app.config.hotkey = hotkey
         if not app.config.save():
-            log.warning("[HOTKEY] config.save() returned False — hotkey change may not persist")
+            log.warning("[HOTKEY] config.save() returned False, hotkey change may not persist")
             app.tray.notify(
                 APP_NAME,
                 "Failed to save hotkey to disk. Check disk space or permissions.",
@@ -1295,7 +1295,7 @@ class HotkeyDispatcher:
 
         # ``register()`` ALSO calls ``register_esc()`` +
         # ``register_repaste()`` for first-time-setup convenience, but
-        # ``restart()`` only swaps the MAIN dictation hotkey — the
+        # ``restart()`` only swaps the MAIN dictation hotkey, the
         # ESC and repaste specs are unchanged, so re-creating those
         # backends would waste subprocess spawns / thread creation /
         # Win32 hook installs and briefly leave ESC dead during the
@@ -1313,7 +1313,7 @@ class HotkeyDispatcher:
                 exc,
             )
             # mirror ``register()``'s tray notification on failure so
-            # the user sees which hotkey the OS rejected — users would
+            # the user sees which hotkey the OS rejected, users would
             # otherwise have no idea why their settings change silently
             # rolled back.
             with contextlib.suppress(Exception):
@@ -1325,7 +1325,7 @@ class HotkeyDispatcher:
                 )
 
         if register_ok:
-            # new backend installed — old backend already stopped above.
+            # new backend installed, old backend already stopped above.
             pass
         else:
             # registration failed. The OLD backend was already stopped,
@@ -1344,7 +1344,7 @@ class HotkeyDispatcher:
                     self._hotkey_backend = self._create_and_start_main_backend(old_hotkey_str)
                 except Exception:
                     log.exception(
-                        "[HOTKEY] Failed to restore previous backend (hotkey=%r) — "
+                        "[HOTKEY] Failed to restore previous backend (hotkey=%r), "
                         "user is left without a dictation hotkey",
                         old_hotkey_str,
                     )
@@ -1355,10 +1355,10 @@ class HotkeyDispatcher:
                             "Open Settings to rebind a hotkey.",
                         )
             else:
-                # No OLD backend to restore — register() failure leaves
+                # No OLD backend to restore, register() failure leaves
                 # _hotkey_backend as None (first-time registration that
                 # failed). register() already showed the tray notify.
-                log.warning("[HOTKEY] restart did not install a new backend — no previous backend to restore")
+                log.warning("[HOTKEY] restart did not install a new backend, no previous backend to restore")
 
         app.tray.set_hotkey(app.config.hotkey)
 
@@ -1370,7 +1370,7 @@ class HotkeyDispatcher:
         each backend's ``stop()`` runs in a worker thread under
         a hard 3s budget shared across all three backends. Previously
         ``stop_all`` called ``backend.stop()`` sequentially with no
-        timeout — a single hung native backend (Win32
+        timeout, a single hung native backend (Win32
         ``UnregisterHotKey`` + listener-thread join, Wayland
         ``wl_display`` teardown, pynput listener join) could block the
         shutdown sequence for up to ~15s (3 backends × 5s join each).
@@ -1379,12 +1379,12 @@ class HotkeyDispatcher:
         listener thread is a daemon, so process exit still terminates
         it. ``stop()`` failures inside the budget are swallowed (logged
         at debug) so a poisoned backend doesn't abort the rest of
-        shutdown — same contract as before.
+        shutdown, same contract as before.
 
         Implementation note: we do NOT use the ``with`` block on the
         ``ThreadPoolExecutor`` because ``__exit__`` calls
         ``shutdown(wait=True)`` which would block until every submitted
-        future completes — defeating the 3s budget. Instead we call
+        future completes, defeating the 3s budget. Instead we call
         ``shutdown(wait=False, cancel_futures=True)`` so already-running
         workers are left to finish (or hang) in the background and the
         method returns as soon as ``concurrent.futures.wait`` does.
@@ -1392,7 +1392,7 @@ class HotkeyDispatcher:
         backend_attrs = ("_hotkey_backend", "_esc_backend", "_repaste_backend")
         live_attrs = [a for a in backend_attrs if getattr(self, a) is not None]
         if live_attrs:
-            # NOT using ``with`` — see docstring: ``__exit__`` would
+            # NOT using ``with``: see docstring: ``__exit__`` would
             # block on ``shutdown(wait=True)`` and defeat the budget.
             pool = concurrent.futures.ThreadPoolExecutor(max_workers=len(live_attrs))
             try:
@@ -1400,12 +1400,12 @@ class HotkeyDispatcher:
                 done, not_done = concurrent.futures.wait(futures, timeout=3.0)
                 for fut in not_done:
                     log.warning(
-                        "[HOTKEY] %s did not stop within 3s budget — proceeding anyway",
+                        "[HOTKEY] %s did not stop within 3s budget, proceeding anyway",
                         futures[fut],
                     )
                 # Surface any exception raised by a completed stop so
                 # operators can diagnose poisoned backends (debug-level
-                # — the user-visible contract is "stop_all never raises"
+                # , the user-visible contract is "stop_all never raises"
                 # and that is preserved by swallowing here).
                 for fut in done:
                     exc = fut.exception()
@@ -1432,7 +1432,7 @@ class HotkeyDispatcher:
         # backend handle so a post-shutdown ``register()`` starts from
         # a clean slate. The extra matchers on the (now-stopped)
         # shared backend's native are torn down by the backend's own
-        # ``stop()`` — we don't need to call ``remove_extra_matcher``
+        # ``stop()``: we don't need to call ``remove_extra_matcher``
         # here because the native backend object is discarded.
         self._esc_callback = None
         self._repaste_callback = None
@@ -1442,7 +1442,7 @@ class HotkeyDispatcher:
         # stopped (and untracked) by ``_stop_one_backend`` above; this
         # clears any entries that ``_stop_one_backend`` may have missed
         # (e.g. a backend that was in the pool but not assigned to any
-        # of the three role attributes — defensive).
+        # of the three role attributes, defensive).
         self._shared_backend_pool.clear()
         # cancel any armed PTT safety timer so a hot-restart
         # or shutdown doesn't leave a dangling Timer that fires after
@@ -1457,7 +1457,7 @@ class HotkeyDispatcher:
         :meth:`stop_all`. ``stop()`` failures are swallowed (logged at
         debug) so a poisoned backend doesn't abort the rest of shutdown.
         The attribute is cleared UNCONDITIONALLY after ``stop()`` returns
-        or raises — the post-stop code paths (and the test suite) treat
+        or raises, the post-stop code paths (and the test suite) treat
         ``None`` as "no backend", so leaving a partially-stopped backend
         in place would be worse than a clean None.
         """

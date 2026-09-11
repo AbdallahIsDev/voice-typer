@@ -4,7 +4,7 @@
 Background: the polkit policy (``scripts/linux/voice-typer.polkit``)
 hard-codes ``/usr/share/voice-typer/scripts/install_permissions.py`` as
 the ``org.freedesktop.policykit.exec.path`` annotation. Polkit requires
-an absolute, stable path — it does not change across AppImage versions
+an absolute, stable path, it does not change across AppImage versions
 or .deb / .rpm upgrades.
 
 For Debian / RPM installs, the package's ``postinst`` creates a symlink
@@ -241,7 +241,7 @@ def _strip_extended_prefix(p: str) -> str:
     r"""Strip the Win32 extended-length path prefix (``\\?\``) from a path.
 
     ``Path.resolve()`` emits the prefixed form on Windows, while
-    ``os.readlink`` returns the unprefixed target — comparing the two raw
+    ``os.readlink`` returns the unprefixed target, comparing the two raw
     strings fails on Windows CI even though the paths are identical.
     No-op on POSIX."""
     if p.startswith("\\\\?\\"):
@@ -477,7 +477,7 @@ class TestInstallPolkitPolicy:
 
     def test_removes_legacy_policy_when_installing(self, ip_module, monkeypatch, tmp_path, capsys):
         """Installing also removes the legacy org.voice-typer.policy
-        (upgrade convergence — the legacy file must not linger)."""
+        (upgrade convergence, the legacy file must not linger)."""
         source = tmp_path / "voice-typer.polkit"
         source.write_text("<policyconfig>test</policyconfig>")
         dest = tmp_path / "com.voicetyper.policy"
@@ -777,7 +777,7 @@ class TestBundledCopySync:
         assert canonical.is_file(), f"canonical source missing: {canonical}"
         assert bundled.is_file(), f"bundled copy missing: {bundled}"
         assert canonical.read_bytes() == bundled.read_bytes(), (
-            "bundled install_permissions.py differs from canonical source — "
+            "bundled install_permissions.py differs from canonical source, "
             "re-sync via `cp scripts/linux/install_permissions.py "
             "src-tauri/resources/linux-scripts/install_permissions.py`."
         )

@@ -60,7 +60,7 @@ def test_safe_key_press_uses_finally(clipboard):
 # ``test_schedule_clipboard_clear_creates_thread`` test that previously
 # lived here exercised a method that no longer exists. The borrow /
 # restore lifecycle is now driven by ``ClipboardSnapshot.capture()`` in
-# ``copy()`` and ``_delayed_restore()`` in ``paste()`` — covered by
+# ``copy()`` and ``_delayed_restore()`` in ``paste()``, covered by
 # tests/test_clipboard_borrow_restore.py.
 
 

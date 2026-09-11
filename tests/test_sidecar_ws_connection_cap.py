@@ -14,16 +14,16 @@ not involved.
 
 These tests exercise:
 
-1. **Under cap → connection proceeds** — a fresh server with a full
+1. **Under cap → connection proceeds**, a fresh server with a full
    semaphore budget accepts the connection normally (auth runs).
-2. **At cap → connection rejected with 1008** — a server whose
+2. **At cap → connection rejected with 1008**, a server whose
    semaphore is exhausted rejects the new connection with a
    ``max_connections_reached`` error frame + close(1008), WITHOUT
    reading the auth frame.
-3. **Semaphore released on disconnect** — after a connection completes
+3. **Semaphore released on disconnect**, after a connection completes
    (clean OR abnormal), the semaphore slot is released so a subsequent
    connection can proceed.
-4. **Per-instance semaphore** — each fresh ``IPCServer`` gets its own
+4. **Per-instance semaphore**, each fresh ``IPCServer`` gets its own
    semaphore; exhaustion on one server does NOT affect another.
 
 The tests use ``MagicMock`` websockets (same pattern as
@@ -88,7 +88,7 @@ async def test_at_cap_rejects_with_1008_before_auth(monkeypatch) -> None:
     ``max_connections_reached`` so the host can branch on the code.
     """
     monkeypatch.setenv("VOICE_TYPER_IPC_TOKEN", "good-token")
-    # Provide a valid auth frame — but it should NEVER be read because
+    # Provide a valid auth frame, but it should NEVER be read because
     # the semaphore rejection runs first.
     ws = make_fake_websocket(json.dumps({"type": "auth", "token": "good-token"}))
     # Semaphore(0) → at cap, all slots held.
@@ -111,7 +111,7 @@ async def test_at_cap_rejects_with_1008_before_auth(monkeypatch) -> None:
     _, close_kwargs = ws._closed_with[0]
     assert close_kwargs.get("code") == 1008, f"expected close(code=1008), got kwargs={close_kwargs}"
 
-    # Auth was NEVER invoked — the recv mock was never awaited.
+    # Auth was NEVER invoked, the recv mock was never awaited.
     # (The recv coroutine object exists but was never called because
     # _authenticate short-circuits via the semaphore rejection.)
     dispatch.assert_not_called()
@@ -189,7 +189,7 @@ def test_max_ws_connections_constant_is_sane() -> None:
     """The cap must be a positive integer (sanity check on the constant).
 
     A cap of 0 would reject ALL connections (DoS the sidecar); a negative
-    cap would crash ``asyncio.Semaphore``. 16 is generous — only one
+    cap would crash ``asyncio.Semaphore``. 16 is generous, only one
     authenticated connection is meaningful at a time (XZ-R18-06), so the
     cap exists purely to bound the unauthenticated-connection window.
     """
@@ -206,7 +206,7 @@ def test_get_ws_connection_semaphore_creates_real_semaphore() -> None:
     MagicMock auto-vivifies child attributes, so ``getattr(server,
     "_ws_connection_semaphore", None)`` returns a child MagicMock (not
     None). The helper must detect this via ``isinstance`` and create a
-    real Semaphore — otherwise ``.acquire()`` would return a non-awaitable
+    real Semaphore, otherwise ``.acquire()`` would return a non-awaitable
     MagicMock.
     """
     server = MagicMock()
@@ -215,7 +215,7 @@ def test_get_ws_connection_semaphore_creates_real_semaphore() -> None:
     sem = sidecar_ws._get_ws_connection_semaphore(server)
     assert isinstance(sem, asyncio.Semaphore), f"expected a real asyncio.Semaphore, got {type(sem).__name__}"
 
-    # A second call returns the SAME semaphore (idempotent — the helper
+    # A second call returns the SAME semaphore (idempotent, the helper
     # stores it on the server).
     sem2 = sidecar_ws._get_ws_connection_semaphore(server)
     assert sem is sem2, "second call should return the cached semaphore"

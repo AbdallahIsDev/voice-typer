@@ -8,7 +8,7 @@ fallback to ``engine.load()`` that had been deleted) and then FELL THROUGH to
 the success report: a 100% progress push, a "downloaded successfully" tray
 toast, and ``{"success": True}``. In an environment where huggingface_hub is
 missing (stripped venv, broken install), the user saw a green toast and no
-model files were ever fetched — the first dictation then failed with an
+model files were ever fetched, the first dictation then failed with an
 unrelated engine-load error.
 
 These tests pin the structured-failure contract (mirrors the Parakeet path's
@@ -68,7 +68,7 @@ def progress_spy(monkeypatch):
 class TestWhisperDownloadMissingHuggingfaceHub:
     def test_missing_hub_returns_structured_failure(self, whisper_service, progress_spy, monkeypatch):
         """With ``huggingface_hub`` unimportable, ``_download_whisper_family``
-        must return ``success: False`` with the reason code — never fall
+        must return ``success: False`` with the reason code, never fall
         through to the success report."""
         from voice_typer.server.model_registry import get_model_metadata
 
@@ -76,7 +76,7 @@ class TestWhisperDownloadMissingHuggingfaceHub:
         assert meta is not None, "tiny.en must be in MODEL_REGISTRY for this test"
 
         # ``None`` in sys.modules makes ``from huggingface_hub import ...``
-        # raise ImportError — simulating a stripped/broken install without
+        # raise ImportError, simulating a stripped/broken install without
         # uninstalling anything.
         monkeypatch.setitem(sys.modules, "huggingface_hub", None)
 
@@ -89,7 +89,7 @@ class TestWhisperDownloadMissingHuggingfaceHub:
 
     def test_missing_hub_never_pushes_100_percent_nor_success_toast(self, whisper_service, progress_spy, monkeypatch):
         """The failure path must push a 0% (reset) progress event with the
-        failure message and a FAILURE toast — no 100% push, no "downloaded
+        failure message and a FAILURE toast, no 100% push, no "downloaded
         successfully" notification."""
         from voice_typer.server.model_registry import get_model_metadata
 
@@ -102,7 +102,7 @@ class TestWhisperDownloadMissingHuggingfaceHub:
 
         assert progress, "expected at least one progress push (the 0% failure reset)"
         assert not any(pct == 100 for pct, _ in progress), (
-            f"regression: 100% progress pushed on the ImportError path — "
+            f"regression: 100% progress pushed on the ImportError path, "
             f"the failure fell through to the success report. Pushes: {progress}"
         )
         assert all("successfully" not in body for body in toasts), (
@@ -130,7 +130,7 @@ class TestWhisperDownloadMissingHuggingfaceHub:
 
             assert is_download_active() is False, (
                 "regression: ImportError path left the single-flight gate "
-                "latched — subsequent downloads would be refused as "
+                "latched, subsequent downloads would be refused as "
                 "'already active'"
             )
         finally:
@@ -147,7 +147,7 @@ class TestWhisperDownloadMissingHuggingfaceHub:
 
         assert result["success"] is False
         assert result.get("reason") == "huggingface_hub_missing"
-        # The outer handler's shape has "error" + "model" only — the
+        # The outer handler's shape has "error" + "model" only, the
         # structured branch shape carries "reason" too.
         assert "reason" in result
 
@@ -174,7 +174,7 @@ class TestWhisperDownloadCacheHitSingleTerminalPush:
     """Cache hits must emit exactly ONE terminal 100% progress event.
 
     The cache-hit branch (the ``local_files_only`` snapshot probe
-    succeeding) reports "already cached" — as a status-only event at a
+    succeeding) reports "already cached", as a status-only event at a
     NON-terminal percent. The shared success tail's 100% "Download of
     ... complete" push is the only terminal event a download call may
     emit, cache hit or fresh download alike: a second 100% push made
@@ -185,7 +185,7 @@ class TestWhisperDownloadCacheHitSingleTerminalPush:
     @pytest.fixture()
     def fake_cached_hub(self, monkeypatch):
         """A ``huggingface_hub`` whose ``snapshot_download`` succeeds for
-        the local-only probe — i.e. the model is already fully cached.
+        the local-only probe, i.e. the model is already fully cached.
 
         Injected via ``sys.modules`` (same technique the missing-hub
         tests use with ``None``) so no real network or on-disk HF cache
@@ -221,7 +221,7 @@ class TestWhisperDownloadCacheHitSingleTerminalPush:
             f"got {len(terminal)}: {terminal} (full stream: {progress})"
         )
         assert terminal[0][1] == "Download of tiny complete"
-        # The distinct "already cached" status message is preserved — as
+        # The distinct "already cached" status message is preserved, as
         # a status event at a non-terminal percent, never a second
         # completion event.
         cached_events = [(pct, msg) for pct, msg in progress if "already cached" in msg]
@@ -247,6 +247,6 @@ class TestWhisperDownloadCacheHitSingleTerminalPush:
             f"cache hit must not report transfer progress; got: {progress}"
         )
         assert whisper_service._download_cancel_events == {}, "cache hit must not register a per-download cancel Event"
-        # Only the local-only cache probe ran — no network download call.
+        # Only the local-only cache probe ran, no network download call.
         assert fake_cached_hub, "the cache probe must have run"
         assert all(kwargs.get("local_files_only") for kwargs in fake_cached_hub)

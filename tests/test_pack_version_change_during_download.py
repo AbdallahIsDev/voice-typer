@@ -1,4 +1,4 @@
-"""§8.12 — Pack version change during download.
+"""§8.12: Pack version change during download.
 
 Spec (§8.12):
 
@@ -17,7 +17,7 @@ Tested behaviors:
   3. If a partial for ``v1`` is corrupt and the version is still
      ``v1``, the resume path attempts to re-hash and either continues
      or restarts (covered by §8.1 test).
-  4. The download path is per-version — each version has its own
+  4. The download path is per-version, each version has its own
      ``pack-<version>.partial`` file.
 """
 
@@ -51,7 +51,7 @@ def _make_fake_transport(full_body: bytes):
 
 
 class TestVersionChangeDuringDownload:
-    """§8.12 — partial files are version-scoped."""
+    """§8.12, partial files are version-scoped."""
 
     def test_v1_partial_unused_for_v2_download(self, tmp_path: Path):
         """A ``pack-v1.partial`` file MUST NOT be used when downloading v2."""
@@ -62,7 +62,7 @@ class TestVersionChangeDuringDownload:
         v1_partial.parent.mkdir(parents=True, exist_ok=True)
         v1_partial.write_bytes(v1_body[:500])
 
-        # Now download v2 — must NOT use the v1 partial.
+        # Now download v2, must NOT use the v1 partial.
         v2_partial = offline_pack.offline_pack_partial_path("v2", root=tmp_path)
         fake, calls, v2_expected = _make_fake_transport(v2_body)
         ok = offline_pack.download_offline_pack_with_resume(
@@ -74,9 +74,9 @@ class TestVersionChangeDuringDownload:
         )
         assert ok
         # The v2 download started from offset 0 (its own partial was
-        # absent — the v1 partial was NOT reused).
+        # absent, the v1 partial was NOT reused).
         assert calls[0]["offset"] == 0
-        # The v1 partial is still on disk (untouched — caller can clean
+        # The v1 partial is still on disk (untouched, caller can clean
         # it up separately, but the v2 download did not delete it).
         assert v1_partial.exists()
         assert v1_partial.read_bytes() == v1_body[:500]
@@ -84,7 +84,7 @@ class TestVersionChangeDuringDownload:
         assert v2_partial.read_bytes() == v2_body
 
     def test_each_version_has_own_partial_path(self, tmp_path: Path):
-        """The partial path is per-version — no collision."""
+        """The partial path is per-version, no collision."""
         p1 = offline_pack.offline_pack_partial_path("v1", root=tmp_path)
         p2 = offline_pack.offline_pack_partial_path("v2", root=tmp_path)
         assert p1 != p2
@@ -116,7 +116,7 @@ class TestVersionChangeDuringDownload:
         assert calls[0]["offset"] == 1000
 
     def test_version_specific_lock_files(self, tmp_path: Path):
-        """The lock file is also per-version — no cross-version contention.
+        """The lock file is also per-version, no cross-version contention.
 
         The lock files are SIBLINGS of the version dirs (children of the
         pack root) so the §8.3 atomic swap cannot carry a lock's inode

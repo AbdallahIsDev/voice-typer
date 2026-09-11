@@ -6,20 +6,20 @@ text-only).
 
 Design principles (ADR-0010 §3):
 
-* DP1 — every borrow is paired with a restore.
-* DP4 — snapshots are passed as values, not stored as instance state.
-* DP5 — capture all formats on Windows and macOS; text-only on Linux
+* DP1, every borrow is paired with a restore.
+* DP4, snapshots are passed as values, not stored as instance state.
+* DP5, capture all formats on Windows and macOS; text-only on Linux
   (X11 and Wayland). Linux limitations are documented, not hidden.
 
 The snapshot is an immutable ``@dataclass``. ``capture()`` is a classmethod
 returning a new instance (or ``None``). ``restore()`` dispatches on
-``self.platform`` — the platform tag is captured at creation time and travels
+``self.platform``: the platform tag is captured at creation time and travels
 with the snapshot, so no global state is consulted at restore time.
 
 Cross-platform safety: every platform branch is wrapped so that an import
 failure or API misuse on a non-target platform logs and returns ``None``
 rather than crashing the caller. The transcription pipeline treats
-``None`` as "no snapshot to restore" — a degraded but safe mode.
+``None`` as "no snapshot to restore": a degraded but safe mode.
 """
 
 from __future__ import annotations
@@ -44,7 +44,7 @@ log = logging.getLogger(__name__)
 #     only one thread per process can hold the clipboard open at a time.
 #     A second concurrent ``OpenClipboard`` on the same process fails
 #     (returns 0), and the subsequent ``SetClipboardData`` calls are
-#     silently dropped — the user's original clipboard content is lost.
+#     silently dropped, the user's original clipboard content is lost.
 #   * macOS ``NSPasteboard.clearContents`` / ``writeObjects_``: AppKit
 #     documents NSPasteboard as main-thread-only; concurrent access from
 #     background threads is undefined behavior.
@@ -57,7 +57,7 @@ log = logging.getLogger(__name__)
 # thread during interpreter shutdown. Without serialization, the daemon
 # thread for cycle A can call ``snapshot_A.restore()`` concurrently with
 # the atexit handler calling ``snapshot_B.restore()`` for a different
-# pending entry B — racing on the platform clipboard APIs and leaving
+# pending entry B, racing on the platform clipboard APIs and leaving
 # the clipboard in an indeterminate state (typically: empty, or stuck
 # with the dictated text from one of the two cycles).
 #
@@ -65,7 +65,7 @@ log = logging.getLogger(__name__)
 # snapshot's daemon from both calling ``snapshot.restore()`` (the daemon
 # claims its entry under ``_pending_restores_lock`` before restoring,
 # and short-circuits if atexit already took it). But it does NOT prevent
-# two DIFFERENT snapshots from being restored concurrently — that's the
+# two DIFFERENT snapshots from being restored concurrently, that's the
 # residual race this lock closes.
 #
 # ``threading.Lock`` (not ``RLock``) is correct here: ``restore()``
@@ -77,7 +77,7 @@ log = logging.getLogger(__name__)
 # them.
 #
 # The lock is module-level (not per-instance) because the race is
-# between DIFFERENT snapshots on different threads — a per-instance lock
+# between DIFFERENT snapshots on different threads, a per-instance lock
 # would not serialize them.
 _restore_lock = threading.Lock()
 
@@ -144,7 +144,7 @@ _NON_RESTORABLE_FORMATS: frozenset[int] = frozenset(
 # realistic text/HTML/RTF format (the largest typical payload is a
 # richly-formatted document paste at ~1-2 MB) while still bounding
 # peak memory. Image formats (CF_DIB/CF_DIBV5) above the cap are also
-# skipped — they would have been restored as raw bytes anyway, which
+# skipped, they would have been restored as raw bytes anyway, which
 # for an oversized bitmap is slow and rarely what the user wants
 # restored (they typically want the *next* copy to replace it).
 _MAX_FORMAT_BYTES = 16 * 1024 * 1024
@@ -177,7 +177,7 @@ class ClipboardSnapshot:
 
     Captures all formats (text, RTF, HTML, image, file lists) on Windows
     and macOS. Captures text-only on Linux (X11 and Wayland) due to CLI
-    tool limitations — see ADR-0010 §4.5 and §4.6.
+    tool limitations: see ADR-0010 §4.5 and §4.6.
 
     Usage::
 
@@ -190,7 +190,7 @@ class ClipboardSnapshot:
             finally:
                 snap.restore()
 
-    The dataclass is intentionally simple — ``items`` is a list of
+    The dataclass is intentionally simple, ``items`` is a list of
     platform-specific tuples (the platform knows how to interpret them).
     No methods on the dataclass mutate state; ``restore()`` only reads
     ``self.platform`` and ``self.items``.
@@ -208,7 +208,7 @@ class ClipboardSnapshot:
 
         Returns ``None`` if the clipboard cannot be opened (another app
         holds the lock) or if no formats are present. The caller treats
-        ``None`` as "no snapshot to restore" — a degraded but safe mode.
+        ``None`` as "no snapshot to restore": a degraded but safe mode.
         """
         try:
             if is_windows():
@@ -252,7 +252,7 @@ class ClipboardSnapshot:
                 macOS; subprocess.run on Linux). This is correct: the platform
                 call sequence is the critical section. Per-item failures inside
                 ``_restore_windows`` etc. are still logged-and-continue (best
-                effort) — the lock is not released between items because
+                effort), the lock is not released between items because
                 releasing between items would re-open the race window mid-loop.
         """
         with _restore_lock:
@@ -276,7 +276,7 @@ class ClipboardSnapshot:
         Without this, ctypes defaults every return value and unspecified
         argument to a 32-bit C ``int``. On 64-bit Windows, clipboard
         HANDLEs and the pointers from ``GlobalLock`` are 64-bit, so the
-        default truncates them to 32 bits — a corrupted pointer that,
+        default truncates them to 32 bits, a corrupted pointer that,
         when handed to ``ctypes.string_at``/``memmove``, reads or writes
         a garbage address and corrupts the heap (STATUS_HEAP_CORRUPTION,
         0xC0000374). Declaring the signatures makes ctypes marshal the
@@ -329,7 +329,7 @@ class ClipboardSnapshot:
         kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
         cls._configure_win32_signatures(user32, kernel32)
 
-        # OpenClipboard(0) — pass NULL owner so we don't associate the
+        # OpenClipboard(0). Pass NULL owner so we don't associate the
         # clipboard with our window (we have none; we're a tray app).
         if not user32.OpenClipboard(0):
             log.debug("[CLIPBOARD-SNAPSHOT] OpenClipboard failed")
@@ -338,7 +338,7 @@ class ClipboardSnapshot:
             items: list[tuple[int, str, bytes]] = []
             # Running total of bytes captured across ALL formats
             # in this snapshot. Once we hit ``_MAX_TOTAL_SNAPSHOT_BYTES``
-            # we break out of the format-walk loop — the captured
+            # we break out of the format-walk loop, the captured
             # formats (text first) are sufficient for restore; later
             # formats (RTF, HTML, image) are best-effort. This bounds
             # the worst-case per-snapshot memory at 64 MB + one format
@@ -353,7 +353,7 @@ class ClipboardSnapshot:
 
                 # Skip GDI-handle formats (CF_BITMAP, CF_METAFILEPICT,
                 # CF_ENHMETAFILE). For these, GetClipboardData returns a
-                # GDI HANDLE — NOT an HGLOBAL — so calling GlobalSize /
+                # GDI HANDLE, NOT an HGLOBAL, so calling GlobalSize /
                 # GlobalLock / string_at on it reads a non-memory handle
                 # as if it were a heap block, corrupting the heap
                 # (STATUS_HEAP_CORRUPTION, 0xC0000374). We also cannot
@@ -379,7 +379,7 @@ class ClipboardSnapshot:
                 # Bounded RAM: skip formats whose payload exceeds the cap.
                 # ``ctypes.string_at(ptr, size)`` would otherwise copy the
                 # entire payload into a fresh Python ``bytes`` object on
-                # every capture — a 200 MB clipboard format (huge RTF
+                # every capture, a 200 MB clipboard format (huge RTF
                 # from an office suite, oversized private-data format)
                 # would balloon Python RSS by 200 MB per dictation and
                 # not be released until the snapshot is restored (which
@@ -407,13 +407,13 @@ class ClipboardSnapshot:
 
                 # Track the running total of bytes captured
                 # across all formats. Once we hit the per-snapshot cap,
-                # break out of the format-walk loop — the captured
+                # break out of the format-walk loop, the captured
                 # formats (text first) are sufficient for restore;
                 # later formats (RTF, HTML, image) are best-effort.
                 total_bytes += size
                 if total_bytes >= _MAX_TOTAL_SNAPSHOT_BYTES:
                     log.debug(
-                        "[CLIPBOARD-SNAPSHOT] total bytes captured (%d) >= %d-byte cap — "
+                        "[CLIPBOARD-SNAPSHOT] total bytes captured (%d) >= %d-byte cap, "
                         "stopping format walk after %d formats (remaining formats are best-effort)",
                         total_bytes,
                         _MAX_TOTAL_SNAPSHOT_BYTES,
@@ -422,7 +422,7 @@ class ClipboardSnapshot:
                     break
 
             if not items:
-                # Empty clipboard — return None so the caller skips restore.
+                # Empty clipboard. Return None so the caller skips restore.
                 return None
 
             return cls(
@@ -445,11 +445,11 @@ class ClipboardSnapshot:
                 called ``EmptyClipboard()`` unconditionally, then iterated
                 ``self.items`` calling ``SetClipboardData`` per format. Per-item
                 failures were logged at DEBUG and the item skipped; the function
-                returned ``True`` unconditionally — even if EVERY
+                returned ``True`` unconditionally, even if EVERY
                 ``SetClipboardData`` call failed (e.g. all ``GlobalAlloc``
                 returned 0 due to memory pressure). After ``EmptyClipboard()``
                 ran, the user's original clipboard content was gone, but the
-                caller logged "Restored snapshot" — false success with silent
+                caller logged "Restored snapshot": false success with silent
                 permanent data loss.
 
                 Fix: track a success count during the loop. If zero items were
@@ -466,7 +466,7 @@ class ClipboardSnapshot:
         kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
         self._configure_win32_signatures(user32, kernel32)
 
-        # GMEM_MOVEABLE — required by SetClipboardData.
+        # GMEM_MOVEABLE, required by SetClipboardData.
         gmem_moveable = 0x0002
 
         if not user32.OpenClipboard(0):
@@ -476,7 +476,7 @@ class ClipboardSnapshot:
             user32.EmptyClipboard()
             success_count = 0
             for fmt, name, data in self.items:
-                # Skip GDI-handle formats — they cannot be restored from
+                # Skip GDI-handle formats, they cannot be restored from
                 # raw bytes. Image data is preserved via CF_DIB / CF_DIBV5.
                 if fmt in _NON_RESTORABLE_FORMATS:
                     continue
@@ -491,7 +491,7 @@ class ClipboardSnapshot:
                         target_fmt = registered
                     else:
                         log.debug(
-                            "[CLIPBOARD-SNAPSHOT] RegisterClipboardFormatW failed for %r — skipping",
+                            "[CLIPBOARD-SNAPSHOT] RegisterClipboardFormatW failed for %r, skipping",
                             name,
                         )
                         continue
@@ -523,10 +523,10 @@ class ClipboardSnapshot:
                 # zero items were successfully set. EmptyClipboard()
                 # has already cleared the clipboard, so the user's prior
                 # content is gone. Return False so the caller logs failure
-                # instead of "Restored snapshot" — at least the audit
+                # instead of "Restored snapshot": at least the audit
                 # trail is honest about the data loss.
                 log.warning(
-                    "[CLIPBOARD-SNAPSHOT] _restore_windows: 0/%d formats set — "
+                    "[CLIPBOARD-SNAPSHOT] _restore_windows: 0/%d formats set, "
                     "clipboard is empty after EmptyClipboard (DE-62)",
                     len(self.items),
                 )
@@ -597,7 +597,7 @@ class ClipboardSnapshot:
 
         (Data integrity): the pre-fix code called
                 ``item.setData_forType_`` and ``pb.writeObjects_`` without
-                inspecting their return values — a per-item failure (e.g.
+                inspecting their return values, a per-item failure (e.g.
                 an unsupported type-name, a payload that violates the
                 type's contract) or a ``writeObjects_`` rejection (which
                 returns NO if NO items were accepted) was silently
@@ -653,7 +653,7 @@ class ClipboardSnapshot:
         if success_count == 0 or not write_ok:
             log.warning(
                 "[CLIPBOARD-SNAPSHOT] _restore_macos: %d/%d items set, "
-                "writeObjects_=%s — clipboard may be empty after clearContents",
+                "writeObjects_=%s, clipboard may be empty after clearContents",
                 success_count,
                 len(self.items),
                 write_ok,
@@ -661,7 +661,7 @@ class ClipboardSnapshot:
             return False
         return True
 
-    # ─── Linux X11 (xclip, text-only — documented limitation) ──────────
+    # ─── Linux X11 (xclip, text-only, documented limitation) ──────────
 
     @classmethod
     def _capture_x11(cls) -> ClipboardSnapshot | None:
@@ -711,7 +711,7 @@ class ClipboardSnapshot:
         (session-DE, Medium, Data integrity): the pre-fix code
                 called ``subprocess.run(...)`` without ``check=True``, so a
                 non-zero ``xclip`` exit (no ``DISPLAY``, X11 connection
-                refused, compositor error) did NOT raise — the function
+                refused, compositor error) did NOT raise, the function
                 returned ``True`` unconditionally and the caller logged
                 "Restored snapshot" while the user's clipboard still contained
                 the dictated text. Silent data loss with false-success signal.
@@ -739,13 +739,13 @@ class ClipboardSnapshot:
             return False
         except subprocess.CalledProcessError as exc:
             log.warning(
-                "[CLIPBOARD-SNAPSHOT] xclip restore failed (exit %d) — "
+                "[CLIPBOARD-SNAPSHOT] xclip restore failed (exit %d), "
                 "clipboard may still contain dictated text (DE-61)",
                 exc.returncode,
             )
             return False
 
-    # ─── Linux Wayland (wl-copy/wl-paste, text-only — documented) ──────
+    # ─── Linux Wayland (wl-copy/wl-paste, text-only, documented) ──────
 
     @classmethod
     def _capture_wayland(cls) -> ClipboardSnapshot | None:
@@ -793,7 +793,7 @@ class ClipboardSnapshot:
         (session-DE, Medium, Data integrity): the pre-fix code
                 called ``subprocess.run(...)`` without ``check=True``, so a
                 non-zero ``wl-copy`` exit (compositor error, no Wayland
-                display) did NOT raise — the function returned ``True``
+                display) did NOT raise, the function returned ``True``
                 unconditionally and the caller logged "Restored snapshot"
                 while the user's clipboard still contained the dictated text.
                 Silent data loss with false-success signal. Now we pass
@@ -820,7 +820,7 @@ class ClipboardSnapshot:
             return False
         except subprocess.CalledProcessError as exc:
             log.warning(
-                "[CLIPBOARD-SNAPSHOT] wl-copy restore failed (exit %d) — "
+                "[CLIPBOARD-SNAPSHOT] wl-copy restore failed (exit %d), "
                 "clipboard may still contain dictated text (DE-61)",
                 exc.returncode,
             )

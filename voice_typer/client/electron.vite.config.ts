@@ -15,7 +15,7 @@ import { cspEmissionPlugin } from "./csp-plugin";
 // default is to emit sourcemaps for production bundles when not configured,
 // which would expose the entire main-process module graph. The renderer
 // keeps sourcemaps ONLY in dev (command === "serve") for the React DevTools
-// + stack-trace debugging experience — production renderer builds ship
+// + stack-trace debugging experience, production renderer builds ship
 // without sourcemaps too, since renderer code reaches end-user machines
 // inside the .asar and a sourcemap would expose component structure +
 // any inlined secrets (e.g. theme tokens, fallback strings).
@@ -31,7 +31,7 @@ export default defineConfig(({ command }) => ({
 		logLevel: process.stdout.isTTY ? "info" : "silent",
 		plugins: [externalizeDepsPlugin()],
 		build: {
-			// R6-F13: never ship main-process sourcemaps — they expose
+			// R6-F13: never ship main-process sourcemaps, they expose
 			// IPC handler addresses, the TCP auth flow, and the
 			// ALLOWED_COMMANDS surface to anyone who unzips the app.
 			sourcemap: false,
@@ -56,7 +56,7 @@ export default defineConfig(({ command }) => ({
 				input: {
 					// SEC-026: single preload entry for both main and bubble
 					// windows.  At runtime the preload inspects the window
-					// location to determine which APIs to expose — the full
+					// location to determine which APIs to expose, the full
 					// surface for the main renderer, or only the bubble
 					// subset for the bubble window.  A separate bubble entry
 					// would force Rollup to create a shared chunk that
@@ -94,14 +94,14 @@ export default defineConfig(({ command }) => ({
 				// downloads/parse in parallel with vendor chunks. Without
 				// manualChunks, Rollup emits a single ~2 MB index.js
 				// containing react + react-dom + radix-ui + @hugeicons/react
-				// + all app code — the browser can't start parsing app code
+				// + all app code, the browser can't start parsing app code
 				// until the entire monolith downloads.
 				//
 				// The function-form manualChunks routes each module id into
 				// a named chunk. Each matched module (and its dep graph) is
 				// extracted into the named chunk. The entry chunk imports
 				// these vendor chunks synchronously, so they're still loaded
-				// on the INITIAL page load (not lazy) — the win is parallel
+				// on the INITIAL page load (not lazy), the win is parallel
 				// fetch + smaller per-chunk parse cost, not deferred loading.
 				//
 				// react / react-dom go in vendor-react (kept eager —
@@ -110,7 +110,7 @@ export default defineConfig(({ command }) => ({
 				// vendor-radix. @hugeicons/react (the icon runtime) goes
 				// in vendor-icons. The Tauri <-> React bridge
 				// (src/renderer/src/lib/tauri-bridge/ + its @tauri-apps/api
-				// dep graph) goes in tauri-bridge — the SDK alone is ~1.4 MB,
+				// dep graph) goes in tauri-bridge, the SDK alone is ~1.4 MB,
 				// so isolating it lets the browser fetch + parse the entry
 				// + vendor chunks in parallel rather than blocking on a
 				// single monolithic index.js.
@@ -149,7 +149,7 @@ export default defineConfig(({ command }) => ({
 		resolve: {
 			alias: {
 				...aliases,
-				// @server removed — resolved outside renderer root and
+				// @server removed, resolved outside renderer root and
 				// crashed Vite HMR on locale switch. The JSON copy at
 				// src/renderer/src/data/ is imported with a project-relative
 				// path instead.

@@ -13,7 +13,7 @@
 //
 // Note: this module imports ``getLocale`` from ``./store``, and
 // ``./store`` imports ``notifyLocaleSubscribers`` from here. The
-// resulting ESM cycle is safe — both modules only invoke each other's
+// resulting ESM cycle is safe, both modules only invoke each other's
 // exports from inside function bodies (no top-level value access), so
 // by the time either function runs, both modules have finished
 // evaluating.
@@ -51,14 +51,14 @@ export function subscribeLocale(cb: () => void): () => void {
 // `ensureLocaleLoaded` notifies again AFTER the table is ready. If the
 // snapshot were just the locale string, the second notification would
 // see an unchanged snapshot ("ar" == "ar") and `useSyncExternalStore`
-// would skip the re-render — leaving every `useT()` component stuck on
+// would skip the re-render, leaving every `useT()` component stuck on
 // the English fallback until a manual re-render (the B-REVIEW-3
 // regression: switching to Arabic without a page reload never showed
 // Arabic labels). Including the revision makes both notifications
 // observable.
 let _localeRevision = 0;
 
-/** Snapshot of the current locale + revision — used as `getSnapshot`
+/** Snapshot of the current locale + revision, used as `getSnapshot`
  *  for `useSyncExternalStore`. */
 export function getLocaleSnapshot(): string {
 	return `${getLocale()}#${_localeRevision}`;
@@ -103,7 +103,7 @@ export function useT(): typeof t {
  * bound to the current locale.
  *
  *  (Critical): ``tChoice()`` was implemented () but never
- * wired into any component — every pluralized string in the renderer
+ * wired into any component, every pluralized string in the renderer
  * used the broken binary ``Singular`` / ``Plural`` key pattern, which
  * (a) only works for English-like 2-form locales, (b) leaks English
  * fallbacks for Slavic/Semitic locales that have 3-6 plural forms, and
@@ -128,12 +128,12 @@ export function useT(): typeof t {
  *   {
  *     "inbox.messages_one":   "You have {count} unread message.",
  *     "inbox.messages_other": "You have {count} unread messages.",
- *     // Slavic example (Polish) — uses "few" + "many":
+ *     // Slavic example (Polish), uses "few" + "many":
  *     "inbox.messages_few":   "Masz {count} nieprzeczytane wiadomości.",
  *     "inbox.messages_many":  "Masz {count} nieprzeczytanych wiadomości."
  *   }
  *
- * The returned function is the same {@link tChoice} export — wrapping
+ * The returned function is the same {@link tChoice} export, wrapping
  * it in a hook purely exists to opt the calling component into
  * locale-change re-renders (calling ``tChoice`` directly outside a
  * hook would NOT trigger a re-render on locale change).

@@ -1,8 +1,8 @@
-"""MIG-1.9 Phase 5 — macOS cutover validation (ADR-0020 Phase 5).
+"""MIG-1.9 Phase 5: macOS cutover validation (ADR-0020 Phase 5).
 
 This test file is the **macOS cutover gate check** for MIG-1.9 Phase 5
 of the ADR-0020 desktop-runtime migration (Electron → Tauri).
-ADR-0020 §"Phase 5 — Validation & cutover" + docs/migration/cutover-playbook.md
+ADR-0020 §"Phase 5, Validation & cutover" + docs/migration/cutover-playbook.md
 mandate **per-platform cutover** (Windows first, macOS second, Linux
 third). macOS cutover requires BOTH archs (aarch64-apple-darwin +
 x86_64-apple-darwin) to have passed the Phase 0-M validation gate on a
@@ -11,23 +11,23 @@ it cannot cut over until Windows has been stable on Tauri for ≥ 1
 release cycle, AND Phase 0-M passes on BOTH archs.
 
 The Linux sandbox CANNOT run a real macOS build / codesign /
-notarytool / stapler / spctl — those require a real macOS host + a
+notarytool / stapler / spctl, those require a real macOS host + a
 Developer ID Application certificate + an App Store Connect API key
 (or Apple ID + app-specific password). These tests therefore validate
 the **static configuration** of the macOS cutover plan:
 
-  - ``docs/migration/cutover-playbook.md`` — the authoritative Phase 5
+  - ``docs/migration/cutover-playbook.md``, the authoritative Phase 5
     cutover playbook that documents the macOS cutover steps + arch
     requirements + Phase 0-M gate + rollback procedure.
-  - ``.github/workflows/tauri-macos-build.yml`` — the CI workflow that
+  - ``.github/workflows/tauri-macos-build.yml``, the CI workflow that
     builds (aarch64 + x86_64 sidecars) → universal .app + .dmg via
     ``cargo tauri build --target universal-apple-darwin``, then signs
     + notarizes + staples the bundles.
-  - ``voice_typer/client/electron-builder.yml`` — the Electron
+  - ``voice_typer/client/electron-builder.yml``, the Electron
     distribution config; the macOS ``mac:`` section with ``dmg`` target
     MUST stay present as the reversible fallback (ADR-0020 §"Reversibility"
     + cutover-playbook.md Step 2.2: "The Electron build PATH stays in
-    the repo (reversible fallback) — only the active target is
+    the repo (reversible fallback), only the active target is
     disabled.").
 
 These tests check:
@@ -39,9 +39,9 @@ These tests check:
      ``cargo tauri build --target universal-apple-darwin``.
   3. The macOS Tauri CI workflow's universal-build job ``needs:``
      BOTH the aarch64 + x86_64 sidecar jobs (so the gate requires
-     Phase 0-M to pass on BOTH archs — neither arch can be skipped).
+     Phase 0-M to pass on BOTH archs, neither arch can be skipped).
 4. The macOS Tauri CI workflow is ENABLED for Phase 0-M validation
-      (jobs gated ``if: true``) — it runs on ``workflow_dispatch`` / the
+      (jobs gated ``if: true``), it runs on ``workflow_dispatch`` / the
       tauri-build.yml orchestrator's ``workflow_call`` while the
       per-platform Phase 5 gate (Phase 0-M host validation) is pending.
   5. The Electron fallback is preserved: ``electron-builder.yml`` keeps
@@ -59,26 +59,26 @@ These tests check:
      rollback.
 
 References:
-  - ADR-0020 §"Phase 5 — Validation & cutover" + §"Reversibility" —
+  - ADR-0020 §"Phase 5, Validation & cutover" + §"Reversibility" —
     the authoritative cutover spec.
-  - docs/migration/cutover-playbook.md — the cutover playbook under test.
-  - docs/migration/macos-validation-runbook.md — Phase 0-M runbook
+  - docs/migration/cutover-playbook.md, the cutover playbook under test.
+  - docs/migration/macos-validation-runbook.md, Phase 0-M runbook
     (the 9-point macOS host validation gate).
-  - docs/migration/signing-guide.md — macOS Developer ID signing +
+  - docs/migration/signing-guide.md, macOS Developer ID signing +
     notarization + stapling guide (ADR-0020 §13.2).
-  - .github/workflows/tauri-macos-build.yml — the CI workflow under test.
-  - voice_typer/client/electron-builder.yml — the Electron fallback
+  - .github/workflows/tauri-macos-build.yml, the CI workflow under test.
+  - voice_typer/client/electron-builder.yml, the Electron fallback
     config under test.
 
-Gaps documented (report, do NOT fix — out of scope for this gate check):
+Gaps documented (report, do NOT fix, out of scope for this gate check):
   - GAP-1: the cutover playbook says macOS cutover produces "two DMGs"
-    (aarch64 + x86_64 — see the macOS row in the "Per-platform cutover
+    (aarch64 + x86_64: see the macOS row in the "Per-platform cutover
     order" table), but the CI workflow produces a SINGLE universal DMG
     via ``cargo tauri build --target universal-apple-darwin``. Either
     the playbook or the workflow needs updating for consistency. The
     universal DMG is the better choice (smaller download, single
     artifact for users); the playbook should be updated to say
-    "universal DMG" instead of "two DMGs". Report only — do NOT fix.
+    "universal DMG" instead of "two DMGs". Report only, do NOT fix.
   - GAP-2: the CI workflow does NOT explicitly ``codesign --deep
     --entitlements src-tauri/entitlements.plist`` the .app bundle
     (it relies on cargo tauri build's internal signing via the
@@ -86,17 +86,17 @@ Gaps documented (report, do NOT fix — out of scope for this gate check):
     documented in ``tests/tauri/mig18/test_macos_signing.py``. The .dmg
     IS explicitly signed with ``codesign --force --sign
     "$MAC_SIGNING_IDENTITY" "$DMG_PATH"`` (no --deep / --entitlements).
-    Report only — do NOT fix.
-  - GAP-3 (CLOSED — workflow enabled): the CI workflow's 3 jobs
+    Report only, do NOT fix.
+  - GAP-3 (CLOSED, workflow enabled): the CI workflow's 3 jobs
     (build-aarch64 / build-x86_64 / build-tauri-universal) are uniform:
     all ENABLED (``if: true``) for Phase 0-M validation, so there is
     currently no way to enable ONLY aarch64 (e.g., if Phase 0-M passes on
     aarch64 but not yet on x86_64). Per the playbook, macOS cutover
-    requires BOTH archs, so this is correct behavior — but it means a
+    requires BOTH archs, so this is correct behavior, but it means a
     partial Phase 0-M pass cannot ship an aarch64-only Tauri beta. The
     workflow runs via ``workflow_dispatch`` / the tauri-build.yml
     orchestrator's ``workflow_call``; push/PR triggers stay commented out
-    until Phase 0-M host validation passes. Report only — do NOT fix.
+    until Phase 0-M host validation passes. Report only, do NOT fix.
 
 VALIDATE ON MACOS HOST (both archs):
 
@@ -106,7 +106,7 @@ VALIDATE ON MACOS HOST (both archs):
   trail") must include name + date + target arch + OS version for EACH
   arch independently.
 
-  ─── AARCH64 (Apple Silicon — macos-14 runner, native) ───────────────
+  ─── AARCH64 (Apple Silicon, macos-14 runner, native) ───────────────
   1. Trigger the workflow manually:
        GitHub Actions → "Tauri macOS Build (Phase 0-M)" → Run workflow
        → sign: true
@@ -134,13 +134,13 @@ VALIDATE ON MACOS HOST (both archs):
          python-sidecar-aarch64-apple-darwin + python-sidecar-x86_64-apple-darwin
          are embedded.
 
-  ─── X86_64 (Intel — macos-14 runner via Rosetta 2, OR macos-13 native) ──
-  1. Same workflow as aarch64 — the CI workflow builds BOTH archs on a
+  ─── X86_64 (Intel, macos-14 runner via Rosetta 2, OR macos-13 native) ──
+  1. Same workflow as aarch64, the CI workflow builds BOTH archs on a
      single macos-14 runner (aarch64 native + x86_64 via Rosetta 2).
      The universal .app + .dmg artifact contains both slices.
   2. On an Intel Mac, download + mount the same universal .dmg.
   3. Verify signing + notarization + stapling on x86_64 (same 3
-     commands as aarch64 above — the bundle is universal, so the same
+     commands as aarch64 above, the bundle is universal, so the same
      signatures + notarization tickets cover both slices).
   4. Launch the app + run the 9-point Phase 0-M gate on x86_64.
   5. Confirm the x86_64 slice runs natively (not via Rosetta 2):
@@ -157,7 +157,7 @@ VALIDATE ON MACOS HOST (both archs):
   evidence trail is filed, follow cutover-playbook.md Step 2 ("Flip the
   default (T-0 release)") for macOS:
     - .github/workflows/tauri-macos-build.yml: jobs are ALREADY ENABLED
-      (``if: true``) for validation — cutover means re-running the
+      (``if: true``) for validation, cutover means re-running the
       dispatch + uncommenting the push/PR triggers (ADR-0020 §15 +
       cutover-playbook.md Step 2.1) so CI-driven runs confirm the
       runbook pass on real runners.
@@ -194,7 +194,7 @@ def playbook_text() -> str:
     assert CUTOVER_PLAYBOOK.is_file(), (
         f"cutover-playbook.md not found at {CUTOVER_PLAYBOOK}. "
         "This is the authoritative Phase 5 cutover playbook (ADR-0020 "
-        "§'Phase 5 — Validation & cutover')."
+        "§'Phase 5, Validation & cutover')."
     )
     return CUTOVER_PLAYBOOK.read_text(encoding="utf-8")
 
@@ -228,10 +228,10 @@ def electron_builder_text() -> str:
 def test_playbook_documents_macos_in_cutover_order(playbook_text: str):
     """Playbook must list macOS in the per-platform cutover order table.
 
-    ADR-0020 §"Phase 5 — Validation & cutover" + cutover-playbook.md
+    ADR-0020 §"Phase 5, Validation & cutover" + cutover-playbook.md
     "Per-platform cutover order" table: Windows → macOS → Linux. macOS
     must be present (2nd in order, after Windows). Each platform is
-    independent — Windows cutting over does NOT cut over macOS.
+    independent, Windows cutting over does NOT cut over macOS.
     """
     assert "Per-platform cutover order" in playbook_text, (
         "cutover-playbook.md is missing the 'Per-platform cutover order' "
@@ -316,7 +316,7 @@ def test_workflow_builds_both_arch_sidecars(workflow_text: str):
 
     cutover-playbook.md macOS row: 'aarch64 + x86_64'. The CI workflow
     must build sidecars for both archs (even if the final .app/.dmg is
-    universal — a universal binary requires both arch slices to be
+    universal, a universal binary requires both arch slices to be
     built first).
     """
     has_aarch64 = "aarch64-apple-darwin" in workflow_text
@@ -367,7 +367,7 @@ def test_workflow_universal_job_needs_both_arch_jobs(workflow_text: str):
     ADR-0020 §"Phase 5" + cutover-playbook.md: macOS cutover requires
     Phase 0-M to pass on BOTH archs. The CI workflow enforces this by
     making the universal-build job depend on BOTH arch sidecar jobs
-    (so neither arch can be skipped — if either fails, the universal
+    (so neither arch can be skipped, if either fails, the universal
     build does not run).
     """
     # The build-tauri-universal job must have `needs: [build-aarch64, build-x86_64]`.
@@ -385,13 +385,13 @@ def test_workflow_universal_job_needs_both_arch_jobs(workflow_text: str):
     assert "build-aarch64" in needs_value, (
         f"build-tauri-universal job's 'needs:' does NOT include "
         f"'build-aarch64'. needs: [{needs_value}]. The universal build "
-        f"must depend on the aarch64 sidecar build (Apple Silicon) — "
+        f"must depend on the aarch64 sidecar build (Apple Silicon), "
         f"Phase 0-M must pass on aarch64."
     )
     assert "build-x86_64" in needs_value, (
         f"build-tauri-universal job's 'needs:' does NOT include "
         f"'build-x86_64'. needs: [{needs_value}]. The universal build "
-        f"must depend on the x86_64 sidecar build (Intel) — Phase 0-M "
+        f"must depend on the x86_64 sidecar build (Intel), Phase 0-M "
         f"must pass on x86_64."
     )
 
@@ -409,7 +409,7 @@ def test_workflow_is_enabled_for_phase_0_m_validation(workflow_text: str):
     """
     # No job may remain disabled.
     assert "if: false" not in workflow_text, (
-        "tauri-macos-build.yml still has `if: false` job guards — the "
+        "tauri-macos-build.yml still has `if: false` job guards, the "
         "macOS workflow must be enabled (`if: true`) for Phase 0-M "
         "validation (cutover-playbook.md Step 2.1)."
     )
@@ -438,7 +438,7 @@ def test_electron_builder_preserves_macos_dmg_target(
     """electron-builder.yml must keep the macOS dmg target (reversible fallback).
 
     ADR-0020 §"Reversibility" + cutover-playbook.md Step 2.2: "The
-    Electron build PATH stays in the repo (reversible fallback) — only
+    Electron build PATH stays in the repo (reversible fallback), only
     the active target is disabled." The macOS ``mac:`` section with
     ``dmg`` target must stay present even after macOS cuts over to Tauri
     (so rollback is a one-line uncomment, not a git revert).
@@ -552,14 +552,14 @@ def test_workflow_runs_macos_signing_notarization_stapling(
     ``xcrun stapler validate``.
 
     NOTE (GAP-2): the .app bundle is NOT explicitly signed with
-    ``codesign --deep --entitlements`` — the workflow relies on cargo
+    ``codesign --deep --entitlements``, the workflow relies on cargo
     tauri build's internal signing via MAC_SIGNING_IDENTITY. The .dmg
     IS explicitly signed with ``codesign --force --sign``. See this
     file's module docstring GAP-2 + tests/tauri/mig18/test_macos_signing.py
     GAP-1.
     """
     # 1. Signing: codesign with --sign (the .dmg is explicitly signed;
-    # the .app relies on cargo tauri build's internal signing — ).
+    # the .app relies on cargo tauri build's internal signing, ).
     assert "codesign" in workflow_text, (
         "tauri-macos-build.yml does NOT invoke 'codesign'. ADR-0020 §13.2 "
         "+ §'Phase 5' mandate that the macOS bundle is signed with a "
@@ -609,7 +609,7 @@ def test_playbook_documents_rollback_procedure(playbook_text: str):
     assert "Rollback procedure" in playbook_text, (
         "cutover-playbook.md is missing the 'Rollback procedure' section. "
         "ADR-0020 §'Reversibility' mandates that the cutover is "
-        "reversible per-platform — the rollback procedure must be "
+        "reversible per-platform, the rollback procedure must be "
         "documented."
     )
     # The rollback procedure must mention re-enabling the electron-builder
@@ -633,9 +633,9 @@ def test_playbook_states_electron_fallback_preserved(playbook_text: str):
     """Playbook must state that the Electron build path stays in the repo.
 
     ADR-0020 §"Reversibility" + cutover-playbook.md Step 2.2: "The
-    Electron build PATH stays in the repo (reversible fallback) — only
+    Electron build PATH stays in the repo (reversible fallback), only
     the active target is disabled." This is the key reversibility
-    guarantee: the Electron code is NOT deleted on cutover — only the
+    guarantee: the Electron code is NOT deleted on cutover, only the
     active target is commented out, so rollback is a one-line uncomment.
     """
     assert "reversible fallback" in playbook_text.lower(), (
@@ -660,7 +660,7 @@ def test_playbook_states_no_data_loss_on_rollback(playbook_text: str):
     assert "does NOT change on rollback" in playbook_text or "What does NOT change" in playbook_text, (
         "cutover-playbook.md is missing the 'What does NOT change on "
         "rollback' section. ADR-0020 §'Reversibility' mandates that "
-        "rollback causes no data/config/model loss — this guarantee "
+        "rollback causes no data/config/model loss, this guarantee "
         "must be documented."
     )
     # Isolate the section + check it mentions data + config + model.

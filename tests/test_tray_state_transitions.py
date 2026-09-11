@@ -10,7 +10,7 @@ These tests pin the three fixes applied to ``voice_typer/server/tray.py``:
     Tauri host receives an updated menu (the "Stop Dictation" label
     flips on RECORDING enter/exit, "Force Cancel" appears on
     TRANSCRIBING enter/exit). Pre- the RECORDING transition
-    only invalidated the icon — the menu stayed stale until the next
+    only invalidated the icon, the menu stayed stale until the next
     state change (e.g. a microphone list refresh).
 
   * **** (Medium): ``_publish_tray_state`` wraps the
@@ -136,11 +136,11 @@ class TestRecordingTransitionInvalidatesMenuCache:
         tray.set_state(AppState.RECORDING, "recording")
 
         assert tray._menu_cache_valid is False, (
-            "IDLE → RECORDING must invalidate the menu cache  — "
+            "IDLE → RECORDING must invalidate the menu cache, "
             "the 'Stop Dictation' label must flip on the next right-click."
         )
         assert len(menu_publish_calls) == 1, (
-            f"IDLE → RECORDING must push the tray menu  — got {len(menu_publish_calls)} calls"
+            f"IDLE → RECORDING must push the tray menu, got {len(menu_publish_calls)} calls"
         )
 
     def test_recording_to_idle_invalidates_menu_cache(self, monkeypatch):
@@ -160,17 +160,17 @@ class TestRecordingTransitionInvalidatesMenuCache:
         tray.set_state(AppState.IDLE, "")
 
         assert tray._menu_cache_valid is False, (
-            "RECORDING → IDLE must invalidate the menu cache  — "
+            "RECORDING → IDLE must invalidate the menu cache, "
             "the 'Start Dictation' label must flip on the next right-click."
         )
         assert len(menu_publish_calls) == 1, (
-            f"RECORDING → IDLE must push the tray menu  — got {len(menu_publish_calls)} calls"
+            f"RECORDING → IDLE must push the tray menu, got {len(menu_publish_calls)} calls"
         )
 
     def test_recording_to_transcribing_no_menu_publish(self, monkeypatch):
         """RECORDING → TRANSCRIBING stays inside the {RECORDING, TRANSCRIBING}
         set, so ``record_or_transcribe_changed`` is False and the menu is
-        NOT re-pushed (no label flip — both states have the same
+        NOT re-pushed (no label flip, both states have the same
         ``is_recording`` / ``is_transcribing`` flags)."""
         tray = _make_tray(monkeypatch)
         tray._state = AppState.RECORDING
@@ -185,10 +185,10 @@ class TestRecordingTransitionInvalidatesMenuCache:
         tray.set_state(AppState.TRANSCRIBING, "transcribing")
 
         # RECORDING and TRANSCRIBING are BOTH in the membership set, so
-        # the predicate is False — the menu cache stays valid and no
+        # the predicate is False, the menu cache stays valid and no
         # menu publish fires.
         assert tray._menu_cache_valid is True, (
-            "RECORDING → TRANSCRIBING stays inside the membership set — no cache invalidation ."
+            "RECORDING → TRANSCRIBING stays inside the membership set, no cache invalidation ."
         )
         assert menu_publish_calls == [], (
             "RECORDING → TRANSCRIBING must NOT push the menu (both states "
@@ -211,7 +211,7 @@ class TestRecordingTransitionInvalidatesMenuCache:
         tray.set_state(AppState.TRANSCRIBING, "transcribing")
 
         assert tray._menu_cache_valid is False, (
-            "IDLE → TRANSCRIBING must invalidate the menu cache — the "
+            "IDLE → TRANSCRIBING must invalidate the menu cache, the "
             "Force Cancel item must appear on the next right-click."
         )
         assert len(menu_publish_calls) == 1
@@ -244,26 +244,26 @@ class TestPublishTrayStateThreadSafe:
     def test_publish_lock_declared(self):
         """TrayIcon.__init__ must declare ``_publish_lock`` as a Lock."""
         tray = _make_tray(MagicMock())
-        assert hasattr(tray, "_publish_lock"), "TrayIcon must declare ``_publish_lock``  — got no attribute."
+        assert hasattr(tray, "_publish_lock"), "TrayIcon must declare ``_publish_lock``, got no attribute."
         # threading.Lock instances are not the Lock class directly (factory
         # returns a C object); verify it can be acquired + released.
         with tray._publish_lock:
             pass
         assert tray._publish_lock is not tray._icon_lock, (
             "_publish_lock must be a separate Lock instance from _icon_lock "
-            " — sharing would over-serialize the publish path against "
+            ", sharing would over-serialize the publish path against "
             "the icon teardown path."
         )
         assert tray._publish_lock is not tray._menu_lock, (
             "_publish_lock must be a separate Lock instance from _menu_lock "
-            " — sharing would serialize the publish path against the "
+            ", sharing would serialize the publish path against the "
             "menu rebuild path."
         )
 
     def test_concurrent_publishes_no_duplicate_emit(self, monkeypatch):
         """N threads call ``_publish_tray_state`` concurrently with the
         SAME state + message. Without the lock, every thread passes the
-        cache check (cache is initially None) and emits — the publish
+        cache check (cache is initially None) and emits, the publish
         counter would be N. With the lock, the first thread emits + sets
         the cache; subsequent threads see the cache hit and skip."""
         publish_calls: list[dict] = []
@@ -276,7 +276,7 @@ class TestPublishTrayStateThreadSafe:
         # Pin the CPU-fallback flag: a parakeet CPU-fallback event
         # arriving mid-test (event-bus subscriber registered in
         # TrayIcon.__init__) would change the tooltip and legitimately
-        # emit a second publish — that is NOT the dedup race under
+        # emit a second publish: that is NOT the dedup race under
         # test. Flipping it off makes the tuple deterministic.
         tray._cpu_fallback_active = False
 
@@ -291,7 +291,7 @@ class TestPublishTrayStateThreadSafe:
         # Stray publishes from OTHER TrayIcon instances in the same xdist
         # worker (e.g. a module-scoped app fixture whose dictation flow
         # flips its own tray to RECORDING) resolve this same module-level
-        # function while the patch is active — observed on CI as a
+        # function while the patch is active, observed on CI as a
         # ``{'icon': 'recording', ...}`` entry from a foreign tray inside
         # this test's publish_calls. Only THIS test's ``pub-*`` workers
         # assert the dedup invariant; foreign entries are recorded but
@@ -329,7 +329,7 @@ class TestPublishTrayStateThreadSafe:
         own_publishes = [c for c in publish_calls if c.get("thread") in own_thread_names]
         assert len(own_publishes) == 1, (
             "Concurrent publishes with the same state must emit exactly ONCE "
-            " — the first caller sets ``_last_published`` and "
+            ", the first caller sets ``_last_published`` and "
             f"subsequent callers skip. Got {len(own_publishes)} publishes from "
             f"this test's workers: {own_publishes} (all entries: {publish_calls})."
         )
@@ -382,7 +382,7 @@ class TestComputeTooltipTruncation:
     silently truncate at the OS layer."""
 
     def test_short_tooltip_not_truncated(self, monkeypatch):
-        """A short tooltip (under 127 chars) is returned unchanged — no
+        """A short tooltip (under 127 chars) is returned unchanged, no
         spurious ``…`` appended."""
         tray = _make_tray(monkeypatch)
         tray._state = AppState.IDLE
@@ -404,37 +404,36 @@ class TestComputeTooltipTruncation:
 
         tooltip = tray._compute_tooltip(AppState.IDLE, long_message)
 
-        assert len(tooltip) == 127, f"Long tooltip must be truncated to exactly 127 chars — got {len(tooltip)}."
+        assert len(tooltip) == 127, f"Long tooltip must be truncated to exactly 127 chars, got {len(tooltip)}."
         assert tooltip.endswith("…"), "Truncated tooltip must end with ``…`` (U+2026) so the user sees the truncation."
 
     def test_tooltip_exactly_127_chars_not_truncated(self, monkeypatch):
-        """A tooltip that is exactly 127 chars long is NOT truncated —
+        """A tooltip that is exactly 127 chars long is NOT truncated;
         the boundary is `> 127`, not `>= 127`."""
         tray = _make_tray(monkeypatch)
         tray._state = AppState.IDLE
 
         # Build a message that produces a tooltip of EXACTLY 127 chars.
-        # The tooltip format is ``<APP_NAME> — <message> [<model>] (<hotkey>)``
-        # — we tune the message length to land at the boundary.
+        # The tooltip format is ``<APP_NAME>: <message> [<model>] (<hotkey>)``;
+        # we tune the message length to land at the boundary.
         base = tray._compute_tooltip(AppState.IDLE, "")
         base_len = len(base)
-        # We need the message to add (127 - base_len - 3) chars (the " — "
-        # separator is 3 chars: space, em-dash, space).
-        delta = 127 - base_len - 3
+        # We need the message to add (127 - base_len - 2) chars (the ": "
+        # separator is 2 chars: colon, space).
+        delta = 127 - base_len - 2
         if delta < 0:
             # base is already > 127 (e.g. very long model name); skip the
-            # boundary test in that case — the long-tooltip test above
+            # boundary test in that case, the long-tooltip test above
             # already covers the truncation path.
             pytest.skip(
-                f"Base tooltip is already {base_len} chars — cannot construct "
-                "a 127-char boundary case with this config."
+                f"Base tooltip is already {base_len} chars, cannot construct a 127-char boundary case with this config."
             )
         message = "y" * delta
 
         tooltip = tray._compute_tooltip(AppState.IDLE, message)
-        assert len(tooltip) == 127, f"Boundary tooltip must be exactly 127 chars — got {len(tooltip)}."
+        assert len(tooltip) == 127, f"Boundary tooltip must be exactly 127 chars, got {len(tooltip)}."
         assert not tooltip.endswith("…"), (
-            "A tooltip of exactly 127 chars must NOT be truncated — the boundary is `> 127`, not `>= 127`."
+            "A tooltip of exactly 127 chars must NOT be truncated, the boundary is `> 127`, not `>= 127`."
         )
 
     def test_tooltip_128_chars_truncated(self, monkeypatch):
@@ -445,21 +444,20 @@ class TestComputeTooltipTruncation:
 
         base = tray._compute_tooltip(AppState.IDLE, "")
         base_len = len(base)
-        delta = 128 - base_len - 3
+        delta = 128 - base_len - 2
         if delta < 0:
             pytest.skip(
-                f"Base tooltip is already {base_len} chars — cannot construct "
-                "a 128-char boundary case with this config."
+                f"Base tooltip is already {base_len} chars, cannot construct a 128-char boundary case with this config."
             )
         message = "z" * delta
 
         tooltip = tray._compute_tooltip(AppState.IDLE, message)
-        assert len(tooltip) == 127, f"128-char tooltip must be truncated to 127 chars — got {len(tooltip)}."
+        assert len(tooltip) == 127, f"128-char tooltip must be truncated to 127 chars, got {len(tooltip)}."
         assert tooltip.endswith("…"), "128-char tooltip must end with ``…``."
 
     def test_truncated_tooltip_uses_single_codepoint_ellipsis(self, monkeypatch):
         """The truncation suffix must be the single Unicode codepoint
-        ``…`` (U+2026), not three ASCII dots ``...`` — the single
+        ``…`` (U+2026), not three ASCII dots ``...``, the single
         codepoint occupies ONE char in the 127-char budget (vs three for
         ``...``)."""
         tray = _make_tray(monkeypatch)
@@ -469,12 +467,12 @@ class TestComputeTooltipTruncation:
         tooltip = tray._compute_tooltip(AppState.IDLE, long_message)
 
         assert tooltip[-1] == "…", "Truncation suffix must be U+2026 (single codepoint), not ASCII dots."
-        # U+2026 is a single codepoint — len("…") == 1.
+        # U+2026 is a single codepoint, len("…") == 1.
         assert len("…") == 1, "U+2026 must be a single Python char."
 
     def test_truncated_tooltip_is_deterministic_cache_key(self, monkeypatch):
         """Two calls with the same long message must produce the SAME
-        truncated tooltip — the truncation is deterministic so the
+        truncated tooltip, the truncation is deterministic so the
         ``_last_published`` tuple comparison in ``_publish_tray_state``
         deduplicates correctly."""
         tray = _make_tray(monkeypatch)

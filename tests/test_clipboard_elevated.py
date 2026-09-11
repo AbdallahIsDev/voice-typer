@@ -9,8 +9,8 @@ The original draft of this file asserted that
 ``ClipboardManager._detect_focused_process`` returns a
 ``(name, is_elevated)`` tuple. The actual production implementation
 returns ``str | None`` (the lowercase process name, e.g. ``"cmd.exe"``,
-or ``None``). Elevation detection is a *separate* function — the
-module-level ``_is_elevated_target()`` (clipboard.py:196) — which
+or ``None``). Elevation detection is a *separate* function, the
+module-level ``_is_elevated_target()`` (clipboard.py:196), which
 returns ``bool``. The two concerns are split because:
 
   - The paste path (clipboard.py:971) needs only the process *name*
@@ -139,7 +139,7 @@ class TestElevatedFocusHandling:
     def test_elevated_process_names_detected(self):
         """Known elevated process names should be recognizable.
 
-        This is a static documentation test — it pins the set of
+        This is a static documentation test, it pins the set of
         Windows system processes that run at higher integrity levels
         so the test name list doesn't silently drift.
         """
@@ -160,7 +160,7 @@ class TestElevatedFocusHandling:
         """On non-Windows platforms, ``_is_elevated_target`` returns False.
 
         UAC is Windows-only; on POSIX, the elevation check is a no-op
-        that fails open (returns False) — see clipboard.py:207-208.
+        that fails open (returns False): see clipboard.py:207-208.
         """
         from voice_typer.server import clipboard
 
@@ -175,7 +175,7 @@ class TestElevatedFocusHandling:
         """
         from voice_typer.server import clipboard
 
-        # Force every Win32 call to raise — the function must still
+        # Force every Win32 call to raise, the function must still
         # return a bool (fail-open).
         monkeypatch.setattr(clipboard, "is_windows", lambda: True)
 
@@ -197,7 +197,7 @@ class TestElevatedFocusCrossPlatform:
             cm = clipboard.ClipboardManager(MagicMock())
             assert cm is not None
         except (ImportError, TypeError):
-            # Platform-specific constructor may fail — that's OK
+            # Platform-specific constructor may fail, that's OK
             pass
 
     @pytest.mark.skipif(
@@ -213,7 +213,7 @@ class TestElevatedFocusCrossPlatform:
         from voice_typer.server import clipboard
 
         # Even on a Windows host, forcing is_windows() False must
-        # short-circuit to None — this keeps the test meaningful in CI.
+        # short-circuit to None, this keeps the test meaningful in CI.
         monkeypatch.setattr(clipboard, "is_windows", lambda: False)
         result = clipboard.ClipboardManager._detect_focused_process()
         assert result is None

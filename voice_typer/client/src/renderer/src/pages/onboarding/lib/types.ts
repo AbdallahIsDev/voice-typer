@@ -17,7 +17,7 @@ export interface MicrophoneOption {
 	// type didn't declare them. Both are optional so older
 	// backends (or mocked tests) that omit them still type-check.
 	//
-	// `default` is true for the OS default input device — the
+	// `default` is true for the OS default input device, the
 	// wizard auto-selects this mic instead of `microphones[0]`
 	// (which is just the first in sounddevice's enumeration
 	// order). `is_bluetooth` is true for Bluetooth/HFP devices
@@ -35,13 +35,13 @@ export interface ModelOption {
 	//VRAM requirement (in GB) and language coverage, so the
 	// Model step can surface per-option badges (e.g. "~1 GB VRAM" /
 	// "EN" / "Multilingual") to help users compare options. Both
-	// fields are optional — older backends don't return them.
+	// fields are optional, older backends don't return them.
 	vram_gb?: number;
 	languages?: string[] | null;
 }
 
 // `PermissionsResult` (and its `instructions` shape) is consolidated
-// into the CANONICAL type at `@/types/ipc/permissions` — the
+// into the CANONICAL type at `@/types/ipc/permissions`, the
 // backend emits `title_key`/`steps_keys` i18n keys plus optional
 // literal `title`/`steps` for older backends, and the canonical type
 // now declares all of them. Do NOT re-declare a divergent copy here;

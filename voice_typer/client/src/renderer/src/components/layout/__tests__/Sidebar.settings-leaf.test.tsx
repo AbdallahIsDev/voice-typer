@@ -1,5 +1,5 @@
 /**
- * Sidebar — Settings as a SINGLE LEAF (hub-and-spoke model).
+ * Sidebar, Settings as a SINGLE LEAF (hub-and-spoke model).
  *
  * The nested Settings submenu (parent trigger + Collapsible children +
  * collapsed Popover flyout + arrow glyph) was removed: the Settings
@@ -8,12 +8,12 @@
  * leaf button like every other destination. This suite pins the new
  * model's invariants:
  *
- *  - Single leaf: no disclosure semantics anywhere in the nav — no
+ *  - Single leaf: no disclosure semantics anywhere in the nav, no
  *    aria-expanded, no dialog/haspopup roles; exactly 9 leaf buttons.
  *  - Roving tabindex: the active page's leaf holds tabIndex=0 +
  *    aria-current="page"; every other leaf holds -1.
  *  - Settings-surface fallback: on ANY Settings surface (the hub or a
- *    section page — neither is a nav item) the SETTINGS leaf becomes
+ *    section page, neither is a nav item) the SETTINGS leaf becomes
  *    the roving tab stop (tabIndex=0) via the `isSettingsSurface`
  *    fallback in SidebarInner, so keyboard focus follows the active
  *    section even though the section page itself is not a nav item.
@@ -22,8 +22,8 @@
  *  - Collapsed rail: the Settings leaf stays focusable under the
  *    fallback and keeps its aria-keyshortcuts contract.
  *
- * Labels are resolved through the real i18n module (en locale) — the
- * same `t()` calls Sidebar.tsx makes — so the accessible-name queries
+ * Labels are resolved through the real i18n module (en locale), the
+ * same `t()` calls Sidebar.tsx makes, so the accessible-name queries
  * can never drift from the production keys.
  */
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
@@ -56,7 +56,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { t } from "@/i18n/i18n";
 
 // Sidebar renders real Radix Tooltips (via HotkeyTooltip on the nav
-// items), which REQUIRE a TooltipProvider ancestor — the app shell
+// items), which REQUIRE a TooltipProvider ancestor, the app shell
 // provides one (App.tsx). Same props as App.tsx so tooltip timing
 // in tests mirrors production.
 function renderWithProviders(ui: React.ReactElement) {
@@ -85,7 +85,7 @@ function allNavButtons() {
 	);
 }
 
-describe("Sidebar — Settings is a single leaf (no submenu)", () => {
+describe("Sidebar, Settings is a single leaf (no submenu)", () => {
 	afterEach(() => {
 		cleanup();
 	});
@@ -106,10 +106,10 @@ describe("Sidebar — Settings is a single leaf (no submenu)", () => {
 		renderWithProviders(<Sidebar {...baseProps} />);
 		const nav = document.querySelector("nav");
 		expect(nav).toBeTruthy();
-		// The former parent trigger carried aria-expanded — a leaf nav
+		// The former parent trigger carried aria-expanded, a leaf nav
 		// has no expansion state at all.
 		expect(nav?.querySelectorAll("[aria-expanded]").length).toBe(0);
-		// The collapsed flyout used a Popover (dialog semantics) — gone.
+		// The collapsed flyout used a Popover (dialog semantics), gone.
 		expect(document.querySelector('[role="dialog"]')).toBeNull();
 		expect(document.querySelector("button[aria-haspopup]")).toBeNull();
 	});
@@ -147,7 +147,7 @@ describe("Sidebar — Settings is a single leaf (no submenu)", () => {
 			<Sidebar {...baseProps} currentPage="settingsPrivacy" />,
 		);
 		const settings = findNavButton(t("nav.settings"));
-		// The section page itself is NOT a nav item — the isSettingsSurface
+		// The section page itself is NOT a nav item, the isSettingsSurface
 		// fallback hands the roving tab stop to the Settings leaf so
 		// keyboard focus follows the active section.
 		expect(settings.tabIndex).toBe(0);
@@ -178,7 +178,7 @@ describe("Sidebar — Settings is a single leaf (no submenu)", () => {
 			<Sidebar {...baseProps} currentPage="settingsPrivacy" collapsed />,
 		);
 		const settings = findNavButton(t("nav.settings"));
-		// Fallback applies in the collapsed rail too — the icon-only leaf
+		// Fallback applies in the collapsed rail too, the icon-only leaf
 		// remains in the roving-tabindex composite.
 		expect(settings.tabIndex).toBe(0);
 		expect(allNavButtons().filter((b) => b.tabIndex === 0).length).toBe(1);

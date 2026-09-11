@@ -1,11 +1,11 @@
 /**
- * BG-fixes — tests for sub-agent F4 (Task ID ).
+ * BG-fixes, tests for sub-agent F4 (Task ID ).
  *
  * Coverage:
  *   - : PrivacySettingsSection's "Agree to All" ConfirmDialog uses
  *     i18n keys (settings.privacy.agreeConfirmTitle /
  *     agreeConfirmMessage) rather than hardcoded English literals.
- *   - : per-row search filtering — a search query that matches only
+ *   - : per-row search filtering, a search query that matches only
  *     one row must hide the other rows in the same section (previously
  *     the section-level check showed the entire section including all
  *     rows when ANY row matched).
@@ -14,7 +14,7 @@
  *     rather than the hardcoded English literal "•••••••• (configured)".
  *   - : Settings.tsx memoizes sectionProps and handleResetClick so
  *     memoized section children don't re-render unnecessarily. This is
- *     a smoke test — the heavy memoization verification lives in the
+ *     a smoke test, the heavy memoization verification lives in the
  *     Settings page's existing test suite (which passes after ).
  */
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
@@ -50,7 +50,7 @@ import { PrivacySettingsSection } from "@/components/settings/PrivacySettingsSec
 import type { SettingsSectionSharedProps } from "@/components/settings/types";
 import type { VoiceTyperConfig } from "@/types/config";
 
-/** Minimal valid config — same shape used elsewhere in the Settings test suite. */
+/** Minimal valid config, same shape used elsewhere in the Settings test suite. */
 function makeConfig(
 	overrides: Partial<VoiceTyperConfig> = {},
 ): VoiceTyperConfig {
@@ -214,12 +214,12 @@ describe("BG-16: PrivacySettingsSection Agree-to-All ConfirmDialog uses i18n key
 
 		// The ConfirmDialog must now render with the i18n title and message
 		// (rather than the previous hardcoded English literals). The dialog
-		// uses AlertDialogContent via a portal — query the document body.
+		// uses AlertDialogContent via a portal, query the document body.
 		//fix: title is t("settings.privacy.agreeConfirmTitle")
 		// = "Grant all 6 consents?"
 		expect(screen.getByText("Grant all 6 consents?")).toBeTruthy();
 		//fix: message is t("settings.privacy.agreeConfirmMessage")
-		// — a long sentence about HuggingFace / cloud transcription / LLM
+		//, a long sentence about HuggingFace / cloud transcription / LLM
 		// polishing. Assert a substring unique to that message.
 		expect(
 			screen.getByText(/HuggingFace downloads, cloud transcription/),
@@ -234,7 +234,7 @@ describe("BG-55: per-row search filtering in Settings sections", () => {
 	});
 
 	it("PostProcessingSettingsSection hides non-matching rows but keeps matching ones (Post-Processing)", () => {
-		// Filter for "auto" — should match "Auto Punctuation" but not
+		// Filter for "auto", should match "Auto Punctuation" but not
 		// "Transcription Language", "Text Cleanup", "Text Snippets",
 		// or "Vocabulary".
 		const isVisible = filterByLabel("auto");
@@ -277,7 +277,7 @@ describe("BG-55: per-row search filtering in Settings sections", () => {
 	});
 
 	it("PrivacySettingsSection hides non-matching consent rows but keeps matching ones", () => {
-		// Filter for "huggingface" — should match the HuggingFace row
+		// Filter for "huggingface", should match the HuggingFace row
 		// (label = "HuggingFace model downloads") but not the other
 		// consent rows.
 		const isVisible = filterByLabel("huggingface");

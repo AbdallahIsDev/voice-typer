@@ -10,7 +10,7 @@ use tauri::{Emitter, Manager};
 //becomes invisible ( ordering fix).
 ///
 /// Extracted as a helper so `bubble_hide_complete` and `bubble_dismiss`
-/// share the same hide path — the two commands are semantically distinct
+/// share the same hide path, the two commands are semantically distinct
 /// (animation-complete signal vs user-dismiss affordance) but have
 /// identical hide behavior.
 pub(super) fn hide_bubble_window(app: &tauri::AppHandle) -> Result<(), String> {

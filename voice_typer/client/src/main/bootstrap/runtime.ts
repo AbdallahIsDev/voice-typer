@@ -30,7 +30,7 @@ export function _childProcessGoneHandlerRegisteredForTest(): boolean {
 
 /**
  * Set the Windows App User Model ID so taskbar grouping works correctly.
- * Best-effort — only matters on Windows 7+. Called from `bootstrapRuntime()`
+ * Best-effort, only matters on Windows 7+. Called from `bootstrapRuntime()`
  * between `setupUserData()` and `setupCsp()` so it runs inside
  * `app.whenReady()` rather than at module-load time (defers the Windows
  * registry write out of the module-evaluation hot path).
@@ -40,7 +40,7 @@ function setupAppUserModelId(): void {
 		app.setAppUserModelId("VoiceTyper");
 	} catch (e) {
 		// setAppUserModelId can throw on non-Windows or if the
-		// registry write fails; non-fatal — Windows taskbar grouping
+		// registry write fails; non-fatal, Windows taskbar grouping
 		// falls back to the default (app.exe name) which is acceptable.
 		log.warn("[bootstrap] setAppUserModelId failed (non-fatal):", e);
 	}

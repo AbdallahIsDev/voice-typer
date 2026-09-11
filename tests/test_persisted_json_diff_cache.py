@@ -4,7 +4,7 @@ The previous implementation called ``self._path.read_bytes()`` on
 every save to decide whether the single-slot ``.bak`` needed
 refreshing. For a 50 KB vocabulary file at 10 saves/min during a
 rapid-editing session, that's 1.5 MB/s of disk reads just for the
-diff check — pure waste.
+diff check, pure waste.
 
 The DJ-53 fix caches the last-written (or last-loaded) bytes on
 the instance (``self._last_written_bytes``). The cache is populated
@@ -67,7 +67,7 @@ def test_second_save_with_identical_content_does_not_re_read_file(
         reads_after_second = [p for p in read_calls if p == store.path]
 
     assert reads_after_first == reads_after_second, (
-        "Second save with identical content must NOT re-read the file — "
+        "Second save with identical content must NOT re-read the file, "
         f"first save reads={reads_after_first}, second save reads="
         f"{reads_after_second}. The DJ-53 cache should have prevented the "
         "second read."
@@ -104,7 +104,7 @@ def test_load_populates_cache_so_first_save_does_not_re_read(
 
     path_reads = [p for p in read_calls if p == store.path]
     assert path_reads == [], (
-        "First save after load() must NOT re-read the file — the load() "
+        "First save after load() must NOT re-read the file, the load() "
         "call should have populated the cache. Got reads: "
         f"{path_reads}"
     )
@@ -125,7 +125,7 @@ def test_save_with_different_content_updates_cache_and_writes_bak(
     """After a save with different content, the cache is updated.
 
     The next save with the NEW content (identical to the just-saved
-    content) should be a cache hit — no read, no .bak write.
+    content) should be a cache hit, no read, no .bak write.
     """
     store = PersistedJSON(tmp_path / "update.json", default={})
 
@@ -141,7 +141,7 @@ def test_save_with_different_content_updates_cache_and_writes_bak(
     assert bak_content == {"version": "A"}
 
     # Third save: writes content B again (identical to just-saved).
-    # Should be a cache hit — no read, no .bak write. The .bak should
+    # Should be a cache hit, no read, no .bak write. The .bak should
     # still contain content A (NOT overwritten because content is
     # unchanged).
     real_read_bytes = Path.read_bytes
@@ -156,7 +156,7 @@ def test_save_with_different_content_updates_cache_and_writes_bak(
 
     path_reads = [p for p in read_calls if p == store.path]
     assert path_reads == [], (
-        "Third save (identical to second) must NOT re-read the file — "
+        "Third save (identical to second) must NOT re-read the file, "
         "the cache should have been updated by the second save"
     )
 
@@ -179,11 +179,11 @@ def test_cache_invalidated_on_failed_load(tmp_path: Path) -> None:
     store = PersistedJSON(path, default={"fallback": True})
     loaded = store.load()
 
-    # The load failed (corrupt JSON) — the default is returned.
+    # The load failed (corrupt JSON), the default is returned.
     assert loaded == {"fallback": True}
     # The cache was invalidated.
     assert store._last_written_bytes is None, (
-        "Cache should be None after a failed load (corrupt file was quarantined — cache would be stale)"
+        "Cache should be None after a failed load (corrupt file was quarantined, cache would be stale)"
     )
 
 
@@ -198,7 +198,7 @@ def test_first_save_with_existing_file_reads_once_to_populate_cache(
 
     XE-8-A (Option b): patches ``_secure_read_text`` (the actual read
     helper used by ``PersistedJSON.save``) instead of ``Path.read_bytes``
-    (which ``_secure_read_text`` does NOT call — it uses ``os.open`` +
+    (which ``_secure_read_text`` does NOT call, it uses ``os.open`` +
     ``os.fdopen``). The previous version patched ``Path.read_bytes`` and
     was vacuously failing because the patch was never invoked.
     """

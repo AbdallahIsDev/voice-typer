@@ -5,7 +5,7 @@ Pre-fix (OI-13): ``QwenEngine.unload`` nullified ``self._model`` under
 ``transcribe`` already released ``self._lock`` for the multi-second GPU
 inference (RACE-032), so a concurrent ``unload`` (e.g. user-initiated
 model swap mid-dictation) freed the PyTorch module while the inference
-thread was still dereferencing it — a classic use-after-free that
+thread was still dereferencing it, a classic use-after-free that
 manifested as intermittent CUDA illegal-memory-access crashes.
 
 The fix ports the canonical pattern from ``ParakeetEngine``:
@@ -26,7 +26,7 @@ These tests pin the contract:
 4. ``transcribe`` decrements ``_active_inference`` in the ``finally``
    block EVEN IF inference raises (no stuck counter on failure).
 5. The dead ``_inference_event`` attribute is gone from ``__init__``
-   (set/cleared but never read — confirmed dead by the source-level
+   (set/cleared but never read, confirmed dead by the source-level
    ``_inference_event`` reference audit).
 """
 
@@ -58,7 +58,7 @@ class TestQwenUnloadWaitsForActiveInference:
         of immediately nulling ``self._model``.
 
         Pre-fix, ``unload`` would null ``self._model`` while the
-        inference thread was still dereferencing it — use-after-free.
+        inference thread was still dereferencing it, use-after-free.
         """
         engine = _make_engine()
         engine._model = MagicMock()
@@ -90,7 +90,7 @@ class TestQwenUnloadWaitsForActiveInference:
 
     def test_unload_does_not_wait_when_no_active_inference(self):
         """When ``_active_inference == 0`` (idle), ``unload`` must NOT
-        call ``wait()`` — the idle path must remain non-blocking."""
+        call ``wait()``, the idle path must remain non-blocking."""
         engine = _make_engine()
         engine._model = MagicMock()
         assert engine._active_inference == 0
@@ -113,7 +113,7 @@ class TestQwenUnloadWaitsForActiveInference:
         release the inference slot (decrement + notify), allowing
         ``unload`` to proceed.
 
-        This pins the notify_all() side of the contract — without it,
+        This pins the notify_all() side of the contract, without it,
         ``unload`` would wait forever even after inference finished.
         """
         engine = _make_engine()
@@ -147,7 +147,7 @@ class TestQwenUnloadWaitsForActiveInference:
         time.sleep(0.05)
         assert not unload_done.is_set(), "unload should be blocked on wait()"
 
-        # Release the inference slot — transcribe's finally block does
+        # Release the inference slot, transcribe's finally block does
         # this in production.
         with engine._inference_cond:
             engine._active_inference -= 1
@@ -248,7 +248,7 @@ class TestQwenInferenceEventRemoved:
         """``QwenEngine.__init__`` must NOT create ``_inference_event``.
 
         Pre-fix it was created (line 103) and set/cleared in
-        ``transcribe`` (lines 394, 448) but NEVER read anywhere — pure
+        ``transcribe`` (lines 394, 448) but NEVER read anywhere, pure
         dead noise. The canonical pattern is ``_active_inference`` +
         ``_inference_cond`` (mirroring ParakeetEngine).
         """

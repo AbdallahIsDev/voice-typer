@@ -1,7 +1,7 @@
 """XV-32 / XV-33 / XV-38: tests for the noise_suppressor streaming resampler.
 
 These tests exercise the ``_StreamingResampler`` helper directly. They do
-NOT require ``pyrnnoise`` (the RNNoise backend) — the resampler is a pure
+NOT require ``pyrnnoise`` (the RNNoise backend), the resampler is a pure
 DSP primitive. They DO require ``scipy`` for the FIR filter design and
 ``lfilter``; tests are skipped if scipy is unavailable (matches the
 existing ``NotchFilter`` / ``HighPassFilter`` test convention).
@@ -10,7 +10,7 @@ Coverage:
 - XV-32: the FIR filter is designed ONCE at construction (verified by
   counting ``scipy.signal.firwin`` invocations) and reused across calls.
 - XV-33: the cumulative output length matches the cumulative input length
-  (after the up/down ratio) — verified for the 16k↔48k round-trip the
+  (after the up/down ratio), verified for the 16k↔48k round-trip the
   RNNoise path uses, including across chunks of varying sizes.
 - XV-33: chunked processing produces output identical to one-shot
   processing (no edge artifacts at chunk boundaries).
@@ -264,7 +264,7 @@ class TestNoiseSuppressorLatencyIncludesResampler:
     """``NoiseSuppressor.latency_ms`` must report the model's algorithmic
     frame/hop delay PLUS the round-trip group delay of the streaming
     resampler pair when the source rate differs from the model's native
-    rate — the FIR anti-imaging/anti-aliasing stages delay the signal even
+    rate, the FIR anti-imaging/anti-aliasing stages delay the signal even
     though the sample count round-trips exactly."""
 
     @staticmethod
@@ -278,7 +278,7 @@ class TestNoiseSuppressorLatencyIncludesResampler:
         return ns
 
     def test_native_rate_reports_bare_model_latency(self):
-        # At the model's native rate both resamplers stay None — no FIR
+        # At the model's native rate both resamplers stay None, no FIR
         # delay to add.
         assert self._make("rnnoise", RNNOISE_SAMPLE_RATE).latency_ms == pytest.approx(10.0)
         assert self._make("gtcrn", WHISPER_SAMPLE_RATE).latency_ms == pytest.approx(16.0)
@@ -293,7 +293,7 @@ class TestNoiseSuppressorLatencyIncludesResampler:
 
     def test_gtcrn_48k_source_adds_resampler_delay(self):
         ns = self._make("gtcrn", RNNOISE_SAMPLE_RATE)
-        # 48k→16k: up=1/down=3 pair — same 0.625 ms round-trip FIR delay
+        # 48k→16k: up=1/down=3 pair, same 0.625 ms round-trip FIR delay
         # on top of the 16 ms GTCRN hop.
         assert ns.latency_ms == pytest.approx(16.0 + 0.625)
         assert ns.latency_ms > 16.0, "a non-native source rate MUST add the resampler group delay"
@@ -313,7 +313,7 @@ class TestNoiseSuppressorLatencyIncludesResampler:
         ns._ensure_resamplers(source_rate)
         upsampler, downsampler = ns._upsampler, ns._downsampler
         if upsampler is None or downsampler is None:
-            # Native rate — no resamplers, no extra delay.
+            # Native rate, no resamplers, no extra delay.
             assert ns.latency_ms == pytest.approx(10.0)
             return
         upsampler_delay_s = ((len(upsampler._h) - 1) / 2) / (source_rate * upsampler._up)

@@ -30,11 +30,11 @@ use super::window::hide_bubble_window;
 // sequence (`bubble-main.tsx:38` → `window.bubble.signalReady()`) to
 // signal that the bubble page is mounted and ready to receive
 // `bubble_level` events. Only the bubble window has a legitimate
-// reason to invoke it — this mirrors the Electron main process's
+// reason to invoke it: this mirrors the Electron main process's
 // `assertFromBubble` gate (`bubble-handlers.ts:249-254`, SEC-016). A
 // compromised main renderer (or any other window) MUST NOT be able to
 // spoof a readiness signal. (The other bubble control commands in
-// this file are intentionally NOT window-gated — see each command's
+// this file are intentionally NOT window-gated, see each command's
 // doc comment for the rationale.)
 //
 // The `bubble_emit_state` command that used to live here was
@@ -50,14 +50,14 @@ use super::window::hide_bubble_window;
 // helpers now live in `commands/mod.rs` (single source of truth). The
 // previous local duplicates (with their `Result<(), String>`-returning
 // `main_window_label_check`) are deleted. The canonical
-// `main_window_label_check` returns `bool` — see `commands/mod.rs` for
+// `main_window_label_check` returns `bool`: see `commands/mod.rs` for
 // the rationale. See `commands/mod.rs::require_main_window` for the
 // envelope shape contract.
 
 /// Show the bubble window (ADR-0020 §9).
 ///
 /// **Window-origin policy:** this command is intentionally NOT
-/// gated by [`crate::commands::require_main_window`] — the bubble renderer is permitted
+/// gated by [`crate::commands::require_main_window`]. The bubble renderer is permitted
 /// to self-manipulate its own visibility. The bubble's auto-show-on-
 /// hover handler in `Bubble.tsx` invokes this when the cursor enters
 /// the hot zone, so requiring the call to originate from the main
@@ -73,9 +73,9 @@ pub async fn bubble_show(app: tauri::AppHandle) -> Result<(), VoiceTyperError> {
     // `bubble_x` / `bubble_y` pair that still lies on an attached
     // monitor, place the window there before showing. Without a cached
     // pair (never dragged / edge-toggle reset) the window keeps its
-    // last keyword-centered position — default behavior unchanged.
+    // last keyword-centered position: default behavior unchanged.
     //
-    // The restore itself is a PROGRAMMATIC placement — suppress the
+    // The restore itself is a PROGRAMMATIC placement, suppress the
     // debounced persist around it so its own `Moved` event doesn't
     // rewrite the config with the coordinates just read from it.
     if let Some((x, y)) = crate::commands::bubble::restore_position(&app) {
@@ -116,7 +116,7 @@ pub async fn bubble_signal_ready(
 /// (offset by a small delta) so the bubble appears under the cursor.
 ///
 /// The renderer's `setPosition("top" | "bottom")` call
-/// shape is the ONLY production call shape — `useConnection.ts:117`
+/// shape is the ONLY production call shape, `useConnection.ts:117`
 /// (syncing the saved `bubble_position` config) and
 /// `GeneralSettingsSection.tsx:151` (the bubble-position dropdown) both
 /// pass one of `"top"` / `"bottom"`. The previous `(x: Value, y: Value)`
@@ -135,28 +135,28 @@ pub async fn bubble_signal_ready(
 ///
 /// Electron's in-session saved-position validation
 /// (`isPositionOnAnyDisplay` / `savedBubblePos` in `positioning.ts`) is
-/// a RENDERER-side concern on this host — the bubble renderer applies
+/// a RENDERER-side concern on this host, the bubble renderer applies
 /// its last-position by invoking this command with a keyword, so the
 /// Rust side only owns keyword → work-area placement.
 ///
 /// The previous numeric `(x: Value, y: Value)` path was dead in
-/// production (no caller passed numeric coords) — its parsing logic is
+/// production (no caller passed numeric coords), its parsing logic is
 /// preserved as the test-only `parse_position` helper in `parse.rs`
 /// so the existing unit tests for the numeric / NaN / inf edge cases
 /// continue to pin the contract for any future caller that reintroduces
 /// numeric coordinates.
 ///
 /// **Window-origin policy:** this command is intentionally NOT
-/// gated by [`crate::commands::require_main_window`] — the bubble renderer is permitted
+/// gated by [`crate::commands::require_main_window`]. The bubble renderer is permitted
 /// to self-manipulate its own window position. The main renderer's
 /// `usePython.ts` calls this on hotkey fire (to position the bubble
 /// under the cursor), but the bubble renderer also calls it during
 /// initialization to apply a saved last-position. The command's effect
 /// is confined to the bubble window itself, so a compromised bubble
 /// can at worst move itself off-screen (an annoyance, not a security
-/// boundary — the bubble is sandboxed per SEC-026).
+/// boundary: the bubble is sandboxed per SEC-026).
 /// Resolve the monitor the bubble should appear on: the display the
-/// CURSOR is currently on (multi-monitor aware — mirrors Electron's
+/// CURSOR is currently on (multi-monitor aware, mirrors Electron's
 /// `getActiveDisplay()` in
 /// `voice_typer/client/src/main/windows/bubble/positioning.ts:171-186`),
 /// falling back to the primary monitor when the cursor's display can't
@@ -165,9 +165,9 @@ pub async fn bubble_signal_ready(
 /// Resolution order:
 /// 1. `AppHandle::cursor_position()` → physical-pixel desktop coords,
 ///    then `AppHandle::monitor_from_point(x, y)` (both take f64
-///    physical pixels — no conversion needed between them).
+///    physical pixels: no conversion needed between them).
 /// 2. Manual hit-test over `AppHandle::available_monitors()` full
-///    bounds via [`super::math::rect_contains_point`] — covers
+///    bounds via [`super::math::rect_contains_point`], covers
 ///    platforms/runtime versions where `monitor_from_point` misses
 ///    stacked or negative-origin secondary layouts (historical tao
 ///    macOS axis bug, fixed upstream in tao 0.18 / PR #711; kept as a
@@ -179,7 +179,7 @@ pub async fn bubble_signal_ready(
 ///
 /// All coordinates stay PHYSICAL end-to-end: `cursor_position` is
 /// physical, monitor bounds/work areas are physical, and the result is
-/// applied with `PhysicalPosition::set_position` — the only unit
+/// applied with `PhysicalPosition::set_position`, the only unit
 /// conversion in the whole path is the Electron-parity edge margin
 /// ([`super::math::edge_margin_physical`], DIP → per-monitor physical).
 fn resolve_cursor_monitor(app: &tauri::AppHandle) -> Result<tauri::window::Monitor, String> {
@@ -206,7 +206,7 @@ fn resolve_cursor_monitor(app: &tauri::AppHandle) -> Result<tauri::window::Monit
                     return Ok(monitor);
                 }
                 log::warn!(
-                    "[BUBBLE] cursor ({cx},{cy}) matched no monitor — falling back to primary"
+                    "[BUBBLE] cursor ({cx},{cy}) matched no monitor: falling back to primary"
                 );
             }
         }
@@ -234,7 +234,7 @@ pub async fn bubble_set_position(
     crate::commands::bubble::suppress_persist_for_window();
     // Work area = monitor bounds minus taskbar/dock strips, in PHYSICAL
     // pixels (`Monitor::work_area()` returns a `PhysicalRect<i32, u32>`
-    // — verified against the vendored tauri-runtime source). Placing
+    //: verified against the vendored tauri-runtime source). Placing
     // within the work area keeps the bubble clear of the taskbar on the
     // "bottom" edge and of top-docked bars on the "top" edge, matching
     // Electron's use of `display.workArea`.
@@ -266,7 +266,7 @@ pub async fn bubble_set_position(
 /// where it can be throttled to the animation frame.
 ///
 /// **Window-origin policy:** this command is intentionally NOT
-/// gated by [`crate::commands::require_main_window`] — the bubble renderer is permitted
+/// gated by [`crate::commands::require_main_window`]. The bubble renderer is permitted
 /// to self-manipulate its own draggability. The main renderer's
 /// `usePython.ts` toggles this on hotkey-down/up, but the bubble
 /// renderer may also self-toggle in response to its own UI state
@@ -287,14 +287,14 @@ pub async fn bubble_set_draggable(
 /// new `{x, y}` so the TS bridge can cache it without a round-trip.
 ///
 /// **Window-origin policy:** this command is intentionally NOT
-/// gated by [`crate::commands::require_main_window`] — the bubble renderer is permitted
+/// gated by [`crate::commands::require_main_window`]. The bubble renderer is permitted
 /// to self-manipulate its own window geometry. The drag handler in
 /// `Bubble.tsx` invokes `bubble_move_by` on each mousemove while the
 /// user drags the pill, so requiring the call to originate from the
 /// main window would break drag entirely. The command's effect is
 /// confined to the bubble window itself, so a compromised bubble can
 /// at worst mess with its own position (an annoyance, not a security
-/// boundary — the bubble is sandboxed per SEC-026).
+/// boundary: the bubble is sandboxed per SEC-026).
 ///
 /// **Overflow safety:** the prior `pos.x + dx` / `pos.y + dy`
 /// arithmetic was plain `i32 + i32`, which silently wraps on overflow
@@ -310,7 +310,7 @@ pub async fn bubble_set_draggable(
 /// run on the cached blocking-thread pool instead of holding an async
 /// worker thread. The bubble drag handler fires `bubble_move_by` on every
 /// `mousemove` event (~60 Hz during an active drag), and each OS-IPC
-/// round-trip can take 1-10ms under a busy compositor — without
+/// round-trip can take 1-10ms under a busy compositor, without
 /// `spawn_blocking`, a sustained drag could pin a Tauri async worker
 /// thread for the duration of the drag, starving other futures
 /// (sidecar WS reader, status poll, etc.). The blocking pool absorbs
@@ -324,7 +324,7 @@ pub async fn bubble_move_by(
     // Wrap the OS-IPC body in `spawn_blocking` so the async runtime's
     // worker pool is not held for the duration of `outer_position` +
     // `set_position` (two blocking OS-IPC syscalls per mousemove). The
-    // closure captures `app` (cheaply clonable — it's `Arc`-backed) and
+    // closure captures `app` (cheaply clonable, it's `Arc`-backed) and
     // returns the same `Result<Value, String>` shape the synchronous
     // body returned, so the only outer change is the `JoinError`-shaped
     // fallback (which surfaces as a descriptive Rust error string).
@@ -365,7 +365,7 @@ pub async fn bubble_move_by(
 // registered in `main.rs::tauri::generate_handler![...]` (the
 // registration was removed earlier with the comment that the command
 // was "dead in production"), so the function was unreachable from the
-// renderer — the `#[tauri::command]` macro generated a handler that
+// renderer: the `#[tauri::command]` macro generated a handler that
 // no `invoke(...)` call from the renderer could ever reach. Keeping
 // the dead fn + docstring was misleading (the docstring claimed "the
 // legitimate caller is the MAIN renderer's `usePython.ts::
@@ -376,7 +376,7 @@ pub async fn bubble_move_by(
 //
 // The `bubble:set-state` Tauri event itself is still emitted by the
 // WS reader task in `sidecar::ws` (which forwards sidecar
-// `status_change` events directly to the bubble window) — that path
+// `status_change` events directly to the bubble window), that path
 // does NOT go through a Tauri command, so deleting this command
 // doesn't affect the bubble's state-update UX. The deleted command
 // would have been a SECOND path (renderer → invoke → the deleted
@@ -387,22 +387,22 @@ pub async fn bubble_move_by(
 /// invisible (ADR-0020 §9).
 ///
 /// Previously this command (a) emitted `bubble:hide_complete` —
-/// a name the renderer never listens for — and (b) hid the window FIRST,
+/// a name the renderer never listens for, and (b) hid the window FIRST,
 /// so the renderer's cleanup ran AFTER the window was already torn down,
 /// leaking the requestAnimationFrame loop for ~1 frame. The fix renames
 /// the event to `bubble:hide` AND reorders the emit to fire BEFORE `.hide()`.
 ///
 /// **SEC-016 gate:** this command IS now gated by the inverse check
-/// — `require_bubble_window(&window)?` — so only the bubble window's
+///: `require_bubble_window(&window)?`: so only the bubble window's
 /// webview can invoke it. A compromised main renderer (or any other
 /// non-bubble window) that sends `bubble:hidden` via the unrestricted
 /// Tauri `invoke` channel would otherwise prematurely hide the bubble
 /// overlay during its show/hide animation. The check mirrors the
 /// renderer-side `assertFromBubble(event)` gate that
 /// `bubble-window.ts:679` applies on the `bubble:hidden` IPC channel
-/// (defense-in-depth — both gates must hold for the hide to take
+/// (defense-in-depth: both gates must hold for the hide to take
 /// effect). The `check_dispatch_window_label` helper does NOT apply
-/// here (this command doesn't go through the `dispatch` path — it's a
+/// here (this command doesn't go through the `dispatch` path, it's a
 /// dedicated `#[tauri::command]`), so a local `require_bubble_window`
 /// helper is inlined below rather than reusing `commands::mod`.
 #[tauri::command]
@@ -419,7 +419,7 @@ pub async fn bubble_hide_complete(
     // window is still visible. The emit + hide sequence is shared with
     // `bubble_dismiss` via the `hide_bubble_window` helper so the two
     // commands have identical hide behavior (the distinction is purely
-    // semantic — `bubble_hide_complete` is the renderer's
+    // semantic: `bubble_hide_complete` is the renderer's
     // animation-complete signal; `bubble_dismiss` is the user's '×'
     // button affordance).
     hide_bubble_window(&app).map_err(VoiceTyperError::from)
@@ -427,7 +427,7 @@ pub async fn bubble_hide_complete(
 
 /// Dismiss the bubble window from its own '×' button (ADR-0020 §9).
 ///
-/// Mirror of [`bubble_hide_complete`] — emits `bubble:hide` so the
+/// Mirror of [`bubble_hide_complete`]: emits `bubble:hide` so the
 /// renderer can run cleanup BEFORE the window becomes invisible, then
 /// hides the window unconditionally. The distinction from
 /// `bubble_hide_complete` is purely semantic: `bubble_dismiss` is the
@@ -438,7 +438,7 @@ pub async fn bubble_hide_complete(
 ///
 /// Mirrors the Electron `bubble:dismiss` IPC handler in
 /// `voice_typer/client/src/main/ipc/bubble-handlers.ts:299-302` which
-/// routes to `hideBubbleWindow()` — the same path used by every other
+/// routes to `hideBubbleWindow()`. The same path used by every other
 /// hide trigger (timeout fallback, set_config, etc.).
 ///
 /// **SEC-016 gate:** gated by [`crate::commands::require_bubble_window`]
@@ -447,7 +447,7 @@ pub async fn bubble_hide_complete(
 /// prematurely hide the bubble overlay. The check mirrors the
 /// renderer-side `assertFromBubble(event)` gate that
 /// `bubble-handlers.ts:299-302` applies on the `bubble:dismiss` IPC
-/// channel (defense-in-depth — both gates must hold for the dismiss to
+/// channel (defense-in-depth: both gates must hold for the dismiss to
 /// take effect).
 #[tauri::command]
 pub async fn bubble_dismiss(
@@ -458,7 +458,7 @@ pub async fn bubble_dismiss(
     // main renderer invoking `bubble_dismiss` would otherwise be able to
     // prematurely hide the bubble overlay (the dismiss button only shows
     // in `always_visible` mode, but the Rust gate is
-    // mode-agnostic — defense-in-depth).
+    // mode-agnostic: defense-in-depth).
     crate::commands::require_bubble_window(&window)?;
     hide_bubble_window(&app).map_err(VoiceTyperError::from)
 }
@@ -467,7 +467,7 @@ pub async fn bubble_dismiss(
 //
 // The Tauri bridge was missing 3 bubble-window methods that the
 // Electron bubble preload (`voice_typer/client/src/preload/bubble.ts`)
-// exposes — `resizeTo`, `onSetState`, `toggleDictation`. Without these,
+// exposes: `resizeTo`, `onSetState`, `toggleDictation`. Without these,
 // the bubble renderer's mic button (toggleDictation) is dead, the
 // state label (onSetState) never updates, and the pill content has a
 // transparent dead zone around it (resizeTo is never called to fit the
@@ -488,7 +488,7 @@ pub async fn bubble_dismiss(
 /// `MIN_BUBBLE_W`/`MAX_BUBBLE_W`/`MIN_BUBBLE_H`/`MAX_BUBBLE_H` bounds.
 ///
 /// **Window-origin policy:** this command is intentionally NOT
-/// gated by [`crate::commands::require_main_window`] — the bubble renderer is permitted
+/// gated by [`crate::commands::require_main_window`]. The bubble renderer is permitted
 /// to self-manipulate its own window size. The bubble's content
 /// measurement observer (`Bubble.tsx`'s `ResizeObserver`) invokes this
 /// when the pill content changes (e.g. state label grows from
@@ -507,7 +507,7 @@ pub async fn bubble_dismiss(
 /// per-input behavior on NaN / negative / ±inf / out-of-range).
 ///
 /// **Size bounds:** the prior Rust code capped both dimensions
-/// to `BUBBLE_RESIZE_MAX_DIM` (7680 = 8K UHD) — well above any
+/// to `BUBBLE_RESIZE_MAX_DIM` (7680 = 8K UHD), well above any
 /// legitimate pill content measurement but INCONSISTENT with
 /// Electron's `MIN_BUBBLE_W=40` / `MAX_BUBBLE_W=400` /
 /// `MIN_BUBBLE_H=24` / `MAX_BUBBLE_H=200` pill bounds in
@@ -547,7 +547,7 @@ pub async fn bubble_resize(
 
 /// Toggle dictation from the bubble's own mic button (ADR-0020 §9).
 /// The bubble is a sandboxed renderer (SEC-026)
-/// with NO `dispatch` access — the main-window guard at
+/// with NO `dispatch` access: the main-window guard at
 /// the top of `commands::sidecar_cmds::dispatch` (`require_main_window`)
 /// rejects any
 /// `dispatch` call from a non-main window, returning the
@@ -555,17 +555,17 @@ pub async fn bubble_resize(
 /// `dispatch` from JS, the bubble renderer invokes this dedicated
 /// command which forwards the `toggle_dictation` envelope to the
 /// sidecar via the WS bridge (mirroring how `dispatch` does it but
-/// with a fixed command name and fire-and-forget semantics — the
+/// with a fixed command name and fire-and-forget semantics, the
 /// bubble doesn't need the response because the sidecar's
 /// `status_change` event will reach it via the WS-reader-translated
 /// `bubble:set-state` route; see the section comment
 /// at the top of this file for the full route description).
 ///
 /// The Python sidecar's `toggle_dictation` handler responds with
-/// `{type:"result", data:{recording: bool}}` — we ignore the response
+/// `{type:"result", data:{recording: bool}}`, we ignore the response
 /// here (no `pending` entry is registered) because the bubble renderer
 /// doesn't need it (it learns the new state via the `bubble:set-state`
-/// event emitted by the WS reader task — see
+/// event emitted by the WS reader task, see
 /// `sidecar/ws/event_protocol.rs::translate_event_name`). The main
 /// renderer's `usePython.ts`
 /// subscription to `status_change` is the source of truth for the
@@ -583,12 +583,12 @@ pub async fn bubble_resize(
 /// `window.label() == "main"` guard). `bubble_toggle_dictation` is
 /// allowed to bypass because:
 ///   1. It targets a SINGLE fixed, safe command (`toggle_dictation`)
-///      — the user-visible effect is "start/stop recording", which is
+///     : the user-visible effect is "start/stop recording", which is
 ///      already exposed via the tray icon + global hotkey. There is
 ///      NO privilege escalation (the bubble can't invoke arbitrary
 ///      sidecar commands).
 ///   2. The bubble renderer is sandboxed (no Node integration, no
-///      filesystem, no shell access) — even if compromised, the worst
+///      filesystem, no shell access): even if compromised, the worst
 ///      it can do is toggle dictation on/off (a denial-of-mic attack,
 ///      not a data-exfil attack).
 ///   3. The bypass is TYPE-FIXED at the Rust layer: the JSON envelope
@@ -600,7 +600,7 @@ pub async fn bubble_resize(
 /// sidecar's recording state machine), this command is rate-limited
 /// to **1 toggle per 500ms** via a process-wide `AtomicU64` tracking
 /// the last-toggle timestamp. Toggles that arrive within the 500ms
-/// window are silently dropped (returning Ok(()) — the renderer
+/// window are silently dropped (returning Ok(()), the renderer
 /// doesn't need to know it was rate-limited because the sidecar's
 /// `status_change` event is translated by the WS reader task
 /// (`sidecar/ws.rs::translate_event_name`) into the
@@ -614,15 +614,15 @@ pub async fn bubble_toggle_dictation(
     // above for the rationale (DoS protection against a buggy or
     // compromised bubble renderer spamming toggle_dictation).
     if !toggle_rate_limiter_allows() {
-        log::warn!("[BUBBLE] toggle_dictation rate-limited (last toggle <500ms ago) — dropping");
+        log::warn!("[BUBBLE] toggle_dictation rate-limited (last toggle <500ms ago), dropping");
         return Ok(());
     }
     // Fire-and-forget: send the toggle_dictation envelope with a
-    // synthetic id of 0 (the sidecar's response is dropped — see the
+    // synthetic id of 0 (the sidecar's response is dropped, see the
     // doc comment above). We do NOT register a pending entry, so the
     // WS reader finds no match for id 0 and drops the response after
     // a single DEBUG-level `RX response id=0 had NO pending entry`
-    // line — no warning fires (one debug line per toggle is
+    // line: no warning fires (one debug line per toggle is
     // acceptable noise; the sidecar already logs every dispatch
     // round-trip).
     //

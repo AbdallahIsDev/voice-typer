@@ -1,4 +1,4 @@
-"""Waveform visualization bubble — Electron-side overlay controller.
+"""Waveform visualization bubble. Electron-side overlay controller.
 
 The bubble itself is a small, frameless, always-on-top ``BrowserWindow``
 that the Electron main process creates on demand.  This module owns the
@@ -50,9 +50,9 @@ class WaveformBubble:
         # ``on_set_state`` is called when the
         # bubble should change its visual state (e.g. from "recording"
         # visualizer to "transcribing" text).  The state string is one of:
-        #   "recording" — show waveform visualizer
-        #   "transcribing" — hide visualizer, show "Transcribing…" text
-        #   "idle" — hide everything (bubble visible but showing nothing)
+        #   "recording": show waveform visualizer
+        #   "transcribing": hide visualizer, show "Transcribing…" text
+        #   "idle": hide everything (bubble visible but showing nothing)
         self.on_set_state: Callable[[str], None] | None = None
 
         # `on_config` is called with the app Config when the bubble
@@ -103,9 +103,9 @@ class WaveformBubble:
         """Change the bubble's visual state.
 
                 States:
-                  - ``"recording"`` — waveform visualizer active (default when shown)
-                  - ``"transcribing"`` — hide visualizer, show "Transcribing…" text
-                  - ``"idle"`` — bubble visible but showing nothing (no visualizer,
+                  - ``"recording"``: waveform visualizer active (default when shown)
+                  - ``"transcribing"``: hide visualizer, show "Transcribing…" text
+                  - ``"idle"``: bubble visible but showing nothing (no visualizer,
                     no text)
 
                 Called from ``RecordingController.stop()`` when recording ends and
@@ -163,7 +163,7 @@ class WaveformBubble:
                 robust than resampling on the audio thread, and removes a
                 torch dependency from the visualizer critical path.  The
                 dead ``audio_chunk`` backward-compat parameter was later
-                removed (no production caller ever passed it — the
+                removed (no production caller ever passed it, the
                 recorder fires the 2-arg ``on_rms_level`` callback).
         """
         with self._lock:

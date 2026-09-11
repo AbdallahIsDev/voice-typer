@@ -10,6 +10,8 @@
  *   - testConnection: sets pending → success on backend OK
  *   - testConnection: sets pending → failure on backend !OK
  *   - testConnection: sets info status when no API key is present
+ *   - testConnection: the pending "Testing…" message goes through t()
+ *     ("models.test.testing"), no hardcoded English literal
  *   - clearTestResult: removes only the targeted provider's entry
  *   - setCloudConsent: persists the consent flag + optimistically updates
  *     the local config snapshot
@@ -122,12 +124,12 @@ afterEach(() => {
 });
 
 // ── safeApiKey helper (module-level, re-exported) ─────────────────────
-describe("safeApiKey — secret redaction sentinel", () => {
+describe("safeApiKey, secret redaction sentinel", () => {
 	it("returns the value unchanged when it is a real key", () => {
 		expect(safeApiKey("sk-real-key")).toBe("sk-real-key");
 	});
 
-	it("strips the <redacted> sentinel — the renderer never displays the marker", () => {
+	it("strips the <redacted> sentinel, the renderer never displays the marker", () => {
 		// The backend substitutes `<redacted>` for saved API keys in
 		// get_config responses. safeApiKey converts that sentinel to ""
 		// so the renderer shows an empty input field instead of the
@@ -146,7 +148,7 @@ describe("safeApiKey — secret redaction sentinel", () => {
 });
 
 // ── saveApiKey validation guards ──────────────────────────────────────
-describe("useCloudProviders — saveApiKey validation guards", () => {
+describe("useCloudProviders, saveApiKey validation guards", () => {
 	it("bails out with an info snack when the key is empty (prevents clobbering stored key with '')", async () => {
 		const args = makeHookArgs({ openai: "" }, makeConfig());
 		const { result } = renderHook(() => useCloudProviders(args));
@@ -159,7 +161,7 @@ describe("useCloudProviders — saveApiKey validation guards", () => {
 			"models.snack.apiKeyEmpty",
 			"info",
 		);
-		// updateConfig NOT called — no IPC round-trip.
+		// updateConfig NOT called, no IPC round-trip.
 		expect(updateConfigMock).not.toHaveBeenCalled();
 	});
 
@@ -197,12 +199,12 @@ describe("useCloudProviders — saveApiKey validation guards", () => {
 		);
 	});
 
-	it("treats a redacted persisted value as empty (safeApiKey strips the sentinel) — so a re-typed key always saves", async () => {
+	it("treats a redacted persisted value as empty (safeApiKey strips the sentinel), so a re-typed key always saves", async () => {
 		// This is the regression guard for the secret-redaction flow:
 		// after navigating away and back, the persisted key shows up as
 		// `<redacted>` in the config. safeApiKey converts that to "",
 		// so the "unchanged" guard does NOT match a freshly-typed key
-		// against the literal string `<redacted>` — the save proceeds.
+		// against the literal string `<redacted>`, the save proceeds.
 		const cfg = makeConfig({ openai_api_key: "<redacted>" });
 		const args = makeHookArgs({ openai: "sk-real-key" }, cfg);
 		const { result } = renderHook(() => useCloudProviders(args));
@@ -222,7 +224,7 @@ describe("useCloudProviders — saveApiKey validation guards", () => {
 });
 
 // ── testConnection lifecycle ──────────────────────────────────────────
-describe("useCloudProviders — testConnection lifecycle", () => {
+describe("useCloudProviders, testConnection lifecycle", () => {
 	it("sets info status when no API key is present", async () => {
 		const args = makeHookArgs({}, makeConfig());
 		const { result } = renderHook(() => useCloudProviders(args));
@@ -278,6 +280,52 @@ describe("useCloudProviders — testConnection lifecycle", () => {
 		);
 	});
 
+	it("sets pending with the LOCALIZED testing message (t() key, not a hardcoded literal)", async () => {
+		// Deferred backend response so the pending state is observable
+		// before the terminal branch overwrites it.
+		let resolveBackend: (value: {
+			ok: boolean;
+			status: number;
+			message: string;
+		}) => void = () => {};
+		callMock.mockReturnValue(
+			new Promise<{ ok: boolean; status: number; message: string }>(
+				(resolve) => {
+					resolveBackend = resolve;
+				},
+			),
+		);
+		const args = makeHookArgs({ openai: "sk-real-key" }, makeConfig());
+		const { result } = renderHook(() => useCloudProviders(args));
+
+		let inFlight: Promise<void> | undefined;
+		await act(async () => {
+			// Start the test WITHOUT awaiting completion, then flush
+			// microtasks so saveApiKey's updateConfig round-trip resolves
+			// and the hook settles into "pending" at the `await call(...)`.
+			inFlight = result.current.testConnection("openai");
+			await Promise.resolve();
+			await Promise.resolve();
+			await Promise.resolve();
+		});
+
+		// The t() mock returns the raw key, so the pending message must be
+		// the catalog key, a hardcoded English literal would show up as
+		// "Testing…" here and fail this assertion.
+		expect(result.current.testResults.openai).toEqual({
+			message: "models.test.testing",
+			status: "pending",
+		});
+
+		// Let the in-flight call settle before the harness unmounts the
+		// hook (avoids a post-unmount setState).
+		resolveBackend({ ok: true, status: 200, message: "OK" });
+		await act(async () => {
+			await inFlight;
+		});
+		expect(result.current.testResults.openai?.status).toBe("success");
+	});
+
 	it("sets pending → failure on IPC throw", async () => {
 		callMock.mockRejectedValue(new Error("network unreachable"));
 		const args = makeHookArgs({ openai: "sk-real-key" }, makeConfig());
@@ -297,7 +345,7 @@ describe("useCloudProviders — testConnection lifecycle", () => {
 });
 
 // ── clearTestResult ───────────────────────────────────────────────────
-describe("useCloudProviders — clearTestResult", () => {
+describe("useCloudProviders, clearTestResult", () => {
 	it("removes only the targeted provider's entry (preserves other providers)", async () => {
 		callMock.mockResolvedValue({ ok: true, status: 200, message: "OK" });
 		const args = makeHookArgs(
@@ -334,14 +382,14 @@ describe("useCloudProviders — clearTestResult", () => {
 		act(() => {
 			result.current.clearTestResult("deepgram");
 		});
-		// Reference-equal (no new object created) — the early return
+		// Reference-equal (no new object created), the early return
 		// guards against a spurious setState.
 		expect(result.current.testResults).toBe(before);
 	});
 });
 
 // ── setCloudConsent ───────────────────────────────────────────────────
-describe("useCloudProviders — setCloudConsent", () => {
+describe("useCloudProviders, setCloudConsent", () => {
 	it("persists the consent flag + optimistically updates the local config snapshot (grant)", async () => {
 		const args = makeHookArgs({}, makeConfig({ cloud_openai_consent: false }));
 		const { result } = renderHook(() => useCloudProviders(args));

@@ -1,7 +1,7 @@
 // One row of the templates list.
 //
 // Extracted from the former monolithic ``pages/Templates.tsx``. Each
-// row is a controlled component — the parent passes the row data and
+// row is a controlled component, the parent passes the row data and
 // edit/delete callbacks (so the parent's ``useTemplates`` +
 // ``useTemplateDialog`` hooks remain the single source of truth and
 // list re-renders don't re-create row handlers).
@@ -29,14 +29,14 @@ interface TemplateListRowProps {
 // Wrapped in ``React.memo`` so the row only re-renders when its
 // own props change (row reference, or one of the stable useCallback
 // handlers).  Mirrors the ``ActivityListRow`` pattern
-// (components/dashboard/ActivityList.tsx:74) — the parent (Templates.tsx)
+// (components/dashboard/ActivityList.tsx:74), the parent (Templates.tsx)
 // passes stable ``useCallback`` handlers so a search-box keystroke skips
 // every row's render function.
 //
 // The previous inline ``handleEdit = () => onEdit(row)`` /
 // ``handleDelete = () => onDelete(row)`` wrappers have been removed in
 // favour of calling ``onEdit(row)`` / ``onDelete(row)`` directly in the
-// button ``onClick`` (per the ActivityListRow pattern — the closure is
+// button ``onClick`` (per the ActivityListRow pattern, the closure is
 // per-button-per-render, same cost, but clearer and avoids the extra
 // allocation per row).
 export const TemplateListRow = memo(function TemplateListRow({
@@ -46,8 +46,8 @@ export const TemplateListRow = memo(function TemplateListRow({
 	onEdit,
 	onDelete,
 }: TemplateListRowProps) {
-	// Colored match-mode label: "exact" — neutral/blue,
-	// "contains" — amber.  Uses the same color tokens
+	// Colored match-mode label: "exact", neutral/blue,
+	// "contains", amber.  Uses the same color tokens
 	// as the History favorites toggle so the palette
 	// stays consistent. Shown NEXT to the trigger value (not in a
 	// separate badge in the expansion column).
@@ -57,10 +57,10 @@ export const TemplateListRow = memo(function TemplateListRow({
 		: t("templates.matchModeExactLabel");
 	// Grid: [checkbox][trigger][expansion][actions] on sm+; on narrow
 	// widths the expansion half moves to its own line below the trigger
-	// (col 2). The sm+ ACTIONS column is FIXED at 6.25rem (100px — the
+	// (col 2). The sm+ ACTIONS column is FIXED at 6.25rem (100px, the
 	// two icon buttons) so it matches the header's fixed actions column.
 	//
-	// The row is clickable as a whole (toggle selection) — that's what
+	// The row is clickable as a whole (toggle selection), that's what
 	// the hover background implies. Action buttons and the checkbox
 	// stop propagation so they don't double-toggle.
 	return (
@@ -78,7 +78,7 @@ export const TemplateListRow = memo(function TemplateListRow({
 				selected && "bg-accent/10 hover:bg-accent/10",
 			)}
 		>
-			{/* Checkbox (col 1) — bulk selection. Its own click already
+			{/* Checkbox (col 1), bulk selection. Its own click already
                             toggles selection; the onClick stops propagation so the
                             row's click-to-toggle handler doesn't double-toggle. */}
 			<Checkbox
@@ -88,7 +88,7 @@ export const TemplateListRow = memo(function TemplateListRow({
 				aria-label={t("templates.selectEntry", { name: row.trigger })}
 				className="self-start pt-0.5 sm:self-center sm:pt-0"
 			/>
-			{/* Trigger (col 2) — the phrase that fires the template, with
+			{/* Trigger (col 2), the phrase that fires the template, with
                             the match-mode label right beside it. */}
 			<div className="flex min-w-0 flex-col items-start gap-1">
 				<span
@@ -111,7 +111,7 @@ export const TemplateListRow = memo(function TemplateListRow({
 					{matchModeLabel}
 				</output>
 			</div>
-			{/* Expansion (col 3 on sm+; row 2 on mobile) — the body the
+			{/* Expansion (col 3 on sm+; row 2 on mobile), the body the
                             trigger expands to. */}
 			<div className="col-start-2 flex min-w-0 items-center sm:col-start-auto">
 				<p className="min-w-0 truncate text-xs text-(--text-muted)">
@@ -119,7 +119,7 @@ export const TemplateListRow = memo(function TemplateListRow({
 				</p>
 			</div>
 			{/* Actions (col 4 on sm+; col 3 on mobile, same row as the
-                            checkbox): Delete — Edit — the app-wide action-icon
+                            checkbox): Delete, Edit, the app-wide action-icon
                             convention puts the edit pencil RIGHTMOST in the group
                             (same rule as the Vocabulary rows) so the edit affordance
                             sits consistently at the far edge of every row across
@@ -127,7 +127,7 @@ export const TemplateListRow = memo(function TemplateListRow({
                             selection. NO native tooltips (title) on either button:
                             the Vocabulary rows removed them deliberately (they
                             rendered over the adjacent icons while moving the cursor)
-                            and the aria-labels carry the accessible names — the
+                            and the aria-labels carry the accessible names, the
                             unified row-button language is icon-xs + text-only
                             hovers + no tooltips on BOTH pages. */}
 			<div className="flex shrink-0 items-center justify-self-end gap-0.5">

@@ -13,8 +13,8 @@ The strategy:
    becomes a mock call whose return value we control.
 3. For functions that use ``ctypes.byref(dword)`` to receive an output
    value (e.g. ``GetWindowThreadProcessId``), we install ``side_effect``
-   callbacks that mutate ``byref_obj._obj.value`` — the underlying
-   ``c_ulong`` instance — to fake the kernel writing into the buffer.
+   callbacks that mutate ``byref_obj._obj.value``, the underlying
+   ``c_ulong`` instance, to fake the kernel writing into the buffer.
 4. For ``_send_ctrl_v_win32``, we provide *real* ``ctypes.Structure``
    subclasses (``INPUT``, ``KEYBDINPUT``, ``INPUT_union``) so the
    ``(INPUT * 4)(...)`` array-construction syntax and
@@ -36,7 +36,7 @@ import pytest
 
 # ---------------------------------------------------------------------------
 # pynput / pynput.keyboard / pyperclip are mocked at collection time by
-# tests/clipboard/conftest.py (single source of truth —  dedup).
+# tests/clipboard/conftest.py (single source of truth, dedup).
 # ---------------------------------------------------------------------------
 # UIA singleton moved to clipboard_target_safety; reset it there.
 from voice_typer.server import (
@@ -62,7 +62,7 @@ class _KEYBDINPUT(ctypes.Structure):
         ("wScan", wintypes.WORD),
         ("dwFlags", wintypes.DWORD),
         ("time", wintypes.DWORD),
-        # ULONG_PTR — accepts int 0
+        # ULONG_PTR, accepts int 0
         ("dwExtraInfo", wintypes.WPARAM),
     )
     KEYUP = 0x0002
@@ -138,7 +138,7 @@ def fake_win32():
         patch("ctypes.windll", mock_windll, create=True),
         patch("ctypes.create_unicode_buffer") as mock_buf,
     ):
-        # Default buffer returns "Edit" — a benign window class.
+        # Default buffer returns "Edit", a benign window class.
         buf_instance = MagicMock()
         buf_instance.value = "Edit"
         mock_buf.return_value = buf_instance
@@ -180,7 +180,7 @@ class TestCopyWindowsBranches:
 
         ADR-0010 §5.2: ``copy()`` now returns a ``ClipboardSnapshot``
         (or ``None``) instead of ``bool``. The snapshot is captured via
-        ``ClipboardSnapshot.capture()`` and returned to the caller — it
+        ``ClipboardSnapshot.capture()`` and returned to the caller, it
         is NOT stored on ``self``.
         """
         cm = self._make_cm()
@@ -209,7 +209,7 @@ class TestCopyWindowsBranches:
 
         ADR-0010 §5.2: snapshot capture may return None (clipboard
         locked or empty). copy() treats None as "no snapshot to
-        restore" — degraded but safe mode — and still returns None
+        restore" (degraded but safe mode) and still returns None
         (the snapshot value) while succeeding the actual text copy.
         """
         cm = self._make_cm()
@@ -232,7 +232,7 @@ class TestCopyWindowsBranches:
 
         ADR-0010 §5.2 / DP7: the config flag actually gates snapshot
         capture. ``copy()`` returns ``None`` because no snapshot was
-        captured — the text copy itself still succeeds.
+        captured, the text copy itself still succeeds.
         """
         cm = self._make_cm()
         cm._clipboard_save_restore_enabled = False
@@ -310,7 +310,7 @@ class TestCopyWindowsBranches:
             pytest.raises(ClipboardCopyError),
         ):
             cm.copy("hello")
-        # Only the first attempt — no retry.
+        # Only the first attempt, no retry.
         assert mock_pyper.copy.call_count == 1
 
     def test_copy_verification_retries_on_mismatch(self, fake_win32):
@@ -368,7 +368,7 @@ class TestCopyWindowsBranches:
 
 
 # ===========================================================================
-# ClipboardManager.paste — Windows branches
+# ClipboardManager.paste, Windows branches
 # ===========================================================================
 
 
@@ -506,7 +506,7 @@ class TestPasteWindowsBranches:
                 ):
                     result = cm.paste()
         assert result is True
-        # _send_ctrl_v_win32 NOT called — terminal path used instead.
+        # _send_ctrl_v_win32 NOT called, terminal path used instead.
         mock_send.assert_not_called()
         # Shift+Insert pressed via _safe_key_press.
         cm._keyboard.press.assert_any_call("shift_key")
@@ -650,7 +650,7 @@ class TestPasteWindowsBranches:
 
         ``_compute_paste_delay`` lazy-imports the probe from
         ``voice_typer.server.server_platform.remote_session`` at call time,
-        so the patch target is THAT module attribute — faking only the
+        so the patch target is THAT module attribute, faking only the
         ``server_platform`` package in ``sys.modules`` never takes effect
         (the real ``remote_session`` submodule is already imported, and
         ``from X.Y import Z`` re-reads the attribute from it on every
@@ -685,7 +685,7 @@ class TestPasteWindowsBranches:
         """If the is_remote_session probe raises, paste continues with the
         default delay.
 
-        Same patch target as ``test_paste_logs_rdp_session`` — the probe
+        Same patch target as ``test_paste_logs_rdp_session``, the probe
         is resolved from ``voice_typer.server.server_platform.remote_session``
         at call time, so the side_effect must be planted there.
         """

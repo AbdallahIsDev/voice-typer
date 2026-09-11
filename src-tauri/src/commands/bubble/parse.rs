@@ -33,7 +33,7 @@ use super::math::clamp_f64_to_i32;
 ///
 /// Previously this function used lossy `i as i32` / `f as i32` casts
 /// from `i64` / `f64`. For `i64` → `i32`, the `as` cast truncates
-/// silently — a 5-billion JSON value (e.g. from a buggy renderer
+/// silently: a 5-billion JSON value (e.g. from a buggy renderer
 /// sending a timestamp-as-x) wraps to a negative pixel coordinate,
 /// moving the bubble off-screen with no diagnostic. For `f64` → `i32`,
 /// the `as` cast is even worse: NaN → 0, ±inf → saturating bounds,
@@ -48,7 +48,7 @@ use super::math::clamp_f64_to_i32;
 /// - `f64 → i32` uses [`super::math::clamp_f64_to_i32`] (NaN → 0, ±inf → i32::MAX /
 ///   i32::MIN, in-range → `f as i32`). This avoids the silent NaN→0
 ///   footgun while still saturating +inf/-inf to the i32 bounds (which
-///   matches the JSON `bubble_set_position` contract — a +inf x lands
+///   matches the JSON `bubble_set_position` contract, a +inf x lands
 ///   the bubble at the rightmost representable pixel).
 ///
 /// This helper is no longer called by `bubble_set_position` (the
@@ -87,7 +87,7 @@ pub(super) fn parse_position(
         }
         Value::String(s) => match s.as_str() {
             //x-axis "top"/"bottom" arms compute the centered-x
-            // coordinate and clamp to ≥0 — mirrors the y-axis "bottom"
+            // coordinate and clamp to ≥0, mirrors the y-axis "bottom"
             // arm below (`.max(0)`). Without the clamp, when the bubble
             // window is wider than the primary monitor (e.g. 400px bubble
             // on a 320px-wide screen), `(screen_w - bubble_w) / 2`

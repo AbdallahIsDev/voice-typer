@@ -9,7 +9,7 @@ Pre-fix bug:
     ``_secure_clear_test_chunks``. The sibling ``stop_test_recording()``
     correctly calls the helper first (XZ-PRIV-03).
   - **AP-14**: ``_do_auto_stop_test()`` only set ``_test_mode = False``
-    and published a push event — it did NOT clear or securely clear the
+    and published a push event, it did NOT clear or securely clear the
     test chunk deques. If the frontend never calls
     ``stop_test_recording()`` after auto-stop (e.g. the IPC stop is
     lost or the tab is closed before the JS handler runs), the chunks
@@ -40,7 +40,7 @@ def _populate_test_chunks() -> None:
     """Populate the three test-chunk deques with fake np.ndarray data.
 
     The secure-clear helper iterates the deque elements and hands them
-    off to ``_secure_clear_array_background`` — having non-empty
+    off to ``_secure_clear_array_background``, having non-empty
     deques makes the "did the helper actually run?" assertion
     meaningful (an empty deque would let the helper no-op even if it
     was called).
@@ -91,7 +91,7 @@ class TestCancelTestLockedSecureClears:
         # The helper MUST have been called exactly once.
         assert spy.called, (
             "AP-13: _cancel_test_locked did NOT call "
-            "_secure_clear_test_chunks — np.ndarray voice buffers were "
+            "_secure_clear_test_chunks, np.ndarray voice buffers were "
             "cleared via .clear() without being zeroed first (regression "
             "of the privacy fix; the sibling stop_test_recording correctly "
             "calls the helper first)."
@@ -100,7 +100,7 @@ class TestCancelTestLockedSecureClears:
         args, _ = spy.call_args
         assert len(args) == 3, f"AP-13: _secure_clear_test_chunks expected 3 deque args; got {len(args)}."
         # Deque identity must match _state (so the helper snapshots the
-        # right buffers — not a copy or a stale reference).
+        # right buffers, not a copy or a stale reference).
         assert args[0] is _state._test_raw_chunks, (
             "AP-13: first arg to _secure_clear_test_chunks must be _state._test_raw_chunks."
         )
@@ -120,7 +120,7 @@ class TestCancelTestLockedSecureClears:
     def test_cancel_noop_when_nothing_active(self):
         """When nothing is active and no chunks remain, the function
         short-circuits and does NOT call secure-clear (no buffers to
-        zero — calling the helper would be a wasteful no-op)."""
+        zero, calling the helper would be a wasteful no-op)."""
         _state._test_mode = False
         # deques already empty from the autouse fixture
 
@@ -130,7 +130,7 @@ class TestCancelTestLockedSecureClears:
         assert result is False
         assert not spy.called, (
             "AP-13: _cancel_test_locked called _secure_clear_test_chunks "
-            "even though no test was active — wasteful no-op (the early "
+            "even though no test was active, wasteful no-op (the early "
             "return guard is supposed to skip the clear block entirely)."
         )
 
@@ -154,7 +154,7 @@ class TestCancelTestLockedSecureClears:
         assert spy.called, (
             "AP-13: _cancel_test_locked did NOT call "
             "_secure_clear_test_chunks when chunks were still "
-            "populated — leftover voice buffers would not be zeroed "
+            "populated, leftover voice buffers would not be zeroed "
             "before being released."
         )
         assert len(_state._test_raw_chunks) == 0
@@ -173,7 +173,7 @@ class TestDoAutoStopTestSecureClears:
     The original AP-14 fix made auto-stop securely clear the deques,
     but commit eee02942 (T-1) deliberately REVERSED that: the frontend's
     ``stop_test_recording`` IPC handler runs AFTER auto-stop fires to
-    fetch the audio — if auto-stop cleared the chunks, the retrieval
+    fetch the audio, if auto-stop cleared the chunks, the retrieval
     would return an empty audio payload and the user would see a false
     "test failed" toast despite the test completing. The deques are
     bounded (``maxlen`` caps them at one test's worth of audio), so
@@ -185,7 +185,7 @@ class TestDoAutoStopTestSecureClears:
     def test_auto_stop_publishes_and_keeps_chunks_for_retrieval(self):
         """When the auto-stop timer fires (``_test_mode == True``), the
         function MUST publish the ``microphone_test_complete`` event
-        and MUST NOT clear the test-chunk deques — the frontend fetches
+        and MUST NOT clear the test-chunk deques, the frontend fetches
         the audio via ``stop_test_recording`` AFTER the event."""
         _state._test_mode = True
         _populate_test_chunks()
@@ -205,11 +205,11 @@ class TestDoAutoStopTestSecureClears:
         assert published_event["type"] == "microphone_test_complete", (
             f"T-1: expected event type 'microphone_test_complete'; got {published_event.get('type')!r}."
         )
-        # T-1: auto-stop must NOT clear the chunks — the frontend
+        # T-1: auto-stop must NOT clear the chunks, the frontend
         # retrieves the audio AFTER the event; clearing here would make
         # stop_test_recording return an empty payload.
         assert not spy.called, (
-            "T-1: _do_auto_stop_test called _secure_clear_test_chunks — "
+            "T-1: _do_auto_stop_test called _secure_clear_test_chunks, "
             "clearing on auto-stop breaks the frontend's audio "
             "retrieval via stop_test_recording (eee02942 reversed the "
             "original AP-14 clear-on-auto-stop behavior)."
@@ -223,7 +223,7 @@ class TestDoAutoStopTestSecureClears:
 
     def test_auto_stop_publish_failure_does_not_raise(self):
         """If ``event_bus.publish`` raises, the function must swallow it
-        (log a warning) and still leave the chunks for retrieval — the
+        (log a warning) and still leave the chunks for retrieval, the
         retrieval path must not depend on the IPC layer being healthy."""
         _state._test_mode = True
         _populate_test_chunks()
@@ -241,11 +241,11 @@ class TestDoAutoStopTestSecureClears:
             # Must not re-raise: the publish is wrapped in try/except.
             _tr._do_auto_stop_test()
 
-        # The publish failure must NOT trigger a clear (T-1) — the
+        # The publish failure must NOT trigger a clear (T-1), the
         # chunks stay for the frontend retrieval.
         assert not spy.called, (
             "T-1: _do_auto_stop_test cleared chunks after a publish "
-            "failure — chunks must remain for the frontend retrieval."
+            "failure, chunks must remain for the frontend retrieval."
         )
         assert len(_state._test_raw_chunks) == 1
         assert len(_state._test_filtered_chunks) == 1
@@ -255,7 +255,7 @@ class TestDoAutoStopTestSecureClears:
         """If ``_test_mode`` is already False (e.g. the timer fired
         after a manual stop), ``_do_auto_stop_test`` returns early
         from the first lock block and does NOT call secure-clear
-        (no buffers to zero — calling the helper would be a wasteful
+        (no buffers to zero, calling the helper would be a wasteful
         no-op and could race an in-flight ``stop_test_recording``)."""
         _state._test_mode = False
 
@@ -264,6 +264,6 @@ class TestDoAutoStopTestSecureClears:
 
         assert not spy.called, (
             "AP-14: _do_auto_stop_test called _secure_clear_test_chunks "
-            "even though _test_mode was already False — the early return "
+            "even though _test_mode was already False, the early return "
             "guard is supposed to skip the publish + secure-clear block."
         )

@@ -4,7 +4,7 @@
 These tests verify that the VAD resample branch (taken when
 ``_buffer_sr`` is not in ``SILERO_VAD_SAMPLE_RATES``) uses the cached
 ER-67 FIR-tap path (``_get_resample_fir_taps`` + ``scipy.signal.upfirdn``)
-instead of calling ``resample_poly`` directly on every chunk — which
+instead of calling ``resample_poly`` directly on every chunk, which
 would re-design the FIR filter (``firwin``) at ~16 Hz.
 
 Specifically:
@@ -22,11 +22,11 @@ The tests use a ``MagicMock`` recorder stub (no real PortAudio / Silero
 / scipy design) and patch:
 
 * ``voice_typer.server.recording.resampling._get_resample_fir_taps``
-  — the inline import inside ``run_vad_state_machine`` resolves through
+, the inline import inside ``run_vad_state_machine`` resolves through
   this module attribute at call time, so patching the source attribute
   is sufficient.
-* ``scipy.signal.upfirdn`` — same inline-import pattern.
-* ``voice_typer.server.recording.resampling._get_resample_poly`` — the
+* ``scipy.signal.upfirdn``, same inline-import pattern.
+* ``voice_typer.server.recording.resampling._get_resample_poly``, the
   ``_recording_pkg._get_resample_poly()`` indirection used by the
   fallback path resolves through this attribute.
 * ``voice_typer.server.recording.audio_pipeline.compute_vad_prob`` —
@@ -50,7 +50,7 @@ _DOWN = 3
 # A "known" taps context the test can identify. The real
 # ``_get_resample_fir_taps`` returns a 3-tuple
 # ``(h_padded, n_pre_remove, n_pre_pad)``; production UNPACKS it and
-# passes ``h_padded`` (element 0) to ``upfirdn`` — the identity
+# passes ``h_padded`` (element 0) to ``upfirdn``, the identity
 # assertion below pins that unpacking (regression guard: passing the
 # whole tuple raised ``ValueError`` on every call and silently fell
 # back to ``resample_poly``).
@@ -81,28 +81,28 @@ def _make_recorder_stub() -> MagicMock:
     branch is skipped (no auto-stop side effects).
     """
     recorder = MagicMock(name="RecorderStub")
-    # Cached VAD properties — must all be True to enter the Silero
+    # Cached VAD properties, must all be True to enter the Silero
     # branch where the resample lives.
     recorder._cached_vad_enabled = True
     recorder._cached_use_silero_vad = True
     recorder._cached_silero_available = True
-    # 48000 Hz buffer — NOT in SILERO_VAD_SAMPLE_RATES, so the resample
+    # 48000 Hz buffer, NOT in SILERO_VAD_SAMPLE_RATES, so the resample
     # branch is taken.
     recorder._audio_pipeline._buffer_sr = _BUFFER_SR
     recorder._effective_sr = _BUFFER_SR
     # Cache matches _buffer_sr so ``_refresh_vad_caches`` is skipped.
     recorder._cached_vad_resample_sr = _BUFFER_SR
     recorder._cached_vad_resample_up_down = (_UP, _DOWN)
-    # State-machine downstream — return SPEECH to avoid silence-timer
+    # State-machine downstream, return SPEECH to avoid silence-timer
     # side effects. ``vad_update`` routes through
     # ``recorder._vad.update_frame`` (VadProcessor owns the state machine).
     recorder._vad.update_frame.return_value = VadState.SPEECH
-    # Silence-timer state — pre-initialised so the SPEECH branch's
+    # Silence-timer state, pre-initialised so the SPEECH branch's
     # ``else`` writes don't fail on MagicMock attribute access.
     recorder._silence_start_time = None
     recorder._silence_timer = 0.0
     recorder._silence_warning_count = 0
-    # Cached silence / max-duration thresholds — large so callbacks
+    # Cached silence / max-duration thresholds, large so callbacks
     # don't fire.
     recorder._cached_silence_warning = 10_000.0
     recorder._cached_stop_on_silence = 10_000.0
@@ -165,13 +165,13 @@ class TestVadResampleUsesCachedFirTaps:
         # ``_get_resample_fir_taps`` was called with the cached (up, down).
         mock_get_taps.assert_called_once_with(_UP, _DOWN)
         # ``upfirdn`` was called positionally with the UNPACKED taps
-        # (``_KNOWN_TAPS[0]`` — identity holds because this taps shape
+        # (``_KNOWN_TAPS[0]``, identity holds because this taps shape
         # needs no trailing post-pad) and ``filtered.ravel()``, plus
         # keyword args up=_UP, down=_DOWN.
         mock_upfirdn.assert_called_once()
         call_args, call_kwargs = mock_upfirdn.call_args
         assert call_args[0] is _KNOWN_TAPS[0]
-        # Second positional arg is filtered.ravel() — same data.
+        # Second positional arg is filtered.ravel(), same data.
         np.testing.assert_array_equal(call_args[1], filtered.ravel())
         assert call_kwargs == {"up": _UP, "down": _DOWN}
         # ``resample_poly`` was NOT consulted (no fallback).
@@ -186,7 +186,7 @@ class TestVadResampleUsesCachedFirTaps:
         pipeline = AudioPipeline(recorder)
 
         filtered = np.arange(_INPUT_LEN, dtype=np.float32) / _INPUT_LEN
-        # Mocked upfirdn output is float64 and RAW-length — the
+        # Mocked upfirdn output is float64 and RAW-length, the
         # production code trims it to ``n_out`` samples and casts, so
         # the value reaching ``compute_vad_prob`` MUST be float32 with
         # exactly the trimmed length.
@@ -231,7 +231,7 @@ class TestVadResampleFallbackUsesResamplePoly:
 
         filtered = np.arange(_INPUT_LEN, dtype=np.float32) / _INPUT_LEN
 
-        # Fake resample_poly — returns an array of expected length.
+        # Fake resample_poly, returns an array of expected length.
         fake_resample_poly = MagicMock(return_value=np.zeros(_EXPECTED_OUTPUT_LEN, dtype=np.float64))
 
         with (
@@ -319,7 +319,7 @@ class TestVadResampleFallbackUsesResamplePoly:
 class TestVadResampleSkippedAt16kHz:
     """SU-12 regression guard: when ``_buffer_sr`` is already in
     ``SILERO_VAD_SAMPLE_RATES`` (e.g. 16000), the resample branch is
-    NOT taken — neither ``_get_resample_fir_taps`` nor
+    NOT taken, neither ``_get_resample_fir_taps`` nor
     ``resample_poly`` is consulted. This pins the precondition under
     which the cached-FIR path even runs."""
 

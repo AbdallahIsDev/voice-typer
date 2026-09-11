@@ -1,7 +1,7 @@
 """split from tests/test_app.py.
 
 All heavy dependencies are mocked via the project-wide ``mock_heavy_imports``
-autouse fixture (in ``tests/conftest.py``) — CR-60 hoisted the
+autouse fixture (in ``tests/conftest.py``), CR-60 hoisted the
 ``force_pynput_hotkey_backend`` patch from the old local fixture into
 that project-wide fixture, so test modules no longer need a local
 override.
@@ -158,7 +158,7 @@ class TestStreamingIntegration:
         # (in ``streaming_session_coordinator.py``), which imports
         # ``StreamingTranscriptionSession`` at module level. The historical
         # target ``voice_typer.server.recording_controller.StreamingTranscriptionSession``
-        # is a re-export only — patching it does not affect the
+        # is a re-export only, patching it does not affect the
         # coordinator's bound reference. Patch the module where the
         # instantiation actually happens.
         monkeypatch.setattr(
@@ -173,7 +173,7 @@ class TestStreamingIntegration:
         # (``DictationStart``) so the F2 dispatch thread is not blocked
         # for the model-load window. Wait for the worker's
         # ``_start_complete_event`` (signalled in the worker's ``finally``
-        # block) before asserting — without this wait the assertions race
+        # block) before asserting, without this wait the assertions race
         # the worker and flake.
         start_event = getattr(app.recording, "_start_complete_event", None)
         if start_event is not None:
@@ -271,7 +271,7 @@ class TestModelLoadingQueue:
 
     def test_toggle_queues_when_model_loading(self, app):
         """F2 during background model load sets _pending_dictation and
-        shows a LOADING state — does NOT call _start/_stop_dictation."""
+        shows a LOADING state, does NOT call _start/_stop_dictation."""
         app.recorder = MagicMock()
         app.recorder.recording = False
         app.tray = MagicMock()
@@ -321,8 +321,8 @@ class TestModelLoadingQueue:
         ``AttributeError: 'NoneType' object has no attribute 'is_alive'``.
 
         We simulate the race by making the loader's is_alive() clear the
-        attribute — exactly what the loader thread does in its finally
-        block — and assert toggle_dictation does not crash.  With the fix
+        attribute, exactly what the loader thread does in its finally
+        block, and assert toggle_dictation does not crash.  With the fix
         (capture the reference into a local first), is_alive() runs on the
         captured local, so the attribute becoming None is harmless.
         """
@@ -394,7 +394,7 @@ class TestModelLoadingQueue:
         """If the user did NOT press F2 during load, nothing is scheduled."""
         app.tray = MagicMock()
         app.models._ensure_engine = MagicMock()
-        # Fast existence pre-check probes the real HF cache — stub it
+        # Fast existence pre-check probes the real HF cache, stub it
         # (model "downloaded") so the loader body runs.
         app.models._model_downloaded_precheck = lambda: True
         # Phase 2: was ``app._try_load_model = MagicMock()`` /
@@ -416,7 +416,7 @@ class TestModelLoadingQueue:
         """A crashing loader sets ERROR state but does not propagate."""
         app.tray = MagicMock()
         app.models._ensure_engine = MagicMock()
-        # Fast existence pre-check probes the real HF cache — stub it
+        # Fast existence pre-check probes the real HF cache, stub it
         # (model "downloaded") so the loader reaches the registry.
         app.models._model_downloaded_precheck = lambda: True
         # _load_transcription_engine_background now delegates

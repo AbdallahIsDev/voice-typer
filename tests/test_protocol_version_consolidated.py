@@ -4,9 +4,9 @@ Previously the IPC protocol version was duplicated as two local
 literals:
 
 - ``voice_typer/server/sidecar_ws.py:PROTOCOL_VERSION: int = 1`` (WS
-  transport — advisory-only mismatch handling).
+  transport, advisory-only mismatch handling).
 - ``voice_typer/server/ipc/transport_tcp.py:IPC_PROTOCOL_VERSION: int = 1``
-  (TCP transport — strict mismatch handling with a structured
+  (TCP transport, strict mismatch handling with a structured
   ``server.protocol_version_mismatch`` error envelope).
 
 The two literals could silently drift, leaving the WS and TCP auth
@@ -18,7 +18,7 @@ transports so the value is shared by construction.
 These tests pin the consolidation: the shared module is the single
 source of truth, both transports reference the SAME Python object, and
 the value itself is still ``1`` (DO NOT bump without a cross-language
-parity update — see ``tests/test_ipc_protocol_cross_language_parity.py``
+parity update: see ``tests/test_ipc_protocol_cross_language_parity.py``
 and AGENTS.md E12).
 """
 
@@ -36,7 +36,7 @@ from voice_typer.server.sidecar_ws import PROTOCOL_VERSION as WS_PROTOCOL_VERSIO
 def test_shared_module_exposes_protocol_version_one() -> None:
     """The canonical value in :mod:`protocol_version` is ``1``.
 
-    Bumping requires a coordinated cross-language update — Rust
+    Bumping requires a coordinated cross-language update, Rust
     ``EXPECTED_PROTOCOL_VERSION``, TypeScript ``IPC_PROTOCOL_VERSION``,
     and the parity test. See the docstring in
     :mod:`voice_typer.server.ipc.protocol_version` and
@@ -59,24 +59,24 @@ def test_shared_module_attribute_matches_import() -> None:
 
 def test_ws_transport_imports_shared_protocol_version() -> None:
     """``sidecar_ws.PROTOCOL_VERSION`` is the SAME object as the shared
-    module's ``PROTOCOL_VERSION`` — the local literal was replaced with
+    module's ``PROTOCOL_VERSION``, the local literal was replaced with
     an import consolidation."""
     assert WS_PROTOCOL_VERSION is PROTOCOL_VERSION, (
         "sidecar_ws.PROTOCOL_VERSION must be imported from "
         "voice_typer.server.ipc.protocol_version consolidation. "
-        "Got a different object — the WS transport may have re-introduced "
+        "Got a different object, the WS transport may have re-introduced "
         "a local literal."
     )
 
 
 def test_tcp_transport_imports_shared_protocol_version() -> None:
     """``transport_tcp.PROTOCOL_VERSION`` is the SAME object as the
-    shared module's ``PROTOCOL_VERSION`` — the local literal was
+    shared module's ``PROTOCOL_VERSION``, the local literal was
     replaced with an import consolidation."""
     assert TCP_PROTOCOL_VERSION is PROTOCOL_VERSION, (
         "transport_tcp.PROTOCOL_VERSION must be imported from "
         "voice_typer.server.ipc.protocol_version consolidation. "
-        "Got a different object — the TCP transport may have re-introduced "
+        "Got a different object, the TCP transport may have re-introduced "
         "a local literal."
     )
 
@@ -90,7 +90,7 @@ def test_tcp_alias_ipc_protocol_version_is_shared_protocol_version() -> None:
     """
     assert IPC_PROTOCOL_VERSION is PROTOCOL_VERSION, (
         "transport_tcp.IPC_PROTOCOL_VERSION must be a re-binding of "
-        "the imported PROTOCOL_VERSION . Got a different object — "
+        "the imported PROTOCOL_VERSION . Got a different object, "
         "the alias may have been re-defined as a local literal."
     )
 
@@ -98,7 +98,7 @@ def test_tcp_alias_ipc_protocol_version_is_shared_protocol_version() -> None:
 def test_ws_and_tcp_transport_share_one_protocol_version_object() -> None:
     """Belt-and-suspenders: the WS transport's ``PROTOCOL_VERSION`` and
     the TCP transport's ``PROTOCOL_VERSION`` are the SAME Python object.
-    This is the core invariant — both transports must agree by
+    This is the core invariant, both transports must agree by
     construction, not by coincidence.
     """
     assert WS_PROTOCOL_VERSION is TCP_PROTOCOL_VERSION, (

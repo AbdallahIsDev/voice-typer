@@ -2,7 +2,7 @@
 
 WR-3: this module was extracted from ``tests/handlers/test_status_handlers.py``
 (lines 305-503 of that file). The class tests ``VoiceTyperService`` TTL cache
-behaviour — a service-layer concern, not a handler concern. Moving it out of
+behaviour, a service-layer concern, not a handler concern. Moving it out of
 the handler test file keeps ``test_status_handlers.py`` focused on the
 ``StatusHandlersMixin`` IPC dispatch surface and lets this file use the
 shared ``tmp_config_dir`` fixture without an implicit cross-file dependency.
@@ -29,7 +29,7 @@ class TestModelStatusCache:
     Models page is open, and each call performs ~28
     ``os.path.isdir()`` syscalls (one per model in MODEL_REGISTRY plus
     qwen/parakeet).  A 5 s TTL cache cuts the syscall rate by ~60 %
-    without introducing user-visible staleness — the cache is
+    without introducing user-visible staleness, the cache is
     invalidated by ``delete_model`` and ``download_model`` after any
     filesystem mutation.
 
@@ -60,7 +60,7 @@ class TestModelStatusCache:
 
         service = VoiceTyperService(app)
 
-        # Counting proxy around os.path.isdir — the cache hit/miss
+        # Counting proxy around os.path.isdir, the cache hit/miss
         # signal we assert on.
         real_isdir = os.path.isdir
         isdir_calls = {"n": 0}
@@ -126,7 +126,7 @@ class TestModelStatusCache:
         service = VoiceTyperService(app)
 
         # The status layer decides "downloaded" via the partial-download
-        # honesty probe (``is_model_snapshot_complete`` — every snapshot
+        # honesty probe (``is_model_snapshot_complete``, every snapshot
         # file present), which needs a real ``huggingface_hub`` install.
         # This is a unit test of the TTL-cache layer, so simulate the
         # probe faithfully: complete iff the repo directory exists (the
@@ -155,7 +155,7 @@ class TestModelStatusCache:
 
         monkeypatch.setattr("os.path.isdir", _counting_isdir)
 
-        # Delete the model — must invalidate the cache.
+        # Delete the model, must invalidate the cache.
         result = service.delete_model("tiny")
         assert result["success"] is True, f"delete_model should succeed, got: {result}"
         # Sanity: the on-disk directory was actually removed.
@@ -216,7 +216,7 @@ class TestModelStatusCache:
         service.get_model_status()
         assert isdir_calls["n"] > 0, "First call should query the filesystem"
 
-        # t=TTL-0.1: still within TTL — cache hit.
+        # t=TTL-0.1: still within TTL, cache hit.
         isdir_calls["n"] = 0
         fake_now[0] = _MODEL_STATUS_CACHE_TTL_S - 0.1
         service.get_model_status()
@@ -225,7 +225,7 @@ class TestModelStatusCache:
             f"(expected 0 os.path.isdir calls, got {isdir_calls['n']})"
         )
 
-        # t=TTL+0.1: TTL expired — cache miss.
+        # t=TTL+0.1: TTL expired, cache miss.
         isdir_calls["n"] = 0
         fake_now[0] = _MODEL_STATUS_CACHE_TTL_S + 0.1
         service.get_model_status()

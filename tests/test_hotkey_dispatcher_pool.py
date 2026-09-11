@@ -2,7 +2,7 @@
 
 Verifies the MINIMAL per-spec backend pool introduced to lay the
 groundwork for the full pooling refactor (single native binary serving
-multiple ``(role, spec)`` pairs — see the module docstring TODO in
+multiple ``(role, spec)`` pairs: see the module docstring TODO in
 ``voice_typer/server/hotkey_dispatcher.py``).
 
 Scope of the minimal pool:
@@ -18,7 +18,7 @@ Scope of the minimal pool:
     the pool (for count accuracy) but do NOT fast-path the factory
     call (the ESC / repaste callbacks differ from the dictation
     callback, so reusing a dictation backend would cause both
-    callbacks to fire on the same keypress — that conflict is
+    callbacks to fire on the same keypress, that conflict is
     resolved by the full refactor's role-tagged wire events).
   - ``stop_all`` clears the pool.
 
@@ -105,14 +105,14 @@ def test_register_twice_same_hotkey_reuses_pooled_backend(dispatcher: HotkeyDisp
     factory = MagicMock(return_value=new_backend)
     monkeypatch.setattr("voice_typer.server.hotkey_dispatcher.create_hotkey_backend", factory)
 
-    # First register — pool is empty, factory called once.
+    # First register, pool is empty, factory called once.
     result1 = dispatcher.register()
     assert result1 is True
     assert factory.call_count == 1
     assert dispatcher._hotkey_backend is new_backend
     assert dispatcher.get_active_backend_count() == 1
 
-    # Second register with the SAME hotkey — pool has "<f2>" already,
+    # Second register with the SAME hotkey, pool has "<f2>" already,
     # so the factory is NOT called again and the same backend is reused.
     result2 = dispatcher.register()
     assert result2 is True
@@ -160,7 +160,7 @@ def test_register_with_different_hotkeys_creates_distinct_backends(dispatcher: H
 
 def test_register_failure_does_not_pollute_pool(dispatcher: HotkeyDispatcher, monkeypatch):
     """If ``start()`` raises, the failed backend must NOT be added to
-    ``_shared_backend_pool`` — otherwise a subsequent ``register()``
+    ``_shared_backend_pool``, otherwise a subsequent ``register()``
     with the same spec would return a dead backend from the pool.
     The pool insertion happens AFTER ``start()`` succeeds."""
     new_backend = MagicMock()
@@ -173,7 +173,7 @@ def test_register_failure_does_not_pollute_pool(dispatcher: HotkeyDispatcher, mo
 
     result = dispatcher.register()
     assert result is False
-    # Pool stays empty — the failed start did not add an entry.
+    # Pool stays empty, the failed start did not add an entry.
     assert dispatcher.get_active_backend_count() == 0
     assert dispatcher._shared_backend_pool == {}
 
@@ -200,7 +200,7 @@ def test_restart_failure_then_restore_tracks_restored_backend(dispatcher: Hotkey
     assert dispatcher._hotkey_backend is restored_backend
     assert dispatcher.get_active_backend_count() == 1
     assert dispatcher._shared_backend_pool.get("<f2>") is restored_backend
-    # Broken backend (for "<bad>") is NOT in the pool — its start() raised.
+    # Broken backend (for "<bad>") is NOT in the pool, its start() raised.
     assert "<bad>" not in dispatcher._shared_backend_pool
 
 
@@ -233,7 +233,7 @@ def test_create_main_backend_purges_stale_entry_then_recreates(dispatcher: Hotke
 
     dispatcher.register()
 
-    # Factory WAS called — the dead entry was purged and a fresh
+    # Factory WAS called, the dead entry was purged and a fresh
     # backend created (the pool fast-path did NOT return the dead one).
     factory.assert_called_once_with("<f2>", role="dictation")
     assert dispatcher._hotkey_backend is fresh_backend
@@ -271,7 +271,7 @@ def test_register_esc_tracks_esc_backend_in_pool(dispatcher: HotkeyDispatcher, m
     under ``"<esc>"`` after ``start()`` succeeds. The pool count
     reflects the ESC backend as a distinct subprocess (the
     extra-matcher delegation to the shared dictation backend is a
-    SEPARATE mechanism — see ``_shared_backend`` — and does not affect
+    SEPARATE mechanism (see ``_shared_backend``) and does not affect
     the per-spec pool tracking)."""
     esc_backend = MagicMock()
     esc_backend.is_alive.return_value = True
@@ -310,7 +310,7 @@ def test_unregister_esc_removes_pooled_extra_matcher(dispatcher: HotkeyDispatche
 
     The shared dictation backend survives ``unregister_esc`` (only the
     delegated ESC backend is stopped), so without the removal the
-    ``"esc"`` extra matcher keeps firing the cancel callback — ESC
+    ``"esc"`` extra matcher keeps firing the cancel callback, ESC
     keeps cancelling dictation after ``esc_cancel_enabled`` is turned
     off in settings."""
     shared_native = MagicMock()
@@ -394,7 +394,7 @@ def test_shared_native_swap_to_legacy_resyncs_aux_roles(dispatcher, monkeypatch)
 def test_shared_native_recovery_resyncs_aux_roles(dispatcher, monkeypatch):
     """BROKEN-3 recovery direction: when the adapter swaps back to
     NATIVE, the dispatcher re-registers the aux roles so they re-pool
-    onto the recovered native (single subprocess again) — preventing a
+    onto the recovered native (single subprocess again), preventing a
     double-fire (per-role subprocess + extra matcher both matching)."""
     shared_native = MagicMock()
     dictation_backend = MagicMock(name="dictation")
@@ -427,7 +427,7 @@ def test_shared_native_recovery_resyncs_aux_roles(dispatcher, monkeypatch):
 def test_register_with_esc_disabled_removes_pooled_extra_matcher(dispatcher: HotkeyDispatcher, monkeypatch):
     """BROKEN-2 REGRESSION (register path): re-running ``register()``
     with ``esc_cancel_enabled`` turned OFF must remove the pooled
-    ``"esc"`` extra matcher from the shared backend — otherwise the
+    ``"esc"`` extra matcher from the shared backend, otherwise the
     ESC key keeps cancelling dictation after the setting is disabled
     (only the delegated ESC backend is stopped, and the shared
     dictation backend stays alive)."""
@@ -487,7 +487,7 @@ def test_full_registration_tracks_all_three_specs(dispatcher: HotkeyDispatcher, 
     NOTE: This is the count of DISTINCT backend INSTANCES tracked by
     the pool. The ``_shared_backend`` extra-matcher mechanism may
     delegate ESC / repaste to the dictation subprocess on platforms
-    that select the native ``SubprocessHotkeyBackend`` — in that case
+    that select the native ``SubprocessHotkeyBackend``, in that case
     the ACTUAL native subprocess count is 1, but the pool still
     tracks 3 backend objects (the delegated ones have no subprocess
     of their own). ``get_active_backend_count()`` reports the pool

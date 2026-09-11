@@ -1,4 +1,4 @@
-"""MIG-1.6 Phase 0-M Gate Check 9 — native ``macos-key-listener`` (Swift).
+"""MIG-1.6 Phase 0-M Gate Check 9: native ``macos-key-listener`` (Swift).
 
 Validates that the native macOS hotkey binary (built by
 ``scripts/build/compile_native.sh`` / wrapped by
@@ -9,7 +9,7 @@ Python sidecar's ``native_hotkeys.SubprocessHotkeyBackend`` /
 ``MacNativeHotkey``.
 
 ADR-0020 §6.4 mandates KEEPING the native binary (do NOT switch to
-``tauri-plugin-global-shortcut`` — it lacks key suppression +
+``tauri-plugin-global-shortcut``, it lacks key suppression +
 modifier-only hotkeys + the Fn/Globe key, which the Swift binary
 detects via ``NSEvent.modifierFlags.contains(.function)``). The binary
 is spawned as a subprocess by the PYTHON SIDECAR (not by the Tauri
@@ -19,7 +19,7 @@ discovers it via ``VOICE_TYPER_NATIVE_DIR`` (set by the Tauri host to
 paths. See ``native_hotkeys.get_native_binary_path`` for the full
 6-step lookup chain.
 
-These tests run on any platform (Linux sandbox included) — they mock
+These tests run on any platform (Linux sandbox included), they mock
 ``subprocess.Popen``, ``pathlib.Path.is_file``, and the
 ``is_windows()``/``is_macos()``/``is_linux()`` platform predicates so
 the macOS code path is exercised without a real macOS host. The
@@ -31,11 +31,11 @@ VALIDATE ON MACOS HOST:
     1. Launch Voice Typer
     2. If prompted, grant Accessibility permission: System Settings →
        Privacy & Security → Accessibility → enable Voice Typer
-    3. Press F8 (default dictation hotkey) — verify dictation starts
-    4. Press F8 again — verify dictation stops + transcribed text
+    3. Press F8 (default dictation hotkey), verify dictation starts
+    4. Press F8 again, verify dictation stops + transcribed text
        pastes
-    5. Press ESC — verify dictation cancels
-    6. Test Fn/Globe key (if configured) — verify it toggles dictation
+    5. Press ESC, verify dictation cancels
+    6. Test Fn/Globe key (if configured), verify it toggles dictation
     7. Check ~/Library/Logs/voice-typer/voice-typer.log for:
        - "[NATIVE-HOTKEY] Starting macOS backend (hotkey=F8)"
        - "[NATIVE-HOTKEY] macOS binary is READY"
@@ -44,7 +44,7 @@ VALIDATE ON MACOS HOST:
        foreground app)
     Expected: hotkey responds within 50ms; key suppression works;
     Fn/Globe works
-    (Same behavior on both Intel + Apple Silicon — the binary is
+    (Same behavior on both Intel + Apple Silicon, the binary is
     universal or per-arch.)
 
     Shell verification commands (runbook §6.7 + §3):
@@ -67,7 +67,7 @@ VALIDATE ON MACOS HOST:
         codesign -dv "/Applications/Voice Typer.app/Contents/Resources/macos-key-listener"
         # Expected:
         #   Identifier=macos-key-listener
-        #   TeamIdentifier=not set   (ad-hoc) — or <TEAM_ID> (Developer ID)
+        #   TeamIdentifier=not set   (ad-hoc), or <TEAM_ID> (Developer ID)
 
         # Tail the sidecar log for hotkey activity:
         tail -f ~/Library/Logs/voice-typer/voice-typer.log | \\
@@ -80,18 +80,18 @@ VALIDATE ON MACOS HOST:
           dictation (bubble appears + recording starts; second press
           stops + pastes).
         - The hotkey is SUPPRESSED (F8 doesn't reach the foreground
-          app — e.g. doesn't trigger F8 in browser dev tools, doesn't
+          app, e.g. doesn't trigger F8 in browser dev tools, doesn't
           trigger Fn-key actions like brightness/volume).
         - The Fn/Globe key (default macOS hotkey per
           ``config._default_hotkey_for_platform``) toggles dictation.
         - No ``native binary not found`` errors in the sidecar log.
 
-Wire protocol (line-delimited TEXT, not JSON — same as the Windows +
+Wire protocol (line-delimited TEXT, not JSON, same as the Windows +
 Linux native listeners):
 
     READY                  # emitted once after init succeeds
-    FN_DOWN                # macOS only — Fn/Globe pressed (edge-detected)
-    FN_UP                  # macOS only — Fn/Globe released (edge-detected)
+    FN_DOWN                # macOS only, Fn/Globe pressed (edge-detected)
+    FN_UP                  # macOS only, Fn/Globe released (edge-detected)
     KEY_DOWN:<Name>        # non-modifier key pressed
     KEY_UP:<Name>          # non-modifier key released
     MOD_DOWN:<Name>        # modifier pressed (Ctrl, Shift, Alt, Cmd)
@@ -127,7 +127,7 @@ TAURI_CONF = PROJECT_ROOT / "src-tauri" / "tauri.conf.json"
 COMPILE_NATIVE_SH = PROJECT_ROOT / "scripts" / "build" / "compile_native.sh"
 BUILD_NATIVE_LISTENER_MACOS_SH = PROJECT_ROOT / "scripts" / "build" / "build_native_listener_macos.sh"
 MACOS_KEY_LISTENER_SWIFT = PROJECT_ROOT / "voice_typer" / "server" / "native" / "macos-key-listener.swift"
-# Phase 4.5 /  — ``native_hotkeys.py`` was split into a package at
+# Phase 4.5 /: ``native_hotkeys.py`` was split into a package at
 # ``voice_typer/server/native_hotkeys/`` with one submodule per concern
 # (base / mac_backend / windows_backend / linux_backend / factory / ...).
 # The ``__init__.py`` re-exports every public name.  Tests below that
@@ -194,7 +194,7 @@ class TestTauriBundleResources:
 
         ADR-0020 §6.4: "Tauri does not touch the hotkey subsystem at
         all." If the binary were in ``externalBin``, Tauri would own
-        its lifecycle — that would violate the ADR. It must be a
+        its lifecycle, that would violate the ADR. It must be a
         ``resource`` so the Python sidecar spawns it via
         ``subprocess.Popen``.
         """
@@ -207,14 +207,14 @@ class TestTauriBundleResources:
         # Must NOT be in externalBin (Tauri must not spawn it).
         for ext in external_bins:
             assert "macos-key-listener" not in ext, (
-                f"macos-key-listener must NOT be in externalBin (Tauri must not spawn it — ADR-0020 §6.4). Found: {ext}"
+                f"macos-key-listener must NOT be in externalBin (Tauri must not spawn it, ADR-0020 §6.4). Found: {ext}"
             )
 
     def test_tauri_conf_also_bundles_windows_and_linux_listeners(self):
         """All three platform binaries are bundled (cross-platform ship).
 
         ADR-0020 §7 lists all three. This is a sanity check that the
-        macOS entry isn't alone — confirms the resources array is the
+        macOS entry isn't alone, confirms the resources array is the
         cross-platform native-listener block.
         """
         conf = json.loads(TAURI_CONF.read_text(encoding="utf-8"))
@@ -233,17 +233,17 @@ class TestSubprocessSpawn:
     def _verifiable_dummy_manifest(self, monkeypatch, tmp_path):
         """Point the SHA-256 manifest at a tmp manifest matching the dummy binary.
 
-        ``_spawn_process`` re-verifies the binary's checksum against
-        ``native/binaries.json`` BEFORE every ``subprocess.Popen`` (the
-        TOCTOU mitigation). The repo manifest has NO usable entry for the
-        dummy ``macos-key-listener`` these tests write (its ``sha256``
-        field is empty → verification fails CLOSED), so ``_spawn_process``
-        would set ``_failed=True`` and return without ever calling
-        ``Popen``. Rather than bypassing the verifier, point
-        ``_MANIFEST_PATH`` at a tmp manifest carrying the dummy content's
-        REAL SHA-256 (via ``hashlib``) so the production verification path
-        — manifest lookup → expected-hash resolution → hashlib comparison
-        — is exercised end-to-end.
+          ``_spawn_process`` re-verifies the binary's checksum against
+          ``native/binaries.json`` BEFORE every ``subprocess.Popen`` (the
+          TOCTOU mitigation). The repo manifest has NO usable entry for the
+          dummy ``macos-key-listener`` these tests write (its ``sha256``
+          field is empty → verification fails CLOSED), so ``_spawn_process``
+          would set ``_failed=True`` and return without ever calling
+          ``Popen``. Rather than bypassing the verifier, point
+          ``_MANIFEST_PATH`` at a tmp manifest carrying the dummy content's
+          REAL SHA-256 (via ``hashlib``) so the production verification path
+        , manifest lookup → expected-hash resolution → hashlib comparison
+        , is exercised end-to-end.
         """
         import hashlib
 
@@ -298,7 +298,7 @@ class TestSubprocessSpawn:
 
         ``_spawn_process`` builds ``cmd = [str(binary_path), self.hotkey_str]``.
         The native binary parses ``argv[1]`` to know which hotkey to
-        watch + suppress. This is NOT stdin, NOT JSON — it's a plain
+        watch + suppress. This is NOT stdin, NOT JSON, it's a plain
         pynput-style spec string as argv[1].
         """
         backend = macos_env.MacNativeHotkey("<f8>")
@@ -314,7 +314,7 @@ class TestSubprocessSpawn:
             captured["kwargs"] = kwargs
             # Mirror the sibling tests' richer proc: _spawn_process
             # starts a reader thread that immediately readline()s the
-            # pipe — a bare MagicMock returns a non-bytes value and the
+            # pipe, a bare MagicMock returns a non-bytes value and the
             # spawn path raises before the assertions below run.
             proc = MagicMock()
             proc.poll.return_value = None  # still running
@@ -331,13 +331,13 @@ class TestSubprocessSpawn:
     def test_spawn_pipes_stdout_for_wire_protocol(self, macos_env, monkeypatch, tmp_path):
         """stdout=PIPE, stderr=STDOUT, stdin=PIPE.
 
-        stdout MUST be piped — the reader thread reads line-delimited
+        stdout MUST be piped, the reader thread reads line-delimited
         wire-protocol events (READY / KEY_DOWN / FN_DOWN / MOD_DOWN /
         ERROR) from it. stderr is redirected to stdout so error output
         is visible in the same stream. stdin is PIPE too: the backend's
         watchdog writes ``PING`` to the child's stdin every 30s and
         expects ``PONG`` back over stdout (liveness protocol), so the
-        pipe is bidirectional — events flow OUT on stdout, watchdog
+        pipe is bidirectional, events flow OUT on stdout, watchdog
         pings flow IN on stdin.
         """
         backend = macos_env.MacNativeHotkey("<f8>")
@@ -352,7 +352,7 @@ class TestSubprocessSpawn:
             captured["kwargs"] = kwargs
             # Mirror the sibling tests' richer proc: _spawn_process
             # starts a reader thread that immediately readline()s the
-            # pipe — a bare MagicMock returns a non-bytes value and the
+            # pipe, a bare MagicMock returns a non-bytes value and the
             # spawn path raises before the assertions below run.
             proc = MagicMock()
             proc.poll.return_value = None  # still running
@@ -363,14 +363,12 @@ class TestSubprocessSpawn:
 
         backend._spawn_process()
         kwargs = captured["kwargs"]
-        assert kwargs.get("stdout") == subprocess.PIPE, (
-            "stdout must be PIPE — reader thread streams wire-protocol lines"
-        )
+        assert kwargs.get("stdout") == subprocess.PIPE, "stdout must be PIPE, reader thread streams wire-protocol lines"
         assert kwargs.get("stderr") == subprocess.STDOUT, (
             "stderr must redirect to stdout so errors surface in the wire stream"
         )
         assert kwargs.get("stdin") == subprocess.PIPE, (
-            "stdin must be PIPE — the watchdog writes PING to the child's "
+            "stdin must be PIPE, the watchdog writes PING to the child's "
             "stdin and reads PONG from stdout (liveness protocol)"
         )
 
@@ -379,7 +377,7 @@ class TestSubprocessSpawn:
 
         ``_spawn_process`` sets ``start_new_session=is_macos() or is_linux()``
         so the child is in its own process group. The sidecar then
-        sends ``SIGTERM`` (not ``terminate()``) to shut it down — the
+        sends ``SIGTERM`` (not ``terminate()``) to shut it down, the
         Swift binary installs a SIGTERM handler that disables the
         CGEventTap + removes the NSEvent monitors before ``exit(0)``.
         """
@@ -406,7 +404,7 @@ class TestSubprocessSpawn:
     def test_spawn_failure_raises_runtime_error(self, macos_env, monkeypatch, tmp_path):
         """If ``Popen`` raises ``OSError``, ``_spawn_process`` raises ``RuntimeError``.
 
-        This covers the "binary disappeared mid-restart" path — the
+        This covers the "binary disappeared mid-restart" path, the
         reader loop catches the RuntimeError and notifies the adapter
         via ``_on_permanent_failure_callback``.
         """
@@ -525,7 +523,7 @@ class TestBinaryDiscovery:
         # After the Phase 4.5 split, the package lives at
         # ``voice_typer/server/native_hotkeys/``; production code in
         # ``native_hotkeys/binary_path.py`` resolves the dev path via
-        # ``Path(__file__).resolve().parent.parent / "native"`` — i.e.
+        # ``Path(__file__).resolve().parent.parent / "native"``, i.e.
         # the package's *parent* directory (``voice_typer/server/``).
         module_dir = NATIVE_HOTKEYS_PKG.parent
         expected_dev_path = module_dir / "native" / "macos-key-listener"
@@ -553,7 +551,7 @@ class TestWireProtocol:
     The wire protocol is line-delimited TEXT (not JSON):
 
         READY
-        FN_DOWN / FN_UP           # macOS only — Fn/Globe edge-detected
+        FN_DOWN / FN_UP           # macOS only, Fn/Globe edge-detected
         KEY_DOWN:<Name>
         KEY_UP:<Name>
         MOD_DOWN:<Name>
@@ -623,7 +621,7 @@ class TestWireProtocol:
         fired: list[str] = []
         backend._callback = lambda: fired.append("press")
 
-        # V alone — no fire.
+        # V alone, no fire.
         backend._handle_line("KEY_DOWN:V")
         assert fired == []
 
@@ -633,14 +631,14 @@ class TestWireProtocol:
         # suppresses it).
         backend._handle_line("KEY_UP:V")
 
-        # Hold Cmd+Alt, then press V — fire.
+        # Hold Cmd+Alt, then press V, fire.
         backend._handle_line("MOD_DOWN:Cmd")
         backend._handle_line("MOD_DOWN:Alt")
         backend._handle_line("KEY_DOWN:V")
         assert fired == ["press"]
 
     def test_fn_down_fires_for_fn_only_hotkey(self, macos_env):
-        """``<fn>`` (Fn/Globe key) fires on ``FN_DOWN`` — macOS-only wire event.
+        """``<fn>`` (Fn/Globe key) fires on ``FN_DOWN``, macOS-only wire event.
 
         This is the critical macOS feature ``tauri-plugin-global-shortcut``
         CANNOT replace (ADR-0020 §6.4 table row "Fn / Globe key on
@@ -673,7 +671,7 @@ class TestAccessibilityPermission:
     exits 1. The sidecar's permission-retry flow (ADR-0008 Gap 2)
     then prompts the user.
 
-    These are source-inspection tests — the actual permission grant
+    These are source-inspection tests, the actual permission grant
     can only be validated on a macOS host (runbook §6.7).
     """
 
@@ -687,7 +685,7 @@ class TestAccessibilityPermission:
         ``.defaultTap`` option (vs ``.listenOnly``) is what gives the
         binary suppression power, but it requires Accessibility
         permission. ``tapCreate`` returns nil if the permission isn't
-        granted — the binary detects this and emits ERROR.
+        granted, the binary detects this and emits ERROR.
         """
         src = MACOS_KEY_LISTENER_SWIFT.read_text(encoding="utf-8")
         assert "CGEvent.tapCreate" in src, (
@@ -719,7 +717,7 @@ class TestAccessibilityPermission:
 
         CI runners never have Accessibility permission. Without this
         escape hatch, the binary would always ERROR in CI. Setting
-        this env var skips the CGEventTap entirely — the NSEvent
+        this env var skips the CGEventTap entirely, the NSEvent
         monitors still work, but key-up delivery + suppression are
         lost. This is acceptable for CI smoke tests (we only verify
         the binary spawns + emits READY).
@@ -762,7 +760,7 @@ class TestCGEventTap:
         ``.keyDown`` is needed for suppression (swallow the matched
         keystroke so it doesn't reach the foreground app).
         ``.keyUp`` is needed for reliable key-up delivery (NSEvent
-        global monitors MISS keyUp — the CGEventTap is the only
+        global monitors MISS keyUp, the CGEventTap is the only
         source).
         """
         src = MACOS_KEY_LISTENER_SWIFT.read_text(encoding="utf-8")
@@ -771,7 +769,7 @@ class TestCGEventTap:
         )
         assert "CGEventType.keyUp" in src, (
             "macos-key-listener.swift must subscribe to CGEventType.keyUp "
-            "(for reliable key-up delivery — NSEvent global monitors miss keyUp)"
+            "(for reliable key-up delivery, NSEvent global monitors miss keyUp)"
         )
 
     def test_swift_source_installs_run_loop_source(self):
@@ -805,7 +803,7 @@ class TestCGEventTap:
         """The binary uses NSEvent global monitors alongside the CGEventTap.
 
         Per the Swift source header comment: the binary uses THREE
-        event sources — (a) NSEvent .flagsChanged monitor for FN +
+        event sources: (a) NSEvent .flagsChanged monitor for FN +
         modifier transitions, (b) NSEvent .keyDown monitor for
         non-modifier key-down events, (c) CGEventTap for key-up
         delivery + suppression. The CGEventTap is NOT used for
@@ -832,12 +830,12 @@ class TestFnGlobeKey:
 
     ADR-0020 §6.4 table row "Fn / Globe key on macOS": the native
     binary detects Fn via ``NSEvent.modifierFlags.contains(.function)``
-    (bit 23). The Tauri plugin CANNOT detect Fn/Globe — this is the
+    (bit 23). The Tauri plugin CANNOT detect Fn/Globe, this is the
     critical macOS-specific feature preserved by keeping the native
     binary.
 
     The default macOS hotkey is the Fn/Globe key (per
-    ``config._default_hotkey_for_platform``) — without this binary,
+    ``config._default_hotkey_for_platform``), without this binary,
     macOS users would lose the default dictation hotkey.
     """
 
@@ -845,21 +843,21 @@ class TestFnGlobeKey:
         """Fn is detected via ``NSEvent.modifierFlags.contains(.function)``.
 
         Critical: detect FN via the semantic ``.function`` flag (bit
-        23) — NOT ``keyCode == 63``. The ``.function`` flag is the
+        23), NOT ``keyCode == 63``. The ``.function`` flag is the
         semantic "Fn is held" bit, edge-detected to prevent spurious
         FN_DOWN fires when unrelated modifiers change state.
         """
         src = MACOS_KEY_LISTENER_SWIFT.read_text(encoding="utf-8")
         assert ".function" in src, (
             "macos-key-listener.swift must detect Fn via "
-            "NSEvent.modifierFlags.contains(.function) (bit 23) — NOT keyCode == 63"
+            "NSEvent.modifierFlags.contains(.function) (bit 23), NOT keyCode == 63"
         )
 
     def test_swift_source_emits_fn_down_and_fn_up(self):
         """The binary emits ``FN_DOWN`` / ``FN_UP`` edge-detected wire events.
 
         These are macOS-only wire events (the Windows + Linux binaries
-        don't emit them — Fn is firmware-only on those platforms). The
+        don't emit them. Fn is firmware-only on those platforms). The
         Python sidecar's ``_handle_line`` parses them and routes them
         to ``_on_fn_event`` for matching against ``<fn>``-containing
         specs.
@@ -908,7 +906,7 @@ class TestFnGlobeKey:
         """
         backend = macos_env.MacNativeHotkey("<fn>")
         assert backend.supports_fn is True, (
-            "MacNativeHotkey.supports_fn must be True — Fn/Globe is the "
+            "MacNativeHotkey.supports_fn must be True, Fn/Globe is the "
             "default macOS hotkey (config._default_hotkey_for_platform)"
         )
 
@@ -930,7 +928,7 @@ class TestFnGlobeKey:
         finally:
             macos_env.is_windows = lambda: False
         assert err is not None
-        assert "FN" in err or "fn" in err, "WindowsHookHotkey must reject <fn> specs — Fn is firmware-only on Windows"
+        assert "FN" in err or "fn" in err, "WindowsHookHotkey must reject <fn> specs, Fn is firmware-only on Windows"
 
 
 # ─── §8. Key suppression (CGEvent tap returns nil) ──────────────────────────
@@ -945,7 +943,7 @@ class TestKeySuppression:
     ``tauri-plugin-global-shortcut`` lacks (Tauri's plugin is
     read-only on all platforms).
 
-    These are source-inspection tests — the actual suppression can
+    These are source-inspection tests, the actual suppression can
     only be validated on a macOS host (runbook §6.7 step 8 in the
     VALIDATE block above).
     """
@@ -960,7 +958,7 @@ class TestKeySuppression:
         """
         src = MACOS_KEY_LISTENER_SWIFT.read_text(encoding="utf-8")
         assert "shouldSuppressKeyDown" in src, (
-            "macos-key-listener.swift must define shouldSuppressKeyDown() — "
+            "macos-key-listener.swift must define shouldSuppressKeyDown(), "
             "the decision function that returns true to swallow a keystroke"
         )
 
@@ -975,7 +973,7 @@ class TestKeySuppression:
         src = MACOS_KEY_LISTENER_SWIFT.read_text(encoding="utf-8")
         assert "return nil" in src, (
             "The CGEventTap callback must `return nil` to suppress a matched "
-            "keystroke — returning the event would pass it through to the "
+            "keystroke, returning the event would pass it through to the "
             "foreground app"
         )
 
@@ -1025,7 +1023,7 @@ class TestSidecarOwnership:
 
         The sidecar is the Nuitka-frozen Python process spawned by
         Tauri's ``externalBin`` mechanism. All hotkey logic —
-        discovery, spawn, wire-protocol parsing, matching — lives in
+        discovery, spawn, wire-protocol parsing, matching, lives in
         the sidecar, not in the Rust host.
         """
         assert NATIVE_HOTKEYS_PY.is_file(), f"native_hotkeys.py must exist in the Python sidecar: {NATIVE_HOTKEYS_PY}"
@@ -1044,7 +1042,7 @@ class TestSidecarOwnership:
 
         Behavioral assertion (import the package, verify the re-export
         resolves and the class is the one _core defines) instead of the
-        stale source-grep on base.py — the grep regressed the moment
+        stale source-grep on base.py, the grep regressed the moment
         base.py became a facade.
         """
         import voice_typer.server.native_hotkeys.base as base_mod
@@ -1054,7 +1052,7 @@ class TestSidecarOwnership:
         # The facade re-export resolves to the REAL class (defined in _core).
         assert base_mod.SubprocessHotkeyBackend is CoreBackend, (
             "native_hotkeys/base.py must re-export SubprocessHotkeyBackend "
-            "(resolved from native_hotkeys._core — the base class that "
+            "(resolved from native_hotkeys._core, the base class that "
             "spawns the native binary via subprocess.Popen)"
         )
         assert "class MacNativeHotkey" in mac_src, (
@@ -1146,23 +1144,23 @@ class TestSidecarOwnership:
 class TestUniversalOrPerArch:
     """Verify the binary is universal OR per-arch.
 
-    ADR-0020 §Reversibility: cutover is per-arch — Apple Silicon can
+    ADR-0020 §Reversibility: cutover is per-arch, Apple Silicon can
     ship Tauri while Intel still ships Electron. The native
     ``macos-key-listener`` binary must run on BOTH archs.
 
     Two acceptable strategies:
-    1. **Universal binary** — a single Mach-O file with both arm64 +
+    1. **Universal binary**, a single Mach-O file with both arm64 +
        x86_64 slices (merged with ``lipo``). The runbook §3 documents
        the ``build_native_listener_macos.sh --universal`` flag for
        this.
-    2. **Per-arch builds** — separate binaries per arch, with Tauri
+    2. **Per-arch builds**, separate binaries per arch, with Tauri
        selecting the right one at runtime. (Note: Tauri's
        ``externalBin`` mechanism appends the host triple, but the
        native listener is a ``resource`` not ``externalBin``, so
        per-arch resources would need a custom selector.)
 
     The current implementation (``build_native_listener_macos.sh``)
-    compiles for the HOST ARCH only — no ``--universal`` flag. The
+    compiles for the HOST ARCH only, no ``--universal`` flag. The
     runbook §3 documents ``--universal`` as a planned feature. This
     is an implementation gap (see the test below + the report).
     """
@@ -1174,7 +1172,7 @@ class TestUniversalOrPerArch:
     def test_build_script_invokes_compile_native_sh(self):
         """The wrapper invokes ``compile_native.sh`` (which runs ``swiftc``).
 
-        The wrapper doesn't compile directly — it delegates to
+        The wrapper doesn't compile directly, it delegates to
         ``compile_native.sh`` (which detects macOS + runs
         ``swiftc -O ... -framework Cocoa -framework CoreGraphics``).
         The wrapper then copies the compiled binary to
@@ -1204,7 +1202,7 @@ class TestUniversalOrPerArch:
         """The wrapper ad-hoc codesigns the binary.
 
         Ad-hoc signing (``codesign --force --sign -``) is required
-        even for dev builds — without it, macOS refuses to spawn the
+        even for dev builds, without it, macOS refuses to spawn the
         binary under the parent .app's signature. The parent .app
         re-signs ``--deep`` on bundle build.
         """

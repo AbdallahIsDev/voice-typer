@@ -4,7 +4,7 @@ from ``shutdown_controller._do_cleanup``.
 Pre-fix, ``_do_cleanup`` only called ``ctypes.windll.kernel32.CloseHandle``
 for the Windows path. On POSIX, ``app._mutex_handle`` is a
 ``_PosixSingleInstanceHandle`` (subclass of int) wrapping the lockfile fd,
-and ``ctypes.windll`` does not exist on POSIX — the resulting
+and ``ctypes.windll`` does not exist on POSIX, the resulting
 ``AttributeError`` was swallowed by the ``try/except``, leaving the
 lockfile fd dangling until process exit and racing a fast re-launch.
 
@@ -125,7 +125,7 @@ class TestPosixMutexHandleRelease:
         assert fake_app._mutex_handle is None
 
     def test_posix_release_skipped_on_windows(self, controller, fake_app, monkeypatch):
-        """On Windows, the POSIX branch must NOT execute — the Windows
+        """On Windows, the POSIX branch must NOT execute, the Windows
         ``CloseHandle`` branch handles cleanup. ``app._mutex_handle``
         remains whatever the Windows path set it to (None here, since
         the Win32 branch's ``hasattr(app, '_mutex_handle') and
@@ -136,7 +136,7 @@ class TestPosixMutexHandleRelease:
         # Truthy so the Windows branch tries to call CloseHandle (which
         # we don't actually want to run). Set to None to skip the Win32
         # branch entirely (it would try ``ctypes.windll`` which doesn't
-        # exist on the Linux test host — the surrounding try/except
+        # exist on the Linux test host, the surrounding try/except
         # swallows the AttributeError, but we want to isolate the
         # POSIX branch in this test).
         fake_app._mutex_handle = None
@@ -149,7 +149,7 @@ class TestPosixMutexHandleRelease:
 
     def test_posix_release_swallows_release_exception(self, controller, fake_app, monkeypatch):
         """If ``handle.release()`` raises, ``_do_cleanup`` must NOT
-        propagate — the POSIX branch wraps the call in
+        propagate, the POSIX branch wraps the call in
         ``contextlib.suppress(Exception)`` so cleanup continues."""
         monkeypatch.setattr("sys.platform", "linux")
 
@@ -172,7 +172,7 @@ class TestPosixMutexHandleRelease:
 
         This guards against regressions where the YJ-2 branch's
         ``getattr(app, '_mutex_handle', None) is not None`` check is
-        accidentally inverted (the handle subclasses ``int`` — falsy
+        accidentally inverted (the handle subclasses ``int``, falsy
         when fd == 0, so we use a real fd > 0).
         """
         from voice_typer.server.single_instance import _PosixSingleInstanceHandle

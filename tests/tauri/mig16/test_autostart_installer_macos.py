@@ -16,10 +16,10 @@ at ``~/Library/LaunchAgents/com.voicetyper.plist`` with:
 
   - ``Label`` = ``com.voicetyper``
   - ``ProgramArguments`` = ``[sys.executable, <repo>/voice_typer/server/autostart_launcher.py]``
-    (CURRENT — the legacy Python/Electron launcher path; see GAP-1 below)
-  - ``RunAtLoad`` = ``true``  (fires at login — NOT a Calendar/Event trigger)
+    (CURRENT, the legacy Python/Electron launcher path; see GAP-1 below)
+  - ``RunAtLoad`` = ``true``  (fires at login, NOT a Calendar/Event trigger)
   - ``KeepAlive`` = ``false`` (one-shot at login, not a daemon)
-  - ``WorkingDirectory`` = ``$HOME`` (absolute, NOT ``~`` — NEW-XPLAT-006)
+  - ``WorkingDirectory`` = ``$HOME`` (absolute, NOT ``~``, NEW-XPLAT-006)
   - ``StandardOutPath`` / ``StandardErrorPath`` = ``<config_dir>/autostart.log``
 
 After writing the plist, it registers the job via the modern
@@ -34,7 +34,7 @@ AND validates its ProgramArguments exist on disk (AUTOSTART-CMD-VALIDATE).
 KNOWN GAPS (report, do not fix)
 -------------------------------
 GAP-1 (ProgramArguments): The current plist's ``ProgramArguments`` points
-to ``sys.executable`` (Python) + ``autostart_launcher.py`` — the legacy
+to ``sys.executable`` (Python) + ``autostart_launcher.py``, the legacy
 Electron/Python launch path. Phase 0-M sign-off (per the validation
 runbook §6 + this test's "VALIDATE ON MACOS HOST" step 5) requires the
 plist to point at the Tauri host binary
@@ -42,7 +42,7 @@ plist to point at the Tauri host binary
 that a user who installs the DMG auto-launches the *bundled* Tauri app
 at login (not a stray Python interpreter that may not exist on a clean
 install). See ``test_plist_program_arguments_point_to_tauri_host_binary``
-(xfail strict — flips to XPASS-strict-fail when the impl is updated,
+(xfail strict, flips to XPASS-strict-fail when the impl is updated,
 prompting marker removal).
 
 GAP-2 (bundle.macOS): ``tauri.conf.json`` has no explicit
@@ -56,7 +56,7 @@ auto-signs the .app. Currently signing is performed by the CI workflow
 post-build step (``codesign --force --deep ...``), not by the Tauri
 bundler itself.
 
-GAP-3 (CLOSED — workflow enabled): ``.github/workflows/tauri-macos-build.yml``
+GAP-3 (CLOSED, workflow enabled): ``.github/workflows/tauri-macos-build.yml``
 jobs are now ENABLED (``if: true``) so the Phase 0-M validation run can
 execute via ``workflow_dispatch``. The workflow YAML is structurally
 correct (source inspection passes). Cutover to CI-driven runs still
@@ -79,7 +79,7 @@ VALIDATE ON MACOS HOST:
    Expected: Authority=Developer ID Application: <name>; TeamIdentifier=<team>
 10. Notarization: xcrun stapler validate "/Applications/Voice Typer.app"
     Expected: "The validate action worked!"
-11. Uninstall by dragging to Trash → verify LaunchAgent plist is removed (or orphaned — document)
+11. Uninstall by dragging to Trash → verify LaunchAgent plist is removed (or orphaned, document)
 Expected: autostart works; single-instance works; signing + notarization valid
 
 TEST-HOST NOTES
@@ -111,7 +111,7 @@ import urllib.request  # noqa: F401  (side-effect: cache in sys.modules)
 # is imported AFTER that monkeypatch, Python tries to load ``_scproxy``
 # (which doesn't exist on Linux) and raises ``ModuleNotFoundError``.
 # Pre-importing ``xml.sax.saxutils`` (and its transitive deps) here at
-# module-load time — BEFORE any monkeypatch — caches them in
+# module-load time (BEFORE any monkeypatch) caches them in
 # ``sys.modules`` so the subsequent ``from xml.sax.saxutils import escape``
 # inside ``_enable_autostart_macos`` is a no-op sys.modules lookup.
 import xml.sax.saxutils  # noqa: F401  (side-effect: cache in sys.modules)
@@ -233,7 +233,7 @@ def test_enable_autostart_macos_creates_launchagent_plist(darwin_platform):
         f"plist must be written to {plist_path} (the per-user LaunchAgents "
         f"dir; NOT /Library/LaunchDaemons which needs root)"
     )
-    # Permissions: 0o600 (owner read/write only — contains no secrets, but
+    # Permissions: 0o600 (owner read/write only, contains no secrets, but
     # plistlib doesn't preserve group/other bits in a useful way for launchd).
     assert (plist_path.stat().st_mode & 0o777) == 0o600, "plist must be chmod 0o600 (per-user, no group/other access)"
 
@@ -263,7 +263,7 @@ def test_enable_autostart_macos_creates_launchagent_plist(darwin_platform):
 
 def test_plist_uses_run_at_load_true(darwin_platform):
     """The plist must set ``RunAtLoad=true`` so launchd starts the job at
-    login (NOT a Calendar/Event/Boot trigger — those would fire at the
+    login (NOT a Calendar/Event/Boot trigger, those would fire at the
     wrong time or require root). ``KeepAlive=false`` ensures the job is
     one-shot (launchd doesn't restart it if the launcher exits).
     """
@@ -277,29 +277,29 @@ def test_plist_uses_run_at_load_true(darwin_platform):
     )
     assert data.get("RunAtLoad") is True, (
         "RunAtLoad must be true so launchd fires the job at login (NOT a "
-        "Calendar/Event/Boot trigger — those would fire at the wrong time "
+        "Calendar/Event/Boot trigger, those would fire at the wrong time "
         "or require root)"
     )
     assert data.get("KeepAlive") is False, (
-        "KeepAlive must be false — the launcher is one-shot at login, NOT a "
+        "KeepAlive must be false, the launcher is one-shot at login, NOT a "
         "long-running daemon that launchd should restart on exit"
     )
 
 
 # ─── Test 3: ProgramArguments CURRENT behavior (Python + launcher) ───────
-# Documents  — see module docstring.
+# Documents: see module docstring.
 
 
 def test_plist_program_arguments_current_behavior_python_launcher(darwin_platform):
     """CURRENT BEHAVIOR (GAP-1): the plist's ``ProgramArguments`` is
-    ``[sys.executable, <repo>/voice_typer/server/autostart_launcher.py]``
-    — the legacy Electron/Python launch path. This works for the dev
-    Electron app, but is NOT the production Tauri host launch path.
+      ``[sys.executable, <repo>/voice_typer/server/autostart_launcher.py]``
+    , the legacy Electron/Python launch path. This works for the dev
+      Electron app, but is NOT the production Tauri host launch path.
 
-    This test PASSES on the current implementation and documents the gap.
-    The companion test
-    ``test_plist_program_arguments_point_to_tauri_host_binary`` (xfail
-    strict) asserts the MIG-1.6 expected behavior.
+      This test PASSES on the current implementation and documents the gap.
+      The companion test
+      ``test_plist_program_arguments_point_to_tauri_host_binary`` (xfail
+      strict) asserts the MIG-1.6 expected behavior.
     """
     sp = darwin_platform.server_platform
     sp._enable_autostart_macos()
@@ -308,25 +308,25 @@ def test_plist_program_arguments_current_behavior_python_launcher(darwin_platfor
     args = data.get("ProgramArguments")
     assert isinstance(args, list), "ProgramArguments must be an array"
     assert len(args) >= 2, (
-        f"current impl writes [sys.executable, launcher_path] — at least 2 elements expected (got {len(args)}: {args})"
+        f"current impl writes [sys.executable, launcher_path], at least 2 elements expected (got {len(args)}: {args})"
     )
     # First arg is the Python interpreter (sys.executable at write time).
     assert "python" in args[0].lower(), (
         f"current impl's first ProgramArgument must be the Python interpreter "
-        f"(sys.executable); got {args[0]!r}. NOTE: this is GAP-1 — the MIG-1.6 "
+        f"(sys.executable); got {args[0]!r}. NOTE: this is GAP-1, the MIG-1.6 "
         f"expectation is for the first arg to be the Tauri host binary "
         f"({_TAURI_HOST_BIN_NAME!r}), not Python. See the companion xfail test."
     )
     # Second arg is the autostart_launcher.py script.
     assert args[1].endswith("autostart_launcher.py"), (
         f"current impl's second ProgramArgument must be autostart_launcher.py; "
-        f"got {args[1]!r}. NOTE: GAP-1 — MIG-1.6 expects a single-element "
+        f"got {args[1]!r}. NOTE: GAP-1, MIG-1.6 expects a single-element "
         f"ProgramArguments pointing at the Tauri host binary."
     )
 
 
 # Test 4: ProgramArguments  EXPECTED behavior (Tauri host) ────
-# XFAIL strict — flips to XPASS-strict-fail when  is fixed, prompting
+# XFAIL strict, flips to XPASS-strict-fail when  is fixed, prompting
 # removal of this marker.
 
 
@@ -335,13 +335,13 @@ def test_plist_program_arguments_current_behavior_python_launcher(darwin_platfor
     reason=(
         "MIG-1.6 GAP-1: _enable_autostart_macos() currently writes a plist "
         "whose ProgramArguments points to sys.executable (Python) + "
-        "autostart_launcher.py — the LEGACY Electron path. Phase 0-M "
+        "autostart_launcher.py, the LEGACY Electron path. Phase 0-M "
         "sign-off requires the plist to point at the Tauri host binary "
         "(/Applications/Voice Typer.app/Contents/MacOS/voice-typer-tauri) "
         "so a user who installs the DMG auto-launches the *bundled* Tauri "
         "app at login (not a stray Python interpreter that may not exist "
         "on a clean install). When _enable_autostart_macos is updated to "
-        "emit the Tauri host path, this test will XPASS — remove the "
+        "emit the Tauri host path, this test will XPASS, remove the "
         "xfail marker at that time."
     ),
 )
@@ -349,7 +349,7 @@ def test_plist_program_arguments_point_to_tauri_host_binary(darwin_platform):
     """MIG-1.6 EXPECTED (per validation runbook §6 step 5): the plist's
     ``ProgramArguments`` must point to the Tauri host binary
     (``/Applications/Voice Typer.app/Contents/MacOS/voice-typer-tauri``)
-    so the user's login launches the *bundled* Tauri app — NOT a stray
+    so the user's login launches the *bundled* Tauri app, NOT a stray
     Python interpreter (which may not exist on a clean install that only
     has the DMG).
 
@@ -481,7 +481,7 @@ def test_is_autostart_enabled_macos_returns_true_only_if_plist_exists(darwin_pla
 def test_is_autostart_macos_false_when_plist_program_path_missing(darwin_platform):
     """A plist whose ``ProgramArguments`` point at a deleted interpreter /
     launcher must report autostart DISABLED (AUTOSTART-CMD-VALIDATE
-    backport — mirrors the Windows ``_validate_runkey_command``
+    backport, mirrors the Windows ``_validate_runkey_command``
     behavior). Without this, deleting the venv leaves Settings showing
     a misleading "Autostart: enabled".
     """
@@ -504,7 +504,7 @@ def test_is_autostart_macos_false_when_plist_program_path_missing(darwin_platfor
 def test_is_autostart_macos_true_when_plist_program_paths_exist(darwin_platform):
     """A plist whose ``ProgramArguments`` point at real paths must report
     autostart enabled (the happy path of the AUTOSTART-CMD-VALIDATE
-    check — a valid registration must not be flagged stale)."""
+    check, a valid registration must not be flagged stale)."""
     sp = darwin_platform.server_platform
     plist_path = darwin_platform.plist_path
     plist_path.parent.mkdir(parents=True, exist_ok=True)
@@ -516,7 +516,7 @@ def test_is_autostart_macos_true_when_plist_program_paths_exist(darwin_platform)
         "<key>Label</key><string>com.voicetyper</string>"
         "<key>ProgramArguments</key><array>"
         f"<string>{sys.executable}</string>"
-        # /bin/true is a Linux-ism — macOS has no /bin/true (its true(1)
+        # /bin/true is a Linux-ism, macOS has no /bin/true (its true(1)
         # lives at /usr/bin/true), and the validation under test checks
         # Path(...).exists(). Use /bin/ls, present on macOS AND Linux.
         "<string>/bin/ls</string>"
@@ -533,11 +533,11 @@ def test_tauri_conf_has_macos_bundle_or_dmg_app_defaults():
     """``tauri.conf.json`` produces a DMG + .app on macOS. Either an
     explicit ``bundle.macOS`` block exists (with ``signingIdentity`` /
     ``entitlements``), OR ``bundle.targets`` is ``"all"`` (which
-    defaults to DMG + .app on macOS per Tauri v2 defaults — see
+    defaults to DMG + .app on macOS per Tauri v2 defaults: see
     https://tauri.app/v2/guides/build/macos/).
 
     GAP-2 (report, do not fix): the current config relies on the
-    ``"all"`` default — no explicit ``bundle.macOS`` block. Production
+    ``"all"`` default, no explicit ``bundle.macOS`` block. Production
     distribution should wire in ``bundle.macOS.signingIdentity`` +
     ``entitlements`` so the bundler auto-signs the .app (currently
     signing is performed by the CI workflow post-build step).
@@ -567,7 +567,7 @@ def test_tauri_conf_has_macos_bundle_or_dmg_app_defaults():
     cargo = CARGO_TOML.read_text(encoding="utf-8")
     assert re.search(r'name\s*=\s*"voice-typer-tauri"', cargo), (
         "Cargo.toml [[bin]] name must be 'voice-typer-tauri' (the .app's "
-        "Contents/MacOS/ executable name — referenced by GAP-1's fix)"
+        "Contents/MacOS/ executable name, referenced by GAP-1's fix)"
     )
 
 
@@ -584,13 +584,13 @@ def test_entitlements_plist_has_three_required_entitlements():
          CTranslate2 (faster-whisper) may use JIT compilation.
       2. ``com.apple.security.cs.allow-unsigned-executable-memory``
          Nuitka onefile loaders allocate RWX pages when unpacking the
-         embedded payload — without this, macOS 14 kills the sidecar at
+         embedded payload, without this, macOS 14 kills the sidecar at
          startup with EXC_BAD_ACCESS.
       3. ``com.apple.security.cs.disable-library-validation``
-         Nuitka onefile extracts unsigned dylibs at runtime — without
+         Nuitka onefile extracts unsigned dylibs at runtime, without
          this entitlement, the hardened runtime kills the process.
       4. ``com.apple.security.device.audio-input``
-         Microphone access (sounddevice) — required by TCC on macOS 11+.
+         Microphone access (sounddevice), required by TCC on macOS 11+.
       5. ``com.apple.security.automation.apple-events``
          AppleScript via NSAppleEventDescriptor (volume ducking +
          foreground-app detection); without it every AppleScript call
@@ -608,14 +608,14 @@ def test_entitlements_plist_has_three_required_entitlements():
     )
     assert data.get("com.apple.security.device.audio-input") is True, (
         "com.apple.security.device.audio-input must be true (microphone "
-        "access via sounddevice — required by TCC on macOS 11+)"
+        "access via sounddevice, required by TCC on macOS 11+)"
     )
     assert data.get("com.apple.security.cs.allow-unsigned-executable-memory") is True, (
-        "com.apple.security.cs.allow-unsigned-executable-memory must be true (Nuitka onefile RWX pages — BUILD-N02)"
+        "com.apple.security.cs.allow-unsigned-executable-memory must be true (Nuitka onefile RWX pages, BUILD-N02)"
     )
     assert data.get("com.apple.security.automation.apple-events") is True, (
         "com.apple.security.automation.apple-events must be true (AppleScript "
-        "volume ducking + clipboard foreground detection — BUILD-N02)"
+        "volume ducking + clipboard foreground detection, BUILD-N02)"
     )
 
     # Sanity: no entitlements beyond the 5 documented ones (guard against
@@ -633,7 +633,7 @@ def test_entitlements_plist_has_three_required_entitlements():
     assert not extra, (
         f"entitlements.plist has EXTRA entitlements beyond the 5 documented: "
         f"{extra}. Each entitlement broadens the hardened-runtime attack "
-        f"surface — remove any that aren't strictly required."
+        f"surface, remove any that aren't strictly required."
     )
     assert not missing, f"entitlements.plist is MISSING documented entitlements: {missing}"
 
@@ -644,7 +644,7 @@ def test_entitlements_plist_has_three_required_entitlements():
 def test_installer_includes_sidecar_prewarm_native_listener_resources():
     """The installer bundles the sidecar binary (``externalBin``), the
     ML worker exe (``externalBin``, owner of the warm phase since the
-    standalone prewarm binary was retired — plan-runtime-pack-split
+    standalone prewarm binary was retired, plan-runtime-pack-split
     §6.2), and the native macOS key-listener (``resources``) so the
     Tauri app can spawn them at runtime without a separate Python
     install.
@@ -666,7 +666,7 @@ def test_installer_includes_sidecar_prewarm_native_listener_resources():
     )
     assert "bin/voice-typer-worker" in external_bin, (
         "externalBin must include bin/voice-typer-worker (the ML worker "
-        "exe owns the warm phase since the prewarm binary was retired — "
+        "exe owns the warm phase since the prewarm binary was retired, "
         "plan-runtime-pack-split §6.2)"
     )
 
@@ -675,16 +675,16 @@ def test_installer_includes_sidecar_prewarm_native_listener_resources():
     resources_blob = "\n".join(resources)
 
     # The standalone prewarm binaries are RETIRED (plan-runtime-pack-split
-    # §6.2) — their resource entries must NOT come back.
+    # §6.2), their resource entries must NOT come back.
     stale_prewarm = [r for r in resources if "prewarm" in r]
     assert not stale_prewarm, (
         f"resources must NOT include prewarm binaries (retired per plan-runtime-pack-split §6.2): {stale_prewarm}"
     )
 
-    # Native macOS key-listener (ADR-0020 §6.4 — compiled CGEventTap hook
+    # Native macOS key-listener (ADR-0020 §6.4, compiled CGEventTap hook
     # for the dictation toggle hotkey).
     assert "native/macos-key-listener" in resources_blob, (
-        "resources must include native/macos-key-listener (ADR-0020 §6.4 — "
+        "resources must include native/macos-key-listener (ADR-0020 §6.4, "
         "compiled CGEventTap hook for the dictation toggle hotkey)"
     )
 
@@ -702,7 +702,7 @@ def test_single_instance_plugin_enforced():
       1. ``tauri.conf.json`` declares ``plugins.single-instance``.
       2. ``Cargo.toml`` depends on ``tauri-plugin-single-instance``.
       3. ``main.rs`` registers the plugin FIRST (before the .setup() hook
-         where the sidecar is spawned — ADR-0020 §12 ordering requirement
+         where the sidecar is spawned, ADR-0020 §12 ordering requirement
          so a second launch doesn't leave a zombie sidecar).
       4. The plugin's callback focuses the existing 'main' window.
     """
@@ -742,7 +742,7 @@ def test_single_instance_plugin_enforced():
     if setup_idx != -1:
         assert single_instance_idx < setup_idx, (
             "single-instance plugin must be registered BEFORE the .setup() "
-            "hook (where the sidecar is spawned) — ADR-0020 §12 ordering"
+            "hook (where the sidecar is spawned), ADR-0020 §12 ordering"
         )
 
     # 4. The callback focuses the existing main window (show + set_focus).
@@ -765,20 +765,20 @@ def test_single_instance_plugin_enforced():
 def test_ci_workflow_runs_codesign_notarytool_stapler():
     """``.github/workflows/tauri-macos-build.yml`` runs the full code
     signing + notarization + stapling chain (ADR-0020 §13.2). This is
-    REQUIRED for distribution — a DMG with an unsigned .app will be
+    REQUIRED for distribution, a DMG with an unsigned .app will be
     rejected by Gatekeeper on user machines.
 
     Source-inspection of the YAML (no mocking). The workflow jobs are
-    enabled (``if: true`` — GAP-3 closed) so the Phase 0-M validation
+    enabled (``if: true``, GAP-3 closed) so the Phase 0-M validation
     run executes via ``workflow_dispatch``.
     """
     assert CI_WORKFLOW.exists(), f"CI workflow missing at {CI_WORKFLOW}"
     yaml_text = CI_WORKFLOW.read_text(encoding="utf-8")
 
-    # 1. codesign — signs the .dmg with the Developer ID identity.
+    # 1. codesign, signs the .dmg with the Developer ID identity.
     #    (The .app is signed by `cargo tauri build` when
     #    bundle.macOS.signingIdentity is set, OR by an explicit
-    #    `codesign --force --deep ...` step — the workflow signs the
+    #    `codesign --force --deep ...` step, the workflow signs the
     #    .dmg explicitly because Tauri's bundler doesn't auto-sign DMGs.)
     assert "codesign" in yaml_text, (
         "CI workflow must invoke `codesign` to sign the .dmg (and/or .app) with the Developer ID identity"
@@ -788,7 +788,7 @@ def test_ci_workflow_runs_codesign_notarytool_stapler():
         "Application certificate Common Name, passed to `codesign --sign`)"
     )
 
-    # 2. notarytool — submits the .app + .dmg to Apple's notarization service.
+    # 2. notarytool, submits the .app + .dmg to Apple's notarization service.
     assert "xcrun notarytool submit" in yaml_text, (
         "CI workflow must invoke `xcrun notarytool submit` to submit the .app + .dmg to Apple's notarization service"
     )
@@ -802,12 +802,12 @@ def test_ci_workflow_runs_codesign_notarytool_stapler():
         "staple step would run before the ticket is available)"
     )
 
-    # 3. stapler — staples the notarization ticket to the .app + .dmg
+    # 3. stapler, staples the notarization ticket to the .app + .dmg
     #    (so the ticket is available offline, without a round-trip to
     #    Apple's servers on first launch).
     assert "xcrun stapler staple" in yaml_text, (
         "CI workflow must invoke `xcrun stapler staple` for both the .app "
-        "and the .dmg (so the notarization ticket is embedded — required "
+        "and the .dmg (so the notarization ticket is embedded, required "
         "for offline Gatekeeper validation)"
     )
     assert "xcrun stapler validate" in yaml_text, (
@@ -825,18 +825,18 @@ def test_ci_workflow_runs_codesign_notarytool_stapler():
 
     # 5. Sanity: the workflow builds BOTH arches (universal .app + .dmg).
     assert "universal-apple-darwin" in yaml_text, (
-        "CI workflow must build a universal .app + .dmg (--target universal-apple-darwin — combines x86_64 + aarch64)"
+        "CI workflow must build a universal .app + .dmg (--target universal-apple-darwin, combines x86_64 + aarch64)"
     )
     assert "aarch64-apple-darwin" in yaml_text, "CI workflow must build the aarch64 (Apple Silicon) sidecar + prewarm"
     assert "x86_64-apple-darwin" in yaml_text, (
         "CI workflow must build the x86_64 (Intel, via Rosetta 2) sidecar + prewarm"
     )
 
-    # 6. The workflow jobs are enabled (`if: true` — GAP-3 closed, TX-39):
+    # 6. The workflow jobs are enabled (`if: true`, GAP-3 closed, TX-39):
     #    Phase 0-M validation is runnable via manual dispatch. The
     #    workflow is NOT a stub anymore; no `if: false` may remain.
     assert "if: false" not in yaml_text, (
-        "GAP-3: the workflow must have NO `if: false` guards left — all 3 "
+        "GAP-3: the workflow must have NO `if: false` guards left, all 3 "
         "jobs (build-aarch64, build-x86_64, build-tauri-universal) are "
         "ENABLED (`if: true`) so the signing + notarization path can be "
         "exercised via workflow_dispatch (GATE STATUS header: 'ENABLED'). "

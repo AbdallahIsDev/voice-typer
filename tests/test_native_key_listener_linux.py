@@ -20,11 +20,11 @@ Two layers are exercised:
    of wire-protocol lines and fed through
    :class:`LinuxEvdevHotkey._handle_line`. The post-fix stream (one
    ``KEY_DOWN`` per physical press, post-dedup) must fire the hotkey
-   callback exactly once per press — not N times. A second test asserts
+   callback exactly once per press, not N times. A second test asserts
    that genuinely-distinct presses (separated in time) are NOT
    collapsed by the dedup window.
 
-These tests do NOT require ``/dev/input`` access — the dedup logic is
+These tests do NOT require ``/dev/input`` access, the dedup logic is
 validated in isolation, and the consumer contract is validated with a
 mocked stdout stream. They DO require ``gcc`` to be on ``$PATH`` for
 the C-level portion.
@@ -59,7 +59,7 @@ class TestLinuxKeyListenerDedupC:
         This exercises the actual ``is_duplicate_event`` /
         ``remember_emitted_event`` functions from the production source
         (no stubs), so any regression in the dedup window logic fails
-        here at the C level — independent of the Python consumer.
+        here at the C level, independent of the Python consumer.
         """
         assert LISTENER_SRC.is_file(), f"missing listener source: {LISTENER_SRC}"
         assert C_TEST_SRC.is_file(), f"missing C test source: {C_TEST_SRC}"

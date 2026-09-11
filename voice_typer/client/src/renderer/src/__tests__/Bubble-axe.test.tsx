@@ -3,21 +3,21 @@
  *
  * The existing `a11y/axe-core.test.tsx` covers the top-level pages but
  * skips the Bubble overlay entirely (the Bubble runs in a separate,
- * sandboxed BrowserWindow with its own renderer entry — it is not part
+ * sandboxed BrowserWindow with its own renderer entry, it is not part
  * of the App's render graph). This file fills that gap by mounting the
  * real `<Bubble>` in each of its five `BubbleMode` values and running
  * axe-core against the rendered container.
  *
  * Modes covered:
- *   - `recording`   — default mode; visualiser bars + (when configured)
+ *   - `recording`  , default mode; visualiser bars + (when configured)
  *                     the mic/stop/dismiss affordances.
- *   - `transcribing` — "Transcribing…" label + three animated dots.
- *   - `fading`      — brief transition between `transcribing` and the
+ *   - `transcribing`, "Transcribing…" label + three animated dots.
+ *   - `fading`     , brief transition between `transcribing` and the
  *                     exit animation; produced by `onHide` firing while
  *                     the bubble is in `transcribing` mode.
- *   - `idle`        — empty pill with an sr-only "Transcription complete"
+ *   - `idle`       , empty pill with an sr-only "Transcription complete"
  *                     announcement (always_visible mode).
- *   - `error`       — red "⚠ Error" label + retry affordance.
+ *   - `error`      , red "⚠ Error" label + retry affordance.
  *
  * The color-contrast rule is disabled because the test environment
  * doesn't load the full Tailwind stylesheet (same approach as
@@ -29,7 +29,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { Bubble } from "@/Bubble";
 
-// Disable color-contrast — the test environment doesn't load the full
+// Disable color-contrast, the test environment doesn't load the full
 // Tailwind stylesheet, so axe's computed contrast values would be
 // meaningless and produce false positives.
 const AXE_OPTIONS: axe.RunOptions = {
@@ -116,7 +116,7 @@ function triggerHide() {
 	});
 }
 
-/** Axe helper — filters out the disabled color-contrast rule. */
+/** Axe helper, filters out the disabled color-contrast rule. */
 async function expectNoAxeViolations(container: HTMLElement): Promise<void> {
 	const results = await axe.run(container, AXE_OPTIONS);
 	const violations = results.violations.filter(
@@ -125,9 +125,9 @@ async function expectNoAxeViolations(container: HTMLElement): Promise<void> {
 	expect(violations).toEqual([]);
 }
 
-describe("F-17: axe-core WCAG scan — Bubble overlay (all five modes)", () => {
+describe("F-17: axe-core WCAG scan, Bubble overlay (all five modes)", () => {
 	it("recording mode: no axe violations", async () => {
-		// Default mode after mount is "recording" — no state change needed.
+		// Default mode after mount is "recording", no state change needed.
 		const { container } = render(<Bubble />);
 		await expectNoAxeViolations(container);
 	});

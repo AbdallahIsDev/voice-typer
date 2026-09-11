@@ -5,7 +5,7 @@ These functions were originally methods on ``VoiceTyperApp`` (in
 functions for testability. Each function takes ``app`` (the
 ``VoiceTyperApp`` instance) as its first parameter and accesses state via
 ``app.config``, ``app.tray``, ``app._microphones``, ``app._shutting_down``,
-etc. — exactly the same attributes the original ``self.*`` references
+etc., exactly the same attributes the original ``self.*`` references
 resolved to.
 
 The original delegate methods on ``VoiceTyperApp`` were removed during the
@@ -46,7 +46,7 @@ log = logging.getLogger(__name__)
 # (it calls dlopen + resolves symbols), and the handle is safe to
 # share across threads (the underlying C function ``AXIsProcessTrusted``
 # is thread-safe). ``None`` means "not yet loaded" (or "load failed
-# permanently" — in which case the pulse re-attempts on the first call
+# permanently": in which case the pulse re-attempts on the first call
 # of each process). The cache is best-effort: a permanent load failure
 # (non-macOS, missing framework) leaves this as ``None`` and the pulse
 # falls through to the "fail safe (assume not granted)" branch.
@@ -62,7 +62,7 @@ def _a11y_regrant_message(bundle_id: str | None) -> str:
     ``tccutil reset Accessibility <bundle-id>`` command for the
     currently-running runtime (Electron or Tauri). When it cannot be
     resolved (dev-mode run without an ``.app`` in the process chain),
-    fall back to the generic System Settings walkthrough — a wrong
+    fall back to the generic System Settings walkthrough, a wrong
     bundle ID in a ``tccutil`` command is worse than no command.
     """
     # TCC-002: the command string comes from the single construction
@@ -72,11 +72,11 @@ def _a11y_regrant_message(bundle_id: str | None) -> str:
 
     if bundle_id:
         return (
-            "Voice Typer was updated — Accessibility permission may "
+            "Voice Typer was updated. Accessibility permission may "
             f"need to be re-granted. Run: {tccutil_reset_command_str('Accessibility', bundle_id)}"
         )
     return (
-        "Voice Typer was updated — Accessibility permission may "
+        "Voice Typer was updated. Accessibility permission may "
         "need to be re-granted. Open System Settings "
         "-> Privacy & Security -> Accessibility to re-grant."
     )
@@ -103,7 +103,7 @@ def sync_autostart(app: AppProtocol) -> dict:
         monkeypatch ``voice_typer.server.server_platform.autostart.enable_autostart``
         continue to take
         effect. The error string is therefore only populated when the
-        bool function raises (defensive — the production ``enable_autostart``
+        bool function raises (defensive, the production ``enable_autostart``
         catches exceptions internally and returns False, so ``error`` will
         typically be ``None`` even on failure). A future refactor that
         routes through ``enable_autostart_ex`` directly will populate
@@ -146,7 +146,7 @@ def sync_autostart(app: AppProtocol) -> dict:
     # re-invoking ``is_autostart_enabled()``. The pre- startup path
     # called ``is_autostart_enabled()`` twice back-to-back on the startup hot
     # path (once inside sync_autostart, once immediately after in
-    # startup_sequence) — both calls hit the same platform helper (Win32
+    # startup_sequence), both calls hit the same platform helper (Win32
     # registry / launchctl plist / XDG autostart file) and return the same
     # value, so the second call was pure waste. The ``actual_post_sync``
     # field is the post-sync OS state derived from the read + the
@@ -159,7 +159,7 @@ def sync_autostart(app: AppProtocol) -> dict:
             registered = _autostart.enable_autostart()
             # capture the post-enable state. enable_autostart()
             # returns True on success; on failure (exception caught
-            # internally) it returns False — we surface that as
+            # internally) it returns False, we surface that as
             # registered=False, error=None (the error is logged inside
             # enable_autostart_ex).
             # (a): ``actual_post_sync`` is True iff the enable succeeded
@@ -197,7 +197,7 @@ def sync_autostart(app: AppProtocol) -> dict:
                 result["actual_post_sync"],
             )
         else:
-            # Already in sync — report the current state.
+            # Already in sync, report the current state.
             # (a): ``actual_post_sync`` mirrors the unchanged OS state.
             result = {
                 "registered": bool(actual),
@@ -211,11 +211,11 @@ def sync_autostart(app: AppProtocol) -> dict:
             )
     except Exception as e:
         log.warning("[CONFIG] Autostart sync failed: %s", e)
-        # (a): on failure we don't know the post-sync OS state — leave
+        # (a): on failure we don't know the post-sync OS state, leave
         # ``actual_post_sync`` as False (the conservative default). Callers
         # that need a definitive read can still call ``is_autostart_enabled()``
         # explicitly, but the startup path treats this as "autostart is off"
-        # (the safer default for tray-menu display — avoids showing a
+        # (the safer default for tray-menu display, avoids showing a
         # stale "enabled" checkmark next to a disabled entry).
         result = {"registered": False, "error": str(e), "actual_post_sync": False}
     return result
@@ -232,13 +232,13 @@ def sync_prewarm_task(app: AppProtocol, shutdown_event: threading.Event | None =
 
     The renderer's Settings page still surfaces a "Fast Startup"
     toggle (and the ``set_config`` IPC response still carries a
-    ``prewarm_status`` field) — this stub returns a no-op success so
+    ``prewarm_status`` field): this stub returns a no-op success so
     the renderer doesn't show a spurious error when the user toggles
     the (now-cosmetic) setting. The actual cache-warming happens
     inside the worker process on each spawn.
     """
-    _ = app  # unused — kept for signature backward-compat
-    _ = shutdown_event  # unused — kept for signature backward-compat
+    _ = app  # unused, kept for signature backward-compat
+    _ = shutdown_event  # unused, kept for signature backward-compat
     return {"registered": False, "error": None}
 
 
@@ -249,16 +249,16 @@ def check_offline_pack_on_launch(app: AppProtocol, shutdown_event: threading.Eve
     ``StartupSequence._startup_parallel_work``). Never blocks the window:
 
     1. **Cheap existence check** (``update_check._local_offline_pack_version``
-       — ``iterdir`` + ``pack-manifest.json`` presence, NO SHA-256 hashing)
+      , ``iterdir`` + ``pack-manifest.json`` presence, NO SHA-256 hashing)
        on the hot startup path.
     2. **Pack present** → spawn :class:`offline_pack.BackgroundChecksum`
        on its own daemon thread (§8.16: the full checksum runs in the
        background and publishes ``offline_pack_verified`` /
        ``offline_pack_corrupt``). Launch is never slowed.
     3. **Pack missing** → publish the ``offline_pack_missing`` event
-       (§8.10 — the renderer's ``useOfflinePackDownload`` hook flips to
+       (§8.10, the renderer's ``useOfflinePackDownload`` hook flips to
        the "missing" state) and run ``check_offline_pack_update`` with
-       ``trigger_download=True`` — the silent re-download. The download
+       ``trigger_download=True``: the silent re-download. The download
        is consent-gated (``offline_pack_consent``); when consent is off
        the check returns ``consent_required=True`` and nothing is
        downloaded (C-DATA-1).
@@ -276,11 +276,11 @@ def check_offline_pack_on_launch(app: AppProtocol, shutdown_event: threading.Eve
         config = getattr(app, "config", None)
         event_bus = _event_bus_module
 
-        # 1. Cheap existence check — no hashing (§8.10).
+        # 1. Cheap existence check, no hashing (§8.10).
         local_version: str | None = None
         try:
             local_version = update_check._local_offline_pack_version()
-        except Exception:  # noqa: BLE001 — a corrupt pack root must not abort startup
+        except Exception:  # noqa: BLE001, a corrupt pack root must not abort startup
             log.debug("[PACK] launch-time local pack scan failed", exc_info=True)
 
         if shutdown_event is not None and shutdown_event.is_set():
@@ -291,10 +291,10 @@ def check_offline_pack_on_launch(app: AppProtocol, shutdown_event: threading.Eve
             try:
                 background = offline_pack.BackgroundChecksum(local_version, event_bus=event_bus)
                 background.start()
-            except Exception:  # noqa: BLE001 — checksum spawn is best-effort
+            except Exception:  # noqa: BLE001, checksum spawn is best-effort
                 log.exception("[PACK] background checksum spawn failed for %s", local_version)
             log.info(
-                "[PACK] offline pack %s present at launch — background checksum started",
+                "[PACK] offline pack %s present at launch, background checksum started",
                 local_version,
             )
             return {"checked": True, "installed_version": local_version, "checksum": "background"}
@@ -312,9 +312,9 @@ def check_offline_pack_on_launch(app: AppProtocol, shutdown_event: threading.Eve
                     "path": str(offline_pack._default_offline_pack_root()),
                 },
             )
-        except Exception:  # noqa: BLE001 — event publish is best-effort
+        except Exception:  # noqa: BLE001, event publish is best-effort
             log.debug("[PACK] offline_pack_missing publish failed", exc_info=True)
-        log.info("[PACK] offline pack missing at launch — consent-gated re-download check")
+        log.info("[PACK] offline pack missing at launch, consent-gated re-download check")
 
         try:
             result = update_check.check_offline_pack_update(config, event_bus, trigger_download=True)
@@ -323,10 +323,10 @@ def check_offline_pack_on_launch(app: AppProtocol, shutdown_event: threading.Eve
                 "installed_version": None,
                 "update_check": dict(result),
             }
-        except Exception:  # noqa: BLE001 — never raise from the launch task
+        except Exception:  # noqa: BLE001, never raise from the launch task
             log.exception("[PACK] consent-gated re-download check failed (best-effort)")
             return {"checked": True, "installed_version": None, "update_check": None}
-    except Exception:  # noqa: BLE001 — outermost guard: this task must never raise
+    except Exception:  # noqa: BLE001, outermost guard: this task must never raise
         log.exception("[PACK] launch-time pack check failed (best-effort)")
         return {"checked": False, "reason": "error"}
 
@@ -367,14 +367,14 @@ def _reconcile_configured_microphone(app: AppProtocol, mics: list[dict]) -> None
     """Validate ``app.config.microphone`` against the live device list.
 
     config.json is the CANONICAL settings store; the persisted value is
-    either ``None`` (System Default — the documented canonical meaning) or
+    either ``None`` (System Default, the documented canonical meaning) or
     a stable device id emitted by :func:`list_microphones`
     (``"<host api>|<name>[#N]"``, plus legacy shapes resolvable by
     :func:`find_microphone_by_id`).
 
     Runs during startup (and any tray-driven re-enumeration) so a stale,
     renamed, or unplugged persisted selection is reconciled BEFORE the
-    renderer ever loads the Microphone page — the page renders the
+    renderer ever loads the Microphone page, the page renders the
     already-corrected state instead of discovering it as a side effect of
     being opened. The recovery is silent to the user (an internal
     configuration inconsistency, not a user-facing error); operators get
@@ -400,7 +400,7 @@ def _reconcile_configured_microphone(app: AppProtocol, mics: list[dict]) -> None
     if not mics:
         # An EMPTY enumeration is NOT evidence that the configured device
         # is gone (failed PortAudio query / headless environment). Never
-        # fall back on it — wait for a successful enumeration.
+        # fall back on it, wait for a successful enumeration.
         log.debug("[MIC] Skipping microphone reconciliation: no devices enumerated")
         return
 
@@ -415,7 +415,7 @@ def _reconcile_configured_microphone(app: AppProtocol, mics: list[dict]) -> None
         if canonical and canonical != mic_id:
             # Legacy id shape (bare index / compound form) resolved to a
             # live device via find_microphone_by_id's fallback strategies
-            # — persist its NEW stable id so every consumer agrees on one
+            # , persist its NEW stable id so every consumer agrees on one
             # representation going forward.
             lock = getattr(app, "_config_mutation_lock", None)
             with contextlib.ExitStack() as stack:
@@ -457,7 +457,7 @@ def _reconcile_configured_microphone(app: AppProtocol, mics: list[dict]) -> None
     if saved:
         log.warning(
             "[MIC] Configured microphone %r is not available on this machine "
-            "(%d input device(s) found) — recovered to System Default and "
+            "(%d input device(s) found), recovered to System Default and "
             "persisted null.",
             mic_id,
             len(mics),
@@ -466,7 +466,7 @@ def _reconcile_configured_microphone(app: AppProtocol, mics: list[dict]) -> None
     else:
         log.error(
             "[MIC] Configured microphone %r is unavailable and persisting the "
-            "System Default fallback FAILED — stale id left on disk; will "
+            "System Default fallback FAILED, stale id left on disk; will "
             "retry at next startup.",
             mic_id,
         )
@@ -483,7 +483,7 @@ def reconcile_configured_model(app: AppProtocol) -> bool:
     still carried the stale name.  This reconciliation makes the CONFIG
     itself reflect reality at startup: when the configured model is
     definitively absent, ``model_size`` is set to ``NO_MODEL_SIZE``
-    (``""``) and persisted — so ALL consumers report "no model selected"
+    (``""``) and persisted, so ALL consumers report "no model selected"
     from one source of truth.
 
     Returns True when the config was changed and persisted.
@@ -492,17 +492,17 @@ def reconcile_configured_model(app: AppProtocol) -> bool:
     from voice_typer.server.tray_models import is_active_model_downloaded
 
     config = app.config
-    # "No model selected" already — nothing to do.
+    # "No model selected" already, nothing to do.
     if getattr(config, "model_size", None) == NO_MODEL_SIZE:
         return False
     backend = getattr(config, "asr_backend", "whisper") or "whisper"
-    # Cloud backends have no local model to install — don't touch.
+    # Cloud backends have no local model to install, don't touch.
     if backend in ("openai", "groq", "deepgram", "custom"):
         return False
-    # Model IS on disk — nothing to do.
+    # Model IS on disk, nothing to do.
     if is_active_model_downloaded(config):
         return False
-    # Configured model is definitively absent — clear it.
+    # Configured model is definitively absent, clear it.
     config.model_size = NO_MODEL_SIZE
     try:
         ok = config.save()
@@ -513,7 +513,7 @@ def reconcile_configured_model(app: AppProtocol) -> bool:
         log.warning("[MODEL] failed to persist reconciled model_size (save returned False)")
         return False
     log.info(
-        "[MODEL] configured %s model is not installed — cleared model_size to 'no model selected' (NO_MODEL_SIZE)",
+        "[MODEL] configured %s model is not installed, cleared model_size to 'no model selected' (NO_MODEL_SIZE)",
         backend,
     )
     return True
@@ -524,7 +524,7 @@ def _publish_mic_reconciled(app: AppProtocol, updates: dict) -> None:
 
     Lets connected renderers refresh their cached config without opening
     the Microphone page (same envelope shape as the IPC set_config push).
-    Best-effort — no subscribers is fine.
+    Best-effort, no subscribers is fine.
     """
     try:
         from voice_typer.server import event_bus
@@ -568,7 +568,7 @@ def load_microphones(app: AppProtocol, shutdown_event: threading.Event | None = 
         # Startup reconciliation: validate the PERSISTED selection against
         # the freshly enumerated devices so a stale/unavailable id falls
         # back to System Default (silently, with a diagnostic log) before
-        # any consumer — tray, recorder, renderer — reads it. Must run on
+        # any consumer, tray, recorder, renderer, reads it. Must run on
         # EVERY enumeration path (startup AND tray refresh), not only once,
         # so the persisted value always matches reality.
         try:
@@ -589,7 +589,7 @@ def load_microphones(app: AppProtocol, shutdown_event: threading.Event | None = 
         set_app_microphones(app, mics)
         app.tray.set_microphones(mics)
         # Log INFO on first load or when device count changes.
-        # Routine polls where nothing changed log nothing — the
+        # Routine polls where nothing changed log nothing, the
         # microphones_changed IPC event handles UI updates.
         if not old_ids:
             log.info("[RECORDING] Found %d microphones", len(mics))
@@ -601,7 +601,7 @@ def load_microphones(app: AppProtocol, shutdown_event: threading.Event | None = 
         # and the restored Microphone page fetches ``get_microphones``
         # during the startup window BEFORE this task runs (verified from
         # voice-typer.log: TCP client connected 18:24:55, ``[RECORDING]
-        # Found 3 microphones`` 18:24:58) — so its initial snapshot is an
+        # Found 3 microphones`` 18:24:58), so its initial snapshot is an
         # empty list. Without this publish the page stays stale ("No
         # microphones found", Start Test disabled) until a manual page
         # change or a genuine hot-plug event.
@@ -652,7 +652,7 @@ def start_accessibility_pulse(app: AppProtocol, initial_state: bool) -> None:
         - ``ctypes.cdll.LoadLibrary(".../ApplicationServices")`` was called
           every 60s in ``_check_accessibility``. The handle is now cached
           at module level (``_APP_SERVICES_LIB``) and reused for the
-          lifetime of the process — ``dlopen`` is idempotent on an already-
+          lifetime of the process, ``dlopen`` is idempotent on an already-
           loaded framework but still does a symbol-table lookup, which is
           wasted work on a 60s heartbeat.
     """
@@ -689,7 +689,7 @@ def start_accessibility_pulse(app: AppProtocol, initial_state: bool) -> None:
         # thread and reuse it. The previous code called
         # ``threading.Event().wait(1.0)`` in a 60-iteration loop, which
         # allocated a fresh Event object (and its underlying condition
-        # variable + lock) every second — ~3.6k allocations/hour per
+        # variable + lock) every second, ~3.6k allocations/hour per
         # pulse thread.
         #
         # PERF-25: the loop now also watches ``stop_event``
@@ -701,19 +701,19 @@ def start_accessibility_pulse(app: AppProtocol, initial_state: bool) -> None:
         # interval, which is the actual purpose of the loop. The previous
         # 60-iteration 1s loop (PERF-25) was added so shutdown signals
         # would be picked up within ~1s, but ``stop_event.wait()`` already
-        # wakes immediately on ``stop_event.set()`` — the 1s slicing was
+        # wakes immediately on ``stop_event.set()``: the 1s slicing was
         # redundant and caused 60 kernel thread wakeups per minute for
         # the lifetime of the app (~2.4-12 Wh/day wasted on battery per
         # the  finding). The defensive ``app._shutting_down`` check
         # is kept for callers that don't go through the registry.
         last_state = initial_state
         while not app._shutting_down:
-            # single 60s wait — ``stop_event.set()`` from
+            # single 60s wait, ``stop_event.set()`` from
             # ``shutdown_all()`` wakes the thread immediately on
             # shutdown; the 60s timeout only governs the
             # AXIsProcessTrusted() recheck interval. ``stop_event.wait``
             # returns True when set (shutdown signalled), False on
-            # timeout (60s elapsed — recheck AXIsProcessTrusted()).
+            # timeout (60s elapsed, recheck AXIsProcessTrusted()).
             if stop_event.wait(timeout=60.0):
                 return
             if app._shutting_down or stop_event.is_set():
@@ -725,20 +725,20 @@ def start_accessibility_pulse(app: AppProtocol, initial_state: bool) -> None:
                     # persist the app version at which a11y was
                     # last observed granted. The next granted→denied
                     # transition compares the current ``voice_typer.__version__``
-                    # against this value — if they differ, the denial
+                    # against this value, if they differ, the denial
                     # is likely a TCC reset on app update (macOS Sequoia
                     # sometimes invalidates TCC grants on bundle-id-stable
                     # binary updates), and we surface a different tray
                     # notification pointing the user at ``tccutil reset
-                    # Accessibility <bundle-id>`` — the bundle ID is
+                    # Accessibility <bundle-id>``: the bundle ID is
                     # resolved at runtime (see ``_a11y_regrant_message``)
                     # instead of the generic "Open System Settings" message.
                     # ``last_known_a11y_version`` is a future config
-                    # field (currently owned by another agent — using
+                    # field (currently owned by another agent, using
                     # ``getattr``/``setattr`` so this code is forward-
                     # compatible when the field is added). When the
                     # field is absent, ``getattr`` returns ``None``
-                    # (in-session tracking only — no cross-session
+                    # (in-session tracking only, no cross-session
                     # persistence until the field is declared).
                     try:
                         import voice_typer as _vt
@@ -770,7 +770,7 @@ def start_accessibility_pulse(app: AppProtocol, initial_state: bool) -> None:
                         )
                         if _version_changed:
                             log.warning(
-                                "[A11Y] a11y denied after app version change (%s -> %s) — likely TCC reset on update",
+                                "[A11Y] a11y denied after app version change (%s -> %s), likely TCC reset on update",
                                 _last_known_version,
                                 _current_vt_version,
                             )
@@ -785,12 +785,12 @@ def start_accessibility_pulse(app: AppProtocol, initial_state: bool) -> None:
                             # ``_a11y_regrant_message`` falls back to the
                             # generic walkthrough.
                             app.tray.notify_safety(
-                                f"{APP_NAME} — Accessibility Re-grant",
+                                f"{APP_NAME}, Accessibility Re-grant",
                                 _a11y_regrant_message(resolve_host_bundle_id()),
                             )
                         else:
                             app.tray.notify_safety(
-                                f"{APP_NAME} — Accessibility Revoked",
+                                f"{APP_NAME}, Accessibility Revoked",
                                 "Global hotkeys have been disabled. Open System Settings "
                                 "-> Privacy & Security -> Accessibility to re-grant.",
                             )
@@ -803,7 +803,7 @@ def start_accessibility_pulse(app: AppProtocol, initial_state: bool) -> None:
     # registry.
     stop_event = threading.Event()
     t = threading.Thread(target=_pulse_loop, args=(stop_event,), daemon=True, name="A11yPulse")
-    # RACE-008: daemon=True is acceptable — the pulse only reads
+    # RACE-008: daemon=True is acceptable, the pulse only reads
     # permission state, no critical cleanup. With the stop_event +
     # registry, shutdown is signalled within ~1s.
     t.start()
@@ -843,7 +843,7 @@ def reset_onboarding_complete(
 
     Marker consistency: BOTH ``.onboarding_complete`` and
     ``.onboarding_started`` are deleted. The
-    :meth:`OnboardingController.reset` method deletes both — the IPC
+    :meth:`OnboardingController.reset` method deletes both, the IPC
     handler must do the same or it leaves a stale
     ``.onboarding_started`` marker. If that marker survives, the
     auto-heal (in ``startup_sequence``) treats the next launch as a
@@ -860,7 +860,7 @@ def reset_onboarding_complete(
         Optional :class:`voice_typer.server.app.VoiceTyperApp` instance.
         When provided, the ``onboarding_completed`` flag is mutated on
         the live ``app.config`` object and persisted via
-        ``app.config.save_strict()`` — which acquires the config-mutation
+        ``app.config.save_strict()``: which acquires the config-mutation
         lock so the write cannot race a concurrent
         ``set_config`` IPC handler. When ``None`` (e.g. tests), falls
         back to a fresh ``Config.load()`` snapshot + ``cfg.save()``;
@@ -871,7 +871,7 @@ def reset_onboarding_complete(
     -------
     dict
         ``{"reset": bool, "error": str | None}`` where ``reset`` is
-        True if the marker was deleted (or already absent — idempotent).
+        True if the marker was deleted (or already absent, idempotent).
         The renderer surfaces ``error`` if the deletion failed (e.g.
         permission denied on the marker file).
     """
@@ -888,7 +888,7 @@ def reset_onboarding_complete(
         # (rather than clearing one flag) keeps the flags consistent:
         # if a stale ``started`` flag survived, the auto-heal
         # would treat the next launch as a mid-wizard crash and SKIP
-        # re-running the wizard — defeating the whole point of a
+        # re-running the wizard, defeating the whole point of a
         # "re-run setup" affordance.
         if not onboarding_status.reset_status(config_dir):
             raise OSError("could not delete the onboarding status document")
@@ -916,7 +916,7 @@ def reset_onboarding_complete(
                     # NOT acquire ``app._config_mutation_lock`` on its own
                     # (``Config._mutation_lock`` is only wired up via an
                     # explicit ``set_mutation_lock()`` call, which is never
-                    # invoked — see ADR-0008-§3.1 for the locking contract).
+                    # invoked: see ADR-0008-§3.1 for the locking contract).
                     # ``RLock`` reentrancy makes this safe even if an IPC
                     # handler already holding the lock delegates here.
                     lock = getattr(app, "_config_mutation_lock", None)
@@ -934,7 +934,7 @@ def reset_onboarding_complete(
             # Fall back to ``Config.load()`` + ``cfg.save()`` for the
             # test-only path (no app instance available). The save
             # still acquires the config-mutation lock, but the load
-            # bypasses it — a known race window that callers can close
+            # bypasses it, a known race window that callers can close
             # by passing ``app``.
             try:
                 from voice_typer.server.config import Config

@@ -100,7 +100,7 @@ describe("R6-F7: index.ts registers app.on('will-quit', stopPython)", () => {
 		// or tray close-to-tray on some platforms).
 		//
 		// Anchor the search on the ACTUAL handler registration
-		// (`app.on("will-quit",` — note the trailing comma). A naive
+		// (`app.on("will-quit",`, note the trailing comma). A naive
 		// `src.indexOf("will-quit")` would match the JSDoc summary
 		// near the top of the file (`app.on("before-quit" |
 		// "will-quit" | …)`), and the subsequent 500-char window
@@ -126,8 +126,8 @@ describe("R6-F7: index.ts registers app.on('will-quit', stopPython)", () => {
 		// stopPython() so the Python backend is cleaned up even
 		// when will-quit is suppressed (event.preventDefault(),
 		// macOS logout paths, tray close-to-tray on some
-		// platforms). Asserting only the registration — without
-		// verifying the stopPython call — would let a regression
+		// platforms). Asserting only the registration, without
+		// verifying the stopPython call, would let a regression
 		// that empties the handler body pass silently (the
 		// handler is "registered" but does nothing).
 		//
@@ -135,7 +135,7 @@ describe("R6-F7: index.ts registers app.on('will-quit', stopPython)", () => {
 		// above: the JSDoc summary line also mentions
 		// `app.on("before-quit"`, so a bare `indexOf` would land
 		// on the comment and the 500-char window would reach the
-		// `stopPython` import — a false pass.
+		// `stopPython` import, a false pass.
 		const idx = src.search(/app\.on\(\s*["']before-quit["']\s*,/);
 		expect(idx).toBeGreaterThan(-1);
 		const block = src.slice(idx, idx + 500);
@@ -194,7 +194,7 @@ describe("R6-F7: bootstrap.ts uncaughtException calls stopPython", () => {
 	it("bootstrapRuntime registers the uncaughtException + unhandledRejection handlers", async () => {
 		const onSpy = vi.spyOn(process, "on");
 		const restore: Array<() => void> = [];
-		// Avoid clobbering the real process listeners — capture only.
+		// Avoid clobbering the real process listeners, capture only.
 		const originalOn = process.on.bind(process);
 		const captured = new Set<string>();
 		onSpy.mockImplementation(
@@ -207,7 +207,7 @@ describe("R6-F7: bootstrap.ts uncaughtException calls stopPython", () => {
 		try {
 			const { bootstrapRuntime } = await import("../bootstrap");
 			// Avoid actually firing the CSP setup (which calls session.webRequest)
-			// — it's already mocked. Just call bootstrap.
+			//, it's already mocked. Just call bootstrap.
 			expect(() => bootstrapRuntime()).not.toThrow();
 			expect(captured).toContain("uncaughtException");
 			expect(captured).toContain("unhandledRejection");
@@ -229,7 +229,7 @@ describe("R6-F7: bootstrap.ts uncaughtException calls stopPython", () => {
 // The Windows path uses `taskkill /F /T /PID` (force-kill the entire
 // process tree) instead of `proc.kill("SIGKILL")` because
 // `proc.kill()` on Windows is `TerminateProcess` on the IMMEDIATE
-// process only — it would orphan the native hotkey binary child
+// process only, it would orphan the native hotkey binary child
 // spawned by the Python sidecar.
 //
 // These tests pin the contract via BOTH source-text assertions (which
@@ -333,7 +333,7 @@ class _MockChildProcess extends EventEmitter {
 	// `proc.exitCode === null && proc.signalCode === null` (proc has
 	// NOT actually exited). undefined would fail the `=== null` check
 	// and make the SIGKILL escalation dead code, so the mock must
-	// default both to null — matching a freshly-spawned, still-running
+	// default both to null, matching a freshly-spawned, still-running
 	// child process.
 	exitCode: number | null = null;
 	signalCode: NodeJS.Signals | null = null;
@@ -435,7 +435,7 @@ describe("stop-python.ts: SIGKILL escalation contract (runtime)", () => {
 		mockProc.emit("exit", 0, null);
 		// Advance past the escalateTimer window.
 		vi.advanceTimersByTime(3000);
-		// SIGKILL must NOT have been called — the escalateTimer
+		// SIGKILL must NOT have been called, the escalateTimer
 		// was cleared by the exit handler.
 		expect(mockProc.kill).toHaveBeenCalledTimes(1);
 	});
@@ -469,7 +469,7 @@ describe("stop-python.ts: SIGKILL escalation contract (runtime)", () => {
 		>("../python/stop-python");
 		stopMod.stopPython();
 
-		// Advance past the killTimer (3s) — Windows graceful
+		// Advance past the killTimer (3s), Windows graceful
 		// attempt: taskkill /T /PID (no /F).
 		vi.advanceTimersByTime(3000);
 		expect(spawnSyncMock).toHaveBeenCalledTimes(1);
@@ -481,7 +481,7 @@ describe("stop-python.ts: SIGKILL escalation contract (runtime)", () => {
 		expect(firstCallArgs?.[1]).toContain(String(freshProc.pid));
 		expect(firstCallArgs?.[1]).not.toContain("/F");
 
-		// Advance past the escalateTimer (3s more) — Windows
+		// Advance past the escalateTimer (3s more), Windows
 		// force-kill: taskkill /F /T /PID.
 		vi.advanceTimersByTime(3000);
 		expect(spawnSyncMock).toHaveBeenCalledTimes(2);

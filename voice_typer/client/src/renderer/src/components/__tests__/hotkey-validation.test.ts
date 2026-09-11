@@ -5,7 +5,7 @@
  * - isReserved detects OS-reserved shortcuts per-platform.
  * - validateHotkey accepts modifier-only triggers (Ctrl/Alt/Shift alone is
  *   a valid dictation key via modifier-only release detection; bare
- *   Cmd/Win/Super are rejected via the universal reserved table — system
+ *   Cmd/Win/Super are rejected via the universal reserved table, system
  *   gestures).
  * - validateHotkey rejects combos that end with a modifier
  *   ("Shift+Ctrl" → reject the WHOLE combo, not return a partial
@@ -104,7 +104,7 @@ describe("isReserved", () => {
 	});
 });
 
-describe("validateHotkey — reserved shortcut rejection", () => {
+describe("validateHotkey, reserved shortcut rejection", () => {
 	it("rejects Win+E on Windows with a reason", () => {
 		const result = validateHotkey("<win>+e", "win32");
 		expect(result.valid).toBe(false);
@@ -134,25 +134,25 @@ describe("validateHotkey — reserved shortcut rejection", () => {
 	});
 });
 
-describe("validateHotkey — modifier-only (single-key triggers)", () => {
+describe("validateHotkey, modifier-only (single-key triggers)", () => {
 	it("accepts Shift alone (modifier-only release is a valid single-key trigger)", () => {
 		const result = validateHotkey("<shift>", "win32");
 		expect(result.valid).toBe(true);
 	});
 
-	it("rejects Cmd alone on macOS (bare typing-interfering modifier — rule 11)", () => {
+	it("rejects Cmd alone on macOS (bare typing-interfering modifier, rule 11)", () => {
 		const result = validateHotkey("<cmd>", "darwin");
 		expect(result.valid).toBe(false);
 		expect(result).not.toHaveProperty("partial");
 	});
 
-	it("rejects Win alone (bare typing-interfering modifier — rule 11)", () => {
+	it("rejects Win alone (bare typing-interfering modifier, rule 11)", () => {
 		const result = validateHotkey("<win>", "win32");
 		expect(result.valid).toBe(false);
 		expect(result).not.toHaveProperty("partial");
 	});
 
-	it("rejects Super alone (bare typing-interfering modifier — rule 11)", () => {
+	it("rejects Super alone (bare typing-interfering modifier, rule 11)", () => {
 		const result = validateHotkey("<super>", "linux");
 		expect(result.valid).toBe(false);
 		expect(result).not.toHaveProperty("partial");
@@ -166,7 +166,7 @@ describe("validateHotkey — modifier-only (single-key triggers)", () => {
 		expect(validateHotkey("<alt>", "win32").valid).toBe(true);
 	});
 
-	it("rejects Cmd alone (universally reserved — conflicts with system shortcuts)", () => {
+	it("rejects Cmd alone (universally reserved, conflicts with system shortcuts)", () => {
 		expect(validateHotkey("<cmd>", "darwin").valid).toBe(false);
 	});
 
@@ -180,10 +180,10 @@ describe("validateHotkey — modifier-only (single-key triggers)", () => {
 	});
 });
 
-describe("validateHotkey — partial-assign contract", () => {
+describe("validateHotkey, partial-assign contract", () => {
 	it("accepts Shift+Ctrl (pure-modifier combo)", () => {
 		// Pure-modifier combos like
-		// ``<shift>+<ctrl>`` are now ALLOWED — they're valid modifier-only
+		// ``<shift>+<ctrl>`` are now ALLOWED, they're valid modifier-only
 		// release triggers in the native backends. The previous rule
 		// "combo must not end with a modifier" incorrectly rejected these
 		// and caused a frontend/backend mismatch (the backend has never
@@ -212,18 +212,18 @@ describe("validateHotkey — partial-assign contract", () => {
 		expect(result).not.toHaveProperty("partial");
 	});
 
-	it("rejects mixed combo ending with modifier (Ctrl+V+Alt — partial-assign guard)", () => {
+	it("rejects mixed combo ending with modifier (Ctrl+V+Alt, partial-assign guard)", () => {
 		// The structural rule still rejects combos
 		// that MIX modifiers AND non-modifiers but end with a modifier
 		// (e.g. ``<ctrl>+<v>+<alt>``). This is the partial-assign guard
-		// — the user almost certainly meant ``<ctrl>+<alt>+<v>``.
+		//, the user almost certainly meant ``<ctrl>+<alt>+<v>``.
 		const result = validateHotkey("<ctrl>+<v>+<alt>", "win32");
 		expect(result.valid).toBe(false);
 		expect(result.reason).toBeTruthy();
 		expect(result).not.toHaveProperty("partial");
 	});
 
-	it("accepts a valid combo (Ctrl+Alt+V — non-modifier terminator)", () => {
+	it("accepts a valid combo (Ctrl+Alt+V, non-modifier terminator)", () => {
 		// Counter-example: a combo that DOES end with a non-modifier
 		// is valid. This makes sure the "ends with modifier" check
 		// isn't over-rejecting. Uses Ctrl+Alt+V (not Shift+V) because
@@ -234,7 +234,7 @@ describe("validateHotkey — partial-assign contract", () => {
 	});
 
 	it("never sets `partial` on any valid result", () => {
-		// Sweep every modifier alone — all should be valid with no
+		// Sweep every modifier alone, all should be valid with no
 		// `partial` field. This locks the contract for the
 		// modifier-only-release-detection path that drove the
 		// original partial-assign bug.
@@ -279,7 +279,7 @@ describe("validateHotkey — partial-assign contract", () => {
 	});
 });
 
-describe("validateHotkey — empty / malformed inputs", () => {
+describe("validateHotkey, empty / malformed inputs", () => {
 	it("rejects an empty string", () => {
 		const result = validateHotkey("", "win32");
 		expect(result.valid).toBe(false);
@@ -325,7 +325,7 @@ describe("RESERVED_SHORTCUTS table invariants", () => {
 	it("every entry is lowercase (so isReserved can compare lowercase-to-lowercase)", () => {
 		// The isReserved() helper lowercases both sides before
 		// comparing. If the source list ever drifts to mixed case,
-		// the comparison still works — but keeping the source
+		// the comparison still works, but keeping the source
 		// lowercase is a useful convention so a future contributor
 		// reading the table sees the same form isReserved produces.
 		for (const platform of ["win32", "darwin", "linux"]) {
@@ -345,7 +345,7 @@ describe("detectPlatform", () => {
 	it("returns 'unknown' when navigator is undefined", () => {
 		// Vitest 5 propagates globalThis assignments to the
 		// underlying jsdom window, whose `navigator` is a
-		// getter-only accessor — a plain assignment throws
+		// getter-only accessor, a plain assignment throws
 		// TypeError. vi.stubGlobal defines an own property
 		// instead and unstubAllGlobals restores the original.
 		vi.stubGlobal("navigator", undefined);

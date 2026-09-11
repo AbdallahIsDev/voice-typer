@@ -6,30 +6,30 @@ in a single sibling module so every step mixin and the orchestrator
 can import them without circular dependencies.
 
 Contents:
-  * ``_EMPTY_SEGMENTS`` / ``_NO_TRANSCRIPT_CONFIDENCE`` — module-level
+  * ``_EMPTY_SEGMENTS`` / ``_NO_TRANSCRIPT_CONFIDENCE``, module-level
     sentinels consumed by the vocabulary-automation analyzer step
     (see ``enhancement_steps._analyze_vocabulary``).
-  * ``BackendNotLoadedError`` — distinct error raised by
+  * ``BackendNotLoadedError``: distinct error raised by
     ``transcribe_step._transcribe`` when the active ASR backend is
     not loaded at transcribe time. Subclass of ``RuntimeError`` so
     existing ``except RuntimeError`` clauses still catch it.
-  * ``_friendly_transcription_error`` — maps raw ctranslate2 / torch /
+  * ``_friendly_transcription_error``: maps raw ctranslate2 / torch /
     cloud-HTTP exceptions to user-facing messages so raw exception
     text (which can leak file paths, CUDA versions, and API keys) is
     never shown in tray notifications.
-  * ``_lookup_local_whisper`` — looks up the local Whisper engine
+  * ``_lookup_local_whisper``: looks up the local Whisper engine
     from the app's model registry so it can be passed as the
     ``local_engine`` fallback for a CloudEngine.
-  * ``_timed_stage`` — context manager that records a single stage's
+  * ``_timed_stage``: context manager that records a single stage's
     wall-clock duration (in milliseconds) into a timings dict.
-  * ``_AbortWatcher`` — daemon thread that bridges the recording
+  * ``_AbortWatcher``: daemon thread that bridges the recording
     controller's cancel set to the active ASR engine's abort API so
     inference actually stops (instead of running to completion and
     the late result being dropped by the paste guard).
 
 These symbols are re-exported from ``dictation_pipeline/__init__.py``
 so existing callers (tests, app) that import them from
-``voice_typer.server.dictation_pipeline`` continue to work — see the
+``voice_typer.server.dictation_pipeline`` continue to work, see the
 ``__all__`` list in that module.
 """
 
@@ -46,7 +46,7 @@ from typing import Any
 # used when the transcription engine did not produce per-segment or
 # per-word confidence data (e.g. faster-whisper's avg_logprob
 # surface). These are module-level sentinels (NOT instance
-# attributes) — the previous ``getattr(self, "_segments", None) or []``
+# attributes), the previous ``getattr(self, "_segments", None) or []``
 # + ``getattr(self, "_confidence", 0.9)`` accidentally fabricated
 # a confident empty segment list, which made the analyzer treat
 # every word as high-confidence. Now the analyzer sees honest
@@ -59,7 +59,7 @@ log = logging.getLogger(__name__)
 
 # distinct error for the "active ASR backend was never loaded"
 # failure mode. Pre-fix, ``_transcribe`` always returned the empty
-# string when ``transcribe_with_fallback`` produced no text — the
+# string when ``transcribe_with_fallback`` produced no text, the
 # downstream ``EmptyCheckStage`` then ran ``_handle_empty_transcription``
 # which shows the ambiguous "No speech detected" toast regardless of
 # whether the user was silent or the model was unloaded. Raising this
@@ -74,7 +74,7 @@ class BackendNotLoadedError(RuntimeError):
     """Raised when the active ASR backend is not loaded at transcribe time.
 
     an unloaded backend (``is_loaded is False``) can return ``""``
-    from ``transcribe_with_fallback`` without raising — making the empty-
+    from ``transcribe_with_fallback`` without raising, making the empty-
     transcription path indistinguishable from genuine silence. This
     sentinel is raised by ``DictationPipeline._transcribe`` ONLY when
     ``active.is_loaded`` was False BEFORE the transcribe call AND the
@@ -83,7 +83,7 @@ class BackendNotLoadedError(RuntimeError):
     instead of falling through to ``_handle_empty_transcription``.
 
     The ``engine_name`` kwarg captures the backend type for telemetry /
-    IPC ``isinstance`` narrowing — mirrors the pattern used by
+    IPC ``isinstance`` narrowing, mirrors the pattern used by
     ``ConsentRequiredError`` in ``asr_errors.py``.
     """
 
@@ -112,7 +112,7 @@ def _friendly_transcription_error(exc: BaseException) -> str:
         )
     msg = str(exc).lower()
     name = type(exc).__name__
-    # Walk the __cause__ chain — cloud_engines.py wraps errors with
+    # Walk the __cause__ chain, cloud_engines.py wraps errors with
     # raise RuntimeError(...) from exc, hiding the original type.
     names = {name}
     c = exc.__cause__
@@ -154,7 +154,7 @@ def _lookup_local_whisper(app: Any) -> Any:
     """
     try:
         models = getattr(app, "models", None)
-    except Exception:  # pragma: no cover — defensive
+    except Exception:  # pragma: no cover, defensive
         return None
     if models is None:
         return None
@@ -163,7 +163,7 @@ def _lookup_local_whisper(app: Any) -> Any:
         return None
     try:
         return registry.get("whisper")
-    except Exception:  # pragma: no cover — defensive
+    except Exception:  # pragma: no cover, defensive
         log.debug("[PIPELINE] _lookup_local_whisper: registry.get raised", exc_info=True)
         return None
 
@@ -177,7 +177,7 @@ def _timed_stage(timings: dict[str, float], name: str) -> typing.Iterator[None]:
     ``DictationPipeline.run`` with a single DRY primitive. Adding an
     11th stage no longer requires hand-copying the 3-line pattern AND
     hand-adding a variable to the consolidated ``[PIPE-PERF]`` log
-    format string — just wrap the stage call in
+    format string, just wrap the stage call in
     ``with _timed_stage(_timings, "<name>")`` and the dict entry
     appears automatically.
 
@@ -208,7 +208,7 @@ class _AbortWatcher:
     force-recover) adds the current ``cycle_id`` to
     ``recording._cancelled_cycle_ids`` under
     ``_cancelled_cycle_ids_lock``. Pre-fix, that was the END of the
-    abort story — the transcription thread kept running ctranslate2 /
+    abort story, the transcription thread kept running ctranslate2 /
     transformers / cloud-HTTP inference to completion (potentially
     10-30s for Whisper, 30s+ for cloud), then the late result was
     dropped by the pipeline's ``CancellationGuard`` before paste.
@@ -218,14 +218,14 @@ class _AbortWatcher:
     ``engine.request_abort()`` which sets the engine's ``_abort_event``
     so:
 
-      * **Whisper** (``transcription.py``) — the segment loop breaks
+      * **Whisper** (``transcription.py``), the segment loop breaks
         early on the next iteration; ``ctranslate2.Translator.interrupt()``
         is also best-effort called to unblock the current C-level call.
-      * **Parakeet** (``parakeet_engine.py``) — the
+      * **Parakeet** (``parakeet_engine.py``), the
         ``_AbortStoppingCriteria`` returns True on the next generated
         token, so ``model.generate()`` returns early. Long-audio chunk
         loops also break after the current chunk.
-      * **Cloud** (``cloud_engines.py``) — the retry loop checks the
+      * **Cloud** (``cloud_engines.py``), the retry loop checks the
         event at the top of each iteration and bails out instead of
         issuing another 10s HTTP call.
 
@@ -243,7 +243,7 @@ class _AbortWatcher:
     Lifetime: started in ``DictationPipeline._transcribe`` before the
     transcribe call, stopped (via ``stop()``) in a ``finally`` block
     after the call returns or raises. The stop method sets the
-    watcher's own stop event and joins with a 1s timeout — if the
+    watcher's own stop event and joins with a 1s timeout, if the
     watcher is mid-poll it exits within 100ms; the 1s ceiling is
     defense-in-depth.
     """
@@ -280,7 +280,7 @@ class _AbortWatcher:
                     is_cancelled = self._cycle_id in cancelled_set
                 if is_cancelled:
                     log.info(
-                        "[PIPELINE] abort watcher detected cancel for cycle %s — signalling engine.request_abort()",
+                        "[PIPELINE] abort watcher detected cancel for cycle %s, signalling engine.request_abort()",
                         self._cycle_id,
                     )
                     try:

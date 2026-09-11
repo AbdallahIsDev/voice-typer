@@ -3,19 +3,19 @@
  * R6: disk-cache prevention in the Electron main entry point.
  *
  * The renderer only ever loads the local bundle (`file://` via
- * `loadFile` in production, `http://localhost:5173` in dev) — it never
- * fetches remote content — yet Chromium's disk caches still accumulated
+ * `loadFile` in production, `http://localhost:5173` in dev), it never
+ * fetches remote content, yet Chromium's disk caches still accumulated
  * ~400 MB of stale entries in `electron-profile/` (212 MB HTTP `Cache` +
  * 180 MB V8 `Code Cache` from dev-server URLs). `index.ts` appends two
  * documented Chromium content-layer switches at module load time:
  *
- *   - `disable-http-cache` — disables the DISK cache for HTTP requests
+ *   - `disable-http-cache`, disables the DISK cache for HTTP requests
  *     (the in-memory cache stays, so HMR / repeated loads are unaffected).
- *   - `v8-cache-options=none` — disables V8's on-disk script code cache
+ *   - `v8-cache-options=none`, disables V8's on-disk script code cache
  *     (`Code Cache/`); production loads via `file://` where code cache is
  *     not used anyway (https URLs only), so nothing is lost.
  *
- * Both must be appended BEFORE `app.whenReady()` — Chromium parses the
+ * Both must be appended BEFORE `app.whenReady()`, Chromium parses the
  * switches at browser-process startup. These tests assert the switches
  * exist in `index.ts` and sit before the `whenReady` call (the same
  * source-assertion pattern as `electron-vite-sourcemap.test.ts`), so a

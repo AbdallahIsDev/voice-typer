@@ -6,7 +6,7 @@
  * `new Error(string)` for 5 of 6 failure cases (only the timeout site
  * set `err.code = "timeout"`). The `python-call` IPC bridge therefore
  * classified timeouts via a fragile `/timeout/i` regex on the
- * human-readable message string — which would silently break if the
+ * human-readable message string, which would silently break if the
  * message wording ever changed.
  *
  * Post-fix, every reject site in `sendToPython` constructs a
@@ -63,7 +63,7 @@ describe("PythonIpcError", () => {
 	it("a bare Error is NOT an instance of PythonIpcError", () => {
 		// Defense-in-depth: the `python-call-handler` bridge falls back
 		// to `"command_failed"` for any non-PythonIpcError rejection.
-		// This test pins that contract — a plain `Error` must NOT be
+		// This test pins that contract, a plain `Error` must NOT be
 		// misclassified as a `PythonIpcError` (which would read an
 		// undefined `.code` and produce a typed-code field of type
 		// `undefined`).

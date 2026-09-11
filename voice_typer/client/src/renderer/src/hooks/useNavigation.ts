@@ -5,7 +5,7 @@
  * store, NOT per-instance `useState`. Previously each `useNavigation()`
  * call site (App.tsx, Home, Settings, History, Dashboard,
  * AudioSettingsSection) created its own independent `currentPage` +
- * history — so a page that navigated itself (e.g. the Settings
+ * history, so a page that navigated itself (e.g. the Settings
  * "Re-run setup wizard" button, Home's "View all" / "Open mic
  * settings" links, Dashboard's "Start dictation") updated ONLY its own
  * local state and App.tsx's router never re-rendered. Every such
@@ -45,8 +45,8 @@ const STORAGE_KEY_NAV = "vt_nav_state";
 // same logical entry (its index shifts down by 1).
 const MAX_NAV_HISTORY = 50;
 
-// The runtime page registry — the set of known page names
-// and the `isKnownPage` type guard — now lives in `router/routes.ts`
+// The runtime page registry, the set of known page names
+// and the `isKnownPage` type guard, now lives in `router/routes.ts`
 // (single source of truth, mirrored from the `Page` union in
 // `types/ipc.ts`). Previously this file maintained its own
 // `KNOWN_PAGES` Set, which was one of four parallel copies of the
@@ -77,7 +77,7 @@ function loadNavState(): NavState {
 			// hand-edited devtools, or a stale schema from an older
 			// build) cannot inject an unknown page value into React
 			// state. Previously any truthy `parsed.page` was accepted
-			// and cast to `Page` — surfacing as a "Page not found"
+			// and cast to `Page`, surfacing as a "Page not found"
 			// loop on every render.
 			if (
 				isKnownPage(parsed.page) &&
@@ -112,7 +112,7 @@ function saveNavState(state: NavState): void {
 		localStorage.setItem(STORAGE_KEY_NAV, JSON.stringify(state));
 	} catch (e) {
 		// localStorage may be unavailable (SSR, sandboxed
-		// renderer) or quota may be exceeded. Non-fatal — the
+		// renderer) or quota may be exceeded. Non-fatal, the
 		// in-memory nav state is still authoritative for the
 		// current session; we just lose cross-session persistence.
 		console.warn("[renderer:useNavigation] saveNavState failed:", e);
@@ -141,7 +141,7 @@ export interface NavigateOptions {
 	 * optional row hint (e.g. the matched label string) so the
 	 * destination Settings sub-page can scroll to + briefly
 	 * highlight the matching row after the page mounts. Mirrors
-	 * {@link consentField} — transient (one-shot, NOT persisted).
+	 * {@link consentField}, transient (one-shot, NOT persisted).
 	 */
 	settingsScrollTarget?: { rowHint?: string };
 }
@@ -173,7 +173,7 @@ interface NavStore extends NavState {
 	consumeConsentField: () => string | null;
 	/**
 	 * Read-and-clear the pending Settings search deep-link target.
-	 * Mirrors {@link consumeConsentField} — one-shot consumption.
+	 * Mirrors {@link consumeConsentField}, one-shot consumption.
 	 */
 	consumeSettingsScrollTarget: () => { rowHint?: string } | null;
 }
@@ -192,7 +192,7 @@ const useNavStore = create<NavStore>()((set, get) => {
 		navigate: (page, opts) => {
 			const { page: current, history, index } = get();
 			// Set the transient deep-link target BEFORE the
-			// same-page early return below — a consent refusal fired
+			// same-page early return below, a consent refusal fired
 			// while the user is ALREADY on Settings must still arm the
 			// pending field so the mounted Settings page (which
 			// subscribes to ``pendingConsentField`` reactively) can
@@ -289,7 +289,7 @@ const useNavStore = create<NavStore>()((set, get) => {
 });
 
 /**
- * Test seam — re-read localStorage into the shared store.
+ * Test seam, re-read localStorage into the shared store.
  *
  * The store is a module-level singleton, so state survives across tests
  * in the same file unless reset. Tests that seed `vt_nav_state` and
@@ -314,7 +314,7 @@ export function _resetNavigationForTest(): void {
 // previously each `useNavigation` consumer registered its OWN
 // `mouseup` + `keydown` listeners on `document`. With 6+ consumers
 // (App, Home, Settings, History, Dashboard, AudioSettingsSection),
-// that was 12+ listeners on `document` per app load — each one
+// that was 12+ listeners on `document` per app load, each one
 // invoked on every mouseup / keydown event app-wide, even though the
 // handler bodies only differ by which `goBack` / `goForward` closure
 // they close over (and those are stable Zustand store actions that
@@ -351,7 +351,7 @@ function ensureDocumentListeners(): void {
 		}
 	};
 	// Keyboard equivalent for back/forward navigation: Alt+ArrowLeft
-	// goes back, Alt+ArrowRight goes forward — matching the behaviour
+	// goes back, Alt+ArrowRight goes forward, matching the behaviour
 	// of every major browser so users with a keyboard-only workflow
 	// get the same affordance the mouse X1/X2 buttons already provide.
 	//
@@ -410,7 +410,7 @@ function ensureDocumentListeners(): void {
  * `useShallow` collapses the 4 action reads into ONE selector run + ONE
  * shallow-equal check (the action function references never change
  * identity, so the shallow-equal return object is stable across
- * unrelated state changes — this hook does NOT re-render when only
+ * unrelated state changes, this hook does NOT re-render when only
  * `page` / `history` / `index` change). Combined with the 3 value
  * selectors (`page`, `history`, `index`), the total selector run count
  * per `set()` is now 4 (down from 7). The document listeners are
@@ -420,7 +420,7 @@ export function useNavigation() {
 	const currentPage = useNavStore((s) => s.page);
 	const history = useNavStore((s) => s.history);
 	const index = useNavStore((s) => s.index);
-	// Transient consent deep-link target — consumed by the Settings
+	// Transient consent deep-link target, consumed by the Settings
 	// page. Rarely non-null (only immediately after a consent
 	// deep-link navigate), so the extra re-render when it flips is
 	// negligible.
@@ -449,7 +449,7 @@ export function useNavigation() {
 	// Install the document-level listeners exactly once per app load.
 	// The empty dep array means this runs on mount for EVERY consumer,
 	// but `ensureDocumentListeners` short-circuits after the first
-	// install — so only the first consumer actually registers the
+	// install, so only the first consumer actually registers the
 	// listeners. Subsequent consumers' effects are no-ops. We still
 	// call the effect (rather than calling `ensureDocumentListeners`
 	// at module load time) so tests that reset the install flag via

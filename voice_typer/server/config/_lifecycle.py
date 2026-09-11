@@ -4,7 +4,7 @@ Continuation of the config monolith split: the ``Config``
 lifecycle methods live here on the ``_ConfigLifecycleMixin`` as thin
 delegators to the sibling leaf modules. ``Config`` (in
 ``config/__init__.py``) inherits them via multiple inheritance from
-the ``_ConfigSchema`` field base + this mixin — callers see the same
+the ``_ConfigSchema`` field base + this mixin, callers see the same
 public API (``cfg.save()``, ``Config.load()``, ``cfg._secret_field_names()``,
 ``Config._coerce_streaming_fields(data)``, ...).
 
@@ -34,7 +34,7 @@ Import-safety: this module is imported at the TOP of
 ``config/__init__.py``. Top-level imports only touch leaf modules
 (``config_internals.*``, ``config/_saving``, ``config/_schema``,
 ``config/_migration``, ``config/coercion``, ``config/loader``,
-``config/sanitization``) — never the ``voice_typer.server.config``
+``config/sanitization``), never the ``voice_typer.server.config``
 package itself (circular).
 """
 
@@ -43,7 +43,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 from voice_typer.server.config._migration import _backup_before_downgrade_impl
 from voice_typer.server.config._saving import (
-    _enforce_windows_owner_only_acl,  # noqa: F401 — re-exported for callers
+    _enforce_windows_owner_only_acl,  # noqa: F401, re-exported for callers
     _save_impl,
     _save_strict_impl,
     _save_unlocked_impl,
@@ -77,7 +77,7 @@ from voice_typer.server.config_internals.migrations import (
     _run_migrations,
 )
 
-if TYPE_CHECKING:  # pragma: no cover — typing-only, never imported at runtime
+if TYPE_CHECKING:  # pragma: no cover, typing-only, never imported at runtime
     from pathlib import Path
 
     from voice_typer.server.config import Config
@@ -90,7 +90,7 @@ class _ConfigLifecycleMixin:
 
     Mixed into ``Config`` AFTER ``_ConfigSchema`` so the dataclass
     field declarations come first in the MRO. This class declares NO
-    dataclass fields — the single annotated attribute
+    dataclass fields, the single annotated attribute
     (``_mutation_lock``) is a ``ClassVar`` so ``asdict()`` skips it.
     """
 
@@ -131,7 +131,7 @@ class _ConfigLifecycleMixin:
           whether to run a redundant ``store_secret`` loop.
         """
         # Use object.__setattr__ to bypass any frozen/dataclass
-        # machinery — Config is not frozen, but this is forward-
+        # machinery, Config is not frozen, but this is forward-
         # compatible if it ever is.
         object.__setattr__(self, "last_load_warnings", None)
         object.__setattr__(self, "_last_saved_bytes", None)
@@ -154,7 +154,7 @@ class _ConfigLifecycleMixin:
 
         The flag is checked at the top of ``_save_unlocked`` to skip
         the entire save (including ``asdict(self)`` + ``json.dumps``)
-        when nothing has changed since the last successful save — the
+        when nothing has changed since the last successful save, the
         common case for ``set_config`` IPC round-trips that echo back
         the same config the server already has.
         """
@@ -165,23 +165,23 @@ class _ConfigLifecycleMixin:
     def set_mutation_lock(self, lock: "threading.RLock | None") -> None:
         """Register an in-process mutation lock for ``save()``.
 
-        ``VoiceTyperApp`` owns a ``self._config_mutation_lock =
-        threading.RLock()`` that ``service.apply_config`` and
-        ``onboarding_apply`` acquire for the full read-modify-save
-        sequence. Calling this method installs the same lock on the
-        ``Config`` instance so :meth:`save` acquires it automatically
-        — making the lock impossible to forget at the 10+ other
-        ``config.save()`` call sites (``settings_controller``,
-        ``hotkey_dispatcher``, ``model_manager``, ``recorder._persist_mic``,
-        ``startup_sequence``, etc.).
+         ``VoiceTyperApp`` owns a ``self._config_mutation_lock =
+         threading.RLock()`` that ``service.apply_config`` and
+         ``onboarding_apply`` acquire for the full read-modify-save
+         sequence. Calling this method installs the same lock on the
+         ``Config`` instance so :meth:`save` acquires it automatically
+        , making the lock impossible to forget at the 10+ other
+         ``config.save()`` call sites (``settings_controller``,
+         ``hotkey_dispatcher``, ``model_manager``, ``recorder._persist_mic``,
+         ``startup_sequence``, etc.).
 
-        The reference is stored as an INSTANCE attribute (shadowing
-        the ``ClassVar`` default of ``None``) so each ``Config``
-        instance can have its own lock — multiple ``VoiceTyperApp``
-        instances in the same process (rare but possible in tests)
-        don't share a single global lock.
+         The reference is stored as an INSTANCE attribute (shadowing
+         the ``ClassVar`` default of ``None``) so each ``Config``
+          instance can have its own lock: multiple ``VoiceTyperApp``
+         instances in the same process (rare but possible in tests)
+         don't share a single global lock.
 
-        Passing ``None`` clears the lock (disables locking).
+         Passing ``None`` clears the lock (disables locking).
         """
         # Use the instance dict directly so the ClassVar is shadowed
         # per-instance (rather than mutating the class attribute, which
@@ -222,7 +222,7 @@ class _ConfigLifecycleMixin:
         return _save_with_mutation_lock_impl(cast("Config", self))
 
     def _save_unlocked(self) -> bool:
-        """Body of :meth:`save` — assumes both locks are held.
+        """Body of :meth:`save`: assumes both locks are held.
 
         Dirty-flag + byte-identical short-circuits, credential-store
         secret routing, best-effort ``config.json.bak`` backup, atomic
@@ -339,7 +339,7 @@ class _ConfigLifecycleMixin:
         Delegates to
         :func:`voice_typer.server.config._migration._backup_before_downgrade_impl`,
         whose parameter order is ``(cls, data, loaded_version,
-        config_file)`` — the classmethod preserves the legacy public
+        config_file)``: the classmethod preserves the legacy public
         argument order above and forwards positionally.
         """
         _backup_before_downgrade_impl(cast("type[Config]", cls), data, loaded_version, config_file)
@@ -474,9 +474,9 @@ class _ConfigLifecycleMixin:
     def _validate_non_numeric_fields(cls, data: dict[str, Any]) -> dict[str, Any]:
         """Validate and coerce bool / str / int / float fields in loaded config data.
 
-        This is a migration layer — NOT a duplicate of the type coercion
+        This is a migration layer. NOT a duplicate of the type coercion
         that ``cls(**data)`` would do. Python dataclasses do NOT coerce
-        ``1`` → ``True`` or ``"true"`` → ``True`` — they store the raw
+        ``1`` → ``True`` or ``"true"`` → ``True``, they store the raw
         value as-is, which would then fail downstream type checks. This
         validator fixes up legacy on-disk configs BEFORE the dataclass
         constructor sees them. Delegates to
@@ -495,7 +495,7 @@ class _ConfigLifecycleMixin:
         namespace at CALL time (not bound at import) so tests that
         monkeypatch ``voice_typer.server.config._config_dir`` (the shared
         ``tmp_config_dir`` fixture and the load-corruption suites) keep
-        taking effect — mirroring how the pre-split monolith resolved
+        taking effect, mirroring how the pre-split monolith resolved
         the name from its own module globals.
         """
         import voice_typer.server.config as _cfg

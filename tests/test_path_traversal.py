@@ -35,7 +35,7 @@ def test_validate_path_safety_traversal():
 
 
 class TestIsPathWithin:
-    """Tests for ``_is_path_within`` — the robust
+    """Tests for ``_is_path_within``, the robust
     ``os.path.commonpath`` containment check used by ``_validate_import_path``.
 
     These edge cases were previously only exercised transitively through
@@ -86,14 +86,14 @@ class TestIsPathWithin:
         # is within c:\users\X.
         #
         # previously ``monkeypatch.setattr(config.sys, "platform",
-        # "win32")`` — but ``config`` does NOT import ``sys`` at module
+        # "win32")``, but ``config`` does NOT import ``sys`` at module
         # level (no ``import sys`` in ``config.py``), so ``config.sys``
         # raised ``AttributeError`` and the test always errored out
         # before reaching the assertion.  Patching the GLOBAL ``sys``
         # module's ``platform`` attribute (which ``_is_path_within``
         # reads via its own ``import sys``) is the correct fix.
         #
-        # even more robust — pass ``case_sensitive=False`` to
+        # even more robust, pass ``case_sensitive=False`` to
         # ``_is_path_within`` explicitly so the test no longer depends
         # on the global ``sys.platform`` value at all (the
         # case-insensitive branch is exercised deterministically
@@ -113,7 +113,7 @@ class TestIsPathWithin:
         # On Linux the comparison is case-sensitive, so /Home/X is NOT
         # within /home/X.
         #
-        # same AttributeError bug — ``config.sys`` doesn't
+        # same AttributeError bug: ``config.sys`` doesn't
         # exist.  Patch the global ``sys`` module instead.
         #
         # pass ``case_sensitive=True`` explicitly so the test
@@ -132,7 +132,7 @@ class TestIsPathWithin:
         # commonpath raises ValueError for paths on different drives;
         # the function must return False rather than raise.
         #
-        # same AttributeError bug — patch the global ``sys``
+        # same AttributeError bug, patch the global ``sys``
         # module instead of ``config.sys`` (which doesn't exist).
         # pass ``case_sensitive=False`` explicitly to exercise
         # the Windows-style (case-insensitive) branch deterministically.
@@ -144,7 +144,7 @@ class TestIsPathWithin:
         # component, not because ``os.path.commonpath`` raises
         # ``ValueError`` for cross-drive paths.  This is acceptable
         # for the regression contract (the function must return False
-        # — and it does); a true cross-drive ``ValueError`` test
+        # , and it does); a true cross-drive ``ValueError`` test
         # requires running on Windows or mocking ``Path.resolve()``
         # to return Windows-style absolute paths.
         from voice_typer.server import config

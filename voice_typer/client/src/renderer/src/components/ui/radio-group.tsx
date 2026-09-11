@@ -4,14 +4,14 @@ import type * as React from "react";
 import { cn } from "#utils";
 
 /**
- * Design-system radio group (shadcn/ui, radix-luma style — Radix Root +
+ * Design-system radio group (shadcn/ui, radix-luma style, Radix Root +
  * Item/Indicator, mirroring `checkbox.tsx`). The selected state is a
  * filled inner dot on the accent fill (`--accent` maps to
  * `var(--primary)` in every theme), matching the checkbox's checked
  * treatment so the two controls read as siblings.
  *
  * NOTE: Radix emits `data-state="checked|unchecked"` (NOT
- * `data-checked`) — same convention as checkbox.tsx.
+ * `data-checked`), same convention as checkbox.tsx.
  */
 function RadioGroup({
 	className,

@@ -8,15 +8,15 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 /// shared truthy matcher for boolean environment variables.
 /// Truthy values: `"1"`, `"true"`, `"yes"` (case-insensitive, after
-/// trimming leading/trailing whitespace). Anything else — including
+/// trimming leading/trailing whitespace). Anything else, including
 /// unset, empty, `"0"`, `"false"`, `"no"`, or a typo like `"yess"` —
 /// is falsy.
 ///
 /// This is the single source of truth for the truthy contract across
 /// the Voice Typer Rust host. It is wrapped by two thin callers:
-/// - `is_truthy_env_var(name)` — looks up an env var by name and
+/// - `is_truthy_env_var(name)`: looks up an env var by name and
 ///   applies this matcher (used by both `stderr_verbose` sites).
-/// - `is_debug_env_truthy(value)` — applies this matcher to a
+/// - `is_debug_env_truthy(value)`: applies this matcher to a
 ///   caller-supplied value (kept for unit-testability without env
 ///   mutation).
 ///
@@ -59,12 +59,12 @@ pub(crate) fn is_debug_env_truthy(value: Option<&str>) -> bool {
 pub(crate) struct CombinedLogger {
     pub(crate) file_writer: Option<RotatingFileWriter>,
     pub(crate) level_filter: log::LevelFilter,
-    //cached predicate — `true` if log lines should ALSO be
+    //cached predicate: `true` if log lines should ALSO be
     /// written to stderr. Computed ONCE at logger init from
     /// `cfg!(debug_assertions)` (always true in debug builds) OR the
     /// `RUST_LOG_STDERR=1` env var (opt-in for release builds via
     /// `RUST_LOG_STDERR=1 cargo tauri dev`). The prior code called
-    /// `eprintln!` unconditionally — a wasted `write(2)` syscall per
+    /// `eprintln!` unconditionally. A wasted `write(2)` syscall per
     /// log line in release builds where stderr is typically
     /// `/dev/null` (the Tauri app's stdout/stderr are not connected
     /// to a terminal in `cargo tauri build` release binaries).
@@ -76,7 +76,7 @@ pub(crate) struct CombinedLogger {
     /// that flips stderr verbosity without restarting the host) can
     /// `store(true/false, Ordering::Relaxed)` at any time. The per-
     /// line `log()` path uses `load(Ordering::Relaxed)`, which on
-    /// x86/ARM compiles to a plain MOV — same cost as a `bool` load.
+    /// x86/ARM compiles to a plain MOV, same cost as a `bool` load.
     /// `Relaxed` is correct: we don't need cross-thread ordering for
     /// a boolean flag whose only consumer is the same thread that
     /// calls `eprintln!`.
@@ -103,13 +103,13 @@ impl log::Log for CombinedLogger {
         let raw_msg = record.args().to_string();
         let msg = redact_pii(&raw_msg);
         // Clean line format: `ts  LEVEL  msg`. The `record.target()`
-        // module path and `file:line` were deliberately removed — the
+        // module path and `file:line` were deliberately removed, the
         // module path added noise to every line (matching the Python
         // side's removal of the `[component]` label) and the message
         // already carries a `[TOPIC]` prefix identifying the subsystem.
         //
         // The FILE sink gets the full timestamp (`YYYY-MM-DD  HH:MM:SS`)
-        // while the TERMINAL sink shows TIME ONLY (`HH:MM:SS` — the
+        // while the TERMINAL sink shows TIME ONLY (`HH:MM:SS`, the
         // date lives only in the log file, matching Python's
         // `_ColorFormatter`). Both lines use the SAME level column
         // (short label, left-padded to a 5-char field). Two lines are
@@ -119,13 +119,13 @@ impl log::Log for CombinedLogger {
         let (file_ts, term_ts) = now_timestamps();
         // The FILE line mirrors Python's `_FileFormatter`
         // (`voice_typer/server/log/formatters.py`) line-for-line:
-        // `f"{ts}  {label:<5} {msg}"` — timestamp, TWO spaces, level
-        // left-padded to a 5-char column, ONE space, message — so the
+        // `f"{ts}  {label:<5} {msg}"`, timestamp, TWO spaces, level
+        // left-padded to a 5-char column, ONE space, message, so the
         // Rust and Python log streams align column-for-column.
         //
         // The per-process session ID is deliberately NOT rendered
         // here: the canonical line stays clean, and the id appears
-        // exactly once per session — as the trailing `session=` field
+        // exactly once per session: as the trailing `session=` field
         // of the `[STARTUP] logging initialized:` banner emitted by
         // `init_file_logger` (mirroring the Python side's banner in
         // `logging_setup.py`). Cross-process correlation with the
@@ -136,7 +136,7 @@ impl log::Log for CombinedLogger {
         // stamps into its own banner.
         let file_line = format!("{}  {:5} {}", file_ts, record.level(), msg);
         // The terminal line is built ONLY when stderr logging is
-        // actually enabled — the `format!` used to run unconditionally,
+        // actually enabled: the `format!` used to run unconditionally,
         // wasting one String allocation per log line in release builds
         // where `stderr_verbose` is false (the line was formatted and
         // immediately dropped). Format is unchanged: `HH:MM:SS LEVEL msg`.
@@ -148,7 +148,7 @@ impl log::Log for CombinedLogger {
         // (60 Hz would fill disk fast even with rotation). Match by a
         // SPECIFIC message prefix (`[WS-READER] bubble_level event`)
         // rather than a broad `msg.contains("bubble_level")` substring
-        // — the old substring filter risked false-positives on unrelated
+        //: the old substring filter risked false-positives on unrelated
         // log lines that happened to mention "bubble_level".
         // the WS reader doesn't currently log bubble_level
         // events to the file (they go via `app.emit()` to the webview,
@@ -156,7 +156,7 @@ impl log::Log for CombinedLogger {
         //
         // preserve WARNING+ records even when they start with
         // the bubble_level prefix. Pre-fix this dropped ANY record
-        // matching the prefix regardless of level — a future
+        // matching the prefix regardless of level, a future
         // `log::error!("[WS-READER] bubble_level event handler
         // crashed: ...")` would be SILENTLY LOST from the file log.
         // Mirrors Python's `_BubbleLevelExclusionFilter` short-circuit
@@ -172,19 +172,23 @@ impl log::Log for CombinedLogger {
             // `record.level() >= Info` therefore matches ONLY the
             // low-severity records (Info/Debug/Trace) that the ADR
             // wanted excluded from the file log. Pre-fix this used
-            // `<=` which inverted the guard — it dropped ERROR and
+            // `<=` which inverted the guard, it dropped ERROR and
             // WARN bubble_level records too (the exact records the
             // this level-guard was added to preserve).
             let is_filtered_bubble = record.level() >= log::Level::Info
                 && msg.starts_with("[WS-READER] bubble_level event");
             if !is_filtered_bubble {
-                let _ = writer.write_line(&file_line);
+                // Severity-aware enqueue: ERROR-level records bypass
+                // the rotating writer's bounded-queue drop gate (the
+                // crash-path evidence is never sacrificed when the
+                // writer is wedged); every other level participates.
+                let _ = writer.write_line_level(&file_line, record.level());
                 // Flush the BufWriter immediately for Warn+ records so
                 // an impending crash (the most likely producer of
                 // `log::error!`) does NOT leave the diagnostic line
                 // stranded in the 8 KB in-memory buffer when the
                 // process aborts. Info/Debug/Trace records stay
-                // buffered — they're high-volume and the periodic /
+                // buffered: they're high-volume and the periodic /
                 // drop-flush paths are sufficient. Mirrors the
                 // Python side's `logging.Handler.flush()` call inside
                 // `emit()` for WARNING+ records (log.py:216-219).

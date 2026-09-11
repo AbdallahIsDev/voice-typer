@@ -23,7 +23,7 @@ def test_ws_flag_sets_tauri_sidecar_env_via_argparse(monkeypatch):
     the module with the env var set and verifying the IPCServer.start()
     path skips the heartbeat thread.
     """
-    # This is a smoke test — the real validation is in
+    # This is a smoke test, the real validation is in
     # test_heartbeat_skipped_under_tauri_sidecar below.
     monkeypatch.setenv("TAURI_SIDECAR", "1")
     assert os.environ.get("TAURI_SIDECAR") == "1"
@@ -50,7 +50,7 @@ def test_heartbeat_skipped_under_tauri_sidecar(monkeypatch):
     # Mock the methods start() calls so we don't actually start a stdin
     # thread or hook the tray.
     server._hook_tray_set_state = lambda: None
-    server._run = lambda: None  # stdin loop target — don't actually run
+    server._run = lambda: None  # stdin loop target, don't actually run
 
     # Patch event_bus.subscribe + threading.Thread so we can observe
     # what threads get created.
@@ -130,7 +130,7 @@ def test_ws_and_port_are_mutually_exclusive(capsys, monkeypatch):
     args = parser.parse_args(["--ws", "--port", "9876"])
     assert args.ws is True
     assert args.port == 9876
-    # The mutual-exclusion check is in main() — we test the logic here.
+    # The mutual-exclusion check is in main(), we test the logic here.
     ws_mode = args.ws
     port = args.port
     assert ws_mode and port is not None  # both set → should exit
@@ -139,7 +139,7 @@ def test_ws_and_port_are_mutually_exclusive(capsys, monkeypatch):
 def test_dispatch_command_does_not_forward_heartbeat(monkeypatch):
     """The Rust bridge must NOT forward `heartbeat` to Python under Tauri.
 
-    This is a documentation test — the actual gating is in Rust (main.rs
+    This is a documentation test, the actual gating is in Rust (main.rs
     doesn't have a heartbeat path at all). Here we verify the Python
     side: the _COMMAND_REGISTRY still contains `heartbeat` (so the
     Electron fallback path works), but the heartbeat watchdog thread

@@ -4,13 +4,13 @@ The ``delete``, ``clear_all``, and ``apply_retention`` paths each
 issue the FTS5 ``'rebuild'`` command after their bulk DELETEs to zero
 dictated text out of ``transcriptions_fts_data`` (GDPR Art. 17
 right-to-erasure). But that rebuild is wrapped in a tolerant
-``try/except sqlite3.Error`` — if it fails (transient FTS5 error,
+``try/except sqlite3.Error``, if it fails (transient FTS5 error,
 disk full), the failure is logged at ERROR and swallowed (no raise,
 no rollback), incrementing ``self._fts5_rebuild_failures`` and
 publishing an ``event_bus`` event. The segment data from the failed
 delete lingers in ``transcriptions_fts_data``, recoverable via
 forensic tools, until FTS5's background compaction happens to merge
-that segment (days or weeks later) — silently breaking the GDPR
+that segment (days or weeks later), silently breaking the GDPR
 Art. 17 right-to-erasure with only an ERROR log.
 
 The fix adds a STARTUP SWEEP: on every HistoryDB construction (after
@@ -18,7 +18,7 @@ the schema is initialized), ``_fts5_startup_rebuild`` runs
 ``INSERT INTO transcriptions_fts(transcriptions_fts) VALUES('rebuild')``
 once on the writer connection. This bounds the worst-case exposure
 window for any failed delete/clear_all/apply_retention rebuilds in
-the previous session to "between launches" — on the next launch the
+the previous session to "between launches", on the next launch the
 FTS5 segment data is rebuilt from the current content table, so
 lingering dictated text from a previously-failed delete is cleared.
 
@@ -56,7 +56,7 @@ def _fts5_data_size(conn: sqlite3.Connection) -> int:
     ``transcriptions_fts_data`` holds the raw segment blobs. After a
     ``'rebuild'`` on an empty content table, this table is empty (or
     near-empty). After a delete WITHOUT a successful rebuild, this
-    table retains the deleted row's segment data — the dictated text
+    table retains the deleted row's segment data, the dictated text
     remains recoverable via forensic tools.
     """
     try:
@@ -87,7 +87,7 @@ class _FlakyConn:
 
     def execute(self, sql, *args, **kwargs):
         # Fail on either per-delete ``'optimize'`` (the per-row
-        # FTS5 purge in :meth:`HistoryDB.delete` — preferred over
+        # FTS5 purge in :meth:`HistoryDB.delete`, preferred over
         # ``'rebuild'`` for O(N) reasons) OR the periodic
         # ``'rebuild'`` (run by the retention sweep and the
         # startup rebuild on each launch). Both forms reach the
@@ -160,7 +160,7 @@ class TestFts5StartupRebuild:
         try:
             assert len(startup_calls) >= 1, (
                 "AP-17 violation: _fts5_startup_rebuild was not called during "
-                "HistoryDB construction — the startup sweep does not run on "
+                "HistoryDB construction, the startup sweep does not run on "
                 "launch, so lingering FTS5 segment data from failed deletes "
                 "is NOT bounded to 'between launches'."
             )
@@ -177,7 +177,7 @@ class TestFts5StartupRebuild:
 
         Sequence:
           1. Session 1: add a transcription, then delete it with the
-             FTS5 ``'rebuild'`` forced to fail (call #1 — simulating a
+             FTS5 ``'rebuild'`` forced to fail (call #1, simulating a
              transient FTS5 error).
           2. Close session 1.
           3. Session 2: re-open the same DB. The startup sweep runs
@@ -199,7 +199,7 @@ class TestFts5StartupRebuild:
             # inserted row.
             read_conn = db1._get_read_conn()
             pre_insert_size = _fts5_data_size(read_conn)
-            assert pre_insert_size > 0, "expected non-empty FTS5 segment data after insert — test setup is broken"
+            assert pre_insert_size > 0, "expected non-empty FTS5 segment data after insert, test setup is broken"
 
             # Wire a flaky _submit_write so the delete closure's FTS5
             # ``'rebuild'`` SQL raises sqlite3.OperationalError on the
@@ -223,13 +223,12 @@ class TestFts5StartupRebuild:
 
             monkeypatch.setattr(db1, "_submit_write", flaky_submit)
 
-            # Delete — the row delete succeeds (returns True) but the
+            # Delete, the row delete succeeds (returns True) but the
             # post-delete FTS5 ``'rebuild'`` fails (simulated transient
             # error). The failure is logged at WARNING and swallowed
             # (matching the existing delete pattern).
             assert db1.delete(rid) is True, (
-                "delete must return True even when the post-delete FTS5 "
-                "rebuild fails — the row delete already committed"
+                "delete must return True even when the post-delete FTS5 rebuild fails, the row delete already committed"
             )
 
             # The rebuild was attempted exactly once during the delete
@@ -238,14 +237,14 @@ class TestFts5StartupRebuild:
             # inside the wrapped closure; we verify via the
             # ``failed_once`` flag that the failure path was taken.
             assert rebuild_fail_state["failed_once"] is True, (
-                "the delete-time FTS5 rebuild did not fail as expected — test setup is broken"
+                "the delete-time FTS5 rebuild did not fail as expected, test setup is broken"
             )
 
             # Capture the FTS5 segment-data size AFTER the failed
             # delete (before closing db1). Because the delete-time
             # rebuild failed, the dictated text's segment data is
             # still physically present in
-            # ``transcriptions_fts_data`` — only the rowid is marked
+            # ``transcriptions_fts_data``, only the rowid is marked
             # as deleted in the FTS5 delete-bitmap. The startup sweep
             # in session 2 must shrink this.
             db1.checkpoint(truncate=True)
@@ -253,7 +252,7 @@ class TestFts5StartupRebuild:
             assert post_delete_size >= pre_insert_size, (
                 "expected the failed-delete FTS5 segment data to still "
                 f"be present (size={post_delete_size}, pre_insert="
-                f"{pre_insert_size}) — test setup is broken"
+                f"{pre_insert_size}), test setup is broken"
             )
         finally:
             db1.close()
@@ -278,7 +277,7 @@ class TestFts5StartupRebuild:
             # construction.
             assert len(startup_calls) >= 1, (
                 "AP-17 violation: _fts5_startup_rebuild was not called "
-                "during HistoryDB construction — the startup sweep does "
+                "during HistoryDB construction, the startup sweep does "
                 "not run on launch, so lingering FTS5 segment data from "
                 "the failed delete in session 1 is NOT cleared."
             )
@@ -296,7 +295,7 @@ class TestFts5StartupRebuild:
             # (now-empty) content table, so it must be smaller —
             # proving the dictated text's segment data was zeroed.
             #
-            # Note: the post-sweep size is NOT necessarily 0 — FTS5
+            # Note: the post-sweep size is NOT necessarily 0, FTS5
             # retains a small structural record (~9 bytes) even for an
             # empty index. The meaningful assertion is that the size
             # shrank from the post-delete (lingering-data) state to
@@ -309,7 +308,7 @@ class TestFts5StartupRebuild:
                 f"the startup sweep (post_delete={post_delete_size}, "
                 f"post_sweep={post_sweep_size}). The deleted "
                 "transcription's dictated text remains recoverable from "
-                "transcriptions_fts_data via forensic tools — the "
+                "transcriptions_fts_data via forensic tools, the "
                 "startup sweep did not clear the lingering segments "
                 "from session 1's failed delete."
             )
@@ -331,7 +330,7 @@ class TestFts5StartupRebuild:
     def test_startup_sweep_failure_is_swallowed(self, tmp_path, monkeypatch, caplog):
         """AP-17: the startup sweep is best-effort. If the rebuild fails
         (e.g. transient FTS5 error, disk full), the failure is logged
-        at WARNING and swallowed — the app must still start. The next
+        at WARNING and swallowed, the app must still start. The next
         launch will retry."""
         from voice_typer.server.history_db import HistoryDB
 
@@ -368,7 +367,7 @@ class TestFts5StartupRebuild:
 
     def test_startup_sweep_succeeds_silently_at_debug_level(self, tmp_path, monkeypatch, caplog):
         """AP-17: on success, the startup sweep logs at DEBUG (not INFO
-        or WARNING) — a successful sweep is the expected steady state
+        or WARNING), a successful sweep is the expected steady state
         and shouldn't add noise to the log stream."""
         from voice_typer.server.history_db import HistoryDB
 

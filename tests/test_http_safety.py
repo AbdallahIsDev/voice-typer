@@ -3,20 +3,20 @@
 DE-64: ``HTTPError.url`` must be redacted (``redact_url(newurl)``) so
 callers that log ``e.url`` don't leak embedded ``user:pass@host``
 userinfo. Pre-fix only the message string was redacted; the ``.url``
-attribute preserved the raw redirect target — a credential-leak
+attribute preserved the raw redirect target, a credential-leak
 surface.
 
 DE-65: ``build_secure_opener()`` must install a custom ``HTTPHandler``
 subclass that REFUSES plaintext HTTP for non-loopback hosts. Pre-fix
 ``build_opener(HTTPSHandler(), _NoRedirectHandler())`` left the
-default ``HTTPHandler`` installed — so a caller passing an
+default ``HTTPHandler`` installed, so a caller passing an
 ``http://attacker.example.com/steal`` URL would have its request body
 (API key + user audio) transmitted in plaintext. The new
 ``_HttpsOnlyHTTPHandler`` raises ``URLError`` for non-loopback HTTP
 URLs (loopback hosts are exempted for local development servers like
 Ollama / vLLM / LM Studio).
 
-Test approach: we don't hit the network — we instantiate the opener
+Test approach: we don't hit the network, we instantiate the opener
 and inspect its handler set, and we drive ``_NoRedirectHandler.redirect_request``
 directly with a fake ``Request`` to verify the raised ``HTTPError.url``
 is redacted. For the HTTPS-enforcement path we drive
@@ -138,7 +138,7 @@ class TestBuildSecureOpener:
         assert _HttpsOnlyHTTPHandler in handler_classes
         # The default HTTPHandler must NOT be present (the custom
         # subclass replaces it, not adds alongside).
-        # Note: build_opener deduplicates by handler-class — the last
+        # Note: build_opener deduplicates by handler-class, the last
         # handler of a given class wins. So if both were present, the
         # custom subclass would be the effective one. But the contract
         # is that the default is REPLACED, so we assert there is no
@@ -149,7 +149,7 @@ class TestBuildSecureOpener:
 
     def test_opener_has_https_handler(self):
         """The opener must still have an ``HTTPSHandler`` (for TLS
-        requests) — the DE-65 fix only restricts plaintext HTTP, not
+        requests), the DE-65 fix only restricts plaintext HTTP, not
         HTTPS."""
         opener = build_secure_opener()
         handler_classes = [type(h) for h in opener.handlers]
@@ -180,7 +180,7 @@ class TestHttpsOnlyHTTPHandler:
         assert "attacker.example.com" in msg
 
     def test_refuses_http_for_localhost_loopback_ipv4(self):
-        """Wait — actually loopback hosts ARE exempted. This test pins
+        """Wait, actually loopback hosts ARE exempted. This test pins
         that ``127.0.0.1`` is in the loopback exemption set so local
         development servers can serve plaintext HTTP."""
         # We can't actually perform the HTTP request without a server,
@@ -298,7 +298,7 @@ class TestNoOverrideSuppression:
         # The first non-empty source line is the ``def ...`` header
         # (inspect.getsource on a method does NOT include decorators
         # when the method has none, but it DOES include the docstring
-        # body — we want just the ``def`` line).
+        # body, we want just the ``def`` line).
         for line in src.splitlines():
             stripped = line.strip()
             if stripped.startswith("def "):
@@ -317,7 +317,7 @@ class TestNoOverrideSuppression:
         assert "type: ignore" not in def_line, (
             "YJ-26 regression: `# type: ignore` reintroduced on "
             "`_NoRedirectHandler.redirect_request`. The override is "
-            "typed to match the parent signature exactly — see the "
+            "typed to match the parent signature exactly: see the "
             "YJ-26 fix commit in _http_safety.py for the rationale."
         )
 
@@ -332,13 +332,13 @@ class TestNoOverrideSuppression:
             "YJ-26 regression: `# type: ignore` reintroduced on "
             "`_HttpsOnlyHTTPHandler.http_open`. The override return "
             "type is `http.client.HTTPResponse` (matching the parent "
-            "typeshed signature) — no suppression is needed."
+            "typeshed signature), no suppression is needed."
         )
 
     def test_http_open_return_type_matches_parent(self):
         """The override's return annotation must be the parent's
         return type (``http.client.HTTPResponse`` per typeshed), NOT
-        ``object`` or ``Any`` — widening the return type violates
+        ``object`` or ``Any``, widening the return type violates
         covariance and was the original reason the ``# type: ignore``
         marker was added."""
         import http.client
@@ -355,7 +355,7 @@ class TestNoOverrideSuppression:
         # against the module globals (which include ``http.client``
         # and ``Request``).
         assert "return" in hints, (
-            "YJ-26 regression: `http_open` has no return annotation — "
+            "YJ-26 regression: `http_open` has no return annotation, "
             "the override MUST be typed `-> http.client.HTTPResponse` "
             "to match the parent signature."
         )
@@ -384,7 +384,7 @@ class TestLoopbackHostsIsDRY:
     imported from the canonical source of truth
     (``voice_typer.server._paths.LOOPBACK_HOSTS``) rather than
     re-declared inline. Pre-fix, the class body contained a separate
-    ``frozenset({"localhost", "127.0.0.1", "::1"})`` literal — a DRY
+    ``frozenset({"localhost", "127.0.0.1", "::1"})`` literal, a DRY
     violation: if the canonical set ever changes, two files would
     need to be edited in sync, and drift would silently either
     over-block (breaking local dev servers like Ollama / vLLM) or
@@ -403,7 +403,7 @@ class TestLoopbackHostsIsDRY:
 
         assert _HttpsOnlyHTTPHandler._LOOPBACK_HOSTS == LOOPBACK_HOSTS, (
             "FR-35 regression: _HttpsOnlyHTTPHandler._LOOPBACK_HOSTS does not "
-            "match the canonical _paths.LOOPBACK_HOSTS — the two definitions "
+            "match the canonical _paths.LOOPBACK_HOSTS, the two definitions "
             "have drifted, which means a future change to the canonical set "
             "won't propagate to the HTTP-safety gate."
         )
@@ -411,7 +411,7 @@ class TestLoopbackHostsIsDRY:
     def test_loopback_hosts_source_not_hardcoded_literal(self):
         """The source of ``_http_safety.py`` must NOT contain a
         hardcoded ``frozenset({...})`` literal inside the
-        ``_HttpsOnlyHTTPHandler`` class body — the value must come
+        ``_HttpsOnlyHTTPHandler`` class body, the value must come
         from the imported ``LOOPBACK_HOSTS`` constant."""
         import inspect
 
@@ -439,5 +439,5 @@ class TestLoopbackHostsIsDRY:
         src = inspect.getsource(_http_safety)
         assert "from voice_typer.server._paths import LOOPBACK_HOSTS" in src, (
             "FR-35 regression: _http_safety.py does not import LOOPBACK_HOSTS "
-            "from voice_typer.server._paths — the DRY violation is back."
+            "from voice_typer.server._paths, the DRY violation is back."
         )

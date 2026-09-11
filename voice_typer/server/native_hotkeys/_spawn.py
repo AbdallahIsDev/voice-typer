@@ -1,4 +1,4 @@
-"""Native hotkey backend — {name}."""
+"""Native hotkey backend, {name}."""
 
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ class _SpawnMixin:
     # Members provided by the composed ``SubprocessHotkeyBackend``
     # (``_core.py`` ``__init__``): cross-mixin attribute access is
     # runtime-valid but pyrefly cannot see it on a standalone mixin.
-    # Annotations only — no values — so no runtime attribute is created
+    # Annotations only, no values, so no runtime attribute is created
     # and the runtime MRO is unaffected (same pattern as
     # dictation_pipeline's mixin declarations and model_manager's
     # ``ChangeMixin``).
@@ -85,11 +85,11 @@ class _SpawnMixin:
         execve, so a swap between the two achieves native-code
         execution as the user with a verified-clean path.
 
-        Mitigation (POSIX only — see Windows limitation below):
+        Mitigation (POSIX only: see Windows limitation below):
 
         1. Open the file with ``os.open(path, O_RDONLY | O_CLOEXEC)``
            BEFORE the verify, pinning the inode at that moment.
-        2. Run the existing SHA-256 verify (unchanged — uses
+        2. Run the existing SHA-256 verify (unchanged, uses
            ``path.read_bytes()`` so the existing tests' patch of
            ``verify_native_binary_or_skip`` continues to take effect).
         3. After verify, ``fstat`` the fd → capture
@@ -97,7 +97,7 @@ class _SpawnMixin:
            stat of the inode the fd pinned.
         4. Just before ``Popen``, ``os.stat`` the path and compare to
            the fstat. If the quartet differs, the file was swapped or
-           modified between the os.open and the Popen — refuse to
+           modified between the os.open and the Popen, refuse to
            spawn.
 
         The fd does NOT need to be the same inode as what the verify
@@ -106,7 +106,7 @@ class _SpawnMixin:
         If the file was swapped between verify and os.stat, the
         os.stat check catches it (path's stat ≠ fd's stat, because fd
         still pins the original inode). The only residual TOCTOU is
-        between os.stat and the execve inside Popen — a sub-microsecond
+        between os.stat and the execve inside Popen, a sub-microsecond
         window.
 
         Residual TOCTOU (POSIX): an attacker who can win the race
@@ -140,7 +140,7 @@ class _SpawnMixin:
             return
         # Local import to avoid an import-cycle (binary_path.py imports
         # from .spec_parser at module load; base.py also imports from
-        # .spec_parser — keeping this local avoids any chance of a
+        # .spec_parser, keeping this local avoids any chance of a
         # cycle if binary_path.py grows additional deps).
         from .binary_path import verify_native_binary_or_skip
 
@@ -182,7 +182,7 @@ class _SpawnMixin:
             self._error_message = (
                 f"Native {self.platform_name} binary failed SHA-256 verification "
                 f"on spawn/respawn (path={self._binary_path}). Refusing to spawn "
-                f"an untrusted binary — falling back to the legacy backend."
+                f"an untrusted binary, falling back to the legacy backend."
             )
             log.error("[NATIVE-HOTKEY] %s", self._error_message)
             return
@@ -190,7 +190,7 @@ class _SpawnMixin:
         # capture the pinned inode's stat for the pre-Popen
         # check. fstat reads metadata directly from the fd (no path
         # re-resolution), so this is the stat of the inode the fd
-        # pinned at os.open time — unaffected by any later path swap.
+        # pinned at os.open time, unaffected by any later path swap.
         if fd is not None:
             try:
                 st = os.fstat(fd)
@@ -209,7 +209,7 @@ class _SpawnMixin:
         # pre-Popen stat check. If the path's stat differs
         # from the pinned fd's stat, the file was swapped or modified
         # between os.open and now (which includes the verify window).
-        # Refuse to spawn — this is the TOCTOU gate.
+        # Refuse to spawn: this is the TOCTOU gate.
         if pinned_stat is not None:
             try:
                 pst = os.stat(str(self._binary_path))
@@ -231,7 +231,7 @@ class _SpawnMixin:
                 self._failed = True
                 self._error_message = (
                     f"Native {self.platform_name} binary stat changed "
-                    f"between verify and Popen (path={self._binary_path}) — "
+                    f"between verify and Popen (path={self._binary_path}), "
                     f"possible TOCTOU swap. Refusing to spawn an untrusted binary."
                 )
                 log.error("[NATIVE-HOTKEY] %s", self._error_message)
@@ -256,7 +256,7 @@ class _SpawnMixin:
         # flag and append timestamped init / permission / hook-install
         # diagnostics there, giving support bundles a native-side trace
         # for hotkey problems. Error-tolerant by design: diagnostics
-        # must NEVER break the spawn — if the path can't be computed we
+        # must NEVER break the spawn, if the path can't be computed we
         # spawn without the flag (the binary's stderr still reaches the
         # parent via the merged stdout pipe).
         native_log_path: Path | None
@@ -264,7 +264,7 @@ class _SpawnMixin:
             native_log_path = self._compute_native_log_path()
         except Exception as exc:  # deliberate broad catch: logging setup must never block the spawn
             log.debug(
-                "[NATIVE-HOTKEY] %s native log path computation failed — spawning without --log-file: %s",
+                "[NATIVE-HOTKEY] %s native log path computation failed, spawning without --log-file: %s",
                 self.platform_name,
                 exc,
             )
@@ -353,7 +353,7 @@ class _SpawnMixin:
         where ``<backend>`` is ``self.platform_name.lower()`` and
         ``<pid>`` is the current process's PID. The directory is created
         on first call (parents=True, exist_ok=True). The file itself is
-        NOT created here — the native binary opens it with fopen("a").
+        NOT created here, the native binary opens it with fopen("a").
 
         Returns ``None`` if the path can't be resolved (e.g. ``HOME``
         unset on POSIX, or ``USERPROFILE`` unset on Windows). In that
@@ -377,14 +377,14 @@ class _SpawnMixin:
             return None
         if not str(home) or str(home) == ".":
             # ``Path.home()`` returns ``.`` when ``HOME`` is unset on
-            # some POSIX systems — treat that as "no home available".
+            # some POSIX systems, treat that as "no home available".
             return None
         log_dir = home / ".voice-typer" / "logs"
         try:
             log_dir.mkdir(parents=True, exist_ok=True)
         except OSError:
             # Can't create the log dir (read-only home, sandbox, etc.).
-            # Spawn without --log-file — the binary's stderr still goes
+            # Spawn without --log-file, the binary's stderr still goes
             # to the parent's merged stdout pipe.
             return None
         backend = (self.platform_name or "native").lower()

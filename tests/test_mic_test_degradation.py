@@ -1,10 +1,10 @@
-"""Phase 2d degradation matrix (§8.10) — mic-test auto-transcription.
+"""Phase 2d degradation matrix (§8.10): mic-test auto-transcription.
 
 ``MicrophoneTestMixin.microphone_test_stop`` attempts a best-effort
 auto-transcription of the test recording so the UI can show
 "You said: ...". When no engine is loaded (offline pack missing → no
 offline engine; or engine still warming up), the transcription is
-silently skipped — the degradation matrix requires the server to say
+silently skipped, the degradation matrix requires the server to say
 WHY instead. These tests pin the ``transcription_unavailable`` +
 ``transcription_reason`` markers.
 """
@@ -22,7 +22,7 @@ from voice_typer.server.service.microphone_test import MicrophoneTestMixin
 
 def _tiny_wav_result(tmp_path, duration_s: float = 0.05, sample_rate: int = 16000) -> dict:
     """Persist a tiny valid mono WAV under tmp_path and return a
-    file-reference stop result — mirrors the new disk transport contract."""
+    file-reference stop result, mirrors the new disk transport contract."""
     import os
 
     n = int(sample_rate * duration_s)
@@ -44,7 +44,7 @@ def _tiny_wav_result(tmp_path, duration_s: float = 0.05, sample_rate: int = 1600
 
 def _mixin(app) -> MicrophoneTestMixin:
     mixin = MicrophoneTestMixin()
-    mixin._app = app  # type: ignore[attr-defined] — ServiceMixinBase._app
+    mixin._app = app  # type: ignore[attr-defined], ServiceMixinBase._app
     return mixin
 
 

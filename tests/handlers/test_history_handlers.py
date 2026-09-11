@@ -3,15 +3,15 @@
 Covers the 8 history IPC handlers defined in
 ``voice_typer/server/handlers/history_handlers.py``:
 
-- ``_handle_get_history`` — bounded limit/offset pagination.
-- ``_handle_get_today_stats`` — returns today's transcription stats.
-- ``_handle_delete_history`` — validates ``id``, deletes row, broadcasts
+- ``_handle_get_history``, bounded limit/offset pagination.
+- ``_handle_get_today_stats``, returns today's transcription stats.
+- ``_handle_delete_history``, validates ``id``, deletes row, broadcasts
   ``history_changed`` event.
-- ``_handle_restore_history`` — validates ``record`` dict, re-inserts.
-- ``_handle_clear_history`` — clears all rows, broadcasts event.
-- ``_handle_toggle_favorite`` — validates ``id``, toggles fav flag.
-- ``_handle_get_favorites`` — bounded pagination of favorites only.
-- ``_handle_search_history`` — bounded pagination of search results.
+- ``_handle_restore_history``, validates ``record`` dict, re-inserts.
+- ``_handle_clear_history``, clears all rows, broadcasts event.
+- ``_handle_toggle_favorite``, validates ``id``, toggles fav flag.
+- ``_handle_get_favorites``, bounded pagination of favorites only.
+- ``_handle_search_history``, bounded pagination of search results.
 
 Most validation goes through the shared ``_validate_dict_payload``
 helper, so the error responses have the structured
@@ -28,7 +28,7 @@ from voice_typer.server import event_bus
 
 
 class TestGetHistory:
-    """``_handle_get_history`` — bounded limit/offset pagination."""
+    """``_handle_get_history``, bounded limit/offset pagination."""
 
     def test_happy_path_returns_history_type(self, ipc_server, fake_service):
         fake_service.get_history.return_value = [{"id": 1, "text": "hello"}]
@@ -47,7 +47,7 @@ class TestGetHistory:
     def test_huge_limit_is_clamped_to_max(self, ipc_server, fake_service):
         """SEC-010: ``limit > 500`` is clamped to 500 (DoS protection).
 
-        The handler doesn't reject the request — it silently clamps
+        The handler doesn't reject the request, it silently clamps
         so a misbehaving caller gets a valid (but bounded) response.
         """
         resp = ipc_server._handle_get_history({"limit": 1000000}, {})
@@ -68,7 +68,7 @@ class TestGetHistory:
 
 
 class TestGetTodayStats:
-    """``_handle_get_today_stats`` — returns today's stats dict."""
+    """``_handle_get_today_stats``, returns today's stats dict."""
 
     def test_happy_path_returns_today_stats(self, ipc_server, fake_service):
         fake_service.get_today_stats.return_value = {"count": 5, "chars": 250}
@@ -86,7 +86,7 @@ class TestGetTodayStats:
 
 
 class TestDeleteHistory:
-    """``_handle_delete_history`` — validates ``id``, deletes, broadcasts."""
+    """``_handle_delete_history``, validates ``id``, deletes, broadcasts."""
 
     def test_happy_path_returns_ack_and_broadcasts_history_changed(self, ipc_server, fake_service):
         captured: list[dict] = []
@@ -119,7 +119,7 @@ class TestDeleteHistory:
         fake_service.delete_history.assert_not_called()
 
     def test_string_id_is_accepted(self, ipc_server, fake_service):
-        """The schema declares ``id: (int, str)`` — string IDs are valid.
+        """The schema declares ``id: (int, str)``, string IDs are valid.
 
         HistoryDB row IDs are ints, but the renderer sometimes sends
         them as strings (form inputs).  The handler accepts both.
@@ -130,7 +130,7 @@ class TestDeleteHistory:
 
 
 class TestRestoreHistory:
-    """``_handle_restore_history`` — re-inserts a previously-deleted record."""
+    """``_handle_restore_history``, re-inserts a previously-deleted record."""
 
     def test_happy_path_returns_ack_with_new_id(self, ipc_server, fake_service):
         fake_service.restore_history.return_value = 99
@@ -147,7 +147,7 @@ class TestRestoreHistory:
         assert resp["data"]["field"] == "record"
 
     def test_non_dict_record_returns_invalid_field_error(self, ipc_server, fake_service):
-        """``record`` must be a dict — the schema rejects ints/strings/lists."""
+        """``record`` must be a dict, the schema rejects ints/strings/lists."""
         resp = ipc_server._handle_restore_history({"record": "not-a-dict"}, {})
         assert resp["type"] == "error"
         assert resp["data"]["code"] == "client.invalid_field"
@@ -155,7 +155,7 @@ class TestRestoreHistory:
 
 
 class TestClearHistory:
-    """``_handle_clear_history`` — clears all rows, broadcasts event."""
+    """``_handle_clear_history``, clears all rows, broadcasts event."""
 
     def test_happy_path_returns_ack_and_broadcasts_cleared(self, ipc_server, fake_service):
         captured: list[dict] = []
@@ -181,7 +181,7 @@ class TestClearHistory:
 
 
 class TestToggleFavorite:
-    """``_handle_toggle_favorite`` — validates ``id``, toggles fav flag."""
+    """``_handle_toggle_favorite``, validates ``id``, toggles fav flag."""
 
     def test_happy_path_returns_ack_with_new_favorite_value(self, ipc_server, fake_service):
         fake_service.toggle_favorite.return_value = True
@@ -198,7 +198,7 @@ class TestToggleFavorite:
 
 
 class TestGetFavorites:
-    """``_handle_get_favorites`` — bounded pagination of favorites only."""
+    """``_handle_get_favorites``, bounded pagination of favorites only."""
 
     def test_happy_path_returns_history_type_with_favorites(self, ipc_server, fake_service):
         fake_service.get_favorites.return_value = [{"id": 1, "text": "fav", "favorite": 1}]
@@ -213,7 +213,7 @@ class TestGetFavorites:
 
 
 class TestSearchHistory:
-    """``_handle_search_history`` — bounded pagination of search results."""
+    """``_handle_search_history``, bounded pagination of search results."""
 
     def test_happy_path_returns_history_type_with_results(self, ipc_server, fake_service):
         fake_service.search_history.return_value = [{"id": 1, "text": "match"}]
@@ -334,7 +334,7 @@ class TestHistoryKeysetCursor:
         self, ipc_server, fake_service, handler_name, service_method, base_payload, positional_args
     ):
         """``before_id: true`` is rejected by the schema's ``reject_bool``
-        rule (bool subclasses int) — invalid-field on ``before_id``."""
+        rule (bool subclasses int), invalid-field on ``before_id``."""
         service = getattr(fake_service, service_method)
         payload = {**base_payload, "before_timestamp": _CURSOR_TIMESTAMP, "before_id": True}
 

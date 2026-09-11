@@ -96,7 +96,7 @@ describe("DJ-89: usePythonEvent shared dispatcher", () => {
 		renderHook(() => usePythonEvent("mic_level", () => undefined));
 
 		// Despite 5 usePythonEvent callers, `api.onEvent` is
-		// called exactly ONCE — the dispatcher holds a single
+		// called exactly ONCE, the dispatcher holds a single
 		// shared subscription.
 		expect(mock.onEvent).toHaveBeenCalledTimes(1);
 	});
@@ -190,7 +190,7 @@ describe("DJ-89: usePythonEvent shared dispatcher", () => {
 		};
 		(window as unknown as { python: PythonBridgeMock }).python = newMock;
 
-		// Mount a new subscriber — the dispatcher detects the
+		// Mount a new subscriber, the dispatcher detects the
 		// instance change, tears down the old subscription, and
 		// re-subscribes to the new mock.
 		renderHook(() => usePythonEvent("transcription_final", () => undefined));
@@ -215,12 +215,12 @@ describe("DJ-89: usePythonEvent shared dispatcher", () => {
 
 		renderHook(() => usePythonEvent("status_change", handler));
 
-		// First event — handler runs, returns cleanup.
+		// First event, handler runs, returns cleanup.
 		captured.cb?.({ type: "status_change", data: { status: "idle" } });
 		expect(handler).toHaveBeenCalledTimes(1);
 		expect(cleanupFn).not.toHaveBeenCalled();
 
-		// Second event — cleanup from the first invocation is
+		// Second event, cleanup from the first invocation is
 		// run BEFORE the handler.
 		captured.cb?.({ type: "status_change", data: { status: "recording" } });
 		expect(cleanupFn).toHaveBeenCalledTimes(1);
@@ -241,7 +241,7 @@ describe("DJ-89: usePythonEvent shared dispatcher", () => {
 		captured.cb?.({ type: "status_change", data: { status: "idle" } });
 		expect(cleanupFn).not.toHaveBeenCalled();
 
-		// Unmount — the most recent cleanup is invoked.
+		// Unmount, the most recent cleanup is invoked.
 		unmount();
 		expect(cleanupFn).toHaveBeenCalledTimes(1);
 	});
@@ -259,7 +259,7 @@ describe("DJ-89: usePythonEvent shared dispatcher", () => {
 
 		renderHook(() => usePythonEvent("status_change", throwingHandler));
 
-		// First event — handler throws.
+		// First event, handler throws.
 		expect(() =>
 			captured.cb?.({ type: "status_change", data: { status: "idle" } }),
 		).not.toThrow();
@@ -269,7 +269,7 @@ describe("DJ-89: usePythonEvent shared dispatcher", () => {
 			err,
 		);
 
-		// Second event — dispatcher still dispatches (the
+		// Second event, dispatcher still dispatches (the
 		// throwing handler didn't kill the subscription).
 		captured.cb?.({ type: "status_change", data: { status: "recording" } });
 		expect(throwingHandler).toHaveBeenCalledTimes(2);
@@ -290,7 +290,7 @@ describe("DJ-89: usePythonEvent shared dispatcher", () => {
 
 		expect(mock.onEvent).toHaveBeenCalledTimes(1);
 
-		// Re-render with a new handler identity — the
+		// Re-render with a new handler identity, the
 		// dispatcher must NOT re-subscribe (handlerRef indirection).
 		rerender({ h: handler2 });
 		expect(mock.onEvent).toHaveBeenCalledTimes(1);

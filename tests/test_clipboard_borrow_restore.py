@@ -8,19 +8,19 @@ touching the real clipboard.
 
 ADR-0010 design principles covered here:
 
-* DP1 — every borrow is paired with a restore (``test_paste_schedules_
+* DP1, every borrow is paired with a restore (``test_paste_schedules_
   restore_thread``).
-* DP2 — ``restore_now`` restores even when no paste is sent.
-* DP3 — restore runs on a daemon thread.
-* DP4 — snapshots are passed as values, not stored as instance state.
-* DP7 — ``clipboard_save_restore`` flag actually gates capture.
+* DP2: ``restore_now`` restores even when no paste is sent.
+* DP3, restore runs on a daemon thread.
+* DP4, snapshots are passed as values, not stored as instance state.
+* DP7: ``clipboard_save_restore`` flag actually gates capture.
 
 The fixture below constructs a ``ClipboardManager`` directly via
 ``ClipboardManager.__new__`` so we can set the cached config flags
 without paying the pynput-import cost. ``DISPLAY`` is set to ``:99``
 (Xvfb is running) and ``WAYLAND_DISPLAY`` is popped from the
 environment (per-test via the autouse ``_mock_display_env`` fixture
-below — see XS-22) so any incidental pynput usage doesn't crash the
+below: see XS-22) so any incidental pynput usage doesn't crash the
 suite.
 """
 
@@ -32,7 +32,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 # pynput / pynput.keyboard / pyperclip are mocked at collection time by
-# tests/clipboard/conftest.py (single source of truth —  dedup).
+# tests/clipboard/conftest.py (single source of truth, dedup).
 from voice_typer.server import clipboard as clip_mod  # noqa: E402
 from voice_typer.server.clipboard import (  # noqa: E402
     ClipboardCopyError,
@@ -70,7 +70,7 @@ def _mock_display_env(monkeypatch):
 
 
 # ===========================================================================
-# copy() — snapshot capture paths (ADR-0010 §5.2)
+# copy(), snapshot capture paths (ADR-0010 §5.2)
 # ===========================================================================
 
 
@@ -155,7 +155,7 @@ class TestCopySnapshotCapture:
 
 
 # ===========================================================================
-# paste() — restore scheduling and gates (ADR-0010 §5.3)
+# paste(), restore scheduling and gates (ADR-0010 §5.3)
 # ===========================================================================
 
 
@@ -239,7 +239,7 @@ class TestPasteRestoreScheduling:
 
 
 # ===========================================================================
-# restore_now() — immediate restore without paste (ADR-0010 §5.4 / DP2)
+# restore_now(), immediate restore without paste (ADR-0010 §5.4 / DP2)
 # ===========================================================================
 
 
@@ -263,7 +263,7 @@ class TestRestoreNow:
 
 
 # ===========================================================================
-# _delayed_restore() — daemon-thread restore (ADR-0010 §5.3 / DP3)
+# _delayed_restore(), daemon-thread restore (ADR-0010 §5.3 / DP3)
 # ===========================================================================
 
 
@@ -311,7 +311,7 @@ class TestDelayedRestore:
         raising ``TypeError``.
 
         The original  bug was that the production signature was
-        3-arg while the call site passed 4 — the daemon thread died
+        3-arg while the call site passed 4, the daemon thread died
         immediately on every ``paste()`` invocation, silently breaking
         clipboard restore. The fix added ``pending_entry: Any = None``
         to the signature.
@@ -341,7 +341,7 @@ class TestDelayedRestore:
         assert len(positional_params) >= 4, (
             " regression: _delayed_restore must accept 4 "
             "positional args (self, snapshot, pasted_text, delay, "
-            "pending_entry) — paste() spawns the thread with "
+            "pending_entry), paste() spawns the thread with "
             "args=(snapshot, expected, delay, _pending_entry). "
             f"Got {len(positional_params)} positional params: "
             f"{list(sig.parameters)}"
@@ -362,12 +362,12 @@ class TestDelayedRestore:
             patch.object(clip_mod, "log"),
         ):
             mock_time.sleep = MagicMock()
-            # Must not raise TypeError — the original bug.
+            # Must not raise TypeError, the original bug.
             cm._delayed_restore(snap, "original text", 0.0, pending_entry)
 
 
 # ===========================================================================
-# refresh_config() — sync cached flags from runtime config (ADR-0010 §5.5)
+# refresh_config(), sync cached flags from runtime config (ADR-0010 §5.5)
 # ===========================================================================
 
 

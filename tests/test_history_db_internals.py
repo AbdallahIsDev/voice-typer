@@ -114,7 +114,7 @@ class TestGcCloseReadConnections:
         assert instance._connections_lock.acquire(blocking=False)
         try:
             lifecycle.gc_close_read_connections(instance)
-            # sweep skipped (lock held elsewhere) — connection untouched
+            # sweep skipped (lock held elsewhere), connection untouched
             tracked.execute("SELECT 1")
             assert instance._all_read_connections != []
         finally:

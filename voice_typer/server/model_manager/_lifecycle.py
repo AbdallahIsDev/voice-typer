@@ -13,17 +13,17 @@ log = logging.getLogger("voice_typer.server.model_manager")
 
 class LifecycleMixin:
     # Persistent idle-unload scheduler state (RACE-013 pattern, mirroring
-    # the transcription watchdog). Annotations only — no values — so no
+    # the transcription watchdog). Annotations only, no values, so no
     # runtime attribute is created and the composed ModelManager's MRO is
     # unaffected (same pattern as ``LoadingMixin``'s members in
     # ``_loading.py``). All three are created lazily under
     # ``_idle_unload_lock`` by ``_schedule_idle_unload_timer`` (the
     # scheduler does not exist until the feature is first armed):
-    #   * ``_idle_unload_deadline`` — monotonic timestamp the scheduler
+    #   * ``_idle_unload_deadline``: monotonic timestamp the scheduler
     #     fires at (``None`` = disarmed / parked).
-    #   * ``_idle_unload_wakeup``   — Event set whenever the deadline
+    #   * ``_idle_unload_wakeup``  : Event set whenever the deadline
     #     changes (touch / cancel) so the loop recomputes its wait.
-    #   * ``_idle_unload_thread``   — the ONE persistent daemon thread.
+    #   * ``_idle_unload_thread``  : the ONE persistent daemon thread.
     _idle_unload_deadline: float | None
     _idle_unload_wakeup: threading.Event
     _idle_unload_thread: threading.Thread | None
@@ -51,7 +51,7 @@ class LifecycleMixin:
             # is typed as returning ``float | None`` (because callers
             # may pass a key that isn't present), but ``min(key=...)``
             # requires a function returning ``SupportsRichComparison``
-            # — pyrefly rejects ``None`` as not orderable. The lambda
+            # , pyrefly rejects ``None`` as not orderable. The lambda
             # resolves this by giving an explicit ``0.0`` default that
             # can never actually be returned here (every key in
             # ``_model_access_times`` has a real ``float`` value), but
@@ -62,7 +62,7 @@ class LifecycleMixin:
             )
             oldest_time = self._model_access_times[oldest_backend]
             log.info(
-                "[PERF] Evicting LRU model '%s' (last used %.1fs ago) — %d models loaded, max is %d",
+                "[PERF] Evicting LRU model '%s' (last used %.1fs ago), %d models loaded, max is %d",
                 oldest_backend,
                 time.monotonic() - oldest_time,
                 len(self._model_access_times),
@@ -92,7 +92,7 @@ class LifecycleMixin:
                     exc,
                     exc_info=True,
                 )
-            # Deliberate unload — the evicted model was loaded and is
+            # Deliberate unload, the evicted model was loaded and is
             # on disk; the last-resort tray notification must NOT tell
             # the user to download it. Marked AFTER the busy-check so a
             # skipped eviction (busy backend) does not leave a stale
@@ -115,7 +115,7 @@ class LifecycleMixin:
                     exc_info=True,
                 )
             # Release GPU memory (CUDA caching allocator blocks).
-            # Defense in depth — mirrors ``_do_idle_unload``
+            # Defense in depth, mirrors ``_do_idle_unload``
             # (lines ~1996-1998) and ``force_unload_active``
             # (lines ~2115-2117): without this, the freed CUDA tensors
             # stay in PyTorch's caching allocator and the VRAM is not
@@ -144,7 +144,7 @@ class LifecycleMixin:
         ``model_idle_unload_minutes > 0``, (re)arm the idle-unload
         deadline. Touching an inactive backend (e.g. via ``touch_model``
         on a non-active name during a load path) does NOT arm the
-        deadline — the scheduler is only for the active backend.
+        deadline, the scheduler is only for the active backend.
         """
         import time
 
@@ -172,12 +172,12 @@ class LifecycleMixin:
         the one evicted on the next ``load_active`` / ``load_with_fallback``).
 
         Wired into ``DictationPipeline._transcribe``
-        (``voice_typer/server/dictation_pipeline.py:636``) — called after
+        (``voice_typer/server/dictation_pipeline.py:636``), called after
         every successful ``transcribe()`` so the LRU tracking added in
          (``touch_model`` after load) has a matching "after
         transcribe" entry point.
 
-        Safe to call when no backend is active — ``touch_model`` is a
+        Safe to call when no backend is active, ``touch_model`` is a
         no-op for unknown backend names (it just records the timestamp;
         eviction only considers names that were touched).
 
@@ -203,20 +203,20 @@ class LifecycleMixin:
         - ``ensure_active_engine_loaded`` (user pressed toggle_dictation)
         - ``change_model`` / ``set_active_backend`` (model swap)
         - ``_schedule_idle_unload_timer`` (feature disabled at runtime)
-        - ``app.shutdown`` paths (best-effort — the daemon scheduler
+        - ``app.shutdown`` paths (best-effort, the daemon scheduler
           thread is killed implicitly by process exit too).
 
-        The persistent scheduler thread is NOT torn down here — it
+        The persistent scheduler thread is NOT torn down here, it
         parks on the wake Event until the next arm. Tearing it down per
         cancel would re-create a thread on every dictation cycle
         (``ensure_active_engine_loaded`` cancels on toggle_dictation,
-        ``touch_active_model`` re-arms after every transcribe) — exactly
+        ``touch_active_model`` re-arms after every transcribe), exactly
         the per-dictation Timer churn this mechanism replaced.
 
         Defensive against test fixtures that construct
         ``ModelManager.__new__(ModelManager)`` and bypass ``__init__``
         (so ``_idle_unload_lock`` may not be set). In that case the
-        method is a no-op (there is no deadline to disarm — the fixture
+        method is a no-op (there is no deadline to disarm, the fixture
         never armed one).
         """
         lock = getattr(self, "_idle_unload_lock", None)
@@ -242,14 +242,14 @@ class LifecycleMixin:
 
         RACE-013 pattern (mirrors the transcription watchdog): ONE
         persistent daemon thread owns the firing decision. A touch just
-        moves the monotonic deadline and sets the wake Event — no
+        moves the monotonic deadline and sets the wake Event, no
         ``threading.Timer`` (and no timer thread) is created per
         dictation, no CPython-internals ``timer.function`` mutation, and
         the old timer-identity race guard is replaced by a deadline
         re-confirmation under the lock at expiry (a touch that moved the
         deadline always wins over the firing).
 
-        Defensive against test fixtures that bypass ``__init__`` — if
+        Defensive against test fixtures that bypass ``__init__``, if
         ``_idle_unload_lock`` is missing, the method is a no-op.
         """
         lock = getattr(self, "_idle_unload_lock", None)
@@ -260,13 +260,13 @@ class LifecycleMixin:
         except Exception:
             minutes = 0
         if not isinstance(minutes, int | float) or minutes <= 0:
-            # Feature disabled — disarm any pending deadline.
+            # Feature disabled, disarm any pending deadline.
             self.cancel_idle_unload_timer()
             return
         delay = float(minutes) * 60.0
         with lock:
             # Push the deadline out to N minutes after THIS touch (not
-            # the previous one) — the "use it or lose it" pattern.
+            # the previous one), the "use it or lose it" pattern.
             self._idle_unload_deadline = time.monotonic() + delay
             wake = getattr(self, "_idle_unload_wakeup", None)
             if wake is None:
@@ -299,7 +299,7 @@ class LifecycleMixin:
         Ordering note: the Event is cleared BEFORE the deadline is read
         under the lock, so a wake signal raised between the two is
         either already visible via the set event on the next wait or via
-        the freshly-read deadline — no lost wakeup.
+        the freshly-read deadline, no lost wakeup.
         """
         wake = self._idle_unload_wakeup
         lock = self._idle_unload_lock
@@ -308,12 +308,12 @@ class LifecycleMixin:
             with lock:
                 deadline = self._idle_unload_deadline
             if deadline is None:
-                # Disarmed — park until the next arm/cancel wakes us.
+                # Disarmed, park until the next arm/cancel wakes us.
                 wake.wait()
                 continue
             remaining = deadline - time.monotonic()
             if remaining > 0 and wake.wait(timeout=remaining):
-                # Woken early — a touch or cancel moved the deadline;
+                # Woken early, a touch or cancel moved the deadline;
                 # loop back and recompute the wait from the new value.
                 continue
             # Deadline reached (or already past). Re-confirm under the
@@ -329,13 +329,13 @@ class LifecycleMixin:
             try:
                 self._do_idle_unload()
             except Exception:
-                # The loop must survive an unload failure — a dead
+                # The loop must survive an unload failure, a dead
                 # scheduler thread would silently disable the idle-unload
                 # feature for the rest of the process. (``_do_idle_unload``
                 # defends itself internally; this guards its callers'
                 # bookkeeping, e.g. ``_mark_deliberately_unloaded``.)
                 log.error(
-                    "[MODEL] idle-unload raised — scheduler continues",
+                    "[MODEL] idle-unload raised, scheduler continues",
                     exc_info=True,
                 )
             # Loop back: deadline is None → park until the next touch.
@@ -351,11 +351,11 @@ class LifecycleMixin:
         After unloading, calls ``release_gpu_memory()`` to release
         PyTorch's CUDA caching allocator blocks back to the OS, then
         sets the tray state to ``AppState.IDLE`` with the
-        "Idle — model unloaded" message so the user sees the tray
+        "Idle, model unloaded" message so the user sees the tray
         transition. The model is reloaded on the next
         ``toggle_dictation`` via ``ensure_active_engine_loaded``.
         """
-        # Skip if shutting down — don't race with teardown.
+        # Skip if shutting down, don't race with teardown.
         if getattr(self._app, "_shutting_down", False):
             log.debug("[MODEL] idle-unload skipped (app shutting down)")
             return
@@ -376,7 +376,7 @@ class LifecycleMixin:
             "[MODEL] idle-unload: unloading active backend '%s' after idle period",
             active_name,
         )
-        # Deliberate unload — the model IS on disk, so the last-resort
+        # Deliberate unload, the model IS on disk, so the last-resort
         # tray notification ("open the Models page and download") must
         # NOT fire for it. Record BEFORE the unload so a get_active
         # last-resort fall-through during the unload is also suppressed.
@@ -403,7 +403,7 @@ class LifecycleMixin:
                 exc_info=True,
             )
         # Release GPU memory (CUDA caching allocator blocks). Defense
-        # in depth — parakeet_engine.unload() also calls this, but the
+        # in depth, parakeet_engine.unload() also calls this, but the
         # ModelManager calls it explicitly too so a registry impl that
         # doesn't propagate unload still releases VRAM.
         try:
@@ -421,11 +421,11 @@ class LifecycleMixin:
                 "[MODEL] release_gpu_memory() failed (non-fatal)",
                 exc_info=True,
             )
-        # Tray state transition: "Idle — model unloaded" (reuses
+        # Tray state transition: "Idle, model unloaded" (reuses
         # AppState.IDLE per the  constraint of not touching
-        # tray.py / tray_types.py — no new enum value).
+        # tray.py / tray_types.py, no new enum value).
         try:
-            self._app.tray.set_state(AppState.IDLE, "Idle — model unloaded")
+            self._app.tray.set_state(AppState.IDLE, "Idle, model unloaded")
         except Exception:
             log.debug(
                 "[MODEL] tray.set_state failed (non-fatal)",
@@ -452,7 +452,7 @@ class LifecycleMixin:
 
         Contract:
 
-        * **Idempotent.** Safe to call multiple times — each call is a
+        * **Idempotent.** Safe to call multiple times, each call is a
           no-op once the slot is dropped.
 
         * **Best-effort.** Catches every exception, logs a warning, and
@@ -468,14 +468,14 @@ class LifecycleMixin:
           ``get``/``get_active`` cannot hand out the stuck instance and
           ``_ensure_engine``'s "already registered" short-circuit does
           not reuse it. Unlike ``registry.unload``, this bypasses the
-          busy guard deliberately — the busy flag here means "a thread
+          busy guard deliberately, the busy flag here means "a thread
           is trapped inside the object", which is exactly why the object
           must be orphaned, not freed.
 
         * **Releases GPU cache.** ``release_gpu_memory()`` returns
           PyTorch's free caching-allocator blocks to the OS (allocated
           tensors of the orphaned engine are untouched until GC reclaims
-          it — matches the LRU-eviction / idle-unload defence-in-depth).
+          it, matches the LRU-eviction / idle-unload defence-in-depth).
 
         * **Clears the busy flag.** Calls
           :meth:`AsrBackendRegistry.force_clear_busy` so the next
@@ -495,8 +495,8 @@ class LifecycleMixin:
 
         * **Does NOT call ``tray.set_state``.** The watchdog has
           already set the tray to ``AppState.IDLE`` with the
-          "recovered" message — we don't want to overwrite that with
-          the  "Idle — model unloaded" message (which would
+          "recovered" message, we don't want to overwrite that with
+          the  "Idle, model unloaded" message (which would
           confuse the user, since the recovery message is more
           specific).
         """
@@ -508,12 +508,12 @@ class LifecycleMixin:
             "[MODEL] force_unload_active: ejecting active backend %r (watchdog escalation after stuck transcription)",
             active_name,
         )
-        # Deliberate unload — the model IS on disk (it was loaded and
+        # Deliberate unload, the model IS on disk (it was loaded and
         # got stuck); the last-resort tray notification must NOT tell
         # the user to download it.
         self._mark_deliberately_unloaded(active_name)
         # Drop the registry slot WITHOUT calling unload() on the engine
-        # object — the stuck worker may still be inside its C-level
+        # object, the stuck worker may still be inside its C-level
         # call, and destroying the object under it would crash with
         # use-after-free. The next _ensure_engine constructs a fresh
         # instance because the slot is gone.
@@ -526,7 +526,7 @@ class LifecycleMixin:
                 exc_info=True,
             )
         # Release GPU memory (CUDA caching allocator blocks). Free
-        # cached blocks only — allocated tensors of the orphaned engine
+        # cached blocks only, allocated tensors of the orphaned engine
         # stay valid for the stuck thread.
         try:
             from voice_typer.server.asr_utils import release_gpu_memory

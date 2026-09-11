@@ -14,7 +14,7 @@
 //   2. The typed ``PythonCall`` overload (the first of two overloads
 //      declared on the ``PythonCall`` type in ``hooks/usePython.ts``)
 //      is intact. The check uses ``@ts-expect-error`` on a call that
-//      passes spurious data to a bare (no-data) command — the typed
+//      passes spurious data to a bare (no-data) command, the typed
 //      overload rejects it (``data?: undefined`` for ``get_config``);
 //      if the typed overload is removed, the string fallback accepts
 //      the call, the ``@ts-expect-error`` becomes unused, and tsc
@@ -24,7 +24,7 @@
 // permissive ``data?: Record<string, unknown>`` shape is intentionally
 // loose). Tightening individual interfaces to bare or stricter shapes
 // is tracked separately under the Python-side ``PushEventType`` enum
-// plan (out of lane for the renderer-only slice — see review.md
+// plan (out of lane for the renderer-only slice, see review.md
 // (Python-side plan).
 
 import { describe, expect, expectTypeOf, it } from "vitest";
@@ -35,7 +35,7 @@ import type { PythonRequest } from "@/types/ipc/requests";
 // ── Section 1: union coverage ───────────────────────────────────────
 //
 // ``Partial<Record<PythonRequest["type"], true>>`` allows the union to
-// grow without forcing this object to enumerate every member — but if
+// grow without forcing this object to enumerate every member, but if
 // a key listed here is NOT in the union, the ``satisfies`` check fails
 // compile. This is the "renderer-called commands ⊆ PythonRequest"
 // invariant.
@@ -54,11 +54,11 @@ const _RENDERER_CALLED_COMMANDS = {
 	get_today_stats: true,
 	get_vocabulary: true,
 	save_vocabulary: true,
-	// Per-entry "Test this entry" — the row action runs the entry's
+	// Per-entry "Test this entry", the row action runs the entry's
 	// wrong phrase through the LIVE backend engine (the standalone
 	// free-text panel was removed).
 	test_vocabulary_correction: true,
-	// per-correction usage snapshot — the Vocabulary page fetches it
+	// per-correction usage snapshot, the Vocabulary page fetches it
 	// to show "used Nx / last triggered" per entry.
 	get_correction_usage: true,
 	get_history_count: true,
@@ -83,7 +83,7 @@ const _RENDERER_CALLED_COMMANDS = {
 	// the call-site survey).
 	cancel_model_download: true,
 	force_cancel_transcription: true,
-	// phantom ``get_disk_info`` removed — the
+	// phantom ``get_disk_info`` removed, the
 	// ``useModelFolder`` probe that called it was dead (command
 	// not registered in ``_COMMAND_REGISTRY`` nor allowed through
 	// ``ALLOWED_COMMANDS``); the probe has been deleted from the
@@ -96,7 +96,7 @@ const _RENDERER_CALLED_COMMANDS = {
 	microphone_test_cancel: true,
 	microphone_test_stop: true,
 	microphone_test_read_audio: true,
-	// phantom ``models_folder_supported`` removed — same
+	// phantom ``models_folder_supported`` removed, same
 	// reason as ``get_disk_info`` above.
 	onboarding_apply: true,
 	onboarding_get_microphones: true,
@@ -108,7 +108,7 @@ const _RENDERER_CALLED_COMMANDS = {
 	onboarding_set_model: true,
 	onboarding_skip: true,
 	onboarding_start: true,
-	// phantom ``open_models_folder`` removed — same
+	// phantom ``open_models_folder`` removed, same
 	// reason as ``get_disk_info`` above.
 	pause_model_download: true,
 	repaste_last: true,
@@ -116,7 +116,7 @@ const _RENDERER_CALLED_COMMANDS = {
 	resume_model_download: true,
 	save_templates: true,
 	undo_last: true,
-	// 12 missing commands added — these ARE in the
+	// 12 missing commands added, these ARE in the
 	// Python ``_COMMAND_REGISTRY`` AND the renderer allowlist
 	// AND are invoked from renderer code (see review.md
 	// for the per-command call-site survey).
@@ -140,7 +140,7 @@ const _RENDERER_CALLED_COMMANDS = {
 	// renderer code can call it with type narrowing) and in
 	// ``_SERVER_REGISTRY_MINUS_PYTHON_ONLY`` (so the
 	// ``PythonRequest["type"] ⊆ server_registry`` guard
-	// passes) — but it's not in this map because no
+	// passes), but it's not in this map because no
 	// ``call<...>("add_trusted_endpoint")`` site exists yet.
 	// When a future renderer feature wires it up, add it here
 	// so the ``RENDERER_CALLED_COMMANDS ⊆ PythonRequest["type"]``
@@ -152,7 +152,7 @@ const _RENDERER_CALLED_COMMANDS = {
 // ``_SERVER_REGISTRY_MINUS_PYTHON_ONLY`` is a static mirror of
 // every command registered in the Python ``_COMMAND_REGISTRY``
 // (``voice_typer/server/ipc/registry.py``) MINUS the entries in
-// ``_PYTHON_ONLY_COMMANDS`` (``{"shutdown", "tray_click"}`` — host-
+// ``_PYTHON_ONLY_COMMANDS`` (``{"shutdown", "tray_click"}``, host-
 // internal commands the renderer never invokes). The list was
 // compiled by reading the canonical registry file and is kept in
 // sync manually: if a future Python-side change adds or removes a
@@ -198,7 +198,7 @@ const _SERVER_REGISTRY_MINUS_PYTHON_ONLY = {
 	restart_app: true,
 	quit_app: true,
 	// NOTE: ``shutdown`` and ``tray_click`` are intentionally
-	// ABSENT — they're the ``_PYTHON_ONLY_COMMANDS`` exclusions
+	// ABSENT, they're the ``_PYTHON_ONLY_COMMANDS`` exclusions
 	// (host-internal, never renderer-invoked).
 	onboarding_is_first_run: true,
 	onboarding_start: true,
@@ -242,13 +242,13 @@ const _SERVER_REGISTRY_MINUS_PYTHON_ONLY = {
 	force_cancel_transcription: true,
 	transcribe_offline: true,
 	check_offline_pack_update: true, // auto-update feature (docs/auto-update-feature.md)
-	get_prewarm_status: true, // RESTORED 2026-08-14 (About-page Cache Status card — plan §6.3)
-	open_prewarm_log: true, // RESTORED 2026-08-14 (About-page Cache Status card — plan §6.3)
-	run_prewarm: true, // RESTORED 2026-08-14 (§6.3 addendum 2nd half — in-process warm pass)
+	get_prewarm_status: true, // RESTORED 2026-08-14 (About-page Cache Status card, plan §6.3)
+	open_prewarm_log: true, // RESTORED 2026-08-14 (About-page Cache Status card, plan §6.3)
+	run_prewarm: true, // RESTORED 2026-08-14 (§6.3 addendum 2nd half, in-process warm pass)
 	heartbeat: true,
 	relaunch_ack: true,
 	// NOTE: ``tray_click`` and ``shutdown`` are intentionally
-	// absent — they're ``_PYTHON_ONLY_COMMANDS`` exclusions.
+	// absent, they're ``_PYTHON_ONLY_COMMANDS`` exclusions.
 } satisfies Record<string, true>;
 
 // Compile-time guard: every ``PythonRequest["type"]`` literal must
@@ -290,11 +290,11 @@ const _typoCmdNotInUnion: TypoCmdGuard = false;
 // Direct ``@ts-expect-error`` calls on ``PythonCall`` can't pin the
 // typed overload's narrowing power because TypeScript falls through to
 // the string fallback overload (which accepts any
-// ``Record<string, unknown>``) when the typed overload rejects — so a
+// ``Record<string, unknown>``) when the typed overload rejects, so a
 // spurious-data call on ``PythonCall`` never actually errors at the
 // type level, and the ``@ts-expect-error`` is reported as unused
 // (TS2578). Instead, we instantiate the typed overload's signature
-// with ``K = "get_config"`` (a bare command — ``GetConfigRequest`` has
+// with ``K = "get_config"`` (a bare command, ``GetConfigRequest`` has
 // no ``data`` field) and use ``expectTypeOf`` to assert the ``data``
 // parameter resolves to ``undefined``. If the typed overload's
 // conditional ``data?`` type is removed or replaced with a permissive
@@ -306,7 +306,7 @@ const _typoCmdNotInUnion: TypoCmdGuard = false;
 // instantiating the typed overload's full conditional type with
 // ``K = "get_config"``, which would trigger TS2538 when TypeScript
 // eagerly evaluates the conditional's true branch
-// ``GetConfigRequest["data"]`` — an invalid index access on a type
+// ``GetConfigRequest["data"]``, an invalid index access on a type
 // with no ``data`` field). If a refactor adds a ``data`` field to
 // ``GetConfigRequest``, ``GetConfigHasData`` flips to ``true`` and
 // the ``expectTypeOf`` assertion below fails compile.
@@ -325,7 +325,7 @@ const _sampleCall: PythonCall = (async (
 }) as PythonCall;
 
 async function _exerciseTypedOverload(): Promise<void> {
-	// Bare (no-data) commands — the typed overload accepts the
+	// Bare (no-data) commands, the typed overload accepts the
 	// call without a ``data`` arg.
 	await _sampleCall("undo_last");
 	await _sampleCall("onboarding_apply");

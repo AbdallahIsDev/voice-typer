@@ -70,7 +70,7 @@ def test_repeat_call_does_not_duplicate_info(caplog, _fake_model):
 
 
 def test_lazy_load_path_no_longer_logs_info(caplog, _fake_model):
-    """``_load_model()`` demoted to DEBUG — the merged preload line is
+    """``_load_model()`` demoted to DEBUG, the merged preload line is
     the single INFO marker, so a plain load must not emit one."""
     with caplog.at_level(logging.DEBUG, logger=vad.log.name):
         session, _names = vad._load_model()

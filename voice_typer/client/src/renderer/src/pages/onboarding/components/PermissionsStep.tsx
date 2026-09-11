@@ -50,7 +50,7 @@ export function PermissionsStep({
 						<span>{t("onboarding.permissionsLoading")}</span>
 					</div>
 				)}
-				{/* : probe-failure branch — distinct from
+				{/* : probe-failure branch, distinct from
 					the "no permission needed" happy path. The server-side
 					probe can fail (e.g. the `check_keyboard_permission`
 					import fails) and previously the renderer fell through to
@@ -106,7 +106,7 @@ export function PermissionsStep({
 						</p>
 					))}
 			</div>
-			{/* : refresh-permission button — re-probes after granting. */}
+			{/* : refresh-permission button, re-probes after granting. */}
 			{permissionsResult?.needed === true && !permissionsLoading && (
 				<div>
 					<Button

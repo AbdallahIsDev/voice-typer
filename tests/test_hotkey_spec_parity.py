@@ -6,13 +6,13 @@ multi-key handling. (Hotkey parser unification) introduced
 ``voice_typer/server/hotkey_spec.py`` as the SINGLE CANONICAL parser
 and updated the four legacy parsers to delegate to it:
 
-1. ``_parse_hotkey_parts`` in ``config_validators.py`` — returns
+1. ``_parse_hotkey_parts`` in ``config_validators.py``, returns
    ``list[str]`` of canonical tokens.
-2. ``_parse_hotkey_to_pynput`` in ``hotkeys.py`` — returns pynput
+2. ``_parse_hotkey_to_pynput`` in ``hotkeys.py``, returns pynput
    ``Key`` / ``KeyCode`` objects (or a ``(modifiers, target)`` tuple).
-3. ``parse_hotkey_to_win32`` in ``hotkeys.py`` — returns
+3. ``parse_hotkey_to_win32`` in ``hotkeys.py``, returns
    ``(vk, modifiers)`` for Win32 ``RegisterHotKey``.
-4. ``parse_hotkey_spec`` in ``native_hotkeys.py`` — returns a dict
+4. ``parse_hotkey_spec`` in ``native_hotkeys.py``, returns a dict
    with ``modifiers``, ``main_key``, ``is_modifier_only``, etc.
 
 These tests run all four parsers over a corpus of hotkey strings and
@@ -134,7 +134,7 @@ def canonicalise_pynput(result, key) -> tuple[frozenset[str], str | None] | None
     """Canonicalise the output of ``_parse_hotkey_to_pynput``.
 
     Returns ``None`` if the adapter returned ``None`` (unparseable on
-    the current platform — e.g. ``<fn>`` on Linux where pynput has no
+    the current platform, e.g. ``<fn>`` on Linux where pynput has no
     ``Key.fn``).
     """
     if result is None:
@@ -217,7 +217,7 @@ def canonicalise_pynput(result, key) -> tuple[frozenset[str], str | None] | None
                     break
         main_name = _key_to_name(target)
     else:
-        # Single Key/KeyCode — could be a lone modifier or a lone key.
+        # Single Key/KeyCode, could be a lone modifier or a lone key.
         name = _key_to_name(result)
         if name is None:
             return None
@@ -435,7 +435,7 @@ def _spec_contains_fn(hotkey: str) -> bool:
     """True if the hotkey spec includes the Fn modifier.
 
     Used to skip the pynput and win32 adapters for fn-containing specs
-    (both adapters silently drop fn — a documented platform limitation).
+    (both adapters silently drop fn, a documented platform limitation).
     """
     spec = parse_hotkey(hotkey)
     return "fn" in spec.modifiers
@@ -696,7 +696,7 @@ class TestAdapterParity:
         # All non-None results must agree.
         non_none = [(name, r) for name, r in results if r is not None]
         if not non_none:
-            # All adapters returned None — the spec is genuinely empty.
+            # All adapters returned None, the spec is genuinely empty.
             assert expected is None, (
                 f"For {hotkey!r}: all adapters returned None but canonical parser produced {expected!r}"
             )
@@ -799,17 +799,17 @@ class TestEdgeCaseParity:
         This does NOT prohibit:
 
         - Display maps (e.g. ``tray_hotkey._DISPLAY_MAP``) that map
-          canonical names to user-facing display strings — those are
+          canonical names to user-facing display strings, those are
           a separate concern (display, not parsing).
         - Wire-canonical maps (e.g.
           ``native_hotkeys._canonical_modifier_name_for_token``) that
           map spec-side canonical names to wire-side canonical names
-          for cross-platform modifier matching — those are a separate
+          for cross-platform modifier matching, those are a separate
           concern (wire matching, not parsing).
         - Platform-specific collapse tables (e.g. the
           ``_CANONICAL_TO_MODBIT`` dict inside
           ``parse_hotkey_to_win32``) that map canonical names to
-          platform-specific bit flags — those are a separate concern
+          platform-specific bit flags, those are a separate concern
           (platform adaptation, not parsing).
 
         To distinguish a true spec-parsing alias table from these

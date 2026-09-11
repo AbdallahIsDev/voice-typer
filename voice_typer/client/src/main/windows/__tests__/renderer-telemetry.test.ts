@@ -21,7 +21,7 @@
  * inline copy used to run it twice for every ERROR line: once for
  * the forwarded message and once for the persisted line).
  *
- * All logging dependencies are mocked — no real log files, no real
+ * All logging dependencies are mocked, no real log files, no real
  * Electron.
  */
 import fs from "node:fs";
@@ -86,7 +86,7 @@ function setup() {
 	};
 }
 
-describe("registerRendererTelemetry — forwarded log lines (byte-exact)", () => {
+describe("registerRendererTelemetry, forwarded log lines (byte-exact)", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 	});
@@ -151,7 +151,7 @@ describe("registerRendererTelemetry — forwarded log lines (byte-exact)", () =>
 		);
 	});
 
-	it("drops VERBOSE (level 0) — no log call, no cleanConsoleMsg, no persistence", () => {
+	it("drops VERBOSE (level 0), no log call, no cleanConsoleMsg, no persistence", () => {
 		const { emit } = setup();
 		emit({ level: 0, message: "noisy", lineNumber: 1, sourceId: "v.ts" });
 		expect(logSpies.info).not.toHaveBeenCalled();
@@ -173,7 +173,7 @@ describe("registerRendererTelemetry — forwarded log lines (byte-exact)", () =>
 	});
 });
 
-describe("registerRendererTelemetry — ERROR persistence (byte-exact)", () => {
+describe("registerRendererTelemetry, ERROR persistence (byte-exact)", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 	});
@@ -220,7 +220,7 @@ describe("registerRendererTelemetry — ERROR persistence (byte-exact)", () => {
 	});
 });
 
-describe("registerRendererTelemetry — single cleanConsoleMsg pass per event", () => {
+describe("registerRendererTelemetry, single cleanConsoleMsg pass per event", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 	});
@@ -243,7 +243,7 @@ describe("registerRendererTelemetry — single cleanConsoleMsg pass per event", 
 	});
 });
 
-describe("registerRendererTelemetry — delegates to the shared console forwarder", () => {
+describe("registerRendererTelemetry, delegates to the shared console forwarder", () => {
 	it("source: imports and calls attachConsoleForwarder (no inline level-routing copy)", () => {
 		const src = fs.readFileSync(
 			path.resolve(__dirname, "../renderer-telemetry.ts"),
@@ -253,7 +253,7 @@ describe("registerRendererTelemetry — delegates to the shared console forwarde
 			/import\s+\{\s*attachConsoleForwarder\s*\}\s+from\s+["']\.\/bubble\/console-forwarder["']/,
 		);
 		expect(src).toMatch(/attachConsoleForwarder\(\s*win\s*,/);
-		// The duplicated inline forwarding body must be gone — the
+		// The duplicated inline forwarding body must be gone, the
 		// level-routing if/else chain is the shared helper's job now.
 		expect(src).not.toMatch(/if \(level >= 3\) log\.error\(msg\)/);
 		expect(src).not.toMatch(/else if \(level === 2\) log\.warn\(msg\)/);

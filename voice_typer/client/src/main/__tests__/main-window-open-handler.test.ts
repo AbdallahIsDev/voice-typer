@@ -15,7 +15,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// Captured handler instance — set inside the BrowserWindow mock
+// Captured handler instance, set inside the BrowserWindow mock
 // constructor so the test can invoke it directly.
 let capturedOpenHandler:
 	| ((details: { url: string }) => { action: "deny" | "allow" })

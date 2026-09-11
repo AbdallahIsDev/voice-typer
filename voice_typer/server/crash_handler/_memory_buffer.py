@@ -4,7 +4,7 @@ The VEH callback (:func:`voice_typer.server.crash_handler._veh_callback.
 _vectored_handler_impl`) writes only minimal crash metadata (timestamp,
 exception code, address, pid, tid, friendly name) plus the pre-computed
 static header. The actual log records that led up to the crash are NOT
-included — the rotating file log is on disk and would require reading
+included, the rotating file log is on disk and would require reading
 back during the VEH callback, which is unsafe during heap corruption.
 
 This module wires a :class:`logging.handlers.MemoryHandler` (capacity
@@ -17,7 +17,7 @@ buffer; it does NOT emit them to the target on every record (the target
 is only used when the buffer is flushed explicitly).
 
 When the VEH callback fires (after writing the crash-diagnostics body),
-it calls :func:`flush_memory_handler` — a best-effort flush that pushes
+it calls :func:`flush_memory_handler`: a best-effort flush that pushes
 the buffered records into ``voice-typer-crash-buffer.log``. The flush
 is wrapped in ``try/except`` so a failure inside the crashing process
 does not propagate back into the VEH callback.
@@ -25,7 +25,7 @@ does not propagate back into the VEH callback.
 Limitations (documented):
 - For ``STATUS_HEAP_CORRUPTION`` (0xC0000374) the heap is corrupted and
   ANY Python call may fail or deadlock. The flush attempt is still made
-  (best-effort) but may silently fail — the buffer is lost in that case.
+  (best-effort) but may silently fail, the buffer is lost in that case.
   This is acceptable because (a) the VEH callback already may fail to
   write its own diagnostics for heap-corruption crashes, and (b) for the
   common case (access violation, stack overrun) the flush works
@@ -41,7 +41,7 @@ Limitations (documented):
   that case (it was flushed on every record by
   :class:`_SecureTruncatingFileHandler`).
 
-Architecture: this module is intentionally minimal — it owns the
+Architecture: this module is intentionally minimal, it owns the
 MemoryHandler + target RotatingFileHandler lifecycle. The mutable
 state (``_memory_handler``, ``_crash_buffer_handler``) lives on the
 ``crash_handler`` facade module so test mutations propagate, mirroring
@@ -75,7 +75,7 @@ class _CrashBufferMemoryHandler(logging.handlers.MemoryHandler):
 
     The filter is a REAL redaction pass for this handler: ``handle``
     applies the handler's filter chain (stdlib ``Handler.handle``
-    semantics — ``self.filter(record)`` before the record is emitted)
+    semantics, ``self.filter(record)`` before the record is emitted)
     before appending the record to the ring buffer, so the buffered
     ``LogRecord`` is mutated in place by ``PIIRedactionFilter`` no
     matter how the record reached the buffer. The crash buffer's
@@ -84,7 +84,7 @@ class _CrashBufferMemoryHandler(logging.handlers.MemoryHandler):
     already redacted the shared record (that file-handler pass still
     runs first in production and its in-place mutation is idempotent —
     the filter's own ``redacted_msg`` guard skips a redundant re-scan
-    of the same record — but a handler reorder or level change can no
+    of the same record, but a handler reorder or level change can no
     longer ship unredacted PII into ``voice-typer-crash-buffer.log``).
     A filter that returns False vetoes the record (dropped, not
     buffered), matching the drop-on-veto contract every stdlib handler
@@ -92,7 +92,7 @@ class _CrashBufferMemoryHandler(logging.handlers.MemoryHandler):
 
     Fail-closed: if the filter still cannot be attached when a record
     arrives, the record is DROPPED (``handle`` returns False) rather
-    than buffered — we lose the crash-buffer tail rather than risk
+    than buffered, we lose the crash-buffer tail rather than risk
     persisting unredacted PII to ``voice-typer-crash-buffer.log`` when
     the VEH callback flushes the buffer.
 
@@ -107,7 +107,7 @@ class _CrashBufferMemoryHandler(logging.handlers.MemoryHandler):
     def _ensure_pii_filter(self) -> bool:
         """Attach ``PIIRedactionFilter`` lazily; True once attached.
 
-        Returns True when the filter is (now) attached — the record
+        Returns True when the filter is (now) attached, the record
         may be buffered. Returns False when the import still fails —
         the caller drops the record (fail-closed).
         """
@@ -130,14 +130,14 @@ class _CrashBufferMemoryHandler(logging.handlers.MemoryHandler):
                 if not self._pii_failed_once:
                     self._pii_failed_once = True
                     log.warning(
-                        "[CRASH-BUF] PIIRedactionFilter unavailable (%s) — "
+                        "[CRASH-BUF] PIIRedactionFilter unavailable (%s), "
                         "crash-buffer records will be DROPPED (fail-closed) "
                         "until the import succeeds",
                         exc,
                     )
                 else:
                     log.debug(
-                        "[CRASH-BUF] PIIRedactionFilter still unavailable (%s) — "
+                        "[CRASH-BUF] PIIRedactionFilter still unavailable (%s), "
                         "dropping crash-buffer record (fail-closed)",
                         exc,
                     )
@@ -150,7 +150,7 @@ class _CrashBufferMemoryHandler(logging.handlers.MemoryHandler):
     def handle(self, record: logging.LogRecord) -> bool:
         if not self._ensure_pii_filter():
             return False
-        # Apply the handler's filter chain FIRST — stdlib
+        # Apply the handler's filter chain FIRST, stdlib
         # ``Handler.handle`` semantics (``rv = self.filter(record)``;
         # a LogRecord returned by a filter replaces the record; a
         # false value vetoes). This is what makes the lazily-attached
@@ -163,7 +163,7 @@ class _CrashBufferMemoryHandler(logging.handlers.MemoryHandler):
             record = rv
         # TRUE in-memory ring buffer: append the record, and when the
         # buffer exceeds capacity DROP the oldest record in memory.
-        # Crucially we do NOT call ``super().handle`` — the stock
+        # Crucially we do NOT call ``super().handle``, the stock
         # ``MemoryHandler.emit`` path flushes the whole buffer to the
         # target when ``shouldFlush`` says so (writing to disk), which
         # duplicates the main ``voice-typer.log``.  (The capacity
@@ -181,7 +181,7 @@ class _CrashBufferMemoryHandler(logging.handlers.MemoryHandler):
             self.release()
         # ``rv`` is truthy here (the veto branch above already
         # returned), so ``True`` is the stdlib ``Handler.handle`` bool
-        # contract ("record was handled") — the possibly-substituted
+        # contract ("record was handled"), the possibly-substituted
         # LogRecord itself is what got buffered above.
         return True
 
@@ -192,7 +192,7 @@ class _CrashBufferMemoryHandler(logging.handlers.MemoryHandler):
         the target file.  Because the logging framework calls
         ``close()`` on every handler at interpreter shutdown, that would
         dump the last ``capacity`` records into
-        ``voice-typer-crash-buffer.log`` on EVERY clean exit — mirroring
+        ``voice-typer-crash-buffer.log`` on EVERY clean exit, mirroring
         the tail of ``voice-typer.log`` for a session that never crashed.
 
         The crash buffer's ONLY writer is the VEH callback's explicit
@@ -210,7 +210,7 @@ class _CrashBufferMemoryHandler(logging.handlers.MemoryHandler):
 
 # capacity of the in-memory ring buffer. ``_CrashBufferMemoryHandler``
 # overrides ``handle`` to append + evict in memory (dropping the oldest
-# record past capacity) WITHOUT writing to disk — the target is only
+# record past capacity) WITHOUT writing to disk, the target is only
 # written by the explicit ``flush_memory_handler()`` call from the VEH
 # callback.  The buffer therefore retains the most-recent 200 records
 # until a crash triggers the flush.
@@ -241,7 +241,7 @@ def install_memory_buffer(config_dir: Path) -> None:
     config_dir:
         The voice-typer config directory. The crash-buffer log file
         lives at ``<config_dir>/logs/voice-typer-crash-buffer.log``
-        (O1) — co-located with ``voice-typer.log`` so the support
+        (O1), co-located with ``voice-typer.log`` so the support
         engineer triaging a crash sees both files in the same
         directory.
     """
@@ -257,7 +257,7 @@ def install_memory_buffer(config_dir: Path) -> None:
     # so the crash-buffer file inherits the same 0o600 perms and
     # inter-process rotation lock as the main rotating log. The import
     # is from a sibling package (``voice_typer.server.log``) and is
-    # REQUIRED — there is deliberately NO insecure fallback to a stock
+    # REQUIRED, there is deliberately NO insecure fallback to a stock
     # ``RotatingFileHandler``. If the import fails the exception
     # propagates to the caller (``set_crash_handler_config_dir``
     # suppresses it via ``contextlib.suppress(Exception)``), leaving
@@ -266,7 +266,7 @@ def install_memory_buffer(config_dir: Path) -> None:
     # preferable to silently writing crash records to a world-readable
     # handler that lacks 0o600 perms and the inter-process rotation
     # lock (a stock ``RotatingFileHandler`` re-opens rotated files with
-    # the process umask, which is typically 0o022 — world-readable).
+    # the process umask, which is typically 0o022, world-readable).
     from voice_typer.server.log import _SecureTruncatingFileHandler, get_logs_dir
 
     # Build (or rebuild) the target RotatingFileHandler. The target is
@@ -283,7 +283,7 @@ def install_memory_buffer(config_dir: Path) -> None:
         buffer_path = logs_dir / "voice-typer-crash-buffer.log"
         target_handler = _SecureTruncatingFileHandler(
             buffer_path,
-            maxBytes=1 * 1024 * 1024,  # 1 MiB — small buffer file
+            maxBytes=1 * 1024 * 1024,  # 1 MiB, small buffer file
             backupCount=0,  # single-file policy: truncate in place, never .1
             encoding="utf-8",
             errors="backslashreplace",
@@ -339,7 +339,7 @@ def install_memory_buffer(config_dir: Path) -> None:
             # ``getattr(h, 'flushOnClose', True)``) and only THEN
             # ``h.close()``.  With the default ``flushOnClose=True`` the
             # ring buffer is flushed to ``voice-typer-crash-buffer.log``
-            # at interpreter shutdown on EVERY clean exit — duplicating
+            # at interpreter shutdown on EVERY clean exit, duplicating
             # the tail of ``voice-typer.log`` for a session that never
             # crashed (the ``close()`` override that clears the buffer
             # runs too late to help).  Setting it to False makes
@@ -349,7 +349,7 @@ def install_memory_buffer(config_dir: Path) -> None:
             memory_handler.setLevel(logging.INFO)
             memory_handler.target = target_handler
             # HU-8: the PII redaction filter is attached LAZILY (and
-            # fail-closed) by ``_CrashBufferMemoryHandler`` — the
+            # fail-closed) by ``_CrashBufferMemoryHandler``, the
             # ``voice_typer.server.security`` import is retried on the
             # first record, and records are DROPPED (never buffered
             # unredacted) if the filter still can't be installed.
@@ -379,7 +379,7 @@ def flush_memory_handler() -> None:
     (which must return ``EXCEPTION_CONTINUE_SEARCH`` to the OS).
 
     For ``STATUS_HEAP_CORRUPTION`` the heap is corrupted and this call
-    may silently fail — that's an accepted limitation (see module
+    may silently fail, that's an accepted limitation (see module
     docstring). For access violations / stack overruns (the common
     case), the flush works reliably and the most-recent 200 log records
     are appended to ``voice-typer-crash-buffer.log``.
@@ -396,7 +396,7 @@ def flush_memory_handler() -> None:
         # never called), flush is a no-op.
         memory_handler.flush()
     except Exception:
-        # Swallow everything — the VEH callback must not raise. The
+        # Swallow everything, the VEH callback must not raise. The
         # crash-diagnostics body has already been written; losing the
         # log-buffer tail is acceptable.
         pass

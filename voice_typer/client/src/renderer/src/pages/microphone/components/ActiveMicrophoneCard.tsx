@@ -7,14 +7,14 @@
 // playback), and the PresetAccordionSelector. This is the primary
 // interactive surface of the Microphone page.
 //
-// Pure presentational component — all state and handlers are passed in
+// Pure presentational component, all state and handlers are passed in
 // from the page (which wires them from ``useMicrophoneData`` /
 // ``useMicrophoneTest``). The card owns no business logic.
 //
 // Memoised children: the heaviest subtrees —
 // `PresetAccordionSelector` (renders the full `AudioFilterChain` when
 // `preset === "custom"`) and `TestReviewPanel` (post-test quality
-// metrics + playback controls) — are wrapped in `React.memo` with a
+// metrics + playback controls), are wrapped in `React.memo` with a
 // custom comparator so a 10 Hz `mic_level` push (which updates
 // `level`/`peak` and re-renders this card) doesn't re-render them.
 // Only `LevelBarContainer` (the `LevelBar` + `LiveQualityFeedback`
@@ -39,7 +39,7 @@ export interface ActiveMicrophoneCardProps {
 	activeMicName: string;
 	isSystemDefault: boolean;
 	/** Whether the Start Test button should be enabled. False when the
-	 *  backend reports zero available microphones — issuing
+	 *  backend reports zero available microphones, issuing
 	 *  ``microphone_test_start`` with no mic (even the system default)
 	 *  fails and spams error snacks. */
 	canTest: boolean;
@@ -125,7 +125,7 @@ export function ActiveMicrophoneCard({
 					<p className="text-sm font-semibold text-(--text-primary) truncate">
 						{activeMicName}
 					</p>
-					{/* Description only for System Default — its text carries
+					{/* Description only for System Default, its text carries
                                         information (which device the OS routes to). For a selected
                                         device a "Selected microphone" line is redundant with the
                                         radio list + card context (C-MIC-13), so no desc renders. */}
@@ -142,7 +142,7 @@ export function ActiveMicrophoneCard({
                             (TestReviewPanel, PresetAccordionSelector, test controls) can be
                             memoised against level/peak changes. The container itself
                             re-renders on every mic_level push (it consumes `level` and
-                            `peak` directly) — that's the intended behavior, since
+                            `peak` directly), that's the intended behavior, since
                             LevelBar's visual height + LiveQualityFeedback's peak marker
                             both depend on the latest values. */}
 			<LevelBarContainer
@@ -192,11 +192,11 @@ export function ActiveMicrophoneCard({
                                     duration (a single, stable value) IS announced via
                                     aria-live="polite" so users with AT know when a test
                                     completes and how long it ran. Only the FIRST trailing
-                                    span carries ``ml-auto`` — a second one would fight it
+                                    span carries ``ml-auto``, a second one would fight it
                                     for the free space and push the duration readout off.
 
                                     aria-hidden={true} is UNCONDITIONAL on the live-level
-                                    span — the sibling ``LevelBar`` exposes the live value to
+                                    span, the sibling ``LevelBar`` exposes the live value to
                                     assistive tech via its ``role="progressbar"`` +
                                     ``aria-valuenow`` attributes (the bar element is the
                                     accessible source of truth for the level). Letting
@@ -237,13 +237,13 @@ export function ActiveMicrophoneCard({
 				</div>
 			)}
 
-			{/* : Test Review Panel — memoised. Re-renders only when
+			{/* : Test Review Panel, memoised. Re-renders only when
                             the post-test data (duration, quality, audio, playback
                             state) actually changes, NOT on every mic_level push.
                             The comparator ignores callback identity (the parent
                             Microphone.tsx creates fresh inline closures for
                             onPlayEnhanced / onPlayOriginal / onStop / onRetest on
-                            every render — those don't affect TestReviewPanel's
+                            every render, those don't affect TestReviewPanel's
                             rendered output, so skipping the re-render is safe). */}
 			<MemoizedTestReviewPanel
 				durationMs={testDurationMs}
@@ -271,13 +271,13 @@ export function ActiveMicrophoneCard({
 				}
 			/>
 
-			{/* : Preset selector (accordion + radio) — memoised.
+			{/* : Preset selector (accordion + radio), memoised.
                             Re-renders only when the preset / config / showAdvanced
                             flag changes, NOT on every mic_level push. The
                             comparator includes `onConfigChange` and `onPresetChange`
                             (both useCallback-stable in `useMicrophoneTest`) but
                             excludes `onToggleAdvanced` (inline closure in
-                            Microphone.tsx — identity changes per render but the
+                            Microphone.tsx, identity changes per render but the
                             behavior is identical, so skipping is safe). */}
 			<div className="mt-3">
 				{config && (
@@ -298,15 +298,15 @@ export function ActiveMicrophoneCard({
 // ── : LevelBarContainer ─────────────────────────────────────────
 //
 // Bundles the two children that consume `level` / `peak`:
-// - `<LevelBar>` — the live horizontal bar.
-// - `<LiveQualityFeedback>` — peak marker + test progress readout.
+// - `<LevelBar>`, the live horizontal bar.
+// - `<LiveQualityFeedback>`, peak marker + test progress readout.
 //
 // `level` updates at 10 Hz (or ≤30 Hz once 's `mic_level` push
-// lands) — this container re-renders on every push, which is the
+// lands), this container re-renders on every push, which is the
 // intended behavior. The point of the split is that the SIBLING
 // subtrees (`MemoizedTestReviewPanel`, `MemoizedPresetAccordionSelector`)
 // are wrapped in `React.memo` and skip re-render on level-only
-// changes — so a 30 Hz level push only re-renders this container +
+// changes, so a 30 Hz level push only re-renders this container +
 // the two feedback children, not the entire card.
 
 interface LevelBarContainerProps {
@@ -342,7 +342,7 @@ function LevelBarContainer({
 // ── : Memoised children ─────────────────────────────────────────
 //
 // `React.memo` with a custom comparator. The comparator focuses on the
-// props that actually affect the rendered output — callback identity
+// props that actually affect the rendered output, callback identity
 // changes (which happen on every Microphone.tsx render due to inline
 // closures) are ignored so a 10–30 Hz `mic_level` push doesn't
 // re-render these heavy subtrees.

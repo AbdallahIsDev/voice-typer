@@ -12,7 +12,7 @@ The pre-existing test coverage of the dispatcher was source-string
 pinning only: six test files used ``inspect.getsource(IPCServer._dispatch)``
 / ``._handle_tray_click`` / ``._handle_shutdown`` and asserted substrings
 appear in the source. Those tests pass on ANY behavior change that
-preserves the pinned substrings — they cannot detect a regression that
+preserves the pinned substrings, they cannot detect a regression that
 rewrites the dispatch logic identically-shaped-but-wrong. This file
 adds BEHAVIORAL cases that assert on the actual return values, error
 codes, and side effects of the dispatch surface so a real regression
@@ -23,7 +23,7 @@ the dispatcher behavioral-test gap):
 
 1. Unknown command → ``server.unknown_command`` envelope.
 2. Empty/None/non-dict ``msg`` → ``server.unknown_command`` (for empty
-   dict) or ``AttributeError`` (for None / non-dict — current source
+   dict) or ``AttributeError`` (for None / non-dict, current source
    behavior, captured as a regression guard so a future guard that
    changes the exception type surfaces here).
 3. Unicode command name → ``server.unknown_command`` (no encoding crash).
@@ -77,7 +77,7 @@ class TestDispatchUnknownCommand:
         assert result["id"] == 1
 
     def test_empty_dict_routes_to_unknown_command_with_none_cmd(self, server):
-        """``_dispatch({})`` — no ``type`` key — must route to
+        """``_dispatch({})`` (no ``type`` key) must route to
         ``_handle_unknown_command`` with ``cmd=None`` (NOT crash). The
         source coerces ``cmd`` to ``""`` only for the registry lookup;
         the original ``None`` is preserved in the error envelope.
@@ -117,7 +117,7 @@ class TestDispatchUnknownCommand:
         # ``msg.get("id")`` returns None → resp starts as ``{}`` (the
         # ``if "id" in msg`` check passes but the value is None and the
         # id-stamping chokepoint at the end only stamps when ``"id" not
-        # in result`` — the resp dict construction path uses
+        # in result``, the resp dict construction path uses
         # ``{"id": msg.get("id")} if "id" in msg else {}`` so the
         # ``id: None`` IS carried through.
         assert result.get("id") is None
@@ -145,7 +145,7 @@ class TestDispatchNonDictMsg:
         """``_dispatch(None)`` must return a structured
         ``server.unknown_command`` envelope with ``message: "message
         must be a JSON object"`` and the offending value echoed in
-        ``command`` — never crash the dispatch thread.
+        ``command``, never crash the dispatch thread.
         """
         result = server._dispatch(None)  # type: ignore[arg-type]
         assert result is not None
@@ -210,7 +210,7 @@ class TestDispatchShuttingDown:
 
     def test_dispatch_after_shutdown_with_no_id_omits_id(self, server):
         """The ``_shutting_down_error`` helper only sets ``id`` when
-        ``isinstance(msg, dict) and "id" in msg`` — a notification with
+        ``isinstance(msg, dict) and "id" in msg``, a notification with
         no id must not get a spurious ``id: None``.
         """
         server._cached_shutting_down = True
@@ -235,7 +235,7 @@ class TestDispatchShuttingDown:
 
     def test_dispatch_after_shutdown_truthy_mock_does_not_short_circuit(self, server):
         """A truthy-but-not-``is True`` value (e.g. a child MagicMock)
-        must NOT trip the shutdown gate — this is the documented
+        must NOT trip the shutdown gate, this is the documented
         behavior that lets test fixtures keep exercising the dispatch
         path. Restoring truthiness-based gating would break this
         contract silently.
@@ -257,7 +257,7 @@ class TestHandleTrayClickValidation:
     ``_validate_dict_payload`` with the schema
     ``{"id": {"type": str, "required": True}}``. Each malformed-input
     case must return the structured error envelope matching the
-    shared validation contract — NOT an inline ``isinstance`` check
+    shared validation contract, NOT an inline ``isinstance`` check
     that conflates the three cases.
     """
 
@@ -294,7 +294,7 @@ class TestHandleTrayClickValidation:
 
     def test_int_id_returns_invalid_field(self, server):
         """``data={"id": 42}`` (id present, wrong type) →
-        ``client.invalid_field`` (NOT ``missing_field`` — the old inline
+        ``client.invalid_field`` (NOT ``missing_field``, the old inline
         check conflated these).
         """
         resp = self._base_resp()
@@ -304,7 +304,7 @@ class TestHandleTrayClickValidation:
         assert result["data"]["field"] == "id"
 
     def test_none_id_returns_invalid_field(self, server):
-        """``data={"id": None}`` — explicit ``None`` is not a valid
+        """``data={"id": None}``, explicit ``None`` is not a valid
         ``str`` → ``client.invalid_field``.
         """
         resp = self._base_resp()
@@ -334,7 +334,7 @@ class TestHandleShutdownIdempotency:
     the ack frame reaches the host before the (potentially long)
     teardown completes. To make this test deterministic, we patch
     ``threading.Thread`` in the dispatcher module to run the target
-    SYNCHRONOUSLY in the calling thread — so by the time
+    SYNCHRONOUSLY in the calling thread, so by the time
     ``_handle_shutdown`` returns, ``service.quit()`` has already been
     called (or not, for the idempotent second call).
     """
@@ -368,7 +368,7 @@ class TestHandleShutdownIdempotency:
                     self._target()
 
         # The dispatcher accesses ``Thread`` via the ``threading``
-        # module it imported at module load — patch on that module
+        # module it imported at module load, patch on that module
         # object so the dispatcher's ``threading.Thread(...)`` call
         # resolves to our synchronous stand-in.
         import voice_typer.server.ipc.dispatcher as dispatcher_mod
@@ -394,7 +394,7 @@ class TestHandleShutdownIdempotency:
         srv._handle_shutdown(None, {"id": 1})
         assert fake_service.quit.call_count == 1
         srv._handle_shutdown(None, {"id": 2})
-        # service.quit() was NOT called a second time — the
+        # service.quit() was NOT called a second time, the
         # ``_shutdown_started.is_set()`` gate short-circuited.
         assert fake_service.quit.call_count == 1
 
@@ -446,7 +446,7 @@ class TestDispatchOversizedId:
     echoed back on the response envelope. The id is propagated via
     ``msg.get("id")`` / ``result["id"] = msg["id"]`` (both pure-Python
     dict ops) and stamped onto the response as a correlation id via
-    ``set_correlation_id(str(_req_id))`` — none of these paths impose
+    ``set_correlation_id(str(_req_id))``, none of these paths impose
     a size cap.
     """
 
@@ -485,7 +485,7 @@ class TestDispatchOversizedId:
 
     def test_string_id_is_carried_through(self, server):
         """A string ``id`` (the TS / Rust host sometimes sends string
-        ids) must be carried through unchanged — no int coercion.
+        ids) must be carried through unchanged, no int coercion.
         """
         result = server._dispatch({"type": "get_status", "id": "req-abc-123"})
         assert result is not None
@@ -528,7 +528,7 @@ class TestShuttingDownErrorEnvelope:
         assert "id" not in result
 
     def test_envelope_shape_with_none_msg(self, server):
-        """``_shutting_down_error(None)`` — the ``isinstance(msg, dict)``
+        """``_shutting_down_error(None)``, the ``isinstance(msg, dict)``
         guard prevents a crash on non-dict input (which can happen if
         the shutdown gate fires on a malformed msg).
         """

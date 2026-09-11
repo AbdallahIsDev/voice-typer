@@ -1,9 +1,9 @@
 /**
- * NumberInputStepper — number input with custom up/down stepper buttons.
+ * NumberInputStepper, number input with custom up/down stepper buttons.
  *
  * Replaces the default browser number spinners (ugly white background,
  * cramped arrows) with themed stepper buttons rendered through the
- * app-standard hugeicons glyphs (ArrowUp01Icon / ArrowDown01Icon — the
+ * app-standard hugeicons glyphs (ArrowUp01Icon / ArrowDown01Icon, the
  * same icons the shared Select uses for its scroll controls). The
  * native spinners are hidden via CSS.
  *
@@ -12,7 +12,7 @@
  * readers announce the error state and the destructive Tailwind
  * variants in `Input` (aria-invalid:border-destructive,
  * aria-invalid:ring-destructive) light up. (Restored after the
- * component split that originally dropped it — composes `<Input>` for
+ * component split that originally dropped it, composes `<Input>` for
  * DRY rather than re-implementing the input rendering.)
  *
  * Usage:
@@ -76,7 +76,7 @@ function NumberInputStepper({
 }: NumberInputStepperProps) {
 	//track whether the current value is out-of-range so we can
 	// set aria-invalid and visually mark the input. Without this the
-	// user has no idea their input was rejected — values were silently
+	// user has no idea their input was rejected, values were silently
 	// clamped and the input looked normal.
 	const [isInvalid, setIsInvalid] = useState(false);
 
@@ -245,7 +245,7 @@ function NumberInputStepper({
 					)}
 				>
 					{/* App-standard hugeicons glyph (same icon the
-                                                shared Select uses for its up scroll control) — replaces
+                                                shared Select uses for its up scroll control), replaces
                                                 the former hand-rolled chevron SVG. */}
 					<HugeiconsIcon
 						icon={ArrowUp01Icon}

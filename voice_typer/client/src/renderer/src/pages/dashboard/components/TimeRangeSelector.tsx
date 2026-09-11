@@ -1,7 +1,7 @@
 // Time-range selector for the Dashboard.
 //
 // A single control (Today / 7 Days / 30 Days / All Time) that drives
-// the stat cards AND the activity chart together — no more "each card
+// the stat cards AND the activity chart together, no more "each card
 // silently uses a different fixed window". Built on the shared
 // SegmentedControl (role="radiogroup", keyboard accessible, animated
 // indicator).
@@ -28,7 +28,7 @@ export function TimeRangeSelector({ value, onChange }: TimeRangeSelectorProps) {
 			value={value}
 			onChange={onChange}
 			ariaLabel={t("analytics.rangeAria")}
-			// Fully rounded (pill) — container AND active segment use
+			// Fully rounded (pill), container AND active segment use
 			// full radius so the control reads as one soft capsule
 			// (SegmentedControl `radius` prop default).
 			radius="pill"

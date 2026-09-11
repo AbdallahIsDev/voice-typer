@@ -15,7 +15,7 @@
  *      aria-describedby relationship (Radix wires it automatically).
  *
  * Radix's actual focus-trap + focus-restore primitives are unit-tested
- * upstream in the @radix-ui/testutils package — we don't replicate those
+ * upstream in the @radix-ui/testutils package, we don't replicate those
  * tests here. We DO assert that focus moves *into* the dialog when it
  * opens (Radix auto-focuses the first focusable element / the content
  * itself) so that a regression in our wrapper (e.g. a future refactor
@@ -29,7 +29,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { Modal, ModalFooter } from "@/components/common/Modal";
 import { Button } from "@/components/ui/button";
 
-describe("Modal — BG-R11 (focus management + close contract)", () => {
+describe("Modal, BG-R11 (focus management + close contract)", () => {
 	afterEach(() => {
 		cleanup();
 	});
@@ -163,7 +163,7 @@ describe("Modal — BG-R11 (focus management + close contract)", () => {
 		// pointing at an empty id (Radix generates a description id
 		// slot regardless of whether the DialogDescription is
 		// rendered). We assert the user-visible description text is
-		// NOT present in the DOM — that's the contract callers
+		// NOT present in the DOM, that's the contract callers
 		// actually rely on.
 		expect(screen.queryByText("This cannot be undone.")).toBeNull();
 		// Sanity: dialog is still rendered.
@@ -171,7 +171,7 @@ describe("Modal — BG-R11 (focus management + close contract)", () => {
 	});
 });
 
-describe("Modal — onCloseIntent veto gate", () => {
+describe("Modal, onCloseIntent veto gate", () => {
 	afterEach(() => {
 		cleanup();
 	});
@@ -209,7 +209,7 @@ describe("Modal — onCloseIntent veto gate", () => {
 		expect(onCloseIntent).toHaveBeenCalledTimes(1);
 	});
 
-	it("onCloseIntent returning false vetoes the close — dialog stays open, onClose never fires", async () => {
+	it("onCloseIntent returning false vetoes the close, dialog stays open, onClose never fires", async () => {
 		const user = userEvent.setup();
 		const onClose = vi.fn();
 		render(

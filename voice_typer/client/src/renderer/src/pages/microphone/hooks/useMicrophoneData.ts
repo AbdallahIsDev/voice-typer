@@ -34,7 +34,7 @@ import { useSnackbar } from "@/hooks/useSnackbar";
 import { t } from "@/i18n/i18n";
 import type { MicrophoneDevice, VoiceTyperConfig } from "@/types/config";
 
-// Module-level cache — persists across page navigations so microphone
+// Module-level cache, persists across page navigations so microphone
 // settings render instantly on re-visit instead of showing a loading
 // spinner.
 let _cachedMicrophones: MicrophoneDevice[] = [];
@@ -42,7 +42,7 @@ let _cachedConfig: VoiceTyperConfig | null = null;
 
 // Boot-race recovery: on cold start the renderer can connect (and this
 // page can fetch ``get_microphones``) BEFORE the backend's startup
-// mic-enumeration task has populated its device registry — the fetch
+// mic-enumeration task has populated its device registry, the fetch
 // legitimately resolves to ``[]`` and, historically, nothing re-notified
 // the page afterwards (the backend skipped the first empty → populated
 // ``microphones_changed`` publish). Retry the load on a short bounded
@@ -119,7 +119,7 @@ export function useMicrophoneData({
 	// must keep a STABLE identity ([] deps) so the mount effect below
 	// (and the event-handler callbacks that depend on it) don't re-fire
 	// on an identity change. Both are useCallback-stable in production,
-	// but test mocks return FRESH functions per render — depending on
+	// but test mocks return FRESH functions per render, depending on
 	// them re-fires the mount load (get_microphones/get_config →
 	// setState → re-render → new call → loop → worker OOM). The mirrors
 	// keep the refs fresh; the effect deps stay identity-free.
@@ -186,7 +186,7 @@ export function useMicrophoneData({
 	// stale React state. The default ``() => false`` keeps existing
 	// callers (the ``microphones_changed`` hot-swap handler) working
 	// without changes.
-	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract — .current must NOT become a dep
+	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract, .current must NOT become a dep
 	const loadData = useCallback(
 		async (isCancelled: () => boolean = () => false) => {
 			/**
@@ -197,7 +197,7 @@ export function useMicrophoneData({
 			 * event fired. Runs the SAME fallback (warning snack +
 			 * selectMicrophone(null)). Guard rails:
 			 *   - skip while already on System Default (nothing to fall back from),
-			 *   - skip when the list is EMPTY — a failed/empty enumeration is
+			 *   - skip when the list is EMPTY, a failed/empty enumeration is
 			 *     not evidence the device is gone (the catch path never gets
 			 *     here, but an empty success response does),
 			 *   - fire at most once per distinct missing id until state changes
@@ -211,7 +211,7 @@ export function useMicrophoneData({
 					lastMissingMicIdRef.current,
 				);
 				if (decision.action === "rearm") {
-					// Device is back (or selection is valid again) — re-arm the
+					// Device is back (or selection is valid again), re-arm the
 					// guard so a FUTURE disappearance of the same id falls back.
 					lastMissingMicIdRef.current = null;
 					return;
@@ -298,7 +298,7 @@ export function useMicrophoneData({
 		[
 			// The REF OBJECT, never ``.current``: the current closure is
 			// assigned by ``useMicrophoneTest`` after mount and may change
-			// identity across renders — depending on it re-fires the mount
+			// identity across renders, depending on it re-fires the mount
 			// load (the exact loop the render-loop guard pins). Reading
 			// ``.current`` at call time already yields the latest closure.
 			selectMicrophoneRef,
@@ -342,7 +342,7 @@ export function useMicrophoneData({
 				const previousMicId = _cachedConfig?.microphone ?? null;
 				await loadData();
 				// ``_cachedMicrophones`` is updated synchronously by loadData()
-				// before this point — read it directly so we don't depend on
+				// before this point, read it directly so we don't depend on
 				// the next React commit cycle.
 				const stillPresent =
 					previousMicId === null ||
@@ -361,7 +361,7 @@ export function useMicrophoneData({
 
 	usePythonEvent(
 		"config_changed",
-		// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract — .current must NOT become a dep
+		// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract, .current must NOT become a dep
 		useCallback((): (() => void) | undefined => {
 			// Hot/cold split: a config echo (including the ones OUR OWN
 			// updateConfig writes trigger) only needs the fresh config —
@@ -415,7 +415,7 @@ export function useMicrophoneData({
 			})();
 			return undefined;
 			// selectMicrophoneRef (object, never `.current`): mirrors the
-			// microphones_changed handler — depending on the ref object is
+			// microphones_changed handler, depending on the ref object is
 			// safe (stable identity); depending on `.current` would
 			// re-subscribe on every closure change (render-loop hazard).
 		}, [loadData, selectMicrophoneRef]),

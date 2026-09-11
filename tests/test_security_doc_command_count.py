@@ -6,17 +6,17 @@ stale "~35 commands" while the real allowlist had grown. This test
 parses the documented count out of SECURITY.md and asserts it matches
 the actual ``ALLOWED_COMMANDS`` ``Set`` entries in
 ``voice_typer/client/src/main/allowed-commands.ts`` (canonical
-declaration since R6-F10 — was previously inline in ``index.ts``),
+declaration since R6-F10, was previously inline in ``index.ts``),
 so the doc can't silently drift again when commands are added or
 removed.
 
 The same count is also asserted in the allowlist parity test
 (``tests/test_electron_ipc_and_build.py``), which cross-checks the
-renderer allowlist against the server command registry — together they
+renderer allowlist against the server command registry, together they
 keep the security docs, the renderer allowlist, and the server registry
 in lockstep.
 
- (Fix-C): a second parity check was added — the Rust host's
+ (Fix-C): a second parity check was added, the Rust host's
 ``ALLOWED_COMMANDS`` set in ``src-tauri/src/commands/sidecar_cmds.rs``
 must mirror the TS renderer allowlist EXACTLY (same count + same
 entries). The Rust gate is the defense-in-depth backstop for a
@@ -45,13 +45,13 @@ SECURITY_MD = REPO_ROOT / "SECURITY.md"
 # into its own dependency-free leaf module `allowed-commands.ts`
 # (`index.ts:56` now just re-exports it). The parity parsers below look
 # for the literal substring `"ALLOWED_COMMANDS = new Set"`, which no
-# longer exists in `index.ts` — the test was silently erroring out with
+# longer exists in `index.ts`, the test was silently erroring out with
 # `StopIteration` (in `_count_allowed_commands`'s `next(...)` without a
 # default) or `ValueError: substring not found` (in the
 # `test_electron_ipc_and_build.py` fixture). Pointing at the canonical
 # file restores the cross-layer safety net.
 INDEX_TS = REPO_ROOT / "voice_typer" / "client" / "src" / "main" / "allowed-commands.ts"
-# (Fix-C): Rust host's allowlist literal — kept in lockstep with
+# (Fix-C): Rust host's allowlist literal, kept in lockstep with
 # the TS allowlist by this parity test. Both files MUST be updated in
 # the same PR when a command is added or removed.
 SIDECAR_CMDS_RS = REPO_ROOT / "src-tauri" / "src" / "commands" / "sidecar_cmds.rs"
@@ -153,7 +153,7 @@ def _allowed_commands_ts() -> set[str]:
     """Return the set of command names in the TS ALLOWED_COMMANDS block.
 
     Used by the  Rust/TS parity test to assert exact entry-level
-    parity (not just count-level) — a count match with a different
+    parity (not just count-level), a count match with a different
     entry set (e.g. ``quit_app`` in TS but ``quit`` in Rust) would
     pass the count check but break at runtime.
     """
@@ -182,7 +182,7 @@ def _allowed_commands_rust() -> set[str]:
     pointing at the file that's missing the entry.
     """
     src = _read_sidecar_cmds_module()
-    # Anchor on the ``let cmds: &[&str] = &[`` line — this is the
+    # Anchor on the ``let cmds: &[&str] = &[`` line, this is the
     # start of the literal that backs the Rust ALLOWED_COMMANDS set.
     m_start = re.search(r"let\s+cmds:\s*&\[&str\]\s*=\s*&\[", src)
     assert m_start is not None, (
@@ -191,7 +191,7 @@ def _allowed_commands_rust() -> set[str]:
         "Did the constructor shape change? Update this parser to match."
     )
     body = src[m_start.end() :]
-    # The literal ends with ``];`` — find the first one after the start.
+    # The literal ends with ``];``, find the first one after the start.
     m_end = re.search(r"\];", body)
     assert m_end is not None, (
         "src-tauri/src/commands/sidecar_cmds.rs: could not find the "
@@ -232,7 +232,7 @@ def test_security_md_allowlist_count_matches_source() -> None:
     YJ-FIX-A2 (this session) updated ``SECURITY.md`` to reflect the
     current 59-entry renderer allowlist AND the actual 78-handler
     ``_COMMAND_REGISTRY`` count (19 of those 78 handlers are intentionally
-    absent from the renderer allowlist — ``tray_click``, ``shutdown``, and
+    absent from the renderer allowlist: ``tray_click``, ``shutdown``, and
     the 17 GT-32-removed commands). With ``SECURITY.md`` now accurate, the
     strict ``assert documented == actual`` is restored below as the
     regression guard, so any future drift between ``SECURITY.md`` and the
@@ -245,7 +245,7 @@ def test_security_md_allowlist_count_matches_source() -> None:
     actual = _count_allowed_commands()
     # invariant: Rust ↔ TS allowlist count MUST match (modulo
     # _TS_ONLY_EXCEPTIONS, which are intentionally TS-only because the
-    # Rust host dispatches them directly — see _TS_ONLY_EXCEPTIONS
+    # Rust host dispatches them directly: see _TS_ONLY_EXCEPTIONS
     # docstrings for the rationale). This is the regression-guard
     # portion of the test (the  fix's primary contract). Already
     # enforced separately by
@@ -257,7 +257,7 @@ def test_security_md_allowlist_count_matches_source() -> None:
         f"Rust ALLOWED_COMMANDS has {rust_count} entries but the TS "
         f"renderer source defines {actual} ({ts_only_exception_count} "
         f"of which are intentionally TS-only per _TS_ONLY_EXCEPTIONS). "
-        f"YJ-10 parity broken — update both files in the same PR."
+        f"YJ-10 parity broken, update both files in the same PR."
     )
 
     documented = _documented_count()
@@ -275,7 +275,7 @@ def test_security_md_allowlist_count_matches_source() -> None:
     # `_documented_count` needs updating because the prose shape changed.
     assert documented == actual, (
         f"SECURITY.md documents {documented} ALLOWED_COMMANDS but the "
-        f"renderer source defines {actual}. SECURITY.md is stale — "
+        f"renderer source defines {actual}. SECURITY.md is stale, "
         f"update the count in the 'Command Allowlist (SEC-019)' section "
         f"(and the surrounding prose about the Python `_COMMAND_REGISTRY` "
         f"handler count, which is now {len(_allowed_commands_rust())} "
@@ -296,7 +296,7 @@ def test_rust_allowlist_matches_ts_allowlist_count() -> None:
     """The Rust allowlist must contain the SAME NUMBER of commands as TS.
 
     A count mismatch means a command was added in one file but not the
-    other — the next test (``test_rust_allowlist_matches_ts_allowlist_entries``)
+    other, the next test (``test_rust_allowlist_matches_ts_allowlist_entries``)
     pinpoints which one.
     """
     ts_count = len(_allowed_commands_ts())
@@ -347,7 +347,7 @@ def test_rust_allowlist_rejects_known_dangerous_commands() -> None:
 
     These are commands that would let a compromised renderer escalate
     privilege if they slipped into the allowlist. The list is intentionally
-    short and high-signal — we're not trying to enumerate every bad
+    short and high-signal, we're not trying to enumerate every bad
     command, just to catch a regression where one of the obvious ones
     gets added.
     """
@@ -357,7 +357,7 @@ def test_rust_allowlist_rejects_known_dangerous_commands() -> None:
         "exec": "would let a compromised renderer run arbitrary shell commands",
         "shutdown": ("cooperative shutdown is sent via shutdown_sidecar directly, NOT via the generic dispatch path"),
         "delete_everything": (
-            "sentinel — no such server command; a positive result here means a typo added a dangerous placeholder"
+            "sentinel, no such server command; a positive result here means a typo added a dangerous placeholder"
         ),
         "system": "would let a compromised renderer run arbitrary system calls",
         "os": "would let a compromised renderer run arbitrary OS calls",
@@ -382,7 +382,7 @@ def test_rust_allowlist_contains_key_commands() -> None:
       - ``download_model``: Models page download button
 
     ``heartbeat`` and ``relaunch_ack`` are intentionally NOT in the Rust
-    allowlist — see ``_TS_ONLY_EXCEPTIONS`` for the rationale (they are
+    allowlist: see ``_TS_ONLY_EXCEPTIONS`` for the rationale (they are
     host-dispatched, not renderer-dispatched).
 
     If any of these go missing from the Rust allowlist, the
@@ -400,7 +400,7 @@ def test_rust_allowlist_contains_key_commands() -> None:
     missing = required - rust
     assert not missing, (
         f"Rust ALLOWED_COMMANDS is missing key command(s): {sorted(missing)}. "
-        f"These are load-bearing for the UI — add them back to "
+        f"These are load-bearing for the UI, add them back to "
         f"src-tauri/src/commands/sidecar_cmds.rs."
     )
 
@@ -410,7 +410,7 @@ def test_rust_allowlist_contains_key_commands() -> None:
 
 def test_check_accessibility_is_registered_in_python_command_registry() -> None:
     """``check_accessibility`` MUST be in the Python
-    ``_COMMAND_REGISTRY`` — the Settings → Troubleshooting UI re-
+    ``_COMMAND_REGISTRY``, the Settings → Troubleshooting UI re-
     invoked it on 2026-08-10 (finding #919 part b) to surface the
     stale-grant ``tccutil`` reset command (``suggest_reset`` +
     ``reset_command`` on a confirmed stale macOS grant). It was
@@ -427,10 +427,10 @@ def test_check_accessibility_is_registered_in_python_command_registry() -> None:
     registry = _command_registry_entries()
     assert "check_accessibility" in registry, (
         "'check_accessibility' MUST be in the Python "
-        "_COMMAND_REGISTRY (finding #919 part b re-registration) — "
+        "_COMMAND_REGISTRY (finding #919 part b re-registration), "
         "the Troubleshooting section calls it on macOS. Remove this "
         "assertion only if the renderer caller is also removed (keep "
-        "the registry + TS + Rust allowlists in lockstep — see "
+        "the registry + TS + Rust allowlists in lockstep: see "
         "tests/tauri/mig19/test_phase4_validation.py for the frozen "
         "command table)."
     )
@@ -438,14 +438,14 @@ def test_check_accessibility_is_registered_in_python_command_registry() -> None:
 
 def test_check_accessibility_is_in_renderer_allowlist() -> None:
     """``check_accessibility`` MUST be in the TS renderer
-    ``ALLOWED_COMMANDS`` set — the Settings → Troubleshooting UI
+    ``ALLOWED_COMMANDS`` set, the Settings → Troubleshooting UI
     invokes it via ``call()``, and the Electron main process rejects
     anything not in this Set (SEC-019).
     """
     ts = _allowed_commands_ts()
     assert "check_accessibility" in ts, (
         "'check_accessibility' MUST be in the renderer "
-        "ALLOWED_COMMANDS (finding #919 part b) — the "
+        "ALLOWED_COMMANDS (finding #919 part b), the "
         "Troubleshooting section calls it on macOS. Keep the "
         "registry + TS + Rust allowlists in lockstep."
     )
@@ -501,7 +501,7 @@ def test_command_registry_literal_exists() -> None:
     """Sanity: ``_COMMAND_REGISTRY`` literal must exist and be non-empty."""
     registry = _command_registry_entries()
     assert registry, (
-        "Parsed _COMMAND_REGISTRY is empty — either the literal was "
+        "Parsed _COMMAND_REGISTRY is empty, either the literal was "
         "moved/renamed (update _command_registry_entries' anchor "
         "regex) or the registry was emptied (very likely a bug)."
     )
@@ -514,7 +514,7 @@ def test_command_registry_count_matches_renderer_allowlist_with_host_only_delta(
     said 68/69/~35) and the actual IPC surface (then 70). The docs are
     now reconciled to 61 (the renderer allowlist count), but the
     Python ``_COMMAND_REGISTRY`` is intentionally larger because two
-    host-only commands — ``shutdown`` and ``tray_click`` — are routed
+    host-only commands (``shutdown`` and ``tray_click``) are routed
     by the Rust host directly, never via the renderer's ``dispatch``
     path, so they're deliberately absent from ``allowed-commands.ts``.
 
@@ -539,7 +539,7 @@ def test_command_registry_count_matches_renderer_allowlist_with_host_only_delta(
     host_only_leaked_to_renderer = host_only & ts
     assert not host_only_leaked_to_renderer, (
         f"_HOST_ONLY_COMMANDS {sorted(host_only_leaked_to_renderer)} "
-        f"are ALSO in the renderer ALLOWED_COMMANDS — that contradicts "
+        f"are ALSO in the renderer ALLOWED_COMMANDS, that contradicts "
         f"the 'host-only' designation. Either remove them from "
         f"allowed-commands.ts or remove them from _HOST_ONLY_COMMANDS."
     )
@@ -568,7 +568,7 @@ def test_command_registry_count_matches_renderer_allowlist_with_host_only_delta(
     assert len(registry) == len(ts) + len(host_only), (
         f"Count invariant broken: _COMMAND_REGISTRY has {len(registry)} "
         f"entries, renderer ALLOWED_COMMANDS has {len(ts)}, and "
-        f"_HOST_ONLY_COMMANDS has {len(host_only)} — expected "
+        f"_HOST_ONLY_COMMANDS has {len(host_only)}, expected "
         f"{len(ts)} + {len(host_only)} = {len(ts) + len(host_only)}. "
         f"Files to check:\n"
         f"  - voice_typer/server/ipc_server.py (_COMMAND_REGISTRY)\n"
@@ -581,7 +581,7 @@ def test_security_md_documents_renderer_count_not_registry_count() -> None:
     """SECURITY.md must document the RENDERER allowlist count, not the registry count.
 
     : the security doc should advertise the ATTACK SURFACE —
-    i.e. what a compromised renderer can invoke — which is the renderer
+    i.e. what a compromised renderer can invoke, which is the renderer
     allowlist count (61), NOT the registry count (63, including 2
     host-only commands the renderer cannot invoke).
     """

@@ -1,7 +1,7 @@
 """Regression tests for ``scripts/build/generate_beeps.py --check``.
 
 The original ``--check`` only verified that the freshly-generated START
-and STOP URLs were distinct from each other — it did NOT read
+and STOP URLs were distinct from each other, it did NOT read
 ``sound-manager.ts``, so a stale or accidentally-collapsed pair of
 constants committed to the source file would pass the regression guard
 (false assurance). These tests pin the stricter behavior:
@@ -103,7 +103,7 @@ def test_check_passes_when_constants_match_generated(monkeypatch, tmp_path, caps
 
 def test_check_fails_when_constants_are_identical(monkeypatch, tmp_path, capsys):
     """``--check`` exits 1 when the two committed constants are byte-for-byte
-    identical — the regression this script exists to prevent.
+    identical, the regression this script exists to prevent.
 
     The generated URLs are still distinct (so the generator itself is
     healthy); the regression is in the *source file*, which the old
@@ -137,7 +137,7 @@ def test_check_fails_when_constants_drift(monkeypatch, tmp_path, capsys):
     constant)."""
     mod = _load_generate_beeps()
     # Two distinct bogus URLs that do NOT match the freshly generated
-    # output — exercises the "drift" branch (not the "identical" branch).
+    # output, exercises the "drift" branch (not the "identical" branch).
     bogus_start = "data:audio/wav;base64,AAAA"
     bogus_stop = "data:audio/wav;base64,BBBB"
     fake_sm = tmp_path / "sound-manager.ts"
@@ -154,7 +154,7 @@ def test_check_fails_when_constants_drift(monkeypatch, tmp_path, capsys):
     assert rc == 1, (
         f"--check should fail when committed constants drift from the generated URLs; got rc={rc}.\nstderr:\n{err}"
     )
-    # The error message should mention "match" or "drift" — both
+    # The error message should mention "match" or "drift", both
     # branches of the failure-message wording are acceptable.
     assert "match" in err.lower() or "drift" in err.lower(), f"stderr should mention match/drift; got:\n{err}"
 

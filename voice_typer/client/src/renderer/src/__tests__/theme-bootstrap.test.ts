@@ -154,7 +154,7 @@ describe("theme-bootstrap.ts", () => {
 	it("falls back to defaults when localStorage access throws", async () => {
 		// Replace the whole localStorage global with an owned stub whose
 		// getItem throws. Spying on the jsdom instance (or its
-		// Storage.prototype) is CI-unreliable — the sound-manager tests
+		// Storage.prototype) is CI-unreliable, the sound-manager tests
 		// proved the instance-spy pattern does not intercept on CI's
 		// Node 24. The module reads the bare global at call time, so the
 		// stub is environment-independent. Restored via

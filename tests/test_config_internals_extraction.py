@@ -1,7 +1,7 @@
 """S5-verify the ``_backup_before_migration`` extraction.
 
 The implementation was extracted from ``Config._backup_before_migration``
-(config.py — 2,698-LOC monolith) to a module-level function
+(config.py, 2,698-LOC monolith) to a module-level function
 ``_backup_before_migration_impl`` in
 ``voice_typer.server.config_internals.migrations``. The classmethod on
 ``Config`` is now a thin delegating wrapper.
@@ -14,7 +14,7 @@ This test module pins three contracts of the extraction:
    ``config_mod._secure_read_text`` / ``config_mod._secure_atomic_write``
    / ``config_mod._prune_kept_backups`` still takes effect on the
    extracted impl (because it looks those up via the ``config`` module
-   namespace — lazy import — rather than importing them directly from
+   namespace (lazy import) rather than importing them directly from
    ``secure_file_io``).
 3. **Behavior parity**: the impl produces the same on-disk artifact
    (a timestamped ``config.json.pre-migration-v*.bak`` file with the
@@ -62,7 +62,7 @@ class TestBackupBeforeMigrationExtraction:
         config_file = tmp_path / "config.json"
         config_file.write_text(json.dumps({"schema_version": 0}))
 
-        # Calling the impl directly must produce a backup file — same
+        # Calling the impl directly must produce a backup file, same
         # contract as the classmethod.
         _backup_before_migration_impl(config_file, 0)
 
@@ -132,7 +132,7 @@ class TestBackupBeforeMigrationExtraction:
     def test_patch_path_bridge_preserved_for_secure_atomic_write(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Same as above but for ``_secure_atomic_write`` — the impl
+        """Same as above but for ``_secure_atomic_write``, the impl
         must call it via ``config_mod._secure_atomic_write`` so test
         patches take effect.
         """

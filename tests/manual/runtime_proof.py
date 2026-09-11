@@ -42,7 +42,7 @@ def make_synthetic_audio(duration_s: float = 2.0, sample_rate: int = 16000) -> n
     """Generate synthetic audio: low-level noise that mimics quiet speech input."""
     n_samples = int(duration_s * sample_rate)
     # Generate noise at a level that's above the "near-silence" threshold (0.001 RMS)
-    # but below actual speech levels — this is enough to exercise the code paths
+    # but below actual speech levels, this is enough to exercise the code paths
     rng = np.random.default_rng(42)
     noise = rng.normal(0, 0.01, n_samples).astype(np.float32)
     return noise
@@ -91,7 +91,7 @@ def run_runtime_proof():
     """Run the actual runtime verification cycle."""
     # fixed the module paths.  The script previously
     # imported from ``voice_typer.config``, ``voice_typer.transcription``,
-    # and ``voice_typer.tray`` — all of which were moved to
+    # and ``voice_typer.tray``, all of which were moved to
     # ``voice_typer.server.*`` during the package reorganization.
     # The script would crash on import; now it actually runs.
     from voice_typer.server.config import Config
@@ -170,7 +170,7 @@ def run_runtime_proof():
         "second_f2_works": False,
     }
 
-    # Watchdog (same as in app.py — 60s timeout)
+    # Watchdog (same as in app.py, 60s timeout)
     watchdog_fired = threading.Event()
     force_recovery_done = threading.Event()
 
@@ -199,7 +199,7 @@ def run_runtime_proof():
             log.info("[TRANSCRIBE] Starting transcription with transcribe_with_fallback()...")
             results["transcribe_with_fallback_called"] = True
 
-            # THIS IS THE KEY CALL — uses the real transcribe_with_fallback
+            # THIS IS THE KEY CALL, uses the real transcribe_with_fallback
             text = transcriber.transcribe_with_fallback(audio)
 
             results["transcribe_success"] = True

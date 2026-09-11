@@ -6,7 +6,7 @@ The bug
 write timeout on the TCP socket before sending, then restored the
 timeout to ``None`` (blocking) in the ``finally`` block.  ``None``
 clobbers the auth-read deadline set on the connection (the fix),
-so the dispatch-loop ``readline`` could block forever — meaning the
+so the dispatch-loop ``readline`` could block forever: meaning the
 reader thread could never exit and ``_TCPLineIO.close()`` would
 deadlock against the in-progress ``recv``.
 
@@ -48,7 +48,7 @@ class TestSendRestoresPrevTimeout:
         dance. The socket's timeout attribute is NEVER mutated by
         ``_send``, so there's no ``_prev_timeout`` to capture and no
         ``finally:`` block to restore it. This preserves the auth-read
-        deadline set on the connection — the original deadlock root cause
+        deadline set on the connection, the original deadlock root cause
         was ``settimeout(None)`` clobbering that deadline.
         """
         src = inspect.getsource(IPCServer._send)
@@ -58,22 +58,22 @@ class TestSendRestoresPrevTimeout:
         )
         # The old dance variables and calls must be gone.
         assert "_prev_timeout" not in src, (
-            "_send must NOT capture _prev_timeout — the select-based "
+            "_send must NOT capture _prev_timeout, the select-based "
             "approach doesn't mutate the socket timeout, so there's "
             "nothing to capture or restore."
         )
         assert "gettimeout()" not in src, (
-            "_send must NOT call gettimeout() — the select-based approach doesn't need to read the previous timeout."
+            "_send must NOT call gettimeout(), the select-based approach doesn't need to read the previous timeout."
         )
         # No finally block needed (nothing to restore).
         assert "finally:" not in src, (
-            "_send must NOT have a finally block — without the settimeout dance there's no timeout state to restore."
+            "_send must NOT have a finally block, without the settimeout dance there's no timeout state to restore."
         )
 
     def test_send_restores_prev_timeout_behaviorally(self):
         """When ``_send`` runs against a client with a non-None previous
         timeout (e.g. the auth-read deadline), the timeout must be
-        restored to that value after the send completes — NOT clobbered
+        restored to that value after the send completes, NOT clobbered
         to ``None`` (blocking).
         """
         # Build a minimal IPCServer without running __init__ (which
@@ -87,7 +87,7 @@ class TestSendRestoresPrevTimeout:
 
         # Use a real socketpair so settimeout/gettimeout are real.
         # ``socket.socketpair()`` (no family arg) uses AF_UNIX on POSIX and
-        # AF_INET on Windows — identical duplex-pipe semantics on both.
+        # AF_INET on Windows, identical duplex-pipe semantics on both.
         srv, cli = socket.socketpair()
         try:
             # Wrap the server end in _TCPLineIO so _send can write to it.
@@ -120,7 +120,7 @@ class TestSendRestoresPrevTimeout:
             # to None (which would be the bug).
             assert srv.gettimeout() == AUTH_DEADLINE, (
                 f"_send must restore the PREVIOUS timeout ({AUTH_DEADLINE}s), "
-                f"not None (blocking). Got {srv.gettimeout()!r} — this is the "
+                f"not None (blocking). Got {srv.gettimeout()!r}, this is the "
                 "deadlock root cause if it's None."
             )
         finally:
@@ -129,7 +129,7 @@ class TestSendRestoresPrevTimeout:
 
     def test_send_restores_none_when_prev_was_none(self):
         """If the previous timeout was already ``None`` (no auth deadline
-        set), ``_send`` may restore ``None`` — that's the correct
+        set), ``_send`` may restore ``None``, that's the correct
         behavior in that scenario.  This test guards against an
         over-aggressive fix that always forces a non-None timeout.
         """
@@ -141,7 +141,7 @@ class TestSendRestoresPrevTimeout:
         server._tcp_mode = True
 
         # ``socket.socketpair()`` (no family arg) uses AF_UNIX on POSIX and
-        # AF_INET on Windows — identical duplex-pipe semantics on both.
+        # AF_INET on Windows, identical duplex-pipe semantics on both.
         srv, cli = socket.socketpair()
         try:
             tcp_client = _TCPLineIO(srv)
@@ -160,7 +160,7 @@ class TestSendRestoresPrevTimeout:
             reader.join(timeout=2.0)
             assert received
 
-            # restore _prev_timeout — if prev was None, restored
+            # restore _prev_timeout, if prev was None, restored
             # value is None.  This is correct (no clobbering of a real
             # deadline).
             assert srv.gettimeout() is None, (
@@ -209,7 +209,7 @@ class TestTCPLineIOCloseUsesShutdown:
         so ``close()`` returns promptly on every platform.
         """
         # ``socket.socketpair()`` (no family arg) uses AF_UNIX on POSIX and
-        # AF_INET on Windows — identical duplex-pipe semantics on both.
+        # AF_INET on Windows, identical duplex-pipe semantics on both.
         srv, cli = socket.socketpair()
         try:
             io = _TCPLineIO(srv)
@@ -220,7 +220,7 @@ class TestTCPLineIOCloseUsesShutdown:
             # Signal that the reader thread has STARTED and is
             # about to enter the blocking ``readline()``. Replaces the
             # fixed ``time.sleep(0.1)`` synchronization barrier with an
-            # Event-based wait — the test no longer has to guess how
+            # Event-based wait, the test no longer has to guess how
             # long "a moment to enter the blocking readline" takes on
             # slow CI. The race window between ``reader_started.set()``
             # and ``io.readline()`` is the same as before (the original
@@ -237,7 +237,7 @@ class TestTCPLineIOCloseUsesShutdown:
                     read_results.append(line)
                 except OSError:
                     # close() aborts the blocked read (WinError 10053 /
-                    # 10038 on Windows) — that interruption IS the point
+                    # 10038 on Windows), that interruption IS the point
                     # of this test; the close-path deadlock assertion
                     # below is what matters. Record the abort instead of
                     # leaking an unhandled thread exception.
@@ -246,7 +246,7 @@ class TestTCPLineIOCloseUsesShutdown:
             t = threading.Thread(target=reader, daemon=True)
             t.start()
             # Bounded wait (1s) for the reader to start. If this
-            # expires, the test continues anyway — the close-path
+            # expires, the test continues anyway, the close-path
             # deadlock assertion below will still catch the regression
             # (close would hang against an in-progress readline whether
             # or not readline has been entered yet).
@@ -269,7 +269,7 @@ class TestTCPLineIOCloseUsesShutdown:
             # in-progress readline and this assert fails.
             assert close_done.wait(timeout=2.0), (
                 "_TCPLineIO.close() deadlocked against a concurrent "
-                "readline() — the fix (shutdown before close) is missing "
+                "readline(), the fix (shutdown before close) is missing "
                 "or broken."
             )
             # The reader thread should also have exited (readline returned

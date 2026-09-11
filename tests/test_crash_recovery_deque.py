@@ -7,10 +7,10 @@ Verifies that:
   - ``clear()``, ``len()``, indexing (``self._entries[-1]``, ``self._entries[i]``),
     and iteration all still work on the deque.
   - ``json.dumps`` round-trip via ``_save_sync`` / ``_load`` still produces
-    the same on-disk shape (``{"entries": [...]}``) — the ``list(...)`` wrap
+    the same on-disk shape (``{"entries": [...]}``), the ``list(...)`` wrap
     in ``_save_sync`` keeps the JSON shape unchanged.
 
-These tests are scoped to the data-structure change only — no behavior
+These tests are scoped to the data-structure change only, no behavior
 change to the public ``CrashRecovery`` API.  The original
 ``tests/test_crash_recovery.py`` already covers the public API surface.
 """
@@ -63,7 +63,7 @@ class TestAutoEviction:
         max_n = _max_entries()
         for i in range(max_n + 5):
             cr.add(f"entry-{i}", pasted=False)
-        # Count is capped at max_n — same as the previous ``while`` loop.
+        # Count is capped at max_n, same as the previous ``while`` loop.
         assert cr.count == max_n
         # The newest max_n entries are retained (entry-5 .. entry-14).
         entries = cr.get_all()
@@ -199,7 +199,7 @@ class TestJsonRoundTrip:
         from voice_typer.server.crash_recovery import CrashRecovery
 
         max_n = _max_entries()
-        # Write a file with 2x the max entries — simulates a stale file
+        # Write a file with 2x the max entries, simulates a stale file
         # from an older version that had a higher bound.
         oversized = {
             "entries": [
@@ -211,7 +211,7 @@ class TestJsonRoundTrip:
         recovery_path.write_text(json.dumps(oversized), encoding="utf-8")
 
         cr = CrashRecovery(config_dir=recovery_dir)
-        # Trimmed to ``max_n`` — the OLDEST entries are dropped (the deque
+        # Trimmed to ``max_n``, the OLDEST entries are dropped (the deque
         # constructor keeps the LAST ``maxlen`` items of the iterable).
         assert cr.count == max_n
         entries = cr.get_all()

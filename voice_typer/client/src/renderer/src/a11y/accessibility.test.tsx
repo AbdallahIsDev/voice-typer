@@ -20,7 +20,7 @@
  *
  * The "All Switch components" test was a
  * source-pattern scan that only looked at `pages/{Home,Settings,
- * Models,About}.tsx` — but the actual Switch call sites live in
+ * Models,About}.tsx`, but the actual Switch call sites live in
  * `components/settings/*Section.tsx` (28 of 29 Switches were
  * untested). Replaced with a behavioral test that mounts each
  * Section + AudioFilterChain and uses `getAllByRole("switch")` +
@@ -285,7 +285,7 @@ vi.mock("@/components/ui/sonner", () => ({
 	Toaster: () => null,
 }));
 
-// Pages — stubbed so App's route guard doesn't try to mount real pages
+// Pages, stubbed so App's route guard doesn't try to mount real pages
 // (which would pull in heavy transitive deps).  The @/pages/Home stub
 // includes a `data-testid="home-page"` so the App test can wait for
 // the home route to mount before asserting the aria-live region.
@@ -323,7 +323,7 @@ vi.mock("@/pages/Settings", () => ({
 	default: () => <div data-testid="settings-page">Settings</div>,
 }));
 
-// appStore — minimal stub so App's route guard + config read work.
+// appStore, minimal stub so App's route guard + config read work.
 // App reads `config.onboarding_completed` to decide whether to show
 // the Onboarding page or the Home page; we return a completed config
 // so App renders the Home route.
@@ -513,7 +513,7 @@ describe("NEW-UX-012: Accessibility ARIA patterns", () => {
 	//finding 13: the previous test was a brittle source-pattern
 	// scan that counted occurrences of the literal strings "SelectTrigger"
 	// and "aria-label" in `pages/Settings.tsx`.  But Settings.tsx itself
-	// doesn't use SelectTrigger at all — the Selects live in the
+	// doesn't use SelectTrigger at all, the Selects live in the
 	// individual Settings-section components (GeneralSettingsSection,
 	// PostProcessingSettingsSection, LlmPolishingSettingsSection,
 	// RecordingSettingsSection, ThemeSettingsSection).  Since both counts
@@ -523,7 +523,7 @@ describe("NEW-UX-012: Accessibility ARIA patterns", () => {
 	// SelectTrigger and asserts every rendered combobox (Radix Select's
 	// implicit role) has an accessible name.  This catches a regression
 	// where a SelectTrigger is added without an aria-label (or wrapping
-	// SettingRow label) — the failure message identifies the offending
+	// SettingRow label), the failure message identifies the offending
 	// combobox by its missing accessible name.
 	describe("BG-R19 #13: every mounted Select trigger has an accessible name (behavioral)", () => {
 		beforeEach(() => {
@@ -649,7 +649,7 @@ describe("NEW-UX-012: Accessibility ARIA patterns", () => {
 		renderWithProviders(<App />);
 
 		// Wait for App to mount the home-page stub.  We don't need
-		// to wait for any specific text — just one render cycle.
+		// to wait for any specific text, just one render cycle.
 		await screen.findByTestId("home-page");
 
 		const liveRegions = document.querySelectorAll("[aria-live]");
@@ -661,7 +661,7 @@ describe("NEW-UX-012: Accessibility ARIA patterns", () => {
 	// `aria-live`, `role="status"`, or `role='status'`.  It currently
 	//PASSES only because a comment (": removed
 	// `aria-live=\"polite\"` from this `<output>`…") contains the
-	// literal string "aria-live" — i.e. the test passes for the wrong
+	// literal string "aria-live", i.e. the test passes for the wrong
 	// reason.
 	//
 	// The behavioral replacement below mounts the real Home page with
@@ -680,7 +680,7 @@ describe("NEW-UX-012: Accessibility ARIA patterns", () => {
 	// `vi.importActual` crashed at module load and the test failed for
 	// the wrong reason.  With the canonical mock providing every icon,
 	// Home renders and this behavioral assertion passes on its own
-	// merits — Home wraps `lastText` in an aria-live region (see the
+	// merits, Home wraps `lastText` in an aria-live region (see the
 	// source-pattern test below, which is a regular `it`).
 	describe("BG-R19 #7: behavioral Home aria-live region for transcription_final", () => {
 		let capturedTranscriptionFinalHandler:
@@ -721,7 +721,7 @@ describe("NEW-UX-012: Accessibility ARIA patterns", () => {
 			// registered for the App test above, loading the
 			// REAL Home component.  Home's transitive imports
 			// (usePython, useLastUpdated, useStatsShare, etc.)
-			// still go through their file-level mocks — which
+			// still go through their file-level mocks, which
 			// is what we want (we don't want to actually call
 			// the Python bridge).
 			const Home = (
@@ -951,7 +951,7 @@ describe("NEW-UX-012: Dialog accessibility", () => {
 // Home.tsx renders the most recent transcription
 // result (`lastText`) inside a `<p>` element so sighted users see what
 // was just pasted, but the surrounding container has no `aria-live`
-// attribute — so screen-reader users get NO announcement when a
+// attribute, so screen-reader users get NO announcement when a
 // transcription completes (they only hear the App-level status pill
 // flip from "Recording" to "Ready", which doesn't include the text).
 //
@@ -959,9 +959,9 @@ describe("NEW-UX-012: Dialog accessibility", () => {
 // an ancestor) that carries an `aria-live` attribute.  It's a
 // source-pattern test rather than a behavioral mount because mounting
 // Home requires the full Python bridge + connection store wiring (out
-// of scope for the a11y test file — see Home.test.tsx for that).
+// of scope for the a11y test file, see Home.test.tsx for that).
 //
-// NOTE: this is a regular `it` regression spec — Home.tsx wraps the
+// NOTE: this is a regular `it` regression spec, Home.tsx wraps the
 // `{lastText}` `<p>` inside an `aria-live="polite"` container (the
 // production fix landed), so any refactor that drops the live region
 // around `{lastText}` fails the suite.
@@ -983,7 +983,7 @@ describe("PVT-047: Home transcription result is in a live region", () => {
 		// The window MUST contain an `aria-live` attribute on an
 		// ancestor element (the existing `<output aria-live="polite">`
 		// status pill is 100+ lines away and so won't appear in this
-		// window — only a NEW live region wrapping the lastText
+		// window, only a NEW live region wrapping the lastText
 		// block will satisfy this assertion).
 		expect(window).toMatch(/aria-live\s*=/);
 	});
@@ -997,17 +997,17 @@ describe("PVT-047: Home transcription result is in a live region", () => {
 describe("index.css declares user-preference @media blocks", () => {
 	const cssPath = path.resolve(__dirname, "..", "index.css");
 
-	it("declares @media (prefers-reduced-motion: reduce) — WCAG 2.3.3", () => {
+	it("declares @media (prefers-reduced-motion: reduce), WCAG 2.3.3", () => {
 		const src = fs.readFileSync(cssPath, "utf-8");
 		expect(src).toContain("@media (prefers-reduced-motion: reduce)");
 	});
 
-	it("declares @media (forced-colors: active) — WCAG 1.4.11 (Windows high-contrast)", () => {
+	it("declares @media (forced-colors: active), WCAG 1.4.11 (Windows high-contrast)", () => {
 		const src = fs.readFileSync(cssPath, "utf-8");
 		expect(src).toContain("@media (forced-colors: active)");
 	});
 
-	it("declares @media (prefers-contrast: high) — WCAG 1.4.11 (macOS Increase Contrast)", () => {
+	it("declares @media (prefers-contrast: high), WCAG 1.4.11 (macOS Increase Contrast)", () => {
 		const src = fs.readFileSync(cssPath, "utf-8");
 		expect(src).toContain("@media (prefers-contrast: high)");
 	});
@@ -1027,9 +1027,9 @@ describe("index.css declares user-preference @media blocks", () => {
 // aria-label built from the analytics.sevenDayActivityChartAria i18n
 // key, and the bars are non-interactive <div>s (no dead-end tab stops).
 // This test was `it.fails` while the fix was pending; it is now a
-// regular `it` regression spec — a future refactor that drops the
+// regular `it` regression spec, a future refactor that drops the
 // role/label on the container fails the suite.
-describe("Dashboard a11y — heatmap role + stat card names", () => {
+describe("Dashboard a11y, heatmap role + stat card names", () => {
 	it('Dashboard 7-day activity chart container has role="img" + aria-label', () => {
 		// The activity chart lives in the extracted
 		// SevenDayActivityChart.tsx component (split out of
@@ -1075,7 +1075,7 @@ describe("Dashboard a11y — heatmap role + stat card names", () => {
 // `<title>` elements inside `aria-hidden` SVGs (the MinimizeIcon,
 // MaximizeIcon, RestoreIcon, and CloseIcon helper components).  A
 // `<title>` inside an `aria-hidden` SVG is INACCESSIBLE to assistive
-// tech (silently dropped by screen readers) and redundant — the
+// tech (silently dropped by screen readers) and redundant, the
 // wrapping <button> already carries an `aria-label`, so the SVG
 // title would never be announced even if the SVG weren't hidden.
 //
@@ -1096,7 +1096,7 @@ describe("TitleBar SVGs should NOT carry <title> inside aria-hidden SVGs", () =>
 
 		// Find every `<svg ... aria-hidden ...>` block and assert none
 		// of them contain a `<title>` child.  We use a coarse regex
-		// (JSX is not regex-friendly) — the test is intentionally
+		// (JSX is not regex-friendly), the test is intentionally
 		// strict so any `<title>` inside an aria-hidden SVG is
 		// flagged.
 		const svgBlockRegex = /<svg[^>]*aria-hidden[\s\S]*?<\/svg>/g;
@@ -1112,7 +1112,7 @@ describe("TitleBar SVGs should NOT carry <title> inside aria-hidden SVGs", () =>
 //
 // Modal.tsx (in components/common/) wraps Radix Dialog to provide a
 //consistent focus-managed dialog primitive.   finding 10 notes
-// that NO test covers Modal's focus-management behavior — the existing
+// that NO test covers Modal's focus-management behavior, the existing
 // ConfirmDialog + ErrorBoundary source-pattern tests above only check
 // for the presence of role attributes / aria-live strings in source
 // code; they never mount a Modal and assert what a screen-reader user
@@ -1126,7 +1126,7 @@ describe("TitleBar SVGs should NOT carry <title> inside aria-hidden SVGs", () =>
 //
 //   1. The rendered dialog has `role="dialog"` (Radix sets this on the
 //      Content primitive).  NOTE: Radix Dialog v1.x no longer emits
-//      `aria-modal="true"` — the ARIA working group debated its
+//      `aria-modal="true"`, the ARIA working group debated its
 //      poor AT support and many libraries now omit it in favor of
 //      `role="dialog"` + focus-trap.  We assert only `role="dialog"`.
 //   2. The dialog has an accessible name (via aria-labelledby pointing
@@ -1137,7 +1137,7 @@ describe("TitleBar SVGs should NOT carry <title> inside aria-hidden SVGs", () =>
 //      DialogDescription).
 //   4. Escape key dismisses the dialog (the `onClose` prop is fired).
 //
-// These are a11y invariants, not general focus-trap behavior — they
+// These are a11y invariants, not general focus-trap behavior, they
 // complement (not duplicate) F12's Modal.test.tsx.
 describe("BG-R19 #10: Modal focus-management a11y invariants", () => {
 	beforeEach(() => {

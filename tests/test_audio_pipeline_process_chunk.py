@@ -67,7 +67,7 @@ def _make_pipeline_stub(
     ``AudioPipeline.process_audio_chunk`` reads / writes. The 6 named
     helpers are shadowed on the pipeline instance with ``MagicMock``
     objects so the test can assert call counts and arguments (the
-    orchestration body now invokes its own methods directly — the
+    orchestration body now invokes its own methods directly, the
     historical ``Recorder._<helper>`` delegators were removed). Real
     ``threading.Lock`` and ``deque`` are installed for ``_lock`` and
     ``_recent_rms_values`` so the orchestration body's
@@ -95,16 +95,16 @@ def _make_pipeline_stub(
     pipeline.run_vad_state_machine = MagicMock()
     pipeline.detect_and_emit_clipping = MagicMock()
     # ``run_vad_state_machine`` and ``detect_and_emit_clipping`` are
-    # no-op MagicMocks by default — the tests assert call counts / args.
+    # no-op MagicMocks by default, the tests assert call counts / args.
     # Real lock so ``with recorder._audio_pipeline._lock:`` is a real context manager.
     recorder._audio_pipeline._lock = threading.Lock()
     # Real deque so ``recorder._recent_rms_values.append(chunk_rms)`` works.
     recorder._recent_rms_values = collections.deque(maxlen=10)
-    # Writable mutable state — these are assigned by the orchestration
+    # Writable mutable state, these are assigned by the orchestration
     # body and inspected by the tests.
     recorder._last_rms = None
     recorder._rms_callback_error_count = 0
-    # Callbacks + recording-start — read outside the lock.
+    # Callbacks + recording-start, read outside the lock.
     recorder.on_rms_level = rms_callback
     recorder.on_silence_warning = None
     recorder.on_silence_auto_stop = None
@@ -195,7 +195,7 @@ class TestProcessAudioChunkHappyPath:
         pipeline.compute_rms_and_peak.assert_called_once_with(_FILTERED)
         # ``_detect_and_emit_clipping`` receives the chunk_peak value
         # returned by ``_compute_rms_and_peak`` (NOT a fixed 0.99
-        # threshold — the helper itself owns the threshold check).
+        # threshold, the helper itself owns the threshold check).
         pipeline.detect_and_emit_clipping.assert_called_once_with(pipeline._recorder, _CHUNK_PEAK)
 
         # ``_run_vad_state_machine`` receives the threaded-through args
@@ -302,7 +302,7 @@ class TestProcessAudioChunkRmsCallbackContract:
             raise RuntimeError("boom")
 
         pipeline = _make_pipeline_stub(rms_callback=bad_cb)
-        # Pre-existing first occurrence — next raise is occurrence #2.
+        # Pre-existing first occurrence, next raise is occurrence #2.
         pipeline._recorder._rms_callback_error_count = 1
 
         indata = np.array([[0.1], [-0.2], [0.3]], dtype=np.float32)
@@ -324,7 +324,7 @@ class TestProcessAudioChunkRmsCallbackContract:
             raise RuntimeError("boom")
 
         pipeline = _make_pipeline_stub(rms_callback=bad_cb)
-        # Pre-existing 99 occurrences — next raise is occurrence #100.
+        # Pre-existing 99 occurrences, next raise is occurrence #100.
         pipeline._recorder._rms_callback_error_count = 99
 
         indata = np.array([[0.1], [-0.2], [0.3]], dtype=np.float32)
@@ -359,7 +359,7 @@ class TestProcessAudioChunkRmsCallbackContract:
         debug_records = [r for r in caplog.records if r.levelno == logging.DEBUG]
         with_exc_info = [r for r in debug_records if r.exc_info is not None]
         # Only the 1st occurrence (in this <100-occurrence run) carries
-        # exc_info — the others use the "traceback suppressed" branch.
+        # exc_info, the others use the "traceback suppressed" branch.
         assert len(with_exc_info) == 1, (
             f"Expected exactly 1 exc_info-bearing record (the 1st occurrence); got {len(with_exc_info)}"
         )
@@ -403,7 +403,7 @@ class TestProcessAudioChunkSharedStateMutations:
         for _ in range(5):
             pipeline.process_audio_chunk(indata, 3, None, 0, 12345.0)
 
-        # Bounded at 2 — the oldest entries dropped.
+        # Bounded at 2, the oldest entries dropped.
         assert list(pipeline._recorder._recent_rms_values) == [_CHUNK_RMS, _CHUNK_RMS]
 
 

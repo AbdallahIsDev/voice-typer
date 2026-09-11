@@ -116,7 +116,7 @@ def test_branch_methods_return_download_outcome() -> None:
 
 
 def test_download_model_is_compact_dispatcher() -> None:
-    """``download_model`` must remain a compact dispatcher — the
+    """``download_model`` must remain a compact dispatcher, the
     refactor target was ~40 LOC of actual code (excluding the
     docstring). We assert the function body (excluding docstring) has
     fewer than ~40 statements.
@@ -141,7 +141,7 @@ def test_download_model_is_compact_dispatcher() -> None:
     statement_count = len(body)
     assert statement_count <= 40, (
         f"download_model has {statement_count} statements (excluding "
-        "docstring) — must remain a compact dispatcher (≤ 40 "
+        "docstring), must remain a compact dispatcher (≤ 40 "
         "statements). A revert to the 558-LOC god method would have "
         "hundreds of statements."
     )
@@ -149,7 +149,7 @@ def test_download_model_is_compact_dispatcher() -> None:
 
 def test_download_model_does_not_inline_polling_loop() -> None:
     """``download_model`` must NOT contain an inline ``while`` polling
-    loop — the polling logic was extracted to
+    loop, the polling logic was extracted to
     :func:`poll_download_progress` in :mod:`_download_helpers`."""
     src = _dedent_method_source(ModelMixin.download_model)
     tree = ast.parse(src)
@@ -158,7 +158,7 @@ def test_download_model_does_not_inline_polling_loop() -> None:
     # Walk the function body looking for ``while`` statements.
     while_count = sum(1 for node in ast.walk(func_def) if isinstance(node, ast.While))
     assert while_count == 0, (
-        f"download_model must not contain a ``while`` loop — the "
+        f"download_model must not contain a ``while`` loop, the "
         f"polling loop was extracted to poll_download_progress. Found "
         f"{while_count} ``while`` statements in the dispatcher body."
     )
@@ -177,7 +177,7 @@ def test_download_model_does_not_define_nested_closures() -> None:
     # The outer FunctionDef itself is counted by ast.walk, so subtract 1.
     nested_func_count -= 1
     assert nested_func_count == 0, (
-        f"download_model must not define nested function closures — "
+        f"download_model must not define nested function closures, "
         f"the _push_progress and _notify closures were lifted to "
         f"module-level helpers. Found {nested_func_count} nested "
         f"FunctionDefs in the dispatcher body."
@@ -216,7 +216,7 @@ def test_download_outcome_typeddict_exists() -> None:
     from typing import _TypedDictMeta  # type: ignore[attr-defined]
 
     assert isinstance(DownloadOutcome, _TypedDictMeta), (
-        f"DownloadOutcome must be a TypedDict — got {type(DownloadOutcome)!r}."
+        f"DownloadOutcome must be a TypedDict, got {type(DownloadOutcome)!r}."
     )
     # Verify the documented fields exist.
     expected_fields = {
@@ -238,7 +238,7 @@ def test_download_outcome_typeddict_exists() -> None:
 
 
 def test_helpers_take_explicit_args_not_self() -> None:
-    """The lifted helpers must be PURE module-level functions — they
+    """The lifted helpers must be PURE module-level functions, they
     take explicit args (``event_bus``, ``tray``, ``model_name``, ...)
     rather than capturing ``self``. This is what makes them unit-
     testable in isolation without instantiating a full
@@ -300,7 +300,7 @@ def test_require_huggingface_consent_returns_download_outcome_or_none() -> None:
         f"_require_huggingface_consent must be annotated as ``-> DownloadOutcome | None``. Got: {ret!r}."
     )
     assert "None" in ret_str, (
-        "_require_huggingface_consent must allow ``None`` return (consent given — caller proceeds)."
+        "_require_huggingface_consent must allow ``None`` return (consent given, caller proceeds)."
     )
 
 
@@ -313,7 +313,7 @@ def test_no_type_ignore_return_value_in_model_py() -> None:
 
     We use :mod:`tokenize` to identify comment tokens (so docstring
     text that merely mentions the string ``# type: ignore[return-value]``
-    doesn't trip the assertion — only actual comment tokens do).
+    doesn't trip the assertion, only actual comment tokens do).
     """
     import io
     import tokenize
@@ -321,7 +321,7 @@ def test_no_type_ignore_return_value_in_model_py() -> None:
 
     import voice_typer.server.service.model as model_mod
 
-    # The mixin was split into a package — scan every leaf so the ban
+    # The mixin was split into a package, scan every leaf so the ban
     # keeps covering the implementation, not just the facade.
     pkg_dir = Path(model_mod.__file__).resolve().parent
     bad_ignores: list[str] = []

@@ -24,7 +24,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import ConfirmDialog from "@/components/common/ConfirmDialog";
 
-// Disable color-contrast — the test environment doesn't load the full
+// Disable color-contrast, the test environment doesn't load the full
 // Tailwind stylesheet, so axe's computed contrast values would be
 // meaningless and produce false positives.
 const AXE_OPTIONS: axe.RunOptions = {
@@ -33,7 +33,7 @@ const AXE_OPTIONS: axe.RunOptions = {
 	},
 };
 
-/** Axe helper — scans document.body (Radix Portal target) and filters
+/** Axe helper, scans document.body (Radix Portal target) and filters
  *  out the disabled color-contrast rule. */
 async function expectNoAxeViolationsOnBody(): Promise<void> {
 	const results = await axe.run(document.body, AXE_OPTIONS);
@@ -43,7 +43,7 @@ async function expectNoAxeViolationsOnBody(): Promise<void> {
 	expect(violations).toEqual([]);
 }
 
-describe("F-17: axe-core WCAG scan — ConfirmDialog (open)", () => {
+describe("F-17: axe-core WCAG scan, ConfirmDialog (open)", () => {
 	afterEach(() => {
 		cleanup();
 	});
@@ -61,7 +61,7 @@ describe("F-17: axe-core WCAG scan — ConfirmDialog (open)", () => {
 				onCancel={vi.fn()}
 			/>,
 		);
-		// Wait for the portal content to mount before scanning — Radix
+		// Wait for the portal content to mount before scanning, Radix
 		// AlertDialog animates in on open and the content node may not
 		// be attached synchronously.
 		await screen.findByRole("alertdialog");

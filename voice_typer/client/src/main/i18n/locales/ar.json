@@ -1,6 +1,6 @@
 {
 	"dialog.criticalError.body": "واجه التطبيق {count} استثناءات غير معالجة وسيتم إغلاقه.\nسجل الأعطال: {logPath}\nيرجى إعادة تشغيل {appName}.",
-	"dialog.criticalError.title": "{appName} — خطأ حرج",
+	"dialog.criticalError.title": "{appName}, خطأ حرج",
 	"dialog.export.config": "تصدير الإعدادات",
 	"dialog.export.history": "تصدير السجل",
 	"dialog.export.statsImage": "تصدير صورة الإحصائيات",
@@ -12,7 +12,7 @@
 	"dialog.singleInstance.title": "{appName}",
 	"notify.app.config_load_failed_body": "فشل تحميل الإعدادات. تمت إعادة التعيين إلى الإعدادات الافتراضية. تحقق من السجلات لمزيد من التفاصيل.",
 	"state.app.starting": "جارٍ التشغيل...",
-	"dialog.crashLoop.title": "{appName} — حلقة التعطل",
+	"dialog.crashLoop.title": "{appName}, حلقة التعطل",
 	"dialog.crashLoop.mainBody": "تعطلت نافذة العرض الرئيسية بشكل متكرر ولا يمكن استعادتها.\n\nيرجى استخدام أيقونة الدرج لإعادة التشغيل أو الخروج، ثم إطلاق {appName} مرة أخرى.",
 	"dialog.crashLoop.bubbleBody": "تعطلت نافذة الفقاعة العائمة بشكل متكرر ولا يمكن استعادتها.\n\nيرجى استخدام أيقونة الدرج لإعادة التشغيل أو الخروج، ثم إطلاق {appName} مرة أخرى.",
 	"dialog.pythonBackend.timeoutTitle": "فشل بدء تشغيل باك-إند بايثون",

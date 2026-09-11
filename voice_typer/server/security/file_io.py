@@ -43,7 +43,7 @@ def _sfio_shim():
     ``_QUARANTINE_SUFFIX_SEQ`` through the SHIM at call time so existing
     tests that monkeypatch ``voice_typer.server.secure_file_io.<name>``
     keep working (the shim re-exports the canonical symbols; the
-    re-export is what the tests patch — same pattern as the lazy
+    re-export is what the tests patch, same pattern as the lazy
     ``voice_typer.server.config._secure_atomic_write`` lookup below).
     """
     from voice_typer.server import secure_file_io as _shim
@@ -58,12 +58,12 @@ def _windows_fsync_directory(path: str) -> None:
     This is the standard Windows durability recipe (used by SQLite,
     PostgreSQL, etc.). Without it, ``os.replace``'s directory-entry
     update sits in the NTFS log buffer for seconds and may not survive
-    power loss — the file DATA is durable (fsynced earlier) but the
+    power loss, the file DATA is durable (fsynced earlier) but the
     rename itself is not.
 
     Best-effort: any failure (ctypes missing, CreateFileW fails,
     FlushFileBuffers fails) is logged at DEBUG and swallowed so the
-    caller's write still succeeds — the pre-fix behavior (rename not
+    caller's write still succeeds, the pre-fix behavior (rename not
     durable across power loss) is the fallback.
 
     Only invoked on Windows (guarded by ``is_windows()`` at the call
@@ -143,7 +143,7 @@ def _windows_fsync_directory(path: str) -> None:
             path,
             e,
         )
-    except Exception as e:  # noqa: BLE001 — best-effort; never raise
+    except Exception as e:  # noqa: BLE001, best-effort; never raise
         log.debug(
             "[CONFIG] Windows directory-fsync of %s failed (best-effort, non-OSError): %s",
             path,
@@ -178,7 +178,7 @@ def _secure_atomic_write(
         (file data + parent directory) run.  The default ``True``
         preserves the existing POSIX-durability behavior used by
         ``Config.save()`` and ``credential_store._write_plaintext_fallback``
-        — both of which persist security-critical data (API keys, user
+       , both of which persist security-critical data (API keys, user
         settings) where the fsync cost is justified.  Pass
         ``durability=False`` for non-critical writes (cache files,
         telemetry dumps, PID files, onboarding sentinels) where the
@@ -186,7 +186,7 @@ def _secure_atomic_write(
         few seconds is acceptable.  Trade-off: skipping fsync can lose
         the most-recent write on power loss (the os.replace rename may
         not be durable on disk), but saves ~2ms per write on SSDs and
-        ~10-50ms on spinning rust — significant for high-frequency
+        ~10-50ms on spinning rust, significant for high-frequency
         non-critical writes.
 
     the inner ``with os.fdopen(fd, ...)`` was previously
@@ -197,7 +197,7 @@ def _secure_atomic_write(
         ``contextlib.suppress(OSError)``); but under concurrent load
         the closed fd number can be REUSED by another thread's
         ``os.open``/``socket``/etc., and the second ``os.close(fd)``
-        would close that unrelated fd — silent corruption of an
+        would close that unrelated fd, silent corruption of an
         unrelated resource.  The fix uses an ``owned_fd`` sentinel
         (set to ``-1`` immediately after ``os.fdopen`` succeeds) so the
         except path only closes the fd if ``os.fdopen`` itself failed
@@ -231,7 +231,7 @@ def _secure_atomic_write(
         tmp_path = Path(tmp_name)
 
         # manual try/finally (not a with-block) so we can flip
-        # ``owned_fd`` to ``-1`` AFTER ``os.fdopen`` succeeds — proving
+        # ``owned_fd`` to ``-1`` AFTER ``os.fdopen`` succeeds, proving
         # to the outer except that the fd is now owned by ``f`` and
         # must not be closed again.  Using a with-block here would
         # reintroduce the double-close: the with-block's ``__exit__``
@@ -265,7 +265,7 @@ def _secure_atomic_write(
         #
         # On Windows, os.replace raises PermissionError (WinError 5
         # "Access is denied") when another thread/process has the
-        # destination open at the moment of the rename — e.g. two
+        # destination open at the moment of the rename, e.g. two
         # concurrent Config.save() calls racing to persist config.json
         # regression surface). The lock is held only for the
         # other writer's brief write window, so the failure is
@@ -292,7 +292,7 @@ def _secure_atomic_write(
         # tmp file with 0o600 already. ``os.replace`` brings the
         # source inode (with its permissions) to the destination on
         # POSIX, so the 0o600 from mkstemp IS preserved across the
-        # rename — but we re-apply it explicitly so a future refactor
+        # rename, but we re-apply it explicitly so a future refactor
         # that changes the tmp-creation path (e.g. a caller that
         # passes a pre-opened fd, or a future Python release that
         # changes mkstemp's default mode) can't silently leak
@@ -354,7 +354,7 @@ _DEFAULT_MAX_READ_BYTES = 16 * 1024 * 1024
 
 # Monotonic counter mixed into the ``.corrupt-<ts>-<pid>-<ns>`` quarantine
 # suffix so rapid back-to-back / concurrent quarantine events never collide
-# (see ``PersistedJSON._quarantine_corrupt``). GIL-atomic ``next()`` — no
+# (see ``PersistedJSON._quarantine_corrupt``). GIL-atomic ``next()``, no
 # lock needed.
 _QUARANTINE_SUFFIX_SEQ: "itertools.count" = itertools.count()
 
@@ -363,8 +363,8 @@ _QUARANTINE_SUFFIX_SEQ: "itertools.count" = itertools.count()
 # retries up to ``_OS_REPLACE_MAX_ATTEMPTS`` times with a short sleep so
 # concurrent Config.save() calls don't spuriously fail. The window
 # is tiny for a single racing writer, but SUSTAINED contention (4+ threads
-# hammering the same target without the mutation lock — the
-# ``test_concurrent_saves_no_false_return`` stress test — or Defender's
+# hammering the same target without the mutation lock, the
+# ``test_concurrent_saves_no_false_return`` stress test, or Defender's
 # real-time scan briefly pinning config.json) can hold the destination for
 # well over 500ms; 10 x 50ms was empirically exhausted on CI
 # (windows-2022/3.11: 2 of 80 saves returned False). 20 x 100ms = 2s covers
@@ -379,11 +379,11 @@ def _read_with_byte_limit(f, max_bytes: int | None) -> str:
 
     Reads text from ``f`` in 64 KiB chunks.  After each chunk, encodes
     the chunk to UTF-8 to count its byte length (text-mode ``len()``
-    counts CHARACTERS, not bytes — for non-ASCII content those differ by
+    counts CHARACTERS, not bytes, for non-ASCII content those differ by
     up to 4x).  If the running byte total exceeds ``max_bytes``, raises
     ``ValueError`` immediately (does NOT continue reading the rest of
     the file).  If ``max_bytes is None``, reads the whole file
-    (unbounded — preserved for backward compat with callers that
+    (unbounded, preserved for backward compat with callers that
     explicitly opt out of the cap).
 
     Mirrors the chunked-read pattern from
@@ -407,7 +407,7 @@ def _read_with_byte_limit(f, max_bytes: int | None) -> str:
         if total_bytes > max_bytes:
             raise ValueError(
                 f"file exceeds max_bytes={max_bytes} "
-                f"(read {total_bytes} bytes so far) — refusing to "
+                f"(read {total_bytes} bytes so far), refusing to "
                 f"continue reading to prevent unbounded memory consumption"
             )
         chunks.append(chunk)
@@ -462,7 +462,7 @@ def _secure_read_text(
             f = os.fdopen(fd, "r", encoding=encoding)
             owned_fd = -1  # fd is now owned by f; sentinel prevents double-close
             try:
-                # bounded read — aborts with ValueError if the
+                # bounded read, aborts with ValueError if the
                 # file exceeds max_bytes before the read completes.
                 content = _read_with_byte_limit(f, max_bytes)
                 stat_after = os.fstat(f.fileno())
@@ -536,8 +536,8 @@ def _chmod_owner_only(path: Path) -> None:
 # ``Any`` (not ``T``) so legacy callers that pass ``default=None`` and
 # later ``.save(some_dict)`` keep type-checking clean (they get the
 # pre-generic ``Any`` behaviour). New callers can opt INTO type safety
-# by explicitly parameterising the class — e.g.
-# ``PersistedJSON[dict[str, Any]](path, default={})`` — after which
+# by explicitly parameterising the class: e.g.
+# ``PersistedJSON[dict[str, Any]](path, default={})``, after which
 # both :meth:`load` and :meth:`save` are statically checked against
 # ``dict[str, Any]``. The two existing call sites
 # (:class:`VocabularyManager`, :class:`TemplateManager`) currently do
@@ -578,7 +578,7 @@ class PersistedJSON(Generic[T]):
       ``save`` adds no second permission layer; mirrors
       ``config.py:1172-1174``).
 
-    The helper is intentionally minimal — it does NOT know about
+    The helper is intentionally minimal, it does NOT know about
     schema validation, defaults-merging, or in-memory cacheing.  Those
     concerns remain in the caller (``VocabularyManager``,
     ``TemplateManager``, etc.).  The caller is responsible for calling
@@ -591,7 +591,7 @@ class PersistedJSON(Generic[T]):
         is intentionally typed as ``Any`` so legacy callers that pass
         ``default=None`` and later ``.save(some_dict)`` keep
         type-checking clean (they get the pre-generic ``Any`` behaviour
-        — ``T`` is left unconstrained and resolves to ``Unknown``).
+       , ``T`` is left unconstrained and resolves to ``Unknown``).
         Callers that want type safety parameterise explicitly:
 
         >>> from voice_typer.server.secure_file_io import PersistedJSON
@@ -615,8 +615,8 @@ class PersistedJSON(Generic[T]):
         self._bak_path = self._path.with_name(self._path.name + ".bak")
         # (High): _last_written_bytes cache for  diff optimization.
         # Populated on load() and updated on save(). Stores the actual
-        # UTF-8 bytes of the last-written (or last-loaded) content — NOT
-        # just the byte length — so that a subsequent save with identical
+        # UTF-8 bytes of the last-written (or last-loaded) content, NOT
+        # just the byte length, so that a subsequent save with identical
         # content can skip BOTH the file read (for .bak diff) AND the
         # write (no fsync, no rename, no .bak churn). This eliminates
         # the 2-fsync-per-save overhead for vocabulary/templates that are
@@ -653,11 +653,11 @@ class PersistedJSON(Generic[T]):
 
                 Returns ``T`` so callers that parameterise the class get a
                 statically-typed value back; unparameterised callers get
-                ``T = Unknown`` (effectively ``Any`` — preserves the
+                ``T = Unknown`` (effectively ``Any``: preserves the
                 pre-generic behaviour).
         """
         if not self._path.exists():
-            # main file missing — try .bak before returning default.
+            # main file missing, try .bak before returning default.
             recovered = self._try_load_bak()
             if recovered is not None:
                 return recovered  # type: ignore[return-value, no-any-return]
@@ -673,7 +673,7 @@ class PersistedJSON(Generic[T]):
             return result  # type: ignore[return-value, no-any-return]
         except (json.JSONDecodeError, OSError, ValueError) as exc:
             log.warning(
-                "[PERSISTED_JSON] Failed to load %s: %s — quarantining corrupt file and returning default",
+                "[PERSISTED_JSON] Failed to load %s: %s, quarantining corrupt file and returning default",
                 self._path,
                 exc,
             )
@@ -693,7 +693,7 @@ class PersistedJSON(Generic[T]):
             raw = _sfio_shim()._secure_read_text(self._bak_path, encoding="utf-8")
             result = json.loads(raw)
             log.warning(
-                "[PERSISTED_JSON] Main file corrupt/missing — restored from .bak: %s",
+                "[PERSISTED_JSON] Main file corrupt/missing, restored from .bak: %s",
                 self._bak_path.name,
             )
             # cache the recovered .bak bytes so the next save()
@@ -722,9 +722,9 @@ class PersistedJSON(Generic[T]):
 
         the filename embeds epoch seconds + PID + sub-second
                 nanoseconds (``time.time_ns() % 1_000_000``) so two
-                concurrent corruptions — even within the same second from
+                concurrent corruptions, even within the same second from
                 DIFFERENT processes, or back-to-back from the same process
-                — produce distinct filenames without needing an
+               , produce distinct filenames without needing an
                 ``exists()`` probe loop.  This mirrors the
                 migration-backup path in ``config.py:1900-1903`` and the
                 corrupt-config rename in ``config.py:1779-1782``.  The
@@ -744,7 +744,7 @@ class PersistedJSON(Generic[T]):
                 destination on BOTH POSIX and Windows, so even if a future
                 change weakens the suffix uniqueness, the worst case is the
                 previous-behavior overwrite (no corruption, just lost
-                forensics — strictly better than raising).
+                forensics, strictly better than raising).
         """
         try:
             if not self._path.exists():
@@ -766,7 +766,7 @@ class PersistedJSON(Generic[T]):
             # overwrite one quarantine file. ``itertools.count`` is
             # GIL-atomic so no lock is needed; the counter only
             # disambiguates calls within the same ms window (wrapping
-            # would require 1M calls inside one ms — impossible).
+            # would require 1M calls inside one ms, impossible).
             _sfio = _sfio_shim()
             ts = int(_sfio.time.time())
             pid = os.getpid()
@@ -809,7 +809,7 @@ class PersistedJSON(Generic[T]):
         (High): when ``True`` (default), the write
                     uses the full ``_secure_atomic_write`` path with ``fsync``
                     of both file data and parent directory. When ``False``, the
-                    fsync calls are skipped — suitable for non-critical cache
+                    fsync calls are skipped, suitable for non-critical cache
                     files where the OS page cache is sufficient and the
                     fsync overhead (2 syscalls per save) is undesirable.
 
@@ -825,14 +825,14 @@ class PersistedJSON(Generic[T]):
                   every success branch (mirrors ``config.py:1172-1174``).
                   On Windows this is a no-op (POSIX permission bits are
                   ignored; ACLs apply). ``save`` deliberately does NOT
-                  re-chmod either path — the write helper already did.
+                  re-chmod either path, the write helper already did.
                 * The parent directory is created (``parents=True,
                   exist_ok=True``) so the caller doesn't have to.
                 * ``_secure_atomic_write`` is imported LAZILY from
                   :mod:`voice_typer.server.config` (not from this module) so
                   existing test patches on
                   ``voice_typer.server.config._secure_atomic_write`` keep
-                  working — the symbol is defined here but re-exported from
+                  working, the symbol is defined here but re-exported from
                   ``config``; the re-export is what existing tests monkeypatch
         (e.g. ``test_vocabulary_history_db_fixes.py``'s  retry
                   tests).  Lazy import avoids the circular import that a
@@ -842,11 +842,11 @@ class PersistedJSON(Generic[T]):
 
         the previous implementation used ``Path.read_bytes()``
                 and ``Path.write_bytes()`` for the ``.bak`` comparison + write.
-                Both follow symlinks — so an attacker who planted symlinks at
+                Both follow symlinks, so an attacker who planted symlinks at
                 BOTH ``self._path`` and ``self._bak_path`` got a
                 read-from-arbitrary-file + write-to-arbitrary-file primitive
-                (the previous config — which contains API keys for
-                ``credential_store`` — was read through the ``self._path``
+                (the previous config: which contains API keys for
+                ``credential_store``: was read through the ``self._path``
                 symlink and written through the ``self._bak_path`` symlink).
                 The fix refuses to follow symlinks on EITHER path: if either
                 is a symlink, the backup is skipped (the main save still
@@ -881,7 +881,7 @@ class PersistedJSON(Generic[T]):
         # match the cached bytes), and is invalidated on a failed load
         # (see ``test_cache_invalidated_on_failed_load``). So a cache
         # hit here is proof that the on-disk content matches the new
-        # content — no need to re-read.
+        # content, no need to re-read.
         if self._last_written_bytes is not None and content_bytes == self._last_written_bytes:
             return
 
@@ -889,11 +889,11 @@ class PersistedJSON(Generic[T]):
         #
         # SECURITY: refuse to follow symlinks on EITHER path.  If
         # ``self._path`` is a symlink, ``Path.read_bytes()`` (used
-        # pre-fix) would read the SYMLINK TARGET's bytes — exfiltrating
+        # pre-fix) would read the SYMLINK TARGET's bytes, exfiltrating
         # an arbitrary file's content into the ``.bak``.  If
         # ``self._bak_path`` is a symlink, ``Path.write_bytes()``
         # (used pre-fix) would write THROUGH the symlink to its target
-        # — overwriting an attacker-chosen file with the exfiltrated
+        # , overwriting an attacker-chosen file with the exfiltrated
         # bytes.  Together: read-from-arbitrary-file + write-to-
         # arbitrary-file primitive ( finding that the
         # split moved into this shared helper WITHOUT fixing).
@@ -921,17 +921,17 @@ class PersistedJSON(Generic[T]):
                 # reparse-point check on Windows).  If the existing
                 # file is somehow not valid UTF-8 (e.g. corrupt or
                 # hand-edited with a different encoding), this raises
-                # OSError/UnicodeDecodeError — caught by the
+                # OSError/UnicodeDecodeError, caught by the
                 # ``except OSError`` below, and the backup is skipped
                 # (acceptable: the .bak is best-effort, and a non-UTF-8
-                # file is by definition already corrupt — backing it
+                # file is by definition already corrupt, backing it
                 # up via the JSON-aware save path would not help).
                 existing_text = _sfio_shim()._secure_read_text(self._path, encoding="utf-8")
                 existing_bytes = existing_text.encode("utf-8")
                 if existing_bytes != content_bytes:
                     # The 0o600 perms on the ``.bak`` are set inside
                     # ``_secure_atomic_write`` itself (it chmods its
-                    # target on every success branch) — no redundant
+                    # target on every success branch), no redundant
                     # trailing chmod here.
                     _secure_atomic_write(self._bak_path, existing_text)
             except OSError as e:
@@ -943,11 +943,11 @@ class PersistedJSON(Generic[T]):
                 )
         elif self._path.is_symlink() or self._bak_path.is_symlink():
             # explicit log so a symlink-planting attack is
-            # visible in the logs (defense-in-depth visibility — the
+            # visible in the logs (defense-in-depth visibility, the
             # backup is silently skipped, but the operator can grep
             # for this message to detect the attack).
             log.warning(
-                "[PERSISTED_JSON] Refusing to back up %s to %s — one of "
+                "[PERSISTED_JSON] Refusing to back up %s to %s, one of "
                 "the paths is a symlink (symlink-following defense). "
                 "The main save will still proceed (os.replace replaces "
                 "the symlink with a fresh regular file).",
@@ -962,7 +962,7 @@ class PersistedJSON(Generic[T]):
         #
         # The 0o600 owner-only perms on the saved file are applied
         # INSIDE ``_secure_atomic_write`` (unconditionally after the
-        # atomic ``os.replace``, on every success branch — see its
+        # atomic ``os.replace``, on every success branch, see its
         # ``_chmod_owner_only(target)`` call). A trailing re-chmod here
         # would be a redundant extra syscall per save and mis-documents
         # the write path as needing a second permission layer.

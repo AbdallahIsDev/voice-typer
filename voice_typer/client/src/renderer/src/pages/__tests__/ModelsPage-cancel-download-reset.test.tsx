@@ -1,12 +1,12 @@
 /**
- * Tests for the Models page —  (cancel-download state reset).
+ * Tests for the Models page,  (cancel-download state reset).
  *
  * Scenario under test: clicking the Cancel button in the download
  * progress bar fires `handleCancelDownload`, which previously:
  *   1. Awaited `cancel_model_download` IPC.
  *   2. Showed a "cancelled" snackbar.
  *   3. BUT did NOT reset the local `downloadingModel` /
- *      `downloadProgress` / `isPaused` state — the model card kept
+ *      `downloadProgress` / `isPaused` state, the model card kept
  *      showing the progress bar / Pause / Cancel buttons until either
  *      the backend pushed a terminal `download_progress` event or the
  *      user navigated away. If the backend's cancel ack raced with
@@ -26,7 +26,7 @@
  *
  * A second test verifies the catch-branch reset: when
  * `cancel_model_download` REJECTS, the Cancel button must still
- * disappear (because the user has signalled intent to cancel — the
+ * disappear (because the user has signalled intent to cancel, the
  * UI must not stay stuck mid-download).
  */
 import {
@@ -97,7 +97,7 @@ async function renderPage() {
 	});
 }
 
-describe("ModelsPage — cancel-download state reset", () => {
+describe("ModelsPage, cancel-download state reset", () => {
 	beforeEach(() => {
 		mockCall.mockReset();
 		showSnack.mockClear();
@@ -110,7 +110,7 @@ describe("ModelsPage — cancel-download state reset", () => {
 
 	it("resets local download state on cancel-model-download success (UI not stuck)", async () => {
 		// 1. Render the page; the "Download tiny.en" button is visible
-		//    (tiny.en is not active — small.en is — and not downloaded).
+		//    (tiny.en is not active, small.en is, and not downloaded).
 		await renderPage();
 		const downloadButton = screen.getByRole("button", {
 			name: t("models.card.downloadAria").replace("{name}", "large-v3-turbo"),
@@ -143,7 +143,7 @@ describe("ModelsPage — cancel-download state reset", () => {
 		// 4. Click Cancel.
 		fireEvent.click(cancelButton);
 
-		// XA-5-6: Cancel is gated by a confirmation dialog — a stray
+		// XA-5-6: Cancel is gated by a confirmation dialog, a stray
 		// click must not abort a multi-GB download. The IPC fires only
 		// after the dialog's destructive confirm action.
 		fireEvent.click(
@@ -165,7 +165,7 @@ describe("ModelsPage — cancel-download state reset", () => {
 			);
 		});
 
-		// 7. The Cancel button is GONE from the DOM — only possible if
+		// 7. The Cancel button is GONE from the DOM, only possible if
 		//    `setDownloadingModel(null)` + `resetProgress()` ran after
 		//the IPC resolved. Before  the UI would have stayed
 		//    stuck mid-download until the backend's terminal
@@ -230,7 +230,7 @@ describe("ModelsPage — cancel-download state reset", () => {
 			);
 		});
 
-		// Despite the IPC failure, the Cancel button is GONE — the
+		// Despite the IPC failure, the Cancel button is GONE, the
 		// user has signalled intent to cancel and the UI must reflect
 		//that. Before  the UI stayed stuck mid-download even
 		// after the user clicked Cancel, because the catch branch did
@@ -267,7 +267,7 @@ describe("ModelsPage — cancel-download state reset", () => {
 		);
 		fireEvent.click(cancelButton);
 
-		// The confirm dialog is open — CANCEL the dialog instead of
+		// The confirm dialog is open, CANCEL the dialog instead of
 		// confirming. The download must continue untouched.
 		fireEvent.click(screen.getByRole("button", { name: t("common.cancel") }));
 
@@ -281,7 +281,7 @@ describe("ModelsPage — cancel-download state reset", () => {
 			"warning",
 		);
 
-		// The download is still in flight — the bar is still mounted.
+		// The download is still in flight, the bar is still mounted.
 		expect(
 			screen.queryByRole("button", { name: t("models.download.cancelAria") }),
 		).not.toBeNull();

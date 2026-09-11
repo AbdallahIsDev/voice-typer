@@ -1,4 +1,4 @@
-"""Tests for AudioProcessor — filter chain wrapper (ADR 0007).
+"""Tests for AudioProcessor: filter chain wrapper (ADR 0007).
 
 The old monolithic AudioProcessor with AudioProcessorConfig has been
 replaced by a thin wrapper around FilterChain. These tests verify the
@@ -129,7 +129,7 @@ class TestReset:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Rebuild tests (ADR 0007 §6.1 — live config rebuild)
+# Rebuild tests (ADR 0007 §6.1, live config rebuild)
 # ═══════════════════════════════════════════════════════════════════════════
 
 
@@ -237,12 +237,12 @@ class TestIntrospection:
 
 class TestSetSampleRate:
     """AUDIO-6 (High) + AUDIO-9 (Medium): the filter chain was built
-    for ``config.sample_rate`` (default 16 kHz) but the live PortAudio
-    stream may run at the device's native rate (e.g. 44.1 kHz, 48 kHz).
-    IIR coefficients and envelope ballistics are sample-rate-dependent
-    — feeding audio at the wrong rate shifts cutoff frequencies and
-    time constants. ``set_sample_rate`` rebuilds the chain at the new
-    rate."""
+      for ``config.sample_rate`` (default 16 kHz) but the live PortAudio
+      stream may run at the device's native rate (e.g. 44.1 kHz, 48 kHz).
+      IIR coefficients and envelope ballistics are sample-rate-dependent
+    , feeding audio at the wrong rate shifts cutoff frequencies and
+      time constants. ``set_sample_rate`` rebuilds the chain at the new
+      rate."""
 
     def test_sample_rate_property_returns_init_value(self, default_config):
         p = AudioProcessor(default_config, sample_rate=16000)

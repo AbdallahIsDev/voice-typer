@@ -144,7 +144,7 @@ describe("useMicrophoneLevelMonitor background privacy", () => {
 	it("sends level_monitor_stop on unmount after a deferred (hidden→visible) start", async () => {
 		// Regression: the hidden-at-mount branch used to early-return a
 		// listener-only cleanup, so the monitor started once the page
-		// became visible was never stopped on unmount — the OS mic
+		// became visible was never stopped on unmount, the OS mic
 		// indicator stayed lit with no page active. The deferred path
 		// must fall through to the shared ``startedHere``-guarding
 		// cleanup that sends ``level_monitor_stop``.
@@ -209,7 +209,7 @@ describe("useMicrophoneLevelMonitor background privacy", () => {
 		// The deferred start's IPC can still be in flight when the page
 		// unmounts: the cleanup runs with `startedHere` still false (the
 		// start has not resolved yet), so the cleanup-owned stop is skipped
-		// — and once the start resolves into a cancelled effect, nothing
+		//, and once the start resolves into a cancelled effect, nothing
 		// owned the stop. The backend stream would keep running with no
 		// owner: the OS mic indicator lit with no page active. The start's
 		// own resolution path must send the matching stop once the
@@ -256,7 +256,7 @@ describe("useMicrophoneLevelMonitor background privacy", () => {
 		});
 
 		// Exactly ONE stop, from the in-flight start's resolution-time
-		// teardown — no leak, and no duplicate stop.
+		// teardown, no leak, and no duplicate stop.
 		expect(
 			callMock.mock.calls.filter((c) => c[0] === "level_monitor_stop").length,
 		).toBe(1);

@@ -5,13 +5,13 @@ extracted verbatim from ``voice_typer/server/ipc_server.py``.
 The methods are mixed into :class:`IPCServer` via multiple inheritance and
 access ``self.app`` / ``self.service`` as before.
 
-(2026-07-30): ``_handle_export_diagnostics`` was REMOVED — the Tauri
+(2026-07-30): ``_handle_export_diagnostics`` was REMOVED, the Tauri
 host now handles diagnostics export via a dedicated Rust command. There
 is no Python-side export surface anymore: the former
 ``service.export_diagnostics`` pipeline was deleted wholesale, and the
 support bundle is produced solely by the CLI
 (``python scripts/diagnostics.py export``, which owns its own local
-implementation — redaction, log tail, model hashes).
+implementation, redaction, log tail, model hashes).
 ``_handle_check_accessibility`` and
 ``_handle_show_electron_notification`` are also absent from
 ``_COMMAND_REGISTRY`` and the renderer allowlist, but they are retained
@@ -66,7 +66,7 @@ def _enumerate_polkit_actions() -> list[str]:
     """Enumerate polkit actions registered for Voice Typer via ``pkaction``.
 
     Surfaces the ``com.voicetyper.install-permissions`` action (the only
-    namespace the app ships — finding #54 renamed it from the legacy
+    namespace the app ships, finding #54 renamed it from the legacy
     pre-Tauri Electron root, and ``install_permissions.py`` removes the
     legacy policy file (``LEGACY_POLKIT_POLICY_DEST``) at install/upgrade
     time, so no current install registers the old action ID).
@@ -75,7 +75,7 @@ def _enumerate_polkit_actions() -> list[str]:
 
     Returns a sorted, deduped list of matching action IDs. Tolerant of
     ``pkaction`` being absent, timing out, or exiting non-zero
-    (logged warning, empty list) — the caller still performs the
+    (logged warning, empty list), the caller still performs the
     polkit-daemon restart regardless.
     """
 
@@ -105,7 +105,7 @@ def _polkit_check_authorization(action_id: str) -> str:
     anything else (or an unavailable/timeouting binary) = ``check_error``.
     Called AFTER the polkit-daemon restart, so the expected post-reset
     state for Voice Typer's ``auth_admin_keep`` actions is
-    ``not_authorized`` — i.e. the next pkexec grant will re-prompt
+    ``not_authorized``: i.e. the next pkexec grant will re-prompt
     (compare ``install_permissions.py``'s documented ~5-minute
     ``auth_admin_keep`` caching window).
     """
@@ -137,7 +137,7 @@ def _reset_polkit_authorization() -> tuple[str | None, bool, str | None]:
     polkit's ``auth_admin_keep`` default (``voice-typer.polkit``) caches
     the admin decision for ~5 minutes, so after a Voice Typer update the
     old grant can still authorize pkexec runs without re-prompting even
-    though the on-disk policy changed — the stale authorization. There
+    though the on-disk policy changed, the stale authorization. There
     is no per-action revocation command in polkit; restarting the
     polkit daemon (polkitd) is the supported way to flush the whole
     in-memory authorization cache.
@@ -201,7 +201,7 @@ class SystemHandlersMixin(HandlerBase):
         :func:`event_bus.publish` carrying ``kind="restart_failed"`` /
         ``kind="quit_failed"`` and a sanitized ``message``. The renderer
         subscribes to ``error`` events and surfaces a toast on ``kind``
-        match — without this push, the client would proceed as if the
+        match: without this push, the client would proceed as if the
         restart/quit succeeded (the original ack has no error channel).
         The exception itself is not re-raised (which would crash the IPC
         dispatch thread).
@@ -236,7 +236,7 @@ class SystemHandlersMixin(HandlerBase):
         # shape consistency with the other ack responses.  This call
         # sends the response directly (returns None) so the
         # ``resp.setdefault("data", {})`` at the end of _dispatch
-        # never runs for this branch — we add it here instead.
+        # never runs for this branch, we add it here instead.
         resp.setdefault("data", {})
         try:
             self._send(resp)
@@ -249,7 +249,7 @@ class SystemHandlersMixin(HandlerBase):
             # ``str(e)`` is included because the error envelope travels
             # only over the authenticated WS channel (not exposed to
             # untrusted callers) and the renderer uses it for a localized
-            # toast body — the generic IPC error envelope avoids leaking
+            # toast body, the generic IPC error envelope avoids leaking
             # ``str(e)`` for *request-response* paths, but this is a
             # push-event follow-up to an already-acked command, not a
             # response to an untrusted request.
@@ -263,7 +263,7 @@ class SystemHandlersMixin(HandlerBase):
         ``service.quit()``, then push ``kind="quit_failed"`` on raise.
         """
         resp["type"] = "ack"
-        # same as restart_app — add explicit ``data: {}``.
+        # same as restart_app. Add explicit ``data: {}``.
         resp.setdefault("data", {})
         try:
             self._send(resp)
@@ -322,7 +322,7 @@ class SystemHandlersMixin(HandlerBase):
                 The osascript fallback was also invasive: it synthesized
                 a REAL keystroke via System Events (a space character),
                 which focuses the frontmost app and types into whatever
-                has keyboard focus — a user running the app at login
+                has keyboard focus, a user running the app at login
                 could see the space land in their password prompt or
                 terminal. The ctypes ``AXIsProcessTrusted()`` probe is
                 the official API and runs in microseconds with no side
@@ -342,13 +342,13 @@ class SystemHandlersMixin(HandlerBase):
 
                 Stale-grant reset suggestion (finding #919 part b —
                 2026-08-10): when ``AXIsProcessTrusted()`` actually ran
-                and returned False (a CONFIRMED stale grant — NOT the
+                and returned False (a CONFIRMED stale grant, NOT the
                 ``reason: "check_failed"`` fallback, where the probe
                 itself errored and we can't tell stale from transient),
                 the response is extended with a proactive reset
                 suggestion for the Settings → Troubleshooting section:
 
-                - ``suggest_reset: True`` + ``reset_command`` — the
+                - ``suggest_reset: True`` + ``reset_command``: the
                   runtime `tccutil reset Accessibility <bundle-id>`
                   command string, built from the host app's runtime-
                   resolved bundle ID (``resolve_host_bundle_id()`` +
@@ -375,7 +375,7 @@ class SystemHandlersMixin(HandlerBase):
                 non-dict payload is rejected with ``invalid_payload`` instead
                 of being silently accepted.
         """
-        # TODO: not migrated to ``_wrap`` — has side effects
+        # TODO: not migrated to ``_wrap``: has side effects
         # (ctypes LoadLibrary for AXIsProcessTrusted + macOS bundle-ID
         # resolution + ``log.warning`` calls + non-standard structure:
         # validation is OUTSIDE the try block, with multiple early
@@ -390,7 +390,7 @@ class SystemHandlersMixin(HandlerBase):
 
             granted = True
             # Canonical platform string. ``_sys.platform`` is
-            # ``"darwin"`` on macOS — we map that to ``"macos"`` to
+            # ``"darwin"`` on macOS, we map that to ``"macos"`` to
             # match the convention used everywhere else in the codebase
             # (``is_macos()``, ``platform_utils``, etc.). Other platforms
             # pass through ``_sys.platform`` verbatim so existing tests
@@ -433,7 +433,7 @@ class SystemHandlersMixin(HandlerBase):
             if is_macos() and not granted:
                 # Stale-grant reset suggestion (finding #919 part b).
                 # ONLY attached when AXIsProcessTrusted() actually ran
-                # and returned False (a confirmed stale grant) — the
+                # and returned False (a confirmed stale grant), the
                 # ``check_failed`` path above returns before this
                 # point, so an un-runnable probe never suggests a
                 # reset it couldn't substantiate.
@@ -450,7 +450,7 @@ class SystemHandlersMixin(HandlerBase):
                 bundle_id = resolve_host_bundle_id()
                 if bundle_id:
                     # ``tccutil_reset_command_str`` is imported only
-                    # once the bundle ID resolved — a wrong bundle ID
+                    # once the bundle ID resolved, a wrong bundle ID
                     # in a tccutil command is worse than no command, so
                     # the unresolved case omits the command entirely
                     # (mirrors the reset handler's convention).
@@ -478,24 +478,24 @@ class SystemHandlersMixin(HandlerBase):
         → Accessibility so the user can re-grant.
 
         The bundle ID is resolved at RUNTIME from the host app's
-        ``Contents/Info.plist`` (``resolve_host_bundle_id`` — walks the
+        ``Contents/Info.plist`` (``resolve_host_bundle_id``, walks the
         parent-process chain to the nearest ``*.app``), so both the
         Electron and Tauri builds reset the entry for the actually
         running host and a future bundle-identifier change needs no code
         edit. Mirrors the a11y re-grant notification in
         ``startup_tasks.py`` (finding #127 part b).
 
-        ``tccutil`` is a per-user command — the backend runs as the
+        ``tccutil`` is a per-user command, the backend runs as the
         logged-in user, so it is invoked directly (no sudo).
 
         Response: ``ack`` with ``{ok: bool, command: str | None,
         error: str | None}``. ``ok=False`` with ``error`` set when the
         platform isn't macOS, the bundle ID can't be resolved, or
-        ``tccutil`` fails — a wrong bundle ID in a ``tccutil`` command
+        ``tccutil`` fails, a wrong bundle ID in a ``tccutil`` command
         is worse than no command, so ``command`` is omitted entirely
         when unresolved.
         """
-        # TODO: not migrated to ``_wrap`` — has side effects
+        # TODO: not migrated to ``_wrap``: has side effects
         # (``subprocess.run`` for ``tccutil reset`` + macOS bundle-ID
         # resolution + ``_open_macos_accessibility_settings`` opens
         # System Settings + non-standard structure: validation is
@@ -550,7 +550,7 @@ class SystemHandlersMixin(HandlerBase):
 
             # Re-open System Settings → Privacy & Security →
             # Accessibility so the user can re-grant after the reset
-            # clears the stale entry (non-fatal — the settings opener
+            # clears the stale entry (non-fatal, the settings opener
             # logs its own warning on failure).
             _open_macos_accessibility_settings()
 
@@ -573,7 +573,7 @@ class SystemHandlersMixin(HandlerBase):
         ~5 minutes in polkitd. After an app update (or a policy change
         such as the finding-#54 action-ID rename), the cached decision
         can authorize pkexec runs without re-prompting even though the
-        grant is stale relative to the running build — the visual
+        grant is stale relative to the running build, the visual
         symptom is "Grant permission silently does nothing / the
         permission never seems to reset".
 
@@ -582,26 +582,26 @@ class SystemHandlersMixin(HandlerBase):
         reset restarts the polkit daemon, which flushes the whole
         in-memory authorization cache. Steps:
 
-        1. ``pkaction`` — enumerate the registered Voice Typer polkit
-           action IDs (``com.voicetyper.install-permissions`` — the only
+        1. ``pkaction``: enumerate the registered Voice Typer polkit
+           action IDs (``com.voicetyper.install-permissions``, the only
            namespace the app ships), so the response can surface what
            was actually registered.
         2. ``pkexec systemctl restart polkit`` (fallbacks: polkitd /
-           ``service polkit restart``) — clears the cached
+           ``service polkit restart``), clears the cached
            authorization. Runs via pkexec so a NEW polkit prompt
            appears when no cached auth exists; inside the stale
            window it succeeds silently.
-        3. ``pkcheck --action-id <id>`` per enumerated action — verify
+        3. ``pkcheck --action-id <id>`` per enumerated action, verify
            the post-reset state (expected: ``not_authorized`` = the
            next grant will re-prompt).
 
         Response: ``ack`` with ``{ok: bool, command: str | None,
         error: str | None, actions: list[str], checks: dict[str, str]}``.
         ``ok=False`` with ``error`` set when the platform isn't Linux,
-        pkexec fails (incl. the user dismissing the dialog — exit 126),
+        pkexec fails (incl. the user dismissing the dialog, exit 126),
         or no restart candidate succeeds.
         """
-        # TODO: not migrated to ``_wrap`` — has side effects
+        # TODO: not migrated to ``_wrap``: has side effects
         # (multiple ``subprocess.run`` calls for ``pkaction`` /
         # ``pkexec systemctl restart polkit`` / ``pkcheck`` +
         # ``_enumerate_polkit_actions`` and ``_polkit_check_authorization``
@@ -651,7 +651,7 @@ class SystemHandlersMixin(HandlerBase):
                 renderer locales, not just the server-hard-coded en/es. The tray
                 menu is rebuilt so the new labels take effect immediately.
         """
-        # TODO: not migrated to ``_wrap`` — has side effects
+        # TODO: not migrated to ``_wrap``: has side effects
         # (``register_tray_labels`` / ``set_tray_locale`` mutate global
         # tray-i18n state + ``_server_i18n.merge_labels`` / ``set_locale``
         # mutate server i18n state + ``tray.invalidate_menu_cache()``
@@ -699,7 +699,7 @@ class SystemHandlersMixin(HandlerBase):
                 return error
             assert validated is not None  # narrowed by the error guard above
             # The schema above enforces ``locale: str`` and ``labels:
-            # dict`` — cast from the generic ``dict[str, object]``
+            # dict``: cast from the generic ``dict[str, object]``
             # envelope so the tray-i18n helpers get their declared
             # types. The label-key/value loop below still validates the
             # dict's contents (defense-in-depth against a future schema
@@ -718,7 +718,7 @@ class SystemHandlersMixin(HandlerBase):
             # The error envelope is built via the shared
             # ``_error_response`` helper (consistent with the rest of
             # the IPC handler layer) and the ``field`` key is stamped
-            # afterward — ``_error_response`` does not currently
+            # afterward, ``_error_response`` does not currently
             # accept a ``field`` kwarg, but routing the envelope
             # through it keeps the ``code`` / ``legacy_code`` /
             # ``message`` shape uniform across every error path in
@@ -750,7 +750,7 @@ class SystemHandlersMixin(HandlerBase):
             # ``error.config_load_failed.*`` / ``state.app.starting``)
             # stayed pinned to English because ``i18n.set_locale`` was
             # never called. Bridge it here: merge the pushed labels into
-            # the global registry (setdefault — never wipes the English
+            # the global registry (setdefault, never wipes the English
             # fallbacks) and switch the active locale so notifications
             # follow the renderer's language.
             #
@@ -793,7 +793,7 @@ class SystemHandlersMixin(HandlerBase):
                 The ``data`` dict should contain ``{"paused": true}`` or
                 ``{"paused": false}``.
         """
-        # TODO: not migrated to ``_wrap`` — has side effects
+        # TODO: not migrated to ``_wrap``: has side effects
         # (``keyboard_ownership().set_owner`` mutates global ownership
         # state + ``self.app._esc_cancel_paused = paused`` mutates app
         # state + ``log.info`` call).
@@ -862,10 +862,10 @@ class SystemHandlersMixin(HandlerBase):
 
                   1. The error message echoed the raw Python exception text
                      back to the client (``"invalid literal for int() with
-                     base 10: 'abc'"``) — a minor information leak and a
+                     base 10: 'abc'"``), a minor information leak and a
                      poor UX.
                   2. ``bool("false")`` returned ``True`` because any
-                     non-empty string is truthy — a JSON ``"critical":
+                     non-empty string is truthy, a JSON ``"critical":
                      "false"`` from a misbehaving caller would silently
                      escalate the notification to critical.
 
@@ -888,12 +888,12 @@ class SystemHandlersMixin(HandlerBase):
                     who swaps the ``critical`` and ``duration_ms`` fields
                     would have ``True`` silently coerced to ``duration_ms: 1``).
                     The helper's ``isinstance(value, (int, float))`` check
-                    alone would NOT exclude bool — keeping the pre-check
+                    alone would NOT exclude bool, keeping the pre-check
                     inline is clearer than burying the gotcha in a schema
                     rule.
                   * The ``None`` → default coercion for ``title``/``message``
                     /``duration_ms``/``critical``. The helper's ``default``
-                    only fires when the field is ABSENT — a present ``None``
+                    only fires when the field is ABSENT, a present ``None``
                     fails the type check. Pre-coercing ``None`` to the
                     default keeps the existing "missing or null → default"
                     contract without adding a ``none_to_default`` rule.
@@ -907,7 +907,7 @@ class SystemHandlersMixin(HandlerBase):
                 macOS (``UNNotificationContent.title`` / ``body``) and
                 Windows (``ToastNotification`` XML payload).
         """
-        # TODO: not migrated to ``_wrap`` — has side effects
+        # TODO: not migrated to ``_wrap``: has side effects
         # (``event_bus.publish`` broadcasts a notification event +
         # multiple ``_error_response`` early returns with ``field`` kwargs
         # stamped after the helper call (shape doesn't fit ``_wrap``'s
@@ -916,7 +916,7 @@ class SystemHandlersMixin(HandlerBase):
         try:
             # pre-check the bool subclass exclusion for
             # ``duration_ms`` BEFORE invoking the helper. ``bool`` is
-            # a subclass of ``int`` in Python — without this guard,
+            # a subclass of ``int`` in Python: without this guard,
             # ``duration_ms: True`` would pass the helper's
             # ``isinstance(value, (int, float))`` check and then be
             # coerced to ``duration_ms: 1`` by ``clamp_range``, silently
@@ -1002,7 +1002,7 @@ class SystemHandlersMixin(HandlerBase):
             if error:
                 # The helper's non-dict path returns ``code:
                 # "invalid_payload"`` with the ``"data must be an
-                # object"`` message — different from the pre-
+                # object"`` message, different from the pre-
                 # handler-specific ``"show_electron_notification
                 # requires data: object"``. The test was updated to
                 # assert on ``code`` instead of the message text.
@@ -1021,7 +1021,7 @@ class SystemHandlersMixin(HandlerBase):
             # ``title`` / ``message``. The OS notification APIs render
             # ANSI escapes (``\x1b[31m``), terminal bell (``\x07``),
             # newline/CR, RTL overrides (``\u202e``), zero-width marks
-            # (``\u200d``), and BOM (``\ufeff``) inconsistently — a
+            # (``\u200d``), and BOM (``\ufeff``) inconsistently, a
             # misbehaving caller could spoof a critical notification
             # via RTL override, or inject terminal escape sequences
             # into a terminal-based notification viewer. ``\t`` (tab)
@@ -1045,7 +1045,7 @@ class SystemHandlersMixin(HandlerBase):
             event_bus.publish(
                 {
                     # renamed from "electron_notification" to the
-                    # platform-agnostic "notification" — the Tauri Rust
+                    # platform-agnostic "notification": the Tauri Rust
                     # host no longer renames the event (it passes through
                     # unchanged), and a Rust-side backward-compat alias
                     # (see src-tauri/src/main.rs) handles old Python
@@ -1056,11 +1056,11 @@ class SystemHandlersMixin(HandlerBase):
                     #
                     # Optional click targets: ``click_path`` (a page
                     # path like "/models") and ``click_consent_field``
-                    # (a Settings consent row — the Electron host's
+                    # (a Settings consent row, the Electron host's
                     # notification click handler broadcasts navigate
                     # {path:"/settings", consent_field} so the user
                     # lands on the EXACT toggle). Only the fields the
-                    # caller set are included — the host treats an
+                    # caller set are included, the host treats an
                     # absent ``click_consent_field`` as "not a consent
                     # notification".
                     "type": "notification",

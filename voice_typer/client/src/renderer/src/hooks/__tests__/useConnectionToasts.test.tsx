@@ -1,12 +1,12 @@
 /**
- * Tests for useConnectionToasts — covers  (a): connection-state
+ * Tests for useConnectionToasts, covers  (a): connection-state
  * toasts fire with a stable per-transition-type ``id`` so a backend
  * flap REPLACES the existing toast instead of stacking a fresh one.
  *
  * Strategy: mock ``sonner``'s ``toast`` object so each test can assert
  * on the ``id`` field of the options passed to ``toast.error`` /
  * ``toast.warning`` / ``toast.success``. The hook under test is a
- * pure effect — we drive it by re-rendering the harness with a new
+ * pure effect, we drive it by re-rendering the harness with a new
  * ``connectionStatus`` prop and asserting the toast calls.
  */
 import { act, cleanup, render } from "@testing-library/react";
@@ -75,7 +75,7 @@ afterEach(() => {
 	cleanup();
 });
 
-describe("useConnectionToasts — ZU-33 stable toast ids", () => {
+describe("useConnectionToasts, ZU-33 stable toast ids", () => {
 	it("fires toast.error with id='conn-disconnected' on → disconnected", async () => {
 		const { rerenderWith } = await renderWithStatus("connecting");
 		act(() => {
@@ -135,7 +135,7 @@ describe("useConnectionToasts — ZU-33 stable toast ids", () => {
 	it("does NOT fire the connected toast on the INITIAL connecting → connected transition", async () => {
 		// Note: the theme-reload DOES fire on the initial connect (the
 		// hook reloads theme on every non-connected → connected
-		// transition). Only the success TOAST is suppressed — the user
+		// transition). Only the success TOAST is suppressed, the user
 		// just launched the app and doesn't need a "Connected!" toast.
 		const { rerenderWith, reloadTheme } = await renderWithStatus("connecting");
 		act(() => {
@@ -160,7 +160,7 @@ describe("useConnectionToasts — ZU-33 stable toast ids", () => {
 		act(() => {
 			rerenderWith("disconnected");
 		});
-		// The second disconnected toast uses the SAME id — sonner would
+		// The second disconnected toast uses the SAME id, sonner would
 		// replace the existing toast instead of stacking a fresh one.
 		expect(toastSpies.error).toHaveBeenCalledTimes(2);
 		const firstOpts = toastSpies.error.mock.calls[0]?.[1];

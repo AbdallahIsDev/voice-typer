@@ -3,11 +3,11 @@
  * handlers (extracted from `bubble-window.ts`).
  *
  * Owns:
- *   - `createBubbleWindow()` — lazy-creates the always-on-top
+ *   - `createBubbleWindow()`, lazy-creates the always-on-top
  *     transparent pill and wires the 5 webContents event handlers
  *     (`did-fail-load`, `did-finish-load`, `render-process-gone`,
  *     `preload-error`, `console-message`).
- *   - `notifyBubbleLocaleChanged(locale)` — forwards locale changes
+ *   - `notifyBubbleLocaleChanged(locale)`, forwards locale changes
  *     to the bubble renderer's separate JS context.
  *
  * The original `createBubbleWindow` body lived inline in
@@ -35,7 +35,7 @@ import {
 import { mainT } from "../../i18n";
 import { BubbleChannels } from "../../ipc/channels";
 //converted from defensive `require("../../logging")` to a static
-// ESM import — the previous try/catch + console.* fallback was added
+// ESM import, the previous try/catch + console.* fallback was added
 // to tolerate minimal test mocks, but the real logging module is now
 // always present and the test mocks have been updated to expose `log`.
 import { BUBBLE_CLR, log, RESET } from "../../logging";
@@ -56,7 +56,7 @@ import {
 } from "./positioning";
 
 // HU-29: the storm log line must be attributed to the BUBBLE window
-// (`[BUBBLE]` prefix) — the legacy hardcoded `[MAIN]` caused bubble
+// (`[BUBBLE]` prefix), the legacy hardcoded `[MAIN]` caused bubble
 // crash storms to be misattributed in the logs.
 const bubbleCrashTracker = createCrashStormTracker(
 	"Bubble",
@@ -75,7 +75,7 @@ let _displayRemovedHandler: (() => void) | null = null;
  * Register (or re-register) the bubble's `display-removed` listener using a
  * tracked-handle pattern. If a handler is already tracked, it is first
  * detached via `screen.off("display-removed", handler)` so exactly ONE bubble
- * listener is ever registered — even across bubble window re-creations (e.g.
+ * listener is ever registered, even across bubble window re-creations (e.g.
  * render-process-gone destroy + re-create).
  */
 function attachDisplayRemovedHandler(): void {
@@ -83,7 +83,7 @@ function attachDisplayRemovedHandler(): void {
 		try {
 			screen.off("display-removed", _displayRemovedHandler);
 		} catch {
-			// Best-effort — screen may be partially mocked in tests.
+			// Best-effort, screen may be partially mocked in tests.
 		}
 		_displayRemovedHandler = null;
 	}
@@ -106,7 +106,7 @@ export function detachDisplayRemovedHandler(): void {
 	try {
 		screen.off("display-removed", _displayRemovedHandler);
 	} catch {
-		// Best-effort — screen may be partially mocked in tests.
+		// Best-effort, screen may be partially mocked in tests.
 	}
 	_displayRemovedHandler = null;
 }
@@ -133,7 +133,7 @@ export function createBubbleWindow(): BrowserWindow {
 	// `bubble_config` pushes) so a drag survives an app restart.
 	const initialPos = resolveRestoredBubblePosition() ?? centerOnActiveDisplay();
 	const { x, y } = initialPos;
-	//routine lifecycle event — log.info (not console.warn).
+	//routine lifecycle event, log.info (not console.warn).
 	log.info(
 		`${BUBBLE_CLR}[BUBBLE]${RESET} creating window at (${x}, ${y}) ${BUBBLE_WIDTH}x${BUBBLE_HEIGHT}`,
 	);
@@ -156,7 +156,7 @@ export function createBubbleWindow(): BrowserWindow {
 		hasShadow: false,
 		focusable: false,
 		webPreferences: {
-			// SEC-026: dedicated bubble preload — exposes ONLY the `bubble:*`
+			// SEC-026: dedicated bubble preload, exposes ONLY the `bubble:*`
 			// IPC channels. The bubble renderer cannot invoke `python.call`
 			// (which sends arbitrary commands to the Python backend) or
 			// `window_.*` (which controls the main window). A compromised
@@ -180,7 +180,7 @@ export function createBubbleWindow(): BrowserWindow {
 	try {
 		win.setAlwaysOnTop(true, "screen-saver");
 	} catch (e) {
-		//unexpected but non-fatal — log.warn.
+		//unexpected but non-fatal, log.warn.
 		log.warn(
 			`${BUBBLE_CLR}[BUBBLE]${RESET} screen-saver failed, trying floating:`,
 			e,
@@ -188,7 +188,7 @@ export function createBubbleWindow(): BrowserWindow {
 		try {
 			win.setAlwaysOnTop(true, "floating");
 		} catch (e2) {
-			//secondary fallback also failed — log so
+			//secondary fallback also failed, log so
 			// the bubble's always-on-top state is debuggable.
 			log.warn(
 				`${BUBBLE_CLR}[BUBBLE]${RESET} floating always-on-top also failed:`,
@@ -207,7 +207,7 @@ export function createBubbleWindow(): BrowserWindow {
 			win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
 		}
 	} catch (e) {
-		// best-effort — window may be destroyed mid-call (e.g. user
+		// best-effort, window may be destroyed mid-call (e.g. user
 		// closed the app between the createBubbleWindow() guard and here).
 		log.warn(
 			`${BUBBLE_CLR}[BUBBLE]${RESET} setVisibleOnAllWorkspaces failed:`,
@@ -216,17 +216,17 @@ export function createBubbleWindow(): BrowserWindow {
 	}
 
 	win.webContents.on("did-fail-load", (_e, code, desc, url) => {
-		//failure — log.error.
+		//failure, log.error.
 		log.error(
 			`${BUBBLE_CLR}[BUBBLE]${RESET} did-fail-load code=${code} desc=${desc} url=${url}`,
 		);
 	});
 	win.webContents.on("did-finish-load", () => {
-		//routine lifecycle event — log.info.
+		//routine lifecycle event, log.info.
 		log.info(`${BUBBLE_CLR}[BUBBLE]${RESET} did-finish-load`);
 	});
 	win.webContents.on("render-process-gone", (_e, details) => {
-		//failure — log.error.
+		//failure, log.error.
 		log.error(`${BUBBLE_CLR}[BUBBLE]${RESET} render-process-gone:`, details);
 		//sliding-window crash storm detection (shared with main window).
 		const inStorm = bubbleCrashTracker.record();
@@ -259,13 +259,13 @@ export function createBubbleWindow(): BrowserWindow {
 		}, RENDER_RELOAD_BACKOFF_MS);
 	});
 	win.webContents.on("preload-error", (_e, file, err) => {
-		//failure — log.error.
+		//failure, log.error.
 		log.error(`${BUBBLE_CLR}[BUBBLE]${RESET} preload-error file=${file}`, err);
 	});
 	// The console-message forwarder is now installed via the shared
 	// `attachConsoleForwarder` helper.
 	// The level-routing (level >= 1 gate, INFO/WARN/ERROR routing
-	// through the structured logger) is preserved exactly — see
+	// through the structured logger) is preserved exactly, see
 	// `console-forwarder.ts` for the rationale comments that used to
 	// live inline here.
 	attachConsoleForwarder(win, {
@@ -277,7 +277,7 @@ export function createBubbleWindow(): BrowserWindow {
 	const loadTarget = baseUrl
 		? `${baseUrl}/bubble.html`
 		: path.join(__dirname, "../renderer/bubble.html");
-	//routine lifecycle event — log.info.
+	//routine lifecycle event, log.info.
 	log.info(`${BUBBLE_CLR}[BUBBLE]${RESET} loading ${loadTarget}`);
 	if (baseUrl) {
 		void win.loadURL(loadTarget);
@@ -287,7 +287,7 @@ export function createBubbleWindow(): BrowserWindow {
 
 	state.bubbleWindow = win;
 	win.on("closed", () => {
-		//routine lifecycle event — log.info.
+		//routine lifecycle event, log.info.
 		log.info(`${BUBBLE_CLR}[BUBBLE]${RESET} closed`);
 		if (state.bubbleWindow === win) state.bubbleWindow = null;
 		// Clean up the tracked `display-removed` listener (by reference) so
@@ -299,7 +299,7 @@ export function createBubbleWindow(): BrowserWindow {
 	// `moved` event fires after the user finishes dragging the
 	// always-on-top pill (the pill uses a CSS `-webkit-app-region: drag`
 	//region so Electron handles the drag natively). : skip
-	// positions that are off-screen (defensive — a multi-monitor unplug
+	// positions that are off-screen (defensive, a multi-monitor unplug
 	// could leave the window stranded on a display that no longer
 	// exists; saving those coords would make the bubble invisible on
 	// the next show).
@@ -321,7 +321,7 @@ export function createBubbleWindow(): BrowserWindow {
 			// inside `recordBubbleMoved`.
 			recordBubbleMoved(candidate);
 		} catch (e) {
-			// Best-effort — ignore read failures (e.g. window destroyed
+			// Best-effort, ignore read failures (e.g. window destroyed
 			// mid-event between the isDestroyed() check and getPosition()).
 			log.warn(`${BUBBLE_CLR}[BUBBLE]${RESET} 'moved' getPosition failed:`, e);
 		}
@@ -331,8 +331,8 @@ export function createBubbleWindow(): BrowserWindow {
 	// reconfiguration), invalidate the saved bubble position so the
 	// next `showBubbleWindow()` re-centers on a display that still
 	// exists. Without this, the bubble would re-appear at the saved
-	// coordinates — which may now be off-screen if the saved display
-	// was the one that got unplugged — and the user would have no way
+	// coordinates, which may now be off-screen if the saved display
+	// was the one that got unplugged, and the user would have no way
 	// to interact with it (the bubble is `focusable: false`).
 	//
 	// The tracked-handle pattern (attach + screen.off by reference)
@@ -366,7 +366,7 @@ export function notifyBubbleLocaleChanged(locale: string): void {
 		}
 		state.bubbleWindow.webContents.send(BubbleChannels.localeChanged, locale);
 	} catch (e) {
-		// Best-effort — webContents may be in a transitional state
+		// Best-effort, webContents may be in a transitional state
 		// (e.g. mid-navigation). The renderer will pick up the new locale
 		// on its next mount via the main-process locale getter.
 		log.warn(

@@ -1,10 +1,10 @@
-"""MIG-1.8 Phase 1 — Nuitka ``--onefile`` tempdir-spec + cleanup validation.
+"""MIG-1.8 Phase 1: Nuitka ``--onefile`` tempdir-spec + cleanup validation.
 
 This test file validates the ``--onefile`` tempdir-spec + cleanup behavior
 across all 3 Nuitka sidecar build scripts (Windows, macOS, Linux).
 ADR-0020 §4 mandates that the onefile extraction dir is:
 
-  - Pinned to a per-user cache dir (NOT system ``/tmp`` — avoids OS cleanup
+  - Pinned to a per-user cache dir (NOT system ``/tmp``, avoids OS cleanup
     cycles that would force a re-extract on every launch).
   - Namespaced with ``voice-typer`` (avoids collision with other
     Nuitka-frozen apps that might use the same cache dir).
@@ -25,12 +25,12 @@ Per-platform spec (per the MIG-1.8 task brief):
 
 The Linux sandbox CANNOT run a real Nuitka build (no MSVC / Xcode /
 python-build-standalone). These tests therefore validate the *structure*
-of the build scripts — they parse the ``--onefile-tempdir-spec`` value
+of the build scripts, they parse the ``--onefile-tempdir-spec`` value
 from each script and assert it matches the spec. The actual onefile
 extraction + cleanup behavior MUST be verified on a real host using
 the ``VALIDATE ON HOST`` commands below.
 
-VALIDATE ON HOST (Windows — after building the sidecar):
+VALIDATE ON HOST (Windows, after building the sidecar):
     1. Build the sidecar:
          bash scripts/build/build_sidecar_windows.sh
     2. Launch the sidecar (it will self-extract to the tempdir-spec):
@@ -44,17 +44,17 @@ VALIDATE ON HOST (Windows — after building the sidecar):
          dir "%TEMP%\\onefile_*"
        Expected: "File Not Found" (the onefile extract went to
        %LOCALAPPDATA%\\voice-typer\\onefile-tmp, NOT %TEMP%).
-    6. Re-launch the sidecar — Nuitka should REUSE the existing extract
+    6. Re-launch the sidecar, Nuitka should REUSE the existing extract
        dir (the tempdir-spec is deterministic, so re-extraction is
        skipped on the second launch → ~10× faster cold start).
        Verify only ONE ``onefile_*`` subdir exists (not many):
          dir "%LOCALAPPDATA%\\voice-typer\\onefile-tmp"
     7. Uninstall verification: the uninstaller should purge
        ``%LOCALAPPDATA%\\voice-typer\\onefile-tmp`` (match by the Voice
-       Typer binary signature, NOT by dir name alone — other apps could
+       Typer binary signature, NOT by dir name alone, other apps could
        reuse the ``voice-typer`` namespace).
 
-VALIDATE ON HOST (macOS — after building the sidecar):
+VALIDATE ON HOST (macOS, after building the sidecar):
     1. Build the sidecar:
          bash scripts/build/build_sidecar_macos.sh aarch64
     2. Launch:
@@ -68,13 +68,13 @@ VALIDATE ON HOST (macOS — after building the sidecar):
        Expected: no output (the onefile extract went to
        ``$HOME/Library/Application Support/voice-typer/onefile-tmp``,
        NOT ``/tmp`` or ``$TMPDIR``).
-    6. Verify the extract dir is user-owned (not root — would indicate
+    6. Verify the extract dir is user-owned (not root, would indicate
        the sidecar was launched with ``sudo``, which is a bug):
          stat -f "%Su" "$HOME/Library/Application Support/voice-typer/onefile-tmp"
        Expected: the current user's name (NOT ``root``).
     7. Re-launch + verify only ONE extract subdir exists (see Windows §6).
 
-VALIDATE ON HOST (Linux — after building the sidecar):
+VALIDATE ON HOST (Linux, after building the sidecar):
     1. Build the sidecar:
          bash scripts/build/build_sidecar_linux.sh x86_64
     2. Launch:
@@ -94,19 +94,19 @@ VALIDATE ON HOST (Linux — after building the sidecar):
        leaves it alone):
          systemctl status systemd-tmpfiles-clean.service
          # then check /usr/lib/tmpfiles.d/tmp.conf for the ~/.cache path
-         # (it should NOT be listed — only /tmp and /var/tmp are cleaned).
+         # (it should NOT be listed, only /tmp and /var/tmp are cleaned).
 
 References:
-  - ADR-0020 §4.2 — Windows Nuitka ``--onefile`` tempdir-spec.
-  - ADR-0020 §4.3 — macOS Nuitka ``--onefile`` tempdir-spec.
-  - ADR-0020 §4.4 — Linux Nuitka ``--onefile`` tempdir-spec.
-  - scripts/build/build_sidecar_{windows,macos,linux}.sh — the 3 scripts
+  - ADR-0020 §4.2, Windows Nuitka ``--onefile`` tempdir-spec.
+  - ADR-0020 §4.3, macOS Nuitka ``--onefile`` tempdir-spec.
+  - ADR-0020 §4.4, Linux Nuitka ``--onefile`` tempdir-spec.
+  - scripts/build/build_sidecar_{windows,macos,linux}.sh, the 3 scripts
     under test.
-  - tests/tauri/mig15/test_nuitka_windows_build.py — sibling MIG-1.5 test.
-  - tests/tauri/mig16/test_nuitka_macos_build.py — sibling MIG-1.6 test.
-  - tests/tauri/mig17/test_nuitka_linux_build.py — sibling MIG-1.7 test.
+  - tests/tauri/mig15/test_nuitka_windows_build.py, sibling MIG-1.5 test.
+  - tests/tauri/mig16/test_nuitka_macos_build.py, sibling MIG-1.6 test.
+  - tests/tauri/mig17/test_nuitka_linux_build.py, sibling MIG-1.7 test.
 
-Gaps documented (report, do NOT fix — out of scope for this gate check):
+Gaps documented (report, do NOT fix, out of scope for this gate check):
   - GAP-1 (macOS): ``build_sidecar_macos.sh`` uses
     ``--onefile-tempdir-spec="$HOME/Library/Application Support/voice-typer/onefile-tmp"``
     but the MIG-1.8 task spec requires ``~/Library/Caches/voice-typer/onefile-tmp``
@@ -117,7 +117,7 @@ Gaps documented (report, do NOT fix — out of scope for this gate check):
     cache location (periodically purgeable by macOS Storage Management),
     while ``~/Library/Application Support`` is for persistent app data
     that the app manages itself. ADR-0020 §4.3 (line ~436) explicitly
-    says "Application Support" — there's a divergence between the ADR
+    says "Application Support", there's a divergence between the ADR
     and the MIG-1.8 task spec. The macOS extract dir will accumulate
     stale onefile extracts across version upgrades and is never
     auto-purged by macOS. See ``test_known_gap_macos_uses_application_support_not_caches``
@@ -154,12 +154,12 @@ BUILD_SCRIPTS: dict[str, Path] = {
 # ``$HOME`` / ``$XDG_CACHE_HOME``).
 PLATFORM_TEMPDIR_PATTERNS: dict[str, list[re.Pattern[str]]] = {
     "windows": [
-        # {CACHE_DIR}/voice-typer/onefile-tmp — the Nuitka-documented token
+        # {CACHE_DIR}/voice-typer/onefile-tmp, the Nuitka-documented token
         # expanding to the user's AppData\Local (spec migrated from
         # %LOCALAPPDATA%, which Nuitka 2.8.10 rejects as a spec variable:
-        # "Found unknown variable name" — observed on the 2026-09-02 CI run).
+        # "Found unknown variable name", observed on the 2026-09-02 CI run).
         re.compile(r"\{CACHE_DIR\}[/\\]+voice-typer[/\\]+onefile-tmp"),
-        # %LOCALAPPDATA%\voice-typer\onefile-tmp — the bash script source uses
+        # %LOCALAPPDATA%\voice-typer\onefile-tmp, the bash script source uses
         # \\ (escaped backslash in double quotes) so the file content has TWO
         # backslash chars; [/\\]+ matches one or more / or \ to handle both
         # the source (\\) and the runtime-expanded (\) forms. KEPT as a
@@ -220,13 +220,13 @@ def _extract_tempdir_spec(text: str) -> str | None:
     """Extract the raw ``--onefile-tempdir-spec`` value from the script text.
 
     Returns the value with surrounding quotes stripped, or None if the flag
-    is not present. Does NOT expand bash variables — the value is returned
+    is not present. Does NOT expand bash variables, the value is returned
     as it appears in the script source (e.g. ``$ONEFILE_TEMPDIR`` stays as
     ``$ONEFILE_TEMPDIR``).
 
     The regex REQUIRES the value to be quoted (``"..."`` or ``'...'``).
     This skips comment lines like ``# --onefile-tempdir-spec=$XDG_CACHE_HOME/...``
-    which have an unquoted value — we only want the ACTUAL command-line
+    which have an unquoted value, we only want the ACTUAL command-line
     invocation, not documentation comments.
     """
     # Match --onefile-tempdir-spec="VALUE" or --onefile-tempdir-spec='VALUE'.
@@ -291,7 +291,7 @@ def test_script_uses_onefile_flag(script_texts: dict[str, str], platform: str):
     assert re.search(r"(^|\s)--onefile(?=\s|$)", text, re.MULTILINE), (
         f"build_sidecar_{platform}.sh must use the bare `--onefile` flag "
         "(ADR-0020 §4 mandates single-exe packaging for all 3 platforms). "
-        "Note: --onefile-tempdir-spec is a DIFFERENT flag — the bare "
+        "Note: --onefile-tempdir-spec is a DIFFERENT flag, the bare "
         "--onefile must also be present."
     )
 
@@ -425,7 +425,7 @@ def test_tempdir_spec_not_system_temp(script_texts: dict[str, str], platform: st
         assert not pat.search(spec), (
             f"build_sidecar_{platform}.sh --onefile-tempdir-spec value `{spec}` "
             f"matches forbidden system-temp pattern `{pat.pattern}`. System "
-            "temp dirs are periodically cleaned by the OS — pin to a per-user "
+            "temp dirs are periodically cleaned by the OS, pin to a per-user "
             "cache dir (ADR-0020 §4)."
         )
 
@@ -439,7 +439,7 @@ def test_tempdir_spec_includes_voice_tyer(script_texts: dict[str, str], platform
     dir like ``$HOME/.cache/onefile-tmp`` which could collide with another
     Nuitka-frozen app's onefile extract (if another app used the same
     path). Namespacing with ``voice-typer`` makes the extract dir unique
-    to this app — the installer/uninstaller can also safely purge the
+    to this app, the installer/uninstaller can also safely purge the
     dir by signature without touching other apps' extracts.
 
     ADR-0020 §4: all 3 platforms pin to ``<per-user-cache>/voice-typer/onefile-tmp``.
@@ -472,7 +472,7 @@ def test_assume_yes_for_downloads_set(script_texts: dict[str, str], platform: st
     text = script_texts[platform]
     assert "--assume-yes-for-downloads" in text, (
         f"build_sidecar_{platform}.sh must set --assume-yes-for-downloads "
-        "(non-interactive CI build — Nuitka would hang on a download prompt "
+        "(non-interactive CI build, Nuitka would hang on a download prompt "
         "without this flag)."
     )
 
@@ -501,14 +501,14 @@ def test_known_gap_macos_uses_application_support_not_caches(
     and the MIG-1.8 task spec. Apple's ``~/Library/Caches`` is the
     standard cache location (periodically purgeable by macOS Storage
     Management); ``~/Library/Application Support`` is for persistent app
-    data that the app manages itself — the macOS extract dir will
+    data that the app manages itself, the macOS extract dir will
     accumulate stale onefile extracts across version upgrades and is
     never auto-purged by macOS.
 
     This test ASSERTS the gap is present (so a future fix will flip
     ``test_macos_tempdir_spec_per_user_cache_dir`` from xfail to xpass,
     which will fail the suite under ``strict=True`` and alert the
-    developer). DO NOT fix this gap as part of MIG-1.8 — report it to
+    developer). DO NOT fix this gap as part of MIG-1.8, report it to
     the primary agent.
 
     When fixing the gap:
@@ -530,12 +530,12 @@ def test_known_gap_macos_uses_application_support_not_caches(
     # Assert the gap is present: the spec uses "Application Support" not "Caches".
     assert "Application Support" in spec, (
         "build_sidecar_macos.sh no longer uses `Application Support` in "
-        "--onefile-tempdir-spec — the GAP-1 may have been fixed. Update "
+        "--onefile-tempdir-spec, the GAP-1 may have been fixed. Update "
         "test_macos_tempdir_spec_per_user_cache_dir to remove the xfail "
         "marker, and remove this known-gap test."
     )
     assert "Caches" not in spec, (
-        "build_sidecar_macos.sh now uses `Caches` in --onefile-tempdir-spec — "
+        "build_sidecar_macos.sh now uses `Caches` in --onefile-tempdir-spec, "
         "the GAP-1 has been fixed. Update test_macos_tempdir_spec_per_user_cache_dir "
         "to remove the xfail marker, and remove this known-gap test."
     )

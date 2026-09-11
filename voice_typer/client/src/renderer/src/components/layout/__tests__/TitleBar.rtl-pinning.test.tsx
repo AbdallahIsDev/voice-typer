@@ -2,7 +2,7 @@
  * RTL regression guard for the TitleBar window chrome.
  *
  * The document direction (dir="rtl", set by i18n for Arabic) mirrors
- * flex rows — without protection the whole title bar would flip:
+ * flex rows, without protection the whole title bar would flip:
  * the macOS traffic-light gutter would jump to the RIGHT edge and the
  * Windows/Linux minimize/maximize/close cluster to the LEFT edge.
  * Native window chrome never moves with UI language direction, so the
@@ -73,7 +73,7 @@ async function loadTitleBarFor(
 	return TitleBar;
 }
 
-describe("TitleBar — RTL pinning (window chrome keeps its physical sides)", () => {
+describe("TitleBar, RTL pinning (window chrome keeps its physical sides)", () => {
 	beforeEach(() => {
 		cleanup();
 		document.documentElement.dir = "rtl";
@@ -107,8 +107,8 @@ describe("TitleBar — RTL pinning (window chrome keeps its physical sides)", ()
 
 		// Inside a dir=ltr flex row, DOM order == visual left→right.
 		// The minimize/maximize/close cluster must therefore come AFTER
-		// every leading nav control (toggle/back/forward/help) — i.e.
-		// stay pinned at the bar's physical right edge — even though
+		// every leading nav control (toggle/back/forward/help), i.e.
+		// stay pinned at the bar's physical right edge, even though
 		// the document is rtl.
 		const labels = Array.from(
 			bar?.querySelectorAll("button[aria-label]") ?? [],

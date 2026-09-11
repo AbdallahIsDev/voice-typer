@@ -1,7 +1,7 @@
 """Tests for the length-bucketed pruning in ``vocabulary_automation``.
 
 Covers the fix for the O(W×V) Levenshtein scan in
-``_find_closest_vocabulary_match`` — previously the outer loop iterated
+``_find_closest_vocabulary_match``, previously the outer loop iterated
 ALL vocab words for EACH input word; now it builds a length-bucketed
 index on each call and only iterates candidates whose length is within
 ``max_distance`` of the input word.
@@ -11,10 +11,10 @@ Tests:
      iterates ~5% of candidates for a 5-letter word with
      ``max_distance=2``.
   2. The bucketed version produces the SAME result as a full scan
-     (correctness preserved) — verified on cases with unique minimum
+     (correctness preserved), verified on cases with unique minimum
      distances so tie-breaking order doesn't matter.
   3. The index is rebuilt from the current vocab on every call (there
-     is no persistent cache — the production caller passes a fresh
+     is no persistent cache, the production caller passes a fresh
      ``set`` per dictation): empty vocabs return ``None``, a changed
      vocab is picked up immediately, and ties are broken by
      vocabulary iteration order (first match wins).
@@ -30,7 +30,7 @@ import pytest
 
 
 def _full_scan_reference(word, vocab_words, max_distance):
-    """Reference implementation — mimics the pre-fix full scan.
+    """Reference implementation, mimics the pre-fix full scan.
 
     Used to verify correctness.
     """
@@ -229,11 +229,11 @@ class TestCorrectnessPreserved:
             if bucketed is None and full is None:
                 continue
             if bucketed is None or full is None:
-                # One returned None and the other didn't — only OK if
+                # One returned None and the other didn't, only OK if
                 # both agree there's no match within max_distance.
                 # Re-compute distances to verify.
                 continue
-            # Both found a match — distances should be equal (tie-
+            # Both found a match, distances should be equal (tie-
             # breaking may pick different words, but the distance is
             # the same).
             d_bucket = _levenshtein(query, bucketed, max_distance=2)
@@ -264,7 +264,7 @@ class TestMatchBehavior:
         assert _find_closest_vocabulary_match("helo", words, max_distance=2) == "hello"
 
     def test_insertion_order_breaks_ties(self):
-        """Ties are broken by vocabulary iteration order — first match
+        """Ties are broken by vocabulary iteration order, first match
         wins (the index preserves iteration order within each bucket,
         keeping tie-breaking deterministic)."""
         from voice_typer.server.vocabulary_automation import (

@@ -3,7 +3,7 @@
 Extracted verbatim from :mod:`voice_typer.server.sidecar_ws`
 (``_emit_server_started`` + ``_force_line_buffered_stdout``); the
 canonical module re-exports both names so the direct-call surface
-(``sidecar_ws._emit_server_started(port, protocol)`` — the mig15-17
+(``sidecar_ws._emit_server_started(port, protocol)``, the mig15-17
 ws_hmac / unit suites, tests/test_app_sidecar_protocol.py,
 tests/tauri/mig19/test_phase4_validation.py) and the monkeypatch
 seams keep working:
@@ -12,7 +12,7 @@ seams keep working:
   ws_hmac suites (``monkeypatch.setattr(sw, ...)``, protecting
   ``capsys``); the observer, ``run()``, stays in the canonical module
   and resolves the name from the canonical module's globals at call
-  time — the re-export binding is exactly what it replaces.
+  time, the re-export binding is exactly what it replaces.
 - ``_emit_server_started`` is OWNED by this module. The mig15/16/17
   externalbin_spawn suites pin the literal string
   ``"def _emit_server_started"`` + the payload-shape greps against

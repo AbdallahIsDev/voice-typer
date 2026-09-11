@@ -11,8 +11,8 @@ Usage:
     python scripts/add_i18n_keys.py --all          # write missing keys to all locales
 
 Exit codes:
-    0 — all locales are complete (no missing keys)
-    1 — one or more locales had missing keys added (or --all was used)
+    0: all locales are complete (no missing keys)
+    1: one or more locales had missing keys added (or --all was used)
 """
 
 from __future__ import annotations

@@ -39,7 +39,7 @@ class _NativeBackendAdapter(HotkeyBackend):
 
         The wrapped native backend now inherits from
         ``HotkeyBackend`` directly (the historical "separate base class
-        to avoid an import cycle" split is gone — the import direction is
+        to avoid an import cycle" split is gone, the import direction is
         acyclic), so interface conformance comes for free. The adapter
         still earns its keep through the semantics the plain interface
         has no notion of: the native → legacy runtime fallback chain, the
@@ -146,7 +146,7 @@ class _NativeBackendAdapter(HotkeyBackend):
     _NATIVE_RETRY_INTERVAL_SECONDS = 300.0
 
     # declare the tray reference as a typed class attribute. The
-    # adapter doesn't construct the tray — it's propagated from
+    # adapter doesn't construct the tray, it's propagated from
     # ``hotkey_dispatcher.py`` (``adapter._tray = app.tray`` after
     # construction) and forwarded to the active legacy backend via
     # :meth:`HotkeyBackend.set_tray`. Typed here so the propagation in
@@ -198,14 +198,14 @@ class _NativeBackendAdapter(HotkeyBackend):
         # external code that introspects the attribute) still read
         # the attribute. Mirroring the assignment here keeps both
         # the method-based setter and the attribute-based reader in
-        # sync — defense-in-depth for the test surface.
+        # sync, defense-in-depth for the test surface.
         try:
             native_backend._on_error_callback = self._on_native_error
             native_backend._on_permanent_failure_callback = self._on_native_permanent_failure
         except (AttributeError, TypeError):
             # Some backends may disallow attribute assignment
             # (e.g. frozen dataclass). The method-based setter is
-            # the authoritative wire — the attribute mirror is
+            # the authoritative wire, the attribute mirror is
             # best-effort for test introspection.
             pass
 
@@ -217,7 +217,7 @@ class _NativeBackendAdapter(HotkeyBackend):
                 if self._state != self._STATE_STOPPED:
                     self._state = self._STATE_NATIVE
         except Exception as exc:
-            log.warning("[HOTKEY] Native backend failed to start: %s — trying legacy", exc)
+            log.warning("[HOTKEY] Native backend failed to start: %s, trying legacy", exc)
             self._swap_to_legacy()
 
     def set_on_release(self, callback: Callable[[], None] | None) -> None:
@@ -257,7 +257,7 @@ class _NativeBackendAdapter(HotkeyBackend):
             # Reset the permission notification flag so a restart
             # can show it again.
             self._permission_notification_shown = False
-            # Stop both backends — the inactive one is a no-op.
+            # Stop both backends, the inactive one is a no-op.
             # Stop the legacy first (it's the active one if swapping),
             # then the native.
             if self._legacy is not None:
@@ -311,7 +311,7 @@ class _NativeBackendAdapter(HotkeyBackend):
         If the error is a permission issue (Accessibility on macOS,
         /dev/input on Linux), show a tray notification and open the OS
         permission UI. Other errors are handled by the startup fallback
-        chain — no notification needed.
+        chain, no notification needed.
         """
         try:
             from voice_typer.server.permissions import (
@@ -331,7 +331,7 @@ class _NativeBackendAdapter(HotkeyBackend):
             return
         self._permission_notification_shown = True
 
-        # Get the tray from the app (best-effort — the adapter may be
+        # Get the tray from the app (best-effort, the adapter may be
         # used in tests without an app)
         tray = self._get_tray()
         show_permission_notification(tray, error_message)
@@ -347,12 +347,12 @@ class _NativeBackendAdapter(HotkeyBackend):
 
         Stops the legacy backend BEFORE restarting native.
         Previously the legacy backend was left running alongside the
-        native backend after a permission-grant recovery — both
+        native backend after a permission-grant recovery, both
         backends would fire the same callback on the same keypress
         (double-toggle, double-ESC-cancel, double-repaste) until the
         next ``_retry_native`` cycle (~5 minutes later) cleaned it up.
         """
-        log.info("[HOTKEY] Permission granted — restarting native backend")
+        log.info("[HOTKEY] Permission granted, restarting native backend")
         with contextlib.suppress(Exception):
             self._native.stop()
         # Stop the legacy backend BEFORE restarting native so
@@ -378,11 +378,11 @@ class _NativeBackendAdapter(HotkeyBackend):
             # ``callback`` parameter is satisfied without a
             # ``# type: ignore[arg-type]`` marker. ``_callback`` is
             # populated by :meth:`start` (above), which always runs
-            # before the permission-retry timer fires — but the
+            # before the permission-retry timer fires, but the
             # static type can't see that, so we narrow here.
             cb = self._callback
             if cb is None:
-                log.warning("[HOTKEY] Permission granted but no callback registered — skipping native restart")
+                log.warning("[HOTKEY] Permission granted but no callback registered, skipping native restart")
                 return
             self._native.start(cb)
             if self._native.is_alive():
@@ -408,16 +408,16 @@ class _NativeBackendAdapter(HotkeyBackend):
         ``_app`` attribute if the adapter was created by one. Returns
         None if no tray is available (e.g. in tests).
         """
-        # The HotkeyDispatcher stores itself on the adapter? No — but
+        # The HotkeyDispatcher stores itself on the adapter? No, but
         # the adapter is stored on the dispatcher. We can't easily go
-        # back up. For now, return None — the notification is still
+        # back up. For now, return None, the notification is still
         # logged, and the HotkeyDispatcher can override this by setting
         # ``adapter._tray = app.tray`` after construction.
         return getattr(self, "_tray", None)
 
     def _notify_state_change(self, state: str) -> None:
         """notify the dispatcher (if wired) that the active
-        backend changed (native ↔ legacy swap). Best-effort — a
+        backend changed (native ↔ legacy swap). Best-effort, a
         misbehaving consumer must not break the swap state machine."""
         cb = getattr(self, "_on_state_change_callback", None)
         if cb is None:
@@ -431,7 +431,7 @@ class _NativeBackendAdapter(HotkeyBackend):
 
     def _on_native_permanent_failure(self) -> None:
         """Called when the native backend exhausts its 5 retries."""
-        log.warning("[HOTKEY] Native backend permanently failed — swapping to legacy")
+        log.warning("[HOTKEY] Native backend permanently failed, swapping to legacy")
         self._swap_to_legacy()
 
     def _swap_to_legacy(self) -> None:
@@ -461,7 +461,7 @@ class _NativeBackendAdapter(HotkeyBackend):
             # ``_on_permission_granted`` for the rationale).
             cb = self._callback
             if cb is None:
-                log.warning("[HOTKEY] Cannot swap to legacy — no callback registered")
+                log.warning("[HOTKEY] Cannot swap to legacy, no callback registered")
                 with contextlib.suppress(Exception):
                     legacy.stop()
                 return
@@ -470,7 +470,7 @@ class _NativeBackendAdapter(HotkeyBackend):
                 legacy.set_on_release(self._on_release_callback)
             with self._swap_lock:
                 if self._state == self._STATE_STOPPED:
-                    # stop() was called during the swap — clean up
+                    # stop() was called during the swap, clean up
                     with contextlib.suppress(Exception):
                         legacy.stop()
                     return
@@ -489,7 +489,7 @@ class _NativeBackendAdapter(HotkeyBackend):
             # Schedule a periodic retry of the native backend
             self._schedule_native_retry()
         except Exception as exc:
-            log.error("[HOTKEY] Legacy backend also failed: %s — giving up", exc)
+            log.error("[HOTKEY] Legacy backend also failed: %s, giving up", exc)
             with self._swap_lock:
                 self._state = self._STATE_FAILED
             self._show_failure_notification(exc)
@@ -536,7 +536,7 @@ class _NativeBackendAdapter(HotkeyBackend):
                 attempting the native restart. Previously ``_retry_native`` nulled
                 ``self._legacy`` BEFORE attempting the native restart, so if the
                 native failed to come back up the code had to construct a brand
-                new legacy backend (``_create_legacy_backend()``) — during that
+                new legacy backend (``_create_legacy_backend()``), during that
                 construction window the hotkey was completely dead. By keeping
                 the stopped legacy instance around, we can restart it directly
                 (``legacy.start(...)``) on native failure, shrinking the dead
@@ -551,7 +551,7 @@ class _NativeBackendAdapter(HotkeyBackend):
         log.info("[HOTKEY] Retrying native backend...")
         # snapshot the legacy reference and stop it (frees any
         # RegisterHotKey slot the native needs) WITHOUT nulling
-        # ``self._legacy`` — keep it as a warm spare so we can restart
+        # ``self._legacy``: keep it as a warm spare so we can restart
         # it quickly if the native restart fails.
         warm_spare = self._legacy
         try:
@@ -563,44 +563,44 @@ class _NativeBackendAdapter(HotkeyBackend):
             # ``_on_permission_granted`` for the rationale).
             cb = self._callback
             if cb is None:
-                log.warning("[HOTKEY] Native retry aborted — no callback registered")
+                log.warning("[HOTKEY] Native retry aborted, no callback registered")
                 return
             self._native.start(cb)
             if self._native.is_alive():
                 with self._swap_lock:
                     if self._state == self._STATE_STOPPED:
-                        # stop() was called during retry — clean up
+                        # stop() was called during retry, clean up
                         self._native.stop()
                         return
                     self._state = self._STATE_NATIVE
-                    # Native succeeded — drop the warm spare; we don't
+                    # Native succeeded, drop the warm spare; we don't
                     # need two backends alive.
                     self._legacy = None
                 if self._on_release_callback is not None:
                     self._native.set_on_release(self._on_release_callback)
-                log.info("[HOTKEY] Native backend recovered — swapped back from legacy")
+                log.info("[HOTKEY] Native backend recovered, swapped back from legacy")
                 self._show_recovery_notification()
                 self._permission_notification_shown = False
                 # let the dispatcher re-pool the aux roles
                 # (the recovered native now matches the extra matchers
-                # again — per-role subprocesses must be stopped to
+                # again, per-role subprocesses must be stopped to
                 # avoid double-fire).
                 self._notify_state_change(self._STATE_NATIVE)
                 return
         except Exception as exc:
-            log.warning("[HOTKEY] Native retry failed: %s — staying on legacy", exc)
+            log.warning("[HOTKEY] Native retry failed: %s, staying on legacy", exc)
 
-        # Retry failed — restart the warm spare (or create a new legacy
+        # Retry failed, restart the warm spare (or create a new legacy
         # backend if we never had one) and schedule another retry.
         # prefer restarting the existing warm_spare instance —
         # it's already constructed and its hotkey_str / state match the
         # adapter, so the restart is faster than constructing a new one.
         try:
             legacy = warm_spare if warm_spare is not None else self._create_legacy_backend()
-            # ``cb`` is the narrowed callback from above — if
+            # ``cb`` is the narrowed callback from above, if
             # ``self._callback`` was None we already returned.
             if cb is None:
-                log.warning("[HOTKEY] Cannot restart legacy — no callback registered")
+                log.warning("[HOTKEY] Cannot restart legacy, no callback registered")
                 return
             legacy.start(cb)
             if self._on_release_callback is not None:
@@ -619,7 +619,7 @@ class _NativeBackendAdapter(HotkeyBackend):
         except Exception:
             with self._swap_lock:
                 self._state = self._STATE_FAILED
-            log.error("[HOTKEY] Both native and legacy backends failed — hotkey dead")
+            log.error("[HOTKEY] Both native and legacy backends failed, hotkey dead")
             self._show_failure_notification(None)
 
     # ── Notifications ───────────────────────────────────────────────────

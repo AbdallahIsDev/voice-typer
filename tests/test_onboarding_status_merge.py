@@ -122,7 +122,7 @@ class TestLegacyMigration:
 
     def test_write_triggers_migration_first(self, tmp_path: Path) -> None:
         # A write on a legacy-only dir migrates FIRST, then applies the
-        # update — so the completed flag from the legacy marker survives.
+        # update, so the completed flag from the legacy marker survives.
         self._seed_legacy(tmp_path)
         os_mod.write_status(tmp_path, started=False)
         data = json.loads((tmp_path / os_mod.ONBOARDING_STATUS_FILENAME).read_text(encoding="utf-8"))

@@ -87,7 +87,7 @@ class TestDrainPending:
 
     def test_drain_is_idempotent_on_empty_queues(self):
         tray = _make_tray_unavailable_tray()
-        # Queues start empty — drain should be a no-op.
+        # Queues start empty, drain should be a no-op.
         tray._drain_pending()
         assert tray._pending_states == []
         assert tray._pending_notifications == []
@@ -196,13 +196,13 @@ class TestRunDrainLoop:
         time.sleep(0.05)
         tray.stop()
         assert run_returned.wait(timeout=2.0), (
-            "run() did not return within 2s after stop() — the 60s drain "
+            "run() did not return within 2s after stop(), the 60s drain "
             "interval shouldn't delay shutdown (stop() sets the event so "
             "wait() returns True immediately)."
         )
 
     def test_run_does_not_raise_on_tray_unavailable(self, monkeypatch):
-        """The drain loop must not raise — preserves the PVT-G5-001
+        """The drain loop must not raise, preserves the PVT-G5-001
         contract that run() is a no-raise on the unavailable path."""
         tray = _make_tray_unavailable_tray()
 

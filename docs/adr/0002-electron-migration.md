@@ -2,7 +2,7 @@
 
 ## Status
 
-Superseded by [ADR 0003](0003-electron-python-architecture.md) — the
+Superseded by [ADR 0003](0003-electron-python-architecture.md), the
 "Refined" electron+Python architecture (ADR-0003) replaces this initial
 design. This document is preserved for historical context.
 
@@ -20,11 +20,11 @@ strengths with a modern, accessible GUI.
 
 The alternatives considered were:
 
-1. **Pure Python GUI** (tkinter, PyQt, wxPython) — limited styling, poor accessibility,
+1. **Pure Python GUI** (tkinter, PyQt, wxPython), limited styling, poor accessibility,
    complex distribution.
-2. **Python + WebView** (pywebview) — simpler but lacks process isolation; a crash in the
+2. **Python + WebView** (pywebview): simpler but lacks process isolation; a crash in the
    renderer takes down the Python process.
-3. **Electron + Python IPC bridge** — full separation of concerns, each process can crash
+3. **Electron + Python IPC bridge**, full separation of concerns, each process can crash
    independently, modern web UI with React.
 
 ## Decision

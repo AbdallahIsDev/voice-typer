@@ -7,14 +7,14 @@ an *unloaded* backend when no ready backend was available and only
 logged a WARNING:
 
     [ASR_REGISTRY] returning unloaded backend <name> (is_loaded=False)
-    as last-resort active — transcription may return empty silently
+    as last-resort active, transcription may return empty silently
 
 The caller (``ModelManager.active_transcriber`` →
 ``DictationPipeline._transcribe``) then called
 ``backend.transcribe_with_fallback(...)`` on the unloaded backend,
 which silently returned an empty string. The user got NO tray
 notification, NO IPC event, NO visible feedback that voice
-transcription wasn't working — only a log line buried in the log file.
+transcription wasn't working, only a log line buried in the log file.
 
 Post-fix, the same last-resort branch fires:
 
@@ -29,7 +29,7 @@ The notification fires only ONCE per last-resort transition (latch
 ``_last_resort_notified``). The latch resets when a ready backend
 becomes available again (``get_active`` success branch) or when a
 backend successfully loads (``_record_success`` /
-``load_with_fallback`` whisper-fallback success) — so a recovery →
+``load_with_fallback`` whisper-fallback success), so a recovery →
 re-fallback sequence re-notifies the user.
 
 The WARNING log line is gated by the SAME latch: it fires at
@@ -47,7 +47,7 @@ These tests verify:
   - The event_bus event is published with the correct payload.
   - A subscriber that raises does NOT block the others (defence in depth).
   - The return value of get_active() is unchanged (still returns the
-    last-resort backend — preserves the existing return contract).
+    last-resort backend, preserves the existing return contract).
   - The add/remove subscriber API and the backward-compatible property
     setter both work.
   - The WARNING log fires ONCE per transition; repeats are DEBUG.
@@ -77,7 +77,7 @@ def _make_loaded_backend() -> MagicMock:
 
 
 class _Config:
-    """Minimal config stub — only ``asr_backend`` is read by ``get_active``."""
+    """Minimal config stub, only ``asr_backend`` is read by ``get_active``."""
 
     def __init__(self, asr_backend: str = "parakeet") -> None:
         self.asr_backend = asr_backend
@@ -112,7 +112,7 @@ class TestLastResortNotificationFires:
         the configured backend name when ``get_active()`` returns an
         unloaded last-resort backend.
 
-        Pre-fix, this branch only logged a WARNING — the subscriber
+        Pre-fix, this branch only logged a WARNING, the subscriber
         never fired and the user got no tray notification.
         """
         registry, primary = _make_registry_with_only_unloaded_primary()
@@ -177,7 +177,7 @@ class TestLastResortNotificationFires:
         # Configure 'qwen' as the active backend, but only register an
         # unloaded 'whisper' backend. The last-resort loop will return
         # whisper, but the notification must say 'qwen' (the configured
-        # backend that the user picked — matching the WARNING log).
+        # backend that the user picked, matching the WARNING log).
         registry = AsrBackendRegistry(_Config("qwen"))
         whisper = _make_unloaded_backend()
         registry.register("whisper", whisper)
@@ -196,21 +196,21 @@ class TestLastResortNotificationFires:
 
 class TestLastResortNotificationOncePerTransition:
     """the notification fires only ONCE per last-resort
-    transition — not on every ``get_active()`` call while the registry
+    transition, not on every ``get_active()`` call while the registry
     is stuck in the last-resort state. The latch resets when a ready
     backend becomes available (re-fallback re-notifies)."""
 
     def test_notification_fires_only_once_for_repeated_calls(self):
         """Multiple ``get_active()`` calls in a row (e.g. from
         ``DictationPipeline._transcribe`` running every dictation cycle)
-        must NOT spam the tray — the notification fires once and is
+        must NOT spam the tray, the notification fires once and is
         suppressed until recovery."""
         registry, _ = _make_registry_with_only_unloaded_primary()
 
         notifications: list[str] = []
         registry.add_last_resort_subscriber(lambda name: notifications.append(name))
 
-        # Call get_active() 10 times — simulates 10 dictation cycles
+        # Call get_active() 10 times, simulates 10 dictation cycles
         # while the backend is broken.
         for _ in range(10):
             registry.get_active()
@@ -238,7 +238,7 @@ class TestLastResortNotificationOncePerTransition:
         notifications: list[str] = []
         registry.add_last_resort_subscriber(lambda name: notifications.append(name))
 
-        # Step 1: first fall-through — notification fires.
+        # Step 1: first fall-through, notification fires.
         registry.get_active()
         assert notifications == ["parakeet"]
 
@@ -249,7 +249,7 @@ class TestLastResortNotificationOncePerTransition:
         # No new notification during recovery:
         assert notifications == ["parakeet"], "No notification should fire when a ready backend is available."
 
-        # Step 3: backend breaks again — notification must fire AGAIN.
+        # Step 3: backend breaks again, notification must fire AGAIN.
         primary.is_loaded = False
         registry.get_active()
         assert notifications == ["parakeet", "parakeet"], (
@@ -273,7 +273,7 @@ class TestLastResortNotificationOncePerTransition:
         notifications: list[str] = []
         registry.add_last_resort_subscriber(lambda name: notifications.append(name))
 
-        # First fall-through — notification fires.
+        # First fall-through, notification fires.
         registry.get_active()
         assert notifications == ["parakeet"]
 
@@ -282,7 +282,7 @@ class TestLastResortNotificationOncePerTransition:
         # object is still unloaded in this test (we don't actually call
         # load()), _record_success must clear the latch regardless.
         registry._record_success("parakeet")
-        # The latch must now be False — verified by the next fall-through
+        # The latch must now be False, verified by the next fall-through
         # firing a NEW notification.
         assert not registry._last_resort_notified, "_record_success must clear the last-resort latch."
 
@@ -347,7 +347,7 @@ class TestLastResortNotificationOncePerTransition:
             "load_with_fallback's whisper-fallback success path must clear the last-resort latch."
         )
 
-        # Now unload whisper and call get_active — must re-notify.
+        # Now unload whisper and call get_active, must re-notify.
         whisper_engine.is_loaded = False
         # Parakeet is also still unloaded (its load failed).
         registry.get_active()
@@ -364,7 +364,7 @@ class TestLastResortNotificationDoesNotFire:
 
     def test_no_notification_when_configured_backend_is_ready(self):
         """When the configured backend is loaded, ``get_active`` returns
-        it directly — no last-resort branch, no notification."""
+        it directly, no last-resort branch, no notification."""
         registry = AsrBackendRegistry(_Config("parakeet"))
         parakeet = _make_loaded_backend()
         registry.register("parakeet", parakeet)
@@ -378,7 +378,7 @@ class TestLastResortNotificationDoesNotFire:
 
     def test_no_notification_when_whisper_fallback_is_ready(self):
         """When the configured backend isn't ready but whisper is,
-        ``get_active`` returns whisper (the second branch) — no
+        ``get_active`` returns whisper (the second branch), no
         last-resort branch, no notification."""
         registry = AsrBackendRegistry(_Config("parakeet"))
         parakeet = _make_unloaded_backend()
@@ -397,9 +397,9 @@ class TestLastResortNotificationDoesNotFire:
         """When ``get_active()`` reaches the last-resort loop but the
         first non-None backend IS loaded, it returns it silently (no
         WARNING log, no notification). The notification is only for the
-        *unloaded* last-resort case — the silent-failure case addresses."""
+        *unloaded* last-resort case, the silent-failure case addresses."""
         registry = AsrBackendRegistry(_Config("parakeet"))
-        # Only one backend, and it's loaded — but it's NOT the configured
+        # Only one backend, and it's loaded, but it's NOT the configured
         # backend (parakeet) and NOT whisper. So get_active will fall
         # through to the last-resort loop, find qwen (loaded), return it.
         qwen = _make_loaded_backend()
@@ -412,7 +412,7 @@ class TestLastResortNotificationDoesNotFire:
         assert result is qwen, "last-resort loop must still return the first non-None backend even if it's loaded."
         assert notifications == [], (
             "No notification should fire when the last-resort backend is "
-            "loaded — the notification is only for the UNLOADED case."
+            "loaded, the notification is only for the UNLOADED case."
         )
 
 
@@ -441,11 +441,10 @@ class TestLastResortSubscriberDefenceInDepth:
 
         assert result is not None, "return contract preserved"
         assert notifications == ["parakeet"], (
-            "a buggy subscriber must NOT block the others — "
-            f"the good subscriber must still fire. Got {notifications!r}."
+            f"a buggy subscriber must NOT block the others, the good subscriber must still fire. Got {notifications!r}."
         )
         # The buggy subscriber's exception must be logged (defensive
-        # visibility — same pattern as _record_failure).
+        # visibility, same pattern as _record_failure).
         assert any("on_last_resort subscriber raised" in rec.message for rec in caplog.records), (
             "a subscriber exception must be logged with the "
             "message 'on_last_resort subscriber raised' so the failure is "
@@ -456,7 +455,7 @@ class TestLastResortSubscriberDefenceInDepth:
         """If ``event_bus.publish`` raises, ``get_active`` must still
         return the last-resort backend (return contract preserved) and
         the per-registry subscriber must still have fired (defence in
-        depth — the two notification paths are independent)."""
+        depth, the two notification paths are independent)."""
         registry, _ = _make_registry_with_only_unloaded_primary()
 
         def boom_publish(_msg: dict) -> bool:
@@ -483,7 +482,7 @@ class TestLastResortSubscriberDefenceInDepth:
 class TestLastResortEventGate:
     """the event_bus publish can be suppressed by an installed gate
     (ModelManager wires it so the renderer toast matches the tray
-    notification's suppressions — the toast can't see them otherwise).
+    notification's suppressions, the toast can't see them otherwise).
 
     The gate is checked at the top of ``fire_last_resort_subscribers``:
     returning True suppresses the ENTIRE fan-out (subscribers AND the
@@ -508,7 +507,7 @@ class TestLastResortEventGate:
 
         # Return contract preserved (the fix is additive).
         assert result is not None, "get_active() must still return the last-resort backend"
-        assert notifications == [], f"a suppressing gate must skip the subscriber fan-out — got {notifications!r}"
+        assert notifications == [], f"a suppressing gate must skip the subscriber fan-out, got {notifications!r}"
         assert not any(e.get("type") == "asr_last_resort_unloaded" for e in published), (
             f"a suppressing gate must skip the event_bus publish. Got {published!r}."
         )
@@ -580,7 +579,7 @@ class TestLastResortEventGate:
         )
 
     def test_gate_does_not_gate_asr_backend_disabled(self, monkeypatch):
-        """The gate is scoped to the LAST-RESORT fan-out only — it must
+        """The gate is scoped to the LAST-RESORT fan-out only, it must
         NOT suppress the ``asr_backend_disabled`` event published from
         ``_record_failure`` (a completely different notification path).
         Locks the scope boundary so a future refactor can't silently
@@ -593,7 +592,7 @@ class TestLastResortEventGate:
             lambda msg: published.append(msg),
         )
 
-        # Install a gate that suppresses EVERYTHING — the
+        # Install a gate that suppresses EVERYTHING, the
         # asr_backend_disabled publish must still fire regardless.
         registry.set_last_resort_event_gate(lambda name: True)
 
@@ -609,7 +608,7 @@ class TestLastResortEventGate:
         )
 
     def test_gate_exception_fails_open(self, monkeypatch, caplog):
-        """A gate that raises must FAIL OPEN — the genuine alert is
+        """A gate that raises must FAIL OPEN, the genuine alert is
         still delivered (subscribers fire + event published), and the
         exception is logged so the broken gate is diagnosable. A
         suppressing gate is best-effort, never a safety interlock."""
@@ -631,9 +630,9 @@ class TestLastResortEventGate:
             result = registry.get_active()
 
         assert result is not None, "return contract preserved"
-        assert notifications == ["parakeet"], "a raising gate must fail open — subscribers must still fire"
+        assert notifications == ["parakeet"], "a raising gate must fail open, subscribers must still fire"
         assert any(e.get("type") == "asr_last_resort_unloaded" for e in published), (
-            "a raising gate must fail open — the event_bus publish must still fire"
+            "a raising gate must fail open, the event_bus publish must still fire"
         )
         assert any("event gate raised" in rec.message for rec in caplog.records), (
             "the gate exception must be logged (message contains 'event gate raised')"
@@ -643,7 +642,7 @@ class TestLastResortEventGate:
 class TestBackendDisabledEventGate:
     """the ``asr_backend_disabled`` event_bus publish can be suppressed
     by an installed gate (ModelManager wires it so the renderer event
-    matches the tray's deliberate-unload suppressions — a backend that
+    matches the tray's deliberate-unload suppressions, a backend that
     was deliberately unloaded / is mid-load must not publish a spurious
     'disabled' event when the switch's own transient failure trips the
     breaker).
@@ -666,7 +665,7 @@ class TestBackendDisabledEventGate:
     def test_gate_true_suppresses_subscribers_and_event(self, monkeypatch):
         """A gate returning True must suppress BOTH the
         ``on_backend_disabled`` subscriber fan-out and the
-        ``asr_backend_disabled`` event_bus publish — the whole alert is
+        ``asr_backend_disabled`` event_bus publish, the whole alert is
         skipped, but the backend is still disabled (state mutation not
         gated)."""
         registry, _ = _make_registry_with_only_unloaded_primary()
@@ -683,17 +682,17 @@ class TestBackendDisabledEventGate:
         self._trip(registry)
 
         assert disable_calls == [], (
-            f"a suppressing gate must skip the backend-disabled subscriber fan-out — got {disable_calls!r}"
+            f"a suppressing gate must skip the backend-disabled subscriber fan-out, got {disable_calls!r}"
         )
         assert not any(e.get("type") == "asr_backend_disabled" for e in published), (
             f"a suppressing gate must skip the event_bus publish. Got {published!r}."
         )
-        # State mutation is NOT gated — the backend must still be
+        # State mutation is NOT gated, the backend must still be
         # disabled so load_with_fallback skips it (gate only suppresses
         # the notification surface).
         assert "parakeet" in registry._disabled_backends, (
             "the gate must NOT prevent the circuit breaker from disabling "
-            "the backend — only the notification fan-out is suppressed."
+            "the backend, only the notification fan-out is suppressed."
         )
 
     def test_gate_false_keeps_existing_behavior(self, monkeypatch):
@@ -714,7 +713,7 @@ class TestBackendDisabledEventGate:
         self._trip(registry)
 
         assert disable_calls == [("parakeet", 3)], (
-            f"a non-suppressing gate must NOT block the backend-disabled subscriber fan-out — got {disable_calls!r}"
+            f"a non-suppressing gate must NOT block the backend-disabled subscriber fan-out, got {disable_calls!r}"
         )
         assert any(e.get("type") == "asr_backend_disabled" for e in published), (
             "a non-suppressing gate must NOT block the event_bus publish"
@@ -760,14 +759,14 @@ class TestBackendDisabledEventGate:
         self._trip(registry)
 
         assert disable_calls == [("parakeet", 3)], (
-            f"after clearing the gate, the backend-disabled subscriber fan-out must fire again — got {disable_calls!r}"
+            f"after clearing the gate, the backend-disabled subscriber fan-out must fire again, got {disable_calls!r}"
         )
         assert any(e.get("type") == "asr_backend_disabled" for e in published), (
             "after clearing the gate, the event_bus publish must fire again"
         )
 
     def test_gate_exception_fails_open(self, monkeypatch, caplog):
-        """A gate that raises must FAIL OPEN — the genuine alert is
+        """A gate that raises must FAIL OPEN, the genuine alert is
         still delivered (subscribers fire + event published), and the
         exception is logged so the broken gate is diagnosable."""
         registry, _ = _make_registry_with_only_unloaded_primary()
@@ -787,9 +786,9 @@ class TestBackendDisabledEventGate:
         with caplog.at_level("WARNING"):
             self._trip(registry)
 
-        assert disable_calls == [("parakeet", 3)], "a raising gate must fail open — subscribers must still fire"
+        assert disable_calls == [("parakeet", 3)], "a raising gate must fail open, subscribers must still fire"
         assert any(e.get("type") == "asr_backend_disabled" for e in published), (
-            "a raising gate must fail open — the event_bus publish must still fire"
+            "a raising gate must fail open, the event_bus publish must still fire"
         )
         assert any("backend-disabled event gate raised" in rec.message for rec in caplog.records), (
             "the gate exception must be logged (message contains 'backend-disabled event gate raised')"
@@ -799,7 +798,7 @@ class TestBackendDisabledEventGate:
         """Scope boundary (reverse direction of
         ``test_gate_does_not_gate_asr_backend_disabled``): the
         backend-disabled gate must NOT suppress the
-        ``asr_last_resort_unloaded`` fan-out from ``get_active`` — the
+        ``asr_last_resort_unloaded`` fan-out from ``get_active``, the
         two gates are independent surfaces."""
         registry, _ = _make_registry_with_only_unloaded_primary()
 
@@ -885,13 +884,13 @@ class TestLastResortSubscriberApi:
 
 
 class TestLastResortReturnContractPreserved:
-    """the fix is ADDITIVE — it adds a notification, it must
+    """the fix is ADDITIVE, it adds a notification, it must
     NOT change ``get_active()``'s return value (callers that check
     ``is_loaded`` rely on the existing return contract)."""
 
     def test_get_active_still_returns_last_resort_backend_when_unloaded(self):
         """The last-resort branch must still return the unloaded backend
-        (the existing return contract) — the notification is fired IN
+        (the existing return contract), the notification is fired IN
         ADDITION, not instead."""
         registry, primary = _make_registry_with_only_unloaded_primary()
 
@@ -931,13 +930,13 @@ class TestLastResortReturnContractPreserved:
 
 class TestLastResortWarningLogOncePerTransition:
     """The WARNING log line is gated by the SAME one-shot latch as
-    the notification — it fires at WARNING once per last-resort
+    the notification, it fires at WARNING once per last-resort
     transition, then drops to DEBUG on repeats.
 
     Regression: the renderer's 15s ``get_status`` health probe calls
     ``get_active()`` continuously while the backend stays unloaded
     (e.g. the model is not downloaded). Pre-fix, every call logged the
-    WARNING unconditionally — ~1,500 identical lines over a 2-hour
+    WARNING unconditionally, ~1,500 identical lines over a 2-hour
     session in the real log. Post-fix, the first call logs at WARNING
     (so the state is visible in the log) and repeats are DEBUG until a
     ready backend / successful load resets the latch.
@@ -971,7 +970,7 @@ class TestLastResortWarningLogOncePerTransition:
 
     def test_warning_refires_after_recovery(self, caplog):
         """After the backend becomes ready (latch cleared), a new
-        fall-through must log the WARNING again — the one-shot latch
+        fall-through must log the WARNING again, the one-shot latch
         must not suppress the diagnostic forever."""
         import logging
 

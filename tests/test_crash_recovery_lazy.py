@@ -9,15 +9,15 @@ critical path.
 
 These tests pin the new lazy-load contract:
 
-  (a) ``__init__`` does NOT call ``_load`` — verified by checking the
+  (a) ``__init__`` does NOT call ``_load``, verified by checking the
       ``_loaded`` flag is ``False`` after construction (``_load()``
       always sets ``_loaded = True``, so ``False`` proves it wasn't
       called).
-  (b) ``check_on_startup`` DOES call ``_load`` — verified by mocking
+  (b) ``check_on_startup`` DOES call ``_load``, verified by mocking
       ``_load`` on the instance and asserting it was called.
 
 A third test verifies the ``_loaded`` guard makes ``_load`` idempotent
-(safe to call multiple times — the disk read happens at most once).
+(safe to call multiple times, the disk read happens at most once).
 """
 
 from __future__ import annotations
@@ -54,13 +54,13 @@ class TestCrashRecoveryLazyLoad:
         cr = CrashRecovery(config_dir=recovery_dir)
         # _load() always sets _loaded = True. If _loaded is False,
         # _load() was not called in __init__.
-        assert cr._loaded is False, "__init__ must not call _load() — _loaded should be False"
+        assert cr._loaded is False, "__init__ must not call _load(), _loaded should be False"
         cr.shutdown()
 
     def test_check_on_startup_calls_load(self, recovery_dir: Path) -> None:
         """``check_on_startup()`` must call ``_load()``.
 
-        This is the primary load site — the disk read happens here (on
+        This is the primary load site, the disk read happens here (on
         the startup daemon thread) rather than in ``__init__``. We mock
         ``_load`` on the INSTANCE (not the class) so calls from other
         instances' ``__del__`` don't interfere with the assertion.
@@ -80,7 +80,7 @@ class TestCrashRecoveryLazyLoad:
             cr.shutdown()
 
     def test_load_is_idempotent(self, recovery_dir: Path) -> None:
-        """``_load()`` must be idempotent — calling it multiple times
+        """``_load()`` must be idempotent, calling it multiple times
         must not re-read the disk.
 
         The ``_loaded`` guard ensures the disk read happens at most once
@@ -102,7 +102,7 @@ class TestCrashRecoveryLazyLoad:
             cr.add("test entry", pasted=False)
             cr.flush(timeout=2.0)
 
-            # Second call must be a no-op — the guard short-circuits.
+            # Second call must be a no-op, the guard short-circuits.
             # If the guard were broken, _entries would be replaced with
             # the disk content and count would still be 1 (same data),
             # so we verify _loaded is still True and the call returns
@@ -129,7 +129,7 @@ class TestCrashRecoveryLazyLoad:
         cr1.shutdown()
         del cr1
 
-        # Fresh instance — no check_on_startup() call.
+        # Fresh instance, no check_on_startup() call.
         cr2 = CrashRecovery(config_dir=recovery_dir)
         assert cr2._loaded is False, "entries should not be loaded yet"
 
@@ -149,7 +149,7 @@ class TestCrashRecoveryLazyLoad:
         clobber the in-memory entries by loading from disk.
 
         The ``_load()`` method checks ``len(self._entries) > 0`` under
-        ``_lock`` — if entries already exist, it skips the disk read and
+        ``_lock``, if entries already exist, it skips the disk read and
         marks ``_loaded = True`` so future calls are a no-op.
         """
         from voice_typer.server.crash_recovery import CrashRecovery

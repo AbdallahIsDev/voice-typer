@@ -44,7 +44,7 @@ export const WithAction: Story = {
 		description: "Templates let you insert pre-written text with a hotkey.",
 		actionLabel: "Add template",
 		onAction: () => {
-			// no-op — Storybook's action panel handles logging via args.
+			// no-op, Storybook's action panel handles logging via args.
 		},
 	},
 	name: "With action button",
@@ -67,7 +67,7 @@ export const CustomActionIcon: Story = {
 // and sets `role="alert"` on the wrapper so screen readers announce
 // the load failure immediately (vs. the polite `role="status"` used
 // for genuine "no data yet" placeholders). Without this story the
-// error variant was invisible in the Storybook docs — designers and
+// error variant was invisible in the Storybook docs, designers and
 // QA had no canonical reference for what a load-failed empty state
 // should look like, which led to drift across pages.
 //
@@ -100,7 +100,7 @@ export const DarkBackground: Story = {
 		docs: {
 			description: {
 				story:
-					"Rendered inside a dark-themed scoped wrapper (`dark` class on a container div, mirroring `useTheme`'s contract on `document.documentElement`) — the muted icon, title, description and CTA contrast must hold on the dark palette (including the destructive-tinted error variant).",
+					"Rendered inside a dark-themed scoped wrapper (`dark` class on a container div, mirroring `useTheme`'s contract on `document.documentElement`), the muted icon, title, description and CTA contrast must hold on the dark palette (including the destructive-tinted error variant).",
 			},
 		},
 	},
@@ -120,7 +120,7 @@ export const RtlLayout: Story = {
 		docs: {
 			description: {
 				story:
-					'Rendered inside a `dir="rtl"` wrapper — the icon, centered text and action button must mirror correctly for Arabic.',
+					'Rendered inside a `dir="rtl"` wrapper, the icon, centered text and action button must mirror correctly for Arabic.',
 			},
 		},
 	},

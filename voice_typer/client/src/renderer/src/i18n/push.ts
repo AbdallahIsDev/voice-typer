@@ -8,7 +8,7 @@
 // Both pushers are best-effort: the bridge surfaces
 // (``window.window_`` / ``window.python``) may be missing during
 // module-init or under Tauri, so they swallow sync throws and promise
-// rejections via ``console.warn`` — a locale-switch failure must never
+// rejections via ``console.warn``, a locale-switch failure must never
 // break the UI.
 //
 // ``trayLabelsForLocale`` uses ``t`` (from ``./translate``) to resolve
@@ -36,7 +36,7 @@ export function trayLabelsForLocale(): Record<string, string> {
 		// HU-17: push the server-notification labels too so the Python
 		// sidecar's tray notifications (config-load failure, state
 		// changes) follow the renderer's locale instead of staying
-		// English. Same dotted-key lookup as the menu labels — an entry
+		// English. Same dotted-key lookup as the menu labels, an entry
 		// is skipped when the current locale lacks a translation.
 		["error.config_load_failed.title", "error.config_load_failed.title"],
 		["error.config_load_failed.body", "error.config_load_failed.body"],
@@ -51,7 +51,7 @@ export function trayLabelsForLocale(): Record<string, string> {
 		// Every remaining server tray STATE message (the ``state.*``
 		// keys in ``voice_typer/server/i18n.py`` ``_INITIAL_LABELS``)
 		// is pushed from the renderer's ``trayState.*`` translations so
-		// the whole tray tooltip follows the renderer locale — not just
+		// the whole tray tooltip follows the renderer locale, not just
 		// the no-model-selected state. Keys with ``{placeholder}``
 		// tokens (``{device_info}``, ``{name}``, ``{backend}``,
 		// ``{error}``) keep the exact token name so the server's
@@ -60,7 +60,7 @@ export function trayLabelsForLocale(): Record<string, string> {
 		// key and are skipped below, so the server keeps its English
 		// fallback until every locale is translated.
 		//
-		// AppState value labels — the tooltip's fallback state suffix
+		// AppState value labels, the tooltip's fallback state suffix
 		// (``_compute_tooltip`` renders ``state.<value>`` when no
 		// per-call message is set).
 		["state.idle", "trayState.idle"],
@@ -171,7 +171,7 @@ export function trayLabelsForLocale(): Record<string, string> {
 			"state.dictation_pipeline.transcription_empty",
 			"trayState.pipeline.transcriptionEmpty",
 		],
-		// paste_step "Done -- N chars (mode)" statuses — dynamic
+		// paste_step "Done -- N chars (mode)" statuses, dynamic
 		// per-transcription character count; the server formats
 		// ``{count}`` at call time.
 		["state.dictation_pipeline.done_pasted", "trayState.pipeline.donePasted"],

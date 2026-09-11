@@ -15,7 +15,7 @@ export interface UsePermissionsProbeResult {
 
 /**
  * : extracted from Onboarding.tsx. Owns the permissions
- * probe lifecycle — state, the auto-probe effect that fires on entry to the
+ * probe lifecycle, state, the auto-probe effect that fires on entry to the
  * "Permissions" step, the manual `reprobePermissions` callback, and the
  * "test hotkey" listener + timeout (Fix 9: ref-tracked so cleanup is
  * deterministic).
@@ -31,7 +31,7 @@ export function usePermissionsProbe(
 ): UsePermissionsProbeResult {
 	const { call } = usePython();
 	// callRef mirror (Home.tsx pattern): the probe effect below must not
-	// depend on the `call` identity — a test mock handing out a fresh
+	// depend on the `call` identity, a test mock handing out a fresh
 	// `call` per render would re-fire the permission probe on every
 	// render (OOM loop class). ``callRef.current`` is read instead.
 	const callRef = useLatestRef(call);
@@ -79,7 +79,7 @@ export function usePermissionsProbe(
 	}, [call]);
 
 	// ── Permissions probe effect ───────────────────────────────────
-	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract — .current must NOT become a dep
+	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract, .current must NOT become a dep
 	useEffect(() => {
 		if (stepName !== "Permissions") {
 			setPermissionsResult(null);

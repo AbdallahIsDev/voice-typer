@@ -13,7 +13,7 @@ added a shared ``release_gpu_memory()`` helper that called
 
 After the ONNX Runtime migration (PLAN_ONNX_INTEGRATION.md §5.2), torch
 is no longer a project dependency. ONNX Runtime has **no**
-``empty_cache()`` API — the CUDA arena is freed automatically when the
+``empty_cache()`` API, the CUDA arena is freed automatically when the
 ``ort.InferenceSession`` is destroyed (i.e. when the engine drops its
 session reference and ``gc.collect()`` runs). The helper is therefore a
 no-op for ORT, kept for API compatibility with existing callers in
@@ -22,7 +22,7 @@ no-op for ORT, kept for API compatibility with existing callers in
 
 These tests pin the post-ONNX no-op contract: ``release_gpu_memory()``
 must NOT invoke any ``torch.cuda.*`` method (because ORT has no
-equivalent — the helper is a no-op regardless of torch / CUDA state).
+equivalent, the helper is a no-op regardless of torch / CUDA state).
 """
 
 # === Source: tests/test_new_mem_001_gpu_release.py ===
@@ -38,7 +38,7 @@ from voice_typer.server.asr_utils import release_gpu_memory
 
 
 class TestReleaseGpuMemoryHelper:
-    """The shared helper is a no-op for ONNX Runtime — kept for API
+    """The shared helper is a no-op for ONNX Runtime, kept for API
     compatibility with the existing ``unload()`` call sites."""
 
     def test_no_torch_installed_is_noop(self, monkeypatch):
@@ -52,7 +52,7 @@ class TestReleaseGpuMemoryHelper:
         """The post-ONNX helper is a no-op regardless of torch / CUDA
         state. Even when a fake ``torch.cuda.is_available()`` would
         return True, the helper MUST NOT call ``is_available`` /
-        ``synchronize`` / ``empty_cache`` — ONNX Runtime has no
+        ``synchronize`` / ``empty_cache``, ONNX Runtime has no
         ``empty_cache()`` API, and the helper exists only for backward
         compatibility with the existing ``unload()`` call sites (see
         PLAN_ONNX_INTEGRATION.md §5.2).
@@ -182,7 +182,7 @@ class TestEnginesCallReleaseGpuMemory:
         )
         # The CUDA-probe early fallback path arms the deferred
         # release: it must set ``_pending_gc_collect`` so the
-        # next caller outside the lock runs release_gpu_memory() — the
+        # next caller outside the lock runs release_gpu_memory(), the
         # direct in-lock call was removed as a no-op for VRAM release.
         from voice_typer.server.transcription_cuda_probe import probe_cuda_runtime
 
@@ -220,7 +220,7 @@ class TestReleaseGpuMemoryFunctional:
         # wrapping ``_lock``) and waits on ``_active_inference == 0``
         # before nulling ``self._model``. The constructor sets these
         # up (parakeet_engine.py:205-212), but ``__new__`` bypasses
-        # ``__init__`` — set them manually so ``unload()`` doesn't
+        # ``__init__``, set them manually so ``unload()`` doesn't
         # AttributeError on the missing Condition.
         eng._inference_cond = threading.Condition(eng._lock)
         eng._active_inference = 0

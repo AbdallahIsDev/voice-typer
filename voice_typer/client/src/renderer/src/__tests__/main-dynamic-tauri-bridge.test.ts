@@ -1,13 +1,13 @@
 /**
  * regression test: the Tauri-bridge install gate MUST stay a
- * RUNTIME-GATED DYNAMIC ``import()`` — never a static top-level import.
+ * RUNTIME-GATED DYNAMIC ``import()``, never a static top-level import.
  *
  * Background: the original code had ``import "./lib/tauri-bridge/install"``
  * as a static top-level import in both entrypoints. Under Electron the
  * preload script (``src/preload/index.ts:19-117``) already installs
  * ``window.python`` / ``window.bubble`` / ``window.window_`` via
  * ``contextBridge.exposeInMainWorld``, so the ``install.ts`` module
- * was shipped but never executed under Electron — pure bundle bloat.
+ * was shipped but never executed under Electron, pure bundle bloat.
  *
  * The gate now lives in ONE shared module,
  * ``lib/tauri-bridge/ensure.ts`` (``ensureTauriBridgeInstalled()``) —
@@ -26,7 +26,7 @@
  * gate is false and the chunk is never fetched.
  *
  * This test does a STATIC source analysis (reads the files as text and
- * regex-matches) rather than importing the entrypoints — importing
+ * regex-matches) rather than importing the entrypoints, importing
  * ``main.tsx`` would boot React inside a unit test, which is not what
  * we want here.
  */
@@ -50,7 +50,7 @@ describe("tauri-bridge install is a runtime-gated dynamic import", () => {
 		it('contains a dynamic `import("./install")`', () => {
 			// The dynamic form is `import("./install")` (parenthesis
 			// immediately after `import`, no whitespace). The optional
-			// `await ` prefix is not matched here — we only assert the
+			// `await ` prefix is not matched here, we only assert the
 			// dynamic-import syntax is present.
 			expect(ENSURE_SRC).toMatch(/import\(\s*["']\.\/install["']\s*\)/);
 		});
@@ -67,7 +67,7 @@ describe("tauri-bridge install is a runtime-gated dynamic import", () => {
 			// If `ensure.ts` statically imported `./index` (the bridge
 			// barrel) or `@tauri-apps/*`, statically importing
 			// `ensureTauriBridgeInstalled` from the entrypoints would drag
-			// the whole install graph back into the eager bundle — the
+			// the whole install graph back into the eager bundle, the
 			// exact regression this architecture prevents.
 			expect(ENSURE_SRC).not.toMatch(/import\s+["']\.\/index["']/);
 			expect(ENSURE_SRC).not.toMatch(
@@ -110,7 +110,7 @@ describe("tauri-bridge install is a runtime-gated dynamic import", () => {
 
 			it('does NOT contain a static `import "./lib/tauri-bridge"` (bare, no /install)', () => {
 				// The bare `./lib/tauri-bridge` side-effect import (without
-				// `/install`) is the pre-split pattern — `index.ts` no longer
+				// `/install`) is the pre-split pattern, `index.ts` no longer
 				// auto-invokes ``installTauriBridge()``, so importing it for
 				// the side effect would silently do nothing. This assertion
 				// catches a regression where someone reverts to the bare

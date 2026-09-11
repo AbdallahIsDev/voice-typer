@@ -4,12 +4,12 @@ Contains the cached ``IUIAutomation`` COM singleton management that
 drives the Windows password-field / contentEditable safety checks in
 :mod:`.validation` and :mod:`.targets`:
 
-* :func:`_get_uia_singleton` — lazily creates and caches the
+* :func:`_get_uia_singleton`: lazily creates and caches the
   ``IUIAutomation`` COM instance (``_pkg._UIA_SINGLETON``) and the
   comtypes module reference (``_pkg._UIA_MODULE``). Creating a fresh
   instance on every paste was 10-50ms per call (cross-process RPC);
   caching eliminates that cost for every subsequent paste.
-* :func:`_get_uia_focused_element` — wraps the cached singleton's
+* :func:`_get_uia_focused_element`: wraps the cached singleton's
   ``GetFocusedElement()`` call with a fail-open try/except.
 
 All cross-module references (``is_windows``, ``_log``, the mutable
@@ -17,7 +17,7 @@ All cross-module references (``is_windows``, ``_log``, the mutable
 on ``voice_typer.server.clipboard_target_safety.NAME`` propagate to the
 functions defined here. A plain ``global NAME`` would write to THIS
 submodule's namespace and be invisible to the test patches applied on
-the package — hence the ``_pkg.NAME`` access pattern.
+the package, hence the ``_pkg.NAME`` access pattern.
 """
 
 from __future__ import annotations
@@ -77,11 +77,11 @@ def _get_uia_singleton():
     a ``finally`` block AFTER ``_pkg._UIA_SINGLETON`` is assigned.
     Setting it earlier would let racing fast-path callers (which check
     the flag WITHOUT the lock) observe the flag set while
-    ``_pkg._UIA_SINGLETON`` is still ``None`` — they'd return ``None``
+    ``_pkg._UIA_SINGLETON`` is still ``None``: they'd return ``None``
     and permanently disable UIA checks for their code path even though
     init eventually succeeded.
     """
-    # Fast path: init already completed — no lock needed.
+    # Fast path: init already completed, no lock needed.
     if _pkg._UIA_SINGLETON_INIT_ATTEMPTED:
         return _pkg._UIA_SINGLETON
     # Cold path: acquire the lock and re-check (another thread may
@@ -102,7 +102,7 @@ def _get_uia_singleton():
                 )
             except Exception as exc:
                 _pkg._log().debug(
-                    "[CLIPBOARD] IUIAutomation singleton init failed: %s — UIA checks disabled",
+                    "[CLIPBOARD] IUIAutomation singleton init failed: %s. UIA checks disabled",
                     exc,
                 )
                 _pkg._UIA_SINGLETON = None
@@ -128,7 +128,7 @@ def _get_uia_focused_element():
         return uia.GetFocusedElement()
     except Exception as exc:
         _pkg._log().debug(
-            "[CLIPBOARD] GetFocusedElement failed: %s — failing open",
+            "[CLIPBOARD] GetFocusedElement failed: %s, failing open",
             exc,
         )
         return None

@@ -148,7 +148,7 @@ class TestWithLockAndDeferredGc:
         import gc as real_gc
 
         engine = self._make_engine()
-        engine._pending_gc_collect = False  # no fallback — no gc needed
+        engine._pending_gc_collect = False  # no fallback, no gc needed
 
         with patch.object(real_gc, "collect") as mock_gc, engine._with_lock_and_deferred_gc():
             pass
@@ -200,7 +200,7 @@ class TestWithGpuFallback:
         engine = self._make_engine(device="cuda")
 
         def inner(audio, *args, **kwargs):
-            raise ValueError("plain value error — no relevant keywords here")
+            raise ValueError("plain value error, no relevant keywords here")
 
         with pytest.raises(ValueError, match="plain value error"):
             engine._with_gpu_fallback(inner, np.zeros(16, dtype=np.float32))
@@ -299,7 +299,7 @@ class TestLoadPathCacheGate:
         assert integrity_failed is True
 
     def test_probe_cache_never_deletes_tampered_cache(self, monkeypatch):
-        """A tampered cache is NOT deleted by the probe — deletion is an
+        """A tampered cache is NOT deleted by the probe, deletion is an
         explicit user action (Models page Delete button)."""
         engine = self._make_engine()
         fake_snapshot = MagicMock(return_value="/fake/cache/path")

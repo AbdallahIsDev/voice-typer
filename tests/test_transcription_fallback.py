@@ -2,7 +2,7 @@
 and the shared ``_GPU_ERROR_KEYWORDS`` constant.
 
 These tests pin the fix (``RuntimeError`` removed from the
-ctranslate2 class-check loop — only ``CUDAError`` is checked) and the
+ctranslate2 class-check loop, only ``CUDAError`` is checked) and the
 fix (both ``_probe_cuda_runtime`` and ``_is_gpu_runtime_error``
 reference the same module-level ``_GPU_ERROR_KEYWORDS`` constant so the
 load-time probe and transcribe-time classifier always agree).
@@ -41,9 +41,9 @@ class TestRuntimeErrorNotMisclassified:
     class of nearly every error-from-a-C-extension. When ctranslate2
     exposed ``RuntimeError`` as a class attribute (some builds), the
     ``isinstance(exc, RuntimeError)`` check matched ANY
-    ``RuntimeError`` raised during transcription — including
+    ``RuntimeError`` raised during transcription, including
     ``RuntimeError("Model not loaded")`` and
-    ``RuntimeError("audio array is empty")`` — routing them into the
+    ``RuntimeError("audio array is empty")``, routing them into the
     GPU-fallback path: tear down the model, reload on CPU, retry. The
     user saw a 5-15s stall on every non-GPU ``RuntimeError`` and then
     the same error re-raised on CPU.
@@ -64,17 +64,17 @@ class TestRuntimeErrorNotMisclassified:
         return engine
 
     @pytest.mark.skip(
-        reason="Production code reverted — RuntimeError is again in the "
+        reason="Production code reverted, RuntimeError is again in the "
         "ctranslate2 class-check loop, so a plain RuntimeError "
         "is now classified as a GPU error."
     )
     def test_plain_runtime_error_not_gpu(self, monkeypatch):
         """(a) a plain ``RuntimeError("model not loaded")`` must
-        return False — even when ctranslate2 exposes ``RuntimeError``
+        return False, even when ctranslate2 exposes ``RuntimeError``
         as a class attribute (the condition that triggered the OLD
         buggy fallback)."""
         # Mock ctranslate2 to EXPOSE ``RuntimeError`` as a class
-        # attribute — simulates the ctranslate2 builds where the OLD
+        # attribute, simulates the ctranslate2 builds where the OLD
         # loop ``for attr_name in ("CUDAError", "RuntimeError")``
         # matched ``RuntimeError`` and triggered the GPU-fallback path
         # for ANY RuntimeError.
@@ -88,17 +88,17 @@ class TestRuntimeErrorNotMisclassified:
         assert result is False, (
             "regression: a plain RuntimeError('model not loaded') was "
             "classified as a GPU error. The ctranslate2 class-check loop must "
-            "ONLY check CUDAError (NOT RuntimeError) — RuntimeError is the base "
+            "ONLY check CUDAError (NOT RuntimeError), RuntimeError is the base "
             "class of nearly every C-extension error and matching it routes "
             "non-GPU RuntimeErrors into the GPU-fallback path (5-15s stall)."
         )
 
     def test_runtime_error_with_cuda_substring_still_detected(self, monkeypatch):
         """(b) a ``RuntimeError("CUDA error: ...")`` must still
-        return True via the substring-fallback strategy (strategy #4)
-        — even though the class-check no longer matches RuntimeError,
-        the substring match catches the literal 'cuda' in the
-        message."""
+          return True via the substring-fallback strategy (strategy #4)
+        , even though the class-check no longer matches RuntimeError,
+          the substring match catches the literal 'cuda' in the
+          message."""
         mock_ct2 = MagicMock()
         mock_ct2.CUDAError = None
         mock_ct2.RuntimeError = None
@@ -113,7 +113,7 @@ class TestRuntimeErrorNotMisclassified:
 
     def test_torch_cuda_oom_classified_as_gpu(self, monkeypatch):
         """(c) a CUDA OOM error must return True via the
-        ``is_oom_error(exc)`` check (Phase 1c — replaces the old
+        ``is_oom_error(exc)`` check (Phase 1c, replaces the old
         ``isinstance(exc, torch.cuda.OutOfMemoryError)`` class-hierarchy
         check that died with torch removal).
 
@@ -125,11 +125,11 @@ class TestRuntimeErrorNotMisclassified:
         (``"out of memory"`` / ``"oom"`` substrings) rather than its
         class hierarchy, so a plain ``RuntimeError("CUDA out of
         memory")`` is sufficient to exercise the path. No torch import
-        is needed — the literal ``import torch`` was removed from this
+        is needed, the literal ``import torch`` was removed from this
         test in lockstep with the production change.
 
         Setup:
-          * Raise ``RuntimeError("CUDA out of memory")`` — the message
+          * Raise ``RuntimeError("CUDA out of memory")``, the message
             contains ``"out of memory"`` so :func:`is_oom_error` returns
             True.
           * Assert the classifier returns True.
@@ -146,13 +146,13 @@ class TestRuntimeErrorNotMisclassified:
         assert result is True, (
             "A RuntimeError whose message contains 'out of memory' must "
             "be classified as a GPU error via the shared is_oom_error "
-            "classifier (Phase 1c — replaces the old "
+            "classifier (Phase 1c, replaces the old "
             "isinstance(exc, torch.cuda.OutOfMemoryError) check)."
         )
 
     def test_cpu_device_never_classified_as_gpu(self, monkeypatch):
         """Sanity: on CPU device, no exception (including CUDA-looking
-        ones) is classified as a GPU error — the function short-circuits
+        ones) is classified as a GPU error, the function short-circuits
         at the top."""
         mock_ct2 = MagicMock()
         mock_ct2.CUDAError = None
@@ -164,7 +164,7 @@ class TestRuntimeErrorNotMisclassified:
         assert engine._is_gpu_runtime_error(RuntimeError("CUDA error: cublas load library failed")) is False
 
     @pytest.mark.skip(
-        reason="Production code reverted — the ctranslate2 class-check loop "
+        reason="Production code reverted, the ctranslate2 class-check loop "
         "again includes RuntimeError, so the source guard no "
         "longer holds."
     )

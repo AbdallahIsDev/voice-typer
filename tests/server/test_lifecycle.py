@@ -1,8 +1,8 @@
 """Server lifecycle and error-handling tests.
 
 Classes:
-- TestLifecycle    — start()/stop() daemon-thread management
-- TestErrorHandling — JSON-parse / unknown-command loop resilience
+- TestLifecycle  , start()/stop() daemon-thread management
+- TestErrorHandling, JSON-parse / unknown-command loop resilience
 
 Split out from the original monolithic tests/test_server.py (DT-37, Phase 4.5).
 """

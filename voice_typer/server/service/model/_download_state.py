@@ -19,7 +19,7 @@ class DownloadStateMixin:
         ``_model_status_cache_ts``, ``_model_status_cache_lock``)
         were initialised inline in ``VoiceTyperService.__init__``
         even though they are used ONLY by ModelMixin. This is the
-        same fat-base-class smell called out in  — only
+        same fat-base-class smell called out in , only
         ``MicrophoneTestMixin`` got its own ``__init__`` extraction,
         so the  fix was applied inconsistently.
 
@@ -108,7 +108,7 @@ class DownloadStateMixin:
         (under the lock) so a concurrent ``download_model`` call's
         cancel signal doesn't bleed into this download. Returns False
         if the entry is missing (already cleaned up, or never
-        registered) — the None-guard prevents the AttributeError that
+        registered), the None-guard prevents the AttributeError that
         the previous single-attribute design raised when a sibling
         download set the attribute to ``None``.
         """

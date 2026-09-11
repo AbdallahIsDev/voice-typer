@@ -5,19 +5,19 @@ split).  These validators layer on top of the per-field validators
 in :mod:`voice_typer.server.config_validators.scalar` and
 :mod:`voice_typer.server.config_validators.hotkey`:
 
-* :func:`_check_cross_field_hotkey_conflicts` — detects when two of the
+* :func:`_check_cross_field_hotkey_conflicts`: detects when two of the
   hotkey fields (``hotkey``, ``repaste_hotkey``) are assigned the same
   value.  Called from both
   :func:`validate_config_update` and :func:`validate_config` so the
   conflict is caught at IPC-write time AND at config-load time.
 
-* :func:`_check_cross_field_cloud_config` — catches inconsistencies
+* :func:`_check_cross_field_cloud_config`: catches inconsistencies
   between paired cloud/LLM config fields (URL without key, polish without
   key, polish without consent, consent without key).
 
-* :func:`cross_platform_hotkey_warnings` — checks each hotkey value
+* :func:`cross_platform_hotkey_warnings`: checks each hotkey value
   against the reserved lists of EVERY non-current platform and returns
-  warning strings (NOT errors — the hotkey is valid on the user's
+  warning strings (NOT errors, the hotkey is valid on the user's
   current platform).  Callers (e.g. ``Config.load()`` in
   ``voice_typer/server/config/__init__.py``) should append the returned
   strings to ``Config._load_warnings`` / ``last_load_warnings`` so the
@@ -51,7 +51,7 @@ from voice_typer.server.config_validators.hotkey import (
 #
 # func:`cross_platform_hotkey_warnings` (): checks each hotkey
 #     value against the reserved lists of EVERY non-current platform and
-#     returns warning strings (NOT errors — the hotkey is valid on the
+#     returns warning strings (NOT errors, the hotkey is valid on the
 #     user's current platform).  Callers (e.g. ``Config.load()`` in
 #     ``config.py``) should append the returned strings to
 #     ``Config._load_warnings`` / ``last_load_warnings`` so the UI can
@@ -59,7 +59,7 @@ from voice_typer.server.config_validators.hotkey import (
 # ──────────────────────────────────────────────────────────────────────────
 
 # The hotkey fields whose values must not collide.  ``push_to_talk_hotkey``
-# (a third member of this tuple until 2026-08-24) was fully removed — PTT
+# (a third member of this tuple until 2026-08-24) was fully removed, PTT
 # uses the main ``hotkey`` field, so only ``hotkey`` and ``repaste_hotkey``
 # remain.
 _HOTKEY_FIELD_NAMES: tuple[str, ...] = ("hotkey", "repaste_hotkey")
@@ -142,7 +142,7 @@ def _check_cross_field_cloud_config(
     ``CloudConfigError``).
 
     The check fires ONLY when BOTH related fields are present in
-    ``field_values`` — for the IPC ``set_config`` path, the renderer
+    ``field_values``: for the IPC ``set_config`` path, the renderer
     may push only ONE of the two paired fields (e.g. just
     ``cloud_api_url`` without ``cloud_api_key``), and the other field
     may already be set in the saved config. False positives here would
@@ -154,7 +154,7 @@ def _check_cross_field_cloud_config(
         A mapping from field name to its current value. Only fields
         present in this dict participate in the cross-field check
         (missing fields are treated as "not in this update" and
-        skipped — they may be set in the saved config).
+        skipped, they may be set in the saved config).
 
     Returns
     -------
@@ -219,7 +219,7 @@ def _cross_platform_hotkey_warning(value: str, field_name: str) -> str | None:
         Returns ``None`` if the value is valid on every non-current platform
         (or if the value is empty / not a string).
 
-        The warning is informational only — the hotkey may be perfectly valid
+        The warning is informational only, the hotkey may be perfectly valid
         on the user's current platform, and rejecting it would deny the user
         the freedom to set platform-specific shortcuts.  The warning just
         alerts them that the config won't be portable to the named platform.
@@ -231,10 +231,10 @@ def _cross_platform_hotkey_warning(value: str, field_name: str) -> str | None:
         macOS) and :func:`_check_alt_shift` (Alt+Shift on Windows).  Without
         these, a hotkey like ``<cmd>+<b>`` on Linux gives no warning even
         though it is hard-rejected on macOS (Cmd+B is not in the explicit
-        darwin reserved list — it is blocked by the Cmd+<letter> blanket
+        darwin reserved list, it is blocked by the Cmd+<letter> blanket
         rule), and ``<win>+<a>`` on Linux gives no warning even though it
         is hard-rejected on Windows (Win+A is not in the explicit win32
-        reserved list — it is blocked by the Win+* blanket rule).
+        reserved list, it is blocked by the Win+* blanket rule).
     """
     if not isinstance(value, str) or not value.strip():
         return None
@@ -259,7 +259,7 @@ def _cross_platform_hotkey_warning(value: str, field_name: str) -> str | None:
         if err is None:
             err = _check_alt_shift(parts, platform)
         if err is not None:
-            return f"{field_name} ({value!r}) is {err} — this config will not be portable to that platform"
+            return f"{field_name} ({value!r}) is {err}, this config will not be portable to that platform"
     return None
 
 
@@ -280,14 +280,14 @@ def cross_platform_hotkey_warnings(cfg: object) -> list[str]:
         coordination note with agent 2-a / SA11).
 
         Warnings (NOT errors) are emitted because the hotkey may be perfectly
-        valid on the user's current platform — rejecting it would deny the
+        valid on the user's current platform, rejecting it would deny the
         user the freedom to set platform-specific shortcuts.  The warning
         just alerts them that the config won't be portable.
 
         Parameters
         ----------
         cfg
-            A :class:`Config` dataclass instance (duck-typed — only
+            A :class:`Config` dataclass instance (duck-typed, only
             ``getattr`` is used, so any object exposing the hotkey fields
             as attributes works for testing).
 

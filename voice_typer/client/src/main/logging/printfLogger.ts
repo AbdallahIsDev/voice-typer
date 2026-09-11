@@ -4,29 +4,29 @@
  * Extracted from the original `main/logging.ts` (spaghetti
  * split). Owns:
  *
- *   - `log` — printf-style API:
+ *   - `log`, printf-style API:
  *     `log.info("[BUBBLE] creating window at", x, y)`. Routes through
  *     colored stdout (ANSI `[INFO]`/`[WARN]`/`[ERROR]` prefixes) and
  *     tees WARN/ERROR to `<config-dir>/logs/electron-runtime.log` with 5 MiB
  *     rotation. Uses the dependency-free `computeConfigDir()` leaf
  *     (extracted from `single_instance.ts` so the logging package
  *     stays cycle-free).
- *   - `LogShape` — the public type of the `log` object (consumed by
+ *   - `LogShape`, the public type of the `log` object (consumed by
  *     tests + type-only importers).
- *   - `getRuntimeLogPath()` — memoized resolver for
+ *   - `getRuntimeLogPath()`, memoized resolver for
  *     `electron-runtime.log` (cached for the process lifetime;
  *     `_resetRuntimeLogPathForTest` clears the cache for tests).
  *   - `_getRuntimeLogPathForTest()` / `_resetRuntimeLogPathForTest()`
- *     — test-only exports for asserting memoization behavior.
+ *    , test-only exports for asserting memoization behavior.
  *
  * Local (non-exported) helpers:
- *   - `_runtimeLogPath` — the memoization slot.
- *   - `writeStdout()` — writes one line to stdout with the standard
+ *   - `_runtimeLogPath`, the memoization slot.
+ *   - `writeStdout()`, writes one line to stdout with the standard
  *     timestamp + level prefix. Accepts a pre-formatted args string
- *     (the output of `structuredLogger.ts::redactArgsForFile` — the
+ *     (the output of `structuredLogger.ts::redactArgsForFile`, the
  *     single shared formatting primitive for every file/stdout tee)
  *     rather than the raw args.
- *   - `mainRuntimeLogger` — the persistent runtime log file writer
+ *   - `mainRuntimeLogger`, the persistent runtime log file writer
  *     (appends WARN/ERROR to `electron-runtime.log` via
  *     `appendLogLine`). Accepts a pre-formatted args string.
  *
@@ -70,7 +70,7 @@ export type LogShape = {
  * invocation, and the underlying `computeConfigDir` resolution is
  * non-trivial (platform-specific dir computation + legacy
  * `~/.voice-typer` probe). On a hot crash-loop path this added a few
- * microseconds per line — pure overhead since the path is stable for
+ * microseconds per line, pure overhead since the path is stable for
  * the process lifetime (the config dir never moves after
  * `setupUserData()` in `bootstrap.ts` runs once at startup).
  *
@@ -82,7 +82,7 @@ export type LogShape = {
  * config-dir mock.
  *
  * The previous `_runtimeLogPathOverride` + `_setRuntimeLogPathForTest`
- * test-override pair was removed — no test imported it. Tests that need to
+ * test-override pair was removed, no test imported it. Tests that need to
  * assert against the file-tee path now mock `computeConfigDir` (as
  * the log-path tests already do).
  */
@@ -91,7 +91,7 @@ export type LogShape = {
 let _runtimeLogPath: string | null | undefined;
 
 export function getRuntimeLogPath(): string | null {
-	// Cache hit — return the previously resolved path (or null
+	// Cache hit, return the previously resolved path (or null
 	// if a prior call found config-dir resolution failed). Avoids
 	// the `computeConfigDir` round-trip on every `log.warn` /
 	// `log.error` invocation.
@@ -109,7 +109,7 @@ export function getRuntimeLogPath(): string | null {
 		// Edge case: config-dir resolution can throw (e.g. very
 		// early in test setup where the config-dir resolver isn't
 		// available). Return null so `mainRuntimeLogger.write` silently
-		// no-ops — the stdout tee already captured the message.
+		// no-ops, the stdout tee already captured the message.
 		_runtimeLogPath = null;
 	}
 	return _runtimeLogPath;
@@ -118,11 +118,11 @@ export function getRuntimeLogPath(): string | null {
 /**
  * Test-only export of the memoized path resolver. Exposed so
  * unit tests can call `getRuntimeLogPath()` directly and assert that
- * `app.getPath` is invoked exactly once across N calls — verifying
+ * `app.getPath` is invoked exactly once across N calls, verifying
  * the memoization. Production callers go through `mainRuntimeLogger.write`
  * which calls `getRuntimeLogPath()` internally.
  *
- * Underscore-prefixed to signal "internal/test-only" — matching the
+ * Underscore-prefixed to signal "internal/test-only", matching the
  * existing `_resetFileSizeCacheForTest` / `_resetRuntimeLogPathForTest`
  * / `_crashLogPaths` convention in this module.
  */
@@ -135,7 +135,7 @@ export function _getRuntimeLogPathForTest(): string | null {
  * so each test case starts with a fresh cache and can assert against
  * the call count of `app.getPath`.
  *
- * Production code should NOT call this — `getRuntimeLogPath` is intended
+ * Production code should NOT call this, `getRuntimeLogPath` is intended
  * to memoize for the process lifetime, and the userData dir does not
  * move after `bootstrapRuntime()`'s `setupUserData()` step.
  */
@@ -153,7 +153,7 @@ export function _resetRuntimeLogPathForTest(): void {
  * `structuredLogger.ts::redactArgsForFile` primitive) rather than the
  * raw `unknown[]` args. This lets `log.warn` / `log.error` compute the
  * formatted string ONCE and pass it to both `writeStdout` (stdout tee)
- * and `mainRuntimeLogger.write` (file tee) — eliminating any double-
+ * and `mainRuntimeLogger.write` (file tee), eliminating any double-
  * format penalty where every WARN/ERROR line would run the per-arg
  * `redactPii` passes twice on identical input.
  */
@@ -162,7 +162,7 @@ function writeStdout(
 	color: string,
 	formattedArgs: string,
 ): void {
-	// Canonical terminal line (C-LOG-1): `HH:MM:SS  LEVEL  msg` — TWO
+	// Canonical terminal line (C-LOG-1): `HH:MM:SS  LEVEL  msg`, TWO
 	// spaces between fields, bare level label (no brackets).
 	const prefix = `${ts()}  ${color}${level}${RESET}`;
 	const out = `${prefix}  ${formattedArgs}`;
@@ -179,7 +179,7 @@ function writeStdout(
  * Persistent runtime log file writer. Appends WARN/ERROR
  * lines to `<userData>/electron-runtime.log` with 5 MiB rotation via
  * the existing `rotateIfNeeded` helper. INFO lines are NOT
- * written to file (avoid bloat — routine
+ * written to file (avoid bloat, routine
  * lifecycle events would drown the signal in a long-running session).
  *
  * Best-effort: if the file path cannot be resolved (e.g. Electron is
@@ -204,7 +204,7 @@ const mainRuntimeLogger = {
 	 * `structuredLogger.ts::redactArgsForFile` primitive) rather than
 	 * the raw `unknown[]` args. This lets `log.warn` / `log.error`
 	 * compute the formatted string ONCE and pass it to both
-	 * `writeStdout` (stdout tee) and this writer (file tee) — the
+	 * `writeStdout` (stdout tee) and this writer (file tee), the
 	 * per-arg redaction passes run exactly once per line.
 	 */
 	write(level: "WARN" | "ERROR", formattedArgs: string): void {
@@ -221,7 +221,7 @@ const mainRuntimeLogger = {
 		// on every `log.warn`/`log.error` call (the exact perf bug
 		// cache is populated after each successful append. Previously
 		// internally (best-effort), so no surrounding try/catch is
-		// needed — a logging failure must not cascade into a runtime
+		// needed, a logging failure must not cascade into a runtime
 		// failure of the calling code.
 		appendLogLine(logPath, line, RUNTIME_LOG_MAX_BYTES);
 	},
@@ -234,11 +234,11 @@ const mainRuntimeLogger = {
  * previous "everything is `console.warn`" pattern, which made real
  * warnings indistinguishable from routine startup noise.
  *
- *   - `log.info(...)`  — routine lifecycle (connected, spawned, exited
- *                         normally). Stdout only — NOT written to file
+ *   - `log.info(...)` , routine lifecycle (connected, spawned, exited
+ *                         normally). Stdout only, NOT written to file
  *                         to avoid bloat.
- *   - `log.warn(...)`  — unexpected but non-fatal. Stdout + file.
- *   - `log.error(...)` — failures. Stdout + file.
+ *   - `log.warn(...)` , unexpected but non-fatal. Stdout + file.
+ *   - `log.error(...)`, failures. Stdout + file.
  *
  * The stdout output uses the existing `ts` timestamp helper and
  * ANSI color constants so Electron and Python log lines look identical
@@ -253,7 +253,7 @@ const mainRuntimeLogger = {
  *
  * NOTE: callers that previously formatted their own `${ts()}  ${CLR}[TAG]
  * ...${RESET}` prefix should drop the manual prefix and pass the tag
- * (e.g. `[BUBBLE]`) as the first arg — the logger adds the timestamp
+ * (e.g. `[BUBBLE]`) as the first arg, the logger adds the timestamp
  * and level prefix automatically.
  */
 export const log: LogShape = {
@@ -267,18 +267,18 @@ export const log: LogShape = {
 		writeStdout("INFO", INFO_CLR, formatted);
 		// INFO not written to file (avoid bloat).
 		//
-		// Opt-in INFO persistence — mirror `logger.info`'s
+		// Opt-in INFO persistence, mirror `logger.info`'s
 		// `PERSIST_INFO` branch. The printf-style `log.info` is the
 		// primary logger used by `bubble-window.ts`, `relaunch-app.ts`,
 		// and the bootstrap crash path, so supporting the opt-in here
 		// is just as important as on `logger.info`. Coerces args to
 		// strings via `String(...)` (matching `redactArgsForFile`'s
-		// non-Error fallback) — rich object formatting would change
+		// non-Error fallback), rich object formatting would change
 		// the existing stdout behavior, so we keep it lossy here.
 		//
 		// NOTE: `appendLifecycleLine` uses `String(a)` (not
 		// `JSON.stringify`) for the lossy printf-style formatting, so
-		// we can't reuse `formatted` here — pass the raw `args` and
+		// we can't reuse `formatted` here, pass the raw `args` and
 		// let `appendLifecycleLine` re-stringify.
 		if (PERSIST_INFO) {
 			appendLifecycleLine("info", args.map((a) => String(a)).join(" "), []);
@@ -300,7 +300,7 @@ export const log: LogShape = {
 		mainRuntimeLogger.write("WARN", formatted);
 	},
 	error(...args: unknown[]): void {
-		// Compute the formatted args ONCE — see `warn` above for the
+		// Compute the formatted args ONCE, see `warn` above for the
 		// single-format discipline rationale.
 		const formatted = redactArgsForFile(args);
 		writeStdout("ERROR", ERROR_CLR, formatted);

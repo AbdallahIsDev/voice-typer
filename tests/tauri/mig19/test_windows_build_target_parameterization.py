@@ -13,12 +13,12 @@ config file via ``matrix.tauri_config``. The Nuitka build steps emit
 The Linux sandbox CANNOT run a real GitHub Actions workflow, so these
 tests validate the YAML **structure** of the parameterization:
 
-  1. The ACTIVE matrix contains exactly one leg — x86_64 (runs on
+  1. The ACTIVE matrix contains exactly one leg, x86_64 (runs on
      ``windows-2022``). The aarch64 leg (``windows-11-arm``) is
      preserved as a **commented** matrix template: it CANNOT be an
      active entry because GitHub does not ship a public aarch64
      Windows runner, and it CANNOT be gated with a job-level
-     ``if: matrix.enabled`` — the ``matrix`` context is not available
+     ``if: matrix.enabled``, the ``matrix`` context is not available
      in ``jobs.<id>.if`` and GitHub rejects the workflow file at
      validation time (0s "workflow file issue" on every push).
   2. The matrix leg sets ``target`` to the corresponding Rust target
@@ -50,9 +50,9 @@ VALIDATE ON WINDOWS HOST:
     requested target triple.
 
 References:
-  - review.md entry #17 — Windows Tauri workflow hardcodes x86_64 (no
+  - review.md entry #17, Windows Tauri workflow hardcodes x86_64 (no
     Windows-on-ARM build).
-  - .github/workflows/tauri-windows-build.yml — the matrix-parameterized
+  - .github/workflows/tauri-windows-build.yml, the matrix-parameterized
     workflow (see the GATE STATUS block at the top of the file).
 """
 
@@ -82,7 +82,7 @@ def workflow_text() -> str:
 def test_matrix_includes_x86_64_leg(workflow_text: str):
     """The active matrix must include the x86_64 leg.
 
-    The x86_64 leg is the primary release target — it runs on the
+    The x86_64 leg is the primary release target, it runs on the
     ``windows-2022`` GitHub-hosted runner and produces the installers
     that ship to x86_64 Windows users. Without this leg, no Windows
     build is produced at all.
@@ -95,7 +95,7 @@ def test_matrix_includes_x86_64_leg(workflow_text: str):
     # NOTE: there is deliberately NO `enabled:` field here. The matrix
     # contains exactly one active leg, so every matrix job should run;
     # a job-level `if: matrix.enabled` gate would be invalid (the
-    # `matrix` context is not available in jobs.<id>.if — GitHub
+    # `matrix` context is not available in jobs.<id>.if, GitHub
     # rejects the workflow file at validation time).
     assert re.search(
         r"- arch:\s*x86_64\s*\n"
@@ -104,7 +104,7 @@ def test_matrix_includes_x86_64_leg(workflow_text: str):
         r"\s*tauri_config:\s*tauri\.windows-x86_64\.conf\.json",
         workflow_text,
         re.MULTILINE,
-    ), "Matrix x86_64 leg (target: x86_64-pc-windows-msvc) not found — the primary Windows release path is missing."
+    ), "Matrix x86_64 leg (target: x86_64-pc-windows-msvc) not found, the primary Windows release path is missing."
 
 
 def test_aarch64_leg_documented_as_commented_template(workflow_text: str):
@@ -113,12 +113,12 @@ def test_aarch64_leg_documented_as_commented_template(workflow_text: str):
     The aarch64 leg is the Windows-on-ARM build path. It CANNOT be an
     active matrix entry today because (a) GitHub does not ship a public
     ``windows-11-arm`` runner as of 2026-08, and (b) it cannot be gated
-    with a job-level ``if: matrix.enabled`` — the ``matrix`` context is
+    with a job-level ``if: matrix.enabled``, the ``matrix`` context is
     NOT available in ``jobs.<id>.if`` and GitHub rejects the workflow
     file at validation time (0s "workflow file issue" on every push).
     The leg is therefore preserved as a commented matrix template (with
     all its fields) so that re-enabling it is a one-line uncomment when
-    a runner becomes available — the env vars and build steps already
+    a runner becomes available, the env vars and build steps already
     parameterize on ``matrix.target``.
     """
     # The commented template preserves the leg's fields. NOTE: the
@@ -136,7 +136,7 @@ def test_aarch64_leg_documented_as_commented_template(workflow_text: str):
         "tauri_config) must be preserved in tauri-windows-build.yml so "
         "the Windows-on-ARM scaffold is a one-line uncomment away."
     )
-    # And it must NOT be an active (uncommented) matrix entry — a live
+    # And it must NOT be an active (uncommented) matrix entry, a live
     # aarch64 leg would schedule on the non-existent windows-11-arm runner.
     assert not re.search(
         r"^\s+- arch:\s*aarch64\s*\n"
@@ -145,7 +145,7 @@ def test_aarch64_leg_documented_as_commented_template(workflow_text: str):
         workflow_text,
         re.MULTILINE,
     ), (
-        "aarch64 must NOT be an active matrix entry — GitHub does not "
+        "aarch64 must NOT be an active matrix entry, GitHub does not "
         "ship a windows-11-arm runner and there is no valid way to gate "
         "the leg off (matrix is unavailable in jobs.<id>.if)."
     )
@@ -154,7 +154,7 @@ def test_aarch64_leg_documented_as_commented_template(workflow_text: str):
 def test_no_job_level_if_uses_matrix_context(workflow_text: str):
     """The job must NOT gate on ``matrix.enabled`` (or any matrix context).
 
-    ``matrix`` is not a valid context in ``jobs.<id>.if`` — GitHub
+    ``matrix`` is not a valid context in ``jobs.<id>.if``, GitHub
     Actions rejects the workflow file at validation time with
     "Unrecognized named-value: 'matrix'", surfacing as a 0s "workflow
     file issue" run on every push (no jobs, no annotations). The active
@@ -164,7 +164,7 @@ def test_no_job_level_if_uses_matrix_context(workflow_text: str):
     """
     # No job-level `if:` may reference the matrix context.
     assert not re.search(r"^\s+if:.*matrix\.", workflow_text, re.MULTILINE), (
-        "Job-level `if:` must NOT reference the matrix context — the "
+        "Job-level `if:` must NOT reference the matrix context, the "
         "`matrix` context is unavailable in jobs.<id>.if and GitHub "
         "rejects the workflow file at validation time (0s 'workflow file "
         "issue' on every push). This is a hard GitHub Actions validation "
@@ -172,7 +172,7 @@ def test_no_job_level_if_uses_matrix_context(workflow_text: str):
     )
     # The invalid construct must not appear as an active line either.
     assert "if: matrix.enabled" not in workflow_text, (
-        "The literal `if: matrix.enabled` must not appear in the workflow — it is invalid in job-level if conditions."
+        "The literal `if: matrix.enabled` must not appear in the workflow, it is invalid in job-level if conditions."
     )
 
 
@@ -200,7 +200,7 @@ def test_env_pybs_triple_uses_matrix_target(workflow_text: str):
     downloaded (cpython-<ver>+<date>-<triple>-install_only.tar.gz).
     Pre-fix it was hardcoded to x86_64-pc-windows-msvc, so an aarch64
     dispatch would still download the x86_64 python-build-standalone
-    release — producing a broken aarch64 sidecar that can't run any
+    release, producing a broken aarch64 sidecar that can't run any
     pure-Python extensions.
     """
     m = re.search(r"^\s+PYBS_TRIPLE:\s*\$\{\{\s*matrix\.target\s*\}\}", workflow_text, re.MULTILINE)
@@ -280,19 +280,19 @@ def test_workflow_has_no_prewarm_build_step(workflow_text: str):
 
     The standalone prewarm binary was REMOVED per
     plan-runtime-pack-split.md §6.2 P-1 (prewarm is an in-process startup
-    phase of the worker exe — see ADR-0011 "Status: Superseded" and
+    phase of the worker exe: see ADR-0011 "Status: Superseded" and
     tests/test_architecture_doc_accuracy.py's deletion pin). The former
     Nuitka prewarm step FATALed on main (2026-09-03) because its entry
     point voice_typer/server/prewarm/__main__.py no longer exists. This
     pins the removal so a stale cherry-pick cannot resurrect it.
     """
     assert "Build the prewarm binary" not in workflow_text, (
-        "tauri-windows-build.yml must not contain a prewarm build step — "
+        "tauri-windows-build.yml must not contain a prewarm build step, "
         "the standalone prewarm binary was removed per "
         "plan-runtime-pack-split §6.2 P-1."
     )
     assert "prewarm-${{ matrix.target }}.exe" not in workflow_text, (
-        "No Nuitka prewarm output filename may appear — the prewarm build "
+        "No Nuitka prewarm output filename may appear, the prewarm build "
         "step was removed per plan-runtime-pack-split §6.2 P-1."
     )
 
@@ -301,13 +301,13 @@ def test_workflow_does_not_reference_prewarm_filename(workflow_text: str):
     """The literal ``prewarm-x86_64-pc-windows-msvc.exe`` must be GONE.
 
     Inverted from the old backward-compat pin (which required this
-    literal for the mig18 signing test) — the mig18 signing test now
+    literal for the mig18 signing test), the mig18 signing test now
     asserts the ABSENCE of the prewarm filename (the binary no longer
     exists and must not be signed/uploaded/checksummed).
     """
     assert "prewarm-x86_64-pc-windows-msvc.exe" not in workflow_text, (
         "The literal 'prewarm-x86_64-pc-windows-msvc.exe' must not appear "
-        "in the workflow — the standalone prewarm binary was removed per "
+        "in the workflow, the standalone prewarm binary was removed per "
         "plan-runtime-pack-split §6.2 P-1 (the mig18 signing test pins "
         "its ABSENCE)."
     )
@@ -347,7 +347,7 @@ def test_default_sidecar_filename_preserved(workflow_text: str):
     )
 
 
-# (test_default_prewarm_filename_preserved REMOVED — inverted: the prewarm
+# (test_default_prewarm_filename_preserved REMOVED, inverted: the prewarm
 # literal must NOT appear; see test_workflow_does_not_reference_prewarm_filename
 # and test_workflow_has_no_prewarm_build_step above, per
 # plan-runtime-pack-split §6.2 P-1.)

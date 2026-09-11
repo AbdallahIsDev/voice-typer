@@ -3,12 +3,12 @@
 XS-42: this module exports two factory functions that were previously
 copy-pasted across at least 6 test files:
 
-- :func:`make_voice_typer_app` — builds a real ``VoiceTyperApp``
+- :func:`make_voice_typer_app`, builds a real ``VoiceTyperApp``
   instance with hardware/GUI dependencies mocked out. Mirrors the
   ``app`` fixture in ``tests/app/conftest.py`` and the ``_make_app``
   helpers in ``tests/test_api_doc_accuracy.py`` /
   ``tests/test_config_editor_lock.py``.
-- :func:`make_sine` — generates a 1-D float32 numpy sine wave. Mirrors
+- :func:`make_sine`, generates a 1-D float32 numpy sine wave. Mirrors
   the ``make_sine`` / ``_make_sine`` helpers in
   ``tests/test_audio_processor.py``, ``tests/test_recorder_double_resample.py``,
   and ``tests/test_recording_audio_processor.py``.
@@ -95,7 +95,7 @@ def make_voice_typer_app(tmp_config_dir: Any, monkeypatch: Any) -> Any:
         The temporary config directory (typically from the project-wide
         ``tmp_config_dir`` fixture in ``tests/conftest.py``). Unused
         inside the helper itself but required as a positional argument
-        so callers explicitly pass the fixture — this mirrors the
+        so callers explicitly pass the fixture, this mirrors the
         signature of the copy-pasted ``_make_app`` helpers and keeps
         the dependency on the config-directory monkeypatch visible.
     monkeypatch : pytest.MonkeyPatch
@@ -139,7 +139,7 @@ def make_voice_typer_app(tmp_config_dir: Any, monkeypatch: Any) -> Any:
     # TranscriptionEngine is created in _do_startup (background), not
     # __init__. Set a mock transcriber for tests that need it.
     # The ``transcriber`` attribute is a @property whose setter delegates
-    # to ``self._registry.register("whisper", ...)`` — so this assignment
+    # to ``self._registry.register("whisper", ...)``, so this assignment
     # keeps the registry in sync automatically and ensure_active_engine_loaded()
     # won't try to create a fresh TranscriptionEngine.
     instance.models.transcriber = MagicMock()
@@ -192,7 +192,7 @@ def join_model_load_thread(app: Any, timeout: float = 2.0) -> None:
     load on a background daemon thread (``_do_startup`` →
     ``_model_load_thread``). Without joining that thread at the end of
     a test, the loader can keep running after the test's VoiceTyperApp
-    instance has been torn down — touching freed attributes and causing
+    instance has been torn down, touching freed attributes and causing
     flaky failures in unrelated later tests (see the
     ``tests/app/conftest.py`` docstring).
 
@@ -222,7 +222,7 @@ def join_model_load_thread(app: Any, timeout: float = 2.0) -> None:
     app : voice_typer.server.app.VoiceTyperApp
         The app instance whose background loader thread should be
         joined. Accepts any object whose ``models`` attribute may carry
-        a ``_model_load_thread`` field — duck-typed so test fakes that
+        a ``_model_load_thread`` field, duck-typed so test fakes that
         don't set ``models`` (or set it to ``None``) are tolerated.
     timeout : float, optional
         Maximum seconds to wait for the loader thread to finish.

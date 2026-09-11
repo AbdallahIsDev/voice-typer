@@ -138,7 +138,7 @@ class TestCollectLogTail:
 
         dest_dir = tmp_path / "dest"
         dest_dir.mkdir()
-        # Source doesn't exist — no-op (no destination file created).
+        # Source doesn't exist, no-op (no destination file created).
         _collect_log_tail(tmp_path / "nonexistent.log", dest_dir, "out.log")
         assert not (dest_dir / "out.log").exists()
 

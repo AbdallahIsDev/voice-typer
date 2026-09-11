@@ -171,7 +171,7 @@ describe("R6-F6: state._tcpRetryTimer contract", () => {
 			stopPython();
 
 			expect(mockState._tcpRetryTimer).toBeNull();
-			// Advance time — the cleared timer should NOT fire any
+			// Advance time, the cleared timer should NOT fire any
 			// callback (we never attached one, but the assertion is
 			// that state was reset).
 		});

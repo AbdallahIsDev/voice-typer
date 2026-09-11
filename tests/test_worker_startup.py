@@ -67,7 +67,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-# Skip the entire module if ``websockets`` is not installed — the
+# Skip the entire module if ``websockets`` is not installed, the
 # worker's WS server depends on it (mirrors test_sidecar_ws_auth_failed.py).
 websockets = pytest.importorskip("websockets")
 
@@ -92,16 +92,16 @@ _TEST_TOKEN = "test-worker-token-12345"
 # EXIT_DUPLICATE_INSTANCE; also: shared ``worker.log`` rotation
 # contention). Pointing every spawned worker at a per-pytest-process
 # temp dir (keyed on ``PYTEST_XDIST_WORKER``) isolates the lock, the
-# log, and the prewarm status file — and keeps the user's real config
+# log, and the prewarm status file, and keeps the user's real config
 # untouched.
 #
 # The worker validates ``VOICE_TYPER_CONFIG_DIR`` via the SEC-005
 # path-safety check (``_validate_path_safety(custom, Path.home())``)
 # and DISCARDS values that resolve outside the user's home directory.
 # ``tempfile.mkdtemp()`` defaults to the system temp dir, which on
-# Linux (``/tmp``) and macOS (``/var/folders/...`` — a symlink to
+# Linux (``/tmp``) and macOS (``/var/folders/...``, a symlink to
 # ``/private/var/folders``) resolves OUTSIDE home, so the worker would
-# silently fall back to the shared default config dir — and concurrent
+# silently fall back to the shared default config dir, and concurrent
 # worker tests on other xdist workers (all legs of the same CI job run
 # in parallel on one machine) would then contend on a SINGLE
 # ``worker.lock``; the loser exits immediately (single instance) and
@@ -138,7 +138,7 @@ def _cleanup_test_config_dir() -> None:
     the last xdist worker to finish removes the shared
     ``~/.voice-typer-test-tmp/`` root; workers that finish earlier
     leave it (their siblings' subdirs are still inside). A crashed
-    worker leaves its subdir behind — the module-import sweep on the
+    worker leaves its subdir behind, the module-import sweep on the
     next test run removes it.
     """
     shutil.rmtree(_TEST_CONFIG_DIR, ignore_errors=True)
@@ -197,7 +197,7 @@ def _kill_stale_worker() -> None:
         with contextlib.suppress(OSError):
             lock.unlink(missing_ok=True)
         return
-    # Best-effort SIGTERM (POSIX only — Windows tests don't spawn real
+    # Best-effort SIGTERM (POSIX only, Windows tests don't spawn real
     # workers).
     if hasattr(signal, "SIGTERM"):
         with contextlib.suppress(ProcessLookupError, PermissionError):
@@ -348,21 +348,21 @@ def test_worker_starts_and_emits_worker_started() -> None:
     with _spawn_worker() as proc:
         evt = _read_worker_started(proc)
     assert evt is not None, (
-        f"worker did not emit worker_started event — stderr: {proc.stderr.read() if proc.stderr else '<no stderr>'}"
+        f"worker did not emit worker_started event, stderr: {proc.stderr.read() if proc.stderr else '<no stderr>'}"
     )
     assert evt["event"] == "worker_started"
     port = evt["port"]
     assert isinstance(port, int) and 1024 <= port <= 65535, f"expected port in ephemeral range, got {port!r}"
     assert evt["protocol"] == worker_main.PROTOCOL_VERSION
     # The port should be listening (the worker binds BEFORE emitting
-    # the event). Use a short retry loop — the asyncio serve() may
+    # the event). Use a short retry loop, the asyncio serve() may
     # not have the socket fully ready immediately after the print().
     # The worker emits worker_started AFTER serve() returns the bound
     # socket, so the port MUST be listening by the time we read the
     # event. The worker has already been shut down by the context
-    # manager's __exit__ — but the bind was active when the event was
+    # manager's __exit__, but the bind was active when the event was
     # emitted (the assertion is on the event payload, not on a live
-    # connect — that's covered by the integration test below).
+    # connect, that's covered by the integration test below).
     assert port > 0
 
 
@@ -386,7 +386,7 @@ def test_worker_started_port_is_connectable() -> None:
             try:
                 reply = await asyncio.wait_for(ws.recv(), timeout=2.0)
             except asyncio.TimeoutError:
-                # No reply is also fine — auth succeeded, the handler
+                # No reply is also fine, auth succeeded, the handler
                 # is just waiting for the next frame.
                 return True
             try:
@@ -487,7 +487,7 @@ def test_warm_imports_package_list_is_post_migration() -> None:
 
     Master plan §6.2 P-1: ``onnxruntime + ctranslate2 + numpy/scipy``
     (+ ``faster_whisper`` for the Whisper backend's own Python files).
-    ``torch`` and ``transformers`` are DROPPED — VAD is now ONNX,
+    ``torch`` and ``transformers`` are DROPPED, VAD is now ONNX,
     Parakeet is now ``onnx-asr``.
     """
     assert "onnxruntime" in _WORKER_WARM_PACKAGES
@@ -495,10 +495,10 @@ def test_warm_imports_package_list_is_post_migration() -> None:
     assert "numpy" in _WORKER_WARM_PACKAGES
     assert "scipy" in _WORKER_WARM_PACKAGES
     assert "torch" not in _WORKER_WARM_PACKAGES, (
-        "torch must be DROPPED from the warm list — VAD is now ONNX (master plan §6.2 P-1)"
+        "torch must be DROPPED from the warm list, VAD is now ONNX (master plan §6.2 P-1)"
     )
     assert "transformers" not in _WORKER_WARM_PACKAGES, (
-        "transformers must be DROPPED — Parakeet is now onnx-asr (master plan §6.2 P-1)"
+        "transformers must be DROPPED, Parakeet is now onnx-asr (master plan §6.2 P-1)"
     )
 
 
@@ -601,7 +601,7 @@ async def test_missing_token_env_rejects_connection(monkeypatch) -> None:
     The per-launch token check at ``run()`` time also exits the worker
     (``test_worker_exits_without_token_env``), but ``_handle_connection``
     independently rejects any incoming connection if the env var is
-    unset (defense-in-depth — if a future refactor adds an alternate
+    unset (defense-in-depth, if a future refactor adds an alternate
     entry path that bypasses ``run()``'s check, the connection handler
     still refuses to authenticate).
     """
@@ -650,8 +650,8 @@ async def test_shutdown_command_emits_ack_and_closes(monkeypatch) -> None:
     async def _fake_recv() -> bytes:
         if recv_calls:
             return recv_calls.pop(0)
-        # Should never be reached — the dispatch loop uses __aiter__.
-        raise AssertionError("recv() called after auth frame — dispatch should use __aiter__")
+        # Should never be reached, the dispatch loop uses __aiter__.
+        raise AssertionError("recv() called after auth frame, dispatch should use __aiter__")
 
     class _FrameAsyncIter:
         def __aiter__(self) -> _FrameAsyncIter:
@@ -704,7 +704,7 @@ async def test_shutdown_command_emits_ack_and_closes(monkeypatch) -> None:
     # await stop_event.wait() unblocks and the worker exits cleanly.
     # Without this call, the worker hangs forever after shutdown_ack.
     assert stop_event.is_set(), (
-        "shutdown command must set stop_event so run() unblocks — "
+        "shutdown command must set stop_event so run() unblocks, "
         "missing stop_event.set() reproduces the shutdown-hang regression"
     )
     # The shutdown timer MUST be started so the [SHUTDOWN] log line
@@ -717,7 +717,7 @@ def test_shutdown_command_exits_worker() -> None:
 
     Regression test (integration, POSIX-only): the ``shutdown`` command
     handler previously did NOT call ``stop_event.set()``, so the worker
-    hung forever after receiving ``shutdown`` — ``run()``'s
+    hung forever after receiving ``shutdown``: ``run()``'s
     ``await stop_event.wait()`` blocked indefinitely, the ``finally``
     block never ran, and the single-instance lockfile leaked on disk.
 
@@ -754,7 +754,7 @@ def test_shutdown_command_exits_worker() -> None:
                 await ws.send(json.dumps({"cmd": "shutdown"}))
                 # Best-effort: read the shutdown_ack frame. The worker
                 # may close the socket before we read it (which raises
-                # ConnectionClosed) — that's fine, the assertion below
+                # ConnectionClosed), that's fine, the assertion below
                 # on ``proc.wait`` is the authoritative check.
                 with contextlib.suppress(asyncio.TimeoutError, websockets.exceptions.ConnectionClosed):
                     await asyncio.wait_for(ws.recv(), timeout=2.0)
@@ -768,7 +768,7 @@ def test_shutdown_command_exits_worker() -> None:
             proc.wait(timeout=2.0)
             stderr = proc.stderr.read() if proc.stderr else "<no stderr>"
             pytest.fail(
-                f"worker did not exit within 3s of `shutdown` command — stop_event.set() not called? stderr: {stderr}"
+                f"worker did not exit within 3s of `shutdown` command, stop_event.set() not called? stderr: {stderr}"
             )
         assert exit_code == worker_main.EXIT_OK, (
             f"expected EXIT_OK ({worker_main.EXIT_OK}) after shutdown command, got {exit_code}"
@@ -782,7 +782,7 @@ def test_shutdown_command_exits_worker() -> None:
     # The single-instance lockfile MUST be released on clean exit
     # (verifies the finally:lock_handle.release() block ran).
     lock = _find_worker_lock()
-    assert lock is None, f"worker.lock still exists after shutdown command — release() did not run: {lock}"
+    assert lock is None, f"worker.lock still exists after shutdown command, release() did not run: {lock}"
 
 
 def test_sigterm_clean_exit() -> None:
@@ -834,7 +834,7 @@ def test_sigterm_clean_exit() -> None:
 
     # The single-instance lockfile MUST be released on clean exit.
     lock = _find_worker_lock()
-    assert lock is None, f"worker.lock still exists after clean exit — release() did not run: {lock}"
+    assert lock is None, f"worker.lock still exists after clean exit, release() did not run: {lock}"
 
 
 def test_worker_single_instance_lock_rejects_duplicate(monkeypatch, tmp_path) -> None:
@@ -853,7 +853,7 @@ def test_worker_single_instance_lock_rejects_duplicate(monkeypatch, tmp_path) ->
     lock_path.parent.mkdir(parents=True, exist_ok=True)
 
     if os.name == "posix":
-        # Create the lockfile with the current process's PID — the
+        # Create the lockfile with the current process's PID, the
         # worker's _ensure_worker_single_instance should detect a live
         # PID and refuse to start.
         lock_path.write_text(f"{os.getpid()}\n", encoding="ascii")

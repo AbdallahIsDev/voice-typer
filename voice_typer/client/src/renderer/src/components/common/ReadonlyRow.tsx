@@ -2,12 +2,12 @@ import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
 /**
- * ReadonlyRow — read-only label/value row for status displays.
+ * ReadonlyRow, read-only label/value row for status displays.
  *
  * Distinct from {@link SettingRow}, which is designed for interactive
  * controls (it always emphasises the LABEL and renders the control as its
  * child). `ReadonlyRow` is for status rows where both sides are static
- * text — it lets callers choose which side to emphasise via the
+ * text, it lets callers choose which side to emphasise via the
  * `variant` prop so each call site can preserve its existing visual
  * rhythm:
  *
@@ -25,7 +25,7 @@ import { cn } from "@/lib/utils";
 type ReadonlyRowVariant = "value-emphasized" | "label-emphasized";
 
 interface ReadonlyRowProps {
-	/** Static label text (always a string — never markup). */
+	/** Static label text (always a string, never markup). */
 	label: string;
 	/** Value content. May be a string, number, or ReactNode (e.g. a
 	 *  `<StatusDot>` or `<CacheStatusBadge>`). */

@@ -1,6 +1,6 @@
-"""Qwen3-ASR transcription engine — ONNX Runtime backend (no torch).
+"""Qwen3-ASR transcription engine. ONNX Runtime backend (no torch).
 
-PLAN_ONNX_INTEGRATION.md §4.3 Option C-2 — implemented 2026-08-14,
+PLAN_ONNX_INTEGRATION.md §4.3 Option C-2, implemented 2026-08-14,
 made torch-free-only 2026-08-15. The pre-exported ONNX models
 (``andrewleech/qwen3-asr-1.7b-onnx`` / ``qwen3-asr-0.6b-onnx``) run via
 ``onnxruntime`` through :class:`voice_typer.server.qwen_onnx_model.QwenOnnxModel`.
@@ -16,11 +16,11 @@ Key constraints:
 - No auto-download: ``load()`` reads from a local ONNX-export directory
   only (``encoder.onnx`` / ``decoder_init.onnx`` / ``decoder_step.onnx``
   + ``embed_tokens.bin`` + ``tokenizer.json``). A torch/safetensors
-  layout directory is rejected with a migration error — the torch Qwen
+  layout directory is rejected with a migration error, the torch Qwen
   engine was removed.
 - If the directory is missing / not an ONNX export / fails to load →
   ``load()`` returns False (non-ONNX dir) or raises ``RuntimeError``
-  (ONNX dir that fails mid-load — fail-closed, no silent fallback).
+  (ONNX dir that fails mid-load, fail-closed, no silent fallback).
 - Whisper stays as the default and fallback backend.
 - Uses shared hallucination detection from voice_typer.server.hallucination.
 """
@@ -49,7 +49,7 @@ log = logging.getLogger(__name__)
 # duplicate a few words at chunk boundaries (the 3 s overlap is
 # transcribed by both the previous and the current chunk). The seam
 # merge is delegated to :func:`voice_typer.server.asr_utils.merge_chunks`
-# — the same canonical normalized dedup (punctuation-stripped,
+# , the same canonical normalized dedup (punctuation-stripped,
 # case-insensitive, window-bounded) that ParakeetEngine uses, so both
 # local engines behave identically at chunk seams.
 _QWEN_CHUNK_SECONDS = 30
@@ -112,7 +112,7 @@ class QwenEngine:
         # ``_INFERENCE_BATCH_SIZE`` / ``PARAKEET_BATCH_SIZE`` pattern.
         #
         # Read at construction time (NOT import time) so changes to the
-        # env var between engine constructions take effect — same
+        # env var between engine constructions take effect, same
         # rationale as ParakeetEngine.__init__.
         self._INFERENCE_BATCH_SIZE: int = max(1, int(os.environ.get("QWEN_BATCH_SIZE", "1")))
 
@@ -136,7 +136,7 @@ class QwenEngine:
 
         The directory must hold the pre-exported ONNX layout
         (``encoder.onnx`` / ``decoder_init.onnx`` / ``decoder_step.onnx``
-        + ``embed_tokens.bin`` + ``tokenizer.json``) — the
+        + ``embed_tokens.bin`` + ``tokenizer.json``), the
         torch/safetensors Qwen layout is no longer supported (the torch
         engine was removed 2026-08-15; see PLAN_ONNX_INTEGRATION §4.3
         C-2).
@@ -144,7 +144,7 @@ class QwenEngine:
         Returns True if the model was loaded successfully, False
         otherwise. A non-ONNX directory returns False with a migration
         error logged; an ONNX directory that fails mid-load raises
-        ``RuntimeError`` (fail-closed — a corrupt or incomplete ONNX
+        ``RuntimeError`` (fail-closed, a corrupt or incomplete ONNX
         export is never silently ignored).
         """
         with self._lock:
@@ -172,9 +172,9 @@ class QwenEngine:
             try:
                 onnx_model = QwenOnnxModel(self.model_path)
                 onnx_model.from_pretrained()
-            except Exception as exc:  # noqa: BLE001 — load failures are surfaced, not hidden
+            except Exception as exc:  # noqa: BLE001, load failures are surfaced, not hidden
                 log.exception(
-                    "[QWEN] ONNX model load FAILED for %s — the directory "
+                    "[QWEN] ONNX model load FAILED for %s, the directory "
                     "is corrupt or incomplete (fail-closed; no torch retry "
                     "exists anymore)",
                     self.model_path,
@@ -192,7 +192,7 @@ class QwenEngine:
             # CUDA-specific logic from applying to the ONNX model.
             self.device = "cpu"
             log.info(
-                "[QWEN] Using ONNX Runtime backend (qwen_onnx_model.QwenOnnxModel) for %s — no torch required",
+                "[QWEN] Using ONNX Runtime backend (qwen_onnx_model.QwenOnnxModel) for %s, no torch required",
                 self.model_path,
             )
             return True
@@ -294,7 +294,7 @@ class QwenEngine:
 
                 Each chunk's text is run through the shared hallucination filter
                 using that chunk's own RMS (``audio_stats`` from the caller is
-                NOT used here — it describes the whole-audio RMS, not per-chunk).
+                NOT used here, it describes the whole-audio RMS, not per-chunk).
 
         Because consecutive chunks share a 3 s overlap
                 (``_QWEN_CHUNK_OVERLAP_SECONDS``), the overlap region is
@@ -326,14 +326,14 @@ class QwenEngine:
         # Get raw chunk texts (batched or sequential, with per-chunk
         # hallucination filtering applied inline).  Empty strings in
         # the result list indicate hallucination rejection or no
-        # speech — merge_chunks skips them without letting them
+        # speech, merge_chunks skips them without letting them
         # participate in the overlap comparison.
         chunk_texts = self._transcribe_chunks_batched(model, chunks, sample_rate)
 
         # Seam merge: skip overlap-duplicated words at chunk boundaries
         # and join. Delegated to the canonical shared helper so Qwen and
         # Parakeet chunk seams behave identically (single source of
-        # truth — one dedup implementation for both local engines).
+        # truth, one dedup implementation for both local engines).
         return merge_chunks(chunk_texts)
 
     def _transcribe_chunks_batched(
@@ -356,7 +356,7 @@ class QwenEngine:
         user still gets a transcription.
 
         Returns a list of text strings (one per chunk).  Empty strings
-        indicate hallucination rejection or no speech — the caller's
+        indicate hallucination rejection or no speech, the caller's
         dedup pass skips them without advancing ``prev_text``.
 
         NOTE: The batched path (``_INFERENCE_BATCH_SIZE > 1``) assumes
@@ -375,10 +375,10 @@ class QwenEngine:
         results: list[str] = []
         i = 0
         while i < len(chunks):
-            # Same abort check as the sequential branch — see above.
+            # Same abort check as the sequential branch, see above.
             if self._abort_event.is_set():
                 log.info(
-                    "[QWEN] Abort requested — stopping batch loop early (completed %d/%d chunks)",
+                    "[QWEN] Abort requested, stopping batch loop early (completed %d/%d chunks)",
                     i,
                     len(chunks),
                 )
@@ -398,7 +398,7 @@ class QwenEngine:
                 err_str = str(exc).lower()
                 if "out of memory" in err_str or ("cuda" in err_str and "allocat" in err_str):
                     log.warning(
-                        "[QWEN] Batched inference OOM on batch of %d chunks — falling back to sequential: %s",
+                        "[QWEN] Batched inference OOM on batch of %d chunks, falling back to sequential: %s",
                         len(batch),
                         exc,
                         exc_info=True,
@@ -433,7 +433,7 @@ class QwenEngine:
             # bounded time instead of decoding all remaining chunks.
             if self._abort_event.is_set():
                 log.info(
-                    "[QWEN] Abort requested — stopping chunk loop early (completed %d/%d chunks)",
+                    "[QWEN] Abort requested, stopping chunk loop early (completed %d/%d chunks)",
                     i,
                     len(chunks),
                 )
@@ -485,7 +485,7 @@ class QwenEngine:
         caller (``_transcribe_chunks_batched``) falls back to
         ``_transcribe_chunks_sequential``.
         """
-        # Build list of (audio, sample_rate) tuples — one per chunk.
+        # Build list of (audio, sample_rate) tuples, one per chunk.
         inputs = [(chunk, sample_rate) for chunk in batch]
         results = model.transcribe(inputs, language=self.language)
         # Decode each result, apply per-chunk hallucination filter.
@@ -513,7 +513,7 @@ class QwenEngine:
                 continue
             texts.append(text)
         # Pad with empty strings if the API returned fewer results
-        # than chunks (defensive — shouldn't happen with a correct
+        # than chunks (defensive, shouldn't happen with a correct
         # batched API, but keeps the result length aligned with the
         # input length so the caller's dedup pass indexes correctly).
         while len(texts) < len(batch):
@@ -558,7 +558,7 @@ class QwenEngine:
         recreated the session with CPU providers after a CUDA error.
         The ONNX path is CPU-pinned at ``load()`` (the int4 CPU exports
         are the documented fast path), so there is no device to fall
-        back FROM — any exception propagates to the caller's friendly
+        back FROM, any exception propagates to the caller's friendly
         error path, mirroring the old non-CUDA re-raise branch.
         """
         return self.transcribe(audio, audio_stats=audio_stats)
@@ -570,7 +570,7 @@ class QwenEngine:
         ``_transcribe_chunks_sequential`` and ``_transcribe_chunks_batched``
         check the event between chunks and break out after the current
         chunk completes. Bounded latency instead of waiting for the
-        full audio to decode — frees compute for the next dictation
+        full audio to decode, frees compute for the next dictation
         cycle. Mirrors ``ParakeetEngine.request_abort``.
         """
         self._abort_event.set()
@@ -613,7 +613,7 @@ class QwenEngine:
         # since ``_active_inference`` defaults to 0 via ``getattr``).
         # The ``isinstance`` guard narrows for the type checker AND is
         # semantically exact: ``.wait()`` exists on
-        # ``threading.Condition`` only — a bare ``RLock`` fallback must
+        # ``threading.Condition`` only, a bare ``RLock`` fallback must
         # never enter the wait loop (the counter defaults to 0, so the
         # loop body is unreachable on the fallback path).
         inference_cond = getattr(self, "_inference_cond", None) or self._lock
@@ -623,7 +623,7 @@ class QwenEngine:
                     inference_cond.wait()
             self._model = None
             # ONNX backend: release the ORT sessions + embedding matrix
-            # (best-effort — close() is idempotent-safe by construction).
+            # (best-effort. Close() is idempotent-safe by construction).
             onnx_model = getattr(self, "_onnx_model", None)
             if onnx_model is not None:
                 with contextlib.suppress(Exception):

@@ -1,32 +1,32 @@
-"""Pure input validators for IPC ``set_config`` payloads — package root.
+"""Pure input validators for IPC ``set_config`` payloads, package root.
 
 This package was extracted from the original monolithic
 ``config_validators.py`` (1899 LOC) into focused submodules so each
 concern has its own file:
 
-* :mod:`voice_typer.server.config_validators.scalar` — scalar field
+* :mod:`voice_typer.server.config_validators.scalar`, scalar field
   validators (type / length / range / enum / URL / theme / hostname-list).
-* :mod:`voice_typer.server.config_validators.hotkey` — reserved-shortcut
+* :mod:`voice_typer.server.config_validators.hotkey`, reserved-shortcut
   denylist + the 9 ``_check_*`` stage helpers + :func:`_validate_hotkey`.
-* :mod:`voice_typer.server.config_validators.language` — Whisper
+* :mod:`voice_typer.server.config_validators.language`, Whisper
   language-code allowlist + :func:`_validate_language` (split into
   shape-check / membership-check / error-formatter sub-functions).
-* :mod:`voice_typer.server.config_validators.cross_field` — cross-field
+* :mod:`voice_typer.server.config_validators.cross_field`, cross-field
   hotkey-conflict and cloud-config-consistency checks, plus the
   cross-platform hotkey portability warnings.
-* :mod:`voice_typer.server.config_validators.allowlist` — the
+* :mod:`voice_typer.server.config_validators.allowlist`, the
   SEC-002 ``IPC_CONFIG_ALLOWLIST`` registry + supporting constants
   (``ALLOWED_USER_MODELS``, ``NOISE_SUPPRESSION_METHODS``, the
   ``MAX_RECORDING_TIME_SECONDS_*`` / ``STREAMING_*`` bounds, the
   pre-built ``_VALIDATOR_*`` instances).
-* :mod:`voice_typer.server.config_validators.entry_points` — the two
+* :mod:`voice_typer.server.config_validators.entry_points`, the two
   main entry points :func:`validate_config_update` (IPC ``set_config``
   delta validator) and :func:`validate_config` (whole-config load-time
   choke-point).  The cross-field helpers are looked up via this
   package's namespace at call time so ``monkeypatch`` /
   ``unittest.mock.patch`` on ``voice_typer.server.config_validators._check_cross_field_hotkey_conflicts``
   (see ``tests/test_config_validators_hotkey_nonstring.py``) keeps
-  working — the entry-point functions deliberately avoid binding those
+  working, the entry-point functions deliberately avoid binding those
   helpers via a top-of-module ``from .cross_field import …``.
 
 This ``__init__.py`` is the assembly point: it pulls every public name
@@ -35,7 +35,7 @@ existing imports (``from voice_typer.server.config_validators import
 validate_config``, ``… import IPC_CONFIG_ALLOWLIST``, etc.) continue
 to work unchanged.  The package-level ``IPC_CONFIG_ALLOWLIST`` attribute
 is the SEC-002 NON-NEGOTIABLE security contract (see
-``AGENTS.md`` §6.3 / ``CONTRIBUTING.md`` §6.3) — its import path stays
+``AGENTS.md`` §6.3 / ``CONTRIBUTING.md`` §6.3), its import path stays
 put because this shim re-exports it from
 :mod:`voice_typer.server.config_validators.allowlist`.
 
@@ -103,14 +103,14 @@ from voice_typer.server.config_validators.allowlist import (  # noqa: F401
 # (or any other symbol) exactly as before.  It also means
 # :func:`validate_config` / :func:`validate_config_update` (in
 # :mod:`voice_typer.server.config_validators.entry_points`) can reference
-# the cross-field helpers via the package globals — which is essential
+# the cross-field helpers via the package globals, which is essential
 # because the regression tests in
 # ``tests/test_config_validators_hotkey_nonstring.py`` monkeypatch
 # ``voice_typer.server.config_validators._check_cross_field_hotkey_conflicts``
 # and expect :func:`validate_config` to see the patched binding
 # (the entry-point functions look the helpers up via a lazy import from
 # the package namespace at call time, so this re-export is the load-bearing
-# glue — see the docstring of :mod:`voice_typer.server.config_validators.entry_points`).
+# glue: see the docstring of :mod:`voice_typer.server.config_validators.entry_points`).
 # ──────────────────────────────────────────────────────────────────────────
 from voice_typer.server.config_validators.cross_field import (  # noqa: F401
     _CLOUD_CONSENT_FIELD_NAMES,
@@ -172,12 +172,12 @@ from voice_typer.server.config_validators.scalar import (  # noqa: F401
 
 # Re-export ``IPC_CONFIG_ALLOWLIST`` with an explicit parameterised
 # annotation so static type-checkers (and ``typing.get_type_hints(cv)``
-# — exercised by
+# , exercised by
 # ``tests/config/test_config_schema_migration.py::test_ipc_config_allowlist_is_dict_of_fieldspec``)
 # see the ``dict[str, FieldSpec]`` hint on the package namespace. This is
 # an annotated ALIAS ASSIGNMENT, not a bare re-annotation: it binds the
 # package attribute to the SAME dict object defined in ``.allowlist``
-# (identity preserved — this exact registry is the SEC-002 source of
+# (identity preserved: this exact registry is the SEC-002 source of
 # truth), while registering the hint in ``__annotations__``. A previous
 # attempt used a bare annotation-only statement, which mypy flags as a
 # no-redef redefinition of an imported name.
@@ -187,8 +187,8 @@ IPC_CONFIG_ALLOWLIST: dict[str, FieldSpec] = _allowlist_module.IPC_CONFIG_ALLOWL
 # ──────────────────────────────────────────────────────────────────────────
 # explicit ``__all__`` so the wildcard re-export in
 # ``config.py`` (``from .config_validators import *``) brings through
-# every validator symbol — including the underscore-prefixed factory
-# helpers — preserving the pre-refactor import surface.
+# every validator symbol: including the underscore-prefixed factory
+# helpers, preserving the pre-refactor import surface.
 # ──────────────────────────────────────────────────────────────────────────
 __all__ = [
     # Constants
@@ -230,7 +230,7 @@ __all__ = [
     "validate_config_update",
     "validate_config",
     # extracted hotkey validation stage helpers (:
-    # reconciled with actual function names — the prior list referenced
+    # reconciled with actual function names, the prior list referenced
     # 9 nonexistent symbols that caused F822 × 9 hard-fail in CI).
     "_check_basic_shape",
     "_check_universal_reserved",

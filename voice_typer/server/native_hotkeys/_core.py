@@ -1,4 +1,4 @@
-"""Native hotkey backend — core class with shared state + public API.
+"""Native hotkey backend, core class with shared state + public API.
 
 MicrophoneDeviceWatcher inherits from platform-specific mixins defined
 in leaf modules.  The class body here holds only the shared concerns:
@@ -36,7 +36,7 @@ class SubprocessHotkeyBackend(_SpawnMixin, _ReaderMixin, _WatchdogMixin, _Matchi
 
     Derives from :class:`voice_typer.server.hotkeys.base.HotkeyBackend`
     so a native backend can be used anywhere a ``HotkeyBackend`` is
-    expected (the historical mirror of the interface is gone — the
+    expected (the historical mirror of the interface is gone, the
     shared methods come from the ABC now).
 
     Subclasses just provide:
@@ -53,14 +53,14 @@ class SubprocessHotkeyBackend(_SpawnMixin, _ReaderMixin, _WatchdogMixin, _Matchi
     # table-driven wire-protocol dispatch.
     #
     # Each entry is ``(prefix, handler_method_name, down_flag)``:
-    #   - ``prefix``    — the wire-protocol line prefix to match
+    #   - ``prefix``   : the wire-protocol line prefix to match
     #                     (``startswith``).
-    #   - ``handler``   — name of the ``_on_*_event`` method that
+    #   - ``handler``  : name of the ``_on_*_event`` method that
     #                     handles the event. Each handler accepts a
     #                     single positional ``payload: str`` (the
     #                     substring after the prefix; empty for
     #                     exact-match events like ``FN_DOWN``).
-    #   - ``down_flag`` — ``True`` / ``False`` for key/modifier/FN
+    #   - ``down_flag``: ``True`` / ``False`` for key/modifier/FN
     #                     events (passed as the ``down=`` kwarg), or
     #                     ``None`` for events with no up/down
     #                     semantics (``ERROR:``, ``WARN:``).
@@ -114,7 +114,7 @@ class SubprocessHotkeyBackend(_SpawnMixin, _ReaderMixin, _WatchdogMixin, _Matchi
         # This lets ``HotkeyDispatcher`` collapse the dictation / ESC /
         # repaste backends into ONE subprocess on platforms where the
         # native binary emits ALL keystroke events (Linux evdev,
-        # Windows LL hook, macOS CGEventTap) — the binary takes the
+        # Windows LL hook, macOS CGEventTap), the binary takes the
         # dictation spec as argv[1] for its own validation /
         # suppression decisions, and the Python side dispatches each
         # wire event to the matching role's callback.
@@ -162,7 +162,7 @@ class SubprocessHotkeyBackend(_SpawnMixin, _ReaderMixin, _WatchdogMixin, _Matchi
         self._match_lock = threading.Lock()
         # VERSION reporter: the binary's reported wire-protocol version (set by
         # ``_on_version_event`` when a ``VERSION:<x.y.z>`` line arrives).
-        # ``None`` until the binary emits VERSION — the factory uses
+        # ``None`` until the binary emits VERSION, the factory uses
         # this to compare against the manifest's ``version`` field and
         # warn on mismatch.
         self._binary_version: str | None = None
@@ -170,7 +170,7 @@ class SubprocessHotkeyBackend(_SpawnMixin, _ReaderMixin, _WatchdogMixin, _Matchi
         # filename, stashed by the factory so ``_on_version_event`` can
         # compare it against the binary's runtime-reported VERSION.
         # ``None`` means "manifest didn't have a version for this
-        # binary" (e.g. tests that bypass the factory) — the
+        # binary" (e.g. tests that bypass the factory), the
         # comparison is skipped in that case.
         self._expected_version: str | None = None
         # native log path: per-session diagnostic log path passed to the
@@ -211,7 +211,7 @@ class SubprocessHotkeyBackend(_SpawnMixin, _ReaderMixin, _WatchdogMixin, _Matchi
         # ``_pong_supported`` is set to True the first time a
         # ``PONG`` line is received.  Until we've seen at least one PONG,
         # we don't know whether the binary supports the PING/PONG
-        # protocol — respawning based on "no PONG" would be a false
+        # protocol, respawning based on "no PONG" would be a false
         # positive for binaries that don't implement the protocol (which
         # would cause an infinite respawn loop on idle).  Once we've
         # seen a PONG, we know the binary supports the protocol and the
@@ -229,7 +229,7 @@ class SubprocessHotkeyBackend(_SpawnMixin, _ReaderMixin, _WatchdogMixin, _Matchi
         # watchdog respawns the binary.  Defaults to None (no-op) so
         # tests that don't care about tray notifications aren't affected.
         self._on_watchdog_restart_callback: Callable[[str], None] | None = None
-        # callback used by ``start()`` — stashed so the watchdog
+        # callback used by ``start()``: stashed so the watchdog
         # can call ``self.start(self._callback)`` to respawn without
         # needing the caller to pass the callback again.
         self._callback: Callable[[], None] | None = None
@@ -244,7 +244,7 @@ class SubprocessHotkeyBackend(_SpawnMixin, _ReaderMixin, _WatchdogMixin, _Matchi
         # no-op, so the watchdog's subsequent ``start(cb)`` resurrects
         # an orphaned native binary that holds the keyboard hook
         # (Windows) or evdev FDs (Linux) after the app has shut down.
-        # The flag is intentionally NEVER cleared — once shutdown is
+        # The flag is intentionally NEVER cleared, once shutdown is
         # requested, the binary must never be respawned by the
         # watchdog.  ``stop(shutdown=False)`` (used by the watchdog's
         # own cleanup and by ``start()``'s error-recovery paths) does
@@ -274,7 +274,7 @@ class SubprocessHotkeyBackend(_SpawnMixin, _ReaderMixin, _WatchdogMixin, _Matchi
         ``role`` that already exists replaces the existing matcher's
         parsed spec (callbacks are preserved).
 
-        Raises ``ValueError`` if ``spec`` cannot be parsed — the
+        Raises ``ValueError`` if ``spec`` cannot be parsed, the
         caller is expected to validate the spec before registering
         (mirroring the primary spec's parse-at-construction pattern).
         """
@@ -340,7 +340,7 @@ class SubprocessHotkeyBackend(_SpawnMixin, _ReaderMixin, _WatchdogMixin, _Matchi
         """Spawn the native binary and start parsing its stdout.
 
         Delegated backends (``_delegated = True``) skip the spawn
-        entirely — they exist only for API compatibility with code
+        entirely, they exist only for API compatibility with code
         that expects a separate backend per role. The actual matching
         for a delegated role happens via an extra matcher on the
         shared (dictation) backend. The callback is still recorded
@@ -352,7 +352,7 @@ class SubprocessHotkeyBackend(_SpawnMixin, _ReaderMixin, _WatchdogMixin, _Matchi
             self._callback = callback
             # Mark as ready so is_alive() reports True and callers
             # (e.g. ``register_esc``'s post-start checks) see a
-            # healthy backend. We do NOT set ``_process`` — the
+            # healthy backend. We do NOT set ``_process``, the
             # delegated backend owns no subprocess.
             self._ready_event.set()
             # DEBUG: the dispatcher's "[HOTKEY] ... pooled into shared
@@ -419,7 +419,7 @@ class SubprocessHotkeyBackend(_SpawnMixin, _ReaderMixin, _WatchdogMixin, _Matchi
         """Stop the binary cleanly.
 
         ``shutdown=True`` (the
-        default for external callers — main thread / app shutdown)
+        default for external callers, main thread / app shutdown)
         latches ``_shutdown_requested=True`` BEFORE the idempotency
         guard so a concurrent main-thread ``stop()`` that sees
         ``_stop_event`` already set (by the watchdog's own
@@ -432,7 +432,7 @@ class SubprocessHotkeyBackend(_SpawnMixin, _ReaderMixin, _WatchdogMixin, _Matchi
 
         ``shutdown=False`` is used by the watchdog's own respawn
         cleanup (which is a teardown-for-restart, NOT an app shutdown)
-        and by ``start()``'s internal error-recovery cleanup — neither
+        and by ``start()``'s internal error-recovery cleanup, neither
         should latch the shutdown flag, otherwise the watchdog could
         never respawn (its own cleanup would latch the flag) and a
         failed ``start()`` would permanently disable the watchdog.
@@ -442,7 +442,7 @@ class SubprocessHotkeyBackend(_SpawnMixin, _ReaderMixin, _WatchdogMixin, _Matchi
             # main-thread stop() that sees ``_stop_event`` already set
             # (by the watchdog's cleanup stop) still records the
             # shutdown request.  Once True, this flag is NEVER cleared
-            # — see the ``__init__`` comment for the rationale.
+            #: see the ``__init__`` comment for the rationale.
             self._shutdown_requested = True
         if self._stop_event.is_set():
             return
@@ -510,7 +510,7 @@ class SubprocessHotkeyBackend(_SpawnMixin, _ReaderMixin, _WatchdogMixin, _Matchi
         """Return True if the backend is ready and not stopped.
 
         For delegated backends (no subprocess), this returns True iff
-        ``_ready_event`` is set and ``_stop_event`` is not — mirroring
+        ``_ready_event`` is set and ``_stop_event`` is not, mirroring
         the contract callers expect from ``register_esc`` /
         ``register_repaste``'s post-start health check.
         """

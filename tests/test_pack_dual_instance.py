@@ -1,4 +1,4 @@
-"""§8.13 — Dual-instance race: lock file.
+"""§8.13: Dual-instance race: lock file.
 
 Spec (§8.13):
 
@@ -12,14 +12,14 @@ Tested behaviors:
      on ``acquire(timeout_s=0.5)``).
   3. After the first lock is released, the second can acquire.
   4. The lock file PERSISTS after release (native locks release via
-     close; stale holders are detected via PID + start time — the
+     close; stale holders are detected via PID + start time, the
      unlink raced with waiters and is deliberately gone).
   5. The lock file contains the holding process's PID.
   6. A stale lock (process dead) is broken by a new acquirer.
   7. ``PackLock.__enter__`` / ``__exit__`` work as a context manager.
   8. ``__enter__`` raises ``TimeoutError`` if the lock can't be acquired
      within the timeout.
-  9. The lock file is a SIBLING of the version directory — the §8.3
+  9. The lock file is a SIBLING of the version directory, the §8.3
      atomic swap (version dir → ``.trash``) cannot invalidate it.
 """
 
@@ -36,7 +36,7 @@ from voice_typer.server.service import offline_pack
 
 
 class TestPackLock:
-    """§8.13 — cross-process lock file."""
+    """§8.13, cross-process lock file."""
 
     def test_acquire_and_release(self, tmp_path: Path):
         lock = offline_pack.OfflinePackLock("v1", root=tmp_path, timeout_s=1.0)
@@ -51,7 +51,7 @@ class TestPackLock:
         lock1 = offline_pack.OfflinePackLock("v1", root=tmp_path, timeout_s=1.0)
         lock1.acquire()
         lock2 = offline_pack.OfflinePackLock("v1", root=tmp_path, timeout_s=0.5)
-        # Should time out — lock1 is still held.
+        # Should time out, lock1 is still held.
         acquired2 = lock2.acquire()
         assert acquired2 is False
         lock1.release()
@@ -70,7 +70,7 @@ class TestPackLock:
         Native locks (flock / msvcrt) are released by ``close()`` alone;
         stale holders are detected via PID + start time. Unlinking raced
         with waiters (close → re-create → fresh inode), so the file is
-        deliberately kept — and a later acquirer re-locks the SAME
+        deliberately kept, and a later acquirer re-locks the SAME
         file.
         """
         lock = offline_pack.OfflinePackLock("v1", root=tmp_path, timeout_s=1.0)
@@ -117,7 +117,7 @@ class TestPackLock:
 
     def test_lock_path_is_sibling_of_version_dir(self, tmp_path: Path):
         """The lock file lives in the pack ROOT, not inside the version
-        directory — its name is per-version (no cross-version
+        directory, its name is per-version (no cross-version
         contention) and its parent is the pack root for every version.
         """
         l1 = offline_pack.offline_pack_lock_path("v1", root=tmp_path)
@@ -129,7 +129,7 @@ class TestPackLock:
 
     def test_lock_survives_version_dir_swap(self, tmp_path: Path):
         """The lock's inode survives the §8.3 atomic swap (version dir →
-        ``.trash``) — a second instance cannot acquire while the first
+        ``.trash``), a second instance cannot acquire while the first
         still holds, even after the version dir has been renamed away.
 
         Pre-fix the lock lived INSIDE the version dir: the swap carried
@@ -151,7 +151,7 @@ class TestPackLock:
         trash = Path(str(pack_dir) + ".trash")
         os.replace(pack_dir, trash)
 
-        # The second instance still cannot acquire — same lock file,
+        # The second instance still cannot acquire, same lock file,
         # same inode, still held by the first instance.
         lock2 = offline_pack.OfflinePackLock(version, root=tmp_path, timeout_s=0.3)
         assert lock2.acquire() is False, "second instance acquired a fresh lock after the swap"
@@ -179,7 +179,7 @@ class TestPackLock:
         lock.release()
 
     def test_thread_safety(self, tmp_path: Path):
-        """Two threads contending for the same lock — only one wins."""
+        """Two threads contending for the same lock, only one wins."""
         results: list[bool] = []
         barrier = threading.Barrier(2)
 
@@ -197,7 +197,7 @@ class TestPackLock:
         t2.start()
         t1.join(timeout=5.0)
         t2.join(timeout=5.0)
-        # Exactly one thread acquired (the other timed out — but with
+        # Exactly one thread acquired (the other timed out, but with
         # the 2s timeout + 0.1s hold, the second SHOULD succeed too).
         # The strong assertion is: at least one acquired, no deadlock.
         assert any(results)
@@ -206,17 +206,17 @@ class TestPackLock:
 
 @pytest.mark.skipif(
     sys.platform == "win32",
-    reason="POSIX flock contention — Windows uses the msvcrt lock branch",
+    reason="POSIX flock contention, Windows uses the msvcrt lock branch",
 )
 class TestLockContentionMapping:
     """``flock`` contention must be classified as "held by another
     process" (return False → the retry loop waits), never misrouted to
-    the PID-file fallback — the fallback fails OPEN while the holder is
+    the PID-file fallback, the fallback fails OPEN while the holder is
     between its ``flock`` and the PID write (empty lock file), letting
     BOTH instances proceed.
 
     Discriminating assertion: the PID-file fallback is monkeypatched to
-    return ``True`` — a misrouted contention would therefore return
+    return ``True``, a misrouted contention would therefore return
     True; correct mapping returns False.
     """
 
@@ -252,7 +252,7 @@ class TestLockContentionMapping:
         lock._fh = lock.path.open("a+b")
 
         def boom(fd, flags):
-            raise OSError(errno.EACCES, "permission denied — lock held")
+            raise OSError(errno.EACCES, "permission denied, lock held")
 
         monkeypatch.setattr(fcntl, "flock", boom)
         monkeypatch.setattr(offline_pack.OfflinePackLock, "_pid_file_fallback", lambda self: True)

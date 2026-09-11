@@ -7,7 +7,7 @@
 //!     multiple webview windows (e.g. if a future code path opens a
 //!     second bubble), so access must be synchronized. The critical
 //!     section is two integer operations, so the mutex is held for
-//!     nanoseconds — no contention concern.
+//!     nanoseconds: no contention concern.
 //!   - `Instant` has no public conversion to a stable `u64` (it's an
 //!     opaque monotonic clock), so we anchor it once via a
 //!     `OnceLock<Instant>` and store the elapsed nanoseconds since
@@ -16,13 +16,13 @@
 //!     rate-limiter bypass vector where a malicious or misconfigured
 //!     NTP step could disable the limiter by jumping the wall clock
 //!     backwards.
-//!   - "Never toggled" is `None` — NOT a sentinel numeric value. An
+//!   - "Never toggled" is `None`, NOT a sentinel numeric value. An
 //!     earlier encoding used `AtomicU64` with `0` as the "never
 //!     toggled" sentinel, which collided with a genuinely-anchored-
 //!     at-zero timestamp: on Windows the first call anchors
 //!     `Instant::now()` and immediately reads `Instant::now()` again,
 //!     and QueryPerformanceCounter granularity can make that elapsed
-//!     value exactly `0` — so the stored timestamp was
+//!     value exactly `0`: so the stored timestamp was
 //!     indistinguishable from "never toggled" and the SECOND rapid
 //!     toggle bypassed the limiter once. The `Option` encoding makes
 //!     `Some(0)` (a real anchored-at-zero timestamp) and `None`
@@ -49,7 +49,7 @@ pub(super) static LAST_TOGGLE: Mutex<Option<u64>> = Mutex::new(None);
 
 /// Minimum interval between consecutive toggle_dictation
 /// invocations (500ms = 500_000_000 ns). A 500ms floor allows at
-/// most 2 toggles/sec (1 / 0.5s) — the first click in any 500ms
+/// most 2 toggles/sec (1 / 0.5s), the first click in any 500ms
 /// window passes, and clicks inside the remaining window are
 /// dropped. 2/sec is far below the rate that would DoS the sidecar's
 /// recording state machine (one start/stop pair per rapid click)
@@ -62,7 +62,7 @@ pub(super) const TOGGLE_RATE_LIMIT_NS: u64 = 500_000_000;
 /// lazily on first call so this function never panics and never reads
 /// `Instant` before it's available. `Instant` is monotonic by contract
 /// (immune to NTP skew), so the returned value never decreases between
-/// successive calls — the rate limiter can rely on `now >= last` for
+/// successive calls: the rate limiter can rely on `now >= last` for
 /// any stored `last`.
 fn monotonic_now_nanos() -> u64 {
     let anchor = ANCHOR.get_or_init(Instant::now);
@@ -82,18 +82,18 @@ fn monotonic_now_nanos() -> u64 {
 ///
 /// Decision rules:
 /// - `last == None` → always allow (the first toggle after process
-///   start passes — `Some(0)`, a genuinely anchored-at-zero
+///   start passes: `Some(0)`, a genuinely anchored-at-zero
 ///   timestamp, is a REAL last-toggle value here, never a "never"
 ///   marker).
 /// - `now >= last` and `now - last < TOGGLE_RATE_LIMIT_NS` → deny.
-/// - `now < last` (defensive — `Instant` is monotonic so this should
+/// - `now < last` (defensive, `Instant` is monotonic so this should
 ///   never happen, but the check protects against a future refactor
 ///   that swaps the clock source) → allow (don't penalize the user
 ///   for a clock glitch) and store the new (lower) value.
 /// - `now - last >= TOGGLE_RATE_LIMIT_NS` → allow.
 ///
 /// Extracted as a pure function so unit tests can pin every branch —
-/// including the anchored-at-zero regression case — without touching
+/// including the anchored-at-zero regression case, without touching
 /// the shared process-wide state.
 pub(super) fn toggle_decision(last: Option<u64>, now: u64) -> Option<u64> {
     if let Some(last) = last {
@@ -112,14 +112,14 @@ pub(super) fn toggle_decision(last: Option<u64>, now: u64) -> Option<u64> {
 /// (multiple windows invoking the command at once): the first caller
 /// to acquire the lock stores its timestamp; every caller that
 /// arrives within 500ms afterwards observes the stored value and is
-/// denied — the same observable semantics the previous
+/// denied: the same observable semantics the previous
 /// compare-exchange loop provided, with no sentinel encoding.
 pub(super) fn toggle_rate_limiter_allows() -> bool {
     let now = monotonic_now_nanos();
     // Poison-safe acquisition via the canonical `crate::state::lock`
     // helper: the critical section below cannot panic (arithmetic +
     // one assignment), so a poisoned lock means a panic happened
-    // elsewhere while the guard was held — recovering the data is
+    // elsewhere while the guard was held, recovering the data is
     // strictly better than propagating a spurious failure.
     let mut last = lock(&LAST_TOGGLE);
     match toggle_decision(*last, now) {
@@ -133,7 +133,7 @@ pub(super) fn toggle_rate_limiter_allows() -> bool {
 
 // Unit tests for `monotonic_now_nanos`, `toggle_decision`, `LAST_TOGGLE`,
 // and `TOGGLE_RATE_LIMIT_NS` live in the sibling `rate_limit_tests.rs`
-// file (C-TEST-5 — keeps production source free of inline test code,
+// file (C-TEST-5: keeps production source free of inline test code,
 // matching the `commands/bubble/tests.rs` pattern). The module is wired
 // as a child of `rate_limit` so the test file can use
 // `use super::{...}` to access the private `monotonic_now_nanos` helper

@@ -13,7 +13,7 @@ import "./index.css";
 // namespace) and its full rationale live in `./lib/tauri-bridge/ensure` —
 // the single shared copy of a gate this entrypoint previously duplicated
 // from `main.tsx`. In Electron mode the gate is false and this is a
-// no-op. Top-level await guarantees ordering — the
+// no-op. Top-level await guarantees ordering, the
 // `ReactDOM.createRoot().render()` call below does not run until the
 // bridge is installed, so the `window.bubble?.signalReady` call further
 // down sees a live bridge under Tauri.
@@ -23,7 +23,7 @@ await ensureTauriBridgeInstalled();
 // `ReactDOM.createRoot().render(...)` so async errors that escape
 // React's ErrorBoundary (e.g. unhandled promise rejections in
 // `useEffect`) are caught and logged instead of silently swallowed. The
-// bubble is an always-on-top transparent overlay — an unhandled
+// bubble is an always-on-top transparent overlay, an unhandled
 // rejection that React doesn't catch would otherwise leave the overlay
 // in an undefined state, and a render-time crash without an
 // ErrorBoundary leaves a stuck invisible overlay (see the
@@ -31,9 +31,9 @@ await ensureTauriBridgeInstalled();
 // handler is the safety net that also surfaces async-effect rejections
 // via toast + console.error (forwarded to the main-process log).
 //
-// `installGlobalErrorHandlers()` is idempotent — calling it again from
+// `installGlobalErrorHandlers()` is idempotent, calling it again from
 // bubble-main.tsx is a no-op if main.tsx already installed the handlers
-// in the same renderer process (which it doesn't — each BrowserWindow
+// in the same renderer process (which it doesn't, each BrowserWindow
 // has its own JS context). Safe to call before
 // `window.bubble?.signalReady?.()` below.
 installGlobalErrorHandlers();
@@ -51,7 +51,7 @@ if (!bubbleRootEl)
 	throw new Error("Bubble root element #bubble-root not found in bubble.html");
 
 // Wrap <Bubble /> in <ErrorBoundary fallback={null}>. The bubble window
-// is an always-on-top transparent overlay — if its render crashes
+// is an always-on-top transparent overlay, if its render crashes
 // without an error boundary, React unmounts the tree but the
 // BrowserWindow itself stays alive, leaving a stuck invisible overlay
 // that intercepts clicks. Rendering null on error makes the overlay

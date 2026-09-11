@@ -11,7 +11,7 @@ build-backend = "setuptools.build_meta"
 python-preference = "managed"
 # BUILD-N25 / TASK-8: previously this block declared
 # `supported-python-versions = ["3.10","3.11","3.12","3.13","3.14"]`,
-# but that is not a real uv field — uv 0.5+ rejects it with a TOML
+# but that is not a real uv field, uv 0.5+ rejects it with a TOML
 # parse warning. uv honors `[project].requires-python` (">=3.10") for
 # version gating, which already allows 3.10-3.14 and beyond. We use
 # `environments` below to cap the *resolution* envelope at <3.15 so
@@ -57,6 +57,10 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    # BUILD-N25: the declared support window is 3.10-3.14 (requires-python
+    # >=3.10 + the uv `environments` cap at <3.15), 3.14 completes the
+    # classifier list.
+    "Programming Language :: Python :: 3.14",
     "Topic :: Multimedia :: Sound/Audio :: Speech",
     "Topic :: Accessibility",
 ]
@@ -74,7 +78,7 @@ dependencies = [
     # The `>=0.5` floor matches the first release with the `Stream` callback
     # signature we depend on.
     "sounddevice>=0.5,<1.0",
-    # BUILD-N03 (2026-08-03): numpy 2.x is required — Python 3.13 has no
+    # BUILD-N03 (2026-08-03): numpy 2.x is required. Python 3.13 has no
     # numpy 1.x wheels (1.26.4 is the last 1.x and only supports <=3.12),
     # so the old <2.0 cap forced uv to source-build numpy 1.26.4 on the
     # 3.13 CI legs, and that build segfaults at import on Windows
@@ -83,7 +87,7 @@ dependencies = [
     # verified API-compatible with this codebase (no removed 1.x aliases
     # in use) and installs official wheels on every supported Python.
     # The <3 cap is the standard major-version guard (mirrors the
-    # scipy <2.0 / faster-whisper <2.0 caps) — numpy 3.0 is not announced,
+    # scipy <2.0 / faster-whisper <2.0 caps), numpy 3.0 is not announced,
     # but a major bump is permitted to break 2.x APIs (e.g. the future
     # removal of deprecated aliases this codebase may still rely on).
     "numpy>=2.0,<3",
@@ -104,7 +108,7 @@ dependencies = [
     # reaches into pystray's private `_icon_handle` attribute to work
     # around a Win32 DestroyIcon bug (WinError 1402) on rapid icon
     # updates. The private attribute has been stable across 0.19.x but
-    # is NOT part of the public API — a 0.20+ release could rename or
+    # is NOT part of the public API, a 0.20+ release could rename or
     # remove it, silently breaking the workaround. The tight pin
     # `>=0.19,<0.20` ensures the workaround stays effective until an
     # upstream `reset_icon_handle()` API lands (TODO file upstream
@@ -114,18 +118,18 @@ dependencies = [
     # is licensed LGPL-3.0-or-later and has had no upstream releases for
     # >3 years. The LGPL §4d re-linking obligation may not be satisfied
     # when statically bundled into the Nuitka/PyInstaller frozen binary
-    # — see `docs/migration/signing-guide.md` for the open compliance
+    #: see `docs/migration/signing-guide.md` for the open compliance
     # gap. Alternative libraries (e.g. `trayicon`, `system-tray`) were
     # evaluated but lack Linux SNI support. Track upstream activity at
-    # https://github.com/moses-palmer/pystray — a fork or replacement
+    # https://github.com/moses-palmer/pystray, a fork or replacement
     # is queued as a CR follow-up (TODO XS-76).
     "pystray>=0.19,<0.20",
-    # floor raised to >=10.3.0 — 13 CVEs affect Pillow <10.3.0.
+    # floor raised to >=10.3.0, 13 CVEs affect Pillow <10.3.0.
     "Pillow>=10.3.0,<13.0",
     # pynput is the cross-platform hotkey + keyboard-event
     # listener used by keyboard_ownership.py + native_hotkeys.py.
     # The <2.0 cap is critical: pynput 2.x (released 2024) rearchitected
-    # the listener backend — the `Listener.thread` attribute, the
+    # the listener backend, the `Listener.thread` attribute, the
     # `keyboard.Listener._on_release` hook, and the win32 `KeyboardEvent`
     # shape all changed. Our keyboard_ownership watchdog depends on
     # `Listener.thread` to detect a wedged listener; a 2.x bump would
@@ -135,7 +139,7 @@ dependencies = [
     "pynput>=1.7,<2.0",
     # torch + transformers + qwen-asr REMOVED 2026-08-15 (Phase 1d):
     # qwen_engine.py migrated to the ONNX-only backend
-    # (qwen_onnx_model.py — pre-exported andrewleech/qwen3-asr-*-onnx
+    # (qwen_onnx_model.py, pre-exported andrewleech/qwen3-asr-*-onnx
     # via onnxruntime, no torch). Parakeet + VAD were already ONNX
     # (Phase 1b/1c). torch>=2.0,<3.0, transformers>=5.14.1,<6.0 and the
     # `qwen-asr` extra were the LAST torch-family deps; nothing imports
@@ -145,11 +149,11 @@ dependencies = [
     # `load_model(name, path=..., quantization=..., providers=...)`
     # function + `recognize(audio, *, sample_rate=...)` adapter used by
     # the rewritten parakeet_engine.py (onnx-asr 0.12.0 exports ONLY
-    # `load_model` / `load_vad` — there is no `Model` class). The
+    # `load_model` / `load_vad`: there is no `Model` class). The
     # `>=0.12.0` floor matches the first release with the `quantization`
     # kwarg + the `recognize(audio, *, sample_rate=...)` signature
     # (older 0.11.x had a positional-only `recognize(audio, sr)` and no
-    # quantization support — breaks parakeet_engine.py:_load_impl). No
+    # quantization support, breaks parakeet_engine.py:_load_impl). No
     # upper cap yet (the API is stable; a future 1.0 redesign would
     # need re-validation of the `_select_providers` mapping).
     "onnx-asr>=0.12.0",
@@ -162,12 +166,12 @@ dependencies = [
     # need ORT directly, so the slim core MUST declare it explicitly.
     # The `>=1.20` floor matches the first release with the
     # `RunOptions.set_terminate()` API used by parakeet_engine.py's
-    # `request_abort()` path (added in 1.20 — verified against ORT
+    # `request_abort()` path (added in 1.20, verified against ORT
     # changelog). The lockfile currently resolves to 1.28.0 (pulled
     # transitively by faster-whisper per requirements-lock.txt:1048);
     # declaring it explicitly here keeps the slim core working after
     # faster-whisper is moved to the pack. NOTE: this is the CPU wheel
-    # only — GPU users install `onnxruntime-gpu` separately (see §6.1
+    # only, GPU users install `onnxruntime-gpu` separately (see §6.1
     # for why onnxruntime-gpu does NOT bundle NVIDIA DLLs and
     # nvidia_dll_paths.py is still required).
     # onnxruntime 1.24+ stopped shipping cp310 wheels (its `requires-python`
@@ -179,11 +183,11 @@ dependencies = [
     "onnxruntime>=1.20,<1.24; python_version < '3.11'",
     "onnxruntime>=1.20; python_version >= '3.11'",
     # tokenizers is imported directly by the Qwen3-ASR ONNX backend
-    # (qwen_onnx_model.py — ``Tokenizer.from_file`` for the ASR prompt
+    # (qwen_onnx_model.py, ``Tokenizer.from_file`` for the ASR prompt
     # decode). It is pulled transitively by the declared
     # ``transformers>=5.14.1`` dep, but the ONNX path (PLAN_ONNX_INTEGRATION
     # §4.3 C-2) intends to be the torch-free Qwen option, so the direct
-    # import gets a direct declaration (E13 — declare what you import;
+    # import gets a direct declaration (E13, declare what you import;
     # survives the eventual transformers removal at Phase 1d).
     "tokenizers>=0.21,<1",
     # psutil is used by _another_voice_typer_alive
@@ -192,13 +196,13 @@ dependencies = [
     # huggingface_hub is used by asr_setup.py,
     # parakeet_engine.py, service.py, and transcription.py for
     # snapshot_download. Previously imported with # type: ignore
-    # but not declared — cold pip install succeeded but first model
+    # but not declared, cold pip install succeeded but first model
     # load crashed with ModuleNotFoundError.
     "huggingface_hub>=1.24.0,<2.0",
-    # Volume ducking on Windows — pycaw wraps the Win32
+    # Volume ducking on Windows, pycaw wraps the Win32
     # IAudioSessionManager2 COM interface (used by WinVolumeBackend to
     # duck other apps' audio while Voice Typer is dictating).
-    # Lazy-imported in WinVolumeBackend — safe on other platforms.
+    # Lazy-imported in WinVolumeBackend, safe on other platforms.
     #
     # `<20240407` upper bound caps at the next yearly release
     # tag. pycaw uses date-based versioning (YYYYMMDD); a calendar-bump
@@ -207,39 +211,39 @@ dependencies = [
     # upstream release.
     #
     # SUPPLY-CHAIN NOTE: pycaw had a multi-year dormant stretch (last
-    # commit Mar 2023), but it is NOT abandoned — a date-based release
+    # commit Mar 2023), but it is NOT abandoned, a date-based release
     # (20251023, per volume_backends/windows.py which handles BOTH the
     # pre- and post-20251023 API generations) landed in Oct 2025,
     # reviving the project. This comment used to claim "abandonment"
     # as fact; the pin below (<20240407) deliberately EXCLUDES that
-    # revival (conservative — re-validate the ISAudioSessionControl
+    # revival (conservative, re-validate the ISAudioSessionControl
     # shim before widening), and the WinVolumeBackend shim already
     # supports the new API either way. Track
-    # upstream at https://github.com/AndreMiras/pycaw — alternative
+    # upstream at https://github.com/AndreMiras/pycaw, alternative
     # (direct ctypes bindings to the COM interface) is queued as a CR
     # follow-up (TODO XS-76).
     "pycaw>=20230407,<20240407; sys_platform == 'win32'",
     # comtypes is the generic Python ↔ COM bridge required
     # by pycaw (transitively) and directly by
     # microphone_watcher_win32.py (IMMNotificationClient callback).
-    # Lazy-imported — safe on other platforms.
+    # Lazy-imported, safe on other platforms.
     #
-    # `<2.0` upper bound — comtypes 2.x is in active development
+    # `<2.0` upper bound, comtypes 2.x is in active development
     # by the upstream maintainers (github.com/enthought/comtypes) and
     # introduces breaking changes to the `GUID` / `IUnknown` runtime
     # coercion. The `>=1.1` floor matches the first release with the
     # `comtypes.client.GetEvents` sink we depend on.
     "comtypes>=1.1,<2.0; sys_platform == 'win32'",
     # Volume ducking on macOS (CoreAudio via pyobjc).
-    # Lazy-imported in MacVolumeBackend — safe on other platforms.
+    # Lazy-imported in MacVolumeBackend, safe on other platforms.
     # pyobjc 11+ has no wheels for Python 3.10/3.11 on macOS; use 9.x floor
     # for older Python, 11.0+ for Python 3.12+ (which needs the newer ABI).
     #
-    # `<12.0` upper bound on every pyobjc-* dep — pyobjc 12.x is
+    # `<12.0` upper bound on every pyobjc-* dep, pyobjc 12.x is
     # expected to drop support for macOS 11 (Big Sur), which is still
     # in our support matrix (see docs/PLATFORM_STATUS.md). Bump the cap
     # ONLY after the platform-support matrix is updated. The pyobjc-*
-    # packages share a coordinated release train — all four deps MUST
+    # packages share a coordinated release train, all four deps MUST
     # stay on the same major to avoid ABI mismatches at the framework-
     # bridge boundary (pyobjc-core's `objc.pyobjc_id` ABI is consumed
     # by every pyobjc-framework-* package).
@@ -263,7 +267,7 @@ dependencies = [
     # permissions.py:734 imports AXIsProcessTrustedWithOptions from
     # ApplicationServices for the pre-flight accessibility-trust probe.
     # Without this dep, the try/except ImportError at permissions.py
-    # silently falls back to PermissionState.UNKNOWN — the user is never
+    # silently falls back to PermissionState.UNKNOWN, the user is never
     # told accessibility permission is missing until the native hotkey
     # listener fails at runtime. Adding the explicit dep makes the probe
     # actually work on a fresh `pip install voice-typer[macos]`.
@@ -272,12 +276,12 @@ dependencies = [
     # ADR 0007: RNNoise is now a default dependency (was optional).
     # BSD-licensed, ~2MB, <1ms per frame. Required for the NoiseSuppressor
     # filter in the audio filter chain.
-    # Excluded on macOS ARM64 (no prebuilt wheel — see deepfilternet extra).
+    # Excluded on macOS ARM64 (no prebuilt wheel: see deepfilternet extra).
     #
-    # `<1.0` upper bound — pyrnnoise is a thin ctypes wrapper over
+    # `<1.0` upper bound, pyrnnoise is a thin ctypes wrapper over
     # the upstream RNNoise C library; a 1.0 release would signal a
     # re-architecture (the wrapper currently exposes `RNNModel.from_file`
-    # + `RNNoise.process_frame` — a 1.0 redesign could rename either).
+    # + `RNNoise.process_frame`: a 1.0 redesign could rename either).
     # The `>=0.4` floor matches the first release with the macOS x86_64
     # wheel our CI matrix needs.
     "pyrnnoise>=0.4,<1.0; platform_machine != 'arm64' or sys_platform != 'darwin'",
@@ -290,7 +294,7 @@ dependencies = [
     # keyring is used by credential_store.py to store API keys
     # (OpenAI / Groq / Deepgram / LLM) in the OS-native credential
     # backend (Windows Credential Manager, macOS Keychain, libsecret on
-    # Linux) instead of plaintext in config.json. Cross-platform — the
+    # Linux) instead of plaintext in config.json. Cross-platform, the
     # library auto-selects the right backend at runtime. When no backend
     # is available (e.g. headless Linux without gnome-keyring-daemon),
     # credential_store falls back to the existing plaintext-in-config.json
@@ -301,7 +305,7 @@ dependencies = [
     # history ``text`` column. The ``>=42`` floor matches the first
     # release of the current py.typed API surface we consume
     # (Fernet.generate_key / encrypt / decrypt + InvalidToken); no
-    # upper cap — that API has been stable across every major since.
+    # upper cap, that API has been stable across every major since.
     # The module degrades to plaintext if the import fails, but it is
     # a base dependency so a normal install always provides it.
     "cryptography>=42",
@@ -325,7 +329,7 @@ voice-typer = "voice_typer.server.ipc_server:main"
 # pytest-mock: MagicMock fixture.
 test = [
     "pytest>=7,<9",
-    # pytest-mock removed — verified zero usages of `mocker` fixture
+    # pytest-mock removed, verified zero usages of `mocker` fixture
     # across tests/ (tests use monkeypatch + unittest.mock.patch instead).
     "pytest-asyncio>=0.23,<1",
     "pytest-timeout>=2.3,<3",
@@ -337,7 +341,7 @@ test = [
     # pytest-xdist so the 309-file test suite can run in
     # parallel on multi-core CI runners (cuts the per-leg wall time
     # from ~25 min to ~5-7 min on a 4-core runner). Local single-
-    # core invocations are unaffected — pytest-xdist only activates
+    # core invocations are unaffected, pytest-xdist only activates
     # when ``-n auto`` (or similar) is passed. CI's pytest step
     # passes ``-n auto`` explicitly (see .github/workflows/build.yml).
     "pytest-xdist>=3.5,<4",
@@ -353,12 +357,12 @@ build = [
     # pins the bdist_wheel behavior we depend on for the installer).
     "wheel>=0.38",
 ]
-# Windows volume ducking — kept as alias for explicit pip install .[windows]
+# Windows volume ducking, kept as alias for explicit pip install .[windows]
 # include pywin32 so shortcut creation uses the native COM
 # approach (WScript.Shell via win32com.client) instead of falling back
 # to the slower, less robust PowerShell path. pywin32 is ~10 MB which
 # is acceptable for the Windows installer payload.
-# pycaw + comtypes are NO LONGER duplicated here — they are
+# pycaw + comtypes are NO LONGER duplicated here, they are
 # declared in [project].dependencies with `sys_platform == 'win32'`
 # markers, which is the single source of truth. This alias now contains
 # only pywin32 (the one Windows-only dep that's NOT in
@@ -367,8 +371,8 @@ build = [
 windows = [
     "pywin32>=306,<313; sys_platform == 'win32'",
 ]
-# macOS volume ducking — kept as alias for explicit pip install .[macos]
-# all pyobjc-* deps are NO LONGER duplicated here — they are
+# macOS volume ducking, kept as alias for explicit pip install .[macos]
+# all pyobjc-* deps are NO LONGER duplicated here, they are
 # declared in [project].dependencies with `sys_platform == 'darwin'`
 # markers, which is the single source of truth. This alias is now an
 # empty list (kept for backward-compat with `pip install .[macos]`).
@@ -376,12 +380,12 @@ macos = []
 # dbus-python is soft-guard-imported in tray.py (Linux Wayland
 # StatusNotifierItem detection) but was undeclared. It stays OPTIONAL, not
 # a core dep: dbus-python ships as sdist-only on PyPI and needs system
-# libdbus headers (libdbus-1-dev) to build — forcing it on every Linux
+# libdbus headers (libdbus-1-dev) to build, forcing it on every Linux
 # install would break minimal/container installs, and tray.py already
 # degrades gracefully when it's absent. Install explicitly on Linux
 # desktops that want proper SNI tray detection: pip install .[linux]
 linux = ["dbus-python>=1.3,<2; sys_platform == 'linux'"]
-# ADR 0007: Noise filtering — RNNoise is now a default dep (above).
+# ADR 0007: Noise filtering. RNNoise is now a default dep (above).
 # noisereduce is removed (post-capture denoise deleted per ADR 0007 §3.8).
 # DeepFilterNet is offered as a premium alternative to RNNoise (requires torch).
 deepfilternet = [
@@ -414,7 +418,7 @@ dev = [
     # baseline file (`pyrefly-baseline.json`) is regenerated against a
     # specific pyrefly version and is meaningful ONLY when compared
     # across runs of the same version. Per the Critical Architecture
-    # Rules, this pin must NEVER be loosened to a `>=` range — bump it
+    # Rules, this pin must NEVER be loosened to a `>=` range, bump it
     # only as an atomic coordinated change (pyproject.toml + build.yml
     # + regenerated baseline).
     "pyrefly==1.1.1",
@@ -466,7 +470,7 @@ baseline = "pyrefly-baseline.json"
 # permissive types so type-checking proceeds on the real code paths.
 # (XS-91: the previous comment also listed ``webrtc`` but no
 # ``webrtcvad.pyi`` / ``webrtc-audio-processing.pyi`` stub is
-# checked in — ``webrtcvad`` is a C-extension that pyrefly resolves
+# checked in, ``webrtcvad`` is a C-extension that pyrefly resolves
 # via the active-interpreter site-packages search path, not via a
 # local stub. Removed the stale reference.)
 #
@@ -475,7 +479,7 @@ baseline = "pyrefly-baseline.json"
 # `missing-import` (Class A) errors for third-party deps (numpy, torch,
 # scipy.signal, huggingface_hub, PIL, pynput.*, sounddevice, pyperclip,
 # transformers, psutil, faster_whisper, ctranslate2, pystray, win32gui,
-# win32com.client, qwen_asr). Those are NOT real code bugs — pyrefly
+# win32com.client, qwen_asr). Those are NOT real code bugs, pyrefly
 # simply wasn't searching the venv. (On Windows pyrefly auto-queries the
 # interpreter for site-packages, but on the Linux CI runner the
 # interpreter query fails with EACCES on `/app/.venv/bin/python3`, so
@@ -486,7 +490,7 @@ baseline = "pyrefly-baseline.json"
 # ignores it. The valid key (per `pyrefly check --help` →
 # `--search-path`) is `search-path`. Verified empirically: adding the
 # venv to `search-path` drops missing-imports from 73 → 2 (win32gui,
-# win32com.client — all platform-only / optional, already in
+# win32com.client, all platform-only / optional, already in
 # `pyrefly-baseline.json`). With the baseline applied, missing-imports
 # drop to 0. (qwen_asr + torch + transformers removed 2026-08-15.)
 #
@@ -495,7 +499,7 @@ baseline = "pyrefly-baseline.json"
 # auto-discovers the active interpreter's site-packages via
 # `sysconfig.get_paths()` when the active interpreter is a real venv
 # (and the `python-version = "3.12"` setting above pins the language
-# level).  The hard-coded relative path was fragile — it broke on
+# level).  The hard-coded relative path was fragile, it broke on
 # non-3.12 interpreters, on CI runners where the venv lives at a
 # different relative location, and on contributor machines using
 # `.venv`-less setups (uv/pipx/pip install -e .).  Only the local
@@ -506,7 +510,7 @@ search-path = [
 ]
 
 # TEST-010: mutmut configuration for mutation testing.
-# To run mutation testing locally (expensive — don't run in CI):
+# To run mutation testing locally (expensive, don't run in CI):
 #   mutmut run --paths-to-mutate=voice_typer/server/text_cleanup.py,voice_typer/server/config.py
 # Full configuration is the [tool.mutmut] table below.
 [tool.mutmut]
@@ -516,14 +520,14 @@ test_command = "pytest -x -q tests/test_text_cleanup.py tests/config tests/test_
 [tool.setuptools.packages.find]
 include = ["voice_typer*"]
 # WR-19: exclude voice_typer.client (the JS/TS Electron/Tauri frontend)
-# from Python packaging — the directory contains no .py files but the
+# from Python packaging, the directory contains no .py files but the
 # `voice_typer*` glob would otherwise match it, producing bogus wheel
 # manifest entries and "package init file not found" setuptools warnings.
 exclude = ["voice_typer.client*"]
 
 # NEW-DEAD-003: removed the dead HugeIcons font reference (the
 # ``assets/fonts/*.ttf`` entry, ~1.9 MB).  The file was referenced as
-# package-data but no Python source file ever loaded it — the new
+# package-data but no Python source file ever loaded it, the new
 # Electron app uses ``@hugeicons/react`` from npm instead.  The
 # ``assets/icons/`` directory referenced 19 SVG files that were also
 # unused; that directory doesn't even exist in the current source
@@ -535,7 +539,7 @@ testpaths = ["tests"]
 # PERF-007: prevent pytest from crawling into irrelevant directories
 # during test collection. Without this, pytest walks .venv/, build/,
 # voice_typer/client/node_modules/ etc. checking every .py file for
-# test functions — on a 544-file suite the extra stat() calls add up.
+# test functions, on a 544-file suite the extra stat() calls add up.
 # ``.hypothesis`` MUST be listed here: hypothesis writes its example
 # database (``.hypothesis/examples/*``) under the repo root, and the
 # hypothesis pytest plugin emits a ``UserWarning: Skipping collection
@@ -551,7 +555,7 @@ norecursedirs = [".venv", "dist", "build", "node_modules", "voice_typer/client",
 # TEST-011: --cov=voice_typer --cov-fail-under=65 for coverage threshold.
 # COV-002: clipboard.py now at 100% coverage (was 40%) via
 # tests/clipboard/win32/ (110 new tests mocking ctypes.windll
-# on Linux). Global coverage is 65.23% — kept threshold at 65% to avoid
+# on Linux). Global coverage is 65.23%, kept threshold at 65% to avoid
 # breaking CI. Aspirational target: 70%. The three modules previously
 # cited as blockers now EXCEED 70%:
 #   - streaming.py:      88%  (was the #1 blocker; raised via the
@@ -563,7 +567,7 @@ norecursedirs = [".venv", "dist", "build", "node_modules", "voice_typer/client",
 # require API keys to exercise, and platform-specific GUI shells that
 # don't run headless). Raising the global threshold above 70% requires
 # either stubbing those adapters for tests or excluding them from
-# ``[tool.coverage.run].source`` — both are deferred to a separate
+# ``[tool.coverage.run].source``: both are deferred to a separate
 # coverage-focused pass.
 # Per-module status of pure-python modules called out in the backlog:
 #   - config.py:        76%  ✓ (>75% target)
@@ -580,7 +584,7 @@ norecursedirs = [".venv", "dist", "build", "node_modules", "voice_typer/client",
 # out-of-the-box on a minimal install while still enforcing coverage /
 # timeouts in CI (where [test] is installed), keep the flags here AND
 # have the root conftest.py register NO-OP stand-in options for the
-# missing plugins (see conftest.py — the stand-ins are skipped when the
+# missing plugins (see conftest.py, the stand-ins are skipped when the
 # real plugin is present, so real coverage/timeout behavior is intact).
 # This way:
 #   - CI (with [test]): coverage enforced at 65% + 60s test timeout.
@@ -602,21 +606,21 @@ norecursedirs = [".venv", "dist", "build", "node_modules", "voice_typer/client",
 # (e.g. `pytest tests/test_foo.py`) don't trip the coverage gate. The
 # threshold is still enforced in CI (build.yml pytest step passes
 # --cov-fail-under=65 explicitly) and in [tool.coverage.report].fail_under.
-# LOCAL RUNS NOTE: `--cov=voice_typer` is intentional for CI parity — it
+# LOCAL RUNS NOTE: `--cov=voice_typer` is intentional for CI parity, it
 # instruments every `voice_typer/**` import so the CI coverage report
 # matches what a contributor would see locally. The trade-off is that
 # `--cov` adds ~15-25% overhead to every test run (line-tracing
 # bytecode instrumentation in pytest-cov). For tight local iteration
 # loops (TDD on a single module, debugging a flaky test), pass
 # `--no-cov` to skip coverage entirely, or `-o addopts=""` to drop ALL
-# addopts (also drops --timeout / --strict-markers — prefer `--no-cov`
+# addopts (also drops --timeout / --strict-markers, prefer `--no-cov`
 # for the surgical case). Do NOT remove `--cov=voice_typer` from
-# addopts — CI's `pytest tests/ --cov-fail-under=65` step relies on
+# addopts, CI's `pytest tests/ --cov-fail-under=65` step relies on
 # the addopts `--cov=voice_typer` to scope the report; removing it
 # would silently drop CI coverage enforcement.
 # PERF-007: --import-mode=importlib avoids the legacy "prepend" mode
 # which copies test files to a temp dir and adjusts sys.path for every
-# single file — on a 544-file suite this adds ~1-2s of pure I/O overhead
+# single file, on a 544-file suite this adds ~1-2s of pure I/O overhead
 # at collection time. importlib mode uses importlib.import_module() instead,
 # which is both faster and avoids subtle __file__ / __name__ mismatches.
 # Safe for this project because no test relies on the "prepend" path
@@ -637,7 +641,7 @@ filterwarnings = [
     "ignore::pytest.PytestUnraisableExceptionWarning",
     # NEW-TEST-003: previously ``ignore::ResourceWarning`` was blanket-
     # ignored, hiding real file-handle / socket leaks.  The tray app is
-    # a 24/7 long-running process — a 1 KB leak per dictation cycle
+    # a 24/7 long-running process, a 1 KB leak per dictation cycle
     # compounds to ~1 MB/day.  ResourceWarning is the canonical signal
     # for these leaks.  We now only ignore the specific
     # PytestUnraisableExceptionWarning (which fires when __del__ raises
@@ -647,7 +651,7 @@ filterwarnings = [
     # library, add a targeted filter here (e.g.
     # "ignore::ResourceWarning:sounddevice").
     # CQ-006 (removed): the `voice_typer.server.settings is deprecated`
-    # filter was deleted — the settings module no longer exists, so the
+    # filter was deleted, the settings module no longer exists, so the
     # filter was dead config. RULE: when you delete a module, remove its
     # warning filter in the same PR so pyproject.toml never references
     # code that no longer exists.
@@ -674,10 +678,10 @@ filterwarnings = [
     "ignore::pytest_benchmark.logger.PytestBenchmarkWarning",
     # Deprecation-warning ratchet: any DeprecationWarning whose source
     # module is under ``voice_typer`` is promoted to an error. This is a
-    # ratchet — once a voice_typer deprecation is fixed it can never
+    # ratchet, once a voice_typer deprecation is fixed it can never
     # silently regress. The filter is scoped to ``voice_typer`` (the
     # ``module`` regex field) so third-party DeprecationWarnings (e.g.
-    # from torch, sounddevice, faster_whisper) are NOT affected — only
+    # from torch, sounddevice, faster_whisper) are NOT affected, only
     # warnings raised by code inside the ``voice_typer`` package itself.
     # Listed LAST so it takes precedence (pytest prepends filters in
     # list order; the last entry is checked first by the warnings
@@ -689,7 +693,7 @@ filterwarnings = [
 # ── Python version matrix (intentional divergence) ───────────────────────
 # The Python language level is configured DIFFERENTLY across the three
 # type-checkers / linters, and the runtime / `.python-version` pin is
-# different again. This is intentional — each tool's level is chosen
+# different again. This is intentional, each tool's level is chosen
 # for a concrete reason, and aligning them would either break the
 # project's stated support window or cause spurious errors:
 #
@@ -720,7 +724,7 @@ filterwarnings = [
 #                          |              | baseline is regenerated at
 #                          |              | 3.12 (see [tool.pyrefly].baseline).
 #
-# Do NOT "fix" this divergence by aligning all three to 3.12 — that
+# Do NOT "fix" this divergence by aligning all three to 3.12, that
 # would let 3.11+-only typing slip through ruff/mypy and break 3.10
 # installs at runtime. Conversely, dropping pyrefly to 3.10 would
 # prevent it from parsing the numpy 2.x stubs it needs to type-check
@@ -768,20 +772,15 @@ combine-as-imports = true
 # code. Ruff parses it as Python (B018 "useless expression" on the top-level
 # dict literal, E501 on the single-line _comment). JSON has no multi-line
 # string syntax, so the _comment must be one line. Excluding all rules for
-# this specific data file is the correct fix — it is not Python source code.
+# this specific data file is the correct fix, it is not Python source code.
 # This is a targeted per-file override, not a global rule disable.
 [tool.ruff.lint.per-file-ignores]
 "voice_typer/server/model_hashes.json" = ["ALL"]
-# scripts/append_review_findings.py is a one-off Phase-3 review-compilation
-# tool whose FINDINGS tuples embed multi-hundred-char prose strings (the
-# script body is data, not style-governed code). E501 on those lines is
-# noise; the ratchet baseline (ruff-baseline.json) predates this file.
-"scripts/append_review_findings.py" = ["E501"]
 # tests/server/*.py: pytest fixtures (server, mock_app, etc.) are used
 # as test-method parameters, which shadow the explicit imports kept
 # for IDE type hints. F811 (redefinition) is a false positive for this
 # pytest pattern. The DT-37 split test files intentionally use this
-# style — see tests/server/conftest.py for the fixture definitions.
+# style: see tests/server/conftest.py for the fixture definitions.
 "tests/server/*.py" = ["F811"]
 
 [tool.mypy]
@@ -790,7 +789,7 @@ combine-as-imports = true
 # real numpy 2.x stubs at the 3.10 language level (a parse error cannot be
 # suppressed by ignore_errors / follow_imports). numpy is therefore shadowed
 # by a local Any-stub (see `voice_typer/mypy_stubs/numpy/` + `mypy_path`
-# below) — it behaves exactly as it effectively did when the stubs failed
+# below), it behaves exactly as it effectively did when the stubs failed
 # to parse. The project's own typing debt in numpy-dependent modules is
 # tracked by the count-based ratchet (see `scripts/mypy_ratchet_check.py`
 # + `mypy-baseline.json`), so `make typecheck` stays green while blocking
@@ -799,7 +798,7 @@ python_version = "3.10"
 mypy_path = ["voice_typer/mypy_stubs"]
 warn_return_any = true
 warn_unused_configs = true
-# CQ-018: disallow untyped defs is off by default — the codebase has many
+# CQ-018: disallow untyped defs is off by default, the codebase has many
 # untyped functions. Enable incrementally per-module if desired.
 disallow_untyped_defs = false
 # ERR-ERR-006: do not blanket-disable missing-import checking. Per-module
@@ -814,7 +813,7 @@ ignore_missing_imports = false
 # The real numpy stubs are shadowed by the Any-stub in `voice_typer/mypy_stubs`
 # (see `mypy_path` above), so this override only guards the shadow itself.
 # Belt-and-braces: if the shadow is ever removed, `ignore_errors` at least
-# suppresses semantic errors (though NOT the parse error — see the comment
+# suppresses semantic errors (though NOT the parse error. See the comment
 # on `[tool.mypy]`).
 module = ["numpy.*"]
 ignore_errors = true
@@ -843,7 +842,7 @@ module = [
     "ctypes.wintypes",
     # 3.13 mypy gate: modules that ship without py.typed markers.
     # NOTE (ERR-ERR-006 deviation): typeshed stubs DO exist for regex
-    # (types-regex) and pywin32 (types-pywin32) — installing them as dev
+    # (types-regex) and pywin32 (types-pywin32), installing them as dev
     # deps would be the stricter route, but the ignore override is the
     # pragmatic repo-wide fix: mypy is a LOCAL-only convenience gate (CI
     # skips it), and the existing list already takes the pragmatic route
@@ -861,7 +860,7 @@ module = [
     # exist for onnxruntime (types-onnxruntime / onnxruntime-stubs /
     # onnxruntime-types all 404) or faster-whisper (types-faster-whisper /
     # faster-whisper-stubs 404), and neither distribution ships a
-    # py.typed marker — the import-untyped errors are genuine.
+    # py.typed marker, the import-untyped errors are genuine.
     # `faster_whisper.*` (alongside the exact-module entry above)
     # covers submodule imports such as
     # `faster_whisper.feature_extractor` that the exact entry alone

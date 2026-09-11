@@ -50,7 +50,7 @@ _VK_CONTROL = 0x11
 _VK_MENU = 0x12  # VK_MENU covers both LAlt (0xA4) and RAlt (0xA5)
 _VK_LWIN = 0x5B
 _VK_RWIN = 0x5C
-_VK_CAPITAL = 0x14  # Caps Lock — also in _VK_MAP["caps_lock"]
+_VK_CAPITAL = 0x14  # Caps Lock, also in _VK_MAP["caps_lock"]
 _VK_RMENU = 0xA5  # Right Alt / AltGr
 _KEYEVENTF_KEYUP = 0x0002
 
@@ -59,9 +59,9 @@ _KEYEVENTF_KEYUP = 0x0002
 # Key-name maps: this table maps pynput-style lowercase names
 # to Win32 VK codes. It is ONE OF THREE independent key-name tables:
 #
-#   Frontend: KEY_CODE_TO_PYNPUT (hotkey-utils.ts) — e.code → pynput name
-#   Backend:  _VK_MAP (here) — pynput name → Win32 VK code
-#   Native:   _normalize_key_name (native_hotkeys.py) — pynput name →
+#   Frontend: KEY_CODE_TO_PYNPUT (hotkey-utils.ts), e.code → pynput name
+#   Backend:  _VK_MAP (here), pynput name → Win32 VK code
+#   Native:   _normalize_key_name (native_hotkeys.py), pynput name →
 #             wire-protocol name (CapsLock, Space, MediaNext, etc.)
 #
 # All three must agree on the set of names ("f1", "space", "caps_lock",
@@ -208,7 +208,7 @@ def parse_hotkey_to_win32(hotkey_str: str) -> tuple[int | None, int] | None:
 
         - Modifier-bit collapsing: canonical ``win`` / ``super`` / ``cmd``
           all map to ``_MOD_WIN`` (Windows does not distinguish between
-          them — ``RegisterHotKey`` uses a single bit). Canonical
+          them, ``RegisterHotKey`` uses a single bit). Canonical
           ``alt_gr`` maps to ``_MOD_ALTGR``.
         - VK-code lookup: ``_VK_MAP`` (and the ``MapVirtualKey`` fallback
           for non-US layouts) translate the canonical key name to a
@@ -230,7 +230,7 @@ def parse_hotkey_to_win32(hotkey_str: str) -> tuple[int | None, int] | None:
         "win": _MOD_WIN,
         "super": _MOD_WIN,
         # 'fn' has no Win32 RegisterHotKey equivalent (firmware-only).
-        # It is silently ignored here — callers that care about Fn
+        # It is silently ignored here, callers that care about Fn
         # use the native_hotkeys backend instead.
     }
 

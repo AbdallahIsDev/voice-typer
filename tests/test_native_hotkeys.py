@@ -367,7 +367,7 @@ class TestLineHandling:
         assert fired == []
 
     def test_combo_requires_all_modifiers(self, monkeypatch):
-        """For <ctrl>+<alt>+v, V alone should NOT fire — need Ctrl+Alt held."""
+        """For <ctrl>+<alt>+v, V alone should NOT fire, need Ctrl+Alt held."""
         from voice_typer.server import native_hotkeys
 
         monkeypatch.setattr(native_hotkeys, "is_linux", lambda: True)
@@ -380,7 +380,7 @@ class TestLineHandling:
         fired = []
         b._callback = lambda: fired.append("press")
 
-        # Press V without modifiers — should NOT fire
+        # Press V without modifiers, should NOT fire
         b._handle_line("KEY_DOWN:V")
         assert fired == []
 
@@ -391,7 +391,7 @@ class TestLineHandling:
         # would be treated as auto-repeat and the callback would not fire.
         b._handle_line("KEY_UP:V")
 
-        # Hold Ctrl+Alt, then press V — should fire
+        # Hold Ctrl+Alt, then press V, should fire
         b._handle_line("MOD_DOWN:Ctrl")
         b._handle_line("MOD_DOWN:Alt")
         b._handle_line("KEY_DOWN:V")
@@ -472,7 +472,7 @@ class TestLineHandling:
         assert released == ["release"]
 
     def test_win_modifier_normalized_to_cmd(self, monkeypatch):
-        """Windows emits MOD_DOWN:Win — should match <win> hotkey."""
+        """Windows emits MOD_DOWN:Win, should match <win> hotkey."""
         from voice_typer.server import native_hotkeys
 
         monkeypatch.setattr(native_hotkeys, "is_windows", lambda: True)
@@ -529,10 +529,10 @@ class TestBinaryDiscovery:
         from voice_typer.server import native_hotkeys
 
         monkeypatch.setattr(sys, "platform", "linux")
-        # The actual binary may or may not exist in the test env — just
+        # The actual binary may or may not exist in the test env, just
         # verify the lookup logic doesn't crash.
         path = native_hotkeys.get_native_binary_path()
-        # Could be None or a Path — either is OK
+        # Could be None or a Path, either is OK
         assert path is None or isinstance(path, Path)
 
 
@@ -730,7 +730,7 @@ class TestLivenessWatchdog:
         # SHA-256 against the manifest on every spawn (including the
         # watchdog respawn path). The fake binary in this test has no
         # manifest entry, so the verifier would FAIL CLOSED and skip
-        # the spawn — breaking this test's stdin-PIPE assertion. Patch
+        # the spawn, breaking this test's stdin-PIPE assertion. Patch
         # the verifier to return True so the spawn proceeds to the
         # Popen call (the TOCTOU re-verification itself is pinned by
         # the dedicated tests in
@@ -753,7 +753,7 @@ class TestLivenessWatchdog:
             try:
                 b._spawn_process()
             except Exception:
-                pass  # May fail on READY timeout — that's OK, we just check the Popen kwargs.
+                pass  # May fail on READY timeout, that's OK, we just check the Popen kwargs.
             finally:
                 with contextlib.suppress(Exception):
                     b.stop()
@@ -854,7 +854,7 @@ class TestWatchdogRespawnRace:
     def test_watchdog_cleanup_stop_does_not_latch_shutdown(self, monkeypatch):
         """FR-21: ``stop(shutdown=False)`` (used by the watchdog's own
         respawn cleanup and by ``start()``'s error-recovery paths) must
-        NOT latch ``_shutdown_requested`` — otherwise the watchdog could
+        NOT latch ``_shutdown_requested``, otherwise the watchdog could
         never respawn (its own cleanup would disable it) and a failed
         ``start()`` would permanently disable the watchdog."""
         from voice_typer.server import native_hotkeys
@@ -873,7 +873,7 @@ class TestWatchdogRespawnRace:
 
         # Must NOT latch the shutdown flag.
         assert b._shutdown_requested is False, (
-            "FR-21: stop(shutdown=False) must not set _shutdown_requested — "
+            "FR-21: stop(shutdown=False) must not set _shutdown_requested, "
             "the watchdog's cleanup stop is a respawn step, not a shutdown"
         )
         # But it MUST still set _stop_event (tear down the backend).
@@ -891,7 +891,7 @@ class TestWatchdogRespawnRace:
           1. watchdog detects hung binary (stale event/PONG timestamps)
           2. watchdog calls ``stop(shutdown=False)`` for cleanup
           3. main thread calls ``stop()`` concurrently (default
-             ``shutdown=True``) — latches ``_shutdown_requested=True``
+             ``shutdown=True``), latches ``_shutdown_requested=True``
           4. watchdog reaches the respawn check; post-fix it sees the
              latch and returns WITHOUT calling ``start(cb)``.
 
@@ -957,7 +957,7 @@ class TestWatchdogRespawnRace:
         # stop(shutdown=True).
         b._shutdown_requested = True
 
-        # Run the watchdog loop inline (deterministic — no real thread).
+        # Run the watchdog loop inline (deterministic, no real thread).
         # It should reach the respawn path, call stop(shutdown=False)
         # for cleanup, then check _shutdown_requested and return
         # WITHOUT calling start().
@@ -975,7 +975,7 @@ class TestWatchdogRespawnRace:
     def test_watchdog_respawns_when_shutdown_not_requested(self, monkeypatch):
         """FR-21 negative control: when ``_shutdown_requested`` is False
         (no concurrent main-thread shutdown), the watchdog's respawn
-        path MUST still call ``start(cb)`` — the fix must not break the
+        path MUST still call ``start(cb)``, the fix must not break the
         legitimate respawn functionality.
         """
         from unittest.mock import MagicMock
@@ -1181,7 +1181,7 @@ class TestMultiSpecPooling:
 
     def test_extra_matcher_fires_on_matching_event(self, monkeypatch):
         """When the event stream matches an extra matcher's spec, the
-        extra matcher's callback fires — independently of the primary
+        extra matcher's callback fires, independently of the primary
         spec's callback."""
         from voice_typer.server import native_hotkeys
 
@@ -1205,7 +1205,7 @@ class TestMultiSpecPooling:
 
     def test_primary_matcher_fires_for_primary_spec(self, monkeypatch):
         """When the event stream matches the primary spec, the
-        primary callback fires — extra matchers do not interfere."""
+        primary callback fires, extra matchers do not interfere."""
         from voice_typer.server import native_hotkeys
 
         monkeypatch.setattr(native_hotkeys, "is_linux", lambda: True)
@@ -1302,7 +1302,7 @@ class TestMultiSpecPooling:
 
         With ESC + repaste pooled onto the shared dictation backend,
         shutdown calls ``stop()`` on THREE backend objects that all
-        resolve to ONE native subprocess — three identical INFO lines
+        resolve to ONE native subprocess, three identical INFO lines
         for a single teardown. Only the real (non-delegated) backend's
         stop() logs the line."""
         import logging as _logging
@@ -1329,7 +1329,7 @@ class TestMultiSpecPooling:
     def test_delegated_backend_callback_never_invoked(self, monkeypatch):
         """Even if a delegated backend's ``_handle_line`` is called
         directly (e.g. by a stray reader thread), the callback must
-        not fire — the shared backend's extra matcher handles dispatch.
+        not fire, the shared backend's extra matcher handles dispatch.
         This is a defense-in-depth: the delegated backend's reader
         thread doesn't exist in normal operation, but if it did
         (e.g. a race during start/stop), the callback would fire

@@ -2,19 +2,19 @@
 
 Covers four findings from review.md:
 
-* **ER-36** — ``history_db.apply_retention`` only ran at startup.
+* **ER-36**: ``history_db.apply_retention`` only ran at startup.
   ``schedule_periodic_retention`` now exposes a daemon-thread API that
   the startup sequence wires into.
 
-* **ER-53** — ``config._save_locked`` did a redundant backup read+write
+* **ER-53**: ``config._save_locked`` did a redundant backup read+write
   on every save, even when the to-be-written content was byte-identical
   to the previous save. Now skipped via ``_last_saved_bytes`` tracking.
 
-* **ER-78** — ``history_db.add_transcription`` did one INSERT + one
+* **ER-78**: ``history_db.add_transcription`` did one INSERT + one
   COMMIT per queued row. Now batches 3+ pending inserts into a single
   multi-row INSERT inside one transaction.
 
-* **ER-80** — ``secure_file_io._secure_atomic_write`` did 2 fsyncs
+* **ER-80**: ``secure_file_io._secure_atomic_write`` did 2 fsyncs
   unconditionally. New ``durability=False`` keyword skips both.
 """
 
@@ -55,7 +55,7 @@ class TestSchedulePeriodicRetention:
             def _spy_apply_retention(*args, **kwargs):
                 call_count["n"] += 1
                 called_event.set()
-                # Don't actually run the retention sweep — we just want
+                # Don't actually run the retention sweep, we just want
                 # to verify the scheduler called us.
                 return 0
 
@@ -78,7 +78,7 @@ class TestSchedulePeriodicRetention:
             # Wait for the first tick (50ms interval + slack).
             assert called_event.wait(timeout=5.0), (
                 "periodic retention thread did not call apply_retention "
-                "within 5s — the daemon-thread loop is not running."
+                "within 5s, the daemon-thread loop is not running."
             )
             assert call_count["n"] >= 1
         finally:
@@ -102,7 +102,7 @@ class TestSchedulePeriodicRetention:
 
         # The thread should have exited within close()'s 2s join.
         assert not thread.is_alive(), (
-            "periodic retention thread was still alive after close() — "
+            "periodic retention thread was still alive after close(), "
             "close() must signal the stop_event and join the thread."
         )
 
@@ -139,7 +139,7 @@ class TestSchedulePeriodicRetention:
             # Wait for the first retention to start.
             assert in_retention.wait(timeout=5.0)
             # Let several tick intervals pass while the first retention
-            # is still blocking — the re-entrancy guard should skip them.
+            # is still blocking, the re-entrancy guard should skip them.
             time.sleep(0.3)
             # DURING the blocking period, only ONE call should have
             # happened (the first one). All subsequent ticks should have
@@ -147,7 +147,7 @@ class TestSchedulePeriodicRetention:
             with call_lock:
                 n_during_blocking = call_count["n"]
             assert n_during_blocking == 1, (
-                f"ER-36 re-entrancy guard failed — apply_retention was "
+                f"ER-36 re-entrancy guard failed, apply_retention was "
                 f"called {n_during_blocking} times during the 0.3s "
                 f"blocking window (50ms interval → ~6 ticks should "
                 f"have fired, but only 1 call should have run; the rest "
@@ -211,7 +211,7 @@ class TestConfigSaveBackupSkip:
         from voice_typer.server.config import _reset_config_dir_cache
         from voice_typer.server.config_internals import paths as _paths_mod
 
-        # Reset the lru_cache BEFORE replacing the binding — the reset
+        # Reset the lru_cache BEFORE replacing the binding, the reset
         # helper calls ``_config_dir.cache_clear()`` on the REAL function.
         _reset_config_dir_cache()
         monkeypatch.setattr(_paths_mod, "_config_dir", lambda: tmp_config_dir)
@@ -219,7 +219,7 @@ class TestConfigSaveBackupSkip:
 
     def test_backup_read_skipped_on_identical_resave(self, tmp_path, monkeypatch):
         """The second of two identical saves must NOT read ``config.json``
-        for the backup check — ``_last_saved_bytes`` short-circuits the
+        for the backup check: ``_last_saved_bytes`` short-circuits the
         entire backup block."""
         from voice_typer.server.config import Config
 
@@ -241,7 +241,7 @@ class TestConfigSaveBackupSkip:
 
         monkeypatch.setattr(Path, "read_bytes", _counting_read_bytes)
 
-        # Second save with IDENTICAL content — _last_saved_bytes matches.
+        # Second save with IDENTICAL content, _last_saved_bytes matches.
         assert cfg.save() is True
 
         # The backup read should have been skipped (read_count == 0).
@@ -271,13 +271,13 @@ class TestConfigSaveBackupSkip:
         # First save: no prior config.json → no .bak written.
         assert not bak_file.exists()
 
-        # Change a field and save — _last_saved_bytes != new content →
+        # Change a field and save, _last_saved_bytes != new content →
         # backup block runs → .bak written with the previous content.
         cfg.hotkey = "<f4>"
         assert cfg.save() is True
 
         assert bak_file.exists(), (
-            "ER-53: backup block should run when content changes — config.json.bak should exist after the second save."
+            "ER-53: backup block should run when content changes, config.json.bak should exist after the second save."
         )
         # The .bak should hold the PREVIOUS content (hotkey=<f3>).
         bak_data = json.loads(bak_file.read_text())
@@ -288,7 +288,7 @@ class TestConfigSaveBackupSkip:
 
     def test_first_save_does_not_backup(self, tmp_path):
         """The very first save (no prior config.json) never writes a
-        backup — there's nothing to back up."""
+        backup, there's nothing to back up."""
         from voice_typer.server.config import Config
 
         cfg = Config(hotkey="<f3>")
@@ -328,7 +328,7 @@ class TestHistoryDBMultiRowInsertBatching:
                 # ``TRANSCRIPTIONS`` so the schema-init FTS-rebuild
                 # statement (``INSERT INTO transcriptions_fts(
                 # transcriptions_fts) VALUES('rebuild')``) is NOT
-                # counted — it targets the FTS shadow table, not the
+                # counted, it targets the FTS shadow table, not the
                 # transcriptions rows.
                 if "INSERT INTO TRANSCRIPTIONS (" in sql_str.upper():
                     insert_calls.append(sql_str)
@@ -364,7 +364,7 @@ class TestHistoryDBMultiRowInsertBatching:
 
             def execute(self, sql, parameters=()):
                 sql_str = str(sql).strip()
-                # See ExecuteCountingProxy.execute — the space+paren
+                # See ExecuteCountingProxy.execute, the space+paren
                 # marker excludes the FTS-rebuild shadow-table insert.
                 if "INSERT INTO TRANSCRIPTIONS (" in sql_str.upper():
                     self._insert_calls.append(sql_str)
@@ -399,7 +399,7 @@ class TestHistoryDBMultiRowInsertBatching:
 
     def test_three_pending_inserts_are_batched_into_one_multi_row_insert(self, tmp_path, monkeypatch):
         """Submit 3 add_transcription calls in rapid succession (without
-        flushing between them) — the writer should drain them into ONE
+        flushing between them), the writer should drain them into ONE
         multi-row INSERT (one execute call with 3 value-tuples), not 3
         separate INSERTs."""
         db, insert_calls = self._make_execute_counting_db(tmp_path, monkeypatch)
@@ -522,7 +522,7 @@ class TestSecureAtomicWriteDurability:
 
         def _counting_fsync(fd):
             fsync_count["n"] += 1
-            # Don't actually call real fsync — we only care about the
+            # Don't actually call real fsync, we only care about the
             # call count, and the test file is in tmp_path which is
             # already durable enough for test purposes.
 
@@ -576,13 +576,13 @@ class TestSecureAtomicWriteDurability:
         )
 
     def test_durability_false_still_atomic(self, tmp_path, monkeypatch):
-        """``durability=False`` must still be atomic — os.replace is
+        """``durability=False`` must still be atomic, os.replace is
         independent of fsync, so the target file is either the old
         content or the new content, never a partial write.
 
         We verify this by running many writes from multiple threads
         with ``durability=False`` and asserting the final content is
-        valid JSON (one of the writes — never a torn write).
+        valid JSON (one of the writes, never a torn write).
         """
         from voice_typer.server import secure_file_io
 

@@ -17,7 +17,7 @@ from voice_typer.server.dictation_stages import build_default_stages
 
 
 def _make_pipeline() -> DictationPipeline:
-    """Real ``__init__`` (not ``__new__``) — the sharing lives there."""
+    """Real ``__init__`` (not ``__new__``), the sharing lives there."""
     return DictationPipeline(MagicMock())
 
 

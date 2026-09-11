@@ -18,7 +18,7 @@
  *   2. On a SUBSEQUENT render with the SAME props, `t()` is NOT
  *      called for label resolution (the memo cache hits). The
  *      per-row inline `t("...Info")` / `t("...Aria")` calls still
- *      happen (they're not part of the labels memo — they're passed
+ *      happen (they're not part of the labels memo, they're passed
  *      as JSX props on `SettingRow` / `RangeSlider`), but the
  *      label-constant cluster is memoised.
  *   3. When `locale` changes, the labels memo re-resolves (call
@@ -60,7 +60,7 @@ vi.mock("@hugeicons/core-free-icons", async () => {
 function makeStubConfig(): VoiceTyperConfig {
 	return {
 		audio_preset: "custom",
-		// Minimal stub — AudioFilterChain only reads noise_filter_* fields.
+		// Minimal stub, AudioFilterChain only reads noise_filter_* fields.
 		noise_filter_highpass: true,
 		noise_filter_highpass_cutoff_hz: 80,
 		noise_suppression_method: "rnnoise",
@@ -96,7 +96,7 @@ describe("TY-37: AudioFilterChain labels are memoised", () => {
 		// spy intercepts every call.
 		// Spy on the REAL module export so every `t(...)` call the
 		// component makes is recorded (spying on a bare `{ t }` object
-		// never intercepts the imported binding — the count stays 0).
+		// never intercepts the imported binding, the count stays 0).
 		const i18nModule = await import("@/i18n/i18n");
 		tSpy = vi.spyOn(i18nModule, "t");
 		// Reset to a known locale so the test is deterministic.
@@ -129,7 +129,7 @@ describe("TY-37: AudioFilterChain labels are memoised", () => {
 		// (locale is unchanged), so the ~40 label-resolution calls do
 		// NOT repeat. The per-row inline `t("...Info")` /
 		// `t("...Aria")` calls DO repeat (they're not part of the
-		// labels memo) — but the LABEL cluster is memoised.
+		// labels memo), but the LABEL cluster is memoised.
 		rerender(
 			<AudioFilterChain config={config} onConfigChange={onConfigChange} />,
 		);
@@ -140,7 +140,7 @@ describe("TY-37: AudioFilterChain labels are memoised", () => {
 		//constants re-resolved + all inline calls). Post-: the
 		// label cluster (~40 calls) is skipped. We assert that the
 		// second-render call count is LESS THAN the first-render
-		// count — i.e. the memo cache hit.
+		// count, i.e. the memo cache hit.
 		expect(secondRenderCount).toBeLessThan(firstRenderCount);
 	});
 

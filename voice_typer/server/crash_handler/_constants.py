@@ -5,7 +5,7 @@ Status codes, the ``_CRASH_CODES`` frozenset, Win32 file-I/O constants
 retention constants, the VEH message-buffer layout, and pre-encoded
 static byte parts.
 
-No mutable state lives here — only constants. The pre-allocated
+No mutable state lives here, only constants. The pre-allocated
 ``_crash_msg_buf`` bytearray that USED to live here was moved to the
 ``crash_handler`` facade (``__init__.py``) in  alongside the
 other mutable runtime state (kernel32 pointers, file paths, the
@@ -35,7 +35,7 @@ _ARCHIVE_RETENTION_KEEP = 5
 # user. Pre-fix, VEH wrote to the config_dir root and
 # ``report_pending_crash`` MOVED the file to the archive (so the next
 # scan found nothing). Post-fix, VEH writes directly to the archive
-# subdir — without a sidecar marker, the same file would be re-surfaced
+# subdir: without a sidecar marker, the same file would be re-surfaced
 # on every startup. The sidecar is an empty file named
 # ``<crash_file>.reported`` sitting next to the crash file.
 _REPORTED_SIDECAR_SUFFIX = ".reported"
@@ -56,7 +56,7 @@ STATUS_FATAL_APP_EXIT = 0x40000015
 
 # extended coverage for additional fatal Windows exception codes.
 # The original ``_CRASH_CODES`` set (added in ) only covered 4
-# codes — ~11 other fatal exception codes were silently bypassed by the
+# codes, ~11 other fatal exception codes were silently bypassed by the
 # VEH handler, producing no crash_diagnostics.<PID>.txt file for triage.
 # The codes below extend the set to cover the most common fatal SEH
 # exceptions that should trigger crash-diagnostics capture. Debugger
@@ -77,10 +77,10 @@ STATUS_GUARD_PAGE_VIOLATION = 0x80000001
 # OMITTED from ``_CRASH_CODES``. It is a warning-level status code
 # (high bit set = ``severity=warning`` per the Windows NTSTATUS
 # layout), used by the OS for stack-growth probe pages and C-extension
-# guard-page probes — it does NOT terminate the process. Pre-,
+# guard-page probes, it does NOT terminate the process. Pre-,
 # the VEH callback treated it as a crash, set ``_crash_written = True``
 # (which is never reset within the process lifetime), and permanently
-# silenced the VEH for the rest of the session — real crashes during
+# silenced the VEH for the rest of the session, real crashes during
 # the same session left no diagnostic record. The constant + friendly
 # name lookup (``_NAME_GUARD_PAGE``) are kept for back-compat so the
 # VEH callback's elif branch remains a defensive no-op (the
@@ -140,13 +140,13 @@ _HEADER_MAX_MODULES = 100
 # ``_vectored_handler_impl``):
 #   bom          : 3   (UTF-8 BOM)
 #   timestamp    : 23  ("YYYY-MM-DD HH:MM:SS.mmm")
-#   crash_label  : 9   ("  CRASH  " — sep+label+sep)
+#   crash_label  : 9   ("  CRASH  ", sep+label+sep)
 #   code         : 13  ("code=0x" + 8 hex digits)
 #   addr         : 25  (", addr=0x" + 16 hex digits)
 #   pid          : 17  (", pid=0x" + 8 hex digits)
 #   tid          : 17  (", tid=0x" + 8 hex digits)
 #   nl1          : 2   ("\r\n")
-#   name         : 80  (friendly exception name — longest is
+#   name         : 80  (friendly exception name, longest is
 #                       ``_NAME_STACK`` at 60 bytes; 80 leaves headroom)
 #   nl2          : 2   ("\r\n")
 _CRASH_MSG_LAYOUT: list[tuple[str, int]] = [
@@ -173,7 +173,7 @@ _CRASH_MSG_BUF_SIZE = sum(width for _, width in _CRASH_MSG_LAYOUT) + 256
 # to live here has been MOVED to ``crash_handler/__init__.py`` (the
 # facade) alongside the other mutable runtime state. The buffer's
 # contents are mutated in place by ``_vectored_handler_impl`` (via
-# bytearray slice assignment — no heap allocation in the VEH
+# bytearray slice assignment, no heap allocation in the VEH
 # callback), so it is mutable state and belongs with the other
 # mutable state. The reference itself is never reassigned, but
 # co-locating it with the kernel32 pointers / file paths / rate-limit
@@ -274,7 +274,7 @@ _CODE_TO_USER_SUMMARY: dict[int, str] = {
         "or a C extension bug."
     ),
     STATUS_ILLEGAL_INSTRUCTION: (
-        "Illegal instruction (0xC000001D). The CPU executed an invalid opcode — "
+        "Illegal instruction (0xC000001D). The CPU executed an invalid opcode, "
         "likely a C extension ABI mismatch or a corrupted code page."
     ),
     STATUS_INT_DIVIDE_BY_ZERO: (
@@ -282,29 +282,29 @@ _CODE_TO_USER_SUMMARY: dict[int, str] = {
     ),
     STATUS_PRIVILEGED_INSTRUCTION: (
         "Privileged instruction (0xC0000096). User-mode code executed a "
-        "kernel-only CPU instruction — likely a C extension bug."
+        "kernel-only CPU instruction, likely a C extension bug."
     ),
     STATUS_IN_PAGE_ERROR: (
-        "In-page error (0xC0000006). The OS could not load a memory page — "
+        "In-page error (0xC0000006). The OS could not load a memory page, "
         "likely low disk space, disk failure, or quota exhaustion."
     ),
     STATUS_STACK_OVERFLOW: (
-        "Stack overflow (0xC00000FD). The thread exhausted its stack — likely unbounded recursion or a C extension bug."
+        "Stack overflow (0xC00000FD). The thread exhausted its stack, likely unbounded recursion or a C extension bug."
     ),
     STATUS_NONCONTINUABLE_EXCEPTION: (
         "Non-continuable exception (0xC0000025). The process attempted to "
-        "continue after a non-continuable exception — likely a C extension bug."
+        "continue after a non-continuable exception, likely a C extension bug."
     ),
     STATUS_INVALID_HANDLE: (
-        "Invalid handle (0xC0000008). A kernel API received an invalid handle — "
+        "Invalid handle (0xC0000008). A kernel API received an invalid handle, "
         "likely a C extension bug or a race during shutdown."
     ),
     STATUS_DATATYPE_MISALIGNMENT: (
-        "Datatype misalignment (0xC0000002). A misaligned memory access occurred — "
+        "Datatype misalignment (0xC0000002). A misaligned memory access occurred, "
         "likely a C extension bug on an aligned-memory ABI."
     ),
     STATUS_GUARD_PAGE_VIOLATION: (
-        "Guard page violation (0x80000001). A guard page was touched — "
+        "Guard page violation (0x80000001). A guard page was touched, "
         "likely stack growth or a probe from a C extension."
     ),
 }

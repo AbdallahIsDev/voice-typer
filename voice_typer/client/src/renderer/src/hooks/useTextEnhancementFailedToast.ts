@@ -1,4 +1,4 @@
-// useTextEnhancementFailedToast — surfaces backend
+// useTextEnhancementFailedToast, surfaces backend
 // ``text_enhancement_failed`` push events as one actionable in-app
 // toast.
 //
@@ -6,7 +6,7 @@
 // transcription with local grammar/style rules. When that step raises
 // (a broken rule set, an unexpected input) the dictation pipeline
 // swallows the exception and still delivers the RAW transcription
-// (`dictation_pipeline/enhancement_steps.py`) — so without this toast
+// (`dictation_pipeline/enhancement_steps.py`), so without this toast
 // the failure is invisible: the user just sees un-enhanced text with
 // no hint that AI cleanup was skipped.
 //
@@ -21,11 +21,9 @@
 // sonner ``id`` replaces an in-flight toast instead of stacking.
 
 import { usePythonEvent } from "@/hooks/usePython";
+import type { TranslateFn } from "@/i18n/translate-types";
 import { useDegradationToastStore } from "@/stores/degradationToastStore";
 import { SNACKBAR_DEFAULT_DURATION_MS, useSnackbar } from "./useSnackbar";
-
-/** Minimal `t` function type matching i18n.t's signature. */
-type TFn = (key: string, params?: Record<string, string>) => string;
 
 /**
  * Renderer-side cooldown for the enhancement-failure toast. The failure
@@ -41,7 +39,7 @@ const TEXT_ENHANCEMENT_TOAST_COOLDOWN_MS = 300_000;
  *
  * @param t i18n translate function (from useT).
  */
-export function useTextEnhancementFailedToast(t: TFn): void {
+export function useTextEnhancementFailedToast(t: TranslateFn): void {
 	const { showSnack } = useSnackbar();
 	usePythonEvent("text_enhancement_failed", (): (() => void) | undefined => {
 		const now = Date.now();

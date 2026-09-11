@@ -1,4 +1,4 @@
-"""Tests for recording module — device resolution."""
+"""Tests for recording module: device resolution."""
 
 import sys
 from unittest.mock import MagicMock
@@ -425,7 +425,7 @@ class TestStopCallbackBackoff:
 
     Round 0 forward-port: the manual poll loop was REMOVED because
     PortAudio's ``stream.stop()`` already blocks until the in-flight
-    callback returns — the manual poll was redundant and added up to
+    callback returns, the manual poll was redundant and added up to
     300ms of latency on every F2-press-to-stop.  These tests were
     updated to verify the new contract:
     1. 0ms common case (flag already clear → no wait, stream.stop called).
@@ -437,7 +437,7 @@ class TestStopCallbackBackoff:
 
     def test_zero_ms_common_case_when_flag_already_clear(self, monkeypatch):
         """When _is_in_audio_callback is NOT set (no callback in flight),
-        the polling loop exits immediately on the first check — 0ms wait."""
+        the polling loop exits immediately on the first check, 0ms wait."""
         from voice_typer.server.recording import Recorder
 
         config = MagicMock(sample_rate=16000, microphone=None)
@@ -464,7 +464,7 @@ class TestStopCallbackBackoff:
         """When ``_is_in_audio_callback`` IS set (callback in flight),
         ``stop()`` delegates to ``stream.stop()`` which itself blocks until
         the in-flight callback returns (PortAudio contract).  No manual
-        poll loop is needed — Round 0 forward-port removed the redundant
+        poll loop is needed, Round 0 forward-port removed the redundant
         300ms poll."""
         from voice_typer.server.recording import Recorder
 
@@ -477,7 +477,7 @@ class TestStopCallbackBackoff:
         r._audio_pipeline._buffer = [np.array([[1.0]], dtype=np.float32)]
 
         # Set the flag (callback in flight).  stream.stop() (a MagicMock)
-        # returns immediately without clearing the flag — that's fine
+        # returns immediately without clearing the flag, that's fine
         # because the new contract trusts PortAudio to drain the callback.
         r._is_in_audio_callback.set()
 
@@ -506,7 +506,7 @@ class TestStopCallbackBackoff:
 
         PERF-(Round 0 forward-port) re-introduced the manual
         poll loop after discovering PortAudio's ``stream.stop()`` does
-        not always drain the in-flight callback before returning — the
+        not always drain the in-flight callback before returning, the
         poll is a safety net against use-after-free in ``stream.close()``.
         See ``_teardown_stream`` docstring (recording.py:1563) for the
         full AUDIO-009/AUDIO-015 history.
@@ -546,14 +546,14 @@ class TestStopCallbackBackoff:
         r.stop()
         elapsed = real_time.perf_counter() - t0
 
-        # The poll loop ran — sleep was called while the callback flag
+        # The poll loop ran, sleep was called while the callback flag
         # was set.
         assert len(sleep_calls) > 0, (
             f"Expected poll loop to run with callback flag set, got {len(sleep_calls)} sleep calls"
         )
         # The 300ms hard deadline bounded the wait. 1.0s gives ample
         # headroom over the 300ms budget + per-iteration overhead.
-        assert elapsed < 1.0, f"stop() took {elapsed:.3f}s — expected < 1.0s (300ms poll budget + overhead)"
+        assert elapsed < 1.0, f"stop() took {elapsed:.3f}s, expected < 1.0s (300ms poll budget + overhead)"
         # Stream was fully torn down: close() called, _stream set to None.
         assert r._stream_lifecycle._stream is None, (
             f"Expected r._stream_lifecycle._stream to be None after stop(), got {r._stream_lifecycle._stream!r}"
@@ -775,7 +775,7 @@ class TestResampleFallback:
         # use time.monotonic() to match the source code at
         # recording.py:163 (which reads time.monotonic() - error_time).
         # Pre-fix this used time.time() (wall clock) which differs from
-        # the monotonic clock by an arbitrary offset — under NTP/DST
+        # the monotonic clock by an arbitrary offset, under NTP/DST
         # adjustments the wall clock can jump backwards and cause the
         # retry-timeout comparison to behave unexpectedly.
         monkeypatch.setattr(
@@ -1049,7 +1049,7 @@ class TestScipyPreloaderDeferredSpawn:
         """
         from voice_typer.server import recording
 
-        # Reset state — other tests may have left a preloader running.
+        # Reset state, other tests may have left a preloader running.
         monkeypatch.setattr(recording.resampling, "_scipy_preloader_thread", None)
         monkeypatch.setattr(recording.resampling, "_resample_poly", None)
 
@@ -1062,7 +1062,7 @@ class TestScipyPreloaderDeferredSpawn:
 
         # Second call: if first is still alive, must be a no-op.
         # If first has exited but _resample_poly is still None (failed),
-        # a new thread is allowed — but we patch is_alive to True to
+        # a new thread is allowed, but we patch is_alive to True to
         # simulate "still loading" and verify idempotency.
         import unittest.mock as _mock
 
@@ -1076,7 +1076,7 @@ class TestScipyPreloaderDeferredSpawn:
 
     def test_start_scipy_preloader_skips_when_scipy_already_loaded(self, monkeypatch):
         """If scipy already loaded successfully (cached), don't spawn a
-        new preloader thread — it would be a wasted thread.
+        new preloader thread, it would be a wasted thread.
         """
         from voice_typer.server import recording
 
@@ -1096,7 +1096,7 @@ class TestScipyPreloaderDeferredSpawn:
 class TestRec1StaleWorkerGuard:
     """when ``_stop_audio_worker``'s join times out (worker still
     alive), the stop event must NOT be cleared and the thread reference
-    must NOT be nulled — otherwise the next ``_start_audio_worker``
+    must NOT be nulled, otherwise the next ``_start_audio_worker``
     spawns a SECOND worker that races with the stale one on the same
     ring buffer (SPSC invariant violation).
     """
@@ -1135,7 +1135,7 @@ class TestRec1StaleWorkerGuard:
             "regression: _stop_audio_worker nulled the thread "
             "reference even though the worker is still alive. The next "
             "_start_audio_worker would think no worker exists and spawn "
-            "a second one — SPSC invariant violation."
+            "a second one. SPSC invariant violation."
         )
 
     def test_start_audio_worker_creates_fresh_events_for_stale_worker(self, monkeypatch):
@@ -1259,18 +1259,18 @@ class TestRec2StartRollbackOnWorkerFailure:
 
         # stream must be torn down.
         assert len(teardown_calls) >= 1, (
-            "regression: start() did not call _teardown_stream() on worker-start failure — leaked PortAudio stream."
+            "regression: start() did not call _teardown_stream() on worker-start failure, leaked PortAudio stream."
         )
         # recording event must be cleared.
         assert not r._recording_event.is_set(), (
             "regression: _recording_event was not cleared after "
-            "worker-start failure — recorder stuck in 'recording' state."
+            "worker-start failure, recorder stuck in 'recording' state."
         )
         # stop_generation must be bumped so stale disconnect
         # handlers bail out.
         assert r._stop_generation == gen_before + 1, (
             "regression: _stop_generation was not incremented after "
-            "worker-start failure — stale disconnect handlers may race."
+            "worker-start failure, stale disconnect handlers may race."
         )
         # Stream reference must be None.
         assert r._stream_lifecycle._stream is None
@@ -1564,7 +1564,7 @@ class TestRec7DelCleanup:
         """__del__ must be safe to call on a partially-constructed instance."""
         from voice_typer.server.recording import Recorder
 
-        # Create a Recorder without calling __init__ — simulates
+        # Create a Recorder without calling __init__, simulates
         # GC during a partially-failed construction.
         r = Recorder.__new__(Recorder)
         # __del__ must not raise even with missing attributes.
@@ -1633,7 +1633,7 @@ class TestRec8BufferOpsLocked:
         # The buffer swap (``recorder._audio_pipeline._buffer = _fresh_recording_buffer_like(...)``)
         # is wrapped in ``with recorder._audio_pipeline._lock:`` at BOTH sites that
         # perform it: ``discard_recording`` (the discard path) and
-        # ``stop_recording`` (the stop path — O(1) fresh-buffer swap
+        # ``stop_recording`` (the stop path, O(1) fresh-buffer swap
         # inside the lock; the old buffer is frozen and exported outside
         # it). Verify the literal pair at each site so a future
         # regression that drops the lock acquisition on either path
@@ -1707,7 +1707,7 @@ class TestAudio69RebuildOnSampleRateMismatch:
         # Attach a mock audio processor built for 16 kHz.
         audio_proc = MagicMock()
         audio_proc._sample_rate = 16000
-        # set_sample_rate is NOT available pre- — previously the
+        # set_sample_rate is NOT available pre-, previously the
         # fallback path would have called rebuild_from_config.
         del audio_proc.set_sample_rate
         r._audio_processor = audio_proc
@@ -1804,7 +1804,7 @@ class TestAudio69RebuildOnSampleRateMismatch:
         r = Recorder(config)
         audio_proc = MagicMock()
         audio_proc._sample_rate = 16000
-        # set_sample_rate IS available — previously start() would have
+        # set_sample_rate IS available, previously start() would have
         # preferred it. After the refactor it's never called.
         audio_proc.set_sample_rate = MagicMock()
         r._audio_processor = audio_proc
@@ -1881,7 +1881,7 @@ class TestPrerollDurationAtNativeRates:
     audio), not a chunk count computed for a fixed 512-sample block.
 
     The stream delivers ~32 ms chunks at every native rate
-    (``scaled_audio_blocksize`` — 512 @ 16 kHz, 1536 @ 48 kHz). With the
+    (``scaled_audio_blocksize``, 512 @ 16 kHz, 1536 @ 48 kHz). With the
     stream scaled but the pre-roll math still fixed-512, a 1.0 s
     pre-roll over-captured ~3.04 s of pre-speech audio at 48 kHz
     (~6.1 s at 96 kHz).
@@ -1910,7 +1910,7 @@ class TestPrerollDurationAtNativeRates:
             # sizing slack) at every native rate.
             assert 0.95 <= duration_s <= 1.15, (
                 f"At {native_rate}Hz the pre-roll deque holds {actual_maxlen} "
-                f"chunks × {blocksize} samples = {duration_s:.3f}s — must be "
+                f"chunks × {blocksize} samples = {duration_s:.3f}s, must be "
                 f"≈ the configured 1.0s (a fixed-512 chunk count would "
                 f"over-capture ~3× once the stream scales its blocks)."
             )

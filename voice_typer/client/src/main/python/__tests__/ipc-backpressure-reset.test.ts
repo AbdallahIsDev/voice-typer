@@ -2,8 +2,8 @@
 /**
  *  regression test: `_resetIpcBackpressure()` (renamed from
  * `_resetIpcBackpressureForTests`) is called from production code
- * paths — specifically `stopPython()` and `relaunchApp()` (both dev
- * and prod branches) — so the per-renderer rate-limit Map does not
+ * paths, specifically `stopPython()` and `relaunchApp()` (both dev
+ * and prod branches), so the per-renderer rate-limit Map does not
  * leak entries for destroyed BrowserWindows.
  *
  * Pre-fix, the function existed but had zero production call sites
@@ -11,7 +11,7 @@
  * callers). Each destroyed BrowserWindow leaked its `webContents.id`
  * entry in the Map forever.
  *
- * Post-fix, the function is renamed (no `ForTests` suffix — it's no
+ * Post-fix, the function is renamed (no `ForTests` suffix, it's no
  * longer test-only) and called from:
  *   - `stopPython()` (after the idempotency guard, before any
  *     early-return path).
@@ -72,7 +72,7 @@ vi.mock("electron", () => ({
 }));
 vi.mock("../../state", () => ({ state: mockState }));
 vi.mock("../start-python", () => ({ startPython: mockStartPython }));
-// stop-python is the SUT for the two stopPython() tests below — they
+// stop-python is the SUT for the two stopPython() tests below, they
 // need the REAL module. vi.mock is hoisted above the imports, so the
 // real implementation can't be captured in the factory; those tests
 // load it directly via `vi.importActual("../stop-python")` (bypasses
@@ -80,7 +80,7 @@ vi.mock("../start-python", () => ({ startPython: mockStartPython }));
 // file's mocks of ../state and ../tcp-connect active for its
 // transitive imports). A per-test flag read inside an async
 // importOriginal factory was tried first, but vitest memoizes a mock
-// factory's result at first import — the flag never re-evaluated, so
+// factory's result at first import, the flag never re-evaluated, so
 // the real module was unreachable. The placeholder below covers every
 // plain import site (relaunch-app's transitive imports), and the
 // real-module tests opt out explicitly instead of re-mocking inside
@@ -216,7 +216,7 @@ describe("TY-35: _resetIpcBackpressure is wired to production call sites", () =>
 		// stay mocked for its transitive imports).
 		const { stopPython } =
 			await vi.importActual<typeof import("../stop-python")>("../stop-python");
-		// No pythonProcess — the function will early-return at the
+		// No pythonProcess, the function will early-return at the
 		// `!state.pythonProcess` guard. The backpressure reset MUST
 		// have fired before that guard.
 		mockState.pythonProcess = null;

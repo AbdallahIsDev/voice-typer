@@ -7,25 +7,25 @@ Covers three focused contracts:
     ``take_snapshot`` must serve every no-resample snapshot as a zero-copy
     view over ONE pre-allocated growable float32 buffer, and must NOT
     accumulate per-snapshot state (the historical segment-list +
-    lazy-concat caches are gone — replaced by the contiguous storage whose
+    lazy-concat caches are gone, replaced by the contiguous storage whose
     geometric growth is amortized O(1) per appended sample). These tests
     replace the former ``TestSegmentListCompaction`` pins: the segment
     machinery (and its ``_SEGMENT_LIST_COMPACTION_THRESHOLD == 64``
     constant) was REMOVED by the single-contiguous-storage redesign, which
     makes unbounded per-snapshot list growth impossible by construction.
 
-(b) ** — teardown poll skip fast-path** (latency):
+(b) **, teardown poll skip fast-path** (latency):
     ``StreamLifecycle.teardown_stream_body`` must skip the 300ms
     callback-drain poll (the ``time.perf_counter()`` deadline +
     ``time.sleep`` poll loop) entirely when
     ``recorder._is_in_audio_callback`` is already clear on the first
     check. The existing ``while`` loop already short-circuits on the
     first iteration, but the explicit ``if`` guard also skips the
-    deadline arithmetic — a tiny but non-zero saving on every
+    deadline arithmetic, a tiny but non-zero saving on every
     ``stop()`` (the common case is that the RT callback has already
     returned by the time teardown runs).
 
-(c) ** — ``_prepare_audio`` pipelining** (latency):
+(c) **: ``_prepare_audio`` pipelining** (latency):
     ``stop_recording`` must start ``_prepare_audio`` (the resample)
     on a background thread so it overlaps with the RMS / peak /
     silence_pct stats computation. The resample (~200 ms for 30 s of
@@ -41,8 +41,8 @@ contract test (``tests/test_recorder_split_start.py::
 TestResamplerWarmUp``) and the full fix required modifying
 ``Recorder.__init__`` in ``recorder.py`` (out of that sub-agent's
 owned files). The hotkey-path warm-up has since been made
-preloader-aware — ``start_recording`` skips the synchronous call while
-the ``__init__``-spawned scipy preloader thread is still alive — and
+preloader-aware: ``start_recording`` skips the synchronous call while
+the ``__init__``-spawned scipy preloader thread is still alive, and
 that policy is pinned by
 ``tests/recording/test_recorder_start_critical_path.py``. The
 pipelining test below substitutes for (c) —
@@ -65,7 +65,7 @@ from voice_typer.server.recording.stream_lifecycle import StreamLifecycle
 
 # ── Module-level ``prepare_audio`` interception ───────────────────
 # ``stop_recording`` invokes the free function ``prepare_audio``
-# (imported at :mod:`._recorder_split` module level) — the historical
+# (imported at :mod:`._recorder_split` module level), the historical
 # ``Recorder._prepare_audio`` delegator was removed.
 
 _prepare_audio_mock_holder: dict = {}
@@ -89,7 +89,7 @@ def _prep() -> MagicMock:
 
 
 # ---------------------------------------------------------------------------
-# (a) contiguous snapshot storage — no per-snapshot growth
+# (a) contiguous snapshot storage, no per-snapshot growth
 # ---------------------------------------------------------------------------
 
 
@@ -126,7 +126,7 @@ def _make_recorder_for_snapshot(
     rec._cached_no_resample_arr = None
     rec._cached_no_resample_segments = []
     rec._cached_no_resample_concat_dirty = False
-    # ``_buffer_sr`` defaults to None — ``take_snapshot`` falls back to
+    # ``_buffer_sr`` defaults to None: ``take_snapshot`` falls back to
     # ``_effective_sr`` via the ``getattr(recorder, "_buffer_sr", None)
     # or recorder._effective_sr`` idiom.
     rec._audio_pipeline._buffer_sr = effective_sr if effective_sr is not None else sample_rate
@@ -149,7 +149,7 @@ class TestContiguousSnapshotStorage:
 
     def test_no_resample_snapshots_leave_no_per_snapshot_state(self):
         """After many snapshots with new chunks on the no-resample path
-        (the COMMON production path), no segment list may grow — the
+        (the COMMON production path), no segment list may grow, the
         snapshot must be served from the single contiguous buffer."""
         sample_rate = 16000
         rec = _make_recorder_for_snapshot(sample_rate=sample_rate, effective_sr=sample_rate)
@@ -173,7 +173,7 @@ class TestContiguousSnapshotStorage:
             )
 
         assert rec._cached_resampled_segments == [], (
-            "contiguous storage: _cached_resampled_segments must stay empty — "
+            "contiguous storage: _cached_resampled_segments must stay empty, "
             "per-snapshot segment accumulation is the ~3x memory multiplier "
             "regression this design eliminates."
         )
@@ -229,7 +229,7 @@ class TestContiguousSnapshotStorage:
 
     def test_compaction_preserves_snapshot_values(self):
         """After many snapshots, the snapshot must still return the
-        correct concatenated audio — the storage must not lose or
+        correct concatenated audio, the storage must not lose or
         duplicate any samples. This pins the data-correctness
         invariant across growth reallocations."""
         sample_rate = 16000
@@ -277,7 +277,7 @@ class TestContiguousSnapshotStorage:
 
 
 # ---------------------------------------------------------------------------
-# (b)  — teardown poll skip when callback clear
+# (b), teardown poll skip when callback clear
 # ---------------------------------------------------------------------------
 
 
@@ -285,12 +285,12 @@ def _make_recorder_for_teardown(*, callback_in_flight: bool) -> MagicMock:
     """Build a mock recorder for ``StreamLifecycle.teardown_stream_body``.
 
     ``callback_in_flight`` controls whether ``_is_in_audio_callback``
-    is set (True) or clear (False) on the first check — the fast-path
+    is set (True) or clear (False) on the first check, the fast-path
     fires only when it's clear.
     """
     rec = MagicMock(name="recorder")
     # STATE-OWNERSHIP: the PortAudio ``_stream`` slot lives on the
-    # owning ``StreamLifecycle`` — each test constructs it and sets
+    # owning ``StreamLifecycle``, each test constructs it and sets
     # ``lifecycle._stream`` explicitly (the mock's auto-vivified
     # ``_stream_lifecycle`` attribute is NOT the real collaborator).
     # ``_is_in_audio_callback`` is a ``threading.Event``. ``is_set()``
@@ -343,7 +343,7 @@ class TestTeardownPollSkipFastPath:
             fake_perf_counter,
         )
 
-        # CLEAN path (force=False) — the fast-path under test.
+        # CLEAN path (force=False), the fast-path under test.
         lifecycle.teardown_stream_body(rec, force=False)
 
         assert sleep_calls == [], (
@@ -352,7 +352,7 @@ class TestTeardownPollSkipFastPath:
             "fast-path must skip the entire poll loop."
         )
         # perf_counter is called once at the start of teardown_stream_body
-        # (no — actually the body doesn't call perf_counter; only the
+        # (no, actually the body doesn't call perf_counter; only the
         # poll loop does). The fast-path must skip the deadline
         # computation entirely, so perf_counter must NOT be called
         # for the deadline. (We allow zero calls because the body
@@ -405,7 +405,7 @@ class TestTeardownPollSkipFastPath:
 
     def test_force_path_skips_poll_when_callback_clear(self, monkeypatch):
         """The force=True path (disconnect recovery) must also skip
-        the poll when the callback is clear — mirrors the CLEAN path
+        the poll when the callback is clear, mirrors the CLEAN path
         fast-path."""
         rec = _make_recorder_for_teardown(callback_in_flight=False)
         lifecycle = StreamLifecycle(rec)
@@ -429,7 +429,7 @@ class TestTeardownPollSkipFastPath:
     def test_returns_early_when_stream_is_none(self):
         """Idempotent contract: when ``_stream`` is None, the body
         must return immediately without touching the callback flag or
-        calling any stream methods. (Existing contract — pinned here
+        calling any stream methods. (Existing contract, pinned here
         so the fast-path refactor doesn't break it.)"""
         rec = _make_recorder_for_teardown(callback_in_flight=False)
         rec._stream_lifecycle._stream = None
@@ -443,7 +443,7 @@ class TestTeardownPollSkipFastPath:
 
 
 # ---------------------------------------------------------------------------
-# (c)  — _prepare_audio pipelining
+# (c), _prepare_audio pipelining
 # ---------------------------------------------------------------------------
 
 
@@ -496,7 +496,7 @@ class TestStopRecordingPrepareAudioPipelining:
     background thread so it overlaps with the RMS / peak / silence_pct
     stats computation. The method-call order contract
     (``secure_clear_caches`` → ``prepare_audio``) is preserved, but
-    the resample runs concurrently with the stats — cutting the
+    the resample runs concurrently with the stats, cutting the
     worst-case stop() tail by the smaller of the two."""
 
     def test_prepare_audio_called_exactly_once(self):
@@ -512,7 +512,7 @@ class TestStopRecordingPrepareAudioPipelining:
         """The resample thread must receive the captured
         ``_buffer_sr`` (the rate the audio was appended at), NOT
         ``_effective_sr``. This is the XV-31 chipmunk-voice regression
-        guard — re-pinned here because the pipelining moves the call
+        guard, re-pinned here because the pipelining moves the call
         onto a background thread where the captured local could be
         lost if the thread closure is mis-wired."""
         rec = _build_mock_recorder_for_stop(
@@ -527,7 +527,7 @@ class TestStopRecordingPrepareAudioPipelining:
             f"XV-31 regression: _prepare_audio was called with "
             f"effective_sr={effective_sr_passed}, expected 16000 (the "
             f"captured _buffer_sr). The pipelining closure must capture "
-            f"the local — using _effective_sr (48000) would decimate "
+            f"the local, using _effective_sr (48000) would decimate "
             f"the already-16 kHz audio 3:1 → chipmunk voice."
         )
 
@@ -535,7 +535,7 @@ class TestStopRecordingPrepareAudioPipelining:
         """The return value of ``_prepare_audio`` must be the return
         value of ``stop_recording`` (the resampled audio). The
         pipelining must capture the thread's return value and return
-        it from ``stop_recording`` — not the original pre-resample
+        it from ``stop_recording``, not the original pre-resample
         array."""
         rec = _build_mock_recorder_for_stop(
             buffer_chunks=[np.ones(50, dtype=np.float32) * 0.5],
@@ -556,12 +556,12 @@ class TestStopRecordingPrepareAudioPipelining:
 
     def test_stats_overlap_with_prepare_audio(self, monkeypatch):
         """``_prepare_audio`` (on the resample thread) must OVERLAP
-        the stats computation — proven deterministically, without
+        the stats computation, proven deterministically, without
         wall-clock thresholds.
 
         The previous version asserted total ``stop_recording()`` wall
         time < 300ms; it flaked under full-suite parallel load
-        (observed 511ms on a loaded host — the simulated 100ms
+        (observed 511ms on a loaded host, the simulated 100ms
         resample alone already exceeds any scheduler guarantee, so the
         assertion measured machine load, not pipelining). It also
         could NOT catch its own named regression: stats on a 100K-
@@ -575,7 +575,7 @@ class TestStopRecordingPrepareAudioPipelining:
 
         ``prepare_started`` is recorded on the resample thread's first
         line; ``prepare_finished`` after its 2s simulated resample;
-        ``stats_started`` is the main thread's first stats op — the
+        ``stats_started`` is the main thread's first stats op, the
         ``np.dot`` RMS call, verified to be the ONLY ``np.dot`` call
         in the mocked ``stop_recording`` path (probed: 1 call, ~1ms in).
         Sequential regression → stats precede the thread → first
@@ -609,13 +609,13 @@ class TestStopRecordingPrepareAudioPipelining:
         assert "prepare_started" in times and "stats_started" in times
         assert times["prepare_started"] <= times["stats_started"], (
             " regression: the stats computation started BEFORE the "
-            "resample thread — _prepare_audio is NOT pipelined. The "
+            "resample thread, _prepare_audio is NOT pipelined. The "
             "resample thread must be started BEFORE the stats "
             "computation."
         )
         assert times["stats_started"] < times["prepare_finished"], (
             " regression: the stats computation finished after the "
-            "resample — they did NOT overlap. The resample thread "
+            "resample, they did NOT overlap. The resample thread "
             "must be started BEFORE the stats computation."
         )
 
@@ -678,7 +678,7 @@ class TestStopRecordingPrepareAudioPipelining:
         assert observed == expected_order, (
             f"stop_recording step order mismatch: expected {expected_order}, "
             f"got {observed}. The pipelining must preserve the "
-            f"source-order contract — _prepare_audio must START after "
+            f"source-order contract, _prepare_audio must START after "
             f"secure_clear_caches (the thread is started after the "
             f"concat, which is after the lock release)."
         )

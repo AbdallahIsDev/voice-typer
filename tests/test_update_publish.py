@@ -1,11 +1,11 @@
-"""§10.1 — tests for the GitHub Releases publisher (``publish_pack_release.py``).
+"""§10.1: tests for the GitHub Releases publisher (``publish_pack_release.py``).
 
 Covers the CI-side publisher that uploads the slim-core installer + pack
 onefile + ``pack-manifest.json`` as GitHub Release assets.
 
 Two backends are tested:
-  * ``gh`` CLI backend — mocks ``subprocess.run`` to avoid spawning ``gh``.
-  * GitHub REST API backend — mocks ``urllib.request.urlopen`` to avoid
+  * ``gh`` CLI backend, mocks ``subprocess.run`` to avoid spawning ``gh``.
+  * GitHub REST API backend, mocks ``urllib.request.urlopen`` to avoid
     real HTTP.
 
 The tests verify:
@@ -15,7 +15,8 @@ The tests verify:
     clobbers existing ones).
   * Backend auto-selection (``gh`` when available, ``api`` when not).
   * API backend token handling (``GH_TOKEN`` / ``GITHUB_TOKEN`` env vars).
-  * Asset-name templates (C-CI-13 — the new artifact-naming convention).
+  * Asset-name builders (C-CI-13, the §11.9 naming derived from the
+    canonical ``scripts/build/artifact_names.py``).
 """
 
 from __future__ import annotations
@@ -43,8 +44,8 @@ def fake_assets(tmp_path: Path) -> dict[str, Path]:
     """Create fake asset files for testing."""
     files: dict[str, Path] = {}
     for name, content in [
-        ("VoiceTyper-Setup-1.2.3.exe", b"fake-nsis-installer"),
-        ("pack-1.2.3.zip", b"fake-pack-zip"),
+        ("voice-typer-slim-core-1.2.3-x86_64-pc-windows-msvc.exe", b"fake-nsis-installer"),
+        ("voice-typer-runtime-pack-3-x86_64-pc-windows-msvc.zip", b"fake-pack-zip"),
         (
             "pack-manifest.json",
             json.dumps(
@@ -121,7 +122,7 @@ def fake_runner_release_exists():
 
 
 class TestValidateAssets:
-    """``validate_assets`` — rejects missing / empty / directory assets."""
+    """``validate_assets``, rejects missing / empty / directory assets."""
 
     def test_valid_assets_pass(self, fake_assets: dict[str, Path]):
         errors = pub.validate_assets(list(fake_assets.values()))
@@ -499,37 +500,49 @@ class TestBackendAutoSelection:
         mock_api.assert_called_once()
 
 
-# ── Asset-name templates (C-CI-13) ─────────────────────────────────────
+# ── Asset-name builders (C-CI-13, §11.9 canonical) ──────────────────────
 
 
-class TestAssetNameTemplates:
-    """The asset-name templates follow the C-CI-13 convention.
+class TestAssetNameBuilders:
+    """The publisher's asset-name reference is DERIVED from the canonical
+    §11.9 naming module (``scripts/build/artifact_names.py``).
 
-    The publisher does NOT enforce these names — it uploads whatever
-    paths the caller passes. The templates are documented constants so
-    CI workflows + the docs can reference them consistently.
+    The publisher does NOT enforce these names, it uploads whatever
+    paths the caller passes. The builders are re-exported so CI
+    workflows + the docs can construct the expected names consistently;
+    importing (rather than copying) the canonical functions means this
+    module cannot drift from ``artifact_names.py``.
     """
 
-    def test_pack_onefile_template(self):
-        assert pub.ASSET_NAME_TEMPLATES["pack_onefile"] == "pack-{version}.zip"
+    def test_slim_core_builder_matches_canonical_naming(self):
+        builder = pub.ASSET_NAME_BUILDERS["slim_core"]
+        assert builder("1.2.3", "x86_64-pc-windows-msvc") == "voice-typer-slim-core-1.2.3-x86_64-pc-windows-msvc.exe"
+        assert builder("1.2.3", "aarch64-apple-darwin") == "voice-typer-slim-core-1.2.3-aarch64-apple-darwin"
 
-    def test_pack_manifest_template_is_not_versioned(self):
-        """The manifest is NOT versioned — ``releases/latest/download/pack-manifest.json``
+    def test_runtime_pack_builder_matches_canonical_naming(self):
+        builder = pub.ASSET_NAME_BUILDERS["runtime_pack"]
+        assert builder("3", "x86_64-pc-windows-msvc") == "voice-typer-runtime-pack-3-x86_64-pc-windows-msvc.zip"
+        assert builder("3", "aarch64-unknown-linux-gnu") == "voice-typer-runtime-pack-3-aarch64-unknown-linux-gnu.zip"
+
+    def test_pack_manifest_builder_is_not_versioned(self):
+        """The manifest is NOT versioned: ``releases/latest/download/pack-manifest.json``
         serves the latest release's manifest."""
-        assert pub.ASSET_NAME_TEMPLATES["pack_manifest"] == "pack-manifest.json"
+        assert pub.ASSET_NAME_BUILDERS["pack_manifest"]() == "pack-manifest.json"
 
-    def test_slim_core_windows_template(self):
-        assert pub.ASSET_NAME_TEMPLATES["slim_core_windows"] == "VoiceTyper-Setup-{version}.exe"
+    def test_full_offline_builder_matches_canonical_naming(self):
+        builder = pub.ASSET_NAME_BUILDERS["full_offline"]
+        assert builder("1.2.3", "x86_64-pc-windows-msvc") == "voice-typer-full-offline-1.2.3-x86_64-pc-windows-msvc.exe"
 
-    def test_slim_core_macos_template_includes_arch(self):
-        template = pub.ASSET_NAME_TEMPLATES["slim_core_macos"]
-        assert "{arch}" in template
-        assert "{version}" in template
+    def test_builders_are_imported_from_the_canonical_module(self):
+        """The builders must BE the canonical functions (imported, not
+        copied) so the publisher's naming reference can never drift from
+        ``scripts/build/artifact_names.py``."""
+        from scripts.build import artifact_names
 
-    def test_slim_core_linux_template_includes_arch(self):
-        template = pub.ASSET_NAME_TEMPLATES["slim_core_linux"]
-        assert "{arch}" in template
-        assert "{version}" in template
+        assert pub.ASSET_NAME_BUILDERS["slim_core"] is artifact_names.slim_core_installer_name
+        assert pub.ASSET_NAME_BUILDERS["runtime_pack"] is artifact_names.runtime_pack_name
+        assert pub.ASSET_NAME_BUILDERS["pack_manifest"] is artifact_names.pack_manifest_name
+        assert pub.ASSET_NAME_BUILDERS["full_offline"] is artifact_names.full_offline_installer_name
 
 
 # ── Defaults ───────────────────────────────────────────────────────────
@@ -570,7 +583,7 @@ class TestCli:
                 "--tag",
                 "v1.2.3",
                 "--pack-onefile",
-                str(fake_assets["pack-1.2.3.zip"]),
+                str(fake_assets["voice-typer-runtime-pack-3-x86_64-pc-windows-msvc.zip"]),
                 "--notes",
                 "some notes",
                 "--notes-file",
@@ -596,7 +609,7 @@ class TestCli:
                     "--tag",
                     "v1.2.3",
                     "--pack-onefile",
-                    str(fake_assets["pack-1.2.3.zip"]),
+                    str(fake_assets["voice-typer-runtime-pack-3-x86_64-pc-windows-msvc.zip"]),
                     "--pack-manifest",
                     str(fake_assets["pack-manifest.json"]),
                     "--repo",
@@ -677,7 +690,7 @@ class TestPublishResultDataclass:
             success=True,
             tag="v1.2.3",
             release_url="https://github.com/owner/repo/releases/tag/v1.2.3",
-            uploaded=["pack-1.2.3.zip"],
+            uploaded=["voice-typer-runtime-pack-3-x86_64-pc-windows-msvc.zip"],
             backend="gh",
         )
         d = asdict(result)

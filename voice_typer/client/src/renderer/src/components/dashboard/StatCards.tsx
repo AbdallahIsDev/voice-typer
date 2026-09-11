@@ -30,7 +30,7 @@ export function formatCompactNumber(n: number): string {
 // the new keys.
 
 // Card labels are i18n-driven. We look up the translation key at
-// render time so the active locale is always reflected — the previous
+// render time so the active locale is always reflected, the previous
 // implementation hard-coded English strings, which broke i18n for es /
 // fr / de / ar / hi / zh users.
 const CARDS: {

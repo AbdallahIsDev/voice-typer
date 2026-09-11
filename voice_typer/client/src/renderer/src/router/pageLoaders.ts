@@ -1,16 +1,16 @@
-// router/pageLoaders.ts — the SINGLE lazy-import registry for the
+// router/pageLoaders.ts, the SINGLE lazy-import registry for the
 // secondary route chunks.
 //
 // Previously the registry was maintained TWICE: PageSwitch.tsx
 // declared nine `lazy(() => import("@/pages/X"))` components while
 // prefetch.ts kept its own nine-entry `PAGE_LOADERS` map of the SAME
-// import specifiers — the two lists could (and did) drift silently.
+// import specifiers, the two lists could (and did) drift silently.
 // This module is now the one source of truth:
 //
-//   - `PAGE_LOADERS` — the raw chunk loaders (one `import()` per
+//   - `PAGE_LOADERS`, the raw chunk loaders (one `import()` per
 //     secondary page). `router/prefetch.ts` warms these at idle and
 //     on sidebar hover.
-//   - `LAZY_PAGES` — the `React.lazy` components created ONCE at
+//   - `LAZY_PAGES`, the `React.lazy` components created ONCE at
 //     module scope from the same loaders. `router/PageSwitch.tsx`
 //     renders these; because React.lazy latches the resolved module,
 //     a chunk warmed via `PAGE_LOADERS` and later rendered via
@@ -30,14 +30,14 @@
 // Adding a page: add the literal to the `Page` union in
 // `types/ipc.ts`, add a `RouteDef` to `router/routes.ts`, add an
 // entry here (if the page gets its own chunk), and add a `case` to
-// `PageSwitch`'s switch (component wiring — legitimate routing
+// `PageSwitch`'s switch (component wiring, legitimate routing
 // logic, not registry duplication).
 
 import { lazy } from "react";
 import type { Page } from "@/types/ipc";
 
 /**
- * The lazy chunk loaders — the canonical registry of dynamic imports
+ * The lazy chunk loaders, the canonical registry of dynamic imports
  * for the secondary routes. Each entry resolves to the page module's
  * default export.
  */
@@ -49,7 +49,7 @@ export const PAGE_LOADERS = {
 	models: () => import("@/pages/Models"),
 	onboarding: () => import("@/pages/Onboarding"),
 	// The settings hub and ALL section-page literals resolve to the
-	// SAME Settings chunk — one entry covers them.
+	// SAME Settings chunk, one entry covers them.
 	settings: () => import("@/pages/Settings"),
 	templates: () => import("@/pages/Templates"),
 	vocabulary: () => import("@/pages/Vocabulary"),

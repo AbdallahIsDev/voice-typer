@@ -1,5 +1,5 @@
 /**
- * Canonical PythonCallErrorCode union — shared between main process and renderer.
+ * Canonical PythonCallErrorCode union, shared between main process and renderer.
  *
  * Extracted from `python-call-handler.ts` (main scope) and
  * `types/ipc/enums.ts` (renderer scope) to eliminate the duplicate
@@ -15,7 +15,7 @@
  * not-connected vs. backend-exited) without parsing the human-readable
  * message text.
  *
- * Stability contract: these codes are stable across versions — never
+ * Stability contract: these codes are stable across versions, never
  * rename an existing code (only add new ones). The renderer's
  * `usePython().call(...)` wrapper narrows `_code` against this union.
  */

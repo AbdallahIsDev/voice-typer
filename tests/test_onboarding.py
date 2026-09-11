@@ -1,4 +1,4 @@
-"""Tests for voice_typer.onboarding — OnboardingController wizard."""
+"""Tests for voice_typer.onboarding: OnboardingController wizard."""
 
 import json
 import sys
@@ -111,12 +111,12 @@ class TestOnboardingSteps:
         Previously next_step() called mark_complete() when it reached
         the final step, which meant a user who walked through the
         wizard and reached "Done" but never clicked Apply would be
-        treated as onboarded — losing their selections on next launch.
+        treated as onboarded, losing their selections on next launch.
         """
         ctrl._current_step = 4  # second-to-last step
         ctrl.next_step()  # advances to step 5 (Done)
         assert ctrl.current_step == 5
-        # Wizard is NOT complete — apply_settings or skip is required.
+        # Wizard is NOT complete, apply_settings or skip is required.
         assert ctrl.is_first_run() is True
 
 
@@ -225,7 +225,7 @@ class TestOnboardingWizard:
         ctrl.set_microphone("mic-usb")
         assert ctrl.selected_microphone == "mic-usb"
 
-        # 4) Step 2: Permissions (/) — no user action required
+        # 4) Step 2: Permissions (/), no user action required
         #    in this unit test; the renderer probes via the
         #    onboarding_check_permissions IPC and either shows the
         #    platform walkthrough or auto-advances.
@@ -272,7 +272,7 @@ class TestOnboardingWizard:
         assert cfg2.onboarding_completed is True
 
     def test_skip_flow(self, onboarding_dir):
-        """Skip path: user clicks 'Skip' on step 0 — defaults are kept."""
+        """Skip path: user clicks 'Skip' on step 0, defaults are kept."""
         from voice_typer.server.config import Config
         from voice_typer.server.onboarding import OnboardingController
 
@@ -314,7 +314,7 @@ def app_with_service(tmp_config_dir, monkeypatch):
     """
     # Mock heavy hardware/GUI deps (in addition to conftest's autouse
     # mock_heavy_imports, which doesn't run for this module-scope
-    # override — be defensive and set them up explicitly here).
+    # override, be defensive and set them up explicitly here).
     mock_sd = MagicMock()
     mock_sd.query_devices.return_value = []
     monkeypatch.setitem(sys.modules, "sounddevice", mock_sd)
@@ -388,7 +388,7 @@ class TestOnboardingApplySideEffects:
 
     def test_hotkey_re_registered_without_restart(self, app_with_service, captured_events):
         """The dictation hotkey backend reflects the wizard's choice
-        immediately after onboarding_apply — no restart needed."""
+        immediately after onboarding_apply, no restart needed."""
         app, service = app_with_service
 
         # Wizard flow: start, pick a non-default hotkey, apply.
@@ -404,7 +404,7 @@ class TestOnboardingApplySideEffects:
         # would still be None (or hold the default hotkey).
         backend = app.hotkeys._hotkey_backend
         assert backend is not None, (
-            "Hotkey backend was not registered by onboarding_apply — apply_config_side_effects was not invoked"
+            "Hotkey backend was not registered by onboarding_apply, apply_config_side_effects was not invoked"
         )
         assert backend.hotkey_str == "<f6>", (
             f"Expected hotkey_str='<f6>' after onboarding_apply, got {backend.hotkey_str!r}"
@@ -447,7 +447,7 @@ class TestOnboardingApplySideEffects:
         background loader hasn't finished)."""
         app, service = app_with_service
 
-        # Spy on change_model — don't actually run the unload/load
+        # Spy on change_model, don't actually run the unload/load
         # cycle (which would try to load a real model in the test env).
         change_model_calls: list[str] = []
         monkeypatch.setattr(
@@ -480,7 +480,7 @@ class TestOnboardingApplySideEffects:
 
         service.onboarding_start()
         service.onboarding_set_hotkey("<f6>")
-        # Don't call onboarding_set_model — OnboardingController's
+        # Don't call onboarding_set_model, OnboardingController's
         # default (``DEFAULT_MODEL_SIZE``) matches Config's default, so
         # apply sees no model change and skips change_model.
         service.onboarding_apply()
@@ -501,7 +501,7 @@ class TestApplySettingsMarksComplete:
 
     The previous implementation called ``mark_complete()`` from
     ``next_step()`` as soon as the user reached the final "Done"
-    step — meaning a user who walked through the wizard but never
+    step: meaning a user who walked through the wizard but never
     clicked Apply (or whose ``config.save()`` later failed) would
     be treated as onboarded, losing their selections on next launch.
     """
@@ -557,7 +557,7 @@ class TestApplySettingsMarksComplete:
         # Walk all the way to the last step.
         for _ in range(ctrl.total_steps):
             ctrl.next_step()
-        assert called == [], "next_step() must not call mark_complete() — the fix"
+        assert called == [], "next_step() must not call mark_complete(), the fix"
 
     def test_skip_still_marks_complete(self, ctrl, onboarding_dir):
         """``skip`` is the other valid completion path."""
@@ -577,13 +577,13 @@ class TestMarkCompleteFailurePropagation:
     ``apply_settings`` never set ``config.onboarding_completed = True``
     before ``config.save()``. Result: settings were saved to
     ``config.json`` but the marker was missing and
-    ``onboarding_completed`` stayed ``False`` — so ``is_first_run()``
+    ``onboarding_completed`` stayed ``False``, so ``is_first_run()``
     returned ``True`` on every launch, trapping the user in an infinite
     wizard-reappear loop.
 
     Fix (two halves):
     1. ``apply_settings`` sets ``config.onboarding_completed = True``
-       BEFORE ``config.save()`` — the config flag becomes the source of
+       BEFORE ``config.save()``, the config flag becomes the source of
        truth; the marker file becomes a fast-path cache.
     2. ``mark_complete`` re-raises on failure so the IPC layer can
        surface the disk error to the user.
@@ -670,7 +670,7 @@ class TestMarkCompleteFailurePropagation:
         with pytest.raises(OSError, match="read-only filesystem"):
             ctrl.apply_settings(config)
 
-        # Config flag was set to True BEFORE save() was called — so even
+        # Config flag was set to True BEFORE save() was called, so even
         # though the marker write failed, the persisted config flag breaks
         # the infinite wizard-reappear loop on next launch.
         assert config.onboarding_completed is True, (
@@ -685,7 +685,7 @@ class TestMarkCompleteFailurePropagation:
         flag was persisted, ``is_first_run()`` returns ``False`` on the
         next launch (simulated by writing the persisted config to disk
         and constructing a fresh controller). This is the core
-        acceptance criterion — the infinite wizard-reappear loop is
+        acceptance criterion, the infinite wizard-reappear loop is
         broken."""
         import json as _json
         from pathlib import Path
@@ -759,7 +759,7 @@ class TestModelOptionsIncludeMultilingualAndParakeet:
 
     def test_english_only_variants_removed(self, ctrl):
         """The English-only Whisper variants (tiny.en / small.en /
-        medium.en) were removed by the 2026-08-15 catalog prune — they
+        medium.en) were removed by the 2026-08-15 catalog prune, they
         must NOT appear in the wizard picker."""
         names = {opt["name"] for opt in ctrl.MODEL_OPTIONS}
         for removed in ("tiny.en", "small.en", "medium.en"):
@@ -768,7 +768,7 @@ class TestModelOptionsIncludeMultilingualAndParakeet:
     def test_includes_kept_multilingual_whisper_variants(self, ctrl):
         """``tiny``, ``large-v3``, and ``large-v3-turbo``
         must be present so users can pick a multilingual Whisper model
-        from the wizard (the catalog lists concrete models only — since
+        from the wizard (the catalog lists concrete models only, since
         the 2026-08-28 no-default-model change none of them is a
         default)."""
         names = {opt["name"] for opt in ctrl.MODEL_OPTIONS}
@@ -784,7 +784,7 @@ class TestModelOptionsIncludeMultilingualAndParakeet:
     def test_get_model_catalog_delegates_to_registry(self):
         """``get_model_catalog()`` returns the full registry
         catalog (rich metadata: VRAM, languages, speed/accuracy,
-        repo_id, backend, is_distilled) — superset of MODEL_OPTIONS."""
+        repo_id, backend, is_distilled), superset of MODEL_OPTIONS."""
         from voice_typer.server.model_registry import MODEL_REGISTRY
         from voice_typer.server.onboarding import OnboardingController
 

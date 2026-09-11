@@ -1,7 +1,7 @@
 """split from tests/test_app.py.
 
 All heavy dependencies are mocked via the project-wide ``mock_heavy_imports``
-autouse fixture (in ``tests/conftest.py``) — CR-60 hoisted the
+autouse fixture (in ``tests/conftest.py``), CR-60 hoisted the
 ``force_pynput_hotkey_backend`` patch from the old local fixture into
 that project-wide fixture, so test modules no longer need a local
 override.
@@ -74,7 +74,7 @@ class TestAppUndoLastGraphemeCount:
     """APP-7: ``undo_last`` must count grapheme clusters (NFC-normalized
     code points) rather than raw UTF-16 code units. Combining-character
     sequences like ``é`` written as ``U+0065 U+0301`` are TWO code units
-    but ONE user-perceived character — sending two backspaces would
+    but ONE user-perceived character, sending two backspaces would
     leave the combining mark behind."""
 
     def test_undo_counts_nfc_graphemes_not_code_units(self, app, monkeypatch):

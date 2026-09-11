@@ -1,11 +1,11 @@
-"""SequencingMixin — plan construction + plan runner for ``ShutdownController``.
+"""SequencingMixin, plan construction + plan runner for ``ShutdownController``.
 
 The plan-builder bodies live in :mod:`voice_typer.server.shutdown.plan`
 (:func:`build_sequenced_plan` / :func:`build_parallel_plan`, beside the
 ``ShutdownStep`` / ``ShutdownPlan`` dataclasses and the :func:`run_plan`
 driver); this module keeps the thin ``_build_sequenced_plan`` /
 ``_build_parallel_plan`` / ``_run_plan`` delegates on the mixin (the
-delegates are load-bearing test surface — tests monkeypatch or spy on
+delegates are load-bearing test surface, tests monkeypatch or spy on
 the controller methods by name, and ``do_cleanup`` resolves the
 ``_teardown_*`` callables through the controller instance so per-name
 patches keep taking effect).
@@ -40,7 +40,7 @@ log = logging.getLogger("voice_typer.server.shutdown_controller")
 class SequencingMixin:
     """Plan-building + plan-running mixin for :class:`ShutdownController`."""
 
-    # ─── Sequenced plan builder — ────────────────────
+    # ─── Sequenced plan builder, ────────────────────
 
     def _build_sequenced_plan(
         self,
@@ -57,7 +57,7 @@ class SequencingMixin:
         """
         return build_sequenced_plan(self, deadline, skipped)
 
-    # ─── Parallel plan builder — ─────────────────────
+    # ─── Parallel plan builder, ─────────────────────
 
     def _build_parallel_plan(
         self,
@@ -75,10 +75,10 @@ class SequencingMixin:
         """
         return build_parallel_plan(self, deadline, timed_out, skipped)
 
-    # ─── Late bookend helper — ───────────────────────
+    # ─── Late bookend helper, ───────────────────────
 
     def _late_bookend_tray_stop(self, app) -> None:
-        """Late bookend: ``tray.stop()`` — MUST be the LAST step in cleanup.
+        """Late bookend: ``tray.stop()``: MUST be the LAST step in cleanup.
 
         Extracted from ``_do_cleanup``. ``tray.stop()`` MUST
         be the LAST step. Previously it was step 13 of 19, which broke
@@ -86,7 +86,7 @@ class SequencingMixin:
         via ``ipc_server.main()``) before the remaining cleanups could
         finish. Moving ``tray.stop()`` to the end ensures the main
         thread stays alive (blocked in ``tray.run()``) until every
-        other cleanup has completed. Idempotent — wrapped in
+        other cleanup has completed. Idempotent, wrapped in
         try-except so a second call after the tray is already stopped
         doesn't propagate. 5s timeout.
 
@@ -95,12 +95,12 @@ class SequencingMixin:
         pystray's ``tray.run()`` event loop and relies on
         ``tray.stop()`` breaking that loop to return. If
         ``tray.stop()`` hangs, the main thread never returns and the
-        process is unkillable via the normal path — ``sys.exit(0)`` in
+        process is unkillable via the normal path, ``sys.exit(0)`` in
         ``quit()`` only raises ``SystemExit`` in THIS worker thread.
         ``os._exit(0)`` bypasses Python's orderly shutdown but is safe
         here because every other subsystem has already been torn down
         by the cleanup steps above. On the main thread, we just log
-        and continue — ``quit()``'s ``sys.exit(0)`` will handle exit.
+        and continue, ``quit()``'s ``sys.exit(0)`` will handle exit.
 
         When ``tray.stop()`` RAISES (not times out), the failure is
         logged at ERROR (was DEBUG pre-fix) so operators can see why
@@ -134,7 +134,7 @@ class SequencingMixin:
         The driver body (per-step timeout wrapping, pre-flight barrier
         skip, degraded-step summary) is owned by the extracted
         :mod:`shutdown.plan` module so it can be unit-tested in
-        isolation — see ``tests/test_shutdown_plan.py``. The
+        isolation: see ``tests/test_shutdown_plan.py``. The
         delegate keeps this method on ``ShutdownController`` so the
         existing ``self._run_plan(plan, prior_timed_out)`` call sites
         in ``_do_cleanup`` (and the source-inspection tests in

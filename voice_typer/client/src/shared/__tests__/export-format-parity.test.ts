@@ -15,7 +15,7 @@
  * renderer) for the inline pattern and fails if any remains. It is
  * deliberately conservative:
  *   - Only literal `"json" | "csv"` (and `"csv" | "json"`) unions are
- *     flagged — the exact duplication VP-16 removed.
+ *     flagged, the exact duplication VP-16 removed.
  *   - Test files (`.test.ts` / `.test.tsx` / `__tests__/`) are
  *     EXCLUDED: tests may construct fixture values inline, and the
  *     2 remaining inline unions in `tauri-bridge-commands.test.ts`
@@ -39,7 +39,7 @@ const TEST_SUFFIXES = [".test.ts", ".test.tsx"];
 // Matches the inline `"json" | "csv"` union (either order). The
 // whitespace-tolerant shape mirrors how the pre-VP-16 sites wrote it
 // (e.g. `"json" | "csv"` in type position). Only the two-literal union
-// is flagged — a single `"json"` literal or a wider union is not this
+// is flagged, a single `"json"` literal or a wider union is not this
 // finding's target.
 const INLINE_UNION_RE =
 	/["']json["']\s*\|\s*["']csv["']|["']csv["']\s*\|\s*["']json["']/;
@@ -49,7 +49,7 @@ function collectTsFiles(dir: string, out: string[] = []): string[] {
 		if (entry.name === "node_modules" || entry.name.startsWith(".")) continue;
 		// Skip build-output trees: `out/` (tsc declarations) and `dist/`
 		// (bundled renderer) are gitignored artifacts that mirror the
-		// source tree — scanning them flags the build's own echo of the
+		// source tree, scanning them flags the build's own echo of the
 		// canonical declaration (red on any host with a prior build).
 		if (entry.name === "out" || entry.name === "dist") continue;
 		const full = join(dir, entry.name);
@@ -88,7 +88,7 @@ describe('VP-16: no inline "json" | "csv" union in production code', () => {
 			const text = readFileSync(file, "utf8");
 			const lines = text.split("\n");
 			for (let i = 0; i < lines.length; i++) {
-				// Skip comment-only lines — a docstring/comment that
+				// Skip comment-only lines, a docstring/comment that
 				// mentions the old union (e.g. this very test's header)
 				// is documentation, not a redeclaration.
 				const raw = lines[i] ?? "";

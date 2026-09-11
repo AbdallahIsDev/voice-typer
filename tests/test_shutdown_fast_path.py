@@ -10,7 +10,7 @@ contract was written:
   * ``_teardown_asr_models`` is FIRST in the parallel batch.
   * the WS pool drain has a 5s timeout; if it doesn't complete,
     the cleanup path logs a WARNING and proceeds (does NOT call
-    ``os._exit`` — the os._exit path is reserved for the Windows
+    ``os._exit``, the os._exit path is reserved for the Windows
     logoff/shutdown fast path in ``_do_fast_cleanup``).
   * the Windows logoff/shutdown fast path is implemented as a
     SEPARATE method ``_do_fast_cleanup`` (NOT a ``_critical_only_mode``
@@ -82,7 +82,7 @@ class TestSequentialHistoryAndCrashRecovery:
 
     def test_history_db_and_crash_recovery_not_in_parallel_batch(self) -> None:
         """The parallel batch (``parallel_items`` list) must NOT contain
-        ``_teardown_history_db`` or ``_teardown_crash_recovery`` — they
+        ``_teardown_history_db`` or ``_teardown_crash_recovery``, they
         live in the ``sequenced_items`` list instead."""
         s = _src(_PLANS_BODY_PATH)
         # Find the ``parallel_items`` list literal.
@@ -135,7 +135,7 @@ class TestOsExitOnStuckWsDrain:
         NOTE: the module docstring ALSO mentions the branch (as a
         ``code``-formatted comment), so a plain ``s.find`` would anchor
         on the docstring occurrence. We anchor inside the
-        ``drain_ws_dispatch_pool`` function body — the actual code —
+        ``drain_ws_dispatch_pool`` function body, the actual code —
         instead. (The body was extracted from the
         ``CleanupMixin._drain_ws_dispatch_pool`` method into
         ``shutdown/ws_drain.py``; the bounds changed from a method's
@@ -147,7 +147,7 @@ class TestOsExitOnStuckWsDrain:
         next_def = s.find("\ndef ", method_idx + 1)
         body = s[method_idx:next_def] if next_def > -1 else s[method_idx:]
         # The function docstring ALSO mentions the branch; use the LAST
-        # occurrence in the function body — the actual code — so the
+        # occurrence in the function body (the actual code) so the
         # comment doesn't shadow it.
         drain_timeout_idx = body.rfind("if join_thread.is_alive():")
         assert drain_timeout_idx > -1, (
@@ -227,7 +227,7 @@ class _FakeApp:
 class TestNormalModeRunsAllHelpers:
     """Dynamic test: ``_do_cleanup`` (normal mode) runs every helper in
     the sequenced phase + parallel batch + late bookend. There is no
-    ``_critical_only_mode`` flag — the Windows logoff/shutdown fast path
+    ``_critical_only_mode`` flag, the Windows logoff/shutdown fast path
     is a separate ``_do_fast_cleanup`` method (tested above)."""
 
     def test_normal_mode_runs_all_tier_helpers(self) -> None:

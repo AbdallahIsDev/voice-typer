@@ -29,7 +29,7 @@ class TestBubbleSupportsKeyboardArrowMove:
         # EC-29 / REF-2 split: the ``bubble:move-by`` channel is declared
         # in main/ipc/channels.ts (BubbleChannels.moveBy). The keyboard-
         # nudge HANDLER was removed from bubble-handlers.ts (no production
-        # caller — the bubble window is focusable:false), so the channel
+        # caller, the bubble window is focusable:false), so the channel
         # constant is the surviving contract.
         channels_ts = (CLIENT_SRC / "main" / "ipc" / "channels.ts").read_text(encoding="utf-8")
         assert "bubble:move-by" in channels_ts
@@ -56,7 +56,7 @@ class TestGetStatusExposesLoadedVia:
     """get_status IPC returns loaded_via for the active model."""
 
     def test_service_get_status_returns_loaded_via(self):
-        # service.py split into a service/ package — get_status moved to
+        # service.py split into a service/ package, get_status moved to
         # service/status.py.
         status_py = (REPO_ROOT / "voice_typer" / "server" / "service" / "status.py").read_text(encoding="utf-8")
         assert "loaded_via" in status_py
@@ -132,7 +132,7 @@ class TestModelDownloadSupportsCancel:
     """Backend supports canceling an in-progress model download."""
 
     def test_service_has_cancel_model_download_method(self):
-        # service.py split into a service/ package — cancel_model_download
+        # service.py split into a service/ package, cancel_model_download
         # lives in service/model.py.
         model_py = _service_model_pkg_src()
         assert "def cancel_model_download" in model_py

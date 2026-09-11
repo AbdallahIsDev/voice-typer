@@ -1,4 +1,4 @@
-# scripts — dev/build tooling package.
+# scripts, dev/build tooling package.
 #
 # Marked as a regular package (not a namespace package) so
 # ``from scripts.diagnostics import ...`` resolves reliably from the

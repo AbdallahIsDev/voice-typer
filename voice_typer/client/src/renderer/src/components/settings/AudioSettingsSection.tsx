@@ -1,4 +1,4 @@
-// AudioSettingsSection — Audio Enhancement section of the Settings page.
+// AudioSettingsSection, Audio Enhancement section of the Settings page.
 //
 // Extracted from src/renderer/src/pages/Settings.tsx. Renders the
 // "Audio Enhancement" SettingsSection: Volume Backend status, Auto Duck
@@ -41,7 +41,7 @@ export const AudioSettingsSection = memo(function AudioSettingsSection({
 	const { call } = usePython();
 	// The same `audio_preset` (and the entire custom filter chain) is
 	// also editable on the Microphone page via its preset accordion
-	// (PresetAccordionSelector) — both surfaces draw their option
+	// (PresetAccordionSelector), both surfaces draw their option
 	// values/labels from the shared `lib/utils/audioPresets.ts` registry.
 	// The Microphone page additionally offers a test-record A/B workflow
 	// (record a sample, swap preset, re-record, compare) that this
@@ -50,13 +50,13 @@ export const AudioSettingsSection = memo(function AudioSettingsSection({
 	// surface by accident.
 	const { navigate } = useNavigation();
 
-	// Stable callback for the cross-link — moved above the
+	// Stable callback for the cross-link, moved above the
 	// early-return so hooks are always called in the same order.
 	const handleGoToMicrophone = useCallback(() => {
 		navigate("microphone");
 	}, [navigate]);
 
-	// Volume backend status — fetched from the Python backend so the UI
+	// Volume backend status, fetched from the Python backend so the UI
 	// can show "Volume Backend: pycaw (WASAPI)" / "CoreAudio" / "disabled"
 	// and disable the Per-Session Duck toggle on platforms that don't
 	// support it (macOS, Linux).  See architecture doc §7.9.
@@ -68,7 +68,7 @@ export const AudioSettingsSection = memo(function AudioSettingsSection({
 	} | null>(null);
 
 	// callRef mirror (Home.tsx pattern): the mount effect below must not
-	// depend on the `call` identity — stable in production, but a test
+	// depend on the `call` identity, stable in production, but a test
 	// mock handing out a fresh `call` per render would re-fire the load
 	// effect every render (get_volume_backend_status → setState →
 	// re-render → new call → loop → worker OOM). The mirror keeps the
@@ -78,7 +78,7 @@ export const AudioSettingsSection = memo(function AudioSettingsSection({
 	// Best-effort: if the call fails we leave `volumeBackend` as null and
 	// the toggle stays enabled-but-server-validated (the Python side also
 	// gates on `supports_per_session`).
-	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract — .current must NOT become a dep
+	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract, .current must NOT become a dep
 	const loadVolumeBackend = useCallback(async () => {
 		try {
 			const result = await callRef.current<{
@@ -350,7 +350,7 @@ export const AudioSettingsSection = memo(function AudioSettingsSection({
 								ariaLabel={t("settings.audioEnhancement.duckLevelAria")}
 								suffix="%"
 								// Disable the Duck Level slider when Auto Duck
-								// Volume is off — adjusting the duck level has no effect
+								// Volume is off, adjusting the duck level has no effect
 								// when ducking is disabled, and a stale value persisted
 								// here would silently apply if the user later re-enables
 								// ducking.
@@ -383,7 +383,7 @@ export const AudioSettingsSection = memo(function AudioSettingsSection({
 								</SelectTrigger>
 								<SelectContent>
 									{/* Options come from the shared preset
-                                                                        registry (lib/utils/audioPresets.ts) — the
+                                                                        registry (lib/utils/audioPresets.ts), the
                                                                         SAME source the Microphone page's accordion
                                                                         consumes, so the two surfaces can never
                                                                         drift in values or labels. Labels resolve
@@ -406,7 +406,7 @@ export const AudioSettingsSection = memo(function AudioSettingsSection({
                                         receives the same `isVisible` prop through `sectionProps`).
                                         Only render the chain wrapper when at least one of its
                                         parent rows (the preset selector) is visible OR the user is
-                                        actively searching for a filter name — see AudioFilterChain
+                                        actively searching for a filter name, see AudioFilterChain
                                         implementation. Keep this conditional on preset==="custom" so
                                         the chain never appears for a non-custom preset. */}
 					{config.audio_preset === "custom" && (

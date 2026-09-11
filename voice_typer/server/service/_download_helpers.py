@@ -15,16 +15,16 @@ unit-tested in isolation without instantiating a full
 
 Public surface:
 
-* :data:`DownloadOutcome` — the TypedDict returned by every
+* :data:`DownloadOutcome`: the TypedDict returned by every
   ``_download_*`` branch method.  The dispatcher
   (:meth:`ModelMixin.download_model`) converts it to a plain ``dict``
   via ``dict(outcome)`` for IPC serialization, preserving the exact
   runtime shape the renderer expects.
-* :func:`push_progress` — extracted from the ``_push_progress``
+* :func:`push_progress`: extracted from the ``_push_progress``
   closure.  Publishes a ``download_progress`` event to the event bus.
-* :func:`notify` — extracted from the ``_notify`` closure.  Forwards a
+* :func:`notify`: extracted from the ``_notify`` closure.  Forwards a
   tray notification, swallowing errors.
-* :func:`poll_download_progress` — extracted from the polling loop.
+* :func:`poll_download_progress`: extracted from the polling loop.
   Owns the pause/resume state machine.  Returns a ``(outcome,
   last_total_bytes_seen)`` tuple so the caller can log the final byte
   count (preserving the original log message text).
@@ -46,31 +46,31 @@ class DownloadOutcome(TypedDict, total=False):
         methods on :class:`ModelMixin` so the
         :meth:`ModelMixin.download_model` dispatcher has a single contract.
         ``total=False`` so each branch only populates the fields it
-        actually returns — the runtime dict shape is preserved exactly
+        actually returns, the runtime dict shape is preserved exactly
         (the dispatcher converts to a plain ``dict`` via ``dict(outcome)``
         for IPC serialization).
 
         Field reference (mirrors the 10 distinct return shapes the
         original monolithic ``download_model`` produced):
 
-        * ``success`` — always present (bool).
-        * ``error`` — present on failure (str).
-        * ``model`` — present on most paths (str).  Omitted on the
+        * ``success``: always present (bool).
+        * ``error``: present on failure (str).
+        * ``model``: present on most paths (str).  Omitted on the
           cancelled, qwen-not-configured, unknown-model, and
           exception-handler paths (preserving the original shapes).
-        * ``message`` — present on the cached-qwen and cancelled paths.
-        * ``cancelled`` — present on the user-cancelled path.
-        * ``consent_required`` — present on the HuggingFace consent-gate
+        * ``message``: present on the cached-qwen and cancelled paths.
+        * ``cancelled``: present on the user-cancelled path.
+        * ``consent_required``: present on the HuggingFace consent-gate
     path ().
-    * ``reason`` — present on the parakeet failure path ().
-    * ``download_already_active`` — present on the single-flight guard
+    * ``reason``: present on the parakeet failure path ().
+    * ``download_already_active``: present on the single-flight guard
       path. Superseded by the queue (the guard now enqueues instead of
       refusing), but retained in the type so legacy consumers tolerate
       old payloads.
-    * ``queued`` — present when the request was accepted into the
+    * ``queued``: present when the request was accepted into the
       pending download queue instead of starting immediately (a
       gateable download is already in flight).
-    * ``queue_position`` — 1-based FIFO position of the queued model.
+    * ``queue_position``: 1-based FIFO position of the queued model.
       Travelled on ``download_progress`` events so the renderer can
       render queue state from the existing event stream.
     """
@@ -115,7 +115,7 @@ def push_progress(
         transfer, not for "cached" or "cancelled" events).
 
         ``queue_position`` (1-based) is present only while the model is
-        waiting in the pending download queue — an event WITHOUT the
+        waiting in the pending download queue, an event WITHOUT the
         field means "not queued" (active transfer or terminal state),
         which is the renderer-side queue-state contract.
     """
@@ -201,25 +201,25 @@ def poll_download_progress(
                 :meth:`ModelMixin._is_download_cancelled` by the caller.
             max_duration_s: overall wall-clock cap (seconds).  If
                 the loop has been running for longer than this (excluding
-                paused intervals — pause is a user action, not a stall),
+                paused intervals, pause is a user action, not a stall),
                 the stall is logged at WARNING and
                 :class:`TimeoutError` is raised so the caller's
                 ``finally:`` block can clean up.  Default 1800 (30 min)
-                per the review's spec — long enough for a 2.5 GB Parakeet
+                per the review's spec, long enough for a 2.5 GB Parakeet
                 download on a slow link, short enough that a truly hung
                 thread doesn't block an IPC executor forever.
             max_stall_s: no-progress cap (seconds).  If
                 ``total_bytes_seen`` has not changed for this many
                 seconds (again excluding paused intervals), the download
-                is treated as stalled.  Default 60 — HuggingFace
+                is treated as stalled.  Default 60, HuggingFace
                 ``snapshot_download`` writes ≥1 chunk/s even on a slow
                 link, so 60s of true zero progress indicates a hung
                 socket / stuck resolver.
 
         Returns:
             A ``(outcome, last_total_bytes_seen)`` tuple where ``outcome``
-            is ``"cancelled"`` (the user cancelled — caller returns the
-            cancelled dict) or ``"complete"`` (the thread exited — caller
+            is ``"cancelled"`` (the user cancelled, caller returns the
+            cancelled dict) or ``"complete"`` (the thread exited, caller
             inspects ``download_err`` to decide whether to raise or
             continue), and ``last_total_bytes_seen`` is the last byte
             count observed (for the caller's completion log message).
@@ -255,7 +255,7 @@ def poll_download_progress(
     # Track loop start for the max-duration guard, and the last
     # time ``total_bytes_seen`` actually changed for stall detection.
     # Both exclude paused intervals (pause is a user action, not a
-    # stall) — see the ``currently_paused`` skip below.
+    # stall): see the ``currently_paused`` skip below.
     loop_start_time = time.monotonic()
     last_byte_change_time = time.monotonic()
     # Track accumulated paused time so the max-duration guard
@@ -279,7 +279,7 @@ def poll_download_progress(
         # pause clears.
         currently_paused = is_download_paused()
         if currently_paused != last_paused_state:
-            # State transition — push the event.
+            # State transition, push the event.
             transition_pct = max(
                 0,
                 min(
@@ -333,17 +333,17 @@ def poll_download_progress(
         # caller's ``finally:`` block cleans up and the outer
         # ``download_model`` except handler converts the error to a
         # user-facing ``{"success": False, ...}`` dict (which the
-        # renderer's download-failure surface already shows — no
+        # renderer's download-failure surface already shows, no
         # separate push event is needed).
         #
-        # Pre-fix the loop had NO overall timeout — a hung HF download
+        # Pre-fix the loop had NO overall timeout, a hung HF download
         # thread blocked the IPC executor forever, doing a full rglob +
         # per-file stat every 1s.
         now_for_guard = time.monotonic()
         effective_elapsed = (now_for_guard - loop_start_time) - accumulated_paused_s
         if effective_elapsed > max_duration_s:
             log.warning(
-                "[SERVICE] Download of '%s' exceeded max duration %.0fs (elapsed %.1fs, bytes=%d) — aborting",
+                "[SERVICE] Download of '%s' exceeded max duration %.0fs (elapsed %.1fs, bytes=%d), aborting",
                 model_name,
                 max_duration_s,
                 effective_elapsed,
@@ -357,13 +357,13 @@ def poll_download_progress(
         stall_elapsed = now_for_guard - last_byte_change_time
         if stall_elapsed > max_stall_s:
             log.warning(
-                "[SERVICE] Download of '%s' stalled — no progress for %.0fs (bytes=%d) — aborting",
+                "[SERVICE] Download of '%s' stalled, no progress for %.0fs (bytes=%d), aborting",
                 model_name,
                 max_stall_s,
                 last_total_bytes_seen,
             )
             raise TimeoutError(
-                f"Download of {model_name} stalled — no progress for "
+                f"Download of {model_name} stalled, no progress for "
                 f"{max_stall_s}s (last bytes seen: {last_total_bytes_seen})"
             )
         thread.join(timeout=1.0)
@@ -413,7 +413,7 @@ def poll_download_progress(
                     eta_seconds=eta_s,
                 )
         except Exception:
-            # previously pass — silently swallowed per-iteration
+            # previously pass, silently swallowed per-iteration
             # polling failures. Log at DEBUG (non-fatal) so a transient
             # filesystem error doesn't freeze the progress bar with no log.
             log.debug(

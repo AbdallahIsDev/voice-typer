@@ -22,7 +22,7 @@
     entitlements.plist:46-47) to actually take effect at the TCC layer.
     Without this usage-description string, every AppleScript invocation
     from volume_ducker.py and clipboard_snapshot.py silently fails with
-    errAEEventNotPermitted (-1743) — volume ducking during dictation and
+    errAEEventNotPermitted (-1743): volume ducking during dictation and
     foreground-app detection for safe paste targeting both break.
     The entitlement grants the *capability*; this string provides the
     *user-facing consent prompt*.

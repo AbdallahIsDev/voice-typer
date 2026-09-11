@@ -1,5 +1,5 @@
 /**
- * Tests for hooks/theme/themeApply — the DOM application concern
+ * Tests for hooks/theme/themeApply, the DOM application concern
  * extracted from useTheme.ts.
  *
  * Covers:
@@ -32,7 +32,7 @@ const customTheme = {
 	dark: { "--background": "#dark-bg" },
 };
 
-describe("themeApply — applyThemeToDocument", () => {
+describe("themeApply, applyThemeToDocument", () => {
 	beforeEach(() => {
 		mocks.applyThemeVars.mockClear();
 		mocks.deriveCustomVars.mockClear();
@@ -86,7 +86,7 @@ describe("themeApply — applyThemeToDocument", () => {
 	});
 });
 
-describe("themeApply — applyTextScale", () => {
+describe("themeApply, applyTextScale", () => {
 	it("writes --font-scale as size/14", () => {
 		applyTextScale(14);
 		expect(

@@ -15,7 +15,7 @@ import type { PermissionsTestState } from "../lib/types";
 
 // HotkeyStepProps now accepts optional test-hotkey
 // props. The wizard previously only offered a "Test hotkey" button on
-// the Permissions step (step 3, with the default hotkey) — so the user
+// the Permissions step (step 3, with the default hotkey), so the user
 // picked a non-default hotkey on step 4 (Hotkey) with no inline way to
 // verify it works. Now HotkeyStep accepts the same onTestHotkey handler
 // + permissionsTest state the PermissionsStep uses, and renders an

@@ -111,7 +111,7 @@ export function HotkeyPicker({
 	// something meaningful.
 	//
 	// The presets are now passed in from the parent via the `presets`
-	// prop — no hard-coded preset logic in this component. If no
+	// prop, no hard-coded preset logic in this component. If no
 	// presets are provided, the dropdown is not rendered at all.
 	const presetOptions = presets ?? [];
 	const rawPresetValue = mode === "single" ? value.replace(/[<>]/g, "") : value;
@@ -152,7 +152,7 @@ export function HotkeyPicker({
 					) : value ? (
 						// Render the assigned hotkey as design-system keycap
 						// chips inside the button (each key its own <Kbd>,
-						// joined with a small gap — no "+" separator).
+						// joined with a small gap, no "+" separator).
 						<HotkeyChips keys={formatHotkeyLabel(value)} />
 					) : (
 						<span>{t("hotkeyPicker.none")}</span>
@@ -192,7 +192,7 @@ export function HotkeyPicker({
 										);
 									})()}
 								</span>
-								{/* Dropdown affordance — the app-standard
+								{/* Dropdown affordance, the app-standard
                                                                         hugeicons chevron (same glyph as the shared
                                                                         SelectTrigger), replacing the former
                                                                         hand-rolled chevron SVG. Muted to match
@@ -248,7 +248,7 @@ export function HotkeyPicker({
 						</DropdownMenuContent>
 					</DropdownMenu>
 				)}
-				{/* Clear button — lets the user unset a
+				{/* Clear button, lets the user unset a
                                     hotkey without having to capture a new one. Only
                                     shown when ``allowClear`` is true, a hotkey is
                                     currently assigned, and we're not in the middle of

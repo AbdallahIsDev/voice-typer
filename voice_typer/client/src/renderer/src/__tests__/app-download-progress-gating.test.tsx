@@ -1,23 +1,23 @@
 /**
- *  vitest suite — App.tsx `download_progress` subscription gating.
+ *  vitest suite, App.tsx `download_progress` subscription gating.
  *
  * `connectingProgress` is ONLY consumed by `<ConnectionStatusScreen>`,
  * which App renders exclusively when `connectionStatus !== "connected"`.
- * Updating `connectingProgress` while connected is wasted work — it
+ * Updating `connectingProgress` while connected is wasted work, it
  * triggers an App re-render for a state value nobody reads. The fix
  * mirrors `connectionStatus` into a ref and short-circuits the
  * `usePythonEvent("download_progress", ...)` handler when connected.
  *
  * This test mocks:
- *   - `usePythonEvent` — captures the registered handler so the test
+ *   - `usePythonEvent`, captures the registered handler so the test
  *     can invoke it directly with a synthetic `download_progress`
  *     payload.
- *   - `useConnection` — controls `connectionStatus` so the test can
+ *   - `useConnection`, controls `connectionStatus` so the test can
  *     flip between "connecting" and "connected" between renders.
- *   - `<ConnectionStatusScreen>` — exposes `connectingProgress` via a
+ *   - `<ConnectionStatusScreen>`, exposes `connectingProgress` via a
  *     `data-connecting-progress` attribute so the test can observe
  *     whether the state update fired.
- *   - All child pages + window chrome — trivial stubs so the App
+ *   - All child pages + window chrome, trivial stubs so the App
  *     render graph stays isolated.
  *
  * Assertions:
@@ -27,7 +27,7 @@
  *      ConnectionStatusScreen's data attribute).
  *   2. When `connectionStatus === "connected"`, invoking the same
  *      handler with `{ progress: 75 }` does NOT update
- *      `connectingProgress` — it stays at its previous value because
+ *      `connectingProgress`, it stays at its previous value because
  *      the handler short-circuits. The mocked ConnectionStatusScreen
  *      is also unmounted (App renders the active page instead).
  */
@@ -45,7 +45,7 @@ const { mockCall, mockPythonEvent, connectionStatusRef, capturedHandlerRef } =
 		mockCall: vi.fn(),
 		mockPythonEvent: vi.fn(
 			(type: string, handler: (data?: unknown) => unknown) => {
-				// Capture only the download_progress handler — App registers
+				// Capture only the download_progress handler, App registers
 				// several usePythonEvent subscriptions (navigate, paste_failed,
 				// download_progress) and we only care about the latter.
 				if (type === "download_progress") {
@@ -174,7 +174,7 @@ import { useAppStore } from "@/stores/appStore";
 import type { VoiceTyperConfig } from "@/types/config";
 import { makeConfig } from "./helpers/fixtures";
 
-describe("App — download_progress subscription gating", () => {
+describe("App, download_progress subscription gating", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		cleanup();
@@ -261,7 +261,7 @@ describe("App — download_progress subscription gating", () => {
 		capturedHandlerRef.current?.({ progress: 99 });
 
 		// Flip back to "connecting" and verify connectingProgress is
-		// null — cleared by App's leave-connecting effect — and NOT 99.
+		// null, cleared by App's leave-connecting effect, and NOT 99.
 		// This proves both behaviors: the { progress: 99 } event was a
 		// no-op while connected, and a stale percentage does not
 		// survive a disconnect/reconnect flap (App.tsx clears
@@ -273,7 +273,7 @@ describe("App — download_progress subscription gating", () => {
 		await waitFor(() => {
 			const el = document.querySelector("[data-testid='connection-status']");
 			expect(el).toBeTruthy();
-			// null (cleared), not 99 — the { progress: 99 } event was
+			// null (cleared), not 99, the { progress: 99 } event was
 			// ignored while connected.
 			expect(el?.getAttribute("data-connecting-progress")).toBe("null");
 		});
@@ -301,13 +301,13 @@ describe("App — download_progress subscription gating", () => {
 			([type]) => type === "download_progress",
 		).length;
 		// At least one registration happened on mount (App may have
-		// re-rendered for unrelated reasons — useConnection internal
-		// state, setLocale on mount, etc. — so the count can be > 1;
+		// re-rendered for unrelated reasons, useConnection internal
+		// state, setLocale on mount, etc., so the count can be > 1;
 		// the key assertion is "the hook IS being called", not "exactly
 		// once").
 		expect(initialCount).toBeGreaterThanOrEqual(1);
 
-		// Re-render with a different connectionStatus — the hook should
+		// Re-render with a different connectionStatus, the hook should
 		// STILL be called (proving we didn't introduce a conditional
 		// `if (status !== 'connected') usePythonEvent(...)` anti-pattern).
 		connectionStatusRef.current = "connected";

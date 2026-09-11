@@ -8,7 +8,7 @@ unchanged.
 
 Submodules
 ----------
-* :mod:`.teardowns` — per-subsystem teardown helpers
+* :mod:`.teardowns`: per-subsystem teardown helpers
   (each takes the owning :class:`ShutdownController` as its first arg).
 """
 

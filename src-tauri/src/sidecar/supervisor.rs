@@ -3,10 +3,10 @@
 //! the bubble-level coalesce predicate that previously lived here
 //! (`bubble_coalesce_should_emit` at line 474) has been moved to its own
 //! `sidecar/bubble_coalesce.rs` module. It was called only from
-//! `sidecar/ws.rs:599` (never from supervisor.rs itself) — a pure UI-
+//! `sidecar/ws.rs:599` (never from supervisor.rs itself), a pure UI-
 //! rate-limiting predicate with nothing to do with sidecar supervision.
 //! This module now owns ONLY respawn / backoff / restart-counter logic.
-//! Previously named `supervisor.rs` — the old name was an opaque internal task ID.
+//! Previously named `supervisor.rs`. The old name was an opaque internal task ID.
 
 use crate::state::SidecarState;
 // poison-safe Mutex helper. Replacing
@@ -45,7 +45,7 @@ pub(super) const MAX_RESTART_ATTEMPTS: u32 = 3;
 
 /// stale-count cutoff. The disk-persisted restart
 /// counter now carries a Unix timestamp (seconds). If the timestamp
-/// is older than this many seconds, the count is treated as 0 — a
+/// is older than this many seconds, the count is treated as 0, a
 /// stale counter from a previous session (e.g., the user had 2
 /// failures last week) doesn't trip the circuit breaker on a single
 /// new crash. 10 minutes is long enough to catch a tight flap loop
@@ -81,22 +81,22 @@ pub(crate) fn parse_restart_counter(v: &serde_json::Value) -> u32 {
 }
 
 /// read the disk-persisted restart counter. Returns 0 on
-/// any error (missing file, parse error, etc.) — fail-open is safer
+/// any error (missing file, parse error, etc.), fail-open is safer
 /// than blocking recovery on a transient disk issue.
 ///
 /// dropped the unused `_state: &Arc<SidecarState>`
-/// parameter — the function only reads a disk file and never touches
+/// parameter: the function only reads a disk file and never touches
 /// the shared state. All call sites updated.
 ///
 /// the counter file now carries a `ts` field (Unix seconds).
 /// If `ts` is older than `COUNTER_STALE_SECS` (10 minutes), the
-/// count is treated as 0 — a stale count from a previous session
+/// count is treated as 0, a stale count from a previous session
 /// doesn't trip the circuit breaker on a single new crash.
 pub(super) fn read_restart_counter() -> u32 {
     // route through the cached `config_dir()` (OnceLock-backed)
     // instead of re-resolving 4 env vars on every call. The prior
     // inline `config_dir_from_env(...)` form was duplicated here + in
-    // `write_restart_counter` below — both call sites now share the
+    // `write_restart_counter` below: both call sites now share the
     // single cached resolution.
     let path = match crate::platform::paths::config_dir() {
         p if p.as_os_str().is_empty() => return 0,
@@ -120,7 +120,7 @@ pub(super) fn read_restart_counter() -> u32 {
             let now = now_unix_secs();
             if now < ts || now - ts > COUNTER_STALE_SECS {
                 log::info!(
-                    "[SUPERVISOR] restart counter stale (ts={}, now={}, age={}s > {}s) — resetting to 0",
+                    "[SUPERVISOR] restart counter stale (ts={}, now={}, age={}s > {}s): resetting to 0",
                     ts,
                     now,
                     now.saturating_sub(ts),
@@ -135,7 +135,7 @@ pub(super) fn read_restart_counter() -> u32 {
 }
 
 /// write the disk-persisted restart counter. Best-effort
-/// — if the write fails, log and continue (the counter is a safety
+///: if the write fails, log and continue (the counter is a safety
 /// gate, not a correctness requirement).
 ///
 /// Persistence ownership: ``restart_counter.json`` is the TAURI-ONLY
@@ -145,17 +145,17 @@ pub(super) fn read_restart_counter() -> u32 {
 /// (voice_typer/client/src/main/python/relaunch-app.ts: an array of
 /// epoch-ms relaunch timestamps for the app-relaunch crash-loop
 /// breaker). The two runtimes never coexist and their schemas /
-/// semantics / lifecycles differ — do NOT merge them into one
+/// semantics / lifecycles differ: do NOT merge them into one
 /// "restart" file.
 ///
 /// dropped the unused `_state: &Arc<SidecarState>`
-/// parameter — the function only writes a disk file and never touches
+/// parameter: the function only writes a disk file and never touches
 /// the shared state. All call sites updated.
 ///
 /// switched from non-atomic `std::fs::write` (truncate-
 /// then-write) to `atomic_write_bytes` (temp + fsync + rename). A
 /// crash mid-write previously could leave a partially-written
-/// counter file that fails to parse on next launch — `read_restart_counter`
+/// counter file that fails to parse on next launch, `read_restart_counter`
 /// then returns 0, silently bypassing the circuit breaker. Atomic
 /// write guarantees the counter is either fully-old or fully-new.
 ///
@@ -163,7 +163,7 @@ pub(super) fn read_restart_counter() -> u32 {
 /// (Unix seconds) so `read_restart_counter` can detect + ignore
 /// stale counts from previous sessions. `write_restart_counter(0)`
 /// is called ONLY on successful `reconnect_ws` (the existing path).
-/// It is NOT called on cold start — that would defeat the circuit
+/// It is NOT called on cold start, that would defeat the circuit
 /// breaker (see `main.rs` cold-start reset intentionally removed).
 /// The counter persists on disk for `COUNTER_STALE_SECS` (600s) after
 /// the breaker trips, so a transient flap (e.g., 3 crashes during an
@@ -192,26 +192,26 @@ pub(crate) fn write_restart_counter(count: u32) {
 /// fix: the breaker still trips automatically on a broken install, but
 /// a user who knows they want to retry (after, say, re-plugging a
 /// microphone or freeing disk space) can clear the persisted count and
-/// get a fresh 3-attempt budget immediately — instead of being locked
+/// get a fresh 3-attempt budget immediately, instead of being locked
 /// out for the remaining `COUNTER_STALE_SECS` (up to 600s).
 ///
 /// # When to call
 ///
-/// Call this ONLY from a user-initiated restart path — never from the
+/// Call this ONLY from a user-initiated restart path, never from the
 /// supervisor's own `app.restart()` exhaustion path or any automatic
 /// respawn logic. Wiring it into the supervisor would defeat the
 /// circuit breaker: every supervisor-initiated relaunch would reset
 /// the count to 0 and the app could loop forever on a broken install.
 ///
 /// The live caller is the tray-Restart relaunch listener
-/// (`sidecar/lifecycle.rs::on_relaunch_app` — both its production and
+/// (`sidecar/lifecycle.rs::on_relaunch_app`, both its production and
 /// dev-mode branches) BEFORE `app.restart()` fires (production) /
 /// before the dev early return, so the relaunched process / respawned
 /// sidecar starts with a clean attempt budget. The call routes the
 /// write through `spawn_blocking` at that call site.
 ///
 /// The `_state` parameter is accepted (and unused) for two reasons:
-/// (1) call-site ergonomics — the relaunch listener already holds
+/// (1) call-site ergonomics: the relaunch listener already holds
 /// `&Arc<SidecarState>` and passes it without an extra signature
 /// change; and (2) it documents that this is a user-restart-scoped
 /// operation tied to the same `SidecarState` instance, not a
@@ -219,7 +219,7 @@ pub(crate) fn write_restart_counter(count: u32) {
 /// not touch the shared state.
 pub(crate) fn clear_restart_counter_for_user_restart(_state: &Arc<SidecarState>) {
     log::info!(
-        "[SUPERVISOR] user-initiated restart requested — clearing persisted restart counter \
+        "[SUPERVISOR] user-initiated restart requested: clearing persisted restart counter \
          (was {}) so the next respawn gets a fresh attempt budget",
         read_restart_counter()
     );
@@ -234,13 +234,13 @@ pub(crate) async fn respawn(
 ) -> Result<(), String> {
     // Serialize: only one respawn may run at a time. If a previous
     // respawn is still in flight (e.g., the sidecar died again mid-
-    // reconnect), bail out — the in-flight supervisor owns the recovery.
+    // reconnect), bail out: the in-flight supervisor owns the recovery.
     if state
         .respawn_in_progress
         .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
         .is_err()
     {
-        log::info!("[SUPERVISOR] respawn already in progress — skipping");
+        log::info!("[SUPERVISOR] respawn already in progress, skipping");
         return Ok(());
     }
     // re-check `shutting_down` IMMEDIATELY after flag acquisition,
@@ -251,17 +251,17 @@ pub(crate) async fn respawn(
     // bump the persisted counter for a respawn that never actually ran
     // (respawn_inner's first shutting_down check would early-return).
     // The spurious bump could trip the breaker on the next legitimate
-    // crash. The new check is purely defensive — the inner function has
-    // its own three `shutting_down` checks — but it closes the I/O
+    // crash. The new check is purely defensive, the inner function has
+    // its own three `shutting_down` checks, but it closes the I/O
     // window between flag acquisition and the in-loop checks.
     if state.shutting_down.load(Ordering::SeqCst) {
         log::info!(
-            "[SUPERVISOR] shutting down (post-flag-acquisition, pre-I/O) — skipping respawn"
+            "[SUPERVISOR] shutting down (post-flag-acquisition, pre-I/O): skipping respawn"
         );
         state.respawn_in_progress.store(false, Ordering::SeqCst);
         return Ok(());
     }
-    // circuit breaker — persist restart-attempt counter to
+    // circuit breaker: persist restart-attempt counter to
     // disk so we don't enter an infinite restart loop on a broken
     // install (missing sidecar binary, corrupted Python env, etc.).
     // If counter >= MAX_RESTART_ATTEMPTS, STOP the loop and emit
@@ -272,7 +272,7 @@ pub(crate) async fn respawn(
     // this top-of-respawn check uses the EXISTING persisted counter
     // value (no increment here). The increment now lives in `respawn_inner`'s
     // exhaustion path, so the counter only goes up when an `app.restart()` is
-    // actually about to fire — not on every `respawn` invocation. This makes
+    // actually about to fire: not on every `respawn` invocation. This makes
     // the breaker trip on the 3rd relaunch attempt (not the 4th), as
     // intended. The top-of-respawn check still serves as the early-exit for
     // the case where a prior process left the persisted counter at max.
@@ -286,20 +286,20 @@ pub(crate) async fn respawn(
     // scan on Windows) this can take >100ms, blocking the worker and
     // delaying other futures sharing the runtime. `spawn_blocking`
     // offloads to the dedicated blocking-thread pool. On JoinError
-    // (task cancelled / panic), fail-open to 0 — same behavior as a
+    // (task cancelled / panic), fail-open to 0, same behavior as a
     // missing/unreadable counter file.
     let restart_count = tauri::async_runtime::spawn_blocking(read_restart_counter)
         .await
         .unwrap_or_else(|join_err| {
             log::warn!(
-                "[SUPERVISOR] spawn_blocking(read_restart_counter) join failed: {} — treating as 0 (fail-open)",
+                "[SUPERVISOR] spawn_blocking(read_restart_counter) join failed: {}, treating as 0 (fail-open)",
                 join_err
             );
             0
         });
     if restart_count >= MAX_RESTART_ATTEMPTS {
         log::error!(
-            "[SUPERVISOR] circuit breaker tripped — restart count {} >= max {}. Stopping supervisor.",
+            "[SUPERVISOR] circuit breaker tripped: restart count {} >= max {}. Stopping supervisor.",
             restart_count,
             MAX_RESTART_ATTEMPTS
         );
@@ -328,7 +328,7 @@ pub(crate) async fn respawn(
     // (`write_restart_counter(restart_count + 1)`) has been moved to
     // `respawn_inner`'s exhaustion path. The old placement bumped the
     // counter on every `respawn` invocation, even when `respawn_inner`
-    // succeeded (reconnect) or early-returned (shutting_down) — neither
+    // succeeded (reconnect) or early-returned (shutting_down), neither
     // of which constitute a real `app.restart()` attempt. The new
     // placement increments + checks immediately before `app.restart()`,
     // so the counter reflects actual relaunch attempts.
@@ -350,7 +350,7 @@ pub(crate) async fn respawn(
     // wrap the `respawn_inner` call in
     // `AssertUnwindSafe(...).catch_unwind()` so a panic inside the
     // inner function doesn't leave `respawn_in_progress` set forever
-    // — which would permanently brick the resilience layer. On
+    //: which would permanently brick the resilience layer. On
     // caught panic we clear the flag and return Err. Mirrors the
     // `spawn_reader_task` pattern (ws.rs).
     let inner_result = AssertUnwindSafe(respawn_inner(app, state))
@@ -365,7 +365,7 @@ pub(crate) async fn respawn(
                 .or_else(|| panic_payload.downcast_ref::<String>().map(|s| s.as_str()))
                 .unwrap_or("<non-string panic payload>");
             log::error!(
-                "[SUPERVISOR] respawn_inner panicked: {} — clearing respawn_in_progress \
+                "[SUPERVISOR] respawn_inner panicked: {}, clearing respawn_in_progress \
                  so future respawns can proceed",
                 msg
             );
@@ -383,22 +383,22 @@ pub(crate) async fn respawn_inner(
     // schedule so the exhaustion path can surface WHY the relaunch is
     // happening (not just THAT it's happening). The previous
     // `supervisor_relaunching` payload carried only `{"reason":
-    // "backoff_exhausted"}` — useless for triage. The captured string
+    // "backoff_exhausted"}`: useless for triage. The captured string
     // is the most recent spawn-failed or WS-reconnect-failed error;
     // empty if the loop somehow exhausts without any per-iteration
-    // error (shouldn't happen — exhaustion means every iteration
+    // error (shouldn't happen: exhaustion means every iteration
     // failed, so last_error is always populated on this path).
     let mut last_error = String::new();
     for (attempt, delay_ms) in SUPERVISOR_BACKOFF_MS.iter().enumerate() {
         // there used to be an in-loop `if attempt as u32 >=
         // SUPERVISOR_MAX_RETRIES { app.restart(); }` guard here, but it was
-        // dead code — `SUPERVISOR_BACKOFF_MS.len() == SUPERVISOR_MAX_RETRIES == 5`
+        // dead code: `SUPERVISOR_BACKOFF_MS.len() == SUPERVISOR_MAX_RETRIES == 5`
         // so `attempt` ranges `0..=4` and the condition
         // `attempt >= SUPERVISOR_MAX_RETRIES` was always false. The real
         // exhaustion path is the post-loop `app.restart()` at the
         // bottom of this function.
         if state.shutting_down.load(Ordering::SeqCst) {
-            log::info!("[SUPERVISOR] shutting down — skipping respawn");
+            log::info!("[SUPERVISOR] shutting down, skipping respawn");
             // clear the flag so a future respawn (e.g. after the
             // user reopens the app from the tray without a full process
             // restart) can proceed. Without this clear, the flag stays
@@ -415,7 +415,7 @@ pub(crate) async fn respawn_inner(
         // backoff sleep and `shutdown_notify.notified()`. This eliminates
         // the prior 100ms polling wakeups entirely (the loop used to
         // wake every ≤100ms to re-check `shutting_down`) while
-        // preserving sub-ms cancellation latency — `shutdown_sidecar_for_exit`
+        // preserving sub-ms cancellation latency: `shutdown_sidecar_for_exit`
         // calls `notify_one()` immediately after the `shutting_down` swap,
         // so a quit during the backoff sleep (up to 8s on the 5th
         // iteration) wakes the supervisor within microseconds instead of
@@ -427,7 +427,7 @@ pub(crate) async fn respawn_inner(
         let sleep_target = tokio::time::Instant::now() + Duration::from_millis(*delay_ms);
         loop {
             if state.shutting_down.load(Ordering::SeqCst) {
-                log::info!("[SUPERVISOR] shutting down during backoff sleep — aborting respawn");
+                log::info!("[SUPERVISOR] shutting down during backoff sleep, aborting respawn");
                 state.respawn_in_progress.store(false, Ordering::SeqCst);
                 return Ok(());
             }
@@ -438,18 +438,18 @@ pub(crate) async fn respawn_inner(
             let remaining = sleep_target - now;
             tokio::select! {
                 _ = tokio::time::sleep(remaining) => {
-                    // Backoff elapsed — fall through to the spawn path.
+                    // Backoff elapsed: fall through to the spawn path.
                     // Re-loop (rather than `break`) so the top-of-loop
                     // `shutting_down.load()` re-check fires before spawn.
                 }
                 _ = state.shutdown_notify.notified() => {
                     // Shutdown fired mid-backoff. `notify_one()` was
                     // called by `shutdown_sidecar_for_exit` right after
-                    // the `shutting_down` swap — re-loop so the
+                    // the `shutting_down` swap: re-loop so the
                     // top-of-loop check observes the new flag value and
                     // returns Ok(()) (clearing `respawn_in_progress`).
                     log::info!(
-                        "[SUPERVISOR] shutdown_notify fired during backoff sleep — re-checking shutting_down"
+                        "[SUPERVISOR] shutdown_notify fired during backoff sleep: re-checking shutting_down"
                     );
                 }
             }
@@ -457,14 +457,14 @@ pub(crate) async fn respawn_inner(
 
         // re-check `shutting_down` immediately before spawning a
         // new sidecar. The check at the top of the loop could be stale
-        // — the user might have closed the main window (triggering
+        //: the user might have closed the main window (triggering
         // `shutdown_sidecar`) during the backoff sleep. If we spawn a
         // fresh sidecar here, we'd be installing it into a host that
         // is already tearing down, racing the shutdown path (which calls
         // `state.child.lock().take()` + `kill_tree`) and potentially
         // overwriting the killed child with a live one.
         if state.shutting_down.load(Ordering::SeqCst) {
-            log::info!("[SUPERVISOR] shutting down (pre-spawn re-check) — skipping respawn");
+            log::info!("[SUPERVISOR] shutting down (pre-spawn re-check), skipping respawn");
             // same flag-clear rationale as the top-of-loop check.
             state.respawn_in_progress.store(false, Ordering::SeqCst);
             return Ok(());
@@ -474,7 +474,7 @@ pub(crate) async fn respawn_inner(
         // child handle. SidecarHandle::ShellPlugin(CommandChild) does NOT
         // kill the OS process on Drop (unlike DevMode's kill_on_drop(true)),
         // so without this explicit kill_tree, replacing state.child would
-        // silently ORPHAN the old Python sidecar — leaving it running with
+        // silently ORPHAN the old Python sidecar, leaving it running with
         // the mic handle, IPC port, and native hotkey binary child still
         // held. After the respawn retries are exhausted
         // (SUPERVISOR_MAX_RETRIES == SUPERVISOR_BACKOFF_MS.len(), see
@@ -509,7 +509,7 @@ pub(crate) async fn respawn_inner(
                 // (CHECK A, no lock held).
                 // 2. main thread: `shutting_down.swap(true)`,
                 // acquires `state.child` lock, takes the slot
-                // (which is `None` here — respawn_inner already
+                // (which is `None` here: respawn_inner already
                 // cleared it at the pre-spawn take+kill above),
                 // releases the lock, returns.
                 // 3. respawn_inner: acquires `state.child` lock,
@@ -523,23 +523,23 @@ pub(crate) async fn respawn_inner(
                 // returned). If shutdown_sidecar_for_exit acquires
                 // the lock first, it sees either:
                 // - the OLD child (which respawn_inner already
-                // killed) — `take()` returns the stale handle,
+                // killed): `take()` returns the stale handle,
                 // `kill_tree()` is a no-op on an already-dead
                 // process (best-effort, error logged).
                 // - the FRESH child (which respawn_inner just
-                // installed) — `take()` returns the live handle,
+                // installed): `take()` returns the live handle,
                 // `kill_tree()` reaps it. respawn_inner returns
                 // `Ok(())` having installed a child that
                 // shutdown_sidecar_for_exit will then take + kill.
                 // - `None` (respawn_inner hasn't reached the install
                 // step yet because it's still waiting on the
-                // lock) — shutdown_sidecar_for_exit returns, then
+                // lock): shutdown_sidecar_for_exit returns, then
                 // respawn_inner acquires the lock, sees
                 // `shutting_down == true` (CHECK B below), kills
                 // the freshly-spawned child, returns `Ok(())`.
                 //
                 // Wrap `child` in an Option so it's not conditionally
-                // moved inside the lock scope — the lock scope block
+                // moved inside the lock scope, the lock scope block
                 // can consume it in the else branch via `.take()`
                 // while the if branch leaves it untouched for use
                 // outside the block.
@@ -552,17 +552,17 @@ pub(crate) async fn respawn_inner(
                     let mut child_guard = mutex_lock(&state.child);
                     if state.shutting_down.load(Ordering::SeqCst) {
                         log::info!(
-                            "[SUPERVISOR] shutting down (post-spawn re-check inside lock) — killing freshly-spawned sidecar instead of installing"
+                            "[SUPERVISOR] shutting down (post-spawn re-check inside lock): killing freshly-spawned sidecar instead of installing"
                         );
                         // child_guard dropped at block end.
-                        // child was NOT consumed — kill it below.
+                        // child was NOT consumed: kill it below.
                         None
                     } else {
                         let old = child_guard.take();
                         // the prior `match child.take()` with an
                         // explicit `None` arm (which restored `old` +
                         // cleared the flag + returned `Ok(())`) was dead
-                        // code — `child` is `Some` by invariant at this
+                        // code: `child` is `Some` by invariant at this
                         // point (the only consumer is the `if shutting_down`
                         // branch above, which leaves `child` untouched).
                         // Deleted the unreachable `None` arm. The
@@ -574,9 +574,9 @@ pub(crate) async fn respawn_inner(
                         }
                         old
                     }
-                }; // child_guard dropped — no !Send across await
+                }; // child_guard dropped: no !Send across await
                 if let Some(c) = child {
-                    // shutting_down was true — child was NOT installed.
+                    // shutting_down was true: child was NOT installed.
                     if let Err(e) = c.kill_tree().await {
                         log::warn!(
                             "[SUPERVISOR] freshly-spawned child kill_tree failed (best-effort): {}",
@@ -617,7 +617,7 @@ pub(crate) async fn respawn_inner(
                 match reconnect_ws(app, state, port, &new_token).await {
                     Ok(()) => {
                         log::info!("[SUPERVISOR] respawn succeeded on attempt {}", attempt + 1);
-                        // Reset the restart counter on success — routed
+                        // Reset the restart counter on success, routed
                         // through `spawn_blocking` so the atomic
                         // temp-file write + fsync + rename never stalls a
                         // Tokio worker (this is the reconnect-success
@@ -627,7 +627,7 @@ pub(crate) async fn respawn_inner(
                         // is exactly what the blocking-I/O rule at the
                         // top of `respawn` prohibits). The handle is
                         // AWAITED so the reset-to-0 still completes
-                        // BEFORE the `supervisor_reconnected` emit — the
+                        // BEFORE the `supervisor_reconnected` emit, the
                         // same write→emit ordering as the previous
                         // inline call, just off the async worker. On
                         // JoinError the counter keeps its prior value
@@ -638,7 +638,7 @@ pub(crate) async fn respawn_inner(
                         {
                             log::warn!(
                                 "[SUPERVISOR] spawn_blocking(write_restart_counter(0)) join \
-                                 failed: {} — counter keeps its prior value (best-effort)",
+                                 failed: {}, counter keeps its prior value (best-effort)",
                                 join_err
                             );
                         }
@@ -650,7 +650,7 @@ pub(crate) async fn respawn_inner(
                         // reader task, which owns the new connection. If
                         // the new sidecar dies immediately (fast-double-
                         // crash), the new reader will detect the
-                        // disconnect and try `respawn` — clearing
+                        // disconnect and try `respawn`: clearing
                         // the flag here (before the reader can run)
                         // ensures the reader's `respawn` proceeds
                         // instead of bailing with "already in progress".
@@ -692,11 +692,11 @@ pub(crate) async fn respawn_inner(
                 // stdout-read loop detected `shutting_down`. Treat it
                 // the same as the top-of-loop shutting_down check:
                 // clear the flag and return Ok (no retry, no backoff
-                // sleep — the host is going away, retrying would just
+                // sleep: the host is going away, retrying would just
                 // delay the exit).
                 if e == "shutdown" {
                     log::info!(
-                        "[SUPERVISOR] spawn loop detected shutting_down — exiting respawn cleanly"
+                        "[SUPERVISOR] spawn loop detected shutting_down: exiting respawn cleanly"
                     );
                     state.respawn_in_progress.store(false, Ordering::SeqCst);
                     return Ok(());
@@ -708,17 +708,17 @@ pub(crate) async fn respawn_inner(
             }
         }
     }
-    // Loop exited without returning — treat as exhaustion.
+    // Loop exited without returning: treat as exhaustion.
     //
-    // THIS is the actual exhaustion path — the post-loop
+    // THIS is the actual exhaustion path, the post-loop
     // `app.restart()`. The in-loop guard was dead code.
     // ADR-0020 §10: full-app relaunch.
     //
     // increment the persisted counter HERE (immediately before
     // `app.restart()`) and check `>= MAX_RESTART_ATTEMPTS` BEFORE calling
     // `app.restart()`. The old placement (top of `respawn`) bumped on every
-    // `respawn` invocation — including successful reconnects and
-    // shutting-down early-returns — making the breaker trip on the 4th
+    // `respawn` invocation: including successful reconnects and
+    // shutting-down early-returns: making the breaker trip on the 4th
     // relaunch attempt instead of the 3rd. With the increment here, the
     // counter reflects actual relaunch attempts:
     // - Attempt 1: count=0 → increment to 1 → check 1>=3 false → app.restart()
@@ -734,13 +734,13 @@ pub(crate) async fn respawn_inner(
     //
     // clear `respawn_in_progress` immediately before
     // `app.restart()` as defense-in-depth. `app.restart()` returns `!`
-    // (never), so the clear is "dead" code on the happy path — but if
+    // (never), so the clear is "dead" code on the happy path, but if
     // `app.restart()` ever becomes fallible (or if a future Tauri API
     // returns before the process exits), the clear ensures a future
     // `respawn` invocation can proceed. The breaker-trip arm below
     // returns `Err` after clearing.
     log::error!(
-        "[SUPERVISOR] backoff schedule exhausted — full-app relaunch (last_error={:?})",
+        "[SUPERVISOR] backoff schedule exhausted: full-app relaunch (last_error={:?})",
         last_error
     );
     // move the synchronous `read_restart_counter` +
@@ -754,7 +754,7 @@ pub(crate) async fn respawn_inner(
     // Returns the post-increment count so the caller can branch on it
     // for the breaker trip. On JoinError (task cancelled / panic),
     // fail-open by assuming the prior count was 0 and the write was
-    // skipped — the worst case is the breaker doesn't trip this round
+    // skipped: the worst case is the breaker doesn't trip this round
     // and the next crash will trip it.
     let new_count = tauri::async_runtime::spawn_blocking(|| {
         let prior = read_restart_counter();
@@ -765,14 +765,14 @@ pub(crate) async fn respawn_inner(
     .await
     .unwrap_or_else(|join_err| {
         log::warn!(
-            "[SUPERVISOR] spawn_blocking(read+write_restart_counter) join failed: {} — assuming count=1 (fail-open, breaker may under-trip)",
+            "[SUPERVISOR] spawn_blocking(read+write_restart_counter) join failed: {}, assuming count=1 (fail-open, breaker may under-trip)",
             join_err
         );
         1
     });
     if new_count >= MAX_RESTART_ATTEMPTS {
         log::error!(
-            "[SUPERVISOR] circuit breaker tripped on exhaustion — restart count {} >= max {}. Stopping supervisor.",
+            "[SUPERVISOR] circuit breaker tripped on exhaustion: restart count {} >= max {}. Stopping supervisor.",
             new_count,
             MAX_RESTART_ATTEMPTS
         );
@@ -819,16 +819,16 @@ pub(crate) async fn respawn_inner(
     // short-circuits on the already-set flag (idempotency guard)
     // instead of spawning a detached teardown thread that races
     // process exit. `begin_shutdown()` returns the PREVIOUS flag
-    // value — `true` means a quit/renderer shutdown is already in
+    // value: `true` means a quit/renderer shutdown is already in
     // flight (benign: the flag is what we want either way).
     if state.begin_shutdown() {
         log::info!(
-            "[SUPERVISOR] host shutdown already in flight — full-app relaunch proceeds \
+            "[SUPERVISOR] host shutdown already in flight: full-app relaunch proceeds \
              (respawns stay disabled)"
         );
     } else {
         log::info!(
-            "[SUPERVISOR] full-app relaunch — marking host shutdown (respawns disabled \
+            "[SUPERVISOR] full-app relaunch: marking host shutdown (respawns disabled \
              during the restart window)"
         );
     }
@@ -842,7 +842,7 @@ pub(crate) async fn respawn_inner(
 //
 // The `bubble_coalesce_should_emit` predicate that lived here has been
 // moved to its own `sidecar/bubble_coalesce.rs` module. It was called
-// only from `sidecar/ws.rs:599` (never from supervisor.rs itself) — a
+// only from `sidecar/ws.rs:599` (never from supervisor.rs itself), a
 // pure UI-rate-limiting predicate with nothing to do with sidecar
 // supervision. See `sidecar/bubble_coalesce.rs` for the function +
 // its unit tests (3 tests moved with it).

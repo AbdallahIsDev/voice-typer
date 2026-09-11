@@ -1,6 +1,6 @@
 """macOS CoreAudio event-driven microphone device watcher.
 
-PERF-MIC-001 / Task 15: native CoreAudio property listener — receives
+PERF-MIC-001 / Task 15: native CoreAudio property listener, receives
 event-driven notifications when the audio device list changes,
 eliminating the 1/s polling wakeups used by the generic
 ``MicrophoneDeviceWatcher`` on macOS.
@@ -21,12 +21,12 @@ Platform support
 
 The public API matches ``MicrophoneDeviceWatcher``:
 
-- ``__init__(on_change, poll_interval=1.0)`` — ``poll_interval`` is
+- ``__init__(on_change, poll_interval=1.0)``: ``poll_interval`` is
   accepted for drop-in compatibility but ignored (the listener is
   event-driven).
-- ``start()`` — spawns a daemon thread that registers the property
+- ``start()``: spawns a daemon thread that registers the property
   listener and runs ``CFRunLoopRun()`` in a blocking loop.
-- ``stop()`` — calls ``CFRunLoopStop()`` on the watcher's run loop
+- ``stop()``: calls ``CFRunLoopStop()`` on the watcher's run loop
   from the calling thread, then joins the watcher thread (2 s
   timeout).
 
@@ -56,7 +56,7 @@ from voice_typer.server.platform_utils import is_macos
 
 log = logging.getLogger(__name__)
 
-# Platform flag captured at import time. INFORMATIONAL ONLY — the
+# Platform flag captured at import time. INFORMATIONAL ONLY, the
 # platform gate in :func:`_try_import_coreaudio` re-checks the platform
 # at call time (``is_macos()``) because a snapshot taken at first
 # import can be poisoned when the importing pytest worker is inside a
@@ -68,7 +68,7 @@ log = logging.getLogger(__name__)
 # has a single source of truth in ``platform_utils``.
 _IS_MACOS = is_macos()
 
-# Sentinel value for "noErr" — the OSStatus success code returned by
+# Sentinel value for "noErr": the OSStatus success code returned by
 # CoreAudio functions. Defined as a constant rather than importing
 # ``kAudioHardwareNoError`` to avoid an extra pyobjc dependency at
 # the call site.
@@ -100,7 +100,7 @@ def _try_import_coreaudio() -> SimpleNamespace:
         )
 
     try:
-        from CoreAudio import (  # noqa: PLC0415 — lazy import is the point
+        from CoreAudio import (  # noqa: PLC0415, lazy import is the point
             AudioObjectAddPropertyListener,
             AudioObjectRemovePropertyListener,
             kAudioHardwarePropertyDevices,
@@ -108,7 +108,7 @@ def _try_import_coreaudio() -> SimpleNamespace:
             kAudioObjectPropertyScopeGlobal,
             kAudioObjectSystemObject,
         )
-        from CoreFoundation import (  # noqa: PLC0415 — lazy import is the point
+        from CoreFoundation import (  # noqa: PLC0415, lazy import is the point
             CFRunLoopGetCurrent,
             CFRunLoopRun,
             CFRunLoopStop,
@@ -128,7 +128,7 @@ def _try_import_coreaudio() -> SimpleNamespace:
     # and the watcher skips registering that listener rather than
     # raising ``AttributeError``. ``kAudioHardwarePropertyDefaultInputDevice``
     # fires when the user changes the default input device in macOS
-    # System Settings → Sound — critical for ``config.microphone is
+    # System Settings → Sound, critical for ``config.microphone is
     # None`` (PortAudio opens the OS default at stream-open time and
     # never re-resolves). The existing ``kAudioHardwarePropertyDevices``
     # listener only fires on device-LIST changes (add/remove), NOT on
@@ -172,7 +172,7 @@ class CoreAudioMicrophoneWatcher:
         poll_interval: float = 1.0,  # accepted for API compat, ignored
     ) -> None:
         self._on_change = on_change
-        # ``poll_interval`` is accepted but ignored — the watcher is
+        # ``poll_interval`` is accepted but ignored, the watcher is
         # event-driven and has no polling cadence. Kept on the
         # instance only for API parity with ``MicrophoneDeviceWatcher``.
         self._poll_interval = poll_interval
@@ -183,12 +183,12 @@ class CoreAudioMicrophoneWatcher:
         # can call ``CFRunLoopStop()`` from the calling thread.
         self._run_loop: Any = None
         # The listener proc must be kept alive for the lifetime of the
-        # registration — CoreAudio does not retain it. Storing it on
+        # registration. CoreAudio does not retain it. Storing it on
         # the instance prevents the GC from collecting the wrapper
         # pyobjc builds around the Python callable, which would cause
         # a use-after-free crash inside CoreAudio.
         self._listener_proc: Callable[..., int] | None = None
-        # pyobjc symbols — loaded lazily in ``start()`` so the module
+        # pyobjc symbols, loaded lazily in ``start()`` so the module
         # is importable on non-macOS platforms without raising.
         self._ca: SimpleNamespace | None = None
         # lifecycle lock. Serialises ``start()``/``stop()``
@@ -228,7 +228,7 @@ class CoreAudioMicrophoneWatcher:
         with self._lock:
             if self._thread is not None:
                 return
-            # Lazy import — raises ImportError if pyobjc is missing or
+            # Lazy import, raises ImportError if pyobjc is missing or
             # we're not on macOS. The caller catches this and falls back
             # to the polling watcher.
             self._ca = _try_import_coreaudio()
@@ -254,7 +254,7 @@ class CoreAudioMicrophoneWatcher:
                 before ``CFRunLoopStop`` + ``join``. The lock is NOT held
                 during the join because the watcher thread briefly acquires
                 it (in ``_run_impl``) to publish ``self._run_loop`` before
-                entering ``CFRunLoopRun`` — holding it through the join would
+                entering ``CFRunLoopRun``: holding it through the join would
                 deadlock if ``stop()`` ran before the watcher thread had a
                 chance to set ``_run_loop``. Clearing ``_thread`` under the
                 lock (before the join) makes a concurrent ``stop()`` a no-op
@@ -301,7 +301,7 @@ class CoreAudioMicrophoneWatcher:
     # ── thread entry point ────────────────────────────────────────────
 
     def _run(self) -> None:
-        """Thread target — registers the listener and runs CFRunLoop.
+        """Thread target, registers the listener and runs CFRunLoop.
 
         Catches any exception so a watcher crash never propagates to
         the caller. The 30 s TTL cache in ``recording.py`` covers the
@@ -319,7 +319,7 @@ class CoreAudioMicrophoneWatcher:
             )
 
     def _run_impl(self, ca: SimpleNamespace) -> None:
-        """Implementation of ``_run`` — separated so ``_run`` can catch exceptions.
+        """Implementation of ``_run``: separated so ``_run`` can catch exceptions.
 
         Builds the property address, defines the listener proc, registers
         it via ``AudioObjectAddPropertyListener`` on the system audio
@@ -330,7 +330,7 @@ class CoreAudioMicrophoneWatcher:
         # (selector, scope, element). pyobjc accepts a 3-tuple for the
         # ``AudioObjectPropertyAddress`` struct argument.
         #   - mSelector = kAudioHardwarePropertyDevices (fires when the
-        #     global device list changes — add/remove/unplug).
+        #     global device list changes. Add/remove/unplug).
         #   - mScope    = kAudioObjectPropertyScopeGlobal (whole object).
         #   - mElement  = kAudioObjectPropertyElementMaster (master element).
         address = (
@@ -354,7 +354,7 @@ class CoreAudioMicrophoneWatcher:
         # When this watcher is constructed by
         # ``MicrophoneDeviceWatcher._try_create_coreaudio_watcher``
         # (the normal path), ``_on_change`` IS
-        # ``MicrophoneDeviceWatcher._invoke_callback`` — which already
+        # ``MicrophoneDeviceWatcher._invoke_callback``, which already
         # wraps the raw callback in try/except + 0.5 s debounce +
         # active-mic-lost detection. A second try/except here would
         # just mask bugs in the outer wrapper. Any exception that
@@ -374,7 +374,7 @@ class CoreAudioMicrophoneWatcher:
             self._on_change()
             return _NO_ERR  # noErr
 
-        # Keep a strong reference — CoreAudio does not retain the proc,
+        # Keep a strong reference. CoreAudio does not retain the proc,
         # and pyobjc's wrapper would be GC'd if the only reference
         # were the local variable, causing a crash on the next
         # property change.
@@ -401,11 +401,11 @@ class CoreAudioMicrophoneWatcher:
             )
         except Exception:
             # pyobjc raises (rather than returning an OSStatus) for
-            # some failure modes — treat them all as "registration
+            # some failure modes, treat them all as "registration
             # failed" and fall back to TTL polling. The fallback is a
             # DESIGNED degradation (the 30 s TTL cache in recording.py
             # is the documented backstop; see module docstring), so it
-            # logs at DEBUG — a WARNING here would pollute the
+            # logs at DEBUG, a WARNING here would pollute the
             # happy-path log on hosts where the listener cannot install
             # (headless CI, restricted audio sessions).
             log.debug(
@@ -422,7 +422,7 @@ class CoreAudioMicrophoneWatcher:
             return
 
         # Second listener on ``kAudioHardwarePropertyDefaultInputDevice``
-        # — fires when the user changes the default input device in
+        # , fires when the user changes the default input device in
         # macOS System Settings → Sound (critical for
         # ``config.microphone is None``: PortAudio opens the OS
         # default at stream-open time and never re-resolves; without
@@ -469,7 +469,7 @@ class CoreAudioMicrophoneWatcher:
         # NOT orphan the already-registered listeners. Pre-fix,
         # ``ca.runloop_get_current()`` raising propagated to
         # ``_run``'s top-level except, which logged and exited the
-        # thread WITHOUT removing the listener — the orphaned listener
+        # thread WITHOUT removing the listener, the orphaned listener
         # continued to fire into the Python ``_listener`` closure on
         # every subsequent device change for the lifetime of the
         # process. The closure captures ``self`` (via
@@ -483,7 +483,7 @@ class CoreAudioMicrophoneWatcher:
             # publish under ``self._lock`` so ``stop()``'s
             # snapshot of (``_run_loop``, ``_ca``) is atomic with the
             # assignment. The lock is NOT held during ``CFRunLoopRun``
-            # (which blocks) — that would deadlock ``stop()``.
+            # (which blocks), that would deadlock ``stop()``.
             with self._lock:
                 self._run_loop = ca.runloop_get_current()
 
@@ -492,7 +492,7 @@ class CoreAudioMicrophoneWatcher:
             # from another thread (or a run-loop source signals stop).
             ca.runloop_run()
         finally:
-            # Cleanup — remove the listeners. Best-effort: if this
+            # Cleanup, remove the listeners. Best-effort: if this
             # fails the listener leaks but the watcher thread is
             # dying anyway, and the 30 s TTL cache in ``recording.py``
             # covers missed notifications. Guarded with
@@ -507,7 +507,7 @@ class CoreAudioMicrophoneWatcher:
             # and this cleanup. The local ``ca`` is still valid
             # (Python keeps the SimpleNamespace alive via the local
             # reference), so we use it for the ``remove_listener``
-            # call — the symbols are the same instance.
+            # call, the symbols are the same instance.
             if _listener is not None:
                 try:
                     ca.remove_listener(

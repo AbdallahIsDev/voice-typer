@@ -5,33 +5,33 @@ Measures four aspects of the in-process IPC / event-bus / rate-limiter
 stack so the CI ratchet can catch regressions in the Electron↔Python
 control plane:
 
-1. **Auth handshake latency** (cold + warm) — the cost of validating a
+1. **Auth handshake latency** (cold + warm), the cost of validating a
    representative ``{type, id, data}`` IPC payload against the
    declarative schema.  Every IPC command goes through this gate; a
    regression here is a regression on every command.
 
-2. **push() throughput under N concurrent subscribers** — measures
+2. **push() throughput under N concurrent subscribers**, measures
    ``event_bus.publish`` fan-out cost as the subscriber count grows.
    The production server has 1-3 subscribers (TCP transport, logging,
    diagnostics); we test up to 64 to expose O(N) scaling.
 
-3. **End-to-end latency for a streaming partial round-trip** — measures
+3. **End-to-end latency for a streaming partial round-trip**, measures
    the publish→subscriber callback wall-clock for the
    ``transcription_final`` event.  This is the "how long after ASR
    finishes does the renderer see the text" metric.
 
-4. **Rate-limiter throughput at saturation** — measures
+4. **Rate-limiter throughput at saturation**: measures
    ``_RateLimiter.allow`` ops/sec at the burst ceiling (200/s).  A
    regression here means a flood attack can starve the dispatcher.
 
-5. **Real TCP loopback round-trip** — a genuine localhost socket hop
+5. **Real TCP loopback round-trip**: a genuine localhost socket hop
    (kernel TCP stack, not the in-process event bus) carrying the same
    newline-JSON wire shape the renderer↔sidecar control plane uses.
    This is the transport-level floor under every dispatch: framing,
    buffering, or Nagle-style regressions surface here first.
 
 The bench is deterministic (seeded RNG, fixed subscriber counts, no
-external network I/O — the TCP bench uses the kernel loopback only) so
+external network I/O: the TCP bench uses the kernel loopback only) so
 two runs on the same machine produce identical distributions modulo OS
 scheduler noise.
 
@@ -88,7 +88,7 @@ def bench_auth_handshake(iterations: int) -> dict:
 
     The schema mirrors the ``set_config`` command shape (a dict with a
     few typed fields).  Each iteration calls
-    ``_validate_dict_payload`` once on a fresh dict copy — the
+    ``_validate_dict_payload`` once on a fresh dict copy, the
     validation is pure-Python (no I/O), so this is the steady-state
     per-command overhead.
     """
@@ -140,7 +140,7 @@ def bench_push_throughput(subscriber_counts: tuple[int, ...], iterations: int) -
     results_per_n: list[dict] = []
     for n in subscriber_counts:
         # Register N unique no-op callbacks.  Use a list comprehension
-        # (not lambdas) so each callback is a distinct object — set
+        # (not lambdas) so each callback is a distinct object, set
         # semantics would dedupe lambdas with the same body.
         callbacks = [_make_noop_subscriber(i) for i in range(n)]
         for cb in callbacks:
@@ -177,7 +177,7 @@ def _make_noop_subscriber(idx: int):
 
     Each returned function is a distinct closure (captures a unique
     ``idx``) so ``event_bus.subscribe`` stores them as N separate
-    entries in its set — without this, ``lambda _: None`` would dedupe
+    entries in its set: without this, ``lambda _: None`` would dedupe
     to a single entry (Python's set uses ``id()`` for callables, but
     each ``lambda`` literal creates a new object, so this is mostly
     defensive).
@@ -252,7 +252,7 @@ def bench_rate_limiter_saturation(iterations: int) -> dict:
     from voice_typer.server.ipc.rate_limiter import _RateLimiter
 
     limiter = _RateLimiter()
-    # Heartbeat bypasses the limit entirely — measures pure call overhead.
+    # Heartbeat bypasses the limit entirely, measures pure call overhead.
     hb_latencies: list[float] = []
     for _ in range(iterations):
         t0 = time.perf_counter_ns()
@@ -260,7 +260,7 @@ def bench_rate_limiter_saturation(iterations: int) -> dict:
         hb_latencies.append((time.perf_counter_ns() - t0) / 1000.0)
 
     # ``set_config`` exercises the full deque + cost-weighted path.
-    # We can only send 200 before the burst rejects — so reset the
+    # We can only send 200 before the burst rejects, so reset the
     # limiter every 100 calls to stay under the cap.
     sc_latencies: list[float] = []
     batch = 100
@@ -289,7 +289,7 @@ def bench_tcp_loopback_round_trip(iterations: int) -> dict:
 
     The in-process benches above measure dispatch/validation cost with
     zero transport. This one opens a genuine loopback TCP connection
-    (``socket.socketpair`` — a real 127.0.0.1 kernel socket pair on all
+    (``socket.socketpair``: a real 127.0.0.1 kernel socket pair on all
     three platforms), runs a peer thread that echoes newline-terminated
     JSON lines, and measures send→full-response wall-clock. That is the
     transport-level floor under the renderer↔sidecar TCP/WS control
@@ -419,7 +419,7 @@ def main() -> int:
         return 0
 
     print("=" * 72)
-    print("Voice Typer — IPC Subsystem Benchmark")
+    print("Voice Typer: IPC Subsystem Benchmark")
     print("=" * 72)
 
     hs = results["auth_handshake"]

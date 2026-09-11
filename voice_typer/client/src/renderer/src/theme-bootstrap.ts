@@ -1,4 +1,4 @@
-// theme-bootstrap.ts — pre-React theme application to prevent FOUC.
+// theme-bootstrap.ts, pre-React theme application to prevent FOUC.
 //
 // Before this module existed, the renderer painted with the
 // stylesheet-default theme (light mode, no preset vars) for ~1 frame
@@ -22,7 +22,7 @@
 //      variable overrides are in place before the first paint.
 //
 // Lazy themes: the preset's ``light`` / ``dark`` var maps are
-// no longer statically imported — they live in a separate async chunk
+// no longer statically imported, they live in a separate async chunk
 // per preset. The bootstrap ``await``s ``loadThemePreset(preset)``
 // (TOP-LEVEL AWAIT) so the vars are applied BEFORE React mounts. ESM
 // ``<script type="module">`` tags block subsequent module scripts
@@ -34,13 +34,13 @@
 // After applying the initial theme, the module also fires-and-forgets
 // ``loadThemePreset`` for ALL remaining lazy presets so the cache is
 // warm by the time the user opens Settings and switches themes. This
-// is a background pre-fetch — it does NOT block the initial paint or
+// is a background pre-fetch, it does NOT block the initial paint or
 // React mount. Under offline conditions (C-DATA-1) the chunks are
 // served from the local .asar (Electron) or dist (Tauri), so the
 // pre-fetch completes without network access.
 //
 // After this module runs, ``useTheme`` may re-apply the theme once the
-// backend config is fetched — but that is a no-op when the cached
+// backend config is fetched, but that is a no-op when the cached
 // localStorage state matches the backend (the common case).  See the
 // ``hasInitialReloadCompleted`` guard in ``useTheme.ts`` for how the
 // post-backend theme-application effect is suppressed on the first
@@ -67,7 +67,7 @@ import { lazyThemeLoaders, loadThemePreset } from "@/themes/index";
 // The localStorage key strings + ThemeMode type are shared with
 // ``hooks/useTheme.ts`` via the canonical source
 // ``lib/theme-storage-keys.ts``. Both modules MUST use the same key
-// strings — centralising them in one module makes drift impossible
+// strings, centralising them in one module makes drift impossible
 // (a previous regression had the bootstrap read a stale value while
 // the hook fell back to the default because the two copies diverged).
 // ``lib/theme-storage-keys.ts`` is a zero-dependency module (only
@@ -80,7 +80,7 @@ function readLsThemeMode(): ThemeMode {
 		if (v === "light" || v === "dark" || v === "system") return v;
 	} catch (e) {
 		// localStorage may be unavailable (SSR, sandboxed renderer).
-		// Non-fatal — fall through to the default "system" mode.
+		// Non-fatal, fall through to the default "system" mode.
 		console.warn("[renderer:theme-bootstrap] readLsThemeMode failed:", e);
 	}
 	return "system";
@@ -92,7 +92,7 @@ function readLsThemePreset(): string {
 		if (typeof v === "string" && v.length > 0) return v;
 	} catch (e) {
 		// localStorage may be unavailable (SSR, sandboxed renderer).
-		// Non-fatal — fall through to the default "default" preset.
+		// Non-fatal, fall through to the default "default" preset.
 		console.warn("[renderer:theme-bootstrap] readLsThemePreset failed:", e);
 	}
 	return "default";
@@ -112,7 +112,7 @@ function readLsCustomTheme(): CustomThemeData | null {
 			return parsed as CustomThemeData;
 		}
 	} catch (e) {
-		// malformed JSON — ignore, fall through to default. A
+		// malformed JSON, ignore, fall through to default. A
 		// hand-edited devtools payload or a stale schema from an
 		// older build can land here; logging helps diagnose those.
 		console.warn(
@@ -141,7 +141,7 @@ function resolveIsDark(mode: ThemeMode): boolean {
 		}
 	} catch (e) {
 		// matchMedia may throw in some sandboxed renderers.
-		// Non-fatal — fall through to light mode (default).
+		// Non-fatal, fall through to light mode (default).
 		console.warn(
 			"[renderer:theme-bootstrap] resolveIsDark matchMedia failed:",
 			e,
@@ -151,7 +151,7 @@ function resolveIsDark(mode: ThemeMode): boolean {
 }
 
 /**
- * Apply the cached theme to the document.  Idempotent — calling it
+ * Apply the cached theme to the document.  Idempotent, calling it
  * twice with the same cached state produces the same DOM outcome
  * (toggling ``.dark`` to the same value is a no-op, and
  * ``applyThemeVars`` clears previous overrides before applying new
@@ -181,14 +181,14 @@ export async function applyBootstrapTheme(): Promise<void> {
 	//    var maps are populated in the THEMES entry. For
 	//    default / custom this is an instant no-op (statically
 	//    imported). For the 10 lazy presets this triggers a dynamic
-	//    import() — the FIRST time only; subsequent calls hit the
+	//    import(), the FIRST time only; subsequent calls hit the
 	//    in-memory cache. The await guarantees applyThemeVars
 	//    below sees the populated vars.
 	await loadThemePreset(preset);
 
 	// 3. Apply preset CSS variable overrides.  For the custom
 	//    preset we derive the full var set from the cached 6
-	//    core colours — matching what useTheme effect does
+	//    core colours, matching what useTheme effect does
 	//    post-mount, so the visible result is identical.
 	let customVars: Record<string, string> | null = null;
 	if (preset === "custom" && custom) {
@@ -203,7 +203,7 @@ export async function applyBootstrapTheme(): Promise<void> {
 // (because this is the first <script type=module> in index.html).
 // In tests / SSR the guard inside applyBootstrapTheme makes this a no-op.
 //
-// TOP-LEVEL AWAIT — the module evaluation pauses until the
+// TOP-LEVEL AWAIT, the module evaluation pauses until the
 // preset is loaded + vars applied. ESM <script type=module> tags
 // block subsequent module scripts until top-level await resolves, so
 // main.tsx (the next script tag in index.html) does not execute
@@ -214,7 +214,7 @@ await applyBootstrapTheme();
 // Background pre-fetch the remaining lazy presets so the cache
 // is warm by the time the user opens Settings and switches themes.
 // This does NOT block the initial paint (the await above already
-// applied the active theme) — it is a fire-and-forget pre-fetch. Each
+// applied the active theme), it is a fire-and-forget pre-fetch. Each
 // loadThemePreset call is idempotent + cached, so the active
 // preset (already loaded above) is an instant no-op here.
 //
@@ -222,7 +222,7 @@ await applyBootstrapTheme();
 // local .asar (Electron) or dist (Tauri), so the pre-fetch completes
 // without network access. If a fetch fails (e.g. a chunk file is
 // missing from a corrupted install), loadThemePreset catches the
-// error internally and leaves the entry with empty light/dark — the
+// error internally and leaves the entry with empty light/dark, the
 // caller falls back to the stylesheet default.
 for (const id of Object.keys(lazyThemeLoaders)) {
 	void loadThemePreset(id).catch(() => {
@@ -240,7 +240,7 @@ for (const id of Object.keys(lazyThemeLoaders)) {
 // the app is running (e.g. auto mode on macOS, scheduled dark mode
 // at sunset), the browser fires a prefers-color-scheme change
 // event on window.matchMedia. Without a listener, the cached
-// system mode would NOT track the OS change — the renderer
+// system mode would NOT track the OS change, the renderer
 // would stay in the old mode until the user manually toggled or
 // restarted the app.
 //
@@ -253,7 +253,7 @@ for (const id of Object.keys(lazyThemeLoaders)) {
 // guards short-circuit).
 //
 // applyBootstrapTheme is async (it awaits loadThemePreset).
-// The listener fire-and-forgets the async call — the OS theme change
+// The listener fire-and-forgets the async call, the OS theme change
 // is not time-critical (the user already has a rendered UI; a brief
 // async delay re-applying the preset vars is invisible). For the
 // default / custom presets the call is instant; for lazy presets the
@@ -262,7 +262,7 @@ for (const id of Object.keys(lazyThemeLoaders)) {
 if (typeof window !== "undefined" && window.matchMedia) {
 	try {
 		const mql = window.matchMedia("(prefers-color-scheme: dark)");
-		// Check for addEventListener first — older Safari
+		// Check for addEventListener first, older Safari
 		// versions (< 14) only support the deprecated
 		// addListener API. The cast through unknown is
 		// deliberate: TS MediaQueryList type only exposes

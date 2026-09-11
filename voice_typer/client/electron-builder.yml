@@ -5,11 +5,11 @@ productName: Voice Typer
 artifactName: ${productName}-${version}-${os}-${arch}.${ext}
 asar: true
 # the `publish: github` block was removed because
-# it was dead config — per docs/migration/signing-guide.md:431 and
+# it was dead config, per docs/migration/signing-guide.md:431 and
 # ADR-0020 §15, NO runtime code consumes it (no `electron-updater`
 # integration exists, and the Tauri path uses `tauri-plugin-updater`
 # instead, which is gated by `src-tauri/capabilities/main-runtime.json`
-# — also not granted today). Leaving the block in place misled future
+#, also not granted today). Leaving the block in place misled future
 # maintainers into thinking auto-update was wired up. When auto-update
 # is actually implemented (either via `electron-updater` on the
 # Electron path or `tauri-plugin-updater` on the Tauri path), re-add
@@ -35,7 +35,7 @@ win:
   # `pyinstaller --distpath voice_typer/dist` from the repo root, so the
   # PyInstaller output lands at <repo>/voice_typer/dist/. electron-builder
   # runs from voice_typer/client/, so the `from:` path is `../dist`
-  # (resolves to <repo>/voice_typer/dist/) — CONSISTENT with the mac: and
+  # (resolves to <repo>/voice_typer/dist/), CONSISTENT with the mac: and
   # linux: sections below (Wave 3 path-consistency fix; previously this
   # used `../../dist` which resolved to <repo>/dist/, diverging from the
   # macOS/Linux staging path of <repo>/voice_typer/dist/).
@@ -63,7 +63,7 @@ nsis:
   # the canonical config dir per voice_typer/server/_paths.py) when the
   # user uninstalls via "Add/Remove Programs". This reclaims the
   # HuggingFace model cache (potentially GBs), the venv (hundreds of MB),
-  # the history DB, logs, and crash-recovery snapshots — all of which
+  # the history DB, logs, and crash-recovery snapshots, all of which
   # live under the config dir.
   #
   # The user is prompted to confirm during the NSIS uninstall wizard, so
@@ -83,7 +83,7 @@ nsis:
   # so it can clean up per-user artifacts that survive file removal:
   #
   #   - HKCU\Software\Microsoft\Windows\CurrentVersion\Run\com.voicetyper.autostart_<hash>
-  #     (per-install hash suffix of the install path — see
+  #     (per-install hash suffix of the install path, see
   #     _run_key_name() in autostart_windows.py; canonical reverse-DNS
   #     namespace, pre-rename bare form was VoiceTyper_<hash>). This is a
   #     REGISTRY value, NOT a file in AppData, so deleteAppDataOnUninstall
@@ -109,7 +109,7 @@ nsis:
   # the path is ../../scripts/windows/uninstaller.nsh.
   #
   # The .nsh ALSO optionally invokes scripts/windows/uninstall.bat as
-  # a belt-and-suspenders second sweep (different code path — if
+  # a belt-and-suspenders second sweep (different code path, if
   # either the .nsh's native NSIS loop or the .bat's Python/PowerShell
   # sweep has a bug, the other catches it). The .bat itself invokes
   # scripts/windows/uninstall_permissions.py which in turn calls
@@ -156,7 +156,7 @@ mac:
   # packaging gap: macOS .dmg has no uninstall hook,
   # so the per-user LaunchAgent at ~/Library/LaunchAgents/com.voicetyper.plist
   # is orphaned if the user uninstalls without first disabling autostart
-  # in Settings. Low severity — fails silently. Full context + deferred
+  # in Settings. Low severity, fails silently. Full context + deferred
   # fix path (ship an `uninstall-autostart.command` script via
   # extraResources) live in
   # docs/migration/macos-validation-runbook.md §Step 8.5.
@@ -170,7 +170,7 @@ dmg:
       type: link
       path: /Applications
 
-# Linux — general options shared across all Linux targets.
+# Linux, general options shared across all Linux targets.
 # v26+: `linux`, `deb`, `rpm`, and `appImage` are all valid top-level keys.
 # The `linux` section holds shared options (category, target, icon); per-format
 # overrides (depends, afterInstall, afterRemove) go in the format-specific keys.
@@ -199,7 +199,7 @@ linux:
 # by apt/dnf themselves, not by us).
 # `python3` is NOT listed in `deb.depends` or `rpm.depends`. The
 # Python backend is bundled as a standalone PyInstaller / Nuitka executable
-# (see the linux.extraResources block above) — it embeds its own CPython
+# (see the linux.extraResources block above), it embeds its own CPython
 # interpreter, so the system `python3` package is unnecessary bloat and a
 # needless install-time dependency. Removing it also avoids pulling in a
 # distro Python that could shadow or conflict with the bundled one
@@ -208,7 +208,7 @@ deb:
   depends:
     - libnotify4
     - libxtst6
-  # R6-F8: python3 is deliberately NOT in depends — the bundled
+  # R6-F8: python3 is deliberately NOT in depends, the bundled
   # PyInstaller backend embeds its own interpreter, so requiring the
   # system python3 package would be unnecessary bloat (and could pull
   # an unrelated python3 version).
@@ -218,11 +218,11 @@ deb:
   # ../../scripts/linux/... to reach the actual scripts. Without this fix, the
   # .deb/.rpm installers either fail to build or ship without the udev rule /
   # input-group setup that the native hotkey listener needs.
-  # (Linux side — HANDLED, SA-12): prerm removes the per-user
+  # (Linux side, HANDLED, SA-12): prerm removes the per-user
   # autostart .desktop entry at ~/.config/autostart/voice-typer.desktop
   # for every non-system user (see ../../scripts/linux/prerm:38-57).
   # The Windows (nsis:) and macOS (mac:) sections document their
-  # respective gaps in the comments above — Linux is the only platform
+  # respective gaps in the comments above, Linux is the only platform
   # where the uninstall autostart cleanup is fully wired today.
   afterInstall: ../../scripts/linux/postinst
   afterRemove: ../../scripts/linux/prerm
@@ -231,9 +231,9 @@ rpm:
     - libnotify
     - libXtst
   # same path correction as the deb: section above.
-  # (Linux side — HANDLED): prerm.rpm removes the
+  # (Linux side, HANDLED): prerm.rpm removes the
   # per-user autostart .desktop entry (see ../../scripts/linux/prerm.rpm:40-58).
-  # Functionally identical to the Debian prerm — only runs on uninstall
+  # Functionally identical to the Debian prerm, only runs on uninstall
   # ($1 = 0), not on upgrade ($1 = 1).
   afterInstall: ../../scripts/linux/postinst.rpm
   afterRemove: ../../scripts/linux/prerm.rpm

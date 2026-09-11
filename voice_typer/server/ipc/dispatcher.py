@@ -1,6 +1,6 @@
 """Dispatcher mixin for the IPC server (split from ``ipc_server.py``).
 
-Contains the :class:`DispatcherMixin` class — the command-dispatch
+Contains the :class:`DispatcherMixin` class, the command-dispatch
 methods (``_dispatch`` / ``_shutting_down_error`` /
 ``_handle_unknown_command`` / ``_handle_tray_click`` / ``_handle_shutdown``)
 that are mixed into :class:`IPCServer` via multiple inheritance.
@@ -8,7 +8,7 @@ that are mixed into :class:`IPCServer` via multiple inheritance.
 The mixin accesses instance state (``self._dispatch_lock``,
 ``self._cached_shutting_down``, ``self._COMMAND_REGISTRY``,
 ``self._shutdown_started``, ``self.service``, ``self.app``) which is
-declared on :class:`IPCServer` itself — the mixin provides only the
+declared on :class:`IPCServer` itself, the mixin provides only the
 method bodies.
 
 Source-string-pinning tests (``tests/test_ipc_server.py``,
@@ -18,7 +18,7 @@ Source-string-pinning tests (``tests/test_ipc_server.py``,
 ``._handle_shutdown`` and assert substrings appear in the source.
 Because ``IPCServer._dispatch`` resolves through MRO to
 ``DispatcherMixin._dispatch``, ``inspect.getsource`` returns the source
-from this module — the bodies are moved verbatim so every pinned
+from this module, the bodies are moved verbatim so every pinned
 substring (``with self._dispatch_lock:``, ``_cached_shutting_down``,
 ``OutputMixin._send`` / ``ipc/sender.py``, ``_validate_dict_payload``,
 ``"id": {"type": str, "required": True}``, ``except BaseException``,
@@ -90,7 +90,7 @@ class DispatcherMixin:
         # ``_handle_unknown_command`` shape and let clients branch on
         # the same code as for unrecognized commands.
         if not isinstance(msg, dict):
-            # ErrorEnvelope contract — see validation.py
+            # ErrorEnvelope contract: see validation.py
             err: ResponseEnvelope = {
                 "type": "error",
                 "data": {
@@ -108,9 +108,9 @@ class DispatcherMixin:
         # a truthiness check) mirrors the existing ``_send`` shutdown-
         # suppress gate (see the ``_cached_shutting_down`` read in
         # ``OutputMixin._send`` in ``voice_typer/server/ipc/sender.py``)
-        # so MagicMock-based test fixtures — which expose
+        # so MagicMock-based test fixtures: which expose
         # ``_shutting_down`` as a child mock that is truthy but not
-        # ``is True`` — keep exercising the dispatch path instead of
+        # ``is True``: keep exercising the dispatch path instead of
         # short-circuiting here.
         #
         # read the cached snapshot (refreshed in start()/stop())
@@ -125,7 +125,7 @@ class DispatcherMixin:
 
         # NOTE: the per-process rate limiter is NO LONGER enforced
         # here. Each transport chokepoint applies the limiter BEFORE
-        # calling ``_dispatch`` — TCP at ``transport_tcp.py`` (the
+        # calling ``_dispatch``: TCP at ``transport_tcp.py`` (the
         # ``rate_limiter.allow(command=msg_type)`` gate inside
         # ``_handle_tcp_connection``'s read loop) and WS at
         # ``sidecar_ws._make_dispatch`` (the closure-captured
@@ -153,7 +153,7 @@ class DispatcherMixin:
         # The token is reset in the ``finally`` below so concurrent
         # requests (each on its own call to _dispatch) don't leak ids
         # into one another.  ``msg.get("id")`` may be None/absent for
-        # fire-and-forget notifications — in that case no correlation id
+        # fire-and-forget notifications, in that case no correlation id
         # is set and logs fall back to the no-correlation schema.
         _corr_token = None
         _req_id = msg.get("id") if isinstance(msg, dict) else None
@@ -173,7 +173,7 @@ class DispatcherMixin:
         # monkey-patches (``monkeypatch.setattr(server, '_handle_<cmd>', ...)``)
         # are observed at dispatch time. Registry-typo validation is
         # performed once at IPCServer construction (see ``__init__``); there
-        # is NO instance-level cache — the previous ``_command_handlers``
+        # is NO instance-level cache, the previous ``_command_handlers``
         # dict was dead code (built but never consulted at dispatch time)
         # and has been removed. The ``CommandHandler`` annotation on the
         # local ``handler`` variable gives the type checker a ``Callable``
@@ -189,7 +189,7 @@ class DispatcherMixin:
                 # narrowest callable supertype). Direct assignment to
                 # ``handler`` would fail ``bad-assignment`` because
                 # ``(...) -> object`` is not assignable to ``CommandHandler``
-                # (whose return type is ``ResponseEnvelope | None`` — a
+                # (whose return type is ``ResponseEnvelope | None``, a
                 # narrower type than ``object``, and return types are
                 # covariant). ``typing.cast`` is the typed, intentional
                 # assertion that the resolved attribute matches the
@@ -198,7 +198,7 @@ class DispatcherMixin:
                 # method on this class, and the ``__init__``
                 # registry-typo validation loop () asserts each
                 # entry resolves to a callable attribute at construction
-                # time — so a non-CommandHandler resolution would have
+                # time, so a non-CommandHandler resolution would have
                 # surfaced as an ``IPCServer.__init__`` test failure
                 # before reaching this line. ``cast`` is preferred over
                 # the previous ``# type: ignore[assignment]`` suppression
@@ -206,7 +206,7 @@ class DispatcherMixin:
                 # to flag genuine ``CommandHandler``-shape mismatches
                 # on the assignment LHS, (2) does not silently mask
                 # future type errors on this line, and (3) keeps the
-                # cast local — if 's full handler annotation
+                # cast local, if 's full handler annotation
                 # migration ever lands, the cast can be removed without
                 # touching anything else.
                 handler = typing.cast(CommandHandler, _resolved)
@@ -229,7 +229,7 @@ class DispatcherMixin:
                 # per-server dispatch lock; the shutdown re-check happens
                 # INSIDE the lock so the (locked) handler invocation is
                 # atomic with the (locked, on the ShutdownController side)
-                # shutdown-flag set — closing the TOCTOU window between
+                # shutdown-flag set, closing the TOCTOU window between
                 # the unlocked gate at the top of ``_dispatch`` and the
                 # handler call.
                 with self._dispatch_lock:
@@ -242,7 +242,7 @@ class DispatcherMixin:
             # envelope (NOT the generic ``server.internal_error`` toast)
             # so the renderer's consent-dialog logic can surface a
             # provider-specific dialog. This clause MUST come before any
-            # generic ``except Exception`` (at the call sites) — otherwise
+            # generic ``except Exception`` (at the call sites), otherwise
             # the consent signal would be swallowed into a generic toast.
             resp["type"] = "error"
             resp["data"] = {
@@ -267,7 +267,7 @@ class DispatcherMixin:
             # ``_tcp_dispatch_and_respond``; the stdin path catches
             # via ``_run``'s ``except Exception`` clause. Catching
             # here too means ALL three transports get the same
-            # defense-in-depth — a future transport that forgets its
+            # defense-in-depth, a future transport that forgets its
             # own catch-all is still protected. The envelope uses
             # ``_error_response`` (R13-F3) so clients branching on
             # ``code`` see the namespaced ``server.handler_error``
@@ -301,7 +301,7 @@ class DispatcherMixin:
             # originating request. Pre-fix, ``_validate_dict_payload``
             # returned a FRESH error-envelope dict with no ``id`` field;
             # every handler that did ``if error: return error`` discarded
-            # the ``resp`` dict (which had ``id`` pre-populated) — so
+            # the ``resp`` dict (which had ``id`` pre-populated), so
             # validation rejections orphaned the pending request and the
             # renderer would time out instead of resolving the rejection.
             # Stamping here (in ``_dispatch``) is the defensive single
@@ -318,7 +318,7 @@ class DispatcherMixin:
 
          aligned to the namespaced ``server.*`` form so
         the WS path (sidecar_ws.py) and the TCP / stdin path produce
-        identical envelopes — restoring the  parity contract.
+        identical envelopes, restoring the  parity contract.
 
         Factored out of ``_dispatch`` () so the initial
         gate and the per-handler-call TOCTOU re-check share a single
@@ -327,11 +327,11 @@ class DispatcherMixin:
         The return type is ``ResponseEnvelope``
         (``dict[str, object]``) rather than :class:`ErrorEnvelope`
         because TypedDicts are invariant and not subtypes of ``dict``;
-        the construction-site ``# ErrorEnvelope contract — see
+        the construction-site ``# ErrorEnvelope contract, see
         validation.py`` comment documents the contract without
         enforcing it at the type level.
         """
-        # ErrorEnvelope contract — see validation.py
+        # ErrorEnvelope contract: see validation.py
         err: ResponseEnvelope = {
             "type": "error",
             "data": {
@@ -395,14 +395,14 @@ class DispatcherMixin:
         # ``ErrorEvent.code`` narrowing switches on a single canonical
         # prefix (``server.*``) across all error emitters.
         if tray is None or not hasattr(tray, "dispatch_tray_action"):
-            # ErrorEnvelope contract — see validation.py
+            # ErrorEnvelope contract: see validation.py
             resp["type"] = "error"
             resp["data"] = {"code": "server.unknown_tray_item", "id": item_id}
             return resp
 
         handled = tray.dispatch_tray_action(item_id)
         if not handled:
-            # ErrorEnvelope contract — see validation.py
+            # ErrorEnvelope contract: see validation.py
             resp["type"] = "error"
             resp["data"] = {"code": "server.unknown_tray_item", "id": item_id}
             return resp
@@ -413,7 +413,7 @@ class DispatcherMixin:
         self, cmd: object | None, data: object | None, resp: ResponseEnvelope
     ) -> ResponseEnvelope:
         """Handle the ``__unknown__`` IPC command."""
-        # ErrorEnvelope contract — see validation.py
+        # ErrorEnvelope contract: see validation.py
         resp["type"] = "error"
         # include a structured `code` field so clients can
         # distinguish "unknown command" (caller bug / version skew)
@@ -429,7 +429,7 @@ class DispatcherMixin:
             "message": f"Unknown command: {cmd}",
             "command": cmd,
         }
-        # No ``cast`` — ``resp`` has been mutated in place to match the
+        # No ``cast``: ``resp`` has been mutated in place to match the
         # :class:`ErrorEnvelope` shape. The return type is
         # ``ResponseEnvelope`` (``dict[str, object]``) rather than
         # :class:`ErrorEnvelope` because TypedDicts are invariant and not
@@ -439,50 +439,50 @@ class DispatcherMixin:
     def _handle_shutdown(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope:
         """Handle the ``shutdown`` IPC command ( / ).
 
-        ADR-0020 §10: cooperative shutdown. The Tauri host sends this
-        to ask the backend to release the mic / volume / mutex and
-        exit cleanly. Previously this command was intercepted by
-        ``sidecar_ws._make_dispatch`` BEFORE dispatch, calling
-        ``server.app.quit()`` directly and bypassing the service layer
-        — so any future shutdown side-effect added to
-        :meth:`VoiceTyperService.quit` silently wouldn't run on Tauri.
+         ADR-0020 §10: cooperative shutdown. The Tauri host sends this
+         to ask the backend to release the mic / volume / mutex and
+         exit cleanly. Previously this command was intercepted by
+         ``sidecar_ws._make_dispatch`` BEFORE dispatch, calling
+         ``server.app.quit()`` directly and bypassing the service layer
+        , so any future shutdown side-effect added to
+         :meth:`VoiceTyperService.quit` silently wouldn't run on Tauri.
 
-        The fix registers ``shutdown`` in :data:`_COMMAND_REGISTRY` so
-        the command flows through the shared dispatch table on every
-        transport (TCP / stdin / WS) and delegates to
-        :meth:`self.service.quit` (the same path ``quit_app`` already
-        takes). The ack is returned synchronously; the actual teardown
-        happens on the service layer's shutdown controller (which
-        schedules cleanup on a background thread, so the ack frame
-        reaches the host before the process exits).
+         The fix registers ``shutdown`` in :data:`_COMMAND_REGISTRY` so
+         the command flows through the shared dispatch table on every
+         transport (TCP / stdin / WS) and delegates to
+         :meth:`self.service.quit` (the same path ``quit_app`` already
+         takes). The ack is returned synchronously; the actual teardown
+         happens on the service layer's shutdown controller (which
+         schedules cleanup on a background thread, so the ack frame
+         reaches the host before the process exits).
 
-        The response shape (``{"type": "result", "data": {"ack": True}}``)
-        matches the prior WS-path ack so the Tauri Rust host's
-        ``shutdown`` match arm (which awaits this exact envelope) keeps
-        working unchanged.
+         The response shape (``{"type": "result", "data": {"ack": True}}``)
+         matches the prior WS-path ack so the Tauri Rust host's
+         ``shutdown`` match arm (which awaits this exact envelope) keeps
+         working unchanged.
 
-        the ack is set on ``resp`` and returned BEFORE
-        ``self.service.quit()`` is invoked. ``service.quit()`` runs
-        ``_do_cleanup()`` synchronously (30+ steps, ~95s worst case);
-        the Tauri host's ``SHUTDOWN_ACK_TIMEOUT_MS=2000ms`` fires long
-        before cleanup completes, force-killing the sidecar
-        mid-cleanup. Running cleanup on a daemon background thread lets
-        the dispatch loop flush the ack frame immediately — the host
-        receives the ack within milliseconds and proceeds to its
-        graceful-wait while the sidecar's cleanup runs concurrently.
+         the ack is set on ``resp`` and returned BEFORE
+         ``self.service.quit()`` is invoked. ``service.quit()`` runs
+         ``_do_cleanup()`` synchronously (30+ steps, ~95s worst case);
+         the Tauri host's ``SHUTDOWN_ACK_TIMEOUT_MS=2000ms`` fires long
+         before cleanup completes, force-killing the sidecar
+         mid-cleanup. Running cleanup on a daemon background thread lets
+         the dispatch loop flush the ack frame immediately, the host
+         receives the ack within milliseconds and proceeds to its
+         graceful-wait while the sidecar's cleanup runs concurrently.
 
-        the background-thread cleanup catches ``BaseException``
-        (NOT just ``Exception``) so a ``SystemExit`` / ``KeyboardInterrupt``
-        raised inside ``service.quit()`` is logged server-side rather
-        than silently killing the cleanup thread. The ack is unaffected
-        — it was already returned before the thread started.
+         the background-thread cleanup catches ``BaseException``
+         (NOT just ``Exception``) so a ``SystemExit`` / ``KeyboardInterrupt``
+         raised inside ``service.quit()`` is logged server-side rather
+         than silently killing the cleanup thread. The ack is unaffected
+        , it was already returned before the thread started.
         """
         #  (Medium): per-instance shutdown re-entrancy gate. The
         # Tauri host's WS transport can legitimately send ``shutdown``
         # twice (e.g. a slow ack + a supervisor retry, or a WS-close
         # race with the cooperative-shutdown frame). Pre-, the
         # second invocation spawned a SECOND untracked
-        # ``ipc-shutdown-cleanup`` daemon thread — both threads would
+        # ``ipc-shutdown-cleanup`` daemon thread, both threads would
         # race into ``service.quit()`` / ``_do_cleanup()`` and
         # double-free the mic stream, hotkey listeners, single-instance
         # mutex, etc. The ``_shutdown_started`` event is set BEFORE the
@@ -491,7 +491,7 @@ class DispatcherMixin:
         # invocation still returns the ack envelope (the host's
         # ``SHUTDOWN_ACK_TIMEOUT_MS`` retry expects it).
         if self._shutdown_started.is_set():
-            # Already shutting down — return the same ack envelope so
+            # Already shutting down. Return the same ack envelope so
             # the host's retry timer resolves immediately. No second
             # cleanup thread is spawned; the first one (already running
             # on the ``ipc-shutdown-cleanup`` daemon thread) owns the
@@ -506,7 +506,7 @@ class DispatcherMixin:
         # "[SIDECAR-WS] shutdown received" (the Windows validation
         # runbook's §6.6 pass criterion). The handler is shared across
         # transports; the message keeps the historical runbook text.
-        log.info("[SIDECAR-WS] shutdown received — releasing mic and exiting")
+        log.info("[SIDECAR-WS] shutdown received: releasing mic and exiting")
 
         # build the ack envelope FIRST and return it. The dispatch
         # loop flushes the wire frame before the background cleanup
@@ -539,7 +539,7 @@ class DispatcherMixin:
                 # server-side so the operator can diagnose; the host's
                 # hard-timeout backstop (kill_children) fires either way.
                 # ``BaseException`` (rather than ``Exception``) catches
-                # ``SystemExit`` / ``KeyboardInterrupt`` too — the ack
+                # ``SystemExit`` / ``KeyboardInterrupt`` too, the ack
                 # was already returned, so there's nothing to recover.
                 log.error(
                     "[IPC] shutdown: service.quit() raised: %s",
@@ -550,7 +550,7 @@ class DispatcherMixin:
         # register the cleanup thread on the central
         # ``_thread_registry`` (if the app provides one) so
         # ``shutdown_all()`` can join it during ``VoiceTyperApp.quit()``
-        # — pre- the thread was untracked, so a fast process exit
+        # , pre- the thread was untracked, so a fast process exit
         # could orphan it mid-cleanup and leave resources held.
         cleanup_thread = threading.Thread(
             target=_bg_cleanup,

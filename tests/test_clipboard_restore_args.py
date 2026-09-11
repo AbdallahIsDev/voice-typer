@@ -1,4 +1,4 @@
-"""CR-2 regression guard — verify ``_delayed_restore`` 4-arg signature.
+"""CR-2 regression guard: verify ``_delayed_restore`` 4-arg signature.
 
 Finding CR-2 (Critical): ``voice_typer/server/clipboard.py`` spawned
 a daemon thread with 4 positional args but the target method
@@ -34,7 +34,7 @@ def _make_manager():
     Imports are local so the autouse mock fixture has installed its
     ``sounddevice``/``pynput``/``pyperclip`` mocks first.
 
-    Note: no return-type annotation — ``ClipboardManager`` is only
+    Note: no return-type annotation: ``ClipboardManager`` is only
     imported inside this function body (deferred so the autouse
     ``mock_heavy_imports`` fixture in ``conftest.py`` can install the
     pynput/pyperclip ``sys.modules`` mocks first). An annotation would
@@ -57,7 +57,7 @@ def test_delayed_restore_signature_accepts_four_args() -> None:
         f"_delayed_restore must accept 4 args + self (5 params), got {len(params)}: {[p.name for p in params]}"
     )
     # Accept either ``pending_entry`` (current) or ``_pending_entry``
-    # (legacy naming) — the leading underscore is a private-vs-public
+    # (legacy naming), the leading underscore is a private-vs-public
     # convention only and does not affect the call site.
     assert params[4].name in {"pending_entry", "_pending_entry"}, (
         f"4th positional arg must be named 'pending_entry' or '_pending_entry', got {params[4].name!r}"
@@ -128,7 +128,7 @@ def test_delayed_restore_without_pending_entry_still_works() -> None:
 
     with pytest.MonkeyPatch.context() as mp:
         mp.setattr(cb, "_paste_from_clipboard", lambda: "pasted")
-        # 3-arg call — should not raise.
+        # 3-arg call, should not raise.
         mgr._delayed_restore(snapshot, "pasted", delay)
 
     snapshot.restore.assert_called_once()
@@ -137,7 +137,7 @@ def test_delayed_restore_without_pending_entry_still_works() -> None:
 def test_delayed_restore_skips_when_entry_already_taken_by_atexit() -> None:
     """CR-84: if the atexit handler has already cleared
     _pending_restores (taken ownership), the daemon thread must
-    short-circuit BEFORE calling snapshot.restore() — the platform
+    short-circuit BEFORE calling snapshot.restore(), the platform
     clipboard APIs are not thread-safe."""
     from voice_typer.server import clipboard as cb
 
@@ -147,14 +147,14 @@ def test_delayed_restore_skips_when_entry_already_taken_by_atexit() -> None:
     delay = 0.0
     entry = (mgr, snapshot, "pasted", delay)
 
-    # Do NOT register the entry — simulate atexit having already taken it.
+    # Do NOT register the entry, simulate atexit having already taken it.
     assert entry not in cb._pending_restores
 
     with pytest.MonkeyPatch.context() as mp:
         mp.setattr(cb, "_paste_from_clipboard", lambda: "pasted")
         mgr._delayed_restore(snapshot, "pasted", delay, entry)
 
-    # Must NOT have called restore — atexit will do that synchronously.
+    # Must NOT have called restore, atexit will do that synchronously.
     snapshot.restore.assert_not_called()
 
 

@@ -1,6 +1,6 @@
 """Tests for the REMOVED automatic model-cache eviction.
 
-The app NEVER deletes models automatically — deleting a model is an
+The app NEVER deletes models automatically, deleting a model is an
 explicit user action (the Models page Delete button). The old
 ``prune_model_cache`` auto-eviction helper (HF cache size-based
 eviction that deleted the oldest cached repos on every load) has been
@@ -36,7 +36,7 @@ class TestPruneModelCacheRemoved:
         from voice_typer.server import asr_utils
 
         assert not hasattr(asr_utils, "prune_model_cache"), (
-            "prune_model_cache must be REMOVED — the app never deletes "
+            "prune_model_cache must be REMOVED, the app never deletes "
             "models automatically; deleting a model is an explicit user "
             "action (Models page Delete button)."
         )
@@ -66,7 +66,7 @@ class TestPruneModelCacheRemoved:
 
 
 class TestCleanupHelperStillAvailableForExplicitDownloads:
-    """``cleanup_hf_cache_dir`` survives — but ONLY for the explicit
+    """``cleanup_hf_cache_dir`` survives, but ONLY for the explicit
     user-initiated download path (clearing a tampered cache during a
     download the user started), never for automatic load-time deletion.
     """
@@ -78,7 +78,7 @@ class TestCleanupHelperStillAvailableForExplicitDownloads:
 
     def test_whisper_load_path_never_deletes(self):
         """transcription.py must not call ``cleanup_hf_cache_dir`` on the
-        load path — a tampered cache raises ``ModelIntegrityError`` and
+        load path, a tampered cache raises ``ModelIntegrityError`` and
         is left in place for the user to delete explicitly."""
         src = _read("voice_typer/server/transcription.py")
         # The import re-export and docstring comments are fine; a CALL is not.
@@ -86,13 +86,13 @@ class TestCleanupHelperStillAvailableForExplicitDownloads:
             line for line in src.splitlines() if "cleanup_hf_cache_dir(" in line and not line.strip().startswith("#")
         ]
         assert not call_sites, (
-            "transcription.py must not call cleanup_hf_cache_dir — deleting a model is an explicit user action."
+            "transcription.py must not call cleanup_hf_cache_dir, deleting a model is an explicit user action."
         )
 
     def test_parakeet_load_path_never_deletes(self):
         src = _read("voice_typer/server/parakeet_engine")
         assert "cleanup_hf_cache_dir(" not in src, (
-            "parakeet_engine.py must not call cleanup_hf_cache_dir on load — "
+            "parakeet_engine.py must not call cleanup_hf_cache_dir on load, "
             "a tampered cache raises ModelIntegrityError and is left for the "
             "user to delete explicitly."
         )
@@ -100,7 +100,7 @@ class TestCleanupHelperStillAvailableForExplicitDownloads:
     def test_cleanup_only_reachable_from_explicit_download(self):
         """The only production callers of ``cleanup_hf_cache_dir`` must be
         the user-initiated download path (service/asr_setup) plus the
-        definition/delegation modules — never a load path."""
+        definition/delegation modules, never a load path."""
         import voice_typer.server as server_pkg
 
         hits: list[str] = []

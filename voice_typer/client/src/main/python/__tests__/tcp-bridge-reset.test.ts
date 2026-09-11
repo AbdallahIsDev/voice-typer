@@ -1,6 +1,6 @@
 // @vitest-environment node
 /**
- * Unit tests for `tcp-bridge-reset.ts` — the shared ordered teardown
+ * Unit tests for `tcp-bridge-reset.ts`, the shared ordered teardown
  * used by the two Electron-alive restart paths (`relaunch-app.ts` dev
  * branch and `restart-backend.ts`).
  *
@@ -134,7 +134,7 @@ describe("resetTcpBridgeState()", () => {
 		expect(mockState._tcpRetryGeneration).toBe(6);
 		expect(mockState.heartbeatInterval).toBeNull();
 		expect(mockResetBackpressure).toHaveBeenCalledTimes(1);
-		// Socket destroyed, then backpressure reset — the other
+		// Socket destroyed, then backpressure reset, the other
 		// steps are plain field writes with no observable order,
 		// but the destroy→reset prefix must hold.
 		expect(callOrder).toEqual(["destroy", "backpressure"]);
@@ -171,7 +171,7 @@ describe("resetTcpBridgeState()", () => {
 
 	it("rejects pending requests with a TYPED PythonIpcError code backend_not_connected during a backend-only restart", () => {
 		// `restart-backend.ts` delegates here with `state._relaunching`
-		// false: the backend connection is recycled mid-flight — the
+		// false: the backend connection is recycled mid-flight, the
 		// same disconnect class the TCP close handler's "Python
 		// socket closed" rejection carries, so the python-call
 		// bridge must classify it as `backend_not_connected` (the
@@ -193,7 +193,7 @@ describe("resetTcpBridgeState()", () => {
 	it("rejects pending requests with a TYPED PythonIpcError code command_failed while a full app relaunch is in flight", () => {
 		// The `relaunch-app.ts` dev branch sets `state._relaunching`
 		// true before delegating here with "Application is
-		// restarting" — the same code the typed pre-flight
+		// restarting", the same code the typed pre-flight
 		// `_relaunching` rejection in `send-to-python.ts` and the
 		// relaunch teardown in `tcp/close-handler.ts` carry.
 		mockState._relaunching = true;

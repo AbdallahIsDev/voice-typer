@@ -15,9 +15,9 @@
  * running axe-core against the rendered container.
  *
  * States covered:
- *   - `connecting`   — centered spinner + optional progress bar.
- *   - `disconnected` — last-error text + Retry button.
- *   - `restarting`   — restarting hint (no retry affordance).
+ *   - `connecting`  , centered spinner + optional progress bar.
+ *   - `disconnected`, last-error text + Retry button.
+ *   - `restarting`  , restarting hint (no retry affordance).
  *
  * KNOWN VIOLATION (documented via `it.fails` below):
  *   - `aria-dialog-name` (impact: serious, cat.aria + best-practice):
@@ -31,7 +31,7 @@
  *     dialog is about. Fix: pass through `id` props on EmptyState's
  *     `<h3>` / `<p>` (or replace the wrapper's `aria-labelledby` /
  *     `aria-describedby` with an `aria-label` / `aria-describedby`
- *     that points at real elements). Tracked separately — the
+ *     that points at real elements). Tracked separately, the
  *     ConnectionStatusScreen component file is owned by another
  *     slice and is out of scope for this test-only change.
  *
@@ -62,7 +62,7 @@ vi.mock("@/i18n/i18n", () => ({
 	useT: () => (key: string) => key,
 }));
 
-// EmptyState uses HugeiconsIcon — mock to render a plain span so we
+// EmptyState uses HugeiconsIcon, mock to render a plain span so we
 // don't need the @hugeicons/react runtime in the test (same approach
 // as the existing ConnectionStatusScreen.test.tsx).
 vi.mock("@hugeicons/react", () => ({
@@ -73,7 +73,7 @@ vi.mock("@hugeicons/react", () => ({
 	),
 }));
 
-// Disable color-contrast — the test environment doesn't load the full
+// Disable color-contrast, the test environment doesn't load the full
 // Tailwind stylesheet, so axe's computed contrast values would be
 // meaningless and produce false positives.
 const AXE_OPTIONS: axe.RunOptions = {
@@ -83,7 +83,7 @@ const AXE_OPTIONS: axe.RunOptions = {
 };
 
 // The `aria-dialog-name` violation documented in the file-level
-// docstring has been RESOLVED — the ZU-36 fix replaced the wrapper's
+// docstring has been RESOLVED, the ZU-36 fix replaced the wrapper's
 // `role="alertdialog"` with `role="alert"`, so axe's
 // aria-dialog-name rule (which only applies to dialog/alertdialog
 // roles) no longer fires. No known violations remain, so the
@@ -91,7 +91,7 @@ const AXE_OPTIONS: axe.RunOptions = {
 // formerly-`it.fails` test is now a plain `it`.
 const KNOWN_VIOLATIONS = new Set<string>();
 
-/** Axe helper — full (unfiltered) results for the `it.fails` test. */
+/** Axe helper, full (unfiltered) results for the `it.fails` test. */
 async function runAxe(
 	container: HTMLElement,
 ): Promise<axe.AxeResults["violations"]> {
@@ -99,7 +99,7 @@ async function runAxe(
 	return results.violations.filter((v) => v.id !== "color-contrast");
 }
 
-/** Axe helper — filters out the disabled color-contrast rule AND the
+/** Axe helper, filters out the disabled color-contrast rule AND the
  *  known/documented violations so the per-state tests can assert there
  *  are no NEW violations. */
 async function expectNoNewAxeViolations(container: HTMLElement): Promise<void> {
@@ -108,7 +108,7 @@ async function expectNoNewAxeViolations(container: HTMLElement): Promise<void> {
 	expect(newViolations).toEqual([]);
 }
 
-describe("F-17: axe-core WCAG scan — ConnectionStatusScreen (all three states)", () => {
+describe("F-17: axe-core WCAG scan, ConnectionStatusScreen (all three states)", () => {
 	afterEach(() => {
 		cleanup();
 	});

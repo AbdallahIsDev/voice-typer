@@ -2,7 +2,7 @@
 
 These tests pin the contract that ``autostart_launcher.py`` spawns the
 Tauri binary (``voice-typer-tauri``) instead of ``electron .`` when a
-Tauri install is detected — without breaking the legacy Electron path
+Tauri install is detected, without breaking the legacy Electron path
 used by dev checkouts and pre-cutover installs.
 
 The Tauri cutover removed the Electron ``node_modules/`` tree from
@@ -34,7 +34,7 @@ from voice_typer.server.autostart_launcher import (
 # These tests exercise spawn *mechanics* (env, flags, fallback order)
 # with fake binary paths that cannot verify against the real
 # ``tauri-binaries.json``. The CR-002 integrity gate itself is tested
-# behaviorally in ``tests/test_tauri_binary_verify.py`` — here we
+# behaviorally in ``tests/test_tauri_binary_verify.py``, here we
 # bypass it so the spawn-mechanic assertions stay focused.
 @pytest.fixture(autouse=True)
 def _bypass_tauri_integrity_gate(monkeypatch):
@@ -77,7 +77,7 @@ class TestTauriBinaryLookup:
         assert _tauri_binary() == str(fake_bin)
 
     def test_returns_none_when_env_path_does_not_exist(self, monkeypatch, tmp_path):
-        """A non-existent env path is ignored — fall through to install-path
+        """A non-existent env path is ignored, fall through to install-path
         scan (which also finds nothing in the test env)."""
         monkeypatch.setenv("VT_TAURI_BINARY", str(tmp_path / "nonexistent"))
         monkeypatch.setenv("HOME", str(tmp_path))
@@ -114,18 +114,18 @@ class TestTauriBinaryLookup:
 
     @pytest.mark.skipif(
         sys.platform == "win32",
-        reason="POSIX-only: Windows has no executable bit — the os.access(X_OK) check has no equivalent on Win32",
+        reason="POSIX-only: Windows has no executable bit, the os.access(X_OK) check has no equivalent on Win32",
     )
     def test_skips_non_executable_posix_candidate(self, monkeypatch, tmp_path):
         """On POSIX, a non-executable file at an install path is skipped
-        — a stale non-executable artifact shouldn't fool the launcher."""
+        , a stale non-executable artifact shouldn't fool the launcher."""
         stale = tmp_path / "stale-voice-typer-tauri"
         stale.write_text("not executable")
         stale.chmod(0o644)  # no execute bit
         monkeypatch.delenv("VT_TAURI_BINARY", raising=False)
         monkeypatch.setenv("VT_TAURI_BINARY", str(stale))
         # The env-override path uses Path.is_file (True) but not
-        # os.access — the env override is trusted. So this test
+        # os.access, the env override is trusted. So this test
         # instead patches the install-path scan path:
         monkeypatch.delenv("VT_TAURI_BINARY", raising=False)
         monkeypatch.setenv("HOME", str(tmp_path))
@@ -163,7 +163,7 @@ class TestIsTauriMode:
         assert _is_tauri_mode() is True
 
     def test_no_tauri_binary_returns_false(self, monkeypatch):
-        """Without a Tauri binary on disk, Tauri mode is OFF — preserves
+        """Without a Tauri binary on disk, Tauri mode is OFF, preserves
         the legacy Electron path in dev/CI environments."""
         monkeypatch.delenv("VT_TAURI_AUTOSTART", raising=False)
         monkeypatch.setattr("voice_typer.server.autostart_launcher._tauri_binary", lambda: None)
@@ -251,7 +251,7 @@ class TestLaunchTauriApp:
 
 
 # ---------------------------------------------------------------------------
-# _focus_running_app() — Tauri path
+# _focus_running_app(), Tauri path
 # ---------------------------------------------------------------------------
 
 
@@ -292,7 +292,7 @@ class TestFocusRunningAppTauriPath:
 
     def test_returns_false_on_tauri_spawn_failure(self, monkeypatch):
         """If the Tauri focus spawn raises, return False (no exception
-        propagation — the caller's launch flow continues)."""
+        propagation, the caller's launch flow continues)."""
         monkeypatch.setattr("voice_typer.server.autostart_launcher._is_tauri_mode", lambda: True)
         monkeypatch.setattr(
             "voice_typer.server.autostart_launcher._tauri_binary",
@@ -307,7 +307,7 @@ class TestFocusRunningAppTauriPath:
 
 
 # ---------------------------------------------------------------------------
-# launch() — Tauri fresh-start path
+# launch(), Tauri fresh-start path
 # ---------------------------------------------------------------------------
 
 
@@ -334,10 +334,10 @@ class TestLaunchTauriFreshStart:
         monkeypatch.setattr("voice_typer.server.autostart_launcher._write_pid_file", lambda lp, cp: None)
         monkeypatch.setattr(time, "sleep", lambda s: None)
 
-        # Bypass the backend-pid-file probe — the test box may have a
+        # Bypass the backend-pid-file probe, the test box may have a
         # stale PID file from a previous test.
         # Patch the OWNING module (the runtime-neutral PID-file leaf)
-        # — the launcher resolves the helper through it at call time.
+        # , the launcher resolves the helper through it at call time.
         from voice_typer.server import backend_pid as _backend_pid_mod
 
         class _FakePidFile:
@@ -383,14 +383,14 @@ class TestLaunchTauriFreshStart:
         monkeypatch.setattr("voice_typer.server.autostart_launcher._main_entry_built", lambda: False)
         monkeypatch.setattr("voice_typer.server.autostart_launcher._client_dir_exists", lambda: True)
         # Force npm run dev to be unavailable so the fallback path
-        # returns 1 — proving the fallback was taken.
+        # returns 1, proving the fallback was taken.
         monkeypatch.setattr(
             "voice_typer.server.autostart_launcher._spawn_npm_run_dev",
             lambda hidden=False: None,
         )
 
         # Patch the OWNING module (the runtime-neutral PID-file leaf)
-        # — the launcher resolves the helper through it at call time.
+        # , the launcher resolves the helper through it at call time.
         from voice_typer.server import backend_pid as _backend_pid_mod
 
         class _FakePidFile:
@@ -413,7 +413,7 @@ class TestLaunchTauriFreshStart:
 
 
 # ---------------------------------------------------------------------------
-# launch() — preserves legacy Electron path when NOT in Tauri mode
+# launch(), preserves legacy Electron path when NOT in Tauri mode
 # ---------------------------------------------------------------------------
 
 
@@ -423,7 +423,7 @@ class TestLaunchPreservesElectronPath:
 
     def test_electron_path_runs_when_not_tauri_mode(self, monkeypatch):
         """If ``_is_tauri_mode()`` is False, the launcher does NOT
-        attempt to spawn a Tauri binary — it proceeds to the Electron
+        attempt to spawn a Tauri binary, it proceeds to the Electron
         build-first / npm run dev fallback chain."""
         monkeypatch.setattr(
             "voice_typer.server.autostart_launcher._is_port_open",
@@ -438,7 +438,7 @@ class TestLaunchPreservesElectronPath:
         monkeypatch.setattr("voice_typer.server.autostart_launcher._main_entry_built", lambda: False)
 
         # Patch the OWNING module (the runtime-neutral PID-file leaf)
-        # — the launcher resolves the helper through it at call time.
+        # , the launcher resolves the helper through it at call time.
         from voice_typer.server import backend_pid as _backend_pid_mod
 
         class _FakePidFile:
@@ -477,7 +477,7 @@ class TestLaunchPreservesElectronPath:
 
 
 # ---------------------------------------------------------------------------
-# launch() — already-running focus path (no fixed pre-exit sleep)
+# launch(), already-running focus path (no fixed pre-exit sleep)
 # ---------------------------------------------------------------------------
 
 
@@ -486,7 +486,7 @@ class TestLaunchAlreadyRunningFocus:
     existing instance and returns WITHOUT a fixed pre-exit sleep.
 
     The 0.5s ``time.sleep(0.5)`` previously ran on every autostart login
-    with a prewarmed backend — the OS waits for the launcher to exit
+    with a prewarmed backend, the OS waits for the launcher to exit
     before considering login complete, so the sleep delayed every login
     for no functional reason (the focus child is spawned detached and
     never waited on).

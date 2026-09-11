@@ -3,13 +3,13 @@ r"""Electron↔Tauri renderer-facing surface parity (static contract tests).
 Existing guards pin the *command* allowlists three ways (server registry ↔
 Electron ``ALLOWED_COMMANDS`` ↔ Rust ``allowed_commands()``) and the WS
 event protocol inside the Rust tree, but NOTHING enumerated the
-RENDERER-FACING surface — the methods the preload installs on ``window``
+RENDERER-FACING surface, the methods the preload installs on ``window``
 and the ``PythonPushEvent`` union members the renderer types consume —
 against BOTH runtime implementations. Parity gaps therefore surfaced
 silently at runtime (e.g. ``setLocale`` missing on Tauri; ``show_window`` /
 ``notification`` unhandled on Tauri until host listeners were added).
 
-This module closes that gap by PARSING (regex / string-slicing only — no
+This module closes that gap by PARSING (regex / string-slicing only, no
 TS compilation, no cargo/npm build) both implementations of every
 renderer-facing surface and asserting they agree:
 
@@ -17,22 +17,22 @@ Enumerated surfaces
 -------------------
 
 1. ``voice_typer/client/src/preload/index.ts``
-   — the Electron preload's ``exposeInMainWorld("python", ...)`` and
+ , the Electron preload's ``exposeInMainWorld("python", ...)`` and
    ``exposeInMainWorld("window_", ...)`` method sets + every
    ``ipcRenderer.invoke(<channel>)`` reference.
 2. ``voice_typer/client/src/renderer/src/types/ipc/push_events.ts``
-   — the ``PythonPushEvent`` discriminated union members (resolved from
+ , the ``PythonPushEvent`` discriminated union members (resolved from
    the union membership list to each interface's ``type: "..."`` literal,
    so future additions are auto-covered).
 3. ``voice_typer/client/src/renderer/src/lib/tauri-bridge/{python,
-   window}-namespace.ts`` — the Tauri-side implementations of the same
+   window}-namespace.ts``, the Tauri-side implementations of the same
    namespaces.
-4. ``voice_typer/client/src/main/`` — the Electron main-process side:
+4. ``voice_typer/client/src/main/``, the Electron main-process side:
    every ``ipcMain.handle(...)`` registration (channel constants resolved
    through ``main/ipc/channels.ts``), the dedicated push-event dispatch
    table in ``main/python/handle-message.ts``, and the bubble-only event
    filter in ``main/ipc/bubble-handlers.ts``.
-5. ``src-tauri/src/`` — the Rust host side: ``ALLOWED_EVENT_TYPES`` in
+5. ``src-tauri/src/``, the Rust host side: ``ALLOWED_EVENT_TYPES`` in
    ``sidecar/ws/event_protocol.rs`` (the WS-reader allowlist that decides
    which server events reach the renderer as Tauri events), the
    ``translate_event_name`` bubble renames, the per-event ``app.listen``
@@ -64,7 +64,7 @@ never silently turn these into vacuous passes. A dedicated self-check
 class proves the enumerators detect planted synthetic drift.
 
 These tests run on every platform (pure text inspection; no build, no
-runtime). They complement — not replace — the runtime host validation.
+runtime). They complement (not replace) the runtime host validation.
 """
 
 from __future__ import annotations
@@ -116,13 +116,13 @@ for _required in (
 
 # Push-event union members that are NEVER published by the Python sidecar
 # (`event_bus.publish`). Each is SYNTHESIZED by the host bridge when the
-# transport layer drops/re-establishes the connection — under Electron by
+# transport layer drops/re-establishes the connection, under Electron by
 # the main process reconnect machinery, under Tauri by
 # `lib/tauri-bridge/python-namespace.ts` translating the supervisor
 # `supervisor_relaunching` / `supervisor_reconnected` host events. They are
 # deliberately absent from the Rust WS-reader allowlist because no inbound
 # WS frame ever carries them. If a name here ever gains a server-side
-# publisher, remove it from this map — the parity test will then require it
+# publisher, remove it from this map, the parity test will then require it
 # in `ALLOWED_EVENT_TYPES`.
 HOST_SYNTHESIZED_PUSH_EVENTS: dict[str, str] = {
     # Host bridge starts a reconnect attempt after a transport drop;
@@ -230,7 +230,7 @@ def _object_literal_keys(body: str) -> list[str]:
     arrow-function parameter lists (``(msg: { type: string }) => ...``)
     never leak pseudo-keys. A candidate key must start at brace depth 0
     and paren depth 0, and the previous significant character must be a
-    `,` or `{` (or body start) — this rejects ternary branches like
+    `,` or `{` (or body start), this rejects ternary branches like
     ``cond ? a : b``.
     """
     keys: list[str] = []
@@ -411,7 +411,7 @@ RUST_LISTEN_EVENTS: frozenset[str] = frozenset(_rust_listen_event_names())
 BUBBLE_TRANSLATE_SOURCES: frozenset[str] = frozenset(_translate_event_sources(_read(EVENT_PROTOCOL_RS)))
 # reader/writer module split: ``bubble_level``'s quoted literal (the
 # typed-only explicit emit in the coalesced fast path) moved into
-# ws/reader.rs — concatenate the bridge modules so the bubble-route
+# ws/reader.rs, concatenate the bridge modules so the bubble-route
 # check below sees the full delivery surface.
 WS_RS_TEXT = "\n\n".join(
     [_read(WS_RS)]
@@ -463,7 +463,7 @@ for _name, _surface in (
     ("TS_ALLOWED_COMMANDS", TS_ALLOWED_COMMANDS),
     ("RUST_ALLOWED_COMMANDS", RUST_ALLOWED_COMMANDS),
 ):
-    assert _surface, f"parser produced an EMPTY surface ({_name}) — regex regression"
+    assert _surface, f"parser produced an EMPTY surface ({_name}), regex regression"
 
 
 # ═════════════════════════════════════════════════════════════════════════
@@ -484,7 +484,7 @@ class TestPushEventSurfaceParity:
         """Union members reach the renderer under Tauri only via the allowlist.
 
         The Rust WS reader DROPS any inbound frame whose ``type`` is not in
-        ``ALLOWED_EVENT_TYPES`` — so an event typed in TS but missing there
+        ``ALLOWED_EVENT_TYPES``, so an event typed in TS but missing there
         silently never fires on Tauri while working under Electron.
         """
         missing = sorted(PYTHON_PUSH_EVENTS - RUST_EVENT_SET - set(HOST_SYNTHESIZED_PUSH_EVENTS))
@@ -509,7 +509,7 @@ class TestPushEventSurfaceParity:
 
         Every push event NOT consumed by a dedicated handler or filtered as
         bubble-only reaches the main renderer via
-        ``broadcastToMainWindow(PythonChannels.event, ...)`` — the Electron
+        ``broadcastToMainWindow(PythonChannels.event, ...)``, the Electron
         half of the delivery contract.
         """
         assert re.search(
@@ -579,7 +579,7 @@ class TestRendererBridgeSurfaceParity:
         stale = sorted(set(TAURI_MISSING_WINDOW_METHODS) - missing)
         assert not stale, (
             "TAURI_MISSING_WINDOW_METHODS lists methods the Tauri bridge "
-            f"NOW implements — delete the stale entries: {stale}"
+            f"NOW implements, delete the stale entries: {stale}"
         )
 
     def test_preload_invoke_channels_all_have_electron_main_handlers(self):
@@ -616,7 +616,7 @@ class TestRendererBridgeSurfaceParity:
         stale_documented = sorted(documented_extra - ts_only)
         assert not stale_documented, (
             "DOCUMENTED_COMMAND_ASYMMETRY lists commands no longer "
-            f"TS-only — delete the stale entries: {stale_documented}"
+            f"TS-only, delete the stale entries: {stale_documented}"
         )
 
 
@@ -643,8 +643,8 @@ _SYNTHETIC_RUST_ANCHOR = r"ALLOWED_EVENT_TYPES:\s*&\[&str\]\s*=\s*&\["
 class TestEnumeratorSelfCheck:
     """Prove the parsers DETECT drift (a planted member fails the contract).
 
-    These run the SAME helpers against synthetic fixtures — committed green
-    by construction — so a future regex regression that made the parsers
+    These run the SAME helpers against synthetic fixtures, committed green
+    by construction, so a future regex regression that made the parsers
     vacuous would fail here instead of silently passing the real surfaces.
     """
 

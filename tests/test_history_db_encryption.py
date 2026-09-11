@@ -343,14 +343,14 @@ class TestKeyLossPolicy:
         try:
             assert db2.encryption_status() == "key-unavailable"
 
-            # Reads return the placeholder — never ciphertext.
+            # Reads return the placeholder, never ciphertext.
             rows = db2.get_recent(limit=10)
             assert len(rows) == 2
             assert all(r["text"] == _text_crypto.DECRYPTION_FAILED_PLACEHOLDER for r in rows)
             assert db2.get_latest_text() == _text_crypto.DECRYPTION_FAILED_PLACEHOLDER
             assert db2.get_transcription_text(rows[0]["id"])["text"] == _text_crypto.DECRYPTION_FAILED_PLACEHOLDER
 
-            # New writes stay PLAINTEXT (flag 0) — no further data loss.
+            # New writes stay PLAINTEXT (flag 0), no further data loss.
             db2.add_transcription("written after key loss")
             db2.flush()
             plain_rows = [
@@ -572,7 +572,7 @@ class TestFtsRebuildReindex:
 
     def test_startup_rebuild_without_dek_skips_reindex(self, tmp_path, monkeypatch):
         """Key-loss mode: the re-index has no plaintext to insert and is
-        skipped — search stays degraded, nothing corrupts."""
+        skipped, search stays degraded, nothing corrupts."""
         from voice_typer.server.history_db import HistoryDB
 
         db_path = tmp_path / "reindex_nokey.db"
@@ -683,7 +683,7 @@ class TestPlaintextModeParity:
 
     def test_cleartext_db_opened_with_keyring_later_backfills(self, tmp_path, monkeypatch):
         """A plaintext DB (written without a keyring) is encrypted once a
-        keyring appears — without regenerating or losing anything."""
+        keyring appears, without regenerating or losing anything."""
         from voice_typer.server.history_db import HistoryDB
 
         db_path = tmp_path / "late_keyring.db"

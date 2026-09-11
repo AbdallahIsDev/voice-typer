@@ -6,7 +6,7 @@ symlink-poisoning directory scan used by BOTH:
 * the model-import path (:meth:`VoiceTyperService.import_model` —
   rejects user-supplied model directories that contain symlinks),
 * the legacy-config migration (:func:`voice_typer.server.config_internals.paths._migrate_from_legacy`
-  — rejects a poisoned legacy tree before ``shutil.copytree`` runs).
+ , rejects a poisoned legacy tree before ``shutil.copytree`` runs).
 
 Both sites guard the same attack class (e.g. ``legacy/models/qwen`` →
 ``~/.ssh/id_rsa`` planted by an attacker with write access to the
@@ -27,10 +27,10 @@ def find_symlink_in_tree(root: str | os.PathLike[str]) -> str | None:
 
     ``os.walk`` with the default ``followlinks=False`` does NOT descend
     into symlinked directories, but it DOES include them in
-    ``dirnames`` — so both symlinked files and symlinked directories
+    ``dirnames``, so both symlinked files and symlinked directories
     are detected by this check.
 
-    Hardening note: this function must stay the SINGLE copy — a future
+    Hardening note: this function must stay the SINGLE copy, a future
     fix (dangling-symlink handling, mid-walk permission errors) applied
     to one site silently misses the other if the copies fork again.
     """

@@ -1,12 +1,12 @@
 """Model download / delete / status tests split out of the former ``tests/test_history_and_models.py``.
 
-Domain: model management — cancel mechanism (per-download Event
+Domain: model management, cancel mechanism (per-download Event
 registry), delete_model via MODEL_REGISTRY, get_model_status cache
 (SVC-9 / PERF-10), and download-progress poll scoped to model_dir
 (PERF-21).
 
 Class/method names + assertions are preserved verbatim from the
-original monolith — only file location has changed. The shared
+original monolith, only file location has changed. The shared
 ``tmp_config_dir`` fixture is provided by the top-level
 ``tests/conftest.py``.
 """
@@ -83,9 +83,9 @@ class TestCancelModelDownloadMechanism:
 
 class TestDeleteModelUsesRegistryUnconditionally:
     """SVC-7: ``delete_model`` resolves ``repo_id`` from
-    :data:`MODEL_REGISTRY` for ALL models (whisper/distil/parakeet/qwen)
-    — the inline ``elif model_name == "parakeet"`` / ``elif model_name ==
-    "qwen"`` branches are gone."""
+      :data:`MODEL_REGISTRY` for ALL models (whisper/distil/parakeet/qwen)
+    , the inline ``elif model_name == "parakeet"`` / ``elif model_name ==
+      "qwen"`` branches are gone."""
 
     def _make_service(self):
         from voice_typer.server.service import VoiceTyperService
@@ -121,10 +121,10 @@ class TestDeleteModelUsesRegistryUnconditionally:
 
     def test_qwen_uses_registry_repo_id(self, tmp_config_dir):
         """``delete_model("qwen")`` no longer returns "Unknown model"
-        — it derives ``andrewleech/qwen3-asr-1.7b-onnx`` from the
-        registry (the ONNX export repo, 2026-08-15) and either deletes
-        the matching cache dir or returns "not downloaded" when the
-        dir is absent."""
+        , it derives ``andrewleech/qwen3-asr-1.7b-onnx`` from the
+          registry (the ONNX export repo, 2026-08-15) and either deletes
+          the matching cache dir or returns "not downloaded" when the
+          dir is absent."""
         from voice_typer.server.model_registry import get_model_metadata
 
         service = self._make_service()
@@ -165,7 +165,7 @@ class TestGetModelStatusCache:
 
     def test_two_consecutive_calls_return_same_cached_object(self, tmp_config_dir, monkeypatch):
         """Within the 5 s TTL window, the second call returns the SAME
-        dict object — proving the cache served it (not a fresh compute)."""
+        dict object, proving the cache served it (not a fresh compute)."""
         service = self._make_service()
         monkeypatch.setattr("os.path.isdir", lambda p: False)
         first = service.get_model_status()
@@ -236,7 +236,7 @@ class TestDownloadPollScopedToModelDir:
         ``rglob`` on ``cache_dir / models--<repo_id>``, NOT on
         ``cache_dir`` itself.
 
-        We verify by inspecting the source — running an actual
+        We verify by inspecting the source, running an actual
         download is impractical in unit tests (snapshot_download +
         threading). The source-level guard catches any future revert
         that re-widens the rglob.
@@ -274,6 +274,6 @@ class TestDownloadPollScopedToModelDir:
         code_only = "\n".join(code_only_lines)
         assert 'cache_dir.rglob("*")' not in code_only, (
             "PERF-21 regression: poll_download_progress still calls "
-            "cache_dir.rglob('*') in actual code — this walks the ENTIRE "
+            "cache_dir.rglob('*') in actual code, this walks the ENTIRE "
             "HF cache tree every 1 s and was the bug PERF-21 fixed."
         )

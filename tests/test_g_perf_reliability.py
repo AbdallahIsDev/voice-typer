@@ -99,7 +99,7 @@ class TestVadEnabledCache:
         """After __init__, the cache attribute is a bool (not None).
 
         ``Recorder.__init__`` calls ``self._vad_enabled`` once (to log
-        whether VAD is disabled) — so the cache is populated before
+        whether VAD is disabled), so the cache is populated before
         ``__init__`` returns. This test guards against a regression
         that leaves the cache as ``None`` (which would force every
         subsequent access to recompute).
@@ -189,7 +189,7 @@ class TestLevelMonitorRTSafety:
 
         holder = _wire_stream_with_callback_capture(monkeypatch)
 
-        # Install a level processor that sleeps 50 ms — simulates
+        # Install a level processor that sleeps 50 ms, simulates
         # RNNoise CPU cost. If the callback ran this, the callback
         # would take >50 ms and miss the PortAudio deadline.
         slow_processor = MagicMock()
@@ -199,7 +199,7 @@ class TestLevelMonitorRTSafety:
         )[-1]
         lm._level_processor = slow_processor
 
-        # Start monitoring — this also starts the worker thread.
+        # Start monitoring, this also starts the worker thread.
         result = lm.start_monitoring(mic_id=None)
         assert result["success"] is True
         assert holder["callback"] is not None, "PortAudio callback must be captured"
@@ -211,10 +211,10 @@ class TestLevelMonitorRTSafety:
         elapsed_ms = (time.perf_counter() - t0) * 1000.0
 
         # The callback must complete in well under the ~32ms PortAudio
-        # deadline — assert <5ms (generous upper bound for CI jitter;
+        # deadline, assert <5ms (generous upper bound for CI jitter;
         # the actual work is ~10µs).
         assert elapsed_ms < 5.0, (
-            f"PortAudio callback took {elapsed_ms:.2f}ms — must be <5ms "
+            f"PortAudio callback took {elapsed_ms:.2f}ms, must be <5ms "
             "(RT-SAFE-001: heavy filter chain must run on worker thread, "
             "not the callback). The slow filter is still on the RT thread."
         )
@@ -234,7 +234,7 @@ class TestLevelMonitorRTSafety:
         holder["callback"](chunk, 512, None, None)
 
         # The ring buffer should have at least one entry (the worker may
-        # have already drained it — wait briefly for the worker to
+        # have already drained it, wait briefly for the worker to
         # process it, then verify the level was updated).
         deadline = time.perf_counter() + 1.0
         while time.perf_counter() < deadline:
@@ -294,7 +294,7 @@ class TestLevelMonitorRTSafety:
 
         chunk = np.ones((512, 1), dtype=np.float32) * 0.25
         t0 = time.perf_counter()
-        # The callback should NOT block on _monitor_lock — it only
+        # The callback should NOT block on _monitor_lock, it only
         # does deque.append + Event.set().
         holder["callback"](chunk, 512, None, None)
         elapsed_ms = (time.perf_counter() - t0) * 1000.0
@@ -304,7 +304,7 @@ class TestLevelMonitorRTSafety:
         # Even with lock contention, the callback must return quickly.
         # deque.append + Event.set() don't touch _monitor_lock.
         assert elapsed_ms < 50.0, (
-            f"Callback took {elapsed_ms:.2f}ms under lock contention — "
+            f"Callback took {elapsed_ms:.2f}ms under lock contention, "
             "the callback must NOT acquire _monitor_lock (RT-SAFE-001)."
         )
         lm.stop_monitoring()
@@ -348,7 +348,7 @@ class TestAsrRegistryUnloadOnLoadFailure:
         """MEM-01: unload() is called on the failed backend BEFORE fallback.
 
         XS-17 (F-09): the failed primary backend is intentionally NOT
-        unregistered — it stays in ``_backends`` so subsequent
+        unregistered, it stays in ``_backends`` so subsequent
         ``load_with_fallback`` calls can retry it (and increment the
         failure counter toward the disable threshold). The original
         test name ``..._before_unregister`` predates this design
@@ -373,7 +373,7 @@ class TestAsrRegistryUnloadOnLoadFailure:
         failed_backend.unload.assert_called_once()
         # The fake tensor was released by unload().
         assert failed_backend.allocated_tensor is None, (
-            "unload() must release the partially-allocated tensor — "
+            "unload() must release the partially-allocated tensor, "
             "without it, the failed backend leaks the tensor until GC"
         )
         # (F-09): the failed backend is intentionally kept
@@ -386,7 +386,7 @@ class TestAsrRegistryUnloadOnLoadFailure:
         """If unload() itself raises, the fallback still proceeds.
 
         XS-17 (F-09): the failed primary backend is intentionally NOT
-        unregistered even if ``unload()`` raises — the registry keeps it
+        unregistered even if ``unload()`` raises, the registry keeps it
         around so subsequent calls can retry. The original test name
         ``..._does_not_prevent_unregister`` predates this design
         change; the assertion on ``registry.get("qwen") is None`` has
@@ -398,13 +398,13 @@ class TestAsrRegistryUnloadOnLoadFailure:
         registry = AsrBackendRegistry(config)
 
         failed_backend = self._make_backend(load_raises=True)
-        # Make unload() also raise — simulates a corrupted model handle.
+        # Make unload() also raise, simulates a corrupted model handle.
         failed_backend.unload.side_effect = RuntimeError("unload also broken")
         whisper_backend = self._make_backend(load_raises=False)
         registry.register("qwen", failed_backend)
         registry.register("whisper", whisper_backend)
 
-        # Must not raise — the unload failure is caught.
+        # Must not raise, the unload failure is caught.
         result = registry.load_with_fallback()
 
         assert result is whisper_backend
@@ -502,14 +502,14 @@ class TestOsascriptSmartDuckDisable:
         """CPU-02: non-macOS backends (Linux/Windows) are unaffected."""
         from voice_typer.server.volume_ducker import VolumeDucker
 
-        # Simulate a Linux pactl backend (50ms per call — slower than
+        # Simulate a Linux pactl backend (50ms per call, slower than
         # CoreAudio but not as catastrophic as osascript 200-500ms).
         backend = self._make_backend(name="pulseaudio", recommended_poll_ms=50)
         ducker = VolumeDucker(backend=backend)
         ducker.initialize()
 
         assert ducker.smart_duck_enabled is True, (
-            "Non-macOS backends must keep smart-duck enabled — only the "
+            "Non-macOS backends must keep smart-duck enabled, only the "
             "osascript path is slow enough to warrant disabling"
         )
 
@@ -540,7 +540,7 @@ class TestLevelMonitorTestChunkBounds:
     ``list[np.ndarray]`` that lingered in memory if the IPC client
     crashed mid-test and never called stop/cancel.
 
-    The maxlen must be DYNAMIC — derived from the CURRENT device
+    The maxlen must be DYNAMIC, derived from the CURRENT device
     sample rate (16k / 44.1k / 48k) and the requested duration —
     NOT a hardcoded constant. A 48 kHz / 30 s test holds far more
     chunks than a 16 kHz / 10 s one.
@@ -586,7 +586,7 @@ class TestLevelMonitorTestChunkBounds:
         cap_16k = lm._test_chunks.maxlen
         lm.cancel_test_recording()
 
-        # 48 kHz — same 10s duration must yield a larger cap
+        # 48 kHz, same 10s duration must yield a larger cap
         lm._monitor_sample_rate = 48000
         lm.start_test_recording(duration=10.0)
         cap_48k = lm._test_chunks.maxlen
@@ -629,7 +629,7 @@ class TestLevelMonitorTestChunkBounds:
         assert result["audio_file"]["bytes"] > 0
 
     def test_stop_preserves_bounded_deque_type(self, monkeypatch):
-        """stop_test_recording clears in place — it must NOT reassign to [].
+        """stop_test_recording clears in place, it must NOT reassign to [].
 
         A naive ``_test_chunks = []`` would clobber the deque back to
         an unbounded list and reintroduce the leak. Verify the type and
@@ -662,7 +662,7 @@ class TestLevelMonitorTestChunkBounds:
         lm.cancel_test_recording()
 
     def test_auto_stop_does_not_clear_chunks_until_retrieved(self, monkeypatch):
-        """Auto-stop must NOT clear chunks — frontend retrieves them after.
+        """Auto-stop must NOT clear chunks, frontend retrieves them after.
 
         Regression guard: if _do_auto_stop_test cleared _test_chunks,
         the post-autostop stop_test_recording() (used by the frontend

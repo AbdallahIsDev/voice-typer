@@ -1,4 +1,4 @@
-"""§8.2 — Pack arrives corrupted: recovery via discard + re-download.
+"""§8.2: Pack arrives corrupted: recovery via discard + re-download.
 
 Spec (§8.2):
 
@@ -54,7 +54,7 @@ def _write_valid_pack(tmp_path: Path, version: str = "v1") -> Path:
 
 
 class TestVerifyPackOrSkip:
-    """§8.2 — verify_pack_or_skip fail-closed semantics."""
+    """§8.2, verify_pack_or_skip fail-closed semantics."""
 
     def test_valid_pack_passes(self, tmp_path: Path):
         _write_valid_pack(tmp_path, "v1")
@@ -62,13 +62,13 @@ class TestVerifyPackOrSkip:
 
     def test_tampered_file_fails_closed(self, tmp_path: Path):
         _write_valid_pack(tmp_path, "v1")
-        # Flip one byte in the worker.exe — SHA-256 must mismatch.
+        # Flip one byte in the worker.exe. SHA-256 must mismatch.
         worker = tmp_path / "v1" / "worker.exe"
         worker.write_bytes(b"DIFFERENT-content")
         assert offline_pack.verify_offline_pack_or_skip("v1", root=tmp_path) is False
 
     def test_missing_manifest_fails_closed(self, tmp_path: Path):
-        # No manifest written — should fail closed.
+        # No manifest written, should fail closed.
         (tmp_path / "v1").mkdir()
         assert offline_pack.verify_offline_pack_or_skip("v1", root=tmp_path) is False
 
@@ -110,7 +110,7 @@ class TestVerifyPackOrSkip:
 
     def test_manifest_with_oversized_entry_fails_closed(self, tmp_path: Path):
         """A manifest entry above the per-file cap is rejected at load
-        time — the install stage re-checks the cap at extraction."""
+        time, the install stage re-checks the cap at extraction."""
         root = tmp_path / "v1"
         root.mkdir()
         (root / "huge.bin").write_bytes(b"x")

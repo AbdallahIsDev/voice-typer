@@ -15,7 +15,7 @@ fn main_window_hides_to_tray_when_not_shutting_down() {
 fn main_window_does_not_hide_when_no_tray() {
     assert!(
         !should_hide_to_tray("main", false, false),
-        "main window close must flow through to app exit when no tray exists (Linux Wayland without SNI — \
+        "main window close must flow through to app exit when no tray exists (Linux Wayland without SNI: \
          hiding would strand the user; Electron's isLinuxWaylandWithoutSni() guard)"
     );
 }

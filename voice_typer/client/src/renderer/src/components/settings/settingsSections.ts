@@ -1,4 +1,4 @@
-// settingsSections — the canonical registry of Settings section pages.
+// settingsSections, the canonical registry of Settings section pages.
 //
 // The Settings surface is a HUB + nested section pages: the hub
 // (the `settings` Page literal) renders ONE card whose rows are the
@@ -49,7 +49,7 @@ export type SettingsSectionPage = (typeof SETTINGS_SECTION_PAGES)[number];
 
 export interface SettingsSectionDef {
 	page: SettingsSectionPage;
-	/** i18n key for the row title — the SAME key the nested page's
+	/** i18n key for the row title, the SAME key the nested page's
 	 *  section card renders as its `<SettingsSection title>`, so the hub
 	 *  label and the destination heading can never drift. */
 	titleKey: string;
@@ -58,11 +58,11 @@ export interface SettingsSectionDef {
 	icon: IconSvgElement;
 }
 
-/** Registry entry shape — the page IS the key, so it's not repeated. */
+/** Registry entry shape, the page IS the key, so it's not repeated. */
 type SettingsSectionDefData = Omit<SettingsSectionDef, "page">;
 
 /**
- * The section registry, keyed BY page literal — the `Record` type makes
+ * The section registry, keyed BY page literal, the `Record` type makes
  * a missing/extra/renamed section page a compile error, so this module
  * and the `Page` union cannot drift. Key insertion order IS the hub-card
  * order; the array exports below derive from it.

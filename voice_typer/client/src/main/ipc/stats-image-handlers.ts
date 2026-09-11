@@ -5,19 +5,19 @@
  * URL (via html-to-image) and hands it to the main process for the
  * platform operations a sandboxed renderer cannot do:
  *
- *   - `stats-image:save`    — write the PNG to the OS Downloads folder
+ *   - `stats-image:save`   , write the PNG to the OS Downloads folder
  *                             instantly (mode: "downloads") or via the
  *                             native save dialog (mode: "saveAs").
- *   - `stats-image:copy`    — put the PNG on the OS clipboard
+ *   - `stats-image:copy`   , put the PNG on the OS clipboard
  *                             (`clipboard.writeImage`).
- *   - `stats-image:reveal`  — reveal a saved PNG in the OS file manager
+ *   - `stats-image:reveal` , reveal a saved PNG in the OS file manager
  *                             (`shell.showItemInFolder`).
  *
  * All three return the canonical `{success, error?}` envelope
  * (see `../../shared/ipc-result.ts`).
  *
  * Security: the data URL and the reveal path cross the IPC boundary
- * untyped, so both are validated before use — the data URL must be a
+ * untyped, so both are validated before use, the data URL must be a
  * base64 PNG (checked via the PNG signature bytes, not just the MIME
  * prefix) and capped in size, and the reveal path must be an existing
  * absolute `.png` file.
@@ -31,14 +31,14 @@ import { StatsImageChannels } from "./channels";
 
 /**
  * Cap on the accepted PNG data-URL payload. The share image is a fixed
- * 1200×630 card captured at 2× pixel ratio — typically 1-4 MB of PNG.
+ * 1200×630 card captured at 2× pixel ratio, typically 1-4 MB of PNG.
  * 25 MB is far above any legitimate capture (defends against a
  * compromised renderer passing a fabricated multi-GB base64 blob that
  * would pin the main process during `Buffer.from(base64)`).
  */
 const MAX_PNG_DATA_URL_BYTES = 25 * 1024 * 1024;
 
-/** PNG file signature — validated on the decoded bytes. */
+/** PNG file signature, validated on the decoded bytes. */
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
 
 /** A user-canceled save dialog is a silent no-op, not an error. */
@@ -74,7 +74,7 @@ function decodePngDataUrl(dataUrl: unknown): Buffer | null {
 /**
  * Make a filesystem-safe default filename: strip path separators /
  * traversal, collapse whitespace, and guarantee a `.png` extension.
- * The renderer passes `voice-typer-stats` — this is defense in depth
+ * The renderer passes `voice-typer-stats`, this is defense in depth
  * against a compromised renderer injecting `..\evil.png` into the
  * Downloads path.
  */
@@ -114,7 +114,7 @@ async function nonCollidingPath(
 		try {
 			await fs.promises.access(candidate);
 		} catch {
-			// Doesn't exist yet — safe to write.
+			// Doesn't exist yet, safe to write.
 			return candidate;
 		}
 		candidate = path.join(dir, `${stem} (${i})${ext}`);
@@ -152,7 +152,7 @@ export function registerStatsImageHandlers(): void {
 					return { success: true, path: filePath };
 				}
 
-				// Instant save to the OS Downloads folder — no dialog.
+				// Instant save to the OS Downloads folder, no dialog.
 				const downloads = app.getPath("downloads");
 				const target = await nonCollidingPath(downloads, filename);
 				await fs.promises.writeFile(target, png);

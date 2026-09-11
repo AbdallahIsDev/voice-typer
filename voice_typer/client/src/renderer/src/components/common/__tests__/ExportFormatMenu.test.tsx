@@ -59,7 +59,7 @@ async function openMenu(user: ReturnType<typeof userEvent.setup>) {
 	return trigger;
 }
 
-describe("ExportFormatMenu — A11Y-7 / SET-2 (keyboard nav)", () => {
+describe("ExportFormatMenu, A11Y-7 / SET-2 (keyboard nav)", () => {
 	afterEach(() => {
 		cleanup();
 	});
@@ -123,7 +123,7 @@ describe("ExportFormatMenu — A11Y-7 / SET-2 (keyboard nav)", () => {
 		expect(items).toHaveLength(2);
 
 		// First ArrowDown focuses the first item (the open-time
-		// auto-focus chain doesn't complete in jsdom — see the
+		// auto-focus chain doesn't complete in jsdom, see the
 		// auto-focus test above).
 		await user.keyboard("{ArrowDown}");
 		await waitFor(() => expect(items[0]).toHaveFocus());
@@ -177,7 +177,7 @@ describe("ExportFormatMenu — A11Y-7 / SET-2 (keyboard nav)", () => {
 		await user.keyboard("{Escape}");
 
 		// Menu is gone (wait for React to flush the state update triggered
-		// by the Escape keydown handler — user.keyboard awaits the event
+		// by the Escape keydown handler, user.keyboard awaits the event
 		// but the React re-render may need one more microtask).
 		await screen.findByRole("button", { name: /export/i });
 		expect(screen.queryByRole("menu")).toBeNull();
@@ -197,7 +197,7 @@ describe("ExportFormatMenu — A11Y-7 / SET-2 (keyboard nav)", () => {
 		await user.keyboard("{ArrowDown}");
 		await waitFor(() => expect(items[0]).toHaveFocus());
 
-		// Radix's menu content preventDefaults Tab while open — keyboard
+		// Radix's menu content preventDefaults Tab while open, keyboard
 		// focus stays trapped in the menu (this is the documented
 		// WAI-ARIA menu behavior: Tab does NOT close a menu; Escape does).
 		await user.tab();

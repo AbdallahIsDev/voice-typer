@@ -22,7 +22,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 # pynput / pynput.keyboard / pyperclip are mocked at collection time by
-# tests/clipboard/conftest.py (single source of truth —  dedup).
+# tests/clipboard/conftest.py (single source of truth, dedup).
 from voice_typer.server import clipboard as clip_mod  # noqa: E402
 from voice_typer.server.clipboard import ClipboardManager  # noqa: E402
 from voice_typer.server.clipboard_snapshot import ClipboardSnapshot  # noqa: E402
@@ -54,7 +54,7 @@ def _mock_display_env(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# ClipboardManager.copy — regression: still writes text to clipboard
+# ClipboardManager.copy, regression: still writes text to clipboard
 # ---------------------------------------------------------------------------
 
 
@@ -89,7 +89,7 @@ class TestCopyWritesText:
 
 
 # ---------------------------------------------------------------------------
-# ClipboardManager.paste — regression: still sends a paste keystroke
+# ClipboardManager.paste, regression: still sends a paste keystroke
 # ---------------------------------------------------------------------------
 
 
@@ -137,7 +137,7 @@ class TestPasteSendsKeystroke:
 
 
 # ---------------------------------------------------------------------------
-# Config validation — ADR-0010 §2.11 (IPC_CONFIG_ALLOWLIST additions)
+# Config validation, ADR-0010 §2.11 (IPC_CONFIG_ALLOWLIST additions)
 # ---------------------------------------------------------------------------
 
 
@@ -147,7 +147,7 @@ class TestClipboardConfigValidation:
     ADR-0010 §2.11: ``clipboard_save_restore`` and
     ``clipboard_restore_delay_ms`` MUST be in ``IPC_CONFIG_ALLOWLIST``
     so the renderer can toggle them via IPC. These tests are marked
-    ``xfail`` until the primary agent adds the entries — the tests
+    ``xfail`` until the primary agent adds the entries, the tests
     document the expected behavior and will start passing once the
     production allowlist is updated.
     """
@@ -179,7 +179,7 @@ class TestClipboardConfigValidation:
         "clipboard_restore_delay_ms" not in IPC_CONFIG_ALLOWLIST,
         reason=(
             "ADR-0010 §2.11: IPC_CONFIG_ALLOWLIST missing "
-            "clipboard_restore_delay_ms entry — pending primary agent "
+            "clipboard_restore_delay_ms entry, pending primary agent "
             "implementation"
         ),
         strict=True,
@@ -199,7 +199,7 @@ class TestClipboardConfigValidation:
 
 
 # ---------------------------------------------------------------------------
-# HistoryDB.get_latest_text — ADR-0010 §8.1 / DP6
+# HistoryDB.get_latest_text, ADR-0010 §8.1 / DP6
 # ---------------------------------------------------------------------------
 
 
@@ -236,8 +236,8 @@ class TestGetLatestText:
     def test_get_latest_text_fallback_on_exception(self, tmp_path):
         """If _get_read_conn raises, get_latest_text returns "".
 
-        ADR-0010 §8.1: the method is best-effort and must NEVER raise
-        — a read failure degrades gracefully to "".
+          ADR-0010 §8.1: the method is best-effort and must NEVER raise
+        , a read failure degrades gracefully to "".
         """
         db = HistoryDB(db_path=tmp_path / "history.db")
         try:

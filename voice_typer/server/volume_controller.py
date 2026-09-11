@@ -1,20 +1,20 @@
-"""god-class decomposition: VolumeController — extracted from VoiceTyperApp.
+"""god-class decomposition: VolumeController, extracted from VoiceTyperApp.
 
 Owns the system-volume side effects of the dictation lifecycle:
 
-    - ``_on_volume_crash_restore`` — tray notification fired by
+    - ``_on_volume_crash_restore``: tray notification fired by
       :class:`VolumeDucker` when it discovers a stale
       ``duck_crash_recovery.json`` on startup (i.e. the previous session
       crashed while ducked).
-    - ``_duck_volume`` — reduce system volume at the start of dictation
+    - ``_duck_volume``: reduce system volume at the start of dictation
       (smart-duck + master-volume duck).
-    - ``_restore_volume`` — restore system volume at the end of dictation
+    - ``_restore_volume``: restore system volume at the end of dictation
       (or on quit/restart, where ``fade_ms=0`` is passed for an instant
       restore).
 
 The actual logic lived on ``VoiceTyperApp`` as three private methods (see
 ``docs/history/rw9-god-class-decomposition.md`` §5.3). The behaviour is preserved
-verbatim — only the class boundary moved. ``VoiceTyperApp`` keeps thin
+verbatim, only the class boundary moved. ``VoiceTyperApp`` keeps thin
 delegate methods so callers
 (``RecordingController._start_dictation`` → ``app._duck_volume()``,
 ``VoiceTyperApp._do_cleanup`` → ``self._restore_volume(fade_ms=0)``,
@@ -22,11 +22,11 @@ delegate methods so callers
 and the ``VolumeDucker`` crash-restore callback wired in ``__init__``)
 keep working unchanged.
 
-Dependencies (read-only — no state is owned here):
-    - ``app._volume_ducker`` — the :class:`VolumeDucker` instance.
-    - ``app.config`` — volume_duck_enabled / volume_duck_level /
+Dependencies (read-only, no state is owned here):
+    - ``app._volume_ducker``: the :class:`VolumeDucker` instance.
+    - ``app.config``: volume_duck_enabled / volume_duck_level /
       volume_duck_fade_ms / volume_duck_smart_poll_interval_ms.
-    - ``app.tray`` — :class:`TrayIcon` (only used for crash-restore
+    - ``app.tray``: :class:`TrayIcon` (only used for crash-restore
       notification).
 """
 
@@ -40,7 +40,7 @@ from voice_typer.server.branding import APP_NAME
 # import the canonical smart-duck poll-interval default and the
 # canonical duck-level default. ``volume_ducker`` owns both constants
 # (``_DEFAULT_SMART_DUCK_POLL_MS`` / ``DEFAULT_DUCK_LEVEL``) as the
-# single source of truth — the level default matches the
+# single source of truth, the level default matches the
 # ``volume_duck_level`` config-schema default so no effective value
 # drifts between the config layer and this fallback.
 from voice_typer.server.volume_ducker import _DEFAULT_SMART_DUCK_POLL_MS, DEFAULT_DUCK_LEVEL
@@ -68,7 +68,7 @@ class VolumeController:
 
         The VolumeDucker is constructed in ``VoiceTyperApp.__init__`` (NOT
         here) because it owns hardware-backend lifecycle and crash-recovery
-        file state — neither of which belong in this controller.
+        file state, neither of which belong in this controller.
     """
 
     def __init__(self, app: VoiceTyperApp | Any) -> None:
@@ -99,22 +99,22 @@ class VolumeController:
         schema; the ``getattr`` defaults only apply when a config object
         lacks the attribute):
 
-        - ``volume_duck_enabled`` — early-return when False.
-        - ``volume_duck_smart_poll_interval_ms`` — smart-duck poll
+        - ``volume_duck_enabled``: early-return when False.
+        - ``volume_duck_smart_poll_interval_ms``: smart-duck poll
           cadence; default ``_DEFAULT_SMART_DUCK_POLL_MS`` (500 ms),
           clamped up to the backend's ``min_poll_interval_ms`` floor by
           the ducker.
-        - ``volume_duck_level`` — duck target; default
+        - ``volume_duck_level``: duck target; default
           ``DEFAULT_DUCK_LEVEL`` (0.20, same value as the config schema
           default).
-        - ``volume_duck_fade_ms`` — fade ramp duration; default 200 ms
+        - ``volume_duck_fade_ms``: fade ramp duration; default 200 ms
           (same value as the config schema default).
 
         Fixed behaviour (not configurable here):
 
         - Smart duck is ALWAYS ON when ducking is enabled (merged into
           Auto Duck Volume; the separate smart-duck toggle was removed).
-        - Per-session ducking is removed — always master-volume duck,
+        - Per-session ducking is removed, always master-volume duck,
           cross-platform.
         """
         app = self._app
@@ -131,7 +131,7 @@ class VolumeController:
                 app._volume_ducker.duck(
                     level=getattr(app.config, "volume_duck_level", DEFAULT_DUCK_LEVEL),
                     fade_ms=getattr(app.config, "volume_duck_fade_ms", 200),
-                    # per-session removed — always master-volume duck.
+                    # per-session removed, always master-volume duck.
                     per_session=False,
                 )
         except Exception:
@@ -152,7 +152,7 @@ class VolumeController:
                 fade_ms = getattr(app.config, "volume_duck_fade_ms", 200)
             app._volume_ducker.restore(
                 fade_ms=fade_ms,
-                # per-session removed — always master-volume restore.
+                # per-session removed, always master-volume restore.
                 per_session=False,
             )
         except Exception:

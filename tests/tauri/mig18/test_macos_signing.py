@@ -1,18 +1,18 @@
-"""MIG-1.8 Phase 1 + ADR-0020 §13.2 — macOS Developer ID + notarization + stapling validation.
+"""MIG-1.8 Phase 1 + ADR-0020 §13.2: macOS Developer ID + notarization + stapling validation.
 
 This test file is the **macOS signing gate check** for the MIG-1.8 Phase 1
 Tauri migration (ADR-0020 §13.2). It validates the *static configuration*
 of the macOS code-signing pipeline:
 
-  - ``src-tauri/entitlements.plist`` — the hardened-runtime entitlements
+  - ``src-tauri/entitlements.plist``, the hardened-runtime entitlements
     file consumed by the ``codesign`` invocation (3 entitlements mandated
     by ADR-0020 §13.2 + docs/migration/signing-guide.md
     "Hardened runtime entitlements").
-  - ``.github/workflows/tauri-macos-build.yml`` — the CI workflow that
+  - ``.github/workflows/tauri-macos-build.yml``, the CI workflow that
     signs + notarizes + staples the ``.app`` bundle + ``.dmg``.
 
 The Linux sandbox CANNOT run a real macOS codesign / notarytool /
-stapler — those require a real macOS host + a Developer ID Application
+stapler, those require a real macOS host + a Developer ID Application
 certificate + an App Store Connect API key (or Apple ID + app-specific
 password). These tests therefore:
 
@@ -26,26 +26,26 @@ password). These tests therefore:
   - validate the CI workflow runs ``xcrun stapler staple`` (stapling),
   - validate the CI workflow runs ``xcrun stapler validate`` (verification),
   - validate the signing identity env var is wired (``MAC_SIGNING_IDENTITY``
-    per docs/migration/signing-guide.md + ADR-0020 §13.2 — the same env
+    per docs/migration/signing-guide.md + ADR-0020 §13.2, the same env
     var the existing Electron build uses; the MIG-1.8 task spec referred
     to this as ``MACOS_SIGNING_IDENTITY`` but the codebase + signing guide
     use ``MAC_SIGNING_IDENTITY``, so this test accepts EITHER name),
   - validate the notarization credentials env vars are wired (either
     ``APPLE_ID`` + ``APPLE_APP_SPECIFIC_PASSWORD`` OR ``APPLE_API_KEY`` +
-    ``APPLE_API_KEY_ISSUER`` — the App Store Connect auth styles
+    ``APPLE_API_KEY_ISSUER``, the App Store Connect auth styles
     documented by Apple's notarytool),
   - document the exact ``VALIDATE ON MACOS HOST`` commands a human must
     run on a real macOS host to confirm signing + notarization + stapling.
 
 References:
-  - ADR-0020 §13.2 — macOS Developer ID + notarization + stapling spec
+  - ADR-0020 §13.2, macOS Developer ID + notarization + stapling spec
     (authoritative).
-  - docs/migration/signing-guide.md "macOS — Developer ID + notarization
-    + stapling (ADR-0020 §13.2)" — the canonical signing guide.
-  - .github/workflows/tauri-macos-build.yml — the CI workflow under test.
-  - src-tauri/entitlements.plist — the entitlements file under test.
+  - docs/migration/signing-guide.md "macOS, Developer ID + notarization
+    + stapling (ADR-0020 §13.2)", the canonical signing guide.
+  - .github/workflows/tauri-macos-build.yml, the CI workflow under test.
+  - src-tauri/entitlements.plist, the entitlements file under test.
 
-Gaps documented (report, do NOT fix — out of scope for this gate check):
+Gaps documented (report, do NOT fix, out of scope for this gate check):
   - GAP-1: the CI workflow does NOT explicitly run
     ``codesign --force --deep --entitlements src-tauri/entitlements.plist``
     on the ``.app`` bundle. It relies on ``cargo tauri build`` to invoke
@@ -61,7 +61,7 @@ Gaps documented (report, do NOT fix — out of scope for this gate check):
     are code-signed with Developer ID Application immediately after build").
     The sidecar + prewarm binaries are built in the ``build-aarch64`` /
     ``build-x86_64`` jobs but never explicitly codesigned before being
-    placed in the ``.app`` bundle. Report only — do NOT fix.
+    placed in the ``.app`` bundle. Report only, do NOT fix.
   - GAP-3: the CI workflow uses ``APPLE_ID`` + ``APPLE_APP_SPECIFIC_PASSWORD``
     + ``APPLE_TEAM_ID`` (the Apple ID + app-specific password auth style).
     This is one of the two auth styles documented by notarytool (the other
@@ -218,10 +218,10 @@ def test_entitlements_has_exactly_three_entitlements(entitlements_text: str):
     comment) that are required for the universal .app under the macOS 14+
     hardened runtime:
 
-    - ``allow-unsigned-executable-memory`` — Nuitka onefile loaders
+    - ``allow-unsigned-executable-memory``, Nuitka onefile loaders
       allocate RWX pages when unpacking the embedded payload; without it
       macOS 14 kills the process with EXC_BAD_ACCESS at startup.
-    - ``automation.apple-events`` — the volume_ducker + clipboard_snapshot
+    - ``automation.apple-events``, the volume_ducker + clipboard_snapshot
       modules drive System Events via AppleScript; without it every
       invocation fails with errAEEventNotPermitted (-1743).
 
@@ -244,7 +244,7 @@ def test_entitlements_has_exactly_three_entitlements(entitlements_text: str):
     )
 
 
-# ─── 2. CI workflow — codesign --force --deep --entitlements ────────────────
+# ─── 2. CI workflow, codesign --force --deep --entitlements ────────────────
 def test_workflow_runs_codesign_deep_entitlements(workflow_text: str):
     """CI workflow must run codesign --force --deep --entitlements <plist>.
 
@@ -261,7 +261,7 @@ def test_workflow_runs_codesign_deep_entitlements(workflow_text: str):
     runtime), and a reference to the ``entitlements.plist`` file.
 
     GAP-1: as of this gate check, the CI workflow does NOT explicitly run
-    this command on the .app — it relies on ``cargo tauri build`` to
+    this command on the .app, it relies on ``cargo tauri build`` to
     invoke codesign internally via the ``MAC_SIGNING_IDENTITY`` env var.
     Tauri's internal signing may not apply ``src-tauri/entitlements.plist``.
     This test will FAIL until the workflow is updated to explicitly sign
@@ -281,13 +281,13 @@ def test_workflow_runs_codesign_deep_entitlements(workflow_text: str):
         "--deep --entitlements src-tauri/entitlements.plist."
     )
     # The workflow signs with `--options runtime` (the hardened runtime
-    # flag) rather than the deprecated `--deep` — `--deep` is broken for
+    # flag) rather than the deprecated `--deep`: `--deep` is broken for
     # nested code and Apple recommends `--options runtime` + explicit
     # per-binary signing instead. Accept either form.
     assert has_deep or has_options_runtime, (
         "tauri-macos-build.yml invokes 'codesign' but with neither '--deep' "
         "nor '--options runtime'. ADR-0020 §13.2 step 3 mandates deep (or "
-        "leaf-to-root) signing for the .app bundle — the workflow uses "
+        "leaf-to-root) signing for the .app bundle, the workflow uses "
         "'--options runtime' + per-binary signing as the modern equivalent."
     )
     assert has_entitlements_flag, (
@@ -304,7 +304,7 @@ def test_workflow_runs_codesign_deep_entitlements(workflow_text: str):
     )
 
 
-# ─── 3. CI workflow — xcrun notarytool submit --wait (notarization) ─────────
+# ─── 3. CI workflow, xcrun notarytool submit --wait (notarization) ─────────
 def test_workflow_runs_notarytool_submit_wait(workflow_text: str):
     """CI workflow must run 'xcrun notarytool submit ... --wait'.
 
@@ -326,7 +326,7 @@ def test_workflow_runs_notarytool_submit_wait(workflow_text: str):
     )
 
 
-# ─── 4. CI workflow — xcrun stapler staple (stapling) ───────────────────────
+# ─── 4. CI workflow, xcrun stapler staple (stapling) ───────────────────────
 def test_workflow_runs_stapler_staple(workflow_text: str):
     """CI workflow must run 'xcrun stapler staple'.
 
@@ -344,7 +344,7 @@ def test_workflow_runs_stapler_staple(workflow_text: str):
     )
 
 
-# ─── 5. CI workflow — xcrun stapler validate (verification) ─────────────────
+# ─── 5. CI workflow, xcrun stapler validate (verification) ─────────────────
 def test_workflow_runs_stapler_validate(workflow_text: str):
     """CI workflow must run 'xcrun stapler validate'.
 
@@ -360,14 +360,14 @@ def test_workflow_runs_stapler_validate(workflow_text: str):
     )
 
 
-# ─── 6. CI workflow — Developer ID Application signing identity env var ─────
+# ─── 6. CI workflow, Developer ID Application signing identity env var ─────
 def test_workflow_references_signing_identity_env_var(workflow_text: str):
     """CI workflow must reference the Developer ID Application signing identity env var.
 
     ADR-0020 §13.2 + docs/migration/signing-guide.md 'Reused signing
     identities' table: the macOS signing identity is passed via the
     ``MAC_SIGNING_IDENTITY`` env var (same env var the existing Electron
-    build uses — no cert duplication in CI). The value format is:
+    build uses, no cert duplication in CI). The value format is:
 
         "Developer ID Application: Your Name (XXXXXXXXXX)"
 
@@ -398,14 +398,14 @@ def test_workflow_signs_with_developer_id_application_format(workflow_text: str)
     certificates (as opposed to 'Developer ID Installer' for .pkg, or
     'Mac Developer' for App Store). The CI workflow uses the
     ``MAC_SIGNING_IDENTITY`` env var which must hold a value of this
-    format — this test confirms the workflow passes the env var to a
+    format, this test confirms the workflow passes the env var to a
     ``--sign`` flag (i.e., the workflow IS wired to sign with whatever
     identity the env var holds, which must be a Developer ID Application
     cert per the signing guide).
 
     The full validation of the env var's VALUE (i.e., that it actually
     starts with 'Developer ID Application:') happens on the macOS host
-    via ``codesign -dv --verbose=4`` — see the VALIDATE ON MACOS HOST
+    via ``codesign -dv --verbose=4``: see the VALIDATE ON MACOS HOST
     block in this file's module docstring.
     """
     # The workflow must pass the signing identity to a --sign flag.
@@ -423,7 +423,7 @@ def test_workflow_signs_with_developer_id_application_format(workflow_text: str)
     )
 
 
-# ─── 7. CI workflow — notarization credentials env vars ─────────────────────
+# ─── 7. CI workflow, notarization credentials env vars ─────────────────────
 def test_workflow_references_notarization_credentials(workflow_text: str):
     """CI workflow must reference notarization credentials env vars.
 
@@ -446,7 +446,7 @@ def test_workflow_references_notarization_credentials(workflow_text: str):
 
     GAP-3: the codebase uses style 1 (Apple ID + app-specific password).
     Apple has announced deprecation of Apple ID auth for notarytool in
-    favor of API key auth. Report only — do NOT fix in this gate check.
+    favor of API key auth. Report only, do NOT fix in this gate check.
     """
     has_apple_id_style = "APPLE_ID" in workflow_text and "APPLE_APP_SPECIFIC_PASSWORD" in workflow_text
     has_api_key_style = "APPLE_API_KEY" in workflow_text and "APPLE_API_KEY_ISSUER" in workflow_text

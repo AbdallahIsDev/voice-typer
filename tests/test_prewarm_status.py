@@ -1,6 +1,6 @@
 """Unit tests for the RESTORED prewarm status probe.
 
-Covers ``voice_typer/server/prewarm/status.py`` — the user-facing
+Covers ``voice_typer/server/prewarm/status.py``, the user-facing
 Cache Status card data (plan §6.3 addendum), restored 2026-08-14
 verbatim from commit 5a319872's ``process_tracker.py`` status-query
 section, with the sentinel-file machinery replaced by the
@@ -50,7 +50,7 @@ class TestGetPrewarmStatus:
     def test_status_file_returns_last_run_and_elapsed(self, monkeypatch, tmp_path):
         """The worker status file feeds last_run + elapsed_s.
 
-        (Mirrors the old 3-line-sentinel test — H2: last_run is the
+        (Mirrors the old 3-line-sentinel test, H2: last_run is the
         wall-clock completion time written by the worker, not a boot
         timestamp.)
         """
@@ -158,7 +158,7 @@ class TestWritePrewarmStatusFile:
 class TestWeightFileProbe:
     """The Cache Status card must probe the files the backend ACTUALLY
     ships (Whisper ``model.bin``, Parakeet ``*.onnx`` shards, legacy
-    ``model.safetensors``) — not just ``model.safetensors``, which the
+    ``model.safetensors``), not just ``model.safetensors``, which the
     ONNX engine never downloads (the card always showed 'cold / 0 bytes').
     """
 

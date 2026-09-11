@@ -1,11 +1,11 @@
 /**
- * Tests for useTheme — focused on the `flushPendingThemeSave` path
+ * Tests for useTheme, focused on the `flushPendingThemeSave` path
  * that runs on unmount / beforeunload.
  *
  * The change under test: `flushPendingThemeSave` previously used
  * `try { void call(...) } catch (e) { console.warn(...) }` which
  * only catches SYNCHRONOUS throws from `call()` itself. If `call`
- * returned a Promise that later rejected (the common case — IPC
+ * returned a Promise that later rejected (the common case, IPC
  * rejection on backend unavailable), the rejection was unhandled.
  * The fix uses `void call(...).catch((e) => console.warn(...))` so
  * Promise rejections are caught.
@@ -112,7 +112,7 @@ async function renderProbe() {
 	return { captures, ...utils };
 }
 
-describe("useTheme — flushPendingThemeSave rejection handling", () => {
+describe("useTheme, flushPendingThemeSave rejection handling", () => {
 	it("calls console.warn when the flush-time set_config Promise rejects", async () => {
 		const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 		// Make `call` reject for the set_config invocation. The first
@@ -146,11 +146,11 @@ describe("useTheme — flushPendingThemeSave rejection handling", () => {
 			(c) => c[0] === "set_config",
 		);
 		expect(setConfigCall).toBeTruthy();
-		// Verify the .catch handler ran — console.warn was called with
+		// Verify the .catch handler ran, console.warn was called with
 		// the expected prefix. Without the `.catch` wiring, the
 		// rejection would have surfaced as an unhandled promise
 		// rejection warning (which jsdom surfaces via
-		// `process.on('unhandledRejection')` — not via console.warn).
+		// `process.on('unhandledRejection')`, not via console.warn).
 		const flushWarn = warnSpy.mock.calls.find((c) =>
 			String(c[0] ?? "").includes(
 				"[renderer:useTheme] set_config (flush) failed",

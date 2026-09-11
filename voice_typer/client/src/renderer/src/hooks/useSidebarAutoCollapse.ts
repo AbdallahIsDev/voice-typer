@@ -1,5 +1,5 @@
 /**
- * useSidebarAutoCollapse — owns the sidebar collapse state and the
+ * useSidebarAutoCollapse, owns the sidebar collapse state and the
  * narrow-viewport auto-collapse rule.
  *
  * Extracted from App.tsx (the entry component stays pure wiring) using
@@ -8,7 +8,7 @@
  *
  * The sidebar auto-collapses when the window narrows below the
  * ``640px`` breakpoint. Only the wide→narrow TRANSITION (and the
- * initial narrow mount) forces a collapse — once collapsed, the user's
+ * initial narrow mount) forces a collapse, once collapsed, the user's
  * manual expand (Ctrl+B or the TitleBar toggle) is respected until the
  * next wide→narrow transition. Narrow→wide transitions do NOT
  * auto-expand (the user may have intentionally collapsed the sidebar
@@ -27,7 +27,7 @@ import { useMediaQuery } from "@/hooks/useMediaQuery";
 export interface UseSidebarAutoCollapseResult {
 	/** Whether the sidebar is currently collapsed (rail mode). */
 	sidebarCollapsed: boolean;
-	/** Raw setter — also the manual expand/collapse entry point. */
+	/** Raw setter, also the manual expand/collapse entry point. */
 	setSidebarCollapsed: React.Dispatch<React.SetStateAction<boolean>>;
 }
 

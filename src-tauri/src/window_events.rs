@@ -6,7 +6,7 @@
 //! focused module that owns the concern:
 //!
 //! - `CloseRequested` → `commands::sidecar_cmds::on_main_window_close`
-//!   (close-to-tray semantics — see `commands/sidecar_cmds/
+//!   (close-to-tray semantics: see `commands/sidecar_cmds/
 //!   window_close.rs`).
 //! - `ThemeChanged` → `theme_icon::apply_to_window` (TR-4 theme-reactive
 //!   taskbar icon, `main` window only).
@@ -25,7 +25,7 @@ pub(crate) fn handle(window: &tauri::Window, event: &WindowEvent) {
     if let WindowEvent::CloseRequested { api, .. } = event {
         crate::commands::sidecar_cmds::on_main_window_close(window.app_handle(), window, api);
     }
-    // TR-4 dynamic: OS theme flipped while running — swap the
+    // TR-4 dynamic: OS theme flipped while running, swap the
     // main-window icon so the taskbar button + Alt-Tab tile keep
     // contrasting (white glyph on dark, black on light). The
     // bubble window is excluded: it is skipTaskbar, so it never
@@ -38,7 +38,7 @@ pub(crate) fn handle(window: &tauri::Window, event: &WindowEvent) {
     }
     // Durable bubble drag-position persistence: observe USER drags
     // of the bubble window and write them back to the Python config
-    // (debounced, fire-and-forget — see
+    // (debounced, fire-and-forget, see
     // `commands::bubble::persisted_position`). Programmatic moves
     // arm a suppression window so they never persist themselves.
     if let WindowEvent::Moved(position) = event {

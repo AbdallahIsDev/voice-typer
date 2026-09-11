@@ -8,7 +8,7 @@ real ASR inference and returns the transcript via the
 
 It reuses the exact same backend machinery the slim-core sidecar uses
 (``AsrBackendRegistry`` from ``voice_typer/server/asr_registry.py``) so
-there is ONE engine-construction path for both processes — the worker
+there is ONE engine-construction path for both processes, the worker
 is a second consumer of the same registry, not a parallel
 re-implementation (E7 / P2: no duplicated engine logic).
 
@@ -16,12 +16,12 @@ Engine lifecycle (§7.3 "long-lived worker"): the engine is built lazily
 on the first ``transcribe_offline`` request and cached for the worker's
 lifetime (a fresh request does not rebuild it). A request carrying a
 ``language`` that differs from the cached engine's language rebuilds the
-engine with the request's language — language is fixed at engine
+engine with the request's language, language is fixed at engine
 construction in this codebase (``TranscriptionEngine.language`` is set
 in ``__init__``), so a per-request override requires reconstruction.
 
 Concurrency: transcription is blocking C-level work (0.5-30 s per file)
-and MUST NOT run on the asyncio event loop — the caller
+and MUST NOT run on the asyncio event loop, the caller
 (``_ws_server._handle_connection``) wraps :func:`transcribe_file` in
 ``asyncio.to_thread`` so heartbeats and the ``shutdown`` command stay
 responsive mid-inference. A ``threading.Lock`` guards the lazy
@@ -29,7 +29,7 @@ construction so two racing requests cannot double-build the engine.
 
 Errors: any failure (missing file, engine load failure, decode error)
 is caught and returned as ``{"text": "", "latency_ms": <elapsed>,
-"error": <message>}`` — the caller turns that into a
+"error": <message>}``, the caller turns that into a
 ``transcribe_offline_result`` push so the slim-core sidecar's caller
 never hangs waiting for an event that will never arrive.
 """
@@ -58,7 +58,7 @@ def _load_wav_float32(path: str | Path) -> tuple[object, int]:
     """Load a WAV file into a float32 numpy array + its native sample rate.
 
     Returns ``(audio_f32, sample_rate)`` where ``audio_f32`` is a 1-D
-    float32 array in [-1.0, 1.0] (mono — multi-channel files are
+    float32 array in [-1.0, 1.0] (mono, multi-channel files are
     downmixed by averaging). Raises on any decode failure so the caller
     can produce a structured error result.
     """
@@ -162,7 +162,7 @@ class WorkerTranscriber:
             backend = registry.load_with_fallback()
             if backend is None:
                 raise RuntimeError(
-                    "ASR backend failed to load — model not downloaded or "
+                    "ASR backend failed to load: model not downloaded or "
                     "integrity check failed (open the Models page and download it)"
                 )
             self._registry = registry
@@ -181,7 +181,7 @@ class WorkerTranscriber:
         """Transcribe a WAV file; return the ``transcribe_offline_result`` payload.
 
         Returns ``{"text": str, "latency_ms": int, "error": str|None}``.
-        Never raises — errors are captured into the payload so the
+        Never raises, errors are captured into the payload so the
         caller can always emit a result event.
         """
         t0 = time.perf_counter()
@@ -196,7 +196,7 @@ class WorkerTranscriber:
             return _done({"text": "", "error": f"audio file not found: {audio_path}"})
         try:
             audio, file_rate = _load_wav_float32(audio_path)
-        except Exception as exc:  # noqa: BLE001 — structured error result
+        except Exception as exc:  # noqa: BLE001, structured error result
             log.warning("[WORKER] failed to decode %s: %s", audio_path, exc)
             return _done({"text": "", "error": f"failed to decode audio: {exc}"})
         audio = _resample_to_16k(audio, file_rate)
@@ -213,14 +213,14 @@ class WorkerTranscriber:
                 format_duration(time.perf_counter() - t0),
             )
             return _done({"text": text, "error": None})
-        except Exception as exc:  # noqa: BLE001 — structured error result
+        except Exception as exc:  # noqa: BLE001, structured error result
             log.exception("[WORKER] offline transcription failed: %s", exc)
             return _done({"text": "", "error": f"transcription failed: {exc}"})
 
 
 # Module-level singleton so the engine survives across WS connections
 # (the slim-core sidecar may briefly disconnect + reconnect per the
-# respawn scheduler, §7.2 — the loaded engine must not be rebuilt).
+# respawn scheduler, §7.2, the loaded engine must not be rebuilt).
 _TRANSCRIBER: WorkerTranscriber | None = None
 _TRANSCRIBER_LOCK = threading.Lock()
 

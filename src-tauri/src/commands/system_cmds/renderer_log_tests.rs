@@ -87,20 +87,20 @@ fn test_far_over_cap_nested_payload_truncated() {
     let out = cap_and_serialize_renderer_payload(&payload);
     assert!(out.ends_with(TRUNCATION_MARKER));
     // 100_000-char run also trips the 20+ alnum catch-all inside
-    // redact_pii downstream, but THIS layer only caps — verify the
+    // redact_pii downstream, but THIS layer only caps, verify the
     // prefix is the raw serialization (redaction happens in the logger).
     assert_eq!(&out[..CAP], &full[..CAP]);
 }
 
 /// UTF-8 safety: when the 8 KiB boundary lands inside a multi-byte
 /// char, the old `String::truncate(cap)` PANICKED. The bounded writer
-/// must floor the prefix to the nearest char boundary instead — valid
+/// must floor the prefix to the nearest char boundary instead, valid
 /// UTF-8 out, marker appended, no panic.
 #[test]
 fn test_multibyte_char_straddling_cap_floors_to_char_boundary() {
     // Serialization: `"` + 8190 `a` + `é`(2 bytes) + `é`(2 bytes) + `"`.
     // The 8 KiB boundary (8192) lands INSIDE the second `é` (bytes
-    // 8191..8193) — exactly the input that panicked the old code.
+    // 8191..8193): exactly the input that panicked the old code.
     let payload = Value::String(format!("{}éé", "a".repeat(CAP - 2)));
     let full = serde_json::to_string(&payload).unwrap();
     assert_eq!(full.len(), CAP + 4, "test setup: prefix math");
@@ -146,6 +146,6 @@ fn test_empty_and_null_payloads() {
 /// `system_cmds_tests.rs::test_set_host_locale_window_gate_uses_main_label_predicate`.
 #[test]
 fn test_cap_constant_matches_contract() {
-    // 8 KiB — matches the doc contract (rich error report size).
+    // 8 KiB: matches the doc contract (rich error report size).
     assert_eq!(MAX_RENDERER_ERROR_PAYLOAD_BYTES, 8 * 1024);
 }

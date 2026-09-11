@@ -1,5 +1,5 @@
 /**
- * useMediaQuery — subscribes to a CSS media query and re-renders on change.
+ * useMediaQuery, subscribes to a CSS media query and re-renders on change.
  *
  *  (partial): introduced so App.tsx can auto-collapse the sidebar when
  * the window narrows below the `640px` breakpoint. The hook is generic
@@ -25,7 +25,7 @@ export function useMediaQuery(query: string): boolean {
 		if (typeof window === "undefined" || !window.matchMedia) return;
 		const mql = window.matchMedia(query);
 		// Sync with the current match state on mount and whenever the
-		// query string changes — `useState`'s lazy initializer only
+		// query string changes, `useState`'s lazy initializer only
 		// runs once, so a query change requires an explicit re-sync.
 		setMatches(mql.matches);
 		const handler = (e: MediaQueryListEvent) => setMatches(e.matches);

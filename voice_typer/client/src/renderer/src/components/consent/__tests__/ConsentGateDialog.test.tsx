@@ -45,7 +45,7 @@ import {
 } from "@/lib/consentGate";
 import ConsentGateDialog from "../ConsentGateDialog";
 
-describe("ConsentGateDialog — unified point-of-use consent", () => {
+describe("ConsentGateDialog, unified point-of-use consent", () => {
 	beforeEach(() => {
 		useConsentGateStore.setState({ request: null });
 		resetStableMocks();
@@ -92,7 +92,7 @@ describe("ConsentGateDialog — unified point-of-use consent", () => {
 		expect(useConsentGateStore.getState().request).toBeNull();
 	});
 
-	it("does NOT run the retry or close when set_config fails — error snackbar instead", async () => {
+	it("does NOT run the retry or close when set_config fails, error snackbar instead", async () => {
 		const onAllow = vi.fn(async () => {});
 		mockCall.mockRejectedValue(new Error("persist failed"));
 		openDialog({ onAllow });
@@ -104,7 +104,7 @@ describe("ConsentGateDialog — unified point-of-use consent", () => {
 		);
 
 		expect(onAllow).not.toHaveBeenCalled();
-		// The dialog stays open — the grant did not persist.
+		// The dialog stays open, the grant did not persist.
 		expect(useConsentGateStore.getState().request).not.toBeNull();
 		expect(mockShowSnack).toHaveBeenCalledWith(
 			"consentDialog.persistFailed",
@@ -155,7 +155,7 @@ describe("ConsentGateDialog — unified point-of-use consent", () => {
 		);
 
 		await waitFor(() => expect(mockShowSnack).toHaveBeenCalled());
-		// The consent WAS persisted — the dialog closed regardless.
+		// The consent WAS persisted, the dialog closed regardless.
 		expect(useConsentGateStore.getState().request).toBeNull();
 		expect(mockShowSnack).toHaveBeenCalledWith(
 			"consentDialog.retryFailed",

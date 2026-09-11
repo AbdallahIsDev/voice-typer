@@ -5,7 +5,7 @@ poller that bails as soon as the predicate becomes truthy.
 
 This module is the canonical polling helper (the older
 ``wait_until`` in :mod:`tests.conftest` was DELETED because it had zero
-importers — see the note in tests/conftest.py). ``wait_for`` is already
+importers: see the note in tests/conftest.py). ``wait_for`` is already
 imported by tests/test_microphone_watcher.py,
 tests/test_hotkeys_win32.py and tests/hotkeys/test_polling_strategy.py.
 
@@ -13,13 +13,13 @@ tests/test_hotkeys_win32.py and tests/hotkeys/test_polling_strategy.py.
 ``time.sleep(N)`` call sites flagged in review.md. It uses
 ``time.monotonic()`` (NOT ``time.time()``) so the deadline is immune
 to wall-clock adjustments (NTP slew, manual date changes, daylight
-saving transitions) — ``time.time()`` can jump backward and cause a
+saving transitions): ``time.time()`` can jump backward and cause a
 poll loop to terminate early or spin forever.
 
 The helper deliberately returns a ``bool`` instead of raising:
 
-  - ``True``  — predicate became truthy before ``timeout`` elapsed.
-  - ``False`` — timeout elapsed without the predicate ever returning
+  - ``True``, predicate became truthy before ``timeout`` elapsed.
+  - ``False``, timeout elapsed without the predicate ever returning
                 truthy. The caller decides whether to ``assert``, skip,
                 or proceed.
 
@@ -30,7 +30,7 @@ wrap the call, e.g.::
         raise AssertionError(f"predicate never became truthy")
 
 For thread-synchronization tests, prefer ``threading.Event.wait(timeout)``
-over either helper — ``Event.wait`` is non-busy and deterministic.
+over either helper: ``Event.wait`` is non-busy and deterministic.
 ``wait_for`` is appropriate when no ``Event``/``Condition`` is
 available (e.g. waiting for a side effect on a MagicMock, a file on
 disk, or a thread state the test can't directly observe).
@@ -85,7 +85,7 @@ def wait_for(
 
         assert wait_for(lambda: obj.ready, timeout=2.0)
 
-    The migration is incremental — call sites that need the asserting
+    The migration is incremental, call sites that need the asserting
     variant (with a synthesised message on timeout) should wrap the
     call and raise ``AssertionError`` themselves (see the module
     docstring; the old ``tests.conftest.wait_until`` helper was removed).
@@ -97,5 +97,5 @@ def wait_for(
         time.sleep(interval)
     # One final check after the loop so we don't return False when the
     # predicate became truthy during the last ``time.sleep(interval)``
-    # window — the deadline check fires first and we'd miss it.
+    # window, the deadline check fires first and we'd miss it.
     return bool(predicate())

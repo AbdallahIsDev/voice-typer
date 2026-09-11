@@ -10,7 +10,7 @@ On a quiet fd-table the double-close only emits EBADF (suppressed by
 ``contextlib.suppress(OSError)``).  But under concurrent load the
 closed fd number can be REUSED by another thread's ``os.open`` /
 ``socket`` / ``pipe`` / etc., and the second ``os.close(fd)`` would
-close that UNRELATED fd — silent corruption of an unrelated resource.
+close that UNRELATED fd, silent corruption of an unrelated resource.
 
 The fix uses an ``owned_fd`` sentinel (set to ``-1`` immediately after
 ``os.fdopen`` succeeds) so the except path only closes the fd if
@@ -19,14 +19,14 @@ function, not by the file object ``f``).
 
 Test approach:
 
-1. **Source-level check** — pin the presence of the ``owned_fd = -1``
+1. **Source-level check**, pin the presence of the ``owned_fd = -1``
    sentinel and the ``if owned_fd != -1`` guard in the except path.
    This is the strongest static assertion: the pre-fix code had
    ``os.close(fd)`` unconditionally in the except; the fix has the
    sentinel + guard.  A regression that removes either would be
    caught.
 
-2. **Behavioural check (failure path)** — force ``f.write`` /
+2. **Behavioural check (failure path)**, force ``f.write`` /
    ``os.fsync`` / ``f.read`` to raise AFTER ``os.fdopen`` succeeds,
    and assert that the helper:
      (a) propagates the exception (no silent swallow), AND
@@ -38,7 +38,7 @@ Test approach:
    except path called Python's ``os.close(fd)`` once → spy would see
    ONE call.
 
-3. **Behavioural check (success path)** — verify the helper still
+3. **Behavioural check (success path)**, verify the helper still
    writes / reads correctly on the success path (no over-correction
    that would leak the fd by never closing it).
 
@@ -123,7 +123,7 @@ class TestOwnedFdSentinelInSource:
 
 
 # ---------------------------------------------------------------------------
-# _secure_atomic_write — failure path does NOT double-close
+# _secure_atomic_write, failure path does NOT double-close
 # ---------------------------------------------------------------------------
 
 
@@ -132,7 +132,7 @@ class TestSecureAtomicWriteNoDoubleClose:
     when ``f.write`` / ``f.flush`` / ``os.fsync`` raises inside the
     ``os.fdopen``-wrapped block.
 
-    Post-fix, the except path checks ``owned_fd != -1`` — since
+    Post-fix, the except path checks ``owned_fd != -1``, since
     ``owned_fd`` was set to ``-1`` right after ``os.fdopen`` succeeded,
     the except path does NOT call ``os.close`` on the fd.  The fd is
     closed exactly once by ``f.close()`` in the finally block (which
@@ -149,7 +149,7 @@ class TestSecureAtomicWriteNoDoubleClose:
         ``f.close()`` via the C-level buffer, NOT via ``os.close``).
 
         Pre-fix, the except path called ``os.close(fd)`` AFTER
-        ``f.close()`` had already closed it — a double-close.
+        ``f.close()`` had already closed it, a double-close.
         """
         from voice_typer.server.secure_file_io import _secure_atomic_write
 
@@ -167,14 +167,14 @@ class TestSecureAtomicWriteNoDoubleClose:
 
         monkeypatch.setattr(tempfile, "mkstemp", capturing_mkstemp)
 
-        # Spy on os.close — record every call.  We do NOT call the
+        # Spy on os.close, record every call.  We do NOT call the
         # real os.close here (the test will leak the fd, but that's
         # acceptable for a regression test).
         closes: list[int] = []
 
         def spy_close(fd: int) -> None:
             closes.append(fd)
-            # Intentionally DON'T call real_close — we want to count
+            # Intentionally DON'T call real_close, we want to count
             # calls, not perform real cleanup.
 
         monkeypatch.setattr(os, "close", spy_close)
@@ -201,7 +201,7 @@ class TestSecureAtomicWriteNoDoubleClose:
         # the original mkstemp fd must NOT appear in the
         # os.close call list.  Pre-fix, the except path called
         # os.close(fd) AFTER f.close() had already closed it via
-        # the C-level buffer — a double-close that under concurrent
+        # the C-level buffer, a double-close that under concurrent
         # load could close an unrelated fd (fd-number reuse).
         assert len(captured_fd) == 1, f"expected 1 mkstemp call, got {len(captured_fd)}"
         fd = captured_fd[0]
@@ -212,7 +212,7 @@ class TestSecureAtomicWriteNoDoubleClose:
             f"the fd because owned_fd is -1 (the fd is owned by f, "
             f"closed by f.close() in the finally block via the C-level "
             f"buffer). Pre-fix the except path unconditionally called "
-            f"os.close(fd) — a double-close."
+            f"os.close(fd), a double-close."
         )
 
     def test_no_extra_os_close_on_fsync_failure(self, tmp_path, monkeypatch):
@@ -273,7 +273,7 @@ class TestSecureAtomicWriteNoDoubleClose:
     def test_successful_write_closes_fd_no_leak(self, tmp_path):
         """FR-50: on the success path, the mkstemp fd must be closed
         (no leak).  We verify by checking that ``os.fstat(fd)`` raises
-        ``OSError`` (EBADF) after the helper returns — proving the fd
+        ``OSError`` (EBADF) after the helper returns, proving the fd
         was closed by ``f.close()`` in the finally block."""
         from voice_typer.server.secure_file_io import _secure_atomic_write
 
@@ -308,7 +308,7 @@ class TestSecureAtomicWriteNoDoubleClose:
 
 
 # ---------------------------------------------------------------------------
-# _secure_read_text — failure path does NOT double-close
+# _secure_read_text, failure path does NOT double-close
 # ---------------------------------------------------------------------------
 
 
@@ -323,7 +323,7 @@ class TestSecureReadTextNoDoubleClose:
         fd (the fd is closed by ``f.close()`` via the C-level buffer).
 
         Pre-fix, the except path called ``os.close(fd)`` AFTER
-        ``f.close()`` had already closed it — a double-close.
+        ``f.close()`` had already closed it, a double-close.
         """
         from voice_typer.server.secure_file_io import _secure_read_text
 
@@ -341,7 +341,7 @@ class TestSecureReadTextNoDoubleClose:
 
         monkeypatch.setattr(os, "open", capturing_open)
 
-        # Spy on os.close — record every call.
+        # Spy on os.close, record every call.
         closes: list[int] = []
 
         def spy_close(fd: int) -> None:
@@ -376,7 +376,7 @@ class TestSecureReadTextNoDoubleClose:
             f"the fd because owned_fd is -1 (the fd is owned by f, "
             f"closed by f.close() in the finally block via the C-level "
             f"buffer). Pre-fix the except path unconditionally called "
-            f"os.close(fd) — a double-close."
+            f"os.close(fd), a double-close."
         )
 
     def test_no_extra_os_close_on_inode_mismatch(self, tmp_path, monkeypatch):

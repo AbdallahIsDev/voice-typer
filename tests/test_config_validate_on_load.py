@@ -61,7 +61,7 @@ class TestValidateConfigCalledOnLoad:
             encoding="utf-8",
         )
 
-        # Spy on ``validate_config`` — we don't want to change its
+        # Spy on ``validate_config``, we don't want to change its
         # behaviour, just verify it was called with the constructed
         # Config instance.
         call_count = 0
@@ -78,7 +78,7 @@ class TestValidateConfigCalledOnLoad:
             return real_validate(cfg)
 
         monkeypatch.setattr(cv, "validate_config", _spy)
-        # Also patch the name ``Config.load`` looks up — it does a
+        # Also patch the name ``Config.load`` looks up, it does a
         # local ``from voice_typer.server.config_validators import
         # validate_config`` inside the function body, so we need to
         # patch the attribute on the module BEFORE load() runs.
@@ -146,7 +146,7 @@ class TestValidateConfigCalledOnLoad:
 
 class TestValidateConfigGracefullyHandlesErrors:
     """if ``validate_config`` itself raises, ``Config.load()``
-    must NOT propagate the exception — the config still loads (the
+    must NOT propagate the exception, the config still loads (the
     validator is best-effort / advisory).
     """
 
@@ -168,7 +168,7 @@ class TestValidateConfigGracefullyHandlesErrors:
 
         monkeypatch.setattr(cv, "validate_config", _boom)
 
-        # Should NOT raise — validate_config is wrapped in try/except.
+        # Should NOT raise, validate_config is wrapped in try/except.
         instance = Config.load()
         assert isinstance(instance, Config)
 
@@ -176,14 +176,14 @@ class TestValidateConfigGracefullyHandlesErrors:
 class TestNonFiniteFloatFieldsResetOnLoad:
     """NaN / +Inf / -Inf on a float field must be reset to the
     dataclass default at load time, with a warning recorded in
-    ``last_load_warnings`` — and the next ``save()`` must NOT round-trip
+    ``last_load_warnings``, and the next ``save()`` must NOT round-trip
     the non-finite value back to disk.
 
     Background: ``json.loads`` accepts ``NaN`` / ``Infinity`` /
     ``-Infinity`` as a non-standard extension, so a hand-edited or
     corrupted ``config.json`` can smuggle a non-finite float into any
     ``float`` dataclass field. Pre-fix, ``_validate_non_numeric_fields``
-    did ``if isinstance(val, float): continue`` — a NaN/Inf IS a valid
+    did ``if isinstance(val, float): continue``, a NaN/Inf IS a valid
     Python float, so the value passed through unchanged. The downstream
     ``scalar._make_float_validator`` flagged it with a "must be a finite
     number" warning, but the validator is advisory (it appends to
@@ -205,7 +205,7 @@ class TestNonFiniteFloatFieldsResetOnLoad:
     """
 
     # ``streaming_silence_threshold: float = 0.003`` is a representative
-    # float field on Config — small, has a finite default, and is read
+    # float field on Config, small, has a finite default, and is read
     # by the streaming silence detector. ``nan``/``inf`` here would
     # silently disable the detector (``nan < 0.0`` is False).
     FIELD_NAME = "streaming_silence_threshold"
@@ -240,7 +240,7 @@ class TestNonFiniteFloatFieldsResetOnLoad:
 
         instance = Config.load()
 
-        # Field must be reset to the dataclass default — NOT the NaN
+        # Field must be reset to the dataclass default, NOT the NaN
         # that was on disk.
         assert instance.streaming_silence_threshold == self.FIELD_DEFAULT, (
             f"NaN must be reset to default {self.FIELD_DEFAULT!r}; got {instance.streaming_silence_threshold!r}"
@@ -258,7 +258,7 @@ class TestNonFiniteFloatFieldsResetOnLoad:
         assert any(repr(self.FIELD_DEFAULT) in w for w in reset_warnings), (
             f"the reset warning should mention the default value {self.FIELD_DEFAULT!r}. Got: {reset_warnings!r}"
         )
-        # save() must NOT round-trip the NaN back to disk — the field
+        # save() must NOT round-trip the NaN back to disk, the field
         # is now the default, so the on-disk file must NOT contain a
         # ``NaN`` token.
         instance.save()

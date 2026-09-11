@@ -2,11 +2,11 @@
 //
 // This module is the single owner of the mutable i18n runtime state:
 //
-//   - ``_currentLocale``        — the active UI locale
-//   - ``_translations``         — Map<Locale, Map<dotKey, value>>
-//   - ``_localeLoadInitiated``  — Set of locales whose dynamic import
+//   - ``_currentLocale``       , the active UI locale
+//   - ``_translations``        , Map<Locale, Map<dotKey, value>>
+//   - ``_localeLoadInitiated`` , Set of locales whose dynamic import
 //                                  has been kicked off (dedup guard)
-//   - ``_localeLoadPromises``   — Map of in-flight dynamic-import
+//   - ``_localeLoadPromises``  , Map of in-flight dynamic-import
 //                                  promises (await dedup)
 //
 // No module-load side effects live
@@ -22,7 +22,7 @@
 // (which IS reassigned on locale switch).
 
 // APP_NAME from `@/branding` is the single source of truth for the
-// product name — used by `_withAppName` below to substitute the
+// product name, used by `_withAppName` below to substitute the
 // `{appName}` placeholder in locale values at load time (C-BRAND-1).
 import { APP_NAME } from "@/branding";
 import { notifyLocaleSubscribers } from "./hooks";
@@ -39,7 +39,7 @@ type TranslationDict = Record<string, unknown>;
 
 // ── Shared mutable state ──────────────────────────────────────────
 
-// Current locale — defaults to 'en'. ``setLocale`` / ``initI18n`` write
+// Current locale, defaults to 'en'. ``setLocale`` / ``initI18n`` write
 // to this via ``_setCurrentLocale``; every other module reads it via
 // ``getLocale``.
 //
@@ -58,7 +58,7 @@ export function getLocale(): Locale {
 /**
  * Internal mutator used by {@link setLocale} and {@link initI18n} to
  * update ``_currentLocale``. Other modules read via {@link getLocale}
- * — they MUST NOT mutate locale state directly.
+ *, they MUST NOT mutate locale state directly.
  *
  * Exported with a leading underscore so callers know it's an internal
  * API (no consumer outside the i18n package should touch it).
@@ -75,7 +75,7 @@ export const _translations: Map<Locale, Map<string, string>> = new Map();
 // auto-load AND the first ``t()`` call race for the same locale.
 export const _localeLoadInitiated: Set<Locale> = new Set();
 
-// Pending dynamic-import promises — used to deduplicate concurrent
+// Pending dynamic-import promises, used to deduplicate concurrent
 // ``ensureLocaleLoaded`` calls for the same locale.
 export const _localeLoadPromises: Map<Locale, Promise<void>> = new Map();
 
@@ -105,15 +105,15 @@ export function flatten(
 }
 
 // Register English translations at module eval time. English is the
-// universal fallback so it MUST be available synchronously — the
+// universal fallback so it MUST be available synchronously, the
 // dynamic-import path is only for non-English locales.
 // `{appName}` placeholders are substituted with APP_NAME at load time
 // via `_withAppName` so locale JSON stays free of hardcoded brand
 // strings (C-BRAND-1). Mirrors the main-process loader in
-// `src/main/i18n.ts:114-124` — both bundles now post-process every
+// `src/main/i18n.ts:114-124`, both bundles now post-process every
 // locale value through the same `{appName}` substitution.
 _translations.set("en", _applyAppName(flatten(en as TranslationDict)));
-//defensive — drop any stale resolved-string cache for "en"
+//defensive, drop any stale resolved-string cache for "en"
 // (the cache is empty at module load, but this keeps the registration
 // paths consistent with ensureLocaleLoaded/registerTranslations below).
 _invalidateResolvedCache("en");
@@ -129,20 +129,20 @@ _invalidateResolvedCache("en");
  * of requiring a hundreds-of-strings edit across the 8 locale JSON
  * files. Only a handful of ``dialog.singleInstance.*`` strings use the
  * placeholder today, but the helper is generic so future strings that
- * embed the app name don't need a special case — and so the planned
+ * embed the app name don't need a special case, and so the planned
  * migration of ~290 strings to the ``{appName}`` placeholder pattern
  * is unblocked.
  *
  * Exported (with leading underscore → "internal helper" convention,
  * matching the main-process naming) so the locale-key-parity test can
  * import it for direct verification. The leading underscore signals
- * that consumers outside the i18n package should not call this — the
+ * that consumers outside the i18n package should not call this, the
  * substitution is applied automatically at registration time.
  *
  * @param translations Flat dot-keyed translation record (e.g. the
  *                     output of ``flatten()`` converted via
  *                     ``Object.fromEntries``). Nested objects are NOT
- *                     supported — call this AFTER flattening.
+ *                     supported, call this AFTER flattening.
  * @returns A new record with every ``{appName}`` occurrence in every
  *          value replaced with ``APP_NAME``. The input record is not
  *          mutated.
@@ -184,7 +184,7 @@ function _applyAppName(table: Map<string, string>): Map<string, string> {
  *
  * : previously all 8 locale JSON files were statically imported,
  * adding ~60 KB to the initial bundle and ~8 ms of parse time per
- * locale at boot — even though most users only ever see one locale.
+ * locale at boot, even though most users only ever see one locale.
  * The dynamic import is fire-and-forget: while the chunk loads,
  * ``t()`` falls back to English (the universal fallback already
  * encoded in the lookup path). Once the chunk resolves we register
@@ -199,9 +199,9 @@ function _applyAppName(table: Map<string, string>): Map<string, string> {
 export function ensureLocaleLoaded(locale: Locale): Promise<void> {
 	// English is always loaded synchronously at module init.
 	if (locale === "en") return Promise.resolve();
-	// Already loaded — nothing to do.
+	// Already loaded, nothing to do.
 	if (_translations.has(locale)) return Promise.resolve();
-	// Already in-flight — return the pending promise so callers can
+	// Already in-flight, return the pending promise so callers can
 	// await it without spawning a duplicate request.
 	const existing = _localeLoadPromises.get(locale);
 	if (existing) return existing;
@@ -217,7 +217,7 @@ export function ensureLocaleLoaded(locale: Locale): Promise<void> {
 			// (mirrors main-process _withAppName in src/main/i18n.ts:114-124)
 			// so locale JSON files stay free of hardcoded brand strings
 			// (C-BRAND-1). The substitution runs once per locale per
-			// session — the result is cached in `_translations`.
+			// session, the result is cached in `_translations`.
 			_translations.set(locale, _applyAppName(flatten(data)));
 			//drop the per-locale resolved-string cache so
 			// the next ``t()`` call resolves against the freshly-
@@ -230,7 +230,7 @@ export function ensureLocaleLoaded(locale: Locale): Promise<void> {
 		} catch (e) {
 			// Dynamic import failed (corrupt chunk, network error,
 			// unsupported locale at runtime). Leave English as the
-			// active fallback — ``t()`` already falls back to English
+			// active fallback, ``t()`` already falls back to English
 			// when the current locale's map is missing.
 			console.warn(`[renderer:i18n] dynamic import for "${locale}" failed:`, e);
 		} finally {
@@ -304,7 +304,7 @@ export function setLocale(locale: Locale): void {
 	// locale's strings are available without a page reload. Without this,
 	// switching to e.g. Arabic at runtime would update `dir`/`lang` (visible
 	// layout change) but `t()` would still return English until the user
-	// reloads the page. `ensureLocaleLoaded` is idempotent — if the chunk
+	// reloads the page. `ensureLocaleLoaded` is idempotent, if the chunk
 	// is already loaded or in-flight, this is a no-op. The promise it
 	// returns resolves later and triggers a subscriber notification
 	// (inside ensureLocaleLoaded), so subscribed components re-render with
@@ -342,7 +342,7 @@ export function setLocale(locale: Locale): void {
 
 	//best-effort push to the main process + Python backend.
 	// The bridge surfaces may be missing (module-init scenario, Tauri host
-	// without these IPC channels) — the push helpers swallow rejections
+	// without these IPC channels), the push helpers swallow rejections
 	// and sync throws so a locale-switch failure never breaks the UI.
 	pushLocaleToMainProcess(next);
 	pushLocaleToPythonBackend(next);

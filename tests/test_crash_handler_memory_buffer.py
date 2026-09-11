@@ -5,7 +5,7 @@ The buffer is flushed by the VEH callback after writing the
 crash-diagnostics body so the most-recent ~200 log records land in
 ``<config_dir>/voice-typer-crash-buffer.log``.
 
-These tests are platform-agnostic — they exercise the
+These tests are platform-agnostic, they exercise the
 ``install_memory_buffer`` / ``flush_memory_handler`` /
 ``uninstall_memory_buffer`` API directly without invoking the actual
 VEH callback (which is Windows-only).
@@ -96,20 +96,20 @@ class TestMemoryBufferInstallation:
         ``h.flush()`` FIRST (guarded by ``getattr(h, 'flushOnClose',
         True)``) and only THEN ``h.close()``.  With the default
         ``flushOnClose=True`` the ring buffer is written to disk on
-        every clean shutdown — duplicating the tail of
+        every clean shutdown, duplicating the tail of
         ``voice-typer.log`` for a session that never crashed.  The
         ``close()`` override runs too late to help (the flush already
         happened).  Setting it to False makes the ONLY writer the VEH
         callback's explicit         ``flush_memory_handler()``."""
         install_memory_buffer(tmp_path)
         assert _ch._memory_handler.flushOnClose is False, (
-            "flushOnClose must be False — otherwise logging.shutdown() flushes "
+            "flushOnClose must be False, otherwise logging.shutdown() flushes "
             "the ring to the crash-buffer file on every clean exit"
         )
 
     def test_delay_true_prevents_file_on_clean_startup(self, tmp_path: Path):
         """The crash-buffer target handler uses ``delay=True`` so the
-        file is NOT created on a clean startup — only when a crash
+        file is NOT created on a clean startup, only when a crash
         triggers ``flush_memory_handler()``.  Without ``delay=True``,
         the ``RotatingFileHandler`` opens the file at construction,
         creating a 0-byte ``voice-typer-crash-buffer.log`` on every
@@ -156,7 +156,7 @@ class TestMemoryBufferFlush:
         assert "crash-buffer test message B" in contents
 
     def test_records_are_not_written_until_explicit_flush(self, tmp_path: Path):
-        """The crash buffer is a RING buffer for the VEH callback — it
+        """The crash buffer is a RING buffer for the VEH callback, it
         must NOT duplicate the main ``voice-typer.log``.  Records stay
         in memory (even past capacity) and are only written to the
         crash-buffer file by an explicit ``flush_memory_handler()``."""
@@ -164,7 +164,7 @@ class TestMemoryBufferFlush:
         buffer_path = tmp_path / "logs" / "voice-typer-crash-buffer.log"
 
         test_log = logging.getLogger("voice_typer.test.crash_buffer")
-        # Exceed the 200-record capacity — the stock MemoryHandler would
+        # Exceed the 200-record capacity, the stock MemoryHandler would
         # auto-flush at 200; our override must NOT.
         for i in range(250):
             test_log.warning("pre-flush record %d", i)
@@ -187,7 +187,7 @@ class TestMemoryBufferFlush:
     def test_flush_is_noop_when_buffer_not_installed(self, tmp_path: Path):
         """Calling ``flush_memory_handler`` before
         ``install_memory_buffer`` must be a safe no-op (the VEH
-        callback relies on this — it can't know whether the buffer
+        callback relies on this, it can't know whether the buffer
         was successfully installed)."""
         # Must not raise.
         flush_memory_handler()
@@ -196,7 +196,7 @@ class TestMemoryBufferFlush:
         """On clean shutdown the logging framework calls
         ``handler.close()`` on every attached handler.  The stock
         ``MemoryHandler.close()`` flushes the whole ring to the target
-        file — which would dump the session tail into
+        file, which would dump the session tail into
         ``voice-typer-crash-buffer.log`` on every clean exit, mirroring
         ``voice-typer.log``.  Our override must DISCARD the buffer
         instead (the only writer is the VEH crash callback's explicit
@@ -290,7 +290,7 @@ class TestSetCrashHandlerConfigDirInstallsBuffer:
 
 class TestHu8PiiFilterFailClosed:
     """HU-8: the crash-buffer MemoryHandler attaches ``PIIRedactionFilter``
-    LAZILY (on the first record) and fails CLOSED — if the security import
+    LAZILY (on the first record) and fails CLOSED, if the security import
     cannot succeed, the record is DROPPED (never buffered) instead of being
     silently buffered unredacted (the pre-fix ``except Exception: pass``
     that would leak PII into ``voice-typer-crash-buffer.log`` on flush).
@@ -304,7 +304,7 @@ class TestHu8PiiFilterFailClosed:
     def _reset_flags() -> None:
         from voice_typer.server.crash_handler._memory_buffer import _CrashBufferMemoryHandler
 
-        # Class-level state persists across instances/tests — reset so
+        # Class-level state persists across instances/tests, reset so
         # each test exercises the lazy-attach path from scratch.
         _CrashBufferMemoryHandler._pii_attached = False
         _CrashBufferMemoryHandler._pii_failed_once = False
@@ -322,7 +322,7 @@ class TestHu8PiiFilterFailClosed:
 
         record = logging.LogRecord("voice_typer.test.hu8", logging.WARNING, __file__, 1, "hello", (), None)
         # ``Handler.handle`` returns the filter-chain result (a logging
-        # filter may return the record itself) — the fail-closed
+        # filter may return the record itself), the fail-closed
         # override returns literal ``False`` ONLY when the record is
         # dropped, so ``is not False`` is the correct success assertion.
         assert handler.handle(record) is not False
@@ -353,7 +353,7 @@ class TestHu8PiiFilterFailClosed:
                 )
             )
 
-        assert accepted is False, "HU-8: fail-closed — record must be DROPPED when the filter can't be attached"
+        assert accepted is False, "HU-8: fail-closed, record must be DROPPED when the filter can't be attached"
         assert handler._pii_attached is False
         assert len(handler.buffer) == 0, "HU-8: dropped record must never be buffered unredacted"
         # First failure surfaces a WARNING so operators see the degradation.
@@ -397,7 +397,7 @@ class TestHu8PiiFilterFailClosed:
             is False
         )
 
-        # Import recovers — the NEXT record must attach the filter and
+        # Import recovers, the NEXT record must attach the filter and
         # be buffered (self-healing lazy retry).
         monkeypatch.setitem(sys.modules, "voice_typer.server.security", real_security)
         assert (
@@ -420,7 +420,7 @@ class TestPiiFilterActuallyRuns:
     ``Handler.handle`` semantics: ``self.filter(record)`` runs BEFORE
     the record is emitted/buffered; a filter veto drops the record).
     Pre-fix the override appended records to the ring buffer directly,
-    so the attached PII filter NEVER ran — buffered records were
+    so the attached PII filter NEVER ran, buffered records were
     redacted only because the file handler's own filter instance had
     already mutated the SHARED ``LogRecord`` in place earlier in the
     handler chain. That is an implicit cross-handler ordering
@@ -430,8 +430,8 @@ class TestPiiFilterActuallyRuns:
     ``voice-typer-crash-buffer.log`` on the crash flush.
 
     These tests hand the record DIRECTLY to the crash-buffer handler
-    (``handler.handle(record)``) — no file handler ever sees the
-    record — so any redaction observed in the buffer is the crash
+    (``handler.handle(record)``), no file handler ever sees the
+    record, so any redaction observed in the buffer is the crash
     buffer's OWN filter doing the work.
     """
 
@@ -474,7 +474,7 @@ class TestPiiFilterActuallyRuns:
     def test_filter_veto_drops_record_without_buffering(self, tmp_path: Path):
         """A filter that returns False must veto the record: nothing is
         buffered and ``handle`` returns False (stdlib drop-on-veto
-        semantics — same contract a normal handler honours)."""
+        semantics, same contract a normal handler honours)."""
         self._reset_flags()
         install_memory_buffer(tmp_path)
         handler = _ch._memory_handler

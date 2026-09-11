@@ -49,7 +49,7 @@ def _reset_keyring_state():
     ``_wedged_until`` set and cause subsequent tests to short-circuit.
 
     The counters are re-bound module globals OWNED by
-    ``credential_store._backend`` — production code mutates them via
+    ``credential_store._backend``, production code mutates them via
     bare-name global lookup inside that submodule. Writing them through
     the package module would only create a ``__dict__`` shadow that the
     production code never sees (and that would poison later reads via
@@ -87,7 +87,7 @@ class TestOrphanTracking:
 
     def test_successful_call_leaves_no_orphans(self, monkeypatch):
         _fast_timeout(monkeypatch)
-        # A fast-completing call — no orphan.
+        # A fast-completing call, no orphan.
         result = credential_store._run_keyring_call(lambda: "ok")
         assert result == "ok"
         assert credential_store._backend._orphaned_thread_count == 0
@@ -95,7 +95,7 @@ class TestOrphanTracking:
 
     def test_timeout_increments_orphan_count(self, monkeypatch):
         _fast_timeout(monkeypatch)
-        # A call that blocks longer than the timeout — should orphan.
+        # A call that blocks longer than the timeout, should orphan.
         done = threading.Event()
 
         def slow_call() -> str:
@@ -132,7 +132,7 @@ class TestOrphanTracking:
                 credential_store._run_keyring_call(slow_call)
             assert credential_store._backend._consecutive_timeouts == 1
 
-            # Second call: raises ValueError immediately — should reset
+            # Second call: raises ValueError immediately, should reset
             # the consecutive counter to 0 (not increment it).
             with pytest.raises(ValueError):
                 credential_store._run_keyring_call(_raise_value_error)
@@ -162,7 +162,7 @@ class TestWedgeCooldown:
             with pytest.raises(TimeoutError) as exc_info:
                 credential_store._run_keyring_call(slow_call)
             msg = str(exc_info.value)
-            # First timeout — no wedge message.
+            # First timeout, no wedge message.
             assert "wedged" not in msg, msg
             assert credential_store._backend._wedged_until == 0.0
         finally:
@@ -181,13 +181,13 @@ class TestWedgeCooldown:
             done2.wait(timeout=2.0)
 
         try:
-            # 1st timeout — consecutive=1, no wedge.
+            # 1st timeout, consecutive=1, no wedge.
             with pytest.raises(TimeoutError):
                 credential_store._run_keyring_call(slow_call_1)
             assert credential_store._backend._consecutive_timeouts == 1
             assert credential_store._backend._wedged_until == 0.0
 
-            # 2nd consecutive timeout — wedge engaged.
+            # 2nd consecutive timeout, wedge engaged.
             with pytest.raises(TimeoutError) as exc_info:
                 credential_store._run_keyring_call(slow_call_2)
             msg = str(exc_info.value)
@@ -196,7 +196,7 @@ class TestWedgeCooldown:
             assert credential_store._backend._consecutive_timeouts == 2
             assert credential_store._backend._wedged_until > 0.0
 
-            # 3rd call — short-circuits with the wedge message.
+            # 3rd call, short-circuits with the wedge message.
             with pytest.raises(TimeoutError) as exc_info:
                 credential_store._run_keyring_call(lambda: "should not run")
             msg = str(exc_info.value)
@@ -257,7 +257,7 @@ class TestWedgeCooldown:
             # Wait for the cooldown to expire.
             time.sleep(0.1)
 
-            # Next call: succeeds — wedge is cleared, consecutive reset.
+            # Next call: succeeds, wedge is cleared, consecutive reset.
             result = credential_store._run_keyring_call(lambda: "recovered")
             assert result == "recovered"
             assert credential_store._backend._wedged_until == 0.0
@@ -280,7 +280,7 @@ class TestOrphanThresholdWarning:
         # count exceeds 1 (i.e. on the 2nd orphan).
         monkeypatch.setattr(credential_store, "_KEYRING_ORPHAN_WARN_THRESHOLD", 1)
         # Long cooldown so the wedge (which fires on the 2nd consecutive
-        # timeout) does short-circuit subsequent calls — but the
+        # timeout) does short-circuit subsequent calls, but the
         # threshold-warning fires on the SAME timeout that engages the
         # wedge (both check the incremented orphan_count in the same
         # critical section), so we still see the threshold log.
@@ -293,7 +293,7 @@ class TestOrphanThresholdWarning:
 
         try:
             with caplog.at_level(logging.WARNING, logger="voice_typer.server.credential_store"):
-                # Spawn 2 orphans — 1st: orphan_count=1, no threshold log
+                # Spawn 2 orphans, 1st: orphan_count=1, no threshold log
                 # (1 > 1 is False). 2nd: orphan_count=2, threshold log
                 # fires (2 > 1 is True). Wedge also engages on the 2nd.
                 for _ in range(2):

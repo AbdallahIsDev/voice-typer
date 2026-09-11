@@ -1,4 +1,4 @@
-r"""MIG-1.9 Phase 3 — ``usePython`` bridge parity validation (Tauri vs Electron).
+r"""MIG-1.9 Phase 3: ``usePython`` bridge parity validation (Tauri vs Electron).
 
 This is the **Phase 3 UI-port bridge check** for ADR-0020 §6.3 / Phase 3:
 ``client/src/renderer/src/lib/tauri-bridge.ts`` ports the React bridge
@@ -23,14 +23,14 @@ that the *same* renderer bundle runs unchanged on both runtimes:
                                               ←← TCP response with full
                                                   envelope (Electron resolves
                                                   the IPC promise with the
-                                                  envelope verbatim — does
+                                                  envelope verbatim, does
                                                   NOT unwrap `data`).
                                               On not-connected / send
                                               exception: resolves with
                                               `{_error: "..."}`.
 
 ``usePython.ts`` (line 188–205) checks for *both* error envelope shapes
-in the resolved value (Electron-only — Tauri rejects before the resolved
+in the resolved value (Electron-only, Tauri rejects before the resolved
 value reaches JS, so the checks are dead code on Tauri but load-bearing
 on Electron). The success path returns ``result as T`` directly; on Tauri
 ``result`` is already ``response.data`` (unwrapped by Rust), on Electron
@@ -41,12 +41,12 @@ consistent: ``data`` (the inner ``data`` field) is returned on both paths.
 This file validates that the contract holds **by source-inspection** of
 the four bridge-related files:
 
-  1. ``client/src/renderer/src/lib/tauri-bridge.ts``     — Tauri bridge
-  2. ``client/src/renderer/src/hooks/usePython.ts``      — ``usePython`` hook
-  3. ``client/src/preload/index.ts``                     — Electron preload
-  4. ``client/src/main/ipc/python-call-handler.ts``      — Electron main handler
+  1. ``client/src/renderer/src/lib/tauri-bridge.ts``   , Tauri bridge
+  2. ``client/src/renderer/src/hooks/usePython.ts``    : ``usePython`` hook
+  3. ``client/src/preload/index.ts``                   , Electron preload
+  4. ``client/src/main/ipc/python-call-handler.ts``    , Electron main handler
 
-It does NOT spawn a real Tauri / Electron runtime — that is the host
+It does NOT spawn a real Tauri / Electron runtime: that is the host
 validation step (see **VALIDATE ON HOST** below). The source-inspection
 tests verify that the bridge routes through the right transport on each
 path and that the error / success envelope shapes are consistent across
@@ -87,7 +87,7 @@ Bridge contract (identical on both paths):
                 close|isMaximized}()`` (tauri-bridge.ts:375-383).
       Electron: ``ipcRenderer.invoke('window:{minimize|toggle-maximize|
                 close|is-maximized}')`` (preload/index.ts:80-86).
-      NOTE: ``usePython.ts`` does not consume ``window_`` directly — it
+      NOTE: ``usePython.ts`` does not consume ``window_`` directly, it
       is part of the bridge parity contract validated here for
       completeness.
 
@@ -102,7 +102,7 @@ the *runtime behavior* of the JS bridge under each host's WebView /
 Chromium. Source-inspection catches drift; host validation catches
 runtime regressions (Tauri global API rename, IPC channel rename, etc.).
 
-**VALIDATE ON HOST — Tauri (any platform, dev build)**::
+**VALIDATE ON HOST, Tauri (any platform, dev build)**::
 
     # 1. Start the Tauri dev shell with the Python sidecar.
     cd src-tauri
@@ -163,7 +163,7 @@ runtime regressions (Tauri global API rename, IPC channel rename, etc.).
     >>> await window.window_.toggleMaximize();  (maximized state flips)
     >>> await window.window_.close();        'OK'
 
-**VALIDATE ON HOST — Electron (any platform, dev build)**::
+**VALIDATE ON HOST, Electron (any platform, dev build)**::
 
     # 1. Start the Electron dev shell with the Python backend.
     pnpm --filter client dev   # or: cd voice_typer/client && pnpm dev
@@ -175,7 +175,7 @@ runtime regressions (Tauri global API rename, IPC channel rename, etc.).
     #    Tools), run each of these in the Console. Each assertion must
     #    pass:
 
-    # 2a. Detector — Electron preload installed the namespaces.
+    # 2a. Detector, Electron preload installed the namespaces.
     >>> typeof window.__TAURI__?.core?.invoke
     'undefined'                       # Tauri global MUST be absent
     >>> typeof window.python
@@ -192,7 +192,7 @@ runtime regressions (Tauri global API rename, IPC channel rename, etc.).
     # 2b. Success shape: `python.call` resolves with the FULL envelope
     #     (Electron does NOT unwrap `data`). The `usePython` hook's
     #     error-envelope checks then run; the success path returns
-    #     `result as T` which is the full envelope — the caller reads
+    #     `result as T` which is the full envelope, the caller reads
     #     fields off the envelope directly (e.g. `result.ready`).
     #     IMPORTANT: this differs from the Tauri path where Rust
     #     unwraps `response.data` BEFORE returning to JS. The caller-
@@ -201,7 +201,7 @@ runtime regressions (Tauri global API rename, IPC channel rename, etc.).
     #     the Electron main process resolves with the full envelope)
     #     and on Tauri IS the envelope's `data` field (because Rust
     #     unwraps it). Both paths surface the same logical payload
-    #     to the caller — see usePython.ts comment lines 49–53 + 188–206
+    #     to the caller: see usePython.ts comment lines 49–53 + 188–206
     #     for the parity argument.
     >>> (await window.python.call({type:'get_status', data:{}}))
     {ready: true, …}                  # the `data` field, delivered
@@ -220,7 +220,7 @@ runtime regressions (Tauri global API rename, IPC channel rename, etc.).
     'OK: rejected (…)'
 
     # 2d. Error shape B: `{_error: '...'}` envelope (Electron main
-    #     synthetic — backend not connected). Stop the Python backend
+    #     synthetic, backend not connected). Stop the Python backend
     #     first, then:
     >>> try {
     ...     await window.python.call({type:'get_status', data:{}});
@@ -247,10 +247,10 @@ runtime regressions (Tauri global API rename, IPC channel rename, etc.).
 Each host run validates four parity properties:
 
   1. The **detector** picks the right path (``window.__TAURI__`` present
-     on Tauri, absent on Electron) — Test 1.
+     on Tauri, absent on Electron). Test 1.
   2. ``window.python.call`` routes through the right transport
      (``invoke('dispatch')`` on Tauri, ``ipcRenderer.invoke('python-call')``
-     on Electron) — Tests 2 + 3.
+     on Electron). Tests 2 + 3.
   3. The **error envelope** is surfaced as a JS rejection on BOTH paths
      (Tauri via Rust rejection at sidecar_cmds.rs:53; Electron via the
      in-code `_error` / `type:'error'` checks in usePython.ts:188-205) —
@@ -258,24 +258,24 @@ Each host run validates four parity properties:
   4. The **success shape** is the inner ``data`` field on BOTH paths
      (Tauri unwraps in Rust; Electron delivers the full envelope but
      ``usePython`` returns it as-is and the caller reads fields off the
-     envelope which IS the server's ``data`` payload) — Test 7.
+     envelope which IS the server's ``data`` payload). Test 7.
   5. ``window.bubble.onLevel`` + ``window.window_.*`` route through the
-     right transport on each path — Tests 8 + 9.
+     right transport on each path. Tests 8 + 9.
 
 References:
-- ADR-0020 §6.3 / Phase 3 — React bridge port to Tauri ``invoke('dispatch', …)``
+- ADR-0020 §6.3 / Phase 3, React bridge port to Tauri ``invoke('dispatch', …)``
   behind ``usePython`` (keep ``usePython`` identical both paths).
-- ADR-0020 §2 — Tauri Rust host rejects on ``type:'error'`` envelopes
+- ADR-0020 §2, Tauri Rust host rejects on ``type:'error'`` envelopes
   (NEW-IPC-107 fix).
-- ADR-0020 §9 — ``bubble_level`` coalesced to ≤30 Hz.
-- src-tauri/src/commands/sidecar_cmds.rs:23-76 — Rust ``dispatch`` command
+- ADR-0020 §9: ``bubble_level`` coalesced to ≤30 Hz.
+- src-tauri/src/commands/sidecar_cmds.rs:23-76, Rust ``dispatch`` command
   (rejects on ``type:'error'``, unwraps ``response.data`` on success).
-- client/src/main/ipc/python-call-handler.ts:16-31 — Electron main
+- client/src/main/ipc/python-call-handler.ts:16-31, Electron main
   ``python-call`` handler (resolves with full envelope or ``{_error}``).
-- client/src/preload/index.ts — Electron preload
+- client/src/preload/index.ts, Electron preload
   (``contextBridge.exposeInMainWorld``).
-- client/src/renderer/src/lib/tauri-bridge.ts — Tauri bridge installer.
-- client/src/renderer/src/hooks/usePython.ts — ``usePython`` hook
+- client/src/renderer/src/lib/tauri-bridge.ts, Tauri bridge installer.
+- client/src/renderer/src/hooks/usePython.ts: ``usePython`` hook
   (NEW-IPC-107 envelope checks at lines 188-205).
 """
 
@@ -434,7 +434,7 @@ def tauri_bridge_source() -> str:
     sibling_files = sorted(p for p in _TAURI_BRIDGE_DIR.glob("*.ts"))
     # Put index.ts first so the orchestrator (which imports the
     # namespace factories + auto-installs) appears at the top of the
-    # concatenated source — preserves the natural reading order.
+    # concatenated source, preserves the natural reading order.
     ordered = [_TAURI_BRIDGE] + [p for p in sibling_files if p.name != "index.ts"]
     parts: list[str] = []
     for path in ordered:
@@ -491,14 +491,14 @@ def sidecar_cmds_rs_source() -> str:
     return _read_sidecar_cmds_module()
 
 
-# ─── Test 1: detector — Tauri vs Electron via window.__TAURI__ ─────────
+# ─── Test 1: detector, Tauri vs Electron via window.__TAURI__ ─────────
 
 
 def test_tauri_bridge_detects_tauri_via_window_global(tauri_bridge_source) -> None:
     """ADR-0020 §6.3 / Phase 3: bridge detects Tauri via ``window.__TAURI__``.
 
-    The detector must check the Tauri global object — not a heuristic
-    like UA sniffing or ``window.process`` — so it works in every
+    The detector must check the Tauri global object, not a heuristic
+    like UA sniffing or ``window.process``, so it works in every
     WebView (WebView2 / WKWebView / webkit2gtk) without false positives
     on Electron (which doesn't define ``window.__TAURI__``).
     """
@@ -527,10 +527,10 @@ def test_tauri_bridge_skips_install_on_electron_path(tauri_bridge_source) -> Non
     """ADR-0020 §6.3 / Phase 3: bridge is a no-op on the Electron path.
 
     When ``isTauri()`` returns false, ``installTauriBridge()`` must
-    return early without installing the namespaces — the Electron
+    return early without installing the namespaces, the Electron
     preload has already installed them via ``contextBridge``. Installing
     on top would either no-op (same shape) or clobber the preload
-    install (different shape) — neither is correct. The early-return
+    install (different shape), neither is correct. The early-return
     makes the bridge idempotent across runtimes.
     """
     # Find the installTauriBridge function and check its first guard.
@@ -545,7 +545,7 @@ def test_tauri_bridge_skips_install_on_electron_path(tauri_bridge_source) -> Non
     head = tauri_bridge_source[m.end() : m.end() + 200]
     assert "!isTauri()" in head, (
         "installTauriBridge() must early-return when isTauri() is false "
-        "(Electron path — preload already installed the namespaces). "
+        "(Electron path, preload already installed the namespaces). "
         f"First 200 chars after the function opening brace:\n{head}"
     )
 
@@ -581,12 +581,12 @@ def test_tauri_python_call_routes_through_dispatch_invoke(tauri_bridge_source) -
     dispatch_block = tauri_bridge_source[m.start() : m.end()]
     assert "cmd" in dispatch_block and "msg.type" in dispatch_block, (
         "tauri-bridge.ts dispatch call must map `msg.type → cmd` "
-        "(Rust command name) — found dispatch block:\n"
+        "(Rust command name), found dispatch block:\n"
         f"{dispatch_block}"
     )
     assert "data" in dispatch_block and "msg.data" in dispatch_block, (
         "tauri-bridge.ts dispatch call must map `msg.data → data` "
-        "(sidecar payload) — found dispatch block:\n"
+        "(sidecar payload), found dispatch block:\n"
         f"{dispatch_block}"
     )
 
@@ -596,7 +596,7 @@ def test_tauri_python_call_default_data_is_empty_object(tauri_bridge_source) -> 
     to ``{}`` when omitted (matches Electron).
 
     The Rust ``dispatch`` command serializes ``args.data.unwrap_or(json!({}))``
-    (sidecar_cmds.rs:30) — so the bridge must pass ``msg.data ?? {}``
+    (sidecar_cmds.rs:30), so the bridge must pass ``msg.data ?? {}``
     (or equivalent) to avoid ``null`` payloads reaching the sidecar.
     The Electron path's ``ipcRenderer.invoke('python-call', msg)`` passes
     the msg verbatim; the Python sidecar's ``_validate_dict_payload``
@@ -616,7 +616,7 @@ def test_tauri_python_call_default_data_is_empty_object(tauri_bridge_source) -> 
     # both sufficient and unambiguous.
     assert "msg.data ?? {}" in tauri_bridge_source or ("msg.data || {}" in tauri_bridge_source), (
         "tauri-bridge.ts dispatch call must default `data` to `{}` when "
-        "msg.data is nullish — matches Rust's `unwrap_or(json!({}))` "
+        "msg.data is nullish, matches Rust's `unwrap_or(json!({}))` "
         "(sidecar_cmds.rs:30) and the Python sidecar's _validate_dict_payload "
         "contract (which rejects `null` payloads)."
     )
@@ -639,7 +639,7 @@ def test_electron_python_call_routes_through_ipc_renderer(preload_source) -> Non
     matches the main handler's ``ipcMain.handle('python-call', …)``.
     """
     # The preload's `python.call` must invoke the 'python-call' channel
-    # — as a bare literal or via the PythonChannels.call constant
+    # , as a bare literal or via the PythonChannels.call constant
     # (preload/index.ts re-exports the constant from channels.ts).
     call_channel_re = re.compile(_ipc_channel_ref("PythonChannels", "call"))
     assert call_channel_re.search(preload_source), (
@@ -708,7 +708,7 @@ def test_use_python_uses_window_python_call(use_python_source) -> None:
     """ADR-0020 §6.3 / Phase 3: ``usePython`` consumes ``window.python.call``.
 
     The hook must NOT call ``invoke('dispatch', …)`` or
-    ``ipcRenderer.invoke('python-call', …)`` directly — the transport
+    ``ipcRenderer.invoke('python-call', …)`` directly, the transport
     is abstracted behind ``window.python.call`` so the same hook source
     ships under both runtimes. This is the central parity guarantee.
     """
@@ -719,10 +719,10 @@ def test_use_python_uses_window_python_call(use_python_source) -> None:
     assert ".python" in use_python_source, (
         "usePython.ts must read `window.python` (or the typed cast through WindowWithPython)."
     )
-    # The hook calls `api.call({type, data})` — `api` is `window.python`.
+    # The hook calls `api.call({type, data})`: `api` is `window.python`.
     assert "api.call(" in use_python_source, (
         "usePython.ts must call `api.call({type, data})` (where api = "
-        "window.python) — not the underlying transport directly."
+        "window.python), not the underlying transport directly."
     )
 
 
@@ -731,12 +731,12 @@ def test_use_python_uses_window_python_on_event(use_python_source) -> None:
     ``window.python.onEvent``.
 
     The hook must NOT call ``tauri.event.listen('python-event')`` or
-    ``ipcRenderer.on('python-event', …)`` directly — the event-stream
+    ``ipcRenderer.on('python-event', …)`` directly, the event-stream
     transport is abstracted behind ``window.python.onEvent``.
     """
     assert "api.onEvent" in use_python_source, (
         "usePython.ts must call `api.onEvent(callback)` (where api = "
-        "window.python) — NOT subscribe to Tauri/Electron events directly."
+        "window.python), NOT subscribe to Tauri/Electron events directly."
     )
 
 
@@ -749,7 +749,7 @@ def test_use_python_does_not_import_tauri_or_electron_apis(
     The hook is the canonical "works on both paths" abstraction: it
     only consumes ``window.python``. Any direct reference to
     ``invoke``, ``ipcRenderer``, ``__TAURI__``, ``contextBridge``, or
-    ``require('electron')`` would break the parity contract — the hook
+    ``require('electron')`` would break the parity contract, the hook
     would no longer ship unchanged under both runtimes.
     """
     forbidden_patterns = [
@@ -766,12 +766,12 @@ def test_use_python_does_not_import_tauri_or_electron_apis(
             violations.append(desc)
     assert not violations, (
         "usePython.ts must NOT reference Tauri or Electron transport "
-        "APIs directly — the bridge namespace `window.python` is the "
+        "APIs directly, the bridge namespace `window.python` is the "
         "only transport the hook is allowed to consume. Violations: " + ", ".join(violations)
     )
 
 
-# ─── Test 5: error envelope — both paths reject on type:"error"
+# ─── Test 5: error envelope, both paths reject on type:"error"
 
 
 def test_tauri_rust_rejects_on_type_error_envelope(sidecar_cmds_rs_source) -> None:
@@ -783,7 +783,7 @@ def test_tauri_rust_rejects_on_type_error_envelope(sidecar_cmds_rs_source) -> No
     ``response.get("type") == Some("error")`` and returns
     ``Err(format!("server error [{}]: {}", code, msg))`` so the
     webview's ``invoke()`` rejects. This is the NEW-IPC-107 fix on the
-    Tauri path — the Electron path silently treated ``type:'error'``
+    Tauri path, the Electron path silently treated ``type:'error'``
     as success and was fixed by the in-code check in usePython.ts.
 
     Source-inspection: the Rust source must reference the `"error"`
@@ -811,7 +811,7 @@ def test_electron_use_python_throws_on_type_error_envelope(
     with the full envelope verbatim (it does NOT unwrap ``data`` or
     translate ``type:'error'`` into a rejection). So ``usePython.ts``
     must check the resolved value's ``type`` field and throw a JS
-    Error — otherwise callers using ``try { await python.call(...) }``
+    Error, otherwise callers using ``try { await python.call(...) }``
     would silently treat the error envelope as a successful result.
     """
     # The check must reference `type === 'error'` (or `.type === "error"`).
@@ -822,7 +822,7 @@ def test_electron_use_python_throws_on_type_error_envelope(
         "usePython.ts must check `result.type === 'error'` and throw "
         "(NEW-IPC-107 / Electron path). The Tauri path rejects before "
         "the resolved value reaches JS, so this check is dead code on "
-        "Tauri but load-bearing on Electron — it stays in the source."
+        "Tauri but load-bearing on Electron, it stays in the source."
     )
     # The throw must surface `data.message` (the Python server's error
     # message field, ipc_server.py:1044-1050).
@@ -848,7 +848,7 @@ def test_electron_use_python_throws_on_underscore_error_envelope(
     assert ELECTRON_ERROR_ENVELOPE_FIELD in use_python_source, (
         "usePython.ts must check for the `_error` field (Electron main "
         "synthetic error envelope, python-call-handler.ts:21/23/28) "
-        "and throw — NEW-IPC-107."
+        "and throw, NEW-IPC-107."
     )
     # The throw must handle both string and object shapes (defensive
     # against future Electron-main changes that wrap the message).
@@ -869,7 +869,7 @@ def test_electron_python_call_handler_produces_underscore_error_envelope(
     """
     assert ELECTRON_ERROR_ENVELOPE_FIELD in python_call_handler_source, (
         "python-call-handler.ts must produce `{_error: '...'}` envelopes "
-        "on backend-not-connected and sendToPython exceptions — these "
+        "on backend-not-connected and sendToPython exceptions, these "
         "are the envelopes the usePython.ts `_error` check catches."
     )
     # Specifically: not-connected path.
@@ -880,7 +880,7 @@ def test_electron_python_call_handler_produces_underscore_error_envelope(
     )
 
 
-# ─── Test 6: error envelope shape parity — both paths reject
+# ─── Test 6: error envelope shape parity, both paths reject
 
 
 def test_error_envelope_shape_parity_tauri_vs_electron(
@@ -889,13 +889,13 @@ def test_error_envelope_shape_parity_tauri_vs_electron(
     python_call_handler_source,
 ) -> None:
     """ADR-0020 §6.3 / Phase 3: error envelope shape is consistent
-    across both paths — both surface errors as JS rejections.
+    across both paths, both surface errors as JS rejections.
 
     Tauri:    The Rust host (sidecar_cmds.rs:53-64) checks
               ``response.get("type") == Some("error")`` and returns
               ``Err("server error [<code>]: <msg>")`` so the webview's
               ``invoke('dispatch')`` rejects. The resolved value never
-              reaches JS — the in-code checks in usePython.ts:188-205
+              reaches JS, the in-code checks in usePython.ts:188-205
               are dead code on Tauri.
 
     Electron: The main handler (python-call-handler.ts:16-31) resolves
@@ -929,20 +929,20 @@ def test_error_envelope_shape_parity_tauri_vs_electron(
     )
 
 
-# ─── Test 7: success shape — both paths return data directly
+# ─── Test 7: success shape, both paths return data directly
 
 
 def test_tauri_rust_unwraps_response_data_on_success(sidecar_cmds_rs_source) -> None:
     """ADR-0020 §6.3 / Phase 3 + §2: Tauri Rust host returns
-    ``response.data`` directly on success (not the full envelope).
+      ``response.data`` directly on success (not the full envelope).
 
-    The Rust ``dispatch`` command (sidecar_cmds.rs ``dispatch_frame``)
-    returns ``Ok(response.get_mut("data").map(Value::take).unwrap_or(json!({})))``
-    — the PERF-optimized O(1) move instead of ``response.get("data").cloned()``
-    (deep clone). So the webview's ``invoke('dispatch')`` resolves with
-    the inner ``data`` field, NOT the full ``{type:'result', data:...}``
-    envelope. This matches the Electron path's caller-facing shape (see
-    ``test_electron_use_python_returns_result_as_t``).
+      The Rust ``dispatch`` command (sidecar_cmds.rs ``dispatch_frame``)
+      returns ``Ok(response.get_mut("data").map(Value::take).unwrap_or(json!({})))``
+    , the PERF-optimized O(1) move instead of ``response.get("data").cloned()``
+      (deep clone). So the webview's ``invoke('dispatch')`` resolves with
+      the inner ``data`` field, NOT the full ``{type:'result', data:...}``
+      envelope. This matches the Electron path's caller-facing shape (see
+      ``test_electron_use_python_returns_result_as_t``).
     """
     # The Rust source must reference `response.get("data")` on the
     # success path. Look for the current PERF-optimized form
@@ -951,7 +951,7 @@ def test_tauri_rust_unwraps_response_data_on_success(sidecar_cmds_rs_source) -> 
     assert unwrap_re.search(sidecar_cmds_rs_source), (
         "Tauri path: sidecar_cmds.rs must return "
         "`response.get_mut('data').map(Value::take).unwrap_or(json!({}))` on "
-        "success — the webview's invoke('dispatch') "
+        "success, the webview's invoke('dispatch') "
         "resolves with the inner data field, NOT the full envelope."
     )
 
@@ -963,7 +963,7 @@ def test_electron_use_python_returns_result_as_t(use_python_source) -> None:
     On the Electron path, ``result`` is the full envelope (the main
     process resolves with the envelope verbatim). The error checks at
     usePython.ts:188-205 throw on `_error` / `type:'error'` shapes; if
-    neither matches, the function returns ``result as T`` — which is
+    neither matches, the function returns ``result as T``, which is
     the envelope's body, identical to the server's `data` payload (the
     envelope IS `{type, data}` so returning the envelope-as-T surfaces
     `data`-shape fields to the caller).
@@ -982,7 +982,7 @@ def test_electron_use_python_returns_result_as_t(use_python_source) -> None:
         "usePython.ts must `return result as T` on the success path "
         "(after the error-envelope checks pass). On Tauri `result` is "
         "the unwrapped `response.data`; on Electron `result` is the "
-        "full envelope — both surface the same logical payload to the "
+        "full envelope, both surface the same logical payload to the "
         "caller."
     )
 
@@ -992,7 +992,7 @@ def test_success_shape_parity_tauri_vs_electron(
     use_python_source,
 ) -> None:
     """ADR-0020 §6.3 / Phase 3: success shape is consistent across both
-    paths — callers see the server's ``data`` field.
+    paths, callers see the server's ``data`` field.
 
     Tauri:    Rust unwraps ``response.data`` (sidecar_cmds.rs:66)
               BEFORE returning to JS. The webview's ``invoke('dispatch')``
@@ -1009,7 +1009,7 @@ def test_success_shape_parity_tauri_vs_electron(
     """
     # Tauri path: Rust returns the unwrapped `data` field (currently via
     # the PERF-optimized `response.get_mut("data").map(Value::take)`
-    # move — the semantic equivalent of `response.get("data")`).
+    # move, the semantic equivalent of `response.get("data")`).
     assert re.search(r'response\s*\.(?:get|get_mut)\(\s*["\']data["\']\s*\)', sidecar_cmds_rs_source), (
         "Tauri path: sidecar_cmds.rs must return the unwrapped inner data "
         "field on success (currently `response.get_mut('data').map(Value::take)`)."
@@ -1038,7 +1038,7 @@ def test_tauri_bubble_on_level_listens_to_tauri_event(tauri_bridge_source) -> No
     """
     assert TAURI_BUBBLE_LEVEL_EVENT in tauri_bridge_source, (
         "tauri-bridge.ts must subscribe to the 'bubble_level' Tauri "
-        "event (ADR-0020 §9 — coalesced to ≤30 Hz by the Rust WS reader)."
+        "event (ADR-0020 §9, coalesced to ≤30 Hz by the Rust WS reader)."
     )
     # The subscription must use `tauri.event.listen`. The actual code
     # (tauri-bridge.ts:240-243) is:
@@ -1059,7 +1059,7 @@ def test_tauri_bubble_on_level_listens_to_tauri_event(tauri_bridge_source) -> No
     )
     # The payload shape must be `{rms, peak}`.
     assert "rms" in tauri_bridge_source and "peak" in tauri_bridge_source, (
-        "tauri-bridge.ts bubble_level payload must be `{rms, peak}` — "
+        "tauri-bridge.ts bubble_level payload must be `{rms, peak}`, "
         "matches the Electron preload's `{rms, peak}` shape "
         "(preload/index.ts:17)."
     )
@@ -1097,7 +1097,7 @@ def test_electron_bubble_on_level_listens_to_ipc_channel(preload_source) -> None
     # ``ipc.on`` alias, since ``ipc == ipcRenderer`` at the call site).
     # The factory uses ``makeListener(ipc, BubbleChannels.level, ...)`` which
     # internally calls ``ipc.on(channel, handler)`` where ``channel`` is
-    # the constant ``BubbleChannels.level`` — so accept any of:
+    # the constant ``BubbleChannels.level``, so accept any of:
     # (a) inline ``ipcRenderer.on('bubble:level', ...)``
     # (b) inline ``ipc.on('bubble:level', ...)``
     # (c) factory call ``makeListener<...>(ipc, "bubble:level", ...)``
@@ -1120,7 +1120,7 @@ def test_electron_bubble_on_level_listens_to_ipc_channel(preload_source) -> None
     # The payload shape must be `{rms, peak}`.
     assert "rms" in preload_source and "peak" in preload_source, (
         "preload/index.ts (or its _bubble-channels.ts factory) bubble:level "
-        "payload must be `{rms, peak}` — matches the Tauri bridge's "
+        "payload must be `{rms, peak}`, matches the Tauri bridge's "
         "`{rms, peak}` shape."
     )
 
@@ -1169,9 +1169,9 @@ def test_window_controls_parity_on_both_paths(
     """ADR-0020 §6.3 / Phase 3: ``window.window_.{method}`` routes
     through the right transport on each path.
 
-    Tauri:    ``tauri.window.getCurrentWindow().{method}()`` — Tauri's
+    Tauri:    ``tauri.window.getCurrentWindow().{method}()``, Tauri's
               core window API (tauri-bridge.ts:375-383).
-    Electron: ``ipcRenderer.invoke('{electron_channel}')`` — the main
+    Electron: ``ipcRenderer.invoke('{electron_channel}')``, the main
               process's window-handlers.ts:21-46 register
               ``ipcMain.handle('{electron_channel}', …)``.
     """
@@ -1179,7 +1179,7 @@ def test_window_controls_parity_on_both_paths(
     assert tauri_api_fragment in tauri_bridge_source, (
         f"tauri-bridge.ts must reference `{tauri_api_fragment}` (Tauri core window API method for window_.{method})."
     )
-    # Electron path: preload must reference the IPC channel — as a bare
+    # Electron path: preload must reference the IPC channel, as a bare
     # literal or via the WindowChannels.<method> constant (preload
     # imports the constants from channels.ts).
     window_channel_re = re.compile(
@@ -1249,7 +1249,7 @@ def test_bubble_namespace_installed_on_both_paths(
     )
 
 
-# ─── Test 10: source-inspection — bridge modules are non-empty + importable
+# ─── Test 10: source-inspection, bridge modules are non-empty + importable
 
 
 def test_tauri_bridge_module_is_non_empty(tauri_bridge_source) -> None:
@@ -1288,7 +1288,7 @@ def test_tauri_bridge_auto_installs_on_import(tauri_bridge_source) -> None:
         "tauri-bridge.ts must call `installTauriBridge()` at module "
         "scope (auto-install on import) so the bridge is ready before "
         "the React app mounts. main.tsx + bubble-main.tsx import this "
-        "module at the top — the auto-install makes the bridge ready "
+        "module at the top, the auto-install makes the bridge ready "
         "synchronously on first import."
     )
 
@@ -1329,7 +1329,7 @@ def test_tauri_bridge_installs_supervisor_event_synthesis(tauri_bridge_source) -
     "connected" while the sidecar is dead, and the user sees a frozen
     UI with no feedback.
 
-    The Electron path has no equivalent — supervisor is a Tauri-only feature
+    The Electron path has no equivalent, supervisor is a Tauri-only feature
     (the Electron build uses the older full-app relaunch path).
     """
     assert "supervisor_relaunching" in tauri_bridge_source, (
@@ -1352,7 +1352,7 @@ def test_use_python_has_per_command_timeout(use_python_source) -> None:
     ``sendToPython``) has a blanket 120s timeout. ``usePython`` races
     the bridge call against a per-command timeout so trivial commands
     (``get_status``, ``get_config``) surface a hang in 5s instead of
-    120s. This is a renderer-side concern — both paths benefit.
+    120s. This is a renderer-side concern, both paths benefit.
     """
     assert "COMMAND_TIMEOUTS" in use_python_source, (
         "usePython.ts must declare the `COMMAND_TIMEOUTS` table (CR-18 "
@@ -1372,13 +1372,13 @@ def test_use_python_uses_use_sync_external_store_for_bridge_ready(
     ``useBridgeReady`` uses ``useSyncExternalStore`` to poll
     ``window.python`` presence every 100ms until it appears. Including
     ``bridgeReady`` in the ``usePythonEvent`` effect's dep array causes
-    the effect to re-run when ``window.python`` becomes available — so
+    the effect to re-run when ``window.python`` becomes available, so
     a slow preload / late Tauri bridge install doesn't silently drop
     the subscription.
     """
     assert "useSyncExternalStore" in use_python_source, (
         "usePython.ts must use `useSyncExternalStore` for the "
-        "`useBridgeReady` hook (CR-6 — re-subscribe when the bridge "
+        "`useBridgeReady` hook (CR-6, re-subscribe when the bridge "
         "becomes available post-mount)."
     )
     assert "useBridgeReady" in use_python_source, (

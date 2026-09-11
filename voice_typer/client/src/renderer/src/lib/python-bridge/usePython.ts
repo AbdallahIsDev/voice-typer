@@ -1,4 +1,4 @@
-// `usePython` — the renderer's IPC `call` hook.
+// `usePython`, the renderer's IPC `call` hook.
 //
 // Extracted from `hooks/usePython.ts` (now a public barrel) so the
 // bridge modules live by concern under `lib/python-bridge/`. The
@@ -9,10 +9,10 @@ import { useCallback } from "react";
 // Import the `PythonCallErrorCode` union so the renderer can narrow
 // `result._code` against the typed union. The canonical declaration
 // lives in the Electron main process's `python-call-handler.ts`
-// (outside the web tsconfig's `include` scope — a cross-boundary import
+// (outside the web tsconfig's `include` scope, a cross-boundary import
 // would fail `tsc --noEmit` with `TS6307`). The renderer-side mirror
 // lives in `types/ipc/enums.ts` (this file's import below); the two
-// declarations MUST stay in sync — both files carry a comment pointing
+// declarations MUST stay in sync, both files carry a comment pointing
 // to the other.
 import type { PythonCallErrorCode } from "@/types/ipc/enums";
 import type { PythonRequest } from "@/types/ipc/requests";
@@ -22,7 +22,7 @@ import { parseTauriErrorEnvelope } from "./error-envelope";
 /**
  * Type of the ``call`` function returned by {@link usePython}.
  *
- * Two overloads — a strict one that narrows the ``data`` parameter
+ * Two overloads, a strict one that narrows the ``data`` parameter
  * against the {@link PythonRequest} discriminated union (so a typo in
  * the command name or a wrong data shape surfaces at compile time for
  * known commands), and a loose one that accepts any string +
@@ -34,7 +34,7 @@ import { parseTauriErrorEnvelope } from "./error-envelope";
  * The strict overload's ``data`` parameter uses a conditional type so
  * requests without a ``data`` field (e.g. ``GetConfigRequest``,
  * ``GetStatusRequest``) resolve to ``undefined`` instead of erroring
- * on the ``["data"]`` index — TypeScript can't index a union where
+ * on the ``["data"]`` index, TypeScript can't index a union where
  * some members lack the key.
  */
 export type PythonCall = {
@@ -64,7 +64,7 @@ export function usePython() {
 			//
 			// Tauri/Electron error-envelope normalization. On
 			// Tauri v2, `invoke` rejects with a RAW STRING (not an Error)
-			// when the Rust `dispatch` command returns an Err — the host's
+			// when the Rust `dispatch` command returns an Err, the host's
 			// `e.to_string()` becomes the rejection value verbatim. Callers
 			// that guard with `err instanceof Error ? err.message : String(err)`
 			// work, but callers that do `err.message` directly
@@ -75,7 +75,7 @@ export function usePython() {
 			//   - string rejections are normalized into `new Error(string)`;
 			//   - other shapes (numbers, objects) become `new Error("unknown IPC error")`.
 			// The catch ALSO swallows the post-rejection envelope checks
-			// below — on Tauri the await throws before we ever inspect the
+			// below, on Tauri the await throws before we ever inspect the
 			// resolved value (the in-code `_error`/`type:"error"` checks
 			// are Electron-path-only, see the comment below).
 			let result: Record<string, unknown>;
@@ -87,7 +87,7 @@ export function usePython() {
 			} catch (err) {
 				if (err instanceof Error) throw err;
 				// On Tauri the Rust `dispatch` command rejects the
-				// invoke promise with a raw STRING — for structured errors
+				// invoke promise with a raw STRING, for structured errors
 				// it's the JSON-serialized `{type:"error", data:{code,
 				// message}}` envelope (sidecar_cmds/dispatch.rs). Parse it
 				// so `err.code` is stamped and callers that branch on the
@@ -111,12 +111,12 @@ export function usePython() {
 			// envelope as a successful result (which previously left
 			// callers reading `undefined` from data fields).
 			//
-			//   1. `{_error: "..."}` — Electron main-process synthetic
+			//   1. `{_error: "..."}`, Electron main-process synthetic
 			//      errors (index.ts:1908/1911/1916): backend-not-
 			//      connected and sendToPython exceptions. `_error` is
 			//      a STRING in the actual Electron code; we also
 			//      accept `{message: "..."}` defensively.
-			//   2. `{type:"error", data:{code, message}}` — Python
+			//   2. `{type:"error", data:{code, message}}`, Python
 			//      server unhandled-dispatch exceptions
 			//      (ipc_server.py:1044-1050). The Electron main
 			//      process resolves the pending request with this
@@ -128,11 +128,11 @@ export function usePython() {
 			// `invoke` promise on `type:"error"` (and never produces
 			// `{_error:...}`), so `await api.call(...)` throws before
 			// we ever inspect the resolved value. The checks below
-			// are therefore Electron-path-only — DEAD CODE on Tauri,
+			// are therefore Electron-path-only, DEAD CODE on Tauri,
 			// but harmless (and the unified error shape keeps
 			// caller-facing behavior consistent across both runtimes).
 			// Errors on Tauri propagate as-is from the Rust rejection
-			// (no double-wrapping) — the `await` throws and we never
+			// (no double-wrapping), the `await` throws and we never
 			// reach the envelope inspection.
 			if (result && typeof result === "object" && "_error" in result) {
 				const e = (result as { _error?: unknown })._error;
@@ -147,7 +147,7 @@ export function usePython() {
 				// on retry / surface-toast / escalate. Pre-fix,
 				// the envelope's ``_code`` was dropped on the
 				// floor and every error became a plain
-				// ``new Error(msg)`` — consumers could not
+				// ``new Error(msg)``, consumers could not
 				// distinguish transient timeouts from fatal
 				// backend-exited errors.
 				const code = (result as { _code?: PythonCallErrorCode })._code;
@@ -196,7 +196,7 @@ export function usePython() {
 				// ``client.consent_required``) onto the thrown Error
 				// so callers can branch on the failure class instead
 				// of substring-matching the message. Mirrors the
-				// ``_error``/``_code`` handling above — without this,
+				// ``_error``/``_code`` handling above, without this,
 				// the ``client.consent_required`` envelope from the
 				// level-monitor / mic-test handlers is indistinguishable
 				// from a generic ``internal_error`` and the renderer
@@ -242,7 +242,7 @@ export function usePython() {
 	// script installs ``window.python`` before the React app mounts, so
 	// every consumer's ``if (!isReady) return`` guard was dead code.
 	// Worse, the name suggested "Python backend is ready" when it
-	// actually meant "Python bridge exists" — callers that wanted real
+	// actually meant "Python bridge exists", callers that wanted real
 	// readiness should track ``connectionStatus === 'connected'`` in
 	// App.tsx (which probes the backend via ``get_config``).
 	//

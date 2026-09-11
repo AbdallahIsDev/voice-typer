@@ -23,7 +23,7 @@ The annotations are now concrete types (replacing the previous ``Any``
 scaffold) so:
 
 * pyrefly's null-safety check sees a declared attribute with a real
-  type — closing the loophole where ``Any`` silenced shape-mismatch
+  type, closing the loophole where ``Any`` silenced shape-mismatch
   errors between the mixin base and the concrete
   :class:`VoiceTyperService`.
 * mixin modules stay decoupled from the concrete service / app types
@@ -45,7 +45,7 @@ bind the value via ``self.X = ...`` in ``__init__``. This is the same
 pattern :class:`HandlerMixinBase` uses in
 ``voice_typer/server/handlers/_base.py``.
 
-Subclasses MUST NOT override these annotations — the runtime binding
+Subclasses MUST NOT override these annotations, the runtime binding
 happens in :meth:`VoiceTyperService.__init__`, not here.
 
 This class has NO state of its own, NO methods, and NO side effects at
@@ -85,22 +85,22 @@ class ServiceMixinBase:
         :meth:`VoiceTyperService.__init__` in
         ``voice_typer/server/service/__init__.py``:
 
-        * ``_app`` — the wrapped :class:`AppProtocol` instance.
-        * ``_config_applier`` — the :class:`ConfigApplier` that owns the
+        * ``_app``: the wrapped :class:`AppProtocol` instance.
+        * ``_config_applier``: the :class:`ConfigApplier` that owns the
           config-mutation lock + rollback logic.
         * ``_download_cancel_lock`` / ``_download_cancel_events`` /
-          ``_active_download_id`` — per-download cancellation state for
+          ``_active_download_id``: per-download cancellation state for
     ``ModelMixin.download_model`` (SERVICE-1).
           ``_active_download_id`` is initialised to ``None`` by
           ``VoiceTyperService.__init__`` so ``cancel_model_download`` can
           safely read it before any download has been registered.
-        * ``_microphones_cache`` / ``_microphones_cache_ts`` — short-TTL
+        * ``_microphones_cache`` / ``_microphones_cache_ts``, short-TTL
           cache for ``MicrophoneTestMixin.refresh_microphones``, bound
           by ``MicrophoneTestMixin.__init__``.
         * ``_model_status_cache`` / ``_model_status_cache_ts`` /
-          ``_model_status_cache_lock`` — short-TTL cache for
+          ``_model_status_cache_lock``: short-TTL cache for
           ``ModelMixin.get_model_status`` (PERF-10 / SVC-9).
-        * ``_onboarding`` — live :class:`OnboardingController` held between
+        * ``_onboarding``: live :class:`OnboardingController` held between
           ``OnboardingMixin.onboarding_start`` and
           ``OnboardingMixin.onboarding_apply``. Initialised to ``None`` by
           ``VoiceTyperService.__init__`` so the ``getattr(self,

@@ -1,27 +1,27 @@
 """AB-25: regression tests for gating the FTS5 'rebuild' command on the
 same ``ratio > 0.20`` threshold as VACUUM inside ``apply_retention``.
 
-Before AB-25 the rebuild ran whenever ``deleted > 0`` — even a 1-row
+Before AB-25 the rebuild ran whenever ``deleted > 0``, even a 1-row
 delete out of 50 000 triggered a full O(N) FTS5 re-index on every
 10-minute periodic-retention tick. The FTS5 delete-bitmap (populated
 by the ``transcriptions_ad_fts`` trigger) already hides deleted rows
 from MATCH results, so the only thing the rebuild reclaims is segment
-data in ``transcriptions_fts_data`` — which is only worth the O(N) cost
+data in ``transcriptions_fts_data``, which is only worth the O(N) cost
 after a large purge.
 
 These tests pin the new behavior:
 
 - ``test_apply_retention_skips_fts5_rebuild_when_ratio_below_threshold``
-  — a small delete (<20% of rows) must NOT issue the 'rebuild' command.
+, a small delete (<20% of rows) must NOT issue the 'rebuild' command.
 - ``test_apply_retention_runs_fts5_optimize_when_ratio_below_threshold``
-  — a small delete (<20% of rows) MUST issue the cheap 'optimize'
+, a small delete (<20% of rows) MUST issue the cheap 'optimize'
   command instead, so sub-threshold deletes still purge segment data
   from ``transcriptions_fts_data`` without an O(N) re-index.
 - ``test_apply_retention_runs_fts5_rebuild_when_ratio_above_threshold``
-  — a large delete (>20% of rows) MUST still issue the 'rebuild'
+, a large delete (>20% of rows) MUST still issue the 'rebuild'
   command (the existing FR-27 privacy guarantee is preserved).
 - ``test_apply_retention_skips_fts5_rebuild_when_nothing_deleted``
-  — the no-op sweep case (pre-existing, mirrors the FR-27 test).
+, the no-op sweep case (pre-existing, mirrors the FR-27 test).
 """
 
 from __future__ import annotations
@@ -138,7 +138,7 @@ class TestAb25FtsRebuildGate:
         _spy_submit_write(db, monkeypatch, executed_sql)
 
         # Act: retention_days=1 deletes the 1 old row out of 21 total.
-        # ratio = 1/21 ≈ 4.8% — well below the 20% gate.
+        # ratio = 1/21 ≈ 4.8%, well below the 20% gate.
         deleted = db.apply_retention(retention_days=1)
         assert deleted == 1, f"expected 1 row deleted, got {deleted}"
 
@@ -148,7 +148,7 @@ class TestAb25FtsRebuildGate:
             f"command for a small delete (1/21 ≈ 4.8% < 20% threshold). "
             f"Executed SQL: {executed_sql}"
         )
-        # VACUUM must also be skipped (sanity check — pre-existing behavior).
+        # VACUUM must also be skipped (sanity check, pre-existing behavior).
         vacuum_seen = any(sql.strip().upper() == "VACUUM" for sql in executed_sql)
         assert not vacuum_seen, f"VACUUM should also be skipped at ratio < 0.20. Executed SQL: {executed_sql}"
 
@@ -156,7 +156,7 @@ class TestAb25FtsRebuildGate:
         """A small delete (<20% of rows) must issue the cheap FTS5
         'optimize' command (NOT the O(N) 'rebuild') so sub-threshold
         deletes still purge segment data from
-        ``transcriptions_fts_data`` — closing the privacy gap without
+        ``transcriptions_fts_data``, closing the privacy gap without
         burning an O(N) re-index on every 10-minute tick.
         """
         # Insert 20 recent rows (retention_days will not delete them).
@@ -182,7 +182,7 @@ class TestAb25FtsRebuildGate:
         _spy_submit_write(db, monkeypatch, executed_sql)
 
         # Act: retention_days=1 deletes the 1 old row out of 21 total.
-        # ratio = 1/21 ≈ 4.8% — well below the 20% gate.
+        # ratio = 1/21 ≈ 4.8%, well below the 20% gate.
         deleted = db.apply_retention(retention_days=1)
         assert deleted == 1, f"expected 1 row deleted, got {deleted}"
 
@@ -196,7 +196,7 @@ class TestAb25FtsRebuildGate:
         # ...while the O(N) 'rebuild' must NOT fire (gate preserved).
         assert not _rebuild_seen(executed_sql), (
             "apply_retention issued the FTS5 'rebuild' command for a "
-            f"small delete (1/21 ≈ 4.8% < 20% threshold) — the O(N) gate "
+            f"small delete (1/21 ≈ 4.8% < 20% threshold), the O(N) gate "
             f"must be preserved. Executed SQL: {executed_sql}"
         )
 
@@ -230,7 +230,7 @@ class TestAb25FtsRebuildGate:
         _spy_submit_write(db, monkeypatch, executed_sql)
 
         # Act: retention_days=1 deletes 20 of 25 rows.
-        # ratio = 20/25 = 80% — well above the 20% gate.
+        # ratio = 20/25 = 80%, well above the 20% gate.
         deleted = db.apply_retention(retention_days=1)
         assert deleted == 20, f"expected 20 rows deleted, got {deleted}"
 
@@ -246,7 +246,7 @@ class TestAb25FtsRebuildGate:
     def test_apply_retention_skips_fts5_rebuild_when_nothing_deleted(self, db, monkeypatch):
         """When apply_retention deletes nothing, the rebuild command is
         skipped (a no-op sweep has nothing to rebuild). This is the
-        pre-existing FR-27 behavior — preserved by AB-25.
+        pre-existing FR-27 behavior, preserved by AB-25.
         """
         # Empty DB → nothing to delete.
         executed_sql: list[str] = []

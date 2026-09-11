@@ -22,7 +22,7 @@ from datetime import datetime, timezone
 log = logging.getLogger(__name__)
 
 
-# Backend-disabled subscriber callback (set-based — lets ModelManager
+# Backend-disabled subscriber callback (set-based, lets ModelManager
 # tray / IPC / telemetry subscribe independently).
 BackendDisabledCallback = Callable[[str, int], None]
 
@@ -47,7 +47,7 @@ class CircuitBreaker:
     """
 
     # After this many consecutive load failures, a backend is marked
-    # "disabled" — subsequent ``load_with_fallback`` calls skip it and
+    # "disabled": subsequent ``load_with_fallback`` calls skip it and
     # fall straight through to the whisper fallback.
     _MAX_CONSECUTIVE_FAILURES = 3
 
@@ -58,14 +58,14 @@ class CircuitBreaker:
         # ``Config`` declares ``disabled_backends`` as a real dataclass
         # field (default empty list). The ``getattr`` fallback is
         # retained so test stubs / legacy Config objects constructed via
-        # ``__new__`` (which skip ``__init__``) keep working — the field
+        # ``__new__`` (which skip ``__init__``) keep working, the field
         # is absent on those bare instances.
         persisted = getattr(config, "disabled_backends", None) or []
         try:
             self._disabled_backends: set[str] = set(persisted)
         except TypeError:
             # A misconfigured ``disabled_backends`` (e.g. a string
-            # instead of a list — ``set("whisper")`` produces
+            # instead of a list, ``set("whisper")`` produces
             # ``{"w", "h", "i", "s", "p", "e", "r"}`` rather than
             # raising) would silently clear the persisted disabled set,
             # re-enabling a backend the user explicitly disabled. Log at
@@ -195,7 +195,7 @@ class CircuitBreaker:
         except Exception:
             # Fail open: a broken gate must not swallow a genuine alert.
             log.warning(
-                "[ASR_REGISTRY] %s event gate raised — proceeding with fan-out",
+                "[ASR_REGISTRY] %s event gate raised, proceeding with fan-out",
                 label,
                 exc_info=True,
             )
@@ -267,7 +267,7 @@ class CircuitBreaker:
             if self._fan_out_suppressed(self._backend_disabled_event_gate, name, "backend-disabled"):
                 return
 
-            # Fire per-registry subscribers. Defensive — a subscriber
+            # Fire per-registry subscribers. Defensive, a subscriber
             # that raises is logged and skipped so one buggy subscriber
             # doesn't block the others.
             for fn in subscribers:
@@ -354,7 +354,7 @@ class CircuitBreaker:
             subscribers = list(self._on_last_resort_subscribers)
 
         # Fire per-registry subscribers (tray notification, IPC push,
-        # telemetry sink, …). Defensive — a subscriber that raises is
+        # telemetry sink, …). Defensive, a subscriber that raises is
         # logged and skipped so one buggy subscriber doesn't block the
         # others (same contract as _record_failure's subscriber loop).
         for fn in subscribers:

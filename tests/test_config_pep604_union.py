@@ -7,7 +7,7 @@ fields (``microphone``, ``qwen_model_path``, ``parakeet_model_path``,
 
 Root cause
 ----------
-``typing.get_origin(str | None)`` returns ``types.UnionType`` — NOT
+``typing.get_origin(str | None)`` returns ``types.UnionType``, NOT
 ``typing.Union``. The pre-fix unwrap check in
 ``Config._derive_field_type_registry`` was
 ``if typing.get_origin(ann) is typing.Union:`` which only matched the
@@ -46,7 +46,7 @@ from voice_typer.server.config import Config
 
 class TestRegistryUnwrapsPep604Union:
     """``_derive_field_type_registry`` must unwrap ``T | None`` (PEP 604)
-    to ``T`` — not leave it as the ``types.UnionType`` alias."""
+    to ``T``, not leave it as the ``types.UnionType`` alias."""
 
     @pytest.mark.parametrize(
         "field_name,expected_unwrapped",
@@ -68,7 +68,7 @@ class TestRegistryUnwrapsPep604Union:
         """
         registry = Config._derive_field_type_registry()
         assert field_name in registry, (
-            f"FR-51: {field_name!r} missing from registry — did the Config dataclass field get renamed?"
+            f"FR-51: {field_name!r} missing from registry, did the Config dataclass field get renamed?"
         )
         ann = registry[field_name]
         # The unwrapped annotation must NOT be a Union / UnionType —
@@ -80,7 +80,7 @@ class TestRegistryUnwrapsPep604Union:
             f"Expected unwrapped type {expected_unwrapped!r}."
         )
         # For ``custom_theme`` the unwrapped type is a generic alias
-        # (``dict[str, dict[str, str]]``) — use ``get_origin`` to
+        # (``dict[str, dict[str, str]]``), use ``get_origin`` to
         # extract the bare ``dict``. For ``str`` / ``int`` the bare
         # type IS the annotation.
         bare = origin if origin is not None else ann
@@ -120,7 +120,7 @@ class TestWrongTypedPep604FieldsResetOnLoad:
     validator's else-branch ``types.UnionType`` continue).
     ``qwen_model_path`` / ``corrections_path`` / ``custom_theme`` had
     separate dedicated validators that caught the bad value, but
-    ``microphone`` / ``parakeet_model_path`` had no such guard — they
+    ``microphone`` / ``parakeet_model_path`` had no such guard, they
     reached the dataclass as the wrong type.
     """
 
@@ -129,7 +129,7 @@ class TestWrongTypedPep604FieldsResetOnLoad:
         _write_config(tmp_path, {"microphone": 123})
         c = _load_with_config_dir(tmp_config_dir)
         assert c.microphone is None, (
-            f"FR-51: microphone=123 was NOT reset to None on load — "
+            f"FR-51: microphone=123 was NOT reset to None on load, "
             f"got: {c.microphone!r}. The PEP 604 ``str | None`` union "
             f"is being silently skipped by _validate_non_numeric_fields."
         )
@@ -142,9 +142,7 @@ class TestWrongTypedPep604FieldsResetOnLoad:
         """``"qwen_model_path": 42`` (int) → reset to None + warning."""
         _write_config(tmp_path, {"qwen_model_path": 42})
         c = _load_with_config_dir(tmp_config_dir)
-        assert c.qwen_model_path is None, (
-            f"FR-51: qwen_model_path=42 was NOT reset to None — got: {c.qwen_model_path!r}"
-        )
+        assert c.qwen_model_path is None, f"FR-51: qwen_model_path=42 was NOT reset to None, got: {c.qwen_model_path!r}"
         warnings = getattr(c, "last_load_warnings", []) or []
         assert any("qwen_model_path" in w for w in warnings), (
             f"FR-51: qwen_model_path=42 reset did not surface in last_load_warnings: {warnings}"
@@ -155,7 +153,7 @@ class TestWrongTypedPep604FieldsResetOnLoad:
         _write_config(tmp_path, {"parakeet_model_path": 999})
         c = _load_with_config_dir(tmp_config_dir)
         assert c.parakeet_model_path is None, (
-            f"FR-51: parakeet_model_path=999 was NOT reset to None — got: {c.parakeet_model_path!r}"
+            f"FR-51: parakeet_model_path=999 was NOT reset to None, got: {c.parakeet_model_path!r}"
         )
         warnings = getattr(c, "last_load_warnings", []) or []
         assert any("parakeet_model_path" in w for w in warnings), (
@@ -174,7 +172,7 @@ class TestWrongTypedPep604FieldsResetOnLoad:
         _write_config(tmp_path, {"corrections_path": False})
         c = _load_with_config_dir(tmp_config_dir)
         assert c.corrections_path is None, (
-            f"FR-51: corrections_path=False was NOT reset to None — got: {c.corrections_path!r}"
+            f"FR-51: corrections_path=False was NOT reset to None, got: {c.corrections_path!r}"
         )
         warnings = getattr(c, "last_load_warnings", []) or []
         assert any("corrections_path" in w for w in warnings), (
@@ -193,7 +191,7 @@ class TestWrongTypedPep604FieldsResetOnLoad:
         _write_config(tmp_path, {"custom_theme": "not a dict"})
         c = _load_with_config_dir(tmp_config_dir)
         assert c.custom_theme is None, (
-            f"FR-51: custom_theme='not a dict' was NOT reset to None — got: {c.custom_theme!r}"
+            f"FR-51: custom_theme='not a dict' was NOT reset to None, got: {c.custom_theme!r}"
         )
         warnings = getattr(c, "last_load_warnings", []) or []
         assert any("custom_theme" in w for w in warnings), (
@@ -223,11 +221,11 @@ class TestValidPep604FieldsPreservedOnLoad:
         _write_config(tmp_path, {"parakeet_model_path": "/some/path"})
         c = _load_with_config_dir(tmp_config_dir)
         # The dedicated _validate_model_path may reset this if the
-        # path doesn't exist / isn't safe — that's a separate concern.
+        # path doesn't exist / isn't safe, that's a separate concern.
         # Here we only assert that the str branch of
         # _validate_non_numeric_fields doesn't spuriously reset a
         # valid str value. Accept either the str (if path validation
-        # passed) or None (if path validation reset it) — but NEVER
+        # passed) or None (if path validation reset it), but NEVER
         # a non-str / non-None type.
         assert c.parakeet_model_path is None or isinstance(c.parakeet_model_path, str), (
             f"FR-51 over-correction: parakeet_model_path=/some/path got mangled to {c.parakeet_model_path!r}"

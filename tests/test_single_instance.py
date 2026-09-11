@@ -5,7 +5,7 @@
 # (Medium): POSIX single-instance PID-recycling false positive.
 #     On ``O_EXCL`` failure, ``_ensure_single_instance_posix`` must
 #     attempt ``fcntl.flock(fd, LOCK_EX | LOCK_NB)`` on the existing
-#     lockfile FIRST — before any PID liveness check. ``flock`` is the
+#     lockfile FIRST, before any PID liveness check. ``flock`` is the
 #     crash-safe primitive (kernel auto-releases on process death);
 #     the old PID-check-first behavior was fooled by PID recycling
 #     after a hard crash (SIGKILL, OOM, power loss).
@@ -20,7 +20,7 @@
 # (Low): Startup sequence futures awaited sequentially
 #     summing timeouts. The prewarm + mic parallel work must use
 #     ``concurrent.futures.wait({f1, f2}, timeout=10)`` to enforce a
-#     SINGLE shared 10s budget — not per-future ``result(timeout=10)``
+#     SINGLE shared 10s budget, not per-future ``result(timeout=10)``
 #     which could sum to 20s on stuck tasks.
 #
 # Run: python -m pytest tests/test_single_instance.py -q --no-cov
@@ -129,7 +129,7 @@ class TestFlockAcquiredAfterStaleOExcl:
 
     def test_flock_succeeds_when_previous_holder_dead(self, isolated_config_dir):
         """A stale lockfile (dead PID, no live flock holder) is
-        reclaimed via flock — no sys.exit, handle returned.
+        reclaimed via flock, no sys.exit, handle returned.
 
         This is the GT-41 fix: even though the lockfile contains a
         recycled PID that happens to be alive (we use our own PID),
@@ -137,7 +137,7 @@ class TestFlockAcquiredAfterStaleOExcl:
         dead (no one holds the flock) and proceeds.
         """
         lock_file = _lock_file(isolated_config_dir)
-        # Write OUR OWN (alive!) PID into the lockfile — this is the
+        # Write OUR OWN (alive!) PID into the lockfile, this is the
         # PID-recycling false-positive scenario. The old code would
         # exit here; the new code checks flock first and proceeds.
         lock_file.write_text(f"{os.getpid()}\n")
@@ -157,7 +157,7 @@ class TestFlockAcquiredAfterStaleOExcl:
     def test_lockfile_pid_refreshed_after_flock_reclaim(self, isolated_config_dir):
         """After flock reclaim, the lockfile contains OUR PID (not the
         dead process's recycled PID)."""
-        # Use a bogus (definitely dead) PID — the simplest case.
+        # Use a bogus (definitely dead) PID, the simplest case.
         bogus_pid = 2_000_000
         lock_file = _lock_file(isolated_config_dir)
         lock_file.write_text(f"{bogus_pid}\n")
@@ -177,7 +177,7 @@ class TestFlockAcquiredAfterStaleOExcl:
         """When another LIVE process holds the flock (EWOULDBLOCK),
         the new code reads the PID for a diagnostic message and exits.
 
-        This is the correct duplicate-launch rejection path — but
+        This is the correct duplicate-launch rejection path, but
         driven by flock (crash-safe), not by PID liveness (which can
         be fooled by PID recycling).
         """
@@ -197,7 +197,7 @@ class TestFlockAcquiredAfterStaleOExcl:
 
     def test_no_pid_liveness_check_before_flock(self, isolated_config_dir, monkeypatch):
         """GT-41: ``_is_pid_alive`` must NOT be called when flock is
-        available. We monkeypatch ``_is_pid_alive`` to raise — if the
+        available. We monkeypatch ``_is_pid_alive`` to raise, if the
         new code calls it on the flock-first path, the test fails.
 
         Note: ``_is_pid_alive`` MAY still be called on the legacy
@@ -221,7 +221,7 @@ class TestFlockAcquiredAfterStaleOExcl:
 
         handle = None
         try:
-            # Must NOT raise — flock succeeds (no live holder), so
+            # Must NOT raise, flock succeeds (no live holder), so
             # _is_pid_alive is never called.
             handle = si_mod._ensure_single_instance_posix(silent=True)
             assert isinstance(handle, int)
@@ -260,7 +260,7 @@ class TestPosixSingleInstanceHandleRelease:
                     handle.release()
 
     def test_release_closes_fd(self, isolated_config_dir):
-        """``release()`` closes the underlying fd — subsequent
+        """``release()`` closes the underlying fd, subsequent
         ``os.fsync(fd)`` raises ``OSError(EBADF)``."""
         handle = si_mod._ensure_single_instance_posix(silent=True)
         # Sanity: the fd is valid before release.
@@ -268,7 +268,7 @@ class TestPosixSingleInstanceHandleRelease:
 
         handle.release()
 
-        # After release, the fd is closed — os.fsync raises EBADF.
+        # After release, the fd is closed, os.fsync raises EBADF.
         with pytest.raises(OSError):
             os.fsync(int(handle))
 
@@ -285,7 +285,7 @@ class TestPosixSingleInstanceHandleRelease:
         assert not lock_file.exists()
 
     def test_release_is_idempotent(self, isolated_config_dir):
-        """``release()`` is idempotent — subsequent calls are no-ops
+        """``release()`` is idempotent, subsequent calls are no-ops
         (no OSError propagates)."""
         handle = si_mod._ensure_single_instance_posix(silent=True)
         handle.release()
@@ -315,7 +315,7 @@ class TestStartupSharedBudget:
 
     GT-A1-3 → DJ-4 pinned a fire-and-forget ``sync_prewarm_task``
     dispatch; BP-129 deleted that dispatch entirely (the OS-level
-    prewarm task no longer exists — prewarm is a worker startup
+    prewarm task no longer exists, prewarm is a worker startup
     phase). These tests pin the current design: NO prewarm thread is
     spawned, the autostart sync runs on its own daemon thread (never
     waited on), and only ``load_microphones`` runs in the bounded
@@ -356,7 +356,7 @@ class TestStartupSharedBudget:
 
         # Spy on ``_run_parallel_with_timeout`` (startup_sequence imports
         # it function-locally from ``_timeout_utils``, so patch the
-        # source module — the local import resolves at call time).
+        # source module, the local import resolves at call time).
         pool_calls: list[list] = []
         real_run = _timeout_utils._run_parallel_with_timeout
 
@@ -391,7 +391,7 @@ class TestStartupSharedBudget:
         # never be called (dead ceremony deleted, not dispatched).
         prewarm_spawns = [t for t in started_threads if t[0] == "startup-prewarm-sync"]
         assert prewarm_spawns == [], (
-            "BP-129: the prewarm sync ceremony is deleted — no "
+            "BP-129: the prewarm sync ceremony is deleted, no "
             f"'startup-prewarm-sync' thread may spawn. Got {started_threads!r}."
         )
         assert prewarm_calls == [], "BP-129: startup must never call sync_prewarm_task (no-op stub)."
@@ -420,7 +420,7 @@ class TestStartupSharedBudget:
     def test_slow_autostart_does_not_delay_startup(self, app_for_startup, monkeypatch):  # noqa: F811 - pytest fixture injected by name (imported at module top)
         """Behavioral test: with BOTH autostart sync and mic enumeration
         slow (4.0s), startup returns within the mic budget (~0.5s,
-        monkeypatched) — neither fire-and-forget thread may be waited on.
+        monkeypatched), neither fire-and-forget thread may be waited on.
 
         Any regressed design that waits on either task blocks for at
         least the full slow-task duration (4.0s); the correct design
@@ -428,7 +428,7 @@ class TestStartupSharedBudget:
         """
         from voice_typer.server import _timeout_utils, startup_tasks
 
-        # Slow tasks — far beyond the (patched) 0.5s budget, so every
+        # Slow tasks, far beyond the (patched) 0.5s budget, so every
         # wait-on-task design is unambiguous.
         def slow_task(app, evt=None):
             time.sleep(4.0)

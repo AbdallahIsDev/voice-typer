@@ -1,7 +1,7 @@
 """Install stage for the downloaded runtime pack (plan §8.3 + §4.6).
 
 The download stage (`download_offline_pack_with_resume`) leaves a
-verified ``pack-<version>.partial`` archive on disk and RETURNS — this
+verified ``pack-<version>.partial`` archive on disk and RETURNS, this
 file covers the missing link: `install_offline_pack` extracts the
 archive into a ``<version>.new`` staging dir, verifies every file
 against the manifest, writes ``pack-manifest.json``, and atomically
@@ -18,9 +18,9 @@ Tested behaviors:
      event published with ``{version, sha256}`` (renderer contract).
   2. The cheap existence probe + full verification both succeed after
      install (the launch-time scan finds the pack).
-  3. An existing pack dir is replaced (stale files gone) — the swap
+  3. An existing pack dir is replaced (stale files gone), the swap
      path.
-  4. A missing archive → False (nothing to install — the download
+  4. A missing archive → False (nothing to install, the download
      fake wrote nothing).
   5. A tampered inner file → fail closed BEFORE the swap: no version
      dir, staging cleaned, archive KEPT for retry, ``offline_pack_corrupt``
@@ -86,7 +86,7 @@ class _FakeBus:
 
 
 class TestInstallOfflinePack:
-    """``install_offline_pack`` — extract → verify → manifest → swap."""
+    """``install_offline_pack``, extract → verify → manifest → swap."""
 
     def test_happy_path_installs_pack(self, tmp_path: Path):
         archive, manifest = _build_fixture_pack(tmp_path)
@@ -117,7 +117,7 @@ class TestInstallOfflinePack:
         }
 
     def test_install_replaces_existing_pack_dir(self, tmp_path: Path):
-        """An existing (older) pack dir is swapped away — stale files gone."""
+        """An existing (older) pack dir is swapped away, stale files gone."""
         archive, manifest = _build_fixture_pack(tmp_path, "2.0.0")
         pack_dir = tmp_path / "2.0.0"
         pack_dir.mkdir()
@@ -234,7 +234,7 @@ class TestInstallOfflinePack:
 
     def test_unsafe_manifest_entry_name_fails_closed(self, tmp_path: Path):
         """A manifest entry whose name escapes the pack dir is rejected
-        (the manifest comes over the network — never trust path parts)."""
+        (the manifest comes over the network, never trust path parts)."""
         archive, manifest = _build_fixture_pack(tmp_path, "7.0.0")
         manifest["files"][0]["name"] = "../outside.exe"
 

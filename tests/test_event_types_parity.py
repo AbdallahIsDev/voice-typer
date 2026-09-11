@@ -1,4 +1,4 @@
-"""Master plan §7.4 / §9.4 — IPC event-types parity test.
+"""Master plan §7.4 / §9.4: IPC event-types parity test.
 
 This file is the regression guard for the **fourth allowlist** that was
 previously untested (master plan §9.4 / `PLAN_ONNX_INTEGRATION.md` §7.6):
@@ -6,7 +6,7 @@ previously untested (master plan §9.4 / `PLAN_ONNX_INTEGRATION.md` §7.6):
     4. ``ALLOWED_EVENT_TYPES`` (Rust) —
        ``src-tauri/src/sidecar/ws/event_protocol.rs:49``
        (the server-initiated event-type allowlist that the Tauri WS
-       reader consults on every inbound frame — a typo here silently
+       reader consults on every inbound frame, a typo here silently
        drops the frame with a ``[WS-READER] dropping unknown event
        type:`` warning).
 
@@ -44,7 +44,7 @@ kinds:
       ``usePythonEvent("offline_pack_download_started", ...)`` typechecks);
     - the TS ``KNOWN_EVENT_TYPES`` runtime Set (so the dev-time
       typo warning doesn't false-positive on the legitimate new
-      events — pinned by the TS-side
+      events, pinned by the TS-side
       ``usePython-known-event-types-parity.test.ts``);
     - the ``event_bus.py`` canonical catalogue docstring (the
       source-of-truth anchor referenced by ADR-0020 §2).
@@ -93,8 +93,8 @@ EVENT_BUS_PY = REPO_ROOT / "voice_typer" / "server" / "event_bus.py"
 # Single source of truth: the canonical Python ``OFFLINE_PACK_EVENT_TYPES`` in
 # ``voice_typer/server/service/pack.py``. We import it rather than
 # hardcoding the list here so a future rename in ``pack.py`` flows
-# through to this test (the alternative — hardcoding the 13 strings
-# here — would silently drift if ``pack.py`` is updated and this test
+# through to this test (the alternative, hardcoding the 13 strings
+# here, would silently drift if ``pack.py`` is updated and this test
 # isn't).
 def _pack_event_types() -> frozenset[str]:
     """Return the canonical 13-event frozenset from ``service.offline_pack``.
@@ -132,7 +132,7 @@ def _read_event_protocol_rs() -> str:
     ``event_protocol.rs``.
     """
     assert EVENT_PROTOCOL_RS.is_file(), (
-        f"expected Tauri WS reader at {EVENT_PROTOCOL_RS} — file not found. "
+        f"expected Tauri WS reader at {EVENT_PROTOCOL_RS}, file not found. "
         "The ws/event_protocol.rs path is the canonical gate for "
         "server-initiated event types (ALLOWED_EVENT_TYPES)."
     )
@@ -143,7 +143,7 @@ def _rust_allowed_event_types() -> set[str]:
     """Parse the ``ALLOWED_EVENT_TYPES`` slice from event_protocol.rs.
 
     Mirrors the parsing approach in
-    ``tests/test_tray_fallback_notification_allowlist.py`` — same
+    ``tests/test_tray_fallback_notification_allowlist.py``, same
     slice-literal marker, same regex. The slice is declared as::
 
         pub(super) const ALLOWED_EVENT_TYPES: &[&str] = &[ ... ];
@@ -156,11 +156,11 @@ def _rust_allowed_event_types() -> set[str]:
     idx = src.find(start_marker)
     assert idx != -1, (
         "event_protocol.rs no longer declares the "
-        "`const ALLOWED_EVENT_TYPES: &[&str] = &[` slice literal — "
+        "`const ALLOWED_EVENT_TYPES: &[&str] = &[` slice literal, "
         "update this parser to match."
     )
     slice_body = src[idx : src.find("];", idx)]
-    # Match quoted strings — the slice entries are `"name",` with
+    # Match quoted strings, the slice entries are `"name",` with
     # optional trailing comments after `//`. The regex captures only
     # the quoted string content. `[a-z0-9_]+` (not `[a-z_]+`) so
     # digit-bearing names like `history_fts5_rebuild_failed` parse.
@@ -179,9 +179,9 @@ def _ts_python_push_event_types() -> set[str]:
 
     Each member interface declares ``type: "<name>";``. We extract
     every ``type: "..."`` literal declared BEFORE the ``export type
-    PythonPushEvent =`` line — this excludes the ``AuthFrame`` /
+    PythonPushEvent =`` line, this excludes the ``AuthFrame`` /
     ``ProtocolVersionMismatchError`` interfaces that live AFTER the
-    union (they are NOT push events — they are auth/version-mismatch
+    union (they are NOT push events, they are auth/version-mismatch
     frame shapes that happen to also use a ``type`` literal).
     """
     src = PUSH_EVENTS_TS.read_text(encoding="utf-8")
@@ -189,10 +189,10 @@ def _ts_python_push_event_types() -> set[str]:
     # we don't pick up `type:` literals from AuthFrame etc. below.
     cut = src.find("export type PythonPushEvent =")
     assert cut != -1, (
-        "push_events.ts: `export type PythonPushEvent =` declaration not found — the union was renamed or moved."
+        "push_events.ts: `export type PythonPushEvent =` declaration not found, the union was renamed or moved."
     )
     head = src[:cut]
-    # Match `type: "<name>";` — the trailing `;` distinguishes
+    # Match `type: "<name>";`, the trailing `;` distinguishes
     # interface members from the union's `| MemberName` lines.
     # `[a-z0-9_]+` so digit-bearing names parse (see the Rust parser).
     return set(re.findall(r'type:\s*"([a-z0-9_]+)"\s*;', head))
@@ -312,7 +312,7 @@ class TestRustAllowlistContainsAllNewEvents:
         # Use >= so future unrelated additions don't break this test.
         assert len(rust) >= 53, (
             "§7.4 / §9.4: Rust ALLOWED_EVENT_TYPES slice has "
-            f"{len(rust)} entries — expected at least 53 (40 pre-§7.4 "
+            f"{len(rust)} entries, expected at least 53 (40 pre-§7.4 "
             "baseline + 13 new pack/worker events). The slice was "
             "probably not updated to include the new events."
         )
@@ -344,7 +344,7 @@ class TestRequestEventInCommandAllowlists:
         assert REQUEST_EVENT_NAME in ts, (
             f"§7.4: '{REQUEST_EVENT_NAME}' MUST be in the TS "
             "ALLOWED_COMMANDS Set "
-            "(voice_typer/client/src/main/allowed-commands.ts) — "
+            "(voice_typer/client/src/main/allowed-commands.ts), "
             "the renderer's call('transcribe_offline', ...) would "
             "otherwise be silently rejected by the main process's "
             "sendToPython gate (SEC-019)."
@@ -355,7 +355,7 @@ class TestRequestEventInCommandAllowlists:
         assert REQUEST_EVENT_NAME in rust, (
             f"§7.4: '{REQUEST_EVENT_NAME}' MUST be in the Rust "
             "allowed_commands() literal "
-            "(src-tauri/src/commands/sidecar_cmds/allowlist.rs) — "
+            "(src-tauri/src/commands/sidecar_cmds/allowlist.rs), "
             "the Tauri host's dispatch gate would otherwise reject "
             "the renderer's invoke('dispatch', {cmd:'transcribe_offline'}) "
             "with `disallowed_command` (ADR-0015 defense-in-depth)."
@@ -458,7 +458,7 @@ class TestPushEventsInTsAllowlists:
         known = _ts_known_event_types()
         assert "transcribe_offline_result" in ts_union, (
             "§7.4: 'transcribe_offline_result' MUST be in the TS "
-            "PythonPushEvent union — it's the push counterpart of "
+            "PythonPushEvent union, it's the push counterpart of "
             "the 'transcribe_offline' request."
         )
         assert "transcribe_offline_result" in known, (
@@ -475,7 +475,7 @@ class TestPushEventsInTsAllowlists:
         ts_union = _ts_python_push_event_types()
         assert REQUEST_EVENT_NAME not in ts_union, (
             f"§7.4: '{REQUEST_EVENT_NAME}' is a REQUEST, not a push "
-            "event — it should NOT be in the PythonPushEvent union. "
+            "event, it should NOT be in the PythonPushEvent union. "
             "It lives in PythonRequest (requests.ts) instead."
         )
 
@@ -487,18 +487,18 @@ class TestPushEventsInTsAllowlists:
 # reader path. These appear in the TS ``PythonPushEvent`` union (the
 # renderer subscribes to them via ``usePythonEvent``) AND in the TS
 # ``KNOWN_EVENT_TYPES`` runtime Set, but they are NOT published by the
-# Python sidecar — they are synthesized by the host bridge (Tauri
+# Python sidecar, they are synthesized by the host bridge (Tauri
 # Rust ``src-tauri/src/sidecar/supervisor.rs`` or Electron main) when
 # the transport layer detects a disconnect and enters the reconnect
 # loop. The Rust ``ALLOWED_EVENT_TYPES`` slice correctly EXCLUDES
 # them (the slice is the gate for Python-sidecar→renderer frames
-# only — see the docstring on the slice in
+# only: see the docstring on the slice in
 # ``src-tauri/src/sidecar/ws/event_protocol.rs``). Without this
 # documented exception set, the cross-layer parity test below
 # false-positives on these host-bridge events.
 #
 # If a future host-bridge event is added to ``PythonPushEvent``, add
-# it here too — OR (preferred) emit it from the Python sidecar so it
+# it here too, OR (preferred) emit it from the Python sidecar so it
 # flows through the standard event_bus.publish path and the Rust
 # allowlist gate applies.
 _HOST_BRIDGE_ONLY_EVENTS: frozenset[str] = frozenset({"reconnecting", "reconnected"})
@@ -512,7 +512,7 @@ class TestEventAllowlistCrossLayerParity:
     This is the regression guard that the §9.4 / §7.6 "fourth
     allowlist has no parity test" gap was about. Before this test,
     a Python event published via ``event_bus.publish`` would be
-    silently dropped if the Rust allowlist wasn't updated — no test
+    silently dropped if the Rust allowlist wasn't updated, no test
     caught the drift.
 
     Exception: host-bridge-synthesized events (``reconnecting`` /
@@ -529,7 +529,7 @@ class TestEventAllowlistCrossLayerParity:
         rust = _rust_allowed_event_types()
         ts_union = _ts_python_push_event_types()
         # Exclude host-bridge-synthesized events from the cross-check
-        # — they bypass the WS reader by design.
+        # , they bypass the WS reader by design.
         python_side_events = ts_union - _HOST_BRIDGE_ONLY_EVENTS
         missing = python_side_events - rust
         assert not missing, (
@@ -537,12 +537,12 @@ class TestEventAllowlistCrossLayerParity:
             f"PythonPushEvent union contains {sorted(missing)} but "
             "the Rust ALLOWED_EVENT_TYPES slice does NOT. The Tauri "
             "WS reader will silently drop these frames (logged at "
-            "`[WS-READER] dropping unknown event type:`) — the "
+            "`[WS-READER] dropping unknown event type:`), the "
             "renderer's usePythonEvent subscribers will never fire. "
             "Add the missing entries to the slice in "
             "src-tauri/src/sidecar/ws/event_protocol.rs. (If the "
-            "event is host-bridge-synthesized — i.e. NOT published "
-            "by the Python sidecar — add it to the "
+            "event is host-bridge-synthesized, i.e. NOT published "
+            "by the Python sidecar, add it to the "
             "`_HOST_BRIDGE_ONLY_EVENTS` frozenset in this test file "
             "instead.)"
         )
@@ -562,8 +562,8 @@ class TestEventAllowlistCrossLayerParity:
             f"KNOWN_EVENT_TYPES runtime Set contains {sorted(missing)} "
             "but the Rust ALLOWED_EVENT_TYPES slice does NOT. The "
             "Tauri WS reader will silently drop these frames. (If "
-            "the event is host-bridge-synthesized — i.e. NOT "
-            "published by the Python sidecar — add it to the "
+            "the event is host-bridge-synthesized, i.e. NOT "
+            "published by the Python sidecar, add it to the "
             "`_HOST_BRIDGE_ONLY_EVENTS` frozenset in this test file "
             "instead.)"
         )
@@ -629,14 +629,14 @@ class TestEventBusCatalogueDocstring:
         pack = _pack_event_types()
         # Each event name should appear as a `` ``name`` `` token in
         # the docstring (RST inline-literal form). We just check the
-        # raw name appears anywhere in the docstring text — that's
+        # raw name appears anywhere in the docstring text, that's
         # sufficient to catch a missed entry.
         missing = {name for name in pack if name not in docstring}
         assert not missing, (
             "§7.4: event_bus.py canonical catalogue docstring is "
             f"missing the following pack/worker events: "
             f"{sorted(missing)}. The docstring is the code-side "
-            "anchor for ADR-0020 §2's Sidecar→UI Event Table — a "
+            "anchor for ADR-0020 §2's Sidecar→UI Event Table, a "
             "contributor reading it should NOT have to flip to "
             "service/pack.py to discover the new events. Add each "
             "event with its payload shape to the docstring in "
@@ -672,7 +672,7 @@ class TestPackEventTypesSourceOfTruth:
         pack = _pack_event_types()
         assert len(pack) == 13, (
             "§7.4: OFFLINE_PACK_EVENT_TYPES in voice_typer/server/service/pack.py "
-            f"has {len(pack)} entries — expected exactly 13 (12 push + "
+            f"has {len(pack)} entries, expected exactly 13 (12 push + "
             "1 request). The master plan §7.4 catalogue is the source "
             "of truth. If you added/removed an event, update the master "
             "plan AND the parity assertions in this test file in the "
@@ -683,7 +683,7 @@ class TestPackEventTypesSourceOfTruth:
         pack = _pack_event_types()
         assert REQUEST_EVENT_NAME in pack, (
             f"§7.4: OFFLINE_PACK_EVENT_TYPES must contain the request event "
-            f"'{REQUEST_EVENT_NAME}' (the 13th event in §7.4 — it's "
+            f"'{REQUEST_EVENT_NAME}' (the 13th event in §7.4, it's "
             "the only request-type event in the set; the other 12 are "
             "push events)."
         )
@@ -716,19 +716,19 @@ def _python_published_event_types() -> set[str]:
     inventory: the set of event names the Python sidecar can actually
     push onto the WS (the sidecar's ``_push_to_ws`` subscriber forwards
     every event_bus publish verbatim, so the dispatch-vs-event split is
-    irrelevant here — an event frame is any no-id publish).
+    irrelevant here, an event frame is any no-id publish).
 
     Receiver-name matching is deliberately loose (any ``X.publish``):
     call sites alias the module (``event_bus`` /
     ``_event_bus``) and a stricter ``func.value.id == "event_bus"`` match
     would silently skip aliased sites. A non-event_bus receiver that
     publishes a dict with a constant ``type`` key would be a false
-    positive — none exists today (the scan's receiver inventory was
+    positive, none exists today (the scan's receiver inventory was
     verified: every hit resolves to the ``voice_typer.server.event_bus``
     module).
 
     Dynamic (non-literal) ``type`` values are invisible to this scan;
-    that is the accepted trade-off — a literal-name drift is the failure
+    that is the accepted trade-off, a literal-name drift is the failure
     class that bit (allowlist grown by consumer requests, not by emitter
     inventory), and non-literal event names would be un-parity-able by
     ANY static guard.
@@ -772,15 +772,15 @@ class TestPythonPublishedEventParity:
 
     The tests above guard the consumer direction (TS union / TS runtime
     set ⊆ Rust allowlist). None of them asked: ``what does the Python
-    sidecar actually publish?`` — which is how 10 published events
+    sidecar actually publish?``, which is how 10 published events
     ended up dropped at the Rust WS-reader gate with only a warn.
 
     Two assertions close that gap:
 
-    1. Published ⊆ Rust ``ALLOWED_EVENT_TYPES`` — every name the Python
+    1. Published ⊆ Rust ``ALLOWED_EVENT_TYPES``, every name the Python
        tree can publish must pass the host gate, or the frame is
        silently dropped (``[WS-READER] dropping unknown event type:``).
-    2. Published ⊆ Python ``EVENT_TYPES`` — the Python-side registry
+    2. Published ⊆ Python ``EVENT_TYPES``, the Python-side registry
        is the dev-time assertion gate (``VOICE_TYPER_DEBUG_EVENTS=1``)
        and the code-side catalogue anchor; a published-but-unregistered
        name false-positives that gate and lies to catalogue readers.
@@ -798,7 +798,7 @@ class TestPythonPublishedEventParity:
         published = _python_published_event_types()
         assert len(published) >= 40, (
             "the published-event AST scan found only "
-            f"{len(published)} names — the scanner itself is broken "
+            f"{len(published)} names, the scanner itself is broken "
             "(expected the full ~50-name publish inventory under "
             "voice_typer/server)."
         )
@@ -814,7 +814,7 @@ class TestPythonPublishedEventParity:
             "Python publishes the following event names that the Rust "
             f"ALLOWED_EVENT_TYPES slice does NOT contain: {sorted(missing)}. "
             "The Tauri WS reader silently drops these frames (logged at "
-            "`[WS-READER] dropping unknown event type:`) — every "
+            "`[WS-READER] dropping unknown event type:`), every "
             "renderer subscriber for them is dead end-to-end. Either "
             "wire the event (add it to the slice in "
             "src-tauri/src/sidecar/ws/event_protocol.rs + the TS union "

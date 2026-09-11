@@ -18,7 +18,7 @@ Three layers (following the conventions of
    the remove-by-name path runs fully end-to-end.
 
 2. **Compile gate**: the production source must compile with
-   ``gcc -O2 -std=c99 -Wall -Wextra -Werror`` — stricter than the flags in
+   ``gcc -O2 -std=c99 -Wall -Wextra -Werror``, stricter than the flags in
    ``scripts/build/compile_native.sh`` (which uses ``-Wall -Wextra`` without
    ``-Werror``) so a new warning cannot silently ship.
 
@@ -40,13 +40,13 @@ VALIDATE ON LINUX HOST:
     2. Launch Voice Typer (or run
        ``voice_typer/server/native/linux-key-listener <f8>`` directly and
        watch its stdout).
-    3. Plug in a USB keyboard AFTER startup — within one poll cycle the
+    3. Plug in a USB keyboard AFTER startup, within one poll cycle the
        stderr diagnostic log gains ``hotplug: opened keyboard device
        /dev/input/eventN`` and keystrokes on the new keyboard emit
        ``KEY_DOWN``/``MOD_DOWN`` lines (hotkey still fires).
-    4. Unplug it — the log gains ``hotplug: closing device ...`` and no
+    4. Unplug it, the log gains ``hotplug: closing device ...`` and no
        error/crash follows; the remaining keyboards keep working.
-    5. Re-plug it — the device is re-opened (add path is idempotent, so no
+    5. Re-plug it, the device is re-opened (add path is idempotent, so no
        double-open) and hotkeys fire again without restarting the app.
     6. Run with ``--log-file /tmp/lkl.log`` to capture the diagnostics.
 """
@@ -81,7 +81,7 @@ class TestLinuxKeyListenerHotplugC:
         ``add_device_by_name`` / ``remove_device_at`` /
         ``handle_inotify_events`` functions from the production source (no
         stubs), including a REAL inotify watch driven by genuine kernel
-        create/rename/unlink events — so any regression in the hotplug
+        create/rename/unlink events, so any regression in the hotplug
         wiring fails here at the C level, independent of the Python
         consumer and of a physical USB keyboard.
         """
@@ -170,7 +170,7 @@ def _function_body(src: str, signature: str) -> str:
 class TestLinuxKeyListenerHotplugSourceWiring:
     """Source-level pins: the inotify machinery exists and is wired into
     the event loop. Platform-independent (pure text assertions on the C
-    source), so they run on every OS — same convention as the mig17
+    source), so they run on every OS, same convention as the mig17
     native-listener tests."""
 
     def test_source_includes_inotify_header(self) -> None:
@@ -237,7 +237,7 @@ class TestLinuxKeyListenerHotplugSourceWiring:
 
     def test_unplug_read_error_path_removes_stale_fd(self) -> None:
         """A drained device whose read() returns EOF/error (not EAGAIN) is
-        closed and dropped from the tracked set — the belt-and-braces
+        closed and dropped from the tracked set, the belt-and-braces
         removal path alongside IN_DELETE."""
         src = _source()
         body = _function_body(src, "static int run_loop(void)")
@@ -274,7 +274,7 @@ class TestLinuxKeyListenerHotplugSourceWiring:
         ):
             body = _function_body(src, signature)
             assert "emit(" not in body and "emitf(" not in body, (
-                f"{signature} must not write to stdout — the wire protocol "
+                f"{signature} must not write to stdout, the wire protocol "
                 "is parsed by the Python consumer and must stay unchanged"
             )
         # The protocol surface itself is untouched.

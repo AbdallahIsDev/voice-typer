@@ -1,8 +1,8 @@
-"""Tests for ``tray_menu.build_microphones_submenu`` — pass-through rendering
+"""Tests for ``tray_menu.build_microphones_submenu``: pass-through rendering
 of the shared microphone enumeration.
 
 Contract under test: the tray submenu is a DUMB RENDERER of
-``tray._microphones`` — one MenuItem per record, whatever the shared
+``tray._microphones``, one MenuItem per record, whatever the shared
 enumeration returns. Deduplication of per-host-API duplicates
 (MME/DirectSound/WASAPI/WDM-KS views of the same endpoint) lives
 UPSTREAM in ``server_platform.list_microphones`` (canonical host-API
@@ -12,7 +12,7 @@ and so the upstream dedup heals the tray with zero tray-side changes.
 
 pystray semantics (verified against pystray/_base.py): ``MenuItem.__init__``
 runs ``self._checked = self._assert_callable(checked, lambda _: None)`` —
-a raw bool raises ValueError at construction — and the callable is invoked
+a raw bool raises ValueError at construction, and the callable is invoked
 as ``checked(item)`` via the ``checked`` property at render time.
 """
 
@@ -45,7 +45,7 @@ class _FakePystrayModule:
 def fake_pystray(monkeypatch):
     mock = _FakePystrayModule()
     # lazy_module("pystray") re-reads sys.modules on every access, and
-    # assigning tray_menu.pystray directly also works — do both like
+    # assigning tray_menu.pystray directly also works, do both like
     # tests/test_tray.py does.
     monkeypatch.setitem(sys.modules, "pystray", mock)
     import voice_typer.server.tray_menu as tray_menu_mod
@@ -134,7 +134,7 @@ class TestPassThroughWithDuplicatedInput:
         """Pins the pass-through contract: given the OLD duplicated 12-record
         enumeration, the submenu renders 12 items with duplicate visible names.
 
-        The tray layer performs NO deduplication by design — the fix lives in
+        The tray layer performs NO deduplication by design, the fix lives in
         server_platform.list_microphones (canonical host-API normalization).
         This test documents what the user WOULD have seen pre-fix, so if
         duplicates ever reappear here the cause is upstream, not tray-side.
@@ -199,7 +199,7 @@ class TestNeverEmptySubmenu:
 
         items = build(tray)
 
-        assert items, "submenu must NEVER be empty — Settings entry point must survive an empty enumeration"
+        assert items, "submenu must NEVER be empty, Settings entry point must survive an empty enumeration"
         remaining = menu_items(items)
         assert len(remaining) == 1
         assert "More microphones" in str(remaining[0].args[0])

@@ -12,7 +12,7 @@ wiring and tests that call ``controller._atexit_cleanup()`` directly.
 Each function takes the owning :class:`ShutdownController` instance as its
 ``controller`` argument so it can read ``controller._app`` /
 ``controller._quit_lock`` and call back into ``controller._app._do_cleanup()``
-(the delegate on :class:`VoiceTyperApp`) — preserving the existing test-spy
+(the delegate on :class:`VoiceTyperApp`), preserving the existing test-spy
 contract (``monkeypatch.setattr(app, "_do_cleanup", spy)`` still intercepts
 the call from the quit path; see
 ``tests/test_app_cleanup.py::TestQuitAppUsesSharedCleanup::test_quit_calls_do_cleanup``).
@@ -49,7 +49,7 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 
-def quit(controller: ShutdownController) -> None:  # noqa: A001 — mirrors the method name
+def quit(controller: ShutdownController) -> None:  # noqa: A001, mirrors the method name
     """Shut down the application cleanly.
 
     ensures all threads, PortAudio streams, and
@@ -64,7 +64,7 @@ def quit(controller: ShutdownController) -> None:  # noqa: A001 — mirrors the 
     ``history_db.flush()``, ``_crash_recovery.flush()``,
     ``recorder.shutdown_mic_watcher()``, ``recorder.stop()``,
     ``_bubble_level_worker`` stop, ``_clear_backend_pid_file()``,
-    and the Win32 mutex handle close — losing pending DB writes
+    and the Win32 mutex handle close, losing pending DB writes
     and leaking PortAudio streams + the mutex on every restart.
 
     THREAD-REGISTRY: ``shutdown_all()`` runs BEFORE the existing
@@ -73,7 +73,7 @@ def quit(controller: ShutdownController) -> None:  # noqa: A001 — mirrors the 
     gap for the bubble-level-pusher (noted at app.py:1377) and
     gives every registered thread a chance to exit gracefully via
     its stop_event. The per-site shutdown methods in
-    ``_do_cleanup()`` then run as a safety net — they're all
+    ``_do_cleanup()`` then run as a safety net, they're all
     idempotent (Event.set is a no-op if already set; join on a
     dead thread returns immediately), so the redundant calls are
     harmless. ``shutdown_all()`` is itself idempotent, so a
@@ -93,7 +93,7 @@ def quit(controller: ShutdownController) -> None:  # noqa: A001 — mirrors the 
     # Lazy import so tests that patch
     # ``voice_typer.server.shutdown_controller.SHUTDOWN_WATCHDOG_TIMEOUT_S``
     # (or read it via ``voice_typer.server.shutdown_controller.
-    # SHUTDOWN_WATCHDOG_TIMEOUT_S`` — see
+    # SHUTDOWN_WATCHDOG_TIMEOUT_S``: see
     # ``tests/test_shutdown_controller.py::TestShutdownWatchdog::
     # test_watchdog_armed_when_quit_runs_on_non_main_thread``) still
     # see the patched attribute. Mirrors the convention used by
@@ -126,7 +126,7 @@ def quit(controller: ShutdownController) -> None:  # noqa: A001 — mirrors the 
 
         is_main = threading.current_thread() is threading.main_thread()
         # DEBUG: the caller's "[QUIT] Quitting <app>" line already
-        # announced the quit at INFO — this line duplicated it.
+        # announced the quit at INFO: this line duplicated it.
         log.debug("[SHUTDOWN] Shutting down")
         app._shutting_down = True
         # also set the Event version so executor tasks can check it
@@ -140,13 +140,13 @@ def quit(controller: ShutdownController) -> None:  # noqa: A001 — mirrors the 
 
     # NOTIFY-ELECTRON: publish ``quit_app`` so the Electron frontend
     # closes its window IMMEDIATELY on shutdown paths that bypass
-    # ``quit_app()`` — the Win32 Ctrl+C handler, the POSIX
+    # ``quit_app()``: the Win32 Ctrl+C handler, the POSIX
     # SIGINT/SIGTERM watcher, and any other direct ``quit()`` caller.
     # The tray/IPC paths already publish from ``quit_app()`` (which
     # stashes ``app._quit_app_published = True``); skipping here avoids
     # a redundant second write. Without this, Ctrl+C left Electron's
     # window open for the entire ``_do_cleanup()`` (seconds) and only
-    # force-killed it at the end via ``_teardown_electron`` — the
+    # force-killed it at the end via ``_teardown_electron``, the
     # perceived "Ctrl+C is slower than tray Quit" gap. ``quit_app`` is
     # in the IPC sender's ``_SHUTDOWN_ALLOWLIST``, so it is delivered
     # even after ``_shutting_down`` is set. Best-effort: a failed
@@ -184,13 +184,13 @@ def quit(controller: ShutdownController) -> None:  # noqa: A001 — mirrors the 
     # VoiceTyperApp) rather than ``controller._do_cleanup()`` (the
     # body on this controller) so test spies that
     # ``monkeypatch.setattr(app, "_do_cleanup", spy)`` still
-    # intercept the call — see
+    # intercept the call: see
     # tests/test_app_cleanup.py::test_quit_calls_do_cleanup.
     app._do_cleanup()
 
     # After ``_do_cleanup()`` completes on a non-main thread,
     # arm a 2s watchdog daemon thread. ``sys.exit(0)`` below only
-    # raises ``SystemExit`` in THIS worker thread — process exit
+    # raises ``SystemExit`` in THIS worker thread, process exit
     # relies on the main thread returning from ``tray.run()`` (which
     # ``tray.stop()``, called inside ``_do_cleanup()``, was supposed
     # to break). If the main thread still hasn't returned after 2s
@@ -225,7 +225,7 @@ def arm_shutdown_watchdog(
     Used by ``quit()`` (and ``restart_app()`` on the ``VoiceTyperApp``
     side, which mirrors this pattern) when invoked from a non-main
     thread. ``sys.exit(0)`` only raises ``SystemExit`` in the worker
-    thread — process exit relies on ``tray.stop()`` breaking the
+    thread, process exit relies on ``tray.stop()`` breaking the
     pystray loop on the main thread (parked in ``tray.run()``). If
     ``tray.stop()`` succeeded but the main thread still hasn't
     returned from ``tray.run()`` (e.g. pystray's Gtk/Cocoa backend
@@ -261,7 +261,7 @@ def arm_shutdown_watchdog(
         _grace_deadline = time.monotonic() + timeout_s
         time.sleep(timeout_s)
         # If the sleep was patched to a no-op (test suites patch the
-        # GLOBAL ``time.sleep`` — ``monkeypatch.setattr("time.sleep",
+        # GLOBAL ``time.sleep``: ``monkeypatch.setattr("time.sleep",
         # ...)``), the grace period has not actually elapsed on the
         # wall clock and the code below would race the test-suite drain
         # (``_drain_shutdown_watchdogs`` in tests/conftest.py sets the
@@ -270,7 +270,7 @@ def arm_shutdown_watchdog(
         # whole test runner mid-suite). Wait out the remaining grace
         # period on the cancel event itself: the drain's ``cancel.set()``
         # wakes us immediately (disarmed, no exit), and if no drain ever
-        # runs we still fire at the true grace deadline — identical to
+        # runs we still fire at the true grace deadline, identical to
         # the production timing. When the sleep was real, the remaining
         # time is ~0 and this wait is a no-op, so production behavior
         # is unchanged.
@@ -278,24 +278,24 @@ def arm_shutdown_watchdog(
         if _grace_remaining > 0 and cancel_event.wait(_grace_remaining):
             return
         # If the test-suite drain disarmed us while we slept, return
-        # WITHOUT ``os._exit(0)`` — a leaked watchdog must never kill
+        # WITHOUT ``os._exit(0)``: a leaked watchdog must never kill
         # the whole xdist worker mid-suite.
         if cancel_event.is_set():
             return
         log.warning(
             "[SHUTDOWN] GT-43 watchdog: process still alive %.1fs after "
-            "_do_cleanup completed — calling os._exit(0) to unblock the "
+            "_do_cleanup completed, calling os._exit(0) to unblock the "
             "main thread (parked in tray.run())",
             timeout_s,
         )
         # Best-effort drain of leaked daemon worker threads before
         # ``os._exit(0)``. ``_do_cleanup`` runs several teardowns
         # inside ``_run_with_timeout`` / ``_run_parallel_with_timeout``
-        # — when a teardown exceeds its per-helper 10s deadline, the
+        #: when a teardown exceeds its per-helper 10s deadline, the
         # worker thread is leaked as a daemon and registered in
         # ``_timeout_utils._LEAKED_WORKERS``. ``os._exit(0)`` bypasses
         # interpreter shutdown, so those daemon threads are killed
-        # mid-flight by the OS — usually benign (teardown is best
+        # mid-flight by the OS, usually benign (teardown is best
         # effort), but if a leaked thread holds a lock on
         # ``history_db._write_lock`` or the ctranslate2 model mutex,
         # the OS-level kill can leave the SQLite WAL half-written
@@ -310,7 +310,7 @@ def arm_shutdown_watchdog(
         # ``min(10 * 0.2, 1.0) = 1.0`` seconds. The previous call used
         # ``timeout=0.5`` per-worker with no worker-count cap, so N
         # leaked workers would block for ``N * 0.5`` seconds (e.g.
-        # 20 workers → 10s — far exceeding the 2s watchdog budget).
+        # 20 workers → 10s, far exceeding the 2s watchdog budget).
         # The 1.0s drain is well within the watchdog's 2s budget.
         #
         # Lazy import so tests that patch
@@ -329,7 +329,7 @@ def arm_shutdown_watchdog(
             join_leaked_workers(total_budget=1.0)
         except Exception:
             log.debug(
-                "[SHUTDOWN] join_leaked_workers raised — proceeding to os._exit(0)",
+                "[SHUTDOWN] join_leaked_workers raised, proceeding to os._exit(0)",
                 exc_info=True,
             )
         # Best-effort clear of the backend PID file BEFORE
@@ -339,7 +339,7 @@ def arm_shutdown_watchdog(
         # PID file from this process would survive and falsely block
         # the next launch's single-instance check (or trigger a
         # stale-PID kill of an unrelated recycled PID). Failure here
-        # MUST NOT block the exit — log a warning and proceed to
+        # MUST NOT block the exit, log a warning and proceed to
         # ``os._exit(0)`` so the watchdog still unblocks the main
         # thread.
         try:
@@ -388,7 +388,7 @@ def _drain_shutdown_watchdogs() -> None:
         if cancel is not None:
             cancel.set()
         # Best-effort join; a leaked watchdog may still be in its
-        # grace-period sleep (daemon thread) — it will wake, see the
+        # grace-period sleep (daemon thread), it will wake, see the
         # set event, and return without os._exit. Bounded join so a
         # long-timeout watchdog doesn't stall test teardown.
         t.join(timeout=0.5)
@@ -402,7 +402,7 @@ def _drain_shutdown_watchdogs() -> None:
 # suite can disarm any watchdog a test leaked between tests (mirrors
 # ``crash_recovery._LIVE_INSTANCES`` and
 # ``transcription_watchdog._LIVE_WATCHDOG_CONTROLLERS``); production
-# behaviour is unaffected — a WeakSet drops threads automatically on GC.
+# behaviour is unaffected, a WeakSet drops threads automatically on GC.
 _LIVE_SHUTDOWN_WATCHDOG_THREADS: weakref.WeakSet = weakref.WeakSet()
 # Parallel WeakKeyDictionary mapping each live watchdog thread to its
 # cancel event (threads are weakref-able, so entries drop on GC too).

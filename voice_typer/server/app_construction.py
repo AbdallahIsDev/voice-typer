@@ -1,7 +1,7 @@
-"""AppConstruction — eager subsystem construction mixin extracted from
+"""AppConstruction, eager subsystem construction mixin extracted from
 VoiceTyperApp.
 
-Owns the eager subsystem-builder slice of ``VoiceTyperApp`` — every
+Owns the eager subsystem-builder slice of ``VoiceTyperApp``, every
 ``_init_*`` builder EXCEPT the two that are pinned to ``app.py`` source
 by ``tests/test_lock_order_contract.py::TestLockInventory``
 (``_init_hotkeys_and_locks`` owns the ``_config_mutation_lock`` RLock
@@ -16,38 +16,38 @@ declaration) and the recording slice that lives in
       side-effect-free. Re-exported from ``voice_typer.server.app`` so
       ``hasattr(app_module, "_register_startup_i18n_fallbacks")`` and
       the direct test calls keep working.
-    - ``_init_config`` — ``Config.load()`` with the corrupt-file
+    - ``_init_config``: ``Config.load()`` with the corrupt-file
       self-heal (rename to ``config.json.corrupt-<ts>.bak`` via the
       canonical ``_resolve_config_dir`` seam, fallback to ``Config()``
       defaults, ``_config_load_failed`` flag for the tray toast).
-    - ``_init_threading_and_crash`` — ``ThreadRegistry`` + the two
+    - ``_init_threading_and_crash``: ``ThreadRegistry`` + the two
       best-effort crash-handler excepthook installs.
-    - ``_log_startup_banner`` — the first visible startup log line
+    - ``_log_startup_banner``: the first visible startup log line
       (model INSTALLED-state resolution, not just the config value) +
       the launch timeline + the ``[STARTUP] logging initialized``
       banner.
-    - ``_init_audio`` — the lazy audio-processor backing declaration +
+    - ``_init_audio``: the lazy audio-processor backing declaration +
       the eager ``AudioQualityAnalyzer``.
-    - ``_init_models`` — ``ModelManager`` construction.
-    - ``_init_tray`` — ``TrayIcon`` construction + the
+    - ``_init_models``: ``ModelManager`` construction.
+    - ``_init_tray``: ``TrayIcon`` construction + the
       config-load-failure toast.
-    - ``_init_controllers`` — ``SettingsController`` /
+    - ``_init_controllers``: ``SettingsController`` /
       ``ShutdownController`` / ``LifecycleController`` /
       ``ConfigEditorLauncher`` wiring + the lazy-controller backing
       declarations.
-    - ``_init_history_crash_volume`` — history-db backings +
+    - ``_init_history_crash_volume``: history-db backings +
       ``CrashRecovery`` + ``VolumeController`` wiring.
-    - ``_init_misc_backings`` — the remaining lazy backings (waveform
+    - ``_init_misc_backings``: the remaining lazy backings (waveform
       bubble / wiring, template / vocabulary managers, IPC server slot,
       polisher / cloud engine).
 
 Previously all of this lived on ``VoiceTyperApp`` in ``app.py``. The
-behaviour is preserved verbatim — only the class boundary moved.
+behaviour is preserved verbatim, only the class boundary moved.
 ``VoiceTyperApp(AppConstruction)`` inherits every method, so
 instance-level monkeypatching and direct calls keep working unchanged,
 and ``inspect.getsource`` keeps resolving through the MRO. ``__init__``
 (the builder call sequence) and the construction ORDER stay in
-``app.py`` — order is behavior.
+``app.py``: order is behavior.
 
 A note on logging (mirrors the convention in ``app_admin.py`` /
 ``app_dictation.py`` / ``app_lazy_hub.py`` / ``app_lifecycle.py`` /
@@ -60,7 +60,7 @@ the same logger as the original VoiceTyperApp methods.
 A note on patch paths (C-ARCH-2): the module-top imports below
 (``Config``, ``ThreadRegistry``, ``_crash_handler``, ``APP_NAME``,
 ``_emit_startup_banner``, ``AudioQualityAnalyzer``, ``TrayIcon``,
-``CrashRecovery``, ``i18n``) have NO app-module patch seams — verified
+``CrashRecovery``, ``i18n``) have NO app-module patch seams, verified
 by grepping the tests tree for ``setattr("voice_typer.server.app.X"``
 and ``setattr(app_module, "X"``. The one name with a documented
 app-module seam used here is ``_resolve_config_dir`` (resolved by
@@ -94,7 +94,7 @@ from voice_typer.server.thread_registry import ThreadRegistry
 from voice_typer.server.tray import TrayIcon
 
 # Tests capture the config-load-failure / startup-banner log lines at
-# this logger name — see module docstring.
+# this logger name: see module docstring.
 log = logging.getLogger("voice_typer.server.app")
 
 
@@ -103,15 +103,15 @@ def _register_startup_i18n_fallbacks() -> None:
     this module (``error.config_load_failed.title`` /
     ``error.config_load_failed.body`` and ``state.app.starting``).
 
-    Called from ``VoiceTyperApp.__init__`` — i.e. at app-init time, not
-    import time — so importing the module stays side-effect-free. Must
+    Called from ``VoiceTyperApp.__init__``: i.e. at app-init time, not
+    import time, so importing the module stays side-effect-free. Must
     run BEFORE ``_init_config``: the config-load-failure notification
     raised there resolves ``error.config_load_failed.*``.
 
     The canonical home for English fallbacks is
     ``voice_typer/server/i18n.py::_INITIAL_LABELS`` (which already holds
     every other ``notify.app.*`` / ``state.*`` key used elsewhere in the
-    server), but that module is owned by another lane — so we extend the
+    server), but that module is owned by another lane, so we extend the
     existing English registry in place rather than replacing it via
     ``i18n.register_locale`` (which REPLACES the locale's label dict,
     wiping all other English keys). ``setdefault`` makes this idempotent:
@@ -142,7 +142,7 @@ def _register_startup_i18n_fallbacks() -> None:
 class AppConstruction:
     """Eager subsystem construction mixin for ``VoiceTyperApp``.
 
-    Declares NO ``__init__`` — the builder call ORDER stays in
+    Declares NO ``__init__``: the builder call ORDER stays in
     ``app.py`` (construction order is behavior); only the builder
     bodies live here.
     """
@@ -152,7 +152,7 @@ class AppConstruction:
     def _init_config(self) -> None:
         """Load ``Config`` with corrupt-file self-heal.
 
-        Must run FIRST — every later builder reads ``self.config``.
+        Must run FIRST, every later builder reads ``self.config``.
         """
         # catch unexpected exceptions from Config.load() (e.g.
         # KeyError from a data[...] access without a default, or
@@ -225,7 +225,7 @@ class AppConstruction:
         # failure (e.g. a missing Win32 API on an unsupported build, or
         # a sys.excepthook assignment that raises on a restricted
         # interpreter) does not abort VoiceTyperApp construction. The
-        # excepthook is a best-effort diagnostics aid — if it can't be
+        # excepthook is a best-effort diagnostics aid, if it can't be
         # installed, we log at DEBUG (with exc_info=True) so the
         # failure is diagnosable without spamming the default-INFO
         # production log, and continue with init.
@@ -238,7 +238,7 @@ class AppConstruction:
             # a python_crash.<PID>.<thread_name>.txt marker file. Without
             # this, sys.excepthook only catches MAIN-thread exceptions
             # and daemon-thread crashes are silently lost (no marker,
-            # no next-startup notification). Best-effort — same try/except
+            # no next-startup notification). Best-effort, same try/except
             # as the main excepthook install.
             _crash_handler.install_threading_excepthook()
         except Exception:
@@ -265,7 +265,7 @@ class AppConstruction:
 
         _model_desc = str(self.config.model_size)
         if _model_desc == NO_MODEL_SIZE:
-            # Genuine "no model selected" — report it honestly instead
+            # Genuine "no model selected": report it honestly instead
             # of ``model= (not installed)`` (the empty selection has no
             # name to suffix).
             _model_desc = "none"
@@ -343,7 +343,7 @@ class AppConstruction:
         # `self.models`. (the @property delegates that
         # used to mirror `self.transcriber` / `self._qwen_engine` /
         # `self._asr_registry` / etc. on VoiceTyperApp have been
-        # removed — callers now use `self.models.<field>` directly.)
+        # removed, callers now use `self.models.<field>` directly.)
         from voice_typer.server.model_manager import ModelManager
 
         self.models: ModelManager = ModelManager(self)
@@ -463,7 +463,7 @@ class AppConstruction:
         # ``app_lazy_hub``). When ``_undo_backing`` is ``_LAZY_FAILED``,
         # the getter reads this to decide whether to retry construction
         # (after ``RETRY_TTL_SECONDS``) or return ``None`` silently
-        # (within TTL — avoids 94 Hz log spam on the hot path). ``None``
+        # (within TTL, avoids 94 Hz log spam on the hot path). ``None``
         # means "no failure recorded" (either never failed, or the last
         # attempt succeeded and cleared the timestamp).
         self._undo_failed_at: Any = None
@@ -485,7 +485,7 @@ class AppConstruction:
         # so the first chunk triggers construction.
         self._audio_quality_backing: Any = None
         # Monotonic-clock timestamp of the most recent lazy-init failure
-        # for the ``audio_quality`` property — see ``_undo_failed_at``
+        # for the ``audio_quality`` property: see ``_undo_failed_at``
         # above for the full rationale. The ``audio_quality`` property is
         # on the per-chunk audio callback hot path (~94 Hz at 48 kHz/512),
         # so this sentinel is the critical fix for the 94 Hz log spam.
@@ -520,7 +520,7 @@ class AppConstruction:
         # access via the ``history_db`` @property (AppLazyHub). The eager
         # construction that used to live here blocked ``__init__`` for up
         # to ``_WRITER_READY_TIMEOUT`` (30s) waiting for the writer
-        # thread's schema-init to complete — paid on every cold start,
+        # thread's schema-init to complete, paid on every cold start,
         # even when the user never dictates and the DB is never touched
         # outside the shutdown teardown path. The lazy property
         # transparently constructs on the first ``app.history_db.*``
@@ -529,13 +529,13 @@ class AppConstruction:
         # mocks via ``app.history_db = MagicMock()`` use the setter,
         # which bypasses lazy construction. The shutdown teardown path
         # (``shutdown/teardowns/history_db.py``) checks
-        # ``app.history_db is not None`` — the lazy getter returns
+        # ``app.history_db is not None``: the lazy getter returns
         # ``None`` (without constructing) when ``_shutting_down`` is set
         # so a never-dictated session doesn't pay the 30s writer-ready
         # wait on quit.
         self._history_db_backing: Any = None
         # Monotonic-clock timestamp of the most recent lazy-init failure
-        # for the ``history_db`` property — see ``_undo_failed_at`` in
+        # for the ``history_db`` property: see ``_undo_failed_at`` in
         # the controllers builder for the full rationale.
         self._history_db_failed_at: Any = None
         self._crash_recovery = CrashRecovery(
@@ -558,7 +558,7 @@ class AppConstruction:
         # the first dictation).
         self._duck_crash_recovery_backing: Any = None
         # Monotonic-clock timestamp of the most recent lazy-init failure
-        # for the ``_duck_crash_recovery`` property — see
+        # for the ``_duck_crash_recovery`` property, see
         # ``_undo_failed_at`` in the controllers builder for the full
         # rationale.
         self._duck_crash_recovery_failed_at: Any = None
@@ -573,7 +573,7 @@ class AppConstruction:
         self.volume: VolumeController = VolumeController(self)
         self._volume_ducker_backing: Any = None
         # Monotonic-clock timestamp of the most recent lazy-init failure
-        # for the ``_volume_ducker`` property — see ``_undo_failed_at``
+        # for the ``_volume_ducker`` property: see ``_undo_failed_at``
         # in the controllers builder for the full rationale.
         self._volume_ducker_failed_at: Any = None
 
@@ -595,7 +595,7 @@ class AppConstruction:
         # daemon thread + registering it with the thread registry) on
         # every cold start, even when the user has
         # ``bubble_behavior='hidden'`` and never sees the bubble. The
-        # wiring now happens lazily — the ``_wire_waveform_bubble()``
+        # wiring now happens lazily, the ``_wire_waveform_bubble()``
         # call was moved to ``start()`` so it runs once on the main
         # thread before the tray event loop begins, and only if the app
         # actually reaches the production entry point (tests that
@@ -612,7 +612,7 @@ class AppConstruction:
         self._ipc_server: Any | None = None
         # ``TemplateManager`` and ``VocabularyManager`` construction is
         # deferred to first access via the ``_template_manager`` /
-        # ``_vocabulary_manager`` @properties (AppLazyHub — passive
+        # ``_vocabulary_manager`` @properties (AppLazyHub, passive
         # backings; the callers in ``service/template.py`` /
         # ``service/vocabulary.py`` own construction). The eager
         # construction that used to live here read ``templates.json`` /
@@ -622,10 +622,10 @@ class AppConstruction:
         #
         # The properties do NOT auto-construct on first access
         # (failure is logged at WARNING with ``exc_info=True`` and the
-        # backing is left ``None`` to retry on next access) — the
+        # backing is left ``None`` to retry on next access), the
         # ``is None`` fallback paths in ``service/template.py`` and
         # ``dictation_pipeline.py`` therefore see a cached instance on
-        # success, or ``None`` on failure — their fallback construction
+        # success, or ``None`` on failure, their fallback construction
         # still works unchanged.
         self._template_manager_backing: Any = None
         self._vocabulary_manager_backing: Any = None

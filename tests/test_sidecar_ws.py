@@ -8,14 +8,14 @@ respawn path as if the sidecar had crashed.
 
 GT-45 (Medium, partial): the WS dispatch shutdown gate at
 ``sidecar_ws._make_dispatch``'s early ``_shutting_down`` check is
-TOCTOU — the flag can flip between the read and the handler
+TOCTOU, the flag can flip between the read and the handler
 invocation. adds a second re-check immediately before
 ``loop.run_in_executor``/``pool.submit`` to shrink the window.
 
 (Medium): the WS dispatch pool's
 ``shutdown(wait=False, cancel_futures=True)`` (called by
 ``ShutdownController._do_cleanup``) cancels QUEUED tasks but does NOT
-abort in-flight ones — they run to completion. registers
+abort in-flight ones, they run to completion. registers
 each in-flight ``concurrent.futures.Future`` on
 ``server._ws_dispatch_futures`` so ``ws_graceful_shutdown`` can
 bounded-wait for them (2.0s) before stopping the loop.
@@ -29,12 +29,12 @@ This module exercises:
    killed by ``loop.stop``).
 2. **loop stop within budget**: ``ws_graceful_shutdown`` calls
    ``loop.call_soon_threadsafe(loop.stop)`` after the close handshake,
-   so the loop thread exits within ~500ms + slack — not blocked
+   so the loop thread exits within ~500ms + slack, not blocked
    indefinitely on the never-resolving ``asyncio.Future()`` in
    ``run._main``.
 3. **stop() wrapper**: ``server.stop`` (the wrapper installed by
    ``_attach_ws_graceful_shutdown``) invokes ``ws_graceful_shutdown``
-   FIRST, then delegates to the original ``IPCServer.stop`` — this
+   FIRST, then delegates to the original ``IPCServer.stop``, this
    satisfies the "BEFORE ``ipc_server.stop()``" requirement without
    modifying ``shutdown_controller.py`` or ``ipc_server.py`` (file
    ownership boundary).
@@ -48,7 +48,7 @@ This module exercises:
    error envelope when the flag has flipped in the gap.
 6. **Auth handshake regression**: a successful auth still flows
    through ``_handle_connection`` (no auth_failed frame, no close
-   with 1008) — the registration of the websocket on
+   with 1008), the registration of the websocket on
    ``server._ws_authenticated_conns`` after auth does not break the
    existing post-auth path.
 
@@ -85,7 +85,7 @@ from tests.fixtures.sidecar_ws_test_helpers import (  # noqa: E402
 )
 
 # Per-test xfail mark retained for any future temporary xfail need
-# (currently unused — all graceful-shutdown tests pass after the
+# (currently unused, all graceful-shutdown tests pass after the
 # production implementation landed). Kept as a reusable decorator
 # rather than a module-level ``pytestmark`` so newly added tests for
 # landed behaviour are NOT auto-xfailed (a module-level
@@ -94,7 +94,7 @@ from tests.fixtures.sidecar_ws_test_helpers import (  # noqa: E402
 # into an XPASS failure under ``strict=True``).
 _GRACEFUL_SHUTDOWN_NOT_LANDED = pytest.mark.xfail(
     reason=(
-        "graceful-shutdown implementation not yet landed in sidecar_ws.py — "
+        "graceful-shutdown implementation not yet landed in sidecar_ws.py, "
         "tests reference sidecar_ws._attach_ws_graceful_shutdown and "
         "ws_graceful_shutdown which do not exist"
     ),
@@ -123,7 +123,7 @@ def test_graceful_shutdown_sends_close_1001_to_all_authenticated_conns(
     server = make_real_server_for_graceful_shutdown()
     sidecar_ws._attach_ws_graceful_shutdown(server)
 
-    # Dedicated loop in a thread — ``ws_graceful_shutdown`` calls
+    # Dedicated loop in a thread: ``ws_graceful_shutdown`` calls
     # ``loop.stop``, which would kill the test framework's loop if we
     # used the running one.
     loop = asyncio.new_event_loop()
@@ -150,7 +150,7 @@ def test_graceful_shutdown_sends_close_1001_to_all_authenticated_conns(
     t = threading.Thread(target=_run_loop, daemon=True)
     t.start()
 
-    # Invoke from the main thread — the production caller
+    # Invoke from the main thread, the production caller
     # (``ShutdownController._do_cleanup`` via the ``server.stop`` wrapper)
     # also runs from a non-loop thread.
     server.ws_graceful_shutdown()
@@ -158,7 +158,7 @@ def test_graceful_shutdown_sends_close_1001_to_all_authenticated_conns(
 
     assert not t.is_alive(), (
         "ws_graceful_shutdown should have stopped the loop and the loop "
-        "thread should have exited — it is still alive after 5s"
+        "thread should have exited, it is still alive after 5s"
     )
 
     # BOTH authenticated connections must have received close(1001).
@@ -182,7 +182,7 @@ def test_graceful_shutdown_stops_loop_within_budget(monkeypatch) -> None:
     inside the close coroutine. The upper bound is 2.5s to allow for
     scheduling latency + the 2.0s dispatch-drain timeout (which is a
     no-op here because there are no in-flight futures). The KEY
-    assertion is that the loop thread actually exits — pre-it
+    assertion is that the loop thread actually exits, pre-it
     would have stayed alive until process exit.
     """
     monkeypatch.setenv("VOICE_TYPER_IPC_TOKEN", "test-token")
@@ -221,15 +221,15 @@ def test_graceful_shutdown_stops_loop_within_budget(monkeypatch) -> None:
     elapsed = time.monotonic() - start
 
     assert not t.is_alive(), (
-        "ws_graceful_shutdown should have stopped the loop — the loop "
+        "ws_graceful_shutdown should have stopped the loop, the loop "
         "thread is still alive after 5s, which means loop.stop() was "
         "never scheduled or never observed"
     )
     # 500ms handshake + 0.5s future.result margin + 2.0s drain (no-op
     # here) + scheduling slack. The test asserts the loop ACTUALLY
-    # stopped, not just that close was sent — pre- it never did.
+    # stopped, not just that close was sent, pre- it never did.
     assert elapsed < 4.0, (
-        f"graceful shutdown took {elapsed:.2f}s — expected well under 4s "
+        f"graceful shutdown took {elapsed:.2f}s, expected well under 4s "
         f"(500ms handshake + drain no-op + slack). If this is slow, "
         f"loop.stop() may not be firing."
     )
@@ -243,8 +243,8 @@ def test_stop_hook_installed_into_ws_stop_hook_slot(monkeypatch) -> None:
     the ``server._ws_stop_hook`` slot (declared on ``IPCServer.__init__``)
     instead of REPLACING the bound ``stop`` method at instance level.
 
-    Ordering contract unchanged — ``LifecycleMixin.stop`` runs the hook
-    BEFORE the TCP teardown (pinned by the lifecycle test below) — but
+    Ordering contract unchanged: ``LifecycleMixin.stop`` runs the hook
+    BEFORE the TCP teardown (pinned by the lifecycle test below), but
     the class surface stays intact: ``server.stop is`` the original bound
     method, and the hook is a plain declared attribute.
     """
@@ -282,7 +282,7 @@ def test_stop_runs_hook_before_tcp_teardown(monkeypatch) -> None:
     # Drive the REAL ``LifecycleMixin.stop`` with the fixture server:
     # bind the unbound function so every ``self.X`` access hits the mock
     # (no real threads/sockets touched) while the hook ordering logic —
-    # the thing under test — runs for real.
+    # the thing under test, runs for real.
     from voice_typer.server.ipc import lifecycle as lifecycle_mod
 
     lifecycle_mod.LifecycleMixin.stop(server)  # type: ignore[arg-type]
@@ -290,7 +290,7 @@ def test_stop_runs_hook_before_tcp_teardown(monkeypatch) -> None:
     ws_hook_ran = call_log == ["ws_graceful_shutdown"]
     assert ws_hook_ran, f"hook did not invoke ws_graceful_shutdown: {call_log!r}"
     # The teardown body flipped the fixture's shutdown bookkeeping (mock
-    # attribute write) — observable proof the body ran after the hook.
+    # attribute write), observable proof the body ran after the hook.
     assert server._running is False, "TCP teardown body must run after the hook"
 
 
@@ -312,7 +312,7 @@ def test_stop_hook_swallows_ws_graceful_shutdown_exceptions(monkeypatch) -> None
 
     from voice_typer.server.ipc import lifecycle as lifecycle_mod
 
-    # Must NOT raise — the hook catches the exception, teardown continues.
+    # Must NOT raise, the hook catches the exception, teardown continues.
     lifecycle_mod.LifecycleMixin.stop(server)  # type: ignore[arg-type]
     assert server._running is False, "TCP teardown body must still run"
 
@@ -327,7 +327,7 @@ def test_graceful_shutdown_drains_inflight_dispatch_futures(monkeypatch) -> None
 
     Pre-the pool's ``shutdown(wait=False, cancel_futures=True)``
     (called by ``ShutdownController._do_cleanup``) cancelled QUEUED
-    tasks but not in-flight ones — a long-running handler raced
+    tasks but not in-flight ones, a long-running handler raced
     teardown. The fix registers each in-flight future and bounded-waits
     (2.0s) for them to complete.
     """
@@ -382,14 +382,14 @@ def test_graceful_shutdown_drains_inflight_dispatch_futures(monkeypatch) -> None
     # The drain must have waited for the slow handler to finish (~200ms)
     # before returning. If the drain was missing, the future would have
     # been left dangling and ``elapsed`` would be < 100ms (just the
-    # 500ms handshake is enough — but we want to assert the drain
+    # 500ms handshake is enough, but we want to assert the drain
     # actually observed completion, so check the future resolved).
     assert cf_future.done(), "in-flight dispatch future should have completed within the drain's 2.0s bounded wait"
     assert cf_future.result() == "done"
-    # Sanity: the drain happened — the future completed BEFORE
+    # Sanity: the drain happened, the future completed BEFORE
     # ws_graceful_shutdown returned.
     assert elapsed < 3.0, (
-        f"ws_graceful_shutdown took {elapsed:.2f}s — drain should have completed within 2.0s + handshake"
+        f"ws_graceful_shutdown took {elapsed:.2f}s, drain should have completed within 2.0s + handshake"
     )
 
 
@@ -415,11 +415,11 @@ async def test_dispatch_toctou_recheck_rejects_after_shutting_down_flips(
     # The TOCTOU test exercises ``_make_dispatch``'s rate-limiter path,
     # which imports ``_get_rate_limiter`` from ``ipc_server.py``. That
     # module may be in a transient broken state during parallel
-    # edits — skip gracefully if so. The graceful-shutdown
+    # edits, skip gracefully if so. The graceful-shutdown
     # tests above do NOT depend on ``ipc_server`` and cover
     try:
         from voice_typer.server.ipc_server import _get_rate_limiter  # noqa: F401
-    except Exception as exc:  # noqa: BLE001 — broad on purpose
+    except Exception as exc:  # noqa: BLE001, broad on purpose
         pytest.skip(f"ipc_server.py not importable (transient GT-FIX-05 mid-edit state): {exc}")
 
     monkeypatch.setenv("VOICE_TYPER_IPC_TOKEN", "test-token")
@@ -452,7 +452,7 @@ async def test_dispatch_toctou_recheck_rejects_after_shutting_down_flips(
     server._dispatch = _real_dispatch
 
     # The gate uses ``getattr(server.app, "_shutting_down", False) is True``
-    # — strict identity. We need ``_shutting_down`` to be ``False`` at
+    # , strict identity. We need ``_shutting_down`` to be ``False`` at
     # the early gate (passes) and ``True`` at the re-check (rejects).
     # We achieve this by patching ``_get_rate_limiter`` to flip the
     # flag as a side effect of the ``allow()`` call (which runs
@@ -489,7 +489,7 @@ async def test_dispatch_toctou_recheck_rejects_after_shutting_down_flips(
     # The handler must NOT have been called.
     assert dispatch_called == [], (
         "the TOCTOU re-check should have short-circuited BEFORE "
-        "pool.submit(server._dispatch, msg) — the handler ran, which "
+        "pool.submit(server._dispatch, msg), the handler ran, which "
         "means the re-check is missing or broken"
     )
 
@@ -510,7 +510,7 @@ async def test_auth_handshake_still_works_with_graceful_shutdown_installed(
     registers the websocket on it after a successful auth. This test
     verifies a successful auth still flows through ``_handle_connection``
     without sending an ``auth_failed`` frame and without closing with
-    code 1008 — the post-auth ``_ws_authenticated_conns.add(websocket)``
+    code 1008, the post-auth ``_ws_authenticated_conns.add(websocket)``
     call must not crash.
     """
     monkeypatch.setenv("VOICE_TYPER_IPC_TOKEN", "good-token")
@@ -561,7 +561,7 @@ async def test_auth_handshake_still_works_with_graceful_shutdown_installed(
     dispatch = MagicMock()
 
     # Cleanup exceptions from the writer task teardown are
-    # acceptable — we only care that no auth_failed frame was sent.
+    # acceptable, we only care that no auth_failed frame was sent.
     with contextlib.suppress(Exception):
         await sidecar_ws._handle_connection(ws, server, dispatch)
 
@@ -581,7 +581,7 @@ async def test_auth_handshake_still_works_with_graceful_shutdown_installed(
 
 
 def test_attach_ws_graceful_shutdown_is_idempotent() -> None:
-    """``_attach_ws_graceful_shutdown`` is idempotent — calling it
+    """``_attach_ws_graceful_shutdown`` is idempotent, calling it
     twice on the same server does NOT re-wrap ``server.stop`` (which
     would create a chain of wrappers calling each other). Detected via
     the ``_ws_graceful_shutdown_installed`` marker.
@@ -646,7 +646,7 @@ class TestSafeSendSizeCapRegression:
 
         # Build a dispatch response whose JSON-encoded UTF-8 byte count
         # exceeds the cap. A single long ASCII string is the simplest
-        # way — for ASCII, char count == byte count, so a single
+        # way, for ASCII, char count == byte count, so a single
         # ``"x" * (cap + 1024)`` value produces a frame comfortably
         # over the cap.
         huge_payload = "x" * (cap_value + 1024)
@@ -659,7 +659,7 @@ class TestSafeSendSizeCapRegression:
             f"test setup: the dispatch response must exceed _MAX_FRAME_BYTES ({cap_value}); got {len(encoded)} bytes"
         )
 
-        # One inbound dispatch frame — ``type="get_history"`` is NOT
+        # One inbound dispatch frame: ``type="get_history"`` is NOT
         # ``heartbeat``, so the read loop's heartbeat fast-path is
         # skipped and the dispatch coroutine is invoked.
         dispatch_frame = json.dumps({"type": "get_history", "id": "req-1"})
@@ -671,7 +671,7 @@ class TestSafeSendSizeCapRegression:
 
         server = MagicMock()
 
-        # Capture logs at ERROR level — the drop must be logged at
+        # Capture logs at ERROR level, the drop must be logged at
         # ERROR (matching the writer task's oversized-drop log level).
         with caplog.at_level(logging.ERROR, logger="voice_typer.server.sidecar_ws"):
             await sidecar_ws._read_loop(ws, server, _dispatch)
@@ -681,7 +681,7 @@ class TestSafeSendSizeCapRegression:
         # dispatch frame is inbound; no other outbound frames are
         # produced by the read loop for a non-heartbeat dispatch).
         assert sent_payloads == [], (
-            f"the oversized dispatch response must be DROPPED, not sent — "
+            f"the oversized dispatch response must be DROPPED, not sent, "
             f"websocket.send was called with {sent_payloads!r}"
         )
 
@@ -690,7 +690,7 @@ class TestSafeSendSizeCapRegression:
         assert error_records, "the oversized dispatch response drop must be logged at ERROR level"
         # The log message must reference the size cap so operators can
         # diagnose the drop (matching the writer task's pre-fix log
-        # shape: "[SIDECAR-WS] outbound frame exceeds %d bytes — dropping").
+        # shape: "[SIDECAR-WS] outbound frame exceeds %d bytes, dropping").
         assert any("outbound frame exceeds" in r.getMessage() for r in error_records), (
             f"the ERROR log must mention 'outbound frame exceeds'; got "
             f"{[(r.levelname, r.getMessage()) for r in error_records]!r}"
@@ -700,7 +700,7 @@ class TestSafeSendSizeCapRegression:
     async def test_writer_over_size_cap_is_dropped_and_logged(self, caplog: pytest.LogCaptureFixture) -> None:
         """An outbound event on the writer's queue whose JSON-encoded
         form exceeds ``_MAX_FRAME_BYTES`` is dropped (never reaches
-        ``websocket.send``) AND logged at ERROR level — AND the writer
+        ``websocket.send``) AND logged at ERROR level, AND the writer
         task STAYS ALIVE so subsequent events on the queue are still
         drained (preserving the pre-fix ``continue`` behaviour for
         oversized drops).
@@ -759,7 +759,7 @@ class TestSafeSendSizeCapRegression:
             except TimeoutError:
                 writer_task.cancel()
                 pytest.fail(
-                    "writer task did not exit within 3s — the oversized "
+                    "writer task did not exit within 3s, the oversized "
                     "drop likely killed the writer instead of continuing "
                     "to drain the queue"
                 )

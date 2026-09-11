@@ -5,7 +5,7 @@ later from a ``sys.executable``-derived hash) to a stable install-path
 hash. Upgraded installs can therefore carry legacy ``VoiceTyper*`` Run-key
 values, ``VoiceTyperAutostart*`` scheduled tasks, and ``VoiceTyper*.bat``
 Startup-folder files that ALL point at the same install and ALL fire at
-logon — duplicate autostart.
+logon, duplicate autostart.
 
 ``sweep_legacy_autostart_entries`` removes those once per install
 (marker-gated, so steady-state startup cost is a single ``Path.exists()``
@@ -14,7 +14,7 @@ check) while preserving:
   - the current install's own entry (``_run_key_name`` /
     ``_APP_AUTOSTART_TASK_NAME`` / ``_startup_bat_name``), and
   - other installs' entries (different launcher path → different
-    install → preserved — PLAT-RUN multi-install support).
+    install → preserved. PLAT-RUN multi-install support).
 
 Tests use the ``fake_winreg`` fixture pattern (see
 ``tests/test_autostart_windows_stale_entries.py``) so the Windows-only
@@ -153,12 +153,12 @@ class TestRunKeyLegacySweep:
         assert result["swept"] is True
         assert result["removed"]["runkeys"] == [legacy_name]
         fake_winreg.DeleteValue.assert_called_once()
-        # DeleteValue(run_key, name) — the value name is the 2nd positional arg.
+        # DeleteValue(run_key, name), the value name is the 2nd positional arg.
         assert fake_winreg.DeleteValue.call_args.args[1] == legacy_name
 
     def test_preserves_other_install_runkey(self, tmp_path, monkeypatch, fake_winreg):
         """A legacy-named value whose command points at a DIFFERENT install
-        (different launcher, different exe) must NOT be deleted — the sweep
+        (different launcher, different exe) must NOT be deleted, the sweep
         is scoped to this install (multi-install support)."""
         from voice_typer.server.server_platform import sweep_legacy_autostart_entries
 
@@ -214,7 +214,7 @@ class TestRunKeyLegacySweep:
 
     def test_sweep_is_one_time_marker_gated(self, tmp_path, monkeypatch, fake_winreg):
         """After the first sweep, a per-install marker file is written and a
-        second call is a no-op — the expensive task enumeration is paid
+        second call is a no-op, the expensive task enumeration is paid
         once, and steady-state startup cost is a single ``Path.exists()``."""
         from voice_typer.server import server_platform as _pkg
         from voice_typer.server.server_platform import sweep_legacy_autostart_entries
@@ -231,7 +231,7 @@ class TestRunKeyLegacySweep:
         marker = tmp_path / f"autostart-sweep-v2-{_pkg._install_hash()}.done"
         assert marker.exists(), "per-install sweep marker must be written after the sweep"
 
-        # Re-arm EnumValue so a buggy second sweep WOULD see entries — the
+        # Re-arm EnumValue so a buggy second sweep WOULD see entries, the
         # marker must still short-circuit it.
         fake_winreg.DeleteValue.reset_mock()
         fake_winreg.EnumValue.side_effect = _enum_value_side_effect([(legacy_name, cmd, fake_winreg.REG_SZ)])
@@ -241,7 +241,7 @@ class TestRunKeyLegacySweep:
 
     def test_sweep_is_inert_when_winreg_unavailable(self, tmp_path, monkeypatch):
         """Without winreg (non-Windows CI, or the conftest block), the sweep
-        is a no-op and does NOT write the marker — so a real Windows run
+        is a no-op and does NOT write the marker, so a real Windows run
         later still sweeps."""
         from voice_typer.server.server_platform import sweep_legacy_autostart_entries
 
@@ -253,8 +253,8 @@ class TestRunKeyLegacySweep:
 
     def test_removes_v1_marker_files_even_when_v2_marker_exists(self, tmp_path, monkeypatch, fake_winreg):
         """Leftover v1 sweep markers (``autostart-sweep-<hash>.done``) are
-        deleted on every call — even when the v2 marker already exists
-        (a pre-fix install where the sweep short-circuits) — while the v2
+        deleted on every call, even when the v2 marker already exists
+        (a pre-fix install where the sweep short-circuits), while the v2
         marker itself and the winreg gate are untouched."""
         from voice_typer.server import server_platform as _pkg
         from voice_typer.server.server_platform import sweep_legacy_autostart_entries
@@ -278,7 +278,7 @@ class TestRunKeyLegacySweep:
         assert list(tmp_path.glob("autostart-sweep-*.done")) == [v2_marker]
 
     def test_removes_v1_marker_files_without_winreg(self, tmp_path):
-        """The v1-marker cleanup is pure filesystem work — it runs even
+        """The v1-marker cleanup is pure filesystem work, it runs even
         when winreg is unavailable (non-Windows host / conftest block)."""
         from voice_typer.server.server_platform import sweep_legacy_autostart_entries
 
@@ -400,7 +400,7 @@ class TestTaskSweep:
 
     def test_sweep_skips_marker_when_task_enumeration_fails(self, tmp_path, monkeypatch, fake_winreg):
         """The completion marker is NOT written when the task enumeration
-        fails — the sweep is retried on the next startup (a transient
+        fails, the sweep is retried on the next startup (a transient
         PowerShell failure can't permanently skip the task cleanup)."""
         from voice_typer.server import task_scheduler as _ts
         from voice_typer.server.server_platform import autostart_windows as _awindows, sweep_legacy_autostart_entries

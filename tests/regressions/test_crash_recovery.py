@@ -2,7 +2,7 @@
 
 This module is part of the ``tests/regressions/`` package.
 The class/method names, assertion logic, and imports below are
-preserved verbatim from the original 4446-line monolith — only file
+preserved verbatim from the original 4446-line monolith, only file
 location has changed.
 
 Common preamble (imports + Linux test-env shim) is identical to the
@@ -43,7 +43,7 @@ class TestSubprocessCrashRecoveryHandler:
     def test_exit_handler_logic_exists(self):
         """Electron main process must handle Python subprocess exit.
 
-        KEEP — pins (Electron main has pythonProcess.on('exit')
+        KEEP, pins (Electron main has pythonProcess.on('exit')
         # handler that calls app.quit). A behavioral test would need to run
         # the Electron main process and kill the Python subprocess, which
         # is heavy (requires a running Electron app); the file-content
@@ -52,7 +52,7 @@ class TestSubprocessCrashRecoveryHandler:
         update: the pythonProcess.on('exit') handler was extracted from
         ``src/main/index.ts`` into ``src/main/python/start-python.ts`` as
         part of the main-entry refactor. The handler still exists with
-        the same behavior — we now look in the new module location.
+        the same behavior, we now look in the new module location.
         """
         # REF-2: handler now lives in start-python.ts (extracted from index.ts)
         start_python_path = (
@@ -67,7 +67,7 @@ class TestSubprocessCrashRecoveryHandler:
         main_path = (
             Path(__file__).resolve().parent.parent.parent / "voice_typer" / "client" / "src" / "main" / "index.ts"
         )
-        # Search both locations — the handler may be in either depending on
+        # Search both locations, the handler may be in either depending on
         # whether the refactor is in place.
         src = ""
         if start_python_path.exists():
@@ -77,7 +77,7 @@ class TestSubprocessCrashRecoveryHandler:
         assert src, "neither start-python.ts nor index.ts found"
         # update: the variable was renamed `pythonProcess` → `proc`
         # (stored in `state.pythonProcess`). Either form satisfies the
-        # invariant — "the python subprocess has an exit handler that
+        # invariant: "the python subprocess has an exit handler that
         # calls app.quit". Look for either.
         assert (
             'pythonProcess.on("exit"' in src
@@ -111,7 +111,7 @@ class TestSidecarCrashDetectionBehavioral:
     """behavioral test of sidecar crash detection.
 
     The pre-existing ``test_exit_handler_logic_exists`` above is a
-    source-string check — it asserts the literal ``proc.on('exit'``
+    source-string check, it asserts the literal ``proc.on('exit'``
     substring is present in ``start-python.ts``. A refactor that keeps
     the substring while breaking the behavior would still pass.
 
@@ -126,20 +126,20 @@ class TestSidecarCrashDetectionBehavioral:
     contract that ``pythonProcess.on('exit')`` in start-python.ts
     relies on. A full Electron-side behavioral test (spawning the
     actual Electron main process + Python sidecar together) is
-    deferred — it requires a running Electron app and is too heavy
+    deferred, it requires a running Electron app and is too heavy
     for unit-test CI. This test provides the behavioral coverage at
     the subprocess level.
     """
 
     @pytest.mark.skipif(
         sys.platform == "win32",
-        reason="signal.pause() is POSIX-only — the sidecar subprocess script cannot run on Windows",
+        reason="signal.pause() is POSIX-only, the sidecar subprocess script cannot run on Windows",
     )
     def test_parent_detects_sigkilled_sidecar_within_bounded_time(self, tmp_path):
         """When a sidecar subprocess is SIGKILLed, the parent's
         ``Popen.poll()`` must return the (negative) signal within a
         bounded time (≤ 2s on Linux). This is the contract
-        ``pythonProcess.on('exit')`` relies on — if the OS took
+        ``pythonProcess.on('exit')`` relies on, if the OS took
         unbounded time to deliver the exit signal, the restart/quit
         path would never fire.
         """
@@ -166,7 +166,7 @@ class TestSidecarCrashDetectionBehavioral:
             "srv.listen(1)\n"
             "# Write a readiness marker so the parent knows we're bound.\n"
             "import sys; sys.stdout.write('READY\\n'); sys.stdout.flush()\n"
-            "# Block forever — wait for SIGKILL.\n"
+            "# Block forever, wait for SIGKILL.\n"
             "signal.pause()\n"
         )
         proc = subprocess.Popen(
@@ -180,7 +180,7 @@ class TestSidecarCrashDetectionBehavioral:
             ready = False
             while time.monotonic() < deadline:
                 if proc.poll() is not None:
-                    # Sidecar exited prematurely — fail with stderr.
+                    # Sidecar exited prematurely, fail with stderr.
                     stderr = proc.stderr.read().decode("utf-8", "replace") if proc.stderr else ""
                     pytest.fail(f"sidecar exited prematurely before binding port. stderr: {stderr}")
                 # Check if the sidecar wrote READY.
@@ -190,7 +190,7 @@ class TestSidecarCrashDetectionBehavioral:
                         ready = True
                         break
                 time.sleep(0.05)
-            assert ready, "sidecar did not signal readiness within 5s — cannot proceed with crash-detection test"
+            assert ready, "sidecar did not signal readiness within 5s, cannot proceed with crash-detection test"
 
             # Verify the port is actually bound (the sidecar is
             # listening, mimicking the real IPC server).
@@ -199,7 +199,7 @@ class TestSidecarCrashDetectionBehavioral:
             try:
                 test_sock.connect(("127.0.0.1", port))
             except (TimeoutError, ConnectionRefusedError, OSError) as e:
-                pytest.fail(f"sidecar did not bind port {port} — crash-detection test cannot proceed: {e}")
+                pytest.fail(f"sidecar did not bind port {port}, crash-detection test cannot proceed: {e}")
             finally:
                 test_sock.close()
 
@@ -219,13 +219,13 @@ class TestSidecarCrashDetectionBehavioral:
 
             assert exit_code is not None, (
                 "parent did not detect sidecar exit within 2s "
-                "of SIGKILL — the restart/quit path would never fire. "
+                "of SIGKILL, the restart/quit path would never fire. "
                 "This indicates a regression in subprocess exit detection."
             )
             # SIGKILL = signal 9; Popen.poll() returns -9.
             assert exit_code == -9, (
                 f"expected exit code -9 (SIGKILL), got {exit_code}. "
-                f"The sidecar was killed by a different signal — "
+                f"The sidecar was killed by a different signal, "
                 f"crash-detection contract is unexpected."
             )
         finally:

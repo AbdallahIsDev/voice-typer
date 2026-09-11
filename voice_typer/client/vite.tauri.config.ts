@@ -4,7 +4,7 @@ import tailwind from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 // Dev-only Vite config for the TAURI shell (ADR-0020 §7 devUrl:
 // http://localhost:1420). The stock `beforeDevCommand` builds a static
-// out/renderer snapshot — no HMR — and the tauri CLI cannot execute it
+// out/renderer snapshot, no HMR, and the tauri CLI cannot execute it
 // on Windows (CWD bug: "The system cannot find the path specified"), so
 // `tauri dev` is launched with an override that blanks beforeDevCommand
 // and expects THIS server to be listening on 1420 first.
@@ -38,7 +38,7 @@ export default defineConfig({
 		alias: { ...aliases },
 	},
 	server: {
-		// devUrl is pinned to 1420 — fail loudly instead of drifting
+		// devUrl is pinned to 1420, fail loudly instead of drifting
 		// to 1421 (strictPort is the official template contract).
 		port: 1420,
 		strictPort: true,

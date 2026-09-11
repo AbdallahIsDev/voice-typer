@@ -81,6 +81,6 @@ describe("_themeColorCache", () => {
 		_themeColorCache.set("custom", original);
 		_themeColorCache.set("custom", updated);
 		expect(_themeColorCache.get("custom")).toBe(updated);
-		expect(_themeColorCache.size).toBe(1); // Not 2 — overwritten
+		expect(_themeColorCache.size).toBe(1); // Not 2, overwritten
 	});
 });

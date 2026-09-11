@@ -1,4 +1,4 @@
-// useCollectionImportExport — the shared import/export round-trip
+// useCollectionImportExport, the shared import/export round-trip
 // skeleton for collection pages (Vocabulary, Templates).
 //
 // Extracted from the 1:1 mirror pair useVocabularyImportExport /
@@ -15,11 +15,11 @@
 //            filename toast / not-available toast / rejected toast;
 //            catch → console.error + generic failure toast.
 //
-// — while the DOMAIN (page) injects the variable parts as parameters:
+//, while the DOMAIN (page) injects the variable parts as parameters:
 //
 //   - parseImported / rowKey / readExisting / persistMerged  (import)
 //   - getExportItems / exportFile                             (export)
-//   - messages (i18n keys — resolved here via t(), the same
+//   - messages (i18n keys, resolved here via t(), the same
 //     key-injection pattern the shared useRowSelection hook
 //     established for the collection-page family)
 //
@@ -37,17 +37,17 @@
 // The two pages' export/import error handling shipped two drifts; the
 // skeleton keeps BOTH forms possible via optional parameters:
 //
-//   1. Export rejected (IPC returned `success: false`) — Vocabulary
+//   1. Export rejected (IPC returned `success: false`), Vocabulary
 //      is SILENT (no toast); Templates toasts
 //      `result.error || t(exportFailed)`. Optional flag
 //      `notifyOnExportRejected`: absent = silent (Vocabulary form),
 //      present = the rejected outcome toasts with the generic
 //      exportFailed key as fallback (Templates form, byte-identical).
 //      Wave 5 should likely set the flag for BOTH pages (a failed
-//      export must not be silent) — but that unification is a
+//      export must not be silent), but that unification is a
 //      deliberate migration-time behavior decision, not something this
 //      skeleton decides.
-//   2. Import duplicate rejection — Vocabulary detects the backend's
+//   2. Import duplicate rejection, Vocabulary detects the backend's
 //      duplicate error (`client.duplicate_entry`) and shows a
 //      targeted toast; Templates shows the generic failure. Optional
 //      pair `isDuplicateError` + `messages.importDuplicate`: both
@@ -55,7 +55,7 @@
 //      (Templates form).
 //
 //   3. doExport's `format` defaults to `"json"` (the Templates
-//      signature — the superset). Vocabulary's current signature has
+//      signature, the superset). Vocabulary's current signature has
 //      no default but every call site passes the format explicitly,
 //      so the default changes nothing at migration.
 
@@ -65,7 +65,7 @@ import { t } from "@/i18n/i18n";
 import type { ExportFormat } from "../../../shared/export-format";
 
 /**
- * Raw IPC export result — the common shape both page bridges
+ * Raw IPC export result, the common shape both page bridges
  * (`exportVocabulary` / `exportTemplates`) resolve with.
  */
 export interface CollectionExportResult {
@@ -105,7 +105,7 @@ export interface CollectionImportExportMessages {
  *
  * @typeParam Row - the page's row type (list state, carries the row id).
  * @typeParam Item - the domain's import/export item type (persisted
- *   shape — Vocabulary entries, templates).
+ *   shape, Vocabulary entries, templates).
  */
 export interface UseCollectionImportExportArgs<Row, Item> {
 	/** Page name for `console.error` prefixes (e.g. "Vocabulary"). */
@@ -115,7 +115,7 @@ export interface UseCollectionImportExportArgs<Row, Item> {
 	 *  array when the file is well-formed but contains no items (the
 	 *  skeleton routes that to the empty toast). */
 	parseImported: (text: string) => Item[];
-	/** De-duplication key for an item — re-importing the same file must
+	/** De-duplication key for an item, re-importing the same file must
 	 *  not create duplicate rows. */
 	rowKey: (item: Item) => string;
 	/** Read the current items (the page's rows ref, mapped to the
@@ -125,7 +125,7 @@ export interface UseCollectionImportExportArgs<Row, Item> {
 	 *  the page decides how). THROWS when the save is rejected. */
 	persistMerged: (merged: Item[]) => Promise<void>;
 	/** Detect the backend's duplicate-rejection error so the import can
-	 *  show the targeted `importDuplicate` toast. Optional — see the
+	 *  show the targeted `importDuplicate` toast. Optional, see the
 	 *  file header's drift note 2. */
 	isDuplicateError?: (err: unknown) => boolean;
 	/** Toast when the export is REJECTED (`success: false`): the toast
@@ -133,7 +133,7 @@ export interface UseCollectionImportExportArgs<Row, Item> {
 	 *  see the file header's drift note 1. */
 	notifyOnExportRejected?: boolean;
 	/** Export payload items: the given rows (bulk "Export selected") or
-	 *  the full list (toolbar export — fetched from the backend or the
+	 *  the full list (toolbar export, fetched from the backend or the
 	 *  rows ref, the page decides). */
 	getExportItems: (rows?: Row[]) => Promise<Item[]> | Item[];
 	/** Run the export via the IPC bridge. Returns `null` when the bridge
@@ -143,7 +143,7 @@ export interface UseCollectionImportExportArgs<Row, Item> {
 		items: Item[],
 		format: ExportFormat,
 	) => Promise<CollectionExportResult | null>;
-	/** i18n keys — see {@link CollectionImportExportMessages}. */
+	/** i18n keys, see {@link CollectionImportExportMessages}. */
 	messages: CollectionImportExportMessages;
 }
 
@@ -219,7 +219,7 @@ export function useCollectionImportExport<Row, Item>({
 				// Backend duplicate enforcement: the merged import contains
 				// a row the backend already has and the save was rejected.
 				// Surface the targeted message instead of the generic
-				// parse/save failure (drift note 2 — optional pair).
+				// parse/save failure (drift note 2, optional pair).
 				if (isDuplicateError && messages.importDuplicate) {
 					if (isDuplicateError(err)) {
 						toast.error(t(messages.importDuplicate));
@@ -251,7 +251,7 @@ export function useCollectionImportExport<Row, Item>({
 
 	// Export: the domain adapter fetches the payload items (selected
 	// rows or the full list) and runs the IPC save; this skeleton maps
-	// the outcome to the toasts — saved → filename toast, bridge
+	// the outcome to the toasts, saved → filename toast, bridge
 	// missing → not-available toast, rejected → error toast when the
 	// page opted in (drift note 1), throw → generic failure toast.
 	const doExport = useCallback(

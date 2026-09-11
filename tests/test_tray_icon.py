@@ -1,4 +1,4 @@
-"""Tests for tray_icon module — shape drawing and indicator overlay.
+"""Tests for tray_icon module: shape drawing and indicator overlay.
 
 TRAY-032: Tests for _draw_shape() (all 4 shapes + unknown fallback)
 and _draw_shape_indicator() (overlay positioning, invalid size safety).
@@ -239,7 +239,7 @@ class TestDrawShapeIndicator:
 
 
 class TestMakeIcon:
-    """TRAY-032: _make_icon integration test — shape-only fallback path."""
+    """TRAY-032: _make_icon integration test, shape-only fallback path."""
 
     def test_make_icon_shape_fallback_when_no_png(self, monkeypatch):
         """When no PNG icon is available, _make_icon falls back to shape-only."""
@@ -338,7 +338,7 @@ class TestDpiCache:
         assert tray_icon._dpi_aware_size_cache == result
 
     def test_second_call_uses_cache(self, monkeypatch):
-        """The second call must NOT re-invoke Win32 — it returns the
+        """The second call must NOT re-invoke Win32, it returns the
         cached value directly.
         """
         # Mock the platform check + ctypes to detect calls.

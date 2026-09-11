@@ -85,7 +85,7 @@ class TestTranscribeNoBroadTypeErrorCatch:
 
     The original source-text scan
     (``"except TypeError:" not in inspect.getsource(...)``) was
-    brittle — a cosmetic refactor (e.g. catching ``TypeError`` as
+    brittle, a cosmetic refactor (e.g. catching ``TypeError`` as
     ``Exception`` subclass, or extracting the call into a helper)
     would break the test on false positives while functional
     regressions via different patterns (e.g. ``except Exception:``
@@ -102,7 +102,7 @@ class TestTranscribeNoBroadTypeErrorCatch:
         out of ``_transcribe`` (not be swallowed by a broad catch).
 
         We mock the active transcriber so its
-        ``transcribe_with_fallback`` raises TypeError — simulating
+        ``transcribe_with_fallback`` raises TypeError, simulating
         a real bug like ``None.lower()`` inside the engine. The
         pre-fix broad catch would have retried and re-raised the
         same TypeError, producing a confusing trace. Post-fix, the
@@ -114,7 +114,7 @@ class TestTranscribeNoBroadTypeErrorCatch:
         to force the batch path.
         """
         app = _make_app()
-        # No streaming session — forces the ``else`` branch which
+        # No streaming session, forces the ``else`` branch which
         # calls active.transcribe_with_fallback.
         app.recording.pop_streaming_session.return_value = None
 
@@ -128,7 +128,7 @@ class TestTranscribeNoBroadTypeErrorCatch:
         with pytest.raises(TypeError, match="simulated None.lower"):
             pipeline._transcribe()
 
-        # The engine must have been called exactly once — no retry.
+        # The engine must have been called exactly once, no retry.
         assert active.transcribe_with_fallback.call_count == 1, (
             "DictationPipeline._transcribe must not retry on "
             "TypeError (a-review Finding 8). Got call_count="

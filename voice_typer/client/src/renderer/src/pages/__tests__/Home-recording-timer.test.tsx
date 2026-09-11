@@ -9,10 +9,10 @@
  *
  * The extraction moves the interval + state into a `React.memo`'d leaf:
  *
- *   1. Rendered output is unchanged — role="timer",
+ *   1. Rendered output is unchanged, role="timer",
  *      aria-live="off" (explicit), the localized
  *      "Recording duration: MM:SS" aria-label, zero-padded MM:SS text.
- *   2. The per-second tick re-renders ONLY the timer — the parent's
+ *   2. The per-second tick re-renders ONLY the timer, the parent's
  *      render count must stay flat while the displayed time advances
  *      (render-counting pattern from
  *      components/dashboard/__tests__/stats-share-image-memo.test.tsx,
@@ -26,7 +26,7 @@ import { act, cleanup, render, screen } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// Count `t()` invocations — RecordingTimer calls `t("home.timerAria", …)`
+// Count `t()` invocations, RecordingTimer calls `t("home.timerAria", …)`
 // exactly once per render while visible, so the count is a faithful
 // render-count proxy (same technique as stats-share-image-memo.test.tsx).
 let tCallCount = 0;
@@ -55,7 +55,7 @@ function TestParent({ isRecording }: { isRecording: boolean }) {
 	return <RecordingTimer isRecording={isRecording} />;
 }
 
-describe("RecordingTimer — rendered output contract", () => {
+describe("RecordingTimer, rendered output contract", () => {
 	beforeEach(() => {
 		cleanup();
 		tCallCount = 0;
@@ -130,7 +130,7 @@ describe("RecordingTimer — rendered output contract", () => {
 	});
 });
 
-describe("RecordingTimer — per-second tick must NOT re-render the parent", () => {
+describe("RecordingTimer, per-second tick must NOT re-render the parent", () => {
 	beforeEach(() => {
 		cleanup();
 		tCallCount = 0;
@@ -151,11 +151,11 @@ describe("RecordingTimer — per-second tick must NOT re-render the parent", () 
 		expect(rendersAfterMount).toBeGreaterThan(0);
 		const timer = screen.getByLabelText(/Recording duration:/i);
 
-		// Three seconds of ticking — each advanced in its own act() so
+		// Three seconds of ticking, each advanced in its own act() so
 		// every tick commits separately: the timer's own state updates,
 		// but the parent must not re-render (the whole point of owning
 		// the interval inside the leaf). Each tick still re-renders the
-		// timer itself — pinned by the growing t() call count.
+		// timer itself, pinned by the growing t() call count.
 		act(() => {
 			vi.advanceTimersByTime(1000);
 		});

@@ -15,14 +15,14 @@ interface LogoProps {
 
 import { APP_NAME } from "@/branding";
 
-// The app logo — the rounded-rect brand mark with the glyph + red
+// The app logo, the rounded-rect brand mark with the glyph + red
 // indicator dot (source of truth: `voice_typer/client/scripts/logo.svg`).
 // The fills are THEME-DYNAMIC (user decision): the background chip uses
 // `--bg` and the glyph `--text-primary`, so the mark flips between a
 // light chip + dark glyph (light mode) and a dark chip + light glyph
 // (dark mode) automatically with the app theme. The brand-red dot is
 // constant in both modes. This is the ONLY inline renderer copy of the
-// logo — the PNG/ICO/Tauri/favicon variants are derived from
+// logo, the PNG/ICO/Tauri/favicon variants are derived from
 // `scripts/logo.svg` by `scripts/generate-icons.mjs`.
 export function Logo({ size = 20, className, decorative = false }: LogoProps) {
 	return (

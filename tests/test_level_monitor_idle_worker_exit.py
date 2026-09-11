@@ -2,14 +2,14 @@
 
 Verifies two behaviour changes from the JB-46 fix:
 
-1. **Worker exits after idle-timeout** — after ``_idle_timeout_auto_stop``
+1. **Worker exits after idle-timeout**, after ``_idle_timeout_auto_stop``
    closes the stream (returns True), ``_level_worker_loop`` returns
    and the worker thread terminates. Pre-fix: the worker kept spinning
    at 4 Hz (250 ms backstop ``wait()`` timeout × forever) even after
-   the stream was auto-stopped — ~345k idle wakeups/day, battery drain
+   the stream was auto-stopped, ~345k idle wakeups/day, battery drain
    on an idle laptop.
 
-2. **Next ``start_monitoring`` spawns a fresh worker** — after the
+2. **Next ``start_monitoring`` spawns a fresh worker**, after the
    idle-timeout exits the worker, the next ``start_monitoring`` call
    successfully spawns a new worker thread via
    ``_ensure_level_worker_running`` (which detects the cleared/dead
@@ -17,7 +17,7 @@ Verifies two behaviour changes from the JB-46 fix:
    ``_level_worker_thread`` slot). The exiting worker clears
    ``_level_worker_thread`` BEFORE returning so a concurrent
    ``start_monitoring`` call sees "no worker" and spawns a fresh one
-   (race-safe restart — relying solely on ``is_alive()`` would race
+   (race-safe restart, relying solely on ``is_alive()`` would race
    because ``is_alive()`` stays True for a brief window between the
    ``return`` and the thread actually exiting).
 
@@ -144,7 +144,7 @@ def _wait_for_worker_exit(thread, timeout_sec: float = 3.0) -> bool:
     """Poll ``thread.is_alive()`` until False or timeout.
 
     Returns True if the thread is STILL ALIVE after the timeout (i.e.
-    the worker did NOT exit — the JB-46 fix failed), False if the
+    the worker did NOT exit, the JB-46 fix failed), False if the
     thread exited within the timeout. Uses 20 ms polling (well below
     the worker's 250 ms backstop ``wait()`` timeout so the test
     detects the exit promptly without burning CPU).
@@ -152,7 +152,7 @@ def _wait_for_worker_exit(thread, timeout_sec: float = 3.0) -> bool:
     deadline = time.monotonic() + timeout_sec
     while time.monotonic() < deadline:
         if not thread.is_alive():
-            return False  # exited — good
+            return False  # exited, good
         time.sleep(0.02)
     return thread.is_alive()  # True if still alive (bad), False if exited
 
@@ -167,7 +167,7 @@ class TestWorkerExitsAfterIdleTimeout:
 
     Pre-fix: the worker kept spinning at 4 Hz (250 ms backstop ``wait()``
     timeout × forever) even after ``_idle_timeout_auto_stop`` closed the
-    stream — ~345k idle wakeups/day, battery drain on laptops.
+    stream, ~345k idle wakeups/day, battery drain on laptops.
     Post-fix: the worker ``return``s from its loop after
     ``_idle_timeout_auto_stop`` returns True, terminating the thread.
     """
@@ -180,7 +180,7 @@ class TestWorkerExitsAfterIdleTimeout:
 
         _wire_stream(monkeypatch)
 
-        # Start monitoring — this spawns the worker thread.
+        # Start monitoring, this spawns the worker thread.
         result = lm.start_monitoring(mic_id=None)
         assert result["success"] is True
         worker_thread = lm._level_worker_thread
@@ -196,7 +196,7 @@ class TestWorkerExitsAfterIdleTimeout:
         lm._mic_level_last_push_ts = old_ts
 
         # Wait for the worker's next iteration (backstop timeout is
-        # 250 ms — give it generous headroom).
+        # 250 ms, give it generous headroom).
         still_alive = _wait_for_worker_exit(worker_thread, timeout_sec=3.0)
 
         assert not still_alive, (
@@ -213,7 +213,7 @@ class TestWorkerExitsAfterIdleTimeout:
         assert lm._monitor_active is False, "idle-timeout should have flipped _monitor_active to False"
 
     def test_worker_does_not_consume_cpu_after_idle_auto_stop(self, monkeypatch):
-        """After idle-timeout, the worker thread is NOT alive — a dead
+        """After idle-timeout, the worker thread is NOT alive, a dead
         thread consumes zero CPU (no 4 Hz wakeups). This is the proxy
         test for the battery-drain fix (directly counting wakeups is
         flaky in CI)."""
@@ -234,7 +234,7 @@ class TestWorkerExitsAfterIdleTimeout:
         still_alive = _wait_for_worker_exit(worker_thread, timeout_sec=3.0)
 
         assert not still_alive, (
-            "JB-46: worker thread must exit after idle-timeout — a dead thread consumes zero CPU (no 4 Hz wakeups)."
+            "JB-46: worker thread must exit after idle-timeout, a dead thread consumes zero CPU (no 4 Hz wakeups)."
         )
 
 
@@ -251,7 +251,7 @@ class TestStartMonitoringSpawnsFreshWorkerAfterIdle:
     This is the user-visible contract: the level bar must work after
     the app comes back from idle. ``_ensure_level_worker_running``
     detects the cleared/dead worker and spawns a new one (~1 ms thread
-    creation — negligible vs. the 60 s idle window).
+    creation, negligible vs. the 60 s idle window).
     """
 
     def test_start_monitoring_spawns_new_worker_after_idle(self, monkeypatch):
@@ -280,7 +280,7 @@ class TestStartMonitoringSpawnsFreshWorkerAfterIdle:
         # must work after the app comes back from idle.
         result2 = lm.start_monitoring(mic_id=None)
         assert result2["success"] is True, (
-            "JB-46: start_monitoring must succeed after idle-timeout — "
+            "JB-46: start_monitoring must succeed after idle-timeout, "
             "the level bar must work when the app comes back from idle"
         )
         worker2 = lm._level_worker_thread
